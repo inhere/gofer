@@ -36,6 +36,20 @@ const jobIDCreateRetries = 5
 // mirroring the built-in exec agent.
 const builtinLocalRunner = "local"
 
+// Submit validation sentinels. They let the HTTP layer (internal/httpapi) map a
+// rejected Submit to the right status code without string-matching: an unknown
+// project is a 404, everything else (agent not allowed / exec gate / runner not
+// allowed / bad request) is a 400. validate wraps these so errors.Is works.
+var (
+	// ErrUnknownProject is returned (wrapped) when the project_key is not
+	// registered. HTTP layer maps it to 404.
+	ErrUnknownProject = errors.New("unknown project")
+	// ErrInvalidRequest marks a request that is well-formed but not permitted
+	// (agent not allowed, exec gate, runner not allowed, missing fields). HTTP
+	// layer maps it to 400.
+	ErrInvalidRequest = errors.New("invalid request")
+)
+
 // Service accepts job requests, runs them asynchronously and tracks their state.
 // It is safe for concurrent use.
 type Service struct {
@@ -277,29 +291,29 @@ func classify(ctx context.Context, res runner.Result) (string, int, error) {
 func (s *Service) validate(req JobRequest) (config.ProjectConfig, error) {
 	proj, err := s.projects.Get(req.ProjectKey)
 	if err != nil {
-		return config.ProjectConfig{}, err
+		return config.ProjectConfig{}, fmt.Errorf("%w: %s", ErrUnknownProject, err.Error())
 	}
 
 	// Agent must be in the project's allowed_agents (exec is not exempt).
 	if err := agent.CheckAllowed(s.cfg, req.ProjectKey, req.Agent); err != nil {
-		return config.ProjectConfig{}, err
+		return config.ProjectConfig{}, fmt.Errorf("%w: %s", ErrInvalidRequest, err.Error())
 	}
 
 	// exec security gate: the agent must be type exec AND the project must opt in.
 	ac, ok := s.agents.Get(req.Agent)
 	if !ok {
-		return config.ProjectConfig{}, fmt.Errorf("unknown agent %q", req.Agent)
+		return config.ProjectConfig{}, fmt.Errorf("%w: unknown agent %q", ErrInvalidRequest, req.Agent)
 	}
 	if ac.Type == agent.TypeExec && !proj.AllowExec {
-		return config.ProjectConfig{}, fmt.Errorf("exec agent %q not allowed: project %q has allow_exec=false", req.Agent, req.ProjectKey)
+		return config.ProjectConfig{}, fmt.Errorf("%w: exec agent %q not allowed: project %q has allow_exec=false", ErrInvalidRequest, req.Agent, req.ProjectKey)
 	}
 
 	// Runner must be in allowed_runners ("local" is a built-in default).
 	if req.Runner == "" {
-		return config.ProjectConfig{}, fmt.Errorf("runner is required")
+		return config.ProjectConfig{}, fmt.Errorf("%w: runner is required", ErrInvalidRequest)
 	}
 	if err := checkRunnerAllowed(proj, req.Runner); err != nil {
-		return config.ProjectConfig{}, err
+		return config.ProjectConfig{}, fmt.Errorf("%w: %s", ErrInvalidRequest, err.Error())
 	}
 	return proj, nil
 }
