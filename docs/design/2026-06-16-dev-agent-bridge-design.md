@@ -11,9 +11,11 @@
 | v0.5 | 2026-06-16 | Codex | 调整依赖选型：YAML 使用 `github.com/goccy/go-yaml`，HTTP 路由使用 `github.com/gookit/rux/v2`；配置增加项目数据交换目录，默认项目下 `tmp`；补充运行中 Agent 双向交互边界 |
 | v0.6 | 2026-06-16 | Claude | 审核修订：①阶段编号收敛，详细分期以实施计划 plan §9 为准（消除本文 P1-P6 与 plan P0-P10 冲突）；②`NewApp` 归 `internal/commands/app.go`，删除 `internal/app` 包；③模板变量首期即支持 `{{prompt}}/{{cwd}}/{{job_id}}/{{result_dir}}`，与 plan P3 对齐；④`job` 子命令纳入 MVP；⑤澄清监听地址默认 `0.0.0.0`+强制 token，`127.0.0.1` 为可选收紧（消除 §13 与 §14 矛盾）；⑥新增 §12.5 MCP/ACP 选型边界；⑦补充重命名需同步更新根 `CLAUDE.md` 引用 |
 | v0.7 | 2026-06-16 | Claude | 落实用户确认：①配置文件规范默认位置为用户级 `~/.config/dev-agent-bridge/config.yaml`；②容器反向调用优先 peer bridge，`docker-exec` 不进 MVP；③结果目录默认各项目 `tmp/`，新增可选 `storage.root` 全局 store 开关（§9.3 / §14）；同步 §16 待确认项收敛 |
+| v0.8 | 2026-06-16 | Claude | 拆出 Web 控制台子设计 [`2026-06-16-web-console-design.md`](./2026-06-16-web-console-design.md)（serve 内嵌只读监控+实时日志+取消+运行中交互）；本文 §10 API、§12.4 运行中交互为其上游依赖，新增 list/SSE/cookie 端点在子设计中定义 |
 
 > 文档类型：工具内设计文档。本文只围绕 `tools/codex-bridge` 这个开发辅助工具自身做设计和调整，不要求也不默认修改任何被操作项目代码。
 > "给其他项目使用" 指任意被 Docker 挂载、且在本工具配置中显式登记的目录 / 项目；不限于当前 `example-project` 工作空间内的子项目。
+> **子设计**：Web 控制台见 [`2026-06-16-web-console-design.md`](./2026-06-16-web-console-design.md)（实时监控/日志/交互的浏览器界面，依赖本文 §10 / §12.4）。
 
 ## 1. 背景
 
