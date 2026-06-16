@@ -39,11 +39,18 @@ func TestProjectAddListShowValidate(t *testing.T) {
 	cmd := NewProjectCmd()
 	addCmd := findSub(t, cmd, "add")
 
-	// Bind flags via gcli, then set values and invoke the runner directly.
+	// Bind flags via gcli, then set values and invoke the runner directly. The
+	// named <key> arg is supplied through gcli's CliArg (argKey reads c.Arg only).
 	c := gcli.NewCommand(addCmd.Name, addCmd.Desc, nil)
 	if addCmd.Config != nil {
 		addCmd.Config(c)
 	}
+	setArg := func(name, val string) {
+		if a := c.Arg(name); a != nil {
+			a.WithValue(val)
+		}
+	}
+	setArg("key", "self")
 	projectAddOpts.config = cfgPath
 	projectAddOpts.hostPath = host
 	projectAddOpts.exchangeSubdir = "tmp"
@@ -79,29 +86,31 @@ func TestProjectAddListShowValidate(t *testing.T) {
 
 	// show
 	commonProjectOpts.showConfig = cfgPath
-	if err := runProjectShow(c, []string{"self"}); err != nil {
+	if err := runProjectShow(c, nil); err != nil {
 		t.Fatalf("show: %v", err)
 	}
 
 	// validate (host exists, exchange/result dirs creatable, local builtin)
 	commonProjectOpts.validateConfig = cfgPath
-	if err := runProjectValidate(c, []string{"self"}); err != nil {
+	if err := runProjectValidate(c, nil); err != nil {
 		t.Fatalf("validate: %v", err)
 	}
 
 	// duplicate add without force should fail
-	if err := runProjectAdd(c, []string{"self"}); err == nil {
+	if err := runProjectAdd(c, nil); err == nil {
 		t.Fatal("expected duplicate add to fail")
 	}
 
 	// missing host-path should fail
+	setArg("key", "other")
 	projectAddOpts.hostPath = ""
-	if err := runProjectAdd(c, []string{"other"}); err == nil {
+	if err := runProjectAdd(c, nil); err == nil {
 		t.Fatal("expected add without host-path to fail")
 	}
 
 	// show unknown fails
-	if err := runProjectShow(c, []string{"ghost"}); err == nil {
+	setArg("key", "ghost")
+	if err := runProjectShow(c, nil); err == nil {
 		t.Fatal("expected show of unknown project to fail")
 	}
 }

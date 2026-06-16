@@ -100,8 +100,8 @@ func runAgentDetect(c *gcli.Command, _ []string) error {
 	return nil
 }
 
-func runAgentShow(c *gcli.Command, args []string) error {
-	key := argKey(c, args)
+func runAgentShow(c *gcli.Command, _ []string) error {
+	key := argKey(c)
 	if key == "" {
 		return fmt.Errorf("agent show requires a <key> argument")
 	}

@@ -78,23 +78,3 @@ func moveLeadingPositionals(tail []string) []string {
 func isFlag(s string) bool {
 	return strings.HasPrefix(s, "-") && s != "-"
 }
-
-// SplitRawArgs splits args at the first `--` separator into the head (consumed
-// by gcli flag/arg parsing) and the raw command tail (everything after `--`).
-//
-// The raw tail is removed before gcli parses because gcli would otherwise bind
-// the first raw token to a positional arg (e.g. `prompt`) and try to dispatch it
-// as a subcommand ("subcommand 'go' is not found"). `job run` reads the returned
-// raw tail to fill JobRequest.Cmd, so e.g. `job run -p self -a exec -- go version`
-// yields rawCmd = ["go","version"] intact. When there is no `--`, rawCmd is nil
-// and head == args.
-func SplitRawArgs(args []string) (head, rawCmd []string) {
-	for i, a := range args {
-		if a == "--" {
-			head = args[:i]
-			rawCmd = args[i+1:]
-			return head, rawCmd
-		}
-	}
-	return args, nil
-}

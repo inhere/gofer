@@ -44,6 +44,13 @@ func TestNormalizeArgs(t *testing.T) {
 			want: []string{"job", "run", "self", "--", "go", "version"},
 		},
 		{
+			// tail starts with a flag (-a) and contains `--`; must be returned
+			// verbatim so gcli sees `-- go version` and leaves it as remainArgs.
+			name: "flags-first with double-dash unchanged",
+			in:   []string{"job", "run", "-a", "exec", "--", "go", "version"},
+			want: []string{"job", "run", "-a", "exec", "--", "go", "version"},
+		},
+		{
 			name: "empty",
 			in:   []string{},
 			want: []string{},

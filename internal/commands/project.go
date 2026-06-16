@@ -97,16 +97,14 @@ func NewProjectCmd() *gcli.Command {
 	}
 }
 
-// argKey returns the required <key> positional, preferring the gcli-bound named
-// arg and falling back to the raw args slice (used by direct-call unit tests).
-func argKey(c *gcli.Command, args []string) string {
+// argKey returns the required <key> positional from the gcli-bound named arg.
+// key is declared via AddArg(..., true), so gcli enforces presence; this only
+// reads the bound value.
+func argKey(c *gcli.Command) string {
 	if c != nil {
-		if a := c.Arg("key"); a != nil && a.String() != "" {
+		if a := c.Arg("key"); a != nil {
 			return a.String()
 		}
-	}
-	if len(args) > 0 {
-		return args[0]
 	}
 	return ""
 }
@@ -141,8 +139,8 @@ func runProjectList(c *gcli.Command, _ []string) error {
 	return nil
 }
 
-func runProjectShow(c *gcli.Command, args []string) error {
-	key := argKey(c, args)
+func runProjectShow(c *gcli.Command, _ []string) error {
+	key := argKey(c)
 	if key == "" {
 		return fmt.Errorf("project show requires a <key> argument")
 	}
@@ -167,8 +165,8 @@ func runProjectShow(c *gcli.Command, args []string) error {
 	return nil
 }
 
-func runProjectAdd(c *gcli.Command, args []string) error {
-	key := argKey(c, args)
+func runProjectAdd(c *gcli.Command, _ []string) error {
+	key := argKey(c)
 	if key == "" {
 		return fmt.Errorf("project add requires a <key> argument")
 	}
@@ -210,8 +208,8 @@ func runProjectAdd(c *gcli.Command, args []string) error {
 	return nil
 }
 
-func runProjectRemove(c *gcli.Command, args []string) error {
-	key := argKey(c, args)
+func runProjectRemove(c *gcli.Command, _ []string) error {
+	key := argKey(c)
 	if key == "" {
 		return fmt.Errorf("project remove requires a <key> argument")
 	}
@@ -226,8 +224,8 @@ func runProjectRemove(c *gcli.Command, args []string) error {
 	return nil
 }
 
-func runProjectValidate(c *gcli.Command, args []string) error {
-	key := argKey(c, args)
+func runProjectValidate(c *gcli.Command, _ []string) error {
+	key := argKey(c)
 	if key == "" {
 		return fmt.Errorf("project validate requires a <key> argument")
 	}

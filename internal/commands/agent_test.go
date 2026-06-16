@@ -55,6 +55,12 @@ agents:
 	if showCmd.Config != nil {
 		showCmd.Config(c)
 	}
+	// argKey reads the gcli-bound <key> arg; supply it via CliArg per call.
+	setArg := func(name, val string) {
+		if a := c.Arg(name); a != nil {
+			a.WithValue(val)
+		}
+	}
 
 	agentOpts.listConfig = cfgPath
 	if err := runAgentList(c, nil); err != nil {
@@ -69,13 +75,16 @@ agents:
 
 	// show codex (config-declared) and exec (built-in) both succeed.
 	agentOpts.showConfig = cfgPath
-	if err := runAgentShow(c, []string{"codex"}); err != nil {
+	setArg("key", "codex")
+	if err := runAgentShow(c, nil); err != nil {
 		t.Fatalf("show codex: %v", err)
 	}
-	if err := runAgentShow(c, []string{"exec"}); err != nil {
+	setArg("key", "exec")
+	if err := runAgentShow(c, nil); err != nil {
 		t.Fatalf("show exec (built-in): %v", err)
 	}
-	if err := runAgentShow(c, []string{"ghost"}); err == nil {
+	setArg("key", "ghost")
+	if err := runAgentShow(c, nil); err == nil {
 		t.Fatal("show of unknown agent should fail")
 	}
 }
