@@ -8,6 +8,7 @@
 | v0.2 | 2026-06-16 | Codex | 按反馈调整依赖：YAML 使用 `github.com/goccy/go-yaml`，HTTP 使用 `github.com/gookit/rux/v2`；配置增加数据交换目录，默认项目下 `tmp`；补充运行中 Agent 双向交互后续阶段 |
 | v0.3 | 2026-06-16 | Claude | 审核修订：①修正 §5 包职责表 `internal/mcp` 阶段号 P7→P8；②`internal/runner` 接口标注流式 Writer 仅 local 语义；③P4 补 job_id 防碰撞（纳秒/随机后缀）与 `interactions.jsonl` 目录预留；④P0/P10 二进制跟踪表述按实际（未跟踪）简化、`.gitignore` 忽略名同步为 `/agent-bridge`；⑤P10 新增"更新根 CLAUDE.md 工具引用/鉴权头"任务；⑥安全章补监听地址默认 `0.0.0.0`+强制 token 口径；⑦P8/P9 标注运行中交互走 MCP 不引入 ACP；⑧§14 验收补根 CLAUDE.md 已更新项 |
 | v0.4 | 2026-06-16 | Claude | 落实用户确认：①配置默认位置用户级 `~/.config/dev-agent-bridge/config.yaml`（§6.1 查找链已含）；②容器反向调用优先 peer bridge（P7），`docker-exec` 不进 MVP；③`StorageConfig` 增加可选 `Root` 全局 store 字段，P2 结果目录解析加 `storage.root` 分支，默认仍各项目 `tmp/`；④§15 开工前确认项更新 |
+| v0.5 | 2026-06-16 | Claude | 文档随迁入独立仓库 `tools/dev-agent-bridge`；对齐 Makefile：版本变量注入 `package main`（`var Version/GitCommit/BuildDate`），§8.1 入口与 P1 改用 `commands.NewApp(Version)`，消除 `version.Version` 与 `-X main.Version` 不一致 |
 
 > 本计划属于工具内实施计划，文档已迁入独立仓库 `tools/dev-agent-bridge/docs/plans/`（先于正式 P1 重命名完成迁移；`tools/dev-agent-bridge` 自带独立 `.git`，不归主仓库跟踪）。
 > 本计划只围绕桥接工具自身实施，不默认修改任何被登记项目代码。
@@ -301,8 +302,11 @@ HTTP server / router 使用 `github.com/gookit/rux/v2`，handler 层只负责参
 `cmd/agent-bridge/main.go` 只保留应用装配：
 
 ```go
+// 版本变量由 Makefile LDFLAGS 注入到 package main（-X main.Version 等）
+var Version, GitCommit, BuildDate string
+
 func main() {
-    app := commands.NewApp(version.Version)
+    app := commands.NewApp(Version)
     app.Run(nil)
 }
 ```
@@ -400,6 +404,7 @@ bd show hyy-ai-inspect-799
 - 将 `tools/codex-bridge` 重命名为 `tools/dev-agent-bridge`。
 - `go.mod` module 改为 `dev-agent-bridge`，新增 `github.com/gookit/gcli/v3`、`github.com/gookit/rux/v2`、`github.com/goccy/go-yaml`。
 - 新建 `cmd/agent-bridge/main.go`。
+  - **版本变量与 Makefile 对齐**：`Makefile` 的 `LDFLAGS` 注入 `-X main.Version` / `-X main.GitCommit` / `-X main.BuildDate`，故须在 `package main`（`cmd/agent-bridge/main.go`）声明 `var Version, GitCommit, BuildDate string`，并把 `Version` 传入 `commands.NewApp(Version)`（统一 §8.1 示例里 `version.Version` 的写法，避免出现空版本号）。
 - 新建 `internal/commands`，注册 `serve/project/agent/job/mcp` 命令。
 - `serve` 暂时可以只打印配置加载结果或启动空 HTTP server。
 - 更新 README、`start.ps1`、`start.sh` 中的命令名和目录名。
