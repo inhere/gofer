@@ -9,6 +9,7 @@
 | 版本 | 日期 | 修改人 | 调整说明 |
 |---|---|---|---|
 | v0.1 | 2026-06-16 | Claude | 初版：Web 控制台范围、信息架构、关键交互流程、视觉方向、新增 API（job list / SSE 流 / cookie 鉴权）、数据模型、安全、两步实施（web-P1 只读+日志+取消 / web-P2 联合 P9 交互） |
+| v0.2 | 2026-06-16 | Claude | 设计评审收敛：①鉴权改**纯 Bearer 无状态**（token 存 sessionStorage，流式用 `fetch`+ReadableStream 带头），删除 cookie/session 与 `/v1/auth/*`；②Job 列表/历史改用**追加写 `jobs.jsonl` 索引**（替代扫盘）；③看板 web-P1 定为 2~3s 轮询；④UI 定为裸写+CSS；⑤挂载根 `/`、包管理器 pnpm；§14 由待确认转为已确认 |
 
 ## 1. 背景
 
@@ -43,7 +44,7 @@ MVP（主设计 §15）已交付 `agent-bridge serve` 的 HTTP 控制面与 `job
 
 - 前端 **Vue 3 + Vite + TypeScript**（与团队 HCUI 一致），构建产物 `go:embed` 进二进制。
 - 实时机制 **SSE**（非 WebSocket）。
-- 浏览器鉴权 **token→httpOnly cookie**，中间件兼容 cookie 与 `Authorization: Bearer`。
+- 浏览器鉴权 **纯 Bearer 无状态**：token 存 `sessionStorage`，含流式用 `fetch`+`Authorization` 头（不用 cookie/session，沿用现有中间件）。
 
 **实施分两步**（已确认）：设计覆盖全量；先交付 **web-P1**（只读+实时日志+取消，立即可用），再联合 **P9 后端**交付 **web-P2**（双向交互）。见 §10。
 
@@ -74,16 +75,16 @@ MVP（主设计 §15）已交付 `agent-bridge serve` 的 HTTP 控制面与 `job
 
 ### 5.2 实时通道：单连 SSE
 
-详情页只开**一条** `GET /v1/jobs/{id}/stream` 的 `EventSource`，服务端多路复用三类事件，避免多连接/多轮询：
+详情页只开**一条** `GET /v1/jobs/{id}/stream` 流（用 `fetch` + `ReadableStream` 消费，以便带 `Authorization: Bearer` 头；**不用**原生 `EventSource`——它无法自带请求头），服务端多路复用三类事件，避免多连接/多轮询：
 
 | event | data | 用途 |
 |---|---|---|
-| `log` | `{stream:"stdout"\|"stderr", seq, text}` | 增量日志行（按字节 offset 续传，断线用 `Last-Event-ID` 带 offset 重连） |
+| `log` | `{stream:"stdout"\|"stderr", seq, text}` | 增量日志行（按字节 offset 续传，断线用 `?from=<offset>` 重连） |
 | `status` | `{status, exit_code, ended_at}` | 状态机变更（queued→running→done/failed/timeout/cancelled） |
 | `interaction` | `{action:"open"\|"answered"\|"cancelled", interaction}` | P9 交互事件（web-P2 启用） |
 
 - 服务端实现：打开 `stdout.log`/`stderr.log`，`Seek` 到末尾或客户端 offset，定时/事件驱动读取新增字节，按行封 `log` 事件；job 终态后补发 `status` 并关闭流。**不依赖文件系统 inotify**（跨 Windows/Linux），用短周期轮读文件大小变化（如 250ms）+ job 内存状态联动，简单可移植。
-- 看板页不需要每行一条 SSE：用一条轻量 `GET /v1/jobs/stream`（仅推 job 列表的 `status` 与活动计数）或退化为 2~3s 轮询 `GET /v1/jobs`（web-P1 先轮询，量大再上 SSE）。
+- 看板页 web-P1 **用 2~3s 轮询 `GET /v1/jobs`**（看板非高频，最简）；该接口由 `jobs.jsonl` 索引 + 内存实时态合并（见 §10）。量大/体验不够再上看板级 `GET /v1/jobs/stream` SSE。
 
 ### 5.3 与 P9 后端的关系（SR1401 二级问题）
 
@@ -130,7 +131,7 @@ Web 的"交互卡"只是 P9 后端的前端面。**P9 后端不落地，则 web 
 ```
 
 1. 进入详情 → 一次性 `GET /v1/jobs/{id}`（头部）+ `GET .../logs/stdout|stderr`（拉已有 tail，≤256KB）渲染历史。
-2. 开 `EventSource('/v1/jobs/{id}/stream')`：`log` 事件追加到对应栏并自动滚到底；用户上滚则暂停自动滚动并显示"↓ 回到底部 / N 行新"。
+2. 用 `fetch('/v1/jobs/{id}/stream', {headers:{Authorization}})` + `ReadableStream` 消费：`log` 事件追加到对应栏并自动滚到底；用户上滚则暂停自动滚动并显示"↓ 回到底部 / N 行新"。
 3. `status` 事件更新头部徽标/耗时；终态后流关闭、停止"live"脉冲、cancel 按钮置灰。
 4. **取消**：`POST /v1/jobs/{id}/cancel` → 乐观置 `cancelling`，以 `status` 事件回填 `cancelled`（主设计 §6.2 状态机；已完成 job 取消为稳定 no-op，按钮在终态隐藏）。
 
@@ -148,12 +149,12 @@ Web 的"交互卡"只是 P9 后端的前端面。**P9 后端不落地，则 web 
 3. 提交 `POST /v1/jobs/{id}/interactions/{iid}/answer`（主设计 §12.4）→ 卡片置"已提交"，`interaction{action:"answered"}` 回填、job 续跑、日志带继续推进。
 4. 多个 pending 按 `created_at` 顺序排队，逐个作答。
 
-### 7.3 鉴权流程
+### 7.3 鉴权（纯 Bearer 无状态）
 
-1. 首次访问无有效 cookie → 前端路由跳"接入"页：粘贴 token。
-2. `POST /v1/auth/session {token}`：服务端与生效 token（主设计 §13）**直接比对**，成功 `Set-Cookie: ab_session=…; HttpOnly; SameSite=Strict; Path=/`（值为不可逆会话标识，非明文 token；进程内存映射 session→ok）。
-3. 后续 API/SSE 由中间件认证：**cookie 或 `Authorization: Bearer` 任一通过**即可（CLI/curl 仍用 Bearer，互不影响）。
-4. 登出 `POST /v1/auth/logout` 清 cookie。空 token 模式（`allow_empty_token`）下跳过接入页。
+1. 无有效 token → 前端跳"接入"页粘贴 token，存 `sessionStorage`（非 `localStorage`，关页即失效）。
+2. 所有请求统一带 `Authorization: Bearer <token>`——**含流式**：日志/事件流用 `fetch(stream, {headers:{Authorization}})` + `ReadableStream` 消费（不用原生 `EventSource`，因其无法自带请求头）。
+3. 服务端**复用现有 token 中间件**，**不引入 cookie/session**、**无 `/v1/auth/*` 端点**；CLI/curl 与 Web 同一鉴权路径。
+4. 空 token 模式（`allow_empty_token`）免接入页。token 仅在浏览器 `sessionStorage`/内存，不落 cookie、不进 URL/日志。
 
 ## 8. 视觉方向
 
@@ -190,21 +191,26 @@ Web 的"交互卡"只是 P9 后端的前端面。**P9 后端不落地，则 web 
 
 | 方法 | 路径 | 阶段 | 说明 |
 |---|---|---|---|
-| GET | `/v1/jobs` | web-P1 | **Job 列表**（当前缺）。来源 `job.Service` 内存注册表 + 可选扫 `result_dir`；支持 `?status=&project=&limit=`，按 `started_at` 倒序 |
-| GET | `/v1/jobs/{id}/stream` | web-P1 | 单连 SSE：`log`/`status` 事件（web-P2 增 `interaction`）；`?from=<offset>` 续传 |
-| GET | `/v1/jobs/stream` | web-P1（可选） | 看板级轻量 SSE（仅 job 状态/活动计数）；先可用 2~3s 轮询 `GET /v1/jobs` 替代 |
-| POST | `/v1/auth/session` | web-P1 | token→httpOnly cookie 接入 |
-| POST | `/v1/auth/logout` | web-P1 | 清 cookie |
+| GET | `/v1/jobs` | web-P1 | **Job 列表**（当前缺）。来源 `jobs.jsonl` 索引（折叠末行）+ 内存实时态合并（见 §10）；支持 `?status=&project=&limit=`，按 `started_at` 倒序 |
+| GET | `/v1/jobs/{id}/stream` | web-P1 | 单连 SSE：`log`/`status` 事件（web-P2 增 `interaction`）；`?from=<offset>` 续传；**由 `fetch`+ReadableStream 消费**（带 Bearer 头） |
+| GET | `/v1/jobs/stream` | web-P1（可选） | 看板级轻量 SSE（仅 job 状态/活动计数）；web-P1 先用 2~3s 轮询 `GET /v1/jobs` 替代 |
 | GET | `/v1/jobs/{id}/interactions` | web-P2 | 主设计 §12.4（P9 落地） |
 | POST | `/v1/jobs/{id}/interactions/{iid}/answer` | web-P2 | 主设计 §12.4（P9 落地） |
 
-错误结构沿用主设计 `{"error","detail"}`。SSE 事件 data 字段 **snake_case**，与 JSON API 一致。
+鉴权：全部沿用现有 `Authorization: Bearer` 中间件，**不新增 `/v1/auth/*`**（纯 Bearer，见 §7.3/§11）。错误结构沿用主设计 `{"error","detail"}`。SSE 事件 data 字段 **snake_case**，与 JSON API 一致。
 
 > `GET /v1/jobs` 列表能力对 CLI（`job list`）同样有用——属顺带补齐的后端能力，不止服务 Web。
 
-## 10. 数据模型（前端视角）
+## 10. 数据模型与 `jobs.jsonl` 索引
 
-后端不新增持久结构；前端类型派生自既有模型：
+唯一新增的持久件是一个**追加写的 job 索引** `jobs.jsonl`（其余仍是既有 `result.json` / 日志 / `interactions.jsonl`）：
+
+- **写**：`job.Service` 在 job **创建**、及到达**终态**时各 append 一行 `JobResult` 快照（JSON Lines）。进程内串行化（mutex），单行原子追加。
+- **读**：`GET /v1/jobs` 读 `jobs.jsonl`、**按 `id` 折叠取末行**（last-wins）得历史列表，再与内存注册表的运行中实时态合并（运行中以内存为准）。重启后历史即来自此文件，**免扫 N 个 result_dir**。
+- **位置**（随主设计 §9.3 存储模式）：默认各项目 `<host_path>/<exchange>/<result_subdir>/jobs.jsonl`（看板跨已登记项目各读一份）；设 `storage.root` 时单文件 `<storage.root>/jobs.jsonl`（行内含 `project_key`）。
+- **定位**：与既有 `message` / `interactions.jsonl` 同属"jsonl 被动索引"，**不作状态真源**（真源仍是 `result.json` + 进程态）。增长上限/轮转 web-P1 先不限（TODO，见 §14）。
+
+前端类型派生自既有模型：
 
 ```ts
 // 派生自 JobResult(主设计 §6.2) + 列表/实时附加字段
@@ -226,7 +232,7 @@ interface Interaction { id; job_id; type:'question'|'choice'|'confirmation'; pro
 
 继承主设计 §13，针对浏览器面补充：
 
-- **同源 + 强制 token**：静态与 API 同源、同一 token 准入；cookie `HttpOnly + SameSite=Strict`，杜绝 token 进 localStorage/JS 可读区（呼应主设计 §13 secret 不外泄）。
+- **同源 + 纯 Bearer**：静态与 API 同源、同一 token 准入；**无 cookie/session**，token 仅存浏览器 `sessionStorage`、随所有请求（含流式 `fetch`）走 `Authorization` 头，不落 cookie、不进 URL/日志。同源同进程，故 XSS 面与服务本身一致（本地开发工具可接受；呼应主设计 §13）。
 - **只读 + 受限控制**：Web 暴露的写操作仅 `cancel` 与 `interaction answer`；**不提供 job 提交**，攻击面小于 `POST /v1/jobs`（仍仅 CLI/受信内网可达）。
 - **空 token**：仅 `allow_empty_token` 时免接入页；默认拒绝（主设计 §13、计划 §11）。
 - **SSE 资源**：每连接限频读文件、限最大缓冲；日志历史拉取沿用 256KB tail 上限（计划 §11），实时仅推增量。
@@ -245,7 +251,7 @@ interface Interaction { id; job_id; type:'question'|'choice'|'confirmation'; pro
 
 **web-P1 — 只读监控 + 实时日志 + 取消**（立即可用，不依赖 P9）
 
-- 后端：`GET /v1/jobs`（list）、`GET /v1/jobs/{id}/stream`（SSE：log+status）、`POST /v1/auth/session|logout`（cookie 中间件兼容 Bearer）、`internal/webui` 静态嵌入 + serve 挂载 + `--no-web`/`web_enabled`。
+- 后端：`GET /v1/jobs`（list，源自 `jobs.jsonl` 索引 + 内存实时态）、`jobs.jsonl` 写入（创建/终态 append）、`GET /v1/jobs/{id}/stream`（SSE：log+status，`fetch`+ReadableStream 消费）、`internal/webui` 静态嵌入 + serve 挂载 + `--no-web`/`web_enabled`。**无 `/v1/auth/*`**（纯 Bearer）。
 - 前端：`web/` Vite 脚手架；接入页、Jobs Board（活信号）、Job 详情（双栏日志带 + 取消）、Projects/Agents 视图；视觉 token 落地（§8）。
 - 验收：serve 起后浏览器可登入、看板自动刷新、进详情实时跟随 exec job 输出、取消生效；`prefers-reduced-motion`/键盘焦点达标。
 
@@ -255,14 +261,19 @@ interface Interaction { id; job_id; type:'question'|'choice'|'confirmation'; pro
 - 前端：交互卡（question/choice/confirmation）、SSE `interaction` 渲染、看板 ⚠ 态、排队作答。
 - 验收：wrapper/MCP 触发的 `question` 在控制台弹卡，作答后 job 续跑完成；与 CLI/MCP 作答路径行为一致。
 
-## 14. 待确认事项
+## 14. 已确认事项（设计评审 v0.2）
 
-1. **静态挂载根**：`/`（控制台占根，API 在 `/v1`）还是 `/ui`（根留给将来）？倾向 `/`，更短。
-2. **看板实时**：web-P1 列表先用 2~3s 轮询，还是直接上 `/v1/jobs/stream` SSE？倾向先轮询，简单。
-3. **历史 job 来源**：列表只显示进程内存中的 job，还是开机扫 `result_dir` 恢复历史？倾向 web-P1 仅内存 + 可选 `?scan=1` 扫盘。
-4. **UI 组件库**：裸手写 + 少量 CSS，还是引入轻量库（naive-ui）/沿用 ant-design-vue？倾向裸写贴合 §8 视觉、避免主题改写成本。
-5. **前端包管理器**：`pnpm`（默认假设）/ npm / 与 HCUI 对齐？
+| # | 决策点 | 选择 |
+|---|---|---|
+| 1 | 静态挂载根 | **`/`**（控制台占根，API 在 `/v1`） |
+| 2 | 看板实时 | **web-P1 用 2~3s 轮询 `GET /v1/jobs`**；详情页日志走单连 SSE。量大再上看板级 SSE |
+| 3 | Job 历史/列表来源 | **追加写 `jobs.jsonl` 索引**（创建+终态各 append、读时按 id 折叠末行胜）+ 内存实时态合并；重启可恢复、免扫盘（§10） |
+| 4 | 前端 UI | **裸写 + 少量 CSS**，贴合 §8 视觉方向，无 UI 库主题改写成本 |
+| 5 | 鉴权 | **纯 Bearer 无状态**：token 存 `sessionStorage`，含流式用 `fetch`+`Authorization` 头；无 cookie/session、无 `/v1/auth/*`（§7.3/§11） |
+| 6 | 包管理器 | **pnpm**（HCUI 三种 lockfile 并存无统一，新 `web/` 子项目用 pnpm） |
+
+> 留待实施计划细化的小点：`jobs.jsonl` 增长上限/轮转（web-P1 先不限，注 TODO）；活信号 `activity_rate` 由前端按 `log` 事件累计（倾向，零后端改动）还是后端计算。
 
 ## 15. 结论
 
-Web 控制台以"零额外部署、单连 SSE、token→cookie"三点把现有 `/v1` 控制面升级为可实时观测与应答的浏览器界面，**不引入新状态真源**、协议与 CLI/MCP 同源。先交付 web-P1（只读+实时日志+取消）立即提升可用性，再随 P9 后端交付 web-P2 双向交互。视觉上以"调度信号板 + 活信号行"建立区别于通用后台的辨识度。建议据本设计另出 web-P1/web-P2 实施计划（追加主 plan P11/P12）。
+Web 控制台以"零额外部署、单连 SSE（`fetch` 流式）、纯 Bearer 无状态"把现有 `/v1` 控制面升级为可实时观测与应答的浏览器界面，**仅新增一个 `jobs.jsonl` 轻索引**（job 列表/历史），不引入新状态真源、协议与 CLI/MCP 同源。先交付 web-P1（只读+实时日志+取消）立即提升可用性，再随 P9 后端交付 web-P2 双向交互。视觉上以"调度信号板 + 活信号行"建立区别于通用后台的辨识度。据本设计另出 web-P1/web-P2 实施计划（追加主 plan P11/P12）。
