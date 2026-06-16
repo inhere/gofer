@@ -17,5 +17,7 @@ func main() {
 	app := commands.NewApp(Version)
 	// Reorder args so a positional <key> placed before flags still parses
 	// (gcli/stdlib flag parsing stops at the first positional). See args.go.
-	app.Run(commands.NormalizeArgs(app, os.Args[1:]))
+	// Propagate the command's exit code (gcli derives a non-zero code only from
+	// errorx.ErrorCoder errors, e.g. serve refusing to start without a token).
+	os.Exit(app.Run(commands.NormalizeArgs(app, os.Args[1:])))
 }
