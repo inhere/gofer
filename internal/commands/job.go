@@ -12,19 +12,9 @@ import (
 	"dev-agent-bridge/internal/job"
 )
 
-// rawCmd holds the tokens after a `--` separator on the command line. It is set
-// once by the process entry point (main, via SetRawCmd) before gcli parses the
-// remaining args, and read by `job run` to fill JobRequest.Cmd. Tests set it
-// directly. This package-level stash is the bridge between SplitRawArgs (which
-// strips the tail so gcli never sees it) and the job run handler.
-var rawCmd []string
-
-// SetRawCmd records the raw command tail (the tokens after `--`). main calls it
-// with the result of SplitRawArgs; tests may call it to simulate `-- raw cmd`.
-func SetRawCmd(cmd []string) { rawCmd = cmd }
-
-// jobRunOpts holds `job run` flags. prompt may also arrive as the positional
-// <prompt> argument (see §8.2); the flag is the alternative spelling.
+// jobRunOpts holds `job run` flags. prompt is supplied via the --prompt flag
+// (for cli-agents); exec argv comes from the tokens after `--`, which gcli hands
+// to the Func handler as remainArgs (see runJobRun).
 var jobRunOpts = struct {
 	config  string
 	server  string
@@ -66,11 +56,10 @@ func NewJobCmd() *gcli.Command {
 					c.StrOpt(&jobRunOpts.agent, "agent", "a", "", "agent key (required)")
 					c.StrOpt(&jobRunOpts.runner, "runner", "", "local", "runner key")
 					c.StrOpt(&jobRunOpts.cwd, "cwd", "", ".", "working dir within the project")
-					c.StrOpt(&jobRunOpts.prompt, "prompt", "", "", "prompt text (alternative to the positional)")
+					c.StrOpt(&jobRunOpts.prompt, "prompt", "", "", "prompt text for cli-agent (use -- <argv...> for exec)")
 					c.IntOpt(&jobRunOpts.timeout, "timeout", "", 0, "job timeout in seconds (0 = server default)")
 					c.StrOpt(&jobRunOpts.title, "title", "", "", "optional job title")
 					c.BoolOpt(&jobRunOpts.wait, "wait", "", false, "poll until the job reaches a terminal state")
-					c.AddArg("prompt", "prompt text passed to the agent", false)
 				},
 				Func: runJobRun,
 			},
@@ -149,21 +138,22 @@ func resolveClientToken(sc *config.ServerConfig, flagToken string) string {
 	return token
 }
 
-// argID returns the required <id> positional, preferring the gcli-bound named
-// arg and falling back to the raw args slice (used by direct-call unit tests).
-func argID(c *gcli.Command, args []string) string {
+// argID returns the required <id> positional from the gcli-bound named arg.
+// id is declared via AddArg(..., true), so gcli enforces presence; this only
+// reads the bound value.
+func argID(c *gcli.Command) string {
 	if c != nil {
-		if a := c.Arg("id"); a != nil && a.String() != "" {
+		if a := c.Arg("id"); a != nil {
 			return a.String()
 		}
-	}
-	if len(args) > 0 {
-		return args[0]
 	}
 	return ""
 }
 
-func runJobRun(c *gcli.Command, args []string) error {
+// runJobRun submits a job. prompt comes from --prompt (cli-agents); exec argv
+// comes from remainArgs, i.e. the tokens after `--` that gcli leaves unconsumed
+// (e.g. `job run -a exec -- go version` -> remainArgs = ["go","version"]).
+func runJobRun(c *gcli.Command, remainArgs []string) error {
 	if jobRunOpts.project == "" {
 		return fmt.Errorf("--project/-p is required")
 	}
@@ -171,25 +161,12 @@ func runJobRun(c *gcli.Command, args []string) error {
 		return fmt.Errorf("--agent/-a is required")
 	}
 
-	// prompt: prefer --prompt flag, else the positional <prompt> arg.
-	prompt := jobRunOpts.prompt
-	if prompt == "" {
-		if c != nil {
-			if a := c.Arg("prompt"); a != nil {
-				prompt = a.String()
-			}
-		}
-		if prompt == "" && len(args) > 0 {
-			prompt = args[0]
-		}
-	}
-
 	req := job.JobRequest{
 		ProjectKey: jobRunOpts.project,
 		Agent:      jobRunOpts.agent,
 		Runner:     jobRunOpts.runner,
-		Prompt:     prompt,
-		Cmd:        rawCmd, // tokens after `--`, e.g. ["go","version"]
+		Prompt:     jobRunOpts.prompt,
+		Cmd:        remainArgs, // tokens after `--`, e.g. ["go","version"]
 		Cwd:        jobRunOpts.cwd,
 		TimeoutSec: jobRunOpts.timeout,
 		Title:      jobRunOpts.title,
@@ -232,8 +209,8 @@ func waitTerminal(cli *client.Client, id string) (job.JobResult, error) {
 	return job.JobResult{}, fmt.Errorf("job %s did not finish within the wait window", id)
 }
 
-func runJobShow(c *gcli.Command, args []string) error {
-	id := argID(c, args)
+func runJobShow(c *gcli.Command, _ []string) error {
+	id := argID(c)
 	if id == "" {
 		return fmt.Errorf("job show requires an <id> argument")
 	}
@@ -259,8 +236,8 @@ func runJobShow(c *gcli.Command, args []string) error {
 	return nil
 }
 
-func runJobLogs(c *gcli.Command, args []string) error {
-	id := argID(c, args)
+func runJobLogs(c *gcli.Command, _ []string) error {
+	id := argID(c)
 	if id == "" {
 		return fmt.Errorf("job logs requires an <id> argument")
 	}
@@ -280,8 +257,8 @@ func runJobLogs(c *gcli.Command, args []string) error {
 	return nil
 }
 
-func runJobCancel(c *gcli.Command, args []string) error {
-	id := argID(c, args)
+func runJobCancel(c *gcli.Command, _ []string) error {
+	id := argID(c)
 	if id == "" {
 		return fmt.Errorf("job cancel requires an <id> argument")
 	}

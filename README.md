@@ -147,9 +147,9 @@ agent-bridge job logs <id> --stream stdout      # stream: stdout|stderr
 agent-bridge job cancel <id>
 ```
 
-`job run` 关键参数：`-p/--project`（必填）、`-a/--agent`（必填）、`--runner`（默认 `local`）、`--cwd`（默认 `.`，限项目内相对路径）、`--prompt`（或用位置参数 / `--` 之后的命令 argv）、`--timeout`（秒，0=server 默认）、`--wait`（轮询到终态）、`-s/--server` 与 `--token`（覆盖 config）。
+`job run` 关键参数：`-p/--project`（必填）、`-a/--agent`（必填）、`--runner`（默认 `local`）、`--cwd`（默认 `.`，限项目内相对路径）、`--prompt`（cli-agent 的提示词）、`--timeout`（秒，0=server 默认）、`--wait`（轮询到终态）、`-s/--server` 与 `--token`（覆盖 config）。
 
-> exec 类 job 用 `--` 分隔：`--` 之后的 token 被原样当成 argv（如 `-- go version`），不经 shell 重新分词。
+> cli-agent（claude/codex/...）用 `--prompt "..."` 传提示词；exec 类 job 用 `--` 分隔：`--` 之后的 token 被原样当成 argv（如 `-- go version`），不经 shell 重新分词。
 
 ## HTTP API
 
