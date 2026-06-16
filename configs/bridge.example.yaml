@@ -1,0 +1,86 @@
+# dev-agent-bridge example configuration.
+# Copy to one of the lookup locations (§6.1):
+#   1. --config <path>
+#   2. env AGENT_BRIDGE_CONFIG
+#   3. ./.dev-agent-bridge.yaml
+#   4. ~/.config/dev-agent-bridge/config.yaml
+
+server:
+  # Listen address. Default 0.0.0.0:8765 so a container can reach the host via
+  # host.docker.internal; security relies on a mandatory token + internal access.
+  addr: 0.0.0.0:8765
+  # Prefer reading the bearer token from an env var rather than inlining it.
+  token_env: AGENT_BRIDGE_TOKEN
+  # token: ""              # inline override (avoid committing real tokens)
+  # Must be explicitly true to start without any token.
+  allow_empty_token: false
+
+storage:
+  # Per-project data exchange subdir (default: tmp).
+  default_exchange_subdir: tmp
+  # Per-project result subdir under the exchange dir (default: dev-agent-bridge).
+  default_result_subdir: dev-agent-bridge
+  # Optional global store root. Leave empty to keep results under each project's
+  # exchange dir. When set, results go to <root>/<project_key>/<job_id> and the
+  # container can only read them back over HTTP (not via the shared mount).
+  # root: /var/lib/dev-agent-bridge
+
+projects:
+  # First project: the workspace root.
+  workspace:
+    host_path: /d/work/inhere/hyy-ai-inspect
+    container_path: /workspace
+    exchange_subdir: tmp
+    result_subdir: dev-agent-bridge
+    default_agent: codex
+    allowed_agents: [codex, claude, exec]
+    allowed_runners: [local]
+    allow_exec: true
+    max_concurrent_jobs: 4
+  # Second project: a different host_path (the tools dir).
+  tools:
+    host_path: /d/work/inhere/hyy-ai-inspect/tools
+    container_path: /workspace/tools
+    default_agent: exec
+    allowed_agents: [exec]
+    allowed_runners: [local]
+    allow_exec: true
+
+agents:
+  # CLI agents are refined in P3; P2 only needs basic type/command to decode.
+  codex:
+    type: cli-agent
+    command: codex
+    args: [exec]
+    detect:
+      command: codex
+      args: [--version]
+  claude:
+    type: cli-agent
+    command: claude
+    args: []
+    detect:
+      command: claude
+      args: [--version]
+  opencode:
+    type: cli-agent
+    command: opencode
+    args: [run]
+    detect:
+      command: opencode
+      args: [--version]
+  exec:
+    type: exec
+    detect:
+      command: sh
+      args: [-c, "true"]
+
+runners:
+  # local is a built-in runner; declaring it is optional.
+  local:
+    type: local
+  # Reverse-call a peer bridge running inside a container (P7).
+  docker-peer:
+    type: peer-http
+    base_url: http://127.0.0.1:8766
+    token_env: CONTAINER_BRIDGE_TOKEN
