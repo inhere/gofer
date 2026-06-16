@@ -47,28 +47,40 @@ projects:
     allow_exec: true
 
 agents:
-  # CLI agents are refined in P3; P2 only needs basic type/command to decode.
+  # Template placeholders supported in `args`: {{prompt}} {{cwd}} {{job_id}}
+  # {{result_dir}}. Each arg element is substituted independently and the argv
+  # array is preserved — {{prompt}} stays ONE argv element, so a prompt with
+  # spaces/quotes is never re-tokenised by a shell (no shell is used).
+
+  # codex: non-interactive run via `codex exec "<prompt>"`.
   codex:
     type: cli-agent
     command: codex
-    args: [exec]
+    args: [exec, "{{prompt}}"]
     detect:
       command: codex
       args: [--version]
+  # claude: Claude Code CLI; `-p` (print) runs non-interactively and prints the
+  # result. Adjust the flag to your installed CLI if it differs.
   claude:
     type: cli-agent
     command: claude
-    args: []
+    args: ["-p", "{{prompt}}"]
     detect:
       command: claude
       args: [--version]
+  # opencode: non-interactive run; `run <prompt>` per the opencode CLI.
+  # Adjust to your installed CLI if it differs.
   opencode:
     type: cli-agent
     command: opencode
-    args: [run]
+    args: [run, "{{prompt}}"]
     detect:
       command: opencode
       args: [--version]
+  # exec is a built-in agent (Registry.Get("exec") works without this block).
+  # It is listed here only to document the type and to give it a detect probe.
+  # It runs the request-supplied argv verbatim; it ignores prompt/templates.
   exec:
     type: exec
     detect:

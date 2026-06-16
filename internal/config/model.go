@@ -77,6 +77,17 @@ type RunnerConfig struct {
 	TokenEnv string `yaml:"token_env"`
 }
 
+// ProjectAllowedAgents returns the allowed_agents list for projectKey. The
+// second return is false when the project is not registered. Used by the agent
+// package to enforce the per-project allowlist (plan §11).
+func (c *Config) ProjectAllowedAgents(projectKey string) ([]string, bool) {
+	p, ok := c.Projects[projectKey]
+	if !ok {
+		return nil, false
+	}
+	return p.AllowedAgents, true
+}
+
 // ResolvedExchangeSubdir returns the effective exchange subdir for a project,
 // falling back to the storage default (or the hard default) when unset.
 func (c *Config) ResolvedExchangeSubdir(p ProjectConfig) string {
