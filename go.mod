@@ -2,7 +2,10 @@ module dev-agent-bridge
 
 go 1.25
 
-require github.com/gookit/gcli/v3 v3.3.0
+require (
+	github.com/goccy/go-yaml v1.19.2
+	github.com/gookit/gcli/v3 v3.3.0
+)
 
 require (
 	github.com/gookit/color v1.6.0 // indirect
