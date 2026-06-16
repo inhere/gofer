@@ -1,0 +1,6 @@
+/dist/
+/agent-bridge
+/agent-bridge.exe
+/dab
+*.log
+tmp/

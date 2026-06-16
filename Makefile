@@ -38,7 +38,7 @@ install: build
 
 ## run: build and run with current directory
 run: build
-	./$(BINARY)
+	./$(DIST_DIR)/$(BINARY)
 
 # ─── Cross Compilation ────────────────────────────────────────────────────────
 
