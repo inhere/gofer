@@ -60,6 +60,11 @@ func NewJobCmd() *gcli.Command {
 					c.IntOpt(&jobRunOpts.timeout, "timeout", "", 0, "job timeout in seconds (0 = server default)")
 					c.StrOpt(&jobRunOpts.title, "title", "", "", "optional job title")
 					c.BoolOpt(&jobRunOpts.wait, "wait", "", false, "poll until the job reaches a terminal state")
+					// exec argv after `--`, e.g. `job run -a exec -- go version`.
+					// Declared as an optional arrayed arg so gcli binds the post-`--`
+					// tokens natively (HasArguments()=true also suppresses the spurious
+					// "subcommand not found" notice a no-arg leaf would print).
+					c.AddArg("cmd", "raw command for exec agent (after --)", false, true)
 				},
 				Func: runJobRun,
 			},
@@ -151,9 +156,9 @@ func argID(c *gcli.Command) string {
 }
 
 // runJobRun submits a job. prompt comes from --prompt (cli-agents); exec argv
-// comes from remainArgs, i.e. the tokens after `--` that gcli leaves unconsumed
-// (e.g. `job run -a exec -- go version` -> remainArgs = ["go","version"]).
-func runJobRun(c *gcli.Command, remainArgs []string) error {
+// comes from the arrayed `cmd` arg, i.e. the tokens after `--` that gcli binds
+// (e.g. `job run -a exec -- go version` -> cmd = ["go","version"]).
+func runJobRun(c *gcli.Command, _ []string) error {
 	if jobRunOpts.project == "" {
 		return fmt.Errorf("--project/-p is required")
 	}
@@ -161,12 +166,16 @@ func runJobRun(c *gcli.Command, remainArgs []string) error {
 		return fmt.Errorf("--agent/-a is required")
 	}
 
+	var cmd []string
+	if a := c.Arg("cmd"); a != nil {
+		cmd = a.Strings()
+	}
 	req := job.JobRequest{
 		ProjectKey: jobRunOpts.project,
 		Agent:      jobRunOpts.agent,
 		Runner:     jobRunOpts.runner,
 		Prompt:     jobRunOpts.prompt,
-		Cmd:        remainArgs, // tokens after `--`, e.g. ["go","version"]
+		Cmd:        cmd, // tokens after `--`, e.g. ["go","version"]
 		Cwd:        jobRunOpts.cwd,
 		TimeoutSec: jobRunOpts.timeout,
 		Title:      jobRunOpts.title,

@@ -21,16 +21,19 @@ func parseRun(t *testing.T, in []string) (project, agent, runner, cwd, prompt st
 	app := NewApp("test")
 	// Replace job run's Func with a capturing one so we never hit the network.
 	runCmd := app.GetCommand("job").GetCommand("run")
-	runCmd.Func = func(c *gcli.Command, remainArgs []string) error {
-		// Mirror runJobRun: prompt from the --prompt flag; cmd from remainArgs.
+	runCmd.Func = func(c *gcli.Command, _ []string) error {
+		// Mirror runJobRun: prompt from the --prompt flag; cmd from the arrayed
+		// `cmd` arg (the post-`--` tokens gcli binds natively).
 		prompt = jobRunOpts.prompt
-		cmd = remainArgs
+		if a := c.Arg("cmd"); a != nil {
+			cmd = a.Strings()
+		}
 		return nil
 	}
 
 	// app.Run returns the process exit code (0 on success); flag-binding happens
 	// inside, so a non-zero code here would signal a parse failure. gcli handles
-	// `--` natively, leaving the tail as remainArgs.
+	// `--` natively and binds the post-`--` tokens to the arrayed `cmd` arg.
 	if code := app.Run(NormalizeArgs(app, in)); code != 0 {
 		t.Fatalf("app.Run exit code=%d for args %v", code, in)
 	}
