@@ -3,7 +3,28 @@ package job
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"strings"
+)
+
+// Interaction error sentinels. The interaction methods wrap these (via
+// fmt.Errorf("%w: ...")) so the HTTP layer can map each failure to a stable
+// status code with errors.Is, without string-matching the message.
+var (
+	// ErrUnknownJob — no job with the given id is tracked. HTTP: 404.
+	ErrUnknownJob = errors.New("unknown job")
+	// ErrUnknownInteraction — the job has no interaction with the given id. HTTP: 404.
+	ErrUnknownInteraction = errors.New("unknown interaction")
+	// ErrJobTerminal — the job already reached a terminal state, so there is no
+	// live agent to consume an interaction/answer. HTTP: 409.
+	ErrJobTerminal = errors.New("job is terminal")
+	// ErrInteractionState — answering an interaction that is not pending (already
+	// answered/cancelled). HTTP: 400.
+	ErrInteractionState = errors.New("interaction not pending")
+	// ErrInvalidInteraction — the create payload failed basic validation (bad type
+	// or empty prompt). HTTP: 400.
+	ErrInvalidInteraction = errors.New("invalid interaction")
 )
 
 // InteractionOption is one selectable option for a choice/confirmation.
@@ -61,9 +82,27 @@ type InteractionInput struct {
 // Interaction, flips the job status to pending_interaction and persists. Errors
 // if the job is unknown or already terminal.
 func (s *Service) CreateInteraction(jobID string, in InteractionInput) (Interaction, error) {
+	// Basic payload validation up front (before touching any job state): an empty
+	// Type defaults to question; otherwise it must be a known interaction type.
+	// Prompt must be non-empty after trimming whitespace. choice/confirmation
+	// SHOULD carry options but it is not enforced here (the caller may add them
+	// later, and a confirmation often implies yes/no without explicit options).
+	in.Type = strings.TrimSpace(in.Type)
+	if in.Type == "" {
+		in.Type = InteractionTypeQuestion
+	}
+	switch in.Type {
+	case InteractionTypeQuestion, InteractionTypeChoice, InteractionTypeConfirmation:
+	default:
+		return Interaction{}, fmt.Errorf("%w: unknown type %q", ErrInvalidInteraction, in.Type)
+	}
+	if strings.TrimSpace(in.Prompt) == "" {
+		return Interaction{}, fmt.Errorf("%w: prompt must not be empty", ErrInvalidInteraction)
+	}
+
 	entry := s.entry(jobID)
 	if entry == nil {
-		return Interaction{}, fmt.Errorf("unknown job %q", jobID)
+		return Interaction{}, fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
 	}
 
 	entry.mu.Lock()
@@ -72,7 +111,7 @@ func (s *Service) CreateInteraction(jobID string, in InteractionInput) (Interact
 	if IsTerminal(entry.result.Status) {
 		status := entry.result.Status
 		entry.mu.Unlock()
-		return Interaction{}, fmt.Errorf("job %q is terminal (%s): cannot create interaction", jobID, status)
+		return Interaction{}, fmt.Errorf("%w: job %q (%s): cannot create interaction", ErrJobTerminal, jobID, status)
 	}
 
 	rec := &interactionRec{
@@ -173,7 +212,7 @@ func foldInteractions(lines []json.RawMessage) ([]Interaction, error) {
 func (s *Service) AnswerInteraction(jobID, interactionID, answer string) (Interaction, error) {
 	entry := s.entry(jobID)
 	if entry == nil {
-		return Interaction{}, fmt.Errorf("unknown job %q", jobID)
+		return Interaction{}, fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
 	}
 
 	entry.mu.Lock()
@@ -182,18 +221,18 @@ func (s *Service) AnswerInteraction(jobID, interactionID, answer string) (Intera
 	if IsTerminal(entry.result.Status) {
 		status := entry.result.Status
 		entry.mu.Unlock()
-		return Interaction{}, fmt.Errorf("job %q is terminal (%s): cannot answer interaction", jobID, status)
+		return Interaction{}, fmt.Errorf("%w: job %q (%s): cannot answer interaction", ErrJobTerminal, jobID, status)
 	}
 
 	rec := findInteraction(entry.interactions, interactionID)
 	if rec == nil {
 		entry.mu.Unlock()
-		return Interaction{}, fmt.Errorf("unknown interaction %q for job %q", interactionID, jobID)
+		return Interaction{}, fmt.Errorf("%w: %q for job %q", ErrUnknownInteraction, interactionID, jobID)
 	}
 	if rec.data.Status != InteractionPending {
 		st := rec.data.Status
 		entry.mu.Unlock()
-		return Interaction{}, fmt.Errorf("interaction %q is not pending (%s)", interactionID, st)
+		return Interaction{}, fmt.Errorf("%w: interaction %q (%s)", ErrInteractionState, interactionID, st)
 	}
 
 	rec.data.Status = InteractionAnswered
@@ -231,14 +270,14 @@ func (s *Service) AnswerInteraction(jobID, interactionID, answer string) (Intera
 func (s *Service) WaitAnswer(ctx context.Context, jobID, interactionID string) (Interaction, error) {
 	entry := s.entry(jobID)
 	if entry == nil {
-		return Interaction{}, fmt.Errorf("unknown job %q", jobID)
+		return Interaction{}, fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
 	}
 
 	entry.mu.Lock()
 	rec := findInteraction(entry.interactions, interactionID)
 	if rec == nil {
 		entry.mu.Unlock()
-		return Interaction{}, fmt.Errorf("unknown interaction %q for job %q", interactionID, jobID)
+		return Interaction{}, fmt.Errorf("%w: %q for job %q", ErrUnknownInteraction, interactionID, jobID)
 	}
 	ch := rec.answered
 	// Already resolved: return immediately without blocking.

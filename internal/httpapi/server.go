@@ -86,6 +86,11 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/jobs/{id}/logs/stderr", s.handleJobLogsStderr)
 		r.GET("/jobs/{id}/stream", s.handleJobStream)
 		r.POST("/jobs/{id}/cancel", s.handleCancelJob)
+
+		// P9 running-job two-way interactions.
+		r.POST("/jobs/{id}/interactions", s.handleCreateInteraction)
+		r.GET("/jobs/{id}/interactions", s.handleListInteractions)
+		r.POST("/jobs/{id}/interactions/{interaction_id}/answer", s.handleAnswerInteraction)
 	}, s.authMiddleware)
 
 	// Mount the embedded web console (static SPA shell, no auth) as the NotFound

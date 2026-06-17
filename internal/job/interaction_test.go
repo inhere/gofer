@@ -2,6 +2,7 @@ package job
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -143,23 +144,57 @@ func TestCreateInteractionOnTerminalJobErrors(t *testing.T) {
 	if final.Status != StatusDone {
 		t.Fatalf("setup: expected done, got %s", final.Status)
 	}
-	if _, err := s.CreateInteraction(final.ID, InteractionInput{Type: InteractionTypeQuestion, Prompt: "q"}); err == nil {
-		t.Fatalf("expected error creating interaction on terminal job")
+	_, err := s.CreateInteraction(final.ID, InteractionInput{Type: InteractionTypeQuestion, Prompt: "q"})
+	if !errors.Is(err, ErrJobTerminal) {
+		t.Fatalf("expected ErrJobTerminal creating interaction on terminal job, got %v", err)
 	}
 }
 
 func TestCreateInteractionUnknownJobErrors(t *testing.T) {
 	s := newTestService(t, t.TempDir())
-	if _, err := s.CreateInteraction("nope", InteractionInput{Type: InteractionTypeQuestion}); err == nil {
-		t.Fatalf("expected error for unknown job")
+	// Prompt is non-empty so validation passes and we reach the unknown-job check.
+	_, err := s.CreateInteraction("nope", InteractionInput{Type: InteractionTypeQuestion, Prompt: "q"})
+	if !errors.Is(err, ErrUnknownJob) {
+		t.Fatalf("expected ErrUnknownJob, got %v", err)
+	}
+}
+
+func TestCreateInteractionInvalidPayloadErrors(t *testing.T) {
+	s := newTestService(t, t.TempDir())
+	jobID := submitRunning(t, s)
+
+	// Empty prompt fails validation.
+	_, err := s.CreateInteraction(jobID, InteractionInput{Type: InteractionTypeQuestion, Prompt: "   "})
+	if !errors.Is(err, ErrInvalidInteraction) {
+		t.Fatalf("expected ErrInvalidInteraction for empty prompt, got %v", err)
+	}
+	// Unknown type fails validation.
+	_, err = s.CreateInteraction(jobID, InteractionInput{Type: "bogus", Prompt: "q"})
+	if !errors.Is(err, ErrInvalidInteraction) {
+		t.Fatalf("expected ErrInvalidInteraction for bad type, got %v", err)
+	}
+	// Empty type defaults to question and succeeds.
+	it, err := s.CreateInteraction(jobID, InteractionInput{Prompt: "q"})
+	if err != nil {
+		t.Fatalf("empty type should default to question, got %v", err)
+	}
+	if it.Type != InteractionTypeQuestion {
+		t.Fatalf("expected defaulted type question, got %q", it.Type)
 	}
 }
 
 func TestAnswerUnknownInteractionErrors(t *testing.T) {
 	s := newTestService(t, t.TempDir())
 	jobID := submitRunning(t, s)
-	if _, err := s.AnswerInteraction(jobID, "ghost", "x"); err == nil {
-		t.Fatalf("expected error answering unknown interaction")
+	// Unknown job id.
+	_, err := s.AnswerInteraction("nope", "ghost", "x")
+	if !errors.Is(err, ErrUnknownJob) {
+		t.Fatalf("expected ErrUnknownJob, got %v", err)
+	}
+	// Known job, unknown interaction id.
+	_, err = s.AnswerInteraction(jobID, "ghost", "x")
+	if !errors.Is(err, ErrUnknownInteraction) {
+		t.Fatalf("expected ErrUnknownInteraction, got %v", err)
 	}
 }
 
@@ -173,8 +208,9 @@ func TestDoubleAnswerErrors(t *testing.T) {
 	if _, err := s.AnswerInteraction(jobID, it.ID, "first"); err != nil {
 		t.Fatalf("first answer: %v", err)
 	}
-	if _, err := s.AnswerInteraction(jobID, it.ID, "second"); err == nil {
-		t.Fatalf("expected error on second answer of same interaction")
+	_, err = s.AnswerInteraction(jobID, it.ID, "second")
+	if !errors.Is(err, ErrInteractionState) {
+		t.Fatalf("expected ErrInteractionState on second answer, got %v", err)
 	}
 }
 
