@@ -6,14 +6,8 @@ import (
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/goutil/errorx"
 
-	"dev-agent-bridge/internal/agent"
 	"dev-agent-bridge/internal/config"
 	"dev-agent-bridge/internal/httpapi"
-	"dev-agent-bridge/internal/job"
-	"dev-agent-bridge/internal/project"
-	"dev-agent-bridge/internal/runner"
-	localrunner "dev-agent-bridge/internal/runner/local"
-	peerhttprunner "dev-agent-bridge/internal/runner/peerhttp"
 )
 
 // serveExitErr is the process exit code used when serve fails to start or run.
@@ -77,24 +71,9 @@ func runServe(c *gcli.Command, _ []string) error {
 		return errorx.Failf(serveExitErr, "refusing to start without a token: set server.token / server.token_env / --token, or pass --allow-empty-token")
 	}
 
-	projects := project.NewRegistry(cfg, "")
-	agents := agent.NewRegistry(cfg)
-	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	// Wire peer-http runners declared in config: each forwards jobs to a peer
-	// bridge (plan §11.1, P7). The token is read from its token_env (empty when
-	// unset => no Authorization header).
-	for name, rc := range cfg.Runners {
-		if rc.Type == "peer-http" {
-			token := ""
-			if rc.TokenEnv != "" {
-				token = os.Getenv(rc.TokenEnv)
-			}
-			runners[name] = peerhttprunner.New(name, rc.BaseURL, token)
-		}
-	}
-	jobs := job.NewService(cfg, projects, agents, runners)
+	core := buildCore(cfg)
 
-	srv := httpapi.New(&cfg.Server, token, allowEmpty, jobs, projects, agents)
+	srv := httpapi.New(&cfg.Server, token, allowEmpty, core.Jobs, core.Projects, core.Agents)
 
 	if token == "" {
 		c.Printf("agent-bridge: starting WITHOUT auth (allow_empty_token) on %s\n", addr)
