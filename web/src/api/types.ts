@@ -17,8 +17,9 @@ export interface Job {
   exit_code: number
   cwd: string
   result_dir: string
-  started_at: string
-  ended_at?: string
+  // Unix 秒（后端 int64）
+  started_at: number
+  ended_at?: number
   error?: string
 }
 
