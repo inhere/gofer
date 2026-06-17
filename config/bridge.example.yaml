@@ -27,9 +27,9 @@ storage:
 
 projects:
   # First project: the workspace root.
-  workspace:
-    host_path: /path/to/workspace
-    container_path: /workspace
+  my-project1:
+    host_path: D:/work/inhere/my-project1
+    container_path: /path/to/ws-root/my-project1
     exchange_subdir: tmp
     result_subdir: dev-agent-bridge
     default_agent: codex
@@ -38,9 +38,9 @@ projects:
     allow_exec: true
     max_concurrent_jobs: 4
   # Second project: a different host_path (the tools dir).
-  tools:
-    host_path: /path/to/workspace/tools
-    container_path: /workspace/tools
+  my-tools:
+    host_path: D:/work/inhere/path-to/my-tools
+    container_path: /path/to/ws-root/path-to/my-tools
     default_agent: exec
     allowed_agents: [exec]
     allowed_runners: [local]

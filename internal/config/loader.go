@@ -4,12 +4,22 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	yaml "github.com/goccy/go-yaml"
 )
 
 // EnvConfigPath is the env var consulted in the config lookup chain (§6.1).
 const EnvConfigPath = "AGENT_BRIDGE_CONFIG"
+
+// EnvConfigDir overrides the user-level config directory. When set, both the
+// default config file (<dir>/config.yaml) and the global dotenv (<dir>/.env)
+// resolve under it instead of ~/.config/dev-agent-bridge.
+const EnvConfigDir = "AGENT_BRIDGE_CFG_DIR"
+
+// DefaultConfigDirName is the user-level config dir under the OS config home
+// (~/.config/<name>).
+const DefaultConfigDirName = "dev-agent-bridge"
 
 // CurrentDirConfigName is the per-directory config file name (§6.1).
 const CurrentDirConfigName = ".dev-agent-bridge.yaml"
@@ -82,14 +92,28 @@ func Resolve(explicitPath string) (string, error) {
 	return "", nil
 }
 
-// UserConfigPath returns the user-level default config path
-// (~/.config/dev-agent-bridge/config.yaml).
-func UserConfigPath() (string, error) {
+// ConfigDir returns the effective user-level config directory. When the env var
+// AGENT_BRIDGE_CFG_DIR is set it wins (absolute); otherwise the default is
+// ~/.config/dev-agent-bridge. It holds both config.yaml and the global .env.
+func ConfigDir() (string, error) {
+	if dir := strings.TrimSpace(os.Getenv(EnvConfigDir)); dir != "" {
+		return filepath.Abs(dir)
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
-	return filepath.Join(home, ".config", "dev-agent-bridge", "config.yaml"), nil
+	return filepath.Join(home, ".config", DefaultConfigDirName), nil
+}
+
+// UserConfigPath returns the user-level default config path
+// (<config-dir>/config.yaml; config-dir defaults to ~/.config/dev-agent-bridge).
+func UserConfigPath() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "config.yaml"), nil
 }
 
 // candidatePaths lists the auto-discovery locations (current dir, then user).

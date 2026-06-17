@@ -61,7 +61,7 @@ agent-bridge job logs <id> --stream stdout
 1. `--config <path>` 命令行参数
 2. 环境变量 `AGENT_BRIDGE_CONFIG`
 3. 当前目录 `./.dev-agent-bridge.yaml`
-4. `~/.config/dev-agent-bridge/config.yaml`
+4. `<config-dir>/config.yaml`（即下文「配置目录」，默认 `~/.config/dev-agent-bridge/config.yaml`）
 
 完整示例见 [`configs/bridge.example.yaml`](configs/bridge.example.yaml)，拷贝到上述任一位置即可。关键片段：
 
@@ -103,6 +103,15 @@ agents:
 runners:
   local: { type: local }          # 内置 runner，显式声明可选
 ```
+
+### 配置目录与 `.env`
+
+- **配置目录**：默认 `~/.config/dev-agent-bridge/`，可用环境变量 `AGENT_BRIDGE_CFG_DIR` 整体改到别处（同时影响 `config.yaml` 与全局 `.env` 的位置）。
+- **`.env` 自动加载**：启动时（**先于读取任何配置**）按顺序加载两个 dotenv 文件，便于本地开发集中放置 `AGENT_BRIDGE_TOKEN` 等敏感值（基于 `goutil/envutil`）：
+  1. `<config-dir>/.env`（全局）
+  2. `./.env`（当前目录，项目级，**覆盖**全局同名项）
+- **优先级**：已显式导出的 OS 环境变量始终高于 `.env` 文件；文件不存在直接跳过、格式错误不致命。
+- `.env` 仅用于本地开发便利，**不要提交真实 token**（仓库已 `.gitignore` 忽略 `.env`，并提供 [`.env.example`](.env.example)）。
 
 各段含义：
 
