@@ -1,6 +1,7 @@
 package store
 
 import (
+	"bufio"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -120,6 +121,69 @@ func (s *FileStore) ReadLogTail(jobID string, stream Stream, maxBytes int64) ([]
 		}
 	}
 	return io.ReadAll(f)
+}
+
+// AppendIndex appends rec as one JSON line to <base>/jobs.jsonl. A single
+// Write of the marshalled line plus newline under O_APPEND is atomic on POSIX,
+// so concurrent appends never interleave bytes within a line; the job service
+// additionally serialises calls to keep whole lines ordered.
+func (s *FileStore) AppendIndex(rec any) error {
+	path := filepath.Join(s.base, IndexFile)
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+	if err != nil {
+		// base may not exist yet in edge cases; create it once and retry.
+		if os.IsNotExist(err) {
+			if mkErr := os.MkdirAll(s.base, 0o755); mkErr != nil {
+				return mkErr
+			}
+			f, err = os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
+		}
+		if err != nil {
+			return err
+		}
+	}
+	defer f.Close()
+	b, err := json.Marshal(rec)
+	if err != nil {
+		return err
+	}
+	_, err = f.Write(append(b, '\n')) // single write, O_APPEND atomic append
+	return err
+}
+
+// ReadIndex returns every valid JSON line in <base>/jobs.jsonl as a
+// json.RawMessage. A missing file yields an empty slice with no error. Empty
+// and corrupt (non-JSON) lines are skipped so a partially written tail never
+// breaks the read path.
+func (s *FileStore) ReadIndex() ([]json.RawMessage, error) {
+	f, err := os.Open(filepath.Join(s.base, IndexFile))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []json.RawMessage{}, nil
+		}
+		return nil, err
+	}
+	defer f.Close()
+
+	out := []json.RawMessage{}
+	scanner := bufio.NewScanner(f)
+	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
+	for scanner.Scan() {
+		line := scanner.Bytes()
+		if len(line) == 0 {
+			continue
+		}
+		if !json.Valid(line) {
+			continue // tolerate a corrupt/half-written line
+		}
+		// Copy: Scanner reuses its buffer between Scan calls, so the slice would
+		// otherwise alias and be overwritten on the next iteration.
+		out = append(out, append([]byte(nil), line...))
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 // writeJSON pretty-prints v to path (non-atomic; used for request.json which is
