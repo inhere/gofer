@@ -68,4 +68,10 @@ type Store interface {
 	// ReadIndex reads every line of the index. A missing file yields an empty
 	// slice and no error; corrupt lines are skipped (best-effort tolerance).
 	ReadIndex() ([]json.RawMessage, error)
+	// AppendInteraction appends one Interaction snapshot as a JSON line to
+	// <job_dir>/interactions.jsonl. Callers serialise concurrent appends.
+	AppendInteraction(jobID string, rec any) error
+	// ReadInteractions reads every line of <job_dir>/interactions.jsonl. A missing
+	// file yields an empty slice and no error; corrupt lines are skipped.
+	ReadInteractions(jobID string) ([]json.RawMessage, error)
 }

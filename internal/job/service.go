@@ -84,6 +84,10 @@ type jobEntry struct {
 	cancel context.CancelFunc
 	store  store.Store
 	done   chan struct{} // closed when the job reaches a terminal state
+	// interactions holds this process's authoritative interaction state for the
+	// job, in creation order. Guarded by mu (shared with result, so a status
+	// flip and an interaction edit never race). P9.
+	interactions []*interactionRec
 }
 
 // NewService builds a job service. runners is the set of usable runners keyed by

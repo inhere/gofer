@@ -188,6 +188,84 @@ func TestReadIndexSkipsCorruptLines(t *testing.T) {
 	}
 }
 
+func TestAppendInteractionAndReadInteractions(t *testing.T) {
+	fs := NewFileStore(t.TempDir())
+	if err := fs.Ensure("j"); err != nil {
+		t.Fatal(err)
+	}
+	if err := fs.AppendInteraction("j", map[string]any{"id": "i1", "status": "pending"}); err != nil {
+		t.Fatalf("AppendInteraction 1: %v", err)
+	}
+	if err := fs.AppendInteraction("j", map[string]any{"id": "i1", "status": "answered"}); err != nil {
+		t.Fatalf("AppendInteraction 2: %v", err)
+	}
+	recs, err := fs.ReadInteractions("j")
+	if err != nil {
+		t.Fatalf("ReadInteractions: %v", err)
+	}
+	if len(recs) != 2 {
+		t.Fatalf("expected 2 interaction lines, got %d", len(recs))
+	}
+	// The file must live inside the single job dir (not the project base).
+	if _, err := os.Stat(filepath.Join(fs.Dir("j"), InteractionsFile)); err != nil {
+		t.Fatalf("interactions.jsonl not in job dir: %v", err)
+	}
+	var last map[string]any
+	if err := json.Unmarshal(recs[1], &last); err != nil {
+		t.Fatalf("last line not valid JSON: %v", err)
+	}
+	if last["status"] != "answered" {
+		t.Fatalf("expected last status=answered, got %v", last["status"])
+	}
+}
+
+func TestReadInteractionsMissingFile(t *testing.T) {
+	fs := NewFileStore(t.TempDir())
+	if err := fs.Ensure("j"); err != nil {
+		t.Fatal(err)
+	}
+	recs, err := fs.ReadInteractions("j")
+	if err != nil {
+		t.Fatalf("expected no error for missing interactions file, got %v", err)
+	}
+	if len(recs) != 0 {
+		t.Fatalf("expected empty slice, got %d", len(recs))
+	}
+}
+
+func TestReadInteractionsSkipsCorruptLines(t *testing.T) {
+	fs := NewFileStore(t.TempDir())
+	if err := fs.Ensure("j"); err != nil {
+		t.Fatal(err)
+	}
+	if err := fs.AppendInteraction("j", map[string]any{"id": "ok1"}); err != nil {
+		t.Fatal(err)
+	}
+	f, err := os.OpenFile(filepath.Join(fs.Dir("j"), InteractionsFile), os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("not json\n"); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	recs, err := fs.ReadInteractions("j")
+	if err != nil {
+		t.Fatalf("ReadInteractions: %v", err)
+	}
+	if len(recs) != 1 {
+		t.Fatalf("expected 1 valid line (corrupt skipped), got %d", len(recs))
+	}
+	var m map[string]any
+	if err := json.Unmarshal(recs[0], &m); err != nil {
+		t.Fatalf("surviving line not valid JSON: %v", err)
+	}
+	if m["id"] != "ok1" {
+		t.Fatalf("expected id=ok1, got %v", m["id"])
+	}
+}
+
 func TestInteractionsFileConstantReserved(t *testing.T) {
 	// P4 only reserves the name; nothing should create it.
 	fs := NewFileStore(t.TempDir())
