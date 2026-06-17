@@ -107,18 +107,31 @@ func NewService(cfg *config.Config, projects *project.Registry, agents *agent.Re
 // running) once the goroutine is launched. Validation/setup failures return an
 // error and no job.
 func (s *Service) Submit(req JobRequest) (JobResult, error) {
-	proj, err := s.validate(req)
+	// A peer-http runner forwards the original request to a peer bridge, which
+	// resolves agent/cwd/command with its OWN config. The host therefore skips
+	// local agent/cwd resolution for remote jobs (it still validates the project,
+	// the agent allowlist and the runner allowlist).
+	remote := s.isPeerRunner(req.Runner)
+
+	proj, err := s.validate(req, remote)
 	if err != nil {
 		return JobResult{}, err
 	}
 
-	// Resolve cwd to an absolute host dir inside the project root.
-	workDir, err := project.SafeJoin(proj, req.Cwd)
-	if err != nil {
-		return JobResult{}, err
+	// Resolve cwd to an absolute host dir inside the project root. Skipped for
+	// remote jobs: the cwd is an opaque relative path the peer SafeJoins against
+	// its own project root.
+	var workDir string
+	if !remote {
+		workDir, err = project.SafeJoin(proj, req.Cwd)
+		if err != nil {
+			return JobResult{}, err
+		}
 	}
 
 	// Result base dir + a collision-resistant job id; create the dir up front.
+	// The host keeps a local result dir even for proxied jobs so its logs (mirrored
+	// from the peer), request.json and index entry stay queryable.
 	base, err := project.ResultBaseDir(s.cfg, req.ProjectKey, proj)
 	if err != nil {
 		return JobResult{}, err
@@ -134,20 +147,37 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		return JobResult{}, fmt.Errorf("write request: %w", err)
 	}
 
-	// Build the executable form (exec uses req.Cmd; cli-agent renders the prompt
-	// with cwd/job_id/result_dir vars).
-	resolved, err := s.agents.Build(req.Agent, req.Prompt, req.Cmd, agent.Vars{
-		Cwd:       workDir,
-		JobID:     jobID,
-		ResultDir: resultDir,
-	})
-	if err != nil {
-		return JobResult{}, err
-	}
-
 	run := s.runners[req.Runner]
 	if run == nil {
 		return JobResult{}, fmt.Errorf("runner %q is not available", req.Runner)
+	}
+
+	// Build the runner request. Remote jobs carry the ORIGINAL request in Forward
+	// and leave Command/Args/WorkDir unset; local jobs resolve the executable form
+	// (exec uses req.Cmd; cli-agent renders the prompt with cwd/job_id/result_dir).
+	runReq := runner.Request{JobID: jobID, WorkDir: workDir}
+	if remote {
+		runReq.Forward = &runner.Forward{
+			ProjectKey: req.ProjectKey,
+			Agent:      req.Agent,
+			PeerRunner: builtinLocalRunner,
+			Prompt:     req.Prompt,
+			Cmd:        req.Cmd,
+			Cwd:        req.Cwd,
+			TimeoutSec: req.TimeoutSec,
+		}
+	} else {
+		resolved, berr := s.agents.Build(req.Agent, req.Prompt, req.Cmd, agent.Vars{
+			Cwd:       workDir,
+			JobID:     jobID,
+			ResultDir: resultDir,
+		})
+		if berr != nil {
+			return JobResult{}, berr
+		}
+		runReq.Command = resolved.Command
+		runReq.Args = resolved.Args
+		runReq.Env = resolved.Env
 	}
 
 	now := s.nowFn().Unix()
@@ -174,13 +204,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 
 	sem := s.semaphore(req.ProjectKey, proj.MaxConcurrentJobs)
 	timeout := normalizeTimeout(req.TimeoutSec)
-	go s.execute(entry, run, sem, runner.Request{
-		JobID:   jobID,
-		WorkDir: workDir,
-		Command: resolved.Command,
-		Args:    resolved.Args,
-		Env:     resolved.Env,
-	}, timeout)
+	go s.execute(entry, run, sem, runReq, timeout)
 
 	return entry.snapshot(), nil
 }
@@ -304,9 +328,24 @@ func classify(ctx context.Context, res runner.Result) (string, int, error) {
 	return StatusDone, 0, nil
 }
 
+// isPeerRunner reports whether name is a configured peer-http runner (a remote
+// runner that forwards the job to a peer bridge). Such runners resolve the
+// agent/command on the peer, so the host skips local exec resolution.
+func (s *Service) isPeerRunner(name string) bool {
+	rc, ok := s.cfg.Runners[name]
+	return ok && rc.Type == "peer-http"
+}
+
 // validate enforces the project/agent/runner/exec allowlists (plan §11) and
 // returns the resolved project config.
-func (s *Service) validate(req JobRequest) (config.ProjectConfig, error) {
+//
+// remote (a peer-http runner) relaxes two host-local checks: the exec-type
+// security gate and the agent-must-be-known check. A remote job is resolved and
+// executed on the peer with ITS config, so the host may legitimately not know
+// the agent (it can be a peer-only agent) and must not impose its own exec gate.
+// The agent allowlist (CheckAllowed) and the runner allowlist still apply on the
+// host as the access-control boundary.
+func (s *Service) validate(req JobRequest, remote bool) (config.ProjectConfig, error) {
 	proj, err := s.projects.Get(req.ProjectKey)
 	if err != nil {
 		return config.ProjectConfig{}, fmt.Errorf("%w: %s", ErrUnknownProject, err.Error())
@@ -317,13 +356,16 @@ func (s *Service) validate(req JobRequest) (config.ProjectConfig, error) {
 		return config.ProjectConfig{}, fmt.Errorf("%w: %s", ErrInvalidRequest, err.Error())
 	}
 
-	// exec security gate: the agent must be type exec AND the project must opt in.
-	ac, ok := s.agents.Get(req.Agent)
-	if !ok {
-		return config.ProjectConfig{}, fmt.Errorf("%w: unknown agent %q", ErrInvalidRequest, req.Agent)
-	}
-	if ac.Type == agent.TypeExec && !proj.AllowExec {
-		return config.ProjectConfig{}, fmt.Errorf("%w: exec agent %q not allowed: project %q has allow_exec=false", ErrInvalidRequest, req.Agent, req.ProjectKey)
+	if !remote {
+		// exec security gate: the agent must be type exec AND the project must opt
+		// in. Skipped for remote jobs — the peer enforces its own exec gate.
+		ac, ok := s.agents.Get(req.Agent)
+		if !ok {
+			return config.ProjectConfig{}, fmt.Errorf("%w: unknown agent %q", ErrInvalidRequest, req.Agent)
+		}
+		if ac.Type == agent.TypeExec && !proj.AllowExec {
+			return config.ProjectConfig{}, fmt.Errorf("%w: exec agent %q not allowed: project %q has allow_exec=false", ErrInvalidRequest, req.Agent, req.ProjectKey)
+		}
 	}
 
 	// Runner must be in allowed_runners ("local" is a built-in default).

@@ -13,6 +13,7 @@ import (
 	"dev-agent-bridge/internal/project"
 	"dev-agent-bridge/internal/runner"
 	localrunner "dev-agent-bridge/internal/runner/local"
+	peerhttprunner "dev-agent-bridge/internal/runner/peerhttp"
 )
 
 // serveExitErr is the process exit code used when serve fails to start or run.
@@ -79,6 +80,18 @@ func runServe(c *gcli.Command, _ []string) error {
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
+	// Wire peer-http runners declared in config: each forwards jobs to a peer
+	// bridge (plan §11.1, P7). The token is read from its token_env (empty when
+	// unset => no Authorization header).
+	for name, rc := range cfg.Runners {
+		if rc.Type == "peer-http" {
+			token := ""
+			if rc.TokenEnv != "" {
+				token = os.Getenv(rc.TokenEnv)
+			}
+			runners[name] = peerhttprunner.New(name, rc.BaseURL, token)
+		}
+	}
 	jobs := job.NewService(cfg, projects, agents, runners)
 
 	srv := httpapi.New(&cfg.Server, token, allowEmpty, jobs, projects, agents)
