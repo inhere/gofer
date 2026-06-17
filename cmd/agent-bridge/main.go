@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"dev-agent-bridge/internal/commands"
+	"dev-agent-bridge/internal/config"
 )
 
 // Build metadata, injected by Makefile LDFLAGS (-X main.Version etc.).
@@ -14,6 +15,11 @@ var (
 )
 
 func main() {
+	// Load dotenv files (<config-dir>/.env then ./.env) before anything reads the
+	// environment, so AGENT_BRIDGE_CONFIG/AGENT_BRIDGE_TOKEN etc. can come from a
+	// file. Exported OS env still wins; a malformed .env is non-fatal.
+	_, _ = config.LoadDotenv()
+
 	app := commands.NewApp(Version)
 	// Reorder args so a positional <key>/<id> placed before flags still parses
 	// (gcli/stdlib flag parsing stops at the first positional). NormalizeArgs
