@@ -160,6 +160,39 @@ agent-bridge job cancel <id>
 
 > cli-agent（claude/codex/...）用 `--prompt "..."` 传提示词；exec 类 job 用 `--` 分隔：`--` 之后的 token 被原样当成 argv（如 `-- go version`），不经 shell 重新分词。
 
+## MCP 接入
+
+`agent-bridge mcp` 以 **stdio MCP server** 暴露同一套控制面能力（复用 `serve` 的 `job.Service` / project / agent 注册表，不重复执行逻辑）。stdout 为 MCP 协议通道，命令启动后不向 stdout 输出任何日志。
+
+```bash
+# 启动（由 MCP 客户端拉起，通过 stdin/stdout 通信）
+agent-bridge mcp --config /abs/path/to/config.yaml
+```
+
+给 Claude Code / Codex 等客户端的 MCP 配置示例（`command` 用 `agent-bridge` 二进制的绝对路径）：
+
+```json
+{
+  "mcpServers": {
+    "agent-bridge": {
+      "command": "/abs/path/to/agent-bridge",
+      "args": ["mcp", "--config", "/abs/path/to/config.yaml"]
+    }
+  }
+}
+```
+
+暴露的 6 个 tool（input/output 字段均为 snake_case，与 HTTP API 对齐）：
+
+| Tool | 用途 |
+| --- | --- |
+| `bridge_list_projects` | 列出已登记项目及其 agent/runner 允许清单 |
+| `bridge_list_agents` | 列出 agent 及探测可用性（`available` / `detail`） |
+| `bridge_run_job` | 在项目内提交 agent/exec job，返回初始状态（含 `id`） |
+| `bridge_get_job` | 按 `id` 查询 job 当前状态 |
+| `bridge_tail_log` | 拉取 job 的 stdout/stderr 日志尾部（默认上限 256KB） |
+| `bridge_cancel_job` | 请求取消运行中的 job，返回当前状态 |
+
 ## Web 控制台
 
 `serve` 默认内置一个 Web 控制台（静态 SPA，挂在根路径，无需鉴权即可打开页面；页面内对 `/v1/*` 的请求仍需 token）。控制台静态资源**嵌入到二进制**，运行时不依赖外部文件。
