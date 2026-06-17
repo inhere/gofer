@@ -6,6 +6,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -108,6 +109,41 @@ func (c *Client) CancelJob(id string) (job.JobResult, error) {
 	var res job.JobResult
 	err := c.doJSON(http.MethodPost, "/v1/jobs/"+url.PathEscape(id)+"/cancel", nil, &res)
 	return res, err
+}
+
+// OpenStream issues a GET against /v1/jobs/{id}/stream under ctx, attaching the
+// bearer token, and returns the live SSE response. The caller owns closing the
+// body and parsing the SSE frames. Unlike the other helpers it streams (no
+// per-request timeout) so a long-lived job stays connected; cancel via ctx.
+//
+// It exists so a remote runner (internal/runner/peerhttp) can consume a peer's
+// log stream without re-deriving the base URL / auth wiring.
+func (c *Client) OpenStream(ctx context.Context, id string) (*http.Response, error) {
+	streamURL := c.baseURL + "/v1/jobs/" + url.PathEscape(id) + "/stream"
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, streamURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build stream request: %w", err)
+	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	req.Header.Set("Accept", "text/event-stream")
+	// A dedicated client with no read timeout so an open SSE stream is not cut by
+	// the 30s control-plane timeout; lifetime is bound to ctx.
+	sc := &http.Client{}
+	resp, err := sc.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("open stream %s: %w", id, err)
+	}
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		data, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err := errorFor(resp.StatusCode, data); err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("stream %s: unexpected status %d", id, resp.StatusCode)
+	}
+	return resp, nil
 }
 
 // doJSON performs the request and decodes a JSON body into out on 2xx; non-2xx
