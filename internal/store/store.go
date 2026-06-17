@@ -13,7 +13,10 @@
 //	                      // only fixes the filename/location, never writes it.
 package store
 
-import "io"
+import (
+	"encoding/json"
+	"io"
+)
 
 // Artifact file names inside a job result directory.
 const (
@@ -24,6 +27,9 @@ const (
 	// InteractionsFile is reserved for P9. P4 only defines the constant and the
 	// directory placement (same job dir); nothing writes it yet.
 	InteractionsFile = "interactions.jsonl"
+	// IndexFile is the per-project append-only job index, one JSON line per
+	// JobResult snapshot (create + terminal), used by the list endpoint (web-T2).
+	IndexFile = "jobs.jsonl"
 )
 
 // Stream identifies which log file to open/read.
@@ -56,4 +62,10 @@ type Store interface {
 	// ReadLogTail returns the last maxBytes of a log stream (whole file when
 	// maxBytes <= 0). It is the read path used by the HTTP log endpoints (P5).
 	ReadLogTail(jobID string, stream Stream, maxBytes int64) ([]byte, error)
+	// AppendIndex appends one JSON line (a JobResult snapshot) to
+	// <base>/jobs.jsonl. Callers serialise concurrent appends.
+	AppendIndex(rec any) error
+	// ReadIndex reads every line of the index. A missing file yields an empty
+	// slice and no error; corrupt lines are skipped (best-effort tolerance).
+	ReadIndex() ([]json.RawMessage, error)
 }

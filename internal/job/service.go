@@ -61,6 +61,10 @@ type Service struct {
 	// FileStore; overridable in tests.
 	newStore func(base string) store.Store
 
+	// indexMu serialises all jobs.jsonl appends so concurrent submits of the
+	// same project never interleave lines in the index file.
+	indexMu sync.Mutex
+
 	mu   sync.Mutex
 	jobs map[string]*jobEntry
 	// sems holds per-project concurrency semaphores (buffered channels). Lazily
@@ -165,6 +169,9 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	s.jobs[jobID] = entry
 	s.mu.Unlock()
 
+	// Record the initial (queued) snapshot in the project index.
+	s.appendIndex(st, entry.snapshot())
+
 	sem := s.semaphore(req.ProjectKey, proj.MaxConcurrentJobs)
 	timeout := normalizeTimeout(req.TimeoutSec)
 	go s.execute(entry, run, sem, runner.Request{
@@ -264,6 +271,17 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	entry.mu.Unlock()
 
 	_ = entry.store.WriteResult(jobID, snap)
+	// Record the terminal snapshot in the project index (best-effort).
+	s.appendIndex(entry.store, snap)
+}
+
+// appendIndex serialises one JobResult snapshot append to the project index.
+// Best-effort: an index write failure must not fail the job — result.json and
+// the in-memory snapshot remain the source of truth.
+func (s *Service) appendIndex(st store.Store, rec JobResult) {
+	s.indexMu.Lock()
+	defer s.indexMu.Unlock()
+	_ = st.AppendIndex(rec)
 }
 
 // classify maps a runner result + context state to a job status, exit code and

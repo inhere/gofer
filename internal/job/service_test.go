@@ -224,6 +224,7 @@ func TestJobIDUniquenessSameSecond(t *testing.T) {
 
 	const n = 200
 	seen := map[string]bool{}
+	ids := make([]string, 0, n)
 	for i := 0; i < n; i++ {
 		res, err := s.Submit(JobRequest{
 			ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -236,6 +237,7 @@ func TestJobIDUniquenessSameSecond(t *testing.T) {
 			t.Fatalf("duplicate job id: %s", res.ID)
 		}
 		seen[res.ID] = true
+		ids = append(ids, res.ID)
 		// Each id's dir must have been created.
 		if _, err := os.Stat(filepath.Join(root, "self", res.ID)); err != nil {
 			t.Fatalf("job dir not created for %s: %v", res.ID, err)
@@ -243,6 +245,11 @@ func TestJobIDUniquenessSameSecond(t *testing.T) {
 	}
 	if len(seen) != n {
 		t.Fatalf("expected %d unique ids, got %d", n, len(seen))
+	}
+	// Drain all background jobs so their goroutines stop writing into root
+	// before t.TempDir() cleanup runs (avoids a RemoveAll-vs-write race).
+	for _, id := range ids {
+		s.Wait(id)
 	}
 }
 

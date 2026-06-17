@@ -120,6 +120,74 @@ func TestReadLogTailMissingFile(t *testing.T) {
 	}
 }
 
+func TestAppendIndexAndReadIndex(t *testing.T) {
+	base := t.TempDir()
+	fs := NewFileStore(base)
+	if err := fs.AppendIndex(map[string]any{"id": "a", "status": "queued"}); err != nil {
+		t.Fatalf("AppendIndex 1: %v", err)
+	}
+	if err := fs.AppendIndex(map[string]any{"id": "a", "status": "done"}); err != nil {
+		t.Fatalf("AppendIndex 2: %v", err)
+	}
+	recs, err := fs.ReadIndex()
+	if err != nil {
+		t.Fatalf("ReadIndex: %v", err)
+	}
+	if len(recs) != 2 {
+		t.Fatalf("expected 2 index lines, got %d", len(recs))
+	}
+	var last map[string]any
+	if err := json.Unmarshal(recs[1], &last); err != nil {
+		t.Fatalf("last line not valid JSON: %v", err)
+	}
+	if last["status"] != "done" {
+		t.Fatalf("expected last status=done, got %v", last["status"])
+	}
+}
+
+func TestReadIndexMissingFile(t *testing.T) {
+	fs := NewFileStore(t.TempDir())
+	recs, err := fs.ReadIndex()
+	if err != nil {
+		t.Fatalf("expected no error for missing index, got %v", err)
+	}
+	if len(recs) != 0 {
+		t.Fatalf("expected empty slice, got %d", len(recs))
+	}
+}
+
+func TestReadIndexSkipsCorruptLines(t *testing.T) {
+	base := t.TempDir()
+	fs := NewFileStore(base)
+	if err := fs.AppendIndex(map[string]any{"id": "ok1"}); err != nil {
+		t.Fatal(err)
+	}
+	// Append a raw garbage line directly to the index file.
+	f, err := os.OpenFile(filepath.Join(base, IndexFile), os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("not json\n"); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	recs, err := fs.ReadIndex()
+	if err != nil {
+		t.Fatalf("ReadIndex: %v", err)
+	}
+	if len(recs) != 1 {
+		t.Fatalf("expected 1 valid line (corrupt skipped), got %d", len(recs))
+	}
+	var m map[string]any
+	if err := json.Unmarshal(recs[0], &m); err != nil {
+		t.Fatalf("surviving line not valid JSON: %v", err)
+	}
+	if m["id"] != "ok1" {
+		t.Fatalf("expected id=ok1, got %v", m["id"])
+	}
+}
+
 func TestInteractionsFileConstantReserved(t *testing.T) {
 	// P4 only reserves the name; nothing should create it.
 	fs := NewFileStore(t.TempDir())
