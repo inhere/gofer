@@ -55,3 +55,29 @@ button {
   font-family: var(--font-sans);
   cursor: pointer;
 }
+
+/* a11y：全局可见焦点环（克制 phosphor），覆盖按钮/链接/输入/可点行。
+   只对键盘聚焦显示（:focus-visible），避免鼠标点击留环。 */
+:focus {
+  outline: none;
+}
+:focus-visible {
+  outline: 2px solid var(--phosphor);
+  outline-offset: 2px;
+  border-radius: var(--radius);
+}
+
+/* prefers-reduced-motion：冻结全部动画/过渡/滚动惯性（与各组件局部规则兼容） */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+  html {
+    scroll-behavior: auto !important;
+  }
+}
