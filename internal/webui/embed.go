@@ -30,10 +30,19 @@ func Handler() (http.Handler, bool) {
 	if err != nil {
 		return placeholderHandler(dist, "dist/placeholder.html"), false
 	}
-	if _, err := fs.Stat(sub, "index.html"); err == nil {
-		return spaHandler(sub), true
+	return handlerFor(sub)
+}
+
+// handlerFor builds the static handler for fsys (a "dist" sub-FS): when
+// index.html exists it serves the SPA with unknown-route fallback (ok=true);
+// otherwise it serves placeholder.html for any GET (ok=false). It is pure (no
+// dependency on the package-level embed.FS) so tests can drive it with an
+// in-memory fstest.MapFS — independent of whether `make web` has run.
+func handlerFor(fsys fs.FS) (http.Handler, bool) {
+	if _, err := fs.Stat(fsys, "index.html"); err == nil {
+		return spaHandler(fsys), true
 	}
-	return placeholderHandler(sub, "placeholder.html"), false
+	return placeholderHandler(fsys, "placeholder.html"), false
 }
 
 // spaHandler serves files from fsys; requests whose path has no matching file

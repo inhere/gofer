@@ -3,6 +3,7 @@ package httpapi
 import (
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"dev-agent-bridge/internal/agent"
@@ -40,20 +41,26 @@ func newWebServer(t *testing.T, webEnabled bool) *Server {
 }
 
 // TestWebConsoleMountedByDefault verifies the default server (WebEnabled nil =>
-// true via newTestServer) serves the SPA shell for "/" and unknown front-end
-// routes, while API and health routes still match first.
+// true via newTestServer) serves the web console shell for "/" and unknown
+// front-end routes, while API and health routes still match first. It asserts
+// only structural behaviour (HTML shell at "/", SPA fallback, auth unchanged),
+// not the body text, so it stays green whether the embedded dist/ holds the
+// placeholder (bare build) or a real `make web` build.
 func TestWebConsoleMountedByDefault(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 
-	// "/" -> placeholder SPA shell (200).
+	// "/" -> web console shell (200, HTML).
 	resp := do(t, s, http.MethodGet, "/", "", nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("GET / status=%d, want 200", resp.StatusCode)
 	}
+	if ct := resp.Header.Get("Content-Type"); !strings.Contains(ct, "text/html") {
+		t.Fatalf("GET / Content-Type=%q, want text/html", ct)
+	}
 	body, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
 	if len(body) == 0 {
-		t.Fatal("GET / returned empty body, want placeholder HTML")
+		t.Fatal("GET / returned empty body, want HTML shell")
 	}
 
 	// Unknown front-end route -> SPA fallback (200).

@@ -151,6 +151,24 @@ agent-bridge job cancel <id>
 
 > cli-agent（claude/codex/...）用 `--prompt "..."` 传提示词；exec 类 job 用 `--` 分隔：`--` 之后的 token 被原样当成 argv（如 `-- go version`），不经 shell 重新分词。
 
+## Web 控制台
+
+`serve` 默认内置一个 Web 控制台（静态 SPA，挂在根路径，无需鉴权即可打开页面；页面内对 `/v1/*` 的请求仍需 token）。控制台静态资源**嵌入到二进制**，运行时不依赖外部文件。
+
+```bash
+# 1. 构建并嵌入前端，再编译二进制（一步到位）
+make web build       # = make web（pnpm 构建 web/dist 并拷入 internal/webui/dist）+ make build（baking 进二进制）
+
+# 2. 起服务（Web 默认开启）
+agent-bridge serve --addr 0.0.0.0:8765 --token dev-token
+
+# 3. 浏览器打开 http://<addr>/ ，在页面里粘贴 token 接入，即可看 project/agent/job、实时日志流
+```
+
+- **关闭 Web 只留 API**：`serve --no-web`，或配置 `server.web_enabled: false`；此时 `GET /` 返回 404，`/health` 与 `/v1/*` 不受影响。
+- **裸 `go build`（未跑 `make web`）**：二进制仍可编译运行，`GET /` 返回一个占位页（提示运行 `make web` 重新构建），不影响 API。
+- 前端开发态自行 `pnpm -C web dev`（vite 代理到 `serve` 的 `/v1`），无需每次 `make web`。
+
 ## HTTP API
 
 HTTP server 基于 `gookit/rux`。`/health` 不鉴权；`/v1/*` 全部要求 `Authorization: Bearer <token>`。
