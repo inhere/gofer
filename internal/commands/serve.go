@@ -27,6 +27,7 @@ var serveOpts = struct {
 	addr          string
 	token         string
 	allowEmptyTok bool
+	noWeb         bool
 }{}
 
 // NewServeCmd builds the `serve` command: load config, wire the job service and
@@ -40,6 +41,7 @@ func NewServeCmd() *gcli.Command {
 			c.StrOpt(&serveOpts.addr, "addr", "", "", "HTTP listen address (default from config / 0.0.0.0:8765)")
 			c.StrOpt(&serveOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 			c.BoolOpt(&serveOpts.allowEmptyTok, "allow-empty-token", "", false, "allow starting without a token")
+			c.BoolOpt(&serveOpts.noWeb, "no-web", "", false, "disable the web console (static UI)")
 		},
 		Func: runServe,
 	}
@@ -60,6 +62,12 @@ func runServe(c *gcli.Command, _ []string) error {
 
 	// --allow-empty-token (flag) OR allow_empty_token (config) opts out of auth.
 	allowEmpty := cfg.Server.AllowEmptyToken || serveOpts.allowEmptyTok
+
+	// Web console is on by default (config web_enabled, default true); --no-web
+	// force-disables it. Fold the final decision back onto cfg so httpapi.New
+	// reads it via serverCfg.IsWebEnabled().
+	webEnabled := cfg.Server.IsWebEnabled() && !serveOpts.noWeb
+	cfg.Server.WebEnabled = &webEnabled
 
 	token := resolveToken(&cfg.Server, serveOpts.token)
 	if token == "" && !allowEmpty {
