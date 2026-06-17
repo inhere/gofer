@@ -66,6 +66,16 @@ func New(jobs *job.Service, projects *project.Registry, agents *agent.Registry) 
 		Description: "Request cancellation of a running job and return its current state.",
 	}, cancelJobHandler(jobs))
 
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "bridge_get_interactions",
+		Description: "List a job's running-time interactions (pending questions and their answers).",
+	}, getInteractionsHandler(jobs))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "bridge_answer_interaction",
+		Description: "Answer a pending interaction on a running job so the agent can continue.",
+	}, answerInteractionHandler(jobs))
+
 	return s
 }
 
@@ -295,5 +305,91 @@ func cancelJobHandler(jobs *job.Service) mcp.ToolHandlerFor[jobIDInput, jobView]
 		}
 		res, _ := jobs.Get(in.ID)
 		return nil, toJobView(res), nil
+	}
+}
+
+// --- interaction views ------------------------------------------------------
+
+// interactionOptionView is the snake_case projection of job.InteractionOption,
+// kept local so the MCP schema never leaks the internal job type.
+type interactionOptionView struct {
+	Value string `json:"value"`
+	Label string `json:"label,omitempty"`
+}
+
+// interactionView is the snake_case projection of job.Interaction returned by
+// the interaction tools. Like jobView, it mirrors the HTTP API field names so
+// MCP and HTTP callers see the same shape.
+type interactionView struct {
+	ID         string                  `json:"id"`
+	JobID      string                  `json:"job_id"`
+	Type       string                  `json:"type"`
+	Prompt     string                  `json:"prompt"`
+	Options    []interactionOptionView `json:"options,omitempty"`
+	Status     string                  `json:"status"`
+	Answer     string                  `json:"answer,omitempty"`
+	CreatedAt  int64                   `json:"created_at"`
+	AnsweredAt int64                   `json:"answered_at,omitempty"`
+}
+
+// toInteractionView projects a job.Interaction onto the snake_case
+// interactionView. Single conversion point shared by the interaction handlers.
+func toInteractionView(it job.Interaction) interactionView {
+	var opts []interactionOptionView
+	if len(it.Options) > 0 {
+		opts = make([]interactionOptionView, 0, len(it.Options))
+		for _, o := range it.Options {
+			opts = append(opts, interactionOptionView{Value: o.Value, Label: o.Label})
+		}
+	}
+	return interactionView{
+		ID:         it.ID,
+		JobID:      it.JobID,
+		Type:       it.Type,
+		Prompt:     it.Prompt,
+		Options:    opts,
+		Status:     it.Status,
+		Answer:     it.Answer,
+		CreatedAt:  it.CreatedAt,
+		AnsweredAt: it.AnsweredAt,
+	}
+}
+
+// --- bridge_get_interactions ------------------------------------------------
+
+type getInteractionsOutput struct {
+	Interactions []interactionView `json:"interactions"`
+}
+
+func getInteractionsHandler(jobs *job.Service) mcp.ToolHandlerFor[jobIDInput, getInteractionsOutput] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in jobIDInput) (*mcp.CallToolResult, getInteractionsOutput, error) {
+		list, err := jobs.GetInteractions(in.ID)
+		if err != nil {
+			return nil, getInteractionsOutput{}, err
+		}
+		// Always emit a non-nil array (unknown jobs yield an empty list).
+		out := getInteractionsOutput{Interactions: make([]interactionView, 0, len(list))}
+		for _, it := range list {
+			out.Interactions = append(out.Interactions, toInteractionView(it))
+		}
+		return nil, out, nil
+	}
+}
+
+// --- bridge_answer_interaction ----------------------------------------------
+
+type answerInteractionInput struct {
+	ID            string `json:"id"`
+	InteractionID string `json:"interaction_id"`
+	Answer        string `json:"answer"`
+}
+
+func answerInteractionHandler(jobs *job.Service) mcp.ToolHandlerFor[answerInteractionInput, interactionView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in answerInteractionInput) (*mcp.CallToolResult, interactionView, error) {
+		it, err := jobs.AnswerInteraction(in.ID, in.InteractionID, in.Answer)
+		if err != nil {
+			return nil, interactionView{}, err
+		}
+		return nil, toInteractionView(it), nil
 	}
 }

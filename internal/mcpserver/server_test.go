@@ -86,12 +86,14 @@ func TestListToolsAllPresent(t *testing.T) {
 		t.Fatalf("ListTools: %v", err)
 	}
 	want := map[string]bool{
-		"bridge_list_projects": false,
-		"bridge_list_agents":   false,
-		"bridge_run_job":       false,
-		"bridge_get_job":       false,
-		"bridge_tail_log":      false,
-		"bridge_cancel_job":    false,
+		"bridge_list_projects":      false,
+		"bridge_list_agents":        false,
+		"bridge_run_job":            false,
+		"bridge_get_job":            false,
+		"bridge_tail_log":           false,
+		"bridge_cancel_job":         false,
+		"bridge_get_interactions":   false,
+		"bridge_answer_interaction": false,
 	}
 	for _, tl := range res.Tools {
 		if _, ok := want[tl.Name]; ok {
@@ -102,6 +104,10 @@ func TestListToolsAllPresent(t *testing.T) {
 		if !found {
 			t.Fatalf("tool %q missing from ListTools (got %d tools)", name, len(res.Tools))
 		}
+	}
+	// All eight bridge_* tools must be registered (no more, no fewer).
+	if len(res.Tools) != len(want) {
+		t.Fatalf("expected %d tools, got %d: %+v", len(want), len(res.Tools), res.Tools)
 	}
 }
 
@@ -364,5 +370,181 @@ func TestCancelUnknownJobTool(t *testing.T) {
 	}
 	if !res.IsError {
 		t.Fatalf("expected IsError for unknown job id")
+	}
+}
+
+// startRunningJob submits a long-lived exec job over the tool and polls (via the
+// service handle) until it reports running, so interactions can be raised while
+// the job is genuinely live. It cancels the job on cleanup.
+func startRunningJob(t *testing.T, session *mcp.ClientSession, jobs *job.Service) string {
+	t.Helper()
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "bridge_run_job",
+		Arguments: map[string]any{
+			"project_key": "self", "agent": "exec", "runner": "local",
+			"cmd": []string{"sleep", "30"}, "cwd": ".", "timeout_sec": 60,
+		},
+	})
+	if err != nil {
+		t.Fatalf("run_job: %v", err)
+	}
+	var created jobView
+	structured(t, res, &created)
+	if created.ID == "" {
+		t.Fatalf("run_job returned no id: %+v", created)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if r, ok := jobs.Get(created.ID); ok &&
+			(r.Status == job.StatusRunning || r.Status == job.StatusPendingInteraction) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Cleanup(func() { _ = jobs.Cancel(created.ID) })
+	return created.ID
+}
+
+// TestInteractionToolsRoundTrip drives the two new interaction tools end to end:
+// a pending interaction is raised on a live job via the service (MCP has no
+// create tool), then read with bridge_get_interactions, answered with
+// bridge_answer_interaction, and re-read to confirm the answered state.
+func TestInteractionToolsRoundTrip(t *testing.T) {
+	session, jobs := connect(t)
+	jobID := startRunningJob(t, session, jobs)
+
+	created, err := jobs.CreateInteraction(jobID, job.InteractionInput{
+		Type:   job.InteractionTypeQuestion,
+		Prompt: "continue?",
+	})
+	if err != nil {
+		t.Fatalf("CreateInteraction: %v", err)
+	}
+	if created.Status != job.InteractionPending {
+		t.Fatalf("created interaction status=%s, want pending", created.Status)
+	}
+
+	// bridge_get_interactions must surface the pending interaction.
+	getRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "bridge_get_interactions",
+		Arguments: map[string]any{"id": jobID},
+	})
+	if err != nil {
+		t.Fatalf("get_interactions: %v", err)
+	}
+	var got getInteractionsOutput
+	structured(t, getRes, &got)
+	if len(got.Interactions) != 1 || got.Interactions[0].ID != created.ID {
+		t.Fatalf("unexpected interactions: %+v", got.Interactions)
+	}
+	if got.Interactions[0].Status != job.InteractionPending || got.Interactions[0].JobID != jobID {
+		t.Fatalf("expected pending interaction for job %s: %+v", jobID, got.Interactions[0])
+	}
+
+	// bridge_answer_interaction answers it and returns the answered view.
+	ansRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "bridge_answer_interaction",
+		Arguments: map[string]any{
+			"id": jobID, "interaction_id": created.ID, "answer": "yes-go",
+		},
+	})
+	if err != nil {
+		t.Fatalf("answer_interaction: %v", err)
+	}
+	var answered interactionView
+	structured(t, ansRes, &answered)
+	if answered.Status != job.InteractionAnswered || answered.Answer != "yes-go" {
+		t.Fatalf("unexpected answered interaction: %+v", answered)
+	}
+
+	// Re-read confirms the answered state persisted.
+	getRes2, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "bridge_get_interactions",
+		Arguments: map[string]any{"id": jobID},
+	})
+	if err != nil {
+		t.Fatalf("get_interactions(2): %v", err)
+	}
+	var got2 getInteractionsOutput
+	structured(t, getRes2, &got2)
+	if len(got2.Interactions) != 1 || got2.Interactions[0].Status != job.InteractionAnswered {
+		t.Fatalf("expected answered after re-read, got %+v", got2.Interactions)
+	}
+	if got2.Interactions[0].Answer != "yes-go" {
+		t.Fatalf("expected answer 'yes-go', got %+v", got2.Interactions[0])
+	}
+}
+
+// TestGetInteractionsEmptyIsArray asserts an unknown job yields a non-nil empty
+// array (Out.interactions == []), not null.
+func TestGetInteractionsEmptyIsArray(t *testing.T) {
+	session, _ := connect(t)
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "bridge_get_interactions",
+		Arguments: map[string]any{"id": "does-not-exist"},
+	})
+	if err != nil {
+		t.Fatalf("get_interactions: %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("unexpected tool error for unknown job: %+v", res.Content)
+	}
+	var out getInteractionsOutput
+	structured(t, res, &out)
+	if out.Interactions == nil || len(out.Interactions) != 0 {
+		t.Fatalf("expected empty non-nil interactions array, got %v", out.Interactions)
+	}
+}
+
+// TestAnswerInteractionSchemaSnakeCase asserts the SDK-derived input schema for
+// bridge_answer_interaction uses snake_case property names (incl. interaction_id).
+func TestAnswerInteractionSchemaSnakeCase(t *testing.T) {
+	session, _ := connect(t)
+	res, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("ListTools: %v", err)
+	}
+	var tool *mcp.Tool
+	for _, tl := range res.Tools {
+		if tl.Name == "bridge_answer_interaction" {
+			tool = tl
+			break
+		}
+	}
+	if tool == nil {
+		t.Fatalf("bridge_answer_interaction not found")
+	}
+	b, err := json.Marshal(tool.InputSchema)
+	if err != nil {
+		t.Fatalf("marshal input schema: %v", err)
+	}
+	var schema struct {
+		Properties map[string]any `json:"properties"`
+	}
+	if err := json.Unmarshal(b, &schema); err != nil {
+		t.Fatalf("unmarshal input schema: %v", err)
+	}
+	for _, key := range []string{"id", "interaction_id", "answer"} {
+		if _, ok := schema.Properties[key]; !ok {
+			t.Fatalf("input schema missing snake_case property %q; properties=%v", key, schema.Properties)
+		}
+	}
+}
+
+// TestAnswerInteractionUnknownJobToolError asserts answering on an unknown job
+// surfaces a tool error (the service error is returned directly).
+func TestAnswerInteractionUnknownJobToolError(t *testing.T) {
+	session, _ := connect(t)
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "bridge_answer_interaction",
+		Arguments: map[string]any{
+			"id": "ghost", "interaction_id": "x", "answer": "a",
+		},
+	})
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("expected IsError for unknown job")
 	}
 }

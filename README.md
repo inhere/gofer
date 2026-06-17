@@ -182,7 +182,7 @@ agent-bridge mcp --config /abs/path/to/config.yaml
 }
 ```
 
-暴露的 6 个 tool（input/output 字段均为 snake_case，与 HTTP API 对齐）：
+暴露的 8 个 tool（input/output 字段均为 snake_case，与 HTTP API 对齐）：
 
 | Tool | 用途 |
 | --- | --- |
@@ -192,6 +192,18 @@ agent-bridge mcp --config /abs/path/to/config.yaml
 | `bridge_get_job` | 按 `id` 查询 job 当前状态 |
 | `bridge_tail_log` | 拉取 job 的 stdout/stderr 日志尾部（默认上限 256KB） |
 | `bridge_cancel_job` | 请求取消运行中的 job，返回当前状态 |
+| `bridge_get_interactions` | 列出 job 的运行中交互（待答问题及其答复） |
+| `bridge_answer_interaction` | 回答 job 的某条待答交互（`interaction_id` + `answer`），使 agent 继续 |
+
+## 运行中交互（P9）
+
+运行中的 agent / wrapper 可在执行途中向用户提问、等待回答后再继续：
+
+1. agent 经 `POST /v1/jobs/{id}/interactions` 提问，job 状态置为 `pending_interaction`。
+2. 用户经 `GET /v1/jobs/{id}/interactions` 看到 `pending` 交互，`POST .../answer`（body `{"answer":"..."}`）回答。
+3. 答复后该 job 无其它待答交互时自动回到 `running`，agent 读到答案继续直至完成。
+
+MCP 侧对应 `bridge_get_interactions`（读） + `bridge_answer_interaction`（答）。
 
 ## Web 控制台
 
@@ -226,6 +238,9 @@ HTTP server 基于 `gookit/rux`。`/health` 不鉴权；`/v1/*` 全部要求 `Au
 | `GET` | `/v1/jobs/{id}/logs/stdout` | 读取 stdout（尾部 256KB 限制） |
 | `GET` | `/v1/jobs/{id}/logs/stderr` | 读取 stderr（尾部 256KB 限制） |
 | `POST` | `/v1/jobs/{id}/cancel` | 取消 job |
+| `POST` | `/v1/jobs/{id}/interactions` | 运行中 agent 发起交互（提问） |
+| `GET` | `/v1/jobs/{id}/interactions` | 列出 job 的交互（`{"interactions":[...]}`） |
+| `POST` | `/v1/jobs/{id}/interactions/{interaction_id}/answer` | 回答某条待答交互（body `{"answer":"..."}`） |
 
 错误响应统一小结构（**不套**公司业务 `{status,code,message}` 信封）：
 
