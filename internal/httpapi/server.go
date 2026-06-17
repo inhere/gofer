@@ -78,6 +78,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/jobs/{id}", s.handleGetJob)
 		r.GET("/jobs/{id}/logs/stdout", s.handleJobLogsStdout)
 		r.GET("/jobs/{id}/logs/stderr", s.handleJobLogsStderr)
+		r.GET("/jobs/{id}/stream", s.handleJobStream)
 		r.POST("/jobs/{id}/cancel", s.handleCancelJob)
 	}, s.authMiddleware)
 

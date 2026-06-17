@@ -82,3 +82,8 @@ func isTerminal(status string) bool {
 		return false
 	}
 }
+
+// IsTerminal reports whether status is a finished state. It is the exported
+// counterpart of isTerminal, used by callers outside the package (e.g. the SSE
+// stream handler) to decide when to stop polling.
+func IsTerminal(status string) bool { return isTerminal(status) }
