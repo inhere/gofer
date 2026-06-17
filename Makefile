@@ -15,12 +15,23 @@ LDFLAGS := -s -w \
 	-X main.GitCommit=$(GIT_HASH) \
 	-X 'main.BuildDate=$(BUILD_TIME)'
 
-.PHONY: all build backend clean help latest
+.PHONY: all build backend clean help latest web
 
 DIST_DIR := dist
+WEBUI_DIST := internal/webui/dist
 
 ## all: build (default)
 all: build
+
+## web: build the web console (pnpm) and embed into internal/webui/dist (then `make build` to bake into the binary)
+web:
+	@command -v pnpm >/dev/null 2>&1 || corepack enable pnpm
+	pnpm -C web install --frozen-lockfile || pnpm -C web install
+	pnpm -C web build
+	@echo "📁 Embedding web/dist -> $(WEBUI_DIST)"
+	@find $(WEBUI_DIST) -mindepth 1 ! -name placeholder.html ! -name .gitignore -delete
+	@cp -r web/dist/. $(WEBUI_DIST)/
+	@echo "✅ web console embedded; run 'make build' to bake into the binary"
 
 ## build: build Go binary (current platform)
 build:
