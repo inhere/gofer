@@ -8,6 +8,7 @@
 | 版本 | 日期 | 修改人 | 调整说明 |
 |---|---|---|---|
 | v0.1 | 2026-06-16 | Claude | 初版：web-P1 任务分解（jobs.jsonl 索引 / GET /v1/jobs / SSE 流 / webui 嵌入 / 前端脚手架与页面 / 验收）；web-P2 大纲 |
+| v0.2 | 2026-06-16 | Claude | **web-P1 (T1–T8) 全部实现完成**（SUPMODE，cvt.2–9 closed）。后端 59a4ea8/ca02c8c/aa79c78/682344e；前端 5e2dd3c/0f4bdc2/268d880/f4dc93a/c7ae046。go 全量 `-race` 绿、curl E2E 9/9 通过。两处实施偏离已纳实现：① 日志走 SSE 单一来源（不用 logsTail+from=tailLen，规避 >256KB 缺口/重复）；② 不改根 `.gitignore`（用 `web/.gitignore`+`internal/webui/dist/.gitignore`）。剩浏览器手验清单与 web-P2（依赖主计划 P9）。 |
 
 ## 0. 前置（设计 v0.2 已确认）
 
