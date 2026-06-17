@@ -74,6 +74,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/agents", s.handleListAgents)
 
 		r.POST("/jobs", s.handleCreateJob)
+		r.GET("/jobs", s.handleListJobs)
 		r.GET("/jobs/{id}", s.handleGetJob)
 		r.GET("/jobs/{id}/logs/stdout", s.handleJobLogsStdout)
 		r.GET("/jobs/{id}/logs/stderr", s.handleJobLogsStderr)

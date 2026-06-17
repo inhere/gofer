@@ -4,6 +4,7 @@ import (
 	"errors"
 	"net/http"
 	"path/filepath"
+	"strconv"
 
 	"github.com/gookit/rux/v2"
 
@@ -41,6 +42,24 @@ func submitStatus(err error) int {
 		return http.StatusNotFound
 	}
 	return http.StatusBadRequest
+}
+
+// handleListJobs returns job snapshots merged from the per-project index and
+// the in-memory live state. Optional query params: status, project, limit (a
+// non-numeric limit falls back to the default). The list is always a non-nil
+// array, so an empty result serialises as {"jobs":[]}.
+func (s *Server) handleListJobs(c *rux.Context) {
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	list, err := s.jobs.ListJobs(job.ListOpts{
+		Project: c.Query("project"),
+		Status:  c.Query("status"),
+		Limit:   limit,
+	})
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "list jobs failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"jobs": list})
 }
 
 // handleGetJob returns the current snapshot of a job; an unknown id is a 404.
