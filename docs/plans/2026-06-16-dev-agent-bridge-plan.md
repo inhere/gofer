@@ -696,6 +696,8 @@ git commit -m "feat(agent-bridge): add peer http runner"
 
 ### P8：MCP Server
 
+> **状态：✅ 已完成（2026-06-17）** — 官方 `modelcontextprotocol/go-sdk` v1.6.1，stdio，6 tool 全 snake_case。commit `c112f12`（前置共享装配 `2d6dcf2`）。细节见 [`2026-06-17-p8-p9-prepare.md`](./2026-06-17-p8-p9-prepare.md)。
+
 目标：让支持 MCP 的 Agent 可直接调用桥接能力。
 
 任务：
@@ -726,6 +728,8 @@ git commit -m "feat(agent-bridge): add mcp tools"
 ```
 
 ### P9：运行中 Agent 双向交互
+
+> **状态：✅ 已完成（2026-06-17）** — A 档显式协议（HTTP 建/答 + 轮询，不引入 ACP/PTY）。模型+store+state machine `496e98c`、HTTP 3 端点 `6dc1247`、MCP 2 tool + 真实子进程 wrapper e2e `9516c85`。细节见 [`2026-06-17-p8-p9-prepare.md`](./2026-06-17-p8-p9-prepare.md)。
 
 目标：支持 Agent 执行中提出问题或选项，由用户通过 HTTP/MCP 回答后继续处理。
 
