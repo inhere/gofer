@@ -106,6 +106,10 @@ func applyDefaults(cfg *Config) {
 	if cfg.Server.Addr == "" {
 		cfg.Server.Addr = DefaultAddr
 	}
+	if cfg.Server.WebEnabled == nil {
+		t := true
+		cfg.Server.WebEnabled = &t
+	}
 	if cfg.Storage.DefaultExchangeSubdir == "" {
 		cfg.Storage.DefaultExchangeSubdir = DefaultExchangeSubdir
 	}

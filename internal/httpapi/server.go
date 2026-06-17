@@ -20,6 +20,7 @@ import (
 	"dev-agent-bridge/internal/config"
 	"dev-agent-bridge/internal/job"
 	"dev-agent-bridge/internal/project"
+	"dev-agent-bridge/internal/webui"
 )
 
 // Server holds the wired dependencies and the rux router. It is constructed once
@@ -38,6 +39,10 @@ type Server struct {
 	// command also refuses to start, see internal/commands/serve.go).
 	token           string
 	allowEmptyToken bool
+
+	// webEnabled mounts the embedded web console (static SPA) as the NotFound
+	// fallback for GET requests. Resolved from serverCfg.IsWebEnabled() in New.
+	webEnabled bool
 }
 
 // New builds a Server: it resolves the effective token, wires the rux router
@@ -54,6 +59,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		agents:          agents,
 		token:           token,
 		allowEmptyToken: allowEmptyToken,
+		webEnabled:      serverCfg.IsWebEnabled(),
 	}
 	s.router = s.buildRouter()
 	return s
@@ -81,6 +87,22 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/jobs/{id}/stream", s.handleJobStream)
 		r.POST("/jobs/{id}/cancel", s.handleCancelJob)
 	}, s.authMiddleware)
+
+	// Mount the embedded web console (static SPA shell, no auth) as the NotFound
+	// fallback. /health and /v1/* are concrete routes and match first; any other
+	// GET falls through to the SPA so client-side routes (e.g. /board) resolve to
+	// index.html. Non-GET unmatched requests return 404 (rux routes method
+	// mismatches to NotFound too, see plan/T4 notes).
+	if s.webEnabled {
+		h, _ := webui.Handler()
+		r.NotFound(func(c *rux.Context) {
+			if c.Req.Method != http.MethodGet {
+				http.NotFound(c.Resp, c.Req)
+				return
+			}
+			h.ServeHTTP(c.Resp, c.Req)
+		})
+	}
 
 	return r
 }

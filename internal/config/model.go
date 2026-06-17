@@ -25,7 +25,15 @@ type ServerConfig struct {
 	Token           string `yaml:"token"`
 	TokenEnv        string `yaml:"token_env"`
 	AllowEmptyToken bool   `yaml:"allow_empty_token"`
+	// WebEnabled is a pointer so that "unset" (nil) can default to true while an
+	// explicit web_enabled:false disables the embedded web console (see
+	// IsWebEnabled and applyDefaults).
+	WebEnabled *bool `yaml:"web_enabled"`
 }
+
+// IsWebEnabled reports whether the web console should be mounted. Unset (nil)
+// defaults to true; an explicit web_enabled:false disables it.
+func (sc ServerConfig) IsWebEnabled() bool { return sc.WebEnabled == nil || *sc.WebEnabled }
 
 // StorageConfig holds defaults for the per-project exchange/result subdirs and
 // an optional global store root. When Root is empty (default), each project
