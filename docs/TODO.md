@@ -7,9 +7,8 @@
 - [ ] 项目名(暂缓，沿用 dev-agent-bridge / AGENT_BRIDGE_ 前缀)：
   - Ferry （渡船 / 摆渡人） 含义：把 prompt/命令“摆渡”到目标项目目录里执行，再把日志/结果“摆渡”回来。完美替代“bridge”的动态感（bridge是静态的，ferry是主动往返的）
   - Convey（输送 / 传达） 含义：强调“输送任务 + 回传结果”的管道感，同时带有“传送指令”的语义，非常贴合 {项目, agent, prompt} 的提交模式。
-- [ ] 给 peer-http runner 补 P9 交互透传
-  - 现状：`internal/runner/peerhttp/runner.go` 的 `handleFrame` 只镜像 `log`/`status`/`end`，**不处理 peer SSE 的 `interaction` 事件** → peer 上的交互在 host 侧看不到，只能去 peer 上答。
-  - 补法：mirrorStream 把 peer 的 `interaction` 帧注入 host job 记录（host 转 pending_interaction）；host 侧作答经 peer 的 `POST /v1/jobs/{peerID}/interactions/{iid}/answer` 回程。与 [[ws-worker 设计 §8.3]] 的跨线思路一致。
+- [x] 给 peer-http runner 补 P9 交互透传（commit `1d8ed80`）
+  - mirrorStream 处理 peer SSE 的 `interaction` 帧 → 经新增 `runner.InteractionSink`（`job.injectInteraction`）注入 host job（host 转 pending_interaction）；host 侧作答经 `client.AnswerInteraction` POST 回 peer `/answer` 续跑。中性类型在 runner 基包避免 import 环。测试 host+peer 双 bridge E2E。
 - [ ] 支持远端机器运行作为客户端与server通信，暂定使用 ws 协议通信并保持连接
   - **设计已细化** → [`design/2026-06-17-ws-remote-worker-design.md`](design/2026-06-17-ws-remote-worker-design.md)（Worker 执行机 + 流式推送 server 镜像 + 显式 worker_id + 与 peer-http 并存；WP1-WP4 分期）。待评审后写实施计划。
   - 客户端也有任务记录信息 → 已解：server 镜像为 server 侧真源，worker 本地另留一份，互不耦合。
