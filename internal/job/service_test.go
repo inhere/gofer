@@ -1,6 +1,7 @@
 package job
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -202,7 +203,8 @@ func TestRunnerNotAllowedRejected(t *testing.T) {
 
 // TestTerminalMetadataPersistedToDB asserts the terminal job snapshot is
 // persisted into the metadata store (the result.json file write was removed in
-// SP2) and that request.json is still written on disk (SP5 moves it into the DB).
+// SP2) and that the original request rides into the request_json column (SP5:
+// the on-disk request.json file is no longer written).
 func TestTerminalMetadataPersistedToDB(t *testing.T) {
 	root := t.TempDir()
 	s := newTestService(t, root)
@@ -229,9 +231,21 @@ func TestTerminalMetadataPersistedToDB(t *testing.T) {
 	if rec.UpdatedAt == 0 {
 		t.Fatalf("metadata updated_at not stamped: %+v", rec)
 	}
-	// request.json must still exist on disk.
-	if _, err := os.Stat(filepath.Join(dir, store.RequestFile)); err != nil {
-		t.Fatalf("request.json missing: %v", err)
+	// The original request is persisted into the request_json column (SP5), and
+	// decodes back to the submitted request.
+	if rec.RequestJSON == "" {
+		t.Fatalf("metadata request_json not persisted: %+v", rec)
+	}
+	var gotReq JobRequest
+	if err := json.Unmarshal([]byte(rec.RequestJSON), &gotReq); err != nil {
+		t.Fatalf("request_json not valid JSON: %v", err)
+	}
+	if gotReq.ProjectKey != "self" || gotReq.Agent != "exec" || gotReq.Runner != "local" {
+		t.Fatalf("request_json round-trip mismatch: %+v", gotReq)
+	}
+	// The on-disk request.json file must no longer be written (SP5).
+	if _, err := os.Stat(filepath.Join(dir, "request.json")); !os.IsNotExist(err) {
+		t.Fatalf("request.json should not be written on disk anymore, stat err=%v", err)
 	}
 }
 

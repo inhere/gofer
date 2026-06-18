@@ -2,6 +2,10 @@
 // loader/writer that resolve, decode, default and persist it. See plan §6.1.
 package config
 
+import (
+	"time"
+)
+
 // Default values used during config loading. See plan §6.1.
 const (
 	DefaultAddr           = "0.0.0.0:8765"
@@ -46,6 +50,45 @@ type StorageConfig struct {
 	// DBPath is the optional explicit path to the SQLite metadata database. When
 	// empty it is resolved by ResolveDBPath from Root / the config dir.
 	DBPath string `yaml:"db_path"`
+	// Retention bounds how many terminal jobs (and their logs) are kept; the
+	// periodic prune in serve enforces it. Unset (all fields <= 0) disables prune.
+	Retention RetentionConfig `yaml:"retention"`
+}
+
+// RetentionConfig is the YAML form of the job retention policy enforced by the
+// serve prune loop (design §13 SP5). All fields default to 0 (disabled): with no
+// retention configured the server never prunes (zero behaviour change).
+type RetentionConfig struct {
+	// MaxAgeDays, when > 0, prunes terminal jobs older than this many days.
+	MaxAgeDays int `yaml:"max_age_days"`
+	// MaxCount, when > 0, keeps only the newest MaxCount terminal jobs.
+	MaxCount int `yaml:"max_count"`
+	// IntervalMinutes is the prune cadence; <= 0 falls back to a default (60m) in
+	// the serve loop. Only consulted when MaxAgeDays or MaxCount is > 0.
+	IntervalMinutes int `yaml:"prune_interval_minutes"`
+}
+
+// Enabled reports whether any retention bound is set (so the serve prune loop
+// should run). The interval alone does not enable prune.
+func (r RetentionConfig) Enabled() bool { return r.MaxAgeDays > 0 || r.MaxCount > 0 }
+
+// MaxAge converts MaxAgeDays into a time.Duration (0 days => 0, i.e. no age
+// bound). The job package maps this onto a jobstore.RetentionPolicy — config
+// stays free of a jobstore dependency so it remains a leaf imported everywhere.
+func (r RetentionConfig) MaxAge() time.Duration {
+	if r.MaxAgeDays > 0 {
+		return time.Duration(r.MaxAgeDays) * 24 * time.Hour
+	}
+	return 0
+}
+
+// PruneInterval returns the prune cadence, defaulting to 60 minutes when the
+// configured interval is <= 0.
+func (r RetentionConfig) PruneInterval() time.Duration {
+	if r.IntervalMinutes > 0 {
+		return time.Duration(r.IntervalMinutes) * time.Minute
+	}
+	return 60 * time.Minute
 }
 
 // ProjectConfig describes a single registered project. ExchangeSubdir and

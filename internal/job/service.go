@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -140,7 +141,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 
 	// Result base dir + a collision-resistant job id; create the dir up front.
 	// The host keeps a local result dir even for proxied jobs so its logs (mirrored
-	// from the peer), request.json and index entry stay queryable.
+	// from the peer) and DB index entry stay queryable.
 	base, err := project.ResultBaseDir(s.cfg, req.ProjectKey, proj)
 	if err != nil {
 		return JobResult{}, err
@@ -152,8 +153,12 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	}
 	resultDir := st.Dir(jobID)
 
-	if err := st.WriteRequest(jobID, req); err != nil {
-		return JobResult{}, fmt.Errorf("write request: %w", err)
+	// Marshal the original request for audit / re-submit. It rides along on the
+	// entry's result so every persist (queued/running/terminal) carries it into the
+	// jobs.request_json column (SP5: replaces the on-disk request.json file).
+	reqJSON, err := json.Marshal(req)
+	if err != nil {
+		return JobResult{}, fmt.Errorf("marshal request: %w", err)
 	}
 
 	run := s.runners[req.Runner]
@@ -196,14 +201,15 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		store: st,
 		done:  make(chan struct{}),
 		result: JobResult{
-			ID:         jobID,
-			ProjectKey: req.ProjectKey,
-			Agent:      req.Agent,
-			Runner:     req.Runner,
-			Status:     StatusQueued,
-			Cwd:        workDir,
-			ResultDir:  resultDir,
-			StartedAt:  now,
+			ID:          jobID,
+			ProjectKey:  req.ProjectKey,
+			Agent:       req.Agent,
+			Runner:      req.Runner,
+			Status:      StatusQueued,
+			Cwd:         workDir,
+			ResultDir:   resultDir,
+			StartedAt:   now,
+			RequestJSON: string(reqJSON),
 		},
 	}
 	s.mu.Lock()
@@ -237,8 +243,9 @@ func (s *Service) semaphore(projectKey string, limit int) chan struct{} {
 }
 
 // execute runs the job: it acquires the project concurrency slot, opens the log
-// files, runs the command under a timeout context and records the terminal
-// status + result.json. While the job waits for a slot it stays in `queued`.
+// files, runs the command under a timeout context and persists the terminal
+// status to the metadata store. While the job waits for a slot it stays in
+// `queued`.
 func (s *Service) execute(entry *jobEntry, run runner.Runner, sem chan struct{}, req runner.Request, timeout time.Duration) {
 	defer close(entry.done)
 
@@ -342,23 +349,24 @@ func (s *Service) persist(snap JobResult) error {
 }
 
 // toRecord projects a JobResult onto the neutral jobstore.JobRecord written to
-// SQLite. SP2 leaves RequestJSON empty (request.json still lives on disk, SP5
-// moves it into the request_json column) and WorkerID empty (reserved for the
-// ws-worker runner).
+// SQLite. SP5 carries RequestJSON into the request_json column (the on-disk
+// request.json file is no longer written). WorkerID stays empty (reserved for
+// the ws-worker runner).
 func toRecord(r JobResult) jobstore.JobRecord {
 	return jobstore.JobRecord{
-		ID:         r.ID,
-		ProjectKey: r.ProjectKey,
-		Agent:      r.Agent,
-		Runner:     r.Runner,
-		Status:     r.Status,
-		ExitCode:   r.ExitCode,
-		Cwd:        r.Cwd,
-		ResultDir:  r.ResultDir,
-		Error:      r.Error,
-		StartedAt:  r.StartedAt,
-		EndedAt:    r.EndedAt,
-		UpdatedAt:  r.UpdatedAt,
+		ID:          r.ID,
+		ProjectKey:  r.ProjectKey,
+		Agent:       r.Agent,
+		Runner:      r.Runner,
+		Status:      r.Status,
+		ExitCode:    r.ExitCode,
+		Cwd:         r.Cwd,
+		ResultDir:   r.ResultDir,
+		RequestJSON: r.RequestJSON,
+		Error:       r.Error,
+		StartedAt:   r.StartedAt,
+		EndedAt:     r.EndedAt,
+		UpdatedAt:   r.UpdatedAt,
 	}
 }
 
@@ -366,18 +374,19 @@ func toRecord(r JobResult) jobstore.JobRecord {
 // read path for ListJobs/Get when a job is not (or no longer) in memory.
 func fromRecord(rec jobstore.JobRecord) JobResult {
 	return JobResult{
-		ID:         rec.ID,
-		ProjectKey: rec.ProjectKey,
-		Agent:      rec.Agent,
-		Runner:     rec.Runner,
-		Status:     rec.Status,
-		ExitCode:   rec.ExitCode,
-		Cwd:        rec.Cwd,
-		ResultDir:  rec.ResultDir,
-		StartedAt:  rec.StartedAt,
-		EndedAt:    rec.EndedAt,
-		UpdatedAt:  rec.UpdatedAt,
-		Error:      rec.Error,
+		ID:          rec.ID,
+		ProjectKey:  rec.ProjectKey,
+		Agent:       rec.Agent,
+		Runner:      rec.Runner,
+		Status:      rec.Status,
+		ExitCode:    rec.ExitCode,
+		Cwd:         rec.Cwd,
+		ResultDir:   rec.ResultDir,
+		RequestJSON: rec.RequestJSON,
+		StartedAt:   rec.StartedAt,
+		EndedAt:     rec.EndedAt,
+		UpdatedAt:   rec.UpdatedAt,
+		Error:       rec.Error,
 	}
 }
 
