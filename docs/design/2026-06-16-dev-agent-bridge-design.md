@@ -16,6 +16,7 @@
 > 文档类型：工具内设计文档。本文只围绕 `tools/codex-bridge` 这个开发辅助工具自身做设计和调整，不要求也不默认修改任何被操作项目代码。
 > "给其他项目使用" 指任意被 Docker 挂载、且在本工具配置中显式登记的目录 / 项目；不限于当前 `hyy-ai-inspect` 工作空间内的子项目。
 > **子设计**：Web 控制台见 [`2026-06-16-web-console-design.md`](./2026-06-16-web-console-design.md)（实时监控/日志/交互的浏览器界面，依赖本文 §10 / §12.4）。
+> **先读总览**：术语与两条正交轴（接入入口 / 执行位置）见 [`architecture-overview.md`](./architecture-overview.md)。
 
 ## 1. 背景
 
