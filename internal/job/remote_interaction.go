@@ -63,7 +63,7 @@ func fromRemoteOptions(in []runner.RemoteInteractionOption) []InteractionOption 
 func (s *Service) injectInteraction(jobID string, it Interaction) error {
 	entry := s.entry(jobID)
 	if entry == nil {
-		return fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
+		return s.notLiveErr(jobID, "inject")
 	}
 
 	entry.mu.Lock()
@@ -88,7 +88,7 @@ func (s *Service) injectInteraction(jobID string, it Interaction) error {
 
 	// Persist outside the lock, mirroring CreateInteraction: the job snapshot into
 	// the metadata store (best-effort) and the pending interaction line.
-	s.persist(snap)
+	_ = s.persist(snap)
 	_ = entry.store.AppendInteraction(jobID, it)
 
 	return nil

@@ -211,7 +211,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	s.mu.Unlock()
 
 	// Record the initial (queued) snapshot in the metadata store.
-	s.persist(entry.snapshot())
+	_ = s.persist(entry.snapshot())
 
 	sem := s.semaphore(req.ProjectKey, proj.MaxConcurrentJobs)
 	timeout := normalizeTimeout(req.TimeoutSec)
@@ -269,7 +269,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem chan struct{},
 	entry.mu.Unlock()
 
 	// Persist a running snapshot so a crash leaves an inspectable DB row.
-	s.persist(snap)
+	_ = s.persist(snap)
 
 	stdout, errOut := entry.store.LogWriter(req.JobID, store.StreamStdout)
 	if errOut != nil {
@@ -292,9 +292,18 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem chan struct{},
 	s.finish(entry, req.JobID, status, code, runErr)
 }
 
-// finish records the terminal state for a job: it updates the in-memory snapshot
-// and upserts the terminal row into the metadata store. SP2 keeps the entry in
-// memory (SP3 evicts it after finish).
+// finish records the terminal state for a job: it updates the in-memory snapshot,
+// upserts the terminal row into the metadata store, then evicts the entry from
+// the in-memory map so memory stays bounded by the live (queued/running/
+// pending_interaction) set rather than the historical job count (SP3, design §8 —
+// roots out the C1 in-memory unbounded growth).
+//
+// Eviction order matters for concurrency: it removes the entry from s.jobs only;
+// it does NOT touch entry.done. The execute goroutine still closes entry.done via
+// its deferred close after finish returns, so any Wait caller that already grabbed
+// the entry pointer (before eviction) still unblocks and snapshots the terminal
+// result — the eviction only severs the map lookup for future callers, which then
+// fall back to the metadata store (see Wait/Get/Cancel).
 func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, err error) {
 	entry.mu.Lock()
 	entry.result.Status = status
@@ -306,17 +315,30 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	snap := entry.result
 	entry.mu.Unlock()
 
-	// Record the terminal snapshot in the metadata store.
-	s.persist(snap)
+	// Record the terminal snapshot in the metadata store FIRST, so the DB always
+	// has the terminal row before the entry stops being reachable in memory: a
+	// reader that misses the evicted entry must find the terminal state in the DB.
+	//
+	// Evict ONLY when that write durably succeeded. Otherwise the in-memory entry
+	// is the job's sole surviving copy (it never reached the DB), so we keep it in
+	// the map rather than lose the job. Live-job memory is then bounded by the
+	// (near-zero, given Store.writeMu) count of jobs whose terminal write failed,
+	// not by history — C1's invariant still holds.
+	persistErr := s.persist(snap)
+	if persistErr == nil && isTerminal(status) {
+		s.mu.Lock()
+		delete(s.jobs, jobID)
+		s.mu.Unlock()
+	}
 }
 
 // persist upserts one JobResult snapshot into the metadata store, stamping
-// UpdatedAt with the current time. It is best-effort: a write failure must not
-// fail the job (matching the old appendIndex/WriteResult best-effort semantics)
-// — the in-memory snapshot remains authoritative for live jobs.
-func (s *Service) persist(snap JobResult) {
+// UpdatedAt with the current time. It returns the write error so finish can gate
+// eviction on a durable terminal write; non-terminal callers (queued/running/
+// interaction snapshots, where the entry stays in memory) ignore it best-effort.
+func (s *Service) persist(snap JobResult) error {
 	snap.UpdatedAt = s.nowFn().Unix()
-	_ = s.meta.UpsertJob(toRecord(snap))
+	return s.meta.UpsertJob(toRecord(snap))
 }
 
 // toRecord projects a JobResult onto the neutral jobstore.JobRecord written to

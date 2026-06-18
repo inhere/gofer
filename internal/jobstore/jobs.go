@@ -95,6 +95,10 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     started_at=excluded.started_at,
     ended_at=excluded.ended_at,
     updated_at=excluded.updated_at`
+	// Serialise writes in-process (see Store.writeMu) so SQLite never sees two
+	// concurrent writers and cannot return SQLITE_BUSY under burst.
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	_, err := s.db.Exec(q,
 		rec.ID, rec.ProjectKey, rec.Agent, rec.Runner, rec.WorkerID,
 		rec.Status, rec.ExitCode, rec.Cwd, rec.ResultDir, rec.RequestJSON,
