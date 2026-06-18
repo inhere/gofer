@@ -9,6 +9,7 @@
 |---|---|---|---|
 | v0.1 | 2026-06-16 | Claude | 初版：web-P1 任务分解（jobs.jsonl 索引 / GET /v1/jobs / SSE 流 / webui 嵌入 / 前端脚手架与页面 / 验收）；web-P2 大纲 |
 | v0.2 | 2026-06-16 | Claude | **web-P1 (T1–T8) 全部实现完成**（SUPMODE，cvt.2–9 closed）。后端 59a4ea8/ca02c8c/aa79c78/682344e；前端 5e2dd3c/0f4bdc2/268d880/f4dc93a/c7ae046。go 全量 `-race` 绿、curl E2E 9/9 通过。两处实施偏离已纳实现：① 日志走 SSE 单一来源（不用 logsTail+from=tailLen，规避 >256KB 缺口/重复）；② 不改根 `.gitignore`（用 `web/.gitignore`+`internal/webui/dist/.gitignore`）。剩浏览器手验清单与 web-P2（依赖主计划 P9）。 |
+| v0.3 | 2026-06-17 | Claude | P9 后端已落地（HTTP create/list/answer + MCP + 状态机），**web-P2 大纲细化为 §6 code-level 任务（W1 后端 SSE interaction 事件 / W2 前端 api 类型+client / W3 InteractionCard 组件 / W4 JobDetail 接入 / W5 Board+StatusBadge ⚠ 态 / W6 构建+浏览器手验）**，SUPMODE 推进。 |
 
 ## 0. 前置（设计 v0.2 已确认）
 
@@ -248,11 +249,44 @@ web/
 | 前端 SSE 解析 `--` 分帧边界 | reader 累积缓冲、按 `\n\n` 切帧，跨 chunk 安全 |
 | node/pnpm 环境 | CI/本机需 node 20+；Makefile `make web` 统一入口 |
 
-## 6. web-P2 大纲（依赖主 plan P9，暂不细化）
+## 6. web-P2 任务分解（code-level；P9 后端已落地）
 
-- 后端（= P9）：`interactions.jsonl` 写入、`pending_interaction` 状态、`GET /v1/jobs/{id}/interactions` + `POST .../answer`、Agent 发起交互机制（方向 A）；`stream` 增 `interaction` 事件。
-- 前端：交互卡（question/choice/confirmation）、SSE `interaction` 渲染、Board ⚠ 态、排队作答。
-- P9 落地后据其接口细化本节为完整任务分解。
+> P9 后端已交付：`interactions.jsonl`、`pending_interaction` 状态、`POST/GET /v1/jobs/{id}/interactions`、`POST .../{iid}/answer`、MCP `bridge_get_interactions`/`bridge_answer_interaction`。web-P2 = 在既有 SSE 单连上增 `interaction` 事件 + 前端交互卡。
+
+**事件契约（设计 §5.2）**：`event: interaction` / `data: {action:"open"|"answered"|"cancelled", interaction:<Interaction>}`。`Interaction` 字段同后端 snake_case：`id/job_id/type/prompt/options/status/answer/created_at/answered_at`，`type∈{question,choice,confirmation}`，`options:[{value,label}]`。
+
+### W1 — 后端 SSE `interaction` 事件（internal/httpapi/stream_handler.go）
+- handleJobStream 轮询循环加 interaction 维度：维护 `seenStatus map[string]string`（interaction id→上次发出的 status）。
+- 初次连接 + 每 tick：`its,_ := s.jobs.GetInteractions(id)`，对每条 it：若 `seenStatus[it.ID] != it.Status` → 发 `interaction`；action 由 status 派生：`pending→"open"`、`answered→"answered"`、`cancelled→"cancelled"`；更新 seenStatus。
+- finish() 收尾也跑一遍 interaction 同步（确保终态前最后一次答复被推出）。
+- 复用 `writeSSE(w,flusher,"interaction", payload)`；payload `struct{Action string `json:"action"`; Interaction job.Interaction `json:"interaction"`}`。
+- 测试：stream_test.go 加用例——live job 上 Service.CreateInteraction 后，SSE 流收到 `interaction{action:"open"}`；Answer 后收到 `interaction{action:"answered"}`。（沿用现有 stream 测试起 httptest server 的手法。）
+
+### W2 — 前端 api 类型 + client（web/src/api/{types.ts,client.ts}）
+- types.ts：`JobStatus` 加 `'pending_interaction'`；新增 `InteractionType='question'|'choice'|'confirmation'`、`InteractionStatus='pending'|'answered'|'cancelled'`、`InteractionOption{value:string;label?:string}`、`Interaction{...}`；`SSEEventType` 加 `'interaction'`；新增 `SSEInteractionData{action:'open'|'answered'|'cancelled';interaction:Interaction}`。
+- client.ts：新增 `answerInteraction(id,iid,answer):Promise<Interaction>`（POST `/v1/jobs/{id}/interactions/{iid}/answer` body `{answer}`）；可选 `getInteractions(id)`（GET，断线兜底）。`STATUS_COLOR` 补 `pending_interaction: 'var(--phosphor)'`。
+
+### W3 — InteractionCard 组件（web/src/components/InteractionCard.vue）
+- props `interaction: Interaction`；emit `answer(value:string)`。
+- `question`→文本框+提交；`choice`→`options` 渲染按钮组（点击即提交 value）；`confirmation`→确认/取消两按钮（提交 `"yes"`/`"no"` 或 option value）。
+- `status==='answered'` 显示只读「已提交：{answer}」；提交中禁用、防重复。
+- 视觉用 tokens.css（`--phosphor` 强调、`--panel/--line`），交互卡一次性滑入；`prefers-reduced-motion` 关动效。a11y：label 关联、键盘可达、焦点环。
+
+### W4 — JobDetail 接入（web/src/views/JobDetail.vue）
+- onEvent 处理 `ev.type==='interaction'`：用 `Map<id,Interaction>`（reactive）按 `interaction.id` upsert。
+- 模板在日志带上方渲染 pending 交互卡（按 `created_at` 升序排队，逐个作答）；answered 的折叠/淡出。
+- 卡片 `@answer` → `answerInteraction(id,iid,val)`，乐观置该条 answered（最终以 SSE `answered` 回填）；失败显示错误。
+- 断线重连：interaction 事件随 stream 重放（后端初连即重发 seenStatus 全量），无需额外处理。
+
+### W5 — Board + StatusBadge ⚠ 态（web/src/views/Board.vue, components/StatusBadge.vue）
+- StatusBadge：`pending_interaction` 显示 ⚠ 文案（如「待应答」）+ `--phosphor` 色。
+- Board：该状态行徽标转 ⚠；状态色复用 statusColor。
+- 看板 2~3s 轮询 `GET /v1/jobs` 已含该状态（ListJobs 合并内存态），无需改后端。
+
+### W6 — 构建 + 浏览器手验
+- `make web`（pnpm 构建 + 拷入 internal/webui/dist）→ `make build`。
+- 用 agent-browser 手验：起 serve（exec wrapper 或脚本造一个 pending_interaction job）→ 详情页弹交互卡 → 作答 → job 续跑日志推进 → Board ⚠ 态。截图存 tmp/。
+- 注意 memory 记录的 agent-browser 坑（fill 不触发响应式用 focus+type；弹窗拦截）。
 
 ## 7. 交付顺序
 
