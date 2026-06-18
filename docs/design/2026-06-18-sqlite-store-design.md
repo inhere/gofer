@@ -8,6 +8,7 @@
 |---|---|---|---|
 | v0.1 | 2026-06-18 | Claude | 初版：SQLite（modernc 纯 Go）做 job 元数据/索引/交互 store，日志仍文件；in-memory 仅保留 live job；分期 SP1–SP5。已确认"直接上 SQLite"。 |
 | v0.2 | 2026-06-18 | Claude | 确认**不迁移**（fresh-start、不提供 import、直接切 DB、无双写）；request.json SP1/SP2 留文件、SP5 入列。§10/§14 据此收敛。 |
+| v0.3 | 2026-06-18 | Claude | **SP1–SP5 全部实施完成并提交**（SUPMODE）。落地与设计的差异/补充见 §13 实施结果与 §16 实施补记。 |
 
 ## 2. 背景与目标
 
@@ -151,6 +152,16 @@ storage:
 
 > 每个 SP 子阶段绿灯即提交（SR1202）。SP1–SP3 为 C1 核心；SP4–SP5 收尾增强。
 
+**实施结果（2026-06-18 SUPMODE，全部完成并提交）**：
+
+| 阶段 | commit | 结果 |
+|---|---|---|
+| SP1 | `7155917` | jobstore 包（Open/UpsertJob/GetJob/ListJobs，中性 JobRecord），并发写单测全绿 |
+| SP2 | `08b3713` | Service.meta + persist 直切 DB，ListJobs/Get 切 DB，config.ResolveDBPath，buildCore 持有/关库 |
+| SP3 | `aebe474` | finish 后驱逐内存（仅持久化成功才驱逐）+ 各读路径 DB 回退；**C1 内存侧根治** |
+| SP4 | `fcc6572` | interactions 入库（UpsertInteraction/ListInteractions），停写 interactions.jsonl |
+| SP5 | `f3ec55b` | request_json 入列停写 request.json + 清理 store 死方法 + PruneJobs 保留策略 + serve 周期 prune |
+
 ## 14. 已定 / 风险
 
 - **直接切 DB**（已定）：无双写过渡、不迁移（§10）。
@@ -162,3 +173,14 @@ storage:
 ## 15. 结论
 
 SQLite（modernc 纯 Go）做 job 元数据/索引/交互 store、日志仍文件、内存仅留 live job —— 根治 C1 三处无界增长，并原生支持列表过滤/分页/保留/搜索，对 SSE/日志/镜像/交互机制零破坏。建议按 SP1→SP3 先落 C1 核心，SP4→SP5 收尾。
+
+## 16. 实施补记（与设计的偏离/补充）
+
+实施中基于运行/测试证据做了两处必要调整（已在代码与对应 commit 落地）：
+
+- **§9 写并发——加进程内写锁（覆盖原"无需自建写锁"）**：`WAL + busy_timeout(5000)` 在全速并发 upsert 下仍偶发 `SQLITE_BUSY (database is locked)`。改为 `Store.writeMu` 串行化进程内写（单进程单库，读仍走连接池并发），彻底消除 BUSY。SP3 起 DB 是终态 job 唯一真源，故 `finish` 仅在 terminal 持久化**成功**后才驱逐内存（失败保留 entry，杜绝丢 job）。
+- **交互对"已驱逐终态 job"的错误码——确定性保持 409**：SP3 驱逐后终态 job 不在内存，与未知 job 不可区分；若直接返回 404 会与"未驱逐时返回 409"随时序抖动。改为交互入口（create/answer/inject）内存未命中时查 DB：命中=已驱逐终态→`ErrJobTerminal`(409)，否则 `ErrUnknownJob`(404)。对外契约保持 409 不变。
+
+- **新增字段**：`JobResult.updated_at`（对外可见，DB 排序/保留用）；`JobResult.RequestJSON`（`json:"-"`，仅审计/重投，不对外）。
+- **config 分层**：retention→jobstore.Policy 的转换放 job 包，`config` 不依赖 `jobstore`（保持 leaf）。
+- **优雅停机**：serve 周期 prune goroutine 随 serve 返回停止，与现有 `store.Close` 同口径；进程被信号直杀时不跑 defer（与现状一致，真正的信号优雅停机是 serve 独立增强，超出本设计范围）。
