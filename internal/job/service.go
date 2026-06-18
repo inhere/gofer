@@ -170,6 +170,8 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			Cwd:        req.Cwd,
 			TimeoutSec: req.TimeoutSec,
 		}
+		// Bridge the peer's running-job interactions (P9) onto this host job.
+		runReq.Interactions = remoteInteractionSink{s: s, jobID: jobID}
 	} else {
 		resolved, berr := s.agents.Build(req.Agent, req.Prompt, req.Cmd, agent.Vars{
 			Cwd:       workDir,

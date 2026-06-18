@@ -111,6 +111,18 @@ func (c *Client) CancelJob(id string) (job.JobResult, error) {
 	return res, err
 }
 
+// AnswerInteraction POSTs an answer to a peer interaction (P9 passthrough). The
+// updated Interaction body is not needed by the caller, so it is discarded.
+func (c *Client) AnswerInteraction(jobID, interactionID, answer string) error {
+	body, err := json.Marshal(map[string]string{"answer": answer})
+	if err != nil {
+		return fmt.Errorf("encode answer: %w", err)
+	}
+	return c.doJSON(http.MethodPost,
+		"/v1/jobs/"+url.PathEscape(jobID)+"/interactions/"+url.PathEscape(interactionID)+"/answer",
+		bytes.NewReader(body), nil)
+}
+
 // OpenStream issues a GET against /v1/jobs/{id}/stream under ctx, attaching the
 // bearer token, and returns the live SSE response. The caller owns closing the
 // body and parsing the SSE frames. Unlike the other helpers it streams (no

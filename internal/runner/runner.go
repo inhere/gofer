@@ -28,7 +28,9 @@ type Runner interface {
 //     MIRROR the peer's log stream back into these same writers, so the local
 //     job's stdout.log / stderr.log (and thus /logs, /stream and list) stay
 //     transparently usable for the proxied job. Command/Args/WorkDir are unset
-//     for remote runners (the peer resolves them with its own config).
+//     for remote runners (the peer resolves them with its own config). A remote
+//     runner additionally uses Interactions (an InteractionSink) to bridge the
+//     peer's running-job interactions (P9) onto the HOST job.
 //
 // Forward is nil for local jobs (the local runner ignores it) and set by the
 // job service for remote-runner jobs.
@@ -44,6 +46,37 @@ type Request struct {
 	// Forward carries the original (pre-resolution) request a remote runner
 	// re-submits to a peer bridge. Nil for local jobs.
 	Forward *Forward
+
+	// Interactions bridges a peer's running-job interactions onto the host job.
+	// Nil for local jobs; set by the job service for remote runners so a peer's
+	// interactions surface on the host job (see InteractionSink).
+	Interactions InteractionSink
+}
+
+// RemoteInteractionOption mirrors a peer interaction option without importing the
+// job package (runner must stay cycle-free: job imports runner).
+type RemoteInteractionOption struct {
+	Value string
+	Label string
+}
+
+// RemoteInteraction is a peer-raised interaction a remote runner surfaces to the
+// host job via an InteractionSink. Fields mirror job.Interaction's wire shape.
+type RemoteInteraction struct {
+	ID      string
+	Type    string
+	Prompt  string
+	Options []RemoteInteractionOption
+}
+
+// InteractionSink lets a remote runner bridge a peer's running-job interactions
+// into the HOST job: Open records the interaction on the host job (host ->
+// pending_interaction) and returns a channel delivering the host-side answer once
+// the user answers it; the runner then forwards that answer to the peer. The
+// channel is closed WITHOUT a value if the host job ends / ctx is cancelled before
+// an answer. Open must be idempotent-safe for a repeated interaction id.
+type InteractionSink interface {
+	Open(ctx context.Context, it RemoteInteraction) (<-chan string, error)
 }
 
 // Forward carries the original (pre-resolution) request a remote runner needs to
