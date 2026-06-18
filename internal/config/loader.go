@@ -116,6 +116,34 @@ func UserConfigPath() (string, error) {
 	return filepath.Join(dir, "config.yaml"), nil
 }
 
+// DBFileName is the SQLite metadata database file name used when db_path is
+// resolved from storage.root or the config dir (see ResolveDBPath, design §11).
+const DBFileName = "agent-bridge.db"
+
+// ResolveDBPath returns the SQLite metadata db path. Resolution order (design §11):
+//  1. an explicit Storage.DBPath;
+//  2. <Storage.Root>/agent-bridge.db when Root is set;
+//  3. <config-dir>/agent-bridge.db otherwise.
+//
+// It is a single global db (one file per bridge process), independent of the
+// per-project log result dirs.
+func (c *Config) ResolveDBPath() string {
+	if p := strings.TrimSpace(c.Storage.DBPath); p != "" {
+		return p
+	}
+	if root := strings.TrimSpace(c.Storage.Root); root != "" {
+		return filepath.Join(root, DBFileName)
+	}
+	// Fall back to the user config dir. ConfigDir only errors when the home dir
+	// cannot be determined; degrade to a bare filename in CWD so the bridge still
+	// has a usable (if non-ideal) path rather than failing to start.
+	dir, err := ConfigDir()
+	if err != nil || dir == "" {
+		return DBFileName
+	}
+	return filepath.Join(dir, DBFileName)
+}
+
 // candidatePaths lists the auto-discovery locations (current dir, then user).
 func candidatePaths() []string {
 	out := []string{CurrentDirConfigName}

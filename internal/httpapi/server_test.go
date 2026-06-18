@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -13,12 +14,25 @@ import (
 	"dev-agent-bridge/internal/agent"
 	"dev-agent-bridge/internal/config"
 	"dev-agent-bridge/internal/job"
+	"dev-agent-bridge/internal/jobstore"
 	"dev-agent-bridge/internal/project"
 	"dev-agent-bridge/internal/runner"
 	localrunner "dev-agent-bridge/internal/runner/local"
 )
 
 const testToken = "dev-token"
+
+// openTestStore opens a metadata store under root (cleaned up automatically) for
+// wiring a job.Service in tests. Shared across the httpapi test files.
+func openTestStore(t *testing.T, root string) *jobstore.Store {
+	t.Helper()
+	st, err := jobstore.Open(filepath.Join(root, "agent-bridge.db"))
+	if err != nil {
+		t.Fatalf("open jobstore: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	return st
+}
 
 // newTestServer builds a Server whose only project "self" allows the exec agent
 // and has allow_exec=true. Results are isolated under a temp storage root so
@@ -42,7 +56,7 @@ func newTestServer(t *testing.T, token string, allowEmpty bool) *Server {
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	jobs := job.NewService(cfg, projects, agents, runners)
+	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root))
 	return New(&cfg.Server, token, allowEmpty, jobs, projects, agents)
 }
 

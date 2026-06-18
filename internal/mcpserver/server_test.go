@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -11,6 +12,7 @@ import (
 	"dev-agent-bridge/internal/agent"
 	"dev-agent-bridge/internal/config"
 	"dev-agent-bridge/internal/job"
+	"dev-agent-bridge/internal/jobstore"
 	"dev-agent-bridge/internal/project"
 	"dev-agent-bridge/internal/runner"
 	localrunner "dev-agent-bridge/internal/runner/local"
@@ -36,7 +38,12 @@ func testCore(t *testing.T) (*job.Service, *project.Registry, *agent.Registry) {
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	jobs := job.NewService(cfg, projects, agents, runners)
+	meta, err := jobstore.Open(filepath.Join(root, "agent-bridge.db"))
+	if err != nil {
+		t.Fatalf("open jobstore: %v", err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	jobs := job.NewService(cfg, projects, agents, runners, meta)
 	return jobs, projects, agents
 }
 

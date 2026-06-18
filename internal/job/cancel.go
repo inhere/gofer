@@ -4,30 +4,25 @@ import (
 	"fmt"
 )
 
-// Get returns the current snapshot of a job. The boolean is false when no job
-// with that id is tracked in this process. The in-memory map is authoritative
-// for live jobs; callers that need historical jobs after a restart can fall
-// back to reading result.json via the store (GetPersisted).
+// Get returns the current snapshot of a job. The in-memory map is authoritative
+// for live jobs; when the id is not tracked in this process (e.g. after a
+// restart, or — from SP3 — a finished job evicted from memory) it falls back to
+// the metadata store. The boolean is false only when neither has the job.
 func (s *Service) Get(id string) (JobResult, bool) {
-	entry := s.entry(id)
-	if entry == nil {
-		return JobResult{}, false
+	if entry := s.entry(id); entry != nil {
+		return entry.snapshot(), true
 	}
-	return entry.snapshot(), true
+	if rec, ok, _ := s.meta.GetJob(id); ok {
+		return fromRecord(rec), true
+	}
+	return JobResult{}, false
 }
 
-// GetPersisted returns a job snapshot, falling back to result.json on disk when
-// the job is not in the in-process map (e.g. after a restart). base is the
-// result base dir for the job's project.
-func (s *Service) GetPersisted(base, id string) (JobResult, bool) {
-	if r, ok := s.Get(id); ok {
-		return r, true
-	}
-	var r JobResult
-	if err := s.newStore(base).ReadResult(id, &r); err != nil {
-		return JobResult{}, false
-	}
-	return r, true
+// GetPersisted returns a job snapshot. The metadata-store fallback now lives in
+// Get (so the after-restart path is covered for every caller), making this a
+// thin alias kept for the existing call sites. base is unused.
+func (s *Service) GetPersisted(_ string, id string) (JobResult, bool) {
+	return s.Get(id)
 }
 
 // Cancel requests cancellation of a running job. It is a stable no-op (returns

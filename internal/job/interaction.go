@@ -135,10 +135,10 @@ func (s *Service) CreateInteraction(jobID string, in InteractionInput) (Interact
 	out := rec.data
 	entry.mu.Unlock()
 
-	// Persist outside callers' view of the lock: result.json + index snapshot
-	// (best-effort, sharing the service indexMu) and the pending interaction line.
-	_ = entry.store.WriteResult(jobID, snap)
-	s.appendIndex(entry.store, snap)
+	// Persist outside callers' view of the lock: the job snapshot into the
+	// metadata store (best-effort) and the pending interaction line (still on disk
+	// until SP4 moves interactions into the DB).
+	s.persist(snap)
 	_ = entry.store.AppendInteraction(jobID, out)
 
 	return out, nil
@@ -251,12 +251,11 @@ func (s *Service) AnswerInteraction(jobID, interactionID, answer string) (Intera
 	}
 	entry.mu.Unlock()
 
-	// Persist the answered snapshot first; then, if we resumed, the running
-	// result snapshot + index line.
+	// Persist the answered snapshot first; then, if we resumed, the running job
+	// snapshot into the metadata store.
 	_ = entry.store.AppendInteraction(jobID, out)
 	if resumeSnap != nil {
-		_ = entry.store.WriteResult(jobID, *resumeSnap)
-		s.appendIndex(entry.store, *resumeSnap)
+		s.persist(*resumeSnap)
 	}
 	// Wake any WaitAnswer caller. Closing under no lock is fine: the channel is
 	// closed exactly once (the pending->answered transition is single-shot).

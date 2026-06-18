@@ -1,6 +1,7 @@
 package job
 
 import (
+	"path/filepath"
 	"testing"
 )
 
@@ -106,12 +107,13 @@ func TestListJobsFilters(t *testing.T) {
 	}
 }
 
-// TestListJobsRestartRecoversFromIndex runs jobs on serviceA (which writes
-// jobs.jsonl), then a fresh serviceB built from the same cfg (empty in-memory
-// map) must still list the historical jobs from the index.
+// TestListJobsRestartRecoversFromIndex runs jobs on serviceA (which upserts them
+// into the metadata db), then a fresh serviceB built over the SAME db file
+// (empty in-memory map) must still list the historical jobs from the DB.
 func TestListJobsRestartRecoversFromIndex(t *testing.T) {
 	root := t.TempDir()
-	serviceA := newTestService(t, root)
+	dbPath := filepath.Join(root, "agent-bridge.db")
+	serviceA := newTestServiceWithDB(t, root, dbPath)
 
 	a1 := submitAndWait(t, serviceA, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -125,8 +127,8 @@ func TestListJobsRestartRecoversFromIndex(t *testing.T) {
 		t.Fatalf("setup: both should be done, got %s/%s", a1.Status, a2.Status)
 	}
 
-	// Fresh service over the same storage root -> empty in-memory jobs map.
-	serviceB := newTestService(t, root)
+	// Fresh service over the same db file -> empty in-memory jobs map.
+	serviceB := newTestServiceWithDB(t, root, dbPath)
 	if len(serviceB.jobs) != 0 {
 		t.Fatalf("serviceB should start with no in-memory jobs")
 	}

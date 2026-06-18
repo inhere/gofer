@@ -1,7 +1,6 @@
 package job
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -10,6 +9,7 @@ import (
 
 	"dev-agent-bridge/internal/agent"
 	"dev-agent-bridge/internal/config"
+	"dev-agent-bridge/internal/jobstore"
 	"dev-agent-bridge/internal/project"
 	"dev-agent-bridge/internal/runner"
 	localrunner "dev-agent-bridge/internal/runner/local"
@@ -19,7 +19,16 @@ import (
 // newTestService builds a Service whose result base dir lives under a temp dir.
 // It registers two projects: "self" (allow_exec=true) and "noexec"
 // (allow_exec=false). storage.root points at root so result dirs are isolated.
+// The metadata db lives under root so each test gets its own DB.
 func newTestService(t *testing.T, root string) *Service {
+	t.Helper()
+	return newTestServiceWithDB(t, root, filepath.Join(root, "agent-bridge.db"))
+}
+
+// newTestServiceWithDB is like newTestService but opens the metadata store at an
+// explicit dbPath. Tests that simulate a restart (a fresh Service that must still
+// see jobs persisted by an earlier one) pass the same dbPath to both services.
+func newTestServiceWithDB(t *testing.T, root, dbPath string) *Service {
 	t.Helper()
 	cfg := &config.Config{
 		Storage: config.StorageConfig{Root: root},
@@ -41,7 +50,12 @@ func newTestService(t *testing.T, root string) *Service {
 	projReg := project.NewRegistry(cfg, "")
 	agentReg := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	return NewService(cfg, projReg, agentReg, runners)
+	meta, err := jobstore.Open(dbPath)
+	if err != nil {
+		t.Fatalf("open jobstore: %v", err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	return NewService(cfg, projReg, agentReg, runners, meta)
 }
 
 func submitAndWait(t *testing.T, s *Service, req JobRequest) JobResult {
@@ -186,7 +200,10 @@ func TestRunnerNotAllowedRejected(t *testing.T) {
 	}
 }
 
-func TestResultJSONAtomicAndComplete(t *testing.T) {
+// TestTerminalMetadataPersistedToDB asserts the terminal job snapshot is
+// persisted into the metadata store (the result.json file write was removed in
+// SP2) and that request.json is still written on disk (SP5 moves it into the DB).
+func TestTerminalMetadataPersistedToDB(t *testing.T) {
 	root := t.TempDir()
 	s := newTestService(t, root)
 	final := submitAndWait(t, s, JobRequest{
@@ -194,21 +211,25 @@ func TestResultJSONAtomicAndComplete(t *testing.T) {
 		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
 	})
 	dir := filepath.Join(root, "self", final.ID)
-	if _, err := os.Stat(filepath.Join(dir, store.ResultFile+".tmp")); !os.IsNotExist(err) {
-		t.Fatalf("result.json.tmp leaked")
-	}
-	data, err := os.ReadFile(filepath.Join(dir, store.ResultFile))
+
+	// Terminal metadata is queryable from the DB (not a result.json file).
+	rec, ok, err := s.meta.GetJob(final.ID)
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("meta.GetJob: %v", err)
 	}
-	var jr JobResult
-	if err := json.Unmarshal(data, &jr); err != nil {
-		t.Fatalf("result.json not parseable: %v", err)
+	if !ok {
+		t.Fatalf("job %q not persisted to metadata store", final.ID)
 	}
-	if jr.ID != final.ID || jr.Status != StatusDone {
-		t.Fatalf("result.json mismatch: %+v", jr)
+	if rec.ID != final.ID || rec.Status != StatusDone || rec.ExitCode != 0 {
+		t.Fatalf("metadata record mismatch: %+v", rec)
 	}
-	// request.json must also exist.
+	if rec.ResultDir != final.ResultDir {
+		t.Fatalf("metadata result_dir mismatch: %q != %q", rec.ResultDir, final.ResultDir)
+	}
+	if rec.UpdatedAt == 0 {
+		t.Fatalf("metadata updated_at not stamped: %+v", rec)
+	}
+	// request.json must still exist on disk.
 	if _, err := os.Stat(filepath.Join(dir, store.RequestFile)); err != nil {
 		t.Fatalf("request.json missing: %v", err)
 	}

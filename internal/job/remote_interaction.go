@@ -86,10 +86,9 @@ func (s *Service) injectInteraction(jobID string, it Interaction) error {
 	snap := entry.result
 	entry.mu.Unlock()
 
-	// Persist outside the lock, mirroring CreateInteraction: result.json + index
-	// snapshot (best-effort) and the pending interaction line.
-	_ = entry.store.WriteResult(jobID, snap)
-	s.appendIndex(entry.store, snap)
+	// Persist outside the lock, mirroring CreateInteraction: the job snapshot into
+	// the metadata store (best-effort) and the pending interaction line.
+	s.persist(snap)
 	_ = entry.store.AppendInteraction(jobID, it)
 
 	return nil

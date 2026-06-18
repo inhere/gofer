@@ -11,6 +11,7 @@ import (
 	"dev-agent-bridge/internal/config"
 	"dev-agent-bridge/internal/httpapi"
 	"dev-agent-bridge/internal/job"
+	"dev-agent-bridge/internal/jobstore"
 	"dev-agent-bridge/internal/project"
 	"dev-agent-bridge/internal/runner"
 	localrunner "dev-agent-bridge/internal/runner/local"
@@ -22,6 +23,18 @@ import (
 type bridge struct {
 	jobs *job.Service
 	srv  *httptest.Server
+}
+
+// openTestStore opens a metadata store under root (cleaned up automatically) for
+// wiring a job.Service in the peer/host bridge fixtures.
+func openTestStore(t *testing.T, root string) *jobstore.Store {
+	t.Helper()
+	st, err := jobstore.Open(filepath.Join(root, "agent-bridge.db"))
+	if err != nil {
+		t.Fatalf("open jobstore: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	return st
 }
 
 func (b *bridge) close() { b.srv.Close() }
@@ -46,7 +59,7 @@ func newPeerBridge(t *testing.T) *bridge {
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	jobs := job.NewService(cfg, projects, agents, runners)
+	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root))
 	s := httpapi.New(&cfg.Server, "", true, jobs, projects, agents)
 	return &bridge{jobs: jobs, srv: httptest.NewServer(s.Handler())}
 }
@@ -79,7 +92,7 @@ func newHostBridge(t *testing.T, peerURL string) *bridge {
 		localrunner.Name: localrunner.New(),
 		"docker-peer":    peerhttp.New("docker-peer", peerURL, ""),
 	}
-	jobs := job.NewService(cfg, projects, agents, runners)
+	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root))
 	s := httpapi.New(&cfg.Server, "", true, jobs, projects, agents)
 	return &bridge{jobs: jobs, srv: httptest.NewServer(s.Handler())}
 }

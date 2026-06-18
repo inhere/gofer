@@ -12,6 +12,7 @@ import (
 
 	"dev-agent-bridge/internal/agent"
 	"dev-agent-bridge/internal/config"
+	"dev-agent-bridge/internal/jobstore"
 	"dev-agent-bridge/internal/project"
 	"dev-agent-bridge/internal/runner"
 	"dev-agent-bridge/internal/store"
@@ -61,9 +62,11 @@ type Service struct {
 	// FileStore; overridable in tests.
 	newStore func(base string) store.Store
 
-	// indexMu serialises all jobs.jsonl appends so concurrent submits of the
-	// same project never interleave lines in the index file.
-	indexMu sync.Mutex
+	// meta is the SQLite-backed job metadata/index store. It replaces the
+	// per-project jobs.jsonl index and result.json metadata writes: job snapshots
+	// are upserted here (one row per job id) and ListJobs/Get read it back. Logs
+	// stay as files in the per-job result dir. See design §6/§8/§10.
+	meta *jobstore.Store
 
 	mu   sync.Mutex
 	jobs map[string]*jobEntry
@@ -92,13 +95,15 @@ type jobEntry struct {
 
 // NewService builds a job service. runners is the set of usable runners keyed by
 // name (at least "local"). project/agent registries and config come from the
-// loaded config.
-func NewService(cfg *config.Config, projects *project.Registry, agents *agent.Registry, runners map[string]runner.Runner) *Service {
+// loaded config. meta is the SQLite metadata store (job index/persistence); it
+// must be non-nil — the caller (commands.buildCore / tests) opens it.
+func NewService(cfg *config.Config, projects *project.Registry, agents *agent.Registry, runners map[string]runner.Runner, meta *jobstore.Store) *Service {
 	return &Service{
 		cfg:      cfg,
 		projects: projects,
 		agents:   agents,
 		runners:  runners,
+		meta:     meta,
 		newStore: func(base string) store.Store { return store.NewFileStore(base) },
 		jobs:     map[string]*jobEntry{},
 		sems:     map[string]chan struct{}{},
@@ -205,8 +210,8 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	s.jobs[jobID] = entry
 	s.mu.Unlock()
 
-	// Record the initial (queued) snapshot in the project index.
-	s.appendIndex(st, entry.snapshot())
+	// Record the initial (queued) snapshot in the metadata store.
+	s.persist(entry.snapshot())
 
 	sem := s.semaphore(req.ProjectKey, proj.MaxConcurrentJobs)
 	timeout := normalizeTimeout(req.TimeoutSec)
@@ -263,8 +268,8 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem chan struct{},
 	snap := entry.result
 	entry.mu.Unlock()
 
-	// Persist a running snapshot so a crash leaves an inspectable result.json.
-	_ = entry.store.WriteResult(req.JobID, snap)
+	// Persist a running snapshot so a crash leaves an inspectable DB row.
+	s.persist(snap)
 
 	stdout, errOut := entry.store.LogWriter(req.JobID, store.StreamStdout)
 	if errOut != nil {
@@ -288,7 +293,8 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem chan struct{},
 }
 
 // finish records the terminal state for a job: it updates the in-memory snapshot
-// and atomically rewrites result.json.
+// and upserts the terminal row into the metadata store. SP2 keeps the entry in
+// memory (SP3 evicts it after finish).
 func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, err error) {
 	entry.mu.Lock()
 	entry.result.Status = status
@@ -300,18 +306,57 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	snap := entry.result
 	entry.mu.Unlock()
 
-	_ = entry.store.WriteResult(jobID, snap)
-	// Record the terminal snapshot in the project index (best-effort).
-	s.appendIndex(entry.store, snap)
+	// Record the terminal snapshot in the metadata store.
+	s.persist(snap)
 }
 
-// appendIndex serialises one JobResult snapshot append to the project index.
-// Best-effort: an index write failure must not fail the job — result.json and
-// the in-memory snapshot remain the source of truth.
-func (s *Service) appendIndex(st store.Store, rec JobResult) {
-	s.indexMu.Lock()
-	defer s.indexMu.Unlock()
-	_ = st.AppendIndex(rec)
+// persist upserts one JobResult snapshot into the metadata store, stamping
+// UpdatedAt with the current time. It is best-effort: a write failure must not
+// fail the job (matching the old appendIndex/WriteResult best-effort semantics)
+// — the in-memory snapshot remains authoritative for live jobs.
+func (s *Service) persist(snap JobResult) {
+	snap.UpdatedAt = s.nowFn().Unix()
+	_ = s.meta.UpsertJob(toRecord(snap))
+}
+
+// toRecord projects a JobResult onto the neutral jobstore.JobRecord written to
+// SQLite. SP2 leaves RequestJSON empty (request.json still lives on disk, SP5
+// moves it into the request_json column) and WorkerID empty (reserved for the
+// ws-worker runner).
+func toRecord(r JobResult) jobstore.JobRecord {
+	return jobstore.JobRecord{
+		ID:         r.ID,
+		ProjectKey: r.ProjectKey,
+		Agent:      r.Agent,
+		Runner:     r.Runner,
+		Status:     r.Status,
+		ExitCode:   r.ExitCode,
+		Cwd:        r.Cwd,
+		ResultDir:  r.ResultDir,
+		Error:      r.Error,
+		StartedAt:  r.StartedAt,
+		EndedAt:    r.EndedAt,
+		UpdatedAt:  r.UpdatedAt,
+	}
+}
+
+// fromRecord rebuilds a JobResult from a persisted jobstore.JobRecord. It is the
+// read path for ListJobs/Get when a job is not (or no longer) in memory.
+func fromRecord(rec jobstore.JobRecord) JobResult {
+	return JobResult{
+		ID:         rec.ID,
+		ProjectKey: rec.ProjectKey,
+		Agent:      rec.Agent,
+		Runner:     rec.Runner,
+		Status:     rec.Status,
+		ExitCode:   rec.ExitCode,
+		Cwd:        rec.Cwd,
+		ResultDir:  rec.ResultDir,
+		StartedAt:  rec.StartedAt,
+		EndedAt:    rec.EndedAt,
+		UpdatedAt:  rec.UpdatedAt,
+		Error:      rec.Error,
+	}
 }
 
 // classify maps a runner result + context state to a job status, exit code and
