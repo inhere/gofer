@@ -188,8 +188,9 @@ func TestLogsReadableAfterEviction(t *testing.T) {
 
 // TestInteractionsPersistAfterEviction raises an interaction on a live job,
 // answers it, then drives the job to terminal/evicted and asserts the interaction
-// history is still listable via GetPersistedInteractions (interactions.jsonl
-// fallback) — the in-memory-only GetInteractions would be empty post-eviction.
+// history is still listable post-eviction. SP4: with interactions in SQLite, both
+// GetInteractions and GetPersistedInteractions fall back to the DB once the live
+// entry is gone, so both surface the answered history.
 func TestInteractionsPersistAfterEviction(t *testing.T) {
 	root := t.TempDir()
 	s := newTestService(t, root)
@@ -225,11 +226,16 @@ func TestInteractionsPersistAfterEviction(t *testing.T) {
 		t.Fatalf("expected job evicted after terminal")
 	}
 
-	// In-memory-only view is now empty...
-	if mem, _ := s.GetInteractions(jobID); len(mem) != 0 {
-		t.Fatalf("expected empty in-memory interactions after eviction, got %d", len(mem))
+	// The live entry is gone, so GetInteractions now reads back from SQLite and
+	// still lists the answered one (SP4 DB fallback — no longer in-memory-only).
+	mem, err := s.GetInteractions(jobID)
+	if err != nil {
+		t.Fatalf("GetInteractions after eviction: %v", err)
 	}
-	// ...but the persisted view (interactions.jsonl) still lists the answered one.
+	if len(mem) != 1 || mem[0].Status != InteractionAnswered || mem[0].Answer != "yes" {
+		t.Fatalf("expected 1 answered interaction from DB after eviction, got %+v", mem)
+	}
+	// The persisted view (now DB-backed) lists the same answered one.
 	base := filepath.Join(root, "self")
 	persisted, err := s.GetPersistedInteractions(base, jobID)
 	if err != nil {

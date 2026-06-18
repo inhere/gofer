@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"dev-agent-bridge/internal/jobstore"
 )
 
 // Interaction error sentinels. The interaction methods wrap these (via
@@ -33,8 +35,10 @@ type InteractionOption struct {
 	Label string `json:"label,omitempty"`
 }
 
-// Interaction is one running-job interaction event (plan §P9). Persisted as an
-// append snapshot to <job_dir>/interactions.jsonl; the latest snapshot per id wins.
+// Interaction is one running-job interaction event (plan §P9). Persisted (SP4)
+// as a single upserted row in the SQLite interactions table (the latest snapshot
+// per id wins); the live in-memory state in jobEntry is authoritative while the
+// job is tracked.
 type Interaction struct {
 	ID         string              `json:"id"`
 	JobID      string              `json:"job_id"`
@@ -135,20 +139,65 @@ func (s *Service) CreateInteraction(jobID string, in InteractionInput) (Interact
 	out := rec.data
 	entry.mu.Unlock()
 
-	// Persist outside callers' view of the lock: the job snapshot into the
-	// metadata store (best-effort) and the pending interaction line (still on disk
-	// until SP4 moves interactions into the DB).
+	// Persist outside callers' view of the lock: the job snapshot and the pending
+	// interaction row, both into the SQLite metadata store (best-effort).
 	_ = s.persist(snap)
-	_ = entry.store.AppendInteraction(jobID, out)
+	_ = s.meta.UpsertInteraction(toInteractionRecord(out))
 
 	return out, nil
 }
 
+// toInteractionRecord projects a job Interaction onto the neutral
+// jobstore.InteractionRecord written to SQLite. Options are marshalled to
+// OptionsJSON (empty options -> empty string, so the column stays NULL/empty).
+func toInteractionRecord(it Interaction) jobstore.InteractionRecord {
+	var optsJSON string
+	if len(it.Options) > 0 {
+		if b, err := json.Marshal(it.Options); err == nil {
+			optsJSON = string(b)
+		}
+	}
+	return jobstore.InteractionRecord{
+		ID:          it.ID,
+		JobID:       it.JobID,
+		Type:        it.Type,
+		Prompt:      it.Prompt,
+		OptionsJSON: optsJSON,
+		Status:      it.Status,
+		Answer:      it.Answer,
+		CreatedAt:   it.CreatedAt,
+		AnsweredAt:  it.AnsweredAt,
+	}
+}
+
+// fromInteractionRecord rebuilds a job Interaction from a persisted
+// jobstore.InteractionRecord. OptionsJSON is unmarshalled back into Options (an
+// empty string yields nil Options); an unparseable blob leaves Options nil rather
+// than failing the read.
+func fromInteractionRecord(rec jobstore.InteractionRecord) Interaction {
+	var opts []InteractionOption
+	if rec.OptionsJSON != "" {
+		_ = json.Unmarshal([]byte(rec.OptionsJSON), &opts)
+	}
+	return Interaction{
+		ID:         rec.ID,
+		JobID:      rec.JobID,
+		Type:       rec.Type,
+		Prompt:     rec.Prompt,
+		Options:    opts,
+		Status:     rec.Status,
+		Answer:     rec.Answer,
+		CreatedAt:  rec.CreatedAt,
+		AnsweredAt: rec.AnsweredAt,
+	}
+}
+
 // GetInteractions returns the job's interactions (latest snapshot per id, in
-// creation order). When the job is still in memory the in-process state is
-// authoritative; otherwise it returns an empty slice (the per-project result
-// base cannot be derived from the id alone — use GetPersistedInteractions with
-// the base for the after-restart fallback). Unknown in-memory job => empty.
+// creation order). When the job is still in memory (live) the in-process state is
+// authoritative — it carries the pending-channel state WaitAnswer relies on.
+// Otherwise (evicted after finishing, or never tracked in this process) it falls
+// back to the SQLite interactions table via ListInteractions, which surfaces the
+// terminal job's answered history. An unknown job yields an empty slice.
 func (s *Service) GetInteractions(jobID string) ([]Interaction, error) {
 	if entry := s.entry(jobID); entry != nil {
 		entry.mu.Lock()
@@ -159,50 +208,24 @@ func (s *Service) GetInteractions(jobID string) ([]Interaction, error) {
 		}
 		return out, nil
 	}
-	return []Interaction{}, nil
-}
-
-// GetPersistedInteractions returns a job's interactions, preferring the live
-// in-memory state and falling back to folding interactions.jsonl on disk when
-// the job is not tracked in this process (e.g. after a restart). base is the
-// result base dir for the job's project. A missing file yields an empty slice.
-func (s *Service) GetPersistedInteractions(base, jobID string) ([]Interaction, error) {
-	if entry := s.entry(jobID); entry != nil {
-		entry.mu.Lock()
-		defer entry.mu.Unlock()
-		out := make([]Interaction, 0, len(entry.interactions))
-		for _, rec := range entry.interactions {
-			out = append(out, rec.data)
-		}
-		return out, nil
-	}
-	lines, err := s.newStore(base).ReadInteractions(jobID)
+	recs, err := s.meta.ListInteractions(jobID)
 	if err != nil {
 		return nil, err
 	}
-	return foldInteractions(lines)
-}
-
-// foldInteractions collapses append snapshots by interaction id, keeping the
-// last snapshot for each id while preserving the order ids first appeared.
-func foldInteractions(lines []json.RawMessage) ([]Interaction, error) {
-	order := make([]string, 0, len(lines))
-	byID := make(map[string]Interaction, len(lines))
-	for _, line := range lines {
-		var it Interaction
-		if err := json.Unmarshal(line, &it); err != nil {
-			continue // tolerate an unparseable snapshot (corrupt tail)
-		}
-		if _, seen := byID[it.ID]; !seen {
-			order = append(order, it.ID)
-		}
-		byID[it.ID] = it
-	}
-	out := make([]Interaction, 0, len(order))
-	for _, id := range order {
-		out = append(out, byID[id])
+	out := make([]Interaction, 0, len(recs))
+	for _, rec := range recs {
+		out = append(out, fromInteractionRecord(rec))
 	}
 	return out, nil
+}
+
+// GetPersistedInteractions returns a job's interactions, preferring the live
+// in-memory state and falling back to the SQLite interactions table when the job
+// is not tracked in this process (evicted/after a restart). The SQLite store is a
+// single global DB, so base is no longer needed (kept in the signature to avoid
+// touching callers); this simply delegates to GetInteractions.
+func (s *Service) GetPersistedInteractions(_ string, jobID string) ([]Interaction, error) {
+	return s.GetInteractions(jobID)
 }
 
 // AnswerInteraction marks a pending interaction answered, records the answer,
@@ -252,8 +275,8 @@ func (s *Service) AnswerInteraction(jobID, interactionID, answer string) (Intera
 	entry.mu.Unlock()
 
 	// Persist the answered snapshot first; then, if we resumed, the running job
-	// snapshot into the metadata store.
-	_ = entry.store.AppendInteraction(jobID, out)
+	// snapshot — both into the SQLite metadata store.
+	_ = s.meta.UpsertInteraction(toInteractionRecord(out))
 	if resumeSnap != nil {
 		_ = s.persist(*resumeSnap)
 	}

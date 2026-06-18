@@ -6,8 +6,6 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
-
-	"dev-agent-bridge/internal/store"
 )
 
 // submitRunning submits a long-lived exec job and waits until it is running, so
@@ -224,9 +222,14 @@ func TestDoubleAnswerErrors(t *testing.T) {
 	}
 }
 
-func TestGetPersistedInteractionsFoldsFromDisk(t *testing.T) {
+// TestGetPersistedInteractionsReadsFromDB raises and answers a choice interaction
+// on a live job, then asserts a fresh service sharing the same DB (no in-memory
+// entry) reads it back from the SQLite interactions table — a single upserted row
+// per id (pending overwritten by answered), with options preserved.
+func TestGetPersistedInteractionsReadsFromDB(t *testing.T) {
 	root := t.TempDir()
-	s := newTestService(t, root)
+	dbPath := filepath.Join(root, "agent-bridge.db")
+	s := newTestServiceWithDB(t, root, dbPath)
 	jobID := submitRunning(t, s)
 
 	it, err := s.CreateInteraction(jobID, InteractionInput{
@@ -243,28 +246,19 @@ func TestGetPersistedInteractionsFoldsFromDisk(t *testing.T) {
 
 	base := filepath.Join(root, "self")
 
-	// Verify the raw append log holds two snapshots (pending + answered) for the
-	// single id before folding.
-	raw, err := store.NewFileStore(base).ReadInteractions(jobID)
-	if err != nil {
-		t.Fatalf("raw ReadInteractions: %v", err)
-	}
-	if len(raw) != 2 {
-		t.Fatalf("expected 2 raw snapshots, got %d", len(raw))
-	}
-
-	// A fresh service with no in-memory entry must fall back to the file and fold
-	// to the latest snapshot per id (only the answered one survives).
-	fresh := newTestService(t, root)
+	// A fresh service sharing the same DB has no in-memory entry, so it must read
+	// the interaction from SQLite. The pending+answered upserts collapse to one row
+	// per id (only the answered state survives).
+	fresh := newTestServiceWithDB(t, root, dbPath)
 	got, err := fresh.GetPersistedInteractions(base, jobID)
 	if err != nil {
 		t.Fatalf("GetPersistedInteractions: %v", err)
 	}
 	if len(got) != 1 {
-		t.Fatalf("expected 1 folded interaction, got %d", len(got))
+		t.Fatalf("expected 1 interaction, got %d", len(got))
 	}
 	if got[0].ID != it.ID || got[0].Status != InteractionAnswered || got[0].Answer != "a" {
-		t.Fatalf("folded interaction mismatch: %+v", got[0])
+		t.Fatalf("interaction mismatch: %+v", got[0])
 	}
 	if len(got[0].Options) != 2 || got[0].Options[0].Value != "a" || got[0].Options[0].Label != "A" {
 		t.Fatalf("options not preserved through persistence: %+v", got[0].Options)
