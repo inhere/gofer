@@ -8,6 +8,6 @@
   - Ferry （渡船 / 摆渡人） 含义：把 prompt/命令“摆渡”到目标项目目录里执行，再把日志/结果“摆渡”回来。完美替代“bridge”的动态感（bridge是静态的，ferry是主动往返的）
   - Convey（输送 / 传达） 含义：强调“输送任务 + 回传结果”的管道感，同时带有“传送指令”的语义，非常贴合 {项目, agent, prompt} 的提交模式。
 - [ ] 支持远端机器运行作为客户端与server通信，暂定使用 ws 协议通信并保持连接
-  - 客户端也有任务记录信息
-  - 任务输出详情在客户端，server 如何读取？
-  - 思考其他点 或者 问题？
+  - **设计已细化** → [`design/2026-06-17-ws-remote-worker-design.md`](design/2026-06-17-ws-remote-worker-design.md)（Worker 执行机 + 流式推送 server 镜像 + 显式 worker_id + 与 peer-http 并存；WP1-WP4 分期）。待评审后写实施计划。
+  - 客户端也有任务记录信息 → 已解：server 镜像为 server 侧真源，worker 本地另留一份，互不耦合。
+  - 任务输出详情在客户端，server 如何读取？→ 已解：worker 推日志帧、server 写进自己 result_dir，复用既有读路径。
