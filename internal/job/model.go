@@ -32,6 +32,11 @@ type JobResult struct {
 	// have a monotonic ordering value; it is not set by the runner state machine.
 	UpdatedAt int64  `json:"updated_at,omitempty"`
 	Error     string `json:"error,omitempty"`
+	// RequestJSON is the original JobRequest marshalled to JSON, kept for audit /
+	// re-submit. It is persisted to the jobs.request_json column (SP5 replaces the
+	// on-disk request.json file). json:"-" keeps it out of API responses — it is an
+	// internal/audit field, not part of the queryable job state.
+	RequestJSON string `json:"-"`
 }
 
 // Job status values (plan §6.2).

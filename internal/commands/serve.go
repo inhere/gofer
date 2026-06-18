@@ -2,12 +2,14 @@ package commands
 
 import (
 	"os"
+	"time"
 
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/goutil/errorx"
 
 	"dev-agent-bridge/internal/config"
 	"dev-agent-bridge/internal/httpapi"
+	"dev-agent-bridge/internal/job"
 )
 
 // serveExitErr is the process exit code used when serve fails to start or run.
@@ -79,6 +81,13 @@ func runServe(c *gcli.Command, _ []string) error {
 	// returns (design §14).
 	defer func() { _ = core.Close() }()
 
+	// Periodic retention prune (design §13 SP5). Only runs when storage.retention
+	// is configured; stop is closed when serve returns so the goroutine exits
+	// cleanly with the rest of the process.
+	stopPrune := make(chan struct{})
+	defer close(stopPrune)
+	startPruneLoop(c, core.Jobs, cfg.Storage.Retention, stopPrune)
+
 	srv := httpapi.New(&cfg.Server, token, allowEmpty, core.Jobs, core.Projects, core.Agents)
 
 	if token == "" {
@@ -92,6 +101,41 @@ func runServe(c *gcli.Command, _ []string) error {
 		return errorx.Failf(serveExitErr, "%v", err)
 	}
 	return nil
+}
+
+// startPruneLoop launches the periodic retention prune goroutine when retention
+// is configured (storage.retention has MaxAgeDays>0 or MaxCount>0). It prunes
+// once immediately, then on every tick of the configured interval (default 60m).
+// The goroutine exits when stop is closed (serve shutdown). With no retention
+// configured it does nothing (zero behaviour change).
+func startPruneLoop(c *gcli.Command, jobs *job.Service, ret config.RetentionConfig, stop <-chan struct{}) {
+	if !ret.Enabled() {
+		return
+	}
+	interval := ret.PruneInterval()
+	c.Printf("agent-bridge: retention prune enabled (interval=%s, max_age_days=%d, max_count=%d)\n",
+		interval, ret.MaxAgeDays, ret.MaxCount)
+
+	go func() {
+		prune := func() {
+			if n, err := jobs.Prune(); err != nil {
+				c.Errorf("agent-bridge: prune failed: %v\n", err)
+			} else if n > 0 {
+				c.Printf("agent-bridge: pruned %d terminal job(s)\n", n)
+			}
+		}
+		prune() // run once at startup so a backlog is trimmed without waiting a full interval
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				prune()
+			}
+		}
+	}()
 }
 
 // resolveToken computes the effective bearer token (plan §7):
