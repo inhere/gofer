@@ -135,6 +135,7 @@ onUnmounted(() => {
         <span class="col-id">id</span>
         <span class="col-proj">project</span>
         <span class="col-agent">agent</span>
+        <span class="col-runner">runner</span>
         <span class="col-signal">信号 / 耗时</span>
       </div>
 
@@ -151,6 +152,7 @@ onUnmounted(() => {
         <span class="col-id mono">{{ shortId(job.id) }}</span>
         <span class="col-proj mono">{{ job.project_key }}</span>
         <span class="col-agent mono">{{ job.agent }}</span>
+        <span class="col-runner mono" :class="{ remote: job.runner !== 'local' }" :title="job.runner">{{ job.runner }}</span>
         <span class="col-signal">
           <Signal :status="job.status" :duration-sec="jobDurationSec(job)" />
           <span v-if="job.status === 'running'" class="run-dur mono">{{ rowDuration(job) }}</span>
@@ -242,7 +244,7 @@ onUnmounted(() => {
 .thead,
 .trow {
   display: grid;
-  grid-template-columns: 130px 110px 1fr 140px 200px;
+  grid-template-columns: 124px 96px 1fr 120px 110px 180px;
   align-items: center;
   gap: 12px;
   padding: 9px 14px;
@@ -282,6 +284,16 @@ onUnmounted(() => {
 }
 .col-agent {
   color: var(--queue);
+}
+.col-runner {
+  color: var(--queue);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Remote runners (peer-http / worker) stand out so "where it ran" is visible. */
+.col-runner.remote {
+  color: var(--phosphor);
 }
 .col-signal {
   display: inline-flex;
