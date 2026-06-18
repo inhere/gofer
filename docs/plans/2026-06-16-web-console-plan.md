@@ -10,6 +10,7 @@
 | v0.1 | 2026-06-16 | Claude | 初版：web-P1 任务分解（jobs.jsonl 索引 / GET /v1/jobs / SSE 流 / webui 嵌入 / 前端脚手架与页面 / 验收）；web-P2 大纲 |
 | v0.2 | 2026-06-16 | Claude | **web-P1 (T1–T8) 全部实现完成**（SUPMODE，cvt.2–9 closed）。后端 59a4ea8/ca02c8c/aa79c78/682344e；前端 5e2dd3c/0f4bdc2/268d880/f4dc93a/c7ae046。go 全量 `-race` 绿、curl E2E 9/9 通过。两处实施偏离已纳实现：① 日志走 SSE 单一来源（不用 logsTail+from=tailLen，规避 >256KB 缺口/重复）；② 不改根 `.gitignore`（用 `web/.gitignore`+`internal/webui/dist/.gitignore`）。剩浏览器手验清单与 web-P2（依赖主计划 P9）。 |
 | v0.3 | 2026-06-17 | Claude | P9 后端已落地（HTTP create/list/answer + MCP + 状态机），**web-P2 大纲细化为 §6 code-level 任务（W1 后端 SSE interaction 事件 / W2 前端 api 类型+client / W3 InteractionCard 组件 / W4 JobDetail 接入 / W5 Board+StatusBadge ⚠ 态 / W6 构建+浏览器手验）**，SUPMODE 推进。 |
+| v0.4 | 2026-06-17 | Claude | **web-P2 (W1–W6) 全部完成**（commit `b735d3f`）。W1 SSE `interaction` 事件（轮询 GetInteractions diff，含测试）；W2–W5 前端类型/client/InteractionCard（question/choice/confirmation）/JobDetail 排队作答/Board+StatusBadge「⚠ 待应答」+ 过滤项。**agent-browser 真实浏览器手验通过**：pending_interaction→交互卡→作答→job 回 running；confirmation 按钮 + board 徽标确认；截图 tmp/webp2-verify/shots/。go test 全绿 + `pnpm build` typecheck 0 error。已知小遗留：job 终态后仍显示可答的 pending 卡（再答会 409），属边角，记为后续优化。 |
 
 ## 0. 前置（设计 v0.2 已确认）
 
