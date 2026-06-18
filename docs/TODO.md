@@ -13,3 +13,18 @@
   - **设计已细化** → [`design/2026-06-17-ws-remote-worker-design.md`](design/2026-06-17-ws-remote-worker-design.md)（Worker 执行机 + 流式推送 server 镜像 + 显式 worker_id + 与 peer-http 并存；WP1-WP4 分期）。待评审后写实施计划。
   - 客户端也有任务记录信息 → 已解：server 镜像为 server 侧真源，worker 本地另留一份，互不耦合。
   - 任务输出详情在客户端，server 如何读取？→ 已解：worker 推日志帧、server 写进自己 result_dir，复用既有读路径。
+
+### Web 控制台
+
+- [ ] **webui 浅色模式**：当前仅 CRT/终端深色主题。出一套浅色模式（主题切换 + 持久化偏好，跟随系统 `prefers-color-scheme`）。
+  - **实施时必须使用 `frontend-design` skill**（设计方向/配色/对比度，避免套默认模板）。
+  - 落点：`web/src/styles/tokens.css` 抽明/暗两套 CSS 变量；切换器组件 + sessionStorage/localStorage 记忆；保证对比度达标、`prefers-reduced-motion` 不受影响。
+- [ ] **控制台适配新架构（让"在哪执行"可见）**：看板/详情展示 `runner`（及未来 `worker_id`）；ws-worker 落地后加 **Workers 仪表盘**（连入列表/心跳/在飞 job/标签）；（更大）控制台内提交表单。详见 [`design/architecture-overview.md`](design/architecture-overview.md) §9.2。
+  - 注：peer-http 远端 job 的交互/日志因"镜像"机制已透明呈现在现有控制台，无需改前端即可用；本项是让远端执行位置**可见**。
+
+### 架构加固（见 [`design/architecture-overview.md`](design/architecture-overview.md) §9.1）
+
+- [ ] C1 内存 job 表 + `jobs.jsonl` 无界增长 → 终态 job 驱逐 + 索引轮转/压实。
+- [ ] C2 单一 token 无身份/吊销 → per-worker / per-caller token。
+- [ ] C3 配置无热加载 → SIGHUP/接口热重载 registry。
+- [ ] C4/C5/C6/C7：日志流控、提交幂等键、远端节点健康探针、多 hub HA（按需）。
