@@ -5,6 +5,7 @@ import { getToken, triggerUnauthorized } from '../store/auth'
 import { streamJob } from './sse'
 import type {
   AgentsResp,
+  Interaction,
   Job,
   JobsResp,
   JobStatus,
@@ -113,6 +114,31 @@ export function cancelJob(id: string): Promise<Job> {
   })
 }
 
+// 运行中交互：作答某个 interaction，返回更新后的 Interaction（status=answered）
+export function answerInteraction(
+  id: string,
+  iid: string,
+  answer: string,
+): Promise<Interaction> {
+  return request<Interaction>(
+    `/v1/jobs/${encodeURIComponent(id)}/interactions/${encodeURIComponent(iid)}/answer`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ answer }),
+    },
+  )
+}
+
+// 断线兜底：拉取某 job 的全部交互（SSE 重连前对齐状态）
+export function getInteractions(
+  id: string,
+): Promise<{ interactions: Interaction[] }> {
+  return request<{ interactions: Interaction[] }>(
+    `/v1/jobs/${encodeURIComponent(id)}/interactions`,
+  )
+}
+
 // SSE 流（转发到 api/sse.ts）
 export function streamJobLogs(id: string, opts: StreamJobOpts): Promise<void> {
   return streamJob(id, opts)
@@ -121,6 +147,7 @@ export function streamJobLogs(id: string, opts: StreamJobOpts): Promise<void> {
 // 状态 -> 视觉 token 颜色（供 Board/JobDetail 等复用）
 const STATUS_COLOR: Record<JobStatus, string> = {
   running: 'var(--run)',
+  pending_interaction: 'var(--phosphor)',
   done: 'var(--done)',
   failed: 'var(--fail)',
   timeout: 'var(--fail)',

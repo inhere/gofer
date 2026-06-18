@@ -6,10 +6,18 @@ import { computed, onMounted, onUnmounted, ref } from 'vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import Signal from '../components/Signal.vue'
 import LogTape from '../components/LogTape.vue'
-import { cancelJob, getJob } from '../api/client'
+import InteractionCard from '../components/InteractionCard.vue'
+import { answerInteraction, cancelJob, getJob } from '../api/client'
 import { streamJob } from '../api/sse'
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
-import type { Job, JobStatus, SSEEvent, SSELogData } from '../api/types'
+import type {
+  Interaction,
+  Job,
+  JobStatus,
+  SSEEvent,
+  SSEInteractionData,
+  SSELogData,
+} from '../api/types'
 
 const props = defineProps<{ id: string }>()
 
@@ -19,6 +27,59 @@ const stderr = ref('')
 const headError = ref('')
 const streamError = ref('')
 const cancelling = ref(false)
+
+// 运行中交互：按 id upsert（SSE interaction 事件 + answer 返回回填）
+const interactions = ref<Map<string, Interaction>>(new Map())
+// 每张卡的提交态（防重复提交）
+const submittingIds = ref<Set<string>>(new Set())
+// 单条交互作答失败文案（按 id）
+const interactionErrors = ref<Map<string, string>>(new Map())
+
+function upsertInteraction(it: Interaction): void {
+  // 重新赋值 new Map 触发响应式
+  const next = new Map(interactions.value)
+  next.set(it.id, it)
+  interactions.value = next
+}
+
+// 待应答（pending），按 created_at 升序排队作答
+const pendingInteractions = computed<Interaction[]>(() =>
+  Array.from(interactions.value.values())
+    .filter((it) => it.status === 'pending')
+    .sort((a, b) => a.created_at - b.created_at),
+)
+
+// 已应答（answered），按 created_at 升序，折叠淡化展示
+const answeredInteractions = computed<Interaction[]>(() =>
+  Array.from(interactions.value.values())
+    .filter((it) => it.status === 'answered')
+    .sort((a, b) => a.created_at - b.created_at),
+)
+
+async function onAnswer(iid: string, value: string): Promise<void> {
+  if (submittingIds.value.has(iid)) {
+    return
+  }
+  // 标记 submitting + 清旧错误
+  submittingIds.value = new Set(submittingIds.value).add(iid)
+  if (interactionErrors.value.has(iid)) {
+    const e = new Map(interactionErrors.value)
+    e.delete(iid)
+    interactionErrors.value = e
+  }
+  try {
+    const updated = await answerInteraction(props.id, iid, value)
+    // 乐观回填（SSE answered 事件也会回填，幂等）
+    upsertInteraction(updated)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    interactionErrors.value = new Map(interactionErrors.value).set(iid, msg)
+  } finally {
+    const s = new Set(submittingIds.value)
+    s.delete(iid)
+    submittingIds.value = s
+  }
+}
 
 // 终态集合
 const TERMINAL: JobStatus[] = ['done', 'failed', 'cancelled', 'timeout']
@@ -86,6 +147,12 @@ function onEvent(ev: SSEEvent): void {
         recentLines.value.splice(0, recentLines.value.length - 200)
       }
     }
+    return
+  }
+  if (ev.type === 'interaction') {
+    const d = ev.data as SSEInteractionData
+    // action: open/answered/cancelled —— 统一按 id upsert（幂等）
+    upsertInteraction(d.interaction)
     return
   }
   // end：无更多事件；终态由 status 事件回填，这里仅停 live 由 status 决定
@@ -240,6 +307,41 @@ function fmtTime(v: string | number | undefined): string {
       <button class="reconnect" type="button" @click="manualReconnect">点击重连</button>
     </p>
 
+    <!-- 运行中交互区：待应答卡片（排队作答）+ 已应答折叠 -->
+    <section
+      v-if="pendingInteractions.length > 0 || answeredInteractions.length > 0"
+      class="interactions"
+    >
+      <h2 class="interactions-title mono">
+        <span class="warn">⚠</span> 待应答交互
+        <span v-if="pendingInteractions.length > 0" class="count mono"
+          >{{ pendingInteractions.length }}</span
+        >
+      </h2>
+
+      <div v-for="it in pendingInteractions" :key="it.id" class="icard-wrap">
+        <InteractionCard
+          :interaction="it"
+          :submitting="submittingIds.has(it.id)"
+          @answer="(v) => onAnswer(it.id, v)"
+        />
+        <p v-if="interactionErrors.get(it.id)" class="icard-err mono">
+          作答失败：{{ interactionErrors.get(it.id) }}
+        </p>
+      </div>
+
+      <details v-if="answeredInteractions.length > 0" class="answered-fold">
+        <summary class="mono">
+          已应答 {{ answeredInteractions.length }} 条
+        </summary>
+        <InteractionCard
+          v-for="it in answeredInteractions"
+          :key="it.id"
+          :interaction="it"
+        />
+      </details>
+    </section>
+
     <LogTape :stdout="stdout" :stderr="stderr" :live="live" />
   </div>
 </template>
@@ -343,5 +445,52 @@ function fmtTime(v: string | number | undefined): string {
   padding: 3px 10px;
   font-size: 11px;
   font-weight: 600;
+}
+
+.interactions {
+  margin: 0 0 14px;
+}
+.interactions-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--phosphor);
+  text-transform: uppercase;
+  margin: 0 0 10px;
+}
+.interactions-title .warn {
+  color: var(--phosphor);
+}
+.interactions-title .count {
+  background: var(--phosphor);
+  color: var(--ink);
+  border-radius: var(--radius);
+  padding: 0 6px;
+  font-size: 11px;
+  font-weight: 600;
+}
+.icard-wrap {
+  margin-bottom: 4px;
+}
+.icard-err {
+  color: var(--fail);
+  font-size: 11px;
+  margin: -4px 0 10px;
+}
+.answered-fold {
+  margin-top: 6px;
+}
+.answered-fold > summary {
+  cursor: pointer;
+  color: var(--queue);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  padding: 4px 0;
+  list-style: revert;
+}
+.answered-fold > summary:hover {
+  color: var(--phosphor);
 }
 </style>

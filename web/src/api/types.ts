@@ -3,6 +3,7 @@
 export type JobStatus =
   | 'queued'
   | 'running'
+  | 'pending_interaction'
   | 'done'
   | 'failed'
   | 'cancelled'
@@ -68,8 +69,30 @@ export interface ListJobsOpts {
 
 export type LogStream = 'stdout' | 'stderr'
 
+// 运行中交互：question 文本问答 / choice 选项 / confirmation 确认
+export type InteractionType = 'question' | 'choice' | 'confirmation'
+export type InteractionStatus = 'pending' | 'answered' | 'cancelled'
+
+export interface InteractionOption {
+  value: string
+  label?: string
+}
+
+export interface Interaction {
+  id: string
+  job_id: string
+  type: InteractionType
+  prompt: string
+  options?: InteractionOption[]
+  status: InteractionStatus
+  answer?: string
+  // Unix 秒
+  created_at: number
+  answered_at?: number
+}
+
 // SSE 事件（解析后）
-export type SSEEventType = 'status' | 'log' | 'end'
+export type SSEEventType = 'status' | 'log' | 'interaction' | 'end'
 
 export interface SSELogData {
   stream: LogStream
@@ -77,8 +100,13 @@ export interface SSELogData {
   text: string
 }
 
+export interface SSEInteractionData {
+  action: 'open' | 'answered' | 'cancelled'
+  interaction: Interaction
+}
+
 export interface SSEEvent {
   type: SSEEventType
-  // status -> Job; log -> SSELogData; end -> {}
+  // status -> Job; log -> SSELogData; interaction -> SSEInteractionData; end -> {}
   data: unknown
 }

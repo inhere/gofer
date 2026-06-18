@@ -18,6 +18,8 @@ const props = defineProps<{
 
 const isRunning = computed(() => props.status === 'running')
 const isQueued = computed(() => props.status === 'queued')
+// 待应答：非终态等待用户输入，复用 queued 的点阵提示（不显示终态横线）
+const isWaiting = computed(() => props.status === 'pending_interaction')
 
 const color = computed(() => statusColor(props.status))
 
@@ -51,8 +53,8 @@ const durationText = computed(() => fmtDuration(props.durationSec ?? null))
         :style="{ animationDelay: barDelay(i) }"
       ></span>
     </span>
-    <!-- queued：等待，静态点阵（轻提示，不算终态） -->
-    <span v-else-if="isQueued" class="queued" aria-label="queued">
+    <!-- queued / pending_interaction：等待，静态点阵（轻提示，不算终态） -->
+    <span v-else-if="isQueued || isWaiting" class="queued" :aria-label="isWaiting ? 'pending interaction' : 'queued'">
       <span class="dot"></span><span class="dot"></span><span class="dot"></span>
     </span>
     <!-- 终态：静态横线 + 耗时 -->
