@@ -77,7 +77,13 @@ server:
 storage:
   default_exchange_subdir: tmp              # 项目内数据交换子目录（默认 tmp）
   default_result_subdir: dev-agent-bridge   # 交换目录下的结果子目录
-  # root: /var/lib/dev-agent-bridge   # 可选：全局集中 store
+  # root: /var/lib/dev-agent-bridge   # 可选：全局集中 store（仅影响日志结果目录）
+  # db_path: ""                       # 可选：SQLite 元数据库路径；空则
+                                      #   显式 db_path > <root>/agent-bridge.db > <config-dir>/agent-bridge.db
+  # retention:                        # 可选：终态 job 保留策略（不配=不清理）
+  #   max_age_days: 30                #   删除超过 N 天的终态 job（含日志目录）
+  #   max_count: 5000                 #   仅保留最新 N 个终态 job
+  #   prune_interval_minutes: 60      #   清理周期（默认 60 分钟）
 
 projects:
   workspace:
@@ -116,7 +122,7 @@ runners:
 各段含义：
 
 - **server**：监听地址、bearer token 来源（`token_env` > 内联 `token` > `--token` 覆盖）、是否允许空 token。
-- **storage**：项目内交换 / 结果子目录的默认值；可选 `root` 把所有项目结果集中到一处（设了 `root` 后容器侧只能经 HTTP 回读，不再走共享盘）。
+- **storage**：项目内交换 / 结果子目录的默认值；可选 `root` 把所有项目结果集中到一处（设了 `root` 后容器侧只能经 HTTP 回读，不再走共享盘）。job 元数据 / 索引 / 交互存于全局 SQLite 库（`db_path`，默认配置目录下 `agent-bridge.db`），日志仍是结果目录文件；内存只保留运行中的 job，终态 job 落库后驱逐。可选 `retention` 周期清理旧终态 job 及其日志。
 - **projects**：每个项目的 `host_path`（主机真实路径）、`container_path`（容器挂载路径）、允许的 agent / runner、是否 `allow_exec`、最大并发。
 - **agents**：每个 agent 的 `command` + `args` 模板（`type: cli-agent`），或内置 `type: exec`；`detect` 是可用性探针。
 - **runners**：`local`（内置，在 bridge 进程本地执行）；`peer-http` 见 [主机访问容器 peer bridge](#主机访问容器-peer-bridgep7-规划中)（P7，规划中）。
@@ -126,7 +132,7 @@ runners:
 - 默认（未设 `storage.root`）：`<host_path>/<exchange_subdir>/<result_subdir>/<job_id>/`，即默认 `<host_path>/tmp/dev-agent-bridge/<job_id>/`。
 - 设了 `storage.root`：`<root>/<project_key>/<job_id>/`，集中存放。
 
-每个 job 目录下包含 `result.json` / `stdout.log` / `stderr.log`（取决于实现进度，至少日志与状态可经 HTTP 回读）。
+每个 job 目录下只保留日志文件 `stdout.log` / `stderr.log`；job 状态 / 元数据 / 索引 / 交互均在 SQLite 库（不再写 `result.json` / `jobs.jsonl` / `interactions.jsonl`），统一经 HTTP 回读。
 
 ## CLI 用法
 
@@ -301,10 +307,9 @@ curl -s -X POST http://host.docker.internal:8765/v1/jobs \
        "cwd":"java-biz-dev/hyy-service-inspect-vision","timeout_sec":1200}'
 # → {"id":"...","result_dir":".../tmp/dev-agent-bridge/<id>",...}
 
-# 2. 经共享项目盘直接回读结果与日志（容器与主机看到同一份 tmp/）
-cat  tmp/dev-agent-bridge/<id>/result.json
+# 2. 经共享项目盘直接回读日志（容器与主机看到同一份 tmp/；状态/元数据见 HTTP）
 tail -n 50 tmp/dev-agent-bridge/<id>/stdout.log
-# 或不依赖共享盘，经 HTTP 回读：
+# 或不依赖共享盘，经 HTTP 回读（状态/元数据只在此处，已不写 result.json）：
 curl -s -H "Authorization: Bearer $AGENT_BRIDGE_TOKEN" \
   http://host.docker.internal:8765/v1/jobs/<id>
 ```
@@ -436,6 +441,13 @@ curl -s -X POST http://host.docker.internal:8765/v1/jobs \
 - 旧接口 `/run`、`/result/{id}`，旧参数 `mode=codex|exec`，旧鉴权头 `X-Bridge-Token` 均**已废弃**；新接口为 `/v1/jobs` + `Authorization: Bearer <token>`。
 
 ## 变更记录
+
+### SQLite 存储后端（C1，2026-06-18）
+
+- job 元数据 / 索引 / 交互迁入全局 SQLite 库（modernc 纯 Go，`db_path`）；日志仍是结果目录文件。
+- 内存只保留运行中的 job，终态落库后驱逐 → 根治长跑 server 内存 / 索引文件无界增长。
+- 列表为 DB 索引查询（项目 / 状态 / 分页）；新增 `storage.retention` 周期清理旧终态 job 及日志。
+- **停写**：`result.json` / `jobs.jsonl` / `interactions.jsonl` / `request.json`（后者入 DB `request_json` 列）。
 
 ### v0.1（MVP）
 
