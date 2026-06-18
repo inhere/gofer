@@ -22,6 +22,7 @@ const statusOptions: Array<{ value: '' | JobStatus; label: string }> = [
   { value: '', label: '全部' },
   { value: 'queued', label: 'queued' },
   { value: 'running', label: 'running' },
+  { value: 'pending_interaction', label: '⚠ 待应答' },
   { value: 'done', label: 'done' },
   { value: 'failed', label: 'failed' },
   { value: 'cancelled', label: 'cancelled' },

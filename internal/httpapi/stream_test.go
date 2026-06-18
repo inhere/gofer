@@ -356,6 +356,93 @@ func TestStreamClientCancel(t *testing.T) {
 	s.jobs.Wait(id)
 }
 
+// TestStreamInteractionEvents connects to a live (long-running) job, then raises
+// and answers an interaction directly via the Service while the SSE stream is
+// open, asserting an `interaction` event with action=open is delivered when the
+// interaction is created and action=answered (carrying the answer) once answered.
+func TestStreamInteractionEvents(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+
+	// A long-running job so the stream stays in the live ticker loop while we
+	// drive interactions from the test.
+	id := createStreamJob(t, srv.URL, []string{"sleep", "30"})
+	t.Cleanup(func() {
+		_ = s.jobs.Cancel(id)
+		s.jobs.Wait(id)
+	})
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	resp, scanner := openStream(t, ctx, srv.URL, id, "")
+	defer resp.Body.Close()
+
+	// Drain frames in the background, forwarding `interaction` frames to a channel.
+	interactions := make(chan interactionFrame, 8)
+	go func() {
+		for scanner.Scan() {
+			raw := strings.TrimSpace(scanner.Text())
+			if raw == "" {
+				continue
+			}
+			ev := parseFrame(raw)
+			if ev.Event != "interaction" {
+				continue
+			}
+			var f interactionFrame
+			if err := json.Unmarshal([]byte(ev.Data), &f); err != nil {
+				continue
+			}
+			interactions <- f
+		}
+	}()
+
+	// Raise an interaction on the live job; the stream must surface it as `open`.
+	created, err := s.jobs.CreateInteraction(id, job.InteractionInput{
+		Type: job.InteractionTypeQuestion, Prompt: "q",
+	})
+	if err != nil {
+		t.Fatalf("CreateInteraction: %v", err)
+	}
+
+	open := awaitInteraction(t, interactions, 5*time.Second)
+	if open.Action != "open" {
+		t.Fatalf("first interaction action=%q, want open", open.Action)
+	}
+	if open.Interaction.ID == "" {
+		t.Fatalf("open interaction has empty id")
+	}
+	if open.Interaction.Status != job.InteractionPending {
+		t.Fatalf("open interaction status=%q, want pending", open.Interaction.Status)
+	}
+
+	// Answer it; the stream must surface the answered state with the answer text.
+	if _, err := s.jobs.AnswerInteraction(id, created.ID, "ans"); err != nil {
+		t.Fatalf("AnswerInteraction: %v", err)
+	}
+
+	answered := awaitInteraction(t, interactions, 5*time.Second)
+	if answered.Action != "answered" {
+		t.Fatalf("second interaction action=%q, want answered", answered.Action)
+	}
+	if answered.Interaction.Answer != "ans" {
+		t.Fatalf("answered interaction answer=%q, want ans", answered.Interaction.Answer)
+	}
+}
+
+// awaitInteraction waits for the next interaction frame or fails on timeout.
+func awaitInteraction(t *testing.T, ch <-chan interactionFrame, timeout time.Duration) interactionFrame {
+	t.Helper()
+	select {
+	case f := <-ch:
+		return f
+	case <-time.After(timeout):
+		t.Fatalf("did not receive interaction frame within %s", timeout)
+		return interactionFrame{}
+	}
+}
+
 // --- small HTTP helpers (real client, used by the SSE tests) ---
 
 // waitDoneHTTP polls GET /v1/jobs/{id} via the real client until terminal.

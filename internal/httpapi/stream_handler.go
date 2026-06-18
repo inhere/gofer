@@ -28,6 +28,14 @@ type logFrame struct {
 	Text   string `json:"text"`
 }
 
+// interactionFrame is the JSON payload of an `interaction` SSE event (web-P2 W1):
+// the action derived from the interaction's current status (open/answered/
+// cancelled) plus the full interaction snapshot.
+type interactionFrame struct {
+	Action      string          `json:"action"`
+	Interaction job.Interaction `json:"interaction"`
+}
+
 // handleJobStream serves Server-Sent Events for a single job: incremental
 // stdout/stderr (`log` events) plus `status` events on every status change, and
 // a final `end` event once the job reaches a terminal state (web-T3).
@@ -115,8 +123,47 @@ func (s *Server) handleJobStream(c *rux.Context) {
 		return nil
 	}
 
+	// seenStatus tracks the last status we emitted per interaction id, so we only
+	// send an `interaction` event when one is raised or changes state.
+	seenStatus := map[string]string{}
+
+	// pumpInteractions emits an `interaction` event for every interaction whose
+	// status differs from the last one we sent. The action is derived from the
+	// status (pending→open, answered→answered, cancelled→cancelled); unknown
+	// statuses are skipped. A write error (client gone) aborts by returning it.
+	pumpInteractions := func() error {
+		its, _ := s.jobs.GetInteractions(id)
+		for _, it := range its {
+			if seenStatus[it.ID] == it.Status {
+				continue
+			}
+			var action string
+			switch it.Status {
+			case job.InteractionPending:
+				action = "open"
+			case job.InteractionAnswered:
+				action = "answered"
+			case job.InteractionCancelled:
+				action = "cancelled"
+			default:
+				continue
+			}
+			if err := writeSSE(w, flusher, "interaction", interactionFrame{Action: action, Interaction: it}); err != nil {
+				return err
+			}
+			seenStatus[it.ID] = it.Status
+		}
+		return nil
+	}
+
 	// Initial status snapshot.
 	if err := writeSSE(w, flusher, "status", res); err != nil {
+		return
+	}
+
+	// Replay the current interaction state to a freshly-connected client (pending
+	// ones surface as open, already-answered ones as answered).
+	if err := pumpInteractions(); err != nil {
 		return
 	}
 
@@ -128,6 +175,7 @@ func (s *Server) handleJobStream(c *rux.Context) {
 	// closing `end` event.
 	finish := func(final job.JobResult) {
 		_ = pumpLogs()
+		_ = pumpInteractions() // push the last answer/cancel before closing
 		_ = writeSSE(w, flusher, "status", final)
 		_ = writeSSE(w, flusher, "end", struct{}{})
 	}
@@ -150,6 +198,9 @@ func (s *Server) handleJobStream(c *rux.Context) {
 			return
 		case <-ticker.C:
 			if err := pumpLogs(); err != nil {
+				return // client disconnected
+			}
+			if err := pumpInteractions(); err != nil {
 				return // client disconnected
 			}
 
