@@ -7,6 +7,7 @@
 | 版本 | 日期 | 修改人 | 调整说明 |
 |---|---|---|---|
 | v0.1 | 2026-06-18 | Claude | 初版：SQLite（modernc 纯 Go）做 job 元数据/索引/交互 store，日志仍文件；in-memory 仅保留 live job；分期 SP1–SP5。已确认"直接上 SQLite"。 |
+| v0.2 | 2026-06-18 | Claude | 确认**不迁移**（fresh-start、不提供 import、直接切 DB、无双写）；request.json SP1/SP2 留文件、SP5 入列。§10/§14 据此收敛。 |
 
 ## 2. 背景与目标
 
@@ -120,9 +121,7 @@ CREATE INDEX IF NOT EXISTS idx_inter_job ON interactions(job_id);
 
 ## 10. 迁移
 
-- **Fresh-start**（推荐）：首次启动建库建表；历史 `jobs.jsonl`/`result.json` **不自动导入**（旧 job 不再出现在列表，结果目录文件仍在盘上可人工查）。dev 工具，可接受。
-- 可选后续：一次性 `import` 子命令把旧 jsonl 灌入 DB。
-- 旧文件路径（result.json/interactions.jsonl/jobs.jsonl）停写；logs 路径不变。
+**不迁移（已确认）**：首次启动建库建表即用；历史 `jobs.jsonl`/`result.json`/`interactions.jsonl` **不导入、不提供 `import`**，旧 job 不再出现在列表（结果目录文件仍在盘上可人工查）。旧文件路径停写；logs 路径不变。**直接切 DB，无双写过渡。**
 
 ## 11. 配置
 
@@ -152,12 +151,12 @@ storage:
 
 > 每个 SP 子阶段绿灯即提交（SR1202）。SP1–SP3 为 C1 核心；SP4–SP5 收尾增强。
 
-## 14. 待确认 / 风险
+## 14. 已定 / 风险
 
-- **双写过渡 vs 直接切**：SP2 是否短暂"DB+文件双写"以便回滚，还是直接切 DB（fresh-start）？倾向直接切（dev 工具）。
-- **request.json**：保留文件 vs 入 `request_json` 列。倾向入列（少一类文件），但首期可先保留文件减小改动面。
-- **modernc 体积**：纯 Go SQLite 会增加二进制体积（~数 MB）。可接受（已用 upx）。
-- **测试**：metaStore 用临时库文件；并发写需覆盖（WAL + busy_timeout 下的多 goroutine upsert）。
+- **直接切 DB**（已定）：无双写过渡、不迁移（§10）。
+- **request.json**（已定）：SP1/SP2 先保留文件减小改动面；SP5 入 `request_json` 列后停写文件。
+- **modernc 体积**：纯 Go SQLite 增二进制体积（~数 MB）。可接受（已用 upx）。
+- **测试**：metaStore 用临时库文件；并发写需覆盖（WAL + busy_timeout 下多 goroutine upsert）。`-race` 仍需主机（容器无 gcc）。
 - **WAL 文件**：`-wal`/`-shm` 旁文件随库目录；优雅停机无需特殊处理（WAL 自动 checkpoint）。
 
 ## 15. 结论

@@ -24,7 +24,10 @@
 
 ### 架构加固（见 [`design/architecture-overview.md`](design/architecture-overview.md) §9.1）
 
-- [ ] C1 内存 job 表 + `jobs.jsonl` 无界增长 → 终态 job 驱逐 + 索引轮转/压实。
+- [ ] **C1（进行中，下一个实施任务）**内存 job 表 + `jobs.jsonl` 无界增长 → **SQLite 存储后端**（已定方向，无 stopgap）。
+  - 设计+计划：[`design/2026-06-18-sqlite-store-design.md`](design/2026-06-18-sqlite-store-design.md)（SP1–SP5，**SP1–SP3=C1 核心**）。
+  - 已定：modernc 纯 Go SQLite（容器内可构建）；DB 存 job 元数据/索引/交互，日志仍文件，内存仅留 live job；**不迁移/fresh-start/直接切**；request.json SP1/SP2 留文件、SP5 入列。
+  - 下一步：SUPMODE 推进 SP1→SP3 再 SP4/SP5（clear 后从 SP1 开始）。
 - [ ] C2 单一 token 无身份/吊销 → per-worker / per-caller token。
 - [ ] C3 配置无热加载 → SIGHUP/接口热重载 registry。
 - [ ] C4/C5/C6/C7：日志流控、提交幂等键、远端节点健康探针、多 hub HA（按需）。
