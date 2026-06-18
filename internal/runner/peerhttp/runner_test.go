@@ -226,6 +226,105 @@ func TestPeerRunnerCancelForwards(t *testing.T) {
 	}
 }
 
+// TestPeerRunnerInteractionPassthrough verifies the P9 passthrough: a peer raises
+// an interaction on its running job; the host mirrors it onto its own job (host ->
+// pending_interaction) via the peer SSE stream; the user answers on the HOST; and
+// the runner POSTs that answer back to the peer so its interaction is answered.
+func TestPeerRunnerInteractionPassthrough(t *testing.T) {
+	peer := newPeerBridge(t)
+	defer peer.close()
+	host := newHostBridge(t, peer.srv.URL)
+	defer host.close()
+
+	created, err := host.jobs.Submit(job.JobRequest{
+		ProjectKey: "demo",
+		Agent:      "exec",
+		Runner:     "docker-peer",
+		Cmd:        []string{"sh", "-c", "echo started; sleep 30"},
+		Cwd:        ".",
+		TimeoutSec: 120,
+	})
+	if err != nil {
+		t.Fatalf("host submit: %v", err)
+	}
+	hostJobID := created.ID
+	waitRunning(t, host, hostJobID, 15*time.Second)
+
+	// The peer worker runs exactly one job (the one the host forwarded); find it.
+	peerJobID := waitPeerJob(t, peer, 10*time.Second)
+
+	// Tear down the long-lived sleep job at the end (even on assertion failure):
+	// cancel the host job (cancel is forwarded to the peer) AND wait for BOTH to
+	// reach terminal so the peer's log writers are closed before t.TempDir cleanup
+	// removes the job dir — otherwise RemoveAll races a still-writing goroutine.
+	defer func() {
+		_ = host.jobs.Cancel(hostJobID)
+		waitTerminal(t, host, hostJobID, 15*time.Second)
+		waitTerminal(t, peer, peerJobID, 15*time.Second)
+	}()
+
+	// Raise an interaction directly on the PEER's running job.
+	createdInt, err := peer.jobs.CreateInteraction(peerJobID, job.InteractionInput{
+		Type:   job.InteractionTypeQuestion,
+		Prompt: "q?",
+	})
+	if err != nil {
+		t.Fatalf("peer CreateInteraction: %v", err)
+	}
+
+	// The host must mirror that interaction onto its own job (via the SSE stream),
+	// flipping the host job to pending_interaction.
+	waitInteraction(t, host, hostJobID, createdInt.ID, job.InteractionPending, "", 15*time.Second)
+	if hj, _ := host.jobs.Get(hostJobID); hj.Status != job.StatusPendingInteraction {
+		t.Fatalf("host job status=%q, want pending_interaction", hj.Status)
+	}
+
+	// Answer on the HOST; the runner forwards the answer back to the peer.
+	if _, err := host.jobs.AnswerInteraction(hostJobID, createdInt.ID, "ANS-42"); err != nil {
+		t.Fatalf("host AnswerInteraction: %v", err)
+	}
+
+	// The peer's interaction must become answered with the host-supplied answer.
+	waitInteraction(t, peer, peerJobID, createdInt.ID, job.InteractionAnswered, "ANS-42", 15*time.Second)
+}
+
+// waitPeerJob polls the peer bridge until exactly one job is tracked and returns
+// its id (the worker only ever runs the single job the host forwarded).
+func waitPeerJob(t *testing.T, b *bridge, timeout time.Duration) string {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		jobs, _ := b.jobs.ListJobs(job.ListOpts{})
+		if len(jobs) == 1 {
+			return jobs[0].ID
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("peer did not register exactly one job within %s", timeout)
+	return ""
+}
+
+// waitInteraction polls a bridge until the job has an interaction with the given
+// id in the wanted status (and, when wantAnswer != "", that answer).
+func waitInteraction(t *testing.T, b *bridge, jobID, interactionID, wantStatus, wantAnswer string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		ints, _ := b.jobs.GetInteractions(jobID)
+		for _, it := range ints {
+			if it.ID == interactionID && it.Status == wantStatus {
+				if wantAnswer == "" || it.Answer == wantAnswer {
+					return
+				}
+			}
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	ints, _ := b.jobs.GetInteractions(jobID)
+	t.Fatalf("interaction %q on job %q did not reach status=%q answer=%q within %s; got %+v",
+		interactionID, jobID, wantStatus, wantAnswer, timeout, ints)
+}
+
 // readHostStdout reads the host job's local stdout.log via the FileStore (the
 // exact read path the host /logs/stdout endpoint uses: base = dir(ResultDir)).
 func readHostStdout(t *testing.T, host *bridge, id string) string {

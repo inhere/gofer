@@ -10,6 +10,12 @@
 // /stream and list stay transparently usable for the proxied job) and to learn
 // the authoritative terminal exit code / status. Host-side cancel/timeout flows
 // through ctx and is forwarded to the peer.
+//
+// The SSE stream also carries the peer's running-job interactions (P9): an
+// `interaction` event with action "open" is bridged onto the HOST job via
+// req.Interactions (an InteractionSink) so the host's HTTP/Web/MCP surface the
+// prompt; when the user answers on the host, the runner POSTs that answer back to
+// the peer's answer endpoint so the peer job resumes.
 package peerhttp
 
 import (
@@ -82,8 +88,9 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 
 	// Mirror the peer's SSE log stream into the local log writers and watch for a
 	// terminal status. The stream is consumed under ctx so a host-side cancel
-	// tears it down promptly.
-	r.mirrorStream(ctx, peerID, req.Stdout, req.Stderr)
+	// tears it down promptly. It also bridges the peer's interactions (P9) onto
+	// the host job via req.Interactions.
+	r.mirrorStream(ctx, peerID, req)
 
 	// If the host context ended (cancel/timeout), forward the cancel to the peer
 	// best-effort. We then still fetch the authoritative terminal result below.
@@ -104,16 +111,20 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 
 // mirrorStream consumes the peer SSE stream and writes each `log` frame's text
 // into the matching local writer; it returns when the stream emits `end`, a
-// terminal `status`, the stream closes, or ctx ends. It is best-effort: the
+// terminal `status`, the stream closes, or ctx ends. `interaction` frames are
+// bridged onto the host job via req.Interactions (P9). It is best-effort: the
 // authoritative terminal result is fetched separately by the caller, so a
 // stream hiccup never loses the job outcome.
-func (r *Runner) mirrorStream(ctx context.Context, peerID string, stdout, stderr io.Writer) {
+func (r *Runner) mirrorStream(ctx context.Context, peerID string, req runner.Request) {
 	resp, err := r.c.OpenStream(ctx, peerID)
 	if err != nil {
 		return // caller falls back to GetJob for the terminal result
 	}
 	defer resp.Body.Close()
 
+	// seen tracks interaction ids already bridged to the host so a re-sent/replayed
+	// `open` frame is not forwarded twice.
+	seen := map[string]bool{}
 	reader := bufio.NewReader(resp.Body)
 	var buf []byte
 	tmp := make([]byte, 32*1024)
@@ -127,7 +138,7 @@ func (r *Runner) mirrorStream(ctx context.Context, peerID string, stdout, stderr
 			frames, rest := parseSSE(string(buf))
 			buf = []byte(rest)
 			for _, fr := range frames {
-				if r.handleFrame(fr, stdout, stderr) {
+				if r.handleFrame(ctx, fr, req, peerID, seen) {
 					return // terminal frame seen
 				}
 			}
@@ -137,7 +148,7 @@ func (r *Runner) mirrorStream(ctx context.Context, peerID string, stdout, stderr
 			if len(buf) > 0 {
 				frames, _ := parseSSE(string(buf) + "\n\n")
 				for _, fr := range frames {
-					if r.handleFrame(fr, stdout, stderr) {
+					if r.handleFrame(ctx, fr, req, peerID, seen) {
 						return
 					}
 				}
@@ -148,22 +159,49 @@ func (r *Runner) mirrorStream(ctx context.Context, peerID string, stdout, stderr
 }
 
 // handleFrame applies one SSE frame: `log` mirrors its text into the matching
-// writer; `status` (terminal) and `end` signal the stream is finished (returns
-// true). Unknown events are ignored.
-func (r *Runner) handleFrame(fr sseFrame, stdout, stderr io.Writer) (done bool) {
+// writer; `interaction` (action "open") bridges the peer interaction onto the
+// host job and forwards the host answer back to the peer; `status` (terminal) and
+// `end` signal the stream is finished (returns true). Unknown events are ignored.
+func (r *Runner) handleFrame(ctx context.Context, fr sseFrame, req runner.Request, peerID string, seen map[string]bool) (done bool) {
 	switch fr.Event {
 	case "log":
 		var lf logFrame
 		if err := json.Unmarshal([]byte(fr.Data), &lf); err != nil {
 			return false
 		}
-		w := stdout
+		w := req.Stdout
 		if lf.Stream == "stderr" {
-			w = stderr
+			w = req.Stderr
 		}
 		if w != nil && lf.Text != "" {
 			_, _ = io.WriteString(w, lf.Text)
 		}
+	case "interaction":
+		var ifr peerInteractionFrame
+		if err := json.Unmarshal([]byte(fr.Data), &ifr); err != nil {
+			return false
+		}
+		if ifr.Action == "open" && req.Interactions != nil && !seen[ifr.Interaction.ID] {
+			seen[ifr.Interaction.ID] = true
+			ri := runner.RemoteInteraction{
+				ID:      ifr.Interaction.ID,
+				Type:    ifr.Interaction.Type,
+				Prompt:  ifr.Interaction.Prompt,
+				Options: toRemoteOptions(ifr.Interaction.Options),
+			}
+			if ansCh, err := req.Interactions.Open(ctx, ri); err == nil {
+				iid := ifr.Interaction.ID
+				go func() {
+					// The answer arrives on the host; forward it to the peer so its
+					// job resumes. If the channel closes without a value (job ended /
+					// ctx cancelled), do nothing.
+					if ans, ok := <-ansCh; ok {
+						_ = r.c.AnswerInteraction(peerID, iid, ans)
+					}
+				}()
+			}
+		}
+		return false // interaction is NOT terminal; keep streaming
 	case "status":
 		var jr job.JobResult
 		if err := json.Unmarshal([]byte(fr.Data), &jr); err == nil && job.IsTerminal(jr.Status) {
@@ -182,6 +220,27 @@ type logFrame struct {
 	Stream string `json:"stream"`
 	Seq    int    `json:"seq"`
 	Text   string `json:"text"`
+}
+
+// peerInteractionFrame mirrors the server's SSE `interaction` payload (action +
+// full interaction snapshot). The peerhttp package may import job, so it reuses
+// job.Interaction for the wire shape.
+type peerInteractionFrame struct {
+	Action      string          `json:"action"`
+	Interaction job.Interaction `json:"interaction"`
+}
+
+// toRemoteOptions converts job interaction options into the neutral runner shape
+// (nil-safe) so the host sink can rebuild them without importing job from runner.
+func toRemoteOptions(in []job.InteractionOption) []runner.RemoteInteractionOption {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]runner.RemoteInteractionOption, 0, len(in))
+	for _, o := range in {
+		out = append(out, runner.RemoteInteractionOption{Value: o.Value, Label: o.Label})
+	}
+	return out
 }
 
 // errFromStatus maps a peer terminal JobResult to a runner error: done => nil;
