@@ -47,7 +47,13 @@ func runMcp(_ *gcli.Command, _ []string) error {
 	if err != nil {
 		return errorx.Failf(mcpExitErr, "%v", err)
 	}
-	core := buildCore(cfg)
+	core, err := buildCore(cfg)
+	if err != nil {
+		return errorx.Failf(mcpExitErr, "%v", err)
+	}
+	// Graceful shutdown: close the metadata store (WAL checkpoint) when the MCP
+	// server returns (design §14).
+	defer func() { _ = core.Close() }()
 	err = mcpserver.Serve(context.Background(), core.Jobs, core.Projects, core.Agents)
 	if isCleanShutdown(err) {
 		// A clean stdin EOF (client closed the pipe) or a cancelled context is the

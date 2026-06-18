@@ -27,7 +27,11 @@ type JobResult struct {
 	ResultDir  string `json:"result_dir"`
 	StartedAt  int64  `json:"started_at"`
 	EndedAt    int64  `json:"ended_at,omitempty"`
-	Error      string `json:"error,omitempty"`
+	// UpdatedAt is the unix time of the last persisted snapshot. It is stamped by
+	// the metadata store write path (Service.persist) so listing/retention always
+	// have a monotonic ordering value; it is not set by the runner state machine.
+	UpdatedAt int64  `json:"updated_at,omitempty"`
+	Error     string `json:"error,omitempty"`
 }
 
 // Job status values (plan §6.2).

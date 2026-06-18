@@ -1,10 +1,9 @@
 package job
 
 import (
-	"encoding/json"
 	"sort"
 
-	"dev-agent-bridge/internal/project"
+	"dev-agent-bridge/internal/jobstore"
 )
 
 // defaultListLimit caps the number of jobs returned by ListJobs when the caller
@@ -23,47 +22,34 @@ type ListOpts struct {
 }
 
 // ListJobs returns job snapshots across one or all projects, merging the
-// persisted per-project index (jobs.jsonl) with the in-memory live state. The
-// in-memory snapshot wins for any job present in both (it reflects the latest
-// status of a running job and covers jobs whose terminal index line is not yet
-// written). Results are sorted by started_at desc (id desc as tiebreaker) and
-// truncated to opts.Limit.
+// DB-persisted index (metadata store, DB-side filtered/sorted/paginated) with
+// the in-memory live state. The in-memory snapshot wins for any job present in
+// both (it reflects the latest status of a running job). Results are sorted by
+// started_at desc (id desc as tiebreaker) and truncated to opts.Limit.
 //
-// Index I/O happens without holding s.mu; the in-memory pass copies entry
-// pointers under s.mu and snapshots them after unlocking to avoid taking
-// entry.mu while holding s.mu.
+// DB I/O happens without holding s.mu; the in-memory pass copies entry pointers
+// under s.mu and snapshots them after unlocking to avoid taking entry.mu while
+// holding s.mu.
 func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
-	// 1. Resolve the target project set.
-	targets := map[string]struct{}{}
+	// 1. An explicit project that is not registered yields an empty (non-nil)
+	// result, matching the pre-DB behaviour (the list is scoped to known projects).
 	if opts.Project != "" {
 		if _, ok := s.cfg.Projects[opts.Project]; !ok {
 			return []JobResult{}, nil
 		}
-		targets[opts.Project] = struct{}{}
-	} else {
-		for key := range s.cfg.Projects {
-			targets[key] = struct{}{}
-		}
 	}
 
-	// 2. Fold the persisted index per project (last line wins per id). I/O only;
-	// no service lock held. A per-project resolution/read error is skipped rather
-	// than failing the whole list.
+	// 2. Pull the persisted base set from the metadata store (DB-side project/
+	// status filter + ordering). DB read; no service lock held. A query error is
+	// non-fatal: fall back to whatever the in-memory overlay provides.
 	merged := map[string]JobResult{}
-	for key := range targets {
-		proj := s.cfg.Projects[key]
-		base, err := project.ResultBaseDir(s.cfg, key, proj)
-		if err != nil {
-			continue
-		}
-		raws, _ := s.newStore(base).ReadIndex()
-		for _, raw := range raws {
-			var rec JobResult
-			if err := json.Unmarshal(raw, &rec); err != nil {
-				continue
-			}
-			merged[rec.ID] = rec
-		}
+	recs, _ := s.meta.ListJobs(jobstore.ListQuery{
+		Project: opts.Project,
+		Status:  opts.Status,
+		Limit:   opts.Limit,
+	})
+	for _, rec := range recs {
+		merged[rec.ID] = fromRecord(rec)
 	}
 
 	// 3. Overlay in-memory snapshots (running jobs are authoritative). Copy entry

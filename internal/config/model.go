@@ -43,6 +43,9 @@ type StorageConfig struct {
 	DefaultExchangeSubdir string `yaml:"default_exchange_subdir"`
 	DefaultResultSubdir   string `yaml:"default_result_subdir"`
 	Root                  string `yaml:"root"`
+	// DBPath is the optional explicit path to the SQLite metadata database. When
+	// empty it is resolved by ResolveDBPath from Root / the config dir.
+	DBPath string `yaml:"db_path"`
 }
 
 // ProjectConfig describes a single registered project. ExchangeSubdir and

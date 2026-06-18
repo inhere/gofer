@@ -71,7 +71,13 @@ func runServe(c *gcli.Command, _ []string) error {
 		return errorx.Failf(serveExitErr, "refusing to start without a token: set server.token / server.token_env / --token, or pass --allow-empty-token")
 	}
 
-	core := buildCore(cfg)
+	core, err := buildCore(cfg)
+	if err != nil {
+		return errorx.Failf(serveExitErr, "%v", err)
+	}
+	// Graceful shutdown: close the metadata store (WAL checkpoint) when serve
+	// returns (design §14).
+	defer func() { _ = core.Close() }()
 
 	srv := httpapi.New(&cfg.Server, token, allowEmpty, core.Jobs, core.Projects, core.Agents)
 
