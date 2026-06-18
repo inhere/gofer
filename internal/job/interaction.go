@@ -102,7 +102,7 @@ func (s *Service) CreateInteraction(jobID string, in InteractionInput) (Interact
 
 	entry := s.entry(jobID)
 	if entry == nil {
-		return Interaction{}, fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
+		return Interaction{}, s.notLiveErr(jobID, "create")
 	}
 
 	entry.mu.Lock()
@@ -138,7 +138,7 @@ func (s *Service) CreateInteraction(jobID string, in InteractionInput) (Interact
 	// Persist outside callers' view of the lock: the job snapshot into the
 	// metadata store (best-effort) and the pending interaction line (still on disk
 	// until SP4 moves interactions into the DB).
-	s.persist(snap)
+	_ = s.persist(snap)
 	_ = entry.store.AppendInteraction(jobID, out)
 
 	return out, nil
@@ -212,7 +212,7 @@ func foldInteractions(lines []json.RawMessage) ([]Interaction, error) {
 func (s *Service) AnswerInteraction(jobID, interactionID, answer string) (Interaction, error) {
 	entry := s.entry(jobID)
 	if entry == nil {
-		return Interaction{}, fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
+		return Interaction{}, s.notLiveErr(jobID, "answer")
 	}
 
 	entry.mu.Lock()
@@ -255,7 +255,7 @@ func (s *Service) AnswerInteraction(jobID, interactionID, answer string) (Intera
 	// snapshot into the metadata store.
 	_ = entry.store.AppendInteraction(jobID, out)
 	if resumeSnap != nil {
-		s.persist(*resumeSnap)
+		_ = s.persist(*resumeSnap)
 	}
 	// Wake any WaitAnswer caller. Closing under no lock is fine: the channel is
 	// closed exactly once (the pending->answered transition is single-shot).
@@ -317,4 +317,18 @@ func hasPendingInteraction(recs []*interactionRec) bool {
 		}
 	}
 	return false
+}
+
+// notLiveErr is the error for an interaction op (create/answer/inject) on a job
+// not tracked in memory. It consults the metadata store so the result is
+// deterministic: a job present in the DB but absent from memory was evicted
+// after finishing (SP3), so it is terminal (ErrJobTerminal — no live agent);
+// otherwise it is genuinely unknown (ErrUnknownJob). Without this DB check the
+// in-memory terminal guard would race finish()'s eviction and report 409 or 404
+// unpredictably for the same finished job.
+func (s *Service) notLiveErr(jobID, action string) error {
+	if _, ok, _ := s.meta.GetJob(jobID); ok {
+		return fmt.Errorf("%w: job %q: cannot %s interaction", ErrJobTerminal, jobID, action)
+	}
+	return fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
 }

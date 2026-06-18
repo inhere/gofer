@@ -28,9 +28,18 @@ func (s *Service) GetPersisted(_ string, id string) (JobResult, bool) {
 // Cancel requests cancellation of a running job. It is a stable no-op (returns
 // nil) for an already-terminal job, so callers/tests get deterministic
 // behaviour. It returns an error only when the job id is unknown.
+//
+// After SP3 a finished job is evicted from the in-memory map, so an entry==nil
+// can mean "never existed" OR "already terminal and evicted". The metadata store
+// disambiguates: a known (terminal) job cancels as a no-op (nil); only a truly
+// unknown id is an error.
 func (s *Service) Cancel(id string) error {
 	entry := s.entry(id)
 	if entry == nil {
+		if _, ok, _ := s.meta.GetJob(id); ok {
+			// Known but evicted => terminal; cancelling a terminal job is a no-op.
+			return nil
+		}
 		return fmt.Errorf("unknown job %q", id)
 	}
 
@@ -52,9 +61,19 @@ func (s *Service) Cancel(id string) error {
 // Wait blocks until the job reaches a terminal state, then returns its final
 // snapshot. It is primarily a test/HTTP helper. The boolean is false for an
 // unknown job id.
+//
+// After SP3 a finished job is evicted from the in-memory map. A Wait caller that
+// grabbed the live entry before eviction still unblocks on entry.done (the
+// execute goroutine closes it after finish returns) and returns the terminal
+// snapshot. A Wait that arrives only after eviction sees entry==nil and falls
+// back to the metadata store: a known job is already terminal, so its persisted
+// record is returned immediately without blocking; an unknown id returns false.
 func (s *Service) Wait(id string) (JobResult, bool) {
 	entry := s.entry(id)
 	if entry == nil {
+		if rec, ok, _ := s.meta.GetJob(id); ok {
+			return fromRecord(rec), true
+		}
 		return JobResult{}, false
 	}
 	<-entry.done

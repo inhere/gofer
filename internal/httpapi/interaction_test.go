@@ -208,6 +208,11 @@ func TestInteractionDoubleAnswer(t *testing.T) {
 	}
 }
 
+// TestInteractionCreateOnTerminalJob asserts you cannot raise an interaction on
+// a finished job. After SP3 a terminal job is evicted from the in-memory map, but
+// the service consults the metadata store on a memory miss and still reports it
+// as terminal (409 Conflict) deterministically — never racing eviction into a
+// spurious 404.
 func TestInteractionCreateOnTerminalJob(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 	// A short job that finishes quickly -> terminal.
@@ -222,7 +227,7 @@ func TestInteractionCreateOnTerminalJob(t *testing.T) {
 		t.Fatalf("setup: job status=%s, want done", final.Status)
 	}
 
-	// Creating an interaction on a terminal job -> 409 Conflict.
+	// Creating an interaction on a terminal (evicted) job -> 409 Conflict.
 	createResp := do(t, s, http.MethodPost, "/v1/jobs/"+created.ID+"/interactions", testToken, createInteractionReq{
 		Type: job.InteractionTypeQuestion, Prompt: "q",
 	})

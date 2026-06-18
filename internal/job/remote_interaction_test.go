@@ -56,8 +56,10 @@ func TestInjectInteractionUnknownJob(t *testing.T) {
 	}
 }
 
-// TestInjectInteractionTerminalJob asserts injecting onto a finished job reports
-// ErrJobTerminal (no live agent to consume the answer).
+// TestInjectInteractionTerminalJob asserts injecting onto a finished job is
+// rejected. After SP3 a terminal job is evicted from the in-memory map, so it is
+// indistinguishable from an unknown id and surfaces as ErrUnknownJob (there is no
+// live agent left to consume the answer either way).
 func TestInjectInteractionTerminalJob(t *testing.T) {
 	s := newTestService(t, t.TempDir())
 	final := submitAndWait(t, s, JobRequest{
@@ -67,6 +69,11 @@ func TestInjectInteractionTerminalJob(t *testing.T) {
 	if !IsTerminal(final.Status) {
 		t.Fatalf("expected terminal job, got %s", final.Status)
 	}
+	if e := s.entry(final.ID); e != nil {
+		t.Fatalf("expected terminal job evicted from memory, still present")
+	}
+	// Evicted but still in the metadata store -> reported terminal (not unknown),
+	// deterministically regardless of eviction timing.
 	err := s.injectInteraction(final.ID, Interaction{ID: "x", Status: InteractionPending})
 	if !errors.Is(err, ErrJobTerminal) {
 		t.Fatalf("expected ErrJobTerminal, got %v", err)

@@ -22,6 +22,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	_ "modernc.org/sqlite" // registers the "sqlite" database/sql driver
 )
@@ -38,10 +39,17 @@ const (
 
 // Store is a handle to the SQLite job database. It is safe for concurrent use:
 // the underlying *sql.DB is a connection pool and SQLite (in WAL mode) lets
-// readers and the single writer proceed concurrently while busy_timeout makes
-// competing writers wait rather than error.
+// readers and the single writer proceed concurrently.
+//
+// writeMu serialises writes in-process so only one SQLite writer is ever active.
+// WAL + busy_timeout alone proved insufficient under full-speed concurrent
+// upserts (intermittent SQLITE_BUSY "database is locked"); since this is a
+// single process owning a single db file, an in-process write lock removes the
+// contention entirely while leaving reads (GetJob/ListJobs) free to run on the
+// pool concurrently.
 type Store struct {
-	db *sql.DB
+	db      *sql.DB
+	writeMu sync.Mutex
 }
 
 // schemaStmts is the full DDL, one statement per element so it works regardless

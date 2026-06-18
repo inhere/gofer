@@ -134,6 +134,10 @@ func TestMultiplePendingKeepsStatusUntilAllAnswered(t *testing.T) {
 	}
 }
 
+// TestCreateInteractionOnTerminalJobErrors asserts you cannot raise an
+// interaction on a finished job. After SP3 a terminal job is evicted from the
+// in-memory map, so it is indistinguishable from an unknown id and surfaces as
+// ErrUnknownJob (there is no live agent left to consume the answer either way).
 func TestCreateInteractionOnTerminalJobErrors(t *testing.T) {
 	root := t.TempDir()
 	s := newTestService(t, root)
@@ -144,9 +148,15 @@ func TestCreateInteractionOnTerminalJobErrors(t *testing.T) {
 	if final.Status != StatusDone {
 		t.Fatalf("setup: expected done, got %s", final.Status)
 	}
+	// The job is terminal and thus evicted from memory (SP3), but the metadata
+	// store still has it, so create must report it as terminal (not unknown) —
+	// deterministically, regardless of eviction timing.
+	if e := s.entry(final.ID); e != nil {
+		t.Fatalf("expected terminal job evicted from memory, still present")
+	}
 	_, err := s.CreateInteraction(final.ID, InteractionInput{Type: InteractionTypeQuestion, Prompt: "q"})
 	if !errors.Is(err, ErrJobTerminal) {
-		t.Fatalf("expected ErrJobTerminal creating interaction on terminal job, got %v", err)
+		t.Fatalf("expected ErrJobTerminal creating interaction on evicted terminal job, got %v", err)
 	}
 }
 

@@ -3,6 +3,7 @@ package httpapi
 import (
 	"errors"
 	"net/http"
+	"path/filepath"
 
 	"github.com/gookit/rux/v2"
 
@@ -50,13 +51,22 @@ func (s *Server) handleCreateInteraction(c *rux.Context) {
 // handleListInteractions returns the job's interactions. An unknown job id is a
 // 404 (consistent with handleGetJob). The list is always a non-nil array, so an
 // empty result serialises as {"interactions":[]}.
+//
+// It reads via GetPersistedInteractions (not the in-memory-only GetInteractions):
+// after SP3 a finished job is evicted from the in-memory map, so the live state
+// is gone — the interactions.jsonl fallback (folded by GetPersistedInteractions)
+// is what surfaces a terminated job's interaction history. The result base is
+// derived from the job's ResultDir (== <base>/<job_id>), which Get serves from
+// the DB even for evicted jobs.
 func (s *Server) handleListInteractions(c *rux.Context) {
 	id := c.Param("id")
-	if _, ok := s.jobs.Get(id); !ok {
+	res, ok := s.jobs.Get(id)
+	if !ok {
 		writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
 		return
 	}
-	list, _ := s.jobs.GetInteractions(id)
+	base := filepath.Dir(res.ResultDir)
+	list, _ := s.jobs.GetPersistedInteractions(base, id)
 	if list == nil {
 		list = []job.Interaction{}
 	}

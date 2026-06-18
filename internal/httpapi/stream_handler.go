@@ -131,8 +131,13 @@ func (s *Server) handleJobStream(c *rux.Context) {
 	// status differs from the last one we sent. The action is derived from the
 	// status (pending→open, answered→answered, cancelled→cancelled); unknown
 	// statuses are skipped. A write error (client gone) aborts by returning it.
+	//
+	// It reads via GetPersistedInteractions (live in-memory state preferred,
+	// interactions.jsonl fallback) using the job's result base, so a terminal job
+	// evicted from memory (SP3) still replays its interaction history to a freshly
+	// connected client.
 	pumpInteractions := func() error {
-		its, _ := s.jobs.GetInteractions(id)
+		its, _ := s.jobs.GetPersistedInteractions(base, id)
 		for _, it := range its {
 			if seenStatus[it.ID] == it.Status {
 				continue
