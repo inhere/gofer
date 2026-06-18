@@ -819,6 +819,8 @@ MCP 不是所有 CLI Agent 的通用远程控制协议。Codex、Claude、OpenCo
 - 如果某个容器内 Agent 只提供 CLI，就仍通过 Agent Adapter 调 CLI。
 - 如果某个容器内能力本身就是 MCP server，后续可新增 `mcp-client runner` 转发工具调用，但不作为首期目标。
 
+> 备注（建模归属，2026-06-17）：上面的 "mcp-client runner" 实为**协议适配**（把 job 翻成对外部 MCP server 的 tool 调用），更宜建模为一种 **agent type（暂名 `mcp-agent`）** 而非 runner——它描述"怎么调用目标能力"，与 runner（"在哪跑"）正交，可在 `local`/`worker` 等任意 runner 上执行；与 `worker` 是**组合而非替代**关系。术语与两条轴详见 [`architecture-overview.md`](./architecture-overview.md)。
+
 ### 12.3 MCP 运行形态
 
 建议支持两种：
