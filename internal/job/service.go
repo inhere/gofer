@@ -145,11 +145,11 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// validation, result base dir all read the same snapshot).
 	cfg := s.config()
 
-	// A peer-http runner forwards the original request to a peer bridge, which
-	// resolves agent/cwd/command with its OWN config. The host therefore skips
-	// local agent/cwd resolution for remote jobs (it still validates the project,
-	// the agent allowlist and the runner allowlist).
-	remote := isPeerRunner(cfg, req.Runner)
+	// A remote runner (peer-http OR ws-worker) forwards the original request to a
+	// remote executor that resolves agent/cwd/command with its OWN config. The host
+	// therefore skips local agent/cwd resolution for remote jobs (it still validates
+	// the project, the agent allowlist and the runner allowlist).
+	remote := isRemoteRunner(cfg, req.Runner)
 
 	proj, err := s.validate(cfg, req, remote)
 	if err != nil {
@@ -245,6 +245,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			ProjectKey:  req.ProjectKey,
 			Agent:       req.Agent,
 			Runner:      req.Runner,
+			WorkerID:    req.WorkerID,
 			Status:      StatusQueued,
 			Cwd:         workDir,
 			ResultDir:   resultDir,
@@ -412,14 +413,15 @@ func (s *Service) persist(snap JobResult) error {
 
 // toRecord projects a JobResult onto the neutral jobstore.JobRecord written to
 // SQLite. SP5 carries RequestJSON into the request_json column (the on-disk
-// request.json file is no longer written). WorkerID stays empty (reserved for
-// the ws-worker runner).
+// request.json file is no longer written). WorkerID is mapped through for
+// ws-worker jobs (jobs.worker_id already exists from C1; no migration).
 func toRecord(r JobResult) jobstore.JobRecord {
 	return jobstore.JobRecord{
 		ID:          r.ID,
 		ProjectKey:  r.ProjectKey,
 		Agent:       r.Agent,
 		Runner:      r.Runner,
+		WorkerID:    r.WorkerID,
 		Status:      r.Status,
 		ExitCode:    r.ExitCode,
 		Cwd:         r.Cwd,
@@ -442,6 +444,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		ProjectKey:  rec.ProjectKey,
 		Agent:       rec.Agent,
 		Runner:      rec.Runner,
+		WorkerID:    rec.WorkerID,
 		Status:      rec.Status,
 		ExitCode:    rec.ExitCode,
 		Cwd:         rec.Cwd,
@@ -485,6 +488,22 @@ func isPeerRunner(cfg *config.Config, name string) bool {
 	return ok && rc.Type == "peer-http"
 }
 
+// isWorkerRunner reports whether name is a configured ws-worker runner (a remote
+// runner that dispatches the job to a worker over the hub WebSocket). Like
+// peer-http it resolves the agent/command on the remote side, so the host skips
+// local exec resolution.
+func isWorkerRunner(cfg *config.Config, name string) bool {
+	rc, ok := cfg.Runners[name]
+	return ok && rc.Type == "worker"
+}
+
+// isRemoteRunner reports whether name is any remote runner (peer-http or
+// ws-worker); both share the host-side "skip local resolution + set Forward"
+// path in Submit.
+func isRemoteRunner(cfg *config.Config, name string) bool {
+	return isPeerRunner(cfg, name) || isWorkerRunner(cfg, name)
+}
+
 // validate enforces the project/agent/runner/exec allowlists (plan §11) and
 // returns the resolved project config.
 //
@@ -523,6 +542,17 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 	}
 	if err := checkRunnerAllowed(proj, req.Runner); err != nil {
 		return config.ProjectConfig{}, fmt.Errorf("%w: %s", ErrInvalidRequest, err.Error())
+	}
+
+	// ws-worker runner must carry a known worker_id (review #1: worker_id is part
+	// of the worker's caller identity; an unknown id has no live binding/conn).
+	if isWorkerRunner(cfg, req.Runner) {
+		if req.WorkerID == "" {
+			return config.ProjectConfig{}, fmt.Errorf("%w: worker_id is required for worker runner", ErrInvalidRequest)
+		}
+		if _, ok := cfg.Server.Workers[req.WorkerID]; !ok {
+			return config.ProjectConfig{}, fmt.Errorf("%w: unknown worker_id %q", ErrInvalidRequest, req.WorkerID)
+		}
 	}
 	return proj, nil
 }
