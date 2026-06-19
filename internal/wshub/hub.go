@@ -156,7 +156,17 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 				sk.Finish(rf)
 			}
 		case wsproto.TypeInteraction:
-			// P2 placeholder: running-job interaction passthrough.
+			// P2: a worker-raised running-job interaction. Demux to the job's sink
+			// IN ORDER on this single read loop (review #2) so the open can never be
+			// reordered after the result frame. The sink bridges it onto the host job
+			// (pending_interaction) and owns the async WaitAnswer goroutine.
+			ifr, derr := wsproto.As[wsproto.Interaction](env)
+			if derr != nil {
+				continue
+			}
+			if sk := wc.sink(env.JobID); sk != nil {
+				sk.OnInteraction(ifr.Action, ifr.Interaction)
+			}
 		case wsproto.TypePong:
 			// P3 placeholder: heartbeat.
 		}
@@ -197,6 +207,32 @@ func (h *Hub) Dispatch(workerID string, d wsproto.Dispatch) error {
 		return ErrWorkerOffline
 	}
 	return wc.writeFrame(context.Background(), wsproto.TypeDispatch, d.JobID, d)
+}
+
+// Answer sends an answer frame to the worker so its local job's interaction
+// resumes (P2). It errors when the worker is offline (best-effort: the host
+// interaction is already authoritative, so a lost answer never blocks the host).
+func (h *Hub) Answer(workerID, jobID, interactionID, answer string) error {
+	wc, ok := h.reg.Get(workerID)
+	if !ok {
+		return ErrWorkerOffline
+	}
+	return wc.writeFrame(context.Background(), wsproto.TypeAnswer, jobID, wsproto.Answer{
+		JobID:         jobID,
+		InteractionID: interactionID,
+		Answer:        answer,
+	})
+}
+
+// Cancel sends a cancel frame to the worker so it cancels the matching local job
+// (P2). It errors when the worker is offline (best-effort: the host classifies
+// the job from its own ctx regardless, so a lost cancel never strands the host).
+func (h *Hub) Cancel(workerID, jobID string) error {
+	wc, ok := h.reg.Get(workerID)
+	if !ok {
+		return ErrWorkerOffline
+	}
+	return wc.writeFrame(context.Background(), wsproto.TypeCancel, jobID, wsproto.Cancel{JobID: jobID})
 }
 
 // startHeartbeat is a P3 placeholder: ping/pong + read-deadline half-open

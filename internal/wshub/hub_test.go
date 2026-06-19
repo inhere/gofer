@@ -2,6 +2,7 @@ package wshub
 
 import (
 	"context"
+	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"sync"
@@ -29,6 +30,12 @@ func newFakeSink() *fakeSink { return &fakeSink{finished: make(chan wsproto.Resu
 func (s *fakeSink) WriteLog(_ string, _ int, text string) {
 	s.mu.Lock()
 	s.events = append(s.events, "log:"+text)
+	s.mu.Unlock()
+}
+
+func (s *fakeSink) OnInteraction(action string, _ json.RawMessage) {
+	s.mu.Lock()
+	s.events = append(s.events, "interaction:"+action)
 	s.mu.Unlock()
 }
 
