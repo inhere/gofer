@@ -3,9 +3,11 @@ package worker
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -24,6 +26,8 @@ type fakeHub struct {
 	registerErr   error
 	dispatchErr   error
 	dispatchedCmd []string
+
+	cancelCalls int // count of Cancel(workerID, jobID) calls
 }
 
 func (h *fakeHub) RegisterSink(_, _ string, sk wshub.JobSink) error {
@@ -51,10 +55,25 @@ func (h *fakeHub) Dispatch(_ string, d wsproto.Dispatch) error {
 	return h.dispatchErr
 }
 
+func (h *fakeHub) Answer(_, _, _, _ string) error { return nil }
+
+func (h *fakeHub) Cancel(_, _ string) error {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cancelCalls++
+	return nil
+}
+
 func (h *fakeHub) snapshotCalls() []string {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return append([]string(nil), h.calls...)
+}
+
+func (h *fakeHub) cancelCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.cancelCalls
 }
 
 func (h *fakeHub) getSink() wshub.JobSink {
@@ -219,5 +238,181 @@ func TestBoundedSinkTruncates(t *testing.T) {
 	payload := strings.ReplaceAll(got, sinkTruncateMark, "")
 	if strings.Count(payload, "a") != 16 || strings.Count(payload, "b") != 16 {
 		t.Fatalf("each oversize frame should be capped to 16 bytes: %q", got)
+	}
+}
+
+// fakeSink is a runner.InteractionSink that records each Open call and hands back
+// a controllable answer channel so the bridge's WaitAnswer goroutine can be
+// driven from a test.
+type fakeSink struct {
+	mu      sync.Mutex
+	opened  []runner.RemoteInteraction
+	chans   map[string]chan string // interaction id → answer channel
+	openErr error
+}
+
+func newFakeSink() *fakeSink { return &fakeSink{chans: map[string]chan string{}} }
+
+func (f *fakeSink) Open(_ context.Context, it runner.RemoteInteraction) (<-chan string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.openErr != nil {
+		return nil, f.openErr
+	}
+	f.opened = append(f.opened, it)
+	ch := make(chan string, 1)
+	f.chans[it.ID] = ch
+	return ch, nil
+}
+
+func (f *fakeSink) openCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.opened)
+}
+
+// answerVia delivers an answer (or closes without one) on the channel a prior
+// Open returned for id.
+func (f *fakeSink) answerVia(id, ans string, deliver bool) {
+	f.mu.Lock()
+	ch := f.chans[id]
+	f.mu.Unlock()
+	if ch == nil {
+		return
+	}
+	if deliver {
+		ch <- ans
+	}
+	close(ch)
+}
+
+// newBridge wires an interactionBridge to a fake sink + a recording answer fn,
+// mirroring how Run constructs it.
+func newBridge(sink runner.InteractionSink, answer func(iid, ans string)) *interactionBridge {
+	return &interactionBridge{
+		ctx:     context.Background(),
+		sinks:   sink,
+		answer:  answer,
+		seen:    map[string]bool{},
+		jobID:   "j1",
+		hasSink: sink != nil,
+	}
+}
+
+// openFrame builds the raw interaction body the hub passes to OnInteraction.
+func openFrame(id, prompt string) json.RawMessage {
+	b, _ := json.Marshal(map[string]any{"id": id, "type": "question", "prompt": prompt})
+	return b
+}
+
+// TestBridgeOpenInjects: an open frame calls req.Interactions.Open exactly once.
+func TestBridgeOpenInjects(t *testing.T) {
+	sink := newFakeSink()
+	b := newBridge(sink, func(string, string) {})
+	b.handle("open", openFrame("i1", "need input"))
+	if sink.openCount() != 1 {
+		t.Fatalf("Open call count = %d, want 1", sink.openCount())
+	}
+}
+
+// TestBridgeAnswerRoundTrip: a host answer on the channel is forwarded back via
+// the answer fn (== hub.Answer over WS).
+func TestBridgeAnswerRoundTrip(t *testing.T) {
+	sink := newFakeSink()
+	var (
+		mu       sync.Mutex
+		gotIID   string
+		gotAns   string
+		answered = make(chan struct{})
+	)
+	b := newBridge(sink, func(iid, ans string) {
+		mu.Lock()
+		gotIID, gotAns = iid, ans
+		mu.Unlock()
+		close(answered)
+	})
+	b.handle("open", openFrame("i1", "need input"))
+	sink.answerVia("i1", "yes", true)
+
+	select {
+	case <-answered:
+	case <-time.After(2 * time.Second):
+		t.Fatal("answer was never forwarded")
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if gotIID != "i1" || gotAns != "yes" {
+		t.Fatalf("forwarded answer = (%q,%q), want (i1,yes)", gotIID, gotAns)
+	}
+}
+
+// TestBridgeJobEndsNoAnswer: when the channel closes WITHOUT a value (job ended /
+// ctx cancelled), the bridge must NOT forward an answer.
+func TestBridgeJobEndsNoAnswer(t *testing.T) {
+	sink := newFakeSink()
+	var calls atomic.Int32
+	b := newBridge(sink, func(string, string) { calls.Add(1) })
+	b.handle("open", openFrame("i1", "need input"))
+	sink.answerVia("i1", "", false) // close without a value
+
+	time.Sleep(100 * time.Millisecond)
+	if got := calls.Load(); got != 0 {
+		t.Fatalf("answer forwarded %d times on a closed-no-value channel, want 0", got)
+	}
+}
+
+// TestBridgeDuplicateOpenIdempotent: a re-sent open for the same id only injects
+// (and forwards) once (seen dedupe).
+func TestBridgeDuplicateOpenIdempotent(t *testing.T) {
+	sink := newFakeSink()
+	b := newBridge(sink, func(string, string) {})
+	b.handle("open", openFrame("i1", "need input"))
+	b.handle("open", openFrame("i1", "need input")) // duplicate
+	if sink.openCount() != 1 {
+		t.Fatalf("Open called %d times for a duplicate open, want 1", sink.openCount())
+	}
+}
+
+// TestBridgeNonOpenIgnored: answered/cancelled actions are accepted and ignored
+// (the host owns its own interaction record); they never call Open.
+func TestBridgeNonOpenIgnored(t *testing.T) {
+	sink := newFakeSink()
+	b := newBridge(sink, func(string, string) {})
+	b.handle("answered", openFrame("i1", "x"))
+	b.handle("cancelled", openFrame("i1", "x"))
+	if sink.openCount() != 0 {
+		t.Fatalf("non-open action triggered %d Open calls, want 0", sink.openCount())
+	}
+}
+
+// TestBridgeNilSink: a job with no host interaction sink ignores interactions
+// without panicking.
+func TestBridgeNilSink(t *testing.T) {
+	b := newBridge(nil, func(string, string) {})
+	b.handle("open", openFrame("i1", "x")) // must not panic
+}
+
+// TestRunCtxCancelSendsCancelFrame: a host ctx cancel forwards a cancel frame to
+// the worker (P2) in addition to returning ctx.Err().
+func TestRunCtxCancelSendsCancelFrame(t *testing.T) {
+	h := &fakeHub{}
+	r := newRunnerWithHub(h)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan runner.Result, 1)
+	go func() {
+		done <- r.Run(ctx, runner.Request{JobID: "j1", Forward: &runner.Forward{}})
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && h.getSink() == nil {
+		time.Sleep(5 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return on ctx cancel")
+	}
+	if h.cancelCount() != 1 {
+		t.Fatalf("hub.Cancel called %d times on ctx cancel, want 1", h.cancelCount())
 	}
 }

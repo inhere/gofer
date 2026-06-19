@@ -15,6 +15,7 @@ package worker
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"sync"
@@ -40,6 +41,12 @@ type dispatcher interface {
 	RegisterSink(workerID, jobID string, sk wshub.JobSink) error
 	DeregisterSink(workerID, jobID string)
 	Dispatch(workerID string, d wsproto.Dispatch) error
+	// Answer sends the host-side answer of a worker interaction back over WS so
+	// the worker's local job resumes (P2).
+	Answer(workerID, jobID, interactionID, answer string) error
+	// Cancel sends a cancel frame to the worker for jobID (P2, best-effort on a
+	// host ctx cancel/timeout).
+	Cancel(workerID, jobID string) error
 }
 
 // Runner forwards a job to a worker over the hub and returns the worker's
@@ -75,6 +82,18 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	}
 
 	sink := newBoundedSink(req.Stdout, req.Stderr)
+	// Wire the interaction bridge: an inbound interaction{open} is injected onto
+	// the host job (via req.Interactions, the same remoteInteractionSink peer-http
+	// uses) and the host-side answer is sent back over WS (hub.Answer). Mirrors
+	// peerhttp.handleFrame exactly, swapping "POST answer" for "WS answer".
+	sink.bridge = &interactionBridge{
+		ctx:     ctx,
+		sinks:   req.Interactions,
+		answer:  func(iid, ans string) { _ = r.hub.Answer(r.workerID, req.JobID, iid, ans) },
+		seen:    map[string]bool{},
+		jobID:   req.JobID,
+		hasSink: req.Interactions != nil,
+	}
 
 	// (a) sink-before-dispatch.
 	if err := r.hub.RegisterSink(r.workerID, req.JobID, sink); err != nil {
@@ -102,9 +121,13 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	case res := <-sink.resultCh:
 		return runner.Result{ExitCode: res.ExitCode, Err: errFromResult(res)}
 	case <-ctx.Done():
-		// WP1: a host cancel/timeout returns immediately; forwarding a cancel frame
-		// to the worker is P2. The job service classifies timeout vs cancelled from
-		// ctx (same as peer-http).
+		// P2: a host cancel/timeout forwards a cancel frame to the worker (best-effort,
+		// same as peerhttp's r.c.CancelJob) so its local job tears down its child
+		// process; the job service still classifies timeout vs cancelled from ctx. We
+		// return ctx.Err() immediately without waiting for the worker's late result —
+		// the deferred DeregisterSink frees the sink; a stray late result frame finds
+		// no sink and is dropped.
+		_ = r.hub.Cancel(r.workerID, req.JobID)
 		return runner.Result{ExitCode: -1, Err: ctx.Err()}
 	}
 }
@@ -142,6 +165,7 @@ func errFromResult(res wsproto.Result) error {
 type boundedSink struct {
 	stdout, stderr io.Writer
 	resultCh       chan wsproto.Result // buffered 1: first result wins
+	bridge         *interactionBridge  // P2 interaction passthrough (nil-safe)
 
 	mu        sync.Mutex
 	truncated bool
@@ -179,6 +203,16 @@ func (s *boundedSink) WriteLog(stream string, _ int, text string) {
 	_, _ = io.WriteString(w, text)
 }
 
+// OnInteraction implements wshub.JobSink: it forwards one worker interaction frame
+// to the interaction bridge (nil-safe — a job with no host interaction sink simply
+// ignores it). The call is non-blocking on the hub's read loop: the bridge only
+// records/injects synchronously and spawns the WaitAnswer wait in its own goroutine.
+func (s *boundedSink) OnInteraction(action string, interaction json.RawMessage) {
+	if s.bridge != nil {
+		s.bridge.handle(action, interaction)
+	}
+}
+
 // Finish implements wshub.JobSink: it delivers the terminal result, non-blocking
 // (a duplicate result is dropped).
 func (s *boundedSink) Finish(res wsproto.Result) {
@@ -186,4 +220,79 @@ func (s *boundedSink) Finish(res wsproto.Result) {
 	case s.resultCh <- res:
 	default:
 	}
+}
+
+// wireInteraction mirrors job.Interaction's wire shape for decoding the raw
+// interaction body off the WS frame. It is declared here (not imported from job)
+// to keep the runner cycle-free: job imports runner, so runner must project the
+// interaction onto runner.RemoteInteraction itself.
+type wireInteraction struct {
+	ID      string `json:"id"`
+	Type    string `json:"type"`
+	Prompt  string `json:"prompt"`
+	Options []struct {
+		Value string `json:"value"`
+		Label string `json:"label,omitempty"`
+	} `json:"options,omitempty"`
+}
+
+// interactionBridge bridges worker-raised interactions onto the host job. It is
+// the WS analogue of peerhttp.handleFrame's interaction branch: an open frame
+// injects the interaction via the host InteractionSink (-> pending_interaction)
+// and a goroutine waits for the host answer to send it back over WS. seen dedupes
+// a re-sent open (e.g. a worker resend) so the answer is forwarded only once.
+type interactionBridge struct {
+	ctx     context.Context
+	sinks   runner.InteractionSink
+	answer  func(interactionID, answer string)
+	jobID   string
+	hasSink bool
+
+	mu   sync.Mutex
+	seen map[string]bool
+}
+
+// handle processes one interaction frame. Only action "open" drives the bridge
+// (matching peer-http): answered/cancelled are state-cleanup actions the host
+// already owns via its own interaction record, so they are accepted and ignored
+// (forward-compatible per P2 §3.1). An unparseable body is dropped.
+func (b *interactionBridge) handle(action string, raw json.RawMessage) {
+	if !b.hasSink || action != "open" {
+		return
+	}
+	var wi wireInteraction
+	if err := json.Unmarshal(raw, &wi); err != nil || wi.ID == "" {
+		return
+	}
+
+	b.mu.Lock()
+	if b.seen[wi.ID] {
+		b.mu.Unlock()
+		return
+	}
+	b.seen[wi.ID] = true
+	b.mu.Unlock()
+
+	opts := make([]runner.RemoteInteractionOption, 0, len(wi.Options))
+	for _, o := range wi.Options {
+		opts = append(opts, runner.RemoteInteractionOption{Value: o.Value, Label: o.Label})
+	}
+	ansCh, err := b.sinks.Open(b.ctx, runner.RemoteInteraction{
+		ID:      wi.ID,
+		Type:    wi.Type,
+		Prompt:  wi.Prompt,
+		Options: opts,
+	})
+	if err != nil {
+		return
+	}
+	iid := wi.ID
+	go func() {
+		// The host answer arrives on ansCh; forward it to the worker so its local
+		// job resumes. If the channel closes without a value (job ended / ctx
+		// cancelled), do nothing (no answer to forward).
+		if ans, ok := <-ansCh; ok {
+			b.answer(iid, ans)
+		}
+	}()
 }
