@@ -97,6 +97,14 @@ func runServe(c *gcli.Command, _ []string) error {
 	defer close(stopReload)
 	startReloadLoop(c, core, serveOpts.config, stopReload)
 
+	// ws-worker hub graceful shutdown (WP3 §5.6): when serve returns, stopHub
+	// closes so the hub gracefully closes every live worker connection (going-away),
+	// unblocking the per-connection read loops and stopping the heartbeat goroutines
+	// — no goroutine/fd leak. Mirrors the prune/reload stop-channel pattern.
+	stopHub := make(chan struct{})
+	defer close(stopHub)
+	core.Hub.SetStop(stopHub)
+
 	srv := httpapi.New(&cfg.Server, token, allowEmpty, core.Jobs, core.Projects, core.Agents, core.Hub)
 
 	if token == "" {

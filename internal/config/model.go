@@ -181,10 +181,11 @@ type WorkerConfig struct {
 	Storage       StorageConfig            `yaml:"storage"`
 }
 
-// WorkerServerLink describes how the worker reaches the hub. URLs holds the hub
-// WS endpoint(s); P1 uses URLs[0] (multi-address failover is C7). Token/TokenEnv
-// resolve the Bearer credential. Reconnect is decoded but not consumed in WP1
-// (C7/P3 placeholder).
+// WorkerServerLink describes how the worker reaches the hub. URLs may list
+// MULTIPLE hub addresses (redundant entry points: VIPs of one hub, or several
+// independent hubs); the worker rotates through them on a failed connect (C7,
+// §5.2). Token/TokenEnv resolve the Bearer credential. Reconnect tunes the
+// backoff + heartbeat timings (P3 §4).
 type WorkerServerLink struct {
 	URLs      []string        `yaml:"urls"`
 	TokenEnv  string          `yaml:"token_env"`
@@ -192,12 +193,19 @@ type WorkerServerLink struct {
 	Reconnect ReconnectConfig `yaml:"reconnect"`
 }
 
-// ReconnectConfig is the worker's backoff policy for hub reconnection (C7/P3
-// placeholder; decoded but unused in WP1).
+// ReconnectConfig is the worker's backoff + heartbeat policy for hub reconnection
+// (C7/P3, §4). All fields default when <= 0:
+//   - InitialBackoffMS: first-retry base wait (default 1000 = 1s).
+//   - MaxBackoffMS: backoff cap (default 30000 = 30s); full-jitter strategy is
+//     fixed (sleep = rand(0, min(max, initial*2^attempt))), so there is no jitter
+//     knob.
+//   - PingIntervalSec: heartbeat ping cadence (default 15s; symmetric with the hub).
+//   - ReadDeadlineSec: single-read deadline / half-open detection (default 45s).
 type ReconnectConfig struct {
-	InitialMS int     `yaml:"initial_ms"`
-	MaxMS     int     `yaml:"max_ms"`
-	Jitter    float64 `yaml:"jitter"`
+	InitialBackoffMS int `yaml:"initial_backoff_ms"`
+	MaxBackoffMS     int `yaml:"max_backoff_ms"`
+	PingIntervalSec  int `yaml:"ping_interval_sec"`
+	ReadDeadlineSec  int `yaml:"read_deadline_sec"`
 }
 
 // ProjectAllowedAgents returns the allowed_agents list for projectKey. The

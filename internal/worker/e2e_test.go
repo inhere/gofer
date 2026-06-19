@@ -118,7 +118,7 @@ func buildWorkerSide(t *testing.T, hubURL string) *worker.Client {
 	wsURL := "ws" + strings.TrimPrefix(hubURL, "http") + "/v1/workers/connect"
 	return worker.New(worker.Config{
 		WorkerID: e2eWorkerID,
-		URL:      wsURL,
+		URLs:     []string{wsURL},
 		Token:    e2eToken,
 		Projects: []string{"alpha"},
 		Agents:   []string{"exec"},
@@ -222,6 +222,71 @@ func TestE2ERemoteExecution(t *testing.T) {
 	}
 }
 
+// TestE2EWorkerDisconnectMidJobFailsJob (WP3 acceptance #4, full stack): a
+// runner=worker job is running on the worker when the worker connection drops;
+// the hub must mark the in-flight job `failed` with "worker disconnected" and the
+// terminal row must be queryable from the metadata store.
+func TestE2EWorkerDisconnectMidJobFailsJob(t *testing.T) {
+	hub := buildHubSide(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+
+	// Worker runs with a tiny reconnect backoff; we cancel its ctx mid-job to drop
+	// the connection (a clean going-away close = a disconnect from the hub's view).
+	workerCtx, workerCancel := context.WithCancel(ctx)
+	cl := buildWorkerSide(t, hub.ts.URL)
+	go func() { _ = cl.Run(workerCtx) }()
+	waitWorkerOnline(t, hub.hub)
+
+	// Submit a long-running job so it is still in flight when we drop the worker.
+	created := createJob(t, hub.ts, job.JobRequest{
+		ProjectKey: "alpha", Agent: "exec", Runner: "remote-w1", WorkerID: e2eWorkerID,
+		Cmd: []string{"sleep", "30"}, Cwd: ".", TimeoutSec: 60,
+	})
+	if created.ID == "" {
+		t.Fatal("created job has no id")
+	}
+
+	// Wait until the hub-side job is running, then let the dispatch reach the worker
+	// and its local `sleep` actually start (the runner registers the sink + sends
+	// the dispatch synchronously once execute flips the job to running; a short
+	// settle ensures we drop the worker AFTER the job is genuinely in flight, not in
+	// the queued→dispatch window where RegisterSink would see the worker already
+	// offline).
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		if r, ok := hub.jobs.Get(created.ID); ok && r.Status == job.StatusRunning {
+			break
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	time.Sleep(500 * time.Millisecond)
+
+	// Drop the worker connection mid-job.
+	workerCancel()
+
+	// The hub must finish the in-flight job failed with the disconnect error.
+	final, ok := hub.jobs.Wait(created.ID)
+	if !ok {
+		t.Fatalf("hub job %s not found", created.ID)
+	}
+	if final.Status != job.StatusFailed {
+		t.Fatalf("status = %s, want failed (err=%s)", final.Status, final.Error)
+	}
+	if !strings.Contains(final.Error, "worker disconnected") {
+		t.Fatalf("error = %q, want it to contain 'worker disconnected'", final.Error)
+	}
+
+	// Terminal row persisted + queryable.
+	rec, ok, err := hub.store.GetJob(created.ID)
+	if err != nil || !ok {
+		t.Fatalf("GetJob persisted: ok=%v err=%v", ok, err)
+	}
+	if rec.Status != job.StatusFailed {
+		t.Fatalf("persisted status = %s, want failed", rec.Status)
+	}
+}
+
 // TestE2EWrongTokenRejected: dialing with a bad token → handshake 401 (the WS
 // route's bare 401 before upgrade).
 func TestE2EWrongTokenRejected(t *testing.T) {
@@ -239,8 +304,11 @@ func TestE2EWrongTokenRejected(t *testing.T) {
 }
 
 // TestE2EWorkerIDBindingMismatch: a valid token but register.worker_id=w2 (not
-// bound to this token) → registered{accepted:false}, so the client's Run returns
-// a "register rejected" error.
+// bound to this token) → registered{accepted:false}. With the WP3 reconnect
+// supervisor, Run no longer returns on a rejection (it backs off and retries —
+// the config may be fixed; §5.2). So the assertion is that w2 never becomes
+// online (the binding rejection persistently blocks registration) and Run
+// returns promptly only when ctx is cancelled.
 func TestE2EWorkerIDBindingMismatch(t *testing.T) {
 	hub := buildHubSide(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 8*time.Second)
@@ -266,14 +334,35 @@ func TestE2EWorkerIDBindingMismatch(t *testing.T) {
 
 	wsURL := "ws" + strings.TrimPrefix(hub.ts.URL, "http") + "/v1/workers/connect"
 	cl := worker.New(worker.Config{
-		WorkerID: "w2", // mismatched: not the worker w1's token is bound to
-		URL:      wsURL,
-		Token:    e2eToken,
+		WorkerID:       "w2", // mismatched: not the worker w1's token is bound to
+		URLs:           []string{wsURL},
+		Token:          e2eToken,
+		InitialBackoff: 20 * time.Millisecond,
+		MaxBackoff:     40 * time.Millisecond,
 	}, localJobs)
 
-	err = cl.Run(ctx)
-	if err == nil || !strings.Contains(err.Error(), "register rejected") {
-		t.Fatalf("expected register rejected, got %v", err)
+	runCtx, runCancel := context.WithCancel(ctx)
+	done := make(chan error, 1)
+	go func() { done <- cl.Run(runCtx) }()
+
+	// The worker keeps retrying (rejected each time); w2 must never come online.
+	if hub.hub.IsOnline("w2") {
+		t.Fatal("mismatched worker should never be registered")
+	}
+	time.Sleep(300 * time.Millisecond)
+	if hub.hub.IsOnline("w2") {
+		t.Fatal("mismatched worker became online despite binding rejection")
+	}
+
+	// Cancelling the ctx must make Run return promptly (no permanent hang).
+	runCancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("Run after cancel returned err: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after ctx cancel")
 	}
 }
 

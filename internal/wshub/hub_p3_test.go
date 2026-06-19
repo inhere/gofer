@@ -261,6 +261,59 @@ func TestTryReserveConcurrent(t *testing.T) {
 	}
 }
 
+// TestMultiWorkerRouting (acceptance #6 routing half): two distinct workers are
+// online; a dispatch for w1 is delivered to w1 only and w2 receives nothing.
+func TestMultiWorkerRouting(t *testing.T) {
+	hub := shortHeartbeat(map[string]string{"w1": "w1", "w2": "w2"}, time.Second, 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// Two routers binding two different caller ids (so each worker registers under
+	// its own identity).
+	_, ws1 := hubServer(t, hub, "w1")
+	_, ws2 := hubServer(t, hub, "w2")
+
+	conn1, reg1 := dialAndRegister(t, ctx, ws1, "w1")
+	defer conn1.Close(websocket.StatusNormalClosure, "")
+	conn2, reg2 := dialAndRegister(t, ctx, ws2, "w2")
+	defer conn2.Close(websocket.StatusNormalClosure, "")
+	if !reg1.Accepted || !reg2.Accepted {
+		t.Fatalf("register: w1=%v w2=%v", reg1.Accepted, reg2.Accepted)
+	}
+	waitFor(t, func() bool { _, a := hub.reg.Get("w1"); _, b := hub.reg.Get("w2"); return a && b })
+
+	// Dispatch a job to w1 only.
+	if err := hub.Dispatch("w1", wsproto.Dispatch{JobID: "jw1", ProjectKey: "p"}); err != nil {
+		t.Fatalf("Dispatch w1: %v", err)
+	}
+
+	// w1 must receive the dispatch.
+	rctx, rcancel := context.WithTimeout(ctx, 2*time.Second)
+	defer rcancel()
+	env, err := readEnvelope(rctx, conn1)
+	if err != nil {
+		t.Fatalf("w1 read dispatch: %v", err)
+	}
+	if env.Type != wsproto.TypeDispatch || env.JobID != "jw1" {
+		t.Fatalf("w1 got %s/%s, want dispatch/jw1", env.Type, env.JobID)
+	}
+
+	// w2 must NOT receive any dispatch (only its own heartbeat ping may arrive). Read
+	// with a short deadline; assert no dispatch frame shows up.
+	w2ctx, w2cancel := context.WithTimeout(ctx, 400*time.Millisecond)
+	defer w2cancel()
+	for {
+		env2, err := readEnvelope(w2ctx, conn2)
+		if err != nil {
+			break // deadline: no dispatch leaked to w2 (good)
+		}
+		if env2.Type == wsproto.TypeDispatch {
+			t.Fatalf("dispatch leaked to w2: %+v", env2)
+		}
+		// ping/pong/other control frames are fine; keep draining until the deadline.
+	}
+}
+
 // TestLastHeartbeatExposed verifies the registry exposes last_heartbeat for C6/P4.
 func TestLastHeartbeatExposed(t *testing.T) {
 	hub := shortHeartbeat(map[string]string{"w1": "w1"}, 50*time.Millisecond, 200*time.Millisecond)

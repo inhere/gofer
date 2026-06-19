@@ -49,9 +49,10 @@ server_link:
   urls: [wss://hub-a.internal/v1/workers/connect, wss://hub-b.internal/]
   token_env: GOFER_WORKER_TOKEN
   reconnect:
-    initial_ms: 500
-    max_ms: 30000
-    jitter: 0.2
+    initial_backoff_ms: 500
+    max_backoff_ms: 30000
+    ping_interval_sec: 10
+    read_deadline_sec: 30
 projects:
   self:
     host_path: /home/me/proj
@@ -80,8 +81,9 @@ storage:
 	if wc.ServerLink.TokenEnv != "GOFER_WORKER_TOKEN" {
 		t.Fatalf("token_env = %q", wc.ServerLink.TokenEnv)
 	}
-	if wc.ServerLink.Reconnect.InitialMS != 500 || wc.ServerLink.Reconnect.MaxMS != 30000 || wc.ServerLink.Reconnect.Jitter != 0.2 {
-		t.Fatalf("reconnect = %+v", wc.ServerLink.Reconnect)
+	rc := wc.ServerLink.Reconnect
+	if rc.InitialBackoffMS != 500 || rc.MaxBackoffMS != 30000 || rc.PingIntervalSec != 10 || rc.ReadDeadlineSec != 30 {
+		t.Fatalf("reconnect = %+v", rc)
 	}
 	if wc.MaxConcurrent != 4 {
 		t.Fatalf("max_concurrent = %d", wc.MaxConcurrent)
