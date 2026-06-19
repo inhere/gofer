@@ -124,7 +124,7 @@ worker.job.Service.AnswerInteraction(answer) → worker job 回 running 续跑
 
 - 心跳丢失 → server 标记 worker 离线、从 WorkerRegistry 摘除。
 - 在飞 job 策略（**MVP**）：worker 断线 → 其在飞 server job 置 `failed`（error: worker disconnected）。
-- 恢复（**后续**）：worker 重连 re-register，log 帧带 seq/offset，hub 从上次镜像偏移续写；worker 进程存活则 job 不中断。
+- 恢复（**后续，WP3 不实现**，见 [P3 §6.3](../plans/2026-06-19-ws-worker-c6c7/P3-wp3-resilience-c7-plan.md#6-设计决策记录自动决策sr1430-留痕)）：worker 重连 re-register，log 帧带 seq/offset，hub 从上次镜像偏移续写；worker 进程存活则 job 不中断。WP3 一律 fail-fast（§15"挂起等重连窗口"收敛为不做）。
 
 ## 9. 数据模型
 
