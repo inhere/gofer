@@ -48,6 +48,7 @@
 | `internal/wsproto/frames.go` | 新增 | 各帧 payload 结构：`Register`/`Registered`/`Dispatch`/`Log`/`Status`/`Result`（P1）+ `Cancel`/`Interaction`/`Answer`/`Ping`/`Pong`（占位，P2/P3）|
 | `internal/wshub/registry.go` | 新增 | `WorkerRegistry`（worker_id→`*workerConn`+meta，并发安全）|
 | `internal/wshub/hub.go` | 新增 | `Hub` 单例：`Accept` 入口、register 握手+token 绑定校验、单读循环 demux、`Dispatch`、sink 注册/注销 API、心跳钩子声明 |
+| `internal/wshub/upgrade_writer.go` | 新增 | `wsUpgradeWriter`（P0 硬性产出）：包装 rux `c.Resp`，hijack 前立即下发 101，否则握手静默挂起。从 spike_test.go 提升（§4.2.2）|
 | `internal/wshub/sink.go` | 新增 | per-job sink 接口（hub→workerRunner 解耦），背压有界缓冲实现可放此或放 runner（见 §4.3 决策）|
 | `internal/runner/worker/runner.go` | 新增 | `workerRunner` 实现 `runner.Runner`；`New(name, workerID, hub)`；`Run` 生命周期 |
 | `internal/worker/client.go` | 新增 | worker 客户端：dial+register、收 dispatch、推帧 |
@@ -245,11 +246,20 @@ type Hub struct {
 // 鉴权已在路由层（httpapi）做 Bearer 校验并把 callerID 透传进来；这里只做
 // worker_id↔caller 绑定校验（评审 #1）。
 func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) {
-    c, err := websocket.Accept(w, req, &websocket.AcceptOptions{
-        // worker 是非浏览器客户端：必须显式放开 origin，否则 Accept 拒绝（约束 #3 / 设计 §13）
-        InsecureSkipVerify: true, // 或 OriginPatterns（P0 已定）
+    // ⚠️ P0 实证（硬性）：rux 的 *responseWriter 缓冲 WriteHeader（真正下发在链尾
+    // ensureWriteHeader，而 Hijack 把它变成 no-op）→ 若把 rux 的 c.Resp 裸传给 Accept，
+    // 101 握手行永不写到 socket，客户端 Dial 静默超时挂起。必须用 wsUpgradeWriter 包装：
+    // 在 hijack 前立即下发 WriteHeader(101)，其余 Header/Hijack/Flush 透传 c.Resp。
+    // 该适配器已在 P0 spike(internal/wshub/spike_test.go) 验通，WP1 提升为正式文件
+    // internal/wshub/upgrade_writer.go。**绝不能把 c.Resp 裸传给 Accept。**
+    c, err := websocket.Accept(&wsUpgradeWriter{rw: w}, req, &websocket.AcceptOptions{
+        // worker 是非浏览器客户端：必须显式放开 origin，否则 Accept 拒绝（约束 #3 / 设计 §13）。
+        // 注意 OriginPatterns 的 "*" 被库禁用，P0 已定用 InsecureSkipVerify。
+        InsecureSkipVerify: true,
+        CompressionMode:    websocket.CompressionDisabled, // P0 锁定
     })
     if err != nil { return }
+    c.SetReadLimit(maxWSReadBytes) // P0 锁定：防单帧超大撑爆内存（背压另见 §4.3）
     ctx := req.Context()
 
     // 1) 读首帧，必须是 register
@@ -280,6 +290,25 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
     h.reg.Remove(reg.WorkerID, wc)
 }
 ```
+
+**`wsUpgradeWriter`（P0 硬性产出，从 spike 提升）** —— `internal/wshub/upgrade_writer.go`：~30 行，包装 rux 的 `c.Resp`，使 `websocket.Accept` 的握手能下发：
+```go
+// wsUpgradeWriter forces rux's deferred WriteHeader to flush the 101 line
+// BEFORE coder/websocket hijacks the conn (rux buffers WriteHeader; Hijack
+// would otherwise turn the deferred flush into a no-op → 101 never sent).
+type wsUpgradeWriter struct{ rw http.ResponseWriter }
+func (u *wsUpgradeWriter) Header() http.Header { return u.rw.Header() }
+func (u *wsUpgradeWriter) Write(b []byte) (int, error) { return u.rw.Write(b) }
+func (u *wsUpgradeWriter) WriteHeader(code int) {
+    u.rw.WriteHeader(code)
+    if f, ok := u.rw.(http.Flusher); ok { f.Flush() } // 立即把 101 推到 socket
+}
+func (u *wsUpgradeWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+    return u.rw.(http.Hijacker).Hijack() // 透传给 rux 的 responseWriter（已实现 Hijack）
+}
+func (u *wsUpgradeWriter) Flush() { if f, ok := u.rw.(http.Flusher); ok { f.Flush() } }
+```
+> 以 P0 spike 验通的实现为准（spike_test.go 里的版本，正/负 origin 测试 + `-race` 均过）。WP1 把它移到非 `_test.go` 文件并补单测。
 
 #### 4.2.3 单读循环 + 按 job_id demux + 有序投递（评审 #2，核心不变量）
 
@@ -616,7 +645,7 @@ r.GET("/v1/workers/connect", func(c *rux.Context) {
 })
 ```
 
-> ⚠️ 该路由**不能**放在 `authMiddleware` 守护的 `/v1` group 内：authMiddleware 在升级前会 `c.Next()`/`writeError`，且 rux 包装 ResponseWriter 可能影响 `websocket.Accept` 的 Hijack（P0 已验 Accept 需拿原始 `http.ResponseWriter`）。**单独注册**该路由（group 外或 group 内但不复用 group middleware），自行做 Bearer 校验。具体挂法以 P0 spike 验通的写法为准。
+> ⚠️ 该路由**不能**放在 `authMiddleware` 守护的 `/v1` group 内：authMiddleware 在升级前会 `c.Next()`/`writeError`。**单独注册**该路由（group 外或 group 内但不复用 group middleware），自行做 Bearer 校验。关于 rux 包装 ResponseWriter 与 `Accept` 的握手：P0 实证 rux 的 `c.Resp` 缓冲 `WriteHeader` → **必须经 `wsUpgradeWriter` 包装**（见 §4.2.2），不能裸传 `c.Resp`，否则 101 握手不下发、`Dial` 静默挂起。具体以 P0 spike 验通的写法为准。
 > allow_empty_token 场景：若 server 无 token 配置且 allowEmptyToken，worker connect 允许 callerID=""，但此时 `bindings` 为空 → hub.Accept 会因绑定校验失败拒绝。**结论**：worker 接入**强制要求**配置 `server.workers`（评审 #1），即便 allow_empty_token 也不放行无绑定 worker。
 
 ---
