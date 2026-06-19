@@ -17,6 +17,8 @@ type ListOpts struct {
 	Project string
 	// Status, when non-empty, keeps only jobs whose status matches exactly.
 	Status string
+	// Caller, when non-empty, keeps only jobs submitted by that caller id (C2).
+	Caller string
 	// Limit caps the number of returned jobs; <= 0 means defaultListLimit.
 	Limit int
 }
@@ -46,6 +48,7 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 	recs, _ := s.meta.ListJobs(jobstore.ListQuery{
 		Project: opts.Project,
 		Status:  opts.Status,
+		Caller:  opts.Caller,
 		Limit:   opts.Limit,
 	})
 	for _, rec := range recs {
@@ -64,6 +67,9 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 	for _, e := range entries {
 		snap := e.snapshot()
 		if opts.Project != "" && snap.ProjectKey != opts.Project {
+			continue
+		}
+		if opts.Caller != "" && snap.CallerID != opts.Caller {
 			continue
 		}
 		merged[snap.ID] = snap

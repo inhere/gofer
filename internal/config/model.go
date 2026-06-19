@@ -29,10 +29,24 @@ type ServerConfig struct {
 	Token           string `yaml:"token"`
 	TokenEnv        string `yaml:"token_env"`
 	AllowEmptyToken bool   `yaml:"allow_empty_token"`
+	// Callers is the optional multi-caller auth set (C2): each entry maps a
+	// bearer token to a caller id stamped onto submitted jobs for audit /
+	// per-caller filtering. The legacy single Token/TokenEnv stays valid (treated
+	// as caller id "default"); revocation = remove the caller + reload (C3).
+	Callers []CallerConfig `yaml:"callers"`
 	// WebEnabled is a pointer so that "unset" (nil) can default to true while an
 	// explicit web_enabled:false disables the embedded web console (see
 	// IsWebEnabled and applyDefaults).
 	WebEnabled *bool `yaml:"web_enabled"`
+}
+
+// CallerConfig identifies one authenticated submitter (C2). Token is the literal
+// bearer token; TokenEnv reads it from the named environment variable instead
+// (so secrets stay out of the config file). ID is recorded on the caller's jobs.
+type CallerConfig struct {
+	ID       string `yaml:"id"`
+	Token    string `yaml:"token"`
+	TokenEnv string `yaml:"token_env"`
 }
 
 // IsWebEnabled reports whether the web console should be mounted. Unset (nil)

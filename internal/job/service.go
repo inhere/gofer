@@ -210,6 +210,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			ResultDir:   resultDir,
 			StartedAt:   now,
 			RequestJSON: string(reqJSON),
+			CallerID:    req.CallerID,
 		},
 	}
 	s.mu.Lock()
@@ -367,6 +368,7 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		StartedAt:   r.StartedAt,
 		EndedAt:     r.EndedAt,
 		UpdatedAt:   r.UpdatedAt,
+		CallerID:    r.CallerID,
 	}
 }
 
@@ -387,6 +389,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		EndedAt:     rec.EndedAt,
 		UpdatedAt:   rec.UpdatedAt,
 		Error:       rec.Error,
+		CallerID:    rec.CallerID,
 	}
 }
 
