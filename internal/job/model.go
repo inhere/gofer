@@ -17,6 +17,10 @@ type JobRequest struct {
 	// the HTTP layer from the auth context (any client-supplied value is
 	// overwritten); it is not part of the client-facing contract.
 	CallerID string `json:"caller_id,omitempty"`
+	// RequestID is the optional client-supplied idempotency key (C5, e.g. a
+	// UUID). When set, re-submitting the same RequestID returns the existing job
+	// instead of creating a new one (deduped by the jobs.request_id unique index).
+	RequestID string `json:"request_id,omitempty"`
 }
 
 // JobResult is the persisted/queryable job state (plan §6.2).
@@ -39,6 +43,10 @@ type JobResult struct {
 	// CallerID is the authenticated submitter id (C2), persisted to
 	// jobs.caller_id and echoed in responses for audit / per-caller filtering.
 	CallerID string `json:"caller_id,omitempty"`
+	// RequestID is the idempotency key (C5) this job was created with; it is
+	// persisted (jobs.request_id) and echoed so the idempotent-reuse path returns
+	// it and it round-trips through persist.
+	RequestID string `json:"request_id,omitempty"`
 	// RequestJSON is the original JobRequest marshalled to JSON, kept for audit /
 	// re-submit. It is persisted to the jobs.request_json column (SP5 replaces the
 	// on-disk request.json file). json:"-" keeps it out of API responses — it is an

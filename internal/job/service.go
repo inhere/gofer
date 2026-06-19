@@ -128,6 +128,18 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		return JobResult{}, err
 	}
 
+	// C5 idempotency: if this request carries an idempotency key already claimed
+	// by an earlier job, reuse it (no new job/dir). The concurrent-submit race
+	// (two submits both miss this lookup) is caught below by the unique-index
+	// conflict on the first persist.
+	if req.RequestID != "" {
+		if rec, ok, gerr := s.meta.GetJobByRequestID(req.RequestID); gerr != nil {
+			return JobResult{}, gerr
+		} else if ok {
+			return fromRecord(rec), nil
+		}
+	}
+
 	// Resolve cwd to an absolute host dir inside the project root. Skipped for
 	// remote jobs: the cwd is an opaque relative path the peer SafeJoins against
 	// its own project root.
@@ -211,14 +223,35 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			StartedAt:   now,
 			RequestJSON: string(reqJSON),
 			CallerID:    req.CallerID,
+			RequestID:   req.RequestID,
 		},
 	}
 	s.mu.Lock()
 	s.jobs[jobID] = entry
 	s.mu.Unlock()
 
-	// Record the initial (queued) snapshot in the metadata store.
-	_ = s.persist(entry.snapshot())
+	// Record the initial (queued) snapshot in the metadata store. Capture the
+	// error so the C5 concurrent-submit race can be recovered: if a competing
+	// submit with the SAME request_id won the unique index, this insert returns
+	// ErrRequestIDConflict and we hand back the winner instead of launching a
+	// duplicate job. For the no-request_id case the write stays best-effort
+	// (legacy behaviour: ignore the error, the entry lives in memory).
+	persistErr := s.persist(entry.snapshot())
+	if req.RequestID != "" && errors.Is(persistErr, jobstore.ErrRequestIDConflict) {
+		// Lost the race: drop our just-created entry + dir and return the winner.
+		s.mu.Lock()
+		delete(s.jobs, jobID)
+		s.mu.Unlock()
+		_ = os.RemoveAll(resultDir)
+		if rec, ok, gerr := s.meta.GetJobByRequestID(req.RequestID); gerr != nil {
+			return JobResult{}, gerr
+		} else if ok {
+			return fromRecord(rec), nil
+		}
+		// The winner's row is unexpectedly absent (should not happen, since the
+		// conflict means a row with this request_id exists); surface the conflict.
+		return JobResult{}, persistErr
+	}
 
 	sem := s.semaphore(req.ProjectKey, proj.MaxConcurrentJobs)
 	timeout := normalizeTimeout(req.TimeoutSec)
@@ -369,6 +402,7 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		EndedAt:     r.EndedAt,
 		UpdatedAt:   r.UpdatedAt,
 		CallerID:    r.CallerID,
+		RequestID:   r.RequestID,
 	}
 }
 
@@ -390,6 +424,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		UpdatedAt:   rec.UpdatedAt,
 		Error:       rec.Error,
 		CallerID:    rec.CallerID,
+		RequestID:   rec.RequestID,
 	}
 }
 
