@@ -8,6 +8,7 @@
 | 版本 | 日期 | 修改人 | 调整说明 |
 |---|---|---|---|
 | v0.1 | 2026-06-17 | Claude | 初版：WS 远端 Worker（执行机连入中心 server）。已确认 4 项核心决策（Worker 执行机 / 流式推送+server 镜像 / 显式 worker_id 路由 / 与 peer-http 并存）。 |
+| v0.2 | 2026-06-18 | Claude | 评审修订（详见 §17）：worker_id↔token MVP 即绑定（安全缺口）、per-job 日志 sink 生命周期+保序、单连背压/HOL、worker_id 入 `JobResult`、§8.2 持久化更正为 SQLite(jobstore)、WP1 增 ws/rux `Accept` spike + 半开读超时。**注**：本文成于 gofer 改名前，命令现为 `gofer worker`、持久化已是 `jobstore`（非 result.json/jobs.jsonl）。 |
 
 ## 2. 背景与目标
 
@@ -95,7 +96,7 @@ worker: 边跑边推 log{job_id, stream, seq, text}
 server.hub: 按 job_id 解复用 → 把 text 写入 req.Stdout/req.Stderr
             （= <result_dir>/<job_id>/stdout.log）→ server SSE/HTTP/Web/MCP 读镜像，零改动
 worker: 结束推 result{job_id, status, exit_code, error}
-server.workerRunner.Run 返回 runner.Result → job.Service.finish → result.json + jobs.jsonl
+server.workerRunner.Run 返回 runner.Result → job.Service.finish → jobstore.UpsertJob(终态)  // C1 后：DB 真源，非 result.json/jobs.jsonl
 ```
 
 要点：**workerRunner 把入站日志帧写进 `req.Stdout/req.Stderr`**——这对 Writer 正是 store 打开的日志文件（local runner 同款管道）。镜像因此天然复用现有 store 与全部读路径，无需新读接口。
@@ -188,6 +189,14 @@ type JobRequest struct {
 }
 ```
 
+`JobResult` 也带上 `worker_id`，控制台/详情才能显示"在哪台执行"（`JobRecord` 在 C1 已预留 `worker_id` 列，仅需 `toRecord/fromRecord` 映射 + DTO 透出）：
+```go
+type JobResult struct {
+    ... // 现有字段不变
+    WorkerID string `json:"worker_id,omitempty"`
+}
+```
+
 ## 10. 模块与代码结构
 
 | 包 / 文件 | 角色 |
@@ -244,11 +253,37 @@ type JobRequest struct {
 ## 15. 待确认
 
 - 在飞 job 的 worker-lost 策略：MVP `failed`，是否需要"挂起等重连"窗口？
-- per-worker token vs 复用 server token 的落地时机（MVP 可先复用）。
+- ~~per-worker token vs 复用 server token 的落地时机（MVP 可先复用）~~ → **评审 §17-#1 收敛**：MVP 即需 worker_id↔token 绑定（防冒名顶替），不再"先复用任意 token"。
 - 超大/高频日志经 WS 的背压与分片策略（先不做，留 TODO）。
 - worker 是否需要可选的本地只读 HTTP（自查），还是纯出站（倾向纯出站）。
 - 多 worker 同 worker_id 抢注的处理（倾向后者替换前者）。
 
 ## 16. 结论
 
-以"Worker = 反向接入的 bridge + server 把 worker 当一种 runner"为核心，复用既有 `job.Service`/`store`/SSE/Web/MCP/P9 几乎零改动即可把 NAT 后的远端算力纳入统一控制面。唯一新面是一条持久 WS 与其消息协议；执行授权始终留在 worker 本地，安全边界清晰。建议按 WP1→WP2 推进 MVP。
+以"Worker = 反向接入的 bridge + server 把 worker 当一种 runner"为核心，复用既有 `job.Service`/`store`/SSE/Web/MCP/P9 几乎零改动即可把 NAT 后的远端算力纳入统一控制面。唯一新面是一条持久 WS 与其消息协议；执行授权始终留在 worker 本地，安全边界清晰。建议按 WP1→WP2 推进 MVP，**开工前先落实 §17 评审修订（尤其 #1/#2/#3/#6）**。
+
+## 17. 评审修订（v0.2，2026-06-18）
+
+对 v0.1 的评审结论。下列条目**修订/补充上文对应章节**，冲突处以本节为准。
+
+### 🔴 需处理（影响协议/安全，实施前落实）
+
+- **#1 worker_id ↔ token 绑定（MVP 即需，修订 §8.1/§9.2/§11/§15）**：v0.1 的"不配 `workers` 则任何持 server token 的连接可注册任意 worker_id" + "同 worker_id 重连替换旧 conn" ⇒ 任何持 server token 者可**冒名顶替**合法 worker、劫持其 job。**修订**：register 必须校验 worker_id 与其凭据绑定——MVP 即用 per-worker token（`workers.<id>.token_env`），或至少"worker_id 替换须同 token"。`worker_id` 视作一种 `caller_id`，与 C2 的 per-caller token 共用同一"token→身份"底座（见 [`plans/2026-06-18-hardening-c2-c5-plan.md`](../plans/2026-06-18-hardening-c2-c5-plan.md) §7）。
+
+- **#2 per-job 日志 sink 生命周期 + 帧保序（补 §8.2/§10）**：一条 WS 多路复用该 worker 全部 job，hub 按 job_id 解复用写各自 `req.Stdout/Stderr`。**规约**：`workerRunner.Run` **在发 `dispatch` 之前**就向 hub 注册本 job 的 writer sink（map[job_id]→{stdout,stderr}），收到 `result`/`cancel`/`error` 才注销；避免首批 `log` 帧早于 sink 注册而丢失。hub 须**按 job 保序**写入（同一连接的入站帧顺序处理，或每 job 串行队列；**不可每帧起 goroutine**，否则乱序 + 与 `result` 抢序）。
+
+- **#3 单连接 HOL 阻塞 / 背压（补 §8.2/§11/§15）**：镜像写盘慢于 worker 产日志时，单 WS 读循环阻塞 → **同 worker 上所有 job 一起卡**（一个话痨 job 拖垮其他）。即便 MVP 也需：每 job 有界 buffer + 满则节流/丢尾 + 标记截断；与 [C4 日志流控](../plans/2026-06-18-hardening-c2-c5-plan.md#6-phase-c--c4-日志流控)对齐设计。
+
+### 🟡 应修正（事实/一致性，已就地改）
+
+- **#4 §8.2 持久化更正**：finish 已是 `jobstore.UpsertJob`（C1），非 `result.json + jobs.jsonl`（已就地改）。
+- **#5 `worker_id` 入 `JobResult`**：控制台/详情显示"在哪台执行"；`JobRecord` 已预留列（已在 §9.3 补 DTO 字段）。
+
+### 🟢 规约澄清 / 前置
+
+- **#6 WP1 前置 spike**：确认 `github.com/coder/websocket` 能在 `gookit/rux` v2 上 `Accept`（拿到原始 `http.ResponseWriter/Request` 做 hijack）。1 个最小验证，避免 WP1 中途受阻。
+- **#7 半开连接检测（补 §8.5）**：除心跳外须显式设 WS **read deadline**，否则 TCP 静默断（无 FIN）检测不到；coder/websocket ping/pong + 读超时为标准做法。
+- **#8 派发被拒路径（补 §8.2）**：worker 本地 `validate` 失败（如该 agent 在 worker 未放行）→ 直接推 `result{status:failed, error}`，server 据此 finish，无需新帧类型。
+- **#9 server 侧 `JobResult.Cwd` 对远端 job 为信息性**：真实执行目录在 worker 本地（worker 用自己 `host_path` SafeJoin），server 记录仅供展示。
+
+> 落实顺序：实施 WP1 前先做 #6 spike + 把 #1/#2/#3 写进 §8.2/§9.2/§11 的实现细节；#4/#5 已改。
