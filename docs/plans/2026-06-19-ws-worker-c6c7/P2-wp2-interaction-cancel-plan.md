@@ -173,13 +173,15 @@ user        host.httpapi            host.job.Service        hub(workerRunner)   
 
 ### 6.4 验收清单（对齐主文档 §3 P2 行）
 
-- [ ] worker job 触发交互在 hub 显示 `pending_interaction`（现有 GET interactions API 不改）
-- [ ] hub 作答经 WS 回流，worker job 续跑至完成
-- [ ] cancel worker job → `cancelled`；已终态 worker job cancel = stable no-op；未知 id = 404
-- [ ] 长 worker job 超时 → `timeout`（分类正确）
-- [ ] `-race` 通过（交互桥接并发）
-- [ ] `go vet ./...` + `go build ./...` 绿灯
-- [ ] 主文档 §10 进度勾选 P2 + 回填提交哈希（SR1201/SR1202）
+- [x] worker job 触发交互在 hub 显示 `pending_interaction`（现有 GET interactions API 不改）—— `TestE2EInteractionOverWS`
+- [x] hub 作答经 WS 回流，worker job 续跑至完成 —— `TestE2EInteractionOverWS`（答案回显在镜像 stdout）
+- [x] cancel worker job → `cancelled`；已终态 worker job cancel = stable no-op；未知 id = 404 —— `TestE2ECancelOverWS`
+- [x] 长 worker job 超时 → `timeout`（分类正确）—— `TestE2ETimeoutOverWS`
+- [x] `-race` 通过（交互桥接并发）—— 全套 `go test -race ./...` 绿灯
+- [x] `go vet ./...` + `go build ./...` + `gofmt -l .` 绿灯
+- [x] 主文档 §10 进度勾选 P2 + 回填提交哈希（`5adefc2`/`f727995`/`138a438`）
+
+> 实施记录：T1（remote 分支判定）WP1 已合并，`internal/job/` **零改动**（验证：`git diff` 无 job 包文件）。交互透传完全复用 `remoteInteractionSink`，hub 侧 runner 提供 `interactionBridge`（peer-http `handleFrame` 同形，"POST 答案"→"WS Answer 帧"）。worker 客户端在 `streamLocalJob` 同一轮询里观测本地 job 交互并推 `interaction{open}`（id=worker 本地 id），收 `answer`/`cancel` 帧经 hub→local job-id 映射投递到本地 `AnswerInteraction`/`Cancel`。timeout 无新代码（worker 本地 `job.Service` 的 `context.WithTimeout` 自带 + `classify`）。
 
 ---
 
