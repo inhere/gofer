@@ -117,6 +117,12 @@ func runServe(c *gcli.Command, _ []string) error {
 // once immediately, then on every tick of the configured interval (default 60m).
 // The goroutine exits when stop is closed (serve shutdown). With no retention
 // configured it does nothing (zero behaviour change).
+//
+// Reload scope (C3): the prune-loop ENABLE gate and the tick INTERVAL are frozen
+// here at serve startup and are NOT re-read on SIGHUP. The retention THRESHOLDS
+// (MaxAgeDays/MaxCount) DO take effect on reload because jobs.Prune reads the
+// atomic cfg snapshot fresh each tick. Enabling retention from a disabled state,
+// or changing the interval, needs a process restart.
 func startPruneLoop(c *gcli.Command, jobs *job.Service, ret config.RetentionConfig, stop <-chan struct{}) {
 	if !ret.Enabled() {
 		return

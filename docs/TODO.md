@@ -35,3 +35,6 @@
 - [ ] C2 单一 token 无身份/吊销 → per-worker / per-caller token。
 - [ ] C3 配置无热加载 → SIGHUP/接口热重载 registry。
 - [ ] C4/C5/C6/C7：日志流控、提交幂等键、远端节点健康探针、多 hub HA（按需）。
+  - 已知限制（见 [`plans/2026-06-18-hardening-c2-c5-plan.md`](plans/2026-06-18-hardening-c2-c5-plan.md) §7.1）：
+    - **C-N1（低）** job `exit 0` 但 background 子进程持有管道写端超 `WaitDelay`(2s) → `exec: WaitDelay expired before I/O complete`，runner 判为 `failed`（非回归）；仅"起 daemon 后退出"成受支持模式时才 follow-up。
+    - **C-N2（极低）** `log-rotated` 后前端清 buffer 但不重置 `?from=` offset，重连靠 `tailFrom` 自愈（size<offset 重放全新文件）；MVP 不修。
