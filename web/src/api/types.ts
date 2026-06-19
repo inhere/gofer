@@ -92,12 +92,24 @@ export interface Interaction {
 }
 
 // SSE 事件（解析后）
-export type SSEEventType = 'status' | 'log' | 'interaction' | 'end'
+// log-rotated：后端日志文件发生轮转（offset 重置），前端需清空该 stream 已缓冲文本后续读。
+export type SSEEventType =
+  | 'status'
+  | 'log'
+  | 'log-rotated'
+  | 'interaction'
+  | 'end'
 
 export interface SSELogData {
   stream: LogStream
   seq: number
   text: string
+}
+
+// log-rotated 事件载荷：哪个 stream 轮转了（前端据此清空该 stream 缓冲）。
+export interface SSELogRotatedData {
+  stream: LogStream
+  seq: number
 }
 
 export interface SSEInteractionData {

@@ -58,6 +58,33 @@ export function parseSSEChunk(buffer: string): ParsedSSE {
   return { frames, rest }
 }
 
+// 单个日志流前端保留缓冲的字节上限（窗口化展示，超出丢弃最早）。
+// 后端已对单帧/单轮做流控（C4），这里再兜底限制浏览器内存：超大/高频日志
+// 不会让累积字符串无界增长导致页面卡死。约 2MiB（UTF-16 字符串近似按字节窗口）。
+export const MAX_LOG_BUFFER_BYTES = 2 * 1024 * 1024
+
+// appendCapped 把 chunk 追加到 prev 之后，并把结果窗口化到 maxBytes（保留最近，
+// 丢弃最早）。在字符边界裁剪（按 \n 优先，否则按字符），避免半个多字节字符。
+// 纯函数，便于单测。
+export function appendCapped(
+  prev: string,
+  chunk: string,
+  maxBytes = MAX_LOG_BUFFER_BYTES,
+): string {
+  const combined = prev + chunk
+  // 用字符数近似上限即可（UTF-16 code unit）；不需精确到 UTF-8 字节。
+  if (combined.length <= maxBytes) {
+    return combined
+  }
+  let cut = combined.length - maxBytes
+  // 尽量从下一个换行后开始，保留完整行边界；找不到则按字符硬裁。
+  const nl = combined.indexOf('\n', cut)
+  if (nl >= 0 && nl + 1 < combined.length) {
+    cut = nl + 1
+  }
+  return combined.slice(cut)
+}
+
 export interface StreamJobOpts {
   from?: number
   signal?: AbortSignal

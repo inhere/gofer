@@ -8,7 +8,7 @@ import Signal from '../components/Signal.vue'
 import LogTape from '../components/LogTape.vue'
 import InteractionCard from '../components/InteractionCard.vue'
 import { answerInteraction, cancelJob, getJob } from '../api/client'
-import { streamJob } from '../api/sse'
+import { appendCapped, streamJob } from '../api/sse'
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
 import type {
   Interaction,
@@ -17,6 +17,7 @@ import type {
   SSEEvent,
   SSEInteractionData,
   SSELogData,
+  SSELogRotatedData,
 } from '../api/types'
 
 const props = defineProps<{ id: string }>()
@@ -131,13 +132,26 @@ function onEvent(ev: SSEEvent): void {
     applyStatus(ev.data as Job)
     return
   }
+  if (ev.type === 'log-rotated') {
+    // 后端日志轮转：清空该 stream 的缓冲后续读新文件（不重置 stdoutBytes，
+    // 它用于断线重连的 from offset，由后端 offset 语义对齐）。
+    const d = ev.data as SSELogRotatedData
+    if (d.stream === 'stderr') {
+      stderr.value = ''
+    } else {
+      stdout.value = ''
+    }
+    return
+  }
   if (ev.type === 'log') {
     const d = ev.data as SSELogData
+    // 帧按到达顺序（= seq 顺序，单连接 TCP 有序）追加，并窗口化到字节上限：
+    // 超大/高频日志只保留最近 N 字节，避免浏览器内存无界增长（C4 前端兜底）。
     if (d.stream === 'stdout') {
-      stdout.value += d.text
+      stdout.value = appendCapped(stdout.value, d.text)
       stdoutBytes += encoder.encode(d.text).length
     } else {
-      stderr.value += d.text
+      stderr.value = appendCapped(stderr.value, d.text)
     }
     const n = countLines(d.text)
     if (n > 0) {
