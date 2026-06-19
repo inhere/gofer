@@ -125,6 +125,12 @@ func Open(path string) (*Store, error) {
 		_ = db.Close()
 		return nil, err
 	}
+	// migrate runs AFTER applySchema so additive columns/indexes introduced after
+	// the initial schema are present on both fresh and pre-existing databases.
+	if err := s.migrate(); err != nil {
+		_ = db.Close()
+		return nil, err
+	}
 	// Best-effort: the db (and its -wal/-shm side files) live in the private logs
 	// area; tighten perms on the main file regardless of umask.
 	_ = os.Chmod(path, 0o600)
@@ -140,6 +146,64 @@ func (s *Store) applySchema() error {
 		}
 	}
 	return nil
+}
+
+// migrate adds columns/indexes introduced after the initial C1 schema (additive
+// only — never drops or rewrites). SQLite has no ADD COLUMN IF NOT EXISTS, so we
+// probe `PRAGMA table_info` first; the partial unique index is created here (not
+// in schemaStmts) because it references request_id, which does not exist on a
+// pre-existing C1 database until the ALTER below runs. Idempotent on every Open.
+func (s *Store) migrate() error {
+	cols, err := s.tableColumns("jobs")
+	if err != nil {
+		return err
+	}
+	add := func(col, ddl string) error {
+		if _, ok := cols[col]; ok {
+			return nil
+		}
+		if _, e := s.db.Exec("ALTER TABLE jobs ADD COLUMN " + ddl); e != nil {
+			return fmt.Errorf("jobstore: migrate add %s: %w", col, e)
+		}
+		return nil
+	}
+	if err := add("caller_id", "caller_id TEXT"); err != nil { // C2
+		return err
+	}
+	if err := add("request_id", "request_id TEXT"); err != nil { // C5
+		return err
+	}
+	// Partial unique index: only non-empty request_id values are constrained, so
+	// jobs without a request_id never collide. Created after the column exists.
+	if _, err := s.db.Exec(
+		`CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_request_id ON jobs(request_id) WHERE request_id <> ''`,
+	); err != nil {
+		return fmt.Errorf("jobstore: migrate request_id index: %w", err)
+	}
+	return nil
+}
+
+// tableColumns returns the set of column names of a table via PRAGMA table_info.
+func (s *Store) tableColumns(table string) (map[string]struct{}, error) {
+	rows, err := s.db.Query("PRAGMA table_info(" + table + ")")
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: table_info(%s): %w", table, err)
+	}
+	defer rows.Close()
+	out := map[string]struct{}{}
+	for rows.Next() {
+		var (
+			cid         int
+			name, typ   string
+			notnull, pk int
+			dflt        any
+		)
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &dflt, &pk); err != nil {
+			return nil, fmt.Errorf("jobstore: scan table_info: %w", err)
+		}
+		out[name] = struct{}{}
+	}
+	return out, rows.Err()
 }
 
 // Close closes the underlying database. WAL auto-checkpoints on the final close,
