@@ -44,6 +44,38 @@ type ServerConfig struct {
 	// presented token's bound worker is rejected (hub.Accept). per-worker token
 	// is MVP-mandatory: even allow_empty_token does not waive the binding.
 	Workers map[string]WorkerAuthConfig `yaml:"workers"`
+	// RunnerProbe tunes the peer-http active health probe (C6/P4): how often each
+	// peer-http runner's /health is polled and the per-probe timeout. Unset =>
+	// defaults (30s interval / 5s timeout). The probe only runs when at least one
+	// peer-http runner is configured (zero behaviour change otherwise).
+	RunnerProbe RunnerProbeConfig `yaml:"runner_probe"`
+}
+
+// RunnerProbeConfig is the YAML form of the peer-http health-probe policy (C6/P4
+// §6). Both fields default when <= 0: 30s interval, 5s per-probe timeout. It is a
+// pure additive block — an existing config with no runner_probe key probes at the
+// defaults.
+type RunnerProbeConfig struct {
+	IntervalSeconds int `yaml:"interval_seconds"`
+	TimeoutSeconds  int `yaml:"timeout_seconds"`
+}
+
+// ProbeInterval returns the peer-http probe cadence, defaulting to 30s when the
+// configured interval is <= 0.
+func (p RunnerProbeConfig) ProbeInterval() time.Duration {
+	if p.IntervalSeconds > 0 {
+		return time.Duration(p.IntervalSeconds) * time.Second
+	}
+	return 30 * time.Second
+}
+
+// ProbeTimeout returns the per-probe timeout, defaulting to 5s when the
+// configured timeout is <= 0.
+func (p RunnerProbeConfig) ProbeTimeout() time.Duration {
+	if p.TimeoutSeconds > 0 {
+		return time.Duration(p.TimeoutSeconds) * time.Second
+	}
+	return 5 * time.Second
 }
 
 // WorkerAuthConfig registers one legitimate worker identity on the server side
