@@ -142,7 +142,7 @@ labels: [macos, gpu]
 - [x] **P0 Spike** —— coder/websocket + rux Accept 回环验证（硬门）
 - [x] **P1 WP1 核心** —— 端到端远程执行 + token 绑定 + sink/有序/背压 + WorkerID 贯穿（`wsproto`/`wshub`/`runner/worker`/`worker`/`commands/worker.go`；全套 `-race` 通过；wsUpgradeWriter 已提升为 `internal/wshub/upgrade_writer.go`；无 jobstore 迁移）
 - [x] **P2 WP2** —— 交互透传 + cancel/timeout（提交 `5adefc2` hub demux+Answer/Cancel + runner 交互桥 / `f727995` worker 客户端三向 + cancel/answer / `138a438` e2e 交互闭环+cancel+timeout；交互 100% 复用 `remoteInteractionSink`，`internal/job/` 零改动；全套 `-race` 通过）
-- [ ] **P3 WP3 + C7** —— 心跳/重连/worker-lost/多 worker + worker 多地址退避
+- [x] **P3 WP3 + C7** —— 心跳/重连/worker-lost/多 worker + worker 多地址退避（提交 `3537826` hub 心跳+读截止+worker-lost+at-capacity / `a43a694` worker 重连退避+多地址+心跳+优雅关闭；新增 hub_p3_test/backoff_test/reconnect_test + runner worker-lost/at-capacity 用例 + 全栈断线→failed e2e；心跳 ping 15s/读截止 45s、退避 1s→30s full jitter；worker-lost = fail-fast MVP；registry 暴露 `LastHeartbeat`/`IsOnline` 喂 C6/P4；全套 `-race -count=2` 通过。设计 §8.5"恢复"与 §15"挂起窗口"按 §6.3 收敛为本轮不做）
 - [ ] **P4 C6** —— /v1/runners（worker 心跳态 + peer-http 主动探针）
 - [ ] 文档收尾 —— architecture-overview §9.1 C6/C7 标 ✅、§9 worker 行状态更新、本主文档进度回填
 

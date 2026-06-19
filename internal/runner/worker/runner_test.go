@@ -218,6 +218,20 @@ func TestRunCtxCancel(t *testing.T) {
 	}
 }
 
+// TestRunAtCapacity (WP3 §5.4): a Dispatch rejected with ErrWorkerAtCapacity
+// surfaces as a non-nil Run error so the job service classifies the job failed
+// with a clear "worker at capacity" message (queueing is WP4).
+func TestRunAtCapacity(t *testing.T) {
+	r := newRunnerWithHub(&fakeHub{dispatchErr: wshub.ErrWorkerAtCapacity})
+	res := r.Run(context.Background(), runner.Request{JobID: "j1", Forward: &runner.Forward{}})
+	if res.ExitCode != -1 {
+		t.Fatalf("exit = %d, want -1", res.ExitCode)
+	}
+	if !errors.Is(res.Err, wshub.ErrWorkerAtCapacity) {
+		t.Fatalf("err = %v, want ErrWorkerAtCapacity", res.Err)
+	}
+}
+
 // TestRunWorkerLostFailsJob (WP3 §5.3): the hub signals worker-lost via the
 // sink's OnDisconnect while Run is waiting; Run must return ExitCode -1 with the
 // "worker disconnected" error and NO ctx error, so the job service's classify
