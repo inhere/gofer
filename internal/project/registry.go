@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 
-	"dev-agent-bridge/internal/config"
+	"github.com/inhere/gofer/internal/config"
 )
 
 // Registry manages project entries over a loaded config and persists changes

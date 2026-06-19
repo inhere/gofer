@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"dev-agent-bridge/internal/job"
+	"github.com/inhere/gofer/internal/job"
 )
 
 // submitRunningJob submits a long-lived exec job over the HTTP API and polls

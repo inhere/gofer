@@ -12,8 +12,8 @@ import (
 
 	"github.com/gookit/rux/v2"
 
-	"dev-agent-bridge/internal/job"
-	"dev-agent-bridge/internal/store"
+	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/store"
 )
 
 // streamPollInterval is how often the SSE loop polls the log files and the job

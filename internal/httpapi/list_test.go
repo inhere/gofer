@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"dev-agent-bridge/internal/job"
+	"github.com/inhere/gofer/internal/job"
 )
 
 // createExec posts an exec job and returns its created id, failing the test on

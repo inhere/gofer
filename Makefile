@@ -1,7 +1,7 @@
-## agent-bridge — Makefile
+## gofer — Makefile
 
-APP     := agent-bridge
-MAIN_DIR := ./cmd/agent-bridge
+APP     := gofer
+MAIN_DIR := ./cmd/gofer
 GOEXE = $(shell go env GOEXE)
 BINARY  := $(APP)$(GOEXE)
 
@@ -134,6 +134,6 @@ clean:
 
 ## help: show this help
 help:
-	@echo "agent-bridge Build System"
+	@echo "gofer Build System"
 	@echo ""
 	@grep -E '^## ' $(MAKEFILE_LIST) | sed 's/## /  /'

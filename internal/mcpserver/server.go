@@ -1,4 +1,4 @@
-// Package mcpserver exposes the agent-bridge control plane as a stdio MCP server
+// Package mcpserver exposes the gofer control plane as a stdio MCP server
 // (plan P8). It reuses the same job.Service / project / agent registries as the
 // HTTP control plane, so the MCP tools never duplicate execution logic — they
 // are a thin, structured-IO wrapper over the existing contracts.
@@ -19,10 +19,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"dev-agent-bridge/internal/agent"
-	"dev-agent-bridge/internal/job"
-	"dev-agent-bridge/internal/project"
-	"dev-agent-bridge/internal/store"
+	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/project"
+	"github.com/inhere/gofer/internal/store"
 )
 
 // defaultLogTailBytes caps a tail_log response when the caller passes max_bytes
@@ -34,7 +34,7 @@ const defaultLogTailBytes = 256 * 1024
 // registers the six bridge_* tools. The server is returned unconnected; call
 // Run (or Serve) to start serving over a transport.
 func New(jobs *job.Service, projects *project.Registry, agents *agent.Registry) *mcp.Server {
-	s := mcp.NewServer(&mcp.Implementation{Name: "dev-agent-bridge", Version: "v1"}, nil)
+	s := mcp.NewServer(&mcp.Implementation{Name: "gofer", Version: "v1"}, nil)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "bridge_list_projects",

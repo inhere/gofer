@@ -3,7 +3,7 @@ package job
 import (
 	"sort"
 
-	"dev-agent-bridge/internal/jobstore"
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 // defaultListLimit caps the number of jobs returned by ListJobs when the caller

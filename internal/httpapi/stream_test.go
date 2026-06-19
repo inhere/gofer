@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"dev-agent-bridge/internal/job"
+	"github.com/inhere/gofer/internal/job"
 )
 
 // sseEvent is one parsed SSE frame (event name + raw data line).

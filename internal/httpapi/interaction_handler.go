@@ -7,7 +7,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
-	"dev-agent-bridge/internal/job"
+	"github.com/inhere/gofer/internal/job"
 )
 
 // createInteractionReq is the POST body for raising a running-job interaction

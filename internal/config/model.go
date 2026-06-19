@@ -1,4 +1,4 @@
-// Package config defines the dev-agent-bridge configuration model and the
+// Package config defines the gofer configuration model and the
 // loader/writer that resolve, decode, default and persist it. See plan §6.1.
 package config
 
@@ -10,10 +10,10 @@ import (
 const (
 	DefaultAddr           = "0.0.0.0:8765"
 	DefaultExchangeSubdir = "tmp"
-	DefaultResultSubdir   = "dev-agent-bridge"
+	DefaultResultSubdir   = "gofer"
 )
 
-// Config is the top-level dev-agent-bridge configuration. Unknown top-level
+// Config is the top-level gofer configuration. Unknown top-level
 // keys present in the source file are preserved on write (see writer.go).
 type Config struct {
 	Server   ServerConfig             `yaml:"server"`

@@ -9,8 +9,8 @@ import (
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/goutil/errorx"
 
-	"dev-agent-bridge/internal/config"
-	"dev-agent-bridge/internal/mcpserver"
+	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/mcpserver"
 )
 
 // mcpExitErr is the process exit code used when the mcp server fails to start or

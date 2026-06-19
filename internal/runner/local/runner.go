@@ -10,7 +10,7 @@ import (
 	"os"
 	"os/exec"
 
-	"dev-agent-bridge/internal/runner"
+	"github.com/inhere/gofer/internal/runner"
 )
 
 // Name is the runner identifier ("local").

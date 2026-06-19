@@ -228,7 +228,7 @@ func TestDoubleAnswerErrors(t *testing.T) {
 // per id (pending overwritten by answered), with options preserved.
 func TestGetPersistedInteractionsReadsFromDB(t *testing.T) {
 	root := t.TempDir()
-	dbPath := filepath.Join(root, "agent-bridge.db")
+	dbPath := filepath.Join(root, "gofer.db")
 	s := newTestServiceWithDB(t, root, dbPath)
 	jobID := submitRunning(t, s)
 

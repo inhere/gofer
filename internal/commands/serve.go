@@ -7,9 +7,9 @@ import (
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/goutil/errorx"
 
-	"dev-agent-bridge/internal/config"
-	"dev-agent-bridge/internal/httpapi"
-	"dev-agent-bridge/internal/job"
+	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/httpapi"
+	"github.com/inhere/gofer/internal/job"
 )
 
 // serveExitErr is the process exit code used when serve fails to start or run.
@@ -32,7 +32,7 @@ var serveOpts = struct {
 func NewServeCmd() *gcli.Command {
 	return &gcli.Command{
 		Name: "serve",
-		Desc: "Start the agent-bridge HTTP server",
+		Desc: "Start the gofer HTTP server",
 		Config: func(c *gcli.Command) {
 			c.StrOpt(&serveOpts.config, "config", "c", "", "path to the bridge config file")
 			c.StrOpt(&serveOpts.addr, "addr", "", "", "HTTP listen address (default from config / 0.0.0.0:8765)")
@@ -91,9 +91,9 @@ func runServe(c *gcli.Command, _ []string) error {
 	srv := httpapi.New(&cfg.Server, token, allowEmpty, core.Jobs, core.Projects, core.Agents)
 
 	if token == "" {
-		c.Printf("agent-bridge: starting WITHOUT auth (allow_empty_token) on %s\n", addr)
+		c.Printf("gofer: starting WITHOUT auth (allow_empty_token) on %s\n", addr)
 	} else {
-		c.Printf("agent-bridge: starting on %s (token auth enabled)\n", addr)
+		c.Printf("gofer: starting on %s (token auth enabled)\n", addr)
 	}
 	// Run blocks until the server stops (or fails to bind). The token is never
 	// printed (plan §11).
@@ -113,15 +113,15 @@ func startPruneLoop(c *gcli.Command, jobs *job.Service, ret config.RetentionConf
 		return
 	}
 	interval := ret.PruneInterval()
-	c.Printf("agent-bridge: retention prune enabled (interval=%s, max_age_days=%d, max_count=%d)\n",
+	c.Printf("gofer: retention prune enabled (interval=%s, max_age_days=%d, max_count=%d)\n",
 		interval, ret.MaxAgeDays, ret.MaxCount)
 
 	go func() {
 		prune := func() {
 			if n, err := jobs.Prune(); err != nil {
-				c.Errorf("agent-bridge: prune failed: %v\n", err)
+				c.Errorf("gofer: prune failed: %v\n", err)
 			} else if n > 0 {
-				c.Printf("agent-bridge: pruned %d terminal job(s)\n", n)
+				c.Printf("gofer: pruned %d terminal job(s)\n", n)
 			}
 		}
 		prune() // run once at startup so a backlog is trimmed without waiting a full interval

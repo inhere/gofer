@@ -3,7 +3,7 @@ package job
 import (
 	"os"
 
-	"dev-agent-bridge/internal/jobstore"
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 // Prune enforces the configured retention policy (storage.retention): it evicts

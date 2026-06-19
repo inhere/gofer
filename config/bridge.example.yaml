@@ -1,16 +1,16 @@
-# dev-agent-bridge example configuration.
+# gofer example configuration.
 # Copy to one of the lookup locations (§6.1):
 #   1. --config <path>
-#   2. env AGENT_BRIDGE_CONFIG
-#   3. ./.dev-agent-bridge.yaml
-#   4. ~/.config/dev-agent-bridge/config.yaml
+#   2. env GOFER_CONFIG
+#   3. ./.gofer.yaml
+#   4. ~/.config/gofer/config.yaml
 
 server:
   # Listen address. Default 0.0.0.0:8765 so a container can reach the host via
   # host.docker.internal; security relies on a mandatory token + internal access.
   addr: 0.0.0.0:8765
   # Prefer reading the bearer token from an env var rather than inlining it.
-  token_env: AGENT_BRIDGE_TOKEN
+  token_env: GOFER_TOKEN
   # token: ""              # inline override (avoid committing real tokens)
   # Must be explicitly true to start without any token.
   allow_empty_token: false
@@ -18,12 +18,12 @@ server:
 storage:
   # Per-project data exchange subdir (default: tmp).
   default_exchange_subdir: tmp
-  # Per-project result subdir under the exchange dir (default: dev-agent-bridge).
-  default_result_subdir: dev-agent-bridge
+  # Per-project result subdir under the exchange dir (default: gofer).
+  default_result_subdir: gofer
   # Optional global store root. Leave empty to keep results under each project's
   # exchange dir. When set, results go to <root>/<project_key>/<job_id> and the
   # container can only read them back over HTTP (not via the shared mount).
-  # root: /var/lib/dev-agent-bridge
+  # root: /var/lib/gofer
 
 projects:
   # First project: the workspace root.
@@ -31,7 +31,7 @@ projects:
     host_path: D:/work/inhere/my-project1
     container_path: /d/work/inhere/my-project1
     exchange_subdir: tmp
-    result_subdir: dev-agent-bridge
+    result_subdir: gofer
     default_agent: codex
     allowed_agents: [codex, claude, exec]
     allowed_runners: [local]

@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"dev-agent-bridge/internal/store"
+	"github.com/inhere/gofer/internal/store"
 )
 
 // liveCount returns the number of entries currently tracked in the in-memory

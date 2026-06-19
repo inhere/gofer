@@ -1,6 +1,6 @@
 // 纯 Bearer 无状态鉴权。token 存 sessionStorage。
 
-const TOKEN_KEY = 'agent-bridge-token'
+const TOKEN_KEY = 'gofer-token'
 
 let unauthorizedHandler: (() => void) | null = null
 

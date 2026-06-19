@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"dev-agent-bridge/internal/store"
+	"github.com/inhere/gofer/internal/store"
 )
 
 func TestTailLogStdout(t *testing.T) {

@@ -8,8 +8,8 @@ import (
 
 	"github.com/gookit/rux/v2"
 
-	"dev-agent-bridge/internal/job"
-	"dev-agent-bridge/internal/store"
+	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/store"
 )
 
 // maxLogTailBytes caps the response size of the log endpoints: only the last

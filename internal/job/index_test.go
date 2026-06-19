@@ -14,7 +14,7 @@ import (
 // appended lines.
 func TestMetadataPersistAndAfterRestart(t *testing.T) {
 	root := t.TempDir()
-	dbPath := filepath.Join(root, "agent-bridge.db")
+	dbPath := filepath.Join(root, "gofer.db")
 	s := newTestServiceWithDB(t, root, dbPath)
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",

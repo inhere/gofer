@@ -11,12 +11,12 @@ import (
 	"sync"
 	"time"
 
-	"dev-agent-bridge/internal/agent"
-	"dev-agent-bridge/internal/config"
-	"dev-agent-bridge/internal/jobstore"
-	"dev-agent-bridge/internal/project"
-	"dev-agent-bridge/internal/runner"
-	"dev-agent-bridge/internal/store"
+	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/project"
+	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/store"
 )
 
 // Timeout bounds (plan §9 P4, §11). TimeoutSec defaults to DefaultTimeoutSec

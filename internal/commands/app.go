@@ -2,11 +2,11 @@ package commands
 
 import "github.com/gookit/gcli/v3"
 
-// NewApp assembles the agent-bridge gcli application and registers all
+// NewApp assembles the gofer gcli application and registers all
 // top-level commands (serve/project/agent/job/mcp).
 func NewApp(version string) *gcli.App {
 	app := gcli.NewApp()
-	app.Name = "agent-bridge"
+	app.Name = "gofer"
 	app.Desc = "Bridge local and container CLI agents across allowed projects."
 	if version != "" {
 		app.Version = version

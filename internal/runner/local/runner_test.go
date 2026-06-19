@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"dev-agent-bridge/internal/runner"
+	"github.com/inhere/gofer/internal/runner"
 )
 
 func TestRunSuccess(t *testing.T) {

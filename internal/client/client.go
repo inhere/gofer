@@ -1,4 +1,4 @@
-// Package client is a thin HTTP client for the dev-agent-bridge control plane.
+// Package client is a thin HTTP client for the gofer control plane.
 // It mirrors the /v1/jobs API (plan §7) and reuses the job package's
 // JobRequest/JobResult structs as the wire types so the CLI (P6) and the MCP
 // server (P8) share one transport.
@@ -15,10 +15,10 @@ import (
 	"strings"
 	"time"
 
-	"dev-agent-bridge/internal/job"
+	"github.com/inhere/gofer/internal/job"
 )
 
-// Client talks to a running agent-bridge server. It is safe for sequential use;
+// Client talks to a running gofer server. It is safe for sequential use;
 // the zero value is not usable — construct it with New.
 type Client struct {
 	baseURL string

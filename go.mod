@@ -1,4 +1,4 @@
-module dev-agent-bridge
+module github.com/inhere/gofer
 
 go 1.25.0
 
