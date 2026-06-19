@@ -381,7 +381,7 @@ gofer job run -p workspace -a opencode --prompt "解释本目录的整体结构"
 
 ```bash
 # 主机侧
-cd /path/to/workspace/tools/dev-agent-bridge
+cd /path/to/workspace/tools/gofer
 make build                       # 产出 dist/gofer（或 go build -o dist/gofer ./cmd/gofer）
 
 # 登记工作空间项目（一次性，若尚未登记）
@@ -423,7 +423,7 @@ curl -s -X POST http://host.docker.internal:8765/v1/jobs \
 ```text
   - access token: tok-for-docker-dev                  ← 不变（核对仍为此值即可）
   - docker access: http://host.docker.internal:8765   ← 端点不变
-  - 详细使用文档查看 tools/dev-agent-bridge/README.md  ← 路径 codex-bridge → dev-agent-bridge
+  - 详细使用文档查看 tools/gofer/README.md  ← 路径 codex-bridge → dev-agent-bridge
 ```
 
 并在该处补一行鉴权头说明（旧 `X-Bridge-Token` → 新 `Authorization: Bearer <token>`），例如：
