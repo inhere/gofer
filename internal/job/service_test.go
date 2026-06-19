@@ -8,13 +8,13 @@ import (
 	"testing"
 	"time"
 
-	"dev-agent-bridge/internal/agent"
-	"dev-agent-bridge/internal/config"
-	"dev-agent-bridge/internal/jobstore"
-	"dev-agent-bridge/internal/project"
-	"dev-agent-bridge/internal/runner"
-	localrunner "dev-agent-bridge/internal/runner/local"
-	"dev-agent-bridge/internal/store"
+	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/project"
+	"github.com/inhere/gofer/internal/runner"
+	localrunner "github.com/inhere/gofer/internal/runner/local"
+	"github.com/inhere/gofer/internal/store"
 )
 
 // newTestService builds a Service whose result base dir lives under a temp dir.
@@ -23,7 +23,7 @@ import (
 // The metadata db lives under root so each test gets its own DB.
 func newTestService(t *testing.T, root string) *Service {
 	t.Helper()
-	return newTestServiceWithDB(t, root, filepath.Join(root, "agent-bridge.db"))
+	return newTestServiceWithDB(t, root, filepath.Join(root, "gofer.db"))
 }
 
 // newTestServiceWithDB is like newTestService but opens the metadata store at an

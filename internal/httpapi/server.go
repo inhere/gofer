@@ -1,4 +1,4 @@
-// Package httpapi exposes the dev-agent-bridge control plane over HTTP using
+// Package httpapi exposes the gofer control plane over HTTP using
 // github.com/gookit/rux/v2. Handlers only parse params, enforce the auth
 // context and encode responses; all business logic lives in the job service and
 // the project/agent registries (plan §7).
@@ -16,11 +16,11 @@ import (
 
 	"github.com/gookit/rux/v2"
 
-	"dev-agent-bridge/internal/agent"
-	"dev-agent-bridge/internal/config"
-	"dev-agent-bridge/internal/job"
-	"dev-agent-bridge/internal/project"
-	"dev-agent-bridge/internal/webui"
+	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/project"
+	"github.com/inhere/gofer/internal/webui"
 )
 
 // Server holds the wired dependencies and the rux router. It is constructed once
@@ -120,6 +120,6 @@ func (s *Server) Handler() http.Handler { return s.router }
 // the token is never logged (plan §11).
 func (s *Server) Run(addr string) error {
 	srv := &http.Server{Addr: addr, Handler: s.router}
-	fmt.Printf("agent-bridge: listening on %s\n", addr)
+	fmt.Printf("gofer: listening on %s\n", addr)
 	return srv.ListenAndServe()
 }

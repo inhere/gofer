@@ -4,7 +4,7 @@ import (
 	"context"
 	"fmt"
 
-	"dev-agent-bridge/internal/runner"
+	"github.com/inhere/gofer/internal/runner"
 )
 
 // remoteInteractionSink implements runner.InteractionSink for a remote-runner

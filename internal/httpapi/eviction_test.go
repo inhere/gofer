@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"dev-agent-bridge/internal/job"
+	"github.com/inhere/gofer/internal/job"
 )
 
 // TestServeLogAfterEviction asserts that a finished job's stdout stays readable

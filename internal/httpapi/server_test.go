@@ -11,13 +11,13 @@ import (
 	"testing"
 	"time"
 
-	"dev-agent-bridge/internal/agent"
-	"dev-agent-bridge/internal/config"
-	"dev-agent-bridge/internal/job"
-	"dev-agent-bridge/internal/jobstore"
-	"dev-agent-bridge/internal/project"
-	"dev-agent-bridge/internal/runner"
-	localrunner "dev-agent-bridge/internal/runner/local"
+	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/project"
+	"github.com/inhere/gofer/internal/runner"
+	localrunner "github.com/inhere/gofer/internal/runner/local"
 )
 
 const testToken = "dev-token"
@@ -26,7 +26,7 @@ const testToken = "dev-token"
 // wiring a job.Service in tests. Shared across the httpapi test files.
 func openTestStore(t *testing.T, root string) *jobstore.Store {
 	t.Helper()
-	st, err := jobstore.Open(filepath.Join(root, "agent-bridge.db"))
+	st, err := jobstore.Open(filepath.Join(root, "gofer.db"))
 	if err != nil {
 		t.Fatalf("open jobstore: %v", err)
 	}

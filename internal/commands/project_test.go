@@ -6,7 +6,7 @@ import (
 
 	"github.com/gookit/gcli/v3"
 
-	"dev-agent-bridge/internal/config"
+	"github.com/inhere/gofer/internal/config"
 )
 
 // TestProjectCmdFlagsBound verifies the project sub-commands register and bind
@@ -54,7 +54,7 @@ func TestProjectAddListShowValidate(t *testing.T) {
 	projectAddOpts.config = cfgPath
 	projectAddOpts.hostPath = host
 	projectAddOpts.exchangeSubdir = "tmp"
-	projectAddOpts.resultSubdir = "dev-agent-bridge"
+	projectAddOpts.resultSubdir = "gofer"
 	projectAddOpts.defaultAgent = ""
 	projectAddOpts.allowAgents = gcli.Strings{"exec"}
 	projectAddOpts.allowRunners = gcli.Strings{"local"}

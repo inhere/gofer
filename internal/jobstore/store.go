@@ -1,4 +1,4 @@
-// Package jobstore is the SQLite-backed metadata/index store for dev-agent-bridge
+// Package jobstore is the SQLite-backed metadata/index store for gofer
 // jobs. It is the C1 fix (see docs/design/2026-06-18-sqlite-store-design.md):
 // the in-memory job table, jobs.jsonl index and result.json metadata all grow
 // without bound on a long-running server. This package moves that state into a

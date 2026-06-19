@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"dev-agent-bridge/internal/config"
+	"github.com/inhere/gofer/internal/config"
 )
 
 // TestPruneRemovesTerminalJobAndLogDir runs a job to completion, configures a

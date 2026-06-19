@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"strings"
 
-	"dev-agent-bridge/internal/jobstore"
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 // Interaction error sentinels. The interaction methods wrap these (via

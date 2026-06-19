@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"dev-agent-bridge/internal/store"
+	"github.com/inhere/gofer/internal/store"
 )
 
 // TailLog returns the last maxBytes of a job's stdout/stderr (whole file when

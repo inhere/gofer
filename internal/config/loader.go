@@ -10,19 +10,19 @@ import (
 )
 
 // EnvConfigPath is the env var consulted in the config lookup chain (§6.1).
-const EnvConfigPath = "AGENT_BRIDGE_CONFIG"
+const EnvConfigPath = "GOFER_CONFIG"
 
 // EnvConfigDir overrides the user-level config directory. When set, both the
 // default config file (<dir>/config.yaml) and the global dotenv (<dir>/.env)
-// resolve under it instead of ~/.config/dev-agent-bridge.
-const EnvConfigDir = "AGENT_BRIDGE_CFG_DIR"
+// resolve under it instead of ~/.config/gofer.
+const EnvConfigDir = "GOFER_CFG_DIR"
 
 // DefaultConfigDirName is the user-level config dir under the OS config home
 // (~/.config/<name>).
-const DefaultConfigDirName = "dev-agent-bridge"
+const DefaultConfigDirName = "gofer"
 
 // CurrentDirConfigName is the per-directory config file name (§6.1).
-const CurrentDirConfigName = ".dev-agent-bridge.yaml"
+const CurrentDirConfigName = ".gofer.yaml"
 
 // Load resolves the config file via the lookup chain, decodes it into the
 // strongly-typed Config, applies defaults and runs basic validation. It returns
@@ -30,9 +30,9 @@ const CurrentDirConfigName = ".dev-agent-bridge.yaml"
 //
 // Lookup order (§6.1):
 //  1. explicitPath (CLI --config)
-//  2. env AGENT_BRIDGE_CONFIG
-//  3. ./.dev-agent-bridge.yaml
-//  4. ~/.config/dev-agent-bridge/config.yaml
+//  2. env GOFER_CONFIG
+//  3. ./.gofer.yaml
+//  4. ~/.config/gofer/config.yaml
 //
 // When no file is found, Load returns a defaulted empty Config and an empty
 // path (no error) so that `project add` can create the first config.
@@ -93,8 +93,8 @@ func Resolve(explicitPath string) (string, error) {
 }
 
 // ConfigDir returns the effective user-level config directory. When the env var
-// AGENT_BRIDGE_CFG_DIR is set it wins (absolute); otherwise the default is
-// ~/.config/dev-agent-bridge. It holds both config.yaml and the global .env.
+// GOFER_CFG_DIR is set it wins (absolute); otherwise the default is
+// ~/.config/gofer. It holds both config.yaml and the global .env.
 func ConfigDir() (string, error) {
 	if dir := strings.TrimSpace(os.Getenv(EnvConfigDir)); dir != "" {
 		return filepath.Abs(dir)
@@ -107,7 +107,7 @@ func ConfigDir() (string, error) {
 }
 
 // UserConfigPath returns the user-level default config path
-// (<config-dir>/config.yaml; config-dir defaults to ~/.config/dev-agent-bridge).
+// (<config-dir>/config.yaml; config-dir defaults to ~/.config/gofer).
 func UserConfigPath() (string, error) {
 	dir, err := ConfigDir()
 	if err != nil {
@@ -118,12 +118,12 @@ func UserConfigPath() (string, error) {
 
 // DBFileName is the SQLite metadata database file name used when db_path is
 // resolved from storage.root or the config dir (see ResolveDBPath, design §11).
-const DBFileName = "agent-bridge.db"
+const DBFileName = "gofer.db"
 
 // ResolveDBPath returns the SQLite metadata db path. Resolution order (design §11):
 //  1. an explicit Storage.DBPath;
-//  2. <Storage.Root>/agent-bridge.db when Root is set;
-//  3. <config-dir>/agent-bridge.db otherwise.
+//  2. <Storage.Root>/gofer.db when Root is set;
+//  3. <config-dir>/gofer.db otherwise.
 //
 // It is a single global db (one file per bridge process), independent of the
 // per-project log result dirs.

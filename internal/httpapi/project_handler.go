@@ -11,7 +11,7 @@ import (
 func (s *Server) handleHealth(c *rux.Context) {
 	c.JSON(http.StatusOK, rux.M{
 		"ok":          true,
-		"service":     "agent-bridge",
+		"service":     "gofer",
 		"server_time": time.Now().UnixMilli(),
 	})
 }

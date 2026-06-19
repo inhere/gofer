@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"dev-agent-bridge/internal/config"
+	"github.com/inhere/gofer/internal/config"
 )
 
 // SafeJoin resolves a request-supplied relative cwd against a project's

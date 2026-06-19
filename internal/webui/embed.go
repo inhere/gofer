@@ -1,4 +1,4 @@
-// Package webui embeds the dev-agent-bridge web console static assets into the
+// Package webui embeds the gofer web console static assets into the
 // binary so `serve` can mount the SPA without any external files.
 //
 // A bare `go build` (without first running `make web`) still compiles because

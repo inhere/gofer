@@ -112,7 +112,7 @@ func TestListJobsFilters(t *testing.T) {
 // (empty in-memory map) must still list the historical jobs from the DB.
 func TestListJobsRestartRecoversFromIndex(t *testing.T) {
 	root := t.TempDir()
-	dbPath := filepath.Join(root, "agent-bridge.db")
+	dbPath := filepath.Join(root, "gofer.db")
 	serviceA := newTestServiceWithDB(t, root, dbPath)
 
 	a1 := submitAndWait(t, serviceA, JobRequest{

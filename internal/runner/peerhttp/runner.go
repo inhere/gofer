@@ -1,5 +1,5 @@
 // Package peerhttp implements a remote runner that forwards a job to a peer
-// agent-bridge over HTTP (plan §11.1, P7).
+// gofer over HTTP (plan §11.1, P7).
 //
 // Model: the host bridge does NOT resolve the agent/command/cwd locally for a
 // peer-http job. It re-submits the ORIGINAL request (carried in
@@ -25,9 +25,9 @@ import (
 	"errors"
 	"io"
 
-	"dev-agent-bridge/internal/client"
-	"dev-agent-bridge/internal/job"
-	"dev-agent-bridge/internal/runner"
+	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/runner"
 )
 
 // defaultPeerRunner is the runner the peer uses to actually execute the job.

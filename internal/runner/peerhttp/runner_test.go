@@ -7,16 +7,16 @@ import (
 	"testing"
 	"time"
 
-	"dev-agent-bridge/internal/agent"
-	"dev-agent-bridge/internal/config"
-	"dev-agent-bridge/internal/httpapi"
-	"dev-agent-bridge/internal/job"
-	"dev-agent-bridge/internal/jobstore"
-	"dev-agent-bridge/internal/project"
-	"dev-agent-bridge/internal/runner"
-	localrunner "dev-agent-bridge/internal/runner/local"
-	"dev-agent-bridge/internal/runner/peerhttp"
-	"dev-agent-bridge/internal/store"
+	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/httpapi"
+	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/project"
+	"github.com/inhere/gofer/internal/runner"
+	localrunner "github.com/inhere/gofer/internal/runner/local"
+	"github.com/inhere/gofer/internal/runner/peerhttp"
+	"github.com/inhere/gofer/internal/store"
 )
 
 // bridge bundles a wired job.Service + httpapi.Server for one node (host/peer).
@@ -29,7 +29,7 @@ type bridge struct {
 // wiring a job.Service in the peer/host bridge fixtures.
 func openTestStore(t *testing.T, root string) *jobstore.Store {
 	t.Helper()
-	st, err := jobstore.Open(filepath.Join(root, "agent-bridge.db"))
+	st, err := jobstore.Open(filepath.Join(root, "gofer.db"))
 	if err != nil {
 		t.Fatalf("open jobstore: %v", err)
 	}

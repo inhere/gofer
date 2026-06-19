@@ -14,7 +14,7 @@ import (
 // for in-memory databases (design §14: tests use a temp db file).
 func openTest(t *testing.T) *Store {
 	t.Helper()
-	s, err := Open(filepath.Join(t.TempDir(), "agent-bridge.db"))
+	s, err := Open(filepath.Join(t.TempDir(), "gofer.db"))
 	assert.NoErr(t, err)
 	assert.NotNil(t, s)
 	t.Cleanup(func() { _ = s.Close() })
@@ -37,7 +37,7 @@ func sampleJob(id, project string, startedAt int64) JobRecord {
 }
 
 func TestOpenCreatesSchemaIdempotently(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "agent-bridge.db")
+	path := filepath.Join(t.TempDir(), "gofer.db")
 	s, err := Open(path)
 	assert.NoErr(t, err)
 	assert.NoErr(t, s.Close())

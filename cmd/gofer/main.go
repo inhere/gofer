@@ -3,8 +3,8 @@ package main
 import (
 	"os"
 
-	"dev-agent-bridge/internal/commands"
-	"dev-agent-bridge/internal/config"
+	"github.com/inhere/gofer/internal/commands"
+	"github.com/inhere/gofer/internal/config"
 )
 
 // Build metadata, injected by Makefile LDFLAGS (-X main.Version etc.).
@@ -16,7 +16,7 @@ var (
 
 func main() {
 	// Load dotenv files (<config-dir>/.env then ./.env) before anything reads the
-	// environment, so AGENT_BRIDGE_CONFIG/AGENT_BRIDGE_TOKEN etc. can come from a
+	// environment, so GOFER_CONFIG/GOFER_TOKEN etc. can come from a
 	// file. Exported OS env still wins; a malformed .env is non-fatal.
 	_, _ = config.LoadDotenv()
 

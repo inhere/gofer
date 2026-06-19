@@ -9,7 +9,7 @@ func TestNewApp(t *testing.T) {
 	if app == nil {
 		t.Fatal("NewApp returned nil")
 	}
-	if app.Name != "agent-bridge" {
+	if app.Name != "gofer" {
 		t.Fatalf("unexpected app name: %q", app.Name)
 	}
 

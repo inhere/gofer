@@ -5,13 +5,13 @@ import (
 	"path/filepath"
 	"testing"
 
-	"dev-agent-bridge/internal/config"
+	"github.com/inhere/gofer/internal/config"
 )
 
 func TestSafeJoin(t *testing.T) {
 	host := t.TempDir()
 	// create a nested subdir that exists for the positive case
-	sub := filepath.Join(host, "tools", "dev-agent-bridge")
+	sub := filepath.Join(host, "tools", "gofer")
 	if err := os.MkdirAll(sub, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -25,7 +25,7 @@ func TestSafeJoin(t *testing.T) {
 	}{
 		{"dot", ".", false, host},
 		{"empty", "", false, host},
-		{"nested subdir", "tools/dev-agent-bridge", false, sub},
+		{"nested subdir", "tools/gofer", false, sub},
 		{"parent escape", "..", true, ""},
 		{"parent other escape", "../other", true, ""},
 		{"windows drive", "D:\\x", true, ""},
@@ -58,18 +58,18 @@ func TestResultBaseDirBranches(t *testing.T) {
 	proj := config.ProjectConfig{
 		HostPath:       host,
 		ExchangeSubdir: "tmp",
-		ResultSubdir:   "dev-agent-bridge",
+		ResultSubdir:   "gofer",
 	}
 
-	// Branch 1: storage.root unset -> <host>/tmp/dev-agent-bridge
+	// Branch 1: storage.root unset -> <host>/tmp/gofer
 	cfg := &config.Config{}
 	cfg.Storage.DefaultExchangeSubdir = "tmp"
-	cfg.Storage.DefaultResultSubdir = "dev-agent-bridge"
+	cfg.Storage.DefaultResultSubdir = "gofer"
 	base, err := ResultBaseDir(cfg, "proj1", proj)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wantHost := filepath.Join(host, "tmp", "dev-agent-bridge")
+	wantHost := filepath.Join(host, "tmp", "gofer")
 	if base != wantHost {
 		t.Errorf("no-root base = %q, want %q", base, wantHost)
 	}
@@ -101,7 +101,7 @@ func TestExchangeDirDefaults(t *testing.T) {
 	proj := config.ProjectConfig{HostPath: host} // no exchange_subdir set
 	cfg := &config.Config{}
 	cfg.Storage.DefaultExchangeSubdir = "tmp"
-	cfg.Storage.DefaultResultSubdir = "dev-agent-bridge"
+	cfg.Storage.DefaultResultSubdir = "gofer"
 
 	ex, err := ExchangeDir(cfg, proj)
 	if err != nil {
@@ -164,7 +164,7 @@ func TestRegistryValidate(t *testing.T) {
 			"ok": {
 				HostPath:       host,
 				ExchangeSubdir: "tmp",
-				ResultSubdir:   "dev-agent-bridge",
+				ResultSubdir:   "gofer",
 				DefaultAgent:   "exec",
 				AllowedAgents:  []string{"exec"},
 				AllowedRunners: []string{"local"},

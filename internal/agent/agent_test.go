@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"dev-agent-bridge/internal/config"
+	"github.com/inhere/gofer/internal/config"
 )
 
 // testConfig builds a config with codex (cli-agent) and an explicit exec entry.

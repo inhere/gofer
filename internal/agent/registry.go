@@ -7,7 +7,7 @@ package agent
 import (
 	"sort"
 
-	"dev-agent-bridge/internal/config"
+	"github.com/inhere/gofer/internal/config"
 )
 
 // Agent type identifiers (AgentConfig.Type).

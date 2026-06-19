@@ -1,5 +1,5 @@
 /dist/
-/agent-bridge
+/gofer
 /dab
 *.exe
 *.log

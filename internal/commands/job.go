@@ -7,9 +7,9 @@ import (
 
 	"github.com/gookit/gcli/v3"
 
-	"dev-agent-bridge/internal/client"
-	"dev-agent-bridge/internal/config"
-	"dev-agent-bridge/internal/job"
+	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/job"
 )
 
 // jobRunOpts holds `job run` flags. prompt is supplied via the --prompt flag

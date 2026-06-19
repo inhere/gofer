@@ -6,8 +6,8 @@ import (
 
 	"github.com/gookit/gcli/v3"
 
-	"dev-agent-bridge/internal/agent"
-	"dev-agent-bridge/internal/config"
+	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/config"
 )
 
 // agentOpts holds the --config flag shared by agent list/detect/show.

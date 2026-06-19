@@ -7,8 +7,8 @@ import (
 
 	"github.com/gookit/gcli/v3"
 
-	"dev-agent-bridge/internal/config"
-	"dev-agent-bridge/internal/project"
+	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/project"
 )
 
 // projectAddOpts holds `project add` flags.
@@ -65,7 +65,7 @@ func NewProjectCmd() *gcli.Command {
 					c.StrOpt(&projectAddOpts.hostPath, "host-path", "", "", "absolute host path of the project (required)")
 					c.StrOpt(&projectAddOpts.containerPath, "container-path", "", "", "container mount path of the project")
 					c.StrOpt(&projectAddOpts.exchangeSubdir, "exchange-subdir", "", "tmp", "data exchange subdir under the project")
-					c.StrOpt(&projectAddOpts.resultSubdir, "result-subdir", "", "dev-agent-bridge", "result subdir under the exchange subdir")
+					c.StrOpt(&projectAddOpts.resultSubdir, "result-subdir", "", "gofer", "result subdir under the exchange subdir")
 					c.StrOpt(&projectAddOpts.defaultAgent, "default-agent", "", "", "default agent for this project")
 					c.VarOpt(&projectAddOpts.allowAgents, "allow-agent", "", "allowed agent (repeatable)")
 					c.VarOpt(&projectAddOpts.allowRunners, "allow-runner", "", "allowed runner (repeatable)")

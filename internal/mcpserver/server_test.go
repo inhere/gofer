@@ -9,13 +9,13 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"dev-agent-bridge/internal/agent"
-	"dev-agent-bridge/internal/config"
-	"dev-agent-bridge/internal/job"
-	"dev-agent-bridge/internal/jobstore"
-	"dev-agent-bridge/internal/project"
-	"dev-agent-bridge/internal/runner"
-	localrunner "dev-agent-bridge/internal/runner/local"
+	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/project"
+	"github.com/inhere/gofer/internal/runner"
+	localrunner "github.com/inhere/gofer/internal/runner/local"
 )
 
 // testCore builds the registries + job.Service over a temp result root with a
@@ -38,7 +38,7 @@ func testCore(t *testing.T) (*job.Service, *project.Registry, *agent.Registry) {
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	meta, err := jobstore.Open(filepath.Join(root, "agent-bridge.db"))
+	meta, err := jobstore.Open(filepath.Join(root, "gofer.db"))
 	if err != nil {
 		t.Fatalf("open jobstore: %v", err)
 	}
