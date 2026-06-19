@@ -120,6 +120,15 @@ func (wc *workerConn) release(jobID string) {
 	wc.mu.Unlock()
 }
 
+// inflightCount returns the number of in-flight server-side jobs on this
+// connection (C6 observability — read under the per-conn lock for a consistent
+// count without exposing the map).
+func (wc *workerConn) inflightCount() int {
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
+	return len(wc.inflight)
+}
+
 // inflightJobs returns a snapshot of the in-flight job ids (for the worker-lost
 // broadcast on disconnect, §5.3).
 func (wc *workerConn) inflightJobs() []string {
@@ -220,4 +229,37 @@ func (r *WorkerRegistry) LastHeartbeat(workerID string) int64 {
 		return 0
 	}
 	return wc.lastHeartbeat.Load()
+}
+
+// WorkerSnapshot is a read-only view of one worker's live state, taken under the
+// registry lock. It seeds the C6/P4 /v1/runners observability surface without
+// leaking the internal workerConn. Labels is a defensive copy; an offline worker
+// has no snapshot (WorkerSnapshot returns ok=false).
+type WorkerSnapshot struct {
+	WorkerID      string
+	LastHeartbeat int64 // unix seconds of the most recent inbound frame
+	InFlight      int   // count of server-side dispatched jobs currently running
+	Labels        []string
+}
+
+// WorkerSnapshot returns a point-in-time read-only view of workerID's live
+// connection (ok=false when offline / never connected). It is the registry's C6
+// observability accessor: the handler reads it through a narrow interface so it
+// never touches the internal conn. Reads under the registry RLock; the in-flight
+// count is taken under the per-conn lock so it is a consistent snapshot.
+func (r *WorkerRegistry) WorkerSnapshot(workerID string) (WorkerSnapshot, bool) {
+	r.mu.RLock()
+	wc, ok := r.conns[workerID]
+	r.mu.RUnlock()
+	if !ok {
+		return WorkerSnapshot{}, false
+	}
+	labels := make([]string, len(wc.meta.Labels))
+	copy(labels, wc.meta.Labels)
+	return WorkerSnapshot{
+		WorkerID:      wc.workerID,
+		LastHeartbeat: wc.lastHeartbeat.Load(),
+		InFlight:      wc.inflightCount(),
+		Labels:        labels,
+	}, true
 }

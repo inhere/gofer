@@ -314,6 +314,46 @@ func TestMultiWorkerRouting(t *testing.T) {
 	}
 }
 
+// TestWorkerSnapshotExposed (C6/P4): the registry exposes a read-only snapshot
+// of a worker's live state — last_heartbeat / in-flight count / labels — and
+// reports ok=false for an offline / never-seen worker. The in-flight count
+// reflects reservations and the labels are a defensive copy of the register meta.
+func TestWorkerSnapshotExposed(t *testing.T) {
+	r := newRegistry()
+
+	// Offline worker → no snapshot.
+	if _, ok := r.WorkerSnapshot("w1"); ok {
+		t.Fatal("offline worker should have no snapshot")
+	}
+
+	wc := newWorkerConn("w1", "w1", nil, wsproto.Register{
+		WorkerID:      "w1",
+		Labels:        []string{"gpu", "linux"},
+		MaxConcurrent: 4,
+	})
+	wc.lastHeartbeat.Store(1750300000)
+	wc.tryReserve("j1")
+	wc.tryReserve("j2")
+	r.Put(wc)
+
+	snap, ok := r.WorkerSnapshot("w1")
+	if !ok {
+		t.Fatal("online worker should have a snapshot")
+	}
+	if snap.WorkerID != "w1" || snap.LastHeartbeat != 1750300000 || snap.InFlight != 2 {
+		t.Fatalf("snapshot fields wrong: %+v", snap)
+	}
+	if len(snap.Labels) != 2 || snap.Labels[0] != "gpu" {
+		t.Fatalf("snapshot labels wrong: %+v", snap.Labels)
+	}
+	// Labels must be a defensive copy: mutating the returned slice must not affect
+	// the conn's register meta.
+	snap.Labels[0] = "MUTATED"
+	if wc.meta.Labels[0] != "gpu" {
+		t.Fatal("WorkerSnapshot leaked the register labels slice (not a copy)")
+	}
+}
+
 // TestLastHeartbeatExposed verifies the registry exposes last_heartbeat for C6/P4.
 func TestLastHeartbeatExposed(t *testing.T) {
 	hub := shortHeartbeat(map[string]string{"w1": "w1"}, 50*time.Millisecond, 200*time.Millisecond)
