@@ -13,7 +13,7 @@
 | 阶段 | 内容 | 价值 | 依赖 |
 |---|---|---|---|
 | **Phase A** | C2 + C5：提交链路加固（调用方身份 + 提交幂等）—— 二者都改 `JobRequest/JobResult/JobRecord` + jobs 表，合并一次 schema 迁移 | 审计/多租户隔离 + 重投去重 | C1 |
-| **Phase B** | C3：配置热加载（SIGHUP → 重新 Load + 原子替换注册表 cfg） | 加项目/agent 不重启 | 无 |
+| **Phase B** ✅ | C3：配置热加载（SIGHUP → 重新 Load + 原子替换注册表 cfg） | 加项目/agent 不重启 | 无 |
 | **Phase C** | C4：日志流控（SSE 帧 cap + 节流 + 日志轮转 + 前端 buffer 上限） | 超大/高频输出 job 不撑爆内存/帧 | 无 |
 
 **建议顺序**：A → B → C（A 价值最高且最小；B/C 独立可并行/按需）。每阶段绿灯即提交（SR1202）。
@@ -201,6 +201,15 @@ go func() {
 - 验收：`-race` 全绿；reload 失败时保留旧配置（构造坏配置验证不崩、不替换）。
 
 > 注：`project add` CLI 改的是文件；运行实例仍需 SIGHUP 才感知（或后续做 `add` 后自动通知，本期不做）。
+> 注（runner 限制）：reload 仅原子替换 cfg 指针（registries + `job.Service` + `Core.Cfg`）。`Core.Runners` 的 runner **实例**在 `buildCore` 一次性构建、reload **不重建**——故新增 runner 类型（如新 peer-http 条目）仍需重启实例化；reload 覆盖项目/agent 增删与一切 cfg 派生校验（allowlist / exec gate / peer 分类 / 结果目录 / retention）。已在 `assemble.go:Core.Reload` 与 `job.Service.Reload` 注释中说明。
+
+**Phase B（C3）实施结果（2026-06-18，本期完成）**
+
+- `project.Registry` / `agent.Registry` / `job.Service` 的 cfg 字段改 `atomic.Pointer[config.Config]`；读路径 `cfg.Load()` 单次快照，新增 `Reload(newCfg)` 原子写。
+- `job.Service.Submit` 入口 `cfg := s.config()` 单次快照，贯穿 `isPeerRunner` / `validate` / `ResultBaseDir`（避免单次 Submit 看到两份 cfg）；`validate` 改从快照取 project / agent（新增 `agent.ResolveAgent(cfg, key)`）；`ListJobs` / `Prune` 各自入口快照。
+- `commands.Core.Reload(path)`：重新 `config.Load` → 各 registry + Service `Reload`；**失败安全**——新配置 Load/校验失败则保留旧配置、返回 error、不部分应用。
+- `serve.go` `startReloadLoop`：`signal.Notify(SIGHUP)` goroutine，收到则 `core.Reload`，成功日志 `gofer: config reloaded`、失败 `gofer: reload failed, keep old config: %v`；`stop` 关闭时 `signal.Stop` + 退出，无 goroutine 泄漏（仿 `startPruneLoop`）。
+- 验收（§5.4）全过：registry/service `Reload` 增删生效、在飞 job 不受影响、`Core.Reload` 坏配置保留旧配置；`go test ./... -count=1` 与 `-race` 全绿（含并发 Get‖Reload、Submit‖Reload 用例）。
 
 ---
 

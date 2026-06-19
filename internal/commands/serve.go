@@ -2,6 +2,8 @@ package commands
 
 import (
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/gookit/gcli/v3"
@@ -88,6 +90,13 @@ func runServe(c *gcli.Command, _ []string) error {
 	defer close(stopPrune)
 	startPruneLoop(c, core.Jobs, cfg.Storage.Retention, stopPrune)
 
+	// Config hot-reload (C3): SIGHUP re-loads the config from the serve path and
+	// atomically swaps it into the registries + job service (no restart, no
+	// effect on in-flight jobs). The goroutine stops cleanly when serve returns.
+	stopReload := make(chan struct{})
+	defer close(stopReload)
+	startReloadLoop(c, core, serveOpts.config, stopReload)
+
 	srv := httpapi.New(&cfg.Server, token, allowEmpty, core.Jobs, core.Projects, core.Agents)
 
 	if token == "" {
@@ -133,6 +142,34 @@ func startPruneLoop(c *gcli.Command, jobs *job.Service, ret config.RetentionConf
 				return
 			case <-ticker.C:
 				prune()
+			}
+		}
+	}()
+}
+
+// startReloadLoop launches the SIGHUP config hot-reload goroutine (C3). On each
+// SIGHUP it calls core.Reload(path) to re-load the config and atomically swap it
+// into the registries + job service. A reload that fails to load/validate keeps
+// the previous config (Core.Reload swaps nothing on error) and only logs.
+//
+// The goroutine shuts down cleanly when stop is closed (serve shutdown): it
+// stops signal delivery (signal.Stop) so no further SIGHUP is queued, then
+// returns. No goroutine leak. Mirrors startPruneLoop's shutdown style.
+func startReloadLoop(c *gcli.Command, core *Core, path string, stop <-chan struct{}) {
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGHUP)
+	go func() {
+		defer signal.Stop(sig)
+		for {
+			select {
+			case <-stop:
+				return
+			case <-sig:
+				if err := core.Reload(path); err != nil {
+					c.Errorf("gofer: reload failed, keep old config: %v\n", err)
+				} else {
+					c.Printf("gofer: config reloaded\n")
+				}
 			}
 		}
 	}()

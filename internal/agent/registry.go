@@ -6,6 +6,7 @@ package agent
 
 import (
 	"sort"
+	"sync/atomic"
 
 	"github.com/inhere/gofer/internal/config"
 )
@@ -32,21 +33,40 @@ func builtinExecAgent() config.AgentConfig {
 
 // Registry exposes the agents declared in a loaded config plus the built-in
 // exec agent. It is read-only over *config.Config.
+//
+// The config is held behind an atomic.Pointer so SIGHUP-driven hot-reload (C3)
+// can atomically swap it without locking the read paths. Each read takes one
+// snapshot (cfg.Load()) so a concurrent Reload cannot tear a single call.
 type Registry struct {
-	cfg *config.Config
+	cfg atomic.Pointer[config.Config]
 }
 
 // NewRegistry builds an agent registry over cfg.
 func NewRegistry(cfg *config.Config) *Registry {
-	return &Registry{cfg: cfg}
+	r := &Registry{}
+	r.cfg.Store(cfg)
+	return r
 }
+
+// Reload atomically swaps the registry's config to newCfg (C3 hot-reload). It
+// is safe to call concurrently with any read path.
+func (r *Registry) Reload(newCfg *config.Config) { r.cfg.Store(newCfg) }
 
 // Get returns the agent config for key. The built-in "exec" agent resolves even
 // when the config does not declare it. The second return is false for an
 // unknown key.
 func (r *Registry) Get(key string) (config.AgentConfig, bool) {
-	if r.cfg != nil {
-		if a, ok := r.cfg.Agents[key]; ok {
+	return ResolveAgent(r.cfg.Load(), key)
+}
+
+// ResolveAgent resolves an agent config for key against a config snapshot, with
+// the same built-in "exec" semantics as Registry.Get. It lets callers that
+// already hold a config snapshot (e.g. job.Service.validate) resolve an agent
+// from that exact snapshot rather than the registry's (possibly concurrently
+// reloaded) pointer.
+func ResolveAgent(cfg *config.Config, key string) (config.AgentConfig, bool) {
+	if cfg != nil {
+		if a, ok := cfg.Agents[key]; ok {
 			// An explicit exec entry is honoured but normalised to Type=exec so a
 			// bare `exec:` block (no type) still behaves as the built-in.
 			if key == ExecAgentKey && a.Type == "" {
@@ -65,8 +85,8 @@ func (r *Registry) Get(key string) (config.AgentConfig, bool) {
 // for stable output. The built-in exec is included even if not declared.
 func (r *Registry) Names() []string {
 	seen := map[string]bool{}
-	if r.cfg != nil {
-		for k := range r.cfg.Agents {
+	if cfg := r.cfg.Load(); cfg != nil {
+		for k := range cfg.Agents {
 			seen[k] = true
 		}
 	}
