@@ -116,10 +116,18 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		return runner.Result{ExitCode: -1, Err: err}
 	}
 
-	// (c)(d) wait for the worker's authoritative terminal result, or ctx end.
+	// (c)(d) wait for the worker's authoritative terminal result, a worker-lost
+	// disconnect (§5.3) or ctx end.
 	select {
 	case res := <-sink.resultCh:
 		return runner.Result{ExitCode: res.ExitCode, Err: errFromResult(res)}
+	case err := <-sink.lostCh:
+		// WP3 worker-lost (§5.3): the hub dropped the worker connection while this
+		// job was in flight. Return a non-nil Err with NO ctx deadline/cancel, so
+		// classify (service.go) maps it to StatusFailed and the "worker disconnected"
+		// text flows verbatim into jobs.error. No cancel frame is sent — the worker
+		// is gone. The deferred DeregisterSink frees the sink.
+		return runner.Result{ExitCode: -1, Err: err}
 	case <-ctx.Done():
 		// P2: a host cancel/timeout forwards a cancel frame to the worker (best-effort,
 		// same as peerhttp's r.c.CancelJob) so its local job tears down its child
@@ -165,6 +173,7 @@ func errFromResult(res wsproto.Result) error {
 type boundedSink struct {
 	stdout, stderr io.Writer
 	resultCh       chan wsproto.Result // buffered 1: first result wins
+	lostCh         chan error          // buffered 1: worker-lost wakes Run (§5.3)
 	bridge         *interactionBridge  // P2 interaction passthrough (nil-safe)
 
 	mu        sync.Mutex
@@ -172,7 +181,12 @@ type boundedSink struct {
 }
 
 func newBoundedSink(stdout, stderr io.Writer) *boundedSink {
-	return &boundedSink{stdout: stdout, stderr: stderr, resultCh: make(chan wsproto.Result, 1)}
+	return &boundedSink{
+		stdout:   stdout,
+		stderr:   stderr,
+		resultCh: make(chan wsproto.Result, 1),
+		lostCh:   make(chan error, 1),
+	}
 }
 
 // WriteLog implements wshub.JobSink: it writes text to the matching stream
@@ -218,6 +232,18 @@ func (s *boundedSink) OnInteraction(action string, interaction json.RawMessage) 
 func (s *boundedSink) Finish(res wsproto.Result) {
 	select {
 	case s.resultCh <- res:
+	default:
+	}
+}
+
+// OnDisconnect implements wshub.JobSink: it wakes the Run wait with a worker-lost
+// error (§5.3), non-blocking. If a real result already landed (resultCh full or
+// drained), Run will have selected the result first — the buffered lostCh value
+// is then simply never read (the deferred DeregisterSink GC's the sink), so a
+// disconnect arriving after a completed job never overrides its true outcome.
+func (s *boundedSink) OnDisconnect(err error) {
+	select {
+	case s.lostCh <- err:
 	default:
 	}
 }

@@ -21,11 +21,14 @@ import (
 // goroutine, the test reads from another).
 type fakeSink struct {
 	mu       sync.Mutex
-	events   []string // "log:<text>" / "finish:<status>" in arrival order
+	events   []string // "log:<text>" / "finish:<status>" / "disconnect:<err>" in arrival order
 	finished chan wsproto.Result
+	lost     chan error
 }
 
-func newFakeSink() *fakeSink { return &fakeSink{finished: make(chan wsproto.Result, 1)} }
+func newFakeSink() *fakeSink {
+	return &fakeSink{finished: make(chan wsproto.Result, 1), lost: make(chan error, 1)}
+}
 
 func (s *fakeSink) WriteLog(_ string, _ int, text string) {
 	s.mu.Lock()
@@ -45,6 +48,16 @@ func (s *fakeSink) Finish(res wsproto.Result) {
 	s.mu.Unlock()
 	select {
 	case s.finished <- res:
+	default:
+	}
+}
+
+func (s *fakeSink) OnDisconnect(err error) {
+	s.mu.Lock()
+	s.events = append(s.events, "disconnect:"+err.Error())
+	s.mu.Unlock()
+	select {
+	case s.lost <- err:
 	default:
 	}
 }
