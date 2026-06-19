@@ -12,6 +12,8 @@ import (
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
 	peerhttprunner "github.com/inhere/gofer/internal/runner/peerhttp"
+	workerrunner "github.com/inhere/gofer/internal/runner/worker"
+	"github.com/inhere/gofer/internal/wshub"
 )
 
 // Core bundles the runtime objects assembled from a loaded config: the
@@ -26,6 +28,9 @@ type Core struct {
 	Runners  map[string]runner.Runner
 	Store    *jobstore.Store
 	Jobs     *job.Service
+	// Hub is the ws-worker hub singleton (serve mounts it on /v1/workers/connect;
+	// every type=worker runner references this one instance). Always non-nil.
+	Hub *wshub.Hub
 }
 
 // Close releases the Core's owned resources — currently the SQLite metadata
@@ -47,13 +52,22 @@ func buildCore(cfg *config.Config) (*Core, error) {
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
+
+	// Build the ws-worker hub singleton ONCE (unlike peer-http, every worker
+	// runner references the same hub instance). Its token→worker bindings come
+	// from cfg.Server.Workers (review #1: worker_id is its own caller id).
+	hub := wshub.New(workerBindings(cfg))
+
 	for name, rc := range cfg.Runners {
-		if rc.Type == "peer-http" {
+		switch rc.Type {
+		case "peer-http":
 			token := ""
 			if rc.TokenEnv != "" {
 				token = os.Getenv(rc.TokenEnv)
 			}
 			runners[name] = peerhttprunner.New(name, rc.BaseURL, token)
+		case "worker":
+			runners[name] = workerrunner.New(name, rc.WorkerID, hub)
 		}
 	}
 	store, err := jobstore.Open(cfg.ResolveDBPath())
@@ -61,7 +75,22 @@ func buildCore(cfg *config.Config) (*Core, error) {
 		return nil, fmt.Errorf("open metadata store: %w", err)
 	}
 	jobs := job.NewService(cfg, projects, agents, runners, store)
-	return &Core{Cfg: cfg, Projects: projects, Agents: agents, Runners: runners, Store: store, Jobs: jobs}, nil
+	return &Core{Cfg: cfg, Projects: projects, Agents: agents, Runners: runners, Store: store, Jobs: jobs, Hub: hub}, nil
+}
+
+// workerBindings builds the hub's worker_id → caller-id binding map from
+// cfg.Server.Workers. The worker's own id IS its caller id (review #1): the
+// presented token must resolve (via the server's caller table) to the same
+// worker_id. A nil/empty map means no worker may register.
+func workerBindings(cfg *config.Config) map[string]string {
+	if len(cfg.Server.Workers) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(cfg.Server.Workers))
+	for workerID := range cfg.Server.Workers {
+		out[workerID] = workerID
+	}
+	return out
 }
 
 // Reload re-loads the config from path and atomically swaps it into every

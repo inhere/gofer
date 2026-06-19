@@ -61,7 +61,7 @@ func newTestServerCfg(t *testing.T, sc config.ServerConfig) *Server {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	jobs := job.NewService(cfg, projects, agents, runners, st)
-	return New(&cfg.Server, sc.Token, sc.AllowEmptyToken, jobs, projects, agents)
+	return New(&cfg.Server, sc.Token, sc.AllowEmptyToken, jobs, projects, agents, nil)
 }
 
 // createJob posts a job with the given bearer token and returns the decoded

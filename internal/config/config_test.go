@@ -198,7 +198,7 @@ func TestSaveCreatesFileAndDirs(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "nested", "deep", "config.yaml")
 	cfg := &Config{}
-	applyDefaults(cfg)
+	ApplyDefaults(cfg)
 	cfg.Projects["x"] = ProjectConfig{HostPath: "/x"}
 	if err := Save(p, cfg); err != nil {
 		t.Fatalf("Save: %v", err)

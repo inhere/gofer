@@ -37,7 +37,7 @@ func newWebServer(t *testing.T, webEnabled bool) *Server {
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
 	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root))
-	return New(&cfg.Server, testToken, false, jobs, projects, agents)
+	return New(&cfg.Server, testToken, false, jobs, projects, agents, nil)
 }
 
 // TestWebConsoleMountedByDefault verifies the default server (WebEnabled nil =>

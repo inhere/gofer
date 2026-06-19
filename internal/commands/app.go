@@ -3,7 +3,7 @@ package commands
 import "github.com/gookit/gcli/v3"
 
 // NewApp assembles the gofer gcli application and registers all
-// top-level commands (serve/project/agent/job/mcp).
+// top-level commands (serve/project/agent/job/mcp/worker).
 func NewApp(version string) *gcli.App {
 	app := gcli.NewApp()
 	app.Name = "gofer"
@@ -17,6 +17,7 @@ func NewApp(version string) *gcli.App {
 	app.Add(NewAgentCmd())
 	app.Add(NewJobCmd())
 	app.Add(NewMcpCmd())
+	app.Add(NewWorkerCmd())
 
 	return app
 }
