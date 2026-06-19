@@ -97,7 +97,7 @@ func runServe(c *gcli.Command, _ []string) error {
 	defer close(stopReload)
 	startReloadLoop(c, core, serveOpts.config, stopReload)
 
-	srv := httpapi.New(&cfg.Server, token, allowEmpty, core.Jobs, core.Projects, core.Agents)
+	srv := httpapi.New(&cfg.Server, token, allowEmpty, core.Jobs, core.Projects, core.Agents, core.Hub)
 
 	if token == "" {
 		c.Printf("gofer: starting WITHOUT auth (allow_empty_token) on %s\n", addr)

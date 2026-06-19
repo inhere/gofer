@@ -22,6 +22,7 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/webui"
+	"github.com/inhere/gofer/internal/wshub"
 )
 
 // ctxCallerID is the rux context key under which authMiddleware stores the
@@ -71,6 +72,10 @@ type Server struct {
 	// webEnabled mounts the embedded web console (static SPA) as the NotFound
 	// fallback for GET requests. Resolved from serverCfg.IsWebEnabled() in New.
 	webEnabled bool
+
+	// hub is the ws-worker hub singleton; when non-nil the /v1/workers/connect WS
+	// route is mounted (ws-worker). It is nil for callers that do not run the hub.
+	hub *wshub.Hub
 }
 
 // New builds a Server: it resolves the effective token, wires the rux router
@@ -79,7 +84,7 @@ type Server struct {
 // token is the already-resolved effective token (serve resolves config.token /
 // token_env / --token before calling New). allowEmptyToken mirrors the
 // config/flag of the same name.
-func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, jobs *job.Service, projects *project.Registry, agents *agent.Registry) *Server {
+func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, jobs *job.Service, projects *project.Registry, agents *agent.Registry, hub *wshub.Hub) *Server {
 	s := &Server{
 		cfg:             serverCfg,
 		jobs:            jobs,
@@ -89,6 +94,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		allowEmptyToken: allowEmptyToken,
 		callers:         buildCallers(serverCfg, token),
 		webEnabled:      serverCfg.IsWebEnabled(),
+		hub:             hub,
 	}
 	s.router = s.buildRouter()
 	return s
@@ -112,6 +118,20 @@ func buildCallers(serverCfg *config.ServerConfig, token string) []callerEntry {
 			}
 			out = append(out, callerEntry{id: cc.ID, token: tok})
 		}
+		// ws-worker (review #1): each registered worker authenticates with its own
+		// token; its caller id IS its worker_id, so lookupCaller returns worker_id
+		// and hub.Accept can bind it directly. Appended before the legacy token so
+		// a worker-specific token wins the id in the constant-time scan.
+		for workerID, wc := range serverCfg.Workers {
+			tok := wc.Token
+			if tok == "" && wc.TokenEnv != "" {
+				tok = os.Getenv(wc.TokenEnv)
+			}
+			if tok == "" {
+				continue
+			}
+			out = append(out, callerEntry{id: workerID, token: tok})
+		}
 	}
 	if token != "" {
 		out = append(out, callerEntry{id: "default", token: token})
@@ -127,6 +147,15 @@ func (s *Server) buildRouter() *rux.Router {
 	r := rux.New()
 
 	r.GET("/health", s.handleHealth)
+
+	// ws-worker WS endpoint. Registered OUTSIDE the /v1 authMiddleware group: a WS
+	// upgrade cannot use the JSON error envelope / web fallback — a rejected
+	// handshake must be a bare 401 (not a {error,detail} body). It does its own
+	// Bearer auth (reusing lookupCaller) then hands off to hub.Accept. Mounted only
+	// when the hub is wired (serve); nil for hub-less callers (some tests).
+	if s.hub != nil {
+		r.GET("/v1/workers/connect", s.handleWorkerConnect)
+	}
 
 	r.Group("/v1", func() {
 		r.GET("/projects", s.handleListProjects)
@@ -164,6 +193,26 @@ func (s *Server) buildRouter() *rux.Router {
 	}
 
 	return r
+}
+
+// handleWorkerConnect authenticates the WS upgrade with the same Bearer scheme
+// as /v1 but rejects with a BARE 401 (no JSON envelope, no web fallback) since a
+// failed handshake is a raw HTTP rejection, then hands the upgrade to hub.Accept
+// with the resolved caller id (= the token-bound worker_id). The
+// allow_empty_token mode does NOT waive worker auth: a worker with no resolvable
+// caller is rejected here, and even a matched empty caller is later rejected by
+// hub.Accept's binding check (per-worker token is mandatory, review #1).
+func (s *Server) handleWorkerConnect(c *rux.Context) {
+	got, ok := bearerToken(c.Req.Header.Get("Authorization"))
+	callerID, matched := "", false
+	if ok {
+		callerID, matched = s.lookupCaller(got)
+	}
+	if !matched {
+		c.Resp.WriteHeader(http.StatusUnauthorized) // bare 401, no body
+		return
+	}
+	s.hub.Accept(c.Resp, c.Req, callerID)
 }
 
 // Handler exposes the rux router as an http.Handler (rux.Router implements

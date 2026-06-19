@@ -46,7 +46,7 @@ func Load(explicitPath string) (*Config, string, error) {
 
 	cfg := &Config{}
 	if path == "" {
-		applyDefaults(cfg)
+		ApplyDefaults(cfg)
 		return cfg, "", nil
 	}
 
@@ -56,7 +56,7 @@ func Load(explicitPath string) (*Config, string, error) {
 		// config to be created (e.g. by `project add`): return a defaulted empty
 		// Config but keep the path so callers write back to it.
 		if os.IsNotExist(err) {
-			applyDefaults(cfg)
+			ApplyDefaults(cfg)
 			return cfg, path, nil
 		}
 		return nil, path, fmt.Errorf("read config %s: %w", path, err)
@@ -65,7 +65,7 @@ func Load(explicitPath string) (*Config, string, error) {
 		return nil, path, fmt.Errorf("decode config %s: %w", path, err)
 	}
 
-	applyDefaults(cfg)
+	ApplyDefaults(cfg)
 	if err := validate(cfg); err != nil {
 		return nil, path, fmt.Errorf("invalid config %s: %w", path, err)
 	}
@@ -156,8 +156,10 @@ func candidatePaths() []string {
 	return out
 }
 
-// applyDefaults fills storage defaults and initializes nil maps.
-func applyDefaults(cfg *Config) {
+// ApplyDefaults fills storage defaults and initializes nil maps. It is exported
+// so the ws-worker command can default a Config it builds from a WorkerConfig
+// (so the worker's local store/registries behave like a serve process).
+func ApplyDefaults(cfg *Config) {
 	if cfg.Server.Addr == "" {
 		cfg.Server.Addr = DefaultAddr
 	}
