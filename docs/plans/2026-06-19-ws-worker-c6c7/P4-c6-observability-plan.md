@@ -214,6 +214,8 @@ worker 段同理：P3 心跳超时把注册表标记 `disconnected` → `/v1/run
 
 未来 **WP4 Workers 仪表盘**（overview §9.2 扩展点②）将以 `GET /v1/runners` 为唯一数据源，展示 runner 列表 / 连接态 / 心跳 age / 在飞 job / 标签。**本阶段不做任何前端改动**——只保证端点形状稳定、可被前端直接消费（list-style + 毫秒时间戳 + 明确 status 枚举）。
 
+> 实施状态：`GET /v1/runners` 端点已交付（list-style、毫秒时间戳、status 枚举 up/down/connected/disconnected/unknown）；WP4 Workers 仪表盘前端将直接消费它，本阶段无前端代码。
+
 ## 10. 与主文档的一致性核对（实施前确认）
 
 - ✅ **范围一致**：主文档 §3 P4 行 = "worker 心跳态（依赖 P3）+ peer-http 主动探针（独立，可早于 P3 起手）"；本文 §2/§3 据此拆 A/B 两半。
@@ -235,10 +237,16 @@ worker 段同理：P3 心跳超时把注册表标记 `disconnected` → `/v1/run
 
 ### 12.1 验收标准（对应主文档 P4 Acceptance）
 
-- [ ] `GET /v1/runners` 列出全部已配置 runner（含隐含 `local`），type 正确；**需鉴权**（无/错 token → 401，与 `/v1/jobs` 同）。
-- [ ] **peer-http 行**：探针 2xx → `up`；kill 掉 peer → **≤ 一个探针间隔内**翻转为 `down`（§8.3）；`down` 行带 `probe.error`。
-- [ ] **worker 行**（P3 后）：在线 worker 显示 `connected` + heartbeat-age / in-flight / labels / worker_id；离线显示 `disconnected`；P3 前显示 `unknown`。
-- [ ] 探针循环**不阻塞**其它请求处理（探测在独立 goroutine，handler 只读缓存快照）；serve 关闭时探针 goroutine **干净退出，无泄漏**（`<-stop` 返回）。
+- [x] `GET /v1/runners` 列出全部已配置 runner（含隐含 `local`），type 正确；**需鉴权**（无/错 token → 401，与 `/v1/jobs` 同）。
+  - 实现：`internal/httpapi/runner_handler.go`（`handleListRunners`，local-first + name 排序），挂入 `buildRouter` 的 `/v1` `authMiddleware` 组。测试 `TestListRunnersRequiresAuth` / `TestListRunnersOnlyLocal` / `TestListRunnersLocalFirstAndStable`。
+- [x] **peer-http 行**：探针 2xx → `up`；kill 掉 peer → **≤ 一个探针间隔内**翻转为 `down`（§8.3）；`down` 行带 `probe.error`。
+  - 实现：`internal/commands/runner_probe.go`（`peerProber.probeOnce`/`probeTarget`，2xx=up 否则 down+error）。测试 `TestPeerProberUpToDown`（关闭 peer 后 re-probe 翻 down）/ `TestPeerProberNon2xxIsDown`；handler 侧 `TestListRunnersPeerHTTP`（up/down/unknown 三态）。
+- [x] **worker 行**：在线 worker 显示 `connected` + heartbeat-age / in-flight / labels / worker_id；离线显示 `disconnected`；注册表未接入显示 `unknown`。
+  - 实现：`hubWorkerRegistry` 适配器（`internal/commands/runner_probe.go`）读 `wshub.Hub.WorkerSnapshot`（秒→毫秒），handler `renderWorkerStatus`。测试 `TestListRunnersWorker`（在线/离线）/ `TestListRunnersWorkerNoRegistry`（nil → unknown）/ `TestWorkerSnapshotExposed`。
+- [x] 探针循环**不阻塞**其它请求处理（探测在独立 goroutine，handler 只读缓存快照）；serve 关闭时探针 goroutine **干净退出，无泄漏**（`<-stop` 返回）。
+  - 实现：`startProbeLoop`（`internal/commands/serve.go`，镜像 `startPruneLoop`：启动即探一次 + ticker + `<-stop` 退出 + stop 取消的 ctx）。测试 `TestStartProbeLoopShutsDownClean` / `TestStartProbeLoopNilNoop`；`-race` `TestPeerProberRace`（probeOnce 写 vs Snapshot 读并发）。
+
+> 实施结论：C6 已落地（4 次提交：wshub WorkerSnapshot / config runner_probe / httpapi /v1/runners / commands 探针循环）。`go build && go vet && gofmt && go test ./... -count=1` 全绿，`-race` 在 commands/wshub/httpapi 三包通过。WP4 前端仍未做（见 §9）。
 
 ### 12.2 测试矩阵
 
