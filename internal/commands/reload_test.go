@@ -96,3 +96,44 @@ func TestCoreReloadFailSafeKeepsOldConfig(t *testing.T) {
 		t.Fatal("Core.Cfg must still reference the old config after a failed reload")
 	}
 }
+
+// TestCoreReloadDeletedFileKeepsOldConfig verifies that a reload from an
+// explicit path that has been DELETED is treated as a failure: config.Load
+// would otherwise return a fresh empty config (no error) and silently wipe all
+// projects. The old config must survive intact (C3 fail-safe, deleted-file case).
+func TestCoreReloadDeletedFileKeepsOldConfig(t *testing.T) {
+	host := t.TempDir()
+	root := t.TempDir()
+	cfgPath := filepath.Join(t.TempDir(), "bridge.yaml")
+
+	writeConfig(t, cfgPath, &config.Config{
+		Storage:  config.StorageConfig{Root: root},
+		Projects: map[string]config.ProjectConfig{"alpha": {HostPath: host}},
+	})
+	cfg, _, err := config.Load(cfgPath)
+	if err != nil {
+		t.Fatalf("load: %v", err)
+	}
+	core, err := buildCore(cfg)
+	if err != nil {
+		t.Fatalf("buildCore: %v", err)
+	}
+	defer func() { _ = core.Close() }()
+
+	// Delete the config file, then reload from the same explicit path.
+	if err := os.Remove(cfgPath); err != nil {
+		t.Fatalf("remove config: %v", err)
+	}
+
+	if err := core.Reload(cfgPath); err == nil {
+		t.Fatal("reload of a deleted config file should return an error")
+	}
+
+	// Old projects must still be visible — no silent wipe to an empty config.
+	if _, err := core.Projects.Get("alpha"); err != nil {
+		t.Fatalf("alpha must survive a reload of a deleted file: %v", err)
+	}
+	if core.Cfg.Projects["alpha"].HostPath != host {
+		t.Fatal("Core.Cfg must still reference the old config after a deleted-file reload")
+	}
+}

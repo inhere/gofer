@@ -81,6 +81,16 @@ func buildCore(cfg *config.Config) (*Core, error) {
 // needs a restart to instantiate its runner. Reload covers adding/removing
 // projects and agents and any config-derived validation.
 func (c *Core) Reload(path string) error {
+	// Fail-safe for a deleted config file: config.Load returns a fresh EMPTY
+	// config (no error) when the file is missing — fine on first run, but on a
+	// reload that would silently wipe all projects/agents. When an explicit path
+	// was given and it no longer exists, treat the reload as a failure and keep
+	// the old config (path=="" is default-resolution mode and keeps prior behaviour).
+	if path != "" {
+		if _, err := os.Stat(path); err != nil {
+			return fmt.Errorf("reload config: %w", err)
+		}
+	}
 	newCfg, _, err := config.Load(path)
 	if err != nil {
 		return fmt.Errorf("reload config: %w", err)
