@@ -9,12 +9,22 @@ import (
 	"errors"
 	"os"
 	"os/exec"
+	"time"
 
 	"github.com/inhere/gofer/internal/runner"
 )
 
 // Name is the runner identifier ("local").
 const Name = "local"
+
+// stdioWaitDelay bounds how long cmd.Wait blocks on stdout/stderr copy after the
+// process exits. When Stdout/Stderr are not *os.File (e.g. the C4 rotation-aware
+// log writer), os/exec wires them through an OS pipe + copy goroutine; a killed
+// process whose orphaned grandchildren still hold the pipe's write end would
+// otherwise block Wait until they exit. WaitDelay forces Wait to return shortly
+// after the process exits, closing the pipe so the job reaches a terminal state
+// promptly (matches the previous *os.File fast-path behaviour for cancel/timeout).
+const stdioWaitDelay = 2 * time.Second
 
 // Runner runs commands as local child processes.
 type Runner struct{}
@@ -45,6 +55,9 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	cmd.Env = mergedEnv(req.Env)
 	cmd.Stdout = req.Stdout
 	cmd.Stderr = req.Stderr
+	// Bound the post-exit wait on pipe copy goroutines so an orphaned descendant
+	// holding the stdout/stderr pipe cannot wedge Wait (see stdioWaitDelay).
+	cmd.WaitDelay = stdioWaitDelay
 
 	err := cmd.Run()
 	if err == nil {
