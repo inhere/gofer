@@ -361,6 +361,14 @@ func (h *Hub) IsOnline(workerID string) bool {
 // frame for workerID (0 when offline). It seeds the C6/P4 /v1/runners surface.
 func (h *Hub) LastHeartbeat(workerID string) int64 { return h.reg.LastHeartbeat(workerID) }
 
+// WorkerSnapshot returns a read-only view of workerID's live state (ok=false when
+// offline / never connected): last_heartbeat, in-flight job count and labels. It
+// is the C6/P4 /v1/runners observability accessor; the handler reads it through a
+// narrow interface so it never touches the internal conn.
+func (h *Hub) WorkerSnapshot(workerID string) (WorkerSnapshot, bool) {
+	return h.reg.WorkerSnapshot(workerID)
+}
+
 // Dispatch sends a dispatch frame to the target worker. It errors when the
 // worker is offline (ErrWorkerOffline) or already at its advertised
 // max_concurrent (ErrWorkerAtCapacity, §5.4 — queueing is WP4). On success the
