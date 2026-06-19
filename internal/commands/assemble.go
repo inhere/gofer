@@ -63,3 +63,31 @@ func buildCore(cfg *config.Config) (*Core, error) {
 	jobs := job.NewService(cfg, projects, agents, runners, store)
 	return &Core{Cfg: cfg, Projects: projects, Agents: agents, Runners: runners, Store: store, Jobs: jobs}, nil
 }
+
+// Reload re-loads the config from path and atomically swaps it into every
+// component that holds a config snapshot — the project/agent registries and the
+// job service (C3 SIGHUP hot-reload). It does NOT restart the process, touch
+// in-flight jobs or reopen the jobstore.
+//
+// Fail-safe: if the new config fails to load/validate, the OLD config is kept
+// (nothing is swapped) and the error is returned so the caller can log and keep
+// serving. The swap itself never partially applies — all three components are
+// repointed at the same already-validated *config.Config.
+//
+// LIMITATION: the runner instances in Core.Runners are built once here at
+// assemble time and are NOT rebuilt on reload. Swapping the config makes the
+// peer-runner classification and every allowlist/validation observe the new
+// config, but adding a brand-new runner TYPE (a new peer-http entry) still
+// needs a restart to instantiate its runner. Reload covers adding/removing
+// projects and agents and any config-derived validation.
+func (c *Core) Reload(path string) error {
+	newCfg, _, err := config.Load(path)
+	if err != nil {
+		return fmt.Errorf("reload config: %w", err)
+	}
+	c.Cfg = newCfg
+	c.Projects.Reload(newCfg)
+	c.Agents.Reload(newCfg)
+	c.Jobs.Reload(newCfg)
+	return nil
+}

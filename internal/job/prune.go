@@ -16,7 +16,7 @@ import (
 // no longer in s.jobs. When retention is unconfigured the policy is zero and
 // PruneJobs is a no-op, so Prune is safe to call unconditionally.
 func (s *Service) Prune() (int, error) {
-	r := s.cfg.Storage.Retention
+	r := s.config().Storage.Retention
 	policy := jobstore.RetentionPolicy{MaxAge: r.MaxAge(), MaxCount: r.MaxCount}
 	deleted, prunedDirs, err := s.meta.PruneJobs(policy, s.nowFn().Unix())
 	if err != nil {

@@ -18,7 +18,7 @@ func TestPruneRemovesTerminalJobAndLogDir(t *testing.T) {
 	// Retention: prune any terminal job at least 0 days old -> MaxAgeDays must be
 	// >0 to enable; use a large age window but pin the clock far in the future so
 	// the finished job is "old". Simpler: use MaxCount=0 + MaxAgeDays via clock.
-	s.cfg.Storage.Retention = config.RetentionConfig{MaxAgeDays: 1}
+	s.config().Storage.Retention = config.RetentionConfig{MaxAgeDays: 1}
 
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",

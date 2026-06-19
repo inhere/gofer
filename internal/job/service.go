@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"os"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/inhere/gofer/internal/agent"
@@ -55,7 +56,12 @@ var (
 // Service accepts job requests, runs them asynchronously and tracks their state.
 // It is safe for concurrent use.
 type Service struct {
-	cfg      *config.Config
+	// cfg holds the active config behind an atomic.Pointer so SIGHUP-driven
+	// hot-reload (C3) can atomically swap it (see Reload). Read it via config():
+	// every method that consults cfg takes ONE snapshot at entry and uses that
+	// snapshot for its whole call, so a concurrent Reload can never make a single
+	// call observe two different configs.
+	cfg      atomic.Pointer[config.Config]
 	projects *project.Registry
 	agents   *agent.Registry
 	runners  map[string]runner.Runner
@@ -99,8 +105,7 @@ type jobEntry struct {
 // loaded config. meta is the SQLite metadata store (job index/persistence); it
 // must be non-nil — the caller (commands.buildCore / tests) opens it.
 func NewService(cfg *config.Config, projects *project.Registry, agents *agent.Registry, runners map[string]runner.Runner, meta *jobstore.Store) *Service {
-	return &Service{
-		cfg:      cfg,
+	s := &Service{
 		projects: projects,
 		agents:   agents,
 		runners:  runners,
@@ -110,20 +115,43 @@ func NewService(cfg *config.Config, projects *project.Registry, agents *agent.Re
 		sems:     map[string]chan struct{}{},
 		nowFn:    time.Now,
 	}
+	s.cfg.Store(cfg)
+	return s
 }
+
+// config returns the current config snapshot. Callers must take a single
+// snapshot at entry and reuse it for the whole call (see the Service.cfg note),
+// so a concurrent Reload cannot tear a single operation.
+func (s *Service) config() *config.Config { return s.cfg.Load() }
+
+// Reload atomically swaps the service's config to newCfg (C3 SIGHUP hot-reload).
+// It is safe to call concurrently with Submit/ListJobs/Prune; in-flight calls
+// keep using the snapshot they already loaded.
+//
+// LIMITATION: this swaps only the config pointer. The runners map holds concrete
+// runner instances built once at assemble time (commands.buildCore) and is NOT
+// rebuilt here, so adding a brand-new runner TYPE still needs a restart. Reload
+// covers added/removed projects and agents and any cfg-derived validation
+// (allowlists, exec gate, peer-runner classification, result dirs, retention).
+func (s *Service) Reload(newCfg *config.Config) { s.cfg.Store(newCfg) }
 
 // Submit validates the request, creates the result dir, persists the request and
 // starts the job asynchronously. It returns the initial JobResult (status
 // running) once the goroutine is launched. Validation/setup failures return an
 // error and no job.
 func (s *Service) Submit(req JobRequest) (JobResult, error) {
+	// Snapshot the config ONCE for the whole Submit so a concurrent Reload cannot
+	// make this single submit observe two different configs (peer classification,
+	// validation, result base dir all read the same snapshot).
+	cfg := s.config()
+
 	// A peer-http runner forwards the original request to a peer bridge, which
 	// resolves agent/cwd/command with its OWN config. The host therefore skips
 	// local agent/cwd resolution for remote jobs (it still validates the project,
 	// the agent allowlist and the runner allowlist).
-	remote := s.isPeerRunner(req.Runner)
+	remote := isPeerRunner(cfg, req.Runner)
 
-	proj, err := s.validate(req, remote)
+	proj, err := s.validate(cfg, req, remote)
 	if err != nil {
 		return JobResult{}, err
 	}
@@ -154,7 +182,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// Result base dir + a collision-resistant job id; create the dir up front.
 	// The host keeps a local result dir even for proxied jobs so its logs (mirrored
 	// from the peer) and DB index entry stay queryable.
-	base, err := project.ResultBaseDir(s.cfg, req.ProjectKey, proj)
+	base, err := project.ResultBaseDir(cfg, req.ProjectKey, proj)
 	if err != nil {
 		return JobResult{}, err
 	}
@@ -449,10 +477,11 @@ func classify(ctx context.Context, res runner.Result) (string, int, error) {
 }
 
 // isPeerRunner reports whether name is a configured peer-http runner (a remote
-// runner that forwards the job to a peer bridge). Such runners resolve the
-// agent/command on the peer, so the host skips local exec resolution.
-func (s *Service) isPeerRunner(name string) bool {
-	rc, ok := s.cfg.Runners[name]
+// runner that forwards the job to a peer bridge) in the given config snapshot.
+// Such runners resolve the agent/command on the peer, so the host skips local
+// exec resolution.
+func isPeerRunner(cfg *config.Config, name string) bool {
+	rc, ok := cfg.Runners[name]
 	return ok && rc.Type == "peer-http"
 }
 
@@ -465,21 +494,21 @@ func (s *Service) isPeerRunner(name string) bool {
 // the agent (it can be a peer-only agent) and must not impose its own exec gate.
 // The agent allowlist (CheckAllowed) and the runner allowlist still apply on the
 // host as the access-control boundary.
-func (s *Service) validate(req JobRequest, remote bool) (config.ProjectConfig, error) {
-	proj, err := s.projects.Get(req.ProjectKey)
-	if err != nil {
-		return config.ProjectConfig{}, fmt.Errorf("%w: %s", ErrUnknownProject, err.Error())
+func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (config.ProjectConfig, error) {
+	proj, ok := cfg.Projects[req.ProjectKey]
+	if !ok {
+		return config.ProjectConfig{}, fmt.Errorf("%w: unknown project %q", ErrUnknownProject, req.ProjectKey)
 	}
 
 	// Agent must be in the project's allowed_agents (exec is not exempt).
-	if err := agent.CheckAllowed(s.cfg, req.ProjectKey, req.Agent); err != nil {
+	if err := agent.CheckAllowed(cfg, req.ProjectKey, req.Agent); err != nil {
 		return config.ProjectConfig{}, fmt.Errorf("%w: %s", ErrInvalidRequest, err.Error())
 	}
 
 	if !remote {
 		// exec security gate: the agent must be type exec AND the project must opt
 		// in. Skipped for remote jobs — the peer enforces its own exec gate.
-		ac, ok := s.agents.Get(req.Agent)
+		ac, ok := agent.ResolveAgent(cfg, req.Agent)
 		if !ok {
 			return config.ProjectConfig{}, fmt.Errorf("%w: unknown agent %q", ErrInvalidRequest, req.Agent)
 		}

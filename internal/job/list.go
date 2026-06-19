@@ -36,7 +36,8 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 	// 1. An explicit project that is not registered yields an empty (non-nil)
 	// result, matching the pre-DB behaviour (the list is scoped to known projects).
 	if opts.Project != "" {
-		if _, ok := s.cfg.Projects[opts.Project]; !ok {
+		// One config snapshot for the whole call (see Service.cfg / config()).
+		if _, ok := s.config().Projects[opts.Project]; !ok {
 			return []JobResult{}, nil
 		}
 	}

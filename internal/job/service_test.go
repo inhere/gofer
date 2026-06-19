@@ -292,9 +292,9 @@ func TestConcurrencyLimit(t *testing.T) {
 	root := t.TempDir()
 	s := newTestService(t, root)
 	// Limit project "self" to 1 concurrent job.
-	p := s.cfg.Projects["self"]
+	p := s.config().Projects["self"]
 	p.MaxConcurrentJobs = 1
-	s.cfg.Projects["self"] = p
+	s.config().Projects["self"] = p
 
 	// Submit job1 (sleep) and wait until it is actually running and holding the
 	// single slot BEFORE submitting job2, so the slot ownership is deterministic.
