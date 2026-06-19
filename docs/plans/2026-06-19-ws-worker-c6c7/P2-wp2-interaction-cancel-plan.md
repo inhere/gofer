@@ -157,8 +157,10 @@ user        host.httpapi            host.job.Service        hub(workerRunner)   
 | sink 桥接：job 提前结束 | 同上 | `ansCh` 关闭无值（ctx done）→ **不发** `answer`（防止向已死 job 回程） |
 | sink 桥接：重复 open 幂等 | 同上 | 同一 id 二次 open → `Open` 仅生效一次（`seen` 去重） |
 | worker：收 answer | `internal/worker/interaction_test.go` | 调本地 `AnswerInteraction(jobID,iid,ans)` |
-| worker：收 cancel | `internal/worker/cancel_test.go` | 调本地 `Cancel(jobID)` 且随后推 `result{status:cancelled}` |
-| worker：本地超时 | 同上 | 长 job 超时 → 推 `result{status:timeout}` |
+| worker：收 cancel | `internal/worker/interaction_test.go`（落地实际并入此文件，非单独 `cancel_test.go`） | 调本地 `Cancel(jobID)` 且随后推 `result{status:cancelled}` |
+| worker：本地超时 | e2e `TestE2ETimeoutOverWS` | 长 job 超时 → 推 `result{status:timeout}` |
+
+> **已知小缺口（非阻断，WP2 验收记录）**：单 job 上 **2+ 并发交互** 的 id 1:1 映射已由验收探测证实正确，但**无提交级回归测试**守护。若后续触碰交互 id 映射逻辑，建议补一个 worker-local 多交互往返用例。
 
 ### 6.2 e2e（loopback hub+worker，参考 `internal/httpapi/e2e_interaction_test.go`）
 
