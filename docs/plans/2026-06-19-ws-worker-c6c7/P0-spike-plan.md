@@ -169,31 +169,33 @@ go test ./internal/wshub/ -run TestSpike_AcceptLoopbackOverRux -race -count=1
 
 **全部满足才放行 WP1**（任一 FAIL 阻断）：
 
-- [ ] `go get github.com/coder/websocket@v1.8.15` 成功，`go.mod` 已 pin，`go mod tidy` 干净。
-- [ ] 握手 OK：`Accept` 穿过 rux 包装器返回活连接（check a）。
-- [ ] origin option 必需性已证（设/不设的两路断言，check b）。
-- [ ] **无二次写**：无 `superfluous WriteHeader`、无 panic（check c）。
-- [ ] Flush/streaming 不受影响（check d，与 SSE 先例一致）。
-- [ ] 干净关闭 + ctx 取消传播，测试不挂死（check e）。
-- [ ] 完整业务回环跑通：`register → registered → dispatch → result`（§2.5）。
-- [ ] `go build ./...` / `go vet ./...` 绿；`go test ... -race -count=1` 绿。
+- [x] `go get github.com/coder/websocket@v1.8.15` 成功，`go.mod` 已 pin，`go mod tidy` 干净。
+- [x] 握手 OK：`Accept` 穿过 rux 包装器返回活连接（check a）—— **需 `wsUpgradeWriter` 适配器**（见 §7.1 关键发现）。
+- [x] origin option 必需性已证（设/不设的两路断言，check b）。
+- [x] **无二次写**：无 `superfluous WriteHeader`、无 panic（check c）。
+- [x] Flush/streaming 不受影响（check d，与 SSE 先例一致）。
+- [x] 干净关闭 + ctx 取消传播，测试不挂死（check e）。
+- [x] 完整业务回环跑通：`register → registered → dispatch → result`（§2.5）。
+- [x] `go build ./...` / `go vet ./...` 绿；`go test ... -race -count=1` 绿（`-count=3` 无 flake）。
 
-### 7.1 spike 结果（运行后回填，PASS 前不得开 WP1）
+### 7.1 spike 结果（已回填 2026-06-19 — PASS）
 
-> 实施者跑完步骤 5 后回填本表；全 PASS 才在主计划 §10 勾选 P0 并进 WP1。
+> 运行环境：go1.25.10 linux/amd64，gcc 13.3（`-race` 可用）。测试文件 `internal/wshub/spike_test.go`，函数 `TestSpike_AcceptLoopbackOverRux` + 反例 `TestSpike_OriginRejected`。全部子检查 PASS、`-race -count=3` 无 flake。
 
 | 检查项 | 结果（PASS/FAIL） | 证据 / 备注 |
 |---|---|---|
-| 依赖 pin v1.8.15 + 纯 Go | _待回填_ | |
-| a 握手穿过 rux 包装器 | _待回填_ | |
-| b origin option 必需性（设/不设） | _待回填_ | |
-| c 无二次写 / 无 panic | _待回填_ | |
-| d Flush/streaming | _待回填_ | |
-| e 干净关闭 / ctx 取消 | _待回填_ | |
-| register→result 回环 | _待回填_ | |
-| build / vet / test / -race | _待回填_ | |
+| 依赖 pin v1.8.15 + 纯 Go | PASS | `go.mod` 新增 `require github.com/coder/websocket v1.8.15`；`go.sum` 落锁。`CGO_ENABLED=0 go build ./...` 成功 → 纯 Go 确证（`go list -deps` 出现的 `runtime/cgo` 仅为 go1.25 `unique`/`weak` 标准库构建图副产物，非真实 cgo 需求；coder/websocket 自身无 `import "C"`）。 |
+| a 握手穿过 rux 包装器 | PASS（**带适配器**） | `websocket.Accept` 经 rux `c.Resp`（`*responseWriter`）升级返回活连接。**但需 `wsUpgradeWriter` 适配器**（见下"关键发现"）：裸传 `c.Resp` 会因 rux 缓冲 `WriteHeader(101)` 导致握手永挂（`Dial` deadline exceeded）。`Hijack()` 本身透传无碍。 |
+| b origin option 必需性（设/不设） | PASS | 正例设 `InsecureSkipVerify:true` → 握手 OK；反例 `TestSpike_OriginRejected` 不设 + 伪造跨域 `Origin: http://evil.example.com` → 握手被拒（`101 but got 403`）。证明该 option 对非浏览器 worker 是**必需项**，写进 WP1（§6.2）。 |
+| c 无二次写 / 无 panic | PASS | 捕获 httptest `Server.ErrorLog`，handler 返回后无 `superfluous response.WriteHeader` 字样、无 panic。机理符合 §3：Hijack 置 `length=0` → `Written()`=true → 链尾 `ensureWriteHeader` no-op（`dispatch.go:102`+`response_writer.go:59-67`）。`no_double_write` 子测试显式断言。 |
+| d Flush/streaming | PASS | `c.Resp` 仍实现 `http.Flusher`（`flush_streaming` 子测试断言 `c.Resp.(http.Flusher)` 成立），与 SSE 先例（`stream_handler.go`）一致；适配器 `Flush()` 亦透传。 |
+| e 干净关闭 / ctx 取消 | PASS | client `Close(StatusNormalClosure)` 后 hub 侧 `wsjson.Read` 返回 close error 并正常退出；10s timeout ctx 兜底，测试在 deadline 内自然结束、不挂死。 |
+| register→result 回环 | PASS | 单连接跑通 `register → registered{accepted:true} → dispatch{job_id:j1} → result{j1,success,exit_code:0}`，双向值逐项断言匹配（client 与 hub 两侧各自校验）。 |
+| build / vet / test / -race | PASS | `go build ./...` 绿、`go vet ./...` 绿；`go test -race -count=1 -run TestSpike ./internal/wshub/ -v` 全 PASS；`-race -count=3` 无 flake。 |
 
-**结论（回填）**：_PASS → 进 WP1 / FAIL → 阻断原因 + 处置_
+**关键发现（WP1 必须采纳）**：coder/websocket 的 `Accept` 流程是 `w.WriteHeader(101)` → `Hijack()`。rux 的 `*responseWriter` **缓冲** `WriteHeader`（仅记录 status，真正落盘在 `ensureWriteHeader`，而 `Hijack()` 又把它变成 no-op），导致 **101 握手行永不落 socket**、client `Dial` 永挂。修复 = 一个极薄的 `wsUpgradeWriter` 适配器：`WriteHeader` 立即 flush（记录 status 后 `Write(nil)` 触发 `ensureWriteHeader` 当场写出 101），`Header`/`Hijack`/`Flush` 委托回 `c.Resp`。**这就是 WP1 hub 侧的生产形态**（hub 在 `Accept` 前把 `c.Resp` 包一层 `wsUpgradeWriter`）。该适配器同时保住"无二次写"不变量（Hijack 后 rux `Written()`=true）。
+
+**结论：PASS → 放行 WP1。** 五点（a–e）+ 回环全部成立，`-race` 干净，库版本 pin v1.8.15（纯 Go）锁定。唯一新增既定事实：WP1 hub 的 `Accept` **必须**经 `wsUpgradeWriter` 适配器（不可裸传 `c.Resp`），否则握手永挂——此适配器代码与冒烟测试已随 `internal/wshub/spike_test.go` 落库，WP1 起手直接晋升为正式 hub 入口的一部分。
 
 ---
 
