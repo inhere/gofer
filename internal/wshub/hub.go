@@ -182,6 +182,13 @@ func (h *Hub) DeregisterSink(workerID, jobID string) {
 	}
 }
 
+// IsOnline reports whether a worker is currently registered (a live connection
+// exists). Used for readiness checks / future /v1/runners observability (C6).
+func (h *Hub) IsOnline(workerID string) bool {
+	_, ok := h.reg.Get(workerID)
+	return ok
+}
+
 // Dispatch sends a dispatch frame to the target worker. It errors when the
 // worker is offline.
 func (h *Hub) Dispatch(workerID string, d wsproto.Dispatch) error {

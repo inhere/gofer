@@ -139,8 +139,8 @@ labels: [macos, gpu]
 
 > 各阶段完成后在此勾选 + 回填提交哈希（SR1201/SR1202）。
 
-- [ ] **P0 Spike** —— coder/websocket + rux Accept 回环验证（硬门）
-- [ ] **P1 WP1 核心** —— 端到端远程执行 + token 绑定 + sink/有序/背压 + WorkerID 贯穿
+- [x] **P0 Spike** —— coder/websocket + rux Accept 回环验证（硬门）
+- [x] **P1 WP1 核心** —— 端到端远程执行 + token 绑定 + sink/有序/背压 + WorkerID 贯穿（`wsproto`/`wshub`/`runner/worker`/`worker`/`commands/worker.go`；全套 `-race` 通过；wsUpgradeWriter 已提升为 `internal/wshub/upgrade_writer.go`；无 jobstore 迁移）
 - [ ] **P2 WP2** —— 交互透传 + cancel/timeout
 - [ ] **P3 WP3 + C7** —— 心跳/重连/worker-lost/多 worker + worker 多地址退避
 - [ ] **P4 C6** —— /v1/runners（worker 心跳态 + peer-http 主动探针）

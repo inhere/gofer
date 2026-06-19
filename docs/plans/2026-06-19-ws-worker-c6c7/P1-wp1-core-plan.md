@@ -759,14 +759,14 @@ hub → sink.Finish → workerRunner.Run 返回 failed → serve finish 为 fail
 
 ### 6.3 WP1 验收门（gate，对应主 §3 + 任务验收）
 
-- [ ] 端到端：serve + worker，`runner=worker` 的 job 在 worker 执行，日志镜像到 hub（HTTP `/logs` **且** SSE `/stream` 双验），status/result 正确，`jobs.worker_id` 持久化。
-- [ ] per-worker token 绑定：错 token / worker_id 不符 → register 拒绝（评审 #1）。
-- [ ] sink-before-dispatch：首帧不丢（评审 #2）。
-- [ ] 有序投递：交错 log/result 不乱序（评审 #2，`-race`）。
-- [ ] 背压：话痨 job 不卡连接 / 不无界内存（评审 #3）。
-- [ ] worker 本地再校验（评审 #8）：未放行 agent → failed，不执行。
-- [ ] `go build ./...` + `go test ./... -race` 全绿；`go vet ./...` 干净。
-- [ ] 子阶段绿灯即提交（SR1202）；完成回填主文档 §10 进度 + 提交哈希。
+- [x] 端到端：serve + worker，`runner=worker` 的 job 在 worker 执行，日志镜像到 hub（HTTP `/logs` **且** SSE `/stream` 双验），status/result 正确，`jobs.worker_id` 持久化。（`internal/worker/e2e_test.go::TestE2ERemoteExecution`）
+- [x] per-worker token 绑定：错 token / worker_id 不符 → register 拒绝（评审 #1）。（`TestE2EWrongTokenRejected` / `TestE2EWorkerIDBindingMismatch` / `wshub.TestRegisterTokenBindingMismatch`）
+- [x] sink-before-dispatch：首帧不丢（评审 #2）。（`runner/worker.TestRunSinkLifecycle` + `wshub.TestReadLoopOrdering` 先注册后投递）
+- [x] 有序投递：交错 log/result 不乱序（评审 #2，`-race`）。（`wshub.TestReadLoopOrdering`，`-race` 通过）
+- [x] 背压：话痨 job 不卡连接 / 不无界内存（评审 #3）。（`wshub.TestBackPressureChattyJob` + `runner/worker.TestBoundedSinkTruncates`）
+- [x] worker 本地再校验（评审 #8）：未放行 agent → failed，不执行。（`worker.TestHandleDispatchValidateFail`）
+- [x] `go build ./...` + `go test ./... -race` 全绿；`go vet ./...` 干净。
+- [x] 子阶段绿灯即提交（SR1202）；完成回填主文档 §10 进度 + 提交哈希。
 
 ---
 
