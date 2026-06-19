@@ -53,7 +53,7 @@ func newServer(t *testing.T, token string, allowEmpty bool) *httptest.Server {
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
 	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root))
-	srv := httpapi.New(&cfg.Server, token, allowEmpty, jobs, projects, agents, nil)
+	srv := httpapi.New(&cfg.Server, token, allowEmpty, jobs, projects, agents, nil, nil, nil, nil)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts

@@ -81,7 +81,7 @@ func buildHubSide(t *testing.T) *hubSide {
 	}
 	jobs := job.NewService(cfg, projReg, agentReg, runners, st)
 
-	srv := httpapi.New(&cfg.Server, "server-default-token", false, jobs, projReg, agentReg, hub)
+	srv := httpapi.New(&cfg.Server, "server-default-token", false, jobs, projReg, agentReg, hub, nil, nil, nil)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return &hubSide{ts: ts, jobs: jobs, store: st, hub: hub}

@@ -91,7 +91,7 @@ func buildWorkerWithBridge(t *testing.T, hubURL string) *workerWithBridge {
 	t.Cleanup(func() { _ = st.Close() })
 	localJobs := job.NewService(cfg, projReg, agentReg, map[string]runner.Runner{localrunner.Name: localrunner.New()}, st)
 
-	bridge := httptest.NewServer(httpapi.New(&cfg.Server, workerBridgeToken, false, localJobs, projReg, agentReg, nil).Handler())
+	bridge := httptest.NewServer(httpapi.New(&cfg.Server, workerBridgeToken, false, localJobs, projReg, agentReg, nil, nil, nil, nil).Handler())
 	t.Cleanup(bridge.Close)
 	// The wrapper subprocess inherits os.Environ via the local runner; the bridge
 	// base/token reach it through the environment.
