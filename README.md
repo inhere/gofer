@@ -60,10 +60,10 @@ gofer job logs <id> --stream stdout
 
 1. `--config <path>` 命令行参数
 2. 环境变量 `GOFER_CONFIG`
-3. 当前目录 `./.gofer.yaml`
+3. 当前目录 `./.gofer.local.yaml` → `./.gofer.yaml`（`.local` 为本地覆盖，优先；已 gitignore）
 4. `<config-dir>/config.yaml`（即下文「配置目录」，默认 `~/.config/gofer/config.yaml`）
 
-完整示例见 [`configs/bridge.example.yaml`](configs/bridge.example.yaml)，拷贝到上述任一位置即可。关键片段：
+完整示例见 [`config/gofer.example.yaml`](config/gofer.example.yaml)，拷贝到上述任一位置即可。关键片段：
 
 ```yaml
 server:

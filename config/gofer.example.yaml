@@ -2,7 +2,7 @@
 # Copy to one of the lookup locations (§6.1):
 #   1. --config <path>
 #   2. env GOFER_CONFIG
-#   3. ./.gofer.yaml
+#   3. ./.gofer[.local].yaml
 #   4. ~/.config/gofer/config.yaml
 
 server:
