@@ -21,8 +21,10 @@ const EnvConfigDir = "GOFER_CFG_DIR"
 // (~/.config/<name>).
 const DefaultConfigDirName = "gofer"
 
-// CurrentDirConfigName is the per-directory config file name (§6.1).
-const CurrentDirConfigName = ".gofer.yaml"
+// CurrentDirConfigNames are the per-directory config file names, in priority
+// order (§6.1): a local override (.gofer.local.yaml, gitignored) takes
+// precedence over the shared .gofer.yaml when both exist in the cwd.
+var CurrentDirConfigNames = []string{".gofer.local.yaml", ".gofer.yaml"}
 
 // Load resolves the config file via the lookup chain, decodes it into the
 // strongly-typed Config, applies defaults and runs basic validation. It returns
@@ -31,7 +33,7 @@ const CurrentDirConfigName = ".gofer.yaml"
 // Lookup order (§6.1):
 //  1. explicitPath (CLI --config)
 //  2. env GOFER_CONFIG
-//  3. ./.gofer.yaml
+//  3. ./.gofer[.local].yaml
 //  4. ~/.config/gofer/config.yaml
 //
 // When no file is found, Load returns a defaulted empty Config and an empty
@@ -146,7 +148,8 @@ func (c *Config) ResolveDBPath() string {
 
 // candidatePaths lists the auto-discovery locations (current dir, then user).
 func candidatePaths() []string {
-	out := []string{CurrentDirConfigName}
+	// Clone so appending the user path never mutates the package-level slice.
+	out := append([]string{}, CurrentDirConfigNames...)
 	if user, err := UserConfigPath(); err == nil {
 		out = append(out, user)
 	}

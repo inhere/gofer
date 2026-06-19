@@ -88,8 +88,8 @@ func TestResolveLookupOrder(t *testing.T) {
 	home := filepath.Join(dir, "home")
 	t.Setenv("HOME", home)
 
-	// cwd file
-	cwdFile := filepath.Join(dir, CurrentDirConfigName)
+	// cwd file (highest-priority current-dir name)
+	cwdFile := filepath.Join(dir, CurrentDirConfigNames[0])
 	write(t, cwdFile, "server:\n  addr: a\n")
 	// env file
 	envFile := filepath.Join(dir, "env.yaml")
@@ -125,6 +125,29 @@ func TestResolveLookupOrder(t *testing.T) {
 	}
 	if got != mustAbs(t, cwdFile) {
 		t.Errorf("cwd: got %q", got)
+	}
+}
+
+// TestResolveCurrentDirLocalWins verifies the per-directory override: when both
+// .gofer.local.yaml and .gofer.yaml exist in the cwd, the .local one wins (it is
+// first in CurrentDirConfigNames).
+func TestResolveCurrentDirLocalWins(t *testing.T) {
+	dir := t.TempDir()
+	chdir(t, dir)
+	t.Setenv("HOME", filepath.Join(dir, "home"))
+	t.Setenv(EnvConfigPath, "")
+
+	local := filepath.Join(dir, CurrentDirConfigNames[0]) // .gofer.local.yaml
+	base := filepath.Join(dir, CurrentDirConfigNames[1])  // .gofer.yaml
+	write(t, base, "server:\n  addr: base\n")
+	write(t, local, "server:\n  addr: local\n")
+
+	got, err := Resolve("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != mustAbs(t, local) {
+		t.Errorf("expected .gofer.local.yaml to win, got %q", got)
 	}
 }
 
