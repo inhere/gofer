@@ -76,6 +76,19 @@ type Server struct {
 	// hub is the ws-worker hub singleton; when non-nil the /v1/workers/connect WS
 	// route is mounted (ws-worker). It is nil for callers that do not run the hub.
 	hub *wshub.Hub
+
+	// runners is the configured runner set the C6/P4 GET /v1/runners endpoint
+	// enumerates (name → type / base_url / worker_id). It is the top-level
+	// config.Runners map (the Server otherwise only holds ServerConfig). nil/empty
+	// => the endpoint reports only the implicit `local` runner.
+	runners map[string]config.RunnerConfig
+	// prober and workers feed the C6/P4 GET /v1/runners observability endpoint.
+	// Both are nil-safe narrow interfaces (D2): a nil prober renders every
+	// peer-http row `unknown`; a nil workers renders every worker row `unknown`.
+	// serve injects the concrete adapters (peer-http probe cache + the hub); other
+	// callers (most tests, mcp) pass nil.
+	prober  runnerProber
+	workers workerRegistry
 }
 
 // New builds a Server: it resolves the effective token, wires the rux router
@@ -84,7 +97,17 @@ type Server struct {
 // token is the already-resolved effective token (serve resolves config.token /
 // token_env / --token before calling New). allowEmptyToken mirrors the
 // config/flag of the same name.
-func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, jobs *job.Service, projects *project.Registry, agents *agent.Registry, hub *wshub.Hub) *Server {
+//
+// runners is the configured runner set for the C6/P4 GET /v1/runners endpoint
+// (nil/empty => only the implicit local row). prober and workers are the C6/P4
+// observability sources (both nil-safe: a nil renders the corresponding runner
+// rows `unknown`). serve injects them (config.Runners + the peer-http probe cache
+// + a hub adapter); other callers pass nil.
+//
+// NOTE (D3, deferred): New is now a wide positional constructor. The plan flags a
+// future functional-option / Deps-struct refactor as optional cleanup; it is
+// intentionally NOT done here to keep the change backward-compatible and focused.
+func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, jobs *job.Service, projects *project.Registry, agents *agent.Registry, hub *wshub.Hub, runners map[string]config.RunnerConfig, prober runnerProber, workers workerRegistry) *Server {
 	s := &Server{
 		cfg:             serverCfg,
 		jobs:            jobs,
@@ -95,6 +118,9 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		callers:         buildCallers(serverCfg, token),
 		webEnabled:      serverCfg.IsWebEnabled(),
 		hub:             hub,
+		runners:         runners,
+		prober:          prober,
+		workers:         workers,
 	}
 	s.router = s.buildRouter()
 	return s
@@ -161,6 +187,11 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/projects", s.handleListProjects)
 		r.GET("/projects/{key}", s.handleGetProject)
 		r.GET("/agents", s.handleListAgents)
+
+		// C6/P4: remote-node observability — status of every configured runner
+		// (local / peer-http probe / worker heartbeat). Normal authed JSON endpoint
+		// (NOT the bare-401 WS path), list-style shape mirroring /v1/jobs.
+		r.GET("/runners", s.handleListRunners)
 
 		r.POST("/jobs", s.handleCreateJob)
 		r.GET("/jobs", s.handleListJobs)

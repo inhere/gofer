@@ -57,7 +57,7 @@ func newTestServer(t *testing.T, token string, allowEmpty bool) *Server {
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
 	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root))
-	return New(&cfg.Server, token, allowEmpty, jobs, projects, agents, nil)
+	return New(&cfg.Server, token, allowEmpty, jobs, projects, agents, nil, nil, nil, nil)
 }
 
 // do performs an in-process request against the server's handler.
