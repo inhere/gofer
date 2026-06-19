@@ -36,6 +36,15 @@ type Jobs interface {
 	Submit(req job.JobRequest) (job.JobResult, error)
 	Get(id string) (job.JobResult, bool)
 	Wait(id string) (job.JobResult, bool)
+	// Cancel cancels a running local job (P2 cancel frame). Stable no-op for a
+	// terminal job, error only for an unknown id (mirrors job.Service.Cancel).
+	Cancel(id string) error
+	// GetInteractions returns the local job's interactions so the client can bridge
+	// new pending ones to the hub as interaction{open} frames (P2).
+	GetInteractions(id string) ([]job.Interaction, error)
+	// AnswerInteraction delivers the hub's answer to the local job so it resumes
+	// (P2 answer frame).
+	AnswerInteraction(jobID, interactionID, answer string) (job.Interaction, error)
 }
 
 // Client connects one worker to the hub. It is constructed with a resolved
@@ -53,6 +62,13 @@ type Client struct {
 
 	conn    *websocket.Conn
 	writeMu sync.Mutex
+
+	// jobMap maps the hub-side job_id (the wire id) to the worker's LOCAL job id,
+	// so an inbound cancel/answer frame (keyed by the hub id) targets the right
+	// local job. handleDispatch registers the entry once the local job is submitted
+	// and removes it when the dispatch finishes.
+	jobMu  sync.Mutex
+	jobMap map[string]string
 
 	// pollInterval is how often streamLocalJob tails the local log files. Var per
 	// instance so tests can speed it up.
@@ -82,8 +98,31 @@ func New(cfg Config, jobs Jobs) *Client {
 		agents:       cfg.Agents,
 		maxConc:      cfg.MaxConc,
 		jobs:         jobs,
+		jobMap:       map[string]string{},
 		pollInterval: 200 * time.Millisecond,
 	}
+}
+
+// putJobMapping records the hub job_id → local job id mapping (handleDispatch).
+func (cl *Client) putJobMapping(remoteID, localID string) {
+	cl.jobMu.Lock()
+	cl.jobMap[remoteID] = localID
+	cl.jobMu.Unlock()
+}
+
+// localJobID resolves the hub job_id to the worker's local job id (empty if the
+// dispatch is unknown / already cleaned up).
+func (cl *Client) localJobID(remoteID string) string {
+	cl.jobMu.Lock()
+	defer cl.jobMu.Unlock()
+	return cl.jobMap[remoteID]
+}
+
+// dropJobMapping removes the mapping once a dispatch finishes.
+func (cl *Client) dropJobMapping(remoteID string) {
+	cl.jobMu.Lock()
+	delete(cl.jobMap, remoteID)
+	cl.jobMu.Unlock()
 }
 
 // Run dials the hub, registers and enters the dispatch-receive loop. It returns
@@ -135,9 +174,26 @@ func (cl *Client) Run(ctx context.Context) error {
 			}
 			go cl.handleDispatch(ctx, d)
 		case wsproto.TypeCancel:
-			// P2 placeholder: cancel a running local job.
+			// P2: cancel the matching local job. job.Service.Cancel is a stable no-op
+			// for a terminal/unknown local job, so an unmapped/late cancel is safe.
+			cf, derr := wsproto.As[wsproto.Cancel](env)
+			if derr != nil {
+				continue
+			}
+			if localID := cl.localJobID(cf.JobID); localID != "" {
+				_ = cl.jobs.Cancel(localID)
+			}
 		case wsproto.TypeAnswer:
-			// P2 placeholder: interaction answer.
+			// P2: deliver the hub answer to the local job so it resumes. The
+			// interaction id is the LOCAL id (the worker generated it on the open
+			// frame), so it maps 1:1.
+			af, derr := wsproto.As[wsproto.Answer](env)
+			if derr != nil {
+				continue
+			}
+			if localID := cl.localJobID(af.JobID); localID != "" {
+				_, _ = cl.jobs.AnswerInteraction(localID, af.InteractionID, af.Answer)
+			}
 		case wsproto.TypePing:
 			// P3 placeholder: heartbeat.
 		}
