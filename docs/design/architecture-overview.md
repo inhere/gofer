@@ -13,6 +13,7 @@
 | v0.4 | 2026-06-18 | Claude | 新增 §9「扩展点与已知约束」（整体架构回看）。 |
 | v0.5 | 2026-06-18 | Claude | C1 方向定为 SQLite（modernc 纯 Go），§9.1 C1 行链接 [`2026-06-18-sqlite-store-design.md`](./2026-06-18-sqlite-store-design.md)。 |
 | v0.6 | 2026-06-18 | Claude | C1 **已解决**：SQLite store SP1–SP5 全落地（内存仅留 live、DB 索引列表、retention prune），§9.1 C1 行标记完成。 |
+| v0.7 | 2026-06-18 | Claude | **项目改名 dev-agent-bridge → Gofer**：module `github.com/inhere/gofer`、binary/CLI/env(`GOFER_`)/运行时(`~/.config/gofer`/`gofer.db`/结果子目录 `gofer`) 已更名（commit `dcba644`）。**项目根目录 `tools/dev-agent-bridge` 暂冻结不动**；本文及其它历史 design/plan 文档仍按旧名 dev-agent-bridge 行文（历史快照，未回改）。 |
 
 ## 2. 核心心智模型：两条正交的轴
 
