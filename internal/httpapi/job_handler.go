@@ -27,6 +27,10 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 		return
 	}
 
+	// Stamp the authenticated caller id, overriding any client-supplied value
+	// (anti-spoof): the identity is the server's auth decision, not the body.
+	req.CallerID = callerFromCtx(c)
+
 	res, err := s.jobs.Submit(req)
 	if err != nil {
 		writeError(c, submitStatus(err), "job rejected", err.Error())
@@ -53,6 +57,7 @@ func (s *Server) handleListJobs(c *rux.Context) {
 	list, err := s.jobs.ListJobs(job.ListOpts{
 		Project: c.Query("project"),
 		Status:  c.Query("status"),
+		Caller:  c.Query("caller"),
 		Limit:   limit,
 	})
 	if err != nil {
