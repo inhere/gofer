@@ -32,11 +32,9 @@
 package wshub
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"log"
-	"net"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -69,59 +67,10 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
-// wsUpgradeWriter adapts rux's response writer (c.Resp) so coder/websocket's
-// Accept can complete the upgrade. rux's wrapper defers WriteHeader until
-// end-of-chain (ensureWriteHeader), but a WS upgrade requires the 101 status
-// line to hit the socket BEFORE Hijack detaches the connection. This adapter
-// flushes the status immediately on WriteHeader and otherwise delegates to the
-// rux wrapper (preserving its Hijack/Flush passthrough and the no-double-write
-// invariant — once Hijack runs, rux's Written() is true and its end-of-chain
-// ensureWriteHeader is a no-op).
-//
-// This is the production WP1 shape: hub wraps c.Resp in wsUpgradeWriter before
-// calling Accept.
-type wsUpgradeWriter struct {
-	rw          http.ResponseWriter // rux's c.Resp (*responseWriter)
-	wroteHeader bool
-}
-
-func (w *wsUpgradeWriter) Header() http.Header { return w.rw.Header() }
-
-func (w *wsUpgradeWriter) WriteHeader(status int) {
-	if w.wroteHeader {
-		return
-	}
-	w.wroteHeader = true
-	// Record the status on the rux wrapper, then force an immediate flush by
-	// writing a zero-length body: rux's Write() calls ensureWriteHeader(), which
-	// emits the recorded status (101) to the underlying writer right now —
-	// before Accept hijacks. Without this the 101 stays buffered and is lost.
-	w.rw.WriteHeader(status)
-	_, _ = w.rw.Write(nil)
-}
-
-func (w *wsUpgradeWriter) Write(b []byte) (int, error) {
-	if !w.wroteHeader {
-		w.WriteHeader(http.StatusOK)
-	}
-	return w.rw.Write(b)
-}
-
-// Hijack delegates to rux's wrapper, which forwards to the underlying
-// http.Hijacker and flips its Written() to true (no-double-write invariant).
-func (w *wsUpgradeWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
-	hj, ok := w.rw.(http.Hijacker)
-	if !ok {
-		return nil, nil, http.ErrNotSupported
-	}
-	return hj.Hijack()
-}
-
-func (w *wsUpgradeWriter) Flush() {
-	if f, ok := w.rw.(http.Flusher); ok {
-		f.Flush()
-	}
-}
+// NOTE (WP1): wsUpgradeWriter has been promoted out of this spike file into the
+// real package file internal/wshub/upgrade_writer.go (it is the production hub
+// shape). This spike test now exercises that promoted type; it no longer defines
+// its own copy.
 
 // frame is the spike's local minimal envelope. It is intentionally NOT the
 // future internal/wsproto type: the spike only exercises four frame kinds and
