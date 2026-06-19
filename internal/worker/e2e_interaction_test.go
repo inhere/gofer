@@ -101,7 +101,7 @@ func buildWorkerWithBridge(t *testing.T, hubURL string) *workerWithBridge {
 	wsURL := "ws" + strings.TrimPrefix(hubURL, "http") + "/v1/workers/connect"
 	cl := worker.New(worker.Config{
 		WorkerID: e2eWorkerID,
-		URL:      wsURL,
+		URLs:     []string{wsURL},
 		Token:    e2eToken,
 		Projects: []string{"alpha"},
 		Agents:   []string{"wrapper"},

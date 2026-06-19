@@ -4,6 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	yaml "github.com/goccy/go-yaml"
 	"github.com/gookit/gcli/v3"
@@ -56,18 +59,40 @@ func runWorker(c *gcli.Command, _ []string) error {
 	}
 	defer func() { _ = core.Close() }()
 
+	rc := wc.ServerLink.Reconnect
 	cl := worker.New(worker.Config{
-		WorkerID: wc.WorkerID,
-		URL:      wsDialURL(wc.ServerLink.URLs[0]),
-		Token:    resolveWorkerToken(wc.ServerLink),
-		Labels:   wc.Labels,
-		Projects: mapKeys(wc.Projects),
-		Agents:   agentKeys(wc.Agents),
-		MaxConc:  wc.MaxConcurrent,
+		WorkerID:       wc.WorkerID,
+		URLs:           wsDialURLs(wc.ServerLink.URLs),
+		Token:          resolveWorkerToken(wc.ServerLink),
+		Labels:         wc.Labels,
+		Projects:       mapKeys(wc.Projects),
+		Agents:         agentKeys(wc.Agents),
+		MaxConc:        wc.MaxConcurrent,
+		InitialBackoff: msToDuration(rc.InitialBackoffMS),
+		MaxBackoff:     msToDuration(rc.MaxBackoffMS),
+		PingInterval:   secToDuration(rc.PingIntervalSec),
+		ReadDeadline:   secToDuration(rc.ReadDeadlineSec),
 	}, core.Jobs)
 
-	c.Printf("gofer worker %q: connecting to %s\n", wc.WorkerID, wc.ServerLink.URLs[0])
-	if err := cl.Run(context.Background()); err != nil {
+	// Graceful shutdown: SIGINT/SIGTERM cancels the worker ctx, which makes
+	// Run exit its reconnect/recv/heartbeat loops and close the connection
+	// (going-away). signal.Stop on return so the signal goroutine never leaks
+	// (mirrors serve's startReloadLoop, §5.6).
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sig)
+	go func() {
+		select {
+		case <-ctx.Done():
+		case <-sig:
+			cancel()
+		}
+	}()
+
+	c.Printf("gofer worker %q: connecting to %v\n", wc.WorkerID, wc.ServerLink.URLs)
+	if err := cl.Run(ctx); err != nil {
 		return errorx.Failf(workerExitErr, "%v", err)
 	}
 	return nil
@@ -119,10 +144,33 @@ func resolveWorkerToken(link config.WorkerServerLink) string {
 	return link.Token
 }
 
-// wsDialURL normalises a hub URL for dialing. An ws:// or wss:// URL passes
-// through; a bare http(s):// is left as-is (coder/websocket.Dial accepts
-// http/https too). It is a thin hook for future normalisation (C7).
-func wsDialURL(u string) string { return u }
+// wsDialURLs normalises the hub URL list for dialing (C7 multi-address). Each
+// ws:// or wss:// URL passes through; a bare http(s):// is left as-is
+// (coder/websocket.Dial accepts http/https too). The order is preserved — the
+// client rotates through them on connect failure.
+func wsDialURLs(urls []string) []string {
+	out := make([]string, len(urls))
+	copy(out, urls)
+	return out
+}
+
+// msToDuration converts a milliseconds config value to a Duration (<= 0 → 0, the
+// client then applies its default).
+func msToDuration(ms int) time.Duration {
+	if ms <= 0 {
+		return 0
+	}
+	return time.Duration(ms) * time.Millisecond
+}
+
+// secToDuration converts a seconds config value to a Duration (<= 0 → 0, the
+// client then applies its default).
+func secToDuration(sec int) time.Duration {
+	if sec <= 0 {
+		return 0
+	}
+	return time.Duration(sec) * time.Second
+}
 
 // mapKeys returns the keys of a project map (for the register capability hint).
 func mapKeys(m map[string]config.ProjectConfig) []string {

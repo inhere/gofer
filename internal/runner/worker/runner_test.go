@@ -218,6 +218,50 @@ func TestRunCtxCancel(t *testing.T) {
 	}
 }
 
+// TestRunWorkerLostFailsJob (WP3 §5.3): the hub signals worker-lost via the
+// sink's OnDisconnect while Run is waiting; Run must return ExitCode -1 with the
+// "worker disconnected" error and NO ctx error, so the job service's classify
+// maps it to StatusFailed and the text flows verbatim into jobs.error.
+func TestRunWorkerLostFailsJob(t *testing.T) {
+	h := &fakeHub{}
+	r := newRunnerWithHub(h)
+	// A live (non-cancelled, no-deadline) ctx: classify must see res.Err only.
+	ctx := context.Background()
+	done := make(chan runner.Result, 1)
+	go func() {
+		done <- r.Run(ctx, runner.Request{JobID: "j1", Forward: &runner.Forward{}})
+	}()
+	// Wait for the sink to register, then signal worker-lost.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && h.getSink() == nil {
+		time.Sleep(5 * time.Millisecond)
+	}
+	sink := h.getSink()
+	if sink == nil {
+		t.Fatal("sink never registered")
+	}
+	sink.OnDisconnect(errors.New("worker disconnected"))
+
+	select {
+	case res := <-done:
+		if res.ExitCode != -1 {
+			t.Fatalf("exit = %d, want -1", res.ExitCode)
+		}
+		if res.Err == nil || res.Err.Error() != "worker disconnected" {
+			t.Fatalf("err = %v, want 'worker disconnected'", res.Err)
+		}
+		if ctx.Err() != nil {
+			t.Fatalf("ctx must stay live so classify maps to failed (got %v)", ctx.Err())
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return on worker-lost")
+	}
+	// No cancel frame should be sent (the worker is gone, not cancelled).
+	if h.cancelCount() != 0 {
+		t.Fatalf("worker-lost must not send a cancel frame, got %d", h.cancelCount())
+	}
+}
+
 // TestBoundedSinkTruncates proves an oversize frame is capped and marked once.
 func TestBoundedSinkTruncates(t *testing.T) {
 	old := maxWSFrameBytes

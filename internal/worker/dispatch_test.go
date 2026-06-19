@@ -124,7 +124,7 @@ func connectClientToFakeHub(t *testing.T, jobs Jobs) (*Client, chan wsproto.Enve
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/workers/connect"
-	cl := New(Config{WorkerID: "w1", URL: wsURL, Token: "t"}, jobs)
+	cl := New(Config{WorkerID: "w1", URLs: []string{wsURL}, Token: "t"}, jobs)
 	cl.pollInterval = 20 * time.Millisecond
 	return cl, frames
 }
@@ -179,7 +179,10 @@ func TestHandleDispatchValidateFail(t *testing.T) {
 }
 
 func TestRegisterRejected(t *testing.T) {
-	// A hub that rejects the register → Run returns an error.
+	// A hub that rejects the register → runSession returns the rejection error.
+	// (Run, the reconnect supervisor, would back off and RETRY a rejection — the
+	// config may be fixed — and only returns on ctx cancel; §5.2. So the rejection
+	// semantics are asserted at the session granularity.)
 	h := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		conn, err := websocket.Accept(w, req, &websocket.AcceptOptions{InsecureSkipVerify: true, CompressionMode: websocket.CompressionDisabled})
 		if err != nil {
@@ -189,14 +192,20 @@ func TestRegisterRejected(t *testing.T) {
 		var reg wsproto.Envelope
 		_ = wsjson.Read(ctx, conn, &reg)
 		_ = wsjson.Write(ctx, conn, wsproto.Envelope{Type: wsproto.TypeRegistered, Payload: mustRaw(wsproto.Registered{Accepted: false, Reason: "nope"})})
+		// Close like the real hub does after a binding rejection, so the client's
+		// graceful close handshake completes promptly (no 5s close-handshake wait).
+		_ = conn.Close(websocket.StatusPolicyViolation, "binding")
 	})
 	srv := httptest.NewServer(h)
 	defer srv.Close()
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/workers/connect"
-	cl := New(Config{WorkerID: "w1", URL: wsURL, Token: "t"}, &stubJobs{})
+	cl := New(Config{WorkerID: "w1", URLs: []string{wsURL}, Token: "t"}, &stubJobs{})
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	err := cl.Run(ctx)
+	registered, err := cl.runSession(ctx, wsURL)
+	if registered {
+		t.Fatal("a rejected register must not report registered=true")
+	}
 	if err == nil || !strings.Contains(err.Error(), "register rejected") {
 		t.Fatalf("expected register rejected error, got %v", err)
 	}

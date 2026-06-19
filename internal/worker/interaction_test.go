@@ -85,7 +85,7 @@ func connectFlexHub(t *testing.T, jobs Jobs) (*Client, *fakeHubConn) {
 	srv := httptest.NewServer(h)
 	t.Cleanup(srv.Close)
 	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/workers/connect"
-	cl := New(Config{WorkerID: "w1", URL: wsURL, Token: "t"}, jobs)
+	cl := New(Config{WorkerID: "w1", URLs: []string{wsURL}, Token: "t"}, jobs)
 	cl.pollInterval = 20 * time.Millisecond
 	return cl, hc
 }
