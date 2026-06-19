@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"context"
 	"os"
 	"os/signal"
 	"syscall"
@@ -105,7 +106,22 @@ func runServe(c *gcli.Command, _ []string) error {
 	defer close(stopHub)
 	core.Hub.SetStop(stopHub)
 
-	srv := httpapi.New(&cfg.Server, token, allowEmpty, core.Jobs, core.Projects, core.Agents, core.Hub)
+	// C6/P4 peer-http active health probe: build a prober over the configured
+	// peer-http runners (nil when none) and start its periodic loop. The loop
+	// stops cleanly when serve returns (stopProbe). The prober's cache feeds the
+	// /v1/runners endpoint; a nil prober renders peer-http rows `unknown`.
+	prober := newPeerProber(cfg, cfg.Server.RunnerProbe.ProbeTimeout())
+	stopProbe := make(chan struct{})
+	defer close(stopProbe)
+	startProbeLoop(c, prober, cfg.Server.RunnerProbe.ProbeInterval(), stopProbe)
+
+	// C6/P4 worker observability: adapt the hub to httpapi's workerRegistry so the
+	// /v1/runners endpoint reports each worker runner's connection / heartbeat /
+	// in-flight / labels (D2 narrow interface). httpapi needs a typed-nil-safe
+	// value: only wire the adapter when the hub is present.
+	var workers = hubWorkerRegistry{hub: core.Hub}
+
+	srv := httpapi.New(&cfg.Server, token, allowEmpty, core.Jobs, core.Projects, core.Agents, core.Hub, cfg.Runners, proberOrNil(prober), workers)
 
 	if token == "" {
 		c.Printf("gofer: starting WITHOUT auth (allow_empty_token) on %s\n", addr)
@@ -156,6 +172,57 @@ func startPruneLoop(c *gcli.Command, jobs *job.Service, ret config.RetentionConf
 				return
 			case <-ticker.C:
 				prune()
+			}
+		}
+	}()
+}
+
+// proberOrNil returns the prober as an httpapi.runnerProber, or an UNTYPED nil
+// when p is nil. Passing a typed nil (*peerProber)(nil) into the interface
+// parameter would make httpapi's `s.prober == nil` check false (a non-nil
+// interface wrapping a nil pointer), so the handler would call Snapshot on a nil
+// receiver. Returning the plain interface value keeps the nil-safe contract.
+func proberOrNil(p *peerProber) interface{ Snapshot() []httpapi.ProbeResult } {
+	if p == nil {
+		return nil
+	}
+	return p
+}
+
+// startProbeLoop launches the peer-http health-probe goroutine (C6/P4). It
+// mirrors startPruneLoop: when there are peer-http targets it probes once
+// immediately (so the first interval is not all-unknown), then on every tick of
+// interval. The goroutine exits when stop is closed (serve shutdown) — no leak.
+// With no peer-http runners (prober==nil) it does nothing (zero behaviour change).
+//
+// Probe targets are frozen at serve startup and NOT re-read on SIGHUP (runner
+// instances are not rebuilt on reload either — overview §9.1 C3 / P4 §3.2):
+// adding or removing a peer needs a restart.
+func startProbeLoop(c *gcli.Command, prober *peerProber, interval time.Duration, stop <-chan struct{}) {
+	if prober == nil {
+		return
+	}
+	c.Printf("gofer: peer-http health probe enabled (interval=%s, targets=%d)\n", interval, len(prober.targets))
+
+	go func() {
+		// Each probe round runs under a context cancelled when stop closes so an
+		// in-flight probe does not outlive serve shutdown.
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			<-stop
+			cancel()
+		}()
+		defer cancel()
+
+		prober.probeOnce(ctx) // probe once at startup so the cache is not all-unknown
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				prober.probeOnce(ctx)
 			}
 		}
 	}()
