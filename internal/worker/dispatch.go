@@ -38,8 +38,14 @@ func (cl *Client) handleDispatch(ctx context.Context, d wsproto.Dispatch) {
 	}
 
 	localID := res.ID
+	// Register the hub→local id mapping so an inbound cancel/answer frame (keyed by
+	// the hub id d.JobID) reaches this local job; drop it when the dispatch ends.
+	cl.putJobMapping(d.JobID, localID)
+	defer cl.dropJobMapping(d.JobID)
+
 	// Stream local log output back to the hub until the job is terminal, then send
-	// the authoritative result.
+	// the authoritative result. It also bridges the local job's pending interactions
+	// up to the hub as interaction{open} frames (P2).
 	cl.streamLocalJob(ctx, localID, res.ResultDir, d.JobID)
 
 	final, ok := cl.jobs.Wait(localID)
@@ -69,6 +75,10 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 
 	var stdoutOff, stderrOff int64
 	seq := 0
+	// seenStatus dedupes interaction frames: it remembers the last status pushed
+	// per interaction id, so a re-poll only emits a frame on a status change (same
+	// open/answered/cancelled vocabulary the SSE pumpInteractions uses).
+	seenStatus := map[string]string{}
 
 	pump := func() {
 		for _, ent := range []struct {
@@ -89,6 +99,7 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 				JobID: remoteJobID, Stream: ent.stream, Seq: seq, Text: string(chunk),
 			})
 		}
+		cl.pumpInteractions(ctx, localID, remoteJobID, seenStatus)
 	}
 
 	ticker := time.NewTicker(cl.pollInterval)
@@ -106,6 +117,46 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 				return
 			}
 		}
+	}
+}
+
+// pumpInteractions observes the local job's interactions and pushes a frame for
+// each status change up to the hub (P2 worker→hub passthrough), mirroring the
+// SSE pumpInteractions action vocabulary. A new pending interaction becomes an
+// interaction{open}; an answered/cancelled transition is reported too (state
+// cleanup, accepted-and-ignored by the hub bridge per P2 §3.1). The interaction
+// id is the worker-LOCAL id, which the hub injects verbatim onto the host job, so
+// the host answer maps back 1:1.
+func (cl *Client) pumpInteractions(ctx context.Context, localID, remoteJobID string, seenStatus map[string]string) {
+	its, err := cl.jobs.GetInteractions(localID)
+	if err != nil {
+		return
+	}
+	for _, it := range its {
+		if seenStatus[it.ID] == it.Status {
+			continue
+		}
+		var action string
+		switch it.Status {
+		case job.InteractionPending:
+			action = "open"
+		case job.InteractionAnswered:
+			action = "answered"
+		case job.InteractionCancelled:
+			action = "cancelled"
+		default:
+			continue
+		}
+		body, mErr := json.Marshal(it)
+		if mErr != nil {
+			continue
+		}
+		_ = cl.writeFrame(ctx, wsproto.TypeInteraction, remoteJobID, wsproto.Interaction{
+			JobID:       remoteJobID,
+			Action:      action,
+			Interaction: body,
+		})
+		seenStatus[it.ID] = it.Status
 	}
 }
 

@@ -30,7 +30,16 @@ type stubJobs struct {
 	gotProject  string
 	gotRunner   string
 	submitCalls int
-	mu          sync.Mutex
+
+	// interactions returned by GetInteractions (drives the worker→hub open bridge).
+	interactions []job.Interaction
+	// recorded inbound cancel/answer the worker delivers to the local job.
+	cancelledID    string
+	answeredJob    string
+	answeredIID    string
+	answeredAnswer string
+
+	mu sync.Mutex
 }
 
 func (s *stubJobs) Submit(req job.JobRequest) (job.JobResult, error) {
@@ -46,6 +55,38 @@ func (s *stubJobs) Submit(req job.JobRequest) (job.JobResult, error) {
 }
 func (s *stubJobs) Get(string) (job.JobResult, bool)  { return s.getResult, s.getOK }
 func (s *stubJobs) Wait(string) (job.JobResult, bool) { return s.waitResult, s.waitOK }
+
+func (s *stubJobs) Cancel(id string) error {
+	s.mu.Lock()
+	s.cancelledID = id
+	s.mu.Unlock()
+	return nil
+}
+
+func (s *stubJobs) GetInteractions(string) ([]job.Interaction, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]job.Interaction(nil), s.interactions...), nil
+}
+
+func (s *stubJobs) AnswerInteraction(jobID, iid, answer string) (job.Interaction, error) {
+	s.mu.Lock()
+	s.answeredJob, s.answeredIID, s.answeredAnswer = jobID, iid, answer
+	s.mu.Unlock()
+	return job.Interaction{ID: iid, Status: job.InteractionAnswered, Answer: answer}, nil
+}
+
+func (s *stubJobs) cancelled() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.cancelledID
+}
+
+func (s *stubJobs) answered() (string, string, string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.answeredJob, s.answeredIID, s.answeredAnswer
+}
 
 // connectClientToFakeHub stands up a minimal hub that only accepts the WS, reads
 // the register, replies registered{accepted}, and returns the server-side conn
