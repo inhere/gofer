@@ -141,7 +141,7 @@ labels: [macos, gpu]
 
 - [x] **P0 Spike** —— coder/websocket + rux Accept 回环验证（硬门）
 - [x] **P1 WP1 核心** —— 端到端远程执行 + token 绑定 + sink/有序/背压 + WorkerID 贯穿（`wsproto`/`wshub`/`runner/worker`/`worker`/`commands/worker.go`；全套 `-race` 通过；wsUpgradeWriter 已提升为 `internal/wshub/upgrade_writer.go`；无 jobstore 迁移）
-- [ ] **P2 WP2** —— 交互透传 + cancel/timeout
+- [x] **P2 WP2** —— 交互透传 + cancel/timeout（提交 `5adefc2` hub demux+Answer/Cancel + runner 交互桥 / `f727995` worker 客户端三向 + cancel/answer / `138a438` e2e 交互闭环+cancel+timeout；交互 100% 复用 `remoteInteractionSink`，`internal/job/` 零改动；全套 `-race` 通过）
 - [ ] **P3 WP3 + C7** —— 心跳/重连/worker-lost/多 worker + worker 多地址退避
 - [ ] **P4 C6** —— /v1/runners（worker 心跳态 + peer-http 主动探针）
 - [ ] 文档收尾 —— architecture-overview §9.1 C6/C7 标 ✅、§9 worker 行状态更新、本主文档进度回填
