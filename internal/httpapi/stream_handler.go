@@ -20,12 +20,39 @@ import (
 // status for changes (web-T3). Logs are read incrementally from a byte offset.
 const streamPollInterval = 250 * time.Millisecond
 
+// SSE log-flow-control tunables (C4). All are package vars (not consts) so tests
+// can set tiny values without producing megabytes of data.
+var (
+	// maxSSEFrameBytes caps the Text payload of a single `log` frame. A larger
+	// incremental chunk is split into multiple contiguous-seq frames (no bytes
+	// dropped, no truncation) which the frontend reassembles in seq order.
+	maxSSEFrameBytes = 1 << 20 // 1 MiB
+
+	// streamThrottleBytes is the per-poll new-byte volume above which the loop
+	// lengthens the next tick interval to streamThrottledInterval, spacing out
+	// reads under a high-volume producer. It never drops bytes.
+	streamThrottleBytes int64 = 10 << 20 // 10 MiB
+
+	// streamThrottledInterval is the slower poll cadence used after a high-volume
+	// poll; the loop returns to streamPollInterval once volume calms.
+	streamThrottledInterval = 500 * time.Millisecond
+)
+
 // logFrame is the JSON payload of a `log` SSE event: which stream the bytes came
 // from, a monotonic sequence number and the newly appended text.
 type logFrame struct {
 	Stream string `json:"stream"`
 	Seq    int    `json:"seq"`
 	Text   string `json:"text"`
+}
+
+// rotatedFrame is the JSON payload of a `log-rotated` SSE event (C4): the
+// underlying log file rotated (shrank / our offset now points past EOF), so the
+// frontend must clear its buffered text for that stream and continue from the
+// fresh file. The read offset is reset to 0 server-side; seq keeps advancing.
+type rotatedFrame struct {
+	Stream string `json:"stream"`
+	Seq    int    `json:"seq"`
 }
 
 // interactionFrame is the JSON payload of an `interaction` SSE event (web-P2 W1):
@@ -99,9 +126,19 @@ func (s *Server) handleJobStream(c *rux.Context) {
 	seq := 0
 
 	// pumpLogs reads the new bytes appended to each stream since the last offset
-	// and emits a `log` event per stream that grew. Offsets/seq are updated in
-	// place. A write error (client gone) aborts by returning it.
-	pumpLogs := func() error {
+	// and emits `log` events for the stream(s) that grew. Offsets/seq are updated
+	// in place. It returns the total new-byte volume this poll (used to drive the
+	// dynamic throttle) and a write error (client gone) which aborts the loop.
+	//
+	// Two C4 behaviours layer on the incremental read:
+	//   - Frame cap + chunking: a chunk larger than maxSSEFrameBytes is split into
+	//     multiple contiguous-seq `log` frames (no bytes dropped); the frontend
+	//     reassembles in seq order.
+	//   - Rotation coordination: when the underlying file rotated (shrank below
+	//     our offset), emit a `log-rotated` marker, reset the offset to 0 and
+	//     re-read the fresh file in the same poll.
+	pumpLogs := func() (int64, error) {
+		var volume int64
 		for _, ent := range []struct {
 			stream string
 			path   string
@@ -110,17 +147,37 @@ func (s *Server) handleJobStream(c *rux.Context) {
 			{string(store.StreamStdout), stdoutPath, &stdoutOff},
 			{string(store.StreamStderr), stderrPath, &stderrOff},
 		} {
-			chunk, next := tailFrom(ent.path, *ent.off)
+			chunk, next, rotated := tailFrom(ent.path, *ent.off)
+			if rotated {
+				// The file shrank under us (rotation/truncation): tell the client to
+				// clear this stream's buffer, reset our offset and re-read from 0.
+				seq++
+				if err := writeSSE(w, flusher, "log-rotated", rotatedFrame{Stream: ent.stream, Seq: seq}); err != nil {
+					return volume, err
+				}
+				*ent.off = 0
+				chunk, next, _ = tailFrom(ent.path, 0)
+			}
 			if len(chunk) == 0 {
 				continue
 			}
 			*ent.off = next
+			volume += int64(len(chunk))
+			// Split oversize chunks into <=maxSSEFrameBytes frames with contiguous
+			// seq so the frontend can reassemble the exact original bytes in order.
+			for len(chunk) > maxSSEFrameBytes {
+				seq++
+				if err := writeSSE(w, flusher, "log", logFrame{Stream: ent.stream, Seq: seq, Text: string(chunk[:maxSSEFrameBytes])}); err != nil {
+					return volume, err
+				}
+				chunk = chunk[maxSSEFrameBytes:]
+			}
 			seq++
 			if err := writeSSE(w, flusher, "log", logFrame{Stream: ent.stream, Seq: seq, Text: string(chunk)}); err != nil {
-				return err
+				return volume, err
 			}
 		}
-		return nil
+		return volume, nil
 	}
 
 	// seenStatus tracks the last status we emitted per interaction id, so we only
@@ -179,7 +236,7 @@ func (s *Server) handleJobStream(c *rux.Context) {
 	// finish replays any remaining log bytes, emits a terminal `status` and the
 	// closing `end` event.
 	finish := func(final job.JobResult) {
-		_ = pumpLogs()
+		_, _ = pumpLogs()
 		_ = pumpInteractions() // push the last answer/cancel before closing
 		_ = writeSSE(w, flusher, "status", final)
 		_ = writeSSE(w, flusher, "end", struct{}{})
@@ -195,6 +252,9 @@ func (s *Server) handleJobStream(c *rux.Context) {
 
 	ticker := time.NewTicker(streamPollInterval)
 	defer ticker.Stop()
+	// throttled tracks whether the loop is currently on the slower cadence, so we
+	// only Reset the ticker on a transition (avoids resetting every tick).
+	throttled := false
 
 	ctx := c.Req.Context()
 	for {
@@ -202,8 +262,19 @@ func (s *Server) handleJobStream(c *rux.Context) {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if err := pumpLogs(); err != nil {
+			volume, err := pumpLogs()
+			if err != nil {
 				return // client disconnected
+			}
+			// Dynamic throttle: a high-volume poll lengthens the next interval to
+			// space out reads; once volume calms, return to the normal cadence.
+			// Throttling only spaces out reads — no bytes are dropped.
+			if volume > streamThrottleBytes && !throttled {
+				throttled = true
+				ticker.Reset(streamThrottledInterval)
+			} else if volume <= streamThrottleBytes && throttled {
+				throttled = false
+				ticker.Reset(streamPollInterval)
 			}
 			if err := pumpInteractions(); err != nil {
 				return // client disconnected
@@ -228,24 +299,34 @@ func (s *Server) handleJobStream(c *rux.Context) {
 }
 
 // tailFrom reads the bytes of path starting at byte offset, returning the new
-// chunk and the next offset (offset+len(chunk)). A missing file (job not yet
-// started, or stream never produced) yields an empty chunk and the unchanged
-// offset, so callers can keep polling without erroring.
-func tailFrom(path string, offset int64) ([]byte, int64) {
+// chunk, the next offset (offset+len(chunk)) and a rotated flag. A missing file
+// (job not yet started, or stream never produced) yields an empty chunk and the
+// unchanged offset, so callers can keep polling without erroring.
+//
+// rotated is true when the file is now smaller than offset — i.e. the live log
+// was rotated/truncated under us (C4). In that case the caller should emit a
+// rotation marker and re-read from offset 0; the returned chunk is empty.
+func tailFrom(path string, offset int64) (chunk []byte, next int64, rotated bool) {
 	f, err := os.Open(path)
 	if err != nil {
-		return nil, offset
+		return nil, offset, false
 	}
 	defer f.Close()
 
+	if offset > 0 {
+		if fi, err := f.Stat(); err == nil && fi.Size() < offset {
+			return nil, offset, true
+		}
+	}
+
 	if _, err := f.Seek(offset, io.SeekStart); err != nil {
-		return nil, offset
+		return nil, offset, false
 	}
 	data, err := io.ReadAll(f)
 	if err != nil || len(data) == 0 {
-		return nil, offset
+		return nil, offset, false
 	}
-	return data, offset + int64(len(data))
+	return data, offset + int64(len(data)), false
 }
 
 // writeSSE encodes data as JSON and writes one SSE frame
