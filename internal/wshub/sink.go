@@ -35,4 +35,11 @@ type JobSink interface {
 	// Finish delivers the authoritative terminal result, unblocking the
 	// workerRunner.Run wait. It must be non-blocking (drop a duplicate result).
 	Finish(res wsproto.Result)
+	// OnDisconnect signals that the worker connection dropped while this job was
+	// in flight (worker-lost, §5.3). It unblocks the workerRunner.Run wait with
+	// err (worker disconnected) so the host job is finished failed via the existing
+	// classify/finish path. It must be non-blocking (the hub calls it from the
+	// disconnect path) and idempotent w.r.t. a concurrent Finish (whichever lands
+	// first wins; a result that beat the disconnect keeps the job's real outcome).
+	OnDisconnect(err error)
 }
