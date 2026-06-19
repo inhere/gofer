@@ -13,6 +13,10 @@ type JobRequest struct {
 	Cwd        string   `json:"cwd,omitempty"`
 	TimeoutSec int      `json:"timeout_sec,omitempty"`
 	Title      string   `json:"title,omitempty"`
+	// WorkerID selects which registered worker a runner=worker job dispatches to
+	// (ws-worker §8). Required and must be a known server.workers entry when the
+	// runner is type=worker; ignored for local/peer-http runners.
+	WorkerID string `json:"worker_id,omitempty"`
 	// CallerID is the authenticated submitter id (C2). It is set server-side by
 	// the HTTP layer from the auth context (any client-supplied value is
 	// overwritten); it is not part of the client-facing contract.
@@ -33,8 +37,12 @@ type JobResult struct {
 	ExitCode   int    `json:"exit_code"`
 	Cwd        string `json:"cwd"`
 	ResultDir  string `json:"result_dir"`
-	StartedAt  int64  `json:"started_at"`
-	EndedAt    int64  `json:"ended_at,omitempty"`
+	// WorkerID is the worker that executed a runner=worker job (ws-worker §8),
+	// persisted to jobs.worker_id and echoed for audit / filtering. Empty for
+	// local/peer-http jobs.
+	WorkerID  string `json:"worker_id,omitempty"`
+	StartedAt int64  `json:"started_at"`
+	EndedAt   int64  `json:"ended_at,omitempty"`
 	// UpdatedAt is the unix time of the last persisted snapshot. It is stamped by
 	// the metadata store write path (Service.persist) so listing/retention always
 	// have a monotonic ordering value; it is not set by the runner state machine.

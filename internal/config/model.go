@@ -38,6 +38,23 @@ type ServerConfig struct {
 	// explicit web_enabled:false disables the embedded web console (see
 	// IsWebEnabled and applyDefaults).
 	WebEnabled *bool `yaml:"web_enabled"`
+	// Workers is the per-worker auth/binding set (ws-worker, §7 / review #1):
+	// each entry registers a legitimate worker identity keyed by worker_id and
+	// binds it to a token. A `register` frame whose worker_id does not match the
+	// presented token's bound worker is rejected (hub.Accept). per-worker token
+	// is MVP-mandatory: even allow_empty_token does not waive the binding.
+	Workers map[string]WorkerAuthConfig `yaml:"workers"`
+}
+
+// WorkerAuthConfig registers one legitimate worker identity on the server side
+// (ws-worker §7 / review #1). Token is the literal bearer token; TokenEnv reads
+// it from the named environment variable instead (so the secret stays out of the
+// config file). The worker_id (the map key) is used as the caller id for jobs it
+// runs. Labels are display/scheduling hints only (WP4 auto-scheduling).
+type WorkerAuthConfig struct {
+	Token    string   `yaml:"token"`
+	TokenEnv string   `yaml:"token_env"`
+	Labels   []string `yaml:"labels"`
 }
 
 // CallerConfig identifies one authenticated submitter (C2). Token is the literal
@@ -138,11 +155,49 @@ type DetectConfig struct {
 }
 
 // RunnerConfig describes an execution location. peer-http fields are decoded in
-// P2 but only used by the peer runner in P7.
+// P2 but only used by the peer runner in P7. For type=worker (ws-worker), the
+// runner targets a single registered worker identified by WorkerID; one
+// worker-runner = one worker (dynamic routing is WP4 scheduling, not WP1).
 type RunnerConfig struct {
 	Type     string `yaml:"type"`
 	BaseURL  string `yaml:"base_url"`
 	TokenEnv string `yaml:"token_env"`
+	// WorkerID is the worker this runner dispatches to (type=worker only). It
+	// must match a server.workers entry.
+	WorkerID string `yaml:"worker_id"`
+}
+
+// WorkerConfig is the top-level config for `gofer worker --config worker.yaml`
+// (ws-worker §6). The worker runs jobs locally with its own project/agent/runner
+// config and bridges log/status/result back over a single WebSocket to the hub.
+type WorkerConfig struct {
+	WorkerID      string                   `yaml:"worker_id"`
+	ServerLink    WorkerServerLink         `yaml:"server_link"`
+	Projects      map[string]ProjectConfig `yaml:"projects"`
+	Agents        map[string]AgentConfig   `yaml:"agents"`
+	Runners       map[string]RunnerConfig  `yaml:"runners"`
+	MaxConcurrent int                      `yaml:"max_concurrent"`
+	Labels        []string                 `yaml:"labels"`
+	Storage       StorageConfig            `yaml:"storage"`
+}
+
+// WorkerServerLink describes how the worker reaches the hub. URLs holds the hub
+// WS endpoint(s); P1 uses URLs[0] (multi-address failover is C7). Token/TokenEnv
+// resolve the Bearer credential. Reconnect is decoded but not consumed in WP1
+// (C7/P3 placeholder).
+type WorkerServerLink struct {
+	URLs      []string        `yaml:"urls"`
+	TokenEnv  string          `yaml:"token_env"`
+	Token     string          `yaml:"token"`
+	Reconnect ReconnectConfig `yaml:"reconnect"`
+}
+
+// ReconnectConfig is the worker's backoff policy for hub reconnection (C7/P3
+// placeholder; decoded but unused in WP1).
+type ReconnectConfig struct {
+	InitialMS int     `yaml:"initial_ms"`
+	MaxMS     int     `yaml:"max_ms"`
+	Jitter    float64 `yaml:"jitter"`
 }
 
 // ProjectAllowedAgents returns the allowed_agents list for projectKey. The
