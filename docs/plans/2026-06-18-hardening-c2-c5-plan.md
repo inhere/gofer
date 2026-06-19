@@ -201,7 +201,8 @@ go func() {
 - 验收：`-race` 全绿；reload 失败时保留旧配置（构造坏配置验证不崩、不替换）。
 
 > 注：`project add` CLI 改的是文件；运行实例仍需 SIGHUP 才感知（或后续做 `add` 后自动通知，本期不做）。
-> 注（runner 限制）：reload 仅原子替换 cfg 指针（registries + `job.Service` + `Core.Cfg`）。`Core.Runners` 的 runner **实例**在 `buildCore` 一次性构建、reload **不重建**——故新增 runner 类型（如新 peer-http 条目）仍需重启实例化；reload 覆盖项目/agent 增删与一切 cfg 派生校验（allowlist / exec gate / peer 分类 / 结果目录 / retention）。已在 `assemble.go:Core.Reload` 与 `job.Service.Reload` 注释中说明。
+> 注（runner 限制）：reload 仅原子替换 cfg 指针（registries + `job.Service` + `Core.Cfg`）。`Core.Runners` 的 runner **实例**在 `buildCore` 一次性构建、reload **不重建**——故新增 runner 类型（如新 peer-http 条目）仍需重启实例化；reload 覆盖项目/agent 增删与一切 cfg 派生校验（allowlist / exec gate / peer 分类 / 结果目录）。已在 `assemble.go:Core.Reload` 与 `job.Service.Reload` 注释中说明。
+> 注（retention 限制，精确版）：retention **阈值**（`MaxAgeDays` / `MaxCount`）随 reload 生效——`job.Service.Prune` 每次都从原子 cfg 快照读取，SIGHUP 后下一轮 prune 即按新阈值执行。但 prune **循环本身**（启停 gate 与 tick 间隔）在 `serve.go:startPruneLoop` 于 serve 启动时一次性决定、reload **不重启**：故 ① 从"未配置 retention（循环未起）"改为"启用 retention" ② 修改 `PruneInterval`——这两类都需**重启进程**才生效，仅改阈值不需。
 
 **Phase B（C3）实施结果（2026-06-18，本期完成）**
 
@@ -262,6 +263,11 @@ if len(chunk) > 0 { writeSSE(...); seq++ }
 - **向后兼容**：未传 `request_id`/`caller_id`（旧客户端、`Token` 单 token）行为不变。
 - **与 ws-worker 协同**：C2 的 per-caller token 机制是 ws-worker **per-worker token**（设计 §9.2/§11）的同款底座——建议 C2 落地时把 token→身份抽象做成 worker 也能复用（worker_id 即一种 caller_id）。
 - **测试规约**：单测用 `github.com/gookit/goutil/x/assert`；并发用例补 `-race`（容器已装 gcc）。
+
+### 7.1 已知限制（Phase C 验证暴露，记录备查）
+
+- **C-N1（低）**：job 进程 `exit 0` 但 background 了一个滞留子进程、持有 stdout/stderr 管道写端超过 `cmd.WaitDelay`（2s），会触发 `exec: WaitDelay expired before I/O complete`，runner 当前据此判为 `failed`（而非 `done`）。**非回归**——C4 之前这种场景会先挂起再超时；仅当"起一个 daemon 然后退出"成为受支持的 agent 模式时才作为 follow-up 处理。
+- **C-N2（极低）**：收到 `log-rotated` 帧后前端清空 buffer，但**不**重置累计的 `?from=` 重连 offset；轮转后立即 SSE 重连依赖 `tailFrom` 的自愈（`size < offset` → 重放全新文件）。已记录的边角情况，MVP 不修。
 
 ## 8. 结论
 
