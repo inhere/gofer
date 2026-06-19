@@ -53,8 +53,10 @@ func buildHubSide(t *testing.T) *hubSide {
 		Storage: config.StorageConfig{Root: root},
 		Projects: map[string]config.ProjectConfig{
 			"alpha": {
-				HostPath:       host,
-				AllowedAgents:  []string{"exec"},
+				HostPath: host,
+				// wrapper is allowed for the WP2 interaction e2e (the hub validates the
+				// agent allowlist before dispatch; the worker resolves/executes it).
+				AllowedAgents:  []string{"exec", "wrapper"},
 				AllowedRunners: []string{"remote-w1"},
 				AllowExec:      true,
 			},
