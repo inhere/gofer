@@ -5,6 +5,7 @@ import { getToken, triggerUnauthorized } from '../store/auth'
 import { streamJob } from './sse'
 import type {
   AgentsResp,
+  ArtifactsResp,
   Interaction,
   Job,
   JobsResp,
@@ -140,6 +141,41 @@ export function getJob(id: string): Promise<Job> {
 
 export function logsTail(id: string, stream: LogStream): Promise<string> {
   return requestText(`/v1/jobs/${encodeURIComponent(id)}/logs/${stream}`)
+}
+
+// 产物清单（E1，P2）：GET /v1/jobs/{id}/artifacts。
+export function listArtifacts(id: string): Promise<ArtifactsResp> {
+  return request<ArtifactsResp>(
+    `/v1/jobs/${encodeURIComponent(id)}/artifacts`,
+  )
+}
+
+// 编码产物相对路径用于 URL：逐段 encodeURIComponent 后用 '/' 连回，保留子目录结构。
+function encodeArtifactPath(name: string): string {
+  return name.split('/').map(encodeURIComponent).join('/')
+}
+
+// 下载单个产物（E1，P2）。下载需带鉴权头，故走 fetch+blob，触发浏览器另存。
+// 文件名优先用后端 Content-Disposition；缺失时回退 name 的 basename。
+export async function downloadArtifact(id: string, name: string): Promise<void> {
+  const url = `/v1/jobs/${encodeURIComponent(id)}/artifacts/${encodeArtifactPath(name)}`
+  const res = await fetch(url, { headers: authHeaders() })
+  if (res.status === 401) {
+    triggerUnauthorized()
+    throw new Error('未授权（401）：token 无效或已失效')
+  }
+  if (!res.ok) {
+    return raiseForStatus(res)
+  }
+  const blob = await res.blob()
+  const objURL = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = objURL
+  a.download = name.split('/').pop() ?? name
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(objURL)
 }
 
 export function cancelJob(id: string): Promise<Job> {
