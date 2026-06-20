@@ -5,13 +5,16 @@
 package client
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"time"
 
@@ -136,6 +139,60 @@ func (c *Client) GetJob(id string) (job.JobResult, error) {
 	return res, err
 }
 
+// ListJobs queries GET /v1/jobs with the given filters and returns the unwrapped
+// job array (from the {"jobs":[...]} envelope). Empty filter fields are omitted
+// from the query string. It reuses job.ListOpts (the same shape the server
+// consumes) so the CLI (P2-c) and the server stay in lockstep; a zero-value opts
+// lists every project's jobs up to the server default limit.
+func (c *Client) ListJobs(opts job.ListOpts) ([]job.JobResult, error) {
+	q := url.Values{}
+	if opts.Project != "" {
+		q.Set("project", opts.Project)
+	}
+	if opts.Status != "" {
+		q.Set("status", opts.Status)
+	}
+	if opts.Caller != "" {
+		q.Set("caller", opts.Caller)
+	}
+	if opts.Tag != "" {
+		q.Set("tag", opts.Tag)
+	}
+	if opts.Agent != "" {
+		q.Set("agent", opts.Agent)
+	}
+	if opts.Runner != "" {
+		q.Set("runner", opts.Runner)
+	}
+	if opts.Since > 0 {
+		q.Set("since", strconv.FormatInt(opts.Since, 10))
+	}
+	if opts.Limit > 0 {
+		q.Set("limit", strconv.Itoa(opts.Limit))
+	}
+	path := "/v1/jobs"
+	if enc := q.Encode(); enc != "" {
+		path += "?" + enc
+	}
+	var resp struct {
+		Jobs []job.JobResult `json:"jobs"`
+	}
+	if err := c.doJSON(http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Jobs, nil
+}
+
+// GetJobRequest fetches the original JobRequest a job was created from
+// (GET /v1/jobs/{id}/request, P2-b). It is used by `job rerun` to re-submit the
+// same request. An unknown id or a job with no recorded request yields a 404
+// surfaced as an error.
+func (c *Client) GetJobRequest(id string) (job.JobRequest, error) {
+	var req job.JobRequest
+	err := c.doJSON(http.MethodGet, "/v1/jobs/"+url.PathEscape(id)+"/request", nil, &req)
+	return req, err
+}
+
 // ListArtifacts fetches a peer job's artifact manifest (GET
 // /v1/jobs/{id}/artifacts) and returns the bare `[]ArtifactItem` array as raw
 // JSON (the inner "artifacts" array, unwrapped from the {"artifacts":[...]}
@@ -201,7 +258,17 @@ func (c *Client) AnswerInteraction(jobID, interactionID, answer string) error {
 // It exists so a remote runner (internal/runner/peerhttp) can consume a peer's
 // log stream without re-deriving the base URL / auth wiring.
 func (c *Client) OpenStream(ctx context.Context, id string) (*http.Response, error) {
+	return c.openStream(ctx, id, 0)
+}
+
+// openStream is the shared stream opener behind OpenStream / StreamJob. from > 0
+// resumes stdout from a byte offset via the ?from= query (the path id is escaped
+// as a path segment, the offset as a query param).
+func (c *Client) openStream(ctx context.Context, id string, from int) (*http.Response, error) {
 	streamURL := c.baseURL + "/v1/jobs/" + url.PathEscape(id) + "/stream"
+	if from > 0 {
+		streamURL += "?from=" + strconv.Itoa(from)
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, streamURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("build stream request: %w", err)
@@ -226,6 +293,59 @@ func (c *Client) OpenStream(ctx context.Context, id string) (*http.Response, err
 		return nil, fmt.Errorf("stream %s: unexpected status %d", id, resp.StatusCode)
 	}
 	return resp, nil
+}
+
+// StreamJob opens the job's SSE stream (GET /v1/jobs/{id}/stream?from=) under
+// ctx and invokes onEvent for each parsed frame in order. It returns when the
+// stream emits an `end` event, the connection closes (EOF), or ctx is cancelled.
+// The from offset resumes the stdout stream from a byte position (<=0 starts at
+// the beginning). It reuses ParseSSE (the same Go-side frame parser the
+// peer-http runner consumes), buffering across reads so a frame split over two
+// reads is still parsed once whole. A transport error other than EOF is
+// returned; ctx cancellation returns nil (a clean caller-driven stop).
+func (c *Client) StreamJob(ctx context.Context, id string, from int, onEvent func(SSEEvent)) error {
+	resp, err := c.openStream(ctx, id, from)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	reader := bufio.NewReader(resp.Body)
+	var buf []byte
+	tmp := make([]byte, 32*1024)
+	for {
+		if ctx.Err() != nil {
+			return nil
+		}
+		n, readErr := reader.Read(tmp)
+		if n > 0 {
+			buf = append(buf, tmp[:n]...)
+			frames, rest := ParseSSE(string(buf))
+			buf = []byte(rest)
+			for _, fr := range frames {
+				onEvent(fr)
+				if fr.Event == "end" {
+					return nil
+				}
+			}
+		}
+		if readErr != nil {
+			// EOF or transport error: drain any complete trailing frame, then stop.
+			if len(buf) > 0 {
+				frames, _ := ParseSSE(string(buf) + "\n\n")
+				for _, fr := range frames {
+					onEvent(fr)
+					if fr.Event == "end" {
+						return nil
+					}
+				}
+			}
+			if errors.Is(readErr, io.EOF) || ctx.Err() != nil {
+				return nil
+			}
+			return fmt.Errorf("read stream %s: %w", id, readErr)
+		}
+	}
 }
 
 // doJSON performs the request and decodes a JSON body into out on 2xx; non-2xx

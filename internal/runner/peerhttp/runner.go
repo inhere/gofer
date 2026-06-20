@@ -162,7 +162,7 @@ func (r *Runner) mirrorStream(ctx context.Context, peerID string, req runner.Req
 		n, readErr := reader.Read(tmp)
 		if n > 0 {
 			buf = append(buf, tmp[:n]...)
-			frames, rest := parseSSE(string(buf))
+			frames, rest := client.ParseSSE(string(buf))
 			buf = []byte(rest)
 			for _, fr := range frames {
 				if r.handleFrame(ctx, fr, req, peerID, seen) {
@@ -173,7 +173,7 @@ func (r *Runner) mirrorStream(ctx context.Context, peerID string, req runner.Req
 		if readErr != nil {
 			// EOF or transport error: drain any complete trailing frame, then stop.
 			if len(buf) > 0 {
-				frames, _ := parseSSE(string(buf) + "\n\n")
+				frames, _ := client.ParseSSE(string(buf) + "\n\n")
 				for _, fr := range frames {
 					if r.handleFrame(ctx, fr, req, peerID, seen) {
 						return
@@ -189,11 +189,11 @@ func (r *Runner) mirrorStream(ctx context.Context, peerID string, req runner.Req
 // writer; `interaction` (action "open") bridges the peer interaction onto the
 // host job and forwards the host answer back to the peer; `status` (terminal) and
 // `end` signal the stream is finished (returns true). Unknown events are ignored.
-func (r *Runner) handleFrame(ctx context.Context, fr sseFrame, req runner.Request, peerID string, seen map[string]bool) (done bool) {
+func (r *Runner) handleFrame(ctx context.Context, fr client.SSEEvent, req runner.Request, peerID string, seen map[string]bool) (done bool) {
 	switch fr.Event {
 	case "log":
 		var lf logFrame
-		if err := json.Unmarshal([]byte(fr.Data), &lf); err != nil {
+		if err := json.Unmarshal(fr.Data, &lf); err != nil {
 			return false
 		}
 		w := req.Stdout
@@ -205,7 +205,7 @@ func (r *Runner) handleFrame(ctx context.Context, fr sseFrame, req runner.Reques
 		}
 	case "interaction":
 		var ifr peerInteractionFrame
-		if err := json.Unmarshal([]byte(fr.Data), &ifr); err != nil {
+		if err := json.Unmarshal(fr.Data, &ifr); err != nil {
 			return false
 		}
 		if ifr.Action == "open" && req.Interactions != nil && !seen[ifr.Interaction.ID] {
@@ -231,7 +231,7 @@ func (r *Runner) handleFrame(ctx context.Context, fr sseFrame, req runner.Reques
 		return false // interaction is NOT terminal; keep streaming
 	case "status":
 		var jr job.JobResult
-		if err := json.Unmarshal([]byte(fr.Data), &jr); err == nil && job.IsTerminal(jr.Status) {
+		if err := json.Unmarshal(fr.Data, &jr); err == nil && job.IsTerminal(jr.Status) {
 			return true
 		}
 	case "end":
