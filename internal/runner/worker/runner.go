@@ -132,7 +132,15 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	// disconnect (§5.3) or ctx end.
 	select {
 	case res := <-sink.resultCh:
-		return runner.Result{ExitCode: res.ExitCode, Err: errFromResult(res)}
+		// P4: attach the worker-captured产出 (delivered just before this result via
+		// OnOutcome). Source marks it ran on this worker so the详情 can标注 it (大
+		// 产物文件留 worker 侧, only清单+小结果回传 — D6). nil when the worker is old
+		// and sent no outcome frame (host job outcome then stays empty —回归红线).
+		return runner.Result{
+			ExitCode: res.ExitCode,
+			Err:      errFromResult(res),
+			Outcome:  outcomeFrom(sink.takeOutcome(), workerID),
+		}
 	case err := <-sink.lostCh:
 		// WP3 worker-lost (§5.3): the hub dropped the worker connection while this
 		// job was in flight. Return a non-nil Err with NO ctx deadline/cancel, so
@@ -149,6 +157,24 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// no sink and is dropped.
 		_ = r.hub.Cancel(workerID, req.JobID)
 		return runner.Result{ExitCode: -1, Err: ctx.Err()}
+	}
+}
+
+// outcomeFrom projects a worker-sent Outcome frame onto a runner.Outcome,
+// stamping Source="worker:<id>" so the host job records WHERE it ran (P4-c). A
+// nil frame (old worker, no产出回传) yields nil so the host job outcome stays
+// empty (回归红线). Artifacts is the raw清单 JSON the worker already serialised —
+// passed through verbatim (大产物文件本身留 worker 侧, D6).
+func outcomeFrom(o *wsproto.Outcome, workerID string) *runner.Outcome {
+	if o == nil {
+		return nil
+	}
+	return &runner.Outcome{
+		RenderedCommand: o.RenderedCommand,
+		ResultJSON:      o.ResultJSON,
+		DiffSummary:     o.DiffSummary,
+		Artifacts:       o.Artifacts,
+		Source:          "worker:" + workerID,
 	}
 }
 
@@ -190,6 +216,11 @@ type boundedSink struct {
 
 	mu        sync.Mutex
 	truncated bool
+	// outcome stashes the P4 worker-captured产出 frame, delivered just before the
+	// terminal result frame (strict read-loop ordering). Run reads it after the
+	// result lands and returns it on runner.Result.Outcome. nil when an old worker
+	// sends no outcome frame (回归红线: host job outcome stays empty).
+	outcome *wsproto.Outcome
 }
 
 func newBoundedSink(stdout, stderr io.Writer) *boundedSink {
@@ -237,6 +268,24 @@ func (s *boundedSink) OnInteraction(action string, interaction json.RawMessage) 
 	if s.bridge != nil {
 		s.bridge.handle(action, interaction)
 	}
+}
+
+// OnOutcome implements wshub.JobSink: it stashes the worker-captured产出 frame
+// (P4). It arrives strictly before Finish (the worker sends it just before the
+// result frame, enforced by the hub's single in-order read loop), so Run reads
+// s.outcome only after the result lands — no lock needed there beyond this write.
+func (s *boundedSink) OnOutcome(o wsproto.Outcome) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cp := o
+	s.outcome = &cp
+}
+
+// takeOutcome returns the stashed outcome frame (nil when the worker sent none).
+func (s *boundedSink) takeOutcome() *wsproto.Outcome {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.outcome
 }
 
 // Finish implements wshub.JobSink: it delivers the terminal result, non-blocking

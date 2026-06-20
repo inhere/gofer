@@ -42,6 +42,12 @@ func (s *fakeSink) OnInteraction(action string, _ json.RawMessage) {
 	s.mu.Unlock()
 }
 
+func (s *fakeSink) OnOutcome(o wsproto.Outcome) {
+	s.mu.Lock()
+	s.events = append(s.events, "outcome:"+o.ResultJSON)
+	s.mu.Unlock()
+}
+
 func (s *fakeSink) Finish(res wsproto.Result) {
 	s.mu.Lock()
 	s.events = append(s.events, "finish:"+res.Status)
@@ -243,6 +249,91 @@ func TestReadLoopOrdering(t *testing.T) {
 		if got[i] != want[i] {
 			t.Fatalf("event[%d] = %q, want %q (order=%v)", i, got[i], want[i], got)
 		}
+	}
+}
+
+// TestReadLoopOutcomeBeforeResult (P4): a worker pushes log → outcome → result;
+// the hub must demux the outcome frame to the sink's OnOutcome strictly before
+// Finish (so the workerRunner can attach the outcome to the terminal result).
+func TestReadLoopOutcomeBeforeResult(t *testing.T) {
+	hub := New(map[string]string{"w1": "w1"})
+	_, wsURL := hubServer(t, hub, "w1")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, reg := dialAndRegister(t, ctx, wsURL, "w1")
+	defer conn.Close(websocket.StatusNormalClosure, "")
+	if !reg.Accepted {
+		t.Fatal("register rejected")
+	}
+
+	sink := newFakeSink()
+	if err := hub.RegisterSink("w1", "j1", sink); err != nil {
+		t.Fatalf("RegisterSink: %v", err)
+	}
+	push := func(ty wsproto.FrameType, payload any) {
+		if err := wsjson.Write(ctx, conn, wsproto.Envelope{Type: ty, JobID: "j1", Payload: mustRaw(payload)}); err != nil {
+			panic(err)
+		}
+	}
+	push(wsproto.TypeLog, wsproto.Log{JobID: "j1", Stream: "stdout", Seq: 1, Text: "one"})
+	push(wsproto.TypeOutcome, wsproto.Outcome{JobID: "j1", ResultJSON: `{"k":1}`})
+	push(wsproto.TypeResult, wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
+
+	select {
+	case <-sink.finished:
+	case <-ctx.Done():
+		t.Fatal("did not observe finish")
+	}
+	got := sink.snapshot()
+	want := []string{"log:one", `outcome:{"k":1}`, "finish:done"}
+	if len(got) != len(want) {
+		t.Fatalf("events = %v, want %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("event[%d] = %q, want %q (order=%v)", i, got[i], want[i], got)
+		}
+	}
+}
+
+// TestReadLoopUnknownFrameIgnored (P4 回归红线): a frame with an unknown opcode
+// (a future/newer worker, or any unrecognised type) must be silently ignored —
+// it must NOT break the read loop, so a later result for the same job still
+// finishes it. This guards the "old/new worker compatibility" invariant.
+func TestReadLoopUnknownFrameIgnored(t *testing.T) {
+	hub := New(map[string]string{"w1": "w1"})
+	_, wsURL := hubServer(t, hub, "w1")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	conn, reg := dialAndRegister(t, ctx, wsURL, "w1")
+	defer conn.Close(websocket.StatusNormalClosure, "")
+	if !reg.Accepted {
+		t.Fatal("register rejected")
+	}
+	sink := newFakeSink()
+	if err := hub.RegisterSink("w1", "j1", sink); err != nil {
+		t.Fatalf("RegisterSink: %v", err)
+	}
+	// An entirely unknown opcode must be tolerated (forward compat, review #6).
+	if err := wsjson.Write(ctx, conn, wsproto.Envelope{
+		Type: wsproto.FrameType("brand-new-frame"), JobID: "j1",
+		Payload: mustRaw(map[string]any{"x": 1}),
+	}); err != nil {
+		t.Fatalf("write unknown frame: %v", err)
+	}
+	// The read loop must still be alive: a result still finishes the job.
+	if err := wsjson.Write(ctx, conn, wsproto.Envelope{
+		Type: wsproto.TypeResult, JobID: "j1",
+		Payload: mustRaw(wsproto.Result{JobID: "j1", Status: "done"}),
+	}); err != nil {
+		t.Fatalf("write result: %v", err)
+	}
+	select {
+	case <-sink.finished:
+	case <-ctx.Done():
+		t.Fatal("an unknown frame broke the read loop (result never finished the job)")
 	}
 }
 

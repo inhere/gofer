@@ -89,6 +89,9 @@ type JobResult struct {
 	ArtifactsJSON string `json:"-"`
 	// DiffSummary git diff --stat 截断摘要（E12，P3）。
 	DiffSummary string `json:"diff_summary,omitempty"`
+	// Source 标记 job 实际执行位置（P4）：""(local) / worker:<id> / peer:<name>。
+	// 远端 runner 回传时填充并入库，详情据此标注执行来源（P4-c）。
+	Source string `json:"source,omitempty"`
 }
 
 // Job status values (plan §6.2).

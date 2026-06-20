@@ -75,7 +75,8 @@ var schemaStmts = []string{
   rendered_command TEXT,
   result_json      TEXT,
   artifacts_json   TEXT,
-  diff_summary     TEXT
+  diff_summary     TEXT,
+  source           TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -188,6 +189,9 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := add("diff_summary", "diff_summary TEXT"); err != nil { // E12 diff 摘要(P3)
+		return err
+	}
+	if err := add("source", "source TEXT"); err != nil { // P4 执行来源 worker:/peer:
 		return err
 	}
 	// Partial unique index: only non-empty request_id values are constrained, so

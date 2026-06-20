@@ -32,6 +32,12 @@ type JobSink interface {
 	// sink's own goroutine, not this call). The answer is sent back over WS via
 	// the hub the sink was constructed with.
 	OnInteraction(action string, interaction json.RawMessage)
+	// OnOutcome stashes the worker-captured产出 (P4) for the job; the workerRunner
+	// returns it on the runner.Result so the host applies it before finishing. It
+	// arrives strictly BEFORE Finish (the worker sends the outcome frame just
+	// before the result frame), enforced by the single in-order read loop. It must
+	// be non-blocking (the hub's read loop).
+	OnOutcome(o wsproto.Outcome)
 	// Finish delivers the authoritative terminal result, unblocking the
 	// workerRunner.Run wait. It must be non-blocking (drop a duplicate result).
 	Finish(res wsproto.Result)

@@ -6,6 +6,7 @@ package runner
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 )
 
@@ -101,7 +102,37 @@ type Forward struct {
 // (or a synthetic non-zero when the process could not start / was killed); Err
 // carries the underlying error when execution failed or the context ended. The
 // job service maps ExitCode/Err plus the context reason to a job status.
+//
+// Outcome is the P4 remote-capture channel: a LOCAL runner leaves it nil (the
+// job service then captures产出 from its own result dir / DB — P1–P3). A REMOTE
+// runner (worker / peer-http) executed the job on another machine, so it carries
+// the产出 captured there back to the host job here; the job service detects a
+// non-nil Outcome and applies it directly instead of scanning a (远端) result dir
+// the host does not own (design §6.6 / D6).
 type Result struct {
 	ExitCode int
 	Err      error
+	// Outcome, when non-nil, carries产出 captured on a remote execution machine
+	// (worker / peer). Nil for local jobs. See Outcome doc.
+	Outcome *Outcome
+}
+
+// Outcome is the产出与审计 payload a REMOTE runner回传 from the execution machine
+// to the host job (P4, design §6.6). v1 carries only清单+小结果: the rendered
+// command, the structured result.json, the diff摘要 and the artifacts清单
+// METADATA — the大产物文件本身留 worker 侧/共享盘, NOT inlined here (D6).
+//
+// Artifacts is carried as raw JSON (the `[]ArtifactItem` manifest the execution
+// machine already serialised) so the runner package stays a cycle-free leaf: the
+// job package owns ArtifactItem and imports runner, never the reverse. The job
+// service applies it verbatim into the jobs.artifacts_json column.
+type Outcome struct {
+	RenderedCommand string          `json:"rendered_command,omitempty"`
+	ResultJSON      string          `json:"result_json,omitempty"`
+	DiffSummary     string          `json:"diff_summary,omitempty"`
+	Artifacts       json.RawMessage `json:"artifacts,omitempty"` // []ArtifactItem 清单元数据(JSON)
+	// Source marks WHERE the job actually ran: "worker:<id>" or "peer:<name>"
+	// (empty for local). It is persisted (jobs.source) and surfaced so the详情
+	// can标注 "在 worker w-xxx / peer X 执行" (P4-c).
+	Source string `json:"source,omitempty"`
 }

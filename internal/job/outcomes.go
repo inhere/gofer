@@ -27,10 +27,11 @@ var captureHook func(*jobEntry, runner.Request)
 // 在 finish 之前 —— finish 的 snap := entry.result 会带上它们一并 persist，
 // 无需改 finish 签名。
 //
-// 仅 local 有数据：远端(worker/peer)的 req.Command 为空、result_dir 在执行侧，
-// P4 经回传补。本阶段(P1)实现 E15 渲染命令 + E6 结构化结果；E1 产物清单(P2) /
-// E12 diff(P3) 的接入点以注释保留。
-func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request) {
+// 分流(P4)：远端 runner(worker/peer)已在执行机本地采集产出并经 res.Outcome 回传
+// → 直接 applyOutcome 落库（host 不持有远端 result_dir，无从磁盘扫描）。本地 runner
+// res.Outcome 为 nil → 走 P1–P3 的本地磁盘扫描（E15 渲染命令 / E6 结构化结果 /
+// E1 产物清单 / E12 diff）。
+func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runner.Result) {
 	// best-effort 总闸：任何采集子步骤 panic 也被吞掉，绝不让产出采集影响 job 终态。
 	defer func() {
 		if r := recover(); r != nil {
@@ -40,6 +41,12 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request) {
 
 	if captureHook != nil {
 		captureHook(entry, req) // 测试注入：验证 best-effort（panic 被吞，job 仍 done）。
+	}
+
+	// 远端：执行机已 capture 并经 res.Outcome 回传 → 直接落，不再扫盘（P4）。
+	if res.Outcome != nil {
+		s.applyOutcome(entry, res.Outcome)
+		return
 	}
 
 	entry.mu.Lock()
@@ -77,6 +84,34 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request) {
 		entry.result.DiffSummary = diffSummary
 	}
 	entry.mu.Unlock()
+}
+
+// applyOutcome 把远端 runner 回传的 Outcome 落到 entry.result（P4）。它只写非空字段
+// （远端某项缺省时不覆盖），并把 Source 一并写入以标注执行来源（worker:/peer:）。
+// Artifacts 是远端已序列化好的 []ArtifactItem 清单 JSON，验证后原样写入 ArtifactsJSON
+// （非法 JSON 跳过，避免污染 DB / 后续 manifestFor 解析失败）。
+func (s *Service) applyOutcome(entry *jobEntry, o *runner.Outcome) {
+	entry.mu.Lock()
+	defer entry.mu.Unlock()
+	if o.RenderedCommand != "" {
+		entry.result.RenderedCommand = o.RenderedCommand
+	}
+	if o.ResultJSON != "" {
+		entry.result.ResultJSON = o.ResultJSON
+	}
+	if o.DiffSummary != "" {
+		entry.result.DiffSummary = o.DiffSummary
+	}
+	if len(o.Artifacts) > 0 {
+		if json.Valid(o.Artifacts) {
+			entry.result.ArtifactsJSON = string(o.Artifacts)
+		} else {
+			log.Printf("applyOutcome: remote artifacts manifest for job %s is not valid JSON, skipped", entry.result.ID)
+		}
+	}
+	if o.Source != "" {
+		entry.result.Source = o.Source
+	}
 }
 
 // shouldCaptureDiff reports whether E12 git-diff capture is enabled for the job's

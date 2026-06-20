@@ -55,12 +55,40 @@ func (cl *Client) handleDispatch(ctx context.Context, d wsproto.Dispatch) {
 		})
 		return
 	}
+
+	// 产出与审计回传(P4)：本地 job 已由共享 job.Service 在终态 captureOutcomes 采集
+	// (渲染命令/result.json/diff/产物清单, P1–P3)。把清单+小结果经 Outcome 帧回传
+	// host（大产物文件留 worker 侧, 不进帧 — D6），在 Result 帧之前发出，保证 host
+	// 端读循环先 OnOutcome 再 Finish。仅在有产出时发，旧 worker 不发 = host 端为空。
+	if o, send := outcomeFrame(d.JobID, final); send {
+		_ = cl.writeFrame(ctx, wsproto.TypeOutcome, d.JobID, o)
+	}
+
 	_ = cl.writeFrame(ctx, wsproto.TypeResult, d.JobID, wsproto.Result{
 		JobID:    d.JobID,
 		Status:   final.Status,
 		ExitCode: final.ExitCode,
 		Error:    final.Error,
 	})
+}
+
+// outcomeFrame builds the P4 Outcome frame from the worker's local terminal
+// JobResult (产出已由共享 job.Service 在终态 captureOutcomes 落到该 JobResult)。它
+// 只回清单+小结果: rendered_command / result.json / diff摘要 / 产物清单元数据
+// (ArtifactsJSON 是已序列化的 []ArtifactItem JSON, 原样塞 raw)。send=false 表示无
+// 任何产出 → 不发帧 (host 端 outcome 为空)。大产物文件本身留 worker 侧 (D6)。
+func outcomeFrame(remoteJobID string, final job.JobResult) (wsproto.Outcome, bool) {
+	o := wsproto.Outcome{
+		JobID:           remoteJobID,
+		RenderedCommand: final.RenderedCommand,
+		ResultJSON:      final.ResultJSON,
+		DiffSummary:     final.DiffSummary,
+	}
+	if final.ArtifactsJSON != "" {
+		o.Artifacts = json.RawMessage(final.ArtifactsJSON)
+	}
+	send := o.RenderedCommand != "" || o.ResultJSON != "" || o.DiffSummary != "" || len(o.Artifacts) > 0
+	return o, send
 }
 
 // streamLocalJob tails the local job's stdout.log / stderr.log incrementally and
