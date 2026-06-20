@@ -115,15 +115,22 @@ func submitStatus(err error) int {
 }
 
 // handleListJobs returns job snapshots merged from the per-project index and
-// the in-memory live state. Optional query params: status, project, limit (a
-// non-numeric limit falls back to the default). The list is always a non-nil
-// array, so an empty result serialises as {"jobs":[]}.
+// the in-memory live state. Optional query params: status, project, caller,
+// tag, agent, runner, since (unix 秒), limit. A non-numeric limit/since falls
+// back to 0 (default/no-filter). The list is always a non-nil array, so an empty
+// result serialises as {"jobs":[]}.
 func (s *Server) handleListJobs(c *rux.Context) {
 	limit, _ := strconv.Atoi(c.Query("limit"))
+	// since 非数值 -> 0 -> 不过滤（仿 limit 容错）。
+	since, _ := strconv.ParseInt(c.Query("since"), 10, 64)
 	list, err := s.jobs.ListJobs(job.ListOpts{
 		Project: c.Query("project"),
 		Status:  c.Query("status"),
 		Caller:  c.Query("caller"),
+		Tag:     c.Query("tag"),
+		Agent:   c.Query("agent"),
+		Runner:  c.Query("runner"),
+		Since:   since,
 		Limit:   limit,
 	})
 	if err != nil {
