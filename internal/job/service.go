@@ -284,6 +284,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			RequestJSON: string(reqJSON),
 			CallerID:    req.CallerID,
 			RequestID:   req.RequestID,
+			Tags:        req.Tags,
 		},
 	}
 	s.mu.Lock()
@@ -476,7 +477,32 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		ArtifactsJSON:   r.ArtifactsJSON,
 		DiffSummary:     r.DiffSummary,
 		Source:          r.Source,
+		TagsJSON:        marshalTags(r.Tags),
 	}
+}
+
+// marshalTags 把 tags 序列化为 tags_json 入库原文（E5）。best-effort：空/失败存 ""。
+func marshalTags(tags []string) string {
+	if len(tags) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(tags)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// unmarshalTags 把 tags_json 原文反序列化为 tags（E5）。空/非法返回 nil（omitempty 不出现）。
+func unmarshalTags(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var t []string
+	if json.Unmarshal([]byte(s), &t) != nil {
+		return nil
+	}
+	return t
 }
 
 // fromRecord rebuilds a JobResult from a persisted jobstore.JobRecord. It is the
@@ -506,6 +532,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		ArtifactsJSON:   rec.ArtifactsJSON,
 		DiffSummary:     rec.DiffSummary,
 		Source:          rec.Source,
+		Tags:            unmarshalTags(rec.TagsJSON),
 	}
 }
 

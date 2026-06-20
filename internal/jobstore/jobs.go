@@ -58,6 +58,9 @@ type JobRecord struct {
 	DiffSummary     string // git diff --stat 截断摘要（E12，P3）
 	// Source 标记 job 实际执行位置（P4）：""(local) / worker:<id> / peer:<name>。
 	Source string
+	// TagsJSON 是 job 标签的 JSON 数组原文（E5），如 `["a","b"]`。空表示无标签。
+	// 入库后用于 tags_json LIKE 检索（ListQuery.Tag）；与 job.JobResult.Tags 互转。
+	TagsJSON string
 }
 
 // ListQuery filters/bounds a ListJobs query. A zero value lists every project's
@@ -66,6 +69,9 @@ type ListQuery struct {
 	Project string // exact project_key match when non-empty
 	Status  string // exact status match when non-empty
 	Caller  string // exact caller_id match when non-empty (C2)
+	Tag     string // tags_json contains this tag element when non-empty (E5)
+	Agent   string // exact agent match when non-empty (E5)
+	Runner  string // exact runner match when non-empty (E5)
 	Limit   int    // <= 0 => DefaultListLimit
 	Offset  int    // skip the first Offset rows (pagination); ignored when <= 0
 	Since   int64  // when > 0, keep only jobs with started_at >= Since
@@ -80,7 +86,7 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(worker_id,''
   COALESCE(caller_id,''), COALESCE(request_id,''),
   COALESCE(rendered_command,''), COALESCE(result_json,''),
   COALESCE(artifacts_json,''), COALESCE(diff_summary,''),
-  COALESCE(source,'') FROM jobs`
+  COALESCE(source,''), COALESCE(tags_json,'') FROM jobs`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -96,7 +102,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.Error, &r.StartedAt, &r.EndedAt, &r.UpdatedAt,
 		&r.CallerID, &r.RequestID,
 		&r.RenderedCommand, &r.ResultJSON, &r.ArtifactsJSON, &r.DiffSummary,
-		&r.Source,
+		&r.Source, &r.TagsJSON,
 	)
 	return r, err
 }
@@ -116,8 +122,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 	const q = `INSERT INTO jobs
   (id, project_key, agent, runner, worker_id, status, exit_code, cwd, result_dir,
    request_json, error, started_at, ended_at, updated_at, caller_id, request_id,
-   rendered_command, result_json, artifacts_json, diff_summary, source)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+   rendered_command, result_json, artifacts_json, diff_summary, source, tags_json)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -138,7 +144,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     result_json=excluded.result_json,
     artifacts_json=excluded.artifacts_json,
     diff_summary=excluded.diff_summary,
-    source=excluded.source`
+    source=excluded.source,
+    tags_json=excluded.tags_json`
 	// Serialise writes in-process (see Store.writeMu) so SQLite never sees two
 	// concurrent writers and cannot return SQLITE_BUSY under burst.
 	s.writeMu.Lock()
@@ -149,7 +156,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.Error, rec.StartedAt, rec.EndedAt, rec.UpdatedAt,
 		rec.CallerID, rec.RequestID,
 		rec.RenderedCommand, rec.ResultJSON, rec.ArtifactsJSON, rec.DiffSummary,
-		rec.Source,
+		rec.Source, rec.TagsJSON,
 	)
 	if err != nil {
 		// A competing INSERT with the same non-empty request_id (different id)
@@ -222,6 +229,20 @@ func (s *Store) ListJobs(q ListQuery) ([]JobRecord, error) {
 	if q.Caller != "" {
 		where = append(where, "caller_id = ?")
 		args = append(args, q.Caller)
+	}
+	if q.Tag != "" {
+		// 匹配 JSON 数组里的 "<tag>" 元素：含引号避免子串误命中（查 a 不命中 ["ab"]）。
+		// 走预编译占位符，tag 值仅作为参数传入，杜绝注入（D2 子串近似可接受）。
+		where = append(where, "tags_json LIKE ?")
+		args = append(args, "%\""+q.Tag+"\"%")
+	}
+	if q.Agent != "" {
+		where = append(where, "agent = ?")
+		args = append(args, q.Agent)
+	}
+	if q.Runner != "" {
+		where = append(where, "runner = ?")
+		args = append(args, q.Runner)
 	}
 	if q.Since > 0 {
 		where = append(where, "started_at >= ?")
