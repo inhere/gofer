@@ -23,6 +23,10 @@ const (
 	TypeLog        FrameType = "log"        // w→s
 	TypeStatus     FrameType = "status"     // w→s
 	TypeResult     FrameType = "result"     // w→s
+	// TypeOutcome (w→s, P4 产出与审计回传): sent just before the terminal result so
+	// the host applies the worker-captured产出 before finishing the job. Optional —
+	// an old worker never sends it (the read loop ignores an unknown opcode anyway).
+	TypeOutcome FrameType = "outcome" // w→s
 
 	// P2 frames (declared as placeholders; behaviour implemented in P2).
 	TypeCancel      FrameType = "cancel"      // s→w

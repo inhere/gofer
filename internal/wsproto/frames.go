@@ -61,6 +61,22 @@ type Result struct {
 	Error    string `json:"error,omitempty"`
 }
 
+// Outcome (w→s, P4): the产出与审计 payload the worker captured locally for a job,
+// sent JUST BEFORE the terminal Result frame so the host can apply it before
+// finishing the job (design §6.6 / D6). v1 carries only清单+小结果: rendered
+// command / structured result.json / diff摘要 / artifacts清单 METADATA — the大
+// 产物文件本身留 worker 侧（不进帧）. Artifacts stays raw JSON so wsproto need not
+// import job (job owns ArtifactItem). The frame is OPTIONAL: an old worker that
+// never sends it leaves the host job outcome empty (回归红线, the hub's read loop
+// safely ignores an unknown opcode regardless).
+type Outcome struct {
+	JobID           string          `json:"job_id"`
+	RenderedCommand string          `json:"rendered_command,omitempty"`
+	ResultJSON      string          `json:"result_json,omitempty"`
+	DiffSummary     string          `json:"diff_summary,omitempty"`
+	Artifacts       json.RawMessage `json:"artifacts,omitempty"`
+}
+
 // --- P2/P3 placeholders: declared so the protocol is complete (review #6); the
 // hub/worker do not act on these in WP1. ---
 

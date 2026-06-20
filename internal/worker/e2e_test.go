@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -90,6 +92,14 @@ func buildHubSide(t *testing.T) *hubSide {
 // buildWorkerSide builds the worker's own local job service (project alpha with
 // the exec agent, local runner) and a worker.Client dialing the hub.
 func buildWorkerSide(t *testing.T, hubURL string) *worker.Client {
+	cl, _ := buildWorkerSideJobs(t, hubURL)
+	return cl
+}
+
+// buildWorkerSideJobs is buildWorkerSide that also returns the worker's local job
+// service, so a P4 outcome test can find the dispatched local job's result_dir and
+// seed产出 (result.json / artifacts) into it before the job finishes.
+func buildWorkerSideJobs(t *testing.T, hubURL string) (*worker.Client, *job.Service) {
 	t.Helper()
 	host := t.TempDir()
 	root := t.TempDir()
@@ -116,13 +126,14 @@ func buildWorkerSide(t *testing.T, hubURL string) *worker.Client {
 	localJobs := job.NewService(cfg, projReg, agentReg, runners, st, nil)
 
 	wsURL := "ws" + strings.TrimPrefix(hubURL, "http") + "/v1/workers/connect"
-	return worker.New(worker.Config{
+	cl := worker.New(worker.Config{
 		WorkerID: e2eWorkerID,
 		URLs:     []string{wsURL},
 		Token:    e2eToken,
 		Projects: []string{"alpha"},
 		Agents:   []string{"exec"},
 	}, localJobs)
+	return cl, localJobs
 }
 
 // createJob POSTs a job via the HTTP API and returns the created JobResult.
@@ -220,6 +231,110 @@ func TestE2ERemoteExecution(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Log("worker client did not exit promptly after cancel (non-fatal)")
 	}
+}
+
+// TestE2EWorkerOutcomeCaptured (P4-a full stack): a runner=worker job whose
+// local execution writes a result.json + an artifact has those产出 captured on
+// the WORKER (its shared job.Service runs captureOutcomes at finish), then回传 to
+// the host via the Outcome WS frame. The host job's Get(id) must then carry the
+// rendered command, the result.json, the artifacts清单 and source=worker:<id>.
+func TestE2EWorkerOutcomeCaptured(t *testing.T) {
+	hub := buildHubSide(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 25*time.Second)
+	defer cancel()
+
+	cl, localJobs := buildWorkerSideJobs(t, hub.ts.URL)
+	clientErr := make(chan error, 1)
+	go func() { clientErr <- cl.Run(ctx) }()
+	waitWorkerOnline(t, hub.hub)
+
+	// A long-enough sleep so the test can seed产出 into the worker's local result
+	// dir before the job finishes (mirrors the local outcomes_test seeding pattern).
+	created := createJob(t, hub.ts, job.JobRequest{
+		ProjectKey: "alpha", Agent: "exec", Runner: "remote-w1", WorkerID: e2eWorkerID,
+		Cmd: []string{"sleep", "1.5"}, Cwd: ".", TimeoutSec: 60,
+	})
+	if created.ID == "" {
+		t.Fatal("created job has no id")
+	}
+
+	// Find the worker's LOCAL job (its id differs from the host id) and seed
+	// result.json + an artifact into its result dir while it is still running.
+	localDir := waitWorkerLocalResultDir(t, localJobs)
+	resultJSON := `{"ok":true,"summary":"worker outcome"}`
+	if err := os.WriteFile(filepath.Join(localDir, "result.json"), []byte(resultJSON), 0o600); err != nil {
+		t.Fatalf("seed result.json: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(localDir, "artifacts"), 0o700); err != nil {
+		t.Fatalf("mkdir artifacts: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(localDir, "artifacts", "out.bin"), []byte("hello"), 0o600); err != nil {
+		t.Fatalf("seed artifact: %v", err)
+	}
+
+	// Host job reaches terminal; the worker回传 the Outcome frame before the result.
+	final, ok := hub.jobs.Wait(created.ID)
+	if !ok {
+		t.Fatalf("hub job %s not found", created.ID)
+	}
+	if final.Status != job.StatusDone {
+		t.Fatalf("status = %s (err=%s), want done", final.Status, final.Error)
+	}
+
+	// The host-side Get must now carry the worker-captured产出 + source.
+	got, ok := hub.jobs.Get(created.ID)
+	if !ok {
+		t.Fatalf("host Get(%s) not found", created.ID)
+	}
+	if got.Source != "worker:"+e2eWorkerID {
+		t.Fatalf("source = %q, want worker:%s", got.Source, e2eWorkerID)
+	}
+	if got.ResultJSON != resultJSON {
+		t.Fatalf("result_json = %q, want %q", got.ResultJSON, resultJSON)
+	}
+	if got.RenderedCommand == "" || !strings.Contains(got.RenderedCommand, "sleep") {
+		t.Fatalf("rendered_command = %q, want it to carry the worker-resolved sleep argv", got.RenderedCommand)
+	}
+	if got.ArtifactsJSON == "" || !strings.Contains(got.ArtifactsJSON, "out.bin") {
+		t.Fatalf("artifacts_json = %q, want it to list out.bin", got.ArtifactsJSON)
+	}
+
+	// And the same产出 round-trips through the persisted DB row (host job evicted).
+	rec, ok, err := hub.store.GetJob(created.ID)
+	if err != nil || !ok {
+		t.Fatalf("GetJob persisted: ok=%v err=%v", ok, err)
+	}
+	if rec.Source != "worker:"+e2eWorkerID || rec.ResultJSON != resultJSON || !strings.Contains(rec.ArtifactsJSON, "out.bin") {
+		t.Fatalf("persisted outcome mismatch: source=%q result_json=%q artifacts=%q", rec.Source, rec.ResultJSON, rec.ArtifactsJSON)
+	}
+
+	cancel()
+	select {
+	case <-clientErr:
+	case <-time.After(3 * time.Second):
+		t.Log("worker client did not exit promptly after cancel (non-fatal)")
+	}
+}
+
+// waitWorkerLocalResultDir polls the worker's local job service for the single
+// dispatched job and returns its result_dir (so the test can seed产出 into it
+// before it finishes). The worker has exactly one local job in flight here.
+func waitWorkerLocalResultDir(t *testing.T, localJobs *job.Service) string {
+	t.Helper()
+	deadline := time.Now().Add(8 * time.Second)
+	for time.Now().Before(deadline) {
+		list, err := localJobs.ListJobs(job.ListOpts{Limit: 10})
+		if err == nil {
+			for _, j := range list {
+				if j.ResultDir != "" {
+					return j.ResultDir
+				}
+			}
+		}
+		time.Sleep(30 * time.Millisecond)
+	}
+	t.Fatal("worker local job never appeared")
+	return ""
 }
 
 // TestE2EWorkerDisconnectMidJobFailsJob (WP3 acceptance #4, full stack): a

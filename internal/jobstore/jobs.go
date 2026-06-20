@@ -56,6 +56,8 @@ type JobRecord struct {
 	ResultJSON      string // <result_dir>/result.json 内容（E6）
 	ArtifactsJSON   string // [{name,size,mtime}] 产物清单（E1，P2）
 	DiffSummary     string // git diff --stat 截断摘要（E12，P3）
+	// Source 标记 job 实际执行位置（P4）：""(local) / worker:<id> / peer:<name>。
+	Source string
 }
 
 // ListQuery filters/bounds a ListJobs query. A zero value lists every project's
@@ -77,7 +79,8 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(worker_id,''
   COALESCE(error,''), started_at, COALESCE(ended_at,0), updated_at,
   COALESCE(caller_id,''), COALESCE(request_id,''),
   COALESCE(rendered_command,''), COALESCE(result_json,''),
-  COALESCE(artifacts_json,''), COALESCE(diff_summary,'') FROM jobs`
+  COALESCE(artifacts_json,''), COALESCE(diff_summary,''),
+  COALESCE(source,'') FROM jobs`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -93,6 +96,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.Error, &r.StartedAt, &r.EndedAt, &r.UpdatedAt,
 		&r.CallerID, &r.RequestID,
 		&r.RenderedCommand, &r.ResultJSON, &r.ArtifactsJSON, &r.DiffSummary,
+		&r.Source,
 	)
 	return r, err
 }
@@ -112,8 +116,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 	const q = `INSERT INTO jobs
   (id, project_key, agent, runner, worker_id, status, exit_code, cwd, result_dir,
    request_json, error, started_at, ended_at, updated_at, caller_id, request_id,
-   rendered_command, result_json, artifacts_json, diff_summary)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+   rendered_command, result_json, artifacts_json, diff_summary, source)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -133,7 +137,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     rendered_command=excluded.rendered_command,
     result_json=excluded.result_json,
     artifacts_json=excluded.artifacts_json,
-    diff_summary=excluded.diff_summary`
+    diff_summary=excluded.diff_summary,
+    source=excluded.source`
 	// Serialise writes in-process (see Store.writeMu) so SQLite never sees two
 	// concurrent writers and cannot return SQLITE_BUSY under burst.
 	s.writeMu.Lock()
@@ -144,6 +149,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.Error, rec.StartedAt, rec.EndedAt, rec.UpdatedAt,
 		rec.CallerID, rec.RequestID,
 		rec.RenderedCommand, rec.ResultJSON, rec.ArtifactsJSON, rec.DiffSummary,
+		rec.Source,
 	)
 	if err != nil {
 		// A competing INSERT with the same non-empty request_id (different id)

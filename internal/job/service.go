@@ -385,8 +385,9 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem chan struct{},
 
 	// 产出与审计(job-outcomes-audit)：在终态前 best-effort 采集产出
 	// (渲染命令/结构化结果/…)，写入 entry.result，由随后的 finish 一并 persist。
-	// 绝不影响 job 终态(classify/finish 不受其结果影响)。
-	s.captureOutcomes(entry, req)
+	// 绝不影响 job 终态(classify/finish 不受其结果影响)。res 携带远端回传的 Outcome
+	// (worker/peer)，captureOutcomes 据此分流：远端直接落、本地扫盘(P4)。
+	s.captureOutcomes(entry, req, res)
 
 	status, code, runErr := classify(ctx, res)
 	s.finish(entry, req.JobID, status, code, runErr)
@@ -468,6 +469,7 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		ResultJSON:      r.ResultJSON,
 		ArtifactsJSON:   r.ArtifactsJSON,
 		DiffSummary:     r.DiffSummary,
+		Source:          r.Source,
 	}
 }
 
@@ -497,6 +499,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		ResultJSON:      rec.ResultJSON,
 		ArtifactsJSON:   rec.ArtifactsJSON,
 		DiffSummary:     rec.DiffSummary,
+		Source:          rec.Source,
 	}
 }
 

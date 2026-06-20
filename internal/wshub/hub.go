@@ -272,6 +272,19 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 		case wsproto.TypeStatus:
 			// WP1: status is informational; result is authoritative. Recorded by
 			// the read loop's ordering but not acted on here.
+		case wsproto.TypeOutcome:
+			// P4: the worker-captured产出, sent just before the result frame. Demux
+			// to the job's sink IN ORDER on this single read loop so it is always
+			// observed before Finish. An old worker never sends this frame (the host
+			// job outcome stays empty); an unknown opcode would fall through harmlessly
+			// anyway — both keep the回归红线 intact.
+			of, derr := wsproto.As[wsproto.Outcome](env)
+			if derr != nil {
+				continue
+			}
+			if sk := wc.sink(env.JobID); sk != nil {
+				sk.OnOutcome(of)
+			}
 		case wsproto.TypeResult:
 			rf, derr := wsproto.As[wsproto.Result](env)
 			if derr != nil {

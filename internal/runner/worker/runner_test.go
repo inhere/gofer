@@ -268,6 +268,93 @@ func TestRunResultMapping(t *testing.T) {
 	}
 }
 
+// TestRunOutcomeReturned (P4-a): the hub delivers an Outcome frame (via the
+// sink's OnOutcome) just before the terminal result; Run must return it on
+// runner.Result.Outcome with all 4 captured fields + Source="worker:<id>".
+func TestRunOutcomeReturned(t *testing.T) {
+	h := &fakeHub{}
+	r := newRunnerWithHub(h) // configured worker is "w1"
+	done := make(chan runner.Result, 1)
+	go func() {
+		done <- r.Run(context.Background(), runner.Request{JobID: "j1", Forward: &runner.Forward{}})
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && h.getSink() == nil {
+		time.Sleep(5 * time.Millisecond)
+	}
+	sink := h.getSink()
+	if sink == nil {
+		t.Fatal("sink never registered")
+	}
+	// Outcome frame BEFORE the result frame (matches the worker's send order).
+	sink.OnOutcome(wsproto.Outcome{
+		JobID:           "j1",
+		RenderedCommand: `{"command":"echo","args":["hi"]}`,
+		ResultJSON:      `{"ok":true}`,
+		DiffSummary:     " a.txt | 1 +",
+		Artifacts:       json.RawMessage(`[{"name":"out.bin","size":3,"mtime":1}]`),
+	})
+	sink.Finish(wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
+
+	select {
+	case res := <-done:
+		if res.Outcome == nil {
+			t.Fatal("Result.Outcome is nil, want the worker-captured outcome")
+		}
+		o := res.Outcome
+		if o.RenderedCommand != `{"command":"echo","args":["hi"]}` {
+			t.Fatalf("rendered_command = %q", o.RenderedCommand)
+		}
+		if o.ResultJSON != `{"ok":true}` {
+			t.Fatalf("result_json = %q", o.ResultJSON)
+		}
+		if o.DiffSummary != " a.txt | 1 +" {
+			t.Fatalf("diff_summary = %q", o.DiffSummary)
+		}
+		if string(o.Artifacts) != `[{"name":"out.bin","size":3,"mtime":1}]` {
+			t.Fatalf("artifacts = %q", string(o.Artifacts))
+		}
+		if o.Source != "worker:w1" {
+			t.Fatalf("source = %q, want worker:w1", o.Source)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after Finish")
+	}
+}
+
+// TestRunNoOutcomeFrame (P4-a 回归红线): an OLD worker sends NO outcome frame —
+// only the result — so Run returns a nil Outcome and the host job outcome stays
+// empty (a missing/unknown frame must never break the result path).
+func TestRunNoOutcomeFrame(t *testing.T) {
+	h := &fakeHub{}
+	r := newRunnerWithHub(h)
+	done := make(chan runner.Result, 1)
+	go func() {
+		done <- r.Run(context.Background(), runner.Request{JobID: "j1", Forward: &runner.Forward{}})
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && h.getSink() == nil {
+		time.Sleep(5 * time.Millisecond)
+	}
+	sink := h.getSink()
+	if sink == nil {
+		t.Fatal("sink never registered")
+	}
+	// No OnOutcome — straight to Finish (old worker behaviour).
+	sink.Finish(wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
+	select {
+	case res := <-done:
+		if res.Outcome != nil {
+			t.Fatalf("Result.Outcome = %+v, want nil (no outcome frame from old worker)", res.Outcome)
+		}
+		if res.ExitCode != 0 || res.Err != nil {
+			t.Fatalf("result = %+v, want clean done", res)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after Finish")
+	}
+}
+
 func TestRunCtxCancel(t *testing.T) {
 	h := &fakeHub{}
 	r := newRunnerWithHub(h)
