@@ -39,6 +39,10 @@ type JobRequest struct {
 	// UUID). When set, re-submitting the same RequestID returns the existing job
 	// instead of creating a new one (deduped by the jobs.request_id unique index).
 	RequestID string `json:"request_id,omitempty" yaml:"request_id,omitempty"`
+	// Tags are free-form labels for the job (E5). They are persisted (jobs.tags_json)
+	// and queryable via ?tag= (exact element match). Unlike WorkerLabels (routing,
+	// not stored), Tags are索引/检索维度。
+	Tags []string `json:"tags,omitempty" yaml:"tags,omitempty"`
 }
 
 // JobResult is the persisted/queryable job state (plan §6.2).
@@ -92,6 +96,9 @@ type JobResult struct {
 	// Source 标记 job 实际执行位置（P4）：""(local) / worker:<id> / peer:<name>。
 	// 远端 runner 回传时填充并入库，详情据此标注执行来源（P4-c）。
 	Source string `json:"source,omitempty"`
+	// Tags 是 job 的自由标签（E5），持久化到 jobs.tags_json，支持 ?tag= 检索。
+	// omitempty 保证无标签的 job 响应里不出现该字段。
+	Tags []string `json:"tags,omitempty"`
 }
 
 // Job status values (plan §6.2).
