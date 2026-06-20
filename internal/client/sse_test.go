@@ -1,18 +1,18 @@
-package peerhttp
+package client
 
 import "testing"
 
 // TestParseSSE_BasicFrames splits two complete frames and leaves no remainder.
 func TestParseSSE_BasicFrames(t *testing.T) {
 	in := "event: log\ndata: {\"stream\":\"stdout\",\"text\":\"hi\"}\n\nevent: end\ndata: {}\n\n"
-	frames, rest := parseSSE(in)
+	frames, rest := ParseSSE(in)
 	if rest != "" {
 		t.Fatalf("rest=%q, want empty", rest)
 	}
 	if len(frames) != 2 {
 		t.Fatalf("got %d frames, want 2: %+v", len(frames), frames)
 	}
-	if frames[0].Event != "log" || frames[0].Data != `{"stream":"stdout","text":"hi"}` {
+	if frames[0].Event != "log" || string(frames[0].Data) != `{"stream":"stdout","text":"hi"}` {
 		t.Fatalf("frame0=%+v", frames[0])
 	}
 	if frames[1].Event != "end" {
@@ -24,7 +24,7 @@ func TestParseSSE_BasicFrames(t *testing.T) {
 // the caller can carry it into the next read.
 func TestParseSSE_PartialRemainder(t *testing.T) {
 	in := "event: log\ndata: {\"text\":\"a\"}\n\nevent: log\ndata: {\"text\"" // no closing \n\n
-	frames, rest := parseSSE(in)
+	frames, rest := ParseSSE(in)
 	if len(frames) != 1 {
 		t.Fatalf("got %d frames, want 1", len(frames))
 	}
@@ -37,12 +37,12 @@ func TestParseSSE_PartialRemainder(t *testing.T) {
 // after data:.
 func TestParseSSE_CRLFAndLeadingSpace(t *testing.T) {
 	in := "event: status\r\ndata:  {\"status\":\"done\"}\r\n\r\n"
-	frames, _ := parseSSE(in)
+	frames, _ := ParseSSE(in)
 	if len(frames) != 1 {
 		t.Fatalf("got %d frames, want 1", len(frames))
 	}
 	// data: has TWO spaces; only the first is stripped, leaving one.
-	if frames[0].Event != "status" || frames[0].Data != ` {"status":"done"}` {
+	if frames[0].Event != "status" || string(frames[0].Data) != ` {"status":"done"}` {
 		t.Fatalf("frame=%+v", frames[0])
 	}
 }
@@ -51,7 +51,7 @@ func TestParseSSE_CRLFAndLeadingSpace(t *testing.T) {
 // and frames without an event line.
 func TestParseSSE_IgnoresCommentAndOpenLine(t *testing.T) {
 	in := ": open\n\nevent: log\ndata: {}\n\n"
-	frames, _ := parseSSE(in)
+	frames, _ := ParseSSE(in)
 	if len(frames) != 1 || frames[0].Event != "log" {
 		t.Fatalf("frames=%+v", frames)
 	}
