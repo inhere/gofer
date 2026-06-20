@@ -13,18 +13,21 @@
   - **保留(史实)**：历史 design/plan/runbook 文档记录 codex-bridge→dev-agent-bridge 迁移过程，及 dated 文件名 `*-dev-agent-bridge-*.md`，均不回改（如需全量对齐再单列）。
 - [x] 给 peer-http runner 补 P9 交互透传（commit `1d8ed80`）
   - mirrorStream 处理 peer SSE 的 `interaction` 帧 → 经新增 `runner.InteractionSink`（`job.injectInteraction`）注入 host job（host 转 pending_interaction）；host 侧作答经 `client.AnswerInteraction` POST 回 peer `/answer` 续跑。中性类型在 runner 基包避免 import 环。测试 host+peer 双 bridge E2E。
-- [ ] 支持远端机器运行作为客户端与server通信，暂定使用 ws 协议通信并保持连接
-  - **设计已细化** → [`design/2026-06-17-ws-remote-worker-design.md`](design/2026-06-17-ws-remote-worker-design.md)（Worker 执行机 + 流式推送 server 镜像 + 显式 worker_id + 与 peer-http 并存；WP1-WP4 分期）。待评审后写实施计划。
+- [x] 支持远端机器运行作为客户端与server通信，ws 协议保持连接（**WP1–WP3 + WP4 Workers 仪表盘已落地**，2026-06-19 SUPMODE，逐阶段独立验收全 PASS）
+  - 设计 [`design/2026-06-17-ws-remote-worker-design.md`](design/2026-06-17-ws-remote-worker-design.md) + 实施计划 [`plans/2026-06-19-ws-worker-c6c7/`](plans/2026-06-19-ws-worker-c6c7/)（主 + P0..P4 子文档）。
+  - 落地：P0 spike(`f63e4e4`) / WP1 端到端远程执行(`7442ff6`..`f414742`) / WP2 交互透传+cancel/timeout(`5adefc2`..`e3ca797`) / WP3+C7 心跳/重连/worker-lost/多 worker+多地址退避(`3537826`..`2d98d13`) / WP4 Workers 仪表盘前端(`84655cf`)。
   - 客户端也有任务记录信息 → 已解：server 镜像为 server 侧真源，worker 本地另留一份，互不耦合。
   - 任务输出详情在客户端，server 如何读取？→ 已解：worker 推日志帧、server 写进自己 result_dir，复用既有读路径。
+  - **仍缓做**：WP4 标签自动调度（按 worker labels 自动选机，当前为显式 worker_id 路由）；多 hub HA（C7 大版，显式 out-of-scope）。WP4 仪表盘动画/响应式待真机浏览器眼检。
 
 ### Web 控制台
 
 - [ ] **webui 浅色模式**：当前仅 CRT/终端深色主题。出一套浅色模式（主题切换 + 持久化偏好，跟随系统 `prefers-color-scheme`）。
   - **实施时必须使用 `frontend-design` skill**（设计方向/配色/对比度，避免套默认模板）。
   - 落点：`web/src/styles/tokens.css` 抽明/暗两套 CSS 变量；切换器组件 + sessionStorage/localStorage 记忆；保证对比度达标、`prefers-reduced-motion` 不受影响。
-- [ ] **控制台适配新架构（让"在哪执行"可见）**：看板/详情展示 `runner`（及未来 `worker_id`）；ws-worker 落地后加 **Workers 仪表盘**（连入列表/心跳/在飞 job/标签）；（更大）控制台内提交表单。详见 [`design/architecture-overview.md`](design/architecture-overview.md) §9.2。
-  - 注：peer-http 远端 job 的交互/日志因"镜像"机制已透明呈现在现有控制台，无需改前端即可用；本项是让远端执行位置**可见**。
+- [x] **Workers 仪表盘已落地**（`/runners` 视图：Workers/Peers/Local 名册 + 心跳脉冲签名 + 在飞/标签 + 实时年龄轮询，commit `84655cf`，用 `frontend-design` skill；消费 C6 `/v1/runners`）。
+- [ ] **控制台进一步适配（剩余）**：① 看板/详情行内展示 `runner`/`worker_id` 让"在哪执行"可见；②（更大）控制台内**提交表单**（选 项目/agent/runner/worker_id）。详见 [`design/architecture-overview.md`](design/architecture-overview.md) §9.2。
+  - 注：peer-http/worker 远端 job 的交互/日志因"镜像"机制已透明呈现在现有看板/详情，无需改前端即可用；本项是让远端执行**位置**进一步可见 + 控制台内发起 job。
 
 ### 架构加固（见 [`design/architecture-overview.md`](design/architecture-overview.md) §9.1）
 
@@ -32,9 +35,12 @@
   - 设计：[`design/2026-06-18-sqlite-store-design.md`](design/2026-06-18-sqlite-store-design.md)（SP1–SP5，实施结果与 §16 补记见文末）。
   - 落地：modernc 纯 Go SQLite；DB 存 job 元数据/索引/交互，日志仍文件，内存仅留 live job（终态驱逐），retention 保留策略周期 prune 清磁盘。commit `7155917`/`08b3713`/`aebe474`/`fcc6572`/`f3ec55b`。
   - 补记：jobstore 加进程内写锁消除 SQLITE_BUSY；交互对已驱逐终态 job 确定性返回 409。
-- [ ] C2 单一 token 无身份/吊销 → per-worker / per-caller token。
-- [ ] C3 配置无热加载 → SIGHUP/接口热重载 registry。
-- [ ] C4/C5/C6/C7：日志流控、提交幂等键、远端节点健康探针、多 hub HA（按需）。
+- [x] **C2 ✅** 单一 token 无身份/吊销 → per-worker/per-caller token（多 caller token + `subtle` 常时间比对 + caller_id 入库防伪；commit `8200654`/`61fd149`/`07065ce`）。
+- [x] **C3 ✅** 配置无热加载 → SIGHUP 热重载（`atomic.Pointer` 原子替换 registry/service cfg + 失败安全含被删配置守卫；commit `17dbfb8`/`289d138`）。
+- [x] **C4 ✅** 日志流控（LogWriter 轮转 + SSE 帧 cap/分片/动态节流/rotated 标记 + 前端 buffer 窗口；commit `7fa6080`/`614db2b`/`f7e5f47`）。
+- [x] **C5 ✅** 提交幂等键（`request_id` 部分唯一索引 + Submit 前置查重 + 并发唯一冲突回退；commit `8200654`/`07065ce`）。
+- [x] **C6 ✅** 远端节点健康探针（`GET /v1/runners`：worker 心跳态 + peer-http 周期主动探针；commit `ae6a630`..`0db128b`）。
+- [x] **C7 🟡 最小版** 多 hub HA → 仅 worker 多地址 + 全抖动退避重连（`a43a694`）；**多 hub 共享注册表 / 跨 hub job 接管 / 选主仍显式 out-of-scope**。
   - 已知限制（见 [`plans/2026-06-18-hardening-c2-c5-plan.md`](plans/2026-06-18-hardening-c2-c5-plan.md) §7.1）：
     - **C-N1（低）** job `exit 0` 但 background 子进程持有管道写端超 `WaitDelay`(2s) → `exec: WaitDelay expired before I/O complete`，runner 判为 `failed`（非回归）；仅"起 daemon 后退出"成受支持模式时才 follow-up。
     - **C-N2（极低）** `log-rotated` 后前端清 buffer 但不重置 `?from=` offset，重连靠 `tailFrom` 自愈（size<offset 重放全新文件）；MVP 不修。
