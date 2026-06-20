@@ -14,6 +14,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 
@@ -31,7 +32,7 @@ import (
 const defaultLogTailBytes = 256 * 1024
 
 // New builds an MCP server wired to the given registries/job service and
-// registers the six bridge_* tools. The server is returned unconnected; call
+// registers the bridge_* tools. The server is returned unconnected; call
 // Run (or Serve) to start serving over a transport.
 func New(jobs *job.Service, projects *project.Registry, agents *agent.Registry) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "gofer", Version: "v1"}, nil)
@@ -75,6 +76,16 @@ func New(jobs *job.Service, projects *project.Registry, agents *agent.Registry) 
 		Name:        "bridge_answer_interaction",
 		Description: "Answer a pending interaction on a running job so the agent can continue.",
 	}, answerInteractionHandler(jobs))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "bridge_get_artifacts",
+		Description: "List a finished job's captured artifact files (name/size/mtime under its result dir).",
+	}, getArtifactsHandler(jobs))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "bridge_get_result",
+		Description: "Get a finished job's structured result.json content (E6), as a raw JSON string.",
+	}, getResultHandler(jobs))
 
 	return s
 }
@@ -391,5 +402,72 @@ func answerInteractionHandler(jobs *job.Service) mcp.ToolHandlerFor[answerIntera
 			return nil, interactionView{}, err
 		}
 		return nil, toInteractionView(it), nil
+	}
+}
+
+// --- bridge_get_artifacts ---------------------------------------------------
+
+// artifactView is the snake_case projection of job.ArtifactItem so the MCP
+// schema never leaks the internal job type.
+type artifactView struct {
+	Name  string `json:"name"`
+	Size  int64  `json:"size"`
+	Mtime int64  `json:"mtime"`
+}
+
+type getArtifactsOutput struct {
+	Artifacts []artifactView `json:"artifacts"`
+}
+
+// getArtifactsHandler returns a job's artifact manifest (E1, D7): the persisted
+// manifest when present, else a live scan of the result dir (mirroring the HTTP
+// list endpoint). An unknown job is a tool error; a job with no artifacts yields
+// a non-nil empty array.
+func getArtifactsHandler(jobs *job.Service) mcp.ToolHandlerFor[jobIDInput, getArtifactsOutput] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in jobIDInput) (*mcp.CallToolResult, getArtifactsOutput, error) {
+		res, ok := jobs.Get(in.ID)
+		if !ok {
+			return nil, getArtifactsOutput{}, fmt.Errorf("unknown job %q", in.ID)
+		}
+		items := resolveArtifacts(res)
+		out := getArtifactsOutput{Artifacts: make([]artifactView, 0, len(items))}
+		for _, it := range items {
+			out.Artifacts = append(out.Artifacts, artifactView{Name: it.Name, Size: it.Size, Mtime: it.Mtime})
+		}
+		return nil, out, nil
+	}
+}
+
+// resolveArtifacts prefers the persisted manifest (ArtifactsJSON) and falls back
+// to a live scan, matching httpapi.manifestFor (kept local to avoid importing
+// the httpapi package from mcpserver).
+func resolveArtifacts(res job.JobResult) []job.ArtifactItem {
+	if res.ArtifactsJSON != "" {
+		var items []job.ArtifactItem
+		if err := json.Unmarshal([]byte(res.ArtifactsJSON), &items); err == nil && items != nil {
+			return items
+		}
+	}
+	return job.ScanArtifacts(res.ResultDir)
+}
+
+// --- bridge_get_result ------------------------------------------------------
+
+type getResultOutput struct {
+	// ResultJSON is the raw <result_dir>/result.json content (E6), already valid
+	// JSON; empty when the job wrote none. Returned as a string so the caller
+	// parses it (mirrors the HTTP JobResult.result_json field).
+	ResultJSON string `json:"result_json"`
+}
+
+// getResultHandler returns a job's structured result.json (E6, D7). An unknown
+// job is a tool error; a job with no result.json yields an empty string.
+func getResultHandler(jobs *job.Service) mcp.ToolHandlerFor[jobIDInput, getResultOutput] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in jobIDInput) (*mcp.CallToolResult, getResultOutput, error) {
+		res, ok := jobs.Get(in.ID)
+		if !ok {
+			return nil, getResultOutput{}, fmt.Errorf("unknown job %q", in.ID)
+		}
+		return nil, getResultOutput{ResultJSON: res.ResultJSON}, nil
 	}
 }
