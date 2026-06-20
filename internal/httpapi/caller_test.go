@@ -60,7 +60,7 @@ func newTestServerCfg(t *testing.T, sc config.ServerConfig) *Server {
 		t.Fatalf("open jobstore: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	jobs := job.NewService(cfg, projects, agents, runners, st)
+	jobs := job.NewService(cfg, projects, agents, runners, st, nil)
 	return New(&cfg.Server, sc.Token, sc.AllowEmptyToken, jobs, projects, agents, nil, nil, nil, nil)
 }
 

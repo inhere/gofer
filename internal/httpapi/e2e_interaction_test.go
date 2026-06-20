@@ -87,7 +87,7 @@ func TestE2EInteractionWrapper(t *testing.T) {
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, storageRoot))
+	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, storageRoot), nil)
 	srv := New(&cfg.Server, testToken, false, jobs, projects, agents, nil, nil, nil, nil)
 
 	ts := httptest.NewServer(srv.Handler())

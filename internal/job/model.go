@@ -16,9 +16,15 @@ type JobRequest struct {
 	TimeoutSec int      `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
 	Title      string   `json:"title,omitempty" yaml:"title,omitempty"`
 	// WorkerID selects which registered worker a runner=worker job dispatches to
-	// (ws-worker §8). Required and must be a known server.workers entry when the
-	// runner is type=worker; ignored for local/peer-http runners.
+	// (ws-worker §8). When set it must be a known server.workers entry (explicit
+	// routing wins); ignored for local/peer-http runners. When empty for a worker
+	// runner, WorkerLabels (if any) drives auto-selection (D3), else the runner's
+	// configured default worker is used (D4 fallback).
 	WorkerID string `json:"worker_id,omitempty" yaml:"worker_id,omitempty"`
+	// WorkerLabels auto-selects a worker by labels when runner=worker and WorkerID
+	// is empty (D3): a candidate worker must advertise ALL these labels. Ignored
+	// when WorkerID is set (explicit routing wins).
+	WorkerLabels []string `json:"worker_labels,omitempty" yaml:"worker_labels,omitempty"`
 	// Sync requests synchronous submit: the HTTP handler blocks until the job is
 	// terminal (capped server-side) and returns the final JobResult. Can also be
 	// set via ?wait=1. WaitTimeoutSec overrides the default wait cap (clamped).

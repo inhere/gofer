@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -28,14 +29,27 @@ func (r *stubWorkerRunner) Run(_ context.Context, req runner.Request) runner.Res
 }
 
 // newWorkerTestService builds a service with a server.workers entry (w1) and a
-// type=worker runner (remote-w1) pointing at it, plus a stub runner instance.
+// type=worker runner (remote-w1) pointing at it, plus a stub runner instance. It
+// uses a nil WorkerSelector (the explicit-worker_id tests never auto-select).
 func newWorkerTestService(t *testing.T, root string, stub runner.Runner) *Service {
+	t.Helper()
+	// Register w1 + w2 so label-selection tests have >1 candidate; the runner is
+	// still bound to w1 by default (D4) for the explicit-routing tests.
+	workers := map[string]config.WorkerAuthConfig{
+		"w1": {Token: "tok-w1"},
+		"w2": {Token: "tok-w2"},
+	}
+	return newWorkerTestServiceSel(t, root, stub, workers, nil)
+}
+
+// newWorkerTestServiceSel is newWorkerTestService with an explicit workers set
+// and WorkerSelector, so the label auto-selection path (P2) can be exercised with
+// a fake candidate source.
+func newWorkerTestServiceSel(t *testing.T, root string, stub runner.Runner, workers map[string]config.WorkerAuthConfig, sel WorkerSelector) *Service {
 	t.Helper()
 	cfg := &config.Config{
 		Server: config.ServerConfig{
-			Workers: map[string]config.WorkerAuthConfig{
-				"w1": {Token: "tok-w1"},
-			},
+			Workers: workers,
 		},
 		Storage: config.StorageConfig{Root: root},
 		Projects: map[string]config.ProjectConfig{
@@ -61,17 +75,35 @@ func newWorkerTestService(t *testing.T, root string, stub runner.Runner) *Servic
 		t.Fatalf("open jobstore: %v", err)
 	}
 	t.Cleanup(func() { _ = meta.Close() })
-	return NewService(cfg, projReg, agentReg, runners, meta)
+	return NewService(cfg, projReg, agentReg, runners, meta, sel)
 }
 
-func TestSubmitWorkerRequiresWorkerID(t *testing.T) {
-	s := newWorkerTestService(t, t.TempDir(), &stubWorkerRunner{})
-	_, err := s.Submit(JobRequest{
+// fakeSelector is a job.WorkerSelector returning a fixed candidate list.
+type fakeSelector struct {
+	cands []WorkerCandidate
+}
+
+func (f fakeSelector) Candidates() []WorkerCandidate { return f.cands }
+
+// TestSubmitWorkerNoWorkerIDFallsBack proves a worker job with neither worker_id
+// nor labels is now ACCEPTED (P2 D4): Submit no longer rejects it; the worker
+// runner falls back to its configured default worker. Forward.WorkerID stays
+// empty so the runner uses r.workerID.
+func TestSubmitWorkerNoWorkerIDFallsBack(t *testing.T) {
+	stub := &stubWorkerRunner{}
+	s := newWorkerTestService(t, t.TempDir(), stub)
+	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "remote-w1",
-		Cmd: []string{"echo", "hi"}, Cwd: ".",
+		Cmd: []string{"echo", "hi"}, Cwd: ".", TimeoutSec: 30,
 	})
-	if !errors.Is(err, ErrInvalidRequest) {
-		t.Fatalf("expected ErrInvalidRequest for missing worker_id, got %v", err)
+	if final.Status != StatusDone {
+		t.Fatalf("expected done (D4 fallback), got %s (err=%s)", final.Status, final.Error)
+	}
+	if stub.gotForward == nil || stub.gotForward.WorkerID != "" {
+		t.Fatalf("Forward.WorkerID should be empty for the D4 fallback, got %+v", stub.gotForward)
+	}
+	if final.WorkerID != "" {
+		t.Fatalf("JobResult.WorkerID = %q, want empty (resolved by runner default)", final.WorkerID)
 	}
 }
 
@@ -108,6 +140,9 @@ func TestSubmitWorkerSetsForward(t *testing.T) {
 	if stub.gotForward.Cwd != "sub/dir" {
 		t.Fatalf("Forward.Cwd = %q, want opaque sub/dir (not SafeJoin'd)", stub.gotForward.Cwd)
 	}
+	if stub.gotForward.WorkerID != "w1" {
+		t.Fatalf("Forward.WorkerID = %q, want w1 (explicit routing)", stub.gotForward.WorkerID)
+	}
 	if final.WorkerID != "w1" {
 		t.Fatalf("final.WorkerID = %q, want w1", final.WorkerID)
 	}
@@ -133,6 +168,82 @@ func TestWorkerIDRoundTrip(t *testing.T) {
 	}
 	if got := fromRecord(rec).WorkerID; got != "w1" {
 		t.Fatalf("fromRecord worker_id = %q, want w1", got)
+	}
+}
+
+// TestSubmitWorkerLabelsAutoSelect (P2 D3): a worker job with only worker_labels
+// auto-selects a connected worker via the WorkerSelector, injecting its id into
+// both the Forward and the persisted JobResult.worker_id.
+func TestSubmitWorkerLabelsAutoSelect(t *testing.T) {
+	stub := &stubWorkerRunner{}
+	workers := map[string]config.WorkerAuthConfig{
+		"w1": {Token: "tok-w1"},
+		"w2": {Token: "tok-w2"},
+	}
+	sel := fakeSelector{cands: []WorkerCandidate{
+		{WorkerID: "w1", Labels: []string{"cpu"}, InFlight: 3, HeartbeatAge: time.Second},
+		{WorkerID: "w2", Labels: []string{"gpu"}, InFlight: 0, HeartbeatAge: time.Second},
+	}}
+	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "remote-w1",
+		WorkerLabels: []string{"gpu"},
+		Cmd:          []string{"echo", "hi"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("expected done, got %s (err=%s)", final.Status, final.Error)
+	}
+	if final.WorkerID != "w2" {
+		t.Fatalf("JobResult.WorkerID = %q, want w2 (label gpu auto-select)", final.WorkerID)
+	}
+	if stub.gotForward == nil || stub.gotForward.WorkerID != "w2" {
+		t.Fatalf("Forward.WorkerID = %+v, want w2", stub.gotForward)
+	}
+}
+
+// TestSubmitWorkerLabelsNoEligible (P2): worker_labels with no eligible candidate
+// is rejected with ErrNoEligibleWorker (HTTP 503).
+func TestSubmitWorkerLabelsNoEligible(t *testing.T) {
+	stub := &stubWorkerRunner{}
+	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
+	sel := fakeSelector{cands: []WorkerCandidate{
+		{WorkerID: "w1", Labels: []string{"cpu"}, HeartbeatAge: time.Second},
+	}}
+	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
+	_, err := s.Submit(JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "remote-w1",
+		WorkerLabels: []string{"gpu"}, // no candidate has gpu
+		Cmd:          []string{"echo", "hi"}, Cwd: ".",
+	})
+	if !errors.Is(err, ErrNoEligibleWorker) {
+		t.Fatalf("expected ErrNoEligibleWorker, got %v", err)
+	}
+}
+
+// TestSubmitWorkerIDWinsOverLabels (P2): when both worker_id and worker_labels are
+// given, the explicit worker_id wins and labels are ignored (the selector is not
+// even consulted — proven by a selector that would otherwise pick a different id).
+func TestSubmitWorkerIDWinsOverLabels(t *testing.T) {
+	stub := &stubWorkerRunner{}
+	workers := map[string]config.WorkerAuthConfig{
+		"w1": {Token: "tok-w1"},
+		"w2": {Token: "tok-w2"},
+	}
+	// The selector would pick w2 for "gpu"; the explicit worker_id w1 must override.
+	sel := fakeSelector{cands: []WorkerCandidate{
+		{WorkerID: "w2", Labels: []string{"gpu"}, InFlight: 0, HeartbeatAge: time.Second},
+	}}
+	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "remote-w1",
+		WorkerID: "w1", WorkerLabels: []string{"gpu"},
+		Cmd: []string{"echo", "hi"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if final.WorkerID != "w1" {
+		t.Fatalf("JobResult.WorkerID = %q, want w1 (explicit wins over labels)", final.WorkerID)
+	}
+	if stub.gotForward == nil || stub.gotForward.WorkerID != "w1" {
+		t.Fatalf("Forward.WorkerID = %+v, want w1", stub.gotForward)
 	}
 }
 

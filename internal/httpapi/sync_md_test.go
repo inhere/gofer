@@ -40,7 +40,7 @@ func newCLIAgentServer(t *testing.T, token string) *Server {
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, filepath.Join(root, "db")))
+	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, filepath.Join(root, "db")), nil)
 	return New(&cfg.Server, token, false, jobs, projects, agents, nil, nil, nil, nil)
 }
 

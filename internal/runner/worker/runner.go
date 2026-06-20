@@ -81,6 +81,18 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		return runner.Result{ExitCode: -1, Err: errors.New("worker runner requires forward request")}
 	}
 
+	// Resolve the target worker (P2 dynamic routing): the Submit-resolved
+	// Forward.WorkerID (explicit or label-selected) takes precedence; if empty fall
+	// back to the runner's configured default worker (D4 — the legacy "one runner
+	// binds one worker" config). A runner with neither has no target.
+	workerID := f.WorkerID
+	if workerID == "" {
+		workerID = r.workerID
+	}
+	if workerID == "" {
+		return runner.Result{ExitCode: -1, Err: errors.New("worker runner: no target worker_id")}
+	}
+
 	sink := newBoundedSink(req.Stdout, req.Stderr)
 	// Wire the interaction bridge: an inbound interaction{open} is injected onto
 	// the host job (via req.Interactions, the same remoteInteractionSink peer-http
@@ -89,17 +101,17 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	sink.bridge = &interactionBridge{
 		ctx:     ctx,
 		sinks:   req.Interactions,
-		answer:  func(iid, ans string) { _ = r.hub.Answer(r.workerID, req.JobID, iid, ans) },
+		answer:  func(iid, ans string) { _ = r.hub.Answer(workerID, req.JobID, iid, ans) },
 		seen:    map[string]bool{},
 		jobID:   req.JobID,
 		hasSink: req.Interactions != nil,
 	}
 
 	// (a) sink-before-dispatch.
-	if err := r.hub.RegisterSink(r.workerID, req.JobID, sink); err != nil {
+	if err := r.hub.RegisterSink(workerID, req.JobID, sink); err != nil {
 		return runner.Result{ExitCode: -1, Err: err} // worker offline
 	}
-	defer r.hub.DeregisterSink(r.workerID, req.JobID) // (e)
+	defer r.hub.DeregisterSink(workerID, req.JobID) // (e)
 
 	// (b) dispatch (runner is always local on the worker side).
 	d := wsproto.Dispatch{
@@ -112,7 +124,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		Cwd:        f.Cwd,
 		TimeoutSec: f.TimeoutSec,
 	}
-	if err := r.hub.Dispatch(r.workerID, d); err != nil {
+	if err := r.hub.Dispatch(workerID, d); err != nil {
 		return runner.Result{ExitCode: -1, Err: err}
 	}
 
@@ -135,7 +147,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// return ctx.Err() immediately without waiting for the worker's late result —
 		// the deferred DeregisterSink frees the sink; a stray late result frame finds
 		// no sink and is dropped.
-		_ = r.hub.Cancel(r.workerID, req.JobID)
+		_ = r.hub.Cancel(workerID, req.JobID)
 		return runner.Result{ExitCode: -1, Err: ctx.Err()}
 	}
 }

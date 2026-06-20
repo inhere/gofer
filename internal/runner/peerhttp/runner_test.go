@@ -59,7 +59,7 @@ func newPeerBridge(t *testing.T) *bridge {
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root))
+	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
 	s := httpapi.New(&cfg.Server, "", true, jobs, projects, agents, nil, nil, nil, nil)
 	return &bridge{jobs: jobs, srv: httptest.NewServer(s.Handler())}
 }
@@ -92,7 +92,7 @@ func newHostBridge(t *testing.T, peerURL string) *bridge {
 		localrunner.Name: localrunner.New(),
 		"docker-peer":    peerhttp.New("docker-peer", peerURL, ""),
 	}
-	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root))
+	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
 	s := httpapi.New(&cfg.Server, "", true, jobs, projects, agents, nil, nil, nil, nil)
 	return &bridge{jobs: jobs, srv: httptest.NewServer(s.Handler())}
 }

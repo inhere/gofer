@@ -56,7 +56,7 @@ func newTestServiceWithDB(t *testing.T, root, dbPath string) *Service {
 		t.Fatalf("open jobstore: %v", err)
 	}
 	t.Cleanup(func() { _ = meta.Close() })
-	return NewService(cfg, projReg, agentReg, runners, meta)
+	return NewService(cfg, projReg, agentReg, runners, meta, nil)
 }
 
 func submitAndWait(t *testing.T, s *Service, req JobRequest) JobResult {

@@ -40,7 +40,7 @@ func newRunnersServer(t *testing.T, runnersCfg map[string]config.RunnerConfig, p
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root))
+	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
 	return New(&cfg.Server, testToken, false, jobs, projects, agents, nil, runnersCfg, prober, workers)
 }
 

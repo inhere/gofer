@@ -89,7 +89,7 @@ func buildWorkerWithBridge(t *testing.T, hubURL string) *workerWithBridge {
 		t.Fatalf("open worker jobstore: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	localJobs := job.NewService(cfg, projReg, agentReg, map[string]runner.Runner{localrunner.Name: localrunner.New()}, st)
+	localJobs := job.NewService(cfg, projReg, agentReg, map[string]runner.Runner{localrunner.Name: localrunner.New()}, st, nil)
 
 	bridge := httptest.NewServer(httpapi.New(&cfg.Server, workerBridgeToken, false, localJobs, projReg, agentReg, nil, nil, nil, nil).Handler())
 	t.Cleanup(bridge.Close)
