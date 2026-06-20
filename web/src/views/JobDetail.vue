@@ -7,10 +7,17 @@ import StatusBadge from '../components/StatusBadge.vue'
 import Signal from '../components/Signal.vue'
 import LogTape from '../components/LogTape.vue'
 import InteractionCard from '../components/InteractionCard.vue'
-import { answerInteraction, cancelJob, getJob } from '../api/client'
+import {
+  answerInteraction,
+  cancelJob,
+  downloadArtifact,
+  getJob,
+  listArtifacts,
+} from '../api/client'
 import { appendCapped, streamJob } from '../api/sse'
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
 import type {
+  Artifact,
   Interaction,
   Job,
   JobStatus,
@@ -240,6 +247,8 @@ onMounted(async () => {
   } catch (e) {
     headError.value = e instanceof Error ? e.message : String(e)
   }
+  // 产物清单：与头部一起拉一次（终态 job 才有；运行中通常为空）。
+  void loadArtifacts()
   // 日志单一来源：不传 from，获得「历史回放 + 实时跟随 + 终态 end」
   void startStream()
 })
@@ -307,9 +316,55 @@ const resultJsonPretty = computed<string>(() => {
   }
 })
 
+// 产物清单(E1)：终态后拉取一次（GET /v1/jobs/{id}/artifacts）。
+const artifacts = ref<Artifact[]>([])
+const downloadingNames = ref<Set<string>>(new Set())
+const artifactError = ref('')
+
+async function loadArtifacts(): Promise<void> {
+  try {
+    const resp = await listArtifacts(props.id)
+    artifacts.value = resp.artifacts ?? []
+  } catch (e) {
+    artifactError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+async function onDownload(name: string): Promise<void> {
+  if (downloadingNames.value.has(name)) {
+    return
+  }
+  const next = new Set(downloadingNames.value)
+  next.add(name)
+  downloadingNames.value = next
+  try {
+    await downloadArtifact(props.id, name)
+  } catch (e) {
+    artifactError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    const after = new Set(downloadingNames.value)
+    after.delete(name)
+    downloadingNames.value = after
+  }
+}
+
+// 人类可读文件大小（B/KB/MB），mono 列展示。
+function fmtSize(bytes: number): string {
+  if (bytes < 1024) {
+    return `${bytes} B`
+  }
+  if (bytes < 1024 * 1024) {
+    return `${(bytes / 1024).toFixed(1)} KB`
+  }
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+}
+
 // 整个「产出与审计」面板是否有内容（避免空面板）。
 const hasOutcomes = computed<boolean>(
-  () => renderedCommand.value != null || resultJsonPretty.value !== '',
+  () =>
+    renderedCommand.value != null ||
+    resultJsonPretty.value !== '' ||
+    artifacts.value.length > 0,
 )
 
 const copied = ref(false)
@@ -469,6 +524,28 @@ async function copyCommand(): Promise<void> {
           <span class="outcome-k mono">结构化结果</span>
         </div>
         <pre class="outcome-pre result-json mono">{{ resultJsonPretty }}</pre>
+      </div>
+
+      <!-- 产物清单(E1)：name(title) + size(mono) + 下载（带鉴权 fetch+blob）。 -->
+      <div v-if="artifacts.length > 0" class="outcome-block">
+        <div class="outcome-head">
+          <span class="outcome-k mono">产物文件（{{ artifacts.length }}）</span>
+        </div>
+        <ul class="artifact-list">
+          <li v-for="a in artifacts" :key="a.name" class="artifact-row">
+            <span class="artifact-name" :title="a.name">{{ a.name }}</span>
+            <span class="artifact-size mono">{{ fmtSize(a.size) }}</span>
+            <button
+              class="artifact-dl mono"
+              type="button"
+              :disabled="downloadingNames.has(a.name)"
+              @click="onDownload(a.name)"
+            >
+              {{ downloadingNames.has(a.name) ? '下载中…' : '下载' }}
+            </button>
+          </li>
+        </ul>
+        <p v-if="artifactError" class="artifact-err mono">{{ artifactError }}</p>
       </div>
     </section>
 
@@ -739,5 +816,58 @@ async function copyCommand(): Promise<void> {
 }
 .env-list li {
   padding: 1px 0;
+}
+
+/* 产物清单：name 占满 + size + 下载按钮一行。 */
+.artifact-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.artifact-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--line);
+}
+.artifact-row:last-child {
+  border-bottom: none;
+}
+.artifact-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--paper);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.artifact-size {
+  flex: 0 0 auto;
+  color: var(--queue);
+  font-size: 11px;
+}
+.artifact-dl {
+  flex: 0 0 auto;
+  background: transparent;
+  color: var(--queue);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 2px 10px;
+  font-size: 11px;
+}
+.artifact-dl:hover:not(:disabled) {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
+}
+.artifact-dl:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.artifact-err {
+  color: var(--fail);
+  font-size: 11px;
+  margin: 6px 0 0;
 }
 </style>

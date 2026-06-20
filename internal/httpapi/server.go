@@ -204,8 +204,11 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/jobs/{id}/logs/stderr", s.handleJobLogsStderr)
 		r.GET("/jobs/{id}/stream", s.handleJobStream)
 
-		// E1 产物回取(P2)：清单列举。
+		// E1 产物回取(P2)：清单 + 下载。下载 {name:.+} 是 catch-all（rux 把
+		// {name:.+}/{name:.*} 转成 *name 通配，匹配含 '/' 的子路径，如 sub/b.bin），
+		// name 经 safeJoinUnder 做路径安全校验（拒 ../绝对/软链逃逸）。
 		r.GET("/jobs/{id}/artifacts", s.handleListArtifacts)
+		r.GET("/jobs/{id}/artifacts/{name:.+}", s.handleDownloadArtifact)
 
 		r.POST("/jobs/{id}/cancel", s.handleCancelJob)
 

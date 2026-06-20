@@ -35,6 +35,18 @@ export interface Job {
   diff_summary?: string
 }
 
+// 产物清单项（E1，P2）：<result_dir>/artifacts/ 下文件元数据。name 为相对路径
+// （可含子目录，'/' 分隔），下载经 GET /v1/jobs/{id}/artifacts/{name}。
+export interface Artifact {
+  name: string
+  size: number
+  mtime: number
+}
+
+export interface ArtifactsResp {
+  artifacts: Artifact[]
+}
+
 export interface HealthResp {
   ok: boolean
   service: string
