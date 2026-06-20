@@ -307,7 +307,8 @@ function peerStatusClass(r: Runner): string {
 
 <style scoped>
 .runners {
-  max-width: 1000px;
+  /* 收窄到内容尺度：卡片不再被拉满，状态列不再被甩到远端留大空场 */
+  max-width: 760px;
   margin: 0 auto;
 }
 
@@ -395,7 +396,7 @@ function peerStatusClass(r: Runner): string {
 
 .card-pulse {
   flex: none;
-  width: 26px;
+  width: 32px;
   display: flex;
   align-items: center;
   justify-content: center;

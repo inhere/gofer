@@ -66,15 +66,15 @@ const ariaLabel = computed(() => props.label ?? props.beat)
 .heartbeat {
   display: inline-flex;
   align-items: center;
-  height: 14px;
+  height: 18px;
 }
 
-/* 跳动脉冲 */
+/* 跳动脉冲：worker 行的签名元素，给足存在感（比 Signal 略大） */
 .pulse {
   display: inline-flex;
   align-items: flex-end;
   gap: 2px;
-  height: 14px;
+  height: 18px;
 }
 .bar {
   width: 2px;
@@ -91,7 +91,7 @@ const ariaLabel = computed(() => props.label ?? props.beat)
     opacity: 0.5;
   }
   50% {
-    height: 14px;
+    height: 18px;
     opacity: 1;
   }
 }
@@ -109,7 +109,7 @@ const ariaLabel = computed(() => props.label ?? props.beat)
     opacity: 0.4;
   }
   50% {
-    height: 9px;
+    height: 11px;
     opacity: 0.85;
   }
 }
@@ -128,7 +128,7 @@ const ariaLabel = computed(() => props.label ?? props.beat)
 @media (prefers-reduced-motion: reduce) {
   .bar {
     animation: none;
-    height: 8px;
+    height: 11px;
     opacity: 0.8;
   }
 }
