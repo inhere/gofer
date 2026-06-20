@@ -18,9 +18,10 @@
   - 落地：P0 spike(`f63e4e4`) / WP1 端到端远程执行(`7442ff6`..`f414742`) / WP2 交互透传+cancel/timeout(`5adefc2`..`e3ca797`) / WP3+C7 心跳/重连/worker-lost/多 worker+多地址退避(`3537826`..`2d98d13`) / WP4 Workers 仪表盘前端(`84655cf`)。
   - 客户端也有任务记录信息 → 已解：server 镜像为 server 侧真源，worker 本地另留一份，互不耦合。
   - 任务输出详情在客户端，server 如何读取？→ 已解：worker 推日志帧、server 写进自己 result_dir，复用既有读路径。
-  - **仍缓做**：WP4 标签自动调度（按 worker labels 自动选机，当前为显式 worker_id 路由）；多 hub HA（C7 大版，显式 out-of-scope）。WP4 仪表盘动画/响应式待真机浏览器眼检。
-- [ ] http 请求可以发送 md 格式文本 头部可以用 yaml 定义参数 后面就是任务描述
-- [ ] 提交 exec 任务允许同步等待返回，方便快速的执行简单命令
+  - **WP4 标签自动调度已落地**（P2，commit `df86f5e`）：`worker_labels` 全包含 AND 选机 + worker runner 动态路由解绑（保 `rc.WorkerID` 兜底）；无候选 503。见 [`plans/2026-06-20-submit-dispatch/`](plans/2026-06-20-submit-dispatch/)。
+  - **仍缓做**：多 hub HA（C7 大版，独立 Epic，见本文 §大型 Epic）。WP4 仪表盘动画/响应式待真机浏览器眼检。
+- [x] http 请求可以发送 md 格式文本 头部可以用 yaml 定义参数 后面就是任务描述 —— **已落地（P1-b，commit `730b6bb`）**：`Content-Type: text/markdown` 分支，yaml frontmatter→参数、正文→prompt（仅 cli-agent）。见 [`plans/2026-06-20-submit-dispatch/`](plans/2026-06-20-submit-dispatch/)。
+- [x] 提交 exec 任务允许同步等待返回，方便快速的执行简单命令 —— **已落地（P1-a，commit `730b6bb`）**：`POST /v1/jobs` `sync`/`?wait=1`，服务端等终态（默认 30s/顶 60s，超时 202+`X-Gofer-Async`）；CLI `--sync`。
 
 ### Web 控制台
 
@@ -30,8 +31,8 @@
   - 验收：`pnpm -C web build` 绿（vue-tsc）；agent-browser 截图深/浅两态 + 状态色板眼检 PASS（`tmp/theme-shots/`）；切换/持久化/reload/跟随系统均验证；对比度脚本核验正文+次要文本≥4.5:1；未引入新动画（`prefers-reduced-motion` 不受影响）。
   - 注：构建产物（`web/dist` / 嵌入二进制的 `internal/webui/dist`）未提交，按既有约定由 `make web build` 流水线生成。
 - [x] **Workers 仪表盘已落地**（`/runners` 视图：Workers/Peers/Local 名册 + 心跳脉冲签名 + 在飞/标签 + 实时年龄轮询，commit `84655cf`，用 `frontend-design` skill；消费 C6 `/v1/runners`）。
-- [ ] **控制台进一步适配（剩余）**：① 看板/详情行内展示 `runner`/`worker_id` 让"在哪执行"可见；②（更大）控制台内**提交表单**（选 项目/agent/runner/worker_id）。详见 [`design/architecture-overview.md`](design/architecture-overview.md) §9.2。
-  - 注：peer-http/worker 远端 job 的交互/日志因"镜像"机制已透明呈现在现有看板/详情，无需改前端即可用；本项是让远端执行**位置**进一步可见 + 控制台内发起 job。
+- [ ] **控制台进一步适配（剩余）**：① 看板/详情行内展示 `runner`/`worker_id` 让"在哪执行"可见（**仍待**）；~~②（更大）控制台内**提交表单**~~ —— **② 已落地（P3，commit `7c7082f`+`15aef7c`）**：`NewJob.vue` 选 项目/agent/runner/worker_id 或 labels，端到端冒烟 PASS。详见 [`design/architecture-overview.md`](design/architecture-overview.md) §9.2 + [`plans/2026-06-20-submit-dispatch/`](plans/2026-06-20-submit-dispatch/)。
+  - 注：peer-http/worker 远端 job 的交互/日志因"镜像"机制已透明呈现在现有看板/详情，无需改前端即可用；本项是让远端执行**位置**进一步可见（①）+ 控制台内发起 job（②已做）。
 
 ### 架构加固（见 [`design/architecture-overview.md`](design/architecture-overview.md) §9.1）
 
