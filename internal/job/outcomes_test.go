@@ -3,6 +3,7 @@ package job
 import (
 	"encoding/json"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -39,6 +40,102 @@ func TestCaptureRenderedCommandLocalExec(t *testing.T) {
 	}
 	if rc.Command != "go" || len(rc.Args) != 1 || rc.Args[0] != "version" {
 		t.Fatalf("unexpected rendered command: %+v", rc)
+	}
+}
+
+// TestCaptureDiffEndToEnd proves a local exec job whose cwd is a git work tree
+// with an uncommitted tracked change records a DiffSummary (E12) after finishing,
+// round-tripping through Get, and drops changes.diff into the result dir.
+func TestCaptureDiffEndToEnd(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH; skipping diff end-to-end test")
+	}
+	root := t.TempDir()
+	s := newTestService(t, root)
+	// Make the "self" project's host path (root) a git repo with an uncommitted
+	// change so the job's cwd ("." → root) has a non-empty `git diff`.
+	initGitRepo(t, root)
+
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("expected done, got %s (err=%s)", final.Status, final.Error)
+	}
+
+	got, ok := s.Get(final.ID)
+	if !ok {
+		t.Fatalf("Get(%s) not found", final.ID)
+	}
+	if !strings.Contains(got.DiffSummary, "tracked.txt") {
+		t.Fatalf("DiffSummary should mention the changed file, got %q", got.DiffSummary)
+	}
+	diffPath := filepath.Join(got.ResultDir, "changes.diff")
+	if b, err := os.ReadFile(diffPath); err != nil {
+		t.Fatalf("changes.diff not written for job: %v", err)
+	} else if !strings.Contains(string(b), "modified content") {
+		t.Fatalf("changes.diff missing tracked change:\n%s", b)
+	}
+}
+
+// TestCaptureDiffDisabledByProject proves an explicit capture_diff:false on the
+// project skips diff capture entirely: no DiffSummary, no changes.diff — even
+// though the cwd is a dirty git repo.
+func TestCaptureDiffDisabledByProject(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	root := t.TempDir()
+	s := newTestService(t, root)
+	initGitRepo(t, root)
+
+	// Flip capture_diff:false on the "self" project (same pattern as prune_test's
+	// in-place config mutation).
+	disabled := false
+	proj := s.config().Projects["self"]
+	proj.CaptureDiff = &disabled
+	s.config().Projects["self"] = proj
+	// shouldCaptureDiff must now report false for the project.
+	if s.shouldCaptureDiff("self") {
+		t.Fatalf("shouldCaptureDiff(self) should be false when capture_diff:false")
+	}
+
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("expected done, got %s (err=%s)", final.Status, final.Error)
+	}
+	got, ok := s.Get(final.ID)
+	if !ok {
+		t.Fatalf("Get(%s) not found", final.ID)
+	}
+	if got.DiffSummary != "" {
+		t.Fatalf("capture_diff:false must skip diff, got DiffSummary=%q", got.DiffSummary)
+	}
+	if _, err := os.Stat(filepath.Join(got.ResultDir, "changes.diff")); !os.IsNotExist(err) {
+		t.Fatalf("capture_diff:false must not write changes.diff (err=%v)", err)
+	}
+}
+
+// TestShouldCaptureDiffDefaults checks the resolver: nil (unset) → true (defer to
+// is-git probe); explicit true → true; unknown project → true.
+func TestShouldCaptureDiffDefaults(t *testing.T) {
+	s := newTestService(t, t.TempDir())
+	if !s.shouldCaptureDiff("self") {
+		t.Fatalf("unset capture_diff should default to true (defer to is-git probe)")
+	}
+	if !s.shouldCaptureDiff("does-not-exist") {
+		t.Fatalf("unknown project should default to true")
+	}
+	enabled := true
+	proj := s.config().Projects["self"]
+	proj.CaptureDiff = &enabled
+	s.config().Projects["self"] = proj
+	if !s.shouldCaptureDiff("self") {
+		t.Fatalf("explicit capture_diff:true should be true")
 	}
 }
 
