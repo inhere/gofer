@@ -142,10 +142,12 @@ func (h *Hub) nowMillis() int64 { return h.nowFn().UnixNano() / int64(time.Milli
 // auth and passes the resolved callerID; Accept does the worker_id↔caller
 // binding check (review #1) then the register handshake.
 //
-// It MUST receive rux's c.Resp wrapped in wsUpgradeWriter (see upgrade_writer.go
-// for the P0 finding) — never the raw c.Resp.
+// It receives rux's c.Resp directly: rux v2.0.2 fixed the P0 finding — its
+// *responseWriter.Hijack() now flushes the recorded 101 status to the underlying
+// writer before detaching the connection, so the old wsUpgradeWriter adapter (the
+// spike workaround that forced an early flush) is no longer needed.
 func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) {
-	conn, err := websocket.Accept(&wsUpgradeWriter{rw: w}, req, &websocket.AcceptOptions{
+	conn, err := websocket.Accept(w, req, &websocket.AcceptOptions{
 		// Workers are non-browser, pure-outbound clients: relax the default origin
 		// check (P0 proved it is required). OriginPatterns "*" is rejected by the
 		// library, so InsecureSkipVerify is the locked choice.

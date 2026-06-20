@@ -95,10 +95,10 @@ func (s *stubJobs) answered() (string, string, string) {
 func connectClientToFakeHub(t *testing.T, jobs Jobs) (*Client, chan wsproto.Envelope) {
 	t.Helper()
 	frames := make(chan wsproto.Envelope, 16)
-	// Use a stdlib handler (not rux): the stdlib ResponseWriter implements
-	// http.Hijacker/Flusher directly without rux's deferred-WriteHeader buffering,
-	// so Accept upgrades cleanly. (The rux-specific wsUpgradeWriter path is
-	// covered by wshub's own tests + the e2e.)
+	// Use a stdlib handler (not rux) for this client-only dispatch test — the
+	// worker dials a plain WS endpoint here. (Real upgrades through rux's
+	// responseWriter are covered by wshub's spike + the worker e2e; rux v2.0.2
+	// flushes the 101 on Hijack natively, so no adapter is involved.)
 	h := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		conn, err := websocket.Accept(w, req, &websocket.AcceptOptions{InsecureSkipVerify: true, CompressionMode: websocket.CompressionDisabled})
 		if err != nil {
