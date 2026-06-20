@@ -198,7 +198,7 @@ function optLabel(opt: { value: string; label?: string }): string {
 .icard-input {
   flex: 1;
   min-width: 0;
-  background: #08121a;
+  background: var(--term-bg);
   color: var(--paper);
   border: 1px solid var(--line);
   border-radius: var(--radius);

@@ -22,9 +22,11 @@
 
 ### Web 控制台
 
-- [ ] **webui 浅色模式**：当前仅 CRT/终端深色主题。出一套浅色模式（主题切换 + 持久化偏好，跟随系统 `prefers-color-scheme`）。
-  - **实施时必须使用 `frontend-design` skill**（设计方向/配色/对比度，避免套默认模板）。
-  - 落点：`web/src/styles/tokens.css` 抽明/暗两套 CSS 变量；切换器组件 + sessionStorage/localStorage 记忆；保证对比度达标、`prefers-reduced-motion` 不受影响。
+- [x] **webui 浅色模式已落地**（2026-06-19，用 `frontend-design` skill）。深色保持默认；浅色为「日班·冷调蓝灰制图纸/搪瓷调度板」——非通用暖奶油，沿用同一套状态色但压暗达 WCAG AA。
+  - 落点：`tokens.css` 加 `:root[data-theme="light"]` 覆盖块（明/暗双套语义变量 + 抽出 `--term-bg` 替换 LogTape/InteractionCard 两处硬编码 `#08121a`；每 `:root` 带 `color-scheme` 让原生控件/滚动条跟随）。
+  - 切换：`store/theme.ts`（localStorage 持久化 + 未选择时跟随系统 `prefers-color-scheme` 并监听其变化）；`components/ThemeToggle.vue` 切换器放顶栏 + 登录页右上角；`main.ts` 挂载前 `initTheme()` 减首屏闪烁。
+  - 验收：`pnpm -C web build` 绿（vue-tsc）；agent-browser 截图深/浅两态 + 状态色板眼检 PASS（`tmp/theme-shots/`）；切换/持久化/reload/跟随系统均验证；对比度脚本核验正文+次要文本≥4.5:1；未引入新动画（`prefers-reduced-motion` 不受影响）。
+  - 注：构建产物（`web/dist` / 嵌入二进制的 `internal/webui/dist`）未提交，按既有约定由 `make web build` 流水线生成。
 - [x] **Workers 仪表盘已落地**（`/runners` 视图：Workers/Peers/Local 名册 + 心跳脉冲签名 + 在飞/标签 + 实时年龄轮询，commit `84655cf`，用 `frontend-design` skill；消费 C6 `/v1/runners`）。
 - [ ] **控制台进一步适配（剩余）**：① 看板/详情行内展示 `runner`/`worker_id` 让"在哪执行"可见；②（更大）控制台内**提交表单**（选 项目/agent/runner/worker_id）。详见 [`design/architecture-overview.md`](design/architecture-overview.md) §9.2。
   - 注：peer-http/worker 远端 job 的交互/日志因"镜像"机制已透明呈现在现有看板/详情，无需改前端即可用；本项是让远端执行**位置**进一步可见 + 控制台内发起 job。

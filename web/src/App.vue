@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { clearToken, hasToken } from './store/auth'
 import { listAgents, listProjects } from './api/client'
 import type { AgentInfo } from './api/types'
+import ThemeToggle from './components/ThemeToggle.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -136,6 +137,7 @@ function agentDotColor(a: AgentInfo): string {
           <span class="conn-dot"></span>
           {{ connected ? 'connected' : 'offline' }}
         </span>
+        <ThemeToggle />
         <button class="logout" type="button" @click="logout">登出</button>
       </div>
     </header>
