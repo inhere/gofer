@@ -37,6 +37,7 @@
 - [ ] **P2-a** `client.ListJobs(opts)` + `client.StreamJob(ctx,id,from,onEvent)`（SSE 帧解析助手）+ `client.GetJobRequest(id)`
 - [ ] **P2-b** `GET /v1/jobs/{id}/request` 端点（回原始 JobRequest）+ 路由
 - [ ] **P2-c** `job list`/`watch <id>`/`rerun <id>` 子命令 + `gofer completion` 接线
+- [ ] **P2-d** tags 设置入口（`job run --tag` + md+yaml frontmatter tags 核对 + Web NewJob tags 输入）
 - [ ] **P3-a** `gofer init`（写 starter yaml，`--force` 守卫）+ `gofer config validate`（全局 load+validate+逐项目 reg.Validate）
 - [ ] **P3-b** `config/gofer.example.yaml` 补 callers/workers/runner_probe/retention/db_path/worker-runner 段
 
