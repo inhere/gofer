@@ -210,6 +210,9 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/jobs/{id}/artifacts", s.handleListArtifacts)
 		r.GET("/jobs/{id}/artifacts/{name:.+}", s.handleDownloadArtifact)
 
+		// E12 diff 快照(P3)：默认回 --stat 摘要(库)，?full=1 回 changes.diff 全量。
+		r.GET("/jobs/{id}/diff", s.handleGetDiff)
+
 		r.POST("/jobs/{id}/cancel", s.handleCancelJob)
 
 		// P9 running-job two-way interactions.

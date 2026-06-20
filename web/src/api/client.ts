@@ -178,6 +178,25 @@ export async function downloadArtifact(id: string, name: string): Promise<void> 
   URL.revokeObjectURL(objURL)
 }
 
+// 拉取完整 diff（E12，P3）。changes.diff 是「未提交改动」(tracked vs HEAD/index)
+// 的全量 patch；需带鉴权头，故走 fetch+blob 在新标签页打开预览（text/plain）。
+export async function viewFullDiff(id: string): Promise<void> {
+  const url = `/v1/jobs/${encodeURIComponent(id)}/diff?full=1`
+  const res = await fetch(url, { headers: authHeaders() })
+  if (res.status === 401) {
+    triggerUnauthorized()
+    throw new Error('未授权（401）：token 无效或已失效')
+  }
+  if (!res.ok) {
+    return raiseForStatus(res)
+  }
+  const blob = await res.blob()
+  const objURL = URL.createObjectURL(blob)
+  window.open(objURL, '_blank', 'noopener')
+  // 不立即 revoke：新标签页仍需读取该 objectURL；交给页面卸载时回收。
+  setTimeout(() => URL.revokeObjectURL(objURL), 60_000)
+}
+
 export function cancelJob(id: string): Promise<Job> {
   return request<Job>(`/v1/jobs/${encodeURIComponent(id)}/cancel`, {
     method: 'POST',
