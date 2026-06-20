@@ -3,6 +3,7 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -101,6 +102,8 @@ func TestListToolsAllPresent(t *testing.T) {
 		"bridge_cancel_job":         false,
 		"bridge_get_interactions":   false,
 		"bridge_answer_interaction": false,
+		"bridge_get_artifacts":      false,
+		"bridge_get_result":         false,
 	}
 	for _, tl := range res.Tools {
 		if _, ok := want[tl.Name]; ok {
@@ -112,7 +115,7 @@ func TestListToolsAllPresent(t *testing.T) {
 			t.Fatalf("tool %q missing from ListTools (got %d tools)", name, len(res.Tools))
 		}
 	}
-	// All eight bridge_* tools must be registered (no more, no fewer).
+	// All ten bridge_* tools must be registered (no more, no fewer).
 	if len(res.Tools) != len(want) {
 		t.Fatalf("expected %d tools, got %d: %+v", len(want), len(res.Tools), res.Tools)
 	}
@@ -554,4 +557,196 @@ func TestAnswerInteractionUnknownJobToolError(t *testing.T) {
 	if !res.IsError {
 		t.Fatalf("expected IsError for unknown job")
 	}
+}
+
+// runDoneJob submits a trivial exec job over the tool and waits for terminal
+// state via the service, returning its id (for the empty-result/empty-artifact
+// cases).
+func runDoneJob(t *testing.T, session *mcp.ClientSession, jobs *job.Service) string {
+	t.Helper()
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "bridge_run_job",
+		Arguments: map[string]any{
+			"project_key": "self", "agent": "exec", "runner": "local",
+			"cmd": []string{"go", "version"}, "cwd": ".", "timeout_sec": 30,
+		},
+	})
+	if err != nil {
+		t.Fatalf("run_job: %v", err)
+	}
+	var created jobView
+	structured(t, res, &created)
+	if created.ID == "" {
+		t.Fatalf("run_job returned no id")
+	}
+	if _, ok := jobs.Wait(created.ID); !ok {
+		t.Fatalf("Wait: job %s not found", created.ID)
+	}
+	return created.ID
+}
+
+// startSleepJob submits a brief sleep job over the tool and returns its created
+// snapshot (id + result_dir) WITHOUT waiting — so the test can drop
+// artifacts/result.json into the result dir before captureOutcomes runs at
+// finish (mirrors httpapi.createSleepJob).
+func startSleepJob(t *testing.T, session *mcp.ClientSession) jobView {
+	t.Helper()
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "bridge_run_job",
+		Arguments: map[string]any{
+			"project_key": "self", "agent": "exec", "runner": "local",
+			"cmd": []string{"sleep", "0.4"}, "cwd": ".", "timeout_sec": 30,
+		},
+	})
+	if err != nil {
+		t.Fatalf("run_job: %v", err)
+	}
+	var created jobView
+	structured(t, res, &created)
+	if created.ID == "" || created.ResultDir == "" {
+		t.Fatalf("created job missing id/result_dir: %+v", created)
+	}
+	return created
+}
+
+// TestGetArtifactsTool covers a job that captured artifacts at finish: both
+// files are listed with slash-relative names. Files are dropped while the job
+// is still running so captureOutcomes scans them into ArtifactsJSON.
+func TestGetArtifactsTool(t *testing.T) {
+	session, jobs := connect(t)
+	created := startSleepJob(t, session)
+
+	artDir := filepath.Join(created.ResultDir, "artifacts", "sub")
+	if err := os.MkdirAll(artDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(created.ResultDir, "artifacts", "a.txt"), []byte("hello"), 0o600); err != nil {
+		t.Fatalf("write a.txt: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(artDir, "b.bin"), []byte("abcdefgh"), 0o600); err != nil {
+		t.Fatalf("write b.bin: %v", err)
+	}
+
+	final, ok := jobs.Wait(created.ID)
+	if !ok || final.Status != job.StatusDone {
+		t.Fatalf("job not done: %+v", final)
+	}
+	// The captured manifest must be populated (not just the live-scan fallback).
+	if final.ArtifactsJSON == "" {
+		t.Fatalf("ArtifactsJSON should be captured at finish")
+	}
+
+	out := callGetArtifacts(t, session, created.ID)
+	if len(out.Artifacts) != 2 {
+		t.Fatalf("expected 2 artifacts, got %d: %+v", len(out.Artifacts), out.Artifacts)
+	}
+	sizes := map[string]int64{}
+	for _, a := range out.Artifacts {
+		sizes[a.Name] = a.Size
+	}
+	if sizes["a.txt"] != 5 || sizes["sub/b.bin"] != 8 {
+		t.Fatalf("unexpected artifacts: %+v", out.Artifacts)
+	}
+}
+
+// TestGetArtifactsEmptyIsArray asserts a job with no artifacts yields a non-nil
+// empty array.
+func TestGetArtifactsEmptyIsArray(t *testing.T) {
+	session, jobs := connect(t)
+	id := runDoneJob(t, session, jobs)
+	out := callGetArtifacts(t, session, id)
+	if out.Artifacts == nil || len(out.Artifacts) != 0 {
+		t.Fatalf("expected empty non-nil artifacts, got %+v", out.Artifacts)
+	}
+}
+
+func TestGetArtifactsUnknownJob(t *testing.T) {
+	session, _ := connect(t)
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "bridge_get_artifacts",
+		Arguments: map[string]any{"id": "ghost"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("expected IsError for unknown job")
+	}
+}
+
+// callGetArtifacts invokes bridge_get_artifacts and decodes the output.
+func callGetArtifacts(t *testing.T, session *mcp.ClientSession, id string) getArtifactsOutput {
+	t.Helper()
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "bridge_get_artifacts",
+		Arguments: map[string]any{"id": id},
+	})
+	if err != nil {
+		t.Fatalf("get_artifacts: %v", err)
+	}
+	var out getArtifactsOutput
+	structured(t, res, &out)
+	return out
+}
+
+// TestGetResultTool covers a job that has a result.json captured at finish: the
+// tool returns the JSON verbatim. result.json is dropped while the job is still
+// running so captureOutcomes inlines it into ResultJSON.
+func TestGetResultTool(t *testing.T) {
+	session, jobs := connect(t)
+	created := startSleepJob(t, session)
+
+	want := `{"ok":true,"n":3}`
+	if err := os.WriteFile(filepath.Join(created.ResultDir, "result.json"), []byte(want), 0o600); err != nil {
+		t.Fatalf("write result.json: %v", err)
+	}
+
+	final, ok := jobs.Wait(created.ID)
+	if !ok || final.Status != job.StatusDone {
+		t.Fatalf("job not done: %+v", final)
+	}
+
+	got := callGetResult(t, session, created.ID)
+	if got.ResultJSON != want {
+		t.Fatalf("result_json=%q, want %q", got.ResultJSON, want)
+	}
+}
+
+// TestGetResultEmpty asserts a job with no result.json yields an empty string.
+func TestGetResultEmpty(t *testing.T) {
+	session, jobs := connect(t)
+	id := runDoneJob(t, session, jobs)
+	got := callGetResult(t, session, id)
+	if got.ResultJSON != "" {
+		t.Fatalf("expected empty result_json, got %q", got.ResultJSON)
+	}
+}
+
+func TestGetResultUnknownJob(t *testing.T) {
+	session, _ := connect(t)
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "bridge_get_result",
+		Arguments: map[string]any{"id": "ghost"},
+	})
+	if err != nil {
+		t.Fatalf("unexpected transport error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("expected IsError for unknown job")
+	}
+}
+
+// callGetResult invokes bridge_get_result and decodes the output.
+func callGetResult(t *testing.T, session *mcp.ClientSession, id string) getResultOutput {
+	t.Helper()
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "bridge_get_result",
+		Arguments: map[string]any{"id": id},
+	})
+	if err != nil {
+		t.Fatalf("get_result: %v", err)
+	}
+	var out getResultOutput
+	structured(t, res, &out)
+	return out
 }
