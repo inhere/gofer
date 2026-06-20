@@ -3,6 +3,7 @@
 APP     := gofer
 MAIN_DIR := ./cmd/gofer
 GOEXE = $(shell go env GOEXE)
+GOPATH = $(shell go env GOPATH)
 BINARY  := $(APP)$(GOEXE)
 
 # Build metadata
