@@ -245,6 +245,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			ProjectKey:  req.ProjectKey,
 			Agent:       req.Agent,
 			Runner:      req.Runner,
+			Title:       req.Title,
 			WorkerID:    req.WorkerID,
 			Status:      StatusQueued,
 			Cwd:         workDir,
@@ -444,6 +445,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		ProjectKey:  rec.ProjectKey,
 		Agent:       rec.Agent,
 		Runner:      rec.Runner,
+		Title:       titleFromRequestJSON(rec.RequestJSON),
 		WorkerID:    rec.WorkerID,
 		Status:      rec.Status,
 		ExitCode:    rec.ExitCode,
@@ -457,6 +459,21 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		CallerID:    rec.CallerID,
 		RequestID:   rec.RequestID,
 	}
+}
+
+// titleFromRequestJSON recovers the optional job Title from the persisted
+// request_json blob. The jobs table has no title column (SP5), so the DB read
+// path (fromRecord) parses it back out of the stored JobRequest to keep Title
+// round-tripping through Get/ListJobs.
+func titleFromRequestJSON(s string) string {
+	if s == "" {
+		return ""
+	}
+	var t struct {
+		Title string `json:"title"`
+	}
+	_ = json.Unmarshal([]byte(s), &t)
+	return t.Title
 }
 
 // classify maps a runner result + context state to a job status, exit code and

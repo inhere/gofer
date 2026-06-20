@@ -33,7 +33,12 @@ type JobResult struct {
 	ProjectKey string `json:"project_key"`
 	Agent      string `json:"agent"`
 	Runner     string `json:"runner"`
-	Status     string `json:"status"`
+	// Title is the optional human-readable job name from the original JobRequest.
+	// The jobs table has no title column; it persists inside request_json and is
+	// recovered on the DB read path (fromRecord) so it round-trips, not just on
+	// the live in-memory path.
+	Title  string `json:"title,omitempty"`
+	Status string `json:"status"`
 	ExitCode   int    `json:"exit_code"`
 	Cwd        string `json:"cwd"`
 	ResultDir  string `json:"result_dir"`

@@ -249,6 +249,53 @@ func TestTerminalMetadataPersistedToDB(t *testing.T) {
 	}
 }
 
+// TestTitleRoundTripsThroughDB proves a submitted Title survives the DB read path
+// (fromRecord parsing request_json), not just the live in-memory entry. The job is
+// driven to terminal so its in-memory entry is evicted (SP3); Get/ListJobs then go
+// through fromRecord, which must recover the title out of the stored request_json.
+func TestTitleRoundTripsThroughDB(t *testing.T) {
+	root := t.TempDir()
+	s := newTestService(t, root)
+	const title = "nightly cache warm"
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Title: title, Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("setup: expected done, got %s", final.Status)
+	}
+	// The job must be evicted from memory so the next reads exercise fromRecord
+	// (the DB read path), not the live in-memory snapshot.
+	if e := s.entry(final.ID); e != nil {
+		t.Fatalf("setup: expected job evicted after terminal")
+	}
+
+	got, ok := s.Get(final.ID)
+	if !ok {
+		t.Fatalf("Get after eviction: job not found")
+	}
+	if got.Title != title {
+		t.Fatalf("Get: title did not round-trip through DB read path, got %q want %q", got.Title, title)
+	}
+
+	list, err := s.ListJobs(ListOpts{})
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	var found bool
+	for _, j := range list {
+		if j.ID == final.ID {
+			found = true
+			if j.Title != title {
+				t.Fatalf("ListJobs: title did not round-trip, got %q want %q", j.Title, title)
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("ListJobs after eviction does not contain %s", final.ID)
+	}
+}
+
 func TestJobIDUniquenessSameSecond(t *testing.T) {
 	root := t.TempDir()
 	s := newTestService(t, root)
