@@ -202,6 +202,65 @@ func TestGetLogsInvalidStream(t *testing.T) {
 	}
 }
 
+// TestSubmitJobSyncReturnsTerminal: a fast sync submit returns the terminal
+// result and Async=false (the server finished within its wait cap).
+func TestSubmitJobSyncReturnsTerminal(t *testing.T) {
+	ts := newServer(t, testToken, false)
+	c := New(ts.URL, testToken)
+
+	out, err := c.SubmitJobSync(job.JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+		Sync: true,
+	})
+	if err != nil {
+		t.Fatalf("SubmitJobSync: %v", err)
+	}
+	if out.Async {
+		t.Fatalf("Async=true on a completed sync submit, want false")
+	}
+	if out.Job.Status != job.StatusDone {
+		t.Fatalf("status=%s want done", out.Job.Status)
+	}
+}
+
+// TestSubmitJobSyncAsyncFallback: a slow sync submit that exceeds the (clamped)
+// wait cap is reported as Async=true so the caller switches to polling.
+func TestSubmitJobSyncAsyncFallback(t *testing.T) {
+	ts := newServer(t, testToken, false)
+	c := New(ts.URL, testToken)
+
+	out, err := c.SubmitJobSync(job.JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"sleep", "5"}, Cwd: ".", TimeoutSec: 30,
+		Sync: true, WaitTimeoutSec: 1,
+	})
+	if err != nil {
+		t.Fatalf("SubmitJobSync: %v", err)
+	}
+	if !out.Async {
+		t.Fatalf("Async=false on a sync submit that exceeded the wait cap, want true")
+	}
+	if out.Job.ID == "" {
+		t.Fatalf("async fallback missing job id: %+v", out.Job)
+	}
+}
+
+// TestSubmitMarkdownExecRejected: SubmitMarkdown posts text/markdown; an md
+// submit declaring agent=exec is rejected by the server (400) and surfaced as a
+// friendly client error.
+func TestSubmitMarkdownExecRejected(t *testing.T) {
+	ts := newServer(t, testToken, false)
+	c := New(ts.URL, testToken)
+
+	md := []byte("---\nproject_key: self\nagent: exec\nrunner: local\n---\ndo a thing\n")
+	if _, err := c.SubmitMarkdown(md); err == nil {
+		t.Fatal("expected error for exec via markdown")
+	} else if !strings.Contains(err.Error(), "400") {
+		t.Fatalf("error should mention 400: %v", err)
+	}
+}
+
 func TestNormalizeBaseURL(t *testing.T) {
 	cases := map[string]string{
 		"127.0.0.1:8765":      "http://127.0.0.1:8765",

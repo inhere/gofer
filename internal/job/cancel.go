@@ -2,6 +2,7 @@ package job
 
 import (
 	"fmt"
+	"time"
 )
 
 // Get returns the current snapshot of a job. The in-memory map is authoritative
@@ -78,6 +79,38 @@ func (s *Service) Wait(id string) (JobResult, bool) {
 	}
 	<-entry.done
 	return entry.snapshot(), true
+}
+
+// WaitFor blocks until the job reaches a terminal state OR timeout elapses. It
+// is the bounded counterpart of Wait used by the synchronous-submit HTTP path
+// (design §6.1 / P1-a).
+//
+// ok=false means the wait timed out (the job is still running in the background
+// — it is NOT cancelled) or the id is unknown. A job already evicted to a
+// terminal DB record returns ok=true immediately via the metadata-store fallback
+// (mirrors Wait). timeout<=0 degrades to Wait (block forever; test-only).
+func (s *Service) WaitFor(id string, timeout time.Duration) (JobResult, bool) {
+	entry := s.entry(id)
+	if entry == nil {
+		if rec, ok, _ := s.meta.GetJob(id); ok {
+			return fromRecord(rec), true
+		}
+		return JobResult{}, false
+	}
+	if timeout <= 0 {
+		<-entry.done
+		return entry.snapshot(), true
+	}
+	t := time.NewTimer(timeout)
+	defer t.Stop()
+	select {
+	case <-entry.done:
+		return entry.snapshot(), true
+	case <-t.C:
+		// Not terminal yet: return the current (running) snapshot with ok=false so
+		// the caller can fall back to async polling; the job keeps running.
+		return entry.snapshot(), false
+	}
 }
 
 // entry returns the tracked job entry for id, or nil.

@@ -64,16 +64,69 @@ func NormalizeBaseURL(addr string) string {
 	return strings.TrimRight(addr, "/")
 }
 
+// SubmitResult wraps the create-job response. Async is true when the server
+// could not finish a synchronous submit within its wait cap and returned 202 +
+// X-Gofer-Async (the job keeps running); the caller should poll. For a plain
+// async submit (no sync requested) the server returns 200 and Async is false.
+type SubmitResult struct {
+	Job   job.JobResult
+	Async bool
+}
+
 // SubmitJob POSTs a JobRequest to /v1/jobs and returns the initial JobResult
-// (with the assigned id and queued/running status).
+// (with the assigned id and queued/running status). It ignores the 202/async
+// distinction; use SubmitJobSync when that matters.
 func (c *Client) SubmitJob(req job.JobRequest) (job.JobResult, error) {
-	var res job.JobResult
+	out, err := c.SubmitJobSync(req)
+	return out.Job, err
+}
+
+// SubmitJobSync POSTs a JobRequest as JSON and reports whether the server fell
+// back to async (202 + X-Gofer-Async) so a sync caller can switch to polling.
+func (c *Client) SubmitJobSync(req job.JobRequest) (SubmitResult, error) {
 	body, err := json.Marshal(req)
 	if err != nil {
-		return res, fmt.Errorf("encode job request: %w", err)
+		return SubmitResult{}, fmt.Errorf("encode job request: %w", err)
 	}
-	err = c.doJSON(http.MethodPost, "/v1/jobs", bytes.NewReader(body), &res)
-	return res, err
+	return c.submit("application/json", bytes.NewReader(body))
+}
+
+// SubmitMarkdown POSTs a md+yaml document (frontmatter + prose) to /v1/jobs with
+// Content-Type text/markdown so the server parses it into a JobRequest (design
+// §6.2). Like SubmitJobSync it surfaces the 202/async fallback.
+func (c *Client) SubmitMarkdown(body []byte) (SubmitResult, error) {
+	return c.submit("text/markdown", bytes.NewReader(body))
+}
+
+// submit performs the create-job POST with an explicit content type and decodes
+// the JobResult, flagging the 202 async-fallback case.
+func (c *Client) submit(contentType string, body io.Reader) (SubmitResult, error) {
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+"/v1/jobs", body)
+	if err != nil {
+		return SubmitResult{}, fmt.Errorf("build request: %w", err)
+	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	req.Header.Set("Content-Type", contentType)
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return SubmitResult{}, fmt.Errorf("request POST /v1/jobs: %w", err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return SubmitResult{}, fmt.Errorf("read response: %w", err)
+	}
+	if err := errorFor(resp.StatusCode, data); err != nil {
+		return SubmitResult{}, err
+	}
+	var out SubmitResult
+	if err := json.Unmarshal(data, &out.Job); err != nil {
+		return SubmitResult{}, fmt.Errorf("decode response: %w", err)
+	}
+	out.Async = resp.StatusCode == http.StatusAccepted || resp.Header.Get("X-Gofer-Async") == "1"
+	return out, nil
 }
 
 // GetJob fetches the current snapshot of a job by id.
