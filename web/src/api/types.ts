@@ -138,6 +138,61 @@ export interface RunnersResp {
   runners: Runner[]
 }
 
+// /v1/meta（G4，design §6.4）：提交表单一次取齐的选项聚合。
+// 字段与 internal/httpapi/meta_handler.go 的 metaResp/metaProject/... 对齐。
+export interface MetaProject {
+  key: string
+  allowed_agents: string[]
+  allowed_runners: string[]
+  default_agent?: string
+}
+
+export interface MetaAgent {
+  key: string
+  // cli-agent | exec（前端据此切换 prompt 文本域 / command 输入）
+  type: string
+}
+
+export interface MetaRunner {
+  name: string
+  type: RunnerType
+}
+
+export interface MetaWorker {
+  id: string
+  labels?: string[]
+  connected: boolean
+}
+
+export interface MetaResp {
+  projects: MetaProject[]
+  agents: MetaAgent[]
+  runners: MetaRunner[]
+  workers: MetaWorker[]
+}
+
+// POST /v1/jobs 提交载荷（与 internal/job/model.go 的 JobRequest 对齐）。
+// caller_id 由服务端覆盖，前端不发。
+export interface SubmitJobReq {
+  project_key: string
+  agent: string
+  runner: string
+  prompt?: string
+  cmd?: string[]
+  cwd?: string
+  timeout_sec?: number
+  title?: string
+  worker_id?: string
+  worker_labels?: string[]
+  sync?: boolean
+}
+
+// 提交结果：Job 快照 + async 标记（202 命中服务端等待上限退回异步）。
+export interface SubmitJobResult {
+  job: Job
+  async: boolean
+}
+
 // SSE 事件（解析后）
 // log-rotated：后端日志文件发生轮转（offset 重置），前端需清空该 stream 已缓冲文本后续读。
 export type SSEEventType =

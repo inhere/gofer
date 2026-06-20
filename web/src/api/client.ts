@@ -11,9 +11,12 @@ import type {
   JobStatus,
   ListJobsOpts,
   LogStream,
+  MetaResp,
   ProjectDetail,
   ProjectsResp,
   RunnersResp,
+  SubmitJobReq,
+  SubmitJobResult,
 } from './types'
 import type { StreamJobOpts } from './sse'
 
@@ -89,6 +92,31 @@ export function listAgents(): Promise<AgentsResp> {
 // 运行器舰队状态（worker / peer-http / local）。Runners 视图轮询读取。
 export function listRunners(): Promise<RunnersResp> {
   return request<RunnersResp>('/v1/runners')
+}
+
+// 提交表单选项聚合（G4，design §6.4）：projects/agents/runners/workers 一次取齐。
+export function getMeta(): Promise<MetaResp> {
+  return request<MetaResp>('/v1/meta')
+}
+
+// 提交 job（POST /v1/jobs）。复用 request 的 token/401/错误体处理，但因需读
+// 响应状态码判定 202（X-Gofer-Async：同步等待超服务端上限退回异步），这里独立
+// 走 fetch 以拿到 Response.status。200=终态/queued，202=仍在后台。
+export async function submitJob(req: SubmitJobReq): Promise<SubmitJobResult> {
+  const res = await fetch('/v1/jobs', {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(req),
+  })
+  if (res.status === 401) {
+    triggerUnauthorized()
+    throw new Error('未授权（401）：token 无效或已失效')
+  }
+  if (!res.ok) {
+    return raiseForStatus(res)
+  }
+  const job = (await res.json()) as Job
+  return { job, async: res.status === 202 }
 }
 
 export function listJobs(opts?: ListJobsOpts): Promise<JobsResp> {
