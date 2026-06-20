@@ -1,6 +1,7 @@
 package job
 
 import (
+	"slices"
 	"sort"
 
 	"github.com/inhere/gofer/internal/jobstore"
@@ -19,6 +20,14 @@ type ListOpts struct {
 	Status string
 	// Caller, when non-empty, keeps only jobs submitted by that caller id (C2).
 	Caller string
+	// Tag, when non-empty, keeps only jobs carrying that exact tag element (E5).
+	Tag string
+	// Agent, when non-empty, keeps only jobs run by that agent (E5).
+	Agent string
+	// Runner, when non-empty, keeps only jobs run on that runner (E5).
+	Runner string
+	// Since, when > 0, keeps only jobs with started_at >= Since (E5; unix 秒)。
+	Since int64
 	// Limit caps the number of returned jobs; <= 0 means defaultListLimit.
 	Limit int
 }
@@ -50,6 +59,10 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 		Project: opts.Project,
 		Status:  opts.Status,
 		Caller:  opts.Caller,
+		Tag:     opts.Tag,
+		Agent:   opts.Agent,
+		Runner:  opts.Runner,
+		Since:   opts.Since,
 		Limit:   opts.Limit,
 	})
 	for _, rec := range recs {
@@ -67,10 +80,24 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 	s.mu.Unlock()
 	for _, e := range entries {
 		snap := e.snapshot()
+		// 内存 overlay 必须与 DB 路（jobstore.ListJobs WHERE）逐维一致，否则未落终态的
+		// live job 会绕过新过滤维度。tag 用元素精确匹配（对应 DB 的 tags_json LIKE '%"tag"%'）。
 		if opts.Project != "" && snap.ProjectKey != opts.Project {
 			continue
 		}
 		if opts.Caller != "" && snap.CallerID != opts.Caller {
+			continue
+		}
+		if opts.Tag != "" && !slices.Contains(snap.Tags, opts.Tag) {
+			continue
+		}
+		if opts.Agent != "" && snap.Agent != opts.Agent {
+			continue
+		}
+		if opts.Runner != "" && snap.Runner != opts.Runner {
+			continue
+		}
+		if opts.Since > 0 && snap.StartedAt < opts.Since {
 			continue
 		}
 		merged[snap.ID] = snap
