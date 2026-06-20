@@ -1,8 +1,11 @@
 package commands
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
 	"os"
+	"os/signal"
 	"strings"
 	"time"
 
@@ -42,6 +45,28 @@ var jobCommonOpts = struct {
 	logsConfig, logsServer, logsToken     string
 	logsStream                            string
 	cancelConfig, cancelServer, cancelTkn string
+}{}
+
+// jobListOpts holds `job list` flags: the shared --config/--server/--token plus
+// the E5 filter dimensions (mapped 1:1 onto job.ListOpts).
+var jobListOpts = struct {
+	config, server, token string
+	project, status       string
+	caller, tag           string
+	agent, runner         string
+	since                 int
+	limit                 int
+}{}
+
+// jobWatchOpts / jobRerunOpts hold `job watch` / `job rerun` flags.
+var jobWatchOpts = struct {
+	config, server, token string
+	from                  int
+}{}
+
+var jobRerunOpts = struct {
+	config, server, token string
+	watch                 bool
 }{}
 
 // NewJobCmd builds the `job` command group (run/show/logs/cancel). It wraps the
@@ -112,6 +137,48 @@ func NewJobCmd() *gcli.Command {
 					c.AddArg("id", "job id", true)
 				},
 				Func: runJobCancel,
+			},
+			{
+				Name: "list",
+				Desc: "List jobs with optional filters (E5: tag/agent/runner/since/...)",
+				Config: func(c *gcli.Command) {
+					c.StrOpt(&jobListOpts.config, "config", "c", "", "path to the bridge config file")
+					c.StrOpt(&jobListOpts.server, "server", "s", "", "server address (overrides config server.addr)")
+					c.StrOpt(&jobListOpts.token, "token", "", "", "bearer token override (prefer config/env)")
+					c.StrOpt(&jobListOpts.project, "project", "p", "", "filter by project key")
+					c.StrOpt(&jobListOpts.status, "status", "", "", "filter by status (queued/running/done/failed/cancelled/timeout)")
+					c.StrOpt(&jobListOpts.caller, "caller", "", "", "filter by caller id")
+					c.StrOpt(&jobListOpts.tag, "tag", "", "", "filter by tag (exact element match)")
+					c.StrOpt(&jobListOpts.agent, "agent", "a", "", "filter by agent key")
+					c.StrOpt(&jobListOpts.runner, "runner", "", "", "filter by runner key")
+					c.IntOpt(&jobListOpts.since, "since", "", 0, "keep jobs with started_at >= since (unix seconds)")
+					c.IntOpt(&jobListOpts.limit, "limit", "", 0, "max jobs to return (0 = server default)")
+				},
+				Func: runJobList,
+			},
+			{
+				Name: "watch",
+				Desc: "Stream a job's status + logs live until it finishes",
+				Config: func(c *gcli.Command) {
+					c.StrOpt(&jobWatchOpts.config, "config", "c", "", "path to the bridge config file")
+					c.StrOpt(&jobWatchOpts.server, "server", "s", "", "server address (overrides config server.addr)")
+					c.StrOpt(&jobWatchOpts.token, "token", "", "", "bearer token override (prefer config/env)")
+					c.IntOpt(&jobWatchOpts.from, "from", "", 0, "resume stdout from a byte offset")
+					c.AddArg("id", "job id", true)
+				},
+				Func: runJobWatch,
+			},
+			{
+				Name: "rerun",
+				Desc: "Re-submit a job from its original request (fresh idempotency key)",
+				Config: func(c *gcli.Command) {
+					c.StrOpt(&jobRerunOpts.config, "config", "c", "", "path to the bridge config file")
+					c.StrOpt(&jobRerunOpts.server, "server", "s", "", "server address (overrides config server.addr)")
+					c.StrOpt(&jobRerunOpts.token, "token", "", "", "bearer token override (prefer config/env)")
+					c.BoolOpt(&jobRerunOpts.watch, "watch", "w", false, "watch the new job's stream until it finishes")
+					c.AddArg("id", "source job id", true)
+				},
+				Func: runJobRerun,
 			},
 		},
 	}
@@ -353,4 +420,173 @@ func runJobCancel(c *gcli.Command, _ []string) error {
 	}
 	c.Printf("job %s cancel requested: status=%s\n", res.ID, res.Status)
 	return nil
+}
+
+// runJobList queries GET /v1/jobs with the bound filters and prints a fixed-width
+// table (ID/STATUS/AGENT/RUNNER/PROJECT/TAGS/STARTED). An empty result prints a
+// friendly hint instead of an empty table.
+func runJobList(c *gcli.Command, _ []string) error {
+	cli, err := newClient(jobListOpts.config, jobListOpts.server, jobListOpts.token)
+	if err != nil {
+		return err
+	}
+	jobs, err := cli.ListJobs(job.ListOpts{
+		Project: jobListOpts.project,
+		Status:  jobListOpts.status,
+		Caller:  jobListOpts.caller,
+		Tag:     jobListOpts.tag,
+		Agent:   jobListOpts.agent,
+		Runner:  jobListOpts.runner,
+		Since:   int64(jobListOpts.since),
+		Limit:   jobListOpts.limit,
+	})
+	if err != nil {
+		return err
+	}
+	if len(jobs) == 0 {
+		c.Println("no jobs matched the given filters")
+		return nil
+	}
+	c.Printf("%-22s %-10s %-10s %-8s %-12s %-20s %s\n",
+		"ID", "STATUS", "AGENT", "RUNNER", "PROJECT", "TAGS", "STARTED")
+	for _, j := range jobs {
+		c.Printf("%-22s %-10s %-10s %-8s %-12s %-20s %s\n",
+			j.ID, j.Status, j.Agent, j.Runner, j.ProjectKey,
+			strings.Join(j.Tags, ","), formatStarted(j.StartedAt))
+	}
+	return nil
+}
+
+// formatStarted renders a unix-seconds started_at as a local timestamp; 0 (never
+// started) renders as "-".
+func formatStarted(sec int64) string {
+	if sec <= 0 {
+		return "-"
+	}
+	return time.Unix(sec, 0).Format("2006-01-02 15:04:05")
+}
+
+// runJobWatch streams a job's SSE (status + incremental logs) until it reaches a
+// terminal state, printing status changes and raw log text. On a terminal status
+// it maps the job state to a process exit code (done=0, cancelled=130, any other
+// non-done terminal=1) so it is scriptable. Ctrl-C (SIGINT) cancels the stream
+// and exits cleanly. The terminal exit-code mapping is applied via os.Exit on the
+// non-zero path because gcli only derives exit codes from coded errors, and watch
+// is the last thing the process does.
+func runJobWatch(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("job watch requires an <id> argument")
+	}
+	cli, err := newClient(jobWatchOpts.config, jobWatchOpts.server, jobWatchOpts.token)
+	if err != nil {
+		return err
+	}
+
+	return watchToTerminal(c, cli, id, jobWatchOpts.from)
+}
+
+// watchToTerminal streams a job's SSE to terminal, printing status changes and
+// raw log text, then maps the terminal status to a process exit code (done=0 /
+// cancelled=130 / other=1) via os.Exit on the non-zero path. Ctrl-C cancels the
+// stream and exits 130. Shared by `job watch` and `job rerun --watch`.
+func watchToTerminal(c *gcli.Command, cli *client.Client, id string, from int) error {
+	// Ctrl-C cancels the stream context for a clean exit.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
+	defer stop()
+
+	var lastStatus, finalStatus string
+	streamErr := cli.StreamJob(ctx, id, from, func(ev client.SSEEvent) {
+		switch ev.Event {
+		case "status":
+			var jr job.JobResult
+			if err := json.Unmarshal(ev.Data, &jr); err != nil {
+				return
+			}
+			if jr.Status != lastStatus {
+				lastStatus = jr.Status
+				c.Printf(">> status: %s\n", jr.Status)
+			}
+			if job.IsTerminal(jr.Status) {
+				finalStatus = jr.Status
+			}
+		case "log":
+			var lf struct {
+				Text string `json:"text"`
+			}
+			if err := json.Unmarshal(ev.Data, &lf); err == nil && lf.Text != "" {
+				c.Print(lf.Text)
+			}
+		}
+	})
+	if streamErr != nil {
+		return streamErr
+	}
+
+	// Ctrl-C path: the stream ended because ctx was cancelled, not because the job
+	// finished. Report and exit 130 (SIGINT convention) without claiming a status.
+	if ctx.Err() != nil && finalStatus == "" {
+		c.Println("\nwatch interrupted")
+		os.Exit(130)
+	}
+
+	if finalStatus == "" {
+		// Stream ended (EOF) without a terminal status frame: fetch authoritative.
+		if res, err := cli.GetJob(id); err == nil {
+			finalStatus = res.Status
+		}
+	}
+	c.Printf("job %s finished: status=%s\n", id, finalStatus)
+	if code := terminalExitCode(finalStatus); code != 0 {
+		os.Exit(code)
+	}
+	return nil
+}
+
+// terminalExitCode maps a job terminal status to a process exit code: done=0,
+// cancelled=130 (SIGINT convention), every other terminal (failed/timeout) or
+// unknown=1. Aligns with the existing status constants in internal/job.
+func terminalExitCode(status string) int {
+	switch status {
+	case job.StatusDone:
+		return 0
+	case job.StatusCancelled:
+		return 130
+	default:
+		// failed / timeout / empty / non-terminal-unknown.
+		return 1
+	}
+}
+
+// runJobRerun reads the original JobRequest of <id>, clears its RequestID (D5: a
+// rerun is a brand-new job, not an idempotent hit on the source), re-submits it
+// and prints the new job id. With --watch it then streams the new job to terminal
+// (reusing runJobWatch's path semantics by delegating to a fresh StreamJob).
+func runJobRerun(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("job rerun requires an <id> argument")
+	}
+	cli, err := newClient(jobRerunOpts.config, jobRerunOpts.server, jobRerunOpts.token)
+	if err != nil {
+		return err
+	}
+	req, err := cli.GetJobRequest(id)
+	if err != nil {
+		return err
+	}
+	// D5: a rerun must not be deduped against the source job's idempotency key.
+	req.RequestID = ""
+
+	sub, err := cli.SubmitJobSync(req)
+	if err != nil {
+		return err
+	}
+	newID := sub.Job.ID
+	c.Printf("rerun of %s submitted: new job %s status=%s\n", id, newID, sub.Job.Status)
+
+	if !jobRerunOpts.watch {
+		return nil
+	}
+	return watchToTerminal(c, cli, newID, 0)
 }
