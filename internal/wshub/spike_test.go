@@ -21,14 +21,16 @@
 // (a minimal slice of main plan §5 frame table; wsproto is NOT defined here —
 // that is WP1's job).
 //
-// IMPORTANT finding (P0): coder/websocket's Accept calls w.WriteHeader(101) and
-// then Hijack(). rux's *responseWriter BUFFERS WriteHeader (it only records the
-// status; the real flush happens in ensureWriteHeader, which Hijack() turns into
-// a no-op). So the 101 handshake line is NEVER written to the socket and the
-// client's Dial hangs. The fix — and the realistic WP1 hub shape — is a thin
-// wsUpgradeWriter adapter that forwards WriteHeader to the underlying writer
-// IMMEDIATELY (committing the 101 before hijack) while delegating Header/Hijack/
-// Flush to rux's c.Resp. With it, Accept upgrades cleanly through rux.
+// IMPORTANT finding (P0, historical): coder/websocket's Accept calls
+// w.WriteHeader(101) then Hijack(). rux ≤2.0.1's *responseWriter BUFFERED
+// WriteHeader (only recorded the status; Hijack() did not flush it), so the 101
+// handshake line never reached the socket and the client's Dial hung. The spike's
+// fix was a thin wsUpgradeWriter adapter that forced an early flush.
+//
+// RESOLVED in rux v2.0.2: its *responseWriter.Hijack() now flushes the recorded
+// 101 before detaching, so Accept upgrades cleanly through the RAW c.Resp — the
+// adapter is gone (see hub.Accept). This spike now passes c.Resp directly and
+// stands as the regression guard for that native fix.
 package wshub
 
 import (
@@ -67,10 +69,9 @@ func (b *syncBuffer) String() string {
 	return b.buf.String()
 }
 
-// NOTE (WP1): wsUpgradeWriter has been promoted out of this spike file into the
-// real package file internal/wshub/upgrade_writer.go (it is the production hub
-// shape). This spike test now exercises that promoted type; it no longer defines
-// its own copy.
+// NOTE: the wsUpgradeWriter adapter (rux ≤2.0.1 workaround) was removed after
+// rux v2.0.2 fixed the buffered-WriteHeader-on-Hijack issue natively; this spike
+// now passes c.Resp directly (see the package doc comment above).
 
 // frame is the spike's local minimal envelope. It is intentionally NOT the
 // future internal/wsproto type: the spike only exercises four frame kinds and
@@ -134,10 +135,9 @@ func TestSpike_AcceptLoopbackOverRux(t *testing.T) {
 		_, isFlusher := c.Resp.(http.Flusher)
 
 		// Check a: Accept must upgrade THROUGH rux's wrapper. c.Resp is
-		// *responseWriter; we wrap it in wsUpgradeWriter so the 101 status
-		// flushes before Hijack (see type doc). Hijack still forwards through
-		// rux's wrapper to the underlying Hijacker.
-		conn, err := websocket.Accept(&wsUpgradeWriter{rw: c.Resp}, c.Req, spikeAcceptOptions())
+		// *responseWriter; rux v2.0.2's Hijack() flushes the recorded 101 before
+		// detaching, so the raw c.Resp upgrades cleanly (no adapter needed).
+		conn, err := websocket.Accept(c.Resp, c.Req, spikeAcceptOptions())
 		if err != nil {
 			outcome <- handlerOutcome{acceptErr: err, rWrapperIsFlusher: isFlusher}
 			return
@@ -305,8 +305,8 @@ func TestSpike_OriginRejected(t *testing.T) {
 
 	router := rux.New()
 	router.GET("/v1/workers/connect", func(c *rux.Context) {
-		// Default options: origin verification ON. Same wsUpgradeWriter path.
-		conn, err := websocket.Accept(&wsUpgradeWriter{rw: c.Resp}, c.Req, &websocket.AcceptOptions{
+		// Default options: origin verification ON. Raw c.Resp (rux v2.0.2).
+		conn, err := websocket.Accept(c.Resp, c.Req, &websocket.AcceptOptions{
 			CompressionMode: websocket.CompressionDisabled,
 		})
 		if err != nil {

@@ -7,7 +7,7 @@ require (
 	github.com/goccy/go-yaml v1.19.2
 	github.com/gookit/gcli/v3 v3.5.0
 	github.com/gookit/goutil v0.7.6
-	github.com/gookit/rux/v2 v2.0.1
+	github.com/gookit/rux/v2 v2.0.2
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	modernc.org/sqlite v1.52.0
 )
