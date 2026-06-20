@@ -51,6 +51,11 @@ type JobRecord struct {
 	// RequestID is the optional client-supplied idempotency key (C5). Empty means
 	// "no idempotency key"; only non-empty values are unique-constrained.
 	RequestID string
+	// 产出与审计（job-outcomes-audit）：job 终态时捕获的产出字段，best-effort 写入。
+	RenderedCommand string // 渲染后实际 argv {command,args,env_keys} JSON（E15）
+	ResultJSON      string // <result_dir>/result.json 内容（E6）
+	ArtifactsJSON   string // [{name,size,mtime}] 产物清单（E1，P2）
+	DiffSummary     string // git diff --stat 截断摘要（E12，P3）
 }
 
 // ListQuery filters/bounds a ListJobs query. A zero value lists every project's
@@ -70,7 +75,9 @@ type ListQuery struct {
 const selectCols = `SELECT id, project_key, agent, runner, COALESCE(worker_id,''),
   status, exit_code, COALESCE(cwd,''), result_dir, COALESCE(request_json,''),
   COALESCE(error,''), started_at, COALESCE(ended_at,0), updated_at,
-  COALESCE(caller_id,''), COALESCE(request_id,'') FROM jobs`
+  COALESCE(caller_id,''), COALESCE(request_id,''),
+  COALESCE(rendered_command,''), COALESCE(result_json,''),
+  COALESCE(artifacts_json,''), COALESCE(diff_summary,'') FROM jobs`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -85,6 +92,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.Status, &r.ExitCode, &r.Cwd, &r.ResultDir, &r.RequestJSON,
 		&r.Error, &r.StartedAt, &r.EndedAt, &r.UpdatedAt,
 		&r.CallerID, &r.RequestID,
+		&r.RenderedCommand, &r.ResultJSON, &r.ArtifactsJSON, &r.DiffSummary,
 	)
 	return r, err
 }
@@ -103,8 +111,9 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 	}
 	const q = `INSERT INTO jobs
   (id, project_key, agent, runner, worker_id, status, exit_code, cwd, result_dir,
-   request_json, error, started_at, ended_at, updated_at, caller_id, request_id)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+   request_json, error, started_at, ended_at, updated_at, caller_id, request_id,
+   rendered_command, result_json, artifacts_json, diff_summary)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -120,7 +129,11 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     ended_at=excluded.ended_at,
     updated_at=excluded.updated_at,
     caller_id=excluded.caller_id,
-    request_id=excluded.request_id`
+    request_id=excluded.request_id,
+    rendered_command=excluded.rendered_command,
+    result_json=excluded.result_json,
+    artifacts_json=excluded.artifacts_json,
+    diff_summary=excluded.diff_summary`
 	// Serialise writes in-process (see Store.writeMu) so SQLite never sees two
 	// concurrent writers and cannot return SQLITE_BUSY under burst.
 	s.writeMu.Lock()
@@ -130,6 +143,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.Status, rec.ExitCode, rec.Cwd, rec.ResultDir, rec.RequestJSON,
 		rec.Error, rec.StartedAt, rec.EndedAt, rec.UpdatedAt,
 		rec.CallerID, rec.RequestID,
+		rec.RenderedCommand, rec.ResultJSON, rec.ArtifactsJSON, rec.DiffSummary,
 	)
 	if err != nil {
 		// A competing INSERT with the same non-empty request_id (different id)

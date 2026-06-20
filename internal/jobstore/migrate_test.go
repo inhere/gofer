@@ -73,6 +73,11 @@ func TestMigrateAddsColumnsToOldDB(t *testing.T) {
 	assert.True(t, tableHasColumn(t, s, "jobs", "caller_id"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "request_id"))
 	assert.True(t, indexExists(t, s, "idx_jobs_request_id"))
+	// 产出与审计（job-outcomes-audit）：旧库经 migrate 必须补全这 4 列。
+	assert.True(t, tableHasColumn(t, s, "jobs", "rendered_command"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "result_json"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "artifacts_json"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "diff_summary"))
 
 	// The migrated DB is usable: a job with a request_id round-trips.
 	rec := sampleJob("j1", "proj", 100)
@@ -84,6 +89,17 @@ func TestMigrateAddsColumnsToOldDB(t *testing.T) {
 	assert.True(t, ok)
 	assert.Eq(t, "j1", got.ID)
 	assert.Eq(t, "caller-a", got.CallerID)
+
+	// 旧库里早先没有新列的 job 读出时新字段为空（回归不破）。
+	old := sampleJob("j-old", "proj", 50)
+	assert.NoErr(t, s.UpsertJob(old))
+	gotOld, ok, err := s.GetJob("j-old")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "", gotOld.RenderedCommand)
+	assert.Eq(t, "", gotOld.ResultJSON)
+	assert.Eq(t, "", gotOld.ArtifactsJSON)
+	assert.Eq(t, "", gotOld.DiffSummary)
 }
 
 // TestFreshOpenHasNewColumnsAndIndex asserts a brand-new database gets the new
@@ -93,6 +109,32 @@ func TestFreshOpenHasNewColumnsAndIndex(t *testing.T) {
 	assert.True(t, tableHasColumn(t, s, "jobs", "caller_id"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "request_id"))
 	assert.True(t, indexExists(t, s, "idx_jobs_request_id"))
+	// 产出与审计（job-outcomes-audit）：新库一次建全这 4 列。
+	assert.True(t, tableHasColumn(t, s, "jobs", "rendered_command"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "result_json"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "artifacts_json"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "diff_summary"))
+}
+
+// TestUpsertGetOutcomeFields covers the round-trip of the 4 产出与审计 columns
+// (job-outcomes-audit): a record carrying all four reads back identical.
+func TestUpsertGetOutcomeFields(t *testing.T) {
+	s := openTest(t)
+
+	in := sampleJob("j-out", "proj", 700)
+	in.RenderedCommand = `{"command":"go","args":["version"],"env_keys":["PATH"]}`
+	in.ResultJSON = `{"ok":true,"count":3}`
+	in.ArtifactsJSON = `[{"name":"a.txt","size":12,"mtime":1}]`
+	in.DiffSummary = " a.txt | 2 +-\n 1 file changed"
+	assert.NoErr(t, s.UpsertJob(in))
+
+	got, ok, err := s.GetJob("j-out")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, in.RenderedCommand, got.RenderedCommand)
+	assert.Eq(t, in.ResultJSON, got.ResultJSON)
+	assert.Eq(t, in.ArtifactsJSON, got.ArtifactsJSON)
+	assert.Eq(t, in.DiffSummary, got.DiffSummary)
 }
 
 // TestGetJobByRequestID covers the round-trip and the empty-string short

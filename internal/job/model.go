@@ -79,6 +79,16 @@ type JobResult struct {
 	// on-disk request.json file). json:"-" keeps it out of API responses — it is an
 	// internal/audit field, not part of the queryable job state.
 	RequestJSON string `json:"-"`
+	// 产出与审计（job-outcomes-audit）：job 终态时 captureOutcomes 采集的产出字段。
+	// 全部 best-effort（采集失败为空），omitempty 保证旧 job/未捕获时不出现在响应里。
+	// RenderedCommand 是 {command,args,env_keys} 的 JSON 字符串（E15），前端 JSON.parse。
+	RenderedCommand string `json:"rendered_command,omitempty"`
+	// ResultJSON 是 <result_dir>/result.json 原文（已是合法 JSON 字符串），前端 JSON.parse（E6）。
+	ResultJSON string `json:"result_json,omitempty"`
+	// ArtifactsJSON 产物清单（E1）：不进 get_job（清单走专门端点，P2），仅入库 + 透传。
+	ArtifactsJSON string `json:"-"`
+	// DiffSummary git diff --stat 截断摘要（E12，P3）。
+	DiffSummary string `json:"diff_summary,omitempty"`
 }
 
 // Job status values (plan §6.2).
