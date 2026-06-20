@@ -20,6 +20,8 @@ export interface Job {
   exit_code: number
   cwd: string
   result_dir: string
+  // runner=worker 时实际执行该 job 的 worker（后端 omitempty；显式或按 labels 选中）
+  worker_id?: string
   // Unix 秒（后端 int64）
   started_at: number
   ended_at?: number
