@@ -36,6 +36,8 @@ export interface Job {
   // 执行来源（P4，后端 omitempty）：""(本机) / "worker:<id>" / "peer:<name>"。
   // 远端执行时填充，产出面板据此标注「在 worker/peer 执行」，远端产物文件留执行机。
   source?: string
+  // 自由标签（E5，后端 omitempty）：来自提交时的 tags，支持 ?tag= 检索，行内渲染徽标。
+  tags?: string[]
 }
 
 // 产物清单项（E1，P2）：<result_dir>/artifacts/ 下文件元数据。name 为相对路径
@@ -90,6 +92,12 @@ export interface JobsResp {
 export interface ListJobsOpts {
   status?: JobStatus
   project?: string
+  // E5 检索维度：tag（标签精确元素）/ agent / runner / since（unix 秒）/ caller。
+  tag?: string
+  agent?: string
+  runner?: string
+  since?: number
+  caller?: string
   limit?: number
 }
 

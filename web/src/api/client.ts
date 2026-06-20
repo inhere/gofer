@@ -128,6 +128,21 @@ export function listJobs(opts?: ListJobsOpts): Promise<JobsResp> {
   if (opts?.project) {
     params.set('project', opts.project)
   }
+  if (opts?.tag) {
+    params.set('tag', opts.tag)
+  }
+  if (opts?.agent) {
+    params.set('agent', opts.agent)
+  }
+  if (opts?.runner) {
+    params.set('runner', opts.runner)
+  }
+  if (opts?.since != null) {
+    params.set('since', String(opts.since))
+  }
+  if (opts?.caller) {
+    params.set('caller', opts.caller)
+  }
   if (opts?.limit != null) {
     params.set('limit', String(opts.limit))
   }
