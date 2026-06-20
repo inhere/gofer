@@ -13,6 +13,7 @@ import {
   downloadArtifact,
   getJob,
   listArtifacts,
+  viewFullDiff,
 } from '../api/client'
 import { appendCapped, streamJob } from '../api/sse'
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
@@ -359,12 +360,34 @@ function fmtSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
+// diff 快照(E12)：后端 diff_summary 是 `git diff --stat` 摘要文本（未提交改动，
+// tracked vs HEAD/index）。有摘要时给「查看完整 diff」（/v1/jobs/{id}/diff?full=1）。
+const diffSummary = computed<string>(() => job.value?.diff_summary ?? '')
+const diffError = ref('')
+const viewingDiff = ref(false)
+
+async function onViewDiff(): Promise<void> {
+  if (viewingDiff.value) {
+    return
+  }
+  viewingDiff.value = true
+  diffError.value = ''
+  try {
+    await viewFullDiff(props.id)
+  } catch (e) {
+    diffError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    viewingDiff.value = false
+  }
+}
+
 // 整个「产出与审计」面板是否有内容（避免空面板）。
 const hasOutcomes = computed<boolean>(
   () =>
     renderedCommand.value != null ||
     resultJsonPretty.value !== '' ||
-    artifacts.value.length > 0,
+    artifacts.value.length > 0 ||
+    diffSummary.value !== '',
 )
 
 const copied = ref(false)
@@ -546,6 +569,24 @@ async function copyCommand(): Promise<void> {
           </li>
         </ul>
         <p v-if="artifactError" class="artifact-err mono">{{ artifactError }}</p>
+      </div>
+
+      <!-- diff 快照(E12)：git diff --stat 摘要（未提交改动）+ 查看完整 diff。 -->
+      <div v-if="diffSummary" class="outcome-block">
+        <div class="outcome-head">
+          <span class="outcome-k mono">改了什么</span>
+          <button
+            class="copy-btn mono"
+            type="button"
+            :disabled="viewingDiff"
+            @click="onViewDiff"
+          >
+            {{ viewingDiff ? '打开中…' : '查看完整 diff' }}
+          </button>
+        </div>
+        <p class="diff-note mono">未提交改动（uncommitted changes，tracked vs HEAD）</p>
+        <pre class="outcome-pre diff-stat mono">{{ diffSummary }}</pre>
+        <p v-if="diffError" class="artifact-err mono">{{ diffError }}</p>
       </div>
     </section>
 
@@ -793,6 +834,18 @@ async function copyCommand(): Promise<void> {
   max-height: 360px;
   overflow: auto;
   white-space: pre;
+}
+/* diff --stat 摘要：等宽、可滚，与 result-json 同款。 */
+.outcome-pre.diff-stat {
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre;
+}
+/* diff 语义提示：澄清「未提交改动」，避免误读为「全部改动」。 */
+.diff-note {
+  margin: 0 0 6px;
+  font-size: 11px;
+  color: var(--queue);
 }
 .env-fold {
   margin-top: 8px;
