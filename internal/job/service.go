@@ -257,7 +257,13 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		}
 		runReq.Command = resolved.Command
 		runReq.Args = resolved.Args
-		runReq.Env = resolved.Env
+		// Inject gofer-owned job metadata env so ANY job type (exec or cli-agent)
+		// can locate its result dir / cwd / id. exec argv is executed verbatim
+		// (no {{result_dir}} templating, unlike cli-agent args) — env is the only
+		// channel an exec wrapper has to find <result_dir> for writing E1 artifacts
+		// / E6 result.json. Set on the worker/peer side too (they run this same
+		// local branch), so remote exec jobs get the executor-local paths.
+		runReq.Env = goferJobEnv(resolved.Env, jobID, workDir, resultDir)
 	}
 
 	now := s.nowFn().Unix()

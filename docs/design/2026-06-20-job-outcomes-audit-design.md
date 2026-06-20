@@ -112,12 +112,12 @@ func (s *Service) captureOutcomes(entry *jobEntry, runReq runner.Request) {
 - 详情/get_job 回 `rendered_command`；Web 展示 + 复制按钮。worker/peer 的渲染命令在执行侧，P4 带回。
 
 ### 6.3 E6 结构化结果（P1）
-- 约定：agent/wrapper 把结果写 `<result_dir>/result.json`（result_dir 经 `{{result_dir}}` 模板已可得）。
+- 约定：agent/wrapper 把结果写 `<result_dir>/result.json`。result_dir 的获取：cli-agent 用 `{{result_dir}}` 模板；**任意 job 类型（含 exec，argv 逐字执行无模板）统一读环境变量 `GOFER_RESULT_DIR`**（另注入 `GOFER_CWD`/`GOFER_JOB_ID`，见 §6.7）。
 - finish 时若存在且为合法 JSON 且 ≤ 上限（如 256KB）→ 存 `result_json` 列；超限/非法 → 记 warning 跳过。
 - get_job 回 `result_json`（已是结构化，前端直接渲染）；Web "结构化结果"面板 pretty-print。
 
 ### 6.4 E1 产物回取（P2）
-- 约定：产物 = `<result_dir>/artifacts/` 下的文件（agent 写到此目录）。finish 时扫目录 → 清单 `[{name,size,mtime}]` 存 `artifacts_json`（仅元数据；文件留盘）。
+- 约定：产物 = `<result_dir>/artifacts/` 下的文件（agent 写到此目录；exec/wrapper 经 `GOFER_RESULT_DIR` env 定位，见 §6.7）。finish 时扫目录 → 清单 `[{name,size,mtime}]` 存 `artifacts_json`（仅元数据；文件留盘）。
 - `GET /v1/jobs/{id}/artifacts` → 清单（从库读，或不存库时实时扫目录）。
 - `GET /v1/jobs/{id}/artifacts/{name}` → 下载：**name 做 path-safe 校验**（SafeJoin 进 artifacts 目录，拒 `..`/绝对路径/软链逃逸），`http.ServeFile` + `Content-Disposition`。
 - Web：产物列表 + 下载链接。
@@ -133,6 +133,17 @@ func (s *Service) captureOutcomes(entry *jobEntry, runReq runner.Request) {
 ### 6.6 远端捕获回传（P4）
 - worker 侧执行后本地 `captureOutcomes`，把"渲染命令 + result.json + artifacts 清单 + diff 摘要"经 **新 WS 帧 `Outcome`（w→s）**（或扩 `Result` 帧的可选字段）回传；host sink 落同一字段。产物**文件**回取两策（§10-E）：(A) 共享盘直接读；(B) 按需经 worker 拉取端点/WS 传输（v1 可仅回清单+小结果，大文件留 worker 侧、标注来源）。
 - peer-http 侧：在 SSE 加 `outcome` 事件（`peerhttp/runner.go:141` handleFrame 新分支）；产物经 peer 的 artifacts 端点代理下载。
+
+### 6.7 result_dir 的 env 注入（后续增强 `example-project-udi`）
+`{{result_dir}}` 模板**仅对 cli-agent 的 args** 经 `agent.Render` 生效；exec job 的 argv **逐字执行**（安全不变量，`agent/adapter.go`），无从模板替换。为让 E1/E6 的「写 `<result_dir>/...`」约定对 **exec/wrapper 也可用**，job 启动时（`job/service.go` 构建 `runner.Request` 的 local 分支）经 `goferJobEnv` 在 agent-config env 之上注入三个只读元数据 env，对 exec 与 cli-agent 一致生效，worker/peer 在各自机器走同一 local 分支注入**执行机本地**路径：
+
+| env | 值 | 用途 |
+|---|---|---|
+| `GOFER_RESULT_DIR` | `<result_dir>` | 写 result.json / artifacts/ |
+| `GOFER_CWD` | SafeJoin 后的 workdir | 定位工作目录 |
+| `GOFER_JOB_ID` | job id | 关联/命名 |
+
+注入值优先于继承的进程 env（`mergedEnv` 中 `req.Env` 覆盖 `os.Environ`）；均为路径/ID，非 secret，出现在 `rendered_command.env_keys`（仅 key 名）无泄露风险。
 
 ## 7. 数据模型
 `jobs` 表加 4 列（`migrate()` additive，无破坏性迁移）：
