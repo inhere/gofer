@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http"
@@ -149,6 +150,28 @@ func (s *Server) handleGetJob(c *rux.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, res)
+}
+
+// handleGetJobRequest returns the original JobRequest a job was created from
+// (P2-b), read from the persisted jobs.request_json column. It exists for the
+// CLI `job rerun` path (re-submit the same request with a fresh idempotency key)
+// and audit. The request_json is intentionally NOT part of handleGetJob's
+// response (it would bloat list responses, D1), so this is a dedicated endpoint.
+// An unknown id or a job with no recorded request is a 404. The stored bytes are
+// already a valid JobRequest JSON object, so they are echoed verbatim
+// (json.RawMessage) without a re-marshal round-trip.
+func (s *Server) handleGetJobRequest(c *rux.Context) {
+	id := c.Param("id")
+	res, ok := s.jobs.Get(id)
+	if !ok {
+		writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
+		return
+	}
+	if res.RequestJSON == "" {
+		writeError(c, http.StatusNotFound, "no request recorded", "job "+id+" has no stored request")
+		return
+	}
+	c.JSON(http.StatusOK, json.RawMessage(res.RequestJSON))
 }
 
 // handleJobLogsStdout / handleJobLogsStderr return the tail of a job's log

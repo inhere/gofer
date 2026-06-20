@@ -200,6 +200,9 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/jobs", s.handleCreateJob)
 		r.GET("/jobs", s.handleListJobs)
 		r.GET("/jobs/{id}", s.handleGetJob)
+		// E2 (P2-b): original JobRequest for re-submit/audit (request_json column).
+		// Separate from get_job so the list/get responses stay lean (D1).
+		r.GET("/jobs/{id}/request", s.handleGetJobRequest)
 		r.GET("/jobs/{id}/logs/stdout", s.handleJobLogsStdout)
 		r.GET("/jobs/{id}/logs/stderr", s.handleJobLogsStderr)
 		r.GET("/jobs/{id}/stream", s.handleJobStream)
