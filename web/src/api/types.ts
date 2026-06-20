@@ -91,6 +91,51 @@ export interface Interaction {
   answered_at?: number
 }
 
+// 运行器（/v1/runners，C6）。三类：worker / peer-http / local。
+// 字段与 internal/httpapi/runner_handler.go 的 runnerView/probeView/workerView 对齐。
+export type RunnerType = 'worker' | 'peer-http' | 'local'
+
+// up/down：peer-http；connected/disconnected：worker；local 恒 up；unknown：尚无信号。
+export type RunnerStatus =
+  | 'up'
+  | 'down'
+  | 'connected'
+  | 'disconnected'
+  | 'unknown'
+
+// peer-http 探活明细（毫秒时间戳/延迟/错误）。
+export interface RunnerProbe {
+  // Unix 毫秒（后端 server_time 同制）；0 表示从未探活
+  checked_at: number
+  latency_ms: number
+  error?: string
+}
+
+// worker 连接明细。heartbeat_age_ms 由后端读取时即时计算。
+export interface RunnerWorker {
+  // Unix 毫秒
+  last_heartbeat: number
+  heartbeat_age_ms: number
+  in_flight: number
+  labels?: string[]
+}
+
+export interface Runner {
+  name: string
+  type: RunnerType
+  status: RunnerStatus
+  // peer-http
+  base_url?: string
+  probe?: RunnerProbe
+  // worker
+  worker_id?: string
+  worker?: RunnerWorker
+}
+
+export interface RunnersResp {
+  runners: Runner[]
+}
+
 // SSE 事件（解析后）
 // log-rotated：后端日志文件发生轮转（offset 重置），前端需清空该 stream 已缓冲文本后续读。
 export type SSEEventType =

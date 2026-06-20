@@ -70,6 +70,7 @@ const navItems = [
   { to: '/board', label: 'board' },
   { to: '/projects', label: 'projects' },
   { to: '/agents', label: 'agents' },
+  { to: '/runners', label: 'runners' },
 ]
 
 function logout() {
