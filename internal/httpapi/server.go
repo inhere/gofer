@@ -193,6 +193,10 @@ func (s *Server) buildRouter() *rux.Router {
 		// (NOT the bare-401 WS path), list-style shape mirroring /v1/jobs.
 		r.GET("/runners", s.handleListRunners)
 
+		// G4 (design §6.4): read-only form-options aggregate for the web console
+		// submit form (projects/agents/runners/workers in one authed GET).
+		r.GET("/meta", s.handleMeta)
+
 		r.POST("/jobs", s.handleCreateJob)
 		r.GET("/jobs", s.handleListJobs)
 		r.GET("/jobs/{id}", s.handleGetJob)
