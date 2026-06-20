@@ -212,18 +212,18 @@ function peerStatusClass(r: Runner): string {
           <div class="card-main">
             <div class="card-row1">
               <span class="card-name">{{ w.name }}</span>
+              <span class="card-meta mono">
+                <span class="wid" :title="w.worker_id">{{ w.worker_id || '—' }}</span>
+                <span class="dot-sep" aria-hidden="true">·</span>
+                <span
+                  class="age"
+                  :class="{ 'age--down': w.status !== 'connected' }"
+                  :title="w.worker ? `last heartbeat ${new Date(w.worker.last_heartbeat).toLocaleString()}` : ''"
+                >{{ w.status === 'connected' ? fmtAge(workerAgeMs(w)) : 'offline' }}</span>
+                <span class="dot-sep" aria-hidden="true">·</span>
+                <span class="inflight">{{ w.worker?.in_flight ?? 0 }} in-flight</span>
+              </span>
               <span class="st mono" :class="workerStatusClass(w)">{{ workerStatusText(w) }}</span>
-            </div>
-            <div class="card-meta mono">
-              <span class="wid" :title="w.worker_id">{{ w.worker_id || '—' }}</span>
-              <span class="dot-sep" aria-hidden="true">·</span>
-              <span
-                class="age"
-                :class="{ 'age--down': w.status !== 'connected' }"
-                :title="w.worker ? `last heartbeat ${new Date(w.worker.last_heartbeat).toLocaleString()}` : ''"
-              >{{ w.status === 'connected' ? fmtAge(workerAgeMs(w)) : 'offline' }}</span>
-              <span class="dot-sep" aria-hidden="true">·</span>
-              <span class="inflight">{{ w.worker?.in_flight ?? 0 }} in-flight</span>
             </div>
             <div v-if="w.worker?.labels && w.worker.labels.length" class="chips">
               <span v-for="l in w.worker.labels" :key="l" class="chip mono">{{ l }}</span>
@@ -255,16 +255,16 @@ function peerStatusClass(r: Runner): string {
           <div class="card-main">
             <div class="card-row1">
               <span class="card-name">{{ p.name }}</span>
+              <span class="card-meta mono">
+                <span class="host" :title="p.base_url">{{ p.base_url || '—' }}</span>
+                <template v-if="p.probe && p.probe.checked_at > 0">
+                  <span class="dot-sep" aria-hidden="true">·</span>
+                  <span class="age">{{ fmtAge(probeAgeMs(p)) }}</span>
+                  <span class="dot-sep" aria-hidden="true">·</span>
+                  <span class="latency">{{ p.probe.latency_ms }}ms</span>
+                </template>
+              </span>
               <span class="st mono" :class="peerStatusClass(p)">{{ peerStatusText(p) }}</span>
-            </div>
-            <div class="card-meta mono">
-              <span class="host" :title="p.base_url">{{ p.base_url || '—' }}</span>
-              <template v-if="p.probe && p.probe.checked_at > 0">
-                <span class="dot-sep" aria-hidden="true">·</span>
-                <span class="age">{{ fmtAge(probeAgeMs(p)) }}</span>
-                <span class="dot-sep" aria-hidden="true">·</span>
-                <span class="latency">{{ p.probe.latency_ms }}ms</span>
-              </template>
             </div>
             <p v-if="p.status === 'down' && p.probe?.error" class="probe-err mono">
               {{ p.probe.error }}
@@ -291,10 +291,10 @@ function peerStatusClass(r: Runner): string {
           <div class="card-main">
             <div class="card-row1">
               <span class="card-name">{{ l.name }}</span>
+              <span class="card-meta mono">
+                <span class="host">in-process</span>
+              </span>
               <span class="st mono st--ok">up</span>
-            </div>
-            <div class="card-meta mono">
-              <span class="host">in-process</span>
             </div>
           </div>
         </article>
@@ -416,16 +416,17 @@ function peerStatusClass(r: Runner): string {
   font-size: 14px;
   color: var(--paper);
   font-weight: 600;
+  flex: none;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  max-width: 240px;
 }
 
 /* 状态文案（mono），按态着色 */
 .st {
   font-size: 11px;
   letter-spacing: 0.03em;
-  margin-left: auto;
   flex: none;
 }
 .st--ok {
@@ -441,14 +442,18 @@ function peerStatusClass(r: Runner): string {
   color: var(--queue);
 }
 
+/* card-meta now rides inline on row1: a flex:1 middle span that fills the gap
+   between name and the far-right status, so the worker card has no dead zone. */
 .card-meta {
+  flex: 1;
+  min-width: 0;
   display: flex;
   align-items: center;
-  flex-wrap: wrap;
   gap: 6px;
-  margin-top: 5px;
   font-size: 11px;
   color: var(--queue);
+  overflow: hidden;
+  white-space: nowrap;
 }
 .dot-sep {
   color: var(--line);
@@ -552,6 +557,15 @@ function peerStatusClass(r: Runner): string {
 }
 
 @media (max-width: 768px) {
+  /* Narrow screens: let row1 stack (name+meta, then status) instead of
+     squeezing everything onto one line. */
+  .card-row1 {
+    flex-wrap: wrap;
+  }
+  .card-meta {
+    flex-basis: 100%;
+    order: 3;
+  }
   .card-name {
     font-size: 13px;
   }

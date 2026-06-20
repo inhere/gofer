@@ -132,7 +132,7 @@ onUnmounted(() => {
     <div class="table">
       <div class="thead mono">
         <span class="col-status">状态</span>
-        <span class="col-id">id</span>
+        <span class="col-job">job · title / id</span>
         <span class="col-proj">project</span>
         <span class="col-agent">agent</span>
         <span class="col-runner">runner</span>
@@ -149,7 +149,10 @@ onUnmounted(() => {
         @keydown.enter="openJob(job)"
       >
         <span class="col-status"><StatusBadge :status="job.status" /></span>
-        <span class="col-id mono">{{ shortId(job.id) }}</span>
+        <span class="col-job" :class="{ 'col-job--titled': job.title }">
+          <span v-if="job.title" class="job-title" :title="job.title">{{ job.title }}</span>
+          <span class="job-id mono" :title="job.id">{{ shortId(job.id) }}</span>
+        </span>
         <span class="col-proj mono">{{ job.project_key }}</span>
         <span class="col-agent mono">{{ job.agent }}</span>
         <span class="col-runner mono" :class="{ remote: job.runner !== 'local' }" :title="job.runner">{{ job.runner }}</span>
@@ -244,7 +247,7 @@ onUnmounted(() => {
 .thead,
 .trow {
   display: grid;
-  grid-template-columns: 124px 96px 1fr 120px 110px 180px;
+  grid-template-columns: 124px minmax(160px, 1fr) 140px 120px 110px 180px;
   align-items: center;
   gap: 12px;
   padding: 9px 14px;
@@ -273,8 +276,31 @@ onUnmounted(() => {
   background: var(--panel);
   box-shadow: inset 2px 0 0 var(--phosphor);
 }
-.col-id {
+/* job cell: title (primary) stacked over short-id (secondary). When a job has no
+   title only the short-id shows, so the row reads the same as before. */
+.col-job {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+.job-title {
+  color: var(--paper);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.job-id {
   color: var(--phosphor);
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Without a title the id is the primary (full-size) label, as before. */
+.col-job:not(.col-job--titled) .job-id {
+  font-size: 13px;
 }
 .col-proj {
   color: var(--paper);

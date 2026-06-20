@@ -116,9 +116,9 @@ function agentDotColor(a: AgentInfo): string {
         &#9776;
       </button>
       <div class="brand mono">
-        <span class="brand-name">AGENT-BRIDGE</span>
+        <span class="brand-name">Gofer</span>
         <span class="brand-sep">&#9656;</span>
-        <span class="brand-sub">console</span>
+        <span class="brand-sub">agent bridge</span>
       </div>
       <nav class="nav mono" aria-label="主导航">
         <RouterLink
