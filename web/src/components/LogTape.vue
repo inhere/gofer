@@ -185,7 +185,7 @@ onMounted(() => {
   min-width: 0;
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: #08121a;
+  background: var(--term-bg);
   overflow: hidden;
 }
 .pane-head {

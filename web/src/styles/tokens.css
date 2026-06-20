@@ -1,3 +1,7 @@
+/* 主题：默认深色（夜班 CRT/蓝灰调度板）。颜色全部走语义 token，
+   浅色模式仅在 [data-theme="light"] 覆盖同名变量，组件无需改动。
+   token 语义：--ink=底/在亮色上的反白字；--panel=抬升面板；--line=发丝线；
+   --paper=正文前景；--run/done/fail/queue/phosphor=状态/强调；--term-bg=日志/输入的终端底。 */
 :root {
   --ink: #0E1A24;
   --panel: #15252F;
@@ -8,9 +12,28 @@
   --fail: #C8553D;
   --queue: #6B8A99;
   --phosphor: #4FB0C6;
+  --term-bg: #08121A;
   --radius: 4px;
   --font-mono: "IBM Plex Mono", ui-monospace, monospace;
   --font-sans: "IBM Plex Sans", system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+/* 浅色模式：日班「冷调蓝灰制图纸 / 搪瓷调度板」——非通用暖奶油。
+   冷白纸底 + 深墨蓝字，沿用同一套状态色但压暗以达 WCAG AA（正文/次要文本均 ≥4.5:1）；
+   发丝线对比刻意贴近深色主题（≈1.5:1）保持「hairline」克制感。 */
+:root[data-theme="light"] {
+  --ink: #E3E7E6;
+  --panel: #F0F2F0;
+  --line: #B2BDBA;
+  --paper: #16242C;
+  --run: #955411;
+  --done: #287140;
+  --fail: #B23A24;
+  --queue: #4F6571;
+  --phosphor: #0F7184;
+  --term-bg: #ECEFEE;
+  color-scheme: light;
 }
 
 /* 底色蓝灰调度板(非纯黑)，前景暖纸白；正文 sans，数据/ID/状态用 mono；低圆角 4px、发丝线 --line */

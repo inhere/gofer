@@ -3,6 +3,7 @@ import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { listProjects } from '../api/client'
 import { clearToken, setToken } from '../store/auth'
+import ThemeToggle from '../components/ThemeToggle.vue'
 
 const router = useRouter()
 
@@ -36,6 +37,9 @@ async function connect() {
 
 <template>
   <div class="access">
+    <div class="access-toolbar">
+      <ThemeToggle />
+    </div>
     <div class="card">
       <div class="card-head mono">
         <span class="card-name">Gofer</span>
@@ -67,10 +71,18 @@ async function connect() {
 
 <style scoped>
 .access {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   min-height: 70vh;
+}
+
+/* 登录页无顶栏：主题切换放页面右上角 */
+.access-toolbar {
+  position: absolute;
+  top: 0;
+  right: 0;
 }
 
 .card {
