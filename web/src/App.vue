@@ -133,6 +133,9 @@ function agentDotColor(a: AgentInfo): string {
         </RouterLink>
       </nav>
       <div class="topbar-right mono">
+        <RouterLink to="/new" class="new-job" active-class="new-job--active">
+          + 新建 job
+        </RouterLink>
         <span class="conn" :class="connected ? 'conn--on' : 'conn--off'">
           <span class="conn-dot"></span>
           {{ connected ? 'connected' : 'offline' }}
@@ -295,6 +298,23 @@ function agentDotColor(a: AgentInfo): string {
   align-items: center;
   gap: 14px;
   font-size: 12px;
+}
+
+.new-job {
+  background: var(--phosphor);
+  color: var(--ink);
+  border: 1px solid var(--phosphor);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.new-job:hover {
+  text-decoration: none;
+  opacity: 0.9;
+}
+.new-job--active {
+  opacity: 0.85;
 }
 
 .conn {

@@ -11,6 +11,7 @@ const routes: RouteRecordRaw[] = [
     meta: { public: true },
   },
   { path: '/board', name: 'board', component: () => import('./views/Board.vue') },
+  { path: '/new', name: 'new-job', component: () => import('./views/NewJob.vue') },
   {
     path: '/jobs/:id',
     name: 'job-detail',
