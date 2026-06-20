@@ -261,6 +261,10 @@ function fmtTime(v: string | number | undefined): string {
   }
   return new Date(sec * 1000).toLocaleString()
 }
+
+function shortId(id: string): string {
+  return id.length > 8 ? id.slice(-8) : id
+}
 </script>
 
 <template>
@@ -281,6 +285,12 @@ function fmtTime(v: string | number | undefined): string {
         <span v-else-if="cancelling && live" class="cancelling mono">取消中…</span>
       </div>
     </div>
+
+    <header v-if="job" class="job-header">
+      <h1 v-if="job.title" class="job-name" :title="job.title">{{ job.title }}</h1>
+      <h1 v-else class="job-name job-name--id mono" :title="job.id">{{ job.id }}</h1>
+      <span v-if="job.title" class="job-subid mono" :title="job.id">{{ shortId(job.id) }}</span>
+    </header>
 
     <p v-if="headError" class="error mono">{{ headError }}</p>
 
@@ -398,6 +408,35 @@ function fmtTime(v: string | number | undefined): string {
 .cancelling {
   color: var(--run);
   font-size: 12px;
+}
+
+/* Prominent job name (the human title) with the short id as secondary; falls
+   back to the full id as the name when the job has no title. */
+.job-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0 0 12px;
+  min-width: 0;
+}
+.job-name {
+  font-size: 18px;
+  font-weight: 600;
+  color: var(--paper);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.job-name--id {
+  font-size: 15px;
+  color: var(--phosphor);
+}
+.job-subid {
+  font-size: 12px;
+  color: var(--phosphor);
+  flex: none;
 }
 
 .meta {

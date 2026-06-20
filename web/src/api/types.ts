@@ -14,6 +14,8 @@ export interface Job {
   project_key: string
   agent: string
   runner: string
+  // 可选的人类可读任务名（后端 omitempty；来自原始请求，经 request_json 回放）
+  title?: string
   status: JobStatus
   exit_code: number
   cwd: string

@@ -38,7 +38,7 @@ async function connect() {
   <div class="access">
     <div class="card">
       <div class="card-head mono">
-        <span class="card-name">AGENT-BRIDGE</span>
+        <span class="card-name">Gofer</span>
         <span class="card-sep">&#9656;</span>
         <span class="card-sub">access</span>
       </div>
