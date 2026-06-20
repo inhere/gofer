@@ -31,7 +31,7 @@
   - 验收：`pnpm -C web build` 绿（vue-tsc）；agent-browser 截图深/浅两态 + 状态色板眼检 PASS（`tmp/theme-shots/`）；切换/持久化/reload/跟随系统均验证；对比度脚本核验正文+次要文本≥4.5:1；未引入新动画（`prefers-reduced-motion` 不受影响）。
   - 注：构建产物（`web/dist` / 嵌入二进制的 `internal/webui/dist`）未提交，按既有约定由 `make web build` 流水线生成。
 - [x] **Workers 仪表盘已落地**（`/runners` 视图：Workers/Peers/Local 名册 + 心跳脉冲签名 + 在飞/标签 + 实时年龄轮询，commit `84655cf`，用 `frontend-design` skill；消费 C6 `/v1/runners`）。
-- [ ] **控制台进一步适配（剩余）**：① 看板/详情行内展示 `runner`/`worker_id` 让"在哪执行"可见（**仍待**）；~~②（更大）控制台内**提交表单**~~ —— **② 已落地（P3，commit `7c7082f`+`15aef7c`）**：`NewJob.vue` 选 项目/agent/runner/worker_id 或 labels，端到端冒烟 PASS。详见 [`design/architecture-overview.md`](design/architecture-overview.md) §9.2 + [`plans/2026-06-20-submit-dispatch/`](plans/2026-06-20-submit-dispatch/)。
+- [x] **控制台进一步适配已落地**：~~① 看板/详情行内展示 `runner`/`worker_id`~~ —— **① 已落地（commit `169e48e`）**：Board runner 列堆叠 worker_id、JobDetail meta 加 worker_id，远端 phosphor 凸显；~~②（更大）控制台内**提交表单**~~ —— **② 已落地（P3，commit `7c7082f`+`15aef7c`）**：`NewJob.vue` 选 项目/agent/runner/worker_id 或 labels，端到端冒烟 PASS。详见 [`design/architecture-overview.md`](design/architecture-overview.md) §9.2 + [`plans/2026-06-20-submit-dispatch/`](plans/2026-06-20-submit-dispatch/)。
   - 注：peer-http/worker 远端 job 的交互/日志因"镜像"机制已透明呈现在现有看板/详情，无需改前端即可用；本项是让远端执行**位置**进一步可见（①）+ 控制台内发起 job（②已做）。
 
 ### 架构加固（见 [`design/architecture-overview.md`](design/architecture-overview.md) §9.1）
