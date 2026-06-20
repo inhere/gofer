@@ -383,6 +383,11 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem chan struct{},
 	req.Stderr = stderr
 	res := run.Run(ctx, req)
 
+	// 产出与审计(job-outcomes-audit)：在终态前 best-effort 采集产出
+	// (渲染命令/结构化结果/…)，写入 entry.result，由随后的 finish 一并 persist。
+	// 绝不影响 job 终态(classify/finish 不受其结果影响)。
+	s.captureOutcomes(entry, req)
+
 	status, code, runErr := classify(ctx, res)
 	s.finish(entry, req.JobID, status, code, runErr)
 }

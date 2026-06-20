@@ -26,6 +26,13 @@ export interface Job {
   started_at: number
   ended_at?: number
   error?: string
+  // 产出与审计（job-outcomes-audit）：均为 JSON 字符串，前端 JSON.parse。
+  // 渲染命令 {command,args,env_keys}（E15，后端 omitempty）。
+  rendered_command?: string
+  // 结构化结果，<result_dir>/result.json 原文（E6，后端 omitempty）。
+  result_json?: string
+  // git diff --stat 截断摘要（E12，P3 起填充；纯文本，非 JSON）。
+  diff_summary?: string
 }
 
 export interface HealthResp {

@@ -265,6 +265,69 @@ function fmtTime(v: string | number | undefined): string {
 function shortId(id: string): string {
   return id.length > 8 ? id.slice(-8) : id
 }
+
+// ── 产出与审计（job-outcomes-audit）──────────────────────────────
+// 渲染命令(E15)：后端 rendered_command 是 {command,args,env_keys} 的 JSON 字符串。
+interface RenderedCommand {
+  command: string
+  args?: string[]
+  env_keys?: string[]
+}
+const renderedCommand = computed<RenderedCommand | null>(() => {
+  const raw = job.value?.rendered_command
+  if (!raw) {
+    return null
+  }
+  try {
+    return JSON.parse(raw) as RenderedCommand
+  } catch {
+    return null
+  }
+})
+// 命令行展示文本：command + args（空格连接，仅用于「复制」）。
+const renderedCommandLine = computed<string>(() => {
+  const rc = renderedCommand.value
+  if (!rc) {
+    return ''
+  }
+  return [rc.command, ...(rc.args ?? [])].join(' ')
+})
+
+// 结构化结果(E6)：后端 result_json 是原始 JSON 字符串，pretty-print 展示。
+const resultJsonPretty = computed<string>(() => {
+  const raw = job.value?.result_json
+  if (!raw) {
+    return ''
+  }
+  try {
+    return JSON.stringify(JSON.parse(raw), null, 2)
+  } catch {
+    // 后端已校验为合法 JSON；万一解析失败则原样展示，不丢内容。
+    return raw
+  }
+})
+
+// 整个「产出与审计」面板是否有内容（避免空面板）。
+const hasOutcomes = computed<boolean>(
+  () => renderedCommand.value != null || resultJsonPretty.value !== '',
+)
+
+const copied = ref(false)
+async function copyCommand(): Promise<void> {
+  const text = renderedCommandLine.value
+  if (!text) {
+    return
+  }
+  try {
+    await navigator.clipboard.writeText(text)
+    copied.value = true
+    window.setTimeout(() => {
+      copied.value = false
+    }, 1500)
+  } catch {
+    // 剪贴板不可用（非安全上下文等）时静默：用户仍可手动选择文本复制。
+  }
+}
 </script>
 
 <template>
@@ -369,6 +432,44 @@ function shortId(id: string): string {
           :interaction="it"
         />
       </details>
+    </section>
+
+    <!-- 产出与审计：渲染命令(E15) + 结构化结果(E6)。仅在有内容时展示。 -->
+    <section v-if="hasOutcomes" class="outcomes">
+      <h2 class="outcomes-title mono">产出与审计</h2>
+
+      <!-- 渲染命令：command + args（mono）+ 复制；env_keys 折叠（仅 key 名）。 -->
+      <div v-if="renderedCommand" class="outcome-block">
+        <div class="outcome-head">
+          <span class="outcome-k mono">渲染命令</span>
+          <button class="copy-btn mono" type="button" @click="copyCommand">
+            {{ copied ? '已复制' : '复制' }}
+          </button>
+        </div>
+        <pre class="outcome-pre mono"><span class="cmd-bin">{{ renderedCommand.command }}</span><template
+          v-for="(a, i) in renderedCommand.args ?? []"
+          :key="i"
+        > {{ a }}</template></pre>
+        <details
+          v-if="(renderedCommand.env_keys ?? []).length > 0"
+          class="env-fold"
+        >
+          <summary class="mono">
+            env keys（{{ (renderedCommand.env_keys ?? []).length }}，仅键名）
+          </summary>
+          <ul class="env-list mono">
+            <li v-for="k in renderedCommand.env_keys ?? []" :key="k">{{ k }}</li>
+          </ul>
+        </details>
+      </div>
+
+      <!-- 结构化结果：<result_dir>/result.json pretty-print。 -->
+      <div v-if="resultJsonPretty" class="outcome-block">
+        <div class="outcome-head">
+          <span class="outcome-k mono">结构化结果</span>
+        </div>
+        <pre class="outcome-pre result-json mono">{{ resultJsonPretty }}</pre>
+      </div>
     </section>
 
     <LogTape :stdout="stdout" :stderr="stderr" :live="live" />
@@ -554,5 +655,89 @@ function shortId(id: string): string {
 }
 .answered-fold > summary:hover {
   color: var(--phosphor);
+}
+
+/* 产出与审计面板：渲染命令 + 结构化结果。 */
+.outcomes {
+  margin: 0 0 14px;
+}
+.outcomes-title {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--phosphor);
+  text-transform: uppercase;
+  margin: 0 0 10px;
+}
+.outcome-block {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px 12px;
+  margin-bottom: 10px;
+}
+.outcome-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.outcome-k {
+  color: var(--queue);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 11px;
+}
+.copy-btn {
+  background: transparent;
+  color: var(--queue);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 2px 10px;
+  font-size: 11px;
+}
+.copy-btn:hover {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
+}
+.outcome-pre {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--paper);
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-x: auto;
+}
+.outcome-pre .cmd-bin {
+  color: var(--phosphor);
+  font-weight: 600;
+}
+.outcome-pre.result-json {
+  max-height: 360px;
+  overflow: auto;
+  white-space: pre;
+}
+.env-fold {
+  margin-top: 8px;
+}
+.env-fold > summary {
+  cursor: pointer;
+  color: var(--queue);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  padding: 4px 0;
+  list-style: revert;
+}
+.env-fold > summary:hover {
+  color: var(--phosphor);
+}
+.env-list {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--paper);
+}
+.env-list li {
+  padding: 1px 0;
 }
 </style>
