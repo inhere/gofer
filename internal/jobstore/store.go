@@ -71,7 +71,11 @@ var schemaStmts = []string{
   error        TEXT,
   started_at   INTEGER NOT NULL,
   ended_at     INTEGER,
-  updated_at   INTEGER NOT NULL
+  updated_at   INTEGER NOT NULL,
+  rendered_command TEXT,
+  result_json      TEXT,
+  artifacts_json   TEXT,
+  diff_summary     TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -171,6 +175,19 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := add("request_id", "request_id TEXT"); err != nil { // C5
+		return err
+	}
+	// 产出与审计（job-outcomes-audit）：4 列 additive 加入，旧库经 migrate 自动补全。
+	if err := add("rendered_command", "rendered_command TEXT"); err != nil { // E15 渲染命令
+		return err
+	}
+	if err := add("result_json", "result_json TEXT"); err != nil { // E6 结构化结果
+		return err
+	}
+	if err := add("artifacts_json", "artifacts_json TEXT"); err != nil { // E1 产物清单(P2)
+		return err
+	}
+	if err := add("diff_summary", "diff_summary TEXT"); err != nil { // E12 diff 摘要(P3)
 		return err
 	}
 	// Partial unique index: only non-empty request_id values are constrained, so

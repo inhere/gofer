@@ -458,6 +458,11 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		UpdatedAt:   r.UpdatedAt,
 		CallerID:    r.CallerID,
 		RequestID:   r.RequestID,
+		// 产出与审计字段（job-outcomes-audit）。
+		RenderedCommand: r.RenderedCommand,
+		ResultJSON:      r.ResultJSON,
+		ArtifactsJSON:   r.ArtifactsJSON,
+		DiffSummary:     r.DiffSummary,
 	}
 }
 
@@ -482,6 +487,11 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		Error:       rec.Error,
 		CallerID:    rec.CallerID,
 		RequestID:   rec.RequestID,
+		// 产出与审计字段（job-outcomes-audit）。
+		RenderedCommand: rec.RenderedCommand,
+		ResultJSON:      rec.ResultJSON,
+		ArtifactsJSON:   rec.ArtifactsJSON,
+		DiffSummary:     rec.DiffSummary,
 	}
 }
 
