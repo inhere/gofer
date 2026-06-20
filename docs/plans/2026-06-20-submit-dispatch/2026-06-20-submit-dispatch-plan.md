@@ -31,14 +31,15 @@
 
 - [x] **P1-a** exec/任意 job 同步等待（`Service.WaitFor` + handler sync 分支 + CLI `--sync`）— commit `730b6bb`
 - [x] **P1-b** md+yaml 提交（content-type 分支 + `mdreq.go` 解析 + `JobRequest` 加 yaml tag + CLI `-f`）— commit `730b6bb`
-- [ ] **P2-a** `JobRequest.WorkerLabels` 字段 + `Forward.WorkerID` 动态路由（worker runner 解绑，保 rc.WorkerID 兜底）
-- [ ] **P2-b** Submit 内 labels 选机（hub 注册表快照过滤+排序）+ 无候选 503
+- [x] **P2-a** `JobRequest.WorkerLabels` 字段 + `Forward.WorkerID` 动态路由（worker runner 解绑，保 rc.WorkerID 兜底）— commit `df86f5e`
+- [x] **P2-b** Submit 内 labels 选机（hub 注册表快照过滤+排序）+ 无候选 503 — commit `df86f5e`
 - [ ] **P3-a** `GET /v1/meta` 表单选项聚合接口
 - [ ] **P3-b** web 提交表单视图（消费 sync/labels，复用浅色主题/状态色板）
 
 ### 阶段实施结果
 
 - **P1 ✅（commit `730b6bb`）**：同步等待复用 `Service.Wait` 加超时封顶（默认 30s/顶 60s，超时 202+`X-Gofer-Async`，不杀 job）；md 提交按 `Content-Type` 分支 + `mdreq.go` frontmatter 解析（exec 报 400）；client 加 `SubmitJobSync`/`SubmitMarkdown`（`SubmitJob` 签名不变），CLI `--sync`/`-f`。全量 `go build/vet/test/gofmt` 绿。自主决策：P1-a/P1-b 合一 commit（三文件交错增改）；`IsTerminal` 复用现有导出；wait 字段以 plan 的 `WaitTimeoutSec` 为准。还原了一处子代理越界的 README 措辞改动。
+- **P2 ✅（commit `df86f5e`）**：worker runner 由配置期绑定解绑为按 `Forward.WorkerID` 动态派发（回落 `r.workerID` 兜底，D4）；`selector.go` 选机（labels 全包含 AND + `in_flight↑→age↑` + 30s 过期）；`NewService` 加 selector 参数（级联 16 处调用站点补 `nil`）；`hubWorkerSelector` 适配器走 `hub.WorkerSnapshot`；无候选 `ErrNoEligibleWorker→503`。`-count=1` 全量绿（worker/peer/wshub E2E 无回归）。自主决策：P2-a/P2-b 合一 commit（共改 service.go + 签名级联）；附带补 `--worker-id` CLI；配置类型实为 `WorkerAuthConfig`。**行为变更**：runner=worker 缺 worker_id 且无 labels 由 submit-400 改为放行+runner 兜底（D4），无默认绑定时错误后移到 dispatch。**真机 smoke 待补**（2 worker 不同 labels 自动落机 + 停机 503）。
 
 ## 全局验收门（每阶段收尾必过）
 
