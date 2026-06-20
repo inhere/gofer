@@ -48,7 +48,7 @@
 - **后端 curl**：sync echo → 200+`done`+`exit_code=0`；async → 立即 `queued`；sync 慢命令+`wait_timeout_sec=1` → `202`+`X-Gofer-Async:1`；md+exec → 400；md 无 frontmatter → 400。
 - **前端表单**：`/v1/meta` 正确驱动 project/agent/runner 级联；agent=exec 显 COMMAND（非 prompt）；实时校验（缺 command 提交禁用）；填 `echo hello-form`+勾 sync+提交 → 跳 `/jobs/<id>` 详情显 `done`/`EXIT_CODE`/`STDOUT=hello-form`，后端直查 `exit_code=0` 一致。
 - **明暗双主题**：`/new` 表单深/浅两态截图均正常（`tmp/theme-shots/newjob-{dark,light}.png`），仅用 token、无硬编码。
-- **未覆盖（留真机）**：worker labels 自动落机 + 停机 503（需起真实 worker；已由单测覆盖逻辑）。
+- **真机 worker E2E（2026-06-20，PASS）**：起 hub + 2 真 worker（w-gpu[gpu,linux] / w-cpu[cpu,linux]，经真实 WS 握手 `connected:true`，顺带再证 rux 2.0.2 ws 修复）。① `worker_labels=[gpu]`→落 `w-gpu`、`[cpu]`→落 `w-cpu`（done/exit 0，worker_id 回传正确）；② 停 w-gpu 后 `[gpu]`→**503** `no eligible worker for labels [gpu]`，对照 `[cpu]` 仍 200/w-cpu；③ **worker_id 看板/详情可见**：Board runner 列 `worker`+`w-gpu/w-cpu` 堆叠、JobDetail meta `WORKER_ID: w-gpu`（截图 `tmp/theme-shots/{board,detail}-worker.png`）。
 
 ## 全局验收门（每阶段收尾必过）
 
