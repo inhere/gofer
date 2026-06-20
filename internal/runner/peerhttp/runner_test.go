@@ -1,7 +1,11 @@
 package peerhttp_test
 
 import (
+	"io"
+	"net/http"
 	"net/http/httptest"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -185,6 +189,79 @@ func TestPeerRunnerForwardsAndMirrorsLogs(t *testing.T) {
 	}
 }
 
+// TestPeerRunnerCapturesOutcome (P4-b full stack): a peer-executed job writes a
+// result.json + an artifact + changes a tracked git file. The peer's own
+// captureOutcomes records rendered_command / result_json / diff_summary /
+// artifacts清单; the host peer-http runner回传 them (get_job for the small fields,
+// the /artifacts endpoint for the manifest) and stamps source=peer:<name>. The
+// host job's snapshot + persisted row must then carry all of them.
+func TestPeerRunnerCapturesOutcome(t *testing.T) {
+	peer := newPeerBridgeGit(t)
+	defer peer.close()
+	host := newHostBridge(t, peer.srv.URL)
+	defer host.close()
+
+	// A sleep gives the test a window to seed产出 into the peer job's result dir
+	// before it finishes; the echo>>tracked.txt makes a git diff for E12.
+	created, err := host.jobs.Submit(job.JobRequest{
+		ProjectKey: "demo",
+		Agent:      "exec",
+		Runner:     "docker-peer",
+		Cmd:        []string{"sh", "-c", "echo changed >> tracked.txt; sleep 1.5"},
+		Cwd:        ".",
+		TimeoutSec: 60,
+	})
+	if err != nil {
+		t.Fatalf("host submit: %v", err)
+	}
+
+	// Find the peer's job + seed result.json + an artifact into its result dir.
+	peerJobID := waitPeerJob(t, peer, 10*time.Second)
+	peerJob, ok := peer.jobs.Get(peerJobID)
+	if !ok || peerJob.ResultDir == "" {
+		t.Fatalf("peer job result dir not available: %+v", peerJob)
+	}
+	resultJSON := `{"ok":true,"who":"peer"}`
+	if err := os.WriteFile(filepath.Join(peerJob.ResultDir, "result.json"), []byte(resultJSON), 0o600); err != nil {
+		t.Fatalf("seed peer result.json: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(peerJob.ResultDir, "artifacts"), 0o700); err != nil {
+		t.Fatalf("mkdir peer artifacts: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(peerJob.ResultDir, "artifacts", "report.txt"), []byte("data"), 0o600); err != nil {
+		t.Fatalf("seed peer artifact: %v", err)
+	}
+
+	final := waitTerminal(t, host, created.ID, 20*time.Second)
+	if final.Status != job.StatusDone {
+		t.Fatalf("host job status=%q exit=%d err=%q, want done", final.Status, final.ExitCode, final.Error)
+	}
+	if final.Source != "peer:docker-peer" {
+		t.Fatalf("source = %q, want peer:docker-peer", final.Source)
+	}
+	if final.ResultJSON != resultJSON {
+		t.Fatalf("result_json = %q, want %q", final.ResultJSON, resultJSON)
+	}
+	if final.RenderedCommand == "" || !strings.Contains(final.RenderedCommand, "sh") {
+		t.Fatalf("rendered_command = %q, want the peer-resolved sh argv", final.RenderedCommand)
+	}
+	if final.DiffSummary == "" || !strings.Contains(final.DiffSummary, "tracked.txt") {
+		t.Fatalf("diff_summary = %q, want it to mention tracked.txt", final.DiffSummary)
+	}
+
+	// The artifacts清单回传 + is visible via the host's OWN list endpoint (reads the
+	// persisted ArtifactsJSON — the host has no local artifacts dir for a peer job).
+	man := listHostArtifacts(t, host, created.ID)
+	if !strings.Contains(man, "report.txt") {
+		t.Fatalf("host artifacts manifest missing report.txt: %q", man)
+	}
+
+	// A download of the remote artifact is a clear 409 (file留 peer 侧, v1 — D6).
+	if code := downloadHostArtifactStatus(t, host, created.ID, "report.txt"); code != 409 {
+		t.Fatalf("peer artifact download status = %d, want 409 (remote artifact)", code)
+	}
+}
+
 // TestPeerRunnerCancelForwards starts a long-running proxied job on the host,
 // cancels it via the HOST, and asserts the host job goes cancelled AND the peer
 // job is also cancelled (cancel forwarded through ctx -> peer /cancel).
@@ -336,6 +413,85 @@ func waitInteraction(t *testing.T, b *bridge, jobID, interactionID, wantStatus, 
 	ints, _ := b.jobs.GetInteractions(jobID)
 	t.Fatalf("interaction %q on job %q did not reach status=%q answer=%q within %s; got %+v",
 		interactionID, jobID, wantStatus, wantAnswer, timeout, ints)
+}
+
+// newPeerBridgeGit is newPeerBridge whose project dir is a git repo with one
+// committed tracked file, so a peer job that modifies it produces a git diff the
+// peer's captureOutcomes records (E12) and回传 to the host (P4-b).
+func newPeerBridgeGit(t *testing.T) *bridge {
+	t.Helper()
+	root := t.TempDir()
+	initGitRepo(t, root)
+	cfg := &config.Config{
+		Server:  config.ServerConfig{AllowEmptyToken: true},
+		Storage: config.StorageConfig{Root: root},
+		Projects: map[string]config.ProjectConfig{
+			"demo": {
+				HostPath:       root, // cwd "." resolves under here (the git repo)
+				AllowedAgents:  []string{"exec"},
+				AllowedRunners: []string{"local"},
+				AllowExec:      true,
+			},
+		},
+	}
+	projects := project.NewRegistry(cfg, "")
+	agents := agent.NewRegistry(cfg)
+	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
+	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
+	s := httpapi.New(&cfg.Server, "", true, jobs, projects, agents, nil, nil, nil, nil)
+	return &bridge{jobs: jobs, srv: httptest.NewServer(s.Handler())}
+}
+
+// initGitRepo makes dir a git repo with a committed tracked.txt so a later
+// uncommitted change shows up in `git diff` (the E12 capture baseline).
+func initGitRepo(t *testing.T, dir string) {
+	t.Helper()
+	run := func(args ...string) {
+		cmd := exec.Command("git", args...)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(),
+			"GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t",
+		)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v (%s)", args, err, out)
+		}
+	}
+	run("init", "-q")
+	if err := os.WriteFile(filepath.Join(dir, "tracked.txt"), []byte("base\n"), 0o600); err != nil {
+		t.Fatalf("write tracked.txt: %v", err)
+	}
+	run("add", "tracked.txt")
+	run("commit", "-q", "-m", "init")
+}
+
+// listHostArtifacts GETs the host job's artifact manifest endpoint and returns
+// the raw JSON body (the host serves it from the回传 ArtifactsJSON — it has no
+// local artifacts dir for a peer job).
+func listHostArtifacts(t *testing.T, host *bridge, id string) string {
+	t.Helper()
+	resp, err := http.Get(host.srv.URL + "/v1/jobs/" + id + "/artifacts")
+	if err != nil {
+		t.Fatalf("GET artifacts: %v", err)
+	}
+	defer resp.Body.Close()
+	b, _ := io.ReadAll(resp.Body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("artifacts status = %d, body = %s", resp.StatusCode, b)
+	}
+	return string(b)
+}
+
+// downloadHostArtifactStatus GETs a single artifact download and returns the
+// status code (used to assert a remote artifact yields 409, not the bytes).
+func downloadHostArtifactStatus(t *testing.T, host *bridge, id, name string) int {
+	t.Helper()
+	resp, err := http.Get(host.srv.URL + "/v1/jobs/" + id + "/artifacts/" + name)
+	if err != nil {
+		t.Fatalf("GET artifact download: %v", err)
+	}
+	defer resp.Body.Close()
+	_, _ = io.ReadAll(resp.Body)
+	return resp.StatusCode
 }
 
 // readHostStdout reads the host job's local stdout.log via the FileStore (the

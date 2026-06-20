@@ -106,7 +106,34 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// the job service marks the job failed.
 		return runner.Result{ExitCode: -1, Err: err}
 	}
-	return runner.Result{ExitCode: final.ExitCode, Err: errFromStatus(final)}
+	return runner.Result{
+		ExitCode: final.ExitCode,
+		Err:      errFromStatus(final),
+		// 产出与审计回传(P4-b)：peer 的 get_job 在 P1/P3 后已返回 rendered_command/
+		// result_json/diff_summary(JobResult JSON 字段)，直接拷进 Outcome；产物清单
+		// 经 peer 的 /artifacts 端点单独拉取(大文件留 peer 侧, host 侧下载走代理 — D6)。
+		Outcome: r.captureRemoteOutcome(peerID, final),
+	}
+}
+
+// captureRemoteOutcome builds the runner.Outcome回传 from a peer's terminal job
+// snapshot (P4-b). rendered_command / result_json / diff_summary ride on the
+// JobResult the peer's get_job already returns; the artifacts清单 is fetched
+// separately (best-effort — a fetch failure just leaves Artifacts empty, the
+// host can still list via its own proxy later). Source="peer:<name>" marks where
+// it ran. Always non-nil so the host records the execution source even when the
+// peer produced no产出.
+func (r *Runner) captureRemoteOutcome(peerID string, final job.JobResult) *runner.Outcome {
+	o := &runner.Outcome{
+		RenderedCommand: final.RenderedCommand,
+		ResultJSON:      final.ResultJSON,
+		DiffSummary:     final.DiffSummary,
+		Source:          "peer:" + r.name,
+	}
+	if manifest, err := r.c.ListArtifacts(peerID); err == nil && len(manifest) > 0 {
+		o.Artifacts = manifest
+	}
+	return o
 }
 
 // mirrorStream consumes the peer SSE stream and writes each `log` frame's text
