@@ -36,6 +36,7 @@ var jobRunOpts = struct {
 	file         string
 	workerID     string
 	workerLabels string
+	tags         string
 }{}
 
 // jobCommonOpts holds the --config/--server/--token flags shared by
@@ -96,6 +97,7 @@ func NewJobCmd() *gcli.Command {
 					c.StrOpt(&jobRunOpts.file, "file", "f", "", "submit a md+yaml task file (frontmatter params + prompt body)")
 					c.StrOpt(&jobRunOpts.workerID, "worker-id", "", "", "target worker id for runner=worker (explicit routing)")
 					c.StrOpt(&jobRunOpts.workerLabels, "worker-labels", "", "", "comma-separated labels to auto-select a worker (runner=worker, when --worker-id is unset)")
+					c.StrOpt(&jobRunOpts.tags, "tags", "", "", "comma-separated free-form tags for the job (E5 search dimension, e.g. --tags ci,nightly)")
 					// exec argv after `--`, e.g. `job run -a exec -- go version`.
 					// Declared as an optional arrayed arg so gcli binds the post-`--`
 					// tokens natively (HasArguments()=true also suppresses the spurious
@@ -320,13 +322,14 @@ func submitJSONJob(c *gcli.Command, cli *client.Client) (client.SubmitResult, er
 		WaitTimeoutSec: jobRunOpts.waitTimeout,
 		WorkerID:       jobRunOpts.workerID,
 		WorkerLabels:   splitLabels(jobRunOpts.workerLabels),
+		Tags:           splitLabels(jobRunOpts.tags), // comma-separated, same parsing as worker-labels
 	}
 	return cli.SubmitJobSync(req)
 }
 
-// splitLabels parses the comma-separated --worker-labels value into a trimmed,
-// non-empty label slice (returns nil for an empty/whitespace-only input so the
-// JobRequest omits the field).
+// splitLabels parses a comma-separated flag value (--worker-labels, --tags) into
+// a trimmed, non-empty slice (returns nil for an empty/whitespace-only input so
+// the JobRequest omits the field).
 func splitLabels(s string) []string {
 	if strings.TrimSpace(s) == "" {
 		return nil

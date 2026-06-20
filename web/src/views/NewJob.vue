@@ -31,6 +31,7 @@ const prompt = ref('')
 const command = ref('')
 const cwd = ref('.')
 const title = ref('')
+const tags = ref('')
 const timeoutSec = ref<number | null>(null)
 const sync = ref(false)
 
@@ -202,6 +203,10 @@ async function onSubmit() {
     }
     if (title.value.trim() !== '') {
       req.title = title.value.trim()
+    }
+    const tagList = parseLabels(tags.value)
+    if (tagList.length > 0) {
+      req.tags = tagList
     }
     if (timeoutSec.value != null && timeoutSec.value > 0) {
       req.timeout_sec = timeoutSec.value
@@ -377,6 +382,20 @@ onMounted(() => {
             placeholder="人类可读任务名"
           />
         </div>
+      </div>
+
+      <!-- tags：逗号分隔，提交解析为数组（E5 检索维度） -->
+      <div class="field">
+        <label class="label mono" for="nj-tags">TAGS（逗号分隔，可选）</label>
+        <input
+          id="nj-tags"
+          v-model="tags"
+          class="control mono"
+          spellcheck="false"
+          autocomplete="off"
+          placeholder="ci, nightly"
+        />
+        <p class="field-hint mono">自由标签，提交后可按 tag 检索 / 行内徽标展示</p>
       </div>
 
       <div class="row">

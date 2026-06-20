@@ -217,6 +217,8 @@ export interface SubmitJobReq {
   worker_id?: string
   worker_labels?: string[]
   sync?: boolean
+  // E5：自由标签（逗号分隔输入解析为数组），支持详情/list 的 ?tag= 检索。
+  tags?: string[]
 }
 
 // 提交结果：Job 快照 + async 标记（202 命中服务端等待上限退回异步）。

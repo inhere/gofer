@@ -161,6 +161,33 @@ func TestParseMarkdownRequestNormal(t *testing.T) {
 	}
 }
 
+// TestParseMarkdownRequestTags: a `tags:` frontmatter list lands in
+// JobRequest.Tags (E5 P2-d). The md submit path reuses the struct's yaml tags,
+// so tags round-trip without any special-casing in the parser.
+func TestParseMarkdownRequestTags(t *testing.T) {
+	md := []byte("---\nproject_key: p\nagent: codex\nrunner: local\ntags:\n  - x\n  - y\n---\nbody\n")
+	req, err := parseMarkdownRequest(md)
+	if err != nil {
+		t.Fatalf("parseMarkdownRequest: %v", err)
+	}
+	if len(req.Tags) != 2 || req.Tags[0] != "x" || req.Tags[1] != "y" {
+		t.Fatalf("tags not parsed from frontmatter: %+v", req.Tags)
+	}
+}
+
+// TestParseMarkdownRequestTagsInline: the flow/inline list form `tags: [x, y]`
+// also parses (same struct, goccy/go-yaml handles both block and flow lists).
+func TestParseMarkdownRequestTagsInline(t *testing.T) {
+	md := []byte("---\nproject_key: p\nagent: codex\nrunner: local\ntags: [x, y]\n---\nbody\n")
+	req, err := parseMarkdownRequest(md)
+	if err != nil {
+		t.Fatalf("parseMarkdownRequest: %v", err)
+	}
+	if len(req.Tags) != 2 || req.Tags[0] != "x" || req.Tags[1] != "y" {
+		t.Fatalf("inline tags not parsed: %+v", req.Tags)
+	}
+}
+
 func TestParseMarkdownRequestNoFrontmatter(t *testing.T) {
 	if _, err := parseMarkdownRequest([]byte("just a prompt, no frontmatter\n")); err == nil {
 		t.Fatal("expected error for missing frontmatter")
