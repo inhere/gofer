@@ -50,6 +50,11 @@ install: web build
 	@cp $(DIST_DIR)/$(BINARY) $(GOPATH)/bin/$(BINARY)
 	@echo "✅ Installed to $(GOPATH)/bin/$(BINARY)"
 
+## install-fast: fast install Go binary to $GOPATH/bin, without build web
+install-fast: build
+	@cp $(DIST_DIR)/$(BINARY) $(GOPATH)/bin/$(BINARY)
+	@echo "✅ Installed to $(GOPATH)/bin/$(BINARY)"
+
 ## run: build and run with current directory
 run: web build
 	./$(DIST_DIR)/$(BINARY)
