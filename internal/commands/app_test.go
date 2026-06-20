@@ -13,7 +13,7 @@ func TestNewApp(t *testing.T) {
 		t.Fatalf("unexpected app name: %q", app.Name)
 	}
 
-	for _, name := range []string{"serve", "project", "agent", "job", "mcp"} {
+	for _, name := range []string{"init", "config", "serve", "project", "agent", "job", "mcp"} {
 		if !app.HasCommand(name) {
 			t.Errorf("missing top-level command: %s", name)
 		}
