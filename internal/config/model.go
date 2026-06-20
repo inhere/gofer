@@ -167,6 +167,11 @@ type ProjectConfig struct {
 	AllowedRunners    []string `yaml:"allowed_runners"`
 	AllowExec         bool     `yaml:"allow_exec"`
 	MaxConcurrentJobs int      `yaml:"max_concurrent_jobs"`
+	// CaptureDiff toggles E12 git-diff capture (job-outcomes-audit, P3). It is a
+	// pointer so "unset" (nil) can default to "on when cwd is a git work tree"
+	// while an explicit capture_diff:false disables it outright. nil/true defer to
+	// captureDiff's own is-git probe (a non-git cwd naturally yields no diff).
+	CaptureDiff *bool `yaml:"capture_diff"`
 }
 
 // AgentConfig describes a configurable CLI agent. Detect is refined in P3; P2

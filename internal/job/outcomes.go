@@ -45,13 +45,19 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request) {
 	entry.mu.Lock()
 	resultDir := entry.result.ResultDir
 	cwd := entry.result.Cwd
+	projectKey := entry.result.ProjectKey
 	entry.mu.Unlock()
 
 	rendered := renderedCommandJSON(req)  // E15 渲染命令
 	result := readResultJSON(resultDir)   // E6 结构化结果
 	artifacts := scanArtifacts(resultDir) // E1 产物清单
-	// diff := captureDiff(ctx, cwd, resultDir) // E12 → P3
-	_ = cwd
+
+	// E12 diff 快照(P3)：项目 capture_diff 显式 false → 跳过；否则交给 captureDiff
+	// 自身的 is-git 判定（非 git 仓自然返 ""）。全量写 changes.diff，--stat 摘要入库。
+	var diffSummary string
+	if s.shouldCaptureDiff(projectKey) {
+		diffSummary = captureDiff(cwd, resultDir)
+	}
 
 	entry.mu.Lock()
 	if rendered != "" {
@@ -67,7 +73,27 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request) {
 			log.Printf("captureOutcomes: marshal artifacts for job %s: %v", req.JobID, err)
 		}
 	}
+	if diffSummary != "" {
+		entry.result.DiffSummary = diffSummary
+	}
 	entry.mu.Unlock()
+}
+
+// shouldCaptureDiff reports whether E12 git-diff capture is enabled for the job's
+// project (P3). It resolves the ProjectConfig the same way the service does
+// elsewhere — s.config().Projects[projectKey] — and honours the capture_diff
+// toggle: an explicit false skips capture entirely; nil (unset) or true defers to
+// captureDiff's own is-git probe (a non-git cwd then yields no diff). An unknown
+// project (should not happen post-validate) also defers to the is-git probe.
+func (s *Service) shouldCaptureDiff(projectKey string) bool {
+	proj, ok := s.config().Projects[projectKey]
+	if !ok {
+		return true
+	}
+	if proj.CaptureDiff != nil && !*proj.CaptureDiff {
+		return false
+	}
+	return true
 }
 
 // renderedCommandJSON 把本次实际执行的命令序列化为审计 JSON：
