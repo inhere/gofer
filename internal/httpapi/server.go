@@ -203,6 +203,10 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/jobs/{id}/logs/stdout", s.handleJobLogsStdout)
 		r.GET("/jobs/{id}/logs/stderr", s.handleJobLogsStderr)
 		r.GET("/jobs/{id}/stream", s.handleJobStream)
+
+		// E1 产物回取(P2)：清单列举。
+		r.GET("/jobs/{id}/artifacts", s.handleListArtifacts)
+
 		r.POST("/jobs/{id}/cancel", s.handleCancelJob)
 
 		// P9 running-job two-way interactions.

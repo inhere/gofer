@@ -47,9 +47,9 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request) {
 	cwd := entry.result.Cwd
 	entry.mu.Unlock()
 
-	rendered := renderedCommandJSON(req) // E15 渲染命令
-	result := readResultJSON(resultDir)  // E6 结构化结果
-	// artifacts := scanArtifacts(resultDir)    // E1  → P2
+	rendered := renderedCommandJSON(req)  // E15 渲染命令
+	result := readResultJSON(resultDir)   // E6 结构化结果
+	artifacts := scanArtifacts(resultDir) // E1 产物清单
 	// diff := captureDiff(ctx, cwd, resultDir) // E12 → P3
 	_ = cwd
 
@@ -59,6 +59,13 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request) {
 	}
 	if result != "" {
 		entry.result.ResultJSON = result
+	}
+	if len(artifacts) > 0 {
+		if b, err := json.Marshal(artifacts); err == nil {
+			entry.result.ArtifactsJSON = string(b)
+		} else {
+			log.Printf("captureOutcomes: marshal artifacts for job %s: %v", req.JobID, err)
+		}
 	}
 	entry.mu.Unlock()
 }
@@ -118,4 +125,91 @@ func readResultJSON(resultDir string) string {
 		return ""
 	}
 	return string(b)
+}
+
+// ArtifactItem is one entry in a job's产物清单 (E1): a regular file under
+// <result_dir>/artifacts/. Name is the path relative to the artifacts dir
+// (may contain subdir segments, slash-separated); only metadata is captured —
+// the file itself stays on disk and is fetched via the download endpoint.
+type ArtifactItem struct {
+	Name  string `json:"name"`  // artifacts/ 下相对路径（可含子目录，'/' 分隔）
+	Size  int64  `json:"size"`  // 字节
+	Mtime int64  `json:"mtime"` // unix 秒
+}
+
+// maxArtifacts caps how many artifact entries are captured into the manifest:
+// a job that writes a huge tree is truncated to keep the manifest (and DB
+// column) bounded. When truncated the manifest still lists the first
+// maxArtifacts entries; the rest are reachable on disk but not enumerated.
+const maxArtifacts = 500
+
+// ScanArtifacts is the exported entry point for the live-scan fallback used by
+// the HTTP list endpoint when a job has no persisted manifest (ArtifactsJSON
+// empty). It shares scanArtifacts' semantics (recursive, slash-relative names,
+// skip dirs/symlinks, cap maxArtifacts, missing dir → nil).
+func ScanArtifacts(resultDir string) []ArtifactItem { return scanArtifacts(resultDir) }
+
+// scanArtifacts enumerates the regular files under <result_dir>/artifacts/
+// (recursive, relative names). It is best-effort: a missing artifacts dir or a
+// walk error yields nil. Directories and symlinks are skipped (symlinks never
+// recursed and never listed, so a malicious symlink cannot inflate or escape
+// the manifest). At most maxArtifacts entries are returned. Names use forward
+// slashes regardless of platform so they round-trip into the download URL.
+func scanArtifacts(resultDir string) []ArtifactItem {
+	if resultDir == "" {
+		return nil
+	}
+	base := filepath.Join(resultDir, "artifacts")
+	fi, err := os.Stat(base)
+	if err != nil || !fi.IsDir() {
+		// 不存在/非目录是常态（多数 job 不产物），不记 warning。
+		return nil
+	}
+
+	var items []ArtifactItem
+	truncated := false
+	walkErr := filepath.WalkDir(base, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			// 单个条目读失败：跳过它，不中断整体扫描。
+			return nil
+		}
+		if path == base {
+			return nil
+		}
+		// 跳目录（仍递归进入）与软链（不 stat 目标、不列出、不跟随）。
+		if d.IsDir() {
+			return nil
+		}
+		if d.Type()&os.ModeSymlink != 0 {
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return nil // 设备/管道/socket 等非常规文件不列。
+		}
+		if len(items) >= maxArtifacts {
+			truncated = true
+			return filepath.SkipAll
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		rel, err := filepath.Rel(base, path)
+		if err != nil {
+			return nil
+		}
+		items = append(items, ArtifactItem{
+			Name:  filepath.ToSlash(rel),
+			Size:  info.Size(),
+			Mtime: info.ModTime().Unix(),
+		})
+		return nil
+	})
+	if walkErr != nil {
+		log.Printf("captureOutcomes: scan artifacts %s: %v", base, walkErr)
+	}
+	if truncated {
+		log.Printf("captureOutcomes: artifacts under %s exceed cap %d, manifest truncated", base, maxArtifacts)
+	}
+	return items
 }

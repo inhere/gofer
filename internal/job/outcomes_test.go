@@ -154,3 +154,57 @@ func writeFile(t *testing.T, path, content string) {
 		t.Fatalf("write %s: %v", path, err)
 	}
 }
+
+// TestScanArtifacts covers: recursive listing with relative (slash) names and
+// correct sizes; missing/empty dir → nil.
+func TestScanArtifacts(t *testing.T) {
+	dir := t.TempDir()
+
+	// No artifacts dir → nil.
+	if got := scanArtifacts(dir); got != nil {
+		t.Fatalf("missing artifacts dir should scan nil, got %+v", got)
+	}
+	// Empty result_dir → nil.
+	if got := scanArtifacts(""); got != nil {
+		t.Fatalf("empty result_dir should scan nil, got %+v", got)
+	}
+
+	// artifacts/a.txt + artifacts/sub/b.bin → 2 items.
+	artDir := filepath.Join(dir, "artifacts")
+	if err := os.MkdirAll(filepath.Join(artDir, "sub"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	writeFile(t, filepath.Join(artDir, "a.txt"), "hello")           // 5 bytes
+	writeFile(t, filepath.Join(artDir, "sub", "b.bin"), "abcdefgh") // 8 bytes
+
+	items := scanArtifacts(dir)
+	if len(items) != 2 {
+		t.Fatalf("expected 2 artifacts, got %d: %+v", len(items), items)
+	}
+	bySize := map[string]int64{}
+	for _, it := range items {
+		bySize[it.Name] = it.Size
+		if it.Mtime == 0 {
+			t.Fatalf("artifact %q has zero mtime", it.Name)
+		}
+	}
+	if bySize["a.txt"] != 5 {
+		t.Fatalf("a.txt size=%d, want 5 (items=%+v)", bySize["a.txt"], items)
+	}
+	// Relative name must use forward slash and include the subdir.
+	if bySize["sub/b.bin"] != 8 {
+		t.Fatalf("sub/b.bin missing or wrong size: %+v", items)
+	}
+}
+
+// TestScanArtifactsEmptyDir asserts an existing-but-empty artifacts dir yields
+// nil (no items), not a non-nil empty slice that would marshal into the column.
+func TestScanArtifactsEmptyDir(t *testing.T) {
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "artifacts"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if got := scanArtifacts(dir); len(got) != 0 {
+		t.Fatalf("empty artifacts dir should yield no items, got %+v", got)
+	}
+}
