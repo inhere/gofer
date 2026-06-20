@@ -1,5 +1,7 @@
 # TODO
 
+> 增强/优化/扩展的整体思考与优先级见 [`2026-06-20-enhancements-roadmap.md`](2026-06-20-enhancements-roadmap.md)（按"易用 / 用好 agent / 可观察审计"三轴 + 建议梯队）。
+
 - [x] 新增 AGENT_BRIDGE_CFG_DIR 自定义全局的配置目录(不设置默认还是 ~/.config/dev-agent-bridge/)
   - `config.ConfigDir()` 统一解析；`UserConfigPath()` 复用；config.yaml 与全局 .env 都落在该目录下。
 - [x] 使用 goutil/envutil 支持先于配置加载 .env 文件
