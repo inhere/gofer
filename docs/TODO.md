@@ -19,6 +19,8 @@
   - 客户端也有任务记录信息 → 已解：server 镜像为 server 侧真源，worker 本地另留一份，互不耦合。
   - 任务输出详情在客户端，server 如何读取？→ 已解：worker 推日志帧、server 写进自己 result_dir，复用既有读路径。
   - **仍缓做**：WP4 标签自动调度（按 worker labels 自动选机，当前为显式 worker_id 路由）；多 hub HA（C7 大版，显式 out-of-scope）。WP4 仪表盘动画/响应式待真机浏览器眼检。
+- [ ] http 请求可以发送 md 格式文本 头部可以用 yaml 定义参数 后面就是任务描述
+- [ ] 提交 exec 任务允许同步等待返回，方便快速的执行简单命令
 
 ### Web 控制台
 
@@ -46,3 +48,12 @@
   - 已知限制（见 [`plans/2026-06-18-hardening-c2-c5-plan.md`](plans/2026-06-18-hardening-c2-c5-plan.md) §7.1）：
     - **C-N1（低）** job `exit 0` 但 background 子进程持有管道写端超 `WaitDelay`(2s) → `exec: WaitDelay expired before I/O complete`，runner 判为 `failed`（非回归）；仅"起 daemon 后退出"成受支持模式时才 follow-up。
     - **C-N2（极低）** `log-rotated` 后前端清 buffer 但不重置 `?from=` offset，重连靠 `tailFrom` 自愈（size<offset 重放全新文件）；MVP 不修。
+
+### 大型 Epic（需独立设计，暂不并入近期实施计划）
+
+- [ ] **C7 大版：多 hub HA（共享注册表 / 跨 hub job 接管 / 选主）** —— 工作量**大（多周级）**，且与当前「单二进制 + 本地 SQLite + 单 hub 内存 worker 注册表」设计取向有冲突，**必须先出独立设计文档再排计划**，不与 WP4/提交体验类小项混排。
+  - **为何大**：要同时解三件强耦合的事——① **共享状态**：job/worker 注册表跨 hub 可见（现为各 hub 本地 SQLite + 进程内 registry）→ 需引入共享存储（MySQL/PG/Redis）或 hub 间复制/gossip；② **跨 hub job 接管**：hub A 宕机后 hub B 接管 A 的在飞 job（worker 凭多地址重连到 B，但 B 需经共享状态认领该 job + 租约/owner 语义防双发）；③ **选主 / 调度协调**：哪个 hub 跑 sweeper/派发，避免重复调度 → 需 raft/etcd/redis-lock 或外部协调者。
+  - **牵动面**：存储层（从本地 SQLite 改为可共享后端或加复制）、worker 注册表（集群感知）、job ownership/lease、sweeper 协调、WS 重连认领语义、部署形态（多 hub 实例 + 共享后端）。
+  - **现状已覆盖常见场景**：C7 最小版（worker 多地址 + 全抖动退避重连，`a43a694`）已把「hub 重启」从永久失联降为短暂中断；**真零停机 / hub 横向扩容**才需要大版——内网开发工具多数尚不需要。
+  - **决策前置**（设计文档先答）：是否真有「hub 高可用 / 横扩」诉求？若有 → 选型 **共享存储派**（最简：共享 MySQL + DB 租约选主，复用公司中间件）vs **共识派**（raft/etcd，重）；先定这一轴再谈实现。
+  - 来源：`design/architecture-overview.md` §9.1 C7 行 + `plans/2026-06-18-hardening-c2-c5-plan.md` §7.1（显式 out-of-scope）。
