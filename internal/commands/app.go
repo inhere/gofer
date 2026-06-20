@@ -12,6 +12,8 @@ func NewApp(version string) *gcli.App {
 		app.Version = version
 	}
 
+	app.Add(NewInitCmd())
+	app.Add(NewConfigCmd())
 	app.Add(NewServeCmd())
 	app.Add(NewProjectCmd())
 	app.Add(NewAgentCmd())
