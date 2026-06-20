@@ -63,6 +63,17 @@ func (s *Server) handleDownloadArtifact(c *rux.Context) {
 		return
 	}
 
+	// P4 (D6): a job executed on a remote machine回传 only its artifact MANIFEST
+	// (clear from the list endpoint), not the file bytes — the大产物文件留 worker
+	// 侧 / peer 侧. So a download of a remote artifact is not served from the host
+	// (its ResultDir holds no artifacts). Return a clear 409 the Web标注 ("留在
+	// worker / peer 执行机") instead of a misleading generic 404.
+	if remoteSource(res.Source) {
+		writeError(c, http.StatusConflict, "remote artifact",
+			"this job ran on "+res.Source+"; its artifact files stay on the execution machine (v1 returns the manifest only)")
+		return
+	}
+
 	base := filepath.Join(res.ResultDir, "artifacts")
 	full, err := safeJoinUnder(base, c.Param("name"))
 	if err != nil {
@@ -77,6 +88,13 @@ func (s *Server) handleDownloadArtifact(c *rux.Context) {
 
 	c.SetHeader("Content-Disposition", "attachment; filename="+strconv.Quote(filepath.Base(full)))
 	http.ServeFile(c.Resp, c.Req, full)
+}
+
+// remoteSource reports whether a job's Source marks a remote execution machine
+// (worker:<id> / peer:<name>), i.e. its artifact files live on that machine, not
+// on this host (P4 / D6). An empty source is local.
+func remoteSource(source string) bool {
+	return strings.HasPrefix(source, "worker:") || strings.HasPrefix(source, "peer:")
 }
 
 // safeJoinUnder joins a request-supplied relative name under base and guarantees

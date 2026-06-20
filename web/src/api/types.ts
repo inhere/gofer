@@ -33,6 +33,9 @@ export interface Job {
   result_json?: string
   // git diff --stat 截断摘要（E12，P3 起填充；纯文本，非 JSON）。
   diff_summary?: string
+  // 执行来源（P4，后端 omitempty）：""(本机) / "worker:<id>" / "peer:<name>"。
+  // 远端执行时填充，产出面板据此标注「在 worker/peer 执行」，远端产物文件留执行机。
+  source?: string
 }
 
 // 产物清单项（E1，P2）：<result_dir>/artifacts/ 下文件元数据。name 为相对路径

@@ -381,6 +381,31 @@ async function onViewDiff(): Promise<void> {
   }
 }
 
+// 执行来源标注（P4）：source = "" | "worker:<id>" | "peer:<name>"。远端执行时
+// 产出由执行机回传（清单+小结果），大产物文件留执行机（worker/peer 侧或共享盘）。
+const sourceKind = computed<'local' | 'worker' | 'peer'>(() => {
+  const s = job.value?.source ?? ''
+  if (s.startsWith('worker:')) {
+    return 'worker'
+  }
+  if (s.startsWith('peer:')) {
+    return 'peer'
+  }
+  return 'local'
+})
+const isRemoteSource = computed<boolean>(() => sourceKind.value !== 'local')
+// 人类可读来源标签，如「在 worker w-gpu 执行」「在 peer docker-1 执行」。
+const sourceLabel = computed<string>(() => {
+  const s = job.value?.source ?? ''
+  if (sourceKind.value === 'worker') {
+    return `在 worker ${s.slice('worker:'.length)} 执行`
+  }
+  if (sourceKind.value === 'peer') {
+    return `在 peer ${s.slice('peer:'.length)} 执行`
+  }
+  return ''
+})
+
 // 整个「产出与审计」面板是否有内容（避免空面板）。
 const hasOutcomes = computed<boolean>(
   () =>
@@ -514,7 +539,10 @@ async function copyCommand(): Promise<void> {
 
     <!-- 产出与审计：渲染命令(E15) + 结构化结果(E6)。仅在有内容时展示。 -->
     <section v-if="hasOutcomes" class="outcomes">
-      <h2 class="outcomes-title mono">产出与审计</h2>
+      <h2 class="outcomes-title mono">
+        产出与审计
+        <span v-if="isRemoteSource" class="source-badge mono" :class="'source-' + sourceKind">{{ sourceLabel }}</span>
+      </h2>
 
       <!-- 渲染命令：command + args（mono）+ 复制；env_keys 折叠（仅 key 名）。 -->
       <div v-if="renderedCommand" class="outcome-block">
@@ -549,16 +577,21 @@ async function copyCommand(): Promise<void> {
         <pre class="outcome-pre result-json mono">{{ resultJsonPretty }}</pre>
       </div>
 
-      <!-- 产物清单(E1)：name(title) + size(mono) + 下载（带鉴权 fetch+blob）。 -->
+      <!-- 产物清单(E1)：name(title) + size(mono) + 下载（带鉴权 fetch+blob）。
+           远端执行(P4)：仅回清单元数据，文件留执行机 → 不提供下载，标注来源。 -->
       <div v-if="artifacts.length > 0" class="outcome-block">
         <div class="outcome-head">
           <span class="outcome-k mono">产物文件（{{ artifacts.length }}）</span>
         </div>
+        <p v-if="isRemoteSource" class="diff-note mono">
+          清单来自{{ sourceLabel }}；文件留在执行机（worker / 共享盘 / peer 侧），本机不提供下载
+        </p>
         <ul class="artifact-list">
           <li v-for="a in artifacts" :key="a.name" class="artifact-row">
             <span class="artifact-name" :title="a.name">{{ a.name }}</span>
             <span class="artifact-size mono">{{ fmtSize(a.size) }}</span>
             <button
+              v-if="!isRemoteSource"
               class="artifact-dl mono"
               type="button"
               :disabled="downloadingNames.has(a.name)"
@@ -566,6 +599,7 @@ async function copyCommand(): Promise<void> {
             >
               {{ downloadingNames.has(a.name) ? '下载中…' : '下载' }}
             </button>
+            <span v-else class="artifact-remote mono">留在执行机</span>
           </li>
         </ul>
         <p v-if="artifactError" class="artifact-err mono">{{ artifactError }}</p>
@@ -785,6 +819,31 @@ async function copyCommand(): Promise<void> {
   color: var(--phosphor);
   text-transform: uppercase;
   margin: 0 0 10px;
+}
+/* 执行来源徽标（P4）：远端 worker/peer 执行时标注。 */
+.source-badge {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 1px 7px;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--queue);
+}
+.source-badge.source-worker {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
+}
+.source-badge.source-peer {
+  color: var(--queue);
+  border-color: var(--queue);
+}
+.artifact-remote {
+  color: var(--queue);
+  font-size: 11px;
+  opacity: 0.75;
 }
 .outcome-block {
   background: var(--panel);

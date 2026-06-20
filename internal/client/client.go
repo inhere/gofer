@@ -136,6 +136,23 @@ func (c *Client) GetJob(id string) (job.JobResult, error) {
 	return res, err
 }
 
+// ListArtifacts fetches a peer job's artifact manifest (GET
+// /v1/jobs/{id}/artifacts) and returns the bare `[]ArtifactItem` array as raw
+// JSON (the inner "artifacts" array, unwrapped from the {"artifacts":[...]}
+// envelope). It is used by the peer-http runner to回传 the产物清单 metadata onto
+// the host job (P4-b); the raw bytes flow straight into the jobs.artifacts_json
+// column without re-marshalling, so the manifest round-trips byte-for-byte. An
+// empty/absent manifest yields a nil slice (no error).
+func (c *Client) ListArtifacts(id string) (json.RawMessage, error) {
+	var resp struct {
+		Artifacts json.RawMessage `json:"artifacts"`
+	}
+	if err := c.doJSON(http.MethodGet, "/v1/jobs/"+url.PathEscape(id)+"/artifacts", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Artifacts, nil
+}
+
 // GetLogs reads the tail of a job's "stdout" or "stderr" stream as plain text.
 func (c *Client) GetLogs(id, stream string) (string, error) {
 	if stream != "stdout" && stream != "stderr" {
