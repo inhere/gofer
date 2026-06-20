@@ -17,6 +17,12 @@ const jobs = ref<Job[]>([])
 const loading = ref(false)
 const error = ref('')
 const statusFilter = ref<'' | JobStatus>('')
+// E5 检索维度：tag/agent/runner 自由输入，caller 自由输入，since 走相对快捷预设。
+const tagFilter = ref('')
+const agentFilter = ref('')
+const runnerFilter = ref('')
+const callerFilter = ref('')
+const sinceFilter = ref<'' | '1h' | '24h' | '7d'>('')
 
 const statusOptions: Array<{ value: '' | JobStatus; label: string }> = [
   { value: '', label: '全部' },
@@ -28,6 +34,28 @@ const statusOptions: Array<{ value: '' | JobStatus; label: string }> = [
   { value: 'cancelled', label: 'cancelled' },
   { value: 'timeout', label: 'timeout' },
 ]
+
+// since 相对预设 -> 秒偏移；请求时换算成绝对 unix 秒（started_at >= now-offset）。
+const SINCE_OFFSET_SEC: Record<'1h' | '24h' | '7d', number> = {
+  '1h': 3600,
+  '24h': 86400,
+  '7d': 604800,
+}
+const sinceOptions: Array<{ value: '' | '1h' | '24h' | '7d'; label: string }> = [
+  { value: '', label: '全部时间' },
+  { value: '1h', label: '近 1h' },
+  { value: '24h', label: '近 24h' },
+  { value: '7d', label: '近 7d' },
+]
+
+// 把相对 since 预设换算为绝对 unix 秒；空表示不过滤。
+function sinceParam(): number | undefined {
+  if (!sinceFilter.value) {
+    return undefined
+  }
+  const off = SINCE_OFFSET_SEC[sinceFilter.value]
+  return Math.floor(Date.now() / 1000) - off
+}
 
 const projectFilter = computed(() => {
   const p = route.query.project
@@ -42,6 +70,11 @@ async function fetchJobs(): Promise<void> {
     const resp = await listJobs({
       status: statusFilter.value || undefined,
       project: projectFilter.value,
+      tag: tagFilter.value.trim() || undefined,
+      agent: agentFilter.value.trim() || undefined,
+      runner: runnerFilter.value.trim() || undefined,
+      caller: callerFilter.value.trim() || undefined,
+      since: sinceParam(),
     })
     jobs.value = resp.jobs ?? []
     error.value = ''
@@ -80,10 +113,21 @@ function onVisibility(): void {
   }
 }
 
-// 过滤条件变化 -> 立即刷新
-watch([statusFilter, projectFilter], () => {
-  void fetchJobs()
-})
+// 过滤条件变化 -> 立即刷新（含 E5 的 tag/agent/runner/caller/since）
+watch(
+  [
+    statusFilter,
+    projectFilter,
+    tagFilter,
+    agentFilter,
+    runnerFilter,
+    callerFilter,
+    sinceFilter,
+  ],
+  () => {
+    void fetchJobs()
+  },
+)
 
 function shortId(id: string): string {
   return id.length > 8 ? id.slice(-8) : id
@@ -123,6 +167,50 @@ onUnmounted(() => {
             </option>
           </select>
         </label>
+        <label class="filter">
+          <span class="filter-label">tag</span>
+          <input
+            v-model="tagFilter"
+            class="filter-input mono"
+            placeholder="标签"
+            spellcheck="false"
+          />
+        </label>
+        <label class="filter">
+          <span class="filter-label">agent</span>
+          <input
+            v-model="agentFilter"
+            class="filter-input mono"
+            placeholder="agent"
+            spellcheck="false"
+          />
+        </label>
+        <label class="filter">
+          <span class="filter-label">runner</span>
+          <input
+            v-model="runnerFilter"
+            class="filter-input mono"
+            placeholder="runner"
+            spellcheck="false"
+          />
+        </label>
+        <label class="filter">
+          <span class="filter-label">caller</span>
+          <input
+            v-model="callerFilter"
+            class="filter-input mono"
+            placeholder="caller"
+            spellcheck="false"
+          />
+        </label>
+        <label class="filter">
+          <span class="filter-label">since</span>
+          <select v-model="sinceFilter" class="filter-select mono">
+            <option v-for="opt in sinceOptions" :key="opt.value" :value="opt.value">
+              {{ opt.label }}
+            </option>
+          </select>
+        </label>
         <span class="poll-hint" :class="{ 'poll-hint--on': loading }">●</span>
       </div>
     </div>
@@ -152,6 +240,9 @@ onUnmounted(() => {
         <span class="col-job" :class="{ 'col-job--titled': job.title }">
           <span v-if="job.title" class="job-title" :title="job.title">{{ job.title }}</span>
           <span class="job-id mono" :title="job.id">{{ shortId(job.id) }}</span>
+          <span v-if="job.tags && job.tags.length" class="job-tags">
+            <span v-for="t in job.tags" :key="t" class="tag-chip mono" :title="t">{{ t }}</span>
+          </span>
         </span>
         <span class="col-proj mono">{{ job.project_key }}</span>
         <span class="col-agent mono">{{ job.agent }}</span>
@@ -222,6 +313,22 @@ onUnmounted(() => {
 }
 .filter-select:focus {
   border-color: var(--phosphor);
+}
+.filter-input {
+  background: var(--panel);
+  color: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  font-size: 12px;
+  outline: none;
+  width: 92px;
+}
+.filter-input:focus {
+  border-color: var(--phosphor);
+}
+.filter-input::placeholder {
+  color: var(--queue);
 }
 .poll-hint {
   color: var(--line);
@@ -304,6 +411,25 @@ onUnmounted(() => {
 /* Without a title the id is the primary (full-size) label, as before. */
 .col-job:not(.col-job--titled) .job-id {
   font-size: 13px;
+}
+/* tag 徽标：行内小标签，无 tags 时整块不渲染（v-if），不挤占无标签行的布局。 */
+.job-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+.tag-chip {
+  font-size: 10px;
+  color: var(--phosphor);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0 5px;
+  line-height: 15px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .col-proj {
   color: var(--paper);
