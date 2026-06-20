@@ -1,5 +1,6 @@
 # gofer example configuration.
-# Copy to one of the lookup locations (§6.1):
+# Copy to one of the lookup locations (§6.1), or run `gofer init` to drop this
+# starter at ./.gofer.yaml, then edit and run `gofer config validate`:
 #   1. --config <path>
 #   2. env GOFER_CONFIG
 #   3. ./.gofer[.local].yaml
@@ -14,6 +15,33 @@ server:
   # token: ""              # inline override (avoid committing real tokens)
   # Must be explicitly true to start without any token.
   allow_empty_token: false
+  # web_enabled: true      # unset defaults to true; set false to drop the web console.
+
+  # callers: multi-caller auth (C2). Each entry maps a bearer token to a caller
+  # id stamped onto submitted jobs (audit / per-caller filtering). The legacy
+  # single token above stays valid (treated as caller id "default"); revoke a
+  # caller by removing its entry and reloading. Prefer token_env over inline token.
+  # callers:
+  #   - id: ci
+  #     token_env: GOFER_CALLER_CI_TOKEN
+  #   - id: ops
+  #     token_env: GOFER_CALLER_OPS_TOKEN
+
+  # workers: per-worker auth/binding for ws-worker (§7). The map key is the
+  # worker_id; a `register` frame whose worker_id does not match the presented
+  # token's bound worker is rejected. The per-worker token is mandatory even when
+  # allow_empty_token is set. labels are display/scheduling hints only.
+  # workers:
+  #   builder-1:
+  #     token_env: GOFER_WORKER_BUILDER1_TOKEN
+  #     labels: [linux, gpu]
+
+  # runner_probe: peer-http active health-probe tuning (C6). Defaults when unset
+  # or <= 0: 30s interval, 5s per-probe timeout. Only runs when at least one
+  # peer-http runner is configured.
+  # runner_probe:
+  #   interval_seconds: 30
+  #   timeout_seconds: 5
 
 storage:
   # Per-project data exchange subdir (default: tmp).
@@ -24,6 +52,17 @@ storage:
   # exchange dir. When set, results go to <root>/<project_key>/<job_id> and the
   # container can only read them back over HTTP (not via the shared mount).
   # root: /var/lib/gofer
+  # db_path: explicit path to the SQLite metadata DB. When empty it resolves to
+  # <root>/gofer.db (if root set) else <config-dir>/gofer.db (~/.config/gofer).
+  # db_path: /var/lib/gofer/gofer.db
+
+  # retention: bound how many terminal jobs (and their logs) are kept; the serve
+  # prune loop enforces it. Unset (all <= 0) disables prune entirely. Set
+  # max_age_days and/or max_count to enable; prune_interval_minutes defaults 60.
+  # retention:
+  #   max_age_days: 14
+  #   max_count: 5000
+  #   prune_interval_minutes: 60
 
 projects:
   # First project: the workspace root.
@@ -37,6 +76,9 @@ projects:
     allowed_runners: [local]
     allow_exec: true
     max_concurrent_jobs: 4
+    # capture_diff toggles git-diff capture on job outcomes (E12). Unset defaults
+    # to "on when cwd is a git work tree"; set false to disable outright.
+    # capture_diff: true
   # Second project: a different host_path (the tools dir).
   my-tools:
     host_path: D:/work/inhere/path-to/my-tools
@@ -96,3 +138,9 @@ runners:
     type: peer-http
     base_url: http://127.0.0.1:8766
     token_env: CONTAINER_BRIDGE_TOKEN
+  # Dispatch to a registered ws-worker. worker_id must match a server.workers
+  # entry above. One worker-runner targets exactly one worker (dynamic routing is
+  # WP4 scheduling, not WP1).
+  # builder:
+  #   type: worker
+  #   worker_id: builder-1
