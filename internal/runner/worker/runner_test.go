@@ -26,14 +26,19 @@ type fakeHub struct {
 	registerErr   error
 	dispatchErr   error
 	dispatchedCmd []string
+	// targetWorker records the workerID the runner resolved (the same id flows
+	// into RegisterSink/Dispatch/Deregister). It proves Forward.WorkerID routing
+	// vs the r.workerID fallback (P2).
+	targetWorker string
 
 	cancelCalls int // count of Cancel(workerID, jobID) calls
 }
 
-func (h *fakeHub) RegisterSink(_, _ string, sk wshub.JobSink) error {
+func (h *fakeHub) RegisterSink(workerID, _ string, sk wshub.JobSink) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "register")
+	h.targetWorker = workerID
 	if h.registerErr != nil {
 		return h.registerErr
 	}
@@ -47,12 +52,19 @@ func (h *fakeHub) DeregisterSink(_, _ string) {
 	h.calls = append(h.calls, "deregister")
 }
 
-func (h *fakeHub) Dispatch(_ string, d wsproto.Dispatch) error {
+func (h *fakeHub) Dispatch(workerID string, d wsproto.Dispatch) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "dispatch")
 	h.dispatchedCmd = d.Cmd
+	h.targetWorker = workerID
 	return h.dispatchErr
+}
+
+func (h *fakeHub) target() string {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.targetWorker
 }
 
 func (h *fakeHub) Answer(_, _, _, _ string) error { return nil }
@@ -155,6 +167,68 @@ func TestRunSinkLifecycle(t *testing.T) {
 	}
 	if stdout.String() != "hello" {
 		t.Fatalf("stdout mirror = %q, want hello", stdout.String())
+	}
+}
+
+// runToResultWithWorker drives a Run to completion (feeding a done result once the
+// sink registers) and returns the workerID the hub was dispatched to. It is the
+// shared driver for the two P2 dynamic-routing cases.
+func runToResultWithWorker(t *testing.T, r *Runner, h *fakeHub, f *runner.Forward) string {
+	t.Helper()
+	done := make(chan runner.Result, 1)
+	go func() {
+		done <- r.Run(context.Background(), runner.Request{JobID: "j1", Forward: f})
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && h.getSink() == nil {
+		time.Sleep(5 * time.Millisecond)
+	}
+	sink := h.getSink()
+	if sink == nil {
+		t.Fatal("sink never registered")
+	}
+	sink.Finish(wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after Finish")
+	}
+	return h.target()
+}
+
+// TestRunForwardWorkerIDRouting (P2 D3): a non-empty Forward.WorkerID is the
+// dispatch target (dynamic routing), overriding the runner's configured default.
+func TestRunForwardWorkerIDRouting(t *testing.T) {
+	h := &fakeHub{}
+	r := newRunnerWithHub(h) // configured default worker is "w1"
+	got := runToResultWithWorker(t, r, h, &runner.Forward{WorkerID: "w-selected"})
+	if got != "w-selected" {
+		t.Fatalf("dispatched to %q, want w-selected (Forward.WorkerID wins)", got)
+	}
+}
+
+// TestRunForwardWorkerIDFallback (P2 D4): an empty Forward.WorkerID falls back to
+// the runner's configured default worker (r.workerID).
+func TestRunForwardWorkerIDFallback(t *testing.T) {
+	h := &fakeHub{}
+	r := newRunnerWithHub(h)                                 // configured default worker is "w1"
+	got := runToResultWithWorker(t, r, h, &runner.Forward{}) // no WorkerID
+	if got != "w1" {
+		t.Fatalf("dispatched to %q, want w1 (fallback to r.workerID)", got)
+	}
+}
+
+// TestRunNoTargetWorker: a runner with no default worker and an empty
+// Forward.WorkerID has no target and errors immediately (no dispatch).
+func TestRunNoTargetWorker(t *testing.T) {
+	h := &fakeHub{}
+	r := &Runner{name: "remote-w1", workerID: "", hub: h} // no default binding
+	res := r.Run(context.Background(), runner.Request{JobID: "j1", Forward: &runner.Forward{}})
+	if res.ExitCode != -1 || res.Err == nil {
+		t.Fatalf("no target worker should yield ExitCode -1 + err, got %+v", res)
+	}
+	if len(h.snapshotCalls()) != 0 {
+		t.Fatalf("no hub calls should be made without a target, got %v", h.snapshotCalls())
 	}
 }
 

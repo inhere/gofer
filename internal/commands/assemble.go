@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -74,8 +75,41 @@ func buildCore(cfg *config.Config) (*Core, error) {
 	if err != nil {
 		return nil, fmt.Errorf("open metadata store: %w", err)
 	}
-	jobs := job.NewService(cfg, projects, agents, runners, store)
+	// Label-based worker auto-selection (P2/D3) reads live candidates from the hub
+	// registry; allowed is the config-registered worker set so only in-册 ids are
+	// ever considered.
+	sel := &hubWorkerSelector{hub: hub, allowed: cfg.Server.Workers}
+	jobs := job.NewService(cfg, projects, agents, runners, store, sel)
 	return &Core{Cfg: cfg, Projects: projects, Agents: agents, Runners: runners, Store: store, Jobs: jobs, Hub: hub}, nil
+}
+
+// hubWorkerSelector adapts the ws-worker hub registry to job.WorkerSelector (P2):
+// it walks the config-registered worker ids and emits a candidate for each one
+// that currently has a live connection (hub.WorkerSnapshot ok), computing the
+// heartbeat age from the snapshot's last-heartbeat timestamp. Offline workers are
+// simply absent, so selectWorker only ever picks a connected worker.
+type hubWorkerSelector struct {
+	hub     *wshub.Hub
+	allowed map[string]config.WorkerAuthConfig
+}
+
+// Candidates implements job.WorkerSelector.
+func (h *hubWorkerSelector) Candidates() []job.WorkerCandidate {
+	out := make([]job.WorkerCandidate, 0, len(h.allowed))
+	now := time.Now().Unix()
+	for id := range h.allowed {
+		ws, ok := h.hub.WorkerSnapshot(id) // ok only when the worker is connected
+		if !ok {
+			continue
+		}
+		out = append(out, job.WorkerCandidate{
+			WorkerID:     ws.WorkerID,
+			Labels:       ws.Labels,
+			InFlight:     ws.InFlight,
+			HeartbeatAge: time.Duration(now-ws.LastHeartbeat) * time.Second,
+		})
+	}
+	return out
 }
 
 // workerBindings builds the hub's worker_id → caller-id binding map from

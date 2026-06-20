@@ -90,6 +90,11 @@ type Forward struct {
 	Cmd        []string
 	Cwd        string // ORIGINAL relative cwd; peer SafeJoins against ITS project
 	TimeoutSec int
+	// WorkerID is the resolved target worker for a runner=worker job (P2 dynamic
+	// routing): the explicit req.WorkerID or the one auto-selected from labels.
+	// Empty for peer-http forwards and for worker jobs that rely on the runner's
+	// configured default worker (D4 fallback).
+	WorkerID string
 }
 
 // Result is the outcome of a single Run. ExitCode is the process exit status

@@ -79,7 +79,7 @@ func buildHubSide(t *testing.T) *hubSide {
 		localrunner.Name: localrunner.New(),
 		"remote-w1":      workerrunner.New("remote-w1", e2eWorkerID, hub),
 	}
-	jobs := job.NewService(cfg, projReg, agentReg, runners, st)
+	jobs := job.NewService(cfg, projReg, agentReg, runners, st, nil)
 
 	srv := httpapi.New(&cfg.Server, "server-default-token", false, jobs, projReg, agentReg, hub, nil, nil, nil)
 	ts := httptest.NewServer(srv.Handler())
@@ -113,7 +113,7 @@ func buildWorkerSide(t *testing.T, hubURL string) *worker.Client {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	localJobs := job.NewService(cfg, projReg, agentReg, runners, st)
+	localJobs := job.NewService(cfg, projReg, agentReg, runners, st, nil)
 
 	wsURL := "ws" + strings.TrimPrefix(hubURL, "http") + "/v1/workers/connect"
 	return worker.New(worker.Config{
@@ -330,7 +330,7 @@ func TestE2EWorkerIDBindingMismatch(t *testing.T) {
 		t.Fatalf("open: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	localJobs := job.NewService(cfg, projReg, agentReg, map[string]runner.Runner{localrunner.Name: localrunner.New()}, st)
+	localJobs := job.NewService(cfg, projReg, agentReg, map[string]runner.Runner{localrunner.Name: localrunner.New()}, st, nil)
 
 	wsURL := "ws" + strings.TrimPrefix(hub.ts.URL, "http") + "/v1/workers/connect"
 	cl := worker.New(worker.Config{

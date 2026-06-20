@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gookit/gcli/v3"
@@ -16,20 +17,22 @@ import (
 // (for cli-agents); exec argv comes from the tokens after `--`, which gcli hands
 // to the Func handler as remainArgs (see runJobRun).
 var jobRunOpts = struct {
-	config      string
-	server      string
-	token       string
-	project     string
-	agent       string
-	runner      string
-	cwd         string
-	prompt      string
-	timeout     int
-	title       string
-	wait        bool
-	sync        bool
-	waitTimeout int
-	file        string
+	config       string
+	server       string
+	token        string
+	project      string
+	agent        string
+	runner       string
+	cwd          string
+	prompt       string
+	timeout      int
+	title        string
+	wait         bool
+	sync         bool
+	waitTimeout  int
+	file         string
+	workerID     string
+	workerLabels string
 }{}
 
 // jobCommonOpts holds the --config/--server/--token flags shared by
@@ -66,6 +69,8 @@ func NewJobCmd() *gcli.Command {
 					c.BoolOpt(&jobRunOpts.sync, "sync", "", false, "submit synchronously: server waits for terminal state, then returns")
 					c.IntOpt(&jobRunOpts.waitTimeout, "wait-timeout", "", 0, "sync wait cap in seconds (0 = server default 30s)")
 					c.StrOpt(&jobRunOpts.file, "file", "f", "", "submit a md+yaml task file (frontmatter params + prompt body)")
+					c.StrOpt(&jobRunOpts.workerID, "worker-id", "", "", "target worker id for runner=worker (explicit routing)")
+					c.StrOpt(&jobRunOpts.workerLabels, "worker-labels", "", "", "comma-separated labels to auto-select a worker (runner=worker, when --worker-id is unset)")
 					// exec argv after `--`, e.g. `job run -a exec -- go version`.
 					// Declared as an optional arrayed arg so gcli binds the post-`--`
 					// tokens natively (HasArguments()=true also suppresses the spurious
@@ -246,8 +251,26 @@ func submitJSONJob(c *gcli.Command, cli *client.Client) (client.SubmitResult, er
 		Title:          jobRunOpts.title,
 		Sync:           jobRunOpts.sync,
 		WaitTimeoutSec: jobRunOpts.waitTimeout,
+		WorkerID:       jobRunOpts.workerID,
+		WorkerLabels:   splitLabels(jobRunOpts.workerLabels),
 	}
 	return cli.SubmitJobSync(req)
+}
+
+// splitLabels parses the comma-separated --worker-labels value into a trimmed,
+// non-empty label slice (returns nil for an empty/whitespace-only input so the
+// JobRequest omits the field).
+func splitLabels(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if l := strings.TrimSpace(part); l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 // waitTerminal polls GetJob until the job reaches a terminal state.

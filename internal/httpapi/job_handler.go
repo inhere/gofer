@@ -101,10 +101,15 @@ func clampWait(sec int) time.Duration {
 }
 
 // submitStatus maps a Submit error to an HTTP status: an unknown project is a
-// 404 (consistent with GET /v1/projects/{key}); every other rejection is a 400.
+// 404 (consistent with GET /v1/projects/{key}); no eligible worker for the
+// requested labels is a 503 (transient — retry / pick another); every other
+// rejection is a 400.
 func submitStatus(err error) int {
 	if errors.Is(err, job.ErrUnknownProject) {
 		return http.StatusNotFound
+	}
+	if errors.Is(err, job.ErrNoEligibleWorker) {
+		return http.StatusServiceUnavailable
 	}
 	return http.StatusBadRequest
 }

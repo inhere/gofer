@@ -51,6 +51,10 @@ var (
 	// (agent not allowed, exec gate, runner not allowed, missing fields). HTTP
 	// layer maps it to 400.
 	ErrInvalidRequest = errors.New("invalid request")
+	// ErrNoEligibleWorker is returned when a worker job supplies worker_labels but
+	// no connected worker advertises all of them (or all such workers are stale).
+	// HTTP layer maps it to 503 (temporarily unavailable — retry / pick another).
+	ErrNoEligibleWorker = errors.New("no eligible worker")
 )
 
 // Service accepts job requests, runs them asynchronously and tracks their state.
@@ -74,6 +78,12 @@ type Service struct {
 	// are upserted here (one row per job id) and ListJobs/Get read it back. Logs
 	// stay as files in the per-job result dir. See design §6/§8/§10.
 	meta *jobstore.Store
+
+	// workers supplies connected-worker candidates for label-based auto-selection
+	// (P2 / D3). Injected by commands.buildCore (hub-backed); may be nil — Submit
+	// only consults it on the runner=worker + worker_labels path, so every other
+	// runner is unaffected.
+	workers WorkerSelector
 
 	mu   sync.Mutex
 	jobs map[string]*jobEntry
@@ -103,13 +113,16 @@ type jobEntry struct {
 // NewService builds a job service. runners is the set of usable runners keyed by
 // name (at least "local"). project/agent registries and config come from the
 // loaded config. meta is the SQLite metadata store (job index/persistence); it
-// must be non-nil — the caller (commands.buildCore / tests) opens it.
-func NewService(cfg *config.Config, projects *project.Registry, agents *agent.Registry, runners map[string]runner.Runner, meta *jobstore.Store) *Service {
+// must be non-nil — the caller (commands.buildCore / tests) opens it. sel
+// supplies connected-worker candidates for label-based auto-selection (P2); it
+// may be nil (the non-worker paths never touch it).
+func NewService(cfg *config.Config, projects *project.Registry, agents *agent.Registry, runners map[string]runner.Runner, meta *jobstore.Store, sel WorkerSelector) *Service {
 	s := &Service{
 		projects: projects,
 		agents:   agents,
 		runners:  runners,
 		meta:     meta,
+		workers:  sel,
 		newStore: func(base string) store.Store { return store.NewFileStore(base) },
 		jobs:     map[string]*jobEntry{},
 		sems:     map[string]chan struct{}{},
@@ -153,6 +166,13 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 
 	proj, err := s.validate(cfg, req, remote)
 	if err != nil {
+		return JobResult{}, err
+	}
+
+	// Resolve the target worker for a worker runner when worker_id was not given
+	// explicitly (P2: labels → auto-select, else the runner's configured default).
+	// Done right after validate so the chosen id rides the Forward + JobResult.
+	if err := s.selectTargetWorker(cfg, &req); err != nil {
 		return JobResult{}, err
 	}
 
@@ -219,6 +239,10 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			Cmd:        req.Cmd,
 			Cwd:        req.Cwd,
 			TimeoutSec: req.TimeoutSec,
+			// P2: the resolved target worker (explicit req.WorkerID or label-selected
+			// in selectTargetWorker). Empty for peer-http and for worker jobs relying
+			// on the runner's configured default (D4).
+			WorkerID: req.WorkerID,
 		}
 		// Bridge the peer's running-job interactions (P9) onto this host job.
 		runReq.Interactions = remoteInteractionSink{s: s, jobID: jobID}
@@ -561,17 +585,47 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 		return config.ProjectConfig{}, fmt.Errorf("%w: %s", ErrInvalidRequest, err.Error())
 	}
 
-	// ws-worker runner must carry a known worker_id (review #1: worker_id is part
-	// of the worker's caller identity; an unknown id has no live binding/conn).
-	if isWorkerRunner(cfg, req.Runner) {
-		if req.WorkerID == "" {
-			return config.ProjectConfig{}, fmt.Errorf("%w: worker_id is required for worker runner", ErrInvalidRequest)
-		}
+	// ws-worker runner: an EXPLICIT worker_id must be a known server.workers entry
+	// (review #1: worker_id is part of the worker's caller identity; an unknown id
+	// has no live binding/conn). An empty worker_id is allowed now — the worker is
+	// resolved post-validate by selectTargetWorker (labels → auto-select, else the
+	// runner's configured default, D4).
+	if isWorkerRunner(cfg, req.Runner) && req.WorkerID != "" {
 		if _, ok := cfg.Server.Workers[req.WorkerID]; !ok {
 			return config.ProjectConfig{}, fmt.Errorf("%w: unknown worker_id %q", ErrInvalidRequest, req.WorkerID)
 		}
 	}
 	return proj, nil
+}
+
+// selectTargetWorker resolves req.WorkerID for a worker runner when it was not
+// given explicitly (D3/D4). It runs in Submit right after validate so the chosen
+// id flows into both the Forward and the persisted JobResult.worker_id. It is a
+// no-op for non-worker runners and for an explicit worker_id (explicit routing
+// wins, labels ignored).
+//
+// Resolution order when worker_id is empty:
+//   - worker_labels given: auto-select a connected worker advertising ALL labels
+//     (least loaded / freshest, D3). No eligible candidate → ErrNoEligibleWorker.
+//   - no labels: leave worker_id empty and rely on the runner's configured default
+//     worker (D4 fallback); the worker runner errors if it has no default binding.
+func (s *Service) selectTargetWorker(cfg *config.Config, req *JobRequest) error {
+	if !isWorkerRunner(cfg, req.Runner) || req.WorkerID != "" {
+		return nil
+	}
+	if len(req.WorkerLabels) == 0 {
+		return nil // D4: fall back to the runner's configured default worker.
+	}
+	var cands []WorkerCandidate
+	if s.workers != nil {
+		cands = s.workers.Candidates()
+	}
+	picked := selectWorker(cands, req.WorkerLabels)
+	if picked == "" {
+		return fmt.Errorf("%w: no eligible worker for labels %v", ErrNoEligibleWorker, req.WorkerLabels)
+	}
+	req.WorkerID = picked // inject: Forward + JobResult.worker_id now use it.
+	return nil
 }
 
 // checkRunnerAllowed verifies req.Runner is in the project allowlist. The

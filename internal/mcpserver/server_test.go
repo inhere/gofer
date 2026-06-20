@@ -43,7 +43,7 @@ func testCore(t *testing.T) (*job.Service, *project.Registry, *agent.Registry) {
 		t.Fatalf("open jobstore: %v", err)
 	}
 	t.Cleanup(func() { _ = meta.Close() })
-	jobs := job.NewService(cfg, projects, agents, runners, meta)
+	jobs := job.NewService(cfg, projects, agents, runners, meta, nil)
 	return jobs, projects, agents
 }
 
