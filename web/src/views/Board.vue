@@ -155,7 +155,10 @@ onUnmounted(() => {
         </span>
         <span class="col-proj mono">{{ job.project_key }}</span>
         <span class="col-agent mono">{{ job.agent }}</span>
-        <span class="col-runner mono" :class="{ remote: job.runner !== 'local' }" :title="job.runner">{{ job.runner }}</span>
+        <span class="col-runner mono" :class="{ remote: job.runner !== 'local' }">
+          <span class="runner-name" :title="job.runner">{{ job.runner }}</span>
+          <span v-if="job.worker_id" class="runner-worker" :title="`worker_id: ${job.worker_id}`">{{ job.worker_id }}</span>
+        </span>
         <span class="col-signal">
           <Signal :status="job.status" :duration-sec="jobDurationSec(job)" />
           <span v-if="job.status === 'running'" class="run-dur mono">{{ rowDuration(job) }}</span>
@@ -311,14 +314,27 @@ onUnmounted(() => {
 .col-agent {
   color: var(--queue);
 }
+/* runner cell: runner name (primary) stacked over worker_id (secondary) when a
+   runner=worker job ran on a specific worker, so "where it ran" is visible. */
 .col-runner {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
   color: var(--queue);
+}
+.runner-name,
+.runner-worker {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.runner-worker {
+  font-size: 10px;
+  color: var(--queue);
+}
 /* Remote runners (peer-http / worker) stand out so "where it ran" is visible. */
-.col-runner.remote {
+.col-runner.remote .runner-name {
   color: var(--phosphor);
 }
 .col-signal {

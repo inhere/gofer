@@ -305,7 +305,12 @@ function shortId(id: string): string {
         <span class="meta-k mono">agent</span><span class="meta-v mono">{{ job.agent }}</span>
       </div>
       <div class="meta-item">
-        <span class="meta-k mono">runner</span><span class="meta-v mono">{{ job.runner }}</span>
+        <span class="meta-k mono">runner</span>
+        <span class="meta-v mono" :class="{ remote: job.runner !== 'local' }">{{ job.runner }}</span>
+      </div>
+      <div v-if="job.worker_id" class="meta-item">
+        <span class="meta-k mono">worker_id</span>
+        <span class="meta-v mono remote" :title="job.worker_id">{{ job.worker_id }}</span>
       </div>
       <div class="meta-item">
         <span class="meta-k mono">cwd</span><span class="meta-v mono">{{ job.cwd }}</span>
@@ -469,6 +474,10 @@ function shortId(id: string): string {
   white-space: nowrap;
 }
 .meta-v.id {
+  color: var(--phosphor);
+}
+/* 远端执行（peer-http / worker）：runner / worker_id 用 phosphor 凸显「在哪执行」。 */
+.meta-v.remote {
   color: var(--phosphor);
 }
 .meta-v.bad {
