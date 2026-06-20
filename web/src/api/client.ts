@@ -13,6 +13,7 @@ import type {
   LogStream,
   ProjectDetail,
   ProjectsResp,
+  RunnersResp,
 } from './types'
 import type { StreamJobOpts } from './sse'
 
@@ -83,6 +84,11 @@ export function getProject(key: string): Promise<ProjectDetail> {
 
 export function listAgents(): Promise<AgentsResp> {
   return request<AgentsResp>('/v1/agents')
+}
+
+// 运行器舰队状态（worker / peer-http / local）。Runners 视图轮询读取。
+export function listRunners(): Promise<RunnersResp> {
+  return request<RunnersResp>('/v1/runners')
 }
 
 export function listJobs(opts?: ListJobsOpts): Promise<JobsResp> {
