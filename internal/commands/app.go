@@ -7,7 +7,7 @@ import "github.com/gookit/gcli/v3"
 func NewApp(version string) *gcli.App {
 	app := gcli.NewApp()
 	app.Name = "gofer"
-	app.Desc = "Bridge local and container CLI agents across allowed projects."
+	app.Desc = "Run CLI agents and commands as async jobs across projects and remote workers - HTTP/CLI/MCP control plane with a built-in web console."
 	if version != "" {
 		app.Version = version
 	}

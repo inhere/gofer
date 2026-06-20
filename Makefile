@@ -19,6 +19,9 @@ LDFLAGS := -s -w \
 
 DIST_DIR := dist
 WEBUI_DIST := internal/webui/dist
+# 注：值会经 `echo "description: $(DESCRIPTION)"` 写入 latest.yaml，避免 `;`/`:`/引号等
+# shell/YAML 元字符（否则 recipe 展开后会被截断成多条命令）。
+DESCRIPTION := Run CLI agents and commands as async jobs across projects and remote workers - HTTP/CLI/MCP control plane with a built-in web console.
 
 ## all: build (default)
 all: build
@@ -43,18 +46,19 @@ build:
 	@echo "✅ Binary: $(DIST_DIR)/$(BINARY) ($$(du -sh $(DIST_DIR)/$(BINARY) | cut -f1))"
 
 ## install: install Go binary to $GOPATH/bin
-install: build
+install: web build
 	@cp $(DIST_DIR)/$(BINARY) $(GOPATH)/bin/$(BINARY)
 	@echo "✅ Installed to $(GOPATH)/bin/$(BINARY)"
 
 ## run: build and run with current directory
-run: build
+run: web build
 	./$(DIST_DIR)/$(BINARY)
 
 # ─── Cross Compilation ────────────────────────────────────────────────────────
 
 ## build-all: cross-compile for all platforms
-build-all: dump-info build-linux build-linux-arm64 build-darwin build-darwin-arm64 build-windows latest-yaml
+build-all: clean-dist dump-info build-linux build-linux-arm64 build-darwin build-darwin-arm64 build-windows latest-yaml
+	ls -lh $(DIST_DIR)
 
 ## dump-info: dump build info
 dump-info:
@@ -70,6 +74,7 @@ latest-yaml:
 		echo "name: $(APP)"; \
 		echo "version: $(VERSION)"; \
 		echo "released_at: $(BUILD_TIME)"; \
+		echo "description: $(DESCRIPTION)"; \
 	} > $(DIST_DIR)/latest.yaml
 	@echo "   → $(DIST_DIR)/latest.yaml"
 
@@ -131,6 +136,12 @@ clean:
 	@rm -f $(BINARY)
 	@rm -rf $(DIST_DIR)
 	@echo "🧹 Cleaned"
+
+## clean-dist: remove old dist files
+clean-dist:
+	@rm -rf $(DIST_DIR)
+	@mkdir -p $(DIST_DIR)
+	@echo "🧹 Cleaned $(DIST_DIR)"
 
 ## help: show this help
 help:
