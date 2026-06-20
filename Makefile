@@ -57,7 +57,7 @@ run: web build
 # ─── Cross Compilation ────────────────────────────────────────────────────────
 
 ## build-all: cross-compile for all platforms
-build-all: clean-dist dump-info build-linux build-linux-arm64 build-darwin build-darwin-arm64 build-windows latest-yaml
+build-all: clean-dist dump-info web build-linux build-linux-arm64 build-darwin build-darwin-arm64 build-windows latest-yaml
 	ls -lh $(DIST_DIR)
 
 ## dump-info: dump build info
