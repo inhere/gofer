@@ -16,17 +16,20 @@ import (
 // (for cli-agents); exec argv comes from the tokens after `--`, which gcli hands
 // to the Func handler as remainArgs (see runJobRun).
 var jobRunOpts = struct {
-	config  string
-	server  string
-	token   string
-	project string
-	agent   string
-	runner  string
-	cwd     string
-	prompt  string
-	timeout int
-	title   string
-	wait    bool
+	config      string
+	server      string
+	token       string
+	project     string
+	agent       string
+	runner      string
+	cwd         string
+	prompt      string
+	timeout     int
+	title       string
+	wait        bool
+	sync        bool
+	waitTimeout int
+	file        string
 }{}
 
 // jobCommonOpts holds the --config/--server/--token flags shared by
@@ -60,6 +63,9 @@ func NewJobCmd() *gcli.Command {
 					c.IntOpt(&jobRunOpts.timeout, "timeout", "", 0, "job timeout in seconds (0 = server default)")
 					c.StrOpt(&jobRunOpts.title, "title", "", "", "optional job title")
 					c.BoolOpt(&jobRunOpts.wait, "wait", "", false, "poll until the job reaches a terminal state")
+					c.BoolOpt(&jobRunOpts.sync, "sync", "", false, "submit synchronously: server waits for terminal state, then returns")
+					c.IntOpt(&jobRunOpts.waitTimeout, "wait-timeout", "", 0, "sync wait cap in seconds (0 = server default 30s)")
+					c.StrOpt(&jobRunOpts.file, "file", "f", "", "submit a md+yaml task file (frontmatter params + prompt body)")
 					// exec argv after `--`, e.g. `job run -a exec -- go version`.
 					// Declared as an optional arrayed arg so gcli binds the post-`--`
 					// tokens natively (HasArguments()=true also suppresses the spurious
@@ -155,50 +161,93 @@ func argID(c *gcli.Command) string {
 	return ""
 }
 
-// runJobRun submits a job. prompt comes from --prompt (cli-agents); exec argv
-// comes from the arrayed `cmd` arg, i.e. the tokens after `--` that gcli binds
-// (e.g. `job run -a exec -- go version` -> cmd = ["go","version"]).
+// runJobRun submits a job. With -f/--file it reads a md+yaml task file and
+// submits it as text/markdown (frontmatter params + prompt body). Otherwise
+// prompt comes from --prompt (cli-agents) and exec argv comes from the arrayed
+// `cmd` arg, i.e. the tokens after `--` (e.g. `job run -a exec -- go version`).
+// --sync asks the server to wait for the terminal state; a 202/async fallback
+// transparently degrades to client-side polling.
 func runJobRun(c *gcli.Command, _ []string) error {
-	if jobRunOpts.project == "" {
-		return fmt.Errorf("--project/-p is required")
-	}
-	if jobRunOpts.agent == "" {
-		return fmt.Errorf("--agent/-a is required")
+	cli, err := newClient(jobRunOpts.config, jobRunOpts.server, jobRunOpts.token)
+	if err != nil {
+		return err
 	}
 
+	var sub client.SubmitResult
+	if jobRunOpts.file != "" {
+		sub, err = submitMarkdownFile(c, cli)
+	} else {
+		sub, err = submitJSONJob(c, cli)
+	}
+	if err != nil {
+		return err
+	}
+	res := sub.Job
+	c.Printf("job %s submitted: status=%s result_dir=%s\n", res.ID, res.Status, res.ResultDir)
+
+	// --wait (client polling) or a sync submit that fell back to async (202): poll
+	// until terminal. A sync submit that completed server-side already returns the
+	// final result, so no extra poll is needed.
+	polled := false
+	if jobRunOpts.wait || sub.Async {
+		final, err := waitTerminal(cli, res.ID)
+		if err != nil {
+			return err
+		}
+		res = final
+		polled = true
+	}
+	// Print the terminal line for any wait/sync flow (sync that finished
+	// server-side, sync/md that fell back to polling, or --wait).
+	if polled || jobRunOpts.sync || job.IsTerminal(res.Status) {
+		c.Printf("job %s finished: status=%s exit_code=%d\n", res.ID, res.Status, res.ExitCode)
+	}
+	return nil
+}
+
+// submitMarkdownFile reads the -f task file and submits it as text/markdown. It
+// rejects mixing -f with --prompt or a post-`--` argv (the file is the single
+// source of params + prompt).
+func submitMarkdownFile(c *gcli.Command, cli *client.Client) (client.SubmitResult, error) {
+	if jobRunOpts.prompt != "" {
+		return client.SubmitResult{}, fmt.Errorf("--file/-f and --prompt are mutually exclusive")
+	}
+	if a := c.Arg("cmd"); a != nil && len(a.Strings()) > 0 {
+		return client.SubmitResult{}, fmt.Errorf("--file/-f and a post-`--` argv are mutually exclusive")
+	}
+	body, err := os.ReadFile(jobRunOpts.file)
+	if err != nil {
+		return client.SubmitResult{}, fmt.Errorf("read task file: %w", err)
+	}
+	return cli.SubmitMarkdown(body)
+}
+
+// submitJSONJob builds a JobRequest from flags + post-`--` argv and submits it
+// as JSON. --project/--agent are required on this path.
+func submitJSONJob(c *gcli.Command, cli *client.Client) (client.SubmitResult, error) {
+	if jobRunOpts.project == "" {
+		return client.SubmitResult{}, fmt.Errorf("--project/-p is required")
+	}
+	if jobRunOpts.agent == "" {
+		return client.SubmitResult{}, fmt.Errorf("--agent/-a is required")
+	}
 	var cmd []string
 	if a := c.Arg("cmd"); a != nil {
 		cmd = a.Strings()
 	}
 	req := job.JobRequest{
-		ProjectKey: jobRunOpts.project,
-		Agent:      jobRunOpts.agent,
-		Runner:     jobRunOpts.runner,
-		Prompt:     jobRunOpts.prompt,
-		Cmd:        cmd, // tokens after `--`, e.g. ["go","version"]
-		Cwd:        jobRunOpts.cwd,
-		TimeoutSec: jobRunOpts.timeout,
-		Title:      jobRunOpts.title,
+		ProjectKey:     jobRunOpts.project,
+		Agent:          jobRunOpts.agent,
+		Runner:         jobRunOpts.runner,
+		Prompt:         jobRunOpts.prompt,
+		Cmd:            cmd, // tokens after `--`, e.g. ["go","version"]
+		Cwd:            jobRunOpts.cwd,
+		TimeoutSec:     jobRunOpts.timeout,
+		Title:          jobRunOpts.title,
+		Sync:           jobRunOpts.sync,
+		WaitTimeoutSec: jobRunOpts.waitTimeout,
 	}
-
-	cli, err := newClient(jobRunOpts.config, jobRunOpts.server, jobRunOpts.token)
-	if err != nil {
-		return err
-	}
-	res, err := cli.SubmitJob(req)
-	if err != nil {
-		return err
-	}
-	c.Printf("job %s submitted: status=%s result_dir=%s\n", res.ID, res.Status, res.ResultDir)
-
-	if jobRunOpts.wait {
-		final, err := waitTerminal(cli, res.ID)
-		if err != nil {
-			return err
-		}
-		c.Printf("job %s finished: status=%s exit_code=%d\n", final.ID, final.Status, final.ExitCode)
-	}
-	return nil
+	return cli.SubmitJobSync(req)
 }
 
 // waitTerminal polls GetJob until the job reaches a terminal state.

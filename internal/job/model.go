@@ -4,27 +4,35 @@
 package job
 
 // JobRequest is the create-job payload. JSON tags are snake_case (plan §6.2).
+// yaml tags mirror the json names so the md+yaml frontmatter submit path
+// (design §6.2 / P1-b) reuses the same struct via goccy/go-yaml.
 type JobRequest struct {
-	ProjectKey string   `json:"project_key"`
-	Agent      string   `json:"agent"`
-	Runner     string   `json:"runner"`
-	Prompt     string   `json:"prompt,omitempty"`
-	Cmd        []string `json:"cmd,omitempty"`
-	Cwd        string   `json:"cwd,omitempty"`
-	TimeoutSec int      `json:"timeout_sec,omitempty"`
-	Title      string   `json:"title,omitempty"`
+	ProjectKey string   `json:"project_key" yaml:"project_key"`
+	Agent      string   `json:"agent" yaml:"agent"`
+	Runner     string   `json:"runner" yaml:"runner"`
+	Prompt     string   `json:"prompt,omitempty" yaml:"prompt,omitempty"`
+	Cmd        []string `json:"cmd,omitempty" yaml:"cmd,omitempty"`
+	Cwd        string   `json:"cwd,omitempty" yaml:"cwd,omitempty"`
+	TimeoutSec int      `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
+	Title      string   `json:"title,omitempty" yaml:"title,omitempty"`
 	// WorkerID selects which registered worker a runner=worker job dispatches to
 	// (ws-worker §8). Required and must be a known server.workers entry when the
 	// runner is type=worker; ignored for local/peer-http runners.
-	WorkerID string `json:"worker_id,omitempty"`
+	WorkerID string `json:"worker_id,omitempty" yaml:"worker_id,omitempty"`
+	// Sync requests synchronous submit: the HTTP handler blocks until the job is
+	// terminal (capped server-side) and returns the final JobResult. Can also be
+	// set via ?wait=1. WaitTimeoutSec overrides the default wait cap (clamped).
+	Sync           bool `json:"sync,omitempty" yaml:"sync,omitempty"`
+	WaitTimeoutSec int  `json:"wait_timeout_sec,omitempty" yaml:"wait_timeout_sec,omitempty"`
 	// CallerID is the authenticated submitter id (C2). It is set server-side by
 	// the HTTP layer from the auth context (any client-supplied value is
-	// overwritten); it is not part of the client-facing contract.
-	CallerID string `json:"caller_id,omitempty"`
+	// overwritten); it is not part of the client-facing contract. yaml:"-" keeps
+	// md frontmatter from forging the caller id (design §9).
+	CallerID string `json:"caller_id,omitempty" yaml:"-"`
 	// RequestID is the optional client-supplied idempotency key (C5, e.g. a
 	// UUID). When set, re-submitting the same RequestID returns the existing job
 	// instead of creating a new one (deduped by the jobs.request_id unique index).
-	RequestID string `json:"request_id,omitempty"`
+	RequestID string `json:"request_id,omitempty" yaml:"request_id,omitempty"`
 }
 
 // JobResult is the persisted/queryable job state (plan §6.2).
@@ -37,11 +45,11 @@ type JobResult struct {
 	// The jobs table has no title column; it persists inside request_json and is
 	// recovered on the DB read path (fromRecord) so it round-trips, not just on
 	// the live in-memory path.
-	Title  string `json:"title,omitempty"`
-	Status string `json:"status"`
-	ExitCode   int    `json:"exit_code"`
-	Cwd        string `json:"cwd"`
-	ResultDir  string `json:"result_dir"`
+	Title     string `json:"title,omitempty"`
+	Status    string `json:"status"`
+	ExitCode  int    `json:"exit_code"`
+	Cwd       string `json:"cwd"`
+	ResultDir string `json:"result_dir"`
 	// WorkerID is the worker that executed a runner=worker job (ws-worker §8),
 	// persisted to jobs.worker_id and echoed for audit / filtering. Empty for
 	// local/peer-http jobs.

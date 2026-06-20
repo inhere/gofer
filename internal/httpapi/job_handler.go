@@ -2,9 +2,12 @@ package httpapi
 
 import (
 	"errors"
+	"io"
 	"net/http"
 	"path/filepath"
 	"strconv"
+	"strings"
+	"time"
 
 	"github.com/gookit/rux/v2"
 
@@ -17,12 +20,38 @@ import (
 // on disk via the result dir.
 const maxLogTailBytes = 256 * 1024
 
+// Synchronous-submit wait caps (design §6.1 / P1-a): the server blocks at most
+// defaultWaitSec when sync is requested without an explicit wait_timeout_sec,
+// and never longer than maxWaitSec, after which it returns 202 + X-Gofer-Async.
+const (
+	defaultWaitSec = 30
+	maxWaitSec     = 60
+)
+
 // handleCreateJob parses a JobRequest, submits it and returns the initial
-// JobResult (with the assigned id). Validation failures map to a 404 (unknown
-// project) or 400 (anything else) via the job package sentinels.
+// JobResult (with the assigned id). The body is JSON by default; a
+// Content-Type of text/markdown (or application/x-gofer-md) is parsed as
+// yaml-frontmatter + prose (design §6.2). When sync is requested (body.sync or
+// ?wait=1) it blocks for the final JobResult (capped), else returns immediately.
+// Validation failures map to a 404 (unknown project) or 400 (anything else) via
+// the job package sentinels.
 func (s *Server) handleCreateJob(c *rux.Context) {
 	var req job.JobRequest
-	if err := c.BindJSON(&req); err != nil {
+	ct := c.Req.Header.Get("Content-Type")
+	if strings.HasPrefix(ct, "text/markdown") || strings.HasPrefix(ct, "application/x-gofer-md") {
+		raw, _ := io.ReadAll(c.Req.Body)
+		parsed, err := parseMarkdownRequest(raw)
+		if err != nil {
+			writeError(c, http.StatusBadRequest, "invalid markdown request", err.Error())
+			return
+		}
+		// md prose maps to prompt (cli-agents only); exec wants argv via JSON cmd.
+		if parsed.Agent == "exec" {
+			writeError(c, http.StatusBadRequest, "markdown submit is for cli-agents", "use JSON + cmd for exec agents")
+			return
+		}
+		req = parsed
+	} else if err := c.BindJSON(&req); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
@@ -36,7 +65,39 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 		writeError(c, submitStatus(err), "job rejected", err.Error())
 		return
 	}
+
+	// Synchronous submit: block until terminal (capped). An already-terminal
+	// result (e.g. an idempotent hit on a finished job) returns immediately.
+	if wantSync(c, req) && !job.IsTerminal(res.Status) {
+		if final, ok := s.jobs.WaitFor(res.ID, clampWait(req.WaitTimeoutSec)); ok {
+			c.JSON(http.StatusOK, final)
+			return
+		}
+		// Exceeded the server wait cap and still not terminal: fall back to async
+		// semantics. The job keeps running; the client should switch to polling.
+		c.SetHeader("X-Gofer-Async", "1")
+		c.JSON(http.StatusAccepted, res)
+		return
+	}
 	c.JSON(http.StatusOK, res)
+}
+
+// wantSync reports whether the request asked for synchronous submit, via the
+// body sync field or a ?wait=1 / ?wait=true query param.
+func wantSync(c *rux.Context, req job.JobRequest) bool {
+	return req.Sync || c.Query("wait") == "1" || c.Query("wait") == "true"
+}
+
+// clampWait turns a requested wait_timeout_sec into a duration, applying the
+// default (when 0/negative) and the hard server cap.
+func clampWait(sec int) time.Duration {
+	if sec <= 0 {
+		sec = defaultWaitSec
+	}
+	if sec > maxWaitSec {
+		sec = maxWaitSec
+	}
+	return time.Duration(sec) * time.Second
 }
 
 // submitStatus maps a Submit error to an HTTP status: an unknown project is a
