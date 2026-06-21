@@ -107,6 +107,27 @@ var schemaStmts = []string{
   at          INTEGER NOT NULL
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_job_events_job ON job_events(job_id, seq)`,
+	// event_deliveries is the E14 webhook outbound queue / state machine (design
+	// §5.6). One row per (event, webhook target): status moves pending -> delivered
+	// or pending -> ... -> failed under the delivery sweeper. next_retry_at is the
+	// unix-second time the row becomes due (initially now); the sweeper claims
+	// pending rows whose next_retry_at <= now via a conditional UPDATE (SR303), so
+	// a delivery is only ever picked up by one sweep. idx_deliveries_due serves that
+	// due-scan. Like every table here it is IF NOT EXISTS (idempotent Open).
+	`CREATE TABLE IF NOT EXISTS event_deliveries (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  event_seq     INTEGER NOT NULL,
+  job_id        TEXT    NOT NULL,
+  target        TEXT    NOT NULL,
+  status        TEXT    NOT NULL,
+  attempts      INTEGER NOT NULL DEFAULT 0,
+  next_retry_at INTEGER NOT NULL,
+  last_error    TEXT,
+  created_at    INTEGER NOT NULL,
+  updated_at    INTEGER NOT NULL
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_deliveries_due ON event_deliveries(status, next_retry_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_deliveries_job ON event_deliveries(job_id, id)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema
