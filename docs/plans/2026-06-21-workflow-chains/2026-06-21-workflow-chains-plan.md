@@ -39,8 +39,8 @@
 - [x] **P1-c** `advanceWorkflow`（幂等推进）+ `finish` 异步钩子 + `CancelWorkflow`
 - [x] **P1-d** `startWorkflowLoop` sweeper（serve 挂载，crash 兜底）
 - [x] **P1-e** API：`POST /v1/workflows` / `GET /v1/workflows{,/id}` / `POST /v1/workflows/{id}/cancel`
-- [ ] **P2-a** `${steps.N.field}` 解析器（`refs.go`）+ 接入 advanceWorkflow 起 step 前替换
-- [ ] **P2-b** 提交期引用校验（拒未来/自引用/越界/非法 field）+ 运行期缺产出 → fail-fast
+- [x] **P2-a** `${steps.N.field}` 解析器（`refs.go`）+ 接入 advanceWorkflow 起 step 前替换
+- [x] **P2-b** 提交期引用校验（拒未来/自引用/越界/非法 field）+ 运行期缺产出 → fail-fast
 - [ ] **P3-a** CLI `gofer workflow run <file>`(yaml)/`show`/`list`/`cancel`（+ `--watch`）
 - [ ] **P3-b** Web 工作流列表/详情（step 链 → 各 job 详情）+ types/client
 
@@ -62,6 +62,8 @@ pnpm -C web build                                                               
 - **推进幂等**（条件 UPDATE `current_step`，SR303）是最大正确性点：一个 step 绝不起两次。
 - `${steps.N.result/stdout}` inline 上限 32KB（防大注入/DB 膨胀）；逐字段替换不 shell 重切（仿 Render）。
 - 取消/查询在 `/v1` 鉴权内；step-job 继承 workflow caller_id。
+
+- **P2**（2026-06-21，commit `dbf7365`+`ad03a2d`）：`refs.go` `resolveRefs`——正则 `\$\{steps\.(\d+)\.(\w+)\}` 逐字段(prompt/cmd 各元素/cwd)替换(`regexp.ReplaceAllStringFunc`,**不 join 不 shell 重切**,仿 agent.Render per-argv 不变量);`resolveOne` 6 字段(result_dir/result/stdout/exit_code/status/job_id),前步产出经 `s.Get(id)` 取(覆盖内存+DB),stdout 经 `s.TailLog` 读 cap+1 检测超限,result/stdout >32KB 或缺产出 → err 带"用 result_dir"提示;接入 advanceWorkflow 起下一步前(缺产出→工作流 failed)。`validateRefs` 提交期静态校验:拒未知 field / n<1 / `n>=stepNo`(前序约束,step1 任何引用即拒)。验收门全 PASS,工作流/refs 集成测试 `-race -count=10` 无 flaky(waitWorkflow 轮询非 sleep)。注:StepSpec 当前无 env 字段,"env 值替换"待 StepSpec 加 env 后补。
 
 ## 结论
 v1 工作流 = `workflows` 表 + jobs 2 列 + 幂等推进引擎（finish 异步钩子 + sweeper，条件 UPDATE 抢推进权）+ `${steps.N}` 跨 step 替换。每 step 仍是普通 job，复用产出/事件/日志/取消/产物。最大复用：`finish` 终态汇聚、`ClaimDueDeliveries` 抢占范式、`startDeliveryLoop` sweeper 范式、`Get(id)` 产出读取、jobstore 加表/加列模板。最大正确性点是推进幂等。本总纲随阶段更新进度与「阶段实施结果」。
