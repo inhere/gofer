@@ -5,6 +5,7 @@ import (
 
 	"github.com/inhere/gofer/internal/commands"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/logx"
 )
 
 // Build metadata, injected by Makefile LDFLAGS (-X main.Version etc.).
@@ -19,6 +20,10 @@ func main() {
 	// environment, so GOFER_CONFIG/GOFER_TOKEN etc. can come from a
 	// file. Exported OS env still wins; a malformed .env is non-fatal.
 	_, _ = config.LoadDotenv()
+
+	// Install the structured logger (slog) before anything logs, so worker/hub
+	// connect-lifecycle events surface. Level via GOFER_LOG_LEVEL (default info).
+	logx.Setup()
 
 	app := commands.NewApp(Version)
 	// Reorder args so a positional <key>/<id> placed before flags still parses

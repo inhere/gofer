@@ -16,6 +16,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"math/rand"
 	"net/http"
 	"sync"
@@ -193,6 +194,12 @@ func (cl *Client) Run(ctx context.Context) error {
 		attempt++
 		if err != nil {
 			cl.notify("retry:" + err.Error())
+			// Surface WHY a connect/session failed + when we retry — the operator's
+			// main signal that a worker is not reaching the hub (bad token/binding,
+			// wrong url, hub down). The err already carries the cause (dial /
+			// register rejection / disconnect).
+			slog.Warn("worker reconnecting to hub",
+				"worker_id", cl.workerID, "retry_in", wait.String(), "err", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -241,9 +248,13 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 	if !reg.Accepted {
 		// A binding/token mismatch will not self-heal, but the supervisor still
 		// retries (the config may be fixed) — just backed off (§5.2).
+		slog.Warn("worker registration rejected by hub",
+			"worker_id", cl.workerID, "url", url, "reason", reg.Reason)
 		return false, fmt.Errorf("register rejected: %s", reg.Reason)
 	}
 	cl.notify("registered")
+	slog.Info("worker registered with hub",
+		"worker_id", cl.workerID, "url", url, "labels", cl.labels, "max_concurrent", cl.maxConc)
 
 	// Per-session heartbeat: start the ping sender, stop it when the recv loop ends.
 	done := make(chan struct{})
@@ -252,6 +263,7 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 
 	err = cl.recvLoop(ctx)
 	cl.notify("disconnected")
+	slog.Info("worker disconnected from hub", "worker_id", cl.workerID, "err", err)
 	return true, err
 }
 

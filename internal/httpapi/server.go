@@ -12,6 +12,7 @@ package httpapi
 
 import (
 	"fmt"
+	"log/slog"
 	"net/http"
 	"os"
 
@@ -270,6 +271,11 @@ func (s *Server) handleWorkerConnect(c *rux.Context) {
 		callerID, matched = s.lookupCaller(got)
 	}
 	if !matched {
+		// Worker presented no/unknown bearer token: it never reaches the hub
+		// register handshake. Log so a token mismatch is visible (the worker side
+		// only sees the WS close).
+		slog.Warn("worker auth rejected at hub upgrade", "remote", c.Req.RemoteAddr,
+			"reason", "missing or unknown bearer token")
 		c.Resp.WriteHeader(http.StatusUnauthorized) // bare 401, no body
 		return
 	}
