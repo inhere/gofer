@@ -49,6 +49,50 @@ type ServerConfig struct {
 	// defaults (30s interval / 5s timeout). The probe only runs when at least one
 	// peer-http runner is configured (zero behaviour change otherwise).
 	RunnerProbe RunnerProbeConfig `yaml:"runner_probe"`
+	// Notification is the E14 webhook outbound config (design §5.5). It is a
+	// pointer so "unset" (nil) cleanly disables all notification (the serve
+	// delivery sweeper does not even start) — zero behaviour change for any config
+	// without a `notification` block. When present it lists the webhook targets,
+	// the outbound host allowlist and the retry cap.
+	Notification *NotificationConfig `yaml:"notification"`
+}
+
+// NotificationConfig is the E14 webhook outbound policy (design §5.5/§5.7). It
+// holds every configured webhook target plus the shared outbound-safety knobs:
+// AllowHosts is the host allowlist a webhook URL must match, AllowHTTP relaxes
+// the https-only default (for local testing only), and MaxAttempts caps the
+// retry backoff. The delivery sweeper only runs when this is non-nil AND has at
+// least one webhook (see serve startDeliveryLoop).
+type NotificationConfig struct {
+	Webhooks    []WebhookConfig `yaml:"webhooks"`
+	AllowHosts  []string        `yaml:"allow_hosts"`  // outbound host allowlist (SR904)
+	AllowHTTP   bool            `yaml:"allow_http"`   // default false => https-only
+	MaxAttempts int             `yaml:"max_attempts"` // <= 0 => DefaultMaxAttempts
+}
+
+// WebhookConfig is one E14 outbound webhook target (design §5.5). Events is the
+// subscribed trigger set (omit => the default set job.terminal + interaction.created);
+// SecretEnv names the env var holding the HMAC secret (SR403, never inlined);
+// Projects restricts the webhook to those project keys (omit => all projects).
+type WebhookConfig struct {
+	URL       string   `yaml:"url"`
+	Events    []string `yaml:"events"`
+	SecretEnv string   `yaml:"secret_env"`
+	Projects  []string `yaml:"projects"`
+}
+
+// DefaultMaxAttempts is the delivery retry cap used when NotificationConfig
+// .MaxAttempts is unset (<= 0): the backoff table has 5 steps, so 6 attempts
+// (initial + 5 retries) exhausts it before the delivery is marked failed.
+const DefaultMaxAttempts = 6
+
+// EffectiveMaxAttempts returns the configured retry cap, defaulting to
+// DefaultMaxAttempts when unset (<= 0).
+func (n *NotificationConfig) EffectiveMaxAttempts() int {
+	if n != nil && n.MaxAttempts > 0 {
+		return n.MaxAttempts
+	}
+	return DefaultMaxAttempts
 }
 
 // RunnerProbeConfig is the YAML form of the peer-http health-probe policy (C6/P4
@@ -172,7 +216,17 @@ type ProjectConfig struct {
 	// while an explicit capture_diff:false disables it outright. nil/true defer to
 	// captureDiff's own is-git probe (a non-git cwd naturally yields no diff).
 	CaptureDiff *bool `yaml:"capture_diff"`
+	// NotifyEnabled gates E14 webhook delivery for this project (design §5.5). It
+	// is a pointer so "unset" (nil) defaults to ENABLED while an explicit
+	// notify_enabled:false suppresses all notification for the project's jobs
+	// (no deliveries are enqueued). nil/true => notification on.
+	NotifyEnabled *bool `yaml:"notify_enabled"`
 }
+
+// IsNotifyEnabled reports whether E14 webhook delivery is enabled for the
+// project. Unset (nil) defaults to true; an explicit notify_enabled:false
+// suppresses it.
+func (p ProjectConfig) IsNotifyEnabled() bool { return p.NotifyEnabled == nil || *p.NotifyEnabled }
 
 // AgentConfig describes a configurable CLI agent. Detect is refined in P3; P2
 // only needs it to decode cleanly.
