@@ -125,6 +125,30 @@ export interface Interaction {
   answered_at?: number
 }
 
+// job 生命周期事件（E13，append-only）。GET /v1/jobs/{id}/events 与 SSE event 帧。
+// detail 是后端 detail_json 原文（JSON 字符串，可空）；前端按需 JSON.parse。
+// seq 单调递增，用于去重/排序（SSE 增量与初始拉取合并）。
+export type JobEventType =
+  | 'job.submitted'
+  | 'job.dispatched'
+  | 'job.running'
+  | 'job.terminal'
+  | 'job.cancelled'
+  | 'interaction.created'
+  | 'interaction.answered'
+
+export interface JobEvent {
+  seq: number
+  type: JobEventType | string
+  detail?: string
+  // Unix 秒
+  at: number
+}
+
+export interface JobEventsResp {
+  events: JobEvent[]
+}
+
 // 运行器（/v1/runners，C6）。三类：worker / peer-http / local。
 // 字段与 internal/httpapi/runner_handler.go 的 runnerView/probeView/workerView 对齐。
 export type RunnerType = 'worker' | 'peer-http' | 'local'
@@ -234,6 +258,7 @@ export type SSEEventType =
   | 'log'
   | 'log-rotated'
   | 'interaction'
+  | 'event'
   | 'end'
 
 export interface SSELogData {
@@ -253,8 +278,12 @@ export interface SSEInteractionData {
   interaction: Interaction
 }
 
+// event 帧载荷（E13）：与 JobEvent 同形（seq/type/detail/at）。
+export type SSEJobEventData = JobEvent
+
 export interface SSEEvent {
   type: SSEEventType
-  // status -> Job; log -> SSELogData; interaction -> SSEInteractionData; end -> {}
+  // status -> Job; log -> SSELogData; interaction -> SSEInteractionData;
+  // event -> SSEJobEventData; end -> {}
   data: unknown
 }

@@ -13,6 +13,7 @@ import {
   downloadArtifact,
   getJob,
   listArtifacts,
+  listEvents,
   viewFullDiff,
 } from '../api/client'
 import { appendCapped, streamJob } from '../api/sse'
@@ -21,9 +22,11 @@ import type {
   Artifact,
   Interaction,
   Job,
+  JobEvent,
   JobStatus,
   SSEEvent,
   SSEInteractionData,
+  SSEJobEventData,
   SSELogData,
   SSELogRotatedData,
 } from '../api/types'
@@ -49,6 +52,90 @@ function upsertInteraction(it: Interaction): void {
   const next = new Map(interactions.value)
   next.set(it.id, it)
   interactions.value = next
+}
+
+// ── 事件时间线（E13）──────────────────────────────────────────────
+// append-only 生命周期事件，按 seq 去重有序。初始 listEvents 拉全量 + SSE event
+// 帧增量 append（seq 已存在则跳过，保证幂等且不依赖到达顺序）。
+const timelineSeqs = new Set<number>()
+const timelineEvents = ref<JobEvent[]>([])
+
+function addTimelineEvent(ev: JobEvent): void {
+  if (timelineSeqs.has(ev.seq)) {
+    return
+  }
+  timelineSeqs.add(ev.seq)
+  // 二分插入保持 seq 升序（事件量小，splice 足够；不依赖到达顺序）。
+  const arr = timelineEvents.value
+  let lo = 0
+  let hi = arr.length
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1
+    if (arr[mid].seq < ev.seq) {
+      lo = mid + 1
+    } else {
+      hi = mid
+    }
+  }
+  const next = arr.slice()
+  next.splice(lo, 0, ev)
+  timelineEvents.value = next
+}
+
+// 事件 type -> 图标 + 中文标签（仿 interactions 渲染风格，单行）。
+const EVENT_META: Record<string, { icon: string; label: string }> = {
+  'job.submitted': { icon: '✓', label: '已提交' },
+  'job.dispatched': { icon: '→', label: '已派发' },
+  'job.running': { icon: '▶', label: '开始运行' },
+  'job.terminal': { icon: '■', label: '结束' },
+  'job.cancelled': { icon: '✕', label: '请求取消' },
+  'interaction.created': { icon: '?', label: '发起交互' },
+  'interaction.answered': { icon: '✎', label: '交互已答' },
+}
+
+function eventIcon(type: string): string {
+  return EVENT_META[type]?.icon ?? '•'
+}
+function eventLabel(type: string): string {
+  return EVENT_META[type]?.label ?? type
+}
+
+// 解析 detail_json，提取每类事件的关键字段拼成一行补充说明（无则空）。
+function eventDetailText(ev: JobEvent): string {
+  if (!ev.detail) {
+    return ''
+  }
+  let d: Record<string, unknown>
+  try {
+    d = JSON.parse(ev.detail) as Record<string, unknown>
+  } catch {
+    return ''
+  }
+  switch (ev.type) {
+    case 'job.submitted':
+      return [d.agent, d.runner].filter(Boolean).join(' · ')
+    case 'job.dispatched':
+      return [d.runner, d.worker_id].filter(Boolean).join(' · ')
+    case 'job.terminal': {
+      const parts: string[] = []
+      if (d.status) {
+        parts.push(String(d.status))
+      }
+      if (typeof d.exit_code === 'number' && d.exit_code !== 0) {
+        parts.push(`exit ${d.exit_code}`)
+      }
+      if (d.error) {
+        parts.push(String(d.error))
+      }
+      return parts.join(' · ')
+    }
+    case 'interaction.created':
+      return String(d.prompt ?? '')
+    case 'interaction.answered':
+      return String(d.answer ?? '')
+    default:
+      return ''
+  }
 }
 
 // 待应答（pending），按 created_at 升序排队作答
@@ -177,6 +264,11 @@ function onEvent(ev: SSEEvent): void {
     upsertInteraction(d.interaction)
     return
   }
+  if (ev.type === 'event') {
+    // E13 生命周期事件：按 seq 去重 append 到时间线（与初始 listEvents 合并）。
+    addTimelineEvent(ev.data as SSEJobEventData)
+    return
+  }
   // end：无更多事件；终态由 status 事件回填，这里仅停 live 由 status 决定
 }
 
@@ -250,6 +342,8 @@ onMounted(async () => {
   }
   // 产物清单：与头部一起拉一次（终态 job 才有；运行中通常为空）。
   void loadArtifacts()
+  // 事件时间线：初始拉全量（SSE event 帧再增量 append，按 seq 去重幂等）。
+  void loadTimeline()
   // 日志单一来源：不传 from，获得「历史回放 + 实时跟随 + 终态 end」
   void startStream()
 })
@@ -328,6 +422,18 @@ async function loadArtifacts(): Promise<void> {
     artifacts.value = resp.artifacts ?? []
   } catch (e) {
     artifactError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+// 时间线初始拉取（E13）：SSE event 帧与之合并去重，故初拉失败不致命（静默）。
+async function loadTimeline(): Promise<void> {
+  try {
+    const resp = await listEvents(props.id)
+    for (const ev of resp.events ?? []) {
+      addTimelineEvent(ev)
+    }
+  } catch {
+    // 时间线为辅助信息：拉取失败静默（SSE event 帧仍会增量补齐）。
   }
 }
 
@@ -535,6 +641,27 @@ async function copyCommand(): Promise<void> {
           :interaction="it"
         />
       </details>
+    </section>
+
+    <!-- 事件时间线（E13）：append-only 生命周期事件，每事件一行（图标 + 标签 +
+         关键 detail + 相对时间）。仿 interactions 渲染风格，仅在有事件时展示。 -->
+    <section v-if="timelineEvents.length > 0" class="timeline">
+      <h2 class="timeline-title mono">事件时间线</h2>
+      <ul class="timeline-list">
+        <li
+          v-for="ev in timelineEvents"
+          :key="ev.seq"
+          class="timeline-row"
+          :class="'ev-' + ev.type.replace('.', '-')"
+        >
+          <span class="ev-icon mono">{{ eventIcon(ev.type) }}</span>
+          <span class="ev-label mono">{{ eventLabel(ev.type) }}</span>
+          <span v-if="eventDetailText(ev)" class="ev-detail mono" :title="eventDetailText(ev)">
+            {{ eventDetailText(ev) }}
+          </span>
+          <span class="ev-time mono">{{ fmtTime(ev.at) }}</span>
+        </li>
+      </ul>
     </section>
 
     <!-- 产出与审计：渲染命令(E15) + 结构化结果(E6)。仅在有内容时展示。 -->
@@ -807,6 +934,68 @@ async function copyCommand(): Promise<void> {
 }
 .answered-fold > summary:hover {
   color: var(--phosphor);
+}
+
+/* 事件时间线面板（E13）：每事件一行，等宽、紧凑，仿 interactions 风格。 */
+.timeline {
+  margin: 0 0 14px;
+}
+.timeline-title {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--phosphor);
+  text-transform: uppercase;
+  margin: 0 0 10px;
+}
+.timeline-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.timeline-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.timeline-row:last-child {
+  border-bottom: none;
+}
+.ev-icon {
+  flex: 0 0 auto;
+  width: 14px;
+  text-align: center;
+  color: var(--queue);
+}
+.ev-label {
+  flex: 0 0 auto;
+  color: var(--paper);
+}
+.ev-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--queue);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ev-time {
+  flex: 0 0 auto;
+  color: var(--queue);
+  font-size: 11px;
+}
+/* 关键转换点用 phosphor 凸显图标。 */
+.ev-job-running .ev-icon,
+.ev-job-terminal .ev-icon {
+  color: var(--phosphor);
+}
+.ev-job-cancelled .ev-icon {
+  color: var(--fail);
 }
 
 /* 产出与审计面板：渲染命令 + 结构化结果。 */

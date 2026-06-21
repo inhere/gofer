@@ -8,6 +8,7 @@ import type {
   ArtifactsResp,
   Interaction,
   Job,
+  JobEventsResp,
   JobsResp,
   JobStatus,
   ListJobsOpts,
@@ -240,6 +241,15 @@ export function getInteractions(
 ): Promise<{ interactions: Interaction[] }> {
   return request<{ interactions: Interaction[] }>(
     `/v1/jobs/${encodeURIComponent(id)}/interactions`,
+  )
+}
+
+// job 生命周期事件时间线（E13）：初始拉取全量；SSE event 帧增量 append。
+// since>0 时仅取该 seq 之后的事件（断线对齐用，可选）。
+export function listEvents(id: string, since?: number): Promise<JobEventsResp> {
+  const qs = since != null && since > 0 ? `?since=${since}` : ''
+  return request<JobEventsResp>(
+    `/v1/jobs/${encodeURIComponent(id)}/events${qs}`,
   )
 }
 
