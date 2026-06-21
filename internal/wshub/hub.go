@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"net/http"
 	"time"
 
@@ -167,11 +168,15 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 	// heartbeat read deadline only governs the steady-state read loop.
 	env, err := readEnvelope(ctx, conn)
 	if err != nil || env.Type != wsproto.TypeRegister {
+		slog.Warn("hub rejected worker handshake", "remote", req.RemoteAddr,
+			"caller_id", callerID, "reason", "first frame was not a register frame", "err", err)
 		_ = conn.Close(websocket.StatusProtocolError, "expected register")
 		return
 	}
 	reg, err := wsproto.As[wsproto.Register](env)
 	if err != nil {
+		slog.Warn("hub rejected worker handshake", "remote", req.RemoteAddr,
+			"caller_id", callerID, "reason", "bad register payload", "err", err)
 		_ = conn.Close(websocket.StatusProtocolError, "bad register payload")
 		return
 	}
@@ -180,6 +185,12 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 	// must match the worker the presented token is bound to (callerID).
 	want, bound := h.bindings[reg.WorkerID]
 	if !bound || want != callerID {
+		// The #1 operator gotcha: token authenticates as caller_id but register's
+		// worker_id is not bound to it (missing server.workers entry, or worker_id
+		// mismatch). Log both so the misalignment is obvious.
+		slog.Warn("hub rejected worker registration",
+			"worker_id", reg.WorkerID, "caller_id", callerID, "bound", bound,
+			"reason", "worker_id not bound to this token (check server.workers)")
 		_ = writeEnvelope(ctx, conn, wsproto.TypeRegistered, "", wsproto.Registered{
 			Accepted:   false,
 			Reason:     "worker_id not bound to this token",
@@ -207,6 +218,8 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 		h.reg.Remove(reg.WorkerID, wc)
 		return
 	}
+	slog.Info("hub accepted worker", "worker_id", reg.WorkerID, "remote", req.RemoteAddr,
+		"labels", reg.Labels, "max_concurrent", reg.MaxConcurrent)
 
 	// 5) Start the per-connection heartbeat sender, then run the single read loop
 	// (review #2: never goroutine-per-frame). When the read loop returns the
@@ -215,6 +228,7 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 	h.startHeartbeat(ctx, wc)
 	h.readLoop(ctx, wc)
 	h.onDisconnect(wc)
+	slog.Info("hub worker disconnected", "worker_id", reg.WorkerID)
 }
 
 // startHeartbeat launches the per-connection ping sender (P3, review #7). It

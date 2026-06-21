@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -91,7 +92,8 @@ func runWorker(c *gcli.Command, _ []string) error {
 		}
 	}()
 
-	c.Printf("gofer worker %q: connecting to %v\n", wc.WorkerID, wc.ServerLink.URLs)
+	slog.Info("worker starting", "worker_id", wc.WorkerID, "urls", wc.ServerLink.URLs,
+		"labels", wc.Labels, "max_concurrent", wc.MaxConcurrent)
 	if err := cl.Run(ctx); err != nil {
 		return errorx.Failf(workerExitErr, "%v", err)
 	}
