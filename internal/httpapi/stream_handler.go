@@ -63,6 +63,17 @@ type interactionFrame struct {
 	Interaction job.Interaction `json:"interaction"`
 }
 
+// eventFrame is the JSON payload of an `event` SSE event (E13): one append-only
+// lifecycle event (job.submitted / job.running / job.terminal / interaction.* /
+// …). detail is the raw detail_json string (may be empty); the frontend parses
+// it. seq is the cursor the frontend dedups/orders on.
+type eventFrame struct {
+	Seq    int64  `json:"seq"`
+	Type   string `json:"type"`
+	Detail string `json:"detail,omitempty"`
+	At     int64  `json:"at"`
+}
+
 // handleJobStream serves Server-Sent Events for a single job: incremental
 // stdout/stderr (`log` events) plus `status` events on every status change, and
 // a final `end` event once the job reaches a terminal state (web-T3).
@@ -218,6 +229,32 @@ func (s *Server) handleJobStream(c *rux.Context) {
 		return nil
 	}
 
+	// lastEventSeq is the E13 event cursor: the seq of the last `event` frame we
+	// emitted. ListJobEvents(id, lastEventSeq) returns only newer events, so the
+	// initial replay (lastEventSeq==0) sends the full history and each subsequent
+	// poll sends just the increment — mirroring pumpInteractions' replay+follow.
+	var lastEventSeq int64
+
+	// pumpEvents emits an `event` frame for every lifecycle event newer than
+	// lastEventSeq and advances the cursor. Events are durable-only (recordEvent
+	// writes straight to the DB), so this works for live and evicted jobs alike. A
+	// write error (client gone) aborts by returning it.
+	pumpEvents := func() error {
+		evs, err := s.jobs.ListJobEvents(id, lastEventSeq)
+		if err != nil {
+			return nil // best-effort: a read error never aborts the log stream
+		}
+		for _, ev := range evs {
+			if werr := writeSSE(w, flusher, "event", eventFrame{
+				Seq: ev.Seq, Type: ev.Type, Detail: ev.Detail, At: ev.At,
+			}); werr != nil {
+				return werr
+			}
+			lastEventSeq = ev.Seq
+		}
+		return nil
+	}
+
 	// Initial status snapshot.
 	if err := writeSSE(w, flusher, "status", res); err != nil {
 		return
@@ -226,6 +263,11 @@ func (s *Server) handleJobStream(c *rux.Context) {
 	// Replay the current interaction state to a freshly-connected client (pending
 	// ones surface as open, already-answered ones as answered).
 	if err := pumpInteractions(); err != nil {
+		return
+	}
+
+	// Replay the current event stream to a freshly-connected client (E13).
+	if err := pumpEvents(); err != nil {
 		return
 	}
 
@@ -238,6 +280,7 @@ func (s *Server) handleJobStream(c *rux.Context) {
 	finish := func(final job.JobResult) {
 		_, _ = pumpLogs()
 		_ = pumpInteractions() // push the last answer/cancel before closing
+		_ = pumpEvents()       // push the terminal/cancelled events before closing
 		_ = writeSSE(w, flusher, "status", final)
 		_ = writeSSE(w, flusher, "end", struct{}{})
 	}
@@ -277,6 +320,9 @@ func (s *Server) handleJobStream(c *rux.Context) {
 				ticker.Reset(streamPollInterval)
 			}
 			if err := pumpInteractions(); err != nil {
+				return // client disconnected
+			}
+			if err := pumpEvents(); err != nil {
 				return // client disconnected
 			}
 
