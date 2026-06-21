@@ -6,6 +6,7 @@ import { streamJob } from './sse'
 import type {
   AgentsResp,
   ArtifactsResp,
+  DeliveriesResp,
   Interaction,
   Job,
   JobEventsResp,
@@ -250,6 +251,13 @@ export function listEvents(id: string, since?: number): Promise<JobEventsResp> {
   const qs = since != null && since > 0 ? `?since=${since}` : ''
   return request<JobEventsResp>(
     `/v1/jobs/${encodeURIComponent(id)}/events${qs}`,
+  )
+}
+
+// webhook 投递状态（E14）：只读查询，详情页展示每条事件外发的 delivered/重试/失败。
+export function listDeliveries(id: string): Promise<DeliveriesResp> {
+  return request<DeliveriesResp>(
+    `/v1/jobs/${encodeURIComponent(id)}/deliveries`,
   )
 }
 

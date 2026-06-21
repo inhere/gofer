@@ -149,6 +149,29 @@ export interface JobEventsResp {
   events: JobEvent[]
 }
 
+// webhook 投递（E14）。GET /v1/jobs/{id}/deliveries。字段与 jobstore.Delivery 对齐。
+// status：pending（待投/重试中）/ delivered（成功）/ failed（超上限放弃）。
+// attempts 已尝试次数；next_retry_at 下次到期投递时间（unix 秒，已 delivered/failed 时不再用）。
+// last_error 最近一次失败原因（不含密钥）；event_seq 关联 job_events.seq。
+export type DeliveryStatus = 'pending' | 'delivered' | 'failed'
+
+export interface Delivery {
+  id: number
+  event_seq: number
+  job_id: string
+  target: string
+  status: DeliveryStatus | string
+  attempts: number
+  next_retry_at: number
+  last_error?: string
+  created_at: number
+  updated_at: number
+}
+
+export interface DeliveriesResp {
+  deliveries: Delivery[]
+}
+
 // 运行器（/v1/runners，C6）。三类：worker / peer-http / local。
 // 字段与 internal/httpapi/runner_handler.go 的 runnerView/probeView/workerView 对齐。
 export type RunnerType = 'worker' | 'peer-http' | 'local'

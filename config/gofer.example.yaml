@@ -43,6 +43,20 @@ server:
   #   interval_seconds: 30
   #   timeout_seconds: 5
 
+  # notification: E14 webhook 外发。关键事件(默认 job.terminal + interaction.created)
+  # 触发，向每个订阅 webhook 主动 POST(durable 投递 + 退避重试 30s→2m→5m→15m→60m)。
+  # 安全(最大对外出站面)：URL 出站白名单(allow_hosts) + 仅 https + 拒 loopback/内网
+  # (SSRF) + HMAC(secret_env,密钥不入库不入日志)。整段缺省=不启用(投递 sweeper 不启动)。
+  # notification:
+  #   webhooks:
+  #     - url: https://hooks.example.com/gofer       # 出站目标(必须过 allow_hosts + 公网)
+  #       events: [job.terminal, interaction.created] # 订阅事件(省略=默认集)
+  #       secret_env: GOFER_WEBHOOK_SECRET            # HMAC 密钥的 env 名(不入库)
+  #       projects: [my-project1]                     # 仅这些项目(省略=全部)
+  #   allow_hosts: [hooks.example.com]                # 出站 host 白名单(空=全部拒绝)
+  #   allow_http: false                               # 默认仅 https; true 仅本地测试用
+  #   max_attempts: 6                                 # 重试上限(默认 6=退避表 5 步+首次)
+
 storage:
   # Per-project data exchange subdir (default: tmp).
   default_exchange_subdir: tmp
