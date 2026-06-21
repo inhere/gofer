@@ -1,6 +1,7 @@
 package jobstore
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 )
@@ -63,6 +64,22 @@ func (s *Store) InsertJobEvent(e JobEvent) (int64, error) {
 		return 0, fmt.Errorf("jobstore: insert job event %q/%q last id: %w", e.JobID, e.Type, err)
 	}
 	return seq, nil
+}
+
+// GetEvent returns the single event with the given seq. The boolean is false when
+// no such event exists (e.g. a pruned job's event). It is used by the E14
+// delivery sweeper to rebuild a webhook body (type/detail/at) for a queued
+// delivery that only stores the event_seq.
+func (s *Store) GetEvent(seq int64) (JobEvent, bool, error) {
+	row := s.db.QueryRow(selectEventCols+" WHERE seq = ?", seq)
+	ev, err := scanEvent(row)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return JobEvent{}, false, nil
+		}
+		return JobEvent{}, false, fmt.Errorf("jobstore: get event %d: %w", seq, err)
+	}
+	return ev, true, nil
 }
 
 // ListJobEvents returns a job's events in insertion order (seq ASC). When
