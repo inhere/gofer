@@ -33,10 +33,10 @@
 
 ## 进度跟进
 
-- [ ] **P1-a** `job_events` 表（schemaStmts）+ `InsertJobEvent`/`ListJobEvents` DAO + prune 连带删
-- [ ] **P1-b** 中央 `recordEvent(jobID,type,detail)`（best-effort）+ 7 处生命周期插桩
-- [ ] **P1-c** `GET /v1/jobs/{id}/events[?since]` + SSE `pumpEvents()` 发 `event` 帧
-- [ ] **P1-d** Web JobDetail 事件时间线面板 + `JobEvent` 类型 + `client.listEvents`
+- [x] **P1-a** `job_events` 表（schemaStmts）+ `InsertJobEvent`(返回 seq)/`ListJobEvents` DAO + prune 连带删
+- [x] **P1-b** 中央 `recordEvent(jobID,type,detail)`（best-effort）+ 7 处生命周期插桩
+- [x] **P1-c** `GET /v1/jobs/{id}/events[?since]` + SSE `pumpEvents()` 发 `event` 帧
+- [x] **P1-d** Web JobDetail 事件时间线面板 + `JobEvent` 类型 + `client.listEvents`
 - [ ] **P2-a** `NotificationConfig`（config）+ `event_deliveries` 表 + DAO（抢占领取/更新）
 - [ ] **P2-b** 投递入队（事件落库后按订阅 webhook 入 pending）+ webhook 客户端（HMAC/超时/白名单 `validateWebhookURL`）
 - [ ] **P2-c** 投递 sweeper（serve.go 挂载，退避表）+ 优雅停机
@@ -65,4 +65,4 @@ E13/E14 共用生命周期转换点的中央 `recordEvent` + `job_events` append
 
 ## 阶段实施结果
 
-（实施后逐阶段追加）
+- **P1**（2026-06-20，commit `82fa513`+`3e8c2cb`+`b0a4e53`+`2371eff`+修复 `70cf6b0`）：`job_events` append-only 表(seq autoincrement,仿 interactions 第二表)+ `events.go` DAO(`InsertJobEvent` 返回 seq 供 P2 入队游标 / `ListJobEvents` seq ASC + since 增量)+ prune 连带删；中央 `recordEvent`(best-effort recover,8KB 上限,`eventSink` 接口供失败注入测试)+ 7 处生命周期插桩(submitted/dispatched/running/terminal/cancelled/interaction 建·答)；`GET /v1/jobs/{id}/events[?since]` + SSE `pumpEvents()`(lastEventSeq 游标 + 初始回放 + finish 前补发,并入 250ms 轮询)；Web JobDetail 事件时间线面板 + `JobEvent` 类型 + `listEvents` + SSE `event` 帧。验收门 5/5 PASS。**主控复核抓到并修复一处真实竞争**(`70cf6b0`)：`finish()` 原先 persist 终态后才记 terminal 事件,导致 keyed-on-terminal-status 的读者(waitDone/SSE 关流)在事件落库前读事件→漏 terminal 帧(`TestStreamEventFrames` flaky)+迟到 insert 撞已关闭 DB；改为 finish 顶部先 `recordEvent(terminal)` 再翻状态,x30+全量 x4+`-race` 全绿根治。
