@@ -14,6 +14,41 @@ import (
 // mappings. The commented-out callers/workers/runner_probe/retention/worker
 // blocks are uncommented inline here so a typo in any of those field names
 // surfaces as a decode mismatch rather than silently being ignored.
+// TestWorkerExampleYAMLParses guards config/worker.example.yaml against drifting
+// away from config.WorkerConfig: it decodes the embedded worker template and
+// spot-checks key field mappings (so a typo in a yaml tag surfaces as a mismatch).
+func TestWorkerExampleYAMLParses(t *testing.T) {
+	if configtmpl.WorkerExampleYAML == "" {
+		t.Fatal("embedded WorkerExampleYAML is empty")
+	}
+	wc := &WorkerConfig{}
+	if err := yaml.Unmarshal([]byte(configtmpl.WorkerExampleYAML), wc); err != nil {
+		t.Fatalf("decode worker example: %v", err)
+	}
+	if wc.WorkerID != "w-host" {
+		t.Errorf("worker_id = %q", wc.WorkerID)
+	}
+	if len(wc.ServerLink.URLs) != 1 || wc.ServerLink.URLs[0] != "ws://127.0.0.1:8767/v1/workers/connect" {
+		t.Errorf("server_link.urls = %v", wc.ServerLink.URLs)
+	}
+	if wc.ServerLink.TokenEnv != "GOFER_WORKER_TOKEN" {
+		t.Errorf("server_link.token_env = %q", wc.ServerLink.TokenEnv)
+	}
+	if wc.MaxConcurrent != 4 {
+		t.Errorf("max_concurrent = %d", wc.MaxConcurrent)
+	}
+	p, ok := wc.Projects["w-host"]
+	if !ok {
+		t.Fatalf("projects.w-host missing: %v", wc.Projects)
+	}
+	if len(p.AllowedRunners) != 1 || p.AllowedRunners[0] != "local" {
+		t.Errorf("projects.w-host.allowed_runners = %v (worker runs locally → local)", p.AllowedRunners)
+	}
+	if !p.AllowExec {
+		t.Errorf("projects.w-host.allow_exec = false")
+	}
+}
+
 func TestExampleYAMLParses(t *testing.T) {
 	if configtmpl.ExampleYAML == "" {
 		t.Fatal("embedded ExampleYAML is empty")

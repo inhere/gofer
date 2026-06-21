@@ -82,6 +82,49 @@ func TestInitWritesEmbeddedTemplate(t *testing.T) {
 	initOpts.force = false
 }
 
+// TestInitTemplateMapping verifies the target→template/path resolution: server
+// (and the bare default) → ExampleYAML/.gofer.yaml; worker → WorkerExampleYAML/
+// worker.yaml; anything else → not ok.
+func TestInitTemplateMapping(t *testing.T) {
+	for _, target := range []string{"", "server"} {
+		tmpl, path, ok := initTemplate(target)
+		if !ok || tmpl != configtmpl.ExampleYAML || path != DefaultInitConfigPath {
+			t.Errorf("initTemplate(%q) = (_, %q, %v), want server template/.gofer.yaml", target, path, ok)
+		}
+	}
+	tmpl, path, ok := initTemplate("worker")
+	if !ok || tmpl != configtmpl.WorkerExampleYAML || path != DefaultWorkerConfigPath {
+		t.Errorf("initTemplate(worker) = (_, %q, %v), want worker template/worker.yaml", path, ok)
+	}
+	if _, _, ok := initTemplate("nope"); ok {
+		t.Error("initTemplate(nope) should not be ok")
+	}
+}
+
+// TestInitWorkerTarget verifies `gofer init worker` writes the embedded worker
+// template (not the server one).
+func TestInitWorkerTarget(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "worker.yaml")
+
+	c := bindCmd(NewInitCmd())
+	c.Arg("target").WithValue("worker")
+	initOpts.config = path
+	initOpts.force = false
+	t.Cleanup(func() { initOpts.config = ""; initOpts.force = false })
+
+	if err := runInit(c, nil); err != nil {
+		t.Fatalf("init worker: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("read written worker config: %v", err)
+	}
+	if string(got) != configtmpl.WorkerExampleYAML {
+		t.Fatal("written content != embedded worker template")
+	}
+}
+
 // TestInitDefaultPath verifies init defaults to ./.gofer.yaml when no --config.
 func TestInitDefaultPath(t *testing.T) {
 	dir := t.TempDir()
