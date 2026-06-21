@@ -1,0 +1,62 @@
+# gofer ws-worker example configuration.
+# Run with:  gofer worker -c worker.yaml   (the worker config has NO auto-discovery
+# chain — the path is always explicit). Generate this starter with:
+#   gofer init worker            # writes ./worker.yaml
+#
+# A worker is a SEPARATE process that dials the server's hub over WebSocket,
+# registers, and runs dispatched jobs LOCALLY with its own config (it re-validates
+# project/agent/exec against THIS file). See the server example's `server.workers`
+# + `runners` comments for the connect-side requirements.
+
+# worker_id 必须等于【服务端 server.workers 段的 KEY】(以及 runners.<name>.worker_id)。
+# register 帧自报这个 id; 它与所用 token 绑定不一致就会被 hub 拒(日志: "registration
+# rejected ... worker_id not bound to this token")。
+worker_id: w-host
+
+# server_link: 如何连到服务端 hub。
+server_link:
+  # 一个或多个 hub 地址(失败时轮换; 可填同一 hub 的多个入口或多个 hub)。
+  # 路径固定为 /v1/workers/connect; 地址要与服务端 server.addr 一致。
+  urls: [ws://127.0.0.1:LIVE-PORT/v1/workers/connect]
+  # 凭证: 优先 token_env(从环境变量读), 避免把 token 写进文件。
+  # 解析出的 token 必须等于服务端 server.workers.<worker_id> 的同一个 token。
+  token_env: GOFER_WORKER_TOKEN
+  # token: "..."          # 内联覆盖(本地测试用; 不要提交真实 token)
+  # reconnect: 重连退避 + 心跳(全部 <=0 时取默认)。
+  # reconnect:
+  #   initial_backoff_ms: 1000
+  #   max_backoff_ms: 30000
+  #   ping_interval_ms: 15000
+  #   read_deadline_ms: 45000
+
+# labels: 展示 + 调度提示(WP4 自动调度按 label 选 worker)。
+labels: [host, codex, claude]
+
+# max_concurrent: 本 worker 并发执行的 job 上限。
+max_concurrent: 4
+
+# projects: worker 用【自己的】这份项目配置执行 job(review #8 本地再校验)。
+# 关键: job 带的 project key 必须在这里也存在 —— 派发端(服务端)校验一次, 派到 worker
+# 后由 worker 用本文件再解析【同一个 key】, 对不上会以「未知项目」拒掉。
+# host_path 是【本执行机上】的真实工作目录; allowed_runners 含 local(worker 本地用 local
+# runner 真正执行, 不再向下派发)。
+projects:
+  w-host:
+    host_path: /abs/path/on/this/worker/host
+    default_agent: exec
+    allowed_agents: [exec]
+    allowed_runners: [local]
+    allow_exec: true
+
+# agents: 若要跑 cli-agent(codex/claude/…), 在这里定义其命令(worker 本地需装这些 CLI)。
+# 纯 exec job 不需要本段。结构同服务端 example 的 agents。
+# agents:
+#   claude:
+#     type: cli-agent
+#     command: claude
+#     args: ["-p", "{{prompt}}"]
+
+# storage: 本 worker 的结果/日志落盘配置(同服务端 example 的 storage)。
+storage:
+  default_exchange_subdir: tmp
+  default_result_subdir: gofer

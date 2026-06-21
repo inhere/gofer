@@ -3,6 +3,7 @@ package commands
 import (
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/goutil/errorx"
@@ -26,34 +27,63 @@ var configValidateOpts = struct {
 	config string
 }{}
 
-// DefaultInitConfigPath is where `gofer init` writes the starter config when no
-// --config is given: ./.gofer.yaml, the highest-priority current-dir candidate
-// in the loader lookup chain (loader.go CurrentDirConfigNames), so a freshly
-// generated file is picked up automatically by subsequent commands.
+// DefaultInitConfigPath is where `gofer init [server]` writes the starter server
+// config when no --config is given: ./.gofer.yaml, the highest-priority
+// current-dir candidate in the loader lookup chain (loader.go
+// CurrentDirConfigNames), so a freshly generated file is picked up automatically.
 const DefaultInitConfigPath = ".gofer.yaml"
 
-// NewInitCmd builds the top-level `gofer init` command (E3). It writes the
-// embedded gofer.example.yaml starter to ./.gofer.yaml (or --config <path>).
-// It refuses to overwrite an existing file unless --force is given, so a user's
-// real config is never clobbered by accident (design D6).
+// DefaultWorkerConfigPath is where `gofer init worker` writes the starter worker
+// config when no --config is given. The worker config has no auto-discovery, so
+// it must be passed explicitly: `gofer worker -c worker.yaml`.
+const DefaultWorkerConfigPath = "worker.yaml"
+
+// initTemplate maps an init target to its embedded starter template + default
+// output path. `server` is the default (backward-compatible: bare `gofer init`).
+func initTemplate(target string) (tmpl, defaultPath string, ok bool) {
+	switch target {
+	case "", "server":
+		return configtmpl.ExampleYAML, DefaultInitConfigPath, true
+	case "worker":
+		return configtmpl.WorkerExampleYAML, DefaultWorkerConfigPath, true
+	default:
+		return "", "", false
+	}
+}
+
+// NewInitCmd builds the top-level `gofer init [target]` command (E3). target is
+// `server` (default) or `worker`; it writes the matching embedded starter to its
+// default path (./.gofer.yaml / ./worker.yaml) or --config <path>. It refuses to
+// overwrite an existing file unless --force is given (design D6).
 func NewInitCmd() *gcli.Command {
 	return &gcli.Command{
 		Name: "init",
-		Desc: "Generate a starter config (./.gofer.yaml) from the example template",
+		Desc: "Generate a starter config from the example template (target: server | worker)",
 		Config: func(c *gcli.Command) {
-			c.StrOpt(&initOpts.config, "config", "c", "", "path to write the config (default ./.gofer.yaml)")
+			c.AddArg("target", "what to scaffold: server (default) | worker", false)
+			c.StrOpt(&initOpts.config, "config", "c", "", "path to write the config (default depends on target)")
 			c.BoolOpt(&initOpts.force, "force", "f", false, "overwrite an existing config file")
 		},
 		Func: runInit,
 	}
 }
 
-// runInit writes the embedded example template to the target path. It is the
-// single source of truth shared with config/gofer.example.yaml (no drift).
+// runInit writes the embedded example template for the chosen target to the
+// output path. The templates are the single source of truth shared with
+// config/{gofer,worker}.example.yaml (no drift).
 func runInit(c *gcli.Command, _ []string) error {
+	target := "server"
+	if a := c.Arg("target"); a != nil && a.String() != "" {
+		target = strings.ToLower(a.String())
+	}
+	tmpl, defaultPath, ok := initTemplate(target)
+	if !ok {
+		return errorx.Failf(configExitErr, "unknown init target %q (use: server | worker)", target)
+	}
+
 	path := initOpts.config
 	if path == "" {
-		path = DefaultInitConfigPath
+		path = defaultPath
 	}
 
 	if !initOpts.force {
@@ -65,10 +95,14 @@ func runInit(c *gcli.Command, _ []string) error {
 		}
 	}
 
-	if err := os.WriteFile(path, []byte(configtmpl.ExampleYAML), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte(tmpl), 0o644); err != nil {
 		return errorx.Failf(configExitErr, "write %s: %v", path, err)
 	}
-	c.Printf("已生成 %s，编辑后运行 `gofer config validate` 校验\n", path)
+	if target == "worker" {
+		c.Printf("已生成 worker 配置 %s，编辑后运行 `gofer worker -c %s` 启动\n", path, path)
+	} else {
+		c.Printf("已生成 %s，编辑后运行 `gofer config validate` 校验\n", path)
+	}
 	return nil
 }
 
