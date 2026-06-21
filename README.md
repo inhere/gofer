@@ -133,6 +133,31 @@ projects: { workspace: { host_path: /abs, container_path: /abs, allowed_agents: 
 - 实际落机的 `worker_id` 记入 `JobResult`，看板 runner 列与详情 meta 均可见。
 - worker 多 hub 地址 + 全抖动退避重连（hub 重启=短暂中断而非永久失联）。
 
+### 配置一个 worker（init → 校验 → 启动）
+
+```bash
+gofer init worker -c worker.yaml              # 生成 worker 配置模板（含对齐注释）
+# 编辑 worker.yaml（见下「三处对齐」）后自查，重点看 token 是否可解析 / host_path 是否存在：
+gofer config validate worker -c worker.yaml
+gofer worker -c worker.yaml                   # 启动；进程日志直接看连接成败
+```
+
+**三处对齐**（同一个 worker_id，缺一则连不上或 Web 看不到）：
+
+| 位置 | 字段 | 必须等于 |
+|---|---|---|
+| 服务端 `server.workers` | 段的 KEY（鉴权/绑定） | worker 端 `worker_id` |
+| 服务端 `runners.<name>` | `worker_id`（名册/派发） | 同一个 worker_id —— **缺这段=连上了但 `/v1/runners`、Web 看不到** |
+| worker 端 `server_link` | `token` / `token_env` | `server.workers.<worker_id>` 的同一 token |
+
+> 要在 Web「Runners」看到某台 worker 为 `connected`，必须声明一个**带 `worker_id` 的具名 worker runner**（如 `w-gpu: {type: worker, worker_id: w-gpu}`）；不带 `worker_id` 的通用 `worker` runner 只用于标签动态派发，不对应具体一台。
+
+**派发要点**：
+- **提交端**项目 `allowed_runners` 要含那个 **worker-runner 的名字**（如 `w-gpu`，不是字面量 `worker`）才能派给它；**worker 端**项目 `allowed_runners` 含 `local`（worker 收到后用本地 local runner 真正执行）。
+- job 带的 `project` key 必须**两边配置都有**（worker 用自己的配置再解析一次同名项目，对不上会以「未知项目」拒掉）。
+
+**连接日志**：worker / serve 在关键点输出结构化日志（`worker registered with hub` / `hub accepted worker` / `registration rejected … reason=…`），出问题一眼定位。`GOFER_LOG_LEVEL=debug|info|warn|error` 调详细度（默认 `info`，写 stderr）。
+
 ## 运行中交互
 
 1. 运行中的 agent 经 `POST /v1/jobs/{id}/interactions` 提问 → job 置 `pending_interaction`。
@@ -201,15 +226,21 @@ runners:
 `gofer <command> [sub] [--options]`，均支持 `-c/--config`。
 
 ```bash
+gofer init    [server|worker] [-c path]    # 生成配置模板（默认 server→.gofer.yaml；worker→worker.yaml）
 gofer serve   --addr 0.0.0.0:8765 [--token …] [--allow-empty-token] [--no-web]
 gofer worker  --config worker.yaml         # 作为 WS 远端执行机连入 hub
+gofer config  validate [server|worker] [-c path]   # 校验配置（默认 server；worker 查 token/host_path 等）
 gofer project list | show <k> | add <k> … | remove <k> | validate <k>
 gofer agent   list | detect | show <k>     # detect 未装报 unavailable，不退非零
-gofer job     run … | show <id> | logs <id> --stream stdout|stderr | cancel <id>
+gofer job     run … | list … | show <id> | watch <id> | logs <id> --stream … | rerun <id> | cancel <id>
+gofer workflow run <file.yaml> [--watch] | show <id> | list | cancel <id>   # 多步 job 链（上一步产出喂下一步）
 gofer mcp     --config <path>              # stdio MCP server
+gofer completion bash|zsh                  # 补全脚本
 ```
 
-`job run` 关键参数：`-p/--project`、`-a/--agent`（必填）、`--runner`（默认 local）、`--cwd`（默认 `.`，限项目内）、`--prompt`（cli-agent）、`-- argv`（exec）、`-f/--file`（md+yaml）、`--sync` + `--wait-timeout`（同步等待）、`--wait`（客户端轮询到终态）、`--worker-id` / `--worker-labels`（worker 路由）、`--timeout`、`--title`、`-s/--server`、`--token`。
+`job run` 关键参数：`-p/--project`、`-a/--agent`（必填）、`--runner`（默认 local）、`--cwd`（默认 `.`，限项目内）、`--prompt`（cli-agent）、`-- argv`（exec）、`-f/--file`（md+yaml）、`--sync` + `--wait-timeout`（同步等待）、`--wait`（客户端轮询到终态）、`--worker-id` / `--worker-labels`（worker 路由）、`--tags`、`--timeout`、`--title`、`-s/--server`、`--token`。
+
+> `GOFER_LOG_LEVEL=debug|info|warn|error`（默认 `info`，写 stderr）调结构化日志详细度——worker/serve 的连接生命周期在此输出。
 
 ## MCP 接入
 
