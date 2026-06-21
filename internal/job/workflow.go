@@ -1,11 +1,16 @@
 package job
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
 	"github.com/inhere/gofer/internal/jobstore"
 )
+
+// sweeperWorkflowScan caps how many running workflows the sweeper inspects per
+// tick. A workflow只 has one active step, so this is a generous ceiling.
+const sweeperWorkflowScan = 500
 
 // StepSpec is one step of a工作流(job 链): a普通 job request expressed declaratively.
 // It carries the same fields a single JobRequest needs (project/agent/runner +
@@ -194,6 +199,29 @@ func (s *Service) advanceWorkflow(wfID string) {
 			_ = s.meta.SetWorkflowStatus(wfID, jobstore.WorkflowFailed, "submit step: "+err.Error())
 		}
 	}
+}
+
+// AdvanceRunningWorkflows is the crash-recovery sweeper body (SR304): it scans
+// running workflows and re-drives advanceWorkflow for each, picking up any whose
+// current step finished but whose finish-hook advance never ran (process crash /
+// missed goroutine). It is幂等 (advanceWorkflow抢推进权) so re-running it alongside
+// the finish hook is safe — a no-op for workflows still mid-step. It returns the
+// number of running workflows it inspected (for logging). ctx cancellation stops
+// the scan early (serve shutdown).
+func (s *Service) AdvanceRunningWorkflows(ctx context.Context) int {
+	running, err := s.meta.ListWorkflows(jobstore.WorkflowRunning, sweeperWorkflowScan)
+	if err != nil {
+		return 0
+	}
+	for _, wf := range running {
+		select {
+		case <-ctx.Done():
+			return len(running)
+		default:
+		}
+		s.advanceWorkflow(wf.ID)
+	}
+	return len(running)
 }
 
 // stepJob returns the step-job whose step_index == stepIndex (1-based), or nil.
