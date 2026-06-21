@@ -61,6 +61,11 @@ type JobRecord struct {
 	// TagsJSON 是 job 标签的 JSON 数组原文（E5），如 `["a","b"]`。空表示无标签。
 	// 入库后用于 tags_json LIKE 检索（ListQuery.Tag）；与 job.JobResult.Tags 互转。
 	TagsJSON string
+	// WorkflowID 关联此 job 所属的 workflow（工作流/job 链）。空表示普通（非工作流）job。
+	// 由工作流引擎在起 step-job 时设置；ListWorkflowJobs 据此 + StepIndex 排序回取。
+	WorkflowID string
+	// StepIndex 是此 job 在工作流中的 1-based 步序号（第 1 步=1）。非工作流 job 为 0。
+	StepIndex int
 }
 
 // ListQuery filters/bounds a ListJobs query. A zero value lists every project's
@@ -86,7 +91,8 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(worker_id,''
   COALESCE(caller_id,''), COALESCE(request_id,''),
   COALESCE(rendered_command,''), COALESCE(result_json,''),
   COALESCE(artifacts_json,''), COALESCE(diff_summary,''),
-  COALESCE(source,''), COALESCE(tags_json,'') FROM jobs`
+  COALESCE(source,''), COALESCE(tags_json,''),
+  COALESCE(workflow_id,''), COALESCE(step_index,0) FROM jobs`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -103,6 +109,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.CallerID, &r.RequestID,
 		&r.RenderedCommand, &r.ResultJSON, &r.ArtifactsJSON, &r.DiffSummary,
 		&r.Source, &r.TagsJSON,
+		&r.WorkflowID, &r.StepIndex,
 	)
 	return r, err
 }
@@ -122,8 +129,9 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 	const q = `INSERT INTO jobs
   (id, project_key, agent, runner, worker_id, status, exit_code, cwd, result_dir,
    request_json, error, started_at, ended_at, updated_at, caller_id, request_id,
-   rendered_command, result_json, artifacts_json, diff_summary, source, tags_json)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+   rendered_command, result_json, artifacts_json, diff_summary, source, tags_json,
+   workflow_id, step_index)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -145,7 +153,9 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     artifacts_json=excluded.artifacts_json,
     diff_summary=excluded.diff_summary,
     source=excluded.source,
-    tags_json=excluded.tags_json`
+    tags_json=excluded.tags_json,
+    workflow_id=excluded.workflow_id,
+    step_index=excluded.step_index`
 	// Serialise writes in-process (see Store.writeMu) so SQLite never sees two
 	// concurrent writers and cannot return SQLITE_BUSY under burst.
 	s.writeMu.Lock()
@@ -157,6 +167,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.CallerID, rec.RequestID,
 		rec.RenderedCommand, rec.ResultJSON, rec.ArtifactsJSON, rec.DiffSummary,
 		rec.Source, rec.TagsJSON,
+		rec.WorkflowID, rec.StepIndex,
 	)
 	if err != nil {
 		// A competing INSERT with the same non-empty request_id (different id)

@@ -302,6 +302,9 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			CallerID:    req.CallerID,
 			RequestID:   req.RequestID,
 			Tags:        req.Tags,
+			// 工作流(job 链)：引擎起 step-job 时已在 req 上设好；普通 job 为 ""/0。
+			WorkflowID: req.WorkflowID,
+			StepIndex:  req.StepIndex,
 		},
 	}
 	s.mu.Lock()
@@ -535,6 +538,9 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		DiffSummary:     r.DiffSummary,
 		Source:          r.Source,
 		TagsJSON:        marshalTags(r.Tags),
+		// 工作流(job 链)：step-job 反向关联其 workflow + 1-based 步序号。
+		WorkflowID: r.WorkflowID,
+		StepIndex:  r.StepIndex,
 	}
 }
 
@@ -590,6 +596,9 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		DiffSummary:     rec.DiffSummary,
 		Source:          rec.Source,
 		Tags:            unmarshalTags(rec.TagsJSON),
+		// 工作流(job 链)。
+		WorkflowID: rec.WorkflowID,
+		StepIndex:  rec.StepIndex,
 	}
 }
 

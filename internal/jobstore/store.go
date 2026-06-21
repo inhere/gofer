@@ -77,7 +77,9 @@ var schemaStmts = []string{
   artifacts_json   TEXT,
   diff_summary     TEXT,
   source           TEXT,
-  tags_json        TEXT
+  tags_json        TEXT,
+  workflow_id      TEXT,
+  step_index       INTEGER
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -128,6 +130,27 @@ var schemaStmts = []string{
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_deliveries_due ON event_deliveries(status, next_retry_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_deliveries_job ON event_deliveries(job_id, id)`,
+	// workflows is the job-chain header table (工作流, design §5.1). One row per
+	// submitted workflow: status (running/done/failed/cancelled), current_step (the
+	// 1-based active step) and total_steps frame the串行推进; spec_json holds the full
+	// WorkflowSpec (steps) so the engine can rebuild each step's JobRequest. caller_id
+	// is inherited by every step-job (D8). current_step is moved via a conditional
+	// UPDATE (AdvanceCurrentStep) so推进幂等 (SR303): a step is never started twice.
+	// idx_workflows_status serves the sweeper's running-workflow scan. IF NOT EXISTS
+	// like every table here (idempotent Open).
+	`CREATE TABLE IF NOT EXISTS workflows (
+  id           TEXT PRIMARY KEY,
+  title        TEXT,
+  status       TEXT NOT NULL,
+  current_step INTEGER NOT NULL,
+  total_steps  INTEGER NOT NULL,
+  spec_json    TEXT NOT NULL,
+  caller_id    TEXT,
+  error        TEXT,
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_workflows_status ON workflows(status)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema
@@ -230,6 +253,14 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := add("tags_json", "tags_json TEXT"); err != nil { // E5 job 标签（JSON 数组）
+		return err
+	}
+	// 工作流(job 链)：step-job 反向关联其所属 workflow + 1-based 步序号，additive 加入，
+	// 旧库经 migrate 自动补全（旧 job 两列为空/NULL，selectCols COALESCE 成零值）。
+	if err := add("workflow_id", "workflow_id TEXT"); err != nil { // 所属工作流 id（空=非工作流 job）
+		return err
+	}
+	if err := add("step_index", "step_index INTEGER"); err != nil { // 在工作流中的 1-based 步序号
 		return err
 	}
 	// Partial unique index: only non-empty request_id values are constrained, so
