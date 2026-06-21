@@ -194,6 +194,13 @@ func (s *Service) advanceWorkflow(wfID string) {
 		next := spec.Steps[cur] // 0-based: spec.Steps[cur] is the next (1-based step cur+1)
 		// P2 接入点：此处在起下一步前用 resolveRefs(&next, jobs) 把 ${steps.N.field} 替换为
 		// 前序产出（result_dir/stdout/exit_code/...）。P1 不实现引用，各 step 独立跑。
+		// P2：起下一步前把 next 规格里的 ${steps.N.field} 替换为前序产出。jobs 是已起的
+		// step-jobs(含已 done 的前序步)。替换失败(缺产出/超上限) → 整条工作流 failed，不起此步。
+		if err := s.resolveRefs(&next, jobs); err != nil {
+			_ = s.meta.SetWorkflowStatus(wfID, jobstore.WorkflowFailed,
+				fmt.Sprintf("step %d resolve refs: %s", cur+1, err.Error()))
+			return
+		}
 		req := stepToRequest(next, wfID, cur+1, wf.CallerID)
 		if _, err := s.Submit(req); err != nil {
 			_ = s.meta.SetWorkflowStatus(wfID, jobstore.WorkflowFailed, "submit step: "+err.Error())
