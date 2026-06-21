@@ -51,6 +51,14 @@ server:
   #   interval_seconds: 30
   #   timeout_seconds: 5
 
+  # metrics: E16 Prometheus /metrics scrape endpoint (design §6.2). Mounted as a
+  # sibling of /health, OUTSIDE the /v1 auth group: scrapers rarely carry a Bearer
+  # token, so internal access control is the primary guard (SR202). The whole block
+  # is optional — unset keeps the endpoint enabled and unauthenticated.
+  metrics:
+    enabled: true                  # unset/true=mount /metrics; false=drop it
+    token: ""                      # 空=免认证抓取；非空=要求 Authorization: Bearer <token>
+
   # notification: E14 webhook 外发。关键事件(默认 job.terminal + interaction.created)
   # 触发，向每个订阅 webhook 主动 POST(durable 投递 + 退避重试 30s→2m→5m→15m→60m)。
   # 安全(最大对外出站面)：URL 出站白名单(allow_hosts) + 仅 https + 拒 loopback/内网

@@ -55,7 +55,29 @@ type ServerConfig struct {
 	// without a `notification` block. When present it lists the webhook targets,
 	// the outbound host allowlist and the retry cap.
 	Notification *NotificationConfig `yaml:"notification"`
+	// Metrics is the E16 Prometheus /metrics policy (design §6.2). Enabled is a
+	// pointer so "unset" (nil) defaults to ENABLED (the endpoint is mounted) while
+	// an explicit enabled:false drops it. Token, when non-empty, re-adds a Bearer
+	// check on /metrics (default empty = unauthenticated scrape, guarded by the
+	// intranet admission boundary, SR202).
+	Metrics MetricsConfig `yaml:"metrics"`
 }
+
+// MetricsConfig is the E16 Prometheus /metrics policy (design §6.2). It is a
+// minimal additive block: an existing config with no `metrics` key keeps the
+// endpoint enabled and unauthenticated (IsEnabled defaults nil→true).
+type MetricsConfig struct {
+	// Enabled gates the /metrics endpoint. Unset (nil) defaults to true; an
+	// explicit enabled:false drops the route entirely.
+	Enabled *bool `yaml:"enabled"`
+	// Token, when non-empty, requires `Authorization: Bearer <token>` on /metrics
+	// (for environments that want authenticated scraping). Empty = no auth.
+	Token string `yaml:"token"`
+}
+
+// IsEnabled reports whether the /metrics endpoint should be mounted. Unset (nil)
+// defaults to true; an explicit enabled:false disables it.
+func (m MetricsConfig) IsEnabled() bool { return m.Enabled == nil || *m.Enabled }
 
 // NotificationConfig is the E14 webhook outbound policy (design §5.5/§5.7). It
 // holds every configured webhook target plus the shared outbound-safety knobs:
