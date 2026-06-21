@@ -3,6 +3,7 @@
 package config
 
 import (
+	"math"
 	"time"
 )
 
@@ -61,6 +62,29 @@ type ServerConfig struct {
 	// check on /metrics (default empty = unauthenticated scrape, guarded by the
 	// intranet admission boundary, SR202).
 	Metrics MetricsConfig `yaml:"metrics"`
+	// Governance is the E17 per-caller quota / rate-limit global fallback (design
+	// §7.1). It is a pure additive block: an existing config with no `governance`
+	// key has all-zero defaults, which means "unlimited" everywhere (向后兼容). A
+	// per-caller override on a CallerConfig (> 0) takes precedence; otherwise the
+	// governance default applies (see CallerConcurrencyLimit / CallerRate).
+	Governance GovernanceConfig `yaml:"governance"`
+}
+
+// GovernanceConfig is the E17 global fallback for per-caller quotas (design
+// §7.1). It applies to a caller only when that caller has not set its own
+// override (CallerConfig.MaxConcurrentJobs / RateLimit). All fields default to 0
+// = unlimited, so a config with no `governance` block keeps the legacy
+// no-throttle behaviour.
+type GovernanceConfig struct {
+	// DefaultCallerMaxConcurrent caps how many jobs a caller may run at once when
+	// the caller has no own MaxConcurrentJobs. 0 = unlimited.
+	DefaultCallerMaxConcurrent int `yaml:"default_caller_max_concurrent"`
+	// DefaultRateLimit is the per-second submit rate (token-bucket refill) when the
+	// caller has no own RateLimit. 0 = unlimited (no rate gating).
+	DefaultRateLimit float64 `yaml:"default_rate_limit"`
+	// DefaultRateBurst is the token-bucket capacity when the caller has no own
+	// RateBurst. <= 0 falls back to max(1, ceil(rate)) at use time (CallerRate).
+	DefaultRateBurst int `yaml:"default_rate_burst"`
 }
 
 // MetricsConfig is the E16 Prometheus /metrics policy (design §6.2). It is a
@@ -162,6 +186,65 @@ type CallerConfig struct {
 	ID       string `yaml:"id"`
 	Token    string `yaml:"token"`
 	TokenEnv string `yaml:"token_env"`
+	// E17 per-caller quota overrides (design §7.1). Each 0/empty value falls back to
+	// the server.governance default; if that is also 0 the dimension is unlimited
+	// (向后兼容). A value > 0 wins over the governance default.
+	MaxConcurrentJobs int     `yaml:"max_concurrent_jobs"` // 同时在跑上限(信号量排队语义,超额排队不拒)
+	RateLimit         float64 `yaml:"rate_limit"`          // 每秒提交请求数(令牌桶速率); 0 = 不限
+	RateBurst         int     `yaml:"rate_burst"`          // 桶容量(突发); <=0 时取 max(1, ceil(RateLimit))
+}
+
+// CallerConcurrencyLimit resolves the effective per-caller concurrent-jobs cap
+// (E17, design §7.2): the caller's own MaxConcurrentJobs (> 0) wins, else the
+// server.governance default, else 0 (unlimited). An empty callerID skips the
+// per-caller lookup and uses the governance default directly.
+func (sc *ServerConfig) CallerConcurrencyLimit(callerID string) int {
+	if callerID != "" {
+		for _, cc := range sc.Callers {
+			if cc.ID == callerID && cc.MaxConcurrentJobs > 0 {
+				return cc.MaxConcurrentJobs
+			}
+		}
+	}
+	return sc.Governance.DefaultCallerMaxConcurrent
+}
+
+// CallerRate resolves the effective per-caller submit rate (E17, design §7.3):
+// the caller's own RateLimit (> 0) wins, else the governance DefaultRateLimit,
+// else 0 (no rate gating). burst follows the same caller→governance precedence;
+// when the resolved burst is <= 0 (and rps > 0) it defaults to max(1, ceil(rps))
+// so a configured rate always has a usable bucket. An empty callerID uses the
+// governance defaults directly.
+func (sc *ServerConfig) CallerRate(callerID string) (rps float64, burst int) {
+	if callerID != "" {
+		for _, cc := range sc.Callers {
+			if cc.ID == callerID {
+				if cc.RateLimit > 0 {
+					rps = cc.RateLimit
+				}
+				if cc.RateBurst > 0 {
+					burst = cc.RateBurst
+				}
+				break
+			}
+		}
+	}
+	if rps <= 0 {
+		rps = sc.Governance.DefaultRateLimit
+	}
+	if burst <= 0 {
+		burst = sc.Governance.DefaultRateBurst
+	}
+	if rps <= 0 {
+		return 0, 0 // no rate gating; burst is irrelevant.
+	}
+	if burst <= 0 {
+		burst = int(math.Ceil(rps))
+		if burst < 1 {
+			burst = 1
+		}
+	}
+	return rps, burst
 }
 
 // IsWebEnabled reports whether the web console should be mounted. Unset (nil)

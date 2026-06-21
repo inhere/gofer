@@ -10,6 +10,7 @@ require (
 	github.com/gookit/rux/v2 v2.0.2
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/prometheus/client_golang v1.23.2
+	golang.org/x/time v0.15.0
 	modernc.org/sqlite v1.52.0
 )
 
@@ -20,6 +21,7 @@ require (
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/gookit/color v1.6.2-0.20260604125953-289d54c4470a // indirect
+	github.com/kr/text v0.2.0 // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/monoculum/formam v3.5.5+incompatible // indirect
 	github.com/munnerz/goautoneg v0.0.0-20191010083416-a7dc8b61c822 // indirect

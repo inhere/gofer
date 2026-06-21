@@ -15,8 +15,10 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sync"
 
 	"github.com/gookit/rux/v2"
+	"golang.org/x/time/rate"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -100,6 +102,15 @@ type Server struct {
 	metrics        *metrics.Metrics
 	metricsEnabled bool
 	metricsToken   string
+
+	// limiters holds one token-bucket per caller for the E17 submit-rate limit
+	// (design §7.3). Guarded by its OWN limMu (NOT s.mu, which lives in the job
+	// service): the rate-limit path must not contend with job bookkeeping. The
+	// limiter set is built lazily by limiterFor; its Limit/Burst are re-synced on
+	// every request from the job service's CURRENT config (hot-reload真源), so this
+	// map is pure per-caller state, never a copy of the throttle config itself.
+	limiters map[string]*rate.Limiter
+	limMu    sync.Mutex
 }
 
 // SetMetrics injects the E16 Prometheus instrumentation and mounts the /metrics
@@ -147,6 +158,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		runners:         runners,
 		prober:          prober,
 		workers:         workers,
+		limiters:        map[string]*rate.Limiter{},
 	}
 	s.router = s.buildRouter()
 	return s
@@ -270,10 +282,16 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/jobs/{id}/interactions", s.handleCreateInteraction)
 		r.GET("/jobs/{id}/interactions", s.handleListInteractions)
 		r.POST("/jobs/{id}/interactions/{interaction_id}/answer", s.handleAnswerInteraction)
-		// E16: HTTP request metrics middleware. Runs BEFORE authMiddleware so even a
-		// rejected (401) request is counted; it does not read the caller id. A nil
-		// metrics makes it a pass-through (metricsMiddleware self-guards).
-	}, s.metricsMiddleware, s.authMiddleware)
+		// Middleware chain order (rux runs group middlewares left-to-right, see
+		// internal/core/router.go applyGroup + context.Next):
+		//   1. metricsMiddleware — runs first / records LAST (it wraps c.Next), so even
+		//      a 401-rejected OR 429-rate-limited request is counted in
+		//      gofer_http_requests_total (E16). It does not read the caller id.
+		//   2. authMiddleware — sets caller_id in the rux ctx (or aborts 401).
+		//   3. rateLimitMiddleware (E17) — MUST run AFTER auth because it keys the
+		//      token-bucket on the auth-set caller_id (callerFromCtx). Only writes
+		//      POST /v1/jobs|/workflows are gated (isSubmitPath); over-rate → 429.
+	}, s.metricsMiddleware, s.authMiddleware, s.rateLimitMiddleware)
 
 	// Mount the embedded web console (static SPA shell, no auth) as the NotFound
 	// fallback. /health and /v1/* are concrete routes and match first; any other

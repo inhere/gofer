@@ -1,6 +1,10 @@
 package httpapi
 
-import "github.com/gookit/rux/v2"
+import (
+	"net/http"
+
+	"github.com/gookit/rux/v2"
+)
 
 // errorBody is the uniform error response shape (plan §7). It deliberately does
 // NOT use the company {status,code,message} envelope.
@@ -13,4 +17,12 @@ type errorBody struct {
 // machine-ish summary; detail carries the human-readable specifics.
 func writeError(c *rux.Context, status int, msg, detail string) {
 	c.JSON(status, errorBody{Error: msg, Detail: detail})
+}
+
+// writeRateLimited encodes the E17 over-rate response (429, design §7.3). The
+// caller is named in the detail (no secret/token — SR403) so an operator can see
+// which identity tripped the limit. The Retry-After header is set by the caller
+// (rateLimitMiddleware) before this.
+func writeRateLimited(c *rux.Context, caller string) {
+	writeError(c, http.StatusTooManyRequests, "rate limited", "caller "+caller+" exceeded its submit rate; retry shortly")
 }
