@@ -227,6 +227,69 @@ func TestConfigValidateNoProjects(t *testing.T) {
 	}
 }
 
+// TestConfigValidateWorkerGood: a valid worker.yaml (worker_id + urls + token +
+// a project with an existing host_path and allowed_runners:[local]) validates
+// clean via `config validate worker`.
+func TestConfigValidateWorkerGood(t *testing.T) {
+	host := t.TempDir()
+	wcYAML := "" +
+		"worker_id: w1\n" +
+		"server_link:\n" +
+		"  urls: [ws://127.0.0.1:LIVE-PORT/v1/workers/connect]\n" +
+		"  token: tok\n" +
+		"projects:\n" +
+		"  w1:\n" +
+		"    host_path: " + host + "\n" +
+		"    allowed_runners: [local]\n" +
+		"    allow_exec: true\n"
+	cfgPath := writeRawConfig(t, wcYAML)
+
+	c := bindCmd(NewConfigCmd().Subs[0])
+	c.Arg("target").WithValue("worker")
+	configValidateOpts.config = cfgPath
+	t.Cleanup(func() { configValidateOpts.config = "" })
+	if err := runConfigValidate(c, nil); err != nil {
+		t.Fatalf("expected good worker config to validate, got: %v", err)
+	}
+}
+
+// TestConfigValidateWorkerBadToken: a worker.yaml whose token_env points at an
+// unset env var (and no inline token) fails — the #1 connect cause.
+func TestConfigValidateWorkerBadToken(t *testing.T) {
+	host := t.TempDir()
+	wcYAML := "" +
+		"worker_id: w1\n" +
+		"server_link:\n" +
+		"  urls: [ws://127.0.0.1:LIVE-PORT/v1/workers/connect]\n" +
+		"  token_env: GOFER_TEST_UNSET_WORKER_TOKEN\n" +
+		"projects:\n" +
+		"  w1:\n" +
+		"    host_path: " + host + "\n" +
+		"    allowed_runners: [local]\n"
+	cfgPath := writeRawConfig(t, wcYAML)
+
+	c := bindCmd(NewConfigCmd().Subs[0])
+	c.Arg("target").WithValue("worker")
+	configValidateOpts.config = cfgPath
+	t.Cleanup(func() { configValidateOpts.config = "" })
+	err := runConfigValidate(c, nil)
+	if err == nil {
+		t.Fatal("expected validation failure for unresolvable worker token")
+	}
+	assertCodedExit(t, err)
+}
+
+// TestConfigValidateUnknownTarget: an unrecognised target is a coded error.
+func TestConfigValidateUnknownTarget(t *testing.T) {
+	c := bindCmd(NewConfigCmd().Subs[0])
+	c.Arg("target").WithValue("nope")
+	err := runConfigValidate(c, nil)
+	if err == nil {
+		t.Fatal("expected unknown validate target to error")
+	}
+	assertCodedExit(t, err)
+}
+
 // assertCodedExit checks the error carries a non-zero exit code so the process
 // exits non-zero (gcli reads errorx.ErrorCoder).
 func assertCodedExit(t *testing.T, err error) {
