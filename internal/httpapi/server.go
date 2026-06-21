@@ -21,6 +21,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/metrics"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/webui"
 	"github.com/inhere/gofer/internal/wshub"
@@ -90,6 +91,30 @@ type Server struct {
 	// callers (most tests, mcp) pass nil.
 	prober  runnerProber
 	workers workerRegistry
+
+	// metrics is the E16 Prometheus instrumentation (nil = no /metrics endpoint,
+	// no HTTP middleware). It is injected post-construction by SetMetrics (serve)
+	// rather than via New so the existing positional constructor and its many call
+	// sites stay untouched. metricsEnabled/metricsToken mirror serverCfg.Metrics
+	// and gate the endpoint's mounting + optional Bearer check.
+	metrics        *metrics.Metrics
+	metricsEnabled bool
+	metricsToken   string
+}
+
+// SetMetrics injects the E16 Prometheus instrumentation and mounts the /metrics
+// endpoint + the /v1 HTTP middleware (design §6.2). It MUST be called before the
+// server starts serving (serve calls it right after New, before Run). enabled
+// and token come from serverCfg.Metrics. Passing a nil m leaves metrics off.
+//
+// The router is rebuilt so the /metrics route + the metricsMiddleware on /v1 are
+// registered (rux requires routes/middleware at build time). This is safe because
+// SetMetrics runs single-threaded at assemble time, before any request is served.
+func (s *Server) SetMetrics(m *metrics.Metrics, enabled bool, token string) {
+	s.metrics = m
+	s.metricsEnabled = enabled
+	s.metricsToken = token
+	s.router = s.buildRouter()
 }
 
 // New builds a Server: it resolves the effective token, wires the rux router
@@ -175,6 +200,15 @@ func (s *Server) buildRouter() *rux.Router {
 
 	r.GET("/health", s.handleHealth)
 
+	// E16: Prometheus scrape endpoint. Sibling of /health, registered OUTSIDE the
+	// /v1 authMiddleware group: scrapers rarely carry a Bearer token and the
+	// intranet admission boundary guards it (SR202). An optional metrics.token
+	// re-adds a Bearer check (handleMetrics). Mounted only when metrics is wired
+	// AND enabled (serverCfg.metrics.enabled, default true).
+	if s.metrics != nil && s.metricsEnabled {
+		r.GET("/metrics", s.handleMetrics)
+	}
+
 	// ws-worker WS endpoint. Registered OUTSIDE the /v1 authMiddleware group: a WS
 	// upgrade cannot use the JSON error envelope / web fallback — a rejected
 	// handshake must be a bare 401 (not a {error,detail} body). It does its own
@@ -236,7 +270,10 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/jobs/{id}/interactions", s.handleCreateInteraction)
 		r.GET("/jobs/{id}/interactions", s.handleListInteractions)
 		r.POST("/jobs/{id}/interactions/{interaction_id}/answer", s.handleAnswerInteraction)
-	}, s.authMiddleware)
+		// E16: HTTP request metrics middleware. Runs BEFORE authMiddleware so even a
+		// rejected (401) request is counted; it does not read the caller id. A nil
+		// metrics makes it a pass-through (metricsMiddleware self-guards).
+	}, s.metricsMiddleware, s.authMiddleware)
 
 	// Mount the embedded web console (static SPA shell, no auth) as the NotFound
 	// fallback. /health and /v1/* are concrete routes and match first; any other

@@ -57,6 +57,29 @@ var (
 	ErrNoEligibleWorker = errors.New("no eligible worker")
 )
 
+// MetricsSink receives job lifecycle counters (E16, design §6). The job package
+// records through this narrow interface so it never imports prometheus; the
+// metrics package implements it and commands.buildCore injects it via
+// SetMetrics. Every call site guards `if s.metrics != nil`, so a service with no
+// sink wired is a clean no-op.
+type MetricsSink interface {
+	// JobSubmitted is called once per accepted Submit.
+	JobSubmitted(caller, project, agent, runner string)
+	// JobTerminal is called once when a job reaches a terminal state, with the
+	// end-to-end (submit→terminal) duration in seconds.
+	JobTerminal(status, caller, project, agent, runner string, durationSec float64)
+}
+
+// ServiceStats is the live in-memory job snapshot the metrics GaugeFuncs read at
+// scrape time (design §6.4): InFlight = entries currently tracked in s.jobs
+// (queued+running+pending, since terminal jobs are evicted in finish), Queued /
+// Running break that down by status.
+type ServiceStats struct {
+	InFlight int
+	Queued   int
+	Running  int
+}
+
 // Service accepts job requests, runs them asynchronously and tracks their state.
 // It is safe for concurrent use.
 type Service struct {
@@ -111,6 +134,37 @@ type Service struct {
 	// overridable in tests so the claim→post→mark state machine can be driven
 	// deterministically without network / the loopback SSRF block.
 	postFn func(ctx context.Context, target, eventType string, body []byte, secretValue string, cfg config.NotificationConfig) error
+
+	// metrics is the E16 lifecycle-counter sink (nil = no metrics wired). It is
+	// injected post-construction by SetMetrics (commands.buildCore) so the job
+	// package never imports prometheus. All埋点 sites guard `if s.metrics != nil`.
+	metrics MetricsSink
+}
+
+// SetMetrics injects the E16 lifecycle-counter sink (design §6). It is called
+// once at assemble time (commands.buildCore) before the service starts handling
+// jobs; passing nil leaves metrics disabled (every埋点 is a no-op).
+func (s *Service) SetMetrics(m MetricsSink) { s.metrics = m }
+
+// Stats returns a live snapshot of the in-flight job set for the metrics
+// GaugeFuncs (design §6.4). It is evaluated at scrape time, so the critical
+// section is kept short. Lock order is s.mu THEN entry.mu, matching every other
+// Service path (Submit/finish) so there is no reverse-hold deadlock.
+func (s *Service) Stats() ServiceStats {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	st := ServiceStats{InFlight: len(s.jobs)}
+	for _, e := range s.jobs {
+		e.mu.Lock()
+		switch e.result.Status {
+		case StatusQueued:
+			st.Queued++
+		case StatusRunning:
+			st.Running++
+		}
+		e.mu.Unlock()
+	}
+	return st
 }
 
 // jobEntry is the in-process record for one job: its current result snapshot,
@@ -353,6 +407,12 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		})
 	}
 
+	// E16: count the submission (nil-safe). Labels are the bounded routing
+	// identity (caller/project/agent/runner); no high-cardinality fields.
+	if s.metrics != nil {
+		s.metrics.JobSubmitted(req.CallerID, req.ProjectKey, req.Agent, req.Runner)
+	}
+
 	sem := s.semaphore(req.ProjectKey, proj.MaxConcurrentJobs)
 	timeout := normalizeTimeout(req.TimeoutSec)
 	go s.execute(entry, run, sem, runReq, timeout)
@@ -482,6 +542,17 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	}
 	snap := entry.result
 	entry.mu.Unlock()
+
+	// E16: count the terminal + observe the submit→terminal duration (incl. queue
+	// wait, design §6.3). nil-safe. Duration is clamped at 0 in case clock skew /
+	// an unset StartedAt would make it negative.
+	if s.metrics != nil {
+		dur := float64(snap.EndedAt - snap.StartedAt)
+		if dur < 0 {
+			dur = 0
+		}
+		s.metrics.JobTerminal(status, snap.CallerID, snap.ProjectKey, snap.Agent, snap.Runner, dur)
+	}
 
 	// Record the terminal snapshot in the metadata store FIRST, so the DB always
 	// has the terminal row before the entry stops being reachable in memory: a

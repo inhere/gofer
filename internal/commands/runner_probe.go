@@ -37,6 +37,28 @@ func (a hubWorkerRegistry) WorkerStatus(workerID string) (httpapi.WorkerStatus, 
 	}, true
 }
 
+// workerCounts returns (connected, totalInFlight) across the config-registered
+// worker set for the E16 gofer_workers_connected / gofer_worker_in_flight gauges.
+// It is read at scrape time: it walks the allowed worker ids and counts only
+// those the hub currently reports a live snapshot for (same liveness rule as the
+// hubWorkerSelector), summing their in-flight job counts. A nil hub or empty
+// worker set yields (0, 0).
+func workerCounts(hub *wshub.Hub, allowed map[string]config.WorkerAuthConfig) (int, int) {
+	if hub == nil {
+		return 0, 0
+	}
+	connected, inflight := 0, 0
+	for id := range allowed {
+		snap, ok := hub.WorkerSnapshot(id)
+		if !ok {
+			continue
+		}
+		connected++
+		inflight += snap.InFlight
+	}
+	return connected, inflight
+}
+
 // peerProber is the C6/P4 peer-http active health-probe component held by serve.
 // It periodically GETs each peer-http runner's /health and caches the last
 // result (up/down + millis timestamp + latency + error) under an RWMutex. The

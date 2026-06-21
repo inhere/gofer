@@ -13,6 +13,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/httpapi"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/metrics"
 )
 
 // serveExitErr is the process exit code used when serve fails to start or run.
@@ -136,6 +137,22 @@ func runServe(c *gcli.Command, _ []string) error {
 	var workers = hubWorkerRegistry{hub: core.Hub}
 
 	srv := httpapi.New(&cfg.Server, token, allowEmpty, core.Jobs, core.Projects, core.Agents, core.Hub, cfg.Runners, proberOrNil(prober), workers)
+
+	// E16 Prometheus metrics: build the registry, inject the lifecycle-counter sink
+	// into the job service, register the scrape-time GaugeFuncs (in-flight/queued/
+	// running + workers connected/in-flight), then mount the /metrics endpoint +
+	// the /v1 HTTP middleware on the server. The endpoint is gated by
+	// metrics.enabled (default true) and an optional metrics.token (design §6.2).
+	m := metrics.New()
+	core.Jobs.SetMetrics(m)
+	m.RegisterRuntimeGauges(
+		func() (int, int, int) {
+			st := core.Jobs.Stats()
+			return st.InFlight, st.Queued, st.Running
+		},
+		func() (int, int) { return workerCounts(core.Hub, cfg.Server.Workers) },
+	)
+	srv.SetMetrics(m, cfg.Server.Metrics.IsEnabled(), cfg.Server.Metrics.Token)
 
 	if token == "" {
 		c.Printf("gofer: starting WITHOUT auth (allow_empty_token) on %s\n", addr)

@@ -44,13 +44,13 @@
 
 ## 4. 进度跟进
 
-- [ ] **P1 E16 指标**（详见 P1 子文档）
-  - [ ] T1.1 依赖 + `internal/metrics` 包骨架（collectors + Registry + Handler）
-  - [ ] T1.2 `/metrics` 端点（免认证 + 可选 token + enabled 开关）
-  - [ ] T1.3 HTTP 指标中间件（requests_total + duration，route 模板/归一化）
-  - [ ] T1.4 job 挂点（MetricsSink 接口 + Submit/finish 埋点 + Service.Stats()）
-  - [ ] T1.5 GaugeFunc 装配（in_flight/queued/workers）
-  - [ ] T1.6 验收 + example/docs + 测试
+- [x] **P1 E16 指标**（详见 P1 子文档）✅ commit `a7956ea`
+  - [x] T1.1 依赖 + `internal/metrics` 包骨架（collectors + Registry + Handler）
+  - [x] T1.2 `/metrics` 端点（免认证 + 可选 token + enabled 开关）
+  - [x] T1.3 HTTP 指标中间件（requests_total + duration，route 模板/归一化）
+  - [x] T1.4 job 挂点（MetricsSink 接口 + Submit/finish 埋点 + Service.Stats()）
+  - [x] T1.5 GaugeFunc 装配（in_flight/queued/workers）
+  - [x] T1.6 验收 + example/docs + 测试
 - [ ] **P2 E17 治理**（详见 P2 子文档）
   - [ ] T2.1 config 扩展（Governance 段 + CallerConfig 三字段 + Metrics 段）
   - [ ] T2.2 caller 并发信号量（callerSems + CallerConcurrencyLimit + execute 接入）
@@ -61,8 +61,12 @@
 
 ## 5. 实施结果（完成后回填）
 
-### P1
-> 待回填：关键改动、commit、验收结论。
+### P1 ✅（commit `a7956ea`）
+- **新增**：`internal/metrics/`（独立 Registry + Go/Process collector + 5 collector vec + nil-safe sink + Handler + RegisterRuntimeGauges）；`httpapi/metrics_handler.go`（端点+中间件+route 归一化）；metrics/job/httpapi 三处测试。
+- **修改**：`config/model.go`(MetricsConfig)、`job/service.go`(MetricsSink 接口+埋点+Stats)、`httpapi/server.go`(SetMetrics+端点+中间件)、`commands/serve.go`+`runner_probe.go`(装配+worker 计数)、example。
+- **关键决策**：route 用 rux `c.Route().Path()`（有限模板 `/v1/jobs/:id`，低基数），`normalizeRoute` 仅 404 兜底；metrics 用 setter 注入（不动 9 处 New 调用站）；duration=EndedAt-StartedAt（端到端含排队）。
+- **验收**：build/vet/test 全绿（job 51s/httpapi 19s/metrics 0.008s）；**job 包零 prometheus 依赖**（主控 `go list -deps` 复核 PASS）；真机 serve smoke 确认 submitted/terminal/duration/http 指标 + route 无 id 泄漏。
+- **遗留**：离线环境未跑完整 `go mod tidy`（缺 test-only 依赖 cache，不影响功能）；有网时规整 go.sum test-graph 条目。
 
 ### P2
 > 待回填：关键改动、commit、验收结论。
