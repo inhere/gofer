@@ -2,9 +2,32 @@ package job
 
 import (
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/jobstore"
 )
+
+// waitWorkflow polls until the workflow reaches a terminal status (done/failed/
+// cancelled) or the deadline elapses. The chain runs asynchronously (each step is
+// a background job + the finish hook fires advanceWorkflow), so tests poll the
+// persisted header rather than block on a single channel.
+func waitWorkflow(t *testing.T, s *Service, wfID string) jobstore.Workflow {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		wf, ok, err := s.meta.GetWorkflow(wfID)
+		if err != nil {
+			t.Fatalf("GetWorkflow: %v", err)
+		}
+		if ok && wf.Status != jobstore.WorkflowRunning {
+			return wf
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	wf, _, _ := s.meta.GetWorkflow(wfID)
+	t.Fatalf("workflow %s did not finish in time (status=%s, step=%d)", wfID, wf.Status, wf.CurrentStep)
+	return jobstore.Workflow{}
+}
 
 // echoStep builds a fast exec step that succeeds (exit 0).
 func echoStep(name string) StepSpec {
@@ -73,6 +96,204 @@ func TestSubmitWorkflowEmptySteps(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for empty steps")
 	}
+}
+
+// TestWorkflowRunsAllStepsSerially is the推进 happy-path: a 3-step echo chain runs
+// to completion via the real finish hook — each step done in order, the workflow
+// done, and step indices 1->2->3 (one job per step, ascending).
+func TestWorkflowRunsAllStepsSerially(t *testing.T) {
+	s := newTestService(t, t.TempDir())
+	wf, err := s.SubmitWorkflow(WorkflowSpec{
+		Steps: []StepSpec{echoStep("one"), echoStep("two"), echoStep("three")},
+	}, "alice")
+	if err != nil {
+		t.Fatalf("SubmitWorkflow: %v", err)
+	}
+
+	final := waitWorkflow(t, s, wf.ID)
+	if final.Status != jobstore.WorkflowDone {
+		t.Fatalf("workflow status = %s (err=%s), want done", final.Status, final.Error)
+	}
+	// current_step advances past the last step (N -> N+1) because EVERY terminal
+	// step — including the last — goes through one AdvanceCurrentStep to win the
+	// 推进权 (so duplicate final-step callers can't double-fire the done transition).
+	if final.CurrentStep != final.TotalSteps+1 {
+		t.Fatalf("current_step = %d, want %d (TotalSteps+1)", final.CurrentStep, final.TotalSteps+1)
+	}
+
+	jobs, err := s.meta.ListWorkflowJobs(wf.ID)
+	if err != nil {
+		t.Fatalf("ListWorkflowJobs: %v", err)
+	}
+	if len(jobs) != 3 {
+		t.Fatalf("ran %d step jobs, want exactly 3", len(jobs))
+	}
+	for i, j := range jobs {
+		if j.StepIndex != i+1 {
+			t.Fatalf("job[%d] step_index = %d, want %d", i, j.StepIndex, i+1)
+		}
+		if j.Status != StatusDone {
+			t.Fatalf("step %d status = %s, want done", j.StepIndex, j.Status)
+		}
+	}
+}
+
+// TestAdvanceWorkflowIdempotentConcurrent is the幂等 core (一个 step 绝不起两次):
+// after step 1 finishes, many concurrent advanceWorkflow calls (simulating the
+// finish hook + sweeper firing together, plus duplicates) must start the next
+// step EXACTLY ONCE — never two jobs at the same step_index.
+func TestAdvanceWorkflowIdempotentConcurrent(t *testing.T) {
+	s := newTestService(t, t.TempDir())
+	// A 3-step chain where step 1 finishes fast; we then hammer advance manually.
+	wf, err := s.SubmitWorkflow(WorkflowSpec{
+		Steps: []StepSpec{echoStep("s1"), echoStep("s2"), echoStep("s3")},
+	}, "alice")
+	if err != nil {
+		t.Fatalf("SubmitWorkflow: %v", err)
+	}
+
+	// Wait for step 1's job to reach terminal WITHOUT letting the chain run away:
+	// grab the step-1 job id and Wait on it. (The finish hook will also fire
+	// advance, but that is part of what we are proving is safe.)
+	waitStepJobTerminal(t, s, wf.ID, 1)
+
+	// Hammer advanceWorkflow concurrently (finish hook + sweeper + duplicates).
+	const n = 24
+	done := make(chan struct{})
+	for i := 0; i < n; i++ {
+		go func() { defer func() { done <- struct{}{} }(); s.advanceWorkflow(wf.ID) }()
+	}
+	for i := 0; i < n; i++ {
+		<-done
+	}
+
+	// After the dust settles the workflow runs to completion; crucially each
+	// step_index has at most ONE job (no double-start).
+	final := waitWorkflow(t, s, wf.ID)
+	if final.Status != jobstore.WorkflowDone {
+		t.Fatalf("workflow status = %s (err=%s), want done", final.Status, final.Error)
+	}
+	jobs, err := s.meta.ListWorkflowJobs(wf.ID)
+	if err != nil {
+		t.Fatalf("ListWorkflowJobs: %v", err)
+	}
+	seen := map[int]int{}
+	for _, j := range jobs {
+		seen[j.StepIndex]++
+	}
+	for step, count := range seen {
+		if count != 1 {
+			t.Fatalf("step %d started %d times, want exactly 1 (幂等 violated)", step, count)
+		}
+	}
+	if len(jobs) != 3 {
+		t.Fatalf("total step jobs = %d, want 3", len(jobs))
+	}
+}
+
+// TestWorkflowFailFast asserts a failing step stops the chain: step 2 exits non-
+// zero -> step 3 never starts and the workflow is failed.
+func TestWorkflowFailFast(t *testing.T) {
+	s := newTestService(t, t.TempDir())
+	wf, err := s.SubmitWorkflow(WorkflowSpec{
+		Steps: []StepSpec{echoStep("ok1"), failStep("boom2"), echoStep("never3")},
+	}, "alice")
+	if err != nil {
+		t.Fatalf("SubmitWorkflow: %v", err)
+	}
+
+	final := waitWorkflow(t, s, wf.ID)
+	if final.Status != jobstore.WorkflowFailed {
+		t.Fatalf("workflow status = %s, want failed", final.Status)
+	}
+	jobs, err := s.meta.ListWorkflowJobs(wf.ID)
+	if err != nil {
+		t.Fatalf("ListWorkflowJobs: %v", err)
+	}
+	// Steps 1 and 2 ran; step 3 must NOT have started.
+	for _, j := range jobs {
+		if j.StepIndex == 3 {
+			t.Fatalf("step 3 started despite fail-fast (job %s)", j.ID)
+		}
+	}
+	if len(jobs) != 2 {
+		t.Fatalf("ran %d step jobs, want 2 (step3 suppressed)", len(jobs))
+	}
+}
+
+// TestCancelWorkflow asserts CancelWorkflow on a running workflow marks it
+// cancelled, cancels the current step's job, and starts no further steps.
+func TestCancelWorkflow(t *testing.T) {
+	s := newTestService(t, t.TempDir())
+	// Step 1 sleeps so the workflow is still on step 1 when we cancel.
+	sleepStep := StepSpec{
+		Name: "sleep1", ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"sleep", "10"}, Cwd: ".", TimeoutSec: 30,
+	}
+	wf, err := s.SubmitWorkflow(WorkflowSpec{
+		Steps: []StepSpec{sleepStep, echoStep("two"), echoStep("three")},
+	}, "alice")
+	if err != nil {
+		t.Fatalf("SubmitWorkflow: %v", err)
+	}
+	// Ensure step 1 is actually running before cancelling.
+	waitStepJobRunning(t, s, wf.ID, 1)
+
+	if err := s.CancelWorkflow(wf.ID); err != nil {
+		t.Fatalf("CancelWorkflow: %v", err)
+	}
+
+	final := waitWorkflow(t, s, wf.ID)
+	if final.Status != jobstore.WorkflowCancelled {
+		t.Fatalf("workflow status = %s, want cancelled", final.Status)
+	}
+	jobs, err := s.meta.ListWorkflowJobs(wf.ID)
+	if err != nil {
+		t.Fatalf("ListWorkflowJobs: %v", err)
+	}
+	for _, j := range jobs {
+		if j.StepIndex >= 2 {
+			t.Fatalf("step %d started after cancel (job %s)", j.StepIndex, j.ID)
+		}
+	}
+	// Cancel is idempotent (second call is a no-op).
+	if err := s.CancelWorkflow(wf.ID); err != nil {
+		t.Fatalf("second CancelWorkflow: %v", err)
+	}
+
+	// Drain the cancelled step-1 job so its background goroutine finishes before
+	// the test store is closed (best-effort recordEvent vs teardown).
+	waitStepJobTerminal(t, s, wf.ID, 1)
+}
+
+// waitStepJobTerminal waits for the workflow's step-N job to reach terminal and
+// returns it.
+func waitStepJobTerminal(t *testing.T, s *Service, wfID string, step int) jobstore.JobRecord {
+	t.Helper()
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		jobs, _ := s.meta.ListWorkflowJobs(wfID)
+		if j := stepJob(jobs, step); j != nil && isTerminal(j.Status) {
+			return *j
+		}
+		time.Sleep(15 * time.Millisecond)
+	}
+	t.Fatalf("step %d of %s did not reach terminal in time", step, wfID)
+	return jobstore.JobRecord{}
+}
+
+// waitStepJobRunning waits for the workflow's step-N job to be running.
+func waitStepJobRunning(t *testing.T, s *Service, wfID string, step int) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		jobs, _ := s.meta.ListWorkflowJobs(wfID)
+		if j := stepJob(jobs, step); j != nil && j.Status == StatusRunning {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("step %d of %s did not start running in time", step, wfID)
 }
 
 // TestSubmitWorkflowRejectsInvalidStep asserts every step is validated at submit

@@ -120,3 +120,123 @@ func stepToRequest(step StepSpec, wfID string, stepIndex int, callerID string) J
 func (s *Service) genWorkflowID() string {
 	return "wf-" + s.nowFn().Format(jobIDLayout) + "-" + randomSuffix()
 }
+
+// advanceWorkflow advances a workflow when its current step's job reaches a
+// terminal state. It is the串行推进引擎 and is designed to be called MANY times,
+// concurrently, for the same workflow — the finish hook (one call per step-job
+// terminal) AND the sweeper (crash recovery) both invoke it. 幂等 is guaranteed by
+// AdvanceCurrentStep's conditional UPDATE: only ONE caller wins the推进权, so the
+// next step is started exactly once (一个 step 绝不起两次).
+//
+// step 序号/spec 下标对齐 (核心，务必看清)：
+//   - wf.CurrentStep is 1-based and points at the JUST-FINISHED step (the active
+//     one). The matching job has step_index == wf.CurrentStep.
+//   - spec.Steps is 0-based, so the just-finished step is spec.Steps[CurrentStep-1].
+//   - the NEXT step is spec.Steps[CurrentStep] (0-based) == 1-based step CurrentStep+1.
+//   - we read cur := wf.CurrentStep FIRST, then AdvanceCurrentStep(cur -> cur+1) to
+//     win推进权, then start spec.Steps[cur] (0-based) as step cur+1. Using the
+//     locally captured `cur` (not the post-advance DB value) keeps the index
+//     unambiguous.
+//
+// best-effort: failures are logged, never panic; a missed advance is re-tried by
+// the sweeper on its next tick.
+func (s *Service) advanceWorkflow(wfID string) {
+	wf, ok, err := s.meta.GetWorkflow(wfID)
+	if err != nil || !ok || wf.Status != jobstore.WorkflowRunning {
+		return // unknown or already terminal: nothing to advance
+	}
+
+	jobs, err := s.meta.ListWorkflowJobs(wfID)
+	if err != nil {
+		return
+	}
+	cur := wf.CurrentStep // 1-based, == the active/just-finished step
+	curJob := stepJob(jobs, cur)
+	if curJob == nil || !isTerminal(curJob.Status) {
+		return // current step has not started yet, or is still running
+	}
+
+	// 抢推进权 (幂等屏障)：only the winner of this conditional UPDATE proceeds. A
+	// concurrent/duplicate call (finish hook + sweeper for the same finished step)
+	// loses here and returns — so the next step is started by exactly one caller.
+	won, err := s.meta.AdvanceCurrentStep(wfID, cur, cur+1)
+	if err != nil || !won {
+		return
+	}
+
+	switch curJob.Status {
+	case StatusFailed, StatusTimeout, StatusCancelled:
+		// fail-fast (D4): any non-done terminal step fails the whole workflow; no
+		// further steps are started.
+		_ = s.meta.SetWorkflowStatus(wfID, jobstore.WorkflowFailed,
+			fmt.Sprintf("step %d %s", cur, curJob.Status))
+	case StatusDone:
+		if cur >= wf.TotalSteps {
+			// Last step done -> workflow done.
+			_ = s.meta.SetWorkflowStatus(wfID, jobstore.WorkflowDone, "")
+			return
+		}
+		var spec WorkflowSpec
+		if err := json.Unmarshal([]byte(wf.SpecJSON), &spec); err != nil {
+			_ = s.meta.SetWorkflowStatus(wfID, jobstore.WorkflowFailed, "decode spec: "+err.Error())
+			return
+		}
+		if cur >= len(spec.Steps) {
+			// Defensive: total_steps disagrees with spec length (should not happen).
+			_ = s.meta.SetWorkflowStatus(wfID, jobstore.WorkflowFailed, "spec/total step mismatch")
+			return
+		}
+		next := spec.Steps[cur] // 0-based: spec.Steps[cur] is the next (1-based step cur+1)
+		// P2 接入点：此处在起下一步前用 resolveRefs(&next, jobs) 把 ${steps.N.field} 替换为
+		// 前序产出（result_dir/stdout/exit_code/...）。P1 不实现引用，各 step 独立跑。
+		req := stepToRequest(next, wfID, cur+1, wf.CallerID)
+		if _, err := s.Submit(req); err != nil {
+			_ = s.meta.SetWorkflowStatus(wfID, jobstore.WorkflowFailed, "submit step: "+err.Error())
+		}
+	}
+}
+
+// stepJob returns the step-job whose step_index == stepIndex (1-based), or nil.
+func stepJob(jobs []jobstore.JobRecord, stepIndex int) *jobstore.JobRecord {
+	for i := range jobs {
+		if jobs[i].StepIndex == stepIndex {
+			return &jobs[i]
+		}
+	}
+	return nil
+}
+
+// CancelWorkflow stops a running workflow: it marks it cancelled (so advanceWorkflow
+// never starts another step) and cancels the currently-running step's job. It is
+// idempotent and a no-op for an unknown or already-terminal workflow.
+//
+// Order matters: set cancelled FIRST so any racing advanceWorkflow (which checks
+// status==running) bails, THEN cancel the active step's job. The cancelled step
+// reaching terminal will fire advanceWorkflow, but the running-status guard there
+// stops it from starting the next step.
+func (s *Service) CancelWorkflow(wfID string) error {
+	wf, ok, err := s.meta.GetWorkflow(wfID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return fmt.Errorf("unknown workflow %q", wfID)
+	}
+	if wf.Status != jobstore.WorkflowRunning {
+		return nil // already terminal: idempotent no-op
+	}
+
+	if err := s.meta.SetWorkflowStatus(wfID, jobstore.WorkflowCancelled, ""); err != nil {
+		return err
+	}
+
+	// Cancel the active step's job (Cancel is a stable no-op for a terminal job).
+	jobs, err := s.meta.ListWorkflowJobs(wfID)
+	if err != nil {
+		return nil // status is already cancelled; job-cancel is best-effort
+	}
+	if cur := stepJob(jobs, wf.CurrentStep); cur != nil {
+		_ = s.Cancel(cur.ID)
+	}
+	return nil
+}
