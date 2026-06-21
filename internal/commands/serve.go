@@ -91,6 +91,13 @@ func runServe(c *gcli.Command, _ []string) error {
 	defer close(stopPrune)
 	startPruneLoop(c, core.Jobs, cfg.Storage.Retention, stopPrune)
 
+	// E14 webhook delivery sweeper (design §5.6). Only started when notification is
+	// configured (at least one webhook); with no config it does nothing (regression
+	// same as before). stop is closed when serve returns so the goroutine exits.
+	stopDelivery := make(chan struct{})
+	defer close(stopDelivery)
+	startDeliveryLoop(c, core.Jobs, cfg.Server.Notification, stopDelivery)
+
 	// Config hot-reload (C3): SIGHUP re-loads the config from the serve path and
 	// atomically swaps it into the registries + job service (no restart, no
 	// effect on in-flight jobs). The goroutine stops cleanly when serve returns.
@@ -172,6 +179,51 @@ func startPruneLoop(c *gcli.Command, jobs *job.Service, ret config.RetentionConf
 				return
 			case <-ticker.C:
 				prune()
+			}
+		}
+	}()
+}
+
+// deliveryInterval is the E14 webhook delivery sweep cadence. A short tick keeps
+// due deliveries (initially next_retry_at=now) prompt without busy-waiting; the
+// backoff table spaces retries far wider than this.
+const deliveryInterval = 15 * time.Second
+
+// startDeliveryLoop launches the E14 webhook delivery sweeper goroutine when
+// notification is configured (at least one webhook). It mirrors startPruneLoop /
+// startProbeLoop: sweep once immediately (so a freshly-enqueued delivery is not
+// delayed a whole interval), then on every tick. The goroutine exits when stop is
+// closed (serve shutdown); an in-flight sweep is cancelled via a ctx tied to stop
+// so a POST does not outlive shutdown. With no notification config (nil/empty
+// webhooks) it does nothing — zero behaviour change.
+//
+// Reload scope (C3): like prune/probe, the ENABLE gate and the tick interval are
+// frozen at serve startup. The webhook targets / retry cap DO take effect on
+// reload because DeliverDue reads the atomic cfg snapshot fresh each sweep.
+// Enabling notification from a disabled state needs a process restart.
+func startDeliveryLoop(c *gcli.Command, jobs *job.Service, nconf *config.NotificationConfig, stop <-chan struct{}) {
+	if nconf == nil || len(nconf.Webhooks) == 0 {
+		return
+	}
+	c.Printf("gofer: webhook delivery enabled (interval=%s, webhooks=%d)\n", deliveryInterval, len(nconf.Webhooks))
+
+	go func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			<-stop
+			cancel()
+		}()
+		defer cancel()
+
+		jobs.DeliverDue(ctx) // sweep once at startup so an enqueued delivery is prompt
+		ticker := time.NewTicker(deliveryInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				jobs.DeliverDue(ctx)
 			}
 		}
 	}()

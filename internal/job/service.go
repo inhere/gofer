@@ -105,6 +105,12 @@ type Service struct {
 
 	// nowFn yields the current time; overridable in tests.
 	nowFn func() time.Time
+
+	// postFn is the webhook POST used by the E14 delivery sweeper (deliverOne). It
+	// defaults to notify.PostWebhook (validated + signed real HTTP POST) and is
+	// overridable in tests so the claim→post→mark state machine can be driven
+	// deterministically without network / the loopback SSRF block.
+	postFn func(ctx context.Context, target, eventType string, body []byte, secretValue string, cfg config.NotificationConfig) error
 }
 
 // jobEntry is the in-process record for one job: its current result snapshot,
