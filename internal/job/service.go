@@ -125,6 +125,13 @@ type Service struct {
 	// created from ProjectConfig.MaxConcurrentJobs on first use; a value <= 0
 	// means unbounded (no semaphore).
 	sems map[string]chan struct{}
+	// callerSems holds per-caller concurrency semaphores (E17, design §7.2). Same
+	// lazy-create + fixed-capacity model as sems (guarded by s.mu); a caller with no
+	// limit (<= 0) or an empty caller id gets nil (no gating). NOTE (design §7.4):
+	// like sems, a semaphore's capacity is frozen at first creation, so a hot-reload
+	// changing a caller's MaxConcurrentJobs does NOT resize an already-built sem —
+	// the NEW value takes effect when the caller next has no live sem / on restart.
+	callerSems map[string]chan struct{}
 
 	// nowFn yields the current time; overridable in tests.
 	nowFn func() time.Time
@@ -194,10 +201,11 @@ func NewService(cfg *config.Config, projects *project.Registry, agents *agent.Re
 		runners:  runners,
 		meta:     meta,
 		workers:  sel,
-		newStore: func(base string) store.Store { return store.NewFileStore(base) },
-		jobs:     map[string]*jobEntry{},
-		sems:     map[string]chan struct{}{},
-		nowFn:    time.Now,
+		newStore:   func(base string) store.Store { return store.NewFileStore(base) },
+		jobs:       map[string]*jobEntry{},
+		sems:       map[string]chan struct{}{},
+		callerSems: map[string]chan struct{}{},
+		nowFn:      time.Now,
 	}
 	s.cfg.Store(cfg)
 	return s
@@ -414,8 +422,12 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	}
 
 	sem := s.semaphore(req.ProjectKey, proj.MaxConcurrentJobs)
+	// E17: per-caller concurrency slot (design §7.2). Resolved from the SAME cfg
+	// snapshot (caller override > governance default > unlimited). nil when the
+	// caller has no cap or no id — then execute does not gate on it.
+	callerSem := s.callerSemaphore(req.CallerID, cfg.Server.CallerConcurrencyLimit(req.CallerID))
 	timeout := normalizeTimeout(req.TimeoutSec)
-	go s.execute(entry, run, sem, runReq, timeout)
+	go s.execute(entry, run, sem, callerSem, runReq, timeout)
 
 	return entry.snapshot(), nil
 }
@@ -436,11 +448,39 @@ func (s *Service) semaphore(projectKey string, limit int) chan struct{} {
 	return sem
 }
 
+// callerSemaphore returns (creating if needed) the per-caller concurrency
+// semaphore (E17, design §7.2). Mirrors semaphore(): an empty caller id or a
+// limit <= 0 means unbounded and returns nil (no gating). Guarded by s.mu like
+// sems. Capacity is frozen at creation (hot-reload caveat, design §7.4).
+func (s *Service) callerSemaphore(callerID string, limit int) chan struct{} {
+	if callerID == "" || limit <= 0 {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if sem, ok := s.callerSems[callerID]; ok {
+		return sem
+	}
+	sem := make(chan struct{}, limit)
+	s.callerSems[callerID] = sem
+	return sem
+}
+
+// CallerRate exposes the effective per-caller submit rate for the HTTP
+// rate-limit middleware (E17, design §7.3). It reads the CURRENT config snapshot
+// (s.config(), the atomic.Pointer that Reload swaps), so a SIGHUP change to a
+// caller's rate_limit / rate_burst is observed on the very next request — the
+// rate-limit config真源 is here, NOT a copy held by httpapi.Server (which is not
+// on the reload path). Returns (0, 0) when the caller has no rate gating.
+func (s *Service) CallerRate(callerID string) (rps float64, burst int) {
+	return s.config().Server.CallerRate(callerID)
+}
+
 // execute runs the job: it acquires the project concurrency slot, opens the log
 // files, runs the command under a timeout context and persists the terminal
 // status to the metadata store. While the job waits for a slot it stays in
 // `queued`.
-func (s *Service) execute(entry *jobEntry, run runner.Runner, sem chan struct{}, req runner.Request, timeout time.Duration) {
+func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem chan struct{}, req runner.Request, timeout time.Duration) {
 	defer close(entry.done)
 
 	// Establish the cancellable context first so a cancel issued while the job is
@@ -457,6 +497,23 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem chan struct{},
 		select {
 		case sem <- struct{}{}:
 			defer func() { <-sem }()
+		case <-ctx.Done():
+			status, code, runErr := classify(ctx, runner.Result{ExitCode: -1})
+			s.finish(entry, req.JobID, status, code, runErr)
+			return
+		}
+	}
+
+	// E17: after the project slot, wait for the per-caller slot (design §7.2).
+	// Superseding the quota means QUEUING (the job stays `queued`), not rejecting —
+	// same削峰 semantics as the project semaphore. Acquired AFTER project so the
+	// deferred releases unwind caller-then-project (reverse LIFO order), and a job
+	// holding a project slot never blocks indefinitely on a caller slot another
+	// project-slot holder is waiting to release.
+	if callerSem != nil {
+		select {
+		case callerSem <- struct{}{}:
+			defer func() { <-callerSem }()
 		case <-ctx.Done():
 			status, code, runErr := classify(ctx, runner.Result{ExitCode: -1})
 			s.finish(entry, req.JobID, status, code, runErr)

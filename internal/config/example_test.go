@@ -111,9 +111,18 @@ func TestExampleYAMLParses(t *testing.T) {
 func TestExampleCommentedBlocksDecode(t *testing.T) {
 	const optional = `
 server:
+  governance:
+    default_caller_max_concurrent: 4
+    default_rate_limit: 5
+    default_rate_burst: 10
   callers:
     - id: ci
       token_env: GOFER_CALLER_CI_TOKEN
+    - id: ci-bot
+      token_env: GOFER_TOKEN_CI
+      max_concurrent_jobs: 8
+      rate_limit: 20
+      rate_burst: 40
   workers:
     builder-1:
       token_env: GOFER_WORKER_BUILDER1_TOKEN
@@ -150,9 +159,18 @@ runners:
 		t.Fatalf("decode optional blocks: %v", err)
 	}
 
-	if len(cfg.Server.Callers) != 1 || cfg.Server.Callers[0].ID != "ci" ||
+	if len(cfg.Server.Callers) != 2 || cfg.Server.Callers[0].ID != "ci" ||
 		cfg.Server.Callers[0].TokenEnv != "GOFER_CALLER_CI_TOKEN" {
 		t.Errorf("callers = %+v", cfg.Server.Callers)
+	}
+	// E17 governance + per-caller quota fields map onto the structs (design §7.1).
+	if g := cfg.Server.Governance; g.DefaultCallerMaxConcurrent != 4 ||
+		g.DefaultRateLimit != 5 || g.DefaultRateBurst != 10 {
+		t.Errorf("governance = %+v", g)
+	}
+	if cb := cfg.Server.Callers[1]; cb.ID != "ci-bot" || cb.TokenEnv != "GOFER_TOKEN_CI" ||
+		cb.MaxConcurrentJobs != 8 || cb.RateLimit != 20 || cb.RateBurst != 40 {
+		t.Errorf("callers[1] (ci-bot) = %+v", cb)
 	}
 	w, ok := cfg.Server.Workers["builder-1"]
 	if !ok || w.TokenEnv != "GOFER_WORKER_BUILDER1_TOKEN" || len(w.Labels) != 2 {

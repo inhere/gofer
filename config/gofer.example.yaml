@@ -21,9 +21,18 @@ server:
   # id stamped onto submitted jobs (audit / per-caller filtering). The legacy
   # single token above stays valid (treated as caller id "default"); revoke a
   # caller by removing its entry and reloading. Prefer token_env over inline token.
+  #
+  # E17 per-caller 配额/限流(可选,缺省=回退 governance 默认,再缺省=不限):
+  #   max_concurrent_jobs  该 caller 同时在跑上限(信号量排队,超额不拒,排队等槽)
+  #   rate_limit           每秒提交请求数(令牌桶速率, 仅限 POST /v1/jobs|/v1/workflows)
+  #   rate_burst           桶容量(突发); 省略/<=0 时取 max(1, ceil(rate_limit))
+  # 超并发 → 排队(queued); 超速率 → 429 + Retry-After。改 rate_* 后 SIGHUP 即时生效。
   # callers:
-  #   - id: ci
-  #     token_env: GOFER_CALLER_CI_TOKEN
+  #   - id: ci-bot
+  #     token_env: GOFER_TOKEN_CI
+  #     max_concurrent_jobs: 8       # 覆盖 governance.default_caller_max_concurrent
+  #     rate_limit: 20               # 覆盖 governance.default_rate_limit
+  #     rate_burst: 40               # 覆盖 governance.default_rate_burst
   #   - id: ops
   #     token_env: GOFER_CALLER_OPS_TOKEN
 
@@ -58,6 +67,16 @@ server:
   metrics:
     enabled: true                  # unset/true=mount /metrics; false=drop it
     token: ""                      # 空=免认证抓取；非空=要求 Authorization: Bearer <token>
+
+  # governance: E17 per-caller 配额/限流的【全局兜底】(caller 未单配时生效)。整段缺省
+  # 或全 0 = 不限(向后兼容)。每个 caller 可在 callers[] 里用同名字段覆盖(见上)。
+  #   default_caller_max_concurrent  caller 默认同时在跑上限(信号量排队,超额不拒)
+  #   default_rate_limit             caller 默认每秒提交速率(令牌桶; 仅限提交类写入端点)
+  #   default_rate_burst             caller 默认桶容量(突发); <=0 时取 max(1, ceil(rate))
+  # governance:
+  #   default_caller_max_concurrent: 4
+  #   default_rate_limit: 5          # 每秒 5 次提交
+  #   default_rate_burst: 10
 
   # notification: E14 webhook 外发。关键事件(默认 job.terminal + interaction.created)
   # 触发，向每个订阅 webhook 主动 POST(durable 投递 + 退避重试 30s→2m→5m→15m→60m)。

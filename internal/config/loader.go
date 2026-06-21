@@ -192,5 +192,29 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("project %q: host_path is required", key)
 		}
 	}
+	// E17 governance / per-caller quota sanity (design §7.1): negative values are a
+	// config mistake (a negative cap/rate/burst has no meaning). 0 = unlimited is
+	// fine; only reject < 0 so the legacy zero-everywhere config still validates.
+	g := cfg.Server.Governance
+	if g.DefaultCallerMaxConcurrent < 0 {
+		return fmt.Errorf("server.governance.default_caller_max_concurrent must be >= 0")
+	}
+	if g.DefaultRateLimit < 0 {
+		return fmt.Errorf("server.governance.default_rate_limit must be >= 0")
+	}
+	if g.DefaultRateBurst < 0 {
+		return fmt.Errorf("server.governance.default_rate_burst must be >= 0")
+	}
+	for _, cc := range cfg.Server.Callers {
+		if cc.MaxConcurrentJobs < 0 {
+			return fmt.Errorf("caller %q: max_concurrent_jobs must be >= 0", cc.ID)
+		}
+		if cc.RateLimit < 0 {
+			return fmt.Errorf("caller %q: rate_limit must be >= 0", cc.ID)
+		}
+		if cc.RateBurst < 0 {
+			return fmt.Errorf("caller %q: rate_burst must be >= 0", cc.ID)
+		}
+	}
 	return nil
 }

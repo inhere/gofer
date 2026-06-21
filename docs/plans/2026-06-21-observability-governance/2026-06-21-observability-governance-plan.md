@@ -51,13 +51,13 @@
   - [x] T1.4 job 挂点（MetricsSink 接口 + Submit/finish 埋点 + Service.Stats()）
   - [x] T1.5 GaugeFunc 装配（in_flight/queued/workers）
   - [x] T1.6 验收 + example/docs + 测试
-- [ ] **P2 E17 治理**（详见 P2 子文档）
-  - [ ] T2.1 config 扩展（Governance 段 + CallerConfig 三字段 + Metrics 段）
-  - [ ] T2.2 caller 并发信号量（callerSems + CallerConcurrencyLimit + execute 接入）
-  - [ ] T2.3 速率限流中间件（CallerRateLimit + limiters + 429）
-  - [ ] T2.4 热加载验证（rate 即时生效 / 并发沿用 project 语义）
-  - [ ] T2.5 example + config validate 补段 + per-caller metrics 标签贯通
-  - [ ] T2.6 验收 + 测试
+- [x] **P2 E17 治理**（详见 P2 子文档）✅ commit `<P2>`
+  - [x] T2.1 config 扩展（Governance 段 + CallerConfig 三字段 + Metrics 段）
+  - [x] T2.2 caller 并发信号量（callerSems + CallerConcurrencyLimit + execute 接入）
+  - [x] T2.3 速率限流中间件（CallerRateLimit + limiters + 429）
+  - [x] T2.4 热加载验证（rate 即时生效 / 并发沿用 project 语义）
+  - [x] T2.5 example + config validate 补段 + per-caller metrics 标签贯通
+  - [x] T2.6 验收 + 测试
 
 ## 5. 实施结果（完成后回填）
 
@@ -68,8 +68,12 @@
 - **验收**：build/vet/test 全绿（job 51s/httpapi 19s/metrics 0.008s）；**job 包零 prometheus 依赖**（主控 `go list -deps` 复核 PASS）；真机 serve smoke 确认 submitted/terminal/duration/http 指标 + route 无 id 泄漏。
 - **遗留**：离线环境未跑完整 `go mod tidy`（缺 test-only 依赖 cache，不影响功能）；有网时规整 go.sum test-graph 条目。
 
-### P2
-> 待回填：关键改动、commit、验收结论。
+### P2 ✅（commit `<P2>`）
+- **新增**：`httpapi/ratelimit.go`（rateLimitMiddleware/isSubmitPath/limiterFor）；config/job/httpapi 三处治理测试。
+- **修改**：`config/model.go`(CallerConfig 三字段+GovernanceConfig+CallerConcurrencyLimit/CallerRate helper)、`config/loader.go`(validate 校验 >=0)、`job/service.go`(callerSems+callerSemaphore+execute 双信号量+CallerRate 暴露)、`httpapi/server.go`(limiters map+中间件链 metrics→auth→rateLimit)、`respond.go`(writeRateLimited)、example、防漂移测试。
+- **关键决策**：限流配置真源=`s.jobs.CallerRate()`（job.Service atomic cfg，SIGHUP 即时），**不复制进 Server**；rux 中间件顺序经读源码+实测双重确认（Group 末参按序前置，auth 早于 rateLimit）；并发超额=排队不拒（与 project 一致）、仅速率超限 429；limiter `SetLimit/SetBurst` 动态同步热加载；example governance 段保持注释（避免给 legacy `default` caller 误加限流，守 §7.1 向后兼容，二级判断 SR1401）。
+- **验收**：build/vet/test 全绿；**真机冒烟**（实际 binary serve）：POST 连发 req1 进 handler/req2-6 **429**（burst=1）、GET 只读 5×200 **不被限**、`gofer_http_requests_total{POST,/v1/jobs,status="429"} 5` 计入且 route 无 id 泄漏；合法 job 提交后 `gofer_jobs_submitted_total{...} 1`+`gofer_jobs_in_flight 1` 闭环。
+- **已知限制**：并发上限热加载不即时（callerSems 容量首建冻结，同 project sems，§7.4/D8 明示）；仅速率限流即时热加载。
 
 ## 6. 完成判定（SUPMODE 收尾）
 
