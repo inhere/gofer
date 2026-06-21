@@ -34,11 +34,11 @@
 
 ## 进度跟进
 
-- [ ] **P1-a** `workflows` 表 + jobs 加 `workflow_id`/`step_index` 列（5 处贯通）+ `workflows.go` DAO（含 `AdvanceCurrentStep` 抢占）
-- [ ] **P1-b** `WorkflowSpec`/`StepSpec` + `SubmitWorkflow`（校验 + 建 workflow + 起 step1）
-- [ ] **P1-c** `advanceWorkflow`（幂等推进）+ `finish` 异步钩子 + `CancelWorkflow`
-- [ ] **P1-d** `startWorkflowLoop` sweeper（serve 挂载，crash 兜底）
-- [ ] **P1-e** API：`POST /v1/workflows` / `GET /v1/workflows{,/id}` / `POST /v1/workflows/{id}/cancel`
+- [x] **P1-a** `workflows` 表 + jobs 加 `workflow_id`/`step_index` 列（5 处贯通）+ `workflows.go` DAO（含 `AdvanceCurrentStep` 抢占）
+- [x] **P1-b** `WorkflowSpec`/`StepSpec` + `SubmitWorkflow`（校验 + 建 workflow + 起 step1）
+- [x] **P1-c** `advanceWorkflow`（幂等推进）+ `finish` 异步钩子 + `CancelWorkflow`
+- [x] **P1-d** `startWorkflowLoop` sweeper（serve 挂载，crash 兜底）
+- [x] **P1-e** API：`POST /v1/workflows` / `GET /v1/workflows{,/id}` / `POST /v1/workflows/{id}/cancel`
 - [ ] **P2-a** `${steps.N.field}` 解析器（`refs.go`）+ 接入 advanceWorkflow 起 step 前替换
 - [ ] **P2-b** 提交期引用校验（拒未来/自引用/越界/非法 field）+ 运行期缺产出 → fail-fast
 - [ ] **P3-a** CLI `gofer workflow run <file>`(yaml)/`show`/`list`/`cancel`（+ `--watch`）
@@ -68,4 +68,4 @@ v1 工作流 = `workflows` 表 + jobs 2 列 + 幂等推进引擎（finish 异步
 
 ## 阶段实施结果
 
-（实施后逐阶段追加）
+- **P1**（2026-06-21，commit `99afb5e`+`91abe0e`+`f47aa7e`+`232de03`+`918e332`）：`workflows` 表 + jobs 加 `workflow_id`/`step_index` 列(5 处贯通)+ `workflows.go` DAO(`AdvanceCurrentStep` 条件 UPDATE 抢占,仿 ClaimDueDeliveries);`WorkflowSpec`/`StepSpec`/`SubmitWorkflow`(校验复用 validate + 建 workflow + 起 step1,caller 继承);`advanceWorkflow` **幂等推进**(读 cur→找 step job→终态?→AdvanceCurrentStep 抢推进权 RowsAffected==1 才继续→fail-fast/起下一步/done;末步也走一次抢权,故 done 后 current_step=Total+1)+ `finish` 异步钩子(`go advanceWorkflow` 仅 WorkflowID!="",不阻塞/不改 entry.done 时序)+ `CancelWorkflow`(标 cancelled+取消当前 step,幂等);`startWorkflowLoop` sweeper(crash 兜底)+`AdvanceRunningWorkflows`;`POST/GET/cancel /v1/workflows` API。验收门全 PASS。**主控独立硬压测**(汲取 E13 教训):job 包 x6 + jobstore x6 + httpapi x4 + 幂等 `-race -count=20` + **三包 `-race` 全绿,无 flaky 无 DATA RACE**——异步推进 goroutine 在压测下不导致失败(`database is closed` 仅 best-effort 迟到事件日志噪音,断言不依赖,与既有 job 包一致)。P2 `resolveRefs` 接入点已注释,本期各 step 独立跑(无引用)。
