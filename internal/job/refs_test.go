@@ -1,6 +1,7 @@
 package job
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -175,5 +176,99 @@ func TestResolveRefsNoRefsUnchanged(t *testing.T) {
 	}
 	if step.Prompt != "plain prompt" || step.Cmd[1] != "hi" || step.Cwd != "." {
 		t.Fatalf("step mutated: %+v", step)
+	}
+}
+
+// --- P2-b: submit-time validateRefs ---
+
+// TestValidateRefsAccepts passes a spec whose every ref points at an earlier step
+// with a valid field.
+func TestValidateRefsAccepts(t *testing.T) {
+	spec := WorkflowSpec{Steps: []StepSpec{
+		{Name: "s1", Prompt: "no refs here"},
+		{Name: "s2", Cmd: []string{"run", "${steps.1.result_dir}"}},
+		{Name: "s3", Prompt: "code=${steps.2.exit_code} dir=${steps.1.result_dir}"},
+	}}
+	if err := validateRefs(spec); err != nil {
+		t.Fatalf("validateRefs rejected a valid spec: %v", err)
+	}
+}
+
+// TestValidateRefsRejectsSelfReference: step 2 referencing ${steps.2.x} is a self
+// reference (N must be < this step's index) and is a 400.
+func TestValidateRefsRejectsSelfReference(t *testing.T) {
+	spec := WorkflowSpec{Steps: []StepSpec{
+		{Name: "s1"},
+		{Name: "s2", Prompt: "${steps.2.result_dir}"},
+	}}
+	err := validateRefs(spec)
+	if err == nil {
+		t.Fatal("expected rejection of self-reference")
+	}
+	assertInvalidRequest(t, err)
+}
+
+// TestValidateRefsRejectsForwardReference: step 2 referencing ${steps.3.x} names a
+// future step and is a 400.
+func TestValidateRefsRejectsForwardReference(t *testing.T) {
+	spec := WorkflowSpec{Steps: []StepSpec{
+		{Name: "s1"},
+		{Name: "s2", Cmd: []string{"x", "${steps.3.status}"}},
+		{Name: "s3"},
+	}}
+	err := validateRefs(spec)
+	if err == nil {
+		t.Fatal("expected rejection of forward reference")
+	}
+	assertInvalidRequest(t, err)
+}
+
+// TestValidateRefsRejectsUnknownField: ${steps.1.bogus} names a field outside the
+// allowed set and is a 400.
+func TestValidateRefsRejectsUnknownField(t *testing.T) {
+	spec := WorkflowSpec{Steps: []StepSpec{
+		{Name: "s1"},
+		{Name: "s2", Prompt: "${steps.1.bogus}"},
+	}}
+	err := validateRefs(spec)
+	if err == nil {
+		t.Fatal("expected rejection of unknown field")
+	}
+	assertInvalidRequest(t, err)
+}
+
+// TestValidateRefsRejectsStep1Reference: step 1 has no prior step, so ANY ref in it
+// is a 400.
+func TestValidateRefsRejectsStep1Reference(t *testing.T) {
+	spec := WorkflowSpec{Steps: []StepSpec{
+		{Name: "s1", Prompt: "${steps.1.result_dir}"},
+	}}
+	err := validateRefs(spec)
+	if err == nil {
+		t.Fatal("expected rejection of step-1 self/empty reference")
+	}
+	assertInvalidRequest(t, err)
+}
+
+// TestSubmitWorkflowRejectsBadRef proves validateRefs is wired into SubmitWorkflow:
+// a forward-reference spec is rejected at submit before any workflow row is created.
+func TestSubmitWorkflowRejectsBadRef(t *testing.T) {
+	s := newTestService(t, t.TempDir())
+	_, err := s.SubmitWorkflow(WorkflowSpec{Steps: []StepSpec{
+		echoStep("s1"),
+		{Name: "s2", ProjectKey: "self", Agent: "exec", Runner: "local",
+			Cmd: []string{"sh", "-c", "echo ${steps.3.status}"}, Cwd: ".", TimeoutSec: 30},
+		echoStep("s3"),
+	}}, "alice")
+	if err == nil {
+		t.Fatal("expected SubmitWorkflow to reject a forward reference")
+	}
+	assertInvalidRequest(t, err)
+}
+
+func assertInvalidRequest(t *testing.T, err error) {
+	t.Helper()
+	if !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("error = %v, want ErrInvalidRequest", err)
 	}
 }

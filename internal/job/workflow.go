@@ -51,6 +51,13 @@ func (s *Service) SubmitWorkflow(spec WorkflowSpec, callerID string) (jobstore.W
 		return jobstore.Workflow{}, fmt.Errorf("%w: workflow has no steps", ErrInvalidRequest)
 	}
 
+	// Static ${steps.N.field} reference check (P2): every ref must point at an
+	// earlier step with a known field (no self/forward ref, step1 ref-free). Rejected
+	// at submit so the chain never starts a step it cannot resolve mid-flight.
+	if err := validateRefs(spec); err != nil {
+		return jobstore.Workflow{}, err
+	}
+
 	// Pre-validate every step against the single-job准入 before creating anything,
 	// so an invalid step (e.g. step 3) is rejected at submit time, not mid-chain.
 	cfg := s.config()
