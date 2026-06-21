@@ -86,12 +86,25 @@ server:
   runner_probe:
     interval_seconds: 30
     timeout_seconds: 5
+  notification:
+    webhooks:
+      - url: https://hooks.example.com/gofer
+        events: [job.terminal, interaction.created]
+        secret_env: GOFER_WEBHOOK_SECRET
+        projects: [my-project1]
+    allow_hosts: [hooks.example.com]
+    allow_http: false
+    max_attempts: 6
 storage:
   db_path: /var/lib/gofer/gofer.db
   retention:
     max_age_days: 14
     max_count: 5000
     prune_interval_minutes: 60
+projects:
+  my-project1:
+    host_path: /x
+    notify_enabled: false
 runners:
   builder:
     type: worker
@@ -123,5 +136,22 @@ runners:
 	r, ok := cfg.Runners["builder"]
 	if !ok || r.Type != "worker" || r.WorkerID != "builder-1" {
 		t.Errorf("runners.builder = %+v ok=%v", r, ok)
+	}
+
+	// E14 notification block + project notify_enabled map onto the structs.
+	n := cfg.Server.Notification
+	if n == nil || len(n.Webhooks) != 1 {
+		t.Fatalf("notification = %+v", n)
+	}
+	if n.Webhooks[0].URL != "https://hooks.example.com/gofer" ||
+		n.Webhooks[0].SecretEnv != "GOFER_WEBHOOK_SECRET" ||
+		len(n.Webhooks[0].Events) != 2 || len(n.Webhooks[0].Projects) != 1 {
+		t.Errorf("notification.webhooks[0] = %+v", n.Webhooks[0])
+	}
+	if len(n.AllowHosts) != 1 || n.AllowHosts[0] != "hooks.example.com" || n.MaxAttempts != 6 {
+		t.Errorf("notification allow_hosts/max_attempts = %+v / %d", n.AllowHosts, n.MaxAttempts)
+	}
+	if p := cfg.Projects["my-project1"]; p.NotifyEnabled == nil || *p.NotifyEnabled {
+		t.Errorf("my-project1 notify_enabled should decode false, got %v", p.NotifyEnabled)
 	}
 }

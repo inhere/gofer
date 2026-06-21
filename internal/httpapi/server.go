@@ -210,6 +210,9 @@ func (s *Server) buildRouter() *rux.Router {
 		// E13: append-only lifecycle event stream (?since=<seq> for incremental).
 		r.GET("/jobs/{id}/events", s.handleListEvents)
 
+		// E14: read-only webhook delivery status for a job (delivered/retry/failed).
+		r.GET("/jobs/{id}/deliveries", s.handleListDeliveries)
+
 		// E1 产物回取(P2)：清单 + 下载。下载 {name:.+} 是 catch-all（rux 把
 		// {name:.+}/{name:.*} 转成 *name 通配，匹配含 '/' 的子路径，如 sub/b.bin），
 		// name 经 safeJoinUnder 做路径安全校验（拒 ../绝对/软链逃逸）。

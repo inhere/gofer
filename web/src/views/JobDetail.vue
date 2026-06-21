@@ -13,6 +13,7 @@ import {
   downloadArtifact,
   getJob,
   listArtifacts,
+  listDeliveries,
   listEvents,
   viewFullDiff,
 } from '../api/client'
@@ -20,6 +21,7 @@ import { appendCapped, streamJob } from '../api/sse'
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
 import type {
   Artifact,
+  Delivery,
   Interaction,
   Job,
   JobEvent,
@@ -344,6 +346,8 @@ onMounted(async () => {
   void loadArtifacts()
   // 事件时间线：初始拉全量（SSE event 帧再增量 append，按 seq 去重幂等）。
   void loadTimeline()
+  // webhook 投递状态（E14）：拉一次只读快照（无通知配置时为空，整节不展示）。
+  void loadDeliveries()
   // 日志单一来源：不传 from，获得「历史回放 + 实时跟随 + 终态 end」
   void startStream()
 })
@@ -434,6 +438,33 @@ async function loadTimeline(): Promise<void> {
     }
   } catch {
     // 时间线为辅助信息：拉取失败静默（SSE event 帧仍会增量补齐）。
+  }
+}
+
+// ── webhook 投递（E14）──────────────────────────────────────────────
+// 只读：拉取本 job 的事件外发投递记录（无通知配置时为空，整节不展示）。
+const deliveries = ref<Delivery[]>([])
+
+async function loadDeliveries(): Promise<void> {
+  try {
+    const resp = await listDeliveries(props.id)
+    deliveries.value = resp.deliveries ?? []
+  } catch {
+    // 投递为辅助信息：拉取失败静默（不影响详情主流程）。
+  }
+}
+
+// 投递 status -> 中文标签（pending 区分「重试中」：attempts>0 已失败过）。
+function deliveryLabel(d: Delivery): string {
+  switch (d.status) {
+    case 'delivered':
+      return '已送达'
+    case 'failed':
+      return '失败'
+    case 'pending':
+      return d.attempts > 0 ? `重试中（第 ${d.attempts} 次）` : '待投递'
+    default:
+      return d.status
   }
 }
 
@@ -660,6 +691,31 @@ async function copyCommand(): Promise<void> {
             {{ eventDetailText(ev) }}
           </span>
           <span class="ev-time mono">{{ fmtTime(ev.at) }}</span>
+        </li>
+      </ul>
+    </section>
+
+    <!-- webhook 投递（E14）：只读，每条投递一行（状态徽标 + 目标 + 关键信息）。
+         无通知配置时 deliveries 为空，整节不展示。 -->
+    <section v-if="deliveries.length > 0" class="deliveries">
+      <h2 class="deliveries-title mono">通知投递</h2>
+      <ul class="deliveries-list">
+        <li
+          v-for="d in deliveries"
+          :key="d.id"
+          class="delivery-row"
+        >
+          <span class="dl-badge mono" :class="'dl-' + d.status">{{ deliveryLabel(d) }}</span>
+          <span class="dl-target mono" :title="d.target">{{ d.target }}</span>
+          <span
+            v-if="d.last_error"
+            class="dl-error mono"
+            :title="d.last_error"
+          >{{ d.last_error }}</span>
+          <span
+            v-if="d.status === 'pending' && d.next_retry_at > 0 && d.attempts > 0"
+            class="dl-time mono"
+          >下次 {{ fmtTime(d.next_retry_at) }}</span>
         </li>
       </ul>
     </section>
@@ -996,6 +1052,78 @@ async function copyCommand(): Promise<void> {
 }
 .ev-job-cancelled .ev-icon {
   color: var(--fail);
+}
+
+/* webhook 投递面板（E14）：状态徽标 + 目标 + 错误/下次重试。 */
+.deliveries {
+  margin: 0 0 14px;
+}
+.deliveries-title {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--phosphor);
+  text-transform: uppercase;
+  margin: 0 0 10px;
+}
+.deliveries-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.delivery-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.delivery-row:last-child {
+  border-bottom: none;
+}
+.dl-badge {
+  flex: 0 0 auto;
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  border: 1px solid var(--queue);
+  color: var(--queue);
+}
+.dl-badge.dl-delivered {
+  color: var(--done);
+  border-color: var(--done);
+}
+.dl-badge.dl-failed {
+  color: var(--fail);
+  border-color: var(--fail);
+}
+.dl-badge.dl-pending {
+  color: var(--run);
+  border-color: var(--run);
+}
+.dl-target {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--paper);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dl-error {
+  flex: 0 1 auto;
+  min-width: 0;
+  color: var(--fail);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.dl-time {
+  flex: 0 0 auto;
+  color: var(--queue);
+  font-size: 11px;
 }
 
 /* 产出与审计面板：渲染命令 + 结构化结果。 */
