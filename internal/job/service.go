@@ -85,6 +85,11 @@ type Service struct {
 	// state.
 	events eventSink
 
+	// deliveries is the E14 webhook delivery-enqueue sink. It is nil in production
+	// (enqueueDeliveries falls back to s.meta); tests inject a sink to observe or
+	// fail the enqueue and prove it is best-effort.
+	deliveries deliverySink
+
 	// workers supplies connected-worker candidates for label-based auto-selection
 	// (P2 / D3). Injected by commands.buildCore (hub-backed); may be nil — Submit
 	// only consults it on the runner=worker + worker_labels path, so every other
