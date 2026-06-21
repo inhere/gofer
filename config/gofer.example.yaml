@@ -31,6 +31,14 @@ server:
   # worker_id; a `register` frame whose worker_id does not match the presented
   # token's bound worker is rejected. The per-worker token is mandatory even when
   # allow_empty_token is set. labels are display/scheduling hints only.
+  #
+  # 让一个 worker 真正连上并显示,三处必须对齐【同一个 worker_id】(下例 builder-1):
+  #   1. server.workers 的 KEY            = builder-1   (本段)
+  #   2. worker 端 config 的 worker_id     = builder-1   (worker 的 *.yaml,见 worker 配置)
+  #   3. runners.<name>.worker_id          = builder-1   (下面 runners 段,给名册/派发用)
+  # 且 worker 端 server_link.token 必须解析为 server.workers.builder-1 的同一个 token。
+  # 缺 server.workers 段 → worker 注册被拒(日志: "hub rejected worker registration ...
+  # worker_id not bound to this token"); 缺 runners 段 → 连上了但 /v1/runners(Web)看不到。
   # workers:
   #   builder-1:
   #     token_env: GOFER_WORKER_BUILDER1_TOKEN
@@ -87,6 +95,14 @@ projects:
     result_subdir: gofer
     default_agent: codex
     allowed_agents: [codex, claude, exec]
+    # allowed_runners 列的是 runner 的【名字】(runners: 下的 key),不是 type。
+    # 要把 job 派给 worker, 在这里加上那个 worker-runner 的名字(如下例 builder):
+    #   allowed_runners: [local, builder]
+    # 注意 worker 是【两段配置】:
+    #   - 派发端(本 server 项目)allowed_runners 含 worker-runner 名(builder) → 准许派发;
+    #   - 执行端(worker 自己的 *.yaml 同名项目)allowed_runners 含 local → worker 本地执行;
+    #   - 且【project key 两边必须一致】: job 带的 project, 派到 worker 后由 worker 用自己的
+    #     config 再解析同一个 key, key 对不上 worker 会以「未知项目」拒掉。
     allowed_runners: [local]
     allow_exec: true
     max_concurrent_jobs: 4
@@ -152,9 +168,11 @@ runners:
     type: peer-http
     base_url: http://127.0.0.1:8766
     token_env: CONTAINER_BRIDGE_TOKEN
-  # Dispatch to a registered ws-worker. worker_id must match a server.workers
-  # entry above. One worker-runner targets exactly one worker (dynamic routing is
-  # WP4 scheduling, not WP1).
+  # Dispatch to a registered ws-worker. 声明这个 runner 才会:① 让 worker 出现在
+  # /v1/runners 名册(Web 可见); ② 可被 `runner: <这个 runner 名>` 的 job 派发到。
+  # worker_id 必须等于上面 server.workers 的 KEY(也=worker 端自报的 worker_id)。
+  # 一个 worker-runner 精确指向一个 worker(动态路由是 WP4 调度, 非 WP1)。
+  # 提交端项目还需在 allowed_runners 里加上这个 runner 名(见 projects 段注释)。
   # builder:
   #   type: worker
   #   worker_id: builder-1
