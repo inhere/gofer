@@ -440,6 +440,25 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem chan struct{},
 // result — the eviction only severs the map lookup for future callers, which then
 // fall back to the metadata store (see Wait/Get/Cancel).
 func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, err error) {
+	// E13: record the terminal event BEFORE the terminal status becomes observable.
+	// The in-memory status flip below is visible via Get() immediately (the entry
+	// is still in s.jobs) and persist() then exposes it from the DB too — so any
+	// reader/SSE that keys off terminal status (waitDone; the stream's terminal→
+	// `end` close) could otherwise observe "done" and read the event log BEFORE this
+	// row lands, missing the terminal frame (and racing teardown into a closed DB).
+	// Recording it first reflects the already-DECIDED terminal outcome (status/
+	// exitCode/err are final here) and closes that race. best-effort — never gates
+	// the status flip / persist / eviction.
+	errStr := ""
+	if err != nil {
+		errStr = err.Error()
+	}
+	s.recordEvent(jobID, EventJobTerminal, map[string]any{
+		"status":    status,
+		"exit_code": exitCode,
+		"error":     errStr,
+	})
+
 	entry.mu.Lock()
 	entry.result.Status = status
 	entry.result.ExitCode = exitCode
@@ -460,18 +479,6 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// (near-zero, given Store.writeMu) count of jobs whose terminal write failed,
 	// not by history — C1's invariant still holds.
 	persistErr := s.persist(snap)
-	// E13: record the terminal event AFTER the durable terminal write (the event
-	// reflects an already-persisted fact). detail.status distinguishes
-	// done/failed/timeout/cancelled. best-effort — never gates eviction.
-	errStr := ""
-	if err != nil {
-		errStr = err.Error()
-	}
-	s.recordEvent(jobID, EventJobTerminal, map[string]any{
-		"status":    status,
-		"exit_code": exitCode,
-		"error":     errStr,
-	})
 	if persistErr == nil && isTerminal(status) {
 		s.mu.Lock()
 		delete(s.jobs, jobID)
