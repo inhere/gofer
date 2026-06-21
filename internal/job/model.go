@@ -114,3 +114,16 @@ const (
 	// P4 never sets it.
 	StatusPendingInteraction = "pending_interaction"
 )
+
+// Job lifecycle event types (E13, design §5.2). Each is recorded append-only via
+// recordEvent at the corresponding state transition's persist-success point. The
+// detail payload per type is documented at each insertion site.
+const (
+	EventJobSubmitted        = "job.submitted"        // {project,agent,runner,caller_id,tags}
+	EventJobDispatched       = "job.dispatched"       // {runner,worker_id} (remote only)
+	EventJobRunning          = "job.running"          // nil
+	EventJobTerminal         = "job.terminal"         // {status,exit_code,error}
+	EventJobCancelled        = "job.cancelled"        // {was_terminal}
+	EventInteractionCreated  = "interaction.created"  // {interaction_id,type,prompt}
+	EventInteractionAnswered = "interaction.answered" // {interaction_id,answer}
+)
