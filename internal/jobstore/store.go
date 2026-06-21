@@ -94,6 +94,19 @@ var schemaStmts = []string{
   PRIMARY KEY (job_id, id)
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_inter_job ON interactions(job_id)`,
+	// job_events is the append-only lifecycle event stream (E13). One row per
+	// recorded event; seq is the monotonic global insertion order (AUTOINCREMENT)
+	// used as the SSE/poll cursor (?since=<seq>). detail_json is an optional JSON
+	// blob (nullable). The (job_id, seq) index serves ListJobEvents' per-job,
+	// seq-ordered scan. Like every table here it is IF NOT EXISTS (idempotent Open).
+	`CREATE TABLE IF NOT EXISTS job_events (
+  seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+  job_id      TEXT    NOT NULL,
+  type        TEXT    NOT NULL,
+  detail_json TEXT,
+  at          INTEGER NOT NULL
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_job_events_job ON job_events(job_id, seq)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema

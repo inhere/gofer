@@ -42,7 +42,8 @@ type RetentionPolicy struct {
 func (p RetentionPolicy) IsZero() bool { return p.MaxAge <= 0 && p.MaxCount <= 0 }
 
 // PruneJobs deletes the terminal jobs (status in done/failed/cancelled/timeout)
-// that the retention policy evicts, along with their interaction rows. Live jobs
+// that the retention policy evicts, along with their interaction and event rows
+// (E13). Live jobs
 // (queued/running/pending_interaction) are NEVER deleted. It returns the number
 // of jobs deleted and the result_dir of each, so the caller can best-effort
 // remove the on-disk log directories (the DB does not own those files).
@@ -77,6 +78,12 @@ func (s *Store) PruneJobs(policy RetentionPolicy, now int64) (deleted int, prune
 		if _, err := tx.Exec("DELETE FROM interactions WHERE job_id = ?", id); err != nil {
 			_ = tx.Rollback()
 			return 0, nil, fmt.Errorf("jobstore: prune interactions %q: %w", id, err)
+		}
+		// E13: the append-only event stream is owned by the job; drop it with the
+		// job row (same tx) so a pruned job leaves no orphaned events.
+		if _, err := tx.Exec("DELETE FROM job_events WHERE job_id = ?", id); err != nil {
+			_ = tx.Rollback()
+			return 0, nil, fmt.Errorf("jobstore: prune job events %q: %w", id, err)
 		}
 		if _, err := tx.Exec("DELETE FROM jobs WHERE id = ?", id); err != nil {
 			_ = tx.Rollback()
