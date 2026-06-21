@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -390,5 +391,113 @@ func TestSubmitWorkflowRejectsInvalidStep(t *testing.T) {
 				t.Fatalf("expected rejection, got workflow %s", wf.ID)
 			}
 		})
+	}
+}
+
+// TestWorkflowResolvesRefsEndToEnd is the P2 integration proof (real exec): a 3-step
+// chain where step1 writes result.json + emits a result_dir, step2's cmd references
+// ${steps.1.result_dir}, and step3's prompt references ${steps.2.exit_code}. After
+// the chain runs to done, each downstream step's PERSISTED request (request_json)
+// must carry the substituted value — proving resolveRefs ran before each step's
+// Submit and the real prior output flowed through.
+func TestWorkflowResolvesRefsEndToEnd(t *testing.T) {
+	root := t.TempDir()
+	s := newTestService(t, root)
+
+	// step1 writes a result.json so it has a real result_dir to hand downstream.
+	step1 := StepSpec{
+		Name: "gen", ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"sh", "-c", `printf '{"ok":true}' > "$GOFER_RESULT_DIR/result.json"`},
+		Cwd: ".", TimeoutSec: 30,
+	}
+	// step2 consumes step1's result_dir as an argv element (path-by-reference).
+	step2 := StepSpec{
+		Name: "use-dir", ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"sh", "-c", `test -f "${steps.1.result_dir}/result.json"`},
+		Cwd: ".", TimeoutSec: 30,
+	}
+	// step3 (exec) carries step2's exit_code in its prompt; the prompt is persisted
+	// into request_json even though exec ignores it for execution — that is what we
+	// assert (the substitution landed in the started step's request).
+	step3 := StepSpec{
+		Name: "use-code", ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd:    []string{"true"},
+		Prompt: "prior exit was ${steps.2.exit_code}",
+		Cwd:    ".", TimeoutSec: 30,
+	}
+
+	wf, err := s.SubmitWorkflow(WorkflowSpec{Steps: []StepSpec{step1, step2, step3}}, "alice")
+	if err != nil {
+		t.Fatalf("SubmitWorkflow: %v", err)
+	}
+
+	final := waitWorkflow(t, s, wf.ID)
+	if final.Status != jobstore.WorkflowDone {
+		t.Fatalf("workflow status = %s (err=%s), want done", final.Status, final.Error)
+	}
+
+	jobs, err := s.meta.ListWorkflowJobs(wf.ID)
+	if err != nil {
+		t.Fatalf("ListWorkflowJobs: %v", err)
+	}
+	if len(jobs) != 3 {
+		t.Fatalf("ran %d step jobs, want 3", len(jobs))
+	}
+
+	// step1's real result_dir must appear verbatim in step2's persisted request
+	// (the ${steps.1.result_dir} ref was resolved to it before step2 started).
+	step1Job := stepJob(jobs, 1)
+	step2Job := stepJob(jobs, 2)
+	step3Job := stepJob(jobs, 3)
+	if step1Job == nil || step2Job == nil || step3Job == nil {
+		t.Fatalf("missing a step job: %+v", jobs)
+	}
+	if step1Job.ResultDir == "" {
+		t.Fatal("step1 has no result_dir")
+	}
+	if !strings.Contains(step2Job.RequestJSON, step1Job.ResultDir) {
+		t.Fatalf("step2 request does not contain step1 result_dir %q:\n%s", step1Job.ResultDir, step2Job.RequestJSON)
+	}
+	// step2 exited 0 (done), so step3's prompt must read "prior exit was 0".
+	if !strings.Contains(step3Job.RequestJSON, "prior exit was 0") {
+		t.Fatalf("step3 request missing substituted exit_code:\n%s", step3Job.RequestJSON)
+	}
+}
+
+// TestWorkflowFailsWhenRefHasNoOutput is the runtime-missing-output proof: step2
+// references ${steps.1.result} but step1 writes NO result.json. resolveRefs fails
+// when advancing to step2, so the workflow goes failed with a clear error and step2
+// never starts.
+func TestWorkflowFailsWhenRefHasNoOutput(t *testing.T) {
+	root := t.TempDir()
+	s := newTestService(t, root)
+
+	step1 := echoStep("no-result") // echoes, never writes result.json
+	step2 := StepSpec{
+		Name: "wants-result", ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"sh", "-c", "echo ${steps.1.result}"},
+		Cwd: ".", TimeoutSec: 30,
+	}
+
+	wf, err := s.SubmitWorkflow(WorkflowSpec{Steps: []StepSpec{step1, step2}}, "alice")
+	if err != nil {
+		t.Fatalf("SubmitWorkflow: %v", err)
+	}
+
+	final := waitWorkflow(t, s, wf.ID)
+	if final.Status != jobstore.WorkflowFailed {
+		t.Fatalf("workflow status = %s, want failed (step1 wrote no result.json)", final.Status)
+	}
+	if !strings.Contains(final.Error, "resolve refs") {
+		t.Fatalf("workflow error should mention resolve refs, got: %q", final.Error)
+	}
+
+	jobs, err := s.meta.ListWorkflowJobs(wf.ID)
+	if err != nil {
+		t.Fatalf("ListWorkflowJobs: %v", err)
+	}
+	// step2 must NOT have started (its refs could not be resolved).
+	if stepJob(jobs, 2) != nil {
+		t.Fatal("step2 started despite unresolvable ref")
 	}
 }

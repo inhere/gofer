@@ -35,6 +35,36 @@ var allowedRefFields = map[string]bool{
 	"job_id":     true,
 }
 
+// validateRefs statically checks every ${steps.N.field} reference in a workflow
+// spec at submit time (no prior outputs needed): for a 1-based step i, every ref it
+// names must point at an EARLIER step (1 <= N < i, no self/forward reference) and
+// use a known field. Step 1 may not reference anything (it has no prior). A bad ref
+// is an ErrInvalidRequest (400) so the whole submit is rejected before any DB row /
+// job is created — the chain never starts a step it can't later resolve.
+func validateRefs(spec WorkflowSpec) error {
+	for i := range spec.Steps {
+		stepNo := i + 1 // 1-based
+		fields := []string{spec.Steps[i].Prompt, spec.Steps[i].Cwd}
+		fields = append(fields, spec.Steps[i].Cmd...)
+		for _, f := range fields {
+			for _, m := range stepRefRe.FindAllStringSubmatch(f, -1) {
+				n, _ := strconv.Atoi(m[1]) // m[1] is \d+, always parses
+				field := m[2]
+				if !allowedRefFields[field] {
+					return fmt.Errorf("%w: step %d references unknown field ${steps.%d.%s}", ErrInvalidRequest, stepNo, n, field)
+				}
+				if n < 1 {
+					return fmt.Errorf("%w: step %d references invalid step ${steps.%d.%s} (N must be >= 1)", ErrInvalidRequest, stepNo, n, field)
+				}
+				if n >= stepNo {
+					return fmt.Errorf("%w: step %d references ${steps.%d.%s} which is not a prior step (N must be < %d)", ErrInvalidRequest, stepNo, n, field, stepNo)
+				}
+			}
+		}
+	}
+	return nil
+}
+
 // resolveRefs rewrites every ${steps.N.field} reference in the step's string fields
 // (prompt / each cmd argv element / cwd) to the matching prior step's output, in
 // place. N is 1-based and refers to an ALREADY-FINISHED prior step (validateRefs
