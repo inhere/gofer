@@ -54,6 +54,10 @@ func (s *Service) Cancel(id string) error {
 		return nil
 	}
 	if cancel != nil {
+		// E13: a real cancellation is being issued on a live job. The subsequent
+		// finish() records the job.terminal(cancelled) event; this marks the user
+		// intent. was_terminal is false here (the terminal job path returned above).
+		s.recordEvent(id, EventJobCancelled, map[string]any{"was_terminal": false})
 		cancel()
 	}
 	return nil

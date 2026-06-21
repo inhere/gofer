@@ -79,6 +79,12 @@ type Service struct {
 	// stay as files in the per-job result dir. See design §6/§8/§10.
 	meta *jobstore.Store
 
+	// events is the append-only lifecycle event sink for recordEvent (E13). It is
+	// nil in production (recordEvent falls back to s.meta); tests inject a failing
+	// sink to prove event recording is best-effort and never affects job terminal
+	// state.
+	events eventSink
+
 	// workers supplies connected-worker candidates for label-based auto-selection
 	// (P2 / D3). Injected by commands.buildCore (hub-backed); may be nil — Submit
 	// only consults it on the runner=worker + worker_labels path, so every other
@@ -314,6 +320,25 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		return JobResult{}, persistErr
 	}
 
+	// E13: the queued snapshot is durably persisted (or best-effort for the
+	// no-request_id case) — record the lifecycle event now that submission is a
+	// fact. Detail carries the identity/routing fields (no secrets, SR403).
+	s.recordEvent(jobID, EventJobSubmitted, map[string]any{
+		"project":   req.ProjectKey,
+		"agent":     req.Agent,
+		"runner":    req.Runner,
+		"caller_id": req.CallerID,
+		"tags":      req.Tags,
+	})
+	// E13: a remote runner (peer-http / ws-worker) forwards the job to a remote
+	// executor — record the dispatch with the resolved target.
+	if remote {
+		s.recordEvent(jobID, EventJobDispatched, map[string]any{
+			"runner":    req.Runner,
+			"worker_id": req.WorkerID,
+		})
+	}
+
 	sem := s.semaphore(req.ProjectKey, proj.MaxConcurrentJobs)
 	timeout := normalizeTimeout(req.TimeoutSec)
 	go s.execute(entry, run, sem, runReq, timeout)
@@ -372,6 +397,8 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem chan struct{},
 
 	// Persist a running snapshot so a crash leaves an inspectable DB row.
 	_ = s.persist(snap)
+	// E13: queued -> running transition is now a fact.
+	s.recordEvent(req.JobID, EventJobRunning, nil)
 
 	stdout, errOut := entry.store.LogWriter(req.JobID, store.StreamStdout)
 	if errOut != nil {
@@ -433,6 +460,18 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// (near-zero, given Store.writeMu) count of jobs whose terminal write failed,
 	// not by history — C1's invariant still holds.
 	persistErr := s.persist(snap)
+	// E13: record the terminal event AFTER the durable terminal write (the event
+	// reflects an already-persisted fact). detail.status distinguishes
+	// done/failed/timeout/cancelled. best-effort — never gates eviction.
+	errStr := ""
+	if err != nil {
+		errStr = err.Error()
+	}
+	s.recordEvent(jobID, EventJobTerminal, map[string]any{
+		"status":    status,
+		"exit_code": exitCode,
+		"error":     errStr,
+	})
 	if persistErr == nil && isTerminal(status) {
 		s.mu.Lock()
 		delete(s.jobs, jobID)

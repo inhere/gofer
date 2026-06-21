@@ -144,6 +144,13 @@ func (s *Service) CreateInteraction(jobID string, in InteractionInput) (Interact
 	_ = s.persist(snap)
 	_ = s.meta.UpsertInteraction(toInteractionRecord(out))
 
+	// E13: record the interaction.created lifecycle event after persistence.
+	s.recordEvent(jobID, EventInteractionCreated, map[string]any{
+		"interaction_id": out.ID,
+		"type":           out.Type,
+		"prompt":         out.Prompt,
+	})
+
 	return out, nil
 }
 
@@ -280,6 +287,11 @@ func (s *Service) AnswerInteraction(jobID, interactionID, answer string) (Intera
 	if resumeSnap != nil {
 		_ = s.persist(*resumeSnap)
 	}
+	// E13: record the interaction.answered lifecycle event after persistence.
+	s.recordEvent(jobID, EventInteractionAnswered, map[string]any{
+		"interaction_id": out.ID,
+		"answer":         out.Answer,
+	})
 	// Wake any WaitAnswer caller. Closing under no lock is fine: the channel is
 	// closed exactly once (the pending->answered transition is single-shot).
 	close(rec.answered)
