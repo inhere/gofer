@@ -201,6 +201,52 @@ func (s *Service) advanceWorkflow(wfID string) {
 	}
 }
 
+// GetWorkflow returns a workflow header by id (HTTP detail/cancel paths). The
+// bool is false when no such workflow exists. It is a thin pass-through to the
+// metadata store so httpapi never reaches into the unexported store.
+func (s *Service) GetWorkflow(id string) (jobstore.Workflow, bool, error) {
+	return s.meta.GetWorkflow(id)
+}
+
+// ListWorkflows returns workflow headers, optionally filtered by status, newest
+// first, capped at limit (<=0 => store default). HTTP list path.
+func (s *Service) ListWorkflows(status string, limit int) ([]jobstore.Workflow, error) {
+	return s.meta.ListWorkflows(status, limit)
+}
+
+// WorkflowStep is one row of a workflow's step list in the detail response:
+// the 1-based index, the step name (from the job's title / spec name), the
+// step-job id and its current status. job_id/status are empty/"" for a step not
+// yet started.
+type WorkflowStep struct {
+	StepIndex int    `json:"step_index"`
+	Name      string `json:"name,omitempty"`
+	JobID     string `json:"job_id,omitempty"`
+	Status    string `json:"status,omitempty"`
+}
+
+// WorkflowSteps returns the per-step summary for a workflow's detail view, in
+// step order. It reads the started step-jobs (a step not yet reached has no job
+// row, so the list only contains started steps — the chain is strictly serial).
+// The name is recovered from the step-job's persisted request (Title == step
+// name).
+func (s *Service) WorkflowSteps(wfID string) ([]WorkflowStep, error) {
+	jobs, err := s.meta.ListWorkflowJobs(wfID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]WorkflowStep, 0, len(jobs))
+	for _, j := range jobs {
+		out = append(out, WorkflowStep{
+			StepIndex: j.StepIndex,
+			Name:      titleFromRequestJSON(j.RequestJSON),
+			JobID:     j.ID,
+			Status:    j.Status,
+		})
+	}
+	return out, nil
+}
+
 // AdvanceRunningWorkflows is the crash-recovery sweeper body (SR304): it scans
 // running workflows and re-drives advanceWorkflow for each, picking up any whose
 // current step finished but whose finish-hook advance never ran (process crash /

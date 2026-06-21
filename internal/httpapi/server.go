@@ -224,6 +224,13 @@ func (s *Server) buildRouter() *rux.Router {
 
 		r.POST("/jobs/{id}/cancel", s.handleCancelJob)
 
+		// 工作流(job 链)：提交/列表/详情(含 step 链)/取消。详情附每步 {step_index,
+		// name,job_id,status}，列表 ?status= 过滤；提交校验失败复用 submitStatus(404/400)。
+		r.POST("/workflows", s.handleCreateWorkflow)
+		r.GET("/workflows", s.handleListWorkflows)
+		r.GET("/workflows/{id}", s.handleGetWorkflow)
+		r.POST("/workflows/{id}/cancel", s.handleCancelWorkflow)
+
 		// P9 running-job two-way interactions.
 		r.POST("/jobs/{id}/interactions", s.handleCreateInteraction)
 		r.GET("/jobs/{id}/interactions", s.handleListInteractions)
