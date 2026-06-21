@@ -43,6 +43,12 @@ type JobRequest struct {
 	// and queryable via ?tag= (exact element match). Unlike WorkerLabels (routing,
 	// not stored), Tags are索引/检索维度。
 	Tags []string `json:"tags,omitempty" yaml:"tags,omitempty"`
+	// WorkflowID / StepIndex are INTERNAL fields set ONLY by the workflow engine
+	// (SubmitWorkflow / advanceWorkflow) when starting a step-job; they bind the job
+	// to its workflow + 1-based step. json/yaml tag "-" keeps clients (HTTP body / md
+	// frontmatter) from forging them — a plain POST /v1/jobs never sets a workflow.
+	WorkflowID string `json:"-" yaml:"-"`
+	StepIndex  int    `json:"-" yaml:"-"`
 }
 
 // JobResult is the persisted/queryable job state (plan §6.2).
@@ -99,6 +105,11 @@ type JobResult struct {
 	// Tags 是 job 的自由标签（E5），持久化到 jobs.tags_json，支持 ?tag= 检索。
 	// omitempty 保证无标签的 job 响应里不出现该字段。
 	Tags []string `json:"tags,omitempty"`
+	// WorkflowID / StepIndex 标记此 job 属于哪个工作流的第几步（1-based）。普通 job 为
+	// ""/0（omitempty 不出现在响应里）。持久化到 jobs.workflow_id/step_index，
+	// finish 钩子据 WorkflowID 决定是否异步推进所属工作流。
+	WorkflowID string `json:"workflow_id,omitempty"`
+	StepIndex  int    `json:"step_index,omitempty"`
 }
 
 // Job status values (plan §6.2).
