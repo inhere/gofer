@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"fmt"
 	"os"
 	"sort"
 	"strings"
@@ -9,6 +10,7 @@ import (
 	"github.com/gookit/goutil/errorx"
 
 	configtmpl "github.com/inhere/gofer/config"
+	"github.com/inhere/gofer/internal/project"
 )
 
 // configExitErr is the process exit code returned when `config validate` finds
@@ -117,9 +119,10 @@ func NewConfigCmd() *gcli.Command {
 		Subs: []*gcli.Command{
 			{
 				Name: "validate",
-				Desc: "Validate the whole config: load + every project's paths/agents/runners",
+				Desc: "Validate a config (target: server | worker): load + per-project paths/agents/runners",
 				Config: func(c *gcli.Command) {
-					c.StrOpt(&configValidateOpts.config, "config", "c", "", "path to the bridge config file")
+					c.AddArg("target", "what to validate: server (default) | worker", false)
+					c.StrOpt(&configValidateOpts.config, "config", "c", "", "path to the config file")
 				},
 				Func: runConfigValidate,
 			},
@@ -127,12 +130,29 @@ func NewConfigCmd() *gcli.Command {
 	}
 }
 
-// runConfigValidate loads the config (which runs Load's structural validate) and
-// then iterates every project running the same per-project checks as
-// `project validate <key>` (reusing loadRegistry + reg.Validate, not a reimpl).
-// It prints one [OK]/[FAIL] line per check. Any FAIL → coded error → non-zero
-// exit; all OK → "config OK".
+// runConfigValidate dispatches by target: `server` (default) validates the server
+// config; `worker` validates a worker.yaml. Backward compatible — a bare
+// `gofer config validate` still validates the server config.
 func runConfigValidate(c *gcli.Command, _ []string) error {
+	target := "server"
+	if a := c.Arg("target"); a != nil && a.String() != "" {
+		target = strings.ToLower(a.String())
+	}
+	switch target {
+	case "", "server":
+		return validateServerConfig(c)
+	case "worker":
+		return validateWorkerConfig(c)
+	default:
+		return errorx.Failf(configExitErr, "unknown validate target %q (use: server | worker)", target)
+	}
+}
+
+// validateServerConfig loads the server config (which runs Load's structural
+// validate) and iterates every project running the same per-project checks as
+// `project validate <key>` (reusing loadRegistry + reg.Validate, not a reimpl).
+// One [OK]/[FAIL] line per check; any FAIL → coded error (non-zero exit).
+func validateServerConfig(c *gcli.Command) error {
 	// loadRegistry calls config.Load, which already runs validate(cfg) (host_path
 	// required) and surfaces decode errors — a coded error so the exit is non-zero.
 	reg, err := loadRegistry(configValidateOpts.config)
@@ -146,16 +166,80 @@ func runConfigValidate(c *gcli.Command, _ []string) error {
 		c.Println("config OK")
 		return nil
 	}
-	// Deterministic output order across runs (reg.List backing map iteration is
-	// otherwise unordered).
-	sort.Strings(keys)
+	if validateProjects(c, reg, keys) {
+		c.Println("config OK")
+		return nil
+	}
+	return errorx.Failf(configExitErr, "config validation failed")
+}
 
+// validateWorkerConfig decodes a worker.yaml and checks the worker-specific
+// fields (worker_id / server_link.urls / token resolvable) plus every project's
+// paths/agents/runners (reusing the project registry built from the worker's own
+// config — the same checks the worker runs at dispatch time, review #8). Any FAIL
+// → coded error (non-zero exit).
+func validateWorkerConfig(c *gcli.Command) error {
+	wc, err := loadWorkerConfig(configValidateOpts.config)
+	if err != nil {
+		return errorx.Failf(configExitErr, "%v", err)
+	}
+
+	allOK := true
+	chk := func(name string, ok bool, info string) {
+		status := "OK  "
+		if !ok {
+			status = "FAIL"
+			allOK = false
+		}
+		c.Printf("[%s] worker/%-18s %s\n", status, name, info)
+	}
+
+	chk("worker_id", wc.WorkerID != "", wc.WorkerID+" (must equal a server.workers key)")
+	chk("server_link.urls", len(wc.ServerLink.URLs) > 0, fmt.Sprintf("%v", wc.ServerLink.URLs))
+	// Token resolvable: token_env (env set) OR an inline token. An unresolvable
+	// token is the #1 connect failure (worker is 401'd / register-rejected).
+	tokInfo := "inline token"
+	if wc.ServerLink.TokenEnv != "" {
+		tokInfo = "token_env=" + wc.ServerLink.TokenEnv
+	}
+	chk("server_link.token", resolveWorkerToken(wc.ServerLink) != "",
+		tokInfo+" (must equal server.workers."+wc.WorkerID+" token)")
+
+	// Per-project checks via a registry built from the worker's own config (host_path
+	// exists, agents/runners resolvable) — identical to server-side project validate.
+	reg := project.NewRegistry(workerConfigToConfig(wc), configValidateOpts.config)
+	keys := reg.List()
+	if len(keys) == 0 {
+		chk("projects", false, "no projects (the worker has nothing to run)")
+	} else {
+		sort.Strings(keys)
+		if !validateProjects(c, reg, keys) {
+			allOK = false
+		}
+		for _, key := range keys {
+			// Worker-specific: a worker executes dispatched jobs LOCALLY, so each of its
+			// projects must allow the built-in `local` runner (not the server's worker
+			// runner name — a common copy-paste mistake).
+			p, _ := reg.Get(key)
+			chk(key+"/local-runner", allowsLocalRunner(p.AllowedRunners),
+				"worker runs locally → allowed_runners should include local")
+		}
+	}
+
+	if !allOK {
+		return errorx.Failf(configExitErr, "worker config validation failed")
+	}
+	c.Println("worker config OK")
+	return nil
+}
+
+// validateProjects prints one [OK]/[FAIL] line per per-project check and returns
+// whether all projects passed. Shared by server + worker validation.
+func validateProjects(c *gcli.Command, reg *project.Registry, keys []string) bool {
 	allOK := true
 	for _, key := range keys {
 		results, ok, vErr := reg.Validate(key)
 		if vErr != nil {
-			// Unknown project mid-iteration shouldn't happen (keys come from List),
-			// but surface it as a failure rather than aborting the whole sweep.
 			c.Printf("[FAIL] %-22s %v\n", key, vErr)
 			allOK = false
 			continue
@@ -171,10 +255,19 @@ func runConfigValidate(c *gcli.Command, _ []string) error {
 			allOK = false
 		}
 	}
+	return allOK
+}
 
-	if !allOK {
-		return errorx.Failf(configExitErr, "config validation failed")
+// allowsLocalRunner reports whether the allowlist permits the built-in local
+// runner: an empty allowlist defaults to local, otherwise it must be listed.
+func allowsLocalRunner(allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
 	}
-	c.Println("config OK")
-	return nil
+	for _, r := range allowed {
+		if r == "local" {
+			return true
+		}
+	}
+	return false
 }
