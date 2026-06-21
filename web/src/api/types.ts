@@ -274,6 +274,47 @@ export interface SubmitJobResult {
   async: boolean
 }
 
+// 工作流（job 链）。状态取值是 JobStatus 的子集（running/done/failed/cancelled），
+// 复用 StatusBadge 渲染。与 internal/httpapi/workflow_handler.go 的
+// workflowSummary（列表/提交/取消，仅头部）/ workflowDetail（详情，头部+steps）对齐。
+export type WorkflowStatus = 'running' | 'done' | 'failed' | 'cancelled'
+
+// 工作流中的一步：1-based 序号 + 步骤名 + 对应 step-job 的 id/status。
+// 尚未起的步骤无 job 行（链严格串行），故未到的步骤不在列表中。
+export interface WorkflowStep {
+  step_index: number
+  // 后端 omitempty：步骤名（来自 spec name / 原始请求 title）
+  name?: string
+  // 后端 omitempty：该步 step-job id（未起为空）
+  job_id?: string
+  // 后端 omitempty：该 step-job 当前状态
+  status?: JobStatus
+}
+
+// 工作流头部 + 步骤链。列表/提交/取消仅返回头部（steps 省略）；详情内联 steps。
+export interface Workflow {
+  id: string
+  // 后端 omitempty
+  title?: string
+  status: WorkflowStatus
+  // 1-based 当前活跃步
+  current_step: number
+  total_steps: number
+  // 后端 omitempty
+  caller_id?: string
+  // 后端 omitempty：status=failed 时的失败原因
+  error?: string
+  // Unix 秒
+  created_at: number
+  updated_at: number
+  // 仅详情（getWorkflow）内联；列表为空
+  steps?: WorkflowStep[]
+}
+
+export interface WorkflowsResp {
+  workflows: Workflow[]
+}
+
 // SSE 事件（解析后）
 // log-rotated：后端日志文件发生轮转（offset 重置），前端需清空该 stream 已缓冲文本后续读。
 export type SSEEventType =

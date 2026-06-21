@@ -20,6 +20,9 @@ import type {
   RunnersResp,
   SubmitJobReq,
   SubmitJobResult,
+  Workflow,
+  WorkflowsResp,
+  WorkflowStatus,
 } from './types'
 import type { StreamJobOpts } from './sse'
 
@@ -216,6 +219,25 @@ export async function viewFullDiff(id: string): Promise<void> {
 
 export function cancelJob(id: string): Promise<Job> {
   return request<Job>(`/v1/jobs/${encodeURIComponent(id)}/cancel`, {
+    method: 'POST',
+  })
+}
+
+// 工作流列表（GET /v1/workflows）：可选 status 过滤；返回头部数组（无 steps）。
+export function listWorkflows(status?: WorkflowStatus): Promise<WorkflowsResp> {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : ''
+  return request<WorkflowsResp>(`/v1/workflows${qs}`)
+}
+
+// 工作流详情（GET /v1/workflows/{id}）：头部 + 内联 steps 步骤链。
+export function getWorkflow(id: string): Promise<Workflow> {
+  return request<Workflow>(`/v1/workflows/${encodeURIComponent(id)}`)
+}
+
+// 取消运行中的工作流（POST /v1/workflows/{id}/cancel）：返回更新后的头部快照。
+// 取消终态工作流为稳定 no-op（服务端）。
+export function cancelWorkflow(id: string): Promise<Workflow> {
+  return request<Workflow>(`/v1/workflows/${encodeURIComponent(id)}/cancel`, {
     method: 'POST',
   })
 }
