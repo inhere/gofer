@@ -1,6 +1,8 @@
 package job
 
 import (
+	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -294,6 +296,77 @@ func waitStepJobRunning(t *testing.T, s *Service, wfID string, step int) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("step %d of %s did not start running in time", step, wfID)
+}
+
+// TestAdvanceRunningWorkflowsRecoversCrashedAdvance simulates a crash: a running
+// workflow whose step-1 job reached done but whose finish-hook advance never ran
+// (the next step was never started). The sweeper (AdvanceRunningWorkflows) must
+// re-drive it and start step 2.
+func TestAdvanceRunningWorkflowsRecoversCrashedAdvance(t *testing.T) {
+	s := newTestService(t, t.TempDir())
+
+	// Build the spec we want (2 echo steps) and persist a running workflow header
+	// + a DONE step-1 job DIRECTLY via the store, bypassing the finish hook — this
+	// is exactly the "advance was lost" state a crash leaves behind.
+	spec := WorkflowSpec{Steps: []StepSpec{echoStep("s1"), echoStep("s2")}}
+	wfID := "wf-crash"
+	specJSON := mustMarshalSpec(t, spec)
+	if err := s.meta.InsertWorkflow(jobstore.Workflow{
+		ID: wfID, Status: jobstore.WorkflowRunning, CurrentStep: 1, TotalSteps: 2,
+		SpecJSON: specJSON, CallerID: "alice", CreatedAt: 1, UpdatedAt: 1,
+	}); err != nil {
+		t.Fatalf("InsertWorkflow: %v", err)
+	}
+	if err := s.meta.UpsertJob(jobstore.JobRecord{
+		ID: "crash-step1", ProjectKey: "self", Agent: "exec", Runner: "local",
+		Status: StatusDone, ResultDir: "/tmp/x/crash-step1", StartedAt: 1,
+		WorkflowID: wfID, StepIndex: 1,
+	}); err != nil {
+		t.Fatalf("UpsertJob step1: %v", err)
+	}
+
+	// Before the sweep: only step 1 exists.
+	jobs, _ := s.meta.ListWorkflowJobs(wfID)
+	if len(jobs) != 1 {
+		t.Fatalf("pre-sweep step jobs = %d, want 1", len(jobs))
+	}
+
+	// Sweep: must recover and start step 2.
+	n := s.AdvanceRunningWorkflows(context.Background())
+	if n != 1 {
+		t.Fatalf("AdvanceRunningWorkflows inspected %d, want 1 running", n)
+	}
+
+	final := waitWorkflow(t, s, wfID)
+	if final.Status != jobstore.WorkflowDone {
+		t.Fatalf("workflow status = %s, want done after recovery", final.Status)
+	}
+	jobs, _ = s.meta.ListWorkflowJobs(wfID)
+	if len(jobs) != 2 {
+		t.Fatalf("post-sweep step jobs = %d, want 2 (step2 recovered)", len(jobs))
+	}
+	if stepJob(jobs, 2) == nil {
+		t.Fatal("step 2 was not started by the sweeper")
+	}
+}
+
+// TestAdvanceRunningWorkflowsNoOpWhenEmpty asserts the sweeper is a clean no-op
+// when there are no running workflows.
+func TestAdvanceRunningWorkflowsNoOpWhenEmpty(t *testing.T) {
+	s := newTestService(t, t.TempDir())
+	if n := s.AdvanceRunningWorkflows(context.Background()); n != 0 {
+		t.Fatalf("sweep inspected %d, want 0 (no running workflows)", n)
+	}
+}
+
+// mustMarshalSpec marshals a WorkflowSpec exactly as SubmitWorkflow does.
+func mustMarshalSpec(t *testing.T, spec WorkflowSpec) string {
+	t.Helper()
+	b, err := json.Marshal(spec)
+	if err != nil {
+		t.Fatalf("marshal spec: %v", err)
+	}
+	return string(b)
 }
 
 // TestSubmitWorkflowRejectsInvalidStep asserts every step is validated at submit

@@ -98,6 +98,13 @@ func runServe(c *gcli.Command, _ []string) error {
 	defer close(stopDelivery)
 	startDeliveryLoop(c, core.Jobs, cfg.Server.Notification, stopDelivery)
 
+	// 工作流推进 sweeper（job 链，crash 兜底）：扫 running 工作流，对当前 step 已终态但
+	// 未被 finish 钩子推进的补推（幂等，与钩子叠加安全）。始终启动（工作流是核心能力，
+	// 开销低：无 running 工作流时空转）；stop 在 serve 返回时关闭，goroutine 干净退出。
+	stopWorkflow := make(chan struct{})
+	defer close(stopWorkflow)
+	startWorkflowLoop(c, core.Jobs, stopWorkflow)
+
 	// Config hot-reload (C3): SIGHUP re-loads the config from the serve path and
 	// atomically swaps it into the registries + job service (no restart, no
 	// effect on in-flight jobs). The goroutine stops cleanly when serve returns.
@@ -224,6 +231,42 @@ func startDeliveryLoop(c *gcli.Command, jobs *job.Service, nconf *config.Notific
 				return
 			case <-ticker.C:
 				jobs.DeliverDue(ctx)
+			}
+		}
+	}()
+}
+
+// workflowInterval is the工作流推进 sweeper cadence (crash recovery). The finish
+// hook推进 the common case promptly; this only catches workflows whose hook was
+// lost (process crash mid-step), so a relaxed tick is fine.
+const workflowInterval = 30 * time.Second
+
+// startWorkflowLoop launches the工作流推进 sweeper goroutine (job 链, crash 兜底).
+// It mirrors startDeliveryLoop: sweep once at startup (re-drive any workflow whose
+// step finished while the server was down), then on every tick. The goroutine
+// exits when stop is closed (serve shutdown); an in-flight sweep is cancelled via
+// a ctx tied to stop. Unlike prune/delivery it is ALWAYS started — workflows are a
+// core capability, not opt-in config — and is a cheap no-op when none are running.
+func startWorkflowLoop(c *gcli.Command, jobs *job.Service, stop <-chan struct{}) {
+	c.Printf("gofer: workflow advance sweeper enabled (interval=%s)\n", workflowInterval)
+
+	go func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			<-stop
+			cancel()
+		}()
+		defer cancel()
+
+		jobs.AdvanceRunningWorkflows(ctx) // sweep once at startup (crash recovery)
+		ticker := time.NewTicker(workflowInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				jobs.AdvanceRunningWorkflows(ctx)
 			}
 		}
 	}()
