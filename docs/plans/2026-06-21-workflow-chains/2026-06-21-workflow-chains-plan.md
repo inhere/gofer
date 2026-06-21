@@ -41,8 +41,8 @@
 - [x] **P1-e** API：`POST /v1/workflows` / `GET /v1/workflows{,/id}` / `POST /v1/workflows/{id}/cancel`
 - [x] **P2-a** `${steps.N.field}` 解析器（`refs.go`）+ 接入 advanceWorkflow 起 step 前替换
 - [x] **P2-b** 提交期引用校验（拒未来/自引用/越界/非法 field）+ 运行期缺产出 → fail-fast
-- [ ] **P3-a** CLI `gofer workflow run <file>`(yaml)/`show`/`list`/`cancel`（+ `--watch`）
-- [ ] **P3-b** Web 工作流列表/详情（step 链 → 各 job 详情）+ types/client
+- [x] **P3-a** CLI `gofer workflow run <file>`(yaml)/`show`/`list`/`cancel`（+ `--watch`）
+- [x] **P3-b** Web 工作流列表/详情（step 链 → 各 job 详情）+ types/client
 
 ## 全局验收门（每阶段收尾必过）
 
@@ -64,6 +64,8 @@ pnpm -C web build                                                               
 - 取消/查询在 `/v1` 鉴权内；step-job 继承 workflow caller_id。
 
 - **P2**（2026-06-21，commit `dbf7365`+`ad03a2d`）：`refs.go` `resolveRefs`——正则 `\$\{steps\.(\d+)\.(\w+)\}` 逐字段(prompt/cmd 各元素/cwd)替换(`regexp.ReplaceAllStringFunc`,**不 join 不 shell 重切**,仿 agent.Render per-argv 不变量);`resolveOne` 6 字段(result_dir/result/stdout/exit_code/status/job_id),前步产出经 `s.Get(id)` 取(覆盖内存+DB),stdout 经 `s.TailLog` 读 cap+1 检测超限,result/stdout >32KB 或缺产出 → err 带"用 result_dir"提示;接入 advanceWorkflow 起下一步前(缺产出→工作流 failed)。`validateRefs` 提交期静态校验:拒未知 field / n<1 / `n>=stepNo`(前序约束,step1 任何引用即拒)。验收门全 PASS,工作流/refs 集成测试 `-race -count=10` 无 flaky(waitWorkflow 轮询非 sleep)。注:StepSpec 当前无 env 字段,"env 值替换"待 StepSpec 加 env 后补。
+
+- **P3**（2026-06-21，commit `3607652`+`66e8d03`）：client `SubmitWorkflow`/`GetWorkflow`/`ListWorkflows`/`CancelWorkflow`（一个 `Workflow` struct 双解 summary/detail，steps omitempty）；CLI `gofer workflow run/show/list/cancel`（别名 `wf`，`run --watch` 轮询到终态、exit done=0/cancelled=130/other=1，yaml 用既有 goccy/go-yaml 不引新依赖）；Web `Workflows.vue`(列表+status 过滤+2.5s 轮询)+`WorkflowDetail.vue`(工作流头+step 链,每 step→`/jobs/{job_id}`+取消+running 轮询)+路由+导航。验收门 5/5 PASS（含 web build）；client 工作流集成 `-count=8` 无 flaky。**真机冒烟 PASS**：真二进制 `gofer workflow run wf.yaml --watch` 跑 3-step 链（step1 写 result.json → step2 引用 `${steps.1.result_dir}` ls 到文件 → step3 引用 `${steps.2.exit_code}`），顺序 done、工作流 done、exit 0，`${steps.N}` 引用真实解析。
 
 ## 结论
 v1 工作流 = `workflows` 表 + jobs 2 列 + 幂等推进引擎（finish 异步钩子 + sweeper，条件 UPDATE 抢推进权）+ `${steps.N}` 跨 step 替换。每 step 仍是普通 job，复用产出/事件/日志/取消/产物。最大复用：`finish` 终态汇聚、`ClaimDueDeliveries` 抢占范式、`startDeliveryLoop` sweeper 范式、`Get(id)` 产出读取、jobstore 加表/加列模板。最大正确性点是推进幂等。本总纲随阶段更新进度与「阶段实施结果」。
