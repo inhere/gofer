@@ -238,6 +238,78 @@ func (c *Client) CancelJob(id string) (job.JobResult, error) {
 	return res, err
 }
 
+// WorkflowStep is one row of a workflow's step chain in the detail response,
+// mirroring httpapi's job.WorkflowStep JSON (snake_case). job_id/status are empty
+// for a step not yet started (the chain is strictly serial).
+type WorkflowStep struct {
+	StepIndex int    `json:"step_index"`
+	Name      string `json:"name,omitempty"`
+	JobID     string `json:"job_id,omitempty"`
+	Status    string `json:"status,omitempty"`
+}
+
+// Workflow is the client-side view of a job-chain. It carries the workflow header
+// fields plus (for GetWorkflow) the per-step chain. List/Submit/Cancel return the
+// header only, so Steps is nil there; GetWorkflow inlines the chain. Field tags
+// match httpapi's workflowSummary / workflowDetail JSON so one struct decodes both.
+type Workflow struct {
+	ID          string         `json:"id"`
+	Title       string         `json:"title,omitempty"`
+	Status      string         `json:"status"`
+	CurrentStep int            `json:"current_step"`
+	TotalSteps  int            `json:"total_steps"`
+	CallerID    string         `json:"caller_id,omitempty"`
+	Error       string         `json:"error,omitempty"`
+	CreatedAt   int64          `json:"created_at"`
+	UpdatedAt   int64          `json:"updated_at"`
+	Steps       []WorkflowStep `json:"steps,omitempty"`
+}
+
+// SubmitWorkflow POSTs a WorkflowSpec as JSON to /v1/workflows and returns the
+// created workflow header (running, step 1 started). The caller id is stamped
+// server-side, so the spec carries no caller field (design §5.7).
+func (c *Client) SubmitWorkflow(spec job.WorkflowSpec) (Workflow, error) {
+	body, err := json.Marshal(spec)
+	if err != nil {
+		return Workflow{}, fmt.Errorf("encode workflow spec: %w", err)
+	}
+	var wf Workflow
+	err = c.doJSON(http.MethodPost, "/v1/workflows", bytes.NewReader(body), &wf)
+	return wf, err
+}
+
+// GetWorkflow fetches a workflow header + its step chain by id (GET
+// /v1/workflows/{id}). An unknown id surfaces as a 404 error.
+func (c *Client) GetWorkflow(id string) (Workflow, error) {
+	var wf Workflow
+	err := c.doJSON(http.MethodGet, "/v1/workflows/"+url.PathEscape(id), nil, &wf)
+	return wf, err
+}
+
+// ListWorkflows queries GET /v1/workflows, optionally filtered by status, and
+// returns the unwrapped header array (from the {"workflows":[...]} envelope).
+func (c *Client) ListWorkflows(status string) ([]Workflow, error) {
+	path := "/v1/workflows"
+	if status != "" {
+		path += "?status=" + url.QueryEscape(status)
+	}
+	var resp struct {
+		Workflows []Workflow `json:"workflows"`
+	}
+	if err := c.doJSON(http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Workflows, nil
+}
+
+// CancelWorkflow POSTs to /v1/workflows/{id}/cancel and returns the resulting
+// header snapshot. Cancelling a terminal workflow is a stable no-op server-side.
+func (c *Client) CancelWorkflow(id string) (Workflow, error) {
+	var wf Workflow
+	err := c.doJSON(http.MethodPost, "/v1/workflows/"+url.PathEscape(id)+"/cancel", nil, &wf)
+	return wf, err
+}
+
 // AnswerInteraction POSTs an answer to a peer interaction (P9 passthrough). The
 // updated Interaction body is not needed by the caller, so it is discarded.
 func (c *Client) AnswerInteraction(jobID, interactionID, answer string) error {

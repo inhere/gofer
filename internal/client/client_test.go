@@ -261,6 +261,113 @@ func TestSubmitMarkdownExecRejected(t *testing.T) {
 	}
 }
 
+// waitWorkflowDone polls GetWorkflow until the workflow reaches a terminal state.
+func waitWorkflowDone(t *testing.T, c *Client, id string) Workflow {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for time.Now().Before(deadline) {
+		wf, err := c.GetWorkflow(id)
+		if err != nil {
+			t.Fatalf("GetWorkflow: %v", err)
+		}
+		switch wf.Status {
+		case "done", "failed", "cancelled":
+			return wf
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("workflow %s did not reach terminal state", id)
+	return Workflow{}
+}
+
+// TestSubmitGetWorkflow round-trips a two-step exec workflow: SubmitWorkflow
+// returns the running header (step 1 started), GetWorkflow inlines the step
+// chain, and ListWorkflows surfaces it. The chain reaches done with both steps
+// done.
+func TestSubmitGetWorkflow(t *testing.T) {
+	ts := newServer(t, testToken, false)
+	c := New(ts.URL, testToken)
+
+	spec := job.WorkflowSpec{
+		Title: "chain",
+		Steps: []job.StepSpec{
+			{Name: "one", ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30},
+			{Name: "two", ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"go", "env", "GOOS"}, Cwd: ".", TimeoutSec: 30},
+		},
+	}
+	wf, err := c.SubmitWorkflow(spec)
+	if err != nil {
+		t.Fatalf("SubmitWorkflow: %v", err)
+	}
+	if wf.ID == "" {
+		t.Fatalf("no workflow id: %+v", wf)
+	}
+	if wf.Status != "running" {
+		t.Fatalf("status=%s want running", wf.Status)
+	}
+	if wf.TotalSteps != 2 {
+		t.Fatalf("total_steps=%d want 2", wf.TotalSteps)
+	}
+
+	final := waitWorkflowDone(t, c, wf.ID)
+	if final.Status != "done" {
+		t.Fatalf("workflow status=%s want done (err=%s)", final.Status, final.Error)
+	}
+	if len(final.Steps) != 2 {
+		t.Fatalf("got %d steps want 2: %+v", len(final.Steps), final.Steps)
+	}
+	for _, st := range final.Steps {
+		if st.Status != "done" {
+			t.Fatalf("step %d status=%s want done", st.StepIndex, st.Status)
+		}
+		if st.JobID == "" {
+			t.Fatalf("step %d missing job id", st.StepIndex)
+		}
+	}
+	if final.Steps[0].Name != "one" || final.Steps[1].Name != "two" {
+		t.Fatalf("step names lost: %+v", final.Steps)
+	}
+
+	list, err := c.ListWorkflows("")
+	if err != nil {
+		t.Fatalf("ListWorkflows: %v", err)
+	}
+	found := false
+	for _, w := range list {
+		if w.ID == wf.ID {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("submitted workflow %s missing from list", wf.ID)
+	}
+}
+
+// TestSubmitWorkflowNoStepsRejected: an empty workflow is rejected by the server
+// (400) and surfaced as a friendly client error.
+func TestSubmitWorkflowNoStepsRejected(t *testing.T) {
+	ts := newServer(t, testToken, false)
+	c := New(ts.URL, testToken)
+
+	if _, err := c.SubmitWorkflow(job.WorkflowSpec{Title: "empty"}); err == nil {
+		t.Fatal("expected error for a workflow with no steps")
+	} else if !strings.Contains(err.Error(), "400") {
+		t.Fatalf("error should mention 400: %v", err)
+	}
+}
+
+// TestCancelUnknownWorkflowError: cancelling an unknown workflow is a 404.
+func TestCancelUnknownWorkflowError(t *testing.T) {
+	ts := newServer(t, testToken, false)
+	c := New(ts.URL, testToken)
+
+	if _, err := c.CancelWorkflow("nope"); err == nil {
+		t.Fatal("expected error cancelling unknown workflow")
+	} else if !strings.Contains(err.Error(), "404") {
+		t.Fatalf("error should mention 404: %v", err)
+	}
+}
+
 func TestNormalizeBaseURL(t *testing.T) {
 	cases := map[string]string{
 		"127.0.0.1:8765":      "http://127.0.0.1:8765",

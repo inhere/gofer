@@ -18,6 +18,7 @@ func NewApp(version string) *gcli.App {
 	app.Add(NewProjectCmd())
 	app.Add(NewAgentCmd())
 	app.Add(NewJobCmd())
+	app.Add(NewWorkflowCmd())
 	app.Add(NewMcpCmd())
 	app.Add(NewWorkerCmd())
 	app.Add(NewCompletionCmd())
