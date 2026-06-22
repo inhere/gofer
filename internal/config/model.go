@@ -278,11 +278,36 @@ type RetentionConfig struct {
 	// IntervalMinutes is the prune cadence; <= 0 falls back to a default (60m) in
 	// the serve loop. Only consulted when MaxAgeDays or MaxCount is > 0.
 	IntervalMinutes int `yaml:"prune_interval_minutes"`
+	// WorkflowMaxAgeDays is the INDEPENDENT workflow retention age (P1, design §5.4
+	// / D22): when > 0, terminal workflows (done/failed/cancelled) older than this
+	// many days are pruned along with their step-jobs and workflow_events. When 0 it
+	// falls back to MaxAgeDays (WorkflowMaxAge), so a single job age policy also
+	// bounds workflows; set it explicitly to keep workflows longer/shorter than jobs.
+	WorkflowMaxAgeDays int `yaml:"workflow_max_age_days"`
 }
 
 // Enabled reports whether any retention bound is set (so the serve prune loop
-// should run). The interval alone does not enable prune.
-func (r RetentionConfig) Enabled() bool { return r.MaxAgeDays > 0 || r.MaxCount > 0 }
+// should run). The interval alone does not enable prune. Workflow retention rides
+// the same loop, so WorkflowMaxAgeDays also enables it (a config that only sets
+// workflow retention still runs the prune loop).
+func (r RetentionConfig) Enabled() bool {
+	return r.MaxAgeDays > 0 || r.MaxCount > 0 || r.WorkflowMaxAgeDays > 0
+}
+
+// WorkflowMaxAge converts the effective workflow retention age into a Duration: the
+// explicit WorkflowMaxAgeDays when > 0, else a fallback to MaxAgeDays (jobs). 0
+// days => 0 (no workflow age bound). The job package maps this onto a
+// jobstore.WorkflowRetentionPolicy (config stays jobstore-free).
+func (r RetentionConfig) WorkflowMaxAge() time.Duration {
+	days := r.WorkflowMaxAgeDays
+	if days <= 0 {
+		days = r.MaxAgeDays
+	}
+	if days > 0 {
+		return time.Duration(days) * 24 * time.Hour
+	}
+	return 0
+}
 
 // MaxAge converts MaxAgeDays into a time.Duration (0 days => 0, i.e. no age
 // bound). The job package maps this onto a jobstore.RetentionPolicy — config

@@ -248,6 +248,13 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		return JobResult{}, err
 	}
 
+	// Attempt is 1-based: a first run (no engine-set attempt) is attempt 1 when the
+	// job opts into retry (E24) OR belongs to a workflow, so the persisted attempt
+	// numbering is meaningful. A plain non-retry job leaves it 0 (omitempty).
+	if req.Attempt < 1 && (req.Retry != nil || req.WorkflowID != "") {
+		req.Attempt = 1
+	}
+
 	// Resolve the target worker for a worker runner when worker_id was not given
 	// explicitly (P2: labels → auto-select, else the runner's configured default).
 	// Done right after validate so the chosen id rides the Forward + JobResult.
@@ -367,6 +374,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// 工作流(job 链)：引擎起 step-job 时已在 req 上设好；普通 job 为 ""/0。
 			WorkflowID: req.WorkflowID,
 			StepIndex:  req.StepIndex,
+			Attempt:    req.Attempt,
 		},
 	}
 	s.mu.Lock()
@@ -633,7 +641,62 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// 行，故 advance 读到的 step job 状态已是终态。非工作流 job(WorkflowID=="")完全不触发。
 	if snap.WorkflowID != "" {
 		go s.advanceWorkflow(snap.WorkflowID)
+		return
 	}
+
+	// E24 统一 job 级重试 (P1 最小版)：非工作流 job 若带 Retry 策略且本次失败可重试，
+	// 进程内延迟重投 attempt+1。工作流 step 的重试走 advanceWorkflow（上面 return），
+	// 二者不重叠。可靠版（sweeper 驱动 next_retry_at）留后续。
+	s.maybeRetryJob(snap)
+}
+
+// maybeRetryJob implements the E24 unified job-level retry (P1 最小版, design §6.2)
+// for a non-workflow job. It re-runs a failed job (attempt+1) when its JobRequest
+// carries a Retry policy, the attempt budget is not exhausted, and the exit code is
+// retryable — sharing the SAME RetryPolicy / backoffFor / retryableExit as the
+// step-level retry (one semantics). The retry is scheduled with an in-process
+// time.AfterFunc after the policy's backoff; a process restart loses a pending
+// retry (the可靠版 sweeper-driven path is left for后续, see JobRequest.Retry doc).
+//
+// It is a no-op when: the job succeeded, the status is not a failure (cancelled /
+// timeout are NOT retried — a cancel is intentional, and a timeout means the work
+// itself overran), the request carries no Retry, the budget is spent, or the exit
+// code is not in OnExitCodes. A nil/parse-failed request is also a no-op.
+func (s *Service) maybeRetryJob(snap JobResult) {
+	if snap.Status != StatusFailed {
+		return // only a plain failure is retried (cancel/timeout are terminal-by-intent)
+	}
+	var req JobRequest
+	if snap.RequestJSON == "" || json.Unmarshal([]byte(snap.RequestJSON), &req) != nil {
+		return
+	}
+	// CallerID / WorkflowID / Attempt are not part of the client-facing JSON (tag
+	// "-"), so restore them from the persisted snapshot for the re-submit.
+	req.CallerID = snap.CallerID
+	if req.Retry == nil {
+		return
+	}
+	attempt := snap.Attempt
+	if attempt < 1 {
+		attempt = 1
+	}
+	if attempt >= maxAttemptsPolicy(req.Retry) || !retryableExitPolicy(req.Retry, snap.ExitCode) {
+		return // budget spent or this exit code is not retryable
+	}
+	backoff := backoffForPolicy(req.Retry, attempt)
+	next := req // copy: a fresh job for attempt+1
+	next.Attempt = attempt + 1
+	next.RequestID = "" // job-level retry: each attempt is a distinct NEW job (no C5 dedupe)
+	next.Sync = false   // a re-run is always async (the original caller already returned)
+	time.AfterFunc(time.Duration(backoff)*time.Second, func() {
+		if _, err := s.Submit(next); err != nil {
+			// best-effort: a failed re-submit is logged, never panics. The original
+			// terminal state stands.
+			s.recordEvent(snap.ID, EventJobTerminal, map[string]any{
+				"retry_resubmit_error": err.Error(), "attempt": next.Attempt,
+			})
+		}
+	})
 }
 
 // persist upserts one JobResult snapshot into the metadata store, stamping
@@ -674,9 +737,10 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		DiffSummary:     r.DiffSummary,
 		Source:          r.Source,
 		TagsJSON:        marshalTags(r.Tags),
-		// 工作流(job 链)：step-job 反向关联其 workflow + 1-based 步序号。
+		// 工作流(job 链)：step-job 反向关联其 workflow + 1-based 步序号 + 重试 attempt。
 		WorkflowID: r.WorkflowID,
 		StepIndex:  r.StepIndex,
+		Attempt:    r.Attempt,
 	}
 }
 
@@ -735,6 +799,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		// 工作流(job 链)。
 		WorkflowID: rec.WorkflowID,
 		StepIndex:  rec.StepIndex,
+		Attempt:    rec.Attempt,
 	}
 }
 

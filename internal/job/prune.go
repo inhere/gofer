@@ -15,10 +15,37 @@ import (
 // memory are unaffected — an evicted job is, by definition, already terminal and
 // no longer in s.jobs. When retention is unconfigured the policy is zero and
 // PruneJobs is a no-op, so Prune is safe to call unconditionally.
+//
+// It ALSO prunes terminal workflows past their (independent) age (P1, design §5.4
+// / D22) — connected step-jobs + workflow_events are removed连带 (PruneWorkflows),
+// then their result dirs are best-effort cleaned. The returned count is the JOB
+// count (the loose-job prune); the workflow prune's own count is logged separately
+// (PruneWorkflowsCount). Standalone jobs that happen to belong to a NOT-yet-aged
+// workflow are not double-counted: the job age policy and the workflow age policy
+// are independent and each removes its own victims (a step-job is removed either by
+// its workflow's prune or by the loose-job prune, whichever first selects it; the
+// deletes are id-keyed and idempotent across passes).
 func (s *Service) Prune() (int, error) {
 	r := s.config().Storage.Retention
+	now := s.nowFn().Unix()
+
+	// Workflow retention first: drop aged terminal workflows + their step-jobs +
+	// workflow_events. Doing this before the loose-job prune means a workflow's
+	// step-jobs are removed via the workflow path (with the header), not left as
+	// orphans for the job prune to reap piecemeal.
+	wfPolicy := jobstore.WorkflowRetentionPolicy{MaxAge: r.WorkflowMaxAge()}
+	if _, wfDirs, werr := s.meta.PruneWorkflows(wfPolicy, now); werr != nil {
+		return 0, werr
+	} else {
+		for _, dir := range wfDirs {
+			if dir != "" {
+				_ = os.RemoveAll(dir)
+			}
+		}
+	}
+
 	policy := jobstore.RetentionPolicy{MaxAge: r.MaxAge(), MaxCount: r.MaxCount}
-	deleted, prunedDirs, err := s.meta.PruneJobs(policy, s.nowFn().Unix())
+	deleted, prunedDirs, err := s.meta.PruneJobs(policy, now)
 	if err != nil {
 		return 0, err
 	}

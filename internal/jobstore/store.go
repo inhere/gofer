@@ -151,6 +151,20 @@ var schemaStmts = []string{
   updated_at   INTEGER NOT NULL
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_workflows_status ON workflows(status)`,
+	// workflow_events is the workflow-level append-only event stream (P1, design
+	// §5.4), the workflow analogue of job_events. One row per recorded event; seq is
+	// the monotonic global insertion order (AUTOINCREMENT) used as the poll cursor
+	// (?since=<seq>). detail_json is an optional JSON blob (nullable). The
+	// (workflow_id, seq) index serves ListWorkflowEvents' per-workflow, seq-ordered
+	// scan. IF NOT EXISTS like every table here (idempotent Open).
+	`CREATE TABLE IF NOT EXISTS workflow_events (
+  seq         INTEGER PRIMARY KEY AUTOINCREMENT,
+  workflow_id TEXT    NOT NULL,
+  type        TEXT    NOT NULL,
+  detail_json TEXT,
+  at          INTEGER NOT NULL
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_workflow_events_wf ON workflow_events(workflow_id, seq)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema
@@ -263,12 +277,61 @@ func (s *Store) migrate() error {
 	if err := add("step_index", "step_index INTEGER"); err != nil { // 在工作流中的 1-based 步序号
 		return err
 	}
+	// 工作流 v2 (P1)：step-job 的 1-based 重试 attempt（首次=1）。旧行 COALESCE→1。
+	if err := add("attempt", "attempt INTEGER"); err != nil { // 重试尝试号（P1）
+		return err
+	}
+	// 工作流 v2 (P2)：fan-out 同 step 内第几个并行 job（1-based；非 fan 为 0）。P1 不写，
+	// 与 attempt 一并 ALTER ADD 以减少后续迁移（design §5.3）。旧行 COALESCE→0。
+	if err := add("fan_index", "fan_index INTEGER"); err != nil { // fan-out 并行序号（P2，预留）
+		return err
+	}
+	if err := s.migrateWorkflows(); err != nil {
+		return err
+	}
 	// Partial unique index: only non-empty request_id values are constrained, so
 	// jobs without a request_id never collide. Created after the column exists.
 	if _, err := s.db.Exec(
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_request_id ON jobs(request_id) WHERE request_id <> ''`,
 	); err != nil {
 		return fmt.Errorf("jobstore: migrate request_id index: %w", err)
+	}
+	return nil
+}
+
+// migrateWorkflows adds the工作流 v2 columns to the workflows table (P1, design
+// §5.2). All additive (ALTER ADD), idempotent (probe PRAGMA first), so a
+// pre-existing v1 database gains them with旧行 COALESCEd to the v1-equivalent
+// zero value. P1 uses step_attempt/next_step_at; parent_* are added now (P3, with
+// no writers yet) to avoid a second migration pass (plan T1.2 note).
+func (s *Store) migrateWorkflows() error {
+	cols, err := s.tableColumns("workflows")
+	if err != nil {
+		return err
+	}
+	add := func(col, ddl string) error {
+		if _, ok := cols[col]; ok {
+			return nil
+		}
+		if _, e := s.db.Exec("ALTER TABLE workflows ADD COLUMN " + ddl); e != nil {
+			return fmt.Errorf("jobstore: migrate workflows add %s: %w", col, e)
+		}
+		return nil
+	}
+	// P1: the active step's 1-based attempt (旧行 COALESCE→1) + 退避到点时间 (旧行 →0).
+	if err := add("step_attempt", "step_attempt INTEGER"); err != nil {
+		return err
+	}
+	if err := add("next_step_at", "next_step_at INTEGER"); err != nil {
+		return err
+	}
+	// P3 (预留)：子工作流的父 wf id + 在父中的 step 序号。P1 无写入方，提前 ALTER ADD
+	// 减少后续迁移（design §5.2）。旧行 COALESCE→""/0。
+	if err := add("parent_workflow_id", "parent_workflow_id TEXT"); err != nil {
+		return err
+	}
+	if err := add("parent_step_index", "parent_step_index INTEGER"); err != nil {
+		return err
 	}
 	return nil
 }

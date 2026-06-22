@@ -102,6 +102,143 @@ func (s *Store) PruneJobs(policy RetentionPolicy, now int64) (deleted int, prune
 	return len(ids), dirs, nil
 }
 
+// terminalWorkflowStatuses is the set of workflow statuses PruneWorkflows may
+// evict (a running workflow is never pruned). Kept as literals here to avoid a
+// job -> jobstore -> job import cycle (mirrors terminalStatuses).
+var terminalWorkflowStatuses = []string{"done", "failed", "cancelled"}
+
+var (
+	terminalWfPlaceholders = strings.TrimSuffix(strings.Repeat("?,", len(terminalWorkflowStatuses)), ",")
+	terminalWfArgs         = func() []any {
+		a := make([]any, len(terminalWorkflowStatuses))
+		for i, st := range terminalWorkflowStatuses {
+			a[i] = st
+		}
+		return a
+	}()
+)
+
+// WorkflowRetentionPolicy bounds how long terminal workflows are kept (P1, design
+// §5.4 / D22). A zero MaxAge prunes nothing.
+type WorkflowRetentionPolicy struct {
+	// MaxAge, when > 0, deletes terminal workflows whose updated_at is older than
+	// now-MaxAge, along with their step-jobs and workflow_events.
+	MaxAge time.Duration
+}
+
+// IsZero reports whether the workflow policy would prune nothing.
+func (p WorkflowRetentionPolicy) IsZero() bool { return p.MaxAge <= 0 }
+
+// PruneWorkflows deletes terminal workflows (status in done/failed/cancelled) older
+// than the policy's MaxAge, and连带删 each workflow's step-jobs (+ their job_events
+// / interactions / event_deliveries) and its workflow_events — so a pruned workflow
+// leaves NO悬挂 rows (D22). Running workflows are NEVER deleted. It returns the
+// number of workflows deleted and the result_dir of every deleted step-job, so the
+// caller can best-effort remove the on-disk log directories.
+//
+// now is injected (unix seconds) so tests can pin the clock. All work runs under
+// writeMu and inside a single transaction (a workflow header + its step-jobs + all
+// event/delivery rows are removed atomically).
+func (s *Store) PruneWorkflows(policy WorkflowRetentionPolicy, now int64) (deleted int, prunedDirs []string, err error) {
+	if policy.IsZero() {
+		return 0, nil, nil
+	}
+
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	cutoff := now - int64(policy.MaxAge/time.Second)
+	// Select victim workflow ids (terminal AND older than the cutoff by updated_at).
+	q := fmt.Sprintf(
+		"SELECT id FROM workflows WHERE status IN (%s) AND updated_at < ?",
+		terminalWfPlaceholders,
+	)
+	args := append([]any{}, terminalWfArgs...)
+	args = append(args, cutoff)
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return 0, nil, fmt.Errorf("jobstore: prune workflows select: %w", err)
+	}
+	var wfIDs []string
+	for rows.Next() {
+		var id string
+		if scanErr := rows.Scan(&id); scanErr != nil {
+			rows.Close()
+			return 0, nil, fmt.Errorf("jobstore: prune workflows scan: %w", scanErr)
+		}
+		wfIDs = append(wfIDs, id)
+	}
+	if rErr := rows.Err(); rErr != nil {
+		rows.Close()
+		return 0, nil, fmt.Errorf("jobstore: prune workflows select rows: %w", rErr)
+	}
+	rows.Close()
+	if len(wfIDs) == 0 {
+		return 0, nil, nil
+	}
+
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, nil, fmt.Errorf("jobstore: prune workflows begin tx: %w", err)
+	}
+	for _, wfID := range wfIDs {
+		// Collect this workflow's step-job ids + dirs (so we can drop their owned
+		// rows and report their dirs for on-disk cleanup).
+		jrows, jerr := tx.Query("SELECT id, result_dir FROM jobs WHERE workflow_id = ?", wfID)
+		if jerr != nil {
+			_ = tx.Rollback()
+			return 0, nil, fmt.Errorf("jobstore: prune workflows jobs select %q: %w", wfID, jerr)
+		}
+		var jobIDs []string
+		for jrows.Next() {
+			var jid, dir string
+			if scanErr := jrows.Scan(&jid, &dir); scanErr != nil {
+				jrows.Close()
+				_ = tx.Rollback()
+				return 0, nil, fmt.Errorf("jobstore: prune workflows jobs scan %q: %w", wfID, scanErr)
+			}
+			jobIDs = append(jobIDs, jid)
+			if dir != "" {
+				prunedDirs = append(prunedDirs, dir)
+			}
+		}
+		if jrErr := jrows.Err(); jrErr != nil {
+			jrows.Close()
+			_ = tx.Rollback()
+			return 0, nil, fmt.Errorf("jobstore: prune workflows jobs rows %q: %w", wfID, jrErr)
+		}
+		jrows.Close()
+		// Drop each step-job's owned rows (interactions / job_events / deliveries) and
+		// the job row itself — same连带删 set as PruneJobs (no悬挂).
+		for _, jid := range jobIDs {
+			for _, stmt := range []string{
+				"DELETE FROM interactions WHERE job_id = ?",
+				"DELETE FROM job_events WHERE job_id = ?",
+				"DELETE FROM event_deliveries WHERE job_id = ?",
+				"DELETE FROM jobs WHERE id = ?",
+			} {
+				if _, derr := tx.Exec(stmt, jid); derr != nil {
+					_ = tx.Rollback()
+					return 0, nil, fmt.Errorf("jobstore: prune workflow job %q: %w", jid, derr)
+				}
+			}
+		}
+		// Drop the workflow's events and the header row.
+		if _, derr := tx.Exec("DELETE FROM workflow_events WHERE workflow_id = ?", wfID); derr != nil {
+			_ = tx.Rollback()
+			return 0, nil, fmt.Errorf("jobstore: prune workflow events %q: %w", wfID, derr)
+		}
+		if _, derr := tx.Exec("DELETE FROM workflows WHERE id = ?", wfID); derr != nil {
+			_ = tx.Rollback()
+			return 0, nil, fmt.Errorf("jobstore: prune workflow %q: %w", wfID, derr)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, nil, fmt.Errorf("jobstore: prune workflows commit: %w", err)
+	}
+	return len(wfIDs), prunedDirs, nil
+}
+
 // selectPruneVictims returns the ids and result_dirs of terminal jobs evicted by
 // the policy. Two independent predicates are OR'd: a job is a victim if it is too
 // old (MaxAge) OR it falls outside the newest-MaxCount window. It runs under the

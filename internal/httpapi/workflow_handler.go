@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gookit/rux/v2"
 
@@ -86,6 +87,33 @@ func (s *Server) handleListWorkflows(c *rux.Context) {
 		out = append(out, toWorkflowSummary(wf))
 	}
 	c.JSON(http.StatusOK, map[string]any{"workflows": out})
+}
+
+// handleListWorkflowEvents returns a workflow's append-only lifecycle events (P1)
+// in seq order. An unknown workflow id is a 404 (consistent with handleGetWorkflow).
+// The optional ?since=<seq> returns only events strictly after that cursor
+// (incremental poll). The list is always a non-nil array, so an empty result
+// serialises as {"events":[]}.
+func (s *Server) handleListWorkflowEvents(c *rux.Context) {
+	id := c.Param("id")
+	if _, ok, err := s.jobs.GetWorkflow(id); err != nil {
+		writeError(c, http.StatusInternalServerError, "get workflow failed", err.Error())
+		return
+	} else if !ok {
+		writeError(c, http.StatusNotFound, "unknown workflow", "no workflow with id "+id)
+		return
+	}
+	// since 非数值 -> 0 -> 不过滤（仿 job events 的容错）。
+	since, _ := strconv.ParseInt(c.Query("since"), 10, 64)
+	events, err := s.jobs.ListWorkflowEvents(id, since)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "list workflow events failed", err.Error())
+		return
+	}
+	if events == nil {
+		events = []jobstore.WorkflowEvent{}
+	}
+	c.JSON(http.StatusOK, map[string]any{"events": events})
 }
 
 // handleCancelWorkflow cancels a running workflow (marks cancelled + cancels the
