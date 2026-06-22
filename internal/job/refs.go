@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"regexp"
 	"strconv"
+	"strings"
 
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/store"
@@ -16,12 +17,17 @@ import (
 // limits, so we hard-fail with a hint to use result_dir.
 const maxRefInlineBytes = 32 * 1024
 
-// stepRefRe matches a single ${steps.<N>.<field>} reference. N is 1-based; field is
-// validated against allowedRefFields (here for resolve, at submit for validateRefs).
-// Used with ReplaceAllStringFunc so every occurrence in a field is replaced
-// independently — NEVER by re-joining into a shell string (mirrors agent.Render's
-// per-argv invariant, plan §11).
-var stepRefRe = regexp.MustCompile(`\$\{steps\.(\d+)\.(\w+)\}`)
+// stepRefRe matches a single ${steps.<N>.<field>} reference with an OPTIONAL fan
+// selector ${steps.<N>.f<K>.<field>} (P2): group 1 = N (1-based prior step), group 2
+// = K (1-based fan index, empty when no selector), group 3 = field. N is 1-based; the
+// field is validated against allowedRefFields (here for resolve, at submit for
+// validateRefs). Used with ReplaceAllStringFunc so every occurrence in a field is
+// replaced independently — NEVER by re-joining into a shell string (mirrors
+// agent.Render's per-argv invariant, plan §11).
+//
+// Without a fan selector, ${steps.N.result_dir} on a fan-out step aggregates ALL
+// successful fans' result_dir (newline-joined); ${steps.N.fK.result_dir} picks fan K.
+var stepRefRe = regexp.MustCompile(`\$\{steps\.(\d+)(?:\.f(\d+))?\.(\w+)\}`)
 
 // allowedRefFields is the closed set of step-output fields a ${steps.N.field}
 // reference may name (design §5.4). Kept as a map so both resolveRefs (runtime) and
@@ -49,7 +55,8 @@ func validateRefs(spec WorkflowSpec) error {
 		for _, f := range fields {
 			for _, m := range stepRefRe.FindAllStringSubmatch(f, -1) {
 				n, _ := strconv.Atoi(m[1]) // m[1] is \d+, always parses
-				field := m[2]
+				fanK := m[2]               // optional fan selector (empty when absent)
+				field := m[3]
 				if !allowedRefFields[field] {
 					return fmt.Errorf("%w: step %d references unknown field ${steps.%d.%s}", ErrInvalidRequest, stepNo, n, field)
 				}
@@ -58,6 +65,18 @@ func validateRefs(spec WorkflowSpec) error {
 				}
 				if n >= stepNo {
 					return fmt.Errorf("%w: step %d references ${steps.%d.%s} which is not a prior step (N must be < %d)", ErrInvalidRequest, stepNo, n, field, stepNo)
+				}
+				// P2: a fan selector .fK must point at a real fan of the referenced step —
+				// K in [1, fan_out]. The referenced step's FanOut is known statically here.
+				if fanK != "" {
+					k, _ := strconv.Atoi(fanK) // \d+, always parses
+					if k < 1 {
+						return fmt.Errorf("%w: step %d references ${steps.%d.f%d.%s} (fan index must be >= 1)", ErrInvalidRequest, stepNo, n, k, field)
+					}
+					want := fanWant(spec.Steps[n-1]) // referenced step's parallelism
+					if k > want {
+						return fmt.Errorf("%w: step %d references ${steps.%d.f%d.%s} but step %d has only %d fan(s)", ErrInvalidRequest, stepNo, n, k, field, n, want)
+					}
 				}
 			}
 		}
@@ -106,10 +125,10 @@ func (s *Service) resolveRefs(step *StepSpec, priorJobs []jobstore.JobRecord) er
 	return nil
 }
 
-// resolveString replaces every ${steps.N.field} in one string with its resolved
-// value. It collects the first resolveOne error (ReplaceAllStringFunc has no error
-// channel) and aborts the whole resolve so a bad reference fails the step rather
-// than silently leaving a half-substituted string.
+// resolveString replaces every ${steps.N.field} / ${steps.N.fK.field} in one string
+// with its resolved value. It collects the first resolve error (ReplaceAllStringFunc
+// has no error channel) and aborts the whole resolve so a bad reference fails the step
+// rather than silently leaving a half-substituted string.
 func (s *Service) resolveString(in string, priorJobs []jobstore.JobRecord) (string, error) {
 	var firstErr error
 	out := stepRefRe.ReplaceAllStringFunc(in, func(ref string) string {
@@ -117,9 +136,13 @@ func (s *Service) resolveString(in string, priorJobs []jobstore.JobRecord) (stri
 			return ref
 		}
 		m := stepRefRe.FindStringSubmatch(ref)
-		// m[1]=N (\d+ — always parses), m[2]=field.
+		// m[1]=N (\d+ — always parses), m[2]=fanK (optional, empty=no selector), m[3]=field.
 		n, _ := strconv.Atoi(m[1])
-		val, err := s.resolveOne(n, m[2], priorJobs)
+		fanK := 0
+		if m[2] != "" {
+			fanK, _ = strconv.Atoi(m[2])
+		}
+		val, err := s.resolveRef(n, fanK, m[3], priorJobs)
 		if err != nil {
 			firstErr = err
 			return ref
@@ -132,19 +155,67 @@ func (s *Service) resolveString(in string, priorJobs []jobstore.JobRecord) (stri
 	return out, nil
 }
 
-// resolveOne returns the value of ${steps.N.field} for a 1-based prior step N:
-//   - result_dir → prior.ResultDir (a path; the preferred way to pass large output)
-//   - result     → <result_dir>/result.json text (≤maxRefInlineBytes, else error)
-//   - stdout     → prior stdout tail (≤maxRefInlineBytes, else error)
-//   - exit_code / status / job_id → scalar
+// fanJobsOfStep returns ALL jobs of a 1-based prior step N, in fan_index order (a
+// single-job step yields its one job; a fan-out step yields its fans). It pulls from
+// priorJobs (ListWorkflowJobs ordering) — for a fan-out step the engine started fans
+// 1..N so all rows are present here once they exist.
+func fanJobsOfStep(priorJobs []jobstore.JobRecord, n int) []jobstore.JobRecord {
+	out := make([]jobstore.JobRecord, 0, 4)
+	for i := range priorJobs {
+		if priorJobs[i].StepIndex == n {
+			out = append(out, priorJobs[i])
+		}
+	}
+	return out
+}
+
+// resolveRef returns the value of ${steps.N.field} / ${steps.N.fK.field} for a 1-based
+// prior step N (P2). With a fan selector (fanK>=1) it resolves against THAT fan job
+// (fan_index==fanK, or the single fan_index-0 job when fanK==1 on a single-job step).
+// Without a selector (fanK==0) it resolves against the step:
+//   - result_dir on a FAN-OUT step → newline-joined ResultDir of every SUCCESSFUL (done)
+//     fan (design D15 引用聚合). On a single-job step → that job's ResultDir verbatim.
+//   - every other field (and result_dir on a single-job step) → the first fan job (the
+//     representative; identical to the v1 single-job path for a non-fan step).
 //
-// The prior step's full JobResult is fetched via s.Get (in-memory live OR DB
-// fallback) so ResultJSON/ResultDir are populated regardless of eviction.
-func (s *Service) resolveOne(n int, field string, priorJobs []jobstore.JobRecord) (string, error) {
-	rec := stepJob(priorJobs, n)
-	if rec == nil {
+// The chosen job's full JobResult is fetched via s.Get (in-memory live OR DB fallback)
+// so ResultJSON/ResultDir are populated regardless of eviction.
+func (s *Service) resolveRef(n, fanK int, field string, priorJobs []jobstore.JobRecord) (string, error) {
+	stepJobs := fanJobsOfStep(priorJobs, n)
+	if len(stepJobs) == 0 {
 		return "", fmt.Errorf("${steps.%d.%s}: prior step %d has not produced output", n, field, n)
 	}
+
+	// Fan aggregation: result_dir with NO selector on a fan-out step (>1 job) returns
+	// every successful fan's result_dir, newline-joined (the path-passing aggregate).
+	if fanK == 0 && field == "result_dir" && len(stepJobs) > 1 {
+		dirs := make([]string, 0, len(stepJobs))
+		for i := range stepJobs {
+			res, ok := s.Get(stepJobs[i].ID)
+			if !ok {
+				return "", fmt.Errorf("${steps.%d.result_dir}: fan job %s not found", n, stepJobs[i].ID)
+			}
+			if res.Status == StatusDone && res.ResultDir != "" {
+				dirs = append(dirs, res.ResultDir)
+			}
+		}
+		if len(dirs) == 0 {
+			return "", fmt.Errorf("${steps.%d.result_dir}: no successful fan produced a result_dir", n)
+		}
+		return strings.Join(dirs, "\n"), nil
+	}
+
+	// Select the target job: a fan selector picks fan_index==fanK (fanK==1 maps to the
+	// single fan_index-0 job of a non-fan step); no selector uses the first job.
+	rec := stepJobs[0]
+	if fanK >= 1 {
+		picked := pickFanJob(stepJobs, fanK)
+		if picked == nil {
+			return "", fmt.Errorf("${steps.%d.f%d.%s}: prior step %d has no fan %d", n, fanK, field, n, fanK)
+		}
+		rec = *picked
+	}
+
 	res, ok := s.Get(rec.ID)
 	if !ok {
 		return "", fmt.Errorf("${steps.%d.%s}: prior step job %s not found", n, field, rec.ID)
@@ -183,4 +254,17 @@ func (s *Service) resolveOne(n int, field string, priorJobs []jobstore.JobRecord
 		// validateRefs rejects unknown fields at submit; this guards the runtime path.
 		return "", fmt.Errorf("${steps.%d.%s}: unknown field %q", n, field, field)
 	}
+}
+
+// pickFanJob returns the step job whose fan_index == fanK (P2). fanK==1 also matches a
+// single-job step's fan_index-0 job (a non-fan step is "fan 1 of 1"), so ${steps.N.f1.x}
+// resolves on a non-fan step. Returns nil when no such fan exists.
+func pickFanJob(stepJobs []jobstore.JobRecord, fanK int) *jobstore.JobRecord {
+	for i := range stepJobs {
+		fi := stepJobs[i].FanIndex
+		if fi == fanK || (fanK == 1 && fi == 0) {
+			return &stepJobs[i]
+		}
+	}
+	return nil
 }

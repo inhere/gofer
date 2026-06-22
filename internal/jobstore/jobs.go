@@ -70,6 +70,12 @@ type JobRecord struct {
 	// attempt+1。持久化到 jobs.attempt；旧库/普通 job 经 selectCols COALESCE 成 1。
 	// 与 StepIndex 一起区分同一 step 的多次重试运行（确定性 request_id 的 a<attempt> 段）。
 	Attempt int
+	// FanIndex 是 fan-out step 内同一 (step,attempt) 的并行 job 1-based 序号（P2，工作流
+	// v2，design §5.3）。FanOut>1 的 step 起 N 个 job，以 FanIndex=1..N 区分；非 fan-out
+	// job（含 v1/P1 单 job 路径）为 0。持久化到 jobs.fan_index（旧库/普通 job 经 selectCols
+	// COALESCE 成 0）。与 StepIndex/Attempt 一起构成确定性 request_id 的 f<fanIndex> 段，
+	// 保证每个 (step,attempt,fan) 只起一个 job（C5 幂等延续）。
+	FanIndex int
 }
 
 // ListQuery filters/bounds a ListJobs query. A zero value lists every project's
@@ -97,7 +103,7 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(worker_id,''
   COALESCE(artifacts_json,''), COALESCE(diff_summary,''),
   COALESCE(source,''), COALESCE(tags_json,''),
   COALESCE(workflow_id,''), COALESCE(step_index,0),
-  COALESCE(attempt,1) FROM jobs`
+  COALESCE(attempt,1), COALESCE(fan_index,0) FROM jobs`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -114,7 +120,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.CallerID, &r.RequestID,
 		&r.RenderedCommand, &r.ResultJSON, &r.ArtifactsJSON, &r.DiffSummary,
 		&r.Source, &r.TagsJSON,
-		&r.WorkflowID, &r.StepIndex, &r.Attempt,
+		&r.WorkflowID, &r.StepIndex, &r.Attempt, &r.FanIndex,
 	)
 	return r, err
 }
@@ -135,8 +141,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
   (id, project_key, agent, runner, worker_id, status, exit_code, cwd, result_dir,
    request_json, error, started_at, ended_at, updated_at, caller_id, request_id,
    rendered_command, result_json, artifacts_json, diff_summary, source, tags_json,
-   workflow_id, step_index, attempt)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+   workflow_id, step_index, attempt, fan_index)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -161,7 +167,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     tags_json=excluded.tags_json,
     workflow_id=excluded.workflow_id,
     step_index=excluded.step_index,
-    attempt=excluded.attempt`
+    attempt=excluded.attempt,
+    fan_index=excluded.fan_index`
 	// Serialise writes in-process (see Store.writeMu) so SQLite never sees two
 	// concurrent writers and cannot return SQLITE_BUSY under burst.
 	s.writeMu.Lock()
@@ -173,7 +180,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.CallerID, rec.RequestID,
 		rec.RenderedCommand, rec.ResultJSON, rec.ArtifactsJSON, rec.DiffSummary,
 		rec.Source, rec.TagsJSON,
-		rec.WorkflowID, rec.StepIndex, rec.Attempt,
+		rec.WorkflowID, rec.StepIndex, rec.Attempt, rec.FanIndex,
 	)
 	if err != nil {
 		// A competing INSERT with the same non-empty request_id (different id)

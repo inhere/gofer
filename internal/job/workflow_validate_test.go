@@ -74,24 +74,32 @@ func TestSubmitWorkflowRejectsBadRetry(t *testing.T) {
 // unique index dedupes concurrent starts of the same (step, attempt).
 func TestStepToRequestDeterministicRequestID(t *testing.T) {
 	step := echoStep("x")
-	a := stepToRequest(step, "wf-123", 2, 3, "alice")
+	a := stepToRequest(step, "wf-123", 2, 3, 0, "alice")
 	if a.RequestID != "wf-123:s2:a3" {
 		t.Fatalf("request_id = %q, want wf-123:s2:a3", a.RequestID)
 	}
 	// Same (wf, step, attempt) -> identical request_id (the dedupe key).
-	b := stepToRequest(step, "wf-123", 2, 3, "bob")
+	b := stepToRequest(step, "wf-123", 2, 3, 0, "bob")
 	if a.RequestID != b.RequestID {
 		t.Fatalf("deterministic request_id mismatch: %q vs %q", a.RequestID, b.RequestID)
 	}
 	// Different attempt -> different request_id (a new job is allowed).
-	c := stepToRequest(step, "wf-123", 2, 4, "alice")
+	c := stepToRequest(step, "wf-123", 2, 4, 0, "alice")
 	if c.RequestID == a.RequestID {
 		t.Fatalf("attempt change should change request_id, both = %q", a.RequestID)
 	}
 	// The submit-time pre-validation pass (wfID == "") leaves request_id empty.
-	d := stepToRequest(step, "", 1, 1, "alice")
+	d := stepToRequest(step, "", 1, 1, 0, "alice")
 	if d.RequestID != "" {
 		t.Fatalf("pre-validation request_id = %q, want empty", d.RequestID)
+	}
+	// P2: a fan job (fanIndex>=1) appends the fan segment to the request_id.
+	e := stepToRequest(step, "wf-123", 2, 3, 1, "alice")
+	if e.RequestID != "wf-123:s2:a3:f1" {
+		t.Fatalf("fan request_id = %q, want wf-123:s2:a3:f1", e.RequestID)
+	}
+	if e.FanIndex != 1 {
+		t.Fatalf("fan_index = %d, want 1", e.FanIndex)
 	}
 	if a.Attempt != 3 {
 		t.Fatalf("attempt = %d, want 3", a.Attempt)
