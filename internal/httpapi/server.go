@@ -278,6 +278,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/workflows/{id}", s.handleGetWorkflow)
 		// P1: workflow 级 append-only 事件流（?since=<seq> 增量）。
 		r.GET("/workflows/{id}/events", s.handleListWorkflowEvents)
+		// P4(T4.1): 导出 WorkflowSpec(从 spec_json，剥离 secret，可再导入复现)。
+		r.GET("/workflows/{id}/export", s.handleExportWorkflow)
 		r.POST("/workflows/{id}/cancel", s.handleCancelWorkflow)
 
 		// P9 running-job two-way interactions.

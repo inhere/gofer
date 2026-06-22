@@ -73,6 +73,29 @@ func (s *Server) handleGetWorkflow(c *rux.Context) {
 	})
 }
 
+// handleExportWorkflow returns a workflow's WorkflowSpec reconstructed from its
+// persisted spec_json, with credential-looking values stripped (T4.1, E18 + SR403). The
+// body is a runnable template: re-POST it to /v1/workflows (or `workflow run <file>`) to
+// reproduce the chain. An unknown id is a 404. When anything was redacted the response
+// carries an X-Gofer-Redacted: 1 header so the caller can warn that a placeholder must be
+// replaced before the export is re-run.
+func (s *Server) handleExportWorkflow(c *rux.Context) {
+	id := c.Param("id")
+	spec, ok, redacted, err := s.jobs.ExportWorkflow(id)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "export workflow failed", err.Error())
+		return
+	}
+	if !ok {
+		writeError(c, http.StatusNotFound, "unknown workflow", "no workflow with id "+id)
+		return
+	}
+	if redacted {
+		c.SetHeader("X-Gofer-Redacted", "1")
+	}
+	c.JSON(http.StatusOK, spec)
+}
+
 // handleListWorkflows returns workflow headers, optionally filtered by ?status=.
 // The list is always a non-nil array, so an empty result serialises as
 // {"workflows":[]}.

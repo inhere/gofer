@@ -68,6 +68,11 @@ type MetricsSink interface {
 	// JobTerminal is called once when a job reaches a terminal state, with the
 	// end-to-end (submit→terminal) duration in seconds.
 	JobTerminal(status, caller, project, agent, runner string, durationSec float64)
+	// WorkflowTerminal is called once when a workflow (job chain) reaches a terminal
+	// state (done/failed/cancelled), with its submit→terminal duration in seconds
+	// (P4 / T4.3, design §9). It is the workflow analogue of JobTerminal; the job
+	// package records it through this narrow interface so it never imports prometheus.
+	WorkflowTerminal(status string, durationSec float64)
 }
 
 // ServiceStats is the live in-memory job snapshot the metrics GaugeFuncs read at

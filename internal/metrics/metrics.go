@@ -27,6 +27,9 @@ type Metrics struct {
 	jobsSubmitted *prometheus.CounterVec   // {caller,project,agent,runner}
 	jobsTerminal  *prometheus.CounterVec   // {status,caller,project}
 	jobDuration   *prometheus.HistogramVec // {agent,runner,status}
+
+	workflowsTerminal *prometheus.CounterVec // {status} (P4/T4.3)
+	workflowDuration  prometheus.Histogram   // submit→terminal seconds (P4/T4.3)
 }
 
 // New builds a Metrics with a fresh private registry pre-loaded with the Go
@@ -62,7 +65,20 @@ func New() *Metrics {
 		Help:    "Job submit→terminal duration in seconds (incl. queue wait)",
 		Buckets: []float64{1, 5, 15, 30, 60, 120, 300, 600, 1800},
 	}, []string{"agent", "runner", "status"})
-	m.reg.MustRegister(m.httpRequests, m.httpDuration, m.jobsSubmitted, m.jobsTerminal, m.jobDuration)
+	// P4/T4.3: workflow-level terminal counter + duration histogram (design §9). A
+	// workflow runs longer than a single job (chained steps), so the buckets reach
+	// further (up to 1h) than the job histogram.
+	m.workflowsTerminal = prometheus.NewCounterVec(prometheus.CounterOpts{
+		Name: "gofer_workflows_terminal_total",
+		Help: "Workflows (job chains) reaching a terminal state",
+	}, []string{"status"})
+	m.workflowDuration = prometheus.NewHistogram(prometheus.HistogramOpts{
+		Name:    "gofer_workflow_duration_seconds",
+		Help:    "Workflow submit→terminal duration in seconds (whole chain)",
+		Buckets: []float64{5, 15, 30, 60, 120, 300, 600, 1800, 3600},
+	})
+	m.reg.MustRegister(m.httpRequests, m.httpDuration, m.jobsSubmitted, m.jobsTerminal, m.jobDuration,
+		m.workflowsTerminal, m.workflowDuration)
 	return m
 }
 
@@ -92,6 +108,17 @@ func (m *Metrics) JobTerminal(status, caller, project, agent, runner string, dur
 	}
 	m.jobsTerminal.WithLabelValues(status, orAnon(caller), project).Inc()
 	m.jobDuration.WithLabelValues(agent, runner, status).Observe(durationSec)
+}
+
+// WorkflowTerminal records one workflow reaching a terminal state plus its whole-chain
+// submit→terminal duration (job.MetricsSink, P4/T4.3). nil-safe. status is the workflow
+// terminal status (done/failed/cancelled).
+func (m *Metrics) WorkflowTerminal(status string, durationSec float64) {
+	if m == nil {
+		return
+	}
+	m.workflowsTerminal.WithLabelValues(status).Inc()
+	m.workflowDuration.Observe(durationSec)
 }
 
 // ObserveHTTP records one HTTP request's count + duration. nil-safe. route must
