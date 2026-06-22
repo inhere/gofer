@@ -60,11 +60,11 @@
   - [x] T2.2 submitStepFan 起 N 并行 job（request_id 加 `:fF`）+ advanceWorkflow stepFanJobs 聚合判定
   - [x] T2.3 join 语义（all/any/quorum + 永不悬挂）+ 引用聚合（`${steps.N.result_dir}` 多目录 + `${steps.N.fK}`）
   - [x] T2.4 验收（并发硬测 PASS + -race）+ 测试
-- [ ] **P3 子工作流 + 跨项目**（详见 P3 子文档）
-  - [ ] T3.1 StepSpec `type=workflow`/`sub_workflow` + `parent_*` 列 + 校验
-  - [ ] T3.2 子 wf 提交 + 终态触发父 advance
-  - [ ] T3.3 跨项目产物澄清 + 远端警示
-  - [ ] T3.4 验收 + 测试
+- [x] **P3 子工作流 + 跨项目**（详见 P3 子文档）✅ commit `dc71b06`
+  - [x] T3.1 StepSpec `type=workflow`/`sub_workflow` + `parent_*` Go 字段 + 递归校验(深度≤3/fan×wf 互斥)
+  - [x] T3.2 子 wf 提交(确定性 id) + 终态 triggerParentAdvance + advanceWorkflowStep 按子 wf 终态判定
+  - [x] T3.3 跨项目本地 result_dir 直读(集成测试) + 远端跨机 README 警示
+  - [x] T3.4 验收（并发硬测 PASS + -race）+ 测试
 - [ ] **P4 易用**（详见 P4 子文档）
   - [ ] T4.1 导入导出 spec_json（CLI/API，secret 剥离）
   - [ ] T4.2 md-per-step 提交
@@ -84,7 +84,13 @@
 - **关键决策**：fan request_id `wfID:sN:aA:fF`（fanIndex==0 时退化为 P1 键，**D23 不变**）；join all/any/quorum **全 terminal 必可决永不悬挂**；any/quorum done 后 `cancelInflightFans` 释放配额；引用聚合=成功 fan 的 result_dir 换行连接 + `.fK` 选择器。
 - **验收**：build/vet 绿；三包 `-race` 全绿（job 56s/jobstore 21s/httpapi 28s）；**并发硬测 PASS**（`TestFanOutConcurrentAdvanceOnce` 32 并发只推进一次，-race -count=3 稳定）；join 三态 + fan-out×retry + 引用聚合 + **D23/P1 回归**全通过。
 
-### P3 / P4
+### P3 ✅（commit `dc71b06`）
+- **改动**：`workflow.go`(StepSpec type/sub_workflow + validateSubworkflow 递归校验 + submitWorkflowImpl/SubmitWorkflowChild + 确定性 childWorkflowID + advanceWorkflowStep + triggerParentAdvance)、`jobstore/workflows.go`(ParentWorkflowID/ParentStepIndex 字段 + FindChildWorkflow)、`model.go`(subworkflow.started 事件)、README(跨机警示)、3 测试文件。
+- **关键决策**：子 wf 确定性 id `<parent>:sub:sN:aA`(attempt-keyed,防并发重复 + retry 重跑独立);父终态判定复用 AdvanceStep 二元组抢权(幂等不变);递归准入(子 wf 每 leaf 过 validate);取消传播。
+- **主控独立验证**（非转述子 agent）：① 文件真在工作树;② `go build ./...` 绿;③ **`go test ./...` 全量无过滤 exit 0**(主控亲跑);④ **读并发测试代码确认非空壳**——`TestSubWorkflowConcurrentParentAdvanceOnce` 真起 32 goroutine + atomic 计数 + 硬断言"父 step2 只起一次/子 wf 无重复";`-race` 三包绿。
+- **遗留**：子 wf 在 Web 详情视图展示属 P4;远端产物拉取通道仍后续(仅文档警示);子 wf retry 重跑整条(only-failed 留后续)。
+
+### P4
 > 待回填。
 
 ## 6. 完成判定
