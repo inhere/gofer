@@ -55,11 +55,11 @@
   - [x] T1.5 workflow_events 表 + recordWorkflowEvent + 插桩 + `GET /v1/workflows/{id}/events`
   - [x] T1.6 workflow retention（独立 max_age + 连带清 step-jobs/events）
   - [x] T1.7 验收（并发硬测 PASS + -race 无竞态）+ 测试
-- [ ] **P2 fan-out 并行**（详见 P2 子文档）
-  - [ ] T2.1 StepSpec `fan_out`/`join` + 校验 + `fan_index` 列
-  - [ ] T2.2 startStep 起 N 并行 job + advanceWorkflow 多 job 聚合判定
-  - [ ] T2.3 join 语义（all/any/quorum）+ 引用聚合
-  - [ ] T2.4 验收 + 测试
+- [x] **P2 fan-out 并行**（详见 P2 子文档）✅ commit `4492871`
+  - [x] T2.1 StepSpec `fan_out`/`join` + validateFanout + `fan_index` Go 字段
+  - [x] T2.2 submitStepFan 起 N 并行 job（request_id 加 `:fF`）+ advanceWorkflow stepFanJobs 聚合判定
+  - [x] T2.3 join 语义（all/any/quorum + 永不悬挂）+ 引用聚合（`${steps.N.result_dir}` 多目录 + `${steps.N.fK}`）
+  - [x] T2.4 验收（并发硬测 PASS + -race）+ 测试
 - [ ] **P3 子工作流 + 跨项目**（详见 P3 子文档）
   - [ ] T3.1 StepSpec `type=workflow`/`sub_workflow` + `parent_*` 列 + 校验
   - [ ] T3.2 子 wf 提交 + 终态触发父 advance
@@ -79,7 +79,12 @@
 - **关键决策**：退避 sweeper backstop + 即时 timer 优化；事件顺序前移（先记事件再翻状态，修竞态，仿 v1 finish）；job 级重试进程内 timer 最小版（可靠版留后续）；顺带加 P2/P3 列减少迁移。
 - **验收**：build/vet 绿；`go test` 三包绿（job 46s/jobstore 18s/httpapi 25s）；**⭐并发硬测两层 PASS**（job 32 并发 hammer + store 32 协程抢权，只起一个 att+1 job、状态只转移一次）；**-race 无竞态**；**D23 v1 回归通过**（无新字段 spec 行为不变）；workflow_events 时间线/retention 连带清验证。
 
-### P2 / P3 / P4
+### P2 ✅（commit `4492871`）
+- **改动**：6 生产文件 + 4 测试——`workflow.go`(StepSpec FanOut/Join + validateFanout + submitStepFan + advanceWorkflow 聚合判定 stepFanJobs/fanTerminal/fanVerdict/cancelInflightFans)、`jobstore/jobs.go`(FanIndex 字段)、`refs.go`(`${steps.N.fK}` 选择器 + result_dir 聚合)、model/service(FanIndex 透传)。
+- **关键决策**：fan request_id `wfID:sN:aA:fF`（fanIndex==0 时退化为 P1 键，**D23 不变**）；join all/any/quorum **全 terminal 必可决永不悬挂**；any/quorum done 后 `cancelInflightFans` 释放配额；引用聚合=成功 fan 的 result_dir 换行连接 + `.fK` 选择器。
+- **验收**：build/vet 绿；三包 `-race` 全绿（job 56s/jobstore 21s/httpapi 28s）；**并发硬测 PASS**（`TestFanOutConcurrentAdvanceOnce` 32 并发只推进一次，-race -count=3 稳定）；join 三态 + fan-out×retry + 引用聚合 + **D23/P1 回归**全通过。
+
+### P3 / P4
 > 待回填。
 
 ## 6. 完成判定
