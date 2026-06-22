@@ -16,7 +16,7 @@
 
 单 job = 单 agent / 单 prompt-or-argv / 单项目 / 单 cwd；状态/元数据入 SQLite。已具备：异步+同步提交、md+yaml、ws 远端 worker + 标签调度、运行中交互、`/v1/runners` 健康名册、`caller_id`/`worker_id` 审计、retention、Web 控制台 + MCP。
 
-**原核心缺口已基本补齐**：产物回取（E1✅）、改了什么 diff（E12✅）、事件时间线（E13✅）、结构化结果（E6✅）、多步工作流线性版（E7🚧）、CLI 日常（E2✅）、指标与配额（E16/E17✅）均已落地。
+**原核心缺口已基本补齐**：产物回取（E1✅）、改了什么 diff（E12✅）、事件时间线（E13✅）、结构化结果（E6✅）、多步工作流线性版（E7 ✅v1，v2 待做）、CLI 日常（E2✅）、指标与配额（E16/E17✅）均已落地。
 
 **新核心缺口（本轮想法聚焦）**：① 任务只能**人工逐个提交**，不能定时/失败自动重试/agent 自动应答——缺**自主化**；② gofer 未融入日常工作环境（IM 提交&通知、IDE 跳转）——缺**连接/入口**；③ 工作流只能**单项目线性**，不能子工作流嵌套/跨项目衔接（开发→测试）——缺**工作流深化**；④ 无插件扩展点（hooks）。
 
@@ -41,7 +41,7 @@
 | 编号 | 增强 | 价值 | 工作量 | 说明 |
 |---|---|---|---|---|
 | E6 ✅ | **结构化结果 (structured result)** | 高 | 中 | agent 除 exit_code/日志外回一份结构化结果（约定 `result.json`），入库 + API/Web 展示。返回可解析摘要而非裸 stdout——也直接增强审计(③)。 |
-| E7 🚧 | **多步 / 工作流 (job 链)** | 高 | 大 | 提交一串 job，**上一步产出喂下一步**。✅ 已落地**线性 chain v1** + `${steps.N.xxx}` 引用 + fail-fast。留后续：DAG/并行（E9）、子工作流/跨项目（E27）、per-step on_failure/retry（E24）、md-per-step、workflow 级事件流/retention。 |
+| E7 ✅v1 · 🚧v2 | **多步 / 工作流 (job 链)** | 高 | 大 | **线性 chain v1 已完整落地** ✅（单活跃 step + `${steps.N.xxx}` 引用 + fail-fast + 幂等推进 + sweeper 兜底 + CLI/HTTP/Web，见 [`design/2026-06-21-workflow-chains-design.md`](design/2026-06-21-workflow-chains-design.md)）。**v2 待做** 🚧（[`design/2026-06-22-workflow-v2-design.md`](design/2026-06-22-workflow-v2-design.md)）：DAG/并行 fan-out（E9）、子工作流/跨项目（E27）、per-step on_failure/retry（E24）、md-per-step、workflow 级事件流/retention。 |
 | E8 | **审批门 (approval gate)** | 中 | 中 | 运行中交互扩一种"高危动作审批"（agent 跑 `rm -rf`/推送/外发前先求批）。复用 `pending_interaction`；兼顾完成任务与审计/安全(③)。**自主化的安全闸**——E24/E25/E26 自主能力都依赖它兜底。 |
 | E9 | **并行 fan-out / 对比** | 中 | 中 | 一个任务派给 N 个 agent/worker 并行，汇总对比（judge-panel）。利用 worker 舰队；接 E7/E27 工作流。 |
 | E10 | **mcp-agent 类型** | 中 | 中 | 新 agent type：job 调用"本身是 MCP server"的外部能力（与 runner 正交、可与 worker 组合）。让 gofer 编排 MCP 工具。 |
@@ -78,7 +78,7 @@ E23 定时 + E24 自动重试 + E25 监督应答 + E26 hooks 共同把 gofer 从
 
 ## 建议优先级（下一步做什么）
 
-**已完成（✅）**：E1/E2/E3/E5/E6/E12/E13/E15/E16/E17，E7🚧（线性 v1）/E14🚧（webhook）。原三轴核心缺口基本补齐。
+**已完成（✅）**：E1/E2/E3/E5/E6/E12/E13/E15/E16/E17，**E7 ✅v1**（线性版已落地，v2 待做）/E14🚧（webhook，MQ 不做）。原三轴核心缺口基本补齐。
 
 **便宜先行（低成本、边界清晰）：**
 1. **E18 工作流导入导出**（`spec_json` 近现成）· **E19(a) 产物预览**（E1 加渲染）· **E22(a) IM 出站通知**（复用 E14）· **E21 编辑器打开**（复用主机 bridge）。
