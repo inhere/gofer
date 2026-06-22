@@ -53,16 +53,29 @@ type Workflow struct {
 	// by a retry transition; the sweeper/advance skip a workflow whose NextStepAt is
 	// still in the future, then start the next attempt once it is due. 旧库行→0.
 	NextStepAt int64
+	// ParentWorkflowID is the父 workflow id when THIS workflow is a sub-workflow
+	// started by a parent step (P3, design §5.2, D19). "" for a top-level workflow.
+	// When non-empty, this workflow's terminal transition triggers the parent's
+	// advanceWorkflow (the parent step's terminal == this sub-workflow's terminal).
+	// 旧库/v1 行 COALESCE→"" (top-level), so向后兼容 (D23).
+	ParentWorkflowID string
+	// ParentStepIndex is the 1-based step index in the parent that started this
+	// sub-workflow (P3, design §5.2). 0 for a top-level workflow. Together with
+	// ParentWorkflowID it locates this sub-workflow as a parent step's child. 旧库行→0.
+	ParentStepIndex int
 }
 
 // selectWorkflowCols is the shared projection. COALESCE guards the nullable
 // title/caller_id/error so a NULL scans into "" instead of failing the scan. The
 // P1 step_attempt/next_step_at columns COALESCE旧库行 into the v1-equivalent zero
 // value (attempt 1, no pending backoff) so a pre-existing workflow scans cleanly.
+// The P3 parent_workflow_id/parent_step_index columns COALESCE旧库/top-level 行 into
+// ""/0 (top-level, no parent), so向后兼容 (D23).
 const selectWorkflowCols = `SELECT id, COALESCE(title,''), status, current_step,
   total_steps, spec_json, COALESCE(caller_id,''), COALESCE(error,''),
   created_at, updated_at,
-  COALESCE(step_attempt,1), COALESCE(next_step_at,0) FROM workflows`
+  COALESCE(step_attempt,1), COALESCE(next_step_at,0),
+  COALESCE(parent_workflow_id,''), COALESCE(parent_step_index,0) FROM workflows`
 
 // scanWorkflow reads one row (in selectWorkflowCols order) into a Workflow.
 func scanWorkflow(sc rowScanner) (Workflow, error) {
@@ -72,6 +85,7 @@ func scanWorkflow(sc rowScanner) (Workflow, error) {
 		&w.TotalSteps, &w.SpecJSON, &w.CallerID, &w.Error,
 		&w.CreatedAt, &w.UpdatedAt,
 		&w.StepAttempt, &w.NextStepAt,
+		&w.ParentWorkflowID, &w.ParentStepIndex,
 	)
 	return w, err
 }
@@ -90,15 +104,23 @@ func (s *Store) InsertWorkflow(w Workflow) error {
 	if w.StepAttempt < 1 {
 		w.StepAttempt = 1 // 默认首个 step 的 attempt=1（P1）
 	}
+	// parent_* are nil for a top-level workflow (so they scan back as ""/0 via the
+	// selectWorkflowCols COALESCE); a sub-workflow stores its parent binding (P3).
+	var parentWf any
+	var parentStep any
+	if w.ParentWorkflowID != "" {
+		parentWf = w.ParentWorkflowID
+		parentStep = w.ParentStepIndex
+	}
 	const q = `INSERT INTO workflows
-  (id, title, status, current_step, total_steps, spec_json, caller_id, error, created_at, updated_at, step_attempt, next_step_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+  (id, title, status, current_step, total_steps, spec_json, caller_id, error, created_at, updated_at, step_attempt, next_step_at, parent_workflow_id, parent_step_index)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q,
 		w.ID, w.Title, w.Status, w.CurrentStep, w.TotalSteps,
 		w.SpecJSON, w.CallerID, w.Error, w.CreatedAt, w.UpdatedAt,
-		w.StepAttempt, w.NextStepAt,
+		w.StepAttempt, w.NextStepAt, parentWf, parentStep,
 	); err != nil {
 		return fmt.Errorf("jobstore: insert workflow %q: %w", w.ID, err)
 	}
@@ -216,6 +238,31 @@ func (s *Store) SetWorkflowStatus(id, status, errMsg string) error {
 		return fmt.Errorf("jobstore: set workflow %q status %s: %w", id, status, err)
 	}
 	return nil
+}
+
+// FindChildWorkflow returns the sub-workflow a parent step started, located by
+// (parent_workflow_id, parent_step_index) (P3, D19). The bool is false (nil error)
+// when no such child exists yet (the parent step has not started its sub-workflow,
+// or the sub-workflow submit is still in flight). It is the parent advance's lookup
+// for "is this workflow-type step terminal" = "is its child workflow terminal".
+//
+// Pairs with the deterministic child-workflow id (the submit path derives a stable
+// id from parent+step), but this query is the authoritative locator: it tolerates a
+// child created with a different id scheme and never relies on the parent knowing
+// the exact id. Newest first (a re-submit would only ever be an idempotent no-op via
+// the deterministic id, so at most one row exists in practice).
+func (s *Store) FindChildWorkflow(parentID string, parentStep int) (Workflow, bool, error) {
+	w, err := scanWorkflow(s.db.QueryRow(
+		selectWorkflowCols+" WHERE parent_workflow_id = ? AND parent_step_index = ? ORDER BY created_at DESC, id DESC LIMIT 1",
+		parentID, parentStep,
+	))
+	if errors.Is(err, sql.ErrNoRows) {
+		return Workflow{}, false, nil
+	}
+	if err != nil {
+		return Workflow{}, false, fmt.Errorf("jobstore: find child workflow of %q step %d: %w", parentID, parentStep, err)
+	}
+	return w, true, nil
 }
 
 // ListWorkflowJobs returns every step-job of a workflow, ordered by step_index

@@ -7,6 +7,7 @@ import (
 	"log"
 	"time"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -52,6 +53,17 @@ type StepSpec struct {
 	// "quorum" succeeds when more than half are done. Empty == "all". Only meaningful
 	// when FanOut>1 (validateFanout rejects join on a non-fan step).
 	Join string `json:"join,omitempty" yaml:"join,omitempty"`
+	// Type is the step kind (P3, design §5.1, D18): "" / "job" (default) runs a single
+	// agent/exec job; "workflow" instead submits an INLINE sub-workflow (SubWorkflow)
+	// whose terminal state decides this step's outcome. Empty == "job" == v1 behaviour
+	// (D23). A workflow-type step is mutually exclusive with fan-out (validateSubworkflow).
+	Type string `json:"type,omitempty" yaml:"type,omitempty"`
+	// SubWorkflow is the inline child-workflow definition for a Type=="workflow" step
+	// (P3, design §5.1, D18). Required (non-empty steps) when Type=="workflow"; must be
+	// absent for a job-type step. Each of its steps passes the SAME single-job准入
+	// recursively (validateSubworkflow), so nesting never smuggles a step past the
+	// allowlist/exec gate (§9 安全). nil for a v1/job step (D23).
+	SubWorkflow *WorkflowSpec `json:"sub_workflow,omitempty" yaml:"sub_workflow,omitempty"`
 }
 
 // RetryPolicy bounds per-step (and per-job, E24) retry on failure (P1, design
@@ -61,8 +73,8 @@ type StepSpec struct {
 // restricts retry to those exit codes (empty == retry on any non-zero exit /
 // timeout / failure, see retryableExit).
 type RetryPolicy struct {
-	MaxAttempts int   `json:"max_attempts" yaml:"max_attempts"`               // >=1 (includes the first run)
-	BackoffSec  []int `json:"backoff_sec,omitempty" yaml:"backoff_sec,omitempty"` // 默认接 SR606 [30,120,300,900,3600]
+	MaxAttempts int   `json:"max_attempts" yaml:"max_attempts"`                       // >=1 (includes the first run)
+	BackoffSec  []int `json:"backoff_sec,omitempty" yaml:"backoff_sec,omitempty"`     // 默认接 SR606 [30,120,300,900,3600]
 	OnExitCodes []int `json:"on_exit_codes,omitempty" yaml:"on_exit_codes,omitempty"` // 空=任意非0退出重试
 }
 
@@ -91,6 +103,20 @@ const (
 // already serialises/queues a large fan). 32 is the design ceiling (plan T2.1).
 const maxFanOut = 32
 
+// stepType* are the known StepSpec.Type values (P3, design §5.1, D18). "" is treated
+// as stepTypeJob (a single job, the v1 path) so a v1/P1/P2 spec maps to job without
+// change (D23).
+const (
+	stepTypeJob      = "job"
+	stepTypeWorkflow = "workflow"
+)
+
+// maxWorkflowDepth caps how deeply sub-workflows may nest (P3, plan T3.1硬约束): a
+// top-level workflow is depth 1, its sub-workflow steps are depth 2, theirs depth 3.
+// A spec nesting beyond this is rejected at submit (validateSubworkflow) so a
+// pathological / runaway recursion can never be admitted. 3 is the plan ceiling.
+const maxWorkflowDepth = 3
+
 // defaultBackoffSec is the SR606退避表 used when a RetryPolicy gives no explicit
 // BackoffSec: 30s → 2min → 5min → 15min → 60min, the last entry reused past the
 // end (mirrors the E14 deliveryBackoff table).
@@ -115,6 +141,38 @@ type WorkflowSpec struct {
 // before any DB row / job is created. If step-1's Submit fails, the workflow is
 // marked failed and the error returned.
 func (s *Service) SubmitWorkflow(spec WorkflowSpec, callerID string) (jobstore.Workflow, error) {
+	return s.submitWorkflowImpl(spec, callerID, "", 0, 0)
+}
+
+// SubmitWorkflowChild submits an inline sub-workflow bound to a parent step (P3, D19).
+// It derives a DETERMINISTIC child workflow id from (parentID, parentStep, parentAtt)
+// so a racing re-submit (finish hook + sweeper both re-driving the same parent step)
+// only ever creates ONE child — the InsertWorkflow on the duplicate id fails (PK
+// collision) and is treated as an idempotent no-op. The attempt segment lets a retried
+// workflow-type step (on_failure=retry) spawn a FRESH child per attempt without
+// colliding with the prior attempt's child. The child inherits the parent's caller_id
+// (D8, quota continuity) and stores parent_workflow_id/parent_step_index so its
+// terminal transition triggers the parent's advanceWorkflow. Returns the child header
+// (or the already-existing child on a duplicate submit).
+func (s *Service) SubmitWorkflowChild(spec WorkflowSpec, callerID, parentID string, parentStep, parentAtt int) (jobstore.Workflow, error) {
+	return s.submitWorkflowImpl(spec, callerID, parentID, parentStep, parentAtt)
+}
+
+// childWorkflowID derives the deterministic sub-workflow id for a parent step's attempt
+// (P3): "<parentID>:sub:s<step>:a<att>". A single derived id per (parent, step, attempt)
+// is the idempotency barrier for child submission — like the deterministic step
+// request_id (⭐节 1), it guarantees a concurrent re-drive can not start the same
+// sub-workflow twice (the PK collision on the second InsertWorkflow is the屏障); the
+// attempt segment isolates a retried step's children.
+func childWorkflowID(parentID string, parentStep, parentAtt int) string {
+	return fmt.Sprintf("%s:sub:s%d:a%d", parentID, parentStep, parentAtt)
+}
+
+// submitWorkflowImpl is the shared submit body for top-level (parentID=="") and child
+// (parentID!="") workflows. parentID/parentStep/parentAtt bind a sub-workflow to its
+// parent step+attempt and drive a DETERMINISTIC child id (childWorkflowID) so a
+// re-submit is idempotent.
+func (s *Service) submitWorkflowImpl(spec WorkflowSpec, callerID, parentID string, parentStep, parentAtt int) (jobstore.Workflow, error) {
 	if len(spec.Steps) == 0 {
 		return jobstore.Workflow{}, fmt.Errorf("%w: workflow has no steps", ErrInvalidRequest)
 	}
@@ -140,10 +198,27 @@ func (s *Service) SubmitWorkflow(spec WorkflowSpec, callerID string) (jobstore.W
 		return jobstore.Workflow{}, err
 	}
 
-	// Pre-validate every step against the single-job准入 before creating anything,
-	// so an invalid step (e.g. step 3) is rejected at submit time, not mid-chain.
 	cfg := s.config()
+
+	// P3: per-step type/sub_workflow validation + RECURSIVE sub-workflow准入. A
+	// workflow-type step must carry a non-empty inline sub_workflow (validated through
+	// the full chain, every leaf step过单 job 准入), fan-out × workflow is rejected, and
+	// nesting depth is bounded. The parent spec is depth 1; a child submit re-validates
+	// at depth 1 too (its own steps are then depth 2 relative to it — the absolute depth
+	// across the whole tree is enforced at the top-level submit before any child runs).
+	// A v1/P1/P2 spec (no type / no sub_workflow) passes unchanged (D23).
+	if err := s.validateSubworkflow(spec, cfg, 1); err != nil {
+		return jobstore.Workflow{}, err
+	}
+
+	// Pre-validate every JOB step against the single-job准入 before creating anything,
+	// so an invalid step (e.g. step 3) is rejected at submit time, not mid-chain. A
+	// workflow-type step has no job of its own (it submits a sub-workflow), so it is
+	// admitted recursively by validateSubworkflow above, not here.
 	for i := range spec.Steps {
+		if spec.Steps[i].Type == stepTypeWorkflow {
+			continue
+		}
 		req := stepToRequest(spec.Steps[i], "", i+1, 1, 0, callerID)
 		remote := isRemoteRunner(cfg, req.Runner)
 		if _, err := s.validate(cfg, req, remote); err != nil {
@@ -156,21 +231,36 @@ func (s *Service) SubmitWorkflow(spec WorkflowSpec, callerID string) (jobstore.W
 		return jobstore.Workflow{}, fmt.Errorf("marshal workflow spec: %w", err)
 	}
 
+	// A child workflow uses the deterministic id (idempotent re-submit); a top-level
+	// workflow uses a fresh collision-resistant id.
 	wfID := s.genWorkflowID()
+	if parentID != "" {
+		wfID = childWorkflowID(parentID, parentStep, parentAtt)
+	}
 	now := s.nowFn().Unix()
 	wf := jobstore.Workflow{
-		ID:          wfID,
-		Title:       spec.Title,
-		Status:      jobstore.WorkflowRunning,
-		CurrentStep: 1,
-		StepAttempt: 1, // P1: the active step's 1-based attempt (first run == 1)
-		TotalSteps:  len(spec.Steps),
-		SpecJSON:    string(specJSON),
-		CallerID:    callerID,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:               wfID,
+		Title:            spec.Title,
+		Status:           jobstore.WorkflowRunning,
+		CurrentStep:      1,
+		StepAttempt:      1, // P1: the active step's 1-based attempt (first run == 1)
+		TotalSteps:       len(spec.Steps),
+		SpecJSON:         string(specJSON),
+		CallerID:         callerID,
+		ParentWorkflowID: parentID,
+		ParentStepIndex:  parentStep,
+		CreatedAt:        now,
+		UpdatedAt:        now,
 	}
 	if err := s.meta.InsertWorkflow(wf); err != nil {
+		// A child re-submit collides on the deterministic PK: the sub-workflow already
+		// exists (a racing finish-hook / sweeper re-drive). Treat as an idempotent no-op
+		// and return the existing child — NOT an error (the parent advance must not fail).
+		if parentID != "" {
+			if got, ok, gerr := s.meta.GetWorkflow(wfID); gerr == nil && ok {
+				return got, nil
+			}
+		}
 		return jobstore.Workflow{}, err
 	}
 	// P1: submitted event (workflow_events timeline starts here).
@@ -304,6 +394,77 @@ func validateFanout(spec WorkflowSpec) error {
 	return nil
 }
 
+// validateSubworkflow checks each step's type/sub_workflow at submit time and
+// RECURSIVELY validates an inline sub-workflow (P3, design §5.1, plan T3.1), so a
+// nested step never smuggles past the same准入 a top-level step faces (§9 安全):
+//   - type must be "" / "job" / "workflow" (unknown rejected);
+//   - a job/"" step must NOT carry a sub_workflow;
+//   - a workflow step MUST carry a non-empty sub_workflow (steps非空);
+//   - a workflow step is mutually exclusive with fan-out (fan_out>1 rejected) — fan ×
+//     workflow is unsupported (硬约束), and join makes no sense on a single sub-wf;
+//   - the sub-workflow is validated recursively: validateRefs / validateRetry /
+//     validateFanout / validateSubworkflow + every leaf step过单 job 准入 (cfg);
+//   - nesting depth is bounded by maxWorkflowDepth (depth 1 == this top-level spec).
+//
+// cfg is threaded so the recursive single-job admission (s.validate) uses the same
+// project/agent/runner allowlist + exec gate as the top-level pre-validation pass. A
+// v1/P1/P2 spec (no type / no sub_workflow) passes unchanged at depth 1 (D23).
+func (s *Service) validateSubworkflow(spec WorkflowSpec, cfg *config.Config, depth int) error {
+	for i := range spec.Steps {
+		stepNo := i + 1
+		st := spec.Steps[i]
+		switch st.Type {
+		case "", stepTypeJob:
+			if st.SubWorkflow != nil {
+				return fmt.Errorf("%w: step %d is type=%q but carries a sub_workflow (sub_workflow only applies to type=workflow)", ErrInvalidRequest, stepNo, st.Type)
+			}
+		case stepTypeWorkflow:
+			if st.SubWorkflow == nil || len(st.SubWorkflow.Steps) == 0 {
+				return fmt.Errorf("%w: step %d type=workflow requires a non-empty sub_workflow (steps)", ErrInvalidRequest, stepNo)
+			}
+			// fan-out × workflow is mutually exclusive (硬约束): a workflow step is a single
+			// sub-workflow, never a parallel burst, so FanOut>1 (or any join) is a misconfig.
+			if st.FanOut > 1 {
+				return fmt.Errorf("%w: step %d combines type=workflow with fan_out=%d (fan-out and sub-workflow are mutually exclusive)", ErrInvalidRequest, stepNo, st.FanOut)
+			}
+			// Depth guard: this top-level spec is `depth`; its sub-workflow steps are depth+1.
+			if depth+1 > maxWorkflowDepth {
+				return fmt.Errorf("%w: step %d sub_workflow nests to depth %d exceeding the limit %d", ErrInvalidRequest, stepNo, depth+1, maxWorkflowDepth)
+			}
+			sub := *st.SubWorkflow
+			// Recursive准入: the sub-workflow faces the FULL submit validation chain so a
+			// nested step can not bypass refs/retry/fanout checks OR the single-job准入.
+			if err := validateRefs(sub); err != nil {
+				return fmt.Errorf("step %d sub_workflow: %w", stepNo, err)
+			}
+			if err := validateRetry(sub); err != nil {
+				return fmt.Errorf("step %d sub_workflow: %w", stepNo, err)
+			}
+			if err := validateFanout(sub); err != nil {
+				return fmt.Errorf("step %d sub_workflow: %w", stepNo, err)
+			}
+			if err := s.validateSubworkflow(sub, cfg, depth+1); err != nil {
+				return fmt.Errorf("step %d sub_workflow: %w", stepNo, err)
+			}
+			// Every LEAF (job-type) step of the sub-workflow passes the single-job准入.
+			// A workflow-type sub-step is admitted by the recursive call above, not here.
+			for j := range sub.Steps {
+				if sub.Steps[j].Type == stepTypeWorkflow {
+					continue
+				}
+				req := stepToRequest(sub.Steps[j], "", j+1, 1, 0, "")
+				remote := isRemoteRunner(cfg, req.Runner)
+				if _, err := s.validate(cfg, req, remote); err != nil {
+					return fmt.Errorf("step %d sub_workflow step %d: %w", stepNo, j+1, err)
+				}
+			}
+		default:
+			return fmt.Errorf("%w: step %d has unknown type %q (want job/workflow)", ErrInvalidRequest, stepNo, st.Type)
+		}
+	}
+	return nil
+}
+
 // fanWant returns the effective parallelism of a step: max(1, FanOut). A fan_out of
 // 0/1 is a single job (the v1 path); fan_out>1 is the configured N.
 func fanWant(step StepSpec) int {
@@ -405,7 +566,7 @@ func (s *Service) genWorkflowID() string {
 //
 // P1 失败分支 (design §6.1, D17): on a non-done terminal step, on_failure decides:
 //   - retry:    schedule attempt+1 with backoff (set next_step_at, NO immediate
-//               start — the sweeper starts it once due, request_id兜底 idempotent);
+//     start — the sweeper starts it once due, request_id兜底 idempotent);
 //   - continue: skip the failed step, advance to the next;
 //   - fail/"":  v1 fail-fast (the whole workflow fails).
 //
@@ -447,8 +608,17 @@ func (s *Service) advanceWorkflow(wfID string) {
 		return
 	}
 	step := spec.Steps[cur-1] // 0-based: the active/just-finished step
-	want := fanWant(step)     // 1 for a single-job step; FanOut for a fan-out step
-	join := joinPolicy(step)  // all (default) / any / quorum
+
+	// P3: a workflow-type step's outcome is its CHILD workflow's outcome (D19), not a
+	// fan-job census. Branch the "started? terminal? verdict?" computation; the
+	// done/failed handling below (on_failure 等) is shared with the job path.
+	if step.Type == stepTypeWorkflow {
+		s.advanceWorkflowStep(wf, step, cur, att, jobs, spec)
+		return
+	}
+
+	want := fanWant(step)    // 1 for a single-job step; FanOut for a fan-out step
+	join := joinPolicy(step) // all (default) / any / quorum
 
 	// The fan jobs of THIS (step,attempt) generation. For a single-job step (want==1)
 	// this is the one job (fan_index 0); for a fan-out step it is the started fan jobs
@@ -491,8 +661,8 @@ func (s *Service) advanceWorkflow(wfID string) {
 		}
 		s.startNextStep(wf, cur, jobs, spec) // resolveRefs + start step cur+1 (attempt 1)
 	default: // failed (aggregated: join not satisfied)
-		failStatus := fanFailStatus(fanJobs)   // representative failed fan status (message)
-		failExit := fanFailExitCode(fanJobs)   // representative failed fan exit code (retry gate)
+		failStatus := fanFailStatus(fanJobs) // representative failed fan status (message)
+		failExit := fanFailExitCode(fanJobs) // representative failed fan exit code (retry gate)
 		switch step.OnFailure {
 		case onFailureRetry:
 			if att < maxAttempts(step) && retryableExit(step, failExit) {
@@ -548,6 +718,103 @@ func (s *Service) advanceWorkflow(wfID string) {
 			}
 			s.setWorkflowFailed(wfID, fmt.Sprintf("step %d %s", cur, failStatus))
 		}
+	}
+}
+
+// advanceWorkflowStep advances a workflow whose CURRENT step is a workflow-type step
+// (P3, D19). It is the workflow-type analogue of the fan-job census in advanceWorkflow:
+// the step's outcome IS its child sub-workflow's outcome.
+//   - child not yet created (crash / retry-due / partial start): (re)start it via
+//     startStepJob (which routes to startSubWorkflow with the deterministic child id, so
+//     a racing re-drive is idempotent), then wait.
+//   - child still running: wait — its terminal transition will fire the parent's
+//     advanceWorkflow again (setWorkflowDone/Failed parent hook), AND the sweeper is the
+//     backstop if that hook is lost.
+//   - child terminal: done → advance/next-step (shared with the job path); failed/
+//     cancelled → on_failure (fail/continue/retry), identical handling to the job path.
+//
+// The done/failed handling re-implements the SAME on_failure semantics as the job path
+// (AdvanceStep抢权 + retry/continue/fail), keeping the幂等 invariant (一个 (step,attempt)
+// 状态转移绝不执行两次). cur/att are the captured 1-based pointer二元组; jobs/spec are the
+// already-read header projections (jobs feed startNextStep's ref resolution).
+func (s *Service) advanceWorkflowStep(wf jobstore.Workflow, step StepSpec, cur, att int, jobs []jobstore.JobRecord, spec WorkflowSpec) {
+	wfID := wf.ID
+	child, ok, err := s.meta.FindChildWorkflow(wfID, cur)
+	if err != nil {
+		return // transient store error: the sweeper re-drives next tick
+	}
+	// Not started yet, OR a stale child from a PRIOR attempt (the current attempt's child
+	// uses childWorkflowID(...,att); a retried step needs a fresh child). (Re)start the
+	// current (cur,att) generation — startStepJob routes a workflow-type step to
+	// startSubWorkflow with the deterministic per-attempt id (idempotent re-drive).
+	wantChildID := childWorkflowID(wfID, cur, att)
+	if !ok || child.ID != wantChildID {
+		s.startStepJob(wf, cur, att, jobs)
+		return
+	}
+	if child.Status == jobstore.WorkflowRunning {
+		return // child still in flight: wait for its terminal transition / sweeper
+	}
+
+	// Child terminal: done → step done; failed/cancelled → step failed (then on_failure).
+	if child.Status == jobstore.WorkflowDone {
+		won, aerr := s.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
+		if aerr != nil || !won {
+			return
+		}
+		if cur >= wf.TotalSteps {
+			s.setWorkflowDone(wfID)
+			return
+		}
+		s.startNextStep(wf, cur, jobs, spec)
+		return
+	}
+
+	// Child failed/cancelled → the step failed. on_failure decides (shared semantics).
+	failStatus := child.Status // failed / cancelled
+	switch step.OnFailure {
+	case onFailureRetry:
+		// A workflow-type step's retry re-runs the WHOLE sub-workflow as a fresh child
+		// (childWorkflowID keys on att+1). on_exit_codes does not apply to a sub-workflow
+		// (no exit code), so the retry gate is just the attempt ceiling.
+		if att < maxAttempts(step) {
+			backoff := backoffFor(step, att)
+			next := s.nowFn().Unix() + int64(backoff)
+			won, aerr := s.meta.AdvanceStep(wfID, cur, att, cur, att+1, next)
+			if aerr != nil || !won {
+				return
+			}
+			s.recordWorkflowEvent(wfID, EventStepRetry, map[string]any{
+				"step": cur, "attempt": att, "next_attempt": att + 1,
+				"backoff_sec": backoff, "next_step_at": next,
+			})
+			s.scheduleRetryAdvance(wfID, backoff)
+			return
+		}
+		won, aerr := s.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
+		if aerr != nil || !won {
+			return
+		}
+		s.setWorkflowFailed(wfID, fmt.Sprintf("step %d sub-workflow %s after %d attempt(s)", cur, failStatus, att))
+	case onFailureContinue:
+		won, aerr := s.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
+		if aerr != nil || !won {
+			return
+		}
+		s.recordWorkflowEvent(wfID, EventStepSkipped, map[string]any{
+			"step": cur, "attempt": att, "status": failStatus,
+		})
+		if cur >= wf.TotalSteps {
+			s.setWorkflowDone(wfID)
+			return
+		}
+		s.startNextStep(wf, cur, jobs, spec)
+	default: // "" / fail: fail-fast (D17 default)
+		won, aerr := s.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
+		if aerr != nil || !won {
+			return
+		}
+		s.setWorkflowFailed(wfID, fmt.Sprintf("step %d sub-workflow %s", cur, failStatus))
 	}
 }
 
@@ -617,6 +884,15 @@ func (s *Service) startStepJob(wf jobstore.Workflow, step, attempt int, priorJob
 // job, step.fanout (with all fan job_ids) for a fan-out generation. The step's spec is
 // assumed already ref-resolved by the caller.
 func (s *Service) submitStepFan(wf jobstore.Workflow, step StepSpec, stepIndex, attempt int) error {
+	// P3: a workflow-type step submits an INLINE sub-workflow (D18) instead of a job.
+	// The child is bound to (wf.ID, stepIndex) with a deterministic id, so a racing
+	// re-start (finish-hook + sweeper) only ever creates ONE child (idempotent). The
+	// parent step's terminal == the child workflow's terminal (judged in advanceWorkflow
+	// via FindChildWorkflow). A sub-workflow is a black box (no ref into its inner steps,
+	// design §3), so the step's own resolved fields are unused here.
+	if step.Type == stepTypeWorkflow {
+		return s.startSubWorkflow(wf, step, stepIndex, attempt)
+	}
 	want := fanWant(step)
 	if want <= 1 {
 		// Single-job path (v1/P1): fan_index 0, no fan request_id segment.
@@ -653,6 +929,29 @@ func (s *Service) submitStepFan(wf jobstore.Workflow, step StepSpec, stepIndex, 
 	return nil
 }
 
+// startSubWorkflow submits the inline sub-workflow of a workflow-type step (P3, D19).
+// The child is bound to (parent.ID, stepIndex) via SubmitWorkflowChild, which derives a
+// DETERMINISTIC child id so a concurrent re-start (finish-hook + sweeper) admits only
+// ONE child (a duplicate submit returns the existing child, not an error). The child
+// inherits the parent's caller_id (D8 / E17 quota continuity). On submit success it
+// records subworkflow.started; on failure it returns the error so the caller fails the
+// parent workflow (a sub-workflow that can not start is a step failure).
+func (s *Service) startSubWorkflow(parent jobstore.Workflow, step StepSpec, stepIndex, attempt int) error {
+	if step.SubWorkflow == nil || len(step.SubWorkflow.Steps) == 0 {
+		// Defensive: validateSubworkflow rejects this at submit, but guard the runtime path.
+		return fmt.Errorf("%w: step %d type=workflow has no sub_workflow", ErrInvalidRequest, stepIndex)
+	}
+	child, err := s.SubmitWorkflowChild(*step.SubWorkflow, parent.CallerID, parent.ID, stepIndex, attempt)
+	if err != nil {
+		return err
+	}
+	s.recordWorkflowEvent(parent.ID, EventSubworkflowStarted, map[string]any{
+		"step": stepIndex, "attempt": attempt, "child_workflow_id": child.ID,
+		"total_steps": child.TotalSteps,
+	})
+	return nil
+}
+
 // setWorkflowDone marks a workflow done and records the terminal event. The caller
 // has already won the AdvanceStep for the final step, so this runs exactly once.
 //
@@ -665,6 +964,23 @@ func (s *Service) setWorkflowDone(wfID string) {
 		"status": jobstore.WorkflowDone,
 	})
 	_ = s.meta.SetWorkflowStatus(wfID, jobstore.WorkflowDone, "")
+	// P3: if this is a sub-workflow, its terminal transition unlocks the parent step.
+	s.triggerParentAdvance(wfID)
+}
+
+// triggerParentAdvance fires the parent's advanceWorkflow when wfID is a sub-workflow
+// (ParentWorkflowID != "") that just reached a terminal state (P3, D19). It mirrors the
+// finish hook's `go advanceWorkflow`: ASYNC + 幂等 (the parent's AdvanceStep抢权 + the
+// deterministic child id keep a racing trigger and the sweeper's backstop safe). A
+// top-level workflow (no parent) is a no-op. Best-effort: a store read error or a
+// missing parent only skips the prompt re-drive — the sweeper still re-drives the
+// running parent on its next tick (子 wf 终态但父 advance 漏触发的兜底).
+func (s *Service) triggerParentAdvance(wfID string) {
+	wf, ok, err := s.meta.GetWorkflow(wfID)
+	if err != nil || !ok || wf.ParentWorkflowID == "" {
+		return
+	}
+	go s.advanceWorkflow(wf.ParentWorkflowID)
 }
 
 // setWorkflowFailed marks a workflow failed with a reason and records the terminal
@@ -676,6 +992,9 @@ func (s *Service) setWorkflowFailed(wfID, reason string) {
 		"status": jobstore.WorkflowFailed, "error": reason,
 	})
 	_ = s.meta.SetWorkflowStatus(wfID, jobstore.WorkflowFailed, reason)
+	// P3: if this is a sub-workflow, its terminal transition unlocks the parent step
+	// (which then sees a failed child → step failed → on_failure).
+	s.triggerParentAdvance(wfID)
 }
 
 // GetWorkflow returns a workflow header by id (HTTP detail/cancel paths). The
@@ -830,11 +1149,11 @@ func fanCounts(fanJobs []*jobstore.JobRecord) (done, terminal int) {
 // configured parallelism (max 1):
 //   - all:    every fan must be terminal (then verdict = all-done?). Until then, wait.
 //   - any:    decidable as soon as ONE fan is done (success short-circuit), OR every
-//             fan is terminal (then it is an all-failed → failed). A still-running fan
-//             with no done yet means "maybe still succeeds" → wait.
+//     fan is terminal (then it is an all-failed → failed). A still-running fan
+//     with no done yet means "maybe still succeeds" → wait.
 //   - quorum: decidable once a majority (> want/2) are done (success short-circuit) OR
-//             enough have failed that a quorum of done is impossible (→ failed) OR all
-//             terminal. Otherwise wait.
+//     enough have failed that a quorum of done is impossible (→ failed) OR all
+//     terminal. Otherwise wait.
 //
 // In all cases, once every fan is terminal the generation is trivially decidable (the
 // `terminal == want` guard), so a generation never hangs.
@@ -847,7 +1166,7 @@ func fanTerminal(fanJobs []*jobstore.JobRecord, want int, join string) bool {
 	case joinAny:
 		return done >= 1 // first done short-circuits success
 	case joinQuorum:
-		need := want/2 + 1     // strict majority of `want`
+		need := want/2 + 1 // strict majority of `want`
 		if done >= need {
 			return true // quorum of done reached: success short-circuit
 		}
@@ -998,10 +1317,16 @@ func (s *Service) CancelWorkflow(wfID string) error {
 	// run; for a fan-out step this cancels EVERY in-flight fan of the generation (P2).
 	jobs, err := s.meta.ListWorkflowJobs(wfID)
 	if err != nil {
+		// P3: even on the best-effort job-cancel error path, a cancelled sub-workflow must
+		// still unlock its parent step (parent sees cancelled → failed → on_failure).
+		s.triggerParentAdvance(wfID)
 		return nil // status is already cancelled; job-cancel is best-effort
 	}
 	for _, j := range stepFanJobs(jobs, wf.CurrentStep, wf.StepAttempt) {
 		_ = s.Cancel(j.ID)
 	}
+	// P3: a cancelled sub-workflow unlocks its parent step (parent sees cancelled →
+	// step failed → on_failure). A top-level workflow is a no-op (no parent).
+	s.triggerParentAdvance(wfID)
 	return nil
 }
