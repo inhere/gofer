@@ -41,6 +41,7 @@ var wfCancelOpts = struct {
 var wfExportOpts = struct {
 	config, server, token string
 	out                   string
+	format                string
 }{}
 
 var wfEventsOpts = struct {
@@ -105,12 +106,13 @@ func NewWorkflowCmd() *gcli.Command {
 			},
 			{
 				Name: "export",
-				Desc: "Export a workflow's spec JSON (secrets stripped) for re-import",
+				Desc: "Export a workflow's spec (secrets stripped) for re-import; default yaml (= `wf run` format)",
 				Config: func(c *gcli.Command) {
 					c.StrOpt(&wfExportOpts.config, "config", "c", "", "path to the bridge config file")
 					c.StrOpt(&wfExportOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&wfExportOpts.token, "token", "", "", "bearer token override (prefer config/env)")
-					c.StrOpt(&wfExportOpts.out, "out", "o", "", "write the spec JSON to this file instead of stdout")
+					c.StrOpt(&wfExportOpts.out, "out", "o", "", "write the spec to this file instead of stdout")
+					c.StrOpt(&wfExportOpts.format, "format", "f", "yaml", "output format: yaml (default, = wf run input) | json")
 					c.AddArg("id", "workflow id", true)
 				},
 				Func: runWorkflowExport,
@@ -419,9 +421,9 @@ func runWorkflowExport(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	out, err := json.MarshalIndent(spec, "", "  ")
+	out, err := marshalWorkflowSpec(spec, wfExportOpts.format)
 	if err != nil {
-		return fmt.Errorf("encode spec json: %w", err)
+		return err
 	}
 	if wfExportOpts.out != "" {
 		if err := os.WriteFile(wfExportOpts.out, append(out, '\n'), 0o600); err != nil {
@@ -435,6 +437,31 @@ func runWorkflowExport(c *gcli.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "warning: secret-looking values were redacted to %q; replace them before re-running\n", "***REDACTED***")
 	}
 	return nil
+}
+
+// marshalWorkflowSpec encodes an exported spec for `workflow export`. The default
+// (empty/"yaml") emits YAML — the SAME shape `wf run` consumes, so an export
+// round-trips straight back in (StepSpec carries matching yaml tags); "json" emits
+// the indented JSON dump. The output is normalised to no trailing newline so the
+// caller's file-write/println paths add exactly one. An unknown format is rejected.
+func marshalWorkflowSpec(spec job.WorkflowSpec, format string) ([]byte, error) {
+	var (
+		out []byte
+		err error
+	)
+	switch strings.ToLower(format) {
+	case "", "yaml", "yml":
+		if out, err = yaml.Marshal(spec); err != nil {
+			return nil, fmt.Errorf("encode spec yaml: %w", err)
+		}
+	case "json":
+		if out, err = json.MarshalIndent(spec, "", "  "); err != nil {
+			return nil, fmt.Errorf("encode spec json: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("unknown --format %q: want yaml or json", format)
+	}
+	return []byte(strings.TrimRight(string(out), "\n")), nil
 }
 
 // runWorkflowEvents prints a workflow's append-only lifecycle event timeline (P1
