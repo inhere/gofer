@@ -375,6 +375,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			WorkflowID: req.WorkflowID,
 			StepIndex:  req.StepIndex,
 			Attempt:    req.Attempt,
+			FanIndex:   req.FanIndex, // P2: fan-out 并行序号（非 fan-out 为 0）
 		},
 	}
 	s.mu.Lock()
@@ -741,6 +742,7 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		WorkflowID: r.WorkflowID,
 		StepIndex:  r.StepIndex,
 		Attempt:    r.Attempt,
+		FanIndex:   r.FanIndex, // P2: fan-out 并行序号
 	}
 }
 
@@ -800,6 +802,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		WorkflowID: rec.WorkflowID,
 		StepIndex:  rec.StepIndex,
 		Attempt:    rec.Attempt,
+		FanIndex:   rec.FanIndex, // P2: fan-out 并行序号
 	}
 }
 

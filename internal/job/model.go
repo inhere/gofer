@@ -64,6 +64,13 @@ type JobRequest struct {
 	// step) leaves it 0; the persist path COALESCEs that to 1. json/yaml "-" keeps
 	// clients from forging it.
 	Attempt int `json:"-" yaml:"-"`
+	// FanIndex is the 1-based parallel index of a fan-out step-job (P2, design §5.3):
+	// a FanOut>1 step starts N jobs sharing (step_index, attempt), distinguished by
+	// FanIndex=1..N. Set ONLY by the workflow engine (stepToRequest); a non-fan-out
+	// job (single-job path, v1/P1) leaves it 0. Persisted to jobs.fan_index and forms
+	// the f<fanIndex> segment of the deterministic request_id. json/yaml "-" keeps
+	// clients from forging it.
+	FanIndex int `json:"-" yaml:"-"`
 }
 
 // JobResult is the persisted/queryable job state (plan §6.2).
@@ -128,6 +135,10 @@ type JobResult struct {
 	// Attempt 是此 step-job 的 1-based 重试尝试号（P1）。首次运行=1；重试起的新 job
 	// attempt+1。持久化到 jobs.attempt（旧库 COALESCE 成 1）。普通 job 为 0（omitempty）。
 	Attempt int `json:"attempt,omitempty"`
+	// FanIndex 是 fan-out step 内此并行 job 的 1-based 序号（P2）。FanOut>1 的 step 起
+	// N 个 job，以 FanIndex=1..N 区分；非 fan-out（单 job 路径）为 0（omitempty）。
+	// 持久化到 jobs.fan_index。
+	FanIndex int `json:"fan_index,omitempty"`
 }
 
 // Job status values (plan §6.2).
@@ -162,7 +173,8 @@ const (
 // payload per type is documented at each insertion site.
 const (
 	EventWorkflowSubmitted = "workflow.submitted" // {title,total_steps,caller_id}
-	EventStepStarted       = "step.started"       // {step,attempt,job_id}
+	EventStepStarted       = "step.started"       // {step,attempt,job_id} (single-job step)
+	EventStepFanout        = "step.fanout"        // {step,attempt,fan_out,join,job_ids} (P2 fan-out step)
 	EventStepRetry         = "step.retry"         // {step,attempt,next_attempt,backoff_sec,next_step_at}
 	EventStepSkipped       = "step.skipped"       // {step,attempt,status} (on_failure=continue)
 	EventWorkflowTerminal  = "workflow.terminal"  // {status,error}

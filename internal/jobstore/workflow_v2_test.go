@@ -235,3 +235,28 @@ func TestJobAttemptRoundTrip(t *testing.T) {
 	assert.True(t, ok)
 	assert.Eq(t, 2, got.Attempt)
 }
+
+// TestJobFanIndexRoundTrip asserts jobs.fan_index round-trips (P2) and a non-fan job
+// (FanIndex unset) reads back as 0 (COALESCE), preserving the v1/P1 single-job default.
+func TestJobFanIndexRoundTrip(t *testing.T) {
+	s := openTest(t)
+	// Fan job: fan_index 3 round-trips.
+	jf := sampleJob("j-fan", "p", 100)
+	jf.WorkflowID = "wf-fan"
+	jf.StepIndex = 1
+	jf.Attempt = 1
+	jf.FanIndex = 3
+	assert.NoErr(t, s.UpsertJob(jf))
+	got, ok, err := s.GetJob("j-fan")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, 3, got.FanIndex)
+
+	// Non-fan job: FanIndex left 0 reads back 0 (single-job default).
+	jp := sampleJob("j-plain", "p", 100)
+	assert.NoErr(t, s.UpsertJob(jp))
+	gp, ok, err := s.GetJob("j-plain")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, 0, gp.FanIndex)
+}
