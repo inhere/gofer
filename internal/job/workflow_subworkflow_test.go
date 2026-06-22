@@ -21,6 +21,52 @@ func wfStep(name string, onFailure string, sub ...StepSpec) StepSpec {
 	}
 }
 
+// TestWorkflowStepsIncludesSubworkflowStep asserts the step chain surfaces a
+// workflow-type step (which runs NO step-job) as its own row carrying type +
+// child_workflow_id, so the web/CLI chain shows the sub-workflow and can link into
+// it. Regression guard for the P3 UI gap (the whole sub-workflow step was invisible
+// in the detail view because WorkflowSteps only returned job-backed steps).
+func TestWorkflowStepsIncludesSubworkflowStep(t *testing.T) {
+	s := newTestService(t, t.TempDir())
+	wf, err := s.SubmitWorkflow(WorkflowSpec{Steps: []StepSpec{
+		echoStep("gen"),
+		wfStep("sub-review", "", echoStep("child-lint")),
+	}}, "alice")
+	if err != nil {
+		t.Fatalf("SubmitWorkflow: %v", err)
+	}
+	if final := waitWorkflow(t, s, wf.ID); final.Status != jobstore.WorkflowDone {
+		t.Fatalf("workflow status = %s, want done", final.Status)
+	}
+
+	steps, err := s.WorkflowSteps(wf.ID)
+	if err != nil {
+		t.Fatalf("WorkflowSteps: %v", err)
+	}
+	// step order preserved: job step 1 before workflow step 2.
+	if len(steps) < 2 || steps[0].StepIndex != 1 {
+		t.Fatalf("chain not step-ordered: %+v", steps)
+	}
+	var sub *WorkflowStep
+	for i := range steps {
+		if steps[i].StepIndex == 2 {
+			sub = &steps[i]
+		}
+	}
+	if sub == nil {
+		t.Fatalf("step 2 (sub-workflow) missing from chain; got %d rows: %+v", len(steps), steps)
+	}
+	if sub.Type != stepTypeWorkflow {
+		t.Fatalf("step 2 type = %q, want %q", sub.Type, stepTypeWorkflow)
+	}
+	if want := childWorkflowID(wf.ID, 2, 1); sub.ChildWorkflowID != want {
+		t.Fatalf("step 2 child_workflow_id = %q, want %q (chain must link into child)", sub.ChildWorkflowID, want)
+	}
+	if sub.Status != jobstore.WorkflowDone {
+		t.Fatalf("step 2 child status = %q, want done", sub.Status)
+	}
+}
+
 // waitChildWorkflow polls until the child sub-workflow of (parent, step) exists and is
 // terminal, returning it. The child is created by the parent step's startSubWorkflow.
 func waitChildWorkflow(t *testing.T, s *Service, parentID string, step int) jobstore.Workflow {

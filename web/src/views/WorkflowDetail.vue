@@ -5,7 +5,7 @@
 //  - workflow_events 时间线（P1）展示 fan-out/retry/子 wf/终态等里程碑。
 //  - 每个 step 链到对应 job 详情 /jobs/{job_id}（未起的 step 无链接）。
 //  - running 显示 cancel 按钮（cancelWorkflow），终态停轮询。
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import StatusBadge from '../components/StatusBadge.vue'
 import { cancelWorkflow, getWorkflow, getWorkflowEvents } from '../api/client'
@@ -75,13 +75,20 @@ const stepGroups = computed<StepGroup[]>(() => {
 // 从 subworkflow.started 事件解出 step -> child_workflow_id 映射，供 step 组渲染子 wf 链接。
 const childByStep = computed<Map<number, string>>(() => {
   const m = new Map<number, string>()
+  // 主源：step 链里 workflow 型步直接带 child_workflow_id（P3 UI 修复，事件被 prune 也在）。
+  for (const st of workflow.value?.steps ?? []) {
+    if (st.child_workflow_id) {
+      m.set(st.step_index, st.child_workflow_id)
+    }
+  }
+  // 兜底：subworkflow.started 事件（detail 携带 step + child_workflow_id）。
   for (const ev of events.value) {
     if (ev.type !== 'subworkflow.started' || !ev.detail) {
       continue
     }
     try {
       const d = JSON.parse(ev.detail) as { step?: number; child_workflow_id?: string }
-      if (typeof d.step === 'number' && d.child_workflow_id) {
+      if (typeof d.step === 'number' && d.child_workflow_id && !m.has(d.step)) {
         m.set(d.step, d.child_workflow_id)
       }
     } catch {
@@ -181,6 +188,23 @@ function rowTag(st: WorkflowStep): string {
 function eventTime(at: number): string {
   return new Date(at * 1000).toLocaleTimeString()
 }
+
+// 路由 param 从一个 workflow 跳到另一个（如点"子工作流 →"）时，/workflows/:id
+// 复用同一组件实例、onMounted 不再触发，必须 watch props.id 重新拉取，否则停留在旧
+// workflow。重置数据避免旧详情闪现，再按新 workflow 是否 running 决定轮询。
+watch(
+  () => props.id,
+  () => {
+    stopPolling()
+    workflow.value = null
+    events.value = []
+    void fetchWorkflow().then(() => {
+      if (isRunning.value) {
+        startPolling()
+      }
+    })
+  },
+)
 
 onMounted(() => {
   void fetchWorkflow().then(() => {
