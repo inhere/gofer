@@ -52,6 +52,13 @@
     - **C-N1（低）** job `exit 0` 但 background 子进程持有管道写端超 `WaitDelay`(2s) → `exec: WaitDelay expired before I/O complete`，runner 判为 `failed`（非回归）；仅"起 daemon 后退出"成受支持模式时才 follow-up。
     - **C-N2（极低）** `log-rotated` 后前端清 buffer 但不重置 `?from=` offset，重连靠 `tailFrom` 自愈（size<offset 重放全新文件）；MVP 不修。
 
+### 工作流引擎（E7：v1 线性 + v2 重试/并行/子工作流，见 [roadmap](2026-06-20-enhancements-roadmap.md) §工作流）
+
+- [x] **v1 线性 chain 已落地**：单活跃 step + `${steps.N.xxx}` 引用 + fail-fast + 幂等推进 + sweeper 兜底 + CLI/HTTP/Web。设计 [`design/2026-06-21-workflow-chains-design.md`](design/2026-06-21-workflow-chains-design.md)。
+- [x] **v2 已全落地**（2026-06-22，SUPMODE，P1–P4 独立验收 PASS + 前端眼检修 2 bug）：per-step on_failure/retry(E24) + 并行 fan-out+join all/any/quorum(E9) + 子工作流嵌套+跨项目(E27) + workflow 事件流/retention + 导入导出+md-per-step(E18)。设计 [`design/2026-06-22-workflow-v2-design.md`](design/2026-06-22-workflow-v2-design.md) + 计划 [`plans/2026-06-22-workflow-v2/`](plans/2026-06-22-workflow-v2/)；commit `7c470b8`(P1)/`4492871`(P2)/`dc71b06`(P3)/`92cc669`(P4)，前端修复 `ac6fa2f`。
+  - **不做**：通用菱形 DAG（任意前驱依赖图，留 v3）、循环/条件跳转、跨工作流引用中间 step、worker 远端跨机产物自动拉取（依赖共享盘）。
+  - **剩余尾巴**：工作流模板库(E4，save/`--template`)未做；export secret 剥离是启发式非保证；子 wf retry 重跑整条（非断点续跑）；独立 job 级自动重试为最小版（持久化退避可靠版待做，见 roadmap E24🚧）。
+
 ### 大型 Epic（需独立设计，暂不并入近期实施计划）
 
 - [ ] **C7 大版：多 hub HA（共享注册表 / 跨 hub job 接管 / 选主）** —— 工作量**大（多周级）**，且与当前「单二进制 + 本地 SQLite + 单 hub 内存 worker 注册表」设计取向有冲突，**必须先出独立设计文档再排计划**，不与 WP4/提交体验类小项混排。
