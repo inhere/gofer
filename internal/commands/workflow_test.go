@@ -25,6 +25,12 @@ func TestWorkflowSubcommandsRegistered(t *testing.T) {
 	if !app.IsAlias("wf") || app.ResolveAlias("wf") != "workflow" {
 		t.Fatalf("`wf` alias should resolve to workflow, got %q", app.ResolveAlias("wf"))
 	}
+	// `add` is an alias for `run` (so `wf add file` == `wf run file`): gcli stores
+	// subcommand aliases on the group and resolves them at run time, so assert via
+	// IsAlias/ResolveAlias (GetCommand is name-only, not alias-aware).
+	if !wfCmd.IsAlias("add") || wfCmd.ResolveAlias("add") != "run" {
+		t.Fatalf("`add` should be an alias for the run subcommand, got %q", wfCmd.ResolveAlias("add"))
+	}
 }
 
 // TestParseWorkflowFile pins yaml -> WorkflowSpec decoding against the design §9
