@@ -251,6 +251,10 @@ type WorkflowStep struct {
 	Name      string `json:"name,omitempty"`
 	JobID     string `json:"job_id,omitempty"`
 	Status    string `json:"status,omitempty"`
+	// Type=="workflow" + ChildWorkflowID mark a sub-workflow step (P3 UI fix): it runs
+	// no step-job, so JobID is empty and the link target is the child workflow.
+	Type            string `json:"type,omitempty"`
+	ChildWorkflowID string `json:"child_workflow_id,omitempty"`
 }
 
 // WorkflowEvent mirrors jobstore.WorkflowEvent's JSON (P1 timeline): the monotonic

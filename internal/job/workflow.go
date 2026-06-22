@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"sort"
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
@@ -1055,6 +1056,11 @@ type WorkflowStep struct {
 	Name      string `json:"name,omitempty"`
 	JobID     string `json:"job_id,omitempty"`
 	Status    string `json:"status,omitempty"`
+	// Type/ChildWorkflowID surface a Type=="workflow" sub-workflow step (P3 UI fix):
+	// such a step runs no step-job, so it is absent from the job-derived rows — these
+	// fields let the chain show it and link into the child workflow's detail.
+	Type            string `json:"type,omitempty"`
+	ChildWorkflowID string `json:"child_workflow_id,omitempty"`
 }
 
 // WorkflowSteps returns the per-step summary for a workflow's detail view, in
@@ -1078,6 +1084,31 @@ func (s *Service) WorkflowSteps(wfID string) ([]WorkflowStep, error) {
 			Status:    j.Status,
 		})
 	}
+	// P3 UI fix: workflow-type steps run NO step-job, so they are missing from the
+	// job-derived rows above (the web/CLI chain only saw job steps, hiding the whole
+	// sub-workflow). Surface each such step from the spec + its child workflow so the
+	// chain shows the step and can link into the child's detail.
+	if wf, ok, gerr := s.meta.GetWorkflow(wfID); gerr == nil && ok {
+		var spec WorkflowSpec
+		if json.Unmarshal([]byte(wf.SpecJSON), &spec) == nil {
+			for i := range spec.Steps {
+				if spec.Steps[i].Type != stepTypeWorkflow {
+					continue
+				}
+				row := WorkflowStep{StepIndex: i + 1, Name: spec.Steps[i].Name, Type: stepTypeWorkflow}
+				// The child may not exist yet (step not reached) — then the row is a
+				// pending placeholder; once started, link + status come from the child.
+				if child, found, cerr := s.meta.FindChildWorkflow(wfID, i+1); cerr == nil && found {
+					row.ChildWorkflowID = child.ID
+					row.Status = child.Status
+				}
+				out = append(out, row)
+			}
+		}
+	}
+	// Merge the appended workflow rows into step order (job rows are already
+	// step-ordered; stable keeps fan/attempt order within a step intact).
+	sort.SliceStable(out, func(a, b int) bool { return out[a].StepIndex < out[b].StepIndex })
 	return out, nil
 }
 

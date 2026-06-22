@@ -291,10 +291,14 @@ export interface WorkflowStep {
   fan_index?: number
   // 后端 omitempty：步骤名（来自 spec name / 原始请求 title）
   name?: string
-  // 后端 omitempty：该步 step-job id（未起为空）
+  // 后端 omitempty：该步 step-job id（未起为空；workflow 型步无 job）
   job_id?: string
-  // 后端 omitempty：该 step-job 当前状态
+  // 后端 omitempty：该 step-job 当前状态（workflow 型步取子工作流状态）
   status?: JobStatus
+  // 后端 omitempty：步类型，"workflow" 表示子工作流嵌套步（P3 UI 修复）
+  type?: string
+  // 后端 omitempty：workflow 型步的子工作流 id（链入子 wf 详情）
+  child_workflow_id?: string
 }
 
 // 工作流生命周期事件（P1 workflow_events）：seq 游标 + 类型 + 可选 detail_json + 时间。
