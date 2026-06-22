@@ -21,6 +21,7 @@ import type {
   SubmitJobReq,
   SubmitJobResult,
   Workflow,
+  WorkflowEventsResp,
   WorkflowsResp,
   WorkflowStatus,
 } from './types'
@@ -240,6 +241,38 @@ export function cancelWorkflow(id: string): Promise<Workflow> {
   return request<Workflow>(`/v1/workflows/${encodeURIComponent(id)}/cancel`, {
     method: 'POST',
   })
+}
+
+// 工作流事件时间线（GET /v1/workflows/{id}/events，P1）：可选 since 增量游标。
+// 返回 {events:[...]}，按 seq 升序。详情页据此渲染 fan-out/retry/子 wf 里程碑。
+export function getWorkflowEvents(
+  id: string,
+  since?: number,
+): Promise<WorkflowEventsResp> {
+  const qs = since && since > 0 ? `?since=${encodeURIComponent(String(since))}` : ''
+  return request<WorkflowEventsResp>(
+    `/v1/workflows/${encodeURIComponent(id)}/events${qs}`,
+  )
+}
+
+// 工作流导出（GET /v1/workflows/{id}/export，T4.1）：返回剥离 secret 后的 spec JSON
+// 文本（可再导入复现）。响应头 X-Gofer-Redacted=1 表示有占位需替换。requestText 不读
+// 头，故这里独立 fetch 以拿到 redacted 标记。
+export async function exportWorkflow(
+  id: string,
+): Promise<{ spec: string; redacted: boolean }> {
+  const res = await fetch(`/v1/workflows/${encodeURIComponent(id)}/export`, {
+    headers: authHeaders(),
+  })
+  if (res.status === 401) {
+    triggerUnauthorized()
+    throw new Error('未授权（401）：token 无效或已失效')
+  }
+  if (!res.ok) {
+    return raiseForStatus(res)
+  }
+  const spec = await res.text()
+  return { spec, redacted: res.headers.get('X-Gofer-Redacted') === '1' }
 }
 
 // 运行中交互：作答某个 interaction，返回更新后的 Interaction（status=answered）

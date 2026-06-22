@@ -29,11 +29,11 @@
 
 ## T4.4 验收清单（全绿即收尾）
 
-- [ ] `go build ./... && go test ./...` 绿
-- [ ] 导入导出复现工作流；secret 剥离
-- [ ] md-per-step 解析正确
-- [ ] Web 展示 fan-out/子工作流/重试/事件；CLI workflow events 可用
-- [ ] `/metrics` 见 `gofer_workflows_terminal_total` 等
-- [ ] **D23 全程向后兼容回归**：v1 工作流端到端零改动跑通
-- [ ] git 提交：`feat(workflow-v2): P4 导入导出 + md-per-step + 展示/指标`
-- [ ] 回填主纲 §5 实施结果 + 勾选全进度
+- [x] `go build ./... && go test ./...` 绿（全量无过滤通过；job/metrics/commands/client 另跑 -race 通过）
+- [x] 导入导出复现工作流；secret 剥离（client 集成测试 export→re-import 跑通；job 层 secret 剥离 + 递归子 wf 测试）
+- [x] md-per-step 解析正确（commands 层 frontmatter→参数 + 正文→prompt + 内联覆盖 + JSON 导入测试）
+- [x] CLI workflow events / export 可用（client+httpapi 集成测试 + 子命令注册测试）；Web 展示 fan-out/子工作流/重试/事件（**仅 vue-tsc+vite build 验证编译过，展示逻辑未目视——需人工眼检**）
+- [x] `/metrics` 见 `gofer_workflows_terminal_total` 等（metrics 包 scrape 断言 + job 层埋点 Inc 测试）
+- [x] **D23 全程向后兼容回归**：v1 工作流端到端零改动跑通（既有 workflow 测试全通过；新增 File 字段 json:"-" 不入序列化）
+- [ ] git 提交：`feat(workflow-v2): P4 导入导出 + md-per-step + 展示/指标`（按指示本轮不提交）
+- [ ] 回填主纲 §5 实施结果 + 勾选全进度（待提交时一并回填）

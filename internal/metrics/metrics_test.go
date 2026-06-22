@@ -27,6 +27,7 @@ func TestNewRegistersAllFamilies(t *testing.T) {
 	m := New()
 	m.JobSubmitted("ci", "proj", "exec", "local")
 	m.JobTerminal("done", "ci", "proj", "exec", "local", 1.5)
+	m.WorkflowTerminal("done", 12.5)
 	m.ObserveHTTP("GET", "/v1/jobs/:id", "200", 0.01)
 	m.RegisterRuntimeGauges(
 		func() (int, int, int) { return 2, 1, 1 },
@@ -41,11 +42,30 @@ func TestNewRegistersAllFamilies(t *testing.T) {
 		"gofer_jobs_submitted_total",
 		"gofer_jobs_terminal_total",
 		"gofer_job_duration_seconds_bucket",
+		"gofer_workflows_terminal_total",
+		"gofer_workflow_duration_seconds_bucket",
 		"gofer_jobs_in_flight",
 		"gofer_jobs_queued",
 		"gofer_jobs_running",
 		"gofer_workers_connected",
 		"gofer_worker_in_flight",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("scrape missing %q\n%s", want, body)
+		}
+	}
+}
+
+// TestWorkflowTerminalLabelled asserts WorkflowTerminal increments the per-status
+// counter (P4/T4.3): a done + a failed observation both surface in the scrape.
+func TestWorkflowTerminalLabelled(t *testing.T) {
+	m := New()
+	m.WorkflowTerminal("done", 10)
+	m.WorkflowTerminal("failed", 4)
+	body := scrapeBody(t, m)
+	for _, want := range []string{
+		`gofer_workflows_terminal_total{status="done"} 1`,
+		`gofer_workflows_terminal_total{status="failed"} 1`,
 	} {
 		if !strings.Contains(body, want) {
 			t.Fatalf("scrape missing %q\n%s", want, body)
@@ -95,6 +115,7 @@ func TestNilMetricsIsNoOp(t *testing.T) {
 	// None of these should panic.
 	m.JobSubmitted("c", "p", "a", "r")
 	m.JobTerminal("done", "c", "p", "a", "r", 1)
+	m.WorkflowTerminal("done", 1)
 	m.ObserveHTTP("GET", "/x", "200", 0.1)
 	m.RegisterRuntimeGauges(
 		func() (int, int, int) { return 0, 0, 0 },

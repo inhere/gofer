@@ -281,14 +281,37 @@ export type WorkflowStatus = 'running' | 'done' | 'failed' | 'cancelled'
 
 // 工作流中的一步：1-based 序号 + 步骤名 + 对应 step-job 的 id/status。
 // 尚未起的步骤无 job 行（链严格串行），故未到的步骤不在列表中。
+// attempt/fan_index 是 v2 维度（P1 重试 / P2 并行）：一个 step 可有多行——
+// 重试每 attempt 一行、fan-out 每 fan 一行；v1 单 job 步均为 0/省略。
 export interface WorkflowStep {
   step_index: number
+  // 后端 omitempty：1-based 重试 attempt（v1 单跑为 0/省略）
+  attempt?: number
+  // 后端 omitempty：1-based fan-out 并行序号（非 fan 为 0/省略）
+  fan_index?: number
   // 后端 omitempty：步骤名（来自 spec name / 原始请求 title）
   name?: string
   // 后端 omitempty：该步 step-job id（未起为空）
   job_id?: string
   // 后端 omitempty：该 step-job 当前状态
   status?: JobStatus
+}
+
+// 工作流生命周期事件（P1 workflow_events）：seq 游标 + 类型 + 可选 detail_json + 时间。
+// 类型如 workflow.submitted / step.started / step.fanout / step.retry / step.skipped /
+// subworkflow.started / workflow.terminal / workflow.cancelled。
+export interface WorkflowEvent {
+  seq: number
+  workflow_id: string
+  type: string
+  // 后端 omitempty：detail_json 原文（已是 JSON 字符串）
+  detail?: string
+  // Unix 秒
+  at: number
+}
+
+export interface WorkflowEventsResp {
+  events: WorkflowEvent[]
 }
 
 // 工作流头部 + 步骤链。列表/提交/取消仅返回头部（steps 省略）；详情内联 steps。

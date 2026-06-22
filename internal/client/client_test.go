@@ -343,6 +343,113 @@ func TestSubmitGetWorkflow(t *testing.T) {
 	}
 }
 
+// TestExportWorkflowRoundTrip: a submitted workflow exports back to a runnable spec
+// (T4.1) with secrets stripped, and the export re-imports (SubmitWorkflow) cleanly.
+func TestExportWorkflowRoundTrip(t *testing.T) {
+	ts := newServer(t, testToken, false)
+	c := New(ts.URL, testToken)
+
+	spec := job.WorkflowSpec{
+		Title: "export-me",
+		Steps: []job.StepSpec{
+			{Name: "leaky", ProjectKey: "self", Agent: "exec", Runner: "local",
+				Cmd: []string{"sh", "-c", "deploy --token sk-secret-99 && go version"}, Cwd: ".", TimeoutSec: 30},
+		},
+	}
+	wf, err := c.SubmitWorkflow(spec)
+	if err != nil {
+		t.Fatalf("SubmitWorkflow: %v", err)
+	}
+	_ = waitWorkflowDone(t, c, wf.ID)
+
+	exported, redacted, err := c.ExportWorkflow(wf.ID)
+	if err != nil {
+		t.Fatalf("ExportWorkflow: %v", err)
+	}
+	if !redacted {
+		t.Fatal("export carrying a --token should report redacted=true")
+	}
+	if exported.Title != "export-me" || len(exported.Steps) != 1 {
+		t.Fatalf("export shape wrong: %+v", exported)
+	}
+	joined := strings.Join(exported.Steps[0].Cmd, " ")
+	if strings.Contains(joined, "sk-secret-99") {
+		t.Fatalf("secret leaked into export: %q", joined)
+	}
+	// The redacted export is still re-importable (the structure is intact).
+	wf2, err := c.SubmitWorkflow(exported)
+	if err != nil {
+		t.Fatalf("re-import exported spec: %v", err)
+	}
+	if wf2.ID == wf.ID {
+		t.Fatal("re-import should create a new workflow id")
+	}
+	_ = waitWorkflowDone(t, c, wf2.ID)
+}
+
+// TestExportUnknownWorkflow: exporting an unknown id is a 404.
+func TestExportUnknownWorkflow(t *testing.T) {
+	ts := newServer(t, testToken, false)
+	c := New(ts.URL, testToken)
+	if _, _, err := c.ExportWorkflow("wf-nope"); err == nil {
+		t.Fatal("expected a 404 error for an unknown workflow export")
+	} else if !strings.Contains(err.Error(), "404") {
+		t.Fatalf("error should mention 404: %v", err)
+	}
+}
+
+// TestListWorkflowEvents: a completed workflow exposes its lifecycle timeline via the
+// events API (T4.3), including the submitted + terminal frames, in seq order.
+func TestListWorkflowEvents(t *testing.T) {
+	ts := newServer(t, testToken, false)
+	c := New(ts.URL, testToken)
+
+	wf, err := c.SubmitWorkflow(job.WorkflowSpec{
+		Title: "evented",
+		Steps: []job.StepSpec{
+			{Name: "a", ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30},
+		},
+	})
+	if err != nil {
+		t.Fatalf("SubmitWorkflow: %v", err)
+	}
+	_ = waitWorkflowDone(t, c, wf.ID)
+
+	events, err := c.ListWorkflowEvents(wf.ID, 0)
+	if err != nil {
+		t.Fatalf("ListWorkflowEvents: %v", err)
+	}
+	if len(events) < 2 {
+		t.Fatalf("expected >= 2 events (submitted + terminal), got %d: %+v", len(events), events)
+	}
+	var sawSubmitted, sawTerminal bool
+	var lastSeq int64
+	for _, ev := range events {
+		if ev.Seq <= lastSeq && lastSeq != 0 {
+			t.Fatalf("events not in ascending seq order: %d after %d", ev.Seq, lastSeq)
+		}
+		lastSeq = ev.Seq
+		switch ev.Type {
+		case "workflow.submitted":
+			sawSubmitted = true
+		case "workflow.terminal":
+			sawTerminal = true
+		}
+	}
+	if !sawSubmitted || !sawTerminal {
+		t.Fatalf("missing lifecycle frames: submitted=%v terminal=%v", sawSubmitted, sawTerminal)
+	}
+
+	// ?since cursor: events strictly after the last seq is empty.
+	rest, err := c.ListWorkflowEvents(wf.ID, lastSeq)
+	if err != nil {
+		t.Fatalf("ListWorkflowEvents since: %v", err)
+	}
+	if len(rest) != 0 {
+		t.Fatalf("since=last should be empty, got %d", len(rest))
+	}
+}
+
 // TestSubmitWorkflowNoStepsRejected: an empty workflow is rejected by the server
 // (400) and surfaced as a friendly client error.
 func TestSubmitWorkflowNoStepsRejected(t *testing.T) {

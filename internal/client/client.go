@@ -240,12 +240,28 @@ func (c *Client) CancelJob(id string) (job.JobResult, error) {
 
 // WorkflowStep is one row of a workflow's step chain in the detail response,
 // mirroring httpapi's job.WorkflowStep JSON (snake_case). job_id/status are empty
-// for a step not yet started (the chain is strictly serial).
+// for a step not yet started (the chain is strictly serial). Attempt is the 1-based
+// retry attempt of this step-job (P1) and FanIndex the 1-based fan-out parallel index
+// (P2); both are 0/omitted for a v1 single-job step, so the CLI only renders them when
+// a step actually fanned out / retried (T4.3 `workflow show`).
 type WorkflowStep struct {
 	StepIndex int    `json:"step_index"`
+	Attempt   int    `json:"attempt,omitempty"`
+	FanIndex  int    `json:"fan_index,omitempty"`
 	Name      string `json:"name,omitempty"`
 	JobID     string `json:"job_id,omitempty"`
 	Status    string `json:"status,omitempty"`
+}
+
+// WorkflowEvent mirrors jobstore.WorkflowEvent's JSON (P1 timeline): the monotonic
+// seq cursor, the event type, an optional detail_json blob and the unix-second
+// timestamp. Used by `workflow events` (T4.3).
+type WorkflowEvent struct {
+	Seq        int64  `json:"seq"`
+	WorkflowID string `json:"workflow_id"`
+	Type       string `json:"type"`
+	Detail     string `json:"detail,omitempty"`
+	At         int64  `json:"at"`
 }
 
 // Workflow is the client-side view of a job-chain. It carries the workflow header
@@ -308,6 +324,49 @@ func (c *Client) CancelWorkflow(id string) (Workflow, error) {
 	var wf Workflow
 	err := c.doJSON(http.MethodPost, "/v1/workflows/"+url.PathEscape(id)+"/cancel", nil, &wf)
 	return wf, err
+}
+
+// ExportWorkflow fetches a workflow's reconstructed WorkflowSpec (GET
+// /v1/workflows/{id}/export, T4.1). The server strips credential-looking values
+// (SR403); the returned bool reports whether anything was redacted (from the
+// X-Gofer-Redacted response header) so `workflow export` can warn that a placeholder
+// must be filled in before re-running. An unknown id surfaces as a 404 error.
+func (c *Client) ExportWorkflow(id string) (job.WorkflowSpec, bool, error) {
+	resp, err := c.do(http.MethodGet, "/v1/workflows/"+url.PathEscape(id)+"/export", nil)
+	if err != nil {
+		return job.WorkflowSpec{}, false, err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return job.WorkflowSpec{}, false, fmt.Errorf("read export response: %w", err)
+	}
+	if err := errorFor(resp.StatusCode, data); err != nil {
+		return job.WorkflowSpec{}, false, err
+	}
+	var spec job.WorkflowSpec
+	if err := json.Unmarshal(data, &spec); err != nil {
+		return job.WorkflowSpec{}, false, fmt.Errorf("decode export response: %w", err)
+	}
+	redacted := resp.Header.Get("X-Gofer-Redacted") == "1"
+	return spec, redacted, nil
+}
+
+// ListWorkflowEvents fetches a workflow's append-only lifecycle events (GET
+// /v1/workflows/{id}/events, T4.3). sinceSeq>0 returns only events strictly after that
+// cursor. The {"events":[...]} envelope is unwrapped to the bare slice.
+func (c *Client) ListWorkflowEvents(id string, sinceSeq int64) ([]WorkflowEvent, error) {
+	path := "/v1/workflows/" + url.PathEscape(id) + "/events"
+	if sinceSeq > 0 {
+		path += "?since=" + url.QueryEscape(strconv.FormatInt(sinceSeq, 10))
+	}
+	var resp struct {
+		Events []WorkflowEvent `json:"events"`
+	}
+	if err := c.doJSON(http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Events, nil
 }
 
 // AnswerInteraction POSTs an answer to a peer interaction (P9 passthrough). The

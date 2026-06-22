@@ -64,6 +64,12 @@ type StepSpec struct {
 	// recursively (validateSubworkflow), so nesting never smuggles a step past the
 	// allowlist/exec gate (§9 安全). nil for a v1/job step (D23).
 	SubWorkflow *WorkflowSpec `json:"sub_workflow,omitempty" yaml:"sub_workflow,omitempty"`
+	// File is a CLI-ONLY md-per-step reference (P4 / T4.2): when set in a workflow yaml
+	// file, the CLI loads the named md file (frontmatter→step params, body→prompt) and
+	// expands it INTO the other fields before submit. It is `json:"-"` so it never
+	// crosses the wire to the server (the server only ever sees the expanded fields), and
+	// is absent from a v1 spec (D23). Resolved relative to the workflow file's directory.
+	File string `json:"-" yaml:"file,omitempty"`
 }
 
 // RetryPolicy bounds per-step (and per-job, E24) retry on failure (P1, design
@@ -964,8 +970,30 @@ func (s *Service) setWorkflowDone(wfID string) {
 		"status": jobstore.WorkflowDone,
 	})
 	_ = s.meta.SetWorkflowStatus(wfID, jobstore.WorkflowDone, "")
+	// P4/T4.3: count the terminal + observe the whole-chain duration (nil-safe).
+	s.recordWorkflowTerminalMetric(wfID, jobstore.WorkflowDone)
 	// P3: if this is a sub-workflow, its terminal transition unlocks the parent step.
 	s.triggerParentAdvance(wfID)
+}
+
+// recordWorkflowTerminalMetric counts one workflow terminal + observes its
+// submit→terminal duration through the MetricsSink (P4/T4.3, design §9). It is
+// nil-safe and BEST-EFFORT (a store read failure only skips the duration sample, never
+// affects the terminal transition). Duration is now−created_at, clamped at 0 against
+// clock skew. Called from setWorkflowDone/setWorkflowFailed (the AdvanceStep winner, so
+// it runs once per terminal) and the cancel path.
+func (s *Service) recordWorkflowTerminalMetric(wfID, status string) {
+	if s.metrics == nil {
+		return
+	}
+	dur := 0.0
+	if wf, ok, err := s.meta.GetWorkflow(wfID); err == nil && ok {
+		dur = float64(s.nowFn().Unix() - wf.CreatedAt)
+		if dur < 0 {
+			dur = 0
+		}
+	}
+	s.metrics.WorkflowTerminal(status, dur)
 }
 
 // triggerParentAdvance fires the parent's advanceWorkflow when wfID is a sub-workflow
@@ -992,6 +1020,8 @@ func (s *Service) setWorkflowFailed(wfID, reason string) {
 		"status": jobstore.WorkflowFailed, "error": reason,
 	})
 	_ = s.meta.SetWorkflowStatus(wfID, jobstore.WorkflowFailed, reason)
+	// P4/T4.3: count the terminal + observe the whole-chain duration (nil-safe).
+	s.recordWorkflowTerminalMetric(wfID, jobstore.WorkflowFailed)
 	// P3: if this is a sub-workflow, its terminal transition unlocks the parent step
 	// (which then sees a failed child → step failed → on_failure).
 	s.triggerParentAdvance(wfID)
@@ -1311,6 +1341,15 @@ func (s *Service) CancelWorkflow(wfID string) error {
 	s.recordWorkflowEvent(wfID, EventWorkflowCancelled, map[string]any{
 		"step": wf.CurrentStep, "attempt": wf.StepAttempt,
 	})
+	// P4/T4.3: count the cancelled terminal + observe the duration (nil-safe). We have
+	// the header in hand (wf) so compute the duration from its created_at directly.
+	if s.metrics != nil {
+		dur := float64(s.nowFn().Unix() - wf.CreatedAt)
+		if dur < 0 {
+			dur = 0
+		}
+		s.metrics.WorkflowTerminal(jobstore.WorkflowCancelled, dur)
+	}
 
 	// Cancel the active (step, attempt) generation's job(s) (Cancel is a stable no-op
 	// for a terminal job). Match the current attempt so a retried step cancels the live

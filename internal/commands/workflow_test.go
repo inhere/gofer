@@ -16,7 +16,7 @@ func TestWorkflowSubcommandsRegistered(t *testing.T) {
 	if wfCmd == nil {
 		t.Fatal("workflow command not registered")
 	}
-	for _, sub := range []string{"run", "show", "list", "cancel"} {
+	for _, sub := range []string{"run", "show", "list", "cancel", "export", "events"} {
 		if wfCmd.GetCommand(sub) == nil {
 			t.Fatalf("workflow subcommand %q not registered", sub)
 		}
