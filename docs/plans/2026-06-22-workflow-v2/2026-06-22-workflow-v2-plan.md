@@ -47,14 +47,14 @@
 
 ## 4. 进度跟进
 
-- [ ] **P1 重试/失败策略 + 事件流**（详见 P1 子文档）
-  - [ ] T1.1 StepSpec/RetryPolicy 字段 + 校验（validateRetry）
-  - [ ] T1.2 表迁移 `attempt`/`next_step_at` + DAO（RollbackStep/SetNextStepAt）
-  - [ ] T1.3 advanceWorkflow 失败分支：fail/continue/retry + 指针退回 + 延迟重投（sweeper 驱动）
-  - [ ] T1.4 统一 job 级重试（finish 失败重投，共用 RetryPolicy）
-  - [ ] T1.5 workflow_events 表 + recordWorkflowEvent + 7 处插桩 + API/读
-  - [ ] T1.6 workflow retention（独立 max_age + 连带清 step-jobs）
-  - [ ] T1.7 验收（含并发硬测）+ 测试
+- [x] **P1 重试/失败策略 + 事件流**（详见 P1 子文档）✅ commit `<P1>`
+  - [x] T1.1 StepSpec/RetryPolicy 字段 + 校验（validateRetry）
+  - [x] T1.2 表迁移 `attempt`/`step_attempt`/`next_step_at`（+顺带 P2 `fan_index`/P3 `parent_*`）+ AdvanceStep 二元组 DAO
+  - [x] T1.3 advanceWorkflow 失败分支：fail/continue/retry + **(step,attempt) 二元组抢权** + next_step_at 退避（sweeper backstop + 即时 timer）
+  - [x] T1.4 统一 job 级重试（finish 失败重投最小版，共用 RetryPolicy）
+  - [x] T1.5 workflow_events 表 + recordWorkflowEvent + 插桩 + `GET /v1/workflows/{id}/events`
+  - [x] T1.6 workflow retention（独立 max_age + 连带清 step-jobs/events）
+  - [x] T1.7 验收（并发硬测 PASS + -race 无竞态）+ 测试
 - [ ] **P2 fan-out 并行**（详见 P2 子文档）
   - [ ] T2.1 StepSpec `fan_out`/`join` + 校验 + `fan_index` 列
   - [ ] T2.2 startStep 起 N 并行 job + advanceWorkflow 多 job 聚合判定
@@ -73,8 +73,14 @@
 
 ## 5. 实施结果（完成后回填）
 
-### P1 / P2 / P3 / P4
-> 待回填：关键改动、commit、验收结论（每阶段绿灯即提交 SR1202）。
+### P1 ✅（commit `<P1>`）
+- **改动**：16 文件（11 改 5 新）——`workflow.go`(StepSpec on_failure/retry + advanceWorkflow 三分支重写 + startStepJob/事件)、`jobstore`(AdvanceStep 二元组 DAO + workflow_events 表 + 迁移 attempt/step_attempt/next_step_at + 顺带 P2 fan_index/P3 parent_*)、`service.go`(job 级重试最小版)、`prune.go`(workflow retention 连带清)、`workflow_handler.go`(events API)、4 测试文件。
+- **幂等核心**：`(step,attempt)` 二元组条件 UPDATE 抢权（AdvanceStep）+ 确定性 request_id `wfID:sN:aA` 复用 C5 → 双层防重复起 job。
+- **关键决策**：退避 sweeper backstop + 即时 timer 优化；事件顺序前移（先记事件再翻状态，修竞态，仿 v1 finish）；job 级重试进程内 timer 最小版（可靠版留后续）；顺带加 P2/P3 列减少迁移。
+- **验收**：build/vet 绿；`go test` 三包绿（job 46s/jobstore 18s/httpapi 25s）；**⭐并发硬测两层 PASS**（job 32 并发 hammer + store 32 协程抢权，只起一个 att+1 job、状态只转移一次）；**-race 无竞态**；**D23 v1 回归通过**（无新字段 spec 行为不变）；workflow_events 时间线/retention 连带清验证。
+
+### P2 / P3 / P4
+> 待回填。
 
 ## 6. 完成判定
 

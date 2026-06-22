@@ -43,12 +43,27 @@ type JobRequest struct {
 	// and queryable via ?tag= (exact element match). Unlike WorkerLabels (routing,
 	// not stored), Tags are索引/检索维度。
 	Tags []string `json:"tags,omitempty" yaml:"tags,omitempty"`
+	// Retry is the OPTIONAL per-job retry policy (E24 unified retry, P1, design
+	// §6.2). nil == no retry (the v1 default,向后兼容). When set on a non-workflow
+	// job, finish re-runs the job on a retryable failure (attempt+1, same request_json)
+	// up to RetryPolicy.MaxAttempts, with backoff per the policy. It shares the SAME
+	// RetryPolicy / backoffFor / retryableExit as the step-level retry (one semantics,
+	// roadmap横切). P1 uses an in-process delay (time.AfterFunc): a process restart
+	// loses a pending job-level retry — the可靠版 (sweeper-driven next_retry_at) is
+	// left for后续; the reliable path today is a single-step workflow + step retry.
+	Retry *RetryPolicy `json:"retry,omitempty" yaml:"retry,omitempty"`
 	// WorkflowID / StepIndex are INTERNAL fields set ONLY by the workflow engine
 	// (SubmitWorkflow / advanceWorkflow) when starting a step-job; they bind the job
 	// to its workflow + 1-based step. json/yaml tag "-" keeps clients (HTTP body / md
 	// frontmatter) from forging them — a plain POST /v1/jobs never sets a workflow.
 	WorkflowID string `json:"-" yaml:"-"`
 	StepIndex  int    `json:"-" yaml:"-"`
+	// Attempt is the 1-based retry attempt of a step-job (P1, design §5.3). It is
+	// set by the workflow engine (stepToRequest) and persisted to jobs.attempt so a
+	// retried step's distinct runs are distinguishable. A non-workflow job (or a v1
+	// step) leaves it 0; the persist path COALESCEs that to 1. json/yaml "-" keeps
+	// clients from forging it.
+	Attempt int `json:"-" yaml:"-"`
 }
 
 // JobResult is the persisted/queryable job state (plan §6.2).
@@ -110,6 +125,9 @@ type JobResult struct {
 	// finish 钩子据 WorkflowID 决定是否异步推进所属工作流。
 	WorkflowID string `json:"workflow_id,omitempty"`
 	StepIndex  int    `json:"step_index,omitempty"`
+	// Attempt 是此 step-job 的 1-based 重试尝试号（P1）。首次运行=1；重试起的新 job
+	// attempt+1。持久化到 jobs.attempt（旧库 COALESCE 成 1）。普通 job 为 0（omitempty）。
+	Attempt int `json:"attempt,omitempty"`
 }
 
 // Job status values (plan §6.2).
@@ -137,4 +155,16 @@ const (
 	EventJobCancelled        = "job.cancelled"        // {was_terminal}
 	EventInteractionCreated  = "interaction.created"  // {interaction_id,type,prompt}
 	EventInteractionAnswered = "interaction.answered" // {interaction_id,answer}
+)
+
+// Workflow lifecycle event types (P1, design §5.4). Recorded append-only via
+// recordWorkflowEvent at the corresponding workflow-engine transition. The detail
+// payload per type is documented at each insertion site.
+const (
+	EventWorkflowSubmitted = "workflow.submitted" // {title,total_steps,caller_id}
+	EventStepStarted       = "step.started"       // {step,attempt,job_id}
+	EventStepRetry         = "step.retry"         // {step,attempt,next_attempt,backoff_sec,next_step_at}
+	EventStepSkipped       = "step.skipped"       // {step,attempt,status} (on_failure=continue)
+	EventWorkflowTerminal  = "workflow.terminal"  // {status,error}
+	EventWorkflowCancelled = "workflow.cancelled" // {was_terminal}
 )

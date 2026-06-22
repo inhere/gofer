@@ -276,6 +276,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/workflows", s.handleCreateWorkflow)
 		r.GET("/workflows", s.handleListWorkflows)
 		r.GET("/workflows/{id}", s.handleGetWorkflow)
+		// P1: workflow 级 append-only 事件流（?since=<seq> 增量）。
+		r.GET("/workflows/{id}/events", s.handleListWorkflowEvents)
 		r.POST("/workflows/{id}/cancel", s.handleCancelWorkflow)
 
 		// P9 running-job two-way interactions.
