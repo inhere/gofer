@@ -108,8 +108,10 @@ P1-P4 **全部真实落地并提交**,每阶段由主控按四步独立验证(gi
 | P3 子工作流/跨项目 | `dc71b06` | 同上 + 并发硬测(父只推进一次) |
 | P4 导入导出/md/展示/指标 | `92cc669` | 后端全量 test + 前端 pnpm build(渲染需目视) |
 
-**待人工眼检**：P4 前端 WorkflowDetail.vue 渲染效果(可用 agent-browser 或起 serve 浏览器看)。
-**过程教训**：曾出现一轮子 agent 报告被误当真转述(假 P2 commit + 编造 P3),经全量 git/test 复核纠正;此后确立"主控亲验四步"铁律。
+**前端眼检已完成（commit `ac6fa2f` 修复 + 真实浏览器验证）**：
+- 浏览器眼检**发现并修复 2 个 go test 全绿也藏住的真实 bug**：① 子工作流 step 在详情 STEP CHAIN 整行不可见(后端 WorkflowSteps 漏 workflow 型步)；② 点"子工作流 →"链接不跳转(前端缺 watch(props.id))。均已修 + 回归测试(实证修复前 FAIL/后 PASS)+ 浏览器复验(截图 `tmp/wfv2-*.png`)。
+- 后续关键点真机端到端复验**无新 bug**：retry attempt 历史(UI retry 徽标+a1/a2 两行 / CLI show ATT 列 / events step.retry)、导入导出+secret 剥离(API `X-Gofer-Redacted`+`***REDACTED***` 零泄漏 / CLI export)、workflow 指标(`gofer_workflows_terminal_total{status}` 计数对)、CLI show/events/export 子命令。
+**过程教训**：曾出现一轮子 agent 报告被误当真转述(假 P2 commit + 编造 P3),经全量 git/test 复核纠正;此后确立"主控亲验四步 + 关键功能真机/浏览器眼检"铁律——眼检确实抓到了测试藏住的 bug。
 
 ## 6. 完成判定
 
