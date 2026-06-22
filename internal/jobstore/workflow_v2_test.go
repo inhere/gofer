@@ -236,6 +236,70 @@ func TestJobAttemptRoundTrip(t *testing.T) {
 	assert.Eq(t, 2, got.Attempt)
 }
 
+// TestWorkflowParentBindingRoundTrip asserts the P3 parent_workflow_id/parent_step_index
+// round-trip: a sub-workflow stores its parent binding and a top-level workflow scans
+// back ""/0 (COALESCE of the unset/NULL columns), so向后兼容 (D23) holds.
+func TestWorkflowParentBindingRoundTrip(t *testing.T) {
+	s := openTest(t)
+
+	// Top-level workflow: parent binding empty/0.
+	assert.NoErr(t, s.InsertWorkflow(Workflow{
+		ID: "wf-top", Status: WorkflowRunning, CurrentStep: 1, StepAttempt: 1, TotalSteps: 1,
+		SpecJSON: "{}", CreatedAt: 1, UpdatedAt: 1,
+	}))
+	top, ok, err := s.GetWorkflow("wf-top")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "", top.ParentWorkflowID)
+	assert.Eq(t, 0, top.ParentStepIndex)
+
+	// Sub-workflow: parent binding stored and read back.
+	assert.NoErr(t, s.InsertWorkflow(Workflow{
+		ID: "wf-child", Status: WorkflowRunning, CurrentStep: 1, StepAttempt: 1, TotalSteps: 2,
+		SpecJSON: "{}", ParentWorkflowID: "wf-top", ParentStepIndex: 3, CreatedAt: 1, UpdatedAt: 1,
+	}))
+	child, ok, err := s.GetWorkflow("wf-child")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "wf-top", child.ParentWorkflowID)
+	assert.Eq(t, 3, child.ParentStepIndex)
+}
+
+// TestFindChildWorkflow asserts FindChildWorkflow locates a sub-workflow by (parent,
+// step) and returns false when no child exists, and that an unrelated child does not
+// leak across (parent, step) keys.
+func TestFindChildWorkflow(t *testing.T) {
+	s := openTest(t)
+
+	// No child yet.
+	_, ok, err := s.FindChildWorkflow("wf-p", 2)
+	assert.NoErr(t, err)
+	assert.False(t, ok)
+
+	// A child bound to (wf-p, step 2).
+	assert.NoErr(t, s.InsertWorkflow(Workflow{
+		ID: "wf-p:sub:s2:a1", Status: WorkflowDone, CurrentStep: 2, StepAttempt: 1, TotalSteps: 1,
+		SpecJSON: "{}", ParentWorkflowID: "wf-p", ParentStepIndex: 2, CreatedAt: 5, UpdatedAt: 5,
+	}))
+	// A child of a DIFFERENT step must not match step 2.
+	assert.NoErr(t, s.InsertWorkflow(Workflow{
+		ID: "wf-p:sub:s3:a1", Status: WorkflowRunning, CurrentStep: 1, StepAttempt: 1, TotalSteps: 1,
+		SpecJSON: "{}", ParentWorkflowID: "wf-p", ParentStepIndex: 3, CreatedAt: 6, UpdatedAt: 6,
+	}))
+
+	got, ok, err := s.FindChildWorkflow("wf-p", 2)
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "wf-p:sub:s2:a1", got.ID)
+	assert.Eq(t, WorkflowDone, got.Status)
+
+	// step 3's child is found independently.
+	got3, ok, err := s.FindChildWorkflow("wf-p", 3)
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "wf-p:sub:s3:a1", got3.ID)
+}
+
 // TestJobFanIndexRoundTrip asserts jobs.fan_index round-trips (P2) and a non-fan job
 // (FanIndex unset) reads back as 0 (COALESCE), preserving the v1/P1 single-job default.
 func TestJobFanIndexRoundTrip(t *testing.T) {

@@ -172,11 +172,12 @@ const (
 // recordWorkflowEvent at the corresponding workflow-engine transition. The detail
 // payload per type is documented at each insertion site.
 const (
-	EventWorkflowSubmitted = "workflow.submitted" // {title,total_steps,caller_id}
-	EventStepStarted       = "step.started"       // {step,attempt,job_id} (single-job step)
-	EventStepFanout        = "step.fanout"        // {step,attempt,fan_out,join,job_ids} (P2 fan-out step)
-	EventStepRetry         = "step.retry"         // {step,attempt,next_attempt,backoff_sec,next_step_at}
-	EventStepSkipped       = "step.skipped"       // {step,attempt,status} (on_failure=continue)
-	EventWorkflowTerminal  = "workflow.terminal"  // {status,error}
-	EventWorkflowCancelled = "workflow.cancelled" // {was_terminal}
+	EventWorkflowSubmitted  = "workflow.submitted"  // {title,total_steps,caller_id}
+	EventStepStarted        = "step.started"        // {step,attempt,job_id} (single-job step)
+	EventStepFanout         = "step.fanout"         // {step,attempt,fan_out,join,job_ids} (P2 fan-out step)
+	EventStepRetry          = "step.retry"          // {step,attempt,next_attempt,backoff_sec,next_step_at}
+	EventStepSkipped        = "step.skipped"        // {step,attempt,status} (on_failure=continue)
+	EventSubworkflowStarted = "subworkflow.started" // {step,child_workflow_id,total_steps} (P3, type=workflow step)
+	EventWorkflowTerminal   = "workflow.terminal"   // {status,error}
+	EventWorkflowCancelled  = "workflow.cancelled"  // {was_terminal}
 )
