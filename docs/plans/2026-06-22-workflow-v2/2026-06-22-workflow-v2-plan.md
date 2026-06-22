@@ -65,11 +65,11 @@
   - [x] T3.2 子 wf 提交(确定性 id) + 终态 triggerParentAdvance + advanceWorkflowStep 按子 wf 终态判定
   - [x] T3.3 跨项目本地 result_dir 直读(集成测试) + 远端跨机 README 警示
   - [x] T3.4 验收（并发硬测 PASS + -race）+ 测试
-- [ ] **P4 易用**（详见 P4 子文档）
-  - [ ] T4.1 导入导出 spec_json（CLI/API，secret 剥离）
-  - [ ] T4.2 md-per-step 提交
-  - [ ] T4.3 CLI/Web 展示（fan-out/嵌套/重试 attempt/事件）+ workflow 指标
-  - [ ] T4.4 验收 + 测试
+- [x] **P4 易用**（详见 P4 子文档）✅ commit `92cc669`
+  - [x] T4.1 导入导出 `GET /v1/workflows/{id}/export` + CLI export（secret 启发式剥离 + 递归子 wf）
+  - [x] T4.2 md-per-step 提交（`File` 字段 json:"-" 不过线）
+  - [x] T4.3 CLI events 子命令 + show ATT/FAN 列 + Web 详情分组展示 + workflow 指标（terminal/duration）
+  - [x] T4.4 验收（后端 go test 验 + 前端仅 build 验，渲染需目视）
 
 ## 5. 实施结果（完成后回填）
 
@@ -90,8 +90,26 @@
 - **主控独立验证**（非转述子 agent）：① 文件真在工作树;② `go build ./...` 绿;③ **`go test ./...` 全量无过滤 exit 0**(主控亲跑);④ **读并发测试代码确认非空壳**——`TestSubWorkflowConcurrentParentAdvanceOnce` 真起 32 goroutine + atomic 计数 + 硬断言"父 step2 只起一次/子 wf 无重复";`-race` 三包绿。
 - **遗留**：子 wf 在 Web 详情视图展示属 P4;远端产物拉取通道仍后续(仅文档警示);子 wf retry 重跑整条(only-failed 留后续)。
 
-### P4
-> 待回填。
+### P4 ✅（commit `92cc669`）
+- **后端**：`workflow_export.go`(secret 启发式剥离 + ExportWorkflow)、`workflow_handler.go`(export API)、`metrics.go`(gofer_workflows_terminal_total/duration 经 MetricsSink)、`commands/workflow.go`+`workflow_md.go`(JSON/md-per-step 导入 + export/events 子命令 + show ATT/FAN 列)、`client.go`(ExportWorkflow/ListWorkflowEvents)。
+- **前端**：`WorkflowDetail.vue` 按 step_index 分组(fan-out/retry 徽标)+ 子 wf 链接 + events 时间线。
+- **主控独立验证**：① 文件真在;② build 绿;③ **`go test ./...` 全量无过滤 exit 0**(主控亲跑);④ 读测试确认非空壳(secret 泄漏会 `t.Fatalf`、workflow 指标 done Inc 一次硬断言);`-race` 绿;**`pnpm -C web build` 过(vue-tsc)**。
+- **⚠️ 验证边界(诚实)**：后端全部 go test 验过;**前端展示逻辑仅编译验证、未浏览器目视——需用户眼检**(分组渲染/子 wf 链接/事件时间线/徽标)。
+- **遗留**：工作流模板库(save/--template,plan 标可选)未做;secret 剥离是启发式非保证;子 wf retry 重跑整条。
+
+## 7. SUPMODE 完成总结
+
+P1-P4 **全部真实落地并提交**,每阶段由主控按四步独立验证(git 文件真在 + build + **全量 go test 无过滤亲跑** + 读测试代码确认非空壳),**不转述子 agent 的 PASS**。
+
+| 阶段 | commit | 主控验证 |
+|---|---|---|
+| P1 retry/事件流/retention | `7c470b8` | 全量 test + 并发硬测读码(32 goroutine 只起一次) + -race |
+| P2 fan-out/join | `4492871` | 同上 |
+| P3 子工作流/跨项目 | `dc71b06` | 同上 + 并发硬测(父只推进一次) |
+| P4 导入导出/md/展示/指标 | `92cc669` | 后端全量 test + 前端 pnpm build(渲染需目视) |
+
+**待人工眼检**：P4 前端 WorkflowDetail.vue 渲染效果(可用 agent-browser 或起 serve 浏览器看)。
+**过程教训**：曾出现一轮子 agent 报告被误当真转述(假 P2 commit + 编造 P3),经全量 git/test 复核纠正;此后确立"主控亲验四步"铁律。
 
 ## 6. 完成判定
 
