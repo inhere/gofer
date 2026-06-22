@@ -142,6 +142,28 @@ func TestParseWorkflowFileJSON(t *testing.T) {
 	}
 }
 
+// TestParseWorkflowFileJSONByContent asserts JSON is imported by CONTENT (leading
+// '{'), not just the .json extension — so an exported `-f json` spec re-imports even
+// when piped to a non-.json file name.
+func TestParseWorkflowFileJSONByContent(t *testing.T) {
+	dir := t.TempDir()
+	raw, _ := json.MarshalIndent(job.WorkflowSpec{
+		Title: "content-json",
+		Steps: []job.StepSpec{{Name: "a", ProjectKey: "p", Agent: "exec", Runner: "local", Cmd: []string{"echo", "hi"}}},
+	}, "", "  ")
+	path := filepath.Join(dir, "wf.txt") // NOT .json — must be detected by content
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	got, err := parseWorkflowFile(path)
+	if err != nil {
+		t.Fatalf("parseWorkflowFile(.txt with json content): %v", err)
+	}
+	if got.Title != "content-json" || len(got.Steps) != 1 {
+		t.Fatalf("content-json decode wrong: %+v", got)
+	}
+}
+
 // TestExpandStepMarkdownMissingFile surfaces a clear error when the referenced md
 // file does not exist.
 func TestExpandStepMarkdownMissingFile(t *testing.T) {

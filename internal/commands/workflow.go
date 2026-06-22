@@ -60,14 +60,15 @@ func NewWorkflowCmd() *gcli.Command {
 		Desc:    "Submit and manage workflows (job chains) via the bridge server",
 		Subs: []*gcli.Command{
 			{
-				Name: "run",
-				Desc: "Submit a workflow from a yaml file (title + steps[])",
+				Name:    "run",
+				Aliases: []string{"add"},
+				Desc:    "Submit a workflow from a yaml or json file (title + steps[])",
 				Config: func(c *gcli.Command) {
 					c.StrOpt(&wfRunOpts.config, "config", "c", "", "path to the bridge config file")
 					c.StrOpt(&wfRunOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&wfRunOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.BoolOpt(&wfRunOpts.watch, "watch", "w", false, "poll the workflow until it reaches a terminal state, printing each step")
-					c.AddArg("file", "path to the workflow yaml file", true)
+					c.AddArg("file", "path to the workflow file (.json => json, else yaml; json also auto-detected by content)", true)
 				},
 				Func: runWorkflowRun,
 			},
@@ -185,15 +186,18 @@ func parseWorkflowFile(path string) (job.WorkflowSpec, error) {
 // carry both), so the same struct decodes either dump.
 func decodeWorkflowBody(path string, body []byte) (job.WorkflowSpec, error) {
 	var spec job.WorkflowSpec
-	switch strings.ToLower(filepath.Ext(path)) {
-	case ".json":
+	// JSON when the extension says .json OR the content is a JSON object (leading '{'),
+	// so an exported `-f json` spec re-imports regardless of file name (e.g. piped to a
+	// .txt). A workflow yaml always starts with a key (title:/steps:), never '{', so the
+	// content sniff is unambiguous. Everything else is YAML.
+	if strings.EqualFold(filepath.Ext(path), ".json") || strings.HasPrefix(strings.TrimSpace(string(body)), "{") {
 		if err := json.Unmarshal(body, &spec); err != nil {
 			return job.WorkflowSpec{}, fmt.Errorf("parse workflow json: %w", err)
 		}
-	default:
-		if err := yaml.Unmarshal(body, &spec); err != nil {
-			return job.WorkflowSpec{}, fmt.Errorf("parse workflow yaml: %w", err)
-		}
+		return spec, nil
+	}
+	if err := yaml.Unmarshal(body, &spec); err != nil {
+		return job.WorkflowSpec{}, fmt.Errorf("parse workflow yaml: %w", err)
 	}
 	return spec, nil
 }
