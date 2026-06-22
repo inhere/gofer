@@ -47,7 +47,7 @@
 
 ## 4. 进度跟进
 
-- [x] **P1 重试/失败策略 + 事件流**（详见 P1 子文档）✅ commit `<P1>`
+- [x] **P1 重试/失败策略 + 事件流**（详见 P1 子文档）✅ commit `7c470b8`
   - [x] T1.1 StepSpec/RetryPolicy 字段 + 校验（validateRetry）
   - [x] T1.2 表迁移 `attempt`/`step_attempt`/`next_step_at`（+顺带 P2 `fan_index`/P3 `parent_*`）+ AdvanceStep 二元组 DAO
   - [x] T1.3 advanceWorkflow 失败分支：fail/continue/retry + **(step,attempt) 二元组抢权** + next_step_at 退避（sweeper backstop + 即时 timer）
@@ -73,7 +73,7 @@
 
 ## 5. 实施结果（完成后回填）
 
-### P1 ✅（commit `<P1>`）
+### P1 ✅（commit `7c470b8`）
 - **改动**：16 文件（11 改 5 新）——`workflow.go`(StepSpec on_failure/retry + advanceWorkflow 三分支重写 + startStepJob/事件)、`jobstore`(AdvanceStep 二元组 DAO + workflow_events 表 + 迁移 attempt/step_attempt/next_step_at + 顺带 P2 fan_index/P3 parent_*)、`service.go`(job 级重试最小版)、`prune.go`(workflow retention 连带清)、`workflow_handler.go`(events API)、4 测试文件。
 - **幂等核心**：`(step,attempt)` 二元组条件 UPDATE 抢权（AdvanceStep）+ 确定性 request_id `wfID:sN:aA` 复用 C5 → 双层防重复起 job。
 - **关键决策**：退避 sweeper backstop + 即时 timer 优化；事件顺序前移（先记事件再翻状态，修竞态，仿 v1 finish）；job 级重试进程内 timer 最小版（可靠版留后续）；顺带加 P2/P3 列减少迁移。
