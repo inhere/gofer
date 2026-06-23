@@ -9,6 +9,7 @@
 | 版本 | 日期 | 修改人 | 说明 |
 |---|---|---|---|
 | v0.1 | 2026-06-23 | inhere | 初稿：4 功能 + D1–D7 + 新增 3 只读 endpoint + 前端落点，待审核 |
+| v0.2 | 2026-06-23 | inhere | §10 四点定稿：md 渲染=**marked + DOMPurify**（代码 `<pre>` 起步、按需 highlight.js）/ 拓扑只画 hub-worker-peer 物理拓扑 / 白名单先硬编码 / E20·E32 不限流；进入 plan 阶段 |
 
 ## 2. 现状基线（调研结论，复用不重造）
 
@@ -59,7 +60,7 @@
 - **D2 范围 = 仅 gofer 进程可达项目**：E20/E32 跑 git/读文件的根一律 `ExecPath(proj)`（本地）。远端 worker 项目 gofer 进程访问不到 → endpoint 对其返回"不可达/非本地"，**不做远端拉取**（留后续）。拓扑里 worker 节点面板只显 server 已知信息（心跳/labels/in-flight/地址），**不显 worker 的项目列表**（worker.yaml 独立、server 不可见）。
 - **D3 关键文件白名单（E32 安全核心）**：`/file` 只允许 **basename 白名单**（`README*`、`.gitignore`、`AGENTS.md`、`CLAUDE.md`、`go.mod`、`package.json`、`LICENSE*` 等可配），path 必经 `SafeJoin(ExecPath, rel)` 防穿越，大小上限 **256KB**，仅文本（二进制拒绝）。**不开放任意路径**。
 - **D4 子 git 发现**：从 `ExecPath(proj)` 起递归找 `.git`，**深度 ≤3** + 排除噪声目录（`node_modules`/`vendor`/`dist`/`.git` 内部等），每个子 repo 只跑轻量 `branch + dirty`（runGit，cap+超时）；命中数上限（如 ≤100）防爆扫。
-- **D5 E19a 预览**：前端按**后缀 + 大小阈值（默认 2MB）**判类型：`md`→`markdown-it` 渲染 + `DOMPurify` sanitize；图片(`png/jpg/gif/webp/svg`)→`<img src=blob>`（svg 走 img 不内联，防脚本）；`json`→格式化+高亮；文本/代码→`<pre>`（可选轻量高亮）；其他/超阈值/二进制→回退现有下载。库 `markdown-it`+`DOMPurify` 打包进 bundle（无 CDN）。
+- **D5 E19a 预览**（v0.2 定稿）：前端按**后缀 + 大小阈值（默认 2MB）**判类型：`md`→`marked` 渲染 + `DOMPurify` sanitize；图片(`png/jpg/gif/webp/svg`)→`<img src=blob>`（svg 走 img 不内联，防脚本）；`json`→格式化展示；文本/代码→`<pre>` **起步**（按需再引 `highlight.js` 只注册用到的语言，不全量打包）；其他/超阈值/二进制→回退现有下载。库 `marked`+`DOMPurify` 打包进 bundle（无 CDN）——marked 比 markdown-it 轻约半、GFM 表格够 README 用；**DOMPurify 必留**（产物含 agent 生成的不可信内容，md→HTML 必 sanitize）。
 - **D6 只读 git/fs helper 位置**：把只读 git 子集（`status --porcelain`/`rev-parse --abbrev-ref`/`log`）+ 子 git 扫描 + 关键文件读取放 **新 `internal/project/browse.go`**（复用 `runGit` 范式；若 `runGit` 现私有于 job 包，提取一个共享小工具或在 project 包内重写同款 `exec.CommandContext("git",...)`+超时+cap）。httpapi handler 薄封装调用。**git 参数全固定**（不接用户拼接），杜绝命令注入。
 - **D7 刷新策略**：git 状态/子 git/文件**进入视图时取 + 手动刷新**（不轮询——git 状态变化不频繁，避免无谓 exec）；拓扑沿用 `Runners.vue` 现有 4s 轮询。
 
@@ -77,7 +78,7 @@
 - **新组件 `components/FilePreview.vue`**：入参 `{name, fetchBlob()}`，按 D5 渲染；E32 关键文件查看**复用同组件**。
 - **JobDetail.vue 增强**：产物清单项加"预览"——点击 → `downloadArtifact(id,name)` 取 blob → `FilePreview` 渲染；超阈值/二进制 → 保留下载按钮。
 - **后端（可选小改）**：`handleDownloadArtifact`（`artifact_handler.go:58`）现回 `octet-stream`；可按后缀补正确 `Content-Type` 便于前端判断（前端也可纯按后缀，后端改非必须）。
-- **依赖**：`web/package.json` 加 `markdown-it` + `dompurify`（打包进 bundle）。
+- **依赖**：`web/package.json` 加 `marked` + `dompurify`（打包进 bundle）。
 
 ### 6.3 E20 项目当前 git 状态（新 endpoint + 前端）
 
@@ -118,14 +119,14 @@
 | 产物预览接入 | `web/src/views/JobDetail.vue` |
 | 项目 git/子仓/文件 | `web/src/views/Projects.vue` |
 | API client + DTO | `web/src/api/client.ts`（getProjectGit/listRepos/getProjectFile）+ `api/types.ts` |
-| 依赖 | `web/package.json`（markdown-it + dompurify）|
+| 依赖 | `web/package.json`（marked + dompurify）|
 
-## 10. 待确认
+## 10. 已确认事项（v0.2 定稿，2026-06-23）
 
-1. **markdown 渲染库**：`markdown-it` + `DOMPurify`（功能全、生态稳）vs 更轻的渲染器？倾向 markdown-it + DOMPurify。
-2. **拓扑是否画"项目→节点"映射边**：server 不知 worker 的 projects（worker.yaml 独立），故拓扑只能画 **hub-worker-peer 物理拓扑**，不画项目映射——确认接受。
-3. **关键文件白名单具体清单**：初版 `README*/.gitignore/AGENTS.md/CLAUDE.md/go.mod/package.json/LICENSE*`，是否可配（config 项）还是先硬编码？倾向先硬编码 + 后续可配。
-4. **E20/E32 是否纳入 caller 限流（E17）**：只读轻量，倾向不限流（或宽松）。
+1. **md 渲染 = `marked` + `DOMPurify`**；代码/json 预览 `<pre>` 起步，按需再引 `highlight.js`（只注册用到的语言）。DOMPurify 必留（sanitize 不可信内容）。
+2. **拓扑只画 hub-worker-peer 物理拓扑**——server 不知 worker 的 projects（worker.yaml 独立），不画"项目→节点"映射。
+3. **关键文件白名单先硬编码**：`README*` / `.gitignore` / `AGENTS.md` / `CLAUDE.md` / `go.mod` / `package.json` / `LICENSE*`；后续按需做成可配。
+4. **E20/E32 不纳入 caller 限流**（只读轻量）；鉴权仍走 `/v1` Bearer。
 
 ## 11. 结论
 

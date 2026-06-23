@@ -17,6 +17,7 @@
 | v1.5 | 2026-06-23 | inhere | 新增 **E30 浏览器 pty 交互** / **E31 节点拓扑+配置管理** / **E32 项目空间浏览（子 git+关键文件）**；E23 补"触发位置"维度（server 集中 vs 下发 worker）；新增横切「**Web 控制台 v2**」（只读层/写交互层切分）。来源：用户新想法整理 |
 | v1.6 | 2026-06-23 | inhere | E29 标注**路径视角待补丁**（design D10：`path_view` 开关 + `ExecPath`，修正 container_path 未进执行链路 + overlay 路径不一致）；E32 子 git 扫描改走 `ExecPath` |
 | v1.7 | 2026-06-23 | inhere | **D10 路径视角已落地**（commit `f3a1db8`）：`path_view`+`ExecPath` 统一执行路径、修正 overlay 不一致、默认 host 零变化回归绿 |
+| v1.8 | 2026-06-23 | inhere | **Web 控制台 v2 只读层 design 已出**（E31拓扑/E19a预览/E20 git/E32 子git+关键文件，[`design/2026-06-23-web-console-v2-readonly-design.md`](design/2026-06-23-web-console-v2-readonly-design.md)）；待出 plan |
 
 ## 现状基线（已有，不重复做）
 
@@ -103,7 +104,7 @@ E23 定时 + E24 自动重试 + E25 监督应答 + E26 hooks 共同把 gofer 从
 
 把 Web 控制台从"看板 + 详情 + Workers 名册"推向"**集群可观察 + 项目透视 + 可交互操作**"。这批增强按**只读 vs 写/交互**切两层（安全闭环，SR1402）：
 
-- **只读观察层（便宜先行，数据源多现成、无写风险）**：E31 拓扑图 + 节点面板(只读) · E32 子 git 发现 + 关键文件 · E19(a) 产物预览 · E20 项目 git 状态。**适合先打包一份 design 一起做。**
+- **只读观察层（便宜先行，数据源多现成、无写风险）**：E31 拓扑图 + 节点面板(只读) · E32 子 git 发现 + 关键文件 · E19(a) 产物预览 · E20 项目 git 状态。**✅ 只读层 design 已出**：[`design/2026-06-23-web-console-v2-readonly-design.md`](design/2026-06-23-web-console-v2-readonly-design.md)（marked+DOMPurify 预览 / SVG 物理拓扑 / 白名单关键文件 / +3 只读 endpoint，复用 runGit+ExecPath+SafeJoin）。
 - **写 / 交互层（重、高危，各需独立安全设计）**：E30 pty 交互（改执行模型 + 会话审计）· E31 配置编辑（写回 + reload + 鉴权分级 + secret 不回显）· E21 主机侧动作（复用主机 bridge）。
 - **统一前置**：鉴权分级（当前 token 平权，写/交互操作需更细粒度）· 审计（写操作 / pty 会话入 E13 事件流）· secret 不回显（SR403/805）。
 
