@@ -13,6 +13,7 @@
 | v1.1 | 2026-06-21 | inhere | 标记 E1-E17 完成态（E16/E17 本轮落地，E7🚧/E14🚧）；新增 E18-E27（来自 `tmp/tmp.md` 想法整理）；新增「自主化 epic」横切章节；更新现状基线与优先级 |
 | v1.2 | 2026-06-22 | inhere | 回填滞后标记：**工作流 v2 已全落地**（design `workflow-v2-design.md` + plan `2026-06-22-workflow-v2/`，commit `7c470b8`/`4492871`/`dc71b06`/`92cc669`），随之 **E7✅(v1+v2) · E9✅ · E18✅ · E27✅ · E24🚧**；更新现状基线（核心缺口去掉"工作流深化"）与建议优先级 |
 | v1.3 | 2026-06-22 | inhere | 新增 **E28 多 agent 经 gofer 协作通信**（中央 serve 中枢 + mcp HTTP-client 接入；信箱语义并入 E25 可插拔 answerer），来自"两个工作目录 claude 经 gofer 互通"讨论；补 E28 实现取向（stdio mcp **standalone/client 双模式** + 适用场景表，明确"该废的是 in-process 后端、非 stdio 本身"） |
+| v1.4 | 2026-06-23 | inhere | 新增 **E29 配置/部署模型简化**（全局单 server + 项目瘦配置 `.gofer.project.yaml`），已出 design + plan（Phase1 零代码 / Phase2 overlay 合并 + cwd 推断） |
 
 ## 现状基线（已有，不重复做）
 
@@ -39,6 +40,7 @@
 | E19 | **文件 / 产物预览** | 中 | 中 | Web 在线预览（md/图/json/代码高亮）。**二义先定**：(a) job 产物 artifacts 渲染——小、安全边界清晰（限 `result_dir`），E1 已有下载加渲染即可，**先做**；(b) 项目工作目录文件浏览——大，需文件树 API + 路径安全（防 `../`、黑名单 `.env`/`.git`）。 |
 | E21 | **主机侧动作（编辑器打开等）** | 中 | 低 | 一键用主机编辑器打开项目（`code <host_path>`）/ reveal / 开终端。⚠️ gofer 在容器、编辑器在主机：**必须复用现有 codex-bridge 主机通道**（`host.docker.internal`），抽象成一类"主机侧动作"。仅对有主机 bridge 的部署可用。 |
 | E23 | **定时任务（内置 cron）** | 中 | 中 | `schedules` 表 + 复用现有 sweeper loop 范式定时提交 job/工作流。问题：错过补偿、多 hub 重复触发（单 hub 不问题）。接 E24（定时+重试）、E18（定时跑导入的工作流）。属**自主化 epic**。 |
+| E29 | **配置/部署模型简化（全局单 server + 项目瘦配置）** | 高 | 中 | 一台机一个 `serve` + 项目映射**全局单文件**；项目目录 `.gofer.project.yaml` **瘦配置**（仅偏好、无 server、准入留全局）。design [`design/2026-06-22-config-simplification-design.md`](design/2026-06-22-config-simplification-design.md) + plan [`plans/2026-06-23-config-simplification-plan.md`](plans/2026-06-23-config-simplification-plan.md)。**Phase1 零代码**（`GOFER_CONFIG` + `project add` 写全局）立即可用；**Phase2** overlay 合并（`buildCore`/`Reload`）+ cwd 推断免 `-p`；准入真源在 serve、CLI 不读 overlay（D2 安全）。 |
 
 ## ② 更好地利用 agent 完成任务
 
