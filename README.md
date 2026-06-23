@@ -244,6 +244,23 @@ gofer completion bash|zsh                  # 补全脚本
 
 > `GOFER_LOG_LEVEL=debug|info|warn|error`（默认 `info`，写 stderr）调结构化日志详细度——worker/serve 的连接生命周期在此输出。
 
+## 推荐部署（单机）
+
+一台机器只起一个 server，项目映射收敛到全局单文件：
+
+```bash
+export GOFER_CONFIG=~/.config/gofer/config.yaml   # 写进 shell profile
+gofer init server --global                         # 生成全局骨架
+# 编辑：填 server.token_env / agents / runners
+gofer project add siv --host-path /abs/SIV --container-path /work/SIV
+gofer serve                                        # 一个进程
+# 任意目录:
+gofer job run -p siv -a claude "..."               # CLI 连 serve
+```
+
+`GOFER_CONFIG` 优先于当前目录的 `.gofer.yaml`，任意目录命令都走全局。
+项目专属偏好放项目目录 `.gofer.project.yaml`（瘦配置，后续阶段落地）。
+
 ## MCP 接入
 
 `gofer mcp` 以 **stdio MCP server** 暴露同一套控制面（复用 serve 的 `job.Service`/注册表）。stdout 为协议通道，不输出日志。

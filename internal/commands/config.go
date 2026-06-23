@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 
@@ -10,6 +11,7 @@ import (
 	"github.com/gookit/goutil/errorx"
 
 	configtmpl "github.com/inhere/gofer/config"
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/project"
 )
 
@@ -22,6 +24,7 @@ const configExitErr = 2
 var initOpts = struct {
 	config string
 	force  bool
+	global bool
 }{}
 
 // configValidateOpts holds `gofer config validate` flags.
@@ -65,6 +68,7 @@ func NewInitCmd() *gcli.Command {
 			c.AddArg("target", "what to scaffold: server (default) | worker", false)
 			c.StrOpt(&initOpts.config, "config", "c", "", "path to write the config (default depends on target)")
 			c.BoolOpt(&initOpts.force, "force", "f", false, "overwrite an existing config file")
+			c.BoolOpt(&initOpts.global, "global", "g", false, "write to the user-global config dir (~/.config/gofer/config.yaml)")
 		},
 		Func: runInit,
 	}
@@ -83,9 +87,23 @@ func runInit(c *gcli.Command, _ []string) error {
 		return errorx.Failf(configExitErr, "unknown init target %q (use: server | worker)", target)
 	}
 
+	// Path resolution: an explicit --config always wins (backward compatible).
+	// Otherwise --global writes the user-global config.yaml for the server target
+	// (worker has no global discovery, so it keeps its ./worker.yaml default).
 	path := initOpts.config
+	usedGlobal := false
 	if path == "" {
-		path = defaultPath
+		if initOpts.global && (target == "" || target == "server") {
+			gp, err := config.UserConfigPath()
+			if err != nil {
+				return errorx.Failf(configExitErr, "resolve global config path: %v", err)
+			}
+			path = gp
+			usedGlobal = true
+			_ = os.MkdirAll(filepath.Dir(path), 0o755) // ensure ~/.config/gofer exists
+		} else {
+			path = defaultPath
+		}
 	}
 
 	if !initOpts.force {
@@ -104,6 +122,9 @@ func runInit(c *gcli.Command, _ []string) error {
 		c.Printf("已生成 worker 配置 %s，编辑后运行 `gofer worker -c %s` 启动\n", path, path)
 	} else {
 		c.Printf("已生成 %s，编辑后运行 `gofer config validate` 校验\n", path)
+		if usedGlobal {
+			c.Printf("提示: export GOFER_CONFIG=%s 后任意目录可用\n", path)
+		}
 	}
 	return nil
 }

@@ -9,6 +9,7 @@ import (
 	"github.com/gookit/goutil/errorx"
 
 	configtmpl "github.com/inhere/gofer/config"
+	"github.com/inhere/gofer/internal/config"
 )
 
 // bindCmd builds a gcli.Command and runs its Config func so the package-level
@@ -145,6 +146,70 @@ func TestInitDefaultPath(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dir, DefaultInitConfigPath)); err != nil {
 		t.Fatalf("default config not written: %v", err)
+	}
+}
+
+// TestInitServerGlobalPath verifies `init server --global -f` writes to the
+// user-global config path (config.UserConfigPath()), creating the dir. GOFER_CFG_DIR
+// redirects the global dir to a temp dir so the test never touches the real home.
+func TestInitServerGlobalPath(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(config.EnvConfigDir, dir)
+
+	want, err := config.UserConfigPath()
+	if err != nil {
+		t.Fatalf("UserConfigPath: %v", err)
+	}
+
+	c := bindCmd(NewInitCmd())
+	initOpts.config = ""
+	initOpts.global = true
+	initOpts.force = true
+	t.Cleanup(func() { initOpts.config = ""; initOpts.global = false; initOpts.force = false })
+
+	if err := runInit(c, nil); err != nil {
+		t.Fatalf("init server --global: %v", err)
+	}
+	// The global path == UserConfigPath() and the file was actually written there.
+	if _, err := os.Stat(want); err != nil {
+		t.Fatalf("global config not written at UserConfigPath() %s: %v", want, err)
+	}
+	got, err := os.ReadFile(want)
+	if err != nil {
+		t.Fatalf("read global config: %v", err)
+	}
+	if string(got) != configtmpl.ExampleYAML {
+		t.Fatal("global config content != embedded server template")
+	}
+}
+
+// TestInitWorkerGlobalNoEffect verifies --global has no effect for the worker
+// target: it still writes ./worker.yaml (worker has no global discovery).
+func TestInitWorkerGlobalNoEffect(t *testing.T) {
+	dir := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	// Point the global dir elsewhere; --global must NOT redirect the worker output there.
+	t.Setenv(config.EnvConfigDir, t.TempDir())
+
+	c := bindCmd(NewInitCmd())
+	c.Arg("target").WithValue("worker")
+	initOpts.config = ""
+	initOpts.global = true
+	initOpts.force = true
+	t.Cleanup(func() { initOpts.config = ""; initOpts.global = false; initOpts.force = false })
+
+	if err := runInit(c, nil); err != nil {
+		t.Fatalf("init worker --global: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, DefaultWorkerConfigPath)); err != nil {
+		t.Fatalf("worker --global should still write ./worker.yaml: %v", err)
 	}
 }
 
