@@ -1,4 +1,10 @@
 # gofer example configuration.
+# 推荐: 单机只起一个 server, 把这份配置放全局 ~/.config/gofer/config.yaml
+#   gofer init server --global   # 直接写到全局并打印 GOFER_CONFIG 提示
+# 然后 export GOFER_CONFIG=~/.config/gofer/config.yaml, 任意目录命令都走全局单文件。
+# 项目专属偏好(result_subdir/default_agent 等)放项目目录 .gofer.project.yaml
+# (瘦配置, 后续阶段落地; 准入字段 allowed_agents/allowed_runners 仍留在本全局文件)。
+#
 # Copy to one of the lookup locations (§6.1), or run `gofer init` to drop this
 # starter at ./.gofer.yaml, then edit and run `gofer config validate`:
 #   1. --config <path>
@@ -136,14 +142,12 @@ projects:
     # capture_diff toggles git-diff capture on job outcomes (E12). Unset defaults
     # to "on when cwd is a git work tree"; set false to disable outright.
     # capture_diff: true
-  # Second project: a different host_path (the tools dir).
+  # Second project: 瘦写法 — 只写 host_path/container_path + 准入 allowed_agents,
+  # 其余(exchange_subdir/result_subdir/default_agent/max_concurrent_jobs 等)留空走默认。
   my-tools:
     host_path: D:/work/inhere/path-to/my-tools
     container_path: /d/work/inhere/path-to/my-tools
-    default_agent: exec
     allowed_agents: [exec]
-    allowed_runners: [local]
-    allow_exec: true
 
 agents:
   # Template placeholders supported in `args`: {{prompt}} {{cwd}} {{job_id}}
