@@ -15,6 +15,7 @@
 | v1.3 | 2026-06-22 | inhere | 新增 **E28 多 agent 经 gofer 协作通信**（中央 serve 中枢 + mcp HTTP-client 接入；信箱语义并入 E25 可插拔 answerer），来自"两个工作目录 claude 经 gofer 互通"讨论；补 E28 实现取向（stdio mcp **standalone/client 双模式** + 适用场景表，明确"该废的是 in-process 后端、非 stdio 本身"） |
 | v1.4 | 2026-06-23 | inhere | 新增 **E29 配置/部署模型简化**（全局单 server + 项目瘦配置 `.gofer.project.yaml`），已出 design + plan（Phase1 零代码 / Phase2 overlay 合并 + cwd 推断） |
 | v1.5 | 2026-06-23 | inhere | 新增 **E30 浏览器 pty 交互** / **E31 节点拓扑+配置管理** / **E32 项目空间浏览（子 git+关键文件）**；E23 补"触发位置"维度（server 集中 vs 下发 worker）；新增横切「**Web 控制台 v2**」（只读层/写交互层切分）。来源：用户新想法整理 |
+| v1.6 | 2026-06-23 | inhere | E29 标注**路径视角待补丁**（design D10：`path_view` 开关 + `ExecPath`，修正 container_path 未进执行链路 + overlay 路径不一致）；E32 子 git 扫描改走 `ExecPath` |
 
 ## 现状基线（已有，不重复做）
 
@@ -41,7 +42,7 @@
 | E19 | **文件 / 产物预览** | 中 | 中 | Web 在线预览（md/图/json/代码高亮）。**二义先定**：(a) job 产物 artifacts 渲染——小、安全边界清晰（限 `result_dir`），E1 已有下载加渲染即可，**先做**；(b) 项目工作目录文件浏览——大，需文件树 API + 路径安全（防 `../`、黑名单 `.env`/`.git`）。 |
 | E21 | **主机侧动作（编辑器打开等）** | 中 | 低 | 一键用主机编辑器打开项目（`code <host_path>`）/ reveal / 开终端。⚠️ gofer 在容器、编辑器在主机：**必须复用现有 codex-bridge 主机通道**（`host.docker.internal`），抽象成一类"主机侧动作"。仅对有主机 bridge 的部署可用。 |
 | E23 | **定时任务（内置 cron）** | 中 | 中 | `schedules` 表 + 复用现有 sweeper loop 范式定时提交 job/工作流。问题：错过补偿、多 hub 重复触发（单 hub 不问题）。**触发位置（设计维度）**：① server 集中触发（默认、简单，复用 sweeper，worker 只执行被派的 job）vs ② 下发 worker 自触发（worker 内置调度器 + 本地 schedule，断网离线自治，但管理分散）——倾向默认①、②作可选高级。接 E24（定时+重试）、E18（定时跑导入的工作流）。属**自主化 epic**。 |
-| E29 ✅ | **配置/部署模型简化（全局单 server + 项目瘦配置）** | 高 | 中 | **已落地**（SUPMODE 2026-06-23，P0-P3 commit `65cdb70`/`bfc6211`/`ae45372`/`9b2e6dd`，独立验收 D1–D9 全 PASS）。一台机一个 `serve` + 项目映射**全局单文件**；项目目录 `.gofer.project.yaml` **瘦配置**（仅偏好、无 server、准入留全局）。design [`design/2026-06-22-config-simplification-design.md`](design/2026-06-22-config-simplification-design.md) + plan [`plans/2026-06-23-config-simplification-plan.md`](plans/2026-06-23-config-simplification-plan.md)。Phase1（`init --global` + `GOFER_CONFIG` + `project add` 写全局）+ Phase2 overlay 合并（`buildCore`/`Reload`）+ cwd 推断免 `-p`；准入真源在 serve、CLI 不读 overlay（D2 安全）。 |
+| E29 ✅ | **配置/部署模型简化（全局单 server + 项目瘦配置）** | 高 | 中 | **已落地**（SUPMODE 2026-06-23，P0-P3 commit `65cdb70`/`bfc6211`/`ae45372`/`9b2e6dd`，独立验收 D1–D9 全 PASS）。一台机一个 `serve` + 项目映射**全局单文件**；项目目录 `.gofer.project.yaml` **瘦配置**（仅偏好、无 server、准入留全局）。design [`design/2026-06-22-config-simplification-design.md`](design/2026-06-22-config-simplification-design.md) + plan [`plans/2026-06-23-config-simplification-plan.md`](plans/2026-06-23-config-simplification-plan.md)。Phase1（`init --global` + `GOFER_CONFIG` + `project add` 写全局）+ Phase2 overlay 合并（`buildCore`/`Reload`）+ cwd 推断免 `-p`；准入真源在 serve、CLI 不读 overlay（D2 安全）。**待补丁**：路径视角 `path_view` 开关（design D10）——现状执行链路只用 `host_path`、`container_path` 未进执行+无容器自检，需加 `ExecPath` 统一并修正 overlay 路径不一致。 |
 
 ## ② 更好地利用 agent 完成任务
 
@@ -83,7 +84,7 @@
 | E20 | **项目 git / 只读信息查看** | 中 | 中 | 项目**此刻** git status/log/branch 只读视图。**与 E12 划清**：E12=某 job 改了什么（快照）；本项=项目当前状态（不绑 job）。问题：git 在哪跑（本地容器/worker 侧）、只读白名单防写/防 RCE。 |
 | E22 | **IM 连接（钉钉/飞书）** | 高 | 大 | 跨①②③轴。**拆三层**：(a) 出站通知接 IM（复用 E14，**最便宜先行**）；(b) 入站提交（IM 消息→job，新入口，回调验签 + IM 用户映射 caller_id）；(c) 交互应答（pending_interaction→IM 卡片→回复→续跑）。平台差异需 adapter。鉴权接 E17 caller。 |
 | E31 | **节点拓扑 + 配置管理（Web）** | 中 | 中-大 | ① **拓扑图**：server(hub)+workers+peers 关系图，数据源现有 `/v1/runners`(C6)+peers，纯可视化**便宜**；② **点击节点→节点面板**：项目空间 / 配置 / 在飞 job / 心跳；③ **配置查看/编辑**：Web 看/改 config → 写回（复用 `writer.go` 保留未知字段）+ SIGHUP reload。⚠️ **拆只读/写**：只读查看便宜先做；**编辑高危**（写 config + reload）需鉴权分级（当前 token 平权）+ **secret 不回显**（只显 `token_env` 名，SR403/805）+ 编辑后先 `config validate`。属 Web 控制台 v2（拓扑/面板=只读层，配置编辑=写层）。跨①③轴。 |
-| E32 | **项目空间浏览（子 git 发现 + 关键文件）** | 中 | 中 | E19(b)/E20 的**安全聚焦版**：① **子 git 发现**：`host_path`/workspace 下递归找 `.git` 仓库列出 + branch/status（容器内扫描用 `container_path`，同 E29 路径语义）；② **关键文件查看**：README / .gitignore / AGENTS.md / CLAUDE.md。**取舍**：做**白名单关键文件**而非通用文件树（后者 E19b 有 `.env` 泄露 + 路径穿越风险）。属 Web 控制台 v2 只读层。跨①③轴。 |
+| E32 | **项目空间浏览（子 git 发现 + 关键文件）** | 中 | 中 | E19(b)/E20 的**安全聚焦版**：① **子 git 发现**：项目根下递归找 `.git` 仓库列出 + branch/status（扫描走 `ExecPath`，受 `path_view` 控制，见 E29 design D10）；② **关键文件查看**：README / .gitignore / AGENTS.md / CLAUDE.md。**取舍**：做**白名单关键文件**而非通用文件树（后者 E19b 有 `.env` 泄露 + 路径穿越风险）。属 Web 控制台 v2 只读层。跨①③轴。 |
 
 ---
 

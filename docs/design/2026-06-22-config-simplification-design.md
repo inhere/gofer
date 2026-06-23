@@ -9,6 +9,7 @@
 |---|---|---|---|
 | v0.1 | 2026-06-22 | inhere | 初稿：三文件分工 + D1–D9 + Phase1（零代码）/ Phase2（瘦配置合并 + cwd 推断），待审核 |
 | v0.2 | 2026-06-23 | inhere | §12 三点按推荐定稿（max_concurrent_jobs 准入 overlay / 做 config show / worker 暂不做）；进入 plan 阶段 |
+| v0.3 | 2026-06-23 | inhere | 新增 **D10 路径视角（`path_view` 显式开关 + `ExecPath` helper）**——修正现状 gap（执行链路只用 `host_path`、`container_path` 未进执行、无容器自检）+ P1 overlay 的 `ContainerPath\|\|HostPath` 不一致（原 D4）；§12 补第 4 条。待出补丁 plan 实施 |
 
 ## 2. 背景与痛点
 
@@ -73,12 +74,13 @@
 - **D1 文件名 = `.gofer.project.yaml`**（已定）。直白、与全套 `config.yaml`/`.gofer.yaml` 区分，解决同名 `.gofer.yaml` 的"全套 vs 瘦配置"角色二义。
 - **D2 准入真源在 serve（最关键，安全）**：`allowed_agents`/`allowed_runners`/`allow_exec` 这类**准入字段绝不进 overlay、保留全局**。理由：overlay 在项目目录、可被项目方修改，准入放 overlay＝项目方自给自己放权。CLI 也**不读** overlay（`newClient` 不调合并），裁决权只在 serve。
 - **D3 注册锚 vs 偏好分离**：`host_path`/`container_path` 只在全局 `projects[key]`（serve 得先靠它定位"去哪读 overlay"）；overlay 只补偏好字段。
-- **D4 容器路径**：gofer 在容器内，读 overlay 用 `container_path`（容器内可达）非空优先，否则 `host_path`；文件不存在 → 跳过（项目纯走全局定义）；解析失败 → **warn 跳过该项目 overlay**（不阻塞整个 serve），reload 时 fail-safe 保留旧 cfg（沿用 `Core.Reload` 语义 `assemble.go:146`）。
+- **D4 容器路径**（**已被 D10 修正**）：读 overlay 的目录由 `ExecPath(proj)` 决定（受 `path_view` 开关控制，非"在容器内"假设）；文件不存在 → 跳过（项目纯走全局定义）；解析失败 → **warn 跳过该项目 overlay**（不阻塞整个 serve），reload 时 fail-safe 保留旧 cfg（沿用 `Core.Reload` 语义 `assemble.go:146`）。
 - **D5 overlay 允许字段（白名单）**：`exchange_subdir` / `result_subdir` / `default_agent`（仍须 ∈ 全局 `allowed_agents`，否则校验失败，借此防绕过准入）/ `capture_diff` / `notify_enabled` / `max_concurrent_jobs`。**禁止**：`server`/`storage`/`host_path`/`container_path` + 全部准入字段（D2）。
 - **D6 合并优先级 + 生效时机**：`overlay > 全局 projects[key] > storage 默认`（第三层即 `Resolved*` 已实现）；合并在 `buildCore`（启动）与 `Core.Reload`（SIGHUP）内做，改了 overlay 发 `SIGHUP` 即生效。
 - **D7 cwd 自动推断 project**：CLI `job run` 未给 `-p` 时，用 cwd 绝对路径对 `cfg.Projects` 的 `host_path`/`container_path` 做**最长前缀匹配**；唯一命中 → 用该 key 且把 `--cwd` 自动设为相对项目根的子路径；0/多命中 → 报错提示显式 `-p`。仅用注册锚（全局有），不依赖 overlay。
 - **D8 指针字段语义**：`capture_diff`/`notify_enabled` 本就是 `*bool`（`model.go:348/353`），overlay 非 nil 覆盖；`max_concurrent_jobs` 为 `int`，overlay `>0` 覆盖（0＝未设）；`default_agent`/subdir 为 string，非空覆盖；slice 不在 overlay（准入，D2）。`allow_exec`（`bool`，有"未设 vs false"二义）**不进 overlay**，规避二义。
 - **D9 向后兼容**：无 `.gofer.project.yaml` 的项目行为**完全不变**；现有"每项目放全套 `.gofer.yaml`"用法仍可用（查找链不动），只是**推荐**迁移到"全局 + overlay"。
+- **D10 路径视角（`path_view` 显式开关，2026-06-23 定，方案 A）**：⚠️ 修正现状 gap——查清现状：执行链路（`SafeJoin` `path.go:29` / `ExchangeDir` / `ResultBaseDir` / `Validate` `registry.go:138`）**一律用 `host_path`**，`container_path` 仅出现在 show/API（展示字段、未进执行），gofer **无容器自检**；故 P1 给 overlay 写的 `ContainerPath || HostPath`（原 D4）与执行链路**不一致**，须修。**方案**：全局加 `server.path_view: host|container`（默认 `host`，**不做** `/.dockerenv` 之类不可靠自检），新增 `Config.ExecPath(proj) = (path_view==container && container_path!="") ? container_path : host_path`；**所有 gofer 进程侧路径**（SafeJoin/ExchangeDir/ResultBaseDir/Validate/overlay 读路径/E32 扫描）统一走 `ExecPath`；**E21 主机侧动作恒用 `host_path`**（宿主机视角，传主机 bridge）。**CLI cwd 推断（D7）保留"host+container 都试前缀匹配"**（CLI 视角可能独立于 serve，容错）。落点：`model.go`（PathView 字段 + ExecPath）、`path.go`（SafeJoin 签名带 execRoot/cfg）、`registry.go`、`overlay.go`（替换 `ContainerPath||HostPath`）+ 各调用点；改 `path.go` 执行核心，**需独立补丁 plan + 测试保护**。
 
 ## 8. Phase 1：集中式（零代码，立即可用）
 
@@ -174,6 +176,7 @@ notify_enabled: false
 1. **`max_concurrent_jobs` 允许 overlay 覆盖**（保留在 D5 白名单内）——operator 可信模型下接受项目自调；operator 若要收回，把它移出白名单即可（注释留痕）。
 2. **做 `gofer config show --project <key>`**（打印合并后有效配置），随 Phase2 落地——排查 overlay 是否生效的必备诊断。
 3. **worker 端暂不支持 `.gofer.project.yaml`**（worker 有独立 `worker.yaml`，`model.go:394`）；远端 worker 的项目偏好留后续，本轮 out-of-scope。
+4. **路径视角 = `path_view` 显式开关**（方案 A，2026-06-23 定，见 D10）：全局 `server.path_view: host|container`（默认 host）+ `Config.ExecPath(proj)`，所有 gofer 侧路径统一走它；E21 恒用 host_path；不做容器自检。**附带修正** P1 overlay 的 `ContainerPath||HostPath` 不一致——需独立补丁 plan（碰 `path.go` 执行核心）。
 
 ## 13. 结论
 
