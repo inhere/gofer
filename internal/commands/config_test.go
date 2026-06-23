@@ -159,7 +159,7 @@ func TestInitDefaultPath(t *testing.T) {
 }
 
 // TestInitServerGlobalPath verifies `init server --global -f` writes to the
-// user-global config path (config.UserConfigPath()), creating the dir. GOFER_CFG_DIR
+// user-global config path (config.UserConfigPath()), creating the dir. GOFER_CONFIG_DIR
 // redirects the global dir to a temp dir so the test never touches the real home.
 func TestInitServerGlobalPath(t *testing.T) {
 	dir := t.TempDir()

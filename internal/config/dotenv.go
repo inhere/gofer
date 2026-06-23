@@ -13,11 +13,11 @@ const EnvFileName = ".env"
 
 // LoadDotenv loads dotenv files BEFORE config resolution so env-driven settings
 // (GOFER_CONFIG, GOFER_TOKEN, the per-runner *_token envs, ...) can
-// come from a file during local dev. GOFER_CFG_DIR is read directly from
+// come from a file during local dev. GOFER_CONFIG_DIR is read directly from
 // the OS env (it selects WHERE the global .env lives, so it cannot come from one).
 //
 // Files load in this order, with later files overriding earlier ones:
-//  1. <config-dir>/.env  — global (config-dir = $GOFER_CFG_DIR or
+//  1. <config-dir>/.env  — global (config-dir = $GOFER_CONFIG_DIR or
 //     ~/.config/gofer)
 //  2. ./.env             — current working dir, project-local; wins over global
 //

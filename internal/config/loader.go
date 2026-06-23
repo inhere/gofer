@@ -15,7 +15,7 @@ const EnvConfigPath = "GOFER_CONFIG"
 // EnvConfigDir overrides the user-level config directory. When set, both the
 // default config file (<dir>/config.yaml) and the global dotenv (<dir>/.env)
 // resolve under it instead of ~/.config/gofer.
-const EnvConfigDir = "GOFER_CFG_DIR"
+const EnvConfigDir = "GOFER_CONFIG_DIR"
 
 // DefaultConfigDirName is the user-level config dir under the OS config home
 // (~/.config/<name>).
@@ -95,7 +95,7 @@ func Resolve(explicitPath string) (string, error) {
 }
 
 // ConfigDir returns the effective user-level config directory. When the env var
-// GOFER_CFG_DIR is set it wins (absolute); otherwise the default is
+// GOFER_CONFIG_DIR is set it wins (absolute); otherwise the default is
 // ~/.config/gofer. It holds both config.yaml and the global .env.
 func ConfigDir() (string, error) {
 	if dir := strings.TrimSpace(os.Getenv(EnvConfigDir)); dir != "" {
