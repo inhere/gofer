@@ -1,10 +1,13 @@
 package commands
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/gookit/color"
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/goutil/errorx"
 
@@ -28,14 +31,20 @@ func TestConfigCmdRegistered(t *testing.T) {
 	if cmd.Name != "config" {
 		t.Fatalf("unexpected name %q", cmd.Name)
 	}
-	found := false
+	haveValidate, haveShow := false, false
 	for _, s := range cmd.Subs {
-		if s.Name == "validate" {
-			found = true
+		switch s.Name {
+		case "validate":
+			haveValidate = true
+		case "show":
+			haveShow = true
 		}
 	}
-	if !found {
+	if !haveValidate {
 		t.Fatal("missing config validate sub-command")
+	}
+	if !haveShow {
+		t.Fatal("missing config show sub-command")
 	}
 }
 
@@ -351,6 +360,71 @@ func TestConfigValidateUnknownTarget(t *testing.T) {
 	err := runConfigValidate(c, nil)
 	if err == nil {
 		t.Fatal("expected unknown validate target to error")
+	}
+	assertCodedExit(t, err)
+}
+
+// captureOutput redirects gcli/color output (c.Printf writes via
+// color.SimplePrinter → color.Output) to a buffer for the duration of fn and
+// returns what was printed.
+func captureOutput(t *testing.T, fn func()) string {
+	t.Helper()
+	var buf bytes.Buffer
+	color.SetOutput(&buf)
+	defer color.ResetOutput()
+	fn()
+	return buf.String()
+}
+
+// TestConfigShowMergesOverlay: `config show --project <key>` applies the
+// per-project overlay (diagnostic, not a ruling) and prints the EFFECTIVE config:
+// result_subdir comes from the overlay (out), allowed_agents comes from the
+// global config (overlay cannot grant 准入).
+func TestConfigShowMergesOverlay(t *testing.T) {
+	host := t.TempDir()
+	// Project overlay in the project dir overrides result_subdir only.
+	overlay := "result_subdir: out\n"
+	if err := os.WriteFile(filepath.Join(host, config.ProjectOverlayName), []byte(overlay), 0o644); err != nil {
+		t.Fatalf("write overlay: %v", err)
+	}
+	cfgYAML := "" +
+		"projects:\n" +
+		"  siv:\n" +
+		"    host_path: " + host + "\n" +
+		"    result_subdir: global_out\n" +
+		"    allowed_agents: [claude]\n"
+	cfgPath := writeRawConfig(t, cfgYAML)
+
+	c := bindCmd(NewConfigCmd().Subs[1]) // Subs[1] == show
+	c.Arg("key").WithValue("siv")
+	configShowOpts.config = cfgPath
+	t.Cleanup(func() { configShowOpts.config = "" })
+
+	out := captureOutput(t, func() {
+		if err := runConfigShow(c, nil); err != nil {
+			t.Fatalf("config show: %v", err)
+		}
+	})
+
+	if !strings.Contains(out, "result_subdir: out") {
+		t.Fatalf("expected overlay-merged result_subdir=out, got:\n%s", out)
+	}
+	if !strings.Contains(out, "allowed_agents: [claude]") {
+		t.Fatalf("expected global allowed_agents=[claude], got:\n%s", out)
+	}
+}
+
+// TestConfigShowUnknownProject: an unregistered key is a coded (non-zero) error.
+func TestConfigShowUnknownProject(t *testing.T) {
+	cfgPath := writeRawConfig(t, "server:\n  addr: 0.0.0.0:8765\n")
+	c := bindCmd(NewConfigCmd().Subs[1])
+	c.Arg("key").WithValue("ghost")
+	configShowOpts.config = cfgPath
+	t.Cleanup(func() { configShowOpts.config = "" })
+
+	err := runConfigShow(c, nil)
+	if err == nil {
+		t.Fatal("expected config show to error on unknown project")
 	}
 	assertCodedExit(t, err)
 }

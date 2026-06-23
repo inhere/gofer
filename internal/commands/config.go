@@ -32,6 +32,11 @@ var configValidateOpts = struct {
 	config string
 }{}
 
+// configShowOpts holds `gofer config show` flags.
+var configShowOpts = struct {
+	config string
+}{}
+
 // DefaultInitConfigPath is where `gofer init [server]` writes the starter server
 // config when no --config is given: ./.gofer.yaml, the highest-priority
 // current-dir candidate in the loader lookup chain (loader.go
@@ -147,8 +152,74 @@ func NewConfigCmd() *gcli.Command {
 				},
 				Func: runConfigValidate,
 			},
+			{
+				Name: "show",
+				Desc: "Show the effective (overlay-merged) config of a project (diagnostic, §12.2)",
+				Config: func(c *gcli.Command) {
+					c.AddArg("key", "project key", true)
+					c.StrOpt(&configShowOpts.config, "config", "c", "", "path to the config file")
+				},
+				Func: runConfigShow,
+			},
 		},
 	}
+}
+
+// runConfigShow prints the effective (overlay-merged) config of one project. It
+// EXPLICITLY applies the per-project overlays (config validate does NOT merge
+// overlay — P2/D2: the裁决真源是全局 config; this is a diagnostic view, NOT a
+// ruling) so an operator can see what serve would actually use. It must run on
+// the same host/container as serve to read the overlay files (otherwise it only
+// shows the global values — hence the trailing hint).
+func runConfigShow(c *gcli.Command, _ []string) error {
+	key := ""
+	if a := c.Arg("key"); a != nil {
+		key = a.String()
+	}
+	if key == "" {
+		return errorx.Failf(configExitErr, "config show requires a <key> argument")
+	}
+
+	cfg, _, err := config.Load(configShowOpts.config)
+	if err != nil {
+		return errorx.Failf(configExitErr, "%v", err)
+	}
+	// Diagnostic merge: surface overlay-merged effective config (NOT a ruling, D2).
+	for _, w := range config.ApplyProjectOverlays(cfg) {
+		c.Printf("overlay warn: %s\n", w)
+	}
+
+	p, ok := cfg.Projects[key]
+	if !ok {
+		return errorx.Failf(configExitErr, "project %q not registered", key)
+	}
+
+	c.Printf("project: %s\n", key)
+	c.Printf("host_path: %s\n", p.HostPath)
+	c.Printf("container_path: %s\n", p.ContainerPath)
+	c.Printf("exchange_subdir: %s\n", cfg.ResolvedExchangeSubdir(p))
+	c.Printf("result_subdir: %s\n", cfg.ResolvedResultSubdir(p))
+	c.Printf("default_agent: %s\n", p.DefaultAgent)
+	c.Printf("allowed_agents: %v\n", p.AllowedAgents)
+	c.Printf("allowed_runners: %v\n", p.AllowedRunners)
+	c.Printf("allow_exec: %v\n", p.AllowExec)
+	c.Printf("max_concurrent_jobs: %d\n", p.MaxConcurrentJobs)
+	c.Printf("capture_diff: %s\n", boolPtrStr(p.CaptureDiff))
+	c.Printf("notify_enabled: %s\n", boolPtrStr(p.NotifyEnabled))
+	c.Println("(诊断视图: overlay 须在 serve 同机/容器内可读才生效; 否则仅显示全局值)")
+	return nil
+}
+
+// boolPtrStr renders an optional *bool overlay/config field: nil prints as
+// "(default)" (the field falls back to its IsXxx default), otherwise true/false.
+func boolPtrStr(b *bool) string {
+	if b == nil {
+		return "(default)"
+	}
+	if *b {
+		return "true"
+	}
+	return "false"
 }
 
 // runConfigValidate dispatches by target: `server` (default) validates the server

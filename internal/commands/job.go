@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -207,6 +208,43 @@ func newClient(configPath, serverFlag, tokenFlag string) (*client.Client, error)
 	return client.New(addr, token), nil
 }
 
+// resolveProjectByCwd returns the project key whose host_path or container_path
+// is the longest prefix of absCwd, plus cwd relative to that root (D7). It only
+// uses the 注册锚 (host/container path), never the overlay. ok=false on zero match
+// or a tie (两个项目同长前缀 → 让用户显式 -p, 避免误派).
+func resolveProjectByCwd(cfg *config.Config, absCwd string) (key, relCwd string, ok bool) {
+	bestLen := -1
+	tie := false
+	for k, p := range cfg.Projects {
+		for _, root := range []string{p.ContainerPath, p.HostPath} {
+			if root == "" {
+				continue
+			}
+			abs, err := filepath.Abs(root)
+			if err != nil {
+				continue
+			}
+			if absCwd == abs || strings.HasPrefix(absCwd, abs+string(filepath.Separator)) {
+				if len(abs) > bestLen {
+					bestLen, key, tie = len(abs), k, false
+					if rel, e := filepath.Rel(abs, absCwd); e == nil {
+						relCwd = rel
+					}
+				} else if len(abs) == bestLen && k != key {
+					tie = true
+				}
+			}
+		}
+	}
+	if bestLen < 0 || tie {
+		return "", "", false
+	}
+	if relCwd == "" {
+		relCwd = "."
+	}
+	return key, relCwd, true
+}
+
 // resolveClientToken mirrors serve's token resolution for the client side:
 // server.token, overridden by server.token_env (when set and non-empty), then by
 // an explicit --token flag.
@@ -242,6 +280,24 @@ func argID(c *gcli.Command) string {
 // --sync asks the server to wait for the terminal state; a 202/async fallback
 // transparently degrades to client-side polling.
 func runJobRun(c *gcli.Command, _ []string) error {
+	// cwd→project auto-detect (D7): only when -p is absent. An explicit -p is never
+	// overridden (cross-project submits must not be misrouted). Best-effort: any
+	// load/abs failure silently leaves project empty → the existing
+	// `--project/-p is required` error downstream (submitJSONJob).
+	if jobRunOpts.project == "" {
+		if cfg, _, err := config.Load(jobRunOpts.config); err == nil {
+			if abs, e := filepath.Abs("."); e == nil {
+				if key, rel, found := resolveProjectByCwd(cfg, abs); found {
+					jobRunOpts.project = key
+					if jobRunOpts.cwd == "" || jobRunOpts.cwd == "." {
+						jobRunOpts.cwd = rel
+					}
+					c.Printf("auto-detected project %q (cwd=%s)\n", key, rel)
+				}
+			}
+		}
+	}
+
 	cli, err := newClient(jobRunOpts.config, jobRunOpts.server, jobRunOpts.token)
 	if err != nil {
 		return err
