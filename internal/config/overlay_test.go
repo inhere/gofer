@@ -108,6 +108,37 @@ func TestMergeProjectConfig_NeverTouchesAdmissionFields(t *testing.T) {
 	}
 }
 
+// TestExecPath covers the E29/D10 path-view switch on Config.ExecPath:
+//   - default (path_view unset/empty) => host_path
+//   - path_view=container + container_path set => container_path
+//   - path_view=container + container_path empty => host_path fallback
+//   - path_view=host (explicit) => host_path even with container_path set
+func TestExecPath(t *testing.T) {
+	proj := ProjectConfig{HostPath: "/abs/SIV", ContainerPath: "/work/SIV"}
+	projNoContainer := ProjectConfig{HostPath: "/abs/SIV"}
+
+	tests := []struct {
+		name     string
+		pathView string
+		proj     ProjectConfig
+		want     string
+	}{
+		{"default empty => host", "", proj, "/abs/SIV"},
+		{"explicit host => host", "host", proj, "/abs/SIV"},
+		{"container + container_path => container", "container", proj, "/work/SIV"},
+		{"container + empty container_path => host fallback", "container", projNoContainer, "/abs/SIV"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &Config{}
+			cfg.Server.PathView = tc.pathView
+			if got := cfg.ExecPath(tc.proj); got != tc.want {
+				t.Errorf("ExecPath(path_view=%q) = %q, want %q", tc.pathView, got, tc.want)
+			}
+		})
+	}
+}
+
 // writeOverlay writes a .gofer.project.yaml into dir and fails the test on error.
 func writeOverlay(t *testing.T, dir, content string) {
 	t.Helper()
@@ -220,30 +251,53 @@ func TestApplyProjectOverlays_ForbiddenKeyWarnsAndAdmissionUntouched(t *testing.
 	}
 }
 
-// TestApplyProjectOverlays_ContainerPathPreferred verifies the read dir is
-// ContainerPath when both paths are set: an overlay placed only in the container
-// dir is found and merged (D4 — gofer runs in-container).
-func TestApplyProjectOverlays_ContainerPathPreferred(t *testing.T) {
+// TestApplyProjectOverlays_ContainerPathUnderContainerView verifies that under
+// server.path_view=container the read dir is ContainerPath (E29/D10): the overlay
+// placed only in the container dir is found and merged via cfg.ExecPath.
+func TestApplyProjectOverlays_ContainerPathUnderContainerView(t *testing.T) {
 	hostDir := t.TempDir()
 	containerDir := t.TempDir()
 	// Overlay ONLY in the container dir.
 	writeOverlay(t, containerDir, "result_subdir: from_container\n")
-	// A decoy in the host dir that must NOT be read.
+	// A decoy in the host dir that must NOT be read under path_view=container.
 	writeOverlay(t, hostDir, "result_subdir: from_host\n")
 
 	cfg := &Config{Projects: map[string]ProjectConfig{
 		"siv": {HostPath: hostDir, ContainerPath: containerDir, ResultSubdir: "gofer"},
 	}}
+	cfg.Server.PathView = "container" // D10: container view => ExecPath = container_path
 	if warns := ApplyProjectOverlays(cfg); len(warns) != 0 {
 		t.Fatalf("unexpected warnings: %v", warns)
 	}
 	if p := cfg.Projects["siv"]; p.ResultSubdir != "from_container" {
-		t.Errorf("ResultSubdir = %q, want from_container (ContainerPath must win, D4)", p.ResultSubdir)
+		t.Errorf("ResultSubdir = %q, want from_container (path_view=container => ExecPath=container_path, D10)", p.ResultSubdir)
+	}
+}
+
+// TestApplyProjectOverlays_HostPathUnderDefaultView verifies the DEFAULT path_view
+// (unset/host) reads the overlay from host_path — even when a container_path is
+// also set, the host dir wins because ExecPath defaults to host_path (D9/D10).
+func TestApplyProjectOverlays_HostPathUnderDefaultView(t *testing.T) {
+	hostDir := t.TempDir()
+	containerDir := t.TempDir()
+	// Overlay in BOTH dirs; default view must read the HOST one.
+	writeOverlay(t, hostDir, "result_subdir: from_host\n")
+	writeOverlay(t, containerDir, "result_subdir: from_container\n")
+
+	cfg := &Config{Projects: map[string]ProjectConfig{
+		"siv": {HostPath: hostDir, ContainerPath: containerDir, ResultSubdir: "gofer"},
+	}}
+	// cfg.Server.PathView left empty => default host view.
+	if warns := ApplyProjectOverlays(cfg); len(warns) != 0 {
+		t.Fatalf("unexpected warnings: %v", warns)
+	}
+	if p := cfg.Projects["siv"]; p.ResultSubdir != "from_host" {
+		t.Errorf("ResultSubdir = %q, want from_host (default path_view => ExecPath=host_path, D10)", p.ResultSubdir)
 	}
 }
 
 // TestApplyProjectOverlays_FallbackToHostPath verifies HostPath is used when
-// ContainerPath is empty.
+// ContainerPath is empty (ExecPath falls back to host_path, default view).
 func TestApplyProjectOverlays_FallbackToHostPath(t *testing.T) {
 	hostDir := t.TempDir()
 	writeOverlay(t, hostDir, "result_subdir: from_host\n")

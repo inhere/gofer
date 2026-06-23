@@ -9,16 +9,17 @@ import (
 )
 
 // SafeJoin resolves a request-supplied relative cwd against a project's
-// host_path and guarantees the result stays inside host_path. Only relative
-// cwd values are accepted; an empty cwd is treated as ".".
+// execution root (execRoot, = Config.ExecPath(proj), E29/D10) and guarantees the
+// result stays inside that root. Only relative cwd values are accepted; an empty
+// cwd is treated as ".".
 //
-// It returns the absolute host directory to run in.
+// It returns the absolute directory (under execRoot) to run in.
 //
 // The code runs on Linux but must reject Windows-style absolute inputs too
 // (drive letters like `D:\x` / `C:/y`, and backslash-rooted `\x`), since the
 // caller may be a host on Windows. We therefore do manual detection instead of
 // relying solely on the platform's filepath.IsAbs.
-func SafeJoin(proj config.ProjectConfig, cwd string) (string, error) {
+func SafeJoin(execRoot string, cwd string) (string, error) {
 	if cwd == "" {
 		cwd = "."
 	}
@@ -26,9 +27,9 @@ func SafeJoin(proj config.ProjectConfig, cwd string) (string, error) {
 		return "", err
 	}
 
-	hostAbs, err := filepath.Abs(proj.HostPath)
+	hostAbs, err := filepath.Abs(execRoot)
 	if err != nil {
-		return "", fmt.Errorf("resolve host_path: %w", err)
+		return "", fmt.Errorf("resolve exec_path: %w", err)
 	}
 
 	// Normalize backslashes so Windows-style relative inputs (a\b) are treated
@@ -72,11 +73,11 @@ func hasWindowsDrive(s string) bool {
 }
 
 // ExchangeDir returns the absolute exchange directory for a project:
-// <host_path>/<resolved exchange_subdir>. The exchange subdir is validated to
-// stay inside the project root.
+// <exec_path>/<resolved exchange_subdir> (exec_path = Config.ExecPath, E29/D10).
+// The exchange subdir is validated to stay inside the project root.
 func ExchangeDir(cfg *config.Config, proj config.ProjectConfig) (string, error) {
 	sub := cfg.ResolvedExchangeSubdir(proj)
-	dir, err := SafeJoin(proj, sub)
+	dir, err := SafeJoin(cfg.ExecPath(proj), sub)
 	if err != nil {
 		return "", fmt.Errorf("exchange_subdir %q invalid: %w", sub, err)
 	}

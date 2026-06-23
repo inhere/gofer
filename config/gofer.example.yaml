@@ -22,6 +22,10 @@ server:
   # Must be explicitly true to start without any token.
   allow_empty_token: false
   # web_enabled: true      # unset defaults to true; set false to drop the web console.
+  # path_view: host         # E29/D10: gofer-process execution view. host (default)
+  #                         # => use project host_path; container => use container_path
+  #                         # (falls back to host_path if unset). Explicit operator
+  #                         # switch — gofer does NOT self-detect a container.
 
   # callers: multi-caller auth (C2). Each entry maps a bearer token to a caller
   # id stamped onto submitted jobs (audit / per-caller filtering). The legacy

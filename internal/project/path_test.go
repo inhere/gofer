@@ -35,7 +35,7 @@ func TestSafeJoin(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := SafeJoin(proj, tc.cwd)
+			got, err := SafeJoin(proj.HostPath, tc.cwd)
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("expected error for cwd=%q, got %q", tc.cwd, got)
@@ -195,24 +195,24 @@ func TestRegistryValidate(t *testing.T) {
 		t.Error("expected validation to fail for missing default_agent")
 	}
 
-	// non-existent host_path fails
+	// non-existent exec_path (= host_path by default) fails
 	cfg.Projects["nohost"] = config.ProjectConfig{HostPath: filepath.Join(host, "does-not-exist")}
 	results, ok, err = reg.Validate("nohost")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if ok {
-		t.Errorf("expected fail for missing host_path: %+v", results)
+		t.Errorf("expected fail for missing exec_path: %+v", results)
 	}
-	// ensure the host_path check is the failing one
+	// ensure the exec_path check is the failing one
 	found := false
 	for _, r := range results {
-		if r.Name == "host_path" && !r.OK {
+		if r.Name == "exec_path" && !r.OK {
 			found = true
 		}
 	}
 	if !found {
-		t.Error("expected host_path check to fail")
+		t.Error("expected exec_path check to fail")
 	}
 }
 
