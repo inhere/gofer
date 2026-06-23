@@ -24,6 +24,9 @@
   - **仍缓做**：多 hub HA（C7 大版，独立 Epic，见本文 §大型 Epic）。WP4 仪表盘动画/响应式待真机浏览器眼检。
 - [x] http 请求可以发送 md 格式文本 头部可以用 yaml 定义参数 后面就是任务描述 —— **已落地（P1-b，commit `730b6bb`）**：`Content-Type: text/markdown` 分支，yaml frontmatter→参数、正文→prompt（仅 cli-agent）。见 [`plans/2026-06-20-submit-dispatch/`](plans/2026-06-20-submit-dispatch/)。
 - [x] 提交 exec 任务允许同步等待返回，方便快速的执行简单命令 —— **已落地（P1-a，commit `730b6bb`）**：`POST /v1/jobs` `sync`/`?wait=1`，服务端等终态（默认 30s/顶 60s，超时 202+`X-Gofer-Async`）；CLI `--sync`。
+- [ ] 代码优化：internal/commands 里的 assemble, runner_probe 等很多逻辑代码应该移到另外的目录，commands 应该保持只做参数绑定验证等
+  - httpapi 也有这个问题，逻辑代码混在入口里面，导致代码散乱，不易维护和查看。
+  - 应该建一个 core, service 或者 专用的包 等整理这些逻辑实现代码
 
 ### Web 控制台
 

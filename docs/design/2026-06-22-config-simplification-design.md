@@ -41,7 +41,7 @@
 | 能力 | 挂点 | Phase2 如何复用 |
 |---|---|---|
 | 配置查找链 + `GOFER_CONFIG` 优先于 cwd | `config.Resolve` `loader.go:78-95` | **不动**；Phase1 直接利用 env 优先级 |
-| 全局配置目录 | `ConfigDir`/`UserConfigPath` `loader.go:100/113`（`GOFER_CFG_DIR` 可覆盖） | 不动 |
+| 全局配置目录 | `ConfigDir`/`UserConfigPath` `loader.go:100/113`（`GOFER_CONFIG_DIR` 可覆盖） | 不动 |
 | 字段 fallback（subdir 缺省走 storage 默认） | `ResolvedExchangeSubdir`/`ResolvedResultSubdir` `model.go:445/457` | 合并第三层直接复用 |
 | 项目注册表（atomic 快照 + CRUD + 写回全局） | `project.Registry` `registry.go:20`；`Add` `:72`；`save` 默认 `UserConfigPath` `:98` | 不动；overlay 在合并后喂给它 |
 | SIGHUP 热重载（原子换 cfg） | `Core.Reload` `assemble.go:146`；`startReloadLoop` `serve.go:351` | overlay 合并挂在 `buildCore`/`Reload` 内 |
