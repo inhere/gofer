@@ -215,3 +215,59 @@ func TestRegistryValidate(t *testing.T) {
 		t.Error("expected host_path check to fail")
 	}
 }
+
+// TestRegistryValidateDefaultAgentInAllowed covers D5: when allowed_agents is
+// restricted, default_agent must be a member, else the default_agent check FAILs
+// (prevents an overlay from borrowing default_agent to bypass admission).
+func TestRegistryValidateDefaultAgentInAllowed(t *testing.T) {
+	host := t.TempDir()
+	cfg := &config.Config{
+		Projects: map[string]config.ProjectConfig{},
+		Agents: map[string]config.AgentConfig{
+			"claude": {Type: "exec"},
+			"codex":  {Type: "exec"},
+		},
+		Runners: map[string]config.RunnerConfig{},
+	}
+	reg := NewRegistry(cfg, "")
+
+	defAgentResult := func(results []CheckResult) (CheckResult, bool) {
+		for _, r := range results {
+			if r.Name == "default_agent" {
+				return r, true
+			}
+		}
+		return CheckResult{}, false
+	}
+
+	// default_agent not in allowed_agents → default_agent check FAIL (D5).
+	cfg.Projects["deny"] = config.ProjectConfig{
+		HostPath:      host,
+		DefaultAgent:  "codex",
+		AllowedAgents: []string{"claude"},
+	}
+	results, ok, err := reg.Validate("deny")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if ok {
+		t.Errorf("expected validation to fail when default_agent not in allowed_agents: %+v", results)
+	}
+	if r, found := defAgentResult(results); !found || r.OK {
+		t.Errorf("expected default_agent check to fail, got %+v (found=%v)", r, found)
+	}
+
+	// default_agent in allowed_agents → default_agent check PASS.
+	cfg.Projects["allow"] = config.ProjectConfig{
+		HostPath:      host,
+		DefaultAgent:  "claude",
+		AllowedAgents: []string{"claude"},
+	}
+	results, _, err = reg.Validate("allow")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if r, found := defAgentResult(results); !found || !r.OK {
+		t.Errorf("expected default_agent check to pass, got %+v (found=%v)", r, found)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"sync/atomic"
 
@@ -167,6 +168,10 @@ func (r *Registry) Validate(key string) ([]CheckResult, bool, error) {
 	if proj.DefaultAgent != "" {
 		if !agentDefined(cfg, proj.DefaultAgent) {
 			add("default_agent", false, fmt.Sprintf("agent %q not defined", proj.DefaultAgent))
+		} else if len(proj.AllowedAgents) > 0 && !slices.Contains(proj.AllowedAgents, proj.DefaultAgent) {
+			// D5: default_agent must be within allowed_agents when admission is
+			// restricted, else an overlay could borrow default_agent to bypass it.
+			add("default_agent", false, fmt.Sprintf("agent %q not in allowed_agents %v (D2)", proj.DefaultAgent, proj.AllowedAgents))
 		} else {
 			add("default_agent", true, proj.DefaultAgent)
 		}

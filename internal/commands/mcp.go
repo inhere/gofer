@@ -3,7 +3,9 @@ package commands
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
+	"os"
 	"strings"
 
 	"github.com/gookit/gcli/v3"
@@ -46,6 +48,11 @@ func runMcp(_ *gcli.Command, _ []string) error {
 	cfg, _, err := config.Load(mcpOpts.config)
 	if err != nil {
 		return errorx.Failf(mcpExitErr, "%v", err)
+	}
+	// Merge per-project thin overlays before Core (D6). MCP owns stdout (protocol
+	// channel), so overlay warns MUST go to stderr — never stdout.
+	for _, w := range config.ApplyProjectOverlays(cfg) {
+		fmt.Fprintf(os.Stderr, "gofer mcp: overlay warn: %s\n", w)
 	}
 	core, err := buildCore(cfg)
 	if err != nil {

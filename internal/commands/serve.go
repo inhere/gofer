@@ -70,6 +70,14 @@ func runServe(c *gcli.Command, _ []string) error {
 	webEnabled := cfg.Server.IsWebEnabled() && !serveOpts.noWeb
 	cfg.Server.WebEnabled = &webEnabled
 
+	// Merge per-project thin overlays (.gofer.project.yaml) into the loaded
+	// config before assembling Core, so admission/result-dir decisions observe
+	// the overlay (D6). Overlay parse failures only warn — never block start
+	// (T1.1 fail-safe semantics).
+	for _, w := range config.ApplyProjectOverlays(cfg) {
+		c.Printf("gofer: overlay warn: %s\n", w)
+	}
+
 	token := resolveToken(&cfg.Server, serveOpts.token)
 	if token == "" && !allowEmpty {
 		// Refuse to start an unauthenticated server unless explicitly allowed

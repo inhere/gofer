@@ -158,6 +158,10 @@ func (c *Core) Reload(path string) error {
 	if err != nil {
 		return fmt.Errorf("reload config: %w", err)
 	}
+	// D6: reload merges overlays too. Fail-safe — overlay parse failures only
+	// warn (returned slice), they never make the reload fail. warns are dropped
+	// here; the reload itself is logged by the caller.
+	_ = config.ApplyProjectOverlays(newCfg)
 	c.Cfg = newCfg
 	c.Projects.Reload(newCfg)
 	c.Agents.Reload(newCfg)
