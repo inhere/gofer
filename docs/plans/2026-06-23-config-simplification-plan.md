@@ -29,10 +29,10 @@
 
 ## 3. 前置检查（plan-checking, SR1430.2）
 
-- [ ] 工具链：`go build ./... && go vet ./...` 绿（基线）。
-- [ ] 基线测试绿：`go test ./internal/config/... ./internal/commands/... ./internal/project/...`。
-- [ ] 无外部依赖（纯配置/代码改动，不涉 DB/MQ/Redis）。
-- [ ] 确认 YAML 库：`github.com/goccy/go-yaml`（与 `loader.go:9` 一致），overlay 解码沿用同库。
+- [x] 工具链：`go build ./... && go vet ./...` 绿（基线）。
+- [x] 基线测试绿：`go test ./internal/config/... ./internal/commands/... ./internal/project/...`。
+- [x] 无外部依赖（纯配置/代码改动，不涉 DB/MQ/Redis）。
+- [x] 确认 YAML 库：`github.com/goccy/go-yaml`（与 `loader.go:9` 一致），overlay 解码沿用同库。
 
 ---
 
@@ -411,10 +411,10 @@ if jobRunOpts.project == "" {
 
 ## 4. 进度跟进
 
-- [ ] **P0** 文档 + init 全局引导（README / `config.go` / example）
-- [ ] **P1** overlay 核心 + 单测（`internal/config/overlay.go` + `_test.go`）
-- [ ] **P2** serve/mcp 合并接入 + 校验扩展 + 冒烟（`serve.go`/`assemble.go`/`mcp.go`/`registry.go`）
-- [ ] **P3** cwd 推断 + config show + 测试（`job.go`/`config.go`）
+- [x] **P0** 文档 + init 全局引导（README / `config.go` / example）✅ `65cdb70`
+- [x] **P1** overlay 核心 + 单测（`internal/config/overlay.go` + `_test.go`）✅ `bfc6211`
+- [x] **P2** serve/mcp 合并接入 + 校验扩展 + 冒烟（`serve.go`/`assemble.go`/`mcp.go`/`registry.go`）✅ `ae45372`
+- [x] **P3** cwd 推断 + config show + 测试（`job.go`/`config.go`）✅ `9b2e6dd`
 
 > SR1202：每个子阶段完成即提交 Git；最终按会话完成协议 push。
 
@@ -425,6 +425,24 @@ if jobRunOpts.project == "" {
 - D9 向后兼容：无 overlay 的项目、现有"每项目全套 `.gofer.yaml`"用法均不回归。
 - README/example/design 同步；roadmap E29 回填实施结果。
 
-## 6. 实施结果（完成后回填）
+## 6. 实施结果（SUPMODE，2026-06-23）
 
-> P0/P1/P2/P3 commit 短码 + 关键决策 + 验收记录 + 遗留。
+| 阶段 | commit | 验收 |
+|---|---|---|
+| P0 init --global + 文档 | `65cdb70` | build/vet/test 绿；init --global 路径用例；example-parse 不回归 |
+| P1 overlay 核心 | `bfc6211` | config 包 10 用例全绿；**D2 准入字段守卫**用例确认 |
+| P2 合并接入 + 校验 | `ae45372` | 三包绿；reload 不回归；**D5 越权 FAIL**；config validate 不合并 overlay（D2 一致）|
+| P3 cwd 推断 + config show | `9b2e6dd` | 三包绿；resolveProjectByCwd 5 用例；config show 合并展示冒烟 |
+
+**整体验收**：`build/vet ./...` 绿；config/commands/project/job(45s)/httpapi(22s) 全绿无回归。**独立验收 agent 交叉检查 D1–D9 全 PASS**——D2 准入下放风险=零、CLI 误合并=零、向后兼容完整。
+
+**关键自动决策（备审）**：
+- P0：example `my-project1` 保留完整（测试断言）、`my-tools` 改瘦写法示范；worker 冒烟用 `build -o` 临时 bin。
+- P1：结构体含 slice 改用 `reflect.DeepEqual` 比较；额外补 2 个 dir 分支用例。
+- P2：用标准库 `slices.Contains`（非新 helper）；**确认 `config validate` 不合并 overlay**（CLI 不读，D2）；reload warns 丢弃。
+- P3：`go.mod` 把 `gookit/color` 提为 direct（测试捕获 `c.Printf` 输出用，go.sum 无变化）；`boolPtrStr` 区分 nil/true/false。
+
+**遗留**：
+- SIGHUP reload 合并 overlay 的端到端手动冒烟（`kill -HUP`）容器内未做；reload 路径由代码 + 单测覆盖，可主机侧补验。
+- `config show` 诊断视图需在 serve 同机/容器内才能读到 overlay；真源诊断（连 serve `GET /v1/projects/{key}`）留后续。
+- Phase3（独立 `projects.yaml` 注册表）、worker 端 overlay 仍 out-of-scope（design §6）。
