@@ -14,6 +14,7 @@
 | v1.2 | 2026-06-22 | inhere | 回填滞后标记：**工作流 v2 已全落地**（design `workflow-v2-design.md` + plan `2026-06-22-workflow-v2/`，commit `7c470b8`/`4492871`/`dc71b06`/`92cc669`），随之 **E7✅(v1+v2) · E9✅ · E18✅ · E27✅ · E24🚧**；更新现状基线（核心缺口去掉"工作流深化"）与建议优先级 |
 | v1.3 | 2026-06-22 | inhere | 新增 **E28 多 agent 经 gofer 协作通信**（中央 serve 中枢 + mcp HTTP-client 接入；信箱语义并入 E25 可插拔 answerer），来自"两个工作目录 claude 经 gofer 互通"讨论；补 E28 实现取向（stdio mcp **standalone/client 双模式** + 适用场景表，明确"该废的是 in-process 后端、非 stdio 本身"） |
 | v1.4 | 2026-06-23 | inhere | 新增 **E29 配置/部署模型简化**（全局单 server + 项目瘦配置 `.gofer.project.yaml`），已出 design + plan（Phase1 零代码 / Phase2 overlay 合并 + cwd 推断） |
+| v1.5 | 2026-06-23 | inhere | 新增 **E30 浏览器 pty 交互** / **E31 节点拓扑+配置管理** / **E32 项目空间浏览（子 git+关键文件）**；E23 补"触发位置"维度（server 集中 vs 下发 worker）；新增横切「**Web 控制台 v2**」（只读层/写交互层切分）。来源：用户新想法整理 |
 
 ## 现状基线（已有，不重复做）
 
@@ -39,7 +40,7 @@
 | E18 ✅ | **工作流导入导出 json** | 中 | 低 | 已随 v2 P4 落地（commit `92cc669`）：`GET /v1/workflows/{id}/export` + CLI `wf export`（默认 YAML，= `wf run` 输入格式，`-f yaml/json`）+ `wf run` 按内容自动识别导入；secret 启发式剥离 + 递归子 wf；`${steps.N}` 引用原样保留。 |
 | E19 | **文件 / 产物预览** | 中 | 中 | Web 在线预览（md/图/json/代码高亮）。**二义先定**：(a) job 产物 artifacts 渲染——小、安全边界清晰（限 `result_dir`），E1 已有下载加渲染即可，**先做**；(b) 项目工作目录文件浏览——大，需文件树 API + 路径安全（防 `../`、黑名单 `.env`/`.git`）。 |
 | E21 | **主机侧动作（编辑器打开等）** | 中 | 低 | 一键用主机编辑器打开项目（`code <host_path>`）/ reveal / 开终端。⚠️ gofer 在容器、编辑器在主机：**必须复用现有 codex-bridge 主机通道**（`host.docker.internal`），抽象成一类"主机侧动作"。仅对有主机 bridge 的部署可用。 |
-| E23 | **定时任务（内置 cron）** | 中 | 中 | `schedules` 表 + 复用现有 sweeper loop 范式定时提交 job/工作流。问题：错过补偿、多 hub 重复触发（单 hub 不问题）。接 E24（定时+重试）、E18（定时跑导入的工作流）。属**自主化 epic**。 |
+| E23 | **定时任务（内置 cron）** | 中 | 中 | `schedules` 表 + 复用现有 sweeper loop 范式定时提交 job/工作流。问题：错过补偿、多 hub 重复触发（单 hub 不问题）。**触发位置（设计维度）**：① server 集中触发（默认、简单，复用 sweeper，worker 只执行被派的 job）vs ② 下发 worker 自触发（worker 内置调度器 + 本地 schedule，断网离线自治，但管理分散）——倾向默认①、②作可选高级。接 E24（定时+重试）、E18（定时跑导入的工作流）。属**自主化 epic**。 |
 | E29 ✅ | **配置/部署模型简化（全局单 server + 项目瘦配置）** | 高 | 中 | **已落地**（SUPMODE 2026-06-23，P0-P3 commit `65cdb70`/`bfc6211`/`ae45372`/`9b2e6dd`，独立验收 D1–D9 全 PASS）。一台机一个 `serve` + 项目映射**全局单文件**；项目目录 `.gofer.project.yaml` **瘦配置**（仅偏好、无 server、准入留全局）。design [`design/2026-06-22-config-simplification-design.md`](design/2026-06-22-config-simplification-design.md) + plan [`plans/2026-06-23-config-simplification-plan.md`](plans/2026-06-23-config-simplification-plan.md)。Phase1（`init --global` + `GOFER_CONFIG` + `project add` 写全局）+ Phase2 overlay 合并（`buildCore`/`Reload`）+ cwd 推断免 `-p`；准入真源在 serve、CLI 不读 overlay（D2 安全）。 |
 
 ## ② 更好地利用 agent 完成任务
@@ -57,6 +58,7 @@
 | E26 | **hooks 插件（js/py 输出 json）** | 中 | 大 | 生命周期点跑用户脚本影响流程。⚠️ 元能力（E11/E24/E25 都能用 hook 实现）+ RCE 面。分两类：**事件 hook（只读旁路）先做**（订阅事件→跑脚本→不回写，安全）；**决策 hook（回写流程）后做**（pre-submit 否决/改写、interaction 自动答）。信任模型：operator 配的脚本视为可信（如 git hooks）。属**自主化 epic**。 |
 | E27 ✅ | **子工作流 / 跨项目编排** | 高 | 大 | 已随 v2 P3 落地（commit `dc71b06`）：`type=workflow`/`sub_workflow` 嵌套（深度≤3、fan×wf 互斥）+ `parent_*` 列 + 子 wf 终态 triggerParentAdvance。跨项目产物：本地 `result_dir` 直读已支持；**远端跨机依赖共享文件系统**（自动拉取通道留后续，README 已警示）。 |
 | E28 | **多 agent 经 gofer 协作通信（mcp HTTP-client 接入）** | 高 | 中 | 让多个工作目录的 claude/agent 进程把 gofer 当**中枢**互通：A 派活给 B、信箱式 `pending_interaction` 互答、共享 `result`/`artifacts`。**分层结合**：**地基=中央 `serve`**（job 执行/状态/日志集中，前提非选项，已有）；**接入=给 `gofer mcp` 加 HTTP-client 模式**（8 个 `bridge_*` 工具从进程内直操 DB 改为转发到中央 serve，**复用 `internal/client` peer-http 客户端，小改造**）——一举消除 stdio 1:1 + "job 在哪进程执行/日志在哪/跨进程 SQLite 写锁"三坑。**信箱语义与 E25 可插拔 answerer 统一**（人工 Web / IM(E22c) / 监督 agent(E25) / 对等 agent 同一机制）；可选再加 message 原语（`bridge_post/poll_message`）。⚠️ MCP 是 client→server 单向工具调用、非对等总线，故只能"经中枢间接互通"，非两 claude 直连。分阶段：先零改造跑 serve+HTTP 验证协作语义 → 再补 mcp HTTP-client 体验。跨①②轴。 |
+| E30 | **浏览器 pty 交互（attach 交互式 agent）** | 高 | 大 | Web 里经 pty(伪终端)直连 agent 的**交互式终端**（xterm.js + ws 双向流 input/output/resize），区别于结构化 `pending_interaction`（单问单答）——适合本身是 REPL/交互式 CLI 的 agent（claude 交互模式 / shell / 调试器）。**改执行模型**：agent 跑在 ptmx、stdin 接入，需 `interactive:true` job 选项或新 runner 模式；后端 `creack/pty`。远端 worker pty 经 hub ws 隧道转发（难点，local 先行 / 远端二期）。⚠️ pty ≈ 全 shell 能力，严格鉴权 + 会话审计（考虑录制）；定位"attach 交互式 agent"，**不做通用 web shell**（防后门）。属 Web 控制台 v2 写/交互层。跨①②轴。 |
 
 > **E28 实现取向：stdio mcp 双模式（别误砍 stdio）**
 > `gofer mcp` 的 **stdio transport 要保留**——它是 claude/MCP 生态最自然的接入方式（`command` 拉子进程、零网络/端口/token 配置）；该废的是它现在的 **in-process 后端**，不是 stdio 本身。"单进程独享" 是 stdio 1:1 的 transport 本质（非缺陷）；"单项目" 的说法不成立——一个 mcp 进程加载整份 config，可向**任意已登记项目**派 job，只是 local job 都在**本进程执行**。改造后两模式并存，一个 flag 切（如 `gofer mcp --serve http://...` 走 client，否则 standalone）：
@@ -80,6 +82,8 @@
 | E17 ✅ | **per-caller 配额 / 限流** | 中 | 中 | per-caller 并发配额（信号量排队）+ 速率限流（令牌桶 429）；配置真源在 job.Service（SIGHUP 热加载）。 |
 | E20 | **项目 git / 只读信息查看** | 中 | 中 | 项目**此刻** git status/log/branch 只读视图。**与 E12 划清**：E12=某 job 改了什么（快照）；本项=项目当前状态（不绑 job）。问题：git 在哪跑（本地容器/worker 侧）、只读白名单防写/防 RCE。 |
 | E22 | **IM 连接（钉钉/飞书）** | 高 | 大 | 跨①②③轴。**拆三层**：(a) 出站通知接 IM（复用 E14，**最便宜先行**）；(b) 入站提交（IM 消息→job，新入口，回调验签 + IM 用户映射 caller_id）；(c) 交互应答（pending_interaction→IM 卡片→回复→续跑）。平台差异需 adapter。鉴权接 E17 caller。 |
+| E31 | **节点拓扑 + 配置管理（Web）** | 中 | 中-大 | ① **拓扑图**：server(hub)+workers+peers 关系图，数据源现有 `/v1/runners`(C6)+peers，纯可视化**便宜**；② **点击节点→节点面板**：项目空间 / 配置 / 在飞 job / 心跳；③ **配置查看/编辑**：Web 看/改 config → 写回（复用 `writer.go` 保留未知字段）+ SIGHUP reload。⚠️ **拆只读/写**：只读查看便宜先做；**编辑高危**（写 config + reload）需鉴权分级（当前 token 平权）+ **secret 不回显**（只显 `token_env` 名，SR403/805）+ 编辑后先 `config validate`。属 Web 控制台 v2（拓扑/面板=只读层，配置编辑=写层）。跨①③轴。 |
+| E32 | **项目空间浏览（子 git 发现 + 关键文件）** | 中 | 中 | E19(b)/E20 的**安全聚焦版**：① **子 git 发现**：`host_path`/workspace 下递归找 `.git` 仓库列出 + branch/status（容器内扫描用 `container_path`，同 E29 路径语义）；② **关键文件查看**：README / .gitignore / AGENTS.md / CLAUDE.md。**取舍**：做**白名单关键文件**而非通用文件树（后者 E19b 有 `.env` 泄露 + 路径穿越风险）。属 Web 控制台 v2 只读层。跨①③轴。 |
 
 ---
 
@@ -93,12 +97,22 @@ E23 定时 + E24 自动重试 + E25 监督应答 + E26 hooks 共同把 gofer 从
 
 ---
 
+## 横切主题：Web 控制台 v2（E19/E20/E21/E30/E31/E32 收敛）
+
+把 Web 控制台从"看板 + 详情 + Workers 名册"推向"**集群可观察 + 项目透视 + 可交互操作**"。这批增强按**只读 vs 写/交互**切两层（安全闭环，SR1402）：
+
+- **只读观察层（便宜先行，数据源多现成、无写风险）**：E31 拓扑图 + 节点面板(只读) · E32 子 git 发现 + 关键文件 · E19(a) 产物预览 · E20 项目 git 状态。**适合先打包一份 design 一起做。**
+- **写 / 交互层（重、高危，各需独立安全设计）**：E30 pty 交互（改执行模型 + 会话审计）· E31 配置编辑（写回 + reload + 鉴权分级 + secret 不回显）· E21 主机侧动作（复用主机 bridge）。
+- **统一前置**：鉴权分级（当前 token 平权，写/交互操作需更细粒度）· 审计（写操作 / pty 会话入 E13 事件流）· secret 不回显（SR403/805）。
+
+---
+
 ## 建议优先级（下一步做什么）
 
 **已完成（✅）**：E1/E2/E3/E5/E6/E12/E13/E15/E16/E17，**E7 ✅（v1+v2 全落地）** + 随 v2 的 **E9✅ / E18✅ / E27✅**，E14🚧（webhook，MQ 不做）/E24🚧（工作流 step 级重试已落地，独立 job 级重试最小版）。原三轴核心缺口基本补齐。
 
 **便宜先行（低成本、边界清晰）：**
-1. **E18 工作流导入导出**（`spec_json` 近现成）· **E19(a) 产物预览**（E1 加渲染）· **E22(a) IM 出站通知**（复用 E14）· **E21 编辑器打开**（复用主机 bridge）。
+1. **Web 控制台 v2 只读层**（E31 拓扑+节点面板 · E32 子 git+关键文件 · E19a 产物预览 · E20 git 状态——**打包一份 design**，见上「Web 控制台 v2」横切）· **E22(a) IM 出站通知**（复用 E14）。
 
 **第二梯队（中等、承接已有）：**
 2. **E4 模板库**（接 E18）· **E20 项目 git 信息**（接 E19）· **E11 上下文/规则注入**（含规则文件）· **E28 多 agent 协作通信**（先做"mcp HTTP-client 接入"这一小改造，复用 `internal/client`；中央 serve 已是地基）。
