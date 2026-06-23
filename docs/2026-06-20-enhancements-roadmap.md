@@ -40,7 +40,7 @@
 | E19 | **文件 / 产物预览** | 中 | 中 | Web 在线预览（md/图/json/代码高亮）。**二义先定**：(a) job 产物 artifacts 渲染——小、安全边界清晰（限 `result_dir`），E1 已有下载加渲染即可，**先做**；(b) 项目工作目录文件浏览——大，需文件树 API + 路径安全（防 `../`、黑名单 `.env`/`.git`）。 |
 | E21 | **主机侧动作（编辑器打开等）** | 中 | 低 | 一键用主机编辑器打开项目（`code <host_path>`）/ reveal / 开终端。⚠️ gofer 在容器、编辑器在主机：**必须复用现有 codex-bridge 主机通道**（`host.docker.internal`），抽象成一类"主机侧动作"。仅对有主机 bridge 的部署可用。 |
 | E23 | **定时任务（内置 cron）** | 中 | 中 | `schedules` 表 + 复用现有 sweeper loop 范式定时提交 job/工作流。问题：错过补偿、多 hub 重复触发（单 hub 不问题）。接 E24（定时+重试）、E18（定时跑导入的工作流）。属**自主化 epic**。 |
-| E29 | **配置/部署模型简化（全局单 server + 项目瘦配置）** | 高 | 中 | 一台机一个 `serve` + 项目映射**全局单文件**；项目目录 `.gofer.project.yaml` **瘦配置**（仅偏好、无 server、准入留全局）。design [`design/2026-06-22-config-simplification-design.md`](design/2026-06-22-config-simplification-design.md) + plan [`plans/2026-06-23-config-simplification-plan.md`](plans/2026-06-23-config-simplification-plan.md)。**Phase1 零代码**（`GOFER_CONFIG` + `project add` 写全局）立即可用；**Phase2** overlay 合并（`buildCore`/`Reload`）+ cwd 推断免 `-p`；准入真源在 serve、CLI 不读 overlay（D2 安全）。 |
+| E29 ✅ | **配置/部署模型简化（全局单 server + 项目瘦配置）** | 高 | 中 | **已落地**（SUPMODE 2026-06-23，P0-P3 commit `65cdb70`/`bfc6211`/`ae45372`/`9b2e6dd`，独立验收 D1–D9 全 PASS）。一台机一个 `serve` + 项目映射**全局单文件**；项目目录 `.gofer.project.yaml` **瘦配置**（仅偏好、无 server、准入留全局）。design [`design/2026-06-22-config-simplification-design.md`](design/2026-06-22-config-simplification-design.md) + plan [`plans/2026-06-23-config-simplification-plan.md`](plans/2026-06-23-config-simplification-plan.md)。Phase1（`init --global` + `GOFER_CONFIG` + `project add` 写全局）+ Phase2 overlay 合并（`buildCore`/`Reload`）+ cwd 推断免 `-p`；准入真源在 serve、CLI 不读 overlay（D2 安全）。 |
 
 ## ② 更好地利用 agent 完成任务
 
