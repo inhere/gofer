@@ -60,18 +60,17 @@ func MergeProjectConfig(base ProjectConfig, ov ProjectOverlay) ProjectConfig {
 }
 
 // ApplyProjectOverlays merges each project's .gofer.project.yaml into
-// cfg.Projects IN PLACE (D6). Read dir = ContainerPath || HostPath (D4):
-// gofer runs in-container, so the container path is read first. A missing file
-// is skipped silently; a decode error or forbidden key appends a warning but
-// never aborts (one bad project overlay must not take down serve). Returns the
-// warnings for the caller to log.
+// cfg.Projects IN PLACE (D6). Read dir = cfg.ExecPath(p) (D10, supersedes the
+// original D4 ContainerPath||HostPath): the overlay is read from the SAME
+// execution-root the rest of the gofer process uses (host_path by default, or
+// container_path under server.path_view=container), so overlay lookup can never
+// diverge from the execution chain. A missing file is skipped silently; a decode
+// error or forbidden key appends a warning but never aborts (one bad project
+// overlay must not take down serve). Returns the warnings for the caller to log.
 func ApplyProjectOverlays(cfg *Config) []string {
 	var warns []string
 	for key, p := range cfg.Projects {
-		dir := p.ContainerPath
-		if dir == "" {
-			dir = p.HostPath
-		}
+		dir := cfg.ExecPath(p)
 		if dir == "" {
 			continue
 		}

@@ -284,7 +284,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// its own project root.
 	var workDir string
 	if !remote {
-		workDir, err = project.SafeJoin(proj, req.Cwd)
+		workDir, err = project.SafeJoin(cfg.ExecPath(proj), req.Cwd)
 		if err != nil {
 			return JobResult{}, err
 		}

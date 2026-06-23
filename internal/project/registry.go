@@ -134,14 +134,16 @@ func (r *Registry) Validate(key string) ([]CheckResult, bool, error) {
 		}
 	}
 
-	// host_path exists and is a directory.
-	hostAbs, _ := filepath.Abs(proj.HostPath)
-	if fi, statErr := os.Stat(hostAbs); statErr != nil {
-		add("host_path", false, fmt.Sprintf("%s: %v", hostAbs, statErr))
+	// exec_path (E29/D10: the gofer-process execution root, = host_path by default,
+	// or container_path under server.path_view=container) exists and is a directory.
+	// This validates the path gofer can actually reach to run jobs.
+	execAbs, _ := filepath.Abs(cfg.ExecPath(proj))
+	if fi, statErr := os.Stat(execAbs); statErr != nil {
+		add("exec_path", false, fmt.Sprintf("%s: %v", execAbs, statErr))
 	} else if !fi.IsDir() {
-		add("host_path", false, fmt.Sprintf("%s is not a directory", hostAbs))
+		add("exec_path", false, fmt.Sprintf("%s is not a directory", execAbs))
 	} else {
-		add("host_path", true, hostAbs)
+		add("exec_path", true, execAbs)
 	}
 
 	// exchange dir creatable/writable.
