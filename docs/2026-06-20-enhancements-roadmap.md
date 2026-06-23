@@ -12,6 +12,7 @@
 | v1.0 | 2026-06-20 | inhere | 初版：E1-E17 三轴增强想法 + 建议优先级（思考清单，非实施计划） |
 | v1.1 | 2026-06-21 | inhere | 标记 E1-E17 完成态（E16/E17 本轮落地，E7🚧/E14🚧）；新增 E18-E27（来自 `tmp/tmp.md` 想法整理）；新增「自主化 epic」横切章节；更新现状基线与优先级 |
 | v1.2 | 2026-06-22 | inhere | 回填滞后标记：**工作流 v2 已全落地**（design `workflow-v2-design.md` + plan `2026-06-22-workflow-v2/`，commit `7c470b8`/`4492871`/`dc71b06`/`92cc669`），随之 **E7✅(v1+v2) · E9✅ · E18✅ · E27✅ · E24🚧**；更新现状基线（核心缺口去掉"工作流深化"）与建议优先级 |
+| v1.3 | 2026-06-22 | inhere | 新增 **E28 多 agent 经 gofer 协作通信**（中央 serve 中枢 + mcp HTTP-client 接入；信箱语义并入 E25 可插拔 answerer），来自"两个工作目录 claude 经 gofer 互通"讨论；补 E28 实现取向（stdio mcp **standalone/client 双模式** + 适用场景表，明确"该废的是 in-process 后端、非 stdio 本身"） |
 
 ## 现状基线（已有，不重复做）
 
@@ -53,6 +54,17 @@
 | E25 | **监督 agent 自动应答** | 高 | 大 | `pending_interaction` 由另一"监督 agent"自动作答（用一个 job 答另一个 job 的提问）。⚠️ 失控/套娃/烧 token：定位**半自动**——自动答低危澄清，遇审批门(E8)/高危/超轮次**升级人**（经 E22 IM 或 Web）。gofer 最有特色的"agent 编排 agent"。属**自主化 epic**。 |
 | E26 | **hooks 插件（js/py 输出 json）** | 中 | 大 | 生命周期点跑用户脚本影响流程。⚠️ 元能力（E11/E24/E25 都能用 hook 实现）+ RCE 面。分两类：**事件 hook（只读旁路）先做**（订阅事件→跑脚本→不回写，安全）；**决策 hook（回写流程）后做**（pre-submit 否决/改写、interaction 自动答）。信任模型：operator 配的脚本视为可信（如 git hooks）。属**自主化 epic**。 |
 | E27 ✅ | **子工作流 / 跨项目编排** | 高 | 大 | 已随 v2 P3 落地（commit `dc71b06`）：`type=workflow`/`sub_workflow` 嵌套（深度≤3、fan×wf 互斥）+ `parent_*` 列 + 子 wf 终态 triggerParentAdvance。跨项目产物：本地 `result_dir` 直读已支持；**远端跨机依赖共享文件系统**（自动拉取通道留后续，README 已警示）。 |
+| E28 | **多 agent 经 gofer 协作通信（mcp HTTP-client 接入）** | 高 | 中 | 让多个工作目录的 claude/agent 进程把 gofer 当**中枢**互通：A 派活给 B、信箱式 `pending_interaction` 互答、共享 `result`/`artifacts`。**分层结合**：**地基=中央 `serve`**（job 执行/状态/日志集中，前提非选项，已有）；**接入=给 `gofer mcp` 加 HTTP-client 模式**（8 个 `bridge_*` 工具从进程内直操 DB 改为转发到中央 serve，**复用 `internal/client` peer-http 客户端，小改造**）——一举消除 stdio 1:1 + "job 在哪进程执行/日志在哪/跨进程 SQLite 写锁"三坑。**信箱语义与 E25 可插拔 answerer 统一**（人工 Web / IM(E22c) / 监督 agent(E25) / 对等 agent 同一机制）；可选再加 message 原语（`bridge_post/poll_message`）。⚠️ MCP 是 client→server 单向工具调用、非对等总线，故只能"经中枢间接互通"，非两 claude 直连。分阶段：先零改造跑 serve+HTTP 验证协作语义 → 再补 mcp HTTP-client 体验。跨①②轴。 |
+
+> **E28 实现取向：stdio mcp 双模式（别误砍 stdio）**
+> `gofer mcp` 的 **stdio transport 要保留**——它是 claude/MCP 生态最自然的接入方式（`command` 拉子进程、零网络/端口/token 配置）；该废的是它现在的 **in-process 后端**，不是 stdio 本身。"单进程独享" 是 stdio 1:1 的 transport 本质（非缺陷）；"单项目" 的说法不成立——一个 mcp 进程加载整份 config，可向**任意已登记项目**派 job，只是 local job 都在**本进程执行**。改造后两模式并存，一个 flag 切（如 `gofer mcp --serve http://...` 走 client，否则 standalone）：
+>
+> | 模式 | 形态 | 适用 | 不适用 |
+> |---|---|---|---|
+> | **standalone（现状）** | in-process 直操 DB + 本进程执行 local job | 单人单机、不跑 serve、一个 claude 即用即走编排 job（派后台长任务 / 轮询 / 读产物 / 应答交互）；**零常驻服务** | 多 client；Web 控制台与 mcp 并存（两进程状态割裂、互不见 live job）；多 claude 协作 |
+> | **client（新增，E28 核心）** | stdio mcp 仅当瘦客户端，`bridge_*` 转发到中央 serve（复用 `internal/client`） | 多 claude 各自 1:1 拉起自己的 stdio mcp 子进程、后端共指同一 serve → 中枢化 / 协作 / Web+MCP 状态一致 | 无中央 serve 的纯单机轻量场景（杀鸡用牛刀，回退 standalone 即可） |
+>
+> **不选 HTTP MCP transport 替代 stdio**：那要 claude 端配 URL+鉴权、gofer 实现 HTTP MCP server，更重；stdio 子进程转发对 claude 端**零改动**（仍是 `command` 拉起），更贴合 claude 用法。
 
 ## ③ 观察 / 审计 agent 的工作
 
@@ -74,7 +86,7 @@
 E23 定时 + E24 自动重试 + E25 监督应答 + E26 hooks 共同把 gofer 从"人工逐个提交"推向"**自主运转的 agent 编排平台**"。它们**共享同一套地基**，应合成一个 epic 统一设计，而非各做一套：
 
 - **方向性张力（先拍板）**：自主化与 gofer 现有"人在环路"安全取向**直接冲突**——要先定 gofer 要多"自主"。自主能力**必须**配 E8 审批门兜底，否则失控。
-- **统一抽象（别重复造）**：① `pending_interaction` 应答的三种来源——人工 Web / IM 人工(E22c) / 监督 agent(E25)——是同一机制的**可插拔 answerer**；② 失败处理的四个面——手动 rerun(E2) / 自动重试(E24) / hook 决策(E26) / 工作流 on_failure——应**统一一套重试/失败策略**。
+- **统一抽象（别重复造）**：① `pending_interaction` 应答的四种来源——人工 Web / IM 人工(E22c) / 监督 agent(E25) / 对等 agent(E28)——是同一机制的**可插拔 answerer**；② 失败处理的四个面——手动 rerun(E2) / 自动重试(E24) / hook 决策(E26) / 工作流 on_failure——应**统一一套重试/失败策略**。
 - **三个隐含前置（闭环必需）**：强审计（E13 事件标注"AI 自动 vs 人"）· **配额约束**（自主烧 token，受 E17 配额管）· 可接管（人能暂停/接管自主链）。
 
 ---
@@ -87,7 +99,7 @@ E23 定时 + E24 自动重试 + E25 监督应答 + E26 hooks 共同把 gofer 从
 1. **E18 工作流导入导出**（`spec_json` 近现成）· **E19(a) 产物预览**（E1 加渲染）· **E22(a) IM 出站通知**（复用 E14）· **E21 编辑器打开**（复用主机 bridge）。
 
 **第二梯队（中等、承接已有）：**
-2. **E4 模板库**（接 E18）· **E20 项目 git 信息**（接 E19）· **E11 上下文/规则注入**（含规则文件）。
+2. **E4 模板库**（接 E18）· **E20 项目 git 信息**（接 E19）· **E11 上下文/规则注入**（含规则文件）· **E28 多 agent 协作通信**（先做"mcp HTTP-client 接入"这一小改造，复用 `internal/client`；中央 serve 已是地基）。
 3. ~~**工作流 v2 epic**：E27 子工作流/跨项目 + E9 fan-out + E24 重试 + E7 尾巴~~ —— **✅ 已落地**（design [`design/2026-06-22-workflow-v2-design.md`](design/2026-06-22-workflow-v2-design.md) + plan [`plans/2026-06-22-workflow-v2/`](plans/2026-06-22-workflow-v2/)，commit `7c470b8`..`92cc669`）。**剩余尾巴**：工作流模板库(E4)、export secret 启发式剥离非保证、子 wf retry 重跑整条、独立 job 级重试可靠版(E24)。
 
 **大件（需独立设计，先对齐取向）：**
