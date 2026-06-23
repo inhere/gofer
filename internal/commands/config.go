@@ -140,8 +140,9 @@ func runInit(c *gcli.Command, _ []string) error {
 // per-project filesystem/reference checks for every registered project.
 func NewConfigCmd() *gcli.Command {
 	return &gcli.Command{
-		Name: "config",
-		Desc: "Inspect and validate the gofer configuration",
+		Name:    "config",
+		Desc:    "Inspect and validate the gofer configuration",
+		Aliases: []string{"cfg"},
 		Subs: []*gcli.Command{
 			{
 				Name: "validate",

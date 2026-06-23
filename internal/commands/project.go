@@ -37,12 +37,14 @@ var commonProjectOpts = struct {
 // list/show/add/remove/validate.
 func NewProjectCmd() *gcli.Command {
 	return &gcli.Command{
-		Name: "project",
-		Desc: "Manage registered projects",
+		Name:    "project",
+		Desc:    "Manage registered projects",
+		Aliases: []string{"p", "proj"},
 		Subs: []*gcli.Command{
 			{
-				Name: "list",
-				Desc: "List configured projects",
+				Name:    "list",
+				Desc:    "List configured projects",
+				Aliases: []string{"ls"},
 				Config: func(c *gcli.Command) {
 					c.StrOpt(&commonProjectOpts.listConfig, "config", "c", "", "path to the bridge config file")
 				},
@@ -76,8 +78,9 @@ func NewProjectCmd() *gcli.Command {
 				Func: runProjectAdd,
 			},
 			{
-				Name: "remove",
-				Desc: "Remove a registered project",
+				Name:    "remove",
+				Desc:    "Remove a registered project",
+				Aliases: []string{"rm"},
 				Config: func(c *gcli.Command) {
 					c.StrOpt(&commonProjectOpts.removeConfig, "config", "c", "", "path to the bridge config file")
 					c.AddArg("key", "project key", true)
@@ -85,8 +88,9 @@ func NewProjectCmd() *gcli.Command {
 				Func: runProjectRemove,
 			},
 			{
-				Name: "validate",
-				Desc: "Validate a project's paths, agents and runners",
+				Name:    "validate",
+				Aliases: []string{"check"},
+				Desc:    "Validate a project's paths, agents and runners",
 				Config: func(c *gcli.Command) {
 					c.StrOpt(&commonProjectOpts.validateConfig, "config", "c", "", "path to the bridge config file")
 					c.AddArg("key", "project key", true)

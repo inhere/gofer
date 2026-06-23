@@ -24,8 +24,9 @@ func NewAgentCmd() *gcli.Command {
 		Desc: "Inspect configured agents",
 		Subs: []*gcli.Command{
 			{
-				Name: "list",
-				Desc: "List configured agents",
+				Name:    "list",
+				Desc:    "List configured agents",
+				Aliases: []string{"ls"},
 				Config: func(c *gcli.Command) {
 					c.StrOpt(&agentOpts.listConfig, "config", "c", "", "path to the bridge config file")
 				},

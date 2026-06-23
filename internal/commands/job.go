@@ -79,8 +79,9 @@ func NewJobCmd() *gcli.Command {
 		Desc: "Submit and manage jobs via the bridge server",
 		Subs: []*gcli.Command{
 			{
-				Name: "run",
-				Desc: "Submit a new job",
+				Name:    "run",
+				Desc:    "Submit a new job",
+				Aliases: []string{"add"},
 				Config: func(c *gcli.Command) {
 					c.StrOpt(&jobRunOpts.config, "config", "c", "", "path to the bridge config file")
 					c.StrOpt(&jobRunOpts.server, "server", "s", "", "server address (overrides config server.addr)")
@@ -142,8 +143,9 @@ func NewJobCmd() *gcli.Command {
 				Func: runJobCancel,
 			},
 			{
-				Name: "list",
-				Desc: "List jobs with optional filters (E5: tag/agent/runner/since/...)",
+				Name:    "list",
+				Desc:    "List jobs with optional filters (tag/agent/runner/since/...)",
+				Aliases: []string{"ls"},
 				Config: func(c *gcli.Command) {
 					c.StrOpt(&jobListOpts.config, "config", "c", "", "path to the bridge config file")
 					c.StrOpt(&jobListOpts.server, "server", "s", "", "server address (overrides config server.addr)")

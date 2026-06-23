@@ -35,8 +35,9 @@ var serveOpts = struct {
 // the httpapi server, then start the HTTP control plane (plan §9-P5).
 func NewServeCmd() *gcli.Command {
 	return &gcli.Command{
-		Name: "serve",
-		Desc: "Start the gofer HTTP server",
+		Name:    "serve",
+		Desc:    "Start the gofer HTTP server",
+		Aliases: []string{"s"},
 		Config: func(c *gcli.Command) {
 			c.StrOpt(&serveOpts.config, "config", "c", "", "path to the bridge config file")
 			c.StrOpt(&serveOpts.addr, "addr", "", "", "HTTP listen address (default from config / 0.0.0.0:8765)")

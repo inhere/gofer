@@ -32,7 +32,7 @@ var workerOpts = struct {
 func NewWorkerCmd() *gcli.Command {
 	return &gcli.Command{
 		Name:    "worker",
-		Desc:    "Run a ws-worker that dials a central hub and executes dispatched jobs locally",
+		Desc:    "As worker that dials a central hub and executes dispatched jobs locally",
 		Aliases: []string{"w"},
 		Config: func(c *gcli.Command) {
 			c.StrOpt(&workerOpts.config, "config", "c", "", "path to the worker config file (worker.yaml)")
