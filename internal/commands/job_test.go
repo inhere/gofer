@@ -37,7 +37,7 @@ func parseRun(t *testing.T, in []string) (project, agent, runner, cwd, prompt st
 	// app.Run returns the process exit code (0 on success); flag-binding happens
 	// inside, so a non-zero code here would signal a parse failure. gcli handles
 	// `--` natively and binds the post-`--` tokens to the arrayed `cmd` arg.
-	if code := app.Run(NormalizeArgs(app, in)); code != 0 {
+	if code := app.Run(in); code != 0 {
 		t.Fatalf("app.Run exit code=%d for args %v", code, in)
 	}
 	return jobRunOpts.project, jobRunOpts.agent, jobRunOpts.runner, jobRunOpts.cwd, prompt, cmd

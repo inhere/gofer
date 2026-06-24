@@ -29,7 +29,7 @@ func TestJobRunTagsMapping(t *testing.T) {
 	}
 
 	args := []string{"job", "run", "-p", "self", "-a", "exec", "--tags", "a,b", "--", "go", "version"}
-	if code := app.Run(NormalizeArgs(app, args)); code != 0 {
+	if code := app.Run(args); code != 0 {
 		t.Fatalf("app.Run exit code=%d for args %v", code, args)
 	}
 	if !reflect.DeepEqual(gotTags, []string{"a", "b"}) {
