@@ -7,7 +7,7 @@ require (
 	github.com/goccy/go-yaml v1.19.2
 	github.com/gookit/color v1.6.2-0.20260604125953-289d54c4470a
 	github.com/gookit/gcli/v3 v3.8.0
-	github.com/gookit/goutil v0.7.6
+	github.com/gookit/goutil v0.7.7-0.20260623144057-362da8f1ff0d
 	github.com/gookit/rux/v2 v2.0.2
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/prometheus/client_golang v1.23.2
