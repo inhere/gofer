@@ -84,8 +84,9 @@ func NewWorkflowCmd() *gcli.Command {
 				Func: runWorkflowShow,
 			},
 			{
-				Name: "list",
-				Desc: "List workflows with an optional status filter",
+				Name:    "list",
+				Desc:    "List workflows with an optional status filter",
+				Aliases: []string{"ls"},
 				Config: func(c *gcli.Command) {
 					c.StrOpt(&wfListOpts.config, "config", "c", "", "path to the bridge config file")
 					c.StrOpt(&wfListOpts.server, "server", "s", "", "server address (overrides config server.addr)")

@@ -9,6 +9,7 @@ import (
 
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/goutil/errorx"
+	"github.com/gookit/goutil/x/ccolor"
 
 	configtmpl "github.com/inhere/gofer/config"
 	"github.com/inhere/gofer/internal/config"
@@ -145,8 +146,9 @@ func NewConfigCmd() *gcli.Command {
 		Aliases: []string{"cfg"},
 		Subs: []*gcli.Command{
 			{
-				Name: "validate",
-				Desc: "Validate a config (target: server | worker): load + per-project paths/agents/runners",
+				Name:    "validate",
+				Desc:    "Validate a config (target: server | worker): load + per-project paths/agents/runners",
+				Aliases: []string{"check"},
 				Config: func(c *gcli.Command) {
 					c.AddArg("target", "what to validate: server (default) | worker", false)
 					c.StrOpt(&configValidateOpts.config, "config", "c", "", "path to the config file")
@@ -155,7 +157,7 @@ func NewConfigCmd() *gcli.Command {
 			},
 			{
 				Name: "show",
-				Desc: "Show the effective (overlay-merged) config of a project (diagnostic, §12.2)",
+				Desc: "Show the effective (overlay-merged) config of a project",
 				Config: func(c *gcli.Command) {
 					c.AddArg("key", "project key", true)
 					c.StrOpt(&configShowOpts.config, "config", "c", "", "path to the config file")
@@ -253,6 +255,7 @@ func validateServerConfig(c *gcli.Command) error {
 		return errorx.Failf(configExitErr, "%v", err)
 	}
 
+	ccolor.Infof("validate the %q\n", reg.Path())
 	keys := reg.List()
 	if len(keys) == 0 {
 		c.Println("(no projects registered)")
