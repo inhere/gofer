@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/streaming"
 )
 
 // TestStreamEventFrames connects to an already-terminal job's SSE stream and
@@ -32,12 +33,12 @@ func TestStreamEventFrames(t *testing.T) {
 
 	frames := readFrames(t, resp, scanner, 10*time.Second)
 
-	var events []eventFrame
+	var events []streaming.EventFrame
 	var sawLog, sawStatus, sawEnd bool
 	for _, ev := range frames {
 		switch ev.Event {
 		case "event":
-			var ef eventFrame
+			var ef streaming.EventFrame
 			if err := json.Unmarshal([]byte(ev.Data), &ef); err != nil {
 				t.Fatalf("bad event frame %q: %v", ev.Data, err)
 			}
