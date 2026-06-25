@@ -16,12 +16,14 @@
 internal/job/                         宿主：job 模型 + 单 job 引擎
   service.go      +Meta()/Now()/Config()/Validate()/Metrics() 导出访问器
                   +WorkflowAdvancer 接口 + s.wf 字段 + SetWorkflow()
+  retry.go        RetryPolicy + 导出 MaxAttemptsPolicy/BackoffForPolicy/RetryableExitPolicy
+                  (单 job 与 step 重试共用, §3.4 留 job)
   execute.go      finish(): s.wf.Advance(wfID)  ← 唯一反向 seam
   workflow/                           新子包：链编排域
-    types.go      Spec/StepSpec/Step/RetryPolicy + 常量 + 策略纯函数
+    types.go      Spec/StepSpec(.Retry *job.RetryPolicy)/Step + workflow 常量 + fanWant/joinPolicy/包装器
     engine.go     Engine{ops JobOps; meta; now; metrics} + NewEngine + JobOps 接口
     advance.go submit.go join.go query.go terminate.go cancel.go export.go parse.go refs.go
-    *_test.go     迁自 job 的 9 个 workflow 测试 + helper_test.go(newTestEngine)
+    *_test.go     迁自 job 的 11 个 workflow/refs 测试 + helper_test.go(newTestEngine)
 
 依赖（单向无环）：
   httpapi/serve/core ─▶ internal/job/workflow ─▶ internal/job ─▶ jobstore/config/...
@@ -93,9 +95,17 @@ func (s *Service) Validate(cfg *config.Config, req JobRequest, remote bool) (con
 
 > 决策：不另设 core 适配器——core 包访问不到 Service 私有成员，适配器仍需先导出，反成多余间接。Service 直接满足 `workflow.JobOps` 最简。
 
+### 3.4 共享重试原语必须留在 job（复审定论，防环关键）
+
+`RetryPolicy` 是 **`JobRequest.Retry` 的字段类型**（model.go:54），单 job 重试 `execute.go:maybeRetryJob` 真实调用 `maxAttemptsPolicy/backoffForPolicy/retryableExitPolicy(req.Retry)`。故这些**不能迁 workflow**（否则 `JobRequest.Retry *RetryPolicy` 使 job 反向依赖 workflow → 环）。处置：
+
+- **留 job**（建议归入新文件 `internal/job/retry.go`，从 workflow.go 移出）：`RetryPolicy`(类型，名不变)、`defaultBackoffSec`(var,私有)、`maxRetryAttempts`(const,私有)；
+- **导出供 workflow 调用**：`maxAttemptsPolicy→MaxAttemptsPolicy`、`backoffForPolicy→BackoffForPolicy`、`retryableExitPolicy→RetryableExitPolicy`（execute.go 同步改用导出名）；
+- **迁 workflow** 的 StepSpec 包装器改调 job 导出原语：`maxAttempts(step)`→`job.MaxAttemptsPolicy(step.Retry)`、`backoffFor`→`job.BackoffForPolicy`、`retryableExit`→`job.RetryableExitPolicy`；`StepSpec.Retry` 字段类型 → `*job.RetryPolicy`。
+
 ## 4. 命名映射
 
-**类型**（去 stutter）：`WorkflowSpec→workflow.Spec`、`WorkflowStep→workflow.Step`；`StepSpec`/`RetryPolicy` 名不变（`workflow.StepSpec`/`workflow.RetryPolicy`）。
+**类型**：`WorkflowSpec→workflow.Spec`、`WorkflowStep→workflow.Step`、`StepSpec→workflow.StepSpec`（名同、改包）。**`RetryPolicy` 留 job、名不变**（见 §3.4），外部 `job.RetryPolicy`（1 处）不动。
 
 **方法**：公共方法名**保持不变**以减少调用点改动（`engine.SubmitWorkflow/GetWorkflow/ListWorkflows/WorkflowSteps/CancelWorkflow/ExportWorkflow/ListWorkflowEvents/SubmitWorkflowChild`）；仅两处必改：
 - `advanceWorkflow → Advance`（实现 `WorkflowAdvancer`）
@@ -115,63 +125,54 @@ func (s *Service) Validate(cfg *config.Config, req JobRequest, remote bool) (con
 | `s.Cancel(` | `e.ops.Cancel(` |
 | `s.<其余 workflow 方法>(` | `e.<同名>(`（resolveRefs/advanceWorkflowStep/startNextStep/... 全表见 design §13.4）|
 
-## 5. WS1：Service 暴露 JobOps 访问器（包内，零行为变化）
+## 5. WS1：job 侧立 seam（包内，零行为变化，独立 commit）
 
-**改动**：仅 `internal/job/service.go` 加 §3.3 的 5 个导出 wrapper + 加 `wf WorkflowAdvancer` 字段 + `SetWorkflow` + `WorkflowAdvancer` 接口定义。**不动 finish、不建包、不迁代码**。
-
-**自检**：加一个临时编译断言（WS2b 删除或转入 workflow 包）：
+**改动**（仅 `internal/job`，不建包、不迁 workflow 代码）：
+1. `service.go`：加 §3.3 的 5 个导出 wrapper（Meta/Now/Config/Metrics/Validate）+ `wf WorkflowAdvancer` 字段 + `SetWorkflow` + `WorkflowAdvancer` 接口定义。**暂不动 finish**（advanceWorkflow 仍在 job，finish 仍直调；WS2 才切到 s.wf.Advance）。
+2. 新建 `internal/job/retry.go`：从 workflow.go 移入 `RetryPolicy`、`defaultBackoffSec`、`maxRetryAttempts`、`maxAttemptsPolicy/backoffForPolicy/retryableExitPolicy`，并把后三者**导出**为 `MaxAttemptsPolicy/BackoffForPolicy/RetryableExitPolicy`；`execute.go` + workflow.go 内调用点同步改导出名。
+3. `service_test.go` 加编译断言：
 ```go
-// service_test.go (package job) —— 证明 Service 形状满足将来的 JobOps
 var _ interface {
-    Submit(JobRequest) (JobResult, error); Cancel(string) error
-    Validate(*config.Config, JobRequest, bool) (config.ProjectConfig, error)
-    Config() *config.Config; Meta() *jobstore.Store; Now() time.Time; Metrics() MetricsSink
+    Submit(JobRequest)(JobResult,error); Cancel(string)error
+    Validate(*config.Config,JobRequest,bool)(config.ProjectConfig,error)
+    Config()*config.Config; Meta()*jobstore.Store; Now()time.Time; Metrics()MetricsSink
 } = (*Service)(nil)
 ```
 
-**验收 WS1**：`go build/vet ./... + go test ./...` 全绿；diff 仅 service.go + 1 测试断言；零行为变化。独立 commit。
+**验收 WS1**：`go build/vet ./... + go test ./...` 全绿；零行为变化（仅加导出器/接口/改 retry 调用名）。独立 commit。
 
-## 6. WS2a：types 下移到 workflow 包（纯类型搬迁，无 Engine）
+## 6. WS2：workflow 子包原子抽取（生产代码 + 测试同一 commit）
 
-1. 新建 `internal/job/workflow/types.go`（`package workflow`，**不 import job**）：迁入 `Spec`(原 WorkflowSpec)、`StepSpec`、`Step`(原 WorkflowStep)、`RetryPolicy` + 全部 workflow 常量（onFailure*/join*/stepType*/maxFanOut/maxRetryAttempts/maxWorkflowDepth/defaultBackoffSec/sweeperWorkflowScan）+ 策略纯函数（fanWant/joinPolicy/maxAttempts/backoffFor/retryableExit/maxAttemptsPolicy/backoffForPolicy/retryableExitPolicy）。types 内 `WorkflowSpec→Spec`、`WorkflowStep→Step` 改名。
-2. 从 `internal/job/workflow.go` 删除上述声明（该文件其余 workflow 代码此刻仍在 job 内，临时改引用 `workflow.Spec/Step/...` → **job 临时 import workflow**；因 workflow 仅类型无 job import，**不成环**）。
-3. **外部改名**（sed，~35 处）：`job.WorkflowSpec→workflow.Spec`、`job.WorkflowStep→workflow.Step`、`job.StepSpec→workflow.StepSpec`、`job.RetryPolicy→workflow.RetryPolicy`，并加 import。命中文件：`httpapi/workflow_handler.go`、`commands/workflow*.go`、`client/*.go`、`mcpserver/*`（按子代理清单逐个）。
-   > 注意：`jobstore.Store.GetWorkflow/ListWorkflows` 与 Service 同名但是 DAO，**不在改名范围**。
-4. `go build/vet ./... + go test ./...` 全绿。
+> **必须原子**：一旦 `SubmitWorkflow` 移到 `Engine`、`WorkflowSpec→workflow.Spec`，仍留 `package job` 的 workflow 测试即编译失败；且「先迁类型后迁引擎」会在中间态形成 job⇄workflow 环（StepSpec.Retry→*job.RetryPolicy）。故生产搬迁 + 外部改名 + wiring + finish hook + 测试迁移**一次做完、绿了再 commit**。用 §11 `extract.py` 思路按块搬出，再批量 sed 改 receiver/accessor。
 
-**验收 WS2a**：类型已在 workflow 包；外部全改名；`go list -deps .../internal/job/workflow` **不含** job（纯类型包）。独立 commit。
+### 6.1 建 workflow 包 + 迁引擎
+- 新建 `internal/job/workflow/`（`package workflow`，import job）：
+  - `types.go`：`Spec`(原 WorkflowSpec)/`StepSpec`/`Step`(原 WorkflowStep)（`StepSpec.Retry *job.RetryPolicy`）+ workflow 专属常量（onFailure*/join*/stepType*/maxFanOut/maxWorkflowDepth/sweeperWorkflowScan）+ 纯函数 `fanWant`/`joinPolicy` + StepSpec 包装器 `maxAttempts/backoffFor/retryableExit`（改调 `job.MaxAttemptsPolicy` 等，§3.4）。
+  - `engine.go`：`Engine`/`NewEngine`/`JobOps`（§3.2）。
+  - 迁 job 的 `workflow_advance/submit/join/query/terminate/cancel/export/parse.go` + **`refs.go` 整文件**（validateRefs/resolveRefs/resolveString/resolveRef/fanJobsOfStep/pickFanJob，已确认无外部调用者），按 §4 sed 改 receiver/accessor；`advanceWorkflow→Advance`（实现 `WorkflowAdvancer`）、`AdvanceRunningWorkflows→AdvanceRunning`，其余公共方法名不变。
+  - `stepToRequest` 构造 `job.JobRequest{WorkflowID,StepIndex,Attempt,FanIndex,CallerID,...}`（均导出字段，已确认）。
+- 删除 job 内 `workflow*.go`(9) + `refs.go`；删 workflow.go 后 job 不再引用 workflow → **job 不 import workflow**（workflow 单向 import job）。
 
-## 7. WS2b：Engine 抽取 + wiring + finish hook + 测试迁移（主体）
+### 6.2 job 侧 finish hook + 收尾
+- `execute.go finish()`：`go s.advanceWorkflow(...)` → §3.1 的 `if s.wf!=nil && snap.WorkflowID!="" { go s.wf.Advance(...) }`。
+- WS1 编译断言移到 workflow 包：`var _ JobOps = (*job.Service)(nil)`。
 
-> 体量大；可用 §11 的 `extract.py` 思路先按块搬出，再批量 sed 改 receiver/accessor。建议子步内顺序做、最后一次性 build/test。
+### 6.3 外部改名（~34 处，sed）
+`job.WorkflowSpec→workflow.Spec`、`job.WorkflowStep→workflow.Step`、`job.StepSpec→workflow.StepSpec`（加 import）。命中：`httpapi/workflow_handler.go`、`commands/workflow*.go`、`client/*.go`、`mcpserver/*`。
+> `job.RetryPolicy` 不改（留 job）。`jobstore.Store.GetWorkflow/ListWorkflows` 是 DAO 同名、**不改**。
 
-### 7.1 迁移 workflow 引擎代码 → `internal/job/workflow`
-- 把 job 的 `workflow_advance/submit/join/query/terminate/cancel/export/parse.go` + `refs.go`（resolveRefs 及其 workflow 专属内容）迁入 workflow 包，按 §4 sed 改写；`workflow.go` 残留（若有共享）并入 `engine.go`/`types.go`。
-- 新建 `engine.go`：`Engine`/`NewEngine`/`JobOps`（§3.2）；`advanceWorkflow→Advance`、`AdvanceRunningWorkflows→AdvanceRunning`。
-- 迁出后 `internal/job` 不再有任何 workflow.* 引用 → **job 去掉对 workflow 的 import**（WS2a 的临时 import 在此消除）。workflow 单向 import job（取 `job.JobRequest/JobResult/MetricsSink`）。
-- `stepToRequest` 构造 `job.JobRequest{WorkflowID,StepIndex,Attempt,FanIndex,CallerID,...}`（均为导出字段，已确认，无需额外导出）。
+### 6.4 wiring
+- `internal/core/core.go:82` 构造 Service 后：`eng := workflow.NewEngine(svc); svc.SetWorkflow(eng)`；`eng` 存入 Core 供 httpapi/serve 取。
+- `internal/serve/serve.go:291,299`：`jobSvc.AdvanceRunningWorkflows(ctx)` → `eng.AdvanceRunning(ctx)`。
+- `internal/httpapi/workflow_handler.go` 6 handler：Server 注入 `eng`，`svc.SubmitWorkflow/GetWorkflow/...` → `eng.*`。
 
-### 7.2 job 侧 finish hook
-- 删 `advanceWorkflow`（已迁走）；`execute.go finish()` 改 §3.1 的 `s.wf.Advance(...)`。
-- 删 WS1 的临时编译断言（或迁为 workflow 包内 `var _ JobOps = (*job.Service)(nil)`）。
+### 6.5 测试迁移（11 文件，关键劳动）
+- 迁到 `internal/job/workflow`、`package workflow`（内部测试，直接访问 Engine 私有 + 包内 lowercase `validateFanout/validateRetry/stepToRequest/validateSubworkflow/resolveRefs/validateRefs`）：
+  `workflow_test.go / workflow_fanout_test.go / workflow_retry_test.go / workflow_subworkflow_test.go / workflow_crossproject_test.go / workflow_validate_test.go / workflow_subworkflow_validate_test.go / workflow_export_test.go / workflow_parse_test.go / refs_test.go / refs_fanout_test.go`。
+- 新建 `helper_test.go`：`newTestEngine(t, root) (*Engine, *job.Service)` 用导出 API 重建 `newTestServiceWithDB` 等价 setup（`job.NewService` + `jobstore.Open` + `localrunner.New` + self/noexec config）+ `svc.SetWorkflow(eng)` 接好 finish→Advance 闭环；如需 `waitForStatus` 复制等价实现。
+- 改写：`s.SubmitWorkflow`→`eng.SubmitWorkflow`、`s.advanceWorkflow`→`eng.Advance`、`s.AdvanceRunningWorkflows`→`eng.AdvanceRunning`、`s.resolveRefs`→`eng.resolveRefs`、`s.meta`→`eng.meta`、`s.nowFn=`→`eng.now=`（同包字段，时钟注入）；`WorkflowSpec/StepSpec`→`Spec/StepSpec`、`RetryPolicy`→`job.RetryPolicy`。
 
-### 7.3 wiring
-- `internal/core/core.go:82` 构造 Service 后：
-  ```go
-  svc := job.NewService(...)
-  eng := workflow.NewEngine(svc)   // Service 满足 JobOps
-  svc.SetWorkflow(eng)
-  ```
-  把 `eng` 存入 Core，供 httpapi/serve 取用。
-- `internal/serve/serve.go:291,299` `startWorkflowLoop`：`jobSvc.AdvanceRunningWorkflows(ctx)` → `eng.AdvanceRunning(ctx)`。
-- `internal/httpapi/workflow_handler.go` 6 个 handler：持有 `eng`，`svc.SubmitWorkflow/GetWorkflow/...` → `eng.SubmitWorkflow/...`（Server 结构体注入 engine）。
-
-### 7.4 测试迁移（关键劳动）
-- 9 个 workflow 测试文件迁到 `internal/job/workflow`，`package workflow`（内部测试，可直接访问 Engine 私有与包内 lowercase 函数 validateFanout/validateRetry/stepToRequest/validateSubworkflow）。
-- 新建 `helper_test.go`：`newTestEngine(t, root) (*Engine, *job.Service)`，**用导出 API 重建** `newTestServiceWithDB` 的等价 setup（`job.NewService` + `jobstore.Open` + `localrunner.New` + 同样的 self/noexec 项目 config），再 `svc.SetWorkflow(eng)` 接好 finish→Advance 闭环，返回 eng+svc。
-- `waitWorkflow`/`waitForRetryJob`（原在 workflow 测试文件内）随迁，`s.meta`→`eng.meta`/`svc.Meta()`；时钟覆写 `s.nowFn=`→`eng.now=`（同包字段）。
-- 直接调用改写：`s.advanceWorkflow`→`eng.Advance`、`s.AdvanceRunningWorkflows`→`eng.AdvanceRunning`、`s.SubmitWorkflow`→`eng.SubmitWorkflow`、`s.meta`→`eng.meta`。
-- 若某 workflow 测试还依赖 `waitForStatus`（service_test.go, 单 job）：在 helper_test.go 复制一份等价实现。
+**验收 WS2**：`go build/vet ./... + go test ./...`（总测试数不降）全绿；`go list -deps github.com/inhere/gofer/internal/job | grep workflow` **为空**；`go test ./internal/job/workflow/` 单独绿。一次 commit（可在 6.1-6.4 编过后先本地 build，6.5 绿了再统一提交）。
 
 **验收 WS2b**：`go build/vet ./... + go test ./...`（总测试数不降）全绿；`go list -deps github.com/inhere/gofer/internal/job | grep workflow` **为空**（无环）；workflow 包 `go test ./internal/job/workflow/` 单独绿。独立 commit（可拆 7.1+7.2 一提、7.3+7.4 一提，若中途能编过）。
 
@@ -186,19 +187,18 @@ var _ interface {
 
 | 风险 | 缓解 |
 |---|---|
-| import 环 | D-B9：job 不 import workflow；WS2a/WS2b 后各跑 `go list -deps` 验；WS2a 临时 import 必须在 WS2b 消除 |
+| import 环 | D-B9：job 不 import workflow；共享 RetryPolicy 留 job（§3.4）；WS2 原子搬迁无中间环；后跑 `go list -deps` 验 |
 | 测试迁移丢覆盖 | 集成测试经 `newTestEngine` 维持真实 execute→finish→Advance 闭环；总测试数不降为硬门 |
 | finish nil-engine | `s.wf==nil` 时不触发，等价旧语义；单 job 测试（不装 engine）覆盖该路径 |
 | 热重载语义 | config 经 `e.ops.Config()` 实时取，不缓存 |
-| 大 commit 难评审 | 分 WS1/WS2a/WS2b/WS3；WS2b 内再分 7.1-7.2 / 7.3-7.4 |
+| WS2 大 commit | 不可避（包抽取原子性）；先把 WS1 安全缝拆出独立 commit；WS2 内 6.1-6.4 先本地 build 过、6.5 测试绿再统一提交，出问题整体 revert |
 
 每个 WS 独立 commit，出问题单独 revert。
 
 ## 10. 验收总表
 
-- [ ] WS1：5 导出器 + WorkflowAdvancer/SetWorkflow；编译断言；test 绿
-- [ ] WS2a：types 迁 workflow 包；外部 ~35 改名；workflow 包无 job 依赖；test 绿
-- [ ] WS2b：Engine 抽取 + finish hook + core/serve/httpapi wiring + 9 测试迁包；`go list -deps` 无环；test 绿（数不降）
+- [ ] WS1：5 导出器 + WorkflowAdvancer/SetWorkflow + retry.go(导出 *Policy)；编译断言；test 绿
+- [ ] WS2：workflow 子包原子抽取（types/engine/refs + 外部~34改名 + finish hook + core/serve/httpapi wiring + 11 测试迁包）；`go list -deps` 无环；test 绿（数不降）；workflow 包单独绿
 - [ ] WS3：验环 + 冒烟 + CLAUDE.md/文档/记忆回填
 
 ## 11. 实施结果（完成后回填）
