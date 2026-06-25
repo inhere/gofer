@@ -31,13 +31,17 @@ func TestConfigCmdRegistered(t *testing.T) {
 	if cmd.Name != "config" {
 		t.Fatalf("unexpected name %q", cmd.Name)
 	}
-	haveValidate, haveShow := false, false
+	haveValidate, haveShow, haveEdit, haveInfo := false, false, false, false
 	for _, s := range cmd.Subs {
 		switch s.Name {
 		case "validate":
 			haveValidate = true
 		case "show":
 			haveShow = true
+		case "edit":
+			haveEdit = true
+		case "info":
+			haveInfo = true
 		}
 	}
 	if !haveValidate {
@@ -45,6 +49,29 @@ func TestConfigCmdRegistered(t *testing.T) {
 	}
 	if !haveShow {
 		t.Fatal("missing config show sub-command")
+	}
+	if !haveEdit {
+		t.Fatal("missing config edit sub-command")
+	}
+	if !haveInfo {
+		t.Fatal("missing config info sub-command")
+	}
+}
+
+// TestConfigSubsRegisteredViaApp verifies the config subcommands are reachable
+// from the assembled app via GetCommand (the plan's registration check form):
+// app → config → edit/info non-nil.
+func TestConfigSubsRegisteredViaApp(t *testing.T) {
+	app := NewApp("test")
+	cfg := app.GetCommand("config")
+	if cfg == nil {
+		t.Fatal("app missing config command")
+	}
+	if cfg.GetCommand("edit") == nil {
+		t.Fatal("config edit not registered on the app")
+	}
+	if cfg.GetCommand("info") == nil {
+		t.Fatal("config info not registered on the app")
 	}
 }
 

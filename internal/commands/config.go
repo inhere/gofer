@@ -3,6 +3,7 @@ package commands
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -154,8 +155,121 @@ func NewConfigCmd() *gcli.Command {
 				},
 				Func: runConfigShow,
 			},
+			{
+				Name: "edit",
+				Desc: "Open the resolved config file in $VISUAL/$EDITOR (or code/vim/nano)",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+				},
+				Func: runConfigEdit,
+			},
+			{
+				Name: "info",
+				Desc: "Show the resolved config path, key ENV and key settings",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+				},
+				Func: runConfigInfo,
+			},
 		},
 	}
+}
+
+// configEditors is the editor lookup chain for `config edit` (in priority order):
+// the user's $VISUAL / $EDITOR first, then common interactive editors. The first
+// one found on PATH is launched attached to the tty.
+var configEditors = []string{"code", "vim", "nano"}
+
+// runConfigEdit resolves the config file path (lookup chain) and opens it in an
+// editor. It does NOT decode the config — a config that fails to parse is exactly
+// when you most need to edit it — so it only resolves the path. When no config is
+// found it tells the operator to scaffold one first (gofer init).
+func runConfigEdit(c *gcli.Command, _ []string) error {
+	path, err := config.Resolve(config.InputCfgFile)
+	if err != nil {
+		return errorx.Failf(configExitErr, "%v", err)
+	}
+	if path == "" {
+		return errorx.Failf(configExitErr, "no config file found; run `gofer init` (or `gofer init --global`) first")
+	}
+
+	// Probe $VISUAL / $EDITOR (the env-driven user preference) before the built-in
+	// fallbacks, taking the first candidate actually present on PATH.
+	var tried []string
+	candidates := []string{os.Getenv("VISUAL"), os.Getenv("EDITOR")}
+	candidates = append(candidates, configEditors...)
+
+	for _, ed := range candidates {
+		ed = strings.TrimSpace(ed)
+		if ed == "" {
+			continue
+		}
+		tried = append(tried, ed)
+		if _, lookErr := exec.LookPath(ed); lookErr != nil {
+			continue
+		}
+		c.Printf("editing %s with %s\n", path, ed)
+		cmd := exec.Command(ed, path)
+		// Hand the tty to the editor so an interactive editor (vim/nano) works.
+		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+		if runErr := cmd.Run(); runErr != nil {
+			return errorx.Failf(configExitErr, "editor %s failed: %v", ed, runErr)
+		}
+		return nil
+	}
+
+	return errorx.Failf(configExitErr,
+		"no usable editor found (tried %s); set $EDITOR or install one", strings.Join(tried, ", "))
+}
+
+// runConfigInfo prints a diagnostic snapshot: the resolved config path, the key
+// gofer ENV vars and the key effective settings. The token is NEVER printed —
+// only whether it is set (SR403) — and neither is any secret value.
+func runConfigInfo(c *gcli.Command, _ []string) error {
+	cfg, path, err := config.Load(config.InputCfgFile)
+	if err != nil {
+		return errorx.Failf(configExitErr, "%v", err)
+	}
+
+	c.Println("config path:")
+	if path == "" {
+		c.Printf("  (none — defaults + discovery)\n")
+	} else {
+		c.Printf("  %s\n", path)
+	}
+
+	c.Println("env:")
+	c.Printf("  %s=%s\n", config.EnvConfigPath, envOrUnset(config.EnvConfigPath))
+	c.Printf("  %s=%s\n", config.EnvConfigDir, envOrUnset(config.EnvConfigDir))
+	// SR403: never print the token value — only report whether it is set.
+	tokenSet := "no"
+	if os.Getenv("GOFER_TOKEN") != "" {
+		tokenSet = "yes"
+	}
+	c.Printf("  GOFER_TOKEN set=%s\n", tokenSet)
+
+	pathView := cfg.Server.PathView
+	if pathView == "" {
+		pathView = "host"
+	}
+	c.Println("settings:")
+	c.Printf("  server.addr:  %s\n", cfg.Server.Addr)
+	c.Printf("  path_view:    %s\n", pathView)
+	c.Printf("  web_enabled:  %v\n", cfg.Server.IsWebEnabled())
+	c.Printf("  db_path:      %s\n", cfg.ResolveDBPath())
+	c.Printf("  projects:     %d\n", len(cfg.Projects))
+	c.Printf("  agents:       %d\n", len(cfg.Agents))
+	c.Printf("  runners:      %d\n", len(cfg.Runners))
+	return nil
+}
+
+// envOrUnset returns the env var value, or a "(unset)" sentinel when empty, so
+// `config info` distinguishes "set to empty" from "not set" readably.
+func envOrUnset(name string) string {
+	if v := os.Getenv(name); v != "" {
+		return v
+	}
+	return "(unset)"
 }
 
 // runConfigShow prints the effective (overlay-merged) config of one project. It
