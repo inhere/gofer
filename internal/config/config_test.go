@@ -13,6 +13,7 @@ func TestLoadDefaultsWhenMissing(t *testing.T) {
 	// Point lookup at a non-existent explicit path's parent by using an empty
 	// explicit path and isolating env + cwd.
 	t.Setenv(EnvConfigPath, "")
+	t.Setenv(EnvConfigDir, "") // isolate from an ambient GOFER_CONFIG_DIR (wins over HOME)
 	dir := t.TempDir()
 	chdir(t, dir)
 	t.Setenv("HOME", dir) // user-level candidate won't exist either

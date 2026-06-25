@@ -113,6 +113,10 @@ func workerConfigToConfig(wc *config.WorkerConfig) *config.Config {
 		Agents:   wc.Agents,
 		Runners:  wc.Runners,
 	}
+	// Pin the worker's metadata db to its id-namespaced path (<config-dir>/worker/
+	// <worker-id>.db by default) so it never collides with a serve's gofer.db in a
+	// shared config dir; an explicit db_path / root is honoured (ResolveWorkerDBPath).
+	cfg.Storage.DBPath = cfg.ResolveWorkerDBPath(wc.WorkerID)
 	// Defaults (result subdirs / nil maps) so the local store + registries behave
 	// identically to a serve process.
 	config.ApplyDefaults(cfg)
