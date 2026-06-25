@@ -264,8 +264,15 @@ svc.SetWorkflow(eng)                       // 装反向 hook
 | 子域 | 文件 | 评估 | 处置 |
 |---|---|---|---|
 | **interaction** | interaction.go / remote_interaction.go | **已评估(2026-06-25)：不抽包**。状态 `entry.interactions` 挂 jobEntry、与 `entry.result` 共用 `entry.mu`，且直接翻转 job 状态 `pending_interaction↔running`（`StatusPendingInteraction` 是 job 核心状态）、靠 `entry.done` 唤醒——与单 job 引擎共享可变内存+锁+done 信号，反向 seam 宽（判据②不过），与 workflow(状态在 DB、仅 1 处 finish→advance)categorically 不同 | 留 job 包（文件级聚合已足够）|
-| **delivery（webhook）** | delivery.go | 经 deliverySink 已半解耦，但 postFn/sweeper 绑 Service | 候选，次于 workflow |
-| **outcomes / events** | outcomes.go / events.go | 偏数据读写，体量小 | 暂留 job |
+| **delivery（+events）** | delivery.go / events.go | **已评估(2026-06-25)：defer**。状态在 DB、delivery.go 0 碰 jobEntry、sweeper(DeliverDue)窄——不被①③否决；但①enqueue 触发(`enqueueDeliveries`/`deliverySink`)在 events.go，须与 events 捆绑抽 `notify`；②`recordEvent` 横切 **8 处**生命周期(submit/execute/finish/cancel/interaction)，反向 seam 宽；③`eventSink`/`deliverySink` 已是接口、半解耦收益已拿到。判据②偏宽+④收益不抵 → 留 job，待 notify 子系统膨胀再议 | 留 job（defer）|
+| **outcomes** | outcomes.go | **已评估(2026-06-25)：不抽**。`captureOutcomes(entry,…)` 在 execute.go 路径内写 `entry.result.*`(26 次 jobEntry/`entry.mu`)，是单 job 执行的产出采集环节，与 jobEntry/execute 不可分（同 interaction 类，判据①②不过）；自由函数 goferJobEnv/ScanArtifacts 等是 job 工具 | 留 job |
 | **refs** | refs.go | workflow 专属 | **随 workflow 升包一并迁入**（见 §13.4）|
 
-> 原则：**先把最大最干净的 workflow 升包、跑通依赖倒置模式，再以同一模式按需复制到 delivery 等**；不一次性铺开全包拆解（决策面过大、PR 过重）。
+> 原则：**先把最大最干净的 workflow 升包、跑通依赖倒置模式，再以同一模式按需复制**；不一次性铺开全包拆解（决策面过大、PR 过重）。
+
+**子域升包三类判例（2026-06-25 评估沉淀，后续按此速判）**：
+1. **抽**（workflow）：状态在 DB + 反向 seam 窄（单点 hook）+ 不碰 jobEntry → 依赖倒置干净升包。
+2. **不抽·jobEntry 内嵌**（interaction / outcomes）：状态/逻辑挂 `jobEntry`、直接改 job 状态或 `entry.result`、共用 `entry.mu` → 判据②死，是单 job 进程内生命周期的一环，必须同包。
+3. **不抽·横切但浅**（delivery+events）：不碰 jobEntry、状态在 DB、可接口化，但反向 seam 横切多点（`recordEvent` 8 处）+ 已用 sink 半解耦 + 收益中等 → defer，待子系统膨胀再议。
+
+> 速判口诀：先看**状态是否独立于 jobEntry**（否则直接归第 2 类不抽）；再看**反向 seam 是单点 hook 还是横切多点**（横切则归第 3 类 defer）；两关都过且收益够大才抽。
