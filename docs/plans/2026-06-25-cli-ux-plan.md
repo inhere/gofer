@@ -32,8 +32,8 @@
 ## 4. 进度跟进
 
 - [x] **P1** `-c` 收敛 app 级（含 worker 特殊）— worker 用 `--worker-config`；删 26 处子命令 `-c`
-- [ ] **P2** serve 打印路径 + config edit + config info
-- [ ] **P3** project add -i
+- [x] **P2** serve 打印路径 + config edit + config info
+- [x] **P3** project add -i
 
 ---
 
@@ -94,8 +94,8 @@ if path == "" {
 
 ### P2 验收
 
-- [ ] `go build/vet` 绿；新子命令 `config_test.go` 注册用例（`config edit`/`info` 存在）。
-- [ ] 冒烟：`serve` 启动打印 `config: <path>`；`config info` 输出路径+ENV+设置（token 不显值）；`config edit`（设 `EDITOR=true` 或 dry-run）走通编辑器解析。
+- [x] `go build/vet` 绿；新子命令 `config_test.go` 注册用例（`config edit`/`info` 存在，含 app.GetCommand 形式）。
+- [x] 冒烟：`serve` 启动打印 `gofer: config: <path>`；`config info` 输出路径+ENV+设置（token 仅显 set=yes/no，不显值，已验未泄漏）；`config edit` 设 `EDITOR=true` 秒退、不报错；无配置时报错提示先 `gofer init`。
 
 ---
 
@@ -111,8 +111,8 @@ if path == "" {
 
 ### P3 验收
 
-- [ ] `go build/vet/test` 绿。
-- [ ] 冒烟：`cd <某项目> && gofer p add -i`（喂入回车/默认）→ 全局 config 出现该项目；`project show <key>` / `config validate` 确认 host_path=cwd。
+- [x] `go build/vet/test` 绿。
+- [x] 冒烟：`cd <临时项目> && printf '\n\n\n\n' | gofer p add -i`（喂回车走默认，临时 GOFER_CONFIG_DIR 隔离）→ 全局 config 出现该项目（key=目录名、host_path=cwd）；`project show <key>` 确认；真实全局 config 未污染。非交互（无 -i）报错语义不变（缺 key / 缺 --host-path）。
 
 ---
 
@@ -134,3 +134,18 @@ if path == "" {
 - **gcli 关键结论（影响 UX，需知会）**：app 级 flag 由 `App.doParseOpts → app.fs.Parse(args)` 在**命令名之前**消费，**不下放**给子命令 flagset（gcli 无 App 级 PersistentFlags，只有 `Command.SharedOpts()` 是命令级 PersistentFlags）。后果：`gofer -c X serve` ✅ 工作，但 `gofer serve -c X`（`-c` 在子命令后）❌ 报 "option provided but not defined: -c"——这是从「每子命令各有 `-c`」收敛到「app 级单一 `-c`」的**位置回归**（位置从"可前可后"变为"仅前"）。已据此修正 README 全部示例（`-c` 置于子命令前；init→`-o`；worker→`--worker-config`；mcp 配置 args 改 `["-c", path, "mcp"]`）。
 - **测试**：`config.InputCfgFile` 是包级全局，受影响测试（agent/project/config_test）改设该全局并 `t.Cleanup` 重置隔离。`go build/vet ./...` + 三包 test + 全量 test 全绿；`go test -count=1` 无串扰。
 - **遗留**：若要恢复"`-c` 可置于子命令后"的旧体验，需为每个子命令显式加 `SharedOpts()` 级 `-c`（命令级 PersistentFlags 会被下放），或在各子命令 flagset 重新声明并合并 InputCfgFile——本轮按 plan 收敛为 app 级单一 `-c`，未做该回填（如需可作 P1.5 跟进）。
+
+### P2（done · commit 6920091）
+
+- **改动**：`serve.go` `runServe` 改 `cfg, cfgPath, err := config.Load(...)`，启动即打印 `gofer: config: <path>`（path=="" 显 `(none — defaults + discovery)`）。`config.go` 新增 `config edit` / `config info` 两子命令 + `os/exec` 引入。
+- **config edit**：`config.Resolve(InputCfgFile)` 取路径（不 decode——配置坏掉时正需编辑）；空→报错提示先 `gofer init`。探测顺序 `$VISUAL → $EDITOR → code → vim → nano`，首个 `exec.LookPath` 命中即 `exec.Command(ed, path)` 接管 tty；都无→报错列出尝试过的。
+- **config info**：`config.Load` 后打印 配置路径 / ENV(`GOFER_CONFIG`、`GOFER_CONFIG_DIR` 值 + `GOFER_TOKEN` 仅 set=yes/no) / 设置(`server.addr`、`path_view`(空显 host)、`web_enabled`、`db_path`、projects·agents·runners 计数)。**SR403**：token 仅显是否设、不显值（冒烟 grep 确认未泄漏）。
+- **测试**：`config_test.go` 扩 `TestConfigCmdRegistered` 覆盖 edit/info；新增 `TestConfigSubsRegisteredViaApp`（`app.GetCommand("config").GetCommand("edit"|"info")` 非 nil）。
+- **偏差**：plan 写的 `GOFER_CFG_DIR` 实际常量是 `GOFER_CONFIG_DIR`（`config.EnvConfigDir`），按真实常量名实现。
+
+### P3（done · commit 61027bb）
+
+- **改动**：`project.go` `projectAddOpts` 加 `interactive bool`；add 子命令注册 `-i/--interactive`，`<key>` arg 改为 gcli 级 optional（`-i` 时改由提示取，默认 cwd 目录名）；非交互路径仍在 runner 内强制 key+host-path（语义不变）。新增 `runProjectAddInteractive`（`bufio.NewScanner(os.Stdin)` 逐行提示，空行接受默认）+ `splitCSV`。
+- **交互项**：key(默认 `filepath.Base(cwd)`) / host_path(=cwd 绝对路径，自动展示) / container_path / default_agent / allowed_agents(逗号分隔)。`registry.Add` 写入；path=="" 时 `save()` 落全局 `UserConfigPath()`。
+- **测试**：新增 `TestProjectAddInteractive`——`os.Pipe` 喂空行、`t.Setenv(GOFER_CONFIG_DIR, tmp)` 隔离、chdir 临时目录，断言 key=目录名、host_path=cwd 落临时全局 config。
+- **偏差**：项目未用 gcli interact，按 plan 备选用 `bufio` stdin 提示（同时兼容交互 tty 与管道喂入）。`<key>` 由 required 改 optional 是为让 `-i` 不传位置参也能跑；非交互缺 key 仍报原文案。
