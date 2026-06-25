@@ -14,7 +14,6 @@ package mcpserver
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"sort"
 
@@ -425,30 +424,20 @@ type getArtifactsOutput struct {
 // a non-nil empty array.
 func getArtifactsHandler(jobs *job.Service) mcp.ToolHandlerFor[jobIDInput, getArtifactsOutput] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in jobIDInput) (*mcp.CallToolResult, getArtifactsOutput, error) {
-		res, ok := jobs.Get(in.ID)
+		// Manifest resolution (persisted ArtifactsJSON preferred, else a live scan)
+		// is the shared job.Service.GetArtifactManifest — the same data-plane the
+		// HTTP list endpoint uses, so the two no longer keep duplicate copies. ok=false
+		// is an unknown job. Items is always non-nil.
+		m, ok := jobs.GetArtifactManifest(in.ID)
 		if !ok {
 			return nil, getArtifactsOutput{}, fmt.Errorf("unknown job %q", in.ID)
 		}
-		items := resolveArtifacts(res)
-		out := getArtifactsOutput{Artifacts: make([]artifactView, 0, len(items))}
-		for _, it := range items {
+		out := getArtifactsOutput{Artifacts: make([]artifactView, 0, len(m.Items))}
+		for _, it := range m.Items {
 			out.Artifacts = append(out.Artifacts, artifactView{Name: it.Name, Size: it.Size, Mtime: it.Mtime})
 		}
 		return nil, out, nil
 	}
-}
-
-// resolveArtifacts prefers the persisted manifest (ArtifactsJSON) and falls back
-// to a live scan, matching httpapi.manifestFor (kept local to avoid importing
-// the httpapi package from mcpserver).
-func resolveArtifacts(res job.JobResult) []job.ArtifactItem {
-	if res.ArtifactsJSON != "" {
-		var items []job.ArtifactItem
-		if err := json.Unmarshal([]byte(res.ArtifactsJSON), &items); err == nil && items != nil {
-			return items
-		}
-	}
-	return job.ScanArtifacts(res.ResultDir)
 }
 
 // --- bridge_get_result ------------------------------------------------------
