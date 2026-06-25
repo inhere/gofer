@@ -1,4 +1,4 @@
-package commands
+package serve
 
 import (
 	"github.com/inhere/gofer/internal/config"
