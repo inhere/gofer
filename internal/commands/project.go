@@ -1,9 +1,11 @@
 package commands
 
 import (
+	"bufio"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gookit/gcli/v3"
 
@@ -23,6 +25,7 @@ var projectAddOpts = struct {
 	allowRunners   gcli.Strings // repeatable: --allow-runner
 	allowExec      bool
 	force          bool
+	interactive    bool // -i: prompt for fields, defaulting the project to the cwd
 }{}
 
 // NewProjectCmd builds the `project` command group with sub commands
@@ -65,7 +68,11 @@ func NewProjectCmd() *gcli.Command {
 					c.VarOpt(&projectAddOpts.allowRunners, "allow-runner", "", "allowed runner (repeatable)")
 					c.BoolOpt(&projectAddOpts.allowExec, "allow-exec", "", false, "allow exec agent in this project")
 					c.BoolOpt(&projectAddOpts.force, "force", "", false, "overwrite an existing project entry")
-					c.AddArg("key", "project key", true)
+					c.BoolOpt(&projectAddOpts.interactive, "interactive", "i", false, "interactively add the current directory (prompts for key/paths/agents)")
+					// key is optional at the gcli level so `add -i` can prompt for it
+					// (defaulting to the cwd dir name); the non-interactive path still
+					// requires it (runProjectAdd errors when missing).
+					c.AddArg("key", "project key (required unless -i)", false)
 				},
 				Func: runProjectAdd,
 			},
@@ -162,6 +169,13 @@ func runProjectShow(c *gcli.Command, _ []string) error {
 }
 
 func runProjectAdd(c *gcli.Command, _ []string) error {
+	// -i: interactively register the current directory, prompting for the fields
+	// (key defaults to the cwd dir name, host_path is the cwd). Non-interactive
+	// behaviour below is unchanged.
+	if projectAddOpts.interactive {
+		return runProjectAddInteractive(c)
+	}
+
 	key := argKey(c)
 	if key == "" {
 		return fmt.Errorf("project add requires a <key> argument")
@@ -202,6 +216,75 @@ func runProjectAdd(c *gcli.Command, _ []string) error {
 	}
 	c.Printf("project %q saved to %s\n", key, reg.Path())
 	return nil
+}
+
+// runProjectAddInteractive registers the current working directory as a project,
+// prompting for each field with a sensible default (key = cwd dir name, host_path
+// = cwd abs path). It reads from os.Stdin line-by-line (a blank line accepts the
+// shown default), so it works both interactively and when fed piped input.
+func runProjectAddInteractive(c *gcli.Command) error {
+	cwd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("getwd: %w", err)
+	}
+	hostAbs, err := filepath.Abs(cwd)
+	if err != nil {
+		return fmt.Errorf("resolve cwd: %w", err)
+	}
+
+	sc := bufio.NewScanner(os.Stdin)
+	ask := func(prompt, def string) string {
+		if def != "" {
+			c.Printf("%s [%s]: ", prompt, def)
+		} else {
+			c.Printf("%s: ", prompt)
+		}
+		if !sc.Scan() {
+			return def
+		}
+		v := strings.TrimSpace(sc.Text())
+		if v == "" {
+			return def
+		}
+		return v
+	}
+
+	key := ask("project key", filepath.Base(hostAbs))
+	if key == "" {
+		return fmt.Errorf("project key is required")
+	}
+	c.Printf("host_path: %s\n", hostAbs)
+
+	proj := config.ProjectConfig{
+		HostPath:      hostAbs,
+		ContainerPath: ask("container_path (mount path inside container, blank for none)", ""),
+		DefaultAgent:  ask("default_agent (blank for none)", ""),
+	}
+	if agents := ask("allowed_agents (comma-separated, blank for default)", ""); agents != "" {
+		proj.AllowedAgents = splitCSV(agents)
+	}
+
+	reg, err := loadRegistry(config.InputCfgFile)
+	if err != nil {
+		return err
+	}
+	if err := reg.Add(key, proj, projectAddOpts.force); err != nil {
+		return err
+	}
+	c.Printf("project %q saved to %s\n", key, reg.Path())
+	return nil
+}
+
+// splitCSV splits a comma-separated list, trimming whitespace and dropping empty
+// entries (so "a, b, " → ["a","b"]).
+func splitCSV(s string) []string {
+	var out []string
+	for _, part := range strings.Split(s, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func runProjectRemove(c *gcli.Command, _ []string) error {

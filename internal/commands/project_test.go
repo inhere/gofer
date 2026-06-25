@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"os"
 	"path/filepath"
 	"testing"
 
@@ -112,6 +113,84 @@ func TestProjectAddListShowValidate(t *testing.T) {
 	setArg("key", "ghost")
 	if err := runProjectShow(c, nil); err == nil {
 		t.Fatal("expected show of unknown project to fail")
+	}
+}
+
+// TestProjectAddInteractive drives `project add -i` with piped empty lines (all
+// defaults accepted): the project lands in the global config under the cwd dir
+// name with host_path = cwd. GOFER_CONFIG_DIR redirects the global config to a
+// temp dir so the test never touches the real home.
+func TestProjectAddInteractive(t *testing.T) {
+	host := t.TempDir()
+	cfgDir := t.TempDir()
+	t.Setenv(config.EnvConfigDir, cfgDir)
+
+	// chdir into the project dir so cwd-derived defaults (key, host_path) come
+	// from it; restore afterwards.
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(host); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	// host may be a symlinked temp dir (e.g. /var vs /private/var); use the
+	// resolved cwd as the expectation so the assertion matches what the runner sees.
+	wantHost, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd after chdir: %v", err)
+	}
+	wantKey := filepath.Base(wantHost)
+
+	// Feed five blank lines: accept default key, blank container_path,
+	// default_agent, allowed_agents (the prompts the runner reads).
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("pipe: %v", err)
+	}
+	if _, err := w.WriteString("\n\n\n\n\n"); err != nil {
+		t.Fatalf("write stdin: %v", err)
+	}
+	_ = w.Close()
+	oldStdin := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = oldStdin })
+
+	cmd := NewProjectCmd()
+	addCmd := findSub(t, cmd, "add")
+	c := gcli.NewCommand(addCmd.Name, addCmd.Desc, nil)
+	if addCmd.Config != nil {
+		addCmd.Config(c)
+	}
+	config.InputCfgFile = "" // resolve to the (temp) global config
+	projectAddOpts.interactive = true
+	projectAddOpts.force = false
+	t.Cleanup(func() {
+		config.InputCfgFile = ""
+		projectAddOpts.interactive = false
+	})
+
+	if err := runProjectAdd(c, nil); err != nil {
+		t.Fatalf("interactive add: %v", err)
+	}
+
+	// It must have been written to the temp global config (UserConfigPath under
+	// the temp GOFER_CONFIG_DIR).
+	gp, err := config.UserConfigPath()
+	if err != nil {
+		t.Fatalf("UserConfigPath: %v", err)
+	}
+	cfg, _, err := config.Load(gp)
+	if err != nil {
+		t.Fatalf("load global config: %v", err)
+	}
+	p, ok := cfg.Projects[wantKey]
+	if !ok {
+		t.Fatalf("interactive add did not register project %q; projects=%v", wantKey, cfg.Projects)
+	}
+	if p.HostPath != wantHost {
+		t.Errorf("host_path = %q want %q", p.HostPath, wantHost)
 	}
 }
 
