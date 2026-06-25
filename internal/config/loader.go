@@ -146,6 +146,31 @@ func (c *Config) ResolveDBPath() string {
 	return filepath.Join(dir, DBFileName)
 }
 
+// ResolveWorkerDBPath returns a ws-worker's SQLite metadata db path. It mirrors
+// ResolveDBPath but is namespaced by workerID so a worker never collides on a single
+// gofer.db when it shares a config dir with a serve (or with other workers — each
+// gets its own id-named file). Resolution order:
+//  1. an explicit Storage.DBPath;
+//  2. <Storage.Root>/<workerID>.db when Root is set;
+//  3. <config-dir>/worker/<workerID>.db otherwise.
+//
+// So both the bare default and an explicit Root=<config-dir>/worker converge on
+// <config-dir>/worker/<workerID>.db. jobstore.Open MkdirAll's the parent dir.
+func (c *Config) ResolveWorkerDBPath(workerID string) string {
+	if p := strings.TrimSpace(c.Storage.DBPath); p != "" {
+		return p
+	}
+	name := workerID + ".db"
+	if root := strings.TrimSpace(c.Storage.Root); root != "" {
+		return filepath.Join(root, name)
+	}
+	dir, err := ConfigDir()
+	if err != nil || dir == "" {
+		return filepath.Join("worker", name)
+	}
+	return filepath.Join(dir, "worker", name)
+}
+
 // candidatePaths lists the auto-discovery locations (current dir, then user).
 func candidatePaths() []string {
 	// Clone so appending the user path never mutates the package-level slice.
