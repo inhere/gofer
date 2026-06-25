@@ -12,6 +12,7 @@ import (
 	"github.com/gookit/goutil/errorx"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/mcpserver"
 )
 
@@ -49,14 +50,14 @@ func runMcp(_ *gcli.Command, _ []string) error {
 	for _, w := range config.ApplyProjectOverlays(cfg) {
 		fmt.Fprintf(os.Stderr, "gofer mcp: overlay warn: %s\n", w)
 	}
-	core, err := buildCore(cfg)
+	cr, err := core.Build(cfg)
 	if err != nil {
 		return errorx.Failf(mcpExitErr, "%v", err)
 	}
 	// Graceful shutdown: close the metadata store (WAL checkpoint) when the MCP
 	// server returns (design §14).
-	defer func() { _ = core.Close() }()
-	err = mcpserver.Serve(context.Background(), core.Jobs, core.Projects, core.Agents)
+	defer func() { _ = cr.Close() }()
+	err = mcpserver.Serve(context.Background(), cr.Jobs, cr.Projects, cr.Agents)
 	if isCleanShutdown(err) {
 		// A clean stdin EOF (client closed the pipe) or a cancelled context is the
 		// normal stdio-MCP shutdown path, not a failure. Returning the error here

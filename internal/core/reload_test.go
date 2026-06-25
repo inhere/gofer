@@ -1,4 +1,4 @@
-package commands
+package core
 
 import (
 	"os"
@@ -31,7 +31,7 @@ func TestCoreReloadAddsProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	core, err := buildCore(cfg)
+	core, err := Build(cfg)
 	if err != nil {
 		t.Fatalf("buildCore: %v", err)
 	}
@@ -73,7 +73,7 @@ func TestCoreReloadFailSafeKeepsOldConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	core, err := buildCore(cfg)
+	core, err := Build(cfg)
 	if err != nil {
 		t.Fatalf("buildCore: %v", err)
 	}
@@ -114,7 +114,7 @@ func TestCoreReloadDeletedFileKeepsOldConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	core, err := buildCore(cfg)
+	core, err := Build(cfg)
 	if err != nil {
 		t.Fatalf("buildCore: %v", err)
 	}

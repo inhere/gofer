@@ -1,4 +1,4 @@
-package commands
+package core
 
 import (
 	"net/http"
@@ -11,7 +11,7 @@ import (
 	workerrunner "github.com/inhere/gofer/internal/runner/worker"
 )
 
-// TestBuildCoreWorkerRunner proves buildCore registers a type=worker runner, the
+// TestBuildCoreWorkerRunner proves Build registers a type=worker runner, the
 // hub is non-nil, and every worker runner shares the SAME hub singleton.
 func TestBuildCoreWorkerRunner(t *testing.T) {
 	host := t.TempDir()
@@ -32,7 +32,7 @@ func TestBuildCoreWorkerRunner(t *testing.T) {
 	}
 	config.ApplyDefaults(cfg)
 
-	core, err := buildCore(cfg)
+	core, err := Build(cfg)
 	if err != nil {
 		t.Fatalf("buildCore: %v", err)
 	}
@@ -51,7 +51,7 @@ func TestBuildCoreWorkerRunner(t *testing.T) {
 	}
 	_ = ra
 	_ = rb
-	// (Both runners were built from the same hub instance passed by buildCore;
+	// (Both runners were built from the same hub instance passed by Build;
 	// the hub being non-nil + both runners present is the singleton assertion the
 	// public API can make without reaching into runner internals.)
 }
@@ -73,7 +73,7 @@ func TestServeMountsWorkerConnectRoute(t *testing.T) {
 	}
 	config.ApplyDefaults(cfg)
 
-	core, err := buildCore(cfg)
+	core, err := Build(cfg)
 	if err != nil {
 		t.Fatalf("buildCore: %v", err)
 	}
