@@ -35,7 +35,7 @@
 - [ ] **BP2** internal/serve（runServe+startLoop）+ worker 编排归位
 - [ ] **BP3** internal/runner/probe.go
 - [ ] **BP4** internal/streaming（stream_handler 下沉）
-- [ ] **BP5** job.Service 扩接口 + handler 瘦身 + safeJoinUnder→store
+- [x] **BP5** job.Service 扩接口 + handler 瘦身 + safeJoinUnder→store
 - [ ] **BP6** client/watch + 域解析 + config/validate + resolveProjectByCwd
 
 ---
