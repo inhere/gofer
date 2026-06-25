@@ -1,12 +1,8 @@
 package commands
 
 import (
-	"context"
 	"fmt"
-	"log/slog"
 	"os"
-	"os/signal"
-	"syscall"
 	"time"
 
 	yaml "github.com/goccy/go-yaml"
@@ -80,26 +76,9 @@ func runWorker(c *gcli.Command, _ []string) error {
 		ReadDeadline:   secToDuration(rc.ReadDeadlineSec),
 	}, cr.Jobs)
 
-	// Graceful shutdown: SIGINT/SIGTERM cancels the worker ctx, which makes
-	// Run exit its reconnect/recv/heartbeat loops and close the connection
-	// (going-away). signal.Stop on return so the signal goroutine never leaks
-	// (mirrors serve's startReloadLoop, §5.6).
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	sig := make(chan os.Signal, 1)
-	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(sig)
-	go func() {
-		select {
-		case <-ctx.Done():
-		case <-sig:
-			cancel()
-		}
-	}()
-
-	slog.Info("worker starting", "worker_id", wc.WorkerID, "urls", wc.ServerLink.URLs,
-		"labels", wc.Labels, "max_concurrent", wc.MaxConcurrent)
-	if err := cl.Run(ctx); err != nil {
+	// Run until SIGINT/SIGTERM; the signal/ctx start-stop orchestration lives in
+	// internal/worker (D-B4), the command keeps only config loading + assembly.
+	if err := worker.Serve(cl, wc); err != nil {
 		return errorx.Failf(workerExitErr, "%v", err)
 	}
 	return nil
