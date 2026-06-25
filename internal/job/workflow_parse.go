@@ -1,20 +1,77 @@
-package commands
+package job
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	yaml "github.com/goccy/go-yaml"
-
-	"github.com/inhere/gofer/internal/job"
 )
 
 // maxStepMarkdownBytes caps a single md-per-step file (frontmatter + body) so a
 // pathological file can not be slurped whole (mirrors httpapi.maxMarkdownBytes).
 const maxStepMarkdownBytes = 256 * 1024
+
+// ParseWorkflowFile reads a workflow file and unmarshals it into a WorkflowSpec.
+// It accepts THREE input shapes (T4.1 import + T4.2 md-per-step), dispatched by
+// extension/content:
+//   - .json — a WorkflowSpec JSON dump (the export round-trip, T4.1);
+//   - .yaml/.yml (default) — the design §9 yaml (title + steps[] with the StepSpec
+//     yaml tags). A step may additionally carry `file: foo.md` to pull its params +
+//     prompt from an external md-per-step file (T4.2, resolved relative to the
+//     workflow file's directory).
+//
+// After decode each step's optional `file:` reference is expanded (expandStepMarkdown):
+// the md frontmatter fills the step's fields and the md body becomes its prompt, so a
+// long prompt lives in its own reviewable md file instead of inline yaml. It is
+// extracted so the command and its unit tests share one decoder.
+func ParseWorkflowFile(path string) (WorkflowSpec, error) {
+	body, err := os.ReadFile(path)
+	if err != nil {
+		return WorkflowSpec{}, fmt.Errorf("read workflow file: %w", err)
+	}
+	spec, err := decodeWorkflowBody(path, body)
+	if err != nil {
+		return WorkflowSpec{}, err
+	}
+	if len(spec.Steps) == 0 {
+		return WorkflowSpec{}, fmt.Errorf("workflow file has no steps")
+	}
+	// T4.2: expand each step's optional md-per-step `file:` reference, resolved relative
+	// to the workflow file's directory.
+	baseDir := filepath.Dir(path)
+	for i := range spec.Steps {
+		if err := expandStepMarkdown(&spec.Steps[i], baseDir, i+1); err != nil {
+			return WorkflowSpec{}, err
+		}
+	}
+	return spec, nil
+}
+
+// decodeWorkflowBody unmarshals a workflow file body into a WorkflowSpec, choosing
+// JSON vs YAML by the file extension (a .json file is the export dump; everything else
+// is treated as yaml). JSON and yaml StepSpec/WorkflowSpec tags match (the struct tags
+// carry both), so the same struct decodes either dump.
+func decodeWorkflowBody(path string, body []byte) (WorkflowSpec, error) {
+	var spec WorkflowSpec
+	// JSON when the extension says .json OR the content is a JSON object (leading '{'),
+	// so an exported `-f json` spec re-imports regardless of file name (e.g. piped to a
+	// .txt). A workflow yaml always starts with a key (title:/steps:), never '{', so the
+	// content sniff is unambiguous. Everything else is YAML.
+	if strings.EqualFold(filepath.Ext(path), ".json") || strings.HasPrefix(strings.TrimSpace(string(body)), "{") {
+		if err := json.Unmarshal(body, &spec); err != nil {
+			return WorkflowSpec{}, fmt.Errorf("parse workflow json: %w", err)
+		}
+		return spec, nil
+	}
+	if err := yaml.Unmarshal(body, &spec); err != nil {
+		return WorkflowSpec{}, fmt.Errorf("parse workflow yaml: %w", err)
+	}
+	return spec, nil
+}
 
 // expandStepMarkdown expands a step's optional md-per-step `file:` reference in place
 // (T4.2). When step.File is set, the named md file (resolved relative to baseDir — the
@@ -24,7 +81,7 @@ const maxStepMarkdownBytes = 256 * 1024
 // the override layer), and an inline prompt (rare alongside a file) wins over the md body.
 // A step with no File is left untouched (the common/v1 path). stepNo is 1-based, for
 // error messages.
-func expandStepMarkdown(step *job.StepSpec, baseDir string, stepNo int) error {
+func expandStepMarkdown(step *StepSpec, baseDir string, stepNo int) error {
 	if step.File == "" {
 		return nil // no md-per-step reference: leave the inline step as-is (v1 path)
 	}
@@ -53,8 +110,8 @@ func expandStepMarkdown(step *job.StepSpec, baseDir string, stepNo int) error {
 // frontmatter shape as the E14 single-job md submit (a leading '---' block, then prose).
 // A missing frontmatter block is an error (the md-per-step contract requires it so step
 // params are explicit). The frontmatter binds via the StepSpec yaml tags.
-func parseStepMarkdown(body []byte) (job.StepSpec, string, error) {
-	var fmStep job.StepSpec
+func parseStepMarkdown(body []byte) (StepSpec, string, error) {
+	var fmStep StepSpec
 	fm, rest, ok := splitWorkflowFrontmatter(body)
 	if !ok {
 		return fmStep, "", fmt.Errorf("missing yaml frontmatter (expected leading '---' block)")
@@ -72,7 +129,7 @@ func parseStepMarkdown(body []byte) (job.StepSpec, string, error) {
 // is the override layer over the shared md template). For each field, the md value is used
 // only when the inline step left it at its zero value. The md body fills Prompt only when
 // the merged step has no inline prompt.
-func mergeStepFromMarkdown(step *job.StepSpec, fromMD job.StepSpec, prompt string) {
+func mergeStepFromMarkdown(step *StepSpec, fromMD StepSpec, prompt string) {
 	if step.Name == "" {
 		step.Name = fromMD.Name
 	}
@@ -126,7 +183,7 @@ func mergeStepFromMarkdown(step *job.StepSpec, fromMD job.StepSpec, prompt strin
 }
 
 // splitWorkflowFrontmatter separates a leading '---' yaml block from the markdown body.
-// It mirrors httpapi.splitFrontmatter (kept local so the commands package has no httpapi
+// It mirrors httpapi.splitFrontmatter (kept local so the job package has no httpapi
 // dependency): tolerant of leading whitespace and \r\n; ok=false when there is no opening
 // '---' or no closing '---' line.
 func splitWorkflowFrontmatter(body []byte) (fm, rest []byte, ok bool) {

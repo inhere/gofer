@@ -193,33 +193,42 @@ func runConfigEdit(c *gcli.Command, _ []string) error {
 		return errorx.Failf(configExitErr, "no config file found; run `gofer init` (or `gofer init --global`) first")
 	}
 
-	// Probe $VISUAL / $EDITOR (the env-driven user preference) before the built-in
-	// fallbacks, taking the first candidate actually present on PATH.
-	var tried []string
+	ed, tried := resolveEditor()
+	if ed == "" {
+		return errorx.Failf(configExitErr,
+			"no usable editor found (tried %s); set $EDITOR or install one", strings.Join(tried, ", "))
+	}
+
+	c.Printf("editing %s with %s\n", path, ed)
+	cmd := exec.Command(ed, path)
+	// Hand the tty to the editor so an interactive editor (vim/nano) works.
+	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
+	if runErr := cmd.Run(); runErr != nil {
+		return errorx.Failf(configExitErr, "editor %s failed: %v", ed, runErr)
+	}
+	return nil
+}
+
+// resolveEditor probes $VISUAL / $EDITOR (the env-driven user preference) before
+// the built-in fallbacks (configEditors), returning the first candidate actually
+// present on PATH and the list of names tried (for the not-found error message).
+// ed=="" means no usable editor was found.
+func resolveEditor() (ed string, tried []string) {
 	candidates := []string{os.Getenv("VISUAL"), os.Getenv("EDITOR")}
 	candidates = append(candidates, configEditors...)
 
-	for _, ed := range candidates {
-		ed = strings.TrimSpace(ed)
-		if ed == "" {
+	for _, cand := range candidates {
+		cand = strings.TrimSpace(cand)
+		if cand == "" {
 			continue
 		}
-		tried = append(tried, ed)
-		if _, lookErr := exec.LookPath(ed); lookErr != nil {
+		tried = append(tried, cand)
+		if _, lookErr := exec.LookPath(cand); lookErr != nil {
 			continue
 		}
-		c.Printf("editing %s with %s\n", path, ed)
-		cmd := exec.Command(ed, path)
-		// Hand the tty to the editor so an interactive editor (vim/nano) works.
-		cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, os.Stdout, os.Stderr
-		if runErr := cmd.Run(); runErr != nil {
-			return errorx.Failf(configExitErr, "editor %s failed: %v", ed, runErr)
-		}
-		return nil
+		return cand, tried
 	}
-
-	return errorx.Failf(configExitErr,
-		"no usable editor found (tried %s); set $EDITOR or install one", strings.Join(tried, ", "))
+	return "", tried
 }
 
 // runConfigInfo prints a diagnostic snapshot: the resolved config path, the key

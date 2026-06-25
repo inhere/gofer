@@ -2,7 +2,6 @@ package commands
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"os/signal"
@@ -15,6 +14,7 @@ import (
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/project"
 )
 
 // jobRunOpts holds `job run` flags. prompt is supplied via the --prompt flag
@@ -212,43 +212,6 @@ func newClient(configPath, serverFlag, tokenFlag string) (*client.Client, error)
 	return client.New(addr, token), nil
 }
 
-// resolveProjectByCwd returns the project key whose host_path or container_path
-// is the longest prefix of absCwd, plus cwd relative to that root (D7). It only
-// uses the 注册锚 (host/container path), never the overlay. ok=false on zero match
-// or a tie (两个项目同长前缀 → 让用户显式 -p, 避免误派).
-func resolveProjectByCwd(cfg *config.Config, absCwd string) (key, relCwd string, ok bool) {
-	bestLen := -1
-	tie := false
-	for k, p := range cfg.Projects {
-		for _, root := range []string{p.ContainerPath, p.HostPath} {
-			if root == "" {
-				continue
-			}
-			abs, err := filepath.Abs(root)
-			if err != nil {
-				continue
-			}
-			if absCwd == abs || strings.HasPrefix(absCwd, abs+string(filepath.Separator)) {
-				if len(abs) > bestLen {
-					bestLen, key, tie = len(abs), k, false
-					if rel, e := filepath.Rel(abs, absCwd); e == nil {
-						relCwd = rel
-					}
-				} else if len(abs) == bestLen && k != key {
-					tie = true
-				}
-			}
-		}
-	}
-	if bestLen < 0 || tie {
-		return "", "", false
-	}
-	if relCwd == "" {
-		relCwd = "."
-	}
-	return key, relCwd, true
-}
-
 // resolveClientToken mirrors serve's token resolution for the client side:
 // server.token, overridden by server.token_env (when set and non-empty), then by
 // an explicit --token flag.
@@ -291,7 +254,7 @@ func runJobRun(c *gcli.Command, _ []string) error {
 	if jobRunOpts.project == "" {
 		if cfg, _, err := config.Load(config.InputCfgFile); err == nil {
 			if abs, e := filepath.Abs("."); e == nil {
-				if key, rel, found := resolveProjectByCwd(cfg, abs); found {
+				if key, rel, found := project.ResolveByCwd(cfg, abs); found {
 					jobRunOpts.project = key
 					if jobRunOpts.cwd == "" || jobRunOpts.cwd == "." {
 						jobRunOpts.cwd = rel
@@ -552,35 +515,17 @@ func runJobWatch(c *gcli.Command, _ []string) error {
 // watchToTerminal streams a job's SSE to terminal, printing status changes and
 // raw log text, then maps the terminal status to a process exit code (done=0 /
 // cancelled=130 / other=1) via os.Exit on the non-zero path. Ctrl-C cancels the
-// stream and exits 130. Shared by `job watch` and `job rerun --watch`.
+// stream and exits 130. Shared by `job watch` and `job rerun --watch`. The SSE
+// watch state-machine lives in client.WatchJob (BP6); this keeps only the
+// command presentation (printing + the exit-code mapping, a command concern).
 func watchToTerminal(c *gcli.Command, cli *client.Client, id string, from int) error {
 	// Ctrl-C cancels the stream context for a clean exit.
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 
-	var lastStatus, finalStatus string
-	streamErr := cli.StreamJob(ctx, id, from, func(ev client.SSEEvent) {
-		switch ev.Event {
-		case "status":
-			var jr job.JobResult
-			if err := json.Unmarshal(ev.Data, &jr); err != nil {
-				return
-			}
-			if jr.Status != lastStatus {
-				lastStatus = jr.Status
-				c.Printf(">> status: %s\n", jr.Status)
-			}
-			if job.IsTerminal(jr.Status) {
-				finalStatus = jr.Status
-			}
-		case "log":
-			var lf struct {
-				Text string `json:"text"`
-			}
-			if err := json.Unmarshal(ev.Data, &lf); err == nil && lf.Text != "" {
-				c.Print(lf.Text)
-			}
-		}
+	finalStatus, streamErr := cli.WatchJob(ctx, id, from, client.WatchHandlers{
+		OnStatus: func(status string) { c.Printf(">> status: %s\n", status) },
+		OnLog:    func(text string) { c.Print(text) },
 	})
 	if streamErr != nil {
 		return streamErr
@@ -593,12 +538,6 @@ func watchToTerminal(c *gcli.Command, cli *client.Client, id string, from int) e
 		os.Exit(130)
 	}
 
-	if finalStatus == "" {
-		// Stream ended (EOF) without a terminal status frame: fetch authoritative.
-		if res, err := cli.GetJob(id); err == nil {
-			finalStatus = res.Status
-		}
-	}
 	c.Printf("job %s finished: status=%s\n", id, finalStatus)
 	if code := terminalExitCode(finalStatus); code != 0 {
 		os.Exit(code)
