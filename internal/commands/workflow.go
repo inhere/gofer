@@ -66,6 +66,7 @@ func NewWorkflowCmd() *gcli.Command {
 				Aliases: []string{"add"},
 				Desc:    "Submit a workflow from a yaml or json file (title + steps[])",
 				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
 					c.StrOpt(&wfRunOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&wfRunOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.BoolOpt(&wfRunOpts.watch, "watch", "w", false, "poll the workflow until it reaches a terminal state, printing each step")
@@ -77,6 +78,7 @@ func NewWorkflowCmd() *gcli.Command {
 				Name: "show",
 				Desc: "Query a workflow's status + step chain",
 				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
 					c.StrOpt(&wfShowOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&wfShowOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.AddArg("id", "workflow id", true)
@@ -88,6 +90,7 @@ func NewWorkflowCmd() *gcli.Command {
 				Desc:    "List workflows with an optional status filter",
 				Aliases: []string{"ls"},
 				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
 					c.StrOpt(&wfListOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&wfListOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.StrOpt(&wfListOpts.status, "status", "", "", "filter by status (running/done/failed/cancelled)")
@@ -98,6 +101,7 @@ func NewWorkflowCmd() *gcli.Command {
 				Name: "cancel",
 				Desc: "Cancel a running workflow",
 				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
 					c.StrOpt(&wfCancelOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&wfCancelOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.AddArg("id", "workflow id", true)
@@ -108,6 +112,7 @@ func NewWorkflowCmd() *gcli.Command {
 				Name: "export",
 				Desc: "Export a workflow's spec (secrets stripped) for re-import; default yaml (= `wf run` format)",
 				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
 					c.StrOpt(&wfExportOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&wfExportOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.StrOpt(&wfExportOpts.out, "out", "o", "", "write the spec to this file instead of stdout")
@@ -120,6 +125,7 @@ func NewWorkflowCmd() *gcli.Command {
 				Name: "events",
 				Desc: "Print a workflow's lifecycle event timeline",
 				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
 					c.StrOpt(&wfEventsOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&wfEventsOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.Int64Opt(&wfEventsOpts.since, "since", "", 0, "only events with seq strictly greater than this cursor")

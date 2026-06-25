@@ -140,6 +140,7 @@ func NewConfigCmd() *gcli.Command {
 				Desc:    "Validate a config (target: server | worker): load + per-project paths/agents/runners",
 				Aliases: []string{"check"},
 				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
 					c.AddArg("target", "what to validate: server (default) | worker", false)
 				},
 				Func: runConfigValidate,
@@ -148,6 +149,7 @@ func NewConfigCmd() *gcli.Command {
 				Name: "show",
 				Desc: "Show the effective (overlay-merged) config of a project",
 				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
 					c.AddArg("key", "project key", true)
 				},
 				Func: runConfigShow,

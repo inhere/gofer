@@ -85,6 +85,7 @@ func NewJobCmd() *gcli.Command {
 				Desc:    "Submit a new job",
 				Aliases: []string{"add"},
 				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
 					c.StrOpt(&jobRunOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&jobRunOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.StrOpt(&jobRunOpts.project, "project", "p", "", "project key (required)")
@@ -113,6 +114,7 @@ func NewJobCmd() *gcli.Command {
 				Name: "show",
 				Desc: "Query a job's status",
 				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
 					c.StrOpt(&jobCommonOpts.showServer, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&jobCommonOpts.showToken, "token", "", "", "bearer token override (prefer config/env)")
 					c.AddArg("id", "job id", true)
@@ -123,6 +125,7 @@ func NewJobCmd() *gcli.Command {
 				Name: "logs",
 				Desc: "Read a job's stdout/stderr logs",
 				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
 					c.StrOpt(&jobCommonOpts.logsServer, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&jobCommonOpts.logsToken, "token", "", "", "bearer token override (prefer config/env)")
 					c.StrOpt(&jobCommonOpts.logsStream, "stream", "", "stdout", "log stream: stdout|stderr")
@@ -134,6 +137,7 @@ func NewJobCmd() *gcli.Command {
 				Name: "cancel",
 				Desc: "Cancel a running job",
 				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
 					c.StrOpt(&jobCommonOpts.cancelServer, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&jobCommonOpts.cancelTkn, "token", "", "", "bearer token override (prefer config/env)")
 					c.AddArg("id", "job id", true)
@@ -145,6 +149,7 @@ func NewJobCmd() *gcli.Command {
 				Desc:    "List jobs with optional filters (tag/agent/runner/since/...)",
 				Aliases: []string{"ls"},
 				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
 					c.StrOpt(&jobListOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&jobListOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.StrOpt(&jobListOpts.project, "project", "p", "", "filter by project key")
@@ -162,6 +167,7 @@ func NewJobCmd() *gcli.Command {
 				Name: "watch",
 				Desc: "Stream a job's status + logs live until it finishes",
 				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
 					c.StrOpt(&jobWatchOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&jobWatchOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.IntOpt(&jobWatchOpts.from, "from", "", 0, "resume stdout from a byte offset")
@@ -173,6 +179,7 @@ func NewJobCmd() *gcli.Command {
 				Name: "rerun",
 				Desc: "Re-submit a job from its original request (fresh idempotency key)",
 				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
 					c.StrOpt(&jobRerunOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&jobRerunOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.BoolOpt(&jobRerunOpts.watch, "watch", "w", false, "watch the new job's stream until it finishes")

@@ -22,17 +22,24 @@ func NewAgentCmd() *gcli.Command {
 				Name:    "list",
 				Desc:    "List configured agents",
 				Aliases: []string{"ls"},
-				Func:    runAgentList,
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+				},
+				Func: runAgentList,
 			},
 			{
 				Name: "detect",
 				Desc: "Run detect commands and report agent availability",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+				},
 				Func: runAgentDetect,
 			},
 			{
 				Name: "show",
 				Desc: "Show an agent's configuration",
 				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
 					c.AddArg("key", "agent key", true)
 				},
 				Func: runAgentShow,
