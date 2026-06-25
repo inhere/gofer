@@ -12,22 +12,23 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/streaming"
 )
 
-// setSSEFrameCap temporarily lowers maxSSEFrameBytes for the duration of a test.
+// setSSEFrameCap temporarily lowers streaming.MaxSSEFrameBytes for the test.
 func setSSEFrameCap(t *testing.T, cap int) {
 	t.Helper()
-	prev := maxSSEFrameBytes
-	maxSSEFrameBytes = cap
-	t.Cleanup(func() { maxSSEFrameBytes = prev })
+	prev := streaming.MaxSSEFrameBytes
+	streaming.MaxSSEFrameBytes = cap
+	t.Cleanup(func() { streaming.MaxSSEFrameBytes = prev })
 }
 
-// setThrottleBytes temporarily lowers streamThrottleBytes for the duration of a test.
+// setThrottleBytes temporarily lowers streaming.StreamThrottleBytes for the test.
 func setThrottleBytes(t *testing.T, n int64) {
 	t.Helper()
-	prev := streamThrottleBytes
-	streamThrottleBytes = n
-	t.Cleanup(func() { streamThrottleBytes = prev })
+	prev := streaming.StreamThrottleBytes
+	streaming.StreamThrottleBytes = n
+	t.Cleanup(func() { streaming.StreamThrottleBytes = prev })
 }
 
 // collectStdout reassembles every stdout `log` frame in seq order and returns the
@@ -37,7 +38,7 @@ func collectStdout(frames []sseEvent) (text string, stdoutSeqs []int, allSeqs []
 	for _, ev := range frames {
 		switch ev.Event {
 		case "log":
-			var lf logFrame
+			var lf streaming.LogFrame
 			if json.Unmarshal([]byte(ev.Data), &lf) != nil {
 				continue
 			}
@@ -47,7 +48,7 @@ func collectStdout(frames []sseEvent) (text string, stdoutSeqs []int, allSeqs []
 				stdoutSeqs = append(stdoutSeqs, lf.Seq)
 			}
 		case "log-rotated":
-			var rf rotatedFrame
+			var rf streaming.RotatedFrame
 			if json.Unmarshal([]byte(ev.Data), &rf) == nil {
 				allSeqs = append(allSeqs, rf.Seq)
 			}
@@ -98,7 +99,7 @@ func TestStreamFrameCapSplitsChunk(t *testing.T) {
 		if ev.Event != "log" {
 			continue
 		}
-		var lf logFrame
+		var lf streaming.LogFrame
 		_ = json.Unmarshal([]byte(ev.Data), &lf)
 		if len(lf.Text) > 64 {
 			t.Fatalf("frame seq=%d exceeds cap: %d bytes", lf.Seq, len(lf.Text))
@@ -139,41 +140,6 @@ func TestStreamThrottleNoByteLoss(t *testing.T) {
 	got, _, _ := collectStdout(frames)
 	if got != want {
 		t.Fatalf("throttled stream lost/altered bytes:\n got %d bytes\nwant %d bytes", len(got), len(want))
-	}
-}
-
-// TestTailFromDetectsRotation unit-tests the rotation signal: once the live file
-// shrinks below the caller's offset, tailFrom reports rotated=true (empty chunk),
-// and a subsequent read from offset 0 returns the fresh content. This is the
-// exact protocol the SSE loop uses to emit a `log-rotated` marker and reset.
-func TestTailFromDetectsRotation(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, store.StdoutFile)
-
-	if err := os.WriteFile(path, []byte("AAAAAAAAAA"), 0o644); err != nil { // 10 bytes
-		t.Fatal(err)
-	}
-	chunk, next, rotated := tailFrom(path, 0)
-	if rotated || string(chunk) != "AAAAAAAAAA" || next != 10 {
-		t.Fatalf("initial read: chunk=%q next=%d rotated=%v", chunk, next, rotated)
-	}
-
-	// Simulate a rotation: the live file is replaced by a smaller fresh file.
-	if err := os.WriteFile(path, []byte("BBB"), 0o644); err != nil { // 3 bytes < offset 10
-		t.Fatal(err)
-	}
-	// Reading from the stale offset must flag rotation and return no bytes.
-	chunk, _, rotated = tailFrom(path, next)
-	if !rotated {
-		t.Fatalf("expected rotated=true when file shrank below offset")
-	}
-	if len(chunk) != 0 {
-		t.Fatalf("rotated read must return empty chunk, got %q", chunk)
-	}
-	// Re-reading from 0 yields the fresh file's content with no bleed of the old tail.
-	chunk, next, rotated = tailFrom(path, 0)
-	if rotated || string(chunk) != "BBB" || next != 3 {
-		t.Fatalf("post-rotation read: chunk=%q next=%d rotated=%v", chunk, next, rotated)
 	}
 }
 
@@ -251,7 +217,7 @@ func TestStreamRotationMarkerMidStream(t *testing.T) {
 			ev := parseFrame(raw)
 			switch ev.Event {
 			case "log":
-				var lf logFrame
+				var lf streaming.LogFrame
 				if json.Unmarshal([]byte(ev.Data), &lf) != nil || lf.Stream != "stdout" {
 					continue
 				}
@@ -263,7 +229,7 @@ func TestStreamRotationMarkerMidStream(t *testing.T) {
 					newText.WriteString(lf.Text)
 				}
 			case "log-rotated":
-				var rf rotatedFrame
+				var rf streaming.RotatedFrame
 				if json.Unmarshal([]byte(ev.Data), &rf) == nil && rf.Stream == "stdout" {
 					c.sawRotated = true
 					rotatedFired = true
@@ -285,7 +251,7 @@ func TestStreamRotationMarkerMidStream(t *testing.T) {
 
 	// Let the loop deliver the old content over a couple of polls, then rotate by
 	// replacing the file with a smaller fresh one (shrinks below the read offset).
-	time.Sleep(3 * streamPollInterval)
+	time.Sleep(3 * streaming.StreamPollInterval)
 	if err := os.WriteFile(stdoutPath, []byte("NEW-FRESH\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

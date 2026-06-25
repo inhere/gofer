@@ -5,8 +5,8 @@ import "strings"
 // SSEEvent is one parsed Server-Sent Events frame: the event name and its
 // (joined) data lines. It is the canonical Go-side SSE frame shape shared by the
 // CLI (StreamJob) and the peer-http runner's stream mirroring (P2-a). The server
-// emits these via httpapi.writeSSE; events are status / log / log-rotated /
-// interaction / end (see internal/httpapi/stream_handler.go).
+// emits these via streaming.writeSSE; events are status / log / log-rotated /
+// interaction / end (see internal/streaming/streaming.go).
 type SSEEvent struct {
 	// Event is the SSE `event:` field (e.g. "status", "log", "end").
 	Event string

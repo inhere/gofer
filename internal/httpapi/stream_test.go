@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/streaming"
 )
 
 // sseEvent is one parsed SSE frame (event name + raw data line).
@@ -160,7 +161,7 @@ func TestStreamRealtimeLog(t *testing.T) {
 	for _, ev := range frames {
 		switch ev.Event {
 		case "log":
-			var lf logFrame
+			var lf streaming.LogFrame
 			if err := json.Unmarshal([]byte(ev.Data), &lf); err != nil {
 				t.Fatalf("bad log frame %q: %v", ev.Data, err)
 			}
@@ -225,7 +226,7 @@ func TestStreamResumeFrom(t *testing.T) {
 		if ev.Event != "log" {
 			continue
 		}
-		var lf logFrame
+		var lf streaming.LogFrame
 		if err := json.Unmarshal([]byte(ev.Data), &lf); err != nil {
 			t.Fatalf("bad log frame: %v", err)
 		}
@@ -271,7 +272,7 @@ func TestStreamCompletedJob(t *testing.T) {
 	for _, ev := range frames {
 		switch ev.Event {
 		case "log":
-			var lf logFrame
+			var lf streaming.LogFrame
 			if err := json.Unmarshal([]byte(ev.Data), &lf); err != nil {
 				t.Fatalf("bad log frame: %v", err)
 			}
@@ -379,7 +380,7 @@ func TestStreamInteractionEvents(t *testing.T) {
 	defer resp.Body.Close()
 
 	// Drain frames in the background, forwarding `interaction` frames to a channel.
-	interactions := make(chan interactionFrame, 8)
+	interactions := make(chan streaming.InteractionFrame, 8)
 	go func() {
 		for scanner.Scan() {
 			raw := strings.TrimSpace(scanner.Text())
@@ -390,7 +391,7 @@ func TestStreamInteractionEvents(t *testing.T) {
 			if ev.Event != "interaction" {
 				continue
 			}
-			var f interactionFrame
+			var f streaming.InteractionFrame
 			if err := json.Unmarshal([]byte(ev.Data), &f); err != nil {
 				continue
 			}
@@ -432,14 +433,14 @@ func TestStreamInteractionEvents(t *testing.T) {
 }
 
 // awaitInteraction waits for the next interaction frame or fails on timeout.
-func awaitInteraction(t *testing.T, ch <-chan interactionFrame, timeout time.Duration) interactionFrame {
+func awaitInteraction(t *testing.T, ch <-chan streaming.InteractionFrame, timeout time.Duration) streaming.InteractionFrame {
 	t.Helper()
 	select {
 	case f := <-ch:
 		return f
 	case <-time.After(timeout):
 		t.Fatalf("did not receive interaction frame within %s", timeout)
-		return interactionFrame{}
+		return streaming.InteractionFrame{}
 	}
 }
 
