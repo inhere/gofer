@@ -21,7 +21,10 @@ import (
 // run (mirrors serveExitErr).
 const workerExitErr = 2
 
-// workerOpts holds the worker command flags.
+// workerOpts holds the worker command flags. The worker config (worker.yaml)
+// has a DIFFERENT semantics from the gofer server config, so it uses its own
+// --worker-config flag (no -c short name) and does NOT read the app-level
+// global -c (config.InputCfgFile) — D-A1.
 var workerOpts = struct {
 	config string
 }{}
@@ -35,7 +38,7 @@ func NewWorkerCmd() *gcli.Command {
 		Desc:    "As worker that dials a central hub and executes dispatched jobs locally",
 		Aliases: []string{"w"},
 		Config: func(c *gcli.Command) {
-			c.StrOpt(&workerOpts.config, "config", "c", "", "path to the worker config file (worker.yaml)")
+			c.StrOpt(&workerOpts.config, "worker-config", "", "", "path to the worker config file (worker.yaml)")
 		},
 		Func: runWorker,
 	}
@@ -101,12 +104,12 @@ func runWorker(c *gcli.Command, _ []string) error {
 	return nil
 }
 
-// loadWorkerConfig reads and decodes the worker.yaml at path (or the --config
-// flag). Unlike the server config there is no auto-discovery chain: the path is
-// required (a worker is always launched explicitly).
+// loadWorkerConfig reads and decodes the worker.yaml at path (or the
+// --worker-config flag). Unlike the server config there is no auto-discovery
+// chain: the path is required (a worker is always launched explicitly).
 func loadWorkerConfig(path string) (*config.WorkerConfig, error) {
 	if path == "" {
-		return nil, fmt.Errorf("worker requires --config <worker.yaml>")
+		return nil, fmt.Errorf("worker requires --worker-config <worker.yaml>")
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {

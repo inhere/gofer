@@ -10,14 +10,9 @@ import (
 	"github.com/inhere/gofer/internal/config"
 )
 
-// agentOpts holds the --config flag shared by agent list/detect/show.
-var agentOpts = struct {
-	listConfig   string
-	detectConfig string
-	showConfig   string
-}{}
-
 // NewAgentCmd builds the `agent` command group (list/detect/show). P3 logic.
+// The config path is the app-level global -c (config.InputCfgFile), not a
+// per-command flag (P1).
 func NewAgentCmd() *gcli.Command {
 	return &gcli.Command{
 		Name: "agent",
@@ -27,24 +22,17 @@ func NewAgentCmd() *gcli.Command {
 				Name:    "list",
 				Desc:    "List configured agents",
 				Aliases: []string{"ls"},
-				Config: func(c *gcli.Command) {
-					c.StrOpt(&agentOpts.listConfig, "config", "c", "", "path to the bridge config file")
-				},
-				Func: runAgentList,
+				Func:    runAgentList,
 			},
 			{
 				Name: "detect",
 				Desc: "Run detect commands and report agent availability",
-				Config: func(c *gcli.Command) {
-					c.StrOpt(&agentOpts.detectConfig, "config", "c", "", "path to the bridge config file")
-				},
 				Func: runAgentDetect,
 			},
 			{
 				Name: "show",
 				Desc: "Show an agent's configuration",
 				Config: func(c *gcli.Command) {
-					c.StrOpt(&agentOpts.showConfig, "config", "c", "", "path to the bridge config file")
 					c.AddArg("key", "agent key", true)
 				},
 				Func: runAgentShow,
@@ -63,7 +51,7 @@ func loadAgentRegistry(explicitPath string) (*agent.Registry, error) {
 }
 
 func runAgentList(c *gcli.Command, _ []string) error {
-	reg, err := loadAgentRegistry(agentOpts.listConfig)
+	reg, err := loadAgentRegistry(config.InputCfgFile)
 	if err != nil {
 		return err
 	}
@@ -86,7 +74,7 @@ func runAgentList(c *gcli.Command, _ []string) error {
 // runAgentDetect probes every agent. Unavailable CLIs are reported but the
 // command still exits 0 (plan §9-P3): detection never fails the process.
 func runAgentDetect(c *gcli.Command, _ []string) error {
-	reg, err := loadAgentRegistry(agentOpts.detectConfig)
+	reg, err := loadAgentRegistry(config.InputCfgFile)
 	if err != nil {
 		return err
 	}
@@ -106,7 +94,7 @@ func runAgentShow(c *gcli.Command, _ []string) error {
 	if key == "" {
 		return fmt.Errorf("agent show requires a <key> argument")
 	}
-	reg, err := loadAgentRegistry(agentOpts.showConfig)
+	reg, err := loadAgentRegistry(config.InputCfgFile)
 	if err != nil {
 		return err
 	}

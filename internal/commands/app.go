@@ -1,6 +1,9 @@
 package commands
 
-import "github.com/gookit/gcli/v3"
+import (
+	"github.com/gookit/gcli/v3"
+	"github.com/inhere/gofer/internal/config"
+)
 
 // NewApp assembles the gofer gcli application and registers all
 // top-level commands (serve/project/agent/job/mcp/worker).
@@ -11,6 +14,9 @@ func NewApp(version string) *gcli.App {
 	if version != "" {
 		app.Version = version
 	}
+
+	// add global config option for all commands
+	app.Flags().StrOpt(&config.InputCfgFile, "config", "c", "${GOFER_CONFIG}", "path to the gofer config file")
 
 	app.Add(NewInitCmd())
 	app.Add(NewConfigCmd())

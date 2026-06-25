@@ -245,7 +245,8 @@ func TestConfigValidateGoodConfig(t *testing.T) {
 	cfgPath := writeRawConfig(t, cfgYAML)
 
 	c := bindCmd(NewConfigCmd().Subs[0])
-	configValidateOpts.config = cfgPath
+	config.InputCfgFile = cfgPath
+	t.Cleanup(func() { config.InputCfgFile = "" })
 	if err := runConfigValidate(c, nil); err != nil {
 		t.Fatalf("expected good config to validate, got: %v", err)
 	}
@@ -262,7 +263,8 @@ func TestConfigValidateMissingHostPath(t *testing.T) {
 	cfgPath := writeRawConfig(t, cfgYAML)
 
 	c := bindCmd(NewConfigCmd().Subs[0])
-	configValidateOpts.config = cfgPath
+	config.InputCfgFile = cfgPath
+	t.Cleanup(func() { config.InputCfgFile = "" })
 	err := runConfigValidate(c, nil)
 	if err == nil {
 		t.Fatal("expected validation failure for missing host_path")
@@ -282,7 +284,8 @@ func TestConfigValidateUnknownAgent(t *testing.T) {
 	cfgPath := writeRawConfig(t, cfgYAML)
 
 	c := bindCmd(NewConfigCmd().Subs[0])
-	configValidateOpts.config = cfgPath
+	config.InputCfgFile = cfgPath
+	t.Cleanup(func() { config.InputCfgFile = "" })
 	err := runConfigValidate(c, nil)
 	if err == nil {
 		t.Fatal("expected validation failure for unknown agent")
@@ -295,7 +298,8 @@ func TestConfigValidateUnknownAgent(t *testing.T) {
 func TestConfigValidateNoProjects(t *testing.T) {
 	cfgPath := writeRawConfig(t, "server:\n  addr: 0.0.0.0:8765\n")
 	c := bindCmd(NewConfigCmd().Subs[0])
-	configValidateOpts.config = cfgPath
+	config.InputCfgFile = cfgPath
+	t.Cleanup(func() { config.InputCfgFile = "" })
 	if err := runConfigValidate(c, nil); err != nil {
 		t.Fatalf("empty config should validate, got: %v", err)
 	}
@@ -320,8 +324,8 @@ func TestConfigValidateWorkerGood(t *testing.T) {
 
 	c := bindCmd(NewConfigCmd().Subs[0])
 	c.Arg("target").WithValue("worker")
-	configValidateOpts.config = cfgPath
-	t.Cleanup(func() { configValidateOpts.config = "" })
+	config.InputCfgFile = cfgPath
+	t.Cleanup(func() { config.InputCfgFile = "" })
 	if err := runConfigValidate(c, nil); err != nil {
 		t.Fatalf("expected good worker config to validate, got: %v", err)
 	}
@@ -344,8 +348,8 @@ func TestConfigValidateWorkerBadToken(t *testing.T) {
 
 	c := bindCmd(NewConfigCmd().Subs[0])
 	c.Arg("target").WithValue("worker")
-	configValidateOpts.config = cfgPath
-	t.Cleanup(func() { configValidateOpts.config = "" })
+	config.InputCfgFile = cfgPath
+	t.Cleanup(func() { config.InputCfgFile = "" })
 	err := runConfigValidate(c, nil)
 	if err == nil {
 		t.Fatal("expected validation failure for unresolvable worker token")
@@ -397,8 +401,8 @@ func TestConfigShowMergesOverlay(t *testing.T) {
 
 	c := bindCmd(NewConfigCmd().Subs[1]) // Subs[1] == show
 	c.Arg("key").WithValue("siv")
-	configShowOpts.config = cfgPath
-	t.Cleanup(func() { configShowOpts.config = "" })
+	config.InputCfgFile = cfgPath
+	t.Cleanup(func() { config.InputCfgFile = "" })
 
 	out := captureOutput(t, func() {
 		if err := runConfigShow(c, nil); err != nil {
@@ -419,8 +423,8 @@ func TestConfigShowUnknownProject(t *testing.T) {
 	cfgPath := writeRawConfig(t, "server:\n  addr: 0.0.0.0:8765\n")
 	c := bindCmd(NewConfigCmd().Subs[1])
 	c.Arg("key").WithValue("ghost")
-	configShowOpts.config = cfgPath
-	t.Cleanup(func() { configShowOpts.config = "" })
+	config.InputCfgFile = cfgPath
+	t.Cleanup(func() { config.InputCfgFile = "" })
 
 	err := runConfigShow(c, nil)
 	if err == nil {

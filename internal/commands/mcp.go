@@ -20,11 +20,6 @@ import (
 // serveExitErr).
 const mcpExitErr = 2
 
-// mcpOpts holds the mcp command flags.
-var mcpOpts = struct {
-	config string
-}{}
-
 // NewMcpCmd builds the `mcp` command: load config, wire the shared Core and run
 // the stdio MCP server (plan P8). It reuses the identical job.Service / project
 // / agent registries as `serve` so the MCP tools never duplicate execution
@@ -37,15 +32,12 @@ func NewMcpCmd() *gcli.Command {
 	return &gcli.Command{
 		Name: "mcp",
 		Desc: "Run the stdio MCP server",
-		Config: func(c *gcli.Command) {
-			c.StrOpt(&mcpOpts.config, "config", "c", "", "path to the bridge config file")
-		},
 		Func: runMcp,
 	}
 }
 
 func runMcp(_ *gcli.Command, _ []string) error {
-	cfg, _, err := config.Load(mcpOpts.config)
+	cfg, _, err := config.Load(config.InputCfgFile)
 	if err != nil {
 		return errorx.Failf(mcpExitErr, "%v", err)
 	}

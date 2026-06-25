@@ -6,6 +6,8 @@ import (
 	"testing"
 
 	"github.com/gookit/gcli/v3"
+
+	"github.com/inhere/gofer/internal/config"
 )
 
 // TestAgentCmdSubsRegistered verifies the agent group registers list/detect/show.
@@ -62,19 +64,21 @@ agents:
 		}
 	}
 
-	agentOpts.listConfig = cfgPath
+	// The config path is the app-level global -c (config.InputCfgFile); reset it
+	// after the test so the package-level global never leaks into other tests.
+	config.InputCfgFile = cfgPath
+	t.Cleanup(func() { config.InputCfgFile = "" })
+
 	if err := runAgentList(c, nil); err != nil {
 		t.Fatalf("list: %v", err)
 	}
 
 	// detect must succeed (exit 0) even though codex's detect CLI is missing.
-	agentOpts.detectConfig = cfgPath
 	if err := runAgentDetect(c, nil); err != nil {
 		t.Fatalf("detect should not fail the command for missing CLI: %v", err)
 	}
 
 	// show codex (config-declared) and exec (built-in) both succeed.
-	agentOpts.showConfig = cfgPath
 	setArg("key", "codex")
 	if err := runAgentShow(c, nil); err != nil {
 		t.Fatalf("show codex: %v", err)

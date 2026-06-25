@@ -31,7 +31,7 @@
 
 ## 4. 进度跟进
 
-- [ ] **P1** `-c` 收敛 app 级（含 worker 特殊）
+- [x] **P1** `-c` 收敛 app 级（含 worker 特殊）— worker 用 `--worker-config`；删 26 处子命令 `-c`
 - [ ] **P2** serve 打印路径 + config edit + config info
 - [ ] **P3** project add -i
 
@@ -61,10 +61,10 @@
 
 ### P1 验收
 
-- [ ] `go build ./... && go vet ./...` 绿；`go test ./internal/commands/... ./internal/config/... ./internal/project/...` 绿（调整受影响测试）。
-- [ ] `gofer serve -c X` / `gofer -c X serve`（gcli 混排）/ `gofer job run -c X -p p -a a "..."` 都用 X。
-- [ ] 不给 `-c`：GOFER_CONFIG 设→用其值；未设→cwd/全局发现（**D-A2 回归**）。
-- [ ] worker 用 `--worker-config`（或保留 `-c`，按 gcli 验证）加载 worker.yaml；`init -o` 仍写出（你已改）。
+- [x] `go build ./... && go vet ./...` 绿；`go test ./internal/commands/... ./internal/config/... ./internal/project/...` 绿（已调整受影响测试）。
+- [x] `gofer -c X <subcmd>`（app 级 flag 须在子命令**之前**）/ `gofer job run -p p -a a -- ...` 都用 X。**注意 gcli 限制**：`gofer serve -c X`（`-c` 在子命令**之后**）现报 "option not defined: -c"——app 级 flag 由 `app.fs.Parse` 在命令名前消费，不下放给子命令 flagset（见下「关键决策」）。
+- [x] 不给 `-c`：GOFER_CONFIG 设→用其值；未设→cwd/全局发现（**D-A2 回归**已冒烟验证：cwd `.gofer.yaml` 仍被发现）。
+- [x] worker 用 `--worker-config` 加载 worker.yaml；`init -o` 仍写出（已对齐 README/提示）。
 
 ---
 
@@ -125,3 +125,12 @@ if path == "" {
 ## 6. 实施结果（完成后回填）
 
 > P1–P3 commit + 关键决策（尤 worker -c / gcli 验证结论）+ 验收 + 遗留。
+
+### P1（done）
+
+- **改动**：删 26 处子命令重复 `-c` 绑定（serve/mcp/job×7/config validate·show/project×5/workflow×6/agent×3），各加载点统一读 `config.InputCfgFile`（newClient/loadRegistry/loadAgentRegistry/config.Load）。app 级 `-c`（默认 `${GOFER_CONFIG}`）保留在 `app.go:19`；`init` 让位 `-o`（已改）。
+- **worker（D-A1 定稿 = plan 默认 `--worker-config`）**：worker.yaml 与 gofer config 语义不同，worker 子命令改用 `--worker-config`（无 `-c` 短名，避免一词两义），绑 `workerOpts.config`，**不读** `config.InputCfgFile`。`init worker` 提示、`loadWorkerConfig` 报错、README 已同步。
+- **D-A2 回归**：已冒烟。未给 `-c` 且未设 `GOFER_CONFIG` → `config.InputCfgFile=""`（gcli 展开空 `${GOFER_CONFIG}`）→ `Resolve("")` 走发现链（cwd `.gofer[.local].yaml` → 全局），cwd `.gofer.yaml` 仍被发现；设 `GOFER_CONFIG` 走其值；`gofer -c X` 走 X。三态均 PASS。
+- **gcli 关键结论（影响 UX，需知会）**：app 级 flag 由 `App.doParseOpts → app.fs.Parse(args)` 在**命令名之前**消费，**不下放**给子命令 flagset（gcli 无 App 级 PersistentFlags，只有 `Command.SharedOpts()` 是命令级 PersistentFlags）。后果：`gofer -c X serve` ✅ 工作，但 `gofer serve -c X`（`-c` 在子命令后）❌ 报 "option provided but not defined: -c"——这是从「每子命令各有 `-c`」收敛到「app 级单一 `-c`」的**位置回归**（位置从"可前可后"变为"仅前"）。已据此修正 README 全部示例（`-c` 置于子命令前；init→`-o`；worker→`--worker-config`；mcp 配置 args 改 `["-c", path, "mcp"]`）。
+- **测试**：`config.InputCfgFile` 是包级全局，受影响测试（agent/project/config_test）改设该全局并 `t.Cleanup` 重置隔离。`go build/vet ./...` + 三包 test + 全量 test 全绿；`go test -count=1` 无串扰。
+- **遗留**：若要恢复"`-c` 可置于子命令后"的旧体验，需为每个子命令显式加 `SharedOpts()` 级 `-c`（命令级 PersistentFlags 会被下放），或在各子命令 flagset 重新声明并合并 InputCfgFile——本轮按 plan 收敛为 app 级单一 `-c`，未做该回填（如需可作 P1.5 跟进）。

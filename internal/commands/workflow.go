@@ -13,40 +13,42 @@ import (
 	yaml "github.com/goccy/go-yaml"
 
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
 // wfRunOpts / wfShowOpts / wfListOpts / wfCancelOpts hold the per-subcommand
-// flags. Each subcommand carries its own --config/--server/--token (same shape
-// as the job group) so the bound vars never collide across subcommands.
+// flags. Each subcommand carries its own --server/--token (same shape as the
+// job group) so the bound vars never collide across subcommands. The config
+// path is the app-level global -c (config.InputCfgFile), not a per-command flag (P1).
 var wfRunOpts = struct {
-	config, server, token string
-	watch                 bool
+	server, token string
+	watch         bool
 }{}
 
 var wfShowOpts = struct {
-	config, server, token string
+	server, token string
 }{}
 
 var wfListOpts = struct {
-	config, server, token string
-	status                string
+	server, token string
+	status        string
 }{}
 
 var wfCancelOpts = struct {
-	config, server, token string
+	server, token string
 }{}
 
 var wfExportOpts = struct {
-	config, server, token string
-	out                   string
-	format                string
+	server, token string
+	out           string
+	format        string
 }{}
 
 var wfEventsOpts = struct {
-	config, server, token string
-	since                 int64
+	server, token string
+	since         int64
 }{}
 
 // NewWorkflowCmd builds the `workflow` command group (run/show/list/cancel). It
@@ -64,7 +66,6 @@ func NewWorkflowCmd() *gcli.Command {
 				Aliases: []string{"add"},
 				Desc:    "Submit a workflow from a yaml or json file (title + steps[])",
 				Config: func(c *gcli.Command) {
-					c.StrOpt(&wfRunOpts.config, "config", "c", "", "path to the bridge config file")
 					c.StrOpt(&wfRunOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&wfRunOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.BoolOpt(&wfRunOpts.watch, "watch", "w", false, "poll the workflow until it reaches a terminal state, printing each step")
@@ -76,7 +77,6 @@ func NewWorkflowCmd() *gcli.Command {
 				Name: "show",
 				Desc: "Query a workflow's status + step chain",
 				Config: func(c *gcli.Command) {
-					c.StrOpt(&wfShowOpts.config, "config", "c", "", "path to the bridge config file")
 					c.StrOpt(&wfShowOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&wfShowOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.AddArg("id", "workflow id", true)
@@ -88,7 +88,6 @@ func NewWorkflowCmd() *gcli.Command {
 				Desc:    "List workflows with an optional status filter",
 				Aliases: []string{"ls"},
 				Config: func(c *gcli.Command) {
-					c.StrOpt(&wfListOpts.config, "config", "c", "", "path to the bridge config file")
 					c.StrOpt(&wfListOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&wfListOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.StrOpt(&wfListOpts.status, "status", "", "", "filter by status (running/done/failed/cancelled)")
@@ -99,7 +98,6 @@ func NewWorkflowCmd() *gcli.Command {
 				Name: "cancel",
 				Desc: "Cancel a running workflow",
 				Config: func(c *gcli.Command) {
-					c.StrOpt(&wfCancelOpts.config, "config", "c", "", "path to the bridge config file")
 					c.StrOpt(&wfCancelOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&wfCancelOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.AddArg("id", "workflow id", true)
@@ -110,7 +108,6 @@ func NewWorkflowCmd() *gcli.Command {
 				Name: "export",
 				Desc: "Export a workflow's spec (secrets stripped) for re-import; default yaml (= `wf run` format)",
 				Config: func(c *gcli.Command) {
-					c.StrOpt(&wfExportOpts.config, "config", "c", "", "path to the bridge config file")
 					c.StrOpt(&wfExportOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&wfExportOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.StrOpt(&wfExportOpts.out, "out", "o", "", "write the spec to this file instead of stdout")
@@ -123,7 +120,6 @@ func NewWorkflowCmd() *gcli.Command {
 				Name: "events",
 				Desc: "Print a workflow's lifecycle event timeline",
 				Config: func(c *gcli.Command) {
-					c.StrOpt(&wfEventsOpts.config, "config", "c", "", "path to the bridge config file")
 					c.StrOpt(&wfEventsOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&wfEventsOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.Int64Opt(&wfEventsOpts.since, "since", "", 0, "only events with seq strictly greater than this cursor")
@@ -216,7 +212,7 @@ func runWorkflowRun(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	cli, err := newClient(wfRunOpts.config, wfRunOpts.server, wfRunOpts.token)
+	cli, err := newClient(config.InputCfgFile, wfRunOpts.server, wfRunOpts.token)
 	if err != nil {
 		return err
 	}
@@ -285,7 +281,7 @@ func runWorkflowShow(c *gcli.Command, _ []string) error {
 	if id == "" {
 		return fmt.Errorf("workflow show requires an <id> argument")
 	}
-	cli, err := newClient(wfShowOpts.config, wfShowOpts.server, wfShowOpts.token)
+	cli, err := newClient(config.InputCfgFile, wfShowOpts.server, wfShowOpts.token)
 	if err != nil {
 		return err
 	}
@@ -355,7 +351,7 @@ func stepName(st client.WorkflowStep) string {
 // runWorkflowList queries GET /v1/workflows with an optional --status filter and
 // prints a fixed-width table. An empty result prints a friendly hint.
 func runWorkflowList(c *gcli.Command, _ []string) error {
-	cli, err := newClient(wfListOpts.config, wfListOpts.server, wfListOpts.token)
+	cli, err := newClient(config.InputCfgFile, wfListOpts.server, wfListOpts.token)
 	if err != nil {
 		return err
 	}
@@ -397,7 +393,7 @@ func runWorkflowCancel(c *gcli.Command, _ []string) error {
 	if id == "" {
 		return fmt.Errorf("workflow cancel requires an <id> argument")
 	}
-	cli, err := newClient(wfCancelOpts.config, wfCancelOpts.server, wfCancelOpts.token)
+	cli, err := newClient(config.InputCfgFile, wfCancelOpts.server, wfCancelOpts.token)
 	if err != nil {
 		return err
 	}
@@ -418,7 +414,7 @@ func runWorkflowExport(c *gcli.Command, _ []string) error {
 	if id == "" {
 		return fmt.Errorf("workflow export requires an <id> argument")
 	}
-	cli, err := newClient(wfExportOpts.config, wfExportOpts.server, wfExportOpts.token)
+	cli, err := newClient(config.InputCfgFile, wfExportOpts.server, wfExportOpts.token)
 	if err != nil {
 		return err
 	}
@@ -477,7 +473,7 @@ func runWorkflowEvents(c *gcli.Command, _ []string) error {
 	if id == "" {
 		return fmt.Errorf("workflow events requires an <id> argument")
 	}
-	cli, err := newClient(wfEventsOpts.config, wfEventsOpts.server, wfEventsOpts.token)
+	cli, err := newClient(config.InputCfgFile, wfEventsOpts.server, wfEventsOpts.token)
 	if err != nil {
 		return err
 	}

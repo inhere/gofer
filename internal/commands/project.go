@@ -11,9 +11,9 @@ import (
 	"github.com/inhere/gofer/internal/project"
 )
 
-// projectAddOpts holds `project add` flags.
+// projectAddOpts holds `project add` flags. The config path is the app-level
+// global -c (config.InputCfgFile), not a per-command flag (P1).
 var projectAddOpts = struct {
-	config         string
 	hostPath       string
 	containerPath  string
 	exchangeSubdir string
@@ -23,14 +23,6 @@ var projectAddOpts = struct {
 	allowRunners   gcli.Strings // repeatable: --allow-runner
 	allowExec      bool
 	force          bool
-}{}
-
-// commonProjectOpts holds the --config flag shared by list/show/remove/validate.
-var commonProjectOpts = struct {
-	listConfig     string
-	showConfig     string
-	removeConfig   string
-	validateConfig string
 }{}
 
 // NewProjectCmd builds the `project` command group with sub commands
@@ -45,16 +37,12 @@ func NewProjectCmd() *gcli.Command {
 				Name:    "list",
 				Desc:    "List configured projects",
 				Aliases: []string{"ls"},
-				Config: func(c *gcli.Command) {
-					c.StrOpt(&commonProjectOpts.listConfig, "config", "c", "", "path to the bridge config file")
-				},
-				Func: runProjectList,
+				Func:    runProjectList,
 			},
 			{
 				Name: "show",
 				Desc: "Show a project's details",
 				Config: func(c *gcli.Command) {
-					c.StrOpt(&commonProjectOpts.showConfig, "config", "c", "", "path to the bridge config file")
 					c.AddArg("key", "project key", true)
 				},
 				Func: runProjectShow,
@@ -63,7 +51,6 @@ func NewProjectCmd() *gcli.Command {
 				Name: "add",
 				Desc: "Register a new project",
 				Config: func(c *gcli.Command) {
-					c.StrOpt(&projectAddOpts.config, "config", "c", "", "path to the bridge config file")
 					c.StrOpt(&projectAddOpts.hostPath, "host-path", "", "", "absolute host path of the project (required)")
 					c.StrOpt(&projectAddOpts.containerPath, "container-path", "", "", "container mount path of the project")
 					c.StrOpt(&projectAddOpts.exchangeSubdir, "exchange-subdir", "", "tmp", "data exchange subdir under the project")
@@ -82,7 +69,6 @@ func NewProjectCmd() *gcli.Command {
 				Desc:    "Remove a registered project",
 				Aliases: []string{"rm"},
 				Config: func(c *gcli.Command) {
-					c.StrOpt(&commonProjectOpts.removeConfig, "config", "c", "", "path to the bridge config file")
 					c.AddArg("key", "project key", true)
 				},
 				Func: runProjectRemove,
@@ -92,7 +78,6 @@ func NewProjectCmd() *gcli.Command {
 				Aliases: []string{"check"},
 				Desc:    "Validate a project's paths, agents and runners",
 				Config: func(c *gcli.Command) {
-					c.StrOpt(&commonProjectOpts.validateConfig, "config", "c", "", "path to the bridge config file")
 					c.AddArg("key", "project key", true)
 				},
 				Func: runProjectValidate,
@@ -123,7 +108,7 @@ func loadRegistry(explicitPath string) (*project.Registry, error) {
 }
 
 func runProjectList(c *gcli.Command, _ []string) error {
-	reg, err := loadRegistry(commonProjectOpts.listConfig)
+	reg, err := loadRegistry(config.InputCfgFile)
 	if err != nil {
 		return err
 	}
@@ -148,7 +133,7 @@ func runProjectShow(c *gcli.Command, _ []string) error {
 	if key == "" {
 		return fmt.Errorf("project show requires a <key> argument")
 	}
-	reg, err := loadRegistry(commonProjectOpts.showConfig)
+	reg, err := loadRegistry(config.InputCfgFile)
 	if err != nil {
 		return err
 	}
@@ -201,7 +186,7 @@ func runProjectAdd(c *gcli.Command, _ []string) error {
 		AllowExec:      projectAddOpts.allowExec,
 	}
 
-	reg, err := loadRegistry(projectAddOpts.config)
+	reg, err := loadRegistry(config.InputCfgFile)
 	if err != nil {
 		return err
 	}
@@ -217,7 +202,7 @@ func runProjectRemove(c *gcli.Command, _ []string) error {
 	if key == "" {
 		return fmt.Errorf("project remove requires a <key> argument")
 	}
-	reg, err := loadRegistry(commonProjectOpts.removeConfig)
+	reg, err := loadRegistry(config.InputCfgFile)
 	if err != nil {
 		return err
 	}
@@ -233,7 +218,7 @@ func runProjectValidate(c *gcli.Command, _ []string) error {
 	if key == "" {
 		return fmt.Errorf("project validate requires a <key> argument")
 	}
-	reg, err := loadRegistry(commonProjectOpts.validateConfig)
+	reg, err := loadRegistry(config.InputCfgFile)
 	if err != nil {
 		return err
 	}

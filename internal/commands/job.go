@@ -19,9 +19,9 @@ import (
 
 // jobRunOpts holds `job run` flags. prompt is supplied via the --prompt flag
 // (for cli-agents); exec argv comes from the tokens after `--`, which gcli hands
-// to the Func handler as remainArgs (see runJobRun).
+// to the Func handler as remainArgs (see runJobRun). The config path is the
+// app-level global -c (config.InputCfgFile), not a per-command flag (P1).
 var jobRunOpts = struct {
-	config       string
 	server       string
 	token        string
 	project      string
@@ -40,35 +40,37 @@ var jobRunOpts = struct {
 	tags         string
 }{}
 
-// jobCommonOpts holds the --config/--server/--token flags shared by
-// show/logs/cancel.
+// jobCommonOpts holds the --server/--token flags shared by show/logs/cancel.
+// The config path is the app-level global -c (config.InputCfgFile), not a
+// per-command flag (P1).
 var jobCommonOpts = struct {
-	showConfig, showServer, showToken     string
-	logsConfig, logsServer, logsToken     string
-	logsStream                            string
-	cancelConfig, cancelServer, cancelTkn string
+	showServer, showToken   string
+	logsServer, logsToken   string
+	logsStream              string
+	cancelServer, cancelTkn string
 }{}
 
-// jobListOpts holds `job list` flags: the shared --config/--server/--token plus
-// the E5 filter dimensions (mapped 1:1 onto job.ListOpts).
+// jobListOpts holds `job list` flags: the shared --server/--token plus the E5
+// filter dimensions (mapped 1:1 onto job.ListOpts). The config path is the
+// app-level global -c (config.InputCfgFile), not a per-command flag (P1).
 var jobListOpts = struct {
-	config, server, token string
-	project, status       string
-	caller, tag           string
-	agent, runner         string
-	since                 int
-	limit                 int
+	server, token   string
+	project, status string
+	caller, tag     string
+	agent, runner   string
+	since           int
+	limit           int
 }{}
 
 // jobWatchOpts / jobRerunOpts hold `job watch` / `job rerun` flags.
 var jobWatchOpts = struct {
-	config, server, token string
-	from                  int
+	server, token string
+	from          int
 }{}
 
 var jobRerunOpts = struct {
-	config, server, token string
-	watch                 bool
+	server, token string
+	watch         bool
 }{}
 
 // NewJobCmd builds the `job` command group (run/show/logs/cancel). It wraps the
@@ -83,7 +85,6 @@ func NewJobCmd() *gcli.Command {
 				Desc:    "Submit a new job",
 				Aliases: []string{"add"},
 				Config: func(c *gcli.Command) {
-					c.StrOpt(&jobRunOpts.config, "config", "c", "", "path to the bridge config file")
 					c.StrOpt(&jobRunOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&jobRunOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.StrOpt(&jobRunOpts.project, "project", "p", "", "project key (required)")
@@ -112,7 +113,6 @@ func NewJobCmd() *gcli.Command {
 				Name: "show",
 				Desc: "Query a job's status",
 				Config: func(c *gcli.Command) {
-					c.StrOpt(&jobCommonOpts.showConfig, "config", "c", "", "path to the bridge config file")
 					c.StrOpt(&jobCommonOpts.showServer, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&jobCommonOpts.showToken, "token", "", "", "bearer token override (prefer config/env)")
 					c.AddArg("id", "job id", true)
@@ -123,7 +123,6 @@ func NewJobCmd() *gcli.Command {
 				Name: "logs",
 				Desc: "Read a job's stdout/stderr logs",
 				Config: func(c *gcli.Command) {
-					c.StrOpt(&jobCommonOpts.logsConfig, "config", "c", "", "path to the bridge config file")
 					c.StrOpt(&jobCommonOpts.logsServer, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&jobCommonOpts.logsToken, "token", "", "", "bearer token override (prefer config/env)")
 					c.StrOpt(&jobCommonOpts.logsStream, "stream", "", "stdout", "log stream: stdout|stderr")
@@ -135,7 +134,6 @@ func NewJobCmd() *gcli.Command {
 				Name: "cancel",
 				Desc: "Cancel a running job",
 				Config: func(c *gcli.Command) {
-					c.StrOpt(&jobCommonOpts.cancelConfig, "config", "c", "", "path to the bridge config file")
 					c.StrOpt(&jobCommonOpts.cancelServer, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&jobCommonOpts.cancelTkn, "token", "", "", "bearer token override (prefer config/env)")
 					c.AddArg("id", "job id", true)
@@ -147,7 +145,6 @@ func NewJobCmd() *gcli.Command {
 				Desc:    "List jobs with optional filters (tag/agent/runner/since/...)",
 				Aliases: []string{"ls"},
 				Config: func(c *gcli.Command) {
-					c.StrOpt(&jobListOpts.config, "config", "c", "", "path to the bridge config file")
 					c.StrOpt(&jobListOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&jobListOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.StrOpt(&jobListOpts.project, "project", "p", "", "filter by project key")
@@ -165,7 +162,6 @@ func NewJobCmd() *gcli.Command {
 				Name: "watch",
 				Desc: "Stream a job's status + logs live until it finishes",
 				Config: func(c *gcli.Command) {
-					c.StrOpt(&jobWatchOpts.config, "config", "c", "", "path to the bridge config file")
 					c.StrOpt(&jobWatchOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&jobWatchOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.IntOpt(&jobWatchOpts.from, "from", "", 0, "resume stdout from a byte offset")
@@ -177,7 +173,6 @@ func NewJobCmd() *gcli.Command {
 				Name: "rerun",
 				Desc: "Re-submit a job from its original request (fresh idempotency key)",
 				Config: func(c *gcli.Command) {
-					c.StrOpt(&jobRerunOpts.config, "config", "c", "", "path to the bridge config file")
 					c.StrOpt(&jobRerunOpts.server, "server", "s", "", "server address (overrides config server.addr)")
 					c.StrOpt(&jobRerunOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 					c.BoolOpt(&jobRerunOpts.watch, "watch", "w", false, "watch the new job's stream until it finishes")
@@ -287,7 +282,7 @@ func runJobRun(c *gcli.Command, _ []string) error {
 	// load/abs failure silently leaves project empty → the existing
 	// `--project/-p is required` error downstream (submitJSONJob).
 	if jobRunOpts.project == "" {
-		if cfg, _, err := config.Load(jobRunOpts.config); err == nil {
+		if cfg, _, err := config.Load(config.InputCfgFile); err == nil {
 			if abs, e := filepath.Abs("."); e == nil {
 				if key, rel, found := resolveProjectByCwd(cfg, abs); found {
 					jobRunOpts.project = key
@@ -300,7 +295,7 @@ func runJobRun(c *gcli.Command, _ []string) error {
 		}
 	}
 
-	cli, err := newClient(jobRunOpts.config, jobRunOpts.server, jobRunOpts.token)
+	cli, err := newClient(config.InputCfgFile, jobRunOpts.server, jobRunOpts.token)
 	if err != nil {
 		return err
 	}
@@ -423,7 +418,7 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	if id == "" {
 		return fmt.Errorf("job show requires an <id> argument")
 	}
-	cli, err := newClient(jobCommonOpts.showConfig, jobCommonOpts.showServer, jobCommonOpts.showToken)
+	cli, err := newClient(config.InputCfgFile, jobCommonOpts.showServer, jobCommonOpts.showToken)
 	if err != nil {
 		return err
 	}
@@ -454,7 +449,7 @@ func runJobLogs(c *gcli.Command, _ []string) error {
 	if stream == "" {
 		stream = "stdout"
 	}
-	cli, err := newClient(jobCommonOpts.logsConfig, jobCommonOpts.logsServer, jobCommonOpts.logsToken)
+	cli, err := newClient(config.InputCfgFile, jobCommonOpts.logsServer, jobCommonOpts.logsToken)
 	if err != nil {
 		return err
 	}
@@ -471,7 +466,7 @@ func runJobCancel(c *gcli.Command, _ []string) error {
 	if id == "" {
 		return fmt.Errorf("job cancel requires an <id> argument")
 	}
-	cli, err := newClient(jobCommonOpts.cancelConfig, jobCommonOpts.cancelServer, jobCommonOpts.cancelTkn)
+	cli, err := newClient(config.InputCfgFile, jobCommonOpts.cancelServer, jobCommonOpts.cancelTkn)
 	if err != nil {
 		return err
 	}
@@ -487,7 +482,7 @@ func runJobCancel(c *gcli.Command, _ []string) error {
 // table (ID/STATUS/AGENT/RUNNER/PROJECT/TAGS/STARTED). An empty result prints a
 // friendly hint instead of an empty table.
 func runJobList(c *gcli.Command, _ []string) error {
-	cli, err := newClient(jobListOpts.config, jobListOpts.server, jobListOpts.token)
+	cli, err := newClient(config.InputCfgFile, jobListOpts.server, jobListOpts.token)
 	if err != nil {
 		return err
 	}
@@ -539,7 +534,7 @@ func runJobWatch(c *gcli.Command, _ []string) error {
 	if id == "" {
 		return fmt.Errorf("job watch requires an <id> argument")
 	}
-	cli, err := newClient(jobWatchOpts.config, jobWatchOpts.server, jobWatchOpts.token)
+	cli, err := newClient(config.InputCfgFile, jobWatchOpts.server, jobWatchOpts.token)
 	if err != nil {
 		return err
 	}
@@ -628,7 +623,7 @@ func runJobRerun(c *gcli.Command, _ []string) error {
 	if id == "" {
 		return fmt.Errorf("job rerun requires an <id> argument")
 	}
-	cli, err := newClient(jobRerunOpts.config, jobRerunOpts.server, jobRerunOpts.token)
+	cli, err := newClient(config.InputCfgFile, jobRerunOpts.server, jobRerunOpts.token)
 	if err != nil {
 		return err
 	}
