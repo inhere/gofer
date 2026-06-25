@@ -23,6 +23,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/metrics"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/webui"
@@ -58,6 +59,7 @@ func callerFromCtx(c *rux.Context) string {
 type Server struct {
 	cfg      *config.ServerConfig
 	jobs     *job.Service
+	workflow *workflow.Engine
 	projects *project.Registry
 	agents   *agent.Registry
 	router   *rux.Router
@@ -144,10 +146,11 @@ func (s *Server) SetMetrics(m *metrics.Metrics, enabled bool, token string) {
 // NOTE (D3, deferred): New is now a wide positional constructor. The plan flags a
 // future functional-option / Deps-struct refactor as optional cleanup; it is
 // intentionally NOT done here to keep the change backward-compatible and focused.
-func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, jobs *job.Service, projects *project.Registry, agents *agent.Registry, hub *wshub.Hub, runners map[string]config.RunnerConfig, prober runnerProber, workers workerRegistry) *Server {
+func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, jobs *job.Service, wf *workflow.Engine, projects *project.Registry, agents *agent.Registry, hub *wshub.Hub, runners map[string]config.RunnerConfig, prober runnerProber, workers workerRegistry) *Server {
 	s := &Server{
 		cfg:             serverCfg,
 		jobs:            jobs,
+		workflow:        wf,
 		projects:        projects,
 		agents:          agents,
 		token:           token,

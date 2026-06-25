@@ -17,20 +17,6 @@ import (
 	"github.com/inhere/gofer/internal/store"
 )
 
-// Service must satisfy the accessor shape the workflow sub-package will consume via
-// its JobOps interface (layering design §13.3). This compile-time assertion guards
-// the seam during WS1; WS2 replaces it with `var _ workflow.JobOps = (*Service)(nil)`
-// in the workflow package.
-var _ interface {
-	Submit(JobRequest) (JobResult, error)
-	Cancel(string) error
-	Validate(*config.Config, JobRequest, bool) (config.ProjectConfig, error)
-	Config() *config.Config
-	Meta() *jobstore.Store
-	Now() time.Time
-	Metrics() MetricsSink
-} = (*Service)(nil)
-
 // newTestService builds a Service whose result base dir lives under a temp dir.
 // It registers two projects: "self" (allow_exec=true) and "noexec"
 // (allow_exec=false). storage.root points at root so result dirs are isolated.

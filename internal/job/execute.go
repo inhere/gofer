@@ -166,8 +166,8 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// finish/不改 entry.done 时序(execute 的 defer close(entry.done) 仍照常触发)。
 	// advanceWorkflow 幂等(条件 UPDATE 抢推进权)，与 sweeper 叠加安全；persist 已先落终态
 	// 行，故 advance 读到的 step job 状态已是终态。非工作流 job(WorkflowID=="")完全不触发。
-	if snap.WorkflowID != "" {
-		go s.advanceWorkflow(snap.WorkflowID)
+	if s.wf != nil && snap.WorkflowID != "" {
+		go s.wf.Advance(snap.WorkflowID)
 		return
 	}
 

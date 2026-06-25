@@ -16,10 +16,6 @@ type RetryPolicy struct {
 	OnExitCodes []int `json:"on_exit_codes,omitempty" yaml:"on_exit_codes,omitempty"` // 空=任意非0退出重试
 }
 
-// maxRetryAttempts caps RetryPolicy.MaxAttempts so a misconfigured workflow can
-// not retry forever (defence against失控 retry storms).
-const maxRetryAttempts = 10
-
 // defaultBackoffSec is the SR606退避表 used when a RetryPolicy gives no explicit
 // BackoffSec: 30s → 2min → 5min → 15min → 60min, the last entry reused past the
 // end (mirrors the E14 deliveryBackoff table).

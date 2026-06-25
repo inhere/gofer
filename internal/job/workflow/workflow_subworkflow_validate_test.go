@@ -1,10 +1,11 @@
-package job
+package workflow
 
 import (
 	"errors"
 	"testing"
 	"time"
 
+	job "github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -12,7 +13,7 @@ import (
 // type/sub_workflow coupling, recursive single-job admission, depth limit, and the
 // fan-out × workflow mutex. Each invalid case must be rejected at submit (no DB row).
 func TestSubmitWorkflowSubValidation(t *testing.T) {
-	s := newTestService(t, t.TempDir())
+	e := newTestEngine(t, t.TempDir())
 
 	good := echoStep("ok")
 	// A legal 1-level sub-workflow step.
@@ -33,12 +34,12 @@ func TestSubmitWorkflowSubValidation(t *testing.T) {
 	noSub := StepSpec{Name: "nosub", Type: stepTypeWorkflow}
 
 	// type=workflow with an EMPTY sub_workflow.
-	emptySub := StepSpec{Name: "empty", Type: stepTypeWorkflow, SubWorkflow: &WorkflowSpec{}}
+	emptySub := StepSpec{Name: "empty", Type: stepTypeWorkflow, SubWorkflow: &Spec{}}
 
 	// type=job that wrongly carries a sub_workflow.
 	jobWithSub := StepSpec{
 		Name: "jws", ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"true"},
-		Type: stepTypeJob, SubWorkflow: &WorkflowSpec{Steps: []StepSpec{echoStep("x")}},
+		Type: stepTypeJob, SubWorkflow: &Spec{Steps: []StepSpec{echoStep("x")}},
 	}
 
 	// unknown type.
@@ -81,14 +82,14 @@ func TestSubmitWorkflowSubValidation(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			wf, err := s.SubmitWorkflow(WorkflowSpec{Steps: tc.steps}, "alice")
+			wf, err := e.SubmitWorkflow(Spec{Steps: tc.steps}, "alice")
 			if tc.wantErr {
 				if err == nil {
 					t.Fatalf("expected rejection, got workflow %s", wf.ID)
 				}
-				// Submit-time validation maps to ErrInvalidRequest (400) or ErrUnknownProject (404).
-				if !errors.Is(err, ErrInvalidRequest) && !errors.Is(err, ErrUnknownProject) {
-					t.Fatalf("error %v is neither ErrInvalidRequest nor ErrUnknownProject", err)
+				// Submit-time validation maps to job.ErrInvalidRequest (400) or job.ErrUnknownProject (404).
+				if !errors.Is(err, job.ErrInvalidRequest) && !errors.Is(err, job.ErrUnknownProject) {
+					t.Fatalf("error %v is neither job.ErrInvalidRequest nor job.ErrUnknownProject", err)
 				}
 				return
 			}
@@ -97,11 +98,11 @@ func TestSubmitWorkflowSubValidation(t *testing.T) {
 			}
 			// A legal submit must NOT have started the workflow into a broken state; cancel
 			// it so any started inner jobs are torn down before teardown.
-			_ = s.CancelWorkflow(wf.ID)
+			_ = e.CancelWorkflow(wf.ID)
 			// Drain to terminal to avoid background goroutines racing store close.
 			deadline := time.Now().Add(15 * time.Second)
 			for time.Now().Before(deadline) {
-				w, _, _ := s.meta.GetWorkflow(wf.ID)
+				w, _, _ := e.meta.GetWorkflow(wf.ID)
 				if w.Status != jobstore.WorkflowRunning {
 					break
 				}
@@ -114,20 +115,20 @@ func TestSubmitWorkflowSubValidation(t *testing.T) {
 // TestValidateSubworkflowRecursiveDepth is a focused unit check on validateSubworkflow's
 // depth accounting (independent of submit): depth 3 passes, depth 4 fails.
 func TestValidateSubworkflowRecursiveDepth(t *testing.T) {
-	s := newTestService(t, t.TempDir())
-	cfg := s.config()
+	e := newTestEngine(t, t.TempDir())
+	cfg := e.ops.Config()
 
-	d3 := WorkflowSpec{Steps: []StepSpec{
+	d3 := Spec{Steps: []StepSpec{
 		wfStep("d2", "", wfStep("d3", "", echoStep("leaf"))),
 	}}
-	if err := s.validateSubworkflow(d3, cfg, 1); err != nil {
+	if err := e.validateSubworkflow(d3, cfg, 1); err != nil {
 		t.Fatalf("depth 3 should pass, got: %v", err)
 	}
 
-	d4 := WorkflowSpec{Steps: []StepSpec{
+	d4 := Spec{Steps: []StepSpec{
 		wfStep("d2", "", wfStep("d3", "", wfStep("d4", "", echoStep("leaf")))),
 	}}
-	if err := s.validateSubworkflow(d4, cfg, 1); err == nil {
+	if err := e.validateSubworkflow(d4, cfg, 1); err == nil {
 		t.Fatal("depth 4 should be rejected (exceeds maxWorkflowDepth)")
 	}
 }

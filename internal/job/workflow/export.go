@@ -1,4 +1,4 @@
-package job
+package workflow
 
 import (
 	"encoding/json"
@@ -95,14 +95,14 @@ func redactStepSecrets(step *StepSpec) bool {
 // plus whether anything was redacted. The input spec is never mutated (the copy is via
 // a JSON round-trip), so the persisted spec_json is unchanged — only the export is
 // scrubbed.
-func redactWorkflowSecrets(spec WorkflowSpec) (WorkflowSpec, bool, error) {
+func redactWorkflowSecrets(spec Spec) (Spec, bool, error) {
 	raw, err := json.Marshal(spec)
 	if err != nil {
-		return WorkflowSpec{}, false, fmt.Errorf("marshal spec for redact: %w", err)
+		return Spec{}, false, fmt.Errorf("marshal spec for redact: %w", err)
 	}
-	var cp WorkflowSpec
+	var cp Spec
 	if err := json.Unmarshal(raw, &cp); err != nil {
-		return WorkflowSpec{}, false, fmt.Errorf("clone spec for redact: %w", err)
+		return Spec{}, false, fmt.Errorf("clone spec for redact: %w", err)
 	}
 	redacted := false
 	for i := range cp.Steps {
@@ -113,23 +113,23 @@ func redactWorkflowSecrets(spec WorkflowSpec) (WorkflowSpec, bool, error) {
 	return cp, redacted, nil
 }
 
-// ExportWorkflow returns a workflow's WorkflowSpec reconstructed from its persisted
+// ExportWorkflow returns a workflow's Spec reconstructed from its persisted
 // spec_json, with all credential-looking values stripped (T4.1, E18 + SR403). The
 // returned spec is a runnable template: re-submit it (POST /v1/workflows / `workflow
 // run`) to reproduce the chain — after filling any redacted secret back in. The bool
 // reports whether anything was redacted (the HTTP/CLI layer surfaces it so the operator
 // knows a placeholder must be replaced). An unknown id returns ok=false.
-func (s *Service) ExportWorkflow(wfID string) (WorkflowSpec, bool, bool, error) {
-	wf, ok, err := s.meta.GetWorkflow(wfID)
+func (e *Engine) ExportWorkflow(wfID string) (Spec, bool, bool, error) {
+	wf, ok, err := e.meta.GetWorkflow(wfID)
 	if err != nil {
-		return WorkflowSpec{}, false, false, err
+		return Spec{}, false, false, err
 	}
 	if !ok {
-		return WorkflowSpec{}, false, false, nil
+		return Spec{}, false, false, nil
 	}
-	var spec WorkflowSpec
+	var spec Spec
 	if err := json.Unmarshal([]byte(wf.SpecJSON), &spec); err != nil {
-		return WorkflowSpec{}, false, false, fmt.Errorf("decode spec_json of %q: %w", wfID, err)
+		return Spec{}, false, false, fmt.Errorf("decode spec_json of %q: %w", wfID, err)
 	}
 	// The title travels with the export (spec_json already carries it, but a header-only
 	// title set post-submit would be lost otherwise — keep them in sync, header wins).
@@ -138,7 +138,7 @@ func (s *Service) ExportWorkflow(wfID string) (WorkflowSpec, bool, bool, error) 
 	}
 	scrubbed, redacted, err := redactWorkflowSecrets(spec)
 	if err != nil {
-		return WorkflowSpec{}, false, false, err
+		return Spec{}, false, false, err
 	}
 	return scrubbed, true, redacted, nil
 }

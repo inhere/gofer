@@ -7,6 +7,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
@@ -41,7 +42,9 @@ func newRunnersServer(t *testing.T, runnersCfg map[string]config.RunnerConfig, p
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
 	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
-	return New(&cfg.Server, testToken, false, jobs, projects, agents, nil, runnersCfg, prober, workers)
+	jobsEng := workflow.NewEngine(jobs)
+	jobs.SetWorkflow(jobsEng)
+	return New(&cfg.Server, testToken, false, jobs, jobsEng, projects, agents, nil, runnersCfg, prober, workers)
 }
 
 // listRunners GETs /v1/runners and returns the decoded rows.

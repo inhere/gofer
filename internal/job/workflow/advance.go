@@ -1,4 +1,4 @@
-package job
+package workflow
 
 import (
 	"context"
@@ -6,10 +6,11 @@ import (
 	"fmt"
 	"time"
 
+	job "github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
-// advanceWorkflow advances a workflow when its current step's job reaches a
+// Advance advances a workflow when its current step's job reaches a
 // terminal state. It is the串行推进引擎 and is designed to be called MANY times,
 // concurrently, for the same workflow — the finish hook (one call per step-job
 // terminal) AND the sweeper (crash recovery) both invoke it. 幂等 rests on TWO
@@ -33,8 +34,8 @@ import (
 //
 // best-effort: failures are logged, never panic; a missed advance is re-tried by
 // the sweeper on its next tick.
-func (s *Service) advanceWorkflow(wfID string) {
-	wf, ok, err := s.meta.GetWorkflow(wfID)
+func (e *Engine) Advance(wfID string) {
+	wf, ok, err := e.meta.GetWorkflow(wfID)
 	if err != nil || !ok || wf.Status != jobstore.WorkflowRunning {
 		return // unknown or already terminal: nothing to advance
 	}
@@ -42,11 +43,11 @@ func (s *Service) advanceWorkflow(wfID string) {
 	// 退避未到点：a retry scheduled next_step_at into the future — leave it for a
 	// later sweeper tick. The sweeper re-reads the header each tick, so once
 	// next_step_at <= now this guard passes and the attempt+1 job is started below.
-	if wf.NextStepAt > s.nowFn().Unix() {
+	if wf.NextStepAt > e.now().Unix() {
 		return
 	}
 
-	jobs, err := s.meta.ListWorkflowJobs(wfID)
+	jobs, err := e.meta.ListWorkflowJobs(wfID)
 	if err != nil {
 		return
 	}
@@ -55,16 +56,16 @@ func (s *Service) advanceWorkflow(wfID string) {
 	// Decode the spec FIRST (P2): the step's FanOut decides how many jobs make up the
 	// (cur,att) generation, so the engine must know it before judging "started" /
 	// "terminal". A decode/bounds error wins推进权 once and fails the workflow.
-	var spec WorkflowSpec
+	var spec Spec
 	if err := json.Unmarshal([]byte(wf.SpecJSON), &spec); err != nil {
-		if won, _ := s.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0); won {
-			s.setWorkflowFailed(wfID, "decode spec: "+err.Error())
+		if won, _ := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0); won {
+			e.setWorkflowFailed(wfID, "decode spec: "+err.Error())
 		}
 		return
 	}
 	if cur < 1 || cur > len(spec.Steps) {
-		if won, _ := s.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0); won {
-			s.setWorkflowFailed(wfID, "spec/total step mismatch")
+		if won, _ := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0); won {
+			e.setWorkflowFailed(wfID, "spec/total step mismatch")
 		}
 		return
 	}
@@ -74,7 +75,7 @@ func (s *Service) advanceWorkflow(wfID string) {
 	// fan-job census. Branch the "started? terminal? verdict?" computation; the
 	// done/failed handling below (on_failure 等) is shared with the job path.
 	if step.Type == stepTypeWorkflow {
-		s.advanceWorkflowStep(wf, step, cur, att, jobs, spec)
+		e.advanceWorkflowStep(wf, step, cur, att, jobs, spec)
 		return
 	}
 
@@ -90,7 +91,7 @@ func (s *Service) advanceWorkflow(wfID string) {
 	if len(fanJobs) < want {
 		// retry-due / crash / partial-fan path: (re)start the (cur,att) generation now.
 		// startStepJob fans out `want` jobs idempotently; already-started fans are no-ops.
-		s.startStepJob(wf, cur, att, jobs)
+		e.startStepJob(wf, cur, att, jobs)
 		return
 	}
 
@@ -100,13 +101,13 @@ func (s *Service) advanceWorkflow(wfID string) {
 	if !fanTerminal(fanJobs, want, join) {
 		return
 	}
-	verdict := fanVerdict(fanJobs, want, join) // StatusDone or StatusFailed (aggregated)
+	verdict := fanVerdict(fanJobs, want, join) // job.StatusDone or job.StatusFailed (aggregated)
 
 	switch verdict {
-	case StatusDone:
+	case job.StatusDone:
 		// Win推进权 for this (step,attempt) → (cur+1, 1). Only the winner advances /
 		// starts the next step, so done is committed exactly once.
-		won, aerr := s.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
+		won, aerr := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
 		if aerr != nil || !won {
 			return
 		}
@@ -115,12 +116,12 @@ func (s *Service) advanceWorkflow(wfID string) {
 		// executor (E17 quota): a still-running fan otherwise finishes uselessly and its
 		// finish-hook re-drive is a harmless no-op (the pointer已 moved off (cur,att)).
 		// Only the AdvanceStep winner runs this, so it cancels exactly once.
-		s.cancelInflightFans(fanJobs)
+		e.cancelInflightFans(fanJobs)
 		if cur >= wf.TotalSteps {
-			s.setWorkflowDone(wfID) // last step done -> workflow done
+			e.setWorkflowDone(wfID) // last step done -> workflow done
 			return
 		}
-		s.startNextStep(wf, cur, jobs, spec) // resolveRefs + start step cur+1 (attempt 1)
+		e.startNextStep(wf, cur, jobs, spec) // resolveRefs + start step cur+1 (attempt 1)
 	default: // failed (aggregated: join not satisfied)
 		failStatus := fanFailStatus(fanJobs) // representative failed fan status (message)
 		failExit := fanFailExitCode(fanJobs) // representative failed fan exit code (retry gate)
@@ -134,62 +135,62 @@ func (s *Service) advanceWorkflow(wfID string) {
 				// A fan-out retry re-runs the WHOLE step (all `want` fans at att+1, plan
 				// 硬约束: only-failed-fan retry left for后续).
 				backoff := backoffFor(step, att)
-				next := s.nowFn().Unix() + int64(backoff)
-				won, aerr := s.meta.AdvanceStep(wfID, cur, att, cur, att+1, next)
+				next := e.now().Unix() + int64(backoff)
+				won, aerr := e.meta.AdvanceStep(wfID, cur, att, cur, att+1, next)
 				if aerr != nil || !won {
 					return
 				}
-				s.recordWorkflowEvent(wfID, EventStepRetry, map[string]any{
+				e.recordWorkflowEvent(wfID, job.EventStepRetry, map[string]any{
 					"step": cur, "attempt": att, "next_attempt": att + 1,
 					"backoff_sec": backoff, "next_step_at": next,
 				})
 				// Promptly re-drive once the backoff elapses (an in-process timer), so the
 				// attempt+1 job starts without waiting for the next sweeper tick. The
-				// sweeper (AdvanceRunningWorkflows) remains the RELIABLE backstop: if this
+				// sweeper (AdvanceRunning) remains the RELIABLE backstop: if this
 				// timer is lost (process restart), the sweeper picks the due retry up. A
 				// zero/elapsed backoff fires (near-)immediately. The re-advance re-reads the
 				// header, so it is idempotent with the sweeper (request_id + AdvanceStep).
-				s.scheduleRetryAdvance(wfID, backoff)
+				e.scheduleRetryAdvance(wfID, backoff)
 				return
 			}
 			// Retry exhausted (or this exit code is not retryable): fail-fast.
-			won, aerr := s.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
+			won, aerr := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
 			if aerr != nil || !won {
 				return
 			}
-			s.setWorkflowFailed(wfID, fmt.Sprintf("step %d %s after %d attempt(s)", cur, failStatus, att))
+			e.setWorkflowFailed(wfID, fmt.Sprintf("step %d %s after %d attempt(s)", cur, failStatus, att))
 		case onFailureContinue:
 			// 继续: skip the failed step, advance to the next (or finish).
-			won, aerr := s.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
+			won, aerr := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
 			if aerr != nil || !won {
 				return
 			}
-			s.recordWorkflowEvent(wfID, EventStepSkipped, map[string]any{
+			e.recordWorkflowEvent(wfID, job.EventStepSkipped, map[string]any{
 				"step": cur, "attempt": att, "status": failStatus,
 			})
 			if cur >= wf.TotalSteps {
-				s.setWorkflowDone(wfID) // last step skipped -> workflow done
+				e.setWorkflowDone(wfID) // last step skipped -> workflow done
 				return
 			}
-			s.startNextStep(wf, cur, jobs, spec)
+			e.startNextStep(wf, cur, jobs, spec)
 		default: // "" / fail: v1 fail-fast (D17 default)
-			won, aerr := s.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
+			won, aerr := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
 			if aerr != nil || !won {
 				return
 			}
-			s.setWorkflowFailed(wfID, fmt.Sprintf("step %d %s", cur, failStatus))
+			e.setWorkflowFailed(wfID, fmt.Sprintf("step %d %s", cur, failStatus))
 		}
 	}
 }
 
 // advanceWorkflowStep advances a workflow whose CURRENT step is a workflow-type step
-// (P3, D19). It is the workflow-type analogue of the fan-job census in advanceWorkflow:
+// (P3, D19). It is the workflow-type analogue of the fan-job census in Advance:
 // the step's outcome IS its child sub-workflow's outcome.
 //   - child not yet created (crash / retry-due / partial start): (re)start it via
 //     startStepJob (which routes to startSubWorkflow with the deterministic child id, so
 //     a racing re-drive is idempotent), then wait.
 //   - child still running: wait — its terminal transition will fire the parent's
-//     advanceWorkflow again (setWorkflowDone/Failed parent hook), AND the sweeper is the
+//     Advance again (setWorkflowDone/Failed parent hook), AND the sweeper is the
 //     backstop if that hook is lost.
 //   - child terminal: done → advance/next-step (shared with the job path); failed/
 //     cancelled → on_failure (fail/continue/retry), identical handling to the job path.
@@ -198,9 +199,9 @@ func (s *Service) advanceWorkflow(wfID string) {
 // (AdvanceStep抢权 + retry/continue/fail), keeping the幂等 invariant (一个 (step,attempt)
 // 状态转移绝不执行两次). cur/att are the captured 1-based pointer二元组; jobs/spec are the
 // already-read header projections (jobs feed startNextStep's ref resolution).
-func (s *Service) advanceWorkflowStep(wf jobstore.Workflow, step StepSpec, cur, att int, jobs []jobstore.JobRecord, spec WorkflowSpec) {
+func (e *Engine) advanceWorkflowStep(wf jobstore.Workflow, step StepSpec, cur, att int, jobs []jobstore.JobRecord, spec Spec) {
 	wfID := wf.ID
-	child, ok, err := s.meta.FindChildWorkflow(wfID, cur)
+	child, ok, err := e.meta.FindChildWorkflow(wfID, cur)
 	if err != nil {
 		return // transient store error: the sweeper re-drives next tick
 	}
@@ -210,7 +211,7 @@ func (s *Service) advanceWorkflowStep(wf jobstore.Workflow, step StepSpec, cur, 
 	// startSubWorkflow with the deterministic per-attempt id (idempotent re-drive).
 	wantChildID := childWorkflowID(wfID, cur, att)
 	if !ok || child.ID != wantChildID {
-		s.startStepJob(wf, cur, att, jobs)
+		e.startStepJob(wf, cur, att, jobs)
 		return
 	}
 	if child.Status == jobstore.WorkflowRunning {
@@ -219,15 +220,15 @@ func (s *Service) advanceWorkflowStep(wf jobstore.Workflow, step StepSpec, cur, 
 
 	// Child terminal: done → step done; failed/cancelled → step failed (then on_failure).
 	if child.Status == jobstore.WorkflowDone {
-		won, aerr := s.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
+		won, aerr := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
 		if aerr != nil || !won {
 			return
 		}
 		if cur >= wf.TotalSteps {
-			s.setWorkflowDone(wfID)
+			e.setWorkflowDone(wfID)
 			return
 		}
-		s.startNextStep(wf, cur, jobs, spec)
+		e.startNextStep(wf, cur, jobs, spec)
 		return
 	}
 
@@ -240,42 +241,42 @@ func (s *Service) advanceWorkflowStep(wf jobstore.Workflow, step StepSpec, cur, 
 		// (no exit code), so the retry gate is just the attempt ceiling.
 		if att < maxAttempts(step) {
 			backoff := backoffFor(step, att)
-			next := s.nowFn().Unix() + int64(backoff)
-			won, aerr := s.meta.AdvanceStep(wfID, cur, att, cur, att+1, next)
+			next := e.now().Unix() + int64(backoff)
+			won, aerr := e.meta.AdvanceStep(wfID, cur, att, cur, att+1, next)
 			if aerr != nil || !won {
 				return
 			}
-			s.recordWorkflowEvent(wfID, EventStepRetry, map[string]any{
+			e.recordWorkflowEvent(wfID, job.EventStepRetry, map[string]any{
 				"step": cur, "attempt": att, "next_attempt": att + 1,
 				"backoff_sec": backoff, "next_step_at": next,
 			})
-			s.scheduleRetryAdvance(wfID, backoff)
+			e.scheduleRetryAdvance(wfID, backoff)
 			return
 		}
-		won, aerr := s.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
+		won, aerr := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
 		if aerr != nil || !won {
 			return
 		}
-		s.setWorkflowFailed(wfID, fmt.Sprintf("step %d sub-workflow %s after %d attempt(s)", cur, failStatus, att))
+		e.setWorkflowFailed(wfID, fmt.Sprintf("step %d sub-workflow %s after %d attempt(s)", cur, failStatus, att))
 	case onFailureContinue:
-		won, aerr := s.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
+		won, aerr := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
 		if aerr != nil || !won {
 			return
 		}
-		s.recordWorkflowEvent(wfID, EventStepSkipped, map[string]any{
+		e.recordWorkflowEvent(wfID, job.EventStepSkipped, map[string]any{
 			"step": cur, "attempt": att, "status": failStatus,
 		})
 		if cur >= wf.TotalSteps {
-			s.setWorkflowDone(wfID)
+			e.setWorkflowDone(wfID)
 			return
 		}
-		s.startNextStep(wf, cur, jobs, spec)
+		e.startNextStep(wf, cur, jobs, spec)
 	default: // "" / fail: fail-fast (D17 default)
-		won, aerr := s.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
+		won, aerr := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
 		if aerr != nil || !won {
 			return
 		}
-		s.setWorkflowFailed(wfID, fmt.Sprintf("step %d sub-workflow %s", cur, failStatus))
+		e.setWorkflowFailed(wfID, fmt.Sprintf("step %d sub-workflow %s", cur, failStatus))
 	}
 }
 
@@ -285,22 +286,22 @@ func (s *Service) advanceWorkflowStep(wf jobstore.Workflow, step StepSpec, cur, 
 // cur+1. A resolve failure fails the whole workflow (the advance已抢权, so this
 // runs exactly once). priorJobs are the already-started step-jobs (for ref resolve).
 // submitStepFan starts a single job (FanOut<=1) or fans out N (FanOut>1, P2).
-func (s *Service) startNextStep(wf jobstore.Workflow, cur int, priorJobs []jobstore.JobRecord, spec WorkflowSpec) {
+func (e *Engine) startNextStep(wf jobstore.Workflow, cur int, priorJobs []jobstore.JobRecord, spec Spec) {
 	next := spec.Steps[cur] // 0-based: the next step (1-based step cur+1)
 	// P2 接入点：resolveRefs 把 ${steps.N.field} 替换为前序产出（含 fan-out 聚合）。替换
 	// 失败 → 整条工作流 failed，不起此步（advance 已抢权，此处只跑一次）。
-	if err := s.resolveRefs(&next, priorJobs); err != nil {
-		s.setWorkflowFailed(wf.ID, fmt.Sprintf("step %d resolve refs: %s", cur+1, err.Error()))
+	if err := e.resolveRefs(&next, priorJobs); err != nil {
+		e.setWorkflowFailed(wf.ID, fmt.Sprintf("step %d resolve refs: %s", cur+1, err.Error()))
 		return
 	}
-	if err := s.submitStepFan(wf, next, cur+1, 1); err != nil {
-		s.setWorkflowFailed(wf.ID, "submit step: "+err.Error())
+	if err := e.submitStepFan(wf, next, cur+1, 1); err != nil {
+		e.setWorkflowFailed(wf.ID, "submit step: "+err.Error())
 		return
 	}
 }
 
 // startStepJob (re)starts the (step, attempt) generation for the CURRENT pointer. It
-// is the retry-due / crash-recovery / partial-fan entry: advanceWorkflow calls it when
+// is the retry-due / crash-recovery / partial-fan entry: Advance calls it when
 // fewer than `want` fan jobs of the active (cur,att) exist (a retry set the pointer to
 // att+1 but did not start the jobs, a crash lost a start, or only some fans launched).
 // It resolves the step's refs and submits the full fan with deterministic request_ids
@@ -311,23 +312,23 @@ func (s *Service) startNextStep(wf jobstore.Workflow, cur int, priorJobs []jobst
 // NOTE: this does NOT抢 AdvanceStep — the pointer is already at (step,attempt); the
 // request_ids ARE the idempotency barrier for the start. Multiple concurrent callers
 // all compute the same request_ids and the unique index admits one per fan.
-func (s *Service) startStepJob(wf jobstore.Workflow, step, attempt int, priorJobs []jobstore.JobRecord) {
-	var spec WorkflowSpec
+func (e *Engine) startStepJob(wf jobstore.Workflow, step, attempt int, priorJobs []jobstore.JobRecord) {
+	var spec Spec
 	if err := json.Unmarshal([]byte(wf.SpecJSON), &spec); err != nil {
-		s.setWorkflowFailed(wf.ID, "decode spec: "+err.Error())
+		e.setWorkflowFailed(wf.ID, "decode spec: "+err.Error())
 		return
 	}
 	if step < 1 || step > len(spec.Steps) {
-		s.setWorkflowFailed(wf.ID, "spec/total step mismatch")
+		e.setWorkflowFailed(wf.ID, "spec/total step mismatch")
 		return
 	}
 	stepSpec := spec.Steps[step-1]
-	if err := s.resolveRefs(&stepSpec, priorJobs); err != nil {
-		s.setWorkflowFailed(wf.ID, fmt.Sprintf("step %d resolve refs: %s", step, err.Error()))
+	if err := e.resolveRefs(&stepSpec, priorJobs); err != nil {
+		e.setWorkflowFailed(wf.ID, fmt.Sprintf("step %d resolve refs: %s", step, err.Error()))
 		return
 	}
-	if err := s.submitStepFan(wf, stepSpec, step, attempt); err != nil {
-		s.setWorkflowFailed(wf.ID, "submit step: "+err.Error())
+	if err := e.submitStepFan(wf, stepSpec, step, attempt); err != nil {
+		e.setWorkflowFailed(wf.ID, "submit step: "+err.Error())
 		return
 	}
 }
@@ -344,24 +345,24 @@ func (s *Service) startStepJob(wf jobstore.Workflow, step, attempt int, priorJob
 // workflow.terminal before Submit returns, inverting order): step.started for a single
 // job, step.fanout (with all fan job_ids) for a fan-out generation. The step's spec is
 // assumed already ref-resolved by the caller.
-func (s *Service) submitStepFan(wf jobstore.Workflow, step StepSpec, stepIndex, attempt int) error {
+func (e *Engine) submitStepFan(wf jobstore.Workflow, step StepSpec, stepIndex, attempt int) error {
 	// P3: a workflow-type step submits an INLINE sub-workflow (D18) instead of a job.
 	// The child is bound to (wf.ID, stepIndex) with a deterministic id, so a racing
 	// re-start (finish-hook + sweeper) only ever creates ONE child (idempotent). The
-	// parent step's terminal == the child workflow's terminal (judged in advanceWorkflow
+	// parent step's terminal == the child workflow's terminal (judged in Advance
 	// via FindChildWorkflow). A sub-workflow is a black box (no ref into its inner steps,
 	// design §3), so the step's own resolved fields are unused here.
 	if step.Type == stepTypeWorkflow {
-		return s.startSubWorkflow(wf, step, stepIndex, attempt)
+		return e.startSubWorkflow(wf, step, stepIndex, attempt)
 	}
 	want := fanWant(step)
 	if want <= 1 {
 		// Single-job path (v1/P1): fan_index 0, no fan request_id segment.
 		req := stepToRequest(step, wf.ID, stepIndex, attempt, 0, wf.CallerID)
-		s.recordWorkflowEvent(wf.ID, EventStepStarted, map[string]any{
+		e.recordWorkflowEvent(wf.ID, job.EventStepStarted, map[string]any{
 			"step": stepIndex, "attempt": attempt, "job_id": req.RequestID,
 		})
-		if _, err := s.Submit(req); err != nil {
+		if _, err := e.ops.Submit(req); err != nil {
 			return err
 		}
 		return nil
@@ -372,18 +373,18 @@ func (s *Service) submitStepFan(wf jobstore.Workflow, step StepSpec, stepIndex, 
 	// error (advance/submit-source caller fails the workflow); already-submitted fans of
 	// this generation are idempotent no-ops on a re-drive (C5 request_id).
 	jobIDs := make([]string, 0, want)
-	reqs := make([]JobRequest, 0, want)
+	reqs := make([]job.JobRequest, 0, want)
 	for f := 1; f <= want; f++ {
 		req := stepToRequest(step, wf.ID, stepIndex, attempt, f, wf.CallerID)
 		reqs = append(reqs, req)
 		jobIDs = append(jobIDs, req.RequestID)
 	}
-	s.recordWorkflowEvent(wf.ID, EventStepFanout, map[string]any{
+	e.recordWorkflowEvent(wf.ID, job.EventStepFanout, map[string]any{
 		"step": stepIndex, "attempt": attempt, "fan_out": want,
 		"join": joinPolicy(step), "job_ids": jobIDs,
 	})
 	for i := range reqs {
-		if _, err := s.Submit(reqs[i]); err != nil {
+		if _, err := e.ops.Submit(reqs[i]); err != nil {
 			return err
 		}
 	}
@@ -397,31 +398,31 @@ func (s *Service) submitStepFan(wf jobstore.Workflow, step StepSpec, stepIndex, 
 // inherits the parent's caller_id (D8 / E17 quota continuity). On submit success it
 // records subworkflow.started; on failure it returns the error so the caller fails the
 // parent workflow (a sub-workflow that can not start is a step failure).
-func (s *Service) startSubWorkflow(parent jobstore.Workflow, step StepSpec, stepIndex, attempt int) error {
+func (e *Engine) startSubWorkflow(parent jobstore.Workflow, step StepSpec, stepIndex, attempt int) error {
 	if step.SubWorkflow == nil || len(step.SubWorkflow.Steps) == 0 {
 		// Defensive: validateSubworkflow rejects this at submit, but guard the runtime path.
-		return fmt.Errorf("%w: step %d type=workflow has no sub_workflow", ErrInvalidRequest, stepIndex)
+		return fmt.Errorf("%w: step %d type=workflow has no sub_workflow", job.ErrInvalidRequest, stepIndex)
 	}
-	child, err := s.SubmitWorkflowChild(*step.SubWorkflow, parent.CallerID, parent.ID, stepIndex, attempt)
+	child, err := e.SubmitWorkflowChild(*step.SubWorkflow, parent.CallerID, parent.ID, stepIndex, attempt)
 	if err != nil {
 		return err
 	}
-	s.recordWorkflowEvent(parent.ID, EventSubworkflowStarted, map[string]any{
+	e.recordWorkflowEvent(parent.ID, job.EventSubworkflowStarted, map[string]any{
 		"step": stepIndex, "attempt": attempt, "child_workflow_id": child.ID,
 		"total_steps": child.TotalSteps,
 	})
 	return nil
 }
 
-// AdvanceRunningWorkflows is the crash-recovery sweeper body (SR304): it scans
-// running workflows and re-drives advanceWorkflow for each, picking up any whose
+// AdvanceRunning is the crash-recovery sweeper body (SR304): it scans
+// running workflows and re-drives Advance for each, picking up any whose
 // current step finished but whose finish-hook advance never ran (process crash /
 // missed goroutine). It is幂等 (advanceWorkflow抢推进权) so re-running it alongside
 // the finish hook is safe — a no-op for workflows still mid-step. It returns the
 // number of running workflows it inspected (for logging). ctx cancellation stops
 // the scan early (serve shutdown).
-func (s *Service) AdvanceRunningWorkflows(ctx context.Context) int {
-	running, err := s.meta.ListWorkflows(jobstore.WorkflowRunning, sweeperWorkflowScan)
+func (e *Engine) AdvanceRunning(ctx context.Context) int {
+	running, err := e.meta.ListWorkflows(jobstore.WorkflowRunning, sweeperWorkflowScan)
 	if err != nil {
 		return 0
 	}
@@ -431,24 +432,24 @@ func (s *Service) AdvanceRunningWorkflows(ctx context.Context) int {
 			return len(running)
 		default:
 		}
-		s.advanceWorkflow(wf.ID)
+		e.Advance(wf.ID)
 	}
 	return len(running)
 }
 
-// scheduleRetryAdvance fires advanceWorkflow once after backoffSec seconds (an
+// scheduleRetryAdvance fires Advance once after backoffSec seconds (an
 // in-process timer), so a scheduled step retry starts its attempt+1 job promptly
 // rather than waiting for the next sweeper tick. The sweeper
-// (AdvanceRunningWorkflows) is the RELIABLE backstop — if this timer is lost to a
+// (AdvanceRunning) is the RELIABLE backstop — if this timer is lost to a
 // process restart, the due retry is still picked up — so the timer is purely a
 // latency optimisation and never the sole driver. A backoff of 0 schedules an
 // (almost) immediate re-advance. The re-advance is fully idempotent (it re-reads
 // the header and goes through AdvanceStep + the deterministic request_id).
-func (s *Service) scheduleRetryAdvance(wfID string, backoffSec int) {
+func (e *Engine) scheduleRetryAdvance(wfID string, backoffSec int) {
 	if backoffSec < 0 {
 		backoffSec = 0
 	}
 	time.AfterFunc(time.Duration(backoffSec)*time.Second, func() {
-		s.advanceWorkflow(wfID)
+		e.Advance(wfID)
 	})
 }

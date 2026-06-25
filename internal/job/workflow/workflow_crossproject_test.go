@@ -1,4 +1,4 @@
-package job
+package workflow
 
 import (
 	"os"
@@ -8,17 +8,19 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	job "github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
 )
 
-// newCrossProjectService builds a Service with THREE distinct projects (projA/projB/
-// projC) each rooted at its own host dir, so a cross-project workflow's ${steps.N.
-// result_dir} (an absolute path) is written by one project and read by the next on the
-// SAME container filesystem (D20 本地直读). All three allow exec/local.
-func newCrossProjectService(t *testing.T, root string) *Service {
+// newCrossProjectEngine builds an Engine over a Service with THREE distinct projects
+// (projA/projB/projC) each rooted at its own host dir, so a cross-project workflow's
+// ${steps.N.result_dir} (an absolute path) is written by one project and read by the
+// next on the SAME container filesystem (D20 本地直读). All three allow exec/local. The
+// engine is wired back into the service (SetWorkflow) so finish→Advance drives the chain.
+func newCrossProjectEngine(t *testing.T, root string) *Engine {
 	t.Helper()
 	mk := func(name string) config.ProjectConfig {
 		dir := filepath.Join(root, "host", name)
@@ -51,7 +53,10 @@ func newCrossProjectService(t *testing.T, root string) *Service {
 		t.Fatalf("open jobstore: %v", err)
 	}
 	t.Cleanup(func() { _ = meta.Close() })
-	return NewService(cfg, projReg, agentReg, runners, meta, nil)
+	svc := job.NewService(cfg, projReg, agentReg, runners, meta, nil)
+	eng := NewEngine(svc)
+	svc.SetWorkflow(eng)
+	return eng
 }
 
 // TestWorkflowCrossProjectLinearHandoff is the D20 cross-project本地传值 proof: a 3-step
@@ -62,7 +67,7 @@ func newCrossProjectService(t *testing.T, root string) *Service {
 // local runner (same container FS), no copy needed.
 func TestWorkflowCrossProjectLinearHandoff(t *testing.T) {
 	root := t.TempDir()
-	s := newCrossProjectService(t, root)
+	e := newCrossProjectEngine(t, root)
 
 	step1 := StepSpec{
 		Name: "genA", ProjectKey: "projA", Agent: "exec", Runner: "local",
@@ -83,7 +88,7 @@ func TestWorkflowCrossProjectLinearHandoff(t *testing.T) {
 		Cwd:    ".", TimeoutSec: 30,
 	}
 
-	wf, err := s.SubmitWorkflow(WorkflowSpec{
+	wf, err := e.SubmitWorkflow(Spec{
 		Title: "cross-project",
 		Steps: []StepSpec{step1, step2, step3},
 	}, "alice")
@@ -91,12 +96,12 @@ func TestWorkflowCrossProjectLinearHandoff(t *testing.T) {
 		t.Fatalf("SubmitWorkflow: %v", err)
 	}
 
-	final := waitWorkflow(t, s, wf.ID)
+	final := waitWorkflow(t, e, wf.ID)
 	if final.Status != jobstore.WorkflowDone {
 		t.Fatalf("workflow status = %s (err=%s), want done (cross-project handoff)", final.Status, final.Error)
 	}
 
-	jobs, err := s.meta.ListWorkflowJobs(wf.ID)
+	jobs, err := e.meta.ListWorkflowJobs(wf.ID)
 	if err != nil {
 		t.Fatalf("ListWorkflowJobs: %v", err)
 	}

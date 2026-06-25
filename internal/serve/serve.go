@@ -20,6 +20,7 @@ import (
 	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/httpapi"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/metrics"
 	"github.com/inhere/gofer/internal/runner"
 )
@@ -117,7 +118,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// 开销低：无 running 工作流时空转）；stop 在 serve 返回时关闭，goroutine 干净退出。
 	stopWorkflow := make(chan struct{})
 	defer close(stopWorkflow)
-	startWorkflowLoop(c, cr.Jobs, stopWorkflow)
+	startWorkflowLoop(c, cr.Workflow(), stopWorkflow)
 
 	// Config hot-reload (C3): SIGHUP re-loads the config from the serve path and
 	// atomically swaps it into the registries + job service (no restart, no
@@ -149,7 +150,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// value: only wire the adapter when the hub is present.
 	var workers = hubWorkerRegistry{hub: cr.Hub}
 
-	srv := httpapi.New(&cfg.Server, token, allowEmpty, cr.Jobs, cr.Projects, cr.Agents, cr.Hub, cfg.Runners, proberOrNil(prober), workers)
+	srv := httpapi.New(&cfg.Server, token, allowEmpty, cr.Jobs, cr.Workflow(), cr.Projects, cr.Agents, cr.Hub, cfg.Runners, proberOrNil(prober), workers)
 
 	// E16 Prometheus metrics: build the registry, inject the lifecycle-counter sink
 	// into the job service, register the scrape-time GaugeFuncs (in-flight/queued/
@@ -277,7 +278,7 @@ const workflowInterval = 30 * time.Second
 // exits when stop is closed (serve shutdown); an in-flight sweep is cancelled via
 // a ctx tied to stop. Unlike prune/delivery it is ALWAYS started — workflows are a
 // core capability, not opt-in config — and is a cheap no-op when none are running.
-func startWorkflowLoop(c *gcli.Command, jobs *job.Service, stop <-chan struct{}) {
+func startWorkflowLoop(c *gcli.Command, eng *workflow.Engine, stop <-chan struct{}) {
 	c.Printf("gofer: workflow advance sweeper enabled (interval=%s)\n", workflowInterval)
 
 	go func() {
@@ -288,7 +289,7 @@ func startWorkflowLoop(c *gcli.Command, jobs *job.Service, stop <-chan struct{})
 		}()
 		defer cancel()
 
-		jobs.AdvanceRunningWorkflows(ctx) // sweep once at startup (crash recovery)
+		eng.AdvanceRunning(ctx) // sweep once at startup (crash recovery)
 		ticker := time.NewTicker(workflowInterval)
 		defer ticker.Stop()
 		for {
@@ -296,7 +297,7 @@ func startWorkflowLoop(c *gcli.Command, jobs *job.Service, stop <-chan struct{})
 			case <-stop:
 				return
 			case <-ticker.C:
-				jobs.AdvanceRunningWorkflows(ctx)
+				eng.AdvanceRunning(ctx)
 			}
 		}
 	}()

@@ -5,12 +5,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
 )
 
 // echoStep builds a fast exec step for the "self" project (matches newTestServer).
-func echoStep(name string) job.StepSpec {
-	return job.StepSpec{
+func echoStep(name string) workflow.StepSpec {
+	return workflow.StepSpec{
 		Name: name, ProjectKey: "self", Agent: "exec", Runner: "local",
 		Cmd: []string{"sh", "-c", "echo " + name}, Cwd: ".", TimeoutSec: 30,
 	}
@@ -21,9 +21,9 @@ func echoStep(name string) job.StepSpec {
 func TestCreateWorkflow(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 
-	resp := do(t, s, http.MethodPost, "/v1/workflows", testToken, job.WorkflowSpec{
+	resp := do(t, s, http.MethodPost, "/v1/workflows", testToken, workflow.Spec{
 		Title: "chain",
-		Steps: []job.StepSpec{echoStep("a"), echoStep("b"), echoStep("c")},
+		Steps: []workflow.StepSpec{echoStep("a"), echoStep("b"), echoStep("c")},
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("create status=%d, want 200", resp.StatusCode)
@@ -73,8 +73,8 @@ func TestListWorkflowsStatusFilter(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 
 	// Start a workflow and let it run to completion.
-	resp := do(t, s, http.MethodPost, "/v1/workflows", testToken, job.WorkflowSpec{
-		Steps: []job.StepSpec{echoStep("one"), echoStep("two")},
+	resp := do(t, s, http.MethodPost, "/v1/workflows", testToken, workflow.Spec{
+		Steps: []workflow.StepSpec{echoStep("one"), echoStep("two")},
 	})
 	var created struct {
 		ID string `json:"id"`
@@ -103,12 +103,12 @@ func TestCancelWorkflowAPI(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 
 	// Step 1 sleeps so the workflow stays running when we cancel.
-	sleepStep := job.StepSpec{
+	sleepStep := workflow.StepSpec{
 		Name: "sleep1", ProjectKey: "self", Agent: "exec", Runner: "local",
 		Cmd: []string{"sleep", "10"}, Cwd: ".", TimeoutSec: 30,
 	}
-	resp := do(t, s, http.MethodPost, "/v1/workflows", testToken, job.WorkflowSpec{
-		Steps: []job.StepSpec{sleepStep, echoStep("two")},
+	resp := do(t, s, http.MethodPost, "/v1/workflows", testToken, workflow.Spec{
+		Steps: []workflow.StepSpec{sleepStep, echoStep("two")},
 	})
 	var created struct {
 		ID string `json:"id"`
@@ -142,8 +142,8 @@ func TestGetUnknownWorkflow404(t *testing.T) {
 // TestCreateWorkflowInvalidSpec400 asserts a spec with an invalid step is a 400.
 func TestCreateWorkflowInvalidSpec400(t *testing.T) {
 	s := newTestServer(t, testToken, false)
-	resp := do(t, s, http.MethodPost, "/v1/workflows", testToken, job.WorkflowSpec{
-		Steps: []job.StepSpec{{Name: "bad", ProjectKey: "self", Agent: "exec", Runner: ""}},
+	resp := do(t, s, http.MethodPost, "/v1/workflows", testToken, workflow.Spec{
+		Steps: []workflow.StepSpec{{Name: "bad", ProjectKey: "self", Agent: "exec", Runner: ""}},
 	})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status=%d, want 400", resp.StatusCode)
@@ -153,7 +153,7 @@ func TestCreateWorkflowInvalidSpec400(t *testing.T) {
 // TestCreateWorkflowEmptySteps400 asserts an empty spec is a 400.
 func TestCreateWorkflowEmptySteps400(t *testing.T) {
 	s := newTestServer(t, testToken, false)
-	resp := do(t, s, http.MethodPost, "/v1/workflows", testToken, job.WorkflowSpec{Steps: nil})
+	resp := do(t, s, http.MethodPost, "/v1/workflows", testToken, workflow.Spec{Steps: nil})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("status=%d, want 400", resp.StatusCode)
 	}

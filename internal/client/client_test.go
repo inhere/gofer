@@ -11,6 +11,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/httpapi"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
@@ -53,7 +54,9 @@ func newServer(t *testing.T, token string, allowEmpty bool) *httptest.Server {
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
 	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
-	srv := httpapi.New(&cfg.Server, token, allowEmpty, jobs, projects, agents, nil, nil, nil, nil)
+	jobsEng := workflow.NewEngine(jobs)
+	jobs.SetWorkflow(jobsEng)
+	srv := httpapi.New(&cfg.Server, token, allowEmpty, jobs, jobsEng, projects, agents, nil, nil, nil, nil)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts
@@ -288,9 +291,9 @@ func TestSubmitGetWorkflow(t *testing.T) {
 	ts := newServer(t, testToken, false)
 	c := New(ts.URL, testToken)
 
-	spec := job.WorkflowSpec{
+	spec := workflow.Spec{
 		Title: "chain",
-		Steps: []job.StepSpec{
+		Steps: []workflow.StepSpec{
 			{Name: "one", ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30},
 			{Name: "two", ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"go", "env", "GOOS"}, Cwd: ".", TimeoutSec: 30},
 		},
@@ -349,9 +352,9 @@ func TestExportWorkflowRoundTrip(t *testing.T) {
 	ts := newServer(t, testToken, false)
 	c := New(ts.URL, testToken)
 
-	spec := job.WorkflowSpec{
+	spec := workflow.Spec{
 		Title: "export-me",
-		Steps: []job.StepSpec{
+		Steps: []workflow.StepSpec{
 			{Name: "leaky", ProjectKey: "self", Agent: "exec", Runner: "local",
 				Cmd: []string{"sh", "-c", "deploy --token sk-secret-99 && go version"}, Cwd: ".", TimeoutSec: 30},
 		},
@@ -404,9 +407,9 @@ func TestListWorkflowEvents(t *testing.T) {
 	ts := newServer(t, testToken, false)
 	c := New(ts.URL, testToken)
 
-	wf, err := c.SubmitWorkflow(job.WorkflowSpec{
+	wf, err := c.SubmitWorkflow(workflow.Spec{
 		Title: "evented",
-		Steps: []job.StepSpec{
+		Steps: []workflow.StepSpec{
 			{Name: "a", ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30},
 		},
 	})
@@ -456,7 +459,7 @@ func TestSubmitWorkflowNoStepsRejected(t *testing.T) {
 	ts := newServer(t, testToken, false)
 	c := New(ts.URL, testToken)
 
-	if _, err := c.SubmitWorkflow(job.WorkflowSpec{Title: "empty"}); err == nil {
+	if _, err := c.SubmitWorkflow(workflow.Spec{Title: "empty"}); err == nil {
 		t.Fatal("expected error for a workflow with no steps")
 	} else if !strings.Contains(err.Error(), "400") {
 		t.Fatalf("error should mention 400: %v", err)

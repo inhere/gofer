@@ -1,4 +1,4 @@
-package job
+package workflow
 
 import (
 	"path/filepath"
@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	job "github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -64,15 +65,15 @@ func fanJobsAtStep(jobs []jobstore.JobRecord, step int) []jobstore.JobRecord {
 // ---------------------------------------------------------------------------
 
 func TestValidateFanout(t *testing.T) {
-	mk := func(fanOut int, join string) WorkflowSpec {
+	mk := func(fanOut int, join string) Spec {
 		st := echoStep("s")
 		st.FanOut = fanOut
 		st.Join = join
-		return WorkflowSpec{Steps: []StepSpec{st}}
+		return Spec{Steps: []StepSpec{st}}
 	}
 	cases := []struct {
 		name    string
-		spec    WorkflowSpec
+		spec    Spec
 		wantErr bool
 	}{
 		{"v1 no fan no join", mk(0, ""), false},
@@ -106,10 +107,10 @@ func TestValidateFanout(t *testing.T) {
 
 // TestSubmitWorkflowRejectsBadFanout proves validateFanout is wired into SubmitWorkflow.
 func TestSubmitWorkflowRejectsBadFanout(t *testing.T) {
-	s := newTestService(t, t.TempDir())
+	e := newTestEngine(t, t.TempDir())
 	bad := echoStep("over")
 	bad.FanOut = maxFanOut + 1
-	_, err := s.SubmitWorkflow(WorkflowSpec{Steps: []StepSpec{bad}}, "alice")
+	_, err := e.SubmitWorkflow(Spec{Steps: []StepSpec{bad}}, "alice")
 	if err == nil {
 		t.Fatal("expected SubmitWorkflow to reject fan_out over the cap")
 	}
@@ -124,19 +125,19 @@ func TestSubmitWorkflowRejectsBadFanout(t *testing.T) {
 // 1..3, each carrying a distinct deterministic request_id "<wf>:s1:a1:fK" (C5 — no
 // duplicate), and the all-success step completes the workflow done.
 func TestFanOutStartsNJobs(t *testing.T) {
-	s := newTestService(t, t.TempDir())
-	wf, err := s.SubmitWorkflow(WorkflowSpec{
+	e := newTestEngine(t, t.TempDir())
+	wf, err := e.SubmitWorkflow(Spec{
 		Steps: []StepSpec{fanEchoStep("fan", 3, "all")},
 	}, "alice")
 	if err != nil {
 		t.Fatalf("SubmitWorkflow: %v", err)
 	}
-	final := waitWorkflow(t, s, wf.ID)
+	final := waitWorkflow(t, e, wf.ID)
 	if final.Status != jobstore.WorkflowDone {
 		t.Fatalf("fan_out all-success workflow = %s (err=%s), want done", final.Status, final.Error)
 	}
 
-	jobs, _ := s.meta.ListWorkflowJobs(wf.ID)
+	jobs, _ := e.meta.ListWorkflowJobs(wf.ID)
 	step1 := fanJobsAtStep(jobs, 1)
 	if len(step1) != 3 {
 		t.Fatalf("step 1 has %d fan jobs, want 3", len(step1))
@@ -149,7 +150,7 @@ func TestFanOutStartsNJobs(t *testing.T) {
 	for _, j := range step1 {
 		seenFan[j.FanIndex]++
 		seenReq[j.RequestID]++
-		if j.Status != StatusDone {
+		if j.Status != job.StatusDone {
 			t.Fatalf("fan %d = %s, want done", j.FanIndex, j.Status)
 		}
 		want := wf.ID + ":s1:a1:f" + itoa(j.FanIndex)
@@ -169,7 +170,7 @@ func TestFanOutStartsNJobs(t *testing.T) {
 	}
 
 	// A step.fanout event was recorded with all fan job_ids.
-	if !hasWorkflowEvent(t, s, wf.ID, EventStepFanout) {
+	if !hasWorkflowEvent(t, e, wf.ID, job.EventStepFanout) {
 		t.Fatal("expected a step.fanout event for a fan-out step")
 	}
 }
@@ -205,18 +206,18 @@ func itoa(n int) string {
 // fails (fail-fast default on_failure).
 func TestJoinAllOneFailsFailsStep(t *testing.T) {
 	root := t.TempDir()
-	s := newTestService(t, root)
-	wf, err := s.SubmitWorkflow(WorkflowSpec{
+	e := newTestEngine(t, root)
+	wf, err := e.SubmitWorkflow(Spec{
 		Steps: []StepSpec{fanOneFailsStep("a", root, 3, "all"), echoStep("never2")},
 	}, "alice")
 	if err != nil {
 		t.Fatalf("SubmitWorkflow: %v", err)
 	}
-	final := waitWorkflow(t, s, wf.ID)
+	final := waitWorkflow(t, e, wf.ID)
 	if final.Status != jobstore.WorkflowFailed {
 		t.Fatalf("join=all 1-fail workflow = %s, want failed", final.Status)
 	}
-	jobs, _ := s.meta.ListWorkflowJobs(wf.ID)
+	jobs, _ := e.meta.ListWorkflowJobs(wf.ID)
 	// step 2 must not run (fail-fast).
 	if len(fanJobsAtStep(jobs, 2)) != 0 {
 		t.Fatal("step 2 ran despite join=all step failure")
@@ -228,7 +229,7 @@ func TestJoinAllOneFailsFailsStep(t *testing.T) {
 	}
 	failed := 0
 	for _, j := range step1 {
-		if j.Status != StatusDone {
+		if j.Status != job.StatusDone {
 			failed++
 		}
 	}
@@ -241,34 +242,34 @@ func TestJoinAllOneFailsFailsStep(t *testing.T) {
 // satisfied (≥1 done) and the workflow advances/completes done.
 func TestJoinAnyOneDoneAdvances(t *testing.T) {
 	root := t.TempDir()
-	s := newTestService(t, root)
-	wf, err := s.SubmitWorkflow(WorkflowSpec{
+	e := newTestEngine(t, root)
+	wf, err := e.SubmitWorkflow(Spec{
 		Steps: []StepSpec{fanOneFailsStep("a", root, 3, "any"), echoStep("two")},
 	}, "alice")
 	if err != nil {
 		t.Fatalf("SubmitWorkflow: %v", err)
 	}
-	final := waitWorkflow(t, s, wf.ID)
+	final := waitWorkflow(t, e, wf.ID)
 	if final.Status != jobstore.WorkflowDone {
 		t.Fatalf("join=any 1-fail-2-done workflow = %s (err=%s), want done", final.Status, final.Error)
 	}
-	jobs, _ := s.meta.ListWorkflowJobs(wf.ID)
+	jobs, _ := e.meta.ListWorkflowJobs(wf.ID)
 	// step 2 ran (the chain advanced past the any-satisfied step 1).
-	if s2 := stepJobAttempt(jobs, 2, 1); s2 == nil || s2.Status != StatusDone {
+	if s2 := stepJobAttempt(jobs, 2, 1); s2 == nil || s2.Status != job.StatusDone {
 		t.Fatalf("step 2 should run and be done after join=any advance, got %+v", s2)
 	}
 }
 
 // TestJoinQuorumAllDoneAdvances: join=quorum, all 3 fans succeed (a majority) → advance.
 func TestJoinQuorumAllDoneAdvances(t *testing.T) {
-	s := newTestService(t, t.TempDir())
-	wf, err := s.SubmitWorkflow(WorkflowSpec{
+	e := newTestEngine(t, t.TempDir())
+	wf, err := e.SubmitWorkflow(Spec{
 		Steps: []StepSpec{fanEchoStep("q", 3, "quorum"), echoStep("two")},
 	}, "alice")
 	if err != nil {
 		t.Fatalf("SubmitWorkflow: %v", err)
 	}
-	final := waitWorkflow(t, s, wf.ID)
+	final := waitWorkflow(t, e, wf.ID)
 	if final.Status != jobstore.WorkflowDone {
 		t.Fatalf("join=quorum all-done workflow = %s (err=%s), want done", final.Status, final.Error)
 	}
@@ -278,8 +279,8 @@ func TestJoinQuorumAllDoneAdvances(t *testing.T) {
 // fan job slices (deterministic, no scheduling): all/any/quorum terminal-readiness and
 // done/failed verdict — the precise table the integration tests rely on.
 func TestFanTerminalAndVerdict(t *testing.T) {
-	job := func(status string) *jobstore.JobRecord { return &jobstore.JobRecord{Status: status} }
-	done, fail, run := StatusDone, StatusFailed, StatusRunning
+	mkJob := func(status string) *jobstore.JobRecord { return &jobstore.JobRecord{Status: status} }
+	done, fail, run := job.StatusDone, job.StatusFailed, job.StatusRunning
 
 	cases := []struct {
 		name         string
@@ -290,20 +291,20 @@ func TestFanTerminalAndVerdict(t *testing.T) {
 		wantVerdict  string // only checked when wantTerminal
 	}{
 		// all
-		{"all 3/3 done", []*jobstore.JobRecord{job(done), job(done), job(done)}, 3, joinAll, true, StatusDone},
-		{"all 1 fail", []*jobstore.JobRecord{job(done), job(fail), job(done)}, 3, joinAll, true, StatusFailed},
-		{"all 1 running", []*jobstore.JobRecord{job(done), job(run), job(done)}, 3, joinAll, false, ""},
+		{"all 3/3 done", []*jobstore.JobRecord{mkJob(done), mkJob(done), mkJob(done)}, 3, joinAll, true, job.StatusDone},
+		{"all 1 fail", []*jobstore.JobRecord{mkJob(done), mkJob(fail), mkJob(done)}, 3, joinAll, true, job.StatusFailed},
+		{"all 1 running", []*jobstore.JobRecord{mkJob(done), mkJob(run), mkJob(done)}, 3, joinAll, false, ""},
 		// any
-		{"any 1 done early", []*jobstore.JobRecord{job(done), job(run), job(run)}, 3, joinAny, true, StatusDone},
-		{"any all fail", []*jobstore.JobRecord{job(fail), job(fail), job(fail)}, 3, joinAny, true, StatusFailed},
-		{"any none done yet", []*jobstore.JobRecord{job(fail), job(run), job(run)}, 3, joinAny, false, ""},
+		{"any 1 done early", []*jobstore.JobRecord{mkJob(done), mkJob(run), mkJob(run)}, 3, joinAny, true, job.StatusDone},
+		{"any all fail", []*jobstore.JobRecord{mkJob(fail), mkJob(fail), mkJob(fail)}, 3, joinAny, true, job.StatusFailed},
+		{"any none done yet", []*jobstore.JobRecord{mkJob(fail), mkJob(run), mkJob(run)}, 3, joinAny, false, ""},
 		// quorum (need >half: 3 -> 2, 4 -> 3)
-		{"quorum 2/3 done", []*jobstore.JobRecord{job(done), job(done), job(run)}, 3, joinQuorum, true, StatusDone},
-		{"quorum 1/3 done 2 fail", []*jobstore.JobRecord{job(done), job(fail), job(fail)}, 3, joinQuorum, true, StatusFailed},
-		{"quorum 1 done 1 fail 1 run", []*jobstore.JobRecord{job(done), job(fail), job(run)}, 3, joinQuorum, false, ""},
-		{"quorum 4 need 3: 2 done 1 run 1 run", []*jobstore.JobRecord{job(done), job(done), job(run), job(run)}, 4, joinQuorum, false, ""},
-		{"quorum 4 need 3: 3 done", []*jobstore.JobRecord{job(done), job(done), job(done), job(run)}, 4, joinQuorum, true, StatusDone},
-		{"quorum 4 need 3: 2 fail impossible", []*jobstore.JobRecord{job(done), job(fail), job(fail), job(run)}, 4, joinQuorum, true, StatusFailed},
+		{"quorum 2/3 done", []*jobstore.JobRecord{mkJob(done), mkJob(done), mkJob(run)}, 3, joinQuorum, true, job.StatusDone},
+		{"quorum 1/3 done 2 fail", []*jobstore.JobRecord{mkJob(done), mkJob(fail), mkJob(fail)}, 3, joinQuorum, true, job.StatusFailed},
+		{"quorum 1 done 1 fail 1 run", []*jobstore.JobRecord{mkJob(done), mkJob(fail), mkJob(run)}, 3, joinQuorum, false, ""},
+		{"quorum 4 need 3: 2 done 1 run 1 run", []*jobstore.JobRecord{mkJob(done), mkJob(done), mkJob(run), mkJob(run)}, 4, joinQuorum, false, ""},
+		{"quorum 4 need 3: 3 done", []*jobstore.JobRecord{mkJob(done), mkJob(done), mkJob(done), mkJob(run)}, 4, joinQuorum, true, job.StatusDone},
+		{"quorum 4 need 3: 2 fail impossible", []*jobstore.JobRecord{mkJob(done), mkJob(fail), mkJob(fail), mkJob(run)}, 4, joinQuorum, true, job.StatusFailed},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -328,19 +329,19 @@ func TestFanTerminalAndVerdict(t *testing.T) {
 // on_failure=retry re-runs the ENTIRE step at attempt 2 (a fresh set of 3 fans), then
 // exhausts and fails. Asserts attempt 2 started 3 NEW fan jobs (whole-step retry).
 func TestFanOutRetryReRunsAllFans(t *testing.T) {
-	s := newTestService(t, t.TempDir())
+	e := newTestEngine(t, t.TempDir())
 	step := fanAllFailStep("rfan", 3, "all")
 	step.OnFailure = onFailureRetry
-	step.Retry = &RetryPolicy{MaxAttempts: 2, BackoffSec: []int{0}} // immediate retry, 2 attempts
-	wf, err := s.SubmitWorkflow(WorkflowSpec{Steps: []StepSpec{step}}, "alice")
+	step.Retry = &job.RetryPolicy{MaxAttempts: 2, BackoffSec: []int{0}} // immediate retry, 2 attempts
+	wf, err := e.SubmitWorkflow(Spec{Steps: []StepSpec{step}}, "alice")
 	if err != nil {
 		t.Fatalf("SubmitWorkflow: %v", err)
 	}
-	final := waitWorkflow(t, s, wf.ID)
+	final := waitWorkflow(t, e, wf.ID)
 	if final.Status != jobstore.WorkflowFailed {
 		t.Fatalf("fan-out retry-exhausted workflow = %s, want failed", final.Status)
 	}
-	jobs, _ := s.meta.ListWorkflowJobs(wf.ID)
+	jobs, _ := e.meta.ListWorkflowJobs(wf.ID)
 	// attempt 1: 3 fans, attempt 2: 3 fans = 6 jobs total at step 1.
 	a1 := stepFanJobs(jobs, 1, 1)
 	a2 := stepFanJobs(jobs, 1, 2)
@@ -365,7 +366,7 @@ func TestFanOutRetryReRunsAllFans(t *testing.T) {
 		}
 	}
 	// A step.retry event was recorded.
-	if !hasWorkflowEvent(t, s, wf.ID, EventStepRetry) {
+	if !hasWorkflowEvent(t, e, wf.ID, job.EventStepRetry) {
 		t.Fatal("expected a step.retry event for fan-out retry")
 	}
 }
@@ -375,14 +376,14 @@ func TestFanOutRetryReRunsAllFans(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 // TestFanOutConcurrentAdvanceOnce is the P2 ⭐ correctness test (plan 并发硬测): after a
-// fan-out step's fans all reach terminal, MANY concurrent advanceWorkflow calls (the
+// fan-out step's fans all reach terminal, MANY concurrent Advance calls (the
 // finish hooks of N fans + the sweeper + duplicates firing together) must aggregate and
 // advance the chain EXACTLY ONCE — never start the next step twice, never double-start a
 // fan, never advance the (step,attempt) pointer twice. Proves the fan aggregation +
 // AdvanceStep二元组抢权 + deterministic request_id hold under the fan terminal storm.
 func TestFanOutConcurrentAdvanceOnce(t *testing.T) {
-	s := newTestService(t, t.TempDir())
-	wf, err := s.SubmitWorkflow(WorkflowSpec{
+	e := newTestEngine(t, t.TempDir())
+	wf, err := e.SubmitWorkflow(Spec{
 		Steps: []StepSpec{fanEchoStep("fan", 3, "all"), echoStep("two"), echoStep("three")},
 	}, "alice")
 	if err != nil {
@@ -393,11 +394,11 @@ func TestFanOutConcurrentAdvanceOnce(t *testing.T) {
 	// fully-decidable generation.
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		jobs, _ := s.meta.ListWorkflowJobs(wf.ID)
+		jobs, _ := e.meta.ListWorkflowJobs(wf.ID)
 		fans := stepFanJobs(jobs, 1, 1)
 		allTerm := len(fans) == 3
 		for _, j := range fans {
-			if !isTerminal(j.Status) {
+			if !job.IsTerminal(j.Status) {
 				allTerm = false
 			}
 		}
@@ -407,21 +408,21 @@ func TestFanOutConcurrentAdvanceOnce(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 
-	// HAMMER advanceWorkflow concurrently (finish-of-3-fans + sweeper + duplicates).
+	// HAMMER Advance concurrently (finish-of-3-fans + sweeper + duplicates).
 	var wg sync.WaitGroup
 	for i := 0; i < 32; i++ {
 		wg.Add(1)
-		go func() { defer wg.Done(); s.advanceWorkflow(wf.ID) }()
+		go func() { defer wg.Done(); e.Advance(wf.ID) }()
 	}
 	wg.Wait()
 
-	final := waitWorkflow(t, s, wf.ID)
+	final := waitWorkflow(t, e, wf.ID)
 	if final.Status != jobstore.WorkflowDone {
 		t.Fatalf("fan-out concurrent workflow = %s (err=%s), want done", final.Status, final.Error)
 	}
 
 	// CRITICAL invariant: no (step, attempt, fan) started more than once across the storm.
-	jobs, _ := s.meta.ListWorkflowJobs(wf.ID)
+	jobs, _ := e.meta.ListWorkflowJobs(wf.ID)
 	seen := map[[3]int]int{}
 	for _, j := range jobs {
 		att := j.Attempt

@@ -8,6 +8,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
@@ -29,10 +30,19 @@ type Core struct {
 	Runners  map[string]runner.Runner
 	Store    *jobstore.Store
 	Jobs     *job.Service
+	// workflowEngine is the job-chain workflow engine bound to Jobs (layering design
+	// §13). It is the WorkflowAdvancer injected into Jobs (finish→Advance) and the
+	// handle serve/httpapi consume via Workflow() to drive workflow
+	// submit/advance/query. Always non-nil after Build.
+	workflowEngine *workflow.Engine
 	// Hub is the ws-worker hub singleton (serve mounts it on /v1/workers/connect;
 	// every type=worker runner references this one instance). Always non-nil.
 	Hub *wshub.Hub
 }
+
+// Workflow returns the Core's workflow engine (the handle serve/httpapi consume to
+// drive job-chain workflows). Always non-nil after Build.
+func (c *Core) Workflow() *workflow.Engine { return c.workflowEngine }
 
 // Close releases the Core's owned resources — currently the SQLite metadata
 // store. Callers (serve/mcp) defer it for graceful shutdown so WAL is
@@ -80,7 +90,12 @@ func Build(cfg *config.Config) (*Core, error) {
 	// ever considered.
 	sel := &hubWorkerSelector{hub: hub, allowed: cfg.Server.Workers}
 	jobs := job.NewService(cfg, projects, agents, runners, store, sel)
-	return &Core{Cfg: cfg, Projects: projects, Agents: agents, Runners: runners, Store: store, Jobs: jobs, Hub: hub}, nil
+	// Bind the workflow engine to the job service (layering design §13.4): the engine
+	// reads/drives job-chain workflows over jobs, and is injected back as the
+	// WorkflowAdvancer so finish() can advance a chain when a step-job reaches terminal.
+	eng := workflow.NewEngine(jobs)
+	jobs.SetWorkflow(eng)
+	return &Core{Cfg: cfg, Projects: projects, Agents: agents, Runners: runners, Store: store, Jobs: jobs, workflowEngine: eng, Hub: hub}, nil
 }
 
 // hubWorkerSelector adapts the ws-worker hub registry to job.WorkerSelector (P2):
