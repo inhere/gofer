@@ -22,10 +22,10 @@ const (
 	MaxTimeoutSec     = 3600
 )
 
-// jobIDLayout is the time prefix for a job id (no separators that would clash
+// JobIDLayout is the time prefix for a job id (no separators that would clash
 // with directory names). A random suffix makes it unique across process
 // restarts (plan §9 P4: a seconds+seq scheme collides after a restart).
-const jobIDLayout = "20060102-150405"
+const JobIDLayout = "20060102-150405"
 
 // jobIDCreateRetries bounds how many times Submit re-rolls a colliding id.
 const jobIDCreateRetries = 5

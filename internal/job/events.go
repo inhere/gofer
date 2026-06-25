@@ -15,11 +15,11 @@ type deliverySink interface {
 	InsertDelivery(d jobstore.Delivery) (int64, error)
 }
 
-// maxEventDetailBytes caps a recorded event's detail_json. A detail larger than
+// MaxEventDetailBytes caps a recorded event's detail_json. A detail larger than
 // this is dropped (the event is still recorded with an empty detail) so a
 // pathological payload never bloats the stream — events are an audit trail, not a
 // data channel.
-const maxEventDetailBytes = 8 * 1024
+const MaxEventDetailBytes = 8 * 1024
 
 // eventSink is the narrow write side recordEvent uses, satisfied by
 // *jobstore.Store. It exists so tests can inject a failing sink and prove
@@ -36,11 +36,11 @@ type eventSink interface {
 // secrets (SR403); callers pass only descriptive metadata.
 //
 // detail is marshalled to JSON; a nil detail or a payload exceeding
-// maxEventDetailBytes records an empty detail rather than failing.
+// MaxEventDetailBytes records an empty detail rather than failing.
 func (s *Service) recordEvent(jobID, eventType string, detail any) {
 	var dj string
 	if detail != nil {
-		if b, err := json.Marshal(detail); err == nil && len(b) <= maxEventDetailBytes {
+		if b, err := json.Marshal(detail); err == nil && len(b) <= MaxEventDetailBytes {
 			dj = string(b)
 		}
 	}

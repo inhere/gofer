@@ -98,7 +98,7 @@ func (s *Service) submitWorkflowImpl(spec WorkflowSpec, callerID, parentID strin
 			continue
 		}
 		req := stepToRequest(spec.Steps[i], "", i+1, 1, 0, callerID)
-		remote := isRemoteRunner(cfg, req.Runner)
+		remote := IsRemoteRunner(cfg, req.Runner)
 		if _, err := s.validate(cfg, req, remote); err != nil {
 			return jobstore.Workflow{}, fmt.Errorf("step %d: %w", i+1, err)
 		}
@@ -331,7 +331,7 @@ func (s *Service) validateSubworkflow(spec WorkflowSpec, cfg *config.Config, dep
 					continue
 				}
 				req := stepToRequest(sub.Steps[j], "", j+1, 1, 0, "")
-				remote := isRemoteRunner(cfg, req.Runner)
+				remote := IsRemoteRunner(cfg, req.Runner)
 				if _, err := s.validate(cfg, req, remote); err != nil {
 					return fmt.Errorf("step %d sub_workflow step %d: %w", stepNo, j+1, err)
 				}
@@ -346,5 +346,5 @@ func (s *Service) validateSubworkflow(spec WorkflowSpec, cfg *config.Config, dep
 // genWorkflowID returns a collision-resistant workflow id, "wf-" prefixed so it
 // is visually distinct from a job id (which shares the same time+random scheme).
 func (s *Service) genWorkflowID() string {
-	return "wf-" + s.nowFn().Format(jobIDLayout) + "-" + randomSuffix()
+	return "wf-" + s.nowFn().Format(JobIDLayout) + "-" + RandomSuffix()
 }

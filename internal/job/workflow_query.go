@@ -37,7 +37,7 @@ func (s *Service) WorkflowSteps(wfID string) ([]WorkflowStep, error) {
 			StepIndex: j.StepIndex,
 			Attempt:   j.Attempt,
 			FanIndex:  j.FanIndex,
-			Name:      titleFromRequestJSON(j.RequestJSON),
+			Name:      TitleFromRequestJSON(j.RequestJSON),
 			JobID:     j.ID,
 			Status:    j.Status,
 		})
@@ -77,7 +77,7 @@ func (s *Service) WorkflowSteps(wfID string) ([]WorkflowStep, error) {
 func (s *Service) recordWorkflowEvent(wfID, eventType string, detail any) {
 	var dj string
 	if detail != nil {
-		if b, err := json.Marshal(detail); err == nil && len(b) <= maxEventDetailBytes {
+		if b, err := json.Marshal(detail); err == nil && len(b) <= MaxEventDetailBytes {
 			dj = string(b)
 		}
 	}

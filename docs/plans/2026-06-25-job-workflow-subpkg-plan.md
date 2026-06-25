@@ -145,6 +145,20 @@ var _ interface {
 
 > **必须原子**：一旦 `SubmitWorkflow` 移到 `Engine`、`WorkflowSpec→workflow.Spec`，仍留 `package job` 的 workflow 测试即编译失败；且「先迁类型后迁引擎」会在中间态形成 job⇄workflow 环（StepSpec.Retry→*job.RetryPolicy）。故生产搬迁 + 外部改名 + wiring + finish hook + 测试迁移**一次做完、绿了再 commit**。用 §11 `extract.py` 思路按块搬出，再批量 sed 改 receiver/accessor。
 
+### 6.0 先导出 job 私有符号（workflow 真实引用，复审已枚举）
+
+WS2 第一步（仍在 package job，零行为变化）：把以下 5 个 job 私有符号 sed 改导出名（含定义 + 全部调用点），`go build ./... + go test ./...` 绿后再开始搬迁：
+
+| 私有 | 导出 | 定义文件 | workflow 用处 |
+|---|---|---|---|
+| `jobIDLayout` | `JobIDLayout` | service.go | genWorkflowID |
+| `randomSuffix` | `RandomSuffix` | submit.go | genWorkflowID |
+| `maxEventDetailBytes` | `MaxEventDetailBytes` | events.go | recordWorkflowEvent |
+| `titleFromRequestJSON` | `TitleFromRequestJSON` | persistence.go | WorkflowSteps |
+| `isRemoteRunner` | `IsRemoteRunner` | config.go | submitWorkflowImpl/stepToRequest |
+
+迁包后这些在 workflow 内写成 `job.JobIDLayout` 等。**已导出、仅需加 `job.` 限定**的：`StatusDone`/`StatusFailed`、`JobRequest`/`JobResult`/`MetricsSink`/`RetryPolicy`、`ErrInvalidRequest`/`ErrUnknownProject`/`ErrNoEligibleWorker`、`MaxAttemptsPolicy`/`BackoffForPolicy`/`RetryableExitPolicy`。`finish` 在 workflow 中全是注释引用（无反向调用，安全）。
+
 ### 6.1 建 workflow 包 + 迁引擎
 - 新建 `internal/job/workflow/`（`package workflow`，import job）：
   - `types.go`：`Spec`(原 WorkflowSpec)/`StepSpec`/`Step`(原 WorkflowStep)（`StepSpec.Retry *job.RetryPolicy`）+ workflow 专属常量（onFailure*/join*/stepType*/maxFanOut/maxWorkflowDepth/sweeperWorkflowScan）+ 纯函数 `fanWant`/`joinPolicy` + StepSpec 包装器 `maxAttempts/backoffFor/retryableExit`（改调 `job.MaxAttemptsPolicy` 等，§3.4）。

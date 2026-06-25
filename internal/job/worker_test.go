@@ -257,10 +257,10 @@ func TestIsRemoteRunner(t *testing.T) {
 	if !isWorkerRunner(cfg, "remote-w1") {
 		t.Fatal("remote-w1 should be a worker runner")
 	}
-	if !isRemoteRunner(cfg, "remote-w1") || !isRemoteRunner(cfg, "peer") {
+	if !IsRemoteRunner(cfg, "remote-w1") || !IsRemoteRunner(cfg, "peer") {
 		t.Fatal("worker and peer-http should both be remote runners")
 	}
-	if isRemoteRunner(cfg, "local") {
+	if IsRemoteRunner(cfg, "local") {
 		t.Fatal("local should not be a remote runner")
 	}
 }
