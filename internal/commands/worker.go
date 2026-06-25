@@ -14,6 +14,7 @@ import (
 	"github.com/gookit/goutil/errorx"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/worker"
 )
 
@@ -58,11 +59,11 @@ func runWorker(c *gcli.Command, _ []string) error {
 
 	// Build the worker's LOCAL core (projects/agents/local runner/job.Service)
 	// from its own config — this is what re-validates dispatched jobs (review #8).
-	core, err := buildCore(workerConfigToConfig(wc))
+	cr, err := core.Build(workerConfigToConfig(wc))
 	if err != nil {
 		return errorx.Failf(workerExitErr, "%v", err)
 	}
-	defer func() { _ = core.Close() }()
+	defer func() { _ = cr.Close() }()
 
 	rc := wc.ServerLink.Reconnect
 	cl := worker.New(worker.Config{
@@ -77,7 +78,7 @@ func runWorker(c *gcli.Command, _ []string) error {
 		MaxBackoff:     msToDuration(rc.MaxBackoffMS),
 		PingInterval:   secToDuration(rc.PingIntervalSec),
 		ReadDeadline:   secToDuration(rc.ReadDeadlineSec),
-	}, core.Jobs)
+	}, cr.Jobs)
 
 	// Graceful shutdown: SIGINT/SIGTERM cancels the worker ctx, which makes
 	// Run exit its reconnect/recv/heartbeat loops and close the connection

@@ -1,4 +1,4 @@
-package commands
+package core
 
 import (
 	"fmt"
@@ -44,12 +44,12 @@ func (c *Core) Close() error {
 	return c.Store.Close()
 }
 
-// buildCore assembles the registries, runner set, metadata store and job service
+// Build assembles the registries, runner set, metadata store and job service
 // from cfg. It is the single wiring point shared by serve and mcp; peer-http
 // runners declared in config are registered too (plan §11.1, P7). It opens the
 // SQLite metadata db (design §11 ResolveDBPath) and returns an error if that
 // fails, since the job service cannot operate without it.
-func buildCore(cfg *config.Config) (*Core, error) {
+func Build(cfg *config.Config) (*Core, error) {
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}

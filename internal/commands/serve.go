@@ -11,6 +11,7 @@ import (
 	"github.com/gookit/goutil/errorx"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/httpapi"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/metrics"
@@ -95,41 +96,41 @@ func runServe(c *gcli.Command, _ []string) error {
 		return errorx.Failf(serveExitErr, "refusing to start without a token: set server.token / server.token_env / --token, or pass --allow-empty-token")
 	}
 
-	core, err := buildCore(cfg)
+	cr, err := core.Build(cfg)
 	if err != nil {
 		return errorx.Failf(serveExitErr, "%v", err)
 	}
 	// Graceful shutdown: close the metadata store (WAL checkpoint) when serve
 	// returns (design §14).
-	defer func() { _ = core.Close() }()
+	defer func() { _ = cr.Close() }()
 
 	// Periodic retention prune (design §13 SP5). Only runs when storage.retention
 	// is configured; stop is closed when serve returns so the goroutine exits
 	// cleanly with the rest of the process.
 	stopPrune := make(chan struct{})
 	defer close(stopPrune)
-	startPruneLoop(c, core.Jobs, cfg.Storage.Retention, stopPrune)
+	startPruneLoop(c, cr.Jobs, cfg.Storage.Retention, stopPrune)
 
 	// E14 webhook delivery sweeper (design §5.6). Only started when notification is
 	// configured (at least one webhook); with no config it does nothing (regression
 	// same as before). stop is closed when serve returns so the goroutine exits.
 	stopDelivery := make(chan struct{})
 	defer close(stopDelivery)
-	startDeliveryLoop(c, core.Jobs, cfg.Server.Notification, stopDelivery)
+	startDeliveryLoop(c, cr.Jobs, cfg.Server.Notification, stopDelivery)
 
 	// 工作流推进 sweeper（job 链，crash 兜底）：扫 running 工作流，对当前 step 已终态但
 	// 未被 finish 钩子推进的补推（幂等，与钩子叠加安全）。始终启动（工作流是核心能力，
 	// 开销低：无 running 工作流时空转）；stop 在 serve 返回时关闭，goroutine 干净退出。
 	stopWorkflow := make(chan struct{})
 	defer close(stopWorkflow)
-	startWorkflowLoop(c, core.Jobs, stopWorkflow)
+	startWorkflowLoop(c, cr.Jobs, stopWorkflow)
 
 	// Config hot-reload (C3): SIGHUP re-loads the config from the serve path and
 	// atomically swaps it into the registries + job service (no restart, no
 	// effect on in-flight jobs). The goroutine stops cleanly when serve returns.
 	stopReload := make(chan struct{})
 	defer close(stopReload)
-	startReloadLoop(c, core, config.InputCfgFile, stopReload)
+	startReloadLoop(c, cr, config.InputCfgFile, stopReload)
 
 	// ws-worker hub graceful shutdown (WP3 §5.6): when serve returns, stopHub
 	// closes so the hub gracefully closes every live worker connection (going-away),
@@ -137,7 +138,7 @@ func runServe(c *gcli.Command, _ []string) error {
 	// — no goroutine/fd leak. Mirrors the prune/reload stop-channel pattern.
 	stopHub := make(chan struct{})
 	defer close(stopHub)
-	core.Hub.SetStop(stopHub)
+	cr.Hub.SetStop(stopHub)
 
 	// C6/P4 peer-http active health probe: build a prober over the configured
 	// peer-http runners (nil when none) and start its periodic loop. The loop
@@ -152,9 +153,9 @@ func runServe(c *gcli.Command, _ []string) error {
 	// /v1/runners endpoint reports each worker runner's connection / heartbeat /
 	// in-flight / labels (D2 narrow interface). httpapi needs a typed-nil-safe
 	// value: only wire the adapter when the hub is present.
-	var workers = hubWorkerRegistry{hub: core.Hub}
+	var workers = hubWorkerRegistry{hub: cr.Hub}
 
-	srv := httpapi.New(&cfg.Server, token, allowEmpty, core.Jobs, core.Projects, core.Agents, core.Hub, cfg.Runners, proberOrNil(prober), workers)
+	srv := httpapi.New(&cfg.Server, token, allowEmpty, cr.Jobs, cr.Projects, cr.Agents, cr.Hub, cfg.Runners, proberOrNil(prober), workers)
 
 	// E16 Prometheus metrics: build the registry, inject the lifecycle-counter sink
 	// into the job service, register the scrape-time GaugeFuncs (in-flight/queued/
@@ -162,13 +163,13 @@ func runServe(c *gcli.Command, _ []string) error {
 	// the /v1 HTTP middleware on the server. The endpoint is gated by
 	// metrics.enabled (default true) and an optional metrics.token (design §6.2).
 	m := metrics.New()
-	core.Jobs.SetMetrics(m)
+	cr.Jobs.SetMetrics(m)
 	m.RegisterRuntimeGauges(
 		func() (int, int, int) {
-			st := core.Jobs.Stats()
+			st := cr.Jobs.Stats()
 			return st.InFlight, st.Queued, st.Running
 		},
-		func() (int, int) { return workerCounts(core.Hub, cfg.Server.Workers) },
+		func() (int, int) { return workerCounts(cr.Hub, cfg.Server.Workers) },
 	)
 	srv.SetMetrics(m, cfg.Server.Metrics.IsEnabled(), cfg.Server.Metrics.Token)
 
@@ -366,7 +367,7 @@ func startProbeLoop(c *gcli.Command, prober *peerProber, interval time.Duration,
 // The goroutine shuts down cleanly when stop is closed (serve shutdown): it
 // stops signal delivery (signal.Stop) so no further SIGHUP is queued, then
 // returns. No goroutine leak. Mirrors startPruneLoop's shutdown style.
-func startReloadLoop(c *gcli.Command, core *Core, path string, stop <-chan struct{}) {
+func startReloadLoop(c *gcli.Command, cr *core.Core, path string, stop <-chan struct{}) {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGHUP)
 	go func() {
@@ -376,7 +377,7 @@ func startReloadLoop(c *gcli.Command, core *Core, path string, stop <-chan struc
 			case <-stop:
 				return
 			case <-sig:
-				if err := core.Reload(path); err != nil {
+				if err := cr.Reload(path); err != nil {
 					c.Errorf("gofer: reload failed, keep old config: %v\n", err)
 				} else {
 					c.Printf("gofer: config reloaded\n")
