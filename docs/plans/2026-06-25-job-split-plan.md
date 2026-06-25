@@ -68,4 +68,15 @@ service 后：
 - 末步用 `git diff 96a0ff3 -- internal/job/ | grep -E '^[+-]'` 抽查：增删行应仅为「函数在文件间搬迁 + 各文件 package/import 头」，无业务逻辑行变更。
 - 函数总数不变；`grep -c '^func' internal/job/*.go` 求和拆分前后一致。
 
-## 7. 实施结果（完成后回填）
+## 7. 实施结果（2026-06-25 完成）
+
+全部 11 步完成，每步 `go build/vet ./... + go test ./...` 全绿、独立 commit（P1=`25b3c76` … P11=`acc08bc`）。
+
+- **workflow.go**：1402 → 225（核心仅 types/consts/策略纯函数）；迁出 advance(454)/submit(350)/join(171)/query(99)/terminate(74)/cancel(62)。函数总数 44 守恒。
+- **service.go**：1025 → 235（核心仅 const/var/type + NewService/Stats/SetMetrics/config/Reload/snapshot）；迁出 submit(280)/execute(247)/persistence(128)/concurrency(45)/config(130)。函数总数 30 守恒。
+- **等价性校验**（剥离 package/import/空行后代码+注释行多重集 vs 基线 `96a0ff3`）：
+  - workflow：1310=1310 **字节级完全一致**。
+  - service：923=923 一致，**唯一差异**为 gofmt 把 `NewService` 结构体字面量 5 个字段对齐列由窄改宽——基线该处本就非 gofmt-clean（前5/后5字段对齐不一致），gofmt 规整为统一列；纯空格、零语义，`gofmt -l` 现为空。
+- 工具：确定性提取脚本（scratchpad `extract.py`，逐字节搬块 + 限定符探测 import + `go build` 兜底裁剪），非手工 Edit，杜绝逐字漂移。
+- 范围外（未动）：`workflow_export.go`/`workflow_parse.go`（既有独立文件）、`mcpserver`、`client/hub`（留 WP4）。
+- gofer 子仓本地无 remote，提交仅在本地。
