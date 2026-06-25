@@ -265,7 +265,7 @@ func TestBackoffForPolicyIncreasesByAttempt(t *testing.T) {
 	}
 	var prev int
 	for _, tc := range cases {
-		got := backoffForPolicy(p, tc.attempt)
+		got := BackoffForPolicy(p, tc.attempt)
 		if got != tc.want {
 			t.Fatalf("backoff(attempt %d) = %d, want %d", tc.attempt, got, tc.want)
 		}
@@ -275,7 +275,7 @@ func TestBackoffForPolicyIncreasesByAttempt(t *testing.T) {
 		prev = got
 	}
 	// Default (no BackoffSec) follows the SR606 table.
-	if got := backoffForPolicy(&RetryPolicy{}, 1); got != defaultBackoffSec[0] {
+	if got := BackoffForPolicy(&RetryPolicy{}, 1); got != defaultBackoffSec[0] {
 		t.Fatalf("default backoff[0] = %d, want %d", got, defaultBackoffSec[0])
 	}
 }
