@@ -57,6 +57,11 @@ projects:
 #     args: ["-p", "{{prompt}}"]
 
 # storage: 本 worker 的结果/日志落盘配置(同服务端 example 的 storage)。
+# db: 无需手设 root —— worker 元数据库默认按 worker_id 落到
+#     <config-dir>/worker/<worker_id>.db，不会与 serve 的 <config-dir>/gofer.db 或其它
+#     worker 撞库(config.ResolveWorkerDBPath)。仅在要自定义时设 db_path(显式优先) 或
+#     root(则 db=<root>/<worker_id>.db)；注意 root 同时改"结果落盘根"，别指到 git 跟踪
+#     的目录(结果文件非 *.db、会被跟踪)。
 storage:
   default_exchange_subdir: tmp
   default_result_subdir: gofer
