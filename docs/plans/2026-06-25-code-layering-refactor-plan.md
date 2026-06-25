@@ -36,7 +36,7 @@
 - [ ] **BP3** internal/runner/probe.go
 - [ ] **BP4** internal/streaming（stream_handler 下沉）
 - [x] **BP5** job.Service 扩接口 + handler 瘦身 + safeJoinUnder→store
-- [ ] **BP6** client/watch + 域解析 + config/validate + resolveProjectByCwd
+- [x] **BP6** client/watch + 域解析 + config validate(留 commands, 避环) + resolveProjectByCwd→project
 
 ---
 
@@ -155,3 +155,11 @@
 ## 7. 实施结果（完成后回填）
 
 > BP1-6 commit + 关键决策（尤 import 环处理、接口归属）+ 验收/冒烟 + 遗留。
+
+**BP6**（client/watch + 域解析下沉 + config validate/cwd 归位）：
+- `client/watch.go`（新）：`OpenStream`/`openStream`/`StreamJob` 从 client.go 平移 + 新增 `WatchJob`/`WatchWorkflow`（回调式 handlers，状态机入 client，打印 + exit-code 映射留 commands）。`watchToTerminal`/`watchWorkflow` 改调 client 侧。
+- 域解析 → `internal/job/workflow_parse.go`：`ParseWorkflowFile`(导出) + `decodeWorkflowBody`/`expandStepMarkdown`/`parseStepMarkdown`/`mergeStepFromMarkdown`/`splitWorkflowFrontmatter`(包内)。`commands/workflow_md.go` 删除；`commands/workflow.go` 仅调 `job.ParseWorkflowFile`。
+- `resolveProjectByCwd` → `internal/project/resolve.go` 的 `ResolveByCwd`（cwd→project，project 用 config.Config 正向）。
+- **config validate 去向 = 保留 commands**（关键决策）：`validateServerConfig`/`validateWorkerConfig`/`validateProjects` 深度依赖命令层（`gcli.Command` 打印、`errorx.Failf`+`configExitErr`、`ccolor`、`loadRegistry`/`loadWorkerConfig`），真正的校验逻辑早已在 `project.Registry.Validate`；移到 `internal/project` 会把 gcli/errorx/ccolor 拉进域包（分层倒退），且 plan 已指出"→ internal/config"会成 `config→project` 反向环。`runConfigEdit` 的编辑器探测抽为 `resolveEditor()` helper（留 commands）。
+- 测试随迁：cwd 5 测 → `internal/project/resolve_test.go`；workflow 解析/md 8 测 → `internal/job/workflow_parse_test.go`。
+- 验收：`go build`/`go vet` 无环；全量 `go test ./...`(24 包)全绿；冒烟 config validate(OK/越权FAIL exit=2)、wf run md+yaml 解析 OK、job run 无 -p cwd 自动识别 OK。

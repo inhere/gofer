@@ -1,12 +1,11 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/gookit/gcli/v3"
 
@@ -147,64 +146,6 @@ func argFile(c *gcli.Command) string {
 	return ""
 }
 
-// parseWorkflowFile reads a workflow file and unmarshals it into a job.WorkflowSpec.
-// It accepts THREE input shapes (T4.1 import + T4.2 md-per-step), dispatched by
-// extension/content:
-//   - .json — a WorkflowSpec JSON dump (the export round-trip, T4.1);
-//   - .yaml/.yml (default) — the design §9 yaml (title + steps[] with the StepSpec
-//     yaml tags). A step may additionally carry `file: foo.md` to pull its params +
-//     prompt from an external md-per-step file (T4.2, resolved relative to the
-//     workflow file's directory).
-//
-// After decode each step's optional `file:` reference is expanded (loadStepMarkdown):
-// the md frontmatter fills the step's fields and the md body becomes its prompt, so a
-// long prompt lives in its own reviewable md file instead of inline yaml. It is
-// extracted so the command and its unit tests share one decoder.
-func parseWorkflowFile(path string) (job.WorkflowSpec, error) {
-	body, err := os.ReadFile(path)
-	if err != nil {
-		return job.WorkflowSpec{}, fmt.Errorf("read workflow file: %w", err)
-	}
-	spec, err := decodeWorkflowBody(path, body)
-	if err != nil {
-		return job.WorkflowSpec{}, err
-	}
-	if len(spec.Steps) == 0 {
-		return job.WorkflowSpec{}, fmt.Errorf("workflow file has no steps")
-	}
-	// T4.2: expand each step's optional md-per-step `file:` reference, resolved relative
-	// to the workflow file's directory.
-	baseDir := filepath.Dir(path)
-	for i := range spec.Steps {
-		if err := expandStepMarkdown(&spec.Steps[i], baseDir, i+1); err != nil {
-			return job.WorkflowSpec{}, err
-		}
-	}
-	return spec, nil
-}
-
-// decodeWorkflowBody unmarshals a workflow file body into a WorkflowSpec, choosing
-// JSON vs YAML by the file extension (a .json file is the export dump; everything else
-// is treated as yaml). JSON and yaml StepSpec/WorkflowSpec tags match (the struct tags
-// carry both), so the same struct decodes either dump.
-func decodeWorkflowBody(path string, body []byte) (job.WorkflowSpec, error) {
-	var spec job.WorkflowSpec
-	// JSON when the extension says .json OR the content is a JSON object (leading '{'),
-	// so an exported `-f json` spec re-imports regardless of file name (e.g. piped to a
-	// .txt). A workflow yaml always starts with a key (title:/steps:), never '{', so the
-	// content sniff is unambiguous. Everything else is YAML.
-	if strings.EqualFold(filepath.Ext(path), ".json") || strings.HasPrefix(strings.TrimSpace(string(body)), "{") {
-		if err := json.Unmarshal(body, &spec); err != nil {
-			return job.WorkflowSpec{}, fmt.Errorf("parse workflow json: %w", err)
-		}
-		return spec, nil
-	}
-	if err := yaml.Unmarshal(body, &spec); err != nil {
-		return job.WorkflowSpec{}, fmt.Errorf("parse workflow yaml: %w", err)
-	}
-	return spec, nil
-}
-
 // runWorkflowRun submits a yaml workflow file and prints the new workflow id +
 // step overview. With --watch it then polls GetWorkflow until the workflow
 // reaches a terminal state (workflow-level SSE is left to a follow-up), printing
@@ -214,7 +155,7 @@ func runWorkflowRun(c *gcli.Command, _ []string) error {
 	if file == "" {
 		return fmt.Errorf("workflow run requires a <file> argument")
 	}
-	spec, err := parseWorkflowFile(file)
+	spec, err := job.ParseWorkflowFile(file)
 	if err != nil {
 		return err
 	}
@@ -256,30 +197,14 @@ func printStepOverview(c *gcli.Command, spec job.WorkflowSpec) {
 	}
 }
 
-// watchWorkflow polls GetWorkflow until the workflow reaches a terminal state,
-// printing each step's status as it transitions. Workflow-level SSE is a
-// follow-up; v1 uses a simple poll loop (plan §P3-a range note).
+// watchWorkflow polls the workflow until it reaches a terminal state, printing
+// each step's status as it transitions. The poll state-machine lives in
+// client.WatchWorkflow (BP6); this keeps only the per-step printing. Workflow-level
+// SSE is a follow-up; v1 uses a simple poll loop (plan §P3-a range note).
 func watchWorkflow(c *gcli.Command, cli *client.Client, id string) (client.Workflow, error) {
-	deadline := time.Now().Add(2 * time.Hour)
-	// lastStep tracks the last printed status per step index so we only print on change.
-	lastStep := map[int]string{}
-	for time.Now().Before(deadline) {
-		wf, err := cli.GetWorkflow(id)
-		if err != nil {
-			return client.Workflow{}, err
-		}
-		for _, st := range wf.Steps {
-			if lastStep[st.StepIndex] != st.Status {
-				lastStep[st.StepIndex] = st.Status
-				c.Printf(">> step %d (%s): %s\n", st.StepIndex, stepName(st), st.Status)
-			}
-		}
-		if isWorkflowTerminal(wf.Status) {
-			return wf, nil
-		}
-		time.Sleep(2 * time.Second)
-	}
-	return client.Workflow{}, fmt.Errorf("workflow %s did not finish within the watch window", id)
+	return cli.WatchWorkflow(context.Background(), id, func(st client.WorkflowStep) {
+		c.Printf(">> step %d (%s): %s\n", st.StepIndex, stepName(st), st.Status)
+	})
 }
 
 func runWorkflowShow(c *gcli.Command, _ []string) error {
@@ -497,16 +422,6 @@ func runWorkflowEvents(c *gcli.Command, _ []string) error {
 			ev.Seq, formatStarted(ev.At), ev.Type, ev.Detail)
 	}
 	return nil
-}
-
-// isWorkflowTerminal reports whether a workflow status is terminal (not running).
-func isWorkflowTerminal(status string) bool {
-	switch status {
-	case jobstore.WorkflowDone, jobstore.WorkflowFailed, jobstore.WorkflowCancelled:
-		return true
-	default:
-		return false
-	}
 }
 
 // workflowExitCode maps a workflow terminal status to a process exit code:

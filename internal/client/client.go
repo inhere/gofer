@@ -5,11 +5,8 @@
 package client
 
 import (
-	"bufio"
 	"bytes"
-	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -383,104 +380,6 @@ func (c *Client) AnswerInteraction(jobID, interactionID, answer string) error {
 	return c.doJSON(http.MethodPost,
 		"/v1/jobs/"+url.PathEscape(jobID)+"/interactions/"+url.PathEscape(interactionID)+"/answer",
 		bytes.NewReader(body), nil)
-}
-
-// OpenStream issues a GET against /v1/jobs/{id}/stream under ctx, attaching the
-// bearer token, and returns the live SSE response. The caller owns closing the
-// body and parsing the SSE frames. Unlike the other helpers it streams (no
-// per-request timeout) so a long-lived job stays connected; cancel via ctx.
-//
-// It exists so a remote runner (internal/runner/peerhttp) can consume a peer's
-// log stream without re-deriving the base URL / auth wiring.
-func (c *Client) OpenStream(ctx context.Context, id string) (*http.Response, error) {
-	return c.openStream(ctx, id, 0)
-}
-
-// openStream is the shared stream opener behind OpenStream / StreamJob. from > 0
-// resumes stdout from a byte offset via the ?from= query (the path id is escaped
-// as a path segment, the offset as a query param).
-func (c *Client) openStream(ctx context.Context, id string, from int) (*http.Response, error) {
-	streamURL := c.baseURL + "/v1/jobs/" + url.PathEscape(id) + "/stream"
-	if from > 0 {
-		streamURL += "?from=" + strconv.Itoa(from)
-	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, streamURL, nil)
-	if err != nil {
-		return nil, fmt.Errorf("build stream request: %w", err)
-	}
-	if c.token != "" {
-		req.Header.Set("Authorization", "Bearer "+c.token)
-	}
-	req.Header.Set("Accept", "text/event-stream")
-	// A dedicated client with no read timeout so an open SSE stream is not cut by
-	// the 30s control-plane timeout; lifetime is bound to ctx.
-	sc := &http.Client{}
-	resp, err := sc.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("open stream %s: %w", id, err)
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		data, _ := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err := errorFor(resp.StatusCode, data); err != nil {
-			return nil, err
-		}
-		return nil, fmt.Errorf("stream %s: unexpected status %d", id, resp.StatusCode)
-	}
-	return resp, nil
-}
-
-// StreamJob opens the job's SSE stream (GET /v1/jobs/{id}/stream?from=) under
-// ctx and invokes onEvent for each parsed frame in order. It returns when the
-// stream emits an `end` event, the connection closes (EOF), or ctx is cancelled.
-// The from offset resumes the stdout stream from a byte position (<=0 starts at
-// the beginning). It reuses ParseSSE (the same Go-side frame parser the
-// peer-http runner consumes), buffering across reads so a frame split over two
-// reads is still parsed once whole. A transport error other than EOF is
-// returned; ctx cancellation returns nil (a clean caller-driven stop).
-func (c *Client) StreamJob(ctx context.Context, id string, from int, onEvent func(SSEEvent)) error {
-	resp, err := c.openStream(ctx, id, from)
-	if err != nil {
-		return err
-	}
-	defer resp.Body.Close()
-
-	reader := bufio.NewReader(resp.Body)
-	var buf []byte
-	tmp := make([]byte, 32*1024)
-	for {
-		if ctx.Err() != nil {
-			return nil
-		}
-		n, readErr := reader.Read(tmp)
-		if n > 0 {
-			buf = append(buf, tmp[:n]...)
-			frames, rest := ParseSSE(string(buf))
-			buf = []byte(rest)
-			for _, fr := range frames {
-				onEvent(fr)
-				if fr.Event == "end" {
-					return nil
-				}
-			}
-		}
-		if readErr != nil {
-			// EOF or transport error: drain any complete trailing frame, then stop.
-			if len(buf) > 0 {
-				frames, _ := ParseSSE(string(buf) + "\n\n")
-				for _, fr := range frames {
-					onEvent(fr)
-					if fr.Event == "end" {
-						return nil
-					}
-				}
-			}
-			if errors.Is(readErr, io.EOF) || ctx.Err() != nil {
-				return nil
-			}
-			return fmt.Errorf("read stream %s: %w", id, readErr)
-		}
-	}
 }
 
 // doJSON performs the request and decodes a JSON body into out on 2xx; non-2xx

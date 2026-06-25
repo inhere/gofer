@@ -1,13 +1,84 @@
-package commands
+package job
 
 import (
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
-
-	"github.com/inhere/gofer/internal/job"
 )
+
+// TestParseWorkflowFile pins yaml -> WorkflowSpec decoding against the design §9
+// shape: title + steps[] with project_key/agent/runner/prompt/cmd/cwd/timeout_sec/
+// tags. It writes a temp file and asserts the StepSpec yaml tags bind correctly.
+func TestParseWorkflowFile(t *testing.T) {
+	yamlSrc := `title: gen-test-review
+steps:
+  - name: gen
+    project_key: my-proj
+    agent: codex
+    runner: local
+    prompt: implement X
+    tags: [ci, gen]
+  - name: test
+    project_key: my-proj
+    agent: exec
+    runner: local
+    cmd: [bash, -c, "go test ./..."]
+    cwd: sub
+    timeout_sec: 120
+`
+	dir := t.TempDir()
+	path := filepath.Join(dir, "wf.yaml")
+	if err := os.WriteFile(path, []byte(yamlSrc), 0o600); err != nil {
+		t.Fatalf("write wf file: %v", err)
+	}
+
+	spec, err := ParseWorkflowFile(path)
+	if err != nil {
+		t.Fatalf("ParseWorkflowFile: %v", err)
+	}
+	if spec.Title != "gen-test-review" {
+		t.Fatalf("title=%q want gen-test-review", spec.Title)
+	}
+	if len(spec.Steps) != 2 {
+		t.Fatalf("got %d steps want 2", len(spec.Steps))
+	}
+
+	s1 := spec.Steps[0]
+	if s1.Name != "gen" || s1.ProjectKey != "my-proj" || s1.Agent != "codex" || s1.Runner != "local" {
+		t.Fatalf("step1 core fields wrong: %+v", s1)
+	}
+	if s1.Prompt != "implement X" {
+		t.Fatalf("step1 prompt=%q", s1.Prompt)
+	}
+	if len(s1.Tags) != 2 || s1.Tags[0] != "ci" || s1.Tags[1] != "gen" {
+		t.Fatalf("step1 tags=%v", s1.Tags)
+	}
+
+	s2 := spec.Steps[1]
+	if s2.Name != "test" || s2.Agent != "exec" {
+		t.Fatalf("step2 core fields wrong: %+v", s2)
+	}
+	if len(s2.Cmd) != 3 || s2.Cmd[0] != "bash" || s2.Cmd[2] != "go test ./..." {
+		t.Fatalf("step2 cmd=%v", s2.Cmd)
+	}
+	if s2.Cwd != "sub" || s2.TimeoutSec != 120 {
+		t.Fatalf("step2 cwd/timeout wrong: cwd=%q timeout=%d", s2.Cwd, s2.TimeoutSec)
+	}
+}
+
+// TestParseWorkflowFileNoSteps rejects an empty/stepless workflow file so `run`
+// fails before hitting the server.
+func TestParseWorkflowFileNoSteps(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "empty.yaml")
+	if err := os.WriteFile(path, []byte("title: empty\n"), 0o600); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	if _, err := ParseWorkflowFile(path); err == nil {
+		t.Fatal("expected error for a workflow file with no steps")
+	}
+}
 
 // TestParseWorkflowFileMdPerStep asserts a workflow yaml whose step references an
 // external md file (file: foo.md) expands that file's frontmatter into the step
@@ -43,9 +114,9 @@ steps:
 		t.Fatalf("write wf: %v", err)
 	}
 
-	spec, err := parseWorkflowFile(path)
+	spec, err := ParseWorkflowFile(path)
 	if err != nil {
-		t.Fatalf("parseWorkflowFile: %v", err)
+		t.Fatalf("ParseWorkflowFile: %v", err)
 	}
 	if len(spec.Steps) != 2 {
 		t.Fatalf("got %d steps, want 2", len(spec.Steps))
@@ -102,9 +173,9 @@ md body prompt`
 	if err := os.WriteFile(path, []byte(wf), 0o600); err != nil {
 		t.Fatalf("write wf: %v", err)
 	}
-	spec, err := parseWorkflowFile(path)
+	spec, err := ParseWorkflowFile(path)
 	if err != nil {
-		t.Fatalf("parseWorkflowFile: %v", err)
+		t.Fatalf("ParseWorkflowFile: %v", err)
 	}
 	s := spec.Steps[0]
 	if s.ProjectKey != "inline-wins" {
@@ -122,9 +193,9 @@ md body prompt`
 // shape) decodes via the JSON branch (T4.1 import).
 func TestParseWorkflowFileJSON(t *testing.T) {
 	dir := t.TempDir()
-	spec := job.WorkflowSpec{
+	spec := WorkflowSpec{
 		Title: "from-json",
-		Steps: []job.StepSpec{
+		Steps: []StepSpec{
 			{Name: "a", ProjectKey: "p", Agent: "exec", Runner: "local", Cmd: []string{"echo", "hi"}},
 		},
 	}
@@ -133,9 +204,9 @@ func TestParseWorkflowFileJSON(t *testing.T) {
 	if err := os.WriteFile(path, raw, 0o600); err != nil {
 		t.Fatalf("write json: %v", err)
 	}
-	got, err := parseWorkflowFile(path)
+	got, err := ParseWorkflowFile(path)
 	if err != nil {
-		t.Fatalf("parseWorkflowFile(json): %v", err)
+		t.Fatalf("ParseWorkflowFile(json): %v", err)
 	}
 	if got.Title != "from-json" || len(got.Steps) != 1 || got.Steps[0].Name != "a" {
 		t.Fatalf("json decode wrong: %+v", got)
@@ -147,17 +218,17 @@ func TestParseWorkflowFileJSON(t *testing.T) {
 // when piped to a non-.json file name.
 func TestParseWorkflowFileJSONByContent(t *testing.T) {
 	dir := t.TempDir()
-	raw, _ := json.MarshalIndent(job.WorkflowSpec{
+	raw, _ := json.MarshalIndent(WorkflowSpec{
 		Title: "content-json",
-		Steps: []job.StepSpec{{Name: "a", ProjectKey: "p", Agent: "exec", Runner: "local", Cmd: []string{"echo", "hi"}}},
+		Steps: []StepSpec{{Name: "a", ProjectKey: "p", Agent: "exec", Runner: "local", Cmd: []string{"echo", "hi"}}},
 	}, "", "  ")
 	path := filepath.Join(dir, "wf.txt") // NOT .json — must be detected by content
 	if err := os.WriteFile(path, raw, 0o600); err != nil {
 		t.Fatalf("write: %v", err)
 	}
-	got, err := parseWorkflowFile(path)
+	got, err := ParseWorkflowFile(path)
 	if err != nil {
-		t.Fatalf("parseWorkflowFile(.txt with json content): %v", err)
+		t.Fatalf("ParseWorkflowFile(.txt with json content): %v", err)
 	}
 	if got.Title != "content-json" || len(got.Steps) != 1 {
 		t.Fatalf("content-json decode wrong: %+v", got)
@@ -167,7 +238,7 @@ func TestParseWorkflowFileJSONByContent(t *testing.T) {
 // TestExpandStepMarkdownMissingFile surfaces a clear error when the referenced md
 // file does not exist.
 func TestExpandStepMarkdownMissingFile(t *testing.T) {
-	step := job.StepSpec{File: "nope.md"}
+	step := StepSpec{File: "nope.md"}
 	if err := expandStepMarkdown(&step, t.TempDir(), 1); err == nil {
 		t.Fatal("expected an error for a missing md file")
 	}
@@ -180,7 +251,7 @@ func TestExpandStepMarkdownNoFrontmatter(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(dir, "x.md"), []byte("just a body, no frontmatter"), 0o600); err != nil {
 		t.Fatalf("write md: %v", err)
 	}
-	step := job.StepSpec{File: "x.md"}
+	step := StepSpec{File: "x.md"}
 	if err := expandStepMarkdown(&step, dir, 1); err == nil {
 		t.Fatal("expected an error for an md file with no frontmatter")
 	}
