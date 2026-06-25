@@ -37,12 +37,16 @@ func NewProjectCmd() *gcli.Command {
 				Name:    "list",
 				Desc:    "List configured projects",
 				Aliases: []string{"ls"},
-				Func:    runProjectList,
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+				},
+				Func: runProjectList,
 			},
 			{
 				Name: "show",
 				Desc: "Show a project's details",
 				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
 					c.AddArg("key", "project key", true)
 				},
 				Func: runProjectShow,
@@ -51,6 +55,7 @@ func NewProjectCmd() *gcli.Command {
 				Name: "add",
 				Desc: "Register a new project",
 				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
 					c.StrOpt(&projectAddOpts.hostPath, "host-path", "", "", "absolute host path of the project (required)")
 					c.StrOpt(&projectAddOpts.containerPath, "container-path", "", "", "container mount path of the project")
 					c.StrOpt(&projectAddOpts.exchangeSubdir, "exchange-subdir", "", "tmp", "data exchange subdir under the project")
@@ -69,6 +74,7 @@ func NewProjectCmd() *gcli.Command {
 				Desc:    "Remove a registered project",
 				Aliases: []string{"rm"},
 				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
 					c.AddArg("key", "project key", true)
 				},
 				Func: runProjectRemove,
@@ -78,6 +84,7 @@ func NewProjectCmd() *gcli.Command {
 				Aliases: []string{"check"},
 				Desc:    "Validate a project's paths, agents and runners",
 				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
 					c.AddArg("key", "project key", true)
 				},
 				Func: runProjectValidate,

@@ -39,6 +39,7 @@ func NewServeCmd() *gcli.Command {
 		Desc:    "Start the gofer HTTP server",
 		Aliases: []string{"s"},
 		Config: func(c *gcli.Command) {
+			bindConfigFlag(c)
 			c.StrOpt(&serveOpts.addr, "addr", "", "", "HTTP listen address (default from config / 0.0.0.0:8765)")
 			c.StrOpt(&serveOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 			c.BoolOpt(&serveOpts.allowEmptyTok, "allow-empty-token", "", false, "allow starting without a token")

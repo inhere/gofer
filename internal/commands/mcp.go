@@ -32,6 +32,9 @@ func NewMcpCmd() *gcli.Command {
 	return &gcli.Command{
 		Name: "mcp",
 		Desc: "Run the stdio MCP server",
+		Config: func(c *gcli.Command) {
+			bindConfigFlag(c)
+		},
 		Func: runMcp,
 	}
 }
