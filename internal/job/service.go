@@ -146,6 +146,41 @@ type Service struct {
 	// injected post-construction by SetMetrics (commands.buildCore) so the job
 	// package never imports prometheus. All埋点 sites guard `if s.metrics != nil`.
 	metrics MetricsSink
+
+	// wf is the workflow engine seam (layering design §13.4): the ONLY reverse
+	// dependency from the single-job path to the workflow sub-package. finish drives
+	// chain advancement through it. nil = no workflow engine wired (pure single-job
+	// deployment / unit tests), in which case finish never triggers advance — exactly
+	// the old "a non-workflow job does not advance" behaviour.
+	wf WorkflowAdvancer
+}
+
+// WorkflowAdvancer is the job→workflow seam (layering design §13.4, D-B9): the job
+// package defines it so it never imports the workflow sub-package; the workflow
+// Engine implements it and core injects it via SetWorkflow. finish calls Advance
+// when a step-job reaches a terminal state.
+type WorkflowAdvancer interface{ Advance(wfID string) }
+
+// SetWorkflow injects the workflow engine (the WorkflowAdvancer seam). It is called
+// once at assemble time (internal/core) after the service is built; passing nil (or
+// never calling it) leaves workflow advancement disabled (finish is a no-op for the
+// workflow path).
+func (s *Service) SetWorkflow(w WorkflowAdvancer) { s.wf = w }
+
+// Meta / Now / Config / Metrics / Validate are the narrow accessor surface the
+// workflow sub-package consumes through its JobOps interface (layering design §13.3).
+// They expose existing private state/behaviour read-only without widening it further;
+// Service thereby satisfies workflow.JobOps structurally (no workflow import here).
+func (s *Service) Meta() *jobstore.Store  { return s.meta }
+func (s *Service) Now() time.Time         { return s.nowFn() }
+func (s *Service) Config() *config.Config { return s.config() }
+func (s *Service) Metrics() MetricsSink   { return s.metrics }
+
+// Validate exposes the single-job admission check (project/agent/runner allowlist +
+// exec gate) so the workflow engine validates every step through the SAME gate
+// (安全要点). It wraps the private validate unchanged.
+func (s *Service) Validate(cfg *config.Config, req JobRequest, remote bool) (config.ProjectConfig, error) {
+	return s.validate(cfg, req, remote)
 }
 
 // SetMetrics injects the E16 lifecycle-counter sink (design §6). It is called

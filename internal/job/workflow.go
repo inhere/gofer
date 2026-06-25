@@ -61,18 +61,6 @@ type StepSpec struct {
 	File string `json:"-" yaml:"file,omitempty"`
 }
 
-// RetryPolicy bounds per-step (and per-job, E24) retry on failure (P1, design
-// §5.1, D16). MaxAttempts counts the FIRST run as attempt 1, so MaxAttempts==3
-// means up to 2 retries. BackoffSec is the退避表 indexed by the just-failed
-// attempt (defaults to the SR606 table when empty). OnExitCodes, when non-empty,
-// restricts retry to those exit codes (empty == retry on any non-zero exit /
-// timeout / failure, see retryableExit).
-type RetryPolicy struct {
-	MaxAttempts int   `json:"max_attempts" yaml:"max_attempts"`                       // >=1 (includes the first run)
-	BackoffSec  []int `json:"backoff_sec,omitempty" yaml:"backoff_sec,omitempty"`     // 默认接 SR606 [30,120,300,900,3600]
-	OnExitCodes []int `json:"on_exit_codes,omitempty" yaml:"on_exit_codes,omitempty"` // 空=任意非0退出重试
-}
-
 // onFailure* are the known StepSpec.OnFailure values. "" is treated as
 // onFailureFail (v1 fail-fast) so a v1 spec maps to fail without change (D23).
 const (
@@ -80,10 +68,6 @@ const (
 	onFailureContinue = "continue"
 	onFailureRetry    = "retry"
 )
-
-// maxRetryAttempts caps RetryPolicy.MaxAttempts so a misconfigured workflow can
-// not retry forever (defence against失控 retry storms).
-const maxRetryAttempts = 10
 
 // join* are the known StepSpec.Join values (P2, design §5.1, D15). "" is treated as
 // joinAll (the default) so a fan-out step without an explicit join aggregates as all.
@@ -112,11 +96,6 @@ const (
 // pathological / runaway recursion can never be admitted. 3 is the plan ceiling.
 const maxWorkflowDepth = 3
 
-// defaultBackoffSec is the SR606退避表 used when a RetryPolicy gives no explicit
-// BackoffSec: 30s → 2min → 5min → 15min → 60min, the last entry reused past the
-// end (mirrors the E14 deliveryBackoff table).
-var defaultBackoffSec = []int{30, 120, 300, 900, 3600}
-
 // WorkflowSpec is the submitted job-chain: a title + an ordered list of steps run
 // strictly serially (single active step, D1/D10). It is the body of POST
 // /v1/workflows and the parsed yaml workflow file (P3).
@@ -144,62 +123,17 @@ func joinPolicy(step StepSpec) string {
 }
 
 // maxAttempts returns the step's configured retry ceiling. Delegates to
-// maxAttemptsPolicy so step-level and job-level (E24) retry share one semantics.
-func maxAttempts(step StepSpec) int { return maxAttemptsPolicy(step.Retry) }
+// MaxAttemptsPolicy so step-level and job-level (E24) retry share one semantics.
+func maxAttempts(step StepSpec) int { return MaxAttemptsPolicy(step.Retry) }
 
 // backoffFor returns the backoff (seconds) before re-running a step whose attempt
-// just failed. Delegates to backoffForPolicy (one shared semantics, E24).
-func backoffFor(step StepSpec, attempt int) int { return backoffForPolicy(step.Retry, attempt) }
+// just failed. Delegates to BackoffForPolicy (one shared semantics, E24).
+func backoffFor(step StepSpec, attempt int) int { return BackoffForPolicy(step.Retry, attempt) }
 
 // retryableExit reports whether a failed step-job is retryable given the step's
-// policy. Delegates to retryableExitPolicy (one shared semantics, E24).
+// policy. Delegates to RetryableExitPolicy (one shared semantics, E24).
 func retryableExit(step StepSpec, exitCode int) bool {
-	return retryableExitPolicy(step.Retry, exitCode)
-}
-
-// maxAttemptsPolicy returns a RetryPolicy's attempt ceiling (MaxAttempts), or 1 (no
-// retry) when the policy is nil / unset. Shared by step-level and job-level retry.
-func maxAttemptsPolicy(p *RetryPolicy) int {
-	if p == nil || p.MaxAttempts < 1 {
-		return 1
-	}
-	return p.MaxAttempts
-}
-
-// backoffForPolicy returns the backoff (seconds) before re-running an attempt that
-// just failed. attempt is the 1-based number of the run that just failed; the
-// backoff table is indexed by attempt-1 (attempt 1 → table[0]), clamped to the last
-// entry past the end (SR606). An empty/absent BackoffSec falls back to the SR606
-// defaultBackoffSec. Shared by step-level and job-level retry (one semantics).
-func backoffForPolicy(p *RetryPolicy, attempt int) int {
-	table := defaultBackoffSec
-	if p != nil && len(p.BackoffSec) > 0 {
-		table = p.BackoffSec
-	}
-	idx := attempt - 1
-	if idx < 0 {
-		idx = 0
-	}
-	if idx >= len(table) {
-		idx = len(table) - 1
-	}
-	return table[idx]
-}
-
-// retryableExitPolicy reports whether a failure with exitCode is retryable under a
-// RetryPolicy.OnExitCodes. An empty/absent OnExitCodes means "retry on any non-zero
-// exit" (the default). When OnExitCodes is set, only those exit codes are retried.
-// Shared by step-level and job-level retry (one semantics).
-func retryableExitPolicy(p *RetryPolicy, exitCode int) bool {
-	if p == nil || len(p.OnExitCodes) == 0 {
-		return true
-	}
-	for _, c := range p.OnExitCodes {
-		if c == exitCode {
-			return true
-		}
-	}
-	return false
+	return RetryableExitPolicy(step.Retry, exitCode)
 }
 
 // WorkflowStep is one row of a workflow's step list in the detail response:

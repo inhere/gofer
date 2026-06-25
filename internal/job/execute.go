@@ -207,10 +207,10 @@ func (s *Service) maybeRetryJob(snap JobResult) {
 	if attempt < 1 {
 		attempt = 1
 	}
-	if attempt >= maxAttemptsPolicy(req.Retry) || !retryableExitPolicy(req.Retry, snap.ExitCode) {
+	if attempt >= MaxAttemptsPolicy(req.Retry) || !RetryableExitPolicy(req.Retry, snap.ExitCode) {
 		return // budget spent or this exit code is not retryable
 	}
-	backoff := backoffForPolicy(req.Retry, attempt)
+	backoff := BackoffForPolicy(req.Retry, attempt)
 	next := req // copy: a fresh job for attempt+1
 	next.Attempt = attempt + 1
 	next.RequestID = "" // job-level retry: each attempt is a distinct NEW job (no C5 dedupe)
