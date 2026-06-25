@@ -129,10 +129,16 @@ CREATE INDEX IF NOT EXISTS idx_inter_job ON interactions(job_id);
 ```yaml
 storage:
   # 现有：default_exchange_subdir / default_result_subdir / root
-  db_path: ""   # 新增可选。解析优先级：
-                #   显式 db_path > <root>/agent-bridge.db(若设 root) > <config-dir>/agent-bridge.db
+  db_path: ""   # 新增可选。解析优先级(serve, ResolveDBPath)：
+                #   显式 db_path > <root>/gofer.db(若设 root) > <config-dir>/gofer.db
 ```
 日志目录仍由现有 ResultBaseDir 规则决定（per-project 或 root）。
+
+> **ws-worker 变体（2026-06-25 补）**：worker 经 `core.Build` 与 serve 共用 `ResolveDBPath`
+> 会在同一 config-dir 下与 serve 的 `gofer.db`（或多 worker 之间）撞库。故 worker 走
+> `config.ResolveWorkerDBPath(workerID)`：显式 `db_path` > `<root>/<worker_id>.db`(设 root) >
+> `<config-dir>/worker/<worker_id>.db`(默认) —— 按 worker_id 命名隔离，`workerConfigToConfig`
+> 启动时 pin。设了 `root=<config-dir>/worker` 与不设 root 都收敛到同一 `<config-dir>/worker/<id>.db`。
 
 ## 12. 安全
 
