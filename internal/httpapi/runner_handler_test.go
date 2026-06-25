@@ -13,9 +13,9 @@ import (
 )
 
 // fakeProber is a static runnerProber for the /v1/runners handler tests.
-type fakeProber struct{ results []ProbeResult }
+type fakeProber struct{ results []runner.ProbeResult }
 
-func (f fakeProber) Snapshot() []ProbeResult { return f.results }
+func (f fakeProber) Snapshot() []runner.ProbeResult { return f.results }
 
 // fakeWorkers is a static workerRegistry keyed by worker_id.
 type fakeWorkers map[string]WorkerStatus
@@ -101,7 +101,7 @@ func TestListRunnersPeerHTTP(t *testing.T) {
 		"peer-down":    {Type: "peer-http", BaseURL: "https://down.internal:8765"},
 		"peer-unknown": {Type: "peer-http", BaseURL: "https://unk.internal:8765"},
 	}
-	prober := fakeProber{results: []ProbeResult{
+	prober := fakeProber{results: []runner.ProbeResult{
 		{Name: "peer-up", Up: true, CheckedAt: 1750300000000, LatencyMS: 12},
 		{Name: "peer-down", Up: false, CheckedAt: 1750300000000, Err: "connection refused"},
 	}}
