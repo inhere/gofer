@@ -20,3 +20,4 @@
 - **G021 入口只做绑定/校验/转发**：`commands`/`httpapi`/`mcpserver` 三入口层不放业务/编排逻辑；编排放 `internal/core`(组装)/`serve`(进程编排)/`streaming`(流式)，业务放 `internal/job` 等。非命令入口（组装、健康探针等）**不放 `commands`**。
 - **G022 依赖单向、防环**：入口 → 编排(core/serve/streaming) → job → 数据层(jobstore/project/agent/runner/store/config…)；底层/业务层**绝不**反向 import 入口/编排层。新增包后以 `go build`/`go vet`/`go list -deps` 验环。详见 `docs/design/2026-06-25-code-layering-refactor-design.md`。
 - **G023 重构铁律**：搬迁/拆分代码**零行为变化**（函数体逐字，仅改包/导出性/import），每步全量 `go test ./...` 绿背书；专属测试随逻辑迁移、覆盖不降。
+- **G024 子域升包判据 + 依赖倒置**：拆文件改善阅读、**升包改善边界**；一个子域满足「域自洽 + 反向 seam 够窄 + 正向可接口化 + 收益>代价」(D-B8) 才升为子包，否则留包内按文件聚合。已落地：`internal/job/workflow`（链编排引擎，design §13）——`job` 经 `WorkflowAdvancer` 接口反向回调（job 不 import workflow），`workflow.Engine` 经 `JobOps` 接口取宿主能力；共享类型（`RetryPolicy` 等 `JobRequest` 字段类型）留 `job`。新子域抽取沿用此「双接口依赖倒置」模式。

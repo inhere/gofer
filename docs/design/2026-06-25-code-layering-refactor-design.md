@@ -152,7 +152,9 @@
 >
 > **附录 epic（job 拆分）**单独出 plan，A 类收尾后推进。
 
-## 13. 附录 Epic（B2 类，独立 PR）：job 巨型包的包级分层 —— `internal/job/workflow` 子包抽取
+## 13. 附录 Epic（B2 类，独立 PR）：job 巨型包的包级分层 —— `internal/job/workflow` 子包抽取 ✅ 已完成
+
+> **已完成（2026-06-25）**：WS1/WS2.0/WS2/WS3 全绿落地，637 测试不减、无环。实施与偏差见 `docs/plans/2026-06-25-job-workflow-subpkg-plan.md §11`（`JobOps` 实际含 `Get/TailLog/Wait`；`maxRetryAttempts` 留 workflow 私有）。模式沉淀为 `CLAUDE.md G024`。
 
 ### 13.1 问题：拆文件 ≠ 分层
 
