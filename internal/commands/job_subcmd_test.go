@@ -4,7 +4,9 @@ import "testing"
 
 // TestJobSubcommandsRegistered asserts the E2 P2-c subcommands (list/watch/
 // rerun) are wired into the `job` group alongside the existing run/show/logs/
-// cancel, and that the top-level `completion` command exists.
+// cancel. (Shell completion is provided by gcli's built-in `--gen-completion`
+// global flag since the v3.8 deps update — no longer a top-level `completion`
+// command, so that assertion was dropped.)
 func TestJobSubcommandsRegistered(t *testing.T) {
 	app := NewApp("test")
 
@@ -16,10 +18,6 @@ func TestJobSubcommandsRegistered(t *testing.T) {
 		if jobCmd.GetCommand(sub) == nil {
 			t.Fatalf("job subcommand %q not registered", sub)
 		}
-	}
-
-	if app.GetCommand("completion") == nil {
-		t.Fatal("completion command not registered")
 	}
 }
 
