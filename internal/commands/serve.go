@@ -50,9 +50,18 @@ func NewServeCmd() *gcli.Command {
 }
 
 func runServe(c *gcli.Command, _ []string) error {
-	cfg, _, err := config.Load(config.InputCfgFile)
+	cfg, cfgPath, err := config.Load(config.InputCfgFile)
 	if err != nil {
 		return errorx.Failf(serveExitErr, "%v", err)
+	}
+
+	// Surface which config file serve actually loaded (or that it is running on
+	// defaults + discovery), so an operator can tell at a glance whether the
+	// expected config was picked up (P2/T2.1).
+	if cfgPath == "" {
+		c.Printf("gofer: config: (none — defaults + discovery)\n")
+	} else {
+		c.Printf("gofer: config: %s\n", cfgPath)
 	}
 
 	// --addr overrides server.addr; config.Load already defaulted addr to
