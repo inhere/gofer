@@ -263,7 +263,7 @@ svc.SetWorkflow(eng)                       // 装反向 hook
 
 | 子域 | 文件 | 评估 | 处置 |
 |---|---|---|---|
-| **interaction** | interaction.go / remote_interaction.go | 与 Service.jobs/锁、execute 强耦合，反向 seam 宽 | 暂留，先观察 workflow 升包后模式 |
+| **interaction** | interaction.go / remote_interaction.go | **已评估(2026-06-25)：不抽包**。状态 `entry.interactions` 挂 jobEntry、与 `entry.result` 共用 `entry.mu`，且直接翻转 job 状态 `pending_interaction↔running`（`StatusPendingInteraction` 是 job 核心状态）、靠 `entry.done` 唤醒——与单 job 引擎共享可变内存+锁+done 信号，反向 seam 宽（判据②不过），与 workflow(状态在 DB、仅 1 处 finish→advance)categorically 不同 | 留 job 包（文件级聚合已足够）|
 | **delivery（webhook）** | delivery.go | 经 deliverySink 已半解耦，但 postFn/sweeper 绑 Service | 候选，次于 workflow |
 | **outcomes / events** | outcomes.go / events.go | 偏数据读写，体量小 | 暂留 job |
 | **refs** | refs.go | workflow 专属 | **随 workflow 升包一并迁入**（见 §13.4）|
