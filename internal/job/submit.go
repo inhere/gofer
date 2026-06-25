@@ -30,7 +30,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// remote executor that resolves agent/cwd/command with its OWN config. The host
 	// therefore skips local agent/cwd resolution for remote jobs (it still validates
 	// the project, the agent allowlist and the runner allowlist).
-	remote := isRemoteRunner(cfg, req.Runner)
+	remote := IsRemoteRunner(cfg, req.Runner)
 
 	proj, err := s.validate(cfg, req, remote)
 	if err != nil {
@@ -254,13 +254,13 @@ func (s *Service) createJobDir(st store.Store) (string, error) {
 // 20060102-150405-1a2b3c4d. The random suffix guarantees uniqueness across
 // process restarts (a seconds+in-memory-seq scheme would collide on restart).
 func (s *Service) genJobID() string {
-	ts := s.nowFn().Format(jobIDLayout)
-	return ts + "-" + randomSuffix()
+	ts := s.nowFn().Format(JobIDLayout)
+	return ts + "-" + RandomSuffix()
 }
 
-// randomSuffix returns 8 lowercase hex chars from crypto/rand, falling back to a
+// RandomSuffix returns 8 lowercase hex chars from crypto/rand, falling back to a
 // nanosecond-derived value if the RNG is unavailable.
-func randomSuffix() string {
+func RandomSuffix() string {
 	var b [4]byte
 	if _, err := rand.Read(b[:]); err != nil {
 		return fmt.Sprintf("%08x", time.Now().UnixNano()&0xffffffff)

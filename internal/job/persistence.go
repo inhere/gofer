@@ -84,7 +84,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		ProjectKey:  rec.ProjectKey,
 		Agent:       rec.Agent,
 		Runner:      rec.Runner,
-		Title:       titleFromRequestJSON(rec.RequestJSON),
+		Title:       TitleFromRequestJSON(rec.RequestJSON),
 		WorkerID:    rec.WorkerID,
 		Status:      rec.Status,
 		ExitCode:    rec.ExitCode,
@@ -112,11 +112,11 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 	}
 }
 
-// titleFromRequestJSON recovers the optional job Title from the persisted
+// TitleFromRequestJSON recovers the optional job Title from the persisted
 // request_json blob. The jobs table has no title column (SP5), so the DB read
 // path (fromRecord) parses it back out of the stored JobRequest to keep Title
 // round-tripping through Get/ListJobs.
-func titleFromRequestJSON(s string) string {
+func TitleFromRequestJSON(s string) string {
 	if s == "" {
 		return ""
 	}

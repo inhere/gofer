@@ -120,7 +120,7 @@ func (s *Service) CreateInteraction(jobID string, in InteractionInput) (Interact
 
 	rec := &interactionRec{
 		data: Interaction{
-			ID:        randomSuffix(),
+			ID:        RandomSuffix(),
 			JobID:     jobID,
 			Type:      in.Type,
 			Prompt:    in.Prompt,

@@ -25,10 +25,10 @@ func isWorkerRunner(cfg *config.Config, name string) bool {
 	return ok && rc.Type == "worker"
 }
 
-// isRemoteRunner reports whether name is any remote runner (peer-http or
+// IsRemoteRunner reports whether name is any remote runner (peer-http or
 // ws-worker); both share the host-side "skip local resolution + set Forward"
 // path in Submit.
-func isRemoteRunner(cfg *config.Config, name string) bool {
+func IsRemoteRunner(cfg *config.Config, name string) bool {
 	return isPeerRunner(cfg, name) || isWorkerRunner(cfg, name)
 }
 
