@@ -89,6 +89,7 @@ E3 引导     : commands +init(写 starter yaml) +config validate(全局 load+va
 - `job rerun <id>`：`GET /v1/jobs/{id}/request` 取原 `JobRequest` → **清 `RequestID`（幂等 key，否则会被去重命中原 job）**、按需 `--watch` → `SubmitJobSync`，打印新 job id。
 **新端点**（只读）：`GET /v1/jobs/{id}/request`（`job_handler.go`）→ 取 job 的 `RequestJSON` 原文回（404 if !ok / 空）。**不**改 `get_job` 主响应（避免 list 包体膨胀，§10-D1）。
 **补全**：`commands/app.go` 接 gcli 内置补全生成（`gofer completion bash|zsh`）。
+> **现状更新（2026-06-25）**：gcli v3.8 升级后（`6e36b8b` 更新 deps，测试适配 `bbd8a2d`），completion 从子命令改为内置 **`--gen-completion` 全局 flag**，现用 `gofer --gen-completion bash|zsh`（README 已对齐）。本段保留当时记录。
 **验收**：`job list` 各过滤生效、表格正确；`job watch` 实时跟到终态、exit code 对；`job rerun` 起新 job（新 id、无旧幂等冲突）；`completion` 脚本可 source。
 
 ### 5.3 E3 引导 / 校验 / example（P3）

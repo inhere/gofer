@@ -89,7 +89,7 @@ if path == "" {
 
 加 `info` 子命令：`config.Load` 后打印——
 - **配置路径**：resolved path（同 T2.1）。
-- **关键 ENV**：`GOFER_CONFIG` / `GOFER_CFG_DIR` 值；`GOFER_TOKEN` 是否设（**不显值**，SR403）。
+- **关键 ENV**：`GOFER_CONFIG` / `GOFER_CONFIG_DIR` 值；`GOFER_TOKEN` 是否设（**不显值**，SR403）。
 - **关键设置**：`server.addr` / `path_view`（默认 host）/ `web_enabled` / `db_path`（`ResolveDBPath`）/ projects·agents·runners 数。
 
 ### P2 验收
@@ -141,7 +141,7 @@ if path == "" {
 - **config edit**：`config.Resolve(InputCfgFile)` 取路径（不 decode——配置坏掉时正需编辑）；空→报错提示先 `gofer init`。探测顺序 `$VISUAL → $EDITOR → code → vim → nano`，首个 `exec.LookPath` 命中即 `exec.Command(ed, path)` 接管 tty；都无→报错列出尝试过的。
 - **config info**：`config.Load` 后打印 配置路径 / ENV(`GOFER_CONFIG`、`GOFER_CONFIG_DIR` 值 + `GOFER_TOKEN` 仅 set=yes/no) / 设置(`server.addr`、`path_view`(空显 host)、`web_enabled`、`db_path`、projects·agents·runners 计数)。**SR403**：token 仅显是否设、不显值（冒烟 grep 确认未泄漏）。
 - **测试**：`config_test.go` 扩 `TestConfigCmdRegistered` 覆盖 edit/info；新增 `TestConfigSubsRegisteredViaApp`（`app.GetCommand("config").GetCommand("edit"|"info")` 非 nil）。
-- **偏差**：plan 写的 `GOFER_CFG_DIR` 实际常量是 `GOFER_CONFIG_DIR`（`config.EnvConfigDir`），按真实常量名实现。
+- **ENV 常量**：统一用真实常量 `GOFER_CONFIG_DIR`（`config.EnvConfigDir`，`loader.go:18`）；plan 早期正文误写的 `GOFER_CFG_DIR` 已订正（2026-06-25 文档检查）。
 
 ### P3（done · commit 61027bb）
 
