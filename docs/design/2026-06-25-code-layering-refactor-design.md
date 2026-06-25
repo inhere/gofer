@@ -8,6 +8,7 @@
 | 版本 | 日期 | 修改人 | 说明 |
 |---|---|---|---|
 | v0.1 | 2026-06-25 | inhere | 初稿：现状审计 + 目标分层 + 新包划分 + D-B1..D-B7 + 分阶段（A 类入口下沉本轮，B 类 job 拆分附录 epic），待审核 |
+| v0.2 | 2026-06-25 | inhere+claude | A 类(BP1-6)与 B 类(§11 job 同包拆文件)均已落地；新增 §13【B2 类：job 巨型包的包级分层 — `internal/job/workflow` 子包抽取（依赖倒置）】，回应「拆文件≠分层、job 仍是巨型包」反馈，引入 **D-B8..D-B11** |
 
 ## 2. 背景
 
@@ -130,9 +131,12 @@
 - 编排逻辑（serve 循环、组装、流式）集中可测、可复用（serve/mcp/worker 共用 core）。
 - 为后续（B 类 job 拆分、WP4 调度、E28 mcp HTTP-client）腾出清晰边界。
 
-## 11. 附录 Epic（B 类，紧随本轮、独立 PR）：job 上帝文件拆分
+## 11. 附录 Epic（B 类，紧随本轮、独立 PR）：job 上帝文件拆分 ✅ 已完成
 
 `job/service.go`(1025) → 按职责拆 `submit.go`/`execute.go`/`persistence.go`/`concurrency.go`/`config.go`；`job/workflow.go`(1402) → 拆 `workflow_advance.go`（最高价值，~150 行状态机）/`workflow_submit.go`/`workflow_join.go`/`workflow_query.go`/`workflow_terminate.go`/`workflow_cancel.go`。**同包拆文件、调用方零改动、测试零改动**——纯按职责切分，`go test` 即背书等价。优先 `workflow_advance.go`。不并入本轮（避免 diff 纠缠）。
+
+> **已完成（2026-06-25）**：11 步逐文件拆+全量 test 绿+独立 commit，service.go→235、workflow.go→225，函数 44/30 守恒，等价性校验通过（见 `docs/plans/2026-06-25-job-split-plan.md §7`）。
+> **遗留**：拆文件解决了「单文件可读性」，但 `internal/job` 仍是 **29 文件/~5000 行的巨型包**（单 job 引擎 + workflow 引擎 + interaction + delivery + events + outcomes + refs 混在同一包），**包级分层未动** → 见 §13。
 
 ## 12. 结论 + 分阶段（plan 预告）
 
@@ -147,3 +151,116 @@
 > BP1→BP2 有依赖（serve 用 core）；BP3/BP4/BP5/BP6 相对独立，可并行或顺序。审核通过后出 `plans/2026-06-25-code-layering-refactor/`（或单文件 plan）。
 >
 > **附录 epic（job 拆分）**单独出 plan，A 类收尾后推进。
+
+## 13. 附录 Epic（B2 类，独立 PR）：job 巨型包的包级分层 —— `internal/job/workflow` 子包抽取
+
+### 13.1 问题：拆文件 ≠ 分层
+
+§11 把两个上帝文件按职责拆成多文件，**单文件可读性**解决了，但 `internal/job` 仍是 **29 文件 / ~5000 行的巨型包**：单 job 引擎、workflow 链引擎、interaction、delivery、events、outcomes、refs 全挤在同一包里，const/struct/func 混杂。包级耦合未动 —— 入口看到的仍是一个无边界的大 `job`。本节把**最大、最自洽**的子域 `workflow`（9 文件 / 25 方法 + 29 自由函数 / ~1400 行）升为子包 `internal/job/workflow`，作为包级分层的旗舰。
+
+### 13.2 升包判据（D-B8）
+
+**拆文件改善阅读，升包改善边界——只有当一个子域满足以下全部，才升包：**
+1. **域自洽**：有完整的「类型 + 状态机 + 生命周期」（workflow 有 Spec/Step + advance 状态机 + submit→done/failed/cancel 生命周期）；
+2. **反向 seam 够窄**：宿主对它的反向依赖少到能用一个窄接口/回调倒置（workflow 的反向依赖**只有 1 处**：`execute.go:finish()` 的 `advanceWorkflow`）；
+3. **正向依赖可接口化**：它对宿主的依赖能收敛成一个能力接口（`JobOps`，~7 项）；
+4. **收益 > 代价**：包瘦身显著 + 子域可独立测试，盖过类型改名/测试迁移成本。
+
+不满足（尤其 seam 太宽）的子域**不升包**，留在 job 内按文件聚合即可（见 §13.8）。
+
+### 13.3 目标包结构与依赖方向
+
+```
+internal/job/                  ← 宿主：job 模型(JobRequest/JobResult) + 单 job 引擎
+  ├─ (定义) WorkflowAdvancer 接口   ← 唯一反向 seam，finish() 经它驱动链推进
+  └─ workflow/               ← 新子包：链编排域
+       ├─ types.go           Spec / StepSpec / Step / RetryPolicy + 常量
+       ├─ engine.go          Engine{ops JobOps} + 25 方法(原 *Service→*Engine)
+       ├─ advance/submit/join/query/terminate/cancel/parse/export/refs.go
+       └─ (定义) JobOps 接口     ← 向宿主索取的能力(~7 项)
+
+依赖方向（单向，无环）：
+  httpapi/commands/serve ──▶ internal/job/workflow ──▶ internal/job ──▶ jobstore/config/...
+                              （workflow 仅 import job 取 JobRequest/JobResult 类型）
+  internal/job ──(仅接口)──▶ WorkflowAdvancer   ← 实现体由 core 注入，job 不 import workflow
+```
+
+**防环关键（D-B9）**：`internal/job` **绝不** import `workflow`；反向调用只通过 job 内定义的 `WorkflowAdvancer` 接口（实现体在 wiring 时注入）。`workflow` 单向 import `job`（取 `JobRequest`/`JobResult` 类型）。`go list -deps` 验。
+
+### 13.4 双向耦合的依赖倒置（核心，D-B10）
+
+**反向 seam（job → workflow，仅 1 处）** —— job 侧定义接口、Service 持有、`finish` 经它回调：
+
+```go
+// internal/job —— 唯一反向依赖，由 core 在 wiring 时注入 engine；nil 时不触发(纯单 job 部署)
+type WorkflowAdvancer interface{ Advance(wfID string) }
+func (s *Service) SetWorkflow(w WorkflowAdvancer) { s.wf = w }
+// execute.go finish(): if s.wf != nil && snap.WorkflowID != "" { go s.wf.Advance(snap.WorkflowID) }
+```
+> sweeper 的 `AdvanceRunningWorkflows(ctx)` 不进此接口——它由 serve 循环**直接**调 `engine.AdvanceRunning(ctx)`（serve 可同时 import job 与 workflow）。
+
+**正向能力（workflow → job，~7 项）** —— workflow 侧定义 `JobOps`，Service 经薄适配器满足：
+
+```go
+// internal/job/workflow
+type JobOps interface {
+    Submit(req job.JobRequest) (job.JobResult, error)            // 起 step-job
+    Validate(cfg *config.Config, req job.JobRequest, remote bool) (config.ProjectConfig, error)
+    Cancel(jobID string) error                                  // 取消在飞 fan
+    Meta() *jobstore.Store                                      // 工作流行读写
+    Config() *config.Config
+    Now() time.Time
+    WorkflowTerminal(status string, durationSec float64)        // 复用 MetricsSink 同名
+}
+type Engine struct{ ops JobOps /* +内部状态 */ }
+func (e *Engine) Advance(wfID string) { /* 原 advanceWorkflow */ }   // 实现 job.WorkflowAdvancer
+```
+
+**wiring（internal/core assemble）**：
+```go
+svc := job.NewService(...)
+eng := workflow.NewEngine(jobOps{svc})   // jobOps 适配器把 svc 的 Submit/validate/Cancel/meta/... 暴露给 JobOps
+svc.SetWorkflow(eng)                       // 装反向 hook
+// serve 循环改调 eng.AdvanceRunning(ctx)；httpapi workflow_handler 改持有 eng
+```
+> `validate`/`meta`/`config`/`nowFn` 现为 job 内私有：升包时给出**导出 accessor 或 core 内适配器**（不改语义）。`resolveRefs`(refs.go) 是 workflow 域（${steps.N.field} 解析），随域迁入子包。
+
+### 13.5 迁移清单与外部影响面
+
+| 项 | 动作 | 量 |
+|---|---|---|
+| 公共类型 `WorkflowSpec/StepSpec/WorkflowStep/RetryPolicy` | → `workflow.{Spec,StepSpec,Step,RetryPolicy}`，外部引用改名 | 外部 ~40 处（httpapi 25+12+2+1 / commands / mcpserver），机械 sed |
+| 25 个 `(s *Service)` workflow 方法 | receiver 改 `(e *Engine)`，函数体逐字 | 25 |
+| 29 个自由函数 + refs.go | 随域迁入子包 | 29+ |
+| `finish` 反向调用 | 改经 `s.wf.Advance` | 1 |
+| 公共方法调用点（`SubmitWorkflow`/`GetWorkflow`/...） | 调用方改持 `engine`（httpapi handler / serve / core 注入） | 中 |
+| `workflow_*_test.go` | 迁到 `package workflow`，以 `JobOps`（真 Service 适配器或 fake）构造 Engine；**断言不变** | 测试迁移（非零改动）|
+
+### 13.6 与 §11 的本质区别（D-B11：放宽「零测试改动」、保留「零行为变化」）
+
+§11 是同包拆文件 → 零行为变化**且**零测试改动。本节是包级重构：**逻辑逐字、断言不变（零行为变化保留）**，但类型改名 + 测试迁包 + wiring 倒置 → **打破「零测试改动」**。这是 B2 与 B 的分界，须单独 PR、单独评审。收益：`job` 包瘦身 ~1400 行 / 边界清晰；workflow 可用 fake `JobOps` 独立快测（不起全 Service）；对齐 `internal/runner/{local,peerhttp,worker}` 子包先例。
+
+### 13.7 风险与验证
+
+- **import 环**（首要）：靠 D-B9（job 不 import workflow，反向仅接口）；每步 `go build`/`go vet`/`go list -deps github.com/inhere/gofer/internal/job | grep workflow`（应为空）验。
+- **零行为变化**：函数体逐字；全量 `go test ./...`（现 1143 测试，迁移后总数不降）绿 + 冒烟（workflow 提交/推进/重试/fan-join/子工作流/取消、sweeper 兜底、parent-advance）。
+- **nil-engine 安全**：`s.wf==nil`（纯单 job 部署/未装 engine）时 `finish` 不触发 advance，等价旧「非工作流 job 不触发」。
+
+### 13.8 分期（plan 预告）
+
+- **WS1（包内立缝，最低风险）**：job 内引入 `WorkflowAdvancer` 间接（`s.wf` 字段或 `wfAdvance func` 默认指向 `advanceWorkflow`）+ 暴露 `JobOps` 所需 accessor；`finish` 改经缝。仍全在 job，行为/测试近乎不变 —— 先把 seam 验通。
+- **WS2（抽包，主体）**：建 `internal/job/workflow`，迁类型(改名)+自由函数+25 方法(→Engine)+refs；定义 `JobOps`、Engine 实现 `WorkflowAdvancer`；core 装配 + serve/httpapi 改持 engine；测试迁包接 `JobOps`。体量大可再分 WS2a(类型+wiring 立骨架) / WS2b(方法体迁移)。
+- **WS3（收尾）**：删 job 内 workflow 残留符号；`go list -deps` 验无环；更新 `CLAUDE.md` G021-G023 增「子域升包判据(D-B8)」。
+
+### 13.9 其余子域：候选与判据（本轮不做）
+
+按 D-B8 判据逐个评估，**seam 够窄才升包**，否则留 job 内按文件聚合：
+
+| 子域 | 文件 | 评估 | 处置 |
+|---|---|---|---|
+| **interaction** | interaction.go / remote_interaction.go | 与 Service.jobs/锁、execute 强耦合，反向 seam 宽 | 暂留，先观察 workflow 升包后模式 |
+| **delivery（webhook）** | delivery.go | 经 deliverySink 已半解耦，但 postFn/sweeper 绑 Service | 候选，次于 workflow |
+| **outcomes / events** | outcomes.go / events.go | 偏数据读写，体量小 | 暂留 job |
+| **refs** | refs.go | workflow 专属 | **随 workflow 升包一并迁入**（见 §13.4）|
+
+> 原则：**先把最大最干净的 workflow 升包、跑通依赖倒置模式，再以同一模式按需复制到 delivery 等**；不一次性铺开全包拆解（决策面过大、PR 过重）。
