@@ -22,9 +22,9 @@ import (
 // without a token).
 const serveExitErr = 2
 
-// serveOpts holds the serve command flags.
+// serveOpts holds the serve command flags. The config path is the app-level
+// global -c (config.InputCfgFile), not a per-command flag (P1).
 var serveOpts = struct {
-	config        string
 	addr          string
 	token         string
 	allowEmptyTok bool
@@ -39,7 +39,6 @@ func NewServeCmd() *gcli.Command {
 		Desc:    "Start the gofer HTTP server",
 		Aliases: []string{"s"},
 		Config: func(c *gcli.Command) {
-			c.StrOpt(&serveOpts.config, "config", "c", "", "path to the bridge config file")
 			c.StrOpt(&serveOpts.addr, "addr", "", "", "HTTP listen address (default from config / 0.0.0.0:8765)")
 			c.StrOpt(&serveOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 			c.BoolOpt(&serveOpts.allowEmptyTok, "allow-empty-token", "", false, "allow starting without a token")
@@ -50,7 +49,7 @@ func NewServeCmd() *gcli.Command {
 }
 
 func runServe(c *gcli.Command, _ []string) error {
-	cfg, _, err := config.Load(serveOpts.config)
+	cfg, _, err := config.Load(config.InputCfgFile)
 	if err != nil {
 		return errorx.Failf(serveExitErr, "%v", err)
 	}
@@ -120,7 +119,7 @@ func runServe(c *gcli.Command, _ []string) error {
 	// effect on in-flight jobs). The goroutine stops cleanly when serve returns.
 	stopReload := make(chan struct{})
 	defer close(stopReload)
-	startReloadLoop(c, core, serveOpts.config, stopReload)
+	startReloadLoop(c, core, config.InputCfgFile, stopReload)
 
 	// ws-worker hub graceful shutdown (WP3 §5.6): when serve returns, stopHub
 	// closes so the hub gracefully closes every live worker connection (going-away),

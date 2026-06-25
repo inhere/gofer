@@ -119,7 +119,7 @@ runners:
   worker: { type: worker }         # worker 类型 runner（动态按 worker_id 派发）
 ```
 
-worker 侧用独立配置连入并本地执行（`gofer worker --config worker.yaml`）：
+worker 侧用独立配置连入并本地执行（`gofer worker --worker-config worker.yaml`）：
 
 ```yaml
 worker_id: w-gpu
@@ -136,10 +136,10 @@ projects: { workspace: { host_path: /abs, container_path: /abs, allowed_agents: 
 ### 配置一个 worker（init → 校验 → 启动）
 
 ```bash
-gofer init worker -c worker.yaml              # 生成 worker 配置模板（含对齐注释）
+gofer init worker -o worker.yaml             # 生成 worker 配置模板（init 用 -o/--output 指定写出路径）
 # 编辑 worker.yaml（见下「三处对齐」）后自查，重点看 token 是否可解析 / host_path 是否存在：
-gofer config validate worker -c worker.yaml
-gofer worker -c worker.yaml                   # 启动；进程日志直接看连接成败
+gofer -c worker.yaml config validate worker  # 全局 -c 须在子命令前（app 级 flag）
+gofer worker --worker-config worker.yaml     # 启动；worker.yaml 独立语义，专用 --worker-config
 ```
 
 **三处对齐**（同一个 worker_id，缺一则连不上或 Web 看不到）：
@@ -223,18 +223,18 @@ runners:
 
 ## CLI 参考
 
-`gofer <command> [sub] [--options]`，均支持 `-c/--config`。
+全局 `-c/--config`（默认 `${GOFER_CONFIG}`，否则按发现链：cwd `.gofer[.local].yaml` → `~/.config/gofer/config.yaml`）是 **app 级 flag，须置于子命令之前**：`gofer -c <path> <command> [sub] [--options]`。`init` 用 `-o/--output` 指定写出路径；`worker` 用独立的 `--worker-config`（worker.yaml 与 gofer 配置语义不同）。
 
 ```bash
-gofer init    [server|worker] [-c path]    # 生成配置模板（默认 server→.gofer.yaml；worker→worker.yaml）
+gofer init    [server|worker] [-o path]    # 生成配置模板（默认 server→.gofer.yaml；worker→worker.yaml；-o 指定写出路径）
 gofer serve   --addr 0.0.0.0:8765 [--token …] [--allow-empty-token] [--no-web]
-gofer worker  --config worker.yaml         # 作为 WS 远端执行机连入 hub
-gofer config  validate [server|worker] [-c path]   # 校验配置（默认 server；worker 查 token/host_path 等）
+gofer worker  --worker-config worker.yaml  # 作为 WS 远端执行机连入 hub（worker.yaml 独立配置）
+gofer [-c path] config validate [server|worker]    # 校验配置（默认 server；worker 查 token/host_path 等）
 gofer project list | show <k> | add <k> … | remove <k> | validate <k>
 gofer agent   list | detect | show <k>     # detect 未装报 unavailable，不退非零
 gofer job     run … | list … | show <id> | watch <id> | logs <id> --stream … | rerun <id> | cancel <id>
 gofer workflow run <file.yaml> [--watch] | show <id> | list | cancel <id>   # 多步 job 链（上一步产出喂下一步；支持 step 重试/失败策略、并行 fan-out、子工作流嵌套 type=workflow）
-gofer mcp     --config <path>              # stdio MCP server
+gofer mcp                                  # stdio MCP server（配置走全局 -c / 发现链）
 gofer --gen-completion bash|zsh > ~/.gofer.completion.sh  # 补全脚本
 ```
 
@@ -266,7 +266,7 @@ gofer job run -p siv -a claude "..."               # CLI 连 serve
 `gofer mcp` 以 **stdio MCP server** 暴露同一套控制面（复用 serve 的 `job.Service`/注册表）。stdout 为协议通道，不输出日志。
 
 ```json
-{ "mcpServers": { "gofer": { "command": "/abs/path/to/gofer", "args": ["mcp", "--config", "/abs/path/to/config.yaml"] } } }
+{ "mcpServers": { "gofer": { "command": "/abs/path/to/gofer", "args": ["-c", "/abs/path/to/config.yaml", "mcp"] } } }
 ```
 
 暴露 8 个 tool（字段 snake_case，与 HTTP 对齐）：`bridge_list_projects` / `bridge_list_agents` / `bridge_run_job` / `bridge_get_job` / `bridge_tail_log` / `bridge_cancel_job` / `bridge_get_interactions` / `bridge_answer_interaction`。

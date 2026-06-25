@@ -51,7 +51,10 @@ func TestProjectAddListShowValidate(t *testing.T) {
 		}
 	}
 	setArg("key", "self")
-	projectAddOpts.config = cfgPath
+	// The config path is the app-level global -c (config.InputCfgFile); reset it
+	// after the test so the package-level global never leaks into other tests.
+	config.InputCfgFile = cfgPath
+	t.Cleanup(func() { config.InputCfgFile = "" })
 	projectAddOpts.hostPath = host
 	projectAddOpts.exchangeSubdir = "tmp"
 	projectAddOpts.resultSubdir = "gofer"
@@ -79,19 +82,16 @@ func TestProjectAddListShowValidate(t *testing.T) {
 	}
 
 	// list
-	commonProjectOpts.listConfig = cfgPath
 	if err := runProjectList(c, nil); err != nil {
 		t.Fatalf("list: %v", err)
 	}
 
 	// show
-	commonProjectOpts.showConfig = cfgPath
 	if err := runProjectShow(c, nil); err != nil {
 		t.Fatalf("show: %v", err)
 	}
 
 	// validate (host exists, exchange/result dirs creatable, local builtin)
-	commonProjectOpts.validateConfig = cfgPath
 	if err := runProjectValidate(c, nil); err != nil {
 		t.Fatalf("validate: %v", err)
 	}

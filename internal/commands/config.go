@@ -28,16 +28,6 @@ var initOpts = struct {
 	global bool
 }{}
 
-// configValidateOpts holds `gofer config validate` flags.
-var configValidateOpts = struct {
-	config string
-}{}
-
-// configShowOpts holds `gofer config show` flags.
-var configShowOpts = struct {
-	config string
-}{}
-
 // DefaultInitConfigPath is where `gofer init [server]` writes the starter server
 // config when no --config is given: ./.gofer.yaml, the highest-priority
 // current-dir candidate in the loader lookup chain (loader.go
@@ -45,8 +35,8 @@ var configShowOpts = struct {
 const DefaultInitConfigPath = ".gofer.yaml"
 
 // DefaultWorkerConfigPath is where `gofer init worker` writes the starter worker
-// config when no --config is given. The worker config has no auto-discovery, so
-// it must be passed explicitly: `gofer worker -c worker.yaml`.
+// config when no --output is given. The worker config has no auto-discovery, so
+// it must be passed explicitly: `gofer worker --worker-config worker.yaml`.
 const DefaultWorkerConfigPath = "worker.yaml"
 
 // initTemplate maps an init target to its embedded starter template + default
@@ -64,7 +54,7 @@ func initTemplate(target string) (tmpl, defaultPath string, ok bool) {
 
 // NewInitCmd builds the top-level `gofer init [target]` command (E3). target is
 // `server` (default) or `worker`; it writes the matching embedded starter to its
-// default path (./.gofer.yaml / ./worker.yaml) or --config <path>. It refuses to
+// default path (./.gofer.yaml / ./worker.yaml) or --output <path>. It refuses to
 // overwrite an existing file unless --force is given (design D6).
 func NewInitCmd() *gcli.Command {
 	return &gcli.Command{
@@ -72,7 +62,7 @@ func NewInitCmd() *gcli.Command {
 		Desc: "Generate a starter config from the example template (target: server | worker)",
 		Config: func(c *gcli.Command) {
 			c.AddArg("target", "what to scaffold: server (default) | worker", false)
-			c.StrOpt(&initOpts.config, "config", "c", "", "path to write the config (default depends on target)")
+			c.StrOpt(&initOpts.config, "output", "o", "", "path to write the config (default depends on target)")
 			c.BoolOpt(&initOpts.force, "force", "f", false, "overwrite an existing config file")
 			c.BoolOpt(&initOpts.global, "global", "g", false, "write to the user-global config dir (~/.config/gofer/config.yaml)")
 		},
@@ -93,7 +83,7 @@ func runInit(c *gcli.Command, _ []string) error {
 		return errorx.Failf(configExitErr, "unknown init target %q (use: server | worker)", target)
 	}
 
-	// Path resolution: an explicit --config always wins (backward compatible).
+	// Path resolution: an explicit --output always wins (backward compatible).
 	// Otherwise --global writes the user-global config.yaml for the server target
 	// (worker has no global discovery, so it keeps its ./worker.yaml default).
 	path := initOpts.config
@@ -125,7 +115,7 @@ func runInit(c *gcli.Command, _ []string) error {
 		return errorx.Failf(configExitErr, "write %s: %v", path, err)
 	}
 	if target == "worker" {
-		c.Printf("已生成 worker 配置 %s，编辑后运行 `gofer worker -c %s` 启动\n", path, path)
+		c.Printf("已生成 worker 配置 %s，编辑后运行 `gofer worker --worker-config %s` 启动\n", path, path)
 	} else {
 		c.Printf("已生成 %s，编辑后运行 `gofer config validate` 校验\n", path)
 		if usedGlobal {
@@ -151,7 +141,6 @@ func NewConfigCmd() *gcli.Command {
 				Aliases: []string{"check"},
 				Config: func(c *gcli.Command) {
 					c.AddArg("target", "what to validate: server (default) | worker", false)
-					c.StrOpt(&configValidateOpts.config, "config", "c", "", "path to the config file")
 				},
 				Func: runConfigValidate,
 			},
@@ -160,7 +149,6 @@ func NewConfigCmd() *gcli.Command {
 				Desc: "Show the effective (overlay-merged) config of a project",
 				Config: func(c *gcli.Command) {
 					c.AddArg("key", "project key", true)
-					c.StrOpt(&configShowOpts.config, "config", "c", "", "path to the config file")
 				},
 				Func: runConfigShow,
 			},
@@ -183,7 +171,7 @@ func runConfigShow(c *gcli.Command, _ []string) error {
 		return errorx.Failf(configExitErr, "config show requires a <key> argument")
 	}
 
-	cfg, _, err := config.Load(configShowOpts.config)
+	cfg, _, err := config.Load(config.InputCfgFile)
 	if err != nil {
 		return errorx.Failf(configExitErr, "%v", err)
 	}
@@ -250,7 +238,7 @@ func runConfigValidate(c *gcli.Command, _ []string) error {
 func validateServerConfig(c *gcli.Command) error {
 	// loadRegistry calls config.Load, which already runs validate(cfg) (host_path
 	// required) and surfaces decode errors — a coded error so the exit is non-zero.
-	reg, err := loadRegistry(configValidateOpts.config)
+	reg, err := loadRegistry(config.InputCfgFile)
 	if err != nil {
 		return errorx.Failf(configExitErr, "%v", err)
 	}
@@ -275,7 +263,7 @@ func validateServerConfig(c *gcli.Command) error {
 // config — the same checks the worker runs at dispatch time, review #8). Any FAIL
 // → coded error (non-zero exit).
 func validateWorkerConfig(c *gcli.Command) error {
-	wc, err := loadWorkerConfig(configValidateOpts.config)
+	wc, err := loadWorkerConfig(config.InputCfgFile)
 	if err != nil {
 		return errorx.Failf(configExitErr, "%v", err)
 	}
@@ -303,7 +291,7 @@ func validateWorkerConfig(c *gcli.Command) error {
 
 	// Per-project checks via a registry built from the worker's own config (host_path
 	// exists, agents/runners resolvable) — identical to server-side project validate.
-	reg := project.NewRegistry(workerConfigToConfig(wc), configValidateOpts.config)
+	reg := project.NewRegistry(workerConfigToConfig(wc), config.InputCfgFile)
 	keys := reg.List()
 	if len(keys) == 0 {
 		chk("projects", false, "no projects (the worker has nothing to run)")
