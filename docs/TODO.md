@@ -27,11 +27,12 @@
 - [ ] 代码优化：internal/commands 里的 assemble, runner_probe 等很多逻辑代码应该移到另外的目录，commands 应该保持只做参数绑定验证等
   - httpapi 也有这个问题，逻辑代码混在入口里面，导致代码散乱，不易维护和查看。
   - 应该建一个 core, service 或者 专用的包 等整理这些逻辑实现代码
-- [ ] 体验优化
-  - [ ] gofer serve 打印加载的配置文件路径
-  - [ ] gofer config 新增 edit 依次尝试可用编辑器打开配置文件
-  - [ ] gofer config 新增 info 显示加载的配置文件路径,一些关键ENV以及一些关键设置信息
-  - [ ] gofer p add -i 执行，能通过交互模式添加当前目录为项目
+- [x] 体验优化（A 组，2026-06-25 SUPMODE，plan [`plans/2026-06-25-cli-ux-plan.md`](plans/2026-06-25-cli-ux-plan.md)）
+  - [x] gofer 基本上每个命令都带了 -c,--config 提到app绑定 —— 公共 `bindConfigFlag(c)` 绑 `config.InputCfgFile`，`-c` 前后都可放（gcli 源码核实空串默认不覆盖），worker 独立 `--worker-config`（commit `6e51b79` P1 + `bc40e71` P1.5）
+  - [x] gofer serve 打印加载的配置文件路径（commit `6920091` P2）
+  - [x] gofer config 新增 edit 依次尝试可用编辑器打开配置文件（`$VISUAL/$EDITOR/code/vim/nano`，commit `6920091` P2）
+  - [x] gofer config 新增 info 显示加载的配置文件路径,一些关键ENV以及一些关键设置信息（token 仅显 set=yes/no，commit `6920091` P2）
+  - [x] gofer p add -i 执行，能通过交互模式添加当前目录为项目（commit `61027bb` P3）
 
 ### Web 控制台
 
