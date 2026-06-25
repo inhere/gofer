@@ -1,4 +1,4 @@
-package httpapi
+package store
 
 import (
 	"os"
@@ -8,19 +8,21 @@ import (
 	"testing"
 )
 
+// Tests migrated from internal/httpapi (safeJoinUnder → store.SafeJoinUnder, BP5).
+
 // TestSafeJoinUnderLegal asserts plain and subdir names join cleanly under base.
 func TestSafeJoinUnderLegal(t *testing.T) {
 	base := t.TempDir()
-	cases := []string{"a.txt", "sub/b", "sub/deep/c.bin", "./d", "x/../y"}
+	cases := []string{"a.txt", "sub/b", "sub/deep/c.bin", "./d", "x/../y", "sub\\b.bin"}
 	for _, name := range cases {
-		full, err := safeJoinUnder(base, name)
+		full, err := SafeJoinUnder(base, name)
 		if err != nil {
-			t.Fatalf("safeJoinUnder(%q) unexpected error: %v", name, err)
+			t.Fatalf("SafeJoinUnder(%q) unexpected error: %v", name, err)
 		}
 		// Result must stay inside base.
 		rel, relErr := filepath.Rel(base, full)
 		if relErr != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
-			t.Fatalf("safeJoinUnder(%q) escaped base: full=%q rel=%q", name, full, rel)
+			t.Fatalf("SafeJoinUnder(%q) escaped base: full=%q rel=%q", name, full, rel)
 		}
 	}
 }
@@ -36,10 +38,11 @@ func TestSafeJoinUnderRejected(t *testing.T) {
 		"/etc/passwd",      // absolute
 		"..",               // bare parent
 		"sub/../../x",      // climbs out via subdir
+		"..\\windows",      // backslash-normalized parent escape
 	}
 	for _, name := range bad {
-		if _, err := safeJoinUnder(base, name); err == nil {
-			t.Fatalf("safeJoinUnder(%q) should be rejected, got nil error", name)
+		if _, err := SafeJoinUnder(base, name); err == nil {
+			t.Fatalf("SafeJoinUnder(%q) should be rejected, got nil error", name)
 		}
 	}
 }
@@ -70,8 +73,8 @@ func TestSafeJoinUnderSymlinkEscape(t *testing.T) {
 	}
 
 	// Lexically "evil/secret.txt" stays under base, but the real target escapes.
-	if _, err := safeJoinUnder(base, "evil/secret.txt"); err == nil {
-		t.Fatalf("safeJoinUnder must reject symlink escape evil/secret.txt")
+	if _, err := SafeJoinUnder(base, "evil/secret.txt"); err == nil {
+		t.Fatalf("SafeJoinUnder must reject symlink escape evil/secret.txt")
 	}
 }
 
@@ -93,7 +96,7 @@ func TestSafeJoinUnderSymlinkInternal(t *testing.T) {
 	if err := os.Symlink(real, link); err != nil {
 		t.Skipf("symlink unsupported: %v", err)
 	}
-	if _, err := safeJoinUnder(base, "link/f.txt"); err != nil {
+	if _, err := SafeJoinUnder(base, "link/f.txt"); err != nil {
 		t.Fatalf("internal symlink should be allowed, got %v", err)
 	}
 }

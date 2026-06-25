@@ -8,7 +8,6 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/gookit/rux/v2"
 
@@ -20,14 +19,6 @@ import (
 // 256KB of a stream is returned (plan §9-P5/§11). Full logs remain inspectable
 // on disk via the result dir.
 const maxLogTailBytes = 256 * 1024
-
-// Synchronous-submit wait caps (design §6.1 / P1-a): the server blocks at most
-// defaultWaitSec when sync is requested without an explicit wait_timeout_sec,
-// and never longer than maxWaitSec, after which it returns 202 + X-Gofer-Async.
-const (
-	defaultWaitSec = 30
-	maxWaitSec     = 60
-)
 
 // handleCreateJob parses a JobRequest, submits it and returns the initial
 // JobResult (with the assigned id). The body is JSON by default; a
@@ -61,21 +52,17 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 	// (anti-spoof): the identity is the server's auth decision, not the body.
 	req.CallerID = callerFromCtx(c)
 
-	res, err := s.jobs.Submit(req)
+	// The wantSync decision (?wait=1 / ?wait=true query param) is an HTTP-transport
+	// concern; the submit + sync-wait + clamp + async-fallback policy lives in
+	// job.Service.SubmitSync. The handler only maps the outcome to HTTP表现.
+	res, async, err := s.jobs.SubmitSync(req, wantSync(c, req))
 	if err != nil {
 		writeError(c, submitStatus(err), "job rejected", err.Error())
 		return
 	}
-
-	// Synchronous submit: block until terminal (capped). An already-terminal
-	// result (e.g. an idempotent hit on a finished job) returns immediately.
-	if wantSync(c, req) && !job.IsTerminal(res.Status) {
-		if final, ok := s.jobs.WaitFor(res.ID, clampWait(req.WaitTimeoutSec)); ok {
-			c.JSON(http.StatusOK, final)
-			return
-		}
+	if async {
 		// Exceeded the server wait cap and still not terminal: fall back to async
-		// semantics. The job keeps running; the client should switch to polling.
+		// semantics (202 + X-Gofer-Async). The job keeps running; the client polls.
 		c.SetHeader("X-Gofer-Async", "1")
 		c.JSON(http.StatusAccepted, res)
 		return
@@ -87,18 +74,6 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 // body sync field or a ?wait=1 / ?wait=true query param.
 func wantSync(c *rux.Context, req job.JobRequest) bool {
 	return req.Sync || c.Query("wait") == "1" || c.Query("wait") == "true"
-}
-
-// clampWait turns a requested wait_timeout_sec into a duration, applying the
-// default (when 0/negative) and the hard server cap.
-func clampWait(sec int) time.Duration {
-	if sec <= 0 {
-		sec = defaultWaitSec
-	}
-	if sec > maxWaitSec {
-		sec = maxWaitSec
-	}
-	return time.Duration(sec) * time.Second
 }
 
 // submitStatus maps a Submit error to an HTTP status: an unknown project is a
