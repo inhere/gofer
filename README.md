@@ -198,9 +198,9 @@ storage:
   # retention: { max_age_days: 30, max_count: 5000, prune_interval_minutes: 60 }
 
 projects:
-  workspace:
-    host_path: /path/to/workspace
-    container_path: /workspace
+  myporject1:
+    host_path: /path/to/ws-root/myporject1
+    container_path: /work/myporject1
     default_agent: codex
     allowed_agents: [codex, claude, exec]
     allowed_runners: [local, worker]     # 含 worker 才能远端派发
