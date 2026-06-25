@@ -248,6 +248,9 @@ svc.SetWorkflow(eng)                       // 装反向 hook
 
 ### 13.8 分期（plan 预告）
 
+> 实施计划：`docs/plans/2026-06-25-job-workflow-subpkg-plan.md`（WS1 暴露 JobOps 访问器 → WS2a types 下移 → WS2b Engine 抽取+wiring+测试迁移 → WS3 收尾）。
+> 实施细节修正：因 core 包访问不到 Service 私有成员，**改为在 Service 上加 5 个薄导出访问器（Meta/Now/Config/Validate/Metrics）让其直接满足 `JobOps`**，不另设 core 适配器。
+
 - **WS1（包内立缝，最低风险）**：job 内引入 `WorkflowAdvancer` 间接（`s.wf` 字段或 `wfAdvance func` 默认指向 `advanceWorkflow`）+ 暴露 `JobOps` 所需 accessor；`finish` 改经缝。仍全在 job，行为/测试近乎不变 —— 先把 seam 验通。
 - **WS2（抽包，主体）**：建 `internal/job/workflow`，迁类型(改名)+自由函数+25 方法(→Engine)+refs；定义 `JobOps`、Engine 实现 `WorkflowAdvancer`；core 装配 + serve/httpapi 改持 engine；测试迁包接 `JobOps`。体量大可再分 WS2a(类型+wiring 立骨架) / WS2b(方法体迁移)。
 - **WS3（收尾）**：删 job 内 workflow 残留符号；`go list -deps` 验无环；更新 `CLAUDE.md` G021-G023 增「子域升包判据(D-B8)」。
