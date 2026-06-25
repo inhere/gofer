@@ -8,6 +8,7 @@ import (
 	"github.com/gookit/rux/v2"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/runner"
 )
 
 // nowMillis returns the current unix time in milliseconds. It is a package var so
@@ -32,18 +33,6 @@ const (
 	statusUnknown      = "unknown"      // no signal yet
 )
 
-// ProbeResult is the cached outcome of one peer-http /health probe (C6/P4). It is
-// the DTO the serve-side prober adapter feeds into the handler through the
-// runnerProber interface. CheckedAt is a unix-millis timestamp (SR102, matching
-// handleHealth's server_time); Up=false with a non-empty Err is a down result.
-type ProbeResult struct {
-	Name      string
-	Up        bool
-	CheckedAt int64 // unix millis of the probe; 0 when never probed yet
-	LatencyMS int64
-	Err       string
-}
-
 // WorkerStatus is the read-only worker view the handler renders (C6/P4). It is
 // produced by the serve-side adapter from the wshub registry snapshot, so httpapi
 // never imports wshub's internal types. Connected=false means offline / never
@@ -60,7 +49,7 @@ type WorkerStatus struct {
 // nil means no probing is wired (every peer-http row is `unknown`). Snapshot must
 // be a non-blocking read of the cached results (never a live probe).
 type runnerProber interface {
-	Snapshot() []ProbeResult
+	Snapshot() []runner.ProbeResult
 }
 
 // workerRegistry is the consumer-side narrow interface (D2) the handler reads
@@ -142,8 +131,8 @@ func (s *Server) handleListRunners(c *rux.Context) {
 // probeIndex reads the prober snapshot (nil-safe) into a name→result map for O(1)
 // lookup. A nil prober (no probing wired) yields an empty map so every peer-http
 // row falls to `unknown`.
-func (s *Server) probeIndex() map[string]ProbeResult {
-	idx := map[string]ProbeResult{}
+func (s *Server) probeIndex() map[string]runner.ProbeResult {
+	idx := map[string]runner.ProbeResult{}
 	if s.prober == nil {
 		return idx
 	}
@@ -156,7 +145,7 @@ func (s *Server) probeIndex() map[string]ProbeResult {
 // renderRunner builds one runnerView from its config + the probe index. The
 // per-type logic: local => up; peer-http => probe cache (up/down/unknown); worker
 // => registry snapshot (connected/disconnected/unknown); unknown type => unknown.
-func (s *Server) renderRunner(name string, rc config.RunnerConfig, probes map[string]ProbeResult) runnerView {
+func (s *Server) renderRunner(name string, rc config.RunnerConfig, probes map[string]runner.ProbeResult) runnerView {
 	v := runnerView{Name: name, Type: rc.Type, Status: statusUnknown}
 	switch rc.Type {
 	case runnerTypeLocal:

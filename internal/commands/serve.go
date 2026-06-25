@@ -15,6 +15,7 @@ import (
 	"github.com/inhere/gofer/internal/httpapi"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/metrics"
+	"github.com/inhere/gofer/internal/runner"
 )
 
 // serveExitErr is the process exit code used when serve fails to start or run.
@@ -144,7 +145,7 @@ func runServe(c *gcli.Command, _ []string) error {
 	// peer-http runners (nil when none) and start its periodic loop. The loop
 	// stops cleanly when serve returns (stopProbe). The prober's cache feeds the
 	// /v1/runners endpoint; a nil prober renders peer-http rows `unknown`.
-	prober := newPeerProber(cfg, cfg.Server.RunnerProbe.ProbeTimeout())
+	prober := runner.NewPeerProber(cfg, cfg.Server.RunnerProbe.ProbeTimeout())
 	stopProbe := make(chan struct{})
 	defer close(stopProbe)
 	startProbeLoop(c, prober, cfg.Server.RunnerProbe.ProbeInterval(), stopProbe)
@@ -313,7 +314,7 @@ func startWorkflowLoop(c *gcli.Command, jobs *job.Service, stop <-chan struct{})
 // parameter would make httpapi's `s.prober == nil` check false (a non-nil
 // interface wrapping a nil pointer), so the handler would call Snapshot on a nil
 // receiver. Returning the plain interface value keeps the nil-safe contract.
-func proberOrNil(p *peerProber) interface{ Snapshot() []httpapi.ProbeResult } {
+func proberOrNil(p *runner.PeerProber) interface{ Snapshot() []runner.ProbeResult } {
 	if p == nil {
 		return nil
 	}
@@ -329,11 +330,11 @@ func proberOrNil(p *peerProber) interface{ Snapshot() []httpapi.ProbeResult } {
 // Probe targets are frozen at serve startup and NOT re-read on SIGHUP (runner
 // instances are not rebuilt on reload either — overview §9.1 C3 / P4 §3.2):
 // adding or removing a peer needs a restart.
-func startProbeLoop(c *gcli.Command, prober *peerProber, interval time.Duration, stop <-chan struct{}) {
+func startProbeLoop(c *gcli.Command, prober *runner.PeerProber, interval time.Duration, stop <-chan struct{}) {
 	if prober == nil {
 		return
 	}
-	c.Printf("gofer: peer-http health probe enabled (interval=%s, targets=%d)\n", interval, len(prober.targets))
+	c.Printf("gofer: peer-http health probe enabled (interval=%s, targets=%d)\n", interval, prober.TargetCount())
 
 	go func() {
 		// Each probe round runs under a context cancelled when stop closes so an
@@ -345,7 +346,7 @@ func startProbeLoop(c *gcli.Command, prober *peerProber, interval time.Duration,
 		}()
 		defer cancel()
 
-		prober.probeOnce(ctx) // probe once at startup so the cache is not all-unknown
+		prober.ProbeOnce(ctx) // probe once at startup so the cache is not all-unknown
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
@@ -353,7 +354,7 @@ func startProbeLoop(c *gcli.Command, prober *peerProber, interval time.Duration,
 			case <-stop:
 				return
 			case <-ticker.C:
-				prober.probeOnce(ctx)
+				prober.ProbeOnce(ctx)
 			}
 		}
 	}()
