@@ -1,4 +1,4 @@
-package job
+package workflow
 
 import (
 	"bytes"
@@ -15,10 +15,10 @@ import (
 // pathological file can not be slurped whole (mirrors httpapi.maxMarkdownBytes).
 const maxStepMarkdownBytes = 256 * 1024
 
-// ParseWorkflowFile reads a workflow file and unmarshals it into a WorkflowSpec.
+// ParseWorkflowFile reads a workflow file and unmarshals it into a Spec.
 // It accepts THREE input shapes (T4.1 import + T4.2 md-per-step), dispatched by
 // extension/content:
-//   - .json — a WorkflowSpec JSON dump (the export round-trip, T4.1);
+//   - .json — a Spec JSON dump (the export round-trip, T4.1);
 //   - .yaml/.yml (default) — the design §9 yaml (title + steps[] with the StepSpec
 //     yaml tags). A step may additionally carry `file: foo.md` to pull its params +
 //     prompt from an external md-per-step file (T4.2, resolved relative to the
@@ -28,47 +28,47 @@ const maxStepMarkdownBytes = 256 * 1024
 // the md frontmatter fills the step's fields and the md body becomes its prompt, so a
 // long prompt lives in its own reviewable md file instead of inline yaml. It is
 // extracted so the command and its unit tests share one decoder.
-func ParseWorkflowFile(path string) (WorkflowSpec, error) {
+func ParseWorkflowFile(path string) (Spec, error) {
 	body, err := os.ReadFile(path)
 	if err != nil {
-		return WorkflowSpec{}, fmt.Errorf("read workflow file: %w", err)
+		return Spec{}, fmt.Errorf("read workflow file: %w", err)
 	}
 	spec, err := decodeWorkflowBody(path, body)
 	if err != nil {
-		return WorkflowSpec{}, err
+		return Spec{}, err
 	}
 	if len(spec.Steps) == 0 {
-		return WorkflowSpec{}, fmt.Errorf("workflow file has no steps")
+		return Spec{}, fmt.Errorf("workflow file has no steps")
 	}
 	// T4.2: expand each step's optional md-per-step `file:` reference, resolved relative
 	// to the workflow file's directory.
 	baseDir := filepath.Dir(path)
 	for i := range spec.Steps {
 		if err := expandStepMarkdown(&spec.Steps[i], baseDir, i+1); err != nil {
-			return WorkflowSpec{}, err
+			return Spec{}, err
 		}
 	}
 	return spec, nil
 }
 
-// decodeWorkflowBody unmarshals a workflow file body into a WorkflowSpec, choosing
+// decodeWorkflowBody unmarshals a workflow file body into a Spec, choosing
 // JSON vs YAML by the file extension (a .json file is the export dump; everything else
-// is treated as yaml). JSON and yaml StepSpec/WorkflowSpec tags match (the struct tags
+// is treated as yaml). JSON and yaml StepSpec/Spec tags match (the struct tags
 // carry both), so the same struct decodes either dump.
-func decodeWorkflowBody(path string, body []byte) (WorkflowSpec, error) {
-	var spec WorkflowSpec
+func decodeWorkflowBody(path string, body []byte) (Spec, error) {
+	var spec Spec
 	// JSON when the extension says .json OR the content is a JSON object (leading '{'),
 	// so an exported `-f json` spec re-imports regardless of file name (e.g. piped to a
 	// .txt). A workflow yaml always starts with a key (title:/steps:), never '{', so the
 	// content sniff is unambiguous. Everything else is YAML.
 	if strings.EqualFold(filepath.Ext(path), ".json") || strings.HasPrefix(strings.TrimSpace(string(body)), "{") {
 		if err := json.Unmarshal(body, &spec); err != nil {
-			return WorkflowSpec{}, fmt.Errorf("parse workflow json: %w", err)
+			return Spec{}, fmt.Errorf("parse workflow json: %w", err)
 		}
 		return spec, nil
 	}
 	if err := yaml.Unmarshal(body, &spec); err != nil {
-		return WorkflowSpec{}, fmt.Errorf("parse workflow yaml: %w", err)
+		return Spec{}, fmt.Errorf("parse workflow yaml: %w", err)
 	}
 	return spec, nil
 }

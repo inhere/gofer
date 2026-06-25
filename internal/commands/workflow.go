@@ -13,7 +13,7 @@ import (
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
-	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -53,7 +53,7 @@ var wfEventsOpts = struct {
 // NewWorkflowCmd builds the `workflow` command group (run/show/list/cancel). It
 // wraps the server's /v1/workflows HTTP API so the host can submit and inspect
 // job-chains without curl (P3-a). A workflow file is yaml (title + steps[]); the
-// CLI parses it into a job.WorkflowSpec and POSTs it.
+// CLI parses it into a workflow.Spec and POSTs it.
 func NewWorkflowCmd() *gcli.Command {
 	return &gcli.Command{
 		Name:    "workflow",
@@ -155,7 +155,7 @@ func runWorkflowRun(c *gcli.Command, _ []string) error {
 	if file == "" {
 		return fmt.Errorf("workflow run requires a <file> argument")
 	}
-	spec, err := job.ParseWorkflowFile(file)
+	spec, err := workflow.ParseWorkflowFile(file)
 	if err != nil {
 		return err
 	}
@@ -187,7 +187,7 @@ func runWorkflowRun(c *gcli.Command, _ []string) error {
 
 // printStepOverview prints the planned steps from the spec (before any job ids
 // exist) so `run` shows what was submitted even without --watch.
-func printStepOverview(c *gcli.Command, spec job.WorkflowSpec) {
+func printStepOverview(c *gcli.Command, spec workflow.Spec) {
 	for i, st := range spec.Steps {
 		name := st.Name
 		if name == "" {
@@ -376,7 +376,7 @@ func runWorkflowExport(c *gcli.Command, _ []string) error {
 // round-trips straight back in (StepSpec carries matching yaml tags); "json" emits
 // the indented JSON dump. The output is normalised to no trailing newline so the
 // caller's file-write/println paths add exactly one. An unknown format is rejected.
-func marshalWorkflowSpec(spec job.WorkflowSpec, format string) ([]byte, error) {
+func marshalWorkflowSpec(spec workflow.Spec, format string) ([]byte, error) {
 	var (
 		out []byte
 		err error

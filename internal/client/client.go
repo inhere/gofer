@@ -16,6 +16,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
 )
 
 // Client talks to a running gofer server. It is safe for sequential use;
@@ -236,7 +237,7 @@ func (c *Client) CancelJob(id string) (job.JobResult, error) {
 }
 
 // WorkflowStep is one row of a workflow's step chain in the detail response,
-// mirroring httpapi's job.WorkflowStep JSON (snake_case). job_id/status are empty
+// mirroring httpapi's workflow.Step JSON (snake_case). job_id/status are empty
 // for a step not yet started (the chain is strictly serial). Attempt is the 1-based
 // retry attempt of this step-job (P1) and FanIndex the 1-based fan-out parallel index
 // (P2); both are 0/omitted for a v1 single-job step, so the CLI only renders them when
@@ -285,7 +286,7 @@ type Workflow struct {
 // SubmitWorkflow POSTs a WorkflowSpec as JSON to /v1/workflows and returns the
 // created workflow header (running, step 1 started). The caller id is stamped
 // server-side, so the spec carries no caller field (design §5.7).
-func (c *Client) SubmitWorkflow(spec job.WorkflowSpec) (Workflow, error) {
+func (c *Client) SubmitWorkflow(spec workflow.Spec) (Workflow, error) {
 	body, err := json.Marshal(spec)
 	if err != nil {
 		return Workflow{}, fmt.Errorf("encode workflow spec: %w", err)
@@ -332,22 +333,22 @@ func (c *Client) CancelWorkflow(id string) (Workflow, error) {
 // (SR403); the returned bool reports whether anything was redacted (from the
 // X-Gofer-Redacted response header) so `workflow export` can warn that a placeholder
 // must be filled in before re-running. An unknown id surfaces as a 404 error.
-func (c *Client) ExportWorkflow(id string) (job.WorkflowSpec, bool, error) {
+func (c *Client) ExportWorkflow(id string) (workflow.Spec, bool, error) {
 	resp, err := c.do(http.MethodGet, "/v1/workflows/"+url.PathEscape(id)+"/export", nil)
 	if err != nil {
-		return job.WorkflowSpec{}, false, err
+		return workflow.Spec{}, false, err
 	}
 	defer resp.Body.Close()
 	data, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return job.WorkflowSpec{}, false, fmt.Errorf("read export response: %w", err)
+		return workflow.Spec{}, false, fmt.Errorf("read export response: %w", err)
 	}
 	if err := errorFor(resp.StatusCode, data); err != nil {
-		return job.WorkflowSpec{}, false, err
+		return workflow.Spec{}, false, err
 	}
-	var spec job.WorkflowSpec
+	var spec workflow.Spec
 	if err := json.Unmarshal(data, &spec); err != nil {
-		return job.WorkflowSpec{}, false, fmt.Errorf("decode export response: %w", err)
+		return workflow.Spec{}, false, fmt.Errorf("decode export response: %w", err)
 	}
 	redacted := resp.Header.Get("X-Gofer-Redacted") == "1"
 	return spec, redacted, nil

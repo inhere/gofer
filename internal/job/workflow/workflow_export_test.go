@@ -1,4 +1,4 @@
-package job
+package workflow
 
 import (
 	"strings"
@@ -6,20 +6,20 @@ import (
 )
 
 // TestExportWorkflowRoundTrip asserts a submitted workflow exports back to a
-// WorkflowSpec that faithfully reproduces the chain (title + every step's核心字段),
+// Spec that faithfully reproduces the chain (title + every step's核心字段),
 // so an export→import round-trips (T4.1).
 func TestExportWorkflowRoundTrip(t *testing.T) {
-	s := newTestService(t, t.TempDir())
-	wf, err := s.SubmitWorkflow(WorkflowSpec{
+	e := newTestEngine(t, t.TempDir())
+	wf, err := e.SubmitWorkflow(Spec{
 		Title: "round-trip",
 		Steps: []StepSpec{echoStep("gen"), echoStep("review"), echoStep("test")},
 	}, "alice")
 	if err != nil {
 		t.Fatalf("SubmitWorkflow: %v", err)
 	}
-	t.Cleanup(func() { _ = s.CancelWorkflow(wf.ID) })
+	t.Cleanup(func() { _ = e.CancelWorkflow(wf.ID) })
 
-	spec, ok, redacted, err := s.ExportWorkflow(wf.ID)
+	spec, ok, redacted, err := e.ExportWorkflow(wf.ID)
 	if err != nil {
 		t.Fatalf("ExportWorkflow: %v", err)
 	}
@@ -47,8 +47,8 @@ func TestExportWorkflowRoundTrip(t *testing.T) {
 // TestExportWorkflowUnknownID asserts an unknown id reports ok=false (the HTTP layer
 // maps it to a 404), not an error.
 func TestExportWorkflowUnknownID(t *testing.T) {
-	s := newTestService(t, t.TempDir())
-	_, ok, _, err := s.ExportWorkflow("wf-does-not-exist")
+	e := newTestEngine(t, t.TempDir())
+	_, ok, _, err := e.ExportWorkflow("wf-does-not-exist")
 	if err != nil {
 		t.Fatalf("ExportWorkflow unknown id err = %v, want nil", err)
 	}
@@ -61,8 +61,8 @@ func TestExportWorkflowUnknownID(t *testing.T) {
 // prompt / cmd / cwd are replaced with the placeholder on export (T4.1 / SR403), the
 // non-secret structure survives, and redacted=true is reported.
 func TestExportWorkflowStripsSecrets(t *testing.T) {
-	s := newTestService(t, t.TempDir())
-	wf, err := s.SubmitWorkflow(WorkflowSpec{
+	e := newTestEngine(t, t.TempDir())
+	wf, err := e.SubmitWorkflow(Spec{
 		Title: "with-secrets",
 		Steps: []StepSpec{
 			{
@@ -79,9 +79,9 @@ func TestExportWorkflowStripsSecrets(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SubmitWorkflow: %v", err)
 	}
-	t.Cleanup(func() { _ = s.CancelWorkflow(wf.ID) })
+	t.Cleanup(func() { _ = e.CancelWorkflow(wf.ID) })
 
-	spec, ok, redacted, err := s.ExportWorkflow(wf.ID)
+	spec, ok, redacted, err := e.ExportWorkflow(wf.ID)
 	if err != nil || !ok {
 		t.Fatalf("ExportWorkflow: ok=%v err=%v", ok, err)
 	}
@@ -144,13 +144,13 @@ func TestRedactSecretsInString(t *testing.T) {
 // TestRedactSecretsRecursesSubWorkflow asserts a secret nested inside an inline
 // sub-workflow step is also stripped on export (T4.1 recursion).
 func TestRedactSecretsRecursesSubWorkflow(t *testing.T) {
-	spec := WorkflowSpec{
+	spec := Spec{
 		Title: "parent",
 		Steps: []StepSpec{
 			{
 				Name: "sub", ProjectKey: "self", Agent: "exec", Runner: "local",
 				Type: stepTypeWorkflow,
-				SubWorkflow: &WorkflowSpec{
+				SubWorkflow: &Spec{
 					Steps: []StepSpec{
 						{
 							Name: "inner", ProjectKey: "self", Agent: "exec", Runner: "local",

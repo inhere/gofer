@@ -1,4 +1,4 @@
-package job
+package workflow
 
 import (
 	"os"
@@ -6,13 +6,14 @@ import (
 	"strings"
 	"testing"
 
+	job "github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
 // priorFan persists a finished fan job at (stepIndex, fanIndex) with the given status,
 // a real result_dir under root, and returns the JobRecord. Mirrors priorStep but sets
 // FanIndex so the ref resolver's fan aggregation / fK selector can be exercised.
-func priorFan(t *testing.T, s *Service, root string, stepIndex, fanIndex int, status string) jobstore.JobRecord {
+func priorFan(t *testing.T, e *Engine, root string, stepIndex, fanIndex int, status string) jobstore.JobRecord {
 	t.Helper()
 	id := "fan-" + status + "-s" + itoa(stepIndex) + "-f" + itoa(fanIndex) + "-" + filepath.Base(t.TempDir())
 	resultDir := filepath.Join(root, id)
@@ -24,7 +25,7 @@ func priorFan(t *testing.T, s *Service, root string, stepIndex, fanIndex int, st
 		Status: status, ResultDir: resultDir, StartedAt: 1,
 		WorkflowID: "wf-fan", StepIndex: stepIndex, Attempt: 1, FanIndex: fanIndex,
 	}
-	if err := s.meta.UpsertJob(rec); err != nil {
+	if err := e.meta.UpsertJob(rec); err != nil {
 		t.Fatalf("UpsertJob: %v", err)
 	}
 	return rec
@@ -34,14 +35,14 @@ func priorFan(t *testing.T, s *Service, root string, stepIndex, fanIndex int, st
 // returns the newline-joined result_dir of every SUCCESSFUL fan (failed fans excluded).
 func TestResolveRefsFanOutResultDirAggregates(t *testing.T) {
 	root := t.TempDir()
-	s := newTestService(t, root)
-	f1 := priorFan(t, s, root, 1, 1, StatusDone)
-	f2 := priorFan(t, s, root, 1, 2, StatusDone)
-	f3 := priorFan(t, s, root, 1, 3, StatusFailed) // failed fan excluded from aggregate
+	e := newTestEngine(t, root)
+	f1 := priorFan(t, e, root, 1, 1, job.StatusDone)
+	f2 := priorFan(t, e, root, 1, 2, job.StatusDone)
+	f3 := priorFan(t, e, root, 1, 3, job.StatusFailed) // failed fan excluded from aggregate
 	prior := []jobstore.JobRecord{f1, f2, f3}
 
 	step := &StepSpec{Prompt: "dirs=${steps.1.result_dir}"}
-	if err := s.resolveRefs(step, prior); err != nil {
+	if err := e.resolveRefs(step, prior); err != nil {
 		t.Fatalf("resolveRefs: %v", err)
 	}
 	want := "dirs=" + f1.ResultDir + "\n" + f2.ResultDir
@@ -53,16 +54,16 @@ func TestResolveRefsFanOutResultDirAggregates(t *testing.T) {
 // TestResolveRefsFanSelector: ${steps.N.fK.result_dir} resolves the K-th fan's dir.
 func TestResolveRefsFanSelector(t *testing.T) {
 	root := t.TempDir()
-	s := newTestService(t, root)
+	e := newTestEngine(t, root)
 	prior := []jobstore.JobRecord{
-		priorFan(t, s, root, 1, 1, StatusDone),
-		priorFan(t, s, root, 1, 2, StatusDone),
-		priorFan(t, s, root, 1, 3, StatusDone),
+		priorFan(t, e, root, 1, 1, job.StatusDone),
+		priorFan(t, e, root, 1, 2, job.StatusDone),
+		priorFan(t, e, root, 1, 3, job.StatusDone),
 	}
 	step := &StepSpec{
 		Cmd: []string{"run", "--a=${steps.1.f1.result_dir}", "--b=${steps.1.f3.result_dir}"},
 	}
-	if err := s.resolveRefs(step, prior); err != nil {
+	if err := e.resolveRefs(step, prior); err != nil {
 		t.Fatalf("resolveRefs: %v", err)
 	}
 	if step.Cmd[1] != "--a="+prior[0].ResultDir {
@@ -73,7 +74,7 @@ func TestResolveRefsFanSelector(t *testing.T) {
 	}
 	// The aggregated (no-selector) form returns both done dirs newline-joined.
 	step2 := &StepSpec{Prompt: "${steps.1.result_dir}"}
-	if err := s.resolveRefs(step2, prior); err != nil {
+	if err := e.resolveRefs(step2, prior); err != nil {
 		t.Fatalf("resolveRefs agg: %v", err)
 	}
 	if !strings.Contains(step2.Prompt, "\n") {
@@ -85,10 +86,10 @@ func TestResolveRefsFanSelector(t *testing.T) {
 // single dir verbatim (NO newline) — the v1 path is preserved (D23).
 func TestResolveRefsSingleJobUnchanged(t *testing.T) {
 	root := t.TempDir()
-	s := newTestService(t, root)
-	p1 := priorStep(t, s, root, 1, 0, StatusDone, "", "")
+	e := newTestEngine(t, root)
+	p1 := priorStep(t, e, root, 1, 0, job.StatusDone, "", "")
 	step := &StepSpec{Cwd: "${steps.1.result_dir}/work"}
-	if err := s.resolveRefs(step, []jobstore.JobRecord{p1}); err != nil {
+	if err := e.resolveRefs(step, []jobstore.JobRecord{p1}); err != nil {
 		t.Fatalf("resolveRefs: %v", err)
 	}
 	if step.Cwd != p1.ResultDir+"/work" {
@@ -100,7 +101,7 @@ func TestResolveRefsSingleJobUnchanged(t *testing.T) {
 // referenced step's fan_out, and rejected when K exceeds it.
 func TestValidateRefsFanSelector(t *testing.T) {
 	// Step 1 has fan_out 3; step 2 references f2 (valid) — accepted.
-	ok := WorkflowSpec{Steps: []StepSpec{
+	ok := Spec{Steps: []StepSpec{
 		fanEchoStep("s1", 3, "all"),
 		{Name: "s2", Prompt: "${steps.1.f2.result_dir}"},
 	}}
@@ -109,7 +110,7 @@ func TestValidateRefsFanSelector(t *testing.T) {
 	}
 
 	// Step 2 references f5 but step 1 has only 3 fans — rejected.
-	bad := WorkflowSpec{Steps: []StepSpec{
+	bad := Spec{Steps: []StepSpec{
 		fanEchoStep("s1", 3, "all"),
 		{Name: "s2", Prompt: "${steps.1.f5.result_dir}"},
 	}}

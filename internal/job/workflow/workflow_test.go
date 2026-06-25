@@ -1,4 +1,4 @@
-package job
+package workflow
 
 import (
 	"context"
@@ -7,18 +7,19 @@ import (
 	"testing"
 	"time"
 
+	job "github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
 // waitWorkflow polls until the workflow reaches a terminal status (done/failed/
 // cancelled) or the deadline elapses. The chain runs asynchronously (each step is
-// a background job + the finish hook fires advanceWorkflow), so tests poll the
+// a background job + the finish hook fires Advance), so tests poll the
 // persisted header rather than block on a single channel.
-func waitWorkflow(t *testing.T, s *Service, wfID string) jobstore.Workflow {
+func waitWorkflow(t *testing.T, e *Engine, wfID string) jobstore.Workflow {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		wf, ok, err := s.meta.GetWorkflow(wfID)
+		wf, ok, err := e.meta.GetWorkflow(wfID)
 		if err != nil {
 			t.Fatalf("GetWorkflow: %v", err)
 		}
@@ -27,7 +28,7 @@ func waitWorkflow(t *testing.T, s *Service, wfID string) jobstore.Workflow {
 		}
 		time.Sleep(15 * time.Millisecond)
 	}
-	wf, _, _ := s.meta.GetWorkflow(wfID)
+	wf, _, _ := e.meta.GetWorkflow(wfID)
 	t.Fatalf("workflow %s did not finish in time (status=%s, step=%d)", wfID, wf.Status, wf.CurrentStep)
 	return jobstore.Workflow{}
 }
@@ -51,8 +52,8 @@ func failStep(name string) StepSpec {
 // TestSubmitWorkflowStartsFirstStep asserts a 3-step workflow creates a running
 // header (current_step=1, total=3) and starts ONLY step 1 (the rest wait).
 func TestSubmitWorkflowStartsFirstStep(t *testing.T) {
-	s := newTestService(t, t.TempDir())
-	wf, err := s.SubmitWorkflow(WorkflowSpec{
+	e := newTestEngine(t, t.TempDir())
+	wf, err := e.SubmitWorkflow(Spec{
 		Title: "chain",
 		Steps: []StepSpec{echoStep("a"), echoStep("b"), echoStep("c")},
 	}, "alice")
@@ -70,7 +71,7 @@ func TestSubmitWorkflowStartsFirstStep(t *testing.T) {
 	}
 
 	// Step-1 job exists, bound to step_index=1 and inheriting the caller.
-	jobs, err := s.meta.ListWorkflowJobs(wf.ID)
+	jobs, err := e.meta.ListWorkflowJobs(wf.ID)
 	if err != nil {
 		t.Fatalf("ListWorkflowJobs: %v", err)
 	}
@@ -89,13 +90,13 @@ func TestSubmitWorkflowStartsFirstStep(t *testing.T) {
 
 	// Drain the async step-1 job so its background goroutine finishes before the
 	// test's store is closed (avoids best-effort recordEvent racing teardown).
-	s.Wait(jobs[0].ID)
+	e.ops.Wait(jobs[0].ID)
 }
 
 // TestSubmitWorkflowEmptySteps asserts an empty spec is rejected.
 func TestSubmitWorkflowEmptySteps(t *testing.T) {
-	s := newTestService(t, t.TempDir())
-	_, err := s.SubmitWorkflow(WorkflowSpec{Steps: nil}, "alice")
+	e := newTestEngine(t, t.TempDir())
+	_, err := e.SubmitWorkflow(Spec{Steps: nil}, "alice")
 	if err == nil {
 		t.Fatal("expected error for empty steps")
 	}
@@ -105,15 +106,15 @@ func TestSubmitWorkflowEmptySteps(t *testing.T) {
 // to completion via the real finish hook — each step done in order, the workflow
 // done, and step indices 1->2->3 (one job per step, ascending).
 func TestWorkflowRunsAllStepsSerially(t *testing.T) {
-	s := newTestService(t, t.TempDir())
-	wf, err := s.SubmitWorkflow(WorkflowSpec{
+	e := newTestEngine(t, t.TempDir())
+	wf, err := e.SubmitWorkflow(Spec{
 		Steps: []StepSpec{echoStep("one"), echoStep("two"), echoStep("three")},
 	}, "alice")
 	if err != nil {
 		t.Fatalf("SubmitWorkflow: %v", err)
 	}
 
-	final := waitWorkflow(t, s, wf.ID)
+	final := waitWorkflow(t, e, wf.ID)
 	if final.Status != jobstore.WorkflowDone {
 		t.Fatalf("workflow status = %s (err=%s), want done", final.Status, final.Error)
 	}
@@ -124,7 +125,7 @@ func TestWorkflowRunsAllStepsSerially(t *testing.T) {
 		t.Fatalf("current_step = %d, want %d (TotalSteps+1)", final.CurrentStep, final.TotalSteps+1)
 	}
 
-	jobs, err := s.meta.ListWorkflowJobs(wf.ID)
+	jobs, err := e.meta.ListWorkflowJobs(wf.ID)
 	if err != nil {
 		t.Fatalf("ListWorkflowJobs: %v", err)
 	}
@@ -135,20 +136,20 @@ func TestWorkflowRunsAllStepsSerially(t *testing.T) {
 		if j.StepIndex != i+1 {
 			t.Fatalf("job[%d] step_index = %d, want %d", i, j.StepIndex, i+1)
 		}
-		if j.Status != StatusDone {
+		if j.Status != job.StatusDone {
 			t.Fatalf("step %d status = %s, want done", j.StepIndex, j.Status)
 		}
 	}
 }
 
 // TestAdvanceWorkflowIdempotentConcurrent is the幂等 core (一个 step 绝不起两次):
-// after step 1 finishes, many concurrent advanceWorkflow calls (simulating the
+// after step 1 finishes, many concurrent Advance calls (simulating the
 // finish hook + sweeper firing together, plus duplicates) must start the next
 // step EXACTLY ONCE — never two jobs at the same step_index.
 func TestAdvanceWorkflowIdempotentConcurrent(t *testing.T) {
-	s := newTestService(t, t.TempDir())
+	e := newTestEngine(t, t.TempDir())
 	// A 3-step chain where step 1 finishes fast; we then hammer advance manually.
-	wf, err := s.SubmitWorkflow(WorkflowSpec{
+	wf, err := e.SubmitWorkflow(Spec{
 		Steps: []StepSpec{echoStep("s1"), echoStep("s2"), echoStep("s3")},
 	}, "alice")
 	if err != nil {
@@ -158,13 +159,13 @@ func TestAdvanceWorkflowIdempotentConcurrent(t *testing.T) {
 	// Wait for step 1's job to reach terminal WITHOUT letting the chain run away:
 	// grab the step-1 job id and Wait on it. (The finish hook will also fire
 	// advance, but that is part of what we are proving is safe.)
-	waitStepJobTerminal(t, s, wf.ID, 1)
+	waitStepJobTerminal(t, e, wf.ID, 1)
 
-	// Hammer advanceWorkflow concurrently (finish hook + sweeper + duplicates).
+	// Hammer Advance concurrently (finish hook + sweeper + duplicates).
 	const n = 24
 	done := make(chan struct{})
 	for i := 0; i < n; i++ {
-		go func() { defer func() { done <- struct{}{} }(); s.advanceWorkflow(wf.ID) }()
+		go func() { defer func() { done <- struct{}{} }(); e.Advance(wf.ID) }()
 	}
 	for i := 0; i < n; i++ {
 		<-done
@@ -172,11 +173,11 @@ func TestAdvanceWorkflowIdempotentConcurrent(t *testing.T) {
 
 	// After the dust settles the workflow runs to completion; crucially each
 	// step_index has at most ONE job (no double-start).
-	final := waitWorkflow(t, s, wf.ID)
+	final := waitWorkflow(t, e, wf.ID)
 	if final.Status != jobstore.WorkflowDone {
 		t.Fatalf("workflow status = %s (err=%s), want done", final.Status, final.Error)
 	}
-	jobs, err := s.meta.ListWorkflowJobs(wf.ID)
+	jobs, err := e.meta.ListWorkflowJobs(wf.ID)
 	if err != nil {
 		t.Fatalf("ListWorkflowJobs: %v", err)
 	}
@@ -197,19 +198,19 @@ func TestAdvanceWorkflowIdempotentConcurrent(t *testing.T) {
 // TestWorkflowFailFast asserts a failing step stops the chain: step 2 exits non-
 // zero -> step 3 never starts and the workflow is failed.
 func TestWorkflowFailFast(t *testing.T) {
-	s := newTestService(t, t.TempDir())
-	wf, err := s.SubmitWorkflow(WorkflowSpec{
+	e := newTestEngine(t, t.TempDir())
+	wf, err := e.SubmitWorkflow(Spec{
 		Steps: []StepSpec{echoStep("ok1"), failStep("boom2"), echoStep("never3")},
 	}, "alice")
 	if err != nil {
 		t.Fatalf("SubmitWorkflow: %v", err)
 	}
 
-	final := waitWorkflow(t, s, wf.ID)
+	final := waitWorkflow(t, e, wf.ID)
 	if final.Status != jobstore.WorkflowFailed {
 		t.Fatalf("workflow status = %s, want failed", final.Status)
 	}
-	jobs, err := s.meta.ListWorkflowJobs(wf.ID)
+	jobs, err := e.meta.ListWorkflowJobs(wf.ID)
 	if err != nil {
 		t.Fatalf("ListWorkflowJobs: %v", err)
 	}
@@ -227,30 +228,30 @@ func TestWorkflowFailFast(t *testing.T) {
 // TestCancelWorkflow asserts CancelWorkflow on a running workflow marks it
 // cancelled, cancels the current step's job, and starts no further steps.
 func TestCancelWorkflow(t *testing.T) {
-	s := newTestService(t, t.TempDir())
+	e := newTestEngine(t, t.TempDir())
 	// Step 1 sleeps so the workflow is still on step 1 when we cancel.
 	sleepStep := StepSpec{
 		Name: "sleep1", ProjectKey: "self", Agent: "exec", Runner: "local",
 		Cmd: []string{"sleep", "10"}, Cwd: ".", TimeoutSec: 30,
 	}
-	wf, err := s.SubmitWorkflow(WorkflowSpec{
+	wf, err := e.SubmitWorkflow(Spec{
 		Steps: []StepSpec{sleepStep, echoStep("two"), echoStep("three")},
 	}, "alice")
 	if err != nil {
 		t.Fatalf("SubmitWorkflow: %v", err)
 	}
 	// Ensure step 1 is actually running before cancelling.
-	waitStepJobRunning(t, s, wf.ID, 1)
+	waitStepJobRunning(t, e, wf.ID, 1)
 
-	if err := s.CancelWorkflow(wf.ID); err != nil {
+	if err := e.CancelWorkflow(wf.ID); err != nil {
 		t.Fatalf("CancelWorkflow: %v", err)
 	}
 
-	final := waitWorkflow(t, s, wf.ID)
+	final := waitWorkflow(t, e, wf.ID)
 	if final.Status != jobstore.WorkflowCancelled {
 		t.Fatalf("workflow status = %s, want cancelled", final.Status)
 	}
-	jobs, err := s.meta.ListWorkflowJobs(wf.ID)
+	jobs, err := e.meta.ListWorkflowJobs(wf.ID)
 	if err != nil {
 		t.Fatalf("ListWorkflowJobs: %v", err)
 	}
@@ -260,23 +261,23 @@ func TestCancelWorkflow(t *testing.T) {
 		}
 	}
 	// Cancel is idempotent (second call is a no-op).
-	if err := s.CancelWorkflow(wf.ID); err != nil {
+	if err := e.CancelWorkflow(wf.ID); err != nil {
 		t.Fatalf("second CancelWorkflow: %v", err)
 	}
 
 	// Drain the cancelled step-1 job so its background goroutine finishes before
 	// the test store is closed (best-effort recordEvent vs teardown).
-	waitStepJobTerminal(t, s, wf.ID, 1)
+	waitStepJobTerminal(t, e, wf.ID, 1)
 }
 
 // waitStepJobTerminal waits for the workflow's step-N job to reach terminal and
 // returns it.
-func waitStepJobTerminal(t *testing.T, s *Service, wfID string, step int) jobstore.JobRecord {
+func waitStepJobTerminal(t *testing.T, e *Engine, wfID string, step int) jobstore.JobRecord {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		jobs, _ := s.meta.ListWorkflowJobs(wfID)
-		if j := stepJob(jobs, step); j != nil && isTerminal(j.Status) {
+		jobs, _ := e.meta.ListWorkflowJobs(wfID)
+		if j := stepJob(jobs, step); j != nil && job.IsTerminal(j.Status) {
 			return *j
 		}
 		time.Sleep(15 * time.Millisecond)
@@ -286,12 +287,12 @@ func waitStepJobTerminal(t *testing.T, s *Service, wfID string, step int) jobsto
 }
 
 // waitStepJobRunning waits for the workflow's step-N job to be running.
-func waitStepJobRunning(t *testing.T, s *Service, wfID string, step int) {
+func waitStepJobRunning(t *testing.T, e *Engine, wfID string, step int) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		jobs, _ := s.meta.ListWorkflowJobs(wfID)
-		if j := stepJob(jobs, step); j != nil && j.Status == StatusRunning {
+		jobs, _ := e.meta.ListWorkflowJobs(wfID)
+		if j := stepJob(jobs, step); j != nil && j.Status == job.StatusRunning {
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
@@ -301,48 +302,48 @@ func waitStepJobRunning(t *testing.T, s *Service, wfID string, step int) {
 
 // TestAdvanceRunningWorkflowsRecoversCrashedAdvance simulates a crash: a running
 // workflow whose step-1 job reached done but whose finish-hook advance never ran
-// (the next step was never started). The sweeper (AdvanceRunningWorkflows) must
+// (the next step was never started). The sweeper (AdvanceRunning) must
 // re-drive it and start step 2.
 func TestAdvanceRunningWorkflowsRecoversCrashedAdvance(t *testing.T) {
-	s := newTestService(t, t.TempDir())
+	e := newTestEngine(t, t.TempDir())
 
 	// Build the spec we want (2 echo steps) and persist a running workflow header
 	// + a DONE step-1 job DIRECTLY via the store, bypassing the finish hook — this
 	// is exactly the "advance was lost" state a crash leaves behind.
-	spec := WorkflowSpec{Steps: []StepSpec{echoStep("s1"), echoStep("s2")}}
+	spec := Spec{Steps: []StepSpec{echoStep("s1"), echoStep("s2")}}
 	wfID := "wf-crash"
 	specJSON := mustMarshalSpec(t, spec)
-	if err := s.meta.InsertWorkflow(jobstore.Workflow{
+	if err := e.meta.InsertWorkflow(jobstore.Workflow{
 		ID: wfID, Status: jobstore.WorkflowRunning, CurrentStep: 1, TotalSteps: 2,
 		SpecJSON: specJSON, CallerID: "alice", CreatedAt: 1, UpdatedAt: 1,
 	}); err != nil {
 		t.Fatalf("InsertWorkflow: %v", err)
 	}
-	if err := s.meta.UpsertJob(jobstore.JobRecord{
+	if err := e.meta.UpsertJob(jobstore.JobRecord{
 		ID: "crash-step1", ProjectKey: "self", Agent: "exec", Runner: "local",
-		Status: StatusDone, ResultDir: "/tmp/x/crash-step1", StartedAt: 1,
+		Status: job.StatusDone, ResultDir: "/tmp/x/crash-step1", StartedAt: 1,
 		WorkflowID: wfID, StepIndex: 1,
 	}); err != nil {
 		t.Fatalf("UpsertJob step1: %v", err)
 	}
 
 	// Before the sweep: only step 1 exists.
-	jobs, _ := s.meta.ListWorkflowJobs(wfID)
+	jobs, _ := e.meta.ListWorkflowJobs(wfID)
 	if len(jobs) != 1 {
 		t.Fatalf("pre-sweep step jobs = %d, want 1", len(jobs))
 	}
 
 	// Sweep: must recover and start step 2.
-	n := s.AdvanceRunningWorkflows(context.Background())
+	n := e.AdvanceRunning(context.Background())
 	if n != 1 {
-		t.Fatalf("AdvanceRunningWorkflows inspected %d, want 1 running", n)
+		t.Fatalf("AdvanceRunning inspected %d, want 1 running", n)
 	}
 
-	final := waitWorkflow(t, s, wfID)
+	final := waitWorkflow(t, e, wfID)
 	if final.Status != jobstore.WorkflowDone {
 		t.Fatalf("workflow status = %s, want done after recovery", final.Status)
 	}
-	jobs, _ = s.meta.ListWorkflowJobs(wfID)
+	jobs, _ = e.meta.ListWorkflowJobs(wfID)
 	if len(jobs) != 2 {
 		t.Fatalf("post-sweep step jobs = %d, want 2 (step2 recovered)", len(jobs))
 	}
@@ -354,14 +355,14 @@ func TestAdvanceRunningWorkflowsRecoversCrashedAdvance(t *testing.T) {
 // TestAdvanceRunningWorkflowsNoOpWhenEmpty asserts the sweeper is a clean no-op
 // when there are no running workflows.
 func TestAdvanceRunningWorkflowsNoOpWhenEmpty(t *testing.T) {
-	s := newTestService(t, t.TempDir())
-	if n := s.AdvanceRunningWorkflows(context.Background()); n != 0 {
+	e := newTestEngine(t, t.TempDir())
+	if n := e.AdvanceRunning(context.Background()); n != 0 {
 		t.Fatalf("sweep inspected %d, want 0 (no running workflows)", n)
 	}
 }
 
-// mustMarshalSpec marshals a WorkflowSpec exactly as SubmitWorkflow does.
-func mustMarshalSpec(t *testing.T, spec WorkflowSpec) string {
+// mustMarshalSpec marshals a Spec exactly as SubmitWorkflow does.
+func mustMarshalSpec(t *testing.T, spec Spec) string {
 	t.Helper()
 	b, err := json.Marshal(spec)
 	if err != nil {
@@ -374,7 +375,7 @@ func mustMarshalSpec(t *testing.T, spec WorkflowSpec) string {
 // time: an invalid project/agent/runner in ANY step fails the whole submit before
 // any job starts.
 func TestSubmitWorkflowRejectsInvalidStep(t *testing.T) {
-	s := newTestService(t, t.TempDir())
+	e := newTestEngine(t, t.TempDir())
 
 	cases := []struct {
 		name  string
@@ -386,7 +387,7 @@ func TestSubmitWorkflowRejectsInvalidStep(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			wf, err := s.SubmitWorkflow(WorkflowSpec{Steps: tc.steps}, "alice")
+			wf, err := e.SubmitWorkflow(Spec{Steps: tc.steps}, "alice")
 			if err == nil {
 				t.Fatalf("expected rejection, got workflow %s", wf.ID)
 			}
@@ -402,7 +403,7 @@ func TestSubmitWorkflowRejectsInvalidStep(t *testing.T) {
 // Submit and the real prior output flowed through.
 func TestWorkflowResolvesRefsEndToEnd(t *testing.T) {
 	root := t.TempDir()
-	s := newTestService(t, root)
+	e := newTestEngine(t, root)
 
 	// step1 writes a result.json so it has a real result_dir to hand downstream.
 	step1 := StepSpec{
@@ -426,17 +427,17 @@ func TestWorkflowResolvesRefsEndToEnd(t *testing.T) {
 		Cwd:    ".", TimeoutSec: 30,
 	}
 
-	wf, err := s.SubmitWorkflow(WorkflowSpec{Steps: []StepSpec{step1, step2, step3}}, "alice")
+	wf, err := e.SubmitWorkflow(Spec{Steps: []StepSpec{step1, step2, step3}}, "alice")
 	if err != nil {
 		t.Fatalf("SubmitWorkflow: %v", err)
 	}
 
-	final := waitWorkflow(t, s, wf.ID)
+	final := waitWorkflow(t, e, wf.ID)
 	if final.Status != jobstore.WorkflowDone {
 		t.Fatalf("workflow status = %s (err=%s), want done", final.Status, final.Error)
 	}
 
-	jobs, err := s.meta.ListWorkflowJobs(wf.ID)
+	jobs, err := e.meta.ListWorkflowJobs(wf.ID)
 	if err != nil {
 		t.Fatalf("ListWorkflowJobs: %v", err)
 	}
@@ -470,7 +471,7 @@ func TestWorkflowResolvesRefsEndToEnd(t *testing.T) {
 // never starts.
 func TestWorkflowFailsWhenRefHasNoOutput(t *testing.T) {
 	root := t.TempDir()
-	s := newTestService(t, root)
+	e := newTestEngine(t, root)
 
 	step1 := echoStep("no-result") // echoes, never writes result.json
 	step2 := StepSpec{
@@ -479,12 +480,12 @@ func TestWorkflowFailsWhenRefHasNoOutput(t *testing.T) {
 		Cwd: ".", TimeoutSec: 30,
 	}
 
-	wf, err := s.SubmitWorkflow(WorkflowSpec{Steps: []StepSpec{step1, step2}}, "alice")
+	wf, err := e.SubmitWorkflow(Spec{Steps: []StepSpec{step1, step2}}, "alice")
 	if err != nil {
 		t.Fatalf("SubmitWorkflow: %v", err)
 	}
 
-	final := waitWorkflow(t, s, wf.ID)
+	final := waitWorkflow(t, e, wf.ID)
 	if final.Status != jobstore.WorkflowFailed {
 		t.Fatalf("workflow status = %s, want failed (step1 wrote no result.json)", final.Status)
 	}
@@ -492,7 +493,7 @@ func TestWorkflowFailsWhenRefHasNoOutput(t *testing.T) {
 		t.Fatalf("workflow error should mention resolve refs, got: %q", final.Error)
 	}
 
-	jobs, err := s.meta.ListWorkflowJobs(wf.ID)
+	jobs, err := e.meta.ListWorkflowJobs(wf.ID)
 	if err != nil {
 		t.Fatalf("ListWorkflowJobs: %v", err)
 	}

@@ -1,11 +1,15 @@
-package job
+package workflow
+
+import (
+	job "github.com/inhere/gofer/internal/job"
+)
 
 // sweeperWorkflowScan caps how many running workflows the sweeper inspects per
 // tick. A workflow只 has one active step, so this is a generous ceiling.
 const sweeperWorkflowScan = 500
 
 // StepSpec is one step of a工作流(job 链): a普通 job request expressed declaratively.
-// It carries the same fields a single JobRequest needs (project/agent/runner +
+// It carries the same fields a single job.JobRequest needs (project/agent/runner +
 // prompt/cmd/cwd/timeout/tags). P1 runs each step independently (no cross-step
 // data); P2 adds ${steps.N.field} references resolved before the step starts.
 //
@@ -26,11 +30,11 @@ type StepSpec struct {
 	// OnFailure is the per-step失败策略 (P1, design §5.1): "" / "fail" keeps v1
 	// fail-fast (the whole workflow fails); "continue" skips the failed step and
 	// advances to the next; "retry" re-runs the step (bounded by Retry, backoff
-	// per RetryPolicy.BackoffSec). Zero value ("") == v1 behaviour (D23).
+	// per job.RetryPolicy.BackoffSec). Zero value ("") == v1 behaviour (D23).
 	OnFailure string `json:"on_failure,omitempty" yaml:"on_failure,omitempty"`
 	// Retry is the retry policy used when OnFailure=="retry" (P1, design §5.1).
 	// nil == no retry (the v1 default); validated at submit (validateRetry).
-	Retry *RetryPolicy `json:"retry,omitempty" yaml:"retry,omitempty"`
+	Retry *job.RetryPolicy `json:"retry,omitempty" yaml:"retry,omitempty"`
 	// FanOut is the per-step parallelism (P2, design §5.1, D14): when >1, the step
 	// starts FanOut jobs in parallel (fan_index=1..FanOut) sharing (step_index,attempt),
 	// aggregated by Join before the chain advances. 0/1 == a single job == v1 behaviour
@@ -52,7 +56,7 @@ type StepSpec struct {
 	// absent for a job-type step. Each of its steps passes the SAME single-job准入
 	// recursively (validateSubworkflow), so nesting never smuggles a step past the
 	// allowlist/exec gate (§9 安全). nil for a v1/job step (D23).
-	SubWorkflow *WorkflowSpec `json:"sub_workflow,omitempty" yaml:"sub_workflow,omitempty"`
+	SubWorkflow *Spec `json:"sub_workflow,omitempty" yaml:"sub_workflow,omitempty"`
 	// File is a CLI-ONLY md-per-step reference (P4 / T4.2): when set in a workflow yaml
 	// file, the CLI loads the named md file (frontmatter→step params, body→prompt) and
 	// expands it INTO the other fields before submit. It is `json:"-"` so it never
@@ -96,10 +100,14 @@ const (
 // pathological / runaway recursion can never be admitted. 3 is the plan ceiling.
 const maxWorkflowDepth = 3
 
-// WorkflowSpec is the submitted job-chain: a title + an ordered list of steps run
+// maxRetryAttempts caps RetryPolicy.MaxAttempts so a misconfigured workflow can
+// not retry forever (defence against失控 retry storms). validateRetry enforces it.
+const maxRetryAttempts = 10
+
+// Spec is the submitted job-chain: a title + an ordered list of steps run
 // strictly serially (single active step, D1/D10). It is the body of POST
 // /v1/workflows and the parsed yaml workflow file (P3).
-type WorkflowSpec struct {
+type Spec struct {
 	Title string     `json:"title,omitempty" yaml:"title,omitempty"`
 	Steps []StepSpec `json:"steps" yaml:"steps"`
 }
@@ -123,20 +131,20 @@ func joinPolicy(step StepSpec) string {
 }
 
 // maxAttempts returns the step's configured retry ceiling. Delegates to
-// MaxAttemptsPolicy so step-level and job-level (E24) retry share one semantics.
-func maxAttempts(step StepSpec) int { return MaxAttemptsPolicy(step.Retry) }
+// job.MaxAttemptsPolicy so step-level and job-level (E24) retry share one semantics.
+func maxAttempts(step StepSpec) int { return job.MaxAttemptsPolicy(step.Retry) }
 
 // backoffFor returns the backoff (seconds) before re-running a step whose attempt
-// just failed. Delegates to BackoffForPolicy (one shared semantics, E24).
-func backoffFor(step StepSpec, attempt int) int { return BackoffForPolicy(step.Retry, attempt) }
+// just failed. Delegates to job.BackoffForPolicy (one shared semantics, E24).
+func backoffFor(step StepSpec, attempt int) int { return job.BackoffForPolicy(step.Retry, attempt) }
 
 // retryableExit reports whether a failed step-job is retryable given the step's
-// policy. Delegates to RetryableExitPolicy (one shared semantics, E24).
+// policy. Delegates to job.RetryableExitPolicy (one shared semantics, E24).
 func retryableExit(step StepSpec, exitCode int) bool {
-	return RetryableExitPolicy(step.Retry, exitCode)
+	return job.RetryableExitPolicy(step.Retry, exitCode)
 }
 
-// WorkflowStep is one row of a workflow's step list in the detail response:
+// Step is one row of a workflow's step list in the detail response:
 // the 1-based index, the step name (from the job's title / spec name), the
 // step-job id and its current status. job_id/status are empty/"" for a step not
 // yet started. Attempt is the 1-based retry attempt of THIS step-job row (P1): a
@@ -144,7 +152,7 @@ func retryableExit(step StepSpec, exitCode int) bool {
 // detail view shows the full retry history in step+attempt order. FanIndex is the
 // 1-based fan-out parallel index (P2): a fan-out step contributes one row per fan
 // job (each its own job_id), 0 for a single-job step.
-type WorkflowStep struct {
+type Step struct {
 	StepIndex int    `json:"step_index"`
 	Attempt   int    `json:"attempt,omitempty"`
 	FanIndex  int    `json:"fan_index,omitempty"`

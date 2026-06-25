@@ -1,6 +1,7 @@
-package job
+package workflow
 
 import (
+	job "github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -60,14 +61,14 @@ func stepFanJobs(jobs []jobstore.JobRecord, stepIndex, attempt int) []*jobstore.
 }
 
 // fanCounts tallies a generation's fan jobs into (done, terminal): done is fan jobs
-// with StatusDone; terminal is fan jobs in ANY terminal state (done/failed/timeout/
+// with job.StatusDone; terminal is fan jobs in ANY terminal state (done/failed/timeout/
 // cancelled). Shared by fanTerminal and fanVerdict so they agree on the same census.
 func fanCounts(fanJobs []*jobstore.JobRecord) (done, terminal int) {
 	for _, j := range fanJobs {
-		if j.Status == StatusDone {
+		if j.Status == job.StatusDone {
 			done++
 		}
-		if isTerminal(j.Status) {
+		if job.IsTerminal(j.Status) {
 			terminal++
 		}
 	}
@@ -109,7 +110,7 @@ func fanTerminal(fanJobs []*jobstore.JobRecord, want int, join string) bool {
 	}
 }
 
-// fanVerdict aggregates a DECIDABLE fan-out generation to StatusDone or StatusFailed
+// fanVerdict aggregates a DECIDABLE fan-out generation to job.StatusDone or job.StatusFailed
 // under its join policy (P2, design §5.1, D15): all → done iff every fan is done;
 // any → done iff ≥1 fan is done; quorum → done iff a strict majority (> want/2) of
 // fans are done. Anything else is failed. `want` is the configured parallelism.
@@ -119,30 +120,30 @@ func fanVerdict(fanJobs []*jobstore.JobRecord, want int, join string) string {
 	switch join {
 	case joinAny:
 		if done >= 1 {
-			return StatusDone
+			return job.StatusDone
 		}
 	case joinQuorum:
 		if done >= want/2+1 {
-			return StatusDone
+			return job.StatusDone
 		}
 	default: // all
 		if done >= want {
-			return StatusDone
+			return job.StatusDone
 		}
 	}
-	return StatusFailed
+	return job.StatusFailed
 }
 
 // fanFailStatus returns a representative NON-done terminal status among a generation's
 // fan jobs (failed/timeout/cancelled), for the failure message / skipped event. Falls
-// back to StatusFailed when none is found (defensive; the verdict was failed).
+// back to job.StatusFailed when none is found (defensive; the verdict was failed).
 func fanFailStatus(fanJobs []*jobstore.JobRecord) string {
 	for _, j := range fanJobs {
-		if isTerminal(j.Status) && j.Status != StatusDone {
+		if job.IsTerminal(j.Status) && j.Status != job.StatusDone {
 			return j.Status
 		}
 	}
-	return StatusFailed
+	return job.StatusFailed
 }
 
 // fanFailExitCode returns a representative exit code of a NON-done terminal fan job,
@@ -150,7 +151,7 @@ func fanFailStatus(fanJobs []*jobstore.JobRecord) string {
 // retryable). 0 when no failed fan is found (defensive).
 func fanFailExitCode(fanJobs []*jobstore.JobRecord) int {
 	for _, j := range fanJobs {
-		if isTerminal(j.Status) && j.Status != StatusDone {
+		if job.IsTerminal(j.Status) && j.Status != job.StatusDone {
 			return j.ExitCode
 		}
 	}
@@ -162,10 +163,10 @@ func fanFailExitCode(fanJobs []*jobstore.JobRecord) int {
 // once the step is already decided done. Cancel is a stable no-op for an already-
 // terminal job, so this is safe to call on the whole generation. Errors are ignored
 // (the workflow has already advanced; a stray running fan finishing later is harmless).
-func (s *Service) cancelInflightFans(fanJobs []*jobstore.JobRecord) {
+func (e *Engine) cancelInflightFans(fanJobs []*jobstore.JobRecord) {
 	for _, j := range fanJobs {
-		if !isTerminal(j.Status) {
-			_ = s.Cancel(j.ID)
+		if !job.IsTerminal(j.Status) {
+			_ = e.ops.Cancel(j.ID)
 		}
 	}
 }

@@ -14,6 +14,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
@@ -57,7 +58,9 @@ func newTestServer(t *testing.T, token string, allowEmpty bool) *Server {
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
 	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
-	return New(&cfg.Server, token, allowEmpty, jobs, projects, agents, nil, nil, nil, nil)
+	eng := workflow.NewEngine(jobs)
+	jobs.SetWorkflow(eng) // finish→Advance hook so multi-step workflows progress in tests
+	return New(&cfg.Server, token, allowEmpty, jobs, eng, projects, agents, nil, nil, nil, nil)
 }
 
 // do performs an in-process request against the server's handler.

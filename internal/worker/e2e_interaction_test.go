@@ -17,6 +17,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/httpapi"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
@@ -91,7 +92,9 @@ func buildWorkerWithBridge(t *testing.T, hubURL string) *workerWithBridge {
 	t.Cleanup(func() { _ = st.Close() })
 	localJobs := job.NewService(cfg, projReg, agentReg, map[string]runner.Runner{localrunner.Name: localrunner.New()}, st, nil)
 
-	bridge := httptest.NewServer(httpapi.New(&cfg.Server, workerBridgeToken, false, localJobs, projReg, agentReg, nil, nil, nil, nil).Handler())
+	localJobsEng := workflow.NewEngine(localJobs)
+	localJobs.SetWorkflow(localJobsEng)
+	bridge := httptest.NewServer(httpapi.New(&cfg.Server, workerBridgeToken, false, localJobs, localJobsEng, projReg, agentReg, nil, nil, nil, nil).Handler())
 	t.Cleanup(bridge.Close)
 	// The wrapper subprocess inherits os.Environ via the local runner; the bridge
 	// base/token reach it through the environment.

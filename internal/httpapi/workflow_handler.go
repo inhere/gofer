@@ -6,7 +6,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
-	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -14,16 +14,16 @@ import (
 // its per-step summary (the step chain). It keeps the header fields snake_case
 // and inlines the steps so the web/CLI can render the chain in one fetch.
 type workflowDetail struct {
-	ID          string             `json:"id"`
-	Title       string             `json:"title,omitempty"`
-	Status      string             `json:"status"`
-	CurrentStep int                `json:"current_step"`
-	TotalSteps  int                `json:"total_steps"`
-	CallerID    string             `json:"caller_id,omitempty"`
-	Error       string             `json:"error,omitempty"`
-	CreatedAt   int64              `json:"created_at"`
-	UpdatedAt   int64              `json:"updated_at"`
-	Steps       []job.WorkflowStep `json:"steps"`
+	ID          string          `json:"id"`
+	Title       string          `json:"title,omitempty"`
+	Status      string          `json:"status"`
+	CurrentStep int             `json:"current_step"`
+	TotalSteps  int             `json:"total_steps"`
+	CallerID    string          `json:"caller_id,omitempty"`
+	Error       string          `json:"error,omitempty"`
+	CreatedAt   int64           `json:"created_at"`
+	UpdatedAt   int64           `json:"updated_at"`
+	Steps       []workflow.Step `json:"steps"`
 }
 
 // handleCreateWorkflow parses a WorkflowSpec, submits it and returns the created
@@ -32,13 +32,13 @@ type workflowDetail struct {
 // to 404 (unknown project) or 400 (anything else) via the same submitStatus
 // sentinels the single-job path uses.
 func (s *Server) handleCreateWorkflow(c *rux.Context) {
-	var spec job.WorkflowSpec
+	var spec workflow.Spec
 	if err := c.BindJSON(&spec); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
 	callerID := callerFromCtx(c)
-	wf, err := s.jobs.SubmitWorkflow(spec, callerID)
+	wf, err := s.workflow.SubmitWorkflow(spec, callerID)
 	if err != nil {
 		writeError(c, submitStatus(err), "workflow rejected", err.Error())
 		return
@@ -50,7 +50,7 @@ func (s *Server) handleCreateWorkflow(c *rux.Context) {
 // a 404.
 func (s *Server) handleGetWorkflow(c *rux.Context) {
 	id := c.Param("id")
-	wf, ok, err := s.jobs.GetWorkflow(id)
+	wf, ok, err := s.workflow.GetWorkflow(id)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "get workflow failed", err.Error())
 		return
@@ -59,7 +59,7 @@ func (s *Server) handleGetWorkflow(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "unknown workflow", "no workflow with id "+id)
 		return
 	}
-	steps, err := s.jobs.WorkflowSteps(id)
+	steps, err := s.workflow.WorkflowSteps(id)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "list workflow steps failed", err.Error())
 		return
@@ -81,7 +81,7 @@ func (s *Server) handleGetWorkflow(c *rux.Context) {
 // replaced before the export is re-run.
 func (s *Server) handleExportWorkflow(c *rux.Context) {
 	id := c.Param("id")
-	spec, ok, redacted, err := s.jobs.ExportWorkflow(id)
+	spec, ok, redacted, err := s.workflow.ExportWorkflow(id)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "export workflow failed", err.Error())
 		return
@@ -100,7 +100,7 @@ func (s *Server) handleExportWorkflow(c *rux.Context) {
 // The list is always a non-nil array, so an empty result serialises as
 // {"workflows":[]}.
 func (s *Server) handleListWorkflows(c *rux.Context) {
-	list, err := s.jobs.ListWorkflows(c.Query("status"), 0)
+	list, err := s.workflow.ListWorkflows(c.Query("status"), 0)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "list workflows failed", err.Error())
 		return
@@ -119,7 +119,7 @@ func (s *Server) handleListWorkflows(c *rux.Context) {
 // serialises as {"events":[]}.
 func (s *Server) handleListWorkflowEvents(c *rux.Context) {
 	id := c.Param("id")
-	if _, ok, err := s.jobs.GetWorkflow(id); err != nil {
+	if _, ok, err := s.workflow.GetWorkflow(id); err != nil {
 		writeError(c, http.StatusInternalServerError, "get workflow failed", err.Error())
 		return
 	} else if !ok {
@@ -128,7 +128,7 @@ func (s *Server) handleListWorkflowEvents(c *rux.Context) {
 	}
 	// since 非数值 -> 0 -> 不过滤（仿 job events 的容错）。
 	since, _ := strconv.ParseInt(c.Query("since"), 10, 64)
-	events, err := s.jobs.ListWorkflowEvents(id, since)
+	events, err := s.workflow.ListWorkflowEvents(id, since)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "list workflow events failed", err.Error())
 		return
@@ -144,12 +144,12 @@ func (s *Server) handleListWorkflowEvents(c *rux.Context) {
 // a 404 for an unknown id. Returns the updated header snapshot.
 func (s *Server) handleCancelWorkflow(c *rux.Context) {
 	id := c.Param("id")
-	if err := s.jobs.CancelWorkflow(id); err != nil {
+	if err := s.workflow.CancelWorkflow(id); err != nil {
 		// The only CancelWorkflow error is an unknown id (terminal is a no-op).
 		writeError(c, http.StatusNotFound, "unknown workflow", err.Error())
 		return
 	}
-	wf, _, _ := s.jobs.GetWorkflow(id)
+	wf, _, _ := s.workflow.GetWorkflow(id)
 	c.JSON(http.StatusOK, toWorkflowSummary(wf))
 }
 

@@ -3,9 +3,6 @@ package job
 import (
 	"sync"
 	"testing"
-	"time"
-
-	"github.com/inhere/gofer/internal/jobstore"
 )
 
 // fakeSink records the MetricsSink calls so a test can assert埋点 fired with the
@@ -94,87 +91,6 @@ func TestMetricsSinkSubmitAndTerminal(t *testing.T) {
 	}
 	if got.dur < 0 {
 		t.Fatalf("terminal duration must be >= 0, got %v", got.dur)
-	}
-}
-
-// TestWorkflowMetricsTerminal asserts a workflow reaching done fires exactly one
-// WorkflowTerminal埋点 with status=done and a non-negative duration (P4/T4.3).
-func TestWorkflowMetricsTerminal(t *testing.T) {
-	s := newTestService(t, t.TempDir())
-	sink := &fakeSink{}
-	s.SetMetrics(sink)
-
-	wf, err := s.SubmitWorkflow(WorkflowSpec{
-		Title: "metered",
-		Steps: []StepSpec{echoStep("a"), echoStep("b")},
-	}, "ci-bot")
-	if err != nil {
-		t.Fatalf("SubmitWorkflow: %v", err)
-	}
-	final := waitWorkflow(t, s, wf.ID)
-	if final.Status != jobstore.WorkflowDone {
-		t.Fatalf("workflow status = %s, want done", final.Status)
-	}
-
-	// Poll briefly: setWorkflowDone records the metric on the advance goroutine.
-	var calls []wfTerminalCall
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		calls = sink.wfSnapshot()
-		if len(calls) >= 1 {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
-	if len(calls) != 1 {
-		t.Fatalf("WorkflowTerminal calls = %d, want exactly 1: %+v", len(calls), calls)
-	}
-	if calls[0].status != jobstore.WorkflowDone {
-		t.Fatalf("WorkflowTerminal status = %q, want done", calls[0].status)
-	}
-	if calls[0].dur < 0 {
-		t.Fatalf("WorkflowTerminal duration must be >= 0, got %v", calls[0].dur)
-	}
-}
-
-// TestWorkflowMetricsCancelled asserts cancelling a running workflow fires a
-// WorkflowTerminal with status=cancelled (P4/T4.3).
-func TestWorkflowMetricsCancelled(t *testing.T) {
-	s := newTestService(t, t.TempDir())
-	sink := &fakeSink{}
-	s.SetMetrics(sink)
-
-	// A slow first step keeps the workflow running until we cancel it.
-	wf, err := s.SubmitWorkflow(WorkflowSpec{
-		Title: "to-cancel",
-		Steps: []StepSpec{
-			{
-				Name: "slow", ProjectKey: "self", Agent: "exec", Runner: "local",
-				Cmd: []string{"sh", "-c", "sleep 30"}, Cwd: ".", TimeoutSec: 60,
-			},
-		},
-	}, "ci-bot")
-	if err != nil {
-		t.Fatalf("SubmitWorkflow: %v", err)
-	}
-	if err := s.CancelWorkflow(wf.ID); err != nil {
-		t.Fatalf("CancelWorkflow: %v", err)
-	}
-
-	var calls []wfTerminalCall
-	deadline := time.Now().Add(3 * time.Second)
-	for time.Now().Before(deadline) {
-		calls = sink.wfSnapshot()
-		if len(calls) >= 1 {
-			break
-		}
-		time.Sleep(15 * time.Millisecond)
-	}
-	if len(calls) < 1 {
-		t.Fatalf("WorkflowTerminal calls = %d, want >= 1", len(calls))
-	}
-	if calls[0].status != jobstore.WorkflowCancelled {
-		t.Fatalf("WorkflowTerminal status = %q, want cancelled", calls[0].status)
 	}
 }
 

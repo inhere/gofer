@@ -1,10 +1,11 @@
-package job
+package workflow
 
 import (
 	"errors"
 	"testing"
 	"time"
 
+	job "github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -12,8 +13,8 @@ import (
 // known value; on_failure=retry requires a well-formed retry block; a non-retry
 // step must not carry a retry block; a v1 spec (no new fields) passes.
 func TestValidateRetry(t *testing.T) {
-	base := func(s StepSpec) WorkflowSpec { return WorkflowSpec{Steps: []StepSpec{s}} }
-	mk := func(onFailure string, retry *RetryPolicy) StepSpec {
+	base := func(s StepSpec) Spec { return Spec{Steps: []StepSpec{s}} }
+	mk := func(onFailure string, retry *job.RetryPolicy) StepSpec {
 		return StepSpec{
 			Name: "s", ProjectKey: "self", Agent: "exec", Runner: "local",
 			Cmd: []string{"true"}, OnFailure: onFailure, Retry: retry,
@@ -22,21 +23,21 @@ func TestValidateRetry(t *testing.T) {
 
 	cases := []struct {
 		name    string
-		spec    WorkflowSpec
+		spec    Spec
 		wantErr bool
 	}{
 		{"v1 no fields", base(mk("", nil)), false},
 		{"explicit fail", base(mk(onFailureFail, nil)), false},
 		{"continue", base(mk(onFailureContinue, nil)), false},
-		{"retry valid", base(mk(onFailureRetry, &RetryPolicy{MaxAttempts: 3})), false},
-		{"retry max=1", base(mk(onFailureRetry, &RetryPolicy{MaxAttempts: 1})), false},
+		{"retry valid", base(mk(onFailureRetry, &job.RetryPolicy{MaxAttempts: 3})), false},
+		{"retry max=1", base(mk(onFailureRetry, &job.RetryPolicy{MaxAttempts: 1})), false},
 		{"unknown on_failure", base(mk("explode", nil)), true},
 		{"retry without block", base(mk(onFailureRetry, nil)), true},
-		{"retry max=0", base(mk(onFailureRetry, &RetryPolicy{MaxAttempts: 0})), true},
-		{"retry max over limit", base(mk(onFailureRetry, &RetryPolicy{MaxAttempts: maxRetryAttempts + 1})), true},
-		{"retry block on fail", base(mk(onFailureFail, &RetryPolicy{MaxAttempts: 2})), true},
-		{"retry block on continue", base(mk(onFailureContinue, &RetryPolicy{MaxAttempts: 2})), true},
-		{"retry block on default", base(mk("", &RetryPolicy{MaxAttempts: 2})), true},
+		{"retry max=0", base(mk(onFailureRetry, &job.RetryPolicy{MaxAttempts: 0})), true},
+		{"retry max over limit", base(mk(onFailureRetry, &job.RetryPolicy{MaxAttempts: maxRetryAttempts + 1})), true},
+		{"retry block on fail", base(mk(onFailureFail, &job.RetryPolicy{MaxAttempts: 2})), true},
+		{"retry block on continue", base(mk(onFailureContinue, &job.RetryPolicy{MaxAttempts: 2})), true},
+		{"retry block on default", base(mk("", &job.RetryPolicy{MaxAttempts: 2})), true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -47,9 +48,9 @@ func TestValidateRetry(t *testing.T) {
 			if !tc.wantErr && err != nil {
 				t.Fatalf("unexpected validation error: %v", err)
 			}
-			// Invalid policies map to ErrInvalidRequest (400 at the HTTP boundary).
-			if tc.wantErr && !errors.Is(err, ErrInvalidRequest) {
-				t.Fatalf("error %v is not ErrInvalidRequest", err)
+			// Invalid policies map to job.ErrInvalidRequest (400 at the HTTP boundary).
+			if tc.wantErr && !errors.Is(err, job.ErrInvalidRequest) {
+				t.Fatalf("error %v is not job.ErrInvalidRequest", err)
 			}
 		})
 	}
@@ -58,12 +59,12 @@ func TestValidateRetry(t *testing.T) {
 // TestSubmitWorkflowRejectsBadRetry asserts SubmitWorkflow surfaces a retry
 // validation failure (no DB row, no job started).
 func TestSubmitWorkflowRejectsBadRetry(t *testing.T) {
-	s := newTestService(t, t.TempDir())
+	e := newTestEngine(t, t.TempDir())
 	bad := StepSpec{
 		Name: "bad", ProjectKey: "self", Agent: "exec", Runner: "local",
 		Cmd: []string{"true"}, OnFailure: onFailureRetry, // retry but no block
 	}
-	_, err := s.SubmitWorkflow(WorkflowSpec{Steps: []StepSpec{bad}}, "alice")
+	_, err := e.SubmitWorkflow(Spec{Steps: []StepSpec{bad}}, "alice")
 	if err == nil {
 		t.Fatal("expected SubmitWorkflow to reject on_failure=retry without a retry block")
 	}
@@ -112,16 +113,16 @@ func TestStepToRequestDeterministicRequestID(t *testing.T) {
 // (attempt 2) is auto-submitted and succeeds.
 func TestJobLevelRetry(t *testing.T) {
 	root := t.TempDir()
-	s := newTestService(t, root)
+	e := newTestEngine(t, root)
 	marker := root + "/joblevel.marker"
 	script := "test -f " + marker + " || { touch " + marker + "; exit 7; }"
 
-	first := submitAndWait(t, s, JobRequest{
+	first := submitAndWait(t, e, job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
 		Cmd: []string{"sh", "-c", script}, Cwd: ".", TimeoutSec: 30,
-		Retry: &RetryPolicy{MaxAttempts: 3, BackoffSec: []int{0}}, // immediate retry
+		Retry: &job.RetryPolicy{MaxAttempts: 3, BackoffSec: []int{0}}, // immediate retry
 	})
-	if first.Status != StatusFailed {
+	if first.Status != job.StatusFailed {
 		t.Fatalf("first attempt = %s, want failed", first.Status)
 	}
 	if first.Attempt != 1 {
@@ -130,8 +131,8 @@ func TestJobLevelRetry(t *testing.T) {
 
 	// The retry is scheduled via time.AfterFunc(0). Poll the DB for an attempt-2 job
 	// (a NEW job id, distinct from the first) that reaches done.
-	retried := waitForRetryJob(t, s, 2)
-	if retried.Status != StatusDone {
+	retried := waitForRetryJob(t, e, 2)
+	if retried.Status != job.StatusDone {
 		t.Fatalf("retried attempt = %s, want done (marker now exists)", retried.Status)
 	}
 	if retried.ID == first.ID {
@@ -145,16 +146,16 @@ func TestJobLevelRetry(t *testing.T) {
 // TestJobLevelRetryNoPolicyUnchanged asserts a non-workflow job WITHOUT a Retry
 // policy is not retried (向后兼容): a single failed job, no extra jobs created.
 func TestJobLevelRetryNoPolicyUnchanged(t *testing.T) {
-	s := newTestService(t, t.TempDir())
-	final := submitAndWait(t, s, JobRequest{
+	e := newTestEngine(t, t.TempDir())
+	final := submitAndWait(t, e, job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
 		Cmd: []string{"sh", "-c", "exit 7"}, Cwd: ".", TimeoutSec: 30,
 	})
-	if final.Status != StatusFailed {
+	if final.Status != job.StatusFailed {
 		t.Fatalf("job = %s, want failed", final.Status)
 	}
 	// No retry job should appear.
-	jobs, err := s.meta.ListJobs(jobstore.ListQuery{})
+	jobs, err := e.meta.ListJobs(jobstore.ListQuery{})
 	if err != nil {
 		t.Fatalf("ListJobs: %v", err)
 	}
@@ -165,13 +166,13 @@ func TestJobLevelRetryNoPolicyUnchanged(t *testing.T) {
 
 // waitForRetryJob polls the metadata store for a non-workflow job at the given
 // attempt that has reached a terminal state.
-func waitForRetryJob(t *testing.T, s *Service, attempt int) jobstore.JobRecord {
+func waitForRetryJob(t *testing.T, e *Engine, attempt int) jobstore.JobRecord {
 	t.Helper()
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
-		jobs, _ := s.meta.ListJobs(jobstore.ListQuery{})
+		jobs, _ := e.meta.ListJobs(jobstore.ListQuery{})
 		for _, j := range jobs {
-			if j.WorkflowID == "" && j.Attempt == attempt && isTerminal(j.Status) {
+			if j.WorkflowID == "" && j.Attempt == attempt && job.IsTerminal(j.Status) {
 				return j
 			}
 		}

@@ -17,6 +17,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/httpapi"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
@@ -83,7 +84,9 @@ func buildHubSide(t *testing.T) *hubSide {
 	}
 	jobs := job.NewService(cfg, projReg, agentReg, runners, st, nil)
 
-	srv := httpapi.New(&cfg.Server, "server-default-token", false, jobs, projReg, agentReg, hub, nil, nil, nil)
+	jobsEng := workflow.NewEngine(jobs)
+	jobs.SetWorkflow(jobsEng)
+	srv := httpapi.New(&cfg.Server, "server-default-token", false, jobs, jobsEng, projReg, agentReg, hub, nil, nil, nil)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return &hubSide{ts: ts, jobs: jobs, store: st, hub: hub}

@@ -7,6 +7,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
@@ -48,7 +49,9 @@ func newMetaServer(t *testing.T, workers workerRegistry) *Server {
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
 	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
-	return New(&cfg.Server, testToken, false, jobs, projects, agents, nil, cfg.Runners, nil, workers)
+	jobsEng := workflow.NewEngine(jobs)
+	jobs.SetWorkflow(jobsEng)
+	return New(&cfg.Server, testToken, false, jobs, jobsEng, projects, agents, nil, cfg.Runners, nil, workers)
 }
 
 // getMeta GETs /v1/meta and decodes the aggregate.

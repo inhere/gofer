@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
 )
 
 // TestListWorkflowEventsAPI asserts GET /v1/workflows/{id}/events returns the
@@ -13,8 +13,8 @@ import (
 func TestListWorkflowEventsAPI(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 
-	resp := do(t, s, http.MethodPost, "/v1/workflows", testToken, job.WorkflowSpec{
-		Steps: []job.StepSpec{echoStep("one"), echoStep("two")},
+	resp := do(t, s, http.MethodPost, "/v1/workflows", testToken, workflow.Spec{
+		Steps: []workflow.StepSpec{echoStep("one"), echoStep("two")},
 	})
 	var created struct {
 		ID string `json:"id"`

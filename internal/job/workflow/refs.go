@@ -1,4 +1,4 @@
-package job
+package workflow
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	job "github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/store"
 )
@@ -45,9 +46,9 @@ var allowedRefFields = map[string]bool{
 // spec at submit time (no prior outputs needed): for a 1-based step i, every ref it
 // names must point at an EARLIER step (1 <= N < i, no self/forward reference) and
 // use a known field. Step 1 may not reference anything (it has no prior). A bad ref
-// is an ErrInvalidRequest (400) so the whole submit is rejected before any DB row /
+// is an job.ErrInvalidRequest (400) so the whole submit is rejected before any DB row /
 // job is created — the chain never starts a step it can't later resolve.
-func validateRefs(spec WorkflowSpec) error {
+func validateRefs(spec Spec) error {
 	for i := range spec.Steps {
 		stepNo := i + 1 // 1-based
 		fields := []string{spec.Steps[i].Prompt, spec.Steps[i].Cwd}
@@ -58,24 +59,24 @@ func validateRefs(spec WorkflowSpec) error {
 				fanK := m[2]               // optional fan selector (empty when absent)
 				field := m[3]
 				if !allowedRefFields[field] {
-					return fmt.Errorf("%w: step %d references unknown field ${steps.%d.%s}", ErrInvalidRequest, stepNo, n, field)
+					return fmt.Errorf("%w: step %d references unknown field ${steps.%d.%s}", job.ErrInvalidRequest, stepNo, n, field)
 				}
 				if n < 1 {
-					return fmt.Errorf("%w: step %d references invalid step ${steps.%d.%s} (N must be >= 1)", ErrInvalidRequest, stepNo, n, field)
+					return fmt.Errorf("%w: step %d references invalid step ${steps.%d.%s} (N must be >= 1)", job.ErrInvalidRequest, stepNo, n, field)
 				}
 				if n >= stepNo {
-					return fmt.Errorf("%w: step %d references ${steps.%d.%s} which is not a prior step (N must be < %d)", ErrInvalidRequest, stepNo, n, field, stepNo)
+					return fmt.Errorf("%w: step %d references ${steps.%d.%s} which is not a prior step (N must be < %d)", job.ErrInvalidRequest, stepNo, n, field, stepNo)
 				}
 				// P2: a fan selector .fK must point at a real fan of the referenced step —
 				// K in [1, fan_out]. The referenced step's FanOut is known statically here.
 				if fanK != "" {
 					k, _ := strconv.Atoi(fanK) // \d+, always parses
 					if k < 1 {
-						return fmt.Errorf("%w: step %d references ${steps.%d.f%d.%s} (fan index must be >= 1)", ErrInvalidRequest, stepNo, n, k, field)
+						return fmt.Errorf("%w: step %d references ${steps.%d.f%d.%s} (fan index must be >= 1)", job.ErrInvalidRequest, stepNo, n, k, field)
 					}
 					want := fanWant(spec.Steps[n-1]) // referenced step's parallelism
 					if k > want {
-						return fmt.Errorf("%w: step %d references ${steps.%d.f%d.%s} but step %d has only %d fan(s)", ErrInvalidRequest, stepNo, n, k, field, n, want)
+						return fmt.Errorf("%w: step %d references ${steps.%d.f%d.%s} but step %d has only %d fan(s)", job.ErrInvalidRequest, stepNo, n, k, field, n, want)
 					}
 				}
 			}
@@ -95,28 +96,28 @@ func validateRefs(spec WorkflowSpec) error {
 // argv element and is never re-tokenised (the agent.Render invariant, plan §11).
 //
 // priorJobs is the workflow's started step-jobs (from ListWorkflowJobs), indexed by
-// StepIndex. Values are read from the FULL JobResult via s.Get(jobID) — so a live
+// StepIndex. Values are read from the FULL job.JobResult via e.ops.Get(jobID) — so a live
 // in-memory job and a DB-evicted one both resolve, and ResultJSON/ResultDir are
 // always populated — and stdout via store.ReadLogTail. A missing prior step, a
 // missing result.json, or an over-cap inline value returns an error: at runtime
-// advanceWorkflow turns that into a failed workflow with this error.
-func (s *Service) resolveRefs(step *StepSpec, priorJobs []jobstore.JobRecord) error {
+// Advance turns that into a failed workflow with this error.
+func (e *Engine) resolveRefs(step *StepSpec, priorJobs []jobstore.JobRecord) error {
 	if step.Prompt != "" {
-		out, err := s.resolveString(step.Prompt, priorJobs)
+		out, err := e.resolveString(step.Prompt, priorJobs)
 		if err != nil {
 			return err
 		}
 		step.Prompt = out
 	}
 	for i := range step.Cmd {
-		out, err := s.resolveString(step.Cmd[i], priorJobs)
+		out, err := e.resolveString(step.Cmd[i], priorJobs)
 		if err != nil {
 			return err
 		}
 		step.Cmd[i] = out
 	}
 	if step.Cwd != "" {
-		out, err := s.resolveString(step.Cwd, priorJobs)
+		out, err := e.resolveString(step.Cwd, priorJobs)
 		if err != nil {
 			return err
 		}
@@ -129,7 +130,7 @@ func (s *Service) resolveRefs(step *StepSpec, priorJobs []jobstore.JobRecord) er
 // with its resolved value. It collects the first resolve error (ReplaceAllStringFunc
 // has no error channel) and aborts the whole resolve so a bad reference fails the step
 // rather than silently leaving a half-substituted string.
-func (s *Service) resolveString(in string, priorJobs []jobstore.JobRecord) (string, error) {
+func (e *Engine) resolveString(in string, priorJobs []jobstore.JobRecord) (string, error) {
 	var firstErr error
 	out := stepRefRe.ReplaceAllStringFunc(in, func(ref string) string {
 		if firstErr != nil {
@@ -142,7 +143,7 @@ func (s *Service) resolveString(in string, priorJobs []jobstore.JobRecord) (stri
 		if m[2] != "" {
 			fanK, _ = strconv.Atoi(m[2])
 		}
-		val, err := s.resolveRef(n, fanK, m[3], priorJobs)
+		val, err := e.resolveRef(n, fanK, m[3], priorJobs)
 		if err != nil {
 			firstErr = err
 			return ref
@@ -178,9 +179,9 @@ func fanJobsOfStep(priorJobs []jobstore.JobRecord, n int) []jobstore.JobRecord {
 //   - every other field (and result_dir on a single-job step) → the first fan job (the
 //     representative; identical to the v1 single-job path for a non-fan step).
 //
-// The chosen job's full JobResult is fetched via s.Get (in-memory live OR DB fallback)
+// The chosen job's full job.JobResult is fetched via e.Get (in-memory live OR DB fallback)
 // so ResultJSON/ResultDir are populated regardless of eviction.
-func (s *Service) resolveRef(n, fanK int, field string, priorJobs []jobstore.JobRecord) (string, error) {
+func (e *Engine) resolveRef(n, fanK int, field string, priorJobs []jobstore.JobRecord) (string, error) {
 	stepJobs := fanJobsOfStep(priorJobs, n)
 	if len(stepJobs) == 0 {
 		return "", fmt.Errorf("${steps.%d.%s}: prior step %d has not produced output", n, field, n)
@@ -191,11 +192,11 @@ func (s *Service) resolveRef(n, fanK int, field string, priorJobs []jobstore.Job
 	if fanK == 0 && field == "result_dir" && len(stepJobs) > 1 {
 		dirs := make([]string, 0, len(stepJobs))
 		for i := range stepJobs {
-			res, ok := s.Get(stepJobs[i].ID)
+			res, ok := e.ops.Get(stepJobs[i].ID)
 			if !ok {
 				return "", fmt.Errorf("${steps.%d.result_dir}: fan job %s not found", n, stepJobs[i].ID)
 			}
-			if res.Status == StatusDone && res.ResultDir != "" {
+			if res.Status == job.StatusDone && res.ResultDir != "" {
 				dirs = append(dirs, res.ResultDir)
 			}
 		}
@@ -216,7 +217,7 @@ func (s *Service) resolveRef(n, fanK int, field string, priorJobs []jobstore.Job
 		rec = *picked
 	}
 
-	res, ok := s.Get(rec.ID)
+	res, ok := e.ops.Get(rec.ID)
 	if !ok {
 		return "", fmt.Errorf("${steps.%d.%s}: prior step job %s not found", n, field, rec.ID)
 	}
@@ -242,7 +243,7 @@ func (s *Service) resolveRef(n, fanK int, field string, priorJobs []jobstore.Job
 		// Read at most maxRefInlineBytes+1 so an over-cap stream is detected without
 		// loading the whole (possibly huge) file: a return at the cap+1 boundary means
 		// the tail itself already exceeds the inline limit.
-		data, err := s.TailLog(rec.ID, store.StreamStdout, maxRefInlineBytes+1)
+		data, err := e.ops.TailLog(rec.ID, store.StreamStdout, maxRefInlineBytes+1)
 		if err != nil {
 			return "", fmt.Errorf("${steps.%d.stdout}: read stdout: %w", n, err)
 		}

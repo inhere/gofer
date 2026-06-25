@@ -8,16 +8,17 @@ import (
 	yaml "github.com/goccy/go-yaml"
 
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
 )
 
-func exportSpec() job.WorkflowSpec {
-	return job.WorkflowSpec{
+func exportSpec() workflow.Spec {
+	return workflow.Spec{
 		Title: "exp",
-		Steps: []job.StepSpec{
+		Steps: []workflow.StepSpec{
 			{Name: "gen", ProjectKey: "smoke", Agent: "exec", Runner: "local",
 				Cmd: []string{"sh", "-c", "echo gen"}, FanOut: 2, Join: "all"},
 			{Name: "test", ProjectKey: "smoke", Agent: "exec", Runner: "local",
-				Cmd: []string{"sh", "-c", "echo ${steps.1.result_dir}"},
+				Cmd:       []string{"sh", "-c", "echo ${steps.1.result_dir}"},
 				OnFailure: "retry", Retry: &job.RetryPolicy{MaxAttempts: 2, BackoffSec: []int{1}}},
 		},
 	}
@@ -49,7 +50,7 @@ func TestMarshalWorkflowSpecYAMLRoundTrips(t *testing.T) {
 			t.Fatalf("format %q: expected no trailing newline, got %q", format, s)
 		}
 		// Round-trip: yaml re-parses into the same spec `wf run` would submit.
-		var back job.WorkflowSpec
+		var back workflow.Spec
 		if err := yaml.Unmarshal(out, &back); err != nil {
 			t.Fatalf("format %q: re-parse yaml: %v", format, err)
 		}
@@ -71,7 +72,7 @@ func TestMarshalWorkflowSpecJSON(t *testing.T) {
 	if !strings.HasPrefix(strings.TrimSpace(string(out)), "{") {
 		t.Fatalf("json format did not produce JSON: %s", out)
 	}
-	var back job.WorkflowSpec
+	var back workflow.Spec
 	if err := json.Unmarshal(out, &back); err != nil {
 		t.Fatalf("json re-parse: %v", err)
 	}

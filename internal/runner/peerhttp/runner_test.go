@@ -15,6 +15,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/httpapi"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
@@ -64,7 +65,9 @@ func newPeerBridge(t *testing.T) *bridge {
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
 	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
-	s := httpapi.New(&cfg.Server, "", true, jobs, projects, agents, nil, nil, nil, nil)
+	jobsEng := workflow.NewEngine(jobs)
+	jobs.SetWorkflow(jobsEng)
+	s := httpapi.New(&cfg.Server, "", true, jobs, jobsEng, projects, agents, nil, nil, nil, nil)
 	return &bridge{jobs: jobs, srv: httptest.NewServer(s.Handler())}
 }
 
@@ -97,7 +100,9 @@ func newHostBridge(t *testing.T, peerURL string) *bridge {
 		"docker-peer":    peerhttp.New("docker-peer", peerURL, ""),
 	}
 	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
-	s := httpapi.New(&cfg.Server, "", true, jobs, projects, agents, nil, nil, nil, nil)
+	jobsEng := workflow.NewEngine(jobs)
+	jobs.SetWorkflow(jobsEng)
+	s := httpapi.New(&cfg.Server, "", true, jobs, jobsEng, projects, agents, nil, nil, nil, nil)
 	return &bridge{jobs: jobs, srv: httptest.NewServer(s.Handler())}
 }
 
@@ -438,7 +443,9 @@ func newPeerBridgeGit(t *testing.T) *bridge {
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
 	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
-	s := httpapi.New(&cfg.Server, "", true, jobs, projects, agents, nil, nil, nil, nil)
+	jobsEng := workflow.NewEngine(jobs)
+	jobs.SetWorkflow(jobsEng)
+	s := httpapi.New(&cfg.Server, "", true, jobs, jobsEng, projects, agents, nil, nil, nil, nil)
 	return &bridge{jobs: jobs, srv: httptest.NewServer(s.Handler())}
 }
 

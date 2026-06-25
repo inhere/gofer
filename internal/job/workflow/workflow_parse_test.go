@@ -1,4 +1,4 @@
-package job
+package workflow
 
 import (
 	"encoding/json"
@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestParseWorkflowFile pins yaml -> WorkflowSpec decoding against the design §9
+// TestParseWorkflowFile pins yaml -> Spec decoding against the design §9
 // shape: title + steps[] with project_key/agent/runner/prompt/cmd/cwd/timeout_sec/
 // tags. It writes a temp file and asserts the StepSpec yaml tags bind correctly.
 func TestParseWorkflowFile(t *testing.T) {
@@ -193,7 +193,7 @@ md body prompt`
 // shape) decodes via the JSON branch (T4.1 import).
 func TestParseWorkflowFileJSON(t *testing.T) {
 	dir := t.TempDir()
-	spec := WorkflowSpec{
+	spec := Spec{
 		Title: "from-json",
 		Steps: []StepSpec{
 			{Name: "a", ProjectKey: "p", Agent: "exec", Runner: "local", Cmd: []string{"echo", "hi"}},
@@ -218,7 +218,7 @@ func TestParseWorkflowFileJSON(t *testing.T) {
 // when piped to a non-.json file name.
 func TestParseWorkflowFileJSONByContent(t *testing.T) {
 	dir := t.TempDir()
-	raw, _ := json.MarshalIndent(WorkflowSpec{
+	raw, _ := json.MarshalIndent(Spec{
 		Title: "content-json",
 		Steps: []StepSpec{{Name: "a", ProjectKey: "p", Agent: "exec", Runner: "local", Cmd: []string{"echo", "hi"}}},
 	}, "", "  ")

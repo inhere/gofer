@@ -79,7 +79,7 @@ func TestServeMountsWorkerConnectRoute(t *testing.T) {
 	}
 	defer func() { _ = core.Close() }()
 
-	srv := httpapi.New(&cfg.Server, "srv-tok", false, core.Jobs, core.Projects, core.Agents, core.Hub, nil, nil, nil)
+	srv := httpapi.New(&cfg.Server, "srv-tok", false, core.Jobs, core.Workflow(), core.Projects, core.Agents, core.Hub, nil, nil, nil)
 	ts := httptest.NewServer(srv.Handler())
 	defer ts.Close()
 

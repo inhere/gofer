@@ -11,6 +11,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
@@ -41,7 +42,9 @@ func newCLIAgentServer(t *testing.T, token string) *Server {
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
 	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, filepath.Join(root, "db")), nil)
-	return New(&cfg.Server, token, false, jobs, projects, agents, nil, nil, nil, nil)
+	jobsEng := workflow.NewEngine(jobs)
+	jobs.SetWorkflow(jobsEng)
+	return New(&cfg.Server, token, false, jobs, jobsEng, projects, agents, nil, nil, nil, nil)
 }
 
 // doRaw posts a raw body with an explicit content type (the md submit path needs

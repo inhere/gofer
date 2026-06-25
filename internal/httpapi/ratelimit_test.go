@@ -8,6 +8,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
@@ -45,7 +46,9 @@ func newRateLimitedServer(t *testing.T, rps float64, burst int) *Server {
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
 	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
-	return New(&cfg.Server, testToken, false, jobs, projects, agents, nil, nil, nil, nil)
+	jobsEng := workflow.NewEngine(jobs)
+	jobs.SetWorkflow(jobsEng)
+	return New(&cfg.Server, testToken, false, jobs, jobsEng, projects, agents, nil, nil, nil, nil)
 }
 
 // TestRateLimitSubmitJobs (E17, design §7.3) proves that with rate=1/burst=1 the
@@ -153,7 +156,9 @@ func TestRateLimitMiddlewareSeesCallerID(t *testing.T) {
 	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
 	// token "" + the callers slice gives caller id "ci" on the ci token. allowEmpty
 	// false (callers present), so New uses the callers set.
-	s := New(&cfg.Server, "", false, jobs, projects, agents, nil, nil, nil, nil)
+	jobsEng := workflow.NewEngine(jobs)
+	jobs.SetWorkflow(jobsEng)
+	s := New(&cfg.Server, "", false, jobs, jobsEng, projects, agents, nil, nil, nil, nil)
 
 	req := job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",

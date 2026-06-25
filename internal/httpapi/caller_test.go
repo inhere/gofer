@@ -9,6 +9,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
@@ -61,7 +62,9 @@ func newTestServerCfg(t *testing.T, sc config.ServerConfig) *Server {
 	}
 	t.Cleanup(func() { _ = st.Close() })
 	jobs := job.NewService(cfg, projects, agents, runners, st, nil)
-	return New(&cfg.Server, sc.Token, sc.AllowEmptyToken, jobs, projects, agents, nil, nil, nil, nil)
+	jobsEng := workflow.NewEngine(jobs)
+	jobs.SetWorkflow(jobsEng)
+	return New(&cfg.Server, sc.Token, sc.AllowEmptyToken, jobs, jobsEng, projects, agents, nil, nil, nil, nil)
 }
 
 // createJob posts a job with the given bearer token and returns the decoded
