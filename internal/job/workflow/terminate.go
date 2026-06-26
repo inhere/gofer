@@ -1,6 +1,8 @@
 package workflow
 
 import (
+	"log/slog"
+
 	job "github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
@@ -16,7 +18,10 @@ func (e *Engine) setWorkflowDone(wfID string) {
 	e.recordWorkflowEvent(wfID, job.EventWorkflowTerminal, map[string]any{
 		"status": jobstore.WorkflowDone,
 	})
-	_ = e.meta.SetWorkflowStatus(wfID, jobstore.WorkflowDone, "")
+	// best-effort：失败不阻断终态推进，但记 warning，否则 workflow 头部状态与实际静默漂移。
+	if err := e.meta.SetWorkflowStatus(wfID, jobstore.WorkflowDone, ""); err != nil {
+		slog.Warn("set workflow done", "workflow_id", wfID, "err", err)
+	}
 	// P4/T4.3: count the terminal + observe the whole-chain duration (nil-safe).
 	e.recordWorkflowTerminalMetric(wfID, jobstore.WorkflowDone)
 	// P3: if this is a sub-workflow, its terminal transition unlocks the parent step.
@@ -66,7 +71,10 @@ func (e *Engine) setWorkflowFailed(wfID, reason string) {
 	e.recordWorkflowEvent(wfID, job.EventWorkflowTerminal, map[string]any{
 		"status": jobstore.WorkflowFailed, "error": reason,
 	})
-	_ = e.meta.SetWorkflowStatus(wfID, jobstore.WorkflowFailed, reason)
+	// best-effort：失败不阻断终态推进，但记 warning，否则 workflow 头部状态与实际静默漂移。
+	if err := e.meta.SetWorkflowStatus(wfID, jobstore.WorkflowFailed, reason); err != nil {
+		slog.Warn("set workflow failed", "workflow_id", wfID, "reason", reason, "err", err)
+	}
 	// P4/T4.3: count the terminal + observe the whole-chain duration (nil-safe).
 	e.recordWorkflowTerminalMetric(wfID, jobstore.WorkflowFailed)
 	// P3: if this is a sub-workflow, its terminal transition unlocks the parent step

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 
 	"github.com/inhere/gofer/internal/jobstore"
@@ -140,9 +141,14 @@ func (s *Service) CreateInteraction(jobID string, in InteractionInput) (Interact
 	entry.mu.Unlock()
 
 	// Persist outside callers' view of the lock: the job snapshot and the pending
-	// interaction row, both into the SQLite metadata store (best-effort).
-	_ = s.persist(snap)
-	_ = s.meta.UpsertInteraction(toInteractionRecord(out))
+	// interaction row, both into the SQLite metadata store (best-effort —
+	// 失败不阻断创建，但记 warning，避免 DB 与内存态静默漂移)。
+	if err := s.persist(snap); err != nil {
+		slog.Warn("persist pending-interaction snapshot", "job_id", jobID, "err", err)
+	}
+	if err := s.meta.UpsertInteraction(toInteractionRecord(out)); err != nil {
+		slog.Warn("upsert created interaction", "job_id", jobID, "interaction_id", out.ID, "err", err)
+	}
 
 	// E13: record the interaction.created lifecycle event after persistence.
 	s.recordEvent(jobID, EventInteractionCreated, map[string]any{
@@ -282,10 +288,14 @@ func (s *Service) AnswerInteraction(jobID, interactionID, answer string) (Intera
 	entry.mu.Unlock()
 
 	// Persist the answered snapshot first; then, if we resumed, the running job
-	// snapshot — both into the SQLite metadata store.
-	_ = s.meta.UpsertInteraction(toInteractionRecord(out))
+	// snapshot — both into the SQLite metadata store (best-effort，失败记 warning)。
+	if err := s.meta.UpsertInteraction(toInteractionRecord(out)); err != nil {
+		slog.Warn("upsert answered interaction", "job_id", jobID, "interaction_id", out.ID, "err", err)
+	}
 	if resumeSnap != nil {
-		_ = s.persist(*resumeSnap)
+		if err := s.persist(*resumeSnap); err != nil {
+			slog.Warn("persist resumed-running snapshot", "job_id", jobID, "err", err)
+		}
 	}
 	// E13: record the interaction.answered lifecycle event after persistence.
 	s.recordEvent(jobID, EventInteractionAnswered, map[string]any{

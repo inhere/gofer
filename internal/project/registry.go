@@ -224,6 +224,6 @@ func checkWritableDir(dir string) error {
 	if err := os.WriteFile(probe, []byte("ok"), 0o644); err != nil {
 		return fmt.Errorf("write: %w", err)
 	}
-	_ = os.Remove(probe)
+	_ = os.Remove(probe) // best-effort 清理写探针文件，残留无害、无诊断价值，忽略。
 	return nil
 }

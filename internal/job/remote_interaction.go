@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 	"fmt"
+	"log/slog"
 
 	"github.com/inhere/gofer/internal/runner"
 )
@@ -87,9 +88,14 @@ func (s *Service) injectInteraction(jobID string, it Interaction) error {
 	entry.mu.Unlock()
 
 	// Persist outside the lock, mirroring CreateInteraction: the job snapshot and
-	// the pending interaction row, both into the SQLite metadata store (best-effort).
-	_ = s.persist(snap)
-	_ = s.meta.UpsertInteraction(toInteractionRecord(it))
+	// the pending interaction row, both into the SQLite metadata store (best-effort，
+	// 失败记 warning，避免 DB 与内存态静默漂移)。
+	if err := s.persist(snap); err != nil {
+		slog.Warn("persist injected-interaction snapshot", "job_id", jobID, "err", err)
+	}
+	if err := s.meta.UpsertInteraction(toInteractionRecord(it)); err != nil {
+		slog.Warn("upsert injected interaction", "job_id", jobID, "interaction_id", it.ID, "err", err)
+	}
 
 	return nil
 }

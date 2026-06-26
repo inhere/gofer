@@ -3,6 +3,7 @@ package workflow
 import (
 	"encoding/json"
 	"fmt"
+	"log/slog"
 
 	"github.com/inhere/gofer/internal/config"
 	job "github.com/inhere/gofer/internal/job"
@@ -156,7 +157,11 @@ func (e *Engine) submitWorkflowImpl(spec Spec, callerID, parentID string, parent
 	// (FanOut>1), recording step.started / step.fanout before Submit (a fast step can
 	// finish and record workflow.terminal before Submit returns, inverting order).
 	if err := e.submitStepFan(wf, spec.Steps[0], 1, 1); err != nil {
-		_ = e.meta.SetWorkflowStatus(wfID, jobstore.WorkflowFailed, "submit step 1: "+err.Error())
+		// fail-fast 标记失败 best-effort：写失败不阻断返回 err，但记 warning，
+		// 否则 workflow 头部会停在 running 与实际不符。
+		if serr := e.meta.SetWorkflowStatus(wfID, jobstore.WorkflowFailed, "submit step 1: "+err.Error()); serr != nil {
+			slog.Warn("set workflow failed on submit step 1", "workflow_id", wfID, "err", serr)
+		}
 		e.recordWorkflowEvent(wfID, job.EventWorkflowTerminal, map[string]any{
 			"status": jobstore.WorkflowFailed,
 			"error":  "submit step 1: " + err.Error(),
