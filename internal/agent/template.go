@@ -4,12 +4,14 @@ import "strings"
 
 // Vars holds the values substituted into command-template placeholders. See
 // plan §9 (P3): first-phase placeholders are {{prompt}} {{cwd}} {{job_id}}
-// {{result_dir}}.
+// {{result_dir}}. SessionID feeds {{session_id}} for session inject/resume
+// templates (session-capture §5.1/§6.4).
 type Vars struct {
 	Prompt    string
 	Cwd       string
 	JobID     string
 	ResultDir string
+	SessionID string
 }
 
 // placeholders maps the supported template tokens to their values. Kept as a
@@ -21,6 +23,7 @@ func (v Vars) replacements() []string {
 		"{{cwd}}", v.Cwd,
 		"{{job_id}}", v.JobID,
 		"{{result_dir}}", v.ResultDir,
+		"{{session_id}}", v.SessionID,
 	}
 }
 

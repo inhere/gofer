@@ -375,6 +375,15 @@ type AgentConfig struct {
 	Env         map[string]string `yaml:"env"`
 	AllowRawCmd bool              `yaml:"allow_raw_cmd"`
 	Detect      DetectConfig      `yaml:"detect"`
+	// SessionInject 注入模式 argv 模板（模式①，首选）。非空 => 提交时 gofer 生成 uuid
+	// 渲染追加到 argv，立即知 id、无需解析输出。{{session_id}} 占位（session-capture §6.4）。
+	SessionInject []string `yaml:"session_inject"`
+	// SessionCapture 捕获模式正则（模式②，兜底），第 1 个捕获组 = session_id。仅当
+	// SessionInject 为空时使用（注入优先于捕获）。
+	SessionCapture string `yaml:"session_capture"`
+	// SessionResume resume 的整条 agent argv 模板（非追加 flag），{{session_id}}/{{prompt}}
+	// 占位。供 `gofer job resume`（P2）拼接续接命令。
+	SessionResume []string `yaml:"session_resume"`
 }
 
 // DetectConfig is the agent availability probe. Placeholder in P2, refined P3.

@@ -268,6 +268,27 @@ func RandomSuffix() string {
 	return hex.EncodeToString(b[:])
 }
 
+// newUUID returns a random RFC 4122 version-4 UUID string
+// (xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx). claude's --session-id requires a legal
+// UUID, so we set the version (4) and variant (10xx) bits explicitly. There is no
+// uuid dependency in this工具库; 16 crypto/rand bytes are formatted by hand. On a
+// (practically impossible) RNG failure it falls back to a time-derived value so a
+// non-empty id is always produced.
+func newUUID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		// Deterministic fallback: seed all 16 bytes from the nanosecond clock so the
+		// version/variant fixup below still yields a syntactically valid UUID.
+		ns := uint64(time.Now().UnixNano())
+		for i := range b {
+			b[i] = byte(ns >> (8 * (uint(i) % 8)))
+		}
+	}
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant 10xx
+	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
+}
+
 // normalizeTimeout applies the default and clamps to the max (plan §9 P4).
 func normalizeTimeout(sec int) time.Duration {
 	if sec <= 0 {
