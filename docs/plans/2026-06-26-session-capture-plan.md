@@ -168,9 +168,18 @@ argv = [agentConfig.Command] + Render(SessionResume, {SessionID: sid, Prompt: ne
 
 ## 进度跟进
 
-- [x] **P1** 存储+获取+show（T1.1–T1.5）
-- [ ] **P2** resume 命令（T2.1–T2.3）
-- [ ] **P3** worker 远端 + list 过滤（T3.1–T3.3）
+> SUPMODE 实施完成 2026-06-26（编排+子 agent 实现+真机冒烟）。`tools/gofer` 本地仓无 remote，commit 即终点。
+
+- [x] **P1** 存储+获取+show（T1.1–T1.5）— commits `e95bd3b`/`a9554fa`/`e2adc31`/`dc2c792`/`da6d575`
+- [x] **P2** resume 命令（T2.1–T2.3）— commits `37a701d`/`9a46f26`/`6976640`
+- [x] **P3** worker 远端 + list 过滤（T3.1/T3.3）— commits `400ab57`/`edaf828`
+
+### 实施结果
+
+- **全量 `go test ./...` 绿 + `GOOS=windows go build` 过**（每 task 子阶段背书）。
+- **真机 E2E（容器本地 serve + 容器 claude）PASS**：claude job 自动注入 `--session-id`（job.session_id == 实际 argv 值）；`gofer job resume <job1>` → job2 记起上下文（"幸运数字 1234"）、session_id 同链。
+- **T3.2 决策（落地变更）**：放弃 plan 原"host 经 Forward 预生成 uuid"——worker 执行 dispatch job 跑的就是 P1 的 Submit/captureOutcomes，worker 端 JobResult.SessionID 已被 P1 填好（claude 注入/codex 捕获），故 **worker 自报、经 `Outcome.SessionID` 回传 host**（T3.1）即覆盖两类 agent，更简单、无 host↔worker 配置耦合。peer 路一并透传。
+- **后置（非本期阻断）**：① codex 真机 E2E 需 host（容器无 codex），逻辑由单测 + 早前手测覆盖；② **生产 worker 链路 E2E 需 host server + 容器 worker 双双重建为新二进制**（host server 重部署属主机侧，交 codex），本期以容器本地 serve+worker E2E 或单测背书 worker 回传链。
 
 ## 风险 / 注意
 

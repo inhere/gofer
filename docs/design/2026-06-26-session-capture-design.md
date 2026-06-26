@@ -10,6 +10,7 @@
 | v0.1 | 2026-06-26 | claude | 初版设计，待审核 |
 | v1.0 | 2026-06-26 | claude | §10 待确认按推荐锁定(1/2/4/5)，#3 codex 格式待实测补；记入 roadmap E33 |
 | v1.1 | 2026-06-26 | claude | 获取机制升级为**注入优先**：claude 用 `--session-id <gofer-uuid>` 注入(实测，零解析/不需 json)，codex 用 `session id:` 正则捕获；记录"不能靠提示词让模型自报 session_id"的死路 |
+| v1.2 | 2026-06-26 | claude | **P1-P3 已实施**（SUPMODE，见 plan + 真机 E2E PASS）。落地变更：T3.2 放弃 host 经 Forward 预生成 uuid，改 worker 自报经 `Outcome.SessionID` 回传(P1 已在 worker 端填好 SessionID)，覆盖 claude/codex 两类、无 host↔worker 配置耦合 |
 
 ## 1. 背景
 
