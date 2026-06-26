@@ -187,3 +187,8 @@ argv = [agentConfig.Command] + Render(SessionResume, {SessionID: sid, Prompt: ne
 - captureOutcomes 是 best-effort 总闸内，session 捕获失败绝不可影响 job 终态（在闸内、return 前）。
 - resume 走 exec 路径：new job 的 `agent` 字段会显示 `exec`（执行真相），但 `session_id` 链回原会话；若要显示原 agent 名可后续加 resume 标记（非本期）。
 - P3 worker 注入需 host 知 agent 能力——本期以"捕获回传"为通用主路径，注入回传作次步，避免 host/worker 配置耦合。
+
+## 收尾（2026-06-26，两项待确认已闭）
+
+- [x] **resume 豁免 `allow_exec`**（原待确认，design v1.3 §8）：`validate` 在 `ResumeSourceAgent` 置位时按**原 agent**判定 `allowed_agents` 与 exec 门，cli-agent 源天然过门、不再要求 `allow_exec=true`。内部字段 `json:"-"` 不可伪造；`job rerun` 仍按普通 exec 受门控（防伪边界）。新增单测 `TestResumeJobExemptAllowExec` / `TestResumeJobRerunStillGated`。
+- [x] **session_id 详情全面展示**：P1 仅做了 CLI `job show`；本次补 **MCP `jobView`**（`internal/mcpserver`，run/get/cancel 三工具回传 `session_id`）+ **Web 控制台 JobDetail**（`web/src/api/types.ts` `Job.session_id` + `JobDetail.vue` meta 项，仅有值时显示，hover 提示 `gofer job resume <id>`）。前端 `pnpm build` 通过（vue-tsc 类型检查绿）。

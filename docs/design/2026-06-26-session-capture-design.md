@@ -11,6 +11,7 @@
 | v1.0 | 2026-06-26 | claude | §10 待确认按推荐锁定(1/2/4/5)，#3 codex 格式待实测补；记入 roadmap E33 |
 | v1.1 | 2026-06-26 | claude | 获取机制升级为**注入优先**：claude 用 `--session-id <gofer-uuid>` 注入(实测，零解析/不需 json)，codex 用 `session id:` 正则捕获；记录"不能靠提示词让模型自报 session_id"的死路 |
 | v1.2 | 2026-06-26 | claude | **P1-P3 已实施**（SUPMODE，见 plan + 真机 E2E PASS）。落地变更：T3.2 放弃 host 经 Forward 预生成 uuid，改 worker 自报经 `Outcome.SessionID` 回传(P1 已在 worker 端填好 SessionID)，覆盖 claude/codex 两类、无 host↔worker 配置耦合 |
+| v1.3 | 2026-06-26 | claude | 收尾两项待确认：①resume **豁免 allow_exec**（§8 决策落地，按 SOURCE agent 判定准入，非 exec 载体）；②session_id 详情**全面展示**：除 CLI `job show` 外，补 MCP `jobView` + Web 控制台 JobDetail |
 
 ## 1. 背景
 
@@ -136,6 +137,9 @@ SessionResume  []string `yaml:"session_resume"`
 - session_id **不是密钥**，但能用于续接会话 → 视作中敏感标识：入库可，**不**打 INFO 日志正文（debug 才记），不外发。
 - resume 同 runner 约束即安全边界：避免把会话 id 投到不持有该会话的机器（无效且可能泄漏 id 到他机日志）。
 - 沿用 SR403：捕获过程不落 secret；正则只取 session_id 一段，不存整段 stdout。
+- **resume 准入按 SOURCE agent 判定，豁免 allow_exec（v1.3 决策落地）**：resume 机制上以内置 `exec` 为载体（argv=`[agent.Command]`+SessionResume 模板+prompt），但其**真实身份**是被续接的原 agent。故 `validate` 在 `ResumeSourceAgent` 置位时，把 `allowed_agents` 与 exec 安全门**都**改判原 agent——claude/codex 这类 cli-agent 非 exec 型，天然过 exec 门、不再要求 `allow_exec=true`（原行为要求，反而诱使项目为用 resume 而放开任意 exec，弱化安全）。
+  - **防伪边界**：`ResumeSourceAgent` 为内部字段（`json:"-"`），仅 `ResumeJob` 设置，**不入 `request_json`、客户端不可经公开 API 伪造**（否则可借伪造绕过 allow_exec 跑任意命令）。
+  - 推论：`job rerun` 一个 resume job 是经公开路径**重放其 exec 请求**（无 `ResumeSourceAgent`），仍按普通 exec job 受 `allow_exec` 门控——豁免只属于 `resume` 入口本身。需再续接请用 `gofer job resume <原 job>`。
 
 ## 9. 实施分期（建议）
 
