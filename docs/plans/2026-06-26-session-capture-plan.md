@@ -168,7 +168,7 @@ argv = [agentConfig.Command] + Render(SessionResume, {SessionID: sid, Prompt: ne
 
 ## 进度跟进
 
-- [ ] **P1** 存储+获取+show（T1.1–T1.5）
+- [x] **P1** 存储+获取+show（T1.1–T1.5）
 - [ ] **P2** resume 命令（T2.1–T2.3）
 - [ ] **P3** worker 远端 + list 过滤（T3.1–T3.3）
 

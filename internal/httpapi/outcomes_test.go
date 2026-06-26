@@ -54,6 +54,27 @@ func TestGetJobIncludesResultJSON(t *testing.T) {
 	}
 }
 
+// TestGetJobIncludesSessionID: a <result_dir>/session_id file (option C fallback)
+// is captured at终态 and surfaces in GET /v1/jobs/{id} as session_id (T1.5: the
+// API serializes JobResult.SessionID directly, omitempty).
+func TestGetJobIncludesSessionID(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	created := createSleepJob(t, s)
+
+	const sid = "deadbeef-1234-4abc-8def-aabbccddeeff"
+	if err := os.WriteFile(filepath.Join(created.ResultDir, "session_id"), []byte(sid+"\n"), 0o600); err != nil {
+		t.Fatalf("write session_id: %v", err)
+	}
+
+	final := waitDone(t, s, created.ID)
+	if final.Status != job.StatusDone {
+		t.Fatalf("job status=%s, want done (err=%s)", final.Status, final.Error)
+	}
+	if final.SessionID != sid {
+		t.Fatalf("session_id mismatch over HTTP: got %q want %q", final.SessionID, sid)
+	}
+}
+
 // TestGetJobSkipsOversizeResultJSON: an oversize result.json is left on disk but
 // NOT inlined (and the request still succeeds — best-effort).
 func TestGetJobSkipsOversizeResultJSON(t *testing.T) {
