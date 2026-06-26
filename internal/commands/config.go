@@ -36,8 +36,8 @@ var initOpts = struct {
 const DefaultInitConfigPath = ".gofer.yaml"
 
 // DefaultWorkerConfigPath is where `gofer init worker` writes the starter worker
-// config when no --output is given. The worker config has no auto-discovery, so
-// it must be passed explicitly: `gofer worker --worker-config worker.yaml`.
+// config when no --output is given. `gofer worker` reads --worker-config, falling
+// back to <config-dir>/worker.yaml when the flag is omitted (loadWorkerConfig).
 const DefaultWorkerConfigPath = "worker.yaml"
 
 // initTemplate maps an init target to its embedded starter template + default

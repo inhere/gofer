@@ -35,7 +35,7 @@ func NewWorkerCmd() *gcli.Command {
 		Desc:    "As worker that dials a central hub and executes dispatched jobs locally",
 		Aliases: []string{"w"},
 		Config: func(c *gcli.Command) {
-			c.StrOpt(&workerOpts.config, "worker-config", "", "", "path to the worker config file (worker.yaml)")
+			c.StrOpt(&workerOpts.config, "worker-config", "", "", "path to the worker config file (default: <config-dir>/worker.yaml)")
 		},
 		Func: runWorker,
 	}
@@ -84,12 +84,18 @@ func runWorker(c *gcli.Command, _ []string) error {
 	return nil
 }
 
-// loadWorkerConfig reads and decodes the worker.yaml at path (or the
-// --worker-config flag). Unlike the server config there is no auto-discovery
-// chain: the path is required (a worker is always launched explicitly).
+// loadWorkerConfig reads and decodes the worker.yaml at path (the
+// --worker-config flag). When path is empty it falls back to the user-level
+// default <config-dir>/worker.yaml (config.UserWorkerConfigPath) — so a worker
+// launched from a fixed config home needs no flag. There is still no current-dir
+// discovery chain (the worker home is the config dir, not the cwd).
 func loadWorkerConfig(path string) (*config.WorkerConfig, error) {
 	if path == "" {
-		return nil, fmt.Errorf("worker requires --worker-config <worker.yaml>")
+		def, err := config.UserWorkerConfigPath()
+		if err != nil {
+			return nil, fmt.Errorf("worker requires --worker-config <worker.yaml> (default path unresolved: %w)", err)
+		}
+		path = def
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
