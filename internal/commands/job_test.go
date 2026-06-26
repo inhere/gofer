@@ -85,3 +85,46 @@ func TestJobRunDefaults(t *testing.T) {
 		t.Fatalf("cwd default=%q want .", cwd)
 	}
 }
+
+// TestJobResumeRegistered verifies the `job resume` sub-command is in the group's
+// Subs (GetCommand only resolves after the tree is bound via app.Run, so inspect
+// Subs directly — mirrors TestAgentCmdSubsRegistered).
+func TestJobResumeRegistered(t *testing.T) {
+	found := false
+	for _, sub := range NewJobCmd().Subs {
+		if sub.Name == "resume" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("job group missing `resume` sub-command")
+	}
+}
+
+// TestJobResumeFlagsBound drives the gcli pipeline up to `job resume`'s Func with
+// a capturing replacement, asserting --prompt / --runner / the <id> arg bind
+// (without hitting the network).
+func TestJobResumeFlagsBound(t *testing.T) {
+	jobResumeOpts.prompt, jobResumeOpts.runner = "", ""
+
+	app := NewApp("test")
+	var gotID string
+	resumeCmd := app.GetCommand("job").GetCommand("resume")
+	resumeCmd.Func = func(c *gcli.Command, _ []string) error {
+		gotID = argID(c)
+		return nil
+	}
+
+	if code := app.Run([]string{"job", "resume", "job-123", "--prompt", "what number", "--runner", "local"}); code != 0 {
+		t.Fatalf("app.Run exit code=%d", code)
+	}
+	if gotID != "job-123" {
+		t.Fatalf("id arg = %q, want job-123", gotID)
+	}
+	if jobResumeOpts.prompt != "what number" {
+		t.Fatalf("--prompt = %q, want 'what number'", jobResumeOpts.prompt)
+	}
+	if jobResumeOpts.runner != "local" {
+		t.Fatalf("--runner = %q, want local", jobResumeOpts.runner)
+	}
+}
