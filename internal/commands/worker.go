@@ -11,6 +11,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/core"
+	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/worker"
 )
 
@@ -24,7 +25,14 @@ const workerExitErr = 2
 // global -c (config.InputCfgFile) — D-A1.
 var workerOpts = struct {
 	config string
+	daemon bool
 }{}
+
+// workerPIDFile / workerLogFile are the daemon-mode runtime files (c44),
+// namespaced by worker id so multiple workers on one host never collide:
+// <config-dir>/run/worker-<id>.{pid,log}.
+func workerPIDFile(id string) string { return config.RuntimeFilePath("run", "worker-"+id+".pid") }
+func workerLogFile(id string) string { return config.RuntimeFilePath("run", "worker-"+id+".log") }
 
 // NewWorkerCmd builds the `worker` command: load worker.yaml, build the local
 // job service (the worker runs jobs locally with its OWN config), dial the hub,
@@ -36,6 +44,7 @@ func NewWorkerCmd() *gcli.Command {
 		Aliases: []string{"w"},
 		Config: func(c *gcli.Command) {
 			c.StrOpt(&workerOpts.config, "worker-config", "", "", "path to the worker config file (default: <config-dir>/worker.yaml)")
+			c.BoolOpt(&workerOpts.daemon, "daemon", "d", false, "run in background (detached); logs to <config-dir>/run/worker-<id>.log")
 		},
 		Func: runWorker,
 	}
@@ -51,6 +60,27 @@ func runWorker(c *gcli.Command, _ []string) error {
 	}
 	if len(wc.ServerLink.URLs) == 0 {
 		return errorx.Failf(workerExitErr, "worker config: server_link.urls is required")
+	}
+
+	// -d/--daemon: the parent re-execs itself detached, prints the child pid and
+	// returns; the detached child re-enters runWorker with daemon.Daemonized()==true
+	// and runs the dispatch loop below. worker.Serve already does SIGINT/SIGTERM
+	// graceful shutdown, so the child only needs to clean up its pidfile on exit
+	// (c44). The pidfile is namespaced by worker id (multiple workers per host).
+	if workerOpts.daemon && !daemon.Daemonized() {
+		pid, err := daemon.Spawn(daemon.Options{
+			Name:    "worker-" + wc.WorkerID,
+			PIDPath: workerPIDFile(wc.WorkerID),
+			LogPath: workerLogFile(wc.WorkerID),
+		})
+		if err != nil {
+			return errorx.Failf(workerExitErr, "%v", err)
+		}
+		c.Printf("gofer worker(%s) 已后台启动 pid=%d log=%s\n", wc.WorkerID, pid, workerLogFile(wc.WorkerID))
+		return nil
+	}
+	if daemon.Daemonized() {
+		defer daemon.RemovePIDFile(workerPIDFile(wc.WorkerID))
 	}
 
 	// Build the worker's LOCAL core (projects/agents/local runner/job.Service)
