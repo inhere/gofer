@@ -63,6 +63,7 @@ var jobListOpts = struct {
 	project, status string
 	caller, tag     string
 	agent, runner   string
+	session         string
 	since           int
 	limit           int
 }{}
@@ -164,6 +165,7 @@ func NewJobCmd() *gcli.Command {
 					c.StrOpt(&jobListOpts.tag, "tag", "", "", "filter by tag (exact element match)")
 					c.StrOpt(&jobListOpts.agent, "agent", "a", "", "filter by agent key")
 					c.StrOpt(&jobListOpts.runner, "runner", "", "", "filter by runner key")
+					c.StrOpt(&jobListOpts.session, "session", "", "", "filter by session id (exact match; lists a session's turns)")
 					c.IntOpt(&jobListOpts.since, "since", "", 0, "keep jobs with started_at >= since (unix seconds)")
 					c.IntOpt(&jobListOpts.limit, "limit", "", 0, "max jobs to return (0 = server default)")
 				},
@@ -482,6 +484,7 @@ func runJobList(c *gcli.Command, _ []string) error {
 		Tag:     jobListOpts.tag,
 		Agent:   jobListOpts.agent,
 		Runner:  jobListOpts.runner,
+		Session: jobListOpts.session,
 		Since:   int64(jobListOpts.since),
 		Limit:   jobListOpts.limit,
 	})

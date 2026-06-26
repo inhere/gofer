@@ -45,3 +45,31 @@ func TestJobRunNoTagsOmitsField(t *testing.T) {
 		t.Fatalf("empty --tags should yield nil, got %v", got)
 	}
 }
+
+// TestJobListSessionMapping asserts `job list --session <id>` binds jobListOpts.session
+// and maps into job.ListOpts.Session (P3). It runs the real gcli arg pipeline so the
+// flag binding is exercised, with a capturing Func that never hits the network.
+func TestJobListSessionMapping(t *testing.T) {
+	// Reset shared flag state so the test does not leak / inherit.
+	jobListOpts.session = ""
+
+	app := NewApp("test")
+	var gotOpts job.ListOpts
+	listCmd := app.GetCommand("job").GetCommand("list")
+	listCmd.Func = func(c *gcli.Command, _ []string) error {
+		// Mirror runJobList's mapping (the session dimension under test).
+		gotOpts = job.ListOpts{Session: jobListOpts.session}
+		return nil
+	}
+
+	args := []string{"job", "list", "--session", "sess-cli-xyz"}
+	if code := app.Run(args); code != 0 {
+		t.Fatalf("app.Run exit code=%d for args %v", code, args)
+	}
+	if jobListOpts.session != "sess-cli-xyz" {
+		t.Fatalf("--session did not bind: jobListOpts.session=%q", jobListOpts.session)
+	}
+	if gotOpts.Session != "sess-cli-xyz" {
+		t.Fatalf("ListOpts.Session=%q want sess-cli-xyz", gotOpts.Session)
+	}
+}

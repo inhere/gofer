@@ -26,6 +26,9 @@ type ListOpts struct {
 	Agent string
 	// Runner, when non-empty, keeps only jobs run on that runner (E5).
 	Runner string
+	// Session, when non-empty, keeps only jobs whose session_id matches exactly
+	// (P3, list --session：列出某 agent 会话链的所有 turn)。
+	Session string
 	// Since, when > 0, keeps only jobs with started_at >= Since (E5; unix 秒)。
 	Since int64
 	// Limit caps the number of returned jobs; <= 0 means defaultListLimit.
@@ -62,6 +65,7 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 		Tag:     opts.Tag,
 		Agent:   opts.Agent,
 		Runner:  opts.Runner,
+		Session: opts.Session,
 		Since:   opts.Since,
 		Limit:   opts.Limit,
 	})
@@ -95,6 +99,9 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 			continue
 		}
 		if opts.Runner != "" && snap.Runner != opts.Runner {
+			continue
+		}
+		if opts.Session != "" && snap.SessionID != opts.Session {
 			continue
 		}
 		if opts.Since > 0 && snap.StartedAt < opts.Since {

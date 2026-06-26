@@ -107,6 +107,70 @@ func TestListJobsFilters(t *testing.T) {
 	}
 }
 
+// TestListJobsSessionFilter proves the P3 ListOpts.Session filter flows through
+// ListOpts -> jobstore.ListQuery -> WHERE session_id=? : stamp the two finished
+// jobs with distinct session_ids (re-upsert their DB records), then a session
+// query returns only the matching job.
+func TestListJobsSessionFilter(t *testing.T) {
+	root := t.TempDir()
+	s := newTestService(t, root)
+
+	j1 := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+	})
+	j2 := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+	})
+
+	// Stamp distinct session_ids onto the persisted records (the exec agent does
+	// not produce one; we seed it to exercise the filter end-to-end).
+	r1, ok := s.Get(j1.ID)
+	if !ok {
+		t.Fatalf("Get(%s) not found", j1.ID)
+	}
+	r1.SessionID = "sess-one"
+	if err := s.Meta().UpsertJob(toRecord(r1)); err != nil {
+		t.Fatalf("upsert j1: %v", err)
+	}
+	r2, _ := s.Get(j2.ID)
+	r2.SessionID = "sess-two"
+	if err := s.Meta().UpsertJob(toRecord(r2)); err != nil {
+		t.Fatalf("upsert j2: %v", err)
+	}
+
+	// session=sess-one -> only j1.
+	one, err := s.ListJobs(ListOpts{Session: "sess-one"})
+	if err != nil {
+		t.Fatalf("ListJobs(session): %v", err)
+	}
+	if len(one) != 1 || one[0].ID != j1.ID {
+		t.Fatalf("session=sess-one expected only j1, got %+v", one)
+	}
+	if one[0].SessionID != "sess-one" {
+		t.Fatalf("expected session_id echoed, got %q", one[0].SessionID)
+	}
+
+	// session=sess-two -> only j2.
+	two, err := s.ListJobs(ListOpts{Session: "sess-two"})
+	if err != nil {
+		t.Fatalf("ListJobs(session): %v", err)
+	}
+	if len(two) != 1 || two[0].ID != j2.ID {
+		t.Fatalf("session=sess-two expected only j2, got %+v", two)
+	}
+
+	// unknown session -> none.
+	none, err := s.ListJobs(ListOpts{Session: "sess-none"})
+	if err != nil {
+		t.Fatalf("ListJobs(session none): %v", err)
+	}
+	if len(none) != 0 {
+		t.Fatalf("unknown session expected 0, got %d", len(none))
+	}
+}
+
 // TestListJobsRestartRecoversFromIndex runs jobs on serviceA (which upserts them
 // into the metadata db), then a fresh serviceB built over the SAME db file
 // (empty in-memory map) must still list the historical jobs from the DB.

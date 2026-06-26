@@ -106,6 +106,7 @@ func (s *Server) handleListJobs(c *rux.Context) {
 		Tag:     c.Query("tag"),
 		Agent:   c.Query("agent"),
 		Runner:  c.Query("runner"),
+		Session: c.Query("session"),
 		Since:   since,
 		Limit:   limit,
 	})
