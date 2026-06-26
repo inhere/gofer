@@ -400,6 +400,9 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	c.Printf("exit_code:  %d\n", res.ExitCode)
 	c.Printf("cwd:        %s\n", res.Cwd)
 	c.Printf("result_dir: %s\n", res.ResultDir)
+	if res.SessionID != "" {
+		c.Printf("session_id: %s\n", res.SessionID)
+	}
 	if res.Error != "" {
 		c.Printf("error:      %s\n", res.Error)
 	}
