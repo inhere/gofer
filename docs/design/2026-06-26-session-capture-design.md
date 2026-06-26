@@ -8,6 +8,7 @@
 | 版本 | 日期 | 修改人 | 调整说明 |
 |---|---|---|---|
 | v0.1 | 2026-06-26 | claude | 初版设计，待审核 |
+| v1.0 | 2026-06-26 | claude | §10 待确认按推荐锁定(1/2/4/5)，#3 codex 格式待实测补；记入 roadmap E33 |
 
 ## 1. 背景
 
@@ -96,20 +97,21 @@ SessionID string `json:"session_id,omitempty"`  // worker/peer 侧捕获回传
 ### 6.4 AgentConfig（`internal/config/model.go`）
 
 ```go
-// SessionCapture: 从 job stdout 提取 session_id 的规则(选项A)。空=不捕获。
-// SessionResumeArgs: resume 时拼接的 argv 模板，{{session_id}} 占位(选项: resume 命令用)。
-SessionCapture    string   `yaml:"session_capture"`     // 正则, 第1捕获组为 session_id
-SessionResumeArgs []string `yaml:"session_resume_args"` // 如 ["--resume","{{session_id}}"]
+// SessionCapture: 从 job stdout 提取 session_id 的正则(选项A)，第1捕获组=session_id。空=不捕获。
+// SessionResume: resume 的【整条 agent argv 模板】(非追加 flag)，{{session_id}}/{{prompt}} 占位。
+SessionCapture string   `yaml:"session_capture"`
+SessionResume  []string `yaml:"session_resume"`
 ```
 
-内置默认（无显式配置时按 agent 名兜底）：
+内置默认（无显式配置时按 agent 名兜底）——**均已主机实测 2026-06-26**：
 
-| agent | session_capture(正则) | session_resume_args |
-|---|---|---|
-| claude | `"session_id"\s*:\s*"([^"]+)"` | `["--resume","{{session_id}}"]` |
-| codex | 待定（codex 输出格式需核） | 待定 |
+| agent | session_capture(正则, 第1组=session_id) | resume argv 模板 | 备注 |
+|---|---|---|---|
+| claude | `"session_id"\s*:\s*"([^"]+)"` | `claude --resume {{session_id}} -p {{prompt}}` | **需 `--output-format json`** 才吐 session_id；否则靠 C 兜底 |
+| codex | `session id:\s*([0-9a-f-]+)` | `codex exec resume {{session_id}} {{prompt}}` | 默认 text 输出头部即含 `session id:`，无需额外 flag |
 
-> 选正则而非 jsonpath：format-agnostic、对纯文本/JSON 都适用，实现简单。
+> 实测结论：① 选正则而非 jsonpath（format-agnostic）；② resume 是**整条 argv 模板**（含 `{{prompt}}`），非"追加 flag"——codex resume 改子命令结构（`exec resume <id>`）、claude 是加 `--resume` flag，模板化才能统一。
+> ⚠️ 捕获依赖 agent 在输出里**吐 session_id**：claude 仅 `--output-format json` 时吐（claude agent 的 command 模板应内置该 flag）；codex 默认就吐。吐不出走 C 兜底（`$GOFER_RESULT_DIR/session_id`）。
 
 ## 7. API / CLI
 
@@ -127,17 +129,19 @@ SessionResumeArgs []string `yaml:"session_resume_args"` // 如 ["--resume","{{se
 ## 9. 实施分期（建议）
 
 - **P1**：JobResult.SessionID + jobstore 列/迁移/检索 + local 捕获（captureOutcomes + claude 内置规则）+ `job show` 展示。→ 最小可用（看得到）。
-- **P2**：`gofer job resume` 命令 + AgentConfig.SessionResumeArgs + 同 runner 校验。→ 可恢复。
+- **P2**：`gofer job resume` 命令 + AgentConfig.SessionResume + 同 runner 校验。→ 可恢复。
 - **P3**：worker 远端捕获（Outcome.SessionID + worker 侧 captureOutcomes + wsproto）+ `list --session`。→ 容器 worker 会话也可续。
-- codex 规则在 P1/P2 补（需先核 codex 输出/续接格式）。
+- claude/codex 的 capture 正则 + resume 模板均已主机实测确定（§6.4），P1/P2 直接内置。
 
-## 10. 待确认
+## 10. 决策（2026-06-26 锁定）
 
-1. **list 是否加 session 列**：倾向只做 `--session` 过滤 + show 展示（列表已较宽）。是否需要列？
-2. **resume 默认同步还是异步**：claude 类慢任务 `--sync` 客户端会超时（已实测）→ 倾向 resume 默认异步、提示用 `watch`。
-3. **codex 的 capture 正则 / resume 参数**：需在主机实测 codex 的会话输出与续接 flag 后定（claude 已验证）。
-4. **多 session 的 job**：一个 job 若多次调 agent 产生多个 session_id（少见）→ 现设计只存最后/首个匹配；是否需要多值？倾向首版只存 1 个（最后匹配）。
-5. **是否同时支持 `-c`/continue（续最近会话）**：倾向只做显式 `--resume <id>`，不做隐式 continue（跨 job 不可靠）。
+| # | 决策点 | 结论 |
+|---|---|---|
+| 1 | list 是否加 session 列 | **不加列**，只做 `job list --session <id>` 过滤 + `job show` 展示（列表已较宽） |
+| 2 | resume 默认同步/异步 | **默认异步**（claude 类慢任务 `--sync` 客户端会超时，已实测），提示用 `gofer job watch` |
+| 4 | 多 session_id 的 job | **只存 1 个（最后匹配）**。多 session 仅当单 job 内多次调 agent（如 `bash -c 'claude…; claude…'`）——边缘场景，规范做法是拆多个 job；真有需求再扩多值 |
+| 5 | `-c`/continue（续最近会话） | **不做**，只做显式 `--resume <id>`（跨 job 续最近不可靠） |
+| 3 | codex capture/resume 格式 | **已实测确定**（§6.4）：codex 捕获 `session id:\s*([0-9a-f-]+)`、resume `codex exec resume {{session_id}} {{prompt}}`；claude 同步确认需 `--output-format json` |
 
 ## 11. 结论
 
