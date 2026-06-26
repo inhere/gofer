@@ -175,6 +175,7 @@ func outcomeFrom(o *wsproto.Outcome, workerID string) *runner.Outcome {
 		DiffSummary:     o.DiffSummary,
 		Artifacts:       o.Artifacts,
 		Source:          "worker:" + workerID,
+		SessionID:       o.SessionID, // worker 本地捕获/注入的 agent 会话标识 (P3)
 	}
 }
 

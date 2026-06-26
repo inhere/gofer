@@ -2,6 +2,7 @@ package wsproto
 
 import (
 	"encoding/json"
+	"strings"
 	"testing"
 )
 
@@ -80,6 +81,39 @@ func TestEncodeDecodeRoundTrip(t *testing.T) {
 		out, _ := As[Result](env)
 		if out.Status != "done" || out.ExitCode != 0 {
 			t.Fatalf("result round-trip mismatch: %+v", out)
+		}
+	})
+
+	// P3: the Outcome frame must carry session_id back to the host (worker 远端
+	// 会话获取的回传通道)，alongside the existing产出 fields.
+	t.Run("outcome", func(t *testing.T) {
+		in := Outcome{
+			JobID:           "j1",
+			RenderedCommand: `{"command":"claude"}`,
+			SessionID:       "11111111-2222-3333-4444-555555555555",
+		}
+		b, err := EncodeFrame(TypeOutcome, in.JobID, in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		env, err := DecodeEnvelope(b)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out, err := As[Outcome](env)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if out.SessionID != in.SessionID {
+			t.Fatalf("outcome session_id round-trip mismatch: got %q want %q", out.SessionID, in.SessionID)
+		}
+		if out.RenderedCommand != in.RenderedCommand {
+			t.Fatalf("outcome rendered_command round-trip mismatch: %+v", out)
+		}
+		// omitempty: an empty SessionID must not emit the key (旧 worker 兼容).
+		bEmpty, _ := EncodeFrame(TypeOutcome, "j2", Outcome{JobID: "j2"})
+		if strings.Contains(string(bEmpty), "session_id") {
+			t.Fatalf("empty session_id must be omitted from the frame JSON: %s", bEmpty)
 		}
 	})
 }

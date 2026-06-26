@@ -211,6 +211,25 @@ func TestRegisterRejected(t *testing.T) {
 	}
 }
 
+// TestOutcomeFrameSessionID proves the worker's outcomeFrame copies the local
+// terminal JobResult.SessionID (P1 已捕获/注入) into the回传 wsproto.Outcome.SessionID
+// (P3), and that a session_id alone is enough to send the frame (旧逻辑只看产出字段)。
+func TestOutcomeFrameSessionID(t *testing.T) {
+	// 仅有 session_id（无 rendered/result/diff/artifacts）也要回传。
+	o, send := outcomeFrame("j1", job.JobResult{SessionID: "sess-xyz"})
+	if !send {
+		t.Fatalf("a session_id-only outcome must still be sent")
+	}
+	if o.SessionID != "sess-xyz" || o.JobID != "j1" {
+		t.Fatalf("outcomeFrame lost session_id/job_id: %+v", o)
+	}
+
+	// 完全空 → 不发帧（回归红线：旧 worker 行为不变）。
+	if _, send := outcomeFrame("j2", job.JobResult{}); send {
+		t.Fatalf("an empty JobResult must not produce a frame")
+	}
+}
+
 // waitForResult waits for a result frame for jobID on frames.
 func waitForResult(t *testing.T, frames chan wsproto.Envelope, jobID string) wsproto.Result {
 	t.Helper()

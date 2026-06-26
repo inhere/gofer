@@ -199,6 +199,11 @@ func (s *Service) applyOutcome(entry *jobEntry, o *runner.Outcome) {
 	if o.Source != "" {
 		entry.result.Source = o.Source
 	}
+	// 远端(worker/peer)本地捕获/注入的 session_id 回传落库（P3），让远端执行的 job 也能
+	// resume / list --session。空=远端未捕获，不覆盖既有值（与其他字段同语义）。
+	if o.SessionID != "" {
+		entry.result.SessionID = o.SessionID
+	}
 }
 
 // shouldCaptureDiff reports whether E12 git-diff capture is enabled for the job's

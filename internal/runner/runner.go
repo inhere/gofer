@@ -135,4 +135,11 @@ type Outcome struct {
 	// (empty for local). It is persisted (jobs.source) and surfaced so the详情
 	// can标注 "在 worker w-xxx / peer X 执行" (P4-c).
 	Source string `json:"source,omitempty"`
+	// SessionID is the底层 agent CLI 会话标识 the EXECUTION machine captured/injected
+	// for this job (P3). The remote runner (worker/peer) ran its own P1
+	// captureOutcomes against its local JobResult, so this carries that machine's
+	// SessionID back to the host (applyOutcome → entry.result.SessionID), enabling
+	// `job resume` / `list --session` for remotely-executed jobs. Empty = the
+	// remote produced no session id (unsupported agent / not captured).
+	SessionID string `json:"session_id,omitempty"`
 }
