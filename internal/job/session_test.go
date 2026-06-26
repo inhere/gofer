@@ -2,6 +2,7 @@ package job
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"regexp"
 	"testing"
@@ -151,5 +152,133 @@ func TestSubmitExecNoSessionInjection(t *testing.T) {
 	}
 	if res.SessionID != "" {
 		t.Fatalf("exec job should not inject a session_id, got %q", res.SessionID)
+	}
+}
+
+// TestCaptureSessionIDFromFile covers the pure extractor: a hit returns the first
+// capture group (trimmed); a miss / missing file / no capture group returns "".
+func TestCaptureSessionIDFromFile(t *testing.T) {
+	dir := t.TempDir()
+	re := `session id:\s*([0-9a-f-]+)`
+
+	hit := filepath.Join(dir, "hit.log")
+	if err := os.WriteFile(hit, []byte("starting up\nsession id: 67cc4d00-aaaa-bbbb-cccc-ddddeeeeffff\nrunning\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	got := captureSessionID(hit, re)
+	if got != "67cc4d00-aaaa-bbbb-cccc-ddddeeeeffff" {
+		t.Fatalf("captureSessionID hit = %q, want the uuid", got)
+	}
+
+	miss := filepath.Join(dir, "miss.log")
+	if err := os.WriteFile(miss, []byte("no session line here\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if got := captureSessionID(miss, re); got != "" {
+		t.Fatalf("captureSessionID miss = %q, want empty", got)
+	}
+
+	// Missing file -> "".
+	if got := captureSessionID(filepath.Join(dir, "nope.log"), re); got != "" {
+		t.Fatalf("captureSessionID missing-file = %q, want empty", got)
+	}
+	// Empty inputs -> "".
+	if got := captureSessionID("", re); got != "" {
+		t.Fatalf("captureSessionID empty-path = %q, want empty", got)
+	}
+	if got := captureSessionID(hit, ""); got != "" {
+		t.Fatalf("captureSessionID empty-regex = %q, want empty", got)
+	}
+	// Invalid regex -> "" (best-effort, no panic).
+	if got := captureSessionID(hit, `session id:\s*([0-9a-f-]+`); got != "" {
+		t.Fatalf("captureSessionID invalid-regex = %q, want empty", got)
+	}
+	// Regex with no capture group -> "".
+	if got := captureSessionID(hit, `session id:`); got != "" {
+		t.Fatalf("captureSessionID no-group = %q, want empty", got)
+	}
+}
+
+// newCodexCaptureService builds a Service with a "codex" cli-agent whose command
+// prints a `session id: <uuid>` line then exits, so the codex built-in
+// SessionCapture regex extracts the id at终态 (capture mode T1.4).
+func newCodexCaptureService(t *testing.T, root, sessionID string) *Service {
+	t.Helper()
+	cfg := &config.Config{
+		Storage: config.StorageConfig{Root: root},
+		Projects: map[string]config.ProjectConfig{
+			"self": {
+				HostPath:       root,
+				AllowedAgents:  []string{"codex"},
+				AllowedRunners: []string{"local"},
+			},
+		},
+		Agents: map[string]config.AgentConfig{
+			// command sh -c "echo 'session id: <uuid>'; echo '{{prompt}}'"
+			"codex": {Type: agent.TypeCLIAgent, Command: "sh", Args: []string{"-c", "echo 'session id: " + sessionID + "'; echo {{prompt}}"}},
+		},
+	}
+	projReg := project.NewRegistry(cfg, "")
+	agentReg := agent.NewRegistry(cfg)
+	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
+	meta, err := jobstore.Open(filepath.Join(root, "gofer.db"))
+	if err != nil {
+		t.Fatalf("open jobstore: %v", err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	return NewService(cfg, projReg, agentReg, runners, meta, nil)
+}
+
+// TestCaptureCodexSessionIDAtTerminal proves a codex job (no inject) has its
+// session_id captured from stdout at terminal via the built-in regex.
+func TestCaptureCodexSessionIDAtTerminal(t *testing.T) {
+	root := t.TempDir()
+	const sid = "abcd1234-aaaa-bbbb-cccc-001122334455"
+	s := newCodexCaptureService(t, root, sid)
+
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "codex", Runner: "local",
+		Prompt: "hi", Cwd: ".", TimeoutSec: 30,
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("setup: expected done, got %s (err=%s)", final.Status, final.Error)
+	}
+	if final.SessionID != sid {
+		t.Fatalf("captured SessionID = %q, want %q", final.SessionID, sid)
+	}
+}
+
+// TestCaptureMissDoesNotAffectTerminal proves a codex job whose output has no
+// session line ends done with an empty session_id (capture is best-effort).
+func TestCaptureMissDoesNotAffectTerminal(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		Storage: config.StorageConfig{Root: root},
+		Projects: map[string]config.ProjectConfig{
+			"self": {HostPath: root, AllowedAgents: []string{"codex"}, AllowedRunners: []string{"local"}},
+		},
+		Agents: map[string]config.AgentConfig{
+			"codex": {Type: agent.TypeCLIAgent, Command: "echo", Args: []string{"{{prompt}}"}},
+		},
+	}
+	projReg := project.NewRegistry(cfg, "")
+	agentReg := agent.NewRegistry(cfg)
+	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
+	meta, err := jobstore.Open(filepath.Join(root, "gofer.db"))
+	if err != nil {
+		t.Fatalf("open jobstore: %v", err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	s := NewService(cfg, projReg, agentReg, runners, meta, nil)
+
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "codex", Runner: "local",
+		Prompt: "no-session-line", Cwd: ".", TimeoutSec: 30,
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("expected done, got %s", final.Status)
+	}
+	if final.SessionID != "" {
+		t.Fatalf("expected empty SessionID on capture miss, got %q", final.SessionID)
 	}
 }

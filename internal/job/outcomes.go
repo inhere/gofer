@@ -5,7 +5,12 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strings"
+	"sync"
+
+	"github.com/inhere/gofer/internal/store"
 
 	"github.com/inhere/gofer/internal/runner"
 )
@@ -84,6 +89,88 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 		entry.result.DiffSummary = diffSummary
 	}
 	entry.mu.Unlock()
+
+	// session 捕获(模式②, session-capture §5.1)：仅当 session_id 仍为空时尝试——注入式
+	// (claude) 已在提交时填好、显式 SessionID(resume) 也已带上，都跳过。codex 默认输出
+	// 头部 `session id:`，按 agent.SessionCapture 正则从 stdout.log 提取；再不行读
+	// <result_dir>/session_id 文件兜底(选项C)。整段 best-effort，在 captureOutcomes 的
+	// recover 总闸内、绝不影响 job 终态。
+	s.captureSession(entry, resultDir)
+}
+
+// captureSession 在本地终态尝试为未注入会话的 job 捕获 session_id（模式②）。它读
+// entry.result 的 SessionID/Agent，仅当 SessionID 为空才动作：先按该 agent 的
+// SessionCapture 正则扫 <result_dir>/stdout.log，命中即填；否则读
+// <result_dir>/session_id 文件兜底（选项C）。任何失败静默返回（不改终态）。
+func (s *Service) captureSession(entry *jobEntry, resultDir string) {
+	entry.mu.Lock()
+	sid := entry.result.SessionID
+	agentKey := entry.result.Agent
+	entry.mu.Unlock()
+	if sid != "" {
+		return // 注入式/显式已知，不捕获。
+	}
+
+	var captured string
+	if ac, ok := s.agents.Get(agentKey); ok && ac.SessionCapture != "" {
+		captured = captureSessionID(filepath.Join(resultDir, store.StdoutFile), ac.SessionCapture)
+	}
+	if captured == "" && resultDir != "" { // 选项C 兜底：任务自写的 session_id 文件。
+		if b, err := os.ReadFile(filepath.Join(resultDir, "session_id")); err == nil {
+			captured = strings.TrimSpace(string(b))
+		}
+	}
+	if captured == "" {
+		return
+	}
+	entry.mu.Lock()
+	entry.result.SessionID = captured
+	entry.mu.Unlock()
+}
+
+// sessionReCache 缓存编译后的 SessionCapture 正则（同一 agent 的正则在每个 job 终态
+// 都会用到），避免重复编译。键是正则源串。
+var sessionReCache sync.Map // map[string]*regexp.Regexp
+
+// captureSessionID 从 path 文件内容用正则 reSrc 提取 session_id（第 1 个捕获组）。
+// 任何失败（正则非法、文件读不到、无匹配、无捕获组）都返回 ""——纯 best-effort，调用方
+// 据空判定回退。文件读取受 maxResultJSONBytes 量级约束（stdout 可能很大，仅取必要前缀
+// 仍可靠：会话 id 在 codex 输出头部）。
+func captureSessionID(path, reSrc string) string {
+	if path == "" || reSrc == "" {
+		return ""
+	}
+	re := compileSessionRe(reSrc)
+	if re == nil {
+		return ""
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return ""
+	}
+	m := re.FindSubmatch(b)
+	if len(m) < 2 { // 需要至少 1 个捕获组。
+		return ""
+	}
+	return strings.TrimSpace(string(m[1]))
+}
+
+// compileSessionRe 返回 reSrc 编译后的正则（带缓存）；非法正则返回 nil（记一次 warning）。
+func compileSessionRe(reSrc string) *regexp.Regexp {
+	if v, ok := sessionReCache.Load(reSrc); ok {
+		if re, _ := v.(*regexp.Regexp); re != nil {
+			return re
+		}
+		return nil // 之前已判定非法（存了 nil）。
+	}
+	re, err := regexp.Compile(reSrc)
+	if err != nil {
+		slog.Warn("captureOutcomes: invalid session_capture regex, ignored", "regex", reSrc, "err", err)
+		sessionReCache.Store(reSrc, (*regexp.Regexp)(nil))
+		return nil
+	}
+	sessionReCache.Store(reSrc, re)
+	return re
 }
 
 // applyOutcome 把远端 runner 回传的 Outcome 落到 entry.result（P4）。它只写非空字段
