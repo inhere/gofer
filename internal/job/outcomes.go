@@ -2,7 +2,7 @@ package job
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -35,7 +35,7 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 	// best-effort 总闸：任何采集子步骤 panic 也被吞掉，绝不让产出采集影响 job 终态。
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("captureOutcomes: recovered panic for job %s: %v", req.JobID, r)
+			slog.Warn("captureOutcomes: recovered panic", "job_id", req.JobID, "panic", r)
 		}
 	}()
 
@@ -77,7 +77,7 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 		if b, err := json.Marshal(artifacts); err == nil {
 			entry.result.ArtifactsJSON = string(b)
 		} else {
-			log.Printf("captureOutcomes: marshal artifacts for job %s: %v", req.JobID, err)
+			slog.Warn("captureOutcomes: marshal artifacts", "job_id", req.JobID, "err", err)
 		}
 	}
 	if diffSummary != "" {
@@ -106,7 +106,7 @@ func (s *Service) applyOutcome(entry *jobEntry, o *runner.Outcome) {
 		if json.Valid(o.Artifacts) {
 			entry.result.ArtifactsJSON = string(o.Artifacts)
 		} else {
-			log.Printf("applyOutcome: remote artifacts manifest for job %s is not valid JSON, skipped", entry.result.ID)
+			slog.Warn("applyOutcome: remote artifacts manifest is not valid JSON, skipped", "job_id", entry.result.ID)
 		}
 	}
 	if o.Source != "" {
@@ -167,7 +167,7 @@ func renderedCommandJSON(req runner.Request) string {
 		EnvKeys []string `json:"env_keys,omitempty"`
 	}{req.Command, req.Args, keys})
 	if err != nil {
-		log.Printf("captureOutcomes: marshal rendered command for job %s: %v", req.JobID, err)
+		slog.Warn("captureOutcomes: marshal rendered command", "job_id", req.JobID, "err", err)
 		return ""
 	}
 	return string(b)
@@ -190,16 +190,16 @@ func readResultJSON(resultDir string) string {
 		return ""
 	}
 	if fi.Size() > maxResultJSONBytes {
-		log.Printf("captureOutcomes: result.json %s too large (%d > %d), skipped", p, fi.Size(), maxResultJSONBytes)
+		slog.Warn("captureOutcomes: result.json too large, skipped", "path", p, "size", fi.Size(), "max", maxResultJSONBytes)
 		return ""
 	}
 	b, err := os.ReadFile(p)
 	if err != nil {
-		log.Printf("captureOutcomes: read result.json %s: %v", p, err)
+		slog.Warn("captureOutcomes: read result.json", "path", p, "err", err)
 		return ""
 	}
 	if !json.Valid(b) {
-		log.Printf("captureOutcomes: result.json %s is not valid JSON, skipped", p)
+		slog.Warn("captureOutcomes: result.json is not valid JSON, skipped", "path", p)
 		return ""
 	}
 	return string(b)
@@ -284,10 +284,10 @@ func scanArtifacts(resultDir string) []ArtifactItem {
 		return nil
 	})
 	if walkErr != nil {
-		log.Printf("captureOutcomes: scan artifacts %s: %v", base, walkErr)
+		slog.Warn("captureOutcomes: scan artifacts", "base", base, "err", walkErr)
 	}
 	if truncated {
-		log.Printf("captureOutcomes: artifacts under %s exceed cap %d, manifest truncated", base, maxArtifacts)
+		slog.Warn("captureOutcomes: artifacts exceed cap, manifest truncated", "base", base, "cap", maxArtifacts)
 	}
 	return items
 }

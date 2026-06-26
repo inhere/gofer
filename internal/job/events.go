@@ -2,7 +2,7 @@ package job
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/notify"
@@ -56,7 +56,7 @@ func (s *Service) recordEvent(jobID, eventType string, detail any) {
 		At:     at,
 	})
 	if err != nil {
-		log.Printf("recordEvent: job %s type %s: %v", jobID, eventType, err)
+		slog.Warn("recordEvent: insert job event", "job_id", jobID, "type", eventType, "err", err)
 		return
 	}
 	// E14: now that the event is durably persisted with its seq, enqueue a webhook
@@ -105,7 +105,7 @@ func (s *Service) enqueueDeliveries(seq int64, jobID, eventType, detailJSON stri
 			NextRetryAt: at, // due now
 			CreatedAt:   at,
 		}); err != nil {
-			log.Printf("enqueueDeliveries: job %s type %s target %s: %v", jobID, eventType, w.URL, err)
+			slog.Warn("enqueueDeliveries: insert delivery", "job_id", jobID, "type", eventType, "target", w.URL, "err", err)
 		}
 	}
 }
