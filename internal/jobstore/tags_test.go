@@ -112,3 +112,36 @@ func TestListQueryAgentRunnerSinceFilter(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Len(t, none, 0)
 }
+
+// TestListQuerySessionFilter asserts ListQuery.Session is an exact session_id
+// match (P3 list --session): two jobs with different session_id, querying one
+// returns only its job.
+func TestListQuerySessionFilter(t *testing.T) {
+	s := openTest(t)
+
+	j1 := sampleJob("s1", "p", 100)
+	j1.SessionID = "sess-aaa"
+	j2 := sampleJob("s2", "p", 200)
+	j2.SessionID = "sess-bbb"
+	j3 := sampleJob("s3", "p", 300) // no session_id
+	assert.NoErr(t, s.UpsertJob(j1))
+	assert.NoErr(t, s.UpsertJob(j2))
+	assert.NoErr(t, s.UpsertJob(j3))
+
+	// session=sess-aaa -> only s1 (exact match, not a substring/prefix).
+	aaa, err := s.ListJobs(ListQuery{Session: "sess-aaa"})
+	assert.NoErr(t, err)
+	assert.Len(t, aaa, 1)
+	assert.Eq(t, "s1", aaa[0].ID)
+
+	// session=sess-bbb -> only s2.
+	bbb, err := s.ListJobs(ListQuery{Session: "sess-bbb"})
+	assert.NoErr(t, err)
+	assert.Len(t, bbb, 1)
+	assert.Eq(t, "s2", bbb[0].ID)
+
+	// unknown session -> none.
+	none, err := s.ListJobs(ListQuery{Session: "sess-zzz"})
+	assert.NoErr(t, err)
+	assert.Len(t, none, 0)
+}

@@ -91,6 +91,7 @@ type ListQuery struct {
 	Tag     string // tags_json contains this tag element when non-empty (E5)
 	Agent   string // exact agent match when non-empty (E5)
 	Runner  string // exact runner match when non-empty (E5)
+	Session string // exact session_id match when non-empty (P3, list --session)
 	Limit   int    // <= 0 => DefaultListLimit
 	Offset  int    // skip the first Offset rows (pagination); ignored when <= 0
 	Since   int64  // when > 0, keep only jobs with started_at >= Since
@@ -275,6 +276,12 @@ func (s *Store) ListJobs(q ListQuery) ([]JobRecord, error) {
 	if q.Runner != "" {
 		where = append(where, "runner = ?")
 		args = append(args, q.Runner)
+	}
+	if q.Session != "" {
+		// session_id 精确等于（不同于 Tag 的 LIKE 元素匹配）：一个 session_id 唯一标识
+		// 一条 agent 会话链，用于 list --session 列出某会话的所有 turn (P3)。
+		where = append(where, "session_id = ?")
+		args = append(args, q.Session)
 	}
 	if q.Since > 0 {
 		where = append(where, "started_at >= ?")

@@ -162,6 +162,9 @@ func (c *Client) ListJobs(opts job.ListOpts) ([]job.JobResult, error) {
 	if opts.Runner != "" {
 		q.Set("runner", opts.Runner)
 	}
+	if opts.Session != "" {
+		q.Set("session", opts.Session)
+	}
 	if opts.Since > 0 {
 		q.Set("since", strconv.FormatInt(opts.Since, 10))
 	}

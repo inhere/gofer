@@ -75,6 +75,48 @@ func TestGetJobIncludesSessionID(t *testing.T) {
 	}
 }
 
+// TestListJobsEndpointSession: GET /v1/jobs?session=<id> maps the query param
+// through to the session_id filter (P3). Two jobs carry distinct captured
+// session_ids (via the option-C session_id file); the filter returns only the
+// matching one, and omitting the param returns both (regression-safe).
+func TestListJobsEndpointSession(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+
+	jobA := createSleepJob(t, s)
+	jobB := createSleepJob(t, s)
+	const sidA = "11111111-1111-4111-8111-111111111111"
+	const sidB = "22222222-2222-4222-8222-222222222222"
+	if err := os.WriteFile(filepath.Join(jobA.ResultDir, "session_id"), []byte(sidA+"\n"), 0o600); err != nil {
+		t.Fatalf("write session_id A: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(jobB.ResultDir, "session_id"), []byte(sidB+"\n"), 0o600); err != nil {
+		t.Fatalf("write session_id B: %v", err)
+	}
+	waitDone(t, s, jobA.ID)
+	waitDone(t, s, jobB.ID)
+
+	// No session param -> both jobs (regression: param is opt-in).
+	all := listJobs(t, s, "")
+	if len(all) != 2 {
+		t.Fatalf("no-session list expected 2 jobs, got %d", len(all))
+	}
+
+	// ?session=sidA -> only jobA, echoing its session_id.
+	bySession := listJobs(t, s, "?session="+sidA)
+	if len(bySession) != 1 || bySession[0].ID != jobA.ID {
+		t.Fatalf("session=sidA filter wrong: %+v", bySession)
+	}
+	if bySession[0].SessionID != sidA {
+		t.Fatalf("expected session_id %q echoed, got %q", sidA, bySession[0].SessionID)
+	}
+
+	// ?session=<unknown> -> none (proves the param is actually applied).
+	none := listJobs(t, s, "?session=99999999-9999-4999-8999-999999999999")
+	if len(none) != 0 {
+		t.Fatalf("unknown session expected 0, got %d", len(none))
+	}
+}
+
 // TestGetJobSkipsOversizeResultJSON: an oversize result.json is left on disk but
 // NOT inlined (and the request still succeeds — best-effort).
 func TestGetJobSkipsOversizeResultJSON(t *testing.T) {
