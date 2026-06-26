@@ -11,11 +11,14 @@
 package httpapi
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"os"
 	"sync"
+	"time"
 
 	"github.com/gookit/rux/v2"
 	"golang.org/x/time/rate"
@@ -348,10 +351,33 @@ func (s *Server) handleWorkerConnect(c *rux.Context) {
 // ServeHTTP), used by httptest and by Run.
 func (s *Server) Handler() http.Handler { return s.router }
 
-// Run starts the HTTP server on addr and blocks. The listen address is logged;
+// shutdownGrace bounds the graceful-shutdown drain so a stuck connection cannot
+// hang the process forever (preStop / `gofer stop` expect a bounded stop).
+const shutdownGrace = 10 * time.Second
+
+// RunCtx starts the HTTP server on addr and blocks until ctx is cancelled — then
+// it gracefully shuts down (stop accepting new conns, drain in-flight up to
+// shutdownGrace) and returns nil — or until the listener fails. http.ErrServerClosed
+// from a graceful Shutdown is expected and mapped to nil. The address is logged;
 // the token is never logged (plan §11).
-func (s *Server) Run(addr string) error {
+func (s *Server) RunCtx(ctx context.Context, addr string) error {
 	srv := &http.Server{Addr: addr, Handler: s.router}
+	go func() {
+		<-ctx.Done()
+		// Use a fresh (non-cancelled) ctx so Shutdown itself gets its grace window.
+		shutCtx, cancel := context.WithTimeout(context.Background(), shutdownGrace)
+		defer cancel()
+		_ = srv.Shutdown(shutCtx)
+	}()
 	fmt.Printf("gofer: listening on %s\n", addr)
-	return srv.ListenAndServe()
+	if err := srv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		return err
+	}
+	return nil
+}
+
+// Run starts the HTTP server on addr and blocks until the listener fails, with
+// no graceful-shutdown signal. Retained for callers that do not manage a context.
+func (s *Server) Run(addr string) error {
+	return s.RunCtx(context.Background(), addr)
 }

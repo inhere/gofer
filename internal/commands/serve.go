@@ -5,6 +5,7 @@ import (
 	"github.com/gookit/goutil/errorx"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/serve"
 )
 
@@ -15,7 +16,13 @@ var serveOpts = struct {
 	token         string
 	allowEmptyTok bool
 	noWeb         bool
+	daemon        bool
 }{}
+
+// servePIDFile / serveLogFile are the daemon-mode runtime files (c44):
+// <config-dir>/run/serve.{pid,log}.
+func servePIDFile() string { return config.RuntimeFilePath("run", "serve.pid") }
+func serveLogFile() string { return config.RuntimeFilePath("run", "serve.log") }
 
 // NewServeCmd builds the `serve` command: load config, wire the job service and
 // the httpapi server, then start the HTTP control plane (plan §9-P5).
@@ -30,6 +37,7 @@ func NewServeCmd() *gcli.Command {
 			c.StrOpt(&serveOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 			c.BoolOpt(&serveOpts.allowEmptyTok, "allow-empty-token", "", false, "allow starting without a token")
 			c.BoolOpt(&serveOpts.noWeb, "no-web", "", false, "disable the web console (static UI)")
+			c.BoolOpt(&serveOpts.daemon, "daemon", "d", false, "run in background (detached); logs to <config-dir>/run/serve.log")
 		},
 		Func: runServe,
 	}
@@ -40,6 +48,24 @@ func NewServeCmd() *gcli.Command {
 // assembly, sweeper/probe/reload loops, httpapi). The command layer keeps only
 // flag binding + config loading + the thin call.
 func runServe(c *gcli.Command, _ []string) error {
+	// -d/--daemon: the parent re-execs itself detached, prints the child pid and
+	// returns; the detached child re-enters runServe with daemon.Daemonized()==true
+	// and runs the real server below (c44). A second start is refused when a live
+	// pidfile exists.
+	if serveOpts.daemon && !daemon.Daemonized() {
+		pid, err := daemon.Spawn(daemon.Options{Name: "serve", PIDPath: servePIDFile(), LogPath: serveLogFile()})
+		if err != nil {
+			return errorx.Failf(serve.ExitErr, "%v", err)
+		}
+		c.Printf("gofer serve 已后台启动 pid=%d log=%s\n", pid, serveLogFile())
+		return nil
+	}
+	// Detached child: remove the pidfile when serve.Start returns (graceful
+	// shutdown), so a stale pidfile never lingers after a clean stop.
+	if daemon.Daemonized() {
+		defer daemon.RemovePIDFile(servePIDFile())
+	}
+
 	cfg, cfgPath, err := config.Load(config.InputCfgFile)
 	if err != nil {
 		return errorx.Failf(serve.ExitErr, "%v", err)
