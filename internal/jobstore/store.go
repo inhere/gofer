@@ -79,7 +79,8 @@ var schemaStmts = []string{
   source           TEXT,
   tags_json        TEXT,
   workflow_id      TEXT,
-  step_index       INTEGER
+  step_index       INTEGER,
+  session_id       TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -284,6 +285,11 @@ func (s *Store) migrate() error {
 	// 工作流 v2 (P2)：fan-out 同 step 内第几个并行 job（1-based；非 fan 为 0）。P1 不写，
 	// 与 attempt 一并 ALTER ADD 以减少后续迁移（design §5.3）。旧行 COALESCE→0。
 	if err := add("fan_index", "fan_index INTEGER"); err != nil { // fan-out 并行序号（P2，预留）
+		return err
+	}
+	// session 捕获：底层 agent CLI 会话标识（claude/codex）。旧库自动 ALTER ADD，
+	// 旧行 COALESCE→""（session-capture，design §6.2）。
+	if err := add("session_id", "session_id TEXT"); err != nil { // agent CLI 会话 id
 		return err
 	}
 	if err := s.migrateWorkflows(); err != nil {

@@ -139,6 +139,9 @@ type JobResult struct {
 	// N 个 job，以 FanIndex=1..N 区分；非 fan-out（单 job 路径）为 0（omitempty）。
 	// 持久化到 jobs.fan_index。
 	FanIndex int `json:"fan_index,omitempty"`
+	// SessionID 底层 agent CLI 会话标识(claude/codex)。注入(提交时 gofer 生成)或捕获(终态从输出)。
+	// 空=无/未捕获。持久化 jobs.session_id，供 show/list/resume。
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // Job status values (plan §6.2).

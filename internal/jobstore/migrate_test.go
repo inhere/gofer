@@ -80,6 +80,8 @@ func TestMigrateAddsColumnsToOldDB(t *testing.T) {
 	assert.True(t, tableHasColumn(t, s, "jobs", "diff_summary"))
 	// E5：旧库经 migrate 必须补全 tags_json 列。
 	assert.True(t, tableHasColumn(t, s, "jobs", "tags_json"))
+	// session 捕获：旧库经 migrate 必须补全 session_id 列。
+	assert.True(t, tableHasColumn(t, s, "jobs", "session_id"))
 
 	// The migrated DB is usable: a job with a request_id round-trips.
 	rec := sampleJob("j1", "proj", 100)
@@ -103,6 +105,7 @@ func TestMigrateAddsColumnsToOldDB(t *testing.T) {
 	assert.Eq(t, "", gotOld.ArtifactsJSON)
 	assert.Eq(t, "", gotOld.DiffSummary)
 	assert.Eq(t, "", gotOld.TagsJSON)
+	assert.Eq(t, "", gotOld.SessionID)
 }
 
 // TestFreshOpenHasNewColumnsAndIndex asserts a brand-new database gets the new
@@ -119,6 +122,8 @@ func TestFreshOpenHasNewColumnsAndIndex(t *testing.T) {
 	assert.True(t, tableHasColumn(t, s, "jobs", "diff_summary"))
 	// E5：新库一次建全 tags_json 列。
 	assert.True(t, tableHasColumn(t, s, "jobs", "tags_json"))
+	// session 捕获：新库一次建全 session_id 列。
+	assert.True(t, tableHasColumn(t, s, "jobs", "session_id"))
 }
 
 // TestUpsertGetOutcomeFields covers the round-trip of the 4 产出与审计 columns
