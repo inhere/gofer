@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"time"
 
 	"github.com/inhere/gofer/internal/runner"
@@ -62,7 +63,10 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 	entry.mu.Unlock()
 
 	// Persist a running snapshot so a crash leaves an inspectable DB row.
-	_ = s.persist(snap)
+	// best-effort：失败不阻断执行，但记一条 warning，否则 DB 行与内存态静默漂移、无从排查。
+	if err := s.persist(snap); err != nil {
+		slog.Warn("persist running snapshot", "job_id", req.JobID, "err", err)
+	}
 	// E13: queued -> running transition is now a fact.
 	s.recordEvent(req.JobID, EventJobRunning, nil)
 

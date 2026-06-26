@@ -37,6 +37,8 @@ func (s *Service) Prune() (int, error) {
 	if _, wfDirs, werr := s.meta.PruneWorkflows(wfPolicy, now); werr != nil {
 		return 0, werr
 	} else {
+		// best-effort 清理工作流 result 目录：DB 行已删（真源已一致），残留目录失败
+		// （已不存在/权限）无害，不阻断 prune，无诊断价值故不记日志。
 		for _, dir := range wfDirs {
 			if dir != "" {
 				_ = os.RemoveAll(dir)

@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"time"
 
@@ -174,9 +175,12 @@ func (c *Core) Reload(path string) error {
 		return fmt.Errorf("reload config: %w", err)
 	}
 	// D6: reload merges overlays too. Fail-safe — overlay parse failures only
-	// warn (returned slice), they never make the reload fail. warns are dropped
-	// here; the reload itself is logged by the caller.
-	_ = config.ApplyProjectOverlays(newCfg)
+	// warn (returned slice), they never make the reload fail. The startup path
+	// surfaces these on the console; on this runtime reload path there is no console
+	// handle, so log each warn via slog instead of dropping it silently.
+	for _, w := range config.ApplyProjectOverlays(newCfg) {
+		slog.Warn("config reload: overlay warn", "detail", w)
+	}
 	c.Cfg = newCfg
 	c.Projects.Reload(newCfg)
 	c.Agents.Reload(newCfg)
