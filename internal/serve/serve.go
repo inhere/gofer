@@ -173,9 +173,17 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	} else {
 		c.Printf("gofer: starting on %s (token auth enabled)\n", addr)
 	}
-	// Run blocks until the server stops (or fails to bind). The token is never
-	// printed (plan §11).
-	if err := srv.Run(addr); err != nil {
+	// SIGINT/SIGTERM trigger a graceful shutdown: the http.Server stops accepting
+	// new connections and drains in-flight ones, RunCtx returns nil, then every
+	// deferred cleanup above (store close, stop-channel closes for the sweeper /
+	// reload / hub loops) runs — unlike a default signal kill, which skips defers.
+	// `gofer stop` / daemon teardown send SIGTERM here (c44). SIGHUP reload is a
+	// separate loop and unaffected.
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
+	// RunCtx blocks until the server stops (signal-driven shutdown or bind
+	// failure). The token is never printed (plan §11).
+	if err := srv.RunCtx(ctx, addr); err != nil {
 		return errorx.Failf(ExitErr, "%v", err)
 	}
 	return nil
