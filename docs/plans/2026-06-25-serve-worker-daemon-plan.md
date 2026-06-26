@@ -10,6 +10,7 @@
 |---|---|---|---|
 | v0.1 | 2026-06-25 | claude | 初版计划，4 项决策待确认 |
 | v1.0 | 2026-06-25 | claude | 按推荐锁定 4 项决策（§5），P0 转为「已定」，进入可实施态 |
+| v1.1 | 2026-06-25 | claude | P1-P5 全部实施完成，单服务冒烟通过，c44 关闭；跨容器 E2E 留 codex 联调 |
 
 ## 0. 已锁定决策（§5 详）
 
@@ -292,12 +293,13 @@ func runStop(c *gcli.Command, _ []string) error {
 
 ## 4. 进度跟进
 
-- [ ] **P0** 约定确认（待确认①②③）
-- [ ] **P1** internal/daemon 包
-- [ ] **P2** serve -d + 优雅停机
-- [ ] **P3** worker -d
-- [ ] **P4** stop 子命令
-- [ ] **P5** 测试 + 文档 + 冒烟
+- [x] **P0** 约定已定（§5 锁定 4 项）
+- [x] **P1** internal/daemon 包（`4c31668`）
+- [x] **P2** serve -d + 优雅停机（`cc03e83`，冒烟过）
+- [x] **P3** worker -d（`ed82f2f`，冒烟过）
+- [x] **P4** stop 子命令（`70f2ac5`，冒烟过）
+- [x] **P5** 测试 + 文档（全量 `go test ./...` 绿 + `GOOS=windows go build` 过；CLAUDE.md G013）
+  - [ ] 跨容器 E2E（host serve -d + 容器 worker -d + 提交 job + stop）→ 交 host codex 联调（SR：多服务链路）
 
 ## 5. 已确认决策（2026-06-25 锁定，留痕 SR1101）
 

@@ -14,6 +14,7 @@
 
 - **G011 `-c` 统一绑定**：`-c/--config` 经公共 `bindConfigFlag(c)` 绑 `config.InputCfgFile`，命令前后均可放；新增子命令一律调它、**勿各自重复绑定 `-c`**。worker 配置独立用 `--worker-config`（worker.yaml，语义不同，不走 app `-c`）。
 - **G012 gcli 行为坑**：gcli 无 App 级 PersistentFlags——app 级 flag 只在命令名**之前**消费、不下放子命令；要"命令后也可用"须命令级绑定（即 G011 的 helper）。shell 补全是 gcli 内置 `--gen-completion`（**非** `completion` 子命令）。
+- **G013 daemon 模式（`-d/--daemon`）**：serve/worker 后台化用 env-sentinel **re-exec 自身**（Go 不能安全 fork），编排在 `internal/daemon`（`Setsid` 真 detach，unix 实现/windows 报不支持）；`commands` 入口**只**判断 `-d` 并调 `daemon.Spawn`/转发（G021）。运行时文件统一 `<config-dir>/run/`（serve.{pid,log} / worker-`<id>`.{pid,log}），经 `config.RuntimeFilePath` 解析；`gofer stop <serve|worker [<id>]>` 读 pidfile 发 SIGTERM。serve 优雅停机靠 `httpapi.Server.RunCtx`(ctx 取消→`Shutdown`)，worker 靠既有 `worker.Serve`。
 
 ### 代码分层（重构后基线，B 组 2026-06-25）
 
