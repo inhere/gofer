@@ -47,20 +47,36 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 		return config.ProjectConfig{}, fmt.Errorf("%w: unknown project %q", ErrUnknownProject, req.ProjectKey)
 	}
 
+	// A resume submission (ResumeSourceAgent set) mechanically carries Agent="exec"
+	// — the resume argv runs as the built-in exec carrier — but its REAL identity
+	// for access control is the SOURCE agent whose session is being续接. Gate the
+	// allowed_agents check AND the exec security gate below on that source agent:
+	// resume only re-runs the source agent's CLI in a constrained, templated form,
+	// so it must NOT demand the broad allow_exec the exec carrier would (2026-06-26
+	// decision; ResumeSourceAgent doc on JobRequest). For a normal job gateAgent ==
+	// req.Agent, preserving the established behaviour (exec is not exempt).
+	gateAgent := req.Agent
+	if req.ResumeSourceAgent != "" {
+		gateAgent = req.ResumeSourceAgent
+	}
+
 	// Agent must be in the project's allowed_agents (exec is not exempt).
-	if err := agent.CheckAllowed(cfg, req.ProjectKey, req.Agent); err != nil {
+	if err := agent.CheckAllowed(cfg, req.ProjectKey, gateAgent); err != nil {
 		return config.ProjectConfig{}, fmt.Errorf("%w: %s", ErrInvalidRequest, err.Error())
 	}
 
 	if !remote {
 		// exec security gate: the agent must be type exec AND the project must opt
-		// in. Skipped for remote jobs — the peer enforces its own exec gate.
-		ac, ok := agent.ResolveAgent(cfg, req.Agent)
+		// in. Skipped for remote jobs — the peer enforces its own exec gate. For a
+		// resume, gateAgent is the source agent: a cli-agent (claude/codex) source is
+		// not exec-type so it passes regardless of allow_exec, while a (contrived)
+		// exec-type source still honours the original allow_exec requirement.
+		ac, ok := agent.ResolveAgent(cfg, gateAgent)
 		if !ok {
-			return config.ProjectConfig{}, fmt.Errorf("%w: unknown agent %q", ErrInvalidRequest, req.Agent)
+			return config.ProjectConfig{}, fmt.Errorf("%w: unknown agent %q", ErrInvalidRequest, gateAgent)
 		}
 		if ac.Type == agent.TypeExec && !proj.AllowExec {
-			return config.ProjectConfig{}, fmt.Errorf("%w: exec agent %q not allowed: project %q has allow_exec=false", ErrInvalidRequest, req.Agent, req.ProjectKey)
+			return config.ProjectConfig{}, fmt.Errorf("%w: exec agent %q not allowed: project %q has allow_exec=false", ErrInvalidRequest, gateAgent, req.ProjectKey)
 		}
 	}
 

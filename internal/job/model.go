@@ -77,6 +77,22 @@ type JobRequest struct {
 	// persisted onto the JobResult so the session链 round-trips. Empty == let submit
 	// inject (claude) or capture (codex) decide.
 	SessionID string `json:"session_id,omitempty" yaml:"session_id,omitempty"`
+	// ResumeSourceAgent is an INTERNAL marker set ONLY by ResumeJob (session-capture
+	// P2, 2026-06-26 decision). A resume mechanically carries Agent="exec" (the
+	// resume argv runs as the built-in exec carrier), but its REAL identity for
+	// access control is the SOURCE agent whose session is being续接. When set,
+	// validate gates BOTH the allowed_agents check and the exec security gate on
+	// THIS source agent instead of the "exec" carrier: resume only re-runs the
+	// source agent's CLI in a constrained, templated form (argv = [agent.Command] +
+	// SessionResume + prompt), so it must NOT demand the broad allow_exec that an
+	// arbitrary exec job would. json/yaml "-": this exemption is a property of the
+	// `resume` entrypoint, NOT of the persisted job — it is never written to
+	// request_json and clients cannot forge it via the public submit API (a forged
+	// value would otherwise bypass allow_exec to run arbitrary exec). A `job rerun`
+	// of a resume job replays the stored exec request through the public path and is
+	// therefore (correctly) gated as a plain exec job — re-resume via the `resume`
+	// command instead.
+	ResumeSourceAgent string `json:"-" yaml:"-"`
 }
 
 // JobResult is the persisted/queryable job state (plan §6.2).

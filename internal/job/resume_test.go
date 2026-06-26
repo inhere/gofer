@@ -239,6 +239,87 @@ func TestResumeJobRendersCodexArgv(t *testing.T) {
 	}
 }
 
+// TestResumeJobExemptAllowExec proves the 2026-06-26 exemption: a cli-agent
+// (claude) source job resumes even when the project has allow_exec=false AND does
+// NOT list "exec" in allowed_agents. The resume carrier is exec, but validate
+// gates on the SOURCE agent (claude) — which is allowed and is not exec-type — so
+// the broad allow_exec is not required. Without the exemption this would fail with
+// "allow_exec=false".
+func TestResumeJobExemptAllowExec(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		Storage: config.StorageConfig{Root: root},
+		Projects: map[string]config.ProjectConfig{
+			"self": {
+				HostPath:       root,
+				AllowedAgents:  []string{"claude"}, // NOTE: no "exec"
+				AllowedRunners: []string{"local"},
+				AllowExec:      false, // NOTE: exec gate closed
+			},
+		},
+		Agents: map[string]config.AgentConfig{
+			// Built-in claude session defaults (inject + resume) but a harmless echo
+			// Command so the resumed exec job runs to done in the test.
+			"claude": {Type: agent.TypeCLIAgent, Command: "echo", Args: []string{"-p", "{{prompt}}"}},
+		},
+	}
+	s := newServiceFromCfg(t, root, cfg)
+
+	src := submitSourceCancel(t, s, JobRequest{
+		ProjectKey: "self", Agent: "claude", Runner: "local",
+		Prompt: "remember 42", Cwd: ".", TimeoutSec: 30,
+	})
+	if src.SessionID == "" {
+		t.Fatalf("setup: claude inject should have a session_id")
+	}
+
+	newJob, err := s.ResumeJob(src.ID, "what number", "", "caller-x")
+	if err != nil {
+		t.Fatalf("ResumeJob should be exempt from allow_exec, got %v", err)
+	}
+	t.Cleanup(func() { _ = s.Cancel(newJob.ID); s.Wait(newJob.ID) })
+
+	if newJob.Agent != agent.ExecAgentKey {
+		t.Fatalf("resumed job agent = %q, want exec (carrier)", newJob.Agent)
+	}
+	if newJob.SessionID != src.SessionID {
+		t.Fatalf("resumed job session_id = %q, want %q (linked)", newJob.SessionID, src.SessionID)
+	}
+}
+
+// TestResumeJobRerunStillGated proves the exemption does NOT leak to a plain
+// re-submit: replaying a resume job's stored exec request through the public
+// Submit path (as `job rerun` does — no ResumeSourceAgent) is still gated as a
+// plain exec job. This is the anti-forge boundary: only the resume entrypoint
+// carries the source-agent authorization.
+func TestResumeJobRerunStillGated(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		Storage: config.StorageConfig{Root: root},
+		Projects: map[string]config.ProjectConfig{
+			"self": {
+				HostPath:       root,
+				AllowedAgents:  []string{"claude"},
+				AllowedRunners: []string{"local"},
+				AllowExec:      false,
+			},
+		},
+		Agents: map[string]config.AgentConfig{
+			"claude": {Type: agent.TypeCLIAgent, Command: "echo", Args: []string{"-p", "{{prompt}}"}},
+		},
+	}
+	s := newServiceFromCfg(t, root, cfg)
+
+	// A direct exec submit (no resume marker) is rejected — the gate still applies.
+	_, err := s.Submit(JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"echo", "hi"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("plain exec submit should stay gated (allow_exec=false), got %v", err)
+	}
+}
+
 // newServiceFromCfg wires a Service over an explicit config (local runner + a
 // fresh jobstore). Helper for resume tests that need a bespoke agent set.
 func newServiceFromCfg(t *testing.T, root string, cfg *config.Config) *Service {

@@ -111,6 +111,10 @@ type jobView struct {
 	StartedAt  int64  `json:"started_at"`
 	EndedAt    int64  `json:"ended_at"`
 	Error      string `json:"error,omitempty"`
+	// SessionID is the底层 agent CLI 会话标识 (session-capture); present when the job
+	// injected (claude) or captured (codex) one. Surfaced so MCP callers see the
+	// same session detail as `gofer job show` / the web console and can drive resume.
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // toJobView projects a job.JobResult onto the snake_case jobView. It is the
@@ -128,6 +132,7 @@ func toJobView(r job.JobResult) jobView {
 		StartedAt:  r.StartedAt,
 		EndedAt:    r.EndedAt,
 		Error:      r.Error,
+		SessionID:  r.SessionID,
 	}
 }
 

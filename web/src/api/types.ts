@@ -38,6 +38,9 @@ export interface Job {
   source?: string
   // 自由标签（E5，后端 omitempty）：来自提交时的 tags，支持 ?tag= 检索，行内渲染徽标。
   tags?: string[]
+  // 底层 agent CLI 会话标识（session-capture，后端 omitempty）：claude 注入 / codex 捕获得到，
+  // 用于 `gofer job resume`。详情页展示，便于人工续接定位。
+  session_id?: string
 }
 
 // 产物清单项（E1，P2）：<result_dir>/artifacts/ 下文件元数据。name 为相对路径
