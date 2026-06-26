@@ -75,6 +75,9 @@ type Outcome struct {
 	ResultJSON      string          `json:"result_json,omitempty"`
 	DiffSummary     string          `json:"diff_summary,omitempty"`
 	Artifacts       json.RawMessage `json:"artifacts,omitempty"`
+	// SessionID 是 worker 侧本地 JobResult 捕获/注入得到的 agent 会话标识(P3)，随
+	// Outcome 帧回传 host，host 端 applyOutcome 落到 entry.result.SessionID。空=未捕获。
+	SessionID string `json:"session_id,omitempty"`
 }
 
 // --- P2/P3 placeholders: declared so the protocol is complete (review #6); the

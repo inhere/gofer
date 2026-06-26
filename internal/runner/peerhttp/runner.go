@@ -129,6 +129,9 @@ func (r *Runner) captureRemoteOutcome(peerID string, final job.JobResult) *runne
 		ResultJSON:      final.ResultJSON,
 		DiffSummary:     final.DiffSummary,
 		Source:          "peer:" + r.name,
+		// peer 的 get_job 返回的 JobResult 已含其本地捕获/注入的 session_id (P1)，原样
+		// 回传 host (P3)，让远端执行的 job 也能 resume / list --session。
+		SessionID: final.SessionID,
 	}
 	if manifest, err := r.c.ListArtifacts(peerID); err == nil && len(manifest) > 0 {
 		o.Artifacts = manifest

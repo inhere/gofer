@@ -83,11 +83,14 @@ func outcomeFrame(remoteJobID string, final job.JobResult) (wsproto.Outcome, boo
 		RenderedCommand: final.RenderedCommand,
 		ResultJSON:      final.ResultJSON,
 		DiffSummary:     final.DiffSummary,
+		// worker 侧共享 job.Service 已在终态 captureOutcomes 把 session_id 填进本地
+		// JobResult（claude 注入 / codex 捕获, P1）；随 Outcome 帧回传 host (P3)。
+		SessionID: final.SessionID,
 	}
 	if final.ArtifactsJSON != "" {
 		o.Artifacts = json.RawMessage(final.ArtifactsJSON)
 	}
-	send := o.RenderedCommand != "" || o.ResultJSON != "" || o.DiffSummary != "" || len(o.Artifacts) > 0
+	send := o.RenderedCommand != "" || o.ResultJSON != "" || o.DiffSummary != "" || len(o.Artifacts) > 0 || o.SessionID != ""
 	return o, send
 }
 

@@ -245,6 +245,34 @@ func TestReadResultJSON(t *testing.T) {
 	}
 }
 
+// TestApplyOutcomeSessionID proves applyOutcome lands a remote-reported
+// Outcome.SessionID onto entry.result.SessionID (P3 worker/peer 回传落库), mirroring
+// the Source write path; and that an empty Outcome.SessionID does NOT clobber an
+// existing value (additive, like the other产出 fields).
+func TestApplyOutcomeSessionID(t *testing.T) {
+	s := newTestService(t, t.TempDir())
+
+	// 远端回传带 session_id → 落到 entry.result.SessionID。
+	entry := &jobEntry{result: JobResult{ID: "j1"}}
+	s.applyOutcome(entry, &runner.Outcome{
+		Source:    "worker:w-1",
+		SessionID: "sess-abc",
+	})
+	if entry.result.SessionID != "sess-abc" {
+		t.Fatalf("applyOutcome should set SessionID, got %q", entry.result.SessionID)
+	}
+	if entry.result.Source != "worker:w-1" {
+		t.Fatalf("applyOutcome should set Source, got %q", entry.result.Source)
+	}
+
+	// 空 SessionID 回传不覆盖既有值（best-effort additive）。
+	entry2 := &jobEntry{result: JobResult{ID: "j2", SessionID: "keep-me"}}
+	s.applyOutcome(entry2, &runner.Outcome{Source: "peer:px"})
+	if entry2.result.SessionID != "keep-me" {
+		t.Fatalf("empty Outcome.SessionID must not clobber existing, got %q", entry2.result.SessionID)
+	}
+}
+
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
