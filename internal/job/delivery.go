@@ -2,7 +2,7 @@ package job
 
 import (
 	"context"
-	"log"
+	"log/slog"
 	"os"
 	"time"
 
@@ -60,7 +60,7 @@ func (s *Service) DeliverDue(ctx context.Context) int {
 
 	claimed, err := s.meta.ClaimDueDeliveries(now, deliveryClaimBatch, jobstore.ClaimLeaseSeconds)
 	if err != nil {
-		log.Printf("DeliverDue: claim: %v", err)
+		slog.Warn("DeliverDue: claim due deliveries", "err", err)
 		return 0
 	}
 	maxAttempts := nconf.EffectiveMaxAttempts()
@@ -101,7 +101,7 @@ func (s *Service) deliverOne(ctx context.Context, d jobstore.Delivery, nconf *co
 	now := s.nowFn().Unix()
 	if err == nil {
 		if mErr := s.meta.MarkDelivered(d.ID, now); mErr != nil {
-			log.Printf("DeliverDue: mark delivered %d: %v", d.ID, mErr)
+			slog.Warn("DeliverDue: mark delivered", "delivery_id", d.ID, "err", mErr)
 		}
 		return
 	}
@@ -109,13 +109,13 @@ func (s *Service) deliverOne(ctx context.Context, d jobstore.Delivery, nconf *co
 	attempts := d.Attempts + 1
 	if attempts >= maxAttempts {
 		if mErr := s.meta.MarkFailed(d.ID, attempts, err.Error(), now); mErr != nil {
-			log.Printf("DeliverDue: mark failed %d: %v", d.ID, mErr)
+			slog.Warn("DeliverDue: mark failed", "delivery_id", d.ID, "err", mErr)
 		}
 		return
 	}
 	nextAt := now + int64(nextBackoff(attempts)/time.Second)
 	if mErr := s.meta.MarkRetry(d.ID, attempts, nextAt, err.Error(), now); mErr != nil {
-		log.Printf("DeliverDue: mark retry %d: %v", d.ID, mErr)
+		slog.Warn("DeliverDue: mark retry", "delivery_id", d.ID, "err", mErr)
 	}
 }
 
@@ -125,7 +125,7 @@ func (s *Service) deliverOne(ctx context.Context, d jobstore.Delivery, nconf *co
 func (s *Service) buildDeliveryBody(d jobstore.Delivery) (body []byte, eventType string, ok bool) {
 	ev, found, err := s.meta.GetEvent(d.EventSeq)
 	if err != nil {
-		log.Printf("DeliverDue: get event %d: %v", d.EventSeq, err)
+		slog.Warn("DeliverDue: get event", "seq", d.EventSeq, "err", err)
 		return nil, "", false
 	}
 	if !found {
@@ -146,7 +146,7 @@ func (s *Service) buildDeliveryBody(d jobstore.Delivery) (body []byte, eventType
 	}
 	b, err := notify.BuildBody(ev.Seq, ev.JobID, ev.Type, ev.Detail, ev.At, summary)
 	if err != nil {
-		log.Printf("DeliverDue: build body seq %d: %v", d.EventSeq, err)
+		slog.Warn("DeliverDue: build body", "seq", d.EventSeq, "err", err)
 		return nil, "", false
 	}
 	return b, ev.Type, true

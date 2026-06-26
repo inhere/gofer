@@ -3,7 +3,7 @@ package job
 import (
 	"context"
 	"io"
-	"log"
+	"log/slog"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,7 +39,7 @@ func captureDiff(cwd, resultDir string) string {
 	full := runGit(ctx, cwd, diffFullCap, "diff")
 	if len(full) > 0 && resultDir != "" {
 		if err := os.WriteFile(filepath.Join(resultDir, "changes.diff"), full, 0o644); err != nil {
-			log.Printf("captureDiff: write changes.diff under %s: %v", resultDir, err)
+			slog.Warn("captureDiff: write changes.diff", "result_dir", resultDir, "err", err)
 		}
 	}
 

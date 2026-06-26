@@ -2,7 +2,7 @@ package workflow
 
 import (
 	"encoding/json"
-	"log"
+	"log/slog"
 	"sort"
 
 	job "github.com/inhere/gofer/internal/job"
@@ -88,7 +88,7 @@ func (e *Engine) recordWorkflowEvent(wfID, eventType string, detail any) {
 		Detail:     dj,
 		At:         e.now().Unix(),
 	}); err != nil {
-		log.Printf("recordWorkflowEvent: workflow %s type %s: %v", wfID, eventType, err)
+		slog.Warn("recordWorkflowEvent: insert workflow event", "workflow_id", wfID, "type", eventType, "err", err)
 	}
 }
 
