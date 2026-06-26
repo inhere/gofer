@@ -49,6 +49,8 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		StepIndex:  r.StepIndex,
 		Attempt:    r.Attempt,
 		FanIndex:   r.FanIndex, // P2: fan-out 并行序号
+		// session 捕获：底层 agent CLI 会话标识（注入/捕获）。
+		SessionID: r.SessionID,
 	}
 }
 
@@ -109,6 +111,8 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		StepIndex:  rec.StepIndex,
 		Attempt:    rec.Attempt,
 		FanIndex:   rec.FanIndex, // P2: fan-out 并行序号
+		// session 捕获：底层 agent CLI 会话标识（注入/捕获）。
+		SessionID: rec.SessionID,
 	}
 }
 

@@ -22,3 +22,7 @@
 - **G022 依赖单向、防环**：入口 → 编排(core/serve/streaming) → job → 数据层(jobstore/project/agent/runner/store/config…)；底层/业务层**绝不**反向 import 入口/编排层。新增包后以 `go build`/`go vet`/`go list -deps` 验环。详见 `docs/design/2026-06-25-code-layering-refactor-design.md`。
 - **G023 重构铁律**：搬迁/拆分代码**零行为变化**（函数体逐字，仅改包/导出性/import），每步全量 `go test ./...` 绿背书；专属测试随逻辑迁移、覆盖不降。
 - **G024 子域升包判据 + 依赖倒置**：拆文件改善阅读、**升包改善边界**；一个子域满足「域自洽 + 反向 seam 够窄 + 正向可接口化 + 收益>代价」(D-B8) 才升为子包，否则留包内按文件聚合。已落地：`internal/job/workflow`（链编排引擎，design §13）——`job` 经 `WorkflowAdvancer` 接口反向回调（job 不 import workflow），`workflow.Engine` 经 `JobOps` 接口取宿主能力；共享类型（`RetryPolicy` 等 `JobRequest` 字段类型）留 `job`。新子域抽取沿用此「双接口依赖倒置」模式。
+
+### 其他
+
+- **G031** 这是独立工具库，不要将任何业务相关的信息写入代码或配置里

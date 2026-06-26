@@ -88,6 +88,30 @@ func TestUpsertGetRoundTrip(t *testing.T) {
 	assert.Eq(t, int64(0), got.EndedAt)
 }
 
+// TestUpsertGetSessionIDRoundTrip proves the session_id column round-trips:
+// a set value survives upsert+read, and an empty one reads back as "" (the
+// COALESCE in selectCols guards a NULL into the zero value).
+func TestUpsertGetSessionIDRoundTrip(t *testing.T) {
+	s := openTest(t)
+
+	in := sampleJob("sess-1", "alpha", 1000)
+	in.SessionID = "67cc4d00-1111-4abc-8def-0123456789ab"
+	assert.NoErr(t, s.UpsertJob(in))
+
+	got, ok, err := s.GetJob("sess-1")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "67cc4d00-1111-4abc-8def-0123456789ab", got.SessionID)
+
+	// A job with no session_id reads back as "" (not an error, not NULL).
+	none := sampleJob("sess-none", "alpha", 1001)
+	assert.NoErr(t, s.UpsertJob(none))
+	got2, ok, err := s.GetJob("sess-none")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "", got2.SessionID)
+}
+
 func TestGetJobMissingReturnsFalseNoError(t *testing.T) {
 	s := openTest(t)
 	got, ok, err := s.GetJob("nope")
