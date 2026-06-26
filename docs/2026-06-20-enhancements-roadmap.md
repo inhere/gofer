@@ -18,6 +18,7 @@
 | v1.6 | 2026-06-23 | inhere | E29 标注**路径视角待补丁**（design D10：`path_view` 开关 + `ExecPath`，修正 container_path 未进执行链路 + overlay 路径不一致）；E32 子 git 扫描改走 `ExecPath` |
 | v1.7 | 2026-06-23 | inhere | **D10 路径视角已落地**（commit `f3a1db8`）：`path_view`+`ExecPath` 统一执行路径、修正 overlay 不一致、默认 host 零变化回归绿 |
 | v1.8 | 2026-06-23 | inhere | **Web 控制台 v2 只读层 design 已出**（E31拓扑/E19a预览/E20 git/E32 子git+关键文件，[`design/2026-06-23-web-console-v2-readonly-design.md`](design/2026-06-23-web-console-v2-readonly-design.md)）；待出 plan |
+| v1.9 | 2026-06-26 | claude | 新增 **E33 agent session 捕获与恢复**（捕获底层 CLI `session_id` 入库 → 检查/检索/恢复续接；exec 透传 `claude --resume` 跨 job 已实测可行）。design [`design/2026-06-26-session-capture-design.md`](design/2026-06-26-session-capture-design.md)（bd `hyy-ai-inspect-nnk`）；分期 P1/P2/P3 |
 
 ## 现状基线（已有，不重复做）
 
@@ -62,6 +63,7 @@
 | E27 ✅ | **子工作流 / 跨项目编排** | 高 | 大 | 已随 v2 P3 落地（commit `dc71b06`）：`type=workflow`/`sub_workflow` 嵌套（深度≤3、fan×wf 互斥）+ `parent_*` 列 + 子 wf 终态 triggerParentAdvance。跨项目产物：本地 `result_dir` 直读已支持；**远端跨机依赖共享文件系统**（自动拉取通道留后续，README 已警示）。 |
 | E28 | **多 agent 经 gofer 协作通信（mcp HTTP-client 接入）** | 高 | 中 | 让多个工作目录的 claude/agent 进程把 gofer 当**中枢**互通：A 派活给 B、信箱式 `pending_interaction` 互答、共享 `result`/`artifacts`。**分层结合**：**地基=中央 `serve`**（job 执行/状态/日志集中，前提非选项，已有）；**接入=给 `gofer mcp` 加 HTTP-client 模式**（8 个 `bridge_*` 工具从进程内直操 DB 改为转发到中央 serve，**复用 `internal/client` peer-http 客户端，小改造**）——一举消除 stdio 1:1 + "job 在哪进程执行/日志在哪/跨进程 SQLite 写锁"三坑。**信箱语义与 E25 可插拔 answerer 统一**（人工 Web / IM(E22c) / 监督 agent(E25) / 对等 agent 同一机制）；可选再加 message 原语（`bridge_post/poll_message`）。⚠️ MCP 是 client→server 单向工具调用、非对等总线，故只能"经中枢间接互通"，非两 claude 直连。分阶段：先零改造跑 serve+HTTP 验证协作语义 → 再补 mcp HTTP-client 体验。跨①②轴。 |
 | E30 | **浏览器 pty 交互（attach 交互式 agent）** | 高 | 大 | Web 里经 pty(伪终端)直连 agent 的**交互式终端**（xterm.js + ws 双向流 input/output/resize），区别于结构化 `pending_interaction`（单问单答）——适合本身是 REPL/交互式 CLI 的 agent（claude 交互模式 / shell / 调试器）。**改执行模型**：agent 跑在 ptmx、stdin 接入，需 `interactive:true` job 选项或新 runner 模式；后端 `creack/pty`。远端 worker pty 经 hub ws 隧道转发（难点，local 先行 / 远端二期）。⚠️ pty ≈ 全 shell 能力，严格鉴权 + 会话审计（考虑录制）；定位"attach 交互式 agent"，**不做通用 web shell**（防后门）。属 Web 控制台 v2 写/交互层。跨①②轴。 |
+| E33 | **agent session 捕获与恢复** | 高 | 中 | 自动捕获每个 job 里底层 agent CLI 的 `session_id` 入库 → 会话可**检查/检索/恢复续接**。已实测 exec 透传下 `claude --resume <id>` 跨 job 续接可行（同 runner，session 状态在该机 `~/.claude`），但 `session_id` 现需人工从 job 输出抠出。方案：挂已有 `captureOutcomes` 钩子 best-effort 提取（agent 内置正则 + `$GOFER_RESULT_DIR/session_id` 兜底）、additive 加 `jobs.session_id` 列、`gofer job resume <job-id>`（同 runner 约束）。design [`design/2026-06-26-session-capture-design.md`](design/2026-06-26-session-capture-design.md)；分期 **P1** local 捕获+`show` / **P2** `resume` 命令 / **P3** worker 远端。跨②③轴。 |
 
 > **E28 实现取向：stdio mcp 双模式（别误砍 stdio）**
 > `gofer mcp` 的 **stdio transport 要保留**——它是 claude/MCP 生态最自然的接入方式（`command` 拉子进程、零网络/端口/token 配置）；该废的是它现在的 **in-process 后端**，不是 stdio 本身。"单进程独享" 是 stdio 1:1 的 transport 本质（非缺陷）；"单项目" 的说法不成立——一个 mcp 进程加载整份 config，可向**任意已登记项目**派 job，只是 local job 都在**本进程执行**。改造后两模式并存，一个 flag 切（如 `gofer mcp --serve http://...` 走 client，否则 standalone）：
