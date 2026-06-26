@@ -122,6 +122,19 @@ func UserConfigPath() (string, error) {
 // global config.yaml / .env in the config dir.
 const WorkerConfigFileName = "worker.yaml"
 
+// RuntimeFilePath returns the path of a runtime file <config-dir>/<sub>/<name>
+// (e.g. RuntimeFilePath("run", "serve.pid") → <config-dir>/run/serve.pid). It is
+// where daemon mode (-d) keeps pidfiles and redirected logs. When ConfigDir is
+// unresolvable it degrades to ./<sub>/<name> so the process still has a usable
+// path. Callers MkdirAll the parent dir before writing.
+func RuntimeFilePath(sub, name string) string {
+	dir, err := ConfigDir()
+	if err != nil || dir == "" {
+		return filepath.Join(sub, name)
+	}
+	return filepath.Join(dir, sub, name)
+}
+
 // UserWorkerConfigPath returns the user-level default worker config path
 // (<config-dir>/worker.yaml; config-dir defaults to ~/.config/gofer). It is the
 // fallback `gofer worker` uses when no --worker-config is given (mirrors how the

@@ -60,6 +60,17 @@ func TestUserWorkerConfigPath_UsesConfigDir(t *testing.T) {
 	}
 }
 
+func TestRuntimeFilePath_UsesConfigDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(EnvConfigDir, dir)
+
+	got := RuntimeFilePath("run", "serve.pid")
+	want := filepath.Join(dir, "run", "serve.pid")
+	if got != want {
+		t.Fatalf("RuntimeFilePath = %q, want %q", got, want)
+	}
+}
+
 // TestLoadDotenv_PrecedenceAndOrder verifies: cwd/.env overrides cfgDir/.env, a
 // key only in one file keeps its value, and an exported OS env wins over .env.
 func TestLoadDotenv_PrecedenceAndOrder(t *testing.T) {
