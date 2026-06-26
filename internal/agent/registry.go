@@ -72,13 +72,52 @@ func ResolveAgent(cfg *config.Config, key string) (config.AgentConfig, bool) {
 			if key == ExecAgentKey && a.Type == "" {
 				a.Type = TypeExec
 			}
-			return a, true
+			return applySessionDefaults(key, a), true
 		}
 	}
 	if key == ExecAgentKey {
 		return builtinExecAgent(), true
 	}
 	return config.AgentConfig{}, false
+}
+
+// builtinSessionDefaults holds the实测内置 session 配置（session-capture §6.4），
+// 按 agent 名兜底。仅当某 agent 的对应 session 字段未显式配置时才填充（显式配置覆盖
+// 内置）。claude 用注入模式（gofer 生成 uuid → --session-id），codex 用捕获模式
+// （默认输出头部 `session id:`），resume 是整条 argv 模板（{{session_id}}/{{prompt}}）。
+// G031：仅含通用 agent（claude/codex）默认，不含任何业务相关信息。
+var builtinSessionDefaults = map[string]config.AgentConfig{
+	"claude": {
+		SessionInject: []string{"--session-id", "{{session_id}}"},
+		SessionResume: []string{"--resume", "{{session_id}}", "-p", "{{prompt}}"},
+	},
+	"codex": {
+		SessionCapture: `session id:\s*([0-9a-f-]+)`,
+		SessionResume:  []string{"exec", "resume", "{{session_id}}", "{{prompt}}"},
+	},
+}
+
+// applySessionDefaults fills an agent's unset session fields from the built-in
+// defaults for that agent name (session-capture §6.4). Each of the three session
+// fields is filled INDEPENDENTLY and ONLY when empty, so an explicit config value
+// always wins (no overwrite). Agents without a built-in default are returned
+// unchanged. The input is a copy (value receiver upstream), so this never mutates
+// the loaded config.
+func applySessionDefaults(key string, a config.AgentConfig) config.AgentConfig {
+	def, ok := builtinSessionDefaults[key]
+	if !ok {
+		return a
+	}
+	if len(a.SessionInject) == 0 {
+		a.SessionInject = def.SessionInject
+	}
+	if a.SessionCapture == "" {
+		a.SessionCapture = def.SessionCapture
+	}
+	if len(a.SessionResume) == 0 {
+		a.SessionResume = def.SessionResume
+	}
+	return a
 }
 
 // Names returns all agent keys (config-declared plus the built-in exec), sorted
