@@ -151,6 +151,45 @@ func TestCancelUnknownJobError(t *testing.T) {
 	}
 }
 
+// TestResumeUnknownJobError exercises the client's ResumeJob round-trip and
+// error decoding: resuming an unknown id surfaces the server's 404 as an error.
+func TestResumeUnknownJobError(t *testing.T) {
+	ts := newServer(t, testToken, false)
+	c := New(ts.URL, testToken)
+
+	_, err := c.ResumeJob("nope", "hi", "")
+	if err == nil {
+		t.Fatal("expected error resuming unknown job")
+	}
+	if !strings.Contains(err.Error(), "404") {
+		t.Fatalf("error should mention 404 status: %v", err)
+	}
+}
+
+// TestResumeNoSessionError: resuming an exec job (no captured session) surfaces
+// the server's 400 — proving the client posts the body and decodes the error.
+func TestResumeNoSessionError(t *testing.T) {
+	ts := newServer(t, testToken, false)
+	c := New(ts.URL, testToken)
+
+	created, err := c.SubmitJob(job.JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if err != nil {
+		t.Fatalf("SubmitJob: %v", err)
+	}
+	waitDone(t, c, created.ID)
+
+	_, err = c.ResumeJob(created.ID, "again", "")
+	if err == nil {
+		t.Fatal("expected error resuming a job with no session")
+	}
+	if !strings.Contains(err.Error(), "400") {
+		t.Fatalf("error should mention 400 status: %v", err)
+	}
+}
+
 func TestAuthMissingTokenRejected(t *testing.T) {
 	ts := newServer(t, testToken, false) // server requires a token
 	c := New(ts.URL, "")                 // client sends none
