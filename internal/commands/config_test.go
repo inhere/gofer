@@ -384,6 +384,50 @@ func TestConfigValidateWorkerBadToken(t *testing.T) {
 	assertCodedExit(t, err)
 }
 
+// TestLoadWorkerConfigDefaultsToConfigDir: with no --worker-config, loadWorkerConfig
+// falls back to <config-dir>/worker.yaml (GOFER_CONFIG_DIR), so a worker launched
+// from its config home needs no flag.
+func TestLoadWorkerConfigDefaultsToConfigDir(t *testing.T) {
+	cfgDir := t.TempDir()
+	host := t.TempDir()
+	t.Setenv(config.EnvConfigDir, cfgDir)
+	wcYAML := "" +
+		"worker_id: w-docker-claude\n" +
+		"server_link:\n" +
+		"  urls: [ws://127.0.0.1:8767/v1/workers/connect]\n" +
+		"  token: tok\n" +
+		"projects:\n" +
+		"  w1:\n" +
+		"    host_path: " + host + "\n" +
+		"    allowed_runners: [local]\n"
+	if err := os.WriteFile(filepath.Join(cfgDir, config.WorkerConfigFileName), []byte(wcYAML), 0o644); err != nil {
+		t.Fatalf("write default worker.yaml: %v", err)
+	}
+
+	wc, err := loadWorkerConfig("")
+	if err != nil {
+		t.Fatalf("loadWorkerConfig(\"\") should read <config-dir>/worker.yaml, got: %v", err)
+	}
+	if wc.WorkerID != "w-docker-claude" {
+		t.Fatalf("worker_id = %q, want w-docker-claude", wc.WorkerID)
+	}
+}
+
+// TestLoadWorkerConfigDefaultMissing: when no flag is given and the default
+// <config-dir>/worker.yaml does not exist, the error names the resolved path.
+func TestLoadWorkerConfigDefaultMissing(t *testing.T) {
+	cfgDir := t.TempDir()
+	t.Setenv(config.EnvConfigDir, cfgDir)
+
+	_, err := loadWorkerConfig("")
+	if err == nil {
+		t.Fatal("expected error when default worker.yaml is absent")
+	}
+	if !strings.Contains(err.Error(), config.WorkerConfigFileName) {
+		t.Fatalf("error should reference %q, got: %v", config.WorkerConfigFileName, err)
+	}
+}
+
 // TestConfigValidateUnknownTarget: an unrecognised target is a coded error.
 func TestConfigValidateUnknownTarget(t *testing.T) {
 	c := bindCmd(NewConfigCmd().Subs[0])

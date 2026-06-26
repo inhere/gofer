@@ -118,6 +118,22 @@ func UserConfigPath() (string, error) {
 	return filepath.Join(dir, "config.yaml"), nil
 }
 
+// WorkerConfigFileName is the conventional worker config filename, alongside the
+// global config.yaml / .env in the config dir.
+const WorkerConfigFileName = "worker.yaml"
+
+// UserWorkerConfigPath returns the user-level default worker config path
+// (<config-dir>/worker.yaml; config-dir defaults to ~/.config/gofer). It is the
+// fallback `gofer worker` uses when no --worker-config is given (mirrors how the
+// server config falls back to <config-dir>/config.yaml).
+func UserWorkerConfigPath() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, WorkerConfigFileName), nil
+}
+
 // DBFileName is the SQLite metadata database file name used when db_path is
 // resolved from storage.root or the config dir (see ResolveDBPath, design §11).
 const DBFileName = "gofer.db"
