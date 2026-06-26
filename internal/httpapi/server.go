@@ -277,6 +277,10 @@ func (s *Server) buildRouter() *rux.Router {
 
 		r.POST("/jobs/{id}/cancel", s.handleCancelJob)
 
+		// session-capture(P2)：用源 job 的 SessionID 续接底层 agent 会话，起一个新
+		// exec job（同 runner）。body {prompt, runner?}；校验失败 4xx/404(resumeStatus)。
+		r.POST("/jobs/{id}/resume", s.handleResumeJob)
+
 		// 工作流(job 链)：提交/列表/详情(含 step 链)/取消。详情附每步 {step_index,
 		// name,job_id,status}，列表 ?status= 过滤；提交校验失败复用 submitStatus(404/400)。
 		r.POST("/workflows", s.handleCreateWorkflow)

@@ -236,6 +236,24 @@ func (c *Client) CancelJob(id string) (job.JobResult, error) {
 	return res, err
 }
 
+// ResumeJob POSTs to /v1/jobs/{id}/resume to续接 the source job's底层 agent 会话
+// (session-capture P2). It returns the NEW job's snapshot (its session_id links
+// back to the source session). runner is optional; when set the server enforces
+// it equals the source runner (同 runner 约束). The default is async — the caller
+// watches the returned job id.
+func (c *Client) ResumeJob(id, prompt, runner string) (job.JobResult, error) {
+	body, err := json.Marshal(struct {
+		Prompt string `json:"prompt"`
+		Runner string `json:"runner,omitempty"`
+	}{Prompt: prompt, Runner: runner})
+	if err != nil {
+		return job.JobResult{}, fmt.Errorf("encode resume request: %w", err)
+	}
+	var res job.JobResult
+	err = c.doJSON(http.MethodPost, "/v1/jobs/"+url.PathEscape(id)+"/resume", bytes.NewReader(body), &res)
+	return res, err
+}
+
 // WorkflowStep is one row of a workflow's step chain in the detail response,
 // mirroring httpapi's workflow.Step JSON (snake_case). job_id/status are empty
 // for a step not yet started (the chain is strictly serial). Attempt is the 1-based

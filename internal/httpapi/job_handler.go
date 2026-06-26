@@ -174,6 +174,53 @@ func (s *Server) serveLog(c *rux.Context, stream store.Stream) {
 	c.Text(http.StatusOK, string(data))
 }
 
+// resumeJobReq is the POST body for resuming a job's底层 agent 会话
+// (session-capture P2). prompt is the new turn's text; runner is OPTIONAL and,
+// when set, must equal the source job's runner (同 runner 约束) — a mismatch is a
+// 400. An empty prompt is allowed (some agents accept a bare resume).
+type resumeJobReq struct {
+	Prompt string `json:"prompt"`
+	Runner string `json:"runner,omitempty"`
+}
+
+// handleResumeJob starts a NEW job that续接 the source job's底层 agent CLI 会话
+// (session-capture P2, design §5.2). The编排 lives in job.Service.ResumeJob
+// (G021): the handler only parses the body, stamps the authenticated caller
+// (anti-spoof, like handleCreateJob) and maps the job-package sentinels to a
+// status. On success it returns the new job's JobResult (its session_id links
+// back to the source session). Default async — the client watches the new job.
+func (s *Server) handleResumeJob(c *rux.Context) {
+	id := c.Param("id")
+	var req resumeJobReq
+	if err := c.BindJSON(&req); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	res, err := s.jobs.ResumeJob(id, req.Prompt, req.Runner, callerFromCtx(c))
+	if err != nil {
+		writeError(c, resumeStatus(err), "resume rejected", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, res)
+}
+
+// resumeStatus maps a ResumeJob error to an HTTP status: an unknown source job is
+// a 404; the well-formed-but-not-permitted resume rejections (no captured
+// session, agent without a resume template, cross-runner) are 400. Submit errors
+// surfaced by the inner re-submit are mapped via submitStatus (unknown project →
+// 404, etc.).
+func resumeStatus(err error) int {
+	if errors.Is(err, job.ErrUnknownJob) {
+		return http.StatusNotFound
+	}
+	if errors.Is(err, job.ErrNoSession) ||
+		errors.Is(err, job.ErrResumeUnsupported) ||
+		errors.Is(err, job.ErrCrossRunner) {
+		return http.StatusBadRequest
+	}
+	return submitStatus(err)
+}
+
 // handleCancelJob requests cancellation. Cancel is a stable no-op for an already
 // terminal job (returns the current snapshot), and a 404 for an unknown id.
 func (s *Server) handleCancelJob(c *rux.Context) {

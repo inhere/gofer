@@ -76,6 +76,14 @@ var jobRerunOpts = struct {
 	watch bool
 }{}
 
+// jobResumeOpts holds `job resume` flags (session-capture P2). prompt is the new
+// turn's text; runner optionally pins the target runner (must equal the source
+// job's runner — 同 runner 约束 — else the server rejects it).
+var jobResumeOpts = struct {
+	prompt string
+	runner string
+}{}
+
 // NewJobCmd builds the `job` command group (run/show/logs/cancel). It wraps the
 // server's /v1/jobs HTTP API so the host can drive jobs without curl (plan §9-P6).
 func NewJobCmd() *gcli.Command {
@@ -182,6 +190,18 @@ func NewJobCmd() *gcli.Command {
 					c.AddArg("id", "source job id", true)
 				},
 				Func: runJobRerun,
+			},
+			{
+				Name: "resume",
+				Desc: "Resume a job's底层 agent 会话 as a new job (same runner)",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.StrOpt(&jobResumeOpts.prompt, "prompt", "", "", "prompt text for the resumed turn")
+					c.StrOpt(&jobResumeOpts.runner, "runner", "", "", "target runner (must equal the source job's runner; default = source runner)")
+					c.AddArg("id", "source job id", true)
+				},
+				Func: runJobResume,
 			},
 		},
 	}
@@ -590,4 +610,27 @@ func runJobRerun(c *gcli.Command, _ []string) error {
 		return nil
 	}
 	return watchToTerminal(c, cli, newID, 0)
+}
+
+// runJobResume续接 the source job's底层 agent 会话 (session-capture P2): it POSTs
+// to /v1/jobs/{id}/resume (server-side编排 in job.Service.ResumeJob) and prints
+// the new job id. Default async (design §10-2: claude 慢任务 sync 会超时) — it
+// prints a `gofer job watch <id>` hint rather than polling.
+func runJobResume(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("job resume requires an <id> argument")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	res, err := cli.ResumeJob(id, jobResumeOpts.prompt, jobResumeOpts.runner)
+	if err != nil {
+		return err
+	}
+	c.Printf("resume of %s submitted: new job %s status=%s session_id=%s\n",
+		id, res.ID, res.Status, res.SessionID)
+	c.Printf("watch it: gofer job watch %s\n", res.ID)
+	return nil
 }
