@@ -71,6 +71,12 @@ type JobRequest struct {
 	// the f<fanIndex> segment of the deterministic request_id. json/yaml "-" keeps
 	// clients from forging it.
 	FanIndex int `json:"-" yaml:"-"`
+	// SessionID, when non-empty, is the底层 agent CLI 会话标识 to bind this job to
+	// (session-capture, resume path P2): it wins over auto-injection (the job uses
+	// this exact id instead of generating a new uuid) and suppresses capture. It is
+	// persisted onto the JobResult so the session链 round-trips. Empty == let submit
+	// inject (claude) or capture (codex) decide.
+	SessionID string `json:"session_id,omitempty" yaml:"session_id,omitempty"`
 }
 
 // JobResult is the persisted/queryable job state (plan §6.2).
