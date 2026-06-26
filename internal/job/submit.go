@@ -101,6 +101,14 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		return JobResult{}, fmt.Errorf("runner %q is not available", req.Runner)
 	}
 
+	// sessionID is the底层 agent CLI 会话标识 bound to this job (session-capture).
+	// For a local cli-agent with a SessionInject template (claude) it is generated
+	// here and injected into argv so gofer knows it immediately (模式①注入). An
+	// explicit req.SessionID (resume path, P2) wins over injection — the job reuses
+	// that exact id and capture (T1.4) is suppressed. Empty for codex (captured at
+	//终态, T1.4) and for jobs whose agent supports neither.
+	var sessionID string
+
 	// Build the runner request. Remote jobs carry the ORIGINAL request in Forward
 	// and leave Command/Args/WorkDir unset; local jobs resolve the executable form
 	// (exec uses req.Cmd; cli-agent renders the prompt with cwd/job_id/result_dir).
@@ -132,6 +140,13 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		}
 		runReq.Command = resolved.Command
 		runReq.Args = resolved.Args
+		// 模式①注入(session-capture §5.1): the resolved agent has a SessionInject
+		// template (claude --session-id) → generate a uuid now and append the rendered
+		// inject args to argv, so gofer knows the session id without parsing output.
+		if ac, ok := s.agents.Get(req.Agent); ok && len(ac.SessionInject) > 0 {
+			sessionID = newUUID()
+			runReq.Args = append(runReq.Args, agent.Render(ac.SessionInject, agent.Vars{SessionID: sessionID})...)
+		}
 		// Inject gofer-owned job metadata env so ANY job type (exec or cli-agent)
 		// can locate its result dir / cwd / id. exec argv is executed verbatim
 		// (no {{result_dir}} templating, unlike cli-agent args) — env is the only
@@ -139,6 +154,12 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		// / E6 result.json. Set on the worker/peer side too (they run this same
 		// local branch), so remote exec jobs get the executor-local paths.
 		runReq.Env = goferJobEnv(resolved.Env, jobID, workDir, resultDir)
+	}
+	// An explicit req.SessionID (resume path, P2) wins over auto-injection and is
+	// honoured for both local and remote branches: the job binds to that exact
+	// session id and capture (T1.4) is suppressed (entry.result.SessionID non-empty).
+	if req.SessionID != "" {
+		sessionID = req.SessionID
 	}
 
 	now := s.nowFn().Unix()
@@ -165,6 +186,9 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			StepIndex:  req.StepIndex,
 			Attempt:    req.Attempt,
 			FanIndex:   req.FanIndex, // P2: fan-out 并行序号（非 fan-out 为 0）
+			// session 捕获：注入式(claude)立即知 id；显式 req.SessionID(resume)优先；
+			// 捕获式(codex)此处为空，终态由 captureOutcomes 填充(T1.4)。
+			SessionID: sessionID,
 		},
 	}
 	s.mu.Lock()
