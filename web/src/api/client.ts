@@ -199,6 +199,21 @@ export async function downloadArtifact(id: string, name: string): Promise<void> 
   URL.revokeObjectURL(objURL)
 }
 
+// 取单个产物 blob 供 inline 预览（E19a，P2）。与下载同 endpoint，但只取 blob
+// 交给 FilePreview 渲染（不触发浏览器另存）；需带鉴权头故走 fetch + res.blob()。
+export async function fetchArtifactBlob(id: string, name: string): Promise<Blob> {
+  const url = `/v1/jobs/${encodeURIComponent(id)}/artifacts/${encodeArtifactPath(name)}`
+  const res = await fetch(url, { headers: authHeaders() })
+  if (res.status === 401) {
+    triggerUnauthorized()
+    throw new Error('未授权（401）：token 无效或已失效')
+  }
+  if (!res.ok) {
+    return raiseForStatus(res)
+  }
+  return res.blob()
+}
+
 // 拉取完整 diff（E12，P3）。changes.diff 是「未提交改动」(tracked vs HEAD/index)
 // 的全量 patch；需带鉴权头，故走 fetch+blob 在新标签页打开预览（text/plain）。
 export async function viewFullDiff(id: string): Promise<void> {
