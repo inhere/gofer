@@ -57,7 +57,9 @@ func runMcp(_ *gcli.Command, _ []string) error {
 	// Graceful shutdown: close the metadata store (WAL checkpoint) when the MCP
 	// server returns (design §14).
 	defer func() { _ = cr.Close() }()
-	err = mcpserver.Serve(context.Background(), cr.Jobs, cr.Projects, cr.Agents)
+	// P2: route through the compatibility wrapper (in-process localBackend). P4
+	// will branch here to pick local vs client backend by mode.
+	err = mcpserver.ServeLocal(context.Background(), cr.Jobs, cr.Projects, cr.Agents)
 	if isCleanShutdown(err) {
 		// A clean stdin EOF (client closed the pipe) or a cancelled context is the
 		// normal stdio-MCP shutdown path, not a failure. Returning the error here

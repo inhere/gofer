@@ -16,7 +16,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"sort"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -31,70 +30,88 @@ import (
 // stdio). It mirrors the HTTP log endpoint cap (httpapi.maxLogTailBytes).
 const defaultLogTailBytes = 256 * 1024
 
-// New builds an MCP server wired to the given registries/job service and
-// registers the bridge_* tools. The server is returned unconnected; call
-// Run (or Serve) to start serving over a transport.
-func New(jobs *job.Service, projects *project.Registry, agents *agent.Registry) *mcp.Server {
+// New builds an MCP server whose bridge_* tools are backed by the given Backend
+// (localBackend for the in-process standalone path, clientBackend for forwarding
+// to a central serve — E28). Handlers own input validation + view projection;
+// the Backend owns the actual backend access. The server is returned
+// unconnected; call Run (or Serve) to start serving over a transport.
+func New(b Backend) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "gofer", Version: "v1"}, nil)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "bridge_list_projects",
 		Description: "List the registered projects and their agent/runner allowlists.",
-	}, listProjectsHandler(projects))
+	}, listProjectsHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "bridge_list_agents",
 		Description: "List the configured/built-in agents with their availability probe.",
-	}, listAgentsHandler(agents))
+	}, listAgentsHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "bridge_run_job",
 		Description: "Submit an agent/exec job in a project and return its initial state (status, id).",
-	}, runJobHandler(jobs))
+	}, runJobHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "bridge_get_job",
 		Description: "Get the current state of a job by id.",
-	}, getJobHandler(jobs))
+	}, getJobHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "bridge_tail_log",
 		Description: "Return the tail of a job's stdout/stderr log (capped at 256KB by default).",
-	}, tailLogHandler(jobs))
+	}, tailLogHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "bridge_cancel_job",
 		Description: "Request cancellation of a running job and return its current state.",
-	}, cancelJobHandler(jobs))
+	}, cancelJobHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "bridge_get_interactions",
 		Description: "List a job's running-time interactions (pending questions and their answers).",
-	}, getInteractionsHandler(jobs))
+	}, getInteractionsHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "bridge_answer_interaction",
 		Description: "Answer a pending interaction on a running job so the agent can continue.",
-	}, answerInteractionHandler(jobs))
+	}, answerInteractionHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "bridge_get_artifacts",
 		Description: "List a finished job's captured artifact files (name/size/mtime under its result dir).",
-	}, getArtifactsHandler(jobs))
+	}, getArtifactsHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "bridge_get_result",
 		Description: "Get a finished job's structured result.json content (E6), as a raw JSON string.",
-	}, getResultHandler(jobs))
+	}, getResultHandler(b))
 
 	return s
 }
 
-// Serve builds the MCP server and runs it over stdio. It blocks until stdin EOF
-// or ctx cancellation. Nothing is written to stdout outside the MCP protocol
-// (stdout is the transport), so callers must not print to stdout either.
-func Serve(ctx context.Context, jobs *job.Service, projects *project.Registry, agents *agent.Registry) error {
-	return New(jobs, projects, agents).Run(ctx, &mcp.StdioTransport{})
+// Serve builds the MCP server over the given Backend and runs it over stdio. It
+// blocks until stdin EOF or ctx cancellation. Nothing is written to stdout
+// outside the MCP protocol (stdout is the transport), so callers must not print
+// to stdout either.
+func Serve(ctx context.Context, b Backend) error {
+	return New(b).Run(ctx, &mcp.StdioTransport{})
+}
+
+// NewLocal is the compatibility constructor for the in-process (standalone) path:
+// it wires a localBackend over the given registries/job service and returns the
+// MCP server. Equivalent to New(newLocalBackend(...)).
+func NewLocal(jobs *job.Service, projects *project.Registry, agents *agent.Registry) *mcp.Server {
+	return New(newLocalBackend(jobs, projects, agents))
+}
+
+// ServeLocal builds the MCP server over an in-process localBackend and runs it
+// over stdio. Convenience wrapper for the standalone path so callers (commands/
+// mcp.go) need not reach for newLocalBackend; equivalent to
+// Serve(ctx, newLocalBackend(...)).
+func ServeLocal(ctx context.Context, jobs *job.Service, projects *project.Registry, agents *agent.Registry) error {
+	return Serve(ctx, newLocalBackend(jobs, projects, agents))
 }
 
 // jobView is the snake_case projection of job.JobResult returned by the job
@@ -174,27 +191,13 @@ type listProjectsOutput struct {
 	Projects []projectEntry `json:"projects"`
 }
 
-func listProjectsHandler(projects *project.Registry) mcp.ToolHandlerFor[listProjectsInput, listProjectsOutput] {
+func listProjectsHandler(b Backend) mcp.ToolHandlerFor[listProjectsInput, listProjectsOutput] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, _ listProjectsInput) (*mcp.CallToolResult, listProjectsOutput, error) {
-		keys := projects.List() // already sorted
-		out := listProjectsOutput{Projects: make([]projectEntry, 0, len(keys))}
-		for _, key := range keys {
-			p, err := projects.Get(key)
-			if err != nil {
-				continue
-			}
-			out.Projects = append(out.Projects, projectEntry{
-				Key:               key,
-				HostPath:          p.HostPath,
-				ContainerPath:     p.ContainerPath,
-				DefaultAgent:      p.DefaultAgent,
-				AllowedAgents:     p.AllowedAgents,
-				AllowedRunners:    p.AllowedRunners,
-				AllowExec:         p.AllowExec,
-				MaxConcurrentJobs: p.MaxConcurrentJobs,
-			})
+		entries, err := b.ListProjects()
+		if err != nil {
+			return nil, listProjectsOutput{}, err
 		}
-		return nil, out, nil
+		return nil, listProjectsOutput{Projects: entries}, nil
 	}
 }
 
@@ -216,32 +219,13 @@ type listAgentsOutput struct {
 	Agents []agentEntry `json:"agents"`
 }
 
-func listAgentsHandler(agents *agent.Registry) mcp.ToolHandlerFor[listAgentsInput, listAgentsOutput] {
+func listAgentsHandler(b Backend) mcp.ToolHandlerFor[listAgentsInput, listAgentsOutput] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, _ listAgentsInput) (*mcp.CallToolResult, listAgentsOutput, error) {
-		list := agents.List()
-		keys := make([]string, 0, len(list))
-		for k := range list {
-			keys = append(keys, k)
+		entries, err := b.ListAgents()
+		if err != nil {
+			return nil, listAgentsOutput{}, err
 		}
-		sort.Strings(keys)
-
-		out := listAgentsOutput{Agents: make([]agentEntry, 0, len(keys))}
-		for _, k := range keys {
-			ac := list[k]
-			det := agents.Detect(k)
-			// detail: version when available, else the captured probe error.
-			detail := det.Version
-			if !det.Available {
-				detail = det.Error
-			}
-			out.Agents = append(out.Agents, agentEntry{
-				Name:      k,
-				Type:      ac.Type,
-				Available: det.Available,
-				Detail:    detail,
-			})
-		}
-		return nil, out, nil
+		return nil, listAgentsOutput{Agents: entries}, nil
 	}
 }
 
@@ -259,9 +243,11 @@ type runJobInput struct {
 	Title      string   `json:"title,omitempty"`
 }
 
-func runJobHandler(jobs *job.Service) mcp.ToolHandlerFor[runJobInput, jobView] {
+func runJobHandler(b Backend) mcp.ToolHandlerFor[runJobInput, jobView] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in runJobInput) (*mcp.CallToolResult, jobView, error) {
-		res, err := jobs.Submit(job.JobRequest{
+		// provenance is injected here (handler) so both backends transparently
+		// forward it: MCP channel + the MCP server host name.
+		res, err := b.RunJob(job.JobRequest{
 			ProjectKey: in.ProjectKey,
 			Agent:      in.Agent,
 			Runner:     in.Runner,
@@ -287,11 +273,11 @@ type jobIDInput struct {
 	ID string `json:"id"`
 }
 
-func getJobHandler(jobs *job.Service) mcp.ToolHandlerFor[jobIDInput, jobView] {
+func getJobHandler(b Backend) mcp.ToolHandlerFor[jobIDInput, jobView] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in jobIDInput) (*mcp.CallToolResult, jobView, error) {
-		res, ok := jobs.Get(in.ID)
-		if !ok {
-			return nil, jobView{}, fmt.Errorf("unknown job %q", in.ID)
+		res, err := b.GetJob(in.ID)
+		if err != nil {
+			return nil, jobView{}, err
 		}
 		return nil, toJobView(res), nil
 	}
@@ -309,8 +295,10 @@ type tailLogOutput struct {
 	Text string `json:"text"`
 }
 
-func tailLogHandler(jobs *job.Service) mcp.ToolHandlerFor[tailLogInput, tailLogOutput] {
+func tailLogHandler(b Backend) mcp.ToolHandlerFor[tailLogInput, tailLogOutput] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in tailLogInput) (*mcp.CallToolResult, tailLogOutput, error) {
+		// stream validation + default stay in the handler (regularised before the
+		// backend sees it); backend only receives the already-vetted stream name.
 		stream := in.Stream
 		if stream == "" {
 			stream = string(store.StreamStdout)
@@ -322,23 +310,23 @@ func tailLogHandler(jobs *job.Service) mcp.ToolHandlerFor[tailLogInput, tailLogO
 		if maxBytes <= 0 {
 			maxBytes = defaultLogTailBytes
 		}
-		data, err := jobs.TailLog(in.ID, store.Stream(stream), maxBytes)
+		text, err := b.TailLog(in.ID, stream, maxBytes)
 		if err != nil {
 			return nil, tailLogOutput{}, err
 		}
-		return nil, tailLogOutput{Text: string(data)}, nil
+		return nil, tailLogOutput{Text: text}, nil
 	}
 }
 
 // --- bridge_cancel_job ------------------------------------------------------
 
-func cancelJobHandler(jobs *job.Service) mcp.ToolHandlerFor[jobIDInput, jobView] {
+func cancelJobHandler(b Backend) mcp.ToolHandlerFor[jobIDInput, jobView] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in jobIDInput) (*mcp.CallToolResult, jobView, error) {
-		if err := jobs.Cancel(in.ID); err != nil {
+		res, err := b.CancelJob(in.ID)
+		if err != nil {
 			// The only Cancel error is an unknown job id (terminal jobs are no-ops).
 			return nil, jobView{}, err
 		}
-		res, _ := jobs.Get(in.ID)
 		return nil, toJobView(res), nil
 	}
 }
@@ -396,9 +384,9 @@ type getInteractionsOutput struct {
 	Interactions []interactionView `json:"interactions"`
 }
 
-func getInteractionsHandler(jobs *job.Service) mcp.ToolHandlerFor[jobIDInput, getInteractionsOutput] {
+func getInteractionsHandler(b Backend) mcp.ToolHandlerFor[jobIDInput, getInteractionsOutput] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in jobIDInput) (*mcp.CallToolResult, getInteractionsOutput, error) {
-		list, err := jobs.GetInteractions(in.ID)
+		list, err := b.GetInteractions(in.ID)
 		if err != nil {
 			return nil, getInteractionsOutput{}, err
 		}
@@ -419,9 +407,9 @@ type answerInteractionInput struct {
 	Answer        string `json:"answer"`
 }
 
-func answerInteractionHandler(jobs *job.Service) mcp.ToolHandlerFor[answerInteractionInput, interactionView] {
+func answerInteractionHandler(b Backend) mcp.ToolHandlerFor[answerInteractionInput, interactionView] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in answerInteractionInput) (*mcp.CallToolResult, interactionView, error) {
-		it, err := jobs.AnswerInteraction(in.ID, in.InteractionID, in.Answer)
+		it, err := b.AnswerInteraction(in.ID, in.InteractionID, in.Answer)
 		if err != nil {
 			return nil, interactionView{}, err
 		}
@@ -447,21 +435,16 @@ type getArtifactsOutput struct {
 // manifest when present, else a live scan of the result dir (mirroring the HTTP
 // list endpoint). An unknown job is a tool error; a job with no artifacts yields
 // a non-nil empty array.
-func getArtifactsHandler(jobs *job.Service) mcp.ToolHandlerFor[jobIDInput, getArtifactsOutput] {
+func getArtifactsHandler(b Backend) mcp.ToolHandlerFor[jobIDInput, getArtifactsOutput] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in jobIDInput) (*mcp.CallToolResult, getArtifactsOutput, error) {
-		// Manifest resolution (persisted ArtifactsJSON preferred, else a live scan)
-		// is the shared job.Service.GetArtifactManifest — the same data-plane the
-		// HTTP list endpoint uses, so the two no longer keep duplicate copies. ok=false
-		// is an unknown job. Items is always non-nil.
-		m, ok := jobs.GetArtifactManifest(in.ID)
-		if !ok {
-			return nil, getArtifactsOutput{}, fmt.Errorf("unknown job %q", in.ID)
+		// The backend resolves the manifest (persisted ArtifactsJSON preferred, else
+		// a live scan) and projects to []artifactView; an unknown job is a tool
+		// error, a job with no artifacts yields a non-nil empty array.
+		arts, err := b.GetArtifacts(in.ID)
+		if err != nil {
+			return nil, getArtifactsOutput{}, err
 		}
-		out := getArtifactsOutput{Artifacts: make([]artifactView, 0, len(m.Items))}
-		for _, it := range m.Items {
-			out.Artifacts = append(out.Artifacts, artifactView{Name: it.Name, Size: it.Size, Mtime: it.Mtime})
-		}
-		return nil, out, nil
+		return nil, getArtifactsOutput{Artifacts: arts}, nil
 	}
 }
 
@@ -476,12 +459,12 @@ type getResultOutput struct {
 
 // getResultHandler returns a job's structured result.json (E6, D7). An unknown
 // job is a tool error; a job with no result.json yields an empty string.
-func getResultHandler(jobs *job.Service) mcp.ToolHandlerFor[jobIDInput, getResultOutput] {
+func getResultHandler(b Backend) mcp.ToolHandlerFor[jobIDInput, getResultOutput] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in jobIDInput) (*mcp.CallToolResult, getResultOutput, error) {
-		res, ok := jobs.Get(in.ID)
-		if !ok {
-			return nil, getResultOutput{}, fmt.Errorf("unknown job %q", in.ID)
+		s, err := b.GetResult(in.ID)
+		if err != nil {
+			return nil, getResultOutput{}, err
 		}
-		return nil, getResultOutput{ResultJSON: res.ResultJSON}, nil
+		return nil, getResultOutput{ResultJSON: s}, nil
 	}
 }

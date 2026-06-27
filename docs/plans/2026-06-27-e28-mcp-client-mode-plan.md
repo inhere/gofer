@@ -26,7 +26,7 @@
 ## 3. 进度跟进
 
 - [x] **P1** client 3 方法 + 单测
-- [ ] **P2** Backend 接口 + localBackend 抽取（零行为变化）
+- [x] **P2** Backend 接口 + localBackend 抽取（零行为变化）
 - [ ] **P3** clientBackend + 单测
 - [ ] **P4** mcp.go 模式分支（--server/--standalone）+ 单测
 - [ ] **P5** 真机 E2E（双 client 协作 + standalone 回归）
@@ -103,9 +103,11 @@ func Serve(ctx context.Context, b Backend) error { return New(b).Run(ctx, &mcp.S
 provenance：`runJobHandler` 内建 `job.JobRequest{...in..., Channel:"mcp", Client:mcpHostname()}` 再 `b.RunJob(req)`（两后端都透传）。
 
 ### P2 验收
-- [ ] **现有 `internal/mcpserver/server_test.go` 全绿**（零行为变化的硬背书；如签名变动需最小适配测试入口，但断言不改）。
-- [ ] `go build ./... && go vet ./...` 绿（`commands/mcp.go` 临时用 `NewLocal`/`newLocalBackend` 保持可编译）。
-- [ ] commit：`refactor(gofer): mcpserver 抽 Backend 接口 + localBackend(零行为变化)(E28 P2)`。
+- [x] **现有 `internal/mcpserver/server_test.go` 全绿**（零行为变化的硬背书；断言一字未改，仅把 `connect` 构造入口 `New(jobs,projects,agents)`→`NewLocal(jobs,projects,agents)`）。
+- [x] `go build ./... && go vet ./...` 绿（`commands/mcp.go` 改走兼容包装 `mcpserver.ServeLocal(ctx, Jobs, Projects, Agents)` 保持行为不变）。
+- [x] commit：`refactor(gofer): mcpserver 抽 Backend 接口 + localBackend(零行为变化)(E28 P2)`。
+
+> 落地说明：新增 `internal/mcpserver/backend.go`（`Backend` 接口 10 方法，签名照 design §7）+ `internal/mcpserver/backend_local.go`（`localBackend` + `newLocalBackend`，把 10 handler 的后端调用逐字搬入）；`server.go` 的 `New`/`Serve` 改签名 over `Backend`，handler 闭包改 over `b` 仅保留输入校验(tail_log stream)+provenance 注入(run_job)+视图投影；新增 `NewLocal`/`ServeLocal` 兼容入口。`go test ./...` 全绿。
 
 ---
 

@@ -53,7 +53,7 @@ func testCore(t *testing.T) (*job.Service, *project.Registry, *agent.Registry) {
 func connect(t *testing.T) (*mcp.ClientSession, *job.Service) {
 	t.Helper()
 	jobs, projects, agents := testCore(t)
-	srv := New(jobs, projects, agents)
+	srv := NewLocal(jobs, projects, agents)
 
 	ctx := context.Background()
 	c2s, s2c := mcp.NewInMemoryTransports()
