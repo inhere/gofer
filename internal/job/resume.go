@@ -76,6 +76,9 @@ func (s *Service) ResumeJob(jobID, prompt, runner, callerID string) (JobResult, 
 		// 访问门按 SOURCE agent 判定：resume 只是用 exec 载体跑原 agent 的受限续接 argv，
 		// 故豁免 exec/allow_exec 门（2026-06-26 决策）。仅 ResumeJob 设置，不入 request_json、不可伪造。
 		ResumeSourceAgent: src.Agent,
+		// 续接沿用源 job 的提交来源（provenance），保留会话链的原始渠道/来源主机。
+		Channel: src.Channel,
+		Client:  src.Client,
 	})
 }
 

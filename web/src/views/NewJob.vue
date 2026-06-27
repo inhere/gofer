@@ -194,6 +194,8 @@ async function onSubmit() {
       runner: runnerName.value,
       cwd: cwd.value.trim() || '.',
       sync: sync.value,
+      // 提交来源（provenance）：web 控制台固定 channel=web；client(来源 IP)由 server 盖章。
+      channel: 'web',
     } as Parameters<typeof submitJob>[0]
     if (isCliAgent.value) {
       req.prompt = prompt.value

@@ -15,6 +15,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"os"
 	"sort"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -115,6 +116,10 @@ type jobView struct {
 	// injected (claude) or captured (codex) one. Surfaced so MCP callers see the
 	// same session detail as `gofer job show` / the web console and can drive resume.
 	SessionID string `json:"session_id,omitempty"`
+	// Channel / Client are submission provenance (cli/web/mcp/im + originating
+	// host/addr); surfaced so MCP callers see the same "who/where submitted" detail.
+	Channel string `json:"channel,omitempty"`
+	Client  string `json:"client,omitempty"`
 }
 
 // toJobView projects a job.JobResult onto the snake_case jobView. It is the
@@ -133,7 +138,19 @@ func toJobView(r job.JobResult) jobView {
 		EndedAt:    r.EndedAt,
 		Error:      r.Error,
 		SessionID:  r.SessionID,
+		Channel:    r.Channel,
+		Client:     r.Client,
 	}
+}
+
+// mcpHostname returns os.Hostname() to stamp an MCP submission's Client
+// (provenance). A lookup failure yields "" (Submit then leaves it empty).
+func mcpHostname() string {
+	h, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return h
 }
 
 // --- bridge_list_projects ---------------------------------------------------
@@ -253,6 +270,9 @@ func runJobHandler(jobs *job.Service) mcp.ToolHandlerFor[runJobInput, jobView] {
 			Cwd:        in.Cwd,
 			TimeoutSec: in.TimeoutSec,
 			Title:      in.Title,
+			// 提交来源（provenance）：MCP 渠道 + MCP server 所在主机名。
+			Channel: "mcp",
+			Client:  mcpHostname(),
 		})
 		if err != nil {
 			return nil, jobView{}, err

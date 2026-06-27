@@ -77,6 +77,17 @@ type JobRequest struct {
 	// persisted onto the JobResult so the session链 round-trips. Empty == let submit
 	// inject (claude) or capture (codex) decide.
 	SessionID string `json:"session_id,omitempty" yaml:"session_id,omitempty"`
+	// Channel is the submission CHANNEL — which interface the job was submitted
+	// through: "cli" / "web" / "mcp" / "im" (future). Client-declared (CLI stamps
+	// "cli", the web console "web", the MCP server "mcp"); informational provenance,
+	// not an auth identity (that is CallerID). yaml tag so an md+yaml task file may
+	// set it too. Empty for legacy / raw-API submits.
+	Channel string `json:"channel,omitempty" yaml:"channel,omitempty"`
+	// Client is the ORIGINATING client of the submission: the CLI stamps its
+	// os.Hostname(); for an HTTP submit with no client given, the server stamps the
+	// remote IP. Together with Channel and CallerID it answers "who/where submitted
+	// this". Informational (forgeable) — not used for access control.
+	Client string `json:"client,omitempty" yaml:"client,omitempty"`
 	// ResumeSourceAgent is an INTERNAL marker set ONLY by ResumeJob (session-capture
 	// P2, 2026-06-26 decision). A resume mechanically carries Agent="exec" (the
 	// resume argv runs as the built-in exec carrier), but its REAL identity for
@@ -124,6 +135,12 @@ type JobResult struct {
 	// CallerID is the authenticated submitter id (C2), persisted to
 	// jobs.caller_id and echoed in responses for audit / per-caller filtering.
 	CallerID string `json:"caller_id,omitempty"`
+	// Channel / Client are the submission provenance (mirrors JobRequest): which
+	// interface (cli/web/mcp/im) and which originating host/addr the job came from.
+	// Persisted to jobs.channel / jobs.client; surfaced in show/list so DB records
+	// answer "who/where/how submitted" alongside CallerID.
+	Channel string `json:"channel,omitempty"`
+	Client  string `json:"client,omitempty"`
 	// RequestID is the idempotency key (C5) this job was created with; it is
 	// persisted (jobs.request_id) and echoed so the idempotent-reuse path returns
 	// it and it round-trips through persist.

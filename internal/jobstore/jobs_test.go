@@ -112,6 +112,30 @@ func TestUpsertGetSessionIDRoundTrip(t *testing.T) {
 	assert.Eq(t, "", got2.SessionID)
 }
 
+// TestUpsertGetChannelClientRoundTrip proves the provenance columns channel /
+// client round-trip through upsert+read, and absent values COALESCE to "".
+func TestUpsertGetChannelClientRoundTrip(t *testing.T) {
+	s := openTest(t)
+
+	in := sampleJob("prov-1", "alpha", 1000)
+	in.Channel = "cli"
+	in.Client = "dev-container-7"
+	assert.NoErr(t, s.UpsertJob(in))
+
+	got, ok, err := s.GetJob("prov-1")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "cli", got.Channel)
+	assert.Eq(t, "dev-container-7", got.Client)
+
+	none := sampleJob("prov-none", "alpha", 1001)
+	assert.NoErr(t, s.UpsertJob(none))
+	got2, _, err := s.GetJob("prov-none")
+	assert.NoErr(t, err)
+	assert.Eq(t, "", got2.Channel)
+	assert.Eq(t, "", got2.Client)
+}
+
 func TestGetJobMissingReturnsFalseNoError(t *testing.T) {
 	s := openTest(t)
 	got, ok, err := s.GetJob("nope")

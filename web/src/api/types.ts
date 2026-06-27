@@ -41,6 +41,10 @@ export interface Job {
   // 底层 agent CLI 会话标识（session-capture，后端 omitempty）：claude 注入 / codex 捕获得到，
   // 用于 `gofer job resume`。详情页展示，便于人工续接定位。
   session_id?: string
+  // 提交来源（provenance，后端 omitempty）：channel=cli/web/mcp/im（提交渠道），
+  // client=来源主机名(CLI)/IP(web)。配合 caller_id 标识"谁/哪台/经哪渠道提交"。
+  channel?: string
+  client?: string
 }
 
 // 产物清单项（E1，P2）：<result_dir>/artifacts/ 下文件元数据。name 为相对路径
@@ -269,6 +273,8 @@ export interface SubmitJobReq {
   sync?: boolean
   // E5：自由标签（逗号分隔输入解析为数组），支持详情/list 的 ?tag= 检索。
   tags?: string[]
+  // 提交渠道（provenance）：web 控制台提交固定 "web"；client(来源 IP)由 server 盖章。
+  channel?: string
 }
 
 // 提交结果：Job 快照 + async 标记（202 命中服务端等待上限退回异步）。

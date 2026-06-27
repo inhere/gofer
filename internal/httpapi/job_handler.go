@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -52,6 +53,15 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 	// (anti-spoof): the identity is the server's auth decision, not the body.
 	req.CallerID = callerFromCtx(c)
 
+	// Submission provenance: the client IP is authoritative (the server observes
+	// it), so fill Client when the submitter did not provide one — e.g. the web
+	// console, where a browser can't supply a hostname. The CLI stamps its own
+	// os.Hostname() into Client, which we keep. Channel stays client-declared
+	// (cli/web/mcp), informational (see JobRequest.Channel/Client).
+	if req.Client == "" {
+		req.Client = clientIP(c)
+	}
+
 	// The wantSync decision (?wait=1 / ?wait=true query param) is an HTTP-transport
 	// concern; the submit + sync-wait + clamp + async-fallback policy lives in
 	// job.Service.SubmitSync. The handler only maps the outcome to HTTP表现.
@@ -74,6 +84,24 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 // body sync field or a ?wait=1 / ?wait=true query param.
 func wantSync(c *rux.Context, req job.JobRequest) bool {
 	return req.Sync || c.Query("wait") == "1" || c.Query("wait") == "true"
+}
+
+// clientIP returns the originating client IP for submission provenance: the first
+// X-Forwarded-For hop when present (web console behind a proxy), else the
+// RemoteAddr host with the port stripped. Best-effort — returns RemoteAddr
+// verbatim if it cannot be split.
+func clientIP(c *rux.Context) string {
+	if xff := c.Req.Header.Get("X-Forwarded-For"); xff != "" {
+		if i := strings.IndexByte(xff, ','); i >= 0 {
+			return strings.TrimSpace(xff[:i])
+		}
+		return strings.TrimSpace(xff)
+	}
+	host, _, err := net.SplitHostPort(c.Req.RemoteAddr)
+	if err != nil {
+		return c.Req.RemoteAddr
+	}
+	return host
 }
 
 // submitStatus maps a Submit error to an HTTP status: an unknown project is a
