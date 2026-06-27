@@ -42,7 +42,7 @@
 - [x] **P1** 后端 3 endpoint（browse.go + handler + 注册 + 测试）— 完成 2026-06-27，见 §6 实施结果
 - [x] **P2** E19a FilePreview + JobDetail + 依赖 — 完成 2026-06-27（构建绿 + XSS sanitize 已验；agent-browser 眼检随 P3/P4 统一批量做），见 §6 实施结果
 - [ ] **P3** E20/E32 前端（Projects 增强）
-- [ ] **P4** E31 Cluster 拓扑
+- [x] **P4** E31 Cluster 拓扑 — 完成 2026-06-27（构建绿；agent-browser 眼检统一最后批量做），见 §6 实施结果
 
 ---
 
@@ -232,8 +232,8 @@ r.GET("/projects/{key}/file", s.handleGetProjectFile)
 
 ### P4 验收
 
-- [ ] `pnpm -C web build` 绿。
-- [ ] agent-browser 眼检：拓扑渲染（hub + worker/peer 辐射）、节点色随状态、点击出面板、心跳脉冲动；深浅主题都看。截图存 `tmp/`。
+- [x] `pnpm -C web build` 绿（vue-tsc --noEmit && vite build，2026-06-27）。
+- [ ] agent-browser 眼检：拓扑渲染（hub + worker/peer 辐射）、节点色随状态、点击出面板、心跳脉冲动；深浅主题都看。截图存 `tmp/`。（统一最后批量做）
 
 ---
 
@@ -260,4 +260,13 @@ r.GET("/projects/{key}/file", s.handleGetProjectFile)
 - 产物：`web/src/components/FilePreview.vue`（新，E19a+P3 共用渲染器）、`web/src/views/JobDetail.vue`（产物清单每项加「预览」+ 弹层挂 FilePreview，保留「下载」）、`web/src/api/client.ts`（新增 `fetchArtifactBlob(id,name)`：fetch+鉴权头+`res.blob()`）、`web/package.json` + `pnpm-lock.yaml`（加 `marked@18.0.5` + `dompurify@3.4.11`，均自带 TS 类型，无需 `@types/dompurify`）。
 - FilePreview 分支（按 name 后缀 + blob 大小，D5）：`.md`→`DOMPurify.sanitize(marked.parse(text,{async:false}))` 后 v-html（仅注 sanitized）；图片 `png/jpg/jpeg/gif/webp/svg`→`<img :src=objectURL>`（svg 也走 img 不内联）；`.json`→`JSON.stringify(JSON.parse(text),null,2)` 入 `<pre>`（非法 JSON 原样兜底）；其他→文本读 + NUL 启发式判二进制，文本入 `<pre>`、二进制回退；`>2MB`/二进制/异常→回退下载（emit download）。`onUnmounted`/blob 变更 `revokeObjectURL` 防泄漏。
 - 验收：`pnpm -C web build`（含 vue-tsc）绿；XSS 断言 PASS（node+jsdom 隔离，跑完即删，marked 产出的 `onerror`/`javascript:`/`<script>` 均被 sanitize 清除）。agent-browser 渲染眼检随 P3/P4 统一批量做。
+- dist：`web/.gitignore` 已含 `dist/`，提交未含构建产物。
+
+### P4（2026-06-27）
+
+- 产物：`web/src/views/Cluster.vue`（新，路由 `/cluster`）、`web/src/router.ts`（注册 `/cluster`）、`web/src/App.vue`（导航加 cluster 入口）。纯前端、无新后端，复用现成 `listRunners()` + `listProjects()`。
+- 拓扑布局：星型——hub 居中(50%,50%)，辐射节点按数量均匀分布在圆周（角度 `-90° + i·360°/N`，三角函数算百分比坐标；为视觉圆形取水平半径 `RX = RY/AR`，AR=容器宽高比 1.3）。边用 SVG `<line>`（viewBox 0..100 + `preserveAspectRatio=none` + `vector-effect=non-scaling-stroke`），节点为绝对定位 HTML（left/top 同百分比对齐边端点）——故能直接复用 `Heartbeat.vue` 而无 `<foreignObject>` 命名空间坑。
+- 节点状态色（CSS token，不硬编码）：worker 随心跳态 connected=`--done`/stale=`--run`/flatline=`--fail`；peer up=`--done`/down=`--fail`/unknown=`--queue`；local 恒 `--done`。worker 节点用 `Heartbeat.vue` 脉冲，peer/local 用静态点。
+- 节点面板（右侧抽屉 + 遮罩）：hub(in-flight 合计/各类计数/projects 数) / worker(id/状态/心跳/in-flight/labels) / peer(base_url/状态/latency/探活年龄/error) / local(本机 in-process + server projects 概览，取 `listProjects`)。**不画「项目→节点」映射边**（D2/§10.2，server 不知 worker 的 projects）。4s 轮询复用 Runners 节奏（Page Visibility 暂停 + 逐秒推进年龄），卸载清 timer。
+- 验收：`pnpm -C web build`（`vue-tsc --noEmit && vite build`）绿。agent-browser 眼检随 P2/P3/P4 统一最后批量做。
 - dist：`web/.gitignore` 已含 `dist/`，提交未含构建产物。

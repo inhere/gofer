@@ -73,6 +73,7 @@ const navItems = [
   { to: '/projects', label: 'projects' },
   { to: '/agents', label: 'agents' },
   { to: '/runners', label: 'runners' },
+  { to: '/cluster', label: 'cluster' },
 ]
 
 function logout() {
