@@ -20,6 +20,7 @@
 | v1.8 | 2026-06-23 | inhere | **Web 控制台 v2 只读层 design 已出**（E31拓扑/E19a预览/E20 git/E32 子git+关键文件，[`design/2026-06-23-web-console-v2-readonly-design.md`](design/2026-06-23-web-console-v2-readonly-design.md)）；待出 plan |
 | v1.9 | 2026-06-26 | claude | 新增 **E33 agent session 捕获与恢复**（捕获底层 CLI `session_id` 入库 → 检查/检索/恢复续接；exec 透传 `claude --resume` 跨 job 已实测可行）。design [`design/2026-06-26-session-capture-design.md`](design/2026-06-26-session-capture-design.md)（bd `hyy-ai-inspect-nnk`）；分期 P1/P2/P3 |
 | v1.10 | 2026-06-26 | claude | **E33 已落地**（SUPMODE P1-P3 + 真机 E2E PASS）：注入优先(claude `--session-id`)/捕获(codex)、`job resume`、worker `Outcome.SessionID` 回传、`list --session`。plan 进度全勾 |
+| v1.14 | 2026-06-27 | inhere | 新增横切主题 **多 agent 协作 epic**（E28 通道/E36 身份寻址/E35 角色/E25 自动应答 收敛，依赖 E33；与自主化 epic 在 E25 交叠；统一信箱 answerer；落地先 E28 `--server` MVP→E36→E35/E25，攒够出合并 design） |
 | v1.13 | 2026-06-27 | inhere | 新增 **E35 Agent 角色/人设预设库**（可复用运行方向 reviewer/bugfix，免重发提示；**命名取「角色 Role」**，与 E4 任务模板/E11 注入区分）+ **E36 Agent 身份注册/多会话寻址**（经 mcp 注册 name+id 到 serve、同工作目录多会话 id 区分、双向经中枢信箱；E28/E25 的身份层）。来源：用户想法讨论 |
 | v1.12 | 2026-06-27 | inhere | **E28 决策**：client 模式确认要做，`gofer mcp --server <addr>` 作 MVP 先落地（现有 standalone 单进程鸡肋、与 serve/Web 状态割裂）；复用 `bindServerFlags`(零新配置) + `internal/client`(10 工具 7 个直接映射，补 ~3 GET)；命名统一 `--server`。见 E28 决策段，提优先级到"便宜先行" |
 | v1.11 | 2026-06-27 | claude | **E33 收尾**（commit `2383735`）：resume **豁免 allow_exec**（按 SOURCE agent 判门，载体 exec 不再要求 allow_exec；防伪不入 request_json）+ `session_id` 详情**全面展示**（除 CLI 外补 MCP `jobView` / Web `JobDetail`）。新增 **E34 job 提交来源追踪**（channel/client provenance）+ `job list` 改用 `gookit/cliui show/table`(CJK 对齐)，已落地+三端部署+真机验收（commit `ff95515`）。配套 gofer-job skill/runbook 补 `--cwd` 相对路径 / `--title` 约定（主仓 `b74c7e5`） |
@@ -115,6 +116,17 @@ E23 定时 + E24 自动重试 + E25 监督应答 + E26 hooks 共同把 gofer 从
 
 ---
 
+## 横切主题：多 agent 协作 epic（E28/E36/E35/E25 收敛，依赖 E33）
+
+把 gofer 从"单 agent 提交执行 job"推向"**多个 agent 经 gofer 中枢互相派活、协作、互答**"。这条主线由几块拼成，应**分层叠加**而非各做一套（且与「自主化 epic」在 E25 处交叠）：
+
+- **分层（自下而上）**：① **通道**＝中央 `serve` + **E28 `gofer mcp --server` client 模式**（多 agent 共指同一 serve、状态一致，已定为便宜先行 MVP）→ ② **身份/寻址**＝**E36** agent 注册 name+id + 同工作目录多会话 id 区分（serve 能定向到某会话）→ ③ **角色化**＝**E35** 角色预设（agent 带 reviewer/bugfix 等常驻方向运行）→ ④ **自动应答**＝**E25** 监督 agent 自动作答 `pending_interaction`（A 派活、B 自动答）。
+- **统一抽象（别重复造）**：`pending_interaction` 应答的四种来源——人工 Web / IM 人工(E22c) / 监督 agent(E25) / 对等 agent(E28/E36)——是**同一信箱机制的可插拔 answerer**；agent 间"双向"因 **MCP 是 client→server 单向工具调用、非对等总线**，统一**经中枢信箱**实现（注册 + 按 id 轮询 inbox），不做两 agent 直连。
+- **依赖与边界**：依赖 **E33** session_id 作 agent 稳定身份；与「自主化 epic」共享 **E8 审批门**（高危兜底）· **E17 配额**（多 agent 烧 token 受控）· **E13 审计**（标注"哪个 agent/AI 自动 vs 人"）。
+- **落地节奏**：先 **E28 `--server` MVP**（消除状态割裂、跑通"经中枢间接协作"语义）→ 再补 **E36** 身份/信箱原语（`bridge_post/poll_message` + register）→ 然后 **E35** 角色 / **E25** 监督应答。**攒够后出一份「多 agent 协作」合并 design** 把 E28/E36/E35/E25 串起来，再排 plan。
+
+---
+
 ## 横切主题：Web 控制台 v2（E19/E20/E21/E30/E31/E32 收敛）
 
 把 Web 控制台从"看板 + 详情 + Workers 名册"推向"**集群可观察 + 项目透视 + 可交互操作**"。这批增强按**只读 vs 写/交互**切两层（安全闭环，SR1402）：
@@ -139,6 +151,7 @@ E23 定时 + E24 自动重试 + E25 监督应答 + E26 hooks 共同把 gofer 从
 
 **大件（需独立设计，先对齐取向）：**
 5. **自主化 epic**：**E8 审批门**（先行，做安全闸）→ **E23 定时** → **E25 监督应答** + **E26 hooks** + **E22(b/c) IM 双向**——先出设计文档对齐"自主程度"，再排。
-6. **E10 mcp-agent**（按需）。
+6. **多 agent 协作 epic**（E28 通道 + E36 身份/寻址 + E35 角色 + E25 自动应答）：首片 **E28 `--server` MVP 已在「便宜先行」item 2**；全 epic 需先出**合并 design**（见上「多 agent 协作 epic」横切），与自主化 epic 在 E25 交叠、共享 E8/E17/E13。
+7. **E10 mcp-agent**（按需）。
 
 > **一句话主线**：原"看得见 agent 产出/改了什么"已补齐（E1/E6/E12/E13/E15/E16/E17）；下一程向**自主化（定时/重试/监督/hooks）与连接（IM/编辑器）**扩展，且**每一步自主都先有审批门(E8)兜底、受配额(E17)约束、留审计(E13)痕迹**——让 gofer 既能自己跑，又始终可控可审计。
