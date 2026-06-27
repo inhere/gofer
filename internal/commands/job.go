@@ -47,14 +47,17 @@ var jobCommonOpts = struct {
 }{}
 
 // jobConnOpts holds the --server/--token connection flags shared by EVERY `job`
-// subcommand (bound via bindServerFlags). Defaults read from GOFER_SERVER_ADDR /
-// GOFER_SERVER_TOKEN (gcli ${ENV} interpolation) so a node submits without a
-// config.yaml; an explicit flag or config server.addr still applies (newClient).
+// AND `workflow` subcommand (bound via bindServerFlags). Defaults read from
+// GOFER_SERVER_ADDR / GOFER_SERVER_TOKEN (gcli ${ENV} interpolation) so a node
+// submits without a config.yaml; an explicit flag or config server.addr still
+// applies (newClient).
 var jobConnOpts = struct{ server, token string }{}
 
 // bindServerFlags binds the shared --server/-s and --token connection flags onto a
-// `job` subcommand (mirrors bindConfigFlag for -c). Every job subcommand calls it so
-// the env defaults apply uniformly.
+// subcommand (mirrors bindConfigFlag for -c). Every `job` and `workflow` subcommand
+// calls it so the GOFER_SERVER_ADDR/TOKEN env defaults apply uniformly (do NOT
+// re-bind --server/--token per subcommand with empty defaults — that drops the env
+// fallback; see E38③).
 func bindServerFlags(c *gcli.Command) {
 	c.StrOpt(&jobConnOpts.server, "server", "s", "${GOFER_SERVER_ADDR}", "server address (overrides config server.addr)")
 	c.StrOpt(&jobConnOpts.token, "token", "", "${GOFER_SERVER_TOKEN}", "bearer token override (prefer config/env)")
