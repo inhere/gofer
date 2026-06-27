@@ -51,7 +51,8 @@ func PIDAlive(pid int) bool {
 	return err == nil || err == syscall.EPERM
 }
 
-// Terminate sends SIGTERM to pid for graceful shutdown (used by `gofer stop`).
+// Terminate sends SIGTERM to pid for graceful shutdown (used by `serve stop` /
+// `worker stop`).
 func Terminate(pid int) error {
 	return syscall.Kill(pid, syscall.SIGTERM)
 }

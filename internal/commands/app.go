@@ -6,7 +6,8 @@ import (
 )
 
 // NewApp assembles the gofer gcli application and registers all
-// top-level commands (serve/project/agent/job/mcp/worker).
+// top-level commands (serve/project/agent/job/mcp/worker). Stopping a
+// backgrounded daemon is a subcommand of its starter: `serve stop` / `worker stop`.
 func NewApp(version string) *gcli.App {
 	app := gcli.NewApp()
 	app.Name = "gofer"
@@ -27,7 +28,6 @@ func NewApp(version string) *gcli.App {
 	app.Add(NewWorkflowCmd())
 	app.Add(NewMcpCmd())
 	app.Add(NewWorkerCmd())
-	app.Add(NewStopCmd())
 
 	return app
 }

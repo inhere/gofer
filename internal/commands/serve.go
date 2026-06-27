@@ -39,8 +39,24 @@ func NewServeCmd() *gcli.Command {
 			c.BoolOpt(&serveOpts.noWeb, "no-web", "", false, "disable the web console (static UI)")
 			c.BoolOpt(&serveOpts.daemon, "daemon", "d", false, "run in background (detached); logs to <config-dir>/run/serve.log")
 		},
+		Subs: []*gcli.Command{NewServeStopCmd()},
 		Func: runServe,
 	}
+}
+
+// NewServeStopCmd builds `gofer serve stop`: stop the backgrounded (-d) serve via
+// its pidfile (counterpart to `serve -d`). See stopDaemon for the SIGTERM + wait
+// semantics.
+func NewServeStopCmd() *gcli.Command {
+	return &gcli.Command{
+		Name: "stop",
+		Desc: "Stop the backgrounded (-d) serve via its pidfile",
+		Func: runServeStop,
+	}
+}
+
+func runServeStop(c *gcli.Command, _ []string) error {
+	return stopDaemon(c, servePIDFile(), "serve")
 }
 
 // runServe loads the config and hands the resolved flags to serve.Start, which
