@@ -7,10 +7,12 @@ import StatusBadge from '../components/StatusBadge.vue'
 import Signal from '../components/Signal.vue'
 import LogTape from '../components/LogTape.vue'
 import InteractionCard from '../components/InteractionCard.vue'
+import FilePreview from '../components/FilePreview.vue'
 import {
   answerInteraction,
   cancelJob,
   downloadArtifact,
+  fetchArtifactBlob,
   getJob,
   listArtifacts,
   listDeliveries,
@@ -486,6 +488,44 @@ async function onDownload(name: string): Promise<void> {
   }
 }
 
+// ── 产物 inline 预览（E19a）──────────────────────────────────────────
+// 点「预览」→ 取 blob（带鉴权）→ 弹层挂 FilePreview（md/图/json/文本，按 D5）。
+// previewingNames 标记取数中（防重复点击）；preview 为当前弹层文件（null=未打开）。
+const preview = ref<{ name: string; blob: Blob } | null>(null)
+const previewingNames = ref<Set<string>>(new Set())
+const previewError = ref('')
+
+async function onPreview(name: string): Promise<void> {
+  if (previewingNames.value.has(name)) {
+    return
+  }
+  previewError.value = ''
+  const next = new Set(previewingNames.value)
+  next.add(name)
+  previewingNames.value = next
+  try {
+    const blob = await fetchArtifactBlob(props.id, name)
+    preview.value = { name, blob }
+  } catch (e) {
+    previewError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    const after = new Set(previewingNames.value)
+    after.delete(name)
+    previewingNames.value = after
+  }
+}
+
+function closePreview(): void {
+  preview.value = null
+}
+
+// FilePreview 在「过大/二进制」回退时 emit download，或弹层「下载」按钮 → 复用 onDownload。
+function onPreviewDownload(): void {
+  if (preview.value) {
+    void onDownload(preview.value.name)
+  }
+}
+
 // 人类可读文件大小（B/KB/MB），mono 列展示。
 function fmtSize(bytes: number): string {
   if (bytes < 1024) {
@@ -783,19 +823,29 @@ async function copyCommand(): Promise<void> {
           <li v-for="a in artifacts" :key="a.name" class="artifact-row">
             <span class="artifact-name" :title="a.name">{{ a.name }}</span>
             <span class="artifact-size mono">{{ fmtSize(a.size) }}</span>
-            <button
-              v-if="!isRemoteSource"
-              class="artifact-dl mono"
-              type="button"
-              :disabled="downloadingNames.has(a.name)"
-              @click="onDownload(a.name)"
-            >
-              {{ downloadingNames.has(a.name) ? '下载中…' : '下载' }}
-            </button>
+            <template v-if="!isRemoteSource">
+              <button
+                class="artifact-dl mono"
+                type="button"
+                :disabled="previewingNames.has(a.name)"
+                @click="onPreview(a.name)"
+              >
+                {{ previewingNames.has(a.name) ? '打开中…' : '预览' }}
+              </button>
+              <button
+                class="artifact-dl mono"
+                type="button"
+                :disabled="downloadingNames.has(a.name)"
+                @click="onDownload(a.name)"
+              >
+                {{ downloadingNames.has(a.name) ? '下载中…' : '下载' }}
+              </button>
+            </template>
             <span v-else class="artifact-remote mono">留在执行机</span>
           </li>
         </ul>
         <p v-if="artifactError" class="artifact-err mono">{{ artifactError }}</p>
+        <p v-if="previewError" class="artifact-err mono">{{ previewError }}</p>
       </div>
 
       <!-- diff 快照(E12)：git diff --stat 摘要（未提交改动）+ 查看完整 diff。 -->
@@ -818,6 +868,31 @@ async function copyCommand(): Promise<void> {
     </section>
 
     <LogTape :stdout="stdout" :stderr="stderr" :live="live" />
+
+    <!-- 产物预览弹层（E19a）：点击产物「预览」打开；md/图/json/文本经 FilePreview
+         渲染（md 走 marked + DOMPurify sanitize）。点遮罩或「关闭」收起。 -->
+    <div
+      v-if="preview"
+      class="preview-overlay"
+      @click.self="closePreview"
+    >
+      <div class="preview-modal">
+        <div class="preview-head">
+          <span class="preview-name mono" :title="preview.name">{{ preview.name }}</span>
+          <div class="preview-actions">
+            <button class="copy-btn mono" type="button" @click="onPreviewDownload">下载</button>
+            <button class="copy-btn mono" type="button" @click="closePreview">关闭</button>
+          </div>
+        </div>
+        <div class="preview-body">
+          <FilePreview
+            :name="preview.name"
+            :blob="preview.blob"
+            @download="onPreviewDownload"
+          />
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -1308,5 +1383,56 @@ async function copyCommand(): Promise<void> {
   color: var(--fail);
   font-size: 11px;
   margin: 6px 0 0;
+}
+
+/* 产物预览弹层（E19a）：居中模态，遮罩点击关闭；内容交给 FilePreview。 */
+.preview-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 24px;
+}
+.preview-modal {
+  display: flex;
+  flex-direction: column;
+  width: min(960px, 100%);
+  max-height: 86vh;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.preview-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.preview-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--paper);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.preview-actions {
+  flex: none;
+  display: flex;
+  gap: 8px;
+}
+.preview-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 14px 16px;
 }
 </style>
