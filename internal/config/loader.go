@@ -21,6 +21,30 @@ const EnvConfigDir = "GOFER_CONFIG_DIR"
 // (~/.config/<name>).
 const DefaultConfigDirName = "gofer"
 
+// EnvRunMode declares a node's ROLE so role-default commands pick the matching
+// LOCAL config file: "server" (default) → config.yaml; "worker" → worker.yaml.
+// E38②. mcp is intentionally NOT a value here — standalone mcp still loads
+// config.yaml (it executes jobs in-process), and client-mode mcp's config is
+// governed by its --server flag (E28), not by this role.
+const EnvRunMode = "GOFER_RUN_MODE"
+
+// Run-mode values for EnvRunMode.
+const (
+	RunModeServer = "server"
+	RunModeWorker = "worker"
+)
+
+// RunMode returns the node role from GOFER_RUN_MODE: RunModeWorker when the env
+// is set to "worker" (case-insensitive), else RunModeServer (the default for any
+// empty/other value). Role-default commands (e.g. `project list`) use it to read
+// the matching local config (config.yaml vs worker.yaml).
+func RunMode() string {
+	if strings.EqualFold(strings.TrimSpace(os.Getenv(EnvRunMode)), RunModeWorker) {
+		return RunModeWorker
+	}
+	return RunModeServer
+}
+
 // CurrentDirConfigNames are the per-directory config file names, in priority
 // order (§6.1): a local override (.gofer.local.yaml, gitignored) takes
 // precedence over the shared .gofer.yaml when both exist in the cwd.

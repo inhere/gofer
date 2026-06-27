@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/gookit/gcli/v3"
@@ -28,6 +29,12 @@ var projectAddOpts = struct {
 	interactive    bool // -i: prompt for fields, defaulting the project to the cwd
 }{}
 
+// projectListOpts holds `project list` flags. --server/--token are bound via the
+// shared bindServerFlags (jobConnOpts), used only when --remote is set.
+var projectListOpts = struct {
+	remote bool
+}{}
+
 // NewProjectCmd builds the `project` command group with sub commands
 // list/show/add/remove/validate.
 func NewProjectCmd() *gcli.Command {
@@ -38,10 +45,12 @@ func NewProjectCmd() *gcli.Command {
 		Subs: []*gcli.Command{
 			{
 				Name:    "list",
-				Desc:    "List configured projects",
+				Desc:    "List projects: local config by GOFER_RUN_MODE (server→config.yaml / worker→worker.yaml), or --remote for the server's live projects",
 				Aliases: []string{"ls"},
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
+					bindServerFlags(c) // for --remote (shares jobConnOpts + GOFER_SERVER_* env)
+					c.BoolOpt(&projectListOpts.remote, "remote", "", false, "list the server's live projects via API (GET /v1/meta) instead of local config")
 				},
 				Func: runProjectList,
 			},
@@ -121,23 +130,84 @@ func loadRegistry(explicitPath string) (*project.Registry, error) {
 	return project.NewRegistry(cfg, path), nil
 }
 
+// runProjectList lists projects. Default: the LOCAL config matching the node role
+// (GOFER_RUN_MODE — server→config.yaml / worker→worker.yaml). With --remote it
+// queries the server's live projects via API instead (E38②).
 func runProjectList(c *gcli.Command, _ []string) error {
-	reg, err := loadRegistry(config.InputCfgFile)
+	if projectListOpts.remote {
+		return runProjectListRemote(c)
+	}
+	projs, src, err := localProjects()
 	if err != nil {
 		return err
 	}
-	keys := reg.List()
-	if len(keys) == 0 {
-		c.Println("(no projects registered)")
+	if len(projs) == 0 {
+		c.Printf("(no projects in %s)\n", src)
 		return nil
 	}
+	keys := make([]string, 0, len(projs))
+	for k := range projs {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
 	for _, k := range keys {
-		p, _ := reg.Get(k)
+		p := projs[k]
 		agent := p.DefaultAgent
 		if agent == "" {
 			agent = "-"
 		}
 		c.Printf("%-20s host=%s default_agent=%s\n", k, p.HostPath, agent)
+	}
+	return nil
+}
+
+// localProjects returns the projects from the LOCAL config file matching the node
+// role: GOFER_RUN_MODE=worker → worker.yaml.Projects; server (default) →
+// config.yaml.Projects. The second value is a short source label for the
+// empty-list hint. WorkerConfig.Projects and Config.Projects are the same
+// map[string]config.ProjectConfig, so rendering is identical (E38②).
+func localProjects() (map[string]config.ProjectConfig, string, error) {
+	if config.RunMode() == config.RunModeWorker {
+		wc, err := loadWorkerConfig("") // <config-dir>/worker.yaml (UserWorkerConfigPath)
+		if err != nil {
+			return nil, "worker.yaml", err
+		}
+		return wc.Projects, "worker.yaml (GOFER_RUN_MODE=worker)", nil
+	}
+	cfg, path, err := config.Load(config.InputCfgFile)
+	if err != nil {
+		return nil, "config.yaml", err
+	}
+	if path == "" {
+		path = "config.yaml"
+	}
+	return cfg.Projects, path, nil
+}
+
+// runProjectListRemote lists the SERVER's live projects via API (--remote). It
+// reuses the shared jobConnOpts (--server/--token + GOFER_SERVER_* env), so a
+// worker node can inspect what the server has registered. Remote view carries no
+// host_path (server-side path; the meta endpoint omits it) — it shows the
+// allowlists instead.
+func runProjectListRemote(c *gcli.Command) error {
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	projs, err := cli.ListProjects()
+	if err != nil {
+		return err
+	}
+	if len(projs) == 0 {
+		c.Println("no projects on server")
+		return nil
+	}
+	for _, p := range projs {
+		agent := p.DefaultAgent
+		if agent == "" {
+			agent = "-"
+		}
+		c.Printf("%-20s default_agent=%s allowed_agents=%s\n", p.Key, agent, strings.Join(p.AllowedAgents, ","))
 	}
 	return nil
 }
