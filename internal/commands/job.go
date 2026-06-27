@@ -495,14 +495,72 @@ func runJobList(c *gcli.Command, _ []string) error {
 		c.Println("no jobs matched the given filters")
 		return nil
 	}
-	c.Printf("%-22s %-10s %-10s %-8s %-12s %-20s %s\n",
-		"ID", "STATUS", "AGENT", "RUNNER", "PROJECT", "TAGS", "STARTED")
+	c.Printf("%-22s %-10s %-10s %-8s %s %-12s %-16s %s\n",
+		"ID", "STATUS", "AGENT", "RUNNER", padCol("TITLE", jobListTitleWidth), "PROJECT", "TAGS", "STARTED")
 	for _, j := range jobs {
-		c.Printf("%-22s %-10s %-10s %-8s %-12s %-20s %s\n",
-			j.ID, j.Status, j.Agent, j.Runner, j.ProjectKey,
+		c.Printf("%-22s %-10s %-10s %-8s %s %-12s %-16s %s\n",
+			j.ID, j.Status, j.Agent, j.Runner, padCol(j.Title, jobListTitleWidth), j.ProjectKey,
 			strings.Join(j.Tags, ","), formatStarted(j.StartedAt))
 	}
 	return nil
+}
+
+// jobListTitleWidth is the display-column width of the job-list TITLE column.
+const jobListTitleWidth = 26
+
+// padCol truncates s to jobListTitleWidth DISPLAY columns (… when cut) then
+// right-pads it to that width. It counts East-Asian wide runes as 2 columns so a
+// CJK job title (the common case here) keeps the following columns aligned —
+// Go's %-Ns pads by BYTE count, which would jag a UTF-8 Chinese title.
+func padCol(s string, width int) string {
+	var b strings.Builder
+	cw, full := 0, dispWidth(s)
+	limit := width
+	if full > width {
+		limit = width - 1 // reserve one column for the … marker
+	}
+	for _, r := range s {
+		rw := runeWidth(r)
+		if cw+rw > limit {
+			break
+		}
+		b.WriteRune(r)
+		cw += rw
+	}
+	if full > width {
+		b.WriteRune('…')
+		cw++
+	}
+	for cw < width {
+		b.WriteByte(' ')
+		cw++
+	}
+	return b.String()
+}
+
+// dispWidth is the terminal display width of s (wide runes count as 2).
+func dispWidth(s string) int {
+	w := 0
+	for _, r := range s {
+		w += runeWidth(r)
+	}
+	return w
+}
+
+// runeWidth returns 2 for East-Asian wide / fullwidth runes (CJK, Hangul,
+// fullwidth forms), else 1. Approximate but covers the ranges seen in job titles.
+func runeWidth(r rune) int {
+	switch {
+	case r >= 0x1100 && r <= 0x115F, // Hangul Jamo
+		r >= 0x2E80 && r <= 0xA4CF, // CJK radicals … Yi
+		r >= 0xAC00 && r <= 0xD7A3, // Hangul syllables
+		r >= 0xF900 && r <= 0xFAFF, // CJK compat ideographs
+		r >= 0xFF00 && r <= 0xFF60, // fullwidth forms
+		r >= 0xFFE0 && r <= 0xFFE6,
+		r >= 0x20000 && r <= 0x3FFFD: // CJK ext B+
+		return 2
+	}
+	return 1
 }
 
 // formatStarted renders a unix-seconds started_at as a local timestamp; 0 (never
