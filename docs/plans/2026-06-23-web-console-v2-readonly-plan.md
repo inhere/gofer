@@ -209,8 +209,12 @@ r.GET("/projects/{key}/file", s.handleGetProjectFile)
 
 ### P3 验收
 
-- [ ] `pnpm -C web build` 绿。
-- [ ] agent-browser 眼检：选一个 git 项目 → git 卡显分支/dirty/提交；子仓列表正确；点 README.md 经 FilePreview 渲染；非 git 项目优雅降级。截图存 `tmp/`。
+- [x] `pnpm -C web build` 绿（vue-tsc --noEmit + vite build 均通过）。
+- [ ] agent-browser 眼检：选一个 git 项目 → git 卡显分支/dirty/提交；子仓列表正确；点 README.md 经 FilePreview 渲染；非 git 项目优雅降级。截图存 `tmp/`。（浏览器眼检统一最后批量，留空）
+
+> P3 落地：`web/src/api/types.ts`（GitStatus/GitCommit/RepoInfo/ReposResp/FileContent）；
+> `web/src/api/client.ts`（getProjectGit/listRepos/getProjectFile）；`web/src/views/Projects.vue`
+> 右列加 git 状态卡（分支/dirty/最近提交+刷新）+ 子仓列表 + 关键文件（候选白名单按钮→content 包 Blob→FilePreview）。
 
 ---
 

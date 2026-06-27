@@ -80,6 +80,47 @@ export interface ProjectDetail {
   max_concurrent_jobs?: number
 }
 
+// 项目 git 状态（E20，design §6.3）：GET /v1/projects/{key}/git。
+// 字段与 internal/project/browse.go 的 GitStatus / Commit JSON tag 对齐。
+// is_git_repo=false 表示非 git 工作树 / 非本地可达 / git 缺失（其余字段为零值）。
+export interface GitCommit {
+  hash: string
+  subject: string
+  author: string
+  // committer date，Unix 秒
+  ts: number
+}
+
+export interface GitStatus {
+  is_git_repo: boolean
+  branch: string
+  dirty: boolean
+  // 始终非 null（后端保证 []）；最多 10 条
+  recent_commits: GitCommit[]
+}
+
+// 子 git 仓发现项（E32，design §6.4）：GET /v1/projects/{key}/repos。
+// rel_path 根仓为 "."，子仓为相对 ExecPath 的斜杠分隔路径。
+export interface RepoInfo {
+  rel_path: string
+  branch: string
+  dirty: boolean
+}
+
+export interface ReposResp {
+  repos: RepoInfo[]
+}
+
+// 关键文件内容（E32，design §6.4）：GET /v1/projects/{key}/file?path=<rel>。
+// 字段与 internal/project/browse.go 的 FileContent JSON tag 对齐。
+// truncated=true 表示文件超过 256KB，content 为前缀切片。
+export interface FileContent {
+  name: string
+  size: number
+  content: string
+  truncated: boolean
+}
+
 export interface AgentInfo {
   key: string
   type: string
