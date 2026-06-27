@@ -184,6 +184,30 @@ func (c *Client) ListJobs(opts job.ListOpts) ([]job.JobResult, error) {
 	return resp.Jobs, nil
 }
 
+// ProjectMeta is one project as the server exposes it via /v1/meta (key +
+// allowlists + default agent). It carries no host_path (that is a server-side
+// filesystem path; the meta endpoint omits it). Used by `project list --remote`
+// (E38②) and shared with the mcp client mode / worker init (E28/E37).
+type ProjectMeta struct {
+	Key            string   `json:"key"`
+	AllowedAgents  []string `json:"allowed_agents,omitempty"`
+	AllowedRunners []string `json:"allowed_runners,omitempty"`
+	DefaultAgent   string   `json:"default_agent,omitempty"`
+}
+
+// ListProjects returns the server's live projects (GET /v1/meta → projects). It
+// is the remote counterpart to reading the local config's projects, so a node
+// (esp. a worker) can see what the SERVER has registered.
+func (c *Client) ListProjects() ([]ProjectMeta, error) {
+	var resp struct {
+		Projects []ProjectMeta `json:"projects"`
+	}
+	if err := c.doJSON(http.MethodGet, "/v1/meta", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Projects, nil
+}
+
 // GetJobRequest fetches the original JobRequest a job was created from
 // (GET /v1/jobs/{id}/request, P2-b). It is used by `job rerun` to re-submit the
 // same request. An unknown id or a job with no recorded request yields a 404
