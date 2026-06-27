@@ -3,6 +3,9 @@ package commands
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	yaml "github.com/goccy/go-yaml"
@@ -60,15 +63,15 @@ func NewWorkerCmd() *gcli.Command {
 
 // NewWorkerStopCmd builds `gofer worker stop [<id>]`: stop the backgrounded (-d)
 // worker via its id-namespaced pidfile (counterpart to `worker -d`). When <id> is
-// omitted it defaults to the worker_id from worker.yaml, so the common
-// single-worker host can just run `gofer worker stop`.
+// omitted and exactly one worker is running it is auto-detected, so the common
+// single-worker host can just run `gofer worker stop` (resolveDefaultWorkerID).
 func NewWorkerStopCmd() *gcli.Command {
 	return &gcli.Command{
 		Name: "stop",
-		Desc: "Stop the backgrounded (-d) worker via its pidfile (id defaults to worker.yaml's worker_id)",
+		Desc: "Stop the backgrounded (-d) worker via its pidfile (id auto-detected when only one is running)",
 		Config: func(c *gcli.Command) {
-			c.StrOpt(&workerStopOpts.config, "worker-config", "", "", "worker config to resolve the default worker_id (default: <config-dir>/worker.yaml)")
-			c.AddArg("id", "worker id (defaults to worker.yaml's worker_id)", false)
+			c.StrOpt(&workerStopOpts.config, "worker-config", "", "", "worker config to resolve the default worker_id when none is running (default: <config-dir>/worker.yaml)")
+			c.AddArg("id", "worker id (optional; auto-detected when a single worker is running)", false)
 		},
 		Func: runWorkerStop,
 	}
@@ -79,19 +82,69 @@ func runWorkerStop(c *gcli.Command, _ []string) error {
 	if a := c.Arg("id"); a != nil {
 		id = a.String()
 	}
-	// No explicit id: fall back to the worker.yaml's worker_id so a single-worker
-	// host can stop with a bare `gofer worker stop`.
 	if id == "" {
-		wc, err := loadWorkerConfig(workerStopOpts.config)
+		resolved, err := resolveDefaultWorkerID()
 		if err != nil {
-			return errorx.Failf(stopExitErr, "worker stop needs an <id> or a readable worker config: %v", err)
+			return errorx.Failf(stopExitErr, "%v", err)
 		}
-		id = wc.WorkerID
-	}
-	if id == "" {
-		return errorx.Failf(stopExitErr, "worker stop requires a <worker-id> argument")
+		id = resolved
 	}
 	return stopDaemon(c, workerPIDFile(id), "worker-"+id)
+}
+
+// resolveDefaultWorkerID picks the worker to stop when no <id> is given, so a
+// single-worker host can run a bare `gofer worker stop`:
+//  1. exactly one worker currently running (live worker-*.pid) → that one;
+//  2. several running → error listing them (ambiguous, the <id> is required);
+//  3. none running → fall back to worker.yaml's worker_id, so stopDaemon can
+//     report "not running" for the canonical worker (and clean a stale pidfile).
+func resolveDefaultWorkerID() (string, error) {
+	ids, err := runningWorkerIDs()
+	if err != nil {
+		return "", err
+	}
+	switch len(ids) {
+	case 1:
+		return ids[0], nil
+	case 0:
+		wc, cErr := loadWorkerConfig(workerStopOpts.config)
+		if cErr != nil {
+			return "", fmt.Errorf("no running worker; pass an <id> or provide a readable worker config: %v", cErr)
+		}
+		if wc.WorkerID == "" {
+			return "", fmt.Errorf("no running worker and worker config has no worker_id; pass an <id>")
+		}
+		return wc.WorkerID, nil
+	default:
+		return "", fmt.Errorf("multiple workers running (%s); pass the <id> to stop one", strings.Join(ids, ", "))
+	}
+}
+
+// runningWorkerIDs returns the ids of currently-alive workers by scanning the
+// runtime dir for worker-<id>.pid files whose recorded pid is still alive. Stale
+// pidfiles (dead pid) are skipped so they never create false ambiguity.
+func runningWorkerIDs() ([]string, error) {
+	// run dir = parent of any worker pidfile path.
+	runDir := filepath.Dir(workerPIDFile("x"))
+	matches, err := filepath.Glob(filepath.Join(runDir, "worker-*.pid"))
+	if err != nil {
+		return nil, fmt.Errorf("scan worker pidfiles: %w", err)
+	}
+	var ids []string
+	for _, p := range matches {
+		base := filepath.Base(p)
+		id := strings.TrimSuffix(strings.TrimPrefix(base, "worker-"), ".pid")
+		if id == "" {
+			continue
+		}
+		pid, rErr := daemon.ReadPIDFile(p)
+		if rErr != nil || !daemon.PIDAlive(pid) {
+			continue
+		}
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids, nil
 }
 
 func runWorker(c *gcli.Command, _ []string) error {

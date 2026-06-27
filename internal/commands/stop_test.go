@@ -44,7 +44,8 @@ func TestServeStopNotRunning(t *testing.T) {
 	}
 }
 
-// TestWorkerStopMissingID: no <id> and no readable worker config → error.
+// TestWorkerStopMissingID: no <id>, no running worker and no readable worker
+// config → error (can't resolve a default).
 func TestWorkerStopMissingID(t *testing.T) {
 	t.Setenv(config.EnvConfigDir, t.TempDir())
 	c := bindCmd(NewWorkerStopCmd())
@@ -56,6 +57,48 @@ func TestWorkerStopMissingID(t *testing.T) {
 		t.Fatal("expected worker stop without id/config to error")
 	}
 	assertCodedExit(t, err)
+}
+
+// seedWorkerPid writes a worker-<id>.pid with the given pid under <config-dir>/run.
+func seedWorkerPid(t *testing.T, id string, pid int) string {
+	t.Helper()
+	p := workerPIDFile(id)
+	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
+		t.Fatalf("mkdir run: %v", err)
+	}
+	if err := daemon.WritePIDFile(p, pid); err != nil {
+		t.Fatalf("seed pidfile %s: %v", id, err)
+	}
+	return p
+}
+
+// TestResolveDefaultWorkerSingleRunning: exactly one live worker pidfile → its id
+// is auto-detected (no <id> needed). A stale (dead-pid) pidfile is ignored.
+func TestResolveDefaultWorkerSingleRunning(t *testing.T) {
+	t.Setenv(config.EnvConfigDir, t.TempDir())
+	seedWorkerPid(t, "solo", os.Getpid())     // alive (this test process)
+	seedWorkerPid(t, "ghost", 2147483646)     // dead → must be ignored
+	workerStopOpts.config = ""
+
+	id, err := resolveDefaultWorkerID()
+	if err != nil {
+		t.Fatalf("resolve default worker id: %v", err)
+	}
+	if id != "solo" {
+		t.Fatalf("auto-detected id = %q, want %q", id, "solo")
+	}
+}
+
+// TestResolveDefaultWorkerMultipleRunning: more than one live worker → ambiguous,
+// must error (the <id> is required).
+func TestResolveDefaultWorkerMultipleRunning(t *testing.T) {
+	t.Setenv(config.EnvConfigDir, t.TempDir())
+	seedWorkerPid(t, "alpha", os.Getpid())
+	seedWorkerPid(t, "beta", os.Getpid())
+
+	if _, err := resolveDefaultWorkerID(); err == nil {
+		t.Fatal("expected ambiguous (multiple running) workers to error")
+	}
 }
 
 // TestWorkerStopStalePidfile: an explicit <id> with a pidfile pointing at a dead
