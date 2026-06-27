@@ -27,7 +27,7 @@
 
 - [x] **P1** client 3 方法 + 单测
 - [x] **P2** Backend 接口 + localBackend 抽取（零行为变化）
-- [ ] **P3** clientBackend + 单测
+- [x] **P3** clientBackend + 单测
 - [ ] **P4** mcp.go 模式分支（--server/--standalone）+ 单测
 - [ ] **P5** 真机 E2E（双 client 协作 + standalone 回归）
 
@@ -136,9 +136,11 @@ func (b *clientBackend) GetArtifacts(id string) ([]artifactView, error) { /* cli
 ```
 
 ### P3 验收
-- [ ] `go test ./internal/mcpserver/...` 绿（clientBackend 单测：起 httptest serve（或 `httpapi.Server` 内存装配）→ `NewClientBackend(client.New(ts.URL,tok))` → 调各方法验转发；tail 截尾断言；artifacts raw 解析断言）。
-- [ ] `go build ./... && go vet ./...` 绿。
-- [ ] commit：`feat(gofer): mcpserver clientBackend 转发到中央 serve(E28 P3)`。
+- [x] `go test ./internal/mcpserver/...` 绿（clientBackend 单测：httptest mux 罐头 JSON → `NewClientBackend(client.New(ts.URL,tok))` → 调各方法验转发；tail 截尾断言；artifacts raw 解析断言；projects host_path 空 + 非 nil 空切片；agents 1:1）。原 server_test 仍绿。
+- [x] `go build ./... && go vet ./...` 绿。
+- [x] commit：`feat(gofer): mcpserver clientBackend 转发到中央 serve(E28 P3)`。
+
+> 落地说明：新增 `internal/mcpserver/backend_client.go`（`clientBackend{cli *client.Client}` + `NewClientBackend`，10 方法转发 `*client.Client`）+ `backend_client_test.go`（12 测，httptest mux）。关键映射：`GetResult`=`GetJob().ResultJSON`；`TailLog` 取全量 `GetLogs` 后客户端截末 N 字节（maxBytes>0）；`ListProjects` 由 `[]ProjectMeta` 映射，`host_path/container_path/AllowExec/MaxConcurrentJobs` 留空（meta 端点不暴露，同 --remote），非 nil 空切片；`ListAgents` `[]AgentMeta`→`agentEntry` 1:1，非 nil 空；`GetArtifacts` 解析 `ListArtifacts` 返回的内层 `[{name,size,mtime}]` raw 数组（`len(raw)==0`→非 nil 空），与 local 行为对齐。
 
 ---
 
