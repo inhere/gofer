@@ -40,9 +40,12 @@
 ## 4. 进度跟进
 
 - [x] **P1** 后端 3 endpoint（browse.go + handler + 注册 + 测试）— 完成 2026-06-27，见 §6 实施结果
-- [x] **P2** E19a FilePreview + JobDetail + 依赖 — 完成 2026-06-27（构建绿 + XSS sanitize 已验；agent-browser 眼检随 P3/P4 统一批量做），见 §6 实施结果
-- [ ] **P3** E20/E32 前端（Projects 增强）
-- [x] **P4** E31 Cluster 拓扑 — 完成 2026-06-27（构建绿；agent-browser 眼检统一最后批量做），见 §6 实施结果
+- [x] **P2** E19a FilePreview + JobDetail + 依赖 — 完成 2026-06-27（构建绿 + XSS sanitize 已验），见 §6 实施结果
+- [x] **P3** E20/E32 前端（Projects 增强）— 完成 2026-06-27（构建绿；git 卡/子仓/关键文件渲染眼检 PASS），见 §6 实施结果
+- [x] **P4** E31 Cluster 拓扑 — 完成 2026-06-27（构建绿；拓扑+节点面板眼检 PASS），见 §6 实施结果
+
+> **批量浏览器眼检（2026-06-27，全 PASS）**：起临时 serve（项目=gofer 仓自身）+ agent-browser 眼检：P4 /cluster SVG 星型拓扑+节点面板渲染正常（hub+local，无远端 worker 属正常）；P3 /projects git 卡（branch=main/clean/最近提交）+ 子仓（`.`）+ 关键文件点 CLAUDE.md/README.md 经 FilePreview 渲染为 HTML（标题/列表/代码块/表格成形）；深浅主题均正常；**console 0 报错**（marked/DOMPurify 无运行时错）。P2 JobDetail 因新库无 job/项目 allow_exec=否未触发产物预览按钮，页面无回归。截图存 `tmp/eyecheck-*.png`。
+> **附带观察（非阻断，留记）**：① 前端 token 门禁要求 token 框非空才放行（即便后端 allow_empty_token，空 token 不进）——前端行为，非本层引入；② cluster hub 节点取色用 unknown 蓝（hub 无 up/down 语义，设计取色）；③ 2 节点时星型退化为单条直连边（节点少的自然布局）。
 
 ---
 
