@@ -7,6 +7,8 @@ import type {
   AgentsResp,
   ArtifactsResp,
   DeliveriesResp,
+  FileContent,
+  GitStatus,
   Interaction,
   Job,
   JobEventsResp,
@@ -17,6 +19,7 @@ import type {
   MetaResp,
   ProjectDetail,
   ProjectsResp,
+  ReposResp,
   RunnersResp,
   SubmitJobReq,
   SubmitJobResult,
@@ -90,6 +93,28 @@ export function listProjects(): Promise<ProjectsResp> {
 
 export function getProject(key: string): Promise<ProjectDetail> {
   return request<ProjectDetail>(`/v1/projects/${encodeURIComponent(key)}`)
+}
+
+// 项目当前 git 状态（E20，design §6.3）：GET /v1/projects/{key}/git。
+// 非 git 仓 / 非本地可达 → is_git_repo:false（非错误）；详情页据此优雅降级。
+export function getProjectGit(key: string): Promise<GitStatus> {
+  return request<GitStatus>(`/v1/projects/${encodeURIComponent(key)}/git`)
+}
+
+// 子 git 仓发现（E32，design §6.4）：GET /v1/projects/{key}/repos。
+// 含根仓（rel_path "."）；按深度/排除/上限扫描，返回 {repos:[...]}。
+export function listRepos(key: string): Promise<ReposResp> {
+  return request<ReposResp>(`/v1/projects/${encodeURIComponent(key)}/repos`)
+}
+
+// 关键文件读取（E32，design §6.4）：GET /v1/projects/{key}/file?path=<rel>。
+// 仅白名单 basename 可读；非白名单→403、穿越/缺失→404、二进制→415、缺 path→400
+// （均经 request 转可读错误抛出，调用方按需区分）。
+export function getProjectFile(key: string, path: string): Promise<FileContent> {
+  const qs = `?path=${encodeURIComponent(path)}`
+  return request<FileContent>(
+    `/v1/projects/${encodeURIComponent(key)}/file${qs}`,
+  )
 }
 
 export function listAgents(): Promise<AgentsResp> {
