@@ -239,6 +239,13 @@ func (s *Server) buildRouter() *rux.Router {
 	r.Group("/v1", func() {
 		r.GET("/projects", s.handleListProjects)
 		r.GET("/projects/{key}", s.handleGetProject)
+
+		// Web 控制台 v2 只读层(design §7): 项目 git 状态(E20) / 子 git 发现(E32) /
+		// 白名单关键文件读取(E32)。全只读、参数固定、SafeJoin+白名单+大小/二进制限制。
+		r.GET("/projects/{key}/git", s.handleGetProjectGit)
+		r.GET("/projects/{key}/repos", s.handleListRepos)
+		r.GET("/projects/{key}/file", s.handleGetProjectFile)
+
 		r.GET("/agents", s.handleListAgents)
 
 		// C6/P4: remote-node observability — status of every configured runner

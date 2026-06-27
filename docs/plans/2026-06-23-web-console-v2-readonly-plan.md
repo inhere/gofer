@@ -31,15 +31,15 @@
 
 ## 3. 前置检查（plan-checking）
 
-- [ ] `go build ./... && go vet ./...` 绿；`go test ./internal/project/... ./internal/httpapi/...` 基线绿。
-- [ ] `pnpm -C web install` OK；`pnpm -C web build`（vue-tsc）基线绿。
-- [ ] 确认 `runGit` 在 `internal/job/gitdiff.go`（job 包）——P1 **不可** import（job→project 单向依赖，反向循环），browse.go 自带 git 调用。
-- [ ] 确认 `git` 在运行环境可用（容器内 `git --version`）。
+- [x] `go build ./... && go vet ./...` 绿；`go test ./internal/project/... ./internal/httpapi/...` 基线绿。
+- [ ] `pnpm -C web install` OK；`pnpm -C web build`（vue-tsc）基线绿。（前端阶段 P2/P3/P4）
+- [x] 确认 `runGit` 在 `internal/job/gitdiff.go`（job 包）——P1 **不可** import（job→project 单向依赖，反向循环），browse.go 自带 git 调用。
+- [x] 确认 `git` 在运行环境可用（容器内 `git --version` = 2.43.0）。
 - [ ] agent-browser CLI 可用（前端眼检）。
 
 ## 4. 进度跟进
 
-- [ ] **P1** 后端 3 endpoint（browse.go + handler + 注册 + 测试）
+- [x] **P1** 后端 3 endpoint（browse.go + handler + 注册 + 测试）— 完成 2026-06-27，见 §6 实施结果
 - [ ] **P2** E19a FilePreview + JobDetail + 依赖
 - [ ] **P3** E20/E32 前端（Projects 增强）
 - [ ] **P4** E31 Cluster 拓扑
@@ -159,9 +159,9 @@ r.GET("/projects/{key}/file", s.handleGetProjectFile)
 
 ### P1 验收
 
-- [ ] `go build ./... && go vet ./...` 绿；`go test ./internal/project/... ./internal/httpapi/...` 绿（含新测试）。
-- [ ] 冒烟：起 serve（临时 config，project 指向一个 git 工作树）→ `curl /v1/projects/{key}/git` 返分支/dirty；`/repos` 列子仓；`/file?path=README.md` 返内容、`?path=.env` 返 403、`?path=../x` 拒绝。
-- [ ] **安全断言**：白名单外/路径穿越/二进制均被拒；git 参数固定（代码 review 确认无用户拼接）。
+- [x] `go build ./... && go vet ./...` 绿；`go test ./internal/project/... ./internal/httpapi/...` 绿（新增 20 个用例全绿）。
+- [x] 冒烟：起 serve（临时 config，project 指向一个 git 工作树）→ `/git` 返 branch=main/dirty=true/最近提交；`/repos` 列根("."")+子仓(sub1)；`/file?path=README.md`→200、`?path=.env`→403、`?path=../README.md`→404、无 token→401、unknown project→404。
+- [x] **安全断言**：白名单外(.env)→403、路径穿越(../)→404、二进制(NUL)→415 均被拒；git 参数全固定字面量（rev-parse/branch/status/log，无用户拼接）；project 包不 import job（`go list -deps` 确认无环）。
 
 ---
 
@@ -242,3 +242,10 @@ r.GET("/projects/{key}/file", s.handleGetProjectFile)
 ## 6. 实施结果（完成后回填）
 
 > P1–P4 commit 短码 + 关键决策 + 验收/眼检记录 + 遗留。
+
+### P1（2026-06-27）
+
+- 产物：`internal/project/browse.go`（只读 git/fs，自带 `exec.CommandContext("git",…)`+超时+cap，**不 import job**，`go list -deps` 确认无环）、`internal/httpapi/project_browse_handler.go`（3 薄 handler）、`server.go` `/v1` 组注册 3 路由、`internal/project/browse_test.go`（10 用例）、`internal/httpapi/project_browse_handler_test.go`（10 用例）。
+- 路由 + 错误码：`GET /v1/projects/{key}/git`（unknown→404；非 git→200 `is_git_repo:false`）、`/repos`（unknown→404；`{repos:[...]}`）、`/file?path=`（缺 path→400；非白名单 basename→403；穿越/缺文件→404；二进制→415）。
+- 关键决策：`is-inside-work-tree` 用 `==\"true\"` 判定（对齐 job 包 `isGitWorkTree`，兼顾 bare repo），略偏离计划骨架仅判 err；二进制检测用 NUL 字节启发式（同 git，避免截断切断多字节 UTF-8 误判）；`DiscoverRepos` 含根仓（`rel_path:\".\"`）。
+- 验收：`go build/vet ./...` 绿；`go test ./internal/project/... ./internal/httpapi/...` 绿（+20 用例）；真机冒烟 200/403/404/415/401 全过。
