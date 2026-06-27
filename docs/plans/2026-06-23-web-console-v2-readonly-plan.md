@@ -40,7 +40,7 @@
 ## 4. 进度跟进
 
 - [x] **P1** 后端 3 endpoint（browse.go + handler + 注册 + 测试）— 完成 2026-06-27，见 §6 实施结果
-- [ ] **P2** E19a FilePreview + JobDetail + 依赖
+- [x] **P2** E19a FilePreview + JobDetail + 依赖 — 完成 2026-06-27（构建绿 + XSS sanitize 已验；agent-browser 眼检随 P3/P4 统一批量做），见 §6 实施结果
 - [ ] **P3** E20/E32 前端（Projects 增强）
 - [ ] **P4** E31 Cluster 拓扑
 
@@ -188,8 +188,9 @@ r.GET("/projects/{key}/file", s.handleGetProjectFile)
 
 ### P2 验收
 
-- [ ] `pnpm -C web build`（vue-tsc）绿。
-- [ ] agent-browser 眼检：md 产物渲染为 HTML（表格/代码块正常）、图片 inline、json 格式化、大/二进制回退下载；**XSS 冒烟**：含 `<script>`/`onerror` 的 md 被 DOMPurify 清除（不执行）。截图存 `tmp/`。
+- [x] `pnpm -C web build`（vue-tsc）绿。
+- [x] **XSS 冒烟**（node 侧 jsdom 隔离断言，跑完即删）：`DOMPurify.sanitize(marked.parse(...))` 清除 `onerror`/`javascript:`/`<script>`，PASS。
+- [ ] agent-browser 眼检：md 产物渲染为 HTML（表格/代码块正常）、图片 inline、json 格式化、大/二进制回退下载（**统一放 P3/P4 后批量眼检**）。截图存 `tmp/`。
 
 ---
 
@@ -249,3 +250,10 @@ r.GET("/projects/{key}/file", s.handleGetProjectFile)
 - 路由 + 错误码：`GET /v1/projects/{key}/git`（unknown→404；非 git→200 `is_git_repo:false`）、`/repos`（unknown→404；`{repos:[...]}`）、`/file?path=`（缺 path→400；非白名单 basename→403；穿越/缺文件→404；二进制→415）。
 - 关键决策：`is-inside-work-tree` 用 `==\"true\"` 判定（对齐 job 包 `isGitWorkTree`，兼顾 bare repo），略偏离计划骨架仅判 err；二进制检测用 NUL 字节启发式（同 git，避免截断切断多字节 UTF-8 误判）；`DiscoverRepos` 含根仓（`rel_path:\".\"`）。
 - 验收：`go build/vet ./...` 绿；`go test ./internal/project/... ./internal/httpapi/...` 绿（+20 用例）；真机冒烟 200/403/404/415/401 全过。
+
+### P2（2026-06-27）
+
+- 产物：`web/src/components/FilePreview.vue`（新，E19a+P3 共用渲染器）、`web/src/views/JobDetail.vue`（产物清单每项加「预览」+ 弹层挂 FilePreview，保留「下载」）、`web/src/api/client.ts`（新增 `fetchArtifactBlob(id,name)`：fetch+鉴权头+`res.blob()`）、`web/package.json` + `pnpm-lock.yaml`（加 `marked@18.0.5` + `dompurify@3.4.11`，均自带 TS 类型，无需 `@types/dompurify`）。
+- FilePreview 分支（按 name 后缀 + blob 大小，D5）：`.md`→`DOMPurify.sanitize(marked.parse(text,{async:false}))` 后 v-html（仅注 sanitized）；图片 `png/jpg/jpeg/gif/webp/svg`→`<img :src=objectURL>`（svg 也走 img 不内联）；`.json`→`JSON.stringify(JSON.parse(text),null,2)` 入 `<pre>`（非法 JSON 原样兜底）；其他→文本读 + NUL 启发式判二进制，文本入 `<pre>`、二进制回退；`>2MB`/二进制/异常→回退下载（emit download）。`onUnmounted`/blob 变更 `revokeObjectURL` 防泄漏。
+- 验收：`pnpm -C web build`（含 vue-tsc）绿；XSS 断言 PASS（node+jsdom 隔离，跑完即删，marked 产出的 `onerror`/`javascript:`/`<script>` 均被 sanitize 清除）。agent-browser 渲染眼检随 P3/P4 统一批量做。
+- dist：`web/.gitignore` 已含 `dist/`，提交未含构建产物。
