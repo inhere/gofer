@@ -20,6 +20,7 @@
 | v1.8 | 2026-06-23 | inhere | **Web 控制台 v2 只读层 design 已出**（E31拓扑/E19a预览/E20 git/E32 子git+关键文件，[`design/2026-06-23-web-console-v2-readonly-design.md`](design/2026-06-23-web-console-v2-readonly-design.md)）；待出 plan |
 | v1.9 | 2026-06-26 | claude | 新增 **E33 agent session 捕获与恢复**（捕获底层 CLI `session_id` 入库 → 检查/检索/恢复续接；exec 透传 `claude --resume` 跨 job 已实测可行）。design [`design/2026-06-26-session-capture-design.md`](design/2026-06-26-session-capture-design.md)（bd `hyy-ai-inspect-nnk`）；分期 P1/P2/P3 |
 | v1.10 | 2026-06-26 | claude | **E33 已落地**（SUPMODE P1-P3 + 真机 E2E PASS）：注入优先(claude `--session-id`)/捕获(codex)、`job resume`、worker `Outcome.SessionID` 回传、`list --session`。plan 进度全勾 |
+| v1.19 | 2026-06-27 | claude | **Web 控制台 v2 只读层 全落地**（SUPMODE P1-P4，commit `b393fcf`/`05ef7b2`/`24224d2`/`de4288a`）：**E20✅**(项目 git 状态)·**E32✅**(子 git 发现+白名单关键文件)·**E19a✅**(产物 inline 预览 FilePreview marked+DOMPurify)·**E31✅**(集群拓扑 SVG 星型+节点面板，只读部分；配置编辑写层仍待)。+3 只读 endpoint(`/projects/{key}/git\|repos\|file`，browse.go 不 import job 包/SafeJoin+白名单+256KB+二进制拒/固定 git 参数)。go test+pnpm build 全绿 + agent-browser 眼检全 PASS(console 0 报错)。**前端改动，需 `make web` 重 embed + 重建二进制才在 web 控制台生效**。plan [`plans/2026-06-23-web-console-v2-readonly-plan.md`](plans/2026-06-23-web-console-v2-readonly-plan.md) |
 | v1.18 | 2026-06-27 | claude | **E38①② 已落地+部署**（commit `deae1ae`，容器验证）：`GOFER_RUN_MODE=server\|worker` + `RunMode()`；`project list` 本地按角色读 yaml（worker→worker.yaml.projects）；`--remote` 走 `/v1/meta` 列服务端项目（新增 `client.ListProjects`）；单测 `TestRunMode`。**E38 三项(①②③)全完成。** 实测：默认无 config.yaml 提示 / RUN_MODE=worker 列 worker 2 项目 / --remote 列 server 3 项目 |
 | v1.17 | 2026-06-27 | inhere+claude | **E38①② 厘清并合并**：`GOFER_RUN_MODE=server\|worker` 决定 project/CLI 读哪个本地 yaml（worker→worker.yaml.projects，与 config.yaml 同 ProjectConfig 类型）；`p ls --remote`(非 --server) 走 API 列服务端实时项目（补 client.ListProjects）；**mcp 不进 RUN_MODE**（standalone 仍需 config.yaml，client 由 E28 决定）。待实现 |
 | v1.16 | 2026-06-27 | claude | **E38③ 已修**（commit `5be26be`，部署容器 CLI 验证）：`gofer wf` 子命令复用 `bindServerFlags` 读 `${GOFER_SERVER_ADDR/TOKEN}` env（与 `job` 一致），修复无 config 节点 wf 连不上 server。E38 ①② 仍待做 |
@@ -51,7 +52,7 @@
 | E4 | **任务模板库** | 中 | 中 | 命名的 md+yaml 模板 + 变量，`job run -t <template> --var k=v`。把重复 prompt 沉淀复用，天然接 md+yaml 提交。与 E18（工作流导出）同属"复用"主题。 |
 | E5 ✅ | **job 标签 + 搜索过滤** | 中 | 中 | 提交带 `tags`；看板/列表按 tag/agent/runner/时间检索。job 一多就需要。 |
 | E18 ✅ | **工作流导入导出 json** | 中 | 低 | 已随 v2 P4 落地（commit `92cc669`）：`GET /v1/workflows/{id}/export` + CLI `wf export`（默认 YAML，= `wf run` 输入格式，`-f yaml/json`）+ `wf run` 按内容自动识别导入；secret 启发式剥离 + 递归子 wf；`${steps.N}` 引用原样保留。 |
-| E19 | **文件 / 产物预览** | 中 | 中 | Web 在线预览（md/图/json/代码高亮）。**二义先定**：(a) job 产物 artifacts 渲染——小、安全边界清晰（限 `result_dir`），E1 已有下载加渲染即可，**先做**；(b) 项目工作目录文件浏览——大，需文件树 API + 路径安全（防 `../`、黑名单 `.env`/`.git`）。 |
+| E19a ✅ | **文件 / 产物预览** | 中 | 中 | **(a) 产物 inline 预览已落地**（web v2 只读层 P2，commit `05ef7b2`）：`FilePreview.vue`（marked+DOMPurify sanitize / 图走 img 不内联 / json 格式化 / 大文件二进制回退下载）+ JobDetail 接入 + `fetchArtifactBlob`。**(b) 项目工作目录通用文件树仍不做**（路径穿越/`.env` 泄露风险）——E32 以白名单关键文件替代。 |
 | E21 | **主机侧动作（编辑器打开等）** | 中 | 低 | 一键用主机编辑器打开项目（`code <host_path>`）/ reveal / 开终端。⚠️ gofer 在容器、编辑器在主机：**必须复用现有 codex-bridge 主机通道**（`host.docker.internal`），抽象成一类"主机侧动作"。仅对有主机 bridge 的部署可用。 |
 | E23 | **定时任务（内置 cron）** | 中 | 中 | `schedules` 表 + 复用现有 sweeper loop 范式定时提交 job/工作流。问题：错过补偿、多 hub 重复触发（单 hub 不问题）。**触发位置（设计维度）**：① server 集中触发（默认、简单，复用 sweeper，worker 只执行被派的 job）vs ② 下发 worker 自触发（worker 内置调度器 + 本地 schedule，断网离线自治，但管理分散）——倾向默认①、②作可选高级。接 E24（定时+重试）、E18（定时跑导入的工作流）。属**自主化 epic**。 |
 | E29 ✅ | **配置/部署模型简化（全局单 server + 项目瘦配置）** | 高 | 中 | **已落地**（SUPMODE 2026-06-23，P0-P3 commit `65cdb70`/`bfc6211`/`ae45372`/`9b2e6dd`，独立验收 D1–D9 全 PASS）。一台机一个 `serve` + 项目映射**全局单文件**；项目目录 `.gofer.project.yaml` **瘦配置**（仅偏好、无 server、准入留全局）。design [`design/2026-06-22-config-simplification-design.md`](design/2026-06-22-config-simplification-design.md) + plan [`plans/2026-06-23-config-simplification-plan.md`](plans/2026-06-23-config-simplification-plan.md)。Phase1（`init --global` + `GOFER_CONFIG` + `project add` 写全局）+ Phase2 overlay 合并（`buildCore`/`Reload`）+ cwd 推断免 `-p`；准入真源在 serve、CLI 不读 overlay（D2 安全）。**✅ 路径视角 `path_view`**（design D10，commit `f3a1db8`）：`server.path_view: host\|container`(默认 host) + `Config.ExecPath` 统一所有 gofer 侧路径（含 overlay/E32 扫描），修正 overlay 路径不一致；默认 host 零变化、job/httpapi 回归绿。 |
@@ -104,10 +105,10 @@
 | E15 ✅ | **渲染命令可见** | 低 | 低 | 详情页显式展示"实际执行的命令"（`GET /v1/jobs/{id}/request` 回原始 JobRequest）。 |
 | E16 ✅ | **指标 `/metrics`** | 中 | 低 | Prometheus：http/job 计数+时长、in_flight/queued/workers gauge。免认证 + 可选 token；route 模板防高基数。 |
 | E17 ✅ | **per-caller 配额 / 限流** | 中 | 中 | per-caller 并发配额（信号量排队）+ 速率限流（令牌桶 429）；配置真源在 job.Service（SIGHUP 热加载）。 |
-| E20 | **项目 git / 只读信息查看** | 中 | 中 | 项目**此刻** git status/log/branch 只读视图。**与 E12 划清**：E12=某 job 改了什么（快照）；本项=项目当前状态（不绑 job）。问题：git 在哪跑（本地容器/worker 侧）、只读白名单防写/防 RCE。 |
+| E20 ✅ | **项目 git / 只读信息查看** | 中 | 中 | **已落地**（web v2 只读层 P1+P3，commit `b393fcf`/`24224d2`）：`GET /v1/projects/{key}/git`（cwd=ExecPath、固定只读 git 参数、出错降级）→ Projects.vue git 状态卡（分支/dirty/最近提交）。**与 E12 划清**：E12=某 job 改了什么；本项=项目当前状态。git 跑在 server 进程经 `ExecPath`（仅本地可达项目，D2）。 |
 | E22 | **IM 连接（钉钉/飞书）** | 高 | 大 | 跨①②③轴。**拆三层**：(a) 出站通知接 IM（复用 E14，**最便宜先行**）；(b) 入站提交（IM 消息→job，新入口，回调验签 + IM 用户映射 caller_id）；(c) 交互应答（pending_interaction→IM 卡片→回复→续跑）。平台差异需 adapter。鉴权接 E17 caller。 |
-| E31 | **节点拓扑 + 配置管理（Web）** | 中 | 中-大 | ① **拓扑图**：server(hub)+workers+peers 关系图，数据源现有 `/v1/runners`(C6)+peers，纯可视化**便宜**；② **点击节点→节点面板**：项目空间 / 配置 / 在飞 job / 心跳；③ **配置查看/编辑**：Web 看/改 config → 写回（复用 `writer.go` 保留未知字段）+ SIGHUP reload。⚠️ **拆只读/写**：只读查看便宜先做；**编辑高危**（写 config + reload）需鉴权分级（当前 token 平权）+ **secret 不回显**（只显 `token_env` 名，SR403/805）+ 编辑后先 `config validate`。属 Web 控制台 v2（拓扑/面板=只读层，配置编辑=写层）。跨①③轴。 |
-| E32 | **项目空间浏览（子 git 发现 + 关键文件）** | 中 | 中 | E19(b)/E20 的**安全聚焦版**：① **子 git 发现**：项目根下递归找 `.git` 仓库列出 + branch/status（扫描走 `ExecPath`，受 `path_view` 控制，见 E29 design D10）；② **关键文件查看**：README / .gitignore / AGENTS.md / CLAUDE.md。**取舍**：做**白名单关键文件**而非通用文件树（后者 E19b 有 `.env` 泄露 + 路径穿越风险）。属 Web 控制台 v2 只读层。跨①③轴。 |
+| E31 🚧 | **节点拓扑 + 配置管理（Web）** | 中 | 中-大 | **① 拓扑图 + ② 节点面板（只读）已落地**（web v2 只读层 P4，commit `de4288a`）：`Cluster.vue` SVG 星型拓扑（hub+worker+peer+local，色=状态/心跳脉冲）+ 点击节点面板（worker 心跳/in-flight/labels、peer latency、local projects 概览），复用 `/v1/runners`+`/v1/projects` 无新后端；不画项目→节点边（D2，server 不知 worker projects）。**③ 配置查看/编辑（写层）仍待**：高危需鉴权分级 + secret 不回显（SR403/805）+ 编辑后 `config validate`，属 Web v2 写/交互层独立设计。跨①③轴。 |
+| E32 ✅ | **项目空间浏览（子 git 发现 + 关键文件）** | 中 | 中 | **已落地**（web v2 只读层 P1+P3，commit `b393fcf`/`24224d2`）：① 子 git 发现 `GET /v1/projects/{key}/repos`（从 ExecPath WalkDir 深度≤3、跳 node_modules/vendor/dist/.git、上限 100，每个 branch+dirty）；② 关键文件 `GET /v1/projects/{key}/file?path=`（basename 白名单 README*/.gitignore/AGENTS.md/CLAUDE.md/go.mod/package.json/LICENSE* + SafeJoin + ≤256KB + 二进制拒）。Projects.vue 子仓列表 + 关键文件点击经 FilePreview 渲染。**白名单而非通用文件树**（防 `.env` 泄露+穿越）。属 Web v2 只读层。跨①③轴。 |
 | E34 ✅ | **job 提交来源追踪 (provenance)** | 中 | 低 | **已落地+三端部署**（2026-06-27，commit `ff95515`，真机验收 PASS）。DB 记录原先看不出"谁/哪台/经哪渠道"提交（`caller_id` 来自共享 token 多为 `default`，且 `job show` 都没显示）。新增 `channel`(cli/web/mcp/im，**客户端声明**：CLI=cli 可 `--channel` 覆盖 / Web=web / MCP=mcp) + `client`(**来源主机/地址**：CLI 填 `os.Hostname()` / HTTP 提交 client 空时 **server 盖章 remote IP**，`X-Forwarded-For` 优先)，与既有 `caller_id` 共同回答提交来源。全链路：model + jobstore(additive 迁移 `channel/client` 列) + persistence + CLI(`job run` 盖章 / `show` 补 channel/client/caller_id / `list` 加列) + HTTP(盖章 IP) + MCP(channel=mcp) + Web(NewJob channel=web / JobDetail 显示)；`resume` 沿用源 job 来源。配套 **`job list` 改用 `gookit/cliui show/table`**（CJK-aware 列对齐，gcli v3.8.0 已 require cliui v0.3.1）+ gofer-job skill/runbook 补 `--cwd`(相对项目根，勿命令里 cd 绝对路径)/`--title` 约定。跨①③轴。 |
 
 ---
@@ -137,7 +138,7 @@ E23 定时 + E24 自动重试 + E25 监督应答 + E26 hooks 共同把 gofer 从
 
 把 Web 控制台从"看板 + 详情 + Workers 名册"推向"**集群可观察 + 项目透视 + 可交互操作**"。这批增强按**只读 vs 写/交互**切两层（安全闭环，SR1402）：
 
-- **只读观察层（便宜先行，数据源多现成、无写风险）**：E31 拓扑图 + 节点面板(只读) · E32 子 git 发现 + 关键文件 · E19(a) 产物预览 · E20 项目 git 状态。**✅ 只读层 design 已出**：[`design/2026-06-23-web-console-v2-readonly-design.md`](design/2026-06-23-web-console-v2-readonly-design.md)（marked+DOMPurify 预览 / SVG 物理拓扑 / 白名单关键文件 / +3 只读 endpoint，复用 runGit+ExecPath+SafeJoin）。
+- **只读观察层（便宜先行，数据源多现成、无写风险）**：E31 拓扑图 + 节点面板(只读) · E32 子 git 发现 + 关键文件 · E19(a) 产物预览 · E20 项目 git 状态。**✅ 全落地**（2026-06-27，SUPMODE P1-P4，commit `b393fcf`/`05ef7b2`/`24224d2`/`de4288a`，go test+pnpm build+agent-browser 眼检全 PASS）：design [`design/2026-06-23-web-console-v2-readonly-design.md`](design/2026-06-23-web-console-v2-readonly-design.md) + plan [`plans/2026-06-23-web-console-v2-readonly-plan.md`](plans/2026-06-23-web-console-v2-readonly-plan.md)。前端改动**需 `make web` 重 embed + 重建二进制**才在控制台生效。
 - **写 / 交互层（重、高危，各需独立安全设计）**：E30 pty 交互（改执行模型 + 会话审计）· E31 配置编辑（写回 + reload + 鉴权分级 + secret 不回显）· E21 主机侧动作（复用主机 bridge）。
 - **统一前置**：鉴权分级（当前 token 平权，写/交互操作需更细粒度）· 审计（写操作 / pty 会话入 E13 事件流）· secret 不回显（SR403/805）。
 
@@ -145,10 +146,10 @@ E23 定时 + E24 自动重试 + E25 监督应答 + E26 hooks 共同把 gofer 从
 
 ## 建议优先级（下一步做什么）
 
-**已完成（✅）**：E1/E2/E3/E5/E6/E12/E13/E15/E16/E17，**E7 ✅（v1+v2 全落地）** + 随 v2 的 **E9✅ / E18✅ / E27✅**，**E29✅**（配置简化）· **E33✅**（session 捕获/恢复，含 resume 豁免 allow_exec + 详情全展示收尾）· **E34✅**（提交来源追踪 channel/client + job list cliui table）· **E38✅**（节点/CLI 易用性：GOFER_RUN_MODE 本地按角色读 yaml + `p ls --remote` + wf 读 server env），E14🚧（webhook，MQ 不做）/E24🚧（工作流 step 级重试已落地，独立 job 级重试最小版）。原三轴核心缺口基本补齐。
+**已完成（✅）**：E1/E2/E3/E5/E6/E12/E13/E15/E16/E17，**E7 ✅（v1+v2 全落地）** + 随 v2 的 **E9✅ / E18✅ / E27✅**，**E29✅**（配置简化）· **E33✅**（session 捕获/恢复，含 resume 豁免 allow_exec + 详情全展示收尾）· **E34✅**（提交来源追踪 channel/client + job list cliui table）· **E38✅**（节点/CLI 易用性：GOFER_RUN_MODE 本地按角色读 yaml + `p ls --remote` + wf 读 server env）· **Web 控制台 v2 只读层✅**（E19a 产物预览 / E20 项目 git / E32 子 git+关键文件 / E31 拓扑+节点面板，2026-06-27），E14🚧（webhook，MQ 不做）/E24🚧（工作流 step 级重试已落地，独立 job 级重试最小版）/E31🚧（只读层已落地，配置编辑写层待）。原三轴核心缺口基本补齐。
 
 **便宜先行（低成本、边界清晰）：**
-1. **Web 控制台 v2 只读层**（E31 拓扑+节点面板 · E32 子 git+关键文件 · E19a 产物预览 · E20 git 状态——**打包一份 design**，见上「Web 控制台 v2」横切）· **E22(a) IM 出站通知**（复用 E14）。
+1. ~~**Web 控制台 v2 只读层**（E31 拓扑+节点面板 · E32 子 git+关键文件 · E19a 产物预览 · E20 git 状态）~~ —— **✅ 已落地**（2026-06-27，commit `b393fcf`..`de4288a`）。剩 **E22(a) IM 出站通知**（复用 E14，未做，需小 design）。
 2. **E28 `gofer mcp --server` client 模式 MVP**（**2026-06-27 决策提前**）：standalone 单进程鸡肋、与 serve/Web 状态割裂；MVP 复用 `bindServerFlags`(零新配置) + `internal/client`，把 10 个 `bridge_*` 后端换转发（7 个直接映射、补 ~3 GET），standalone 保留。最快消除割裂、为多 agent 协作铺地基。详见 E28 决策段。
 
 **第二梯队（中等、承接已有）：**
