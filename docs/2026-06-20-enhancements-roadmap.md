@@ -20,6 +20,7 @@
 | v1.8 | 2026-06-23 | inhere | **Web 控制台 v2 只读层 design 已出**（E31拓扑/E19a预览/E20 git/E32 子git+关键文件，[`design/2026-06-23-web-console-v2-readonly-design.md`](design/2026-06-23-web-console-v2-readonly-design.md)）；待出 plan |
 | v1.9 | 2026-06-26 | claude | 新增 **E33 agent session 捕获与恢复**（捕获底层 CLI `session_id` 入库 → 检查/检索/恢复续接；exec 透传 `claude --resume` 跨 job 已实测可行）。design [`design/2026-06-26-session-capture-design.md`](design/2026-06-26-session-capture-design.md)（bd `hyy-ai-inspect-nnk`）；分期 P1/P2/P3 |
 | v1.10 | 2026-06-26 | claude | **E33 已落地**（SUPMODE P1-P3 + 真机 E2E PASS）：注入优先(claude `--session-id`)/捕获(codex)、`job resume`、worker `Outcome.SessionID` 回传、`list --session`。plan 进度全勾 |
+| v1.11 | 2026-06-27 | claude | **E33 收尾**（commit `2383735`）：resume **豁免 allow_exec**（按 SOURCE agent 判门，载体 exec 不再要求 allow_exec；防伪不入 request_json）+ `session_id` 详情**全面展示**（除 CLI 外补 MCP `jobView` / Web `JobDetail`）。新增 **E34 job 提交来源追踪**（channel/client provenance）+ `job list` 改用 `gookit/cliui show/table`(CJK 对齐)，已落地+三端部署+真机验收（commit `ff95515`）。配套 gofer-job skill/runbook 补 `--cwd` 相对路径 / `--title` 约定（主仓 `b74c7e5`） |
 
 ## 现状基线（已有，不重复做）
 
@@ -90,6 +91,7 @@
 | E22 | **IM 连接（钉钉/飞书）** | 高 | 大 | 跨①②③轴。**拆三层**：(a) 出站通知接 IM（复用 E14，**最便宜先行**）；(b) 入站提交（IM 消息→job，新入口，回调验签 + IM 用户映射 caller_id）；(c) 交互应答（pending_interaction→IM 卡片→回复→续跑）。平台差异需 adapter。鉴权接 E17 caller。 |
 | E31 | **节点拓扑 + 配置管理（Web）** | 中 | 中-大 | ① **拓扑图**：server(hub)+workers+peers 关系图，数据源现有 `/v1/runners`(C6)+peers，纯可视化**便宜**；② **点击节点→节点面板**：项目空间 / 配置 / 在飞 job / 心跳；③ **配置查看/编辑**：Web 看/改 config → 写回（复用 `writer.go` 保留未知字段）+ SIGHUP reload。⚠️ **拆只读/写**：只读查看便宜先做；**编辑高危**（写 config + reload）需鉴权分级（当前 token 平权）+ **secret 不回显**（只显 `token_env` 名，SR403/805）+ 编辑后先 `config validate`。属 Web 控制台 v2（拓扑/面板=只读层，配置编辑=写层）。跨①③轴。 |
 | E32 | **项目空间浏览（子 git 发现 + 关键文件）** | 中 | 中 | E19(b)/E20 的**安全聚焦版**：① **子 git 发现**：项目根下递归找 `.git` 仓库列出 + branch/status（扫描走 `ExecPath`，受 `path_view` 控制，见 E29 design D10）；② **关键文件查看**：README / .gitignore / AGENTS.md / CLAUDE.md。**取舍**：做**白名单关键文件**而非通用文件树（后者 E19b 有 `.env` 泄露 + 路径穿越风险）。属 Web 控制台 v2 只读层。跨①③轴。 |
+| E34 ✅ | **job 提交来源追踪 (provenance)** | 中 | 低 | **已落地+三端部署**（2026-06-27，commit `ff95515`，真机验收 PASS）。DB 记录原先看不出"谁/哪台/经哪渠道"提交（`caller_id` 来自共享 token 多为 `default`，且 `job show` 都没显示）。新增 `channel`(cli/web/mcp/im，**客户端声明**：CLI=cli 可 `--channel` 覆盖 / Web=web / MCP=mcp) + `client`(**来源主机/地址**：CLI 填 `os.Hostname()` / HTTP 提交 client 空时 **server 盖章 remote IP**，`X-Forwarded-For` 优先)，与既有 `caller_id` 共同回答提交来源。全链路：model + jobstore(additive 迁移 `channel/client` 列) + persistence + CLI(`job run` 盖章 / `show` 补 channel/client/caller_id / `list` 加列) + HTTP(盖章 IP) + MCP(channel=mcp) + Web(NewJob channel=web / JobDetail 显示)；`resume` 沿用源 job 来源。配套 **`job list` 改用 `gookit/cliui show/table`**（CJK-aware 列对齐，gcli v3.8.0 已 require cliui v0.3.1）+ gofer-job skill/runbook 补 `--cwd`(相对项目根，勿命令里 cd 绝对路径)/`--title` 约定。跨①③轴。 |
 
 ---
 
@@ -115,7 +117,7 @@ E23 定时 + E24 自动重试 + E25 监督应答 + E26 hooks 共同把 gofer 从
 
 ## 建议优先级（下一步做什么）
 
-**已完成（✅）**：E1/E2/E3/E5/E6/E12/E13/E15/E16/E17，**E7 ✅（v1+v2 全落地）** + 随 v2 的 **E9✅ / E18✅ / E27✅**，E14🚧（webhook，MQ 不做）/E24🚧（工作流 step 级重试已落地，独立 job 级重试最小版）。原三轴核心缺口基本补齐。
+**已完成（✅）**：E1/E2/E3/E5/E6/E12/E13/E15/E16/E17，**E7 ✅（v1+v2 全落地）** + 随 v2 的 **E9✅ / E18✅ / E27✅**，**E29✅**（配置简化）· **E33✅**（session 捕获/恢复，含 resume 豁免 allow_exec + 详情全展示收尾）· **E34✅**（提交来源追踪 channel/client + job list cliui table），E14🚧（webhook，MQ 不做）/E24🚧（工作流 step 级重试已落地，独立 job 级重试最小版）。原三轴核心缺口基本补齐。
 
 **便宜先行（低成本、边界清晰）：**
 1. **Web 控制台 v2 只读层**（E31 拓扑+节点面板 · E32 子 git+关键文件 · E19a 产物预览 · E20 git 状态——**打包一份 design**，见上「Web 控制台 v2」横切）· **E22(a) IM 出站通知**（复用 E14）。
