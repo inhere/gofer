@@ -20,6 +20,7 @@
 | v1.8 | 2026-06-23 | inhere | **Web 控制台 v2 只读层 design 已出**（E31拓扑/E19a预览/E20 git/E32 子git+关键文件，[`design/2026-06-23-web-console-v2-readonly-design.md`](design/2026-06-23-web-console-v2-readonly-design.md)）；待出 plan |
 | v1.9 | 2026-06-26 | claude | 新增 **E33 agent session 捕获与恢复**（捕获底层 CLI `session_id` 入库 → 检查/检索/恢复续接；exec 透传 `claude --resume` 跨 job 已实测可行）。design [`design/2026-06-26-session-capture-design.md`](design/2026-06-26-session-capture-design.md)（bd `hyy-ai-inspect-nnk`）；分期 P1/P2/P3 |
 | v1.10 | 2026-06-26 | claude | **E33 已落地**（SUPMODE P1-P3 + 真机 E2E PASS）：注入优先(claude `--session-id`)/捕获(codex)、`job resume`、worker `Outcome.SessionID` 回传、`list --session`。plan 进度全勾 |
+| v1.12 | 2026-06-27 | inhere | **E28 决策**：client 模式确认要做，`gofer mcp --server <addr>` 作 MVP 先落地（现有 standalone 单进程鸡肋、与 serve/Web 状态割裂）；复用 `bindServerFlags`(零新配置) + `internal/client`(10 工具 7 个直接映射，补 ~3 GET)；命名统一 `--server`。见 E28 决策段，提优先级到"便宜先行" |
 | v1.11 | 2026-06-27 | claude | **E33 收尾**（commit `2383735`）：resume **豁免 allow_exec**（按 SOURCE agent 判门，载体 exec 不再要求 allow_exec；防伪不入 request_json）+ `session_id` 详情**全面展示**（除 CLI 外补 MCP `jobView` / Web `JobDetail`）。新增 **E34 job 提交来源追踪**（channel/client provenance）+ `job list` 改用 `gookit/cliui show/table`(CJK 对齐)，已落地+三端部署+真机验收（commit `ff95515`）。配套 gofer-job skill/runbook 补 `--cwd` 相对路径 / `--title` 约定（主仓 `b74c7e5`） |
 
 ## 现状基线（已有，不重复做）
@@ -76,6 +77,12 @@
 > | **client（新增，E28 核心）** | stdio mcp 仅当瘦客户端，`bridge_*` 转发到中央 serve（复用 `internal/client`） | 多 claude 各自 1:1 拉起自己的 stdio mcp 子进程、后端共指同一 serve → 中枢化 / 协作 / Web+MCP 状态一致 | 无中央 serve 的纯单机轻量场景（杀鸡用牛刀，回退 standalone 即可） |
 >
 > **不选 HTTP MCP transport 替代 stdio**：那要 claude 端配 URL+鉴权、gofer 实现 HTTP MCP server，更重；stdio 子进程转发对 claude 端**零改动**（仍是 `command` 拉起），更贴合 claude 用法。
+>
+> **【决策 2026-06-27】client 模式确认要做，`gofer mcp --server <addr>` 作为最快见效的 MVP 先落地。** 动机：现有 standalone 单进程**鸡肋**——in-process 状态与 `serve`/Web 控制台**割裂**（多个 claude 子进程、Web 各看各的 live job，互不可见），无法支撑多 agent 协作。MVP 切片很小、复用度高：
+> - **旗标复用 `bindServerFlags`**（`--server/-s` + `--token`，默认读 `GOFER_SERVER_ADDR/TOKEN` env，**与 CLI 完全一致 → 零新配置概念**）；客户端注册仍是 `command: gofer, args: ["mcp","--server","..."]`，对 claude 端零改动。**命名统一用 `--server`**（与 job 子命令一致；修正本文上文示例里的 `--serve`）。
+> - **后端换转发，复用 `internal/client`**：10 个 `bridge_*` 工具里约 7 个直接映射现有 client 方法（run→`SubmitJobSync`、get→`GetJob`、tail→`GetLogs`、cancel→`CancelJob`、answer→`AnswerInteraction`、artifacts→`ListArtifacts`、result→`GetJob`）；需补 ~3 个 client GET（`ListProjects`/`ListAgents`/`GetInteractions`）+ tail 流式（可先用一次性 `GetLogs`，SSE 二期）。
+> - **standalone 保留**（无 serve 的纯单机轻量场景，一个 flag 切：有 `--server` 走 client、否则 standalone）。
+> 效果：多 claude 各拉自己的 stdio mcp 子进程、后端共指同一 serve → 状态一致、Web+MCP 同视图、为 E25 监督应答 / 多 agent 协作铺好地基。
 
 ## ③ 观察 / 审计 agent 的工作
 
@@ -121,13 +128,14 @@ E23 定时 + E24 自动重试 + E25 监督应答 + E26 hooks 共同把 gofer 从
 
 **便宜先行（低成本、边界清晰）：**
 1. **Web 控制台 v2 只读层**（E31 拓扑+节点面板 · E32 子 git+关键文件 · E19a 产物预览 · E20 git 状态——**打包一份 design**，见上「Web 控制台 v2」横切）· **E22(a) IM 出站通知**（复用 E14）。
+2. **E28 `gofer mcp --server` client 模式 MVP**（**2026-06-27 决策提前**）：standalone 单进程鸡肋、与 serve/Web 状态割裂；MVP 复用 `bindServerFlags`(零新配置) + `internal/client`，把 10 个 `bridge_*` 后端换转发（7 个直接映射、补 ~3 GET），standalone 保留。最快消除割裂、为多 agent 协作铺地基。详见 E28 决策段。
 
 **第二梯队（中等、承接已有）：**
-2. **E4 模板库**（接 E18）· **E20 项目 git 信息**（接 E19）· **E11 上下文/规则注入**（含规则文件）· **E28 多 agent 协作通信**（先做"mcp HTTP-client 接入"这一小改造，复用 `internal/client`；中央 serve 已是地基）。
-3. ~~**工作流 v2 epic**：E27 子工作流/跨项目 + E9 fan-out + E24 重试 + E7 尾巴~~ —— **✅ 已落地**（design [`design/2026-06-22-workflow-v2-design.md`](design/2026-06-22-workflow-v2-design.md) + plan [`plans/2026-06-22-workflow-v2/`](plans/2026-06-22-workflow-v2/)，commit `7c470b8`..`92cc669`）。**剩余尾巴**：工作流模板库(E4)、export secret 启发式剥离非保证、子 wf retry 重跑整条、独立 job 级重试可靠版(E24)。
+3. **E4 模板库**（接 E18）· **E20 项目 git 信息**（接 E19）· **E11 上下文/规则注入**（含规则文件）。（E28 mcp client 模式已提到「便宜先行」item 2。）
+4. ~~**工作流 v2 epic**：E27 子工作流/跨项目 + E9 fan-out + E24 重试 + E7 尾巴~~ —— **✅ 已落地**（design [`design/2026-06-22-workflow-v2-design.md`](design/2026-06-22-workflow-v2-design.md) + plan [`plans/2026-06-22-workflow-v2/`](plans/2026-06-22-workflow-v2/)，commit `7c470b8`..`92cc669`）。**剩余尾巴**：工作流模板库(E4)、export secret 启发式剥离非保证、子 wf retry 重跑整条、独立 job 级重试可靠版(E24)。
 
 **大件（需独立设计，先对齐取向）：**
-4. **自主化 epic**：**E8 审批门**（先行，做安全闸）→ **E23 定时** → **E25 监督应答** + **E26 hooks** + **E22(b/c) IM 双向**——先出设计文档对齐"自主程度"，再排。
-5. **E10 mcp-agent**（按需）。
+5. **自主化 epic**：**E8 审批门**（先行，做安全闸）→ **E23 定时** → **E25 监督应答** + **E26 hooks** + **E22(b/c) IM 双向**——先出设计文档对齐"自主程度"，再排。
+6. **E10 mcp-agent**（按需）。
 
 > **一句话主线**：原"看得见 agent 产出/改了什么"已补齐（E1/E6/E12/E13/E15/E16/E17）；下一程向**自主化（定时/重试/监督/hooks）与连接（IM/编辑器）**扩展，且**每一步自主都先有审批门(E8)兜底、受配额(E17)约束、留审计(E13)痕迹**——让 gofer 既能自己跑，又始终可控可审计。
