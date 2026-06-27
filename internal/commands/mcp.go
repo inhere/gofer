@@ -21,26 +21,63 @@ import (
 // serveExitErr).
 const mcpExitErr = 2
 
-// NewMcpCmd builds the `mcp` command: load config, wire the shared Core and run
-// the stdio MCP server (plan P8). It reuses the identical job.Service / project
-// / agent registries as `serve` so the MCP tools never duplicate execution
-// logic.
+// mcpOpts holds `mcp`-specific flags. --standalone is the D2 escape hatch that
+// forces in-process (local backend) mode even when GOFER_SERVER_ADDR/--server
+// is set. The --server/--token connection flags live in the shared jobConnOpts
+// (bound via bindServerFlags).
+var mcpOpts = struct{ standalone bool }{}
+
+// NewMcpCmd builds the `mcp` command: run the stdio MCP server (plan P8/E28).
+// Two backend modes (E28 D1/D2):
+//   - client mode (default when --server/GOFER_SERVER_ADDR is set, no
+//     --standalone): the mcp process is a thin client — the 10 bridge_* tools
+//     forward to a central serve via internal/client. NO Core/DB is built.
+//   - standalone mode (--standalone, or no server addr resolved): the現状
+//     in-process path — load config + build Core + serve the localBackend,
+//     identical to `serve` so the MCP tools never duplicate execution logic.
 //
 // IMPORTANT: the MCP protocol owns stdout (newline-delimited JSON over stdin/
 // stdout), so this command MUST NOT print anything to stdout — no startup
-// banner, no logs. Errors surface via the returned (coded) error on stderr.
+// banner, no logs, in EITHER mode. Errors surface via the returned (coded)
+// error on stderr (finishMcp).
 func NewMcpCmd() *gcli.Command {
 	return &gcli.Command{
 		Name: "mcp",
 		Desc: "Run the stdio MCP server",
 		Config: func(c *gcli.Command) {
 			bindConfigFlag(c)
+			bindServerFlags(c) // --server/-s + --token (GOFER_SERVER_ADDR/TOKEN env defaults)
+			c.BoolOpt(&mcpOpts.standalone, "standalone", "", false,
+				"force in-process mode (ignore GOFER_SERVER_ADDR / --server)")
 		},
 		Func: runMcp,
 	}
 }
 
+// mcpUseClient reports whether the mcp server should run in client mode (E28
+// D1/D2). It is a pure function of the resolved flag/env inputs so the mode
+// decision is unit-testable. serverAddr is the value bound by bindServerFlags
+// (jobConnOpts.server) — i.e. --server flag OR the GOFER_SERVER_ADDR env default
+// — and deliberately NOT config.server.addr: config.server.addr is the
+// standalone serve's own listen address, so honouring it here would make a serve
+// host's bare `gofer mcp` connect back to itself (D1).
+func mcpUseClient(standalone bool, serverAddr string) bool {
+	return !standalone && serverAddr != ""
+}
+
 func runMcp(_ *gcli.Command, _ []string) error {
+	// D1: client mode — thin client forwarding to a central serve. No Core/DB is
+	// built (root-causes the standalone multi-process SQLite write-lock risk).
+	if mcpUseClient(mcpOpts.standalone, jobConnOpts.server) {
+		cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+		if err != nil {
+			return errorx.Failf(mcpExitErr, "%v", err)
+		}
+		return finishMcp(mcpserver.Serve(context.Background(), mcpserver.NewClientBackend(cli)))
+	}
+
+	// D2/standalone (現状路径，行为不变): load config + build Core + serve the
+	// in-process localBackend.
 	cfg, _, err := config.Load(config.InputCfgFile)
 	if err != nil {
 		return errorx.Failf(mcpExitErr, "%v", err)
@@ -57,20 +94,21 @@ func runMcp(_ *gcli.Command, _ []string) error {
 	// Graceful shutdown: close the metadata store (WAL checkpoint) when the MCP
 	// server returns (design §14).
 	defer func() { _ = cr.Close() }()
-	// P2: route through the compatibility wrapper (in-process localBackend). P4
-	// will branch here to pick local vs client backend by mode.
-	err = mcpserver.ServeLocal(context.Background(), cr.Jobs, cr.Projects, cr.Agents)
+	return finishMcp(mcpserver.ServeLocal(context.Background(), cr.Jobs, cr.Projects, cr.Agents))
+}
+
+// finishMcp maps the mcp server's return error onto the command result, shared by
+// both the client and standalone paths so stdout stays clean either way. A clean
+// stdin EOF (client closed the pipe) or a cancelled context is the normal
+// stdio-MCP shutdown path, not a failure — returning the error would make gcli
+// render "ERROR: ..." onto stdout, which is the MCP protocol channel and must
+// stay clean — so we swallow it and exit 0. A real failure surfaces as a coded
+// error on stderr.
+func finishMcp(err error) error {
 	if isCleanShutdown(err) {
-		// A clean stdin EOF (client closed the pipe) or a cancelled context is the
-		// normal stdio-MCP shutdown path, not a failure. Returning the error here
-		// would make gcli render "ERROR: ..." onto stdout — which is the MCP
-		// protocol channel and must stay clean — so we swallow it and exit 0.
 		return nil
 	}
-	if err != nil {
-		return errorx.Failf(mcpExitErr, "%v", err)
-	}
-	return nil
+	return errorx.Failf(mcpExitErr, "%v", err)
 }
 
 // isCleanShutdown reports whether err is the normal stdio-MCP teardown signal
