@@ -189,6 +189,9 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// session 捕获：注入式(claude)立即知 id；显式 req.SessionID(resume)优先；
 			// 捕获式(codex)此处为空，终态由 captureOutcomes 填充(T1.4)。
 			SessionID: sessionID,
+			// 提交来源（provenance）：渠道(cli/web/mcp/im) + 来源主机/IP，入口已盖章在 req 上。
+			Channel: req.Channel,
+			Client:  req.Client,
 		},
 	}
 	s.mu.Lock()

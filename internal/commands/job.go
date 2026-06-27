@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gookit/cliui/show/table"
 	"github.com/gookit/gcli/v3"
 
 	"github.com/inhere/gofer/internal/client"
@@ -36,6 +37,7 @@ var jobRunOpts = struct {
 	workerID     string
 	workerLabels string
 	tags         string
+	channel      string
 }{}
 
 // jobCommonOpts holds non-connection flags shared by show/logs/cancel (the
@@ -113,6 +115,7 @@ func NewJobCmd() *gcli.Command {
 					c.StrOpt(&jobRunOpts.workerID, "worker-id", "", "", "target worker id for runner=worker (explicit routing)")
 					c.StrOpt(&jobRunOpts.workerLabels, "worker-labels", "", "", "comma-separated labels to auto-select a worker (runner=worker, when --worker-id is unset)")
 					c.StrOpt(&jobRunOpts.tags, "tags", "", "", "comma-separated free-form tags for the job (E5 search dimension, e.g. --tags ci,nightly)")
+					c.StrOpt(&jobRunOpts.channel, "channel", "", "cli", "submission channel recorded as provenance (cli/web/mcp/...)")
 					// exec argv after `--`, e.g. `job run -a exec -- go version`.
 					// Declared as an optional arrayed arg so gcli binds the post-`--`
 					// tokens natively (HasArguments()=true also suppresses the spurious
@@ -364,8 +367,23 @@ func submitJSONJob(c *gcli.Command, cli *client.Client) (client.SubmitResult, er
 		WorkerID:       jobRunOpts.workerID,
 		WorkerLabels:   splitLabels(jobRunOpts.workerLabels),
 		Tags:           splitLabels(jobRunOpts.tags), // comma-separated, same parsing as worker-labels
+		// 提交来源（provenance）：CLI 渠道(默认 cli，可 --channel 覆盖) + 本机 hostname。
+		// server 端若 client 为空会以 remote IP 兜底盖章。
+		Channel: jobRunOpts.channel,
+		Client:  cliHostname(),
 	}
 	return cli.SubmitJobSync(req)
+}
+
+// cliHostname returns os.Hostname() for stamping a CLI submission's Client
+// (provenance). A lookup failure yields "" — the server then falls back to the
+// remote IP, so provenance is never wholly lost.
+func cliHostname() string {
+	h, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return h
 }
 
 // splitLabels parses a comma-separated flag value (--worker-labels, --tags) into
@@ -422,6 +440,16 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	c.Printf("exit_code:  %d\n", res.ExitCode)
 	c.Printf("cwd:        %s\n", res.Cwd)
 	c.Printf("result_dir: %s\n", res.ResultDir)
+	// 提交来源（provenance）：渠道 / 来源主机|IP / 鉴权身份——回答"谁/哪台/经哪渠道提交"。
+	if res.Channel != "" {
+		c.Printf("channel:    %s\n", res.Channel)
+	}
+	if res.Client != "" {
+		c.Printf("client:     %s\n", res.Client)
+	}
+	if res.CallerID != "" {
+		c.Printf("caller_id:  %s\n", res.CallerID)
+	}
 	if res.SessionID != "" {
 		c.Printf("session_id: %s\n", res.SessionID)
 	}
@@ -469,9 +497,10 @@ func runJobCancel(c *gcli.Command, _ []string) error {
 	return nil
 }
 
-// runJobList queries GET /v1/jobs with the bound filters and prints a fixed-width
-// table (ID/STATUS/AGENT/RUNNER/PROJECT/TAGS/STARTED). An empty result prints a
-// friendly hint instead of an empty table.
+// runJobList queries GET /v1/jobs with the bound filters and renders a table via
+// gcli show/table (column widths are computed by the component, incl. CJK). It
+// surfaces submission provenance (CHANNEL/CLIENT) so the listing answers "who /
+// where / how submitted". An empty result prints a friendly hint.
 func runJobList(c *gcli.Command, _ []string) error {
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
@@ -495,72 +524,16 @@ func runJobList(c *gcli.Command, _ []string) error {
 		c.Println("no jobs matched the given filters")
 		return nil
 	}
-	c.Printf("%-22s %-10s %-10s %-8s %s %-12s %-16s %s\n",
-		"ID", "STATUS", "AGENT", "RUNNER", padCol("TITLE", jobListTitleWidth), "PROJECT", "TAGS", "STARTED")
+	// gookit/cliui show/table 原生按显示宽度对齐(含 CJK，实测中文标题列对齐)+ ColMaxWidth
+	// 截断，无需手工 padding。CHANNEL/CLIENT 为提交来源(provenance)。
+	tb := table.New("", table.WithColMaxWidth(30))
+	tb.SetHeads("ID", "TITLE", "STATUS", "CHANNEL", "CLIENT", "AGENT", "RUNNER", "PROJECT", "TAGS", "STARTED")
 	for _, j := range jobs {
-		c.Printf("%-22s %-10s %-10s %-8s %s %-12s %-16s %s\n",
-			j.ID, j.Status, j.Agent, j.Runner, padCol(j.Title, jobListTitleWidth), j.ProjectKey,
-			strings.Join(j.Tags, ","), formatStarted(j.StartedAt))
+		tb.AddRow(j.ID, j.Title, j.Status, j.Channel, j.Client, j.Agent, j.Runner,
+			j.ProjectKey, strings.Join(j.Tags, ","), formatStarted(j.StartedAt))
 	}
+	c.Print(tb.Render())
 	return nil
-}
-
-// jobListTitleWidth is the display-column width of the job-list TITLE column.
-const jobListTitleWidth = 26
-
-// padCol truncates s to jobListTitleWidth DISPLAY columns (… when cut) then
-// right-pads it to that width. It counts East-Asian wide runes as 2 columns so a
-// CJK job title (the common case here) keeps the following columns aligned —
-// Go's %-Ns pads by BYTE count, which would jag a UTF-8 Chinese title.
-func padCol(s string, width int) string {
-	var b strings.Builder
-	cw, full := 0, dispWidth(s)
-	limit := width
-	if full > width {
-		limit = width - 1 // reserve one column for the … marker
-	}
-	for _, r := range s {
-		rw := runeWidth(r)
-		if cw+rw > limit {
-			break
-		}
-		b.WriteRune(r)
-		cw += rw
-	}
-	if full > width {
-		b.WriteRune('…')
-		cw++
-	}
-	for cw < width {
-		b.WriteByte(' ')
-		cw++
-	}
-	return b.String()
-}
-
-// dispWidth is the terminal display width of s (wide runes count as 2).
-func dispWidth(s string) int {
-	w := 0
-	for _, r := range s {
-		w += runeWidth(r)
-	}
-	return w
-}
-
-// runeWidth returns 2 for East-Asian wide / fullwidth runes (CJK, Hangul,
-// fullwidth forms), else 1. Approximate but covers the ranges seen in job titles.
-func runeWidth(r rune) int {
-	switch {
-	case r >= 0x1100 && r <= 0x115F, // Hangul Jamo
-		r >= 0x2E80 && r <= 0xA4CF, // CJK radicals … Yi
-		r >= 0xAC00 && r <= 0xD7A3, // Hangul syllables
-		r >= 0xF900 && r <= 0xFAFF, // CJK compat ideographs
-		r >= 0xFF00 && r <= 0xFF60, // fullwidth forms
-		r >= 0xFFE0 && r <= 0xFFE6,
-		r >= 0x20000 && r <= 0x3FFFD: // CJK ext B+
-		return 2
-	}
-	return 1
 }
 
 // formatStarted renders a unix-seconds started_at as a local timestamp; 0 (never

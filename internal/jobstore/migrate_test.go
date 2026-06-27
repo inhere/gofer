@@ -82,6 +82,9 @@ func TestMigrateAddsColumnsToOldDB(t *testing.T) {
 	assert.True(t, tableHasColumn(t, s, "jobs", "tags_json"))
 	// session 捕获：旧库经 migrate 必须补全 session_id 列。
 	assert.True(t, tableHasColumn(t, s, "jobs", "session_id"))
+	// 提交来源（provenance）：旧库经 migrate 必须补全 channel / client 列。
+	assert.True(t, tableHasColumn(t, s, "jobs", "channel"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "client"))
 
 	// The migrated DB is usable: a job with a request_id round-trips.
 	rec := sampleJob("j1", "proj", 100)

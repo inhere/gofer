@@ -80,7 +80,9 @@ var schemaStmts = []string{
   tags_json        TEXT,
   workflow_id      TEXT,
   step_index       INTEGER,
-  session_id       TEXT
+  session_id       TEXT,
+  channel          TEXT,
+  client           TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -290,6 +292,14 @@ func (s *Store) migrate() error {
 	// session 捕获：底层 agent CLI 会话标识（claude/codex）。旧库自动 ALTER ADD，
 	// 旧行 COALESCE→""（session-capture，design §6.2）。
 	if err := add("session_id", "session_id TEXT"); err != nil { // agent CLI 会话 id
+		return err
+	}
+	// 提交来源（provenance）：channel=cli/web/mcp/im，client=来源主机/IP。旧库 ALTER ADD，
+	// 旧行 COALESCE→""。配合既有 caller_id 标识"谁/哪台/经哪个渠道提交"。
+	if err := add("channel", "channel TEXT"); err != nil { // 提交渠道
+		return err
+	}
+	if err := add("client", "client TEXT"); err != nil { // 来源主机/IP
 		return err
 	}
 	if err := s.migrateWorkflows(); err != nil {

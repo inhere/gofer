@@ -615,6 +615,12 @@ async function copyCommand(): Promise<void> {
         <span class="meta-k mono">worker_id</span>
         <span class="meta-v mono remote" :title="job.worker_id">{{ job.worker_id }}</span>
       </div>
+      <div v-if="job.channel" class="meta-item">
+        <span class="meta-k mono">channel</span><span class="meta-v mono">{{ job.channel }}</span>
+      </div>
+      <div v-if="job.client" class="meta-item">
+        <span class="meta-k mono">client</span><span class="meta-v mono">{{ job.client }}</span>
+      </div>
       <div v-if="job.session_id" class="meta-item">
         <span class="meta-k mono">session_id</span>
         <span class="meta-v mono" :title="`gofer job resume ${job.id}`">{{ job.session_id }}</span>
