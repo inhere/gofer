@@ -28,7 +28,7 @@
 - [x] **P1** client 3 方法 + 单测
 - [x] **P2** Backend 接口 + localBackend 抽取（零行为变化）
 - [x] **P3** clientBackend + 单测
-- [ ] **P4** mcp.go 模式分支（--server/--standalone）+ 单测
+- [x] **P4** mcp.go 模式分支（--server/--standalone）+ 单测
 - [ ] **P5** 真机 E2E（双 client 协作 + standalone 回归）
 
 ---
@@ -171,10 +171,12 @@ func runMcp(_ *gcli.Command, _ []string) error {
 > `resolveServerAddr`：复用 `newClient` 里的 addr 解析（flag>env>config.server.addr），抽一个小 helper 或内联判断；注意 standalone 模式**不**因 env 存在而误切（D2）。
 
 ### P4 验收
-- [ ] 单测：`mcpOpts.standalone=true`+env 设 → 走 local；env 设+无 --standalone → 走 client（用可注入的判定函数测分支，不真起 stdio）。
-- [ ] 冒烟：`GOFER_SERVER_ADDR=` 空 → `gofer mcp` 进 standalone；设 env → 进 client；`gofer mcp --standalone` 无论 env → standalone。（可经 stderr 日志/一个隐藏的 mode 探针验证，勿污染 stdout）
-- [ ] `go build ./... && go vet ./...` 绿。
-- [ ] commit：`feat(gofer): gofer mcp client 模式分支(--server env 默认 + --standalone 逃生)(E28 P4)`。
+- [x] 单测：`mcpUseClient` 真值表（`(true,"x")→false`、`(false,"")→false`、`(false,"x")→true`、`(true,"")→false`）+ `NewMcpCmd` 绑定 --server/--token/--standalone/-c 断言。`go test ./internal/commands/...` 绿。
+- [x] 冒烟：`gofer mcp --help` 列出 `-s/--server`、`--standalone`、`--token`、`-c/--config`（env 默认经 gcli `${ENV}` 展开）；模式判定见 `mcpUseClient` 单测（不真起 stdio，stdout 洁净）。
+- [x] `go build ./... && go vet ./...` 绿。
+- [x] commit：`feat(gofer): gofer mcp client 模式分支(--server env 默认 + --standalone 逃生)(E28 P4)`。
+
+> 落地说明：`internal/commands/mcp.go` —— 新增包级 `mcpOpts{standalone}`；Config 加 `bindServerFlags(c)` + `--standalone`；纯函数 `mcpUseClient(standalone, serverAddr)=!standalone && serverAddr!=""`（**只看 jobConnOpts.server**=flag/env，不看 config.server.addr，避免 serve 主机裸 mcp 连自己，D1）。`runMcp`：client 分支 `newClient`→`mcpserver.Serve(NewClientBackend(cli))`（不建 Core），否则 standalone 现状路径（config.Load + ApplyProjectOverlays(stderr) + core.Build + defer Close + `ServeLocal`）。`isCleanShutdown` 收尾抽成 `finishMcp(err)`（stdin EOF/ctx 取消→exit0；否则 `errorx.Failf(mcpExitErr)`），两路径共用；两路径均不写 stdout（协议通道）。新增 `internal/commands/mcp_test.go`。
 
 ---
 
