@@ -1,6 +1,8 @@
 package client
 
 import (
+	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"path/filepath"
 	"strings"
@@ -514,6 +516,144 @@ func TestCancelUnknownWorkflowError(t *testing.T) {
 		t.Fatal("expected error cancelling unknown workflow")
 	} else if !strings.Contains(err.Error(), "404") {
 		t.Fatalf("error should mention 404: %v", err)
+	}
+}
+
+// TestListAgents: ListAgents decodes the /v1/agents wire shape (httpapi.agentView:
+// key/type/available/version/error) and folds it into the mcp bridge contract
+// (name/type/available/detail), with detail=version when available else the probe
+// error — mirroring the in-process mcpserver list-agents handler (E28 P1).
+func TestListAgents(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/agents", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "bad method", http.StatusMethodNotAllowed)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"agents": []map[string]any{
+				{"key": "claude", "type": "cli", "available": true, "version": "1.2.3"},
+				{"key": "exec", "type": "exec", "available": false, "error": "not found"},
+			},
+		})
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	agents, err := New(ts.URL, "").ListAgents()
+	if err != nil {
+		t.Fatalf("ListAgents: %v", err)
+	}
+	if len(agents) != 2 {
+		t.Fatalf("got %d agents want 2: %+v", len(agents), agents)
+	}
+	// Available agent: name=key, detail=version.
+	if agents[0].Name != "claude" || agents[0].Type != "cli" || !agents[0].Available || agents[0].Detail != "1.2.3" {
+		t.Fatalf("agent[0] mismatch: %+v", agents[0])
+	}
+	// Unavailable agent: detail folds the probe error.
+	if agents[1].Name != "exec" || agents[1].Available || agents[1].Detail != "not found" {
+		t.Fatalf("agent[1] mismatch: %+v", agents[1])
+	}
+}
+
+// TestGetInteractions: GetInteractions unwraps {"interactions":[...]} into a
+// []job.Interaction with all fields decoded (E28 P1).
+func TestGetInteractions(t *testing.T) {
+	want := []job.Interaction{
+		{ID: "int-1", JobID: "job-1", Type: "question", Prompt: "ok?", Status: "pending", CreatedAt: 100},
+		{ID: "int-2", JobID: "job-1", Type: "confirmation", Prompt: "go?", Status: "answered", Answer: "yes", CreatedAt: 101, AnsweredAt: 102},
+	}
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/jobs/job-1/interactions", func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"interactions": want})
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	got, err := New(ts.URL, "").GetInteractions("job-1")
+	if err != nil {
+		t.Fatalf("GetInteractions: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("got %d interactions want 2: %+v", len(got), got)
+	}
+	if got[0].ID != "int-1" || got[0].Status != "pending" || got[0].Prompt != "ok?" {
+		t.Fatalf("interaction[0] mismatch: %+v", got[0])
+	}
+	if got[1].ID != "int-2" || got[1].Answer != "yes" || got[1].AnsweredAt != 102 {
+		t.Fatalf("interaction[1] mismatch: %+v", got[1])
+	}
+}
+
+// TestGetInteractionsUnknownJobError: an unknown job id surfaces the server's
+// 404 as a friendly client error.
+func TestGetInteractionsUnknownJobError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/jobs/nope/interactions", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unknown job", "detail": "no job with id nope"})
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	if _, err := New(ts.URL, "").GetInteractions("nope"); err == nil {
+		t.Fatal("expected 404 error for unknown job interactions")
+	} else if !strings.Contains(err.Error(), "404") {
+		t.Fatalf("error should mention 404: %v", err)
+	}
+}
+
+// TestAnswerInteractionReturnsUpdated: AnswerInteraction POSTs the answer and
+// decodes the bare job.Interaction the endpoint echoes back (E28 P1 enhancement).
+func TestAnswerInteractionReturnsUpdated(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/jobs/job-1/interactions/int-1/answer", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "bad method", http.StatusMethodNotAllowed)
+			return
+		}
+		var body struct {
+			Answer string `json:"answer"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		_ = json.NewEncoder(w).Encode(job.Interaction{
+			ID: "int-1", JobID: "job-1", Type: "question", Prompt: "ok?",
+			Status: "answered", Answer: body.Answer, CreatedAt: 100, AnsweredAt: 200,
+		})
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	it, err := New(ts.URL, "").AnswerInteraction("job-1", "int-1", "yes")
+	if err != nil {
+		t.Fatalf("AnswerInteraction: %v", err)
+	}
+	if it.ID != "int-1" || it.Status != "answered" || it.Answer != "yes" || it.AnsweredAt != 200 {
+		t.Fatalf("answered interaction mismatch: %+v", it)
+	}
+}
+
+// TestAnswerInteractionUnknownError: answering an unknown interaction surfaces
+// the server's 404 as an error (and an empty Interaction).
+func TestAnswerInteractionUnknownError(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/v1/jobs/job-1/interactions/ghost/answer", func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+		_ = json.NewEncoder(w).Encode(map[string]string{"error": "unknown interaction", "detail": "ghost"})
+	})
+	ts := httptest.NewServer(mux)
+	defer ts.Close()
+
+	it, err := New(ts.URL, "").AnswerInteraction("job-1", "ghost", "x")
+	if err == nil {
+		t.Fatal("expected 404 error answering unknown interaction")
+	}
+	if !strings.Contains(err.Error(), "404") {
+		t.Fatalf("error should mention 404: %v", err)
+	}
+	if it.ID != "" {
+		t.Fatalf("expected zero Interaction on error, got %+v", it)
 	}
 }
 
