@@ -28,6 +28,13 @@ var workerOpts = struct {
 	daemon bool
 }{}
 
+// workerStopOpts holds `worker stop` flags. Its own --worker-config (separate
+// from workerOpts so subcommand flag parsing stays isolated) lets `worker stop`
+// resolve the default worker_id from worker.yaml when no <id> is given.
+var workerStopOpts = struct {
+	config string
+}{}
+
 // workerPIDFile / workerLogFile are the daemon-mode runtime files (c44),
 // namespaced by worker id so multiple workers on one host never collide:
 // <config-dir>/run/worker-<id>.{pid,log}.
@@ -46,8 +53,45 @@ func NewWorkerCmd() *gcli.Command {
 			c.StrOpt(&workerOpts.config, "worker-config", "", "", "path to the worker config file (default: <config-dir>/worker.yaml)")
 			c.BoolOpt(&workerOpts.daemon, "daemon", "d", false, "run in background (detached); logs to <config-dir>/run/worker-<id>.log")
 		},
+		Subs: []*gcli.Command{NewWorkerStopCmd()},
 		Func: runWorker,
 	}
+}
+
+// NewWorkerStopCmd builds `gofer worker stop [<id>]`: stop the backgrounded (-d)
+// worker via its id-namespaced pidfile (counterpart to `worker -d`). When <id> is
+// omitted it defaults to the worker_id from worker.yaml, so the common
+// single-worker host can just run `gofer worker stop`.
+func NewWorkerStopCmd() *gcli.Command {
+	return &gcli.Command{
+		Name: "stop",
+		Desc: "Stop the backgrounded (-d) worker via its pidfile (id defaults to worker.yaml's worker_id)",
+		Config: func(c *gcli.Command) {
+			c.StrOpt(&workerStopOpts.config, "worker-config", "", "", "worker config to resolve the default worker_id (default: <config-dir>/worker.yaml)")
+			c.AddArg("id", "worker id (defaults to worker.yaml's worker_id)", false)
+		},
+		Func: runWorkerStop,
+	}
+}
+
+func runWorkerStop(c *gcli.Command, _ []string) error {
+	id := ""
+	if a := c.Arg("id"); a != nil {
+		id = a.String()
+	}
+	// No explicit id: fall back to the worker.yaml's worker_id so a single-worker
+	// host can stop with a bare `gofer worker stop`.
+	if id == "" {
+		wc, err := loadWorkerConfig(workerStopOpts.config)
+		if err != nil {
+			return errorx.Failf(stopExitErr, "worker stop needs an <id> or a readable worker config: %v", err)
+		}
+		id = wc.WorkerID
+	}
+	if id == "" {
+		return errorx.Failf(stopExitErr, "worker stop requires a <worker-id> argument")
+	}
+	return stopDaemon(c, workerPIDFile(id), "worker-"+id)
 }
 
 func runWorker(c *gcli.Command, _ []string) error {

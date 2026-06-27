@@ -356,7 +356,7 @@ func (s *Server) handleWorkerConnect(c *rux.Context) {
 func (s *Server) Handler() http.Handler { return s.router }
 
 // shutdownGrace bounds the graceful-shutdown drain so a stuck connection cannot
-// hang the process forever (preStop / `gofer stop` expect a bounded stop).
+// hang the process forever (preStop / `serve stop` expect a bounded stop).
 const shutdownGrace = 10 * time.Second
 
 // RunCtx starts the HTTP server on addr and blocks until ctx is cancelled — then

@@ -4,8 +4,8 @@
 // env sentinel (EnvSentinel) set: the parent spawns the detached child and
 // exits; the child sees the sentinel, skips daemonization and runs the real
 // command. A pidfile records the child PID for duplicate-start detection and for
-// the `gofer stop` subcommand. The platform-specific detach / signal mechanics
-// live in daemon_unix.go and daemon_windows.go.
+// the `serve stop` / `worker stop` subcommands. The platform-specific detach /
+// signal mechanics live in daemon_unix.go and daemon_windows.go.
 package daemon
 
 import (

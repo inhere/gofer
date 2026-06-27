@@ -177,7 +177,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// new connections and drains in-flight ones, RunCtx returns nil, then every
 	// deferred cleanup above (store close, stop-channel closes for the sweeper /
 	// reload / hub loops) runs — unlike a default signal kill, which skips defers.
-	// `gofer stop` / daemon teardown send SIGTERM here (c44). SIGHUP reload is a
+	// `serve stop` / daemon teardown send SIGTERM here (c44). SIGHUP reload is a
 	// separate loop and unaffected.
 	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 	defer stop()

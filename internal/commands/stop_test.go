@@ -9,39 +9,58 @@ import (
 	"github.com/inhere/gofer/internal/daemon"
 )
 
-func TestStopUnknownTarget(t *testing.T) {
-	c := bindCmd(NewStopCmd())
-	c.Arg("target").WithValue("nope")
-	err := runStop(c, nil)
-	if err == nil {
-		t.Fatal("expected unknown stop target to error")
+// TestServeStopRegistered: `serve` exposes a `stop` subcommand.
+func TestServeStopRegistered(t *testing.T) {
+	var have bool
+	for _, s := range NewServeCmd().Subs {
+		if s.Name == "stop" {
+			have = true
+		}
 	}
-	assertCodedExit(t, err)
+	if !have {
+		t.Fatal("missing `serve stop` subcommand")
+	}
 }
 
-func TestStopWorkerMissingID(t *testing.T) {
-	c := bindCmd(NewStopCmd())
-	c.Arg("target").WithValue("worker")
-	err := runStop(c, nil)
-	if err == nil {
-		t.Fatal("expected stop worker without id to error")
+// TestWorkerStopRegistered: `worker` exposes a `stop` subcommand.
+func TestWorkerStopRegistered(t *testing.T) {
+	var have bool
+	for _, s := range NewWorkerCmd().Subs {
+		if s.Name == "stop" {
+			have = true
+		}
 	}
-	assertCodedExit(t, err)
+	if !have {
+		t.Fatal("missing `worker stop` subcommand")
+	}
 }
 
-// TestStopServeNotRunning: no pidfile → idempotent no-op (returns nil).
-func TestStopServeNotRunning(t *testing.T) {
+// TestServeStopNotRunning: no pidfile → idempotent no-op (returns nil).
+func TestServeStopNotRunning(t *testing.T) {
 	t.Setenv(config.EnvConfigDir, t.TempDir())
-	c := bindCmd(NewStopCmd())
-	c.Arg("target").WithValue("serve")
-	if err := runStop(c, nil); err != nil {
+	c := bindCmd(NewServeStopCmd())
+	if err := runServeStop(c, nil); err != nil {
 		t.Fatalf("stop of a not-running serve should be a no-op, got: %v", err)
 	}
 }
 
-// TestStopStaleWorkerPidfile: a pidfile pointing at a dead PID → no-op + the
-// stale pidfile is cleaned.
-func TestStopStaleWorkerPidfile(t *testing.T) {
+// TestWorkerStopMissingID: no <id> and no readable worker config → error.
+func TestWorkerStopMissingID(t *testing.T) {
+	t.Setenv(config.EnvConfigDir, t.TempDir())
+	c := bindCmd(NewWorkerStopCmd())
+	// point --worker-config at a non-existent file so the default-id fallback fails
+	workerStopOpts.config = filepath.Join(t.TempDir(), "missing.yaml")
+	defer func() { workerStopOpts.config = "" }()
+	err := runWorkerStop(c, nil)
+	if err == nil {
+		t.Fatal("expected worker stop without id/config to error")
+	}
+	assertCodedExit(t, err)
+}
+
+// TestWorkerStopStalePidfile: an explicit <id> with a pidfile pointing at a dead
+// PID → no-op + the stale pidfile is cleaned.
+func TestWorkerStopStalePidfile(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv(config.EnvConfigDir, dir)
 	pidPath := workerPIDFile("ghost")
@@ -53,10 +72,9 @@ func TestStopStaleWorkerPidfile(t *testing.T) {
 		t.Fatalf("seed pidfile: %v", err)
 	}
 
-	c := bindCmd(NewStopCmd())
-	c.Arg("target").WithValue("worker")
+	c := bindCmd(NewWorkerStopCmd())
 	c.Arg("id").WithValue("ghost")
-	if err := runStop(c, nil); err != nil {
+	if err := runWorkerStop(c, nil); err != nil {
 		t.Fatalf("stop of a dead-pid worker should be a no-op, got: %v", err)
 	}
 	if _, err := os.Stat(pidPath); !os.IsNotExist(err) {
