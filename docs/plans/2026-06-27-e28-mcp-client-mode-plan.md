@@ -25,7 +25,7 @@
 
 ## 3. 进度跟进
 
-- [ ] **P1** client 3 方法 + 单测
+- [x] **P1** client 3 方法 + 单测
 - [ ] **P2** Backend 接口 + localBackend 抽取（零行为变化）
 - [ ] **P3** clientBackend + 单测
 - [ ] **P4** mcp.go 模式分支（--server/--standalone）+ 单测
@@ -67,9 +67,11 @@ func (c *Client) GetInteractions(id string) ([]job.Interaction, error) {
 签名 `AnswerInteraction(jobID, interactionID, answer string) error` → `(..., (job.Interaction, error))`，解析 endpoint 返回的更新后 Interaction。**同步改现有调用方**（CLI，按 T 前置检查清单），保持其行为（多忽略返回值即可）。
 
 ### P1 验收
-- [ ] `go test ./internal/client/...` 绿（新增方法单测：httptest mock `/v1/agents`、`/interactions`、answer 返回 Interaction）。
-- [ ] `go build ./...` 绿（AnswerInteraction 签名变更后全调用方已改）。
-- [ ] commit：`feat(gofer): client 补 ListAgents/GetInteractions + AnswerInteraction 返 Interaction(E28 P1)`。
+- [x] `go test ./internal/client/...` 绿（新增方法单测：httptest mock `/v1/agents`、`/interactions`、answer 返回 Interaction）。
+- [x] `go build ./...` 绿（AnswerInteraction 签名变更后全调用方已改）。
+- [x] commit：`feat(gofer): client 补 ListAgents/GetInteractions + AnswerInteraction 返 Interaction(E28 P1)`。
+
+> 偏差记录：design §9 / 任务"已核实事实"称 `GET /v1/agents` 返 `{name,type,available,detail}`，实际端点（`httpapi.agentView`）返 `{key,type,available,version,error}`。`ListAgents` 改为解码真实 wire 形再折叠为 `AgentMeta{name,type,available,detail}`（`name=key`，`detail=version`/不可用时取 `error`），与本地 `mcpserver` list-agents handler 一致；`AgentMeta` 字段名/tag 仍按 design 保持，P3 可 1:1 映射 `agentEntry`。
 
 ---
 

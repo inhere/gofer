@@ -208,6 +208,53 @@ func (c *Client) ListProjects() ([]ProjectMeta, error) {
 	return resp.Projects, nil
 }
 
+// AgentMeta is one agent as the mcp bridge contract exposes it
+// (name/type/available/detail), matching mcpserver.agentEntry so the client
+// backend (E28 P3) can map it 1:1. The /v1/agents endpoint actually returns the
+// httpapi.agentView wire shape (key/type/available/version/error); ListAgents
+// folds that into this view (name=key, detail=version when available else the
+// probe error), exactly like the local mcpserver handler does.
+type AgentMeta struct {
+	Name      string `json:"name"`
+	Type      string `json:"type"`
+	Available bool   `json:"available"`
+	Detail    string `json:"detail,omitempty"`
+}
+
+// ListAgents fetches the server's agents (GET /v1/agents) and returns them in
+// the mcp bridge contract shape. It decodes the endpoint's agentView wire shape
+// then folds version/error into a single Detail (mirroring the in-process
+// mcpserver list-agents handler) so client mode and standalone mode surface an
+// identical agent listing.
+func (c *Client) ListAgents() ([]AgentMeta, error) {
+	var resp struct {
+		Agents []struct {
+			Key       string `json:"key"`
+			Type      string `json:"type"`
+			Available bool   `json:"available"`
+			Version   string `json:"version"`
+			Error     string `json:"error"`
+		} `json:"agents"`
+	}
+	if err := c.doJSON(http.MethodGet, "/v1/agents", nil, &resp); err != nil {
+		return nil, err
+	}
+	out := make([]AgentMeta, 0, len(resp.Agents))
+	for _, a := range resp.Agents {
+		detail := a.Version
+		if !a.Available {
+			detail = a.Error
+		}
+		out = append(out, AgentMeta{
+			Name:      a.Key,
+			Type:      a.Type,
+			Available: a.Available,
+			Detail:    detail,
+		})
+	}
+	return out, nil
+}
+
 // GetJobRequest fetches the original JobRequest a job was created from
 // (GET /v1/jobs/{id}/request, P2-b). It is used by `job rerun` to re-submit the
 // same request. An unknown id or a job with no recorded request yields a 404
@@ -416,16 +463,35 @@ func (c *Client) ListWorkflowEvents(id string, sinceSeq int64) ([]WorkflowEvent,
 	return resp.Events, nil
 }
 
-// AnswerInteraction POSTs an answer to a peer interaction (P9 passthrough). The
-// updated Interaction body is not needed by the caller, so it is discarded.
-func (c *Client) AnswerInteraction(jobID, interactionID, answer string) error {
+// GetInteractions lists a job's running-time interactions (GET
+// /v1/jobs/{id}/interactions), unwrapping the {"interactions":[...]} envelope.
+// job.Interaction's JSON tags match the endpoint's element shape, so the slice
+// decodes directly. Used by the mcp client backend (E28) to surface a peer
+// job's pending/answered interactions. An unknown id surfaces as a 404 error.
+func (c *Client) GetInteractions(id string) ([]job.Interaction, error) {
+	var resp struct {
+		Interactions []job.Interaction `json:"interactions"`
+	}
+	if err := c.doJSON(http.MethodGet, "/v1/jobs/"+url.PathEscape(id)+"/interactions", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Interactions, nil
+}
+
+// AnswerInteraction POSTs an answer to a peer interaction (P9 passthrough / E28
+// client mode) and returns the updated job.Interaction the server echoes back
+// (the answer endpoint returns a bare job.Interaction). Fire-and-forget callers
+// may ignore the returned Interaction.
+func (c *Client) AnswerInteraction(jobID, interactionID, answer string) (job.Interaction, error) {
 	body, err := json.Marshal(map[string]string{"answer": answer})
 	if err != nil {
-		return fmt.Errorf("encode answer: %w", err)
+		return job.Interaction{}, fmt.Errorf("encode answer: %w", err)
 	}
-	return c.doJSON(http.MethodPost,
+	var it job.Interaction
+	err = c.doJSON(http.MethodPost,
 		"/v1/jobs/"+url.PathEscape(jobID)+"/interactions/"+url.PathEscape(interactionID)+"/answer",
-		bytes.NewReader(body), nil)
+		bytes.NewReader(body), &it)
+	return it, err
 }
 
 // doJSON performs the request and decodes a JSON body into out on 2xx; non-2xx
