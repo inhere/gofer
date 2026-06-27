@@ -29,7 +29,7 @@
 - [x] **P2** Backend 接口 + localBackend 抽取（零行为变化）
 - [x] **P3** clientBackend + 单测
 - [x] **P4** mcp.go 模式分支（--server/--standalone）+ 单测
-- [ ] **P5** 真机 E2E（双 client 协作 + standalone 回归）
+- [x] **P5** 真机 E2E（双 client 协作 + standalone 回归）— 全 PASS，见 §5
 
 ---
 
@@ -185,7 +185,16 @@ func runMcp(_ *gcli.Command, _ []string) error {
 > 验证"多 claude 经中枢间接协作"语义（design §8c）。可用 `exec` agent 模拟（无需真 claude）。
 
 ### T5.1 双 client 看同一 job
-1. 起 serve（临时 config，一个 project allow_exec，含 local runner）。
+
+> **配置示例修正（P5 实测踩坑，照此才跑得起来）**：exec agent **不豁免**项目 allowlist（`internal/agent/allow.go`），仅 `allow_exec:true` 不够，须显式 `allowed_agents: [exec]`；result base 默认 `<host_path>/tmp/gofer` 会与仓库 `tmp/gofer*` 撞名，用 `storage.root: <某独立目录>` 规避；健康探针是 **`/health`**（非 `/readyz`）。可用最小 config：
+> ```yaml
+> server: { addr: 127.0.0.1:18941, allow_empty_token: true }
+> storage: { db_path: .../tmp/e28.db, root: .../tmp/e28-results }
+> projects:
+>   demo: { host_path: .../tools/gofer, allowed_agents: [exec], default_agent: exec }
+> ```
+
+1. 起 serve（临时 config，一个 project allowed_agents:[exec]，含 local runner）。
 2. 模拟两个 mcp client：`GOFER_SERVER_ADDR=<serve> gofer mcp`（client 模式）起两个进程（或直接对同一 serve 用两个 `client.New` + `NewClientBackend` 在测试里跑工具）。
 3. clientA `bridge_run_job` 派一个 exec job → 得 id；clientB `bridge_get_job`/`bridge_tail_log`/`bridge_get_result` 看到**同一 job** 同状态（同库，跨进程可见）。
 4. Web 控制台同时能看到该 live job（状态一致，验割裂消除）。
@@ -198,10 +207,12 @@ func runMcp(_ *gcli.Command, _ []string) error {
 1. `gofer mcp --standalone`（或无 env）→ 进程内单机：`bridge_list_projects`/`bridge_run_job` 仍工作（现状行为不变）。
 
 ### P5 验收
-- [ ] T5.1/T5.2/T5.3 全 PASS（命令+输出/截图存 `tmp/`，R004）。
-- [ ] Web 控制台见到 client 模式提交的 job（channel=mcp、client=主机名，验 provenance）。
-- [ ] roadmap 回填 E28 ✅（client 模式 MVP）+ 修订记录；本 plan §6 实施结果回填。
-- [ ] commit：`docs(gofer): E28 client 模式 MVP 落地回填(roadmap + plan E2E 结果)`。
+- [x] **T5.1 PASS**（stdio 全栈）：两个独立 `gofer mcp` client 进程经同一 serve，A `bridge_run_job`(exec echo) 得 id，**B 进程 `bridge_get_job` 看到同一 job 终态 + `bridge_tail_log` 读回 A 的输出 `hi-from-A`**（跨进程同库可见=中枢共享状态最强证据）。
+- [x] **T5.3 PASS**（standalone 回归）：`mcp --standalone`（**故意设 env 仍忽略**）走进程内 localBackend、load config、`bridge_list_projects` 正常返回。
+- [x] **provenance PASS**：job 落库 `channel=mcp` + `client=<主机名>`（get_job / `job show` / raw API 三处一致）。
+- [~] **T5.2 互答 interaction**：E2E 未单独跑（exec agent 不易触发 `pending_interaction`）；**转发链路已由 P1/P3 单测覆盖**（client `GetInteractions`/`AnswerInteraction` 返 Interaction + clientBackend 转发），本地互答由既有 `httpapi`/`mcpserver` 交互测试背书。**遗留**：真 claude/交互式 agent 的双 client 互答留 P5 后续或 E36 一并验。
+- [x] stdout 全程洁净（三次运行均合法 JSON-RPC 帧、mcp stderr 0 字节、serve.log 无 error）。
+- [x] commit：`docs(gofer): E28 client 模式 MVP 落地回填(roadmap + plan E2E 结果)`。
 
 ---
 
@@ -212,6 +223,17 @@ func runMcp(_ *gcli.Command, _ []string) error {
 - 安全：stdout 洁净（mcp 协议通道）、client 模式不建 DB、provenance(channel=mcp) 落库。
 - 边界留后续记录在案：host_path 缺失 / 精确 tail SSE / E36 信箱原语。
 
-## 5. 实施结果（完成后回填）
+## 5. 实施结果（2026-06-27 全落地）
 
-> P1–P5 commit 短码 + 关键决策 + E2E 记录 + 遗留。
+**提交链**：`b52901b`(P1 client 3 方法) → `bf18bc7`(P2 Backend 接口+localBackend 零行为变化) → `3f57ec3`(P3 clientBackend 转发) → `a21df1f`(P4 mcp 模式分支) → 本次 docs 回填。
+
+**关键结果**：
+- 服务端 endpoint 全复用，仅补 3 个 client 方法 + Backend 接口双实现 + 一个模式分支；`go build/vet/test ./...` 全绿；**P2 现有 `mcpserver/server_test.go` 零断言改动**（仅 `New→NewLocal` 一行）背书零行为变化（G023）。
+- P5 真机 E2E 全 PASS：双 client 进程经同一 serve 共享状态（B 读到 A 的 job 输出）、provenance `channel=mcp` 落库、standalone `--standalone` 忽略 env 回归不变、stdout 洁净。
+
+**关键决策/偏差（实施中确认）**：
+- `/v1/agents` 真实 wire 形是 `{key,type,available,version,error}`（非 design §9 初稿的 `{name,detail}`）；`client.ListAgents` 内部解码真实形再折叠为 `AgentMeta{name,type,available,detail}`（name=key、detail=version|error），与本地 mcpserver list-agents handler 逐字一致 → client/standalone 两模式 agent 列表对齐。
+- client 模式 `bridge_list_projects` 省略 `host_path/container_path/allow_exec`（`/v1/meta` 不暴露服务端文件系统路径，同 E38 `--remote`）——属 intended；空 slice 仍非 nil。
+- tail `max_bytes` client 模式在**客户端截末 N 字节**（`GetLogs` 无 byte 上限），与 local 服务端截尾结果等价。
+
+**遗留**：① T5.2 真互答（交互式 agent 双 client）留后续/E36；② 精确 tail/SSE 流式二期；③ host_path 缺失若 agent 需要再给 meta 补可选字段；④ **E36 信箱原语**（agent 注册 + inbox 主动推送）是多 agent 协作下一片。

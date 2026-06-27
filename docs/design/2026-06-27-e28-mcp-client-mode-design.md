@@ -95,7 +95,7 @@ else:                           → localBackend
 
 | client 方法 | endpoint（已存在）| 备注 |
 |---|---|---|
-| `ListAgents()` | `GET /v1/agents` | 解析 `{agents:[{name,type,available,detail}]}` |
+| `ListAgents()` | `GET /v1/agents` | 真实 wire 形 `{agents:[{key,type,available,version,error}]}`（**勘误**：非初稿的 `{name,detail}`）；`ListAgents` 内部解码后折叠为 `AgentMeta{name=key, detail=version\|error}`，与本地 mcpserver handler 一致 |
 | `GetInteractions(id)` | `GET /v1/jobs/{id}/interactions` | 反序列化为 `[]job.Interaction`（端点返该结构）|
 | `AnswerInteraction(id,iid,answer)` 增强 | `POST /v1/jobs/{id}/interactions/{iid}/answer` | 端点已返更新后 `job.Interaction`，改解析返回值（原仅返 error）|
 
@@ -119,6 +119,12 @@ else:                           → localBackend
 - **host_path 缺失**：client 模式 `bridge_list_projects` 经 `/v1/meta` 拿不到服务端路径（同 E38 `--remote`）——MVP 接受；若 agent 需要路径，后续给 meta 端点补可选字段或另开端点。
 - **精确 tail / 流式**：`max_bytes` 先客户端截断（取末尾 N 字节）；SSE 流式 tail 二期。
 - **E36 信箱**：多 agent **双向**（serve→agent 定向、agent 间互答的主动推送）需注册 + inbox 轮询原语，本 MVP 仅靠轮询既有工具达成"间接协作"，主动推送留 E36。
+
+## 12.1 实施勘误（2026-06-27 落地确认）
+
+- **`/v1/agents` wire 形**：见 §9 勘误（`{key,...,version,error}`，已折叠对齐）。
+- **list_projects shape**：client 模式省略 `host_path/container_path/allow_exec`（`/v1/meta` 不暴露服务端路径，同 E38 `--remote`）；standalone 带这些字段。两模式在 key/allowlist/default_agent 上一致，路径类字段因数据源不同**合理地**不同——非 bug。
+- **P5 config 示例**：exec agent 不豁免项目 allowlist，须 `allowed_agents: [exec]`；result base 默认 `<host_path>/tmp/gofer` 易撞名，用 `storage.root` 规避；健康探针 `/health`。详见 plan §P5。
 
 ## 13. 结论
 
