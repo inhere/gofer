@@ -153,10 +153,11 @@ func TestSubmitSystemInjectWithoutRole(t *testing.T) {
 	}
 }
 
-// TestResumeReappliesSystemPrompt: resuming a role/system-prompt job re-applies
-// --append-system-prompt onto the resume argv (review #5 — else the role behaviour
-// is silently lost across resume).
-func TestResumeReappliesSystemPrompt(t *testing.T) {
+// TestResumeDoesNotReinjectSystemPrompt: resuming a role/system-prompt job does NOT
+// re-apply --append-system-prompt onto the resume argv. 实测定稿 2026-06-28 (claude-cli
+// 2.1.191): `claude --resume <sid>` natively restores the system prompt set on the
+// source session, so re-injecting it would only double the prompt (see resume.go).
+func TestResumeDoesNotReinjectSystemPrompt(t *testing.T) {
 	root := t.TempDir()
 	s := newRoleService(t, root)
 
@@ -174,7 +175,12 @@ func TestResumeReappliesSystemPrompt(t *testing.T) {
 	}
 	final, _ := s.Wait(resumed.ID)
 	argv := renderedArgs(t, final.RenderedCommand)
-	if !argvHasPair(argv, "--append-system-prompt", "You are a strict reviewer") {
-		t.Fatalf("resume did not re-apply role system prompt: %#v", argv)
+	// Sanity: it IS a resume argv (so the assertion below isn't trivially true on a broken argv).
+	if !argvHasPair(argv, "--resume", src.SessionID) {
+		t.Fatalf("resume argv missing --resume %q: %#v", src.SessionID, argv)
+	}
+	// The role system prompt must NOT be re-appended (claude --resume restores it natively).
+	if argvHasPair(argv, "--append-system-prompt", "You are a strict reviewer") {
+		t.Fatalf("resume should NOT re-inject role system prompt (claude --resume restores it): %#v", argv)
 	}
 }

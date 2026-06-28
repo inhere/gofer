@@ -25,7 +25,8 @@ func TestRenderSystemPrompt(t *testing.T) {
 }
 
 // TestBuiltinSystemInjectClaude: a declared claude agent with no system_inject
-// gets the built-in --append-system-prompt template; codex stays empty (待实测).
+// gets the built-in --append-system-prompt template; codex stays empty by decision
+// (实测 2026-06-28: no codex argv flag exists for system-prompt; see registry.go).
 func TestBuiltinSystemInjectClaude(t *testing.T) {
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{
 		"claude": {Type: TypeCLIAgent, Command: "claude"},
@@ -37,7 +38,7 @@ func TestBuiltinSystemInjectClaude(t *testing.T) {
 	}
 	codex, _ := ResolveAgent(cfg, "codex")
 	if len(codex.SystemInject) != 0 {
-		t.Errorf("codex SystemInject = %#v, want empty (待实测)", codex.SystemInject)
+		t.Errorf("codex SystemInject = %#v, want empty (decided: no codex system-prompt argv flag)", codex.SystemInject)
 	}
 }
 

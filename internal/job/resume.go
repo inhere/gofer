@@ -62,17 +62,14 @@ func (s *Service) ResumeJob(jobID, prompt, runner, callerID string) (JobResult, 
 	// agent's own Command (e.g. "claude"/"codex") is argv[0].
 	argv := append([]string{ac.Command}, agent.Render(ac.SessionResume, agent.Vars{SessionID: src.SessionID, Prompt: prompt})...)
 
-	// E35 (review #5): re-apply the source job's role system prompt on resume. The
-	// resume runs via the exec carrier, so Submit's system_inject block (keyed on
-	// req.Agent="exec") does NOT fire; and claude's --resume does not by itself
-	// restore a previously --append-system-prompt'd prompt. We therefore re-render
-	// SystemInject onto the argv explicitly — else the role's behaviour is silently
-	// lost across resume. Conservative default (design §5 结论 / §12 待实测): if a
-	// real-CLI check later shows --resume already restores the system prompt, drop
-	// this and document it.
-	if sysPrompt := systemPromptFromRequestJSON(src.RequestJSON); len(ac.SystemInject) > 0 && sysPrompt != "" {
-		argv = append(argv, agent.Render(ac.SystemInject, agent.Vars{SystemPrompt: sysPrompt})...)
-	}
+	// E35 (review #5, 实测定稿 2026-06-28 / design §5 结论 / §12 已实测): the role system
+	// prompt is deliberately NOT re-injected on resume. A real-CLI check (claude-cli
+	// 2.1.191) confirmed `claude --resume <sid>` natively restores the system prompt
+	// that `--append-system-prompt` set on the source session — a marker token forced
+	// by the source job's system prompt still appeared in the resumed turn WITHOUT
+	// re-passing the flag (negative control: a fresh session never emits it). Re-rendering
+	// SystemInject here would only double the prompt. The other built-in (codex) carries
+	// no SystemInject, so resume injects no system prompt for it either.
 
 	return s.Submit(JobRequest{
 		ProjectKey: src.ProjectKey,
@@ -107,18 +104,4 @@ func cwdFromRequestJSON(s string) string {
 	}
 	_ = json.Unmarshal([]byte(s), &r)
 	return r.Cwd
-}
-
-// systemPromptFromRequestJSON recovers the resolved system prompt (role-filled or
-// direct) from a job's persisted request_json blob (E35 resume re-application).
-// Mirrors cwdFromRequestJSON. A blank / unparseable blob yields "".
-func systemPromptFromRequestJSON(s string) string {
-	if s == "" {
-		return ""
-	}
-	var r struct {
-		SystemPrompt string `json:"system_prompt"`
-	}
-	_ = json.Unmarshal([]byte(s), &r)
-	return r.SystemPrompt
 }

@@ -97,9 +97,17 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 	"codex": {
 		SessionCapture: `session id:\s*([0-9a-f-]+)`,
 		SessionResume:  []string{"exec", "resume", "{{session_id}}", "{{prompt}}"},
-		// E35: codex's system-prompt injection flag is left unset pending real-CLI
-		// confirmation (design §12); a role on codex still applies project/tags but
-		// injects no system prompt until this is verified — better empty than wrong.
+		// E35 (实测 2026-06-28, codex-cli 0.142): SystemInject stays empty by decision.
+		// codex has NO --append-system-prompt/--system-prompt argv flag (unlike claude);
+		// the only per-invocation channel is a `-c key=value` TOML override. Of the
+		// candidate keys, only `instructions` and `developer_instructions` are recognised
+		// (verified via --strict-config; base_instructions/system_prompt/user_instructions/
+		// experimental_instructions_file are not). But `-c developer_instructions={{system_prompt}}`
+		// re-parses the VALUE as TOML, so a multi-line/quoted role prompt is fragile — not
+		// the clean single-argv element claude gets — and which key actually steers could
+		// not be behaviourally confirmed (host model-proxy outage). So a role on codex
+		// applies project/tags but injects no system prompt — better empty than a fragile
+		// guess. Revisit with a robust (e.g. file-based) mechanism if codex roles are needed.
 	},
 }
 
