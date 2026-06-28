@@ -22,6 +22,7 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/metrics"
+	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/runner"
 )
 
@@ -119,6 +120,13 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	stopWorkflow := make(chan struct{})
 	defer close(stopWorkflow)
 	startWorkflowLoop(c, cr.Workflow(), stopWorkflow)
+
+	// E36 presence prune sweeper: GC offline driver-agent rows (last_seen past the
+	// TTL window) + read/expired inbox messages. Always started (low cost: empty
+	// registry = a cheap delete touching nothing). stop closes when serve returns.
+	stopPresence := make(chan struct{})
+	defer close(stopPresence)
+	startPresencePruneLoop(c, cr.Presence, stopPresence)
 
 	// Config hot-reload (C3): SIGHUP re-loads the config from the serve path and
 	// atomically swaps it into the registries + job service (no restart, no
@@ -222,6 +230,42 @@ func startPruneLoop(c *gcli.Command, jobs *job.Service, ret config.RetentionConf
 		}
 		prune() // run once at startup so a backlog is trimmed without waiting a full interval
 		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				prune()
+			}
+		}
+	}()
+}
+
+// presencePruneInterval is the E36 presence/inbox prune cadence. The presence TTL
+// is 90s (presence.DefaultTTL); pruning a bit slower than that keeps just-offline
+// rows around briefly (so a flapping agent's id survives a missed heartbeat) while
+// still bounding registry/inbox growth.
+const presencePruneInterval = 60 * time.Second
+
+// startPresencePruneLoop launches the E36 presence/mailbox prune goroutine: it
+// prunes once at startup (clear a backlog from a previous run), then on every tick.
+// It mirrors startPruneLoop's stop-channel lifecycle and exits when stop closes
+// (serve shutdown). pres is always non-nil (core.Build wires it).
+func startPresencePruneLoop(c *gcli.Command, pres *presence.Service, stop <-chan struct{}) {
+	if pres == nil {
+		return
+	}
+	go func() {
+		prune := func() {
+			if pN, mN, err := pres.Prune(); err != nil {
+				c.Errorf("gofer: presence prune failed: %v\n", err)
+			} else if pN > 0 || mN > 0 {
+				c.Printf("gofer: pruned %d offline agent(s), %d message(s)\n", pN, mN)
+			}
+		}
+		prune()
+		ticker := time.NewTicker(presencePruneInterval)
 		defer ticker.Stop()
 		for {
 			select {
