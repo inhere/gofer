@@ -96,6 +96,61 @@ func TestUpsertInteractionRejectsEmptyIDs(t *testing.T) {
 	assert.Err(t, s.UpsertInteraction(InteractionRecord{ID: "i", Type: "question", Prompt: "p", Status: "pending"}))
 }
 
+// TestListPendingInteractionsActiveOnly proves the JOIN+filter (复审 #4) returns
+// only pending interactions of NON-terminal jobs (a 僵尸 pending on a done job is
+// excluded).
+func TestListPendingInteractionsActiveOnly(t *testing.T) {
+	s := openTest(t)
+
+	active := sampleJob("job-active", "p", 100)
+	active.Status = "running"
+	assert.NoErr(t, s.UpsertJob(active))
+	done := sampleJob("job-done", "p", 100)
+	done.Status = "done"
+	assert.NoErr(t, s.UpsertJob(done))
+
+	assert.NoErr(t, s.UpsertInteraction(sampleInteraction("i-live", "job-active", 200)))
+	assert.NoErr(t, s.UpsertInteraction(sampleInteraction("i-zombie", "job-done", 200)))
+
+	list, err := s.ListPendingInteractions()
+	assert.NoErr(t, err)
+	assert.Len(t, list, 1)
+	assert.Eq(t, "i-live", list[0].ID)
+}
+
+// TestReconcileOrphanInteractions proves the startup backstop flips pending rows
+// of terminal jobs to cancelled while leaving active-job pending rows untouched.
+func TestReconcileOrphanInteractions(t *testing.T) {
+	s := openTest(t)
+
+	active := sampleJob("job-active", "p", 100)
+	active.Status = "running"
+	assert.NoErr(t, s.UpsertJob(active))
+	done := sampleJob("job-done", "p", 100)
+	done.Status = "done"
+	assert.NoErr(t, s.UpsertJob(done))
+
+	assert.NoErr(t, s.UpsertInteraction(sampleInteraction("i-live", "job-active", 200)))
+	assert.NoErr(t, s.UpsertInteraction(sampleInteraction("i-zombie", "job-done", 200)))
+
+	n, err := s.ReconcileOrphanInteractions(9999)
+	assert.NoErr(t, err)
+	assert.Eq(t, 1, n) // only the zombie
+
+	// The zombie is now cancelled with answered_at stamped.
+	doneList, err := s.ListInteractions("job-done")
+	assert.NoErr(t, err)
+	assert.Len(t, doneList, 1)
+	assert.Eq(t, "cancelled", doneList[0].Status)
+	assert.Eq(t, int64(9999), doneList[0].AnsweredAt)
+
+	// The active job's pending is untouched and still listed.
+	pending, err := s.ListPendingInteractions()
+	assert.NoErr(t, err)
+	assert.Len(t, pending, 1)
+	assert.Eq(t, "i-live", pending[0].ID)
+}
+
 // TestConcurrentInteractionUpserts exercises the writeMu concurrency contract for
 // interactions: many goroutines upsert distinct rows while several hammer a single
 // hot interaction (pending->answered churn). None must error, and the final row

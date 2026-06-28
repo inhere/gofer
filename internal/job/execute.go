@@ -137,7 +137,38 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 		entry.result.Error = err.Error()
 	}
 	snap := entry.result
+	// 终态对账（E25, 复审 #4）：把残留 pending interaction 翻为 cancelled。否则一个
+	// 在 pending_interaction 上结束/被取消的 job 会在 DB 留下僵尸 pending 行
+	// （ListPendingInteractions 会误报、监督者会去答一个死 job），且任何阻塞在
+	// WaitAnswer 的 in-process 等待者永不被唤醒。在设置终态状态的同一临界区里做，所以
+	// CreateInteraction/AnswerInteraction（都查 IsTerminal）不会与之竞争。收集要落库的
+	// 快照 + 要关闭的 channel，出锁后再持久化/唤醒（避免在锁内做 IO/close）。
+	var cancelled []Interaction
+	var toWake []chan struct{}
+	for _, rec := range entry.interactions {
+		if rec.data.Status == InteractionPending {
+			rec.data.Status = InteractionCancelled
+			rec.data.AnsweredAt = snap.EndedAt
+			cancelled = append(cancelled, rec.data)
+			toWake = append(toWake, rec.answered)
+		}
+	}
 	entry.mu.Unlock()
+
+	// Persist each cancelled interaction (best-effort) and wake its WaitAnswer
+	// callers — they observe the cancelled snapshot (Status=cancelled), not a hang.
+	for _, it := range cancelled {
+		if uerr := s.meta.UpsertInteraction(toInteractionRecord(it)); uerr != nil {
+			slog.Warn("upsert cancelled interaction on job finish", "job_id", jobID, "interaction_id", it.ID, "err", uerr)
+		}
+		s.recordEvent(jobID, EventInteractionAnswered, map[string]any{
+			"interaction_id": it.ID,
+			"status":         InteractionCancelled,
+		})
+	}
+	for _, ch := range toWake {
+		close(ch)
+	}
 
 	// E16: count the terminal + observe the submit→terminal duration (incl. queue
 	// wait, design §6.3). nil-safe. Duration is clamped at 0 in case clock skew /
