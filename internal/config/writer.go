@@ -18,6 +18,7 @@ var managedTopKeys = map[string]bool{
 	"projects": true,
 	"agents":   true,
 	"runners":  true,
+	"roles":    true,
 }
 
 // Save writes cfg back to path as YAML.

@@ -90,10 +90,16 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 	"claude": {
 		SessionInject: []string{"--session-id", "{{session_id}}"},
 		SessionResume: []string{"--resume", "{{session_id}}", "-p", "{{prompt}}"},
+		// E35: claude injects a resident system prompt via --append-system-prompt
+		// (kept its own argv element so a multi-word prompt is never re-tokenised).
+		SystemInject: []string{"--append-system-prompt", "{{system_prompt}}"},
 	},
 	"codex": {
 		SessionCapture: `session id:\s*([0-9a-f-]+)`,
 		SessionResume:  []string{"exec", "resume", "{{session_id}}", "{{prompt}}"},
+		// E35: codex's system-prompt injection flag is left unset pending real-CLI
+		// confirmation (design §12); a role on codex still applies project/tags but
+		// injects no system prompt until this is verified — better empty than wrong.
 	},
 }
 
@@ -116,6 +122,9 @@ func applySessionDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	}
 	if len(a.SessionResume) == 0 {
 		a.SessionResume = def.SessionResume
+	}
+	if len(a.SystemInject) == 0 {
+		a.SystemInject = def.SystemInject
 	}
 	return a
 }

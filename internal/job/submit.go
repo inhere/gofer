@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
@@ -25,6 +26,13 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// make this single submit observe two different configs (peer classification,
 	// validation, result base dir all read the same snapshot).
 	cfg := s.config()
+
+	// E35: resolve a role preset BEFORE validate so the role-filled agent/project
+	// are still allowlist-checked (and an empty agent does not fail validation
+	// first). Explicit request fields always win over the preset's defaults.
+	if err := resolveRole(cfg, &req); err != nil {
+		return JobResult{}, err
+	}
 
 	// A remote runner (peer-http OR ws-worker) forwards the original request to a
 	// remote executor that resolves agent/cwd/command with its OWN config. The host
@@ -146,6 +154,14 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		if ac, ok := s.agents.Get(req.Agent); ok && len(ac.SessionInject) > 0 {
 			sessionID = newUUID()
 			runReq.Args = append(runReq.Args, agent.Render(ac.SessionInject, agent.Vars{SessionID: sessionID})...)
+		}
+		// E35 system_inject: agent configured a SystemInject template AND the request
+		// carries a system prompt (set directly or filled from a role preset) → render
+		// {{system_prompt}} and append to argv (e.g. claude --append-system-prompt <p>).
+		// Independent of SessionInject (distinct flags, order-free); argv stays
+		// element-wise (SR403, no shell join).
+		if ac, ok := s.agents.Get(req.Agent); ok && len(ac.SystemInject) > 0 && req.SystemPrompt != "" {
+			runReq.Args = append(runReq.Args, agent.Render(ac.SystemInject, agent.Vars{SystemPrompt: req.SystemPrompt})...)
 		}
 		// Inject gofer-owned job metadata env so ANY job type (exec or cli-agent)
 		// can locate its result dir / cwd / id. exec argv is executed verbatim
@@ -283,6 +299,35 @@ func (s *Service) createJobDir(st store.Store) (string, error) {
 func (s *Service) genJobID() string {
 	ts := s.nowFn().Format(JobIDLayout)
 	return ts + "-" + RandomSuffix()
+}
+
+// resolveRole expands a JobRequest.Role preset (E35, design §8.5) IN PLACE: an
+// empty Role is a no-op; an unknown Role is rejected with ErrUnknownRole. The
+// preset fills ONLY the request fields the caller left empty (explicit input wins),
+// so `--role reviewer --agent codex` still runs on codex. ProjectKey/Tags get the
+// preset defaults too. The filled values are then validated/allowlisted by the
+// normal Submit path (role does not bypass any gate).
+func resolveRole(cfg *config.Config, req *JobRequest) error {
+	if req.Role == "" {
+		return nil
+	}
+	rc, ok := cfg.Roles[req.Role]
+	if !ok {
+		return fmt.Errorf("%w: %q", ErrUnknownRole, req.Role)
+	}
+	if req.Agent == "" {
+		req.Agent = rc.Agent
+	}
+	if req.SystemPrompt == "" {
+		req.SystemPrompt = rc.SystemPrompt
+	}
+	if req.ProjectKey == "" {
+		req.ProjectKey = rc.Project
+	}
+	if len(req.Tags) == 0 {
+		req.Tags = rc.Tags
+	}
+	return nil
 }
 
 // RandomSuffix returns 8 lowercase hex chars from crypto/rand, falling back to a

@@ -15,6 +15,15 @@ type JobRequest struct {
 	Cwd        string   `json:"cwd,omitempty" yaml:"cwd,omitempty"`
 	TimeoutSec int      `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
 	Title      string   `json:"title,omitempty" yaml:"title,omitempty"`
+	// Role is an OPTIONAL E35 role-preset reference (design §8.5). When set, submit
+	// resolves it from cfg.Roles to fill empty Agent/SystemPrompt/ProjectKey/Tags
+	// (explicit request fields win). An unknown role is rejected (ErrUnknownRole).
+	Role string `json:"role,omitempty" yaml:"role,omitempty"`
+	// SystemPrompt is the resident system prompt injected via the agent's
+	// SystemInject template (E35). Set directly, or filled from the role preset; on
+	// submit it is rendered into argv (e.g. claude --append-system-prompt). It is
+	// persisted in request_json so resume can re-apply it (review #5).
+	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
 	// WorkerID selects which registered worker a runner=worker job dispatches to
 	// (ws-worker §8). When set it must be a known server.workers entry (explicit
 	// routing wins); ignored for local/peer-http runners. When empty for a worker

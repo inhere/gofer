@@ -46,6 +46,9 @@ var (
 	// (agent not allowed, exec gate, runner not allowed, missing fields). HTTP
 	// layer maps it to 400.
 	ErrInvalidRequest = errors.New("invalid request")
+	// ErrUnknownRole is returned when JobRequest.Role references a role not present
+	// in cfg.Roles (E35). HTTP layer maps it to 400 (via submitStatus default).
+	ErrUnknownRole = errors.New("unknown role")
 	// ErrNoEligibleWorker is returned when a worker job supplies worker_labels but
 	// no connected worker advertises all of them (or all such workers are stale).
 	// HTTP layer maps it to 503 (temporarily unavailable — retry / pick another).
