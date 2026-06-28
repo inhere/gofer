@@ -12,6 +12,9 @@ type Vars struct {
 	JobID     string
 	ResultDir string
 	SessionID string
+	// SystemPrompt feeds {{system_prompt}} in an agent's SystemInject template
+	// (E35 role injection, e.g. claude --append-system-prompt).
+	SystemPrompt string
 }
 
 // placeholders maps the supported template tokens to their values. Kept as a
@@ -24,6 +27,7 @@ func (v Vars) replacements() []string {
 		"{{job_id}}", v.JobID,
 		"{{result_dir}}", v.ResultDir,
 		"{{session_id}}", v.SessionID,
+		"{{system_prompt}}", v.SystemPrompt,
 	}
 }
 

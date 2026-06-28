@@ -260,6 +260,9 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.Runners == nil {
 		cfg.Runners = map[string]RunnerConfig{}
 	}
+	if cfg.Roles == nil {
+		cfg.Roles = map[string]RoleConfig{}
+	}
 }
 
 // validate runs lightweight structural checks that do not touch the filesystem;

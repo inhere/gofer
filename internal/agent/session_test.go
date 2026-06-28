@@ -15,6 +15,43 @@ func TestRenderSessionID(t *testing.T) {
 	}
 }
 
+// TestRenderSystemPrompt verifies the {{system_prompt}} placeholder substitutes
+// and stays one argv element (multi-word prompt is not re-tokenised — SR403).
+func TestRenderSystemPrompt(t *testing.T) {
+	got := Render([]string{"--append-system-prompt", "{{system_prompt}}"}, Vars{SystemPrompt: "You are a strict reviewer"})
+	if len(got) != 2 || got[0] != "--append-system-prompt" || got[1] != "You are a strict reviewer" {
+		t.Fatalf("render = %#v, want [--append-system-prompt 'You are a strict reviewer']", got)
+	}
+}
+
+// TestBuiltinSystemInjectClaude: a declared claude agent with no system_inject
+// gets the built-in --append-system-prompt template; codex stays empty (待实测).
+func TestBuiltinSystemInjectClaude(t *testing.T) {
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"claude": {Type: TypeCLIAgent, Command: "claude"},
+		"codex":  {Type: TypeCLIAgent, Command: "codex"},
+	}}
+	claude, _ := ResolveAgent(cfg, "claude")
+	if len(claude.SystemInject) != 2 || claude.SystemInject[0] != "--append-system-prompt" || claude.SystemInject[1] != "{{system_prompt}}" {
+		t.Errorf("claude SystemInject = %#v, want [--append-system-prompt {{system_prompt}}]", claude.SystemInject)
+	}
+	codex, _ := ResolveAgent(cfg, "codex")
+	if len(codex.SystemInject) != 0 {
+		t.Errorf("codex SystemInject = %#v, want empty (待实测)", codex.SystemInject)
+	}
+}
+
+// TestExplicitSystemInjectWins: an explicit system_inject is not overwritten.
+func TestExplicitSystemInjectWins(t *testing.T) {
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"claude": {Type: TypeCLIAgent, Command: "claude", SystemInject: []string{"--sys", "{{system_prompt}}"}},
+	}}
+	ac, _ := ResolveAgent(cfg, "claude")
+	if len(ac.SystemInject) != 2 || ac.SystemInject[0] != "--sys" {
+		t.Errorf("explicit SystemInject overwritten: %#v", ac.SystemInject)
+	}
+}
+
 // TestBuiltinSessionDefaultsClaude: a declared claude agent with no session
 // fields gets the built-in inject + resume defaults; capture stays empty.
 func TestBuiltinSessionDefaultsClaude(t *testing.T) {

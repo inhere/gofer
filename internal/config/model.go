@@ -22,6 +22,22 @@ type Config struct {
 	Projects map[string]ProjectConfig `yaml:"projects"`
 	Agents   map[string]AgentConfig   `yaml:"agents"`
 	Runners  map[string]RunnerConfig  `yaml:"runners"`
+	// Roles are named E35 role presets (reviewer/bugfix/…): a base agent + a
+	// resident system_prompt + optional default project/tags. `job run --role` /
+	// `bridge_run_job(role=)` resolve a role to fill those request fields (design
+	// §8.5). Rules/context-file mounting is E11 territory, out of scope here.
+	Roles map[string]RoleConfig `yaml:"roles"`
+}
+
+// RoleConfig is one named role preset (design §8.5). Agent is the base CLI agent
+// the role runs on; SystemPrompt is injected via the agent's SystemInject template
+// (claude --append-system-prompt). Project/Tags are optional request defaults the
+// role fills when the caller leaves them empty.
+type RoleConfig struct {
+	Agent        string   `yaml:"agent"`
+	SystemPrompt string   `yaml:"system_prompt"`
+	Project      string   `yaml:"project"`
+	Tags         []string `yaml:"tags"`
 }
 
 // ServerConfig holds HTTP server and auth settings.
@@ -384,6 +400,11 @@ type AgentConfig struct {
 	// SessionResume resume 的整条 agent argv 模板（非追加 flag），{{session_id}}/{{prompt}}
 	// 占位。供 `gofer job resume`（P2）拼接续接命令。
 	SessionResume []string `yaml:"session_resume"`
+	// SystemInject 是 per-agent 的 system prompt 注入 argv 模板（E35 角色，类比
+	// SessionInject）。非空 + 请求带 system_prompt 时，submit 渲染 {{system_prompt}}
+	// 追加到 argv（如 claude `--append-system-prompt <p>`）。保 argv 结构、不 shell
+	// 拼接（SR403）。claude 有内置默认（applySystemDefaults），codex 留空待实测。
+	SystemInject []string `yaml:"system_inject"`
 }
 
 // DetectConfig is the agent availability probe. Placeholder in P2, refined P3.
