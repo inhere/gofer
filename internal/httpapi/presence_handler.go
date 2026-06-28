@@ -18,38 +18,9 @@ type registerAgentReq struct {
 	Project string `json:"project,omitempty"`
 }
 
-// registerAgentResp returns the public address + private capability handle. The
-// agent_token is returned ONLY here (never by presence listing).
-type registerAgentResp struct {
-	AgentID    string `json:"agent_id"`
-	AgentToken string `json:"agent_token"`
-}
-
-// presenceAgentView is the snake_case projection of one online agent (no token).
-type presenceAgentView struct {
-	AgentID    string `json:"agent_id"`
-	Name       string `json:"name"`
-	Role       string `json:"role,omitempty"`
-	ProjectKey string `json:"project_key,omitempty"`
-	Client     string `json:"client,omitempty"`
-	Status     string `json:"status"`
-	LastSeenAt int64  `json:"last_seen_at"`
-}
-
 // pollInboxReq carries the agent_token presented for the soft-isolation check.
 type pollInboxReq struct {
 	AgentToken string `json:"agent_token"`
-}
-
-// messageView is the snake_case projection of one inbox message.
-type messageView struct {
-	ID        string `json:"id"`
-	FromAgent string `json:"from_agent"`
-	ToSpec    string `json:"to_spec,omitempty"`
-	Kind      string `json:"kind"`
-	Body      string `json:"body,omitempty"`
-	Ref       string `json:"ref,omitempty"`
-	CreatedAt int64  `json:"created_at"`
 }
 
 // postMessageReq is the POST /v1/messages body. from_agent is the sender's own
@@ -87,30 +58,19 @@ func (s *Server) handleRegisterAgent(c *rux.Context) {
 		writeError(c, presenceStatus(err), "register agent failed", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, registerAgentResp{AgentID: res.AgentID, AgentToken: res.AgentToken})
+	// res is presence.RegisterResult (snake_case json: agent_id/agent_token).
+	c.JSON(http.StatusOK, res)
 }
 
 // handleListPresence returns the online registry (?role=/?project= filters). The
-// agent_token is never included.
+// agent_token is never included (presence.Agent has no token field).
 func (s *Server) handleListPresence(c *rux.Context) {
 	list, err := s.presence.List(c.Query("role"), c.Query("project"))
 	if err != nil {
 		writeError(c, presenceStatus(err), "list presence failed", err.Error())
 		return
 	}
-	views := make([]presenceAgentView, 0, len(list))
-	for _, a := range list {
-		views = append(views, presenceAgentView{
-			AgentID:    a.AgentID,
-			Name:       a.Name,
-			Role:       a.Role,
-			ProjectKey: a.ProjectKey,
-			Client:     a.Client,
-			Status:     a.Status,
-			LastSeenAt: a.LastSeenAt,
-		})
-	}
-	c.JSON(http.StatusOK, map[string]any{"agents": views})
+	c.JSON(http.StatusOK, map[string]any{"agents": list})
 }
 
 // handlePollInbox returns the agent's unread messages, refreshing its heartbeat.
@@ -129,19 +89,10 @@ func (s *Server) handlePollInbox(c *rux.Context) {
 		writeError(c, presenceStatus(err), "poll inbox failed", err.Error())
 		return
 	}
-	views := make([]messageView, 0, len(msgs))
-	for _, m := range msgs {
-		views = append(views, messageView{
-			ID:        m.ID,
-			FromAgent: m.FromAgent,
-			ToSpec:    m.ToSpec,
-			Kind:      m.Kind,
-			Body:      m.Body,
-			Ref:       m.Ref,
-			CreatedAt: m.CreatedAt,
-		})
+	if msgs == nil {
+		msgs = []presence.Message{}
 	}
-	c.JSON(http.StatusOK, map[string]any{"messages": views})
+	c.JSON(http.StatusOK, map[string]any{"messages": msgs})
 }
 
 // handlePostMessage delivers a message (direct / role: / broadcast) and returns

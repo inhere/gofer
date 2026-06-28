@@ -21,6 +21,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/store"
 )
@@ -88,6 +89,29 @@ func New(b Backend) *mcp.Server {
 		Description: "Get a finished job's structured result.json content (E6), as a raw JSON string.",
 	}, getResultHandler(b))
 
+	// E36 driver-agent identity/mailbox (4 tools). MCP is one-way (tools only); the
+	// driver agent achieves two-way collaboration by registering then polling its
+	// inbox through the central serve.
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "bridge_register",
+		Description: "Register this agent (name+role) to the central serve; returns agent_id+agent_token for inbox ops.",
+	}, registerAgentHandler(b))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "bridge_poll_inbox",
+		Description: "Poll this agent's inbox for unread messages (refreshes presence heartbeat). Set ack=false to peek.",
+	}, pollInboxHandler(b))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "bridge_post_message",
+		Description: "Send a message/task to another agent (by agent_id, role:<name>, or broadcast). Returns delivered count.",
+	}, postMessageHandler(b))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "bridge_list_presence",
+		Description: "List online agents (presence registry) with role/project/status. Optional role/project filters.",
+	}, listPresenceHandler(b))
+
 	return s
 }
 
@@ -101,17 +125,18 @@ func Serve(ctx context.Context, b Backend) error {
 
 // NewLocal is the compatibility constructor for the in-process (standalone) path:
 // it wires a localBackend over the given registries/job service and returns the
-// MCP server. Equivalent to New(newLocalBackend(...)).
-func NewLocal(jobs *job.Service, projects *project.Registry, agents *agent.Registry) *mcp.Server {
-	return New(newLocalBackend(jobs, projects, agents))
+// MCP server. pres backs the E36 presence tools (nil in presence-less fixtures).
+// Equivalent to New(newLocalBackend(...)).
+func NewLocal(jobs *job.Service, projects *project.Registry, agents *agent.Registry, pres *presence.Service) *mcp.Server {
+	return New(newLocalBackend(jobs, projects, agents, pres))
 }
 
 // ServeLocal builds the MCP server over an in-process localBackend and runs it
 // over stdio. Convenience wrapper for the standalone path so callers (commands/
 // mcp.go) need not reach for newLocalBackend; equivalent to
-// Serve(ctx, newLocalBackend(...)).
-func ServeLocal(ctx context.Context, jobs *job.Service, projects *project.Registry, agents *agent.Registry) error {
-	return Serve(ctx, newLocalBackend(jobs, projects, agents))
+// Serve(ctx, newLocalBackend(...)). pres backs the E36 presence tools.
+func ServeLocal(ctx context.Context, jobs *job.Service, projects *project.Registry, agents *agent.Registry, pres *presence.Service) error {
+	return Serve(ctx, newLocalBackend(jobs, projects, agents, pres))
 }
 
 // jobView is the snake_case projection of job.JobResult returned by the job
@@ -466,5 +491,101 @@ func getResultHandler(b Backend) mcp.ToolHandlerFor[jobIDInput, getResultOutput]
 			return nil, getResultOutput{}, err
 		}
 		return nil, getResultOutput{ResultJSON: s}, nil
+	}
+}
+
+// --- bridge_register --------------------------------------------------------
+
+type registerAgentInput struct {
+	Name    string `json:"name"`
+	Role    string `json:"role,omitempty"`
+	Project string `json:"project,omitempty"`
+}
+
+// The output is presence.RegisterResult directly: it carries snake_case json tags
+// (agent_id/agent_token) so the SDK derives a schema aligned with the HTTP API.
+func registerAgentHandler(b Backend) mcp.ToolHandlerFor[registerAgentInput, presence.RegisterResult] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in registerAgentInput) (*mcp.CallToolResult, presence.RegisterResult, error) {
+		res, err := b.RegisterAgent(in.Name, in.Role, in.Project)
+		if err != nil {
+			return nil, presence.RegisterResult{}, err
+		}
+		return nil, res, nil
+	}
+}
+
+// --- bridge_poll_inbox ------------------------------------------------------
+
+type pollInboxToolInput struct {
+	AgentID    string `json:"agent_id"`
+	AgentToken string `json:"agent_token"`
+	// Ack defaults to true (consume) when omitted; set false to peek without
+	// marking read. A pointer distinguishes "omitted" from an explicit false.
+	Ack *bool `json:"ack,omitempty"`
+}
+
+type pollInboxOutput struct {
+	Messages []presence.Message `json:"messages"`
+}
+
+func pollInboxHandler(b Backend) mcp.ToolHandlerFor[pollInboxToolInput, pollInboxOutput] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in pollInboxToolInput) (*mcp.CallToolResult, pollInboxOutput, error) {
+		ack := in.Ack == nil || *in.Ack
+		msgs, err := b.PollInbox(in.AgentID, in.AgentToken, ack)
+		if err != nil {
+			return nil, pollInboxOutput{}, err
+		}
+		if msgs == nil {
+			msgs = []presence.Message{}
+		}
+		return nil, pollInboxOutput{Messages: msgs}, nil
+	}
+}
+
+// --- bridge_post_message ----------------------------------------------------
+
+type postMessageToolInput struct {
+	FromAgent string `json:"from_agent"`
+	To        string `json:"to"`
+	Kind      string `json:"kind"`
+	Body      string `json:"body,omitempty"`
+	Ref       string `json:"ref,omitempty"`
+}
+
+type postMessageOutput struct {
+	Delivered int `json:"delivered"`
+}
+
+func postMessageHandler(b Backend) mcp.ToolHandlerFor[postMessageToolInput, postMessageOutput] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in postMessageToolInput) (*mcp.CallToolResult, postMessageOutput, error) {
+		n, err := b.PostMessage(in.FromAgent, in.To, in.Kind, in.Body, in.Ref)
+		if err != nil {
+			return nil, postMessageOutput{}, err
+		}
+		return nil, postMessageOutput{Delivered: n}, nil
+	}
+}
+
+// --- bridge_list_presence ---------------------------------------------------
+
+type listPresenceToolInput struct {
+	Role    string `json:"role,omitempty"`
+	Project string `json:"project,omitempty"`
+}
+
+type listPresenceOutput struct {
+	Agents []presence.Agent `json:"agents"`
+}
+
+func listPresenceHandler(b Backend) mcp.ToolHandlerFor[listPresenceToolInput, listPresenceOutput] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in listPresenceToolInput) (*mcp.CallToolResult, listPresenceOutput, error) {
+		list, err := b.ListPresence(in.Role, in.Project)
+		if err != nil {
+			return nil, listPresenceOutput{}, err
+		}
+		if list == nil {
+			list = []presence.Agent{}
+		}
+		return nil, listPresenceOutput{Agents: list}, nil
 	}
 }

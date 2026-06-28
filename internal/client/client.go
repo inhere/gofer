@@ -17,6 +17,7 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
+	"github.com/inhere/gofer/internal/presence"
 )
 
 // Client talks to a running gofer server. It is safe for sequential use;
@@ -492,6 +493,96 @@ func (c *Client) AnswerInteraction(jobID, interactionID, answer string) (job.Int
 		"/v1/jobs/"+url.PathEscape(jobID)+"/interactions/"+url.PathEscape(interactionID)+"/answer",
 		bytes.NewReader(body), &it)
 	return it, err
+}
+
+// RegisterAgent registers/renews a driver agent with the central serve (POST
+// /v1/agents/register) and returns its public address + private capability handle
+// (E36 client mode). caller_id/client are stamped server-side from the bearer
+// token + connection (provenance), so only name/role/project go over the wire.
+func (c *Client) RegisterAgent(name, role, project string) (agentID, token string, err error) {
+	body, err := json.Marshal(map[string]string{"name": name, "role": role, "project": project})
+	if err != nil {
+		return "", "", fmt.Errorf("encode register: %w", err)
+	}
+	var res presence.RegisterResult
+	if err := c.doJSON(http.MethodPost, "/v1/agents/register", bytes.NewReader(body), &res); err != nil {
+		return "", "", err
+	}
+	return res.AgentID, res.AgentToken, nil
+}
+
+// PollInbox polls an agent's inbox (POST /v1/agents/{id}/inbox/poll), unwrapping
+// the {"messages":[...]} envelope. ack=false peeks without consuming (?ack=false).
+// The agent_token is verified server-side (403 mismatch / 404 unknown surface as
+// errors).
+func (c *Client) PollInbox(agentID, token string, ack bool) ([]presence.Message, error) {
+	body, err := json.Marshal(map[string]string{"agent_token": token})
+	if err != nil {
+		return nil, fmt.Errorf("encode poll: %w", err)
+	}
+	path := "/v1/agents/" + url.PathEscape(agentID) + "/inbox/poll"
+	if !ack {
+		path += "?ack=false"
+	}
+	var resp struct {
+		Messages []presence.Message `json:"messages"`
+	}
+	if err := c.doJSON(http.MethodPost, path, bytes.NewReader(body), &resp); err != nil {
+		return nil, err
+	}
+	return resp.Messages, nil
+}
+
+// PostMessage delivers a message (POST /v1/messages) addressed by to (agent_id /
+// role:<name> / broadcast) and returns the fan-out delivered count.
+func (c *Client) PostMessage(from, to, kind, body, ref string) (int, error) {
+	payload, err := json.Marshal(map[string]string{
+		"from_agent": from, "to": to, "kind": kind, "body": body, "ref": ref,
+	})
+	if err != nil {
+		return 0, fmt.Errorf("encode message: %w", err)
+	}
+	var resp struct {
+		Delivered int `json:"delivered"`
+	}
+	if err := c.doJSON(http.MethodPost, "/v1/messages", bytes.NewReader(payload), &resp); err != nil {
+		return 0, err
+	}
+	return resp.Delivered, nil
+}
+
+// ListPresence fetches the online registry (GET /v1/agents/presence), optionally
+// filtered by role/project, unwrapping the {"agents":[...]} envelope. agent_token
+// is never returned (presence.Agent has no token field).
+func (c *Client) ListPresence(role, project string) ([]presence.Agent, error) {
+	q := url.Values{}
+	if role != "" {
+		q.Set("role", role)
+	}
+	if project != "" {
+		q.Set("project", project)
+	}
+	path := "/v1/agents/presence"
+	if enc := q.Encode(); enc != "" {
+		path += "?" + enc
+	}
+	var resp struct {
+		Agents []presence.Agent `json:"agents"`
+	}
+	if err := c.doJSON(http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Agents, nil
+}
+
+// DeregisterAgent removes an agent from the central registry (POST
+// /v1/agents/{id}/deregister), token-checked + idempotent server-side.
+func (c *Client) DeregisterAgent(agentID, token string) error {
+	body, err := json.Marshal(map[string]string{"agent_token": token})
+	if err != nil {
+		return fmt.Errorf("encode deregister: %w", err)
+	}
+	return c.doJSON(http.MethodPost, "/v1/agents/"+url.PathEscape(agentID)+"/deregister", bytes.NewReader(body), nil)
 }
 
 // doJSON performs the request and decodes a JSON body into out on 2xx; non-2xx

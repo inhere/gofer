@@ -84,14 +84,17 @@ func NewService(store *jobstore.Store) *Service {
 
 // Agent is the public projection of a registered driver agent (design §9). It
 // deliberately omits agent_token (never returned by List/presence reads, §10).
+// The snake_case json tags make it the single wire contract reused by both the
+// httpapi handler (server projection) and internal/client (decode), mirroring how
+// job.JobResult is shared across the transport.
 type Agent struct {
-	AgentID    string
-	Name       string
-	Role       string
-	ProjectKey string
-	Client     string
-	Status     string
-	LastSeenAt int64
+	AgentID    string `json:"agent_id"`
+	Name       string `json:"name"`
+	Role       string `json:"role,omitempty"`
+	ProjectKey string `json:"project_key,omitempty"`
+	Client     string `json:"client,omitempty"`
+	Status     string `json:"status"`
+	LastSeenAt int64  `json:"last_seen_at"`
 }
 
 // RegisterInput carries the self-reported registration fields. CallerID/Client are
@@ -107,21 +110,23 @@ type RegisterInput struct {
 
 // RegisterResult is what register returns: the public address (agent_id) and the
 // private capability handle (agent_token) the agent presents on poll/deregister.
+// json tags make it the wire shape returned by the register endpoint.
 type RegisterResult struct {
-	AgentID    string
-	AgentToken string
+	AgentID    string `json:"agent_id"`
+	AgentToken string `json:"agent_token"`
 }
 
 // Message is the public projection of an inbox message (design §9), omitting
-// recipient/status bookkeeping the caller does not need.
+// recipient/status bookkeeping the caller does not need. The snake_case json tags
+// make it the single wire contract shared by httpapi and internal/client.
 type Message struct {
-	ID        string
-	FromAgent string
-	ToSpec    string
-	Kind      string
-	Body      string
-	Ref       string
-	CreatedAt int64
+	ID        string `json:"id"`
+	FromAgent string `json:"from_agent"`
+	ToSpec    string `json:"to_spec,omitempty"`
+	Kind      string `json:"kind"`
+	Body      string `json:"body,omitempty"`
+	Ref       string `json:"ref,omitempty"`
+	CreatedAt int64  `json:"created_at"`
 }
 
 // Register registers a new driver agent or renews an existing one. Idempotency
