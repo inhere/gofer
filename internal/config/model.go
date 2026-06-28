@@ -27,6 +27,25 @@ type Config struct {
 	// `bridge_run_job(role=)` resolve a role to fill those request fields (design
 	// §8.5). Rules/context-file mounting is E11 territory, out of scope here.
 	Roles map[string]RoleConfig `yaml:"roles"`
+	// Supervisor is the OPTIONAL E25 layered-answerer config (design §8.3-8.4). nil
+	// (absent) or Enabled=false means no answerer runs — pending interactions wait
+	// for a human (the conservative default). Serve constructs supervisor.Service +
+	// starts its poller only when Enabled.
+	Supervisor *SupervisorConfig `yaml:"supervisor,omitempty"`
+}
+
+// SupervisorConfig configures the E25 answerer (design §8.3-8.4 / §11). Defaults
+// (interval/max_rounds/escalate_to) are applied in supervisor.NewService, so a
+// minimal `supervisor: {enabled: true}` is valid. AllowPromptRegex is the
+// auto-answer whitelist: EMPTY means nothing is auto-answered (escalate-only) — the
+// honest, opt-in-only default (design §11).
+type SupervisorConfig struct {
+	Enabled          bool     `yaml:"enabled"`
+	IntervalSec      int      `yaml:"interval_sec"`
+	AutoAnswer       bool     `yaml:"auto_answer"`
+	EscalateTo       string   `yaml:"escalate_to"`
+	MaxRoundsPerJob  int      `yaml:"max_rounds_per_job"`
+	AllowPromptRegex []string `yaml:"allow_prompt_regex"`
 }
 
 // RoleConfig is one named role preset (design §8.5). Agent is the base CLI agent

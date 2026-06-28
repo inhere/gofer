@@ -24,6 +24,7 @@ import (
 	"github.com/inhere/gofer/internal/metrics"
 	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/supervisor"
 )
 
 // ExitErr is the process exit code used when serve fails to start or run. gcli
@@ -127,6 +128,21 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	stopPresence := make(chan struct{})
 	defer close(stopPresence)
 	startPresencePruneLoop(c, cr.Presence, stopPresence)
+
+	// E25 crash-recovery backstop (复审 #4): a process that died mid-job never ran
+	// finish()'s reconciliation, so its pending interactions are stuck. Sweep them
+	// to cancelled once at startup before the answerer begins.
+	if n, rerr := cr.Jobs.ReconcileOrphanInteractions(); rerr != nil {
+		c.Errorf("gofer: reconcile orphan interactions failed: %v\n", rerr)
+	} else if n > 0 {
+		c.Printf("gofer: reconciled %d orphan pending interaction(s) from terminal jobs\n", n)
+	}
+
+	// E25 supervisor (layered answerer): only started when cfg.supervisor.enabled.
+	// stop closes when serve returns so the poller exits with the process.
+	stopSupervisor := make(chan struct{})
+	defer close(stopSupervisor)
+	startSupervisorLoop(c, cr, stopSupervisor)
 
 	// Config hot-reload (C3): SIGHUP re-loads the config from the serve path and
 	// atomically swaps it into the registries + job service (no restart, no
@@ -275,6 +291,40 @@ func startPresencePruneLoop(c *gcli.Command, pres *presence.Service, stop <-chan
 				prune()
 			}
 		}
+	}()
+}
+
+// startSupervisorLoop constructs the E25 layered answerer from cfg.supervisor and
+// runs its poller goroutine when enabled (design §8.3-8.4). With no supervisor
+// config (nil) or enabled=false it does nothing — pending interactions then wait
+// for a human (conservative default). The poller exits when stop is closed (serve
+// shutdown) via a ctx tied to stop, mirroring startDeliveryLoop.
+//
+// Reload scope (C3): like the other loops, the enable gate + policy are frozen at
+// startup; toggling supervisor.enabled or editing the policy needs a restart.
+func startSupervisorLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
+	sc := cr.Cfg.Supervisor
+	if sc == nil || !sc.Enabled {
+		return
+	}
+	pol := supervisor.Policy{
+		Enabled:          true,
+		Interval:         time.Duration(sc.IntervalSec) * time.Second,
+		AutoAnswer:       sc.AutoAnswer,
+		EscalateTo:       sc.EscalateTo,
+		MaxRoundsPerJob:  sc.MaxRoundsPerJob,
+		AllowPromptRegex: sc.AllowPromptRegex,
+	}
+	sup := supervisor.NewService(cr.Jobs, cr.Presence, pol)
+	c.Printf("gofer: supervisor answerer enabled (auto_answer=%t, escalate_to=%q)\n", sc.AutoAnswer, sc.EscalateTo)
+	go func() {
+		ctx, cancel := context.WithCancel(context.Background())
+		go func() {
+			<-stop
+			cancel()
+		}()
+		defer cancel()
+		sup.Run(ctx)
 	}()
 }
 

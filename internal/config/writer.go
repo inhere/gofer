@@ -13,12 +13,13 @@ import (
 // managedTopKeys are the top-level keys this tool owns and re-emits on save.
 // Any other top-level key found in the source file is preserved as-is.
 var managedTopKeys = map[string]bool{
-	"server":   true,
-	"storage":  true,
-	"projects": true,
-	"agents":   true,
-	"runners":  true,
-	"roles":    true,
+	"server":     true,
+	"storage":    true,
+	"projects":   true,
+	"agents":     true,
+	"runners":    true,
+	"roles":      true,
+	"supervisor": true,
 }
 
 // Save writes cfg back to path as YAML.
