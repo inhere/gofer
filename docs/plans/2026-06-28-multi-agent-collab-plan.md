@@ -27,12 +27,15 @@
 
 ## 3. 进度跟踪
 
-### P1 L2 身份/信箱（E36）
-- [ ] P1.1 jobstore：`agent_presence`+`messages` 两表 + DAO（presence.go/messages.go）+ 单测
-- [ ] P1.2 `internal/presence` Service：register/poll/post/listPresence + role 投递 fan-out + TTL 懒判定 + prune + 单测
-- [ ] P1.3 httpapi：5 端点（register/presence/inbox poll/messages/deregister）+ handler + agent_token 校验 + 单测
-- [ ] P1.4 client 5 方法 + Backend 接口扩 4 方法（两实现）+ mcp 4 工具 + core/ServeLocal 线缆
-- [ ] P1.5 CLI `gofer agent`（presence ls）+ 部署 + 双 mcp client E2E（A 派活→B 收件）
+### P1 L2 身份/信箱（E36）✅ 完成（2026-06-28）
+- [x] P1.1 jobstore：`agent_presence`+`messages` 两表 + DAO（presence.go/messages.go）+ 单测 — `05492dc`
+- [x] P1.2 `internal/presence` Service：register/poll/post/listPresence + role 投递 fan-out + TTL 懒判定 + prune + 单测 — `ba458f4`
+- [x] P1.3 httpapi：5 端点（register/presence/inbox poll/messages/deregister）+ handler + agent_token 校验 + 单测 — `aab40fc`
+- [x] P1.4 client 5 方法 + Backend 接口扩 4 方法（两实现）+ mcp 4 工具 + core/ServeLocal 线缆 — `92ab5d7`
+- [x] P1.5 CLI `gofer presence`（ls/send/inbox，非 `gofer agent`，见下注）+ serve prune sweeper + 双 agent mcp 工具 E2E — `ceaa475`/`b73f281`
+
+> **P1.5 自动决策（SR1401 二级修正）**：原计划 CLI 名 `gofer agent ls`，但 `gofer agent` 已存在（= job-agent 定义 claude/codex/exec 的检视命令），且其已有 `list` 子命令。复用会**混淆 driver/job 二分 + 子命令冲突**。故新建顶层 `gofer presence`（别名 `driver`）承载 presence(driver agent)，与 `gofer agent`(job agent) 分离。inbox 的 agent_token 标志用 `--agent-token`（避与 bearer `--token` 冲突）。
+> **E2E 形式**：用进程内双 client + 真实 `bridge_*` 工具(SDK transport) 做确定性等价 E2E（`TestPresenceToolsE2E`），并在容器内起真 serve 用 curl + `gofer presence` CLI 冒烟（register/list 不漏 token/post/poll 消费/403/role fan-out/prune sweeper 全过）。host serve 重建 + 容器二进制换装见“部署”待办。
 
 ### P2 L3 角色（E35）
 - [ ] P2.1 config：`RoleConfig`+`Roles` 段 + `AgentConfig.SystemInject` + claude/codex 内置 system_inject 默认
@@ -55,6 +58,6 @@
 
 | 阶段 | commit | 验收 | 备注 |
 |---|---|---|---|
-| P1 | | | |
+| P1 | 05492dc→b73f281(6 提交) | go test 27 包绿 + go vet 净 + 无 import 环；容器真 serve curl/CLI E2E 全过 | CLI 改 `gofer presence`(非 agent)；mcp 工具 14 个(10+4)；待部署(host serve 重建+容器二进制换装) |
 | P2 | | | |
 | P3 | | | |
