@@ -45,12 +45,12 @@
 
 > **P2 注**：role 解析放在 `Submit` 的 validate **之前**（计划 pseudo-code 写"validate 后"有误）——否则空 agent 先被 validate 拒、role 填的 agent 也绕过 allowlist 校验。codex 的 system-prompt 注入参数**留空**（design §12 待实测），role 对 codex 仅生效 project/tags。resume 重施取**保守默认**（重施 system_inject），实测 `--resume` 自带后可改。修既有 bug：writer `managedTopKeys` 漏 `roles` → Save 重复发键，reload 解析失败（既有 core reload 测试逮到）。
 
-### P3 L4 监督应答（E25）
-- [ ] P3.1 jobstore：`ListPendingInteractions`（JOIN jobs 过滤终态）+ 单测
-- [ ] P3.2 job：finish/cancel **对账残留 pending→cancelled**（修既有缺口，`InteractionCancelled` 赋值）+ 启动 sweeper 兜底 + 单测
-- [ ] P3.3 `internal/supervisor`：分层 answerer（白名单 choice+options 自动答 / confirmation+question 升级）+ poller + 升级经信箱 + 审计/配额钩子 + 单测
-- [ ] P3.4 httpapi `GET /v1/interactions?status=pending` + client 方法 + mcp `bridge_list_pending_interactions`
-- [ ] P3.5 config `supervisor:` 段 + serve 线缆 + 部署 + E2E（choice 自动答 / confirmation 升级 inbox）
+### P3 L4 监督应答（E25）✅ 完成（2026-06-28）
+- [x] P3.1 jobstore：`ListPendingInteractions`（JOIN jobs 过滤终态）+ 单测 — `b8c390c`
+- [x] P3.2 job：finish **对账残留 pending→cancelled**（修既有缺口，`InteractionCancelled` 生效，唤醒 WaitAnswer）+ 启动 `ReconcileOrphanInteractions` 兜底 + 单测 — `b8c390c`
+- [x] P3.3 `internal/supervisor`：分层 answerer（白名单 choice+options 自动答 / confirmation+question/无options/超轮次 升级）+ poller + 升级经信箱 + dedup/熔断 + 单测 — `e99de63`
+- [x] P3.4 httpapi `GET /v1/interactions?status=pending` + client 方法 + mcp `bridge_list_pending_interactions`(工具 15 个) — `2807654`
+- [x] P3.5 config `supervisor:` 段 + serve 线缆(reconcile 启动兜底 + answerer poller) + E2E(自动答/升级/对账三路径) — `bd338d0`
 
 ## 4. 实施模式（SUPMODE 建议）
 
@@ -62,5 +62,5 @@
 |---|---|---|---|
 | P1 | 05492dc→b73f281(6 提交) | go test 27 包绿 + go vet 净 + 无 import 环；容器真 serve curl/CLI E2E 全过 | CLI 改 `gofer presence`(非 agent)；mcp 工具 14 个(10+4)；待部署(host serve 重建+容器二进制换装) |
 | P2 | a685877+02e50e0 | go test 27 包绿 + go vet 净；容器真 serve `job run --role` 冒烟(role 填字段+argv 注入+resume 重施)全过 | role 解析在 validate 前；codex system-prompt 待实测留空；修既有 writer roles 重复键 bug |
-| P3 | | | |
+| P3 | b8c390c→bd338d0(4 提交) | go test 28 包绿 + go vet 净 + 无 import 环；容器真 serve supervisor E2E 三路径(自动答/升级 inbox/cancel 对账)全过 | 修既有缺口(finish 对账+InteractionCancelled 生效)；supervisor 接口反向消费 job/presence；mcp 工具 15 个 |
 | P3 | | | |

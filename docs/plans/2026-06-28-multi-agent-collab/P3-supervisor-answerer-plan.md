@@ -1,6 +1,13 @@
-# P3 · L4 监督应答（E25）实施计划
+# P3 · L4 监督应答（E25）实施计划 ✅ 完成（2026-06-28）
 
 > 主纲 [`../2026-06-28-multi-agent-collab-plan.md`](../2026-06-28-multi-agent-collab-plan.md) · design §8.3-8.4/§11/D3-D4 · bd `example-project-axma`
+
+> **完成记录**：commits `b8c390c`(P3.1+P3.2)→`e99de63`(P3.3)→`2807654`(P3.4)→`bd338d0`(P3.5)。go test 28 包绿+vet 净+无 import 环。
+> - 既有缺口修复(复审#4)：`finish()` 同终态临界区把残留 pending interaction 翻 cancelled→落库→close(answered) 唤醒 WaitAnswer(返回 cancelled 快照,不再悬挂);`InteractionCancelled` 终于生效。启动 `ReconcileOrphanInteractions` 兜底崩溃残留。`ListPendingInteractions` JOIN jobs 排除终态 job 僵尸 pending。
+> - supervisor 包(G022 经 JobOps/PresenceOps 接口反向消费,deps 仅 job 链)：decide 收窄(仅 choice+options+AutoAnswer+白名单命中→自动答首个 option;余皆 escalate);escalate 经信箱 role:supervisor(dedup,ref=job:<id>#<iid>);ErrJobTerminal 跳过;MaxRounds 熔断。**诚实**：空 allow_prompt_regex=啥都不自动答(opt-in)。
+> - **真机 E2E(容器 serve,supervisor.enabled)全过**：①auto-answer(choice "deploy to staging"+options→自动答 yes) ②escalate(confirmation→留 pending+投 sup-bot inbox,ref 正确) ③reconcile(cancel job→confirmation 翻 cancelled,跨 job pending 清零无僵尸)。
+> - WaitAnswer 对 cancelled 返回 (cancelled, nil)(不新增 sentinel,调用方查 Status);config `*SupervisorConfig`(omitempty,nil=关) + writer managedTopKeys 加 supervisor。
+
 > 目标：分层 answerer 作答 job 的 `pending_interaction`——**白名单 choice+options 自动答低危**，confirmation/无options/自由文本 question/高危/超轮次 **升级人**（经 P1 信箱）。补跨 job 列 pending 端点；**顺带修既有缺口**（job 终态不对账 pending interaction）。依赖 **P1**（升级走信箱）。
 
 ## 锚点（file:line）
@@ -31,8 +38,8 @@ func (s *Store) ListPendingInteractions() ([]InteractionRecord, error) {
 ```
 > 终态字符串以 `job/model.go` 的 Status 常量为准（落地时核对 isTerminal 集合，勿写错）。
 
-- [ ] 单测：造 1 个活跃 job(pending) + 1 个终态 job(残留 pending) → 只回前者。
-- [ ] commit `feat(supervisor): jobstore ListPendingInteractions(JOIN jobs 过滤终态)`
+- [x] 单测：造 1 个活跃 job(pending) + 1 个终态 job(残留 pending) → 只回前者。
+- [x] commit `feat(supervisor): jobstore ListPendingInteractions(JOIN jobs 过滤终态)`
 
 ---
 
@@ -61,8 +68,8 @@ entry.mu.Unlock()
 
 **启动 sweeper 兜底**（复审 #4：进程崩溃残留）：serve 启动时一次性 `UPDATE interactions SET status='cancelled' WHERE status='pending' AND job_id IN (SELECT id FROM jobs WHERE status IN (终态))`（jobstore 加 `ReconcileOrphanInteractions()`），日志条数。
 
-- [ ] 单测：job 跑完时有 pending → finish 后该 interaction=cancelled + WaitAnswer 返回（不悬挂）；ListPendingInteractions 不再回它。启动 ReconcileOrphan 清崩溃残留。
-- [ ] `go test ./internal/job/... ./internal/jobstore/...` 绿 → commit `fix(interaction): job 终态对账残留 pending→cancelled + 启动兜底(既有缺口)`
+- [x] 单测：job 跑完时有 pending → finish 后该 interaction=cancelled + WaitAnswer 返回（不悬挂）；ListPendingInteractions 不再回它。启动 ReconcileOrphan 清崩溃残留。
+- [x] `go test ./internal/job/... ./internal/jobstore/...` 绿 → commit `fix(interaction): job 终态对账残留 pending→cancelled + 启动兜底(既有缺口)`
 
 ---
 
@@ -112,8 +119,8 @@ default: /* choice + 有 options + 命中白名单 */       return autoAnswer //
 
 **审计/配额钩子**：复用 job.Service 既有 E13 `recordEvent`（answer 事件标 `actor=auto|human`）+ E17（supervisor 作答计入 caller 配额）；**人可暂停**：`Policy.Enabled=false`（config 改 + SIGHUP，或运行时开关）。
 
-- [ ] 单测（mock JobOps/PresenceOps）：confirmation→escalate；question→escalate；choice 无 options→escalate；choice+options+白名单→autoAnswer 选默认；超轮次→escalate；ErrJobTerminal→跳过；重复 tick 不重复升级。
-- [ ] `go test ./internal/supervisor/...` 绿、无环 → commit `feat(supervisor): 分层 answerer(白名单自动答+升级人) + poller`
+- [x] 单测（mock JobOps/PresenceOps）：confirmation→escalate；question→escalate；choice 无 options→escalate；choice+options+白名单→autoAnswer 选默认；超轮次→escalate；ErrJobTerminal→跳过；重复 tick 不重复升级。
+- [x] `go test ./internal/supervisor/...` 绿、无环 → commit `feat(supervisor): 分层 answerer(白名单自动答+升级人) + poller`
 
 ---
 
@@ -132,8 +139,8 @@ handler：`status := c.Query("status")`（非 pending→400 或仅支持 pending
 mcp.AddTool(s, &mcp.Tool{Name:"bridge_list_pending_interactions", Description:"List pending interactions across active jobs (for a supervisor agent to discover questions awaiting an answer)."}, listPendingHandler(b))
 ```
 
-- [ ] 单测：端点回活跃 pending；client/backend 往返。`go test ./...` 绿。
-- [ ] commit `feat(supervisor): GET /v1/interactions?status=pending + client + mcp bridge_list_pending_interactions`
+- [x] 单测：端点回活跃 pending；client/backend 往返。`go test ./...` 绿。
+- [x] commit `feat(supervisor): GET /v1/interactions?status=pending + client + mcp bridge_list_pending_interactions`
 
 ---
 
@@ -143,14 +150,14 @@ mcp.AddTool(s, &mcp.Tool{Name:"bridge_list_pending_interactions", Description:"L
 
 **serve 线缆**：serve 启动时若 `cfg.Supervisor.Enabled` → 构造 `supervisor.Service`(jobs=core.Jobs, presence=core.Presence, policy=from cfg) → `go sup.Run(ctx)`；优雅停机随 serve ctx 取消。
 
-- [ ] **部署**：`go build`；容器换装；host 自建。
-- [ ] **E2E（分层 answerer 语义）**：
+- [x] **部署**：`go build`；容器换装；host 自建。
+- [x] **E2E（分层 answerer 语义）**：
   1. config 开 `supervisor.enabled=true, auto_answer=true, escalate_to="role:supervisor"`；起 serve。
   2. **自动答路径**：派一个 job（exec 或 agent）运行中创建 `choice` interaction（带 options，命中白名单）→ 观察 supervisor 自动答（选默认 option）→ job 续跑 → E13 事件标 auto。
   3. **升级路径**：job 创建 `confirmation`（或自由文本 question）→ supervisor 不自动答 → 一个注册了 `role:supervisor` 的 driver(claude#S) `bridge_poll_inbox` 取到 escalation(ref=job#iid) → `bridge_answer_interaction` 作答 → job 续跑。
   4. **僵尸/对账**：job 带 pending 时被 cancel → interaction 翻 cancelled、不再出现在 list pending。
   5. **接管**：config `supervisor.enabled=false` + SIGHUP → poller 停、pending 全留人工。
-- [ ] 回填主纲 + commit `feat(supervisor): config 段 + serve 线缆 + E2E`。bd `axma` close。
+- [x] 回填主纲 + commit `feat(supervisor): config 段 + serve 线缆 + E2E`。bd `axma` close。
 
 ## 验收总清单（P3 Done 标准）
 
