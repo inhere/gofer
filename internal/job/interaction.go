@@ -241,6 +241,30 @@ func (s *Service) GetPersistedInteractions(_ string, jobID string) ([]Interactio
 	return s.GetInteractions(jobID)
 }
 
+// ListPendingInteractions returns the pending interactions across all ACTIVE jobs
+// (E25 监督发现): the data-plane read straight from the metadata store, filtered to
+// non-terminal jobs (jobstore JOINs jobs). Each carries its job_id so the caller
+// can route an answer/escalation. It reads the DB (not the in-memory entries) so it
+// is consistent across the whole serve, not just jobs live in this process.
+func (s *Service) ListPendingInteractions() ([]Interaction, error) {
+	recs, err := s.meta.ListPendingInteractions()
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Interaction, 0, len(recs))
+	for _, rec := range recs {
+		out = append(out, fromInteractionRecord(rec))
+	}
+	return out, nil
+}
+
+// ReconcileOrphanInteractions flips pending interactions of already-terminal jobs
+// to cancelled (crash-recovery backstop for finish()'s in-memory reconciliation,
+// 复审 #4). Returns the rows fixed. Serve calls it once at startup.
+func (s *Service) ReconcileOrphanInteractions() (int, error) {
+	return s.meta.ReconcileOrphanInteractions(s.nowFn().Unix())
+}
+
 // AnswerInteraction marks a pending interaction answered, records the answer,
 // wakes any waiter, and — when no pending interactions remain — flips the job
 // status back to running (never overriding a terminal status). Errors if job/

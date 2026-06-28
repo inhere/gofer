@@ -3,6 +3,7 @@ package jobstore
 import (
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // InteractionRecord is the SQLite-persisted projection of one running-job
@@ -101,4 +102,74 @@ func (s *Store) ListInteractions(jobID string) ([]InteractionRecord, error) {
 		return nil, fmt.Errorf("jobstore: list interactions %q rows: %w", jobID, err)
 	}
 	return out, nil
+}
+
+// pendingInteractionTerminalJobStatuses mirrors the job package's terminal set
+// (done/failed/cancelled/timeout). Kept as literals here (like prune.go's
+// terminalStatuses) to avoid a job -> jobstore -> job import cycle.
+var pendingInteractionTerminalJobStatuses = []string{"done", "failed", "cancelled", "timeout"}
+
+// ListPendingInteractions returns the pending interactions across ALL jobs that
+// are still ACTIVE (the job's status is NOT terminal), creation order (E25 监督).
+// The JOIN + terminal-job filter (复审 #4) excludes 僵尸 pending rows left on a job
+// that finished while an interaction was unanswered — a supervisor must never be
+// pointed at a dead job. (finish() reconciles those to cancelled, and
+// ReconcileOrphanInteractions sweeps crash残留; this filter is the read-side guard.)
+func (s *Store) ListPendingInteractions() ([]InteractionRecord, error) {
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(pendingInteractionTerminalJobStatuses)), ",")
+	q := `SELECT i.id, i.job_id, i.type, i.prompt, COALESCE(i.options_json,''),
+  i.status, COALESCE(i.answer,''), i.created_at, COALESCE(i.answered_at,0)
+  FROM interactions i JOIN jobs j ON i.job_id = j.id
+  WHERE i.status = 'pending' AND j.status NOT IN (` + placeholders + `)
+  ORDER BY i.created_at ASC, i.id ASC`
+	args := make([]any, 0, len(pendingInteractionTerminalJobStatuses))
+	for _, st := range pendingInteractionTerminalJobStatuses {
+		args = append(args, st)
+	}
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: list pending interactions: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]InteractionRecord, 0)
+	for rows.Next() {
+		rec, scanErr := scanInteraction(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("jobstore: scan pending interaction row: %w", scanErr)
+		}
+		out = append(out, rec)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("jobstore: list pending interactions rows: %w", err)
+	}
+	return out, nil
+}
+
+// ReconcileOrphanInteractions flips to cancelled every pending interaction whose
+// job is already terminal — the crash-recovery backstop (复审 #4) for the in-memory
+// reconciliation finish() does (a process that died mid-job never ran finish, so
+// its pending rows are stuck). ts stamps answered_at. Returns the rows fixed. Run
+// once at serve startup. Writes go through writeMu like every other writer.
+func (s *Store) ReconcileOrphanInteractions(ts int64) (int, error) {
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(pendingInteractionTerminalJobStatuses)), ",")
+	q := `UPDATE interactions SET status = 'cancelled', answered_at = ?
+  WHERE status = 'pending'
+    AND job_id IN (SELECT id FROM jobs WHERE status IN (` + placeholders + `))`
+	args := make([]any, 0, len(pendingInteractionTerminalJobStatuses)+1)
+	args = append(args, ts)
+	for _, st := range pendingInteractionTerminalJobStatuses {
+		args = append(args, st)
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(q, args...)
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: reconcile orphan interactions: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: reconcile orphan interactions rows: %w", err)
+	}
+	return int(n), nil
 }
