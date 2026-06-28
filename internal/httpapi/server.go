@@ -321,6 +321,9 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/jobs/{id}/interactions", s.handleCreateInteraction)
 		r.GET("/jobs/{id}/interactions", s.handleListInteractions)
 		r.POST("/jobs/{id}/interactions/{interaction_id}/answer", s.handleAnswerInteraction)
+		// E25: cross-job pending interactions (supervisor discovery). Always mounted
+		// (reads job.Service, no extra wiring); ?status=pending (default).
+		r.GET("/interactions", s.handleListPendingInteractions)
 
 		// E36 driver-agent identity/mailbox (design §10). Mounted only when the
 		// presence service is wired (SetPresence, serve); nil for presence-less

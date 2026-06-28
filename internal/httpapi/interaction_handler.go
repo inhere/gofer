@@ -73,6 +73,26 @@ func (s *Server) handleListInteractions(c *rux.Context) {
 	c.JSON(http.StatusOK, map[string]any{"interactions": list})
 }
 
+// handleListPendingInteractions returns the pending interactions across all ACTIVE
+// jobs (E25 监督发现). MVP supports only ?status=pending (any other value is a 400);
+// an absent status defaults to pending. The result is always a non-nil array, each
+// element carrying its job_id so the caller can route an answer.
+func (s *Server) handleListPendingInteractions(c *rux.Context) {
+	if st := c.Query("status"); st != "" && st != job.InteractionPending {
+		writeError(c, http.StatusBadRequest, "unsupported status filter", "only status=pending is supported")
+		return
+	}
+	list, err := s.jobs.ListPendingInteractions()
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "list pending interactions failed", err.Error())
+		return
+	}
+	if list == nil {
+		list = []job.Interaction{}
+	}
+	c.JSON(http.StatusOK, map[string]any{"interactions": list})
+}
+
 // handleAnswerInteraction answers a pending interaction and returns the updated
 // job.Interaction. Unknown job/interaction -> 404; terminal job -> 409; not
 // pending -> 400.

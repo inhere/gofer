@@ -111,6 +111,8 @@ func TestListToolsAllPresent(t *testing.T) {
 		"bridge_poll_inbox":    false,
 		"bridge_post_message":  false,
 		"bridge_list_presence": false,
+		// E25 supervisor discovery (1 tool).
+		"bridge_list_pending_interactions": false,
 	}
 	for _, tl := range res.Tools {
 		if _, ok := want[tl.Name]; ok {

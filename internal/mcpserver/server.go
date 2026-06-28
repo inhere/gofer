@@ -112,6 +112,13 @@ func New(b Backend) *mcp.Server {
 		Description: "List online agents (presence registry) with role/project/status. Optional role/project filters.",
 	}, listPresenceHandler(b))
 
+	// E25: cross-job pending interactions, for a supervisor agent to discover
+	// questions awaiting an answer (then answer via bridge_answer_interaction).
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "bridge_list_pending_interactions",
+		Description: "List pending interactions across active jobs (for a supervisor agent to discover questions awaiting an answer).",
+	}, listPendingInteractionsHandler(b))
+
 	return s
 }
 
@@ -423,6 +430,25 @@ func getInteractionsHandler(b Backend) mcp.ToolHandlerFor[jobIDInput, getInterac
 			return nil, getInteractionsOutput{}, err
 		}
 		// Always emit a non-nil array (unknown jobs yield an empty list).
+		out := getInteractionsOutput{Interactions: make([]interactionView, 0, len(list))}
+		for _, it := range list {
+			out.Interactions = append(out.Interactions, toInteractionView(it))
+		}
+		return nil, out, nil
+	}
+}
+
+// --- bridge_list_pending_interactions ---------------------------------------
+
+// listPendingInteractionsInput is intentionally empty (lists across all jobs).
+type listPendingInteractionsInput struct{}
+
+func listPendingInteractionsHandler(b Backend) mcp.ToolHandlerFor[listPendingInteractionsInput, getInteractionsOutput] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, _ listPendingInteractionsInput) (*mcp.CallToolResult, getInteractionsOutput, error) {
+		list, err := b.ListPendingInteractions()
+		if err != nil {
+			return nil, getInteractionsOutput{}, err
+		}
 		out := getInteractionsOutput{Interactions: make([]interactionView, 0, len(list))}
 		for _, it := range list {
 			out.Interactions = append(out.Interactions, toInteractionView(it))

@@ -57,6 +57,10 @@ func (b *clientBackend) AnswerInteraction(id, iid, answer string) (job.Interacti
 	return b.cli.AnswerInteraction(id, iid, answer)
 }
 
+func (b *clientBackend) ListPendingInteractions() ([]job.Interaction, error) {
+	return b.cli.ListPendingInteractions()
+}
+
 // TailLog reads the full stream from the server then trims to the last maxBytes
 // client-side (the /logs endpoint returns the whole tail; the byte cap is the
 // handler's contract). maxBytes<=0 means "no cap".
