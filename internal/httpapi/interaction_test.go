@@ -235,3 +235,45 @@ func TestInteractionCreateOnTerminalJob(t *testing.T) {
 		t.Fatalf("create on terminal job status=%d, want 409", createResp.StatusCode)
 	}
 }
+
+// TestListPendingInteractionsEndpoint verifies GET /v1/interactions?status=pending
+// returns a live job's pending interaction (cross-job supervisor discovery, E25)
+// and rejects an unsupported status filter.
+func TestListPendingInteractionsEndpoint(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	jobID := submitRunningJob(t, s)
+
+	// Raise a pending interaction on the running job.
+	cr := do(t, s, http.MethodPost, "/v1/jobs/"+jobID+"/interactions", testToken, createInteractionReq{
+		Type: job.InteractionTypeQuestion, Prompt: "continue?",
+	})
+	if cr.StatusCode != http.StatusOK {
+		t.Fatalf("create interaction status=%d", cr.StatusCode)
+	}
+
+	// The cross-job pending list includes it (carrying its job_id).
+	resp := do(t, s, http.MethodGet, "/v1/interactions?status=pending", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list pending status=%d, want 200", resp.StatusCode)
+	}
+	var body struct {
+		Interactions []job.Interaction `json:"interactions"`
+	}
+	decode(t, resp, &body)
+	var found bool
+	for _, it := range body.Interactions {
+		if it.JobID == jobID && it.Status == job.InteractionPending {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("pending interaction for job %s not in list: %+v", jobID, body.Interactions)
+	}
+
+	// An unsupported status filter is a 400.
+	bad := do(t, s, http.MethodGet, "/v1/interactions?status=answered", testToken, nil)
+	if bad.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status=answered should be 400, got %d", bad.StatusCode)
+	}
+	bad.Body.Close()
+}

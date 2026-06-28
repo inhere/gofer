@@ -479,6 +479,20 @@ func (c *Client) GetInteractions(id string) ([]job.Interaction, error) {
 	return resp.Interactions, nil
 }
 
+// ListPendingInteractions fetches the pending interactions across all active jobs
+// (E25 监督, GET /v1/interactions?status=pending), unwrapping the
+// {"interactions":[...]} envelope. Used by the mcp client backend's
+// bridge_list_pending_interactions tool (supervisor discovery in client mode).
+func (c *Client) ListPendingInteractions() ([]job.Interaction, error) {
+	var resp struct {
+		Interactions []job.Interaction `json:"interactions"`
+	}
+	if err := c.doJSON(http.MethodGet, "/v1/interactions?status=pending", nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Interactions, nil
+}
+
 // AnswerInteraction POSTs an answer to a peer interaction (P9 passthrough / E28
 // client mode) and returns the updated job.Interaction the server echoes back
 // (the answer endpoint returns a bare job.Interaction). Fire-and-forget callers

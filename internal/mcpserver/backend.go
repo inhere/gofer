@@ -23,6 +23,9 @@ type Backend interface {
 	CancelJob(id string) (job.JobResult, error)
 	GetInteractions(id string) ([]job.Interaction, error)
 	AnswerInteraction(id, iid, answer string) (job.Interaction, error)
+	// ListPendingInteractions lists pending interactions across active jobs (E25
+	// supervisor discovery, bridge_list_pending_interactions).
+	ListPendingInteractions() ([]job.Interaction, error)
 	GetArtifacts(id string) ([]artifactView, error)
 	GetResult(id string) (string, error)
 

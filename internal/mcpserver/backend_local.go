@@ -123,6 +123,10 @@ func (b *localBackend) AnswerInteraction(id, iid, answer string) (job.Interactio
 	return b.jobs.AnswerInteraction(id, iid, answer)
 }
 
+func (b *localBackend) ListPendingInteractions() ([]job.Interaction, error) {
+	return b.jobs.ListPendingInteractions()
+}
+
 func (b *localBackend) GetArtifacts(id string) ([]artifactView, error) {
 	// Manifest resolution (persisted ArtifactsJSON preferred, else a live scan)
 	// is the shared job.Service.GetArtifactManifest — the same data-plane the HTTP
