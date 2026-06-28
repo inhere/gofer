@@ -45,8 +45,8 @@ SystemInject []string `yaml:"system_inject"`
 ```
 > ⚠️ codex 的 system prompt 注入参数需**实测确认**（design §12）；不确定先留空（role 对 codex 仅生效 project/tags 默认，不注 system_prompt），不要瞎填。
 
-- [ ] 单测：`config_test` 解析含 `roles:` 的 yaml；ResolveAgent 合并 builtin system_inject。
-- [ ] `go test ./internal/config/... ./internal/agent/...` 绿 → commit `feat(roles): config roles 段 + AgentConfig.SystemInject + claude 内置默认`
+- [x] 单测：`config_test` 解析含 `roles:` 的 yaml；ResolveAgent 合并 builtin system_inject。
+- [x] `go test ./internal/config/... ./internal/agent/...` 绿 → commit `feat(roles): config roles 段 + AgentConfig.SystemInject + claude 内置默认`
 
 ---
 
@@ -59,8 +59,8 @@ SystemPrompt string
 // replacements()（line 19 返回数组）加一对
 "{{system_prompt}}", v.SystemPrompt,
 ```
-- [ ] 单测 `template_test`：Render 替换 `{{system_prompt}}`；argv 结构保持（不 join shell）。
-- [ ] commit（可与 P2.1 合并提交）`feat(roles): agent Vars.SystemPrompt + 模板替换`
+- [x] 单测 `template_test`：Render 替换 `{{system_prompt}}`；argv 结构保持（不 join shell）。
+- [x] commit（可与 P2.1 合并提交）`feat(roles): agent Vars.SystemPrompt + 模板替换`
 
 ---
 
@@ -107,8 +107,8 @@ if len(ac.SystemInject) > 0 && sysPrompt != "" {
 ```
 > ⚠️ 落地时**实测**：claude `--resume` 是否确需重传 `--append-system-prompt`（design §12）。若实测 `--resume` 已恢复原 system prompt，则此步改为不重施 + 注释说明；二者择一，以实测为准。新增 `systemPromptFromRequestJSON`（照 `cwdFromRequestJSON` 89-98）。
 
-- [ ] 单测：role 解析填充缺省（agent/project/tags/system_prompt）+ 显式优先；submit argv 含 `--append-system-prompt`；未知 role→ErrUnknownRole；resume argv 重施（或按实测注释）。
-- [ ] `go test ./internal/job/...` 绿 → commit `feat(roles): JobRequest.Role 解析 + system_inject 注入 + resume 重施`
+- [x] 单测：role 解析填充缺省（agent/project/tags/system_prompt）+ 显式优先；submit argv 含 `--append-system-prompt`；未知 role→ErrUnknownRole；resume argv 重施（或按实测注释）。
+- [x] `go test ./internal/job/...` 绿 → commit `feat(roles): JobRequest.Role 解析 + system_inject 注入 + resume 重施`
 
 ---
 
@@ -123,9 +123,9 @@ runJobRun 把 role/systemPrompt 塞进 JobRequest。
 
 **`mcpserver/server.go` runJobInput 加字段**（234-244）：`Role string \`json:"role,omitempty"\``（+ 可选 system_prompt）；runJobHandler 透传到 JobRequest（253-262 区段）。
 
-- [ ] 单测：CLI flag 绑定；mcp runJobInput role 透传。`go test ./...` 绿。
-- [ ] **冒烟**（部署后）：config 配一个 `roles.reviewer{agent:claude, system_prompt:"You are a strict reviewer"}`；`gofer job run --role reviewer -p "..."`；`gofer job show <id>` 看 rendered_command 含 `--append-system-prompt`；（如可）resume 该 job 看 argv 重施。
-- [ ] 回填主纲 + commit `feat(roles): job run --role + bridge_run_job role 字段 + 冒烟`。bd `fl46` close。
+- [x] 单测：CLI flag 绑定；mcp runJobInput role 透传。`go test ./...` 绿。
+- [x] **冒烟**（部署后）：config 配一个 `roles.reviewer{agent:claude, system_prompt:"You are a strict reviewer"}`；`gofer job run --role reviewer -p "..."`；`gofer job show <id>` 看 rendered_command 含 `--append-system-prompt`；（如可）resume 该 job 看 argv 重施。
+- [x] 回填主纲 + commit `feat(roles): job run --role + bridge_run_job role 字段 + 冒烟`。bd `fl46` close。
 
 ## 验收总清单（P2 Done 标准）
 
