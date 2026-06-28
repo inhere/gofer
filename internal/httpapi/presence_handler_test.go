@@ -45,7 +45,7 @@ func TestRegisterListAndPoll(t *testing.T) {
 		t.Fatalf("presence status=%d, want 200", listResp.StatusCode)
 	}
 	var list struct {
-		Agents []presenceAgentView `json:"agents"`
+		Agents []presence.Agent `json:"agents"`
 	}
 	decode(t, listResp, &list)
 	if len(list.Agents) != 2 {
@@ -102,7 +102,7 @@ func TestPostRoleFanOut(t *testing.T) {
 	// role: filter on the presence list works.
 	listResp := do(t, s, http.MethodGet, "/v1/agents/presence?role=reviewer", testToken, nil)
 	var list struct {
-		Agents []presenceAgentView `json:"agents"`
+		Agents []presence.Agent `json:"agents"`
 	}
 	decode(t, listResp, &list)
 	if len(list.Agents) != 2 {
@@ -133,7 +133,7 @@ func TestDeregisterEndpoint(t *testing.T) {
 	}
 	listResp := do(t, s, http.MethodGet, "/v1/agents/presence", testToken, nil)
 	var list struct {
-		Agents []presenceAgentView `json:"agents"`
+		Agents []presence.Agent `json:"agents"`
 	}
 	decode(t, listResp, &list)
 	if len(list.Agents) != 0 {
@@ -143,13 +143,13 @@ func TestDeregisterEndpoint(t *testing.T) {
 
 // --- helpers ---
 
-func registerAgent(t *testing.T, s *Server, name, role string) registerAgentResp {
+func registerAgent(t *testing.T, s *Server, name, role string) presence.RegisterResult {
 	t.Helper()
 	resp := do(t, s, http.MethodPost, "/v1/agents/register", testToken, registerAgentReq{Name: name, Role: role})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("register %s status=%d, want 200", name, resp.StatusCode)
 	}
-	var out registerAgentResp
+	var out presence.RegisterResult
 	decode(t, resp, &out)
 	return out
 }
@@ -169,14 +169,14 @@ func postMessage(t *testing.T, s *Server, from, to, kind, body, ref string) int 
 	return out.Delivered
 }
 
-func pollInbox(t *testing.T, s *Server, id, token string, wantStatus int) []messageView {
+func pollInbox(t *testing.T, s *Server, id, token string, wantStatus int) []presence.Message {
 	t.Helper()
 	resp := do(t, s, http.MethodPost, "/v1/agents/"+id+"/inbox/poll", testToken, pollInboxReq{AgentToken: token})
 	if resp.StatusCode != wantStatus {
 		t.Fatalf("poll status=%d, want %d", resp.StatusCode, wantStatus)
 	}
 	var out struct {
-		Messages []messageView `json:"messages"`
+		Messages []presence.Message `json:"messages"`
 	}
 	decode(t, resp, &out)
 	return out.Messages

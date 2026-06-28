@@ -1,6 +1,9 @@
 package mcpserver
 
-import "github.com/inhere/gofer/internal/job"
+import (
+	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/presence"
+)
 
 // Backend abstracts the backend operations behind the 10 bridge_* MCP tools so
 // the handlers can target either an in-process job.Service + registries
@@ -22,4 +25,12 @@ type Backend interface {
 	AnswerInteraction(id, iid, answer string) (job.Interaction, error)
 	GetArtifacts(id string) ([]artifactView, error)
 	GetResult(id string) (string, error)
+
+	// E36 driver-agent identity/mailbox (4 of the 5 bridge_* presence tools;
+	// list_pending_interactions is P3). local 直驱 presence.Service; client 转发
+	// 中央 serve。返回 presence 域类型，handler 投影成 snake_case view。
+	RegisterAgent(name, role, project string) (presence.RegisterResult, error)
+	PollInbox(agentID, token string, ack bool) ([]presence.Message, error)
+	PostMessage(from, to, kind, body, ref string) (int, error)
+	ListPresence(role, project string) ([]presence.Agent, error)
 }

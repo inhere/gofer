@@ -1,14 +1,21 @@
 package mcpserver
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/store"
 )
+
+// errPresenceUnavailable guards the presence tools when the local backend was
+// wired without a presence service (e.g. a presence-less test fixture). In
+// production the standalone path always wires one (core.Build).
+var errPresenceUnavailable = errors.New("presence service not configured")
 
 // localBackend is the in-process Backend: it operates directly on the shared
 // registries + job.Service (the original standalone path). Every method holds
@@ -19,12 +26,15 @@ type localBackend struct {
 	jobs     *job.Service
 	projects *project.Registry
 	agents   *agent.Registry
+	// presence backs the E36 bridge_* presence tools (nil in presence-less
+	// fixtures; the presence handlers then return errPresenceUnavailable).
+	presence *presence.Service
 }
 
 // newLocalBackend wires a localBackend over the same registries/job service the
-// HTTP control plane uses.
-func newLocalBackend(jobs *job.Service, projects *project.Registry, agents *agent.Registry) *localBackend {
-	return &localBackend{jobs: jobs, projects: projects, agents: agents}
+// HTTP control plane uses. presence may be nil (the presence tools then error).
+func newLocalBackend(jobs *job.Service, projects *project.Registry, agents *agent.Registry, pres *presence.Service) *localBackend {
+	return &localBackend{jobs: jobs, projects: projects, agents: agents, presence: pres}
 }
 
 func (b *localBackend) ListProjects() ([]projectEntry, error) {
@@ -134,4 +144,41 @@ func (b *localBackend) GetResult(id string) (string, error) {
 		return "", fmt.Errorf("unknown job %q", id)
 	}
 	return res.ResultJSON, nil
+}
+
+// --- E36 presence (local 直驱 presence.Service) ------------------------------
+
+// RegisterAgent registers this agent in-process. Provenance: no auth caller in
+// standalone mode (caller_id stays ""), Client is the MCP server host name.
+func (b *localBackend) RegisterAgent(name, role, project string) (presence.RegisterResult, error) {
+	if b.presence == nil {
+		return presence.RegisterResult{}, errPresenceUnavailable
+	}
+	return b.presence.Register(presence.RegisterInput{
+		Name:       name,
+		Role:       role,
+		ProjectKey: project,
+		Client:     mcpHostname(),
+	})
+}
+
+func (b *localBackend) PollInbox(agentID, token string, ack bool) ([]presence.Message, error) {
+	if b.presence == nil {
+		return nil, errPresenceUnavailable
+	}
+	return b.presence.Poll(agentID, token, ack)
+}
+
+func (b *localBackend) PostMessage(from, to, kind, body, ref string) (int, error) {
+	if b.presence == nil {
+		return 0, errPresenceUnavailable
+	}
+	return b.presence.Post(from, to, kind, body, ref)
+}
+
+func (b *localBackend) ListPresence(role, project string) ([]presence.Agent, error) {
+	if b.presence == nil {
+		return nil, errPresenceUnavailable
+	}
+	return b.presence.List(role, project)
 }

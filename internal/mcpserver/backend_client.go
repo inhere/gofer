@@ -6,6 +6,7 @@ import (
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/presence"
 )
 
 // clientBackend is the remote Backend: every method forwards to a central gofer
@@ -133,4 +134,26 @@ func (b *clientBackend) GetArtifacts(id string) ([]artifactView, error) {
 		out = append(out, artifactView{Name: it.Name, Size: it.Size, Mtime: it.Mtime})
 	}
 	return out, nil
+}
+
+// --- E36 presence (client 转发中央 serve) ------------------------------------
+
+func (b *clientBackend) RegisterAgent(name, role, project string) (presence.RegisterResult, error) {
+	id, tok, err := b.cli.RegisterAgent(name, role, project)
+	if err != nil {
+		return presence.RegisterResult{}, err
+	}
+	return presence.RegisterResult{AgentID: id, AgentToken: tok}, nil
+}
+
+func (b *clientBackend) PollInbox(agentID, token string, ack bool) ([]presence.Message, error) {
+	return b.cli.PollInbox(agentID, token, ack)
+}
+
+func (b *clientBackend) PostMessage(from, to, kind, body, ref string) (int, error) {
+	return b.cli.PostMessage(from, to, kind, body, ref)
+}
+
+func (b *clientBackend) ListPresence(role, project string) ([]presence.Agent, error) {
+	return b.cli.ListPresence(role, project)
 }

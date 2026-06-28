@@ -14,6 +14,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
@@ -22,7 +23,7 @@ import (
 // testCore builds the registries + job.Service over a temp result root with a
 // single project "self" that allows the built-in exec agent and the local
 // runner. Mirrors the httpapi/job test fixtures.
-func testCore(t *testing.T) (*job.Service, *project.Registry, *agent.Registry) {
+func testCore(t *testing.T) (*job.Service, *project.Registry, *agent.Registry, *presence.Service) {
 	t.Helper()
 	root := t.TempDir()
 	cfg := &config.Config{
@@ -45,15 +46,16 @@ func testCore(t *testing.T) (*job.Service, *project.Registry, *agent.Registry) {
 	}
 	t.Cleanup(func() { _ = meta.Close() })
 	jobs := job.NewService(cfg, projects, agents, runners, meta, nil)
-	return jobs, projects, agents
+	pres := presence.NewService(meta)
+	return jobs, projects, agents, pres
 }
 
 // connect wires an in-memory client<->server session over the mcpserver. The
 // returned session and jobs handle let tests drive tools and wait on jobs.
 func connect(t *testing.T) (*mcp.ClientSession, *job.Service) {
 	t.Helper()
-	jobs, projects, agents := testCore(t)
-	srv := NewLocal(jobs, projects, agents)
+	jobs, projects, agents, pres := testCore(t)
+	srv := NewLocal(jobs, projects, agents, pres)
 
 	ctx := context.Background()
 	c2s, s2c := mcp.NewInMemoryTransports()
@@ -104,6 +106,11 @@ func TestListToolsAllPresent(t *testing.T) {
 		"bridge_answer_interaction": false,
 		"bridge_get_artifacts":      false,
 		"bridge_get_result":         false,
+		// E36 presence/mailbox (4 tools).
+		"bridge_register":      false,
+		"bridge_poll_inbox":    false,
+		"bridge_post_message":  false,
+		"bridge_list_presence": false,
 	}
 	for _, tl := range res.Tools {
 		if _, ok := want[tl.Name]; ok {
@@ -115,7 +122,7 @@ func TestListToolsAllPresent(t *testing.T) {
 			t.Fatalf("tool %q missing from ListTools (got %d tools)", name, len(res.Tools))
 		}
 	}
-	// All ten bridge_* tools must be registered (no more, no fewer).
+	// All bridge_* tools must be registered (no more, no fewer).
 	if len(res.Tools) != len(want) {
 		t.Fatalf("expected %d tools, got %d: %+v", len(want), len(res.Tools), res.Tools)
 	}
