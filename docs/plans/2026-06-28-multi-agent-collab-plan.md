@@ -37,11 +37,13 @@
 > **P1.5 自动决策（SR1401 二级修正）**：原计划 CLI 名 `gofer agent ls`，但 `gofer agent` 已存在（= job-agent 定义 claude/codex/exec 的检视命令），且其已有 `list` 子命令。复用会**混淆 driver/job 二分 + 子命令冲突**。故新建顶层 `gofer presence`（别名 `driver`）承载 presence(driver agent)，与 `gofer agent`(job agent) 分离。inbox 的 agent_token 标志用 `--agent-token`（避与 bearer `--token` 冲突）。
 > **E2E 形式**：用进程内双 client + 真实 `bridge_*` 工具(SDK transport) 做确定性等价 E2E（`TestPresenceToolsE2E`），并在容器内起真 serve 用 curl + `gofer presence` CLI 冒烟（register/list 不漏 token/post/poll 消费/403/role fan-out/prune sweeper 全过）。host serve 重建 + 容器二进制换装见“部署”待办。
 
-### P2 L3 角色（E35）
-- [ ] P2.1 config：`RoleConfig`+`Roles` 段 + `AgentConfig.SystemInject` + claude/codex 内置 system_inject 默认
-- [ ] P2.2 agent：`Vars.SystemPrompt` + `replacements` + 单测
-- [ ] P2.3 job：`JobRequest.Role/SystemPrompt` + submit role 解析 + system_inject 追加（类比 SessionInject）+ **resume 重施 system_inject** + 单测
-- [ ] P2.4 CLI `job run --role` + mcp `bridge_run_job` role 字段 + 单测 + 冒烟
+### P2 L3 角色（E35）✅ 完成（2026-06-28）
+- [x] P2.1 config：`RoleConfig`+`Roles` 段 + `AgentConfig.SystemInject` + claude 内置 system_inject 默认（codex 留空待实测）+ writer managedTopKeys 加 roles — `a685877`
+- [x] P2.2 agent：`Vars.SystemPrompt` + `{{system_prompt}}` 替换 + 单测 — `a685877`
+- [x] P2.3 job：`JobRequest.Role/SystemPrompt` + submit role 解析(validate 前)+ system_inject 追加 + **resume 重施 system_inject** + 单测 — `a685877`
+- [x] P2.4 CLI `job run --role/--system-prompt`(role 给定放宽 agent/project 必填) + mcp `bridge_run_job` role 字段 + 单测 + 真机冒烟 — `02e50e0`
+
+> **P2 注**：role 解析放在 `Submit` 的 validate **之前**（计划 pseudo-code 写"validate 后"有误）——否则空 agent 先被 validate 拒、role 填的 agent 也绕过 allowlist 校验。codex 的 system-prompt 注入参数**留空**（design §12 待实测），role 对 codex 仅生效 project/tags。resume 重施取**保守默认**（重施 system_inject），实测 `--resume` 自带后可改。修既有 bug：writer `managedTopKeys` 漏 `roles` → Save 重复发键，reload 解析失败（既有 core reload 测试逮到）。
 
 ### P3 L4 监督应答（E25）
 - [ ] P3.1 jobstore：`ListPendingInteractions`（JOIN jobs 过滤终态）+ 单测
@@ -59,5 +61,6 @@
 | 阶段 | commit | 验收 | 备注 |
 |---|---|---|---|
 | P1 | 05492dc→b73f281(6 提交) | go test 27 包绿 + go vet 净 + 无 import 环；容器真 serve curl/CLI E2E 全过 | CLI 改 `gofer presence`(非 agent)；mcp 工具 14 个(10+4)；待部署(host serve 重建+容器二进制换装) |
-| P2 | | | |
+| P2 | a685877+02e50e0 | go test 27 包绿 + go vet 净；容器真 serve `job run --role` 冒烟(role 填字段+argv 注入+resume 重施)全过 | role 解析在 validate 前；codex system-prompt 待实测留空；修既有 writer roles 重复键 bug |
+| P3 | | | |
 | P3 | | | |
