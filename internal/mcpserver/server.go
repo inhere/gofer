@@ -266,6 +266,10 @@ type runJobInput struct {
 	Cwd        string   `json:"cwd,omitempty"`
 	TimeoutSec int      `json:"timeout_sec,omitempty"`
 	Title      string   `json:"title,omitempty"`
+	// Role is an optional E35 role preset (fills agent/system_prompt/project/tags
+	// when unset); SystemPrompt overrides the role's resident system prompt.
+	Role         string `json:"role,omitempty"`
+	SystemPrompt string `json:"system_prompt,omitempty"`
 }
 
 func runJobHandler(b Backend) mcp.ToolHandlerFor[runJobInput, jobView] {
@@ -281,6 +285,9 @@ func runJobHandler(b Backend) mcp.ToolHandlerFor[runJobInput, jobView] {
 			Cwd:        in.Cwd,
 			TimeoutSec: in.TimeoutSec,
 			Title:      in.Title,
+			// E35 role preset + optional system prompt override (resolved server-side).
+			Role:         in.Role,
+			SystemPrompt: in.SystemPrompt,
 			// 提交来源（provenance）：MCP 渠道 + MCP server 所在主机名。
 			Channel: "mcp",
 			Client:  mcpHostname(),

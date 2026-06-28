@@ -75,6 +75,24 @@ func TestJobRunPromptFlag(t *testing.T) {
 	}
 }
 
+// TestJobRunRoleFlags verifies the E35 --role / --system-prompt flags bind onto
+// jobRunOpts (so runJobRun threads them into the JobRequest).
+func TestJobRunRoleFlags(t *testing.T) {
+	jobRunOpts.role, jobRunOpts.systemPrompt = "", ""
+	app := NewApp("test")
+	runCmd := app.GetCommand("job").GetCommand("run")
+	runCmd.Func = func(_ *gcli.Command, _ []string) error { return nil }
+	if code := app.Run([]string{"job", "run", "-p", "self", "--role", "reviewer", "--system-prompt", "be strict"}); code != 0 {
+		t.Fatalf("app.Run exit code=%d", code)
+	}
+	if jobRunOpts.role != "reviewer" {
+		t.Fatalf("--role not bound: %q", jobRunOpts.role)
+	}
+	if jobRunOpts.systemPrompt != "be strict" {
+		t.Fatalf("--system-prompt not bound: %q", jobRunOpts.systemPrompt)
+	}
+}
+
 func TestJobRunDefaults(t *testing.T) {
 	_, _, runner, cwd, _, _ := parseRun(t,
 		[]string{"job", "run", "-p", "self", "-a", "exec", "--", "ls"})

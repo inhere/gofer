@@ -38,6 +38,8 @@ var jobRunOpts = struct {
 	workerLabels string
 	tags         string
 	channel      string
+	role         string
+	systemPrompt string
 }{}
 
 // jobCommonOpts holds non-connection flags shared by show/logs/cancel (the
@@ -119,6 +121,8 @@ func NewJobCmd() *gcli.Command {
 					c.StrOpt(&jobRunOpts.workerLabels, "worker-labels", "", "", "comma-separated labels to auto-select a worker (runner=worker, when --worker-id is unset)")
 					c.StrOpt(&jobRunOpts.tags, "tags", "", "", "comma-separated free-form tags for the job (E5 search dimension, e.g. --tags ci,nightly)")
 					c.StrOpt(&jobRunOpts.channel, "channel", "", "cli", "submission channel recorded as provenance (cli/web/mcp/...)")
+					c.StrOpt(&jobRunOpts.role, "role", "", "", "role preset (E35): fills agent/system_prompt/project/tags when unset")
+					c.StrOpt(&jobRunOpts.systemPrompt, "system-prompt", "", "", "resident system prompt injected via the agent (advanced; overrides role's)")
 					// exec argv after `--`, e.g. `job run -a exec -- go version`.
 					// Declared as an optional arrayed arg so gcli binds the post-`--`
 					// tokens natively (HasArguments()=true also suppresses the spurious
@@ -346,11 +350,15 @@ func submitMarkdownFile(c *gcli.Command, cli *client.Client) (client.SubmitResul
 // submitJSONJob builds a JobRequest from flags + post-`--` argv and submits it
 // as JSON. --project/--agent are required on this path.
 func submitJSONJob(c *gcli.Command, cli *client.Client) (client.SubmitResult, error) {
-	if jobRunOpts.project == "" {
-		return client.SubmitResult{}, fmt.Errorf("--project/-p is required")
-	}
-	if jobRunOpts.agent == "" {
-		return client.SubmitResult{}, fmt.Errorf("--agent/-a is required")
+	// --role (E35) fills agent/project server-side, so they are not required when a
+	// role is given (the server rejects an unknown role / still-missing fields).
+	if jobRunOpts.role == "" {
+		if jobRunOpts.project == "" {
+			return client.SubmitResult{}, fmt.Errorf("--project/-p is required (or pass --role)")
+		}
+		if jobRunOpts.agent == "" {
+			return client.SubmitResult{}, fmt.Errorf("--agent/-a is required (or pass --role)")
+		}
 	}
 	var cmd []string
 	if a := c.Arg("cmd"); a != nil {
@@ -374,6 +382,9 @@ func submitJSONJob(c *gcli.Command, cli *client.Client) (client.SubmitResult, er
 		// server 端若 client 为空会以 remote IP 兜底盖章。
 		Channel: jobRunOpts.channel,
 		Client:  cliHostname(),
+		// E35 role preset + optional system prompt override (resolved server-side).
+		Role:         jobRunOpts.role,
+		SystemPrompt: jobRunOpts.systemPrompt,
 	}
 	return cli.SubmitJobSync(req)
 }
