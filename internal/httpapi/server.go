@@ -28,6 +28,7 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/metrics"
+	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/webui"
 	"github.com/inhere/gofer/internal/wshub"
@@ -108,6 +109,13 @@ type Server struct {
 	metricsEnabled bool
 	metricsToken   string
 
+	// presence is the E36 driver-agent identity/mailbox service backing the
+	// /v1/agents/* + /v1/messages endpoints. Injected post-construction by
+	// SetPresence (serve), mirroring SetMetrics so the wide positional New stays
+	// untouched (design D3). nil => the presence routes are not mounted (most
+	// tests / mcp-less callers).
+	presence *presence.Service
+
 	// limiters holds one token-bucket per caller for the E17 submit-rate limit
 	// (design §7.3). Guarded by its OWN limMu (NOT s.mu, which lives in the job
 	// service): the rate-limit path must not contend with job bookkeeping. The
@@ -130,6 +138,16 @@ func (s *Server) SetMetrics(m *metrics.Metrics, enabled bool, token string) {
 	s.metrics = m
 	s.metricsEnabled = enabled
 	s.metricsToken = token
+	s.router = s.buildRouter()
+}
+
+// SetPresence injects the E36 presence/mailbox service and rebuilds the router so
+// the /v1/agents/* + /v1/messages routes are mounted (they are registered only
+// when s.presence is non-nil). Mirrors SetMetrics: called post-construction by
+// serve (after SetMetrics) so the wide positional New and its many call sites stay
+// untouched. Must run single-threaded at assemble time, before serving.
+func (s *Server) SetPresence(p *presence.Service) {
+	s.presence = p
 	s.router = s.buildRouter()
 }
 
@@ -303,6 +321,17 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/jobs/{id}/interactions", s.handleCreateInteraction)
 		r.GET("/jobs/{id}/interactions", s.handleListInteractions)
 		r.POST("/jobs/{id}/interactions/{interaction_id}/answer", s.handleAnswerInteraction)
+
+		// E36 driver-agent identity/mailbox (design §10). Mounted only when the
+		// presence service is wired (SetPresence, serve); nil for presence-less
+		// callers (most tests / peer bridges) so their routers stay unchanged.
+		if s.presence != nil {
+			r.POST("/agents/register", s.handleRegisterAgent)
+			r.GET("/agents/presence", s.handleListPresence)
+			r.POST("/agents/{id}/inbox/poll", s.handlePollInbox)
+			r.POST("/messages", s.handlePostMessage)
+			r.POST("/agents/{id}/deregister", s.handleDeregister)
+		}
 		// Middleware chain order (rux runs group middlewares left-to-right, see
 		// internal/core/router.go applyGroup + context.Next):
 		//   1. metricsMiddleware — runs first / records LAST (it wraps c.Next), so even
