@@ -168,6 +168,50 @@ var schemaStmts = []string{
   at          INTEGER NOT NULL
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_workflow_events_wf ON workflow_events(workflow_id, seq)`,
+	// agent_presence is the driver-agent registry / 名册 (E36, design §9). One row
+	// per registered driver agent (the协作主体, distinct from a job agent which is a
+	// work unit): agent_id is the serve-issued uuid, agent_token the软隔离 secret the
+	// agent presents on inbox/deregister ops (compared in-process, not a real auth).
+	// status is the last-written liveness hint; the authoritative online/offline is
+	// computed lazily from last_seen_at vs the TTL (presence.Service), so a stale row
+	// never has to be rewritten to flip offline. registered_at/last_seen_at are unix
+	// seconds; meta_json is an optional JSON blob (nullable). IF NOT EXISTS like every
+	// table here (idempotent Open).
+	`CREATE TABLE IF NOT EXISTS agent_presence (
+  agent_id      TEXT PRIMARY KEY,
+  agent_token   TEXT NOT NULL,
+  name          TEXT NOT NULL,
+  role          TEXT,
+  project_key   TEXT,
+  caller_id     TEXT,
+  client        TEXT,
+  status        TEXT NOT NULL,
+  registered_at INTEGER NOT NULL,
+  last_seen_at  INTEGER NOT NULL,
+  meta_json     TEXT
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_presence_seen ON agent_presence(last_seen_at)`,
+	// messages is the agent inbox / 信箱 (E36, design §9). One row per (recipient,
+	// message): a direct send is a single row; a role:/broadcast send is fanned out
+	// to one row per online recipient (to_agent = that agent_id, to_spec records the
+	// original addressing like "role:reviewer"). status is unread/read; a消费 (poll
+	// with ack) flips it to read + stamps read_at. created_at/expires_at/read_at are
+	// unix seconds (expires_at 0 = no TTL). idx_messages_inbox serves the per-agent
+	// unread, creation-ordered inbox scan. IF NOT EXISTS like every table here.
+	`CREATE TABLE IF NOT EXISTS messages (
+  id         TEXT PRIMARY KEY,
+  to_agent   TEXT NOT NULL,
+  from_agent TEXT NOT NULL,
+  to_spec    TEXT,
+  kind       TEXT NOT NULL,
+  body       TEXT,
+  ref        TEXT,
+  status     TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  expires_at INTEGER,
+  read_at    INTEGER
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_messages_inbox ON messages(to_agent, status, created_at)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema
