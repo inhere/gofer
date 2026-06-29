@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/inhere/gofer/internal/agent"
@@ -182,6 +183,101 @@ func TestSubmitCodexSystemInject(t *testing.T) {
 	argv := renderedArgs(t, final.RenderedCommand)
 	if !argvHasPair(argv, "-c", "developer_instructions=be a strict reviewer") {
 		t.Fatalf("codex system prompt not injected as developer_instructions: %#v", argv)
+	}
+}
+
+// newCodexRoleEnvService builds a Service with a codex agent (harmless `echo`
+// Command so jobs run without a real CLI) and a `supervisor` role whose Env presets
+// GOFER_AGENT_ROLE=supervisor — the gap①(issue 7z6j) use case.
+func newCodexRoleEnvService(t *testing.T, root string) *Service {
+	t.Helper()
+	cfg := &config.Config{
+		Storage: config.StorageConfig{Root: root},
+		Projects: map[string]config.ProjectConfig{
+			"self": {HostPath: root, AllowedAgents: []string{"codex"}, AllowedRunners: []string{"local"}},
+		},
+		Agents: map[string]config.AgentConfig{
+			// echo Command runs to done without a real codex CLI; the codex built-in
+			// SystemInject default (`-c …`, keyed on name "codex") drives the mcp-env judge.
+			"codex": {Type: agent.TypeCLIAgent, Command: "echo", Args: []string{"{{prompt}}"}},
+		},
+		Roles: map[string]config.RoleConfig{
+			"supervisor": {Agent: "codex", Project: "self", Env: map[string]string{"GOFER_AGENT_ROLE": "supervisor"}},
+		},
+	}
+	return newServiceFromCfg(t, root, cfg)
+}
+
+// TestSubmitCodexRoleEnvMcpInject (gap①, issue 7z6j): a `--role supervisor` codex
+// job injects role.env onto the gofer MCP child via `-c mcp_servers.gofer.env.<K>=<V>`
+// so the child self-registers role=supervisor. No system_prompt is set, so the mcp
+// inject fires independently of SystemInject.
+func TestSubmitCodexRoleEnvMcpInject(t *testing.T) {
+	root := t.TempDir()
+	s := newCodexRoleEnvService(t, root)
+
+	res, err := s.Submit(JobRequest{Role: "supervisor", Runner: "local", Prompt: "hi", Cwd: ".", TimeoutSec: 30})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	final, _ := s.Wait(res.ID)
+	argv := renderedArgs(t, final.RenderedCommand)
+	if !argvHasPair(argv, "-c", "mcp_servers.gofer.env.GOFER_AGENT_ROLE=supervisor") {
+		t.Fatalf("codex role env not injected as mcp_servers env override: %#v", argv)
+	}
+}
+
+// TestSubmitCodexNoEnvNoMcpInject: a plain codex job (no role, no env) gets NO
+// mcp_servers `-c` override — the enhancement is purely additive.
+func TestSubmitCodexNoEnvNoMcpInject(t *testing.T) {
+	root := t.TempDir()
+	s := newCodexRoleEnvService(t, root)
+
+	res, err := s.Submit(JobRequest{
+		ProjectKey: "self", Agent: "codex", Runner: "local",
+		Prompt: "hi", Cwd: ".", TimeoutSec: 30,
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	final, _ := s.Wait(res.ID)
+	argv := renderedArgs(t, final.RenderedCommand)
+	for _, a := range argv {
+		if strings.HasPrefix(a, "mcp_servers.") {
+			t.Fatalf("plain codex job must not carry mcp_servers env override: %#v", argv)
+		}
+	}
+}
+
+// TestSubmitNonCodexRoleEnvNoMcpInject: a non-codex agent (claude
+// `--append-system-prompt`) carrying role.env does NOT get the codex `-c`
+// mcp_servers override — the judge is the codex-style `-c` SystemInject form.
+func TestSubmitNonCodexRoleEnvNoMcpInject(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		Storage: config.StorageConfig{Root: root},
+		Projects: map[string]config.ProjectConfig{
+			"self": {HostPath: root, AllowedAgents: []string{"claude"}, AllowedRunners: []string{"local"}},
+		},
+		Agents: map[string]config.AgentConfig{
+			"claude": {Type: agent.TypeCLIAgent, Command: "echo", Args: []string{"{{prompt}}"}},
+		},
+		Roles: map[string]config.RoleConfig{
+			"supervisor": {Agent: "claude", Project: "self", Env: map[string]string{"GOFER_AGENT_ROLE": "supervisor"}},
+		},
+	}
+	s := newServiceFromCfg(t, root, cfg)
+
+	res, err := s.Submit(JobRequest{Role: "supervisor", Runner: "local", Prompt: "hi", Cwd: ".", TimeoutSec: 30})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	final, _ := s.Wait(res.ID)
+	argv := renderedArgs(t, final.RenderedCommand)
+	for _, a := range argv {
+		if strings.HasPrefix(a, "mcp_servers.") {
+			t.Fatalf("non-codex agent must not carry mcp_servers env override: %#v", argv)
+		}
 	}
 }
 

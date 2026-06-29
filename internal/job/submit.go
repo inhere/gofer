@@ -163,6 +163,19 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		if ac, ok := s.agents.Get(req.Agent); ok && len(ac.SystemInject) > 0 && req.SystemPrompt != "" {
 			runReq.Args = append(runReq.Args, agent.Render(ac.SystemInject, agent.Vars{SystemPrompt: req.SystemPrompt})...)
 		}
+		// gap①(issue 7z6j) codex MCP env 注入: for a codex agent carrying job/role env
+		// (e.g. --role supervisor → GOFER_AGENT_ROLE=supervisor), ALSO push that env onto
+		// the gofer MCP child codex spawns via `-c mcp_servers.<name>.env.<KEY>=<VALUE>`.
+		// codex starts MCP stdio servers with a sanitised env that does NOT inherit the
+		// codex process env (runReq.Env below), so the MCP child would otherwise never see
+		// role.env. McpEnvInjectArgs no-ops for non-codex agents and for empty env, so plain
+		// codex jobs and other agents are unaffected. Only req.Env (job/role env) is routed
+		// here — the MCP token stays in codex config.toml and never enters the rendered
+		// command (SR403). Distinct from SystemInject (own override path); argv stays
+		// element-wise (SR403, no shell join).
+		if ac, ok := s.agents.Get(req.Agent); ok {
+			runReq.Args = append(runReq.Args, agent.McpEnvInjectArgs(ac, req.Env)...)
+		}
 		// Layer the per-job env (req.Env, incl. role-derived GOFER_AGENT_ROLE) ON TOP
 		// of the agent-config env (resolved.Env); the gofer-owned job metadata then
 		// wins over both (goferJobEnv applies it last). Precedence low→high:
