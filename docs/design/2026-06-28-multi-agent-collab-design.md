@@ -178,9 +178,29 @@ job run --role reviewer  (或 bridge_run_job(role="reviewer"))
  → 正常提交执行
 ```
 
-claude: `system_inject: ["--append-system-prompt", "{{system_prompt}}"]`；codex 用其等价参数（plan 时确认）。`agent.Vars` 需新增 `SystemPrompt` 字段供模板渲染。
+claude: `system_inject: ["--append-system-prompt", "{{system_prompt}}"]`；codex（实测定稿 2026-06-29）：`["-c", "developer_instructions={{system_prompt}}"]`（无 append-system-prompt flag，走 `-c` 配置覆盖，行为确认生效+TOML 值鲁棒，见 §12）。`agent.Vars` 已含 `SystemPrompt` 字段供模板渲染。
 
-> **resume × role（复审 #5，必须处理）**：`--append-system-prompt` 是**调用时**参数、不随 claude session 持久化，每轮须重传。但现 `ResumeJob`（`resume.go`）走 exec 载体 + 仅渲染 `SessionResume`，**绕过 SystemInject** → resume 一个 role job 会**静默丢失 role 的 system_prompt**。故源 job 须记录 role/system_prompt，`ResumeJob` 把 `SystemInject` 重渲染进 resume argv（plan 时确认 claude/codex resume 是否确需重传 system prompt）。
+> **resume × role（复审 #5）→ 实测定稿 2026-06-29**：claude/codex 的 `--resume`/`exec resume` 均**原生恢复** source 会话的注入 system prompt（marker 实证），故 `ResumeJob` **不重施**（重施反而双重注入）。见 §12 + `internal/job/resume.go`。
+
+### 8.6 运维：白名单与常驻 supervisor（收尾定稿 2026-06-29）
+
+**`allow_prompt_regex` 真实白名单**：自动答**仅**命中白名单的 choice interaction；空 = escalate-only（最安全默认）。每条 regex 在 **config 加载期校验编译**（`gofer serve` / `gofer config validate` fail-fast，typo 不再静默跳过——`config.validate` 锚点）。生产样例（收窄到确定性低危确认）：
+
+```yaml
+supervisor:
+  enabled: true
+  interval_sec: 10
+  max_rounds_per_job: 3          # 同 job 超此轮次自动答 → 强制升级人
+  escalate_to: "role:supervisor" # 难答的 pending 投给该角色 driver（也可 role-one: 取一）
+  allow_prompt_regex:            # 仅放行明确、可枚举、低危的确认
+    - "^Continue\\?"
+    - "Overwrite existing .*\\?"
+    # 切勿放行自由文本 / 高危(删除/推送/外发) —— 默认升级人
+```
+
+> 测试期收窄配置用 `allow_prompt_regex: ["SUPTEST"]`（仅自动答含 SUPTEST 的提示）；生产换上面真实白名单。
+
+**常驻 supervisor agent（§8.4 派生形态）**：内置规则 answerer 只可靠答 "choice + options"；要答更复杂 pending，常驻一个 role=`supervisor` 的 driver agent（§8.1 注册）→ `escalate_to` 指向它 → 它轮询 inbox 取 escalation → reason 后 `bridge_answer_interaction` 作答。硬约束：白名单内 + `max_rounds_per_job` + E17 配额 + E13 审计。
 
 ## 9. 数据模型（新增两表，interactions 不动）
 

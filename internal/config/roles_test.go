@@ -104,3 +104,33 @@ func TestApplyDefaultsInitsRolesMap(t *testing.T) {
 		t.Fatal("unexpected role in empty map")
 	}
 }
+
+// TestValidateRejectsBadSupervisorRegex: an uncompilable allow_prompt_regex fails
+// config validation (fail-fast) instead of being silently skipped at supervisor
+// construction (6ct0.4).
+func TestValidateRejectsBadSupervisorRegex(t *testing.T) {
+	cfg := &Config{Supervisor: &SupervisorConfig{
+		Enabled:          true,
+		AllowPromptRegex: []string{"ok.*", "(unclosed"},
+	}}
+	if err := validate(cfg); err == nil {
+		t.Fatal("expected validate error for invalid allow_prompt_regex")
+	}
+	cfg.Supervisor.AllowPromptRegex = []string{"ok.*", "^DEPLOY$"}
+	if err := validate(cfg); err != nil {
+		t.Fatalf("valid regexes should pass: %v", err)
+	}
+}
+
+// TestValidateRejectsNegativePresenceTTL: negative presence seconds are a config
+// mistake (0 = use default) and are rejected (6ct0.2/.4).
+func TestValidateRejectsNegativePresenceTTL(t *testing.T) {
+	cfg := &Config{Presence: PresenceConfig{TTLSec: -1}}
+	if err := validate(cfg); err == nil {
+		t.Fatal("expected validate error for negative presence ttl_sec")
+	}
+	cfg.Presence = PresenceConfig{TTLSec: 30, MessageTTLSec: 3600, PruneIntervalSec: 0}
+	if err := validate(cfg); err != nil {
+		t.Fatalf("non-negative presence config should pass: %v", err)
+	}
+}
