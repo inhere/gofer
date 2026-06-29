@@ -10,7 +10,7 @@ import (
 )
 
 // TestPresenceToolsE2E drives the full multi-agent collaboration semantic through
-// the actual bridge_* presence tools over the SDK transport — the deterministic
+// the actual gofer_* presence tools over the SDK transport — the deterministic
 // in-process equivalent of the dual-mcp-client E2E (P1.5): two driver agents
 // register on one serve, see each other in presence, A posts to B, B polls +
 // consumes, token isolation holds, and role: fan-out reaches every matching agent.
@@ -20,7 +20,7 @@ func TestPresenceToolsE2E(t *testing.T) {
 
 	reg := func(name, role string) presence.RegisterResult {
 		res, err := session.CallTool(ctx, &mcp.CallToolParams{
-			Name:      "bridge_register",
+			Name:      "gofer_register",
 			Arguments: map[string]any{"name": name, "role": role},
 		})
 		if err != nil {
@@ -37,8 +37,8 @@ func TestPresenceToolsE2E(t *testing.T) {
 	a := reg("alice", "reviewer")
 	b := reg("bob", "")
 
-	// bridge_list_presence shows both registered agents.
-	lres, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "bridge_list_presence"})
+	// gofer_list_presence shows both registered agents.
+	lres, err := session.CallTool(ctx, &mcp.CallToolParams{Name: "gofer_list_presence"})
 	if err != nil {
 		t.Fatalf("list_presence: %v", err)
 	}
@@ -50,7 +50,7 @@ func TestPresenceToolsE2E(t *testing.T) {
 
 	// A → B direct post; delivered=1.
 	pres, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name: "bridge_post_message",
+		Name: "gofer_post_message",
 		Arguments: map[string]any{
 			"from_agent": a.AgentID, "to": b.AgentID,
 			"kind": "task", "body": "审 PR", "ref": "job:1",
@@ -70,7 +70,7 @@ func TestPresenceToolsE2E(t *testing.T) {
 		if peek {
 			args["ack"] = false
 		}
-		r, perr := session.CallTool(ctx, &mcp.CallToolParams{Name: "bridge_poll_inbox", Arguments: args})
+		r, perr := session.CallTool(ctx, &mcp.CallToolParams{Name: "gofer_poll_inbox", Arguments: args})
 		if perr != nil {
 			t.Fatalf("poll_inbox: %v", perr)
 		}
@@ -94,7 +94,7 @@ func TestPresenceToolsE2E(t *testing.T) {
 
 	// Wrong token → tool error result (soft isolation).
 	bad, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name:      "bridge_poll_inbox",
+		Name:      "gofer_poll_inbox",
 		Arguments: map[string]any{"agent_id": b.AgentID, "agent_token": "wrong"},
 	})
 	if err != nil {
@@ -108,7 +108,7 @@ func TestPresenceToolsE2E(t *testing.T) {
 	// role:reviewer reaches both (2 rows).
 	reg("rev2", "reviewer")
 	fres, err := session.CallTool(ctx, &mcp.CallToolParams{
-		Name: "bridge_post_message",
+		Name: "gofer_post_message",
 		Arguments: map[string]any{
 			"from_agent": b.AgentID, "to": "role:reviewer", "kind": "task", "body": "x",
 		},

@@ -19,14 +19,14 @@ var errPresenceUnavailable = errors.New("presence service not configured")
 
 // localBackend is the in-process Backend: it operates directly on the shared
 // registries + job.Service (the original standalone path). Every method holds
-// the exact backend calls that used to live inside the bridge_* handler closures
+// the exact backend calls that used to live inside the gofer_* handler closures
 // (E28 P2, G023 zero behavior change) — input validation and view projection
 // stay in the handlers; only the backend access moved here.
 type localBackend struct {
 	jobs     *job.Service
 	projects *project.Registry
 	agents   *agent.Registry
-	// presence backs the E36 bridge_* presence tools (nil in presence-less
+	// presence backs the E36 gofer_* presence tools (nil in presence-less
 	// fixtures; the presence handlers then return errPresenceUnavailable).
 	presence *presence.Service
 }

@@ -5,7 +5,7 @@ import (
 	"github.com/inhere/gofer/internal/presence"
 )
 
-// Backend abstracts the backend operations behind the 10 bridge_* MCP tools so
+// Backend abstracts the backend operations behind the 10 gofer_* MCP tools so
 // the handlers can target either an in-process job.Service + registries
 // (localBackend, the original standalone path) or a remote central serve via
 // internal/client (clientBackend, P3). This is the seam introduced by E28: the
@@ -24,12 +24,12 @@ type Backend interface {
 	GetInteractions(id string) ([]job.Interaction, error)
 	AnswerInteraction(id, iid, answer string) (job.Interaction, error)
 	// ListPendingInteractions lists pending interactions across active jobs (E25
-	// supervisor discovery, bridge_list_pending_interactions).
+	// supervisor discovery, gofer_list_pending_interactions).
 	ListPendingInteractions() ([]job.Interaction, error)
 	GetArtifacts(id string) ([]artifactView, error)
 	GetResult(id string) (string, error)
 
-	// E36 driver-agent identity/mailbox (4 of the 5 bridge_* presence tools;
+	// E36 driver-agent identity/mailbox (4 of the 5 gofer_* presence tools;
 	// list_pending_interactions is P3). local 直驱 presence.Service; client 转发
 	// 中央 serve。返回 presence 域类型，handler 投影成 snake_case view。
 	RegisterAgent(name, role, project string) (presence.RegisterResult, error)

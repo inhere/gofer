@@ -482,7 +482,7 @@ func (c *Client) GetInteractions(id string) ([]job.Interaction, error) {
 // ListPendingInteractions fetches the pending interactions across all active jobs
 // (E25 监督, GET /v1/interactions?status=pending), unwrapping the
 // {"interactions":[...]} envelope. Used by the mcp client backend's
-// bridge_list_pending_interactions tool (supervisor discovery in client mode).
+// gofer_list_pending_interactions tool (supervisor discovery in client mode).
 func (c *Client) ListPendingInteractions() ([]job.Interaction, error) {
 	var resp struct {
 		Interactions []job.Interaction `json:"interactions"`

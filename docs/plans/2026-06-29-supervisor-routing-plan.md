@@ -1,8 +1,8 @@
 # Gofer 监督应答 · 分层升级路由 实施计划
 
 > 配套设计：`docs/design/2026-06-29-supervisor-routing-design.md`（L0→L1→L2→L3 分层升级路由）。
-> 现状基线（实测）：基础设施约 70% 就绪——escalation→inbox 投递、`bridge_answer_interaction`/
-> `bridge_list_pending_interactions`/`bridge_register`/`bridge_poll_inbox`、`max_rounds_per_job` 熔断、
+> 现状基线（实测）：基础设施约 70% 就绪——escalation→inbox 投递、`gofer_answer_interaction`/
+> `gofer_list_pending_interactions`/`gofer_register`/`gofer_poll_inbox`、`max_rounds_per_job` 熔断、
 > 内置规则 answerer(L0)、escalate 投递(L3) 均已实现。本计划补 **L1 owner-first 路由 + 三道安全闸 + L2 server 托管**。
 
 ## 总纲 / 阶段划分
@@ -81,7 +81,7 @@
 - 默认值：`config/model.go` + `serve.go:329` 维持读 `sc.EscalateTo`；**config 默认值改 `role-one:supervisor`**（取一，防多 sup 重复抢答；锚点 `supervisor.DefaultEscalateTo`，service.go:98 现为 `role:supervisor`）。
 
 **验收**：
-- owner 在线 → escalation 落 owner inbox（`bridge_poll_inbox` 取到 `kind=escalation`、`ref=job:..`）。
+- owner 在线 → escalation 落 owner inbox（`gofer_poll_inbox` 取到 `kind=escalation`、`ref=job:..`）。
 - owner 离线、有在线 sup → 落 sup（role-one 取一，多 sup 只 1 个收到）。
 - owner 离线、无 sup → `delivered=0`，interaction 留 pending（L3 由人捞）。
 - **dedup 落表**：escalate 时写 `interactions.escalated_at`（替代内存 `escalated` map），避免多 tick / 跨重启重复投（接 P2.1）。
@@ -117,11 +117,11 @@
 
 ## P3 派生作答白名单约束 + 审计区分
 
-**目标**：堵"`bridge_answer_interaction` 不过白名单"的安全缺口；留痕谁答的。
+**目标**：堵"`gofer_answer_interaction` 不过白名单"的安全缺口；留痕谁答的。
 
 ### P3.1 L2 派生作答过白名单
 
-- 现状：`bridge_answer_interaction`→`b.AnswerInteraction` 直接落答，无校验。
+- 现状：`gofer_answer_interaction`→`b.AnswerInteraction` 直接落答，无校验。
 - 改造：在 answer 链路加**来源分级校验**——
   - owner（L1，answered_by=agent:owner）应答：放行（等同人，持上下文）。
   - 通用 sup（L2，role=supervisor 的 driver）应答：过 `allow_prompt_regex` + type 限定（仅 choice+options）+ 角色许可；不合规 → 拒绝 answer、强制保留 pending 升级人。
@@ -132,7 +132,7 @@
 ### P3.2 审计 answered_by
 
 - interaction answer 记 `answered_by`：`auto:<policy>`（L0）/ `agent:<id>`（L1 owner / L2 sup）/ `human`（L3）。
-- 落 `interactions` 表或 job_events（E13）；`bridge_get_interactions` 返回可见。
+- 落 `interactions` 表或 job_events（E13）；`gofer_get_interactions` 返回可见。
 
 **验收**：四类来源应答后 `answered_by` 各异、审计可查；单测断言取值。
 
@@ -146,8 +146,8 @@
   ```
   gofer job run -p <proj> -a codex --role supervisor --runner <node> \
     --timeout 0  \
-    -- <prompt: 你是 supervisor，循环 bridge_poll_inbox，对 kind=escalation 的消息做
-        通用低危判断后 bridge_answer_interaction；拿不准/高危的不要猜，留给人。non-interactive>
+    -- <prompt: 你是 supervisor，循环 gofer_poll_inbox，对 kind=escalation 的消息做
+        通用低危判断后 gofer_answer_interaction；拿不准/高危的不要猜，留给人。non-interactive>
   ```
 - 确认 `--timeout 0`（或等价"长生命周期"）现有支持；不支持则记入 §依赖、P4b 解决。
 - config `roles.supervisor`（system_prompt + 默认 non-interactive）样例（沿 E35）。
