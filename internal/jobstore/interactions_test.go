@@ -40,6 +40,34 @@ func TestUpsertInteractionRoundTrip(t *testing.T) {
 	assert.Eq(t, "", got.Answer)
 	assert.Eq(t, int64(1000), got.CreatedAt)
 	assert.Eq(t, int64(0), got.AnsweredAt)
+	// 监督分层升级路由（supervisor-routing P1.1）：未 escalate 的 interaction escalated_at=0。
+	assert.Eq(t, int64(0), got.EscalatedAt)
+}
+
+// TestUpsertInteractionEscalatedAtRoundTrip proves the escalated_at column
+// (supervisor-routing P1.1) round-trips through upsert+read and the cross-job
+// pending listing. P1.1 only adds the column + plumbing; the actual write happens
+// in P1.2, but a record carrying a value must persist and read back identical.
+func TestUpsertInteractionEscalatedAtRoundTrip(t *testing.T) {
+	s := openTest(t)
+
+	in := sampleInteraction("i-esc", "job-esc", 1000)
+	in.EscalatedAt = 1700001234
+	assert.NoErr(t, s.UpsertInteraction(in))
+
+	list, err := s.ListInteractions("job-esc")
+	assert.NoErr(t, err)
+	assert.Len(t, list, 1)
+	assert.Eq(t, int64(1700001234), list[0].EscalatedAt)
+
+	// Also visible via the cross-job pending listing (needs an active job).
+	job := sampleJob("job-esc", "p", 900)
+	job.Status = "running"
+	assert.NoErr(t, s.UpsertJob(job))
+	pending, err := s.ListPendingInteractions()
+	assert.NoErr(t, err)
+	assert.Len(t, pending, 1)
+	assert.Eq(t, int64(1700001234), pending[0].EscalatedAt)
 }
 
 // TestUpsertInteractionIsCreateThenUpdate proves the pending and answered writes

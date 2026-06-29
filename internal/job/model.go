@@ -97,6 +97,19 @@ type JobRequest struct {
 	// remote IP. Together with Channel and CallerID it answers "who/where submitted
 	// this". Informational (forgeable) — not used for access control.
 	Client string `json:"client,omitempty" yaml:"client,omitempty"`
+	// OriginAgent is the agent_id of the主 agent (owner) that launched this job —
+	// the orchestrator holding the full plan/design context (supervisor-routing
+	// P1.1, design §8.1). Persisted to jobs.origin_agent so a pending interaction's
+	// escalation can be routed back to its owner first (L1). For an MCP submit the
+	// server auto-injects the registered session agent_id (P1.0); an explicit value
+	// wins. Empty for non-MCP entrypoints (CLI/web) — those escalate straight to L2.
+	OriginAgent string `json:"origin_agent,omitempty" yaml:"origin_agent,omitempty"`
+	// EscalateTo is an OPTIONAL job-level override of the escalation recipient (a
+	// to-spec like "role-one:supervisor" / "agent:<id>"), tried after the owner and
+	// before the global policy default (supervisor-routing P1.1). Empty == use the
+	// global supervisor policy. Persisted to jobs.escalate_to. The routing改写 that
+	// consumes it lands in P1.2; P1.1 only carries it through.
+	EscalateTo string `json:"escalate_to,omitempty" yaml:"escalate_to,omitempty"`
 	// ResumeSourceAgent is an INTERNAL marker set ONLY by ResumeJob (session-capture
 	// P2, 2026-06-26 decision). A resume mechanically carries Agent="exec" (the
 	// resume argv runs as the built-in exec carrier), but its REAL identity for
@@ -150,6 +163,12 @@ type JobResult struct {
 	// answer "who/where/how submitted" alongside CallerID.
 	Channel string `json:"channel,omitempty"`
 	Client  string `json:"client,omitempty"`
+	// OriginAgent / EscalateTo are the supervisor-routing owner columns (P1.1,
+	// mirrors JobRequest): OriginAgent=发起该 job 的 owner agent_id（escalation 优先
+	// 回投它，L1），EscalateTo=可选 job 级 escalate 覆盖。持久化到 jobs.origin_agent /
+	// jobs.escalate_to；surfaced in show/get so callers can see the owner routing.
+	OriginAgent string `json:"origin_agent,omitempty"`
+	EscalateTo  string `json:"escalate_to,omitempty"`
 	// RequestID is the idempotency key (C5) this job was created with; it is
 	// persisted (jobs.request_id) and echoed so the idempotent-reuse path returns
 	// it and it round-trips through persist.

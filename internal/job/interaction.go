@@ -50,6 +50,10 @@ type Interaction struct {
 	Answer     string              `json:"answer,omitempty"`
 	CreatedAt  int64               `json:"created_at"`
 	AnsweredAt int64               `json:"answered_at,omitempty"`
+	// EscalatedAt 是该 interaction 被 escalate（投递给上层应答者）的 unix 秒时间戳（监督
+	// 分层升级路由 P1.1, design §9）：承载 escalate dedup 标记 + owner 超时计时。0 表示尚未
+	// escalate。P1.1 仅落库 + 透传读出，写入由 P1.2（escalate dedup）/P2.1（超时）落地。
+	EscalatedAt int64 `json:"escalated_at,omitempty"`
 }
 
 // Interaction status values.
@@ -180,6 +184,7 @@ func toInteractionRecord(it Interaction) jobstore.InteractionRecord {
 		Answer:      it.Answer,
 		CreatedAt:   it.CreatedAt,
 		AnsweredAt:  it.AnsweredAt,
+		EscalatedAt: it.EscalatedAt,
 	}
 }
 
@@ -193,15 +198,16 @@ func fromInteractionRecord(rec jobstore.InteractionRecord) Interaction {
 		_ = json.Unmarshal([]byte(rec.OptionsJSON), &opts)
 	}
 	return Interaction{
-		ID:         rec.ID,
-		JobID:      rec.JobID,
-		Type:       rec.Type,
-		Prompt:     rec.Prompt,
-		Options:    opts,
-		Status:     rec.Status,
-		Answer:     rec.Answer,
-		CreatedAt:  rec.CreatedAt,
-		AnsweredAt: rec.AnsweredAt,
+		ID:          rec.ID,
+		JobID:       rec.JobID,
+		Type:        rec.Type,
+		Prompt:      rec.Prompt,
+		Options:     opts,
+		Status:      rec.Status,
+		Answer:      rec.Answer,
+		CreatedAt:   rec.CreatedAt,
+		AnsweredAt:  rec.AnsweredAt,
+		EscalatedAt: rec.EscalatedAt,
 	}
 }
 

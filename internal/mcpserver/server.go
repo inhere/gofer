@@ -169,26 +169,32 @@ type jobView struct {
 	// host/addr); surfaced so MCP callers see the same "who/where submitted" detail.
 	Channel string `json:"channel,omitempty"`
 	Client  string `json:"client,omitempty"`
+	// OriginAgent / EscalateTo are the supervisor-routing owner fields (P1.1);
+	// surfaced so MCP callers can read back the job's owner + escalate override.
+	OriginAgent string `json:"origin_agent,omitempty"`
+	EscalateTo  string `json:"escalate_to,omitempty"`
 }
 
 // toJobView projects a job.JobResult onto the snake_case jobView. It is the
 // single conversion point shared by run/get/cancel handlers.
 func toJobView(r job.JobResult) jobView {
 	return jobView{
-		ID:         r.ID,
-		Status:     r.Status,
-		ProjectKey: r.ProjectKey,
-		Agent:      r.Agent,
-		Runner:     r.Runner,
-		ExitCode:   r.ExitCode,
-		Cwd:        r.Cwd,
-		ResultDir:  r.ResultDir,
-		StartedAt:  r.StartedAt,
-		EndedAt:    r.EndedAt,
-		Error:      r.Error,
-		SessionID:  r.SessionID,
-		Channel:    r.Channel,
-		Client:     r.Client,
+		ID:          r.ID,
+		Status:      r.Status,
+		ProjectKey:  r.ProjectKey,
+		Agent:       r.Agent,
+		Runner:      r.Runner,
+		ExitCode:    r.ExitCode,
+		Cwd:         r.Cwd,
+		ResultDir:   r.ResultDir,
+		StartedAt:   r.StartedAt,
+		EndedAt:     r.EndedAt,
+		Error:       r.Error,
+		SessionID:   r.SessionID,
+		Channel:     r.Channel,
+		Client:      r.Client,
+		OriginAgent: r.OriginAgent,
+		EscalateTo:  r.EscalateTo,
 	}
 }
 
@@ -277,6 +283,12 @@ type runJobInput struct {
 	// when unset); SystemPrompt overrides the role's resident system prompt.
 	Role         string `json:"role,omitempty"`
 	SystemPrompt string `json:"system_prompt,omitempty"`
+	// OriginAgent / EscalateTo are the supervisor-routing owner fields (P1.1). The
+	// handler auto-injects OriginAgent from the registered session agent_id (P1.0);
+	// an explicit value here wins. EscalateTo is an optional job-level escalate
+	// override (to-spec). Both are透传 to job.JobRequest and persisted.
+	OriginAgent string `json:"origin_agent,omitempty"`
+	EscalateTo  string `json:"escalate_to,omitempty"`
 }
 
 func runJobHandler(b Backend) mcp.ToolHandlerFor[runJobInput, jobView] {
@@ -298,6 +310,10 @@ func runJobHandler(b Backend) mcp.ToolHandlerFor[runJobInput, jobView] {
 			// 提交来源（provenance）：MCP 渠道 + MCP server 所在主机名。
 			Channel: "mcp",
 			Client:  mcpHostname(),
+			// 监督分层升级路由（supervisor-routing P1.1）：owner agent_id + 可选 job 级
+			// escalate 覆盖。P1.1 仅透传显式入参；自注册自动注入由 P1.0 落地。
+			OriginAgent: in.OriginAgent,
+			EscalateTo:  in.EscalateTo,
 		})
 		if err != nil {
 			return nil, jobView{}, err

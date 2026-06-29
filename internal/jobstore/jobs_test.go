@@ -185,6 +185,31 @@ func TestUpsertGetChannelClientRoundTrip(t *testing.T) {
 	assert.Eq(t, "", got2.Client)
 }
 
+// TestUpsertGetOriginAgentRoundTrip proves the supervisor-routing owner columns
+// origin_agent / escalate_to round-trip through upsert+read, and absent values
+// COALESCE to "" (supervisor-routing P1.1).
+func TestUpsertGetOriginAgentRoundTrip(t *testing.T) {
+	s := openTest(t)
+
+	in := sampleJob("own-1", "alpha", 2000)
+	in.OriginAgent = "agt_owner_x"
+	in.EscalateTo = "role-one:supervisor"
+	assert.NoErr(t, s.UpsertJob(in))
+
+	got, ok, err := s.GetJob("own-1")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "agt_owner_x", got.OriginAgent)
+	assert.Eq(t, "role-one:supervisor", got.EscalateTo)
+
+	none := sampleJob("own-none", "alpha", 2001)
+	assert.NoErr(t, s.UpsertJob(none))
+	got2, _, err := s.GetJob("own-none")
+	assert.NoErr(t, err)
+	assert.Eq(t, "", got2.OriginAgent)
+	assert.Eq(t, "", got2.EscalateTo)
+}
+
 func TestGetJobMissingReturnsFalseNoError(t *testing.T) {
 	s := openTest(t)
 	got, ok, err := s.GetJob("nope")

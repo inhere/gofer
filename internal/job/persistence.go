@@ -54,6 +54,9 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		// 提交来源（provenance）：渠道 + 来源主机/IP。
 		Channel: r.Channel,
 		Client:  r.Client,
+		// 监督分层升级路由（supervisor-routing P1.1）：owner agent_id + 可选 job 级覆盖。
+		OriginAgent: r.OriginAgent,
+		EscalateTo:  r.EscalateTo,
 	}
 }
 
@@ -119,6 +122,9 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		// 提交来源（provenance）：渠道 + 来源主机/IP。
 		Channel: rec.Channel,
 		Client:  rec.Client,
+		// 监督分层升级路由（supervisor-routing P1.1）：owner agent_id + 可选 job 级覆盖。
+		OriginAgent: rec.OriginAgent,
+		EscalateTo:  rec.EscalateTo,
 	}
 }
 
