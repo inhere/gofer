@@ -284,8 +284,8 @@ CREATE INDEX IF NOT EXISTS idx_messages_inbox ON messages(to_agent, status, crea
 - **`role:` 投递策略**（投全部 vs 取一 vs 负载均衡）默认值确认；**不可达消息**是上线补投 vs 回执 vs 仅 TTL 过期，确认默认。
 - **presence TTL**（默认 90s）与心跳间隔、prune 阈值确认；message TTL 默认值确认。
 - **既有缺口修复范围**（复审 #4）：job 终态对账残留 pending interaction（`InteractionCancelled` 现从未赋值）是本 epic 顺带修，还是单独小 issue——倾向随 P3 一并修（L4 依赖跨 job pending 可靠）。
-- ~~**resume × role**（复审 #5）：claude/codex `--resume` 是否确需重传 system_prompt~~ → **已实测定稿 2026-06-28**：claude-cli 2.1.191 `--resume <sid>` **原生恢复** source 会话的 `--append-system-prompt` 系统提示（marker 验证 + 负对照），故 `ResumeJob` **去掉重施**（重施反而会双重注入）；codex SystemInject 本就为空、resume 无注入。锚点 `internal/job/resume.go`。
-- ~~**codex system_inject 等价参数**（§3/§4 注）~~ → **已实测定稿 2026-06-28**：codex-cli 0.142 **无** `--append-system-prompt`/`--system-prompt` argv flag；唯一通道是 `-c key=value`（仅 `instructions`/`developer_instructions` 被识别），但 `-c` 值按 TOML 二次解析 → 多行/带引号 role 提示脆弱，且哪个键真正生效因主机模型代理 outage **未能行为确认**。故 codex `SystemInject` 保持空（role 仅 project/tags 生效），需要时另设文件式机制。锚点 `internal/agent/registry.go`。
+- ~~**resume × role**（复审 #5）：claude/codex `--resume` 是否确需重传 system_prompt~~ → **已实测定稿 2026-06-29**：**两端均原生恢复**——claude-cli 2.1.191 `--resume <sid>` 恢复 `--append-system-prompt`、codex-cli 0.142 `codex exec resume <sid>` 恢复 `-c developer_instructions=`（均 marker 验证 + 负对照）。故 `ResumeJob` **去掉重施**（重施反而会双重注入）。锚点 `internal/job/resume.go`。
+- ~~**codex system_inject 等价参数**（§3/§4 注）~~ → **已实测定稿 2026-06-29**：codex-cli 0.142 无 `--append-system-prompt` argv flag，但 `-c developer_instructions=<p>`（developer message 覆盖；`instructions` 亦可）**行为确认生效**（marker 在 + 负对照无），且 `-c` 值按 TOML 失败兜底为字面量 → 引号/`=`/`[...]`/换行/`[`开头的 role 提示**全部鲁棒**。故 codex `SystemInject = ["-c", "developer_instructions={{system_prompt}}"]`（`Render` 保持单 argv 元素、仅 role/system_prompt 非空时触发，不影响普通 codex job）。锚点 `internal/agent/registry.go`。
 - **agent_token 粒度**：是否值得给每 driver 独立 token 入鉴权层（彻底硬隔离 + per-driver 配额），还是停在软隔离——MVP 软隔离，按需升级。
 
 ## 13. 结论

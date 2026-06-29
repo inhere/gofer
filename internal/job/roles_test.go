@@ -153,6 +153,38 @@ func TestSubmitSystemInjectWithoutRole(t *testing.T) {
 	}
 }
 
+// TestSubmitCodexSystemInject: a codex job with a system_prompt renders the codex
+// built-in SystemInject (`-c developer_instructions=<p>`) onto the argv as ONE pair.
+// 实测定稿 2026-06-29: codex honours this developer-message override (see registry.go).
+func TestSubmitCodexSystemInject(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		Storage: config.StorageConfig{Root: root},
+		Projects: map[string]config.ProjectConfig{
+			"self": {HostPath: root, AllowedAgents: []string{"codex"}, AllowedRunners: []string{"local"}},
+		},
+		Agents: map[string]config.AgentConfig{
+			// echo Command so the job runs to done without a real codex CLI; the built-in
+			// codex SystemInject default is filled by the registry (keyed on name "codex").
+			"codex": {Type: agent.TypeCLIAgent, Command: "echo", Args: []string{"{{prompt}}"}},
+		},
+	}
+	s := newServiceFromCfg(t, root, cfg)
+
+	res, err := s.Submit(JobRequest{
+		ProjectKey: "self", Agent: "codex", Runner: "local",
+		Prompt: "hi", Cwd: ".", TimeoutSec: 30, SystemPrompt: "be a strict reviewer",
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	final, _ := s.Wait(res.ID)
+	argv := renderedArgs(t, final.RenderedCommand)
+	if !argvHasPair(argv, "-c", "developer_instructions=be a strict reviewer") {
+		t.Fatalf("codex system prompt not injected as developer_instructions: %#v", argv)
+	}
+}
+
 // TestResumeDoesNotReinjectSystemPrompt: resuming a role/system-prompt job does NOT
 // re-apply --append-system-prompt onto the resume argv. 实测定稿 2026-06-28 (claude-cli
 // 2.1.191): `claude --resume <sid>` natively restores the system prompt set on the
