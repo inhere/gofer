@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 
 	yaml "github.com/goccy/go-yaml"
@@ -296,6 +297,28 @@ func validate(cfg *Config) error {
 		if cc.RateBurst < 0 {
 			return fmt.Errorf("caller %q: rate_burst must be >= 0", cc.ID)
 		}
+	}
+	// E25 supervisor auto-answer whitelist: every allow_prompt_regex must compile, so
+	// a typo'd pattern fails fast here (serve start / `config validate`) instead of
+	// being silently dropped at supervisor construction — where a missing pattern would
+	// quietly widen escalation. An empty list stays escalate-only (the safe default).
+	if cfg.Supervisor != nil {
+		for i, p := range cfg.Supervisor.AllowPromptRegex {
+			if _, err := regexp.Compile(p); err != nil {
+				return fmt.Errorf("supervisor.allow_prompt_regex[%d] %q: %w", i, p, err)
+			}
+		}
+		if cfg.Supervisor.IntervalSec < 0 {
+			return fmt.Errorf("supervisor.interval_sec must be >= 0")
+		}
+		if cfg.Supervisor.MaxRoundsPerJob < 0 {
+			return fmt.Errorf("supervisor.max_rounds_per_job must be >= 0")
+		}
+	}
+	// E36 presence TTLs are optional overrides in seconds; negative is a mistake
+	// (0 = use the built-in default).
+	if cfg.Presence.TTLSec < 0 || cfg.Presence.MessageTTLSec < 0 || cfg.Presence.PruneIntervalSec < 0 {
+		return fmt.Errorf("presence ttl_sec/message_ttl_sec/prune_interval_sec must be >= 0")
 	}
 	return nil
 }
