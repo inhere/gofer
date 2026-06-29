@@ -207,6 +207,82 @@ func TestPostNoRecipientReturnsZero(t *testing.T) {
 	assert.Eq(t, 0, n2)
 }
 
+// TestPostDirectToOfflineStoresAndForwards: a direct send to a KNOWN-but-offline
+// agent is stored (delivered=1) and waits in its inbox until it next polls —
+// store-and-forward, the best-effort unreachable contract for direct addressing.
+func TestPostDirectToOfflineStoresAndForwards(t *testing.T) {
+	svc, clk := newTestService(t)
+	sender, _ := svc.Register(RegisterInput{Name: "sender", CallerID: "c1"})
+	target, _ := svc.Register(RegisterInput{Name: "target", CallerID: "c1"})
+
+	// Push target past TTL (offline); keep only the sender fresh.
+	clk.set(1000 + int64(DefaultTTL/time.Second) + 10)
+	_, _ = svc.Poll(sender.AgentID, sender.AgentToken, true)
+
+	n, err := svc.Post(sender.AgentID, target.AgentID, KindTask, "later", "")
+	assert.NoErr(t, err)
+	assert.Eq(t, 1, n) // stored despite the recipient being offline
+
+	// The target comes back and collects it.
+	m, err := svc.Poll(target.AgentID, target.AgentToken, true)
+	assert.NoErr(t, err)
+	assert.Len(t, m, 1)
+	assert.Eq(t, "later", m[0].Body)
+}
+
+// TestPostRoleOnePicksExactlyOneOnline: role-one:<name> delivers to exactly ONE of
+// the online agents of that role (work-assignment), not a fan-out to all.
+func TestPostRoleOnePicksExactlyOneOnline(t *testing.T) {
+	svc, _ := newTestService(t)
+	sender, _ := svc.Register(RegisterInput{Name: "sender", CallerID: "c1"})
+	revs := make([]RegisterResult, 0, 3)
+	for i := 0; i < 3; i++ {
+		r, _ := svc.Register(RegisterInput{Name: fmt.Sprintf("rev%d", i), Role: "reviewer", CallerID: "c1"})
+		revs = append(revs, r)
+	}
+	writer, _ := svc.Register(RegisterInput{Name: "writer", Role: "writer", CallerID: "c1"})
+
+	n, err := svc.Post(sender.AgentID, "role-one:reviewer", KindTask, "认领", "")
+	assert.NoErr(t, err)
+	assert.Eq(t, 1, n) // exactly one reviewer, not fan-out to all three
+
+	got := 0
+	for _, r := range revs {
+		m, _ := svc.Poll(r.AgentID, r.AgentToken, true)
+		got += len(m)
+	}
+	assert.Eq(t, 1, got) // the message landed in exactly one reviewer's inbox
+	wm, _ := svc.Poll(writer.AgentID, writer.AgentToken, true)
+	assert.Len(t, wm, 0) // never the writer (wrong role)
+}
+
+// TestPostRoleOnePicksOnlyOnline: role-one skips offline agents and returns 0 when
+// none of the role is online (best-effort, like role:/broadcast).
+func TestPostRoleOnePicksOnlyOnline(t *testing.T) {
+	svc, clk := newTestService(t)
+	sender, _ := svc.Register(RegisterInput{Name: "sender", CallerID: "c1"})
+	online, _ := svc.Register(RegisterInput{Name: "rev-on", Role: "reviewer", CallerID: "c1"})
+	_, _ = svc.Register(RegisterInput{Name: "rev-off", Role: "reviewer", CallerID: "c1"})
+
+	// Past TTL, refresh only `online` + sender so rev-off is offline.
+	clk.set(1000 + int64(DefaultTTL/time.Second) + 10)
+	_, _ = svc.Poll(online.AgentID, online.AgentToken, true)
+	_, _ = svc.Poll(sender.AgentID, sender.AgentToken, true)
+
+	n, err := svc.Post(sender.AgentID, "role-one:reviewer", KindTask, "x", "")
+	assert.NoErr(t, err)
+	assert.Eq(t, 1, n) // the only online reviewer
+	m, _ := svc.Poll(online.AgentID, online.AgentToken, true)
+	assert.Len(t, m, 1)
+
+	// Now everyone offline → no online match → delivered 0 (best-effort, nothing stored).
+	clk.set(1000 + 2*int64(DefaultTTL/time.Second) + 30)
+	_, _ = svc.Poll(sender.AgentID, sender.AgentToken, true)
+	n2, err := svc.Post(sender.AgentID, "role-one:reviewer", KindTask, "x", "")
+	assert.NoErr(t, err)
+	assert.Eq(t, 0, n2)
+}
+
 func TestPostBroadcast(t *testing.T) {
 	svc, _ := newTestService(t)
 	sender, _ := svc.Register(RegisterInput{Name: "sender", CallerID: "c1"})

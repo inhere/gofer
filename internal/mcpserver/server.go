@@ -104,7 +104,7 @@ func New(b Backend) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "bridge_post_message",
-		Description: "Send a message/task to another agent (by agent_id, role:<name>, or broadcast). Returns delivered count.",
+		Description: "Send a message/task to another agent. Address by agent_id (direct, stored until polled even if offline), role:<name> (fan-out to ALL online agents of that role), role-one:<name> (ONE online agent of that role, for work-assignment), or broadcast (all online). Returns delivered count (0 = no reachable recipient).",
 	}, postMessageHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{

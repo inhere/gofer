@@ -548,7 +548,7 @@ func (c *Client) PollInbox(agentID, token string, ack bool) ([]presence.Message,
 }
 
 // PostMessage delivers a message (POST /v1/messages) addressed by to (agent_id /
-// role:<name> / broadcast) and returns the fan-out delivered count.
+// role:<name> / role-one:<name> / broadcast) and returns the fan-out delivered count.
 func (c *Client) PostMessage(from, to, kind, body, ref string) (int, error) {
 	payload, err := json.Marshal(map[string]string{
 		"from_agent": from, "to": to, "kind": kind, "body": body, "ref": ref,
