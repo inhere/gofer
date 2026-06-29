@@ -11,7 +11,7 @@ import (
 
 // clientBackend is the remote Backend: every method forwards to a central gofer
 // serve over the HTTP client (internal/client). It is the counterpart to
-// localBackend (E28 P3) — the bridge_* handlers keep input validation + view
+// localBackend (E28 P3) — the gofer_* handlers keep input validation + view
 // projection, while this backend turns each call into a /v1/... request. The
 // project/agent/artifact views are produced here to be byte-for-byte shape
 // compatible with localBackend (same non-nil empty slices, same field mapping)

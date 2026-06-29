@@ -57,7 +57,7 @@ job 执行中 agent 会产生 **pending interaction**（向人提问：choice/co
 3. **owner-first 是核心新增**：能力最强的应答者是发起 job 的主 agent，escalation 必须优先回投它。
 4. **owner 是会话式、非常驻** → owner 在线但超时未答必须自动 fallback，否则编排者一下线子 agent 全卡死。
 5. **通用 sup 必须 non-interactive**：它自身产生的任何 interaction 直接升级人，绝不回投 supervisor inbox（防死循环套娃）。
-6. **派生作答（经 `bridge_answer_interaction`）必须受白名单约束**：当前此路径完全不过白名单，是必须堵的安全缺口。
+6. **派生作答（经 `gofer_answer_interaction`）必须受白名单约束**：当前此路径完全不过白名单，是必须堵的安全缺口。
 7. **MVP 单向**：实施 agent 通过 interaction 提问、owner 应答即可；主 agent 主动 push 指令留后续。
 
 ## 6. 核心思路：按上下文能力分层的升级路由
@@ -88,9 +88,9 @@ job 产生 pending interaction
 ```
 ┌──────────────────────────────────────────────────────────────┐
 │  主 agent（owner，会话式，你）                                  │
-│   bridge_run_job(origin_agent=self)  ──派活──┐                  │
-│   bridge_poll_inbox  ◀── escalation(L1) ──┐  │                  │
-│   bridge_answer_interaction ──应答──┐      │  │                  │
+│   gofer_run_job(origin_agent=self)  ──派活──┐                  │
+│   gofer_poll_inbox  ◀── escalation(L1) ──┐  │                  │
+│   gofer_answer_interaction ──应答──┐      │  │                  │
 └─────────────────────────────────────┼──────┼──┼────────────────┘
                                        │      │  │  (MCP / /v1, 经 serve)
 ┌──────────────────────────────────────┼──────┼──┼────────────────┐
@@ -108,7 +108,7 @@ job 产生 pending interaction
 │ （任意 runner 节点）   │            │ role=supervisor, 任意节点     │
 │  卡住 → 创建 interaction│           │ non-interactive             │
 │                       │            │ loop: poll_inbox → reason   │
-│                       │            │   → bridge_answer_interaction│
+│                       │            │   → gofer_answer_interaction│
 └───────────────────────┘            └─────────────────────────────┘
 ```
 
@@ -149,7 +149,7 @@ escalate 时记 escalated_at；后续 tick 检查：
 
 ### 8.3 通用 sup agent 的 server 托管（替代 CLI run）
 
-通用 sup **本质是一个长生命周期的 agent job**：prompt 即"你是 supervisor，循环 `bridge_poll_inbox`，对 escalation 做通用判断后 `bridge_answer_interaction`；拿不准的不要猜，留给人"。它通过 agent 内置 gofer MCP 操作。
+通用 sup **本质是一个长生命周期的 agent job**：prompt 即"你是 supervisor，循环 `gofer_poll_inbox`，对 escalation 做通用判断后 `gofer_answer_interaction`；拿不准的不要猜，留给人"。它通过 agent 内置 gofer MCP 操作。
 
 - **MVP**：用文档化的"常驻 daemon job"起（`gofer job run -a codex --role supervisor ...` + 长 timeout / 无 timeout），手动或脚本拉起；serve 不介入生命周期。先验证 L2 闭环。
 - **P2（你要的"server 启动、任意节点"）**：serve 内置一个 **sup reconciler**——config 声明 `desired supervisor`，serve 经 `job.Service.Submit` 自构造 sup job 投 dispatch（可指定/任选 runner 节点），挂了重派（desired=1，类比 K8s Deployment）。复用现有 dispatch，节点无关、自愈。
@@ -164,7 +164,7 @@ escalate 时记 escalated_at；后续 tick 检查：
 
 ### 8.5 派生作答的白名单约束（堵安全缺口）
 
-当前 `bridge_answer_interaction` 让任何 driver 答任何 interaction、**不过白名单**。改造：
+当前 `gofer_answer_interaction` 让任何 driver 答任何 interaction、**不过白名单**。改造：
 
 - L2 通用 sup 经 MCP 作答时，serve 侧对其应答做**与 L0 同源的白名单/范围校验**（type 限定 + `allow_prompt_regex` + 角色许可）；高危（confirmation/删除/外发/自由文本）即便 sup 想答也**强制升级人**。
 - L1 owner 作答**不受此限**（owner 是人类授权的编排者代表，持完整上下文，等同人答）；二者经 `answered_by` 区分留痕。

@@ -31,7 +31,7 @@ import (
 // stdio). It mirrors the HTTP log endpoint cap (httpapi.maxLogTailBytes).
 const defaultLogTailBytes = 256 * 1024
 
-// New builds an MCP server whose bridge_* tools are backed by the given Backend
+// New builds an MCP server whose gofer_* tools are backed by the given Backend
 // (localBackend for the in-process standalone path, clientBackend for forwarding
 // to a central serve — E28). Handlers own input validation + view projection;
 // the Backend owns the actual backend access. The server is returned
@@ -40,52 +40,52 @@ func New(b Backend) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "gofer", Version: "v1"}, nil)
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "bridge_list_projects",
+		Name:        "gofer_list_projects",
 		Description: "List the registered projects and their agent/runner allowlists.",
 	}, listProjectsHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "bridge_list_agents",
+		Name:        "gofer_list_agents",
 		Description: "List the configured/built-in agents with their availability probe.",
 	}, listAgentsHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "bridge_run_job",
+		Name:        "gofer_run_job",
 		Description: "Submit an agent/exec job in a project and return its initial state (status, id).",
 	}, runJobHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "bridge_get_job",
+		Name:        "gofer_get_job",
 		Description: "Get the current state of a job by id.",
 	}, getJobHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "bridge_tail_log",
+		Name:        "gofer_tail_log",
 		Description: "Return the tail of a job's stdout/stderr log (capped at 256KB by default).",
 	}, tailLogHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "bridge_cancel_job",
+		Name:        "gofer_cancel_job",
 		Description: "Request cancellation of a running job and return its current state.",
 	}, cancelJobHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "bridge_get_interactions",
+		Name:        "gofer_get_interactions",
 		Description: "List a job's running-time interactions (pending questions and their answers).",
 	}, getInteractionsHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "bridge_answer_interaction",
+		Name:        "gofer_answer_interaction",
 		Description: "Answer a pending interaction on a running job so the agent can continue.",
 	}, answerInteractionHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "bridge_get_artifacts",
+		Name:        "gofer_get_artifacts",
 		Description: "List a finished job's captured artifact files (name/size/mtime under its result dir).",
 	}, getArtifactsHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "bridge_get_result",
+		Name:        "gofer_get_result",
 		Description: "Get a finished job's structured result.json content (E6), as a raw JSON string.",
 	}, getResultHandler(b))
 
@@ -93,29 +93,29 @@ func New(b Backend) *mcp.Server {
 	// driver agent achieves two-way collaboration by registering then polling its
 	// inbox through the central serve.
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "bridge_register",
+		Name:        "gofer_register",
 		Description: "Register this agent (name+role) to the central serve; returns agent_id+agent_token for inbox ops.",
 	}, registerAgentHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "bridge_poll_inbox",
+		Name:        "gofer_poll_inbox",
 		Description: "Poll this agent's inbox for unread messages (refreshes presence heartbeat). Set ack=false to peek.",
 	}, pollInboxHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "bridge_post_message",
+		Name:        "gofer_post_message",
 		Description: "Send a message/task to another agent. Address by agent_id (direct, stored until polled even if offline), role:<name> (fan-out to ALL online agents of that role), role-one:<name> (ONE online agent of that role, for work-assignment), or broadcast (all online). Returns delivered count (0 = no reachable recipient).",
 	}, postMessageHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "bridge_list_presence",
+		Name:        "gofer_list_presence",
 		Description: "List online agents (presence registry) with role/project/status. Optional role/project filters.",
 	}, listPresenceHandler(b))
 
 	// E25: cross-job pending interactions, for a supervisor agent to discover
-	// questions awaiting an answer (then answer via bridge_answer_interaction).
+	// questions awaiting an answer (then answer via gofer_answer_interaction).
 	mcp.AddTool(s, &mcp.Tool{
-		Name:        "bridge_list_pending_interactions",
+		Name:        "gofer_list_pending_interactions",
 		Description: "List pending interactions across active jobs (for a supervisor agent to discover questions awaiting an answer).",
 	}, listPendingInteractionsHandler(b))
 
@@ -202,7 +202,7 @@ func mcpHostname() string {
 	return h
 }
 
-// --- bridge_list_projects ---------------------------------------------------
+// --- gofer_list_projects ---------------------------------------------------
 
 // listProjectsInput is intentionally empty; SDK maps an empty struct to an empty
 // object input schema.
@@ -233,7 +233,7 @@ func listProjectsHandler(b Backend) mcp.ToolHandlerFor[listProjectsInput, listPr
 	}
 }
 
-// --- bridge_list_agents -----------------------------------------------------
+// --- gofer_list_agents -----------------------------------------------------
 
 type listAgentsInput struct{}
 
@@ -261,7 +261,7 @@ func listAgentsHandler(b Backend) mcp.ToolHandlerFor[listAgentsInput, listAgents
 	}
 }
 
-// --- bridge_run_job ---------------------------------------------------------
+// --- gofer_run_job ---------------------------------------------------------
 
 // runJobInput is the snake_case equivalent of job.JobRequest.
 type runJobInput struct {
@@ -306,7 +306,7 @@ func runJobHandler(b Backend) mcp.ToolHandlerFor[runJobInput, jobView] {
 	}
 }
 
-// --- bridge_get_job ---------------------------------------------------------
+// --- gofer_get_job ---------------------------------------------------------
 
 type jobIDInput struct {
 	ID string `json:"id"`
@@ -322,7 +322,7 @@ func getJobHandler(b Backend) mcp.ToolHandlerFor[jobIDInput, jobView] {
 	}
 }
 
-// --- bridge_tail_log --------------------------------------------------------
+// --- gofer_tail_log --------------------------------------------------------
 
 type tailLogInput struct {
 	ID       string `json:"id"`
@@ -357,7 +357,7 @@ func tailLogHandler(b Backend) mcp.ToolHandlerFor[tailLogInput, tailLogOutput] {
 	}
 }
 
-// --- bridge_cancel_job ------------------------------------------------------
+// --- gofer_cancel_job ------------------------------------------------------
 
 func cancelJobHandler(b Backend) mcp.ToolHandlerFor[jobIDInput, jobView] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in jobIDInput) (*mcp.CallToolResult, jobView, error) {
@@ -417,7 +417,7 @@ func toInteractionView(it job.Interaction) interactionView {
 	}
 }
 
-// --- bridge_get_interactions ------------------------------------------------
+// --- gofer_get_interactions ------------------------------------------------
 
 type getInteractionsOutput struct {
 	Interactions []interactionView `json:"interactions"`
@@ -438,7 +438,7 @@ func getInteractionsHandler(b Backend) mcp.ToolHandlerFor[jobIDInput, getInterac
 	}
 }
 
-// --- bridge_list_pending_interactions ---------------------------------------
+// --- gofer_list_pending_interactions ---------------------------------------
 
 // listPendingInteractionsInput is intentionally empty (lists across all jobs).
 type listPendingInteractionsInput struct{}
@@ -457,7 +457,7 @@ func listPendingInteractionsHandler(b Backend) mcp.ToolHandlerFor[listPendingInt
 	}
 }
 
-// --- bridge_answer_interaction ----------------------------------------------
+// --- gofer_answer_interaction ----------------------------------------------
 
 type answerInteractionInput struct {
 	ID            string `json:"id"`
@@ -475,7 +475,7 @@ func answerInteractionHandler(b Backend) mcp.ToolHandlerFor[answerInteractionInp
 	}
 }
 
-// --- bridge_get_artifacts ---------------------------------------------------
+// --- gofer_get_artifacts ---------------------------------------------------
 
 // artifactView is the snake_case projection of job.ArtifactItem so the MCP
 // schema never leaks the internal job type.
@@ -506,7 +506,7 @@ func getArtifactsHandler(b Backend) mcp.ToolHandlerFor[jobIDInput, getArtifactsO
 	}
 }
 
-// --- bridge_get_result ------------------------------------------------------
+// --- gofer_get_result ------------------------------------------------------
 
 type getResultOutput struct {
 	// ResultJSON is the raw <result_dir>/result.json content (E6), already valid
@@ -527,7 +527,7 @@ func getResultHandler(b Backend) mcp.ToolHandlerFor[jobIDInput, getResultOutput]
 	}
 }
 
-// --- bridge_register --------------------------------------------------------
+// --- gofer_register --------------------------------------------------------
 
 type registerAgentInput struct {
 	Name    string `json:"name"`
@@ -547,7 +547,7 @@ func registerAgentHandler(b Backend) mcp.ToolHandlerFor[registerAgentInput, pres
 	}
 }
 
-// --- bridge_poll_inbox ------------------------------------------------------
+// --- gofer_poll_inbox ------------------------------------------------------
 
 type pollInboxToolInput struct {
 	AgentID    string `json:"agent_id"`
@@ -575,7 +575,7 @@ func pollInboxHandler(b Backend) mcp.ToolHandlerFor[pollInboxToolInput, pollInbo
 	}
 }
 
-// --- bridge_post_message ----------------------------------------------------
+// --- gofer_post_message ----------------------------------------------------
 
 type postMessageToolInput struct {
 	FromAgent string `json:"from_agent"`
@@ -599,7 +599,7 @@ func postMessageHandler(b Backend) mcp.ToolHandlerFor[postMessageToolInput, post
 	}
 }
 
-// --- bridge_list_presence ---------------------------------------------------
+// --- gofer_list_presence ---------------------------------------------------
 
 type listPresenceToolInput struct {
 	Role    string `json:"role,omitempty"`

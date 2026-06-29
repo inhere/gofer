@@ -62,7 +62,7 @@ dev-gofer 的一切围绕一个异步 **job**（`{项目, agent, prompt/命令, 
 | **HTTP `/v1`** | 控制面 REST-ish 入口（curl/CLI/Web 都走它） | 接入 |
 | **Web 控制台** | `serve` 内嵌的浏览器界面（看板/实时日志/取消/交互） | 接入 |
 | **CLI（`job` 子命令）** | `gofer job ...`，是 HTTP `/v1` 的薄封装 | 接入 |
-| **MCP Server** | `gofer mcp`，stdio MCP server，把 bridge 暴露成 8 个 `bridge_*` tool 给 MCP agent 用 | 接入 |
+| **MCP Server** | `gofer mcp`，stdio MCP server，把 gofer 暴露成 15 个 `gofer_*` tool 给 MCP agent 用 | 接入 |
 | **mcp-agent**（原拟称 mcp-client runner）| **未做**：bridge 反过来当 MCP **客户端**，把 job 翻成对一个"本身是 MCP server 的能力"的 **tool 调用**。是**协议适配**，宜建模为 **agent type**（非 runner），与 worker **正交、可组合** | agent 类型(规划) |
 | **driver agent** | **长在线、用 MCP 主动驱动 gofer 的协作主体**（你的 Claude Code 会话、常驻 supervisor）。登记在 `agent_presence`，经 `agent_id` 寻址。详见 §10 | 协作主体 |
 | **job agent** | 被派去跑**一次性 job** 的执行体（`gofer job run` 拉起的 claude/codex），执行完即终；不进 presence，经 `job_id` 标识。详见 §10 | 执行(被驱动) |
@@ -87,7 +87,7 @@ dev-gofer 的一切围绕一个异步 **job**（`{项目, agent, prompt/命令, 
 | HTTP `/v1` | REST-ish + Bearer | 容器/主机/外部 curl | ✅ |
 | Web 控制台 | 内嵌 SPA，根路径，SSE 实时 | 开发者浏览器 | ✅（含 P9 交互卡 web-P2） |
 | CLI `job` | HTTP 薄封装 | 命令行 | ✅ |
-| MCP Server `gofer mcp` | stdio，8 个 `bridge_*` tool | MCP agent（Claude Code/Codex/...） | ✅（P8） |
+| MCP Server `gofer mcp` | stdio，15 个 `gofer_*` tool | MCP agent（Claude Code/Codex/...） | ✅（P8） |
 
 > 入口只决定"怎么提交/查询"；提交后的执行由 `runner` 决定（§5）。
 
@@ -100,7 +100,7 @@ dev-gofer 的一切围绕一个异步 **job**（`{项目, agent, prompt/命令, 
 | `worker` | **worker → server**（WS 拨出，持久多路复用） | **无人**（worker 纯出站） | ✓ | 精简执行体，无 HTTP 面 | ✅（WP1–WP3 + WP4 Workers 仪表盘；WP4 标签自动调度缓做）|
 
 ### 共同机制一：镜像（"server 怎么读远端输出"）
-`local`/`peer-http`/`worker` **共享同一个巧思**：远端日志都经 runner 的 `Stdout/Stderr` 写进 **server 自己的 `<result_dir>/<job_id>/*.log`**——于是 server 的 HTTP 拉日志 / SSE 流 / Web / MCP `bridge_tail_log` **读路径全部不变**。
+`local`/`peer-http`/`worker` **共享同一个巧思**：远端日志都经 runner 的 `Stdout/Stderr` 写进 **server 自己的 `<result_dir>/<job_id>/*.log`**——于是 server 的 HTTP 拉日志 / SSE 流 / Web / MCP `gofer_tail_log` **读路径全部不变**。
 
 - `peer-http`：server **主动拉** peer 的 SSE，把 `log` 帧写进本地文件。
 - `worker`：worker **主动推** `log` 帧，server hub 写进本地文件。
@@ -132,7 +132,7 @@ dev-gofer 的一切围绕一个异步 **job**（`{项目, agent, prompt/命令, 
 
 | 能力 | 状态 |
 |---|---|
-| 接入：HTTP `/v1` / CLI / Web 控制台 / MCP Server（8 tool） | ✅ |
+| 接入：HTTP `/v1` / CLI / Web 控制台 / MCP Server（15 tool） | ✅ |
 | 执行：`local` / `peer-http`（P7） | ✅ |
 | 执行：`worker`（ws 远端机） | ✅（WP1–WP3：端到端+交互+弹性/C7 + WP4 Workers 仪表盘；WP4 标签自动调度缓做） |
 | P9 运行中交互：local / Web(web-P2) / MCP | ✅ |
@@ -180,13 +180,13 @@ dev-gofer 的一切围绕一个异步 **job**（`{项目, agent, prompt/命令, 
 |---|---|---|
 | 是什么 | 被派去跑**一次性 job** 的执行体 | **长在线**、主动驱动 gofer 的协作主体 |
 | 生命周期 | 单次执行，完成即终 | 长会话，持续在线（靠心跳维持） |
-| 谁发起 | 被 driver / CLI / web 提交而产生 | **自己 `bridge_register` 上线** |
+| 谁发起 | 被 driver / CLI / web 提交而产生 | **自己 `gofer_register` 上线** |
 | 典型例子 | `gofer job run` 拉起的 claude/codex 跑个任务 | 你这个 Claude Code 会话、常驻 supervisor agent |
 | 登记在哪 | `jobs` 表（经 `job_id` 标识） | `agent_presence` 表（经 `agent_id` 寻址，名册可见） |
 | 经哪个入口 | 由入口轴任一入口提交（§4） | **MCP 入口**（§3 的 "MCP agent" 即 driver agent 的典型形态） |
 | 关键能力 | 执行；卡住时产生 **interaction 提问** | 提交 job、收发 `messages` 信箱、答别人的 interaction |
 
-> 一个进程可**两栖**：一个 driver agent（如编排者）既在线收发消息，也能 `bridge_run_job` 把活派成 job agent 去跑。
+> 一个进程可**两栖**：一个 driver agent（如编排者）既在线收发消息，也能 `gofer_run_job` 把活派成 job agent 去跑。
 
 ### 10.2 presence（在线名册）
 

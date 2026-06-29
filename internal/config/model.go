@@ -24,7 +24,7 @@ type Config struct {
 	Runners  map[string]RunnerConfig  `yaml:"runners"`
 	// Roles are named E35 role presets (reviewer/bugfix/…): a base agent + a
 	// resident system_prompt + optional default project/tags. `job run --role` /
-	// `bridge_run_job(role=)` resolve a role to fill those request fields (design
+	// `gofer_run_job(role=)` resolve a role to fill those request fields (design
 	// §8.5). Rules/context-file mounting is E11 territory, out of scope here.
 	Roles map[string]RoleConfig `yaml:"roles"`
 	// Supervisor is the OPTIONAL E25 layered-answerer config (design §8.3-8.4). nil

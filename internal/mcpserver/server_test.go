@@ -96,23 +96,23 @@ func TestListToolsAllPresent(t *testing.T) {
 		t.Fatalf("ListTools: %v", err)
 	}
 	want := map[string]bool{
-		"bridge_list_projects":      false,
-		"bridge_list_agents":        false,
-		"bridge_run_job":            false,
-		"bridge_get_job":            false,
-		"bridge_tail_log":           false,
-		"bridge_cancel_job":         false,
-		"bridge_get_interactions":   false,
-		"bridge_answer_interaction": false,
-		"bridge_get_artifacts":      false,
-		"bridge_get_result":         false,
+		"gofer_list_projects":      false,
+		"gofer_list_agents":        false,
+		"gofer_run_job":            false,
+		"gofer_get_job":            false,
+		"gofer_tail_log":           false,
+		"gofer_cancel_job":         false,
+		"gofer_get_interactions":   false,
+		"gofer_answer_interaction": false,
+		"gofer_get_artifacts":      false,
+		"gofer_get_result":         false,
 		// E36 presence/mailbox (4 tools).
-		"bridge_register":      false,
-		"bridge_poll_inbox":    false,
-		"bridge_post_message":  false,
-		"bridge_list_presence": false,
+		"gofer_register":      false,
+		"gofer_poll_inbox":    false,
+		"gofer_post_message":  false,
+		"gofer_list_presence": false,
 		// E25 supervisor discovery (1 tool).
-		"bridge_list_pending_interactions": false,
+		"gofer_list_pending_interactions": false,
 	}
 	for _, tl := range res.Tools {
 		if _, ok := want[tl.Name]; ok {
@@ -124,14 +124,14 @@ func TestListToolsAllPresent(t *testing.T) {
 			t.Fatalf("tool %q missing from ListTools (got %d tools)", name, len(res.Tools))
 		}
 	}
-	// All bridge_* tools must be registered (no more, no fewer).
+	// All gofer_* tools must be registered (no more, no fewer).
 	if len(res.Tools) != len(want) {
 		t.Fatalf("expected %d tools, got %d: %+v", len(want), len(res.Tools), res.Tools)
 	}
 }
 
 // TestRunJobInputSchemaSnakeCase asserts the SDK-derived input schema for
-// bridge_run_job uses snake_case property names (matching the HTTP API).
+// gofer_run_job uses snake_case property names (matching the HTTP API).
 func TestRunJobInputSchemaSnakeCase(t *testing.T) {
 	session, _ := connect(t)
 	res, err := session.ListTools(context.Background(), nil)
@@ -140,13 +140,13 @@ func TestRunJobInputSchemaSnakeCase(t *testing.T) {
 	}
 	var runJob *mcp.Tool
 	for _, tl := range res.Tools {
-		if tl.Name == "bridge_run_job" {
+		if tl.Name == "gofer_run_job" {
 			runJob = tl
 			break
 		}
 	}
 	if runJob == nil {
-		t.Fatalf("bridge_run_job not found")
+		t.Fatalf("gofer_run_job not found")
 	}
 	// InputSchema arrives as a map[string]any on the client; its properties keys
 	// are the field names. Assert snake_case keys are present.
@@ -169,7 +169,7 @@ func TestRunJobInputSchemaSnakeCase(t *testing.T) {
 
 func TestListProjectsTool(t *testing.T) {
 	session, _ := connect(t)
-	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "bridge_list_projects"})
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "gofer_list_projects"})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
 	}
@@ -185,7 +185,7 @@ func TestListProjectsTool(t *testing.T) {
 
 func TestListAgentsTool(t *testing.T) {
 	session, _ := connect(t)
-	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "bridge_list_agents"})
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "gofer_list_agents"})
 	if err != nil {
 		t.Fatalf("CallTool: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestRunJobAndGet(t *testing.T) {
 	session, jobs := connect(t)
 
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "bridge_run_job",
+		Name: "gofer_run_job",
 		Arguments: map[string]any{
 			"project_key": "self",
 			"agent":       "exec",
@@ -244,7 +244,7 @@ func TestRunJobAndGet(t *testing.T) {
 	}
 
 	getRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "bridge_get_job",
+		Name:      "gofer_get_job",
 		Arguments: map[string]any{"id": created.ID},
 	})
 	if err != nil {
@@ -260,7 +260,7 @@ func TestRunJobAndGet(t *testing.T) {
 func TestRunJobRejectedUnknownProject(t *testing.T) {
 	session, _ := connect(t)
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "bridge_run_job",
+		Name: "gofer_run_job",
 		Arguments: map[string]any{
 			"project_key": "ghost",
 			"agent":       "exec",
@@ -280,7 +280,7 @@ func TestRunJobRejectedUnknownProject(t *testing.T) {
 func TestTailLogTool(t *testing.T) {
 	session, jobs := connect(t)
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "bridge_run_job",
+		Name: "gofer_run_job",
 		Arguments: map[string]any{
 			"project_key": "self",
 			"agent":       "exec",
@@ -300,7 +300,7 @@ func TestTailLogTool(t *testing.T) {
 	}
 
 	logRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "bridge_tail_log",
+		Name:      "gofer_tail_log",
 		Arguments: map[string]any{"id": created.ID, "stream": "stdout"},
 	})
 	if err != nil {
@@ -316,7 +316,7 @@ func TestTailLogTool(t *testing.T) {
 func TestTailLogInvalidStream(t *testing.T) {
 	session, jobs := connect(t)
 	res, _ := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "bridge_run_job",
+		Name: "gofer_run_job",
 		Arguments: map[string]any{
 			"project_key": "self", "agent": "exec", "runner": "local",
 			"cmd": []string{"go", "version"}, "cwd": ".", "timeout_sec": 30,
@@ -327,7 +327,7 @@ func TestTailLogInvalidStream(t *testing.T) {
 	jobs.Wait(created.ID)
 
 	bad, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "bridge_tail_log",
+		Name:      "gofer_tail_log",
 		Arguments: map[string]any{"id": created.ID, "stream": "bogus"},
 	})
 	if err != nil {
@@ -341,7 +341,7 @@ func TestTailLogInvalidStream(t *testing.T) {
 func TestCancelJobTool(t *testing.T) {
 	session, jobs := connect(t)
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "bridge_run_job",
+		Name: "gofer_run_job",
 		Arguments: map[string]any{
 			"project_key": "self", "agent": "exec", "runner": "local",
 			"cmd": []string{"sleep", "5"}, "cwd": ".", "timeout_sec": 30,
@@ -363,7 +363,7 @@ func TestCancelJobTool(t *testing.T) {
 	}
 
 	cancelRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "bridge_cancel_job",
+		Name:      "gofer_cancel_job",
 		Arguments: map[string]any{"id": created.ID},
 	})
 	if err != nil {
@@ -381,7 +381,7 @@ func TestCancelJobTool(t *testing.T) {
 func TestCancelUnknownJobTool(t *testing.T) {
 	session, _ := connect(t)
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "bridge_cancel_job",
+		Name:      "gofer_cancel_job",
 		Arguments: map[string]any{"id": "does-not-exist"},
 	})
 	if err != nil {
@@ -398,7 +398,7 @@ func TestCancelUnknownJobTool(t *testing.T) {
 func startRunningJob(t *testing.T, session *mcp.ClientSession, jobs *job.Service) string {
 	t.Helper()
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "bridge_run_job",
+		Name: "gofer_run_job",
 		Arguments: map[string]any{
 			"project_key": "self", "agent": "exec", "runner": "local",
 			"cmd": []string{"sleep", "30"}, "cwd": ".", "timeout_sec": 60,
@@ -426,8 +426,8 @@ func startRunningJob(t *testing.T, session *mcp.ClientSession, jobs *job.Service
 
 // TestInteractionToolsRoundTrip drives the two new interaction tools end to end:
 // a pending interaction is raised on a live job via the service (MCP has no
-// create tool), then read with bridge_get_interactions, answered with
-// bridge_answer_interaction, and re-read to confirm the answered state.
+// create tool), then read with gofer_get_interactions, answered with
+// gofer_answer_interaction, and re-read to confirm the answered state.
 func TestInteractionToolsRoundTrip(t *testing.T) {
 	session, jobs := connect(t)
 	jobID := startRunningJob(t, session, jobs)
@@ -443,9 +443,9 @@ func TestInteractionToolsRoundTrip(t *testing.T) {
 		t.Fatalf("created interaction status=%s, want pending", created.Status)
 	}
 
-	// bridge_get_interactions must surface the pending interaction.
+	// gofer_get_interactions must surface the pending interaction.
 	getRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "bridge_get_interactions",
+		Name:      "gofer_get_interactions",
 		Arguments: map[string]any{"id": jobID},
 	})
 	if err != nil {
@@ -460,9 +460,9 @@ func TestInteractionToolsRoundTrip(t *testing.T) {
 		t.Fatalf("expected pending interaction for job %s: %+v", jobID, got.Interactions[0])
 	}
 
-	// bridge_answer_interaction answers it and returns the answered view.
+	// gofer_answer_interaction answers it and returns the answered view.
 	ansRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "bridge_answer_interaction",
+		Name: "gofer_answer_interaction",
 		Arguments: map[string]any{
 			"id": jobID, "interaction_id": created.ID, "answer": "yes-go",
 		},
@@ -478,7 +478,7 @@ func TestInteractionToolsRoundTrip(t *testing.T) {
 
 	// Re-read confirms the answered state persisted.
 	getRes2, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "bridge_get_interactions",
+		Name:      "gofer_get_interactions",
 		Arguments: map[string]any{"id": jobID},
 	})
 	if err != nil {
@@ -499,7 +499,7 @@ func TestInteractionToolsRoundTrip(t *testing.T) {
 func TestGetInteractionsEmptyIsArray(t *testing.T) {
 	session, _ := connect(t)
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "bridge_get_interactions",
+		Name:      "gofer_get_interactions",
 		Arguments: map[string]any{"id": "does-not-exist"},
 	})
 	if err != nil {
@@ -516,7 +516,7 @@ func TestGetInteractionsEmptyIsArray(t *testing.T) {
 }
 
 // TestAnswerInteractionSchemaSnakeCase asserts the SDK-derived input schema for
-// bridge_answer_interaction uses snake_case property names (incl. interaction_id).
+// gofer_answer_interaction uses snake_case property names (incl. interaction_id).
 func TestAnswerInteractionSchemaSnakeCase(t *testing.T) {
 	session, _ := connect(t)
 	res, err := session.ListTools(context.Background(), nil)
@@ -525,13 +525,13 @@ func TestAnswerInteractionSchemaSnakeCase(t *testing.T) {
 	}
 	var tool *mcp.Tool
 	for _, tl := range res.Tools {
-		if tl.Name == "bridge_answer_interaction" {
+		if tl.Name == "gofer_answer_interaction" {
 			tool = tl
 			break
 		}
 	}
 	if tool == nil {
-		t.Fatalf("bridge_answer_interaction not found")
+		t.Fatalf("gofer_answer_interaction not found")
 	}
 	b, err := json.Marshal(tool.InputSchema)
 	if err != nil {
@@ -555,7 +555,7 @@ func TestAnswerInteractionSchemaSnakeCase(t *testing.T) {
 func TestAnswerInteractionUnknownJobToolError(t *testing.T) {
 	session, _ := connect(t)
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "bridge_answer_interaction",
+		Name: "gofer_answer_interaction",
 		Arguments: map[string]any{
 			"id": "ghost", "interaction_id": "x", "answer": "a",
 		},
@@ -574,7 +574,7 @@ func TestAnswerInteractionUnknownJobToolError(t *testing.T) {
 func runDoneJob(t *testing.T, session *mcp.ClientSession, jobs *job.Service) string {
 	t.Helper()
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "bridge_run_job",
+		Name: "gofer_run_job",
 		Arguments: map[string]any{
 			"project_key": "self", "agent": "exec", "runner": "local",
 			"cmd": []string{"go", "version"}, "cwd": ".", "timeout_sec": 30,
@@ -601,7 +601,7 @@ func runDoneJob(t *testing.T, session *mcp.ClientSession, jobs *job.Service) str
 func startSleepJob(t *testing.T, session *mcp.ClientSession) jobView {
 	t.Helper()
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name: "bridge_run_job",
+		Name: "gofer_run_job",
 		Arguments: map[string]any{
 			"project_key": "self", "agent": "exec", "runner": "local",
 			"cmd": []string{"sleep", "0.4"}, "cwd": ".", "timeout_sec": 30,
@@ -672,7 +672,7 @@ func TestGetArtifactsEmptyIsArray(t *testing.T) {
 func TestGetArtifactsUnknownJob(t *testing.T) {
 	session, _ := connect(t)
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "bridge_get_artifacts",
+		Name:      "gofer_get_artifacts",
 		Arguments: map[string]any{"id": "ghost"},
 	})
 	if err != nil {
@@ -683,11 +683,11 @@ func TestGetArtifactsUnknownJob(t *testing.T) {
 	}
 }
 
-// callGetArtifacts invokes bridge_get_artifacts and decodes the output.
+// callGetArtifacts invokes gofer_get_artifacts and decodes the output.
 func callGetArtifacts(t *testing.T, session *mcp.ClientSession, id string) getArtifactsOutput {
 	t.Helper()
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "bridge_get_artifacts",
+		Name:      "gofer_get_artifacts",
 		Arguments: map[string]any{"id": id},
 	})
 	if err != nil {
@@ -734,7 +734,7 @@ func TestGetResultEmpty(t *testing.T) {
 func TestGetResultUnknownJob(t *testing.T) {
 	session, _ := connect(t)
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "bridge_get_result",
+		Name:      "gofer_get_result",
 		Arguments: map[string]any{"id": "ghost"},
 	})
 	if err != nil {
@@ -745,11 +745,11 @@ func TestGetResultUnknownJob(t *testing.T) {
 	}
 }
 
-// callGetResult invokes bridge_get_result and decodes the output.
+// callGetResult invokes gofer_get_result and decodes the output.
 func callGetResult(t *testing.T, session *mcp.ClientSession, id string) getResultOutput {
 	t.Helper()
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
-		Name:      "bridge_get_result",
+		Name:      "gofer_get_result",
 		Arguments: map[string]any{"id": id},
 	})
 	if err != nil {

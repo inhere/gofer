@@ -30,7 +30,7 @@ var mcpOpts = struct{ standalone bool }{}
 // NewMcpCmd builds the `mcp` command: run the stdio MCP server (plan P8/E28).
 // Two backend modes (E28 D1/D2):
 //   - client mode (default when --server/GOFER_SERVER_ADDR is set, no
-//     --standalone): the mcp process is a thin client — the 10 bridge_* tools
+//     --standalone): the mcp process is a thin client — the 10 gofer_* tools
 //     forward to a central serve via internal/client. NO Core/DB is built.
 //   - standalone mode (--standalone, or no server addr resolved): the現状
 //     in-process path — load config + build Core + serve the localBackend,
