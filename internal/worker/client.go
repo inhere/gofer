@@ -14,10 +14,12 @@ package worker
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"log/slog"
-	"math/rand"
+	mathrand "math/rand"
 	"net/http"
 	"sync"
 	"time"
@@ -28,6 +30,20 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/wsproto"
 )
+
+// newInstanceID mints a per-process nonce sent in the register frame so the hub can
+// distinguish a transient reconnect (same instance) from a worker restart (new
+// instance under the same worker_id) — see wsproto.Register.InstanceID / z8ow. It is
+// generated ONCE at client construction and reused across reconnects. A crypto/rand
+// failure (never in practice) degrades to a fixed string: the hub then treats every
+// reconnect as a restart (fails in-flight jobs) — safe, just less precise.
+func newInstanceID() string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return "inst-fallback"
+	}
+	return hex.EncodeToString(b[:])
+}
 
 // maxWSReadBytes caps a single inbound message on the worker side (mirrors the
 // hub). Var so tests can shrink it.
@@ -57,8 +73,12 @@ type Jobs interface {
 // address list + token + the worker's identity and local job service.
 type Client struct {
 	workerID string
-	urls     []string // hub addresses; rotated on connect failure (C7, §5.2)
-	token    string
+	// instanceID is this process's nonce (minted once in New, reused across
+	// reconnects) sent in every register frame so the hub can tell a reconnect from
+	// a restart (z8ow). See newInstanceID / wsproto.Register.InstanceID.
+	instanceID string
+	urls       []string // hub addresses; rotated on connect failure (C7, §5.2)
+	token      string
 	labels   []string
 	projects []string
 	agents   []string
@@ -105,7 +125,7 @@ type Config struct {
 	MaxBackoff     time.Duration
 	PingInterval   time.Duration
 	ReadDeadline   time.Duration
-	Rng            *rand.Rand
+	Rng            *mathrand.Rand
 }
 
 // New builds a worker client. jobs is the worker's local job service (built from
@@ -124,6 +144,7 @@ func New(cfg Config, jobs Jobs) *Client {
 	}
 	return &Client{
 		workerID:     cfg.WorkerID,
+		instanceID:   newInstanceID(),
 		urls:         cfg.URLs,
 		token:        cfg.Token,
 		labels:       cfg.Labels,
@@ -233,6 +254,7 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 	// recv loop, not the handshake).
 	if err := cl.writeFrame(ctx, wsproto.TypeRegister, "", wsproto.Register{
 		WorkerID:      cl.workerID,
+		InstanceID:    cl.instanceID,
 		Labels:        cl.labels,
 		Projects:      cl.projects,
 		Agents:        cl.agents,
