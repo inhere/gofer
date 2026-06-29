@@ -20,9 +20,12 @@ type createInteractionReq struct {
 
 // answerInteractionReq is the POST body for answering an interaction. An empty
 // answer is allowed (e.g. an explicit empty confirmation), so this never fails
-// validation on its own.
+// validation on its own. Responder is the answering driver's agent_id (监督派生作答闸
+// P3.1), forwarded by the mcp client backend so the serve grades the source; empty
+// (web/CLI/relay) = unattributed → answered_by=human, ungated.
 type answerInteractionReq struct {
-	Answer string `json:"answer"`
+	Answer    string `json:"answer"`
+	Responder string `json:"responder,omitempty"`
 }
 
 // handleCreateInteraction raises a new interaction on a live job and returns the
@@ -105,7 +108,9 @@ func (s *Server) handleAnswerInteraction(c *rux.Context) {
 		return
 	}
 
-	it, err := s.jobs.AnswerInteraction(id, iid, req.Answer)
+	// AnswerInteractionBy attributes the answer + runs the派生作答闸 (P3.1): a non-empty
+	// responder (mcp client driver) is graded server-side; empty (web/CLI human) → human, ungated.
+	it, err := s.jobs.AnswerInteractionBy(id, iid, req.Answer, req.Responder)
 	if err != nil {
 		writeError(c, interactionStatus(err), "answer interaction failed", err.Error())
 		return
@@ -122,6 +127,9 @@ func interactionStatus(err error) int {
 		return http.StatusNotFound
 	case errors.Is(err, job.ErrJobTerminal):
 		return http.StatusConflict
+	case errors.Is(err, job.ErrAnswerNotAllowed):
+		// 派生作答闸 refused (a通用 sup outside the whitelist); the interaction stays pending.
+		return http.StatusForbidden
 	default:
 		// ErrInteractionState, ErrInvalidInteraction and any unclassified error.
 		return http.StatusBadRequest

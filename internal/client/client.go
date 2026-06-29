@@ -496,9 +496,15 @@ func (c *Client) ListPendingInteractions() ([]job.Interaction, error) {
 // AnswerInteraction POSTs an answer to a peer interaction (P9 passthrough / E28
 // client mode) and returns the updated job.Interaction the server echoes back
 // (the answer endpoint returns a bare job.Interaction). Fire-and-forget callers
-// may ignore the returned Interaction.
-func (c *Client) AnswerInteraction(jobID, interactionID, answer string) (job.Interaction, error) {
-	body, err := json.Marshal(map[string]string{"answer": answer})
+// may ignore the returned Interaction. responder is the answering driver's agent_id
+// (监督派生作答闸 P3.1) forwarded so the central serve grades the source; "" = unattributed
+// (human/relay), omitted from the body.
+func (c *Client) AnswerInteraction(jobID, interactionID, answer, responder string) (job.Interaction, error) {
+	payload := map[string]string{"answer": answer}
+	if responder != "" {
+		payload["responder"] = responder
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return job.Interaction{}, fmt.Errorf("encode answer: %w", err)
 	}

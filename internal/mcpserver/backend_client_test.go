@@ -137,7 +137,7 @@ func TestClientBackendAnswerInteraction(t *testing.T) {
 	})
 	b := mockBackend(t, mux)
 
-	it, err := b.AnswerInteraction("j1", "int-1", "yes")
+	it, err := b.AnswerInteraction("j1", "int-1", "yes", "")
 	if err != nil {
 		t.Fatalf("AnswerInteraction: %v", err)
 	}

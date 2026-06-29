@@ -119,8 +119,8 @@ func (b *localBackend) GetInteractions(id string) ([]job.Interaction, error) {
 	return b.jobs.GetInteractions(id)
 }
 
-func (b *localBackend) AnswerInteraction(id, iid, answer string) (job.Interaction, error) {
-	return b.jobs.AnswerInteraction(id, iid, answer)
+func (b *localBackend) AnswerInteraction(id, iid, answer, responder string) (job.Interaction, error) {
+	return b.jobs.AnswerInteractionBy(id, iid, answer, responder)
 }
 
 func (b *localBackend) ListPendingInteractions() ([]job.Interaction, error) {

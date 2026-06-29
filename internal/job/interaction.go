@@ -28,6 +28,23 @@ var (
 	// ErrInvalidInteraction — the create payload failed basic validation (bad type
 	// or empty prompt). HTTP: 400.
 	ErrInvalidInteraction = errors.New("invalid interaction")
+	// ErrAnswerNotAllowed — the派生作答白名单闸 (P3.1) refused an attributed driver answer
+	// (a通用 sup answering outside the whitelist). The interaction stays pending (escalates
+	// to a human). HTTP: 403.
+	ErrAnswerNotAllowed = errors.New("answer not allowed")
+)
+
+// answered_by source tags (监督分层升级路由 P3.2, design §10). The answer path stamps one
+// onto interactions.answered_by so an audit can tell apart L0/L1·L2/L3 应答来源.
+const (
+	// answeredByHuman — L3: a web/CLI answer with no driver identity.
+	answeredByHuman = "human"
+	// answeredByAgentPrefix — L1 owner / L2 sup: an attributed driver answer; the agent_id
+	// follows (agent:<id>). owner vs sup are told apart by which agent_id it is.
+	answeredByAgentPrefix = "agent:"
+	// answeredByAutoPrefix — L0: the built-in rule answerer; the policy name follows
+	// (auto:<policy>, e.g. auto:choice).
+	answeredByAutoPrefix = "auto:"
 )
 
 // InteractionOption is one selectable option for a choice/confirmation.
@@ -54,6 +71,10 @@ type Interaction struct {
 	// 分层升级路由 P1.1, design §9）：承载 escalate dedup 标记 + owner 超时计时。0 表示尚未
 	// escalate。P1.1 仅落库 + 透传读出，写入由 P1.2（escalate dedup）/P2.1（超时）落地。
 	EscalatedAt int64 `json:"escalated_at,omitempty"`
+	// AnsweredBy 记录"谁应答了该 interaction"（监督分层升级路由 P3.2, design §10 审计区分）：
+	// auto:<policy>(L0 内置规则器) / agent:<id>(L1 owner / L2 sup) / human(L3 web/CLI)。
+	// "" 表示尚未应答或未归因（内部 relay）。gofer_get_interactions / 查询接口可见。
+	AnsweredBy string `json:"answered_by,omitempty"`
 }
 
 // Interaction status values.
@@ -185,6 +206,7 @@ func toInteractionRecord(it Interaction) jobstore.InteractionRecord {
 		CreatedAt:   it.CreatedAt,
 		AnsweredAt:  it.AnsweredAt,
 		EscalatedAt: it.EscalatedAt,
+		AnsweredBy:  it.AnsweredBy,
 	}
 }
 
@@ -208,6 +230,7 @@ func fromInteractionRecord(rec jobstore.InteractionRecord) Interaction {
 		CreatedAt:   rec.CreatedAt,
 		AnsweredAt:  rec.AnsweredAt,
 		EscalatedAt: rec.EscalatedAt,
+		AnsweredBy:  rec.AnsweredBy,
 	}
 }
 
@@ -300,11 +323,65 @@ func (s *Service) MarkInteractionEscalated(jobID, interactionID string, ts int64
 	return s.meta.MarkInteractionEscalated(jobID, interactionID, ts)
 }
 
-// AnswerInteraction marks a pending interaction answered, records the answer,
-// wakes any waiter, and — when no pending interactions remain — flips the job
-// status back to running (never overriding a terminal status). Errors if job/
-// interaction unknown or the interaction is not pending.
+// AnswerInteraction marks a pending interaction answered WITHOUT attribution — the
+// internal / relay path (worker→local resume, peer-http relay) where the answer was already
+// decided upstream, so answered_by stays "". For an ATTRIBUTED answer (driver / web / CLI)
+// use AnswerInteractionBy; for the L0 rule answerer use AnswerInteractionAuto.
 func (s *Service) AnswerInteraction(jobID, interactionID, answer string) (Interaction, error) {
+	return s.answerInteraction(jobID, interactionID, answer, "")
+}
+
+// AnswerInteractionBy answers an interaction ATTRIBUTED to responder (a driver agent_id;
+// "" = human web/CLI). It is the gated entry (监督分层升级路由 P3.1, design §8.5): when a
+// guard is wired AND responder is non-empty, the派生作答白名单闸 grades the source — owner /
+// human放行, a通用 sup is held to the whitelist (choice + options + allow_prompt_regex);
+// outside it the answer is REFUSED (ErrAnswerNotAllowed) and the interaction stays pending
+// (escalates to a human). answered_by is stamped human (responder=="") or agent:<responder>.
+func (s *Service) AnswerInteractionBy(jobID, interactionID, answer, responder string) (Interaction, error) {
+	if responder != "" && s.answerGuard != nil {
+		jr, _ := s.Get(jobID) // owner column (origin_agent) for source grading
+		if it, ok := s.interactionSnapshot(jobID, interactionID); ok {
+			if err := s.answerGuard.Check(responder, jr.OriginAgent, it.Type, len(it.Options) > 0, it.Prompt); err != nil {
+				return Interaction{}, fmt.Errorf("%w: %s", ErrAnswerNotAllowed, err.Error())
+			}
+		}
+	}
+	by := answeredByHuman
+	if responder != "" {
+		by = answeredByAgentPrefix + responder
+	}
+	return s.answerInteraction(jobID, interactionID, answer, by)
+}
+
+// AnswerInteractionAuto answers an interaction as the L0 built-in rule answerer
+// (监督分层升级路由 P3.2). It is NEVER gated (the rule answerer has its own decide() gate)
+// and stamps answered_by=auto:<policy> (e.g. auto:choice). policy names the rule that fired.
+func (s *Service) AnswerInteractionAuto(jobID, interactionID, answer, policy string) (Interaction, error) {
+	return s.answerInteraction(jobID, interactionID, answer, answeredByAutoPrefix+policy)
+}
+
+// interactionSnapshot returns the current snapshot of one interaction (live or persisted),
+// or ok=false when the job/interaction is unknown. Used by the gate to read the immutable
+// type/prompt/options BEFORE the answer (no lock held; type/prompt/options never change after
+// creation, so this read is race-free for gating).
+func (s *Service) interactionSnapshot(jobID, interactionID string) (Interaction, bool) {
+	list, err := s.GetInteractions(jobID)
+	if err != nil {
+		return Interaction{}, false
+	}
+	for _, it := range list {
+		if it.ID == interactionID {
+			return it, true
+		}
+	}
+	return Interaction{}, false
+}
+
+// answerInteraction marks a pending interaction answered, records the answer + answered_by,
+// wakes any waiter, and — when no pending interactions remain — flips the job status back to
+// running (never overriding a terminal status). Errors if job/interaction unknown or the
+// interaction is not pending. answeredBy ("" = unattributed) is stamped onto the row.
+func (s *Service) answerInteraction(jobID, interactionID, answer, answeredBy string) (Interaction, error) {
 	entry := s.entry(jobID)
 	if entry == nil {
 		return Interaction{}, s.notLiveErr(jobID, "answer")
@@ -333,6 +410,7 @@ func (s *Service) AnswerInteraction(jobID, interactionID, answer string) (Intera
 	rec.data.Status = InteractionAnswered
 	rec.data.Answer = answer
 	rec.data.AnsweredAt = s.nowFn().Unix()
+	rec.data.AnsweredBy = answeredBy
 	out := rec.data
 
 	// Only return the job to running when no other interaction is still pending
@@ -360,6 +438,7 @@ func (s *Service) AnswerInteraction(jobID, interactionID, answer string) (Intera
 	s.recordEvent(jobID, EventInteractionAnswered, map[string]any{
 		"interaction_id": out.ID,
 		"answer":         out.Answer,
+		"answered_by":    out.AnsweredBy,
 	})
 	// Wake any WaitAnswer caller. Closing under no lock is fine: the channel is
 	// closed exactly once (the pending->answered transition is single-shot).

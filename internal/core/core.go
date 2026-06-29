@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/answerguard"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
@@ -108,7 +109,24 @@ func Build(cfg *config.Config) (*Core, error) {
 		time.Duration(cfg.Presence.TTLSec)*time.Second,
 		time.Duration(cfg.Presence.MessageTTLSec)*time.Second,
 	)
+	// 派生作答白名单闸 (监督分层升级路由 P3.1, design §8.5): gate an attributed driver answer at
+	// the SINGLE job.Service chokepoint every answer entry (mcp local/client, http web/CLI)
+	// funnels through, so a通用 sup cannot answer outside the whitelist. Wired unconditionally
+	// (independent of supervisor.enabled — the poller toggle does not affect the answer闸); the
+	// whitelist is the SAME source the L0 answerer reads (cfg.supervisor.allow_prompt_regex), so
+	// L0 auto-answer and L2 sup派生作答 share one policy. Role lookup is presence.Role.
+	jobs.SetAnswerGuard(answerguard.New(supervisorAllowRegex(cfg), pres))
 	return &Core{Cfg: cfg, Projects: projects, Agents: agents, Runners: runners, Store: store, Jobs: jobs, Presence: pres, workflowEngine: eng, Hub: hub}, nil
+}
+
+// supervisorAllowRegex returns the answer闸 / L0 prompt whitelist from cfg.supervisor
+// (监督分层升级路由 P3.1). nil supervisor config ⇒ empty whitelist ⇒ a通用 sup can derive-answer
+// nothing (maximally conservative); owner/human are still放行 by the guard regardless.
+func supervisorAllowRegex(cfg *config.Config) []string {
+	if cfg.Supervisor == nil {
+		return nil
+	}
+	return cfg.Supervisor.AllowPromptRegex
 }
 
 // hubWorkerSelector adapts the ws-worker hub registry to job.WorkerSelector (P2):

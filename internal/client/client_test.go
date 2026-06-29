@@ -625,7 +625,7 @@ func TestAnswerInteractionReturnsUpdated(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	it, err := New(ts.URL, "").AnswerInteraction("job-1", "int-1", "yes")
+	it, err := New(ts.URL, "").AnswerInteraction("job-1", "int-1", "yes", "")
 	if err != nil {
 		t.Fatalf("AnswerInteraction: %v", err)
 	}
@@ -645,7 +645,7 @@ func TestAnswerInteractionUnknownError(t *testing.T) {
 	ts := httptest.NewServer(mux)
 	defer ts.Close()
 
-	it, err := New(ts.URL, "").AnswerInteraction("job-1", "ghost", "x")
+	it, err := New(ts.URL, "").AnswerInteraction("job-1", "ghost", "x", "")
 	if err == nil {
 		t.Fatal("expected 404 error answering unknown interaction")
 	}

@@ -32,6 +32,13 @@ import (
 // stdio). It mirrors the HTTP log endpoint cap (httpapi.maxLogTailBytes).
 const defaultLogTailBytes = 256 * 1024
 
+// envAgentRole names the env var that sets THIS mcp process's self-registered driver role
+// (监督分层升级路由 P3.1). A通用 sup daemon launches its agent's gofer MCP with
+// GOFER_AGENT_ROLE=supervisor so its self-registered driver carries role=supervisor — that
+// is what makes the answer闸 grade its派生作答 against the whitelist (otherwise its answers
+// would be a roleless driver and放行). Unset (normal sessions) → role="" (owner / plain driver).
+const envAgentRole = "GOFER_AGENT_ROLE"
+
 // New builds an MCP server whose gofer_* tools are backed by the given Backend
 // (localBackend for the in-process standalone path, clientBackend for forwarding
 // to a central serve — E28). Handlers own input validation + view projection;
@@ -87,7 +94,7 @@ func newServer(b Backend, originAgent string) *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_answer_interaction",
 		Description: "Answer a pending interaction on a running job so the agent can continue.",
-	}, answerInteractionHandler(b))
+	}, answerInteractionHandler(b, originAgent))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_get_artifacts",
@@ -154,7 +161,9 @@ func Serve(ctx context.Context, b Backend) error {
 // idempotency key is (name, caller_id)). Returns "" on any failure so callers
 // degrade to "no owner stamp" rather than crashing the mcp server.
 func selfRegister(b Backend) string {
-	res, err := b.RegisterAgent(selfRegisterName(), "", "")
+	// Role from GOFER_AGENT_ROLE (P3.1): a sup daemon sets it to "supervisor" so its driver
+	// is graded as a sup by the answer闸; a normal session leaves it unset (role="").
+	res, err := b.RegisterAgent(selfRegisterName(), os.Getenv(envAgentRole), "")
 	if err != nil {
 		return ""
 	}
@@ -460,6 +469,9 @@ type interactionView struct {
 	Answer     string                  `json:"answer,omitempty"`
 	CreatedAt  int64                   `json:"created_at"`
 	AnsweredAt int64                   `json:"answered_at,omitempty"`
+	// AnsweredBy is the审计区分 tag (P3.2): auto:<policy> / agent:<id> / human. Surfaced so
+	// MCP callers (gofer_get_interactions) can tell apart L0/L1·L2/L3 应答来源.
+	AnsweredBy string `json:"answered_by,omitempty"`
 }
 
 // toInteractionView projects a job.Interaction onto the snake_case
@@ -482,6 +494,7 @@ func toInteractionView(it job.Interaction) interactionView {
 		Answer:     it.Answer,
 		CreatedAt:  it.CreatedAt,
 		AnsweredAt: it.AnsweredAt,
+		AnsweredBy: it.AnsweredBy,
 	}
 }
 
@@ -533,9 +546,12 @@ type answerInteractionInput struct {
 	Answer        string `json:"answer"`
 }
 
-func answerInteractionHandler(b Backend) mcp.ToolHandlerFor[answerInteractionInput, interactionView] {
+func answerInteractionHandler(b Backend, originAgent string) mcp.ToolHandlerFor[answerInteractionInput, interactionView] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in answerInteractionInput) (*mcp.CallToolResult, interactionView, error) {
-		it, err := b.AnswerInteraction(in.ID, in.InteractionID, in.Answer)
+		// Attribute the answer to this process's self-registered driver agent_id (P1.0/P3.1):
+		// the answer闸 grades it (owner==origin_agent放行 / role=supervisor 过白名单 / 其他放行).
+		// "" (no self-register, e.g. presence-less New) → unattributed, ungated.
+		it, err := b.AnswerInteraction(in.ID, in.InteractionID, in.Answer, originAgent)
 		if err != nil {
 			return nil, interactionView{}, err
 		}

@@ -136,6 +136,14 @@
 
 **验收**：四类来源应答后 `answered_by` 各异、审计可查；单测断言取值。
 
+### P3 实施结果（2026-06-29）
+
+- **白名单 gate 选型 = B（独立小组件）落在 job.Service 唯一汇聚点**：新包 `internal/answerguard`（不 import job/supervisor/presence，纯 regexp + `RoleLookup` seam），经 `job.AnswerGuard` 接口（仿 `WorkflowAdvancer`/`MetricsSink` 依赖倒置）由 `core.Build` 经 `jobs.SetAnswerGuard` 注入。**未选 A（gate 放 mcpserver 入口）**：client 模式的 answer 直接 HTTP 转发到中央 serve、绕过本地 mcpserver gate，只有 `job.Service.AnswerInteraction*` 是 mcp-local / http(web/CLI) / mcp-client→中央 三条入口共同汇聚点，gate 落此处才无法被入口绕过；role 查询（presence）+ 白名单（supervisor policy）都在中央侧，天然落 job 汇聚点。G022 守住：job 不 import answerguard/presence/supervisor。
+- **应答者身份注入**：`AnswerInteractionBy(jobID,iid,answer,responder)` 为归因入口（gate + `agent:<id>`）；`AnswerInteractionAuto(...,policy)` 为 L0（`auto:<policy>`，不过 gate）；裸 `AnswerInteraction` 保留为内部/relay（answered_by=""）。mcp answer handler 注入 `originAgent`（P1.0 自注册 id）；http 入口读 body `responder`（mcp-client 转发）/空=web/CLI human；peerhttp relay 显式传空。
+- **来源分级**（answerguard.Check）：responder=="" → human 放行；responder==origin_agent → owner 放行；presence role==supervisor 且非 owner → 过白名单（仅 choice+options+regex，confirmation/free-text/非白名单一律拒，回 `ErrAnswerNotAllowed`→HTTP 403，interaction 留 pending）；其余 driver → 放行。
+- **sup 身份生效**：`gofer mcp` 自注册 role 取自 env `GOFER_AGENT_ROLE`（P4a sup daemon 设 `=supervisor`），否则 ""（普通 owner/driver 不被 gate）。
+- 测试：`answerguard`(单元) + `job/answer_gate_test.go`(gate 端到端 + 四源 answered_by) + `mcpserver` e2e(经 MCP 链路 gate) + `jobstore` 旧库迁移 answered_by；`go test ./...` 29 包全绿（P3 新增 answerguard 包）。
+
 ---
 
 ## P4 通用 sup agent server 托管
@@ -187,8 +195,8 @@
 - [x] P1.2 escalate owner-first 路由 + 默认 role-one:supervisor + dedup 落表
 - [x] P2.1 owner 超时兜底（OwnerAnswerTimeout 默认 300s + 跳 L1 投 L2 + fire-once fellBack）
 - [x] P2.2 套娃防护（jobs.role 列 + 路由器识别 sup 源 interaction → 不自动答/不回投 sup；non-interactive 启动模板归 P4a）
-- [ ] P3.1 派生作答白名单约束
-- [ ] P3.2 审计 answered_by
+- [x] P3.1 派生作答白名单约束（独立 answerguard 闸 + job.Service.AnswerInteractionBy 注入 responder + presence.Role 分级；mcp 自注册 role 经 GOFER_AGENT_ROLE 注入）
+- [x] P3.2 审计 answered_by（interactions.answered_by 列：auto:<policy> / agent:<id> / human；DDL+idempotent ALTER+scan/upsert/struct/view 全链路 + E13 事件 detail）
 - [ ] P4a 通用 sup daemon job 文档 + 端到端真机过
 - [ ] P4b serve sup reconciler（完整版/后续）
 - [ ] P5 只读 inbox 端点（可选）

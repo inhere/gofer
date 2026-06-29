@@ -100,6 +100,7 @@ var schemaStmts = []string{
   created_at   INTEGER NOT NULL,
   answered_at  INTEGER,
   escalated_at INTEGER,
+  answered_by  TEXT,
   PRIMARY KEY (job_id, id)
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_inter_job ON interactions(job_id)`,
@@ -418,21 +419,29 @@ func (s *Store) migrateWorkflows() error {
 }
 
 // migrateInteractions adds columns introduced after the初始 interactions schema
-// (additive only, idempotent — probe PRAGMA first). escalated_at（监督分层升级路由
-// P1.1, design §9）承载 escalate dedup 标记 + owner 超时计时：P1.1 仅加列（写入由
-// P1.2/P2.1 落地），旧库经 migrate 自动补全，旧行 COALESCE→0。
+// (additive only, idempotent — probe PRAGMA first). Two columns so far:
+//   - escalated_at（监督分层升级路由 P1.1, design §9）承载 escalate dedup 标记 + owner 超时
+//     计时；旧库经 migrate 自动补全，旧行 COALESCE→0。
+//   - answered_by（监督分层升级路由 P3.2, design §10 审计区分）记录"谁应答"：auto:<policy>
+//     (L0 内置规则器) / agent:<id> (L1 owner / L2 sup) / human (L3 web/CLI)；旧行 COALESCE→""。
 func (s *Store) migrateInteractions() error {
 	cols, err := s.tableColumns("interactions")
 	if err != nil {
 		return err
 	}
-	if _, ok := cols["escalated_at"]; ok {
+	add := func(col, ddl string) error {
+		if _, ok := cols[col]; ok {
+			return nil
+		}
+		if _, e := s.db.Exec("ALTER TABLE interactions ADD COLUMN " + ddl); e != nil {
+			return fmt.Errorf("jobstore: migrate interactions add %s: %w", col, e)
+		}
 		return nil
 	}
-	if _, e := s.db.Exec("ALTER TABLE interactions ADD COLUMN escalated_at INTEGER"); e != nil {
-		return fmt.Errorf("jobstore: migrate interactions add escalated_at: %w", e)
+	if err := add("escalated_at", "escalated_at INTEGER"); err != nil {
+		return err
 	}
-	return nil
+	return add("answered_by", "answered_by TEXT")
 }
 
 // tableColumns returns the set of column names of a table via PRAGMA table_info.

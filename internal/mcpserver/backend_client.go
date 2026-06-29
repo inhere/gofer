@@ -53,8 +53,10 @@ func (b *clientBackend) GetInteractions(id string) ([]job.Interaction, error) {
 	return b.cli.GetInteractions(id)
 }
 
-func (b *clientBackend) AnswerInteraction(id, iid, answer string) (job.Interaction, error) {
-	return b.cli.AnswerInteraction(id, iid, answer)
+func (b *clientBackend) AnswerInteraction(id, iid, answer, responder string) (job.Interaction, error) {
+	// Forward the responder (this client's self-registered driver agent_id) so the central
+	// serve's answer闸 (P3.1) grades the source server-side (presence/whitelist live there).
+	return b.cli.AnswerInteraction(id, iid, answer, responder)
 }
 
 func (b *clientBackend) ListPendingInteractions() ([]job.Interaction, error) {

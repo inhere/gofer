@@ -305,6 +305,19 @@ func (s *Service) List(roleFilter, projectFilter string) ([]Agent, error) {
 	return out, nil
 }
 
+// Role returns the registered role of a driver agent_id (监督派生作答闸 P3.1: the answer
+// path grades a responder by its presence role). The bool is false for an unknown agent_id
+// (pruned/never registered) so the caller treats it as "no role" — it does NOT consult the
+// online TTL (a briefly-offline-but-registered sup must still be graded as a supervisor). It
+// satisfies answerguard.RoleLookup structurally; presence stays import-free of answerguard.
+func (s *Service) Role(agentID string) (string, bool) {
+	rec, found, err := s.store.GetPresence(agentID)
+	if err != nil || !found {
+		return "", false
+	}
+	return rec.Role, true
+}
+
 // Deregister actively removes an agent from the registry after verifying its
 // token. It is idempotent: an unknown agent is treated as already gone (nil).
 func (s *Service) Deregister(agentID, token string) error {

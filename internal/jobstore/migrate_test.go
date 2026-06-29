@@ -138,6 +138,8 @@ func TestFreshOpenHasNewColumnsAndIndex(t *testing.T) {
 	assert.True(t, tableHasColumn(t, s, "jobs", "escalate_to"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "role"))
 	assert.True(t, tableHasColumn(t, s, "interactions", "escalated_at"))
+	// 派生作答审计区分（supervisor-routing P3.2）：新库一次建全 answered_by 列。
+	assert.True(t, tableHasColumn(t, s, "interactions", "answered_by"))
 }
 
 // TestMigrateAddsEscalatedAtToOldInteractions simulates a pre-existing database
@@ -166,13 +168,16 @@ func TestMigrateAddsEscalatedAtToOldInteractions(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.NoErr(t, raw.Close())
 
-	// Re-open via the package: migrate must add escalated_at.
+	// Re-open via the package: migrate must add escalated_at + answered_by (both
+	// post-初始-schema additive columns on interactions).
 	s, err := Open(path)
 	assert.NoErr(t, err)
 	defer s.Close()
 	assert.True(t, tableHasColumn(t, s, "interactions", "escalated_at"))
+	assert.True(t, tableHasColumn(t, s, "interactions", "answered_by"))
 
-	// A pending interaction (no escalated_at set) round-trips; the column reads 0.
+	// A pending interaction (no escalated_at / answered_by set) round-trips; the columns
+	// read 0 / "" (COALESCE) for a row that never set them.
 	rec := InteractionRecord{
 		ID: "i1", JobID: "j1", Type: "question", Prompt: "?",
 		Status: "pending", CreatedAt: 100,
@@ -182,6 +187,20 @@ func TestMigrateAddsEscalatedAtToOldInteractions(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Len(t, got, 1)
 	assert.Eq(t, int64(0), got[0].EscalatedAt)
+	assert.Eq(t, "", got[0].AnsweredBy)
+
+	// An answered interaction round-trips its answered_by tag through the migrated table.
+	assert.NoErr(t, s.UpsertInteraction(InteractionRecord{
+		ID: "i2", JobID: "j1", Type: "choice", Prompt: "pick", Status: "answered",
+		Answer: "json", CreatedAt: 100, AnsweredAt: 200, AnsweredBy: "agent:agt_owner",
+	}))
+	got2, err := s.ListInteractions("j1")
+	assert.NoErr(t, err)
+	for _, r := range got2 {
+		if r.ID == "i2" {
+			assert.Eq(t, "agent:agt_owner", r.AnsweredBy)
+		}
+	}
 }
 
 // TestUpsertGetOutcomeFields covers the round-trip of the 4 产出与审计 columns

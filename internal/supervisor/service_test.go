@@ -34,14 +34,14 @@ func (m *mockJobOps) ListPendingInteractions() ([]job.Interaction, error) {
 	return append([]job.Interaction(nil), m.pending...), nil
 }
 
-func (m *mockJobOps) AnswerInteraction(jobID, interactionID, answer string) (job.Interaction, error) {
+func (m *mockJobOps) AnswerInteractionAuto(jobID, interactionID, answer, policy string) (job.Interaction, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.answerErr != nil {
 		return job.Interaction{}, m.answerErr
 	}
 	m.answers = append(m.answers, answeredCall{jobID, interactionID, answer})
-	return job.Interaction{ID: interactionID, JobID: jobID, Status: job.InteractionAnswered, Answer: answer}, nil
+	return job.Interaction{ID: interactionID, JobID: jobID, Status: job.InteractionAnswered, Answer: answer, AnsweredBy: "auto:" + policy}, nil
 }
 
 // Get returns the recorded job snapshot (owner-first routing). A missing entry yields
