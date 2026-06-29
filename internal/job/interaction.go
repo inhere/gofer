@@ -282,6 +282,24 @@ func (s *Service) ReconcileOrphanJobs() (int, error) {
 	return s.meta.ReconcileOrphanJobs(s.nowFn().Unix(), "orphaned: serve restarted while job was non-terminal")
 }
 
+// MarkInteractionEscalated stamps escalated_at on a pending interaction — the
+// supervisor's escalate dedup + owner-timeout clock (design §8.1/§8.2). It updates the
+// live in-memory rec when the job is still tracked here (so a later AnswerInteraction
+// upsert preserves the stamp instead of resetting it to 0), and always writes the DB
+// row so the cross-process / cross-restart dedup read (ListPendingInteractions) sees
+// it. ts is the escalate moment (unix seconds). Best-effort persistence is the
+// caller's concern; this surfaces the store error so the supervisor can log it.
+func (s *Service) MarkInteractionEscalated(jobID, interactionID string, ts int64) error {
+	if entry := s.entry(jobID); entry != nil {
+		entry.mu.Lock()
+		if rec := findInteraction(entry.interactions, interactionID); rec != nil {
+			rec.data.EscalatedAt = ts
+		}
+		entry.mu.Unlock()
+	}
+	return s.meta.MarkInteractionEscalated(jobID, interactionID, ts)
+}
+
 // AnswerInteraction marks a pending interaction answered, records the answer,
 // wakes any waiter, and — when no pending interactions remain — flips the job
 // status back to running (never overriding a terminal status). Errors if job/

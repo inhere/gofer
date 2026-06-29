@@ -89,6 +89,27 @@ func (s *Store) UpsertInteraction(rec InteractionRecord) error {
 	return nil
 }
 
+// MarkInteractionEscalated stamps escalated_at on one interaction row — the
+// supervisor's owner-first routing dedup + owner-timeout clock (P1.2 / design §9). It
+// is a TARGETED UPDATE (not a full upsert) so it touches only escalated_at and never
+// clobbers status/answer written elsewhere; an unknown (job_id, id) is a silent no-op
+// (0 rows). Writes go through writeMu like every other writer so SQLite never sees two
+// concurrent writers.
+func (s *Store) MarkInteractionEscalated(jobID, interactionID string, ts int64) error {
+	if jobID == "" || interactionID == "" {
+		return errors.New("jobstore: MarkInteractionEscalated: empty job/interaction id")
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(
+		`UPDATE interactions SET escalated_at=? WHERE job_id=? AND id=?`,
+		ts, jobID, interactionID,
+	); err != nil {
+		return fmt.Errorf("jobstore: mark interaction %q/%q escalated: %w", jobID, interactionID, err)
+	}
+	return nil
+}
+
 // ListInteractions returns the interactions for a job in creation order
 // (created_at asc, id asc as a stable tiebreaker). A job with no interactions
 // yields an empty slice and no error.

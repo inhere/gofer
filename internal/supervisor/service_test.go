@@ -8,16 +8,24 @@ import (
 	"github.com/inhere/gofer/internal/job"
 )
 
-// mockJobOps is a programmable JobOps: it returns a fixed pending list and records
-// every AnswerInteraction call (optionally returning a forced error).
+// mockJobOps is a programmable JobOps: it returns a fixed pending list, an optional
+// per-job snapshot map (owner-first routing), and records every AnswerInteraction /
+// MarkInteractionEscalated call (optionally returning a forced answer error).
 type mockJobOps struct {
 	mu        sync.Mutex
 	pending   []job.Interaction
+	jobs      map[string]job.JobResult // jobID -> snapshot (OriginAgent/EscalateTo)
 	answers   []answeredCall
 	answerErr error
+	escalated []escalatedCall // MarkInteractionEscalated calls (dedup落表)
 }
 
 type answeredCall struct{ jobID, interactionID, answer string }
+
+type escalatedCall struct {
+	jobID, interactionID string
+	ts                   int64
+}
 
 func (m *mockJobOps) ListPendingInteractions() ([]job.Interaction, error) {
 	m.mu.Lock()
@@ -35,10 +43,35 @@ func (m *mockJobOps) AnswerInteraction(jobID, interactionID, answer string) (job
 	return job.Interaction{ID: interactionID, JobID: jobID, Status: job.InteractionAnswered, Answer: answer}, nil
 }
 
-// mockPresence records every Post (escalation).
+// Get returns the recorded job snapshot (owner-first routing). A missing entry yields
+// the zero JobResult + false, mirroring job.Service.Get for a non-MCP job (no owner).
+func (m *mockJobOps) Get(jobID string) (job.JobResult, bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	r, ok := m.jobs[jobID]
+	return r, ok
+}
+
+// MarkInteractionEscalated records the dedup stamp and reflects it into the pending
+// list, so a later tick sees EscalatedAt>0 — the DB-backed dedup the real store does.
+func (m *mockJobOps) MarkInteractionEscalated(jobID, interactionID string, ts int64) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.escalated = append(m.escalated, escalatedCall{jobID, interactionID, ts})
+	for i := range m.pending {
+		if m.pending[i].JobID == jobID && m.pending[i].ID == interactionID {
+			m.pending[i].EscalatedAt = ts
+		}
+	}
+	return nil
+}
+
+// mockPresence records every Post (escalation). deliver, when set, returns the
+// delivered count per target (to simulate an unreachable owner); nil → always 1.
 type mockPresence struct {
-	mu    sync.Mutex
-	posts []postCall
+	mu      sync.Mutex
+	posts   []postCall
+	deliver func(to string) int
 }
 
 type postCall struct{ from, to, kind, body, ref string }
@@ -47,6 +80,9 @@ func (m *mockPresence) Post(from, to, kind, body, ref string) (int, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.posts = append(m.posts, postCall{from, to, kind, body, ref})
+	if m.deliver != nil {
+		return m.deliver(to), nil
+	}
 	return 1, nil
 }
 
@@ -81,7 +117,7 @@ func TestDecideEscalatesConfirmationAndQuestion(t *testing.T) {
 		t.Fatalf("expected 2 escalations, got %d", len(pres.posts))
 	}
 	for _, p := range pres.posts {
-		if p.kind != escalateKind || p.to != "role:supervisor" {
+		if p.kind != escalateKind || p.to != "role-one:supervisor" {
 			t.Fatalf("bad escalation: %+v", p)
 		}
 	}
@@ -201,4 +237,118 @@ func TestDisabledRunReturns(t *testing.T) {
 	jobs := &mockJobOps{}
 	s := NewService(jobs, &mockPresence{}, Policy{Enabled: false})
 	s.Run(context.Background()) // must return immediately (no hang)
+}
+
+// confirmIt builds a pending confirmation interaction (always escalated by decide).
+func confirmIt(id, jobID string) job.Interaction {
+	return job.Interaction{ID: id, JobID: jobID, Type: job.InteractionTypeConfirmation, Prompt: "ok?", Status: job.InteractionPending}
+}
+
+// TestEscalateOwnerFirst covers the §8.1 owner-first routing: an interaction is routed
+// to its job's origin agent first (BARE agent_id, not "agent:"-prefixed), falls back to
+// the policy default when there is no owner / the owner is unreachable, stops at the
+// first delivered target, and is deduped across ticks via interactions.escalated_at.
+func TestEscalateOwnerFirst(t *testing.T) {
+	const policyTo = "role-one:supervisor"
+
+	t.Run("owner_present_routes_to_owner", func(t *testing.T) {
+		jobs := &mockJobOps{
+			pending: []job.Interaction{confirmIt("c1", "j1")},
+			jobs:    map[string]job.JobResult{"j1": {ID: "j1", OriginAgent: "agt_owner"}},
+		}
+		pres := &mockPresence{}
+		s := newSvc(jobs, pres, Policy{AutoAnswer: true, AllowPromptRegex: []string{".*"}, EscalateTo: policyTo})
+		s.tick(context.Background())
+
+		if len(pres.posts) != 1 || pres.posts[0].to != "agt_owner" {
+			t.Fatalf("owner-first must direct-投 the BARE owner agent_id: %+v", pres.posts)
+		}
+		if len(jobs.escalated) != 1 || jobs.escalated[0].interactionID != "c1" || jobs.escalated[0].ts == 0 {
+			t.Fatalf("a delivered escalation must stamp escalated_at: %+v", jobs.escalated)
+		}
+	})
+
+	t.Run("owner_empty_routes_to_policy", func(t *testing.T) {
+		// No jobs entry → Get returns false → empty owner cols → policy default only.
+		jobs := &mockJobOps{pending: []job.Interaction{confirmIt("c1", "j1")}}
+		pres := &mockPresence{}
+		s := newSvc(jobs, pres, Policy{AutoAnswer: true, AllowPromptRegex: []string{".*"}, EscalateTo: policyTo})
+		s.tick(context.Background())
+
+		if len(pres.posts) != 1 || pres.posts[0].to != policyTo {
+			t.Fatalf("empty owner must route to the policy default: %+v", pres.posts)
+		}
+	})
+
+	t.Run("first_delivered_stops_at_owner", func(t *testing.T) {
+		// Owner + job-level override + policy all reachable: only the owner is tried.
+		jobs := &mockJobOps{
+			pending: []job.Interaction{confirmIt("c1", "j1")},
+			jobs:    map[string]job.JobResult{"j1": {ID: "j1", OriginAgent: "agt_owner", EscalateTo: "role-one:other"}},
+		}
+		pres := &mockPresence{}
+		s := newSvc(jobs, pres, Policy{AutoAnswer: true, AllowPromptRegex: []string{".*"}, EscalateTo: policyTo})
+		s.tick(context.Background())
+
+		if len(pres.posts) != 1 || pres.posts[0].to != "agt_owner" {
+			t.Fatalf("first delivered target must stop the chain at the owner: %+v", pres.posts)
+		}
+	})
+
+	t.Run("owner_unreachable_falls_to_policy", func(t *testing.T) {
+		// Owner delivers 0 (offline + pruned) → fall through to the policy default.
+		jobs := &mockJobOps{
+			pending: []job.Interaction{confirmIt("c1", "j1")},
+			jobs:    map[string]job.JobResult{"j1": {ID: "j1", OriginAgent: "agt_gone"}},
+		}
+		pres := &mockPresence{deliver: func(to string) int {
+			if to == "agt_gone" {
+				return 0
+			}
+			return 1
+		}}
+		s := newSvc(jobs, pres, Policy{AutoAnswer: true, AllowPromptRegex: []string{".*"}, EscalateTo: policyTo})
+		s.tick(context.Background())
+
+		if len(pres.posts) != 2 {
+			t.Fatalf("must try owner then policy, got %d posts: %+v", len(pres.posts), pres.posts)
+		}
+		if pres.posts[0].to != "agt_gone" || pres.posts[1].to != policyTo {
+			t.Fatalf("fallback order wrong: %+v", pres.posts)
+		}
+		if len(jobs.escalated) != 1 {
+			t.Fatalf("the delivered (policy) escalation must stamp escalated_at: %+v", jobs.escalated)
+		}
+	})
+
+	t.Run("no_recipient_leaves_pending_unstamped", func(t *testing.T) {
+		// Owner gone AND no online sup → delivered=0 everywhere: not stamped, retries.
+		jobs := &mockJobOps{
+			pending: []job.Interaction{confirmIt("c1", "j1")},
+			jobs:    map[string]job.JobResult{"j1": {ID: "j1", OriginAgent: "agt_gone"}},
+		}
+		pres := &mockPresence{deliver: func(string) int { return 0 }}
+		s := newSvc(jobs, pres, Policy{AutoAnswer: true, AllowPromptRegex: []string{".*"}, EscalateTo: policyTo})
+		s.tick(context.Background())
+
+		if len(jobs.escalated) != 0 {
+			t.Fatalf("an undelivered escalation must NOT stamp escalated_at: %+v", jobs.escalated)
+		}
+	})
+
+	t.Run("dedup_across_ticks", func(t *testing.T) {
+		jobs := &mockJobOps{
+			pending: []job.Interaction{confirmIt("c1", "j1")},
+			jobs:    map[string]job.JobResult{"j1": {ID: "j1", OriginAgent: "agt_owner"}},
+		}
+		pres := &mockPresence{}
+		s := newSvc(jobs, pres, Policy{AutoAnswer: true, AllowPromptRegex: []string{".*"}, EscalateTo: policyTo})
+		s.tick(context.Background())
+		s.tick(context.Background()) // escalated_at now set → skipped
+		s.tick(context.Background())
+
+		if len(pres.posts) != 1 {
+			t.Fatalf("escalated_at dedup failed: escalated %d times, want 1", len(pres.posts))
+		}
+	})
 }
