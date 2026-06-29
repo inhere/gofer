@@ -160,7 +160,7 @@ func TestRunJobInputSchemaSnakeCase(t *testing.T) {
 	if err := json.Unmarshal(b, &schema); err != nil {
 		t.Fatalf("unmarshal input schema: %v", err)
 	}
-	for _, key := range []string{"project_key", "timeout_sec", "role", "system_prompt"} {
+	for _, key := range []string{"project_key", "timeout_sec", "role", "system_prompt", "origin_agent", "escalate_to"} {
 		if _, ok := schema.Properties[key]; !ok {
 			t.Fatalf("input schema missing snake_case property %q; properties=%v", key, schema.Properties)
 		}
@@ -254,6 +254,60 @@ func TestRunJobAndGet(t *testing.T) {
 	structured(t, getRes, &got)
 	if got.Status != job.StatusDone || got.ExitCode != 0 {
 		t.Fatalf("expected done/exit 0, got status=%s exit=%d", got.Status, got.ExitCode)
+	}
+}
+
+// TestRunJobOriginAgentRoundTrip proves the supervisor-routing owner fields
+// (origin_agent / escalate_to, P1.1) flow from the MCP run_job input through
+// JobRequest → submit → persist and read back via get_job (jobView). P1.1 only
+// 透传 the explicit input; the routing改写 is P1.2.
+func TestRunJobOriginAgentRoundTrip(t *testing.T) {
+	session, jobs := connect(t)
+
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "gofer_run_job",
+		Arguments: map[string]any{
+			"project_key":  "self",
+			"agent":        "exec",
+			"runner":       "local",
+			"cmd":          []string{"go", "version"},
+			"cwd":          ".",
+			"timeout_sec":  30,
+			"origin_agent": "agt_owner_1",
+			"escalate_to":  "role-one:supervisor",
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool run_job: %v", err)
+	}
+	var created jobView
+	structured(t, res, &created)
+	if created.ID == "" {
+		t.Fatalf("run_job returned no id: %+v", created)
+	}
+	if created.OriginAgent != "agt_owner_1" || created.EscalateTo != "role-one:supervisor" {
+		t.Fatalf("run_job did not echo owner routing: %+v", created)
+	}
+
+	// Drive to terminal, then re-query through get_job (DB read path) to confirm
+	// the values round-tripped through persistence (fromRecord), not just memory.
+	if _, ok := jobs.Wait(created.ID); !ok {
+		t.Fatalf("Wait: job %s not found", created.ID)
+	}
+	getRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "gofer_get_job",
+		Arguments: map[string]any{"id": created.ID},
+	})
+	if err != nil {
+		t.Fatalf("CallTool get_job: %v", err)
+	}
+	var got jobView
+	structured(t, getRes, &got)
+	if got.OriginAgent != "agt_owner_1" {
+		t.Fatalf("get_job origin_agent = %q, want agt_owner_1", got.OriginAgent)
+	}
+	if got.EscalateTo != "role-one:supervisor" {
+		t.Fatalf("get_job escalate_to = %q, want role-one:supervisor", got.EscalateTo)
 	}
 }
 

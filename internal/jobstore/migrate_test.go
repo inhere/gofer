@@ -85,6 +85,10 @@ func TestMigrateAddsColumnsToOldDB(t *testing.T) {
 	// 提交来源（provenance）：旧库经 migrate 必须补全 channel / client 列。
 	assert.True(t, tableHasColumn(t, s, "jobs", "channel"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "client"))
+	// 监督分层升级路由（supervisor-routing P1.1）：旧库经 migrate 必须补全 origin_agent /
+	// escalate_to 列。
+	assert.True(t, tableHasColumn(t, s, "jobs", "origin_agent"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "escalate_to"))
 
 	// The migrated DB is usable: a job with a request_id round-trips.
 	rec := sampleJob("j1", "proj", 100)
@@ -127,6 +131,55 @@ func TestFreshOpenHasNewColumnsAndIndex(t *testing.T) {
 	assert.True(t, tableHasColumn(t, s, "jobs", "tags_json"))
 	// session 捕获：新库一次建全 session_id 列。
 	assert.True(t, tableHasColumn(t, s, "jobs", "session_id"))
+	// 监督分层升级路由（supervisor-routing P1.1）：新库一次建全 origin_agent / escalate_to 列，
+	// interactions 一次建全 escalated_at 列。
+	assert.True(t, tableHasColumn(t, s, "jobs", "origin_agent"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "escalate_to"))
+	assert.True(t, tableHasColumn(t, s, "interactions", "escalated_at"))
+}
+
+// TestMigrateAddsEscalatedAtToOldInteractions simulates a pre-existing database
+// whose interactions table lacks the escalated_at column (added in
+// supervisor-routing P1.1). Re-Open must additively ALTER ADD it, and an
+// interaction round-trips through the migrated table with escalated_at defaulting
+// to 0 (COALESCE) for a row that never set it.
+func TestMigrateAddsEscalatedAtToOldInteractions(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old-inter.db")
+
+	// Build a minimal "old" interactions table lacking escalated_at, then close.
+	raw, err := sql.Open("sqlite", "file:"+path)
+	assert.NoErr(t, err)
+	_, err = raw.Exec(`CREATE TABLE interactions (
+	  id           TEXT NOT NULL,
+	  job_id       TEXT NOT NULL,
+	  type         TEXT NOT NULL,
+	  prompt       TEXT NOT NULL,
+	  options_json TEXT,
+	  status       TEXT NOT NULL,
+	  answer       TEXT,
+	  created_at   INTEGER NOT NULL,
+	  answered_at  INTEGER,
+	  PRIMARY KEY (job_id, id)
+	)`)
+	assert.NoErr(t, err)
+	assert.NoErr(t, raw.Close())
+
+	// Re-open via the package: migrate must add escalated_at.
+	s, err := Open(path)
+	assert.NoErr(t, err)
+	defer s.Close()
+	assert.True(t, tableHasColumn(t, s, "interactions", "escalated_at"))
+
+	// A pending interaction (no escalated_at set) round-trips; the column reads 0.
+	rec := InteractionRecord{
+		ID: "i1", JobID: "j1", Type: "question", Prompt: "?",
+		Status: "pending", CreatedAt: 100,
+	}
+	assert.NoErr(t, s.UpsertInteraction(rec))
+	got, err := s.ListInteractions("j1")
+	assert.NoErr(t, err)
+	assert.Len(t, got, 1)
+	assert.Eq(t, int64(0), got[0].EscalatedAt)
 }
 
 // TestUpsertGetOutcomeFields covers the round-trip of the 4 产出与审计 columns

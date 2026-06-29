@@ -25,13 +25,18 @@ type InteractionRecord struct {
 	Answer      string
 	CreatedAt   int64
 	AnsweredAt  int64
+	// EscalatedAt 是该 interaction 被 escalate（投递给上层应答者）的 unix 秒时间戳（监督分层
+	// 升级路由 P1.1, design §9）：承载 escalate dedup 标记 + owner 超时计时。0 表示尚未
+	// escalate（旧库/未升级，COALESCE→0）。P1.1 仅落列 + 读出，写入由 P1.2/P2.1 落地。
+	EscalatedAt int64
 }
 
 // selectInterCols is the shared projection for ListInteractions. COALESCE guards
 // the nullable columns (options_json/answer/answered_at) so a NULL scans into the
 // zero value instead of failing the scan, mirroring jobs.selectCols.
 const selectInterCols = `SELECT id, job_id, type, prompt, COALESCE(options_json,''),
-  status, COALESCE(answer,''), created_at, COALESCE(answered_at,0)
+  status, COALESCE(answer,''), created_at, COALESCE(answered_at,0),
+  COALESCE(escalated_at,0)
   FROM interactions`
 
 // scanInteraction reads one row (in selectInterCols order) into an InteractionRecord.
@@ -40,6 +45,7 @@ func scanInteraction(sc rowScanner) (InteractionRecord, error) {
 	err := sc.Scan(
 		&r.ID, &r.JobID, &r.Type, &r.Prompt, &r.OptionsJSON,
 		&r.Status, &r.Answer, &r.CreatedAt, &r.AnsweredAt,
+		&r.EscalatedAt,
 	)
 	return r, err
 }
@@ -58,8 +64,9 @@ func (s *Store) UpsertInteraction(rec InteractionRecord) error {
 		return errors.New("jobstore: UpsertInteraction: empty job id")
 	}
 	const q = `INSERT INTO interactions
-  (id, job_id, type, prompt, options_json, status, answer, created_at, answered_at)
-  VALUES (?,?,?,?,?,?,?,?,?)
+  (id, job_id, type, prompt, options_json, status, answer, created_at, answered_at,
+   escalated_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(job_id, id) DO UPDATE SET
     type=excluded.type,
     prompt=excluded.prompt,
@@ -67,12 +74,14 @@ func (s *Store) UpsertInteraction(rec InteractionRecord) error {
     status=excluded.status,
     answer=excluded.answer,
     created_at=excluded.created_at,
-    answered_at=excluded.answered_at`
+    answered_at=excluded.answered_at,
+    escalated_at=excluded.escalated_at`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	_, err := s.db.Exec(q,
 		rec.ID, rec.JobID, rec.Type, rec.Prompt, rec.OptionsJSON,
 		rec.Status, rec.Answer, rec.CreatedAt, rec.AnsweredAt,
+		rec.EscalatedAt,
 	)
 	if err != nil {
 		return fmt.Errorf("jobstore: upsert interaction %q/%q: %w", rec.JobID, rec.ID, err)
@@ -118,7 +127,8 @@ var pendingInteractionTerminalJobStatuses = []string{"done", "failed", "cancelle
 func (s *Store) ListPendingInteractions() ([]InteractionRecord, error) {
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(pendingInteractionTerminalJobStatuses)), ",")
 	q := `SELECT i.id, i.job_id, i.type, i.prompt, COALESCE(i.options_json,''),
-  i.status, COALESCE(i.answer,''), i.created_at, COALESCE(i.answered_at,0)
+  i.status, COALESCE(i.answer,''), i.created_at, COALESCE(i.answered_at,0),
+  COALESCE(i.escalated_at,0)
   FROM interactions i JOIN jobs j ON i.job_id = j.id
   WHERE i.status = 'pending' AND j.status NOT IN (` + placeholders + `)
   ORDER BY i.created_at ASC, i.id ASC`

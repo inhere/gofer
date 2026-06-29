@@ -88,6 +88,10 @@ func (s *Service) ResumeJob(jobID, prompt, runner, callerID string) (JobResult, 
 		// 续接沿用源 job 的提交来源（provenance），保留会话链的原始渠道/来源主机。
 		Channel: src.Channel,
 		Client:  src.Client,
+		// 续接沿用源 job 的 owner 路由（supervisor-routing P1.1），续接 job 的 escalation
+		// 仍回投原 owner。
+		OriginAgent: src.OriginAgent,
+		EscalateTo:  src.EscalateTo,
 	})
 }
 

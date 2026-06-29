@@ -82,7 +82,9 @@ var schemaStmts = []string{
   step_index       INTEGER,
   session_id       TEXT,
   channel          TEXT,
-  client           TEXT
+  client           TEXT,
+  origin_agent     TEXT,
+  escalate_to      TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -96,6 +98,7 @@ var schemaStmts = []string{
   answer       TEXT,
   created_at   INTEGER NOT NULL,
   answered_at  INTEGER,
+  escalated_at INTEGER,
   PRIMARY KEY (job_id, id)
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_inter_job ON interactions(job_id)`,
@@ -346,7 +349,18 @@ func (s *Store) migrate() error {
 	if err := add("client", "client TEXT"); err != nil { // 来源主机/IP
 		return err
 	}
+	// 监督分层升级路由（supervisor-routing P1.1）：origin_agent=发起该 job 的主 agent（owner，
+	// L1 路由用），escalate_to=可选 job 级 escalate 覆盖。旧库 ALTER ADD，旧行 COALESCE→""。
+	if err := add("origin_agent", "origin_agent TEXT"); err != nil { // 发起 owner agent_id
+		return err
+	}
+	if err := add("escalate_to", "escalate_to TEXT"); err != nil { // job 级 escalate 覆盖
+		return err
+	}
 	if err := s.migrateWorkflows(); err != nil {
+		return err
+	}
+	if err := s.migrateInteractions(); err != nil {
 		return err
 	}
 	// Partial unique index: only non-empty request_id values are constrained, so
@@ -392,6 +406,24 @@ func (s *Store) migrateWorkflows() error {
 	}
 	if err := add("parent_step_index", "parent_step_index INTEGER"); err != nil {
 		return err
+	}
+	return nil
+}
+
+// migrateInteractions adds columns introduced after the初始 interactions schema
+// (additive only, idempotent — probe PRAGMA first). escalated_at（监督分层升级路由
+// P1.1, design §9）承载 escalate dedup 标记 + owner 超时计时：P1.1 仅加列（写入由
+// P1.2/P2.1 落地），旧库经 migrate 自动补全，旧行 COALESCE→0。
+func (s *Store) migrateInteractions() error {
+	cols, err := s.tableColumns("interactions")
+	if err != nil {
+		return err
+	}
+	if _, ok := cols["escalated_at"]; ok {
+		return nil
+	}
+	if _, e := s.db.Exec("ALTER TABLE interactions ADD COLUMN escalated_at INTEGER"); e != nil {
+		return fmt.Errorf("jobstore: migrate interactions add escalated_at: %w", e)
 	}
 	return nil
 }
