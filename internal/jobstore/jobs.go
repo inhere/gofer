@@ -253,6 +253,41 @@ func (s *Store) GetJobByRequestID(reqID string) (JobRecord, bool, error) {
 	return rec, true, nil
 }
 
+// nonTerminalJobStatuses are the live states a job can be left in by a serve that
+// died / restarted mid-flight. Mirrors the job package's non-terminal set (the
+// complement of terminalStatuses). Kept local so jobstore never imports job.
+var nonTerminalJobStatuses = []string{"queued", "running"}
+
+// ReconcileOrphanJobs marks every job still in a non-terminal state as failed — the
+// crash-recovery backstop (mirrors ReconcileOrphanInteractions). A job left
+// "queued"/"running" in the store by a previous serve instance can never reach a
+// real terminal state on its own: the in-memory orchestration that drove it (the
+// dispatch entry / worker sink) did not survive the restart, so even a worker that
+// keeps executing has nowhere to report back. Run ONCE at serve startup, before new
+// work is accepted, so the in-memory map is empty and no live job can be misclassified.
+// ts stamps ended_at/updated_at; reason is recorded in the error column. Returns rows fixed.
+func (s *Store) ReconcileOrphanJobs(ts int64, reason string) (int, error) {
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(nonTerminalJobStatuses)), ",")
+	q := `UPDATE jobs SET status = 'failed', error = ?, ended_at = ?, updated_at = ?
+  WHERE status IN (` + placeholders + `)`
+	args := make([]any, 0, len(nonTerminalJobStatuses)+3)
+	args = append(args, reason, ts, ts)
+	for _, st := range nonTerminalJobStatuses {
+		args = append(args, st)
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(q, args...)
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: reconcile orphan jobs: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: reconcile orphan jobs rows: %w", err)
+	}
+	return int(n), nil
+}
+
 // ListJobs returns job records matching q, newest first (started_at desc, id
 // desc as a stable tiebreaker), with DB-side filtering, ordering and pagination.
 func (s *Store) ListJobs(q ListQuery) ([]JobRecord, error) {
