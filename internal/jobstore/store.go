@@ -84,7 +84,8 @@ var schemaStmts = []string{
   channel          TEXT,
   client           TEXT,
   origin_agent     TEXT,
-  escalate_to      TEXT
+  escalate_to      TEXT,
+  role             TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -355,6 +356,12 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := add("escalate_to", "escalate_to TEXT"); err != nil { // job 级 escalate 覆盖
+		return err
+	}
+	// 套娃防护（supervisor-routing P2.2）：role=该 job 的角色预设名（如 supervisor）。监督路由器
+	// 据此识别"supervisor 自身产生的 interaction"，对其永不自动答/回投 sup（防死循环），留人（L3）。
+	// 旧库 ALTER ADD，旧行 COALESCE→""。
+	if err := add("role", "role TEXT"); err != nil { // job 角色预设（套娃判定）
 		return err
 	}
 	if err := s.migrateWorkflows(); err != nil {

@@ -63,6 +63,11 @@ type SupervisorConfig struct {
 	EscalateTo       string   `yaml:"escalate_to"`
 	MaxRoundsPerJob  int      `yaml:"max_rounds_per_job"`
 	AllowPromptRegex []string `yaml:"allow_prompt_regex"`
+	// OwnerAnswerTimeoutSec bounds how long an interaction may sit escalated to its
+	// owner (L1) before the router falls it back past the owner to the global sup
+	// (L2) — the owner is会话式 and may have ended without answering (design §8.2,
+	// supervisor-routing P2.1). <=0 applies the default (300s) in NewService.
+	OwnerAnswerTimeoutSec int `yaml:"owner_answer_timeout_sec"`
 }
 
 // RoleConfig is one named role preset (design §8.5). Agent is the base CLI agent

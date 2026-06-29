@@ -57,6 +57,8 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		// 监督分层升级路由（supervisor-routing P1.1）：owner agent_id + 可选 job 级覆盖。
 		OriginAgent: r.OriginAgent,
 		EscalateTo:  r.EscalateTo,
+		// 套娃防护（supervisor-routing P2.2）：角色预设名（如 supervisor），路由器据此识别 sup 自身的 interaction。
+		Role: r.Role,
 	}
 }
 
@@ -125,6 +127,8 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		// 监督分层升级路由（supervisor-routing P1.1）：owner agent_id + 可选 job 级覆盖。
 		OriginAgent: rec.OriginAgent,
 		EscalateTo:  rec.EscalateTo,
+		// 套娃防护（supervisor-routing P2.2）：角色预设名，路由器据此识别 sup 自身的 interaction。
+		Role: rec.Role,
 	}
 }
 

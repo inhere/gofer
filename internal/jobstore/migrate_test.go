@@ -86,9 +86,10 @@ func TestMigrateAddsColumnsToOldDB(t *testing.T) {
 	assert.True(t, tableHasColumn(t, s, "jobs", "channel"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "client"))
 	// 监督分层升级路由（supervisor-routing P1.1）：旧库经 migrate 必须补全 origin_agent /
-	// escalate_to 列。
+	// escalate_to 列；套娃防护（P2.2）补全 role 列。
 	assert.True(t, tableHasColumn(t, s, "jobs", "origin_agent"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "escalate_to"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "role"))
 
 	// The migrated DB is usable: a job with a request_id round-trips.
 	rec := sampleJob("j1", "proj", 100)
@@ -132,9 +133,10 @@ func TestFreshOpenHasNewColumnsAndIndex(t *testing.T) {
 	// session 捕获：新库一次建全 session_id 列。
 	assert.True(t, tableHasColumn(t, s, "jobs", "session_id"))
 	// 监督分层升级路由（supervisor-routing P1.1）：新库一次建全 origin_agent / escalate_to 列，
-	// interactions 一次建全 escalated_at 列。
+	// interactions 一次建全 escalated_at 列；套娃防护（P2.2）一次建全 role 列。
 	assert.True(t, tableHasColumn(t, s, "jobs", "origin_agent"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "escalate_to"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "role"))
 	assert.True(t, tableHasColumn(t, s, "interactions", "escalated_at"))
 }
 

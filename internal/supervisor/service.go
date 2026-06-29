@@ -62,6 +62,19 @@ const (
 	// supervisor-routing P1.2.
 	DefaultEscalateTo = "role-one:supervisor"
 
+	// DefaultOwnerAnswerTimeout bounds how long an interaction may sit escalated to
+	// its owner (L1) before the router falls it back to the global sup (L2). The
+	// owner is会话式 and may have ended without answering (design §8.2 / §5.4); the
+	// fallback keeps the chain converging instead of悬死. Applied when the policy
+	// leaves OwnerAnswerTimeout <=0 (supervisor-routing P2.1).
+	DefaultOwnerAnswerTimeout = 5 * time.Minute
+
+	// roleSupervisor is the E35 role-preset name of a通用 sup job. The router must
+	// NEVER auto-answer or re-escalate an interaction whose own job carries this role
+	// (it would route the sup's question back to a sup → 死循环): such interactions
+	// go straight to a human (L3). See decide/tick套娃防护 (design §8.4, P2.2).
+	roleSupervisor = "supervisor"
+
 	escalateKind = "escalation"
 	systemFrom   = "system"
 )
@@ -76,6 +89,10 @@ type Policy struct {
 	EscalateTo       string // a to-spec ("role-one:supervisor" | "role:..." | a concrete agent_id); default DefaultEscalateTo
 	MaxRoundsPerJob  int
 	AllowPromptRegex []string
+	// OwnerAnswerTimeout is how long an interaction may sit escalated to its owner
+	// (L1) before the router falls it back past the owner to the global sup (L2,
+	// design §8.2, P2.1). <=0 applies DefaultOwnerAnswerTimeout in NewService.
+	OwnerAnswerTimeout time.Duration
 }
 
 // action is the decision for one pending interaction.
@@ -98,6 +115,13 @@ type Service struct {
 
 	mu     sync.Mutex
 	rounds map[string]int // job id -> interactions handled (auto+escalate)
+	// fellBack tracks interactions (keyed job_id#interaction_id) already fallen back
+	// past their owner to the sup on an owner-answer timeout (P2.1). It makes that
+	// fallback fire AT MOST ONCE so the router does not re-post to the sup inbox every
+	// timeout window (反复 fallback); a sup that then doesn't answer is left for a human
+	// (L3). In-memory only (like rounds): a serve restart at worst re-posts once more
+	// (偏安全方向), the persisted escalated_at already keeping the pre-fallback clock continuous.
+	fellBack map[string]bool
 }
 
 // NewService builds a Service, applying defaults for a zero Interval / MaxRounds /
@@ -112,6 +136,9 @@ func NewService(jobs JobOps, presence PresenceOps, policy Policy) *Service {
 	}
 	if policy.EscalateTo == "" {
 		policy.EscalateTo = DefaultEscalateTo
+	}
+	if policy.OwnerAnswerTimeout <= 0 {
+		policy.OwnerAnswerTimeout = DefaultOwnerAnswerTimeout
 	}
 	var pats []*regexp.Regexp
 	for _, p := range policy.AllowPromptRegex {
@@ -129,6 +156,7 @@ func NewService(jobs JobOps, presence PresenceOps, policy Policy) *Service {
 		patterns: pats,
 		nowFn:    time.Now,
 		rounds:   map[string]int{},
+		fellBack: map[string]bool{},
 	}
 }
 
@@ -161,19 +189,73 @@ func (s *Service) tick(_ context.Context) {
 		slog.Warn("supervisor: list pending interactions failed", "err", err)
 		return
 	}
+	now := s.nowFn().Unix()
 	for _, it := range list {
-		// Dedup via the persisted interactions.escalated_at (replaces the in-memory
-		// escalated map): a non-zero stamp means a prior tick — this process OR a
-		// previous serve — already routed it to a human/owner, so skip until answered.
-		if it.EscalatedAt > 0 {
+		// One Get per interaction supplies both the套娃 role check and the owner
+		// routing columns (avoids a second Get inside escalate). Unknown id → zero
+		// JobResult (empty role + owner cols) → routes to the global policy.
+		jr, _ := s.jobs.Get(it.JobID)
+
+		// P2.2 套娃防护 (design §8.4): an interaction whose OWN job is a supervisor must
+		// NEVER be auto-answered nor re-escalated to a sup inbox (a sup answering a sup
+		// → 死循环). Leave it pending for a human (L3); never stamp escalated_at.
+		if jr.Role == roleSupervisor {
 			continue
 		}
+
+		if it.EscalatedAt > 0 {
+			// Already routed once (escalated_at persisted, dedup across ticks / a serve
+			// restart). The only further AUTOMATIC action is the P2.1 owner-answer
+			// timeout fallback (fire-once); otherwise skip until the interaction is answered.
+			s.maybeOwnerTimeoutFallback(it, jr, now)
+			continue
+		}
+
 		switch s.decide(it) {
 		case actionAutoAnswer:
 			s.autoAnswer(it)
 		default:
-			s.escalate(it)
+			s.escalate(it, jr, false)
 		}
+	}
+}
+
+// maybeOwnerTimeoutFallback re-routes a still-pending interaction past its owner
+// (L1) to the global sup (L2) when the owner did not answer within
+// OwnerAnswerTimeout — the owner is会话式 and may have ended (design §8.2, P2.1). It
+// is deliberately FIRE-ONCE (fellBack), set only after a delivered fallback, so it
+// never loops back to the sup每 window (反复 fallback); if the sup then also doesn't
+// answer, a human (L3) takes it. It is a no-op when:
+//   - there was no owner to time out (jr.OriginAgent==""): the first escalation
+//     already went to the sup, so re-posting is pointless;
+//   - the owner is still within its answer window (now-escalated_at <= timeout);
+//   - the fallback already fired for this interaction (fellBack).
+//
+// The re-escalation skips L1 (only job.EscalateTo + policy.EscalateTo) and re-stamps
+// escalated_at (escalate→MarkInteractionEscalated) so the dedup window resets and the
+// audit reflects the L2 routing time.
+func (s *Service) maybeOwnerTimeoutFallback(it job.Interaction, jr job.JobResult, now int64) {
+	if jr.OriginAgent == "" {
+		return // no owner: first escalation already hit the sup, nothing to fall back from
+	}
+	if now-it.EscalatedAt <= int64(s.policy.OwnerAnswerTimeout.Seconds()) {
+		return // owner still within its answer window
+	}
+	key := it.JobID + "#" + it.ID
+	s.mu.Lock()
+	done := s.fellBack[key]
+	s.mu.Unlock()
+	if done {
+		return // already fell back once; a human (L3) handles it from here
+	}
+	slog.Info("supervisor: owner answer timeout, falling back to sup",
+		"job_id", it.JobID, "interaction_id", it.ID, "owner", jr.OriginAgent)
+	// Mark fellBack only on a DELIVERED fallback so a momentarily unreachable sup is
+	// retried next tick instead of被悬死 by a premature one-shot mark.
+	if s.escalate(it, jr, true) {
+		s.mu.Lock()
+		s.fellBack[key] = true
+		s.mu.Unlock()
 	}
 }
 
@@ -237,23 +319,27 @@ func (s *Service) autoAnswer(it job.Interaction) {
 	slog.Info("supervisor: auto-answered", "job_id", it.JobID, "interaction_id", it.ID, "answer", answer, "answered_by", "auto:choice")
 }
 
-// escalate routes a pending interaction owner-first (design §8.1): it tries, in order,
+// escalate routes a pending interaction owner-first (design §8.1) using the already
+// fetched job snapshot jr. It tries, in order,
 //  1. the job's origin agent (owner) — direct-投 by its BARE agent_id, which presence
 //     treats as store-and-forward (lands in the owner's inbox even if briefly offline);
 //  2. an optional job-level escalate_to override;
 //  3. the global policy default (DefaultEscalateTo = role-one:supervisor).
 //
+// skipOwner=true drops step 1 (the L1 owner): the P2.1 owner-answer timeout fallback
+// uses it to route straight to the sup once the owner has gone quiet (design §8.2).
+//
 // The FIRST target that delivers >0 wins and stops the chain. On a delivery it stamps
 // interactions.escalated_at (dedup, replacing the in-memory map) so later ticks / a
-// serve restart don't re-post. No reachable recipient → leave it pending (no stamp): a
-// later tick retries and ultimately a human picks it up (L3). A Post error is logged
-// and the next target is tried.
-func (s *Service) escalate(it job.Interaction) {
-	jr, _ := s.jobs.Get(it.JobID) // zero JobResult when unknown → empty owner cols → policy-only
+// serve restart don't re-post, increments the per-job round budget, and returns true.
+// No reachable recipient → leave it pending (no stamp), returns false: a later tick
+// retries and ultimately a human picks it up (L3). A Post error is logged and the next
+// target is tried.
+func (s *Service) escalate(it job.Interaction, jr job.JobResult, skipOwner bool) bool {
 	ref := "job:" + it.JobID + "#" + it.ID
 
 	targets := make([]string, 0, 3)
-	if jr.OriginAgent != "" {
+	if !skipOwner && jr.OriginAgent != "" {
 		targets = append(targets, jr.OriginAgent) // L1: owner (bare agent_id, store-and-forward)
 	}
 	if jr.EscalateTo != "" {
@@ -277,7 +363,7 @@ func (s *Service) escalate(it job.Interaction) {
 		// Nobody reachable (owner unknown/pruned AND no online sup): not stamped, so a
 		// later tick retries; a human (L3) is the backstop.
 		slog.Info("supervisor: escalate found no recipient", "job_id", it.JobID, "interaction_id", it.ID, "targets", targets)
-		return
+		return false
 	}
 
 	// dedup落表: stamp escalated_at so a later tick / a serve restart does not re-post.
@@ -289,5 +375,6 @@ func (s *Service) escalate(it job.Interaction) {
 	s.mu.Lock()
 	s.rounds[it.JobID]++
 	s.mu.Unlock()
-	slog.Info("supervisor: escalated", "job_id", it.JobID, "interaction_id", it.ID, "to", deliveredTo, "ref", ref)
+	slog.Info("supervisor: escalated", "job_id", it.JobID, "interaction_id", it.ID, "to", deliveredTo, "ref", ref, "skip_owner", skipOwner)
+	return true
 }
