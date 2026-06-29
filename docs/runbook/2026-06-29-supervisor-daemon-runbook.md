@@ -104,9 +104,11 @@ roles:
 
 ## 6. 已知 gap 与应对
 
-### gap① codex → gofer mcp 子进程的 env 透传（唯一需真机核实的一跳）
+### gap① codex↔gofer MCP 集成 + env 透传（E2E 实测定位的真正前置）
 
-gofer 把 `GOFER_AGENT_ROLE` 注入到了 **codex 进程** env（§3 已验证）。但 codex 启动其 MCP server（`gofer mcp`）子进程时是否**透传父进程 env**，取决于 host codex 行为，需真机确认。
+> **⚠️ 前置硬条件（E2E 2026-06-29 实测定位）**：host codex 的 `~/.codex/config.toml` **必须先配 `[mcp_servers.gofer]`**（client 模式指向中央 serve）。否则 codex 根本**不会 spawn `gofer mcp` 子进程**——它会把 prompt 里的 "gofer" 当成 CLI 直接 shell 调用（实测 stderr：`gofer presence list` usage + `Exit code:1`），sup 永远不会成为在线 driver。补该配置前，§7「形式一/三」起的 codex 只是空跑（控制面侧逻辑不受影响，用 HTTP 模拟 sup 已全绿）。
+
+配好 `[mcp_servers.gofer]` 后，gofer 已把 `GOFER_AGENT_ROLE` 注入到 **codex 进程** env（§3 已验证、真机 PASS）。剩最后一跳：codex spawn `gofer mcp` 子进程时是否**透传父进程 env**（host codex 行为，需真机确认）。
 
 - **方案A（依赖透传）**：若 codex 透传父 env → 上面的 `codex-sup.env.GOFER_AGENT_ROLE` 直接生效，无需额外配置。
 - **方案B（稳妥，不依赖透传）**：给 sup 用**独立 CODEX_HOME**，在其 `config.toml` 的 gofer mcp server 块里直接写 env：
@@ -168,6 +170,7 @@ done
 > **整段需 host serve 重建到含 P0-P3 的版本后执行**（影响现有环境，由主控/用户决策触发）。建议经 `gofer job --runner local` 提交到主机，或直接在主机 shell 跑。
 
 前置自检：
+0. **host codex `~/.codex/config.toml` 已配 `[mcp_servers.gofer]`**（client 模式指向 serve）—— 否则 codex 不 spawn gofer mcp、sup 起不来（§6 gap①，E2E 实测前置硬条件）。
 1. `gofer_list_agents` 见 `codex`(`--role supervisor` 解析出的 agent)、`detect` 通过（用 codex-sup 旧做法时则见 codex-sup）。
 2. 起 sup（§7 形式三），稍候 `gofer_list_presence`（role 过滤 supervisor）→ **看到一个 role=supervisor 在线 driver**（验证 §6 gap① env 贯通；看不到 → 走方案B）。
 
