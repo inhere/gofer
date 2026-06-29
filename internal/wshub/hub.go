@@ -204,8 +204,10 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 	wc.lastHeartbeat.Store(h.nowFn().Unix())
 
 	// 3) Same-worker_id reconnect replaces the prior connection (constraint #5).
-	// Put marks the old conn superseded so its teardown does not fail the in-flight
-	// jobs this new conn is taking over (§5.5).
+	// Put marks the old conn superseded — exempting its in-flight jobs from the
+	// teardown failure — ONLY when this conn has the same instance_id (same process
+	// reconnecting). A new instance_id means the worker restarted, so the old conn is
+	// left un-superseded and gracefulClose's teardown fails its now-dead jobs (z8ow).
 	if old := h.reg.Put(wc); old != nil {
 		old.gracefulClose("replaced by new registration")
 	}
@@ -336,8 +338,10 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 // onDisconnect runs when a connection's read loop has exited: it stops the
 // heartbeat goroutine, evicts the connection from the registry and fails every
 // in-flight server-side job (worker-lost MVP, §5.3) — UNLESS the connection was
-// superseded by a same-worker_id replacement (§5.5), in which case the new
-// connection has taken the jobs over and they must NOT be failed.
+// superseded by a same-worker_id, same-instance replacement (§5.5), in which case
+// the same worker process has taken the jobs over and they must NOT be failed. A
+// replacement by a DIFFERENT instance (worker restart) is left un-superseded by Put,
+// so this path correctly fails the dead process's in-flight jobs (z8ow).
 //
 // Worker-lost is signalled through each in-flight job's sink (OnDisconnect),
 // keeping the hub free of any runner/job import. The sink unblocks the

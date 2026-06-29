@@ -15,9 +15,14 @@ import (
 // set of per-job sinks the hub demuxes inbound frames to.
 type workerConn struct {
 	workerID string
-	callerID string // authenticated identity (= the token-bound worker_id), review #1
-	conn     *websocket.Conn
-	meta     wsproto.Register
+	// instanceID is the worker's per-PROCESS nonce (wsproto.Register.InstanceID).
+	// Put compares it to a re-registering conn's to tell a transient reconnect (same
+	// instance → supersede, exempt in-flight jobs) from a restart (different instance
+	// → fail the old process's in-flight jobs). Empty for legacy workers (z8ow).
+	instanceID string
+	callerID   string // authenticated identity (= the token-bound worker_id), review #1
+	conn       *websocket.Conn
+	meta       wsproto.Register
 
 	// maxConcurrent is the worker's advertised per-worker concurrency cap (from the
 	// register frame). 0 means "no hub-side cap" (the worker still has its own
@@ -56,6 +61,7 @@ type workerConn struct {
 func newWorkerConn(workerID, callerID string, conn *websocket.Conn, meta wsproto.Register) *workerConn {
 	wc := &workerConn{
 		workerID:      workerID,
+		instanceID:    meta.InstanceID,
 		callerID:      callerID,
 		conn:          conn,
 		meta:          meta,
@@ -173,14 +179,22 @@ func newRegistry() *WorkerRegistry {
 // Put registers wc under its worker_id. If a connection already exists for that
 // worker_id it is returned (old) so the caller can gracefully close it: a
 // same-worker_id reconnect replaces the prior connection (constraint #5; the
-// token binding already guarantees it is the same authenticated identity). The
-// replaced connection is marked superseded so its read-loop teardown does NOT
-// fail the in-flight jobs the new connection has just taken over (§5.5).
+// token binding already guarantees it is the same authenticated identity).
+//
+// The replaced connection is marked superseded — so its read-loop teardown does NOT
+// fail its in-flight jobs (§5.5) — ONLY when the new conn carries the SAME
+// instance_id, i.e. it is the same worker PROCESS re-establishing a dropped
+// connection (a transient network reconnect): that process is still running those
+// jobs, so failing them would be wrong. When the instance_id DIFFERS, a new process
+// has taken over the worker_id (the old one restarted / was replaced); its in-flight
+// jobs died with it, so the old conn is left un-superseded and its teardown fails
+// them — the orphan-job fix (z8ow). Empty instance_id on BOTH (legacy workers)
+// compares equal, preserving the original supersede-always behaviour.
 func (r *WorkerRegistry) Put(wc *workerConn) (old *workerConn) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	old = r.conns[wc.workerID]
-	if old != nil {
+	if old != nil && old.instanceID == wc.instanceID {
 		old.superseded.Store(true)
 	}
 	r.conns[wc.workerID] = wc

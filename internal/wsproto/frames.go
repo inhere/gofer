@@ -7,7 +7,14 @@ import "encoding/json"
 // labels/projects/agents are display/optional-prehint only — the worker
 // re-validates locally on dispatch (review #8).
 type Register struct {
-	WorkerID      string   `json:"worker_id"`
+	WorkerID string `json:"worker_id"`
+	// InstanceID is a per-PROCESS nonce minted once at worker start and reused
+	// across reconnects. It lets the hub tell a transient network reconnect (same
+	// instance → in-flight jobs survive, supersede exemption applies) from a worker
+	// RESTART (new instance under the same worker_id → the old process's in-flight
+	// jobs died with it and must be failed, not exempted). Empty on old workers →
+	// the hub falls back to the legacy supersede-always behaviour (z8ow).
+	InstanceID    string   `json:"instance_id,omitempty"`
 	Labels        []string `json:"labels,omitempty"`
 	Projects      []string `json:"projects,omitempty"`
 	Agents        []string `json:"agents,omitempty"`

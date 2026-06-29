@@ -232,6 +232,52 @@ func TestSupersededReplacementDoesNotFailJobs(t *testing.T) {
 	}
 }
 
+// TestRestartReplacementFailsInFlightJob: when a NEW worker process (different
+// instance_id) registers under the same worker_id, the old connection is NOT
+// superseded, so its teardown fails the in-flight job the dead process can no longer
+// finish — the orphan-job fix (z8ow). Mirror of the same-instance exemption test.
+func TestRestartReplacementFailsInFlightJob(t *testing.T) {
+	hub := shortHeartbeat(map[string]string{"w1": "w1"}, 100*time.Millisecond, 250*time.Millisecond)
+	_, wsURL := hubServer(t, hub, "w1")
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	// First process (instance A) + an in-flight job with a sink recording OnDisconnect.
+	conn1, reg1 := dialAndRegisterInstance(t, ctx, wsURL, "w1", "inst-A")
+	defer conn1.Close(websocket.StatusNormalClosure, "")
+	if !reg1.Accepted {
+		t.Fatal("register1 rejected")
+	}
+	waitFor(t, func() bool { _, ok := hub.reg.Get("w1"); return ok })
+	sink := newFakeSink()
+	if err := hub.RegisterSink("w1", "j1", sink); err != nil {
+		t.Fatalf("RegisterSink: %v", err)
+	}
+	if err := hub.Dispatch("w1", wsproto.Dispatch{JobID: "j1"}); err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+	wc1, _ := hub.reg.Get("w1")
+
+	// A RESTARTED worker process (different instance_id) registers under the same id.
+	conn2, reg2 := dialAndRegisterInstance(t, ctx, wsURL, "w1", "inst-B")
+	defer conn2.Close(websocket.StatusNormalClosure, "")
+	if !reg2.Accepted {
+		t.Fatal("register2 rejected")
+	}
+	waitFor(t, func() bool { wc, ok := hub.reg.Get("w1"); return ok && wc != wc1 })
+
+	// The old conn was a different instance → not superseded → j1 must be failed
+	// (worker-lost), not left hanging.
+	select {
+	case err := <-sink.lost:
+		if err == nil {
+			t.Fatal("expected a non-nil worker-lost error for the orphaned job")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("restart replacement did not fail the orphaned in-flight job (z8ow regression)")
+	}
+}
+
 // TestTryReserveConcurrent (-race): many goroutines race to reserve capacity on
 // one worker conn; the in-flight count must never exceed maxConcurrent.
 func TestTryReserveConcurrent(t *testing.T) {

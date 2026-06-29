@@ -92,6 +92,14 @@ func hubServer(t *testing.T, hub *Hub, callerID string) (*httptest.Server, strin
 // ack. It returns the live conn + the ack.
 func dialAndRegister(t *testing.T, ctx context.Context, wsURL, workerID string) (*websocket.Conn, wsproto.Registered) {
 	t.Helper()
+	return dialAndRegisterInstance(t, ctx, wsURL, workerID, "")
+}
+
+// dialAndRegisterInstance is dialAndRegister with an explicit instance_id, so a test
+// can model a worker restart (new instance under the same worker_id) vs a transient
+// reconnect (same instance) — the supersede-vs-fail decision (z8ow).
+func dialAndRegisterInstance(t *testing.T, ctx context.Context, wsURL, workerID, instanceID string) (*websocket.Conn, wsproto.Registered) {
+	t.Helper()
 	conn, _, err := websocket.Dial(ctx, wsURL, nil)
 	if err != nil {
 		t.Fatalf("dial: %v", err)
@@ -99,7 +107,7 @@ func dialAndRegister(t *testing.T, ctx context.Context, wsURL, workerID string) 
 	conn.SetReadLimit(1 << 20)
 	if err := wsjson.Write(ctx, conn, wsproto.Envelope{
 		Type:    wsproto.TypeRegister,
-		Payload: mustRaw(wsproto.Register{WorkerID: workerID}),
+		Payload: mustRaw(wsproto.Register{WorkerID: workerID, InstanceID: instanceID}),
 	}); err != nil {
 		t.Fatalf("write register: %v", err)
 	}
@@ -133,6 +141,38 @@ func TestRegistryPutGetRemove(t *testing.T) {
 	r.Remove("w1", b)
 	if _, ok := r.Get("w1"); ok {
 		t.Fatal("Remove with current conn should evict")
+	}
+}
+
+// TestRegistryPutSupersedeByInstance: Put marks the prior conn superseded (exempting
+// its in-flight jobs from the teardown failure) ONLY when the replacement carries the
+// same instance_id (a transient reconnect of the same process). A different instance_id
+// (worker restart) leaves the old conn un-superseded so its jobs are failed; two empty
+// instance_ids compare equal, preserving the legacy supersede-always behaviour (z8ow).
+func TestRegistryPutSupersedeByInstance(t *testing.T) {
+	cases := []struct {
+		name              string
+		instA, instB      string
+		wantOldSuperseded bool
+	}{
+		{"same instance => superseded (reconnect)", "inst-1", "inst-1", true},
+		{"different instance => not superseded (restart)", "inst-1", "inst-2", false},
+		{"legacy empty instance => superseded", "", "", true},
+		{"empty then set => restart (not superseded)", "", "inst-2", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := newRegistry()
+			a := &workerConn{workerID: "w1", instanceID: tc.instA, sinks: map[string]JobSink{}}
+			b := &workerConn{workerID: "w1", instanceID: tc.instB, sinks: map[string]JobSink{}}
+			r.Put(a)
+			if old := r.Put(b); old != a {
+				t.Fatalf("re-Put should return the prior conn")
+			}
+			if got := a.superseded.Load(); got != tc.wantOldSuperseded {
+				t.Fatalf("old.superseded = %v, want %v", got, tc.wantOldSuperseded)
+			}
+		})
 	}
 }
 
