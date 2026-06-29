@@ -163,13 +163,17 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		if ac, ok := s.agents.Get(req.Agent); ok && len(ac.SystemInject) > 0 && req.SystemPrompt != "" {
 			runReq.Args = append(runReq.Args, agent.Render(ac.SystemInject, agent.Vars{SystemPrompt: req.SystemPrompt})...)
 		}
+		// Layer the per-job env (req.Env, incl. role-derived GOFER_AGENT_ROLE) ON TOP
+		// of the agent-config env (resolved.Env); the gofer-owned job metadata then
+		// wins over both (goferJobEnv applies it last). Precedence low→high:
+		// os.Environ < agent.env < job.env < gofer metadata.
 		// Inject gofer-owned job metadata env so ANY job type (exec or cli-agent)
 		// can locate its result dir / cwd / id. exec argv is executed verbatim
 		// (no {{result_dir}} templating, unlike cli-agent args) — env is the only
 		// channel an exec wrapper has to find <result_dir> for writing E1 artifacts
 		// / E6 result.json. Set on the worker/peer side too (they run this same
 		// local branch), so remote exec jobs get the executor-local paths.
-		runReq.Env = goferJobEnv(resolved.Env, jobID, workDir, resultDir)
+		runReq.Env = goferJobEnv(mergeEnv(resolved.Env, req.Env), jobID, workDir, resultDir)
 	}
 	// An explicit req.SessionID (resume path, P2) wins over auto-injection and is
 	// honoured for both local and remote branches: the job binds to that exact
@@ -334,7 +338,29 @@ func resolveRole(cfg *config.Config, req *JobRequest) error {
 	if len(req.Tags) == 0 {
 		req.Tags = rc.Tags
 	}
+	// role.Env fills env DEFAULTS; an explicit per-job key wins (same precedence as
+	// the other role fields above). Merged into the job process env at Submit.
+	if len(rc.Env) > 0 {
+		req.Env = mergeEnv(rc.Env, req.Env)
+	}
 	return nil
+}
+
+// mergeEnv returns base with override layered on top (override wins on key
+// collision). nil-safe; returns a fresh map (inputs unchanged). When override is
+// empty it returns base unchanged (no needless copy).
+func mergeEnv(base, override map[string]string) map[string]string {
+	if len(override) == 0 {
+		return base
+	}
+	out := make(map[string]string, len(base)+len(override))
+	for k, v := range base {
+		out[k] = v
+	}
+	for k, v := range override {
+		out[k] = v
+	}
+	return out
 }
 
 // RandomSuffix returns 8 lowercase hex chars from crypto/rand, falling back to a
