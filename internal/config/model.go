@@ -454,6 +454,13 @@ type AgentConfig struct {
 	// 追加到 argv（如 claude `--append-system-prompt <p>`）。保 argv 结构、不 shell
 	// 拼接（SR403）。claude 有内置默认（applySystemDefaults），codex 留空待实测。
 	SystemInject []string `yaml:"system_inject"`
+	// McpServerName 是该 agent（codex）config.toml 里 gofer MCP server 的块名
+	// （`[mcp_servers.<name>]`）。gap①(issue 7z6j)：codex 启动 MCP stdio 子进程用净化
+	// env、不透传 codex 进程 env，故 role.env 注入 codex 进程对 MCP 子进程无效；改经
+	// codex `-c mcp_servers.<name>.env.<KEY>=<VALUE>` 覆盖 MCP server env，使 sup 的
+	// gofer MCP 自注册 role=supervisor。约定默认 `gofer`（agent.McpServerNameDefault），
+	// 仅当 codex config 改了块名时才需配置此项。
+	McpServerName string `yaml:"mcp_server_name"`
 }
 
 // DetectConfig is the agent availability probe. Placeholder in P2, refined P3.
