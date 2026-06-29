@@ -31,7 +31,11 @@ import (
 // tick can skip it silently (复审 #4).
 type JobOps interface {
 	ListPendingInteractions() ([]job.Interaction, error)
-	AnswerInteraction(jobID, interactionID, answer string) (job.Interaction, error)
+	// AnswerInteractionAuto answers as the L0 built-in rule answerer, stamping
+	// answered_by=auto:<policy> (监督分层升级路由 P3.2 审计区分). The L0 path has its own
+	// decide() gate, so it is never subject to the P3.1派生作答闸. Satisfied by
+	// job.Service.AnswerInteractionAuto.
+	AnswerInteractionAuto(jobID, interactionID, answer, policy string) (job.Interaction, error)
 	// Get returns the job snapshot (owner routing columns OriginAgent/EscalateTo) for
 	// owner-first escalation (§8.1). The bool is false for an unknown id, in which case
 	// the zero JobResult (empty owner cols) routes straight to the global policy.
@@ -306,7 +310,7 @@ func (s *Service) matchWhitelist(prompt string) bool {
 // are logged and left for a later tick.
 func (s *Service) autoAnswer(it job.Interaction) {
 	answer := it.Options[0].Value
-	if _, err := s.jobs.AnswerInteraction(it.JobID, it.ID, answer); err != nil {
+	if _, err := s.jobs.AnswerInteractionAuto(it.JobID, it.ID, answer, "choice"); err != nil {
 		if errors.Is(err, job.ErrJobTerminal) {
 			return // job already终态 (zombie); reconciliation will clean it up
 		}

@@ -169,6 +169,8 @@ escalate 时记 escalated_at；后续 tick 检查：
 - L2 通用 sup 经 MCP 作答时，serve 侧对其应答做**与 L0 同源的白名单/范围校验**（type 限定 + `allow_prompt_regex` + 角色许可）；高危（confirmation/删除/外发/自由文本）即便 sup 想答也**强制升级人**。
 - L1 owner 作答**不受此限**（owner 是人类授权的编排者代表，持完整上下文，等同人答）；二者经 `answered_by` 区分留痕。
 
+**P3 落地要点**：三条 answer 入口（mcp-local / http·web·CLI / mcp-client 转发）**唯一共同汇聚点是 `job.Service.AnswerInteraction*`**——client 模式 answer 直接 HTTP 转发中央 serve、绕过本地 mcpserver，故 gate **落 job 汇聚点**才不被绕过。校验器为**独立包 `internal/answerguard`**（纯 regexp + `RoleLookup` seam，不 import job/supervisor/presence）；`job` 定义 `AnswerGuard` 接口、`core.Build` 注入（白名单取 `cfg.supervisor.allow_prompt_regex` 与 L0 同源、role 查 presence），依赖倒置守 G022。应答者身份：mcp answer handler 注入自注册 agent_id、http 入口 body `responder` 字段（空=human）；分级 `responder==origin_agent`→owner 放行 / presence `role==supervisor`→过 gate（仅 choice+options+regex）/ 空→human 放行。**sup 的 role 来自 mcp 进程 env `GOFER_AGENT_ROLE=supervisor`**（P4a daemon 设置），普通 driver 无此 env → role 空 → 不被 gate。不合规 → `ErrAnswerNotAllowed`（HTTP 403）、interaction 留 pending。
+
 ## 9. 数据模型
 
 **jobs 表新增三列**（与现有 `channel`/`client` provenance 列同构；`internal/jobstore/store.go:60`）：
@@ -187,6 +189,8 @@ ALTER TABLE jobs ADD COLUMN role         TEXT;   -- E35 角色预设名快照（
 **interaction 升级态（折中档已定，疑问2）**：现 `escalated`/`rounds` 是 supervisor 内存 map，serve 重启后会重复 escalate 活跃 job 的 pending。定档：
 - **`interactions` 加 `escalated_at INTEGER`**——escalate 写、tick 读，承载 dedup + owner 超时计时 → 跨重启不重复投、超时窗口连续；副带升级历史可查。
 - `rounds`(jobID 计数) **仍内存**（重启重置=多升几轮、偏安全方向，不值得加聚合查询），全落表留完整版。见 plan P1.1/P1.2/P2.1。
+
+**interactions 另加 `answered_by TEXT`（P3.2，仿 escalated_at 加列）**：`auto:<policy>`（L0）/ `agent:<id>`（L1 owner / L2 sup）/ `human`（L3）；DDL + 旧库 ALTER + record/scan/struct/透传 + 写 E13 `interaction.answered` 事件;`gofer_get_interactions` 可见。
 
 **messages（escalation 消息）**：复用现有表，`kind=escalation`、`ref=job:<id>#<iid>`、`to_spec` 记录命中的层（owner/role-one:supervisor）便于审计。
 

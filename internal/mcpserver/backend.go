@@ -22,7 +22,10 @@ type Backend interface {
 	TailLog(id, stream string, maxBytes int64) (string, error)
 	CancelJob(id string) (job.JobResult, error)
 	GetInteractions(id string) ([]job.Interaction, error)
-	AnswerInteraction(id, iid, answer string) (job.Interaction, error)
+	// AnswerInteraction answers a pending interaction attributed to responder — the driver
+	// agent_id of the answering session (监督分层升级路由 P3.1: the answer闸 grades owner /
+	// sup / human by it). Empty responder = unattributed (treated as human / no gate).
+	AnswerInteraction(id, iid, answer, responder string) (job.Interaction, error)
 	// ListPendingInteractions lists pending interactions across active jobs (E25
 	// supervisor discovery, gofer_list_pending_interactions).
 	ListPendingInteractions() ([]job.Interaction, error)

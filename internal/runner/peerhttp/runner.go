@@ -226,7 +226,9 @@ func (r *Runner) handleFrame(ctx context.Context, fr client.SSEEvent, req runner
 					// job resumes. If the channel closes without a value (job ended /
 					// ctx cancelled), do nothing.
 					if ans, ok := <-ansCh; ok {
-						_, _ = r.c.AnswerInteraction(peerID, iid, ans)
+						// Mechanical relay: the answer was already decided/graded on the host;
+						// forward it unattributed (no responder) so the peer applies it as-is.
+						_, _ = r.c.AnswerInteraction(peerID, iid, ans, "")
 					}
 				}()
 			}
