@@ -62,14 +62,14 @@ func (s *Service) ResumeJob(jobID, prompt, runner, callerID string) (JobResult, 
 	// agent's own Command (e.g. "claude"/"codex") is argv[0].
 	argv := append([]string{ac.Command}, agent.Render(ac.SessionResume, agent.Vars{SessionID: src.SessionID, Prompt: prompt})...)
 
-	// E35 (review #5, 实测定稿 2026-06-28 / design §5 结论 / §12 已实测): the role system
-	// prompt is deliberately NOT re-injected on resume. A real-CLI check (claude-cli
-	// 2.1.191) confirmed `claude --resume <sid>` natively restores the system prompt
-	// that `--append-system-prompt` set on the source session — a marker token forced
-	// by the source job's system prompt still appeared in the resumed turn WITHOUT
-	// re-passing the flag (negative control: a fresh session never emits it). Re-rendering
-	// SystemInject here would only double the prompt. The other built-in (codex) carries
-	// no SystemInject, so resume injects no system prompt for it either.
+	// E35 (review #5, 实测定稿 2026-06-29 / design §5 结论 / §12 已实测): the role system
+	// prompt is deliberately NOT re-injected on resume — BOTH built-ins restore it
+	// natively. claude-cli 2.1.191 `claude --resume <sid>` restores the system prompt set
+	// by `--append-system-prompt`; codex-cli 0.142 `codex exec resume <sid>` likewise
+	// restores the `-c developer_instructions=` set on the source session (both verified:
+	// a marker token forced by the source job's system prompt reappears in the resumed
+	// turn WITHOUT re-passing the flag; a fresh session never emits it). Re-rendering
+	// SystemInject here would only duplicate the prompt.
 
 	return s.Submit(JobRequest{
 		ProjectKey: src.ProjectKey,

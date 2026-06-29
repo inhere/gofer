@@ -97,17 +97,19 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 	"codex": {
 		SessionCapture: `session id:\s*([0-9a-f-]+)`,
 		SessionResume:  []string{"exec", "resume", "{{session_id}}", "{{prompt}}"},
-		// E35 (实测 2026-06-28, codex-cli 0.142): SystemInject stays empty by decision.
-		// codex has NO --append-system-prompt/--system-prompt argv flag (unlike claude);
-		// the only per-invocation channel is a `-c key=value` TOML override. Of the
-		// candidate keys, only `instructions` and `developer_instructions` are recognised
-		// (verified via --strict-config; base_instructions/system_prompt/user_instructions/
-		// experimental_instructions_file are not). But `-c developer_instructions={{system_prompt}}`
-		// re-parses the VALUE as TOML, so a multi-line/quoted role prompt is fragile — not
-		// the clean single-argv element claude gets — and which key actually steers could
-		// not be behaviourally confirmed (host model-proxy outage). So a role on codex
-		// applies project/tags but injects no system prompt — better empty than a fragile
-		// guess. Revisit with a robust (e.g. file-based) mechanism if codex roles are needed.
+		// E35 (实测定稿 2026-06-29, codex-cli 0.142): codex has NO --append-system-prompt
+		// argv flag; the per-invocation steering channel is `-c developer_instructions=<p>`
+		// (a config override — `instructions` works too; verified recognised via
+		// --strict-config). Behaviourally confirmed: codex honours the injected prompt (a
+		// marker token forced by it appears in the reply; a no-inject control does not), and
+		// the value is robust — codex parses the `-c` value as TOML and falls back to a raw
+		// literal, so quotes / `=` / `[...]` / real newlines in a role prompt all survive.
+		// Render keeps `developer_instructions={{system_prompt}}` ONE argv element (no shell
+		// re-tokenise). `developer_instructions` (the developer message) is the right layer
+		// for role/persona steering and only fires when a role/system_prompt is set, so plain
+		// codex jobs are unaffected. `codex exec resume <sid>` restores it natively (like
+		// claude), so ResumeJob does NOT re-inject (see resume.go).
+		SystemInject: []string{"-c", "developer_instructions={{system_prompt}}"},
 	},
 }
 
