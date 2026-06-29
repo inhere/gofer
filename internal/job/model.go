@@ -24,6 +24,15 @@ type JobRequest struct {
 	// submit it is rendered into argv (e.g. claude --append-system-prompt). It is
 	// persisted in request_json so resume can re-apply it (review #5).
 	SystemPrompt string `json:"system_prompt,omitempty" yaml:"system_prompt,omitempty"`
+	// Env is OPTIONAL per-job env layered onto the agent process env: it sits ON TOP
+	// of the agent-config env (AgentConfig.Env) but UNDER the gofer-owned job
+	// metadata (GOFER_JOB_ID/CWD/RESULT_DIR), so a job can pass extra vars to its
+	// agent process (local runner; see Submit). A role preset (RoleConfig.Env) fills
+	// it as a DEFAULT — an explicit per-job key wins (resolveRole). The main use is
+	// `--role supervisor` injecting GOFER_AGENT_ROLE=supervisor for the MCP
+	// self-register (P3). 勿放 secret：本字段随 request_json 落库（SR403/SR805），secret
+	// 应改走 agent.env / K8s secret 注入（不入 request_json）。
+	Env map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
 	// WorkerID selects which registered worker a runner=worker job dispatches to
 	// (ws-worker §8). When set it must be a known server.workers entry (explicit
 	// routing wins); ignored for local/peer-http runners. When empty for a worker

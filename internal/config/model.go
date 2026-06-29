@@ -79,6 +79,14 @@ type RoleConfig struct {
 	SystemPrompt string   `yaml:"system_prompt"`
 	Project      string   `yaml:"project"`
 	Tags         []string `yaml:"tags"`
+	// Env is an OPTIONAL per-role env preset merged into the job's process env
+	// (JobRequest.Env) at submit time, so `--role supervisor` can inject e.g.
+	// GOFER_AGENT_ROLE=supervisor into the agent process without a dedicated
+	// codex-sup agent (the spawned gofer MCP child inherits it and self-registers
+	// role=supervisor, P3). Role.Env fills DEFAULTS — an explicit per-job env value
+	// for the same key wins. 勿放 secret：值会随 job.Env 落 request_json（SR403/SR805），
+	// secret 应走 agent.env / K8s secret（不落 request_json）。
+	Env map[string]string `yaml:"env"`
 }
 
 // ServerConfig holds HTTP server and auth settings.
