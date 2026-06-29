@@ -3,8 +3,11 @@ package mcpserver
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -55,8 +58,13 @@ func testCore(t *testing.T) (*job.Service, *project.Registry, *agent.Registry, *
 func connect(t *testing.T) (*mcp.ClientSession, *job.Service) {
 	t.Helper()
 	jobs, projects, agents, pres := testCore(t)
-	srv := NewLocal(jobs, projects, agents, pres)
+	return connectTo(t, NewLocal(jobs, projects, agents, pres)), jobs
+}
 
+// connectTo wires an in-memory client<->server session over the given mcpserver
+// (used directly when a test needs a server built with a non-default originAgent).
+func connectTo(t *testing.T, srv *mcp.Server) *mcp.ClientSession {
+	t.Helper()
 	ctx := context.Background()
 	c2s, s2c := mcp.NewInMemoryTransports()
 	if _, err := srv.Connect(ctx, s2c, nil); err != nil {
@@ -68,7 +76,7 @@ func connect(t *testing.T) (*mcp.ClientSession, *job.Service) {
 		t.Fatalf("client connect: %v", err)
 	}
 	t.Cleanup(func() { _ = session.Close() })
-	return session, jobs
+	return session
 }
 
 // structured decodes the structured output of a CallToolResult into out.
@@ -308,6 +316,84 @@ func TestRunJobOriginAgentRoundTrip(t *testing.T) {
 	}
 	if got.EscalateTo != "role-one:supervisor" {
 		t.Fatalf("get_job escalate_to = %q, want role-one:supervisor", got.EscalateTo)
+	}
+}
+
+// TestSelfRegisterInjectsOriginAgent proves P1.0: a self-registered mcp process
+// stamps run_job submissions with its driver agent_id when the caller passes no
+// explicit origin_agent, and that an explicit origin_agent still wins (不覆盖).
+func TestSelfRegisterInjectsOriginAgent(t *testing.T) {
+	jobs, projects, agents, pres := testCore(t)
+	b := newLocalBackend(jobs, projects, agents, pres)
+
+	// Self-register exactly as Serve does, then build the server over that owner.
+	originAgent := selfRegister(b)
+	if originAgent == "" {
+		t.Fatalf("selfRegister returned empty agent_id")
+	}
+	session := connectTo(t, newServer(b, originAgent))
+
+	// No explicit origin_agent -> auto-injected self-registered agent_id.
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "gofer_run_job",
+		Arguments: map[string]any{
+			"project_key": "self", "agent": "exec", "runner": "local",
+			"cmd": []string{"go", "version"}, "cwd": ".", "timeout_sec": 30,
+		},
+	})
+	if err != nil {
+		t.Fatalf("run_job: %v", err)
+	}
+	var created jobView
+	structured(t, res, &created)
+	if created.OriginAgent != originAgent {
+		t.Fatalf("auto-injected origin_agent = %q, want %q", created.OriginAgent, originAgent)
+	}
+
+	// Explicit origin_agent wins over the self-registered default.
+	res2, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "gofer_run_job",
+		Arguments: map[string]any{
+			"project_key": "self", "agent": "exec", "runner": "local",
+			"cmd": []string{"go", "version"}, "cwd": ".", "timeout_sec": 30,
+			"origin_agent": "agt_explicit",
+		},
+	})
+	if err != nil {
+		t.Fatalf("run_job(explicit): %v", err)
+	}
+	var created2 jobView
+	structured(t, res2, &created2)
+	if created2.OriginAgent != "agt_explicit" {
+		t.Fatalf("explicit origin_agent = %q, want agt_explicit", created2.OriginAgent)
+	}
+
+	// Drain both background jobs before the temp store closes (cleanup ordering).
+	jobs.Wait(created.ID)
+	jobs.Wait(created2.ID)
+}
+
+// TestSelfRegisterNameFormat asserts the per-process driver-agent name shape
+// mcp-<hostHash>-<pid>: an 8-hex-char host hash and the live pid (pid embedding is
+// what keeps two processes on one host from aliasing onto a single agent_id).
+func TestSelfRegisterNameFormat(t *testing.T) {
+	name := selfRegisterName()
+	prefix := fmt.Sprintf("mcp-%s-", hostHash(mcpHostname()))
+	if !strings.HasPrefix(name, prefix) {
+		t.Fatalf("name %q missing prefix %q", name, prefix)
+	}
+	if pidPart := strings.TrimPrefix(name, prefix); pidPart != strconv.Itoa(os.Getpid()) {
+		t.Fatalf("name pid part = %q, want %d", pidPart, os.Getpid())
+	}
+	// hostHash is 8 lowercase hex chars for any input.
+	hh := hostHash("any-host.example")
+	if len(hh) != 8 {
+		t.Fatalf("hostHash len = %d, want 8 (%q)", len(hh), hh)
+	}
+	for _, c := range hh {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+			t.Fatalf("hostHash %q has non-hex char %q", hh, c)
+		}
 	}
 }
 

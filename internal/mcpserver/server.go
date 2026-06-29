@@ -15,6 +15,7 @@ package mcpserver
 import (
 	"context"
 	"fmt"
+	"hash/crc32"
 	"os"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -37,6 +38,15 @@ const defaultLogTailBytes = 256 * 1024
 // the Backend owns the actual backend access. The server is returned
 // unconnected; call Run (or Serve) to start serving over a transport.
 func New(b Backend) *mcp.Server {
+	return newServer(b, "")
+}
+
+// newServer builds the MCP server, threading originAgent (the process-level
+// self-registered owner agent_id, P1.0) into run_job so submissions are stamped
+// with their driver owner unless the caller passes an explicit origin_agent. New
+// passes "" (no auto-stamp, e.g. presence-less test fixtures); Serve passes the
+// self-registered agent_id.
+func newServer(b Backend, originAgent string) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "gofer", Version: "v1"}, nil)
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -52,7 +62,7 @@ func New(b Backend) *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_run_job",
 		Description: "Submit an agent/exec job in a project and return its initial state (status, id).",
-	}, runJobHandler(b))
+	}, runJobHandler(b, originAgent))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_get_job",
@@ -127,7 +137,42 @@ func New(b Backend) *mcp.Server {
 // outside the MCP protocol (stdout is the transport), so callers must not print
 // to stdout either.
 func Serve(ctx context.Context, b Backend) error {
-	return New(b).Run(ctx, &mcp.StdioTransport{})
+	// P1.0: process-level self-registration. Register one driver agent for this mcp
+	// process so its run_job submissions are stamped with an owner (origin_agent)
+	// the supervisor can route escalations back to (主 agent 零感知). Best-effort: a
+	// failure (e.g. client mode central serve unreachable) degrades to an empty
+	// owner — the mcp server still serves every tool. Cleanup is by presence TTL
+	// (~90s): the Backend exposes no Deregister, and a per-process name means a dead
+	// process's presence entry simply expires.
+	originAgent := selfRegister(b)
+	return newServer(b, originAgent).Run(ctx, &mcp.StdioTransport{})
+}
+
+// selfRegister registers this mcp process as a driver agent and returns its
+// agent_id (P1.0). The name is per-process unique (mcp-<hostHash>-<pid>) so two
+// sessions on the same host never alias onto one presence identity (presence's
+// idempotency key is (name, caller_id)). Returns "" on any failure so callers
+// degrade to "no owner stamp" rather than crashing the mcp server.
+func selfRegister(b Backend) string {
+	res, err := b.RegisterAgent(selfRegisterName(), "", "")
+	if err != nil {
+		return ""
+	}
+	return res.AgentID
+}
+
+// selfRegisterName builds the per-process driver-agent name mcp-<hostHash>-<pid>.
+// hostHash is the crc32 (8 hex chars) of the hostname — a stable, short, safe
+// token that keeps long/odd hostnames out of the name; pid makes it unique per
+// process so same-host sessions get distinct presence identities.
+func selfRegisterName() string {
+	return fmt.Sprintf("mcp-%s-%d", hostHash(mcpHostname()), os.Getpid())
+}
+
+// hostHash reduces a hostname to 8 lowercase hex chars via crc32 (empty host →
+// "00000000").
+func hostHash(host string) string {
+	return fmt.Sprintf("%08x", crc32.ChecksumIEEE([]byte(host)))
 }
 
 // NewLocal is the compatibility constructor for the in-process (standalone) path:
@@ -291,8 +336,15 @@ type runJobInput struct {
 	EscalateTo  string `json:"escalate_to,omitempty"`
 }
 
-func runJobHandler(b Backend) mcp.ToolHandlerFor[runJobInput, jobView] {
+func runJobHandler(b Backend, originAgent string) mcp.ToolHandlerFor[runJobInput, jobView] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in runJobInput) (*mcp.CallToolResult, jobView, error) {
+		// Owner stamp (P1.0): an explicit origin_agent input wins; otherwise auto-
+		// inject this process's self-registered driver agent_id (empty when self-
+		// register failed or for non-self-registering callers like tests).
+		origin := in.OriginAgent
+		if origin == "" {
+			origin = originAgent
+		}
 		// provenance is injected here (handler) so both backends transparently
 		// forward it: MCP channel + the MCP server host name.
 		res, err := b.RunJob(job.JobRequest{
@@ -310,9 +362,9 @@ func runJobHandler(b Backend) mcp.ToolHandlerFor[runJobInput, jobView] {
 			// 提交来源（provenance）：MCP 渠道 + MCP server 所在主机名。
 			Channel: "mcp",
 			Client:  mcpHostname(),
-			// 监督分层升级路由（supervisor-routing P1.1）：owner agent_id + 可选 job 级
-			// escalate 覆盖。P1.1 仅透传显式入参；自注册自动注入由 P1.0 落地。
-			OriginAgent: in.OriginAgent,
+			// 监督分层升级路由（supervisor-routing）：owner agent_id + 可选 job 级
+			// escalate 覆盖。origin 为显式入参（优先）或 P1.0 自注册的进程 driver id。
+			OriginAgent: origin,
 			EscalateTo:  in.EscalateTo,
 		})
 		if err != nil {

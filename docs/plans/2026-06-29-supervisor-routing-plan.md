@@ -182,7 +182,7 @@
 ## 进度跟进
 
 - [ ] P0 mcp 工具 `bridge_*` → `gofer_*`（15 个 + 全仓引用 + 文档订正）
-- [ ] P1.0 mcp 进程自注册 + 自动注入 origin_agent（name=`mcp-<hostHash>-<pid>`）
+- [x] P1.0 mcp 进程自注册 + 自动注入 origin_agent（name=`mcp-<hostHash>-<pid>`）
 - [x] P1.1 jobs/JobRequest/runJobInput 加 origin_agent/escalate_to + interactions.escalated_at
 - [x] P1.2 escalate owner-first 路由 + 默认 role-one:supervisor + dedup 落表
 - [ ] P2.1 owner 超时兜底
