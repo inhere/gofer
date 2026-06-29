@@ -171,11 +171,12 @@ escalate 时记 escalated_at；后续 tick 检查：
 
 ## 9. 数据模型
 
-**jobs 表新增两列**（与现有 `channel`/`client` provenance 列同构；`internal/jobstore/store.go:60`）：
+**jobs 表新增三列**（与现有 `channel`/`client` provenance 列同构；`internal/jobstore/store.go:60`）：
 
 ```sql
 ALTER TABLE jobs ADD COLUMN origin_agent TEXT;   -- 发起该 job 的主 agent agent_id（owner，L1 路由用）
 ALTER TABLE jobs ADD COLUMN escalate_to  TEXT;   -- 可选 job 级 escalate 覆盖（缺省走全局 policy）
+ALTER TABLE jobs ADD COLUMN role         TEXT;   -- E35 角色预设名快照（P2.2 套娃判定 role==supervisor；JobResult 原不落库 Role）
 ```
 
 > 取舍：origin_agent 作为**独立列**（而非塞进 `request_json`），因为它是路由热路径查询字段、需随 interaction 升级快速取到。

@@ -185,8 +185,8 @@
 - [x] P1.0 mcp 进程自注册 + 自动注入 origin_agent（name=`mcp-<hostHash>-<pid>`）
 - [x] P1.1 jobs/JobRequest/runJobInput 加 origin_agent/escalate_to + interactions.escalated_at
 - [x] P1.2 escalate owner-first 路由 + 默认 role-one:supervisor + dedup 落表
-- [ ] P2.1 owner 超时兜底
-- [ ] P2.2 套娃防护（sup non-interactive）
+- [x] P2.1 owner 超时兜底（OwnerAnswerTimeout 默认 300s + 跳 L1 投 L2 + fire-once fellBack）
+- [x] P2.2 套娃防护（jobs.role 列 + 路由器识别 sup 源 interaction → 不自动答/不回投 sup；non-interactive 启动模板归 P4a）
 - [ ] P3.1 派生作答白名单约束
 - [ ] P3.2 审计 answered_by
 - [ ] P4a 通用 sup daemon job 文档 + 端到端真机过

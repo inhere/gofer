@@ -323,12 +323,13 @@ func startSupervisorLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
 		return
 	}
 	pol := supervisor.Policy{
-		Enabled:          true,
-		Interval:         time.Duration(sc.IntervalSec) * time.Second,
-		AutoAnswer:       sc.AutoAnswer,
-		EscalateTo:       sc.EscalateTo,
-		MaxRoundsPerJob:  sc.MaxRoundsPerJob,
-		AllowPromptRegex: sc.AllowPromptRegex,
+		Enabled:            true,
+		Interval:           time.Duration(sc.IntervalSec) * time.Second,
+		AutoAnswer:         sc.AutoAnswer,
+		EscalateTo:         sc.EscalateTo,
+		MaxRoundsPerJob:    sc.MaxRoundsPerJob,
+		AllowPromptRegex:   sc.AllowPromptRegex,
+		OwnerAnswerTimeout: time.Duration(sc.OwnerAnswerTimeoutSec) * time.Second,
 	}
 	sup := supervisor.NewService(cr.Jobs, cr.Presence, pol)
 	c.Printf("gofer: supervisor answerer enabled (auto_answer=%t, escalate_to=%q)\n", sc.AutoAnswer, sc.EscalateTo)

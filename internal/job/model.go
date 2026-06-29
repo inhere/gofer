@@ -169,6 +169,12 @@ type JobResult struct {
 	// jobs.escalate_to；surfaced in show/get so callers can see the owner routing.
 	OriginAgent string `json:"origin_agent,omitempty"`
 	EscalateTo  string `json:"escalate_to,omitempty"`
+	// Role is the E35 role-preset name this job was launched with (mirrors
+	// JobRequest.Role). It is persisted to jobs.role so the supervisor router can
+	// identify a job that is ITSELF a supervisor (Role=="supervisor") and refuse to
+	// auto-answer or re-escalate its interactions (套娃防护, supervisor-routing P2.2,
+	// design §8.4) — those go straight to a human (L3). Empty for a roleless job.
+	Role string `json:"role,omitempty"`
 	// RequestID is the idempotency key (C5) this job was created with; it is
 	// persisted (jobs.request_id) and echoed so the idempotent-reuse path returns
 	// it and it round-trips through persist.

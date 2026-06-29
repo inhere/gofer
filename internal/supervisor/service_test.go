@@ -4,6 +4,7 @@ import (
 	"context"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/job"
 )
@@ -351,4 +352,103 @@ func TestEscalateOwnerFirst(t *testing.T) {
 			t.Fatalf("escalated_at dedup failed: escalated %d times, want 1", len(pres.posts))
 		}
 	})
+}
+
+// TestOwnerTimeoutFallback covers the §8.2 owner-answer timeout (P2.1): an interaction
+// already escalated to its owner (escalated_at=T0) whose owner has not answered within
+// OwnerAnswerTimeout is re-routed PAST the owner straight to the global sup (skip L1);
+// within the window the owner escalation stands; and the fallback is FIRE-ONCE so it
+// does not re-post to the sup every window. nowFn is mocked to drive the clock.
+func TestOwnerTimeoutFallback(t *testing.T) {
+	const policyTo = "role-one:supervisor"
+	const t0 = int64(1_000_000)
+	const timeout = 300 * time.Second
+
+	// escalatedToOwner builds a job whose single interaction was already escalated to
+	// its owner agt_owner at T0 (escalated_at=t0), pending an answer.
+	escalatedToOwner := func() *mockJobOps {
+		return &mockJobOps{
+			pending: []job.Interaction{{
+				ID: "c1", JobID: "j1", Type: job.InteractionTypeConfirmation,
+				Prompt: "ok?", Status: job.InteractionPending, EscalatedAt: t0,
+			}},
+			jobs: map[string]job.JobResult{"j1": {ID: "j1", OriginAgent: "agt_owner"}},
+		}
+	}
+
+	t.Run("timed_out_falls_back_to_sup_fire_once", func(t *testing.T) {
+		jobs := escalatedToOwner()
+		pres := &mockPresence{}
+		s := newSvc(jobs, pres, Policy{AutoAnswer: true, AllowPromptRegex: []string{".*"}, EscalateTo: policyTo, OwnerAnswerTimeout: timeout})
+		s.nowFn = func() time.Time { return time.Unix(t0+301, 0) } // 1s past the owner window
+		s.tick(context.Background())
+
+		if len(pres.posts) != 1 || pres.posts[0].to != policyTo {
+			t.Fatalf("owner timeout must re-route to the sup (skip owner, not agt_owner): %+v", pres.posts)
+		}
+		// fire-once: advance well past a SECOND window — fellBack must suppress re-posting.
+		s.nowFn = func() time.Time { return time.Unix(t0+900, 0) }
+		s.tick(context.Background())
+		if len(pres.posts) != 1 {
+			t.Fatalf("owner-timeout fallback must fire ONCE (fellBack), got %d posts: %+v", len(pres.posts), pres.posts)
+		}
+	})
+
+	t.Run("within_window_keeps_owner", func(t *testing.T) {
+		jobs := escalatedToOwner()
+		pres := &mockPresence{}
+		s := newSvc(jobs, pres, Policy{AutoAnswer: true, AllowPromptRegex: []string{".*"}, EscalateTo: policyTo, OwnerAnswerTimeout: timeout})
+		s.nowFn = func() time.Time { return time.Unix(t0+100, 0) } // still inside the owner window
+		s.tick(context.Background())
+
+		if len(pres.posts) != 0 {
+			t.Fatalf("within the owner window there must be NO fallback to the sup: %+v", pres.posts)
+		}
+	})
+
+	t.Run("no_owner_no_fallback", func(t *testing.T) {
+		// First escalation already went to the sup (no owner) → nothing to fall back from.
+		jobs := &mockJobOps{
+			pending: []job.Interaction{{
+				ID: "c1", JobID: "j1", Type: job.InteractionTypeConfirmation,
+				Prompt: "ok?", Status: job.InteractionPending, EscalatedAt: t0,
+			}},
+			jobs: map[string]job.JobResult{"j1": {ID: "j1"}}, // no OriginAgent
+		}
+		pres := &mockPresence{}
+		s := newSvc(jobs, pres, Policy{AutoAnswer: true, AllowPromptRegex: []string{".*"}, EscalateTo: policyTo, OwnerAnswerTimeout: timeout})
+		s.nowFn = func() time.Time { return time.Unix(t0+900, 0) } // long past the window
+		s.tick(context.Background())
+
+		if len(pres.posts) != 0 {
+			t.Fatalf("a no-owner interaction (already with the sup) must not re-post on timeout: %+v", pres.posts)
+		}
+	})
+}
+
+// TestSupervisorJobNeverAutoAnswered covers the §8.4 套娃防护 (P2.2): an interaction whose
+// OWN job is a supervisor (JobResult.Role=="supervisor") must never be auto-answered nor
+// escalated to a sup inbox (a sup answering a sup → 死循环). Both a normally-auto-answerable
+// choice and a normally-escalated confirmation stay pending (no answer, no post, no stamp).
+func TestSupervisorJobNeverAutoAnswered(t *testing.T) {
+	jobs := &mockJobOps{
+		pending: []job.Interaction{
+			choiceIt("ch", "sup1", "pick one", "yes", "no"), // would normally auto-answer
+			confirmIt("cf", "sup1"),                         // would normally escalate
+		},
+		jobs: map[string]job.JobResult{"sup1": {ID: "sup1", Role: "supervisor"}},
+	}
+	pres := &mockPresence{}
+	s := newSvc(jobs, pres, Policy{AutoAnswer: true, AllowPromptRegex: []string{".*"}, EscalateTo: "role-one:supervisor"})
+	s.tick(context.Background())
+
+	if len(jobs.answers) != 0 {
+		t.Fatalf("a supervisor job's interaction must NOT be auto-answered: %+v", jobs.answers)
+	}
+	if len(pres.posts) != 0 {
+		t.Fatalf("a supervisor job's interaction must NOT be escalated to a sup: %+v", pres.posts)
+	}
+	if len(jobs.escalated) != 0 {
+		t.Fatalf("a supervisor job's interaction must NOT be stamped escalated_at: %+v", jobs.escalated)
+	}
 }

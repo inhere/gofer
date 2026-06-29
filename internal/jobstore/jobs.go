@@ -91,6 +91,10 @@ type JobRecord struct {
 	// 与 job.JobResult 互转。P1.1 仅透传落库，escalate 路由改写在 P1.2。
 	OriginAgent string
 	EscalateTo  string
+	// Role 是该 job 的角色预设名（supervisor-routing P2.2 套娃防护）：监督路由器据此识别
+	// "supervisor 自身产生的 interaction"，对其永不自动答/回投 sup（防死循环），直接留 pending
+	// 等人（L3）。空表示旧库/未提供（selectCols COALESCE 成 ""）；与 job.JobResult.Role 互转。
+	Role string
 }
 
 // ListQuery filters/bounds a ListJobs query. A zero value lists every project's
@@ -121,7 +125,8 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(worker_id,''
   COALESCE(workflow_id,''), COALESCE(step_index,0),
   COALESCE(attempt,1), COALESCE(fan_index,0),
   COALESCE(session_id,''), COALESCE(channel,''), COALESCE(client,''),
-  COALESCE(origin_agent,''), COALESCE(escalate_to,'') FROM jobs`
+  COALESCE(origin_agent,''), COALESCE(escalate_to,''),
+  COALESCE(role,'') FROM jobs`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -140,7 +145,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.Source, &r.TagsJSON,
 		&r.WorkflowID, &r.StepIndex, &r.Attempt, &r.FanIndex,
 		&r.SessionID, &r.Channel, &r.Client,
-		&r.OriginAgent, &r.EscalateTo,
+		&r.OriginAgent, &r.EscalateTo, &r.Role,
 	)
 	return r, err
 }
@@ -162,8 +167,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
    request_json, error, started_at, ended_at, updated_at, caller_id, request_id,
    rendered_command, result_json, artifacts_json, diff_summary, source, tags_json,
    workflow_id, step_index, attempt, fan_index, session_id, channel, client,
-   origin_agent, escalate_to)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+   origin_agent, escalate_to, role)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -194,7 +199,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     channel=excluded.channel,
     client=excluded.client,
     origin_agent=excluded.origin_agent,
-    escalate_to=excluded.escalate_to`
+    escalate_to=excluded.escalate_to,
+    role=excluded.role`
 	// Serialise writes in-process (see Store.writeMu) so SQLite never sees two
 	// concurrent writers and cannot return SQLITE_BUSY under burst.
 	s.writeMu.Lock()
@@ -208,7 +214,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.Source, rec.TagsJSON,
 		rec.WorkflowID, rec.StepIndex, rec.Attempt, rec.FanIndex,
 		rec.SessionID, rec.Channel, rec.Client,
-		rec.OriginAgent, rec.EscalateTo,
+		rec.OriginAgent, rec.EscalateTo, rec.Role,
 	)
 	if err != nil {
 		// A competing INSERT with the same non-empty request_id (different id)
