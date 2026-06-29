@@ -86,6 +86,19 @@ func NewService(store *jobstore.Store) *Service {
 	}
 }
 
+// Configure overrides the online TTL and/or message TTL from config (E36 收尾). A
+// non-positive duration is ignored, so an unset config field keeps the built-in
+// default — making NewService the single source of truth for the defaults. Called
+// once at serve startup before the Service handles traffic.
+func (s *Service) Configure(ttl, msgTTL time.Duration) {
+	if ttl > 0 {
+		s.ttl = ttl
+	}
+	if msgTTL > 0 {
+		s.msgTTL = msgTTL
+	}
+}
+
 // Agent is the public projection of a registered driver agent (design §9). It
 // deliberately omits agent_token (never returned by List/presence reads, §10).
 // The snake_case json tags make it the single wire contract reused by both the

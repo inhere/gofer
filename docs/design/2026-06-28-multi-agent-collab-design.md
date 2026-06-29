@@ -230,6 +230,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_inbox ON messages(to_agent, status, crea
 - **投递策略定稿（2026-06-29）**：`to_agent` 为具体 `agent_id` → 1 行；`role:<name>` → 命中 presence 中 **online 同 role** 的**每个** agent 各 1 行（fan-out / 通知全员）；**`role-one:<name>` → online 同 role 中**随机取一个** agent 1 行（工作分派，近似均衡，`crypto/rand` 取一）；`broadcast` → 每个 online 各 1 行（限频）。
 - `to_spec` 保留原始寻址用于留痕/回执。
 - **不可达处理定稿（2026-06-29，best-effort）**：① **直投具体 agent_id**（在线或离线）→ 落该 agent inbox，**store-and-forward 到 message TTL**（离线 agent 上线 poll 即领取）；未知 agent_id → 0。② `role:`/`role-one:`/`broadcast` 当时**无 online 收件人** → **不留库，`delivered=0` 作回执**返回，发送方/supervisor 据此重试（**不做 role 上线补投**——避免额外 pending 队列/重解析复杂度，YAGNI；直投已覆盖"离线领取"语义）。message 设 TTL，过期未读由 prune sweeper 清理。
+- **可配置（2026-06-29 收尾）**：online TTL / message TTL / prune 周期默认 90s / 24h / 60s，可经 config `presence: {ttl_sec, message_ttl_sec, prune_interval_sec}` 覆盖（<=0 回落默认；serve 启动读取，改需重启非 SIGHUP）。锚点 `config.PresenceConfig` + `presence.Service.Configure`。
 
 > 跨 job pending 不新建表：`SELECT * FROM interactions WHERE status='pending'`（interactions 已持久化 status，pending 行 create 时即落库）。
 

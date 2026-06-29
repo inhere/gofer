@@ -207,6 +207,22 @@ func TestPostNoRecipientReturnsZero(t *testing.T) {
 	assert.Eq(t, 0, n2)
 }
 
+// TestConfigureOverridesTTLs: Configure applies positive overrides and ignores
+// non-positive ones (so an unset config field keeps the built-in default).
+func TestConfigureOverridesTTLs(t *testing.T) {
+	svc, _ := newTestService(t)
+	assert.Eq(t, DefaultTTL, svc.ttl)
+	assert.Eq(t, DefaultMessageTTL, svc.msgTTL)
+
+	svc.Configure(30*time.Second, time.Hour)
+	assert.Eq(t, 30*time.Second, svc.ttl)
+	assert.Eq(t, time.Hour, svc.msgTTL)
+
+	svc.Configure(0, -1) // ignored: keeps the prior values
+	assert.Eq(t, 30*time.Second, svc.ttl)
+	assert.Eq(t, time.Hour, svc.msgTTL)
+}
+
 // TestPostDirectToOfflineStoresAndForwards: a direct send to a KNOWN-but-offline
 // agent is stored (delivered=1) and waits in its inbox until it next polls —
 // store-and-forward, the best-effort unreachable contract for direct addressing.
