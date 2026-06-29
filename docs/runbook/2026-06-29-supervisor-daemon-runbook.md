@@ -108,21 +108,23 @@ roles:
 
 > **⚠️ 前置硬条件（E2E 2026-06-29 实测定位）**：host codex 的 `~/.codex/config.toml` **必须先配 `[mcp_servers.gofer]`**（client 模式指向中央 serve）。否则 codex 根本**不会 spawn `gofer mcp` 子进程**——它会把 prompt 里的 "gofer" 当成 CLI 直接 shell 调用（实测 stderr：`gofer presence list` usage + `Exit code:1`），sup 永远不会成为在线 driver。补该配置前，§7「形式一/三」起的 codex 只是空跑（控制面侧逻辑不受影响，用 HTTP 模拟 sup 已全绿）。
 
-配好 `[mcp_servers.gofer]` 后，gofer 已把 `GOFER_AGENT_ROLE` 注入到 **codex 进程** env（§3 已验证、真机 PASS）。剩最后一跳：codex spawn `gofer mcp` 子进程时是否**透传父进程 env**（host codex 行为，需真机确认）。
+**实测结论（gap① 验证 2026-06-29）**：codex 启动 MCP stdio 子进程用**净化 env、不透传父进程 `GOFER_*`** —— §3 注入到 codex 进程 env 的 `GOFER_AGENT_ROLE` 到不了 mcp 子进程，且 mcp 连 serve 所需 token 也到不了 → `selfRegister` 静默失败、presence 无 driver。**方案A（依赖透传）已证伪。**
 
-- **方案A（依赖透传）**：若 codex 透传父 env → 上面的 `codex-sup.env.GOFER_AGENT_ROLE` 直接生效，无需额外配置。
-- **方案B（稳妥，不依赖透传）**：给 sup 用**独立 CODEX_HOME**，在其 `config.toml` 的 gofer mcp server 块里直接写 env：
+> **⚠️ 更广影响（不只 sup）**：同理，**该主机所有 codex 会话**的 gofer mcp 都拿不到 token → P1.0 owner 自注册 / E36 driver presence 一直静默降级为空。**要让真实 codex 会话能成为 gofer driver（owner-first 路由真实生效），必须给 `[mcp_servers.gofer]` 配 token env** —— 这是比 sup 更基础的前提。
+
+**修复 = ① token（用户全局配）+ ② role（方案C 已自动）**：
+
+- **① token（用户必做，全局）**：host codex `[mcp_servers.gofer]` 补 **单个 `GOFER_SERVER_TOKEN`**（client 连接 token;`GOFER_TOKEN` 是 serve 自己的变量、client 不用它）：
   ```toml
-  # /home/you/.codex-sup/config.toml
   [mcp_servers.gofer]
   command = "gofer"
-  args = ["mcp", "--server", "127.0.0.1:8765"]
-  env = { GOFER_AGENT_ROLE = "supervisor", GOFER_SERVER_TOKEN = "..." }
+  args = ["mcp", "--server", "http://127.0.0.1:LIVE-PORT"]
+  env = { GOFER_SERVER_TOKEN = "<serve token>" }   # 本机 config，不入 gofer 库;单个即可
   ```
-  再在 `codex-sup.env` 设 `CODEX_HOME: /home/you/.codex-sup`（CODEX_HOME 是 codex 启动即读的普通 env，经 gofer→codex 进程 env 这一跳稳定到达，不依赖 MCP 透传）。普通 codex 用默认 CODEX_HOME → 不受影响。
-- **方案C**：若你机器上 codex 支持 `-c` 覆盖 mcp server env，可在 `codex-sup.args` 里加等价 `-c mcp_servers.gofer.env.GOFER_AGENT_ROLE=supervisor`（具体 key 路径以 codex-cli 版本为准，真机验证）。
+- **② role（方案C，gofer 已自动，`74353d1`）**：`--role supervisor` 提交 codex job 时，gofer **自动**追加 `-c mcp_servers.gofer.env.GOFER_AGENT_ROLE=supervisor`（把 role.env 注入 mcp 子进程，key 排序、独立 argv 不经 shell）。**无需手配** CODEX_HOME 或 codex args;普通 codex job（无 role.env）不追加 → 不污染。mcp 块名默认 `gofer`，可经 agent 配置 `mcp_server_name` 改。判据 = agent 的 SystemInject 为 `-c` 形态（codex）。
+- **方案B（可选，纯用户配，不依赖方案C）**：给 sup 用独立 `CODEX_HOME`，其 `config.toml` 的 `[mcp_servers.gofer].env` 直接写 `{ GOFER_AGENT_ROLE = "supervisor", GOFER_SERVER_TOKEN = "..." }`;普通 codex 用默认 CODEX_HOME 不受影响。仅当不想用方案C 自动注入时用。
 
-> 验证该跳最快的方式：起 sup 后 `gofer_list_presence(role=supervisor)`（或 host 上 `gofer` 等价查询）能看到一个 role=supervisor 的在线 driver，即说明 env 贯通了。看不到 → 走方案B。
+> 验证：配好 token + 起 `--role supervisor` sup → `presence?role=supervisor` 见到在线 driver = 贯通。
 
 ### gap② job timeout 1h 硬上限 → sup 活不久
 
@@ -172,7 +174,7 @@ done
 前置自检：
 0. **host codex `~/.codex/config.toml` 已配 `[mcp_servers.gofer]`**（client 模式指向 serve）—— 否则 codex 不 spawn gofer mcp、sup 起不来（§6 gap①，E2E 实测前置硬条件）。
 1. `gofer_list_agents` 见 `codex`(`--role supervisor` 解析出的 agent)、`detect` 通过（用 codex-sup 旧做法时则见 codex-sup）。
-2. 起 sup（§7 形式三），稍候 `gofer_list_presence`（role 过滤 supervisor）→ **看到一个 role=supervisor 在线 driver**（验证 §6 gap① env 贯通；看不到 → 走方案B）。
+2. 起 sup（§7 形式三），稍候 `presence?role=supervisor` → **看到一个 role=supervisor 在线 driver**（验证 §6 gap①:token 已配 + 方案C 自动注入 role 贯通;看不到 → 查 `[mcp_servers.gofer].env` 的 `GOFER_SERVER_TOKEN` 是否配，或走方案B）。
 
 主流程（owner 离线 → sup 接管 → 答 → 原 job 续 + 审计 + 高危拒答）：
 
