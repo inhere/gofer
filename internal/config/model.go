@@ -32,6 +32,23 @@ type Config struct {
 	// for a human (the conservative default). Serve constructs supervisor.Service +
 	// starts its poller only when Enabled.
 	Supervisor *SupervisorConfig `yaml:"supervisor,omitempty"`
+	// Presence tunes the E36 driver-agent presence registry / mailbox TTLs and prune
+	// cadence. All fields optional; unset (<=0) keeps the package defaults (90s online
+	// TTL / 24h message TTL / 60s prune), so an absent `presence:` block changes nothing.
+	Presence PresenceConfig `yaml:"presence,omitempty"`
+}
+
+// PresenceConfig tunes the E36 presence/mailbox runtime (design §9 / §12 收尾). Every
+// field is an OPTIONAL override in seconds; <=0 means "use the built-in default"
+// (applied by presence.Service / the serve prune loop, the single source of truth).
+// These are read at serve start; changing them needs a restart (not SIGHUP-live).
+type PresenceConfig struct {
+	// TTLSec: a driver agent is online while last_seen is within this window (default 90s).
+	TTLSec int `yaml:"ttl_sec"`
+	// MessageTTLSec: how long an unread message lives before prune may drop it (default 24h).
+	MessageTTLSec int `yaml:"message_ttl_sec"`
+	// PruneIntervalSec: presence/inbox prune sweeper cadence (default 60s).
+	PruneIntervalSec int `yaml:"prune_interval_sec"`
 }
 
 // SupervisorConfig configures the E25 answerer (design §8.3-8.4 / §11). Defaults

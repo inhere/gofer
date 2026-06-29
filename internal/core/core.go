@@ -103,6 +103,11 @@ func Build(cfg *config.Config) (*Core, error) {
 	jobs.SetWorkflow(eng)
 	// E36 presence/mailbox over the same metadata store (G022: presence -> jobstore only).
 	pres := presence.NewService(store)
+	// Optional config overrides for the online / message TTLs (<=0 keeps the defaults).
+	pres.Configure(
+		time.Duration(cfg.Presence.TTLSec)*time.Second,
+		time.Duration(cfg.Presence.MessageTTLSec)*time.Second,
+	)
 	return &Core{Cfg: cfg, Projects: projects, Agents: agents, Runners: runners, Store: store, Jobs: jobs, Presence: pres, workflowEngine: eng, Hub: hub}, nil
 }
 
