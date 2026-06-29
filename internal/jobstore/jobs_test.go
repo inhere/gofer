@@ -36,6 +36,55 @@ func sampleJob(id, project string, startedAt int64) JobRecord {
 	}
 }
 
+// TestReconcileOrphanJobs: non-terminal (queued/running) jobs left by a prior serve
+// are failed with the reason + ts stamped; terminal jobs are untouched; idempotent.
+func TestReconcileOrphanJobs(t *testing.T) {
+	s := openTest(t)
+	const ts = int64(1_700_000_000)
+
+	running := sampleJob("run1", "proj", 100)
+	running.Status = "running"
+	running.UpdatedAt = 100
+	queued := sampleJob("q1", "proj", 100)
+	queued.Status = "queued"
+	queued.UpdatedAt = 100
+	done := sampleJob("d1", "proj", 100)
+	done.Status, done.EndedAt, done.UpdatedAt = "done", 200, 200
+	failed := sampleJob("f1", "proj", 100)
+	failed.Status, failed.Error, failed.EndedAt, failed.UpdatedAt = "failed", "boom", 200, 200
+	for _, j := range []JobRecord{running, queued, done, failed} {
+		assert.NoErr(t, s.UpsertJob(j))
+	}
+
+	n, err := s.ReconcileOrphanJobs(ts, "orphaned-test")
+	assert.NoErr(t, err)
+	assert.Eq(t, 2, n)
+
+	// running + queued → failed, with error + ended_at/updated_at stamped to ts.
+	for _, id := range []string{"run1", "q1"} {
+		rec, ok, gerr := s.GetJob(id)
+		assert.NoErr(t, gerr)
+		assert.True(t, ok)
+		assert.Eq(t, "failed", rec.Status)
+		assert.Eq(t, "orphaned-test", rec.Error)
+		assert.Eq(t, ts, rec.EndedAt)
+		assert.Eq(t, ts, rec.UpdatedAt)
+	}
+	// terminal jobs are untouched (status / error / ended_at preserved).
+	d, _, _ := s.GetJob("d1")
+	assert.Eq(t, "done", d.Status)
+	assert.Eq(t, int64(200), d.EndedAt)
+	f, _, _ := s.GetJob("f1")
+	assert.Eq(t, "failed", f.Status)
+	assert.Eq(t, "boom", f.Error) // existing failure reason not clobbered
+	assert.Eq(t, int64(200), f.EndedAt)
+
+	// Idempotent: a second pass finds nothing non-terminal.
+	n2, err := s.ReconcileOrphanJobs(ts+1, "orphaned-test-2")
+	assert.NoErr(t, err)
+	assert.Eq(t, 0, n2)
+}
+
 func TestOpenCreatesSchemaIdempotently(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "gofer.db")
 	s, err := Open(path)

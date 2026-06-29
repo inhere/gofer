@@ -138,6 +138,16 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		c.Printf("gofer: reconciled %d orphan pending interaction(s) from terminal jobs\n", n)
 	}
 
+	// Crash-recovery backstop for jobs: a serve that died / restarted mid-flight (or a
+	// worker that restarted and was superseded on the hub, §5.5) leaves jobs stuck
+	// "running"/"queued" in the store with no live orchestration to ever finish them.
+	// Fail them once at startup, before new work is accepted, so they don't hang forever.
+	if n, rerr := cr.Jobs.ReconcileOrphanJobs(); rerr != nil {
+		c.Errorf("gofer: reconcile orphan jobs failed: %v\n", rerr)
+	} else if n > 0 {
+		c.Printf("gofer: reconciled %d orphan non-terminal job(s) left by a prior serve/worker\n", n)
+	}
+
 	// E25 supervisor (layered answerer): only started when cfg.supervisor.enabled.
 	// stop closes when serve returns so the poller exits with the process.
 	stopSupervisor := make(chan struct{})

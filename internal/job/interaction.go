@@ -265,6 +265,17 @@ func (s *Service) ReconcileOrphanInteractions() (int, error) {
 	return s.meta.ReconcileOrphanInteractions(s.nowFn().Unix())
 }
 
+// ReconcileOrphanJobs fails every job left non-terminal (queued/running) in the
+// store by a serve that died / restarted mid-flight — their in-memory orchestration
+// (dispatch entry / worker sink) did not survive, so a worker that restarted (hub
+// supersede, §5.5) or kept running has nowhere to report back and the job would hang
+// "running" forever. Mirrors ReconcileOrphanInteractions; serve calls it once at
+// startup, before new work is accepted (the in-memory map is empty, so no live job
+// is touched). Returns the rows fixed.
+func (s *Service) ReconcileOrphanJobs() (int, error) {
+	return s.meta.ReconcileOrphanJobs(s.nowFn().Unix(), "orphaned: serve restarted while job was non-terminal")
+}
+
 // AnswerInteraction marks a pending interaction answered, records the answer,
 // wakes any waiter, and — when no pending interactions remain — flips the job
 // status back to running (never overriding a terminal status). Errors if job/
