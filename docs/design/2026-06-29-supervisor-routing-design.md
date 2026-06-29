@@ -124,14 +124,14 @@ job 产生 pending interaction
 escalate(it):
   job := jobs.Get(it.JobID)
   targets := []                                   # 有序候选
-  if job.OriginAgent != "" && presence.Online(job.OriginAgent):
-      targets += "agent:" + job.OriginAgent       # L1：直投 owner（store-and-forward，离线也先落）
+  if job.OriginAgent != "":
+      targets += job.OriginAgent                  # L1：裸 agent_id 直投 owner（store-and-forward；不预检 online）
   if job.EscalateTo != "":  targets += job.EscalateTo   # job 级覆盖（可选）
   targets += policy.EscalateTo                     # L2：全局通用 sup，默认 role-one:supervisor
   # 逐个尝试，首个 delivered>0 即停；都不可达 → 标记 NEEDS_HUMAN（L3 由 web/IM/CLI 捞起）
 ```
 
-- **owner 直投用 `agent:<id>`**：直投具体 agent_id 是 store-and-forward（presence 探查证实：离线也落 inbox、上线 poll 领取），所以 owner 短暂离线不丢；配合 §8.2 超时决定是否 fallback。
+- **owner 直投用裸 `agent_id`(无 `agent:` 前缀)**(P1.2 实测核实并纠正)：presence `resolveRecipients` 仅特判 `broadcast`/`role-one:`/`role:`,其余按原样 `GetPresence(to)` 直查——故直投传裸 `OriginAgent`;写 `"agent:"+id` 会查字面量、查无→`delivered=0`。**不预检 online**:presence 仍有该 id(在线 or 离线未 prune)→ `delivered=1` 落 inbox(store-and-forward),首个即停;agent_id 不存在(未注册/已 prune)→ `delivered=0` 才 fallback 下一候选。短暂离线靠 §8.2 超时兜底。
 - **通用 sup 默认 `role-one:supervisor`（取一）而非 `role:`（投全部）**：多个通用 sup 在线时 `role:` 会让它们**重复抢答同一 interaction**；`role-one:` 取一即可（presence 已支持，crypto/rand 近似均衡）。
 - 同一 interaction 仍保留 dedup（现 `escalated` map），避免多 tick 重复投。
 

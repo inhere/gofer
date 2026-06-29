@@ -70,7 +70,7 @@
   ```
   job := s.jobs.Get(it.JobID)                    // 需 JobOps 暴露 Get（确认接口已有/补）
   var targets []string
-  if job.OriginAgent != "" { targets = append(targets, "agent:"+job.OriginAgent) }  // L1 直投(store-and-forward)
+  if job.OriginAgent != "" { targets = append(targets, job.OriginAgent) }  // L1 裸 agent_id 直投(store-and-forward,无 agent: 前缀)
   if job.EscalateTo != ""  { targets = append(targets, job.EscalateTo) }            // job 级覆盖
   targets = append(targets, s.policy.EscalateTo)                                    // L2 全局 sup
   for _, to := range targets {
@@ -184,7 +184,7 @@
 - [ ] P0 mcp 工具 `bridge_*` → `gofer_*`（15 个 + 全仓引用 + 文档订正）
 - [ ] P1.0 mcp 进程自注册 + 自动注入 origin_agent（name=`mcp-<hostHash>-<pid>`）
 - [x] P1.1 jobs/JobRequest/runJobInput 加 origin_agent/escalate_to + interactions.escalated_at
-- [ ] P1.2 escalate owner-first 路由 + 默认 role-one:supervisor + dedup 落表
+- [x] P1.2 escalate owner-first 路由 + 默认 role-one:supervisor + dedup 落表
 - [ ] P2.1 owner 超时兜底
 - [ ] P2.2 套娃防护（sup non-interactive）
 - [ ] P3.1 派生作答白名单约束

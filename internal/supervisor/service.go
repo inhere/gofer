@@ -32,6 +32,15 @@ import (
 type JobOps interface {
 	ListPendingInteractions() ([]job.Interaction, error)
 	AnswerInteraction(jobID, interactionID, answer string) (job.Interaction, error)
+	// Get returns the job snapshot (owner routing columns OriginAgent/EscalateTo) for
+	// owner-first escalation (§8.1). The bool is false for an unknown id, in which case
+	// the zero JobResult (empty owner cols) routes straight to the global policy.
+	// Satisfied by job.Service.Get.
+	Get(jobID string) (job.JobResult, bool)
+	// MarkInteractionEscalated stamps interactions.escalated_at (escalate dedup +
+	// owner-timeout clock, design §8.1/§9), replacing the old in-memory escalated map
+	// so dedup survives a serve restart. Satisfied by job.Service.MarkInteractionEscalated.
+	MarkInteractionEscalated(jobID, interactionID string, ts int64) error
 }
 
 // PresenceOps is the narrow mailbox capability used to escalate to a human/agent.
@@ -46,6 +55,13 @@ const (
 	DefaultInterval  = 5 * time.Second
 	DefaultMaxRounds = 3
 
+	// DefaultEscalateTo is the global escalation recipient when the policy leaves
+	// escalate_to empty. role-one:<role> targets a SINGLE online supervisor (取一,
+	// design §8.1) so multiple online sups don't race to answer the same interaction
+	// (role: would fan out to ALL of them). Changed from role:supervisor in
+	// supervisor-routing P1.2.
+	DefaultEscalateTo = "role-one:supervisor"
+
 	escalateKind = "escalation"
 	systemFrom   = "system"
 )
@@ -57,7 +73,7 @@ type Policy struct {
 	Enabled          bool
 	Interval         time.Duration
 	AutoAnswer       bool
-	EscalateTo       string // "role:supervisor" | a concrete agent_id (default role:supervisor)
+	EscalateTo       string // a to-spec ("role-one:supervisor" | "role:..." | a concrete agent_id); default DefaultEscalateTo
 	MaxRoundsPerJob  int
 	AllowPromptRegex []string
 }
@@ -70,8 +86,9 @@ const (
 	actionAutoAnswer
 )
 
-// Service is the layered answerer. nowFn is injectable for tests; the dedup/round
-// state is guarded by mu.
+// Service is the layered answerer. nowFn is injectable for tests; the per-job round
+// budget (rounds) is guarded by mu. Escalate dedup is NO LONGER in-memory — it lives
+// in interactions.escalated_at (design §9, P1.2), so it survives a serve restart.
 type Service struct {
 	jobs     JobOps
 	presence PresenceOps
@@ -79,9 +96,8 @@ type Service struct {
 	patterns []*regexp.Regexp
 	nowFn    func() time.Time
 
-	mu        sync.Mutex
-	escalated map[string]bool // interaction ids already escalated (dedup)
-	rounds    map[string]int  // job id -> interactions handled (auto+escalate)
+	mu     sync.Mutex
+	rounds map[string]int // job id -> interactions handled (auto+escalate)
 }
 
 // NewService builds a Service, applying defaults for a zero Interval / MaxRounds /
@@ -95,7 +111,7 @@ func NewService(jobs JobOps, presence PresenceOps, policy Policy) *Service {
 		policy.MaxRoundsPerJob = DefaultMaxRounds
 	}
 	if policy.EscalateTo == "" {
-		policy.EscalateTo = "role:supervisor"
+		policy.EscalateTo = DefaultEscalateTo
 	}
 	var pats []*regexp.Regexp
 	for _, p := range policy.AllowPromptRegex {
@@ -107,13 +123,12 @@ func NewService(jobs JobOps, presence PresenceOps, policy Policy) *Service {
 		pats = append(pats, re)
 	}
 	return &Service{
-		jobs:      jobs,
-		presence:  presence,
-		policy:    policy,
-		patterns:  pats,
-		nowFn:     time.Now,
-		escalated: map[string]bool{},
-		rounds:    map[string]int{},
+		jobs:     jobs,
+		presence: presence,
+		policy:   policy,
+		patterns: pats,
+		nowFn:    time.Now,
+		rounds:   map[string]int{},
 	}
 }
 
@@ -147,11 +162,11 @@ func (s *Service) tick(_ context.Context) {
 		return
 	}
 	for _, it := range list {
-		s.mu.Lock()
-		alreadyEscalated := s.escalated[it.ID]
-		s.mu.Unlock()
-		if alreadyEscalated {
-			continue // already routed to a human; awaiting their answer
+		// Dedup via the persisted interactions.escalated_at (replaces the in-memory
+		// escalated map): a non-zero stamp means a prior tick — this process OR a
+		// previous serve — already routed it to a human/owner, so skip until answered.
+		if it.EscalatedAt > 0 {
+			continue
 		}
 		switch s.decide(it) {
 		case actionAutoAnswer:
@@ -222,18 +237,57 @@ func (s *Service) autoAnswer(it job.Interaction) {
 	slog.Info("supervisor: auto-answered", "job_id", it.JobID, "interaction_id", it.ID, "answer", answer, "answered_by", "auto:choice")
 }
 
-// escalate posts an escalation to the configured inbox and marks the interaction so
-// it is not re-posted on later ticks (dedup). Post failures are logged and NOT
-// marked, so a transient failure retries next tick.
+// escalate routes a pending interaction owner-first (design §8.1): it tries, in order,
+//  1. the job's origin agent (owner) — direct-投 by its BARE agent_id, which presence
+//     treats as store-and-forward (lands in the owner's inbox even if briefly offline);
+//  2. an optional job-level escalate_to override;
+//  3. the global policy default (DefaultEscalateTo = role-one:supervisor).
+//
+// The FIRST target that delivers >0 wins and stops the chain. On a delivery it stamps
+// interactions.escalated_at (dedup, replacing the in-memory map) so later ticks / a
+// serve restart don't re-post. No reachable recipient → leave it pending (no stamp): a
+// later tick retries and ultimately a human picks it up (L3). A Post error is logged
+// and the next target is tried.
 func (s *Service) escalate(it job.Interaction) {
+	jr, _ := s.jobs.Get(it.JobID) // zero JobResult when unknown → empty owner cols → policy-only
 	ref := "job:" + it.JobID + "#" + it.ID
-	if _, err := s.presence.Post(systemFrom, s.policy.EscalateTo, escalateKind, it.Prompt, ref); err != nil {
-		slog.Warn("supervisor: escalate post failed", "job_id", it.JobID, "interaction_id", it.ID, "err", err)
+
+	targets := make([]string, 0, 3)
+	if jr.OriginAgent != "" {
+		targets = append(targets, jr.OriginAgent) // L1: owner (bare agent_id, store-and-forward)
+	}
+	if jr.EscalateTo != "" {
+		targets = append(targets, jr.EscalateTo) // job-level override
+	}
+	targets = append(targets, s.policy.EscalateTo) // L2: global sup (default role-one:supervisor)
+
+	deliveredTo := ""
+	for _, to := range targets {
+		n, err := s.presence.Post(systemFrom, to, escalateKind, it.Prompt, ref)
+		if err != nil {
+			slog.Warn("supervisor: escalate post failed", "job_id", it.JobID, "interaction_id", it.ID, "to", to, "err", err)
+			continue
+		}
+		if n > 0 {
+			deliveredTo = to
+			break
+		}
+	}
+	if deliveredTo == "" {
+		// Nobody reachable (owner unknown/pruned AND no online sup): not stamped, so a
+		// later tick retries; a human (L3) is the backstop.
+		slog.Info("supervisor: escalate found no recipient", "job_id", it.JobID, "interaction_id", it.ID, "targets", targets)
 		return
 	}
+
+	// dedup落表: stamp escalated_at so a later tick / a serve restart does not re-post.
+	if err := s.jobs.MarkInteractionEscalated(it.JobID, it.ID, s.nowFn().Unix()); err != nil {
+		// Non-fatal: dedup degrades to possibly re-posting next tick; the message was
+		// already delivered, so do not undo the round accounting below.
+		slog.Warn("supervisor: mark interaction escalated failed", "job_id", it.JobID, "interaction_id", it.ID, "err", err)
+	}
 	s.mu.Lock()
-	s.escalated[it.ID] = true
 	s.rounds[it.JobID]++
 	s.mu.Unlock()
-	slog.Info("supervisor: escalated", "job_id", it.JobID, "interaction_id", it.ID, "to", s.policy.EscalateTo, "ref", ref)
+	slog.Info("supervisor: escalated", "job_id", it.JobID, "interaction_id", it.ID, "to", deliveredTo, "ref", ref)
 }
