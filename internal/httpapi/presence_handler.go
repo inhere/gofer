@@ -95,8 +95,8 @@ func (s *Server) handlePollInbox(c *rux.Context) {
 	c.JSON(http.StatusOK, map[string]any{"messages": msgs})
 }
 
-// handlePostMessage delivers a message (direct / role: / broadcast) and returns
-// {delivered} — the number of inbox rows created by the fan-out.
+// handlePostMessage delivers a message (direct / role: / role-one: / broadcast) and
+// returns {delivered} — the number of inbox rows created by the fan-out.
 func (s *Server) handlePostMessage(c *rux.Context) {
 	var req postMessageReq
 	if err := c.BindJSON(&req); err != nil {

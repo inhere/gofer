@@ -12,6 +12,7 @@ package presence
 
 import (
 	"crypto/rand"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"strings"
@@ -33,7 +34,10 @@ const DefaultMessageTTL = 24 * time.Hour
 
 // Addressing prefixes / sentinels for Post's `to` (design §9).
 const (
-	rolePrefix      = "role:"
+	rolePrefix = "role:"
+	// roleOnePrefix addresses a SINGLE online agent of a role (work-assignment), as
+	// opposed to rolePrefix which fans out to ALL online agents of that role (notify).
+	roleOnePrefix   = "role-one:"
 	broadcastTarget = "broadcast"
 )
 
@@ -209,13 +213,18 @@ func (s *Service) Poll(agentID, token string, ack bool) ([]Message, error) {
 	return out, nil
 }
 
-// Post delivers a message addressed by `to` (a concrete agent_id, "role:<name>",
-// or "broadcast") and returns how many inbox rows it created (fan-out, design §9).
-// A direct send to a known agent is 1 row; role:/broadcast fan out to every ONLINE
-// matching agent (1 row each). With no reachable recipient nothing is stored and
-// delivered=0 is returned, so the sender can decide to retry (MVP: no留库/回执,
-// design §12 留后续). from is the sender's agent_id (or "system"/"job:<id>"),
-// stamped by the caller.
+// Post delivers a message addressed by `to` and returns how many inbox rows it
+// created (fan-out, design §9). Addressing forms:
+//   - direct agent_id → 1 row, stored in that agent's inbox even when offline
+//     (store-and-forward up to message TTL); unknown id → 0.
+//   - "role:<name>" → 1 row PER online agent of that role (fan-out / notify-all).
+//   - "role-one:<name>" → 1 row to ONE random online agent of that role
+//     (work-assignment); no online match → 0.
+//   - "broadcast" → 1 row per online agent.
+// With no reachable recipient nothing is stored and delivered=0 is returned, so the
+// sender (or supervisor) can retry — best-effort by design (§9/§12; role/broadcast
+// queue-on-online is explicitly out of scope). from is the sender's agent_id (or
+// "system"/"job:<id>"), stamped by the caller.
 func (s *Service) Post(from, to, kind, body, ref string) (delivered int, err error) {
 	if strings.TrimSpace(to) == "" {
 		return 0, errors.New("presence: post: empty to")
@@ -355,6 +364,19 @@ func (s *Service) resolveRecipients(to string) ([]string, error) {
 	if to == broadcastTarget {
 		return s.onlineMatching(func(jobstore.PresenceRecord) bool { return true })
 	}
+	// role-one:<name> — work-assignment to ONE online agent of that role (a single
+	// row, not fan-out). Picks uniformly at random among the online matches for
+	// approximate load balancing; no online match ⇒ empty (delivered=0, best-effort,
+	// same semantics as role:/broadcast — design §9). Checked before rolePrefix; the
+	// two prefixes are disjoint ("role-one:" never HasPrefix "role:").
+	if strings.HasPrefix(to, roleOnePrefix) {
+		role := strings.TrimPrefix(to, roleOnePrefix)
+		ids, err := s.onlineMatching(func(r jobstore.PresenceRecord) bool { return r.Role == role })
+		if err != nil || len(ids) == 0 {
+			return nil, err
+		}
+		return []string{ids[pickIndex(len(ids))]}, nil
+	}
 	if strings.HasPrefix(to, rolePrefix) {
 		role := strings.TrimPrefix(to, rolePrefix)
 		return s.onlineMatching(func(r jobstore.PresenceRecord) bool { return r.Role == role })
@@ -388,6 +410,21 @@ func (s *Service) onlineMatching(pred func(jobstore.PresenceRecord) bool) ([]str
 		}
 	}
 	return ids, nil
+}
+
+// pickIndex returns a uniformly-random index in [0,n) using crypto/rand (the
+// package's rand). Used by role-one:<name> to pick one online agent. n must be > 0;
+// a rand failure (never in practice) degrades deterministically to index 0. The
+// modulo bias is negligible for the handful of agents a role ever has.
+func pickIndex(n int) int {
+	if n <= 1 {
+		return 0
+	}
+	var b [8]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		return 0
+	}
+	return int(binary.BigEndian.Uint64(b[:]) % uint64(n))
 }
 
 // statusFor reports online/offline for a last_seen against the precomputed cutoff.

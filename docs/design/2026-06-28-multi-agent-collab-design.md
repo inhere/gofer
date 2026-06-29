@@ -213,7 +213,7 @@ CREATE TABLE IF NOT EXISTS messages (
   id          TEXT PRIMARY KEY,     -- uuid (一收件人一行,见下 fan-out)
   to_agent    TEXT NOT NULL,        -- 落地后恒为具体 agent_id(投递时已解析)
   from_agent  TEXT NOT NULL,        -- 发件 agent_id | "system" | "job:<id>"
-  to_spec     TEXT,                 -- 原始寻址: agent_id | "role:<name>" | "broadcast"(留痕/回执)
+  to_spec     TEXT,                 -- 原始寻址: agent_id | "role:<name>" | "role-one:<name>" | "broadcast"(留痕/回执)
   kind        TEXT NOT NULL,        -- task | note | answer | escalation
   body        TEXT,                 -- 消息内容
   ref         TEXT,                 -- 关联引用: job:<id> / job:<id>#<iid> / msg:<id>(可空)
@@ -227,9 +227,9 @@ CREATE INDEX IF NOT EXISTS idx_messages_inbox ON messages(to_agent, status, crea
 
 **投递 = post 时 fan-out 成多行**（复审 #7：单 status 列无法表达"A 已读 B 未读"，故按收件人**展开为每人一行**，各自独立 status）：
 
-- `to_agent` 为具体 `agent_id` → 1 行；`role:<name>` → 命中 presence 中 **online 同 role** 的每个 agent 各 1 行；`broadcast` → 每个 online 各 1 行（限频）。
+- **投递策略定稿（2026-06-29）**：`to_agent` 为具体 `agent_id` → 1 行；`role:<name>` → 命中 presence 中 **online 同 role** 的**每个** agent 各 1 行（fan-out / 通知全员）；**`role-one:<name>` → online 同 role 中**随机取一个** agent 1 行（工作分派，近似均衡，`crypto/rand` 取一）；`broadcast` → 每个 online 各 1 行（限频）。
 - `to_spec` 保留原始寻址用于留痕/回执。
-- **不可达处理**（复审 #7）：`role:`/具体 agent 当时**无 online 收件人** → 不静默丢：要么按 `expires_at` 留库待上线领取（plan 定是否上线补投），要么给发件方回一条 `kind=note` 不可达回执。message 设 TTL，过期未读 sweeper 清理。
+- **不可达处理定稿（2026-06-29，best-effort）**：① **直投具体 agent_id**（在线或离线）→ 落该 agent inbox，**store-and-forward 到 message TTL**（离线 agent 上线 poll 即领取）；未知 agent_id → 0。② `role:`/`role-one:`/`broadcast` 当时**无 online 收件人** → **不留库，`delivered=0` 作回执**返回，发送方/supervisor 据此重试（**不做 role 上线补投**——避免额外 pending 队列/重解析复杂度，YAGNI；直投已覆盖"离线领取"语义）。message 设 TTL，过期未读由 prune sweeper 清理。
 
 > 跨 job pending 不新建表：`SELECT * FROM interactions WHERE status='pending'`（interactions 已持久化 status，pending 行 create 时即落库）。
 
@@ -281,7 +281,7 @@ CREATE INDEX IF NOT EXISTS idx_messages_inbox ON messages(to_agent, status, crea
 - **IM answerer(E22c)** 接入同一 escalation 机制（升级到 IM 卡片）→ 与自主化 epic 协同。
 - **完整 E8 审批门**独立 design（本文仅 `confirmation` 升级表达）。
 - **roles 规则/上下文文件**（E11 注入包）与 role 的合并边界。
-- **`role:` 投递策略**（投全部 vs 取一 vs 负载均衡）默认值确认；**不可达消息**是上线补投 vs 回执 vs 仅 TTL 过期，确认默认。
+- ~~**`role:` 投递策略**（投全部 vs 取一 vs 负载均衡）；**不可达消息**是上线补投 vs 回执 vs 仅 TTL 过期~~ → **已定稿 2026-06-29**：`role:`=投全部（通知）、新增 `role-one:`=取一（工作分派，随机近似均衡）；不可达 best-effort——直投 store-and-forward 到 TTL、role/broadcast 无在线返回 `delivered=0` 回执由发送方重试（不做上线补投）。见 §9。锚点 `internal/presence/service.go` resolveRecipients。
 - **presence TTL**（默认 90s）与心跳间隔、prune 阈值确认；message TTL 默认值确认。
 - **既有缺口修复范围**（复审 #4）：job 终态对账残留 pending interaction（`InteractionCancelled` 现从未赋值）是本 epic 顺带修，还是单独小 issue——倾向随 P3 一并修（L4 依赖跨 job pending 可靠）。
 - ~~**resume × role**（复审 #5）：claude/codex `--resume` 是否确需重传 system_prompt~~ → **已实测定稿 2026-06-29**：**两端均原生恢复**——claude-cli 2.1.191 `--resume <sid>` 恢复 `--append-system-prompt`、codex-cli 0.142 `codex exec resume <sid>` 恢复 `-c developer_instructions=`（均 marker 验证 + 负对照）。故 `ResumeJob` **去掉重施**（重施反而会双重注入）。锚点 `internal/job/resume.go`。
