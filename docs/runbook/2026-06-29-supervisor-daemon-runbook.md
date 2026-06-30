@@ -197,3 +197,28 @@ done
 - ✅ **已落地(`c0f355a`)**：`RoleConfig` 加 `env map`、`JobRequest` 加 per-job `Env`，`--role supervisor` 直接注入 `GOFER_AGENT_ROLE`、无需单独 `codex-sup` agent（本 runbook §3/§4 已按此简化）。**仅 local runner 生效**（远端 Forward 不带 Env，sup 跑主机 local 符合）。
 </content>
 </invoke>
+
+## 10. 走标准 MCP 工具路径(claude-sup,2026-06-30 落地)
+
+**背景**：codex `exec` 非交互模式**结构性不暴露 MCP server 工具**(OpenAI codex #24135：MCP 工具调用因无法弹批准被自动取消，唯一绕过 `--dangerously-bypass-approvals-and-sandbox` 会关沙箱)。故 codex sup 只能自写 PowerShell HTTP 轮询兜底(功能正常但非标准路径)。改用 **claude** 做 sup：`claude -p` 配 `--mcp-config` + `--allowedTools` 可在非交互下精确放行并真正调用 gofer MCP 工具(不关沙箱)。
+
+**配置(全局 config)**：
+- `roles.supervisor.agent: claude-sup`(`project` 仍必填)。
+- 新 agent `claude-sup`：`command: claude`，`args: [-p, "{{prompt}}", --mcp-config, <json>, --allowedTools, mcp__gofer__gofer_poll_inbox, mcp__gofer__gofer_get_interactions, mcp__gofer__gofer_answer_interaction, mcp__gofer__gofer_list_pending_interactions]`。
+  - **`{{prompt}}` 必须紧跟 `-p`(位置参数)**；变参 `--allowedTools` 放最后，否则会吞掉 prompt。
+  - 项目 `allowed_agents` 需加 `claude-sup`。
+- 专属 MCP 配置 `<config-dir>/gofer-sup-mcp.json`(不污染普通 claude job)：
+  ```json
+  {"mcpServers":{"gofer":{"command":"gofer","args":["mcp","--server","http://127.0.0.1:8767"],
+    "env":{"GOFER_SERVER_TOKEN":"<token>","GOFER_AGENT_ROLE":"supervisor","GOFER_AGENT_NAME":"gofer-supervisor"}}}}
+  ```
+- `supervisor.reconcile_prompt`：指示「只用 gofer_* 工具：gofer_poll_inbox(不传参=轮询自身收件箱)→对 escalation 用 gofer_get_interactions 找 interaction_id→低危纯确认才 gofer_answer_interaction，其余留 pending→连续2轮空箱即结束(调度器再拉起)」。
+
+**配套 3 个 gofer 代码改动(否则 claude sup 无法干净工作)**：
+- `2d5be81` `gofer_poll_inbox` 的 `agent_id/agent_token` 改可选(omitempty)，省略时**回退到本 mcp 进程自注册身份**(`selfRegister` 同时返回 token)。否则 poll 要显式 register、而 answer 硬归因自注册身份→三处身份(poll/answer/role-one 路由)不对齐。
+- `f226fd7` `GOFER_AGENT_NAME` 固定 mcp 自注册 name。否则每个短命 claude-sup burst 是新 `mcp-<hash>-<pid>`→escalation 会孤立在已退出进程的 inbox；固定名(`gofer-supervisor`)让所有 burst **复用一个持久 inbox**累积消息，任意 burst 都能 poll 到全部。
+- `b8675f6` `reconcile_job_timeout_sec`(默认 3600)：sup job 超时上限。
+
+**生产实测全绿(2026-06-30)**：presence 只剩固定名 `gofer-supervisor`；造 5 条纯「是否继续?」→ 3 条 L0 `auto:choice` + 2 条超轮次升级 → claude-sup burst 经 `gofer_poll_inbox`→`gofer_get_interactions`→`gofer_answer_interaction` 应答，`answered_by=agent:<gofer-supervisor-id>`，**零 PowerShell**。answerguard 白名单闸正常生效。
+
+**回退**：`roles.supervisor.agent` 改回 `codex`(原 PowerShell sup)或 `desired_supervisors: 0` 重启。
