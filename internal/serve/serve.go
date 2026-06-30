@@ -362,6 +362,13 @@ const supReconcileInterval = 60 * time.Second
 const defaultSupReconcilePrompt = "你是 supervisor。持续循环调用 gofer_poll_inbox 获取 kind=escalation 的消息，" +
 	"对通用、低危的问题用 gofer_answer_interaction 作答；拿不准或高危的不要猜，留给人处理。non-interactive。"
 
+// supReconcileJobTimeoutDefault is the per-sup-job timeout when
+// supervisor.reconcile_job_timeout_sec is unset/<=0. A sup is a RESIDENT daemon, so the
+// default is the 1h MaxTimeoutSec cap (vs the 300s job default) — re-dispatching ~hourly
+// instead of every 5min minimises codex churn while staying bounded (submit clamps to the
+// same cap, so a higher value is a no-op).
+const supReconcileJobTimeoutDefault = 3600
+
 // reconcileSupervisors is the pure P4b decision: ensure `desired` active sup daemon
 // jobs exist by submitting one per missing replica. count is the active-sup-job tally
 // (the single replica signal — job state, not presence, to avoid double-count); submit
@@ -408,6 +415,10 @@ func startSupReconcileLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{})
 	if prompt == "" {
 		prompt = defaultSupReconcilePrompt
 	}
+	jobTimeout := sc.ReconcileJobTimeoutSec
+	if jobTimeout <= 0 {
+		jobTimeout = supReconcileJobTimeoutDefault
+	}
 	logf := func(f string, a ...any) { c.Printf(f, a...) }
 	errf := func(f string, a ...any) { c.Errorf(f, a...) }
 	count := func() (int, error) { return cr.Store.CountActiveJobsByRole("supervisor") }
@@ -415,7 +426,10 @@ func startSupReconcileLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{})
 		// Role=supervisor pulls agent/system_prompt/env (incl. GOFER_AGENT_ROLE) from the
 		// roles.supervisor preset (validated present at load when desired>0). Prompt is the
 		// kickoff turn — required because a cli-agent (codex) rejects an empty prompt.
-		_, err := cr.Jobs.Submit(job.JobRequest{Role: "supervisor", Runner: runnerName, Prompt: prompt})
+		// TimeoutSec keeps a resident sup long-lived (default 1h) to minimise churn.
+		_, err := cr.Jobs.Submit(job.JobRequest{
+			Role: "supervisor", Runner: runnerName, Prompt: prompt, TimeoutSec: jobTimeout,
+		})
 		return err
 	}
 	c.Printf("gofer: supervisor reconciler enabled (desired=%d, runner=%q, interval=%s)\n", desired, runnerName, interval)

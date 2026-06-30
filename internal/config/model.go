@@ -87,6 +87,12 @@ type SupervisorConfig struct {
 	// behaviour/guardrails come from roles.supervisor.system_prompt (--append-system-prompt);
 	// this is just the "begin supervising" turn.
 	ReconcilePrompt string `yaml:"reconcile_prompt"`
+	// ReconcileJobTimeoutSec is the per-sup-job timeout the reconciler sets. A sup is a
+	// resident daemon, so the default is long (serve.supReconcileJobTimeoutDefault=3600,
+	// the 1h MaxTimeoutSec cap) — minimising churn (re-dispatch ~hourly, not every 5min
+	// like the 300s job default). <=0 => that long default; the value is still clamped to
+	// MaxTimeoutSec at submit. Lower it only to force more frequent sup recycling.
+	ReconcileJobTimeoutSec int `yaml:"reconcile_job_timeout_sec"`
 }
 
 // RoleConfig is one named role preset (design §8.5). Agent is the base CLI agent
