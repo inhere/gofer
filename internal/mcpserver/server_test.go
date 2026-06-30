@@ -438,6 +438,19 @@ func TestPollInboxDefaultsToSelfIdentity(t *testing.T) {
 	}
 }
 
+// TestSelfRegisterNameFixedOverride: GOFER_AGENT_NAME fixes the self-register name
+// (resident supervisor reuses one identity/inbox across re-dispatches); unset → pid form.
+func TestSelfRegisterNameFixedOverride(t *testing.T) {
+	t.Setenv(envAgentName, "gofer-supervisor")
+	if got := selfRegisterName(); got != "gofer-supervisor" {
+		t.Fatalf("with GOFER_AGENT_NAME set, name = %q, want gofer-supervisor", got)
+	}
+	t.Setenv(envAgentName, "")
+	if got := selfRegisterName(); !strings.HasPrefix(got, "mcp-") {
+		t.Fatalf("with GOFER_AGENT_NAME empty, name = %q, want mcp-<hash>-<pid>", got)
+	}
+}
+
 // TestSelfRegisterNameFormat asserts the per-process driver-agent name shape
 // mcp-<hostHash>-<pid>: an 8-hex-char host hash and the live pid (pid embedding is
 // what keeps two processes on one host from aliasing onto a single agent_id).
