@@ -327,6 +327,15 @@ func (s *Server) buildRouter() *rux.Router {
 		// (reads job.Service, no extra wiring); ?status=pending (default).
 		r.GET("/interactions", s.handleListPendingInteractions)
 
+		// AUTO-02 cron schedules: store a prepared JobRequest behind a cron expr.
+		r.POST("/schedules", s.handleCreateSchedule)
+		r.GET("/schedules", s.handleListSchedules)
+		r.GET("/schedules/{id}", s.handleGetSchedule)
+		r.DELETE("/schedules/{id}", s.handleDeleteSchedule)
+		r.POST("/schedules/{id}/enable", s.handleEnableSchedule)
+		r.POST("/schedules/{id}/disable", s.handleDisableSchedule)
+		r.POST("/schedules/{id}/run-now", s.handleRunSchedule)
+
 		// E36 driver-agent identity/mailbox (design §10). Mounted only when the
 		// presence service is wired (SetPresence, serve); nil for presence-less
 		// callers (most tests / peer bridges) so their routers stay unchanged.

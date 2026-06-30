@@ -127,6 +127,10 @@ func TestSyncSubmitSlowCommandFallsBackTo202(t *testing.T) {
 	if jr.ID == "" {
 		t.Fatalf("202 body missing job id: %+v", jr)
 	}
+	t.Cleanup(func() {
+		do(t, s, http.MethodPost, "/v1/jobs/"+jr.ID+"/cancel", testToken, nil).Body.Close()
+		waitDone(t, s, jr.ID)
+	})
 	if job.IsTerminal(jr.Status) {
 		t.Fatalf("job is terminal (%s) on 202 fallback; should still be running", jr.Status)
 	}
@@ -146,6 +150,15 @@ func TestAsyncSubmitUnchanged(t *testing.T) {
 	if resp.Header.Get("X-Gofer-Async") != "" {
 		t.Fatalf("plain async submit should not set X-Gofer-Async")
 	}
+	var jr job.JobResult
+	decode(t, resp, &jr)
+	if jr.ID == "" {
+		t.Fatalf("body missing job id: %+v", jr)
+	}
+	t.Cleanup(func() {
+		do(t, s, http.MethodPost, "/v1/jobs/"+jr.ID+"/cancel", testToken, nil).Body.Close()
+		waitDone(t, s, jr.ID)
+	})
 }
 
 // --- parseMarkdownRequest unit tests ---
