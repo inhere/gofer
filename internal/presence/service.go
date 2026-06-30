@@ -226,6 +226,31 @@ func (s *Service) Poll(agentID, token string, ack bool) ([]Message, error) {
 	return out, nil
 }
 
+// ListInbox returns an agent's inbox messages WITHOUT consuming them (no MarkRead) or
+// refreshing presence (no TouchPresence) — the P5 read-only observability view, distinct
+// from Poll. includeRead=false lists only unread (matching Poll's default scope);
+// includeRead=true also returns已读. No token check: it is an internal /inner-gated read
+// (SR202); an unknown agent_id yields an empty list (the inbox query simply matches no rows).
+func (s *Service) ListInbox(agentID string, includeRead bool) ([]Message, error) {
+	rows, err := s.store.ListInbox(agentID, includeRead)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]Message, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, Message{
+			ID:        r.ID,
+			FromAgent: r.FromAgent,
+			ToSpec:    r.ToSpec,
+			Kind:      r.Kind,
+			Body:      r.Body,
+			Ref:       r.Ref,
+			CreatedAt: r.CreatedAt,
+		})
+	}
+	return out, nil
+}
+
 // Post delivers a message addressed by `to` and returns how many inbox rows it
 // created (fan-out, design §9). Addressing forms:
 //   - direct agent_id → 1 row, stored in that agent's inbox even when offline

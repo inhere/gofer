@@ -382,3 +382,50 @@ func TestPrune(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Len(t, list, 0)
 }
+
+// TestListInboxReadOnly: the P5 read-only inbox returns messages WITHOUT consuming
+// them (a later Poll still sees them) and WITHOUT refreshing presence last_seen
+// (distinct from Poll, which acks + touches heartbeat).
+func TestListInboxReadOnly(t *testing.T) {
+	svc, clk := newTestService(t)
+	a, _ := svc.Register(RegisterInput{Name: "alice", CallerID: "c1"})
+	b, _ := svc.Register(RegisterInput{Name: "bob", CallerID: "c1"})
+	_, _ = svc.Post(a.AgentID, b.AgentID, KindEscalation, "owner offline", "job:1")
+
+	// Baseline bob's last_seen right after register (at the register clock).
+	seenOf := func(id string) int64 {
+		list, err := svc.List("", "")
+		assert.NoErr(t, err)
+		for _, ag := range list {
+			if ag.AgentID == id {
+				return ag.LastSeenAt
+			}
+		}
+		t.Fatalf("agent %s not found", id)
+		return -1
+	}
+	baseSeen := seenOf(b.AgentID)
+
+	// Advance the clock: a heartbeat refresh (if any) would now be visible.
+	clk.set(clk.sec + 999)
+
+	msgs, err := svc.ListInbox(b.AgentID, false)
+	assert.NoErr(t, err)
+	assert.Len(t, msgs, 1)
+	assert.Eq(t, KindEscalation, msgs[0].Kind)
+	assert.Eq(t, "owner offline", msgs[0].Body)
+	assert.Eq(t, "job:1", msgs[0].Ref)
+
+	// Read-only: last_seen unchanged (ListInbox did NOT TouchPresence).
+	assert.Eq(t, baseSeen, seenOf(b.AgentID))
+
+	// Not consumed: a real Poll still returns the same message.
+	polled, err := svc.Poll(b.AgentID, b.AgentToken, false)
+	assert.NoErr(t, err)
+	assert.Len(t, polled, 1)
+
+	// Unknown agent → empty list, no error.
+	none, err := svc.ListInbox("ghost", true)
+	assert.NoErr(t, err)
+	assert.Len(t, none, 0)
+}
