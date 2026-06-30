@@ -8,6 +8,7 @@ package serve
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"os/signal"
 	"syscall"
@@ -21,6 +22,7 @@ import (
 	"github.com/inhere/gofer/internal/httpapi"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/metrics"
 	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/runner"
@@ -121,6 +123,12 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	stopWorkflow := make(chan struct{})
 	defer close(stopWorkflow)
 	startWorkflowLoop(c, cr.Workflow(), stopWorkflow)
+
+	// AUTO-02 cron schedule sweeper: advance due schedules first, then submit the
+	// embedded job request. The stop channel follows the other serve-owned loops.
+	stopSchedule := make(chan struct{})
+	defer close(stopSchedule)
+	startScheduleLoop(c, cr, stopSchedule)
 
 	// E36 presence prune sweeper: GC offline driver-agent rows (last_seen past the
 	// TTL window) + read/expired inbox messages. Always started (low cost: empty
@@ -396,6 +404,7 @@ const supReconcileJobTimeoutDefault = 3600
 //     to avoid double-count). active>=desired ⇒ a sup is already draining work, do nothing.
 //   - demand gate: countDemand (CountSupPendingDemand — pending sup-bound interactions not
 //     yet punted to a human). demand<=0 ⇒ idle ⇒ spawn NOTHING ⇒ zero claude cost.
+//
 // Only when a sup is wanted (demand>0) AND none is running does it submit one per missing
 // replica. A submit error aborts THIS call (the loop/wake retries) rather than spinning.
 // Pure (no *Core / *gcli.Command) so it is unit-testable across the active×demand matrix.
@@ -431,6 +440,7 @@ func reconcileSupervisors(desired int, countActive, countDemand func() (int, err
 // the answerer). It spawns a sup ON DEMAND rather than keeping one resident: it reconciles
 //   - on a wake signal (the answerer's escalate() found no reachable sup — low latency), and
 //   - on a periodic backstop tick (covers a lost wake / a serve restart with pending work),
+//
 // each time spawning at most desired sups and only when CountSupPendingDemand>0. Idle ⇒ no
 // sup ⇒ zero claude cost. `desired` is the concurrency CAP (default 1). The per-sup-job
 // timeout still bounds a hung sup; a sup that finishes draining demand simply exits and is
@@ -546,6 +556,112 @@ func startDeliveryLoop(c *gcli.Command, jobs *job.Service, nconf *config.Notific
 // hook推进 the common case promptly; this only catches workflows whose hook was
 // lost (process crash mid-step), so a relaxed tick is fine.
 const workflowInterval = 30 * time.Second
+
+// scheduleSweepInterval is below cron's 1min granularity, so minute cron entries
+// are picked up promptly without a hot loop.
+const scheduleSweepInterval = 30 * time.Second
+
+// sweepSchedules handles one AUTO-02 cron pass: every due schedule is first
+// advanced with a compare-and-swap update, then its embedded job request is
+// submitted. Submit failures are logged after advance so a bad request does not
+// pin next_run_at forever.
+func sweepSchedules(now int64, due []jobstore.ScheduleRecord, missGrace int64,
+	nextOf func(expr string, after int64) (int64, error),
+	advance func(id string, oldNext, newNext int64) (bool, error),
+	submit func(r jobstore.ScheduleRecord) (string, error),
+	setLast func(id, jobID string), logf, errf func(string, ...any)) {
+	for _, r := range due {
+		oldNext := r.NextRunAt
+		newNext, err := nextOf(r.CronExpr, now)
+		if err != nil {
+			errf("gofer: schedule %s next cron failed: %v\n", r.ID, err)
+			continue
+		}
+		ok, err := advance(r.ID, oldNext, newNext)
+		if err != nil {
+			errf("gofer: schedule %s advance failed: %v\n", r.ID, err)
+			continue
+		}
+		if !ok {
+			continue
+		}
+		if r.CatchUp == 0 && now-oldNext > missGrace {
+			logf("gofer: schedule %s skipped missed run (miss=%ds, grace=%ds)\n", r.ID, now-oldNext, missGrace)
+			continue
+		}
+		jobID, err := submit(r)
+		if err != nil {
+			errf("gofer: schedule %s submit failed: %v\n", r.ID, err)
+			continue
+		}
+		setLast(r.ID, jobID)
+	}
+}
+
+// startScheduleLoop launches the AUTO-02 cron schedule sweeper. It mirrors the
+// other serve loops: sweep once at startup for crash recovery, then on every
+// configured tick, and exit when stop closes.
+func startScheduleLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
+	interval := scheduleSweepInterval
+	if cr.Cfg.Schedule.SweepIntervalSec > 0 {
+		interval = time.Duration(cr.Cfg.Schedule.SweepIntervalSec) * time.Second
+	}
+	missGrace := int64(cr.Cfg.Schedule.MissGraceSec)
+	if missGrace <= 0 {
+		missGrace = 3600
+	}
+	c.Printf("gofer: schedule sweeper enabled (interval=%s, miss_grace=%ds)\n", interval, missGrace)
+
+	go func() {
+		run := func() {
+			now := time.Now().Unix()
+			due, err := cr.Store.DueSchedules(now)
+			if err != nil {
+				c.Errorf("gofer: schedule due query failed: %v\n", err)
+				return
+			}
+			sweepSchedules(now, due, missGrace,
+				func(expr string, after int64) (int64, error) {
+					return jobstore.NextCronRun(expr, time.Unix(after, 0))
+				},
+				func(id string, oldNext, newNext int64) (bool, error) {
+					return cr.Store.AdvanceSchedule(id, oldNext, newNext, now)
+				},
+				func(r jobstore.ScheduleRecord) (string, error) {
+					var req job.JobRequest
+					if err := json.Unmarshal([]byte(r.RequestJSON), &req); err != nil {
+						return "", err
+					}
+					req.Channel = "cron"
+					res, err := cr.Jobs.Submit(req)
+					if err != nil {
+						return "", err
+					}
+					return res.ID, nil
+				},
+				func(id, jobID string) {
+					if err := cr.Store.SetScheduleLastJob(id, jobID); err != nil {
+						c.Errorf("gofer: schedule %s set last job failed: %v\n", id, err)
+					}
+				},
+				func(f string, a ...any) { c.Printf(f, a...) },
+				func(f string, a ...any) { c.Errorf(f, a...) },
+			)
+		}
+
+		run()
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				run()
+			}
+		}
+	}()
+}
 
 // startWorkflowLoop launches the工作流推进 sweeper goroutine (job 链, crash 兜底).
 // It mirrors startDeliveryLoop: sweep once at startup (re-drive any workflow whose

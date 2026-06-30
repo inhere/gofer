@@ -36,6 +36,15 @@ type Config struct {
 	// cadence. All fields optional; unset (<=0) keeps the package defaults (90s online
 	// TTL / 24h message TTL / 60s prune), so an absent `presence:` block changes nothing.
 	Presence PresenceConfig `yaml:"presence,omitempty"`
+	// Schedule tunes the AUTO-02 cron schedule sweeper. All fields are optional;
+	// serve applies conservative defaults when unset.
+	Schedule ScheduleConfig `yaml:"schedule,omitempty"`
+}
+
+// ScheduleConfig controls the AUTO-02 cron sweeper cadence and missed-run policy.
+type ScheduleConfig struct {
+	SweepIntervalSec int `yaml:"sweep_interval_sec"`
+	MissGraceSec     int `yaml:"miss_grace_sec"`
 }
 
 // PresenceConfig tunes the E36 presence/mailbox runtime (design §9 / §12 收尾). Every
