@@ -2,6 +2,8 @@
 
 > 配套：design `docs/design/2026-06-29-supervisor-routing-design.md` §8.3-8.5；plan `docs/plans/2026-06-29-supervisor-routing-plan.md` P4a。
 > 适用前提：host serve **已重建到含 P0-P3 的版本**（owner-first 路由 / owner 超时兜底 / 套娃防护 / 派生作答白名单 + `answered_by` 审计 / mcp 工具 `gofer_*`）。未重建前，下方端到端验证步骤跑不通。
+>
+> **⚠️ 派发模型已升级（2026-06-30, y5wt）**：sup 不再"常驻保活"，改为 **事件驱动按需派发**（空闲零 claude 成本）——见 **§11**。§1-9（codex sup 旧法）/§10（claude-sup agent 接入）关于 **sup agent 如何配置/接入** 的内容仍有效；仅 reconciler 的 **派发时机** 从"周期保活 desired 个"变为"有 escalation demand 才派、清空即退"。plan：`docs/plans/2026-06-30-supervisor-event-driven-dispatch-plan.md`。
 
 ## 1. 通用 sup 是什么 · 落地链路
 
@@ -222,3 +224,37 @@ done
 **生产实测全绿(2026-06-30)**：presence 只剩固定名 `gofer-supervisor`；造 5 条纯「是否继续?」→ 3 条 L0 `auto:choice` + 2 条超轮次升级 → claude-sup burst 经 `gofer_poll_inbox`→`gofer_get_interactions`→`gofer_answer_interaction` 应答，`answered_by=agent:<gofer-supervisor-id>`，**零 PowerShell**。answerguard 白名单闸正常生效。
 
 **回退**：`roles.supervisor.agent` 改回 `codex`(原 PowerShell sup)或 `desired_supervisors: 0` 重启。
+
+## 11. 事件驱动按需派发（y5wt, 2026-06-30 落地）
+
+**问题**：claude/codex sup 不是常驻进程——prompt 写"循环 poll"，模型 poll 几次空箱判断没事干、**这一 turn 秒级退出**。旧 reconciler 每 60s 无条件保活 `desired=1`，于是即使零 escalation 也 **每 ~60s 重派一次 sup = 每分钟烧一次 claude**（记忆里的"1h"是 `reconcile_job_timeout_sec` 超时上限，不是实际运行时长）。
+
+**模型**：reconciler 从"周期保活"改为"按需派发"，三条腿：
+
+```
+answerer.escalate() 投 role-one:supervisor(只投在线 sup)
+   └─ delivered==0(无在线 sup) ──wake(非阻塞)──┐
+                                              ▼
+reconciler:  wake 信号  OR  每 reconcile_interval_sec 兜底轮询
+   demand = CountSupPendingDemand(owner_timeout, now)   # interactions 表持久信号
+   if demand>0 AND 活跃 role=supervisor job==0:  派 1 个 sup job
+   空闲: demand=0 → 不派 → 0 claude
+```
+
+- **Push（低延迟）**：`answerer.escalate()` 探到"想投通用 sup 但无在线 sup"即唤醒 reconciler（serve.go `supWake` channel，buffered=1 非阻塞）。
+- **持久 demand 兜底**：`CountSupPendingDemand` 数"活跃非 sup job 的 pending、未 punt、且 **no-owner 或 owner 超时**"的 interaction——**排除 owner 应答窗口内的 owner-pending**（常态流程，不该拉 sup），避免常态空转。兜底轮询覆盖丢 wake / serve 重启。
+- **active 闸**：派前 `CountActiveJobsByRole("supervisor")==0` 才派，至多 `desired_supervisors` 个并发（默认 1）。
+- **sup mission（`reconcile_prompt` 默认）**：`gofer_poll_inbox(ack=false 只查看不消费)` → 低危→`gofer_answer_interaction`；**高危/拿不准→`gofer_punt_interaction`(标 needs_human, 留给人; 不再"只是跳过")** → 连续2轮空箱即结束。
+  - peek(ack=false) 保证 sup 中途死在"已查看未答"时消息仍在 → demand>0 → 自愈重派。
+  - punt→needs_human 把高危排除出 demand → **不再无限重派**去重新拒答同一条（旧"留 pending"在新模型下会无限重派，故必须 punt）。
+
+**配置**（语义已变，字段名不变，live config 无需改即自动获得新行为）：
+- `desired_supervisors`：并发**上限**（非常驻数）；>0 启用；默认 1。
+- `reconcile_interval_sec`：**兜底 demand 轮询节拍**（默认 60s；纯 DB count，可调小）。
+- `reconcile_job_timeout_sec`：**hung-sup 上限**（默认 3600s；健康 sup 清空即退、用不到）。
+
+**新增 MCP 工具**：`gofer_punt_interaction(id, interaction_id)`——sup 标记 interaction `needs_human`（client 模式经 `POST /v1/jobs/{id}/interactions/{iid}/punt`）。`gofer_get_interactions` 的 view 增 `needs_human` 字段，sup 可据此跳过已 punt 的。claude-sup `--allowedTools` 需加 `mcp__gofer__gofer_punt_interaction`。
+
+**容器控制面 E2E 全绿（2026-06-30, `tmp/ed-e2e/`）**：reconciler 事件驱动启动 / idle→零派发(0 sup job) / demand→按需派发 / active 闸≤1 / punt→停止重派。真机 claude-sup 应答闭环沿用 §10 实测（本次未改 agent 接入，仅改派发时机）。
+
+**回退**：同 §10（`desired_supervisors: 0` 重启即停 reconciler）。
