@@ -39,6 +39,15 @@ const defaultLogTailBytes = 256 * 1024
 // would be a roleless driver and放行). Unset (normal sessions) → role="" (owner / plain driver).
 const envAgentRole = "GOFER_AGENT_ROLE"
 
+// envAgentName, when set, FIXES this mcp process's self-register name instead of the
+// per-process mcp-<hostHash>-<pid> default. A RESIDENT supervisor sets it (e.g.
+// GOFER_AGENT_NAME=gofer-supervisor) so every short-lived sup process re-registers to the
+// SAME presence identity (idempotency key is name+caller) → ONE durable inbox across
+// re-dispatches, so escalations routed to role-one:supervisor accumulate and any sup
+// burst polls them all (a per-pid name would orphan messages in a dead process's inbox).
+// Leave unset for normal sessions, which want distinct per-process identities.
+const envAgentName = "GOFER_AGENT_NAME"
+
 // New builds an MCP server whose gofer_* tools are backed by the given Backend
 // (localBackend for the in-process standalone path, clientBackend for forwarding
 // to a central serve — E28). Handlers own input validation + view projection;
@@ -177,6 +186,9 @@ func selfRegister(b Backend) (agentID, agentToken string) {
 // token that keeps long/odd hostnames out of the name; pid makes it unique per
 // process so same-host sessions get distinct presence identities.
 func selfRegisterName() string {
+	if n := os.Getenv(envAgentName); n != "" {
+		return n // fixed identity (resident sup): reuse one inbox across re-dispatches
+	}
 	return fmt.Sprintf("mcp-%s-%d", hostHash(mcpHostname()), os.Getpid())
 }
 
