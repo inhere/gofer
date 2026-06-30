@@ -27,6 +27,7 @@ func NewApp(version string) *gcli.App {
 	app.Add(NewPresenceCmd())
 	app.Add(NewJobCmd())
 	app.Add(NewWorkflowCmd())
+	app.Add(NewScheduleCmd())
 	app.Add(NewMcpCmd())
 	app.Add(NewWorkerCmd())
 
