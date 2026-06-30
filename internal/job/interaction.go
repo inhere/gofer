@@ -75,6 +75,10 @@ type Interaction struct {
 	// auto:<policy>(L0 内置规则器) / agent:<id>(L1 owner / L2 sup) / human(L3 web/CLI)。
 	// "" 表示尚未应答或未归因（内部 relay）。gofer_get_interactions / 查询接口可见。
 	AnsweredBy string `json:"answered_by,omitempty"`
+	// NeedsHuman 标记该 interaction 已被通用 sup 判为高危/拿不准、显式留给人处理（事件驱动按需
+	// 派发 y5wt）：1=留给人。把它排除出 CountSupPendingDemand 的 sup demand，避免反复唤醒 sup
+	// 去重新拒答同一条。0=未标记。interaction 仍 pending（待人应答）。
+	NeedsHuman int64 `json:"needs_human,omitempty"`
 }
 
 // Interaction status values.
@@ -207,6 +211,7 @@ func toInteractionRecord(it Interaction) jobstore.InteractionRecord {
 		AnsweredAt:  it.AnsweredAt,
 		EscalatedAt: it.EscalatedAt,
 		AnsweredBy:  it.AnsweredBy,
+		NeedsHuman:  it.NeedsHuman,
 	}
 }
 
@@ -231,6 +236,7 @@ func fromInteractionRecord(rec jobstore.InteractionRecord) Interaction {
 		AnsweredAt:  rec.AnsweredAt,
 		EscalatedAt: rec.EscalatedAt,
 		AnsweredBy:  rec.AnsweredBy,
+		NeedsHuman:  rec.NeedsHuman,
 	}
 }
 
@@ -321,6 +327,23 @@ func (s *Service) MarkInteractionEscalated(jobID, interactionID string, ts int64
 		entry.mu.Unlock()
 	}
 	return s.meta.MarkInteractionEscalated(jobID, interactionID, ts)
+}
+
+// MarkInteractionNeedsHuman flags a pending interaction as "punted to a human" by the通用
+// sup (高危/拿不准, 事件驱动按需派发 y5wt). Like MarkInteractionEscalated it updates the live
+// in-memory rec when the job is still tracked here (so a later upsert preserves the flag
+// instead of resetting it to 0), and always writes the DB row so the cross-process demand
+// read (CountSupPendingDemand) sees it and stops re-waking a sup for the same interaction.
+// The interaction stays pending — a human answers it via web/CLI later.
+func (s *Service) MarkInteractionNeedsHuman(jobID, interactionID string) error {
+	if entry := s.entry(jobID); entry != nil {
+		entry.mu.Lock()
+		if rec := findInteraction(entry.interactions, interactionID); rec != nil {
+			rec.data.NeedsHuman = 1
+		}
+		entry.mu.Unlock()
+	}
+	return s.meta.MarkInteractionNeedsHuman(jobID, interactionID)
 }
 
 // AnswerInteraction marks a pending interaction answered WITHOUT attribution — the

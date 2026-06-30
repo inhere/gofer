@@ -101,6 +101,7 @@ var schemaStmts = []string{
   answered_at  INTEGER,
   escalated_at INTEGER,
   answered_by  TEXT,
+  needs_human  INTEGER,
   PRIMARY KEY (job_id, id)
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_inter_job ON interactions(job_id)`,
@@ -424,6 +425,9 @@ func (s *Store) migrateWorkflows() error {
 //     计时；旧库经 migrate 自动补全，旧行 COALESCE→0。
 //   - answered_by（监督分层升级路由 P3.2, design §10 审计区分）记录"谁应答"：auto:<policy>
 //     (L0 内置规则器) / agent:<id> (L1 owner / L2 sup) / human (L3 web/CLI)；旧行 COALESCE→""。
+//   - needs_human（事件驱动按需派发 y5wt）：通用 sup 对高危/拿不准的 interaction 拒答时置 1，
+//     标记"留给人处理"，把它排除出 CountSupPendingDemand 的 sup demand → 不再重复唤醒 sup。
+//     旧行 COALESCE→0。
 func (s *Store) migrateInteractions() error {
 	cols, err := s.tableColumns("interactions")
 	if err != nil {
@@ -441,7 +445,10 @@ func (s *Store) migrateInteractions() error {
 	if err := add("escalated_at", "escalated_at INTEGER"); err != nil {
 		return err
 	}
-	return add("answered_by", "answered_by TEXT")
+	if err := add("answered_by", "answered_by TEXT"); err != nil {
+		return err
+	}
+	return add("needs_human", "needs_human INTEGER")
 }
 
 // tableColumns returns the set of column names of a table via PRAGMA table_info.
