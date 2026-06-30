@@ -218,6 +218,22 @@ var schemaStmts = []string{
   read_at    INTEGER
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_messages_inbox ON messages(to_agent, status, created_at)`,
+	`CREATE TABLE IF NOT EXISTS schedules (
+  id           TEXT NOT NULL,
+  name         TEXT NOT NULL,
+  cron_expr    TEXT NOT NULL,
+  request_json TEXT NOT NULL,
+  enabled      INTEGER NOT NULL,
+  next_run_at  INTEGER NOT NULL,
+  last_run_at  INTEGER,
+  last_job_id  TEXT,
+  catch_up     INTEGER,
+  project_key  TEXT,
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL,
+  PRIMARY KEY (id)
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_sched_due ON schedules(enabled, next_run_at)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema
@@ -372,6 +388,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateInteractions(); err != nil {
 		return err
 	}
+	if err := s.migrateSchedules(); err != nil {
+		return err
+	}
 	// Partial unique index: only non-empty request_id values are constrained, so
 	// jobs without a request_id never collide. Created after the column exists.
 	if _, err := s.db.Exec(
@@ -449,6 +468,16 @@ func (s *Store) migrateInteractions() error {
 		return err
 	}
 	return add("needs_human", "needs_human INTEGER")
+}
+
+// migrateSchedules is the additive migration hook for the schedules table
+// (AUTO-02 P1). The first version creates the full table in schemaStmts; keep
+// this hook wired into Open so future schedule columns can be added idempotently.
+func (s *Store) migrateSchedules() error {
+	if _, err := s.tableColumns("schedules"); err != nil {
+		return err
+	}
+	return nil
 }
 
 // tableColumns returns the set of column names of a table via PRAGMA table_info.
