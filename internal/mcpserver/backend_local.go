@@ -123,6 +123,10 @@ func (b *localBackend) AnswerInteraction(id, iid, answer, responder string) (job
 	return b.jobs.AnswerInteractionBy(id, iid, answer, responder)
 }
 
+func (b *localBackend) PuntInteraction(id, iid string) error {
+	return b.jobs.MarkInteractionNeedsHuman(id, iid)
+}
+
 func (b *localBackend) ListPendingInteractions() ([]job.Interaction, error) {
 	return b.jobs.ListPendingInteractions()
 }

@@ -146,14 +146,16 @@ func TestListPendingInteractionsActiveOnly(t *testing.T) {
 	assert.Eq(t, "i-live", list[0].ID)
 }
 
-// TestCountSupPendingDemand proves the event-driven sup demand signal (y5wt):
-// counts pending interactions of ACTIVE non-supervisor jobs that are NOT yet punted
-// to a human, and excludes terminal-job zombies, needs_human rows, and supervisor-role
-// jobs (套娃). 0 demand ⇒ idle ⇒ no sup dispatched.
+// TestCountSupPendingDemand proves the event-driven sup demand signal (y5wt): counts
+// pending interactions of ACTIVE non-supervisor jobs that genuinely need a sup (L2) — and
+// excludes terminal-job zombies, needs_human rows, supervisor-role jobs (套娃), AND
+// interactions still legitimately with their OWNER within the owner-answer window. 0 demand
+// ⇒ idle ⇒ no sup dispatched.
 func TestCountSupPendingDemand(t *testing.T) {
 	s := openTest(t)
+	const ownerTimeout, now = int64(300), int64(10000)
 
-	// active non-sup job with a fresh pending interaction → counts.
+	// active non-sup job, NO owner, fresh pending → sup demand (escalates straight to L2).
 	active := sampleJob("job-active", "p", 100)
 	active.Status = "running"
 	assert.NoErr(t, s.UpsertJob(active))
@@ -171,13 +173,29 @@ func TestCountSupPendingDemand(t *testing.T) {
 	assert.NoErr(t, s.UpsertJob(supJob))
 	assert.NoErr(t, s.UpsertInteraction(sampleInteraction("i-sup", "job-sup", 200)))
 
-	n, err := s.CountSupPendingDemand()
-	assert.NoErr(t, err)
-	assert.Eq(t, 1, n) // only i-live
+	// owner-pending WITHIN window → excluded (the owner should answer, not a sup).
+	owned := sampleJob("job-owned", "p", 100)
+	owned.Status, owned.OriginAgent = "running", "agt_owner"
+	assert.NoErr(t, s.UpsertJob(owned))
+	itOwned := sampleInteraction("i-owned", "job-owned", 200)
+	itOwned.EscalatedAt = now - 100 // escalated to owner 100s ago, window is 300s → still owner's
+	assert.NoErr(t, s.UpsertInteraction(itOwned))
 
-	// Once a sup punts i-live to a human, demand drops to 0 (no re-wake loop).
+	n, err := s.CountSupPendingDemand(ownerTimeout, now)
+	assert.NoErr(t, err)
+	assert.Eq(t, 1, n) // only i-live (no-owner); owner-pending i-owned excluded within window
+
+	// Owner answer window elapses → i-owned now becomes sup demand (owner-timeout fallback).
+	itOwned.EscalatedAt = now - 400 // 400s ago > 300s window
+	assert.NoErr(t, s.UpsertInteraction(itOwned))
+	n, err = s.CountSupPendingDemand(ownerTimeout, now)
+	assert.NoErr(t, err)
+	assert.Eq(t, 2, n) // i-live + i-owned (owner timed out)
+
+	// Once a sup punts a demand interaction to a human, it drops out (no re-wake loop).
 	assert.NoErr(t, s.MarkInteractionNeedsHuman("job-active", "i-live"))
-	n, err = s.CountSupPendingDemand()
+	assert.NoErr(t, s.MarkInteractionNeedsHuman("job-owned", "i-owned"))
+	n, err = s.CountSupPendingDemand(ownerTimeout, now)
 	assert.NoErr(t, err)
 	assert.Eq(t, 0, n)
 }

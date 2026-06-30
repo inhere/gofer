@@ -107,6 +107,11 @@ func newServer(b Backend, originAgent, originToken string) *mcp.Server {
 	}, answerInteractionHandler(b, originAgent))
 
 	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_punt_interaction",
+		Description: "As a supervisor, mark a pending interaction as needing a human (高危/拿不准, 留给人处理): leaves it pending for a person and stops the supervisor being re-woken for it. Use this instead of guessing when you can't safely answer.",
+	}, puntInteractionHandler(b))
+
+	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_get_artifacts",
 		Description: "List a finished job's captured artifact files (name/size/mtime under its result dir).",
 	}, getArtifactsHandler(b))
@@ -486,6 +491,9 @@ type interactionView struct {
 	// AnsweredBy is the审计区分 tag (P3.2): auto:<policy> / agent:<id> / human. Surfaced so
 	// MCP callers (gofer_get_interactions) can tell apart L0/L1·L2/L3 应答来源.
 	AnsweredBy string `json:"answered_by,omitempty"`
+	// NeedsHuman is 1 once a supervisor punted this interaction to a human (y5wt). Surfaced so
+	// a supervisor agent can skip already-punted interactions instead of re-deciding them.
+	NeedsHuman int64 `json:"needs_human,omitempty"`
 }
 
 // toInteractionView projects a job.Interaction onto the snake_case
@@ -509,6 +517,7 @@ func toInteractionView(it job.Interaction) interactionView {
 		CreatedAt:  it.CreatedAt,
 		AnsweredAt: it.AnsweredAt,
 		AnsweredBy: it.AnsweredBy,
+		NeedsHuman: it.NeedsHuman,
 	}
 }
 
@@ -570,6 +579,29 @@ func answerInteractionHandler(b Backend, originAgent string) mcp.ToolHandlerFor[
 			return nil, interactionView{}, err
 		}
 		return nil, toInteractionView(it), nil
+	}
+}
+
+// --- gofer_punt_interaction -------------------------------------------------
+
+type puntInteractionInput struct {
+	ID            string `json:"id"`
+	InteractionID string `json:"interaction_id"`
+}
+
+type puntInteractionOutput struct {
+	Status string `json:"status"`
+}
+
+// puntInteractionHandler lets a supervisor mark a pending interaction needs_human (y5wt):
+// it stays pending for a person but drops out of the sup demand signal so the reconciler
+// stops re-waking a sup for it. Idempotent (a no-op for an unknown/already-punted id).
+func puntInteractionHandler(b Backend) mcp.ToolHandlerFor[puntInteractionInput, puntInteractionOutput] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in puntInteractionInput) (*mcp.CallToolResult, puntInteractionOutput, error) {
+		if err := b.PuntInteraction(in.ID, in.InteractionID); err != nil {
+			return nil, puntInteractionOutput{}, err
+		}
+		return nil, puntInteractionOutput{Status: "ok"}, nil
 	}
 }
 

@@ -118,6 +118,21 @@ func (s *Server) handleAnswerInteraction(c *rux.Context) {
 	c.JSON(http.StatusOK, it)
 }
 
+// handlePuntInteraction marks a pending interaction needs_human — the通用 sup's "高危/拿不准,
+// 留给人" decision (y5wt). It flips needs_human (excluding the interaction from the sup demand
+// signal so the reconciler stops re-waking a sup for it) and leaves the interaction pending
+// for a human. No body. MarkInteractionNeedsHuman is a targeted update / silent no-op for an
+// unknown id, so this always returns 200 {"status":"ok"} unless the store write itself fails.
+func (s *Server) handlePuntInteraction(c *rux.Context) {
+	id := c.Param("id")
+	iid := c.Param("interaction_id")
+	if err := s.jobs.MarkInteractionNeedsHuman(id, iid); err != nil {
+		writeError(c, interactionStatus(err), "punt interaction failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"status": "ok"})
+}
+
 // interactionStatus maps a job-package interaction error to an HTTP status
 // (mirrors submitStatus): unknown job/interaction -> 404; terminal job -> 409
 // (Conflict); not-pending / invalid payload -> 400; anything else -> 400.

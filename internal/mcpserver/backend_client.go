@@ -59,6 +59,10 @@ func (b *clientBackend) AnswerInteraction(id, iid, answer, responder string) (jo
 	return b.cli.AnswerInteraction(id, iid, answer, responder)
 }
 
+func (b *clientBackend) PuntInteraction(id, iid string) error {
+	return b.cli.PuntInteraction(id, iid)
+}
+
 func (b *clientBackend) ListPendingInteractions() ([]job.Interaction, error) {
 	return b.cli.ListPendingInteractions()
 }

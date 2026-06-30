@@ -321,6 +321,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/jobs/{id}/interactions", s.handleCreateInteraction)
 		r.GET("/jobs/{id}/interactions", s.handleListInteractions)
 		r.POST("/jobs/{id}/interactions/{interaction_id}/answer", s.handleAnswerInteraction)
+		// y5wt: 通用 sup marks a pending interaction needs_human (高危/拿不准 → 留给人).
+		r.POST("/jobs/{id}/interactions/{interaction_id}/punt", s.handlePuntInteraction)
 		// E25: cross-job pending interactions (supervisor discovery). Always mounted
 		// (reads job.Service, no extra wiring); ?status=pending (default).
 		r.GET("/interactions", s.handleListPendingInteractions)

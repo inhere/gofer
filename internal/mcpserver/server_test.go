@@ -112,6 +112,7 @@ func TestListToolsAllPresent(t *testing.T) {
 		"gofer_cancel_job":         false,
 		"gofer_get_interactions":   false,
 		"gofer_answer_interaction": false,
+		"gofer_punt_interaction":   false,
 		"gofer_get_artifacts":      false,
 		"gofer_get_result":         false,
 		// E36 presence/mailbox (4 tools).
@@ -709,6 +710,65 @@ func TestInteractionToolsRoundTrip(t *testing.T) {
 	}
 	if got2.Interactions[0].Answer != "yes-go" {
 		t.Fatalf("expected answer 'yes-go', got %+v", got2.Interactions[0])
+	}
+}
+
+// TestPuntInteraction proves gofer_punt_interaction (y5wt) flips needs_human on a pending
+// interaction while leaving it pending — a supervisor's "高危/拿不准, 留给人" decision that
+// drops the interaction out of the sup demand signal. Idempotent for an unknown id.
+func TestPuntInteraction(t *testing.T) {
+	session, jobs := connect(t)
+	jobID := startRunningJob(t, session, jobs)
+
+	created, err := jobs.CreateInteraction(jobID, job.InteractionInput{
+		Type:   job.InteractionTypeConfirmation,
+		Prompt: "delete production data?",
+	})
+	if err != nil {
+		t.Fatalf("CreateInteraction: %v", err)
+	}
+
+	puntRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "gofer_punt_interaction",
+		Arguments: map[string]any{"id": jobID, "interaction_id": created.ID},
+	})
+	if err != nil {
+		t.Fatalf("punt_interaction: %v", err)
+	}
+	if puntRes.IsError {
+		t.Fatalf("unexpected punt tool error: %+v", puntRes.Content)
+	}
+
+	// Re-read: the interaction stays PENDING (for a human) but is now flagged needs_human.
+	getRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "gofer_get_interactions",
+		Arguments: map[string]any{"id": jobID},
+	})
+	if err != nil {
+		t.Fatalf("get_interactions: %v", err)
+	}
+	var got getInteractionsOutput
+	structured(t, getRes, &got)
+	if len(got.Interactions) != 1 {
+		t.Fatalf("expected 1 interaction, got %+v", got.Interactions)
+	}
+	if got.Interactions[0].Status != job.InteractionPending {
+		t.Fatalf("punted interaction should stay pending, got %s", got.Interactions[0].Status)
+	}
+	if got.Interactions[0].NeedsHuman != 1 {
+		t.Fatalf("expected needs_human=1 after punt, got %+v", got.Interactions[0])
+	}
+
+	// Idempotent: punting an unknown id is a no-op (not an error).
+	res2, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "gofer_punt_interaction",
+		Arguments: map[string]any{"id": jobID, "interaction_id": "does-not-exist"},
+	})
+	if err != nil {
+		t.Fatalf("punt unknown: %v", err)
+	}
+	if res2.IsError {
+		t.Fatalf("punt of unknown id should be a no-op, got error: %+v", res2.Content)
 	}
 }
 
