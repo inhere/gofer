@@ -378,8 +378,9 @@ const supReconcileInterval = 60 * time.Second
 // job when supervisor.reconcile_prompt is empty. A cli-agent (codex) rejects an empty
 // prompt (agent/adapter.go), so the reconciler must always supply one; the resident
 // guardrails live in roles.supervisor.system_prompt. Mirrors the P4a runbook mission.
-const defaultSupReconcilePrompt = "你是 supervisor。持续循环调用 gofer_poll_inbox 获取 kind=escalation 的消息，" +
-	"对通用、低危的问题用 gofer_answer_interaction 作答；拿不准或高危的不要猜，留给人处理。non-interactive。"
+const defaultSupReconcilePrompt = "你是 supervisor。循环调用 gofer_poll_inbox(传 ack=false 只查看不消费) 获取 kind=escalation 的消息，" +
+	"用 gofer_get_interactions 找到对应 interaction_id：通用、低危的问题用 gofer_answer_interaction 作答；" +
+	"拿不准或高危的不要猜，用 gofer_punt_interaction 标记留给人处理(不要只是跳过)。连续2轮空箱即结束。non-interactive。"
 
 // supReconcileJobTimeoutDefault is the per-sup-job timeout when
 // supervisor.reconcile_job_timeout_sec is unset/<=0. Under event-driven dispatch a healthy
@@ -459,7 +460,14 @@ func startSupReconcileLoop(c *gcli.Command, cr *core.Core, wake <-chan struct{},
 	logf := func(f string, a ...any) { c.Printf(f, a...) }
 	errf := func(f string, a ...any) { c.Errorf(f, a...) }
 	countActive := func() (int, error) { return cr.Store.CountActiveJobsByRole("supervisor") }
-	countDemand := func() (int, error) { return cr.Store.CountSupPendingDemand() }
+	// ownerTimeout mirrors the answerer's owner-answer window so demand excludes interactions
+	// still legitimately with their owner (L1) — only owner-less or owner-timed-out ones are
+	// sup demand (CountSupPendingDemand precision). Mirrors NewService's <=0 default.
+	ownerTimeout := int64(sc.OwnerAnswerTimeoutSec)
+	if ownerTimeout <= 0 {
+		ownerTimeout = int64(supervisor.DefaultOwnerAnswerTimeout.Seconds())
+	}
+	countDemand := func() (int, error) { return cr.Store.CountSupPendingDemand(ownerTimeout, time.Now().Unix()) }
 	submit := func() error {
 		// Role=supervisor pulls agent/system_prompt/env (incl. GOFER_AGENT_ROLE) from the
 		// roles.supervisor preset (validated present at load when desired>0). Prompt is the

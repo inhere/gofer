@@ -183,6 +183,46 @@ func TestInteractionAnswerUnknownInteraction(t *testing.T) {
 	}
 }
 
+// TestInteractionPunt exercises the punt endpoint (y5wt, the sup's client→serve path): it
+// flips needs_human on a pending interaction, leaves it pending, and is an idempotent no-op
+// (200) for an unknown interaction id (targeted update touches 0 rows).
+func TestInteractionPunt(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	jobID := submitRunningJob(t, s)
+
+	createResp := do(t, s, http.MethodPost, "/v1/jobs/"+jobID+"/interactions", testToken, createInteractionReq{
+		Type: job.InteractionTypeConfirmation, Prompt: "delete prod?",
+	})
+	var created job.Interaction
+	decode(t, createResp, &created)
+
+	puntResp := do(t, s, http.MethodPost,
+		"/v1/jobs/"+jobID+"/interactions/"+created.ID+"/punt", testToken, nil)
+	if puntResp.StatusCode != http.StatusOK {
+		t.Fatalf("punt status=%d, want 200", puntResp.StatusCode)
+	}
+
+	// Still pending, now flagged needs_human.
+	listResp := do(t, s, http.MethodGet, "/v1/jobs/"+jobID+"/interactions", testToken, nil)
+	var list struct {
+		Interactions []job.Interaction `json:"interactions"`
+	}
+	decode(t, listResp, &list)
+	if len(list.Interactions) != 1 || list.Interactions[0].Status != job.InteractionPending {
+		t.Fatalf("punted interaction should stay pending: %+v", list.Interactions)
+	}
+	if list.Interactions[0].NeedsHuman != 1 {
+		t.Fatalf("expected needs_human=1 after punt, got %+v", list.Interactions[0])
+	}
+
+	// Idempotent no-op for an unknown interaction id.
+	ghost := do(t, s, http.MethodPost,
+		"/v1/jobs/"+jobID+"/interactions/ghost/punt", testToken, nil)
+	if ghost.StatusCode != http.StatusOK {
+		t.Fatalf("punt unknown interaction status=%d, want 200 (no-op)", ghost.StatusCode)
+	}
+}
+
 func TestInteractionDoubleAnswer(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 	jobID := submitRunningJob(t, s)

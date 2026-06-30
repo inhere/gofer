@@ -26,6 +26,10 @@ type Backend interface {
 	// agent_id of the answering session (监督分层升级路由 P3.1: the answer闸 grades owner /
 	// sup / human by it). Empty responder = unattributed (treated as human / no gate).
 	AnswerInteraction(id, iid, answer, responder string) (job.Interaction, error)
+	// PuntInteraction marks a pending interaction as needs_human — the通用 sup's "高危/拿不准,
+	// 留给人处理" decision (y5wt). It leaves the interaction pending (a human answers later) but
+	// excludes it from the sup demand signal so the reconciler stops re-waking a sup for it.
+	PuntInteraction(id, iid string) error
 	// ListPendingInteractions lists pending interactions across active jobs (E25
 	// supervisor discovery, gofer_list_pending_interactions).
 	ListPendingInteractions() ([]job.Interaction, error)

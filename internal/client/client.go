@@ -515,6 +515,16 @@ func (c *Client) AnswerInteraction(jobID, interactionID, answer, responder strin
 	return it, err
 }
 
+// PuntInteraction POSTs to the punt endpoint (E28 client mode): the通用 sup marks a pending
+// interaction as needs_human ("高危/拿不准, 留给人", y5wt). No body, no useful response — the
+// central serve flips needs_human and leaves the interaction pending for a human. Returns the
+// transport error only.
+func (c *Client) PuntInteraction(jobID, interactionID string) error {
+	return c.doJSON(http.MethodPost,
+		"/v1/jobs/"+url.PathEscape(jobID)+"/interactions/"+url.PathEscape(interactionID)+"/punt",
+		nil, nil)
+}
+
 // RegisterAgent registers/renews a driver agent with the central serve (POST
 // /v1/agents/register) and returns its public address + private capability handle
 // (E36 client mode). caller_id/client are stamped server-side from the bearer

@@ -207,29 +207,35 @@ func (s *Store) ListPendingInteractions() ([]InteractionRecord, error) {
 	return out, nil
 }
 
-// CountSupPendingDemand counts pending interactions that still NEED a通用 sup to look at
-// them — the durable demand signal driving the event-driven sup reconciler (y5wt). It
-// mirrors ListPendingInteractions' active-job JOIN + terminal-job filter, and additionally
-// excludes:
+// CountSupPendingDemand counts pending interactions that genuinely NEED a通用 sup (L2)
+// right now — the durable demand signal driving the event-driven sup reconciler (y5wt). It
+// mirrors ListPendingInteractions' active-job JOIN + terminal-job filter, and excludes:
 //   - needs_human=1 rows: a sup already saw them and punted to a human (never re-wake a sup
 //     to re-decline the same high-risk one — the议程1 infinite-respawn trap, avoided here);
 //   - jobs whose own role is supervisor (套娃防护, design §8.4): a sup's own interaction must
 //     never route back to a sup.
 //
-// Coarse by design (首版): an interaction still routable to its owner (owner-pending) is also
-// counted, so the reconciler may occasionally wake a sup that then finds the owner已答 and
-// exits空转 — bounded (≤1 concurrent sup via the active-sup gate) and rare. Precise
-// owner-window gating is a follow-up (plan §6.1). 0 demand ⇒ no sup dispatched ⇒ idle零成本.
-func (s *Store) CountSupPendingDemand() (int, error) {
+// PRECISION (avoids waking a sup for the COMMON owner-pending case): an interaction routed
+// to its OWNER (L1) and still within the owner-answer window is NOT sup demand — the owner
+// should answer it. It counts only interactions the router would route to the SUP (design
+// §8.1/§8.2): no owner at all (origin_agent==''), OR an owner whose answer window has
+// elapsed (now - escalated_at > ownerTimeoutSec, mirroring maybeOwnerTimeoutFallback). So a
+// freshly owner-escalated interaction stays off demand until its owner times out. now is the
+// current unix seconds; ownerTimeoutSec mirrors supervisor.owner_answer_timeout_sec. 0 demand
+// ⇒ no sup dispatched ⇒ idle零成本.
+func (s *Store) CountSupPendingDemand(ownerTimeoutSec, now int64) (int, error) {
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(pendingInteractionTerminalJobStatuses)), ",")
 	q := `SELECT COUNT(*) FROM interactions i JOIN jobs j ON i.job_id = j.id
   WHERE i.status = 'pending' AND j.status NOT IN (` + placeholders + `)
     AND COALESCE(i.needs_human,0) = 0
-    AND COALESCE(j.role,'') <> 'supervisor'`
-	args := make([]any, 0, len(pendingInteractionTerminalJobStatuses))
+    AND COALESCE(j.role,'') <> 'supervisor'
+    AND ( COALESCE(j.origin_agent,'') = ''
+          OR (COALESCE(i.escalated_at,0) > 0 AND (? - COALESCE(i.escalated_at,0)) > ?) )`
+	args := make([]any, 0, len(pendingInteractionTerminalJobStatuses)+2)
 	for _, st := range pendingInteractionTerminalJobStatuses {
 		args = append(args, st)
 	}
+	args = append(args, now, ownerTimeoutSec)
 	var n int
 	if err := s.db.QueryRow(q, args...).Scan(&n); err != nil {
 		return 0, fmt.Errorf("jobstore: count sup pending demand: %w", err)
