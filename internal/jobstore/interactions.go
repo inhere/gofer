@@ -33,6 +33,10 @@ type InteractionRecord struct {
 	// auto:<policy>(L0 内置规则器) / agent:<id>(L1 owner / L2 sup) / human(L3 web/CLI)。
 	// "" 表示尚未应答或未归因（旧库/relay，COALESCE→""）。
 	AnsweredBy string
+	// NeedsHuman 标记该 interaction 已被通用 sup 判为高危/拿不准、显式留给人处理（事件驱动按需
+	// 派发 y5wt）：1=留给人。CountSupPendingDemand 据此把它排除出 sup demand，避免反复唤醒 sup
+	// 去重新拒答同一条。0=未标记（旧库/未拒答，COALESCE→0）。
+	NeedsHuman int64
 }
 
 // selectInterCols is the shared projection for ListInteractions. COALESCE guards
@@ -40,7 +44,7 @@ type InteractionRecord struct {
 // zero value instead of failing the scan, mirroring jobs.selectCols.
 const selectInterCols = `SELECT id, job_id, type, prompt, COALESCE(options_json,''),
   status, COALESCE(answer,''), created_at, COALESCE(answered_at,0),
-  COALESCE(escalated_at,0), COALESCE(answered_by,'')
+  COALESCE(escalated_at,0), COALESCE(answered_by,''), COALESCE(needs_human,0)
   FROM interactions`
 
 // scanInteraction reads one row (in selectInterCols order) into an InteractionRecord.
@@ -49,7 +53,7 @@ func scanInteraction(sc rowScanner) (InteractionRecord, error) {
 	err := sc.Scan(
 		&r.ID, &r.JobID, &r.Type, &r.Prompt, &r.OptionsJSON,
 		&r.Status, &r.Answer, &r.CreatedAt, &r.AnsweredAt,
-		&r.EscalatedAt, &r.AnsweredBy,
+		&r.EscalatedAt, &r.AnsweredBy, &r.NeedsHuman,
 	)
 	return r, err
 }
@@ -69,8 +73,8 @@ func (s *Store) UpsertInteraction(rec InteractionRecord) error {
 	}
 	const q = `INSERT INTO interactions
   (id, job_id, type, prompt, options_json, status, answer, created_at, answered_at,
-   escalated_at, answered_by)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?)
+   escalated_at, answered_by, needs_human)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(job_id, id) DO UPDATE SET
     type=excluded.type,
     prompt=excluded.prompt,
@@ -80,13 +84,14 @@ func (s *Store) UpsertInteraction(rec InteractionRecord) error {
     created_at=excluded.created_at,
     answered_at=excluded.answered_at,
     escalated_at=excluded.escalated_at,
-    answered_by=excluded.answered_by`
+    answered_by=excluded.answered_by,
+    needs_human=excluded.needs_human`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	_, err := s.db.Exec(q,
 		rec.ID, rec.JobID, rec.Type, rec.Prompt, rec.OptionsJSON,
 		rec.Status, rec.Answer, rec.CreatedAt, rec.AnsweredAt,
-		rec.EscalatedAt, rec.AnsweredBy,
+		rec.EscalatedAt, rec.AnsweredBy, rec.NeedsHuman,
 	)
 	if err != nil {
 		return fmt.Errorf("jobstore: upsert interaction %q/%q: %w", rec.JobID, rec.ID, err)
@@ -111,6 +116,26 @@ func (s *Store) MarkInteractionEscalated(jobID, interactionID string, ts int64) 
 		ts, jobID, interactionID,
 	); err != nil {
 		return fmt.Errorf("jobstore: mark interaction %q/%q escalated: %w", jobID, interactionID, err)
+	}
+	return nil
+}
+
+// MarkInteractionNeedsHuman sets needs_human=1 on one interaction row — the通用 sup 对
+// 高危/拿不准的 interaction 拒答（留给人）的标记（事件驱动按需派发 y5wt）。TARGETED UPDATE
+// (not a full upsert) so it touches only needs_human and never clobbers status/answer; an
+// unknown (job_id, id) is a silent no-op (0 rows). Writes go through writeMu like every
+// other writer. The interaction itself stays pending (a human answers it later).
+func (s *Store) MarkInteractionNeedsHuman(jobID, interactionID string) error {
+	if jobID == "" || interactionID == "" {
+		return errors.New("jobstore: MarkInteractionNeedsHuman: empty job/interaction id")
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(
+		`UPDATE interactions SET needs_human=1 WHERE job_id=? AND id=?`,
+		jobID, interactionID,
+	); err != nil {
+		return fmt.Errorf("jobstore: mark interaction %q/%q needs-human: %w", jobID, interactionID, err)
 	}
 	return nil
 }
@@ -154,7 +179,7 @@ func (s *Store) ListPendingInteractions() ([]InteractionRecord, error) {
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(pendingInteractionTerminalJobStatuses)), ",")
 	q := `SELECT i.id, i.job_id, i.type, i.prompt, COALESCE(i.options_json,''),
   i.status, COALESCE(i.answer,''), i.created_at, COALESCE(i.answered_at,0),
-  COALESCE(i.escalated_at,0), COALESCE(i.answered_by,'')
+  COALESCE(i.escalated_at,0), COALESCE(i.answered_by,''), COALESCE(i.needs_human,0)
   FROM interactions i JOIN jobs j ON i.job_id = j.id
   WHERE i.status = 'pending' AND j.status NOT IN (` + placeholders + `)
   ORDER BY i.created_at ASC, i.id ASC`
@@ -180,6 +205,36 @@ func (s *Store) ListPendingInteractions() ([]InteractionRecord, error) {
 		return nil, fmt.Errorf("jobstore: list pending interactions rows: %w", err)
 	}
 	return out, nil
+}
+
+// CountSupPendingDemand counts pending interactions that still NEED a通用 sup to look at
+// them — the durable demand signal driving the event-driven sup reconciler (y5wt). It
+// mirrors ListPendingInteractions' active-job JOIN + terminal-job filter, and additionally
+// excludes:
+//   - needs_human=1 rows: a sup already saw them and punted to a human (never re-wake a sup
+//     to re-decline the same high-risk one — the议程1 infinite-respawn trap, avoided here);
+//   - jobs whose own role is supervisor (套娃防护, design §8.4): a sup's own interaction must
+//     never route back to a sup.
+//
+// Coarse by design (首版): an interaction still routable to its owner (owner-pending) is also
+// counted, so the reconciler may occasionally wake a sup that then finds the owner已答 and
+// exits空转 — bounded (≤1 concurrent sup via the active-sup gate) and rare. Precise
+// owner-window gating is a follow-up (plan §6.1). 0 demand ⇒ no sup dispatched ⇒ idle零成本.
+func (s *Store) CountSupPendingDemand() (int, error) {
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(pendingInteractionTerminalJobStatuses)), ",")
+	q := `SELECT COUNT(*) FROM interactions i JOIN jobs j ON i.job_id = j.id
+  WHERE i.status = 'pending' AND j.status NOT IN (` + placeholders + `)
+    AND COALESCE(i.needs_human,0) = 0
+    AND COALESCE(j.role,'') <> 'supervisor'`
+	args := make([]any, 0, len(pendingInteractionTerminalJobStatuses))
+	for _, st := range pendingInteractionTerminalJobStatuses {
+		args = append(args, st)
+	}
+	var n int
+	if err := s.db.QueryRow(q, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("jobstore: count sup pending demand: %w", err)
+	}
+	return n, nil
 }
 
 // ReconcileOrphanInteractions flips to cancelled every pending interaction whose

@@ -140,6 +140,8 @@ func TestFreshOpenHasNewColumnsAndIndex(t *testing.T) {
 	assert.True(t, tableHasColumn(t, s, "interactions", "escalated_at"))
 	// 派生作答审计区分（supervisor-routing P3.2）：新库一次建全 answered_by 列。
 	assert.True(t, tableHasColumn(t, s, "interactions", "answered_by"))
+	// 事件驱动按需派发（y5wt）：新库一次建全 needs_human 列。
+	assert.True(t, tableHasColumn(t, s, "interactions", "needs_human"))
 }
 
 // TestMigrateAddsEscalatedAtToOldInteractions simulates a pre-existing database
@@ -168,13 +170,14 @@ func TestMigrateAddsEscalatedAtToOldInteractions(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.NoErr(t, raw.Close())
 
-	// Re-open via the package: migrate must add escalated_at + answered_by (both
-	// post-初始-schema additive columns on interactions).
+	// Re-open via the package: migrate must add escalated_at + answered_by + needs_human
+	// (all post-初始-schema additive columns on interactions).
 	s, err := Open(path)
 	assert.NoErr(t, err)
 	defer s.Close()
 	assert.True(t, tableHasColumn(t, s, "interactions", "escalated_at"))
 	assert.True(t, tableHasColumn(t, s, "interactions", "answered_by"))
+	assert.True(t, tableHasColumn(t, s, "interactions", "needs_human"))
 
 	// A pending interaction (no escalated_at / answered_by set) round-trips; the columns
 	// read 0 / "" (COALESCE) for a row that never set them.

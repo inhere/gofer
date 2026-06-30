@@ -146,6 +146,69 @@ func TestListPendingInteractionsActiveOnly(t *testing.T) {
 	assert.Eq(t, "i-live", list[0].ID)
 }
 
+// TestCountSupPendingDemand proves the event-driven sup demand signal (y5wt):
+// counts pending interactions of ACTIVE non-supervisor jobs that are NOT yet punted
+// to a human, and excludes terminal-job zombies, needs_human rows, and supervisor-role
+// jobs (套娃). 0 demand ⇒ idle ⇒ no sup dispatched.
+func TestCountSupPendingDemand(t *testing.T) {
+	s := openTest(t)
+
+	// active non-sup job with a fresh pending interaction → counts.
+	active := sampleJob("job-active", "p", 100)
+	active.Status = "running"
+	assert.NoErr(t, s.UpsertJob(active))
+	assert.NoErr(t, s.UpsertInteraction(sampleInteraction("i-live", "job-active", 200)))
+
+	// terminal job's zombie pending → excluded (mirrors ListPendingInteractions).
+	done := sampleJob("job-done", "p", 100)
+	done.Status = "done"
+	assert.NoErr(t, s.UpsertJob(done))
+	assert.NoErr(t, s.UpsertInteraction(sampleInteraction("i-zombie", "job-done", 200)))
+
+	// supervisor-role job's own pending interaction → excluded (套娃防护).
+	supJob := sampleJob("job-sup", "p", 100)
+	supJob.Status, supJob.Role = "running", "supervisor"
+	assert.NoErr(t, s.UpsertJob(supJob))
+	assert.NoErr(t, s.UpsertInteraction(sampleInteraction("i-sup", "job-sup", 200)))
+
+	n, err := s.CountSupPendingDemand()
+	assert.NoErr(t, err)
+	assert.Eq(t, 1, n) // only i-live
+
+	// Once a sup punts i-live to a human, demand drops to 0 (no re-wake loop).
+	assert.NoErr(t, s.MarkInteractionNeedsHuman("job-active", "i-live"))
+	n, err = s.CountSupPendingDemand()
+	assert.NoErr(t, err)
+	assert.Eq(t, 0, n)
+}
+
+// TestMarkInteractionNeedsHuman proves the needs_human flag round-trips (targeted
+// update, then read-back via ListInteractions) and is preserved across a later upsert
+// (excluded.needs_human carries it), and that an unknown id is a silent no-op.
+func TestMarkInteractionNeedsHuman(t *testing.T) {
+	s := openTest(t)
+
+	assert.NoErr(t, s.UpsertInteraction(sampleInteraction("i1", "job-1", 1000)))
+	assert.NoErr(t, s.MarkInteractionNeedsHuman("job-1", "i1"))
+
+	list, err := s.ListInteractions("job-1")
+	assert.NoErr(t, err)
+	assert.Len(t, list, 1)
+	assert.Eq(t, int64(1), list[0].NeedsHuman)
+
+	// A later full upsert carrying the flag must preserve it (not reset to 0).
+	rec := list[0]
+	rec.Status = "answered"
+	assert.NoErr(t, s.UpsertInteraction(rec))
+	list, err = s.ListInteractions("job-1")
+	assert.NoErr(t, err)
+	assert.Eq(t, int64(1), list[0].NeedsHuman)
+
+	// Unknown id is a silent no-op (0 rows, no error).
+	assert.NoErr(t, s.MarkInteractionNeedsHuman("job-1", "nope"))
+	assert.Err(t, s.MarkInteractionNeedsHuman("", "i1"))
+}
+
 // TestReconcileOrphanInteractions proves the startup backstop flips pending rows
 // of terminal jobs to cancelled while leaving active-job pending rows untouched.
 func TestReconcileOrphanInteractions(t *testing.T) {
