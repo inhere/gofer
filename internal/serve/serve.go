@@ -148,17 +148,25 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		c.Printf("gofer: reconciled %d orphan non-terminal job(s) left by a prior serve/worker\n", n)
 	}
 
+	// supWake connects the answerer (producer) to the reconciler (consumer) for
+	// event-driven sup dispatch (y5wt): the answerer's escalate() signals it when a
+	// pending interaction has no reachable sup; the reconciler spawns one on demand.
+	// Buffered=1: a signal already queued means "a sup is wanted" — extra sends drop
+	// (the reconciler's active-sup gate makes the consume idempotent anyway).
+	supWake := make(chan struct{}, 1)
+
 	// E25 supervisor (layered answerer): only started when cfg.supervisor.enabled.
 	// stop closes when serve returns so the poller exits with the process.
 	stopSupervisor := make(chan struct{})
 	defer close(stopSupervisor)
-	startSupervisorLoop(c, cr, stopSupervisor)
+	startSupervisorLoop(c, cr, supWake, stopSupervisor)
 
-	// P4b supervisor reconciler: keep desired_supervisors sup daemon jobs resident
-	// (re-dispatching timed-out/dead ones). No-op unless supervisor.desired_supervisors>0.
+	// Event-driven supervisor reconciler (y5wt): spawn a sup ON DEMAND (wake signal or
+	// a cheap periodic demand poll) instead of keeping one resident, gated so at most
+	// desired_supervisors run at once. No-op unless supervisor.desired_supervisors>0.
 	stopSupReconcile := make(chan struct{})
 	defer close(stopSupReconcile)
-	startSupReconcileLoop(c, cr, stopSupReconcile)
+	startSupReconcileLoop(c, cr, supWake, stopSupReconcile)
 
 	// Config hot-reload (C3): SIGHUP re-loads the config from the serve path and
 	// atomically swaps it into the registries + job service (no restart, no
@@ -323,7 +331,7 @@ func startPresencePruneLoop(c *gcli.Command, pres *presence.Service, interval ti
 //
 // Reload scope (C3): like the other loops, the enable gate + policy are frozen at
 // startup; toggling supervisor.enabled or editing the policy needs a restart.
-func startSupervisorLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
+func startSupervisorLoop(c *gcli.Command, cr *core.Core, wake chan<- struct{}, stop <-chan struct{}) {
 	sc := cr.Cfg.Supervisor
 	if sc == nil || !sc.Enabled {
 		return
@@ -338,6 +346,14 @@ func startSupervisorLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
 		OwnerAnswerTimeout: time.Duration(sc.OwnerAnswerTimeoutSec) * time.Second,
 	}
 	sup := supervisor.NewService(cr.Jobs, cr.Presence, pol)
+	// Event-driven dispatch (y5wt): escalate-found-no-sup wakes the reconciler. Send is
+	// non-blocking — a full buffer already means "a sup is wanted", so dropping is correct.
+	sup.SetWake(func() {
+		select {
+		case wake <- struct{}{}:
+		default:
+		}
+	})
 	c.Printf("gofer: supervisor answerer enabled (auto_answer=%t, escalate_to=%q)\n", sc.AutoAnswer, sc.EscalateTo)
 	go func() {
 		ctx, cancel := context.WithCancel(context.Background())
@@ -350,9 +366,12 @@ func startSupervisorLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
 	}()
 }
 
-// supReconcileInterval is the DEFAULT P4b supervisor reconcile cadence (used when
-// supervisor.reconcile_interval_sec is unset/<=0). It stays well under the
-// MaxTimeoutSec=1h job cap so a timed-out sup daemon job is re-dispatched promptly.
+// supReconcileInterval is the DEFAULT event-driven reconciler BACKSTOP poll cadence
+// (used when supervisor.reconcile_interval_sec is unset/<=0). Dispatch is normally
+// wake-driven (low latency); this periodic CountSupPendingDemand poll only covers a lost
+// wake / a serve restart with pending work, so it is a cheap DB count, not a hot path.
+// Kept at 60s (not lower) to bound over-spawn in the rare msg-pruned-while-pending edge —
+// the wake already gives low latency, so the backstop trades a little staleness for safety.
 const supReconcileInterval = 60 * time.Second
 
 // defaultSupReconcilePrompt is the kickoff turn given to each reconciler-spawned sup
@@ -363,41 +382,59 @@ const defaultSupReconcilePrompt = "你是 supervisor。持续循环调用 gofer_
 	"对通用、低危的问题用 gofer_answer_interaction 作答；拿不准或高危的不要猜，留给人处理。non-interactive。"
 
 // supReconcileJobTimeoutDefault is the per-sup-job timeout when
-// supervisor.reconcile_job_timeout_sec is unset/<=0. A sup is a RESIDENT daemon, so the
-// default is the 1h MaxTimeoutSec cap (vs the 300s job default) — re-dispatching ~hourly
-// instead of every 5min minimises codex churn while staying bounded (submit clamps to the
-// same cap, so a higher value is a no-op).
+// supervisor.reconcile_job_timeout_sec is unset/<=0. Under event-driven dispatch a healthy
+// sup drains the pending demand and EXITS early (seconds), so this is really a HUNG-sup cap:
+// a sup that wedged (job running but agent not polling) is force-terminated within the cap,
+// freeing the active-sup gate so the next demand re-spawns a fresh one. 1h (MaxTimeoutSec;
+// submit clamps to the same cap) is a safe upper bound on a wedged sup's blast radius.
 const supReconcileJobTimeoutDefault = 3600
 
-// reconcileSupervisors is the pure P4b decision: ensure `desired` active sup daemon
-// jobs exist by submitting one per missing replica. count is the active-sup-job tally
-// (the single replica signal — job state, not presence, to avoid double-count); submit
-// dispatches one sup job. A submit error aborts THIS tick (the loop retries next tick)
-// rather than spinning. Extracted from startSupReconcileLoop so the fill-deficit logic
-// is unit-testable without a full Core. logf/errf isolate it from *gcli.Command.
-func reconcileSupervisors(desired int, count func() (int, error), submit func() error,
-	logf, errf func(string, ...any)) {
-	active, err := count()
+// reconcileSupervisors is the pure event-driven dispatch decision (y5wt): spawn a sup
+// ON DEMAND, gated so at most `desired` run at once. Two guards, cheapest first:
+//   - active-sup gate: countActive (ACTIVE role=supervisor jobs — job state, not presence,
+//     to avoid double-count). active>=desired ⇒ a sup is already draining work, do nothing.
+//   - demand gate: countDemand (CountSupPendingDemand — pending sup-bound interactions not
+//     yet punted to a human). demand<=0 ⇒ idle ⇒ spawn NOTHING ⇒ zero claude cost.
+// Only when a sup is wanted (demand>0) AND none is running does it submit one per missing
+// replica. A submit error aborts THIS call (the loop/wake retries) rather than spinning.
+// Pure (no *Core / *gcli.Command) so it is unit-testable across the active×demand matrix.
+func reconcileSupervisors(desired int, countActive, countDemand func() (int, error),
+	submit func() error, logf, errf func(string, ...any)) {
+	active, err := countActive()
 	if err != nil {
-		errf("gofer: sup reconcile count failed: %v\n", err)
+		errf("gofer: sup reconcile active-count failed: %v\n", err)
 		return
+	}
+	if active >= desired {
+		return // a sup is already running (≤desired); it drains the current demand
+	}
+	demand, err := countDemand()
+	if err != nil {
+		errf("gofer: sup reconcile demand-count failed: %v\n", err)
+		return
+	}
+	if demand <= 0 {
+		return // idle: no pending sup demand → spawn nothing → zero claude cost
 	}
 	for i := active; i < desired; i++ {
 		if err := submit(); err != nil {
 			errf("gofer: sup reconcile submit failed: %v\n", err)
-			return // best-effort; next tick retries the remaining deficit
+			return // best-effort; next wake/tick retries the remaining deficit
 		}
-		logf("gofer: sup reconciler dispatched a supervisor daemon job (active=%d, desired=%d)\n", active, desired)
+		logf("gofer: sup reconciler dispatched a supervisor job on demand (active=%d, demand=%d, desired=%d)\n", active, demand, desired)
 	}
 }
 
-// startSupReconcileLoop launches the P4b supervisor reconciler when
-// supervisor.desired_supervisors > 0 (opt-in; <=0 disables — same conservative default
-// as the answerer). Each tick it counts ACTIVE role=supervisor jobs and re-dispatches
-// to fill the deficit, keeping `desired` sups resident even though each sup job is
-// timeout-bounded to 1h (Deployment 类比: short-lived job + continuous re-派). The
-// goroutine reconciles once at startup then on every tick, exiting when stop closes.
-func startSupReconcileLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
+// startSupReconcileLoop launches the event-driven supervisor reconciler (y5wt) when
+// supervisor.desired_supervisors > 0 (opt-in; <=0 disables — same conservative default as
+// the answerer). It spawns a sup ON DEMAND rather than keeping one resident: it reconciles
+//   - on a wake signal (the answerer's escalate() found no reachable sup — low latency), and
+//   - on a periodic backstop tick (covers a lost wake / a serve restart with pending work),
+// each time spawning at most desired sups and only when CountSupPendingDemand>0. Idle ⇒ no
+// sup ⇒ zero claude cost. `desired` is the concurrency CAP (default 1). The per-sup-job
+// timeout still bounds a hung sup; a sup that finishes draining demand simply exits and is
+// not re-spawned until new demand appears. Exits when stop closes.
+func startSupReconcileLoop(c *gcli.Command, cr *core.Core, wake <-chan struct{}, stop <-chan struct{}) {
 	sc := cr.Cfg.Supervisor
 	if sc == nil || sc.DesiredSupervisors <= 0 {
 		return
@@ -421,28 +458,32 @@ func startSupReconcileLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{})
 	}
 	logf := func(f string, a ...any) { c.Printf(f, a...) }
 	errf := func(f string, a ...any) { c.Errorf(f, a...) }
-	count := func() (int, error) { return cr.Store.CountActiveJobsByRole("supervisor") }
+	countActive := func() (int, error) { return cr.Store.CountActiveJobsByRole("supervisor") }
+	countDemand := func() (int, error) { return cr.Store.CountSupPendingDemand() }
 	submit := func() error {
 		// Role=supervisor pulls agent/system_prompt/env (incl. GOFER_AGENT_ROLE) from the
 		// roles.supervisor preset (validated present at load when desired>0). Prompt is the
 		// kickoff turn — required because a cli-agent (codex) rejects an empty prompt.
-		// TimeoutSec keeps a resident sup long-lived (default 1h) to minimise churn.
+		// TimeoutSec bounds a hung sup; a healthy on-demand sup drains demand and exits early.
 		_, err := cr.Jobs.Submit(job.JobRequest{
 			Role: "supervisor", Runner: runnerName, Prompt: prompt, TimeoutSec: jobTimeout,
 		})
 		return err
 	}
-	c.Printf("gofer: supervisor reconciler enabled (desired=%d, runner=%q, interval=%s)\n", desired, runnerName, interval)
+	reconcile := func() { reconcileSupervisors(desired, countActive, countDemand, submit, logf, errf) }
+	c.Printf("gofer: supervisor reconciler enabled (event-driven; desired=%d, runner=%q, backstop=%s)\n", desired, runnerName, interval)
 	go func() {
-		reconcileSupervisors(desired, count, submit, logf, errf)
+		reconcile() // startup: catch pending demand from before serve came up
 		ticker := time.NewTicker(interval)
 		defer ticker.Stop()
 		for {
 			select {
 			case <-stop:
 				return
-			case <-ticker.C:
-				reconcileSupervisors(desired, count, submit, logf, errf)
+			case <-wake: // answerer signalled "a sup is wanted" — dispatch promptly
+				reconcile()
+			case <-ticker.C: // backstop poll: lost wake / restart safety
+				reconcile()
 			}
 		}
 	}()
