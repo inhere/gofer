@@ -95,6 +95,25 @@ func (s *Server) handlePollInbox(c *rux.Context) {
 	c.JSON(http.StatusOK, map[string]any{"messages": msgs})
 }
 
+// handleListInbox is the P5 read-only inbox view (GET /v1/agents/{id}/inbox): it lists
+// the agent's messages WITHOUT consuming them or refreshing its heartbeat — for
+// observing escalation backlog, distinct from POST .../inbox/poll (which acks + touches
+// last_seen). ?include_read=1 also returns已读 messages. No token (internal /inner read);
+// an unknown agent_id yields an empty list.
+func (s *Server) handleListInbox(c *rux.Context) {
+	id := c.Param("id")
+	includeRead := c.Query("include_read") == "1" || c.Query("include_read") == "true"
+	msgs, err := s.presence.ListInbox(id, includeRead)
+	if err != nil {
+		writeError(c, presenceStatus(err), "list inbox failed", err.Error())
+		return
+	}
+	if msgs == nil {
+		msgs = []presence.Message{}
+	}
+	c.JSON(http.StatusOK, map[string]any{"messages": msgs})
+}
+
 // handlePostMessage delivers a message (direct / role: / role-one: / broadcast) and
 // returns {delivered} — the number of inbox rows created by the fan-out.
 func (s *Server) handlePostMessage(c *rux.Context) {

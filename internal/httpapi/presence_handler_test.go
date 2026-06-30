@@ -181,3 +181,45 @@ func pollInbox(t *testing.T, s *Server, id, token string, wantStatus int) []pres
 	decode(t, resp, &out)
 	return out.Messages
 }
+
+// TestListInboxReadOnlyEndpoint: GET /v1/agents/{id}/inbox lists messages without
+// consuming them (a later poll still sees them); unknown agent → 200 empty (P5).
+func TestListInboxReadOnlyEndpoint(t *testing.T) {
+	s := newPresenceServer(t)
+	a := registerAgent(t, s, "alice", "")
+	b := registerAgent(t, s, "bob", "")
+	if n := postMessage(t, s, a.AgentID, b.AgentID, "escalation", "owner offline", "job:1"); n != 1 {
+		t.Fatalf("delivered=%d, want 1", n)
+	}
+
+	resp := do(t, s, http.MethodGet, "/v1/agents/"+b.AgentID+"/inbox", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list inbox status=%d, want 200", resp.StatusCode)
+	}
+	var out struct {
+		Messages []presence.Message `json:"messages"`
+	}
+	decode(t, resp, &out)
+	if len(out.Messages) != 1 || out.Messages[0].Body != "owner offline" || out.Messages[0].Kind != "escalation" {
+		t.Fatalf("unexpected inbox: %+v", out.Messages)
+	}
+
+	// Not consumed: bob's real poll still returns the message.
+	msgs := pollInbox(t, s, b.AgentID, b.AgentToken, http.StatusOK)
+	if len(msgs) != 1 {
+		t.Fatalf("poll after read-only list=%d, want 1 (not consumed)", len(msgs))
+	}
+
+	// Unknown agent → 200 with an empty list (read-only, no token check).
+	resp2 := do(t, s, http.MethodGet, "/v1/agents/ghost/inbox", testToken, nil)
+	if resp2.StatusCode != http.StatusOK {
+		t.Fatalf("unknown agent inbox status=%d, want 200", resp2.StatusCode)
+	}
+	var out2 struct {
+		Messages []presence.Message `json:"messages"`
+	}
+	decode(t, resp2, &out2)
+	if len(out2.Messages) != 0 {
+		t.Fatalf("unknown agent inbox=%d, want 0", len(out2.Messages))
+	}
+}

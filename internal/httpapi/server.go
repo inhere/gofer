@@ -332,6 +332,7 @@ func (s *Server) buildRouter() *rux.Router {
 			r.POST("/agents/register", s.handleRegisterAgent)
 			r.GET("/agents/presence", s.handleListPresence)
 			r.POST("/agents/{id}/inbox/poll", s.handlePollInbox)
+			r.GET("/agents/{id}/inbox", s.handleListInbox) // P5 read-only观察(不消费/不刷心跳)
 			r.POST("/messages", s.handlePostMessage)
 			r.POST("/agents/{id}/deregister", s.handleDeregister)
 		}
