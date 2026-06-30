@@ -390,3 +390,34 @@ func withStatus(rec JobRecord, status string) JobRecord {
 	rec.Status = status
 	return rec
 }
+
+// TestCountActiveJobsByRole: only ACTIVE (queued/running/pending_interaction) jobs of
+// the queried role count; terminal jobs and other/empty roles are excluded (P4b
+// supervisor reconciler replica signal).
+func TestCountActiveJobsByRole(t *testing.T) {
+	s := openTest(t)
+	mk := func(id, role, status string) JobRecord {
+		j := sampleJob(id, "proj", 100)
+		j.Role, j.Status = role, status
+		return j
+	}
+	for _, j := range []JobRecord{
+		mk("s-queued", "supervisor", "queued"),
+		mk("s-running", "supervisor", "running"),
+		mk("s-pending", "supervisor", "pending_interaction"),
+		mk("s-done", "supervisor", "done"),     // terminal — excluded
+		mk("s-failed", "supervisor", "failed"), // terminal — excluded
+		mk("d-running", "", "running"),         // no role — excluded
+		mk("r-running", "reviewer", "running"), // other role — excluded
+	} {
+		assert.NoErr(t, s.UpsertJob(j))
+	}
+
+	n, err := s.CountActiveJobsByRole("supervisor")
+	assert.NoErr(t, err)
+	assert.Eq(t, 3, n) // queued + running + pending_interaction only
+
+	n, err = s.CountActiveJobsByRole("nobody")
+	assert.NoErr(t, err)
+	assert.Eq(t, 0, n)
+}
