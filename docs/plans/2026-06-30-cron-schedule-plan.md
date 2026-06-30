@@ -187,9 +187,9 @@
 
 ## 进度跟踪
 
-- [ ] P1 数据层（schedules 表 + CRUD + cron next）
-- [ ] P2 sweeper（startScheduleLoop + config）
-- [ ] P3 HTTP `/v1/schedules`
-- [ ] P4 CLI `gofer schedule` + client
-- [ ] P5 收尾 + 容器 E2E 冒烟
-- [ ] roadmap AUTO-02 ✅
+- [x] P1 数据层（schedules 表 + CRUD + cron next）— `959a2f2`，host codex 实施 + 容器验收全绿
+- [x] P2 sweeper（startScheduleLoop + config）— `29b43e7`，host codex + 容器验收
+- [x] P3 HTTP `/v1/schedules`（CRUD+run-now）— `3c2f57b`，host codex + 容器验收（校验复用 s.jobs.Validate）
+- [x] P4 CLI `gofer schedule` + client — `130fc5f`，host codex(job.go DRY抽取复用) + 容器验收
+- [x] P5 收尾 + 容器 E2E 冒烟 — runbook + roadmap✅，**容器 E2E 14/14 全绿**
+- [x] roadmap AUTO-02 ✅
