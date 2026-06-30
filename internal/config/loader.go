@@ -335,6 +335,9 @@ func validate(cfg *Config) error {
 		if cfg.Supervisor.ReconcileIntervalSec < 0 {
 			return fmt.Errorf("supervisor.reconcile_interval_sec must be >= 0")
 		}
+		if cfg.Supervisor.ReconcileJobTimeoutSec < 0 {
+			return fmt.Errorf("supervisor.reconcile_job_timeout_sec must be >= 0")
+		}
 	}
 	// E36 presence TTLs are optional overrides in seconds; negative is a mistake
 	// (0 = use the built-in default).
