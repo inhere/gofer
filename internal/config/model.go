@@ -68,30 +68,32 @@ type SupervisorConfig struct {
 	// (L2) — the owner is会话式 and may have ended without answering (design §8.2,
 	// supervisor-routing P2.1). <=0 applies the default (300s) in NewService.
 	OwnerAnswerTimeoutSec int `yaml:"owner_answer_timeout_sec"`
-	// DesiredSupervisors is the P4b reconciler target (supervisor-routing P4b): serve
-	// periodically ensures this many ACTIVE (queued/running/pending_interaction)
-	// role=supervisor daemon jobs exist, re-submitting to fill any deficit. A sup job
-	// is timeout-bounded to MaxTimeoutSec=1h, so it is short-lived by design and kept
-	// resident by re-dispatch (Deployment 类比). 0 (default) DISABLES the reconciler
-	// (opt-in). >0 requires a roles.supervisor preset (sources the job's agent /
+	// DesiredSupervisors is the event-driven reconciler's CONCURRENCY CAP (y5wt): at most
+	// this many ACTIVE (queued/running/pending_interaction) role=supervisor jobs run at once.
+	// Dispatch is ON DEMAND, not resident — serve spawns a sup only when there is pending
+	// sup-bound work (CountSupPendingDemand>0) and fewer than this many are active, so an idle
+	// server spawns ZERO sups (zero claude cost). 1 is the usual value. 0 (default) DISABLES
+	// the reconciler (opt-in). >0 requires a roles.supervisor preset (sources the job's agent /
 	// system_prompt / env, incl. GOFER_AGENT_ROLE=supervisor).
 	DesiredSupervisors int `yaml:"desired_supervisors"`
-	// ReconcileRunner is the runner the reconciler submits sup jobs to (empty =>
-	// "local"). ReconcileIntervalSec is the reconcile cadence (<=0 => 60s default);
-	// it must stay well under the 1h job cap so a timed-out sup is re-dispatched promptly.
+	// ReconcileRunner is the runner the reconciler submits sup jobs to (empty => "local").
+	// ReconcileIntervalSec is the BACKSTOP demand-poll cadence (<=0 => 60s default): dispatch
+	// is normally wake-driven (the answerer signals on an escalation with no reachable sup),
+	// and this periodic CountSupPendingDemand poll only covers a lost wake / a serve restart
+	// with pending work — a cheap DB count, so it never needs to be a hot loop.
 	ReconcileRunner      string `yaml:"reconcile_runner"`
 	ReconcileIntervalSec int    `yaml:"reconcile_interval_sec"`
-	// ReconcilePrompt is the kickoff prompt the reconciler passes to each re-dispatched
-	// sup job (a cli-agent like codex REQUIRES a non-empty prompt — adapter.go). Empty
-	// => a built-in supervisor mission (serve.defaultSupReconcilePrompt). The resident
-	// behaviour/guardrails come from roles.supervisor.system_prompt (--append-system-prompt);
-	// this is just the "begin supervising" turn.
+	// ReconcilePrompt is the kickoff prompt the reconciler passes to each on-demand sup job
+	// (a cli-agent like codex REQUIRES a non-empty prompt — adapter.go). Empty => a built-in
+	// supervisor mission (serve.defaultSupReconcilePrompt: peek inbox, answer low-risk, punt
+	// high-risk to a human, exit when drained). Guardrails come from roles.supervisor.system_prompt
+	// (--append-system-prompt); this is just the "begin supervising" turn.
 	ReconcilePrompt string `yaml:"reconcile_prompt"`
-	// ReconcileJobTimeoutSec is the per-sup-job timeout the reconciler sets. A sup is a
-	// resident daemon, so the default is long (serve.supReconcileJobTimeoutDefault=3600,
-	// the 1h MaxTimeoutSec cap) — minimising churn (re-dispatch ~hourly, not every 5min
-	// like the 300s job default). <=0 => that long default; the value is still clamped to
-	// MaxTimeoutSec at submit. Lower it only to force more frequent sup recycling.
+	// ReconcileJobTimeoutSec is the per-sup-job timeout the reconciler sets. Under event-driven
+	// dispatch a healthy sup drains the demand and EXITS early, so this is really a HUNG-sup cap
+	// (serve.supReconcileJobTimeoutDefault=3600, the 1h MaxTimeoutSec): a wedged sup is force-
+	// terminated within it, freeing the active-sup gate for the next on-demand spawn. <=0 => that
+	// default; clamped to MaxTimeoutSec at submit. Lower it only to recycle a wedged sup sooner.
 	ReconcileJobTimeoutSec int `yaml:"reconcile_job_timeout_sec"`
 }
 
