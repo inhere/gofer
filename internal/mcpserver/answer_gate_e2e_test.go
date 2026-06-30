@@ -61,7 +61,7 @@ func TestAnswerInteractionGateE2E(t *testing.T) {
 	supID := supReg.AgentID
 
 	b := newLocalBackend(jobs, projects, agents, pres)
-	session := connectTo(t, newServer(b, supID))
+	session := connectTo(t, newServer(b, supID, ""))
 
 	jobID := liveJobOwnedBy(t, session, jobs, "agt_owner")
 

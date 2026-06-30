@@ -45,15 +45,16 @@ const envAgentRole = "GOFER_AGENT_ROLE"
 // the Backend owns the actual backend access. The server is returned
 // unconnected; call Run (or Serve) to start serving over a transport.
 func New(b Backend) *mcp.Server {
-	return newServer(b, "")
+	return newServer(b, "", "")
 }
 
-// newServer builds the MCP server, threading originAgent (the process-level
-// self-registered owner agent_id, P1.0) into run_job so submissions are stamped
-// with their driver owner unless the caller passes an explicit origin_agent. New
-// passes "" (no auto-stamp, e.g. presence-less test fixtures); Serve passes the
-// self-registered agent_id.
-func newServer(b Backend, originAgent string) *mcp.Server {
+// newServer builds the MCP server, threading the process-level self-registered driver
+// identity (P1.0): originAgent (agent_id) stamps run_job submissions + attributes
+// answers; originToken pairs with it so inbox polls can default to this same identity
+// (one consistent driver: poll = answer = role-one routing target). New passes ""/""
+// (no auto-stamp, e.g. presence-less test fixtures); Serve passes the self-registered
+// agent_id + token.
+func newServer(b Backend, originAgent, originToken string) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "gofer", Version: "v1"}, nil)
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -116,8 +117,8 @@ func newServer(b Backend, originAgent string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_poll_inbox",
-		Description: "Poll this agent's inbox for unread messages (refreshes presence heartbeat). Set ack=false to peek.",
-	}, pollInboxHandler(b))
+		Description: "Poll this agent's inbox for unread messages (refreshes presence heartbeat). Set ack=false to peek. Omit agent_id/agent_token to poll THIS mcp process's own self-registered inbox (the usual case for a driver/supervisor agent).",
+	}, pollInboxHandler(b, originAgent, originToken))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_post_message",
@@ -151,23 +152,24 @@ func Serve(ctx context.Context, b Backend) error {
 	// owner — the mcp server still serves every tool. Cleanup is by presence TTL
 	// (~90s): the Backend exposes no Deregister, and a per-process name means a dead
 	// process's presence entry simply expires.
-	originAgent := selfRegister(b)
-	return newServer(b, originAgent).Run(ctx, &mcp.StdioTransport{})
+	originAgent, originToken := selfRegister(b)
+	return newServer(b, originAgent, originToken).Run(ctx, &mcp.StdioTransport{})
 }
 
 // selfRegister registers this mcp process as a driver agent and returns its
-// agent_id (P1.0). The name is per-process unique (mcp-<hostHash>-<pid>) so two
-// sessions on the same host never alias onto one presence identity (presence's
-// idempotency key is (name, caller_id)). Returns "" on any failure so callers
-// degrade to "no owner stamp" rather than crashing the mcp server.
-func selfRegister(b Backend) string {
+// agent_id + agent_token (P1.0). The name is per-process unique (mcp-<hostHash>-<pid>)
+// so two sessions on the same host never alias onto one presence identity (presence's
+// idempotency key is (name, caller_id)). The token lets inbox polls reuse this same
+// identity (gofer_poll_inbox default). Returns "","" on any failure so callers degrade
+// to "no owner stamp / no self-poll" rather than crashing the mcp server.
+func selfRegister(b Backend) (agentID, agentToken string) {
 	// Role from GOFER_AGENT_ROLE (P3.1): a sup daemon sets it to "supervisor" so its driver
 	// is graded as a sup by the answer闸; a normal session leaves it unset (role="").
 	res, err := b.RegisterAgent(selfRegisterName(), os.Getenv(envAgentRole), "")
 	if err != nil {
-		return ""
+		return "", ""
 	}
-	return res.AgentID
+	return res.AgentID, res.AgentToken
 }
 
 // selfRegisterName builds the per-process driver-agent name mcp-<hostHash>-<pid>.
@@ -634,8 +636,10 @@ func registerAgentHandler(b Backend) mcp.ToolHandlerFor[registerAgentInput, pres
 // --- gofer_poll_inbox ------------------------------------------------------
 
 type pollInboxToolInput struct {
-	AgentID    string `json:"agent_id"`
-	AgentToken string `json:"agent_token"`
+	// Optional: omit BOTH to poll this mcp process's own self-registered inbox (P1.0);
+	// supply both to poll a specific agent's inbox (the explicit register-then-poll path).
+	AgentID    string `json:"agent_id,omitempty"`
+	AgentToken string `json:"agent_token,omitempty"`
 	// Ack defaults to true (consume) when omitted; set false to peek without
 	// marking read. A pointer distinguishes "omitted" from an explicit false.
 	Ack *bool `json:"ack,omitempty"`
@@ -645,10 +649,19 @@ type pollInboxOutput struct {
 	Messages []presence.Message `json:"messages"`
 }
 
-func pollInboxHandler(b Backend) mcp.ToolHandlerFor[pollInboxToolInput, pollInboxOutput] {
+func pollInboxHandler(b Backend, selfID, selfToken string) mcp.ToolHandlerFor[pollInboxToolInput, pollInboxOutput] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in pollInboxToolInput) (*mcp.CallToolResult, pollInboxOutput, error) {
+		// Default to this mcp process's self-registered driver identity (P1.0) when the
+		// caller omits BOTH creds — so a driver/supervisor agent polls its OWN inbox
+		// without the explicit gofer_register dance, and the polled identity matches the
+		// answer attribution (originAgent) and the role-one:<role> escalation target (one
+		// consistent identity). Explicit creds still win (poll another agent's inbox).
+		agentID, token := in.AgentID, in.AgentToken
+		if agentID == "" && token == "" {
+			agentID, token = selfID, selfToken
+		}
 		ack := in.Ack == nil || *in.Ack
-		msgs, err := b.PollInbox(in.AgentID, in.AgentToken, ack)
+		msgs, err := b.PollInbox(agentID, token, ack)
 		if err != nil {
 			return nil, pollInboxOutput{}, err
 		}
