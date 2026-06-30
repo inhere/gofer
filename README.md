@@ -319,8 +319,8 @@ tail -n 50 tmp/gofer/<id>/stdout.log
 curl -s -H "Authorization: Bearer $GOFER_TOKEN" http://host.docker.internal:8765/v1/jobs/<id>
 ```
 
-## 迁移 / 历史
+## 历史
 
-> ⚠️ **主机侧仍在运行旧 `codex-bridge`**（`X-Bridge-Token` 头、旧 `/run` + `/result/{id}`）。在主机 bridge 切到 `gofer serve` 并验证通过之前，**勿改根 `CLAUDE.md`、勿删 `tools/codex-bridge`**。切换清单（重启为新二进制 → 容器侧冒烟 → 改根 CLAUDE.md 的文档路径与鉴权头 → 退役旧工具）见 [`docs/2026-06-17-p10-cutover-runbook.md`](docs/2026-06-17-p10-cutover-runbook.md)。
+代号沿革：`codex-bridge`（单 codex+exec 直跑）→ `dev-agent-bridge`（多 agent/项目注册表 + `/v1` 异步 job）→ **`gofer`**（+ ws 远端 worker / 标签调度 / 同步与 md 提交 / Web 控制台 / MCP / SQLite 存储）。
 
-代号沿革：`codex-bridge`（单 codex+exec 直跑）→ `dev-agent-bridge`（多 agent/项目注册表 + `/v1` 异步 job）→ **`gofer`**（+ ws 远端 worker / 标签调度 / 同步与 md 提交 / Web 控制台 / MCP / SQLite 存储）。设计与实施计划见 [`docs/`](docs/)（`design/` 设计、`plans/` 实施计划、`TODO.md` 待办与路线）。
+> 设计与实施计划见 [`docs/`](docs/)（`design/` 设计、`plans/` 实施计划、`TODO.md` 待办与路线）。
