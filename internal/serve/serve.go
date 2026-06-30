@@ -355,6 +355,13 @@ func startSupervisorLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
 // MaxTimeoutSec=1h job cap so a timed-out sup daemon job is re-dispatched promptly.
 const supReconcileInterval = 60 * time.Second
 
+// defaultSupReconcilePrompt is the kickoff turn given to each reconciler-spawned sup
+// job when supervisor.reconcile_prompt is empty. A cli-agent (codex) rejects an empty
+// prompt (agent/adapter.go), so the reconciler must always supply one; the resident
+// guardrails live in roles.supervisor.system_prompt. Mirrors the P4a runbook mission.
+const defaultSupReconcilePrompt = "你是 supervisor。持续循环调用 gofer_poll_inbox 获取 kind=escalation 的消息，" +
+	"对通用、低危的问题用 gofer_answer_interaction 作答；拿不准或高危的不要猜，留给人处理。non-interactive。"
+
 // reconcileSupervisors is the pure P4b decision: ensure `desired` active sup daemon
 // jobs exist by submitting one per missing replica. count is the active-sup-job tally
 // (the single replica signal — job state, not presence, to avoid double-count); submit
@@ -397,13 +404,18 @@ func startSupReconcileLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{})
 		runnerName = "local"
 	}
 	desired := sc.DesiredSupervisors
+	prompt := sc.ReconcilePrompt
+	if prompt == "" {
+		prompt = defaultSupReconcilePrompt
+	}
 	logf := func(f string, a ...any) { c.Printf(f, a...) }
 	errf := func(f string, a ...any) { c.Errorf(f, a...) }
 	count := func() (int, error) { return cr.Store.CountActiveJobsByRole("supervisor") }
 	submit := func() error {
 		// Role=supervisor pulls agent/system_prompt/env (incl. GOFER_AGENT_ROLE) from the
-		// roles.supervisor preset (validated present at load when desired>0).
-		_, err := cr.Jobs.Submit(job.JobRequest{Role: "supervisor", Runner: runnerName})
+		// roles.supervisor preset (validated present at load when desired>0). Prompt is the
+		// kickoff turn — required because a cli-agent (codex) rejects an empty prompt.
+		_, err := cr.Jobs.Submit(job.JobRequest{Role: "supervisor", Runner: runnerName, Prompt: prompt})
 		return err
 	}
 	c.Printf("gofer: supervisor reconciler enabled (desired=%d, runner=%q, interval=%s)\n", desired, runnerName, interval)

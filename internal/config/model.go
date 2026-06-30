@@ -81,6 +81,12 @@ type SupervisorConfig struct {
 	// it must stay well under the 1h job cap so a timed-out sup is re-dispatched promptly.
 	ReconcileRunner      string `yaml:"reconcile_runner"`
 	ReconcileIntervalSec int    `yaml:"reconcile_interval_sec"`
+	// ReconcilePrompt is the kickoff prompt the reconciler passes to each re-dispatched
+	// sup job (a cli-agent like codex REQUIRES a non-empty prompt — adapter.go). Empty
+	// => a built-in supervisor mission (serve.defaultSupReconcilePrompt). The resident
+	// behaviour/guardrails come from roles.supervisor.system_prompt (--append-system-prompt);
+	// this is just the "begin supervising" turn.
+	ReconcilePrompt string `yaml:"reconcile_prompt"`
 }
 
 // RoleConfig is one named role preset (design §8.5). Agent is the base CLI agent
