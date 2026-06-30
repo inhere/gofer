@@ -12,6 +12,7 @@ require (
 	github.com/gookit/rux/v2 v2.0.2
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/prometheus/client_golang v1.23.2
+	github.com/robfig/cron/v3 v3.0.1
 	golang.org/x/time v0.15.0
 	modernc.org/sqlite v1.52.0
 )
