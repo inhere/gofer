@@ -126,6 +126,14 @@ type Service struct {
 	// (L3). In-memory only (like rounds): a serve restart at worst re-posts once more
 	// (偏安全方向), the persisted escalated_at already keeping the pre-fallback clock continuous.
 	fellBack map[string]bool
+
+	// wake is the event-driven sup dispatch trigger (y5wt): escalate() calls it whenever
+	// a pending interaction ends up with NO reachable recipient (owner unknown/offline AND
+	// no online 通用 sup) — i.e. "this needs a sup we don't currently have". The reconciler
+	// (serve.startSupReconcileLoop) consumes it to spawn one sup on demand instead of keeping
+	// one resident. Defaults to a no-op (NewService); serve injects the real wake via SetWake.
+	// Non-blocking by contract (the serve wake drops if a signal is already queued).
+	wake func()
 }
 
 // NewService builds a Service, applying defaults for a zero Interval / MaxRounds /
@@ -161,7 +169,18 @@ func NewService(jobs JobOps, presence PresenceOps, policy Policy) *Service {
 		nowFn:    time.Now,
 		rounds:   map[string]int{},
 		fellBack: map[string]bool{},
+		wake:     func() {}, // no-op until serve injects a real wake (SetWake)
 	}
+}
+
+// SetWake injects the event-driven sup dispatch trigger (y5wt). serve wires it to the
+// reconciler's wake channel so escalate() can demand a sup on the spot; a nil f resets to
+// no-op. Call before Run (or any escalate); not safe to race with a running tick.
+func (s *Service) SetWake(f func()) {
+	if f == nil {
+		f = func() {}
+	}
+	s.wake = f
 }
 
 // Run is the poller loop: it ticks once immediately then every Interval until ctx
@@ -365,7 +384,12 @@ func (s *Service) escalate(it job.Interaction, jr job.JobResult, skipOwner bool)
 	}
 	if deliveredTo == "" {
 		// Nobody reachable (owner unknown/pruned AND no online sup): not stamped, so a
-		// later tick retries; a human (L3) is the backstop.
+		// later tick retries; a human (L3) is the backstop. Event-driven dispatch (y5wt):
+		// this is the precise "needs a sup we don't have" signal — wake the reconciler to
+		// spawn one on demand (non-blocking). It comes online and the next tick delivers.
+		if s.wake != nil {
+			s.wake()
+		}
 		slog.Info("supervisor: escalate found no recipient", "job_id", it.JobID, "interaction_id", it.ID, "targets", targets)
 		return false
 	}

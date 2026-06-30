@@ -234,6 +234,45 @@ func TestNoDuplicateEscalation(t *testing.T) {
 	}
 }
 
+// TestEscalateWakesOnNoRecipient proves the event-driven dispatch trigger (y5wt): when
+// escalate finds NO reachable recipient (no owner + no online sup → deliveredTo==""), it
+// fires the injected wake (the reconciler then spawns a sup on demand) and does NOT stamp
+// escalated_at (a later tick retries). A delivered escalation must NOT wake — a sup is
+// already reachable, so no on-demand spawn is needed.
+func TestEscalateWakesOnNoRecipient(t *testing.T) {
+	// No owner (empty jobs snapshot) + presence delivers 0 (nobody online) → no recipient.
+	jobs := &mockJobOps{pending: []job.Interaction{
+		{ID: "q1", JobID: "j1", Type: job.InteractionTypeQuestion, Prompt: "name?", Status: job.InteractionPending},
+	}}
+	pres := &mockPresence{deliver: func(string) int { return 0 }}
+	s := newSvc(jobs, pres, Policy{})
+	woke := 0
+	s.SetWake(func() { woke++ })
+	s.tick(context.Background())
+	if woke != 1 {
+		t.Fatalf("no-recipient escalate woke %d times, want 1", woke)
+	}
+	if len(jobs.escalated) != 0 {
+		t.Fatalf("no-recipient escalate stamped escalated_at %d times, want 0 (retry next tick)", len(jobs.escalated))
+	}
+
+	// Positive control: a delivered escalation (sup reachable) must NOT wake.
+	jobs2 := &mockJobOps{pending: []job.Interaction{
+		{ID: "q2", JobID: "j2", Type: job.InteractionTypeQuestion, Prompt: "name?", Status: job.InteractionPending},
+	}}
+	pres2 := &mockPresence{} // delivers 1 by default
+	s2 := newSvc(jobs2, pres2, Policy{})
+	woke2 := 0
+	s2.SetWake(func() { woke2++ })
+	s2.tick(context.Background())
+	if woke2 != 0 {
+		t.Fatalf("delivered escalate woke %d times, want 0", woke2)
+	}
+	if len(jobs2.escalated) != 1 {
+		t.Fatalf("delivered escalate stamped escalated_at %d times, want 1", len(jobs2.escalated))
+	}
+}
+
 func TestDisabledRunReturns(t *testing.T) {
 	jobs := &mockJobOps{}
 	s := NewService(jobs, &mockPresence{}, Policy{Enabled: false})
