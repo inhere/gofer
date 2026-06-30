@@ -9,7 +9,7 @@
 
 | 版本 | 日期 | 修改人 | 调整说明 |
 |---|---|---|---|
-| v0.1 | 2026-06-20 | Claude | 初版：范围/分期 + 现状梳理 + 四模块详设 + 数据模型/API + 待确认决策点。bd `example-project-myi`。 |
+| v0.1 | 2026-06-20 | Claude | 初版：范围/分期 + 现状梳理 + 四模块详设 + 数据模型/API + 待确认决策点。bd `gofer-myi`。 |
 
 ---
 
@@ -148,11 +148,11 @@ agent: codex
 runner: worker
 worker_labels: [gpu, linux]      # 或 worker_id: w-01
 timeout_sec: 600
-title: 巡检脚本生成
+title: 批处理脚本生成
 sync: false
 ---
-帮我在 scripts/ 下生成一个批量巡检脚本，要求：
-- 读取 config.yaml 的门店列表
+帮我在 scripts/ 下生成一个批处理脚本，要求：
+- 读取 config.yaml 的任务列表
 - ...（正文即 prompt）
 ```
 

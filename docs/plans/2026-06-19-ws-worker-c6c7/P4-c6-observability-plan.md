@@ -264,7 +264,7 @@ worker 段同理：P3 心跳超时把注册表标记 `disconnected` → `/v1/run
 ### 12.3 构建/测试环境
 
 ```bash
-export PATH=/path/to/ws-root/linux-env/sdk/gosdk/go1.25.10/bin:$PATH
+export PATH=/opt/go-sdk/go1.25.10/bin:$PATH
 cd tools/gofer
 go build ./...
 go test ./internal/httpapi/... ./internal/commands/... -race

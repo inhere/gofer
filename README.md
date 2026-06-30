@@ -47,7 +47,7 @@ make build-all        # 跨平台交叉编译（linux/darwin/windows × amd64/ar
 ```bash
 # 1. 登记项目（host-path 必须是已存在的绝对目录）
 gofer project add workspace \
-  --host-path /path/to/workspace --container-path /workspace \
+  --host-path /work/projects/workspace --container-path /workspace \
   --default-agent codex --allow-agent codex --allow-agent claude --allow-agent exec \
   --allow-runner local --allow-exec
 
@@ -95,7 +95,7 @@ runner: worker
 worker_labels: [gpu]      # 或 worker_id: w-01
 sync: false
 ---
-在 scripts/ 下生成批量巡检脚本，读取 config.yaml 的门店列表……（正文即 prompt）
+在 scripts/ 下生成批处理脚本，读取 config.yaml 的任务列表……（正文即 prompt）
 ```
 
 - **HTTP**：`POST /v1/jobs`（JSON）。加 `"sync": true` 或 `?wait=1` 走同步（命中终态 `200`+完整结果；超服务端上限 `202`+`X-Gofer-Async:1`+id）。md 提交用 `Content-Type: text/markdown`。
@@ -198,9 +198,9 @@ storage:
   # retention: { max_age_days: 30, max_count: 5000, prune_interval_minutes: 60 }
 
 projects:
-  myporject1:
-    host_path: /path/to/ws-root/myporject1
-    container_path: /work/myporject1
+  my-project1:
+    host_path: /work/projects/my-project1
+    container_path: /work/my-project1
     default_agent: codex
     allowed_agents: [codex, claude, exec]
     allowed_runners: [local, worker]     # 含 worker 才能远端派发
@@ -252,10 +252,10 @@ gofer --gen-completion bash|zsh > ~/.gofer.completion.sh  # 补全脚本
 export GOFER_CONFIG=~/.config/gofer/config.yaml   # 写进 shell profile
 gofer init server --global                         # 生成全局骨架
 # 编辑：填 server.token_env / agents / runners
-gofer project add siv --host-path /abs/SIV --container-path /work/SIV
+gofer project add demo-api --host-path /abs/demo-api --container-path /work/demo-api
 gofer serve                                        # 一个进程
 # 任意目录:
-gofer job run -p siv -a claude "..."               # CLI 连 serve
+gofer job run -p demo-api -a claude "..."               # CLI 连 serve
 ```
 
 `GOFER_CONFIG` 优先于当前目录的 `.gofer.yaml`，任意目录命令都走全局。
@@ -306,14 +306,14 @@ gofer job run -p siv -a claude "..."               # CLI 连 serve
 
 ## Docker 容器 ↔ 主机（本工作空间主要用法）
 
-Claude 在容器内，需要主机配合的活（调主机 `codex`、跑需要主机环境的命令、真实 MQ 联调等）经主机上的 gofer 转交：
+Claude 在容器内，需要主机配合的活（调主机 `codex`、跑需要主机环境的命令、真实外部依赖联调等）经主机上的 gofer 转交：
 
 ```bash
 # 容器内提交（经 host.docker.internal）
 curl -s -X POST http://host.docker.internal:8765/v1/jobs \
   -H "Authorization: Bearer $GOFER_TOKEN" -H "Content-Type: application/json" \
   -d '{"project_key":"workspace","agent":"exec","runner":"local",
-       "cmd":["mvn","-q","test"],"cwd":"java-biz-dev/hyy-service-inspect-vision","timeout_sec":1200}'
+       "cmd":["mvn","-q","test"],"cwd":"services/demo-api","timeout_sec":1200}'
 # 经共享盘读日志 / 或经 HTTP 读状态
 tail -n 50 tmp/gofer/<id>/stdout.log
 curl -s -H "Authorization: Bearer $GOFER_TOKEN" http://host.docker.internal:8765/v1/jobs/<id>

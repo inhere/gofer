@@ -3,7 +3,7 @@
 > 主文档（契约真源）：[`./2026-06-19-ws-worker-c6c7-plan.md`](./2026-06-19-ws-worker-c6c7-plan.md)（§4 包布局 / §5 帧表 / §6 配置 / §7 鉴权 / §8 WorkerID / §9 跨阶段约束）。
 > 主设计：[`../../design/2026-06-17-ws-remote-worker-design.md`](../../design/2026-06-17-ws-remote-worker-design.md)（§8 流程 / §9 数据模型 / §10 模块 / §17 评审 #1/#2/#3/#8）。
 > 前置硬门：[`./P0-spike-plan.md`](./P0-spike-plan.md)（coder/websocket 在 gookit/rux v2 上 `Accept`，origin/option 已验通）。
-> 构建环境：`export PATH=/path/to/ws-root/linux-env/sdk/gosdk/go1.25.10/bin:$PATH; cd tools/gofer`
+> 构建环境：`export PATH=/opt/go-sdk/go1.25.10/bin:$PATH; cd tools/gofer`
 
 本子文档把主文档 P1 行（主 §3）落到可执行细节：file:line 改动点、关键代码片段、关键流程时序、测试与验收。**实施者无需再猜**。
 

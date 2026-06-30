@@ -1,7 +1,7 @@
 # Gofer 提交与调度增强 — 实施计划（总纲）
 
 > 设计依据：[`../../design/2026-06-20-submit-dispatch-design.md`](../../design/2026-06-20-submit-dispatch-design.md)（v0.1，§10 决策默认全部采纳）。
-> bd epic：`example-project-myi`。本文件只保留**总纲 + 进度跟进 + 阶段简述**（SR1105）；阶段详情见子文档。
+> bd epic：`gofer-myi`。本文件只保留**总纲 + 进度跟进 + 阶段简述**（SR1105）；阶段详情见子文档。
 
 ## 修订记录
 

@@ -40,8 +40,8 @@
 ### 步骤 0：构建环境（每个 shell 会话先执行）
 
 ```bash
-export PATH=/path/to/ws-root/linux-env/sdk/gosdk/go1.25.10/bin:$PATH
-cd /path/to/workspace/tools/gofer
+export PATH=/opt/go-sdk/go1.25.10/bin:$PATH
+cd /work/projects/workspace/tools/gofer
 go version   # 期望 go1.25.x
 ```
 

@@ -1,7 +1,7 @@
 # 多 agent 协作 实施计划（总纲）
 
 > design：[`../design/2026-06-28-multi-agent-collab-design.md`](../design/2026-06-28-multi-agent-collab-design.md)（v0.2，含对抗复审 7 处收紧）
-> bd：epic `example-project-hyxz` · P1=`y2jg`(E36) · P2=`fl46`(E35) · P3=`axma`(E25)
+> bd：epic `gofer-hyxz` · P1=`y2jg`(E36) · P2=`fl46`(E35) · P3=`axma`(E25)
 > 本文只留**总纲 + 进度 + 跨文档引用**；各阶段细节见子 plan（SR1105）。
 
 ## 1. 范围与节奏

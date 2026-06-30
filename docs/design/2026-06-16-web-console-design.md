@@ -42,7 +42,7 @@ MVP（主设计 §15）已交付 `agent-bridge serve` 的 HTTP 控制面与 `job
 
 **技术选型**（已确认）：
 
-- 前端 **Vue 3 + Vite + TypeScript**（与团队 HCUI 一致），构建产物 `go:embed` 进二进制。
+- 前端 **Vue 3 + Vite + TypeScript**（与团队 Vue 管理端项目 一致），构建产物 `go:embed` 进二进制。
 - 实时机制 **SSE**（非 WebSocket）。
 - 浏览器鉴权 **纯 Bearer 无状态**：token 存 `sessionStorage`，含流式用 `fetch`+`Authorization` 头（不用 cookie/session，沿用现有中间件）。
 
@@ -270,7 +270,7 @@ interface Interaction { id; job_id; type:'question'|'choice'|'confirmation'; pro
 | 3 | Job 历史/列表来源 | **追加写 `jobs.jsonl` 索引**（创建+终态各 append、读时按 id 折叠末行胜）+ 内存实时态合并；重启可恢复、免扫盘（§10） |
 | 4 | 前端 UI | **裸写 + 少量 CSS**，贴合 §8 视觉方向，无 UI 库主题改写成本 |
 | 5 | 鉴权 | **纯 Bearer 无状态**：token 存 `sessionStorage`，含流式用 `fetch`+`Authorization` 头；无 cookie/session、无 `/v1/auth/*`（§7.3/§11） |
-| 6 | 包管理器 | **pnpm**（HCUI 三种 lockfile 并存无统一，新 `web/` 子项目用 pnpm） |
+| 6 | 包管理器 | **pnpm**（Vue 管理端项目 三种 lockfile 并存无统一，新 `web/` 子项目用 pnpm） |
 
 > 留待实施计划细化的小点：`jobs.jsonl` 增长上限/轮转（web-P1 先不限，注 TODO）；活信号 `activity_rate` 由前端按 `log` 事件累计（倾向，零后端改动）还是后端计算。
 

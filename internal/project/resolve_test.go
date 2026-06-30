@@ -12,18 +12,18 @@ import (
 func TestResolveByCwdUnique(t *testing.T) {
 	root := t.TempDir()
 	cfg := &config.Config{Projects: map[string]config.ProjectConfig{
-		"siv": {HostPath: root},
+		"demo": {HostPath: root},
 	}}
 	// cwd == root → rel ".".
 	key, rel, ok := ResolveByCwd(cfg, root)
-	if !ok || key != "siv" || rel != "." {
-		t.Fatalf("root cwd: got (%q,%q,%v) want (siv,.,true)", key, rel, ok)
+	if !ok || key != "demo" || rel != "." {
+		t.Fatalf("root cwd: got (%q,%q,%v) want (demo,.,true)", key, rel, ok)
 	}
 	// cwd in a subdir → rel = the subpath.
 	sub := filepath.Join(root, "module", "a")
 	key, rel, ok = ResolveByCwd(cfg, sub)
-	if !ok || key != "siv" || rel != filepath.Join("module", "a") {
-		t.Fatalf("sub cwd: got (%q,%q,%v) want (siv,module/a,true)", key, rel, ok)
+	if !ok || key != "demo" || rel != filepath.Join("module", "a") {
+		t.Fatalf("sub cwd: got (%q,%q,%v) want (demo,module/a,true)", key, rel, ok)
 	}
 }
 
@@ -66,7 +66,7 @@ func TestResolveByCwdNoMatch(t *testing.T) {
 	root := t.TempDir()
 	other := t.TempDir()
 	cfg := &config.Config{Projects: map[string]config.ProjectConfig{
-		"siv": {HostPath: root},
+		"demo": {HostPath: root},
 	}}
 	if _, _, ok := ResolveByCwd(cfg, other); ok {
 		t.Fatalf("cwd outside all roots must not match")
@@ -84,10 +84,10 @@ func TestResolveByCwdContainerPath(t *testing.T) {
 	host := t.TempDir()
 	container := t.TempDir()
 	cfg := &config.Config{Projects: map[string]config.ProjectConfig{
-		"siv": {HostPath: host, ContainerPath: container},
+		"demo": {HostPath: host, ContainerPath: container},
 	}}
 	key, rel, ok := ResolveByCwd(cfg, filepath.Join(container, "src"))
-	if !ok || key != "siv" || rel != "src" {
-		t.Fatalf("container cwd: got (%q,%q,%v) want (siv,src,true)", key, rel, ok)
+	if !ok || key != "demo" || rel != "src" {
+		t.Fatalf("container cwd: got (%q,%q,%v) want (demo,src,true)", key, rel, ok)
 	}
 }

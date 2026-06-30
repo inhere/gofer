@@ -16,8 +16,8 @@ func boolPtr(b bool) *bool    { return &b }
 // nil) leaves base untouched (D8 "absent != zero").
 func TestMergeProjectConfig_AllNilNoChange(t *testing.T) {
 	base := ProjectConfig{
-		HostPath:          "/abs/SIV",
-		ContainerPath:     "/work/SIV",
+		HostPath:          "/abs/demo",
+		ContainerPath:     "/work/demo",
 		ExchangeSubdir:    "tmp",
 		ResultSubdir:      "gofer",
 		DefaultAgent:      "claude",
@@ -81,8 +81,8 @@ func TestMergeProjectConfig_NonNilOverrides(t *testing.T) {
 // overlay value unchanged.
 func TestMergeProjectConfig_NeverTouchesAdmissionFields(t *testing.T) {
 	base := ProjectConfig{
-		HostPath:       "/abs/SIV",
-		ContainerPath:  "/work/SIV",
+		HostPath:       "/abs/demo",
+		ContainerPath:  "/work/demo",
 		AllowedAgents:  []string{"claude"},
 		AllowedRunners: []string{"local"},
 		AllowExec:      true,
@@ -114,8 +114,8 @@ func TestMergeProjectConfig_NeverTouchesAdmissionFields(t *testing.T) {
 //   - path_view=container + container_path empty => host_path fallback
 //   - path_view=host (explicit) => host_path even with container_path set
 func TestExecPath(t *testing.T) {
-	proj := ProjectConfig{HostPath: "/abs/SIV", ContainerPath: "/work/SIV"}
-	projNoContainer := ProjectConfig{HostPath: "/abs/SIV"}
+	proj := ProjectConfig{HostPath: "/abs/demo", ContainerPath: "/work/demo"}
+	projNoContainer := ProjectConfig{HostPath: "/abs/demo"}
 
 	tests := []struct {
 		name     string
@@ -123,10 +123,10 @@ func TestExecPath(t *testing.T) {
 		proj     ProjectConfig
 		want     string
 	}{
-		{"default empty => host", "", proj, "/abs/SIV"},
-		{"explicit host => host", "host", proj, "/abs/SIV"},
-		{"container + container_path => container", "container", proj, "/work/SIV"},
-		{"container + empty container_path => host fallback", "container", projNoContainer, "/abs/SIV"},
+		{"default empty => host", "", proj, "/abs/demo"},
+		{"explicit host => host", "host", proj, "/abs/demo"},
+		{"container + container_path => container", "container", proj, "/work/demo"},
+		{"container + empty container_path => host fallback", "container", projNoContainer, "/abs/demo"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -155,13 +155,13 @@ func TestApplyProjectOverlays_MergesFromFile(t *testing.T) {
 	writeOverlay(t, dir, "result_subdir: out\ndefault_agent: claude\nmax_concurrent_jobs: 7\n")
 
 	cfg := &Config{Projects: map[string]ProjectConfig{
-		"siv": {HostPath: dir, ResultSubdir: "gofer", DefaultAgent: "codex", MaxConcurrentJobs: 1},
+		"demo": {HostPath: dir, ResultSubdir: "gofer", DefaultAgent: "codex", MaxConcurrentJobs: 1},
 	}}
 	warns := ApplyProjectOverlays(cfg)
 	if len(warns) != 0 {
 		t.Fatalf("expected no warnings, got %v", warns)
 	}
-	p := cfg.Projects["siv"]
+	p := cfg.Projects["demo"]
 	if p.ResultSubdir != "out" {
 		t.Errorf("ResultSubdir = %q, want out", p.ResultSubdir)
 	}
@@ -178,13 +178,13 @@ func TestApplyProjectOverlays_MergesFromFile(t *testing.T) {
 func TestApplyProjectOverlays_MissingFileNoChange(t *testing.T) {
 	dir := t.TempDir() // no overlay written
 	cfg := &Config{Projects: map[string]ProjectConfig{
-		"siv": {HostPath: dir, ResultSubdir: "gofer", DefaultAgent: "codex"},
+		"demo": {HostPath: dir, ResultSubdir: "gofer", DefaultAgent: "codex"},
 	}}
 	warns := ApplyProjectOverlays(cfg)
 	if len(warns) != 0 {
 		t.Fatalf("missing file must not warn, got %v", warns)
 	}
-	p := cfg.Projects["siv"]
+	p := cfg.Projects["demo"]
 	if p.ResultSubdir != "gofer" || p.DefaultAgent != "codex" {
 		t.Errorf("project changed despite no overlay: %+v", p)
 	}
@@ -198,13 +198,13 @@ func TestApplyProjectOverlays_BadYAMLWarnsAndKeepsGlobal(t *testing.T) {
 	writeOverlay(t, dir, "result_subdir: {a: 1, : :\n  oops")
 
 	cfg := &Config{Projects: map[string]ProjectConfig{
-		"siv": {HostPath: dir, ResultSubdir: "gofer"},
+		"demo": {HostPath: dir, ResultSubdir: "gofer"},
 	}}
 	warns := ApplyProjectOverlays(cfg)
 	if len(warns) == 0 {
 		t.Fatalf("bad YAML must warn")
 	}
-	if p := cfg.Projects["siv"]; p.ResultSubdir != "gofer" {
+	if p := cfg.Projects["demo"]; p.ResultSubdir != "gofer" {
 		t.Errorf("bad overlay must keep global value, got ResultSubdir=%q", p.ResultSubdir)
 	}
 }
@@ -219,7 +219,7 @@ func TestApplyProjectOverlays_ForbiddenKeyWarnsAndAdmissionUntouched(t *testing.
 	writeOverlay(t, dir, "allowed_agents:\n  - codex\nallow_exec: true\nresult_subdir: out\n")
 
 	cfg := &Config{Projects: map[string]ProjectConfig{
-		"siv": {
+		"demo": {
 			HostPath:      dir,
 			ResultSubdir:  "gofer",
 			AllowedAgents: []string{"claude"},
@@ -237,7 +237,7 @@ func TestApplyProjectOverlays_ForbiddenKeyWarnsAndAdmissionUntouched(t *testing.
 		t.Errorf("expected warning about allow_exec, got: %v", warns)
 	}
 
-	p := cfg.Projects["siv"]
+	p := cfg.Projects["demo"]
 	// D2: admission fields untouched.
 	if len(p.AllowedAgents) != 1 || p.AllowedAgents[0] != "claude" {
 		t.Errorf("AllowedAgents was modified by overlay: %v (D2 violation)", p.AllowedAgents)
@@ -263,13 +263,13 @@ func TestApplyProjectOverlays_ContainerPathUnderContainerView(t *testing.T) {
 	writeOverlay(t, hostDir, "result_subdir: from_host\n")
 
 	cfg := &Config{Projects: map[string]ProjectConfig{
-		"siv": {HostPath: hostDir, ContainerPath: containerDir, ResultSubdir: "gofer"},
+		"demo": {HostPath: hostDir, ContainerPath: containerDir, ResultSubdir: "gofer"},
 	}}
 	cfg.Server.PathView = "container" // D10: container view => ExecPath = container_path
 	if warns := ApplyProjectOverlays(cfg); len(warns) != 0 {
 		t.Fatalf("unexpected warnings: %v", warns)
 	}
-	if p := cfg.Projects["siv"]; p.ResultSubdir != "from_container" {
+	if p := cfg.Projects["demo"]; p.ResultSubdir != "from_container" {
 		t.Errorf("ResultSubdir = %q, want from_container (path_view=container => ExecPath=container_path, D10)", p.ResultSubdir)
 	}
 }
@@ -285,13 +285,13 @@ func TestApplyProjectOverlays_HostPathUnderDefaultView(t *testing.T) {
 	writeOverlay(t, containerDir, "result_subdir: from_container\n")
 
 	cfg := &Config{Projects: map[string]ProjectConfig{
-		"siv": {HostPath: hostDir, ContainerPath: containerDir, ResultSubdir: "gofer"},
+		"demo": {HostPath: hostDir, ContainerPath: containerDir, ResultSubdir: "gofer"},
 	}}
 	// cfg.Server.PathView left empty => default host view.
 	if warns := ApplyProjectOverlays(cfg); len(warns) != 0 {
 		t.Fatalf("unexpected warnings: %v", warns)
 	}
-	if p := cfg.Projects["siv"]; p.ResultSubdir != "from_host" {
+	if p := cfg.Projects["demo"]; p.ResultSubdir != "from_host" {
 		t.Errorf("ResultSubdir = %q, want from_host (default path_view => ExecPath=host_path, D10)", p.ResultSubdir)
 	}
 }
@@ -303,12 +303,12 @@ func TestApplyProjectOverlays_FallbackToHostPath(t *testing.T) {
 	writeOverlay(t, hostDir, "result_subdir: from_host\n")
 
 	cfg := &Config{Projects: map[string]ProjectConfig{
-		"siv": {HostPath: hostDir, ResultSubdir: "gofer"},
+		"demo": {HostPath: hostDir, ResultSubdir: "gofer"},
 	}}
 	if warns := ApplyProjectOverlays(cfg); len(warns) != 0 {
 		t.Fatalf("unexpected warnings: %v", warns)
 	}
-	if p := cfg.Projects["siv"]; p.ResultSubdir != "from_host" {
+	if p := cfg.Projects["demo"]; p.ResultSubdir != "from_host" {
 		t.Errorf("ResultSubdir = %q, want from_host (HostPath fallback)", p.ResultSubdir)
 	}
 }
@@ -317,12 +317,12 @@ func TestApplyProjectOverlays_FallbackToHostPath(t *testing.T) {
 // is skipped without warning.
 func TestApplyProjectOverlays_NoPathSkipped(t *testing.T) {
 	cfg := &Config{Projects: map[string]ProjectConfig{
-		"siv": {ResultSubdir: "gofer"},
+		"demo": {ResultSubdir: "gofer"},
 	}}
 	if warns := ApplyProjectOverlays(cfg); len(warns) != 0 {
 		t.Fatalf("project with no path must be skipped silently, got %v", warns)
 	}
-	if p := cfg.Projects["siv"]; p.ResultSubdir != "gofer" {
+	if p := cfg.Projects["demo"]; p.ResultSubdir != "gofer" {
 		t.Errorf("project changed: %+v", p)
 	}
 }

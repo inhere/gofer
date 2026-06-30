@@ -1,7 +1,7 @@
 # Gofer CLI 易用 + job 标签检索 — 实施计划（总纲）
 
 > 设计依据：[`../../design/2026-06-20-cli-usability-tags-design.md`](../../design/2026-06-20-cli-usability-tags-design.md)（v0.1，§10 决策默认全部按推荐采纳）。
-> bd epic：`example-project-4a0`（P1 `example-project-6n6` / P2 `example-project-7y5` / P3 `example-project-lkz`）。本文件只保留**总纲 + 进度跟进 + 阶段简述**（SR1105）；阶段详情见子文档。
+> bd epic：`gofer-4a0`（P1 `gofer-6n6` / P2 `gofer-7y5` / P3 `gofer-lkz`）。本文件只保留**总纲 + 进度跟进 + 阶段简述**（SR1105）；阶段详情见子文档。
 
 ## 修订记录
 

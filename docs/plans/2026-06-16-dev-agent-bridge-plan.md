@@ -352,8 +352,8 @@ func NewApp(version string) *gcli.App {
 ### 8.3 project add 参数
 
 ```bash
-agent-bridge project add example-project \
-  --host-path D:/work/inhere/example-project \
+agent-bridge project add workspace \
+  --host-path D:/projects/workspace \
   --container-path /workspace \
   --exchange-subdir tmp \
   --result-subdir dev-agent-bridge \
@@ -390,7 +390,7 @@ agent-bridge project add example-project \
 
 ```bash
 git status --short --branch
-bd show example-project-799
+bd show gofer-799
 ```
 
 交付：无代码变化或只提交计划文档。

@@ -4,7 +4,7 @@
 > 主设计：[`../../design/2026-06-17-ws-remote-worker-design.md`](../../design/2026-06-17-ws-remote-worker-design.md) §8.3（交互跨线）、§8.4（取消/超时）、§9.1（帧）、§10（#3 钩子评审）。
 > 依赖：**P1（WP1 核心）已落地** —— `internal/wsproto` 帧/常量、`internal/wshub`（WorkerRegistry + 入站帧 demux + Dispatch 发送 + per-job sink 注册/注销）、`internal/runner/worker.workerRunner`（已把 `log`/`status`/`result` 帧落 `req.Stdout/Stderr` 并返回 `runner.Result`）、`internal/worker` 客户端（收 `dispatch` → 本地 `job.Service.Submit` → 推帧）、`WorkerID` 贯穿。本文只补 **`interaction`/`answer`/`cancel` 三类帧的端到端打通**，不重述 P1 的连接/注册/镜像。
 
-构建环境：`export PATH=/path/to/ws-root/linux-env/sdk/gosdk/go1.25.10/bin:$PATH; cd tools/gofer`
+构建环境：`export PATH=/opt/go-sdk/go1.25.10/bin:$PATH; cd tools/gofer`
 
 ---
 
@@ -146,7 +146,7 @@ user        host.httpapi            host.job.Service        hub(workerRunner)   
 
 ## 6. 测试与验收
 
-构建/测试环境：`export PATH=/path/to/ws-root/linux-env/sdk/gosdk/go1.25.10/bin:$PATH; cd tools/gofer`
+构建/测试环境：`export PATH=/opt/go-sdk/go1.25.10/bin:$PATH; cd tools/gofer`
 
 ### 6.1 单元测试
 

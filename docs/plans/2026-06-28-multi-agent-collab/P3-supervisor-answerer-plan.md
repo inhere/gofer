@@ -1,6 +1,6 @@
 # P3 · L4 监督应答（E25）实施计划 ✅ 完成（2026-06-28）
 
-> 主纲 [`../2026-06-28-multi-agent-collab-plan.md`](../2026-06-28-multi-agent-collab-plan.md) · design §8.3-8.4/§11/D3-D4 · bd `example-project-axma`
+> 主纲 [`../2026-06-28-multi-agent-collab-plan.md`](../2026-06-28-multi-agent-collab-plan.md) · design §8.3-8.4/§11/D3-D4 · bd `gofer-axma`
 
 > **完成记录**：commits `b8c390c`(P3.1+P3.2)→`e99de63`(P3.3)→`2807654`(P3.4)→`bd338d0`(P3.5)。go test 28 包绿+vet 净+无 import 环。
 > - 既有缺口修复(复审#4)：`finish()` 同终态临界区把残留 pending interaction 翻 cancelled→落库→close(answered) 唤醒 WaitAnswer(返回 cancelled 快照,不再悬挂);`InteractionCancelled` 终于生效。启动 `ReconcileOrphanInteractions` 兜底崩溃残留。`ListPendingInteractions` JOIN jobs 排除终态 job 僵尸 pending。

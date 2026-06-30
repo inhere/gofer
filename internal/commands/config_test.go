@@ -464,14 +464,14 @@ func TestConfigShowMergesOverlay(t *testing.T) {
 	}
 	cfgYAML := "" +
 		"projects:\n" +
-		"  siv:\n" +
+		"  demo:\n" +
 		"    host_path: " + host + "\n" +
 		"    result_subdir: global_out\n" +
 		"    allowed_agents: [claude]\n"
 	cfgPath := writeRawConfig(t, cfgYAML)
 
 	c := bindCmd(NewConfigCmd().Subs[1]) // Subs[1] == show
-	c.Arg("key").WithValue("siv")
+	c.Arg("key").WithValue("demo")
 	config.InputCfgFile = cfgPath
 	t.Cleanup(func() { config.InputCfgFile = "" })
 

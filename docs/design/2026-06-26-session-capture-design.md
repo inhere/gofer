@@ -1,6 +1,6 @@
 # Gofer Agent Session 捕获与恢复 设计方案
 
-> 来源：beads `example-project-nnk`。
+> 来源：beads `gofer-nnk`。
 > 一句话：让 gofer 自动捕获每个 job 里底层 agent CLI 的 `session_id` 并入库，从而支持会话**检查 / 检索 / 恢复续接**。
 
 ## 修订记录

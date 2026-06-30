@@ -29,7 +29,7 @@ func TestGoferJobEnvInjects(t *testing.T) {
 	}
 }
 
-// TestExecJobLocatesResultDirViaEnv is the end-to-end proof for example-project-udi:
+// TestExecJobLocatesResultDirViaEnv is the end-to-end proof for gofer-udi:
 // an exec job (argv executed verbatim, no {{result_dir}} templating) uses the
 // injected $GOFER_RESULT_DIR to write result.json (E6) and an artifact (E1), and
 // captureOutcomes picks both up. Before the env injection an exec agent had no way

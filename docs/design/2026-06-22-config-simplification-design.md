@@ -89,8 +89,8 @@
 2. `export GOFER_CONFIG=~/.config/gofer/config.yaml`（写进 shell profile）—— env 优先级高于 cwd（`Resolve` `loader.go:82`），任意目录强制走全局。
 3. 删/清空各项目目录里的旧 `.gofer.yaml`。
 4. 起**一个** `gofer serve`。
-5. 加项目：`gofer project add siv --host-path /d/.../SIV`（默认写全局，`registry.go:98`）。
-6. 任意目录：`gofer job run -p siv -a claude "..."`（`newClient` 从全局 config 取 addr+token 连 serve，`job.go:194`）。
+5. 加项目：`gofer project add demo-api --host-path /d/.../demo-api`（默认写全局，`registry.go:98`）。
+6. 任意目录：`gofer job run -p demo-api -a claude "..."`（`newClient` 从全局 config 取 addr+token 连 serve，`job.go:194`）。
 
 > 即满足"一个 server + 项目映射全局一个文件 + 任意目录可用"。**不依赖 Phase 2。**
 
@@ -147,13 +147,13 @@ agents:
 runners:
   local: { type: local }
 projects:
-  siv: { host_path: /d/work/.../SIV, container_path: /work/SIV,
+  demo: { host_path: /d/work/.../demo-api, container_path: /work/demo-api,
          allowed_agents: [claude, codex] }     # 准入留全局 (D2)
-  bic: { host_path: /d/work/.../BIC, container_path: /work/BIC,
+  worker-app: { host_path: /work/projects/worker-app, container_path: /work/worker-app,
          allowed_agents: [claude] }
 ```
 
-项目 `/work/SIV/.gofer.project.yaml`（瘦配置，随 git，仅偏好）：
+项目 `/work/demo-api/.gofer.project.yaml`（瘦配置，随 git，仅偏好）：
 
 ```yaml
 # 无 server / storage / host_path / allowed_agents (D2/D5)
@@ -163,7 +163,7 @@ capture_diff: true
 notify_enabled: false
 ```
 
-合并结果（serve 端 `cfg.Projects["siv"]`）：`host_path`/`container_path`/`allowed_agents` 取全局，`default_agent`/`result_subdir`/`capture_diff`/`notify_enabled` 取 overlay，`exchange_subdir` 走 storage 默认。
+合并结果（serve 端 `cfg.Projects["demo"]`）：`host_path`/`container_path`/`allowed_agents` 取全局，`default_agent`/`result_subdir`/`capture_diff`/`notify_enabled` 取 overlay，`exchange_subdir` 走 storage 默认。
 
 ## 11. 安全（SR1402 闭环）
 

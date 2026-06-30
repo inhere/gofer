@@ -1,7 +1,7 @@
 # Gofer job 事件时间线 + 通知外发 — 实施计划（总纲）
 
 > 设计依据：[`../../design/2026-06-20-job-events-notify-design.md`](../../design/2026-06-20-job-events-notify-design.md)（v0.1，§10 决策全按推荐采纳）。
-> bd epic：`example-project-zec`（P1 `example-project-bol` / P2 `example-project-e31`）。本文件只保留**总纲 + 进度跟进 + 阶段简述**（SR1105）；阶段详情见子文档。
+> bd epic：`gofer-zec`（P1 `gofer-bol` / P2 `gofer-e31`）。本文件只保留**总纲 + 进度跟进 + 阶段简述**（SR1105）；阶段详情见子文档。
 
 ## 修订记录
 

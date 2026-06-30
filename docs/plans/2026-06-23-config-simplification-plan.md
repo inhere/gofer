@@ -52,10 +52,10 @@
     export GOFER_CONFIG=~/.config/gofer/config.yaml   # 写进 shell profile
     gofer init server --global                         # 生成全局骨架
     # 编辑：填 server.token_env / agents / runners
-    gofer project add siv --host-path /abs/SIV --container-path /work/SIV
+    gofer project add demo-api --host-path /abs/demo-api --container-path /work/demo-api
     gofer serve                                        # 一个进程
     # 任意目录:
-    gofer job run -p siv -a claude "..."               # CLI 连 serve
+    gofer job run -p demo-api -a claude "..."               # CLI 连 serve
 
 GOFER_CONFIG 优先于当前目录的 .gofer.yaml，任意目录命令都走全局。
 项目专属偏好放项目目录 .gofer.project.yaml（见"项目瘦配置"）。
@@ -308,7 +308,7 @@ if proj.DefaultAgent != "" {
 ### P2 验收
 
 - [ ] `go test ./internal/commands/... ./internal/project/...` 绿（含 reload_test 不回归 + 新 default_agent 越权用例 FAIL）。
-- [ ] **冒烟**（design §9.1 路径）：临时全局 config（含 project siv，`allowed_agents:[claude]`）+ 项目目录 `.gofer.project.yaml`（`default_agent: claude, result_subdir: out`）→ `gofer serve` 启动日志无 overlay warn；`config validate` 显示 `result_dir` 落在 `out`。
+- [ ] **冒烟**（design §9.1 路径）：临时全局 config（含 project demo，`allowed_agents:[claude]`）+ 项目目录 `.gofer.project.yaml`（`default_agent: claude, result_subdir: out`）→ `gofer serve` 启动日志无 overlay warn；`config validate` 显示 `result_dir` 落在 `out`。
 - [ ] 越权用例：overlay 写 `default_agent: codex`（不在 allowed）→ `config validate` 报 FAIL（D5）。
 - [ ] SIGHUP 重载：改 overlay 的 `result_subdir` → `kill -HUP` → 新 job 的 result_dir 变化（手动冒烟）。
 
@@ -404,8 +404,8 @@ if jobRunOpts.project == "" {
 ### P3 验收
 
 - [ ] `go test ./internal/commands/...` 绿（含 `resolveProjectByCwd` 单测：唯一命中 / 最长前缀 / tie→false / 无命中→false / rel 计算）。
-- [ ] **冒烟**：在已注册项目目录 `cd /work/SIV && gofer job run -a claude "x"` → 自动识别 `-p siv`、cwd 相对化；`cd /tmp && gofer job run -a claude "x"` → 报 `--project required`。
-- [ ] **冒烟**：`gofer config show --project siv` 打印合并后字段（overlay 的 `result_subdir` 生效、`allowed_agents` 取全局）。
+- [ ] **冒烟**：在已注册项目目录 `cd /work/demo-api && gofer job run -a claude "x"` → 自动识别 `-p demo-api`、cwd 相对化；`cd /tmp && gofer job run -a claude "x"` → 报 `--project required`。
+- [ ] **冒烟**：`gofer config show --project demo` 打印合并后字段（overlay 的 `result_subdir` 生效、`allowed_agents` 取全局）。
 
 ---
 
