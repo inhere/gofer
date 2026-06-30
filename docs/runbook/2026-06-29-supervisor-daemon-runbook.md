@@ -206,8 +206,9 @@ done
 
 **配置(全局 config)**：
 - `roles.supervisor.agent: claude-sup`(`project` 仍必填)。
-- 新 agent `claude-sup`：`command: claude`，`args: [-p, "{{prompt}}", --mcp-config, <json>, --allowedTools, mcp__gofer__gofer_poll_inbox, mcp__gofer__gofer_get_interactions, mcp__gofer__gofer_answer_interaction, mcp__gofer__gofer_list_pending_interactions]`。
+- 新 agent `claude-sup`：`command: claude`，`args: [-p, "{{prompt}}", --mcp-config, <json>, --allowedTools, mcp__gofer__gofer_poll_inbox, mcp__gofer__gofer_get_interactions, mcp__gofer__gofer_answer_interaction, mcp__gofer__gofer_list_pending_interactions, mcp__gofer__gofer_punt_interaction]`。
   - **`{{prompt}}` 必须紧跟 `-p`(位置参数)**；变参 `--allowedTools` 放最后，否则会吞掉 prompt。
+  - `mcp__gofer__gofer_punt_interaction` 是事件驱动派发(§11, y5wt)必备：sup 高危拒答靠它标 `needs_human`、把该条排除出 demand，否则会被无限重派。**保持显式白名单（最小权限）**——勿用 `mcp__gofer`/`mcp__gofer__*` 整体放行（会把 `gofer_run_job`/`gofer_cancel_job`/`gofer_post_message` 等也给无人值守的 sup，放大 blast radius）。
   - 项目 `allowed_agents` 需加 `claude-sup`。
 - 专属 MCP 配置 `<config-dir>/gofer-sup-mcp.json`(不污染普通 claude job)：
   ```json
