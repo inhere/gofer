@@ -6,7 +6,7 @@
 
 **依赖**：P1（WP1 核心：`wsproto`/`wshub`/`internal/worker`/`workerRunner` 已落地，主文档 §4）。P2（交互/取消）可并行——P3 不依赖 P2，但 cancel 帧已在 P2 落地，P3 复用其发送通道做优雅关闭。
 
-**构建环境**：`export PATH=/d/work/inhere/linux-env/sdk/gosdk/go1.25.10/bin:$PATH; cd tools/gofer`
+**构建环境**：`export PATH=/opt/go-sdk/go1.25.10/bin:$PATH; cd tools/gofer`
 
 ---
 
@@ -240,7 +240,7 @@ w1(老连接在线) ；w1'(同 worker_id 新连入)
 
 ## 7. 测试与验收
 
-> 跑测：`export PATH=/d/work/inhere/linux-env/sdk/gosdk/go1.25.10/bin:$PATH; cd tools/gofer && go test ./internal/wshub/... ./internal/worker/... ./internal/runner/worker/... -race`
+> 跑测：`export PATH=/opt/go-sdk/go1.25.10/bin:$PATH; cd tools/gofer && go test ./internal/wshub/... ./internal/worker/... ./internal/runner/worker/... -race`
 
 ### 7.1 验收清单（对齐主文档与任务验收）
 

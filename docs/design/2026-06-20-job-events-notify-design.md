@@ -1,7 +1,7 @@
 # Gofer job 事件时间线 + 通知外发 — 设计方案
 
 > 一句话：给每个 job 落一条 **append-only 生命周期事件流**（提交→派发→状态变更→交互→取消→终态），详情页展示"这个 job 一路发生了什么"（E13）；并在 `done/failed/pending_interaction` 等关键事件时**主动 webhook 外发**，把人/系统拉进来——别让卡住或失败的 agent 无人知（E14）。
-> 合并 roadmap [`../2026-06-20-enhancements-roadmap.md`](../2026-06-20-enhancements-roadmap.md) 的 **E13 事件时间线 + E14 通知外发**（B2 批次，强内聚：**共用同一 job 生命周期事件发射点**——E13 落流、E14 在同样转换点触发投递）。承接「产出与审计」(`hyy-ai-inspect-dhk`) 与「CLI 易用+tags」(`hyy-ai-inspect-4a0`)。bd epic 待建。
+> 合并 roadmap [`../2026-06-20-enhancements-roadmap.md`](../2026-06-20-enhancements-roadmap.md) 的 **E13 事件时间线 + E14 通知外发**（B2 批次，强内聚：**共用同一 job 生命周期事件发射点**——E13 落流、E14 在同样转换点触发投递）。承接「产出与审计」(`gofer-dhk`) 与「CLI 易用+tags」(`gofer-4a0`)。bd epic 待建。
 
 ## 修订记录
 

@@ -5,7 +5,7 @@
 | v0.1 | 2026-06-30 | claude | 初稿，配 SUPMODE + host codex 实施 |
 
 - design：[`../design/2026-06-30-cron-schedule-design.md`](../design/2026-06-30-cron-schedule-design.md)
-- issue：`hyy-ai-inspect-2m2s`
+- issue：`gofer-2m2s`
 - 已确认默认（按推荐）：① cron 用 `github.com/robfig/cron/v3`（仅 `ParseStandard`+`Next`）② `catch_up` 默认 1 + `schedule.miss_grace_sec` 配置（超阈值跳过补跑）③ 触发 job 沿用创建者 `caller_id`，`channel=cron`。
 
 ## 执行约定（host codex 必读）

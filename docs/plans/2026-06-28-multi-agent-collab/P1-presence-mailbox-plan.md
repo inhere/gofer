@@ -1,6 +1,6 @@
 # P1 · L2 身份/信箱（E36）实施计划 ✅ 完成（2026-06-28）
 
-> 主纲 [`../2026-06-28-multi-agent-collab-plan.md`](../2026-06-28-multi-agent-collab-plan.md) · design §6.2/§8.1-8.2/§9/§10 · bd `hyy-ai-inspect-y2jg`
+> 主纲 [`../2026-06-28-multi-agent-collab-plan.md`](../2026-06-28-multi-agent-collab-plan.md) · design §6.2/§8.1-8.2/§9/§10 · bd `gofer-y2jg`
 > 目标：driver agent 经 mcp 注册 name+id 到 serve → presence 名册 + mailbox（post/poll），MCP 单向靠"注册+轮询 inbox"经中枢达成双向。
 
 > **完成记录（落地与计划的偏差，2 处自动决策）**：

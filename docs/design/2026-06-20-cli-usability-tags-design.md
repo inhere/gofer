@@ -1,7 +1,7 @@
 # Gofer CLI 日常易用 + job 标签检索 — 设计方案
 
 > 一句话：补齐 gofer **日常 CLI 摩擦**（`job list`/`watch`/`rerun` + 配置脚手架/校验 + shell 补全）并给 job 加 **tags + 多维检索**（tag/agent/runner/时间），让"跑了一堆 job 之后"也用得顺手、找得到。
-> 合并 roadmap [`../2026-06-20-enhancements-roadmap.md`](../2026-06-20-enhancements-roadmap.md) 的 **E2 CLI 日常补全 + E3 引导/配置校验 + E5 job 标签+搜索**（B1+E5 批次，强内聚：共用 CLI 命令层 / `internal/client` / job 列表查询面 / jobs schema 加列模板）。承接已完成的「产出与审计」epic（E1/E6/E12/E15，`hyy-ai-inspect-dhk`）。bd epic 待建。
+> 合并 roadmap [`../2026-06-20-enhancements-roadmap.md`](../2026-06-20-enhancements-roadmap.md) 的 **E2 CLI 日常补全 + E3 引导/配置校验 + E5 job 标签+搜索**（B1+E5 批次，强内聚：共用 CLI 命令层 / `internal/client` / job 列表查询面 / jobs schema 加列模板）。承接已完成的「产出与审计」epic（E1/E6/E12/E15，`gofer-dhk`）。bd epic 待建。
 
 ## 修订记录
 

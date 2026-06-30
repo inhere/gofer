@@ -1,6 +1,6 @@
 # Gofer serve/worker `-d/--daemon` 后台运行实施计划
 
-> 来源：beads `hyy-ai-inspect-c44`（feature, P3, label gofer）。
+> 来源：beads `gofer-c44`（feature, P3, label gofer）。
 > 目标：`gofer serve` 与 `gofer worker` 支持 `-d/--daemon`，进程以 detached 方式后台运行，省去外部 `nohup ... &` 包装；配套 pidfile + 重复启动检测 + 优雅停机 + `gofer stop` 子命令。
 > 约束：`tools/gofer` 为独立本地 git 仓（无 remote），提交即终点。遵守 CLAUDE.md G021/G022/G023。
 
@@ -287,7 +287,7 @@ func runStop(c *gcli.Command, _ []string) error {
 - [ ] CLAUDE.md 补 G 规则：daemonize 编排属进程编排 → 放 `internal/daemon`，**不放 commands**（G021）；commands 仅判断 `-d` 并转发。
 - [ ] 文档：`docs/` 更新 serve/worker 后台运行说明；记忆 `gofer-container-worker-setup` 提示 `start-worker.sh` 可简化为 `gofer worker -d`（nohup/& 可移除）。
 - [ ] 真机冒烟（host serve -d + 容器 worker -d + 提交 job + stop）→ 交 host codex 联调（涉及跨容器链路）。
-- [ ] commit：`docs/test(gofer): daemon 模式文档 + 测试`，并 `bd close hyy-ai-inspect-c44`。
+- [ ] commit：`docs/test(gofer): daemon 模式文档 + 测试`，并 `bd close gofer-c44`。
 
 ---
 

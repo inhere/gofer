@@ -126,8 +126,8 @@ storage:
 projects:
   # First project: the workspace root.
   my-project1:
-    host_path: D:/work/inhere/my-project1
-    container_path: /d/work/inhere/my-project1
+    host_path: D:/projects/my-project1
+    container_path: /work/projects/my-project1
     exchange_subdir: tmp
     result_subdir: gofer
     default_agent: codex
@@ -149,8 +149,8 @@ projects:
   # Second project: 瘦写法 — 只写 host_path/container_path + 准入 allowed_agents,
   # 其余(exchange_subdir/result_subdir/default_agent/max_concurrent_jobs 等)留空走默认。
   my-tools:
-    host_path: D:/work/inhere/path-to/my-tools
-    container_path: /d/work/inhere/path-to/my-tools
+    host_path: D:/projects/my-tools
+    container_path: /work/projects/my-tools
     allowed_agents: [exec]
 
 agents:

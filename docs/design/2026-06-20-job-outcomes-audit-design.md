@@ -1,7 +1,7 @@
 # Gofer 产出与审计 — 设计方案
 
 > 一句话：job 跑完后，把它**产了什么（产物文件）/ 返回了什么（结构化结果）/ 改了什么（diff）/ 实际跑了什么（渲染命令）** 统一捕获、入库、在详情（API + Web）暴露——让"会产文件/产结构化输出的 agent"真正可用，且 agent 的工作**看得见、审得清**。
-> 合并 [`../2026-06-20-enhancements-roadmap.md`](../2026-06-20-enhancements-roadmap.md) 的 **E1 产物回取 + E6 结构化结果 + E12 改了什么(diff) + E15 渲染命令**（强内聚，共用同一捕获钩子/schema/详情面）。E13 事件时间线机制不同，作相邻项不并入。bd epic `hyy-ai-inspect-dhk`。
+> 合并 [`../2026-06-20-enhancements-roadmap.md`](../2026-06-20-enhancements-roadmap.md) 的 **E1 产物回取 + E6 结构化结果 + E12 改了什么(diff) + E15 渲染命令**（强内聚，共用同一捕获钩子/schema/详情面）。E13 事件时间线机制不同，作相邻项不并入。bd epic `gofer-dhk`。
 
 ## 修订记录
 
@@ -134,7 +134,7 @@ func (s *Service) captureOutcomes(entry *jobEntry, runReq runner.Request) {
 - worker 侧执行后本地 `captureOutcomes`，把"渲染命令 + result.json + artifacts 清单 + diff 摘要"经 **新 WS 帧 `Outcome`（w→s）**（或扩 `Result` 帧的可选字段）回传；host sink 落同一字段。产物**文件**回取两策（§10-E）：(A) 共享盘直接读；(B) 按需经 worker 拉取端点/WS 传输（v1 可仅回清单+小结果，大文件留 worker 侧、标注来源）。
 - peer-http 侧：在 SSE 加 `outcome` 事件（`peerhttp/runner.go:141` handleFrame 新分支）；产物经 peer 的 artifacts 端点代理下载。
 
-### 6.7 result_dir 的 env 注入（后续增强 `hyy-ai-inspect-udi`）
+### 6.7 result_dir 的 env 注入（后续增强 `gofer-udi`）
 `{{result_dir}}` 模板**仅对 cli-agent 的 args** 经 `agent.Render` 生效；exec job 的 argv **逐字执行**（安全不变量，`agent/adapter.go`），无从模板替换。为让 E1/E6 的「写 `<result_dir>/...`」约定对 **exec/wrapper 也可用**，job 启动时（`job/service.go` 构建 `runner.Request` 的 local 分支）经 `goferJobEnv` 在 agent-config env 之上注入三个只读元数据 env，对 exec 与 cli-agent 一致生效，worker/peer 在各自机器走同一 local 分支注入**执行机本地**路径：
 
 | env | 值 | 用途 |

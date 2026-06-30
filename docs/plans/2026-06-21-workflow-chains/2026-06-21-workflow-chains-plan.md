@@ -1,7 +1,7 @@
 # Gofer 工作流（job 链）— 实施计划（总纲）
 
 > 设计依据：[`../../design/2026-06-21-workflow-chains-design.md`](../../design/2026-06-21-workflow-chains-design.md)（v0.1，§11 决策全按推荐采纳）。
-> bd epic：`hyy-ai-inspect-4dn`（P1 `hyy-ai-inspect-6ym` / P2 `hyy-ai-inspect-yeo` / P3 `hyy-ai-inspect-ajw`）。本文件只保留**总纲 + 进度跟进 + 阶段简述**（SR1105）；阶段详情见子文档。
+> bd epic：`gofer-4dn`（P1 `gofer-6ym` / P2 `gofer-yeo` / P3 `gofer-ajw`）。本文件只保留**总纲 + 进度跟进 + 阶段简述**（SR1105）；阶段详情见子文档。
 
 ## 修订记录
 

@@ -1,6 +1,6 @@
 # P2 · L3 角色（E35）实施计划
 
-> 主纲 [`../2026-06-28-multi-agent-collab-plan.md`](../2026-06-28-multi-agent-collab-plan.md) · design §7/§8.5/D5 · bd `hyy-ai-inspect-fl46`
+> 主纲 [`../2026-06-28-multi-agent-collab-plan.md`](../2026-06-28-multi-agent-collab-plan.md) · design §7/§8.5/D5 · bd `gofer-fl46`
 > 目标：命名 role 预设（reviewer/bugfix…）= base agent + system_prompt + 默认 project/tags；经 per-agent `system_inject` argv 模板注入 system prompt（类比 SessionInject），`job run --role` / `bridge_run_job(role=)` 一键运行。**resume 须重施 system_inject**（复审 #5）。
 
 ## 锚点（file:line）

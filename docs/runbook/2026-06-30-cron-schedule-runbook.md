@@ -11,11 +11,11 @@ serve 内置定时调度：把一份**准备好的 job 请求** + **标准 5 字
 ```bash
 # 新建：每天凌晨 2 点跑一个 claude 任务（请求旗标与 `job run` 完全一致）
 gofer schedule add --name nightly-report --cron "0 2 * * *" \
-  -p hyy-ai-inspect -a claude --runner local --prompt "跑夜间巡检报告"
+  -p workspace -a claude --runner local --prompt "跑夜间报告生成"
 
 # exec 命令型任务（argv 走 `--`）
 gofer schedule add --name disk-check --cron "*/30 * * * *" \
-  -p hyy-ai-inspect -a exec --runner local -- df -h
+  -p workspace -a exec --runner local -- df -h
 
 gofer schedule list                 # id/name/cron/next_run/enabled/last_job
 gofer schedule show <id>            # 详情（含内嵌 request、next/last）

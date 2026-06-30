@@ -1,6 +1,6 @@
 # Gofer Agent Session 捕获与恢复 实施计划
 
-> 依据设计：[`design/2026-06-26-session-capture-design.md`](../design/2026-06-26-session-capture-design.md) v1.1（bd `hyy-ai-inspect-nnk` / roadmap E33）。
+> 依据设计：[`design/2026-06-26-session-capture-design.md`](../design/2026-06-26-session-capture-design.md) v1.1（bd `gofer-nnk` / roadmap E33）。
 > 约束：`tools/gofer` 本地仓无 remote，提交即终点；遵守 G021/G022/G023。每个 task 独立 commit。
 
 ## 修订记录

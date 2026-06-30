@@ -89,7 +89,7 @@ for s in due:
 
 ```
 gofer schedule add --name nightly-report --cron "0 2 * * *" \
-   -p hyy-ai-inspect -a claude --runner local "跑夜间巡检报告"
+   -p workspace -a claude --runner local "跑夜间报告生成"
 gofer schedule list                # 表格：id/name/cron/next_run/enabled/last_job
 gofer schedule show <id>           # 含内嵌 request + next/last
 gofer schedule enable|disable <id>
