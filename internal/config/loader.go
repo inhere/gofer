@@ -321,8 +321,15 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("supervisor.desired_supervisors must be >= 0")
 		}
 		if cfg.Supervisor.DesiredSupervisors > 0 {
-			if _, ok := cfg.Roles["supervisor"]; !ok {
+			rc, ok := cfg.Roles["supervisor"]
+			if !ok {
 				return fmt.Errorf("supervisor.desired_supervisors > 0 requires a roles.supervisor preset")
+			}
+			// The reconciler submits with no -p; the project must come from the preset
+			// (resolveRole fills ProjectKey from RoleConfig.Project), else every
+			// re-dispatch fails "unknown project".
+			if rc.Project == "" {
+				return fmt.Errorf("supervisor.desired_supervisors > 0 requires roles.supervisor.project (the reconciler submits with no project)")
 			}
 		}
 		if cfg.Supervisor.ReconcileIntervalSec < 0 {

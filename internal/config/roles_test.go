@@ -122,6 +122,39 @@ func TestValidateRejectsBadSupervisorRegex(t *testing.T) {
 	}
 }
 
+// TestValidateSupervisorReconciler: the P4b reconciler needs a roles.supervisor preset
+// WITH a project (the reconciler submits with no -p) when desired_supervisors>0; a
+// negative count is rejected. Both gaps were caught by E2E ("unknown project"/spawn fail).
+func TestValidateSupervisorReconciler(t *testing.T) {
+	// desired<0 rejected.
+	cfg := &Config{Supervisor: &SupervisorConfig{DesiredSupervisors: -1}}
+	if err := validate(cfg); err == nil {
+		t.Fatal("expected error for negative desired_supervisors")
+	}
+	// desired>0 with no roles.supervisor preset rejected.
+	cfg = &Config{Supervisor: &SupervisorConfig{DesiredSupervisors: 1}}
+	if err := validate(cfg); err == nil {
+		t.Fatal("expected error: desired_supervisors>0 without roles.supervisor")
+	}
+	// preset present but no project rejected (reconciler can't resolve a project).
+	cfg = &Config{
+		Supervisor: &SupervisorConfig{DesiredSupervisors: 1},
+		Roles:      map[string]RoleConfig{"supervisor": {Agent: "codex"}},
+	}
+	if err := validate(cfg); err == nil {
+		t.Fatal("expected error: roles.supervisor without project")
+	}
+	// preset with project passes.
+	cfg.Roles = map[string]RoleConfig{"supervisor": {Agent: "codex", Project: "p1"}}
+	if err := validate(cfg); err != nil {
+		t.Fatalf("valid reconciler config should pass: %v", err)
+	}
+	// desired=0 (default) needs nothing.
+	if err := validate(&Config{Supervisor: &SupervisorConfig{}}); err != nil {
+		t.Fatalf("desired_supervisors=0 should pass: %v", err)
+	}
+}
+
 // TestValidateRejectsNegativePresenceTTL: negative presence seconds are a config
 // mistake (0 = use default) and are rejected (6ct0.2/.4).
 func TestValidateRejectsNegativePresenceTTL(t *testing.T) {
