@@ -196,6 +196,31 @@ type ProjectMeta struct {
 	DefaultAgent   string   `json:"default_agent,omitempty"`
 }
 
+// Schedule is the client-side view of /v1/schedules. It mirrors the HTTP wire
+// shape without importing internal/httpapi from the client package.
+type Schedule struct {
+	ID         string         `json:"id"`
+	Name       string         `json:"name"`
+	Cron       string         `json:"cron"`
+	Enabled    int            `json:"enabled"`
+	CatchUp    int            `json:"catch_up"`
+	NextRunAt  int64          `json:"next_run_at"`
+	LastRunAt  int64          `json:"last_run_at"`
+	LastJobID  string         `json:"last_job_id"`
+	ProjectKey string         `json:"project_key"`
+	Request    job.JobRequest `json:"request"`
+}
+
+// CreateScheduleRequest is POST /v1/schedules. Enabled/CatchUp are pointers so
+// callers can omit them and let the server defaults apply.
+type CreateScheduleRequest struct {
+	Name    string         `json:"name"`
+	Cron    string         `json:"cron"`
+	Request job.JobRequest `json:"request"`
+	Enabled *bool          `json:"enabled,omitempty"`
+	CatchUp *bool          `json:"catch_up,omitempty"`
+}
+
 // ListProjects returns the server's live projects (GET /v1/meta → projects). It
 // is the remote counterpart to reading the local config's projects, so a node
 // (esp. a worker) can see what the SERVER has registered.
@@ -207,6 +232,63 @@ func (c *Client) ListProjects() ([]ProjectMeta, error) {
 		return nil, err
 	}
 	return resp.Projects, nil
+}
+
+// CreateSchedule creates a cron schedule via POST /v1/schedules.
+func (c *Client) CreateSchedule(req CreateScheduleRequest) (Schedule, error) {
+	body, err := json.Marshal(req)
+	if err != nil {
+		return Schedule{}, fmt.Errorf("encode schedule request: %w", err)
+	}
+	var out Schedule
+	err = c.doJSON(http.MethodPost, "/v1/schedules", bytes.NewReader(body), &out)
+	return out, err
+}
+
+// ListSchedules returns the unwrapped schedule array, optionally filtered by
+// project key.
+func (c *Client) ListSchedules(project string) ([]Schedule, error) {
+	path := "/v1/schedules"
+	if project != "" {
+		path += "?project=" + url.QueryEscape(project)
+	}
+	var resp struct {
+		Schedules []Schedule `json:"schedules"`
+	}
+	if err := c.doJSON(http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Schedules, nil
+}
+
+// GetSchedule fetches one schedule by id.
+func (c *Client) GetSchedule(id string) (Schedule, error) {
+	var out Schedule
+	err := c.doJSON(http.MethodGet, "/v1/schedules/"+url.PathEscape(id), nil, &out)
+	return out, err
+}
+
+// DeleteSchedule deletes one schedule by id.
+func (c *Client) DeleteSchedule(id string) error {
+	return c.doJSON(http.MethodDelete, "/v1/schedules/"+url.PathEscape(id), nil, nil)
+}
+
+// SetScheduleEnabled toggles a schedule through /enable or /disable.
+func (c *Client) SetScheduleEnabled(id string, enable bool) (Schedule, error) {
+	action := "disable"
+	if enable {
+		action = "enable"
+	}
+	var out Schedule
+	err := c.doJSON(http.MethodPost, "/v1/schedules/"+url.PathEscape(id)+"/"+action, nil, &out)
+	return out, err
+}
+
+// RunSchedule triggers a schedule immediately without changing its next_run_at.
+func (c *Client) RunSchedule(id string) (job.JobResult, error) {
+	var out job.JobResult
+	err := c.doJSON(http.MethodPost, "/v1/schedules/"+url.PathEscape(id)+"/run-now", nil, &out)
+	return out, err
 }
 
 // AgentMeta is one agent as the mcp bridge contract exposes it

@@ -275,23 +275,7 @@ func argID(c *gcli.Command) string {
 // --sync asks the server to wait for the terminal state; a 202/async fallback
 // transparently degrades to client-side polling.
 func runJobRun(c *gcli.Command, _ []string) error {
-	// cwd→project auto-detect (D7): only when -p is absent. An explicit -p is never
-	// overridden (cross-project submits must not be misrouted). Best-effort: any
-	// load/abs failure silently leaves project empty → the existing
-	// `--project/-p is required` error downstream (submitJSONJob).
-	if jobRunOpts.project == "" {
-		if cfg, _, err := config.Load(config.InputCfgFile); err == nil {
-			if abs, e := filepath.Abs("."); e == nil {
-				if key, rel, found := project.ResolveByCwd(cfg, abs); found {
-					jobRunOpts.project = key
-					if jobRunOpts.cwd == "" || jobRunOpts.cwd == "." {
-						jobRunOpts.cwd = rel
-					}
-					c.Printf("auto-detected project %q (cwd=%s)\n", key, rel)
-				}
-			}
-		}
-	}
+	autoDetectJobProject(c)
 
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
@@ -330,6 +314,26 @@ func runJobRun(c *gcli.Command, _ []string) error {
 	return nil
 }
 
+// autoDetectJobProject mirrors the `job run` D7 convenience: only when -p is
+// absent, resolve the current directory to a configured project and relative cwd.
+// Schedule add reuses it before building the stored JobRequest template.
+func autoDetectJobProject(c *gcli.Command) {
+	if jobRunOpts.project != "" {
+		return
+	}
+	if cfg, _, err := config.Load(config.InputCfgFile); err == nil {
+		if abs, e := filepath.Abs("."); e == nil {
+			if key, rel, found := project.ResolveByCwd(cfg, abs); found {
+				jobRunOpts.project = key
+				if jobRunOpts.cwd == "" || jobRunOpts.cwd == "." {
+					jobRunOpts.cwd = rel
+				}
+				c.Printf("auto-detected project %q (cwd=%s)\n", key, rel)
+			}
+		}
+	}
+}
+
 // submitMarkdownFile reads the -f task file and submits it as text/markdown. It
 // rejects mixing -f with --prompt or a post-`--` argv (the file is the single
 // source of params + prompt).
@@ -350,19 +354,27 @@ func submitMarkdownFile(c *gcli.Command, cli *client.Client) (client.SubmitResul
 // submitJSONJob builds a JobRequest from flags + post-`--` argv and submits it
 // as JSON. --project/--agent are required on this path.
 func submitJSONJob(c *gcli.Command, cli *client.Client) (client.SubmitResult, error) {
-	// --role (E35) fills agent/project server-side, so they are not required when a
-	// role is given (the server rejects an unknown role / still-missing fields).
-	if jobRunOpts.role == "" {
-		if jobRunOpts.project == "" {
-			return client.SubmitResult{}, fmt.Errorf("--project/-p is required (or pass --role)")
-		}
-		if jobRunOpts.agent == "" {
-			return client.SubmitResult{}, fmt.Errorf("--agent/-a is required (or pass --role)")
-		}
+	req, err := buildJobRunRequest(c, cli)
+	if err != nil {
+		return client.SubmitResult{}, err
+	}
+	return cli.SubmitJobSync(req)
+}
+
+// buildJobRunRequest maps the `job run` flag state and post-`--` argv into the
+// JobRequest wire type. `schedule add` reuses it so scheduled jobs accept the
+// same request flags as an immediate job run.
+func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, error) {
+	if err := validateJobRunRequired(); err != nil {
+		return job.JobRequest{}, err
 	}
 	var cmd []string
 	if a := c.Arg("cmd"); a != nil {
 		cmd = a.Strings()
+	}
+	channel := jobRunOpts.channel
+	if channel == "" {
+		channel = "cli"
 	}
 	req := job.JobRequest{
 		ProjectKey:     jobRunOpts.project,
@@ -380,13 +392,28 @@ func submitJSONJob(c *gcli.Command, cli *client.Client) (client.SubmitResult, er
 		Tags:           splitLabels(jobRunOpts.tags), // comma-separated, same parsing as worker-labels
 		// 提交来源（provenance）：CLI 渠道(默认 cli，可 --channel 覆盖) + 本机 hostname。
 		// server 端若 client 为空会以 remote IP 兜底盖章。
-		Channel: jobRunOpts.channel,
+		Channel: channel,
 		Client:  cliHostname(),
 		// E35 role preset + optional system prompt override (resolved server-side).
 		Role:         jobRunOpts.role,
 		SystemPrompt: jobRunOpts.systemPrompt,
 	}
-	return cli.SubmitJobSync(req)
+	return req, nil
+}
+
+func validateJobRunRequired() error {
+	// --role (E35) fills agent/project server-side, so they are not required when a
+	// role is given (the server rejects an unknown role / still-missing fields).
+	if jobRunOpts.role != "" {
+		return nil
+	}
+	if jobRunOpts.project == "" {
+		return fmt.Errorf("--project/-p is required (or pass --role)")
+	}
+	if jobRunOpts.agent == "" {
+		return fmt.Errorf("--agent/-a is required (or pass --role)")
+	}
+	return nil
 }
 
 // cliHostname returns os.Hostname() for stamping a CLI submission's Client
