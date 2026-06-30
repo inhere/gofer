@@ -327,11 +327,11 @@ func TestSelfRegisterInjectsOriginAgent(t *testing.T) {
 	b := newLocalBackend(jobs, projects, agents, pres)
 
 	// Self-register exactly as Serve does, then build the server over that owner.
-	originAgent := selfRegister(b)
+	originAgent, originToken := selfRegister(b)
 	if originAgent == "" {
 		t.Fatalf("selfRegister returned empty agent_id")
 	}
-	session := connectTo(t, newServer(b, originAgent))
+	session := connectTo(t, newServer(b, originAgent, originToken))
 
 	// No explicit origin_agent -> auto-injected self-registered agent_id.
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
@@ -371,6 +371,71 @@ func TestSelfRegisterInjectsOriginAgent(t *testing.T) {
 	// Drain both background jobs before the temp store closes (cleanup ordering).
 	jobs.Wait(created.ID)
 	jobs.Wait(created2.ID)
+}
+
+// TestPollInboxDefaultsToSelfIdentity proves the P1.0 self-register identity is reused
+// for inbox polls: gofer_poll_inbox with NO creds polls THIS mcp process's OWN inbox.
+// This is what lets a claude/codex supervisor poll + answer + receive role-one routing
+// under ONE consistent identity (mcp-<hash>) without the explicit gofer_register dance.
+func TestPollInboxDefaultsToSelfIdentity(t *testing.T) {
+	jobs, projects, agents, pres := testCore(t)
+	b := newLocalBackend(jobs, projects, agents, pres)
+
+	selfID, selfToken := selfRegister(b)
+	if selfID == "" || selfToken == "" {
+		t.Fatalf("selfRegister returned empty id/token: %q/%q", selfID, selfToken)
+	}
+	session := connectTo(t, newServer(b, selfID, selfToken))
+
+	// Deliver an escalation to the self-registered agent's own inbox.
+	if n, err := pres.Post("system", selfID, "escalation", "是否继续?", "job:demo"); err != nil || n != 1 {
+		t.Fatalf("post to self: delivered=%d err=%v", n, err)
+	}
+
+	// Direct backend probe to isolate identity vs MCP layer.
+	if msgs, derr := b.PollInbox(selfID, selfToken, false); derr != nil {
+		t.Fatalf("direct PollInbox(self) err=%v (id=%q tok=%q)", derr, selfID, selfToken)
+	} else if len(msgs) != 1 {
+		t.Fatalf("direct PollInbox(self) got %d msgs, want 1", len(msgs))
+	}
+
+	// poll_inbox with NO creds -> uses the self identity -> sees the message.
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "gofer_poll_inbox",
+		Arguments: map[string]any{"ack": false},
+	})
+	if err != nil {
+		t.Fatalf("poll_inbox(self): %v", err)
+	}
+	if res.IsError {
+		for _, c := range res.Content {
+			if tc, ok := c.(*mcp.TextContent); ok {
+				t.Fatalf("poll_inbox(self) error result: %s", tc.Text)
+			}
+		}
+		t.Fatalf("poll_inbox(self) error result: %+v", res.Content)
+	}
+	var out pollInboxOutput
+	structured(t, res, &out)
+	if len(out.Messages) != 1 || out.Messages[0].Body != "是否继续?" {
+		t.Fatalf("self-poll got %+v, want 1 escalation '是否继续?'", out.Messages)
+	}
+
+	// Explicit (invalid) creds still take precedence — they do NOT fall back to self
+	// (so the fallback can't be abused to read another identity's inbox).
+	res2, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "gofer_poll_inbox",
+		Arguments: map[string]any{"agent_id": "agt_other", "agent_token": "nope"},
+	})
+	// Correct outcomes: rejected (Go error OR IsError result), else an empty inbox —
+	// NEVER a silent fall back to the self inbox.
+	if err == nil && !res2.IsError {
+		var out2 pollInboxOutput
+		structured(t, res2, &out2)
+		if len(out2.Messages) != 0 {
+			t.Fatalf("explicit creds leaked self inbox: %+v", out2.Messages)
+		}
+	}
 }
 
 // TestSelfRegisterNameFormat asserts the per-process driver-agent name shape
