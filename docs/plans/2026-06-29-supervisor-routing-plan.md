@@ -168,6 +168,7 @@
 
 - `SupervisorConfig` 加 `DesiredSupervisors int`（默认 0=禁用，opt-in）+ 目标 `ReconcileRunner string`（sup job 投哪个 runner，默认空=local）/ 复用 `roles.supervisor`（agent/system_prompt/env 由 role 预设，reconciler 传 `Role:"supervisor"`，`--role` 注 `GOFER_AGENT_ROLE`）。`ReconcileIntervalSec`（默认 60s，必须 << 1h 让超时退出的 sup 快速重派）。
 - **`ReconcilePrompt string`（实施期补，关键）**：reconciler 提交的 sup job 必须带 kickoff prompt——cli-agent(codex) 空 prompt 直接报错(`agent/adapter.go:46`)，否则每 tick submit 失败、永远拉不起 sup。空 => 内置 `defaultSupReconcilePrompt`(serve，= P4a runbook 的 sup 使命)；常驻行为/护栏仍来自 `roles.supervisor.system_prompt`(--append-system-prompt)，本 prompt 仅"开始监督"那一轮。
+- **`ReconcileJobTimeoutSec int`（上线期补，减 churn）**：reconciler 提交无 timeout 走 300s 默认 → codex sup 每 5min 重启。加此字段，<=0 => `supReconcileJobTimeoutDefault=3600`(1h MaxTimeoutSec 上限)，常驻 sup 重派周期 5min→~1h。submit 仍 clamp 到上限。
 - serve 内新增 `startSupReconcileLoop`（仿 `startSupervisorLoop`/`startPruneLoop`，`serve.go:320`/`241`；`sc.DesiredSupervisors<=0` 直接 return）。
 - **reconcile 算法（去 double-count 定稿）**：以 **job 状态为唯一 replica 信号**，presence-online 不进核心循环（避免"1 健康 sup=1 running job+1 online presence 被数 2 次"）：
   ```
@@ -218,7 +219,7 @@
 - [x] P3.1 派生作答白名单约束（独立 answerguard 闸 + job.Service.AnswerInteractionBy 注入 responder + presence.Role 分级；mcp 自注册 role 经 GOFER_AGENT_ROLE 注入）
 - [x] P3.2 审计 answered_by（interactions.answered_by 列：auto:<policy> / agent:<id> / human；DDL+idempotent ALTER+scan/upsert/struct/view 全链路 + E13 事件 detail）
 - [ ] P4a 通用 sup daemon job 文档 + 端到端真机过
-- [x] P4b serve sup reconciler（42fd2c1+a31056b+3c200fb：desired_supervisors 周期补派/CountActiveJobsByRole 唯一 replica 信号/ReconcilePrompt/roles.supervisor.project 校验；**容器内 ephemeral serve E2E 全绿**：spawn+idempotent+cancel重派 3/3。E2E 揪出 2 真 bug=空prompt(cli-agent报错)+空project(unknown project)均已修+校验拦截）
+- [x] P4b serve sup reconciler（42fd2c1+a31056b+3c200fb+b8675f6：desired_supervisors 周期补派/CountActiveJobsByRole 唯一 replica 信号/ReconcilePrompt/roles.supervisor.project 校验/ReconcileJobTimeoutSec 默认1h减churn；**容器 Linux E2E 7/7 + HOST Windows E2E 4/4 全绿** spawn+idempotent+cancel重派；**已上线 LIVE host serve**：reconciler enabled、codex sup running、role=supervisor/timeout=3600、count 稳定=1、orphan 重启自愈。E2E 揪出 2 真 bug=空prompt(cli-agent报错)+空project(unknown project)均已修+校验拦截）
 - [x] P5 只读 inbox 端点（bc4039e：GET /v1/agents/{id}/inbox 不消费/不刷心跳；**E2E 全绿** 4/4：投递+读取+poll仍可见(未消费)+未知agent空200）
 
 > P1 前置「owner agent_id 透传」已定论（P1.0 自注册）；P0/P1 可直接开工。
