@@ -164,20 +164,39 @@
 
 ### P4b（完整版，serve reconciler — 你要的"server 启动·任意节点"）
 
-- `SupervisorConfig` 加 `DesiredSupervisors int` + 目标 runner/agent。
-- serve 内新增 sup reconciler loop（仿 `startSupervisorLoop`，`serve.go:320`）：周期核对在线 role=supervisor driver 数 < desired → 经 `cr.Jobs.Submit` 自构造 sup job 投 dispatch；job 退出/sup 掉线 → 重派（desired=1 类比 Deployment）。
-- 依赖 §11 待确认：job 长生命周期形态。
+> 复核定稿（2026-06-29 晚）：动机已证实——`normalizeTimeout`(submit.go:411) `timeout<=0→300s`，一律 clamp `MaxTimeoutSec=3600`(1h) 硬上限 → sup job 最多活 1h，故必须周期重派续命（"短命 job + 持续重派"=Deployment 类比）。P4a runbook 已诚实记录此 gap②、指向本阶段根治。
 
-**验收**：config `desired_supervisors=1` → serve 启动后自动在指定节点拉起 sup job；kill 之 → 自动重派。
+- `SupervisorConfig` 加 `DesiredSupervisors int`（默认 0=禁用，opt-in）+ 目标 `ReconcileRunner string`（sup job 投哪个 runner，默认空=local）/ 复用 `roles.supervisor`（agent/system_prompt/env 由 role 预设，reconciler 只传 `Role:"supervisor"`，`--role` 注 `GOFER_AGENT_ROLE`）。`ReconcileIntervalSec`（默认 60s，必须 << 1h 让超时退出的 sup 快速重派）。
+- serve 内新增 `startSupReconcileLoop`（仿 `startSupervisorLoop`/`startPruneLoop`，`serve.go:320`/`241`；`sc.DesiredSupervisors<=0` 直接 return）。
+- **reconcile 算法（去 double-count 定稿）**：以 **job 状态为唯一 replica 信号**，presence-online 不进核心循环（避免"1 健康 sup=1 running job+1 online presence 被数 2 次"）：
+  ```
+  desired := sc.DesiredSupervisors; if desired<=0 { return }
+  active  := store.CountActiveJobsByRole("supervisor")   // status IN (queued,running,pending_interaction)
+  for i := 0; i < desired-active; i++ {
+      cr.Jobs.Submit(JobRequest{Role:"supervisor", Runner:sc.ReconcileRunner, RequestID:""})  // role 预设填 agent/env/prompt
+  }
+  ```
+  - 幂等：数真实 job 行（跨 serve 重启不重复派）；纯 job-state 无 double-count。
+  - 自愈：sup job 超时(≤1h)/崩溃 → 下 tick `active<desired` → 自动补派（kill 之自动重派）。
+  - **已知边界（v1 不做，记 §待确认）**：sup job 仍 running 但 agent 卡死不 poll（presence offline）→ 靠 ≤1h job 超时自然替换；presence 主动探活 cancel 留 v2。
+- 新增 jobstore `CountActiveJobsByRole(role string) (int,error)`：`SELECT COUNT(*) FROM jobs WHERE role=? AND status IN ('queued','running','pending_interaction')`（仿 `nonTerminalJobStatuses`，jobs.go:277）。
+- 套娃防护无冲突：reconciler 派的 job 自身 role=supervisor，P2.2 已保证其 interaction 不回投 sup。
+- config 校验（`loader.go`）：`DesiredSupervisors<0` 报错；`DesiredSupervisors>0` 但无 `roles.supervisor` 预设 → 报错（否则派出的 job 无 agent/prompt）。
+
+**验收**：
+- 单测 `TestSupReconcileFillsDeficit`（mock Jobs.Submit + store count：active<desired 补派 deficit 个；active>=desired 不派）。
+- 单测 `TestCountActiveJobsByRole`（queued/running/pending_interaction 计入，terminal 不计入）。
+- 真机：config `desired_supervisors=1` + `roles.supervisor` → serve 启动后自动在指定 runner 拉起 1 个 sup job；`gofer job cancel` 之 → 下个 reconcile tick(≤60s) 自动重派。
 
 ---
 
 ## P5 最小只读 inbox 端点（可选）
 
-- 新增 `GET /v1/agents/{id}/inbox`（只读、不消费、不刷心跳；区别于现 POST `/inbox/poll`）：列出该 agent 未读/全部消息，供调试观察 escalation 堆积。
-- 锚点 `internal/httpapi/presence_handler.go` + presence service 加 `ListInbox(readonly)`。
+- 新增 `GET /v1/agents/{id}/inbox`（只读、不消费、不刷心跳；区别于现 POST `/inbox/poll`）：列出该 agent 未读/全部消息，供调试观察 escalation 堆积。`?include_read=1` 含已读。
+- 锚点：jobstore 已有 `ListInbox(agentID, includeRead)`(messages.go:103，纯 SELECT 不改态) → presence 加薄包装 `ListInbox(agentID string, includeRead bool) ([]Message,error)`（**不**走 Poll 的 ack/刷 last_seen 路径，对照 `service.go:194` Poll）；httpapi `presence_handler.go` 加 GET handler + 路由注册（仿现有 presence 路由）。
+- 复用 `Message` DTO（同 Poll 返回）；只读端点不需鉴权刷新，但仍按现有 presence 端点的 agent_id 路径取值方式。
 
-**验收**：`curl GET /v1/agents/<id>/inbox` 返回消息列表、不改 read 态、不刷 last_seen。
+**验收**：`curl GET /v1/agents/<id>/inbox` 返回消息列表、不改 read 态、不刷 last_seen；单测 `TestListInboxReadOnly`（poll-after-list 仍能取到同消息=未被消费；last_seen 不变）。
 
 ---
 

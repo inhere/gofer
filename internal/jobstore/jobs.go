@@ -276,6 +276,33 @@ func (s *Store) GetJobByRequestID(reqID string) (JobRecord, bool, error) {
 // complement of terminalStatuses). Kept local so jobstore never imports job.
 var nonTerminalJobStatuses = []string{"queued", "running"}
 
+// activeJobStatuses are the states a daemon-style job passes through while alive.
+// Broader than nonTerminalJobStatuses (adds pending_interaction) because the P4b
+// supervisor reconciler counts a sup momentarily blocked on its own interaction as
+// still "present" so it is not double-spawned.
+var activeJobStatuses = []string{"queued", "running", "pending_interaction"}
+
+// CountActiveJobsByRole returns how many jobs of the given role are currently active
+// (status in activeJobStatuses). The P4b supervisor reconciler (supervisor-routing
+// P4b) uses it as the SINGLE replica signal: active < desired_supervisors triggers
+// re-dispatch. Counting real job rows (not in-memory / not presence) makes it
+// idempotent across serve restarts and avoids double-counting a healthy sup as both
+// a running job AND an online presence agent.
+func (s *Store) CountActiveJobsByRole(role string) (int, error) {
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(activeJobStatuses)), ",")
+	q := `SELECT COUNT(*) FROM jobs WHERE role = ? AND status IN (` + placeholders + `)`
+	args := make([]any, 0, len(activeJobStatuses)+1)
+	args = append(args, role)
+	for _, st := range activeJobStatuses {
+		args = append(args, st)
+	}
+	var n int
+	if err := s.db.QueryRow(q, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("jobstore: count active jobs by role: %w", err)
+	}
+	return n, nil
+}
+
 // ReconcileOrphanJobs marks every job still in a non-terminal state as failed — the
 // crash-recovery backstop (mirrors ReconcileOrphanInteractions). A job left
 // "queued"/"running" in the store by a previous serve instance can never reach a

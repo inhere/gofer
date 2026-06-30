@@ -314,6 +314,20 @@ func validate(cfg *Config) error {
 		if cfg.Supervisor.MaxRoundsPerJob < 0 {
 			return fmt.Errorf("supervisor.max_rounds_per_job must be >= 0")
 		}
+		// P4b reconciler: desired_supervisors>0 needs a roles.supervisor preset to
+		// source the daemon job's agent/system_prompt/env (else every re-dispatch
+		// would fail submit). reconcile_interval_sec<=0 just means "use default".
+		if cfg.Supervisor.DesiredSupervisors < 0 {
+			return fmt.Errorf("supervisor.desired_supervisors must be >= 0")
+		}
+		if cfg.Supervisor.DesiredSupervisors > 0 {
+			if _, ok := cfg.Roles["supervisor"]; !ok {
+				return fmt.Errorf("supervisor.desired_supervisors > 0 requires a roles.supervisor preset")
+			}
+		}
+		if cfg.Supervisor.ReconcileIntervalSec < 0 {
+			return fmt.Errorf("supervisor.reconcile_interval_sec must be >= 0")
+		}
 	}
 	// E36 presence TTLs are optional overrides in seconds; negative is a mistake
 	// (0 = use the built-in default).

@@ -154,6 +154,12 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	defer close(stopSupervisor)
 	startSupervisorLoop(c, cr, stopSupervisor)
 
+	// P4b supervisor reconciler: keep desired_supervisors sup daemon jobs resident
+	// (re-dispatching timed-out/dead ones). No-op unless supervisor.desired_supervisors>0.
+	stopSupReconcile := make(chan struct{})
+	defer close(stopSupReconcile)
+	startSupReconcileLoop(c, cr, stopSupReconcile)
+
 	// Config hot-reload (C3): SIGHUP re-loads the config from the serve path and
 	// atomically swaps it into the registries + job service (no restart, no
 	// effect on in-flight jobs). The goroutine stops cleanly when serve returns.
@@ -341,6 +347,78 @@ func startSupervisorLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
 		}()
 		defer cancel()
 		sup.Run(ctx)
+	}()
+}
+
+// supReconcileInterval is the DEFAULT P4b supervisor reconcile cadence (used when
+// supervisor.reconcile_interval_sec is unset/<=0). It stays well under the
+// MaxTimeoutSec=1h job cap so a timed-out sup daemon job is re-dispatched promptly.
+const supReconcileInterval = 60 * time.Second
+
+// reconcileSupervisors is the pure P4b decision: ensure `desired` active sup daemon
+// jobs exist by submitting one per missing replica. count is the active-sup-job tally
+// (the single replica signal — job state, not presence, to avoid double-count); submit
+// dispatches one sup job. A submit error aborts THIS tick (the loop retries next tick)
+// rather than spinning. Extracted from startSupReconcileLoop so the fill-deficit logic
+// is unit-testable without a full Core. logf/errf isolate it from *gcli.Command.
+func reconcileSupervisors(desired int, count func() (int, error), submit func() error,
+	logf, errf func(string, ...any)) {
+	active, err := count()
+	if err != nil {
+		errf("gofer: sup reconcile count failed: %v\n", err)
+		return
+	}
+	for i := active; i < desired; i++ {
+		if err := submit(); err != nil {
+			errf("gofer: sup reconcile submit failed: %v\n", err)
+			return // best-effort; next tick retries the remaining deficit
+		}
+		logf("gofer: sup reconciler dispatched a supervisor daemon job (active=%d, desired=%d)\n", active, desired)
+	}
+}
+
+// startSupReconcileLoop launches the P4b supervisor reconciler when
+// supervisor.desired_supervisors > 0 (opt-in; <=0 disables — same conservative default
+// as the answerer). Each tick it counts ACTIVE role=supervisor jobs and re-dispatches
+// to fill the deficit, keeping `desired` sups resident even though each sup job is
+// timeout-bounded to 1h (Deployment 类比: short-lived job + continuous re-派). The
+// goroutine reconciles once at startup then on every tick, exiting when stop closes.
+func startSupReconcileLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
+	sc := cr.Cfg.Supervisor
+	if sc == nil || sc.DesiredSupervisors <= 0 {
+		return
+	}
+	interval := supReconcileInterval
+	if sc.ReconcileIntervalSec > 0 {
+		interval = time.Duration(sc.ReconcileIntervalSec) * time.Second
+	}
+	runnerName := sc.ReconcileRunner
+	if runnerName == "" {
+		runnerName = "local"
+	}
+	desired := sc.DesiredSupervisors
+	logf := func(f string, a ...any) { c.Printf(f, a...) }
+	errf := func(f string, a ...any) { c.Errorf(f, a...) }
+	count := func() (int, error) { return cr.Store.CountActiveJobsByRole("supervisor") }
+	submit := func() error {
+		// Role=supervisor pulls agent/system_prompt/env (incl. GOFER_AGENT_ROLE) from the
+		// roles.supervisor preset (validated present at load when desired>0).
+		_, err := cr.Jobs.Submit(job.JobRequest{Role: "supervisor", Runner: runnerName})
+		return err
+	}
+	c.Printf("gofer: supervisor reconciler enabled (desired=%d, runner=%q, interval=%s)\n", desired, runnerName, interval)
+	go func() {
+		reconcileSupervisors(desired, count, submit, logf, errf)
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				reconcileSupervisors(desired, count, submit, logf, errf)
+			}
+		}
 	}()
 }
 

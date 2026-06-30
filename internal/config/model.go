@@ -68,6 +68,19 @@ type SupervisorConfig struct {
 	// (L2) — the owner is会话式 and may have ended without answering (design §8.2,
 	// supervisor-routing P2.1). <=0 applies the default (300s) in NewService.
 	OwnerAnswerTimeoutSec int `yaml:"owner_answer_timeout_sec"`
+	// DesiredSupervisors is the P4b reconciler target (supervisor-routing P4b): serve
+	// periodically ensures this many ACTIVE (queued/running/pending_interaction)
+	// role=supervisor daemon jobs exist, re-submitting to fill any deficit. A sup job
+	// is timeout-bounded to MaxTimeoutSec=1h, so it is short-lived by design and kept
+	// resident by re-dispatch (Deployment 类比). 0 (default) DISABLES the reconciler
+	// (opt-in). >0 requires a roles.supervisor preset (sources the job's agent /
+	// system_prompt / env, incl. GOFER_AGENT_ROLE=supervisor).
+	DesiredSupervisors int `yaml:"desired_supervisors"`
+	// ReconcileRunner is the runner the reconciler submits sup jobs to (empty =>
+	// "local"). ReconcileIntervalSec is the reconcile cadence (<=0 => 60s default);
+	// it must stay well under the 1h job cap so a timed-out sup is re-dispatched promptly.
+	ReconcileRunner      string `yaml:"reconcile_runner"`
+	ReconcileIntervalSec int    `yaml:"reconcile_interval_sec"`
 }
 
 // RoleConfig is one named role preset (design §8.5). Agent is the base CLI agent
