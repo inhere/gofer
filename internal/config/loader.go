@@ -314,9 +314,9 @@ func validate(cfg *Config) error {
 		if cfg.Supervisor.MaxRoundsPerJob < 0 {
 			return fmt.Errorf("supervisor.max_rounds_per_job must be >= 0")
 		}
-		// P4b reconciler: desired_supervisors>0 needs a roles.supervisor preset to
-		// source the daemon job's agent/system_prompt/env (else every re-dispatch
-		// would fail submit). reconcile_interval_sec<=0 just means "use default".
+		// Event-driven reconciler (y5wt): desired_supervisors>0 needs a roles.supervisor
+		// preset to source each on-demand sup job's agent/system_prompt/env (else every
+		// dispatch would fail submit). reconcile_interval_sec<=0 just means "use default".
 		if cfg.Supervisor.DesiredSupervisors < 0 {
 			return fmt.Errorf("supervisor.desired_supervisors must be >= 0")
 		}
