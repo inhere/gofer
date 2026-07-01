@@ -207,6 +207,19 @@ function rowDuration(job: Job): string {
   return fmtDuration(jobDurationSec(job))
 }
 
+function rowTime(job: Job): string {
+  const ts = job.started_at || job.ended_at
+  if (!ts) {
+    return '—'
+  }
+  const d = new Date(ts * 1000)
+  return [
+    String(d.getHours()).padStart(2, '0'),
+    String(d.getMinutes()).padStart(2, '0'),
+    String(d.getSeconds()).padStart(2, '0'),
+  ].join(':')
+}
+
 function openJob(job: Job): void {
   void router.push(`/jobs/${encodeURIComponent(job.id)}`)
 }
@@ -341,6 +354,7 @@ onUnmounted(() => {
         <span class="col-agent">agent</span>
         <span class="col-runner">runner</span>
         <span class="col-signal">信号 / 耗时</span>
+        <span class="col-time">时间</span>
       </div>
 
       <div
@@ -370,6 +384,7 @@ onUnmounted(() => {
           <Signal :status="job.status" :duration-sec="jobDurationSec(job)" />
           <span v-if="job.status === 'running'" class="run-dur mono">{{ rowDuration(job) }}</span>
         </span>
+        <span class="col-time mono">{{ rowTime(job) }}</span>
       </div>
 
       <div v-if="jobs.length === 0 && !error" class="empty mono">
@@ -553,7 +568,7 @@ onUnmounted(() => {
 .thead,
 .trow {
   display: grid;
-  grid-template-columns: 124px minmax(160px, 1fr) 140px 120px 110px 180px;
+  grid-template-columns: 124px minmax(160px, 1fr) 140px 120px 110px 160px 78px;
   align-items: center;
   gap: 12px;
   padding: 9px 14px;
@@ -668,6 +683,11 @@ onUnmounted(() => {
   font-size: 11px;
   color: var(--run);
 }
+.col-time {
+  color: var(--queue);
+  text-align: right;
+  white-space: nowrap;
+}
 .empty {
   padding: 28px 14px;
   text-align: center;
@@ -726,7 +746,8 @@ onUnmounted(() => {
   .col-proj,
   .col-agent,
   .col-runner,
-  .col-signal {
+  .col-signal,
+  .col-time {
     grid-column: 1 / -1;
   }
   .col-proj::before {
@@ -739,6 +760,13 @@ onUnmounted(() => {
   }
   .col-runner::before {
     content: 'runner ';
+    color: var(--queue);
+  }
+  .col-time {
+    text-align: left;
+  }
+  .col-time::before {
+    content: 'time ';
     color: var(--queue);
   }
 }

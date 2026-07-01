@@ -357,7 +357,9 @@ onMounted(() => {
   border-radius: var(--radius);
   padding: 3px 8px;
   font-size: 11px;
+  font-weight: 700;
   letter-spacing: 0.08em;
+  min-width: 118px;
   text-transform: uppercase;
 }
 .tab:hover {
