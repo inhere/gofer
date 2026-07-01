@@ -14,8 +14,11 @@ const router = useRouter()
 const POLL_MS = 2500
 
 const jobs = ref<Job[]>([])
+const countJobs = ref<Job[]>([])
+const countJobsLoaded = ref(false)
 const loading = ref(false)
 const error = ref('')
+const lastRefreshedAt = ref<number | null>(null)
 const statusFilter = ref<'' | JobStatus>('')
 // E5 检索维度：tag/agent/runner 自由输入，caller 自由输入，since 走相对快捷预设。
 const tagFilter = ref('')
@@ -48,6 +51,51 @@ const sinceOptions: Array<{ value: '' | '1h' | '24h' | '7d'; label: string }> = 
   { value: '7d', label: '近 7d' },
 ]
 
+const activeFilterCount = computed(() =>
+  [
+    statusFilter.value,
+    projectFilter.value,
+    tagFilter.value.trim(),
+    agentFilter.value.trim(),
+    runnerFilter.value.trim(),
+    callerFilter.value.trim(),
+    sinceFilter.value,
+  ].filter(Boolean).length,
+)
+
+const statusCounts = computed<Record<JobStatus, number>>(() => {
+  const base: Record<JobStatus, number> = {
+    queued: 0,
+    running: 0,
+    pending_interaction: 0,
+    done: 0,
+    failed: 0,
+    cancelled: 0,
+    timeout: 0,
+  }
+  for (const job of countJobsLoaded.value ? countJobs.value : jobs.value) {
+    base[job.status] += 1
+  }
+  return base
+})
+
+const runningCount = computed(
+  () =>
+    jobs.value.filter(
+      (job) => job.status === 'running' || job.status === 'pending_interaction',
+    ).length,
+)
+const problemCount = computed(
+  () => jobs.value.filter((job) => job.status === 'failed' || job.status === 'timeout').length,
+)
+
+const lastRefreshedText = computed(() => {
+  if (lastRefreshedAt.value == null) {
+    return '尚未刷新'
+  }
+  return new Date(lastRefreshedAt.value).toLocaleTimeString()
+})
+
 // 把相对 since 预设换算为绝对 unix 秒；空表示不过滤。
 function sinceParam(): number | undefined {
   if (!sinceFilter.value) {
@@ -78,11 +126,29 @@ async function fetchJobs(): Promise<void> {
     })
     jobs.value = resp.jobs ?? []
     error.value = ''
+    lastRefreshedAt.value = Date.now()
   } catch (e) {
     // 401 已由 client 处理（跳转登录）；其余显示错误条
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
     loading.value = false
+  }
+}
+
+async function fetchStatusCounts(): Promise<void> {
+  try {
+    const resp = await listJobs({
+      project: projectFilter.value,
+      tag: tagFilter.value.trim() || undefined,
+      agent: agentFilter.value.trim() || undefined,
+      runner: runnerFilter.value.trim() || undefined,
+      caller: callerFilter.value.trim() || undefined,
+      since: sinceParam(),
+    })
+    countJobs.value = resp.jobs ?? []
+    countJobsLoaded.value = true
+  } catch {
+    countJobsLoaded.value = false
   }
 }
 
@@ -129,6 +195,10 @@ watch(
   },
 )
 
+watch([projectFilter, tagFilter, agentFilter, runnerFilter, callerFilter, sinceFilter], () => {
+  void fetchStatusCounts()
+})
+
 function shortId(id: string): string {
   return id.length > 8 ? id.slice(-8) : id
 }
@@ -141,8 +211,25 @@ function openJob(job: Job): void {
   void router.push(`/jobs/${encodeURIComponent(job.id)}`)
 }
 
+function refreshNow(): void {
+  void fetchJobs()
+}
+
+function clearFilters(): void {
+  statusFilter.value = ''
+  tagFilter.value = ''
+  agentFilter.value = ''
+  runnerFilter.value = ''
+  callerFilter.value = ''
+  sinceFilter.value = ''
+  if (projectFilter.value) {
+    void router.push({ path: '/board' })
+  }
+}
+
 onMounted(() => {
   void fetchJobs()
+  void fetchStatusCounts()
   startPolling()
   document.addEventListener('visibilitychange', onVisibility)
 })
@@ -156,17 +243,47 @@ onUnmounted(() => {
 <template>
   <div class="board">
     <div class="board-head">
-      <h1 class="title mono">JOBS BOARD</h1>
-      <div class="controls mono">
+      <div>
+        <h1 class="title mono">JOBS BOARD</h1>
+        <p class="subtitle mono">
+          {{ jobs.length }} jobs · {{ runningCount }} active · {{ problemCount }} problem
+          <span v-if="activeFilterCount"> · {{ activeFilterCount }} filters</span>
+        </p>
+      </div>
+      <div class="head-actions mono">
+        <span class="last-refresh">刷新 {{ lastRefreshedText }}</span>
+        <span class="poll-hint" :class="{ 'poll-hint--on': loading }">●</span>
+        <button class="head-btn" type="button" :disabled="loading" @click="refreshNow">
+          {{ loading ? '刷新中' : '刷新' }}
+        </button>
+        <button
+          class="head-btn"
+          type="button"
+          :disabled="activeFilterCount === 0"
+          @click="clearFilters"
+        >
+          清空过滤
+        </button>
+      </div>
+    </div>
+
+    <div class="filter-panel mono">
+      <div class="status-tabs" aria-label="状态过滤">
+        <button
+          v-for="opt in statusOptions"
+          :key="opt.value"
+          type="button"
+          class="status-tab"
+          :class="{ 'status-tab--active': statusFilter === opt.value }"
+          @click="statusFilter = opt.value"
+        >
+          <span>{{ opt.label }}</span>
+          <span v-if="opt.value" class="status-count">{{ statusCounts[opt.value] }}</span>
+        </button>
+      </div>
+
+      <div class="controls">
         <span v-if="projectFilter" class="proj-chip">project: {{ projectFilter }}</span>
-        <label class="filter">
-          <span class="filter-label">status</span>
-          <select v-model="statusFilter" class="filter-select mono">
-            <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">
-              {{ opt.label }}
-            </option>
-          </select>
-        </label>
         <label class="filter">
           <span class="filter-label">tag</span>
           <input
@@ -211,7 +328,6 @@ onUnmounted(() => {
             </option>
           </select>
         </label>
-        <span class="poll-hint" :class="{ 'poll-hint--on': loading }">●</span>
       </div>
     </div>
 
@@ -272,7 +388,8 @@ onUnmounted(() => {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 14px;
+  gap: 16px;
+  margin-bottom: 12px;
 }
 .title {
   font-size: 16px;
@@ -280,10 +397,89 @@ onUnmounted(() => {
   color: var(--paper);
   margin: 0;
 }
+.subtitle {
+  color: var(--queue);
+  font-size: 12px;
+  margin: 6px 0 0;
+}
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  flex: none;
+}
+.last-refresh {
+  color: var(--queue);
+}
+.head-btn {
+  background: transparent;
+  color: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.head-btn:hover:not(:disabled) {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
+}
+.head-btn:disabled {
+  color: var(--queue);
+  cursor: default;
+  opacity: 0.65;
+}
+.filter-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  padding: 10px;
+  margin-bottom: 14px;
+}
+.status-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.status-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: transparent;
+  color: var(--queue);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 9px;
+  font-size: 12px;
+  min-height: 28px;
+}
+.status-tab:hover {
+  color: var(--paper);
+  border-color: var(--queue);
+}
+.status-tab--active {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
+  background: var(--ink);
+}
+.status-count {
+  color: var(--paper);
+  font-size: 11px;
+  min-width: 16px;
+  text-align: center;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0 4px;
+  line-height: 16px;
+}
 .controls {
   display: flex;
   align-items: center;
-  gap: 14px;
+  flex-wrap: wrap;
+  gap: 10px;
   font-size: 12px;
 }
 .proj-chip {
@@ -477,5 +673,73 @@ onUnmounted(() => {
   text-align: center;
   color: var(--queue);
   font-size: 13px;
+}
+
+@media (max-width: 768px) {
+  .board-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .head-actions {
+    width: 100%;
+    flex-wrap: wrap;
+  }
+  .last-refresh {
+    flex: 1;
+  }
+  .status-tab {
+    flex: 1 1 calc(50% - 6px);
+    justify-content: space-between;
+  }
+  .filter {
+    flex: 1 1 130px;
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 4px;
+  }
+  .filter-input,
+  .filter-select {
+    width: 100%;
+    box-sizing: border-box;
+  }
+  .table {
+    overflow-x: visible;
+  }
+  .thead {
+    display: none;
+  }
+  .trow {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 6px 10px;
+    padding: 12px;
+  }
+  .col-status {
+    grid-column: 2;
+    grid-row: 1;
+    justify-self: end;
+  }
+  .col-job {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .col-proj,
+  .col-agent,
+  .col-runner,
+  .col-signal {
+    grid-column: 1 / -1;
+  }
+  .col-proj::before {
+    content: 'project ';
+    color: var(--queue);
+  }
+  .col-agent::before {
+    content: 'agent ';
+    color: var(--queue);
+  }
+  .col-runner::before {
+    content: 'runner ';
+    color: var(--queue);
+  }
 }
 </style>
