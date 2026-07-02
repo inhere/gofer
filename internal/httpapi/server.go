@@ -274,6 +274,7 @@ func (s *Server) buildRouter() *rux.Router {
 		// G4 (design §6.4): read-only form-options aggregate for the web console
 		// submit form (projects/agents/runners/workers in one authed GET).
 		r.GET("/meta", s.handleMeta)
+		r.GET("/stats", s.handleStats)
 
 		r.POST("/jobs", s.handleCreateJob)
 		r.GET("/jobs", s.handleListJobs)

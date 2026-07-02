@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 // createExec posts an exec job and returns its created id, failing the test on
@@ -92,6 +93,33 @@ func TestListJobsEndpointFilters(t *testing.T) {
 	limited := listJobs(t, s, "?limit=1")
 	if len(limited) != 1 {
 		t.Fatalf("limit=1 expected 1, got %d", len(limited))
+	}
+}
+
+func TestListJobsEndpointOffset(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	meta := s.jobs.Meta()
+	for _, rec := range []jobstore.JobRecord{
+		statsJobRecord("job-1", job.StatusDone, 100),
+		statsJobRecord("job-2", job.StatusDone, 200),
+		statsJobRecord("job-3", job.StatusDone, 300),
+		statsJobRecord("job-4", job.StatusDone, 400),
+	} {
+		if err := meta.UpsertJob(rec); err != nil {
+			t.Fatalf("upsert job: %v", err)
+		}
+	}
+
+	page1 := listJobs(t, s, "?limit=2")
+	page2 := listJobs(t, s, "?limit=2&offset=2")
+	if len(page1) != 2 || len(page2) != 2 {
+		t.Fatalf("unexpected page sizes: page1=%d page2=%d", len(page1), len(page2))
+	}
+	if page1[0].ID != "job-4" || page1[1].ID != "job-3" {
+		t.Fatalf("page1 wrong: %+v", page1)
+	}
+	if page2[0].ID != "job-2" || page2[1].ID != "job-1" {
+		t.Fatalf("page2 wrong: %+v", page2)
 	}
 }
 
