@@ -10,6 +10,7 @@ import type {
   DeliveriesResp,
   FileContent,
   GitStatus,
+  InboxResp,
   Interaction,
   Job,
   JobEventsResp,
@@ -18,12 +19,14 @@ import type {
   ListJobsOpts,
   LogStream,
   MetaResp,
+  PresenceResp,
   ProjectDetail,
   ProjectsResp,
   ReposResp,
   RunnersResp,
   Schedule,
   SchedulesResp,
+  Stats,
   SubmitJobReq,
   SubmitJobResult,
   Workflow,
@@ -124,6 +127,33 @@ export function listAgents(): Promise<AgentsResp> {
   return request<AgentsResp>('/v1/agents')
 }
 
+export function getStats(): Promise<Stats> {
+  return request<Stats>('/v1/stats')
+}
+
+export function listPresence(
+  role?: string,
+  project?: string,
+): Promise<PresenceResp> {
+  const params = new URLSearchParams()
+  if (role) {
+    params.set('role', role)
+  }
+  if (project) {
+    params.set('project', project)
+  }
+  const qs = params.toString()
+  return request<PresenceResp>(`/v1/agents/presence${qs ? `?${qs}` : ''}`)
+}
+
+export function listInbox(
+  id: string,
+  includeRead = true,
+): Promise<InboxResp> {
+  const qs = includeRead ? '?include_read=1' : ''
+  return request<InboxResp>(`/v1/agents/${encodeURIComponent(id)}/inbox${qs}`)
+}
+
 // 运行器舰队状态（worker / peer-http / local）。Runners 视图轮询读取。
 export function listRunners(): Promise<RunnersResp> {
   return request<RunnersResp>('/v1/runners')
@@ -179,6 +209,9 @@ export function listJobs(opts?: ListJobsOpts): Promise<JobsResp> {
   }
   if (opts?.limit != null) {
     params.set('limit', String(opts.limit))
+  }
+  if (opts?.offset != null) {
+    params.set('offset', String(opts.offset))
   }
   const qs = params.toString()
   return request<JobsResp>(`/v1/jobs${qs ? `?${qs}` : ''}`)
@@ -340,6 +373,14 @@ export function getInteractions(
 ): Promise<{ interactions: Interaction[] }> {
   return request<{ interactions: Interaction[] }>(
     `/v1/jobs/${encodeURIComponent(id)}/interactions`,
+  )
+}
+
+export function listPendingInteractions(): Promise<{
+  interactions: Interaction[]
+}> {
+  return request<{ interactions: Interaction[] }>(
+    '/v1/interactions?status=pending',
   )
 }
 

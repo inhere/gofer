@@ -8,7 +8,7 @@
 
 - [x] **P1.1** 后端 · worker 节点透视（projects/agents 4 层串联）✅ host codex 实施 + 容器验收(build/vet/test 全绿)
 - [x] **P1.2** 后端 · `GET /v1/stats` + `/v1/jobs` 补读 `offset` ✅（offset 经 `job.ListOpts` 分层透传——plan 原假设漏了 job.Service 层，codex 修正）
-- [ ] **P1.3** 前端 · types + client 基础（所有 P1 前端的依赖底座）
+- [x] **P1.3** 前端 · types + client 基础 ✅（+listPendingInteractions；主机 pnpm build 类型检查绿）
 - [ ] **P1.4** 前端 · WEB-06 导航/IA + EscalationBell（**只读**：计数/下拉/toast，无应答按钮）
 - [ ] **P1.5** 前端 · WEB-07 Dashboard 首页
 - [ ] **P1.6** 前端 · Drivers(presence) + Inbox 展示
