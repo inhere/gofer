@@ -251,6 +251,7 @@ const (
 	EventJobCancelled        = "job.cancelled"        // {was_terminal}
 	EventInteractionCreated  = "interaction.created"  // {interaction_id,type,prompt}
 	EventInteractionAnswered = "interaction.answered" // {interaction_id,answer}
+	EventInteractionPunted   = "interaction.punted"   // {interaction_id,caller_id}
 )
 
 // Workflow lifecycle event types (P1, design §5.4). Recorded append-only via

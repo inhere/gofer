@@ -108,6 +108,40 @@ func TestDerivedAnswerWhitelistGate(t *testing.T) {
 	}
 }
 
+func TestHumanAnswerBypassesGuardAndStampsCaller(t *testing.T) {
+	s := newTestService(t, t.TempDir())
+	s.SetAnswerGuard(answerguard.New([]string{"^pick "}, roleStub{gateOwner: "", gateSup: "supervisor"}))
+	jobID := submitRunningOwned(t, s, gateOwner)
+
+	it := mkInteraction(t, s, jobID, InteractionTypeConfirmation, "delete prod?")
+	if _, err := s.AnswerInteractionBy(jobID, it.ID, "yes", gateSup); !errors.Is(err, ErrAnswerNotAllowed) {
+		t.Fatalf("setup: supervisor confirmation should be refused, got %v", err)
+	}
+	mustPending(t, s, jobID, it.ID)
+
+	ans, err := s.AnswerInteractionByHuman(jobID, it.ID, "yes", "alice")
+	if err != nil {
+		t.Fatalf("human answer should bypass derived-answer guard: %v", err)
+	}
+	if ans.AnsweredBy != "alice" {
+		t.Fatalf("human answered_by = %q, want alice", ans.AnsweredBy)
+	}
+}
+
+func TestHumanAnswerEmptyCallerFallsBackToHuman(t *testing.T) {
+	s := newTestService(t, t.TempDir())
+	jobID := submitRunningOwned(t, s, gateOwner)
+
+	it := mkInteraction(t, s, jobID, InteractionTypeQuestion, "continue?")
+	ans, err := s.AnswerInteractionByHuman(jobID, it.ID, "ok", "")
+	if err != nil {
+		t.Fatalf("human answer with empty caller: %v", err)
+	}
+	if ans.AnsweredBy != "human" {
+		t.Fatalf("empty-caller answered_by = %q, want human", ans.AnsweredBy)
+	}
+}
+
 // TestAnsweredBySources proves P3.2: the four answer sources stamp distinct answered_by tags
 // (auto:<policy> / agent:<owner> / agent:<sup> / human), each persisted and round-tripped.
 func TestAnsweredBySources(t *testing.T) {

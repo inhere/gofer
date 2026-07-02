@@ -346,6 +346,24 @@ func (s *Service) MarkInteractionNeedsHuman(jobID, interactionID string) error {
 	return s.meta.MarkInteractionNeedsHuman(jobID, interactionID)
 }
 
+// MarkInteractionNeedsHumanBy marks an interaction as needing a human and records
+// the authenticated caller that punted it. The metadata update remains the same
+// operation as MarkInteractionNeedsHuman so MCP/agent callers can keep using the
+// original unattributed path.
+func (s *Service) MarkInteractionNeedsHumanBy(jobID, interactionID, callerID string) error {
+	if err := s.MarkInteractionNeedsHuman(jobID, interactionID); err != nil {
+		return err
+	}
+	if _, ok := s.interactionSnapshot(jobID, interactionID); !ok {
+		return nil
+	}
+	s.recordEvent(jobID, EventInteractionPunted, map[string]any{
+		"interaction_id": interactionID,
+		"caller_id":      callerID,
+	})
+	return nil
+}
+
 // AnswerInteraction marks a pending interaction answered WITHOUT attribution — the
 // internal / relay path (worker→local resume, peer-http relay) where the answer was already
 // decided upstream, so answered_by stays "". For an ATTRIBUTED answer (driver / web / CLI)
@@ -372,6 +390,18 @@ func (s *Service) AnswerInteractionBy(jobID, interactionID, answer, responder st
 	by := answeredByHuman
 	if responder != "" {
 		by = answeredByAgentPrefix + responder
+	}
+	return s.answerInteraction(jobID, interactionID, answer, by)
+}
+
+// AnswerInteractionByHuman answers an interaction as a web/CLI human operator.
+// It skips the derived-agent answer guard and stamps the server-authenticated
+// caller id without an agent: prefix. Empty caller ids retain the legacy "human"
+// attribution for allow_empty_token / anonymous deployments.
+func (s *Service) AnswerInteractionByHuman(jobID, interactionID, answer, callerID string) (Interaction, error) {
+	by := callerID
+	if by == "" {
+		by = answeredByHuman
 	}
 	return s.answerInteraction(jobID, interactionID, answer, by)
 }

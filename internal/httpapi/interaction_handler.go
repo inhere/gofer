@@ -108,9 +108,15 @@ func (s *Server) handleAnswerInteraction(c *rux.Context) {
 		return
 	}
 
-	// AnswerInteractionBy attributes the answer + runs the派生作答闸 (P3.1): a non-empty
-	// responder (mcp client driver) is graded server-side; empty (web/CLI human) → human, ungated.
-	it, err := s.jobs.AnswerInteractionBy(id, iid, req.Answer, req.Responder)
+	var (
+		it  job.Interaction
+		err error
+	)
+	if req.Responder == "" {
+		it, err = s.jobs.AnswerInteractionByHuman(id, iid, req.Answer, callerFromCtx(c))
+	} else {
+		it, err = s.jobs.AnswerInteractionBy(id, iid, req.Answer, req.Responder)
+	}
 	if err != nil {
 		writeError(c, interactionStatus(err), "answer interaction failed", err.Error())
 		return
@@ -126,7 +132,7 @@ func (s *Server) handleAnswerInteraction(c *rux.Context) {
 func (s *Server) handlePuntInteraction(c *rux.Context) {
 	id := c.Param("id")
 	iid := c.Param("interaction_id")
-	if err := s.jobs.MarkInteractionNeedsHuman(id, iid); err != nil {
+	if err := s.jobs.MarkInteractionNeedsHumanBy(id, iid, callerFromCtx(c)); err != nil {
 		writeError(c, interactionStatus(err), "punt interaction failed", err.Error())
 		return
 	}

@@ -1,11 +1,24 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"testing"
 	"time"
 
+	"github.com/inhere/gofer/internal/answerguard"
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/jobstore"
+)
+
+type interactionRoleStub map[string]string
+
+func (r interactionRoleStub) Role(id string) (string, bool) { v, ok := r[id]; return v, ok }
+
+const (
+	interactionGateOwner = "agt_owner"
+	interactionGateSup   = "agt_sup"
 )
 
 // submitRunningJob submits a long-lived exec job over the HTTP API and polls
@@ -47,6 +60,43 @@ func waitRunning(t *testing.T, s *Server, id string) {
 		time.Sleep(25 * time.Millisecond)
 	}
 	t.Fatalf("job %s did not reach running in time", id)
+}
+
+func waitRunningTok(t *testing.T, s *Server, id, token string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		resp := do(t, s, http.MethodGet, "/v1/jobs/"+id, token, nil)
+		var jr job.JobResult
+		decode(t, resp, &jr)
+		if jr.Status == job.StatusRunning || jr.Status == job.StatusPendingInteraction {
+			return
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	t.Fatalf("job %s did not reach running in time", id)
+}
+
+func submitRunningJobTok(t *testing.T, s *Server, token, originAgent string) string {
+	t.Helper()
+	resp := do(t, s, http.MethodPost, "/v1/jobs", token, job.JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"sleep", "30"}, Cwd: ".", TimeoutSec: 60,
+		OriginAgent: originAgent,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("submit running job: status=%d, want 200", resp.StatusCode)
+	}
+	var created job.JobResult
+	decode(t, resp, &created)
+	if created.ID == "" {
+		t.Fatalf("running job has no id: %+v", created)
+	}
+	waitRunningTok(t, s, created.ID, token)
+	t.Cleanup(func() {
+		do(t, s, http.MethodPost, "/v1/jobs/"+created.ID+"/cancel", token, nil)
+	})
+	return created.ID
 }
 
 func TestInteractionLifecycle(t *testing.T) {
@@ -107,6 +157,102 @@ func TestInteractionLifecycle(t *testing.T) {
 	}
 	if list.Interactions[0].Answer != "yes" {
 		t.Fatalf("expected answer 'yes', got %+v", list.Interactions[0])
+	}
+}
+
+func TestInteractionAnswerUsesAuthenticatedCallerForHumanPath(t *testing.T) {
+	s := newTestServerCfg(t, config.ServerConfig{
+		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
+	})
+	s.jobs.SetAnswerGuard(answerguard.New([]string{"^pick "}, interactionRoleStub{interactionGateOwner: "", interactionGateSup: "supervisor"}))
+	jobID := submitRunningJobTok(t, s, "tok-alice", interactionGateOwner)
+
+	createResp := do(t, s, http.MethodPost, "/v1/jobs/"+jobID+"/interactions", "tok-alice", createInteractionReq{
+		Type: job.InteractionTypeConfirmation, Prompt: "delete prod?",
+	})
+	var created job.Interaction
+	decode(t, createResp, &created)
+
+	agentResp := do(t, s, http.MethodPost,
+		"/v1/jobs/"+jobID+"/interactions/"+created.ID+"/answer", "tok-alice",
+		answerInteractionReq{Answer: "yes", Responder: interactionGateSup})
+	if agentResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("supervisor responder status=%d, want 403", agentResp.StatusCode)
+	}
+	agentResp.Body.Close()
+
+	ansResp := do(t, s, http.MethodPost,
+		"/v1/jobs/"+jobID+"/interactions/"+created.ID+"/answer", "tok-alice",
+		answerInteractionReq{Answer: "yes"})
+	if ansResp.StatusCode != http.StatusOK {
+		t.Fatalf("human answer status=%d, want 200", ansResp.StatusCode)
+	}
+	var answered job.Interaction
+	decode(t, ansResp, &answered)
+	if answered.AnsweredBy != "alice" {
+		t.Fatalf("answered_by=%q, want alice", answered.AnsweredBy)
+	}
+}
+
+func TestInteractionAnswerEmptyCallerFallsBackToHuman(t *testing.T) {
+	s := newTestServer(t, "", true)
+	jobID := submitRunningJobTok(t, s, "", "")
+
+	createResp := do(t, s, http.MethodPost, "/v1/jobs/"+jobID+"/interactions", "", createInteractionReq{
+		Type: job.InteractionTypeQuestion, Prompt: "continue?",
+	})
+	var created job.Interaction
+	decode(t, createResp, &created)
+
+	ansResp := do(t, s, http.MethodPost,
+		"/v1/jobs/"+jobID+"/interactions/"+created.ID+"/answer", "",
+		answerInteractionReq{Answer: "ok"})
+	if ansResp.StatusCode != http.StatusOK {
+		t.Fatalf("answer status=%d, want 200", ansResp.StatusCode)
+	}
+	var answered job.Interaction
+	decode(t, ansResp, &answered)
+	if answered.AnsweredBy != "human" {
+		t.Fatalf("answered_by=%q, want human", answered.AnsweredBy)
+	}
+}
+
+func TestInteractionAgentResponderPathStillGatedAndPrefixed(t *testing.T) {
+	s := newTestServerCfg(t, config.ServerConfig{
+		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
+	})
+	s.jobs.SetAnswerGuard(answerguard.New([]string{"^pick "}, interactionRoleStub{interactionGateOwner: "", interactionGateSup: "supervisor"}))
+	jobID := submitRunningJobTok(t, s, "tok-alice", interactionGateOwner)
+
+	blockedResp := do(t, s, http.MethodPost, "/v1/jobs/"+jobID+"/interactions", "tok-alice", createInteractionReq{
+		Type: job.InteractionTypeConfirmation, Prompt: "delete prod?",
+	})
+	var blocked job.Interaction
+	decode(t, blockedResp, &blocked)
+	denied := do(t, s, http.MethodPost,
+		"/v1/jobs/"+jobID+"/interactions/"+blocked.ID+"/answer", "tok-alice",
+		answerInteractionReq{Answer: "yes", Responder: interactionGateSup})
+	if denied.StatusCode != http.StatusForbidden {
+		t.Fatalf("supervisor confirmation status=%d, want 403", denied.StatusCode)
+	}
+	denied.Body.Close()
+
+	allowedResp := do(t, s, http.MethodPost, "/v1/jobs/"+jobID+"/interactions", "tok-alice", createInteractionReq{
+		Type: job.InteractionTypeChoice, Prompt: "pick one format",
+		Options: []job.InteractionOption{{Value: "json"}, {Value: "yaml"}},
+	})
+	var allowed job.Interaction
+	decode(t, allowedResp, &allowed)
+	ok := do(t, s, http.MethodPost,
+		"/v1/jobs/"+jobID+"/interactions/"+allowed.ID+"/answer", "tok-alice",
+		answerInteractionReq{Answer: "json", Responder: interactionGateSup})
+	if ok.StatusCode != http.StatusOK {
+		t.Fatalf("supervisor whitelisted choice status=%d, want 200", ok.StatusCode)
+	}
+	var answered job.Interaction
+	decode(t, ok, &answered)
+	if answered.AnsweredBy != "agent:"+interactionGateSup {
+		t.Fatalf("agent answered_by=%q, want agent:%s", answered.AnsweredBy, interactionGateSup)
 	}
 }
 
@@ -213,6 +359,23 @@ func TestInteractionPunt(t *testing.T) {
 	}
 	if list.Interactions[0].NeedsHuman != 1 {
 		t.Fatalf("expected needs_human=1 after punt, got %+v", list.Interactions[0])
+	}
+	eventsResp := do(t, s, http.MethodGet, "/v1/jobs/"+jobID+"/events", testToken, nil)
+	var eventsBody struct {
+		Events []jobstore.JobEvent `json:"events"`
+	}
+	decode(t, eventsResp, &eventsBody)
+	var puntDetail map[string]string
+	for _, ev := range eventsBody.Events {
+		if ev.Type == job.EventInteractionPunted {
+			if err := json.Unmarshal([]byte(ev.Detail), &puntDetail); err != nil {
+				t.Fatalf("unmarshal punt detail %q: %v", ev.Detail, err)
+			}
+			break
+		}
+	}
+	if puntDetail["interaction_id"] != created.ID || puntDetail["caller_id"] != "default" {
+		t.Fatalf("punt event detail=%v, want interaction_id=%s caller_id=default", puntDetail, created.ID)
 	}
 
 	// Idempotent no-op for an unknown interaction id.
