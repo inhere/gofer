@@ -6,7 +6,7 @@
 
 ## 进度跟踪
 
-- [ ] **P1.1** 后端 · worker 节点透视（projects/agents 4 层串联）
+- [x] **P1.1** 后端 · worker 节点透视（projects/agents 4 层串联）✅ host codex 实施 + 容器验收(build/vet/test 全绿)
 - [ ] **P1.2** 后端 · `GET /v1/stats` + `/v1/jobs` 补读 `offset`
 - [ ] **P1.3** 前端 · types + client 基础（所有 P1 前端的依赖底座）
 - [ ] **P1.4** 前端 · WEB-06 导航/IA + EscalationBell（**只读**：计数/下拉/toast，无应答按钮）

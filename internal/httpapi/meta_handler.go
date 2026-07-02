@@ -51,6 +51,8 @@ type metaRunner struct {
 type metaWorker struct {
 	ID        string   `json:"id"`
 	Labels    []string `json:"labels,omitempty"`
+	Projects  []string `json:"projects,omitempty"`
+	Agents    []string `json:"agents,omitempty"`
 	Connected bool     `json:"connected"`
 }
 
@@ -144,6 +146,8 @@ func (s *Server) metaWorkers() []metaWorker {
 			if ws, ok := s.workers.WorkerStatus(id); ok && ws.Connected {
 				mw.Connected = true
 				mw.Labels = ws.Labels
+				mw.Projects = ws.Projects
+				mw.Agents = ws.Agents
 			}
 		}
 		out = append(out, mw)
