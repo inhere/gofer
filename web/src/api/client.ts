@@ -367,6 +367,16 @@ export function answerInteraction(
   )
 }
 
+export function puntInteraction(
+  id: string,
+  iid: string,
+): Promise<{ status: string }> {
+  return request<{ status: string }>(
+    `/v1/jobs/${encodeURIComponent(id)}/interactions/${encodeURIComponent(iid)}/punt`,
+    { method: 'POST' },
+  )
+}
+
 // 断线兜底：拉取某 job 的全部交互（SSE 重连前对齐状态）
 export function getInteractions(
   id: string,
