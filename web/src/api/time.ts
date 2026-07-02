@@ -22,6 +22,27 @@ export function jobDurationSec(job: Pick<Job, 'started_at' | 'ended_at'>, nowSec
   return d >= 0 ? d : 0
 }
 
+// 绝对时间：Unix 秒 -> 本地 "MM-DD HH:mm:ss"（0/空/非法返回 —）。
+export function fmtDateTime(sec: number | null | undefined): string {
+  const n = toUnixSec(sec ?? null)
+  if (n == null) {
+    return '—'
+  }
+  const d = new Date(n * 1000)
+  const p = (x: number): string => String(x).padStart(2, '0')
+  return `${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`
+}
+
+// 距未来时间点的人类可读间隔（cron next_run 用）：已到点/过期 -> "待触发"，否则 "≈3m20s"。
+export function fmtUntil(sec: number | null | undefined, nowSec?: number): string {
+  const n = toUnixSec(sec ?? null)
+  if (n == null) {
+    return '—'
+  }
+  const d = n - (nowSec ?? Math.floor(Date.now() / 1000))
+  return d <= 0 ? '待触发' : `≈${fmtDuration(d)}`
+}
+
 // 人类可读耗时：12s / 3m20s / 1h05m。
 export function fmtDuration(sec: number | null): string {
   if (sec == null) {

@@ -70,6 +70,7 @@ const activeProject = computed(() => {
 const navItems = [
   { to: '/board', label: 'board' },
   { to: '/workflows', label: 'workflows' },
+  { to: '/schedules', label: 'schedules' },
   { to: '/projects', label: 'projects' },
   { to: '/agents', label: 'agents' },
   { to: '/runners', label: 'runners' },

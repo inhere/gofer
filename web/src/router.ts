@@ -25,6 +25,12 @@ const routes: RouteRecordRaw[] = [
     component: () => import('./views/WorkflowDetail.vue'),
     props: true,
   },
+  { path: '/schedules', name: 'schedules', component: () => import('./views/Schedules.vue') },
+  {
+    path: '/schedules/new',
+    name: 'new-schedule',
+    component: () => import('./views/NewSchedule.vue'),
+  },
   { path: '/projects', name: 'projects', component: () => import('./views/Projects.vue') },
   { path: '/agents', name: 'agents', component: () => import('./views/Agents.vue') },
   { path: '/runners', name: 'runners', component: () => import('./views/Runners.vue') },
