@@ -361,9 +361,10 @@ func TestMultiWorkerRouting(t *testing.T) {
 }
 
 // TestWorkerSnapshotExposed (C6/P4): the registry exposes a read-only snapshot
-// of a worker's live state — last_heartbeat / in-flight count / labels — and
+// of a worker's live state — last_heartbeat / in-flight count / labels /
+// projects / agents — and
 // reports ok=false for an offline / never-seen worker. The in-flight count
-// reflects reservations and the labels are a defensive copy of the register meta.
+// reflects reservations and the register metadata slices are defensive copies.
 func TestWorkerSnapshotExposed(t *testing.T) {
 	r := newRegistry()
 
@@ -375,6 +376,8 @@ func TestWorkerSnapshotExposed(t *testing.T) {
 	wc := newWorkerConn("w1", "w1", nil, wsproto.Register{
 		WorkerID:      "w1",
 		Labels:        []string{"gpu", "linux"},
+		Projects:      []string{"proj-a", "proj-b"},
+		Agents:        []string{"codex", "exec"},
 		MaxConcurrent: 4,
 	})
 	wc.lastHeartbeat.Store(1750300000)
@@ -392,11 +395,19 @@ func TestWorkerSnapshotExposed(t *testing.T) {
 	if len(snap.Labels) != 2 || snap.Labels[0] != "gpu" {
 		t.Fatalf("snapshot labels wrong: %+v", snap.Labels)
 	}
-	// Labels must be a defensive copy: mutating the returned slice must not affect
-	// the conn's register meta.
+	if len(snap.Projects) != 2 || snap.Projects[0] != "proj-a" {
+		t.Fatalf("snapshot projects wrong: %+v", snap.Projects)
+	}
+	if len(snap.Agents) != 2 || snap.Agents[0] != "codex" {
+		t.Fatalf("snapshot agents wrong: %+v", snap.Agents)
+	}
+	// Register metadata must be defensive copies: mutating the returned slices
+	// must not affect the conn's register meta.
 	snap.Labels[0] = "MUTATED"
-	if wc.meta.Labels[0] != "gpu" {
-		t.Fatal("WorkerSnapshot leaked the register labels slice (not a copy)")
+	snap.Projects[0] = "MUTATED"
+	snap.Agents[0] = "MUTATED"
+	if wc.meta.Labels[0] != "gpu" || wc.meta.Projects[0] != "proj-a" || wc.meta.Agents[0] != "codex" {
+		t.Fatal("WorkerSnapshot leaked register metadata slices (not copies)")
 	}
 }
 

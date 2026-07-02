@@ -78,7 +78,14 @@ func TestMetaRequiresAuth(t *testing.T) {
 // project carries its allowlists + default_agent.
 func TestMetaGroups(t *testing.T) {
 	workers := fakeWorkers{
-		"w-online": {Connected: true, LastHeartbeat: 1750300000000, InFlight: 1, Labels: []string{"gpu", "linux"}},
+		"w-online": {
+			Connected:     true,
+			LastHeartbeat: 1750300000000,
+			InFlight:      1,
+			Labels:        []string{"gpu", "linux"},
+			Projects:      []string{"proj-a"},
+			Agents:        []string{"codex"},
+		},
 	}
 	m := getMeta(t, newMetaServer(t, workers))
 
@@ -121,7 +128,14 @@ func TestMetaGroups(t *testing.T) {
 // /v1/meta for a worker agrees with what /v1/runners reports (same source).
 func TestMetaWorkerConnectedMatchesRunners(t *testing.T) {
 	workers := fakeWorkers{
-		"w-online": {Connected: true, LastHeartbeat: 1750300000000, InFlight: 1, Labels: []string{"gpu", "linux"}},
+		"w-online": {
+			Connected:     true,
+			LastHeartbeat: 1750300000000,
+			InFlight:      1,
+			Labels:        []string{"gpu", "linux"},
+			Projects:      []string{"proj-a"},
+			Agents:        []string{"codex"},
+		},
 	}
 	s := newMetaServer(t, workers)
 	m := getMeta(t, s)
@@ -134,8 +148,12 @@ func TestMetaWorkerConnectedMatchesRunners(t *testing.T) {
 	if !online.Connected || len(online.Labels) != 2 {
 		t.Fatalf("w-online meta should be connected with labels: %+v", online)
 	}
-	if offline.Connected || len(offline.Labels) != 0 {
-		t.Fatalf("w-offline meta should be disconnected with no labels: %+v", offline)
+	if len(online.Projects) != 1 || online.Projects[0] != "proj-a" ||
+		len(online.Agents) != 1 || online.Agents[0] != "codex" {
+		t.Fatalf("w-online meta projects/agents wrong: %+v", online)
+	}
+	if offline.Connected || len(offline.Labels) != 0 || len(offline.Projects) != 0 || len(offline.Agents) != 0 {
+		t.Fatalf("w-offline meta should be disconnected with no metadata: %+v", offline)
 	}
 
 	// Cross-check against /v1/runners: the worker runner "w" targets w-online and
@@ -148,6 +166,9 @@ func TestMetaWorkerConnectedMatchesRunners(t *testing.T) {
 	if (wr.Status == statusConnected) != online.Connected {
 		t.Fatalf("meta vs /v1/runners connected mismatch: meta=%v runners=%q", online.Connected, wr.Status)
 	}
+	if len(wr.Worker.Projects) != len(online.Projects) || len(wr.Worker.Agents) != len(online.Agents) {
+		t.Fatalf("meta vs /v1/runners projects/agents mismatch: meta=%+v runners=%+v", online, wr.Worker)
+	}
 }
 
 // TestMetaWorkersNilRegistry: with no workers registry wired, configured workers
@@ -158,7 +179,7 @@ func TestMetaWorkersNilRegistry(t *testing.T) {
 		t.Fatalf("want 2 configured workers, got %d", len(m.Workers))
 	}
 	for _, w := range m.Workers {
-		if w.Connected || len(w.Labels) != 0 {
+		if w.Connected || len(w.Labels) != 0 || len(w.Projects) != 0 || len(w.Agents) != 0 {
 			t.Fatalf("nil registry worker should be disconnected: %+v", w)
 		}
 	}

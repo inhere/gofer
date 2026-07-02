@@ -42,6 +42,8 @@ type WorkerStatus struct {
 	LastHeartbeat int64 // unix millis of the most recent inbound frame
 	InFlight      int
 	Labels        []string
+	Projects      []string
+	Agents        []string
 }
 
 // runnerProber is the consumer-side narrow interface (D2) the handler reads the
@@ -91,6 +93,8 @@ type workerView struct {
 	HeartbeatAgeMS int64    `json:"heartbeat_age_ms"`
 	InFlight       int      `json:"in_flight"`
 	Labels         []string `json:"labels,omitempty"`
+	Projects       []string `json:"projects,omitempty"`
+	Agents         []string `json:"agents,omitempty"`
 }
 
 // handleListRunners returns the status of every configured runner plus the
@@ -187,6 +191,8 @@ func (s *Server) renderWorkerStatus(workerID string, v *runnerView) string {
 		HeartbeatAgeMS: age,
 		InFlight:       ws.InFlight,
 		Labels:         ws.Labels,
+		Projects:       ws.Projects,
+		Agents:         ws.Agents,
 	}
 	return statusConnected
 }

@@ -254,6 +254,8 @@ type WorkerSnapshot struct {
 	LastHeartbeat int64 // unix seconds of the most recent inbound frame
 	InFlight      int   // count of server-side dispatched jobs currently running
 	Labels        []string
+	Projects      []string
+	Agents        []string
 }
 
 // WorkerSnapshot returns a point-in-time read-only view of workerID's live
@@ -268,12 +270,15 @@ func (r *WorkerRegistry) WorkerSnapshot(workerID string) (WorkerSnapshot, bool) 
 	if !ok {
 		return WorkerSnapshot{}, false
 	}
-	labels := make([]string, len(wc.meta.Labels))
-	copy(labels, wc.meta.Labels)
+	labels := append([]string(nil), wc.meta.Labels...)
+	projects := append([]string(nil), wc.meta.Projects...)
+	agents := append([]string(nil), wc.meta.Agents...)
 	return WorkerSnapshot{
 		WorkerID:      wc.workerID,
 		LastHeartbeat: wc.lastHeartbeat.Load(),
 		InFlight:      wc.inflightCount(),
 		Labels:        labels,
+		Projects:      projects,
+		Agents:        agents,
 	}, true
 }

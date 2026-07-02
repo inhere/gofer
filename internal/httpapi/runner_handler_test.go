@@ -150,7 +150,14 @@ func TestListRunnersWorker(t *testing.T) {
 		"r-offline": {Type: "worker", WorkerID: "w-offline"},
 	}
 	workers := fakeWorkers{
-		"w-online": {Connected: true, LastHeartbeat: now - 1200, InFlight: 2, Labels: []string{"gpu", "linux"}},
+		"w-online": {
+			Connected:     true,
+			LastHeartbeat: now - 1200,
+			InFlight:      2,
+			Labels:        []string{"gpu", "linux"},
+			Projects:      []string{"proj-a"},
+			Agents:        []string{"codex"},
+		},
 	}
 	rows := byName(listRunners(t, newRunnersServer(t, runnersCfg, nil, workers)))
 
@@ -160,6 +167,10 @@ func TestListRunnersWorker(t *testing.T) {
 	}
 	if on.Worker.HeartbeatAgeMS != 1200 || on.Worker.InFlight != 2 || len(on.Worker.Labels) != 2 {
 		t.Fatalf("online worker detail wrong: %+v", on.Worker)
+	}
+	if len(on.Worker.Projects) != 1 || on.Worker.Projects[0] != "proj-a" ||
+		len(on.Worker.Agents) != 1 || on.Worker.Agents[0] != "codex" {
+		t.Fatalf("online worker projects/agents wrong: %+v", on.Worker)
 	}
 	off := rows["r-offline"]
 	if off.Status != "disconnected" || off.Worker != nil {
