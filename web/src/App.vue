@@ -2,8 +2,9 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { clearToken, hasToken } from './store/auth'
-import { listAgents, listProjects } from './api/client'
-import type { AgentInfo } from './api/types'
+import { listAgents, listPresence, listProjects } from './api/client'
+import type { AgentInfo, Presence } from './api/types'
+import EscalationBell from './components/EscalationBell.vue'
 import ThemeToggle from './components/ThemeToggle.vue'
 
 const router = useRouter()
@@ -15,6 +16,8 @@ const connected = ref(false)
 // 左轨数据
 const projects = ref<string[]>([])
 const agents = ref<AgentInfo[]>([])
+const driverOnlineCount = ref(0)
+const supervisorOnline = ref(false)
 const railError = ref('')
 // 窄屏抽屉开关
 const drawerOpen = ref(false)
@@ -28,15 +31,32 @@ async function loadRail() {
   if (!hasToken()) {
     projects.value = []
     agents.value = []
+    driverOnlineCount.value = 0
+    supervisorOnline.value = false
     return
   }
   railError.value = ''
-  try {
-    const [pr, ar] = await Promise.all([listProjects(), listAgents()])
+  const [prResult, arResult, drResult] = await Promise.allSettled([
+    listProjects(),
+    listAgents(),
+    listPresence(),
+  ])
+  if (prResult.status === 'fulfilled' && arResult.status === 'fulfilled') {
+    const pr = prResult.value
+    const ar = arResult.value
     projects.value = pr.projects ?? []
     agents.value = ar.agents ?? []
-  } catch (e) {
+  } else {
     // 401 已由 client 处理（跳转登录）；其余仅在左轨给出轻提示
+    const e = prResult.status === 'rejected' ? prResult.reason : arResult.status === 'rejected' ? arResult.reason : ''
+    railError.value = e instanceof Error ? e.message : String(e)
+  }
+  if (drResult.status === 'fulfilled') {
+    const online = (drResult.value.agents ?? []).filter(isDriverOnline)
+    driverOnlineCount.value = online.length
+    supervisorOnline.value = online.some((a) => a.role === 'supervisor')
+  } else if (!railError.value) {
+    const e = drResult.reason
     railError.value = e instanceof Error ? e.message : String(e)
   }
 }
@@ -67,14 +87,26 @@ const activeProject = computed(() => {
   return typeof p === 'string' && p ? p : ''
 })
 
-const navItems = [
-  { to: '/board', label: 'board' },
-  { to: '/workflows', label: 'workflows' },
-  { to: '/schedules', label: 'schedules' },
-  { to: '/projects', label: 'projects' },
-  { to: '/agents', label: 'agents' },
-  { to: '/runners', label: 'runners' },
-  { to: '/cluster', label: 'cluster' },
+const homeNav = { to: '/dashboard', label: 'Home' }
+const navGroups = [
+  {
+    label: '观察',
+    items: [
+      { to: '/board', label: 'Board' },
+      { to: '/workflows', label: 'Workflows' },
+      { to: '/schedules', label: 'Schedules' },
+    ],
+  },
+  {
+    label: '舰队',
+    items: [
+      { to: '/drivers', label: 'Drivers' },
+      { to: '/agents', label: 'Agents' },
+      { to: '/runners', label: 'Runners' },
+      { to: '/cluster', label: 'Cluster' },
+      { to: '/projects', label: 'Projects' },
+    ],
+  },
 ]
 
 function logout() {
@@ -82,6 +114,8 @@ function logout() {
   connected.value = false
   projects.value = []
   agents.value = []
+  driverOnlineCount.value = 0
+  supervisorOnline.value = false
   router.replace({ path: '/access' })
 }
 
@@ -100,10 +134,17 @@ function gotoAgents() {
   drawerOpen.value = false
   void router.push('/agents')
 }
+function gotoDrivers() {
+  drawerOpen.value = false
+  void router.push('/drivers')
+}
 
 // agent 状态 -> 视觉 token（available=done，不可用=fail/queue）
 function agentDotColor(a: AgentInfo): string {
   return a.available ? 'var(--done)' : 'var(--fail)'
+}
+function isDriverOnline(a: Presence): boolean {
+  return a.status !== 'stale'
 }
 </script>
 
@@ -126,14 +167,24 @@ function agentDotColor(a: AgentInfo): string {
       </div>
       <nav class="nav mono" aria-label="主导航">
         <RouterLink
-          v-for="item in navItems"
-          :key="item.to"
-          :to="item.to"
+          :to="homeNav.to"
           class="nav-link"
           active-class="nav-link--active"
         >
-          {{ item.label }}
+          {{ homeNav.label }}
         </RouterLink>
+        <span v-for="group in navGroups" :key="group.label" class="grp">
+          <span class="glabel">{{ group.label }}</span>
+          <RouterLink
+            v-for="item in group.items"
+            :key="item.to"
+            :to="item.to"
+            class="nav-link"
+            active-class="nav-link--active"
+          >
+            {{ item.label }}
+          </RouterLink>
+        </span>
       </nav>
       <div class="topbar-right mono">
         <RouterLink to="/new" class="new-job" active-class="new-job--active">
@@ -142,6 +193,7 @@ function agentDotColor(a: AgentInfo): string {
         <RouterLink to="/schedules/new" class="new-job" active-class="new-job--active">
           + 新建 cron
         </RouterLink>
+        <EscalationBell />
         <span class="conn" :class="connected ? 'conn--on' : 'conn--off'">
           <span class="conn-dot"></span>
           {{ connected ? 'connected' : 'offline' }}
@@ -180,6 +232,24 @@ function agentDotColor(a: AgentInfo): string {
             </li>
             <li v-if="projects.length === 0" class="rail-empty mono">无项目</li>
           </ul>
+        </section>
+
+        <!-- DRIVERS -->
+        <section class="rail-section">
+          <h2 class="rail-title mono">DRIVERS</h2>
+          <button
+            type="button"
+            class="rail-item rail-item--driver mono"
+            @click="gotoDrivers"
+          >
+            <span
+              class="driver-dot"
+              :class="{ 'driver-dot--sup': supervisorOnline }"
+              aria-hidden="true"
+            ></span>
+            <span class="driver-label">online</span>
+            <span class="driver-count">{{ driverOnlineCount }}</span>
+          </button>
         </section>
 
         <!-- AGENTS -->
@@ -281,13 +351,31 @@ function agentDotColor(a: AgentInfo): string {
 
 .nav {
   display: flex;
+  align-items: center;
   gap: 16px;
   font-size: 13px;
+}
+.grp {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  min-width: max-content;
+}
+.glabel {
+  flex: none;
+  color: var(--queue);
+  border-left: 1px solid var(--line);
+  padding-left: 10px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  opacity: 0.75;
+  white-space: nowrap;
 }
 .nav-link {
   color: var(--queue);
   padding: 2px 0;
   border-bottom: 1px solid transparent;
+  white-space: nowrap;
 }
 .nav-link:hover {
   color: var(--paper);
@@ -445,6 +533,31 @@ function agentDotColor(a: AgentInfo): string {
   font-size: 11px;
   margin-left: auto;
   flex: none;
+}
+
+.rail-item--driver {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.driver-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex: none;
+  background: var(--done);
+}
+.driver-dot--sup {
+  background: var(--phosphor);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--phosphor) 25%, transparent);
+}
+.driver-label {
+  color: var(--paper);
+}
+.driver-count {
+  margin-left: auto;
+  color: var(--phosphor);
+  font-weight: 600;
 }
 
 .rail-empty {
