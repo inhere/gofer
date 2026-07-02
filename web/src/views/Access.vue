@@ -23,7 +23,7 @@ async function connect() {
   try {
     // 用 listProjects 验证 token 与服务连通性
     await listProjects()
-    router.replace({ path: '/board' })
+    router.replace({ path: '/dashboard' })
   } catch (e) {
     // 401 时 client 已清 token；其他失败这里兜底清掉
     clearToken()
