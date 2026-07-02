@@ -59,6 +59,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 
 	entry.mu.Lock()
 	entry.result.Status = StatusRunning
+	entry.result.RenderedCommand = renderedCommandJSON(req)
 	snap := entry.result
 	entry.mu.Unlock()
 
