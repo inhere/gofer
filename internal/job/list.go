@@ -33,6 +33,8 @@ type ListOpts struct {
 	Since int64
 	// Limit caps the number of returned jobs; <= 0 means defaultListLimit.
 	Limit int
+	// Offset skips the first Offset rows after sorting; <= 0 means no offset.
+	Offset int
 }
 
 // ListJobs returns job snapshots across one or all projects, merging the
@@ -55,9 +57,18 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 	}
 
 	// 2. Pull the persisted base set from the metadata store (DB-side project/
-	// status filter + ordering). DB read; no service lock held. A query error is
-	// non-fatal: fall back to whatever the in-memory overlay provides.
+	// status filter + ordering). When offset is requested, fetch enough base rows
+	// for the final in-memory merge/sort/offset pass below. DB read; no service
+	// lock held. A query error is non-fatal: fall back to whatever the in-memory
+	// overlay provides.
 	merged := map[string]JobResult{}
+	dbLimit := opts.Limit
+	if opts.Offset > 0 {
+		if dbLimit <= 0 {
+			dbLimit = defaultListLimit
+		}
+		dbLimit += opts.Offset
+	}
 	recs, _ := s.meta.ListJobs(jobstore.ListQuery{
 		Project: opts.Project,
 		Status:  opts.Status,
@@ -67,7 +78,7 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 		Runner:  opts.Runner,
 		Session: opts.Session,
 		Since:   opts.Since,
-		Limit:   opts.Limit,
+		Limit:   dbLimit,
 	})
 	for _, rec := range recs {
 		merged[rec.ID] = fromRecord(rec)
@@ -129,6 +140,12 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 	limit := opts.Limit
 	if limit <= 0 {
 		limit = defaultListLimit
+	}
+	if opts.Offset > 0 {
+		if opts.Offset >= len(out) {
+			return []JobResult{}, nil
+		}
+		out = out[opts.Offset:]
 	}
 	if len(out) > limit {
 		out = out[:limit]
