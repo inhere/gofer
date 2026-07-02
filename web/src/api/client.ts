@@ -6,6 +6,7 @@ import { streamJob } from './sse'
 import type {
   AgentsResp,
   ArtifactsResp,
+  CreateScheduleReq,
   DeliveriesResp,
   FileContent,
   GitStatus,
@@ -21,6 +22,8 @@ import type {
   ProjectsResp,
   ReposResp,
   RunnersResp,
+  Schedule,
+  SchedulesResp,
   SubmitJobReq,
   SubmitJobResult,
   Workflow,
@@ -354,6 +357,47 @@ export function listDeliveries(id: string): Promise<DeliveriesResp> {
   return request<DeliveriesResp>(
     `/v1/jobs/${encodeURIComponent(id)}/deliveries`,
   )
+}
+
+// cron 定时调度（AUTO-02）CRUD + 操作。均走 authed 组（Bearer token），与 /jobs
+// 写操作同级。列表可按 project 过滤；enable/disable/run-now 返回更新后的快照。
+
+export function listSchedules(project?: string): Promise<SchedulesResp> {
+  const qs = project ? `?project=${encodeURIComponent(project)}` : ''
+  return request<SchedulesResp>(`/v1/schedules${qs}`)
+}
+
+export function getSchedule(id: string): Promise<Schedule> {
+  return request<Schedule>(`/v1/schedules/${encodeURIComponent(id)}`)
+}
+
+export function createSchedule(req: CreateScheduleReq): Promise<Schedule> {
+  return request<Schedule>('/v1/schedules', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+}
+
+export function deleteSchedule(id: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/v1/schedules/${encodeURIComponent(id)}`, {
+    method: 'DELETE',
+  })
+}
+
+// 启用/停用：走 /enable 或 /disable 子路径（后端 setScheduleEnabled）。
+export function setScheduleEnabled(id: string, enabled: boolean): Promise<Schedule> {
+  const verb = enabled ? 'enable' : 'disable'
+  return request<Schedule>(`/v1/schedules/${encodeURIComponent(id)}/${verb}`, {
+    method: 'POST',
+  })
+}
+
+// 立即触发一次（不改 next_run_at）：返回提交的 job（channel=cron）。
+export function runSchedule(id: string): Promise<Job> {
+  return request<Job>(`/v1/schedules/${encodeURIComponent(id)}/run-now`, {
+    method: 'POST',
+  })
 }
 
 // SSE 流（转发到 api/sse.ts）
