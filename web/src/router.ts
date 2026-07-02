@@ -3,13 +3,14 @@ import type { RouteRecordRaw } from 'vue-router'
 import { hasToken } from './store/auth'
 
 const routes: RouteRecordRaw[] = [
-  { path: '/', redirect: '/board' },
+  { path: '/', redirect: '/dashboard' },
   {
     path: '/access',
     name: 'access',
     component: () => import('./views/Access.vue'),
     meta: { public: true },
   },
+  { path: '/dashboard', name: 'dashboard', component: () => import('./views/Dashboard.vue') },
   { path: '/board', name: 'board', component: () => import('./views/Board.vue') },
   { path: '/new', name: 'new-job', component: () => import('./views/NewJob.vue') },
   {
@@ -30,6 +31,13 @@ const routes: RouteRecordRaw[] = [
     path: '/schedules/new',
     name: 'new-schedule',
     component: () => import('./views/NewSchedule.vue'),
+  },
+  { path: '/drivers', name: 'drivers', component: () => import('./views/Drivers.vue') },
+  {
+    path: '/drivers/:id',
+    name: 'driver-inbox',
+    component: () => import('./views/DriverInbox.vue'),
+    props: true,
   },
   { path: '/projects', name: 'projects', component: () => import('./views/Projects.vue') },
   { path: '/agents', name: 'agents', component: () => import('./views/Agents.vue') },

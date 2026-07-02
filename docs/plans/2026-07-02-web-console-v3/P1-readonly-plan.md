@@ -11,7 +11,7 @@
 - [x] **P1.3** 前端 · types + client 基础 ✅（+listPendingInteractions；主机 pnpm build 类型检查绿）
 - [ ] **P1.4** 前端 · WEB-06 导航/IA + EscalationBell（**只读**：计数/下拉/toast，无应答按钮）
 - [x] **P1.5** 前端 · WEB-07 Dashboard 首页 ✅（pnpm build 绿+代码审查；视觉眼检随 P1.4 接路由后做）
-- [ ] **P1.6** 前端 · Drivers(presence) + Inbox 展示
+- [x] **P1.6** 前端 · Drivers(presence) + Inbox 展示 ✅（+dashboard/drivers 路由；pnpm build 绿+代码审查，只读确认；视觉眼检随 P1 末统一做）
 - [ ] **P1.7** 前端 · Board 补强 + Cluster worker 透视 + Agents 作用域说明 + JobDetail rendered-cmd 前置
 
 ## 现状校正（勿重做 / 已具备）
