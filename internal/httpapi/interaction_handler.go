@@ -107,13 +107,18 @@ func (s *Server) handleAnswerInteraction(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
+	caller := callerFromCtx(c)
+	if !s.callerMayAnswer(caller) {
+		writeError(c, http.StatusForbidden, "answer not permitted for this caller", "caller lacks can_answer capability")
+		return
+	}
 
 	var (
 		it  job.Interaction
 		err error
 	)
 	if req.Responder == "" {
-		it, err = s.jobs.AnswerInteractionByHuman(id, iid, req.Answer, callerFromCtx(c))
+		it, err = s.jobs.AnswerInteractionByHuman(id, iid, req.Answer, caller)
 	} else {
 		it, err = s.jobs.AnswerInteractionBy(id, iid, req.Answer, req.Responder)
 	}
@@ -132,11 +137,23 @@ func (s *Server) handleAnswerInteraction(c *rux.Context) {
 func (s *Server) handlePuntInteraction(c *rux.Context) {
 	id := c.Param("id")
 	iid := c.Param("interaction_id")
-	if err := s.jobs.MarkInteractionNeedsHumanBy(id, iid, callerFromCtx(c)); err != nil {
+	caller := callerFromCtx(c)
+	if !s.callerMayAnswer(caller) {
+		writeError(c, http.StatusForbidden, "answer not permitted for this caller", "caller lacks can_answer capability")
+		return
+	}
+	if err := s.jobs.MarkInteractionNeedsHumanBy(id, iid, caller); err != nil {
 		writeError(c, interactionStatus(err), "punt interaction failed", err.Error())
 		return
 	}
 	c.JSON(http.StatusOK, map[string]any{"status": "ok"})
+}
+
+func (s *Server) callerMayAnswer(caller string) bool {
+	if s.cfg == nil || !s.cfg.Governance.RequireAnswerCapability {
+		return true
+	}
+	return s.cfg.CallerCanAnswer(caller)
 }
 
 // interactionStatus maps a job-package interaction error to an HTTP status

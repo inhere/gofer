@@ -1,6 +1,10 @@
 package config
 
-import "testing"
+import (
+	"path/filepath"
+	"strings"
+	"testing"
+)
 
 // TestCallerConcurrencyLimit covers the three-state precedence of the E17
 // concurrency-cap resolver (design §7.2): caller override > governance default >
@@ -43,6 +47,32 @@ func TestCallerConcurrencyLimit(t *testing.T) {
 	}
 }
 
+func TestCallerCanAnswer(t *testing.T) {
+	sc := ServerConfig{
+		Callers: []CallerConfig{
+			{ID: "operator", CanAnswer: true},
+			{ID: "ci"},
+		},
+	}
+	cases := []struct {
+		name   string
+		caller string
+		want   bool
+	}{
+		{"capability set", "operator", true},
+		{"capability unset", "ci", false},
+		{"unknown caller", "nobody", false},
+		{"empty caller", "", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := sc.CallerCanAnswer(tc.caller); got != tc.want {
+				t.Errorf("CallerCanAnswer(%q) = %v, want %v", tc.caller, got, tc.want)
+			}
+		})
+	}
+}
+
 // TestCallerRate covers the E17 rate resolver (design §7.3): caller override >
 // governance default > unlimited, plus the burst defaulting (<=0 → max(1,
 // ceil(rps))).
@@ -51,9 +81,9 @@ func TestCallerRate(t *testing.T) {
 		Governance: GovernanceConfig{DefaultRateLimit: 5, DefaultRateBurst: 10},
 		Callers: []CallerConfig{
 			{ID: "ci-bot", RateLimit: 20, RateBurst: 40}, // full own override
-			{ID: "ops"},                                  // no own rate → governance default
-			{ID: "rate-only", RateLimit: 7},              // own rate, burst falls to governance default
-			{ID: "burst-only", RateBurst: 99},            // no own rate → governance rate, but own burst wins
+			{ID: "ops"},                       // no own rate → governance default
+			{ID: "rate-only", RateLimit: 7},   // own rate, burst falls to governance default
+			{ID: "burst-only", RateBurst: 99}, // no own rate → governance rate, but own burst wins
 		},
 	}
 	cases := []struct {
@@ -96,5 +126,46 @@ func TestCallerRate(t *testing.T) {
 	}
 	if rps, burst := none.CallerRate(""); rps != 0 || burst != 0 {
 		t.Errorf("no-rate empty-caller CallerRate = (%v, %d), want (0, 0)", rps, burst)
+	}
+}
+
+func TestLoadRequireAnswerCapabilityNeedsAnswerCaller(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cfg.yaml")
+	write(t, p, `
+server:
+  governance:
+    require_answer_capability: true
+  callers:
+    - id: readonly
+      token: ro
+`)
+	_, _, err := Load(p)
+	if err == nil {
+		t.Fatal("Load should reject require_answer_capability without can_answer caller")
+	}
+	if !strings.Contains(err.Error(), "require_answer_capability is on but no caller has can_answer: true") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadRequireAnswerCapabilityAllowsAnswerCaller(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cfg.yaml")
+	write(t, p, `
+server:
+  governance:
+    require_answer_capability: true
+  callers:
+    - id: operator
+      token: op
+      can_answer: true
+`)
+	cfg, _, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Server.CallerCanAnswer("operator") {
+		t.Fatal("operator should retain can_answer after Load")
 	}
 }
