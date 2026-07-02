@@ -1,7 +1,7 @@
 <script setup lang="ts">
 // 运行中交互卡：question 文本问答 / choice 选项 / confirmation 确认。
-//  - pending：可输入/点选，emit answer(value)；
-//  - answered：整卡只读，展示「已提交：{answer}」；
+//  - pending：可输入/点选，emit answer(value)，未留人时可 emit punt；
+//  - answered：整卡只读，展示「已提交：{answer}」和归属；
 //  - submitting：禁用全部输入/按钮，防重复提交。
 // 视觉：--panel 底 + --line 边 + --phosphor 强调标题；id/type mono 小字。
 // 一次性滑入动画，prefers-reduced-motion 下关闭。
@@ -9,10 +9,17 @@ import { computed, ref } from 'vue'
 import type { Interaction } from '../api/types'
 
 const props = defineProps<{ interaction: Interaction; submitting?: boolean }>()
-const emit = defineEmits<{ (e: 'answer', value: string): void }>()
+const emit = defineEmits<{
+  (e: 'answer', value: string): void
+  (e: 'punt'): void
+}>()
 
 const answered = computed(() => props.interaction.status === 'answered')
 const disabled = computed(() => !!props.submitting || answered.value)
+const canPunt = computed(
+  () => props.interaction.status === 'pending' && props.interaction.needs_human !== 1,
+)
+const answeredBy = computed(() => props.interaction.answered_by?.trim() || 'human')
 
 // question：本地文本输入
 const text = ref('')
@@ -45,9 +52,23 @@ function submit(value: string): void {
   emit('answer', value)
 }
 
+function punt(): void {
+  if (disabled.value || !canPunt.value) {
+    return
+  }
+  emit('punt')
+}
+
 // label 优先，回退 value
 function optLabel(opt: { value: string; label?: string }): string {
   return opt.label ?? opt.value
+}
+
+function fmtTime(v: number | undefined): string {
+  if (v == null || v <= 0) {
+    return ''
+  }
+  return new Date(v * 1000).toLocaleString()
 }
 </script>
 
@@ -61,9 +82,16 @@ function optLabel(opt: { value: string; label?: string }): string {
     <p class="icard-prompt">{{ interaction.prompt }}</p>
 
     <!-- answered：只读回显 -->
-    <p v-if="answered" class="icard-done mono">
-      已提交：<span class="icard-answer">{{ interaction.answer }}</span>
-    </p>
+    <template v-if="answered">
+      <p class="icard-done mono">
+        已提交：<span class="icard-answer">{{ interaction.answer }}</span>
+      </p>
+      <p class="icard-meta mono">
+        <span>answered_by {{ answeredBy }}</span>
+        <span v-if="fmtTime(interaction.answered_at)">{{ fmtTime(interaction.answered_at) }}</span>
+        <span v-if="interaction.needs_human === 1" class="icard-mark">needs_human</span>
+      </p>
+    </template>
 
     <!-- question：文本输入 + 提交 -->
     <div v-else-if="interaction.type === 'question'" class="icard-body">
@@ -125,6 +153,17 @@ function optLabel(opt: { value: string; label?: string }): string {
         {{ confirmNoLabel }}
       </button>
     </div>
+
+    <div v-if="canPunt" class="icard-footer">
+      <button
+        class="icard-punt mono"
+        type="button"
+        :disabled="disabled"
+        @click="punt"
+      >
+        {{ submitting ? '提交中' : 'punt' }}
+      </button>
+    </div>
   </div>
 </template>
 
@@ -177,6 +216,20 @@ function optLabel(opt: { value: string; label?: string }): string {
 }
 .icard-answer {
   color: var(--phosphor);
+}
+.icard-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 6px 0 0;
+  color: var(--queue);
+  font-size: 11px;
+}
+.icard-mark {
+  border: 1px solid var(--fail);
+  border-radius: 9px;
+  color: var(--fail);
+  padding: 0 6px;
 }
 
 .icard-body {
@@ -248,6 +301,25 @@ function optLabel(opt: { value: string; label?: string }): string {
 }
 .icard-btn--ghost {
   color: var(--queue);
+}
+.icard-footer {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 8px;
+}
+.icard-punt {
+  background: transparent;
+  border: none;
+  color: var(--queue);
+  padding: 0;
+  font-size: 11px;
+}
+.icard-punt:hover:not(:disabled) {
+  color: var(--run);
+}
+.icard-punt:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
 }
 
 @keyframes icard-slide {
