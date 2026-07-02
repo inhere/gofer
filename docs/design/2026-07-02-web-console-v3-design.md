@@ -7,6 +7,7 @@
 
 | 版本 | 日期 | 修改人 | 调整说明 |
 |---|---|---|---|
+| v0.2 | 2026-07-02 | claude | 评审反馈：厘清 **Projects/Agents = server 作用域**；新增 **§6.6 Worker 节点透视**（worker 握手已上报 projects/agents，`WorkerStatus` 补字段暴露 + Cluster 节点面板展示，纳入 P1 只读）。§13 待确认 5 项 + worker 透视均按推荐确认。 |
 | v0.1 | 2026-07-02 | claude | 初版：WEB-06 IA / WEB-07 Dashboard(+/v1/stats) / WEB-08 列表详情补强 / **Drivers(presence)+Inbox 展示** / WEB-09 全局交互通知+应答。分 P1 只读观察层 + P2 写/交互层，写层前置=身份分级决策。 |
 
 ## 1. 概览 / 背景
@@ -32,6 +33,8 @@ v3 目标：**把控制台从"看板+详情"升级为"整体可观察 + 舰队/a
 | **escalation** | `pending_interaction` 被 sup 判定需人工（`needs_human=1`）或升级到 owner/sup 的状态。 |
 | **role（角色）** | MCP-03 角色预设；job/driver 均可带 `role`，列表据此标记。 |
 
+> **作用域澄清（评审要点）**：`Projects`/`Agents` 页均为 **server 中央配置**作用域——`/v1/projects`·`/v1/agents` 来自 serve 的 `config`，且 Agents 可用性在 **serve 主机**探测。**worker 节点**各有自己的 projects/agents（`worker.yaml`），在 WS 握手 `wsproto.Register` 帧里**已上报**给 serve、`workerConn.meta` **已保留**，但现有 `WorkerStatus` 只暴露 labels——v3 §6.6 补其暴露。`Drivers(presence)` 是在线 mcp driver 实例，与前两者**正交**。
+
 ## 3. 范围
 
 **含（本设计）**：
@@ -41,6 +44,7 @@ v3 目标：**把控制台从"看板+详情"升级为"整体可观察 + 舰队/a
 - **WEB-08** job 列表 / 详情体验补强——分页 + 时间列 + running rendered cmd + STDOUT/STDERR tab + ANSI。
 - **Drivers(presence) + Inbox 展示**——在线 driver 名册 + inbox 观察 + sup/role 标记（roadmap #6/#7；只读）。
 - **WEB-09** 全局交互通知 + Web 应答——跨页 `pending_interaction` 通知 + choice/confirm 就地应答 / punt（**写层**）。
+- **Worker 节点透视**——Cluster 节点面板展示各 worker **自报的 projects/agents/labels**（`WorkerStatus` 补字段暴露；只读），厘清"server 中央 vs worker 节点能力"（§6.6）。
 
 **不含（留后续，各需独立设计）**：
 
@@ -62,6 +66,7 @@ v3 目标：**把控制台从"看板+详情"升级为"整体可观察 + 舰队/a
 2. Job view 已暴露 `role`/`origin_agent`/`escalate_to`；Interaction view 已含 `needs_human`/`escalated_at`/`answered_by` —— **sup/role 标记与 escalation 展示是纯前端**（补 `types.ts` 字段即可）。
 3. 前端改动**需 `make web` 重 embed + 重建二进制**才在控制台生效（v2 同款约束）。
 4. 沿用现有前端栈与风格：Vue 3 `<script setup>` + vue-router + fetch client（`api/client.ts`）+ 轮询 + Page Visibility 暂停 + `tokens.css` 视觉 token（mono/phosphor）。
+5. **worker 已上报 projects/agents**：`wsproto.Register` 帧含 `Projects`/`Agents`/`Labels`，serve 端 `workerConn.meta` 完整保留；现 `WorkerStatus` 仅暴露 labels → **补 2 字段即可透出**（§6.6），无需 worker 侧改动。
 
 ## 5. 架构总览
 
@@ -84,6 +89,8 @@ Gofer ▸ agent bridge
 - 现有页保留；`Agents.vue`（配置态能力）与 `Drivers`（运行态实例）并列、职责区分（§2）。
 
 窄屏沿用 v2 抽屉；nav 分组用小标题分隔。
+
+> HTML 效果预览 [web-v3-preview.html](web-v3-preview.html)
 
 ### 5.2 前后端分层
 
@@ -168,6 +175,14 @@ Gofer ▸ agent bridge
 
 **前置（硬约束）**：写操作必须先定**身份分级**（§12）。P1 只做通知/展示（读），应答按钮在 P2 且身份决策落地后启用。
 
+### 6.6 Worker 节点透视（projects/agents，只读，P1）
+
+厘清作用域（§2 澄清）并补齐"舰队/agent 透视"：Projects/Agents 页是 **server 中央真源**；worker 节点各有自己的能力，本节把 worker **握手已上报**的 projects/agents 透出到 UI。
+
+- **后端（小改）**：`WorkerStatus`（`runner_handler.go`）加 `Projects []string` + `Agents []string`，从 `workerConn.meta.Projects/Agents` 填（数据已在内存）；`/v1/runners` 的 workerView + `/v1/meta.workers` 一并暴露（复用现有 labels 透出路径）。**worker 侧零改动**（已在 `wsproto.Register` 发送）。
+- **前端**：`Cluster.vue` 节点面板（WEB-04 已有）点击 worker 时，除心跳/in-flight/labels 外，增列该 worker 的 **projects / agents**；`Agents.vue` 顶部加一句作用域说明"以下为 serve 主机 agents；worker 节点 agents 见 Cluster"。
+- **边界**：只展示 worker **自报**名单（非在 worker 上实时探测可用性）；不画"项目→节点"依赖边（D2，与 v2 一致）；stale/离线 worker 不展示其能力。
+
 ## 7. 关键流程
 
 ### 7.1 escalation 通知 → Web 应答（WEB-09）
@@ -200,6 +215,7 @@ web Drivers.vue 轮询 /v1/agents/presence ──▶ 在线名册(含 supervisor
 - `Interaction` 补 `needs_human? / escalated_at? / answered_by?`（后端已有）。
 - 新增 `Presence`(=Agent)、`InboxMessage`(=Message)、`Stats` 类型（对齐 §6.2/§6.3 JSON）。
 - `ListJobsOpts` 补 `offset?`。
+- `RunnerWorker` / `MetaWorker` 补 `projects? / agents?`（§6.6，worker 自报名单）。
 
 ## 9. 后端改动清单（最小）
 
@@ -208,6 +224,7 @@ web Drivers.vue 轮询 /v1/agents/presence ──▶ 在线名册(含 supervisor
 | 新增 `GET /v1/stats` | `httpapi` + `server.go` 注册 | authed 只读聚合（§6.2）。handler 组装 jobstore 计数 + presence.List + pending 过滤。 |
 | `GET /v1/jobs` 补读 `offset` | `job_handler.go` `handleListJobs` | `strconv.Atoi(c.Query("offset"))` → `ListQuery.Offset`（jobstore 已支持，仅 handler 没读）。 |
 | jobstore 计数辅助 | `jobstore/jobs.go` `schedules.go` | `CountJobsByStatus()`/`CountSchedules()`（若无现成），供 `/v1/stats`。 |
+| `WorkerStatus` 加 `Projects`/`Agents` | `runner_handler.go` + wshub 透出 `wc.meta` | 从 `workerConn.meta` 填，`/v1/runners`+`/v1/meta.workers` 暴露（§6.6）。worker 侧零改动。 |
 
 其余端点（presence/inbox/pending-interactions/answer/punt）**零改动**，前端直接对接。
 
@@ -221,6 +238,8 @@ web Drivers.vue 轮询 /v1/agents/presence ──▶ 在线名册(含 supervisor
 | GET | `/v1/agents/presence?role=&project=` | 在线 driver 名册 | 已存在 |
 | GET | `/v1/agents/{id}/inbox?include_read=1` | inbox 只读观察 | 已存在 |
 | GET | `/v1/interactions?status=pending` | 跨 job 待处理交互 | 已存在 |
+| GET | `/v1/runners` | worker/peer/local 名册 | **worker 补 projects/agents 字段（P1，§6.6）** |
+| GET | `/v1/meta` | 表单选项聚合 | **worker 补 projects/agents（P1，§6.6）** |
 | POST | `/v1/jobs/{id}/interactions/{iid}/answer` | Web 应答（写，P2） | 已存在 |
 | POST | `/v1/jobs/{id}/interactions/{iid}/punt` | 留人（写，P2） | 已存在 |
 
@@ -239,6 +258,8 @@ web Drivers.vue 轮询 /v1/agents/presence ──▶ 在线名册(含 supervisor
 前端改动，遵循 v2 约束：主机 `make web`（pnpm build + embed 到 `internal/webui/dist`，已 gitignore）+ `make build`/`make install` 重建二进制 + 重启 host serve 才生效。容器内 node_modules 为 host 符号链接农场，构建走 `gofer job --runner local` 主机跑。P1 后端两处小改随二进制一起出。
 
 ## 13. 待确认
+
+> **2026-07-02：以下 5 项均按推荐确认**（用户"按推荐确认"），worker 节点透视亦确认纳入 P1（§6.6）。保留原文留决策痕迹，可进 plan。
 
 1. **WEB-09 身份分级取向**（§11）：采用"复用 caller_id + 独立 operator token + 可选 `can_answer` 能力位"务实方案？还是本期只做 P1 只读、WEB-09 应答留到鉴权体系另议？（**推荐前者，且 P1 可独立先上**）
 2. **Drivers 是否独立 nav 项** vs 并入 `Agents.vue` 分 tab？（推荐独立项：配置态 vs 运行态职责不同）
