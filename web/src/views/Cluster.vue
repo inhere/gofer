@@ -391,6 +391,14 @@ function isActive(r: Runner): boolean {
           <span v-for="l in selectedRunner.worker.labels" :key="l" class="chip mono">{{ l }}</span>
         </div>
         <p v-else class="muted mono">无 labels</p>
+        <h3 v-if="selectedRunner.worker?.projects?.length" class="sub mono">projects</h3>
+        <div v-if="selectedRunner.worker?.projects?.length" class="chips">
+          <span v-for="p in selectedRunner.worker.projects" :key="p" class="chip mono">{{ p }}</span>
+        </div>
+        <h3 v-if="selectedRunner.worker?.agents?.length" class="sub mono">agents</h3>
+        <div v-if="selectedRunner.worker?.agents?.length" class="chips">
+          <span v-for="a in selectedRunner.worker.agents" :key="a" class="chip mono">{{ a }}</span>
+        </div>
       </div>
 
       <!-- peer-http -->
