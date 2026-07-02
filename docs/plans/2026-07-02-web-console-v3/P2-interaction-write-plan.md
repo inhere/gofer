@@ -20,11 +20,11 @@
 
 ## 进度跟踪
 
-- [ ] **P2.1** 后端 · 应答审计归属（answered_by=caller_id，不触 agent 派生作答闸）+ punt 归属
-- [ ] **P2.2** 后端 · `can_answer` 能力位 + 可选闸（opt-in，默认放行保持兼容）
-- [ ] **P2.3** 前端 · client `puntInteraction` + EscalationBell 内联应答/punt（choice/confirm 就地，question 引导详情）
-- [ ] **P2.4** 前端 · JobDetail 加 punt 按钮 + 展示 answered_by
-- [ ] **P2.5** 文档 · runbook operator token 配置 + 安全说明（SR201-204 对齐）
+- [x] **P2.1** 后端 · 应答审计归属（answered_by=caller_id，不触 agent 派生作答闸）+ punt 归属 — c316cda
+- [x] **P2.2** 后端 · `can_answer` 能力位 + 可选闸（opt-in，默认放行保持兼容）— 2d8dfbe
+- [x] **P2.3** 前端 · client `puntInteraction` + EscalationBell 内联应答/punt（choice/confirm 就地，question 引导详情）— 063011e
+- [x] **P2.4** 前端 · JobDetail 加 punt 按钮 + 展示 answered_by — 2824856
+- [x] **P2.5** 文档 · runbook operator token 配置 + 安全说明（SR201-204 对齐）— runbook 2026-07-02-web-interaction-answer-runbook.md + roadmap WEB-09 ✅
 
 ---
 
