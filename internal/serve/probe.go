@@ -28,6 +28,8 @@ func (a hubWorkerRegistry) WorkerStatus(workerID string) (httpapi.WorkerStatus, 
 		LastHeartbeat: snap.LastHeartbeat * 1000, // seconds → millis (SR102)
 		InFlight:      snap.InFlight,
 		Labels:        snap.Labels,
+		Projects:      snap.Projects,
+		Agents:        snap.Agents,
 	}, true
 }
 
