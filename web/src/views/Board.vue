@@ -12,6 +12,7 @@ const route = useRoute()
 const router = useRouter()
 
 const POLL_MS = 2500
+const PAGE_SIZE = 50
 
 const jobs = ref<Job[]>([])
 const countJobs = ref<Job[]>([])
@@ -20,6 +21,7 @@ const loading = ref(false)
 const error = ref('')
 const lastRefreshedAt = ref<number | null>(null)
 const statusFilter = ref<'' | JobStatus>('')
+const offset = ref(0)
 // E5 检索维度：tag/agent/runner 自由输入，caller 自由输入，since 走相对快捷预设。
 const tagFilter = ref('')
 const agentFilter = ref('')
@@ -88,6 +90,9 @@ const runningCount = computed(
 const problemCount = computed(
   () => jobs.value.filter((job) => job.status === 'failed' || job.status === 'timeout').length,
 )
+const pageNumber = computed(() => Math.floor(offset.value / PAGE_SIZE) + 1)
+const canPrevPage = computed(() => offset.value > 0)
+const canNextPage = computed(() => jobs.value.length === PAGE_SIZE)
 
 const lastRefreshedText = computed(() => {
   if (lastRefreshedAt.value == null) {
@@ -123,6 +128,8 @@ async function fetchJobs(): Promise<void> {
       runner: runnerFilter.value.trim() || undefined,
       caller: callerFilter.value.trim() || undefined,
       since: sinceParam(),
+      limit: PAGE_SIZE,
+      offset: offset.value,
     })
     jobs.value = resp.jobs ?? []
     error.value = ''
@@ -191,6 +198,7 @@ watch(
     sinceFilter,
   ],
   () => {
+    offset.value = 0
     void fetchJobs()
   },
 )
@@ -225,6 +233,22 @@ function openJob(job: Job): void {
 }
 
 function refreshNow(): void {
+  void fetchJobs()
+}
+
+function prevPage(): void {
+  if (!canPrevPage.value) {
+    return
+  }
+  offset.value = Math.max(0, offset.value - PAGE_SIZE)
+  void fetchJobs()
+}
+
+function nextPage(): void {
+  if (!canNextPage.value) {
+    return
+  }
+  offset.value += PAGE_SIZE
   void fetchJobs()
 }
 
@@ -373,6 +397,19 @@ onUnmounted(() => {
           <span v-if="job.tags && job.tags.length" class="job-tags">
             <span v-for="t in job.tags" :key="t" class="tag-chip mono" :title="t">{{ t }}</span>
           </span>
+          <span v-if="job.role || job.channel" class="job-badges">
+            <span
+              v-if="job.role"
+              class="job-badge mono"
+              :class="{ 'job-badge--sup': job.role === 'supervisor' }"
+              :title="`role: ${job.role}`"
+            >{{ job.role }}</span>
+            <span
+              v-if="job.channel"
+              class="job-badge job-badge--chan mono"
+              :title="`channel: ${job.channel}`"
+            >{{ job.channel }}</span>
+          </span>
         </span>
         <span class="col-proj mono">{{ job.project_key }}</span>
         <span class="col-agent mono">{{ job.agent }}</span>
@@ -390,6 +427,16 @@ onUnmounted(() => {
       <div v-if="jobs.length === 0 && !error" class="empty mono">
         暂无 job
       </div>
+    </div>
+
+    <div class="pager mono">
+      <button class="pager-btn" type="button" :disabled="!canPrevPage || loading" @click="prevPage">
+        上一页
+      </button>
+      <span class="pager-page">第 {{ pageNumber }} 页</span>
+      <button class="pager-btn" type="button" :disabled="!canNextPage || loading" @click="nextPage">
+        下一页
+      </button>
     </div>
   </div>
 </template>
@@ -630,6 +677,12 @@ onUnmounted(() => {
   gap: 4px;
   margin-top: 2px;
 }
+.job-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
 .tag-chip {
   font-size: 10px;
   color: var(--phosphor);
@@ -641,6 +694,25 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.job-badge {
+  font-size: 10px;
+  color: var(--queue);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0 5px;
+  line-height: 15px;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.job-badge--sup {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
+}
+.job-badge--chan {
+  color: var(--paper);
 }
 .col-proj {
   color: var(--paper);
@@ -694,6 +766,36 @@ onUnmounted(() => {
   color: var(--queue);
   font-size: 13px;
 }
+.pager {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 10px;
+  font-size: 12px;
+  color: var(--queue);
+}
+.pager-btn {
+  background: transparent;
+  color: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  font-size: 12px;
+}
+.pager-btn:hover:not(:disabled) {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
+}
+.pager-btn:disabled {
+  color: var(--queue);
+  cursor: default;
+  opacity: 0.65;
+}
+.pager-page {
+  min-width: 64px;
+  text-align: center;
+}
 
 @media (max-width: 768px) {
   .board-head {
@@ -706,6 +808,9 @@ onUnmounted(() => {
   }
   .last-refresh {
     flex: 1;
+  }
+  .pager {
+    justify-content: space-between;
   }
   .status-tab {
     flex: 1 1 calc(50% - 6px);

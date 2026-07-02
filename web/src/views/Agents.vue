@@ -33,6 +33,11 @@ onMounted(() => {
       <span class="poll-hint mono" :class="{ 'poll-hint--on': loading }">●</span>
     </div>
 
+    <p class="scope-note mono">
+      以下为 <b>serve 主机</b>配置的 agents 及其可用性；worker 节点各自的 agents 见
+      <RouterLink to="/cluster">Cluster</RouterLink>。
+    </p>
+
     <p v-if="error" class="error mono">{{ error }}</p>
 
     <div class="table">
@@ -95,6 +100,14 @@ onMounted(() => {
   transition: color 0.2s;
 }
 .poll-hint--on {
+  color: var(--phosphor);
+}
+.scope-note {
+  color: var(--queue);
+  font-size: 12px;
+  margin: 0 0 12px;
+}
+.scope-note a {
   color: var(--phosphor);
 }
 

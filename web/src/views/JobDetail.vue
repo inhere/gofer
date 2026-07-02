@@ -586,7 +586,6 @@ const sourceLabel = computed<string>(() => {
 // 整个「产出与审计」面板是否有内容（避免空面板）。
 const hasOutcomes = computed<boolean>(
   () =>
-    renderedCommand.value != null ||
     resultJsonPretty.value !== '' ||
     artifacts.value.length > 0 ||
     diffSummary.value !== '',
@@ -689,6 +688,33 @@ async function copyCommand(): Promise<void> {
       <button class="reconnect" type="button" @click="manualReconnect">点击重连</button>
     </p>
 
+    <!-- 渲染命令：独立于「产出与审计」，running 态只要后端给出 rendered_command 即展示。 -->
+    <section v-if="renderedCommand" class="rendered-command">
+      <div class="outcome-block">
+        <div class="outcome-head">
+          <span class="outcome-k mono">渲染命令</span>
+          <button class="copy-btn mono" type="button" @click="copyCommand">
+            {{ copied ? '已复制' : '复制' }}
+          </button>
+        </div>
+        <pre class="outcome-pre mono"><span class="cmd-bin">{{ renderedCommand.command }}</span><template
+          v-for="(a, i) in renderedCommand.args ?? []"
+          :key="i"
+        > {{ a }}</template></pre>
+        <details
+          v-if="(renderedCommand.env_keys ?? []).length > 0"
+          class="env-fold"
+        >
+          <summary class="mono">
+            env keys（{{ (renderedCommand.env_keys ?? []).length }}，仅键名）
+          </summary>
+          <ul class="env-list mono">
+            <li v-for="k in renderedCommand.env_keys ?? []" :key="k">{{ k }}</li>
+          </ul>
+        </details>
+      </div>
+    </section>
+
     <!-- 运行中交互区：待应答卡片（排队作答）+ 已应答折叠 -->
     <section
       v-if="pendingInteractions.length > 0 || answeredInteractions.length > 0"
@@ -770,37 +796,12 @@ async function copyCommand(): Promise<void> {
       </ul>
     </section>
 
-    <!-- 产出与审计：渲染命令(E15) + 结构化结果(E6)。仅在有内容时展示。 -->
+    <!-- 产出与审计：结构化结果(E6) + 产物 + diff。仅在有内容时展示。 -->
     <section v-if="hasOutcomes" class="outcomes">
       <h2 class="outcomes-title mono">
         产出与审计
         <span v-if="isRemoteSource" class="source-badge mono" :class="'source-' + sourceKind">{{ sourceLabel }}</span>
       </h2>
-
-      <!-- 渲染命令：command + args（mono）+ 复制；env_keys 折叠（仅 key 名）。 -->
-      <div v-if="renderedCommand" class="outcome-block">
-        <div class="outcome-head">
-          <span class="outcome-k mono">渲染命令</span>
-          <button class="copy-btn mono" type="button" @click="copyCommand">
-            {{ copied ? '已复制' : '复制' }}
-          </button>
-        </div>
-        <pre class="outcome-pre mono"><span class="cmd-bin">{{ renderedCommand.command }}</span><template
-          v-for="(a, i) in renderedCommand.args ?? []"
-          :key="i"
-        > {{ a }}</template></pre>
-        <details
-          v-if="(renderedCommand.env_keys ?? []).length > 0"
-          class="env-fold"
-        >
-          <summary class="mono">
-            env keys（{{ (renderedCommand.env_keys ?? []).length }}，仅键名）
-          </summary>
-          <ul class="env-list mono">
-            <li v-for="k in renderedCommand.env_keys ?? []" :key="k">{{ k }}</li>
-          </ul>
-        </details>
-      </div>
 
       <!-- 结构化结果：<result_dir>/result.json pretty-print。 -->
       <div v-if="resultJsonPretty" class="outcome-block">
@@ -1028,6 +1029,9 @@ async function copyCommand(): Promise<void> {
   padding: 3px 10px;
   font-size: 11px;
   font-weight: 600;
+}
+.rendered-command {
+  margin: 0 0 14px;
 }
 
 .interactions {
