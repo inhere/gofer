@@ -287,6 +287,18 @@ func validate(cfg *Config) error {
 	if g.DefaultRateBurst < 0 {
 		return fmt.Errorf("server.governance.default_rate_burst must be >= 0")
 	}
+	if g.RequireAnswerCapability {
+		var hasAnswerCaller bool
+		for _, cc := range cfg.Server.Callers {
+			if cc.CanAnswer {
+				hasAnswerCaller = true
+				break
+			}
+		}
+		if !hasAnswerCaller {
+			return fmt.Errorf("server.governance.require_answer_capability is on but no caller has can_answer: true (would lock out all answers)")
+		}
+	}
 	for _, cc := range cfg.Server.Callers {
 		if cc.MaxConcurrentJobs < 0 {
 			return fmt.Errorf("caller %q: max_concurrent_jobs must be >= 0", cc.ID)

@@ -99,6 +99,19 @@ func submitRunningJobTok(t *testing.T, s *Server, token, originAgent string) str
 	return created.ID
 }
 
+func createPendingInteractionTok(t *testing.T, s *Server, jobID, token string) job.Interaction {
+	t.Helper()
+	resp := do(t, s, http.MethodPost, "/v1/jobs/"+jobID+"/interactions", token, createInteractionReq{
+		Type: job.InteractionTypeConfirmation, Prompt: "continue?",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("create interaction status=%d, want 200", resp.StatusCode)
+	}
+	var created job.Interaction
+	decode(t, resp, &created)
+	return created
+}
+
 func TestInteractionLifecycle(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 	jobID := submitRunningJob(t, s)
@@ -158,6 +171,83 @@ func TestInteractionLifecycle(t *testing.T) {
 	if list.Interactions[0].Answer != "yes" {
 		t.Fatalf("expected answer 'yes', got %+v", list.Interactions[0])
 	}
+}
+
+func TestInteractionAnswerCapabilityGateDefaultAllowsAnyCaller(t *testing.T) {
+	s := newTestServerCfg(t, config.ServerConfig{
+		Callers: []config.CallerConfig{{ID: "readonly", Token: "tok-readonly"}},
+	})
+	jobID := submitRunningJobTok(t, s, "tok-readonly", "")
+
+	answerIt := createPendingInteractionTok(t, s, jobID, "tok-readonly")
+	ansResp := do(t, s, http.MethodPost,
+		"/v1/jobs/"+jobID+"/interactions/"+answerIt.ID+"/answer", "tok-readonly",
+		answerInteractionReq{Answer: "yes"})
+	if ansResp.StatusCode != http.StatusOK {
+		t.Fatalf("default-gate answer status=%d, want 200", ansResp.StatusCode)
+	}
+	ansResp.Body.Close()
+
+	puntIt := createPendingInteractionTok(t, s, jobID, "tok-readonly")
+	puntResp := do(t, s, http.MethodPost,
+		"/v1/jobs/"+jobID+"/interactions/"+puntIt.ID+"/punt", "tok-readonly", nil)
+	if puntResp.StatusCode != http.StatusOK {
+		t.Fatalf("default-gate punt status=%d, want 200", puntResp.StatusCode)
+	}
+	puntResp.Body.Close()
+}
+
+func TestInteractionAnswerCapabilityGateRejectsCallerWithoutCapability(t *testing.T) {
+	s := newTestServerCfg(t, config.ServerConfig{
+		Governance: config.GovernanceConfig{RequireAnswerCapability: true},
+		Callers: []config.CallerConfig{
+			{ID: "readonly", Token: "tok-readonly"},
+			{ID: "operator", Token: "tok-operator", CanAnswer: true},
+		},
+	})
+	jobID := submitRunningJobTok(t, s, "tok-readonly", "")
+
+	answerIt := createPendingInteractionTok(t, s, jobID, "tok-readonly")
+	ansResp := do(t, s, http.MethodPost,
+		"/v1/jobs/"+jobID+"/interactions/"+answerIt.ID+"/answer", "tok-readonly",
+		answerInteractionReq{Answer: "yes"})
+	if ansResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("gated answer status=%d, want 403", ansResp.StatusCode)
+	}
+	ansResp.Body.Close()
+
+	puntIt := createPendingInteractionTok(t, s, jobID, "tok-readonly")
+	puntResp := do(t, s, http.MethodPost,
+		"/v1/jobs/"+jobID+"/interactions/"+puntIt.ID+"/punt", "tok-readonly", nil)
+	if puntResp.StatusCode != http.StatusForbidden {
+		t.Fatalf("gated punt status=%d, want 403", puntResp.StatusCode)
+	}
+	puntResp.Body.Close()
+}
+
+func TestInteractionAnswerCapabilityGateAllowsCallerWithCapability(t *testing.T) {
+	s := newTestServerCfg(t, config.ServerConfig{
+		Governance: config.GovernanceConfig{RequireAnswerCapability: true},
+		Callers:    []config.CallerConfig{{ID: "operator", Token: "tok-operator", CanAnswer: true}},
+	})
+	jobID := submitRunningJobTok(t, s, "tok-operator", "")
+
+	answerIt := createPendingInteractionTok(t, s, jobID, "tok-operator")
+	ansResp := do(t, s, http.MethodPost,
+		"/v1/jobs/"+jobID+"/interactions/"+answerIt.ID+"/answer", "tok-operator",
+		answerInteractionReq{Answer: "yes"})
+	if ansResp.StatusCode != http.StatusOK {
+		t.Fatalf("operator answer status=%d, want 200", ansResp.StatusCode)
+	}
+	ansResp.Body.Close()
+
+	puntIt := createPendingInteractionTok(t, s, jobID, "tok-operator")
+	puntResp := do(t, s, http.MethodPost,
+		"/v1/jobs/"+jobID+"/interactions/"+puntIt.ID+"/punt", "tok-operator", nil)
+	if puntResp.StatusCode != http.StatusOK {
+		t.Fatalf("operator punt status=%d, want 200", puntResp.StatusCode)
+	}
+	puntResp.Body.Close()
 }
 
 func TestInteractionAnswerUsesAuthenticatedCallerForHumanPath(t *testing.T) {
