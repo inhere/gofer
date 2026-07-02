@@ -139,6 +139,9 @@ function agentDotColor(a: AgentInfo): string {
         <RouterLink to="/new" class="new-job" active-class="new-job--active">
           + 新建 job
         </RouterLink>
+        <RouterLink to="/schedules/new" class="new-job" active-class="new-job--active">
+          + 新建 cron
+        </RouterLink>
         <span class="conn" :class="connected ? 'conn--on' : 'conn--off'">
           <span class="conn-dot"></span>
           {{ connected ? 'connected' : 'offline' }}

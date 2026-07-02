@@ -184,7 +184,6 @@ onUnmounted(() => {
         SCHEDULES<span v-if="projectFilter" class="title-filter"> · {{ projectFilter }}</span>
       </h1>
       <div class="controls mono">
-        <RouterLink to="/schedules/new" class="new-sch">+ 新建 cron</RouterLink>
         <span class="poll-hint" :class="{ 'poll-hint--on': loading }">●</span>
       </div>
     </div>
@@ -330,19 +329,6 @@ onUnmounted(() => {
   align-items: center;
   gap: 14px;
   font-size: 12px;
-}
-.new-sch {
-  background: var(--phosphor);
-  color: var(--ink);
-  border: 1px solid var(--phosphor);
-  border-radius: var(--radius);
-  padding: 4px 10px;
-  font-size: 12px;
-  font-weight: 600;
-}
-.new-sch:hover {
-  text-decoration: none;
-  opacity: 0.9;
 }
 .poll-hint {
   color: var(--line);
