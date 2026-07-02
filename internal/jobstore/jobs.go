@@ -303,6 +303,31 @@ func (s *Store) CountActiveJobsByRole(role string) (int, error) {
 	return n, nil
 }
 
+// CountJobsByStatus returns a status->count map over all jobs.
+func (s *Store) CountJobsByStatus() (map[string]int, error) {
+	rows, err := s.db.Query(`SELECT status, COUNT(*) FROM jobs GROUP BY status`)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: count jobs by status: %w", err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]int)
+	for rows.Next() {
+		var (
+			status string
+			n      int
+		)
+		if err := rows.Scan(&status, &n); err != nil {
+			return nil, fmt.Errorf("jobstore: scan jobs by status: %w", err)
+		}
+		out[status] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("jobstore: count jobs by status rows: %w", err)
+	}
+	return out, nil
+}
+
 // ReconcileOrphanJobs marks every job still in a non-terminal state as failed — the
 // crash-recovery backstop (mirrors ReconcileOrphanInteractions). A job left
 // "queued"/"running" in the store by a previous serve instance can never reach a
