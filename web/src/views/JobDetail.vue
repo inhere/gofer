@@ -13,10 +13,12 @@ import {
   cancelJob,
   downloadArtifact,
   fetchArtifactBlob,
+  getInteractions,
   getJob,
   listArtifacts,
   listDeliveries,
   listEvents,
+  puntInteraction,
   viewFullDiff,
 } from '../api/client'
 import { appendCapped, streamJob } from '../api/sse'
@@ -56,6 +58,36 @@ function upsertInteraction(it: Interaction): void {
   const next = new Map(interactions.value)
   next.set(it.id, it)
   interactions.value = next
+}
+
+function setInteractionSubmitting(iid: string, submitting: boolean): void {
+  const next = new Set(submittingIds.value)
+  if (submitting) {
+    next.add(iid)
+  } else {
+    next.delete(iid)
+  }
+  submittingIds.value = next
+}
+
+function clearInteractionError(iid: string): void {
+  if (!interactionErrors.value.has(iid)) {
+    return
+  }
+  const next = new Map(interactionErrors.value)
+  next.delete(iid)
+  interactionErrors.value = next
+}
+
+function setInteractionError(iid: string, message: string): void {
+  interactionErrors.value = new Map(interactionErrors.value).set(iid, message)
+}
+
+async function refreshInteractions(): Promise<void> {
+  const resp = await getInteractions(props.id)
+  interactions.value = new Map(
+    (resp.interactions ?? []).map((it) => [it.id, it]),
+  )
 }
 
 // ── 事件时间线（E13）──────────────────────────────────────────────
@@ -161,23 +193,34 @@ async function onAnswer(iid: string, value: string): Promise<void> {
     return
   }
   // 标记 submitting + 清旧错误
-  submittingIds.value = new Set(submittingIds.value).add(iid)
-  if (interactionErrors.value.has(iid)) {
-    const e = new Map(interactionErrors.value)
-    e.delete(iid)
-    interactionErrors.value = e
-  }
+  setInteractionSubmitting(iid, true)
+  clearInteractionError(iid)
   try {
     const updated = await answerInteraction(props.id, iid, value)
     // 乐观回填（SSE answered 事件也会回填，幂等）
     upsertInteraction(updated)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
-    interactionErrors.value = new Map(interactionErrors.value).set(iid, msg)
+    setInteractionError(iid, msg)
   } finally {
-    const s = new Set(submittingIds.value)
-    s.delete(iid)
-    submittingIds.value = s
+    setInteractionSubmitting(iid, false)
+  }
+}
+
+async function onPunt(iid: string): Promise<void> {
+  if (submittingIds.value.has(iid)) {
+    return
+  }
+  setInteractionSubmitting(iid, true)
+  clearInteractionError(iid)
+  try {
+    await puntInteraction(props.id, iid)
+    await refreshInteractions()
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    setInteractionError(iid, msg)
+  } finally {
+    setInteractionSubmitting(iid, false)
   }
 }
 
@@ -732,9 +775,10 @@ async function copyCommand(): Promise<void> {
           :interaction="it"
           :submitting="submittingIds.has(it.id)"
           @answer="(v) => onAnswer(it.id, v)"
+          @punt="onPunt(it.id)"
         />
         <p v-if="interactionErrors.get(it.id)" class="icard-err mono">
-          作答失败：{{ interactionErrors.get(it.id) }}
+          操作失败：{{ interactionErrors.get(it.id) }}
         </p>
       </div>
 
