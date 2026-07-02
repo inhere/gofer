@@ -1,7 +1,11 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { listPendingInteractions } from '../api/client'
+import {
+  answerInteraction,
+  listPendingInteractions,
+  puntInteraction,
+} from '../api/client'
 import type { Interaction } from '../api/types'
 import InteractionToast from './InteractionToast.vue'
 
@@ -12,6 +16,8 @@ const router = useRouter()
 const items = ref<Interaction[]>([])
 const open = ref(false)
 const toast = ref<Interaction | null>(null)
+const submittingIds = ref<Set<string>>(new Set())
+const itemErrors = ref<Map<string, string>>(new Map())
 const seenNeedsHuman = new Set<string>()
 
 let timer: number | null = null
@@ -101,6 +107,92 @@ function promptLine(item: Interaction): string {
   return first.length > 110 ? `${first.slice(0, 110)}...` : first
 }
 
+function setSubmitting(iid: string, submitting: boolean): void {
+  const next = new Set(submittingIds.value)
+  if (submitting) {
+    next.add(iid)
+  } else {
+    next.delete(iid)
+  }
+  submittingIds.value = next
+}
+
+function clearItemError(iid: string): void {
+  if (!itemErrors.value.has(iid)) {
+    return
+  }
+  const next = new Map(itemErrors.value)
+  next.delete(iid)
+  itemErrors.value = next
+}
+
+function setItemError(iid: string, message: string): void {
+  itemErrors.value = new Map(itemErrors.value).set(iid, message)
+}
+
+function removeItem(iid: string): void {
+  items.value = items.value.filter((item) => item.id !== iid)
+  clearItemError(iid)
+}
+
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e)
+}
+
+async function submitAnswer(item: Interaction, value: string): Promise<void> {
+  if (submittingIds.value.has(item.id)) {
+    return
+  }
+  setSubmitting(item.id, true)
+  clearItemError(item.id)
+  try {
+    await answerInteraction(item.job_id, item.id, value)
+    removeItem(item.id)
+    void fetchPending().catch(() => {})
+  } catch (e) {
+    setItemError(item.id, errorMessage(e))
+  } finally {
+    setSubmitting(item.id, false)
+  }
+}
+
+async function submitPunt(item: Interaction): Promise<void> {
+  if (submittingIds.value.has(item.id)) {
+    return
+  }
+  setSubmitting(item.id, true)
+  clearItemError(item.id)
+  try {
+    await puntInteraction(item.job_id, item.id)
+    removeItem(item.id)
+    void fetchPending().catch(() => {})
+  } catch (e) {
+    setItemError(item.id, errorMessage(e))
+  } finally {
+    setSubmitting(item.id, false)
+  }
+}
+
+function optLabel(opt: { value: string; label?: string }): string {
+  return opt.label ?? opt.value
+}
+
+function confirmYes(item: Interaction): string {
+  return item.options?.[0]?.value ?? 'yes'
+}
+
+function confirmNo(item: Interaction): string {
+  return item.options?.[1]?.value ?? 'no'
+}
+
+function confirmYesLabel(item: Interaction): string {
+  return item.options?.[0]?.label ?? '确认'
+}
+
+function confirmNoLabel(item: Interaction): string {
+  return item.options?.[1]?.label ?? '取消'
+}
+
 onMounted(() => {
   void fetchPending().catch(() => {})
   startPolling()
@@ -139,14 +231,12 @@ onUnmounted(() => {
         <span>{{ needsHumanCount }} needs_human</span>
       </div>
 
-      <button
+      <div
         v-for="item in sortedItems"
         :key="item.id"
         class="esc"
         :class="{ hot: item.needs_human === 1 }"
-        type="button"
         role="menuitem"
-        @click="gotoJob(item)"
       >
         <span class="e1 mono">
           <span v-if="item.needs_human === 1" class="mark mark--needs">needs_human</span>
@@ -155,7 +245,74 @@ onUnmounted(() => {
           <span class="chan">{{ item.type }}</span>
         </span>
         <span class="p">{{ promptLine(item) || '等待人工介入' }}</span>
-      </button>
+
+        <div v-if="item.type === 'choice'" class="actions">
+          <button
+            v-for="opt in item.options ?? []"
+            :key="opt.value"
+            class="mini-btn mono"
+            type="button"
+            :disabled="submittingIds.has(item.id)"
+            @click="submitAnswer(item, opt.value)"
+          >
+            {{ optLabel(opt) }}
+          </button>
+        </div>
+
+        <div v-else-if="item.type === 'confirmation'" class="actions">
+          <button
+            class="mini-btn mini-btn--primary mono"
+            type="button"
+            :disabled="submittingIds.has(item.id)"
+            @click="submitAnswer(item, confirmYes(item))"
+          >
+            {{ confirmYesLabel(item) }}
+          </button>
+          <button
+            class="mini-btn mono"
+            type="button"
+            :disabled="submittingIds.has(item.id)"
+            @click="submitAnswer(item, confirmNo(item))"
+          >
+            {{ confirmNoLabel(item) }}
+          </button>
+        </div>
+
+        <div v-else class="actions">
+          <button
+            class="mini-btn mini-btn--primary mono"
+            type="button"
+            :disabled="submittingIds.has(item.id)"
+            @click="gotoJob(item)"
+          >
+            进详情作答
+          </button>
+        </div>
+
+        <div class="foot-actions">
+          <button
+            class="link-btn mono"
+            type="button"
+            :disabled="submittingIds.has(item.id)"
+            @click="gotoJob(item)"
+          >
+            详情
+          </button>
+          <button
+            v-if="item.needs_human !== 1"
+            class="link-btn link-btn--warn mono"
+            type="button"
+            :disabled="submittingIds.has(item.id)"
+            @click="submitPunt(item)"
+          >
+            {{ submittingIds.has(item.id) ? '提交中' : 'punt' }}
+          </button>
+        </div>
+
+        <p v-if="itemErrors.get(item.id)" class="item-error mono">
+          操作失败：{{ itemErrors.get(item.id) }}
+        </p>
+      </div>
 
       <div v-if="sortedItems.length === 0" class="empty mono">
         无 pending interaction
@@ -318,6 +475,76 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.mini-btn {
+  flex: none;
+  background: transparent;
+  color: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  font-size: 11px;
+}
+
+.mini-btn:hover:not(:disabled) {
+  border-color: var(--phosphor);
+  color: var(--phosphor);
+}
+
+.mini-btn--primary {
+  border-color: var(--phosphor);
+  color: var(--phosphor);
+}
+
+.mini-btn--primary:hover:not(:disabled) {
+  background: var(--phosphor);
+  color: var(--ink);
+}
+
+.foot-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.link-btn {
+  background: transparent;
+  border: none;
+  color: var(--queue);
+  padding: 0;
+  font-size: 11px;
+}
+
+.link-btn:hover:not(:disabled) {
+  color: var(--phosphor);
+}
+
+.link-btn--warn:hover:not(:disabled) {
+  color: var(--run);
+}
+
+.mini-btn:disabled,
+.link-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.item-error {
+  color: var(--fail);
+  font-size: 11px;
+  line-height: 1.4;
+  margin: 8px 0 0;
+  word-break: break-word;
 }
 
 .empty {
