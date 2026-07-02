@@ -13,7 +13,7 @@
 - [x] **P1.5** 前端 · WEB-07 Dashboard 首页 ✅（pnpm build 绿+代码审查；视觉眼检随 P1.4 接路由后做）
 - [x] **P1.6** 前端 · Drivers(presence) + Inbox 展示 ✅（+dashboard/drivers 路由；pnpm build 绿+代码审查，只读确认；视觉眼检随 P1 末统一做）
 - [x] **P1.7** 前端 · Board 分页+role/channel 徽标 · Cluster worker projects/agents · Agents 作用域说明 · JobDetail rendered-cmd 提出门控 ✅（pnpm build 绿+审查）
-- [ ] **P1.7b** 后端 · running 时 persist `rendered_command`（核对确认现仅 captureOutcomes 终态前写；#5 running 即显需此改）— `internal/job/execute.go` running 转换处 set `RenderedCommand=renderedCommandJSON(req)`
+- [x] **P1.7b** 后端 · running 时 persist `rendered_command` ✅（execute.go running 转换处锁内 set；build+全量 test 绿）— #5 running 即显真正兑现
 
 ## 现状校正（勿重做 / 已具备）
 

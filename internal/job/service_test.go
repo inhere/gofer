@@ -130,6 +130,26 @@ func TestSubmitCancel(t *testing.T) {
 	}
 	// Give the process a moment to start running, then cancel.
 	waitForStatus(t, s, res.ID, StatusRunning, 2*time.Second)
+	running, _ := s.Get(res.ID)
+	if running.RenderedCommand == "" {
+		t.Fatalf("running Get snapshot missing RenderedCommand")
+	}
+	list, err := s.ListJobs(ListOpts{Status: StatusRunning})
+	if err != nil {
+		t.Fatalf("ListJobs(running): %v", err)
+	}
+	var found bool
+	for _, j := range list {
+		if j.ID == res.ID {
+			found = true
+			if j.RenderedCommand == "" {
+				t.Fatalf("running ListJobs snapshot missing RenderedCommand")
+			}
+		}
+	}
+	if !found {
+		t.Fatalf("running ListJobs did not include %s", res.ID)
+	}
 	if err := s.Cancel(res.ID); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
