@@ -1,0 +1,409 @@
+<!doctype html>
+<html lang="zh" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Gofer Web 控制台 v3 · 布局预览</title>
+<style>
+:root{
+  --ink:#0E1A24; --panel:#15252F; --line:#2A3D49; --paper:#E8E2D4;
+  --run:#E0A24A; --done:#5BA66E; --fail:#C8553D; --queue:#6B8A99;
+  --phosphor:#4FB0C6; --term-bg:#08121A; --radius:4px;
+  --mono:"IBM Plex Mono",ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;
+  --sans:"IBM Plex Sans",system-ui,-apple-system,Segoe UI,sans-serif;
+}
+:root[data-theme="light"]{
+  --ink:#E3E7E6; --panel:#F0F2F0; --line:#B2BDBA; --paper:#16242C;
+  --run:#955411; --done:#287140; --fail:#B23A24; --queue:#4F6571;
+  --phosphor:#0F7184; --term-bg:#ECEFEE;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--ink);color:var(--paper);font-family:var(--sans);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased}
+.mono{font-family:var(--mono)}
+a{color:var(--phosphor);text-decoration:none}
+button{font-family:var(--sans);cursor:pointer}
+
+/* ---- topbar ---- */
+.topbar{display:flex;align-items:center;gap:22px;padding:10px 18px;background:var(--panel);border-bottom:1px solid var(--line);position:sticky;top:0;z-index:40}
+.brand{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:14px}
+.brand b{color:var(--paper)} .brand .sep{color:var(--phosphor)} .brand .sub{color:var(--queue)}
+.nav{display:flex;align-items:center;gap:18px;font-family:var(--mono);font-size:13px}
+.nav .grp{display:flex;align-items:center;gap:10px}
+.nav .glabel{color:var(--queue);font-size:10px;letter-spacing:.1em;opacity:.7;border-left:1px solid var(--line);padding-left:10px}
+.nav a{color:var(--queue);padding:2px 0;border-bottom:1px solid transparent;cursor:pointer}
+.nav a:hover{color:var(--paper);text-decoration:none}
+.nav a.active{color:var(--phosphor);border-bottom-color:var(--phosphor)}
+.tr{margin-left:auto;display:flex;align-items:center;gap:12px;font-family:var(--mono);font-size:12px}
+.newbtn{background:var(--phosphor);color:var(--ink);border:1px solid var(--phosphor);border-radius:var(--radius);padding:4px 10px;font-weight:600;font-size:12px}
+.bell{position:relative;background:transparent;border:1px solid var(--line);color:var(--paper);border-radius:var(--radius);padding:4px 9px;font-size:14px}
+.bell .badge{position:absolute;top:-7px;right:-7px;background:var(--fail);color:#fff;border-radius:9px;font-size:10px;padding:0 5px;line-height:16px;font-family:var(--mono)}
+.conn{display:inline-flex;align-items:center;gap:6px;color:var(--done)}
+.conn .dot{width:8px;height:8px;border-radius:50%;background:var(--done)}
+.iconbtn{background:transparent;color:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:4px 9px;font-size:12px}
+
+/* ---- shell ---- */
+.shell{display:flex;align-items:stretch;min-height:calc(100vh - 53px)}
+.rail{width:220px;flex:none;background:var(--panel);border-right:1px solid var(--line);padding:14px 10px;font-family:var(--mono)}
+.rail h2{font-size:10px;letter-spacing:.1em;color:var(--queue);margin:0 6px 8px;text-transform:uppercase}
+.rail .sect{margin-bottom:18px}
+.rail .item{display:flex;align-items:center;gap:7px;width:100%;text-align:left;background:transparent;color:var(--paper);border:1px solid transparent;border-radius:var(--radius);padding:6px 8px;font-size:12px}
+.rail .item:hover{background:var(--ink)}
+.rail .item.active{color:var(--phosphor);border-color:var(--line);background:var(--ink)}
+.rail .item .r{margin-left:auto;color:var(--queue);font-size:11px}
+.dot{width:7px;height:7px;border-radius:50%;flex:none}
+.dot.on{background:var(--done)} .dot.sup{background:var(--phosphor);box-shadow:0 0 6px var(--phosphor)} .dot.off{background:var(--queue);opacity:.6;box-shadow:0 0 0 1px var(--line)}
+.content{flex:1;padding:18px;min-width:0;overflow-x:auto}
+
+/* ---- common ---- */
+.view{display:none;max-width:1160px;margin:0 auto}
+.view.show{display:block}
+.head{display:flex;align-items:center;justify-content:space-between;margin-bottom:14px}
+.title{font-family:var(--mono);font-size:16px;letter-spacing:.06em;color:var(--paper);margin:0}
+.title .flt{color:var(--phosphor);font-size:13px}
+.ctrls{display:flex;align-items:center;gap:12px;font-family:var(--mono);font-size:12px}
+select,.pill{background:var(--panel);color:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:4px 8px;font-size:12px;font-family:var(--mono)}
+.poll{color:var(--phosphor);font-size:10px}
+.badge{display:inline-block;font-family:var(--mono);font-size:10px;padding:1px 6px;border-radius:9px;border:1px solid var(--line);color:var(--queue)}
+.badge.sup{color:var(--ink);background:var(--phosphor);border-color:var(--phosphor);font-weight:600}
+.badge.role{color:var(--run);border-color:var(--run)}
+.badge.chan{color:var(--queue)}
+.badge.needs{color:#fff;background:var(--fail);border-color:var(--fail)}
+.sbadge{display:inline-block;font-family:var(--mono);font-size:11px;padding:1px 8px;border-radius:9px}
+.st-run{color:var(--run);border:1px solid var(--run)} .st-done{color:var(--done);border:1px solid var(--done)}
+.st-fail{color:var(--fail);border:1px solid var(--fail)} .st-queue{color:var(--queue);border:1px solid var(--queue)}
+.st-pi{color:var(--phosphor);border:1px solid var(--phosphor)}
+
+/* tables */
+.table{border:1px solid var(--line);border-radius:var(--radius);overflow:hidden}
+.thead,.trow{display:grid;align-items:center;gap:12px;padding:9px 14px}
+.thead{background:var(--panel);border-bottom:1px solid var(--line);font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--queue);text-transform:uppercase}
+.trow{border-bottom:1px solid var(--line);font-size:13px}
+.trow:last-child{border-bottom:none}
+.trow:hover{background:var(--panel);cursor:pointer}
+.sub{font-family:var(--mono);font-size:11px;color:var(--queue)}
+.idp{font-family:var(--mono);color:var(--phosphor);font-size:11px}
+
+/* dashboard */
+.grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:14px 16px}
+.card h3{margin:0 0 10px;font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--queue);text-transform:uppercase}
+.big{font-family:var(--mono);font-size:30px;color:var(--paper);line-height:1}
+.card .unit{color:var(--queue);font-size:12px}
+.statrow{display:flex;flex-wrap:wrap;gap:14px}
+.stat{display:flex;flex-direction:column;gap:2px}
+.stat .n{font-family:var(--mono);font-size:20px}
+.stat .l{font-size:10px;color:var(--queue);font-family:var(--mono);text-transform:uppercase;letter-spacing:.05em}
+.span2{grid-column:span 2}
+.wide{grid-column:span 4}
+.health{display:flex;align-items:center;gap:8px}
+
+/* pagination */
+.pager{display:flex;align-items:center;justify-content:flex-end;gap:10px;margin-top:12px;font-family:var(--mono);font-size:12px;color:var(--queue)}
+.pager button{background:var(--panel);color:var(--paper);border:1px solid var(--line);border-radius:var(--radius);padding:4px 10px;font-size:12px}
+
+/* jobdetail */
+.jd-head{display:flex;align-items:center;gap:12px;margin-bottom:14px;flex-wrap:wrap}
+.block{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:12px 14px;margin-bottom:14px}
+.block h4{margin:0 0 8px;font-family:var(--mono);font-size:11px;letter-spacing:.06em;color:var(--queue);text-transform:uppercase}
+.cmd{font-family:var(--mono);font-size:12px;background:var(--term-bg);border:1px solid var(--line);border-radius:var(--radius);padding:10px;color:var(--paper);white-space:pre-wrap;word-break:break-word}
+.tabs{display:flex;gap:2px;border-bottom:1px solid var(--line);margin-bottom:0}
+.tab{background:transparent;border:1px solid var(--line);border-bottom:none;color:var(--queue);padding:6px 14px;font-family:var(--mono);font-size:12px;border-radius:var(--radius) var(--radius) 0 0}
+.tab.active{color:var(--phosphor);background:var(--term-bg)}
+.term{background:var(--term-bg);border:1px solid var(--line);border-top:none;padding:12px;font-family:var(--mono);font-size:12.5px;line-height:1.6;white-space:pre-wrap;color:var(--paper);min-height:180px}
+.a-g{color:var(--done)} .a-r{color:var(--fail)} .a-y{color:var(--run)} .a-c{color:var(--phosphor)} .a-dim{color:var(--queue)} .a-b{font-weight:700}
+
+/* inbox */
+.msg{border:1px solid var(--line);border-radius:var(--radius);padding:10px 12px;margin-bottom:10px;background:var(--panel)}
+.msg .m1{display:flex;align-items:center;gap:10px;font-family:var(--mono);font-size:12px}
+.msg .body{margin-top:6px;color:var(--paper);font-size:13px}
+.kind{font-family:var(--mono);font-size:10px;padding:1px 7px;border-radius:9px;border:1px solid var(--line)}
+.kind.esc{color:var(--fail);border-color:var(--fail)} .kind.assign{color:var(--run);border-color:var(--run)} .kind.notify{color:var(--queue)}
+.back{font-family:var(--mono);font-size:13px;color:var(--queue);cursor:pointer}
+.summary{display:flex;gap:18px;flex-wrap:wrap;font-family:var(--mono);font-size:12px;color:var(--queue);margin-bottom:14px}
+.summary b{color:var(--paper)}
+
+/* bell dropdown */
+.dropdown{position:fixed;top:52px;right:18px;width:420px;background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);box-shadow:0 12px 40px rgba(0,0,0,.5);z-index:60;display:none}
+.dropdown.show{display:block}
+.dropdown .dh{padding:10px 14px;border-bottom:1px solid var(--line);font-family:var(--mono);font-size:12px;color:var(--queue);display:flex;justify-content:space-between}
+.esc{padding:11px 14px;border-bottom:1px solid var(--line)}
+.esc:last-child{border-bottom:none}
+.esc.hot{background:rgba(200,85,61,.10)}
+.esc .e1{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px}
+.esc .p{margin:6px 0 8px;font-size:13px;color:var(--paper)}
+.esc .acts{display:flex;gap:8px}
+.esc .acts button{border-radius:var(--radius);padding:4px 12px;font-size:12px;font-family:var(--mono);border:1px solid var(--line);background:transparent;color:var(--paper)}
+.esc .acts .ok{border-color:var(--done);color:var(--done)} .esc .acts .no{border-color:var(--fail);color:var(--fail)}
+.hint{color:var(--queue);font-size:11px;font-family:var(--mono);margin-top:4px}
+
+/* toast */
+.toast{position:fixed;right:18px;bottom:18px;width:340px;background:var(--panel);border:1px solid var(--fail);border-radius:var(--radius);box-shadow:0 12px 40px rgba(0,0,0,.5);padding:12px 14px;z-index:60;display:none}
+.toast.show{display:block}
+.toast .t1{display:flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;color:var(--fail)}
+.toast .tx{margin:6px 0 0;font-size:13px}
+.toast .close{position:absolute;top:8px;right:10px;background:transparent;border:none;color:var(--queue);font-size:14px}
+
+.note{max-width:1160px;margin:0 auto 14px;font-family:var(--mono);font-size:11px;color:var(--queue);border:1px dashed var(--line);border-radius:var(--radius);padding:8px 12px}
+.note b{color:var(--run)}
+</style>
+</head>
+<body>
+
+<!-- ================= TOP BAR (WEB-06) ================= -->
+<header class="topbar">
+  <div class="brand"><b>Gofer</b><span class="sep">▸</span><span class="sub">agent bridge</span></div>
+  <nav class="nav">
+    <a data-nav="dashboard" class="active" onclick="go('dashboard')">Home</a>
+    <span class="grp"><span class="glabel">观察</span>
+      <a data-nav="board" onclick="go('board')">Board</a>
+      <a onclick="go('board')">Workflows</a>
+      <a onclick="go('board')">Schedules</a>
+    </span>
+    <span class="grp"><span class="glabel">舰队</span>
+      <a data-nav="drivers" onclick="go('drivers')">Drivers</a>
+      <a onclick="go('board')">Agents</a>
+      <a onclick="go('board')">Runners</a>
+      <a onclick="go('board')">Cluster</a>
+      <a onclick="go('board')">Projects</a>
+    </span>
+  </nav>
+  <div class="tr">
+    <button class="newbtn">+ 新建 job</button>
+    <button class="newbtn">+ 新建 cron</button>
+    <button class="bell" onclick="toggleBell()">🔔<span class="badge">3</span></button>
+    <span class="conn"><span class="dot"></span>connected</span>
+    <button class="iconbtn" onclick="toggleTheme()">◐ 主题</button>
+    <button class="iconbtn">登出</button>
+  </div>
+</header>
+
+<!-- ================= BELL DROPDOWN (WEB-09) ================= -->
+<div class="dropdown" id="bell">
+  <div class="dh"><span>ESCALATIONS · pending 3</span><span>1 needs_human</span></div>
+  <div class="esc hot">
+    <div class="e1"><span class="badge needs">needs_human</span><span class="idp">job …a1b2c3</span><span class="badge chan">confirmation</span></div>
+    <div class="p">对 prod 库执行 migration drop column？（sup 判定高危 → 留人）</div>
+    <div class="acts"><button class="ok">确认执行</button><button class="no">拒绝</button></div>
+    <div class="hint">P2 写层：应答归属 caller_id，记 answered_by</div>
+  </div>
+  <div class="esc">
+    <div class="e1"><span class="badge role">reviewer</span><span class="idp">job …9f8e7d</span><span class="badge chan">choice</span></div>
+    <div class="p">选择要合入的分支策略？</div>
+    <div class="acts"><button>squash</button><button>rebase</button><button>merge</button></div>
+  </div>
+  <div class="esc">
+    <div class="e1"><span class="idp">job …44aa11</span><span class="badge chan">question</span></div>
+    <div class="p">需要补充测试用例的目标文件路径？</div>
+    <div class="hint">question 型 → 点击进 JobDetail 输入</div>
+  </div>
+</div>
+
+<!-- ================= TOAST (WEB-09) ================= -->
+<div class="toast show" id="toast">
+  <button class="close" onclick="document.getElementById('toast').classList.remove('show')">×</button>
+  <div class="t1">⚠ 新的人工介入请求 · needs_human</div>
+  <div class="tx mono">job …a1b2c3 — prod migration 高危确认，sup 已留人</div>
+</div>
+
+<!-- ================= SHELL ================= -->
+<div class="shell">
+  <aside class="rail">
+    <div class="sect"><h2>Projects</h2>
+      <button class="item active">全部</button>
+      <button class="item">self <span class="r">12</span></button>
+      <button class="item">demo-project <span class="r">31</span></button>
+    </div>
+    <div class="sect"><h2>Drivers</h2>
+      <button class="item" onclick="go('drivers')"><span class="dot sup"></span>claude-sup <span class="r">sup</span></button>
+      <button class="item" onclick="go('drivers')"><span class="dot on"></span>claude-A <span class="r">rev</span></button>
+      <button class="item" onclick="go('drivers')"><span class="dot on"></span>codex-B <span class="r">fix</span></button>
+    </div>
+    <div class="sect"><h2>Agents</h2>
+      <button class="item"><span class="dot on"></span>claude <span class="r">cli</span></button>
+      <button class="item"><span class="dot on"></span>codex <span class="r">cli</span></button>
+      <button class="item"><span class="dot on"></span>exec <span class="r">exec</span></button>
+    </div>
+  </aside>
+
+  <main class="content">
+
+  <!-- ---------- DASHBOARD (WEB-07) ---------- -->
+  <section class="view show" data-view="dashboard">
+    <div class="head"><h1 class="title">DASHBOARD</h1><div class="ctrls"><span class="poll">●</span> 每 5s 刷新</div></div>
+    <div class="note">WEB-07 · 后端新增 <b>GET /v1/stats</b> 单次聚合（勿前端拉全量自算）。纯数字块风格（§13 推荐）。</div>
+    <div class="grid">
+      <div class="card"><h3>服务</h3><div class="health"><span class="dot on"></span><span class="big" style="font-size:20px">healthy</span></div><div class="unit">uptime 3d 04h · serve LIVE</div></div>
+      <div class="card"><h3>Drivers 在线</h3><div class="big">3</div><div class="unit">含 supervisor <b style="color:var(--phosphor)">1</b></div></div>
+      <div class="card"><h3>Runners</h3><div class="big">2<span class="unit"> / 2 worker</span></div><div class="unit">peers up 1</div></div>
+      <div class="card"><h3>Escalations 待处理</h3><div class="big" style="color:var(--fail)">1</div><div class="unit">needs_human（点铃铛处理）</div></div>
+      <div class="card span2"><h3>Jobs 状态分布 · total 143</h3>
+        <div class="statrow">
+          <div class="stat"><span class="n" style="color:var(--run)">2</span><span class="l">running</span></div>
+          <div class="stat"><span class="n" style="color:var(--phosphor)">1</span><span class="l">pending_i</span></div>
+          <div class="stat"><span class="n" style="color:var(--queue)">4</span><span class="l">queued</span></div>
+          <div class="stat"><span class="n" style="color:var(--done)">129</span><span class="l">done</span></div>
+          <div class="stat"><span class="n" style="color:var(--fail)">6</span><span class="l">failed</span></div>
+          <div class="stat"><span class="n" style="color:var(--queue)">1</span><span class="l">cancelled</span></div>
+        </div>
+      </div>
+      <div class="card"><h3>Schedules</h3><div class="big">5<span class="unit"> 条</span></div><div class="unit">enabled 4</div></div>
+      <div class="card"><h3>Projects</h3><div class="big">3</div><div class="unit">已登记</div></div>
+    </div>
+  </section>
+
+  <!-- ---------- BOARD (WEB-08) ---------- -->
+  <section class="view" data-view="board">
+    <div class="head"><h1 class="title">BOARD</h1>
+      <div class="ctrls"><select><option>status: 全部</option></select><select><option>project: 全部</option></select><span class="poll">●</span></div>
+    </div>
+    <div class="note">WEB-08 · 分页(<b>?offset</b>) + 末列时间 hh:mm:ss + 行内 <b>sup/role/channel</b> 标记(#7)。</div>
+    <div class="table">
+      <div class="thead" style="grid-template-columns:110px minmax(200px,1fr) 150px 190px 96px">
+        <span>状态</span><span>job · title / id</span><span>agent / runner</span><span>标记</span><span>时间</span>
+      </div>
+      <div class="trow" style="grid-template-columns:110px minmax(200px,1fr) 150px 190px 96px" onclick="go('jobdetail')">
+        <span><span class="sbadge st-run">running</span></span>
+        <span><div>nightly prod migration</div><div class="idp">…a1b2c3</div></span>
+        <span class="sub">claude / local</span>
+        <span><span class="badge sup">supervisor</span> <span class="badge chan">mcp</span></span>
+        <span class="sub">14:48:32</span>
+      </div>
+      <div class="trow" style="grid-template-columns:110px minmax(200px,1fr) 150px 190px 96px">
+        <span><span class="sbadge st-pi">pending_i</span></span>
+        <span><div>PR review · #482</div><div class="idp">…9f8e7d</div></span>
+        <span class="sub">claude / worker</span>
+        <span><span class="badge role">reviewer</span> <span class="badge chan">web</span></span>
+        <span class="sub">14:45:10</span>
+      </div>
+      <div class="trow" style="grid-template-columns:110px minmax(200px,1fr) 150px 190px 96px">
+        <span><span class="sbadge st-done">done</span></span>
+        <span><div>build & smoke</div><div class="idp">…7c1d90</div></span>
+        <span class="sub">exec / local</span>
+        <span><span class="badge chan">cron</span></span>
+        <span class="sub">14:30:00</span>
+      </div>
+      <div class="trow" style="grid-template-columns:110px minmax(200px,1fr) 150px 190px 96px">
+        <span><span class="sbadge st-fail">failed</span></span>
+        <span><div>codex bugfix attempt</div><div class="idp">…44aa11</div></span>
+        <span class="sub">codex / worker</span>
+        <span><span class="badge role">bugfix</span> <span class="badge chan">cli</span></span>
+        <span class="sub">14:12:41</span>
+      </div>
+      <div class="trow" style="grid-template-columns:110px minmax(200px,1fr) 150px 190px 96px">
+        <span><span class="sbadge st-done">done</span></span>
+        <span><div>generate report</div><div class="idp">…33bb22</div></span>
+        <span class="sub">claude / local</span>
+        <span><span class="badge chan">web</span></span>
+        <span class="sub">13:58:07</span>
+      </div>
+    </div>
+    <div class="pager"><button>‹ 上一页</button><span>第 1 / 8 页 · 143 条</span><button>下一页 ›</button></div>
+  </section>
+
+  <!-- ---------- DRIVERS / PRESENCE ---------- -->
+  <section class="view" data-view="drivers">
+    <div class="head"><h1 class="title">DRIVERS <span class="flt">· presence</span></h1>
+      <div class="ctrls"><select><option>role: 全部</option><option>supervisor</option></select><select><option>project: 全部</option></select><span class="poll">●</span></div>
+    </div>
+    <div class="note">在线 driver 名册 · <b>GET /v1/agents/presence</b>。supervisor 高亮(#7)；行点击看 inbox。只读，不含 agent_token。</div>
+    <div class="table">
+      <div class="thead" style="grid-template-columns:56px minmax(150px,1fr) 130px 150px 130px 140px">
+        <span>状态</span><span>name</span><span>role</span><span>project</span><span>agent_id</span><span>last_seen</span>
+      </div>
+      <div class="trow" style="grid-template-columns:56px minmax(150px,1fr) 130px 150px 130px 140px" onclick="go('inbox')">
+        <span><span class="dot sup"></span></span><span>claude-sup</span>
+        <span><span class="badge sup">supervisor</span></span><span class="sub">self</span>
+        <span class="idp">…f3a1d8</span><span class="sub">07-02 14:48 · 2s</span>
+      </div>
+      <div class="trow" style="grid-template-columns:56px minmax(150px,1fr) 130px 150px 130px 140px" onclick="go('inbox')">
+        <span><span class="dot on"></span></span><span>claude-A</span>
+        <span><span class="badge role">reviewer</span></span><span class="sub">demo-project</span>
+        <span class="idp">…7b21c0</span><span class="sub">07-02 14:47 · 8s</span>
+      </div>
+      <div class="trow" style="grid-template-columns:56px minmax(150px,1fr) 130px 150px 130px 140px" onclick="go('inbox')">
+        <span><span class="dot on"></span></span><span>codex-B</span>
+        <span><span class="badge role">bugfix</span></span><span class="sub">demo-project</span>
+        <span class="idp">…9c44ab</span><span class="sub">07-02 14:46 · 22s</span>
+      </div>
+      <div class="trow" style="grid-template-columns:56px minmax(150px,1fr) 130px 150px 130px 140px" onclick="go('inbox')">
+        <span><span class="dot off"></span></span><span>claude-C</span>
+        <span class="sub">—</span><span class="sub">self</span>
+        <span class="idp">…1188ff</span><span class="sub">07-02 14:20 · stale</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- ---------- DRIVER INBOX ---------- -->
+  <section class="view" data-view="inbox">
+    <div class="head"><span class="back" onclick="go('drivers')">← drivers</span><h1 class="title" style="margin-left:16px">INBOX · claude-sup</h1></div>
+    <div class="summary"><span>name <b>claude-sup</b></span><span>role <b style="color:var(--phosphor)">supervisor</b></span><span>project <b>self</b></span><span>last_seen <b>2s ago</b></span><span class="ctrls"><label><input type="checkbox" checked> 含已读</label></span></div>
+    <div class="note">只读观察 · <b>GET /v1/agents/{id}/inbox?include_read=1</b>（不消费/不刷心跳）。ref 指向 job/interaction 可跳转。</div>
+    <div class="msg">
+      <div class="m1"><span class="kind esc">escalation</span><span class="idp">from …7b21c0 (claude-A)</span><span style="margin-left:auto" class="sub">14:48:30</span></div>
+      <div class="body">交互升级：job …a1b2c3 的 prod migration 需人工确认（高危）。ref → <a onclick="go('jobdetail')">job …a1b2c3</a></div>
+    </div>
+    <div class="msg">
+      <div class="m1"><span class="kind assign">assign</span><span class="idp">from …f3a1d8 (self)</span><span style="margin-left:auto" class="sub">14:40:12</span></div>
+      <div class="body">派活：请复核 PR #482 的 diff 后回执。ref → <a onclick="go('board')">job …9f8e7d</a></div>
+    </div>
+    <div class="msg">
+      <div class="m1"><span class="kind notify">notify</span><span class="idp">from …9c44ab (codex-B)</span><span style="margin-left:auto" class="sub">14:12:44</span></div>
+      <div class="body">bugfix 任务失败，已记录 attempt 2/3。</div>
+    </div>
+  </section>
+
+  <!-- ---------- JOB DETAIL (WEB-08) ---------- -->
+  <section class="view" data-view="jobdetail">
+    <div class="head"><span class="back" onclick="go('board')">← board</span><h1 class="title" style="margin-left:16px">JOB …a1b2c3</h1></div>
+    <div class="jd-head">
+      <span class="sbadge st-run">running</span>
+      <span class="badge sup">supervisor</span>
+      <span class="badge role">reviewer</span>
+      <span class="sub">origin_agent …7b21c0 · escalate_to role-one:supervisor</span>
+    </div>
+    <div class="note">WEB-08 · running 态<b>即显 rendered 命令</b>(补 OBS-04 gap) · STDOUT/STDERR <b>tab</b> · <b>ANSI</b> 色彩(经 DOMPurify)。</div>
+    <div class="block"><h4>实际执行命令 (rendered · running 即可见)</h4>
+      <div class="cmd">claude --append-system-prompt "$(role: reviewer)" --session-id 4f0c… \
+  -p "review the prod migration plan and confirm safety"
+env: GOFER_JOB_ID=…a1b2c3  GOFER_AGENT_ROLE=reviewer  cwd=.</div>
+    </div>
+    <div>
+      <div class="tabs">
+        <button class="tab active" onclick="tab(this,'out')">STDOUT</button>
+        <button class="tab" onclick="tab(this,'err')">STDERR</button>
+      </div>
+      <div class="term" id="out"><span class="a-dim">[14:48:32]</span> starting reviewer session…
+<span class="a-c">▸ analysing</span> migrations/0007_drop_col.sql
+<span class="a-y">⚠ WARN</span> statement drops column <span class="a-b">orders.legacy_ref</span> (irreversible)
+<span class="a-g">✓</span> lint passed <span class="a-dim">(3 files)</span>
+<span class="a-c">?</span> needs human confirmation → raising <span class="a-b">pending_interaction</span>
+<span class="a-dim">[14:48:35]</span> escalated to supervisor (owner-first)</div>
+      <div class="term" id="err" style="display:none"><span class="a-dim">(no stderr output)</span></div>
+    </div>
+  </section>
+
+  </main>
+</div>
+
+<script>
+function go(v){
+  document.querySelectorAll('.view').forEach(s=>s.classList.toggle('show',s.dataset.view===v));
+  document.querySelectorAll('.nav [data-nav]').forEach(a=>a.classList.toggle('active',a.dataset.nav===v));
+  document.getElementById('bell').classList.remove('show');
+  window.scrollTo(0,0);
+}
+function toggleBell(){document.getElementById('bell').classList.toggle('show');}
+function tab(btn,id){
+  document.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+  btn.classList.add('active');
+  document.getElementById('out').style.display = id==='out'?'block':'none';
+  document.getElementById('err').style.display = id==='err'?'block':'none';
+}
+function toggleTheme(){
+  const r=document.documentElement;
+  r.dataset.theme = r.dataset.theme==='light'?'dark':'light';
+}
+</script>
+</body>
+</html>
