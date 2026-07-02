@@ -45,6 +45,9 @@ export interface Job {
   // client=来源主机名(CLI)/IP(web)。配合 caller_id 标识"谁/哪台/经哪渠道提交"。
   channel?: string
   client?: string
+  role?: string
+  origin_agent?: string
+  escalate_to?: string
 }
 
 // 产物清单项（E1，P2）：<result_dir>/artifacts/ 下文件元数据。name 为相对路径
@@ -62,6 +65,34 @@ export interface ArtifactsResp {
 export interface HealthResp {
   ok: boolean
   service: string
+  server_time: number
+}
+
+// 只读总览统计（/v1/stats）。
+export interface Stats {
+  jobs: {
+    total: number
+    by_status: Record<string, number>
+  }
+  workflows: {
+    running: number
+    total: number
+  }
+  schedules: {
+    total: number
+    enabled: number
+  }
+  runners: {
+    workers_connected: number
+    workers_total: number
+    peers_up: number
+  }
+  drivers: {
+    online: number
+    supervisors: number
+  }
+  escalations_pending: number
+  projects: number
   server_time: number
 }
 
@@ -133,6 +164,36 @@ export interface AgentsResp {
   agents: AgentInfo[]
 }
 
+// Agent 在线状态（/v1/agents/presence）。
+export interface Presence {
+  agent_id: string
+  name: string
+  role?: string
+  project_key?: string
+  client?: string
+  status: string
+  last_seen_at: number
+}
+
+export interface PresenceResp {
+  agents: Presence[]
+}
+
+// Agent 收件箱消息（/v1/agents/{id}/inbox）。
+export interface InboxMessage {
+  id: string
+  from_agent: string
+  to_spec?: string
+  kind: string
+  body?: string
+  ref?: string
+  created_at: number
+}
+
+export interface InboxResp {
+  messages: InboxMessage[]
+}
+
 export interface JobsResp {
   jobs: Job[]
 }
@@ -147,6 +208,7 @@ export interface ListJobsOpts {
   since?: number
   caller?: string
   limit?: number
+  offset?: number
 }
 
 export type LogStream = 'stdout' | 'stderr'
@@ -167,10 +229,13 @@ export interface Interaction {
   prompt: string
   options?: InteractionOption[]
   status: InteractionStatus
+  needs_human?: number
   answer?: string
   // Unix 秒
   created_at: number
+  escalated_at?: number
   answered_at?: number
+  answered_by?: string
 }
 
 // job 生命周期事件（E13，append-only）。GET /v1/jobs/{id}/events 与 SSE event 帧。
@@ -247,6 +312,8 @@ export interface RunnerWorker {
   heartbeat_age_ms: number
   in_flight: number
   labels?: string[]
+  projects?: string[]
+  agents?: string[]
 }
 
 export interface Runner {
@@ -288,6 +355,8 @@ export interface MetaRunner {
 export interface MetaWorker {
   id: string
   labels?: string[]
+  projects?: string[]
+  agents?: string[]
   connected: boolean
 }
 
