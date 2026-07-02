@@ -194,6 +194,9 @@ type GovernanceConfig struct {
 	// DefaultRateBurst is the token-bucket capacity when the caller has no own
 	// RateBurst. <= 0 falls back to max(1, ceil(rate)) at use time (CallerRate).
 	DefaultRateBurst int `yaml:"default_rate_burst"`
+	// RequireAnswerCapability gates interaction answer/punt to callers with
+	// can_answer:true. false = any authenticated caller may answer (legacy).
+	RequireAnswerCapability bool `yaml:"require_answer_capability"`
 }
 
 // MetricsConfig is the E16 Prometheus /metrics policy (design §6.2). It is a
@@ -295,6 +298,9 @@ type CallerConfig struct {
 	ID       string `yaml:"id"`
 	Token    string `yaml:"token"`
 	TokenEnv string `yaml:"token_env"`
+	// CanAnswer permits this caller to answer/punt interactions when
+	// governance.require_answer_capability is enabled.
+	CanAnswer bool `yaml:"can_answer"`
 	// E17 per-caller quota overrides (design §7.1). Each 0/empty value falls back to
 	// the server.governance default; if that is also 0 the dimension is unlimited
 	// (向后兼容). A value > 0 wins over the governance default.
@@ -316,6 +322,19 @@ func (sc *ServerConfig) CallerConcurrencyLimit(callerID string) int {
 		}
 	}
 	return sc.Governance.DefaultCallerMaxConcurrent
+}
+
+// CallerCanAnswer reports whether callerID has the can_answer capability bit.
+// The governance gate itself is checked by callers of this helper.
+func (sc *ServerConfig) CallerCanAnswer(callerID string) bool {
+	if callerID != "" {
+		for _, cc := range sc.Callers {
+			if cc.ID == callerID {
+				return cc.CanAnswer
+			}
+		}
+	}
+	return false
 }
 
 // CallerRate resolves the effective per-caller submit rate (E17, design §7.3):
