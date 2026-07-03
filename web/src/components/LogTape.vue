@@ -606,12 +606,15 @@ onMounted(() => {
 .log-md :deep(a) {
   color: var(--phosphor);
 }
+/* inline code：加发丝边框 + 暖色前景，确保在 --term-bg 终端底（两种主题）都清晰可辨。 */
 .log-md :deep(code) {
   background: var(--panel);
+  border: 1px solid var(--line);
   border-radius: 3px;
+  color: var(--run);
   font-family: var(--font-mono, monospace);
   font-size: 0.92em;
-  padding: 1px 5px;
+  padding: 0 5px;
 }
 .log-md :deep(pre) {
   background: var(--panel);
@@ -622,6 +625,8 @@ onMounted(() => {
 }
 .log-md :deep(pre code) {
   background: none;
+  border: 0;
+  color: inherit;
   padding: 0;
 }
 .new-jump {
