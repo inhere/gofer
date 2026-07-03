@@ -12,11 +12,11 @@
 - `Config` 结构**无 json tag 且不脱敏**——`GET /v1/config` **必须手写 view DTO**，禁止 `c.JSON(cfg)` 裸序列化。
 
 ## 进度跟踪
-- [ ] **C1** 后端 · `can_admin` 能力位 + 闸（model/loader/callerMayAdmin）
-- [ ] **C2** 后端 · `GET /v1/config` 脱敏只读视图
-- [ ] **C3** 后端 · 项目 CRUD 写端点（create/update/delete）+ 校验 + 路由 + 审计事件
-- [ ] **C4** 前端 · client + types + Config.vue（脱敏总览 + 项目编辑表单）
-- [ ] **C5** 文档 · runbook admin token 节 + roadmap WEB-04③ ✅
+- [x] **C1** 后端 · `can_admin` 能力位 + 闸（model/loader/callerMayAdmin）— 7900d1d
+- [x] **C2** 后端 · `GET /v1/config` 脱敏只读视图 — 96920d1
+- [x] **C3** 后端 · 项目 CRUD 写端点（create/update/delete）+ 校验 + 路由 + 审计事件 — ca4c3ed
+- [x] **C4** 前端 · client + types + Config.vue（脱敏总览 + 项目编辑表单）— efa3844
+- [x] **C5** 文档 · runbook admin token 节 + roadmap WEB-04③ ✅ — runbook 2026-07-03-web-config-edit-runbook.md + roadmap v1.29
 
 ---
 
