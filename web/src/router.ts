@@ -43,6 +43,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/agents', name: 'agents', component: () => import('./views/Agents.vue') },
   { path: '/runners', name: 'runners', component: () => import('./views/Runners.vue') },
   { path: '/cluster', name: 'cluster', component: () => import('./views/Cluster.vue') },
+  { path: '/config', name: 'config', component: () => import('./views/Config.vue') },
 ]
 
 const router = createRouter({
