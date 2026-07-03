@@ -271,15 +271,15 @@ onUnmounted(() => {
 }
 .statrow {
   display: grid;
-  grid-template-columns: repeat(7, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(90px, 1fr));
   gap: 8px;
 }
 .stat {
-  min-width: 0;
+  min-width: 90px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
   background: var(--ink);
-  padding: 9px 8px;
+  padding: 10px 9px;
 }
 .n {
   display: block;
@@ -291,11 +291,10 @@ onUnmounted(() => {
   display: block;
   color: var(--queue);
   font-size: 11px;
-  line-height: 1.3;
+  line-height: 1.2;
   margin-top: 5px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: normal;
+  word-break: break-word;
 }
 .empty {
   border: 1px solid var(--line);
