@@ -57,6 +57,13 @@ func callerFromCtx(c *rux.Context) string {
 	return ""
 }
 
+func (s *Server) callerMayAdmin(caller string) bool {
+	if s.cfg == nil || !s.cfg.Governance.RequireAdminCapability {
+		return true
+	}
+	return s.cfg.CallerCanAdmin(caller)
+}
+
 // Server holds the wired dependencies and the rux router. It is constructed once
 // (New) and either started with Run or exposed as an http.Handler (Handler) for
 // httptest.
