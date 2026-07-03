@@ -122,14 +122,14 @@ onUnmounted(() => {
       </div>
 
       <div class="card">
-        <h3>Escalations 待处理</h3>
+        <h3>需人工介入</h3>
         <div
           class="big mono"
           :class="{ 'big--fail': (stats?.escalations_pending ?? 0) > 0 }"
         >
           {{ stats?.escalations_pending ?? 0 }}
         </div>
-        <div class="unit mono">needs_human pending</div>
+        <div class="unit mono">needs_human（pending 子集）</div>
       </div>
 
       <div class="card span2">
