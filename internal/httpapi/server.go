@@ -262,6 +262,7 @@ func (s *Server) buildRouter() *rux.Router {
 	}
 
 	r.Group("/v1", func() {
+		r.GET("/config", s.handleGetConfig)
 		r.GET("/projects", s.handleListProjects)
 		r.GET("/projects/{key}", s.handleGetProject)
 
