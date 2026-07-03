@@ -206,6 +206,55 @@ func TestMigrateAddsEscalatedAtToOldInteractions(t *testing.T) {
 	}
 }
 
+func TestMigrateAddsScheduleTypeToOldSchedules(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old-schedules.db")
+
+	raw, err := sql.Open("sqlite", "file:"+path)
+	assert.NoErr(t, err)
+	_, err = raw.Exec(`CREATE TABLE schedules (
+	  id           TEXT NOT NULL,
+	  name         TEXT NOT NULL,
+	  cron_expr    TEXT NOT NULL,
+	  request_json TEXT NOT NULL,
+	  enabled      INTEGER NOT NULL,
+	  next_run_at  INTEGER NOT NULL,
+	  last_run_at  INTEGER,
+	  last_job_id  TEXT,
+	  catch_up     INTEGER,
+	  project_key  TEXT,
+	  created_at   INTEGER NOT NULL,
+	  updated_at   INTEGER NOT NULL,
+	  PRIMARY KEY (id)
+	)`)
+	assert.NoErr(t, err)
+	_, err = raw.Exec(`INSERT INTO schedules
+	  (id, name, cron_expr, request_json, enabled, next_run_at, catch_up, project_key, created_at, updated_at)
+	  VALUES ('sch-old', 'old cron', '*/5 * * * *', '{"project_key":"self"}', 1, 2000, 1, 'self', 1000, 1000)`)
+	assert.NoErr(t, err)
+	assert.NoErr(t, raw.Close())
+
+	s, err := Open(path)
+	assert.NoErr(t, err)
+	defer s.Close()
+	assert.True(t, tableHasColumn(t, s, "schedules", "schedule_type"))
+
+	got, ok, err := s.GetSchedule("sch-old")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "cron", got.ScheduleType)
+	assert.Eq(t, "*/5 * * * *", got.CronExpr)
+
+	once := sampleSchedule("sch-once", "self", 3000)
+	once.ScheduleType = "once"
+	once.CronExpr = ""
+	assert.NoErr(t, s.InsertSchedule(once))
+	roundTrip, ok, err := s.GetSchedule("sch-once")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "once", roundTrip.ScheduleType)
+	assert.Eq(t, "", roundTrip.CronExpr)
+}
+
 // TestUpsertGetOutcomeFields covers the round-trip of the 4 产出与审计 columns
 // (job-outcomes-audit): a record carrying all four reads back identical.
 func TestUpsertGetOutcomeFields(t *testing.T) {

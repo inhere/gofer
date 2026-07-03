@@ -201,6 +201,7 @@ type ProjectMeta struct {
 type Schedule struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
+	Type       string         `json:"type"`
 	Cron       string         `json:"cron"`
 	Enabled    int            `json:"enabled"`
 	CatchUp    int            `json:"catch_up"`
@@ -214,11 +215,14 @@ type Schedule struct {
 // CreateScheduleRequest is POST /v1/schedules. Enabled/CatchUp are pointers so
 // callers can omit them and let the server defaults apply.
 type CreateScheduleRequest struct {
-	Name    string         `json:"name"`
-	Cron    string         `json:"cron"`
-	Request job.JobRequest `json:"request"`
-	Enabled *bool          `json:"enabled,omitempty"`
-	CatchUp *bool          `json:"catch_up,omitempty"`
+	Name     string         `json:"name"`
+	Type     string         `json:"type,omitempty"`
+	Cron     string         `json:"cron"`
+	DelaySec int64          `json:"delay_sec,omitempty"`
+	RunAt    int64          `json:"run_at,omitempty"`
+	Request  job.JobRequest `json:"request"`
+	Enabled  *bool          `json:"enabled,omitempty"`
+	CatchUp  *bool          `json:"catch_up,omitempty"`
 }
 
 // ListProjects returns the server's live projects (GET /v1/meta → projects). It

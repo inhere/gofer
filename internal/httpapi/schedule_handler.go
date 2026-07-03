@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gookit/rux/v2"
@@ -15,16 +16,20 @@ import (
 // createScheduleReq is the POST /v1/schedules body. enabled/catch_up default to
 // true when omitted; the persisted shape remains the jobstore 1/0 integer form.
 type createScheduleReq struct {
-	Name    string         `json:"name"`
-	Cron    string         `json:"cron"`
-	Request job.JobRequest `json:"request"`
-	Enabled *bool          `json:"enabled,omitempty"`
-	CatchUp *bool          `json:"catch_up,omitempty"`
+	Name     string         `json:"name"`
+	Type     string         `json:"type"`
+	Cron     string         `json:"cron"`
+	DelaySec int64          `json:"delay_sec,omitempty"`
+	RunAt    int64          `json:"run_at,omitempty"`
+	Request  job.JobRequest `json:"request"`
+	Enabled  *bool          `json:"enabled,omitempty"`
+	CatchUp  *bool          `json:"catch_up,omitempty"`
 }
 
 type scheduleView struct {
 	ID         string         `json:"id"`
 	Name       string         `json:"name"`
+	Type       string         `json:"type"`
 	Cron       string         `json:"cron"`
 	Enabled    int            `json:"enabled"`
 	CatchUp    int            `json:"catch_up"`
@@ -47,9 +52,14 @@ func (s *Server) handleCreateSchedule(c *rux.Context) {
 	}
 
 	now := s.jobs.Now()
-	next, err := jobstore.NextCronRun(req.Cron, now)
+	scheduleType := strings.TrimSpace(req.Type)
+	if scheduleType == "" {
+		scheduleType = "cron"
+	}
+	cronExpr := strings.TrimSpace(req.Cron)
+	next, err := nextScheduleRun(scheduleType, cronExpr, req.DelaySec, req.RunAt, now)
 	if err != nil {
-		writeError(c, http.StatusBadRequest, "invalid cron", err.Error())
+		writeError(c, http.StatusBadRequest, "invalid schedule", err.Error())
 		return
 	}
 
@@ -74,16 +84,17 @@ func (s *Server) handleCreateSchedule(c *rux.Context) {
 	}
 	ts := now.Unix()
 	rec := jobstore.ScheduleRecord{
-		ID:          newScheduleID(now),
-		Name:        req.Name,
-		CronExpr:    req.Cron,
-		RequestJSON: string(raw),
-		Enabled:     enabled,
-		NextRunAt:   next,
-		CatchUp:     catchUp,
-		ProjectKey:  req.Request.ProjectKey,
-		CreatedAt:   ts,
-		UpdatedAt:   ts,
+		ID:           newScheduleID(now),
+		Name:         req.Name,
+		ScheduleType: scheduleType,
+		CronExpr:     cronExpr,
+		RequestJSON:  string(raw),
+		Enabled:      enabled,
+		NextRunAt:    next,
+		CatchUp:      catchUp,
+		ProjectKey:   req.Request.ProjectKey,
+		CreatedAt:    ts,
+		UpdatedAt:    ts,
 	}
 	if err := s.jobs.Meta().InsertSchedule(rec); err != nil {
 		writeError(c, scheduleStatus(err), "create schedule failed", err.Error())
@@ -205,6 +216,7 @@ func scheduleToView(rec jobstore.ScheduleRecord) scheduleView {
 	return scheduleView{
 		ID:         rec.ID,
 		Name:       rec.Name,
+		Type:       scheduleTypeOrDefault(rec.ScheduleType),
 		Cron:       rec.CronExpr,
 		Enabled:    rec.Enabled,
 		CatchUp:    rec.CatchUp,
@@ -214,6 +226,41 @@ func scheduleToView(rec jobstore.ScheduleRecord) scheduleView {
 		ProjectKey: rec.ProjectKey,
 		Request:    req,
 	}
+}
+
+func nextScheduleRun(scheduleType, cronExpr string, delaySec, runAt int64, now time.Time) (int64, error) {
+	switch scheduleType {
+	case "cron":
+		if cronExpr == "" {
+			return 0, fmt.Errorf("cron is required")
+		}
+		return jobstore.NextCronRun(cronExpr, now)
+	case "once":
+		if cronExpr != "" {
+			return 0, fmt.Errorf("once schedule must not set cron")
+		}
+		target := runAt
+		if target <= 0 && delaySec > 0 {
+			target = now.Unix() + delaySec
+		}
+		if target <= 0 {
+			return 0, fmt.Errorf("once schedule requires run_at or delay_sec")
+		}
+		min := now.Unix() + 3
+		if target < min {
+			return 0, fmt.Errorf("once run time must be at least 3 seconds in the future")
+		}
+		return target, nil
+	default:
+		return 0, fmt.Errorf("type must be cron or once")
+	}
+}
+
+func scheduleTypeOrDefault(t string) string {
+	if t == "" {
+		return "cron"
+	}
+	return t
 }
 
 func newScheduleID(now time.Time) string {

@@ -153,6 +153,14 @@ function shortId(id: string): string {
   return id.length > 12 ? id.slice(-12) : id
 }
 
+function scheduleType(s: Schedule): 'cron' | 'once' {
+  return s.type === 'once' ? 'once' : 'cron'
+}
+
+function isOnceTriggered(s: Schedule): boolean {
+  return scheduleType(s) === 'once' && s.enabled === 0 && s.last_run_at > 0
+}
+
 // request 的执行摘要（agent/runner/cwd + prompt 首行 / cmd）
 function reqSummary(s: Schedule): string {
   const r = s.request
@@ -195,7 +203,7 @@ onUnmounted(() => {
       <div class="thead mono">
         <span class="col-en">启用</span>
         <span class="col-name">name / id</span>
-        <span class="col-cron">cron</span>
+        <span class="col-cron">type / cron</span>
         <span class="col-next">下次触发</span>
         <span class="col-last">上次 job</span>
         <span class="col-act">操作</span>
@@ -217,15 +225,25 @@ onUnmounted(() => {
             ></span>
           </span>
           <span class="col-name">
-            <span class="sch-name" :title="s.name">{{ s.name }}</span>
+            <span class="sch-name-line">
+              <span class="type-badge" :class="`type-badge--${scheduleType(s)}`">{{ scheduleType(s) }}</span>
+              <span class="sch-name" :title="s.name">{{ s.name }}</span>
+            </span>
             <span class="sch-sub mono">
               <span class="sch-id" :title="s.id">{{ shortId(s.id) }}</span>
               <span class="sch-pr">{{ s.project_key }} · {{ s.request.agent }} · {{ s.request.runner }}</span>
             </span>
           </span>
-          <span class="col-cron mono" :title="s.cron">{{ s.cron }}</span>
+          <span class="col-cron mono" :title="s.cron || 'once'">
+            <template v-if="scheduleType(s) === 'cron'">{{ s.cron }}</template>
+            <template v-else>once</template>
+          </span>
           <span class="col-next mono">
-            <template v-if="s.enabled">
+            <template v-if="isOnceTriggered(s)">
+              <span class="next-off">已触发</span>
+              <span class="next-rel">{{ fmtDateTime(s.last_run_at) }}</span>
+            </template>
+            <template v-else-if="s.enabled">
               <span class="next-abs">{{ fmtDateTime(s.next_run_at) }}</span>
               <span class="next-rel">{{ fmtUntil(s.next_run_at) }}</span>
             </template>
@@ -274,6 +292,7 @@ onUnmounted(() => {
         <!-- 展开：被调度的 JobRequest 摘要 -->
         <div v-if="expanded.has(s.id)" class="detail mono">
           <div class="detail-grid">
+            <span class="dk">type</span><span class="dv">{{ scheduleType(s) }}</span>
             <span class="dk">catch_up</span><span class="dv">{{ s.catch_up ? 'true' : 'false' }}</span>
             <span class="dk">cwd</span><span class="dv">{{ s.request.cwd || '.' }}</span>
             <template v-if="s.request.title">
@@ -413,6 +432,27 @@ onUnmounted(() => {
   flex-direction: column;
   gap: 2px;
   min-width: 0;
+}
+.sch-name-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.type-badge {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1px 5px;
+  font-size: 10px;
+  line-height: 1.4;
+  text-transform: uppercase;
+  flex: none;
+}
+.type-badge--cron {
+  color: var(--phosphor);
+}
+.type-badge--once {
+  color: var(--run);
 }
 .sch-name {
   color: var(--paper);

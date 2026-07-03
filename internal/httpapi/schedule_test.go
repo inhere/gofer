@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/job"
 )
@@ -27,7 +28,7 @@ func TestScheduleLifecycle(t *testing.T) {
 	if !strings.HasPrefix(created.ID, "sch-") {
 		t.Fatalf("schedule id %q does not have sch- prefix", created.ID)
 	}
-	if created.Name != "nightly" || created.Cron != "*/5 * * * *" {
+	if created.Name != "nightly" || created.Type != "cron" || created.Cron != "*/5 * * * *" {
 		t.Fatalf("unexpected created schedule: %+v", created)
 	}
 	if created.Enabled != 1 || created.CatchUp != 1 {
@@ -103,6 +104,82 @@ func TestScheduleCreateInvalidAgent(t *testing.T) {
 		t.Fatalf("invalid agent status=%d, want 400", resp.StatusCode)
 	}
 	resp.Body.Close()
+}
+
+func TestScheduleCreateOnceDelay(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	before := time.Now().Unix()
+	resp := do(t, s, http.MethodPost, "/v1/schedules", testToken, createScheduleReq{
+		Name:     "once-delay",
+		Type:     "once",
+		DelaySec: 30,
+		Request: job.JobRequest{
+			ProjectKey: "self", Agent: "exec", Runner: "local",
+			Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+		},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("once delay status=%d, want 200", resp.StatusCode)
+	}
+	var created scheduleView
+	decode(t, resp, &created)
+	if created.Type != "once" || created.Cron != "" {
+		t.Fatalf("unexpected once delay schedule: %+v", created)
+	}
+	if created.NextRunAt < before+30 || created.NextRunAt > time.Now().Unix()+30 {
+		t.Fatalf("next_run_at=%d outside delay window", created.NextRunAt)
+	}
+}
+
+func TestScheduleCreateOnceRunAt(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	runAt := time.Now().Unix() + 60
+	resp := do(t, s, http.MethodPost, "/v1/schedules", testToken, createScheduleReq{
+		Name:  "once-at",
+		Type:  "once",
+		RunAt: runAt,
+		Request: job.JobRequest{
+			ProjectKey: "self", Agent: "exec", Runner: "local",
+			Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+		},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("once run_at status=%d, want 200", resp.StatusCode)
+	}
+	var created scheduleView
+	decode(t, resp, &created)
+	if created.Type != "once" || created.NextRunAt != runAt || created.Cron != "" {
+		t.Fatalf("unexpected once run_at schedule: %+v", created)
+	}
+}
+
+func TestScheduleCreateOnceInvalid(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	base := createScheduleReq{
+		Name: "bad-once",
+		Type: "once",
+		Request: job.JobRequest{
+			ProjectKey: "self", Agent: "exec", Runner: "local",
+			Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+		},
+	}
+	cases := []struct {
+		name string
+		mut  func(*createScheduleReq)
+	}{
+		{name: "with cron", mut: func(r *createScheduleReq) { r.Cron = "*/5 * * * *"; r.DelaySec = 30 }},
+		{name: "missing time", mut: func(r *createScheduleReq) {}},
+		{name: "past run_at", mut: func(r *createScheduleReq) { r.RunAt = time.Now().Unix() - 1 }},
+	}
+	for _, tc := range cases {
+		req := base
+		tc.mut(&req)
+		resp := do(t, s, http.MethodPost, "/v1/schedules", testToken, req)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("%s status=%d, want 400", tc.name, resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
 }
 
 func TestScheduleEnableDisable(t *testing.T) {

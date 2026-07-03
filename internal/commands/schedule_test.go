@@ -36,16 +36,11 @@ func TestScheduleAddBuildsJobRequestFromRunFlags(t *testing.T) {
 	addCmd := app.GetCommand("schedule").GetCommand("add")
 	var got client.CreateScheduleRequest
 	addCmd.Func = func(c *gcli.Command, _ []string) error {
-		req, err := buildJobRunRequest(c, &client.Client{})
+		req, err := buildScheduleCreateRequest(c, &client.Client{})
 		if err != nil {
 			return err
 		}
-		got = client.CreateScheduleRequest{
-			Name:    scheduleOpts.name,
-			Cron:    scheduleOpts.cron,
-			Request: req,
-			CatchUp: &scheduleOpts.catchUp,
-		}
+		got = req
 		return nil
 	}
 
@@ -60,6 +55,9 @@ func TestScheduleAddBuildsJobRequestFromRunFlags(t *testing.T) {
 	}
 	if got.Name != "nightly" || got.Cron != "*/5 * * * *" {
 		t.Fatalf("schedule fields mismatch: %+v", got)
+	}
+	if got.Type != "" || got.DelaySec != 0 || got.RunAt != 0 {
+		t.Fatalf("cron schedule should not set once fields: %+v", got)
 	}
 	if got.CatchUp == nil || !*got.CatchUp {
 		t.Fatalf("catch_up default should be true, got %+v", got.CatchUp)
@@ -81,6 +79,33 @@ func TestScheduleAddBuildsJobRequestFromRunFlags(t *testing.T) {
 	}
 	if got.Request.Client == "" {
 		t.Fatal("JobRequest.Client should be stamped from cliHostname")
+	}
+}
+
+func TestScheduleAddDelayBuildsOnceRequest(t *testing.T) {
+	resetScheduleTestState()
+
+	app := NewApp("test")
+	addCmd := app.GetCommand("schedule").GetCommand("add")
+	var got client.CreateScheduleRequest
+	addCmd.Func = func(c *gcli.Command, _ []string) error {
+		req, err := buildScheduleCreateRequest(c, &client.Client{})
+		if err != nil {
+			return err
+		}
+		got = req
+		return nil
+	}
+
+	args := []string{
+		"schedule", "add", "--name", "once", "--delay", "30s",
+		"-p", "self", "-a", "exec", "--runner", "local", "--", "go", "version",
+	}
+	if code := app.Run(args); code != 0 {
+		t.Fatalf("app.Run exit code=%d for args %v", code, args)
+	}
+	if got.Name != "once" || got.Type != "once" || got.Cron != "" || got.DelaySec != 30 {
+		t.Fatalf("once fields mismatch: %+v", got)
 	}
 }
 
@@ -115,7 +140,7 @@ func TestScheduleAddPromptAndRoleFlags(t *testing.T) {
 }
 
 func resetScheduleTestState() {
-	scheduleOpts.name, scheduleOpts.cron, scheduleOpts.project = "", "", ""
+	scheduleOpts.name, scheduleOpts.cron, scheduleOpts.delay, scheduleOpts.at, scheduleOpts.project = "", "", "", "", ""
 	scheduleOpts.catchUp = false
 	jobRunOpts.project, jobRunOpts.agent, jobRunOpts.runner = "", "", ""
 	jobRunOpts.cwd, jobRunOpts.prompt, jobRunOpts.title, jobRunOpts.tags = "", "", "", ""

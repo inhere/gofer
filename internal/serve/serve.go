@@ -572,9 +572,30 @@ func sweepSchedules(now int64, due []jobstore.ScheduleRecord, missGrace int64,
 	nextOf func(expr string, after int64) (int64, error),
 	advance func(id string, oldNext, newNext int64) (bool, error),
 	submit func(r jobstore.ScheduleRecord) (string, error),
-	setLast func(id, jobID string), logf, errf func(string, ...any)) {
+	setLast func(id, jobID string),
+	setEnabled func(id string, enabled int),
+	logf, errf func(string, ...any)) {
 	for _, r := range due {
 		oldNext := r.NextRunAt
+		if r.ScheduleType == "once" {
+			ok, err := advance(r.ID, oldNext, 0)
+			if err != nil {
+				errf("gofer: schedule %s advance failed: %v\n", r.ID, err)
+				continue
+			}
+			if !ok {
+				continue
+			}
+			jobID, err := submit(r)
+			if err != nil {
+				errf("gofer: schedule %s submit failed: %v\n", r.ID, err)
+				setEnabled(r.ID, 0)
+				continue
+			}
+			setLast(r.ID, jobID)
+			setEnabled(r.ID, 0)
+			continue
+		}
 		newNext, err := nextOf(r.CronExpr, now)
 		if err != nil {
 			errf("gofer: schedule %s next cron failed: %v\n", r.ID, err)
@@ -645,6 +666,11 @@ func startScheduleLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
 				func(id, jobID string) {
 					if err := cr.Store.SetScheduleLastJob(id, jobID); err != nil {
 						c.Errorf("gofer: schedule %s set last job failed: %v\n", id, err)
+					}
+				},
+				func(id string, enabled int) {
+					if err := cr.Store.SetScheduleEnabled(id, enabled); err != nil {
+						c.Errorf("gofer: schedule %s set enabled failed: %v\n", id, err)
 					}
 				},
 				func(f string, a ...any) { c.Printf(f, a...) },
