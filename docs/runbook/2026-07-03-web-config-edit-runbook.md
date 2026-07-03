@@ -4,10 +4,10 @@
 
 ## 是什么
 
-Web 控制台 `配置` 页（舰队组）提供：
+功能分两处（IA 调整后）：
 
-- **脱敏配置总览（只读）**：`GET /v1/config` 展示全量受管配置——server / callers / agents / runners / storage / governance 等。**所有 secret 只显示「已配置 / 未配置」徽标**（`*_set`），token/密钥的值与 env 变量名一律不出网；`agents`/`roles` 的 `env` 只列 **key 名**（`env_keys`）不列值。
-- **项目编辑（写）**：新增 / 编辑 / 删除项目映射 + 准入字段（`allowed_agents` / `allowed_runners` / `allow_exec` / `default_agent` / `max_concurrent_jobs` / 路径）。经 `project.Registry` 落**全局** `~/.config/gofer/config.yaml`，**live 生效**（无需重启，后续 job 提交即用新映射/准入）。
+- **系统配置只读总览** —— 独立 **`⚙ 设置`** 入口（顶栏末尾/侧栏，与内容分组分隔）：`GET /v1/config` 展示全量受管配置——server / callers / agents / runners / storage / governance 等。**所有 secret 只显示「已配置 / 未配置」徽标**（`*_set`），token/密钥的值与 env 变量名一律不出网；`agents`/`roles` 的 `env` 只列 **key 名**（`env_keys`）不列值。**纯只读**。
+- **项目编辑（写）** —— 在 **`Projects` 页**（舰队组，读+写）：新增 / 编辑 / 删除项目映射 + 准入字段（`allowed_agents` / `allowed_runners` / `allow_exec` / `default_agent` / `max_concurrent_jobs` / 路径）。经 `project.Registry` 落**全局** `~/.config/gofer/config.yaml`，**live 生效**（无需重启，后续 job 提交即用新映射/准入）。
 
 ## V1 范围与边界（重要）
 
@@ -61,9 +61,9 @@ server:
 
 ## 冒烟验证
 
-1. 用具 `can_admin` 的 token 登录控制台 → `配置` 页。
-2. 总览：确认 server/caller/agent 的 token 只显示「已配置/未配置」，无明文；agent env 只见 key 名。
-3. 新增一个项目（填 host_path + 选 default_agent/allowed_agents）→ 保存 → 列表出现 → `GET /v1/projects/{key}` 可见。
+1. 用具 `can_admin` 的 token 登录控制台。
+2. `⚙ 设置` 页总览：确认 server/caller/agent 的 token 只显示「已配置/未配置」，无明文；agent env 只见 key 名。
+3. `Projects` 页新增一个项目（填 host_path + 选 default_agent/allowed_agents）→ 保存 → 列表出现 → `GET /v1/projects/{key}` 可见。
 4. 编辑其准入（如开 allow_exec）→ 保存 live 生效。
 5. 删除 → 二次确认 → 列表移除。
 6. （开闸时）用无 `can_admin` 的 token → 写操作 403 就地提示。
