@@ -44,6 +44,9 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	if err != nil {
 		return JobResult{}, err
 	}
+	if len(req.EnvFiles) > 0 && (remote || req.Runner != builtinLocalRunner) {
+		return JobResult{}, fmt.Errorf("%w: env_files are supported only for local runner jobs", ErrInvalidRequest)
+	}
 
 	// Attempt is 1-based: a first run (no engine-set attempt) is attempt 1 when the
 	// job opts into retry (E24) OR belongs to a workflow, so the persisted attempt
@@ -176,17 +179,22 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		if ac, ok := s.agents.Get(req.Agent); ok {
 			runReq.Args = append(runReq.Args, agent.McpEnvInjectArgs(ac, req.Env)...)
 		}
-		// Layer the per-job env (req.Env, incl. role-derived GOFER_AGENT_ROLE) ON TOP
-		// of the agent-config env (resolved.Env); the gofer-owned job metadata then
-		// wins over both (goferJobEnv applies it last). Precedence low→high:
-		// os.Environ < agent.env < job.env < gofer metadata.
+		secretMap, err := LoadEnvFilesMap(req.EnvFiles, cfg, proj)
+		if err != nil {
+			return JobResult{}, err
+		}
+		// Layer env_files under agent-config env and per-job env. The env_files
+		// values only enter runReq.Env; they are never copied back into req.Env, so
+		// request_json/API responses keep only the non-sensitive file declarations.
+		// Precedence low→high:
+		// os.Environ < env_files < agent.env < job.env < gofer metadata.
 		// Inject gofer-owned job metadata env so ANY job type (exec or cli-agent)
 		// can locate its result dir / cwd / id. exec argv is executed verbatim
 		// (no {{result_dir}} templating, unlike cli-agent args) — env is the only
 		// channel an exec wrapper has to find <result_dir> for writing E1 artifacts
 		// / E6 result.json. Set on the worker/peer side too (they run this same
 		// local branch), so remote exec jobs get the executor-local paths.
-		runReq.Env = goferJobEnv(mergeEnv(resolved.Env, req.Env), jobID, workDir, resultDir)
+		runReq.Env = goferJobEnv(mergeEnv(mergeEnv(secretMap, resolved.Env), req.Env), jobID, workDir, resultDir)
 	}
 	// An explicit req.SessionID (resume path, P2) wins over auto-injection and is
 	// honoured for both local and remote branches: the job binds to that exact

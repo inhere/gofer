@@ -33,6 +33,10 @@ type JobRequest struct {
 	// self-register (P3). 勿放 secret：本字段随 request_json 落库（SR403/SR805），secret
 	// 应改走 agent.env / K8s secret 注入（不入 request_json）。
 	Env map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
+	// EnvFiles declares non-sensitive dotenv file paths whose loaded values are
+	// injected only into the execution env. The file list itself may be persisted
+	// in request_json; loaded values must never be written back to Env/request_json.
+	EnvFiles []string `json:"env_files,omitempty" yaml:"env_files,omitempty"`
 	// WorkerID selects which registered worker a runner=worker job dispatches to
 	// (ws-worker §8). When set it must be a known server.workers entry (explicit
 	// routing wins); ignored for local/peer-http runners. When empty for a worker
