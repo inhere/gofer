@@ -3,6 +3,7 @@ package commands
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 
@@ -16,6 +17,8 @@ import (
 var scheduleOpts = struct {
 	name    string
 	cron    string
+	delay   string
+	at      string
 	catchUp bool
 	project string
 }{}
@@ -26,11 +29,11 @@ func NewScheduleCmd() *gcli.Command {
 	return &gcli.Command{
 		Name:    "schedule",
 		Aliases: []string{"sch"},
-		Desc:    "Manage cron schedules via the bridge server",
+		Desc:    "Manage schedules via the bridge server",
 		Subs: []*gcli.Command{
 			{
 				Name: "add",
-				Desc: "Create a cron schedule from a job request",
+				Desc: "Create a schedule from a job request",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
@@ -41,7 +44,7 @@ func NewScheduleCmd() *gcli.Command {
 			{
 				Name:    "list",
 				Aliases: []string{"ls"},
-				Desc:    "List cron schedules",
+				Desc:    "List schedules",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
@@ -51,7 +54,7 @@ func NewScheduleCmd() *gcli.Command {
 			},
 			{
 				Name: "show",
-				Desc: "Show a cron schedule",
+				Desc: "Show a schedule",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
@@ -61,7 +64,7 @@ func NewScheduleCmd() *gcli.Command {
 			},
 			{
 				Name: "enable",
-				Desc: "Enable a cron schedule",
+				Desc: "Enable a schedule",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
@@ -71,7 +74,7 @@ func NewScheduleCmd() *gcli.Command {
 			},
 			{
 				Name: "disable",
-				Desc: "Disable a cron schedule",
+				Desc: "Disable a schedule",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
@@ -81,7 +84,7 @@ func NewScheduleCmd() *gcli.Command {
 			},
 			{
 				Name: "run",
-				Desc: "Run a cron schedule now",
+				Desc: "Run a schedule now",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
@@ -91,7 +94,7 @@ func NewScheduleCmd() *gcli.Command {
 			},
 			{
 				Name: "rm",
-				Desc: "Delete a cron schedule",
+				Desc: "Delete a schedule",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
@@ -105,7 +108,9 @@ func NewScheduleCmd() *gcli.Command {
 
 func bindScheduleAddFlags(c *gcli.Command) {
 	c.StrOpt(&scheduleOpts.name, "name", "", "", "schedule name (required)")
-	c.StrOpt(&scheduleOpts.cron, "cron", "", "", "standard 5-field cron expression (required)")
+	c.StrOpt(&scheduleOpts.cron, "cron", "", "", "standard 5-field cron expression")
+	c.StrOpt(&scheduleOpts.delay, "delay", "", "", "create a one-shot schedule after a duration, e.g. 30s/5m")
+	c.StrOpt(&scheduleOpts.at, "at", "", "", "create a one-shot schedule at RFC3339 or unix seconds")
 	c.BoolOpt(&scheduleOpts.catchUp, "catch-up", "", true, "run once after a missed tick within the server grace window")
 	c.StrOpt(&jobRunOpts.project, "project", "p", "", "project key (required)")
 	c.StrOpt(&jobRunOpts.agent, "agent", "a", "", "agent key (required)")
@@ -124,30 +129,87 @@ func runScheduleAdd(c *gcli.Command, _ []string) error {
 	if strings.TrimSpace(scheduleOpts.name) == "" {
 		return fmt.Errorf("--name is required")
 	}
-	if strings.TrimSpace(scheduleOpts.cron) == "" {
-		return fmt.Errorf("--cron is required")
-	}
 	autoDetectJobProject(c)
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
 		return err
 	}
+	req, err := buildScheduleCreateRequest(c, cli)
+	if err != nil {
+		return err
+	}
+	out, err := cli.CreateSchedule(req)
+	if err != nil {
+		return err
+	}
+	c.Printf("schedule %s created: name=%s type=%s cron=%q next_run=%s enabled=%s\n",
+		out.ID, out.Name, scheduleTypeText(out.Type), out.Cron, formatScheduleTime(out.NextRunAt), enabledText(out.Enabled))
+	return nil
+}
+
+func buildScheduleCreateRequest(c *gcli.Command, cli *client.Client) (client.CreateScheduleRequest, error) {
+	cronExpr := strings.TrimSpace(scheduleOpts.cron)
+	delayRaw := strings.TrimSpace(scheduleOpts.delay)
+	atRaw := strings.TrimSpace(scheduleOpts.at)
+	provided := 0
+	for _, v := range []string{cronExpr, delayRaw, atRaw} {
+		if v != "" {
+			provided++
+		}
+	}
+	if provided == 0 {
+		return client.CreateScheduleRequest{}, fmt.Errorf("one of --cron, --delay, or --at is required")
+	}
+	if provided > 1 {
+		return client.CreateScheduleRequest{}, fmt.Errorf("--cron, --delay, and --at are mutually exclusive")
+	}
+
 	req, err := buildJobRunRequest(c, cli)
 	if err != nil {
-		return err
+		return client.CreateScheduleRequest{}, err
 	}
-	out, err := cli.CreateSchedule(client.CreateScheduleRequest{
-		Name:    scheduleOpts.name,
-		Cron:    scheduleOpts.cron,
+	out := client.CreateScheduleRequest{
+		Name:    strings.TrimSpace(scheduleOpts.name),
+		Cron:    cronExpr,
 		Request: req,
 		CatchUp: &scheduleOpts.catchUp,
-	})
-	if err != nil {
-		return err
 	}
-	c.Printf("schedule %s created: name=%s cron=%q next_run=%s enabled=%s\n",
-		out.ID, out.Name, out.Cron, formatScheduleTime(out.NextRunAt), enabledText(out.Enabled))
-	return nil
+	if delayRaw != "" {
+		d, err := time.ParseDuration(delayRaw)
+		if err != nil {
+			return client.CreateScheduleRequest{}, fmt.Errorf("parse --delay: %w", err)
+		}
+		if d <= 0 {
+			return client.CreateScheduleRequest{}, fmt.Errorf("--delay must be > 0")
+		}
+		out.Type = "once"
+		out.Cron = ""
+		out.DelaySec = int64(d / time.Second)
+		if out.DelaySec <= 0 {
+			return client.CreateScheduleRequest{}, fmt.Errorf("--delay must be at least 1s")
+		}
+	}
+	if atRaw != "" {
+		runAt, err := parseScheduleAt(atRaw)
+		if err != nil {
+			return client.CreateScheduleRequest{}, err
+		}
+		out.Type = "once"
+		out.Cron = ""
+		out.RunAt = runAt
+	}
+	return out, nil
+}
+
+func parseScheduleAt(raw string) (int64, error) {
+	if sec, err := strconv.ParseInt(raw, 10, 64); err == nil {
+		return sec, nil
+	}
+	t, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return 0, fmt.Errorf("parse --at as unix seconds or RFC3339: %w", err)
+	}
+	return t.Unix(), nil
 }
 
 func runScheduleList(c *gcli.Command, _ []string) error {
@@ -164,9 +226,9 @@ func runScheduleList(c *gcli.Command, _ []string) error {
 		return nil
 	}
 	tb := table.New("", table.WithColMaxWidth(30))
-	tb.SetHeads("ID", "NAME", "CRON", "NEXT_RUN", "ENABLED", "LAST_JOB")
+	tb.SetHeads("ID", "NAME", "TYPE", "CRON", "NEXT_RUN", "ENABLED", "LAST_JOB")
 	for _, s := range list {
-		tb.AddRow(s.ID, s.Name, s.Cron, formatScheduleListTime(s.NextRunAt), enabledText(s.Enabled), emptyDash(s.LastJobID))
+		tb.AddRow(s.ID, s.Name, scheduleTypeText(s.Type), emptyDash(s.Cron), formatScheduleListTime(s.NextRunAt), enabledText(s.Enabled), emptyDash(s.LastJobID))
 	}
 	c.Print(tb.Render())
 	return nil
@@ -187,6 +249,7 @@ func runScheduleShow(c *gcli.Command, _ []string) error {
 	}
 	c.Printf("id:          %s\n", s.ID)
 	c.Printf("name:        %s\n", s.Name)
+	c.Printf("type:        %s\n", scheduleTypeText(s.Type))
 	c.Printf("cron:        %s\n", s.Cron)
 	c.Printf("project:     %s\n", s.ProjectKey)
 	c.Printf("enabled:     %s\n", enabledText(s.Enabled))
@@ -276,6 +339,13 @@ func enabledText(v int) string {
 		return "true"
 	}
 	return "false"
+}
+
+func scheduleTypeText(v string) string {
+	if v == "" {
+		return "cron"
+	}
+	return v
 }
 
 func emptyDash(s string) string {

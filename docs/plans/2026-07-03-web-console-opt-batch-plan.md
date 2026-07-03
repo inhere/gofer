@@ -15,7 +15,7 @@
 | P2a | kuwd.6 | 查看 diff 中文乱码修复 | ✅ 代码完成(待LIVE眼检) |
 | P2b | kuwd.7 | 终端输出分页(最后200L+加载更多)+stdout Markdown | ✅ 代码完成(待LIVE眼检) |
 | P2a | kuwd.8 | codex session_id 捕获修复(补扫 stderr) | ✅ 代码完成 |
-| P3 | kuwd.9 | Schedules 一次性/延迟任务 | ⬜ design 就绪 |
+| P3 | kuwd.9 | Schedules 一次性/延迟任务 | ✅ 代码完成(含DB迁移,待LIVE冒烟) |
 | P3 | kuwd.10 | Secret env 声明式 env_files | ✅ 代码完成(后端安全,MVP local-only) |
 | P3 | kuwd.11 | Workflow 创建 yaml 编辑器页面 | ✅ 代码完成(待LIVE眼检) |
 

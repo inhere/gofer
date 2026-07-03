@@ -25,7 +25,7 @@ func sampleSchedule(id, project string, nextRunAt int64) ScheduleRecord {
 func TestSchedulesTableExists(t *testing.T) {
 	s := openTest(t)
 	for _, col := range []string{
-		"id", "name", "cron_expr", "request_json", "enabled", "next_run_at",
+		"id", "name", "schedule_type", "cron_expr", "request_json", "enabled", "next_run_at",
 		"last_run_at", "last_job_id", "catch_up", "project_key", "created_at", "updated_at",
 	} {
 		assert.True(t, tableHasColumn(t, s, "schedules", col))
@@ -41,12 +41,17 @@ func TestScheduleCRUDRoundTrip(t *testing.T) {
 	b.Enabled = 0
 	assert.NoErr(t, s.InsertSchedule(a))
 	assert.NoErr(t, s.InsertSchedule(b))
+	once := sampleSchedule("sch-once", "proj-a", 4000)
+	once.ScheduleType = "once"
+	once.CronExpr = ""
+	assert.NoErr(t, s.InsertSchedule(once))
 
 	got, ok, err := s.GetSchedule("sch-a")
 	assert.NoErr(t, err)
 	assert.True(t, ok)
 	assert.Eq(t, "sch-a", got.ID)
 	assert.Eq(t, "nightly sch-a", got.Name)
+	assert.Eq(t, "cron", got.ScheduleType)
 	assert.Eq(t, "0 2 * * *", got.CronExpr)
 	assert.Eq(t, `{"project_key":"proj-a"}`, got.RequestJSON)
 	assert.Eq(t, 1, got.Enabled)
@@ -58,15 +63,13 @@ func TestScheduleCRUDRoundTrip(t *testing.T) {
 
 	all, err := s.ListSchedules("", false)
 	assert.NoErr(t, err)
-	assert.Len(t, all, 2)
+	assert.Len(t, all, 3)
 	projA, err := s.ListSchedules("proj-a", false)
 	assert.NoErr(t, err)
-	assert.Len(t, projA, 1)
-	assert.Eq(t, "sch-a", projA[0].ID)
+	assert.Len(t, projA, 2)
 	enabled, err := s.ListSchedules("", true)
 	assert.NoErr(t, err)
-	assert.Len(t, enabled, 1)
-	assert.Eq(t, "sch-a", enabled[0].ID)
+	assert.Len(t, enabled, 2)
 
 	assert.NoErr(t, s.SetScheduleEnabled("sch-b", 1))
 	got, ok, err = s.GetSchedule("sch-b")

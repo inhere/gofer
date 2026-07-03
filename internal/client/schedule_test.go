@@ -20,7 +20,7 @@ func TestScheduleClientMethods(t *testing.T) {
 			if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 				t.Fatalf("decode create body: %v", err)
 			}
-			if req.Name != "nightly" || req.Cron != "*/5 * * * *" {
+			if req.Name != "nightly" || req.Type != "once" || req.Cron != "" || req.DelaySec != 30 {
 				t.Fatalf("create body schedule fields mismatch: %+v", req)
 			}
 			if req.Request.ProjectKey != "self" || req.Request.Agent != "exec" || len(req.Request.Cmd) != 2 {
@@ -86,8 +86,9 @@ func TestScheduleClientMethods(t *testing.T) {
 	cli := New(ts.URL, "tok")
 	catchUp := true
 	created, err := cli.CreateSchedule(CreateScheduleRequest{
-		Name: "nightly",
-		Cron: "*/5 * * * *",
+		Name:     "nightly",
+		Type:     "once",
+		DelaySec: 30,
 		Request: job.JobRequest{
 			ProjectKey: "self",
 			Agent:      "exec",
@@ -167,6 +168,7 @@ func scheduleFixture(id string) Schedule {
 	return Schedule{
 		ID:         id,
 		Name:       "nightly",
+		Type:       "cron",
 		Cron:       "*/5 * * * *",
 		Enabled:    1,
 		CatchUp:    1,

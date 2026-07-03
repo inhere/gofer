@@ -564,13 +564,14 @@ export interface SubmitJobResult {
   async: boolean
 }
 
-// cron 定时调度（AUTO-02）。GET/POST /v1/schedules，字段与 internal/httpapi/
+// 定时调度（AUTO-02）。GET/POST /v1/schedules，字段与 internal/httpapi/
 // schedule_handler.go 的 scheduleView 对齐：enabled/catch_up 是 1/0 整型；
 // next_run_at/last_run_at 为 Unix 秒（0 表示未排定/从未触发）；request 是被调度
 // 的 JobRequest 快照（复用 SubmitJobReq 形状，触发时 channel 覆盖为 cron）。
 export interface Schedule {
   id: string
   name: string
+  type?: 'cron' | 'once'
   cron: string
   enabled: number
   catch_up: number
@@ -589,7 +590,10 @@ export interface SchedulesResp {
 // request.caller_id 由服务端覆盖，前端不发。
 export interface CreateScheduleReq {
   name: string
+  type?: 'cron' | 'once'
   cron: string
+  delay_sec?: number
+  run_at?: number
   request: SubmitJobReq
   enabled?: boolean
   catch_up?: boolean

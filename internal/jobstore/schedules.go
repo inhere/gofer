@@ -13,21 +13,22 @@ import (
 // (AUTO-02). RequestJSON holds the marshalled JobRequest; jobstore keeps it as an
 // opaque string to avoid importing internal/job.
 type ScheduleRecord struct {
-	ID          string
-	Name        string
-	CronExpr    string
-	RequestJSON string
-	Enabled     int
-	NextRunAt   int64
-	LastRunAt   int64
-	LastJobID   string
-	CatchUp     int
-	ProjectKey  string
-	CreatedAt   int64
-	UpdatedAt   int64
+	ID           string
+	Name         string
+	ScheduleType string
+	CronExpr     string
+	RequestJSON  string
+	Enabled      int
+	NextRunAt    int64
+	LastRunAt    int64
+	LastJobID    string
+	CatchUp      int
+	ProjectKey   string
+	CreatedAt    int64
+	UpdatedAt    int64
 }
 
-const selectScheduleCols = `SELECT id, name, cron_expr, request_json, enabled,
+const selectScheduleCols = `SELECT id, name, COALESCE(NULLIF(schedule_type,''),'cron'), cron_expr, request_json, enabled,
   next_run_at, COALESCE(last_run_at,0), COALESCE(last_job_id,''),
   COALESCE(catch_up,0), COALESCE(project_key,''), created_at, updated_at
   FROM schedules`
@@ -35,7 +36,7 @@ const selectScheduleCols = `SELECT id, name, cron_expr, request_json, enabled,
 func scanSchedule(sc rowScanner) (ScheduleRecord, error) {
 	var r ScheduleRecord
 	err := sc.Scan(
-		&r.ID, &r.Name, &r.CronExpr, &r.RequestJSON, &r.Enabled,
+		&r.ID, &r.Name, &r.ScheduleType, &r.CronExpr, &r.RequestJSON, &r.Enabled,
 		&r.NextRunAt, &r.LastRunAt, &r.LastJobID,
 		&r.CatchUp, &r.ProjectKey, &r.CreatedAt, &r.UpdatedAt,
 	)
@@ -46,14 +47,17 @@ func (s *Store) InsertSchedule(r ScheduleRecord) error {
 	if r.ID == "" {
 		return errors.New("jobstore: InsertSchedule: empty schedule id")
 	}
+	if r.ScheduleType == "" {
+		r.ScheduleType = "cron"
+	}
 	const q = `INSERT INTO schedules
-  (id, name, cron_expr, request_json, enabled, next_run_at, last_run_at,
+  (id, name, schedule_type, cron_expr, request_json, enabled, next_run_at, last_run_at,
    last_job_id, catch_up, project_key, created_at, updated_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q,
-		r.ID, r.Name, r.CronExpr, r.RequestJSON, r.Enabled, r.NextRunAt, r.LastRunAt,
+		r.ID, r.Name, r.ScheduleType, r.CronExpr, r.RequestJSON, r.Enabled, r.NextRunAt, r.LastRunAt,
 		r.LastJobID, r.CatchUp, r.ProjectKey, r.CreatedAt, r.UpdatedAt,
 	); err != nil {
 		return fmt.Errorf("jobstore: insert schedule %q: %w", r.ID, err)

@@ -221,6 +221,7 @@ var schemaStmts = []string{
 	`CREATE TABLE IF NOT EXISTS schedules (
   id           TEXT NOT NULL,
   name         TEXT NOT NULL,
+  schedule_type TEXT NOT NULL DEFAULT 'cron',
   cron_expr    TEXT NOT NULL,
   request_json TEXT NOT NULL,
   enabled      INTEGER NOT NULL,
@@ -470,12 +471,17 @@ func (s *Store) migrateInteractions() error {
 	return add("needs_human", "needs_human INTEGER")
 }
 
-// migrateSchedules is the additive migration hook for the schedules table
-// (AUTO-02 P1). The first version creates the full table in schemaStmts; keep
-// this hook wired into Open so future schedule columns can be added idempotently.
+// migrateSchedules adds post-AUTO-02 columns to the schedules table. All changes
+// are additive and idempotent: old rows keep cron semantics through DEFAULT.
 func (s *Store) migrateSchedules() error {
-	if _, err := s.tableColumns("schedules"); err != nil {
+	cols, err := s.tableColumns("schedules")
+	if err != nil {
 		return err
+	}
+	if _, ok := cols["schedule_type"]; !ok {
+		if _, err := s.db.Exec("ALTER TABLE schedules ADD COLUMN schedule_type TEXT NOT NULL DEFAULT 'cron'"); err != nil {
+			return fmt.Errorf("jobstore: migrate schedules add schedule_type: %w", err)
+		}
 	}
 	return nil
 }

@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// 新建 cron 定时调度（AUTO-02）：在「新建 job」表单基础上加 name + cron + catch_up
-// + enabled，去掉 sync（调度触发的 job 由 serve 循环异步提交，channel=cron）。
+// 新建调度（AUTO-02）：在「新建 job」表单基础上加 name + 触发配置 + enabled，
+// 去掉 sync（调度触发的 job 由 serve 循环异步提交，channel=cron）。
 //  - project 下拉 -> 联动限定可选 agent / runner（按 project.allowed_*）
 //  - agent=exec 显 command 输入；否则显 prompt 文本域
 //  - runner=worker -> 指定 worker_id 或 worker_labels
@@ -32,9 +32,14 @@ const workers = ref<MetaWorker[]>([])
 
 // 调度专属字段
 const name = ref('')
+const triggerType = ref<'cron' | 'once'>('cron')
 const cron = ref('')
 const catchUp = ref(true)
 const enabled = ref(true)
+const onceMode = ref<'delay' | 'at'>('delay')
+const delayValue = ref<number | null>(30)
+const delayUnit = ref<'s' | 'm' | 'h'>('s')
+const runAtLocal = ref('')
 
 // job 请求字段
 const projectKey = ref('')
@@ -151,8 +156,31 @@ const validationError = computed<string>(() => {
   if (name.value.trim() === '') {
     return '请填写调度名称 name'
   }
-  if (cron.value.trim() === '') {
+  if (triggerType.value === 'cron' && cron.value.trim() === '') {
     return '请填写 cron 表达式'
+  }
+  if (triggerType.value === 'once') {
+    if (cron.value.trim() !== '') {
+      return '一次性调度不能填写 cron'
+    }
+    const now = Math.floor(Date.now() / 1000)
+    if (onceMode.value === 'delay') {
+      const sec = delaySeconds.value
+      if (sec <= 0) {
+        return '请填写大于 0 的延迟时间'
+      }
+      if (now + sec < now + 3) {
+        return '一次性调度至少需要在 3 秒后触发'
+      }
+    } else {
+      const sec = runAtSeconds.value
+      if (sec <= 0) {
+        return '请选择触发时间'
+      }
+      if (sec < now + 3) {
+        return '触发时间至少需要在 3 秒后'
+      }
+    }
   }
   if (!projectKey.value) {
     return '请选择 project'
@@ -182,6 +210,28 @@ const validationError = computed<string>(() => {
 
 const canSubmit = computed(() => !submitting.value && validationError.value === '')
 
+const delaySeconds = computed(() => {
+  const value = delayValue.value ?? 0
+  if (delayUnit.value === 'h') {
+    return value * 3600
+  }
+  if (delayUnit.value === 'm') {
+    return value * 60
+  }
+  return value
+})
+
+const runAtSeconds = computed(() => {
+  if (runAtLocal.value === '') {
+    return 0
+  }
+  const ms = new Date(runAtLocal.value).getTime()
+  if (!Number.isFinite(ms)) {
+    return 0
+  }
+  return Math.floor(ms / 1000)
+})
+
 function parseLabels(raw: string): string[] {
   return raw
     .split(',')
@@ -197,6 +247,7 @@ function parseCmd(raw: string): string[] {
 }
 
 function fillCron(expr: string) {
+  triggerType.value = 'cron'
   cron.value = expr
 }
 
@@ -239,10 +290,18 @@ async function onSubmit() {
     }
     const req: CreateScheduleReq = {
       name: name.value.trim(),
-      cron: cron.value.trim(),
+      type: triggerType.value,
+      cron: triggerType.value === 'cron' ? cron.value.trim() : '',
       request,
       enabled: enabled.value,
-      catch_up: catchUp.value,
+      catch_up: triggerType.value === 'cron' ? catchUp.value : false,
+    }
+    if (triggerType.value === 'once') {
+      if (onceMode.value === 'delay') {
+        req.delay_sec = delaySeconds.value
+      } else {
+        req.run_at = runAtSeconds.value
+      }
     }
     await createSchedule(req)
     void router.push('/schedules')
@@ -262,14 +321,14 @@ onMounted(() => {
   <div class="newjob">
     <div class="newjob-head">
       <RouterLink to="/schedules" class="back mono">← schedules</RouterLink>
-      <h1 class="title mono">新建 cron 定时调度</h1>
+      <h1 class="title mono">新建调度</h1>
     </div>
 
     <p v-if="loadError" class="error mono">表单选项加载失败：{{ loadError }}</p>
     <p v-else-if="loading" class="hint mono">加载选项中…</p>
 
     <form v-else class="card" @submit.prevent="onSubmit">
-      <!-- name / cron -->
+      <!-- name / trigger -->
       <div class="row">
         <div class="field">
           <label class="label mono" for="ns-name">NAME（调度名称）</label>
@@ -282,6 +341,29 @@ onMounted(() => {
           />
         </div>
         <div class="field">
+          <label class="label mono">触发类型</label>
+          <div class="seg mono">
+            <button
+              type="button"
+              class="seg-btn"
+              :class="{ 'seg-btn--on': triggerType === 'cron' }"
+              @click="triggerType = 'cron'"
+            >
+              cron 定时
+            </button>
+            <button
+              type="button"
+              class="seg-btn"
+              :class="{ 'seg-btn--on': triggerType === 'once' }"
+              @click="triggerType = 'once'; cron = ''"
+            >
+              一次性
+            </button>
+          </div>
+        </div>
+      </div>
+
+      <div v-if="triggerType === 'cron'" class="field">
           <label class="label mono" for="ns-cron">CRON（5 段表达式）</label>
           <input
             id="ns-cron"
@@ -304,6 +386,58 @@ onMounted(() => {
             </button>
           </div>
           <p class="field-hint mono">分 时 日 月 周；也支持 @hourly / @daily / @every 1h30m</p>
+      </div>
+
+      <div v-else class="advanced">
+        <div class="seg mono">
+          <button
+            type="button"
+            class="seg-btn"
+            :class="{ 'seg-btn--on': onceMode === 'delay' }"
+            @click="onceMode = 'delay'"
+          >
+            延迟
+          </button>
+          <button
+            type="button"
+            class="seg-btn"
+            :class="{ 'seg-btn--on': onceMode === 'at' }"
+            @click="onceMode = 'at'"
+          >
+            指定时间
+          </button>
+        </div>
+
+        <div v-if="onceMode === 'delay'" class="row once-row">
+          <div class="field">
+            <label class="label mono" for="ns-delay">延迟时间</label>
+            <input
+              id="ns-delay"
+              v-model.number="delayValue"
+              class="control mono"
+              type="number"
+              min="1"
+              step="1"
+            />
+          </div>
+          <div class="field">
+            <label class="label mono" for="ns-delay-unit">单位</label>
+            <select id="ns-delay-unit" v-model="delayUnit" class="control mono">
+              <option value="s">秒</option>
+              <option value="m">分钟</option>
+              <option value="h">小时</option>
+            </select>
+          </div>
+        </div>
+
+        <div v-else class="field once-row">
+          <label class="label mono" for="ns-run-at">触发时间</label>
+          <input
+            id="ns-run-at"
+            v-model="runAtLocal"
+            class="control mono"
+            type="datetime-local"
+          />
         </div>
       </div>
 
@@ -472,7 +606,7 @@ onMounted(() => {
           />
         </div>
         <div class="field field--check">
-          <label class="check mono">
+          <label v-if="triggerType === 'cron'" class="check mono">
             <input v-model="catchUp" type="checkbox" />
             <span>catch_up（错过一次触发后在 grace 窗口内补跑一次）</span>
           </label>
