@@ -21,6 +21,11 @@ const routes: RouteRecordRaw[] = [
   },
   { path: '/workflows', name: 'workflows', component: () => import('./views/Workflows.vue') },
   {
+    path: '/workflows/new',
+    name: 'new-workflow',
+    component: () => import('./views/NewWorkflow.vue'),
+  },
+  {
     path: '/workflows/:id',
     name: 'workflow-detail',
     component: () => import('./views/WorkflowDetail.vue'),

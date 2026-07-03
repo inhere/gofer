@@ -34,6 +34,7 @@ import type {
   SubmitJobResult,
   Workflow,
   WorkflowEventsResp,
+  WorkflowSpec,
   WorkflowsResp,
   WorkflowStatus,
 } from './types'
@@ -409,6 +410,16 @@ export function listWorkflows(status?: WorkflowStatus): Promise<WorkflowsResp> {
 // 工作流详情（GET /v1/workflows/{id}）：头部 + 内联 steps 步骤链。
 export function getWorkflow(id: string): Promise<Workflow> {
   return request<Workflow>(`/v1/workflows/${encodeURIComponent(id)}`)
+}
+
+// 提交 workflow（POST /v1/workflows）：body 是 workflow.Spec JSON。
+// Web 侧可从 YAML 解析成对象后复用同一契约，后端继续 BindJSON。
+export function submitWorkflow(spec: WorkflowSpec): Promise<Workflow> {
+  return request<Workflow>('/v1/workflows', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(spec),
+  })
 }
 
 // 取消运行中的工作流（POST /v1/workflows/{id}/cancel）：返回更新后的头部快照。
