@@ -6,12 +6,27 @@
 //  - 基础 ANSI SGR 颜色渲染（先 escape，再包 span）。
 //  - prefers-reduced-motion -> 关闭平滑滚动惯性（即时 scrollTop）。
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
+import type { LogStream } from '../api/types'
 
 const props = defineProps<{
   stdout: string
   stderr: string
   // 是否运行中：底部 live 脉冲
   live?: boolean
+  mode?: 'live' | 'paged'
+  stdoutTotal?: number
+  stderrTotal?: number
+  stdoutCanLoadEarlier?: boolean
+  stderrCanLoadEarlier?: boolean
+  stdoutLoading?: boolean
+  stderrLoading?: boolean
+}>()
+
+const emit = defineEmits<{
+  (e: 'load-earlier', stream: LogStream): void
+  (e: 'load-all', stream: LogStream): void
 }>()
 
 const smoothScroll = !window.matchMedia('(prefers-reduced-motion: reduce)').matches
@@ -24,6 +39,7 @@ const outPinned = ref(true)
 const errPinned = ref(true)
 const outNew = ref(0)
 const errNew = ref(0)
+const stdoutMarkdownMode = ref(false)
 let outPrev = 0
 let errPrev = 0
 
@@ -125,6 +141,32 @@ function renderAnsi(text: string): string {
 
 const stdoutHtml = computed(() => renderAnsi(props.stdout || '（无 stdout 输出）'))
 const stderrHtml = computed(() => renderAnsi(props.stderr || '（无 stderr 输出）'))
+const stdoutMarkdownHtml = computed(() =>
+  DOMPurify.sanitize(marked.parse(props.stdout, { async: false })),
+)
+const paged = computed(() => props.mode === 'paged')
+const activeCanLoadEarlier = computed(() =>
+  activeStream.value === 'stdout'
+    ? Boolean(props.stdoutCanLoadEarlier)
+    : Boolean(props.stderrCanLoadEarlier),
+)
+const activeLoading = computed(() =>
+  activeStream.value === 'stdout'
+    ? Boolean(props.stdoutLoading)
+    : Boolean(props.stderrLoading),
+)
+const activeTotal = computed(() =>
+  activeStream.value === 'stdout'
+    ? props.stdoutTotal ?? 0
+    : props.stderrTotal ?? 0,
+)
+const activeDisplayed = computed(() =>
+  activeStream.value === 'stdout' ? lineCount(props.stdout) : lineCount(props.stderr),
+)
+const showLogActions = computed(() => paged.value && activeCanLoadEarlier.value)
+const showStdoutMarkdown = computed(
+  () => paged.value && activeStream.value === 'stdout' && props.stdout.length > 200,
+)
 
 function selectStream(stream: 'stdout' | 'stderr'): void {
   activeStream.value = stream
@@ -136,6 +178,18 @@ function selectStream(stream: 'stdout' | 'stderr'): void {
       jumpErr()
     }
   })
+}
+
+function loadEarlier(): void {
+  emit('load-earlier', activeStream.value)
+}
+
+function loadAll(): void {
+  emit('load-all', activeStream.value)
+}
+
+function toggleStdoutMarkdown(): void {
+  stdoutMarkdownMode.value = !stdoutMarkdownMode.value
 }
 
 function scrollPane(el: HTMLElement): void {
@@ -276,6 +330,39 @@ onMounted(() => {
         </div>
         <span v-if="live" class="live-pulse" title="streaming">live</span>
       </div>
+      <div v-if="showLogActions || showStdoutMarkdown" class="log-actions">
+        <span v-if="paged && activeTotal > 0" class="log-scope">
+          已显示 {{ activeDisplayed }} / {{ activeTotal }} 行
+        </span>
+        <div class="log-action-buttons">
+          <button
+            v-if="showLogActions"
+            class="log-action"
+            type="button"
+            :disabled="activeLoading"
+            @click="loadEarlier"
+          >
+            {{ activeLoading ? '加载中…' : '加载前面200行' }}
+          </button>
+          <button
+            v-if="showLogActions"
+            class="log-action"
+            type="button"
+            :disabled="activeLoading"
+            @click="loadAll"
+          >
+            全部加载
+          </button>
+          <button
+            v-if="showStdoutMarkdown"
+            class="log-action"
+            type="button"
+            @click="toggleStdoutMarkdown"
+          >
+            {{ stdoutMarkdownMode ? '终端查看' : 'Markdown查看' }}
+          </button>
+        </div>
+      </div>
 
       <div
         v-show="activeStream === 'stdout'"
@@ -284,7 +371,12 @@ onMounted(() => {
         role="tabpanel"
         @scroll="onScrollOut"
       >
-        <pre class="log-text" v-html="stdoutHtml"></pre>
+        <div
+          v-if="stdoutMarkdownMode && showStdoutMarkdown"
+          class="log-md"
+          v-html="stdoutMarkdownHtml"
+        ></div>
+        <pre v-else class="log-text" v-html="stdoutHtml"></pre>
       </div>
       <button
         v-if="activeStream === 'stdout' && outNew > 0 && !outPinned"
@@ -398,6 +490,44 @@ onMounted(() => {
   font-size: 10px;
   animation: live-blink 1.2s ease-in-out infinite;
 }
+.log-actions {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 8px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+}
+.log-scope {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--queue);
+}
+.log-action-buttons {
+  display: inline-flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+.log-action {
+  background: transparent;
+  color: var(--queue);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 2px 10px;
+  font-size: 11px;
+}
+.log-action:hover:not(:disabled) {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
+}
+.log-action:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
 @keyframes live-blink {
   0%,
   100% {
@@ -453,6 +583,47 @@ onMounted(() => {
 .log-text :deep(.ansi-fg-white) {
   color: var(--paper);
 }
+.log-md {
+  color: var(--paper);
+  font-family: var(--font-sans, system-ui, sans-serif);
+  font-size: 13px;
+  line-height: 1.55;
+  white-space: normal;
+}
+.log-md :deep(h1),
+.log-md :deep(h2),
+.log-md :deep(h3),
+.log-md :deep(h4) {
+  color: var(--paper);
+  line-height: 1.3;
+  margin: 1em 0 0.5em;
+}
+.log-md :deep(p),
+.log-md :deep(ul),
+.log-md :deep(ol) {
+  margin: 0.5em 0;
+}
+.log-md :deep(a) {
+  color: var(--phosphor);
+}
+.log-md :deep(code) {
+  background: var(--panel);
+  border-radius: 3px;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.92em;
+  padding: 1px 5px;
+}
+.log-md :deep(pre) {
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: auto;
+  padding: 10px 12px;
+}
+.log-md :deep(pre code) {
+  background: none;
+  padding: 0;
+}
 .new-jump {
   position: absolute;
   bottom: 12px;
@@ -480,6 +651,13 @@ onMounted(() => {
   .pane-head {
     align-items: flex-start;
     flex-direction: column;
+  }
+  .log-actions {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .log-action-buttons {
+    justify-content: flex-start;
   }
   .tabs {
     width: 100%;

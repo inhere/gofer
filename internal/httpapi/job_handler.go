@@ -16,10 +16,12 @@ import (
 	"github.com/inhere/gofer/internal/store"
 )
 
-// maxLogTailBytes caps the response size of the log endpoints: only the last
-// 256KB of a stream is returned (plan §9-P5/§11). Full logs remain inspectable
-// on disk via the result dir.
+// maxLogTailBytes caps the legacy ?bytes= log endpoint: only the last 256KB of
+// a stream is returned unless the caller asks for a smaller byte tail. Full logs
+// remain inspectable on disk via the result dir.
 const maxLogTailBytes = 256 * 1024
+
+const defaultLogLines = 200
 
 // handleCreateJob parses a JobRequest, submits it and returns the initial
 // JobResult (with the assigned id). The body is JSON by default; a
@@ -180,14 +182,15 @@ func (s *Server) handleGetJobRequest(c *rux.Context) {
 	c.JSON(http.StatusOK, json.RawMessage(res.RequestJSON))
 }
 
-// handleJobLogsStdout / handleJobLogsStderr return the tail of a job's log
-// stream (capped at maxLogTailBytes). Output is sent as text/plain.
+// handleJobLogsStdout / handleJobLogsStderr return a tail window of a job's log
+// stream. By default the newest defaultLogLines lines are returned; ?bytes=
+// preserves the old byte-tail contract for non-Web callers. Output is text/plain.
 func (s *Server) handleJobLogsStdout(c *rux.Context) { s.serveLog(c, store.StreamStdout) }
 func (s *Server) handleJobLogsStderr(c *rux.Context) { s.serveLog(c, store.StreamStderr) }
 
-// serveLog reads the last maxLogTailBytes of the given stream for the job and
-// writes it as text/plain. It locates the job's result dir from its JobResult
-// (ResultDir == <base>/<job_id>), so the FileStore base is its parent dir.
+// serveLog reads the requested log window for the job and writes it as
+// text/plain. It locates the job's result dir from its JobResult (ResultDir ==
+// <base>/<job_id>), so the FileStore base is its parent dir.
 func (s *Server) serveLog(c *rux.Context, stream store.Stream) {
 	id := c.Param("id")
 	res, ok := s.jobs.Get(id)
@@ -197,12 +200,70 @@ func (s *Server) serveLog(c *rux.Context, stream store.Stream) {
 	}
 
 	base := filepath.Dir(res.ResultDir)
-	data, err := store.NewFileStore(base).ReadLogTail(id, stream, maxLogTailBytes)
+	fs := store.NewFileStore(base)
+
+	if c.Query("bytes") != "" {
+		maxBytes := parseLogBytes(c.Query("bytes"))
+		data, err := fs.ReadLogTail(id, stream, maxBytes)
+		if err != nil {
+			writeError(c, http.StatusInternalServerError, "read log failed", err.Error())
+			return
+		}
+		c.Text(http.StatusOK, string(data))
+		return
+	}
+
+	lines, offset := parseLogLineWindow(c)
+	data, total, err := fs.ReadLogLines(id, stream, lines, offset)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "read log failed", err.Error())
 		return
 	}
+	c.SetHeader("X-Log-Total-Lines", strconv.Itoa(total))
+	c.SetHeader("X-Log-Offset", strconv.Itoa(offset))
+	c.SetHeader("X-Log-Lines", strconv.Itoa(countResponseLines(data)))
 	c.Text(http.StatusOK, string(data))
+}
+
+func parseLogBytes(raw string) int64 {
+	n, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || n <= 0 || n > maxLogTailBytes {
+		return maxLogTailBytes
+	}
+	return n
+}
+
+func parseLogLineWindow(c *rux.Context) (lines int, offset int) {
+	lines = defaultLogLines
+	if c.Query("full") == "1" {
+		return 0, 0
+	} else if raw := c.Query("lines"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil {
+			lines = n
+		}
+	}
+	if raw := c.Query("offset"); raw != "" {
+		if n, err := strconv.Atoi(raw); err == nil && n > 0 {
+			offset = n
+		}
+	}
+	return lines, offset
+}
+
+func countResponseLines(data []byte) int {
+	if len(data) == 0 {
+		return 0
+	}
+	n := 0
+	for _, b := range data {
+		if b == '\n' {
+			n++
+		}
+	}
+	if data[len(data)-1] != '\n' {
+		n++
+	}
+	return n
 }
 
 // resumeJobReq is the POST body for resuming a job's底层 agent 会话

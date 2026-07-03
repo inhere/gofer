@@ -272,7 +272,61 @@ export function getJob(id: string): Promise<Job> {
 }
 
 export function logsTail(id: string, stream: LogStream): Promise<string> {
-  return requestText(`/v1/jobs/${encodeURIComponent(id)}/logs/${stream}`)
+  return requestText(
+    `/v1/jobs/${encodeURIComponent(id)}/logs/${stream}?bytes=262144`,
+  )
+}
+
+export interface JobLogPage {
+  text: string
+  total: number
+  offset: number
+  lines: number
+}
+
+export async function fetchJobLog(
+  id: string,
+  stream: LogStream,
+  opts?: { lines?: number; offset?: number; full?: boolean },
+): Promise<JobLogPage> {
+  const params = new URLSearchParams()
+  if (opts?.full) {
+    params.set('full', '1')
+  } else {
+    if (opts?.lines != null) {
+      params.set('lines', String(opts.lines))
+    }
+    if (opts?.offset != null) {
+      params.set('offset', String(opts.offset))
+    }
+  }
+  const qs = params.toString()
+  const res = await fetch(
+    `/v1/jobs/${encodeURIComponent(id)}/logs/${stream}${qs ? `?${qs}` : ''}`,
+    { headers: authHeaders() },
+  )
+  if (res.status === 401) {
+    triggerUnauthorized()
+    throw new Error('未授权（401）：token 无效或已失效')
+  }
+  if (!res.ok) {
+    return raiseForStatus(res)
+  }
+  const text = await res.text()
+  return {
+    text,
+    total: Number(res.headers.get('X-Log-Total-Lines') ?? '0') || 0,
+    offset: Number(res.headers.get('X-Log-Offset') ?? '0') || 0,
+    lines: Number(res.headers.get('X-Log-Lines') ?? '0') || logicalLineCount(text),
+  }
+}
+
+function logicalLineCount(text: string): number {
+  if (!text) {
+    return 0
+  }
+  const t = text.endsWith('\n') ? text.slice(0, -1) : text
+  return t.length === 0 ? 0 : t.split('\n').length
 }
 
 // 产物清单（E1，P2）：GET /v1/jobs/{id}/artifacts。

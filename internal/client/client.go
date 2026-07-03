@@ -370,7 +370,7 @@ func (c *Client) GetLogs(id, stream string) (string, error) {
 	if stream != "stdout" && stream != "stderr" {
 		return "", fmt.Errorf("invalid log stream %q (want stdout|stderr)", stream)
 	}
-	resp, err := c.do(http.MethodGet, "/v1/jobs/"+url.PathEscape(id)+"/logs/"+stream, nil)
+	resp, err := c.do(http.MethodGet, "/v1/jobs/"+url.PathEscape(id)+"/logs/"+stream+"?bytes=262144", nil)
 	if err != nil {
 		return "", err
 	}
