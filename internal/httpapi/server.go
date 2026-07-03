@@ -24,6 +24,7 @@ import (
 	"golang.org/x/time/rate"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
@@ -68,12 +69,14 @@ func (s *Server) callerMayAdmin(caller string) bool {
 // (New) and either started with Run or exposed as an http.Handler (Handler) for
 // httptest.
 type Server struct {
-	cfg      *config.ServerConfig
-	jobs     *job.Service
-	workflow *workflow.Engine
-	projects *project.Registry
-	agents   *agent.Registry
-	router   *rux.Router
+	cfg       *config.ServerConfig
+	jobs      *job.Service
+	workflow  *workflow.Engine
+	projects  *project.Registry
+	agents    *agent.Registry
+	router    *rux.Router
+	build     buildinfo.Info
+	startedAt time.Time
 
 	// token is the effective bearer token (already resolved from config/env/flag
 	// by the caller). When empty, auth is only permitted if allowEmptyToken is
@@ -190,9 +193,15 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		prober:          prober,
 		workers:         workers,
 		limiters:        map[string]*rate.Limiter{},
+		startedAt:       time.UnixMilli(nowMillis()),
 	}
 	s.router = s.buildRouter()
 	return s
+}
+
+// SetBuildInfo injects linker build metadata for runtime status endpoints.
+func (s *Server) SetBuildInfo(info buildinfo.Info) {
+	s.build = info
 }
 
 // buildCallers resolves the multi-caller auth set once at startup: each
@@ -428,6 +437,7 @@ const shutdownGrace = 10 * time.Second
 // from a graceful Shutdown is expected and mapped to nil. The address is logged;
 // the token is never logged (plan §11).
 func (s *Server) RunCtx(ctx context.Context, addr string) error {
+	s.startedAt = time.UnixMilli(nowMillis())
 	srv := &http.Server{Addr: addr, Handler: s.router}
 	go func() {
 		<-ctx.Done()

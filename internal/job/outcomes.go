@@ -92,15 +92,15 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 
 	// session 捕获(模式②, session-capture §5.1)：仅当 session_id 仍为空时尝试——注入式
 	// (claude) 已在提交时填好、显式 SessionID(resume) 也已带上，都跳过。codex 默认输出
-	// 头部 `session id:`，按 agent.SessionCapture 正则从 stdout.log 提取；再不行读
-	// <result_dir>/session_id 文件兜底(选项C)。整段 best-effort，在 captureOutcomes 的
-	// recover 总闸内、绝不影响 job 终态。
+	// 头部 `session id:`，按 agent.SessionCapture 正则先扫 stdout.log，未命中再扫
+	// stderr.log；再不行读 <result_dir>/session_id 文件兜底(选项C)。整段 best-effort，
+	// 在 captureOutcomes 的 recover 总闸内、绝不影响 job 终态。
 	s.captureSession(entry, resultDir)
 }
 
 // captureSession 在本地终态尝试为未注入会话的 job 捕获 session_id（模式②）。它读
 // entry.result 的 SessionID/Agent，仅当 SessionID 为空才动作：先按该 agent 的
-// SessionCapture 正则扫 <result_dir>/stdout.log，命中即填；否则读
+// SessionCapture 正则扫 <result_dir>/stdout.log，再扫 stderr.log，命中即填；否则读
 // <result_dir>/session_id 文件兜底（选项C）。任何失败静默返回（不改终态）。
 func (s *Service) captureSession(entry *jobEntry, resultDir string) {
 	entry.mu.Lock()
@@ -114,6 +114,9 @@ func (s *Service) captureSession(entry *jobEntry, resultDir string) {
 	var captured string
 	if ac, ok := s.agents.Get(agentKey); ok && ac.SessionCapture != "" {
 		captured = captureSessionID(filepath.Join(resultDir, store.StdoutFile), ac.SessionCapture)
+		if captured == "" {
+			captured = captureSessionID(filepath.Join(resultDir, store.StderrFile), ac.SessionCapture)
+		}
 	}
 	if captured == "" && resultDir != "" { // 选项C 兜底：任务自写的 session_id 文件。
 		if b, err := os.ReadFile(filepath.Join(resultDir, "session_id")); err == nil {

@@ -15,13 +15,13 @@ import {
   cancelJob,
   downloadArtifact,
   fetchArtifactBlob,
+  fetchDiffText,
   getInteractions,
   getJob,
   listArtifacts,
   listDeliveries,
   listEvents,
   puntInteraction,
-  viewFullDiff,
 } from '../api/client'
 import { appendCapped, streamJob } from '../api/sse'
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
@@ -593,20 +593,31 @@ function fmtSize(bytes: number): string {
 // tracked vs HEAD/index）。有摘要时给「查看完整 diff」（/v1/jobs/{id}/diff?full=1）。
 const diffSummary = computed<string>(() => job.value?.diff_summary ?? '')
 const diffError = ref('')
-const viewingDiff = ref(false)
+const diffLoading = ref(false)
+const diffExpanded = ref(false)
+const fullDiffText = ref('')
 
 async function onViewDiff(): Promise<void> {
-  if (viewingDiff.value) {
+  if (diffLoading.value) {
     return
   }
-  viewingDiff.value = true
+  if (diffExpanded.value) {
+    diffExpanded.value = false
+    return
+  }
+  if (fullDiffText.value !== '') {
+    diffExpanded.value = true
+    return
+  }
+  diffLoading.value = true
   diffError.value = ''
   try {
-    await viewFullDiff(props.id)
+    fullDiffText.value = await fetchDiffText(props.id)
+    diffExpanded.value = true
   } catch (e) {
     diffError.value = e instanceof Error ? e.message : String(e)
   } finally {
-    viewingDiff.value = false
+    diffLoading.value = false
   }
 }
 
@@ -924,14 +935,15 @@ async function copyCommand(): Promise<void> {
           <button
             class="copy-btn mono"
             type="button"
-            :disabled="viewingDiff"
+            :disabled="diffLoading"
             @click="onViewDiff"
           >
-            {{ viewingDiff ? '打开中…' : '查看完整 diff' }}
+            {{ diffLoading ? '加载中…' : diffExpanded ? '收起完整 diff' : '查看完整 diff' }}
           </button>
         </div>
         <p class="diff-note mono">未提交改动（uncommitted changes，tracked vs HEAD）</p>
         <pre class="outcome-pre diff-stat mono">{{ diffSummary }}</pre>
+        <pre v-if="diffExpanded" class="outcome-pre diff-full mono">{{ fullDiffText }}</pre>
         <p v-if="diffError" class="artifact-err mono">{{ diffError }}</p>
       </div>
     </section>
@@ -1421,6 +1433,14 @@ async function copyCommand(): Promise<void> {
   max-height: 360px;
   overflow: auto;
   white-space: pre;
+}
+.outcome-pre.diff-full {
+  max-height: 520px;
+  overflow: auto;
+  white-space: pre;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
 }
 /* diff 语义提示：澄清「未提交改动」，避免误读为「全部改动」。 */
 .diff-note {

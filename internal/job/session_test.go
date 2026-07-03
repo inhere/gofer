@@ -13,6 +13,7 @@ import (
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
+	"github.com/inhere/gofer/internal/store"
 )
 
 // newClaudeInjectService builds a Service with a "claude" cli-agent whose command
@@ -245,6 +246,29 @@ func TestCaptureCodexSessionIDAtTerminal(t *testing.T) {
 	}
 	if final.SessionID != sid {
 		t.Fatalf("captured SessionID = %q, want %q", final.SessionID, sid)
+	}
+}
+
+func TestCaptureCodexSessionIDFromStderrWhenStdoutMisses(t *testing.T) {
+	root := t.TempDir()
+	const sid = "abcd1234-aaaa-bbbb-cccc-001122334455"
+	s := newCodexCaptureService(t, root, sid)
+	resultDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(resultDir, store.StdoutFile), []byte("codex started\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(resultDir, store.StderrFile), []byte("banner\nsession id: "+sid+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	entry := &jobEntry{result: JobResult{Agent: "codex"}}
+
+	s.captureSession(entry, resultDir)
+
+	entry.mu.Lock()
+	got := entry.result.SessionID
+	entry.mu.Unlock()
+	if got != sid {
+		t.Fatalf("captured SessionID from stderr = %q, want %q", got, sid)
 	}
 }
 

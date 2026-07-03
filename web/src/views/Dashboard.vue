@@ -8,6 +8,7 @@ const POLL_MS = 5000
 const stats = ref<Stats | null>(null)
 const loading = ref(false)
 const error = ref('')
+const online = ref(false)
 
 const jobStatuses: JobStatus[] = [
   'running',
@@ -28,8 +29,10 @@ async function fetchStats(): Promise<void> {
   try {
     stats.value = await getStats()
     error.value = ''
+    online.value = true
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
+    online.value = false
   } finally {
     loading.value = false
   }
@@ -69,6 +72,30 @@ function shortStatus(status: JobStatus): string {
   return status === 'pending_interaction' ? 'pending_i' : status
 }
 
+const serviceVersion = computed(() => stats.value?.version || 'unknown')
+const serviceUptime = computed(() => formatUptime(stats.value?.uptime_sec))
+
+function formatUptime(sec?: number): string {
+  if (sec == null || !Number.isFinite(sec) || sec < 0) {
+    return '-'
+  }
+  const s = Math.floor(sec)
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  const m = Math.floor((s % 3600) / 60)
+  const r = s % 60
+  if (d > 0) {
+    return `${d}d${h}h`
+  }
+  if (h > 0) {
+    return `${h}h${m}m`
+  }
+  if (m > 0) {
+    return `${m}m`
+  }
+  return `${r}s`
+}
+
 onMounted(() => {
   void fetchStats()
   startPolling()
@@ -98,10 +125,11 @@ onUnmounted(() => {
       <div class="card">
         <h3>服务</h3>
         <div class="health">
-          <span class="dot dot--on"></span>
-          <span class="big service-state">LIVE</span>
+          <span class="dot" :class="online ? 'dot--on' : 'dot--off'"></span>
+          <span class="big service-state">{{ online ? 'LIVE' : 'OFFLINE' }}</span>
         </div>
-        <div class="unit mono">serve LIVE</div>
+        <div class="unit mono">{{ serviceVersion }}</div>
+        <div class="unit mono">uptime {{ serviceUptime }}</div>
       </div>
 
       <div class="card">
@@ -241,6 +269,10 @@ onUnmounted(() => {
 .dot--on {
   background: var(--done);
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--done) 22%, transparent);
+}
+.dot--off {
+  background: var(--fail);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--fail) 18%, transparent);
 }
 .big {
   color: var(--paper);

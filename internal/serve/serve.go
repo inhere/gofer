@@ -17,6 +17,7 @@ import (
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/goutil/errorx"
 
+	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/httpapi"
@@ -47,6 +48,7 @@ type Opts struct {
 	NoWeb         bool
 	CfgPath       string
 	ReloadPath    string
+	Build         buildinfo.Info
 }
 
 // Start runs the serve process: assemble Core, start the sweeper / probe /
@@ -207,6 +209,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	var workers = hubWorkerRegistry{hub: cr.Hub}
 
 	srv := httpapi.New(&cfg.Server, token, allowEmpty, cr.Jobs, cr.Workflow(), cr.Projects, cr.Agents, cr.Hub, cfg.Runners, proberOrNil(prober), workers)
+	srv.SetBuildInfo(opts.Build)
 
 	// E16 Prometheus metrics: build the registry, inject the lifecycle-counter sink
 	// into the job service, register the scrape-time GaugeFuncs (in-flight/queued/
