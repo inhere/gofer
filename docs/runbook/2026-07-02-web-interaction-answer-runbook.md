@@ -39,6 +39,7 @@ server:
 
 - `can_answer` 仅在下方能力闸开启时才**强制**；默认闸关时它只是一个声明位（任何认证 caller 都能答）。
 - Web 前端应答**不传 responder**，serve 以该请求认证的 caller_id 盖 `answered_by`——所以让操作者用 `web-op` 的 token 登录控制台，审计即可追溯到人。
+- **区分多个操作者**：`answered_by` 落的是该请求 token 映射的 caller_id。若共用一个 token（如只配一个 `web-op`），所有人应答都记成同一个 id（如 `default`）；要在审计里区分「谁答的」，给**每个操作者各配一条独立 caller**（各自 `id` + 各自 `token_env`），各人用自己的 token 登录，`answered_by` 即落各自 id。控制台**不引入独立用户 / 登录体系**（design §11），身份完全由 caller token 承载。
 
 ## 开启 can_answer 能力闸（可选，纵深防御）
 
