@@ -1,10 +1,14 @@
 package commands
 
 import (
+	"os"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/gookit/gcli/v3"
+
+	"github.com/inhere/gofer/internal/config"
 )
 
 // parseRun runs the gcli arg pipeline (NormalizeArgs -> app.Run) up to the point
@@ -144,5 +148,73 @@ func TestJobResumeFlagsBound(t *testing.T) {
 	}
 	if jobResumeOpts.runner != "local" {
 		t.Fatalf("--runner = %q, want local", jobResumeOpts.runner)
+	}
+}
+
+// isolateConfigEnv chdir's into a fresh empty temp dir (no ./.gofer[.local].yaml)
+// and redirects GOFER_CONFIG_DIR to another empty temp dir (no ~/.config/gofer
+// picked up), and clears GOFER_CONFIG, so config.Load resolves no config file
+// unless the test passes an explicit path. Mirrors the isolation pattern used by
+// config_test.go's TestInitServerGlobalPath.
+func isolateConfigEnv(t *testing.T) {
+	t.Helper()
+	dir := t.TempDir()
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	t.Setenv(config.EnvConfigPath, "")
+	t.Setenv(config.EnvConfigDir, t.TempDir())
+}
+
+// TestNewClientNoConfigNoServerFails covers example-project-3a4: when no config
+// file is found AND no --server/-s (nor GOFER_SERVER_ADDR, which gcli would have
+// already interpolated into serverFlag) is given, newClient must fail fast with a
+// clear reason instead of silently falling back to config.DefaultAddr and later
+// failing with a confusing connection error.
+func TestNewClientNoConfigNoServerFails(t *testing.T) {
+	isolateConfigEnv(t)
+
+	_, err := newClient("", "", "")
+	if err == nil {
+		t.Fatal("want error when config missing and no --server given, got nil")
+	}
+	if !strings.Contains(err.Error(), "未找到配置文件") {
+		t.Fatalf("error message should explain the missing config/server cause, got: %v", err)
+	}
+}
+
+// TestNewClientExplicitServerBypassesConfigCheck verifies an explicit --server
+// still works even with no config file present (must not be caught by the
+// fail-fast check added for example-project-3a4).
+func TestNewClientExplicitServerBypassesConfigCheck(t *testing.T) {
+	isolateConfigEnv(t)
+
+	cli, err := newClient("", "127.0.0.1:8765", "")
+	if err != nil {
+		t.Fatalf("newClient with explicit --server should succeed, got: %v", err)
+	}
+	if cli == nil {
+		t.Fatal("want non-nil client")
+	}
+}
+
+// TestNewClientConfigPresentNoServerFlagStillWorks verifies the fail-fast check
+// does not misfire when a real config file is found (path != ""), even though
+// --server is empty and server.addr falls back to config.DefaultAddr.
+func TestNewClientConfigPresentNoServerFlagStillWorks(t *testing.T) {
+	isolateConfigEnv(t)
+	cfgPath := writeRawConfig(t, "server:\n  addr: 127.0.0.1:9999\n")
+
+	cli, err := newClient(cfgPath, "", "")
+	if err != nil {
+		t.Fatalf("newClient with a resolved config should succeed, got: %v", err)
+	}
+	if cli == nil {
+		t.Fatal("want non-nil client")
 	}
 }
