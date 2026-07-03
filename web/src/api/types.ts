@@ -111,6 +111,175 @@ export interface ProjectDetail {
   max_concurrent_jobs?: number
 }
 
+// 脱敏配置总览（GET /v1/config）。字段逐项对齐 internal/httpapi/config_handler.go
+// 的 configView；secret 值均已在后端 bool 化为 *_set，env 仅暴露 key 名。
+export interface ConfigView {
+  server: ServerConfigView
+  storage: StorageConfigView
+  projects: ProjectDetail[]
+  agents: ConfigAgentView[]
+  runners: ConfigRunnerView[]
+  roles: ConfigRoleView[]
+  supervisor?: SupervisorView
+  presence: ConfigPresenceView
+  schedule: ConfigScheduleView
+}
+
+export interface ServerConfigView {
+  addr: string
+  path_view: string
+  allow_empty_token: boolean
+  web_enabled: boolean
+  token_set: boolean
+  governance: GovernanceView
+  callers: CallerConfigView[]
+  workers: WorkerConfigView[]
+  runner_probe: RunnerProbeConfigView
+  notification?: NotificationView
+  metrics: MetricsConfigView
+}
+
+export interface GovernanceView {
+  default_caller_max_concurrent: number
+  default_rate_limit: number
+  default_rate_burst: number
+  require_answer_capability: boolean
+  require_admin_capability: boolean
+}
+
+export interface CallerConfigView {
+  id: string
+  token_set: boolean
+  can_answer: boolean
+  can_admin: boolean
+  max_concurrent_jobs?: number
+  rate_limit?: number
+  rate_burst?: number
+}
+
+export interface WorkerConfigView {
+  id: string
+  token_set: boolean
+  labels: string[]
+}
+
+export interface RunnerProbeConfigView {
+  interval_seconds: number
+  timeout_seconds: number
+}
+
+export interface MetricsConfigView {
+  enabled: boolean
+  token_set: boolean
+}
+
+export interface NotificationView {
+  webhooks: WebhookView[]
+  allow_hosts: string[]
+  allow_http: boolean
+  max_attempts: number
+}
+
+export interface WebhookView {
+  url: string
+  events: string[]
+  secret_set: boolean
+  projects: string[]
+}
+
+export interface StorageConfigView {
+  default_exchange_subdir: string
+  default_result_subdir: string
+  root: string
+  db_path: string
+  retention: RetentionView
+}
+
+export interface RetentionView {
+  max_age_days: number
+  max_count: number
+  prune_interval_minutes: number
+  workflow_max_age_days: number
+}
+
+export interface ConfigAgentView {
+  key: string
+  type: string
+  command?: string
+  args: string[]
+  env_keys: string[]
+  allow_raw_cmd: boolean
+  detect: DetectConfigView
+  session_inject: string[]
+  session_capture?: string
+  session_resume: string[]
+  system_inject: string[]
+  mcp_server_name?: string
+}
+
+export interface DetectConfigView {
+  command?: string
+  args: string[]
+}
+
+export interface ConfigRunnerView {
+  key: string
+  type: string
+  base_url?: string
+  token_set: boolean
+  worker_id?: string
+}
+
+export interface ConfigRoleView {
+  key: string
+  agent: string
+  system_prompt?: string
+  project?: string
+  tags: string[]
+  env_keys: string[]
+}
+
+export interface SupervisorView {
+  enabled: boolean
+  interval_sec: number
+  auto_answer: boolean
+  escalate_to?: string
+  max_rounds_per_job: number
+  allow_prompt_regex: string[]
+  owner_answer_timeout_sec: number
+  desired_supervisors: number
+  reconcile_runner?: string
+  reconcile_interval_sec: number
+  reconcile_prompt?: string
+  reconcile_job_timeout_sec: number
+}
+
+export interface ConfigPresenceView {
+  ttl_sec: number
+  message_ttl_sec: number
+  prune_interval_sec: number
+}
+
+export interface ConfigScheduleView {
+  sweep_interval_sec: number
+  miss_grace_sec: number
+}
+
+export interface ProjectWriteReq {
+  key: string
+  host_path: string
+  container_path?: string
+  default_agent?: string
+  allowed_agents?: string[]
+  allowed_runners?: string[]
+  allow_exec: boolean
+  max_concurrent_jobs?: number
+}
+
+export interface ProjectWriteResp extends ProjectDetail {
+  warnings?: string[]
+}
+
 // 项目 git 状态（E20，design §6.3）：GET /v1/projects/{key}/git。
 // 字段与 internal/project/browse.go 的 GitStatus / Commit JSON tag 对齐。
 // is_git_repo=false 表示非 git 工作树 / 非本地可达 / git 缺失（其余字段为零值）。

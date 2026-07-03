@@ -6,6 +6,7 @@ import { streamJob } from './sse'
 import type {
   AgentsResp,
   ArtifactsResp,
+  ConfigView,
   CreateScheduleReq,
   DeliveriesResp,
   FileContent,
@@ -21,6 +22,8 @@ import type {
   MetaResp,
   PresenceResp,
   ProjectDetail,
+  ProjectWriteReq,
+  ProjectWriteResp,
   ProjectsResp,
   ReposResp,
   RunnersResp,
@@ -41,6 +44,20 @@ interface ErrorBody {
   detail?: string
 }
 
+export class ApiError extends Error {
+  status: number
+  detail?: string
+  code?: string
+
+  constructor(status: number, message: string, detail?: string, code?: string) {
+    super(message)
+    this.name = 'ApiError'
+    this.status = status
+    this.detail = detail
+    this.code = code
+  }
+}
+
 function authHeaders(extra?: Record<string, string>): Record<string, string> {
   const headers: Record<string, string> = { ...extra }
   const token = getToken()
@@ -52,15 +69,19 @@ function authHeaders(extra?: Record<string, string>): Record<string, string> {
 
 async function raiseForStatus(res: Response): Promise<never> {
   let msg = `请求失败：HTTP ${res.status}`
+  let detail = ''
+  let code = ''
   try {
     const body = (await res.json()) as ErrorBody
+    detail = body.detail ?? ''
+    code = body.error ?? ''
     if (body.error || body.detail) {
       msg = [body.error, body.detail].filter(Boolean).join(' - ')
     }
   } catch {
     // 非 JSON 错误体，沿用默认
   }
-  throw new Error(msg)
+  throw new ApiError(res.status, msg, detail || undefined, code || undefined)
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -99,6 +120,35 @@ export function listProjects(): Promise<ProjectsResp> {
 
 export function getProject(key: string): Promise<ProjectDetail> {
   return request<ProjectDetail>(`/v1/projects/${encodeURIComponent(key)}`)
+}
+
+export function getConfig(): Promise<ConfigView> {
+  return request<ConfigView>('/v1/config')
+}
+
+export function createProject(req: ProjectWriteReq): Promise<ProjectWriteResp> {
+  return request<ProjectWriteResp>('/v1/projects', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+}
+
+export function updateProject(
+  key: string,
+  req: ProjectWriteReq,
+): Promise<ProjectWriteResp> {
+  return request<ProjectWriteResp>(`/v1/projects/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+}
+
+export function deleteProject(key: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/v1/projects/${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  })
 }
 
 // 项目当前 git 状态（E20，design §6.3）：GET /v1/projects/{key}/git。
