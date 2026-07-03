@@ -299,6 +299,18 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("server.governance.require_answer_capability is on but no caller has can_answer: true (would lock out all answers)")
 		}
 	}
+	if g.RequireAdminCapability {
+		var hasAdminCaller bool
+		for _, cc := range cfg.Server.Callers {
+			if cc.CanAdmin {
+				hasAdminCaller = true
+				break
+			}
+		}
+		if !hasAdminCaller {
+			return fmt.Errorf("server.governance.require_admin_capability is on but no caller has can_admin: true (would lock out all config edits)")
+		}
+	}
 	for _, cc := range cfg.Server.Callers {
 		if cc.MaxConcurrentJobs < 0 {
 			return fmt.Errorf("caller %q: max_concurrent_jobs must be >= 0", cc.ID)

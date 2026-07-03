@@ -197,6 +197,9 @@ type GovernanceConfig struct {
 	// RequireAnswerCapability gates interaction answer/punt to callers with
 	// can_answer:true. false = any authenticated caller may answer (legacy).
 	RequireAnswerCapability bool `yaml:"require_answer_capability"`
+	// RequireAdminCapability gates config/project edits to callers with
+	// can_admin:true. false = any authenticated caller may edit config (legacy).
+	RequireAdminCapability bool `yaml:"require_admin_capability"`
 }
 
 // MetricsConfig is the E16 Prometheus /metrics policy (design §6.2). It is a
@@ -301,6 +304,9 @@ type CallerConfig struct {
 	// CanAnswer permits this caller to answer/punt interactions when
 	// governance.require_answer_capability is enabled.
 	CanAnswer bool `yaml:"can_answer"`
+	// CanAdmin permits this caller to edit config/projects when
+	// governance.require_admin_capability is enabled.
+	CanAdmin bool `yaml:"can_admin"`
 	// E17 per-caller quota overrides (design §7.1). Each 0/empty value falls back to
 	// the server.governance default; if that is also 0 the dimension is unlimited
 	// (向后兼容). A value > 0 wins over the governance default.
@@ -331,6 +337,19 @@ func (sc *ServerConfig) CallerCanAnswer(callerID string) bool {
 		for _, cc := range sc.Callers {
 			if cc.ID == callerID {
 				return cc.CanAnswer
+			}
+		}
+	}
+	return false
+}
+
+// CallerCanAdmin reports whether callerID has the can_admin capability bit.
+// The governance gate itself is checked by callers of this helper.
+func (sc *ServerConfig) CallerCanAdmin(callerID string) bool {
+	if callerID != "" {
+		for _, cc := range sc.Callers {
+			if cc.ID == callerID {
+				return cc.CanAdmin
 			}
 		}
 	}
