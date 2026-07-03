@@ -225,9 +225,18 @@ func NewJobCmd() *gcli.Command {
 // needs to appear in shell history. A bare host:port is normalised and
 // 0.0.0.0 -> 127.0.0.1 (see client.NormalizeBaseURL).
 func newClient(configPath, serverFlag, tokenFlag string) (*client.Client, error) {
-	cfg, _, err := config.Load(configPath)
+	cfg, path, err := config.Load(configPath)
 	if err != nil {
 		return nil, err
+	}
+	// 配置文件缺失(path=="") 且未显式指定 server 时，ApplyDefaults 会静默回落到
+	// DefaultAddr(0.0.0.0:8765)，导致请求失败时报出含糊的 connection refused/404，
+	// 用户不知道根因是"没配置也没指定 server"。这里在构造 client 前 fail-fast 报清晰错误。
+	// serverFlag 已经过 gcli 的 ${GOFER_SERVER_ADDR} 环境变量插值(含 dotenv 加载后的
+	// GOFER_CONFIG_DIR/.env)，非空即视为"显式指定"，不误伤正常配置场景。
+	if path == "" && serverFlag == "" {
+		return nil, fmt.Errorf("未找到配置文件，且未通过 -s/--server 指定 server 地址；" +
+			"请用 -s/--server 指定，或配置 $GOFER_CONFIG_DIR/.env（或 --config 指定配置文件）")
 	}
 	addr := cfg.Server.Addr
 	if serverFlag != "" {
