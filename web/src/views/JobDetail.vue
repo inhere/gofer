@@ -3,6 +3,8 @@
 //  - 日志只走 streamJob（不传 from 获得回放+跟随）；from 仅用于断线重连（已收 stdout 字节数）。
 //  - status 事件回填头部/徽标/耗时；end/终态停 live；running 显示 cancel。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import StatusBadge from '../components/StatusBadge.vue'
 import Signal from '../components/Signal.vue'
 import LogTape from '../components/LogTape.vue'
@@ -445,6 +447,13 @@ const renderedCommandLine = computed<string>(() => {
   }
   return [rc.command, ...(rc.args ?? [])].join(' ')
 })
+const commandMarkdownMode = ref(false)
+const canViewCommandMarkdown = computed<boolean>(() => {
+  return (job.value?.agent ?? '') !== 'exec' && renderedCommandLine.value.length > 200
+})
+const renderedCommandMarkdown = computed<string>(() => {
+  return DOMPurify.sanitize(marked.parse(renderedCommandLine.value, { async: false }))
+})
 
 // 结构化结果(E6)：后端 result_json 是原始 JSON 字符串，pretty-print 展示。
 const resultJsonPretty = computed<string>(() => {
@@ -736,11 +745,26 @@ async function copyCommand(): Promise<void> {
       <div class="outcome-block">
         <div class="outcome-head">
           <span class="outcome-k mono">渲染命令</span>
-          <button class="copy-btn mono" type="button" @click="copyCommand">
-            {{ copied ? '已复制' : '复制' }}
-          </button>
+          <span class="outcome-actions">
+            <button
+              v-if="canViewCommandMarkdown"
+              class="copy-btn mono"
+              type="button"
+              @click="commandMarkdownMode = !commandMarkdownMode"
+            >
+              {{ commandMarkdownMode ? '查看原文' : 'Markdown查看' }}
+            </button>
+            <button class="copy-btn mono" type="button" @click="copyCommand">
+              {{ copied ? '已复制' : '复制' }}
+            </button>
+          </span>
         </div>
-        <pre class="outcome-pre mono"><span class="cmd-bin">{{ renderedCommand.command }}</span><template
+        <div
+          v-if="canViewCommandMarkdown && commandMarkdownMode"
+          class="outcome-pre outcome-pre--cmd outcome-md"
+          v-html="renderedCommandMarkdown"
+        />
+        <pre v-else class="outcome-pre outcome-pre--cmd mono"><span class="cmd-bin">{{ renderedCommand.command }}</span><template
           v-for="(a, i) in renderedCommand.args ?? []"
           :key="i"
         > {{ a }}</template></pre>
@@ -1306,6 +1330,7 @@ async function copyCommand(): Promise<void> {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 10px;
   margin-bottom: 8px;
 }
 .outcome-k {
@@ -1326,6 +1351,12 @@ async function copyCommand(): Promise<void> {
   color: var(--phosphor);
   border-color: var(--phosphor);
 }
+.outcome-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
 .outcome-pre {
   margin: 0;
   font-size: 12px;
@@ -1335,9 +1366,50 @@ async function copyCommand(): Promise<void> {
   word-break: break-word;
   overflow-x: auto;
 }
+.outcome-pre--cmd {
+  max-height: 360px;
+  overflow: auto;
+}
 .outcome-pre .cmd-bin {
   color: var(--phosphor);
   font-weight: 600;
+}
+.outcome-md {
+  white-space: normal;
+}
+.outcome-md :deep(h1),
+.outcome-md :deep(h2),
+.outcome-md :deep(h3),
+.outcome-md :deep(h4) {
+  color: var(--paper);
+  line-height: 1.3;
+  margin: 1em 0 0.5em;
+}
+.outcome-md :deep(p),
+.outcome-md :deep(ul),
+.outcome-md :deep(ol) {
+  margin: 0.5em 0;
+}
+.outcome-md :deep(a) {
+  color: var(--phosphor);
+}
+.outcome-md :deep(code) {
+  background: var(--term-bg);
+  border-radius: 3px;
+  font-family: var(--font-mono, monospace);
+  font-size: 0.92em;
+  padding: 1px 5px;
+}
+.outcome-md :deep(pre) {
+  background: var(--term-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: auto;
+  padding: 10px 12px;
+}
+.outcome-md :deep(pre code) {
+  background: none;
+  padding: 0;
 }
 .outcome-pre.result-json {
   max-height: 360px;
