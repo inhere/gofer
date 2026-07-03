@@ -105,6 +105,7 @@ const navGroups = [
       { to: '/runners', label: 'Runners' },
       { to: '/cluster', label: 'Cluster' },
       { to: '/projects', label: 'Projects' },
+      { to: '/config', label: '配置' },
     ],
   },
 ]
