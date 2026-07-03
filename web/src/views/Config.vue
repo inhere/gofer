@@ -1,20 +1,9 @@
 <script setup lang="ts">
-// Config：脱敏配置总览 + projects 写层。只展示后端 bool 化后的 secret 状态，
+// Config：脱敏配置总览。只展示后端 bool 化后的 secret 状态，
 // 不接收、不缓存、不渲染任何 secret 值。
-import { computed, onMounted, onUnmounted, reactive, ref } from 'vue'
-import {
-  ApiError,
-  createProject,
-  deleteProject,
-  getConfig,
-  updateProject,
-} from '../api/client'
-import type {
-  ConfigView,
-  ProjectDetail,
-  ProjectWriteReq,
-  ProjectWriteResp,
-} from '../api/types'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { getConfig } from '../api/client'
+import type { ConfigView } from '../api/types'
 
 const POLL_MS = 5000
 
@@ -22,53 +11,14 @@ const config = ref<ConfigView | null>(null)
 const loading = ref(false)
 const loaded = ref(false)
 const loadError = ref('')
-const saving = ref(false)
-const deleting = ref(false)
-const formError = ref('')
-const notice = ref('')
-const warnings = ref<string[]>([])
-const selectedKey = ref('')
-const mode = ref<'none' | 'create' | 'edit'>('none')
 
 let pollTimer: number | null = null
 
-interface ProjectForm {
-  key: string
-  host_path: string
-  container_path: string
-  default_agent: string
-  allowed_agents: string[]
-  allowed_runners: string[]
-  allow_exec: boolean
-  max_concurrent_jobs: string
-}
-
-const form = reactive<ProjectForm>({
-  key: '',
-  host_path: '',
-  container_path: '',
-  default_agent: '',
-  allowed_agents: [],
-  allowed_runners: [],
-  allow_exec: false,
-  max_concurrent_jobs: '',
-})
-
-const projects = computed(() => config.value?.projects ?? [])
 const agents = computed(() => config.value?.agents ?? [])
 const runners = computed(() => config.value?.runners ?? [])
 const roles = computed(() => config.value?.roles ?? [])
 const callers = computed(() => config.value?.server.callers ?? [])
 const workers = computed(() => config.value?.server.workers ?? [])
-const runnerOptions = computed(() => [
-  'local',
-  ...runners.value.map((r) => r.key).filter((key) => key !== 'local'),
-])
-const selectedProject = computed(() =>
-  projects.value.find((p) => p.key === selectedKey.value),
-)
-const isEditing = computed(() => mode.value === 'edit')
-const canSubmit = computed(() => !saving.value && form.key.trim() !== '' && form.host_path.trim() !== '')
 
 async function loadConfig(silent = false): Promise<void> {
   if (!silent) {
@@ -78,12 +28,6 @@ async function loadConfig(silent = false): Promise<void> {
   try {
     config.value = await getConfig()
     loaded.value = true
-    if (mode.value === 'none' && projects.value.length > 0) {
-      selectProject(projects.value[0])
-    }
-    if (mode.value === 'edit' && selectedKey.value && !selectedProject.value) {
-      resetForm()
-    }
   } catch (e) {
     loadError.value = errorMessage(e)
   } finally {
@@ -94,7 +38,7 @@ async function loadConfig(silent = false): Promise<void> {
 function startPolling(): void {
   stopPolling()
   pollTimer = window.setInterval(() => {
-    if (!saving.value && !deleting.value && !document.hidden) {
+    if (!document.hidden) {
       void loadConfig(true)
     }
   }, POLL_MS)
@@ -111,172 +55,6 @@ function onVisibility(): void {
   if (!document.hidden) {
     void loadConfig(true)
   }
-}
-
-function selectProject(p: ProjectDetail): void {
-  selectedKey.value = p.key
-  mode.value = 'edit'
-  formError.value = ''
-  notice.value = ''
-  warnings.value = []
-  fillForm(p)
-}
-
-function startCreate(): void {
-  selectedKey.value = ''
-  mode.value = 'create'
-  formError.value = ''
-  notice.value = ''
-  warnings.value = []
-  Object.assign(form, {
-    key: '',
-    host_path: '',
-    container_path: '',
-    default_agent: agents.value[0]?.key ?? '',
-    allowed_agents: [],
-    allowed_runners: ['local'],
-    allow_exec: false,
-    max_concurrent_jobs: '',
-  })
-}
-
-function fillForm(p: ProjectDetail): void {
-  Object.assign(form, {
-    key: p.key,
-    host_path: p.host_path,
-    container_path: p.container_path ?? '',
-    default_agent: p.default_agent ?? '',
-    allowed_agents: [...(p.allowed_agents ?? [])],
-    allowed_runners: [...(p.allowed_runners ?? [])],
-    allow_exec: p.allow_exec,
-    max_concurrent_jobs: p.max_concurrent_jobs != null ? String(p.max_concurrent_jobs) : '',
-  })
-}
-
-function resetForm(): void {
-  selectedKey.value = ''
-  mode.value = 'none'
-  Object.assign(form, {
-    key: '',
-    host_path: '',
-    container_path: '',
-    default_agent: '',
-    allowed_agents: [],
-    allowed_runners: [],
-    allow_exec: false,
-    max_concurrent_jobs: '',
-  })
-}
-
-function toggleAgent(key: string): void {
-  form.allowed_agents = toggleValue(form.allowed_agents, key)
-  if (form.default_agent && form.allowed_agents.length > 0 && !form.allowed_agents.includes(form.default_agent)) {
-    form.default_agent = ''
-  }
-}
-
-function toggleRunner(key: string): void {
-  form.allowed_runners = toggleValue(form.allowed_runners, key)
-}
-
-function toggleValue(list: string[], value: string): string[] {
-  return list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
-}
-
-function buildReq(): ProjectWriteReq {
-  const req: ProjectWriteReq = {
-    key: form.key.trim(),
-    host_path: form.host_path.trim(),
-    allow_exec: form.allow_exec,
-  }
-  const containerPath = form.container_path.trim()
-  if (containerPath) {
-    req.container_path = containerPath
-  }
-  if (form.default_agent) {
-    req.default_agent = form.default_agent
-  }
-  if (form.allowed_agents.length > 0) {
-    req.allowed_agents = [...form.allowed_agents]
-  }
-  if (form.allowed_runners.length > 0) {
-    req.allowed_runners = [...form.allowed_runners]
-  }
-  const max = Number.parseInt(form.max_concurrent_jobs, 10)
-  if (Number.isFinite(max) && max > 0) {
-    req.max_concurrent_jobs = max
-  }
-  return req
-}
-
-async function saveProject(): Promise<void> {
-  formError.value = ''
-  notice.value = ''
-  warnings.value = []
-  if (!canSubmit.value) {
-    formError.value = '请填写 key 与 host_path'
-    return
-  }
-  saving.value = true
-  try {
-    const req = buildReq()
-    const resp =
-      mode.value === 'create'
-        ? await createProject(req)
-        : await updateProject(selectedKey.value, req)
-    applyWriteSuccess(resp, mode.value === 'create' ? '项目已创建' : '项目已保存')
-  } catch (e) {
-    formError.value = classifyWriteError(e)
-  } finally {
-    saving.value = false
-  }
-}
-
-async function removeProject(): Promise<void> {
-  if (!selectedKey.value || !window.confirm(`确认删除项目 ${selectedKey.value}？`)) {
-    return
-  }
-  formError.value = ''
-  notice.value = ''
-  warnings.value = []
-  deleting.value = true
-  try {
-    await deleteProject(selectedKey.value)
-    notice.value = '项目已删除'
-    resetForm()
-    await loadConfig(true)
-  } catch (e) {
-    formError.value = classifyWriteError(e)
-  } finally {
-    deleting.value = false
-  }
-}
-
-async function applyWriteSuccess(resp: ProjectWriteResp, message: string): Promise<void> {
-  notice.value = message
-  warnings.value = resp.warnings ?? []
-  selectedKey.value = resp.key
-  mode.value = 'edit'
-  fillForm(resp)
-  await loadConfig(true)
-}
-
-function classifyWriteError(e: unknown): string {
-  if (e instanceof ApiError) {
-    if (e.status === 403) {
-      return '无 can_admin 权限，当前 caller 不允许编辑配置。'
-    }
-    if (e.status === 409) {
-      return '项目已存在，请换一个 key 或选择现有项目编辑。'
-    }
-    if (e.status === 400) {
-      return `项目配置校验失败：${e.detail || e.message}`
-    }
-    if (e.status === 404) {
-      return `项目不存在：${e.detail || e.message}`
-    }
-  }
-  return errorMessage(e)
 }
 
 function errorMessage(e: unknown): string {
@@ -311,7 +89,7 @@ onUnmounted(() => {
   <div class="config-page">
     <div class="head">
       <span class="eyebrow mono">CONFIG</span>
-      <h1 class="title mono">配置</h1>
+      <h1 class="title mono">系统配置（只读）</h1>
       <span class="poll mono" :class="{ 'poll--on': loading }">●</span>
     </div>
 
@@ -444,149 +222,6 @@ onUnmounted(() => {
           </article>
         </div>
       </section>
-
-      <section class="section" aria-label="项目编辑">
-        <div class="section-head">
-          <h2 class="section-title mono">项目编辑</h2>
-          <button class="submit submit--small" type="button" @click="startCreate">新增项目</button>
-        </div>
-
-        <div class="editor">
-          <ul class="project-list" aria-label="项目列表">
-            <li v-for="p in projects" :key="p.key">
-              <button
-                type="button"
-                class="list-item mono"
-                :class="{ 'list-item--active': p.key === selectedKey }"
-                :title="p.host_path"
-                @click="selectProject(p)"
-              >
-                {{ p.key }}
-              </button>
-            </li>
-            <li v-if="projects.length === 0" class="empty mono">暂无项目</li>
-          </ul>
-
-          <form v-if="mode !== 'none'" class="form" @submit.prevent="saveProject">
-            <div class="row">
-              <div class="field">
-                <label class="label mono" for="cfg-key">KEY</label>
-                <input
-                  id="cfg-key"
-                  v-model="form.key"
-                  class="control mono"
-                  :disabled="isEditing"
-                  autocomplete="off"
-                  spellcheck="false"
-                />
-              </div>
-              <div class="field">
-                <label class="label mono" for="cfg-default-agent">DEFAULT_AGENT</label>
-                <select id="cfg-default-agent" v-model="form.default_agent" class="control mono">
-                  <option value="">-</option>
-                  <option v-for="a in agents" :key="a.key" :value="a.key">{{ a.key }}</option>
-                </select>
-              </div>
-            </div>
-
-            <div class="field">
-              <label class="label mono" for="cfg-host">HOST_PATH</label>
-              <input
-                id="cfg-host"
-                v-model="form.host_path"
-                class="control mono"
-                autocomplete="off"
-                spellcheck="false"
-              />
-            </div>
-
-            <div class="field">
-              <label class="label mono" for="cfg-container">CONTAINER_PATH</label>
-              <input
-                id="cfg-container"
-                v-model="form.container_path"
-                class="control mono"
-                autocomplete="off"
-                spellcheck="false"
-                placeholder="可选"
-              />
-            </div>
-
-            <div class="row">
-              <fieldset class="pick">
-                <legend class="label mono">ALLOWED_AGENTS</legend>
-                <label v-for="a in agents" :key="a.key" class="check mono">
-                  <input
-                    type="checkbox"
-                    :checked="form.allowed_agents.includes(a.key)"
-                    @change="toggleAgent(a.key)"
-                  />
-                  <span>{{ a.key }}</span>
-                </label>
-                <p v-if="agents.length === 0" class="field-hint mono">无 agent 选项</p>
-              </fieldset>
-
-              <fieldset class="pick">
-                <legend class="label mono">ALLOWED_RUNNERS</legend>
-                <label v-for="r in runnerOptions" :key="r" class="check mono">
-                  <input
-                    type="checkbox"
-                    :checked="form.allowed_runners.includes(r)"
-                    @change="toggleRunner(r)"
-                  />
-                  <span>{{ r }}</span>
-                </label>
-              </fieldset>
-            </div>
-
-            <div class="row">
-              <div class="field field--check">
-                <label class="check mono">
-                  <input v-model="form.allow_exec" type="checkbox" />
-                  <span>allow_exec</span>
-                </label>
-              </div>
-              <div class="field">
-                <label class="label mono" for="cfg-max">MAX_CONCURRENT_JOBS</label>
-                <input
-                  id="cfg-max"
-                  v-model="form.max_concurrent_jobs"
-                  class="control mono"
-                  type="number"
-                  min="1"
-                  placeholder="不限制"
-                />
-              </div>
-            </div>
-
-            <p v-if="formError" class="error mono">{{ formError }}</p>
-            <p v-if="notice" class="notice mono">{{ notice }}</p>
-            <div v-if="warnings.length" class="warn mono">
-              <strong>保存成功，但有告警：</strong>
-              <ul>
-                <li v-for="w in warnings" :key="w">{{ w }}</li>
-              </ul>
-            </div>
-
-            <div class="actions">
-              <button class="submit" type="submit" :disabled="!canSubmit">
-                {{ saving ? '保存中...' : mode === 'create' ? '创建项目' : '保存项目' }}
-              </button>
-              <button
-                v-if="isEditing"
-                class="danger"
-                type="button"
-                :disabled="deleting || saving"
-                @click="removeProject"
-              >
-                {{ deleting ? '删除中...' : '删除项目' }}
-              </button>
-            </div>
-          </form>
-
-          <p v-else class="placeholder mono">选择项目或点击新增项目</p>
-        </div>
-      </section>
     </template>
   </div>
 </template>
@@ -658,9 +293,7 @@ onUnmounted(() => {
 .cards-3 {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
-.panel,
-.form,
-.project-list {
+.panel {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -733,16 +366,12 @@ onUnmounted(() => {
 .table td {
   color: var(--paper);
 }
-.mini-list,
-.project-list {
+.mini-list {
   list-style: none;
   margin: 0;
 }
 .mini-list {
   padding: 0;
-}
-.project-list {
-  padding: 8px;
 }
 .mini-row {
   border-top: 1px solid var(--line);
@@ -766,136 +395,7 @@ onUnmounted(() => {
 .placeholder {
   font-size: 12px;
 }
-.editor {
-  display: grid;
-  grid-template-columns: 260px 1fr;
-  gap: 14px;
-  align-items: start;
-}
-.list-item {
-  display: block;
-  width: 100%;
-  text-align: left;
-  background: transparent;
-  color: var(--paper);
-  border: 1px solid transparent;
-  border-radius: var(--radius);
-  padding: 7px 9px;
-  font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.list-item:hover,
-.list-item--active {
-  background: var(--ink);
-}
-.list-item--active {
-  color: var(--phosphor);
-  border-color: var(--line);
-}
-.form {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-}
-.row {
-  display: flex;
-  gap: 14px;
-  flex-wrap: wrap;
-}
-.row > .field,
-.row > .pick {
-  flex: 1 1 0;
-  min-width: 220px;
-}
-.field {
-  display: flex;
-  flex-direction: column;
-}
-.field--check {
-  justify-content: flex-end;
-}
-.label {
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  color: var(--queue);
-  margin-bottom: 6px;
-}
-.control {
-  width: 100%;
-  background: var(--ink);
-  color: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 9px 10px;
-  font-size: 13px;
-  outline: none;
-}
-.control:focus {
-  border-color: var(--phosphor);
-}
-.control:disabled {
-  opacity: 0.65;
-  cursor: default;
-}
-.pick {
-  margin: 0;
-  padding: 10px;
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  background: var(--ink);
-}
-.check {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  color: var(--paper);
-  font-size: 12px;
-  margin: 6px 0;
-}
-.check input {
-  accent-color: var(--phosphor);
-}
-.field-hint {
-  color: var(--queue);
-  font-size: 11px;
-  margin: 6px 0 0;
-}
-.actions {
-  display: flex;
-  gap: 10px;
-  align-items: center;
-}
-.submit,
-.danger {
-  border: none;
-  border-radius: var(--radius);
-  padding: 9px 14px;
-  font-size: 13px;
-  font-weight: 600;
-}
-.submit {
-  background: var(--phosphor);
-  color: var(--ink);
-}
-.submit--small {
-  margin-left: auto;
-  padding: 5px 11px;
-  font-size: 12px;
-}
-.danger {
-  background: transparent;
-  color: var(--fail);
-  border: 1px solid var(--fail);
-}
-.submit:disabled,
-.danger:disabled {
-  opacity: 0.55;
-  cursor: default;
-}
-.error,
-.warn {
+.error {
   font-size: 12px;
   border-radius: var(--radius);
   padding: 8px 10px;
@@ -906,23 +406,9 @@ onUnmounted(() => {
   color: var(--fail);
   border: 1px solid var(--fail);
 }
-.warn {
-  color: var(--run);
-  border: 1px solid var(--run);
-}
-.warn ul {
-  margin: 6px 0 0;
-  padding-left: 18px;
-}
-.notice {
-  color: var(--done);
-  font-size: 12px;
-  margin: 0;
-}
 @media (max-width: 900px) {
   .overview-grid,
-  .cards-3,
-  .editor {
+  .cards-3 {
     grid-template-columns: 1fr;
   }
 }

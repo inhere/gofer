@@ -88,6 +88,7 @@ const activeProject = computed(() => {
 })
 
 const homeNav = { to: '/dashboard', label: 'Home' }
+const settingsNav = { to: '/config', label: '⚙ 设置' }
 const navGroups = [
   {
     label: '观察',
@@ -105,7 +106,6 @@ const navGroups = [
       { to: '/runners', label: 'Runners' },
       { to: '/cluster', label: 'Cluster' },
       { to: '/projects', label: 'Projects' },
-      { to: '/config', label: '配置' },
     ],
   },
 ]
@@ -186,6 +186,13 @@ function isDriverOnline(a: Presence): boolean {
             {{ item.label }}
           </RouterLink>
         </span>
+        <RouterLink
+          :to="settingsNav.to"
+          class="nav-link nav-settings"
+          active-class="nav-link--active"
+        >
+          {{ settingsNav.label }}
+        </RouterLink>
       </nav>
       <div class="topbar-right mono">
         <RouterLink to="/new" class="new-job" active-class="new-job--active">
@@ -276,6 +283,18 @@ function isDriverOnline(a: Presence): boolean {
             </li>
             <li v-if="agents.length === 0" class="rail-empty mono">无 agent</li>
           </ul>
+        </section>
+
+        <!-- SETTINGS -->
+        <section class="rail-section rail-section--settings">
+          <RouterLink
+            :to="settingsNav.to"
+            class="rail-item rail-item--settings mono"
+            active-class="rail-item--active"
+            @click="drawerOpen = false"
+          >
+            {{ settingsNav.label }}
+          </RouterLink>
         </section>
 
         <p v-if="railError" class="rail-error mono" :title="railError">侧栏加载失败</p>
@@ -386,6 +405,11 @@ function isDriverOnline(a: Presence): boolean {
   color: var(--phosphor);
   border-bottom-color: var(--phosphor);
 }
+.nav-settings {
+  border-left: 1px solid var(--line);
+  padding-left: 14px;
+  margin-left: 2px;
+}
 
 .topbar-right {
   margin-left: auto;
@@ -466,6 +490,10 @@ function isDriverOnline(a: Presence): boolean {
 .rail-section {
   margin-bottom: 18px;
 }
+.rail-section--settings {
+  border-top: 1px solid var(--line);
+  padding-top: 12px;
+}
 .rail-title {
   font-size: 11px;
   letter-spacing: 0.08em;
@@ -505,6 +533,9 @@ function isDriverOnline(a: Presence): boolean {
   background: var(--ink);
 }
 .rail-item--all {
+  color: var(--queue);
+}
+.rail-item--settings {
   color: var(--queue);
 }
 
