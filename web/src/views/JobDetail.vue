@@ -675,31 +675,32 @@ function fmtSize(bytes: number): string {
 const diffSummary = computed<string>(() => job.value?.diff_summary ?? '')
 const diffError = ref('')
 const diffLoading = ref(false)
-const diffExpanded = ref(false)
+const diffOpen = ref(false)
 const fullDiffText = ref('')
 
+// 完整 diff 走右侧抽屉展示（内容通常较长，内联高度不够）。已加载过则直接开抽屉。
 async function onViewDiff(): Promise<void> {
   if (diffLoading.value) {
     return
   }
-  if (diffExpanded.value) {
-    diffExpanded.value = false
-    return
-  }
   if (fullDiffText.value !== '') {
-    diffExpanded.value = true
+    diffOpen.value = true
     return
   }
   diffLoading.value = true
   diffError.value = ''
   try {
     fullDiffText.value = await fetchDiffText(props.id)
-    diffExpanded.value = true
+    diffOpen.value = true
   } catch (e) {
     diffError.value = e instanceof Error ? e.message : String(e)
   } finally {
     diffLoading.value = false
   }
+}
+
+function closeDiff(): void {
+  diffOpen.value = false
 }
 
 // 执行来源标注（P4）：source = "" | "worker:<id>" | "peer:<name>"。远端执行时
@@ -1019,12 +1020,11 @@ async function copyCommand(): Promise<void> {
             :disabled="diffLoading"
             @click="onViewDiff"
           >
-            {{ diffLoading ? '加载中…' : diffExpanded ? '收起完整 diff' : '查看完整 diff' }}
+            {{ diffLoading ? '加载中…' : '查看完整 diff' }}
           </button>
         </div>
         <p class="diff-note mono">未提交改动（uncommitted changes，tracked vs HEAD）</p>
         <pre class="outcome-pre diff-stat mono">{{ diffSummary }}</pre>
-        <pre v-if="diffExpanded" class="outcome-pre diff-full mono">{{ fullDiffText }}</pre>
         <p v-if="diffError" class="artifact-err mono">{{ diffError }}</p>
       </div>
     </section>
@@ -1065,6 +1065,23 @@ async function copyCommand(): Promise<void> {
             :blob="preview.blob"
             @download="onPreviewDownload"
           />
+        </div>
+      </div>
+    </div>
+
+    <!-- 完整 diff 右侧抽屉：点遮罩或「关闭」收起。diff 内容通常较长，抽屉给足高度纵向滚动。 -->
+    <div
+      v-if="diffOpen"
+      class="drawer-overlay"
+      @click.self="closeDiff"
+    >
+      <div class="drawer-panel" role="dialog" aria-label="完整 diff">
+        <div class="drawer-head">
+          <span class="drawer-title mono">完整 diff · 未提交改动</span>
+          <button class="copy-btn mono" type="button" @click="closeDiff">关闭</button>
+        </div>
+        <div class="drawer-body">
+          <pre class="drawer-diff mono">{{ fullDiffText }}</pre>
         </div>
       </div>
     </div>
@@ -1499,12 +1516,15 @@ async function copyCommand(): Promise<void> {
 .outcome-md :deep(a) {
   color: var(--phosphor);
 }
+/* inline code：加发丝边框 + 暖色前景，确保在 --panel 容器上（两种主题）都清晰可辨。 */
 .outcome-md :deep(code) {
   background: var(--term-bg);
+  border: 1px solid var(--line);
   border-radius: 3px;
+  color: var(--run);
   font-family: var(--font-mono, monospace);
   font-size: 0.92em;
-  padding: 1px 5px;
+  padding: 0 5px;
 }
 .outcome-md :deep(pre) {
   background: var(--term-bg);
@@ -1515,6 +1535,8 @@ async function copyCommand(): Promise<void> {
 }
 .outcome-md :deep(pre code) {
   background: none;
+  border: 0;
+  color: inherit;
   padding: 0;
 }
 .outcome-pre.result-json {
@@ -1527,14 +1549,6 @@ async function copyCommand(): Promise<void> {
   max-height: 360px;
   overflow: auto;
   white-space: pre;
-}
-.outcome-pre.diff-full {
-  max-height: 520px;
-  overflow: auto;
-  white-space: pre;
-  margin-top: 10px;
-  padding-top: 10px;
-  border-top: 1px solid var(--line);
 }
 /* diff 语义提示：澄清「未提交改动」，避免误读为「全部改动」。 */
 .diff-note {
@@ -1668,5 +1682,69 @@ async function copyCommand(): Promise<void> {
   min-height: 0;
   overflow: auto;
   padding: 14px 16px;
+}
+
+/* 完整 diff 右侧抽屉：遮罩右侧滑入面板，占足高度，内容纵向滚动。 */
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  justify-content: flex-end;
+  background: rgba(0, 0, 0, 0.6);
+}
+.drawer-panel {
+  display: flex;
+  flex-direction: column;
+  width: min(880px, 92vw);
+  height: 100%;
+  background: var(--panel);
+  border-left: 1px solid var(--line);
+  overflow: hidden;
+}
+.drawer-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--line);
+  flex: none;
+}
+.drawer-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--paper);
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.drawer-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: 12px 14px;
+}
+.drawer-diff {
+  margin: 0;
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--paper);
+  white-space: pre;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .drawer-panel {
+    animation: drawer-slide-in 0.18s ease-out;
+  }
+}
+@keyframes drawer-slide-in {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
 }
 </style>

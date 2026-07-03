@@ -387,26 +387,18 @@ onUnmounted(() => {
         class="trow"
       >
         <span class="col-status"><StatusBadge :status="job.status" /></span>
-        <span class="col-job" :class="{ 'col-job--titled': job.title }">
-          <button
-            v-if="job.title"
-            class="job-link"
-            type="button"
-            :title="job.title"
-            @click.stop="openJob(job)"
-          >
-            <span class="job-title">{{ job.title }}</span>
-          </button>
-          <button
-            v-else
-            class="job-link"
-            type="button"
-            :title="job.id"
-            @click.stop="openJob(job)"
-          >
-            <span class="job-id mono">{{ shortId(job.id) }}</span>
-          </button>
-          <span v-if="job.title" class="job-id mono" :title="job.id">{{ shortId(job.id) }}</span>
+        <span
+          class="col-job"
+          :class="{ 'col-job--titled': job.title }"
+          role="button"
+          tabindex="0"
+          :title="job.title || job.id"
+          @click="openJob(job)"
+          @keydown.enter="openJob(job)"
+          @keydown.space.prevent="openJob(job)"
+        >
+          <span v-if="job.title" class="job-title">{{ job.title }}</span>
+          <span class="job-id mono">{{ shortId(job.id) }}</span>
           <span v-if="job.tags && job.tags.length" class="job-tags">
             <span v-for="t in job.tags" :key="t" class="tag-chip mono" :title="t">{{ t }}</span>
           </span>
@@ -654,36 +646,21 @@ onUnmounted(() => {
 }
 /* job cell: title (primary) stacked over short-id (secondary). When a job has no
    title only the short-id shows, so the row reads the same as before. */
+/* 整个 job 单元格可点：点击/键盘(Enter/Space)均进入 job 详情。 */
 .col-job {
   display: flex;
   flex-direction: column;
   gap: 1px;
   min-width: 0;
-}
-.job-link {
-  appearance: none;
-  background: transparent;
-  border: 0;
   cursor: pointer;
-  display: inline-flex;
-  font: inherit;
-  line-height: inherit;
-  max-width: 100%;
-  min-width: 0;
-  padding: 0;
-  text-align: left;
+  border-radius: 3px;
 }
-.job-link .job-title,
-.job-link .job-id {
-  min-width: 0;
-}
-.job-link:hover .job-title,
-.job-link:hover .job-id {
+.col-job:hover .job-title,
+.col-job:hover .job-id {
   color: var(--phosphor);
   text-decoration: underline;
 }
-.job-link:focus-visible {
-  border-radius: 3px;
+.col-job:focus-visible {
   box-shadow: 0 0 0 2px color-mix(in srgb, var(--phosphor) 45%, transparent);
   outline: none;
 }
