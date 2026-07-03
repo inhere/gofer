@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"time"
 
 	"github.com/gookit/rux/v2"
 )
@@ -15,6 +16,8 @@ type statsResp struct {
 	EscalationsPending int            `json:"escalations_pending"`
 	Projects           int            `json:"projects"`
 	ServerTime         int64          `json:"server_time"`
+	Version            string         `json:"version,omitempty"`
+	UptimeSec          int64          `json:"uptime_sec"`
 }
 
 type statsJobs struct {
@@ -97,7 +100,20 @@ func (s *Server) handleStats(c *rux.Context) {
 		EscalationsPending: escalationsPending,
 		Projects:           len(s.projects.List()),
 		ServerTime:         nowMillis(),
+		Version:            s.build.DisplayVersion(),
+		UptimeSec:          s.uptimeSec(),
 	})
+}
+
+func (s *Server) uptimeSec() int64 {
+	if s.startedAt.IsZero() {
+		return 0
+	}
+	sec := time.UnixMilli(nowMillis()).Sub(s.startedAt).Seconds()
+	if sec < 0 {
+		return 0
+	}
+	return int64(sec)
 }
 
 func (s *Server) statsDrivers() (statsDrivers, error) {

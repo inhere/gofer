@@ -4,6 +4,7 @@ import (
 	"os"
 
 	"github.com/gookit/goutil/x/ccolor"
+	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/commands"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/logx"
@@ -29,6 +30,10 @@ func main() {
 	// connect-lifecycle events surface. Level via GOFER_LOG_LEVEL (default info).
 	logx.Setup()
 
-	app := commands.NewApp(Version)
+	app := commands.NewAppWithBuildInfo(buildinfo.Info{
+		Version:   Version,
+		GitCommit: GitCommit,
+		BuildDate: BuildDate,
+	})
 	os.Exit(app.Run(os.Args[1:]))
 }

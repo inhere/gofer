@@ -94,6 +94,8 @@ export interface Stats {
   escalations_pending: number
   projects: number
   server_time: number
+  version?: string
+  uptime_sec?: number
 }
 
 export interface ProjectsResp {

@@ -3,7 +3,9 @@ package httpapi
 import (
 	"net/http"
 	"testing"
+	"time"
 
+	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/presence"
@@ -16,6 +18,8 @@ func TestStatsEndpointAggregatesJobsAndSchedules(t *testing.T) {
 	defer func() { nowMillis = orig }()
 
 	s := newTestServer(t, testToken, false)
+	s.SetBuildInfo(buildinfo.Info{Version: "v1.29", GitCommit: "abc123456789"})
+	s.startedAt = time.UnixMilli(now - 125_000)
 	meta := s.jobs.Meta()
 	for _, rec := range []jobstore.JobRecord{
 		statsJobRecord("job-1", job.StatusDone, 100),
@@ -70,6 +74,12 @@ func TestStatsEndpointAggregatesJobsAndSchedules(t *testing.T) {
 	}
 	if body.ServerTime != now {
 		t.Fatalf("server_time=%d, want %d", body.ServerTime, now)
+	}
+	if body.Version != "v1.29 (abc1234)" {
+		t.Fatalf("version=%q, want v1.29 (abc1234)", body.Version)
+	}
+	if body.UptimeSec != 125 {
+		t.Fatalf("uptime_sec=%d, want 125", body.UptimeSec)
 	}
 }
 

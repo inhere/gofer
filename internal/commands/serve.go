@@ -4,6 +4,7 @@ import (
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/goutil/errorx"
 
+	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/serve"
@@ -26,7 +27,11 @@ func serveLogFile() string { return config.RuntimeFilePath("run", "serve.log") }
 
 // NewServeCmd builds the `serve` command: load config, wire the job service and
 // the httpapi server, then start the HTTP control plane (plan §9-P5).
-func NewServeCmd() *gcli.Command {
+func NewServeCmd(infos ...buildinfo.Info) *gcli.Command {
+	var info buildinfo.Info
+	if len(infos) > 0 {
+		info = infos[0]
+	}
 	return &gcli.Command{
 		Name:    "serve",
 		Desc:    "Start the gofer HTTP server",
@@ -40,7 +45,9 @@ func NewServeCmd() *gcli.Command {
 			c.BoolOpt(&serveOpts.daemon, "daemon", "d", false, "run in background (detached); logs to <config-dir>/run/serve.log")
 		},
 		Subs: []*gcli.Command{NewServeStopCmd()},
-		Func: runServe,
+		Func: func(c *gcli.Command, args []string) error {
+			return runServe(c, args, info)
+		},
 	}
 }
 
@@ -63,7 +70,7 @@ func runServeStop(c *gcli.Command, _ []string) error {
 // owns the process orchestration (BP2: config-path print, overlay merge, Core
 // assembly, sweeper/probe/reload loops, httpapi). The command layer keeps only
 // flag binding + config loading + the thin call.
-func runServe(c *gcli.Command, _ []string) error {
+func runServe(c *gcli.Command, _ []string, info buildinfo.Info) error {
 	// -d/--daemon: the parent re-execs itself detached, prints the child pid and
 	// returns; the detached child re-enters runServe with daemon.Daemonized()==true
 	// and runs the real server below (c44). A second start is refused when a live
@@ -94,5 +101,6 @@ func runServe(c *gcli.Command, _ []string) error {
 		NoWeb:         serveOpts.noWeb,
 		CfgPath:       cfgPath,
 		ReloadPath:    config.InputCfgFile,
+		Build:         info,
 	})
 }

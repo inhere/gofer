@@ -7,14 +7,14 @@
 
 | 批 | issue | 标题 | 状态 |
 |---|---|---|---|
-| P1 | kuwd.1 | 状态分布卡片文字截断修复 | ⏳ 派单中(job 20260703-143156-12c97472) |
-| P1 | kuwd.2 | Job board 仅 Title 内容区可点击 | ⏳ 同上 |
-| P1 | kuwd.3 | Job detail 命令区限高+滚动 | ⏳ 同上 |
-| P1 | kuwd.4 | 命令区 Markdown 查看按钮 | ⏳ 同上 |
-| P2 | kuwd.5 | Home server version+uptime | ⬜ 待做 |
-| P2 | kuwd.6 | 查看 diff 中文乱码修复 | ⬜ 待做 |
-| P2 | kuwd.7 | 终端输出分页(最后200L+加载更多)+stdout Markdown | ⬜ 待做 |
-| P2 | kuwd.8 | codex session_id 捕获修复(补扫 stderr) | ⬜ 待做(根因已确认) |
+| P1 | kuwd.1 | 状态分布卡片文字截断修复 | ✅ 代码完成 fbb8d82(待LIVE眼检) |
+| P1 | kuwd.2 | Job board 仅 Title 内容区可点击 | ✅ 代码完成 fbb8d82(待LIVE眼检) |
+| P1 | kuwd.3 | Job detail 命令区限高+滚动 | ✅ 代码完成 fbb8d82(待LIVE眼检) |
+| P1 | kuwd.4 | 命令区 Markdown 查看按钮 | ✅ 代码完成 fbb8d82(待LIVE眼检) |
+| P2a | kuwd.5 | Home server version+uptime | ✅ 代码完成(待LIVE眼检) |
+| P2a | kuwd.6 | 查看 diff 中文乱码修复 | ✅ 代码完成(待LIVE眼检) |
+| P2b | kuwd.7 | 终端输出分页(最后200L+加载更多)+stdout Markdown | ⏳ 准备派单 |
+| P2a | kuwd.8 | codex session_id 捕获修复(补扫 stderr) | ✅ 代码完成 |
 | P3 | kuwd.9 | Schedules 一次性/延迟任务 | ⬜ design 就绪 |
 | P3 | kuwd.10 | Secret env 声明式 env_files | ⬜ design 就绪 |
 | P3 | kuwd.11 | Workflow 创建 yaml 编辑器页面 | ⬜ design 就绪 |
