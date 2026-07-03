@@ -264,7 +264,10 @@ func (s *Server) buildRouter() *rux.Router {
 	r.Group("/v1", func() {
 		r.GET("/config", s.handleGetConfig)
 		r.GET("/projects", s.handleListProjects)
+		r.POST("/projects", s.handleCreateProject)
 		r.GET("/projects/{key}", s.handleGetProject)
+		r.PUT("/projects/{key}", s.handleUpdateProject)
+		r.DELETE("/projects/{key}", s.handleDeleteProject)
 
 		// Web 控制台 v2 只读层(design §7): 项目 git 状态(E20) / 子 git 发现(E32) /
 		// 白名单关键文件读取(E32)。全只读、参数固定、SafeJoin+白名单+大小/二进制限制。
