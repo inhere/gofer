@@ -1,6 +1,6 @@
 <script setup lang="ts">
-// Job 详情：getJob 填头部 + SSE 单一来源（历史回放 + 实时跟随 + 终态 end）。
-//  - 日志只走 streamJob（不传 from 获得回放+跟随）；from 仅用于断线重连（已收 stdout 字节数）。
+// Job 详情：getJob 填头部；非终态走 SSE 回放+跟随，终态日志走 HTTP 按行分页。
+//  - SSE from 仅用于断线重连（已收 stdout 字节数）。
 //  - status 事件回填头部/徽标/耗时；end/终态停 live；running 显示 cancel。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { marked } from 'marked'
@@ -16,6 +16,7 @@ import {
   downloadArtifact,
   fetchArtifactBlob,
   fetchDiffText,
+  fetchJobLog,
   getInteractions,
   getJob,
   listArtifacts,
@@ -32,6 +33,7 @@ import type {
   Job,
   JobEvent,
   JobStatus,
+  LogStream,
   SSEEvent,
   SSEInteractionData,
   SSEJobEventData,
@@ -47,6 +49,18 @@ const stderr = ref('')
 const headError = ref('')
 const streamError = ref('')
 const cancelling = ref(false)
+const LOG_PAGE_SIZE = 200
+
+interface LogPageState {
+  offset: number
+  total: number
+  loading: boolean
+}
+
+const logPages = ref<Record<LogStream, LogPageState>>({
+  stdout: { offset: 0, total: 0, loading: false },
+  stderr: { offset: 0, total: 0, loading: false },
+})
 
 // 运行中交互：按 id upsert（SSE interaction 事件 + answer 返回回填）
 const interactions = ref<Map<string, Interaction>>(new Map())
@@ -237,6 +251,8 @@ const live = computed(() => status.value === 'running')
 const showCancel = computed(() => status.value === 'running' && !cancelling.value)
 // 头部 exit_code 仅在终态展示（运行中无意义）
 const isTerminalView = computed(() => isTerminal(job.value?.status))
+const stdoutCanLoadEarlier = computed(() => canLoadEarlier('stdout'))
+const stderrCanLoadEarlier = computed(() => canLoadEarlier('stderr'))
 
 // 实时秒级时钟（驱动 running 耗时刷新）
 const nowSec = ref(Math.floor(Date.now() / 1000))
@@ -363,6 +379,66 @@ function manualReconnect(): void {
   void startStream(stdoutBytes)
 }
 
+function logTextRef(stream: LogStream) {
+  return stream === 'stdout' ? stdout : stderr
+}
+
+function canLoadEarlier(stream: LogStream): boolean {
+  if (!isTerminalView.value) {
+    return false
+  }
+  const page = logPages.value[stream]
+  return page.offset + LOG_PAGE_SIZE < page.total
+}
+
+async function loadTerminalLog(
+  stream: LogStream,
+  mode: 'initial' | 'earlier' | 'all',
+): Promise<void> {
+  const page = logPages.value[stream]
+  if (page.loading) {
+    return
+  }
+  page.loading = true
+  streamError.value = ''
+  try {
+    const nextOffset = mode === 'earlier' ? page.offset + LOG_PAGE_SIZE : 0
+    const resp = await fetchJobLog(props.id, stream, {
+      lines: LOG_PAGE_SIZE,
+      offset: nextOffset,
+      full: mode === 'all',
+    })
+    const target = logTextRef(stream)
+    if (mode === 'earlier') {
+      target.value = resp.text + target.value
+      page.offset = resp.offset
+    } else {
+      target.value = resp.text
+      page.offset = mode === 'all' ? resp.total : resp.offset
+    }
+    page.total = resp.total
+  } catch (e) {
+    streamError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    page.loading = false
+  }
+}
+
+async function loadTerminalLogs(): Promise<void> {
+  await Promise.all([
+    loadTerminalLog('stdout', 'initial'),
+    loadTerminalLog('stderr', 'initial'),
+  ])
+}
+
+function onLoadEarlier(stream: LogStream): void {
+  void loadTerminalLog(stream, 'earlier')
+}
+
+function onLoadAll(stream: LogStream): void {
+  void loadTerminalLog(stream, 'all')
+}
+
 async function doCancel(): Promise<void> {
   cancelling.value = true
   try {
@@ -395,8 +471,13 @@ onMounted(async () => {
   void loadTimeline()
   // webhook 投递状态（E14）：拉一次只读快照（无通知配置时为空，整节不展示）。
   void loadDeliveries()
-  // 日志单一来源：不传 from，获得「历史回放 + 实时跟随 + 终态 end」
-  void startStream()
+  if (isTerminal(job.value?.status)) {
+    // 终态 job 不再走 SSE 全量回放：按行分页加载，避免 2MiB 前端窗口丢历史。
+    void loadTerminalLogs()
+  } else {
+    // 非终态保持原 SSE 路径：历史回放 + 实时跟随 + 断线 from 重连。
+    void startStream()
+  }
 })
 
 onUnmounted(() => {
@@ -948,7 +1029,20 @@ async function copyCommand(): Promise<void> {
       </div>
     </section>
 
-    <LogTape :stdout="stdout" :stderr="stderr" :live="live" />
+    <LogTape
+      :stdout="stdout"
+      :stderr="stderr"
+      :live="live"
+      :mode="isTerminalView ? 'paged' : 'live'"
+      :stdout-total="logPages.stdout.total"
+      :stderr-total="logPages.stderr.total"
+      :stdout-can-load-earlier="stdoutCanLoadEarlier"
+      :stderr-can-load-earlier="stderrCanLoadEarlier"
+      :stdout-loading="logPages.stdout.loading"
+      :stderr-loading="logPages.stderr.loading"
+      @load-earlier="onLoadEarlier"
+      @load-all="onLoadAll"
+    />
 
     <!-- 产物预览弹层（E19a）：点击产物「预览」打开；md/图/json/文本经 FilePreview
          渲染（md 走 marked + DOMPurify sanitize）。点遮罩或「关闭」收起。 -->

@@ -69,6 +69,81 @@ func TestReadLogTailMissingFile(t *testing.T) {
 	}
 }
 
+func TestReadLogLinesWindowsFromTail(t *testing.T) {
+	fs := NewFileStore(t.TempDir())
+	if err := fs.Ensure("j"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(fs.Dir("j"), StdoutFile), []byte("l1\nl2\nl3\nl4\nl5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	data, total, err := fs.ReadLogLines("j", StreamStdout, 2, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 5 || string(data) != "l4\nl5\n" {
+		t.Fatalf("tail window got total=%d data=%q", total, data)
+	}
+
+	data, total, err = fs.ReadLogLines("j", StreamStdout, 2, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 5 || string(data) != "l2\nl3\n" {
+		t.Fatalf("offset window got total=%d data=%q", total, data)
+	}
+
+	data, total, err = fs.ReadLogLines("j", StreamStdout, 2, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 5 || len(data) != 0 {
+		t.Fatalf("past-start window got total=%d data=%q", total, data)
+	}
+}
+
+func TestReadLogLinesFullAndNoTrailingNewline(t *testing.T) {
+	fs := NewFileStore(t.TempDir())
+	if err := fs.Ensure("j"); err != nil {
+		t.Fatal(err)
+	}
+	content := "l1\nl2\nl3"
+	if err := os.WriteFile(filepath.Join(fs.Dir("j"), StderrFile), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	data, total, err := fs.ReadLogLines("j", StreamStderr, 0, 200)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 3 || string(data) != content {
+		t.Fatalf("full read got total=%d data=%q", total, data)
+	}
+
+	data, total, err = fs.ReadLogLines("j", StreamStderr, 2, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if total != 3 || string(data) != "l2\nl3" {
+		t.Fatalf("tail without trailing newline got total=%d data=%q", total, data)
+	}
+}
+
+func TestReadLogLinesMissingFile(t *testing.T) {
+	fs := NewFileStore(t.TempDir())
+	if err := fs.Ensure("j"); err != nil {
+		t.Fatal(err)
+	}
+	data, total, err := fs.ReadLogLines("j", StreamStdout, 200, 0)
+	if err != nil {
+		t.Fatalf("expected no error for missing log, got %v", err)
+	}
+	if total != 0 || len(data) != 0 {
+		t.Fatalf("expected empty missing log, got total=%d data=%q", total, data)
+	}
+}
+
 func TestLogFileNameRejectsUnknownStream(t *testing.T) {
 	if _, err := logFileName(Stream("bogus")); err == nil {
 		t.Fatalf("expected error for unknown stream")

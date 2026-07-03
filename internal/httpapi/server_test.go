@@ -6,7 +6,9 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -19,6 +21,7 @@ import (
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
+	"github.com/inhere/gofer/internal/store"
 )
 
 const testToken = "dev-token"
@@ -286,7 +289,7 @@ func TestLogTailLimited(t *testing.T) {
 		t.Fatalf("job status=%s, want done (err=%s)", final.Status, final.Error)
 	}
 
-	logResp := do(t, s, http.MethodGet, "/v1/jobs/"+created.ID+"/logs/stdout", testToken, nil)
+	logResp := do(t, s, http.MethodGet, "/v1/jobs/"+created.ID+"/logs/stdout?bytes=262144", testToken, nil)
 	out, _ := io.ReadAll(logResp.Body)
 	logResp.Body.Close()
 	if len(out) > maxLogTailBytes {
@@ -295,6 +298,107 @@ func TestLogTailLimited(t *testing.T) {
 	if len(out) != maxLogTailBytes {
 		t.Fatalf("expected exactly %d bytes (input was larger), got %d", maxLogTailBytes, len(out))
 	}
+}
+
+func TestLogLinesDefaultAndOffsetHeaders(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	created := createDoneExecJob(t, s)
+	writeStdoutLog(t, created.ResultDir, numberedLines(205))
+
+	logResp := do(t, s, http.MethodGet, "/v1/jobs/"+created.ID+"/logs/stdout", testToken, nil)
+	body, _ := io.ReadAll(logResp.Body)
+	logResp.Body.Close()
+	if got, want := logResp.Header.Get("X-Log-Total-Lines"), "205"; got != want {
+		t.Fatalf("X-Log-Total-Lines=%q want %q", got, want)
+	}
+	if got, want := logResp.Header.Get("X-Log-Offset"), "0"; got != want {
+		t.Fatalf("X-Log-Offset=%q want %q", got, want)
+	}
+	if got, want := logResp.Header.Get("X-Log-Lines"), "200"; got != want {
+		t.Fatalf("X-Log-Lines=%q want %q", got, want)
+	}
+	if got, want := string(body), numberedRange(6, 205); got != want {
+		t.Fatalf("default lines mismatch:\ngot  %q\nwant %q", got[:24], want[:24])
+	}
+
+	logResp = do(t, s, http.MethodGet, "/v1/jobs/"+created.ID+"/logs/stdout?lines=3&offset=2", testToken, nil)
+	body, _ = io.ReadAll(logResp.Body)
+	logResp.Body.Close()
+	if got, want := logResp.Header.Get("X-Log-Lines"), "3"; got != want {
+		t.Fatalf("offset X-Log-Lines=%q want %q", got, want)
+	}
+	if got, want := string(body), numberedRange(201, 203); got != want {
+		t.Fatalf("offset body=%q want %q", got, want)
+	}
+}
+
+func TestLogLinesFullAndBytesCompatibility(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	created := createDoneExecJob(t, s)
+	writeStdoutLog(t, created.ResultDir, "a\nb\nc\n")
+
+	logResp := do(t, s, http.MethodGet, "/v1/jobs/"+created.ID+"/logs/stdout?full=1&offset=99", testToken, nil)
+	body, _ := io.ReadAll(logResp.Body)
+	logResp.Body.Close()
+	if got, want := logResp.Header.Get("X-Log-Total-Lines"), "3"; got != want {
+		t.Fatalf("full X-Log-Total-Lines=%q want %q", got, want)
+	}
+	if got, want := logResp.Header.Get("X-Log-Offset"), "0"; got != want {
+		t.Fatalf("full X-Log-Offset=%q want %q", got, want)
+	}
+	if string(body) != "a\nb\nc\n" {
+		t.Fatalf("full body=%q", body)
+	}
+
+	writeStdoutLog(t, created.ResultDir, "abcdef")
+	logResp = do(t, s, http.MethodGet, "/v1/jobs/"+created.ID+"/logs/stdout?bytes=3", testToken, nil)
+	body, _ = io.ReadAll(logResp.Body)
+	logResp.Body.Close()
+	if string(body) != "def" {
+		t.Fatalf("bytes body=%q want %q", body, "def")
+	}
+	if got := logResp.Header.Get("X-Log-Total-Lines"); got != "" {
+		t.Fatalf("bytes compatibility path should not set line headers, got %q", got)
+	}
+}
+
+func createDoneExecJob(t *testing.T, s *Server) job.JobResult {
+	t.Helper()
+	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("create status=%d, want 200", resp.StatusCode)
+	}
+	var created job.JobResult
+	decode(t, resp, &created)
+	final := waitDone(t, s, created.ID)
+	if final.Status != job.StatusDone {
+		t.Fatalf("job status=%s, want done (err=%s)", final.Status, final.Error)
+	}
+	return final
+}
+
+func writeStdoutLog(t *testing.T, resultDir string, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(resultDir, store.StdoutFile), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func numberedLines(n int) string {
+	return numberedRange(1, n)
+}
+
+func numberedRange(first, last int) string {
+	var b strings.Builder
+	for i := first; i <= last; i++ {
+		b.WriteString("line ")
+		b.WriteString(strconv.Itoa(i))
+		b.WriteByte('\n')
+	}
+	return b.String()
 }
 
 func TestCancelCompletedJobStable(t *testing.T) {

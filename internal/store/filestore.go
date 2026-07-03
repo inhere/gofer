@@ -159,6 +159,79 @@ func (s *FileStore) ReadLogTail(jobID string, stream Stream, maxBytes int64) ([]
 	return io.ReadAll(f)
 }
 
+// ReadLogLines returns a line window counted from the end of the stream's log
+// file. offset skips that many logical lines from the tail, then lines chooses
+// how many earlier lines to return. When lines <= 0 the whole file is returned.
+// A missing log file yields an empty result and totalLines=0.
+func (s *FileStore) ReadLogLines(jobID string, stream Stream, lines, offset int) ([]byte, int, error) {
+	name, err := logFileName(stream)
+	if err != nil {
+		return nil, 0, err
+	}
+	path := filepath.Join(s.Dir(jobID), name)
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []byte{}, 0, nil
+		}
+		return nil, 0, err
+	}
+
+	totalLines := countLogicalLines(data)
+	if totalLines == 0 || lines <= 0 {
+		return data, totalLines, nil
+	}
+	if offset < 0 {
+		offset = 0
+	}
+	endLine := totalLines - offset
+	if endLine <= 0 {
+		return []byte{}, totalLines, nil
+	}
+	startLine := endLine - lines
+	if startLine < 0 {
+		startLine = 0
+	}
+
+	starts := lineStartOffsets(data, totalLines)
+	startByte := starts[startLine]
+	endByte := len(data)
+	if endLine < totalLines {
+		endByte = starts[endLine]
+	}
+	return data[startByte:endByte], totalLines, nil
+}
+
+func countLogicalLines(data []byte) int {
+	if len(data) == 0 {
+		return 0
+	}
+	n := 0
+	for _, b := range data {
+		if b == '\n' {
+			n++
+		}
+	}
+	if data[len(data)-1] != '\n' {
+		n++
+	}
+	return n
+}
+
+func lineStartOffsets(data []byte, totalLines int) []int {
+	starts := make([]int, 0, totalLines)
+	if totalLines == 0 {
+		return starts
+	}
+	starts = append(starts, 0)
+	for i, b := range data {
+		if b == '\n' && i+1 < len(data) {
+			starts = append(starts, i+1)
+		}
+	}
+	return starts
+}
+
 // logFileName maps a stream to its on-disk file name.
 func logFileName(stream Stream) (string, error) {
 	switch stream {
