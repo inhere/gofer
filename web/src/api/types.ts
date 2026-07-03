@@ -663,6 +663,37 @@ export interface WorkflowsResp {
   workflows: Workflow[]
 }
 
+export interface WorkflowRetryPolicy {
+  max_attempts: number
+  backoff_sec?: number[]
+  on_exit_codes?: number[]
+}
+
+// POST /v1/workflows body. 字段名严格对齐 internal/job/workflow/types.go
+// Spec / StepSpec 的 json tag；CLI-only file 字段是 json:"-"，Web 不发送。
+export interface WorkflowSpec {
+  title?: string
+  steps: WorkflowStepSpec[]
+}
+
+export interface WorkflowStepSpec {
+  name?: string
+  project_key: string
+  agent: string
+  runner: string
+  prompt?: string
+  cmd?: string[]
+  cwd?: string
+  timeout_sec?: number
+  tags?: string[]
+  on_failure?: 'fail' | 'continue' | 'retry' | string
+  retry?: WorkflowRetryPolicy
+  fan_out?: number
+  join?: 'all' | 'any' | 'quorum' | string
+  type?: 'job' | 'workflow' | string
+  sub_workflow?: WorkflowSpec
+}
+
 // SSE 事件（解析后）
 // log-rotated：后端日志文件发生轮转（offset 重置），前端需清空该 stream 已缓冲文本后续读。
 export type SSEEventType =

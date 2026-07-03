@@ -102,6 +102,9 @@ onUnmounted(() => {
     <div class="board-head">
       <h1 class="title mono">WORKFLOWS</h1>
       <div class="controls mono">
+        <RouterLink to="/workflows/new" class="create-link">
+          创建 workflow
+        </RouterLink>
         <label class="filter">
           <span class="filter-label">status</span>
           <select v-model="statusFilter" class="filter-select mono">
@@ -143,7 +146,8 @@ onUnmounted(() => {
       </div>
 
       <div v-if="workflows.length === 0 && !error" class="empty mono">
-        暂无 workflow
+        <p>暂无 workflow</p>
+        <RouterLink to="/workflows/new" class="empty-link">创建 workflow</RouterLink>
       </div>
     </div>
   </div>
@@ -171,6 +175,19 @@ onUnmounted(() => {
   align-items: center;
   gap: 14px;
   font-size: 12px;
+}
+.create-link {
+  background: var(--phosphor);
+  color: var(--ink);
+  border: 1px solid var(--phosphor);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.create-link:hover {
+  text-decoration: none;
+  opacity: 0.9;
 }
 .filter {
   display: inline-flex;
@@ -284,5 +301,33 @@ onUnmounted(() => {
   text-align: center;
   color: var(--queue);
   font-size: 13px;
+}
+.empty p {
+  margin: 0 0 10px;
+}
+.empty-link {
+  display: inline-block;
+  background: var(--phosphor);
+  color: var(--ink);
+  border: 1px solid var(--phosphor);
+  border-radius: var(--radius);
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.empty-link:hover {
+  text-decoration: none;
+  opacity: 0.9;
+}
+
+@media (max-width: 640px) {
+  .board-head {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 10px;
+  }
+  .controls {
+    flex-wrap: wrap;
+  }
 }
 </style>

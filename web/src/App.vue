@@ -201,6 +201,9 @@ function isDriverOnline(a: Presence): boolean {
         <RouterLink to="/schedules/new" class="new-job" active-class="new-job--active">
           + 新建 cron
         </RouterLink>
+        <RouterLink to="/workflows/new" class="new-job" active-class="new-job--active">
+          + 新建 workflow
+        </RouterLink>
         <EscalationBell />
         <span class="conn" :class="connected ? 'conn--on' : 'conn--off'">
           <span class="conn-dot"></span>
