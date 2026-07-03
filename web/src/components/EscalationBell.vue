@@ -219,6 +219,7 @@ onUnmounted(() => {
         v-if="badgeCount > 0"
         class="badge"
         :class="{ 'badge--hot': needsHumanCount > 0 }"
+        :title="`待应答交互 ${badgeCount}，其中 ${needsHumanCount} 需人工介入`"
       >
         {{ badgeCount }}
       </span>
@@ -227,8 +228,8 @@ onUnmounted(() => {
     <div v-if="open" class="bell-scrim" aria-hidden="true" @click="close"></div>
     <div v-if="open" class="dropdown" role="menu">
       <div class="dh mono">
-        <span>ESCALATIONS · pending {{ badgeCount }}</span>
-        <span>{{ needsHumanCount }} needs_human</span>
+        <span>待应答 {{ badgeCount }}</span>
+        <span>{{ needsHumanCount }} 需人工介入</span>
       </div>
 
       <div
