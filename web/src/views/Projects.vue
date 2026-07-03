@@ -1,17 +1,29 @@
 <script setup lang="ts">
-// Projects：左列项目 keys（listProjects），选中拉详情（getProject），右列展示配置（只读，无 validate）。
+// Projects：左列项目 keys（listProjects），选中拉详情（getProject），右列展示配置与项目写层。
 // P3 增强（E20/E32）：右列再加 git 状态卡 + 子仓库列表 + 关键文件查看（FilePreview）。
 // 刷新策略（D7）：进入项目详情时取 git/repos，git 卡提供手动刷新按钮，不轮询。
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
+  ApiError,
+  createProject,
+  deleteProject,
+  getConfig,
   getProject,
   getProjectFile,
   getProjectGit,
   listProjects,
   listRepos,
+  updateProject,
 } from '../api/client'
-import type { GitStatus, ProjectDetail, RepoInfo } from '../api/types'
+import type {
+  ConfigView,
+  GitStatus,
+  ProjectDetail,
+  ProjectWriteReq,
+  ProjectWriteResp,
+  RepoInfo,
+} from '../api/types'
 import FilePreview from '../components/FilePreview.vue'
 
 const router = useRouter()
@@ -23,6 +35,45 @@ const loadingList = ref(false)
 const loadingDetail = ref(false)
 const listError = ref('')
 const detailError = ref('')
+const config = ref<ConfigView | null>(null)
+const configError = ref('')
+const saving = ref(false)
+const deleting = ref(false)
+const formError = ref('')
+const notice = ref('')
+const warnings = ref<string[]>([])
+const mode = ref<'none' | 'create' | 'edit'>('none')
+
+interface ProjectForm {
+  key: string
+  host_path: string
+  container_path: string
+  default_agent: string
+  allowed_agents: string[]
+  allowed_runners: string[]
+  allow_exec: boolean
+  max_concurrent_jobs: string
+}
+
+const form = reactive<ProjectForm>({
+  key: '',
+  host_path: '',
+  container_path: '',
+  default_agent: '',
+  allowed_agents: [],
+  allowed_runners: [],
+  allow_exec: false,
+  max_concurrent_jobs: '',
+})
+
+const agents = computed(() => config.value?.agents ?? [])
+const runners = computed(() => config.value?.runners ?? [])
+const runnerOptions = computed(() => [
+  'local',
+  ...runners.value.map((r) => r.key).filter((key) => key !== 'local'),
+])
+const isEditing = computed(() => mode.value === 'edit')
+const canSubmit = computed(() => !saving.value && form.key.trim() !== '' && form.host_path.trim() !== '')
 
 // git 状态卡（E20）
 const gitStatus = ref<GitStatus | null>(null)
@@ -51,14 +102,22 @@ const fileTruncated = ref(false)
 const fileLoading = ref(false)
 const fileErr = ref('')
 
-async function loadList() {
+async function loadList(preferredKey = '', keepMessages = false) {
   loadingList.value = true
   listError.value = ''
   try {
     const resp = await listProjects()
     keys.value = resp.projects ?? []
-    if (keys.value.length > 0) {
-      await selectKey(keys.value[0])
+    const nextKey =
+      preferredKey && keys.value.includes(preferredKey)
+        ? preferredKey
+        : keys.value[0] ?? ''
+    if (nextKey) {
+      await selectKey(nextKey, keepMessages)
+    } else {
+      selected.value = ''
+      detail.value = null
+      resetForm()
     }
   } catch (e) {
     listError.value = e instanceof Error ? e.message : String(e)
@@ -67,15 +126,31 @@ async function loadList() {
   }
 }
 
-async function selectKey(key: string) {
+async function loadConfigOptions() {
+  configError.value = ''
+  try {
+    config.value = await getConfig()
+  } catch (e) {
+    configError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+async function selectKey(key: string, keepMessages = false) {
   selected.value = key
   detail.value = null
   detailError.value = ''
   loadingDetail.value = true
+  mode.value = 'edit'
+  if (!keepMessages) {
+    formError.value = ''
+    notice.value = ''
+    warnings.value = []
+  }
   // 切项目：重置 git/repos/关键文件预览状态。
   resetFile()
   try {
     detail.value = await getProject(key)
+    fillForm(detail.value)
   } catch (e) {
     detailError.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -84,6 +159,167 @@ async function selectKey(key: string) {
   // 详情拉到后并行取 git + repos（失败各自降级，不影响配置展示）。
   void loadGit(key)
   void loadRepos(key)
+}
+
+function startCreate(): void {
+  selected.value = ''
+  detail.value = null
+  detailError.value = ''
+  mode.value = 'create'
+  formError.value = ''
+  notice.value = ''
+  warnings.value = []
+  gitStatus.value = null
+  repos.value = []
+  resetFile()
+  Object.assign(form, {
+    key: '',
+    host_path: '',
+    container_path: '',
+    default_agent: agents.value[0]?.key ?? '',
+    allowed_agents: [],
+    allowed_runners: ['local'],
+    allow_exec: false,
+    max_concurrent_jobs: '',
+  })
+}
+
+function fillForm(p: ProjectDetail): void {
+  Object.assign(form, {
+    key: p.key,
+    host_path: p.host_path,
+    container_path: p.container_path ?? '',
+    default_agent: p.default_agent ?? '',
+    allowed_agents: [...(p.allowed_agents ?? [])],
+    allowed_runners: [...(p.allowed_runners ?? [])],
+    allow_exec: p.allow_exec,
+    max_concurrent_jobs: p.max_concurrent_jobs != null ? String(p.max_concurrent_jobs) : '',
+  })
+}
+
+function resetForm(): void {
+  mode.value = 'none'
+  Object.assign(form, {
+    key: '',
+    host_path: '',
+    container_path: '',
+    default_agent: '',
+    allowed_agents: [],
+    allowed_runners: [],
+    allow_exec: false,
+    max_concurrent_jobs: '',
+  })
+}
+
+function toggleAgent(key: string): void {
+  form.allowed_agents = toggleValue(form.allowed_agents, key)
+  if (form.default_agent && form.allowed_agents.length > 0 && !form.allowed_agents.includes(form.default_agent)) {
+    form.default_agent = ''
+  }
+}
+
+function toggleRunner(key: string): void {
+  form.allowed_runners = toggleValue(form.allowed_runners, key)
+}
+
+function toggleValue(list: string[], value: string): string[] {
+  return list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
+}
+
+function buildReq(): ProjectWriteReq {
+  const req: ProjectWriteReq = {
+    key: form.key.trim(),
+    host_path: form.host_path.trim(),
+    allow_exec: form.allow_exec,
+  }
+  const containerPath = form.container_path.trim()
+  if (containerPath) {
+    req.container_path = containerPath
+  }
+  if (form.default_agent) {
+    req.default_agent = form.default_agent
+  }
+  if (form.allowed_agents.length > 0) {
+    req.allowed_agents = [...form.allowed_agents]
+  }
+  if (form.allowed_runners.length > 0) {
+    req.allowed_runners = [...form.allowed_runners]
+  }
+  const max = Number.parseInt(form.max_concurrent_jobs, 10)
+  if (Number.isFinite(max) && max > 0) {
+    req.max_concurrent_jobs = max
+  }
+  return req
+}
+
+async function saveProject(): Promise<void> {
+  formError.value = ''
+  notice.value = ''
+  warnings.value = []
+  if (!canSubmit.value) {
+    formError.value = '请填写 key 与 host_path'
+    return
+  }
+  saving.value = true
+  try {
+    const req = buildReq()
+    const resp =
+      mode.value === 'create'
+        ? await createProject(req)
+        : await updateProject(selected.value, req)
+    await applyWriteSuccess(resp, mode.value === 'create' ? '项目已创建' : '项目已保存')
+  } catch (e) {
+    formError.value = classifyWriteError(e)
+  } finally {
+    saving.value = false
+  }
+}
+
+async function removeProject(): Promise<void> {
+  if (!selected.value || !window.confirm(`确认删除项目 ${selected.value}？`)) {
+    return
+  }
+  formError.value = ''
+  notice.value = ''
+  warnings.value = []
+  deleting.value = true
+  try {
+    await deleteProject(selected.value)
+    notice.value = '项目已删除'
+    resetForm()
+    await loadList('', true)
+  } catch (e) {
+    formError.value = classifyWriteError(e)
+  } finally {
+    deleting.value = false
+  }
+}
+
+async function applyWriteSuccess(resp: ProjectWriteResp, message: string): Promise<void> {
+  notice.value = message
+  warnings.value = resp.warnings ?? []
+  selected.value = resp.key
+  mode.value = 'edit'
+  fillForm(resp)
+  await loadList(resp.key, true)
+}
+
+function classifyWriteError(e: unknown): string {
+  if (e instanceof ApiError) {
+    if (e.status === 403) {
+      return '无 can_admin 权限，当前 caller 不允许编辑配置。'
+    }
+    if (e.status === 409) {
+      return '项目已存在，请换一个 key 或选择现有项目编辑。'
+    }
+    if (e.status === 400) {
+      return `项目配置校验失败：${e.detail || e.message}`
+    }
+    if (e.status === 404) {
+      return `项目不存在：${e.detail || e.message}`
+    }
+  }
+  return e instanceof Error ? e.message : String(e)
 }
 
 async function loadGit(key: string) {
@@ -181,13 +417,18 @@ function viewOnBoard(key: string) {
 
 onMounted(() => {
   void loadList()
+  void loadConfigOptions()
 })
 </script>
 
 <template>
   <div class="projects">
-    <h1 class="title mono">PROJECTS</h1>
+    <div class="head">
+      <h1 class="title mono">PROJECTS</h1>
+      <button class="submit submit--small" type="button" @click="startCreate">新增项目</button>
+    </div>
     <p v-if="listError" class="error mono">{{ listError }}</p>
+    <p v-if="configError" class="error mono">{{ configError }}</p>
 
     <div class="layout">
       <!-- 列表 -->
@@ -213,9 +454,9 @@ onMounted(() => {
       <section class="detail" aria-label="项目详情">
         <p v-if="detailError" class="error mono">{{ detailError }}</p>
         <p v-else-if="loadingDetail" class="placeholder mono">加载中…</p>
-        <p v-else-if="!detail" class="placeholder mono">选择左侧项目查看配置</p>
+        <p v-else-if="!detail && mode !== 'create'" class="placeholder mono">选择左侧项目查看配置，或点击新增项目</p>
 
-        <div v-else class="detail-body">
+        <div v-if="detail" class="detail-body">
           <div class="detail-head">
             <span class="detail-key mono">{{ detail.key }}</span>
             <button class="board-link mono" type="button" @click="viewOnBoard(detail.key)">
@@ -261,7 +502,132 @@ onMounted(() => {
             <dt class="mono">max_concurrent_jobs</dt>
             <dd class="mono">{{ detail.max_concurrent_jobs ?? '—' }}</dd>
           </dl>
+        </div>
 
+        <section v-if="mode !== 'none'" class="block edit-block" aria-label="项目编辑">
+          <div class="block-head">
+            <h2 class="block-title mono">项目编辑</h2>
+          </div>
+
+          <form class="form" @submit.prevent="saveProject">
+            <div class="row">
+              <div class="field">
+                <label class="label mono" for="cfg-key">KEY</label>
+                <input
+                  id="cfg-key"
+                  v-model="form.key"
+                  class="control mono"
+                  :disabled="isEditing"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+              </div>
+              <div class="field">
+                <label class="label mono" for="cfg-default-agent">DEFAULT_AGENT</label>
+                <select id="cfg-default-agent" v-model="form.default_agent" class="control mono">
+                  <option value="">-</option>
+                  <option v-for="a in agents" :key="a.key" :value="a.key">{{ a.key }}</option>
+                </select>
+              </div>
+            </div>
+
+            <div class="field">
+              <label class="label mono" for="cfg-host">HOST_PATH</label>
+              <input
+                id="cfg-host"
+                v-model="form.host_path"
+                class="control mono"
+                autocomplete="off"
+                spellcheck="false"
+              />
+            </div>
+
+            <div class="field">
+              <label class="label mono" for="cfg-container">CONTAINER_PATH</label>
+              <input
+                id="cfg-container"
+                v-model="form.container_path"
+                class="control mono"
+                autocomplete="off"
+                spellcheck="false"
+                placeholder="可选"
+              />
+            </div>
+
+            <div class="row">
+              <fieldset class="pick">
+                <legend class="label mono">ALLOWED_AGENTS</legend>
+                <label v-for="a in agents" :key="a.key" class="check mono">
+                  <input
+                    type="checkbox"
+                    :checked="form.allowed_agents.includes(a.key)"
+                    @change="toggleAgent(a.key)"
+                  />
+                  <span>{{ a.key }}</span>
+                </label>
+                <p v-if="agents.length === 0" class="field-hint mono">无 agent 选项</p>
+              </fieldset>
+
+              <fieldset class="pick">
+                <legend class="label mono">ALLOWED_RUNNERS</legend>
+                <label v-for="r in runnerOptions" :key="r" class="check mono">
+                  <input
+                    type="checkbox"
+                    :checked="form.allowed_runners.includes(r)"
+                    @change="toggleRunner(r)"
+                  />
+                  <span>{{ r }}</span>
+                </label>
+              </fieldset>
+            </div>
+
+            <div class="row">
+              <div class="field field--check">
+                <label class="check mono">
+                  <input v-model="form.allow_exec" type="checkbox" />
+                  <span>allow_exec</span>
+                </label>
+              </div>
+              <div class="field">
+                <label class="label mono" for="cfg-max">MAX_CONCURRENT_JOBS</label>
+                <input
+                  id="cfg-max"
+                  v-model="form.max_concurrent_jobs"
+                  class="control mono"
+                  type="number"
+                  min="1"
+                  placeholder="不限制"
+                />
+              </div>
+            </div>
+
+            <p v-if="formError" class="error mono">{{ formError }}</p>
+            <p v-if="notice" class="notice mono">{{ notice }}</p>
+            <div v-if="warnings.length" class="warn mono">
+              <strong>保存成功，但有告警：</strong>
+              <ul>
+                <li v-for="w in warnings" :key="w">{{ w }}</li>
+              </ul>
+            </div>
+
+            <div class="actions">
+              <button class="submit" type="submit" :disabled="!canSubmit">
+                {{ saving ? '保存中...' : mode === 'create' ? '创建项目' : '保存项目' }}
+              </button>
+              <button
+                v-if="isEditing"
+                class="danger"
+                type="button"
+                :disabled="deleting || saving"
+                @click="removeProject"
+              >
+                {{ deleting ? '删除中...' : '删除项目' }}
+              </button>
+            </div>
+          </form>
+        </section>
+
+        <div v-if="detail" class="detail-body">
           <!-- git 状态卡（E20） -->
           <section class="block" aria-label="git 状态">
             <div class="block-head">
@@ -373,11 +739,17 @@ onMounted(() => {
   max-width: 1100px;
   margin: 0 auto;
 }
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 14px;
+}
 .title {
   font-size: 16px;
   letter-spacing: 0.08em;
   color: var(--paper);
-  margin: 0 0 14px;
+  margin: 0;
 }
 
 .layout {
@@ -551,6 +923,125 @@ onMounted(() => {
 .mini-btn:disabled {
   color: var(--queue);
   cursor: default;
+}
+
+.form {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.row {
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+}
+.row > .field,
+.row > .pick {
+  flex: 1 1 0;
+  min-width: 220px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+}
+.field--check {
+  justify-content: flex-end;
+}
+.label {
+  font-size: 11px;
+  letter-spacing: 0.08em;
+  color: var(--queue);
+  margin-bottom: 6px;
+}
+.control {
+  width: 100%;
+  background: var(--ink);
+  color: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 9px 10px;
+  font-size: 13px;
+  outline: none;
+}
+.control:focus {
+  border-color: var(--phosphor);
+}
+.control:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+.pick {
+  margin: 0;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--ink);
+}
+.check {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--paper);
+  font-size: 12px;
+  margin: 6px 0;
+}
+.check input {
+  accent-color: var(--phosphor);
+}
+.field-hint {
+  color: var(--queue);
+  font-size: 11px;
+  margin: 6px 0 0;
+}
+.actions {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.submit,
+.danger {
+  border: none;
+  border-radius: var(--radius);
+  padding: 9px 14px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.submit {
+  background: var(--phosphor);
+  color: var(--ink);
+}
+.submit--small {
+  margin-left: auto;
+  padding: 5px 11px;
+  font-size: 12px;
+}
+.danger {
+  background: transparent;
+  color: var(--fail);
+  border: 1px solid var(--fail);
+}
+.submit:disabled,
+.danger:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.warn {
+  color: var(--run);
+  font-size: 12px;
+  border: 1px solid var(--run);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  margin: 0;
+  word-break: break-word;
+}
+.warn ul {
+  margin: 6px 0 0;
+  padding-left: 18px;
+}
+.notice {
+  color: var(--done);
+  font-size: 12px;
+  margin: 0;
 }
 
 /* git 状态卡 */
