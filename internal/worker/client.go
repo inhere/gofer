@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	mathrand "math/rand"
 	"net/http"
+	"runtime"
 	"sync"
 	"time"
 
@@ -28,6 +29,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 
 	"github.com/inhere/gofer/internal/job"
+	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -79,10 +81,10 @@ type Client struct {
 	instanceID string
 	urls       []string // hub addresses; rotated on connect failure (C7, §5.2)
 	token      string
-	labels   []string
-	projects []string
-	agents   []string
-	maxConc  int
+	labels     []string
+	projects   []string
+	agents     []string
+	maxConc    int
 
 	backoff      backoffPolicy
 	pingInterval time.Duration
@@ -255,6 +257,8 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 	if err := cl.writeFrame(ctx, wsproto.TypeRegister, "", wsproto.Register{
 		WorkerID:      cl.workerID,
 		InstanceID:    cl.instanceID,
+		PtyCapable:    ptyrunner.Available(),
+		OS:            runtime.GOOS,
 		Labels:        cl.labels,
 		Projects:      cl.projects,
 		Agents:        cl.agents,

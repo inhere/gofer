@@ -15,6 +15,8 @@ type Register struct {
 	// jobs died with it and must be failed, not exempted). Empty on old workers →
 	// the hub falls back to the legacy supersede-always behaviour (z8ow).
 	InstanceID    string   `json:"instance_id,omitempty"`
+	PtyCapable    bool     `json:"pty_capable,omitempty"`
+	OS            string   `json:"os,omitempty"`
 	Labels        []string `json:"labels,omitempty"`
 	Projects      []string `json:"projects,omitempty"`
 	Agents        []string `json:"agents,omitempty"`

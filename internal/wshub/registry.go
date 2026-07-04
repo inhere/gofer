@@ -251,8 +251,10 @@ func (r *WorkerRegistry) LastHeartbeat(workerID string) int64 {
 // has no snapshot (WorkerSnapshot returns ok=false).
 type WorkerSnapshot struct {
 	WorkerID      string
+	InstanceID    string
 	LastHeartbeat int64 // unix seconds of the most recent inbound frame
 	InFlight      int   // count of server-side dispatched jobs currently running
+	PtyCapable    bool
 	Labels        []string
 	Projects      []string
 	Agents        []string
@@ -275,8 +277,10 @@ func (r *WorkerRegistry) WorkerSnapshot(workerID string) (WorkerSnapshot, bool) 
 	agents := append([]string(nil), wc.meta.Agents...)
 	return WorkerSnapshot{
 		WorkerID:      wc.workerID,
+		InstanceID:    wc.meta.InstanceID,
 		LastHeartbeat: wc.lastHeartbeat.Load(),
 		InFlight:      wc.inflightCount(),
+		PtyCapable:    wc.meta.PtyCapable,
 		Labels:        labels,
 		Projects:      projects,
 		Agents:        agents,
