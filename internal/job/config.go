@@ -127,30 +127,60 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 // selectTargetWorker resolves req.WorkerID for a worker runner when it was not
 // given explicitly (D3/D4). It runs in Submit right after validate so the chosen
 // id flows into both the Forward and the persisted JobResult.worker_id. It is a
-// no-op for non-worker runners and for an explicit worker_id (explicit routing
-// wins, labels ignored).
+// no-op for non-worker runners. For an explicit worker_id, explicit routing wins
+// over labels but interactive requests still verify the selected worker's pty
+// capability at admission time.
 //
 // Resolution order when worker_id is empty:
 //   - worker_labels given: auto-select a connected worker advertising ALL labels
 //     (least loaded / freshest, D3). No eligible candidate → ErrNoEligibleWorker.
 //   - no labels: leave worker_id empty and rely on the runner's configured default
-//     worker (D4 fallback); the worker runner errors if it has no default binding.
+//     worker (D4 fallback). For interactive requests, resolve that default now
+//     and verify it is a live pty-capable worker so the final worker is known
+//     before dispatch.
 func (s *Service) selectTargetWorker(cfg *config.Config, req *JobRequest) error {
-	if !isWorkerRunner(cfg, req.Runner) || req.WorkerID != "" {
+	if !isWorkerRunner(cfg, req.Runner) {
 		return nil
 	}
+	if req.WorkerID != "" {
+		return s.checkInteractiveWorkerPty(req.WorkerID, req.Interactive)
+	}
 	if len(req.WorkerLabels) == 0 {
+		if req.Interactive {
+			workerID := cfg.Runners[req.Runner].WorkerID
+			if workerID == "" {
+				return fmt.Errorf("%w: runner %q has no default worker_id", ErrNoEligibleWorker, req.Runner)
+			}
+			if err := s.checkInteractiveWorkerPty(workerID, true); err != nil {
+				return err
+			}
+			req.WorkerID = workerID
+		}
 		return nil // D4: fall back to the runner's configured default worker.
 	}
 	var cands []WorkerCandidate
 	if s.workers != nil {
 		cands = s.workers.Candidates()
 	}
-	picked := selectWorker(cands, req.WorkerLabels)
+	picked := selectWorker(cands, req.WorkerLabels, req.Interactive)
 	if picked == "" {
 		return fmt.Errorf("%w: no eligible worker for labels %v", ErrNoEligibleWorker, req.WorkerLabels)
 	}
 	req.WorkerID = picked // inject: Forward + JobResult.worker_id now use it.
+	return nil
+}
+
+func (s *Service) checkInteractiveWorkerPty(workerID string, interactive bool) error {
+	if !interactive {
+		return nil
+	}
+	if s.workers == nil {
+		return fmt.Errorf("%w: worker %q has no pty capability snapshot", ErrNoEligibleWorker, workerID)
+	}
+	cand, ok := s.workers.Candidate(workerID)
+	if !ok || !cand.PtyCapable {
+		return fmt.Errorf("%w: worker %q is not pty-capable", ErrNoEligibleWorker, workerID)
+	}
 	return nil
 }
 

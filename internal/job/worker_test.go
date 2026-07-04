@@ -100,6 +100,15 @@ type fakeSelector struct {
 
 func (f fakeSelector) Candidates() []WorkerCandidate { return f.cands }
 
+func (f fakeSelector) Candidate(workerID string) (WorkerCandidate, bool) {
+	for _, cand := range f.cands {
+		if cand.WorkerID == workerID {
+			return cand, true
+		}
+	}
+	return WorkerCandidate{}, false
+}
+
 // TestSubmitWorkerNoWorkerIDFallsBack proves a worker job with neither worker_id
 // nor labels is now ACCEPTED (P2 D4): Submit no longer rejects it; the worker
 // runner falls back to its configured default worker. Forward.WorkerID stays
@@ -167,7 +176,11 @@ func TestSubmitInteractiveRunnerSelectionLocalVsWorker(t *testing.T) {
 	t.Run("worker remote keeps worker runner", func(t *testing.T) {
 		stub := &stubWorkerRunner{}
 		pty := &recordingRunner{name: builtinPtyRunner}
-		s := newWorkerTestService(t, t.TempDir(), stub)
+		workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
+		sel := fakeSelector{cands: []WorkerCandidate{
+			{WorkerID: "w1", PtyCapable: true, HeartbeatAge: time.Second},
+		}}
+		s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
 		s.runners[builtinPtyRunner] = pty
 
 		final := submitAndWait(t, s, JobRequest{
@@ -268,6 +281,113 @@ func TestSubmitWorkerLabelsAutoSelect(t *testing.T) {
 	}
 	if stub.gotForward == nil || stub.gotForward.WorkerID != "w2" {
 		t.Fatalf("Forward.WorkerID = %+v, want w2", stub.gotForward)
+	}
+}
+
+func TestSubmitInteractiveWorkerLabelsRejectsNonPtyCapable(t *testing.T) {
+	stub := &stubWorkerRunner{}
+	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
+	sel := fakeSelector{cands: []WorkerCandidate{
+		{WorkerID: "w1", Labels: []string{"gpu"}, PtyCapable: false, HeartbeatAge: time.Second},
+	}}
+	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
+	_, err := s.Submit(JobRequest{
+		ProjectKey: "self", Agent: "term", Runner: "remote-w1",
+		WorkerLabels: []string{"gpu"},
+		Interactive:  true, Prompt: "hi", Cwd: ".",
+	})
+	if !errors.Is(err, ErrNoEligibleWorker) {
+		t.Fatalf("expected ErrNoEligibleWorker for non-pty-capable worker, got %v", err)
+	}
+	if stub.gotForward != nil {
+		t.Fatalf("worker runner should not receive rejected interactive job: %+v", stub.gotForward)
+	}
+}
+
+func TestSubmitInteractiveWorkerLabelsAcceptsPtyCapable(t *testing.T) {
+	stub := &stubWorkerRunner{}
+	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
+	sel := fakeSelector{cands: []WorkerCandidate{
+		{WorkerID: "w1", Labels: []string{"gpu"}, PtyCapable: true, HeartbeatAge: time.Second},
+	}}
+	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "term", Runner: "remote-w1",
+		WorkerLabels: []string{"gpu"},
+		Interactive:  true, Prompt: "hi", Cwd: ".", TimeoutSec: 30,
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("expected done, got %s (err=%s)", final.Status, final.Error)
+	}
+	if final.WorkerID != "w1" {
+		t.Fatalf("JobResult.WorkerID = %q, want w1", final.WorkerID)
+	}
+	if stub.gotForward == nil || !stub.gotForward.Interactive || stub.gotForward.WorkerID != "w1" {
+		t.Fatalf("Forward = %+v, want interactive worker w1", stub.gotForward)
+	}
+}
+
+func TestSubmitInteractiveWorkerDefaultRejectsNonPtyCapable(t *testing.T) {
+	stub := &stubWorkerRunner{}
+	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
+	sel := fakeSelector{cands: []WorkerCandidate{
+		{WorkerID: "w1", PtyCapable: false, HeartbeatAge: time.Second},
+	}}
+	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
+	_, err := s.Submit(JobRequest{
+		ProjectKey: "self", Agent: "term", Runner: "remote-w1",
+		Interactive: true, Prompt: "hi", Cwd: ".",
+	})
+	if !errors.Is(err, ErrNoEligibleWorker) {
+		t.Fatalf("expected ErrNoEligibleWorker for non-pty-capable D4 default, got %v", err)
+	}
+	if stub.gotForward != nil {
+		t.Fatalf("worker runner should not receive rejected D4 job: %+v", stub.gotForward)
+	}
+}
+
+func TestSubmitInteractiveWorkerDefaultAcceptsPtyCapable(t *testing.T) {
+	stub := &stubWorkerRunner{}
+	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
+	sel := fakeSelector{cands: []WorkerCandidate{
+		{WorkerID: "w1", PtyCapable: true, HeartbeatAge: time.Second},
+	}}
+	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "term", Runner: "remote-w1",
+		Interactive: true, Prompt: "hi", Cwd: ".", TimeoutSec: 30,
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("expected done, got %s (err=%s)", final.Status, final.Error)
+	}
+	if final.WorkerID != "w1" {
+		t.Fatalf("JobResult.WorkerID = %q, want D4 default w1", final.WorkerID)
+	}
+	if stub.gotForward == nil || !stub.gotForward.Interactive || stub.gotForward.WorkerID != "w1" {
+		t.Fatalf("Forward = %+v, want interactive D4 default worker w1", stub.gotForward)
+	}
+}
+
+func TestSubmitNonInteractiveWorkerIgnoresPtyCapability(t *testing.T) {
+	stub := &stubWorkerRunner{}
+	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
+	sel := fakeSelector{cands: []WorkerCandidate{
+		{WorkerID: "w1", Labels: []string{"gpu"}, PtyCapable: false, HeartbeatAge: time.Second},
+	}}
+	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "remote-w1",
+		WorkerLabels: []string{"gpu"},
+		Cmd:          []string{"echo", "hi"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("expected done, got %s (err=%s)", final.Status, final.Error)
+	}
+	if final.WorkerID != "w1" {
+		t.Fatalf("JobResult.WorkerID = %q, want w1", final.WorkerID)
+	}
+	if stub.gotForward == nil || stub.gotForward.WorkerID != "w1" {
+		t.Fatalf("Forward.WorkerID = %+v, want w1", stub.gotForward)
 	}
 }
 

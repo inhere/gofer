@@ -375,6 +375,8 @@ func TestWorkerSnapshotExposed(t *testing.T) {
 
 	wc := newWorkerConn("w1", "w1", nil, wsproto.Register{
 		WorkerID:      "w1",
+		InstanceID:    "inst-1",
+		PtyCapable:    true,
 		Labels:        []string{"gpu", "linux"},
 		Projects:      []string{"proj-a", "proj-b"},
 		Agents:        []string{"codex", "exec"},
@@ -389,7 +391,7 @@ func TestWorkerSnapshotExposed(t *testing.T) {
 	if !ok {
 		t.Fatal("online worker should have a snapshot")
 	}
-	if snap.WorkerID != "w1" || snap.LastHeartbeat != 1750300000 || snap.InFlight != 2 {
+	if snap.WorkerID != "w1" || snap.InstanceID != "inst-1" || snap.LastHeartbeat != 1750300000 || snap.InFlight != 2 || !snap.PtyCapable {
 		t.Fatalf("snapshot fields wrong: %+v", snap)
 	}
 	if len(snap.Labels) != 2 || snap.Labels[0] != "gpu" {

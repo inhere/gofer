@@ -161,10 +161,31 @@ func (h *hubWorkerSelector) Candidates() []job.WorkerCandidate {
 			WorkerID:     ws.WorkerID,
 			Labels:       ws.Labels,
 			InFlight:     ws.InFlight,
+			PtyCapable:   ws.PtyCapable,
 			HeartbeatAge: time.Duration(now-ws.LastHeartbeat) * time.Second,
 		})
 	}
 	return out
+}
+
+// Candidate implements job.WorkerSelector exact lookup for explicit/D4 worker
+// admission checks.
+func (h *hubWorkerSelector) Candidate(workerID string) (job.WorkerCandidate, bool) {
+	if _, ok := h.allowed[workerID]; !ok {
+		return job.WorkerCandidate{}, false
+	}
+	ws, ok := h.hub.WorkerSnapshot(workerID)
+	if !ok {
+		return job.WorkerCandidate{}, false
+	}
+	now := time.Now().Unix()
+	return job.WorkerCandidate{
+		WorkerID:     ws.WorkerID,
+		Labels:       ws.Labels,
+		InFlight:     ws.InFlight,
+		PtyCapable:   ws.PtyCapable,
+		HeartbeatAge: time.Duration(now-ws.LastHeartbeat) * time.Second,
+	}, true
 }
 
 // workerBindings builds the hub's worker_id → caller-id binding map from
