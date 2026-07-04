@@ -25,6 +25,12 @@ var (
 	ErrRelayBindingMatch = errors.New("ptyrelay: relay binding mismatch")
 )
 
+// closedChan is a shared, already-closed sentinel returned by Done for states
+// with no bytes left to drain (pending_worker / finalized / missing): the host
+// selects on it and proceeds immediately instead of blocking on a drain that
+// will never fire.
+var closedChan = func() chan struct{} { c := make(chan struct{}); close(c); return c }()
+
 // RelayBinding identifies a prepared pty relay session.
 type RelayBinding struct {
 	WorkerID     string
@@ -67,17 +73,15 @@ func NewRegistry() *Registry {
 }
 
 // Prepare creates or replaces a pending_worker relay entry for b. If an older
-// entry exists for the same job, it is closed first.
+// entry exists for the same job, its relay is detached under the lock and closed
+// AFTER unlocking (D-P2-8: a slow source.Close must not hold off concurrent
+// Open/Lookup/MarkAttached).
 func (r *Registry) Prepare(b RelayBinding) *RelayEntry {
 	if r == nil {
 		return nil
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	if old := r.byJob[b.JobID]; old != nil {
-		r.closeLocked(old, "replaced")
-		r.removeIndexesLocked(old)
-	}
+	oldRel := r.detachLocked(r.byJob[b.JobID], "replaced") // detach old relay under lock (nil-safe)
 	e := &RelayEntry{
 		Binding:   b,
 		State:     RelayPendingWorker,
@@ -90,7 +94,12 @@ func (r *Registry) Prepare(b RelayBinding) *RelayEntry {
 	if b.Nonce != "" {
 		r.byNonce[b.Nonce] = e
 	}
-	return cloneEntry(e)
+	ret := cloneEntry(e) // snapshot UNDER the lock (e may be mutated once we unlock)
+	r.mu.Unlock()
+	if oldRel != nil {
+		_ = oldRel.Close() // close the replaced relay OUTSIDE the lock (no HOL)
+	}
+	return ret
 }
 
 // Open consumes a prepared nonce and binds the relay source. The returned entry
@@ -179,32 +188,60 @@ func (r *Registry) MarkAttached(jobID string) (*RelayEntry, error) {
 }
 
 // Close moves a relay to finalized and closes its terminal source. It is
-// idempotent; repeated closes for the same job are safe.
+// idempotent; repeated closes for the same job are safe. The relay is detached
+// under the lock but closed AFTER unlocking (D-P2-8: no global HOL on a slow
+// source.Close).
 func (r *Registry) Close(jobID, reason string) {
 	if r == nil || jobID == "" {
 		return
 	}
 	r.mu.Lock()
-	defer r.mu.Unlock()
-	e := r.byJob[jobID]
-	if e == nil {
-		return
+	rel := r.detachLocked(r.byJob[jobID], reason)
+	r.mu.Unlock()
+	if rel != nil {
+		_ = rel.Close() // close source/viewers/ws outside the lock (idempotent)
 	}
-	r.closeLocked(e, reason)
 }
 
-func (r *Registry) closeLocked(e *RelayEntry, reason string) {
-	if e.State == RelayFinalized {
-		return
+// detachLocked removes e's relay reference from the registry under the lock:
+// it flips e to finalized, drops the indexes, and returns the live relay (or nil)
+// for the CALLER to Close OUTSIDE the lock (D-P2-8, avoids HOL). An already
+// finalized entry (including one caught mid-close: RelayClosing is never a
+// distinct wait state here — detach jumps straight to finalized) returns nil so
+// repeat/racing detaches are safe no-ops.
+func (r *Registry) detachLocked(e *RelayEntry, reason string) *Relay {
+	if e == nil || e.State == RelayFinalized {
+		return nil
 	}
-	e.State = RelayClosing
-	if e.Relay != nil {
-		_ = e.Relay.Close()
-	}
+	rel := e.Relay
 	e.State = RelayFinalized
 	e.ClosedAt = r.now()
 	e.CloseReason = reason
 	r.removeIndexesLocked(e)
+	return rel
+}
+
+// Done returns the serve-drain completion signal for jobID (D-P2-2 semantics):
+//
+//	open/attached (live Relay) → relay.Done() (closed when recordLoop hits EOF =
+//	    the pty output tail has been recorded/drained)
+//	pending_worker / finalized / missing → a pre-closed chan (no bytes can be
+//	    pending, so the host must not block waiting on a drain that will never come)
+//
+// A RelayClosing entry is treated as still having a live Relay whose Done() the
+// host can wait on; detachLocked (which finalizes) is the terminal transition, so
+// there is no separate closing wait state to special-case here.
+func (r *Registry) Done(jobID string) <-chan struct{} {
+	if r == nil || jobID == "" {
+		return closedChan
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	e := r.byJob[jobID]
+	if e == nil || e.State == RelayFinalized || e.Relay == nil {
+		return closedChan
+	}
+	return e.Relay.Done()
 }
 
 func (r *Registry) removeIndexesLocked(e *RelayEntry) {
