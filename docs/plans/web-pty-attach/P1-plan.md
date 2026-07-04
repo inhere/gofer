@@ -228,7 +228,7 @@ return job.CallerID == caller || (s.cfg != nil && s.cfg.CallerCanAdmin(caller))
 ## P2 前瞻（非 P1）
 worker 第二条 pty ws 打破单连接假设（`Client` 单 conn+writeMu+全 JSON）；`handleDispatch` 投影 Interactive/Cols/Rows/RelayNonce；worker-client→`ptyrunner.PtySession` 取字节 seam（`Client` 只持 `jobs Jobs`）；取消协议三处收敛（`recvLoop` TypeCancel / `workerrunner.Run` ctx.Done / `job.finish` 时序）单独一节画时序 + ack 帧。
 
-> **P2 设计细化已出**（v0.2，经 codex 评审）：[`../../design/2026-07-04-web-pty-attach-P2-design.md`](../../design/2026-07-04-web-pty-attach-P2-design.md)。要点修正上文：`Result` 只作 **worker-teardown ack**，**serve-drain ack 用 `relay.Done()`**（两连接无跨序，host 等 `relay.Done()` 才 finish，关闭权归 relay recordLoop EOF）；输出所有权倒置为 `SessionObserver` 交接（`PtyRunner.Run` 原有 discard drain 会与 pump 双读）；`Dispatch` 补 `PtySessionID`。评审见 [`../../review/2026-07-04-web-pty-attach-P2-codex-review.md`](../../review/2026-07-04-web-pty-attach-P2-codex-review.md)。下一步：出 P2 实施计划。
+> **P2 设计细化已出**（v0.2，经 codex 评审）：[`../../design/2026-07-04-web-pty-attach-P2-design.md`](../../design/2026-07-04-web-pty-attach-P2-design.md)。要点修正上文：`Result` 只作 **worker-teardown ack**，**serve-drain ack 用 `relay.Done()`**（两连接无跨序，host 等 `relay.Done()` 才 finish，关闭权归 relay recordLoop EOF）；输出所有权倒置为 `SessionObserver` 交接（`PtyRunner.Run` 原有 discard drain 会与 pump 双读）；`Dispatch` 补 `PtySessionID`。评审见 [`../../review/2026-07-04-web-pty-attach-P2-codex-review.md`](../../review/2026-07-04-web-pty-attach-P2-codex-review.md)（3 轮，v0.3=GO）。**P2 实施计划已出**：[`P2-plan.md`](P2-plan.md)（8 T 任务）。
 
 ---
 
