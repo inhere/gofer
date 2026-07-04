@@ -107,6 +107,22 @@ func TestStepToRequestDeterministicRequestID(t *testing.T) {
 	}
 }
 
+func TestWorkflowRejectInteractiveStepRequest(t *testing.T) {
+	step := echoStep("x")
+	req := stepToRequest(step, "", 1, 1, 0, "alice")
+	if req.Interactive {
+		t.Fatal("stepToRequest should not map workflow steps to interactive requests")
+	}
+	if err := rejectInteractiveStepRequest(1, req); err != nil {
+		t.Fatalf("non-interactive step request rejected: %v", err)
+	}
+	req.Interactive = true
+	err := rejectInteractiveStepRequest(1, req)
+	if !errors.Is(err, job.ErrInvalidRequest) {
+		t.Fatalf("interactive step request err = %v, want job.ErrInvalidRequest", err)
+	}
+}
+
 // TestJobLevelRetry is the T1.4 (E24) minimal job-level retry: a non-workflow job
 // with a Retry policy (immediate backoff) that fails is re-run attempt+1. Using a
 // flaky marker (fail once, succeed after) the FIRST job fails and a SECOND job
