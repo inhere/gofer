@@ -101,6 +101,9 @@ type Server struct {
 	// them; T5/T7 mount handlers that consume the same instances.
 	relayNonces *ptyrelay.NonceStore
 	ptyRelays   *ptyrelay.Registry
+	// attachTickets are short-lived one-time browser attach tickets. T6 issues
+	// them via authenticated HTTP; T7 consumes them during the WS attach upgrade.
+	attachTickets *AttachTicketStore
 
 	// runners is the configured runner set the C6/P4 GET /v1/runners endpoint
 	// enumerates (name → type / base_url / worker_id). It is the top-level
@@ -207,6 +210,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		prober:          prober,
 		workers:         workers,
 		limiters:        map[string]*rate.Limiter{},
+		attachTickets:   NewAttachTicketStore(),
 		startedAt:       time.UnixMilli(nowMillis()),
 	}
 	s.router = s.buildRouter()
@@ -356,6 +360,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/workflows/{id}/cancel", s.handleCancelWorkflow)
 
 		// P9 running-job two-way interactions.
+		r.POST("/jobs/{id}/attach-ticket", s.handleAttachTicket)
 		r.POST("/jobs/{id}/interactions", s.handleCreateInteraction)
 		r.GET("/jobs/{id}/interactions", s.handleListInteractions)
 		r.POST("/jobs/{id}/interactions/{interaction_id}/answer", s.handleAnswerInteraction)
