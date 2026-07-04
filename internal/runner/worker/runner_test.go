@@ -140,10 +140,18 @@ func (s *fakeNonceStore) count() int {
 	return len(s.issued)
 }
 
+// closedChan is a shared pre-closed chan the fake returns from Done by default
+// (pending/missing relay semantics — the host proceeds at once).
+var closedChan = func() chan struct{} { c := make(chan struct{}); close(c); return c }()
+
 type fakeRelayRegistry struct {
 	mu       sync.Mutex
 	prepared []ptyrelay.RelayBinding
 	closed   []string
+	// doneCh, when non-nil, is returned by Done so a test can hold an interactive
+	// Run in its drain-wait (open chan) and release it (close) to assert ordering.
+	// nil → a pre-closed chan (pending/missing relay = proceed immediately).
+	doneCh chan struct{}
 }
 
 func (r *fakeRelayRegistry) Prepare(b ptyrelay.RelayBinding) *ptyrelay.RelayEntry {
@@ -151,6 +159,15 @@ func (r *fakeRelayRegistry) Prepare(b ptyrelay.RelayBinding) *ptyrelay.RelayEntr
 	defer r.mu.Unlock()
 	r.prepared = append(r.prepared, b)
 	return &ptyrelay.RelayEntry{Binding: b, State: ptyrelay.RelayPendingWorker}
+}
+
+func (r *fakeRelayRegistry) Done(string) <-chan struct{} {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.doneCh != nil {
+		return r.doneCh
+	}
+	return closedChan
 }
 
 func (r *fakeRelayRegistry) Close(jobID, reason string) {
@@ -934,6 +951,207 @@ func TestBridgeNonOpenIgnored(t *testing.T) {
 func TestBridgeNilSink(t *testing.T) {
 	b := newBridge(nil, func(string, string) {})
 	b.handle("open", openFrame("i1", "x")) // must not panic
+}
+
+// newInteractiveRunner builds a Runner wired to h + relays for the T6 interactive
+// drain-wait tests (a fake nonce store, so the interactive setup succeeds).
+func newInteractiveRunner(h dispatcher, relays relayPreparer) *Runner {
+	r := newRunnerWithHub(h)
+	r.nonceStore = &fakeNonceStore{}
+	r.relayRegistry = relays
+	return r
+}
+
+// waitForSink blocks until the runner registered its sink (or fails the test).
+func waitForSink(t *testing.T, h *fakeHub) wshub.JobSink {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && h.getSink() == nil {
+		time.Sleep(5 * time.Millisecond)
+	}
+	sink := h.getSink()
+	if sink == nil {
+		t.Fatal("sink never registered")
+	}
+	return sink
+}
+
+// TestRunInteractiveWaitsRelayDoneBeforeResult (T6, D-P2-6): an interactive Run
+// does not return its worker result until the serve relay signals drain-complete
+// (Done closes), so the browser sees the pty tail before the job finishes.
+func TestRunInteractiveWaitsRelayDoneBeforeResult(t *testing.T) {
+	h := &fakeHub{instanceID: "inst-1"}
+	relays := &fakeRelayRegistry{doneCh: make(chan struct{})} // open → Run must block on it
+	r := newInteractiveRunner(h, relays)
+
+	done := make(chan runner.Result, 1)
+	go func() {
+		done <- r.Run(context.Background(), runner.Request{
+			JobID: "j1", Forward: &runner.Forward{WorkerID: "w1", Interactive: true},
+		})
+	}()
+	sink := waitForSink(t, h)
+	sink.Finish(wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
+
+	// Result landed, but Done is still open → Run must be parked in the drain-wait.
+	select {
+	case res := <-done:
+		t.Fatalf("Run returned before relay Done closed: %+v", res)
+	case <-time.After(200 * time.Millisecond):
+	}
+	close(relays.doneCh) // drain complete → Run proceeds
+	select {
+	case res := <-done:
+		if res.ExitCode != 0 || res.Err != nil {
+			t.Fatalf("result = %+v, want clean done", res)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after relay Done closed")
+	}
+}
+
+// TestRunInteractivePendingDoneReturnsImmediately (T6): a pending/missing relay's
+// Done is a pre-closed chan, so a non-attached interactive job finishes at once
+// (no spurious grace wait).
+func TestRunInteractivePendingDoneReturnsImmediately(t *testing.T) {
+	h := &fakeHub{instanceID: "inst-1"}
+	relays := &fakeRelayRegistry{} // doneCh nil → pre-closed (pending/missing)
+	r := newInteractiveRunner(h, relays)
+
+	done := make(chan runner.Result, 1)
+	go func() {
+		done <- r.Run(context.Background(), runner.Request{
+			JobID: "j1", Forward: &runner.Forward{WorkerID: "w1", Interactive: true},
+		})
+	}()
+	sink := waitForSink(t, h)
+	sink.Finish(wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
+	select {
+	case res := <-done:
+		if res.ExitCode != 0 || res.Err != nil {
+			t.Fatalf("result = %+v, want immediate clean done", res)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("interactive Run with pre-closed Done did not return immediately")
+	}
+}
+
+// TestRunInteractiveGraceFallback (T6): if the relay never drains (Done stays
+// open), an interactive Run still finishes after hostCancelGrace.
+func TestRunInteractiveGraceFallback(t *testing.T) {
+	old := hostCancelGrace
+	hostCancelGrace = 50 * time.Millisecond
+	defer func() { hostCancelGrace = old }()
+
+	h := &fakeHub{instanceID: "inst-1"}
+	relays := &fakeRelayRegistry{doneCh: make(chan struct{})} // never closed → grace must fire
+	r := newInteractiveRunner(h, relays)
+
+	done := make(chan runner.Result, 1)
+	go func() {
+		done <- r.Run(context.Background(), runner.Request{
+			JobID: "j1", Forward: &runner.Forward{WorkerID: "w1", Interactive: true},
+		})
+	}()
+	sink := waitForSink(t, h)
+	sink.Finish(wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
+	select {
+	case res := <-done:
+		if res.ExitCode != 0 || res.Err != nil {
+			t.Fatalf("result = %+v, want clean done after grace", res)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return via grace fallback")
+	}
+}
+
+// TestRunInteractiveCancelWaitsRelayDone (T6, D-P2-6): on a host cancel the runner
+// sends the cancel frame then waits for the relay to drain (Done) before returning
+// ctx.Err — so a cancel-triggered pty tail (e.g. a sentinel) still reaches the
+// browser.
+func TestRunInteractiveCancelWaitsRelayDone(t *testing.T) {
+	h := &fakeHub{instanceID: "inst-1"}
+	relays := &fakeRelayRegistry{doneCh: make(chan struct{})} // open → cancel path blocks on it
+	r := newInteractiveRunner(h, relays)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan runner.Result, 1)
+	go func() {
+		done <- r.Run(ctx, runner.Request{JobID: "j1", Forward: &runner.Forward{WorkerID: "w1", Interactive: true}})
+	}()
+	waitForSink(t, h)
+	cancel()
+
+	// Cancel frame is sent, but Run must park in the 3-way wait (Done open, no lost).
+	select {
+	case res := <-done:
+		t.Fatalf("Run returned before relay Done closed on cancel: %+v", res)
+	case <-time.After(200 * time.Millisecond):
+	}
+	if h.cancelCount() != 1 {
+		t.Fatalf("hub.Cancel = %d, want 1", h.cancelCount())
+	}
+	close(relays.doneCh)
+	select {
+	case res := <-done:
+		if res.Err == nil {
+			t.Fatal("cancel should surface ctx.Err")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after relay Done closed on cancel")
+	}
+	if got := relays.closedSnapshot(); len(got) != 1 || got[0] != "j1:cancelled" {
+		t.Fatalf("relay close = %v, want [j1:cancelled]", got)
+	}
+}
+
+// TestRunInteractiveCancelResolvesOnWorkerLost (T6): during the cancel drain-wait,
+// a worker-lost drop resolves the 3-way select even if Done never fires.
+func TestRunInteractiveCancelResolvesOnWorkerLost(t *testing.T) {
+	h := &fakeHub{instanceID: "inst-1"}
+	relays := &fakeRelayRegistry{doneCh: make(chan struct{})} // never closed → stuck drain
+	r := newInteractiveRunner(h, relays)
+	ctx, cancel := context.WithCancel(context.Background())
+
+	done := make(chan runner.Result, 1)
+	go func() {
+		done <- r.Run(ctx, runner.Request{JobID: "j1", Forward: &runner.Forward{WorkerID: "w1", Interactive: true}})
+	}()
+	sink := waitForSink(t, h)
+	cancel()
+	time.Sleep(50 * time.Millisecond) // let Run enter the 3-way wait
+	sink.OnDisconnect(errors.New("worker disconnected"))
+	select {
+	case res := <-done:
+		if res.Err == nil {
+			t.Fatal("cancel should surface ctx.Err")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not resolve on worker-lost during cancel drain-wait")
+	}
+}
+
+// TestRunNonInteractiveIgnoresRelayDone (T6, G023): a non-interactive Run never
+// consults the relay Done — it returns immediately even when Done is held open.
+func TestRunNonInteractiveIgnoresRelayDone(t *testing.T) {
+	h := &fakeHub{}
+	relays := &fakeRelayRegistry{doneCh: make(chan struct{})} // open; must be ignored
+	r := newInteractiveRunner(h, relays)
+
+	done := make(chan runner.Result, 1)
+	go func() {
+		done <- r.Run(context.Background(), runner.Request{JobID: "j1", Forward: &runner.Forward{}}) // non-interactive
+	}()
+	sink := waitForSink(t, h)
+	sink.Finish(wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
+	select {
+	case res := <-done:
+		if res.ExitCode != 0 || res.Err != nil {
+			t.Fatalf("result = %+v, want immediate clean done", res)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("non-interactive Run waited on relay Done (must return immediately)")
+	}
 }
 
 // TestRunCtxCancelSendsCancelFrame: a host ctx cancel forwards a cancel frame to
