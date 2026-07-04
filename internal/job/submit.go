@@ -111,12 +111,10 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	if run == nil {
 		return JobResult{}, fmt.Errorf("runner %q is not available", req.Runner)
 	}
-	// WEB-03 seam: an interactive job runs under the pty runner variant instead of
-	// req.Runner, WHEN a pty backend is registered (core registers "pty" only when
-	// pty.IsAvailable — its presence in the map IS the capability signal, so job
-	// never imports internal/pty, G022/G024). The non-interactive path above is
-	// left byte-for-byte unchanged (G023): this branch only fires for Interactive.
-	if req.Interactive {
+	// WEB-03 T0: 仅【本机执行】的 interactive job 路由本机 pty runner。worker 远端
+	// interactive 保持 worker runner(forward)，pty 在 worker 侧选(P2)。同一份代码在
+	// serve 与 worker 都跑：worker 的 handleDispatch 强制 runner=local → !remote → 命中 pty。
+	if req.Interactive && !remote {
 		if pr := s.runners[builtinPtyRunner]; pr != nil {
 			run = pr
 		}

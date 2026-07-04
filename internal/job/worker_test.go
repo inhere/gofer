@@ -28,6 +28,17 @@ func (r *stubWorkerRunner) Run(_ context.Context, req runner.Request) runner.Res
 	return runner.Result{ExitCode: 0}
 }
 
+type recordingRunner struct {
+	name string
+	reqs []runner.Request
+}
+
+func (r *recordingRunner) Name() string { return r.name }
+func (r *recordingRunner) Run(_ context.Context, req runner.Request) runner.Result {
+	r.reqs = append(r.reqs, req)
+	return runner.Result{ExitCode: 0}
+}
+
 // newWorkerTestService builds a service with a server.workers entry (w1) and a
 // type=worker runner (remote-w1) pointing at it, plus a stub runner instance. It
 // uses a nil WorkerSelector (the explicit-worker_id tests never auto-select).
@@ -146,6 +157,51 @@ func TestSubmitWorkerSetsForward(t *testing.T) {
 	if final.WorkerID != "w1" {
 		t.Fatalf("final.WorkerID = %q, want w1", final.WorkerID)
 	}
+}
+
+func TestSubmitInteractiveRunnerSelectionLocalVsWorker(t *testing.T) {
+	t.Run("worker remote keeps worker runner", func(t *testing.T) {
+		stub := &stubWorkerRunner{}
+		pty := &recordingRunner{name: builtinPtyRunner}
+		s := newWorkerTestService(t, t.TempDir(), stub)
+		s.runners[builtinPtyRunner] = pty
+
+		final := submitAndWait(t, s, JobRequest{
+			ProjectKey: "self", Agent: "exec", Runner: "remote-w1", WorkerID: "w1",
+			Interactive: true,
+			Cmd:         []string{"echo", "hi"}, Cwd: ".", TimeoutSec: 30,
+		})
+		if final.Status != StatusDone {
+			t.Fatalf("expected done, got %s (err=%s)", final.Status, final.Error)
+		}
+		if stub.gotForward == nil {
+			t.Fatal("worker runner got nil Forward; interactive remote should stay on worker runner")
+		}
+		if len(pty.reqs) != 0 {
+			t.Fatalf("pty runner was called for remote interactive job: %+v", pty.reqs)
+		}
+	})
+
+	t.Run("local uses pty runner", func(t *testing.T) {
+		pty := &recordingRunner{name: builtinPtyRunner}
+		s := newWorkerTestService(t, t.TempDir(), &stubWorkerRunner{})
+		s.runners[builtinPtyRunner] = pty
+
+		final := submitAndWait(t, s, JobRequest{
+			ProjectKey: "self", Agent: "exec", Runner: "local",
+			Interactive: true,
+			Cmd:         []string{"echo", "hi"}, Cwd: ".", TimeoutSec: 30,
+		})
+		if final.Status != StatusDone {
+			t.Fatalf("expected done, got %s (err=%s)", final.Status, final.Error)
+		}
+		if len(pty.reqs) != 1 {
+			t.Fatalf("pty runner calls = %d, want 1", len(pty.reqs))
+		}
+		if pty.reqs[0].Forward != nil {
+			t.Fatalf("local pty runner got Forward: %+v", pty.reqs[0].Forward)
+		}
+	})
 }
 
 // TestWorkerIDRoundTrip proves WorkerID survives Submit → persist (UpsertJob) →
