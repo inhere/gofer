@@ -20,7 +20,11 @@ import (
 // review #8: the worker re-validates with its OWN config via job.Service.Submit
 // (project/agent allowlist + exec gate + SafeJoin). A local validation failure is
 // reported back as result{failed} (no new frame type needed).
-func (cl *Client) handleDispatch(ctx context.Context, d wsproto.Dispatch) {
+//
+// sessionURL is the hub address this dispatch arrived on (recvLoop threads it,
+// D-P2-7). T5 will use it to derive the interactive pty-connect URL; the current
+// (non-interactive) body does not read it yet.
+func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wsproto.Dispatch) {
 	res, err := cl.jobs.Submit(job.JobRequest{
 		ProjectKey: d.ProjectKey,
 		Agent:      d.Agent,

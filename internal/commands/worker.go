@@ -15,6 +15,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/daemon"
+	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/worker"
 )
 
@@ -202,6 +203,15 @@ func runWorker(c *gcli.Command, _ []string) error {
 		PingInterval:   secToDuration(rc.PingIntervalSec),
 		ReadDeadline:   secToDuration(rc.ReadDeadlineSec),
 	}, cr.Jobs)
+
+	// Wire the worker Client as the pty session observer so an interactive local
+	// job hands its pty output to the worker's pump (D-P2-3). Only the worker path
+	// does this — the serve side never calls SetObserver, so its PtyRunner keeps the
+	// default discard drain (G023). core.Build registers PtyRunner under
+	// ptyrunner.Name only when a pty backend is available.
+	if pr, ok := cr.Runners[ptyrunner.Name].(*ptyrunner.PtyRunner); ok {
+		pr.SetObserver(cl)
+	}
 
 	// Run until SIGINT/SIGTERM; the signal/ctx start-stop orchestration lives in
 	// internal/worker (D-B4), the command keeps only config loading + assembly.
