@@ -97,3 +97,97 @@
 - **需要覆盖旧 worker/坏 dispatch 的失败语义。** `interactive=true` 但缺 `relay_nonce/pty_session_id` 应 fail fast，避免启动不可 attach 的 pty。
 - **需要 P2 e2e 增加 tail-byte 证明。** 测试里让 child 在收到 cancel 后输出 sentinel，再退出；断言 browser/relay ring 收到 sentinel 后 host job 才 finish。
 
+# 第二轮：v0.2 复审
+
+> 审核方：codex（读真实代码交叉核对，未改源码）。
+> 被审：`docs/design/2026-07-04-web-pty-attach-P2-design.md` v0.2。
+> 自证：`go build ./...` / `go vet ./...` 使用 workspace 内 `.cache/go-build`、`.cache/gomod` 通过。
+> 工具限制：本轮会话未暴露 codebase-memory-mcp 的 `search_graph` 等图工具，已按项目规则退回定点 `rg`/文件核对。
+
+## 事实性冲突（优先）
+
+1. **`Done(jobID)` 的 pending/finalized 语义不能列为 "待确认/非阻断"。**
+   v0.2 D-P2-6 已把 host 终态收敛建立在 `relayPreparer.Done(jobID)` 上：cancel 分支等 `Done|lostCh|grace`，Result 分支等 `Done|grace`（设计:81-90）；但 §10 又把 "pending（未 Open）relay 的 `Done(jobID)` 语义" 列为待确认（设计:235-236）。真实 registry 目前没有 `Done(jobID)`，pending entry 也没有 `Relay`：`internal/ptyrelay/registry.go:81-85`；`Relay.Done()` 只在 `Open` 后才存在：`internal/ptyrelay/registry.go:121-125`、`internal/ptyrelay/relay.go:255-256`。这是协议核心，不是 plan 内可延后的细节。
+
+2. **`SessionObserver` 同步回调点早于 `PtySession.run` 把状态置为 running。**
+   v0.2 要求 `Run` 在 `reg.add` 后同步 `OnSessionStart`，observer 内部再起 pump（设计:54-66）。真实 `PtyRunner.Run` 当前也是 `reg.add` 后才 `sess.run(ctx)`：`internal/runner/pty/runner.go:53-60`；而 `StateRunning` 在 `PtySession.run` 开头才设置：`internal/runner/pty/session.go:137-139`。因此实现若严格按 "只有 `StateRunning` 且非 selfClosing 才 Cancel"（设计:77-80、187-195），存在 observer 已启动 pump 但 session 仍是 `StateStarting` 的短窗口。这个窗口遇到 pty ws 外部断连时可能不 Cancel 本地 job。
+
+## 上轮 findings 核销表
+
+| 上轮 finding | 判定 | 核销依据 |
+|---|---|---|
+| 事实性错误1 / 阻断2：`io.Copy(io.Discard,sess)` 双读 | **已解决（设计层）** | v0.2 改成 `SessionObserver` 输出所有权倒置：observer 设定时不跑默认 discard，worker pump 成唯一 reader（设计:49-71、104-115）。真实风险锚点仍在现代码 `internal/runner/pty/runner.go:53-58`，P2 任务必须先改这里。同步回调本身不会阻塞 `sess.run` 的前提是 `OnSessionStart` 内部只做非阻塞投递/起 goroutine；v0.2 已写 "必须非阻塞"（设计:54-59）。 |
+| 事实性错误2 / 中1：`Dispatch` 缺 `PtySessionID` | **已解决（设计层）** | v0.2 明确 `wsproto.Dispatch` 加 `PtySessionID`，host 填 `ptySessionID`，worker hello 透传，并对缺 nonce/session id fail-fast（设计:73-75、104、107、114）。真实代码当前仍缺字段：`internal/wsproto/frames.go:37-50`；host 当前只填 `RelayNonce`：`internal/runner/worker/runner.go:188-201`；serve 已强校验 hello：`internal/httpapi/pty_connect_handler.go:70-72`。设计链路已闭合。 |
+| 阻断1：`Result` 跨连接不证明 serve 读完尾字节 | **部分解决** | v0.2 的 "Result=worker teardown ack，`relay.Done()`=serve drain ack" 方向正确（设计:41-47），并要求 host 在 Result/cancel 后等 Done（设计:81-90）。但 `Done(jobID)` 对 pending / 已 finalized / missing entry 的返回语义未定（设计:235-236），会让 worker 从未拨入、dial 失败、nonce 消费后校验失败等路径只能空等满 `hostCancelGrace`，或实现者随意返回导致截尾。 |
+| 阻断3：2s 轮询被并发槽击穿 | **部分解决** | v0.2 的 rendezvous 设计覆盖 OnSessionStart 早到/晚到两序：`sessReady` buffer + waiter 集合，`waitSession` 等 session-start / `jobs.Wait` 终态 / ctx（设计:61-70）。这解决固定 2s 轮询问题，也把 queued interactive 测试补入矩阵（设计:224）。仍未覆盖 cancel frame 早于 jobMap 建立的竞态：当前 dispatch 异步起 goroutine `go cl.handleDispatch(ctx,d)`，cancel inline 只在 `localJobID` 已存在时生效：`internal/worker/client.go:310-324`；mapping 只有 Submit 返回后才写：`internal/worker/dispatch.go:40-44`。v0.2 未要求 "unmapped cancel pending set"，所以 "排队中被 cancel 不悬挂/不裸跑" 仍不完整。 |
+| 阻断4：用 `Done()` 判据 TOCTOU 误判 cancel | **部分解决** | v0.2 改为 selfClosing + `sess.State()`，不再只看 `Done()`（设计:77-80）。这修掉自然退出 teardown 窗口的主要误判，因为真实状态在 teardown 开始即变 `StateExiting`：`internal/runner/pty/session.go:180-183`，`Done` 则到最后才关：`internal/runner/pty/session.go:212-217`。剩余缺口是上面的 `StateStarting` observer 窗口：`StateRunning` 晚于 observer 回调。 |
+| 高2：`Registry.Close` 持锁关 IO 造成 HOL | **部分解决** | v0.2 要求 Close 锁内摘索引/标 finalized、锁外 `relay.Close()`（设计:96-97、108），能解决当前 `Close` 持锁调用 `Relay.Close` 的问题：`internal/ptyrelay/registry.go:183-203`。但同类 HOL 还存在于 `Prepare` 替换旧 entry：`Prepare` 在锁内 `closeLocked(old,"replaced")`：`internal/ptyrelay/registry.go:75-80`。P2 计划应把 "摘出待关 relay、锁外 close" 做成 registry 通用 helper，覆盖 Close 和 Prepare replacement。 |
+| 高3：全局 `currentURL` failover 拨错 | **已解决（设计层）** | v0.2 改为 recvLoop 把当前 session URL 作为参数传给 `handleDispatch` / `pumpPty`，每个 dispatch 固定拨回派发它的 hub session 所属 serve，并用 `net/url` 改 path（设计:93-94、113-115）。这与真实多 URL reconnect 形态匹配：`internal/worker/client.go:203-216`、`internal/worker/client.go:240-245`、`internal/worker/client.go:310-315`。 |
+| 高4：cancel wait 漏 `lostCh` / relay 组合 | **部分解决** | v0.2 明确三路 wait：`relay.Done()` / `lostCh` / grace，并且 Result 后也等 Done（设计:81-90）。这与真实 `boundedSink` 的两个独立唤醒源匹配：`internal/runner/worker/runner.go:310-312`、`internal/runner/worker/runner.go:390-407`。剩余问题仍是 `Done(jobID)` 语义未定；如果 pending 只能等 grace，高4 的 "lost/relay 组合" 仍会在未拨入场景拖慢。 |
+| 高1：attach `{t:x,code}` select 竞态 | **已解决（范围收敛可接受）** | v0.2 把 browser exit frame 移到 P4，P2 只保留 `relay.Done` 后关闭（设计:11、121-123）。这避免在 P2 引入上一轮指出的 select 竞态。P2 不提供 exit code 会留下 browser 端 "知道断了但不知道退出码" 的观测缺口，但这是当前行为延续：`internal/httpapi/attach_handler.go:136-142`，可接受为 P4 范围。 |
+| 中2：URL 规范化 fail-fast | **已解决（设计层）** | v0.2 明确 `derivePtyConnectURL` 使用 `net/url`，同 scheme/host 固定 path `/v1/workers/pty-connect`，非法 path fail-fast（设计:93-94、187）。 |
+| 中3：interactive 是否仍 `streamLocalJob` | **未解决** | v0.2 §10 仍把 "interactive 路径是否仍走 `streamLocalJob` 仅为 pending_interaction bridge，还是拆 `pumpInteractions` ticker" 列为待确认（设计:239）。真实代码当前 `handleDispatch` 总是 `streamLocalJob` 后 `Wait`：`internal/worker/dispatch.go:46-52`；pty runner 不写 stdout.log：`internal/runner/pty/runner.go:44-48`。这个选择会影响 P2 的 goroutine join 链和测试断言，应在 v0.3 写定。 |
+| 中4：queued interactive 测试 | **已解决（设计层）** | v0.2 测试矩阵新增 worker 并发=1、长任务占槽、interactive 排队后仍成功拨入（设计:224）。 |
+
+## v0.2 新问题
+
+### 阻断
+
+1. **`relayPreparer.Done(jobID)` 必须在设计里给出完整语义，否则 P2 取消/终态协议仍不可实现。**
+   当前 `Registry` 只有 `Prepare/Open/Lookup/MarkAttached/Close`，没有 registry-level done：`internal/ptyrelay/registry.go:50-57`、`internal/ptyrelay/registry.go:181-208`。如果 `Done(jobID)` 对 pending relay 返回 relay.Done，则没有 relay；如果返回永不关闭的 chan，host 在 worker dial 失败/从未拨入时只能等满 10s；如果对 finalized/missing 返回 nil chan，host 可能永久阻塞。最小修改：v0.3 明确定义并实现 registry-level done 语义，例如 `Prepare` 创建 entry-level done；`Open` 后 relay EOF/`Registry.Close` 都最终 close entry done；`Done(jobID)` 对 finalized/missing 返回已关闭 chan；对 pending（尚无 source、无字节可 drain）在 host 已决定收敛时不能强迫等待满 grace，至少要定义 "pending 无可排字节，Done 可立即闭合并由后续 Close 使 nonce/open 失败" 的行为。对应 e2e 必须覆盖 worker 从未拨入、dial 失败、nonce 消费后校验失败、relay 已先 finalized 后 host 再 Done 这四类。
+
+### 高
+
+1. **`StateStarting` 窗口会削弱 "pty ws 外部断连即终止"。**
+   v0.2 的 observer 在 `Run` 注册 session 后、`sess.run` 前触发（设计:54-66），真实状态也是 `newSession` 初始 starting：`internal/runner/pty/session.go:72-80`，到 `run` 才置 running：`internal/runner/pty/session.go:137-139`。若 pump 已 dial 成功但连接马上异常，按 "只有 `StateRunning` 才 Cancel" 的规则可能跳过 cancel，留下本地 pty 继续跑。最小修改二选一：把 `StateRunning` 迁移提前到 observer 触发前；或把断连 Cancel 判据改为 "非 selfClosing 且 state 不在 cancelling/exiting/closed 即 cancel"，即 starting/running 都视为需要终止。补一个人工断开 pty ws 于 observer 后、run running 前的单测/集成钩子。
+
+2. **unmapped cancel race 仍会让排队中的 interactive job 脱离 host cancel。**
+   真实 recvLoop 里 dispatch 是 goroutine，cancel 是 inline 控制帧：`internal/worker/client.go:310-324`；现有 `handleDispatch` 只有 Submit 返回后才 `putJobMapping`：`internal/worker/dispatch.go:40-44`。v0.2 虽然让 `waitSession` 等 job terminal/ctx，但没有处理 cancel frame 早于 mapping 的情况。host 取消后如果 worker 尚未完成 Submit/mapping，cancel 被丢弃；之后本地 job 仍可能排队、启动、observer 拨入失败或裸跑，host 侧则按 cancelled/grace 收敛并 deregister sink。最小修改：worker Client 增加 `pendingCancel[remoteJobID]`，cancel 未命中 mapping 时记录；`putJobMapping` 后立即消费并 `jobs.Cancel(localID)`，再进入 `waitSession`。这个修复最好同时覆盖非 interactive worker dispatch，避免远端取消竞态继续存在。
+
+3. **`hostCancelGrace` 不能承担 pending/dial-fail 的正常收敛路径。**
+   v0.2 拟 `hostCancelGrace≈10s`，约束覆盖 `PtySession.defaultGrace(5s)+RTT+serve drain`（设计:208-210），这作为异常兜底合理；但如果 pending relay 的 Done 语义不闭合，它会变成 worker 未拨入、dial 失败、旧 worker fail-fast 等常见失败路径的正常等待时间。这样 cancel 响应会被固定拉长到 10s，且与 stage/request timeout 的关系变脆。最小修改：先按阻断1 定义 pending/missing/finalized Done，使 10s 只用于 "worker/relay 卡死"；再在计划里明确 stage/request timeout 必须大于 `hostCancelGrace`，否则上层超时会抢先打断 drain 证明。
+
+### 中
+
+1. **D-P2-8 的锁外关 IO 范围需要覆盖 `Prepare` replacement，不只是 `Close`。**
+   当前 `Prepare` 替换同 job 旧 relay 时仍在 registry 锁内 close：`internal/ptyrelay/registry.go:75-80`。v0.2 只点名 `Registry.Close`（设计:96-97、108）。虽然 replacement 不是高频主路径，但它与 Close 使用同一个 `closeLocked`，实现者如果只改 `Close`，HOL 仍残留在重派/替换路径。
+
+2. **observer 注入时序需要写成实施验收项。**
+   当前 worker 命令先 `core.Build`，再创建 `Client`，再 `worker.Serve`：`internal/commands/worker.go:183-208`；`core.Build` 同时用于 serve/worker，并在 pty 可用时注册 `PtyRunner`：`internal/core/core.go:78-85`。v0.2 在文件清单里说 `commands/worker.go` 对 `cr.Runners["pty"]` 断言后 `SetObserver(cl)`（设计:116），方向可行；但 P2 plan 应写硬：必须在 `worker.Serve` 前注入，serve 侧 observer 恒 nil 以保留 discard drain，且用测试证明 worker 第一条 dispatch 前 observer 已生效。
+
+3. **interactive 的 `streamLocalJob` 策略仍未落定。**
+   如果继续调用 `streamLocalJob`，它对 pty output 没有主输出意义，只负责 interactions 轮询；如果拆成 `pumpInteractions`，`handleDispatch` 的 join 链更清楚。该选择目前仍在 §10 待确认（设计:239），但它影响 "发 Result 前 join pumpDone" 的实现位置和测试矩阵。
+
+## join 链核对
+
+v0.2 建议的主链无环，前提是 `OnSessionStart` 非阻塞且 `pumpPty` 不等待 `jobs.Wait`：
+
+```txt
+handleDispatch
+  -> Submit -> putJobMapping -> waitSession
+  -> start pumpPty goroutine
+  -> streamLocalJob / jobs.Wait
+       -> execute waits runner.Run
+       -> PtyRunner.Run waits sess.run
+       -> sess.run teardown closes master, then closes ps.done
+  -> join pumpDone
+       -> pumpDone waits sess.Read EOF / conn close; it does not block sess.run
+  -> send Outcome/Result
+```
+
+取消路径也无固有环：host cancel frame 调 `jobs.Cancel`，`Cancel` 只 cancel ctx 不等待：`internal/job/cancel.go:47-63`；`sess.run` 收 ctx 后 teardown；out pump 读 EOF 后关 pty ws；serve `recordLoop` EOF 后 `relay.Done`。真正需要补的是 unmapped cancel race 和 `Done(jobID)` pending 语义。
+
+## 收敛判定
+
+**需改到 v0.3，暂不能直接进入 P2 实施计划。**
+
+剩余数量：**阻断 1，高 3，中 3**。
+
+最小必要修改清单：
+
+1. 在设计中定死并测试 `relayPreparer.Done(jobID)` 对 open、pending、finalized、missing 的返回语义；pending/dial-fail 不能靠 10s grace 正常收敛。
+2. 修正 `SessionObserver` 与 `PtySession.StateRunning` 的时序/判据：starting 断连也必须 Cancel，或先置 running 再 observer。
+3. worker Client 增加 unmapped cancel pending 机制，保证 cancel 早于 `putJobMapping` 时不丢。
+4. D-P2-8 锁外关 IO 覆盖 `Prepare` replacement。
+5. 写定 interactive 是否保留 `streamLocalJob`，若保留仅作为 interactions bridge；pty output 不从 stdout/stderr log 回传。
+6. 把 observer 注入时序（Client 创建后、`worker.Serve` 前；serve nil 保留 discard）列入实施任务和测试。
