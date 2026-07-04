@@ -185,6 +185,36 @@ func TestUpsertGetChannelClientRoundTrip(t *testing.T) {
 	assert.Eq(t, "", got2.Client)
 }
 
+// TestUpsertGetInteractiveRoundTrip proves the WEB-03 interactive flag survives
+// INSERT/SELECT and defaults to false for ordinary jobs.
+func TestUpsertGetInteractiveRoundTrip(t *testing.T) {
+	s := openTest(t)
+
+	in := sampleJob("pty-1", "alpha", 1000)
+	in.Interactive = true
+	assert.NoErr(t, s.UpsertJob(in))
+
+	got, ok, err := s.GetJob("pty-1")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.True(t, got.Interactive)
+
+	plain := sampleJob("plain-1", "alpha", 1001)
+	assert.NoErr(t, s.UpsertJob(plain))
+	gotPlain, _, err := s.GetJob("plain-1")
+	assert.NoErr(t, err)
+	assert.False(t, gotPlain.Interactive)
+
+	list, err := s.ListJobs(ListQuery{Limit: 10})
+	assert.NoErr(t, err)
+	byID := map[string]JobRecord{}
+	for _, rec := range list {
+		byID[rec.ID] = rec
+	}
+	assert.True(t, byID["pty-1"].Interactive)
+	assert.False(t, byID["plain-1"].Interactive)
+}
+
 // TestUpsertGetOriginAgentRoundTrip proves the supervisor-routing owner columns
 // origin_agent / escalate_to round-trip through upsert+read, and absent values
 // COALESCE to "" (supervisor-routing P1.1).

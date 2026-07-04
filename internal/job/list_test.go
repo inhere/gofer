@@ -171,6 +171,62 @@ func TestListJobsSessionFilter(t *testing.T) {
 	}
 }
 
+// TestInteractiveRoundTripsThroughDB proves WEB-03 interactive survives Submit →
+// persist → Get/ListJobs on the DB read path after terminal eviction.
+func TestInteractiveRoundTripsThroughDB(t *testing.T) {
+	root := t.TempDir()
+	s := newWorkerTestService(t, root, &stubWorkerRunner{})
+	pty := &recordingRunner{name: builtinPtyRunner}
+	s.runners[builtinPtyRunner] = pty
+
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "term", Runner: "local",
+		Interactive: true, Cols: 120, Rows: 40,
+		Prompt: "hi", Cwd: ".", TimeoutSec: 30,
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("setup: expected done, got %s", final.Status)
+	}
+	if e := s.entry(final.ID); e != nil {
+		t.Fatalf("setup: expected job evicted after terminal")
+	}
+
+	got, ok := s.Get(final.ID)
+	if !ok {
+		t.Fatalf("Get(%s) not found", final.ID)
+	}
+	if !got.Interactive {
+		t.Fatalf("Get: interactive did not round-trip")
+	}
+
+	plain := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+	})
+	gotPlain, ok := s.Get(plain.ID)
+	if !ok {
+		t.Fatalf("Get(%s) not found", plain.ID)
+	}
+	if gotPlain.Interactive {
+		t.Fatalf("Get: non-interactive job returned interactive=true")
+	}
+
+	list, err := s.ListJobs(ListOpts{})
+	if err != nil {
+		t.Fatalf("ListJobs: %v", err)
+	}
+	byID := map[string]JobResult{}
+	for _, j := range list {
+		byID[j.ID] = j
+	}
+	if !byID[final.ID].Interactive {
+		t.Fatalf("ListJobs: interactive job did not round-trip")
+	}
+	if byID[plain.ID].Interactive {
+		t.Fatalf("ListJobs: non-interactive job returned interactive=true")
+	}
+}
+
 // TestListJobsRestartRecoversFromIndex runs jobs on serviceA (which upserts them
 // into the metadata db), then a fresh serviceB built over the SAME db file
 // (empty in-memory map) must still list the historical jobs from the DB.

@@ -226,6 +226,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			ProjectKey:  req.ProjectKey,
 			Agent:       req.Agent,
 			Runner:      req.Runner,
+			Interactive: req.Interactive,
 			Title:       req.Title,
 			WorkerID:    req.WorkerID,
 			Status:      StatusQueued,

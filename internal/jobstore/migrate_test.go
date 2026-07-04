@@ -72,7 +72,9 @@ func TestMigrateAddsColumnsToOldDB(t *testing.T) {
 
 	assert.True(t, tableHasColumn(t, s, "jobs", "caller_id"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "request_id"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "interactive"))
 	assert.True(t, indexExists(t, s, "idx_jobs_request_id"))
+	assert.NoErr(t, s.migrate()) // idempotent second pass: column already exists.
 	// 产出与审计（job-outcomes-audit）：旧库经 migrate 必须补全这 4 列。
 	assert.True(t, tableHasColumn(t, s, "jobs", "rendered_command"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "result_json"))
@@ -95,12 +97,14 @@ func TestMigrateAddsColumnsToOldDB(t *testing.T) {
 	rec := sampleJob("j1", "proj", 100)
 	rec.RequestID = "req-1"
 	rec.CallerID = "caller-a"
+	rec.Interactive = true
 	assert.NoErr(t, s.UpsertJob(rec))
 	got, ok, err := s.GetJobByRequestID("req-1")
 	assert.NoErr(t, err)
 	assert.True(t, ok)
 	assert.Eq(t, "j1", got.ID)
 	assert.Eq(t, "caller-a", got.CallerID)
+	assert.True(t, got.Interactive)
 
 	// 旧库里早先没有新列的 job 读出时新字段为空（回归不破）。
 	old := sampleJob("j-old", "proj", 50)
@@ -114,6 +118,7 @@ func TestMigrateAddsColumnsToOldDB(t *testing.T) {
 	assert.Eq(t, "", gotOld.DiffSummary)
 	assert.Eq(t, "", gotOld.TagsJSON)
 	assert.Eq(t, "", gotOld.SessionID)
+	assert.False(t, gotOld.Interactive)
 }
 
 // TestFreshOpenHasNewColumnsAndIndex asserts a brand-new database gets the new
@@ -122,6 +127,7 @@ func TestFreshOpenHasNewColumnsAndIndex(t *testing.T) {
 	s := openTest(t)
 	assert.True(t, tableHasColumn(t, s, "jobs", "caller_id"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "request_id"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "interactive"))
 	assert.True(t, indexExists(t, s, "idx_jobs_request_id"))
 	// 产出与审计（job-outcomes-audit）：新库一次建全这 4 列。
 	assert.True(t, tableHasColumn(t, s, "jobs", "rendered_command"))

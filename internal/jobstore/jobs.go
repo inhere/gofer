@@ -35,6 +35,7 @@ type JobRecord struct {
 	ProjectKey  string
 	Agent       string
 	Runner      string
+	Interactive bool
 	WorkerID    string // reserved for ws-worker; empty for local/peer jobs
 	Status      string
 	ExitCode    int
@@ -115,7 +116,7 @@ type ListQuery struct {
 // selectCols is the shared projection for GetJob/ListJobs. COALESCE guards the
 // nullable columns so a NULL (from any future writer) scans into the zero value
 // instead of failing the scan into a plain string/int64.
-const selectCols = `SELECT id, project_key, agent, runner, COALESCE(worker_id,''),
+const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,0), COALESCE(worker_id,''),
   status, exit_code, COALESCE(cwd,''), result_dir, COALESCE(request_json,''),
   COALESCE(error,''), started_at, COALESCE(ended_at,0), updated_at,
   COALESCE(caller_id,''), COALESCE(request_id,''),
@@ -136,8 +137,9 @@ type rowScanner interface {
 // scanJob reads one row (in selectCols order) into a JobRecord.
 func scanJob(sc rowScanner) (JobRecord, error) {
 	var r JobRecord
+	var interactive int
 	err := sc.Scan(
-		&r.ID, &r.ProjectKey, &r.Agent, &r.Runner, &r.WorkerID,
+		&r.ID, &r.ProjectKey, &r.Agent, &r.Runner, &interactive, &r.WorkerID,
 		&r.Status, &r.ExitCode, &r.Cwd, &r.ResultDir, &r.RequestJSON,
 		&r.Error, &r.StartedAt, &r.EndedAt, &r.UpdatedAt,
 		&r.CallerID, &r.RequestID,
@@ -147,6 +149,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.SessionID, &r.Channel, &r.Client,
 		&r.OriginAgent, &r.EscalateTo, &r.Role,
 	)
+	r.Interactive = interactive != 0
 	return r, err
 }
 
@@ -163,16 +166,17 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.UpdatedAt = rec.StartedAt
 	}
 	const q = `INSERT INTO jobs
-  (id, project_key, agent, runner, worker_id, status, exit_code, cwd, result_dir,
+  (id, project_key, agent, runner, interactive, worker_id, status, exit_code, cwd, result_dir,
    request_json, error, started_at, ended_at, updated_at, caller_id, request_id,
    rendered_command, result_json, artifacts_json, diff_summary, source, tags_json,
    workflow_id, step_index, attempt, fan_index, session_id, channel, client,
    origin_agent, escalate_to, role)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
     runner=excluded.runner,
+    interactive=excluded.interactive,
     worker_id=excluded.worker_id,
     status=excluded.status,
     exit_code=excluded.exit_code,
@@ -206,7 +210,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	_, err := s.db.Exec(q,
-		rec.ID, rec.ProjectKey, rec.Agent, rec.Runner, rec.WorkerID,
+		rec.ID, rec.ProjectKey, rec.Agent, rec.Runner, rec.Interactive, rec.WorkerID,
 		rec.Status, rec.ExitCode, rec.Cwd, rec.ResultDir, rec.RequestJSON,
 		rec.Error, rec.StartedAt, rec.EndedAt, rec.UpdatedAt,
 		rec.CallerID, rec.RequestID,

@@ -154,10 +154,11 @@ type JobRequest struct {
 
 // JobResult is the persisted/queryable job state (plan §6.2).
 type JobResult struct {
-	ID         string `json:"id"`
-	ProjectKey string `json:"project_key"`
-	Agent      string `json:"agent"`
-	Runner     string `json:"runner"`
+	ID          string `json:"id"`
+	ProjectKey  string `json:"project_key"`
+	Agent       string `json:"agent"`
+	Runner      string `json:"runner"`
+	Interactive bool   `json:"interactive,omitempty"`
 	// Title is the optional human-readable job name from the original JobRequest.
 	// The jobs table has no title column; it persists inside request_json and is
 	// recovered on the DB read path (fromRecord) so it round-trips, not just on
