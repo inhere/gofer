@@ -438,6 +438,82 @@ func TestRunInteractiveClosesRelayOnWorkerLostAndCancel(t *testing.T) {
 	})
 }
 
+// TestRunInteractiveDispatchCarriesPtySessionID (T1): an interactive Dispatch
+// echoes the host-minted ptySessionID (the same one Prepare/Issue bound), so the
+// worker can replay it in its pty-connect hello for the serve-side strong check.
+// A non-interactive Dispatch carries an empty PtySessionID.
+func TestRunInteractiveDispatchCarriesPtySessionID(t *testing.T) {
+	t.Run("interactive", func(t *testing.T) {
+		h := &fakeHub{instanceID: "inst-1"}
+		relays := &fakeRelayRegistry{}
+		r := newRunnerWithHub(h)
+		r.nonceStore = &fakeNonceStore{}
+		r.relayRegistry = relays
+
+		done := make(chan runner.Result, 1)
+		go func() {
+			done <- r.Run(context.Background(), runner.Request{
+				JobID:   "j1",
+				Forward: &runner.Forward{WorkerID: "w-selected", Interactive: true},
+			})
+		}()
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) && h.getSink() == nil {
+			time.Sleep(5 * time.Millisecond)
+		}
+		sink := h.getSink()
+		if sink == nil {
+			t.Fatal("sink never registered")
+		}
+		sink.Finish(wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("Run did not return after Finish")
+		}
+
+		d := h.dispatchedFrame()
+		if d.PtySessionID == "" {
+			t.Fatal("interactive Dispatch.PtySessionID is empty, want the host-minted id")
+		}
+		prepared, ok := relays.firstPrepared()
+		if !ok {
+			t.Fatal("registry Prepare was not called")
+		}
+		if d.PtySessionID != prepared.PtySessionID {
+			t.Fatalf("Dispatch.PtySessionID = %q, want == prepared binding %q", d.PtySessionID, prepared.PtySessionID)
+		}
+	})
+
+	t.Run("non_interactive", func(t *testing.T) {
+		h := &fakeHub{instanceID: "inst-1"}
+		r := newRunnerWithHub(h)
+		r.nonceStore = &fakeNonceStore{}
+		r.relayRegistry = &fakeRelayRegistry{}
+		done := make(chan runner.Result, 1)
+		go func() {
+			done <- r.Run(context.Background(), runner.Request{JobID: "j1", Forward: &runner.Forward{}})
+		}()
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) && h.getSink() == nil {
+			time.Sleep(5 * time.Millisecond)
+		}
+		sink := h.getSink()
+		if sink == nil {
+			t.Fatal("sink never registered")
+		}
+		sink.Finish(wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("Run did not return after Finish")
+		}
+		if got := h.dispatchedFrame().PtySessionID; got != "" {
+			t.Fatalf("non-interactive Dispatch.PtySessionID = %q, want empty", got)
+		}
+	})
+}
+
 func TestRunNonInteractiveDoesNotIssueRelayNonce(t *testing.T) {
 	h := &fakeHub{instanceID: "inst-1"}
 	nonces := &fakeNonceStore{}
