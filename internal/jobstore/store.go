@@ -62,6 +62,7 @@ var schemaStmts = []string{
   project_key  TEXT NOT NULL,
   agent        TEXT NOT NULL,
   runner       TEXT NOT NULL,
+  interactive  INTEGER NOT NULL DEFAULT 0,
   worker_id    TEXT,
   status       TEXT NOT NULL,
   exit_code    INTEGER NOT NULL DEFAULT 0,
@@ -318,6 +319,9 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := add("request_id", "request_id TEXT"); err != nil { // C5
+		return err
+	}
+	if err := add("interactive", "interactive INTEGER NOT NULL DEFAULT 0"); err != nil { // WEB-03 P1
 		return err
 	}
 	// 产出与审计（job-outcomes-audit）：4 列 additive 加入，旧库经 migrate 自动补全。
