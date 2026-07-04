@@ -26,13 +26,28 @@ const (
 // capability signal the job service keys on (it never calls pty.IsAvailable).
 func Available() bool { return pty.IsAvailable() }
 
+// SessionObserver is notified once, synchronously, right after a PtySession is
+// registered and BEFORE PtyRunner.Run blocks on the child — the observer then
+// becomes the SOLE reader of the session's pty output (design §11 / D-P2-3). The
+// implementation MUST be non-blocking (only hand off / start a goroutine
+// internally); a blocking OnSessionStart would stall PtyRunner.Run → job.execute.
+type SessionObserver interface {
+	OnSessionStart(jobID string, sess *PtySession)
+}
+
 // PtyRunner runs interactive jobs under a pty. It satisfies runner.Runner.
 type PtyRunner struct {
-	reg *registry
+	reg      *registry
+	observer SessionObserver // nil = serve/tests → keep the default discard drain
 }
 
 // New builds a PtyRunner with its own session registry.
 func New() *PtyRunner { return &PtyRunner{reg: newRegistry()} }
+
+// SetObserver injects the session observer. The worker command calls this before
+// worker.Serve so the worker's pty pump owns the output; the serve side never
+// calls it, so its observer stays nil and the default discard drain is kept.
+func (r *PtyRunner) SetObserver(o SessionObserver) { r.observer = o }
 
 // Name implements runner.Runner.
 func (r *PtyRunner) Name() string { return Name }
@@ -53,9 +68,17 @@ func (r *PtyRunner) Run(ctx context.Context, req runner.Request) runner.Result {
 	r.reg.add(req.JobID, sess)
 	defer r.reg.remove(req.JobID)
 
-	// Drain output so the pty's slave side never blocks on a full buffer. The
-	// spike discards it; P1 replaces this sink with the relay recorder.
-	go func() { _, _ = io.Copy(io.Discard, sess) }()
+	if r.observer != nil {
+		// worker: hand the SOLE reader ownership to the observer (it starts the pty
+		// ws pump). No discard here — a second reader would steal bytes (D-P2-3).
+		// OnSessionStart is a synchronous, non-blocking contract (see SessionObserver);
+		// Run does NOT spawn a fallback goroutine for a misbehaving observer.
+		r.observer.OnSessionStart(req.JobID, sess)
+	} else {
+		// serve / tests: keep the pty drained so the slave side never blocks on a
+		// full buffer (the P0 spike behaviour, preserved for G023 zero-change).
+		go func() { _, _ = io.Copy(io.Discard, sess) }()
+	}
 
 	code, runErr := sess.run(ctx)
 	return runner.Result{ExitCode: code, Err: runErr}
