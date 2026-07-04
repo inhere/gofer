@@ -28,6 +28,7 @@ func (s *Server) authMiddleware(c *rux.Context) {
 	if len(s.callers) == 0 {
 		if s.allowEmptyToken {
 			c.Set(ctxCallerID, "")
+			c.Set(ctxCallerKind, callerKindUser)
 			c.Next()
 			return
 		}
@@ -37,16 +38,18 @@ func (s *Server) authMiddleware(c *rux.Context) {
 	}
 
 	got, ok := bearerToken(c.Req.Header.Get("Authorization"))
-	caller, matched := "", false
+	var caller callerEntry
+	matched := false
 	if ok {
-		caller, matched = s.lookupCaller(got)
+		caller, matched = s.lookupCallerEntry(got)
 	}
 	if !matched {
 		writeError(c, http.StatusUnauthorized, "unauthorized", "missing or invalid bearer token")
 		c.Abort()
 		return
 	}
-	c.Set(ctxCallerID, caller)
+	c.Set(ctxCallerID, caller.id)
+	c.Set(ctxCallerKind, caller.kind)
 	c.Next()
 }
 
@@ -55,10 +58,15 @@ func (s *Server) authMiddleware(c *rux.Context) {
 // even after a match so the comparison cost does not leak which (or whether a)
 // token matched. The first match wins (see buildCallers ordering).
 func (s *Server) lookupCaller(token string) (string, bool) {
-	caller, matched := "", false
+	caller, matched := s.lookupCallerEntry(token)
+	return caller.id, matched
+}
+
+func (s *Server) lookupCallerEntry(token string) (callerEntry, bool) {
+	caller, matched := callerEntry{}, false
 	for _, ce := range s.callers {
 		if subtle.ConstantTimeCompare([]byte(token), []byte(ce.token)) == 1 && !matched {
-			caller, matched = ce.id, true
+			caller, matched = ce, true
 		}
 	}
 	return caller, matched

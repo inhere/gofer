@@ -168,6 +168,12 @@ func (r *fakeRelayRegistry) firstPrepared() (ptyrelay.RelayBinding, bool) {
 	return r.prepared[0], true
 }
 
+func (r *fakeRelayRegistry) closedSnapshot() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return append([]string(nil), r.closed...)
+}
+
 // newRunnerWithHub builds a Runner wired to a fake hub (bypasses New's concrete
 // *wshub.Hub requirement, exercising the same code path via the dispatcher
 // interface).
@@ -361,6 +367,75 @@ func TestRunInteractiveIssuesRelayNonceAndPreparesRegistry(t *testing.T) {
 	if prepared.WorkerID != "w-selected" || prepared.InstanceID != "inst-1" || prepared.JobID != "j1" || prepared.Nonce != "nonce-1" || prepared.PtySessionID == "" {
 		t.Fatalf("prepared binding = %+v", prepared)
 	}
+	if got := relays.closedSnapshot(); len(got) != 1 || got[0] != "j1:worker_result" {
+		t.Fatalf("relay close calls = %v, want [j1:worker_result]", got)
+	}
+}
+
+func TestRunInteractiveClosesRelayOnWorkerLostAndCancel(t *testing.T) {
+	t.Run("worker_lost", func(t *testing.T) {
+		h := &fakeHub{instanceID: "inst-1"}
+		relays := &fakeRelayRegistry{}
+		r := newRunnerWithHub(h)
+		r.nonceStore = &fakeNonceStore{}
+		r.relayRegistry = relays
+
+		done := make(chan runner.Result, 1)
+		go func() {
+			done <- r.Run(context.Background(), runner.Request{
+				JobID: "j1", Forward: &runner.Forward{WorkerID: "w1", Interactive: true},
+			})
+		}()
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) && h.getSink() == nil {
+			time.Sleep(5 * time.Millisecond)
+		}
+		sink := h.getSink()
+		if sink == nil {
+			t.Fatal("sink never registered")
+		}
+		sink.OnDisconnect(errors.New("worker disconnected"))
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("Run did not return on worker-lost")
+		}
+		if got := relays.closedSnapshot(); len(got) != 1 || got[0] != "j1:worker_lost" {
+			t.Fatalf("relay close calls = %v, want [j1:worker_lost]", got)
+		}
+	})
+
+	t.Run("cancelled", func(t *testing.T) {
+		h := &fakeHub{instanceID: "inst-1"}
+		relays := &fakeRelayRegistry{}
+		r := newRunnerWithHub(h)
+		r.nonceStore = &fakeNonceStore{}
+		r.relayRegistry = relays
+		ctx, cancel := context.WithCancel(context.Background())
+
+		done := make(chan runner.Result, 1)
+		go func() {
+			done <- r.Run(ctx, runner.Request{
+				JobID: "j1", Forward: &runner.Forward{WorkerID: "w1", Interactive: true},
+			})
+		}()
+		deadline := time.Now().Add(2 * time.Second)
+		for time.Now().Before(deadline) && h.getSink() == nil {
+			time.Sleep(5 * time.Millisecond)
+		}
+		if h.getSink() == nil {
+			t.Fatal("sink never registered")
+		}
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(2 * time.Second):
+			t.Fatal("Run did not return on cancel")
+		}
+		if got := relays.closedSnapshot(); len(got) != 1 || got[0] != "j1:cancelled" {
+			t.Fatalf("relay close calls = %v, want [j1:cancelled]", got)
+		}
+	})
 }
 
 func TestRunNonInteractiveDoesNotIssueRelayNonce(t *testing.T) {

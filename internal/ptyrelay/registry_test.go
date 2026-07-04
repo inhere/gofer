@@ -70,12 +70,11 @@ func TestRegistryPrepareOpenCloseIdempotent(t *testing.T) {
 
 	r.Close("j1", "done")
 	r.Close("j1", "again")
-	got, ok := r.Lookup("j1")
-	if !ok {
-		t.Fatal("Lookup after Close missing")
+	if got, ok := r.Lookup("j1"); ok {
+		t.Fatalf("Lookup after Close = %+v,true; want missing", got)
 	}
-	if got.State != RelayFinalized || got.CloseReason != "done" {
-		t.Fatalf("closed entry = %+v, want finalized/done", got)
+	if got, ok := r.LookupSession("p1"); ok {
+		t.Fatalf("LookupSession after Close = %+v,true; want missing", got)
 	}
 	if !src.isClosed() {
 		t.Fatal("Close did not close source")

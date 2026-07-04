@@ -129,6 +129,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	var relayPrepared bool
 	var relayNonce string
 	var ptySessionID string
+	relayCloseReason := "runner_returned"
 	if f.Interactive {
 		if r.nonceStore == nil || r.relayRegistry == nil {
 			return runner.Result{ExitCode: -1, Err: errors.New("worker runner: pty relay dependencies not configured")}
@@ -156,6 +157,11 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		})
 		relayPrepared = true
 	}
+	defer func() {
+		if relayPrepared {
+			r.relayRegistry.Close(req.JobID, relayCloseReason)
+		}
+	}()
 
 	sink := newBoundedSink(req.Stdout, req.Stderr)
 	// Wire the interaction bridge: an inbound interaction{open} is injected onto
@@ -173,9 +179,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 
 	// (a) sink-before-dispatch.
 	if err := r.hub.RegisterSink(workerID, req.JobID, sink); err != nil {
-		if relayPrepared {
-			r.relayRegistry.Close(req.JobID, "register_failed")
-		}
+		relayCloseReason = "register_failed"
 		return runner.Result{ExitCode: -1, Err: err} // worker offline
 	}
 	defer r.hub.DeregisterSink(workerID, req.JobID) // (e)
@@ -196,9 +200,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		RelayNonce:  relayNonce,
 	}
 	if err := r.hub.Dispatch(workerID, d); err != nil {
-		if relayPrepared {
-			r.relayRegistry.Close(req.JobID, "dispatch_failed")
-		}
+		relayCloseReason = "dispatch_failed"
 		return runner.Result{ExitCode: -1, Err: err}
 	}
 
@@ -206,6 +208,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	// disconnect (§5.3) or ctx end.
 	select {
 	case res := <-sink.resultCh:
+		relayCloseReason = "worker_result"
 		// P4: attach the worker-captured产出 (delivered just before this result via
 		// OnOutcome). Source marks it ran on this worker so the详情 can标注 it (大
 		// 产物文件留 worker 侧, only清单+小结果回传 — D6). nil when the worker is old
@@ -216,6 +219,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 			Outcome:  outcomeFrom(sink.takeOutcome(), workerID),
 		}
 	case err := <-sink.lostCh:
+		relayCloseReason = "worker_lost"
 		// WP3 worker-lost (§5.3): the hub dropped the worker connection while this
 		// job was in flight. Return a non-nil Err with NO ctx deadline/cancel, so
 		// classify (service.go) maps it to StatusFailed and the "worker disconnected"
@@ -223,6 +227,11 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// is gone. The deferred DeregisterSink frees the sink.
 		return runner.Result{ExitCode: -1, Err: err}
 	case <-ctx.Done():
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+			relayCloseReason = "ctx_timeout"
+		} else {
+			relayCloseReason = "cancelled"
+		}
 		// P2: a host cancel/timeout forwards a cancel frame to the worker (best-effort,
 		// same as peerhttp's r.c.CancelJob) so its local job tears down its child
 		// process; the job service still classifies timeout vs cancelled from ctx. We

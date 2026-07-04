@@ -1,6 +1,9 @@
 package ptyrelay
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
 
 func TestNonceStoreIssueConsumeOnce(t *testing.T) {
 	s := NewNonceStore()
@@ -29,5 +32,14 @@ func TestNonceStoreConsumeExpired(t *testing.T) {
 	}
 	if _, ok := s.Consume(nonce, 10); ok {
 		t.Fatal("expired nonce was not deleted")
+	}
+}
+
+func TestNonceStoreIssueSweepsExpired(t *testing.T) {
+	s := NewNonceStore()
+	_ = s.Issue(NonceBinding{WorkerID: "w1", Expiry: time.Now().Add(-time.Minute).Unix()})
+	_ = s.Issue(NonceBinding{WorkerID: "w1", Expiry: time.Now().Add(time.Minute).Unix()})
+	if len(s.entries) != 1 {
+		t.Fatalf("entries = %d, want 1 after opportunistic sweep", len(s.entries))
 	}
 }

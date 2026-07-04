@@ -7,25 +7,36 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/ptyrelay"
 )
 
 func addAttachTicketJob(t *testing.T, s *Server, id, caller string) {
 	t.Helper()
 	now := time.Now().Unix()
 	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{
-		ID:         id,
-		ProjectKey: "self",
-		Agent:      "exec",
-		Runner:     "local",
-		Status:     "running",
-		Cwd:        ".",
-		ResultDir:  t.TempDir(),
-		StartedAt:  now,
-		UpdatedAt:  now,
-		CallerID:   caller,
+		ID:          id,
+		ProjectKey:  "self",
+		Agent:       "exec",
+		Runner:      "local",
+		Interactive: true,
+		Status:      "running",
+		Cwd:         ".",
+		ResultDir:   t.TempDir(),
+		StartedAt:   now,
+		UpdatedAt:   now,
+		CallerID:    caller,
 	}); err != nil {
 		t.Fatalf("upsert job: %v", err)
 	}
+}
+
+func addAttachTicketLiveJob(t *testing.T, s *Server, id, caller string) {
+	t.Helper()
+	addAttachTicketJob(t, s, id, caller)
+	if s.ptyRelays == nil {
+		s.SetPtyRelay(ptyrelay.NewNonceStore(), ptyrelay.NewRegistry())
+	}
+	openAttachRelay(t, s.ptyRelays, id, newAttachFakeSource())
 }
 
 func postAttachTicket(t *testing.T, s *Server, id, token, mode string) (*http.Response, map[string]any) {
@@ -48,7 +59,7 @@ func TestAttachTicketCanAttachOwnJob(t *testing.T) {
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice", CanAttach: true}},
 	})
-	addAttachTicketJob(t, s, "job-own", "alice")
+	addAttachTicketLiveJob(t, s, "job-own", "alice")
 
 	resp, body := postAttachTicket(t, s, "job-own", "tok-alice", "read")
 	if resp.StatusCode != http.StatusOK {
@@ -58,8 +69,8 @@ func TestAttachTicketCanAttachOwnJob(t *testing.T) {
 		t.Fatalf("unexpected response body: %#v", body)
 	}
 	b, ok := s.attachTickets.Consume(body["ticket"].(string), time.Now().Unix())
-	if !ok || b.Caller != "alice" || b.JobID != "job-own" || b.Mode != "read" {
-		t.Fatalf("ticket binding = (%+v,%v), want alice/job-own/read true", b, ok)
+	if !ok || b.Caller != "alice" || b.JobID != "job-own" || b.Mode != "read" || b.PtySessionID != "pty-job-own" {
+		t.Fatalf("ticket binding = (%+v,%v), want alice/job-own/pty-job-own/read true", b, ok)
 	}
 }
 
@@ -86,7 +97,7 @@ func TestAttachTicketRejectsOtherCallerJob(t *testing.T) {
 			{ID: "bob", Token: "tok-bob"},
 		},
 	})
-	addAttachTicketJob(t, s, "job-alice", "alice")
+	addAttachTicketLiveJob(t, s, "job-alice", "alice")
 
 	resp, _ := postAttachTicket(t, s, "job-alice", "tok-bob", "")
 	if resp.StatusCode != http.StatusForbidden {
@@ -101,7 +112,7 @@ func TestAttachTicketAdminCanAttachOtherCallerJob(t *testing.T) {
 			{ID: "admin", Token: "tok-admin", CanAdmin: true},
 		},
 	})
-	addAttachTicketJob(t, s, "job-alice", "alice")
+	addAttachTicketLiveJob(t, s, "job-alice", "alice")
 
 	resp, body := postAttachTicket(t, s, "job-alice", "tok-admin", "")
 	if resp.StatusCode != http.StatusOK {
@@ -119,7 +130,7 @@ func TestAttachTicketLegacyEmptyCallerJobRequiresAdmin(t *testing.T) {
 			{ID: "admin", Token: "tok-admin", CanAdmin: true},
 		},
 	})
-	addAttachTicketJob(t, s, "job-legacy", "")
+	addAttachTicketLiveJob(t, s, "job-legacy", "")
 
 	resp, _ := postAttachTicket(t, s, "job-legacy", "tok-alice", "")
 	if resp.StatusCode != http.StatusForbidden {
@@ -131,6 +142,55 @@ func TestAttachTicketLegacyEmptyCallerJobRequiresAdmin(t *testing.T) {
 	}
 	if body["ticket"] == "" {
 		t.Fatalf("missing ticket in body: %#v", body)
+	}
+}
+
+func TestAttachTicketRejectsNonInteractiveTerminalAndMissingRelay(t *testing.T) {
+	s := newTestServerCfg(t, config.ServerConfig{
+		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice", CanAttach: true}},
+	})
+	addAttachTicketJob(t, s, "job-no-relay", "alice")
+	resp, _ := postAttachTicket(t, s, "job-no-relay", "tok-alice", "")
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("missing relay status=%d, want 409", resp.StatusCode)
+	}
+
+	now := time.Now().Unix()
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{
+		ID: "job-noninteractive", ProjectKey: "self", Agent: "exec", Runner: "local",
+		Status: "running", Cwd: ".", ResultDir: t.TempDir(), StartedAt: now, UpdatedAt: now, CallerID: "alice",
+	}); err != nil {
+		t.Fatalf("upsert noninteractive job: %v", err)
+	}
+	resp, _ = postAttachTicket(t, s, "job-noninteractive", "tok-alice", "")
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("noninteractive status=%d, want 409", resp.StatusCode)
+	}
+
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{
+		ID: "job-done", ProjectKey: "self", Agent: "exec", Runner: "local", Interactive: true,
+		Status: "done", Cwd: ".", ResultDir: t.TempDir(), StartedAt: now, EndedAt: now, UpdatedAt: now, CallerID: "alice",
+	}); err != nil {
+		t.Fatalf("upsert done job: %v", err)
+	}
+	resp, _ = postAttachTicket(t, s, "job-done", "tok-alice", "")
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("terminal status=%d, want 409", resp.StatusCode)
+	}
+}
+
+func TestAttachTicketRejectsWorkerToken(t *testing.T) {
+	s := newTestServerCfg(t, config.ServerConfig{
+		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice", CanAttach: true}},
+		Workers: map[string]config.WorkerAuthConfig{
+			"w1": {Token: "tok-worker"},
+		},
+	})
+	addAttachTicketLiveJob(t, s, "job-own", "alice")
+
+	resp, _ := postAttachTicket(t, s, "job-own", "tok-worker", "")
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("status=%d, want 403", resp.StatusCode)
 	}
 }
 
@@ -147,6 +207,15 @@ func TestAttachTicketStoreConsumeOnceAndExpiry(t *testing.T) {
 	expired := store.Issue(AttachTicketBinding{Caller: "alice", JobID: "job-2", Expiry: 100})
 	if _, ok := store.Consume(expired, 101); ok {
 		t.Fatal("expired consume ok, want false")
+	}
+}
+
+func TestAttachTicketStoreIssueSweepsExpired(t *testing.T) {
+	store := NewAttachTicketStore()
+	_ = store.Issue(AttachTicketBinding{Caller: "alice", JobID: "old", Expiry: time.Now().Add(-time.Minute).Unix()})
+	_ = store.Issue(AttachTicketBinding{Caller: "alice", JobID: "new", Expiry: time.Now().Add(time.Minute).Unix()})
+	if len(store.entries) != 1 {
+		t.Fatalf("entries = %d, want 1 after opportunistic sweep", len(store.entries))
 	}
 }
 

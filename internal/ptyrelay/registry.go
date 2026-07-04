@@ -204,7 +204,7 @@ func (r *Registry) closeLocked(e *RelayEntry, reason string) {
 	e.State = RelayFinalized
 	e.ClosedAt = r.now()
 	e.CloseReason = reason
-	delete(r.byNonce, e.Binding.Nonce)
+	r.removeIndexesLocked(e)
 }
 
 func (r *Registry) removeIndexesLocked(e *RelayEntry) {

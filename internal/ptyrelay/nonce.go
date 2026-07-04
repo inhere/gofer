@@ -4,6 +4,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"sync"
+	"time"
 )
 
 // NonceBinding is the serve-side binding encoded by an issued relay nonce. The
@@ -35,6 +36,7 @@ func (s *NonceStore) Issue(b NonceBinding) string {
 	}
 	nonce := randomNonce()
 	s.mu.Lock()
+	s.sweepExpiredLocked(time.Now().Unix())
 	for {
 		if _, exists := s.entries[nonce]; !exists {
 			s.entries[nonce] = b
@@ -63,6 +65,14 @@ func (s *NonceStore) Consume(nonce string, nowUnix int64) (NonceBinding, bool) {
 		return NonceBinding{}, false
 	}
 	return b, true
+}
+
+func (s *NonceStore) sweepExpiredLocked(nowUnix int64) {
+	for nonce, b := range s.entries {
+		if b.Expiry < nowUnix {
+			delete(s.entries, nonce)
+		}
+	}
 }
 
 func randomNonce() string {

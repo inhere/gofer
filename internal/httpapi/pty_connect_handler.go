@@ -8,6 +8,8 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"github.com/gookit/rux/v2"
+
+	"github.com/inhere/gofer/internal/job"
 )
 
 const (
@@ -67,6 +69,17 @@ func (s *Server) handlePtyConnect(c *rux.Context) {
 	}
 	if binding.JobID != hello.JobID || binding.PtySessionID != hello.PtySessionID {
 		closeWS(ptyCloseNotFound, "relay binding mismatch")
+		return
+	}
+	if s.jobs == nil {
+		s.ptyRelays.Close(binding.JobID, "job_not_live")
+		closeWS(ptyCloseNotFound, "job not live")
+		return
+	}
+	res, ok := s.jobs.Get(binding.JobID)
+	if !ok || !res.Interactive || job.IsTerminal(res.Status) {
+		s.ptyRelays.Close(binding.JobID, "job_not_live")
+		closeWS(ptyCloseNotFound, "job not live")
 		return
 	}
 

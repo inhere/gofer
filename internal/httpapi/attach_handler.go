@@ -18,6 +18,10 @@ import (
 const (
 	attachCloseInvalidTicket = websocket.StatusCode(4401)
 	attachCloseNotFound      = websocket.StatusCode(4404)
+	attachResizeMinCols      = 1
+	attachResizeMaxCols      = 500
+	attachResizeMinRows      = 1
+	attachResizeMaxRows      = 200
 )
 
 type attachClientFrame struct {
@@ -73,6 +77,10 @@ func (s *Server) handleJobAttach(c *rux.Context) {
 	entry, ok := s.ptyRelays.Lookup(binding.JobID)
 	if !ok || entry.Relay == nil || (entry.State != ptyrelay.RelayOpen && entry.State != ptyrelay.RelayAttached) {
 		closeWS(attachCloseNotFound, "relay not open")
+		return
+	}
+	if binding.PtySessionID == "" || binding.PtySessionID != entry.Binding.PtySessionID {
+		closeWS(attachCloseNotFound, "relay binding mismatch")
 		return
 	}
 	entry, err = s.ptyRelays.MarkAttached(binding.JobID)
@@ -157,7 +165,8 @@ func (s *Server) readAttachFrames(ctx context.Context, conn *websocket.Conn, vie
 			}
 			_ = viewer.SendInput(input)
 		case "r":
-			if frame.Cols > 0 && frame.Rows > 0 {
+			if frame.Cols >= attachResizeMinCols && frame.Cols <= attachResizeMaxCols &&
+				frame.Rows >= attachResizeMinRows && frame.Rows <= attachResizeMaxRows {
 				_ = relay.Resize(frame.Cols, frame.Rows)
 			}
 		default:
