@@ -102,6 +102,24 @@ type Client struct {
 	jobMu  sync.Mutex
 	jobMap map[string]string
 
+	// sessMu guards the interactive-session rendezvous + pendingCancel state below
+	// (D-P2-3 / D-P2-9). The PtyRunner observer callback (OnSessionStart) and the
+	// per-dispatch handleDispatch goroutine (waitSession) meet here.
+	sessMu sync.Mutex
+	// sessReady buffers a started session when OnSessionStart fires BEFORE
+	// handleDispatch calls waitSession (localID → sess). sessWaiters parks a waiter
+	// chan when waitSession runs FIRST; whichever arrives second delivers the sess.
+	// Either ordering is safe (rendezvous).
+	sessReady   map[string]*ptyrunner.PtySession
+	sessWaiters map[string]chan *ptyrunner.PtySession
+	// pendingCancel holds hub job_ids whose cancel frame arrived BEFORE the local
+	// job mapping existed (D-P2-9). handleDispatch consumes it after putJobMapping
+	// (and on its exit path) so an early cancel is not lost. pendingOrder tracks
+	// insertion order for the soft-cap sweep (stale entries for jobs this worker was
+	// never dispatched).
+	pendingCancel map[string]struct{}
+	pendingOrder  []string
+
 	// pollInterval is how often streamLocalJob tails the local log files. Var per
 	// instance so tests can speed it up.
 	pollInterval time.Duration
@@ -145,20 +163,23 @@ func New(cfg Config, jobs Jobs) *Client {
 		read = 3 * ping
 	}
 	return &Client{
-		workerID:     cfg.WorkerID,
-		instanceID:   newInstanceID(),
-		urls:         cfg.URLs,
-		token:        cfg.Token,
-		labels:       cfg.Labels,
-		projects:     cfg.Projects,
-		agents:       cfg.Agents,
-		maxConc:      cfg.MaxConc,
-		backoff:      newBackoffPolicy(cfg.InitialBackoff, cfg.MaxBackoff, cfg.Rng),
-		pingInterval: ping,
-		readDeadline: read,
-		jobs:         jobs,
-		jobMap:       map[string]string{},
-		pollInterval: 200 * time.Millisecond,
+		workerID:      cfg.WorkerID,
+		instanceID:    newInstanceID(),
+		urls:          cfg.URLs,
+		token:         cfg.Token,
+		labels:        cfg.Labels,
+		projects:      cfg.Projects,
+		agents:        cfg.Agents,
+		maxConc:       cfg.MaxConc,
+		backoff:       newBackoffPolicy(cfg.InitialBackoff, cfg.MaxBackoff, cfg.Rng),
+		pingInterval:  ping,
+		readDeadline:  read,
+		jobs:          jobs,
+		jobMap:        map[string]string{},
+		sessReady:     map[string]*ptyrunner.PtySession{},
+		sessWaiters:   map[string]chan *ptyrunner.PtySession{},
+		pendingCancel: map[string]struct{}{},
+		pollInterval:  200 * time.Millisecond,
 	}
 }
 
@@ -182,6 +203,123 @@ func (cl *Client) dropJobMapping(remoteID string) {
 	cl.jobMu.Lock()
 	delete(cl.jobMap, remoteID)
 	cl.jobMu.Unlock()
+}
+
+// The worker Client is the pty session observer on the worker side (wired by the
+// worker command via PtyRunner.SetObserver; the serve side never sets it → nil).
+var _ ptyrunner.SessionObserver = (*Client)(nil)
+
+// OnSessionStart implements ptyrunner.SessionObserver: the PtyRunner calls it
+// (synchronously, once) right after a pty session starts, handing us SOLE-reader
+// ownership. It MUST NOT block (SessionObserver contract) — it only delivers the
+// session to a parked waiter or buffers it for a waiter that has not arrived yet
+// (the pump itself is started later by handleDispatch, T5). localID is the
+// worker's LOCAL job id (= the id waitSession keys on).
+func (cl *Client) OnSessionStart(localID string, sess *ptyrunner.PtySession) {
+	cl.sessMu.Lock()
+	if ch := cl.sessWaiters[localID]; ch != nil {
+		// waitSession arrived first: hand off directly (ch is buffered, never blocks).
+		delete(cl.sessWaiters, localID)
+		cl.sessMu.Unlock()
+		ch <- sess
+		return
+	}
+	// observer arrived first: buffer for the waiter that will call waitSession next.
+	cl.sessReady[localID] = sess
+	cl.sessMu.Unlock()
+}
+
+// waitSession blocks until the interactive session for localID starts (returning
+// it) or the wait is abandoned (returning nil). It resolves immediately if the
+// observer already buffered the session; otherwise it parks a waiter and wakes on
+// one of three signals: the session starting, the local job reaching a terminal
+// state (jobs.Wait — e.g. a pre-pty submit failure or an early cancel), or ctx
+// cancellation (the dispatch is being torn down). On a nil return the waiter is
+// cleaned up so a late OnSessionStart does not leak.
+func (cl *Client) waitSession(ctx context.Context, localID string) *ptyrunner.PtySession {
+	cl.sessMu.Lock()
+	if s := cl.sessReady[localID]; s != nil {
+		delete(cl.sessReady, localID)
+		cl.sessMu.Unlock()
+		return s
+	}
+	ch := make(chan *ptyrunner.PtySession, 1)
+	cl.sessWaiters[localID] = ch
+	cl.sessMu.Unlock()
+
+	// jobs.Wait returns once the local job is terminal; closing term wakes us so a
+	// job that ended before its pty ever started does not hang the dispatch.
+	term := make(chan struct{})
+	go func() { cl.jobs.Wait(localID); close(term) }()
+
+	select {
+	case s := <-ch:
+		return s
+	case <-term:
+		cl.clearWaiter(localID)
+		return nil
+	case <-ctx.Done():
+		cl.clearWaiter(localID)
+		return nil
+	}
+}
+
+// clearWaiter removes a parked waiter (and any late-buffered session) for localID
+// when waitSession gave up. Both deletes are no-ops if OnSessionStart already
+// consumed the waiter, so this is safe to call unconditionally on the nil path.
+func (cl *Client) clearWaiter(localID string) {
+	cl.sessMu.Lock()
+	delete(cl.sessWaiters, localID)
+	delete(cl.sessReady, localID)
+	cl.sessMu.Unlock()
+}
+
+// pendingCancelCap soft-bounds the pendingCancel map: a cancel for a job this
+// worker was never dispatched (nothing ever consumes it) would otherwise linger.
+// The sweep in recordPendingCancel evicts the oldest ids past this cap.
+const pendingCancelCap = 256
+
+// recordPendingCancel notes that a cancel frame for hub job_id remoteID arrived
+// before the local mapping existed (recvLoop cancel branch, D-P2-9). It is later
+// consumed by takePendingCancel. A soft-cap sweep evicts the oldest ids so a
+// stream of cancels for never-dispatched jobs cannot grow the map unboundedly.
+func (cl *Client) recordPendingCancel(remoteID string) {
+	cl.sessMu.Lock()
+	if _, dup := cl.pendingCancel[remoteID]; !dup {
+		cl.pendingCancel[remoteID] = struct{}{}
+		cl.pendingOrder = append(cl.pendingOrder, remoteID)
+	}
+	// Evict oldest still-present ids while over the cap (ids already taken are
+	// skipped by the delete no-op, so the loop pops until enough live ids are gone).
+	for len(cl.pendingCancel) > pendingCancelCap && len(cl.pendingOrder) > 0 {
+		oldest := cl.pendingOrder[0]
+		cl.pendingOrder = cl.pendingOrder[1:]
+		delete(cl.pendingCancel, oldest)
+	}
+	// Compact pendingOrder when it accumulates taken (stale) ids without ever
+	// tripping the cap sweep, keeping only ids still live and preserving order.
+	if len(cl.pendingOrder) > 2*pendingCancelCap {
+		kept := cl.pendingOrder[:0]
+		for _, id := range cl.pendingOrder {
+			if _, ok := cl.pendingCancel[id]; ok {
+				kept = append(kept, id)
+			}
+		}
+		cl.pendingOrder = kept
+	}
+	cl.sessMu.Unlock()
+}
+
+// takePendingCancel reports whether a cancel for remoteID was recorded before the
+// mapping existed, consuming the record (D-P2-9). handleDispatch calls it after
+// putJobMapping (to cancel the freshly-submitted local job) and on its exit path
+// (to clear any stale record for a dispatch that never mapped).
+func (cl *Client) takePendingCancel(remoteID string) bool {
+	cl.sessMu.Lock()
+	_, ok := cl.pendingCancel[remoteID]
+	delete(cl.pendingCancel, remoteID)
+	cl.sessMu.Unlock()
+	return ok
 }
 
 // Run is the worker's reconnect supervisor (C7, §5.2): it repeatedly dials a hub
@@ -287,7 +425,7 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 	defer close(done)
 	cl.startHeartbeat(ctx, done)
 
-	err = cl.recvLoop(ctx)
+	err = cl.recvLoop(ctx, url)
 	cl.notify("disconnected")
 	slog.Info("worker disconnected from hub", "worker_id", cl.workerID, "err", err)
 	return true, err
@@ -298,7 +436,10 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 // dispatch is handled in its own goroutine so the worker runs multiple jobs
 // concurrently; control frames (cancel/answer/ping) are handled inline. It
 // returns the error that ended the connection (disconnect / read-deadline / ctx).
-func (cl *Client) recvLoop(ctx context.Context) error {
+// url is THIS session's hub address; it is threaded to handleDispatch so an
+// interactive dispatch derives its pty-connect URL from the same hub it arrived
+// on (D-P2-7 per-dispatch URL).
+func (cl *Client) recvLoop(ctx context.Context, url string) error {
 	for {
 		rctx, cancel := context.WithTimeout(ctx, cl.readDeadline)
 		env, err := cl.readEnvelope(rctx)
@@ -312,7 +453,7 @@ func (cl *Client) recvLoop(ctx context.Context) error {
 			if derr != nil {
 				continue
 			}
-			go cl.handleDispatch(ctx, d)
+			go cl.handleDispatch(ctx, url, d)
 		case wsproto.TypeCancel:
 			// P2: cancel the matching local job. job.Service.Cancel is a stable no-op
 			// for a terminal/unknown local job, so an unmapped/late cancel is safe.
@@ -322,6 +463,11 @@ func (cl *Client) recvLoop(ctx context.Context) error {
 			}
 			if localID := cl.localJobID(cf.JobID); localID != "" {
 				_ = cl.jobs.Cancel(localID)
+			} else {
+				// D-P2-9: the cancel raced ahead of putJobMapping (or targets a
+				// not-yet-dispatched job). Record it so handleDispatch cancels the
+				// local job as soon as the mapping is established.
+				cl.recordPendingCancel(cf.JobID)
 			}
 		case wsproto.TypeAnswer:
 			// P2: deliver the hub answer to the local job so it resumes. The
