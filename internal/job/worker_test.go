@@ -169,6 +169,8 @@ func TestSubmitInteractiveRunnerSelectionLocalVsWorker(t *testing.T) {
 		final := submitAndWait(t, s, JobRequest{
 			ProjectKey: "self", Agent: "exec", Runner: "remote-w1", WorkerID: "w1",
 			Interactive: true,
+			Cols:        120,
+			Rows:        40,
 			Cmd:         []string{"echo", "hi"}, Cwd: ".", TimeoutSec: 30,
 		})
 		if final.Status != StatusDone {
@@ -176,6 +178,9 @@ func TestSubmitInteractiveRunnerSelectionLocalVsWorker(t *testing.T) {
 		}
 		if stub.gotForward == nil {
 			t.Fatal("worker runner got nil Forward; interactive remote should stay on worker runner")
+		}
+		if !stub.gotForward.Interactive || stub.gotForward.Cols != 120 || stub.gotForward.Rows != 40 {
+			t.Fatalf("Forward interactive size = (%v,%d,%d), want (true,120,40)", stub.gotForward.Interactive, stub.gotForward.Cols, stub.gotForward.Rows)
 		}
 		if len(pty.reqs) != 0 {
 			t.Fatalf("pty runner was called for remote interactive job: %+v", pty.reqs)
@@ -190,6 +195,8 @@ func TestSubmitInteractiveRunnerSelectionLocalVsWorker(t *testing.T) {
 		final := submitAndWait(t, s, JobRequest{
 			ProjectKey: "self", Agent: "exec", Runner: "local",
 			Interactive: true,
+			Cols:        132,
+			Rows:        43,
 			Cmd:         []string{"echo", "hi"}, Cwd: ".", TimeoutSec: 30,
 		})
 		if final.Status != StatusDone {
@@ -200,6 +207,9 @@ func TestSubmitInteractiveRunnerSelectionLocalVsWorker(t *testing.T) {
 		}
 		if pty.reqs[0].Forward != nil {
 			t.Fatalf("local pty runner got Forward: %+v", pty.reqs[0].Forward)
+		}
+		if !pty.reqs[0].Interactive || pty.reqs[0].Cols != 132 || pty.reqs[0].Rows != 43 {
+			t.Fatalf("runner.Request interactive size = (%v,%d,%d), want (true,132,43)", pty.reqs[0].Interactive, pty.reqs[0].Cols, pty.reqs[0].Rows)
 		}
 	})
 }
