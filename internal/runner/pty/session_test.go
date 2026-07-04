@@ -5,6 +5,9 @@ package ptyrunner
 import (
 	"context"
 	"io"
+	"os"
+	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -177,6 +180,63 @@ func TestRunnerRunAndRegistry(t *testing.T) {
 		_, ok := r.Sessions().Lookup("j1")
 		return !ok
 	})
+}
+
+func TestRunnerRunInitialSize(t *testing.T) {
+	if !Available() {
+		t.Skip("pty backend not available")
+	}
+	r := New()
+	dir := t.TempDir()
+
+	cases := []struct {
+		name string
+		req  runner.Request
+		want string
+	}{
+		{
+			name: "custom",
+			req: runner.Request{
+				JobID:       "size-custom",
+				WorkDir:     dir,
+				Command:     "sh",
+				Args:        []string{"-c", "stty size > custom.size"},
+				Interactive: true,
+				Cols:        120,
+				Rows:        40,
+			},
+			want: "40 120",
+		},
+		{
+			name: "default",
+			req: runner.Request{
+				JobID:       "size-default",
+				WorkDir:     dir,
+				Command:     "sh",
+				Args:        []string{"-c", "stty size > default.size"},
+				Interactive: true,
+			},
+			want: "24 80",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res := r.Run(context.Background(), tc.req)
+			if res.Err != nil {
+				t.Fatalf("Run err: %v", res.Err)
+			}
+			if res.ExitCode != 0 {
+				t.Fatalf("Run exit = %d, want 0", res.ExitCode)
+			}
+			got, err := os.ReadFile(filepath.Join(dir, tc.name+".size"))
+			if err != nil {
+				t.Fatalf("read stty output: %v", err)
+			}
+			if strings.TrimSpace(string(got)) != tc.want {
+				t.Fatalf("stty size = %q, want %q", strings.TrimSpace(string(got)), tc.want)
+			}
+		})
+	}
 }
 
 // --- helpers ---

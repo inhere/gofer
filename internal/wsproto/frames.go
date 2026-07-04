@@ -33,14 +33,18 @@ type Registered struct {
 // "local" (the worker executes locally with its own config). worker_id is NOT
 // carried — the worker already knows it is itself.
 type Dispatch struct {
-	JobID      string   `json:"job_id"`
-	ProjectKey string   `json:"project_key"`
-	Agent      string   `json:"agent"`
-	Runner     string   `json:"runner"`
-	Prompt     string   `json:"prompt,omitempty"`
-	Cmd        []string `json:"cmd,omitempty"`
-	Cwd        string   `json:"cwd,omitempty"`
-	TimeoutSec int      `json:"timeout_sec,omitempty"`
+	JobID       string   `json:"job_id"`
+	ProjectKey  string   `json:"project_key"`
+	Agent       string   `json:"agent"`
+	Runner      string   `json:"runner"`
+	Prompt      string   `json:"prompt,omitempty"`
+	Cmd         []string `json:"cmd,omitempty"`
+	Cwd         string   `json:"cwd,omitempty"`
+	TimeoutSec  int      `json:"timeout_sec,omitempty"`
+	Interactive bool     `json:"interactive,omitempty"`
+	Cols        int      `json:"cols,omitempty"`
+	Rows        int      `json:"rows,omitempty"`
+	RelayNonce  string   `json:"relay_nonce,omitempty"`
 }
 
 // Log (w→s, P1): an incremental log frame. Seq is monotonic per job (the same

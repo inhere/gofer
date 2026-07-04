@@ -132,15 +132,21 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// and leave Command/Args/WorkDir unset; local jobs resolve the executable form
 	// (exec uses req.Cmd; cli-agent renders the prompt with cwd/job_id/result_dir).
 	runReq := runner.Request{JobID: jobID, WorkDir: workDir}
+	runReq.Interactive = req.Interactive
+	runReq.Cols = req.Cols
+	runReq.Rows = req.Rows
 	if remote {
 		runReq.Forward = &runner.Forward{
-			ProjectKey: req.ProjectKey,
-			Agent:      req.Agent,
-			PeerRunner: builtinLocalRunner,
-			Prompt:     req.Prompt,
-			Cmd:        req.Cmd,
-			Cwd:        req.Cwd,
-			TimeoutSec: req.TimeoutSec,
+			ProjectKey:  req.ProjectKey,
+			Agent:       req.Agent,
+			PeerRunner:  builtinLocalRunner,
+			Prompt:      req.Prompt,
+			Cmd:         req.Cmd,
+			Cwd:         req.Cwd,
+			TimeoutSec:  req.TimeoutSec,
+			Interactive: req.Interactive,
+			Cols:        req.Cols,
+			Rows:        req.Rows,
 			// P2: the resolved target worker (explicit req.WorkerID or label-selected
 			// in selectTargetWorker). Empty for peer-http and for worker jobs relying
 			// on the runner's configured default (D4).

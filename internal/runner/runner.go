@@ -44,6 +44,12 @@ type Request struct {
 	Stdout  io.Writer         // child stdout sink / mirrored remote stdout (see type doc)
 	Stderr  io.Writer         // child stderr sink / mirrored remote stderr (see type doc)
 
+	// Interactive requests a pty-backed run. Cols/Rows are the initial terminal
+	// size in character cells; zero values let the runner apply its defaults.
+	Interactive bool
+	Cols        int
+	Rows        int
+
 	// Forward carries the original (pre-resolution) request a remote runner
 	// re-submits to a peer bridge. Nil for local jobs.
 	Forward *Forward
@@ -84,13 +90,16 @@ type InteractionSink interface {
 // re-submit to a peer bridge (peer resolves agent/cwd/command with its own
 // config). Nil for local jobs; the local runner ignores it.
 type Forward struct {
-	ProjectKey string
-	Agent      string
-	PeerRunner string // runner to use on the peer; default "local"
-	Prompt     string
-	Cmd        []string
-	Cwd        string // ORIGINAL relative cwd; peer SafeJoins against ITS project
-	TimeoutSec int
+	ProjectKey  string
+	Agent       string
+	PeerRunner  string // runner to use on the peer; default "local"
+	Prompt      string
+	Cmd         []string
+	Cwd         string // ORIGINAL relative cwd; peer SafeJoins against ITS project
+	TimeoutSec  int
+	Interactive bool
+	Cols        int
+	Rows        int
 	// WorkerID is the resolved target worker for a runner=worker job (P2 dynamic
 	// routing): the explicit req.WorkerID or the one auto-selected from labels.
 	// Empty for peer-http forwards and for worker jobs that rely on the runner's

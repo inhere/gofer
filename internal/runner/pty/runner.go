@@ -15,9 +15,7 @@ import (
 // job package can select it by key without importing this package (G024).
 const Name = "pty"
 
-// default initial terminal size when the request carries none (runner.Request
-// has no cols/rows yet — see the spike report's "design gap": threading
-// JobRequest.Cols/Rows to the runner needs a runner.Request field).
+// default initial terminal size when the request carries none.
 const (
 	defaultCols = 80
 	defaultRows = 24
@@ -65,13 +63,20 @@ func (r *PtyRunner) Run(ctx context.Context, req runner.Request) runner.Result {
 
 // start builds the pty Spec from the runner.Request and starts the pty.
 func (r *PtyRunner) start(req runner.Request) (*PtySession, error) {
+	cols, rows := req.Cols, req.Rows
+	if cols <= 0 {
+		cols = defaultCols
+	}
+	if rows <= 0 {
+		rows = defaultRows
+	}
 	p, err := pty.Start(pty.Spec{
 		Command: req.Command,
 		Args:    req.Args,
 		Env:     mergedEnv(req.Env),
 		Dir:     req.WorkDir,
-		Cols:    defaultCols,
-		Rows:    defaultRows,
+		Cols:    cols,
+		Rows:    rows,
 	})
 	if err != nil {
 		return nil, err

@@ -115,14 +115,17 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 
 	// (b) dispatch (runner is always local on the worker side).
 	d := wsproto.Dispatch{
-		JobID:      req.JobID,
-		ProjectKey: f.ProjectKey,
-		Agent:      f.Agent,
-		Runner:     "local",
-		Prompt:     f.Prompt,
-		Cmd:        f.Cmd,
-		Cwd:        f.Cwd,
-		TimeoutSec: f.TimeoutSec,
+		JobID:       req.JobID,
+		ProjectKey:  f.ProjectKey,
+		Agent:       f.Agent,
+		Runner:      "local",
+		Prompt:      f.Prompt,
+		Cmd:         f.Cmd,
+		Cwd:         f.Cwd,
+		TimeoutSec:  f.TimeoutSec,
+		Interactive: f.Interactive,
+		Cols:        f.Cols,
+		Rows:        f.Rows,
 	}
 	if err := r.hub.Dispatch(workerID, d); err != nil {
 		return runner.Result{ExitCode: -1, Err: err}
