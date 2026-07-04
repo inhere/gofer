@@ -31,6 +31,7 @@ import (
 	"github.com/inhere/gofer/internal/metrics"
 	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
+	"github.com/inhere/gofer/internal/ptyrelay"
 	"github.com/inhere/gofer/internal/webui"
 	"github.com/inhere/gofer/internal/wshub"
 )
@@ -96,6 +97,10 @@ type Server struct {
 	// hub is the ws-worker hub singleton; when non-nil the /v1/workers/connect WS
 	// route is mounted (ws-worker). It is nil for callers that do not run the hub.
 	hub *wshub.Hub
+	// relayNonces/ptyRelays are live-only WEB-03 PTY relay state. T4 only wires
+	// them; T5/T7 mount handlers that consume the same instances.
+	relayNonces *ptyrelay.NonceStore
+	ptyRelays   *ptyrelay.Registry
 
 	// runners is the configured runner set the C6/P4 GET /v1/runners endpoint
 	// enumerates (name → type / base_url / worker_id). It is the top-level
@@ -158,6 +163,15 @@ func (s *Server) SetMetrics(m *metrics.Metrics, enabled bool, token string) {
 // untouched. Must run single-threaded at assemble time, before serving.
 func (s *Server) SetPresence(p *presence.Service) {
 	s.presence = p
+	s.router = s.buildRouter()
+}
+
+// SetPtyRelay injects the shared live-only PTY relay state for worker pty-connect
+// and browser attach routes. It is a post-construction setter to avoid widening
+// New's already-large positional constructor.
+func (s *Server) SetPtyRelay(nonces *ptyrelay.NonceStore, relays *ptyrelay.Registry) {
+	s.relayNonces = nonces
+	s.ptyRelays = relays
 	s.router = s.buildRouter()
 }
 

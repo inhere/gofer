@@ -230,6 +230,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// E36: mount the presence/mailbox endpoints (rebuilds router; after SetMetrics
 	// so the metrics middleware is preserved). The prune sweeper is started below.
 	srv.SetPresence(cr.Presence)
+	srv.SetPtyRelay(cr.RelayNonces, cr.PtyRelays)
 
 	if token == "" {
 		c.Printf("gofer: starting WITHOUT auth (allow_empty_token) on %s\n", addr)

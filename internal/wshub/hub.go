@@ -402,6 +402,17 @@ func (h *Hub) WorkerSnapshot(workerID string) (WorkerSnapshot, bool) {
 	return h.reg.WorkerSnapshot(workerID)
 }
 
+// LiveInstance returns the current live connection's process instance id for a
+// worker. It is a narrow PTY relay seam: callers can bind a one-time nonce to a
+// specific worker process without seeing the underlying connection.
+func (h *Hub) LiveInstance(workerID string) (string, bool) {
+	ws, ok := h.reg.WorkerSnapshot(workerID)
+	if !ok || ws.InstanceID == "" {
+		return "", false
+	}
+	return ws.InstanceID, true
+}
+
 // Dispatch sends a dispatch frame to the target worker. It errors when the
 // worker is offline (ErrWorkerOffline) or already at its advertised
 // max_concurrent (ErrWorkerAtCapacity, §5.4 — queueing is WP4). On success the
