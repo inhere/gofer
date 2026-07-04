@@ -12,15 +12,17 @@ T1(Dispatch.PtySessionID+host填充) ─┤                                     
 T2(registry.Done+D-P2-8 helper) ───┴─▶ T6(host 三路 wait) ◀───────────────────────────────┘
                                                               T7(e2e 矩阵 + 零回归)  ← 依赖 T0..T6
 ```
-进度：
-- [ ] T0 PtyRunner `SessionObserver` + 输出所有权（消 discard 双读）
-- [ ] T1 `wsproto.Dispatch.PtySessionID` + host 填充 + `Forward` 已有字段核对
-- [ ] T2 `ptyrelay.Registry.Done(jobID)` 语义 + `closedChan` + D-P2-8 锁外关 helper（Close+Prepare）
-- [ ] T3 worker Client：rendezvous(`OnSessionStart`/`waitSession`) + `pendingCancel` + recvLoop URL/cancel threading + `SetObserver` wiring
-- [ ] T4 `worker/pty_pump.go`：拨出 + 双向泵 + resize + selfClosing/断连判据 + `derivePtyConnectURL`
-- [ ] T5 `handleDispatch`：投影 + fail-fast + 消费 pendingCancel + 启动 pump + join pumpDone
-- [ ] T6 host `runner/worker.Run` interactive 三路 wait + `hostCancelGrace`
-- [ ] T7 e2e 矩阵（13 项）+ 零回归清单 + `go list -deps` 环检
+进度（**全完成 2026-07-04 SUPMODE，全绿未 push**）：
+- [x] T0 PtyRunner `SessionObserver` + 输出所有权（消 discard 双读）— `96a9951`
+- [x] T1 `wsproto.Dispatch.PtySessionID` + host 填充 — `3f60c44`
+- [x] T2 `ptyrelay.Registry.Done(jobID)` 语义 + `closedChan` + D-P2-8 锁外关 helper（Close+Prepare）— `f15e1ad`
+- [x] T3 worker Client：rendezvous(`OnSessionStart`/`waitSession`) + `pendingCancel` + recvLoop URL/cancel threading + `SetObserver` wiring — `113ef5e`
+- [x] T4 `worker/pty_pump.go`：拨出 + 双向泵 + resize + selfClosing/断连判据 + `derivePtyConnectURL` — `378b3ce`
+- [x] T5 `handleDispatch`：投影 + fail-fast + 消费 pendingCancel + 启动 pump + join pumpDone — `cbb18ff`
+- [x] T6 host `runner/worker.Run` interactive 三路 wait + `hostCancelGrace` — `de20f26`
+- [x] T7 e2e 矩阵（7 新 e2e + 6 由 T0–T6 单测覆盖）+ 零回归清单 + `go list -deps` 环检 — `fee4b6b`
+
+> **实施结果**：`go build`/`vet`/`test ./...`（Linux 真 pty）全绿；`-race`（worker/httpapi/runner）绿；`GOOS=windows go build ./...` 绿；`go list -deps ./internal/job` 无 pty/ptyrelay（环检 PASS）。零回归清单逐条确认。4 个高风险点各有专测。实证修订见 §8#2 注 / 设计 v0.4（cancel=SIGKILL 措辞）。
 
 ---
 
@@ -497,7 +499,7 @@ const hostCancelGrace = 10 * time.Second // 仅兜 open-stuck；pending/dial-fai
 
 **e2e 清单**（逐项断言）：
 1. 正常 attach：dispatch→observer 交接→pty ws→输入 echo→输出回传 viewer→resize 生效。
-2. **尾字节证明**：child 收 cancel 先输出 sentinel 再退出 → browser/relay ring 收到 sentinel **后** host job 才 finish（验 D-P2-2 + D-P2-6）。
+2. **尾字节证明**：用**自然退出** child（终态前输出 sentinel）→ browser/relay ring 收 sentinel **后** host job 才 finish（验 D-P2-2 + D-P2-6）。⚠实证：cancel = `ptmx.Close()+SIGKILL` 不可捕获，child 无法在 cancel 时补哨兵；测试用自然退出走同一 relay drain 机制（详见设计 §8#2 注 / v0.4）。
 3. cancel：host cancel→teardown→relay 读完→Done→cancelled；input pump 不误 Cancel。
 4. timeout：open relay 不 EOF→走 `hostCancelGrace` 兜底。
 5. **`Done` 四边界**：worker 从未拨入 / dial 失败 / nonce 校验失败(instance 不匹配) / relay 先 finalized 后 host Done——host 均立即收敛不空等 grace。
