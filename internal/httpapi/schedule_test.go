@@ -1,12 +1,14 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 func TestScheduleLifecycle(t *testing.T) {
@@ -231,6 +233,51 @@ func TestScheduleRunNowSubmitsJobWithoutChangingNextRun(t *testing.T) {
 	if after.NextRunAt != created.NextRunAt {
 		t.Fatalf("next_run_at changed after run-now: before=%d after=%d", created.NextRunAt, after.NextRunAt)
 	}
+}
+
+func TestScheduleInteractiveCreateAndRunNowUseAdmission(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	interactiveReq := job.JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Interactive: true, Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+	}
+
+	create := do(t, s, http.MethodPost, "/v1/schedules", testToken, createScheduleReq{
+		Name:    "interactive-create",
+		Cron:    "*/5 * * * *",
+		Request: interactiveReq,
+	})
+	if create.StatusCode != http.StatusBadRequest {
+		t.Fatalf("interactive schedule create status=%d, want 400", create.StatusCode)
+	}
+	create.Body.Close()
+
+	raw, err := json.Marshal(interactiveReq)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Now().Unix()
+	if err := s.jobs.Meta().InsertSchedule(jobstore.ScheduleRecord{
+		ID:           "sch-interactive",
+		Name:         "interactive-run-now",
+		ScheduleType: "cron",
+		CronExpr:     "*/5 * * * *",
+		RequestJSON:  string(raw),
+		Enabled:      1,
+		NextRunAt:    now + 300,
+		CatchUp:      1,
+		ProjectKey:   "self",
+		CreatedAt:    now,
+		UpdatedAt:    now,
+	}); err != nil {
+		t.Fatalf("insert interactive schedule: %v", err)
+	}
+
+	run := do(t, s, http.MethodPost, "/v1/schedules/sch-interactive/run-now", testToken, nil)
+	if run.StatusCode != http.StatusBadRequest {
+		t.Fatalf("interactive schedule run-now status=%d, want 400", run.StatusCode)
+	}
+	run.Body.Close()
 }
 
 func createTestSchedule(t *testing.T, s *Server) scheduleView {

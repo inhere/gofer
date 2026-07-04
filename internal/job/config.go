@@ -2,6 +2,7 @@ package job
 
 import (
 	"fmt"
+	"slices"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -63,6 +64,28 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 	// Agent must be in the project's allowed_agents (exec is not exempt).
 	if err := agent.CheckAllowed(cfg, req.ProjectKey, gateAgent); err != nil {
 		return config.ProjectConfig{}, fmt.Errorf("%w: %s", ErrInvalidRequest, err.Error())
+	}
+
+	if req.Interactive {
+		if remote && !isWorkerRunner(cfg, req.Runner) {
+			return config.ProjectConfig{}, fmt.Errorf("%w: interactive not supported on peer runner", ErrInvalidRequest)
+		}
+		ac, ok := agent.ResolveAgent(cfg, req.Agent)
+		if !ok {
+			return config.ProjectConfig{}, fmt.Errorf("%w: unknown agent %q", ErrInvalidRequest, req.Agent)
+		}
+		if !ac.Interactive {
+			return config.ProjectConfig{}, fmt.Errorf("%w: agent %q is not interactive", ErrInvalidRequest, req.Agent)
+		}
+		if !slices.Contains(proj.InteractiveAllowedAgents, req.Agent) {
+			return config.ProjectConfig{}, fmt.Errorf("%w: agent %q not in interactive_allowed_agents", ErrInvalidRequest, req.Agent)
+		}
+		if ac.Type == agent.TypeExec || !ac.NoRawCmd {
+			return config.ProjectConfig{}, fmt.Errorf("%w: interactive agent must be no-raw-cmd and non-exec", ErrInvalidRequest)
+		}
+		if len(req.Cmd) > 0 {
+			return config.ProjectConfig{}, fmt.Errorf("%w: interactive job cannot override Cmd", ErrInvalidRequest)
+		}
 	}
 
 	if !remote {

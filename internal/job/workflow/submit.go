@@ -100,6 +100,9 @@ func (e *Engine) submitWorkflowImpl(spec Spec, callerID, parentID string, parent
 			continue
 		}
 		req := stepToRequest(spec.Steps[i], "", i+1, 1, 0, callerID)
+		if err := rejectInteractiveStepRequest(i+1, req); err != nil {
+			return jobstore.Workflow{}, err
+		}
 		remote := job.IsRemoteRunner(cfg, req.Runner)
 		if _, err := e.ops.Validate(cfg, req, remote); err != nil {
 			return jobstore.Workflow{}, fmt.Errorf("step %d: %w", i+1, err)
@@ -337,6 +340,9 @@ func (e *Engine) validateSubworkflow(spec Spec, cfg *config.Config, depth int) e
 					continue
 				}
 				req := stepToRequest(sub.Steps[j], "", j+1, 1, 0, "")
+				if err := rejectInteractiveStepRequest(j+1, req); err != nil {
+					return fmt.Errorf("step %d sub_workflow: %w", stepNo, err)
+				}
 				remote := job.IsRemoteRunner(cfg, req.Runner)
 				if _, err := e.ops.Validate(cfg, req, remote); err != nil {
 					return fmt.Errorf("step %d sub_workflow step %d: %w", stepNo, j+1, err)
@@ -345,6 +351,13 @@ func (e *Engine) validateSubworkflow(spec Spec, cfg *config.Config, depth int) e
 		default:
 			return fmt.Errorf("%w: step %d has unknown type %q (want job/workflow)", job.ErrInvalidRequest, stepNo, st.Type)
 		}
+	}
+	return nil
+}
+
+func rejectInteractiveStepRequest(stepIndex int, req job.JobRequest) error {
+	if req.Interactive {
+		return fmt.Errorf("%w: workflow step %d cannot be interactive", job.ErrInvalidRequest, stepIndex)
 	}
 	return nil
 }

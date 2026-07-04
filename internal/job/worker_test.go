@@ -65,11 +65,15 @@ func newWorkerTestServiceSel(t *testing.T, root string, stub runner.Runner, work
 		Storage: config.StorageConfig{Root: root},
 		Projects: map[string]config.ProjectConfig{
 			"self": {
-				HostPath:       root,
-				AllowedAgents:  []string{"exec"},
-				AllowedRunners: []string{"local", "remote-w1"},
-				AllowExec:      true,
+				HostPath:                 root,
+				AllowedAgents:            []string{"exec", "term"},
+				AllowedRunners:           []string{"local", "remote-w1"},
+				InteractiveAllowedAgents: []string{"term"},
+				AllowExec:                true,
 			},
+		},
+		Agents: map[string]config.AgentConfig{
+			"term": {Type: agent.TypeCLIAgent, Command: "echo", Args: []string{"{{prompt}}"}, Interactive: true, NoRawCmd: true},
 		},
 		Runners: map[string]config.RunnerConfig{
 			"remote-w1": {Type: "worker", WorkerID: "w1"},
@@ -167,11 +171,11 @@ func TestSubmitInteractiveRunnerSelectionLocalVsWorker(t *testing.T) {
 		s.runners[builtinPtyRunner] = pty
 
 		final := submitAndWait(t, s, JobRequest{
-			ProjectKey: "self", Agent: "exec", Runner: "remote-w1", WorkerID: "w1",
+			ProjectKey: "self", Agent: "term", Runner: "remote-w1", WorkerID: "w1",
 			Interactive: true,
 			Cols:        120,
 			Rows:        40,
-			Cmd:         []string{"echo", "hi"}, Cwd: ".", TimeoutSec: 30,
+			Prompt:      "hi", Cwd: ".", TimeoutSec: 30,
 		})
 		if final.Status != StatusDone {
 			t.Fatalf("expected done, got %s (err=%s)", final.Status, final.Error)
@@ -193,11 +197,11 @@ func TestSubmitInteractiveRunnerSelectionLocalVsWorker(t *testing.T) {
 		s.runners[builtinPtyRunner] = pty
 
 		final := submitAndWait(t, s, JobRequest{
-			ProjectKey: "self", Agent: "exec", Runner: "local",
+			ProjectKey: "self", Agent: "term", Runner: "local",
 			Interactive: true,
 			Cols:        132,
 			Rows:        43,
-			Cmd:         []string{"echo", "hi"}, Cwd: ".", TimeoutSec: 30,
+			Prompt:      "hi", Cwd: ".", TimeoutSec: 30,
 		})
 		if final.Status != StatusDone {
 			t.Fatalf("expected done, got %s (err=%s)", final.Status, final.Error)
