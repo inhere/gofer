@@ -194,7 +194,7 @@ Web 里对交互式 REPL/CLI agent（claude/codex 交互模式）开真终端：
 - **P0 spike**：`internal/pty` ptmx + `PtyRunner` 骨架 + `PtySession` 状态机 + **fake `PtySource`** + `ptyRelay` 状态机/两层背压/lease 单测；**跑通「普通 worker job 零行为变化」+「interactive cancel 走 cancelling→ack→finish 顺序」+「pre-attach 输出入 ring→首 attach 回放」三个证明点**（不接真浏览器/真 worker 网络）。
 - **P1 协议+relay+安全闸**：dispatch nonce + 专用 pty ws 端点（nonce 原子消费）+ `ptyRelay` remote source + attach-ticket + attach ws（Origin+lease）+ admission 五闸校验 + capability 预解析 + config 字段。
   - **P0 回填必做**：`runner.Request` 加 `Interactive/Cols/Rows`（把初始尺寸 threaded 到 `PtyRunner`，去掉 spike 的 80×24 硬编码）；viewer 队列深度 **per-viewer 可配**（写租户深/只读浅）；跨进程 cancel「host cancelling→等 worker ack/grace」在 worker↔serve 帧层落地（进程内有序 close 已由 P0 证）；如需分级 kill 给 `Pty` 补 `Signal/Kill`。
-- **P2 worker 端到端**：`PtyRunner` 接真 ptmx + eager 拨 pty ws + capability 广告 + 取消协议；input/output/resize/cancel/断连全链路。
+- **P2 worker 端到端**：`PtyRunner` 接真 ptmx + eager 拨 pty ws + capability 广告 + 取消协议；input/output/resize/cancel/断连全链路。→ **细化见 [`2026-07-04-web-pty-attach-P2-design.md`](2026-07-04-web-pty-attach-P2-design.md)**（6 决策 + 5 时序图 + 帧/接口清单）。
 - **P3 cast + 审计**：加密录制 + `pty_sessions` 表 + retention/prune 顺序 + `/pty/recording` gate。
 - **P4 前端**：`AttachTerminal.vue`（xterm binary + ticket）+ JobDetail + **e2e 矩阵**。
 

@@ -228,6 +228,8 @@ return job.CallerID == caller || (s.cfg != nil && s.cfg.CallerCanAdmin(caller))
 ## P2 前瞻（非 P1）
 worker 第二条 pty ws 打破单连接假设（`Client` 单 conn+writeMu+全 JSON）；`handleDispatch` 投影 Interactive/Cols/Rows/RelayNonce；worker-client→`ptyrunner.PtySession` 取字节 seam（`Client` 只持 `jobs Jobs`）；取消协议三处收敛（`recvLoop` TypeCancel / `workerrunner.Run` ctx.Done / `job.finish` 时序）单独一节画时序 + ack 帧。
 
+> **P2 设计细化已出**：[`../../design/2026-07-04-web-pty-attach-P2-design.md`](../../design/2026-07-04-web-pty-attach-P2-design.md)。要点修正上文：pty-exit ack **复用 hub `Result` 帧、不新增 wsproto 帧**（worker 终态严格晚于 teardown）；另发现 `Dispatch` 缺 `PtySessionID` 需补（serve 端点强校验）。待 codex 评审后出 P2 实施计划。
+
 ---
 
 ## P1 完成记录（2026-07-04）
