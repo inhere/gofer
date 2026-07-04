@@ -9,6 +9,7 @@
 |---|---|---|
 | v0.1 | 2026-07-04 | 初稿：6 决策 + 5 时序图 + 帧/接口清单。 |
 | v0.2 | 2026-07-04 | codex round-1 后大改：输出所有权倒置(`SessionObserver`)、ack 两段化(`relay.Done()`)、事件驱动 rendezvous、断连判据 state+selfClosing、per-dispatch URL、Registry.Close 锁拆分。 |
+| **v0.4** | 2026-07-04 | **实施完成后据实证修订**（SUPMODE T0–T7 全绿）：修正 §8 e2e#2「尾字节」措辞——cancel teardown = `ptmx.Close()+SIGKILL`（不可捕获），child 无法在 cancel 时补发哨兵；D-P2-2/6 保护的是 **in-flight 字节不被提前关 relay 截断**（自然退出哨兵走同一 drain 机制验证），非「捕获 SIGKILL 期间临终输出」。分级 kill 留后续。其余决策实现均落地无变。 |
 | **v0.3** | 2026-07-04 | **codex round-3 终审 = GO（0 阻断/0 高，可进 P2 实施计划）**。本版据 round-2 收敛（1 阻断+3 高+3 中）：① **`Done(jobID)` 语义定死**（不再列待确认）——**pending=无字节可排=返回已关 chan、host 不等**，只 open/attached 才等 relay drain（D-P2-2），解「pending/dial-fail 空等 10s grace」阻断；② 断连 Cancel 判据放宽到 **starting+running 都 Cancel**（消 observer 早于 `StateRunning` 的窗口，D-P2-5）；③ 新增 **D-P2-9 unmapped cancel pending set**（cancel 早于 `putJobMapping` 不丢，覆盖非交互）；④ D-P2-8 锁外关 IO **覆盖 `Prepare` replacement**（同 `closeLocked`）；⑤ 定死 interactive 仍走 `streamLocalJob`（仅终态检测+interactions bridge，pty 输出**不**过日志）；⑥ observer 注入时序列为实施验收项。 |
 
 ## 0. 范围
@@ -226,7 +227,7 @@ pumpPty(ctx, sessionURL, sess, remoteJobID, ptySessionID, nonce) (pumpDone chan)
 ## 8. e2e 测试矩阵（P2 子集，现有 harness + Linux 真 pty）
 两条真 `websocket.Dial`（hub + pty-connect）+ `httptest.Server`：
 1. 正常：dispatch→observer 交接→pty ws→输入 echo→输出回传 viewer→resize 生效。
-2. **尾字节证明**：child 收 cancel 后先输出 sentinel 再退出；断言 browser/relay ring 收 sentinel 后 host job 才 finish（验 D-P2-2 关闭权 + D-P2-6 等 Done）。
+2. **尾字节证明**：用**自然退出**的 child（进程终态前输出 sentinel 再退出）验证 relay drain——断言 browser/relay ring 收 sentinel **后** host job 才 finish（验 D-P2-2 关闭权 + D-P2-6 等 Done）。**注（实现实证 v0.4）**：cancel 路径 teardown = `ptmx.Close()+SIGKILL`（不可捕获，见 `pty_unix.go` `unixPty.Close`），child **无法**在被 cancel 时补发哨兵；故此测试用自然退出走**同一** relay drain 机制。D-P2-2/6 保护的是「worker 已从 pty 读出、经 pty ws 传输中/已传的 **in-flight 字节**不被 host 提前关 relay 截断」，**非**「捕获 child 在 SIGKILL 期间的临终输出」。若需 cancel 时 child 优雅收尾输出，须分级 kill（SIGHUP 宽限→SIGKILL），留后续（设计主档 v0.8 finding③）。
 3. cancel：host cancel→worker teardown→relay 读完→Done→host cancelled；input pump 不误 Cancel（验 D-P2-5）。
 4. timeout：open relay 不 EOF→走 `hostCancelGrace` force-close 兜底。
 5. **`Done(jobID)` 四边界**（阻断1）：① worker 从未拨入（relay 恒 pending）→host 立即收敛；② dial 失败→worker Cancel 本地 job + host 不空等 grace；③ nonce 消费后校验失败（instance 不匹配）→端点拒+worker Cancel；④ relay 已先 finalized 后 host 再 `Done`→已关 chan。
