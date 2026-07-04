@@ -34,6 +34,14 @@ import (
 // marker. It is a var so tests can shrink it.
 var maxWSFrameBytes = 1 << 20 // 1 MiB
 
+// hostCancelGrace bounds how long an INTERACTIVE Run waits for the serve relay to
+// finish draining (relayRegistry.Done) after a worker result / a host cancel,
+// before finishing anyway (D-P2-6). Done is a pre-closed chan for pending/missing
+// relays, so this grace only ever elapses for a genuinely stuck open relay. It is
+// a var (not const) so tests can shrink it to exercise the fallback without a real
+// 10s wait; the stage/request timeout must stay > hostCancelGrace (§待办).
+var hostCancelGrace = 10 * time.Second
+
 // sinkTruncateMark is appended once when a job's mirrored output is truncated by
 // back-pressure, so the reader sees that bytes were dropped (review #3).
 const sinkTruncateMark = "\n[gofer: log frame truncated by worker back-pressure]\n"
@@ -60,6 +68,11 @@ type nonceIssuer interface {
 
 type relayPreparer interface {
 	Prepare(ptyrelay.RelayBinding) *ptyrelay.RelayEntry
+	// Done reports the serve-drain completion signal for jobID (T2 registry): a
+	// live relay's recordLoop-EOF chan, or a pre-closed chan for pending/finalized/
+	// missing (nothing to drain). Run waits on it before finishing an interactive
+	// job so the browser sees the pty tail bytes (D-P2-2/6).
+	Done(jobID string) <-chan struct{}
 	Close(jobID, reason string)
 }
 
@@ -210,6 +223,19 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	select {
 	case res := <-sink.resultCh:
 		relayCloseReason = "worker_result"
+		// D-P2-6 (interactive only): the worker has finished, but its pty tail may
+		// still be draining through the serve relay to the browser. Wait for the
+		// relay's drain-complete signal (recordLoop EOF) — bounded by hostCancelGrace
+		// — before returning, so the terminal Result never truncates the visible
+		// output. Done is a pre-closed chan for a pending/missing relay, so a
+		// non-attached interactive job proceeds at once. Non-interactive is untouched
+		// (returns immediately — bytes unchanged, G023).
+		if f.Interactive {
+			select {
+			case <-r.relayRegistry.Done(req.JobID):
+			case <-time.After(hostCancelGrace):
+			}
+		}
 		// P4: attach the worker-captured产出 (delivered just before this result via
 		// OnOutcome). Source marks it ran on this worker so the详情 can标注 it (大
 		// 产物文件留 worker 侧, only清单+小结果回传 — D6). nil when the worker is old
@@ -225,7 +251,8 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// job was in flight. Return a non-nil Err with NO ctx deadline/cancel, so
 		// classify (service.go) maps it to StatusFailed and the "worker disconnected"
 		// text flows verbatim into jobs.error. No cancel frame is sent — the worker
-		// is gone. The deferred DeregisterSink frees the sink.
+		// is gone. The deferred DeregisterSink frees the sink. (Interactive is NOT
+		// waited here — the worker is already gone, nothing more will drain.)
 		return runner.Result{ExitCode: -1, Err: err}
 	case <-ctx.Done():
 		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
@@ -235,11 +262,20 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		}
 		// P2: a host cancel/timeout forwards a cancel frame to the worker (best-effort,
 		// same as peerhttp's r.c.CancelJob) so its local job tears down its child
-		// process; the job service still classifies timeout vs cancelled from ctx. We
-		// return ctx.Err() immediately without waiting for the worker's late result —
-		// the deferred DeregisterSink frees the sink; a stray late result frame finds
-		// no sink and is dropped.
+		// process; the job service still classifies timeout vs cancelled from ctx.
 		_ = r.hub.Cancel(workerID, req.JobID)
+		// D-P2-6 (interactive only): three-way wait so the browser sees the pty tail
+		// the worker emits while tearing down (e.g. a cancel-triggered sentinel).
+		// Resolve on whichever comes first: the relay drained (Done), the worker
+		// dropped (lostCh), or the grace elapsed. Non-interactive returns immediately
+		// (unchanged截尾 semantics, G023).
+		if f.Interactive {
+			select {
+			case <-r.relayRegistry.Done(req.JobID):
+			case <-sink.lostCh:
+			case <-time.After(hostCancelGrace):
+			}
+		}
 		return runner.Result{ExitCode: -1, Err: ctx.Err()}
 	}
 }
