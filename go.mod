@@ -4,6 +4,7 @@ go 1.25.0
 
 require (
 	github.com/coder/websocket v1.8.15
+	github.com/creack/pty v1.1.24
 	github.com/goccy/go-yaml v1.19.2
 	github.com/gookit/cliui v0.3.2-0.20260624120656-906827b77d7b
 	github.com/gookit/color v1.6.2-0.20260604125953-289d54c4470a
@@ -13,6 +14,7 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.6.1
 	github.com/prometheus/client_golang v1.23.2
 	github.com/robfig/cron/v3 v3.0.1
+	golang.org/x/sys v0.42.0
 	golang.org/x/time v0.15.0
 	modernc.org/sqlite v1.52.0
 )
@@ -39,7 +41,6 @@ require (
 	go.yaml.in/yaml/v2 v2.4.2 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
-	golang.org/x/sys v0.42.0 // indirect
 	golang.org/x/term v0.29.0 // indirect
 	golang.org/x/text v0.28.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
