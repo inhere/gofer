@@ -236,3 +236,181 @@ server:
 		t.Fatal("operator should retain can_admin after Load")
 	}
 }
+
+func TestLoadRequireAttachCapabilityNeedsAttachCaller(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cfg.yaml")
+	write(t, p, `
+server:
+  governance:
+    require_attach_capability: true
+  callers:
+    - id: readonly
+      token: ro
+`)
+	_, _, err := Load(p)
+	if err == nil {
+		t.Fatal("Load should reject require_attach_capability without can_attach caller")
+	}
+	if !strings.Contains(err.Error(), "require_attach_capability is on but no caller has can_attach: true") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadRequireAttachCapabilityAllowsAttachCaller(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cfg.yaml")
+	write(t, p, `
+server:
+  governance:
+    require_attach_capability: true
+  callers:
+    - id: operator
+      token: op
+      can_attach: true
+`)
+	cfg, _, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Server.CallerCanAttach("operator") {
+		t.Fatal("operator should retain can_attach after Load")
+	}
+}
+
+func TestLoadCastEncryptionRequiresKeyEnv(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cfg.yaml")
+	write(t, p, `
+storage:
+  cast:
+    encryption:
+      enabled: true
+`)
+	_, _, err := Load(p)
+	if err == nil {
+		t.Fatal("Load should reject cast encryption without key_env")
+	}
+	if !strings.Contains(err.Error(), "storage.cast.encryption.key_env is required") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadAttachOriginsRejectsStar(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cfg.yaml")
+	write(t, p, `
+server:
+  governance:
+    attach_origins:
+      - "*"
+`)
+	_, _, err := Load(p)
+	if err == nil {
+		t.Fatal("Load should reject wildcard attach origin")
+	}
+	if !strings.Contains(err.Error(), "attach_origins[0] must not be *") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadAttachOriginsRejectsInvalidPattern(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cfg.yaml")
+	write(t, p, `
+server:
+  governance:
+    attach_origins:
+      - "["
+`)
+	_, _, err := Load(p)
+	if err == nil {
+		t.Fatal("Load should reject invalid attach origin pattern")
+	}
+	if !strings.Contains(err.Error(), "attach_origins[0]") || !strings.Contains(err.Error(), "invalid") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadAttachOriginsAllowsHost(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cfg.yaml")
+	write(t, p, `
+server:
+  governance:
+    attach_origins:
+      - "example.com"
+`)
+	cfg, _, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := cfg.Server.Governance.AttachOrigins; len(got) != 1 || got[0] != "example.com" {
+		t.Fatalf("attach_origins = %v, want [example.com]", got)
+	}
+}
+
+func TestLoadCastRetentionTTLRejectsOverMax(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cfg.yaml")
+	write(t, p, `
+storage:
+  cast:
+    retention_ttl_hours: 169
+`)
+	_, _, err := Load(p)
+	if err == nil {
+		t.Fatal("Load should reject cast retention_ttl_hours over max")
+	}
+	if !strings.Contains(err.Error(), "storage.cast.retention_ttl_hours must be <= 168") {
+		t.Fatalf("unexpected error: %v", err)
+	}
+}
+
+func TestLoadInteractiveAndCastConfigSucceeds(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cfg.yaml")
+	write(t, p, `
+server:
+  governance:
+    require_attach_capability: true
+    attach_origins:
+      - "example.com"
+  callers:
+    - id: operator
+      token: op
+      can_attach: true
+storage:
+  cast:
+    retention_ttl_hours: 24
+    encryption:
+      enabled: true
+      key_env: GOFER_CAST_KEY
+projects:
+  demo:
+    host_path: /tmp/demo
+    allowed_agents:
+      - exec
+    interactive_allowed_agents:
+      - term
+agents:
+  term:
+    type: cli
+    command: bash
+    interactive: true
+    no_raw_cmd: true
+`)
+	cfg, _, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Agents["term"].Interactive || !cfg.Agents["term"].NoRawCmd {
+		t.Fatalf("agent term = %+v, want interactive/no_raw_cmd true", cfg.Agents["term"])
+	}
+	if got := cfg.Projects["demo"].InteractiveAllowedAgents; len(got) != 1 || got[0] != "term" {
+		t.Fatalf("interactive_allowed_agents = %v, want [term]", got)
+	}
+	if cfg.Storage.Cast.RetentionTTLHours != 24 || cfg.Storage.Cast.Encryption.KeyEnv != "GOFER_CAST_KEY" {
+		t.Fatalf("cast config = %+v, want ttl/key_env set", cfg.Storage.Cast)
+	}
+}

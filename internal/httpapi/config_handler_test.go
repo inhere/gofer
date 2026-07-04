@@ -49,6 +49,9 @@ func TestGetConfigRedactsSecrets(t *testing.T) {
 		Server: config.ServerConfig{
 			Token:    "supersecret",
 			TokenEnv: "SERVER_TOKEN_ENV",
+			Governance: config.GovernanceConfig{
+				RequireAttachCapability: true,
+			},
 			Callers: []config.CallerConfig{
 				{ID: "ci", Token: "tk-ci", CanAnswer: true},
 				{ID: "op", TokenEnv: "OP_TOKEN", CanAdmin: true},
@@ -111,6 +114,9 @@ func TestGetConfigRedactsSecrets(t *testing.T) {
 	}
 	if !got.Server.TokenSet {
 		t.Fatalf("server.token_set=false, want true")
+	}
+	if !got.Server.Governance.RequireAttachCapability {
+		t.Fatalf("governance.require_attach_capability=false, want true")
 	}
 	var op callerConfigView
 	for _, c := range got.Server.Callers {

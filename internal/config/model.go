@@ -200,6 +200,11 @@ type GovernanceConfig struct {
 	// RequireAdminCapability gates config/project edits to callers with
 	// can_admin:true. false = any authenticated caller may edit config (legacy).
 	RequireAdminCapability bool `yaml:"require_admin_capability"`
+	// RequireAttachCapability gates interactive attach to callers with
+	// can_attach:true. false = any authenticated caller may attach (legacy).
+	RequireAttachCapability bool `yaml:"require_attach_capability"`
+	// AttachOrigins is the Origin allowlist for attach websocket requests.
+	AttachOrigins []string `yaml:"attach_origins"`
 }
 
 // MetricsConfig is the E16 Prometheus /metrics policy (design §6.2). It is a
@@ -307,6 +312,9 @@ type CallerConfig struct {
 	// CanAdmin permits this caller to edit config/projects when
 	// governance.require_admin_capability is enabled.
 	CanAdmin bool `yaml:"can_admin"`
+	// CanAttach permits this caller to attach to interactive sessions when
+	// governance.require_attach_capability is enabled.
+	CanAttach bool `yaml:"can_attach"`
 	// E17 per-caller quota overrides (design §7.1). Each 0/empty value falls back to
 	// the server.governance default; if that is also 0 the dimension is unlimited
 	// (向后兼容). A value > 0 wins over the governance default.
@@ -350,6 +358,19 @@ func (sc *ServerConfig) CallerCanAdmin(callerID string) bool {
 		for _, cc := range sc.Callers {
 			if cc.ID == callerID {
 				return cc.CanAdmin
+			}
+		}
+	}
+	return false
+}
+
+// CallerCanAttach reports whether callerID has the can_attach capability bit.
+// The governance gate itself is checked by callers of this helper.
+func (sc *ServerConfig) CallerCanAttach(callerID string) bool {
+	if callerID != "" {
+		for _, cc := range sc.Callers {
+			if cc.ID == callerID {
+				return cc.CanAttach
 			}
 		}
 	}
@@ -412,6 +433,20 @@ type StorageConfig struct {
 	// Retention bounds how many terminal jobs (and their logs) are kept; the
 	// periodic prune in serve enforces it. Unset (all fields <= 0) disables prune.
 	Retention RetentionConfig `yaml:"retention"`
+	Cast      CastConfig      `yaml:"cast"`
+}
+
+const castDefaultTTLHours = 24
+const castMaxTTLHours = 168 // 7d 上限
+
+type CastConfig struct {
+	RetentionTTLHours int                  `yaml:"retention_ttl_hours"` // 0=用默认 24
+	Encryption        CastEncryptionConfig `yaml:"encryption"`
+}
+
+type CastEncryptionConfig struct {
+	Enabled bool   `yaml:"enabled"`
+	KeyEnv  string `yaml:"key_env"` // 从环境变量取 key，不进项目文件
 }
 
 // RetentionConfig is the YAML form of the job retention policy enforced by the
@@ -479,15 +514,16 @@ func (r RetentionConfig) PruneInterval() time.Duration {
 // ResultSubdir may be empty; they fall back to the storage defaults at resolve
 // time (see ResolvedExchangeSubdir/ResolvedResultSubdir).
 type ProjectConfig struct {
-	HostPath          string   `yaml:"host_path"`
-	ContainerPath     string   `yaml:"container_path"`
-	ExchangeSubdir    string   `yaml:"exchange_subdir"`
-	ResultSubdir      string   `yaml:"result_subdir"`
-	DefaultAgent      string   `yaml:"default_agent"`
-	AllowedAgents     []string `yaml:"allowed_agents"`
-	AllowedRunners    []string `yaml:"allowed_runners"`
-	AllowExec         bool     `yaml:"allow_exec"`
-	MaxConcurrentJobs int      `yaml:"max_concurrent_jobs"`
+	HostPath                 string   `yaml:"host_path"`
+	ContainerPath            string   `yaml:"container_path"`
+	ExchangeSubdir           string   `yaml:"exchange_subdir"`
+	ResultSubdir             string   `yaml:"result_subdir"`
+	DefaultAgent             string   `yaml:"default_agent"`
+	AllowedAgents            []string `yaml:"allowed_agents"`
+	InteractiveAllowedAgents []string `yaml:"interactive_allowed_agents"`
+	AllowedRunners           []string `yaml:"allowed_runners"`
+	AllowExec                bool     `yaml:"allow_exec"`
+	MaxConcurrentJobs        int      `yaml:"max_concurrent_jobs"`
 	// CaptureDiff toggles E12 git-diff capture (job-outcomes-audit, P3). It is a
 	// pointer so "unset" (nil) can default to "on when cwd is a git work tree"
 	// while an explicit capture_diff:false disables it outright. nil/true defer to
@@ -513,6 +549,8 @@ type AgentConfig struct {
 	Args        []string          `yaml:"args"`
 	Env         map[string]string `yaml:"env"`
 	AllowRawCmd bool              `yaml:"allow_raw_cmd"`
+	Interactive bool              `yaml:"interactive"`
+	NoRawCmd    bool              `yaml:"no_raw_cmd"`
 	Detect      DetectConfig      `yaml:"detect"`
 	// SessionInject 注入模式 argv 模板（模式①，首选）。非空 => 提交时 gofer 生成 uuid
 	// 渲染追加到 argv，立即知 id、无需解析输出。{{session_id}} 占位（session-capture §6.4）。
