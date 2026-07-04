@@ -69,7 +69,7 @@ func (r *PtyRunner) Run(ctx context.Context, req runner.Request) runner.Result {
 **验收**：
 - 新单测：设 fake observer → `Run` 后 observer 收到 `(jobID, sess)`，且**无** discard goroutine（用一个只发 N 字节的 fake pty，断言 observer 读到全部 N 字节、零丢）。
 - 未设 observer → 保留 discard（现有 `session_test.go` / P0 行为零回归）。
-- `OnSessionStart` 阻塞时不得卡死 `Run`：单测 observer 内 sleep 需在自己 goroutine（文档约束），主 Run 正常返回。
+- **`OnSessionStart` 非阻塞是接口契约**（round-4 建议）：`PtyRunner.Run` **不**为坏 observer 兜底起 goroutine（否则交接时序变弱）；单测里 observer 若需耗时须自己 goroutine 化。断言正常（非阻塞）observer 下 `Run` 交接后正常进入 `sess.run`。
 
 ---
 
@@ -153,18 +153,20 @@ func (r *Registry) Close(jobID, reason string) {
 	}
 }
 ```
-`Prepare` replacement 处（`:77-80`）改为锁内 detach 旧 entry、锁外关：
+`Prepare` replacement 处（`:71-94`，现为 `defer r.mu.Unlock()`）改为**显式 Unlock + 锁内取快照 + 锁外关**（评审 round-4 高1：clone **必须在锁内**，否则解锁后 `e` 被并发 `Close/Prepare` 改写成错快照）：
 ```go
-	var oldRel *Relay
-	if old := r.byJob[b.JobID]; old != nil {
-		oldRel = r.detachLocked(old, "replaced")
-	}
-	// ...建新 entry、写索引...（仍在锁内）
-	r.mu.Unlock()          // 提前解锁再关旧 relay
-	if oldRel != nil { _ = oldRel.Close() }
-	return cloneEntry(e)   // 注意：此处需重构成先取 clone 再解锁，见验收
+	r.mu.Lock()
+	oldRel := r.detachLocked(r.byJob[b.JobID], "replaced") // 锁内摘旧 relay（nil-safe）
+	e := &RelayEntry{Binding: b, State: RelayPendingWorker, CreatedAt: r.now()}
+	r.byJob[b.JobID] = e
+	if b.PtySessionID != "" { r.bySession[b.PtySessionID] = e }
+	if b.Nonce != "" { r.byNonce[b.Nonce] = e }
+	ret := cloneEntry(e) // ★锁内取快照（解锁后 e 可能被并发改写）
+	r.mu.Unlock()
+	if oldRel != nil { _ = oldRel.Close() } // 锁外关旧 relay/ws（消 HOL）
+	return ret
 ```
-> 实施注意：`Prepare` 现为 `defer r.mu.Unlock()`；重构为显式 Unlock 以便锁外 close，clone 在锁内取。`RelayClosing` 态：detach 直接跳到 finalized，不单列等待语义（评审 round-3 建议加注释说明）。
+> `RelayClosing` 态：`detachLocked` 直接跳 finalized，不单列等待语义（round-3 建议加实现注释说明）。`Done`/`detachLocked` 均在注释点明 `RelayClosing` 的处理。
 
 **验收**：
 - `Done` 单测四边界：open relay → 返回 live `relay.Done()`（relay Close 后该 chan 关）；pending（Prepare 未 Open）→ `closedChan` 立即可读；finalized → `closedChan`；missing → `closedChan`。
@@ -238,7 +240,8 @@ func (cl *Client) recordPendingCancel(remoteID string) {
 	cl.pendingCancel[remoteID] = struct{}{}
 	cl.sessMu.Unlock()
 }
-// takePendingCancel: handleDispatch putJobMapping 后调用；命中则本地 job 需立即 Cancel。
+// takePendingCancel: handleDispatch putJobMapping 后 / Submit 失败分支调用；命中则本地 job 需立即 Cancel。
+// 也用于 handleDispatch 退出时清 stale（dispatch 已处理但从未 mapping 的残留）。
 func (cl *Client) takePendingCancel(remoteID string) bool {
 	cl.sessMu.Lock()
 	_, ok := cl.pendingCancel[remoteID]
@@ -247,6 +250,7 @@ func (cl *Client) takePendingCancel(remoteID string) bool {
 	return ok
 }
 ```
+> **stale 清理（round-4 非阻断项，落 T3/T5 不拖 T7）**：`pendingCancel[remoteID]` 只在 handleDispatch 的 mapping/Submit-fail 路径被消费；本 worker 从未被派发该 job（cancel 空投）时会残留。→ `recordPendingCancel` 里做**软上限 sweep**（超过 N 条时按插入序丢最旧，或加 remoteID→记录时刻、`recvLoop` 每轮顺带清超 TTL 项）。dispatch 到达但 Submit 失败时由 T5 的 `defer cl.takePendingCancel(d.JobID)` 清（见 T5）。
 3. `recvLoop` 现签名 `recvLoop(ctx)`（`client.go:301`）→ 需要当前 session URL。`runSession(ctx,url)` 调 `recvLoop`；改 `recvLoop(ctx, url)` 并透传给 `handleDispatch`：
 ```go
 	case wsproto.TypeDispatch:
@@ -377,6 +381,9 @@ func derivePtyConnectURL(hubURL string) (string, error) {
 **触碰** `internal/worker/dispatch.go`：
 ```go
 func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wsproto.Dispatch) {
+	// stale pendingCancel 清理（round-4）：无论走哪条返回路径，退出时确保该 remoteID 不残留。
+	// mapping 建立后的正常消费在下方；此 defer 兜住「fail-fast/Submit 失败/从未 mapping」路径。
+	defer cl.takePendingCancel(d.JobID)
 	// fail-fast：interactive 但缺凭据 → 不起不可 attach 的裸 pty（D-P2-4）
 	if d.Interactive && (d.RelayNonce == "" || d.PtySessionID == "") {
 		_ = cl.writeFrame(ctx, wsproto.TypeResult, d.JobID, wsproto.Result{
