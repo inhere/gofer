@@ -124,6 +124,13 @@ type Client struct {
 	// instance so tests can speed it up.
 	pollInterval time.Duration
 
+	// pumpPtyFn launches the interactive pty pump for one dispatch (T5), returning
+	// a pumpDone chan handleDispatch joins before sending the terminal Result. It
+	// defaults to the real pumpPty (set in New); a test overrides it to inject a
+	// controllable pumpDone (join-ordering assertions) without a real second ws or
+	// pty session.
+	pumpPtyFn func(ctx context.Context, sessionURL, localID, remoteJobID, ptySessionID, nonce string, sess ptySession) <-chan struct{}
+
 	// onSession, when set, is called after a session ends (for test
 	// synchronisation: connect / register / disconnect observation). nil in prod.
 	onSession func(event string)
@@ -162,7 +169,7 @@ func New(cfg Config, jobs Jobs) *Client {
 	if read < 2*ping {
 		read = 3 * ping
 	}
-	return &Client{
+	cl := &Client{
 		workerID:      cfg.WorkerID,
 		instanceID:    newInstanceID(),
 		urls:          cfg.URLs,
@@ -181,6 +188,8 @@ func New(cfg Config, jobs Jobs) *Client {
 		pendingCancel: map[string]struct{}{},
 		pollInterval:  200 * time.Millisecond,
 	}
+	cl.pumpPtyFn = cl.pumpPty // real pump by default; tests override for join assertions
+	return cl
 }
 
 // putJobMapping records the hub job_id → local job id mapping (handleDispatch).
