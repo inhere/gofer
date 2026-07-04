@@ -13,6 +13,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/ptyrelay"
 	"github.com/inhere/gofer/internal/wshub"
 	"github.com/inhere/gofer/internal/wsproto"
@@ -26,14 +27,15 @@ const (
 
 func newPtyConnectTestServer(t *testing.T) (*Server, *ptyrelay.NonceStore, *ptyrelay.Registry, string, *websocket.Conn) {
 	t.Helper()
-	cfg := &config.ServerConfig{
+	cfg := config.ServerConfig{
 		Token: "api-token",
 		Workers: map[string]config.WorkerAuthConfig{
 			ptyTestWorkerID: {Token: ptyTestToken},
 		},
 	}
 	hub := wshub.New(map[string]string{ptyTestWorkerID: ptyTestWorkerID})
-	s := New(cfg, cfg.Token, false, nil, nil, nil, nil, hub, nil, nil, nil)
+	s := newTestServerCfg(t, cfg)
+	s.hub = hub
 	nonces := ptyrelay.NewNonceStore()
 	relays := ptyrelay.NewRegistry()
 	s.SetPtyRelay(nonces, relays)
@@ -88,8 +90,15 @@ func mustRawForPtyTest(t *testing.T, v any) json.RawMessage {
 	return b
 }
 
-func preparePtyRelay(t *testing.T, nonces *ptyrelay.NonceStore, relays *ptyrelay.Registry, jobID, sessionID, instanceID string) string {
+func preparePtyRelay(t *testing.T, s *Server, nonces *ptyrelay.NonceStore, relays *ptyrelay.Registry, jobID, sessionID, instanceID string) string {
 	t.Helper()
+	now := time.Now().Unix()
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{
+		ID: jobID, ProjectKey: "self", Agent: "exec", Runner: "worker", Interactive: true,
+		Status: "running", Cwd: ".", ResultDir: t.TempDir(), StartedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("upsert pty job: %v", err)
+	}
 	expiry := time.Now().Add(time.Minute).Unix()
 	nonce := nonces.Issue(ptyrelay.NonceBinding{
 		WorkerID:     ptyTestWorkerID,
@@ -164,8 +173,8 @@ func waitRecordedLen(t *testing.T, r *ptyrelay.Relay, want int) {
 }
 
 func TestPtyConnectValidOpenAndFraming(t *testing.T) {
-	_, nonces, relays, base, _ := newPtyConnectTestServer(t)
-	nonce := preparePtyRelay(t, nonces, relays, "job-1", "pty-1", ptyTestInst)
+	s, nonces, relays, base, _ := newPtyConnectTestServer(t)
+	nonce := preparePtyRelay(t, s, nonces, relays, "job-1", "pty-1", ptyTestInst)
 	conn := dialPtyAndHello(t, base, ptyConnectHello{
 		JobID:        "job-1",
 		PtySessionID: "pty-1",
@@ -214,8 +223,8 @@ func TestPtyConnectValidOpenAndFraming(t *testing.T) {
 }
 
 func TestPtyConnectRejectsNonceReplay(t *testing.T) {
-	_, nonces, relays, base, _ := newPtyConnectTestServer(t)
-	nonce := preparePtyRelay(t, nonces, relays, "job-replay", "pty-replay", ptyTestInst)
+	s, nonces, relays, base, _ := newPtyConnectTestServer(t)
+	nonce := preparePtyRelay(t, s, nonces, relays, "job-replay", "pty-replay", ptyTestInst)
 	_ = dialPtyAndHello(t, base, ptyConnectHello{
 		JobID:        "job-replay",
 		PtySessionID: "pty-replay",
@@ -232,8 +241,8 @@ func TestPtyConnectRejectsNonceReplay(t *testing.T) {
 }
 
 func TestPtyConnectRejectsInstanceMismatch(t *testing.T) {
-	_, nonces, relays, base, _ := newPtyConnectTestServer(t)
-	nonce := preparePtyRelay(t, nonces, relays, "job-inst", "pty-inst", "old-inst")
+	s, nonces, relays, base, _ := newPtyConnectTestServer(t)
+	nonce := preparePtyRelay(t, s, nonces, relays, "job-inst", "pty-inst", "old-inst")
 	conn := dialPtyAndHello(t, base, ptyConnectHello{
 		JobID:        "job-inst",
 		PtySessionID: "pty-inst",
@@ -243,8 +252,8 @@ func TestPtyConnectRejectsInstanceMismatch(t *testing.T) {
 }
 
 func TestPtyConnectRejectsBindingMismatch(t *testing.T) {
-	_, nonces, relays, base, _ := newPtyConnectTestServer(t)
-	nonce := preparePtyRelay(t, nonces, relays, "job-real", "pty-real", ptyTestInst)
+	s, nonces, relays, base, _ := newPtyConnectTestServer(t)
+	nonce := preparePtyRelay(t, s, nonces, relays, "job-real", "pty-real", ptyTestInst)
 	conn := dialPtyAndHello(t, base, ptyConnectHello{
 		JobID:        "job-other",
 		PtySessionID: "pty-real",
@@ -268,4 +277,30 @@ func TestPtyConnectRejectsMissingPendingRelay(t *testing.T) {
 		RelayNonce:   nonce,
 	})
 	assertPtyClose(t, conn, ptyCloseNotFound)
+}
+
+func TestPtyConnectRejectsNonLiveJobAndClosesRelay(t *testing.T) {
+	s, nonces, relays, base, _ := newPtyConnectTestServer(t)
+	now := time.Now().Unix()
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{
+		ID: "job-done", ProjectKey: "self", Agent: "exec", Runner: "worker", Interactive: true,
+		Status: "done", Cwd: ".", ResultDir: t.TempDir(), StartedAt: now, EndedAt: now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("upsert terminal pty job: %v", err)
+	}
+	expiry := time.Now().Add(time.Minute).Unix()
+	nonce := nonces.Issue(ptyrelay.NonceBinding{
+		WorkerID: ptyTestWorkerID, InstanceID: ptyTestInst, JobID: "job-done", PtySessionID: "pty-done", Expiry: expiry,
+	})
+	relays.Prepare(ptyrelay.RelayBinding{
+		WorkerID: ptyTestWorkerID, InstanceID: ptyTestInst, JobID: "job-done", PtySessionID: "pty-done", Nonce: nonce, Expiry: expiry,
+	})
+
+	conn := dialPtyAndHello(t, base, ptyConnectHello{
+		JobID: "job-done", PtySessionID: "pty-done", RelayNonce: nonce,
+	})
+	assertPtyClose(t, conn, ptyCloseNotFound)
+	if got, ok := relays.Lookup("job-done"); ok {
+		t.Fatalf("relay after non-live close = %+v,true; want missing", got)
+	}
 }

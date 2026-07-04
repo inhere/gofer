@@ -40,12 +40,19 @@ import (
 // authenticated caller id for handlers to read (callerFromCtx). It is empty for
 // the allow_empty_token pass-through path (no token configured).
 const ctxCallerID = "caller_id"
+const ctxCallerKind = "caller_kind"
+
+const (
+	callerKindUser   = "user"
+	callerKindWorker = "worker"
+)
 
 // callerEntry pairs a known bearer token with the caller id stamped onto jobs
 // that authenticate with it (C2). The token is held in memory only.
 type callerEntry struct {
 	id    string
 	token string
+	kind  string
 }
 
 // callerFromCtx returns the authenticated caller id stored by authMiddleware,
@@ -57,6 +64,15 @@ func callerFromCtx(c *rux.Context) string {
 		}
 	}
 	return ""
+}
+
+func callerKindFromCtx(c *rux.Context) string {
+	if v, ok := c.Get(ctxCallerKind); ok {
+		if s, ok := v.(string); ok {
+			return s
+		}
+	}
+	return callerKindUser
 }
 
 func (s *Server) callerMayAdmin(caller string) bool {
@@ -238,7 +254,7 @@ func buildCallers(serverCfg *config.ServerConfig, token string) []callerEntry {
 			if tok == "" {
 				continue // a caller with no resolvable token cannot authenticate
 			}
-			out = append(out, callerEntry{id: cc.ID, token: tok})
+			out = append(out, callerEntry{id: cc.ID, token: tok, kind: callerKindUser})
 		}
 		// ws-worker (review #1): each registered worker authenticates with its own
 		// token; its caller id IS its worker_id, so lookupCaller returns worker_id
@@ -252,11 +268,11 @@ func buildCallers(serverCfg *config.ServerConfig, token string) []callerEntry {
 			if tok == "" {
 				continue
 			}
-			out = append(out, callerEntry{id: workerID, token: tok})
+			out = append(out, callerEntry{id: workerID, token: tok, kind: callerKindWorker})
 		}
 	}
 	if token != "" {
-		out = append(out, callerEntry{id: "default", token: token})
+		out = append(out, callerEntry{id: "default", token: token, kind: callerKindUser})
 	}
 	return out
 }

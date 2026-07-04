@@ -132,11 +132,12 @@ func openAttachRelay(t *testing.T, relays *ptyrelay.Registry, jobID string, src 
 func issueAttachTicket(t *testing.T, s *Server, jobID, mode, origin string, ttl time.Duration) string {
 	t.Helper()
 	return s.attachTickets.Issue(AttachTicketBinding{
-		Caller: "alice",
-		JobID:  jobID,
-		Mode:   mode,
-		Origin: origin,
-		Expiry: time.Now().Add(ttl).Unix(),
+		Caller:       "alice",
+		JobID:        jobID,
+		PtySessionID: "pty-" + jobID,
+		Mode:         mode,
+		Origin:       origin,
+		Expiry:       time.Now().Add(ttl).Unix(),
 	})
 }
 
@@ -238,6 +239,46 @@ func TestJobAttachValidTicketOriginOutputInputResize(t *testing.T) {
 	waitAttachCond(t, func() bool { return len(src.Resizes()) == 1 })
 	if got := src.Resizes()[0]; got != [2]int{120, 40} {
 		t.Fatalf("resize = %v, want [120 40]", got)
+	}
+}
+
+func TestJobAttachRejectsPtySessionMismatch(t *testing.T) {
+	const origin = "https://example.com"
+	s, relays, base := newAttachTestServer(t, []string{"example.com"})
+	openAttachRelay(t, relays, "job-1", newAttachFakeSource())
+	ticket := s.attachTickets.Issue(AttachTicketBinding{
+		Caller: "alice", JobID: "job-1", PtySessionID: "pty-other", Mode: "write",
+		Origin: origin, Expiry: time.Now().Add(time.Minute).Unix(),
+	})
+
+	conn := mustDialAttach(t, base, "job-1", ticket, origin)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	_, _, err := conn.Read(ctx)
+	if got := websocket.CloseStatus(err); got != attachCloseNotFound {
+		t.Fatalf("close status = %v (err %v), want %v", got, err, attachCloseNotFound)
+	}
+}
+
+func TestJobAttachRejectsOutOfRangeResizeWithoutDisconnect(t *testing.T) {
+	const origin = "https://example.com"
+	s, relays, base := newAttachTestServer(t, []string{"example.com"})
+	src := newAttachFakeSource()
+	openAttachRelay(t, relays, "job-1", src)
+	conn := mustDialAttach(t, base, "job-1", issueAttachTicket(t, s, "job-1", "write", origin, time.Minute), origin)
+
+	writeAttachResize(t, conn, 0, 40)
+	writeAttachResize(t, conn, 501, 40)
+	writeAttachResize(t, conn, 120, 201)
+	time.Sleep(50 * time.Millisecond)
+	if got := len(src.Resizes()); got != 0 {
+		t.Fatalf("out-of-range resizes forwarded = %d, want 0", got)
+	}
+
+	writeAttachResize(t, conn, 500, 200)
+	waitAttachCond(t, func() bool { return len(src.Resizes()) == 1 })
+	if got := src.Resizes()[0]; got != [2]int{500, 200} {
+		t.Fatalf("resize = %v, want [500 200]", got)
 	}
 }
 

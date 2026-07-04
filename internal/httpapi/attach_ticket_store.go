@@ -4,16 +4,18 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"sync"
+	"time"
 )
 
 // AttachTicketBinding is the in-memory binding carried by a browser attach
 // ticket. The ticket token itself is opaque and consumed once by the T7 WS path.
 type AttachTicketBinding struct {
-	Caller string
-	JobID  string
-	Mode   string
-	Origin string
-	Expiry int64
+	Caller       string
+	JobID        string
+	PtySessionID string
+	Mode         string
+	Origin       string
+	Expiry       int64
 }
 
 // AttachTicketStore holds short-lived one-time browser attach tickets.
@@ -32,6 +34,7 @@ func (s *AttachTicketStore) Issue(b AttachTicketBinding) string {
 	}
 	token := randomAttachTicket()
 	s.mu.Lock()
+	s.sweepExpiredLocked(time.Now().Unix())
 	for {
 		if _, exists := s.entries[token]; !exists {
 			s.entries[token] = b
@@ -57,6 +60,14 @@ func (s *AttachTicketStore) Consume(token string, nowUnix int64) (AttachTicketBi
 		return AttachTicketBinding{}, false
 	}
 	return b, true
+}
+
+func (s *AttachTicketStore) sweepExpiredLocked(nowUnix int64) {
+	for token, b := range s.entries {
+		if b.Expiry < nowUnix {
+			delete(s.entries, token)
+		}
+	}
 }
 
 func randomAttachTicket() string {
