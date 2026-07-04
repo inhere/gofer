@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inhere/gofer/internal/ptyrelay"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/wshub"
 	"github.com/inhere/gofer/internal/wsproto"
@@ -26,12 +27,26 @@ type fakeHub struct {
 	registerErr   error
 	dispatchErr   error
 	dispatchedCmd []string
+	dispatched    wsproto.Dispatch
 	// targetWorker records the workerID the runner resolved (the same id flows
 	// into RegisterSink/Dispatch/Deregister). It proves Forward.WorkerID routing
 	// vs the r.workerID fallback (P2).
 	targetWorker string
 
-	cancelCalls int // count of Cancel(workerID, jobID) calls
+	instanceID        string
+	liveInstanceCalls int
+	cancelCalls       int // count of Cancel(workerID, jobID) calls
+}
+
+func (h *fakeHub) LiveInstance(workerID string) (string, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.liveInstanceCalls++
+	h.targetWorker = workerID
+	if h.instanceID == "" {
+		return "", false
+	}
+	return h.instanceID, true
 }
 
 func (h *fakeHub) RegisterSink(workerID, _ string, sk wshub.JobSink) error {
@@ -57,6 +72,7 @@ func (h *fakeHub) Dispatch(workerID string, d wsproto.Dispatch) error {
 	defer h.mu.Unlock()
 	h.calls = append(h.calls, "dispatch")
 	h.dispatchedCmd = d.Cmd
+	h.dispatched = d
 	h.targetWorker = workerID
 	return h.dispatchErr
 }
@@ -88,17 +104,75 @@ func (h *fakeHub) cancelCount() int {
 	return h.cancelCalls
 }
 
+func (h *fakeHub) liveInstanceCount() int {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.liveInstanceCalls
+}
+
+func (h *fakeHub) dispatchedFrame() wsproto.Dispatch {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.dispatched
+}
+
 func (h *fakeHub) getSink() wshub.JobSink {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.sink
 }
 
+type fakeNonceStore struct {
+	mu     sync.Mutex
+	issued []ptyrelay.NonceBinding
+}
+
+func (s *fakeNonceStore) Issue(b ptyrelay.NonceBinding) string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.issued = append(s.issued, b)
+	return "nonce-1"
+}
+
+func (s *fakeNonceStore) count() int {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return len(s.issued)
+}
+
+type fakeRelayRegistry struct {
+	mu       sync.Mutex
+	prepared []ptyrelay.RelayBinding
+	closed   []string
+}
+
+func (r *fakeRelayRegistry) Prepare(b ptyrelay.RelayBinding) *ptyrelay.RelayEntry {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.prepared = append(r.prepared, b)
+	return &ptyrelay.RelayEntry{Binding: b, State: ptyrelay.RelayPendingWorker}
+}
+
+func (r *fakeRelayRegistry) Close(jobID, reason string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.closed = append(r.closed, jobID+":"+reason)
+}
+
+func (r *fakeRelayRegistry) firstPrepared() (ptyrelay.RelayBinding, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if len(r.prepared) == 0 {
+		return ptyrelay.RelayBinding{}, false
+	}
+	return r.prepared[0], true
+}
+
 // newRunnerWithHub builds a Runner wired to a fake hub (bypasses New's concrete
 // *wshub.Hub requirement, exercising the same code path via the dispatcher
 // interface).
 func newRunnerWithHub(h dispatcher) *Runner {
-	return &Runner{name: "remote-w1", workerID: "w1", hub: h}
+	return &Runner{name: "remote-w1", workerID: "w1", hub: h, nowUnix: func() int64 { return 100 }}
 }
 
 func TestRunNilForward(t *testing.T) {
@@ -229,6 +303,106 @@ func TestRunNoTargetWorker(t *testing.T) {
 	}
 	if len(h.snapshotCalls()) != 0 {
 		t.Fatalf("no hub calls should be made without a target, got %v", h.snapshotCalls())
+	}
+}
+
+func TestRunInteractiveIssuesRelayNonceAndPreparesRegistry(t *testing.T) {
+	h := &fakeHub{instanceID: "inst-1"}
+	nonces := &fakeNonceStore{}
+	relays := &fakeRelayRegistry{}
+	r := newRunnerWithHub(h)
+	r.nonceStore = nonces
+	r.relayRegistry = relays
+
+	done := make(chan runner.Result, 1)
+	go func() {
+		done <- r.Run(context.Background(), runner.Request{
+			JobID: "j1",
+			Forward: &runner.Forward{
+				WorkerID: "w-selected", Interactive: true, Cols: 120, Rows: 40,
+			},
+		})
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && h.getSink() == nil {
+		time.Sleep(5 * time.Millisecond)
+	}
+	sink := h.getSink()
+	if sink == nil {
+		t.Fatal("sink never registered")
+	}
+	sink.Finish(wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
+	select {
+	case res := <-done:
+		if res.ExitCode != 0 || res.Err != nil {
+			t.Fatalf("result = %+v, want clean done", res)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after Finish")
+	}
+
+	d := h.dispatchedFrame()
+	if d.RelayNonce == "" {
+		t.Fatal("interactive Dispatch.RelayNonce is empty")
+	}
+	if d.RelayNonce != "nonce-1" || !d.Interactive || d.Cols != 120 || d.Rows != 40 {
+		t.Fatalf("dispatch = %+v", d)
+	}
+	if h.liveInstanceCount() != 1 {
+		t.Fatalf("LiveInstance calls = %d, want 1", h.liveInstanceCount())
+	}
+	if nonces.count() != 1 {
+		t.Fatalf("nonce Issue count = %d, want 1", nonces.count())
+	}
+	prepared, ok := relays.firstPrepared()
+	if !ok {
+		t.Fatal("registry Prepare was not called")
+	}
+	if prepared.WorkerID != "w-selected" || prepared.InstanceID != "inst-1" || prepared.JobID != "j1" || prepared.Nonce != "nonce-1" || prepared.PtySessionID == "" {
+		t.Fatalf("prepared binding = %+v", prepared)
+	}
+}
+
+func TestRunNonInteractiveDoesNotIssueRelayNonce(t *testing.T) {
+	h := &fakeHub{instanceID: "inst-1"}
+	nonces := &fakeNonceStore{}
+	relays := &fakeRelayRegistry{}
+	r := newRunnerWithHub(h)
+	r.nonceStore = nonces
+	r.relayRegistry = relays
+
+	done := make(chan runner.Result, 1)
+	go func() {
+		done <- r.Run(context.Background(), runner.Request{JobID: "j1", Forward: &runner.Forward{}})
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && h.getSink() == nil {
+		time.Sleep(5 * time.Millisecond)
+	}
+	sink := h.getSink()
+	if sink == nil {
+		t.Fatal("sink never registered")
+	}
+	sink.Finish(wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
+	select {
+	case res := <-done:
+		if res.ExitCode != 0 || res.Err != nil {
+			t.Fatalf("result = %+v, want clean done", res)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after Finish")
+	}
+	if got := h.dispatchedFrame().RelayNonce; got != "" {
+		t.Fatalf("non-interactive RelayNonce = %q, want empty", got)
+	}
+	if h.liveInstanceCount() != 0 {
+		t.Fatalf("LiveInstance calls = %d, want 0", h.liveInstanceCount())
+	}
+	if nonces.count() != 0 {
+		t.Fatalf("nonce Issue count = %d, want 0", nonces.count())
+	}
+	if _, ok := relays.firstPrepared(); ok {
+		t.Fatal("registry Prepare called for non-interactive run")
 	}
 }
 

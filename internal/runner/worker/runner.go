@@ -15,11 +15,15 @@ package worker
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"io"
 	"sync"
+	"time"
 
+	"github.com/inhere/gofer/internal/ptyrelay"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/wshub"
 	"github.com/inhere/gofer/internal/wsproto"
@@ -38,6 +42,7 @@ const sinkTruncateMark = "\n[gofer: log frame truncated by worker back-pressure]
 // the runner's sink-lifecycle can be unit-tested with a fake (the production
 // value is the concrete hub singleton). *wshub.Hub satisfies it.
 type dispatcher interface {
+	LiveInstance(workerID string) (instanceID string, ok bool)
 	RegisterSink(workerID, jobID string, sk wshub.JobSink) error
 	DeregisterSink(workerID, jobID string)
 	Dispatch(workerID string, d wsproto.Dispatch) error
@@ -49,17 +54,45 @@ type dispatcher interface {
 	Cancel(workerID, jobID string) error
 }
 
+type nonceIssuer interface {
+	Issue(ptyrelay.NonceBinding) string
+}
+
+type relayPreparer interface {
+	Prepare(ptyrelay.RelayBinding) *ptyrelay.RelayEntry
+	Close(jobID, reason string)
+}
+
 // Runner forwards a job to a worker over the hub and returns the worker's
 // authoritative terminal result.
 type Runner struct {
-	name     string
-	workerID string
-	hub      dispatcher
+	name          string
+	workerID      string
+	hub           dispatcher
+	nonceStore    nonceIssuer
+	relayRegistry relayPreparer
+	nowUnix       func() int64
+}
+
+// Option configures a Runner.
+type Option func(*Runner)
+
+// WithPtyRelay injects the serve-side relay lifecycle dependencies used by
+// interactive worker dispatches.
+func WithPtyRelay(nonces nonceIssuer, relays relayPreparer) Option {
+	return func(r *Runner) {
+		r.nonceStore = nonces
+		r.relayRegistry = relays
+	}
 }
 
 // New builds a worker runner named name that dispatches to workerID via hub.
-func New(name, workerID string, hub *wshub.Hub) *Runner {
-	return &Runner{name: name, workerID: workerID, hub: hub}
+func New(name, workerID string, hub *wshub.Hub, opts ...Option) *Runner {
+	r := &Runner{name: name, workerID: workerID, hub: hub, nowUnix: func() int64 { return time.Now().Unix() }}
+	for _, opt := range opts {
+		opt(r)
+	}
+	return r
 }
 
 // Name implements runner.Runner.
@@ -93,6 +126,37 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		return runner.Result{ExitCode: -1, Err: errors.New("worker runner: no target worker_id")}
 	}
 
+	var relayPrepared bool
+	var relayNonce string
+	var ptySessionID string
+	if f.Interactive {
+		if r.nonceStore == nil || r.relayRegistry == nil {
+			return runner.Result{ExitCode: -1, Err: errors.New("worker runner: pty relay dependencies not configured")}
+		}
+		instanceID, ok := r.hub.LiveInstance(workerID)
+		if !ok {
+			return runner.Result{ExitCode: -1, Err: wshub.ErrWorkerOffline}
+		}
+		ptySessionID = newPtySessionID(req.JobID)
+		expiry := r.nowUnix() + relayNonceTTLSeconds
+		relayNonce = r.nonceStore.Issue(ptyrelay.NonceBinding{
+			WorkerID:     workerID,
+			InstanceID:   instanceID,
+			JobID:        req.JobID,
+			PtySessionID: ptySessionID,
+			Expiry:       expiry,
+		})
+		r.relayRegistry.Prepare(ptyrelay.RelayBinding{
+			WorkerID:     workerID,
+			InstanceID:   instanceID,
+			JobID:        req.JobID,
+			PtySessionID: ptySessionID,
+			Nonce:        relayNonce,
+			Expiry:       expiry,
+		})
+		relayPrepared = true
+	}
+
 	sink := newBoundedSink(req.Stdout, req.Stderr)
 	// Wire the interaction bridge: an inbound interaction{open} is injected onto
 	// the host job (via req.Interactions, the same remoteInteractionSink peer-http
@@ -109,6 +173,9 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 
 	// (a) sink-before-dispatch.
 	if err := r.hub.RegisterSink(workerID, req.JobID, sink); err != nil {
+		if relayPrepared {
+			r.relayRegistry.Close(req.JobID, "register_failed")
+		}
 		return runner.Result{ExitCode: -1, Err: err} // worker offline
 	}
 	defer r.hub.DeregisterSink(workerID, req.JobID) // (e)
@@ -126,8 +193,12 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		Interactive: f.Interactive,
 		Cols:        f.Cols,
 		Rows:        f.Rows,
+		RelayNonce:  relayNonce,
 	}
 	if err := r.hub.Dispatch(workerID, d); err != nil {
+		if relayPrepared {
+			r.relayRegistry.Close(req.JobID, "dispatch_failed")
+		}
 		return runner.Result{ExitCode: -1, Err: err}
 	}
 
@@ -161,6 +232,19 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		_ = r.hub.Cancel(workerID, req.JobID)
 		return runner.Result{ExitCode: -1, Err: ctx.Err()}
 	}
+}
+
+const relayNonceTTLSeconds = 60
+
+func newPtySessionID(jobID string) string {
+	var b [16]byte
+	if _, err := rand.Read(b[:]); err != nil {
+		panic(err)
+	}
+	if jobID == "" {
+		return "pty-" + hex.EncodeToString(b[:])
+	}
+	return jobID + "-pty-" + hex.EncodeToString(b[:])
 }
 
 // outcomeFrom projects a worker-sent Outcome frame onto a runner.Outcome,

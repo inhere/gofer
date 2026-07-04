@@ -14,6 +14,7 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
+	"github.com/inhere/gofer/internal/ptyrelay"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
 	peerhttprunner "github.com/inhere/gofer/internal/runner/peerhttp"
@@ -46,6 +47,10 @@ type Core struct {
 	// Hub is the ws-worker hub singleton (serve mounts it on /v1/workers/connect;
 	// every type=worker runner references this one instance). Always non-nil.
 	Hub *wshub.Hub
+	// RelayNonces and PtyRelays are live-only serve-side PTY relay state shared by
+	// worker dispatch, worker pty-connect (T5) and browser attach (T7).
+	RelayNonces *ptyrelay.NonceStore
+	PtyRelays   *ptyrelay.Registry
 }
 
 // Workflow returns the Core's workflow engine (the handle serve/httpapi consume to
@@ -84,6 +89,8 @@ func Build(cfg *config.Config) (*Core, error) {
 	// runner references the same hub instance). Its token→worker bindings come
 	// from cfg.Server.Workers (review #1: worker_id is its own caller id).
 	hub := wshub.New(workerBindings(cfg))
+	relayNonces := ptyrelay.NewNonceStore()
+	ptyRelays := ptyrelay.NewRegistry()
 
 	for name, rc := range cfg.Runners {
 		switch rc.Type {
@@ -94,7 +101,7 @@ func Build(cfg *config.Config) (*Core, error) {
 			}
 			runners[name] = peerhttprunner.New(name, rc.BaseURL, token)
 		case "worker":
-			runners[name] = workerrunner.New(name, rc.WorkerID, hub)
+			runners[name] = workerrunner.New(name, rc.WorkerID, hub, workerrunner.WithPtyRelay(relayNonces, ptyRelays))
 		}
 	}
 	store, err := jobstore.Open(cfg.ResolveDBPath())
@@ -125,7 +132,7 @@ func Build(cfg *config.Config) (*Core, error) {
 	// whitelist is the SAME source the L0 answerer reads (cfg.supervisor.allow_prompt_regex), so
 	// L0 auto-answer and L2 sup派生作答 share one policy. Role lookup is presence.Role.
 	jobs.SetAnswerGuard(answerguard.New(supervisorAllowRegex(cfg), pres))
-	return &Core{Cfg: cfg, Projects: projects, Agents: agents, Runners: runners, Store: store, Jobs: jobs, Presence: pres, workflowEngine: eng, Hub: hub}, nil
+	return &Core{Cfg: cfg, Projects: projects, Agents: agents, Runners: runners, Store: store, Jobs: jobs, Presence: pres, workflowEngine: eng, Hub: hub, RelayNonces: relayNonces, PtyRelays: ptyRelays}, nil
 }
 
 // supervisorAllowRegex returns the answer闸 / L0 prompt whitelist from cfg.supervisor
