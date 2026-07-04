@@ -41,6 +41,7 @@ type governanceView struct {
 	DefaultRateBurst           int     `json:"default_rate_burst"`
 	RequireAnswerCapability    bool    `json:"require_answer_capability"`
 	RequireAdminCapability     bool    `json:"require_admin_capability"`
+	RequireAttachCapability    bool    `json:"require_attach_capability"`
 }
 
 type callerConfigView struct {
@@ -212,6 +213,7 @@ func buildServerConfigView(sc config.ServerConfig) serverConfigView {
 			DefaultRateBurst:           sc.Governance.DefaultRateBurst,
 			RequireAnswerCapability:    sc.Governance.RequireAnswerCapability,
 			RequireAdminCapability:     sc.Governance.RequireAdminCapability,
+			RequireAttachCapability:    sc.Governance.RequireAttachCapability,
 		},
 		Callers: buildCallerViews(sc.Callers),
 		Workers: buildWorkerViews(sc.Workers),

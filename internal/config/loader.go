@@ -3,6 +3,7 @@ package config
 import (
 	"fmt"
 	"os"
+	"path"
 	"path/filepath"
 	"regexp"
 	"strings"
@@ -310,6 +311,36 @@ func validate(cfg *Config) error {
 		if !hasAdminCaller {
 			return fmt.Errorf("server.governance.require_admin_capability is on but no caller has can_admin: true (would lock out all config edits)")
 		}
+	}
+	if g.RequireAttachCapability {
+		var hasAttachCaller bool
+		for _, cc := range cfg.Server.Callers {
+			if cc.CanAttach {
+				hasAttachCaller = true
+				break
+			}
+		}
+		if !hasAttachCaller {
+			return fmt.Errorf("server.governance.require_attach_capability is on but no caller has can_attach: true (would lock out all attach)")
+		}
+	}
+	for i, pattern := range g.AttachOrigins {
+		trimmed := strings.TrimSpace(pattern)
+		if trimmed == "" {
+			return fmt.Errorf("server.governance.attach_origins[%d] must not be blank", i)
+		}
+		if trimmed == "*" {
+			return fmt.Errorf("server.governance.attach_origins[%d] must not be *", i)
+		}
+		if _, err := path.Match(trimmed, "example.com"); err != nil {
+			return fmt.Errorf("server.governance.attach_origins[%d] %q is invalid: %w", i, pattern, err)
+		}
+	}
+	if cfg.Storage.Cast.Encryption.Enabled && strings.TrimSpace(cfg.Storage.Cast.Encryption.KeyEnv) == "" {
+		return fmt.Errorf("storage.cast.encryption.key_env is required when storage.cast.encryption.enabled is true")
+	}
+	if cfg.Storage.Cast.RetentionTTLHours > castMaxTTLHours {
+		return fmt.Errorf("storage.cast.retention_ttl_hours must be <= %d", castMaxTTLHours)
 	}
 	for _, cc := range cfg.Server.Callers {
 		if cc.MaxConcurrentJobs < 0 {
