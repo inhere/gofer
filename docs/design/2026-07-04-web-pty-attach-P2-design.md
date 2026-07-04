@@ -1,207 +1,243 @@
 # WEB-03 P2：worker 端到端 pty attach 设计细化
 
-> 上游：主设计 [`2026-07-03-web-pty-attach-design.md`](2026-07-03-web-pty-attach-design.md) v0.8（§5 架构 / §7 时序 / §14 阶段）；P1 计划 [`../plans/web-pty-attach/P1-plan.md`](../plans/web-pty-attach/P1-plan.md)（§P2 前瞻）；评审 [`../review/2026-07-03-web-pty-attach-codex-review.md`](../review/2026-07-03-web-pty-attach-codex-review.md)（round-2 阻断5 = 取消协议）。
+> 上游：主设计 [`2026-07-03-web-pty-attach-design.md`](2026-07-03-web-pty-attach-design.md) v0.8（§5 架构 / §7 时序 / §14 阶段）；P1 计划 [`../plans/web-pty-attach/P1-plan.md`](../plans/web-pty-attach/P1-plan.md)（§P2 前瞻）；评审 [`../review/2026-07-03-web-pty-attach-codex-review.md`](../review/2026-07-03-web-pty-attach-codex-review.md)（round-2 阻断5=取消协议）+ [`../review/2026-07-04-web-pty-attach-P2-codex-review.md`](../review/2026-07-04-web-pty-attach-P2-codex-review.md)（本文 v0.1 评审）。
 > 本文只细化 **P2（worker 端到端）**：serve 侧协议/relay/安全闸已 P1 落地，P2 补 **worker 真拨入 + 字节泵 + resize + 取消时序 + 断连语义**，改动面最大。
-> 铁律 G023（非交互路径零行为变化）/ G022·G024（`internal/worker` 可 import `runner/pty`，但 `job` 不反向 import pty/ptyrelay；worker Client 经窄接口拿 `PtySession`）。
+> 铁律 G023（非交互路径零行为变化）/ G022·G024（`internal/worker` 可 import `runner/pty`，但 `job` 不反向 import pty/ptyrelay；worker 经窄接口拿 `PtySession`）。
 
 ## 修订记录
 | 版本 | 日期 | 说明 |
 |---|---|---|
-| v0.1 | 2026-07-04 | 初稿：6 决策 + 5 时序图 + 帧/接口改动清单，全部对真实代码核对。待 codex 评审。 |
+| v0.1 | 2026-07-04 | 初稿：6 决策 + 5 时序图 + 帧/接口清单。 |
+| **v0.2** | 2026-07-04 | **codex 评审后大改**（2 事实性错误 + 4 阻断 + 4 高 + 4 中）：① **输出所有权倒置**——`PtyRunner.Run` 已有 `io.Copy(io.Discard,sess)`，P2 pump 再读 = 双读竞争吞字节 → 改 `SessionObserver` 交接，worker 成唯一 reader（D-P2-3 重写）；② **ack 两段化**——`Result` 只证 worker teardown，不证 serve 读完尾字节（两连接无跨序）→ 关闭权归 relay recordLoop EOF、host 等 `relay.Done()` 再 finish（D-P2-2/6 重写）；③ **拨入改事件驱动 rendezvous**（非 2s 轮询，防本地并发槽排队击穿，D-P2-3）；④ **断连判据改 state+selfClosing 原子标志**（非 `Done()`，防自然退出误判 cancel，D-P2-5 重写）；⑤ 新增 **D-P2-7 per-dispatch URL threading**（去全局 mutable `currentURL`）+ **D-P2-8 Registry.Close 锁内翻状态/锁外关 IO**（去全局 HOL）；⑥ 补 fail-fast（缺 nonce/session-id）+ 尾字节 e2e 证明。`{t:x,code}` exit 帧移 P4。 |
 
 ## 0. 范围
 
-**做**：worker 收 interactive dispatch → 本地 PtyRunner 起 pty（P1 已可）→ **eager 拨出第二条专用 pty ws** 到 serve → 双向字节泵（输出 binary / 输入 binary / resize text）→ **host 取消协议**（等 worker ack/grace 再 finish）→ 断连全链路。**e2e**（用现有 ws-worker 测试 harness + `httptest`）。
+**做**：worker 收 interactive dispatch → 本地 PtyRunner 起 pty → **worker 成 pty 输出唯一 reader** + **eager 拨出第二条专用 pty ws** 到 serve → 双向字节泵（输出 binary / 输入 binary / resize text）→ **两段化取消/终态协议**（worker teardown ack + serve drain ack）→ 断连全链路。**e2e**（现有 ws-worker harness + `httptest` + Linux 真 pty）。
 
-**不做**（留后阶段）：cast 加密录制 + `pty_sessions` 表（P3）；前端 `AttachTerminal.vue` + e2e 全矩阵（P4）；serve-local pty（drop-in，V1 不触发）。
+**不做**（留后阶段）：cast 加密 + `pty_sessions` 表（P3）；前端 `AttachTerminal.vue` + browser `{t:x,code}` exit 帧 + e2e 全矩阵（P4）；serve-local pty（drop-in，V1 不触发）。
 
-## 1. 现状锚点（P1 已落地，P2 依赖）
+## 1. 现状锚点（P1 已落地 + 本次评审核对，附文件:行）
 
-| 组件 | 位置 | P2 依赖点 |
+| 组件 | 位置 | P2 依赖 / 评审要点 |
 |---|---|---|
-| serve pty ws 端点 | `httpapi/pty_connect_handler.go` | worker 按其 hello/nonce 契约拨入；校验 nonce+live instance+`callerID==WorkerID`+job in-flight+interactive+`binding.{JobID,PtySessionID}==hello.{...}` |
-| remotePtySource | `httpapi/pty_source.go` | serve 眼中的字节流：`Read`只收 **binary**=pty 输出；`Write`发 **binary**=pty 输入；`Resize`发 **text** `{type:resize,cols,rows}`；`Close`发 normal-close |
-| relay + 两层背压 + lease | `ptyrelay/relay.go` | recordLoop 读 source→ring+cast+viewer fan-out；source EOF/err→`Close()`（幂等 CAS）→`Done()` |
-| relay 注册表 + nonce | `ptyrelay/registry.go`,`nonce.go` | host runner 侧 `Prepare(pending_worker)`/`Issue(nonce)`；端点 `Consume(nonce)`+`Open(nonce,source)` |
-| browser attach ws | `httpapi/attach_handler.go` | 消费 ticket→`MarkAttached`→`AddViewer(lease)`→回放 `Scrollback()`→pump `viewer.Out()`→binary；读 `{t:i}`/`{t:r}` |
-| host worker runner | `runner/worker/runner.go` | interactive 时已 `LiveInstance`+`Issue` nonce+`Prepare` relay+Dispatch 带 `RelayNonce`；**ctx.Done 立即返回**（P2 要改） |
-| PtyRunner + PtySession | `runner/pty/{runner,session}.go` | worker 本地起 pty；`registry.Lookup(jobID)`；`PtySession.{Read,WriteInput,Resize,Done,ExitCode}` + 有序 teardown |
-| worker Client | `worker/client.go`,`dispatch.go` | 单 hub conn + writeMu + 全 JSON；`handleDispatch` 未投影 interactive 字段（P2 补） |
-| core 装配 | `core/core.go`,`commands/worker.go` | worker 与 serve 同走 `core.Build`：`Runners["pty"]=*PtyRunner`（Available 时）；Client 由 `commands/worker.go:192` 建，拿得到 `cr.Runners` |
+| serve pty ws 端点 | `httpapi/pty_connect_handler.go:54-98` | worker 按 hello=`{job_id,pty_session_id,relay_nonce}`(text) 拨入；校验 nonce 消费 + `callerID==WorkerID` + live instance + `binding.{JobID,PtySessionID}==hello.{...}`(`:70-72`) + job in-flight+interactive |
+| remotePtySource | `httpapi/pty_source.go` | serve 眼中字节流：`Read`只收 **binary**=输出(`:44` 跳 text)；`Write`发 **binary**=输入；`Resize`发 **text** `{type:resize}`；`Close`(`:80-83`)关 ws |
+| relay + 两层背压 + lease | `ptyrelay/relay.go` | `recordLoop`(`:120-138`)读 source→ring+cast+fanout；source EOF/err→`Close()`(`:235-253`)→`Done()`。**唯一关闭权**（见 D-P2-2） |
+| relay 注册表 + nonce | `ptyrelay/registry.go`,`nonce.go` | `Prepare(pending_worker)`/`Issue`；`Consume`+`Open(nonce,source)`；`Close` 现**持锁调 Relay.Close**(`:183-203`, HOL 风险, D-P2-8) |
+| browser attach ws | `httpapi/attach_handler.go` | ticket→`MarkAttached`→`AddViewer(lease)`→回放 `Scrollback()`→pump `viewer.Out()`；`relay.Done` 现只 close 4404(`:136-139`) |
+| host worker runner | `runner/worker/runner.go` | interactive 已 `LiveInstance`+`Issue`+`Prepare`+Dispatch 带 `RelayNonce`(`:133-201`)；`ctx.Done` 现**立即返回**(`:229-242`, D-P2-6)；`resultCh`/`lostCh`(`:310-312`) |
+| PtyRunner + PtySession | `runner/pty/{runner,session}.go` | **`Run` 已 `go io.Copy(io.Discard,sess)`**(`runner.go:53-58`, 事实性错误1)；`session.run`(`session.go:137-170`)`<-ps.done` 才返回；`State()`/状态常量；`Done()` 末尾才关(`:212-217`) |
+| worker Client | `worker/{client,dispatch}.go` | 单 hub conn+writeMu+全 JSON；`handleDispatch`(`dispatch.go:23-73`)未投影 interactive；`recvLoop`(`client.go:301-347`) |
+| core / worker 装配 | `core/core.go:78-106`,`commands/worker.go:185-204` | worker 与 serve 同走 `core.Build`：`Runners["pty"]=*PtyRunner`；Client 由 `worker.go:192` 建，可拿 `cr.Runners` |
+| worker 本地 admission | `job/submit.go`,`execute.go`,`cancel.go` | `Submit` 异步起 `execute`；执行前等**项目/调用方并发槽**（排队可 >秒级，D-P2-3）；`Cancel` cancel ctx(`cancel.go:47-62`) |
 
-**P1 已成立的调度事实**（无需 P2 改）：worker `handleDispatch` 强制 `Runner=local` → submit.go `req.Interactive && !remote` → 命中本机 pty runner；submit.go 已把 `Interactive/Cols/Rows` threaded 到 `runner.Request`→`PtyRunner.start`。**唯一断点**：`handleDispatch` 构造 `JobRequest` 时没带 `Interactive/Cols/Rows`（下方 D-P2-4 修）。
+**P1 已成立**：worker `handleDispatch` 强制 `Runner=local` → submit.go `req.Interactive && !remote` → 命中本机 pty runner；submit.go 已把 `Interactive/Cols/Rows` threaded 到 `runner.Request`→`PtyRunner.start`。**断点**：`handleDispatch` 构造 `JobRequest` 未带 interactive 字段（D-P2-4）。
 
 ## 2. 关键设计决策
 
 ### D-P2-1 worker 第二条专用 pty ws = 独立连接（非复用 hub conn）
-worker Client 现为**单 conn + 单 writeMu + 全 `wsjson`（JSON）**（`client.go:95-96`）。pty 字节流是 binary + 高频，塞进 hub conn 会破坏 hub 的顺序/背压（codex round-1 阻断3 的原因）。→ interactive job 起时，worker **另开一条 `websocket.Dial` 到 serve 的 `/v1/workers/pty-connect`**，自带独立 `*websocket.Conn` + 独立 write 锁，**binary 帧**收发，与 hub 控制平面完全隔离。每个 interactive job 一条，job 结束即关。
+hub conn 是单 conn+单 writeMu+全 `wsjson`；pty 是 binary 高频流，塞进去破坏 hub 顺序/背压（round-1 阻断3）。→ interactive job 起时 worker 另开 `websocket.Dial` 到 serve `/v1/workers/pty-connect`，独立 conn + 独立 write 锁 + binary 帧，与 hub 控制平面隔离。每 job 一条，job 结束即关。
 
-### D-P2-2 pty-exit ack = 复用 hub `Result` 帧（**不新增 wsproto 帧**）
-codex round-2 阻断5 要求：host cancel → 等 worker「pty-exit **或 result**」再 finish。关键事实链（已核对）：worker 本地 interactive job 的终态**必然晚于** `PtySession` 有序 teardown——`handleDispatch` 在 `cl.jobs.Wait(localID)` 返回终态后才发 `Result`；而 `Wait` 返回 ⇐ `PtyRunner.Run` 返回 ⇐ `PtySession.run` 走完 `<-ps.done`（publish-exit）。**故现有 `Result` 帧就是合法的 pty-exit ack**，无需新增帧。
-- 再加一条 worker 侧强序（D-P2-6）：`handleDispatch` 对 interactive job **先 join pty 泵 goroutine（输出排空 + pty ws 关闭）再发 Result** → `Result` 语义升级为「pty 全排空 + 已 teardown」。
-- 决策留给 codex：**是否接受"复用 Result 而非新帧"**。倾向接受（少一个协议面 + 与 round-2 建议一致）。
+### D-P2-2 关闭权归 relay recordLoop EOF；ack 两段化（**修阻断1**）
+**核心纠正**：worker 侧「排空+关 pty ws 再发 Result」只保证 worker 本地 teardown 完成；`Result`(hub ws) 与 pty ws 尾字节**在两条独立连接上、无跨连接顺序**——host 收 Result 后若立即 `relayRegistry.Close` 会关掉 `remotePtySource` 的 ws，此时 serve `recordLoop` 可能尚未从 `conn.Read` 取出最后 binary/EOF → 截尾。
+→ 定死**单一关闭权 = relay 自身 recordLoop 的 source EOF**：worker 排空后关 pty ws(FIN) → `remotePtySource.Read` 返 err → `recordLoop` 读完全部字节后 `relay.Close()` → `relay.Done()`。这是**唯一**「serve 已读完」的可信信号。
+- **`Result` = worker-teardown ack**（供 exit 分类 / Outcome / 唤醒条件之一），**不**兼作 serve-drain ack。
+- **`relay.Done()` = serve-drain-complete ack**（host 据此才 finish，D-P2-6）。
+- host 的 defer `Close` 退化为**兜底**：仅在 grace 超时（worker/relay 卡死）才 force-close（此时截尾可接受）。
+- 需 registry 暴露 `Done(jobID) <-chan struct{}`（pending 未 Open 的 relay 无字节可排、host 靠 grace 收敛）。
 
-### D-P2-3 worker-client → PtySession 取字节 seam
-Client 只持 `jobs Jobs`（`client.go:93`），拿不到 `PtySession`。→ `PtyRunner` 加导出方法 `LookupSession(jobID)(*PtySession,bool)`（转发内部 `registry.Lookup`）；`commands/worker.go` 从 `cr.Runners[ptyrunner.Name].(*ptyrunner.PtyRunner)` 取出，经 worker `Config` 注入 Client 一个窄接口 `ptySessions interface{ LookupSession(string)(*ptyrunner.PtySession,bool) }`。`internal/worker` 已 import `ptyrunner`（`Available()`），不违 G024（job 仍不 import pty）。
-- **注册时机竞态**：`PtySession` 在 `PtyRunner.Run`（job 执行 goroutine）内 `reg.add`，`handleDispatch` 的 `Submit` 是异步返回、此刻 session 可能未注册。→ worker pty 泵起手**有界轮询** `LookupSession(localID)`（如 20ms×N，上限 2s）；超时未见即放弃 pty ws（job 仍按普通流程跑/失败，relay 端 `pending_worker` 到期由 registry sweep）。
+### D-P2-3 输出所有权倒置：`SessionObserver` 交接（**修事实性错误1 + 阻断2/3**）
+真实 `PtyRunner.Run` 注册 session 后立即 `go io.Copy(io.Discard,sess)`（P0 spike 的临时 drain）。pty master **非 broadcast**，P2 pump 再 `sess.Read` = 两 reader 随机分流吞字节。且 v0.1 用 `LookupSession`+2s 轮询定位 session，会被 worker 本地**并发槽排队**击穿（`MaxConcurrent=1` 时长任务占槽 → interactive 排队 >2s → pump 放弃 → 漏拨）。
+→ **倒置**：`PtyRunner` 加可注入的 `SessionObserver`：
+```go
+// internal/runner/pty
+type SessionObserver interface {
+    // 在 session 注册后、Run 阻塞前同步回调；observer 成为 sess 输出的【唯一 reader】。
+    // 必须非阻塞（内部 spawn goroutine）。observer 未设时 PtyRunner 才跑默认 discard drain。
+    OnSessionStart(jobID string, sess *PtySession)
+}
+func (r *PtyRunner) SetObserver(o SessionObserver) // worker 侧设；serve/测试 nil→保留 discard drain(G023 tests)
+```
+`Run`：`reg.add` 后 `if observer!=nil { observer.OnSessionStart(jobID,sess) } else { go io.Copy(io.Discard,sess) }`。worker Client 实现 `OnSessionStart`（jobID=worker 本地 id），经 **事件驱动 rendezvous** 交给 `handleDispatch` 的 pump（无轮询）：
+```txt
+handleDispatch(d): res=Submit(interactiveReq); localID=res.ID; putJobMapping(d.JobID,localID)
+  if interactive: sess := cl.waitSession(ctx, localID)   // 阻塞至 OnSessionStart(localID)|job terminal|ctx
+                  if sess!=nil { pumpDone = go pumpPty(ctx, sessURL, sess, d.JobID, d.PtySessionID, d.RelayNonce) }
+OnSessionStart(localID,sess): rendezvous 投递(有 waiter→送; 无→buffer sessReady[localID])  // 无竞态
+waitSession(ctx,localID): 命中 sessReady 立返; 否则挂 waiter, select{ sess | jobs.Wait(localID)终态 | ctx.Done }
+```
+- **单 reader**：observer 设时无 discard drain，pump 是唯一 reader（含正常输出/cancel 尾字节/scrollback/cast 全字节可证）。
+- **无轮询**：`waitSession` 事件驱动，排队多久等多久；job 终态/ctx 唤醒防悬挂 → 修阻断3。
+- G024：`SessionObserver` 接口在 `runner/pty` 定义，worker 实现并注入，`job` 不 import pty；worker 已 import `ptyrunner`。`LookupSession` 不再需要（session 直接交付）。
 
-### D-P2-4 `wsproto.Dispatch` 增补 `PtySessionID` + `handleDispatch` 投影
-serve 端点强校验 `binding.PtySessionID == hello.PtySessionID`，但 pty_session_id 是 **serve 侧 mint**（`runner/worker/runner.go:141 newPtySessionID`），worker 不知道。→ `Dispatch` 加 `PtySessionID string json:"pty_session_id,omitempty"`；host `runner/worker.Run` 填入（已有 `ptySessionID` 变量）；worker `handleDispatch` 把 `d.{Interactive,Cols,Rows}` 投影进本地 `JobRequest`，把 `d.{JobID,PtySessionID,RelayNonce}` 传给 pty 泵作 hello。
+### D-P2-4 `Dispatch` 补 `PtySessionID` + handleDispatch 投影 + fail-fast
+pty_session_id 是 **serve mint**（`runner/worker/runner.go:141`），worker 不知道，但 serve 端点强校验 `binding.PtySessionID==hello.PtySessionID`。→ `wsproto.Dispatch` 加 `PtySessionID string json:"pty_session_id,omitempty"`；host `Run` 填（已有 `ptySessionID` 变量）；worker `handleDispatch` 投影 `d.{Interactive,Cols,Rows}`→JobRequest，`d.{JobID,PtySessionID,RelayNonce}`→pump hello。
+- **fail-fast（中1）**：`d.Interactive && (d.RelayNonce=="" || d.PtySessionID=="")` → **不 Submit 不可 attach 的 pty**，直接回 `Result{failed}`（旧 worker/坏 dispatch 语义明确）。
 
-### D-P2-5 pty ws 断连即会话终止
-主设计"生命周期"：`worker↔serve 断连即会话终止 + job failed`。pty ws（第二条）**非 teardown 引起**的断开（serve 崩/网络断/idle killed）时，worker 泵检测到 conn err 且 `PtySession` 仍 running → 调 `cl.jobs.Cancel(localID)` 终止本地 job（→ 走正常 teardown → Result=failed/cancelled）。反向：teardown 引起的 EOF（master 关）是正常关闭，不触发 cancel。用「谁先动」区分：`PtySession.Done()` 已关 = teardown 主动；否则 = 外部断连。
+### D-P2-5 断连即终止：判据 = session state + selfClosing 原子标志（**修阻断4 TOCTOU**）
+用 `PtySession.Done()` 是否已关区分「teardown 主动 EOF」vs「外部断连」有 TOCTOU：自然退出的 teardown 窗口里（close master 后、done 关前）pty ws 若因正常 FIN/抖动让 pump 读侧报错，会误判外部断 → `Cancel` → `run` 优先返 `ctx.Err()` → 自然完成被记成 cancelled。
+→ 双判据：① output pump 因 `sess.Read` EOF 结束（=teardown）时置 pump 内 `selfClosing` 原子标志、并由**本端**主动 `conn.Close`；② input pump 遇 conn err 时：`if selfClosing || sess.State() ∈ {cancelling,exiting,closed}` → 良性（本端 teardown / 已在拆），**不 Cancel**；否则（`StateRunning` 且非本端主动关）→ 真·外部断 → `cl.jobs.Cancel(localID)`（防裸跑）。
 
-### D-P2-6 host 取消协议：interactive 等 ack/grace 再 finish
-`runner/worker.Run` 的 `ctx.Done()` 分支现**发 hub.Cancel 后立即 return**（`runner.go:229-242`），host job 随即 finish + defer 关 relay → 早于 worker teardown/flush（round-2 阻断5）。→ **仅 interactive**：发 `hub.Cancel` 后 `select{ case <-sink.resultCh: /*ack*/; case <-time.After(hostCancelGrace): /*超时兜底*/ }` 再 return `ctx.Err()`（保持 cancel/timeout 分类）。sink 的 `DeregisterSink` 是 defer、wait 期间仍在册 → 能收到 worker 的 Result；relay 的 `Close` 也是 defer、退化为幂等 backstop（真正关闭由 worker pty ws FIN→recordLoop EOF 触发，见 §3.2）。非 interactive 分支**字节不变**（G023）。
+### D-P2-6 host 取消/终态：三路 wait（`relay.Done()`/`lostCh`/grace）再 finish（**修阻断1 + 高4**）
+`runner/worker.Run` 的 `ctx.Done()` 现发 `hub.Cancel` 后立即返回。→ **仅 interactive** 改为等 serve-drain ack 再返回：
+```txt
+ctx.Done(): hub.Cancel(worker,job)
+  select { case <-relayRegistry.Done(jobID): /*serve 读完*/;  case <-sink.lostCh: /*worker掉线*/;  case <-time.After(hostCancelGrace): /*兜底force-close*/ }
+  return ctx.Err()   // 分类仍从 ctx(cancel/timeout)
+正常路径(<-sink.resultCh, worker_result): 收 Result 后同样 select{ <-Done(jobID) | <-After(grace) } 再返回
+```
+- 等 `relay.Done()`（非仅 `resultCh`）→ 保证 serve 读完尾字节；defer `Close` 变幂等 no-op（relay 已自关）。
+- 三路建模：`lostCh`（worker 掉线，按 worker_lost 收敛 + 关 relay）；grace 超时才 force-close。
+- 非 interactive 分支**字节不变**（G023）。
+
+### D-P2-7 per-dispatch 会话 URL（去全局 mutable `currentURL`，**修高3**）
+v0.1 拟在 `runSession` 存全局 `cl.currentURL`；多 hub failover 时旧 dispatch 的 pump 可能读到已切换的新 URL（nonce/relay 却绑旧 serve），且 data race。→ `recvLoop` 把当前 session URL 作**参数**传给 `handleDispatch`/`pumpPty`（每 dispatch 固定拨回派发它的那条 hub session 对应 serve）；用 `net/url` 改 path（`/v1/workers/connect`→`/v1/workers/pty-connect`），非法 path fail-fast（中2）。
+
+### D-P2-8 serve `Registry.Close`：锁内翻状态、锁外关 IO（**修高2 HOL**）
+`Registry.Close` 现持 registry 锁调 `Relay.Close()`→`src.Close()`→关 websocket；底层 close 阻塞会卡住全局 `Lookup/Open/MarkAttached/Prepare`（cancel storm 放大成全局 HOL）。→ 锁内只做：摘出 relay 引用 + 移除索引 + 标 `finalized`；锁外再 `relay.Close()`（关 source/viewers）。保持幂等。
 
 ## 3. 改动清单（精确到文件）
 
-### 3.1 协议 / 接口
+### 3.1 协议 / runner 接口
 | 文件 | 改动 |
 |---|---|
-| `internal/wsproto/frames.go` | `Dispatch` 加 `PtySessionID string json:"pty_session_id,omitempty"`（D-P2-4） |
-| `internal/runner/pty/runner.go` | `PtyRunner` 加导出 `LookupSession(jobID)(*PtySession,bool)` = `r.reg.Lookup`（D-P2-3） |
-| `internal/runner/worker/runner.go` | Dispatch 构造补 `PtySessionID: ptySessionID`；`ctx.Done()` 分支 interactive 加等 ack/grace（D-P2-6）；新增常量 `hostCancelGrace`（略大于 `PtySession.defaultGrace`，见 §6） |
+| `wsproto/frames.go` | `Dispatch` 加 `PtySessionID string`（D-P2-4） |
+| `runner/pty/runner.go` | 加 `SessionObserver` 接口 + `SetObserver`；`Run` 按 observer 有无决定「交接 vs discard drain」（D-P2-3）；移除 `LookupSession` 设想 |
+| `runner/pty/session.go` | 复用现有 `State()`/状态常量（D-P2-5 判据用）；无需改 |
+| `runner/worker/runner.go` | Dispatch 补 `PtySessionID`；`relayPreparer` 接口加 `Done(jobID) <-chan struct{}`；`ctx.Done`+`resultCh` 分支 interactive 三路 wait（D-P2-6）；常量 `hostCancelGrace`（§6） |
+| `ptyrelay/registry.go` | 加 `Done(jobID)`；`Close` 拆锁内翻状态/锁外关 IO（D-P2-8） |
 
-### 3.2 worker 侧（改动主体）
+### 3.2 worker 侧（主体）
 | 文件 | 改动 |
 |---|---|
-| `internal/worker/client.go` | `Config`+`Client` 加 `ptySessions` 窄接口与当前 hub 会话 URL（`currentURL`，`runSession` 记录）；`New` 存字段 |
-| `internal/worker/dispatch.go` | `handleDispatch` 投影 `d.{Interactive,Cols,Rows}`→JobRequest；interactive 时 `go cl.pumpPty(ctx, localID, d.JobID, d.PtySessionID, d.RelayNonce)` 拿 done chan；**发 Result 前 join done chan**（D-P2-6 强序） |
-| `internal/worker/pty_pump.go`（新） | 拨出 + hello + 双向泵 + resize + 断连处理（§5 详述） |
-| `internal/commands/worker.go` | 从 `cr.Runners[ptyrunner.Name]` 断言取 `*PtyRunner`，注入 `worker.Config.PtySessions`；nil-safe（无 pty backend 时不注入，interactive 在 admission 早被拒） |
+| `worker/client.go` | `Config`/`Client` 加 rendezvous 结构（`sessReady`/`sessWaiters`+mu）+ `OnSessionStart`/`waitSession`（D-P2-3）；`recvLoop` 透传 session URL（D-P2-7） |
+| `worker/dispatch.go` | `handleDispatch` 收 sessionURL 参；投影 interactive 字段 + fail-fast（D-P2-4）；interactive 时 `waitSession`→`go pumpPty`；**发 Result 前 join pumpDone**（保证 worker 排空+关 ws 先于 Result） |
+| `worker/pty_pump.go`（新） | 拨出 + hello + 双向泵 + resize + selfClosing/断连判据（§5、D-P2-5）；`derivePtyConnectURL`（net/url，D-P2-7） |
+| `commands/worker.go` | 从 `cr.Runners[ptyrunner.Name]` 断言 `*PtyRunner`→`SetObserver(cl)`（Client 建好后注入）；nil-safe（无 pty backend 不注入，interactive admission 早拒） |
 
 ### 3.3 serve 侧（小）
 | 文件 | 改动 |
 |---|---|
-| `httpapi/attach_handler.go` | relay `Done()` 后有界轮询 `s.jobs.Get(jobID)` 至终态，向 browser 发 `{t:x,code}`（exit code 复用 job 终态，不动 relay leaf）；超时发 `{t:x,code:-1}` |
-| `httpapi/pty_source.go` | （可选）`remotePtySource.Read` 遇 text control 时按需忽略（现已 `continue` 跳过 text，天然兼容；无 exit-control 依赖，见 §4.2 说明） |
+| `httpapi/attach_handler.go` | **P2 仅需**：`relay.Done` 后统一收尾 close（现行为够；`{t:x,code}` exit 帧 = **P4**，避开高1 的 select 竞态，P2 不引入）|
 
-> **relay 不加 exit 语义**：exit code 走 job 终态真源（attach handler 侧查），保持 `ptyrelay` 为 stdlib leaf（G022）。
+> **relay 不加 exit 语义**（保 leaf，G022）；browser exit code 走 job 终态真源，属 P4 前端。
 
 ## 4. 关键流程时序
 
 ### 4.1 正常：attach → 交互 → agent 自然退出
 ```txt
-browser        serve(relay/attach)         hub        worker(Client+PtyRunner)        agent
-                dispatch(+nonce+ptySID) ───────────▶ handleDispatch: Submit(interactive)
-                                                      PtyRunner.Run→pty.Start (session=running)
-                                                      go pumpPty: LookupSession(轮询命中)
-  (P1: attach-ticket + attach ws 已建, viewer 等 relay open)
-                pty-connect ◀════════════════════════ Dial /v1/workers/pty-connect (bearer)
-                consume nonce+校验 live instance ✔     hello{job_id,pty_session_id,nonce}
-                Open(nonce,remoteSource)→relay open
-                recordLoop 读 source
-  键入{t:i} ─▶ viewer.SendInput ─▶ src.Write(binary) ═════▶ conn.Read binary ─▶ sess.WriteInput ─▶ stdin
-  ◀ binary ◀ viewer.Out ◀ fanout ◀ recordLoop ◀ src.Read(binary) ◀═ conn.Write binary ◀ sess.Read ◀ stdout
-  {t:r} ─▶ relay.Resize ─▶ src.Resize(text ctrl) ═════════▶ conn.Read text{resize} ─▶ sess.Resize
-              agent 退出 → PtySession 自然 teardown: 停input→closeMaster→wait→publishExit→done
-              worker 输出泵 sess.Read=EOF → 排空 → 关 pty ws(FIN)
-              recordLoop 收 EOF → relay.Close → relay.Done         handleDispatch: Wait 终态
-  ◀{t:x,code}◀ attach: relay.Done→查 job 终态 code               (join pump done) → 发 Result(done)
-                                       Result ─────────▶(不是这条, 是 w→s)  host runner: <-resultCh → 正常返回
+browser        serve(host-runner + relay)        hub        worker(Client+PtyRunner)          agent
+                dispatch(+nonce+ptySID) ───────────────▶ handleDispatch: 投影+fail-fast; Submit(interactive)
+                                                          (排队/起 pty) PtyRunner.Run: reg.add
+                                                          →observer.OnSessionStart(localID,sess)  [唯一 reader]
+                                                          waitSession 命中→go pumpPty
+                pty-connect ◀════════════════════════════ Dial /pty-connect(bearer); hello{job,ptySID,nonce}
+                consume nonce+校验 live instance ✔
+                Open(nonce,remoteSource)→relay open; recordLoop 读 source
+  {t:i} ─▶ SendInput ─▶ src.Write(binary) ═════════════▶ conn.Read binary ─▶ sess.WriteInput ─▶ stdin
+  ◀binary◀ viewer.Out ◀ fanout ◀ recordLoop ◀ src.Read ◀═ conn.Write binary ◀ sess.Read(pump) ◀ stdout
+  {t:r} ─▶ relay.Resize ─▶ src.Resize(text) ═══════════▶ conn.Read text{resize} ─▶ sess.Resize
+              agent 退出→PtySession 自然 teardown(停input→closeMaster→wait→publishExit→done)
+              out pump: sess.Read=EOF→selfClosing=1→排空→conn.Close(FIN)
+              recordLoop 收 EOF→relay.Close→relay.Done()          Wait 终态→(join pumpDone)→发 Result(done)
+              host: <-resultCh → select{<-Done(job)已闭|grace} → 返回 → finish; defer Close=no-op
+  ◀ ws close ◀ attach: relay.Done→收尾 close
 ```
 
 ### 4.2 host cancel / timeout（**取消协议核心**）
 ```txt
-browser       serve host-runner + relay        hub        worker                         agent
- (交互中, relay attached)
+browser        serve host-runner + relay          hub        worker                          agent
             ctx.Done()(cancel/timeout)
-            hub.Cancel(worker,job) ───────────────────▶ recvLoop TypeCancel → jobs.Cancel(localID)
-            ★interactive: 不立即返回, 等 ack:                job ctx 取消 → PtyRunner ctx.Done
-              select{<-resultCh; <-After(grace)}            PtySession: cancelling→有序 teardown
-                                                            停input→closeMaster(+kill)→wait(bounded)→publishExit→done
-                                                            输出泵 sess.Read=EOF→排空→关 pty ws(FIN)
-            recordLoop 收 EOF→relay.Close(全字节已入 ring/cast)
-  ◀{t:x}◀── relay.Done→attach 查 job 终态                     handleDispatch: Wait 终态
-            <-resultCh(=pty-exit ack) ◀───── Result ◀───────  (join pump done)→发 Result(cancelled)
-            host runner 返回 ctx.Err()→job finish
-            defer relay.Close = 幂等 no-op(已由 EOF 关)
+            hub.Cancel(worker,job) ─────────────────────▶ recvLoop TypeCancel→jobs.Cancel(localID)
+            ★interactive 三路 wait(不立即返回):                job ctx 取消→PtyRunner ctx.Done
+              select{ <-Done(job) | <-lostCh | <-After(grace) }  PtySession cancelling→有序 teardown
+                                                                 closeMaster(+kill)→wait(bounded)→publishExit→done
+                                                                 out pump EOF→selfClosing=1→排空→conn.Close(FIN)
+            recordLoop 收 EOF→relay.Close(尾字节已全入 ring/cast)→Done()
+            <-Done(job) 命中 → 返回 ctx.Err()→finish            Wait 终态→(join pumpDone)→发 Result(cancelled)
+            defer Close = 幂等 no-op                              (input pump 见 selfClosing→不误 Cancel, D-P2-5)
+  ◀ws close◀ attach: relay.Done→收尾
 ```
-**要点**：① relay 真正关闭由 **worker pty ws FIN**（recordLoop EOF）驱动，保证 ring/cast 收全字节后才关 → host 的 defer `Close` 是 backstop；② host 只在 **grace 超时**（worker 卡死/掉线）才让 defer force-close（此时截断可接受）；③ 无新帧——Result 兼作 ack。
+**要点**：① 关闭权=worker FIN→recordLoop EOF（尾字节先入 ring/cast 才关）；② host 等 `relay.Done()`（serve-drain ack）而非仅 `resultCh`；③ 仅 grace 超时（worker 卡死）才 defer force-close。
 
-### 4.3 pty ws 断连（worker↔serve 第二通道断，job 仍在跑）→ 断连即终止
+### 4.3 pty ws 外部断连（serve 崩/网络断，job 仍在跑）→ 断连即终止
 ```txt
-serve                         worker pumpPty                         agent
-  (serve 崩/网络断/idle-kill)
-  pty ws 断 ────────────────▶ conn.Read/Write err
-                              PtySession.Done() 未关 ⇒ 外部断连(非 teardown)
-                              → cl.jobs.Cancel(localID)   ─────────▶ 正常 teardown → 退出
-                              → Result(failed/cancelled) 经 hub 回 host
-  (relay 端: remoteSource 已随 conn 断 → recordLoop EOF → relay.Close)
+serve                          worker pumpPty                          agent
+ (serve 重启/idle-kill)
+ pty ws 断 ────────────────▶ in/out pump conn err
+                             判据: !selfClosing && sess.State()==Running ⇒ 真·外部断
+                             → cl.jobs.Cancel(localID) ─────────────▶ 正常 teardown→退出→Result(failed/cancelled)
+ (relay 端: remoteSource 随 conn 断→recordLoop EOF→relay.Close→Done)
 ```
 
-### 4.4 worker↔hub 断连（P1 既有机制，P2 只验证）
+### 4.4 worker↔hub 断连（P1 既有，P2 验证）
 ```txt
-host runner boundedSink.OnDisconnect→lostCh→Run 返回 worker-lost→job failed→defer relay.Close
-worker 进程若整体掉线: 第二条 pty ws 同时断→serve recordLoop EOF→relay.Close(幂等)
+host: boundedSink.OnDisconnect→lostCh；interactive 三路 wait 命中 lostCh→按 worker_lost 收敛+关 relay→job failed
+worker 整体掉线: 第二条 pty ws 同断→serve recordLoop EOF→relay.Close(幂等)
 ```
 
-### 4.5 browser 断连（会话存活，K3；P2 只验证 worker 不受影响）
+### 4.5 browser 断连（会话存活，K3；P2 验证 worker 不受影响）
 ```txt
-browser 断→attach ws 关→viewer.Close(defer)→relay/pty/worker job 全不受影响(继续跑)
-重连(新 ticket)→AddViewer→回放 Scrollback→继续。worker 侧无感。
+browser 断→attach ws 关→viewer.Close→relay/pty/worker job 全不受影响；重连(新 ticket)→AddViewer→回放 Scrollback
 ```
 
-## 5. worker 拨出连接管理（`pty_pump.go` 细节）
-
+## 5. worker 拨出连接管理（`pty_pump.go`）
 ```txt
-pumpPty(ctx, localID, remoteJobID, ptySessionID, nonce) (done chan):
- 1. sess := 有界轮询 ptySessions.LookupSession(localID)  // D-P2-3 竞态, 上限~2s
-    若未命中 → close(done); return  // 不拨 pty ws, relay pending_worker 由 registry 到期清
- 2. url := derivePtyConnectURL(cl.currentURL)  // hub 会话 URL 的 /connect → /pty-connect, 同 host
+pumpPty(ctx, sessionURL, sess, remoteJobID, ptySessionID, nonce) (pumpDone chan):
+ 1. url := derivePtyConnectURL(sessionURL)  // net/url: path→/v1/workers/pty-connect; 非法 fail-fast
     conn := websocket.Dial(ctx, url, bearer=cl.token)   // worker 可设 Authorization header
-    若 dial 失败 → cl.jobs.Cancel(localID)(断连即终止); close(done); return
- 3. wsjson.Write(conn, hello{job_id:remoteJobID, pty_session_id:ptySessionID, relay_nonce:nonce})
-    // serve 校验失败会以 close-code 关 conn → 下面 read/write err → 走断连分支
- 4. 两 goroutine:
-    out: for{ n,err:=sess.Read(buf); if n>0 conn.Write(binary,buf[:n]); if err break }  // EOF=teardown
-    in:  for{ typ,data,err:=conn.Read(); if err break;
-              if binary: sess.WriteInput(data);
-              if text: 解析{type:resize,cols,rows}→sess.Resize(clamp) }  // 其他 text 忽略
- 5. 收敛: 等 out 结束(pty EOF=排空完毕) → conn.Close(normal)  // 主动关, 触发 serve recordLoop EOF
-    若 in 先因 conn err 结束 且 !sess.Done(): cl.jobs.Cancel(localID)  // D-P2-5 断连即终止
-    close(done)  // handleDispatch join 此 chan 后才发 Result(D-P2-6)
+    dial 失败 → cl.jobs.Cancel(localID)(断连即终止); close(pumpDone); return
+ 2. wsjson.Write(conn, hello{job_id:remoteJobID, pty_session_id:ptySessionID, relay_nonce:nonce})
+    // serve 校验失败以 close-code 关 conn → 下面 read/write err → 断连分支
+ 3. out goroutine(唯一 reader): for{ n,err:=sess.Read(buf); if n>0 conn.Write(binary); if err{ selfClosing=1; break } }
+                                 结束(sess EOF=teardown)→conn.Close(FIN)  // 触发 serve recordLoop EOF
+    in  goroutine: for{ typ,data,err:=conn.Read(); if err break;
+                        if binary: sess.WriteInput(data);
+                        if text: 解析{type:resize}→sess.Resize(clamp cols1..500/rows1..200) }
+ 4. 收敛: 等 out 结束(排空毕);  若 in 先因 conn err 结束 且 !selfClosing && sess.State()==Running: cl.jobs.Cancel(localID)
+    close(pumpDone)  // handleDispatch join 后才发 Result
 ```
+- **单 reader**：out goroutine 是 sess 唯一 reader（PtyRunner 已因 observer 关掉 discard）。
+- **起手 pty buffer**：eager 下 serve relay pending、端点已 up，dial ~1 RTT；交互 agent 启动不 flood，dial 期间 sess 暂不读可接受（plan 内若需可加本地 staging）。
+- **写并发**：pty ws 独立 write 锁；out 是唯一 binary writer，hello 起 goroutine 前串行写。
 
-- **URL 派生**：Client 在 `runSession(ctx,url)` 存 `cl.currentURL=url`；pty ws 用同一 serve（同 host+scheme），仅换 path。多 hub 地址失效切换期间新 interactive job 极少，按当前会话 URL 即可。
-- **写并发**：pty ws 自带独立 write 锁（与 hub writeMu 无关）；out goroutine 是唯一 binary writer，hello 在起 goroutine 前串行写，无竞争。
-- **resize clamp**：worker 侧再夹一次 cols 1..500/rows 1..200（serve attach 已夹一次，纵深防御）。
-
-## 6. 两个 grace 的关系
-| grace | 位置 | 值 | 作用 |
+## 6. 三个超时的关系
+| 超时 | 位置 | 值 | 作用 |
 |---|---|---|---|
-| `PtySession.defaultGrace` | worker `session.go:45` | 5s | teardown 内等被 kill 的子进程被 reap 的上限 |
-| `hostCancelGrace`（新） | host `runner/worker.go` | ~8s（> 5s + 网络往返裕量） | host 等 worker `Result` ack 的上限；超时才 force-finish |
-> 约束 `hostCancelGrace > PtySession.defaultGrace + 单程 RTT 裕量`，保证正常情况下 worker 先 teardown 完发 Result、host 才不会误走超时兜底。plan 内定常量（拟 8s），并让 stage/请求超时 ≥ 该值。
+| `PtySession.defaultGrace` | `session.go:45` | 5s | teardown 内等被 kill 子进程 reap 上限 |
+| `hostCancelGrace`（新） | `runner/worker.go` | ~10s | host 等 **`relay.Done()`（serve 读完尾字节）** 上限；超时才 force-close |
+| `waitSession`（新，无固定值） | `worker/client.go` | 事件驱动 | 等 session start，靠 job 终态/ctx 唤醒，非超时 |
+> 约束 `hostCancelGrace ≥ PtySession.defaultGrace + RTT + serve drain`（覆盖 worker teardown **且** serve recordLoop 读尾），拟 10s；stage/请求超时 ≥ 该值。
 
 ## 7. 安全（P2 增量）
-- pty ws 拨出用 **worker token**（bearer header，worker 非浏览器，可设 header）；serve 端点已 `callerID==binding.WorkerID` 校验 → worker token 只能拨自己被派发的 job（nonce 绑 worker_id+instance_id）。
-- 复用 P1 五闸/nonce 原子消费/instance 校验，P2 不放宽。
-- browser exit 走 job 终态查（真源），不引入 relay→browser 的新可信面。
-- 断连即终止（D-P2-5）防「pty ws 断了但 agent 还在 worker 上裸跑无人管」。
+- pty ws 拨出用 **worker token**（bearer header）；serve `callerID==binding.WorkerID` → worker token 只能拨自己被派发的 job（nonce 绑 worker_id+instance_id）。
+- 复用 P1 五闸/nonce 原子消费/instance 校验，不放宽。
+- fail-fast（D-P2-4）防「interactive=true 但缺凭据 → 起不可 attach 的裸 pty」。
+- 断连即终止（D-P2-5）防「pty ws 断了 agent 还在 worker 裸跑无人管」。
 
-## 8. e2e 测试矩阵（P2 子集，用现有 harness）
-用 `hub_test` 式内存 harness + `httptest.Server` + 真 `websocket.Dial`（两条：hub + pty-connect）+ Linux 真 pty（容器）：
-1. 正常：dispatch→pty ws 建立→输入 echo→输出回传 browser viewer→resize 生效。
-2. cancel：host cancel→worker teardown→Result ack→job cancelled→relay 收全尾字节后 close→browser `{t:x}`。
-3. timeout：同 2，但走 `hostCancelGrace` 兜底路径（模拟 worker 不 ack）。
-4. pty ws 断连：断第二条 conn→worker Cancel 本地 job→job failed（断连即终止）。
-5. worker 掉线：断 hub conn→worker-lost→job failed + relay close（两条同时断）。
-6. browser 断/重连：viewer 掉→worker 无感→重连回放 Scrollback。
-7. session 注册竞态：Submit 后 session 未即注册→有界轮询命中→拨入成功。
-8. chatty pty 不饿死 quiet job（专用 ws 隔离验证：pty 高频不影响 hub 其他 job 的 result/cancel）。
+## 8. e2e 测试矩阵（P2 子集，现有 harness + Linux 真 pty）
+两条真 `websocket.Dial`（hub + pty-connect）+ `httptest.Server`：
+1. 正常：dispatch→observer 交接→pty ws 建立→输入 echo→输出回传 viewer→resize 生效。
+2. **尾字节证明**（遗漏项）：child 收 cancel 后先输出 sentinel 再退出；断言 **browser/relay ring 收到 sentinel 后 host job 才 finish**（验 D-P2-2 关闭权 + D-P2-6 等 Done）。
+3. cancel：host cancel→worker teardown→relay 读完→Done→host 返回 cancelled；input pump 不误 Cancel（验 D-P2-5）。
+4. timeout：worker 不及时 ack→走 `hostCancelGrace` force-close 兜底。
+5. **queued interactive**（阻断3）：worker 并发=1，长任务占槽，再 dispatch interactive→`waitSession` 等到 session start 后仍成功拨入。
+6. pty ws 外部断：断第二条 conn（sess 仍 Running）→worker Cancel 本地 job→failed。
+7. worker 掉线：断 hub conn→lostCh→job failed + relay close（两条同断）。
+8. browser 断/重连：viewer 掉→worker 无感→重连回放 Scrollback。
+9. **单 reader 证明**（事实性错误1）：observer 设时 PtyRunner 无 discard drain，输出零丢；observer 未设时 discard drain 保留（G023 tests）。
+10. chatty pty 不饿死 quiet job（专用 ws 隔离）。
 
 ## 9. 零回归红线（G023，CI 常驻）
-非 interactive 全路径字节不变：local exec / worker exec / worker cancel / pending_interaction bridge / Outcome-before-Result / worker disconnect fail / chatty-quiet hub HOL(`hub_test`) / workflow step / schedule run-now / resume。所有 P2 改动以 `d.Interactive` / `f.Interactive` / `req.Interactive` 门控，普通 dispatch 走原 `handleDispatch`/原 `ctx.Done` 分支。
+非 interactive 全路径字节不变：local exec / worker exec / worker cancel / pending_interaction bridge / Outcome-before-Result / worker disconnect fail / chatty-quiet hub HOL(`hub_test`) / workflow step / schedule run-now / resume。所有 P2 改动以 `d.Interactive`/`f.Interactive`/`req.Interactive`/`observer!=nil` 门控。
 `go list -deps`：`job` 仍不 import `pty`/`ptyrelay`；`internal/worker` 可 import `runner/pty`（已有）；`ptyrelay` 仍 leaf。
 
 ## 10. 待确认（plan 内细化，非阻断）
-- `hostCancelGrace` 具体值（拟 8s）与 stage/请求超时的关系确认。
-- pty ws dial 失败/hello 被拒时，除 Cancel 本地 job 外是否需要给 host 一个更明确的失败原因（现走通用 failed）。
-- session 注册轮询上限（拟 2s）与 PtyRunner 起 pty 的实际耗时对齐（真机测）。
-- browser exit code 的有界轮询窗口（拟 2s）——relay.Done 与 job 终态的时间差实测。
-- 是否给 pty ws 加应用层 ping（第二条 conn 的半开检测），还是靠 job 终态/hub 断连兜底（倾向后者，P2 不加）。
+- `hostCancelGrace` 具体值（拟 10s）与 stage/请求超时关系；pending（未 Open）relay 的 `Done(jobID)` 语义（返回未关 chan 靠 grace，还是立即关）。
+- `waitSession` 唤醒集合确认：session-start | `jobs.Wait` 终态 | ctx（worker 关停 / hub session 掉）——排队被 cancel 时不悬挂。
+- dial 期间 sess 暂不读的 pty buffer 上限实测；是否需本地 staging。
+- interactive 路径是否仍走 `streamLocalJob`（仅为 pending_interaction bridge，pty 输出**不**从日志回传）还是拆独立 `pumpInteractions` ticker（中3）。
+- 第二条 pty ws 是否加应用层 ping（半开检测）还是靠 job 终态/hub 断连兜底（倾向后者，P2 不加）。
 
 ---
-> 评审关注点（请 codex 重点核对）：**D-P2-2 复用 Result 作 ack 是否成立**（worker 终态严格晚于 teardown 的推理链）；**§4.2 relay 关闭权归 worker FIN、host 仅 backstop** 的 CAS 幂等是否有竞态；**D-P2-5 断连即终止的 teardown/外部断连区分**（靠 `PtySession.Done()` 是否可靠）；**§6 两 grace 的偏序约束**。
+> 评审关注点（v0.2）：**D-P2-2 关闭权归 relay EOF + host 等 `relay.Done()`** 是否真的消掉尾字节截断（`Done(jobID)` 对 pending/已 finalized relay 的边界）；**D-P2-3 observer rendezvous** 的无竞态性（OnSessionStart 早于/晚于 waitSession 两序）+ 单 reader 起手 pty buffer；**D-P2-5 selfClosing+state 双判据** 是否还有窗口误判；**D-P2-8 锁外关 IO** 与 `Open/MarkAttached` 并发的可见性。
