@@ -290,6 +290,7 @@ func (s *Server) buildRouter() *rux.Router {
 	if s.hub != nil && s.relayNonces != nil && s.ptyRelays != nil {
 		r.GET("/v1/workers/pty-connect", s.handlePtyConnect)
 	}
+	r.GET("/v1/jobs/{id}/attach", s.handleJobAttach)
 
 	r.Group("/v1", func() {
 		r.GET("/config", s.handleGetConfig)
