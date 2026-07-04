@@ -237,3 +237,64 @@ handleDispatch
 剩余阻断/高数量：**0**。
 
 v0.3 已可据以拆 T 出 P2 实施计划。
+
+# 第四轮：P2 实施计划评审
+
+> 工具限制：本轮会话仍未暴露 codebase-memory-mcp 的 `search_graph` 等图工具，已按项目规则降级为定点文件核对。验证命令使用项目内缓存：`.cache/go-build` / `.cache/gomod`。
+
+## 事实性冲突（优先）
+
+未发现“计划片段与真实签名/类型对不上，会直接 build 失败”的事实性冲突。已用当前代码自证：
+
+- `go build ./...` 通过。
+- `go vet ./...` 通过。
+- `go list -deps ./internal/job | Select-String 'runner/pty|ptyrelay'` 无输出，`internal/job` 仍未依赖 pty runner / ptyrelay。
+
+## 逐 T 核对表
+
+| T | 判定 | 依据 |
+|---|---|---|
+| T0 `SessionObserver` + 输出所有权 | 可实施 | `PtyRunner` 当前只有 `reg *registry`，`Run` 当前在 `reg.add` 后无条件 `go io.Copy(io.Discard, sess)`，再 `sess.run(ctx)`（`internal/runner/pty/runner.go:30-62`）。计划加 `observer` 字段、`SetObserver`、`observer!=nil` 时交接 reader / nil 时保留 discard，和真实结构贴合。`OnSessionStart` 同步点确实在 `sess.run` 前；计划已写“observer 实现必须非阻塞”（`docs/plans/web-pty-attach/P2-plan.md:33-35`）。`LookupSession` 仅是 `PtyRunner` 私有 registry 的现有方法（`internal/runner/pty/runner.go:125-131`），`rg` 未发现外部依赖；删除/不再依赖不会影响别处。验收里“阻塞 observer 不得卡死 Run”的表述需按契约理解为 fake observer 内部自行 goroutine 化，不能要求 `Run` 容忍坏 observer。 |
+| T1 `Dispatch.PtySessionID` + host 填充 | 可实施 | `Dispatch` 当前字段到 `RelayNonce` 为止，缺 `PtySessionID`（`internal/wsproto/frames.go:37-50`）。host runner 已在 interactive 下生成 `ptySessionID` 并写入 nonce/registry binding（`internal/runner/worker/runner.go:129-158`），dispatch 构造目前只传 `RelayNonce`（`:187-201`）。serve pty-connect 已校验 `binding.JobID/PtySessionID == hello.JobID/PtySessionID`（`internal/httpapi/pty_connect_handler.go:21-25`、`:70-72`）。计划字段和闭环正确。 |
+| T2 `Registry.Done` + `closedChan` + `detachLocked` | 需补 | `Done` 语义表和真实 registry 状态贴合：pending entry 无 `Relay`（`internal/ptyrelay/registry.go:81-85`），open 后才 `Relay.Start()`（`:121-125`），`Relay.Done()` 已存在（`internal/ptyrelay/relay.go:255-256`）。`Close` 当前锁内 `Relay.Close()`（`internal/ptyrelay/registry.go:183-208`），`Prepare` replacement 当前也锁内 close（`:71-94`），确实需要 D-P2-8 helper。并发模型成立：锁内摘索引/标 finalized 后，`Open/Lookup/MarkAttached` 通过同一把锁看到一致状态。**但计划代码片段自相矛盾：`Prepare` 片段在解锁和锁外 close 后 `return cloneEntry(e)`（`docs/plans/web-pty-attach/P2-plan.md:158-165`），下一行又说“clone 在锁内取”（`:167`）。照抄会让返回值在解锁后可能被并发 `Close/Prepare` 改写，形成竞态/错快照。需把片段改成锁内 `ret := cloneEntry(e)`，解锁后 close oldRel，再 `return ret`。 |
+| T3 rendezvous + `pendingCancel` + recvLoop URL + wiring | 可实施 | `Client` 当前有 `jobMu/jobMap`，无 session rendezvous 和 pending cancel（`internal/worker/client.go:76-112`、`:165-185`）；`recvLoop(ctx)` 当前在 dispatch 分支 `go cl.handleDispatch(ctx, d)`，cancel 未命中 mapping 时直接丢（`:301-326`）；`runSession(ctx,url)` 调 `recvLoop(ctx)`，签名改为 `recvLoop(ctx,url)` 的连锁清楚（`:240-294`）。`waitSession` 的 `go jobs.Wait(localID)` goroutine 在 session 命中后会继续等到该 job terminal 才退出，是每个 interactive job 一个有界等待，不是无限泄漏；`job.Service.Wait` 对 terminal/evicted job 立即收敛，对 live job 等 `entry.done`（`internal/job/cancel.go:76-86`）。`sessMu` 同护 `sessReady/sessWaiters/pendingCancel` 可行，粒度小。wiring 点存在：`runWorker` 当前 `core.Build` -> `worker.New` -> `worker.Serve`（`internal/commands/worker.go:183-208`），`core.Build` 注册 `*ptyrunner.PtyRunner` 到 `cr.Runners[ptyrunner.Name]`（`internal/core/core.go:78-85`），Serve 前注入 observer 可行；serve 侧不注入，nil 行为保留。 |
+| T4 `pty_pump.go` | 可实施 | worker 侧 hello struct 按计划声明为 `job_id/pty_session_id/relay_nonce`，与 serve 完全一致（`internal/httpapi/pty_connect_handler.go:21-25`）。`coder/websocket.Conn` 文档说明除 `Reader`/`Read` 外方法可并发调用（mod `github.com/coder/websocket@v1.8.15/conn.go:29-31`）；计划只有一个 out goroutine 写 binary，一个 input loop 读，`conn.Close` 并发可接受。serve 的 `remotePtySource` 已用同一协议：binary 为 pty output/input，text resize（`internal/httpapi/pty_source.go:57-78`）。`derivePtyConnectURL` 用 `net/url` 直接换 path 正确，且兼容 worker config 允许 hub URL 只有根路径的现状（`internal/config/worker_config_test.go:49-78`）。断连判据包含 starting/running，贴合设计 D-P2-5（`docs/design/2026-07-04-web-pty-attach-P2-design.md:168-175`）。 |
+| T5 `handleDispatch` 投影 + fail-fast + join | 可实施 | 当前 `handleDispatch` 只投影非 interactive 字段，提交后建 mapping，再 `streamLocalJob -> Wait -> Outcome -> Result`（`internal/worker/dispatch.go:23-73`）。计划加 `sessionURL` 参数、interactive 凭据 fail-fast、`Interactive/Cols/Rows` 投影、`putJobMapping` 后消费 pending cancel、`waitSession -> pumpPty -> streamLocalJob -> Wait -> join pumpDone -> Result`，和现有链路贴合。`Runner: builtinLocalRunner` 不会绕过 pty：worker 本地 Submit 在 `req.Interactive && !remote` 时会改选 `pty` runner（`internal/job/submit.go:110-121`）。join 链无环：pump 不等 `jobs.Wait`，`streamLocalJob/Wait` 不等 pump，最后只在发 Result 前 join。 |
+| T6 host 三路 wait + `hostCancelGrace` | 可实施 | `relayPreparer` 当前只有 `Prepare/Close`（`internal/runner/worker/runner.go:61-64`），T2 后加 `Done` 正常。`Run` 当前所有路径立即返回，ctx 分支 cancel 后不等 worker/relay（`:207-243`）；计划只在 `f.Interactive` 下等 `Done|lostCh|grace` 或 Result 后等 `Done|grace`，非交互保持立即返回，符合 G023。defer `relayRegistry.Close` 已存在（`:160-164`），T2 后作为幂等 backstop 可行。 |
+| T7 e2e + 零回归 + 环检 | 可实施 | 13 项覆盖设计 §8，且四个高风险点均有专测：尾字节 #2、Done 四边界 #5、starting 窗口 #7、unmapped cancel #8（`docs/plans/web-pty-attach/P2-plan.md:491-504`、`:512-516`）。零回归清单覆盖设计 §9 的 local/worker/cancel/interactions/outcome/worker disconnect/HOL/workflow/schedule/resume（`:506`）。环检命令方向有效；本轮用 PowerShell 等价命令已确认 `internal/job` 无 `runner/pty|ptyrelay` 依赖。 |
+
+## 硬问题（阻断/高）
+
+### 高 1：T2 `Prepare` replacement 片段的 clone/解锁顺序写错
+
+计划在 `Prepare` replacement 示例中先 `r.mu.Unlock()`，再锁外 close old relay，最后 `return cloneEntry(e)`（`docs/plans/web-pty-attach/P2-plan.md:158-165`），但紧接着又要求“clone 在锁内取”（`:167`）。真实 `Registry.Prepare` 返回的是 entry 快照（`internal/ptyrelay/registry.go:71-94`）；如果照代码块实现，`e` 在解锁后仍是 registry map 中的新 entry 指针，可能被并发 `Close(jobID)` 或下一次 `Prepare(jobID)` 标 finalized/移索引后再 clone，导致调用方拿到错误状态或竞态快照。
+
+建议把计划片段改成明确顺序：
+
+```go
+r.mu.Lock()
+oldRel := r.detachLocked(r.byJob[b.JobID], "replaced")
+e := &RelayEntry{ /* pending_worker */ }
+r.byJob[b.JobID] = e
+// 写 bySession/byNonce
+ret := cloneEntry(e)
+r.mu.Unlock()
+if oldRel != nil { _ = oldRel.Close() }
+return ret
+```
+
+这不是设计问题，是计划片段级硬问题；不修正容易在 T2 实施时返工。
+
+## 非阻断注意
+
+- T0 的“`OnSessionStart` 阻塞时不得卡死 `Run`”验收必须改写为“observer 实现非阻塞”，因为计划和设计都选择同步回调；`PtyRunner.Run` 不应为坏 observer 再起 goroutine，否则 session start 的交接时序会变弱。
+- T3/T5 的 stale `pendingCancel` 清理已列待办（`docs/plans/web-pty-attach/P2-plan.md:518-520`），建议落在 T3 helper 或 T5 Submit 失败分支里，不要拖到 T7。
+- T6 的 `hostCancelGrace=10s` 与 stage/request timeout 偏序已列待办；实施时需要用常量和测试固化，避免上层超时先打断 drain 证明。
+
+## 判定
+
+**需改。**
+
+阻断：**0**。高：**1**。
+
+修正 T2 `Prepare` 片段的 clone/解锁顺序后，计划可据以逐 T 实施；其余 T 的触碰点、依赖序和验收覆盖与真实代码一致。
