@@ -9,7 +9,7 @@
 |---|---|---|
 | v0.1 | 2026-07-04 | 初稿：6 决策 + 5 时序图 + 帧/接口清单。 |
 | v0.2 | 2026-07-04 | codex round-1 后大改：输出所有权倒置(`SessionObserver`)、ack 两段化(`relay.Done()`)、事件驱动 rendezvous、断连判据 state+selfClosing、per-dispatch URL、Registry.Close 锁拆分。 |
-| **v0.3** | 2026-07-04 | **codex round-2 收敛后改**（1 阻断+3 高+3 中）：① **`Done(jobID)` 语义定死**（不再列待确认）——**pending=无字节可排=返回已关 chan、host 不等**，只 open/attached 才等 relay drain（D-P2-2），解「pending/dial-fail 空等 10s grace」阻断；② 断连 Cancel 判据放宽到 **starting+running 都 Cancel**（消 observer 早于 `StateRunning` 的窗口，D-P2-5）；③ 新增 **D-P2-9 unmapped cancel pending set**（cancel 早于 `putJobMapping` 不丢，覆盖非交互）；④ D-P2-8 锁外关 IO **覆盖 `Prepare` replacement**（同 `closeLocked`）；⑤ 定死 interactive 仍走 `streamLocalJob`（仅终态检测+interactions bridge，pty 输出**不**过日志）；⑥ observer 注入时序列为实施验收项。 |
+| **v0.3** | 2026-07-04 | **codex round-3 终审 = GO（0 阻断/0 高，可进 P2 实施计划）**。本版据 round-2 收敛（1 阻断+3 高+3 中）：① **`Done(jobID)` 语义定死**（不再列待确认）——**pending=无字节可排=返回已关 chan、host 不等**，只 open/attached 才等 relay drain（D-P2-2），解「pending/dial-fail 空等 10s grace」阻断；② 断连 Cancel 判据放宽到 **starting+running 都 Cancel**（消 observer 早于 `StateRunning` 的窗口，D-P2-5）；③ 新增 **D-P2-9 unmapped cancel pending set**（cancel 早于 `putJobMapping` 不丢，覆盖非交互）；④ D-P2-8 锁外关 IO **覆盖 `Prepare` replacement**（同 `closeLocked`）；⑤ 定死 interactive 仍走 `streamLocalJob`（仅终态检测+interactions bridge，pty 输出**不**过日志）；⑥ observer 注入时序列为实施验收项。 |
 
 ## 0. 范围
 

@@ -191,3 +191,49 @@ handleDispatch
 4. D-P2-8 锁外关 IO 覆盖 `Prepare` replacement。
 5. 写定 interactive 是否保留 `streamLocalJob`，若保留仅作为 interactions bridge；pty output 不从 stdout/stderr log 回传。
 6. 把 observer 注入时序（Client 创建后、`worker.Serve` 前；serve nil 保留 discard）列入实施任务和测试。
+
+# 第三轮：v0.3 终审
+
+> 审核方：codex（读真实代码交叉核对，未改源码）。
+> 被审：`docs/design/2026-07-04-web-pty-attach-P2-design.md` v0.3。
+> 自证：`go build ./...` / `go vet ./...` 使用 workspace 内 `.cache/go-build`、`.cache/gomod` 通过。
+> 工具限制：本轮会话未暴露 codebase-memory-mcp 的 `search_graph` 等图工具，已按项目规则退回定点文件核对。
+
+## 事实性冲突（优先）
+
+未发现会推翻 v0.3 的事实性冲突。v0.3 引用的现状锚点与真实代码一致：`RelayState` 当前含 `pending_worker/open/attached/closing/finalized`（`internal/ptyrelay/registry.go:12-18`），`PtyRunner.Run` 当前仍有默认 discard drain（`internal/runner/pty/runner.go:53-58`），`PtySession` 的 `starting→running→exiting→closed` 时序与设计描述一致（`internal/runner/pty/session.go:72-80`、`:137-139`、`:180-183`、`:212-217`），worker cancel 当前确实可能早于 mapping 丢失（`internal/worker/client.go:301-347`、`internal/worker/dispatch.go:40-44`）。这些都是 P2 计划要改的现状，不是 v0.3 的新增矛盾。
+
+## 六项核销表
+
+| round-2 必改项 | 判定 | 核销依据 |
+|---|---|---|
+| 1. `Done(jobID)` 语义定死 | **已解决** | v0.3 把 `Done(jobID)` 从待确认提升为协议核心，定义 `open/attached` 返回 `e.Relay.Done()`，`pending_worker/finalized/missing` 返回包级已关 `closedChan`，并给出实现判据 `e==nil || e.State==Finalized || e.Relay==nil → closedChan`（设计:49-57）。`RelayClosing` 没在表格中单列，但按实现判据落在两种安全结果之一：若 helper 已按 D-P2-8 锁内摘索引/标 finalized，则外部 `Done(jobID)` 只能看到 missing/finalized 并立即返回 closed；若实现保留短暂 `closing` 且 `Relay!=nil`，则返回 live relay 的 `Done()`，等同 open/attached drain 档。pending 返回 closed 后与 worker 恰好 `Open` 的竞态也可收敛：`Open` 与 `Close` 均受 registry 锁串行化（现状锁点 `internal/ptyrelay/registry.go:98-126`、`:183-208`）；要么 host 先移除 nonce 使 `Open` 失败，要么 worker 先 Open，随后 host Close 关闭 relay/ws，worker 侧断连判据再 Cancel，本地 job 不会裸跑。`Prepare` replacement 的旧 entry done 一致性由 D-P2-8 的“锁内摘旧 relay/移索引/标 finalized，锁外 close”覆盖（设计:102-103、117）；按 jobID 查询不会永久等旧 entry。 |
+| 2. starting 窗口断连也 Cancel | **已解决** | v0.3 明确 observer 早于 `StateRunning` 的窗口存在，并把断连判据改为 `!selfClosing && state∉{cancelling,exiting,closed}` 即 starting/running 都 Cancel（设计:85-87、202-207）。这与真实状态迁移吻合：starting 在 `newSession` 建立（`internal/runner/pty/session.go:72-80`），running 到 `run` 开头才设置（`:137-139`），teardown 一开始就进入 exiting（`:180-183`），done 最后才 close（`:212-217`）。反向误判方面，只要“本端 teardown 已开始”，state 已经是 cancelling 或 exiting，因此 input pump 即使早于 out pump 设置 `selfClosing` 看到 conn err，也不会误发 Cancel。`job.Service.Cancel` 对 terminal 是 no-op、对 live job 只 cancel ctx 不等待（`internal/job/cancel.go:47-63`），多发 Cancel 的运行时后果受控；v0.3 还把 cancel 路径测试列入矩阵（设计:230、234）。 |
+| 3. unmapped cancel pending set | **已解决** | v0.3 新增 D-P2-9：`recvLoop` cancel 未命中 mapping 时写入 `pendingCancel[remoteID]`，`handleDispatch` 在 `putJobMapping` 后立即消费并 `jobs.Cancel(localID)`，且覆盖非交互 dispatch（设计:105-107、122-123、189-192、235）。这正对真实竞态：dispatch goroutine 与 inline cancel 之间存在先后差（`internal/worker/client.go:301-347`），mapping 现状只在 Submit 后写入（`internal/worker/dispatch.go:40-44`）。二次竞态也闭合：消费后 mapping 仍保留到 `dropJobMapping`，后续 cancel 会走正常 `localJobID→Cancel`；消费前 cancel 由同一 `pendingCancel` 锁保护。Submit 失败未建立 mapping 时的 stale pending 清理，v0.3 已在 §10 作为 plan 内 TTL/生命周期清理项列出（设计:250）；这会造成小型状态清理任务，但不影响取消协议可实现性，也不是阻断/高风险。 |
+| 4. 锁外关 IO 覆盖 Prepare replacement | **已解决** | v0.3 明确 D-P2-8 覆盖 `Close` 与 `Prepare` replacement，抽 helper 在锁内只做摘 relay、移索引、标 finalized，锁外 `relay.Close()`（设计:102-103、117）。这补上了 v0.2 只容易改 `Close` 的缺口。与真实并发关系匹配：当前 `Prepare` 仍在锁内 close 旧 entry（`internal/ptyrelay/registry.go:71-94`），当前 `Close/closeLocked` 也在锁内 close relay/ws（`:183-208`）。helper 化后 `Open/MarkAttached/Lookup` 都通过同一 registry 锁看到一致状态：Close 先摘索引则 Open/Lookup 失败，Open 先成功则 Close 拿到 live relay 并锁外关闭，幂等性由 `Relay.Close()` 保证（`internal/ptyrelay/relay.go:232-256`）。 |
+| 5. interactive 仍走 `streamLocalJob`，pty 输出不过日志 | **已解决** | v0.3 写定 interactive 保留 `streamLocalJob`，但只用于终态检测和 interactions bridge，pty 输出不从 stdout/stderr log 回传（设计:12、122-123、243）。这与真实代码一致：`handleDispatch` 现状总是 `streamLocalJob→Wait→Result`（`internal/worker/dispatch.go:46-72`），`PtyRunner` 明确不写 stdout.log（`internal/runner/pty/runner.go:44-48`）。v0.3 的最终 join 链为 `Submit→putJobMapping→消费 pendingCancel→waitSession→go pumpPty→streamLocalJob→Wait→join pumpDone→Result`（设计:138-148、202-207），无环：`pumpPty` 只等 session output/conn，`streamLocalJob/Wait` 只等 job terminal，`PtySession.run` 不等待 worker Result。 |
+| 6. observer 注入时序验收项 | **已解决** | v0.3 把 worker wiring 写成硬验收：`core.Build` 后创建 Client，随后 `ptyRunner.SetObserver(cl)`，最后才 `worker.Serve`；serve 侧 observer 恒 nil 保留 discard（设计:78、115、125）。真实装配顺序支持这个插入点：worker 命令当前 `core.Build`→`worker.New`→`worker.Serve`（`internal/commands/worker.go:183-208`），`core.Build` 在 pty 可用时把 `*PtyRunner` 注册到 `cr.Runners[ptyrunner.Name]`（`internal/core/core.go:78-85`）。因此断言取 `*PtyRunner` 并在 Serve 前注入可行；nil-safe 也已写入文件清单。 |
+
+## 额外硬问题核对
+
+- `hostCancelGrace` 现在只兜 open-stuck，pending/dial-fail 不再走 10s 正常路径：`Done(jobID)` 对 pending 返回已关 chan（设计:49-57、217），Result/cancel 后等待 `Done|lostCh|grace`（设计:90-94）。open relay 但 `recordLoop` 不 EOF 时，host 会等到 grace；这是预期兜底，不是由慢浏览器造成的正常延迟。真实 `recordLoop` 的 viewer fanout 非阻塞，慢 viewer 不会阻塞 recorder（`internal/ptyrelay/relay.go:117-145`）；当前 cast sink 只是可选同步 writer，代码库内尚未接入慢外部持久化（`internal/ptyrelay/relay.go:58`、`:127-133`）。
+- join 链无死锁：v0.3 要求 observer 非阻塞（设计:65-71），`pumpPty` 不等待 `jobs.Wait`，`streamLocalJob/Wait` 不等待 `pumpDone`，`pumpDone` 只等 pty Read EOF/conn close（设计:202-207）。取消路径中 `jobs.Cancel` 只 cancel ctx、不等待 job（`internal/job/cancel.go:47-63`），不会和 host/worker Result 形成等待环。
+- 非交互共享路径未被无门控改动污染。v0.3 的 pty pump、waitSession、relay Done 等均以 `Interactive` 或 `observer!=nil` 门控，唯一覆盖非交互的是 D-P2-9 的 pendingCancel，语义是补发既有远端 cancel，不改变正常非交互字节流（设计:243）。这符合 G023。
+
+## 剩余硬问题
+
+无阻断/高问题。
+
+低风险计划项仍需在 P2 实施计划里落任务，但不影响进入计划拆分：
+
+1. `pendingCancel` 对 dispatch 永不到达或 Submit 失败的残留，需要按 v0.3 §10 落 TTL 或生命周期清理（设计:250）。
+2. `hostCancelGrace` 具体值与 stage/request timeout 偏序，需要按 v0.3 §6/§10 固化常量和测试（设计:217-219、249）。
+3. `RelayClosing` 建议在实现注释或测试里显式覆盖，避免后续实现者误以为它是独立等待语义；当前 D-P2-2 + D-P2-8 的组合已足够可实现。
+
+## 收敛判定
+
+**GO（可进 P2 实施计划）。**
+
+剩余阻断/高数量：**0**。
+
+v0.3 已可据以拆 T 出 P2 实施计划。
