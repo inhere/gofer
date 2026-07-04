@@ -47,6 +47,10 @@ type Dispatch struct {
 	Cols        int      `json:"cols,omitempty"`
 	Rows        int      `json:"rows,omitempty"`
 	RelayNonce  string   `json:"relay_nonce,omitempty"`
+	// PtySessionID is the host-minted relay session id the worker echoes back in
+	// its pty-connect hello so the serve endpoint can strong-check it against the
+	// binding (httpapi/pty_connect_handler; D-P2-4). Empty on non-interactive.
+	PtySessionID string `json:"pty_session_id,omitempty"`
 }
 
 // Log (w→s, P1): an incremental log frame. Seq is monotonic per job (the same
