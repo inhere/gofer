@@ -22,9 +22,27 @@ import (
 // reported back as result{failed} (no new frame type needed).
 //
 // sessionURL is the hub address this dispatch arrived on (recvLoop threads it,
-// D-P2-7). T5 will use it to derive the interactive pty-connect URL; the current
-// (non-interactive) body does not read it yet.
+// D-P2-7). An interactive dispatch derives its pty-connect URL from it (T5); the
+// non-interactive path never reads it.
 func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wsproto.Dispatch) {
+	// stale pendingCancel cleanup (D-P2-9): whichever return path this dispatch
+	// takes, ensure d.JobID does not linger in pendingCancel. The normal consume is
+	// the inline take after putJobMapping below; this defer backstops the paths that
+	// never map (fail-fast / Submit failure / a job this worker was never given).
+	// It is idempotent — a no-op once the inline take already consumed the record.
+	defer cl.takePendingCancel(d.JobID)
+
+	// fail-fast (D-P2-4): an interactive dispatch missing its relay credentials can
+	// never be attached (the serve pty-connect endpoint strong-checks nonce +
+	// pty_session_id). Do not start a bare, un-attachable pty — report failed.
+	if d.Interactive && (d.RelayNonce == "" || d.PtySessionID == "") {
+		_ = cl.writeFrame(ctx, wsproto.TypeResult, d.JobID, wsproto.Result{
+			JobID: d.JobID, Status: job.StatusFailed, ExitCode: -1,
+			Error: "interactive dispatch missing relay credentials",
+		})
+		return
+	}
+
 	res, err := cl.jobs.Submit(job.JobRequest{
 		ProjectKey: d.ProjectKey,
 		Agent:      d.Agent,
@@ -33,6 +51,12 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		Cmd:        d.Cmd,
 		Cwd:        d.Cwd,
 		TimeoutSec: d.TimeoutSec,
+		// T5 projection: carry the interactive flag + initial window so the worker's
+		// own job.Service picks its pty runner (Interactive && !remote). Zero-valued
+		// for a non-interactive dispatch → byte-for-byte the existing path (G023).
+		Interactive: d.Interactive,
+		Cols:        d.Cols,
+		Rows:        d.Rows,
 	})
 	if err != nil {
 		_ = cl.writeFrame(ctx, wsproto.TypeResult, d.JobID, wsproto.Result{
@@ -47,17 +71,48 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 	cl.putJobMapping(d.JobID, localID)
 	defer cl.dropJobMapping(d.JobID)
 
+	// D-P2-9: a cancel frame that arrived BEFORE the mapping existed was parked in
+	// pendingCancel; now that the local job is submitted+mapped, honour it at once
+	// (covers non-interactive dispatches too).
+	if cl.takePendingCancel(d.JobID) {
+		_ = cl.jobs.Cancel(localID)
+	}
+
+	// interactive: dial the SECOND, pty-dedicated ws and pump bytes both ways once
+	// the local pty session has started (the PtyRunner observer hands it to us via
+	// waitSession). pumpDone is joined below, before the terminal Result, so the
+	// serve relay has drained + closed (recordLoop EOF) first. A nil session (job
+	// ended before its pty started / ctx torn down) skips the pump.
+	var pumpDone <-chan struct{}
+	if d.Interactive {
+		if sess := cl.waitSession(ctx, localID); sess != nil {
+			pumpDone = cl.pumpPtyFn(ctx, sessionURL, localID, d.JobID, d.PtySessionID, d.RelayNonce, sess)
+		}
+	}
+
 	// Stream local log output back to the hub until the job is terminal, then send
 	// the authoritative result. It also bridges the local job's pending interactions
-	// up to the hub as interaction{open} frames (P2).
+	// up to the hub as interaction{open} frames (P2). For an interactive pty job the
+	// log tail is empty and pumpInteractions a no-op — it is kept only for uniform
+	// terminal detection; the pty bytes flow over the pump ws, not the log frames.
 	cl.streamLocalJob(ctx, localID, res.ResultDir, d.JobID)
 
 	final, ok := cl.jobs.Wait(localID)
 	if !ok {
+		if pumpDone != nil {
+			<-pumpDone
+		}
 		_ = cl.writeFrame(ctx, wsproto.TypeResult, d.JobID, wsproto.Result{
 			JobID: d.JobID, Status: job.StatusFailed, ExitCode: -1, Error: "local job not found",
 		})
 		return
+	}
+
+	// Join the pump before the terminal Result: the worker has drained the pty and
+	// closed the pump ws (→ serve recordLoop EOF) so the host's Done() can fire and
+	// the browser sees the tail bytes before the job finishes (D-P2-2 / D-P2-6).
+	if pumpDone != nil {
+		<-pumpDone
 	}
 
 	// 产出与审计回传(P4)：本地 job 已由共享 job.Service 在终态 captureOutcomes 采集

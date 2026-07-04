@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -14,6 +15,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 
 	"github.com/inhere/gofer/internal/job"
+	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -29,7 +31,12 @@ type stubJobs struct {
 	getOK       bool
 	gotProject  string
 	gotRunner   string
-	submitCalls int
+	// gotInteractive/gotCols/gotRows capture the T5 interactive projection so a test
+	// can assert the worker forwards Interactive+window to its own job.Service.
+	gotInteractive bool
+	gotCols        int
+	gotRows        int
+	submitCalls    int
 
 	// interactions returned by GetInteractions (drives the worker→hub open bridge).
 	interactions []job.Interaction
@@ -47,6 +54,8 @@ func (s *stubJobs) Submit(req job.JobRequest) (job.JobResult, error) {
 	s.submitCalls++
 	s.gotProject = req.ProjectKey
 	s.gotRunner = req.Runner
+	s.gotInteractive = req.Interactive
+	s.gotCols, s.gotRows = req.Cols, req.Rows
 	s.mu.Unlock()
 	if s.submitErr != nil {
 		return job.JobResult{}, s.submitErr
@@ -227,6 +236,171 @@ func TestOutcomeFrameSessionID(t *testing.T) {
 	// 完全空 → 不发帧（回归红线：旧 worker 行为不变）。
 	if _, send := outcomeFrame("j2", job.JobResult{}); send {
 		t.Fatalf("an empty JobResult must not produce a frame")
+	}
+}
+
+// dialLiveClient stands up a bare ws server that captures every frame the worker
+// writes, dials it, and wires cl.conn directly so a test can call handleDispatch
+// in isolation (no Run/recvLoop). It returns the client, the captured-frames chan,
+// and the hub session URL (ending /v1/workers/connect, so an interactive dispatch
+// derives its pty-connect URL from it).
+func dialLiveClient(t *testing.T, jobs Jobs) (*Client, chan wsproto.Envelope, string) {
+	t.Helper()
+	frames := make(chan wsproto.Envelope, 32)
+	h := http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
+		conn, err := websocket.Accept(w, req, &websocket.AcceptOptions{InsecureSkipVerify: true, CompressionMode: websocket.CompressionDisabled})
+		if err != nil {
+			return
+		}
+		for {
+			var env wsproto.Envelope
+			if rerr := wsjson.Read(req.Context(), conn, &env); rerr != nil {
+				return
+			}
+			frames <- env
+		}
+	})
+	srv := httptest.NewServer(h)
+	t.Cleanup(srv.Close)
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/workers/connect"
+	cl := New(Config{WorkerID: "w1", URLs: []string{wsURL}, Token: "t"}, jobs)
+	cl.pollInterval = 10 * time.Millisecond
+	conn, _, err := websocket.Dial(context.Background(), wsURL, nil)
+	if err != nil {
+		t.Fatalf("dial: %v", err)
+	}
+	cl.conn = conn
+	t.Cleanup(func() { _ = conn.Close(websocket.StatusNormalClosure, "test done") })
+	return cl, frames, wsURL
+}
+
+// TestHandleDispatchInteractiveFailFast (T5, D-P2-4): an interactive dispatch with
+// no relay credentials can never attach; the worker must report failed WITHOUT
+// submitting a bare pty job.
+func TestHandleDispatchInteractiveFailFast(t *testing.T) {
+	jobs := &stubJobs{submitID: "local-1"}
+	cl, frames, url := dialLiveClient(t, jobs)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cl.handleDispatch(ctx, url, wsproto.Dispatch{JobID: "d1", Interactive: true}) // no nonce/pty_session_id
+
+	res := waitForResult(t, frames, "d1")
+	if res.Status != job.StatusFailed {
+		t.Fatalf("result status = %q, want failed", res.Status)
+	}
+	if !strings.Contains(res.Error, "missing relay credentials") {
+		t.Fatalf("result error = %q, want to mention missing relay credentials", res.Error)
+	}
+	jobs.mu.Lock()
+	calls := jobs.submitCalls
+	jobs.mu.Unlock()
+	if calls != 0 {
+		t.Fatalf("Submit called %d times on fail-fast, want 0", calls)
+	}
+}
+
+// TestHandleDispatchInteractiveProjection (T5): a credentialed interactive dispatch
+// projects Interactive/Cols/Rows onto the worker's local Submit (so its job.Service
+// picks the pty runner). No session is delivered here, so waitSession returns nil
+// and no pump is started — the assertion is purely the Submit projection.
+func TestHandleDispatchInteractiveProjection(t *testing.T) {
+	jobs := &stubJobs{
+		submitID:   "local-1",
+		waitResult: job.JobResult{Status: job.StatusDone, ExitCode: 0},
+		waitOK:     true,
+	}
+	cl, frames, url := dialLiveClient(t, jobs)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cl.handleDispatch(ctx, url, wsproto.Dispatch{
+		JobID: "d1", Interactive: true, Cols: 120, Rows: 40,
+		RelayNonce: "nonce-1", PtySessionID: "psid-1",
+	})
+
+	res := waitForResult(t, frames, "d1")
+	if res.Status != job.StatusDone {
+		t.Fatalf("result status = %q, want done", res.Status)
+	}
+	jobs.mu.Lock()
+	gotI, gotC, gotR := jobs.gotInteractive, jobs.gotCols, jobs.gotRows
+	jobs.mu.Unlock()
+	if !gotI || gotC != 120 || gotR != 40 {
+		t.Fatalf("Submit projection = interactive:%v cols:%d rows:%d, want true/120/40", gotI, gotC, gotR)
+	}
+}
+
+// TestHandleDispatchPendingCancel (T5, D-P2-9): a cancel that arrived before the
+// mapping existed is consumed after putJobMapping and cancels the fresh local job
+// (covers a non-interactive dispatch).
+func TestHandleDispatchPendingCancel(t *testing.T) {
+	jobs := &stubJobs{
+		submitID:   "local-1",
+		waitResult: job.JobResult{Status: job.StatusCancelled, ExitCode: -1},
+		waitOK:     true,
+	}
+	cl, frames, url := dialLiveClient(t, jobs)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	cl.recordPendingCancel("d1") // cancel raced ahead of the mapping
+	cl.handleDispatch(ctx, url, wsproto.Dispatch{JobID: "d1", ProjectKey: "alpha", Agent: "exec", Cmd: []string{"sleep", "1"}})
+
+	_ = waitForResult(t, frames, "d1")
+	if got := jobs.cancelled(); got != "local-1" {
+		t.Fatalf("cancelled local id = %q, want local-1", got)
+	}
+}
+
+// TestHandleDispatchJoinsPumpBeforeResult (T5): the terminal Result is not sent
+// until the interactive pump's pumpDone closes (worker drained + closed the pty ws
+// → serve recordLoop EOF, so the browser sees tail bytes before the job finishes).
+func TestHandleDispatchJoinsPumpBeforeResult(t *testing.T) {
+	jobs := &stubJobs{
+		submitID:   "local-1",
+		waitResult: job.JobResult{Status: job.StatusDone, ExitCode: 0},
+		waitOK:     true,
+	}
+	cl, frames, url := dialLiveClient(t, jobs)
+	// Override the pump with a controllable blocking pumpDone (no real 2nd ws/pty).
+	pumpBlock := make(chan struct{})
+	var pumpCalls int32
+	cl.pumpPtyFn = func(_ context.Context, _, _, _, _, _ string, _ ptySession) <-chan struct{} {
+		atomic.AddInt32(&pumpCalls, 1)
+		return pumpBlock // stays open until the test closes it
+	}
+	// Buffer the session so waitSession returns it immediately (localID = submitID).
+	cl.OnSessionStart("local-1", &ptyrunner.PtySession{})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	go cl.handleDispatch(ctx, url, wsproto.Dispatch{
+		JobID: "d1", Interactive: true, RelayNonce: "nonce-1", PtySessionID: "psid-1",
+	})
+
+	// While pumpDone is open the Result must NOT arrive (any incidental non-Result
+	// frame is fine; only a Result is a violation).
+	held := false
+	deadline := time.After(300 * time.Millisecond)
+	for !held {
+		select {
+		case env := <-frames:
+			if env.Type == wsproto.TypeResult {
+				t.Fatalf("Result sent before pump join (pumpDone still open): %+v", env)
+			}
+		case <-deadline:
+			held = true
+		}
+	}
+	if atomic.LoadInt32(&pumpCalls) != 1 {
+		t.Fatalf("pump launched %d times, want 1", atomic.LoadInt32(&pumpCalls))
+	}
+
+	close(pumpBlock) // pump done → join releases → Result sent
+	res := waitForResult(t, frames, "d1")
+	if res.Status != job.StatusDone {
+		t.Fatalf("result status = %q, want done", res.Status)
 	}
 }
 
