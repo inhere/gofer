@@ -17,6 +17,7 @@ import (
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
 	peerhttprunner "github.com/inhere/gofer/internal/runner/peerhttp"
+	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	workerrunner "github.com/inhere/gofer/internal/runner/worker"
 	"github.com/inhere/gofer/internal/wshub"
 )
@@ -70,6 +71,14 @@ func Build(cfg *config.Config) (*Core, error) {
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
+	// WEB-03: register the pty runner variant ONLY when a pty backend is available
+	// on this build/host. Its presence under key "pty" is the capability signal the
+	// job service keys on to route interactive jobs (submit.go) — so job never
+	// imports the pty packages (G022/G024). No pty backend ⇒ interactive jobs fall
+	// through to their requested runner unchanged.
+	if ptyrunner.Available() {
+		runners[ptyrunner.Name] = ptyrunner.New()
+	}
 
 	// Build the ws-worker hub singleton ONCE (unlike peer-http, every worker
 	// runner references the same hub instance). Its token→worker bindings come

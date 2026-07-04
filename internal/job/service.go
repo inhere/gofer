@@ -34,6 +34,11 @@ const jobIDCreateRetries = 5
 // mirroring the built-in exec agent.
 const builtinLocalRunner = "local"
 
+// builtinPtyRunner is the runner key an interactive job is routed to (WEB-03).
+// It is registered by core ONLY when a pty backend is available; the job service
+// selects it by key (submit.go) so it never imports the pty runner package.
+const builtinPtyRunner = "pty"
+
 // Submit validation sentinels. They let the HTTP layer (internal/httpapi) map a
 // rejected Submit to the right status code without string-matching: an unknown
 // project is a 404, everything else (agent not allowed / exec gate / runner not

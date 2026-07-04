@@ -111,6 +111,16 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	if run == nil {
 		return JobResult{}, fmt.Errorf("runner %q is not available", req.Runner)
 	}
+	// WEB-03 seam: an interactive job runs under the pty runner variant instead of
+	// req.Runner, WHEN a pty backend is registered (core registers "pty" only when
+	// pty.IsAvailable — its presence in the map IS the capability signal, so job
+	// never imports internal/pty, G022/G024). The non-interactive path above is
+	// left byte-for-byte unchanged (G023): this branch only fires for Interactive.
+	if req.Interactive {
+		if pr := s.runners[builtinPtyRunner]; pr != nil {
+			run = pr
+		}
+	}
 
 	// sessionID is the底层 agent CLI 会话标识 bound to this job (session-capture).
 	// For a local cli-agent with a SessionInject template (claude) it is generated

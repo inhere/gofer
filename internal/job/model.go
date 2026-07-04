@@ -15,6 +15,17 @@ type JobRequest struct {
 	Cwd        string   `json:"cwd,omitempty" yaml:"cwd,omitempty"`
 	TimeoutSec int      `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
 	Title      string   `json:"title,omitempty" yaml:"title,omitempty"`
+	// Interactive requests a pty-attached run (WEB-03, design §5/§8): the job
+	// service routes an interactive job to the pty runner variant (when a pty
+	// backend is registered) instead of req.Runner, so its stdin/stdout is a raw
+	// terminal a browser can attach to. Non-interactive (the default false) is
+	// byte-for-byte the existing path (G023). Cols/Rows are the INITIAL terminal
+	// size (default 80x24). NOTE (spike): admission gating (interactive白名单 /
+	// no-raw-cmd / reject exec+workflow+schedule) and threading Cols/Rows through
+	// runner.Request land in P1 — P0 only wires the runner-selection seam.
+	Interactive bool `json:"interactive,omitempty" yaml:"interactive,omitempty"`
+	Cols        int  `json:"cols,omitempty" yaml:"cols,omitempty"`
+	Rows        int  `json:"rows,omitempty" yaml:"rows,omitempty"`
 	// Role is an OPTIONAL E35 role-preset reference (design §8.5). When set, submit
 	// resolves it from cfg.Roles to fill empty Agent/SystemPrompt/ProjectKey/Tags
 	// (explicit request fields win). An unknown role is rejected (ErrUnknownRole).
