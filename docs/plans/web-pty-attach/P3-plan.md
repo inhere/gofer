@@ -20,6 +20,7 @@ T3(jobstore pty_sessions表+prune) ───────────┴───
 - [x] T6 httpapi：`GET /pty/recording` gate（授权/解密流式首帧认证/审计） — `bb61fdd`
 - [x] T7 e2e（录制往返明文+加密/两 regime/授权）+ P2 零回归 + 配置迁移 + 环检 — `8b9c9b7`
 - [x] **fix**：recording gate 去 remote-409（cast 恒 hub-local，T7 实证 bug） — `12806b1`（设计 D-P3-7 修 `0696be7`）
+- [x] **收官审查（codex 第五轮真实 diff）**：crypto(castrec framed AEAD)=GREEN（10 测试向量全过，无绕过/截断/nonce 复用）；唯一高 H1（boundedCastClose 超时未回传失败态）**已修** `d4c2432`（`Relay.CastClosedCleanly()` + finalize OR 判据清 recording_uri，D-P3-1 机制修正 `ceca08b`）
 
 > **实施结果**：`go build`/`vet`/`test ./...`（Linux 真 pty）全绿；`-race`（castrec/jobstore/ptyrelay/httpapi/worker/runner）绿；`GOOS=windows build` 绿；`go list -deps`：ptyrelay leaf、job 无 pty/ptyrelay/castrec（环检 PASS）。P2 零回归逐包确认。castrec 5 类加密负测全过。**T7 实证抓出并修复 recording gate remote-409 bug**（主控拍板设计修正）。
 
