@@ -89,7 +89,7 @@
 
 ### D-P3-7 `GET /v1/jobs/{id}/pty/recording` gate（修 H6/M3）
 authed `/v1` 组（`server.go:337+`），复用 `callerMayAttach(caller, job)`（owner + CanAdmin）否则 403。
-- 取 job → 远端（`IsRemoteSource`）→ 409（仿 artifact）。
+- **不做 `IsRemoteSource→409`（T7 实证修正）**：pty cast **永远 hub-local**——由 serve 的 `handlePtyConnect` 经 relay recorder 写在 **host job 的 `result_dir`** 下（T5），与 job 命令在哪跑无关。这与 artifact 不同（artifact 大产物留 worker、只回传清单，D6，故 artifact 下载才 409-on-remote）。→ recording gate **无论 `Source`**（worker/local/空）都从 hub `result_dir` 提供；不引入基于 Source 的可下载性差异（否则「自然完成的 worker 会话 409、cancelled 会话 200」的荒谬不一致，T7 3/3 复现）。
 - `GetPtySession(job)` 取 `recording_uri`/`encrypted`；空或文件不存在（已 prune）→ 404（详情明示）。
 - **明文**：`SafeJoinUnder`+`os.Stat`(regular)+`http.ServeFile`（复用 artifact 模式）。
 - **加密（M3，口径统一）**：**流式解密写 resp**，不用 `ServeFile`。**在写 200/任何 body 前**先解密+认证**文件 header + 首帧**：失败 → 返回 4xx/5xx（此时尚未发 200，绝不半截）。首帧通过后发 200 开始 stream；**中途帧认证失败（截断/篡改）→ 只能中断 stream + 记日志**（200 已发无法改 status），由客户端校验/提示。`Content-Type: application/x-asciicast`。
@@ -144,7 +144,7 @@ worker 拨入 pty-connect（P2）→ handlePtyConnect 校验通过:
    (recordLoop finish: defer cast.Close()封尾 → close(done); close owner=recordLoop, B1)
 
 下载: GET /v1/jobs/{id}/pty/recording (authed)
-  callerMayAttach 否则403 → remote?409 → GetPtySession.recording_uri 空/没文件?404(明示)
+  callerMayAttach 否则403 → GetPtySession.recording_uri 空/没文件?404(明示)  [cast 恒 hub-local, 无 remote-409]
   encrypted? 流式解密(首帧认证后再发200; 中途截断→断流+日志) : SafeJoin+ServeFile → 审计事件
 
 retention: startPruneLoop(ret.Enabled()||castEnabled) tick → Service.Prune():
@@ -156,7 +156,7 @@ retention: startPruneLoop(ret.Enabled()||castEnabled) tick → Service.Prune():
 - cast 默认加密**或**短 TTL；`!Encryption && TTL>24h` → loader fail-fast（D-P3-5）。
 - key：`HKDF-SHA256(env)`；serve start 缺失 fail-fast；不入日志/Redis（SR403）。
 - framed AEAD 认证 final frame + AAD 绑 fileID/frame_index → 防截断/重排/跨文件（D-P3-4）。
-- recording gate：owner 或 can_admin；远端 409；已 prune/uri 空 404；allow_empty 无 admin→禁下载（保守，H6）；下载留审计。加密下载 **header+首帧认证在发 200 前**（失败即 4xx，不半截）；发 200 后中途损坏只能断流+日志（M3，口径见 D-P3-7）。
+- recording gate：owner 或 can_admin；已 prune/uri 空 404；**无 remote-409**（cast 恒 hub-local，T7 修正）；allow_empty 无 admin→禁下载（保守，H6）；下载留审计。加密下载 **header+首帧认证在发 200 前**（失败即 4xx，不半截）；发 200 后中途损坏只能断流+日志（M3，口径见 D-P3-7）。
 - cast 写失败降级（sink 内部记错、recording_uri 置空），不阻断主链路、不双写主日志。
 - pty.cast 随 job retention 连带清（无孤儿密文超期，B4）。
 

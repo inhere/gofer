@@ -195,7 +195,7 @@ type PtySessionStore interface {
 2. 新 `pty_recording_handler.go`：
 ```go
 caller := callerFromCtx; job,ok := s.jobs.Get(id)
-if !ok { 404 }; if s.IsRemoteSource(job) { 409 }   // 仿 artifact
+if !ok { 404 }   // 【无 remote-409】cast 恒 hub-local(serve 写 host result_dir, T5), 与 artifact 不同(T7 修正)
 if !s.callerMayAttach(caller, job) { 403 }          // owner 或 admin(H6: 空 owner 仅 admin)
 sess,ok,_ := s.ptySessions.GetPtySessionByJob(id)   // 注入的窄接口(见 T5), 非 s.store
 if !ok || sess.RecordingURI=="" { 404 }             // 未录/已过期清理(明示)
@@ -214,7 +214,7 @@ if sess.Encrypted {
 }
 ```
 
-**验收**：单测——owner→200+内容；非 owner 非 admin→403；allow_empty 无 admin→403；远端 job→409；未录/uri 空/文件没了→404；加密→解密内容正确、header 认证失败→4xx（未发半截）、中途篡改→断流；明文→ServeFile；审计事件发出。
+**验收**：单测——owner→200+内容；**worker-source 自然完成 job→200**（cast hub-local，非 409，T7 修正）；非 owner 非 admin→403；allow_empty 无 admin→403；未录/uri 空/文件没了→404；加密→解密内容正确、header 认证失败→4xx（未发半截）、中途篡改→断流；明文→ServeFile；审计事件发出。
 
 ---
 
