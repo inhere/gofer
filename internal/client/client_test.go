@@ -282,6 +282,12 @@ func TestSubmitJobSyncAsyncFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SubmitJobSync: %v", err)
 	}
+	t.Cleanup(func() {
+		if out.Job.ID != "" {
+			_, _ = c.CancelJob(out.Job.ID)
+			waitDone(t, c, out.Job.ID)
+		}
+	})
 	if !out.Async {
 		t.Fatalf("Async=false on a sync submit that exceeded the wait cap, want true")
 	}

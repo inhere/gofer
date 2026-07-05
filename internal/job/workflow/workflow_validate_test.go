@@ -2,6 +2,8 @@ package workflow
 
 import (
 	"errors"
+	"fmt"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -130,8 +132,8 @@ func TestWorkflowRejectInteractiveStepRequest(t *testing.T) {
 func TestJobLevelRetry(t *testing.T) {
 	root := t.TempDir()
 	e := newTestEngine(t, root)
-	marker := root + "/joblevel.marker"
-	script := "test -f " + marker + " || { touch " + marker + "; exit 7; }"
+	marker := filepath.ToSlash(filepath.Join(root, "joblevel.marker"))
+	script := fmt.Sprintf("test -f %q || { touch %q; exit 7; }", marker, marker)
 
 	first := submitAndWait(t, e, job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",

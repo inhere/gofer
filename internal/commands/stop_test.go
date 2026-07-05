@@ -3,6 +3,7 @@ package commands
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/inhere/gofer/internal/config"
@@ -75,10 +76,14 @@ func seedWorkerPid(t *testing.T, id string, pid int) string {
 // TestResolveDefaultWorkerSingleRunning: exactly one live worker pidfile → its id
 // is auto-detected (no <id> needed). A stale (dead-pid) pidfile is ignored.
 func TestResolveDefaultWorkerSingleRunning(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("daemon PID liveness is not supported on Windows")
+	}
 	t.Setenv(config.EnvConfigDir, t.TempDir())
-	seedWorkerPid(t, "solo", os.Getpid())     // alive (this test process)
-	seedWorkerPid(t, "ghost", 2147483646)     // dead → must be ignored
+	seedWorkerPid(t, "solo", os.Getpid()) // alive (this test process)
+	seedWorkerPid(t, "ghost", 2147483646) // dead → must be ignored
 	workerStopOpts.config = ""
+	defer func() { workerStopOpts.config = "" }()
 
 	id, err := resolveDefaultWorkerID()
 	if err != nil {
@@ -92,6 +97,9 @@ func TestResolveDefaultWorkerSingleRunning(t *testing.T) {
 // TestResolveDefaultWorkerMultipleRunning: more than one live worker → ambiguous,
 // must error (the <id> is required).
 func TestResolveDefaultWorkerMultipleRunning(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("daemon PID liveness is not supported on Windows")
+	}
 	t.Setenv(config.EnvConfigDir, t.TempDir())
 	seedWorkerPid(t, "alpha", os.Getpid())
 	seedWorkerPid(t, "beta", os.Getpid())

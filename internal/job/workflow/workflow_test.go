@@ -371,6 +371,21 @@ func mustMarshalSpec(t *testing.T, spec Spec) string {
 	return string(b)
 }
 
+func requestFromJSON(t *testing.T, raw string) job.JobRequest {
+	t.Helper()
+	var req job.JobRequest
+	if err := json.Unmarshal([]byte(raw), &req); err != nil {
+		t.Fatalf("request_json not valid JSON: %v\n%s", err, raw)
+	}
+	return req
+}
+
+func requestCmdContains(t *testing.T, raw, want string) bool {
+	t.Helper()
+	req := requestFromJSON(t, raw)
+	return strings.Contains(strings.Join(req.Cmd, "\x00"), want)
+}
+
 // TestSubmitWorkflowRejectsInvalidStep asserts every step is validated at submit
 // time: an invalid project/agent/runner in ANY step fails the whole submit before
 // any job starts.
@@ -456,7 +471,7 @@ func TestWorkflowResolvesRefsEndToEnd(t *testing.T) {
 	if step1Job.ResultDir == "" {
 		t.Fatal("step1 has no result_dir")
 	}
-	if !strings.Contains(step2Job.RequestJSON, step1Job.ResultDir) {
+	if !requestCmdContains(t, step2Job.RequestJSON, step1Job.ResultDir) {
 		t.Fatalf("step2 request does not contain step1 result_dir %q:\n%s", step1Job.ResultDir, step2Job.RequestJSON)
 	}
 	// step2 exited 0 (done), so step3's prompt must read "prior exit was 0".

@@ -2,6 +2,7 @@ package store
 
 import (
 	"errors"
+	"path"
 	"path/filepath"
 	"strings"
 )
@@ -25,17 +26,21 @@ func SafeJoinUnder(base, name string) (string, error) {
 	// Normalize backslashes so a Windows-style "sub\\b" is treated as a path
 	// separator on Linux too.
 	normalized := strings.ReplaceAll(name, "\\", "/")
+	if normalized == "" || strings.HasPrefix(normalized, "/") {
+		return "", errors.New("artifact name must be a non-empty relative path")
+	}
 
 	// Reject traversal that escapes the dir explicitly (clearer than silently
 	// folding "../foo" into "foo"): a name whose Cleaned form is ".." or begins
 	// with "../" climbs above base. Internal "x/../y" Cleans to "y" → allowed.
-	if cleaned := filepath.Clean(normalized); cleaned == ".." || strings.HasPrefix(cleaned, "../") {
+	cleaned := path.Clean(normalized)
+	if cleaned == ".." || strings.HasPrefix(cleaned, "../") {
 		return "", errors.New("artifact name escapes artifacts dir")
 	}
 
 	// Anchor to root + Clean to strip any residual "..", then Rel-check that the
 	// join stays inside base (defence in depth on top of the segment check).
-	full := filepath.Join(base, filepath.Clean("/"+normalized))
+	full := filepath.Join(base, filepath.FromSlash(cleaned))
 	rel, err := filepath.Rel(base, full)
 	if err != nil || rel == ".." || strings.HasPrefix(rel, ".."+string(filepath.Separator)) {
 		return "", errors.New("artifact name escapes artifacts dir")

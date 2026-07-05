@@ -70,6 +70,15 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 	// the hub id d.JobID) reaches this local job; drop it when the dispatch ends.
 	cl.putJobMapping(d.JobID, localID)
 	defer cl.dropJobMapping(d.JobID)
+	dispatchDone := make(chan struct{})
+	defer close(dispatchDone)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = cl.jobs.Cancel(localID)
+		case <-dispatchDone:
+		}
+	}()
 
 	// D-P2-9: a cancel frame that arrived BEFORE the mapping existed was parked in
 	// pendingCancel; now that the local job is submitted+mapped, honour it at once

@@ -153,6 +153,10 @@ func TestStreamJobCtxCancelStops(t *testing.T) {
 	if err != nil {
 		t.Fatalf("SubmitJob: %v", err)
 	}
+	t.Cleanup(func() {
+		_, _ = c.CancelJob(created.ID)
+		waitDone(t, c, created.ID)
+	})
 
 	ctx, cancel := context.WithCancel(context.Background())
 	// Cancel shortly after the first status frame arrives.
