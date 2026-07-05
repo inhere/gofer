@@ -25,9 +25,11 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/buildinfo"
+	"github.com/inhere/gofer/internal/castrec"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/metrics"
 	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
@@ -82,6 +84,17 @@ func (s *Server) callerMayAdmin(caller string) bool {
 	return s.cfg.CallerCanAdmin(caller)
 }
 
+// PtySessionStore is the narrow persistence seam the WEB-03 P3 pty handlers use to
+// record/read pty relay session metadata (design review 高1). It is defined here —
+// rather than the Server holding a raw *jobstore.Store — so the entry layer keeps a
+// minimal, intention-revealing surface; *jobstore.Store satisfies it. A nil
+// PtySessionStore means "no persistence" (mcp / most tests) and handlers (T5/T6)
+// must guard against it.
+type PtySessionStore interface {
+	UpsertPtySession(rec jobstore.PtySessionRecord) error
+	GetPtySessionByJob(jobID string) (jobstore.PtySessionRecord, bool, error)
+}
+
 // Server holds the wired dependencies and the rux router. It is constructed once
 // (New) and either started with Run or exposed as an http.Handler (Handler) for
 // httptest.
@@ -120,6 +133,19 @@ type Server struct {
 	// attachTickets are short-lived one-time browser attach tickets. T6 issues
 	// them via authenticated HTTP; T7 consumes them during the WS attach upgrade.
 	attachTickets *AttachTicketStore
+
+	// castRecorder is the WEB-03 P3 cast recording factory (nil = recording off,
+	// the default). serve resolves it from storage.cast at startup and injects it
+	// via SetCastRecorder; mcp/tests build httpapi.New directly and leave it nil so
+	// recording is off with zero behaviour change (G023). The pty-connect handler
+	// (T5) mints a per-session sink from it; the recording download gate (T6)
+	// stream-decrypts encrypted casts through it.
+	castRecorder *castrec.Recorder
+	// ptySessions persists pty relay session metadata (WEB-03 P3). It is the narrow
+	// store seam the pty handlers write/read (D-P3, review 高1: the Server holds no
+	// raw jobstore handle). nil-safe: nil means no persistence (mcp/tests) and the
+	// handlers guard it.
+	ptySessions PtySessionStore
 
 	// runners is the configured runner set the C6/P4 GET /v1/runners endpoint
 	// enumerates (name → type / base_url / worker_id). It is the top-level
@@ -193,6 +219,18 @@ func (s *Server) SetPtyRelay(nonces *ptyrelay.NonceStore, relays *ptyrelay.Regis
 	s.ptyRelays = relays
 	s.router = s.buildRouter()
 }
+
+// SetCastRecorder injects the WEB-03 P3 cast recording factory (nil = recording
+// off, the zero-regression default). Like SetPtyRelay it is a post-construction
+// setter so the wide positional New stays untouched; serve calls it at startup
+// after resolving storage.cast and its encryption key. It mounts no routes, so —
+// unlike SetMetrics/SetPresence/SetPtyRelay — it does NOT rebuild the router.
+func (s *Server) SetCastRecorder(rec *castrec.Recorder) { s.castRecorder = rec }
+
+// SetPtySessionStore injects the pty-session persistence seam (WEB-03 P3). serve
+// passes the *jobstore.Store (which satisfies PtySessionStore); a nil store leaves
+// pty session persistence off (mcp/tests). It mounts no routes → no router rebuild.
+func (s *Server) SetPtySessionStore(store PtySessionStore) { s.ptySessions = store }
 
 // New builds a Server: it resolves the effective token, wires the rux router
 // (routes + auth middleware) and returns it ready to Run or hand to httptest.

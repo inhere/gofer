@@ -59,5 +59,27 @@ func (s *Service) Prune() (int, error) {
 			_ = os.RemoveAll(dir)
 		}
 	}
+
+	// WEB-03 P3 cast retention (regime 1, D-P3-6): when recording is enabled, expire
+	// closed pty-session recordings past the cast TTL — ExpireCastRecordings clears
+	// each row's recording_uri (the session row itself is RETAINED for audit) and
+	// returns the on-disk cast file paths, which we best-effort delete. The TTL comes
+	// from the SAME atomic config snapshot as the job/workflow retention above, so a
+	// hot-reloaded TTL takes effect on the next tick (SR-consistent with retention).
+	// Cast disabled ⇒ the sweep is skipped entirely (zero rows touched, G023). Unlike
+	// job/workflow retention this regime never deletes a session row — row removal is
+	// regime 2 (PruneJobs/PruneWorkflows, jobstore-owned).
+	if cast := s.config().Storage.Cast; cast.Enabled {
+		castTTLSec := int64(cast.RetentionTTLHours) * 3600
+		uris, cerr := s.meta.ExpireCastRecordings(now, castTTLSec)
+		if cerr != nil {
+			return deleted, cerr
+		}
+		for _, uri := range uris {
+			if uri != "" {
+				_ = os.Remove(uri)
+			}
+		}
+	}
 	return deleted, nil
 }
