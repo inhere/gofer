@@ -195,7 +195,7 @@ Web 里对交互式 REPL/CLI agent（claude/codex 交互模式）开真终端：
 - **P1 协议+relay+安全闸**：dispatch nonce + 专用 pty ws 端点（nonce 原子消费）+ `ptyRelay` remote source + attach-ticket + attach ws（Origin+lease）+ admission 五闸校验 + capability 预解析 + config 字段。
   - **P0 回填必做**：`runner.Request` 加 `Interactive/Cols/Rows`（把初始尺寸 threaded 到 `PtyRunner`，去掉 spike 的 80×24 硬编码）；viewer 队列深度 **per-viewer 可配**（写租户深/只读浅）；跨进程 cancel「host cancelling→等 worker ack/grace」在 worker↔serve 帧层落地（进程内有序 close 已由 P0 证）；如需分级 kill 给 `Pty` 补 `Signal/Kill`。
 - **P2 worker 端到端**：`PtyRunner` 接真 ptmx + eager 拨 pty ws + capability 广告 + 取消协议；input/output/resize/cancel/断连全链路。→ **细化见 [`2026-07-04-web-pty-attach-P2-design.md`](2026-07-04-web-pty-attach-P2-design.md)**（6 决策 + 5 时序图 + 帧/接口清单）。
-- **P3 cast + 审计**：加密录制 + `pty_sessions` 表 + retention/prune 顺序 + `/pty/recording` gate。→ **细化见 [`2026-07-04-web-pty-attach-P3-design.md`](2026-07-04-web-pty-attach-P3-design.md)**（8 决策 + 加密封套 + 两 retention regime）。
+- **P3 cast + 审计**：加密录制 + `pty_sessions` 表 + retention/prune 顺序 + `/pty/recording` gate。→ **细化见 [`2026-07-04-web-pty-attach-P3-design.md`](2026-07-04-web-pty-attach-P3-design.md)**（8 决策 + 加密封套 + 两 retention regime）。**P3 实施计划**：[`../plans/web-pty-attach/P3-plan.md`](../plans/web-pty-attach/P3-plan.md)（8 T）。
 - **P4 前端**：`AttachTerminal.vue`（xterm binary + ticket）+ JobDetail + **e2e 矩阵**。
 
 **普通 job 零回归验收清单**（G023，P0/CI 常驻）：local exec、worker exec、worker cancel、pending_interaction bridge、Outcome-before-Result、worker disconnect fail、chatty/quiet hub HOL（`hub_test`）、workflow step、schedule run-now、resume/session capture。
