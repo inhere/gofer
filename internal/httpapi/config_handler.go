@@ -90,6 +90,16 @@ type storageConfigView struct {
 	Root                  string        `json:"root"`
 	DBPath                string        `json:"db_path"`
 	Retention             retentionView `json:"retention"`
+	Cast                  castView      `json:"cast"`
+}
+
+// castView is the redacted cast recording config: it exposes whether recording
+// and encryption are on and the retention TTL, but NEVER the key env name/value
+// (SR403; D-P3-5 governance view does not echo the key).
+type castView struct {
+	Enabled           bool `json:"enabled"`
+	RetentionTTLHours int  `json:"retention_ttl_hours"`
+	EncryptionEnabled bool `json:"encryption_enabled"`
 }
 
 type retentionView struct {
@@ -291,6 +301,11 @@ func buildStorageConfigView(sc config.StorageConfig) storageConfigView {
 			MaxCount:           sc.Retention.MaxCount,
 			IntervalMinutes:    sc.Retention.IntervalMinutes,
 			WorkflowMaxAgeDays: sc.Retention.WorkflowMaxAgeDays,
+		},
+		Cast: castView{
+			Enabled:           sc.Cast.Enabled,
+			RetentionTTLHours: sc.Cast.RetentionTTLHours,
+			EncryptionEnabled: sc.Cast.Encryption.Enabled,
 		},
 	}
 }

@@ -439,8 +439,26 @@ type StorageConfig struct {
 const castDefaultTTLHours = 24
 const castMaxTTLHours = 168 // 7d 上限
 
+// castPlaintextMaxTTLHours caps plaintext (unencrypted) cast retention: a
+// plaintext recording may carry keystrokes (tokens/passwords), so it is only
+// allowed a short TTL. Reuses castDefaultTTLHours (24h). Longer retention
+// requires encryption (loader combination check, D-P3-5 / K4).
+const castPlaintextMaxTTLHours = castDefaultTTLHours
+
+// castMinSecretBytes is the minimum decoded length of the cast encryption key
+// (256-bit) — HKDF is NOT a password KDF, so a short passphrase must be
+// rejected. The decode+length check runs at serve start (T4, D-P3-4); this
+// constant is placed here so both loader and serve share one source of truth.
+const castMinSecretBytes = 32
+
 type CastConfig struct {
-	RetentionTTLHours int                  `yaml:"retention_ttl_hours"` // 0=用默认 24
+	// Enabled turns cast recording on. It defaults to false (opt-in, G023): an
+	// existing config that never wrote `enabled` decodes to false, records
+	// nothing and stays zero-regression. It is the single "is recording on"
+	// predicate (handler sink, prune-loop gate, recording_uri) — RetentionTTLHours
+	// no longer expresses "disabled".
+	Enabled           bool                 `yaml:"enabled"`
+	RetentionTTLHours int                  `yaml:"retention_ttl_hours"` // 0=用默认 24（仅 Enabled 时）
 	Encryption        CastEncryptionConfig `yaml:"encryption"`
 }
 
