@@ -40,6 +40,10 @@ func TestWaitForTimesOut(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Submit: %v", err)
 	}
+	t.Cleanup(func() {
+		_ = s.Cancel(res.ID)
+		_, _ = s.Wait(res.ID)
+	})
 
 	snap, ok := s.WaitFor(res.ID, 50*time.Millisecond)
 	if ok {

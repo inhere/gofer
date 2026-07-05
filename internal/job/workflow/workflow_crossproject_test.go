@@ -124,7 +124,7 @@ func TestWorkflowCrossProjectLinearHandoff(t *testing.T) {
 	if s1.ResultDir == "" {
 		t.Fatal("step1 (projA) has no result_dir")
 	}
-	if !strings.Contains(s2.RequestJSON, s1.ResultDir) {
+	if !requestCmdContains(t, s2.RequestJSON, s1.ResultDir) {
 		t.Fatalf("step2 (projB) request does not contain step1 (projA) result_dir %q:\n%s", s1.ResultDir, s2.RequestJSON)
 	}
 	// step2 succeeded (exit 0), so step3's prompt carries "projB exit was 0".

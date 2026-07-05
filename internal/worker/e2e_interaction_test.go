@@ -253,7 +253,7 @@ func TestE2ECancelOverWS(t *testing.T) {
 	// A long-running worker job: sleep well past the test window.
 	created := createJob(t, hub.ts, job.JobRequest{
 		ProjectKey: "alpha", Agent: "exec", Runner: "remote-w1", WorkerID: e2eWorkerID,
-		Cmd: []string{"sh", "-c", "sleep 30"}, Cwd: ".", TimeoutSec: 60,
+		Cmd: []string{"sleep", "30"}, Cwd: ".", TimeoutSec: 60,
 	})
 	if created.ID == "" {
 		t.Fatal("created job has no id")
@@ -310,7 +310,7 @@ func TestE2ETimeoutOverWS(t *testing.T) {
 	// timeout_sec=1 but the command sleeps 30s: the worker's local timeout fires.
 	created := createJob(t, hub.ts, job.JobRequest{
 		ProjectKey: "alpha", Agent: "exec", Runner: "remote-w1", WorkerID: e2eWorkerID,
-		Cmd: []string{"sh", "-c", "sleep 30"}, Cwd: ".", TimeoutSec: 1,
+		Cmd: []string{"sleep", "30"}, Cwd: ".", TimeoutSec: 1,
 	})
 	if created.ID == "" {
 		t.Fatal("created job has no id")

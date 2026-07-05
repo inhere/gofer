@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -68,12 +69,12 @@ func TestCaptureDiffGitRepo(t *testing.T) {
 		t.Fatalf("changes.diff missing the tracked change, got:\n%s", full)
 	}
 
-	// changes.diff must be 0644.
+	// changes.diff must be 0644 on platforms with POSIX mode bits.
 	fi, err := os.Stat(diffPath)
 	if err != nil {
 		t.Fatalf("stat changes.diff: %v", err)
 	}
-	if perm := fi.Mode().Perm(); perm != 0o644 {
+	if perm := fi.Mode().Perm(); runtime.GOOS != "windows" && perm != 0o644 {
 		t.Fatalf("changes.diff perm=%o, want 0644", perm)
 	}
 }
