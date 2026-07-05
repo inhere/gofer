@@ -124,7 +124,7 @@ func TestResolveLookupOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != mustAbs(t, cwdFile) {
+	if !samePath(t, got, cwdFile) {
 		t.Errorf("cwd: got %q", got)
 	}
 }
@@ -147,7 +147,7 @@ func TestResolveCurrentDirLocalWins(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got != mustAbs(t, local) {
+	if !samePath(t, got, local) {
 		t.Errorf("expected .gofer.local.yaml to win, got %q", got)
 	}
 }
@@ -249,4 +249,17 @@ func mustAbs(t *testing.T, p string) string {
 		t.Fatal(err)
 	}
 	return a
+}
+
+func samePath(t *testing.T, got, want string) bool {
+	t.Helper()
+	gotPath := mustAbs(t, got)
+	wantPath := mustAbs(t, want)
+	if gotEval, err := filepath.EvalSymlinks(gotPath); err == nil {
+		gotPath = gotEval
+	}
+	if wantEval, err := filepath.EvalSymlinks(wantPath); err == nil {
+		wantPath = wantEval
+	}
+	return gotPath == wantPath
 }
