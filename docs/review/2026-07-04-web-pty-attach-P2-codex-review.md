@@ -298,3 +298,69 @@ return ret
 阻断：**0**。高：**1**。
 
 修正 T2 `Prepare` 片段的 clone/解锁顺序后，计划可据以逐 T 实施；其余 T 的触碰点、依赖序和验收覆盖与真实代码一致。
+
+# 第五轮：P2 实现 diff 代码审查
+
+> 审核方：codex（对抗式读真实 diff，未改源码；仅追加本文档）。  
+> 被审：`git diff 88d5a51..fee4b6b`，8 个实现提交 T0-T7：`96a9951` / `3f60c44` / `f15e1ad` / `113ef5e` / `378b3ce` / `cbb18ff` / `de20f26` / `fee4b6b`。  
+> 对照：`docs/design/2026-07-04-web-pty-attach-P2-design.md` v0.4，重点核对 D-P2-1..9，特别是跨连接取消顺序、rendezvous、relay 生命周期 CAS、selfClosing 判据、单 reader、G023。
+> 工具限制：当前会话仍未暴露 codebase-memory-mcp 的 graph tools/resources，已按项目规则 fallback 到 `git diff/show` + 定点文件核对。
+
+## 8 项重点核对
+
+1. **取消协议跨连接顺序（D-P2-2/6）：通过。**  
+   host 侧 interactive 正常结果分支在收到 worker `Result` 后等待 `relayRegistry.Done(jobID)`，再返回并由 defer `Close` 兜底（`internal/runner/worker/runner.go:223-238`、`:173-176`）；ctx cancel 分支先发 hub cancel，再等 `Done|lostCh|hostCancelGrace`（`:257-278`）。worker 侧 `handleDispatch` 在发 `Result` 前 join `pumpDone`（`internal/worker/dispatch.go:100-116`）；`pumpPty` out pump 读到 pty EOF 后设置 `selfClosing` 并关闭 pty ws（`internal/worker/pty_pump.go:109-125`）。serve 侧 `recordLoop` 先把 `Read` 返回的 `n>0` 写 ring/cast/fanout，再在 `err != nil` 时 `Close` relay（`internal/ptyrelay/relay.go:120-138`），所以 EOF 同帧尾字节不会被丢。`handlePtyConnect` 在 `entry.Relay.Done()` 或 request ctx 结束后返回，defer `Registry.Close` 只是幂等兜底（`internal/httpapi/pty_connect_handler.go:86-96`）。没有发现 host 先 finish 截断 in-flight 尾字节的路径。
+
+2. **rendezvous 竞态与 goroutine 泄漏（D-P2-3）：通过。**  
+   `OnSessionStart` 在发 `ch <- sess` 前已释放 `sessMu`，且 waiter chan 为 buffer 1，不会锁内阻塞（`internal/worker/client.go:227-234`）。`waitSession` 的 `jobs.Wait(localID)` goroutine 在 session 命中后仍会等到该 local job terminal 才退出（`:259-266`）；这是每个 interactive job 一个有界 goroutine，不是无限泄漏，因为 `handleDispatch` 后续 `streamLocalJob`/`jobs.Wait` 本身也等同一个 job 终态（`internal/worker/dispatch.go:93-100`）。`clearWaiter` 同时清 `sessWaiters` 和 `sessReady`，晚到 session 不会永久残留（`internal/worker/client.go:276-283`）。`sessReady`/`sessWaiters`/`pendingCancel` 统一由 `sessMu` 保护（`:248-257`、`:295-330`），一致性成立。
+
+3. **relay 生命周期 CAS（D-P2-2/8）：通过。**  
+   `Prepare` 在锁内 detach old entry、写新 entry、锁内 clone 快照，然后解锁后 close old relay，修掉第四轮指出的错快照风险（`internal/ptyrelay/registry.go:79-102`）。`Close` 锁内 detach、锁外 `Relay.Close()`，避免 registry HOL（`:194-203`）。`detachLocked` 直接将 entry 标 finalized 并移除 job/session/nonce 索引（`:212-221`），并发 `Open/Lookup/MarkAttached/Done` 通过同一把锁看到 pending/open/finalized/missing 的一致状态（`:107-134`、`:138-180`、`:234-244`）。`Done` 对 missing/finalized/pending(`Relay==nil`) 返回已关闭 sentinel，对 open/attached 返回 live `Relay.Done()`（`:234-244`）；`Relay.Close()` 自身用 `closed` CAS 和 `done` chan 保证幂等（`internal/ptyrelay/relay.go:235-256`）。
+
+4. **selfClosing/state 断连判据（D-P2-5）：通过。**  
+   out pump 在 `sess.Read` 返回错误时 `selfClosing.Store(true)`，in loop 结束后用 `selfClosing.Load()` 判定是否本端 teardown；跨 goroutine 用 atomic 建立可见性（`internal/worker/pty_pump.go:101-140`）。如果 state 已 `cancelling/exiting/closed`，不误发 cancel；默认分支覆盖 `starting/running`，因此 observer 早于 `StateRunning` 的 starting 窗口发生外部断连也会 cancel（`:133-139`）。`PtySession` 自然/取消 teardown 一开始进入 `StateExiting`，最终 `StateClosed` 后关 done（`internal/runner/pty/session.go:176-217`），排除自然退出 teardown 被误判为外部断连的主要窗口。
+
+5. **单 reader（D-P2-3）：通过。**  
+   `PtyRunner.Run` 在 `observer != nil` 时只同步调用 `OnSessionStart`，明确不启动 discard drain（`internal/runner/pty/runner.go:71-77`）；worker 命令在 `worker.Serve` 前把 Client 注入为 observer（`internal/commands/worker.go:205-213`）。`observer == nil` 分支保留原 `io.Copy(io.Discard, sess)` drain（`internal/runner/pty/runner.go:77-80`），serve/tests 的非 worker 路径维持原行为。
+
+6. **G023 零回归：通过。**  
+   host 侧新增 drain wait 只在 `f.Interactive` 下执行（`internal/runner/worker/runner.go:233-238`、`:272-278`）；非 interactive dispatch 字段仅多带零值 `Interactive/Cols/Rows/RelayNonce/PtySessionID`，原 result/lost/ctx select 结构未改变（`:201-218`、`:223-278`）。worker `handleDispatch` 只有 interactive 时 fail-fast、wait session、pump pty；非 interactive 仍 `Submit -> put mapping -> streamLocalJob -> Wait -> Outcome -> Result`，新增 `pendingCancel` 只补早到 cancel 的既有语义（`internal/worker/dispatch.go:27-124`）。`PtyRunner` 输出所有权只在 observer 注入时改变，nil observer 保留原 discard（`internal/runner/pty/runner.go:71-80`）。
+
+7. **pty ws framing/单 writer：通过。**  
+   worker hello 字段名与 serve 端 `ptyConnectHello` 一致（`internal/worker/pty_pump.go:35-40`、`internal/httpapi/pty_connect_handler.go:21-25`），serve 校验 job/session/nonce/worker instance（`internal/httpapi/pty_connect_handler.go:60-72`）。hello 在 out goroutine 启动前串行写，之后只有 out goroutine写 binary；in loop只读 binary/text（`internal/worker/pty_pump.go:92-128`、`:151-167`）。serve `remotePtySource.Write/Resize` 用 `wmu` 串行写 binary/text，`Read` 是唯一 reader 并跳过非 binary 输出帧（`internal/httpapi/pty_source.go:26-78`）。符合 coder/websocket 单 reader/单 writer 使用约束。
+
+8. **边界/错误路径：通过。**  
+   worker 对 bad URL、dial fail、hello write fail 都 cancel local job 并 close `pumpDone`（`internal/worker/pty_pump.go:73-99`）。serve nonce 校验失败、instance mismatch、binding mismatch、job not live 均关闭 pty ws；job not live 同时 close relay（`internal/httpapi/pty_connect_handler.go:60-83`）。`waitSession` nil 路径会跳过 pump，后续仍等 local job terminal 并发 Result（`internal/worker/dispatch.go:86-100`）；host 侧 pending/missing relay 的 `Done` 是已关 chan，不会空等 grace（`internal/ptyrelay/registry.go:234-244`）。早到 cancel 先记 `pendingCancel`，mapping 建立后立即消费并 cancel，且 defer 清理 stale 记录（`internal/worker/client.go:473-480`、`internal/worker/dispatch.go:27-33`、`:71-79`）。
+
+## 硬问题（阻断/高）
+
+未发现 P2 实现 diff 内会导致 race、死锁、goroutine 泄漏、尾字节截断、跨连接顺序破坏或 G023 行为回归的硬问题。
+
+阻断：**0**。高：**0**。
+
+## 非阻断注意
+
+1. **Windows 测试环境仍有若干非 P2 包 / e2e 清理脆弱性。**  
+   `go test ./...` 本轮失败集中在 Windows 临时目录文件句柄清理、跨平台 shell/权限假设和既有包：`internal/client`、`internal/commands`、`internal/job`、`internal/job/workflow`、`internal/store`、`internal/worker`。其中 `internal/worker` 的 P2 e2e 用例出现 `TempDir RemoveAll cleanup: ... stderr.log: The process cannot access the file because it is being used by another process`，更像 Windows 文件句柄释放/测试环境问题；定向非 e2e P2 包 `go test ./internal/ptyrelay ./internal/runner/pty ./internal/runner/worker` 通过。该问题不改变本轮代码审查判定，但后续若要把 P2 e2e 纳入 Windows CI，需要单独治理句柄关闭/测试清理。
+
+2. **`Client.writeFrame` 仍写当前 `cl.conn`，不是 dispatch 到达时的连接。**  
+   这一点不是 P2 新增问题：本轮只把 `sessionURL` 线程化给 pty-connect，控制帧写入仍沿用既有 `cl.conn` 字段（`internal/worker/client.go:397`、`:465`、`:513-516`）。在同一 worker 进程 reconnect 且 job 跨连接继续执行的语义下，这可能是有意设计；但如果未来要严格按“派发连接”归还 Result/Outcome，需要另起 WP/C7 议题。P2 pty attach 的跨连接尾字节顺序不依赖这个点，因为 host 的收敛锚是 serve relay `Done`，不是 worker Result 单独排序。
+
+3. **`hostCancelGrace` 仍需与上层 stage/request timeout 维持偏序。**  
+   常量已经落为 10s（`internal/runner/worker/runner.go:37-43`），实现正确；后续配置/文档应继续保证上层 timeout 大于该 grace，否则上层取消可能抢先结束 drain 证明。
+
+## 自证结果
+
+- `git diff --check 88d5a51..fee4b6b`：通过。
+- `go build ./...`（`GOCACHE=.cache/go-build`，`GOMODCACHE=.cache/gomod`）：通过。
+- `go vet ./...`（同上）：通过。
+- `go test ./internal/ptyrelay ./internal/runner/pty ./internal/runner/worker`：通过。
+- `go test ./...`：失败，原因见“非阻断注意 1”，未定位到 P2 diff 的硬 bug。
+- `go test ./internal/worker -run 'Test(Pty|E2E|Rendezvous|HandleDispatch|Pending|Derive|Clamp|Pump|WaitSession|OnSession|Interactive|Unmapped|Starting|Relay|Done|Cancel)' -count=1`：失败，命中 Windows `TempDir RemoveAll cleanup` 文件句柄问题（P2 e2e cancel/timeout/worker-disconnect 用例）；非 e2e P2 核心包已通过。
+- `go test -race ...`：未能执行；第一次失败为 `-race requires cgo`，设置 `CGO_ENABLED=1` 后失败为 `C compiler "gcc" not found`。本机当前缺 race 所需 C toolchain。
+
+## 收官判定
+
+**GREEN（可收官，进入 P3/P4）。**
+
+本轮真实 diff 未发现阻断/高问题；P2 的核心并发/时序风险点（Result vs relay Done 跨连接顺序、rendezvous、pending cancel、relay detach/Done、selfClosing/state 判据、单 reader、pump join）均已按 v0.4 设计落地。剩余事项属于 Windows 测试环境稳定性和后续 reconnect 语义治理，不阻塞 P2 收官。
