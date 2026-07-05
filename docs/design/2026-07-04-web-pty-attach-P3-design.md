@@ -8,7 +8,7 @@
 | 版本 | 日期 | 说明 |
 |---|---|---|
 | v0.1 | 2026-07-04 | 初稿 8 决策。 |
-| **v0.3** | 2026-07-04 | **codex round-2 收敛（1 阻断+2 高+2 中）**：① **B3 阻断** 加 `storage.cast.enabled`（默认 false 显式启用录制）——`RetentionTTLHours=0` 语义澄清、prune loop gate 用之（D-P3-5/6）；② **B1 高** cast `Close` **bounded**（不阻塞 P2 完成路径）+ P2 回归测试（D-P3-1）；③ **B2 高** framed AEAD 固化：`hkdf.Key(sha256.New,...)` 精确调用 + **counter nonce**（per-file prefix+frame_index，防复用）+ 高熵 secret 约束 + final 后 trailing bytes=损坏 + 测试向量清单（D-P3-4）；④ **中** cast TTL sweep **只清 `recording_uri`/标失效、保留 session 行**（存审计），删行只在 job/wf retention（D-P3-6）；⑤ **中** 下载 200/半截口径统一（首帧+header 认证在 200 前；中途损坏只能断流+日志，D-P3-7/§5）。 |
+| **v0.3** | 2026-07-04 | **codex round-2 收敛（1 阻断+2 高+2 中）**：① **B3 阻断** 加 `storage.cast.enabled`（默认 false 显式启用录制）——`RetentionTTLHours=0` 语义澄清、prune loop gate 用之（D-P3-5/6）；② **B1 高** cast `Close` **bounded**（不阻塞 P2 完成路径）+ P2 回归测试（D-P3-1）；③ **B2 高** framed AEAD 固化：`hkdf.Key(sha256.New,...)` 精确调用 + **counter nonce**（per-file prefix+frame_index，防复用）+ 高熵 secret 约束 + final 后 trailing bytes=损坏 + 测试向量清单（D-P3-4）；④ **中** cast TTL sweep **只清 `recording_uri`/标失效、保留 session 行**（存审计），删行只在 job/wf retention（D-P3-6）；⑤ **中** 下载 200/半截口径统一（首帧+header 认证在 200 前；中途损坏只能断流+日志，D-P3-7/§5）。**round-3 终审=GO（唯一阻断=`hkdf.Key` 签名）已修**：`hkdf.Key` Go1.25 返回 `(key,err)`（codex `go run` 实证）→ 改双返回值+err fail-fast；顺带改**每文件派生 key**（fileID salt）彻底消 nonce 跨文件复用。 |
 | **v0.2** | 2026-07-04 | **codex 评审后大改**（4 阻断+6 高）：① **B1** cast close owner 归 recordLoop、`Relay.Done()`=cast 已封尾（D-P3-1 重写）；② **B2** 封套改 framed AEAD——`crypto/hkdf` 派生 key + 每帧随机 nonce + AAD 绑 {version,session_id,frame_index,is_final} + **认证 final frame**（EOF-before-final=损坏），防截断/重排/跨文件（D-P3-4 重写）；③ **B3** prune loop 启动条件含 cast（D-P3-6）；④ **B4** pty_sessions 删除进 `PruneJobs`/`PruneWorkflows` 同事务（jobstore-owned，D-P3-6）；⑤ **H1** cast 配置/key 在 serve 装配处解析并注入 httpapi（`SetCastRecorder`，D-P3-5）；⑥ **H2** `RelayBinding+=Cols/Rows`+80×24 fallback（D-P3-2）；⑦ **H3** finalize 流程写死（`Close→<-Done()(封尾)→读 bytes→Upsert`，单点 httpapi，runner 不写表）；⑧ **H4** P3 只记「已 Open 的会话」（未拨入无行，显式取舍）；⑨ **H5** httpapi 持 concrete sink、finalize 查 `sink.Err()`（ptyrelay 不知情）；⑩ **H6/M3** 加密流式解密（非 ServeFile）+ allow_empty 保守拒。 |
 
 ## 1. 现状锚点（P3 测绘，附 file:line）
@@ -59,11 +59,14 @@
 
 ### D-P3-4 cast 加密 = framed AEAD（HKDF 派生 key + 认证 final frame，修 B2）
 明文 asciinema 含用户键入（token/密码风险）。`Encryption.Enabled` 时 cast sink 外套加密（全 stdlib）：
-- **key 派生（Go1.25 精确调用）**：`key := hkdf.Key(sha256.New, []byte(os.Getenv(KeyEnv)), nil, "gofer-pty-cast/v1", 32)`（`crypto/hkdf`，salt=nil、info 固定、32B）。**secret 必须高熵**（HKDF **非** password KDF）：约定 `KeyEnv` 值为 **base64/hex 编码的 ≥32B 随机密钥**，loader/start 校验解码后长度 ≥32B，否则 fail-fast（拒绝把短口令当 256-bit 用）。缺失 → fail-fast。
+- **key 派生（Go1.25 精确调用，`hkdf.Key` 返回 `(key, error)`——务必收 err）**：
+  - master key（serve start 一次）：`mk, err := hkdf.Key(sha256.New, []byte(os.Getenv(KeyEnv)), nil, "gofer-pty-cast/v1", 32)`；`err!=nil` → fail-fast。
+  - **每文件 key**（消除跨文件 nonce 复用，评审加固）：`fk, err := hkdf.Key(sha256.New, mk, fileID, "gofer-pty-cast-file/v1", 32)`（fileID 作 salt → **每文件独立 key**，counter nonce 即使跨文件同值也不复用同一 key，从根上消 4B prefix 碰撞隐患）。
+  - **secret 必须高熵**（HKDF **非** password KDF）：约定 `KeyEnv` 值为 **base64/hex 编码的 ≥32B 随机密钥**，loader/start 校验解码后长度 ≥32B，否则 fail-fast（拒绝把短口令当 256-bit 用）。缺失 → fail-fast。
 - **文件格式（framed AEAD，防截断/重排/跨文件/追加）**：
-  - 头：`magic(4)="GFC1" + version(1) + noncePrefix(4 随机) + fileID(16 随机)`（noncePrefix 供 counter nonce；fileID 入 AAD 防跨文件拼接）。
-  - 帧：`uint32 ct_len + ciphertext||tag`。`ct = AES-256-GCM.Seal(key, nonce, plaintext_chunk, AAD)`。
-    - **counter nonce（防复用，非纯随机）**：`nonce(12) = noncePrefix(4) || uint64BE(frame_index)(8)`；`frame_index` 从 0 严格递增 → 同 key/文件下 nonce 唯一（不回绕：uint64 足够）。
+  - 头：`magic(4)="GFC1" + version(1) + fileID(16 随机)`（fileID 既作 per-file key salt 又入 AAD 防跨文件拼接）。
+  - 帧：`uint32 ct_len + ciphertext||tag`。`ct = AES-256-GCM.Seal(fk, nonce, plaintext_chunk, AAD)`。
+    - **counter nonce**：`nonce(12) = uint32BE(0) || uint64BE(frame_index)`（前 4B 0 padding + 8B 计数）；`frame_index` 从 0 严格递增、uint64 不回绕。因 **fk 每文件唯一**，counter-only nonce 无跨文件复用。
     - `AAD = magic || version || fileID || uint64BE(frame_index) || is_final(1) || uint32BE(plaintext_len)`。chunk ≤ 16KB。
   - **final frame**：`is_final=1`、plaintext=空（`Seal(nonce, nil, aad)` 合法）、AAD 的 `frame_index`=总数据帧数。写在所有数据帧后（recordLoop finish）。
 - **解密（gate）**：逐帧 `Open` 校验 AAD（含 frame_index 严格递增）；遇认证失败/frame_index 跳变/**EOF 早于认证 final frame → 损坏（error）**；**认证 final frame 后必须物理 EOF**，其后**任何 trailing 字节 = 损坏**（拒「追加旧认证帧/垃圾」）。
@@ -164,6 +167,7 @@ retention: startPruneLoop(ret.Enabled()||castEnabled) tick → Service.Prune():
 - 审计事件载体（slog vs notify vs 新表）对齐现有。
 - `SetCastRecorder` factory 的确切签名与 core/serve 装配落点（`Enabled==false`→nil）。
 - cast TTL 过期后 `state` 是否加 `expired` 值还是仅清 `recording_uri`（拟仅清 uri，`state` 保持 closed；P4 据 uri 空判「已清理」）。
+- **配置迁移（plan 落）**：`Cast.Enabled` 默认 false = 录制 opt-in——已配 `storage.cast.encryption/ttl` 但未写 `enabled` 的部署将**静默不录**；plan 需更新示例配置/测试预期 + 文档说明「开录制须 `storage.cast.enabled: true`」。
 
 ---
 > 评审关注点（v0.3）：**D-P3-1** `boundedClose`（castCloseGrace 超时仍 close done）是否真保证 `Done()` 恒在 bound 内、不回归 P2 取消时序；**D-P3-4** counter nonce（noncePrefix||frame_index）唯一性 + final-frame/trailing-bytes 规则 + `hkdf.Key(sha256.New,...)` 精确 API + 高熵 secret 校验是否够；**D-P3-5** `Cast.Enabled` opt-in 语义 + factory nil 禁录默认（mcp/测试）是否自洽；**D-P3-6** cast TTL 过期「保留行清 uri」vs job retention「删行」的两 regime 幂等 + `PruneJobs`/`PruneWorkflows` 事务内加 DELETE 的改动面。
