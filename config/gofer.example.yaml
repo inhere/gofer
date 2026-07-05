@@ -123,6 +123,21 @@ storage:
   #   max_count: 5000
   #   prune_interval_minutes: 60
 
+  # cast: interactive pty session recording (asciinema v2). Recording is OPT-IN:
+  # it stays OFF until `enabled: true`. A config that sets encryption/ttl but never
+  # sets `enabled` records NOTHING (zero-regression) — you must set enabled to
+  # record. retention_ttl_hours bounds how long recordings are kept (default 24h
+  # when enabled; hard cap 168). Plaintext (encryption off) recordings may contain
+  # keystrokes, so they are capped at 24h; enable encryption for longer retention.
+  # The AES-256-GCM key is read from an env var (never stored in this file) and must
+  # decode (base64 or hex) to >= 32 bytes.
+  # cast:
+  #   enabled: true
+  #   retention_ttl_hours: 24
+  #   encryption:
+  #     enabled: true
+  #     key_env: GOFER_CAST_KEY
+
 projects:
   # First project: the workspace root.
   my-project1:
