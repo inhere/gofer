@@ -167,6 +167,8 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 			PtySessionID: ptySessionID,
 			Nonce:        relayNonce,
 			Expiry:       expiry,
+			Cols:         f.Cols, // D-P3-2: initial window for the cast header (0 = sink default)
+			Rows:         f.Rows,
 		})
 		relayPrepared = true
 	}

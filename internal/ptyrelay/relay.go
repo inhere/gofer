@@ -21,7 +21,10 @@ package ptyrelay
 
 import (
 	"errors"
+	"io"
 	"sync"
+	"sync/atomic"
+	"time"
 )
 
 // Errors returned by the relay's admission paths.
@@ -52,10 +55,16 @@ const (
 	readChunk          = 4096
 )
 
+// castCloseGrace bounds how long finish() waits for the cast sink's Close to
+// return before giving up (the recording is then considered failed by the
+// concrete sink; Done still fires so the host is never blocked indefinitely).
+// var (not const) so tests can shrink it.
+var castCloseGrace = 2 * time.Second
+
 // Relay is one pty session's serve-side relay + state.
 type Relay struct {
 	src  PtySource
-	cast writeCloser // optional cast sink; nil = no recording
+	cast CastSink // optional cast sink; nil = no recording
 
 	mu          sync.Mutex
 	ring        *ring
@@ -65,14 +74,20 @@ type Relay struct {
 	closed      bool
 	started     bool
 
+	bytesIn     atomic.Int64 // total stdin bytes forwarded to the source (D-P3-8)
 	viewerQueue int
 	done        chan struct{}
+	finishOnce  sync.Once // close owner: finish() runs exactly once (B1)
 }
 
-// writeCloser is the optional cast sink (asciinema-style raw byte log). It is
-// the recorder main path's second consumer after the ring.
-type writeCloser interface {
-	Write([]byte) (int, error)
+// CastSink is the recorder main path's optional second consumer (asciinema-style
+// cast recording). ptyrelay only Writes chunks and Closes the sink on finish; it
+// is deliberately narrow (io.Writer + Close, no Err) so ptyrelay stays a leaf —
+// the concrete sink (castrec) lives above and satisfies this; the httpapi
+// finalize path consults the concrete sink's richer state (Err) directly (H5).
+type CastSink interface {
+	io.Writer
+	Close() error
 }
 
 // Option configures a Relay.
@@ -85,7 +100,7 @@ func WithRingSize(n int) Option { return func(r *Relay) { r.ring = newRing(n) } 
 func WithViewerQueue(n int) Option { return func(r *Relay) { r.viewerQueue = n } }
 
 // WithCast sets the recorder's cast sink (raw byte recording).
-func WithCast(w writeCloser) Option { return func(r *Relay) { r.cast = w } }
+func WithCast(w CastSink) Option { return func(r *Relay) { r.cast = w } }
 
 // New builds a Relay over src. Call Start once to begin recording.
 func New(src PtySource, opts ...Option) *Relay {
@@ -117,7 +132,13 @@ func (r *Relay) Start() {
 // recordLoop is the recorder MAIN path: read source → ring + cast → fan-out.
 // It is never gated on any viewer (fan-out is non-blocking), so a slow viewer
 // cannot stall recording (K2 layer 1). On source EOF/error it closes the relay.
+//
+// It is the sole close OWNER of the cast sink + done (B1): the deferred finish()
+// runs AFTER the read loop has exited, so cast.Close never races the cast.Write
+// calls made in this loop. Close() (external teardown) only closes the source /
+// viewers and — because it unblocks src.Read — lets this loop return into finish.
 func (r *Relay) recordLoop() {
+	defer r.finish()
 	buf := make([]byte, readChunk)
 	for {
 		n, err := r.src.Read(buf)
@@ -229,9 +250,15 @@ func (r *Relay) Resize(cols, rows int) error {
 	return r.src.Resize(cols, rows)
 }
 
-// Close tears down the relay: closes the source, drops all viewers, closes done.
-// Idempotent — all five close sources (source EOF, worker disconnect, browser
-// close, cancel, explicit) funnel here (design §5 unified CAS close).
+// Close tears down the relay: closes the source, drops all viewers. Idempotent —
+// all five close sources (source EOF, worker disconnect, browser close, cancel,
+// explicit) funnel here (design §5 unified CAS close).
+//
+// Close is NOT the close owner of done/cast (B1): when the relay was Start()ed,
+// closing the source unblocks the recordLoop's src.Read, and the recordLoop's
+// deferred finish() closes the cast sink (bounded) then done — so cast.Close
+// never races the recordLoop's cast.Write. Only a relay that was NEVER Start()ed
+// (no recordLoop to run finish) closes them here.
 func (r *Relay) Close() error {
 	r.mu.Lock()
 	if r.closed {
@@ -239,6 +266,7 @@ func (r *Relay) Close() error {
 		return nil
 	}
 	r.closed = true
+	started := r.started
 	vs := r.viewers
 	r.viewers = map[int]*Viewer{}
 	r.leaseHolder = 0
@@ -248,11 +276,51 @@ func (r *Relay) Close() error {
 		v.closeOut()
 	}
 	err := r.src.Close()
-	close(r.done)
+	if !started {
+		// Never Start()ed: no recordLoop exists to own finish, so close cast+done
+		// here. Safe from a cast.Write race because recordLoop (the only Writer)
+		// was never launched. finishOnce keeps it single even if Start races in.
+		r.finish()
+	}
 	return err
 }
 
-// Done is closed when the relay is closed.
+// finish is the single close OWNER of the cast sink and done (B1): it closes the
+// cast (bounded) then done, exactly once. It runs from the recordLoop's defer
+// (started relays) or from Close (never-started relays) — never concurrently with
+// a cast.Write, so the recording tail is intact.
+func (r *Relay) finish() {
+	r.finishOnce.Do(func() {
+		if r.cast != nil {
+			r.boundedCastClose()
+		}
+		close(r.done)
+	})
+}
+
+// boundedCastClose closes the cast sink but never blocks finish (hence Done)
+// longer than castCloseGrace: a wedged sink Close is abandoned (the concrete
+// sink records the failure via its own Err), so the host waiting on Done stays
+// bounded (P2 host-grace invariant preserved).
+func (r *Relay) boundedCastClose() {
+	cdone := make(chan struct{})
+	go func() {
+		_ = r.cast.Close()
+		close(cdone)
+	}()
+	select {
+	case <-cdone:
+	case <-time.After(castCloseGrace):
+	}
+}
+
+// InputLen reports the total stdin bytes forwarded to the source across all
+// write-lease viewers (D-P3-8, for the pty_sessions bytes_in column).
+func (r *Relay) InputLen() int64 { return r.bytesIn.Load() }
+
+// Done is closed by finish() — after the recordLoop has exited (the pty output
+// tail is recorded) and the cast sink is封尾 (or its Close timed out). For a
+// relay that was never Start()ed, Close() closes it. Either way it always fires.
 func (r *Relay) Done() <-chan struct{} { return r.done }
 
 // Viewer is one attached consumer of the session. Output arrives on Out();
@@ -289,7 +357,10 @@ func (v *Viewer) SendInput(b []byte) error {
 	if !hasLease {
 		return ErrReadOnly
 	}
-	_, err := v.relay.src.Write(b)
+	n, err := v.relay.src.Write(b)
+	if n > 0 {
+		v.relay.bytesIn.Add(int64(n)) // D-P3-8: count forwarded stdin bytes
+	}
 	return err
 }
 

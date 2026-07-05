@@ -229,6 +229,263 @@ func TestInputLeaseExclusive(t *testing.T) {
 	}
 }
 
+// fakeCast is a scriptable CastSink that records the EXACT order of Write and
+// Close calls (to prove cast.Write never races cast.Close, B1) and can optionally
+// block in Close until released (to exercise boundedCastClose's grace timeout).
+type fakeCast struct {
+	mu      sync.Mutex
+	events  []string // "w" per Write, "c" per Close, in call order
+	written []byte
+	closed  bool
+
+	closeEntered chan struct{} // closed once Close is entered (nil = don't signal)
+	closeBlock   chan struct{} // if non-nil, Close blocks until this is closed
+}
+
+func (c *fakeCast) Write(p []byte) (int, error) {
+	c.mu.Lock()
+	c.events = append(c.events, "w")
+	c.written = append(c.written, p...)
+	c.mu.Unlock()
+	return len(p), nil
+}
+
+func (c *fakeCast) Close() error {
+	c.mu.Lock()
+	c.events = append(c.events, "c")
+	c.closed = true
+	block := c.closeBlock
+	c.mu.Unlock()
+	if c.closeEntered != nil {
+		close(c.closeEntered) // Close runs once (finishOnce) → single close is safe
+	}
+	if block != nil {
+		<-block
+	}
+	return nil
+}
+
+func (c *fakeCast) snapshot() (events []string, written []byte, closed bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return append([]string(nil), c.events...), append([]byte(nil), c.written...), c.closed
+}
+
+// waitDone asserts r.Done() closes within d.
+func waitDone(t *testing.T, r *Relay, d time.Duration) {
+	t.Helper()
+	select {
+	case <-r.Done():
+	case <-time.After(d):
+		t.Fatalf("Done() not closed within %s", d)
+	}
+}
+
+// TestFinishClosesDoneMatrix: finish() ALWAYS closes done — with cast, without
+// cast, and for a relay that was never Start()ed (no recordLoop to own finish).
+func TestFinishClosesDoneMatrix(t *testing.T) {
+	t.Run("started_no_cast_eof", func(t *testing.T) {
+		src := newFakeSource()
+		r := New(src)
+		r.Start()
+		src.EmitDone() // EOF → recordLoop exits → finish closes done
+		waitDone(t, r, 2*time.Second)
+	})
+	t.Run("started_with_cast_eof", func(t *testing.T) {
+		src := newFakeSource()
+		fc := &fakeCast{}
+		r := New(src, WithCast(fc))
+		r.Start()
+		src.EmitDone()
+		waitDone(t, r, 2*time.Second)
+		if _, _, closed := fc.snapshot(); !closed {
+			t.Fatal("cast not closed by finish on started+cast EOF path")
+		}
+	})
+	t.Run("never_started_no_cast", func(t *testing.T) {
+		src := newFakeSource()
+		r := New(src)
+		if err := r.Close(); err != nil { // never Start()ed → Close owns finish
+			t.Fatalf("Close: %v", err)
+		}
+		waitDone(t, r, 2*time.Second)
+	})
+	t.Run("never_started_with_cast", func(t *testing.T) {
+		src := newFakeSource()
+		fc := &fakeCast{}
+		r := New(src, WithCast(fc))
+		_ = r.Close() // Close owns finish → closes cast then done, no writes ever
+		waitDone(t, r, 2*time.Second)
+		ev, _, closed := fc.snapshot()
+		if !closed {
+			t.Fatal("cast not closed on never-started+cast Close path")
+		}
+		if len(ev) != 1 || ev[0] != "c" {
+			t.Fatalf("never-started cast events = %v, want exactly one Close (no writes)", ev)
+		}
+	})
+}
+
+// TestCastClosedAfterAllWrites (B1 core): the cast sink is Closed exactly once and
+// AFTER every Write — proving cast.Close never races the recordLoop's cast.Write.
+func TestCastClosedAfterAllWrites(t *testing.T) {
+	src := newFakeSource()
+	fc := &fakeCast{}
+	r := New(src, WithCast(fc))
+	r.Start()
+
+	const n = 8
+	total := 0
+	for i := 0; i < n; i++ {
+		b := []byte(fmt.Sprintf("chunk-%02d;", i))
+		total += len(b)
+		src.Emit(b)
+	}
+	waitFor(t, 3*time.Second, func() bool { return r.RecordedLen() >= total })
+	src.EmitDone()
+	waitDone(t, r, 2*time.Second)
+
+	ev, written, closed := fc.snapshot()
+	if !closed {
+		t.Fatal("cast not closed")
+	}
+	// Exactly one Close, and it is the LAST event; everything before it is a Write.
+	if len(ev) == 0 || ev[len(ev)-1] != "c" {
+		t.Fatalf("last event = %v, want Close last", ev)
+	}
+	closes := 0
+	for i, e := range ev {
+		if e == "c" {
+			closes++
+			if i != len(ev)-1 {
+				t.Fatalf("Close at index %d is not last (events=%v) → Write raced Close", i, ev)
+			}
+		}
+	}
+	if closes != 1 {
+		t.Fatalf("Close called %d times, want exactly 1", closes)
+	}
+	if len(written) != total {
+		t.Fatalf("cast wrote %d bytes, want %d", len(written), total)
+	}
+}
+
+// TestStartedCloseDoesNotFinish (B1): for a Start()ed relay, Close() must NOT run
+// finish (that is the recordLoop's job — Close doing it would race cast.Write).
+// Here the source's Read stays parked after Close, so if Close wrongly owned
+// finish the cast would close early; we assert it does not until EOF drains.
+func TestStartedCloseDoesNotFinish(t *testing.T) {
+	src := newFakeSource()
+	fc := &fakeCast{}
+	r := New(src, WithCast(fc))
+	r.Start()
+
+	pre := []byte("before-close")
+	src.Emit(pre)
+	waitFor(t, 2*time.Second, func() bool { return r.RecordedLen() >= len(pre) })
+
+	// Close a started relay: fakeSource.Close does NOT unblock the parked Read, so
+	// the recordLoop is still alive → finish (hence cast.Close) must NOT have run.
+	if err := r.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, _, closed := fc.snapshot(); closed {
+		t.Fatal("Close() on a started relay wrongly closed the cast (finish must belong to recordLoop)")
+	}
+	select {
+	case <-r.Done():
+		t.Fatal("Done closed by Close() on a started relay; recordLoop still owns finish")
+	default:
+	}
+
+	// Now let the source hit EOF → recordLoop exits → its deferred finish封尾s cast.
+	src.EmitDone()
+	waitDone(t, r, 2*time.Second)
+	if _, _, closed := fc.snapshot(); !closed {
+		t.Fatal("cast not closed after recordLoop EOF")
+	}
+}
+
+// TestBoundedCastCloseTimeout: a wedged cast.Close does NOT block Done past
+// castCloseGrace — Done still fires (the host stays bounded, P2 invariant).
+func TestBoundedCastCloseTimeout(t *testing.T) {
+	orig := castCloseGrace
+	castCloseGrace = 50 * time.Millisecond
+	t.Cleanup(func() { castCloseGrace = orig })
+
+	release := make(chan struct{})
+	fc := &fakeCast{closeEntered: make(chan struct{}), closeBlock: release}
+	t.Cleanup(func() { close(release) }) // release the wedged Close so no goroutine leaks
+
+	src := newFakeSource()
+	r := New(src, WithCast(fc))
+	r.Start()
+	src.EmitDone() // EOF → finish → boundedCastClose (cast.Close wedges)
+
+	// Done must fire within grace + margin despite the wedged Close.
+	waitDone(t, r, 1*time.Second)
+	// And Close was actually entered (grace path, not skipped).
+	select {
+	case <-fc.closeEntered:
+	case <-time.After(time.Second):
+		t.Fatal("cast.Close was never entered")
+	}
+}
+
+// TestInputLenCounts (D-P3-8): InputLen sums stdin bytes forwarded by the write
+// lease holder; a read-only viewer's refused input is never counted.
+func TestInputLenCounts(t *testing.T) {
+	src := newFakeSource()
+	r := New(src)
+	r.Start()
+	t.Cleanup(func() { _ = r.Close() })
+
+	w, err := r.AddViewer(true)
+	if err != nil {
+		t.Fatalf("AddViewer writer: %v", err)
+	}
+	ro, err := r.AddViewer(false)
+	if err != nil {
+		t.Fatalf("AddViewer read-only: %v", err)
+	}
+	if err := w.SendInput([]byte("abc")); err != nil {
+		t.Fatalf("SendInput abc: %v", err)
+	}
+	if err := w.SendInput([]byte("de")); err != nil {
+		t.Fatalf("SendInput de: %v", err)
+	}
+	if err := ro.SendInput([]byte("XXXX")); err != ErrReadOnly {
+		t.Fatalf("read-only SendInput = %v, want ErrReadOnly", err)
+	}
+	if got := r.InputLen(); got != 5 {
+		t.Fatalf("InputLen = %d, want 5 (read-only input not counted)", got)
+	}
+}
+
+// TestWithCastViaOpen (M1,消死代码): WithCast wired through the Registry's variadic
+// Open reaches the Relay's cast sink.
+func TestWithCastViaOpen(t *testing.T) {
+	reg := NewRegistry()
+	reg.Prepare(RelayBinding{JobID: "j", PtySessionID: "p", Nonce: "n"})
+	src := newFakeSource()
+	fc := &fakeCast{}
+	entry, err := reg.Open("n", src, WithCast(fc))
+	if err != nil {
+		t.Fatalf("Open with cast opt: %v", err)
+	}
+	chunk := []byte("hello-cast")
+	src.Emit(chunk)
+	waitFor(t, 2*time.Second, func() bool { return entry.Relay.RecordedLen() >= len(chunk) })
+	if _, written, _ := fc.snapshot(); !bytes.Equal(written, chunk) {
+		t.Fatalf("cast via Open(opts) got %q, want %q", written, chunk)
+	}
+	src.EmitDone()
+	waitDone(t, entry.Relay, 2*time.Second)
+	if _, _, closed := fc.snapshot(); !closed {
+		t.Fatal("cast opened via Open(opts) not closed on EOF")
+	}
+}
+
 // readViewer reads from a viewer's output queue until it has accumulated at least
 // want bytes or the deadline elapses.
 func readViewer(t *testing.T, v *Viewer, want int, d time.Duration) []byte {
