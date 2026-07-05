@@ -1,6 +1,8 @@
 package config
 
 import (
+	"encoding/base64"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path"
@@ -415,4 +417,61 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("presence ttl_sec/message_ttl_sec/prune_interval_sec must be >= 0")
 	}
 	return nil
+}
+
+// ResolveCastSecret reads and decodes the cast encryption key from its configured
+// env var (Encryption.KeyEnv) at serve start (D-P3-5 / D-P3-4 runtime check). The
+// env value must be a base64- or hex-encoded random key that decodes to at least
+// castMinSecretBytes (256-bit): HKDF is NOT a password KDF, so a short passphrase
+// is rejected here rather than silently stretched. A missing/empty/undecodable or
+// too-short key returns an error so serve fails fast (never half-records). The key
+// itself is never included in the error text or logged (SR403).
+func (c CastConfig) ResolveCastSecret() ([]byte, error) {
+	env := strings.TrimSpace(c.Encryption.KeyEnv)
+	if env == "" {
+		return nil, fmt.Errorf("storage.cast.encryption.key_env is required to resolve the cast key")
+	}
+	raw := strings.TrimSpace(os.Getenv(env))
+	if raw == "" {
+		return nil, fmt.Errorf("cast encryption key env %q is unset or empty", env)
+	}
+	key, err := decodeCastSecret(raw)
+	if err != nil {
+		return nil, fmt.Errorf("cast encryption key env %q must be base64 or hex encoded: %w", env, err)
+	}
+	if len(key) < castMinSecretBytes {
+		return nil, fmt.Errorf("cast encryption key env %q decodes to %d bytes, need >= %d (use a base64/hex-encoded 256-bit random key)", env, len(key), castMinSecretBytes)
+	}
+	return key, nil
+}
+
+// decodeCastSecret decodes a cast key from its base64 or hex text form. A pure-hex,
+// even-length string is treated as hex (unambiguous intent — a real ≥32B base64 key
+// almost always carries non-hex alphabet chars); otherwise the standard / raw /
+// url-safe base64 alphabets are tried in turn. It never logs the key (SR403).
+func decodeCastSecret(s string) ([]byte, error) {
+	if isHexString(s) {
+		return hex.DecodeString(s)
+	}
+	for _, enc := range []*base64.Encoding{
+		base64.StdEncoding, base64.RawStdEncoding, base64.URLEncoding, base64.RawURLEncoding,
+	} {
+		if b, err := enc.DecodeString(s); err == nil {
+			return b, nil
+		}
+	}
+	return nil, fmt.Errorf("not valid base64 or hex")
+}
+
+// isHexString reports whether s is a non-empty, even-length run of hex digits.
+func isHexString(s string) bool {
+	if len(s) == 0 || len(s)%2 != 0 {
+		return false
+	}
+	for _, r := range s {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') && (r < 'A' || r > 'F') {
+			return false
+		}
+	}
+	return true
 }

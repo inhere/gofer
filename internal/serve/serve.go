@@ -18,6 +18,7 @@ import (
 	"github.com/gookit/goutil/errorx"
 
 	"github.com/inhere/gofer/internal/buildinfo"
+	"github.com/inhere/gofer/internal/castrec"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/httpapi"
@@ -105,12 +106,30 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// returns (design §14).
 	defer func() { _ = cr.Close() }()
 
-	// Periodic retention prune (design §13 SP5). Only runs when storage.retention
-	// is configured; stop is closed when serve returns so the goroutine exits
-	// cleanly with the rest of the process.
+	// WEB-03 P3 cast recorder: resolve the recording factory from storage.cast at
+	// serve start so a missing/short encryption key fails fast BEFORE the server
+	// binds (never a half-recorded session). Recording is opt-in — disabled ⇒ nil
+	// recorder ⇒ recording off (G023 zero-regression). Injected into the server via
+	// SetCastRecorder below (after New).
+	castRecorder, err := buildCastRecorder(cfg)
+	if err != nil {
+		return errorx.Failf(ExitErr, "%v", err)
+	}
+	// castEnabled also gates the prune loop (cast TTL sweep rides the same loop even
+	// with no job/workflow retention configured, D-P3-6); castTTLSec is for logging.
+	castEnabled := cfg.Storage.Cast.Enabled
+	var castTTLSec int64
+	if castEnabled {
+		castTTLSec = int64(cfg.Storage.Cast.RetentionTTLHours) * 3600
+	}
+
+	// Periodic retention prune (design §13 SP5). Runs when storage.retention is
+	// configured OR cast recording is enabled (the cast TTL sweep rides this loop);
+	// stop is closed when serve returns so the goroutine exits cleanly with the rest
+	// of the process.
 	stopPrune := make(chan struct{})
 	defer close(stopPrune)
-	startPruneLoop(c, cr.Jobs, cfg.Storage.Retention, stopPrune)
+	startPruneLoop(c, cr.Jobs, cfg.Storage.Retention, castEnabled, castTTLSec, stopPrune)
 
 	// E14 webhook delivery sweeper (design §5.6). Only started when notification is
 	// configured (at least one webhook); with no config it does nothing (regression
@@ -231,6 +250,11 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// so the metrics middleware is preserved). The prune sweeper is started below.
 	srv.SetPresence(cr.Presence)
 	srv.SetPtyRelay(cr.RelayNonces, cr.PtyRelays)
+	// WEB-03 P3: inject the cast recorder (nil when recording is off) and the pty
+	// session persistence seam (the metadata store satisfies PtySessionStore). Both
+	// mount no routes, so they do not rebuild the router.
+	srv.SetCastRecorder(castRecorder)
+	srv.SetPtySessionStore(cr.Store)
 
 	if token == "" {
 		c.Printf("gofer: starting WITHOUT auth (allow_empty_token) on %s\n", addr)
@@ -264,13 +288,16 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 // (MaxAgeDays/MaxCount) DO take effect on reload because jobs.Prune reads the
 // atomic cfg snapshot fresh each tick. Enabling retention from a disabled state,
 // or changing the interval, needs a process restart.
-func startPruneLoop(c *gcli.Command, jobs *job.Service, ret config.RetentionConfig, stop <-chan struct{}) {
-	if !ret.Enabled() {
+func startPruneLoop(c *gcli.Command, jobs *job.Service, ret config.RetentionConfig, castEnabled bool, castTTLSec int64, stop <-chan struct{}) {
+	// The loop runs when job/workflow retention is configured OR cast recording is
+	// enabled — the cast TTL sweep (jobs.Prune) rides this same loop (D-P3-6). With
+	// neither configured it does nothing (zero behaviour change, G023).
+	if !ret.Enabled() && !castEnabled {
 		return
 	}
 	interval := ret.PruneInterval()
-	c.Printf("gofer: retention prune enabled (interval=%s, max_age_days=%d, max_count=%d)\n",
-		interval, ret.MaxAgeDays, ret.MaxCount)
+	c.Printf("gofer: retention prune enabled (interval=%s, max_age_days=%d, max_count=%d, cast=%t, cast_ttl_hours=%d)\n",
+		interval, ret.MaxAgeDays, ret.MaxCount, castEnabled, castTTLSec/3600)
 
 	go func() {
 		prune := func() {
@@ -292,6 +319,28 @@ func startPruneLoop(c *gcli.Command, jobs *job.Service, ret config.RetentionConf
 			}
 		}
 	}()
+}
+
+// buildCastRecorder resolves the WEB-03 P3 cast recording factory from cfg at serve
+// start (D-P3-5 / H1). Recording is opt-in (storage.cast.enabled); disabled ⇒ a nil
+// recorder ⇒ recording off with zero behaviour change (G023). When encryption is on
+// the key is read from its env var and validated (decodes to >= 32 bytes) so a
+// missing/short key returns an error and serve fails fast before binding (rather
+// than half-recording). The key is never logged (SR403). Plaintext recording needs
+// no key (nil secret), so the recorder is built without touching the env.
+func buildCastRecorder(cfg *config.Config) (*castrec.Recorder, error) {
+	if !cfg.Storage.Cast.Enabled {
+		return nil, nil
+	}
+	var key []byte
+	if cfg.Storage.Cast.Encryption.Enabled {
+		k, err := cfg.Storage.Cast.ResolveCastSecret()
+		if err != nil {
+			return nil, err
+		}
+		key = k
+	}
+	return castrec.New(cfg.Storage.Cast, key)
 }
 
 // presencePruneInterval is the DEFAULT E36 presence/inbox prune cadence (used when
