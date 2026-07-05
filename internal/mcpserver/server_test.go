@@ -21,6 +21,7 @@ import (
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
 // testCore builds the registries + job.Service over a temp result root with a
@@ -563,7 +564,7 @@ func TestCancelJobTool(t *testing.T) {
 		Name: "gofer_run_job",
 		Arguments: map[string]any{
 			"project_key": "self", "agent": "exec", "runner": "local",
-			"cmd": []string{"sleep", "5"}, "cwd": ".", "timeout_sec": 30,
+			"cmd": testcmd.Cmd(t, "sleep", "5s"), "cwd": ".", "timeout_sec": 30,
 		},
 	})
 	if err != nil {
@@ -620,7 +621,7 @@ func startRunningJob(t *testing.T, session *mcp.ClientSession, jobs *job.Service
 		Name: "gofer_run_job",
 		Arguments: map[string]any{
 			"project_key": "self", "agent": "exec", "runner": "local",
-			"cmd": []string{"sleep", "30"}, "cwd": ".", "timeout_sec": 60,
+			"cmd": testcmd.Cmd(t, "sleep", "30s"), "cwd": ".", "timeout_sec": 60,
 		},
 	})
 	if err != nil {
@@ -882,7 +883,7 @@ func startSleepJob(t *testing.T, session *mcp.ClientSession) jobView {
 		Name: "gofer_run_job",
 		Arguments: map[string]any{
 			"project_key": "self", "agent": "exec", "runner": "local",
-			"cmd": []string{"sleep", "0.4"}, "cwd": ".", "timeout_sec": 30,
+			"cmd": testcmd.Cmd(t, "sleep", "400ms"), "cwd": ".", "timeout_sec": 30,
 		},
 	})
 	if err != nil {

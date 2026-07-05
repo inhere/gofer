@@ -3,6 +3,8 @@ package job
 import (
 	"strings"
 	"testing"
+
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
 // TestGoferJobEnvInjects proves goferJobEnv layers the three gofer-owned vars on
@@ -38,13 +40,9 @@ func TestExecJobLocatesResultDirViaEnv(t *testing.T) {
 	root := t.TempDir()
 	s := newTestService(t, root)
 
-	script := `mkdir -p "$GOFER_RESULT_DIR/artifacts" && ` +
-		`printf '{"ok":true}' > "$GOFER_RESULT_DIR/result.json" && ` +
-		`printf 'hi' > "$GOFER_RESULT_DIR/artifacts/out.txt"`
-
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
-		Cmd: []string{"sh", "-c", script}, Cwd: ".", TimeoutSec: 30,
+		Cmd: testcmd.Cmd(t, "write-result-artifact"), Cwd: ".", TimeoutSec: 30,
 	})
 	if final.Status != StatusDone {
 		t.Fatalf("expected done, got %s", final.Status)

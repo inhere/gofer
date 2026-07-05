@@ -5,6 +5,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
 // newRoleEnvService builds a Service with a `supervisor` role preset whose Env
@@ -94,10 +95,9 @@ func TestSubmitRoleEnvReachesProcess(t *testing.T) {
 	root := t.TempDir()
 	s := newRoleEnvService(t, root)
 
-	script := `printf '{"role":"%s"}' "$GOFER_AGENT_ROLE" > "$GOFER_RESULT_DIR/result.json"`
 	final := submitAndWait(t, s, JobRequest{
 		Role: "supervisor", Runner: "local",
-		Cmd: []string{"sh", "-c", script}, Cwd: ".", TimeoutSec: 30,
+		Cmd: testcmd.Cmd(t, "write-role-result"), Cwd: ".", TimeoutSec: 30,
 	})
 	if final.Status != StatusDone {
 		t.Fatalf("expected done, got %s (err=%s)", final.Status, final.Error)
@@ -117,11 +117,10 @@ func TestSubmitJobEnvOverridesRoleEnv(t *testing.T) {
 	root := t.TempDir()
 	s := newRoleEnvService(t, root)
 
-	script := `printf '{"role":"%s"}' "$GOFER_AGENT_ROLE" > "$GOFER_RESULT_DIR/result.json"`
 	final := submitAndWait(t, s, JobRequest{
 		Role: "supervisor", Runner: "local",
 		Env: map[string]string{"GOFER_AGENT_ROLE": "override"},
-		Cmd: []string{"sh", "-c", script}, Cwd: ".", TimeoutSec: 30,
+		Cmd: testcmd.Cmd(t, "write-role-result"), Cwd: ".", TimeoutSec: 30,
 	})
 	if final.Status != StatusDone {
 		t.Fatalf("expected done, got %s (err=%s)", final.Status, final.Error)
@@ -141,10 +140,9 @@ func TestSubmitNoRoleEnvUnaffected(t *testing.T) {
 	root := t.TempDir()
 	s := newRoleEnvService(t, root)
 
-	script := `printf '{"role":"[%s]"}' "$GOFER_AGENT_ROLE" > "$GOFER_RESULT_DIR/result.json"`
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
-		Cmd: []string{"sh", "-c", script}, Cwd: ".", TimeoutSec: 30,
+		Cmd: testcmd.Cmd(t, "write-role-result"), Cwd: ".", TimeoutSec: 30,
 	})
 	if final.Status != StatusDone {
 		t.Fatalf("expected done, got %s (err=%s)", final.Status, final.Error)
@@ -153,7 +151,7 @@ func TestSubmitNoRoleEnvUnaffected(t *testing.T) {
 	if !ok {
 		t.Fatalf("Get(%s): not found", final.ID)
 	}
-	if got.ResultJSON != `{"role":"[]"}` {
+	if got.ResultJSON != `{"role":""}` {
 		t.Fatalf("unexpected GOFER_AGENT_ROLE leaked into plain job, result.json=%q", got.ResultJSON)
 	}
 }

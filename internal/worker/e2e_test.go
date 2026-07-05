@@ -23,6 +23,7 @@ import (
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
 	workerrunner "github.com/inhere/gofer/internal/runner/worker"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 	"github.com/inhere/gofer/internal/worker"
 	"github.com/inhere/gofer/internal/wshub"
 )
@@ -255,7 +256,7 @@ func TestE2EWorkerOutcomeCaptured(t *testing.T) {
 	// dir before the job finishes (mirrors the local outcomes_test seeding pattern).
 	created := createJob(t, hub.ts, job.JobRequest{
 		ProjectKey: "alpha", Agent: "exec", Runner: "remote-w1", WorkerID: e2eWorkerID,
-		Cmd: []string{"sleep", "1.5"}, Cwd: ".", TimeoutSec: 60,
+		Cmd: testcmd.Cmd(t, "sleep", "1500ms"), Cwd: ".", TimeoutSec: 60,
 	})
 	if created.ID == "" {
 		t.Fatal("created job has no id")
@@ -359,7 +360,7 @@ func TestE2EWorkerDisconnectMidJobFailsJob(t *testing.T) {
 	// Submit a long-running job so it is still in flight when we drop the worker.
 	created := createJob(t, hub.ts, job.JobRequest{
 		ProjectKey: "alpha", Agent: "exec", Runner: "remote-w1", WorkerID: e2eWorkerID,
-		Cmd: []string{"sleep", "30"}, Cwd: ".", TimeoutSec: 60,
+		Cmd: testcmd.Cmd(t, "sleep", "30s"), Cwd: ".", TimeoutSec: 60,
 	})
 	if created.ID == "" {
 		t.Fatal("created job has no id")

@@ -22,6 +22,7 @@ import (
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
 	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
 const testToken = "dev-token"
@@ -277,7 +278,7 @@ func TestLogTailLimited(t *testing.T) {
 	// many lines fast; we cap with head -c.
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
-		Cmd: []string{"sh", "-c", "yes ABCDEFGH | head -c 524288"}, Cwd: ".", TimeoutSec: 30,
+		Cmd: testcmd.Cmd(t, "stdout-bytes", "ABCDEFGH\n", "524288"), Cwd: ".", TimeoutSec: 30,
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("create status=%d, want 200", resp.StatusCode)

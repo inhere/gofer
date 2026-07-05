@@ -22,6 +22,7 @@ import (
 	localrunner "github.com/inhere/gofer/internal/runner/local"
 	"github.com/inhere/gofer/internal/runner/peerhttp"
 	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
 // bridge bundles a wired job.Service + httpapi.Server for one node (host/peer).
@@ -150,7 +151,7 @@ func TestPeerRunnerForwardsAndMirrorsLogs(t *testing.T) {
 		ProjectKey: "demo",
 		Agent:      "exec",
 		Runner:     "docker-peer",
-		Cmd:        []string{"sh", "-c", "echo line1 && echo line2"},
+		Cmd:        testcmd.Cmd(t, "printf", "line1\nline2\n"),
 		Cwd:        ".",
 		TimeoutSec: 30,
 	})
@@ -212,7 +213,7 @@ func TestPeerRunnerCapturesOutcome(t *testing.T) {
 		ProjectKey: "demo",
 		Agent:      "exec",
 		Runner:     "docker-peer",
-		Cmd:        []string{"sh", "-c", "echo changed >> tracked.txt; sleep 1.5"},
+		Cmd:        testcmd.Cmd(t, "append-file-sleep", "tracked.txt", "changed\n", "1500ms"),
 		Cwd:        ".",
 		TimeoutSec: 60,
 	})
@@ -247,8 +248,8 @@ func TestPeerRunnerCapturesOutcome(t *testing.T) {
 	if final.ResultJSON != resultJSON {
 		t.Fatalf("result_json = %q, want %q", final.ResultJSON, resultJSON)
 	}
-	if final.RenderedCommand == "" || !strings.Contains(final.RenderedCommand, "sh") {
-		t.Fatalf("rendered_command = %q, want the peer-resolved sh argv", final.RenderedCommand)
+	if final.RenderedCommand == "" || !strings.Contains(final.RenderedCommand, "append-file-sleep") {
+		t.Fatalf("rendered_command = %q, want the peer-resolved helper argv", final.RenderedCommand)
 	}
 	if final.DiffSummary == "" || !strings.Contains(final.DiffSummary, "tracked.txt") {
 		t.Fatalf("diff_summary = %q, want it to mention tracked.txt", final.DiffSummary)
@@ -280,7 +281,7 @@ func TestPeerRunnerCancelForwards(t *testing.T) {
 		ProjectKey: "demo",
 		Agent:      "exec",
 		Runner:     "docker-peer",
-		Cmd:        []string{"sh", "-c", "echo started; sleep 30"},
+		Cmd:        testcmd.Cmd(t, "stdout-sleep", "started", "30s"),
 		Cwd:        ".",
 		TimeoutSec: 120,
 	})
@@ -335,7 +336,7 @@ func TestPeerRunnerInteractionPassthrough(t *testing.T) {
 		ProjectKey: "demo",
 		Agent:      "exec",
 		Runner:     "docker-peer",
-		Cmd:        []string{"sh", "-c", "echo started; sleep 30"},
+		Cmd:        testcmd.Cmd(t, "sleep", "30s"),
 		Cwd:        ".",
 		TimeoutSec: 120,
 	})

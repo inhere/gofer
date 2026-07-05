@@ -6,9 +6,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -22,29 +19,9 @@ import (
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 	"github.com/inhere/gofer/internal/worker"
 )
-
-// interactionWrapper is a real cli-agent wrapper for the worker side: it raises a
-// question interaction over the worker's LOCAL bridge HTTP API, polls until an
-// answer appears, echoes it and exits 0. This is the worker analogue of the
-// httpapi e2e wrapper — it drives the local job.Service the worker client
-// observes, so the open propagates worker→hub.
-const interactionWrapper = `#!/bin/sh
-set -e
-JOB_ID="$1"
-curl -s -X POST -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
-  -d '{"type":"question","prompt":"need input"}' \
-  "$BRIDGE_BASE/v1/jobs/$JOB_ID/interactions" >/dev/null
-i=0
-while [ "$i" -lt 200 ]; do
-  body=$(curl -s -H "Authorization: Bearer $BRIDGE_TOKEN" "$BRIDGE_BASE/v1/jobs/$JOB_ID/interactions")
-  ans=$(printf '%s' "$body" | sed -n 's/.*"answer":"\([^"]*\)".*/\1/p')
-  if [ -n "$ans" ]; then echo "ANSWER=$ans"; exit 0; fi
-  i=$((i+1)); sleep 0.05
-done
-echo "no-answer"; exit 1
-`
 
 // workerWithBridge bundles the worker-side bridge server (so its cli-agent can
 // raise interactions over HTTP) and the worker.Client dialing the hub.
@@ -61,10 +38,6 @@ func buildWorkerWithBridge(t *testing.T, hubURL string) *workerWithBridge {
 	t.Helper()
 	host := t.TempDir()
 	root := t.TempDir()
-	scriptPath := filepath.Join(host, "wrapper.sh")
-	if err := os.WriteFile(scriptPath, []byte(interactionWrapper), 0o755); err != nil {
-		t.Fatalf("write wrapper: %v", err)
-	}
 
 	const workerBridgeToken = "worker-bridge-token"
 	cfg := &config.Config{
@@ -79,7 +52,7 @@ func buildWorkerWithBridge(t *testing.T, hubURL string) *workerWithBridge {
 			},
 		},
 		Agents: map[string]config.AgentConfig{
-			"wrapper": {Type: agent.TypeCLIAgent, Command: "sh", Args: []string{scriptPath, "{{job_id}}"}},
+			"wrapper": {Type: agent.TypeCLIAgent, Command: testcmd.Path(t), Args: []string{"interaction-wrapper", "{{job_id}}"}},
 		},
 	}
 	config.ApplyDefaults(cfg)
@@ -158,13 +131,6 @@ func answerHub(t *testing.T, ts *httptest.Server, id, iid, answer string) {
 // interactions API), answering on the hub flows back over WS, and the worker job
 // continues to completion.
 func TestE2EInteractionOverWS(t *testing.T) {
-	if _, err := exec.LookPath("curl"); err != nil {
-		t.Skip("curl not available")
-	}
-	if _, err := exec.LookPath("sh"); err != nil {
-		t.Skip("sh not available")
-	}
-
 	// buildHubSide allows the wrapper agent (the hub validates the agent allowlist
 	// before dispatch; the worker resolves/executes it).
 	hub := buildHubSide(t)
@@ -238,9 +204,6 @@ func TestE2EInteractionOverWS(t *testing.T) {
 // the worker's local job (status→cancelled), and cancelling an already-done
 // worker job is a stable no-op; an unknown id is a 404.
 func TestE2ECancelOverWS(t *testing.T) {
-	if _, err := exec.LookPath("sh"); err != nil {
-		t.Skip("sh not available")
-	}
 	hub := buildHubSide(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -253,7 +216,7 @@ func TestE2ECancelOverWS(t *testing.T) {
 	// A long-running worker job: sleep well past the test window.
 	created := createJob(t, hub.ts, job.JobRequest{
 		ProjectKey: "alpha", Agent: "exec", Runner: "remote-w1", WorkerID: e2eWorkerID,
-		Cmd: []string{"sleep", "30"}, Cwd: ".", TimeoutSec: 60,
+		Cmd: testcmd.Cmd(t, "sleep", "30s"), Cwd: ".", TimeoutSec: 60,
 	})
 	if created.ID == "" {
 		t.Fatal("created job has no id")
@@ -295,9 +258,6 @@ func TestE2ECancelOverWS(t *testing.T) {
 // (classified by the worker's local job.Service ctx deadline; the host ctx is the
 // backstop), not failed or cancelled.
 func TestE2ETimeoutOverWS(t *testing.T) {
-	if _, err := exec.LookPath("sh"); err != nil {
-		t.Skip("sh not available")
-	}
 	hub := buildHubSide(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -310,7 +270,7 @@ func TestE2ETimeoutOverWS(t *testing.T) {
 	// timeout_sec=1 but the command sleeps 30s: the worker's local timeout fires.
 	created := createJob(t, hub.ts, job.JobRequest{
 		ProjectKey: "alpha", Agent: "exec", Runner: "remote-w1", WorkerID: e2eWorkerID,
-		Cmd: []string{"sleep", "30"}, Cwd: ".", TimeoutSec: 1,
+		Cmd: testcmd.Cmd(t, "sleep", "30s"), Cwd: ".", TimeoutSec: 1,
 	})
 	if created.ID == "" {
 		t.Fatal("created job has no id")

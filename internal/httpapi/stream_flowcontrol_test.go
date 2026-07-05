@@ -13,6 +13,7 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/streaming"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
 // setSSEFrameCap temporarily lowers streaming.MaxSSEFrameBytes for the test.
@@ -69,7 +70,7 @@ func TestStreamFrameCapSplitsChunk(t *testing.T) {
 	defer srv.Close()
 
 	// Emit ~500 bytes of deterministic stdout in one shot.
-	id := createStreamJob(t, srv.URL, []string{"sh", "-c", "for i in $(seq 1 50); do printf 'LINE%02d-XXXX\\n' $i; done"})
+	id := createStreamJob(t, srv.URL, testcmd.Cmd(t, "stdout-lines", "LINE", "50"))
 	final := waitDoneHTTP(t, srv.URL, id)
 	if final.Status != job.StatusDone {
 		t.Fatalf("setup: status=%q, want done", final.Status)
@@ -124,7 +125,7 @@ func TestStreamThrottleNoByteLoss(t *testing.T) {
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
-	id := createStreamJob(t, srv.URL, []string{"sh", "-c", "for i in $(seq 1 200); do printf 'ROW%03d-PADDINGPADDING\\n' $i; done"})
+	id := createStreamJob(t, srv.URL, testcmd.Cmd(t, "stdout-lines", "ROW", "200"))
 	final := waitDoneHTTP(t, srv.URL, id)
 	if final.Status != job.StatusDone {
 		t.Fatalf("setup: status=%q, want done", final.Status)
@@ -157,7 +158,7 @@ func TestStreamRotationMarkerMidStream(t *testing.T) {
 	// A long-running job so the live ticker loop stays active while we rotate the
 	// file out from under it. We drive the log file directly (the runner writes
 	// nothing to stdout here), exercising the SSE read path deterministically.
-	id := createStreamJob(t, srv.URL, []string{"sleep", "30"})
+	id := createStreamJob(t, srv.URL, testcmd.Cmd(t, "sleep", "30s"))
 	t.Cleanup(func() {
 		_ = s.jobs.Cancel(id)
 		s.jobs.Wait(id)
