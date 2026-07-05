@@ -265,6 +265,12 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.Roles == nil {
 		cfg.Roles = map[string]RoleConfig{}
 	}
+	// Cast retention TTL defaults to 24h only when recording is enabled; when
+	// disabled the TTL is meaningless and stays untouched (G023 opt-in). Applied
+	// before validate so the combination check below sees the effective TTL.
+	if cfg.Storage.Cast.Enabled && cfg.Storage.Cast.RetentionTTLHours == 0 {
+		cfg.Storage.Cast.RetentionTTLHours = castDefaultTTLHours
+	}
 }
 
 // validate runs lightweight structural checks that do not touch the filesystem;
@@ -341,6 +347,15 @@ func validate(cfg *Config) error {
 	}
 	if cfg.Storage.Cast.RetentionTTLHours > castMaxTTLHours {
 		return fmt.Errorf("storage.cast.retention_ttl_hours must be <= %d", castMaxTTLHours)
+	}
+	// Combination fail-fast (D-P3-5 / K4), only meaningful when recording is on:
+	// plaintext (encryption off) cast may carry keystrokes, so it is capped at a
+	// short TTL; longer retention requires encryption. RetentionTTLHours is already
+	// the effective value here (ApplyDefaults ran first, filling 0 -> 24 when
+	// Enabled). The two ungated checks above are unchanged (zero regression).
+	if cfg.Storage.Cast.Enabled && !cfg.Storage.Cast.Encryption.Enabled &&
+		cfg.Storage.Cast.RetentionTTLHours > castPlaintextMaxTTLHours {
+		return fmt.Errorf("storage.cast: plaintext recording (encryption disabled) caps retention_ttl_hours at %d; enable encryption for longer retention", castPlaintextMaxTTLHours)
 	}
 	for _, cc := range cfg.Server.Callers {
 		if cc.MaxConcurrentJobs < 0 {
