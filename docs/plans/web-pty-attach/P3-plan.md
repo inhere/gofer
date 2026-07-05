@@ -123,7 +123,7 @@ func deriveFileKey(mk, fileID []byte) ([]byte, error) { return hkdf.Key(sha256.N
 **触碰**：
 1. `internal/jobstore/store.go:59-239 schemaStmts` 追加（设计 §3 建表 SQL + 两 index），`IF NOT EXISTS` 幂等。
 2. 新 `internal/jobstore/pty_sessions.go`：`PtySessionRecord` + `UpsertPtySession(rec)`（PK 冲突 upsert）+ `GetPtySessionByJob(jobID)`（gate 用；取最近一条 open/closed）+（P4 用）`ListPtySessionsByJob`。
-3. `ExpireCastRecordings(now int64) (uris []string, err error)`（regime1）：事务内 `SELECT recording_uri ... WHERE recording_uri!='' AND ended_at IS NOT NULL AND ended_at+ttl<now` → 返回 uris → `UPDATE pty_sessions SET recording_uri='', encrypted=2 WHERE ...`（**保留行**）。ttl 由调用方（Service.Prune）传入秒。
+3. `ExpireCastRecordings(now, ttlSeconds int64) (uris []string, err error)`（regime1，**签名统一：调用方传 TTL，store 不持 config**）：事务内 `SELECT recording_uri ... WHERE recording_uri!='' AND ended_at IS NOT NULL AND ended_at+ttlSeconds<now` → 返回 uris → `UPDATE pty_sessions SET recording_uri='', encrypted=2 WHERE ...`（**保留行**）。
 4. `PruneJobs`（`prune.go:73-94` 事务）+ `PruneWorkflows`（`:180-213` 事务）：各在删 job owned rows 处加 `DELETE FROM pty_sessions WHERE job_id=?`（对每个被删 job_id；不改返回签名）。
 
 **验收**：jobstore 单测——Upsert/Get 往返；旧库 `Open` 自动建表（迁移幂等）；`ExpireCastRecordings` 只清过期行的 uri 且保留行、返回 uris；`PruneJobs`/`PruneWorkflows` 删 job 连带删 pty_sessions 行（同事务）；两 regime 任意序幂等；现有 prune 测试零回归。
@@ -133,10 +133,12 @@ func deriveFileKey(mk, fileID []byte) ([]byte, error) { return hkdf.Key(sha256.N
 ## T4 — serve/core：factory 注入 + prune gate + cast sweep 接线（D-P3-5/6/H1）
 
 **触碰**：
-1. `internal/httpapi/server.go` `Server` 加 `castRecorder *castrec.Recorder`（或接口）+ `SetCastRecorder(*castrec.Recorder)`；nil=禁录。
-2. `internal/core/core.go:75+` 或 `internal/serve/serve.go:100`（有完整 `config.Config`）：`Cast.Enabled` → 解析 key（T0 校验 + `os.Getenv`→decode）→ `castrec.New(cfg.Storage.Cast, key)` → `srv.SetCastRecorder(rec)`；`Enabled==false`→不注入（nil）。key 解析失败→serve 启动 fail-fast。
-3. `internal/serve/serve.go:267-270 startPruneLoop` gate：`if ret.Enabled() || cfg.Storage.Cast.Enabled { startPruneLoop(...) }`；启动日志加 cast。
-4. `internal/job/prune.go:28 Service.Prune`：调 `store.ExpireCastRecordings(now, castTTL)` → 对返回 uris `os.Remove(uri)`（best-effort，删 cast 文件）。castTTL 经 Service 配置注入（Service 加 `castTTL` 字段或 Prune 传参）。
+1. `internal/httpapi/server.go` `Server` 加 `castRecorder *castrec.Recorder` + `SetCastRecorder(...)`（nil=禁录）**和** `ptySessions PtySessionStore` + `SetPtySessionStore(...)`（T5 用；nil-safe）。
+2. `internal/core/core.go:75+` 或 `internal/serve/serve.go:100`（有完整 `config.Config` + `Core.Store`）：
+   - `Cast.Enabled` → 解析 key（T0 校验 + `os.Getenv`→decode）→ `castrec.New(cfg.Storage.Cast, key)` → `srv.SetCastRecorder(rec)`；`Enabled==false`→不注入（nil）。key 解析失败→serve 启动 fail-fast。
+   - `srv.SetPtySessionStore(core.Store)`（`*jobstore.Store` 满足 `PtySessionStore`）。
+3. `internal/serve/serve.go:267-270 startPruneLoop`：**改签名带 cast**——`startPruneLoop(c, jobs, ret, castEnabled bool, castTTLSec int64, stop)`（现签名 `(c,jobs,ret,stop)` 拿不到 cast 配置）；gate `if ret.Enabled() || castEnabled { … }`；loop 内 `jobs.Prune()` 已跑 cast sweep（见 4）。启动日志加 cast。
+4. `internal/job/prune.go:28 Service.Prune`：Service 加 `castTTLSec int64` 字段（装配注入）或 `Prune(castTTLSec)` 传参；`store.ExpireCastRecordings(now, castTTLSec)` → 对返回 uris `os.Remove(uri)`（best-effort 删 cast 文件）。**签名与 T3 一致**。
 
 **验收**：装配单测——`Enabled=true` 有效 key → recorder 注入；无 key → serve 启动 err；`Enabled=false` → recorder nil、prune gate 若无 retention 则仍按原不启动；`Enabled=true` 无 retention → prune loop 启动（只跑 cast sweep，不动 job/wf）。`Service.Prune` 删过期 cast 文件 + 清 uri。
 
@@ -168,7 +170,17 @@ defer func() {
 }()
 select { case <-entry.Relay.Done(): case <-ctx.Done(): }
 ```
-- **runner 不写 pty_sessions**（单点=httpapi）。`upsertPtySession` = 薄封装 `s.store.UpsertPtySession`（Server 需持 store 句柄——核对现有 Server 有无 store 引用，无则装配注入）。
+- **runner 不写 pty_sessions**（单点=httpapi）。
+- **store 句柄（修评审高1）**：`httpapi.Server` **当前无 store 引用**（只有 `jobs *job.Service`，`job.Service.meta` 私有）。→ 给 Server 注入**窄接口**（装配处传 `*jobstore.Store` 满足）：
+```go
+// httpapi 定义, *jobstore.Store 实现
+type PtySessionStore interface {
+	UpsertPtySession(rec jobstore.PtySessionRecord) error
+	GetPtySessionByJob(jobID string) (jobstore.PtySessionRecord, bool, error)
+}
+// Server 加字段 ptySessions PtySessionStore + SetPtySessionStore(...) 或 New 参; nil-safe(不建行)
+```
+  handler 用 `s.ptySessions.UpsertPtySession(...)`（**非** `s.store`）。装配注入见 T4。
 - `sink.Err()`：concrete sink（castrec）暴露 `Err()`（含 boundedClose 超时），ptyrelay 不知情。
 - `startedAt`：`time.Now().Unix()`（handler 侧）。
 
@@ -185,7 +197,7 @@ select { case <-entry.Relay.Done(): case <-ctx.Done(): }
 caller := callerFromCtx; job,ok := s.jobs.Get(id)
 if !ok { 404 }; if s.IsRemoteSource(job) { 409 }   // 仿 artifact
 if !s.callerMayAttach(caller, job) { 403 }          // owner 或 admin(H6: 空 owner 仅 admin)
-sess,ok := s.store.GetPtySessionByJob(id)
+sess,ok,_ := s.ptySessions.GetPtySessionByJob(id)   // 注入的窄接口(见 T5), 非 s.store
 if !ok || sess.RecordingURI=="" { 404 }             // 未录/已过期清理(明示)
 path := SafeJoinUnder(resultDir, sess.RecordingURI)
 if !fileExists(path) { 404 }
@@ -235,5 +247,5 @@ if sess.Encrypted {
 ## 待办（plan 内低风险）
 - `castCloseGrace`(2s)/chunk(16KB)/`castPlaintextMaxTTLHours`(24) 常量落定。
 - 审计事件载体（slog vs notify）实施时对齐。
-- Server 是否已有 store 句柄（T5 upsert 需要）——无则装配注入，核对 `httpapi.New` 签名。
+- ~~Server store 句柄~~：已定=注入窄 `PtySessionStore` 接口（T5/T4，评审高1 修）。
 - resize 后 current cols/rows 是否回写（P3 只记初始，P4 可补）。
