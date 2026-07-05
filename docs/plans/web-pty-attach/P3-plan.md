@@ -65,15 +65,19 @@ func (r *Relay) finish() {
 		close(r.done)
 	})
 }
-// boundedCastClose: cast.Close 在 goroutine 跑, select grace; 超时不 close done 之外的等待——保证 Done 有界。
+// boundedCastClose: cast.Close 在 goroutine 跑, select grace; 超时保证 Done 有界。
+// 超时→r.castClean=false(收官审查 H1: 回传失败态供 finalize 清 recording_uri)。
 func (r *Relay) boundedCastClose() {
 	done := make(chan struct{})
 	go func() { _ = r.cast.Close(); close(done) }()
 	select {
-	case <-done:
-	case <-time.After(castCloseGrace): // ~2s; 超时视为录制失败(concrete sink 记 err), 不阻塞
+	case <-done: // grace 内干净封尾, castClean 保持 true
+	case <-time.After(castCloseGrace): r.castClean.Store(false) // 超时未封尾→录制失败
 	}
 }
+// CastClosedCleanly: true=grace 内干净封尾; false=超时未封尾。finalize(httpapi)据此清 recording_uri。
+// 初始 true(无 cast 或干净封尾); ptyrelay 只报自己结果, 不写 concrete sink.Err(leaf 不破)。
+func (r *Relay) CastClosedCleanly() bool { return r.castClean.Load() }
 ```
 3. `Close()`（`:235-253`）改：CAS closed + `src.Close()` + drop viewers，**不** `close(done)`；若 **从未 Start**（无 recordLoop）→ 直接 `r.finish()`（Once 保证）。→ `Done()` 语义=recordLoop 退出 + cast 封尾(或超时)。
 4. bytesIn（D-P3-8）：`Relay` 加 `bytesIn atomic.Int64`；`Viewer.SendInput`（`:278-293`）`src.Write` 返回 `n>0` 时 `r.bytesIn.Add(int64(n))`；`Relay.InputLen() int64`。
@@ -168,7 +172,8 @@ s.upsertPtySession(open: id/job/worker/instance/owner=res.CallerID/cols/rows/rec
 defer func() {
 	s.ptyRelays.Close(binding.JobID, "pty_ws_closed")
 	<-entry.Relay.Done() // Done=封尾(T1); finish 恒关→不永久等
-	uriFinal := recURI; if sink != nil && sink.Err() != nil { uriFinal = "" } // 写失败→uri 空(H5)
+	uriFinal := recURI
+	if (sink != nil && sink.Err() != nil) || !entry.Relay.CastClosedCleanly() { uriFinal = "" } // 写失败/封尾超时→uri 空(H5+收官H1)
 	s.upsertPtySession(closed: ended_at/bytes_out=entry.Relay.RecordedLen()/bytes_in=entry.Relay.InputLen()/recording_uri=uriFinal)
 }()
 select { case <-entry.Relay.Done(): case <-ctx.Done(): }
