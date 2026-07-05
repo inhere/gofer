@@ -35,8 +35,8 @@ jobs:
 
       - name: Build bin package
         run: |
-          make build-all
-          .dist/gofer-linux-amd64 -V
+          make release
+          ./dist/gofer-linux-amd64 -V
 
       - name: Generate changelog
         run: |
@@ -55,4 +55,4 @@ jobs:
           body_path: changelog.md
           token: ${{ secrets.GITHUB_TOKEN }}
           files: |
-            dist/*
+            release/*
