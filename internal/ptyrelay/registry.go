@@ -39,6 +39,8 @@ type RelayBinding struct {
 	PtySessionID string
 	Nonce        string
 	Expiry       int64
+	Cols         int // initial pty window cols (D-P3-2, for the cast header); 0 = sink default
+	Rows         int // initial pty window rows (D-P3-2, for the cast header); 0 = sink default
 }
 
 // RelayEntry is one serve-side pty relay record. Callers must treat it as
@@ -103,8 +105,9 @@ func (r *Registry) Prepare(b RelayBinding) *RelayEntry {
 }
 
 // Open consumes a prepared nonce and binds the relay source. The returned entry
-// is in open state and owns a started Relay.
-func (r *Registry) Open(nonce string, source PtySource) (*RelayEntry, error) {
+// is in open state and owns a started Relay. opts configure the Relay (e.g.
+// WithCast wires the cast sink — the recorder wiring lands in the handler, T5).
+func (r *Registry) Open(nonce string, source PtySource, opts ...Option) (*RelayEntry, error) {
 	if r == nil {
 		return nil, ErrRelayNotFound
 	}
@@ -127,7 +130,7 @@ func (r *Registry) Open(nonce string, source PtySource) (*RelayEntry, error) {
 	if source == nil {
 		return nil, ErrRelayNotFound
 	}
-	e.Relay = New(source)
+	e.Relay = New(source, opts...)
 	e.Relay.Start()
 	e.State = RelayOpen
 	e.OpenedAt = r.now()
