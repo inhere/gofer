@@ -164,7 +164,10 @@ func TestPtyRecordingEmptyOwnerRequiresAdmin(t *testing.T) {
 	resp.Body.Close()
 }
 
-func TestPtyRecordingRemoteSource409(t *testing.T) {
+// TestPtyRecordingWorkerSourceStillDownloadable proves a worker-routed job's cast
+// is served from the hub (200), NOT 409'd on job.Source: the pty cast is always
+// written hub-side, so a remote command Source must not gate the download.
+func TestPtyRecordingWorkerSourceStillDownloadable(t *testing.T) {
 	s := recordingServer(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
 	})
@@ -174,10 +177,14 @@ func TestPtyRecordingRemoteSource409(t *testing.T) {
 	addPtyRow(t, s, "job-remote", "alice", castPath, 2)
 
 	resp := getRecording(t, s, "job-remote", "tok-alice")
-	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("status=%d, want 409", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d, want 200", resp.StatusCode)
 	}
+	got, _ := io.ReadAll(resp.Body)
 	resp.Body.Close()
+	if !bytes.Equal(got, []byte("cast")) {
+		t.Fatalf("body=%q, want %q", got, "cast")
+	}
 }
 
 func TestPtyRecordingUnknownJob404(t *testing.T) {
