@@ -10,15 +10,18 @@ T1(ptyrelay: Close接口+close owner+Binding Cols/Rows+bytesIn) ─┐
 T2(internal/castrec: asciinema+framed AEAD) ─┬─────────────────┼─▶ T4(factory+prune gate wiring) ─▶ T5(handler cast+pty_sessions) ─┐
 T3(jobstore pty_sessions表+prune) ───────────┴──────────────────┘                                    T6(recording endpoint) ─┴─▶ T7(e2e+P2回归+环检)
 ```
-进度：
-- [ ] T0 config：`Cast.Enabled` + 默认 TTL + 组合 fail-fast + secret 校验
-- [ ] T1 ptyrelay：`castSink` 接口补 `Close`/`Err` + close owner 归 recordLoop（bounded, Done=封尾）+ `RelayBinding.Cols/Rows` + bytesIn 计数 + `Open(opts...)`
-- [ ] T2 `internal/castrec`：asciinema v2 writer + framed AEAD 封套（per-file HKDF key + counter nonce + final frame）+ 测试向量
-- [ ] T3 jobstore：`pty_sessions` 表 + `PtySessionStore` + `ExpireCastRecordings` + `PruneJobs/PruneWorkflows` 事务删行
-- [ ] T4 serve/core：cast recorder factory + `SetCastRecorder` + prune loop gate + `Service.Prune` 接 cast sweep
-- [ ] T5 httpapi handler：Open 建 sink + Upsert(open) + finalize（Close→Done→bytes→Upsert closed）
-- [ ] T6 httpapi：`GET /v1/jobs/{id}/pty/recording` gate（授权/远端/解密流式/审计）
-- [ ] T7 e2e（录制→retention→下载）+ P2 回归（Done=封尾/blocked Close）+ 配置迁移 + 环检
+进度（**全完成 2026-07-05 SUPMODE，全绿未 push**）：
+- [x] T0 config：`Cast.Enabled` + 默认 TTL + 组合 fail-fast + secret 校验 — `2f67799`
+- [x] T1 ptyrelay：`CastSink` 补 `Close` + close owner 归 recordLoop（bounded, Done=封尾）+ `RelayBinding.Cols/Rows` + bytesIn + `Open(opts...)` — `8ab626b`
+- [x] T2 `internal/castrec`：asciinema v2 + framed AEAD（per-file HKDF key + counter nonce + final frame）+ 测试向量（5 类负测全过） — `cfc4e3c`
+- [x] T3 jobstore：`pty_sessions` 表 + Store + `ExpireCastRecordings` + `PruneJobs/PruneWorkflows` 事务删行 — `c38bd98`
+- [x] T4 serve/core：factory + `SetCastRecorder`/`SetPtySessionStore` + prune gate + `Service.Prune` cast sweep — `937537e`
+- [x] T5 httpapi handler：Open 建 sink + Upsert(open) + finalize 单点 — `d76ecda`
+- [x] T6 httpapi：`GET /pty/recording` gate（授权/解密流式首帧认证/审计） — `bb61fdd`
+- [x] T7 e2e（录制往返明文+加密/两 regime/授权）+ P2 零回归 + 配置迁移 + 环检 — `8b9c9b7`
+- [x] **fix**：recording gate 去 remote-409（cast 恒 hub-local，T7 实证 bug） — `12806b1`（设计 D-P3-7 修 `0696be7`）
+
+> **实施结果**：`go build`/`vet`/`test ./...`（Linux 真 pty）全绿；`-race`（castrec/jobstore/ptyrelay/httpapi/worker/runner）绿；`GOOS=windows build` 绿；`go list -deps`：ptyrelay leaf、job 无 pty/ptyrelay/castrec（环检 PASS）。P2 零回归逐包确认。castrec 5 类加密负测全过。**T7 实证抓出并修复 recording gate remote-409 bug**（主控拍板设计修正）。
 
 ---
 
