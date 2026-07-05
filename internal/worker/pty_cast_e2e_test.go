@@ -9,17 +9,16 @@
 // with byte counts, and GET /v1/jobs/{id}/pty/recording streams it back — both
 // plaintext and encrypted. It also covers the two retention regimes (cast TTL
 // sweep keeps the row / clears the recording; job prune deletes the row + dir) and
-// the remote-source download gate (design §4/§5, P3-plan T7).
+// that the recording download does NOT gate on job.Source (design §4/§5, P3-plan T7).
 //
 // Empirical grounding (verified with throwaway probes on the container's real pty
 // before these tests were written):
 //   - a CANCELLED interactive session finalises with an EMPTY job Source
-//     (the worker runner's ctx.Done path returns no Outcome), so the recording gate
-//     does NOT hit the remote-source 409 → the owner can download it (200).
-//   - a NATURALLY-completed worker job finalises with Source="worker:<id>", which
-//     the gate treats as remote → 409, EVEN THOUGH the pty.cast physically lives on
-//     the hub (see TestE2EPtyCastRecordingRemoteSourceGate409, which pins this
-//     current behaviour and documents the gap).
+//     (the worker runner's ctx.Done path returns no Outcome).
+//   - a NATURALLY-completed worker job finalises with Source="worker:<id>", but the
+//     pty.cast physically lives on the HUB — so the owner can still download it (200),
+//     because the recording gate is source-independent (see
+//     TestE2EPtyCastRecordingWorkerSourceStillDownloadable).
 package worker_test
 
 import (
@@ -238,17 +237,15 @@ func TestE2EPtyCastRecordingRoundTripEncrypted(t *testing.T) {
 	}
 }
 
-// --- remote-source download gate (current behaviour + known gap) ------------
+// --- worker-source recording is still downloadable (source-independent gate) --
 
-// TestE2EPtyCastRecordingRemoteSourceGate409 pins the CURRENT recording-gate
-// behaviour for a NATURALLY-completed worker job: the job finalises with
-// Source="worker:<id>", so the gate returns 409 ("recording stays on the execution
-// machine"). This test also asserts the pty.cast PHYSICALLY EXISTS on the hub — so
-// it documents the WEB-03 P3 gap that the remote-source 409 (copied from the
-// artifact download) is misleading for pty recordings, which are hub-side artifacts
-// produced by the relay regardless of where the job command ran. If the gate is
-// later corrected to serve hub-side recordings, update this expectation.
-func TestE2EPtyCastRecordingRemoteSourceGate409(t *testing.T) {
+// TestE2EPtyCastRecordingWorkerSourceStillDownloadable proves that a
+// NATURALLY-completed worker-routed interactive job — which finalises with
+// Source="worker:<id>" — has its pty recording served (200) from the hub: the
+// pty.cast is produced hub-side by the relay regardless of where the job command
+// ran, so the recording download must NOT gate on job.Source (D-P3-7 fix). The
+// owner GETs the recording and reads back the recorded output.
+func TestE2EPtyCastRecordingWorkerSourceStillDownloadable(t *testing.T) {
 	hub, store := buildCastHubSide(t,
 		config.CastConfig{Enabled: true, RetentionTTLHours: 24}, config.RetentionConfig{}, nil)
 	cl, _ := buildInteractiveWorkerSide(t, hub.ts.URL, 0)
@@ -263,6 +260,7 @@ func TestE2EPtyCastRecordingRemoteSourceGate409(t *testing.T) {
 	if final.Status != job.StatusDone {
 		t.Fatalf("status=%s, want done (natural exit)", final.Status)
 	}
+	// The job is worker-routed (remote Source), yet the cast lives on the hub.
 	if !job.IsRemoteSource(final.Source) {
 		t.Fatalf("natural-exit worker job Source=%q, expected remote (worker:...)", final.Source)
 	}
@@ -273,14 +271,24 @@ func TestE2EPtyCastRecordingRemoteSourceGate409(t *testing.T) {
 		t.Fatalf("closed row has no recording_uri: %+v", closed)
 	}
 	if _, err := os.Stat(filepath.Join(final.ResultDir, "pty.cast")); err != nil {
-		t.Fatalf("pty.cast should exist on the hub despite the remote 409: %v", err)
+		t.Fatalf("pty.cast should exist on the hub: %v", err)
 	}
 
-	// Current gate behaviour: remote source → 409 (the hub-side recording is not served).
+	// Source-independent gate: worker-routed job → 200 + downloadable cast content.
 	resp := getRecording(t, hub, jobID)
 	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusConflict {
-		t.Fatalf("GET recording status=%d, want 409 (remote-source gate)", resp.StatusCode)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET recording status=%d, want 200 (source-independent gate)", resp.StatusCode)
+	}
+	if ct := resp.Header.Get("Content-Type"); ct != "application/x-asciicast" {
+		t.Fatalf("content-type=%q, want application/x-asciicast", ct)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	if !bytes.Contains(body, []byte(`"version":2`)) {
+		t.Fatalf("recording missing asciinema v2 header: %q", body[:min(len(body), 120)])
+	}
+	if !bytes.Contains(body, []byte("FINAL_TAIL_SENTINEL_9Z")) {
+		t.Fatalf("recording missing recorded output; got %q", body)
 	}
 }
 

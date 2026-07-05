@@ -9,16 +9,18 @@ import (
 
 	"github.com/gookit/rux/v2"
 
-	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/store"
 )
 
 // handlePtyRecording streams a job's recorded pty session (asciinema v2 cast).
 // It is the WEB-03 P3 recording download gate (D-P3-7/H6/M3):
 //
+// Unlike artifact download, the recording gate does NOT consult job.Source: a pty
+// cast is ALWAYS written hub-side (handlePtyConnect writes <result_dir>/pty.cast on
+// the relay, regardless of where the job command ran), so a worker-routed
+// interactive job's recording still lives on the hub and must be served — not 409'd.
+//
 //   - unknown job → 404;
-//   - a job that ran on a remote machine → 409 (its cast file stays on the
-//     execution host, only the manifest回传 — mirrors handleDownloadArtifact);
 //   - caller lacks attach permission (owner, or admin for an unowned job) → 403;
 //   - no pty session, or the recording was never made / TTL-expired-cleared
 //     (empty recording_uri) / the file is gone → 404 (explicit, not misleading);
@@ -35,14 +37,6 @@ func (s *Server) handlePtyRecording(c *rux.Context) {
 	res, ok := s.jobs.Get(id)
 	if !ok {
 		writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
-		return
-	}
-	// A remote-executed job keeps its cast file on the execution host (only the
-	// manifest is回传), so serving from the host result dir is impossible. Return a
-	// clear 409, mirroring the artifact download.
-	if job.IsRemoteSource(res.Source) {
-		writeError(c, http.StatusConflict, "remote recording",
-			"this job ran on "+res.Source+"; its pty recording stays on the execution machine")
 		return
 	}
 	if !s.callerMayAttach(caller, res) {
