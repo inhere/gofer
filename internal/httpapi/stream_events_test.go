@@ -9,6 +9,7 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/streaming"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
 // TestStreamEventFrames connects to an already-terminal job's SSE stream and
@@ -20,7 +21,7 @@ func TestStreamEventFrames(t *testing.T) {
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
-	id := createStreamJob(t, srv.URL, []string{"sh", "-c", "echo hello-events"})
+	id := createStreamJob(t, srv.URL, testcmd.Cmd(t, "printf", "hello-events\n"))
 	final := waitDoneHTTP(t, srv.URL, id)
 	if final.Status != job.StatusDone {
 		t.Fatalf("setup: status=%q, want done", final.Status)

@@ -14,6 +14,7 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/streaming"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
 // sseEvent is one parsed SSE frame (event name + raw data line).
@@ -146,7 +147,7 @@ func TestStreamRealtimeLog(t *testing.T) {
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
-	id := createStreamJob(t, srv.URL, []string{"sh", "-c", "for i in 1 2 3; do echo line$i; sleep 0.3; done"})
+	id := createStreamJob(t, srv.URL, testcmd.Cmd(t, "stdout-lines", "line", "3", "300ms"))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -200,7 +201,7 @@ func TestStreamResumeFrom(t *testing.T) {
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
-	id := createStreamJob(t, srv.URL, []string{"sh", "-c", "printf 'AAAABBBBCCCCDDDD'"})
+	id := createStreamJob(t, srv.URL, testcmd.Cmd(t, "printf", "AAAABBBBCCCCDDDD"))
 
 	// Wait for the job to finish, then learn its stdout length.
 	final := waitDoneHTTP(t, srv.URL, id)
@@ -253,7 +254,7 @@ func TestStreamCompletedJob(t *testing.T) {
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
 
-	id := createStreamJob(t, srv.URL, []string{"sh", "-c", "echo hello-completed"})
+	id := createStreamJob(t, srv.URL, testcmd.Cmd(t, "printf", "hello-completed\n"))
 	final := waitDoneHTTP(t, srv.URL, id)
 	if final.Status != job.StatusDone {
 		t.Fatalf("setup: status=%q, want done", final.Status)
@@ -310,7 +311,7 @@ func TestStreamClientCancel(t *testing.T) {
 	defer srv.Close()
 
 	// A long job: emits lines slowly for well beyond the test horizon.
-	id := createStreamJob(t, srv.URL, []string{"sh", "-c", "for i in $(seq 1 100); do echo tick$i; sleep 0.2; done"})
+	id := createStreamJob(t, srv.URL, testcmd.Cmd(t, "stdout-lines", "tick", "100", "200ms"))
 
 	ctx, cancel := context.WithCancel(context.Background())
 	resp, scanner := openStream(t, ctx, srv.URL, id, "")
@@ -368,7 +369,7 @@ func TestStreamInteractionEvents(t *testing.T) {
 
 	// A long-running job so the stream stays in the live ticker loop while we
 	// drive interactions from the test.
-	id := createStreamJob(t, srv.URL, []string{"sleep", "30"})
+	id := createStreamJob(t, srv.URL, testcmd.Cmd(t, "sleep", "30s"))
 	t.Cleanup(func() {
 		_ = s.jobs.Cancel(id)
 		s.jobs.Wait(id)

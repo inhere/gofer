@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
 func TestRunSuccess(t *testing.T) {
@@ -31,8 +32,8 @@ func TestRunSuccess(t *testing.T) {
 func TestRunNonZeroExit(t *testing.T) {
 	r := New()
 	res := r.Run(context.Background(), runner.Request{
-		Command: "sh",
-		Args:    []string{"-c", "exit 3"},
+		Command: testcmd.Path(t),
+		Args:    []string{"exit", "3"},
 		WorkDir: t.TempDir(),
 		Stdout:  &bytes.Buffer{},
 		Stderr:  &bytes.Buffer{},
@@ -50,8 +51,8 @@ func TestRunTimeout(t *testing.T) {
 	defer cancel()
 	r := New()
 	res := r.Run(ctx, runner.Request{
-		Command: "sleep",
-		Args:    []string{"5"},
+		Command: testcmd.Path(t),
+		Args:    []string{"sleep", "5s"},
 		WorkDir: t.TempDir(),
 		Stdout:  &bytes.Buffer{},
 		Stderr:  &bytes.Buffer{},
@@ -69,8 +70,8 @@ func TestRunEnvAndCwd(t *testing.T) {
 	var out bytes.Buffer
 	r := New()
 	res := r.Run(context.Background(), runner.Request{
-		Command: "sh",
-		Args:    []string{"-c", "echo $DAB_TEST_VAR; pwd"},
+		Command: testcmd.Path(t),
+		Args:    []string{"env-cwd"},
 		WorkDir: dir,
 		Env:     map[string]string{"DAB_TEST_VAR": "hello-env"},
 		Stdout:  &out,
