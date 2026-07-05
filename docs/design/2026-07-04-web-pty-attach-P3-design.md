@@ -35,9 +35,11 @@
 **close owner = recordLoop**（修 B1）：cast 是 recordLoop 唯一 writer，故封尾也归它——
 - `recordLoop` 顶部 `defer r.finish()`；`finish()`（`sync.Once`）= `if cast!=nil { boundedClose(cast) }` 然后 `close(done)`。
 - `Relay.Close()`：CAS `closed`，`src.Close()`（→ recordLoop 的 `src.Read` 报错→退出→`finish` 封尾+关 done），drop viewers，**不**自己 `close(done)`；若 relay **从未 Start**（无 recordLoop，如 pending 被 force-close）则 Close 直接调 `finish()`（Once 保证只一次）。
-- **bounded close（修 B1 高 / P2 兼容）**：cast `Close` **不得无界阻塞**（写 final frame + 文件 close，均本地快操作）；`finish` 的 `boundedClose` 在 goroutine 里跑 cast.Close、`select{ done | time.After(castCloseGrace ~2s) }`，超时 → 置 `sink.Err()`（recording 视为失败）**并仍 `close(done)`**——保证 `Done()` **恒在 bound 内触发**，不把磁盘 hang 带进 P2 完成路径。
-- ∴ `Relay.Done()` 语义**升级为「recordLoop 已退出 + cast 已封尾（或封尾超时置错）」**。P2 的 host `relayRegistry.Done(job)` 随之略强（多等 ≤castCloseGrace 的封尾，仍在 `hostCancelGrace=10s` 内）；handler finalize `<-Done()` 因 finish 恒关 done 而不会永久等。**P2 回归测试**（plan）：cast.Close 人为阻塞 → host `Run` 仍在 grace 内返回、recording 置失败（非半截 URI）、ctx cancel 路径同样收敛。
-- cast.Write 失败：recordLoop 忽略错误继续（不阻断主链路），sink 内部置错误态；finalize 经 `sink.Err()` 得知（含 boundedClose 超时）。
+- **bounded close（修 B1 高 / P2 兼容）**：cast `Close` **不得无界阻塞**（写 final frame + 文件 close，均本地快操作）；`finish` 的 `boundedClose` 在 goroutine 里跑 cast.Close、`select{ done | time.After(castCloseGrace ~2s) }`，超时 **→ Relay 记录 cast-close-timeout（`castClosedCleanly=false`）并仍 `close(done)`**——保证 `Done()` **恒在 bound 内触发**，不把磁盘 hang 带进 P2 完成路径。
+- **超时失败态回传（修 P3 收官审查 H1）**：`boundedClose` 超时时 ptyrelay **无法**去写 concrete sink 的 `Err()`（sink 的 `Close` 还卡着、接口也不该由 ptyrelay 反写）。→ `Relay` 暴露 **`CastClosedCleanly() bool`**（true=grace 内干净封尾；false=超时未封尾）。finalize（httpapi）判据 = **`sink.Err()!=nil` 或 `!Relay.CastClosedCleanly()`** → recording 视为失败、清空 `recording_uri`（不暴露未封尾文件，避免加密 422/明文半成品下载）。ptyrelay 只报自己 bounded-close 结果（不 import 上层，leaf 不破）。
+  - **已知限制**：cast.Close 真卡死时，跑它的 goroutine + fd 会泄漏（无法安全中断卡住的 `os.File.Close`）——仅出现在文件系统/网络盘 hang 的病态场景；关键是**不把坏 recording 记为可用**。
+- ∴ `Relay.Done()` 语义**升级为「recordLoop 已退出 + cast 已封尾（或封尾超时，`CastClosedCleanly()=false`）」**。P2 的 host `relayRegistry.Done(job)` 随之略强（多等 ≤castCloseGrace 的封尾，仍在 `hostCancelGrace=10s` 内）；handler finalize `<-Done()` 因 finish 恒关 done 而不会永久等。**P2 回归测试**（plan）：cast.Close 人为阻塞 → host `Run` 仍在 grace 内返回、recording 置失败（非半截 URI）、ctx cancel 路径同样收敛。
+- cast.Write 失败：recordLoop 忽略错误继续（不阻断主链路），sink 内部置错误态；finalize 经 `sink.Err()`（写错误）**或** `!CastClosedCleanly()`（封尾超时）得知。
 
 ### D-P3-2 `RelayBinding += Cols/Rows`（修 H2）
 `RelayBinding` 加 `Cols,Rows int`；host runner `Prepare`（`runner/worker/runner.go:163`）填 `f.Cols/f.Rows`；**0 值 fallback 80×24**（对齐 pty runner 默认 `ptyrunner defaultCols/Rows`）。供 asciinema header `width/height` + pty_sessions 初始 cols/rows。
