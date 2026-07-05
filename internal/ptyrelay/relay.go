@@ -75,6 +75,7 @@ type Relay struct {
 	started     bool
 
 	bytesIn     atomic.Int64 // total stdin bytes forwarded to the source (D-P3-8)
+	castClean   atomic.Bool  // true = no cast OR cast封尾 cleanly within grace; false = Close timed out (H1)
 	viewerQueue int
 	done        chan struct{}
 	finishOnce  sync.Once // close owner: finish() runs exactly once (B1)
@@ -111,6 +112,9 @@ func New(src PtySource, opts ...Option) *Relay {
 		viewerQueue: defaultViewerQueue,
 		done:        make(chan struct{}),
 	}
+	// Default clean (H1): no cast, or a cast that封尾s within grace, is "clean";
+	// only a boundedCastClose timeout flips this to false.
+	r.castClean.Store(true)
 	for _, o := range opts {
 		o(r)
 	}
@@ -299,9 +303,11 @@ func (r *Relay) finish() {
 }
 
 // boundedCastClose closes the cast sink but never blocks finish (hence Done)
-// longer than castCloseGrace: a wedged sink Close is abandoned (the concrete
-// sink records the failure via its own Err), so the host waiting on Done stays
-// bounded (P2 host-grace invariant preserved).
+// longer than castCloseGrace: a wedged sink Close is abandoned. When it times
+// out the cast was NOT sealed cleanly, so castClean is flipped to false (H1) —
+// the finalize path (httpapi) reads this via CastClosedCleanly() and blanks the
+// recording_uri, since sink.Err() alone can't observe a still-wedged Close. The
+// host waiting on Done stays bounded (P2 host-grace invariant preserved).
 func (r *Relay) boundedCastClose() {
 	cdone := make(chan struct{})
 	go func() {
@@ -311,8 +317,15 @@ func (r *Relay) boundedCastClose() {
 	select {
 	case <-cdone:
 	case <-time.After(castCloseGrace):
+		r.castClean.Store(false) // timeout → cast not封尾 → recording is failed
 	}
 }
+
+// CastClosedCleanly reports whether the cast recording was sealed cleanly. It is
+// true when there was no cast at all or the sink's Close returned within
+// castCloseGrace; it is false only when boundedCastClose timed out (a wedged
+// Close, tail not封尾). Only meaningful after Done() has fired (H1).
+func (r *Relay) CastClosedCleanly() bool { return r.castClean.Load() }
 
 // InputLen reports the total stdin bytes forwarded to the source across all
 // write-lease viewers (D-P3-8, for the pty_sessions bytes_in column).

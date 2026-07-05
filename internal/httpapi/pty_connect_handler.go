@@ -157,7 +157,11 @@ func (s *Server) handlePtyConnect(c *rux.Context) {
 		s.ptyRelays.Close(binding.JobID, "pty_ws_closed")
 		<-entry.Relay.Done()
 		uriFinal := recURI
-		if sink != nil && sink.Err() != nil {
+		// A cast write failure (sink.Err) OR a wedged cast Close that timed out in
+		// boundedCastClose (CastClosedCleanly()==false, H1) means the recording was
+		// not sealed — blank recording_uri so the download gate never offers a
+		// half-written / un封尾ed file.
+		if (sink != nil && sink.Err() != nil) || !entry.Relay.CastClosedCleanly() {
 			uriFinal = ""
 		}
 		s.upsertPtySession(jobstore.PtySessionRecord{
