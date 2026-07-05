@@ -397,6 +397,11 @@ func (s *Server) buildRouter() *rux.Router {
 		// E12 diff 快照(P3)：默认回 --stat 摘要(库)，?full=1 回 changes.diff 全量。
 		r.GET("/jobs/{id}/diff", s.handleGetDiff)
 
+		// WEB-03 P3 (D-P3-7): download a job's recorded pty session (asciinema v2
+		// cast). Same owner/admin gate as the browser attach path; remote-source
+		// 409 mirrors artifact download; encrypted casts are stream-decrypted.
+		r.GET("/jobs/{id}/pty/recording", s.handlePtyRecording)
+
 		r.POST("/jobs/{id}/cancel", s.handleCancelJob)
 
 		// session-capture(P2)：用源 job 的 SessionID 续接底层 agent 会话，起一个新
