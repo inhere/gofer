@@ -398,8 +398,10 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/jobs/{id}/diff", s.handleGetDiff)
 
 		// WEB-03 P3 (D-P3-7): download a job's recorded pty session (asciinema v2
-		// cast). Same owner/admin gate as the browser attach path; remote-source
-		// 409 mirrors artifact download; encrypted casts are stream-decrypted.
+		// cast). Same owner/admin gate as the browser attach path. The recording
+		// gate does NOT do a remote-source 409 (unlike artifact download): a pty
+		// cast is always written hub-side, so it is served regardless of where the
+		// job ran. Encrypted casts are stream-decrypted.
 		r.GET("/jobs/{id}/pty/recording", s.handlePtyRecording)
 
 		r.POST("/jobs/{id}/cancel", s.handleCancelJob)

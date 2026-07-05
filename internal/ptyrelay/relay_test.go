@@ -430,6 +430,47 @@ func TestBoundedCastCloseTimeout(t *testing.T) {
 	case <-time.After(time.Second):
 		t.Fatal("cast.Close was never entered")
 	}
+	// H1: a wedged Close that timed out means the cast was NOT sealed — the flag
+	// must report the recording as unclean (finalize blanks recording_uri). The
+	// store happens before close(done), so it is observable once Done fired.
+	if r.CastClosedCleanly() {
+		t.Fatal("CastClosedCleanly() = true after a wedged (timed-out) cast Close; want false")
+	}
+}
+
+// TestCastClosedCleanly (H1): CastClosedCleanly reports true for the clean paths
+// (no cast at all, or a cast that封尾s within grace) and only the timeout path
+// (covered by TestBoundedCastCloseTimeout) flips it false.
+func TestCastClosedCleanly(t *testing.T) {
+	t.Run("no_cast_is_clean", func(t *testing.T) {
+		src := newFakeSource()
+		r := New(src)
+		// Clean even before Done (no cast to seal), and stays clean after.
+		if !r.CastClosedCleanly() {
+			t.Fatal("no-cast relay should be clean at construction")
+		}
+		r.Start()
+		src.EmitDone()
+		waitDone(t, r, 2*time.Second)
+		if !r.CastClosedCleanly() {
+			t.Fatal("no-cast relay should stay clean after finish")
+		}
+	})
+	t.Run("fast_cast_close_is_clean", func(t *testing.T) {
+		src := newFakeSource()
+		fc := &fakeCast{} // Close returns immediately (no closeBlock)
+		r := New(src, WithCast(fc))
+		r.Start()
+		src.Emit([]byte("some-output"))
+		src.EmitDone()
+		waitDone(t, r, 2*time.Second)
+		if _, _, closed := fc.snapshot(); !closed {
+			t.Fatal("fast cast not closed by finish")
+		}
+		if !r.CastClosedCleanly() {
+			t.Fatal("CastClosedCleanly() = false after a fast (in-grace) cast Close; want true")
+		}
+	})
 }
 
 // TestInputLenCounts (D-P3-8): InputLen sums stdin bytes forwarded by the write
