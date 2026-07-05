@@ -135,3 +135,63 @@ artifact 下载现有模式是 `SafeJoinUnder` + `os.Stat` + `http.ServeFile`：
 - 补 D-P3-5/H1：给 httpapi/cast sink 一个真实的 `Storage.Cast` 配置注入点和 key 解析落点。
 - 补 D-P3-2：`RelayBinding` 显式携带 `Cols/Rows`，定义 fallback。
 - 明确 D-P3-3：未拨入是否建 pending 行；finalize 的 defer 顺序和幂等写入点。
+
+# 第二轮：v0.2 复审
+
+结论：**需 v0.3，暂不可拆 plan**。v0.2 已把 v0.1 的主要方向性问题收敛到可实现路径，但还剩 **1 个阻断、2 个高风险**：cast 录制总开关/enable 语义缺失是阻断；`Relay.Done()` 语义变强对 P2 host 取消时序的影响、加密封套细节/测试向量不足是高风险。
+
+## 事实性冲突优先
+
+- v0.2 多处写 `castRecordingEnabled` / `castEnabled`，但当前配置只有 `Storage.Cast.RetentionTTLHours` 与 `Storage.Cast.Encryption`，没有 `Storage.Cast.Enabled` 或等价总开关：`internal/config/model.go:426`、`internal/config/model.go:442`、`internal/config/model.go:447`。`RetentionTTLHours=0` 在设计中又表示默认 24h，不可同时表达“禁用录制”。这会让实现无法判定“cast 开则 prune loop 起”的 `castEnabled` 来自哪里。
+- D-P3-1 说 `Relay.Done()` 升级为“cast 已封尾”，这会改变 P2 已实施 host runner 的等待含义：worker result 后仍会等 `relayRegistry.Done(job)`，但只被 `hostCancelGrace=10s` 兜底：`internal/runner/worker/runner.go:37`、`internal/runner/worker/runner.go:223`、`internal/runner/worker/runner.go:233`。v0.2 没有规定 cast `Close`/final frame 写入必须快速、不可被文件系统 hang 住、以及超时后 handler finalize 如何处理。
+- D-P3-1 文字说 sink 满足 `castSink{ Write; Close }`，但当前 leaf 接口实际只有 `Write`，`WithCast` 也按 `writeCloser` 保存：`internal/ptyrelay/relay.go:72`、`internal/ptyrelay/relay.go:87`。实现必须同步改接口并保证 `Registry.Open` 可透传 opts；当前 `Open` 仍是 `Open(nonce, source)` 且 `New(source)`：`internal/ptyrelay/registry.go:105`、`internal/ptyrelay/registry.go:130`。
+
+## 上轮问题核销
+
+| 项 | 判定 | 依据 |
+| --- | --- | --- |
+| B1 cast.Close 与 recordLoop 写竞态 | **部分解决** | v0.2 把 close owner 放到 `recordLoop defer finish()`，方向正确，能避免外部 `Relay.Close()` 与 `cast.Write` 并发；当前竞态根因仍在 `Close()` 立即 `close(done)` 而不等 `recordLoop`：`internal/ptyrelay/relay.go:120`、`internal/ptyrelay/relay.go:129`、`internal/ptyrelay/relay.go:235`、`internal/ptyrelay/relay.go:251`。但 v0.2 未充分处理 P2 兼容性：host runner 会在 result/cancel 路径等 `relayRegistry.Done`，上限是 `hostCancelGrace`：`internal/runner/worker/runner.go:233`、`internal/runner/worker/runner.go:272`。若 `Done()` 改成等 cast 封尾，cast sink `Close` 必须有明确快速/不可阻塞契约；否则 P2 的“drain complete”会被录制封尾拖到 grace 超时，handler finalize 也可能无限等。never-Start pending force-close 路径在当前 registry 中 `pending_worker` 没有 Relay，`Done` 返回 closedChan：`internal/ptyrelay/registry.go:224`；设计里的 `finish Once` 可覆盖“有 Relay 但未 Start”的一般路径，需在实现测试固定。 |
+| B2 GCM 封套不认证截断 | **部分解决** | framed AEAD + 认证 final frame + EOF-before-final=损坏，已覆盖 v0.1 的裸 `len=0` 截断问题。AAD 绑定 version/fileID/frame_index/is_final 可拒绝跨文件与重排；解密端若严格递增 frame_index 并在 final 后要求物理 EOF，也可拒绝追加裸帧/追加已认证旧帧。仍需补 plan 细节：随机 12B nonce 对单文件可行但不是零风险，建议改为 per-file 随机 nonce prefix + frame counter 或至少规定 GCM nonce 碰撞测试/上限；Go1.25 stdlib 正确写法应是 `hkdf.Key(sha256.New, []byte(secret), nil, "gofer-pty-cast/v1", 32)`，不是切片式伪码；`hkdf.Extract`/`Expand` 仅在复用 PRK 时需要；GCM `Seal(nonce, nil, nil, aad)` 生成空明文 final frame合法。测试向量必须进入 plan：截断、追加垃圾、final 后追加、重排、跨文件 fileID 替换、nonce 重复防护/检测。 |
+| B3 cast sweep 接不到 prune loop | **未解决** | v0.2 把 gate 写成 `ret.Enabled() || castRecordingEnabled`，但 `castRecordingEnabled` 未定义。当前 prune loop 只看 job/workflow retention：`internal/serve/serve.go:267`、`internal/serve/serve.go:268`；`RetentionConfig.Enabled()` 只看 `MaxAgeDays/MaxCount/WorkflowMaxAgeDays`：`internal/config/model.go:471`、`internal/config/model.go:475`。当前 cast config 没有总开关，且 `RetentionTTLHours=0` 被 v0.2 定义为默认 24h；因此 v0.3 必须定义“录制启用”的来源，例如 `storage.cast.enabled` 默认 false/true 的取舍、或由 `retention_ttl_hours/encryption` 派生但要能关闭。 |
+| B4 job prune 删不了 pty_sessions 行 | **已解决（设计层）** | 现有 `PruneJobs` 与 `PruneWorkflows` 都已有同一事务边界，且已经在事务内删除 interactions/job_events/event_deliveries/jobs：`internal/jobstore/prune.go:73`、`internal/jobstore/prune.go:77`、`internal/jobstore/prune.go:94`、`internal/jobstore/prune.go:180`、`internal/jobstore/prune.go:213`。v0.2 要求把 `DELETE FROM pty_sessions WHERE job_id=?` 加进这两个事务，改动面成立，不需要改变返回签名。 |
+| H1 httpapi 无 Storage.Cast | **已解决（设计层）** | v0.2 改为在装配处构造 recorder factory 并通过 `SetCastRecorder(factory)` 注入 httpapi，符合现状：`Server.cfg` 只有 `*config.ServerConfig`：`internal/httpapi/server.go:88`、`internal/httpapi/server.go:213`；完整 `config.Config` 在 core/serve 装配链上可得：`internal/core/core.go:75`、`internal/serve/serve.go:100`。需要注意 mcp/测试直接构造 `httpapi.New` 时 factory nil 的禁录默认。 |
+| H2 RelayBinding 无 Cols/Rows | **已解决（设计层）** | v0.2 明确 `RelayBinding += Cols/Rows`，worker dispatch 已有 `f.Cols/f.Rows`：`internal/runner/worker/runner.go:201`、`internal/runner/worker/runner.go:211`；当前 `RelayBinding` 还没有字段：`internal/ptyrelay/registry.go:34`。80x24 fallback 与 pty runner 默认一致：`internal/runner/pty/runner.go:18`、`internal/runner/pty/runner.go:89`。 |
+| H3 finalize 顺序/ctx 提前返回 | **已解决（设计层）** | v0.2 写死 `select -> Close -> <-Done -> read bytes -> Upsert`，能覆盖当前 handler ctx 分支过早返回问题：`internal/httpapi/pty_connect_handler.go:86`、`internal/httpapi/pty_connect_handler.go:92`、`internal/httpapi/pty_connect_handler.go:94`。实现时必须把 finalize 放在单一尾段/defer 中，并避免 `entry.Relay.Done()` 在 cast Close hang 住时无限等待。 |
+| H4 未拨入无 session 行 | **已解决（取舍自洽）** | v0.2 明确 `pty_sessions` 是“已建立 pty stream 的录制元数据”，未拨入/dial failed 由 job status/error 表达，不建 pending 行。这与当前 P2 pending 语义一致：pending/missing/finalized `Done` 直接返回 closedChan：`internal/ptyrelay/registry.go:224`、`internal/ptyrelay/registry.go:240`。P4 前端若只展示 recording metadata 可接受；若要展示 pending/dial_failed，会是 P4/P5 新需求而非 P3 表契约。 |
+| H5 cast 写失败状态回读 | **已解决（设计层）** | v0.2 规定 httpapi 持 concrete sink 并查 `sink.Err()`，ptyrelay leaf 只 `Write`/`Close`，不 import 上层，符合现有 leaf 边界：`internal/ptyrelay/relay.go:18`、`internal/ptyrelay/relay.go:72`。实现时接口需从只有 `Write` 扩成 `Write+Close`，错误态保留在 httpapi concrete sink。 |
+| H6/M3 下载授权/加密流式 | **已解决（设计层）** | allow_empty 保守拒与现有 `callerMayAttach` 的空 owner 仅 admin一致：`internal/httpapi/attach_ticket_handler.go:76`、`internal/httpapi/attach_ticket_handler.go:81`；allow_empty 下 caller 为空：`internal/httpapi/auth.go:27`、`internal/httpapi/auth.go:29`，而 `CallerCanAdmin("")` 恒 false：`internal/config/model.go:354`、`internal/config/model.go:356`。加密下载不复用 `ServeFile`、首帧认证后再发 200 的方向正确；明文下载可复用 artifact 的 `SafeJoinUnder`/`ServeFile` 模式：`internal/httpapi/artifact_handler.go:56`、`internal/httpapi/artifact_handler.go:68`。 |
+
+## v0.2 新问题
+
+### 阻断：cast 录制总开关/enable 语义缺失
+
+v0.2 的 retention、factory 注入、handler 建 sink 都依赖“cast 是否启用”，但当前配置没有 enabled 字段：`internal/config/model.go:442`。如果把“有 `storage.cast` 节”当启用，YAML 解码后的零值无法区分未配置和显式默认；如果把 `RetentionTTLHours=0` 当关闭，又与 v0.2 默认 24h 冲突；如果把 `Encryption.Enabled` 当启用，则明文短 TTL 录制无法启用。该项必须 v0.3 定义清楚，否则会出现 cast 恒开、无法关闭录制或 prune loop 不启动三选一的问题。
+
+### 高：`Relay.Done()` 变强可能回归 P2 取消/完成时序
+
+P2 当前语义是 host runner 等“relay drain complete”，并以 10s grace 防卡死：`internal/runner/worker/runner.go:37`、`internal/runner/worker/runner.go:233`、`internal/runner/worker/runner.go:272`。v0.2 把 `Done()` 改成“recordLoop 已退出 + cast 已封尾”，这对 handler finalize 有利，但把磁盘 flush、GCM final frame、文件 close 的耗时纳入 P2 job 完成路径。v0.3 需补：
+
+- cast sink `Close` 不得做无界阻塞操作；必要时 recordLoop finish 只做 bounded close，超时置 `sink.Err()`。
+- host runner grace 超时后 job 可完成，但 httpapi finalize 不能永久等 `<-Done()`；应有同一 bounded wait 或由 `Relay.Close`/`finish` 保证可终止。
+- 增加 P2 回归测试：worker result 后 cast Close 人为阻塞，`Run` 在 `hostCancelGrace` 后返回；ctx cancel 路径同样返回；recording 状态被置失败而不是半成品 URI。
+
+### 高：framed AEAD 还缺实现约束与测试向量
+
+D-P3-4 的安全模型大体成立，但 plan 级别仍缺足够约束。随机 96-bit nonce 对低帧数可接受，但 GCM 安全依赖 key 下 nonce 唯一；长时间/大量 frame 用纯随机 nonce 没有实现级防复用，计数 nonce 更稳。HKDF `salt=nil` 在 HKDF 规范上可接受，但如果 env secret 是低熵口令，HKDF 不是密码哈希，不能宣称“容任意 env secret”即可达到强 256-bit；应要求高熵 secret，或明确不是 password KDF。AAD 建议包含 magic/version/fileID/frame_index/is_final/plaintext_len 或 total frames，以便测试和审计更直观。解密端必须规定 final frame 后若还有任何字节就是损坏，否则“追加已认证旧帧/垃圾”可能被忽略。
+
+### 中：D-P3-6 的独立 cast TTL sweep 会删除 pty_sessions 行，可能损失录制审计元数据
+
+v0.2 写 `PrunePtySessions(ended_at+castTTL<now)` 返回 `recording_uri` 并“事务内删行”。但表定义同时承载 `started_at/ended_at/bytes_in/bytes_out/owner/state` 等会话元数据。若独立 TTL 只为删除 cast 文件，直接删整行会让 job 仍在而录制元数据消失，P4 详情页无法显示“已录制但已过期/已清理”。建议 v0.3 明确两种 regime：cast TTL 只清 `recording_uri/encrypted` 并保留 session 行，job/workflow retention 再删行；或明确产品接受 TTL 后 session metadata 一并消失。
+
+### 中：首帧认证后发 200 与“截断不返回半截”表述仍有冲突
+
+v0.2 写“首帧认证 + header 校验在写 200/body 前完成”，但后续帧如果在响应中途认证失败，HTTP status 已发，无法做到“不返回半截”，只能断流并记录日志。设计正文已有“写 body 中途认证失败→断流”，但安全章节仍写“不发半截”。v0.3 应统一口径：下载端可避免在首帧/header 损坏时发 200；中途损坏只能中断 stream，并依赖客户端校验/错误提示。
+
+## 收敛判定
+
+**需 v0.3，不可直接拆 plan。** 上轮 4 阻断 + 6 高中，B4/H1/H2/H3/H4/H5/H6 已达到可计划实现；B1/B2 方向正确但仍需补边界和测试；B3 因 cast enable 语义缺失仍未解决。v0.3 最小修订范围：
+
+- 定义 `storage.cast.enabled` 或等价启用规则，并说明默认值、禁用录制、`retention_ttl_hours=0` 的语义，以及 `startPruneLoop` 的真实 gate。
+- 给 `Relay.Done()` 语义变更补 P2 兼容约束和 bounded close/finalize 测试。
+- 把 framed AEAD 格式固化到可实现级别：HKDF Go1.25 调用、nonce 策略、final 后 trailing bytes、测试向量清单。
+- 决定 cast TTL sweep 是删整行还是只清 recording 字段。
