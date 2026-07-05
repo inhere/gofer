@@ -91,6 +91,13 @@ func (s *Store) PruneJobs(policy RetentionPolicy, now int64) (deleted int, prune
 			_ = tx.Rollback()
 			return 0, nil, fmt.Errorf("jobstore: prune deliveries %q: %w", id, err)
 		}
+		// WEB-03 P3 (retention regime 2, D-P3-6): pty_sessions are jobstore-owned;
+		// drop this job's session rows in the same tx so a pruned job leaves no
+		// orphaned recording metadata (the cast file rides result_dir removal).
+		if _, err := tx.Exec("DELETE FROM pty_sessions WHERE job_id = ?", id); err != nil {
+			_ = tx.Rollback()
+			return 0, nil, fmt.Errorf("jobstore: prune pty sessions %q: %w", id, err)
+		}
 		if _, err := tx.Exec("DELETE FROM jobs WHERE id = ?", id); err != nil {
 			_ = tx.Rollback()
 			return 0, nil, fmt.Errorf("jobstore: prune job %q: %w", id, err)
@@ -215,6 +222,8 @@ func (s *Store) PruneWorkflows(policy WorkflowRetentionPolicy, now int64) (delet
 				"DELETE FROM interactions WHERE job_id = ?",
 				"DELETE FROM job_events WHERE job_id = ?",
 				"DELETE FROM event_deliveries WHERE job_id = ?",
+				// WEB-03 P3 (D-P3-6): drop each step-job's pty_sessions in the same tx.
+				"DELETE FROM pty_sessions WHERE job_id = ?",
 				"DELETE FROM jobs WHERE id = ?",
 			} {
 				if _, derr := tx.Exec(stmt, jid); derr != nil {

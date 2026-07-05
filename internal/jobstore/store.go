@@ -236,6 +236,31 @@ var schemaStmts = []string{
   PRIMARY KEY (id)
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_sched_due ON schedules(enabled, next_run_at)`,
+	// pty_sessions is the WEB-03 P3 one-table record of an established pty relay
+	// recording (jobstore-owned, design §3). httpapi is the sole writer (Upsert on
+	// Open and finalize); the recording download gate reads it. recording_uri is
+	// <result_dir>/pty.cast (empty = not recorded / write failed / TTL-expired).
+	// encrypted is 1 yes / 2 no (SR301 从1起避0). Times are unix seconds. Both
+	// tables/indexes are IF NOT EXISTS so Open stays idempotent — a fresh new table
+	// needs no migrate() ALTER.
+	`CREATE TABLE IF NOT EXISTS pty_sessions (
+  pty_session_id TEXT PRIMARY KEY,
+  job_id         TEXT NOT NULL,
+  worker_id      TEXT,
+  instance_id    TEXT,
+  owner          TEXT,
+  state          TEXT NOT NULL,
+  cols           INTEGER,
+  rows           INTEGER,
+  recording_uri  TEXT,
+  encrypted      INTEGER NOT NULL DEFAULT 2,
+  bytes_in       INTEGER NOT NULL DEFAULT 0,
+  bytes_out      INTEGER NOT NULL DEFAULT 0,
+  started_at     INTEGER NOT NULL,
+  ended_at       INTEGER
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_pty_sessions_job   ON pty_sessions(job_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_pty_sessions_ended ON pty_sessions(ended_at)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema
