@@ -21,6 +21,7 @@ func parseRun(t *testing.T, in []string) (project, agent, runner, cwd, prompt st
 	// Reset shared state so tests don't leak into each other.
 	jobRunOpts.project, jobRunOpts.agent, jobRunOpts.runner = "", "", ""
 	jobRunOpts.cwd, jobRunOpts.prompt = "", ""
+	jobRunOpts.interactive, jobRunOpts.cols, jobRunOpts.rows = false, 0, 0
 
 	app := NewApp("test")
 	// Replace job run's Func with a capturing one so we never hit the network.
@@ -94,6 +95,57 @@ func TestJobRunRoleFlags(t *testing.T) {
 	}
 	if jobRunOpts.systemPrompt != "be strict" {
 		t.Fatalf("--system-prompt not bound: %q", jobRunOpts.systemPrompt)
+	}
+}
+
+func TestJobRunInteractiveFlagsBuildRequest(t *testing.T) {
+	jobRunOpts = struct {
+		project      string
+		agent        string
+		runner       string
+		cwd          string
+		prompt       string
+		timeout      int
+		title        string
+		wait         bool
+		sync         bool
+		waitTimeout  int
+		file         string
+		workerID     string
+		workerLabels string
+		tags         string
+		channel      string
+		role         string
+		systemPrompt string
+		interactive  bool
+		cols         int
+		rows         int
+	}{}
+
+	app := NewApp("test")
+	var gotInteractive bool
+	var gotCols, gotRows int
+	runCmd := app.GetCommand("job").GetCommand("run")
+	runCmd.Func = func(c *gcli.Command, _ []string) error {
+		req, err := buildJobRunRequest(c, nil)
+		if err != nil {
+			return err
+		}
+		gotInteractive = req.Interactive
+		gotCols = req.Cols
+		gotRows = req.Rows
+		return nil
+	}
+
+	code := app.Run([]string{
+		"job", "run", "-p", "self", "-a", "term-agent", "--runner", "worker",
+		"--interactive", "--cols", "120", "--rows", "32", "--prompt", "hello",
+	})
+	if code != 0 {
+		t.Fatalf("app.Run exit code=%d", code)
+	}
+	if !gotInteractive || gotCols != 120 || gotRows != 32 {
+		t.Fatalf("interactive request = (%v,%d,%d), want (true,120,32)", gotInteractive, gotCols, gotRows)
 	}
 }
 
