@@ -27,7 +27,7 @@ function duration(s: PtySession): string {
 }
 
 function bytesText(s: PtySession): string {
-  return `输入 ${s.bytes_in} / 输出 ${s.bytes_out} 字节`
+  return `${s.bytes_in} / ${s.bytes_out} B`
 }
 
 function shortId(id?: string): string {
@@ -82,18 +82,15 @@ onMounted(() => {
 </script>
 
 <template>
-  <div class="sessions-page">
-    <header class="sessions-head">
-      <div>
-        <h1 class="sessions-title mono">Sessions</h1>
-        <p class="sessions-sub mono">最近终端会话</p>
-      </div>
-      <div class="head-actions">
-        <RouterLink class="head-action head-action--primary mono" to="/new?mode=session">
+  <div class="board">
+    <header class="board-head">
+      <h1 class="title mono">SESSIONS</h1>
+      <div class="controls mono">
+        <RouterLink class="act act--primary mono" to="/new?mode=session">
           新建会话
         </RouterLink>
         <button
-          class="head-action mono"
+          class="act mono"
           type="button"
           :disabled="loading"
           @click="load"
@@ -105,11 +102,11 @@ onMounted(() => {
 
     <p v-if="error" class="error mono">{{ error }}</p>
 
-    <div v-if="hasSessions" class="sessions-list">
-      <div class="sessions-header mono">
+    <div v-if="hasSessions" class="table">
+      <div class="thead mono">
         <span class="job-link">Job</span>
         <span class="size">尺寸</span>
-        <span class="bytes">流量</span>
+        <span class="bytes">流量(输入/输出)</span>
         <span class="session-id">Session ID</span>
         <span class="duration">时长</span>
         <span class="state">状态</span>
@@ -122,7 +119,7 @@ onMounted(() => {
       <article
         v-for="s in sessions"
         :key="s.pty_session_id"
-        class="session-row"
+        class="trow"
       >
         <RouterLink
           v-if="s.job_id"
@@ -177,59 +174,29 @@ onMounted(() => {
 </template>
 
 <style scoped>
-.sessions-page {
-  max-width: 1200px;
+.board {
+  max-width: 1160px;
   margin: 0 auto;
 }
-.sessions-head {
+.board-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 14px;
   margin-bottom: 14px;
 }
-.sessions-title {
-  margin: 0;
+.title {
+  font-size: 16px;
+  letter-spacing: 0.08em;
   color: var(--paper);
-  font-size: 18px;
-  letter-spacing: 0.04em;
+  margin: 0;
 }
-.sessions-sub {
-  margin: 4px 0 0;
-  color: var(--queue);
-  font-size: 12px;
-}
-.head-actions {
+.controls {
   display: flex;
   align-items: center;
   gap: 8px;
-  flex: none;
-}
-.head-action {
-  flex: none;
-  background: transparent;
   color: var(--queue);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 4px 12px;
   font-size: 12px;
-  text-decoration: none;
-}
-.head-action:hover:not(:disabled) {
-  color: var(--phosphor);
-  border-color: var(--phosphor);
-}
-.head-action:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-.head-action--primary {
-  background: var(--phosphor);
-  border-color: var(--phosphor);
-  color: var(--ink);
-}
-.head-action.head-action--primary:hover {
-  color: var(--ink);
 }
 .error {
   color: var(--fail);
@@ -240,63 +207,65 @@ onMounted(() => {
   margin: 0 0 12px;
   word-break: break-word;
 }
-.sessions-list {
-  background: var(--panel);
+.table {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   overflow: hidden;
 }
-.sessions-header,
-.session-row {
+.thead,
+.trow {
   display: grid;
   grid-template-columns:
-    minmax(96px, 1fr)
+    minmax(92px, 0.9fr)
     72px
-    minmax(150px, 1.2fr)
-    minmax(112px, 0.9fr)
+    minmax(118px, 1fr)
+    minmax(108px, 0.9fr)
     84px
     86px
     64px
     72px
     78px
     76px
-    minmax(160px, 1fr);
+    minmax(150px, 1fr);
   align-items: center;
-  gap: 10px;
+  gap: 12px;
+  padding: 9px 14px;
 }
-.sessions-header {
-  min-height: 32px;
-  padding: 6px 12px;
+.thead {
+  background: var(--panel);
   border-bottom: 1px solid var(--line);
-  background: rgba(255, 255, 255, 0.03);
-  color: var(--queue);
   font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--queue);
+  text-transform: uppercase;
 }
-.sessions-header .job-link,
-.sessions-header .size,
-.sessions-header .bytes,
-.sessions-header .duration,
-.sessions-header .state,
-.sessions-header .started,
-.sessions-header .session-id,
-.sessions-header .flag,
-.sessions-header .session-action {
+.thead .job-link,
+.thead .size,
+.thead .bytes,
+.thead .duration,
+.thead .state,
+.thead .started,
+.thead .session-id,
+.thead .flag,
+.thead .session-action {
   color: var(--queue);
   border-color: transparent;
   padding: 0;
 }
-.sessions-header .session-action {
+.thead .session-action {
   background: transparent;
   text-align: left;
 }
-.session-row {
-  min-height: 38px;
-  padding: 7px 12px;
+.trow {
   border-bottom: 1px solid var(--line);
-  font-size: 12px;
+  font-size: 13px;
+  outline: none;
 }
-.session-row:last-child {
+.trow:last-child {
   border-bottom: none;
+}
+.trow:hover {
+  background: var(--panel);
 }
 .job-link {
   min-width: 0;
@@ -313,7 +282,7 @@ onMounted(() => {
   color: var(--queue);
 }
 .size {
-  color: var(--phosphor);
+  color: var(--paper);
 }
 .bytes {
   color: var(--paper);
@@ -346,18 +315,19 @@ onMounted(() => {
 }
 .session-action {
   background: transparent;
-  color: var(--phosphor);
+  color: var(--paper);
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  padding: 2px 8px;
+  padding: 4px 8px;
   font-size: 11px;
   text-align: center;
   text-decoration: none;
   white-space: nowrap;
+  cursor: pointer;
 }
 .session-action:hover:not(:disabled) {
   border-color: var(--phosphor);
-  color: var(--paper);
+  color: var(--phosphor);
 }
 .session-action:disabled {
   cursor: default;
@@ -367,24 +337,44 @@ onMounted(() => {
   color: var(--queue);
   border-color: transparent;
 }
+.act {
+  background: transparent;
+  color: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  font-size: 11px;
+  text-decoration: none;
+  cursor: pointer;
+}
+.act:hover:not(:disabled) {
+  border-color: var(--phosphor);
+  color: var(--phosphor);
+}
+.act:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.act--primary {
+  color: var(--phosphor);
+}
 .sessions-note {
   margin: 10px 0 0;
   color: var(--queue);
   font-size: 11px;
 }
 .empty {
-  background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   color: var(--queue);
-  font-size: 12px;
-  padding: 24px;
+  font-size: 13px;
+  padding: 28px 14px;
   text-align: center;
 }
 
 @media (max-width: 900px) {
-  .sessions-header,
-  .session-row {
+  .thead,
+  .trow {
     grid-template-columns: minmax(92px, 1fr) 72px 84px 76px;
   }
   .bytes,
