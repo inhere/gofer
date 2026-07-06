@@ -33,7 +33,46 @@ func parseMarkdownRequest(body []byte) (job.JobRequest, error) {
 		return req, fmt.Errorf("invalid frontmatter yaml: %w", err)
 	}
 	req.Prompt = strings.TrimSpace(string(rest))
+	if req.Title == "" {
+		req.Title = firstMarkdownHeading(string(rest))
+	}
 	return req, nil
+}
+
+// firstMarkdownHeading extracts the first ATX heading from markdown body text.
+// It intentionally keeps parsing shallow; code fences are not special-cased.
+func firstMarkdownHeading(s string) string {
+	for _, line := range strings.Split(s, "\n") {
+		line = strings.TrimRight(line, "\r")
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		spaces := 0
+		for spaces < len(line) && line[spaces] == ' ' {
+			spaces++
+		}
+		if spaces > 3 || spaces >= len(line) || line[spaces] != '#' {
+			continue
+		}
+		i := spaces
+		for i < len(line) && line[i] == '#' {
+			i++
+		}
+		if level := i - spaces; level < 1 || level > 6 {
+			continue
+		}
+		if i >= len(line) || (line[i] != ' ' && line[i] != '\t') {
+			continue
+		}
+		text := strings.TrimSpace(line[i+1:])
+		text = strings.TrimSpace(strings.TrimRight(text, "#"))
+		if len([]rune(text)) > 200 {
+			r := []rune(text)
+			text = string(r[:200])
+		}
+		return text
+	}
+	return ""
 }
 
 // splitFrontmatter separates a leading '---' yaml block from the body. It
