@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/goccy/go-yaml"
 )
 
 // TestLoadDefaultsWhenMissing verifies a missing config yields a defaulted empty
@@ -36,6 +38,36 @@ func TestLoadDefaultsWhenMissing(t *testing.T) {
 	}
 	if cfg.Projects == nil || cfg.Agents == nil || cfg.Runners == nil {
 		t.Error("maps should be initialized")
+	}
+}
+
+func TestMarshalOmitsEmptyConfigFields(t *testing.T) {
+	out, err := yaml.Marshal(Config{
+		Server: ServerConfig{
+			Addr: "127.0.0.1:8765",
+			Callers: []CallerConfig{
+				{ID: "alice", TokenEnv: "GOFER_ALICE_TOKEN"},
+			},
+			Workers: map[string]WorkerAuthConfig{
+				"w1": {TokenEnv: "GOFER_WORKER_TOKEN"},
+			},
+		},
+		Projects: map[string]ProjectConfig{
+			"self": {HostPath: "."},
+		},
+	})
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	s := string(out)
+	for _, bad := range []string{
+		`token: ""`,
+		"labels: []",
+		"max_concurrent_jobs: 0",
+	} {
+		if strings.Contains(s, bad) {
+			t.Fatalf("marshal output contains empty field %q:\n%s", bad, s)
+		}
 	}
 }
 

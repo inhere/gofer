@@ -17,16 +17,16 @@ const (
 // Config is the top-level gofer configuration. Unknown top-level
 // keys present in the source file are preserved on write (see writer.go).
 type Config struct {
-	Server   ServerConfig             `yaml:"server"`
-	Storage  StorageConfig            `yaml:"storage"`
-	Projects map[string]ProjectConfig `yaml:"projects"`
-	Agents   map[string]AgentConfig   `yaml:"agents"`
-	Runners  map[string]RunnerConfig  `yaml:"runners"`
+	Server   ServerConfig             `yaml:"server,omitempty"`
+	Storage  StorageConfig            `yaml:"storage,omitempty"`
+	Projects map[string]ProjectConfig `yaml:"projects,omitempty"`
+	Agents   map[string]AgentConfig   `yaml:"agents,omitempty"`
+	Runners  map[string]RunnerConfig  `yaml:"runners,omitempty"`
 	// Roles are named E35 role presets (reviewer/bugfix/…): a base agent + a
 	// resident system_prompt + optional default project/tags. `job run --role` /
 	// `gofer_run_job(role=)` resolve a role to fill those request fields (design
 	// §8.5). Rules/context-file mounting is E11 territory, out of scope here.
-	Roles map[string]RoleConfig `yaml:"roles"`
+	Roles map[string]RoleConfig `yaml:"roles,omitempty"`
 	// Supervisor is the OPTIONAL E25 layered-answerer config (design §8.3-8.4). nil
 	// (absent) or Enabled=false means no answerer runs — pending interactions wait
 	// for a human (the conservative default). Serve constructs supervisor.Service +
@@ -43,8 +43,8 @@ type Config struct {
 
 // ScheduleConfig controls the AUTO-02 cron sweeper cadence and missed-run policy.
 type ScheduleConfig struct {
-	SweepIntervalSec int `yaml:"sweep_interval_sec"`
-	MissGraceSec     int `yaml:"miss_grace_sec"`
+	SweepIntervalSec int `yaml:"sweep_interval_sec,omitempty"`
+	MissGraceSec     int `yaml:"miss_grace_sec,omitempty"`
 }
 
 // PresenceConfig tunes the E36 presence/mailbox runtime (design §9 / §12 收尾). Every
@@ -53,11 +53,11 @@ type ScheduleConfig struct {
 // These are read at serve start; changing them needs a restart (not SIGHUP-live).
 type PresenceConfig struct {
 	// TTLSec: a driver agent is online while last_seen is within this window (default 90s).
-	TTLSec int `yaml:"ttl_sec"`
+	TTLSec int `yaml:"ttl_sec,omitempty"`
 	// MessageTTLSec: how long an unread message lives before prune may drop it (default 24h).
-	MessageTTLSec int `yaml:"message_ttl_sec"`
+	MessageTTLSec int `yaml:"message_ttl_sec,omitempty"`
 	// PruneIntervalSec: presence/inbox prune sweeper cadence (default 60s).
-	PruneIntervalSec int `yaml:"prune_interval_sec"`
+	PruneIntervalSec int `yaml:"prune_interval_sec,omitempty"`
 }
 
 // SupervisorConfig configures the E25 answerer (design §8.3-8.4 / §11). Defaults
@@ -66,17 +66,17 @@ type PresenceConfig struct {
 // auto-answer whitelist: EMPTY means nothing is auto-answered (escalate-only) — the
 // honest, opt-in-only default (design §11).
 type SupervisorConfig struct {
-	Enabled          bool     `yaml:"enabled"`
-	IntervalSec      int      `yaml:"interval_sec"`
-	AutoAnswer       bool     `yaml:"auto_answer"`
-	EscalateTo       string   `yaml:"escalate_to"`
-	MaxRoundsPerJob  int      `yaml:"max_rounds_per_job"`
-	AllowPromptRegex []string `yaml:"allow_prompt_regex"`
+	Enabled          bool     `yaml:"enabled,omitempty"`
+	IntervalSec      int      `yaml:"interval_sec,omitempty"`
+	AutoAnswer       bool     `yaml:"auto_answer,omitempty"`
+	EscalateTo       string   `yaml:"escalate_to,omitempty"`
+	MaxRoundsPerJob  int      `yaml:"max_rounds_per_job,omitempty"`
+	AllowPromptRegex []string `yaml:"allow_prompt_regex,omitempty"`
 	// OwnerAnswerTimeoutSec bounds how long an interaction may sit escalated to its
 	// owner (L1) before the router falls it back past the owner to the global sup
 	// (L2) — the owner is会话式 and may have ended without answering (design §8.2,
 	// supervisor-routing P2.1). <=0 applies the default (300s) in NewService.
-	OwnerAnswerTimeoutSec int `yaml:"owner_answer_timeout_sec"`
+	OwnerAnswerTimeoutSec int `yaml:"owner_answer_timeout_sec,omitempty"`
 	// DesiredSupervisors is the event-driven reconciler's CONCURRENCY CAP (y5wt): at most
 	// this many ACTIVE (queued/running/pending_interaction) role=supervisor jobs run at once.
 	// Dispatch is ON DEMAND, not resident — serve spawns a sup only when there is pending
@@ -84,26 +84,26 @@ type SupervisorConfig struct {
 	// server spawns ZERO sups (zero claude cost). 1 is the usual value. 0 (default) DISABLES
 	// the reconciler (opt-in). >0 requires a roles.supervisor preset (sources the job's agent /
 	// system_prompt / env, incl. GOFER_AGENT_ROLE=supervisor).
-	DesiredSupervisors int `yaml:"desired_supervisors"`
+	DesiredSupervisors int `yaml:"desired_supervisors,omitempty"`
 	// ReconcileRunner is the runner the reconciler submits sup jobs to (empty => "local").
 	// ReconcileIntervalSec is the BACKSTOP demand-poll cadence (<=0 => 60s default): dispatch
 	// is normally wake-driven (the answerer signals on an escalation with no reachable sup),
 	// and this periodic CountSupPendingDemand poll only covers a lost wake / a serve restart
 	// with pending work — a cheap DB count, so it never needs to be a hot loop.
-	ReconcileRunner      string `yaml:"reconcile_runner"`
-	ReconcileIntervalSec int    `yaml:"reconcile_interval_sec"`
+	ReconcileRunner      string `yaml:"reconcile_runner,omitempty"`
+	ReconcileIntervalSec int    `yaml:"reconcile_interval_sec,omitempty"`
 	// ReconcilePrompt is the kickoff prompt the reconciler passes to each on-demand sup job
 	// (a cli-agent like codex REQUIRES a non-empty prompt — adapter.go). Empty => a built-in
 	// supervisor mission (serve.defaultSupReconcilePrompt: peek inbox, answer low-risk, punt
 	// high-risk to a human, exit when drained). Guardrails come from roles.supervisor.system_prompt
 	// (--append-system-prompt); this is just the "begin supervising" turn.
-	ReconcilePrompt string `yaml:"reconcile_prompt"`
+	ReconcilePrompt string `yaml:"reconcile_prompt,omitempty"`
 	// ReconcileJobTimeoutSec is the per-sup-job timeout the reconciler sets. Under event-driven
 	// dispatch a healthy sup drains the demand and EXITS early, so this is really a HUNG-sup cap
 	// (serve.supReconcileJobTimeoutDefault=3600, the 1h MaxTimeoutSec): a wedged sup is force-
 	// terminated within it, freeing the active-sup gate for the next on-demand spawn. <=0 => that
 	// default; clamped to MaxTimeoutSec at submit. Lower it only to recycle a wedged sup sooner.
-	ReconcileJobTimeoutSec int `yaml:"reconcile_job_timeout_sec"`
+	ReconcileJobTimeoutSec int `yaml:"reconcile_job_timeout_sec,omitempty"`
 }
 
 // RoleConfig is one named role preset (design §8.5). Agent is the base CLI agent
@@ -111,10 +111,10 @@ type SupervisorConfig struct {
 // (claude --append-system-prompt). Project/Tags are optional request defaults the
 // role fills when the caller leaves them empty.
 type RoleConfig struct {
-	Agent        string   `yaml:"agent"`
-	SystemPrompt string   `yaml:"system_prompt"`
-	Project      string   `yaml:"project"`
-	Tags         []string `yaml:"tags"`
+	Agent        string   `yaml:"agent,omitempty"`
+	SystemPrompt string   `yaml:"system_prompt,omitempty"`
+	Project      string   `yaml:"project,omitempty"`
+	Tags         []string `yaml:"tags,omitempty"`
 	// Env is an OPTIONAL per-role env preset merged into the job's process env
 	// (JobRequest.Env) at submit time, so `--role supervisor` can inject e.g.
 	// GOFER_AGENT_ROLE=supervisor into the agent process without a dedicated
@@ -122,15 +122,15 @@ type RoleConfig struct {
 	// role=supervisor, P3). Role.Env fills DEFAULTS — an explicit per-job env value
 	// for the same key wins. 勿放 secret：值会随 job.Env 落 request_json（SR403/SR805），
 	// secret 应走 agent.env / K8s secret（不落 request_json）。
-	Env map[string]string `yaml:"env"`
+	Env map[string]string `yaml:"env,omitempty"`
 }
 
 // ServerConfig holds HTTP server and auth settings.
 type ServerConfig struct {
-	Addr            string `yaml:"addr"`
-	Token           string `yaml:"token"`
-	TokenEnv        string `yaml:"token_env"`
-	AllowEmptyToken bool   `yaml:"allow_empty_token"`
+	Addr            string `yaml:"addr,omitempty"`
+	Token           string `yaml:"token,omitempty"`
+	TokenEnv        string `yaml:"token_env,omitempty"`
+	AllowEmptyToken bool   `yaml:"allow_empty_token,omitempty"`
 	// PathView selects which project path the GOFER PROCESS uses as its execution
 	// root (E29/D10): "host" (default, empty) => host_path; "container" =>
 	// container_path (falling back to host_path when container_path is empty). It
@@ -138,45 +138,45 @@ type ServerConfig struct {
 	// container (no /.dockerenv probing). All gofer-process-side paths (SafeJoin /
 	// ExchangeDir / ResultBaseDir / Validate / overlay read dir) go through
 	// Config.ExecPath; E21 host-side actions always use host_path (not this).
-	PathView string `yaml:"path_view"`
+	PathView string `yaml:"path_view,omitempty"`
 	// Callers is the optional multi-caller auth set (C2): each entry maps a
 	// bearer token to a caller id stamped onto submitted jobs for audit /
 	// per-caller filtering. The legacy single Token/TokenEnv stays valid (treated
 	// as caller id "default"); revocation = remove the caller + reload (C3).
-	Callers []CallerConfig `yaml:"callers"`
+	Callers []CallerConfig `yaml:"callers,omitempty"`
 	// WebEnabled is a pointer so that "unset" (nil) can default to true while an
 	// explicit web_enabled:false disables the embedded web console (see
 	// IsWebEnabled and applyDefaults).
-	WebEnabled *bool `yaml:"web_enabled"`
+	WebEnabled *bool `yaml:"web_enabled,omitempty"`
 	// Workers is the per-worker auth/binding set (ws-worker, §7 / review #1):
 	// each entry registers a legitimate worker identity keyed by worker_id and
 	// binds it to a token. A `register` frame whose worker_id does not match the
 	// presented token's bound worker is rejected (hub.Accept). per-worker token
 	// is MVP-mandatory: even allow_empty_token does not waive the binding.
-	Workers map[string]WorkerAuthConfig `yaml:"workers"`
+	Workers map[string]WorkerAuthConfig `yaml:"workers,omitempty"`
 	// RunnerProbe tunes the peer-http active health probe (C6/P4): how often each
 	// peer-http runner's /health is polled and the per-probe timeout. Unset =>
 	// defaults (30s interval / 5s timeout). The probe only runs when at least one
 	// peer-http runner is configured (zero behaviour change otherwise).
-	RunnerProbe RunnerProbeConfig `yaml:"runner_probe"`
+	RunnerProbe RunnerProbeConfig `yaml:"runner_probe,omitempty"`
 	// Notification is the E14 webhook outbound config (design §5.5). It is a
 	// pointer so "unset" (nil) cleanly disables all notification (the serve
 	// delivery sweeper does not even start) — zero behaviour change for any config
 	// without a `notification` block. When present it lists the webhook targets,
 	// the outbound host allowlist and the retry cap.
-	Notification *NotificationConfig `yaml:"notification"`
+	Notification *NotificationConfig `yaml:"notification,omitempty"`
 	// Metrics is the E16 Prometheus /metrics policy (design §6.2). Enabled is a
 	// pointer so "unset" (nil) defaults to ENABLED (the endpoint is mounted) while
 	// an explicit enabled:false drops it. Token, when non-empty, re-adds a Bearer
 	// check on /metrics (default empty = unauthenticated scrape, guarded by the
 	// intranet admission boundary, SR202).
-	Metrics MetricsConfig `yaml:"metrics"`
+	Metrics MetricsConfig `yaml:"metrics,omitempty"`
 	// Governance is the E17 per-caller quota / rate-limit global fallback (design
 	// §7.1). It is a pure additive block: an existing config with no `governance`
 	// key has all-zero defaults, which means "unlimited" everywhere (向后兼容). A
 	// per-caller override on a CallerConfig (> 0) takes precedence; otherwise the
 	// governance default applies (see CallerConcurrencyLimit / CallerRate).
-	Governance GovernanceConfig `yaml:"governance"`
+	Governance GovernanceConfig `yaml:"governance,omitempty"`
 }
 
 // GovernanceConfig is the E17 global fallback for per-caller quotas (design
@@ -187,24 +187,24 @@ type ServerConfig struct {
 type GovernanceConfig struct {
 	// DefaultCallerMaxConcurrent caps how many jobs a caller may run at once when
 	// the caller has no own MaxConcurrentJobs. 0 = unlimited.
-	DefaultCallerMaxConcurrent int `yaml:"default_caller_max_concurrent"`
+	DefaultCallerMaxConcurrent int `yaml:"default_caller_max_concurrent,omitempty"`
 	// DefaultRateLimit is the per-second submit rate (token-bucket refill) when the
 	// caller has no own RateLimit. 0 = unlimited (no rate gating).
-	DefaultRateLimit float64 `yaml:"default_rate_limit"`
+	DefaultRateLimit float64 `yaml:"default_rate_limit,omitempty"`
 	// DefaultRateBurst is the token-bucket capacity when the caller has no own
 	// RateBurst. <= 0 falls back to max(1, ceil(rate)) at use time (CallerRate).
-	DefaultRateBurst int `yaml:"default_rate_burst"`
+	DefaultRateBurst int `yaml:"default_rate_burst,omitempty"`
 	// RequireAnswerCapability gates interaction answer/punt to callers with
 	// can_answer:true. false = any authenticated caller may answer (legacy).
-	RequireAnswerCapability bool `yaml:"require_answer_capability"`
+	RequireAnswerCapability bool `yaml:"require_answer_capability,omitempty"`
 	// RequireAdminCapability gates config/project edits to callers with
 	// can_admin:true. false = any authenticated caller may edit config (legacy).
-	RequireAdminCapability bool `yaml:"require_admin_capability"`
+	RequireAdminCapability bool `yaml:"require_admin_capability,omitempty"`
 	// RequireAttachCapability gates interactive attach to callers with
 	// can_attach:true. false = any authenticated caller may attach (legacy).
-	RequireAttachCapability bool `yaml:"require_attach_capability"`
+	RequireAttachCapability bool `yaml:"require_attach_capability,omitempty"`
 	// AttachOrigins is the Origin allowlist for attach websocket requests.
-	AttachOrigins []string `yaml:"attach_origins"`
+	AttachOrigins []string `yaml:"attach_origins,omitempty"`
 }
 
 // MetricsConfig is the E16 Prometheus /metrics policy (design §6.2). It is a
@@ -213,10 +213,10 @@ type GovernanceConfig struct {
 type MetricsConfig struct {
 	// Enabled gates the /metrics endpoint. Unset (nil) defaults to true; an
 	// explicit enabled:false drops the route entirely.
-	Enabled *bool `yaml:"enabled"`
+	Enabled *bool `yaml:"enabled,omitempty"`
 	// Token, when non-empty, requires `Authorization: Bearer <token>` on /metrics
 	// (for environments that want authenticated scraping). Empty = no auth.
-	Token string `yaml:"token"`
+	Token string `yaml:"token,omitempty"`
 }
 
 // IsEnabled reports whether the /metrics endpoint should be mounted. Unset (nil)
@@ -230,10 +230,10 @@ func (m MetricsConfig) IsEnabled() bool { return m.Enabled == nil || *m.Enabled 
 // retry backoff. The delivery sweeper only runs when this is non-nil AND has at
 // least one webhook (see serve startDeliveryLoop).
 type NotificationConfig struct {
-	Webhooks    []WebhookConfig `yaml:"webhooks"`
-	AllowHosts  []string        `yaml:"allow_hosts"`  // outbound host allowlist (SR904)
-	AllowHTTP   bool            `yaml:"allow_http"`   // default false => https-only
-	MaxAttempts int             `yaml:"max_attempts"` // <= 0 => DefaultMaxAttempts
+	Webhooks    []WebhookConfig `yaml:"webhooks,omitempty"`
+	AllowHosts  []string        `yaml:"allow_hosts,omitempty"`  // outbound host allowlist (SR904)
+	AllowHTTP   bool            `yaml:"allow_http,omitempty"`   // default false => https-only
+	MaxAttempts int             `yaml:"max_attempts,omitempty"` // <= 0 => DefaultMaxAttempts
 }
 
 // WebhookConfig is one E14 outbound webhook target (design §5.5). Events is the
@@ -241,10 +241,10 @@ type NotificationConfig struct {
 // SecretEnv names the env var holding the HMAC secret (SR403, never inlined);
 // Projects restricts the webhook to those project keys (omit => all projects).
 type WebhookConfig struct {
-	URL       string   `yaml:"url"`
-	Events    []string `yaml:"events"`
-	SecretEnv string   `yaml:"secret_env"`
-	Projects  []string `yaml:"projects"`
+	URL       string   `yaml:"url,omitempty"`
+	Events    []string `yaml:"events,omitempty"`
+	SecretEnv string   `yaml:"secret_env,omitempty"`
+	Projects  []string `yaml:"projects,omitempty"`
 }
 
 // DefaultMaxAttempts is the delivery retry cap used when NotificationConfig
@@ -266,8 +266,8 @@ func (n *NotificationConfig) EffectiveMaxAttempts() int {
 // pure additive block — an existing config with no runner_probe key probes at the
 // defaults.
 type RunnerProbeConfig struct {
-	IntervalSeconds int `yaml:"interval_seconds"`
-	TimeoutSeconds  int `yaml:"timeout_seconds"`
+	IntervalSeconds int `yaml:"interval_seconds,omitempty"`
+	TimeoutSeconds  int `yaml:"timeout_seconds,omitempty"`
 }
 
 // ProbeInterval returns the peer-http probe cadence, defaulting to 30s when the
@@ -294,33 +294,33 @@ func (p RunnerProbeConfig) ProbeTimeout() time.Duration {
 // config file). The worker_id (the map key) is used as the caller id for jobs it
 // runs. Labels are display/scheduling hints only (WP4 auto-scheduling).
 type WorkerAuthConfig struct {
-	Token    string   `yaml:"token"`
-	TokenEnv string   `yaml:"token_env"`
-	Labels   []string `yaml:"labels"`
+	Token    string   `yaml:"token,omitempty"`
+	TokenEnv string   `yaml:"token_env,omitempty"`
+	Labels   []string `yaml:"labels,omitempty"`
 }
 
 // CallerConfig identifies one authenticated submitter (C2). Token is the literal
 // bearer token; TokenEnv reads it from the named environment variable instead
 // (so secrets stay out of the config file). ID is recorded on the caller's jobs.
 type CallerConfig struct {
-	ID       string `yaml:"id"`
-	Token    string `yaml:"token"`
-	TokenEnv string `yaml:"token_env"`
+	ID       string `yaml:"id,omitempty"`
+	Token    string `yaml:"token,omitempty"`
+	TokenEnv string `yaml:"token_env,omitempty"`
 	// CanAnswer permits this caller to answer/punt interactions when
 	// governance.require_answer_capability is enabled.
-	CanAnswer bool `yaml:"can_answer"`
+	CanAnswer bool `yaml:"can_answer,omitempty"`
 	// CanAdmin permits this caller to edit config/projects when
 	// governance.require_admin_capability is enabled.
-	CanAdmin bool `yaml:"can_admin"`
+	CanAdmin bool `yaml:"can_admin,omitempty"`
 	// CanAttach permits this caller to attach to interactive sessions when
 	// governance.require_attach_capability is enabled.
-	CanAttach bool `yaml:"can_attach"`
+	CanAttach bool `yaml:"can_attach,omitempty"`
 	// E17 per-caller quota overrides (design §7.1). Each 0/empty value falls back to
 	// the server.governance default; if that is also 0 the dimension is unlimited
 	// (向后兼容). A value > 0 wins over the governance default.
-	MaxConcurrentJobs int     `yaml:"max_concurrent_jobs"` // 同时在跑上限(信号量排队语义,超额排队不拒)
-	RateLimit         float64 `yaml:"rate_limit"`          // 每秒提交请求数(令牌桶速率); 0 = 不限
-	RateBurst         int     `yaml:"rate_burst"`          // 桶容量(突发); <=0 时取 max(1, ceil(RateLimit))
+	MaxConcurrentJobs int     `yaml:"max_concurrent_jobs,omitempty"` // 同时在跑上限(信号量排队语义,超额排队不拒)
+	RateLimit         float64 `yaml:"rate_limit,omitempty"`          // 每秒提交请求数(令牌桶速率); 0 = 不限
+	RateBurst         int     `yaml:"rate_burst,omitempty"`          // 桶容量(突发); <=0 时取 max(1, ceil(RateLimit))
 }
 
 // CallerConcurrencyLimit resolves the effective per-caller concurrent-jobs cap
@@ -424,16 +424,16 @@ func (sc ServerConfig) IsWebEnabled() bool { return sc.WebEnabled == nil || *sc.
 // stores results under its own exchange subdir; when Root is set it becomes a
 // global store keyed by project (see ResultBaseDir in internal/project).
 type StorageConfig struct {
-	DefaultExchangeSubdir string `yaml:"default_exchange_subdir"`
-	DefaultResultSubdir   string `yaml:"default_result_subdir"`
-	Root                  string `yaml:"root"`
+	DefaultExchangeSubdir string `yaml:"default_exchange_subdir,omitempty"`
+	DefaultResultSubdir   string `yaml:"default_result_subdir,omitempty"`
+	Root                  string `yaml:"root,omitempty"`
 	// DBPath is the optional explicit path to the SQLite metadata database. When
 	// empty it is resolved by ResolveDBPath from Root / the config dir.
-	DBPath string `yaml:"db_path"`
+	DBPath string `yaml:"db_path,omitempty"`
 	// Retention bounds how many terminal jobs (and their logs) are kept; the
 	// periodic prune in serve enforces it. Unset (all fields <= 0) disables prune.
-	Retention RetentionConfig `yaml:"retention"`
-	Cast      CastConfig      `yaml:"cast"`
+	Retention RetentionConfig `yaml:"retention,omitempty"`
+	Cast      CastConfig      `yaml:"cast,omitempty"`
 }
 
 const castDefaultTTLHours = 24
@@ -457,14 +457,14 @@ type CastConfig struct {
 	// nothing and stays zero-regression. It is the single "is recording on"
 	// predicate (handler sink, prune-loop gate, recording_uri) — RetentionTTLHours
 	// no longer expresses "disabled".
-	Enabled           bool                 `yaml:"enabled"`
-	RetentionTTLHours int                  `yaml:"retention_ttl_hours"` // 0=用默认 24（仅 Enabled 时）
-	Encryption        CastEncryptionConfig `yaml:"encryption"`
+	Enabled           bool                 `yaml:"enabled,omitempty"`
+	RetentionTTLHours int                  `yaml:"retention_ttl_hours,omitempty"` // 0=用默认 24（仅 Enabled 时）
+	Encryption        CastEncryptionConfig `yaml:"encryption,omitempty"`
 }
 
 type CastEncryptionConfig struct {
-	Enabled bool   `yaml:"enabled"`
-	KeyEnv  string `yaml:"key_env"` // 从环境变量取 key，不进项目文件
+	Enabled bool   `yaml:"enabled,omitempty"`
+	KeyEnv  string `yaml:"key_env,omitempty"` // 从环境变量取 key，不进项目文件
 }
 
 // RetentionConfig is the YAML form of the job retention policy enforced by the
@@ -472,18 +472,18 @@ type CastEncryptionConfig struct {
 // retention configured the server never prunes (zero behaviour change).
 type RetentionConfig struct {
 	// MaxAgeDays, when > 0, prunes terminal jobs older than this many days.
-	MaxAgeDays int `yaml:"max_age_days"`
+	MaxAgeDays int `yaml:"max_age_days,omitempty"`
 	// MaxCount, when > 0, keeps only the newest MaxCount terminal jobs.
-	MaxCount int `yaml:"max_count"`
+	MaxCount int `yaml:"max_count,omitempty"`
 	// IntervalMinutes is the prune cadence; <= 0 falls back to a default (60m) in
 	// the serve loop. Only consulted when MaxAgeDays or MaxCount is > 0.
-	IntervalMinutes int `yaml:"prune_interval_minutes"`
+	IntervalMinutes int `yaml:"prune_interval_minutes,omitempty"`
 	// WorkflowMaxAgeDays is the INDEPENDENT workflow retention age (P1, design §5.4
 	// / D22): when > 0, terminal workflows (done/failed/cancelled) older than this
 	// many days are pruned along with their step-jobs and workflow_events. When 0 it
 	// falls back to MaxAgeDays (WorkflowMaxAge), so a single job age policy also
 	// bounds workflows; set it explicitly to keep workflows longer/shorter than jobs.
-	WorkflowMaxAgeDays int `yaml:"workflow_max_age_days"`
+	WorkflowMaxAgeDays int `yaml:"workflow_max_age_days,omitempty"`
 }
 
 // Enabled reports whether any retention bound is set (so the serve prune loop
@@ -532,26 +532,26 @@ func (r RetentionConfig) PruneInterval() time.Duration {
 // ResultSubdir may be empty; they fall back to the storage defaults at resolve
 // time (see ResolvedExchangeSubdir/ResolvedResultSubdir).
 type ProjectConfig struct {
-	HostPath                 string   `yaml:"host_path"`
-	ContainerPath            string   `yaml:"container_path"`
-	ExchangeSubdir           string   `yaml:"exchange_subdir"`
-	ResultSubdir             string   `yaml:"result_subdir"`
-	DefaultAgent             string   `yaml:"default_agent"`
-	AllowedAgents            []string `yaml:"allowed_agents"`
-	InteractiveAllowedAgents []string `yaml:"interactive_allowed_agents"`
-	AllowedRunners           []string `yaml:"allowed_runners"`
-	AllowExec                bool     `yaml:"allow_exec"`
-	MaxConcurrentJobs        int      `yaml:"max_concurrent_jobs"`
+	HostPath                 string   `yaml:"host_path,omitempty"`
+	ContainerPath            string   `yaml:"container_path,omitempty"`
+	ExchangeSubdir           string   `yaml:"exchange_subdir,omitempty"`
+	ResultSubdir             string   `yaml:"result_subdir,omitempty"`
+	DefaultAgent             string   `yaml:"default_agent,omitempty"`
+	AllowedAgents            []string `yaml:"allowed_agents,omitempty"`
+	InteractiveAllowedAgents []string `yaml:"interactive_allowed_agents,omitempty"`
+	AllowedRunners           []string `yaml:"allowed_runners,omitempty"`
+	AllowExec                bool     `yaml:"allow_exec,omitempty"`
+	MaxConcurrentJobs        int      `yaml:"max_concurrent_jobs,omitempty"`
 	// CaptureDiff toggles E12 git-diff capture (job-outcomes-audit, P3). It is a
 	// pointer so "unset" (nil) can default to "on when cwd is a git work tree"
 	// while an explicit capture_diff:false disables it outright. nil/true defer to
 	// captureDiff's own is-git probe (a non-git cwd naturally yields no diff).
-	CaptureDiff *bool `yaml:"capture_diff"`
+	CaptureDiff *bool `yaml:"capture_diff,omitempty"`
 	// NotifyEnabled gates E14 webhook delivery for this project (design §5.5). It
 	// is a pointer so "unset" (nil) defaults to ENABLED while an explicit
 	// notify_enabled:false suppresses all notification for the project's jobs
 	// (no deliveries are enqueued). nil/true => notification on.
-	NotifyEnabled *bool `yaml:"notify_enabled"`
+	NotifyEnabled *bool `yaml:"notify_enabled,omitempty"`
 }
 
 // IsNotifyEnabled reports whether E14 webhook delivery is enabled for the
@@ -562,41 +562,41 @@ func (p ProjectConfig) IsNotifyEnabled() bool { return p.NotifyEnabled == nil ||
 // AgentConfig describes a configurable CLI agent. Detect is refined in P3; P2
 // only needs it to decode cleanly.
 type AgentConfig struct {
-	Type        string            `yaml:"type"`
-	Command     string            `yaml:"command"`
-	Args        []string          `yaml:"args"`
-	Env         map[string]string `yaml:"env"`
-	AllowRawCmd bool              `yaml:"allow_raw_cmd"`
-	Interactive bool              `yaml:"interactive"`
-	NoRawCmd    bool              `yaml:"no_raw_cmd"`
-	Detect      DetectConfig      `yaml:"detect"`
+	Type        string            `yaml:"type,omitempty"`
+	Command     string            `yaml:"command,omitempty"`
+	Args        []string          `yaml:"args,omitempty"`
+	Env         map[string]string `yaml:"env,omitempty"`
+	AllowRawCmd bool              `yaml:"allow_raw_cmd,omitempty"`
+	Interactive bool              `yaml:"interactive,omitempty"`
+	NoRawCmd    bool              `yaml:"no_raw_cmd,omitempty"`
+	Detect      DetectConfig      `yaml:"detect,omitempty"`
 	// SessionInject 注入模式 argv 模板（模式①，首选）。非空 => 提交时 gofer 生成 uuid
 	// 渲染追加到 argv，立即知 id、无需解析输出。{{session_id}} 占位（session-capture §6.4）。
-	SessionInject []string `yaml:"session_inject"`
+	SessionInject []string `yaml:"session_inject,omitempty"`
 	// SessionCapture 捕获模式正则（模式②，兜底），第 1 个捕获组 = session_id。仅当
 	// SessionInject 为空时使用（注入优先于捕获）。
-	SessionCapture string `yaml:"session_capture"`
+	SessionCapture string `yaml:"session_capture,omitempty"`
 	// SessionResume resume 的整条 agent argv 模板（非追加 flag），{{session_id}}/{{prompt}}
 	// 占位。供 `gofer job resume`（P2）拼接续接命令。
-	SessionResume []string `yaml:"session_resume"`
+	SessionResume []string `yaml:"session_resume,omitempty"`
 	// SystemInject 是 per-agent 的 system prompt 注入 argv 模板（E35 角色，类比
 	// SessionInject）。非空 + 请求带 system_prompt 时，submit 渲染 {{system_prompt}}
 	// 追加到 argv（如 claude `--append-system-prompt <p>`）。保 argv 结构、不 shell
 	// 拼接（SR403）。claude 有内置默认（applySystemDefaults），codex 留空待实测。
-	SystemInject []string `yaml:"system_inject"`
+	SystemInject []string `yaml:"system_inject,omitempty"`
 	// McpServerName 是该 agent（codex）config.toml 里 gofer MCP server 的块名
 	// （`[mcp_servers.<name>]`）。gap①(issue 7z6j)：codex 启动 MCP stdio 子进程用净化
 	// env、不透传 codex 进程 env，故 role.env 注入 codex 进程对 MCP 子进程无效；改经
 	// codex `-c mcp_servers.<name>.env.<KEY>=<VALUE>` 覆盖 MCP server env，使 sup 的
 	// gofer MCP 自注册 role=supervisor。约定默认 `gofer`（agent.McpServerNameDefault），
 	// 仅当 codex config 改了块名时才需配置此项。
-	McpServerName string `yaml:"mcp_server_name"`
+	McpServerName string `yaml:"mcp_server_name,omitempty"`
 }
 
 // DetectConfig is the agent availability probe. Placeholder in P2, refined P3.
 type DetectConfig struct {
-	Command string   `yaml:"command"`
-	Args    []string `yaml:"args"`
+	Command string   `yaml:"command,omitempty"`
+	Args    []string `yaml:"args,omitempty"`
 }
 
 // RunnerConfig describes an execution location. peer-http fields are decoded in
@@ -604,26 +604,26 @@ type DetectConfig struct {
 // runner targets a single registered worker identified by WorkerID; one
 // worker-runner = one worker (dynamic routing is WP4 scheduling, not WP1).
 type RunnerConfig struct {
-	Type     string `yaml:"type"`
-	BaseURL  string `yaml:"base_url"`
-	TokenEnv string `yaml:"token_env"`
+	Type     string `yaml:"type,omitempty"`
+	BaseURL  string `yaml:"base_url,omitempty"`
+	TokenEnv string `yaml:"token_env,omitempty"`
 	// WorkerID is the worker this runner dispatches to (type=worker only). It
 	// must match a server.workers entry.
-	WorkerID string `yaml:"worker_id"`
+	WorkerID string `yaml:"worker_id,omitempty"`
 }
 
 // WorkerConfig is the top-level config for `gofer worker --config worker.yaml`
 // (ws-worker §6). The worker runs jobs locally with its own project/agent/runner
 // config and bridges log/status/result back over a single WebSocket to the hub.
 type WorkerConfig struct {
-	WorkerID      string                   `yaml:"worker_id"`
-	ServerLink    WorkerServerLink         `yaml:"server_link"`
-	Projects      map[string]ProjectConfig `yaml:"projects"`
-	Agents        map[string]AgentConfig   `yaml:"agents"`
-	Runners       map[string]RunnerConfig  `yaml:"runners"`
-	MaxConcurrent int                      `yaml:"max_concurrent"`
-	Labels        []string                 `yaml:"labels"`
-	Storage       StorageConfig            `yaml:"storage"`
+	WorkerID      string                   `yaml:"worker_id,omitempty"`
+	ServerLink    WorkerServerLink         `yaml:"server_link,omitempty"`
+	Projects      map[string]ProjectConfig `yaml:"projects,omitempty"`
+	Agents        map[string]AgentConfig   `yaml:"agents,omitempty"`
+	Runners       map[string]RunnerConfig  `yaml:"runners,omitempty"`
+	MaxConcurrent int                      `yaml:"max_concurrent,omitempty"`
+	Labels        []string                 `yaml:"labels,omitempty"`
+	Storage       StorageConfig            `yaml:"storage,omitempty"`
 }
 
 // WorkerServerLink describes how the worker reaches the hub. URLs may list
@@ -632,10 +632,10 @@ type WorkerConfig struct {
 // §5.2). Token/TokenEnv resolve the Bearer credential. Reconnect tunes the
 // backoff + heartbeat timings (P3 §4).
 type WorkerServerLink struct {
-	URLs      []string        `yaml:"urls"`
-	TokenEnv  string          `yaml:"token_env"`
-	Token     string          `yaml:"token"`
-	Reconnect ReconnectConfig `yaml:"reconnect"`
+	URLs      []string        `yaml:"urls,omitempty"`
+	TokenEnv  string          `yaml:"token_env,omitempty"`
+	Token     string          `yaml:"token,omitempty"`
+	Reconnect ReconnectConfig `yaml:"reconnect,omitempty"`
 }
 
 // ReconnectConfig is the worker's backoff + heartbeat policy for hub reconnection
@@ -647,10 +647,10 @@ type WorkerServerLink struct {
 //   - PingIntervalSec: heartbeat ping cadence (default 15s; symmetric with the hub).
 //   - ReadDeadlineSec: single-read deadline / half-open detection (default 45s).
 type ReconnectConfig struct {
-	InitialBackoffMS int `yaml:"initial_backoff_ms"`
-	MaxBackoffMS     int `yaml:"max_backoff_ms"`
-	PingIntervalSec  int `yaml:"ping_interval_sec"`
-	ReadDeadlineSec  int `yaml:"read_deadline_sec"`
+	InitialBackoffMS int `yaml:"initial_backoff_ms,omitempty"`
+	MaxBackoffMS     int `yaml:"max_backoff_ms,omitempty"`
+	PingIntervalSec  int `yaml:"ping_interval_sec,omitempty"`
+	ReadDeadlineSec  int `yaml:"read_deadline_sec,omitempty"`
 }
 
 // ExecPath returns the GOFER-PROCESS execution-root path for a project — the
