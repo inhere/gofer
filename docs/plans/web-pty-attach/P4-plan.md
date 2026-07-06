@@ -68,10 +68,10 @@ T3(前端基建: xterm 依赖+types+client) ─▶ T4(AttachTerminal 核心) ─
 ```
 > 后端 T0/T1/T2 相互独立可并行；T3 前端基建独立。T4 依赖 T1（控制帧协议）+ T3。T6 依赖 T0（can_attach）+ T4/T5。T7 依赖 T2 + T6。
 
-进度：
-- [ ] T0 后端：job 详情 `can_attach` 计算位
-- [ ] T1 后端：attach WS `{t:hello,write,cols,rows}` 首帧 + `{t:x,code?}` best-effort 退出帧
-- [ ] T2 后端：`GET /v1/jobs/{id}/pty/sessions` + jobstore `ListPtySessionsByJob` + 窄接口拓宽
+进度（Wave A 后端 seams 全绿·2026-07-05·codex 实施+容器验收）：
+- [x] T0 后端：job 详情 `can_attach` 计算位 — `a17702f`
+- [x] T1 后端：attach WS `{t:hello,write,cols,rows}` 首帧 + `{t:x,code?}` best-effort 退出帧 — `c490307`
+- [x] T2 后端：`GET /v1/jobs/{id}/pty/sessions` + jobstore `ListPtySessionsByJob` + 窄接口拓宽 — `e8b02b3`
 - [ ] T3 前端基建：`@xterm/xterm`+`addon-fit` 依赖 + api/types(Job.interactive/can_attach + PtySession) + api/client(attachTicket/downloadRecording/listPtySessions)
 - [ ] T4 前端：`AttachTerminal.vue` 核心（xterm+fit+ticket+WS 双向泵+resize+scrollback+hello/exit/close）
 - [ ] T5 前端：AttachTerminal 只读模式 + 断线自动重连（5min 窗口）
