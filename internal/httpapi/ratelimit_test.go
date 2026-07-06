@@ -65,7 +65,7 @@ func TestRateLimitSubmitJobs(t *testing.T) {
 	if first.StatusCode != http.StatusOK {
 		t.Fatalf("first submit status=%d, want 200", first.StatusCode)
 	}
-	first.Body.Close()
+	drainSubmittedJob(t, s, first)
 
 	// The next several submits (no token left) must be rate-limited.
 	var limited int
@@ -115,7 +115,10 @@ func TestRateLimitSubActionsNotLimited(t *testing.T) {
 		ProjectKey: "self", Agent: "exec", Runner: "local",
 		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
 	})
-	first.Body.Close()
+	if first.StatusCode != http.StatusOK {
+		t.Fatalf("first submit status=%d, want 200", first.StatusCode)
+	}
+	drainSubmittedJob(t, s, first)
 	// A cancel on an unknown id is NOT the submit path: must be 404 (handler), never 429.
 	for i := 0; i < 5; i++ {
 		resp := do(t, s, http.MethodPost, "/v1/jobs/nope/cancel", testToken, nil)
@@ -165,7 +168,10 @@ func TestRateLimitMiddlewareSeesCallerID(t *testing.T) {
 		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
 	}
 	resp := do(t, s, http.MethodPost, "/v1/jobs", ciToken, req)
-	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("submit status=%d, want 200", resp.StatusCode)
+	}
+	drainSubmittedJob(t, s, resp)
 
 	// The limiter must have been registered under the auth-resolved caller id "ci"
 	// (proves auth ran before rate-limit and set the ctx caller id it read).
@@ -179,6 +185,18 @@ func TestRateLimitMiddlewareSeesCallerID(t *testing.T) {
 	if hasEmpty {
 		t.Fatalf("found a limiter under empty caller id: rate-limit ran before auth set caller_id")
 	}
+}
+
+func drainSubmittedJob(t *testing.T, s *Server, resp *http.Response) job.JobResult {
+	t.Helper()
+	var created job.JobResult
+	decode(t, resp, &created)
+	t.Cleanup(func() {
+		if _, ok := s.jobs.Wait(created.ID); !ok {
+			t.Errorf("Wait: job %s not found", created.ID)
+		}
+	})
+	return created
 }
 
 // TestLimiterForHotReload (E17, design §7.4) proves limiterFor re-syncs an
