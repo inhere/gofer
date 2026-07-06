@@ -94,6 +94,10 @@ type Client struct {
 
 	conn    *websocket.Conn
 	writeMu sync.Mutex
+	// dispatchWG tracks per-dispatch goroutines spawned by recvLoop. Production
+	// does not wait on it during reconnect, but tests can use WaitIdle after
+	// cancelling Run to make teardown deterministic.
+	dispatchWG sync.WaitGroup
 
 	// jobMap maps the hub-side job_id (the wire id) to the worker's LOCAL job id,
 	// so an inbound cancel/answer frame (keyed by the hub id) targets the right
@@ -462,7 +466,11 @@ func (cl *Client) recvLoop(ctx context.Context, url string) error {
 			if derr != nil {
 				continue
 			}
-			go cl.handleDispatch(ctx, url, d)
+			cl.dispatchWG.Add(1)
+			go func() {
+				defer cl.dispatchWG.Done()
+				cl.handleDispatch(ctx, url, d)
+			}()
 		case wsproto.TypeCancel:
 			// P2: cancel the matching local job. job.Service.Cancel is a stable no-op
 			// for a terminal/unknown local job, so an unmapped/late cancel is safe.
@@ -498,6 +506,23 @@ func (cl *Client) recvLoop(ctx context.Context, url string) error {
 		case wsproto.TypePong:
 			// P3: reply to our own ping; reading it is enough (read deadline reset).
 		}
+	}
+}
+
+// WaitIdle waits until all currently-running dispatch goroutines have returned,
+// or ctx is cancelled. It is primarily a test/shutdown synchronization helper;
+// the reconnect loop intentionally does not wait on dispatches between sessions.
+func (cl *Client) WaitIdle(ctx context.Context) bool {
+	done := make(chan struct{})
+	go func() {
+		cl.dispatchWG.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-ctx.Done():
+		return false
 	}
 }
 
