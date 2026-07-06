@@ -3,12 +3,14 @@ package httpapi
 import (
 	"io"
 	"net/http"
+	"os"
 	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/castrec"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
@@ -111,6 +113,46 @@ func TestLocalPtyObserverOpensAttachableRelayAndSessionRow(t *testing.T) {
 	resp, _ := postAttachTicket(t, s, "job-local", "tok-alice", "")
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("attach after local close status=%d, want 409", resp.StatusCode)
+	}
+}
+
+func TestLocalPtyObserverRecordsWhenRequested(t *testing.T) {
+	s := newTestServerCfg(t, config.ServerConfig{
+		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice", CanAttach: true}},
+	})
+	s.SetPtyRelay(ptyrelay.NewNonceStore(), ptyrelay.NewRegistry())
+	s.SetPtySessionStore(s.jobs.Meta())
+	rec, err := castrec.New(config.CastConfig{Enabled: true}, nil)
+	if err != nil {
+		t.Fatalf("new recorder: %v", err)
+	}
+	s.SetCastRecorder(rec)
+
+	now := time.Now().Unix()
+	resultDir := t.TempDir()
+	requestJSON := `{"project_key":"self","agent":"exec","runner":"local","interactive":true,"record_pty":true,"cols":100,"rows":30}`
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{
+		ID: "job-local-rec", ProjectKey: "self", Agent: "exec", Runner: "local",
+		Interactive: true, Status: "running", Cwd: ".", ResultDir: resultDir,
+		RequestJSON: requestJSON, StartedAt: now, UpdatedAt: now, CallerID: "alice",
+	}); err != nil {
+		t.Fatalf("upsert local job: %v", err)
+	}
+
+	src := newLocalObserverFakeSource()
+	done := make(chan struct{})
+	go s.runLocalPtyRelay("job-local-rec", src, done)
+	waitForPtyRelay(t, s.ptyRelays, "job-local-rec", ptyrelay.RelayOpen)
+	src.Emit([]byte("local-recorded-output"))
+	src.EOF()
+	close(done)
+
+	closed := waitPtySession(t, s.jobs.Meta(), "job-local-rec", "closed")
+	if closed.RecordingURI == "" || closed.Encrypted != 2 {
+		t.Fatalf("closed row = %+v, want recording_uri set encrypted=2", closed)
+	}
+	if _, err := os.Stat(filepath.Join(resultDir, "pty.cast")); err != nil {
+		t.Fatalf("pty.cast stat: %v", err)
 	}
 }
 

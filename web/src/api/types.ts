@@ -227,6 +227,7 @@ export interface StorageConfigView {
   root: string
   db_path: string
   retention: RetentionView
+  cast: CastView
 }
 
 export interface RetentionView {
@@ -234,6 +235,12 @@ export interface RetentionView {
   max_count: number
   prune_interval_minutes: number
   workflow_max_age_days: number
+}
+
+export interface CastView {
+  enabled: boolean
+  retention_ttl_hours: number
+  encryption_enabled: boolean
 }
 
 export interface ConfigAgentView {
@@ -588,6 +595,7 @@ export interface SubmitJobReq {
   interactive?: boolean
   cols?: number
   rows?: number
+  record_pty?: boolean
   // E5：自由标签（逗号分隔输入解析为数组），支持详情/list 的 ?tag= 检索。
   tags?: string[]
   // 提交渠道（provenance）：web 控制台提交固定 "web"；client(来源 IP)由 server 盖章。

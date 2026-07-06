@@ -5,7 +5,7 @@
 //  - runner=worker -> 二选一：指定 worker_id（connected）或 worker_labels（逗号），默认折叠高级项
 //  - cwd（默认 .）/ title / timeout / sync 勾选
 // 提交成功跳详情；202（仍在后台）提示后仍跳详情（详情页自有 SSE 续看）。
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { getMeta, submitJob } from '../api/client'
 import type { MetaAgent, MetaProject, MetaRunner, MetaWorker } from '../api/types'
@@ -36,6 +36,7 @@ const tags = ref('')
 const timeoutSec = ref<number | null>(null)
 const sync = ref(false)
 const interactive = ref(false)
+const recordPty = ref(false)
 const cols = ref(120)
 const rows = ref(32)
 const sessionMode = computed(() => route.query.mode === 'session' || route.query.interactive === '1')
@@ -233,6 +234,9 @@ async function onSubmit() {
     }
     if (interactive.value) {
       req.interactive = true
+      if (recordPty.value) {
+        req.record_pty = true
+      }
       if (cols.value > 0) {
         req.cols = cols.value
       }
@@ -264,6 +268,12 @@ onMounted(() => {
     interactive.value = true
   }
   void loadMeta()
+})
+
+watch(interactive, (on) => {
+  if (!on) {
+    recordPty.value = false
+  }
 })
 </script>
 
@@ -450,6 +460,13 @@ onMounted(() => {
             placeholder="32"
           />
         </div>
+      </div>
+
+      <div v-if="interactive" class="field">
+        <label class="check mono">
+          <input v-model="recordPty" type="checkbox" />
+          <span>录制终端（保存 asciinema 回放；需要服务端开启 storage.cast.enabled）</span>
+        </label>
       </div>
 
       <!-- tags：逗号分隔，提交解析为数组（E5 检索维度） -->

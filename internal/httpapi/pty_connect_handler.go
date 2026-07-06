@@ -104,7 +104,7 @@ func (s *Server) handlePtyConnect(c *rux.Context) {
 	if pending, ok := s.ptyRelays.Lookup(binding.JobID); ok {
 		cols, rows = pending.Binding.Cols, pending.Binding.Rows
 	}
-	if s.castRecorder != nil {
+	if shouldRecordPty(res.RequestJSON) && s.castRecorder != nil {
 		uri := filepath.Join(res.ResultDir, "pty.cast")
 		if cs, cerr := s.castRecorder.Open(uri, cols, rows, startedAt); cerr == nil {
 			sink = cs

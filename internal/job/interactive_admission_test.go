@@ -68,6 +68,22 @@ func TestValidateInteractiveAdmission(t *testing.T) {
 			remote:  true,
 			wantMsg: "interactive not supported on peer runner",
 		},
+		{
+			name: "recording without pty",
+			req: JobRequest{
+				ProjectKey: "self", Agent: "term", Runner: "local",
+				RecordPty: true, Prompt: "hi",
+			},
+			wantMsg: "record_pty requires interactive=true",
+		},
+		{
+			name: "recording when cast disabled",
+			req: JobRequest{
+				ProjectKey: "self", Agent: "term", Runner: "local",
+				Interactive: true, RecordPty: true, Prompt: "hi",
+			},
+			wantMsg: "record_pty requires storage.cast.enabled=true",
+		},
 	}
 
 	for _, tc := range cases {
@@ -99,6 +115,18 @@ func TestValidateInteractiveAdmission(t *testing.T) {
 		}, true)
 		if err != nil {
 			t.Fatalf("Validate valid worker interactive: %v", err)
+		}
+	})
+
+	t.Run("valid recorded interactive", func(t *testing.T) {
+		cfg := interactiveAdmissionConfig(t.TempDir())
+		cfg.Storage.Cast.Enabled = true
+		_, err := s.Validate(cfg, JobRequest{
+			ProjectKey: "self", Agent: "term", Runner: "local",
+			Interactive: true, RecordPty: true, Prompt: "hi",
+		}, false)
+		if err != nil {
+			t.Fatalf("Validate valid recorded interactive: %v", err)
 		}
 	})
 }

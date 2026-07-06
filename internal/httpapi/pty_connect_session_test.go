@@ -146,6 +146,45 @@ func TestPtyConnectRecordsSessionNoRecorder(t *testing.T) {
 	}
 }
 
+func TestPtyConnectRecorderWiredButNotRequested(t *testing.T) {
+	s, nonces, relays, base, _ := newPtyConnectTestServer(t)
+	store := s.jobs.Meta()
+	s.SetPtySessionStore(store)
+	rec, err := castrec.New(config.CastConfig{Enabled: true}, nil)
+	if err != nil {
+		t.Fatalf("new recorder: %v", err)
+	}
+	s.SetCastRecorder(rec)
+
+	now := time.Now().Unix()
+	resultDir := t.TempDir()
+	if err := store.UpsertJob(jobstore.JobRecord{
+		ID: "job-optout", ProjectKey: "self", Agent: "exec", Runner: "worker", Interactive: true,
+		Status: "running", Cwd: ".", ResultDir: resultDir,
+		RequestJSON: `{"project_key":"self","agent":"exec","runner":"worker","interactive":true}`,
+		StartedAt:   now, UpdatedAt: now,
+	}); err != nil {
+		t.Fatalf("upsert job: %v", err)
+	}
+	expiry := time.Now().Add(time.Minute).Unix()
+	nonce := nonces.Issue(ptyrelay.NonceBinding{
+		WorkerID: ptyTestWorkerID, InstanceID: ptyTestInst, JobID: "job-optout", PtySessionID: "pty-optout", Expiry: expiry,
+	})
+	relays.Prepare(ptyrelay.RelayBinding{
+		WorkerID: ptyTestWorkerID, InstanceID: ptyTestInst, JobID: "job-optout", PtySessionID: "pty-optout", Nonce: nonce, Expiry: expiry,
+	})
+	conn := dialPtyAndHello(t, base, ptyConnectHello{JobID: "job-optout", PtySessionID: "pty-optout", RelayNonce: nonce})
+	_ = driveAndCloseRelay(t, s, base, "job-optout", "pty-optout", nonce, conn)
+
+	closed := waitPtySession(t, store, "job-optout", "closed")
+	if closed.RecordingURI != "" {
+		t.Fatalf("recording_uri=%q, want empty when record_pty is not requested", closed.RecordingURI)
+	}
+	if _, err := os.Stat(filepath.Join(resultDir, "pty.cast")); !os.IsNotExist(err) {
+		t.Fatalf("pty.cast should not exist without record_pty, stat err=%v", err)
+	}
+}
+
 // TestPtyConnectRecordsSessionOpenFailureDegrades: the recorder is wired but the
 // cast file cannot be created (result dir does not exist) → the handler degrades
 // to "not recording" (empty recording_uri) yet STILL records the session row.
@@ -164,6 +203,7 @@ func TestPtyConnectRecordsSessionOpenFailureDegrades(t *testing.T) {
 	if err := store.UpsertJob(jobstore.JobRecord{
 		ID: "job-badrec", ProjectKey: "self", Agent: "exec", Runner: "worker", Interactive: true,
 		Status: "running", Cwd: ".", ResultDir: badDir, StartedAt: now, UpdatedAt: now,
+		RequestJSON: `{"project_key":"self","agent":"exec","runner":"worker","interactive":true,"record_pty":true}`,
 	}); err != nil {
 		t.Fatalf("upsert job: %v", err)
 	}

@@ -95,7 +95,9 @@ func preparePtyRelay(t *testing.T, s *Server, nonces *ptyrelay.NonceStore, relay
 	now := time.Now().Unix()
 	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{
 		ID: jobID, ProjectKey: "self", Agent: "exec", Runner: "worker", Interactive: true,
-		Status: "running", Cwd: ".", ResultDir: t.TempDir(), StartedAt: now, UpdatedAt: now,
+		Status: "running", Cwd: ".", ResultDir: t.TempDir(),
+		RequestJSON: `{"project_key":"self","agent":"exec","runner":"worker","interactive":true,"record_pty":true}`,
+		StartedAt:   now, UpdatedAt: now,
 	}); err != nil {
 		t.Fatalf("upsert pty job: %v", err)
 	}
