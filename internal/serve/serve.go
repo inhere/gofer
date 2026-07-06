@@ -28,6 +28,7 @@ import (
 	"github.com/inhere/gofer/internal/metrics"
 	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/runner"
+	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/supervisor"
 )
 
@@ -255,6 +256,9 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// mount no routes, so they do not rebuild the router.
 	srv.SetCastRecorder(castRecorder)
 	srv.SetPtySessionStore(cr.Store)
+	if pr, ok := cr.Runners[ptyrunner.Name].(*ptyrunner.PtyRunner); ok {
+		pr.SetObserver(srv)
+	}
 
 	if token == "" {
 		c.Printf("gofer: starting WITHOUT auth (allow_empty_token) on %s\n", addr)

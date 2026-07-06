@@ -205,9 +205,9 @@ func runWorker(c *gcli.Command, _ []string) error {
 	}, cr.Jobs)
 
 	// Wire the worker Client as the pty session observer so an interactive local
-	// job hands its pty output to the worker's pump (D-P2-3). Only the worker path
-	// does this — the serve side never calls SetObserver, so its PtyRunner keeps the
-	// default discard drain (G023). core.Build registers PtyRunner under
+	// job hands its pty output to the worker's pump (D-P2-3). Serve wires its own
+	// observer for local browser attach; this worker observer is only for jobs
+	// dispatched to a worker process. core.Build registers PtyRunner under
 	// ptyrunner.Name only when a pty backend is available.
 	if pr, ok := cr.Runners[ptyrunner.Name].(*ptyrunner.PtyRunner); ok {
 		pr.SetObserver(cl)

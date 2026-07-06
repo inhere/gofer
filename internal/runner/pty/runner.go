@@ -38,15 +38,15 @@ type SessionObserver interface {
 // PtyRunner runs interactive jobs under a pty. It satisfies runner.Runner.
 type PtyRunner struct {
 	reg      *registry
-	observer SessionObserver // nil = serve/tests → keep the default discard drain
+	observer SessionObserver // nil = tests / pty-less attach disabled → keep the default discard drain
 }
 
 // New builds a PtyRunner with its own session registry.
 func New() *PtyRunner { return &PtyRunner{reg: newRegistry()} }
 
-// SetObserver injects the session observer. The worker command calls this before
-// worker.Serve so the worker's pty pump owns the output; the serve side never
-// calls it, so its observer stays nil and the default discard drain is kept.
+// SetObserver injects the session observer. Worker uses it to pump remote
+// interactive jobs to the hub; serve uses it to expose local interactive jobs via
+// the same relay/attach stack. Leaving it nil keeps the default discard drain.
 func (r *PtyRunner) SetObserver(o SessionObserver) { r.observer = o }
 
 // Name implements runner.Runner.
@@ -69,14 +69,14 @@ func (r *PtyRunner) Run(ctx context.Context, req runner.Request) runner.Result {
 	defer r.reg.remove(req.JobID)
 
 	if r.observer != nil {
-		// worker: hand the SOLE reader ownership to the observer (it starts the pty
-		// ws pump). No discard here — a second reader would steal bytes (D-P2-3).
+		// Hand the SOLE reader ownership to the observer (worker pty ws pump or
+		// serve-local relay). No discard here — a second reader would steal bytes.
 		// OnSessionStart is a synchronous, non-blocking contract (see SessionObserver);
 		// Run does NOT spawn a fallback goroutine for a misbehaving observer.
 		r.observer.OnSessionStart(req.JobID, sess)
 	} else {
-		// serve / tests: keep the pty drained so the slave side never blocks on a
-		// full buffer (the P0 spike behaviour, preserved for G023 zero-change).
+		// Tests / no observer: keep the pty drained so the slave side never blocks
+		// on a full buffer (the P0 spike behaviour).
 		go func() { _, _ = io.Copy(io.Discard, sess) }()
 	}
 

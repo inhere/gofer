@@ -9,6 +9,7 @@
 |---|---|---|
 | v0.1 | 2026-07-04 | 初稿：6 决策 + 5 时序图 + 帧/接口清单。 |
 | v0.2 | 2026-07-04 | codex round-1 后大改：输出所有权倒置(`SessionObserver`)、ack 两段化(`relay.Done()`)、事件驱动 rendezvous、断连判据 state+selfClosing、per-dispatch URL、Registry.Close 锁拆分。 |
+| **v0.5** | 2026-07-06 | **事后修订：serve-local pty attach 已补齐**。P2 当时明确 defer `serve-local pty`，导致 runner=local interactive 只运行 pty、输出被 discard、无 `pty_sessions` 行；现 serve 侧安装本地 `SessionObserver`，直接把本机 `PtySession` 接入同一 `ptyrelay.Registry`、cast recorder 和 `pty_sessions`。P2 原 worker 设计保持不变。 |
 | **v0.4** | 2026-07-04 | **实施完成后据实证修订**（SUPMODE T0–T7 全绿）：修正 §8 e2e#2「尾字节」措辞——cancel teardown = `ptmx.Close()+SIGKILL`（不可捕获），child 无法在 cancel 时补发哨兵；D-P2-2/6 保护的是 **in-flight 字节不被提前关 relay 截断**（自然退出哨兵走同一 drain 机制验证），非「捕获 SIGKILL 期间临终输出」。分级 kill 留后续。其余决策实现均落地无变。 |
 | **v0.3** | 2026-07-04 | **codex round-3 终审 = GO（0 阻断/0 高，可进 P2 实施计划）**。本版据 round-2 收敛（1 阻断+3 高+3 中）：① **`Done(jobID)` 语义定死**（不再列待确认）——**pending=无字节可排=返回已关 chan、host 不等**，只 open/attached 才等 relay drain（D-P2-2），解「pending/dial-fail 空等 10s grace」阻断；② 断连 Cancel 判据放宽到 **starting+running 都 Cancel**（消 observer 早于 `StateRunning` 的窗口，D-P2-5）；③ 新增 **D-P2-9 unmapped cancel pending set**（cancel 早于 `putJobMapping` 不丢，覆盖非交互）；④ D-P2-8 锁外关 IO **覆盖 `Prepare` replacement**（同 `closeLocked`）；⑤ 定死 interactive 仍走 `streamLocalJob`（仅终态检测+interactions bridge，pty 输出**不**过日志）；⑥ observer 注入时序列为实施验收项。 |
 
@@ -16,7 +17,7 @@
 
 **做**：worker 收 interactive dispatch → 本地 PtyRunner 起 pty → **worker 成 pty 输出唯一 reader** + **eager 拨出第二条专用 pty ws** → 双向字节泵（输出/输入 binary、resize text）→ **两段化取消/终态协议**（worker teardown ack + serve drain ack）→ 断连全链路。**e2e**（现有 ws-worker harness + `httptest` + Linux 真 pty）。
 
-**不做**（留后阶段）：cast 加密 + `pty_sessions` 表（P3）；前端 `AttachTerminal.vue` + browser `{t:x,code}` exit 帧 + e2e 全矩阵（P4）；serve-local pty（drop-in，V1 不触发）。
+**不做**（P2 当时边界）：cast 加密 + `pty_sessions` 表（P3）；前端 `AttachTerminal.vue` + browser `{t:x,code}` exit 帧 + e2e 全矩阵（P4）；serve-local pty（drop-in，V1 不触发，**已在 2026-07-06 事后补齐**）。
 
 ## 1. 现状锚点（P1 已落地 + 两轮评审核对，附文件:行）
 
@@ -76,7 +77,7 @@ waitSession(ctx,localID): 命中 sessReady 立返; 否则挂 waiter, select{ ses
 ```
 - **单 reader**：observer 设时无 discard drain，pump 是唯一 reader（正常/cancel 尾/scrollback/cast 全字节可证）。
 - **无轮询**：排队多久等多久；job 终态/ctx 唤醒防悬挂。
-- **注入时序（验收项，中2）**：worker 命令 `core.Build`→建 `Client`→`ptyRunner.SetObserver(cl)`→`worker.Serve`；**必须在 Serve 前注入**；serve 侧 observer 恒 nil（保留 discard，不回归）。测试证明「首个 dispatch 前 observer 已生效」。
+- **注入时序（验收项，中2）**：worker 命令 `core.Build`→建 `Client`→`ptyRunner.SetObserver(cl)`→`worker.Serve`；**必须在 Serve 前注入**。P2 实施时 serve 侧 observer 恒 nil（保留 discard，不回归）；2026-07-06 起 serve 路径安装本地 observer，用于 runner=local interactive 的 browser attach / `pty_sessions`。
 - G024：接口在 `runner/pty` 定义、worker 注入，`job` 不 import pty。`LookupSession` 不再需要。
 
 ### D-P2-4 `Dispatch` 补 `PtySessionID` + handleDispatch 投影 + fail-fast
