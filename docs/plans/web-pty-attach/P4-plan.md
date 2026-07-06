@@ -77,8 +77,14 @@ T3(前端基建: xterm 依赖+types+client) ─▶ T4(AttachTerminal 核心) ─
 - [x] T5 前端：AttachTerminal 只读模式 + 断线自动重连（5min 窗口） — `25d32e8`
 - [x] T6 前端：JobDetail「打开终端」入口（interactive+can_attach）+ 终端 drawer + 退出 refetch — `d81749a`
 - [x] T7：pty_sessions 元数据面板 + 录制下载 + 跨 job `/sessions` 视图(+后端端点) — `d81749a`
-- [ ] T8 e2e 全矩阵（后端 Go e2e + 前端帧解析/base64 单测）
-- [ ] T9 构建/环检/零回归（make web + vue-tsc + bundle 自包含 + GOOS=windows + 无 CDN 核对）
+- [x] T8 e2e 全矩阵（后端 Go e2e 全覆盖·各波 codex 随码补测）— **live 浏览器眼检=部署门控**（需 serve 重启 + 交互 agent 配置）
+- [x] T9 构建/环检/零回归（make web 嵌入 + vue-tsc + bundle 自包含无 CDN + GOOS=windows + go list-deps 环检 + 全量 go test 绿）
+
+> **P4 实施结果（2026-07-05 SUPMODE·host codex 实施 + 容器/host 验收，全绿未 push）**：
+> 12 commit（`bc9c494..c3ec43d`）。**后端**（容器 Linux 真 pty + `-race` 绿）：T0 can_attach 计算位 / T1 attach WS hello+exit 控制帧（pumpDone 区分 relay-end vs 浏览器掉线）/ T2 单 job pty/sessions / T7 跨 job pty/sessions（严格 owner/admin 域）。**前端**（host `pnpm build` vue-tsc 绿）：T3 xterm 依赖+types+client+attach.ts 纯函数 / T4+T5 AttachTerminal.vue（xterm 双向流+只读+5min 自动重连）/ T6 JobDetail「打开终端」drawer+退出 refetch / T7 会话面板+录制下载+/sessions 视图。
+> **e2e 矩阵（Go，全绿）**：hello/exit 帧、can_attach、五闸（worker token/非 owner/非交互/终态/capability）、ticket 过期消费重放、Origin、resize fuzz、nonce 重放、录制 gate（owner/admin/加密/篡改/file-gone）、write viewer 降级只读、browser 断连仅移除 viewer、scrollback 回放、跨 job owner/admin/limit、敏感字段隐藏——均有对应 `Test*`（各波随码补，非事后补测）。
+> **门禁**：`go build`/`vet`/`test ./...`（真 pty）全绿；`-race`（httpapi/jobstore）绿；`GOOS=windows build` 绿；`go list -deps` 环检 PASS（ptyrelay leaf、job 无 pty/ptyrelay/castrec）；`make web` 嵌入成功（xterm 折叠进 JobDetail 懒加载 chunk，dist 仅含无害命名空间/归属字面量 URL、**无真实 CDN 加载**）。P2/P3 零回归。
+> **未做（部署门控，非阻断）**：live 浏览器眼检需 host `make install` 重建二进制 + serve 重启（Windows exe 锁，用户部署）+ 配置一个 `interactive:true`+`no-raw-cmd` 交互 agent + worker pty capability。步骤见「交付/部署」。
 
 ---
 

@@ -196,7 +196,7 @@ Web 里对交互式 REPL/CLI agent（claude/codex 交互模式）开真终端：
   - **P0 回填必做**：`runner.Request` 加 `Interactive/Cols/Rows`（把初始尺寸 threaded 到 `PtyRunner`，去掉 spike 的 80×24 硬编码）；viewer 队列深度 **per-viewer 可配**（写租户深/只读浅）；跨进程 cancel「host cancelling→等 worker ack/grace」在 worker↔serve 帧层落地（进程内有序 close 已由 P0 证）；如需分级 kill 给 `Pty` 补 `Signal/Kill`。
 - **P2 worker 端到端**：`PtyRunner` 接真 ptmx + eager 拨 pty ws + capability 广告 + 取消协议；input/output/resize/cancel/断连全链路。→ **细化见 [`2026-07-04-web-pty-attach-P2-design.md`](2026-07-04-web-pty-attach-P2-design.md)**（6 决策 + 5 时序图 + 帧/接口清单）。
 - **P3 cast + 审计**：加密录制 + `pty_sessions` 表 + retention/prune 顺序 + `/pty/recording` gate。→ **细化见 [`2026-07-04-web-pty-attach-P3-design.md`](2026-07-04-web-pty-attach-P3-design.md)**（8 决策 + 加密封套 + 两 retention regime）。**P3 实施计划**：[`../plans/web-pty-attach/P3-plan.md`](../plans/web-pty-attach/P3-plan.md)（8 T）。
-- **P4 前端**：`AttachTerminal.vue`（xterm binary + ticket）+ JobDetail + **e2e 矩阵**。
+- **P4 前端**：`AttachTerminal.vue`（xterm binary + ticket）+ JobDetail + **e2e 矩阵**。→ **已收官 GREEN（2026-07-05，SUPMODE host codex 实施 + 容器/host 验收）**：计划 [`../plans/web-pty-attach/P4-plan.md`](../plans/web-pty-attach/P4-plan.md)（10 T，设计决策 D-P4-1..7 折叠进 plan 头）。含只读跟随 + 5min 自动重连 + 跨 job `/sessions` 视图；Go e2e 全矩阵绿；xterm 自包含无 CDN。live 浏览器眼检=部署门控（serve 重启 + 交互 agent 配置）。
 
 **普通 job 零回归验收清单**（G023，P0/CI 常驻）：local exec、worker exec、worker cancel、pending_interaction bridge、Outcome-before-Result、worker disconnect fail、chatty/quiet hub HOL（`hub_test`）、workflow step、schedule run-now、resume/session capture。
 **e2e 矩阵**（P4）：cancel 时 child/ptmx 退出、worker disconnect、browser disconnect/reconnect(5min)、slow browser、chatty pty 不饿死 quiet、resize fuzz、五闸各拒绝路径、ticket 过期/重放、nonce 重放、录制下载 gate、cast 加密/无 key fail-fast。
