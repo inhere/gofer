@@ -13,6 +13,7 @@ import (
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
 // fakeSink records the job.MetricsSink calls so a workflow test can assert the
@@ -127,15 +128,19 @@ func TestWorkflowMetricsCancelled(t *testing.T) {
 		Steps: []StepSpec{
 			{
 				Name: "slow", ProjectKey: "self", Agent: "exec", Runner: "local",
-				Cmd: []string{"sh", "-c", "sleep 30"}, Cwd: ".", TimeoutSec: 60,
+				Cmd: testcmd.Cmd(t, "sleep", "30s"), Cwd: ".", TimeoutSec: 60,
 			},
 		},
 	}, "ci-bot")
 	if err != nil {
 		t.Fatalf("SubmitWorkflow: %v", err)
 	}
+	stepJob := waitStepJobRunning(t, e, wf.ID, 1)
 	if err := e.CancelWorkflow(wf.ID); err != nil {
 		t.Fatalf("CancelWorkflow: %v", err)
+	}
+	if _, ok := e.ops.Wait(stepJob.ID); !ok {
+		t.Fatalf("Wait step job %s: not found", stepJob.ID)
 	}
 
 	var calls []wfTerminalCall
