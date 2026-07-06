@@ -583,6 +583,9 @@ export interface SubmitJobReq {
   worker_id?: string
   worker_labels?: string[]
   sync?: boolean
+  interactive?: boolean
+  cols?: number
+  rows?: number
   // E5：自由标签（逗号分隔输入解析为数组），支持详情/list 的 ?tag= 检索。
   tags?: string[]
   // 提交渠道（provenance）：web 控制台提交固定 "web"；client(来源 IP)由 server 盖章。

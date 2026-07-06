@@ -40,6 +40,9 @@ var jobRunOpts = struct {
 	channel      string
 	role         string
 	systemPrompt string
+	interactive  bool
+	cols         int
+	rows         int
 }{}
 
 // jobCommonOpts holds non-connection flags shared by show/logs/cancel (the
@@ -123,6 +126,9 @@ func NewJobCmd() *gcli.Command {
 					c.StrOpt(&jobRunOpts.channel, "channel", "", "cli", "submission channel recorded as provenance (cli/web/mcp/...)")
 					c.StrOpt(&jobRunOpts.role, "role", "", "", "role preset (E35): fills agent/system_prompt/project/tags when unset")
 					c.StrOpt(&jobRunOpts.systemPrompt, "system-prompt", "", "", "resident system prompt injected via the agent (advanced; overrides role's)")
+					c.BoolOpt(&jobRunOpts.interactive, "interactive", "", false, "request an interactive pty job")
+					c.IntOpt(&jobRunOpts.cols, "cols", "", 0, "initial terminal columns for --interactive (0 = server default 80)")
+					c.IntOpt(&jobRunOpts.rows, "rows", "", 0, "initial terminal rows for --interactive (0 = server default 24)")
 					// exec argv after `--`, e.g. `job run -a exec -- go version`.
 					// Declared as an optional arrayed arg so gcli binds the post-`--`
 					// tokens natively (HasArguments()=true also suppresses the spurious
@@ -399,6 +405,9 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		WorkerID:       jobRunOpts.workerID,
 		WorkerLabels:   splitLabels(jobRunOpts.workerLabels),
 		Tags:           splitLabels(jobRunOpts.tags), // comma-separated, same parsing as worker-labels
+		Interactive:    jobRunOpts.interactive,
+		Cols:           jobRunOpts.cols,
+		Rows:           jobRunOpts.rows,
 		// 提交来源（provenance）：CLI 渠道(默认 cli，可 --channel 覆盖) + 本机 hostname。
 		// server 端若 client 为空会以 remote IP 兜底盖章。
 		Channel: channel,

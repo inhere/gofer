@@ -34,6 +34,9 @@ const title = ref('')
 const tags = ref('')
 const timeoutSec = ref<number | null>(null)
 const sync = ref(false)
+const interactive = ref(false)
+const cols = ref(120)
+const rows = ref(32)
 
 // runner=worker 高级项
 const advancedOpen = ref(false)
@@ -213,6 +216,15 @@ async function onSubmit() {
     if (timeoutSec.value != null && timeoutSec.value > 0) {
       req.timeout_sec = timeoutSec.value
     }
+    if (interactive.value) {
+      req.interactive = true
+      if (cols.value > 0) {
+        req.cols = cols.value
+      }
+      if (rows.value > 0) {
+        req.rows = rows.value
+      }
+    }
     if (isWorkerRunner.value) {
       if (workerMode.value === 'id') {
         req.worker_id = workerId.value
@@ -382,6 +394,39 @@ onMounted(() => {
             class="control mono"
             autocomplete="off"
             placeholder="人类可读任务名"
+          />
+        </div>
+      </div>
+
+      <!-- interactive pty：通常配合 runner=worker，本地/准入规则由后端最终校验。 -->
+      <div class="field">
+        <label class="check mono">
+          <input v-model="interactive" type="checkbox" />
+          <span>交互式（pty，可在详情页接入终端；通常需 runner=worker）</span>
+        </label>
+      </div>
+
+      <div v-if="interactive" class="row">
+        <div class="field">
+          <label class="label mono" for="nj-cols">COLS</label>
+          <input
+            id="nj-cols"
+            v-model.number="cols"
+            class="control mono"
+            type="number"
+            min="1"
+            placeholder="120"
+          />
+        </div>
+        <div class="field">
+          <label class="label mono" for="nj-rows">ROWS</label>
+          <input
+            id="nj-rows"
+            v-model.number="rows"
+            class="control mono"
+            type="number"
+            min="1"
+            placeholder="32"
           />
         </div>
       </div>
