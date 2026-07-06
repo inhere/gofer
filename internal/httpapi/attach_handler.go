@@ -12,6 +12,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/ptyrelay"
 )
 
@@ -92,8 +93,10 @@ func (s *Server) handleJobAttach(c *rux.Context) {
 
 	wantLease := binding.Mode != "read"
 	viewer, err := relay.AddViewer(wantLease)
+	gotLease := wantLease && err == nil
 	if errors.Is(err, ptyrelay.ErrLeaseTaken) {
 		viewer, err = relay.AddViewer(false)
+		gotLease = false
 	}
 	if err != nil {
 		closeWS(attachCloseNotFound, "viewer refused")
@@ -110,6 +113,24 @@ func (s *Server) handleJobAttach(c *rux.Context) {
 		defer writeMu.Unlock()
 		return conn.Write(ctx, websocket.MessageBinary, b)
 	}
+	writeControl := func(v any) error {
+		b, err := json.Marshal(v)
+		if err != nil {
+			return err
+		}
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return conn.Write(ctx, websocket.MessageText, b)
+	}
+
+	if err := writeControl(map[string]any{
+		"t":     "hello",
+		"write": gotLease,
+		"cols":  entry.Binding.Cols,
+		"rows":  entry.Binding.Rows,
+	}); err != nil {
+		return
+	}
 
 	if scroll := relay.Scrollback(); len(scroll) > 0 {
 		if err := writeBinary(scroll); err != nil {
@@ -117,11 +138,16 @@ func (s *Server) handleJobAttach(c *rux.Context) {
 		}
 	}
 
-	pumpDone := make(chan struct{})
+	pumpDone := make(chan bool, 1)
 	go func() {
-		defer close(pumpDone)
+		endedByRelay := true
+		defer func() {
+			pumpDone <- endedByRelay
+			close(pumpDone)
+		}()
 		for chunk := range viewer.Out() {
 			if err := writeBinary(chunk); err != nil {
+				endedByRelay = false
 				return
 			}
 		}
@@ -133,10 +159,28 @@ func (s *Server) handleJobAttach(c *rux.Context) {
 		s.readAttachFrames(ctx, conn, viewer, relay)
 	}()
 
+	writeExitAndClose := func() {
+		// relay 关闭与 job 终态跨连接竞态；终态已可见才附 exit code。
+		if s.jobs != nil {
+			if res, ok := s.jobs.Get(binding.JobID); ok && job.IsTerminal(res.Status) {
+				_ = writeControl(map[string]any{"t": "x", "code": res.ExitCode})
+			} else {
+				_ = writeControl(map[string]any{"t": "x"})
+			}
+		} else {
+			_ = writeControl(map[string]any{"t": "x"})
+		}
+		closeWS(websocket.StatusNormalClosure, "session ended")
+	}
+
 	select {
 	case <-relay.Done():
-		closeWS(attachCloseNotFound, "relay closed")
-	case <-pumpDone:
+		writeExitAndClose()
+	case endedByRelay := <-pumpDone:
+		if endedByRelay {
+			<-relay.Done()
+			writeExitAndClose()
+		}
 	case <-readDone:
 	case <-ctx.Done():
 	}

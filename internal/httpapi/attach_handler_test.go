@@ -16,6 +16,7 @@ import (
 	"github.com/coder/websocket"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/ptyrelay"
 )
 
@@ -34,6 +35,7 @@ func newAttachFakeSource() *attachFakeSource {
 }
 
 func (f *attachFakeSource) Emit(b []byte) { f.outCh <- b }
+func (f *attachFakeSource) EOF()          { close(f.outCh) }
 
 func (f *attachFakeSource) Read(p []byte) (int, error) {
 	if len(f.leftover) > 0 {
@@ -113,6 +115,11 @@ func newAttachTestServer(t *testing.T, origins []string) (*Server, *ptyrelay.Reg
 
 func openAttachRelay(t *testing.T, relays *ptyrelay.Registry, jobID string, src *attachFakeSource) *ptyrelay.Relay {
 	t.Helper()
+	return openAttachRelayWithSize(t, relays, jobID, src, 0, 0)
+}
+
+func openAttachRelayWithSize(t *testing.T, relays *ptyrelay.Registry, jobID string, src *attachFakeSource, cols, rows int) *ptyrelay.Relay {
+	t.Helper()
 	nonce := "nonce-" + jobID
 	relays.Prepare(ptyrelay.RelayBinding{
 		WorkerID:     "w1",
@@ -121,6 +128,8 @@ func openAttachRelay(t *testing.T, relays *ptyrelay.Registry, jobID string, src 
 		PtySessionID: "pty-" + jobID,
 		Nonce:        nonce,
 		Expiry:       time.Now().Add(time.Minute).Unix(),
+		Cols:         cols,
+		Rows:         rows,
 	})
 	entry, err := relays.Open(nonce, src)
 	if err != nil {
@@ -168,14 +177,33 @@ func readAttachBinary(t *testing.T, conn *websocket.Conn) []byte {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
+	for {
+		typ, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatalf("read attach frame: %v", err)
+		}
+		if typ == websocket.MessageBinary {
+			return data
+		}
+	}
+}
+
+func readAttachControl(t *testing.T, conn *websocket.Conn) map[string]any {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
 	typ, data, err := conn.Read(ctx)
 	if err != nil {
-		t.Fatalf("read attach frame: %v", err)
+		t.Fatalf("read attach control: %v", err)
 	}
-	if typ != websocket.MessageBinary {
-		t.Fatalf("frame type = %v, want binary", typ)
+	if typ != websocket.MessageText {
+		t.Fatalf("frame type = %v, want text control", typ)
 	}
-	return data
+	var frame map[string]any
+	if err := json.Unmarshal(data, &frame); err != nil {
+		t.Fatalf("unmarshal control %q: %v", data, err)
+	}
+	return frame
 }
 
 func writeAttachInput(t *testing.T, conn *websocket.Conn, input []byte) {
@@ -239,6 +267,26 @@ func TestJobAttachValidTicketOriginOutputInputResize(t *testing.T) {
 	waitAttachCond(t, func() bool { return len(src.Resizes()) == 1 })
 	if got := src.Resizes()[0]; got != [2]int{120, 40} {
 		t.Fatalf("resize = %v, want [120 40]", got)
+	}
+}
+
+func TestJobAttachHelloFrameBeforeScrollback(t *testing.T) {
+	const origin = "https://example.com"
+	s, relays, base := newAttachTestServer(t, []string{"example.com"})
+	src := newAttachFakeSource()
+	relay := openAttachRelayWithSize(t, relays, "job-hello", src, 132, 43)
+	pre := []byte("pre-attach")
+	src.Emit(pre)
+	waitAttachCond(t, func() bool { return relay.RecordedLen() >= len(pre) })
+
+	conn := mustDialAttach(t, base, "job-hello", issueAttachTicket(t, s, "job-hello", "write", origin, time.Minute), origin)
+	hello := readAttachControl(t, conn)
+	if hello["t"] != "hello" || hello["write"] != true ||
+		int(hello["cols"].(float64)) != 132 || int(hello["rows"].(float64)) != 43 {
+		t.Fatalf("hello = %#v, want write true cols 132 rows 43", hello)
+	}
+	if got := readAttachBinary(t, conn); !bytes.Contains(got, pre) {
+		t.Fatalf("scrollback = %q, want contain %q", got, pre)
 	}
 }
 
@@ -343,6 +391,12 @@ func TestJobAttachSecondWriteViewerDowngradesToReadOnly(t *testing.T) {
 
 	first := mustDialAttach(t, base, "job-1", issueAttachTicket(t, s, "job-1", "write", origin, time.Minute), origin)
 	second := mustDialAttach(t, base, "job-1", issueAttachTicket(t, s, "job-1", "write", origin, time.Minute), origin)
+	if hello := readAttachControl(t, first); hello["write"] != true {
+		t.Fatalf("first hello = %#v, want write true", hello)
+	}
+	if hello := readAttachControl(t, second); hello["write"] != false {
+		t.Fatalf("second hello = %#v, want write false", hello)
+	}
 
 	writeAttachInput(t, second, []byte("second"))
 	time.Sleep(50 * time.Millisecond)
@@ -354,6 +408,36 @@ func TestJobAttachSecondWriteViewerDowngradesToReadOnly(t *testing.T) {
 	waitAttachCond(t, func() bool { return len(src.Writes()) == 1 })
 	if got := string(src.Writes()[0]); got != "first" {
 		t.Fatalf("first writer input = %q, want first", got)
+	}
+}
+
+func TestJobAttachExitFrameIncludesTerminalCodeWhenVisible(t *testing.T) {
+	s := newTestServerCfg(t, config.ServerConfig{
+		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
+	})
+	relays := ptyrelay.NewRegistry()
+	s.SetPtyRelay(ptyrelay.NewNonceStore(), relays)
+	ts := httptest.NewServer(s.Handler())
+	t.Cleanup(ts.Close)
+	base := "ws" + strings.TrimPrefix(ts.URL, "http")
+
+	now := time.Now().Unix()
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{
+		ID: "job-exit", ProjectKey: "self", Agent: "exec", Runner: "local", Interactive: true,
+		Status: "failed", ExitCode: 7, Cwd: ".", ResultDir: t.TempDir(), StartedAt: now, EndedAt: now, UpdatedAt: now, CallerID: "alice",
+	}); err != nil {
+		t.Fatalf("upsert terminal job: %v", err)
+	}
+	src := newAttachFakeSource()
+	openAttachRelay(t, relays, "job-exit", src)
+	ticket := issueAttachTicket(t, s, "job-exit", "read", "", time.Minute)
+
+	conn := mustDialAttach(t, base, "job-exit", ticket, "")
+	_ = readAttachControl(t, conn) // hello
+	src.EOF()
+	exit := readAttachControl(t, conn)
+	if exit["t"] != "x" || int(exit["code"].(float64)) != 7 {
+		t.Fatalf("exit = %#v, want t=x code=7", exit)
 	}
 }
 
