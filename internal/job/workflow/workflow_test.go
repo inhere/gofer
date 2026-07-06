@@ -287,17 +287,18 @@ func waitStepJobTerminal(t *testing.T, e *Engine, wfID string, step int) jobstor
 }
 
 // waitStepJobRunning waits for the workflow's step-N job to be running.
-func waitStepJobRunning(t *testing.T, e *Engine, wfID string, step int) {
+func waitStepJobRunning(t *testing.T, e *Engine, wfID string, step int) jobstore.JobRecord {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
 		jobs, _ := e.meta.ListWorkflowJobs(wfID)
 		if j := stepJob(jobs, step); j != nil && j.Status == job.StatusRunning {
-			return
+			return *j
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatalf("step %d of %s did not start running in time", step, wfID)
+	return jobstore.JobRecord{}
 }
 
 // TestAdvanceRunningWorkflowsRecoversCrashedAdvance simulates a crash: a running
