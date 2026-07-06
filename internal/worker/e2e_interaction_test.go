@@ -276,6 +276,17 @@ func TestE2ETimeoutOverWS(t *testing.T) {
 		t.Fatal("created job has no id")
 	}
 
+	localID := waitOnlyLocalJobID(t, localJobs)
+	localDone := make(chan job.JobResult, 1)
+	go func() {
+		final, ok := localJobs.Wait(localID)
+		if !ok {
+			t.Errorf("local job %s not found", localID)
+			return
+		}
+		localDone <- final
+	}()
+
 	final, ok := hub.jobs.Wait(created.ID)
 	if !ok {
 		t.Fatalf("hub job %s not found", created.ID)
@@ -283,7 +294,7 @@ func TestE2ETimeoutOverWS(t *testing.T) {
 	if final.Status != job.StatusTimeout {
 		t.Fatalf("hub job status = %s (err=%s), want timeout", final.Status, final.Error)
 	}
-	waitOnlyLocalJobTerminal(t, localJobs)
+	waitLocalJobDone(t, localDone, localID)
 
 	cancel()
 	select {
@@ -293,7 +304,7 @@ func TestE2ETimeoutOverWS(t *testing.T) {
 	}
 }
 
-func waitOnlyLocalJobTerminal(t *testing.T, jobs *job.Service) job.JobResult {
+func waitOnlyLocalJobID(t *testing.T, jobs *job.Service) string {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)
 	for time.Now().Before(deadline) {
@@ -302,17 +313,22 @@ func waitOnlyLocalJobTerminal(t *testing.T, jobs *job.Service) job.JobResult {
 			t.Fatalf("list local jobs: %v", err)
 		}
 		if len(list) == 1 {
-			final, ok := jobs.WaitFor(list[0].ID, 5*time.Second)
-			if !ok {
-				t.Fatalf("local job %s did not reach terminal", list[0].ID)
-			}
-			return final
+			return list[0].ID
 		}
 		time.Sleep(20 * time.Millisecond)
 	}
 	list, _ := jobs.ListJobs(job.ListOpts{Limit: 10})
 	t.Fatalf("expected exactly one local job, got %d", len(list))
-	return job.JobResult{}
+	return ""
+}
+
+func waitLocalJobDone(t *testing.T, done <-chan job.JobResult, id string) {
+	t.Helper()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatalf("local job %s did not reach terminal", id)
+	}
 }
 
 // waitHubStatus polls until the hub job reaches want (or fails after d).
