@@ -157,7 +157,16 @@ func (s *Server) handleGetJob(c *rux.Context) {
 		writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
 		return
 	}
-	c.JSON(http.StatusOK, res)
+	c.JSON(http.StatusOK, jobDetailView{
+		JobResult: res,
+		// can_attach 是详情视图计算位；列表端点保持原 JobResult 数组不变。
+		CanAttach: s.canAttachNow(callerFromCtx(c), res),
+	})
+}
+
+type jobDetailView struct {
+	job.JobResult
+	CanAttach bool `json:"can_attach"`
 }
 
 // handleGetJobRequest returns the original JobRequest a job was created from
