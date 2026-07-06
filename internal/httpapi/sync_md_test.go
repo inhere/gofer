@@ -204,6 +204,50 @@ func TestParseMarkdownRequestTagsInline(t *testing.T) {
 	}
 }
 
+func TestParseMarkdownRequestTitleFromHeading(t *testing.T) {
+	md := []byte("---\nproject_key: p\nagent: codex\nrunner: local\n---\n\n# Hello\nbody\n")
+	req, err := parseMarkdownRequest(md)
+	if err != nil {
+		t.Fatalf("parseMarkdownRequest: %v", err)
+	}
+	if req.Title != "Hello" {
+		t.Fatalf("title=%q, want Hello", req.Title)
+	}
+}
+
+func TestParseMarkdownRequestFrontmatterTitleWins(t *testing.T) {
+	md := []byte("---\nproject_key: p\nagent: codex\nrunner: local\ntitle: X\n---\n# Y\n")
+	req, err := parseMarkdownRequest(md)
+	if err != nil {
+		t.Fatalf("parseMarkdownRequest: %v", err)
+	}
+	if req.Title != "X" {
+		t.Fatalf("title=%q, want X", req.Title)
+	}
+}
+
+func TestParseMarkdownRequestNoHeadingLeavesTitleEmpty(t *testing.T) {
+	md := []byte("---\nproject_key: p\nagent: codex\nrunner: local\n---\nbody\n")
+	req, err := parseMarkdownRequest(md)
+	if err != nil {
+		t.Fatalf("parseMarkdownRequest: %v", err)
+	}
+	if req.Title != "" {
+		t.Fatalf("title=%q, want empty", req.Title)
+	}
+}
+
+func TestParseMarkdownRequestClosingHeading(t *testing.T) {
+	md := []byte("---\nproject_key: p\nagent: codex\nrunner: local\n---\n## Foo ##\n")
+	req, err := parseMarkdownRequest(md)
+	if err != nil {
+		t.Fatalf("parseMarkdownRequest: %v", err)
+	}
+	if req.Title != "Foo" {
+		t.Fatalf("title=%q, want Foo", req.Title)
+	}
+}
+
 func TestParseMarkdownRequestNoFrontmatter(t *testing.T) {
 	if _, err := parseMarkdownRequest([]byte("just a prompt, no frontmatter\n")); err == nil {
 		t.Fatal("expected error for missing frontmatter")
