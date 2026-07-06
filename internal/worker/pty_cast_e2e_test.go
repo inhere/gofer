@@ -121,6 +121,18 @@ func getRecording(t *testing.T, hub *ptyHubSide, jobID string) *http.Response {
 
 // --- recording round-trip (plaintext) --------------------------------------
 
+func createRecordedInteractiveJob(t *testing.T, hub *ptyHubSide, agentName string) string {
+	t.Helper()
+	created := createJob(t, hub.ts, job.JobRequest{
+		ProjectKey: "alpha", Agent: agentName, Runner: "remote-w1", WorkerID: e2eWorkerID,
+		Prompt: "start", Cwd: ".", TimeoutSec: 60, Interactive: true, RecordPty: true,
+	})
+	if created.ID == "" {
+		t.Fatal("recorded interactive job has no id")
+	}
+	return created.ID
+}
+
 // TestE2EPtyCastRecordingRoundTripPlaintext proves the full plaintext recording
 // path end to end: a real interactive termecho session records its output to a
 // pty.cast, the pty_sessions row is finalised (open→closed) with real byte counts,
@@ -133,7 +145,7 @@ func TestE2EPtyCastRecordingRoundTripPlaintext(t *testing.T) {
 	cl, _ := buildInteractiveWorkerSide(t, hub.ts.URL, 0)
 	startWorker(t, hub, cl)
 
-	jobID := createInteractiveJob(t, hub, "termecho")
+	jobID := createRecordedInteractiveJob(t, hub, "termecho")
 	conn := attachBrowser(t, hub, jobID)
 
 	// The echoed output flows through the relay → the cast sink, so the recording
@@ -196,7 +208,7 @@ func TestE2EPtyCastRecordingRoundTripEncrypted(t *testing.T) {
 	cl, _ := buildInteractiveWorkerSide(t, hub.ts.URL, 0)
 	startWorker(t, hub, cl)
 
-	jobID := createInteractiveJob(t, hub, "termecho")
+	jobID := createRecordedInteractiveJob(t, hub, "termecho")
 	conn := attachBrowser(t, hub, jobID)
 	sendBrowserInput(t, conn, []byte("roundtrip-enc\n"))
 	readBrowserUntil(t, conn, "echo:roundtrip-enc", 5*time.Second)
@@ -251,7 +263,7 @@ func TestE2EPtyCastRecordingWorkerSourceStillDownloadable(t *testing.T) {
 	cl, _ := buildInteractiveWorkerSide(t, hub.ts.URL, 0)
 	startWorker(t, hub, cl)
 
-	jobID := createInteractiveJob(t, hub, "termtail")
+	jobID := createRecordedInteractiveJob(t, hub, "termtail")
 	conn := attachBrowser(t, hub, jobID)
 	sendBrowserInput(t, conn, []byte("go\n"))
 	readBrowserUntil(t, conn, "FINAL_TAIL_SENTINEL_9Z", 8*time.Second)

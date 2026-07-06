@@ -56,7 +56,7 @@ func (s *Server) runLocalPtyRelay(jobID string, source ptyrelay.PtySource, done 
 	var sink castrec.CastSink
 	recURI := ""
 	encrypted := false
-	if s.castRecorder != nil {
+	if shouldRecordPty(res.RequestJSON) && s.castRecorder != nil {
 		uri := filepath.Join(res.ResultDir, "pty.cast")
 		if cs, cerr := s.castRecorder.Open(uri, cols, rows, startedAt); cerr == nil {
 			sink = cs
@@ -165,6 +165,14 @@ func ptySizeFromRequestJSON(s string) (int, int) {
 		return 0, 0
 	}
 	return req.Cols, req.Rows
+}
+
+func shouldRecordPty(s string) bool {
+	var req job.JobRequest
+	if s == "" || json.Unmarshal([]byte(s), &req) != nil {
+		return false
+	}
+	return req.Interactive && req.RecordPty
 }
 
 func localRelayNonce() string {

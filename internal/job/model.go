@@ -26,6 +26,10 @@ type JobRequest struct {
 	Interactive bool `json:"interactive,omitempty" yaml:"interactive,omitempty"`
 	Cols        int  `json:"cols,omitempty" yaml:"cols,omitempty"`
 	Rows        int  `json:"rows,omitempty" yaml:"rows,omitempty"`
+	// RecordPty requests asciinema recording for this interactive pty session.
+	// It is a per-job opt-in layered under the serve-wide storage.cast.enabled
+	// capability; false means "track session metadata only, do not write pty.cast".
+	RecordPty bool `json:"record_pty,omitempty" yaml:"record_pty,omitempty"`
 	// Role is an OPTIONAL E35 role-preset reference (design §8.5). When set, submit
 	// resolves it from cfg.Roles to fill empty Agent/SystemPrompt/ProjectKey/Tags
 	// (explicit request fields win). An unknown role is rejected (ErrUnknownRole).

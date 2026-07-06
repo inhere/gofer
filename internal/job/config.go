@@ -87,6 +87,14 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 			return config.ProjectConfig{}, fmt.Errorf("%w: interactive job cannot override Cmd", ErrInvalidRequest)
 		}
 	}
+	if req.RecordPty {
+		if !req.Interactive {
+			return config.ProjectConfig{}, fmt.Errorf("%w: record_pty requires interactive=true", ErrInvalidRequest)
+		}
+		if !cfg.Storage.Cast.Enabled {
+			return config.ProjectConfig{}, fmt.Errorf("%w: record_pty requires storage.cast.enabled=true", ErrInvalidRequest)
+		}
+	}
 
 	if !remote {
 		// exec security gate: the agent must be type exec AND the project must opt
