@@ -193,11 +193,7 @@ func TestE2EInteractionOverWS(t *testing.T) {
 		t.Fatalf("hub stdout missing wrapper answer echo: %q", stdout)
 	}
 
-	cancel()
-	select {
-	case <-clientErr:
-	case <-time.After(3 * time.Second):
-	}
+	stopWorkerClient(t, w.client, cancel, clientErr)
 }
 
 // TestE2ECancelOverWS: cancelling an in-flight worker job from the hub cancels
@@ -247,11 +243,7 @@ func TestE2ECancelOverWS(t *testing.T) {
 	// Unknown id → 404.
 	cancelHubJob(t, hub.ts, "no-such-job", http.StatusNotFound)
 
-	cancel()
-	select {
-	case <-clientErr:
-	case <-time.After(3 * time.Second):
-	}
+	stopWorkerClient(t, cl, cancel, clientErr)
 }
 
 // TestE2ETimeoutOverWS: a worker job exceeding timeout_sec yields status timeout
@@ -296,11 +288,21 @@ func TestE2ETimeoutOverWS(t *testing.T) {
 	}
 	waitLocalJobDone(t, localDone, localID)
 
+	stopWorkerClient(t, cl, cancel, clientErr)
+}
+
+func stopWorkerClient(t *testing.T, cl *worker.Client, cancel context.CancelFunc, clientErr <-chan error) {
+	t.Helper()
 	cancel()
 	select {
 	case <-clientErr:
 	case <-time.After(3 * time.Second):
 		t.Fatal("worker client did not exit promptly after cancel")
+	}
+	idleCtx, idleCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer idleCancel()
+	if !cl.WaitIdle(idleCtx) {
+		t.Fatal("worker dispatch did not exit promptly after client cancel")
 	}
 }
 
