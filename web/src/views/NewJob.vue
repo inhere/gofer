@@ -39,9 +39,9 @@ const interactive = ref(false)
 const cols = ref(120)
 const rows = ref(32)
 const sessionMode = computed(() => route.query.mode === 'session' || route.query.interactive === '1')
-const promptLabel = computed(() => (sessionMode.value ? 'PROMPT（可选）' : 'PROMPT（可贴 markdown）'))
+const promptLabel = computed(() => (interactive.value ? 'PROMPT（可选）' : 'PROMPT（可贴 markdown）'))
 const promptPlaceholder = computed(() =>
-  sessionMode.value
+  interactive.value
     ? '可留空；填写后会作为系统提示打开会话'
     : '描述任务，正文即 prompt...',
 )
@@ -160,7 +160,7 @@ const validationError = computed<string>(() => {
   if (!runnerName.value) {
     return '请选择 runner'
   }
-  if (isCliAgent.value && !sessionMode.value && prompt.value.trim() === '') {
+  if (isCliAgent.value && !interactive.value && prompt.value.trim() === '') {
     return 'cli-agent 需填写 prompt'
   }
   if (isExec.value && command.value.trim() === '') {
@@ -211,7 +211,7 @@ async function onSubmit() {
       // 提交来源（provenance）：web 控制台固定 channel=web；client(来源 IP)由 server 盖章。
       channel: 'web',
     } as Parameters<typeof submitJob>[0]
-    if (isCliAgent.value && sessionMode.value) {
+    if (isCliAgent.value && interactive.value) {
       if (prompt.value.trim() !== '') {
         req.system_prompt = prompt.value.trim()
       }
@@ -323,7 +323,7 @@ onMounted(() => {
           spellcheck="false"
           :placeholder="promptPlaceholder"
         ></textarea>
-        <p v-if="sessionMode" class="field-hint mono">
+        <p v-if="interactive" class="field-hint mono">
           如果写入会作为系统提示打开会话
         </p>
       </div>
