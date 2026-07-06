@@ -341,7 +341,7 @@ func TestJobIDUniquenessSameSecond(t *testing.T) {
 		seen[res.ID] = true
 		ids = append(ids, res.ID)
 		// Each id's dir must have been created.
-		if _, err := os.Stat(filepath.Join(root, "self", res.ID)); err != nil {
+		if _, err := os.Stat(res.ResultDir); err != nil {
 			t.Fatalf("job dir not created for %s: %v", res.ID, err)
 		}
 	}
