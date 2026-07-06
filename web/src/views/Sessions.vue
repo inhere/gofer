@@ -106,6 +106,19 @@ onMounted(() => {
     <p v-if="error" class="error mono">{{ error }}</p>
 
     <div v-if="hasSessions" class="sessions-list">
+      <div class="sessions-header mono">
+        <span class="job-link">Job</span>
+        <span class="size">尺寸</span>
+        <span class="bytes">流量</span>
+        <span class="session-id">Session ID</span>
+        <span class="duration">时长</span>
+        <span class="state">状态</span>
+        <span class="flag flag--encrypted">加密</span>
+        <span class="flag flag--recording">录制</span>
+        <span class="session-action session-action--recording">录制文件</span>
+        <span class="session-action session-action--terminal">终端</span>
+        <span class="started">开始时间</span>
+      </div>
       <article
         v-for="s in sessions"
         :key="s.pty_session_id"
@@ -126,30 +139,30 @@ onMounted(() => {
         <span class="session-id mono" :title="s.session_id || ''">{{ shortSessionID(s.session_id) }}</span>
         <span class="duration mono">{{ duration(s) }}</span>
         <span class="state mono">{{ s.state }}</span>
-        <span class="flag mono" :class="{ on: s.encrypted }">
+        <span class="flag flag--encrypted mono" :class="{ on: s.encrypted }">
           {{ s.encrypted ? '加密' : '明文' }}
         </span>
-        <span class="flag mono" :class="{ on: s.has_recording }">
+        <span class="flag flag--recording mono" :class="{ on: s.has_recording }">
           {{ s.has_recording ? '已录制' : '无录制' }}
         </span>
         <button
           v-if="s.has_recording"
-          class="session-action mono"
+          class="session-action session-action--recording mono"
           type="button"
           :disabled="downloadingRecordingIds.has(s.pty_session_id)"
           @click="onDownloadRecording(s)"
         >
           {{ downloadingRecordingIds.has(s.pty_session_id) ? '下载中' : '下载录制' }}
         </button>
-        <span v-else class="session-action session-action--empty mono">—</span>
+        <span v-else class="session-action session-action--recording session-action--empty mono">—</span>
         <RouterLink
           v-if="canAttachSession(s)"
-          class="session-action mono"
+          class="session-action session-action--terminal mono"
           :to="`/jobs/${encodeURIComponent(s.job_id ?? '')}?attach=1`"
         >
           打开终端
         </RouterLink>
-        <span v-else class="session-action session-action--empty mono">—</span>
+        <span v-else class="session-action session-action--terminal session-action--empty mono">—</span>
         <span class="started mono">{{ fmtTime(s.started_at) }}</span>
       </article>
     </div>
@@ -215,7 +228,7 @@ onMounted(() => {
   border-color: var(--phosphor);
   color: var(--ink);
 }
-.head-action--primary:hover {
+.head-action.head-action--primary:hover {
   color: var(--ink);
 }
 .error {
@@ -233,6 +246,7 @@ onMounted(() => {
   border-radius: var(--radius);
   overflow: hidden;
 }
+.sessions-header,
 .session-row {
   display: grid;
   grid-template-columns:
@@ -249,6 +263,33 @@ onMounted(() => {
     minmax(160px, 1fr);
   align-items: center;
   gap: 10px;
+}
+.sessions-header {
+  min-height: 32px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--queue);
+  font-size: 11px;
+}
+.sessions-header .job-link,
+.sessions-header .size,
+.sessions-header .bytes,
+.sessions-header .duration,
+.sessions-header .state,
+.sessions-header .started,
+.sessions-header .session-id,
+.sessions-header .flag,
+.sessions-header .session-action {
+  color: var(--queue);
+  border-color: transparent;
+  padding: 0;
+}
+.sessions-header .session-action {
+  background: transparent;
+  text-align: left;
+}
+.session-row {
   min-height: 38px;
   padding: 7px 12px;
   border-bottom: 1px solid var(--line);
@@ -342,6 +383,7 @@ onMounted(() => {
 }
 
 @media (max-width: 900px) {
+  .sessions-header,
   .session-row {
     grid-template-columns: minmax(92px, 1fr) 72px 84px 76px;
   }
@@ -349,8 +391,9 @@ onMounted(() => {
   .session-id,
   .state,
   .started,
-  .flag:first-of-type,
-  .session-action:first-of-type {
+  .flag--encrypted,
+  .flag--recording,
+  .session-action--recording {
     display: none;
   }
 }
