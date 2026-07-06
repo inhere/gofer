@@ -26,6 +26,35 @@ func (s *Service) GetPersisted(_ string, id string) (JobResult, bool) {
 	return s.Get(id)
 }
 
+// SetSessionID records a newly observed underlying agent CLI session id for a
+// job. It is best-effort and additive: an existing session_id is never replaced.
+// The PTY relay uses this for interactive agents whose session id is printed to
+// terminal output instead of stdout/stderr logs.
+func (s *Service) SetSessionID(id, sessionID string) {
+	if id == "" || sessionID == "" {
+		return
+	}
+	if entry := s.entry(id); entry != nil {
+		entry.mu.Lock()
+		if entry.result.SessionID != "" {
+			entry.mu.Unlock()
+			return
+		}
+		entry.result.SessionID = sessionID
+		snap := entry.result
+		entry.mu.Unlock()
+		_ = s.persist(snap)
+		return
+	}
+	rec, ok, err := s.meta.GetJob(id)
+	if err != nil || !ok || rec.SessionID != "" {
+		return
+	}
+	rec.SessionID = sessionID
+	rec.UpdatedAt = s.nowFn().Unix()
+	_ = s.meta.UpsertJob(rec)
+}
+
 // Cancel requests cancellation of a running job. It is a stable no-op (returns
 // nil) for an already-terminal job, so callers/tests get deterministic
 // behaviour. It returns an error only when the job id is unknown.

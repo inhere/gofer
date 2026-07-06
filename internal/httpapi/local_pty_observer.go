@@ -79,6 +79,9 @@ func (s *Server) runLocalPtyRelay(jobID string, source ptyrelay.PtySource, done 
 	if sink != nil {
 		opts = append(opts, ptyrelay.WithCast(sink))
 	}
+	if obs := s.sessionIDObserver(res); obs != nil {
+		opts = append(opts, ptyrelay.WithOutputObserver(obs))
+	}
 	entry, err := s.ptyRelays.Open(nonce, source, opts...)
 	if err != nil {
 		if sink != nil {
@@ -125,6 +128,35 @@ func (s *Server) runLocalPtyRelay(jobID string, source ptyrelay.PtySource, done 
 		StartedAt:    startedAt,
 		EndedAt:      time.Now().Unix(),
 	})
+}
+
+func (s *Server) sessionIDObserver(res job.JobResult) ptyrelay.OutputObserver {
+	if s == nil || s.jobs == nil || s.agents == nil || res.SessionID != "" {
+		return nil
+	}
+	ac, ok := s.agents.Get(res.Agent)
+	if !ok || ac.SessionCapture == "" {
+		return nil
+	}
+	var buf []byte
+	var done bool
+	const maxObserve = 64 * 1024
+	return func(chunk []byte) {
+		if done || len(chunk) == 0 {
+			return
+		}
+		if len(buf) < maxObserve {
+			remain := maxObserve - len(buf)
+			if len(chunk) > remain {
+				chunk = chunk[:remain]
+			}
+			buf = append(buf, chunk...)
+		}
+		if sid := job.CaptureSessionIDBytes(buf, ac.SessionCapture); sid != "" {
+			done = true
+			s.jobs.SetSessionID(res.ID, sid)
+		}
+	}
 }
 
 func ptySizeFromRequestJSON(s string) (int, int) {

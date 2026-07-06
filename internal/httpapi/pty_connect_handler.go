@@ -120,6 +120,9 @@ func (s *Server) handlePtyConnect(c *rux.Context) {
 	if sink != nil {
 		opts = append(opts, ptyrelay.WithCast(sink))
 	}
+	if obs := s.sessionIDObserver(res); obs != nil {
+		opts = append(opts, ptyrelay.WithOutputObserver(obs))
+	}
 	entry, err := s.ptyRelays.Open(hello.RelayNonce, source, opts...)
 	if err != nil {
 		// The relay never opened, so no recordLoop will run finish to close the

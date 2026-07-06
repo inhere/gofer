@@ -200,6 +200,17 @@ func TestCaptureSessionIDFromFile(t *testing.T) {
 	}
 }
 
+func TestCaptureSessionIDBytes(t *testing.T) {
+	const sid = "67cc4d00-aaaa-bbbb-cccc-ddddeeeeffff"
+	got := CaptureSessionIDBytes([]byte("banner\nsession id: "+sid+"\n"), `session id:\s*([0-9a-f-]+)`)
+	if got != sid {
+		t.Fatalf("CaptureSessionIDBytes = %q, want %q", got, sid)
+	}
+	if miss := CaptureSessionIDBytes([]byte("no session"), `session id:\s*([0-9a-f-]+)`); miss != "" {
+		t.Fatalf("CaptureSessionIDBytes miss = %q, want empty", miss)
+	}
+}
+
 // newCodexCaptureService builds a Service with a "codex" cli-agent whose command
 // prints a `session id: <uuid>` line then exits, so the codex built-in
 // SessionCapture regex extracts the id at终态 (capture mode T1.4).

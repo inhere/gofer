@@ -3,13 +3,20 @@ package httpapi
 import (
 	"io"
 	"net/http"
+	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
+	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/ptyrelay"
+	"github.com/inhere/gofer/internal/runner"
+	localrunner "github.com/inhere/gofer/internal/runner/local"
 )
 
 type localObserverFakeSource struct {
@@ -105,4 +112,68 @@ func TestLocalPtyObserverOpensAttachableRelayAndSessionRow(t *testing.T) {
 	if resp.StatusCode != http.StatusConflict {
 		t.Fatalf("attach after local close status=%d, want 409", resp.StatusCode)
 	}
+}
+
+func TestLocalPtyObserverCapturesSessionIDFromPtyOutput(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		Server:  config.ServerConfig{Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice", CanAttach: true}}},
+		Storage: config.StorageConfig{Root: root},
+		Projects: map[string]config.ProjectConfig{
+			"self": {HostPath: root, AllowedAgents: []string{"codex"}, AllowedRunners: []string{"local"}},
+		},
+		Agents: map[string]config.AgentConfig{
+			"codex": {Type: agent.TypeCLIAgent, Command: "codex", Args: []string{"{{prompt}}"}},
+		},
+	}
+	projects := project.NewRegistry(cfg, "")
+	agents := agent.NewRegistry(cfg)
+	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
+	meta, err := jobstore.Open(filepath.Join(root, "gofer.db"))
+	if err != nil {
+		t.Fatalf("open jobstore: %v", err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	jobs := job.NewService(cfg, projects, agents, runners, meta, nil)
+	eng := workflow.NewEngine(jobs)
+	jobs.SetWorkflow(eng)
+	s := New(&cfg.Server, "", false, jobs, eng, projects, agents, nil, nil, nil, nil)
+	s.SetPtyRelay(ptyrelay.NewNonceStore(), ptyrelay.NewRegistry())
+	s.SetPtySessionStore(meta)
+
+	now := time.Now().Unix()
+	if err := meta.UpsertJob(jobstore.JobRecord{
+		ID: "job-codex-pty", ProjectKey: "self", Agent: "codex", Runner: "local",
+		Interactive: true, Status: "running", Cwd: ".", ResultDir: t.TempDir(),
+		RequestJSON: `{"project_key":"self","agent":"codex","runner":"local","interactive":true}`,
+		StartedAt:   now, UpdatedAt: now, CallerID: "alice",
+	}); err != nil {
+		t.Fatalf("upsert local job: %v", err)
+	}
+
+	src := newLocalObserverFakeSource()
+	done := make(chan struct{})
+	go s.runLocalPtyRelay("job-codex-pty", src, done)
+	waitForPtyRelay(t, s.ptyRelays, "job-codex-pty", ptyrelay.RelayOpen)
+
+	const sid = "abcd1234-aaaa-bbbb-cccc-001122334455"
+	src.Emit([]byte("banner\nsession id: " + sid + "\nready\n"))
+	waitForLocalObserver(t, 2*time.Second, func() bool {
+		got, ok := s.jobs.Get("job-codex-pty")
+		return ok && got.SessionID == sid
+	})
+	src.EOF()
+	close(done)
+}
+
+func waitForLocalObserver(t *testing.T, d time.Duration, cond func() bool) {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		if cond() {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("condition not met within %s", d)
 }
