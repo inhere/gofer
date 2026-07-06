@@ -133,6 +133,13 @@ func TestCallerIDNotSpoofable(t *testing.T) {
 	if created.CallerID != "alice" {
 		t.Fatalf("caller_id=%q, want alice (client value must be overridden)", created.CallerID)
 	}
+	final, ok := s.jobs.Wait(created.ID)
+	if !ok {
+		t.Fatalf("Wait: job %s not found", created.ID)
+	}
+	if final.CallerID != "alice" {
+		t.Fatalf("persisted caller_id=%q, want alice", final.CallerID)
+	}
 }
 
 // TestMultiCallerEachAuthenticates: two callers each authenticate with their own
