@@ -94,6 +94,7 @@ type PtySessionStore interface {
 	UpsertPtySession(rec jobstore.PtySessionRecord) error
 	GetPtySessionByJob(jobID string) (jobstore.PtySessionRecord, bool, error)
 	ListPtySessionsByJob(jobID string) ([]jobstore.PtySessionRecord, error)
+	ListRecentPtySessions(limit int) ([]jobstore.PtySessionRecord, error)
 }
 
 // Server holds the wired dependencies and the rux router. It is constructed once
@@ -403,6 +404,7 @@ func (s *Server) buildRouter() *rux.Router {
 		// gate does NOT do a remote-source 409 (unlike artifact download): a pty
 		// cast is always written hub-side, so it is served regardless of where the
 		// job ran. Encrypted casts are stream-decrypted.
+		r.GET("/pty/sessions", s.handleRecentPtySessions)
 		r.GET("/jobs/{id}/pty/recording", s.handlePtyRecording)
 		r.GET("/jobs/{id}/pty/sessions", s.handlePtySessions)
 

@@ -107,6 +107,30 @@ func TestPtySessionListByJobNewestFirst(t *testing.T) {
 	}
 }
 
+func TestPtySessionListRecentNewestFirstLimit(t *testing.T) {
+	s := openTest(t)
+	assert.NoErr(t, s.UpsertPtySession(samplePtySession("ps-old", "job1", 1000)))
+	assert.NoErr(t, s.UpsertPtySession(samplePtySession("ps-mid", "job2", 2000)))
+	assert.NoErr(t, s.UpsertPtySession(samplePtySession("ps-new", "job3", 3000)))
+
+	rows, err := s.ListRecentPtySessions(2)
+	assert.NoErr(t, err)
+	if len(rows) != 2 {
+		t.Fatalf("len(rows)=%d, want 2: %+v", len(rows), rows)
+	}
+	assert.Eq(t, "ps-new", rows[0].PtySessionID)
+	assert.Eq(t, "ps-mid", rows[1].PtySessionID)
+
+	rows, err = s.ListRecentPtySessions(0)
+	assert.NoErr(t, err)
+	if len(rows) != 3 {
+		t.Fatalf("default limit rows=%d, want 3", len(rows))
+	}
+	if rows == nil {
+		t.Fatalf("recent list is nil, want non-nil slice")
+	}
+}
+
 // Empty id / job id are rejected.
 func TestPtySessionUpsertValidation(t *testing.T) {
 	s := openTest(t)

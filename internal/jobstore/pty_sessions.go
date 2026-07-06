@@ -144,6 +144,35 @@ func (s *Store) ListPtySessionsByJob(jobID string) ([]PtySessionRecord, error) {
 	return out, nil
 }
 
+// ListRecentPtySessions returns recent pty sessions across jobs, newest first.
+// limit <= 0 falls back to 50. The returned slice is always non-nil.
+func (s *Store) ListRecentPtySessions(limit int) ([]PtySessionRecord, error) {
+	if limit <= 0 {
+		limit = 50
+	}
+	rows, err := s.db.Query(
+		selectPtyCols+" ORDER BY started_at DESC, pty_session_id DESC LIMIT ?",
+		limit,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: list recent pty sessions: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]PtySessionRecord, 0)
+	for rows.Next() {
+		rec, scanErr := scanPtySession(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("jobstore: list recent pty sessions scan: %w", scanErr)
+		}
+		out = append(out, rec)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("jobstore: list recent pty sessions rows: %w", err)
+	}
+	return out, nil
+}
+
 // ExpireCastRecordings clears the recording of every closed pty session whose cast
 // TTL has elapsed (retention regime 1, design §D-P3-6). It runs in one transaction:
 // SELECT the expired recording_uris (so the caller can best-effort delete the cast
