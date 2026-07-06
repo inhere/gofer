@@ -93,6 +93,7 @@ func (s *Server) callerMayAdmin(caller string) bool {
 type PtySessionStore interface {
 	UpsertPtySession(rec jobstore.PtySessionRecord) error
 	GetPtySessionByJob(jobID string) (jobstore.PtySessionRecord, bool, error)
+	ListPtySessionsByJob(jobID string) ([]jobstore.PtySessionRecord, error)
 }
 
 // Server holds the wired dependencies and the rux router. It is constructed once
@@ -403,6 +404,7 @@ func (s *Server) buildRouter() *rux.Router {
 		// cast is always written hub-side, so it is served regardless of where the
 		// job ran. Encrypted casts are stream-decrypted.
 		r.GET("/jobs/{id}/pty/recording", s.handlePtyRecording)
+		r.GET("/jobs/{id}/pty/sessions", s.handlePtySessions)
 
 		r.POST("/jobs/{id}/cancel", s.handleCancelJob)
 
