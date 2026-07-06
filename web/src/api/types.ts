@@ -17,6 +17,10 @@ export interface Job {
   // 可选的人类可读任务名（后端 omitempty；来自原始请求，经 request_json 回放）
   title?: string
   status: JobStatus
+  // 交互式 pty job（后端 omitempty）；详情页据此决定是否展示终端入口。
+  interactive?: boolean
+  // 仅 job 详情端点计算；list 端点无该字段。
+  can_attach?: boolean
   exit_code: number
   cwd: string
   result_dir: string
@@ -45,10 +49,36 @@ export interface Job {
   // client=来源主机名(CLI)/IP(web)。配合 caller_id 标识"谁/哪台/经哪渠道提交"。
   channel?: string
   client?: string
+  caller_id?: string
   role?: string
   origin_agent?: string
   escalate_to?: string
 }
+
+export interface PtySession {
+  pty_session_id: string
+  state: string
+  cols: number
+  rows: number
+  bytes_in: number
+  bytes_out: number
+  encrypted: boolean
+  started_at: number
+  ended_at?: number
+  has_recording: boolean
+}
+
+export interface PtySessionsResp {
+  sessions: PtySession[]
+}
+
+export type AttachServerFrame =
+  | { t: 'hello'; write: boolean; cols: number; rows: number }
+  | { t: 'x'; code?: number }
+
+export type AttachClientFrame =
+  | { t: 'i'; d: string }
+  | { t: 'r'; cols: number; rows: number }
 
 // 产物清单项（E1，P2）：<result_dir>/artifacts/ 下文件元数据。name 为相对路径
 // （可含子目录，'/' 分隔），下载经 GET /v1/jobs/{id}/artifacts/{name}。

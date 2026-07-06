@@ -25,6 +25,7 @@ import type {
   ProjectWriteReq,
   ProjectWriteResp,
   ProjectsResp,
+  PtySessionsResp,
   ReposResp,
   RunnersResp,
   Schedule,
@@ -272,6 +273,23 @@ export function getJob(id: string): Promise<Job> {
   return request<Job>(`/v1/jobs/${encodeURIComponent(id)}`)
 }
 
+export function requestAttachTicket(
+  id: string,
+  mode: 'write' | 'read',
+): Promise<{ ticket: string; expires_in: number }> {
+  const qs = `?mode=${encodeURIComponent(mode)}`
+  return request<{ ticket: string; expires_in: number }>(
+    `/v1/jobs/${encodeURIComponent(id)}/attach-ticket${qs}`,
+    { method: 'POST' },
+  )
+}
+
+export function listPtySessions(id: string): Promise<PtySessionsResp> {
+  return request<PtySessionsResp>(
+    `/v1/jobs/${encodeURIComponent(id)}/pty/sessions`,
+  )
+}
+
 export function logsTail(id: string, stream: LogStream): Promise<string> {
   return requestText(
     `/v1/jobs/${encodeURIComponent(id)}/logs/${stream}?bytes=262144`,
@@ -363,6 +381,40 @@ export async function downloadArtifact(id: string, name: string): Promise<void> 
   a.click()
   a.remove()
   URL.revokeObjectURL(objURL)
+}
+
+export async function downloadPtyRecording(id: string): Promise<void> {
+  const url = `/v1/jobs/${encodeURIComponent(id)}/pty/recording`
+  const res = await fetch(url, { headers: authHeaders() })
+  if (res.status === 401) {
+    triggerUnauthorized()
+    throw new Error('未授权（401）：token 无效或已失效')
+  }
+  if (!res.ok) {
+    return raiseForStatus(res)
+  }
+  const blob = await res.blob()
+  const objURL = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = objURL
+  a.download = contentDispositionFilename(res) ?? `${id}.cast`
+  document.body.appendChild(a)
+  a.click()
+  a.remove()
+  URL.revokeObjectURL(objURL)
+}
+
+function contentDispositionFilename(res: Response): string | null {
+  const header = res.headers.get('Content-Disposition')
+  if (!header) {
+    return null
+  }
+  const utf8 = header.match(/filename\*=UTF-8''([^;]+)/i)
+  if (utf8?.[1]) {
+    return decodeURIComponent(utf8[1].trim().replace(/^"|"$/g, ''))
+  }
+  const plain = header.match(/filename="?([^";]+)"?/i)
+  return plain?.[1]?.trim() || null
 }
 
 // 取单个产物 blob 供 inline 预览（E19a，P2）。与下载同 endpoint，但只取 blob
