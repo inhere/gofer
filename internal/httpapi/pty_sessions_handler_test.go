@@ -99,3 +99,88 @@ func TestPtySessionsAuthUnknownAndNilStore(t *testing.T) {
 		t.Fatalf("unknown status=%d, want 404", resp.StatusCode)
 	}
 }
+
+func getRecentPtySessions(t *testing.T, s *Server, token, query string) (*http.Response, map[string]any) {
+	t.Helper()
+	resp := do(t, s, http.MethodGet, "/v1/pty/sessions"+query, token, nil)
+	var body map[string]any
+	if resp.StatusCode == http.StatusOK {
+		decode(t, resp, &body)
+	} else {
+		resp.Body.Close()
+	}
+	return resp, body
+}
+
+func TestRecentPtySessionsOwnerAdminAndLimit(t *testing.T) {
+	s := recordingServer(t, config.ServerConfig{
+		Callers: []config.CallerConfig{
+			{ID: "alice", Token: "tok-alice"},
+			{ID: "bob", Token: "tok-bob"},
+			{ID: "admin", Token: "tok-admin", CanAdmin: true},
+		},
+	})
+	dirA := addRecordingJob(t, s, "job-a", "alice", "")
+	dirB := addRecordingJob(t, s, "job-b", "bob", "")
+	now := time.Now().Unix()
+	rows := []jobstore.PtySessionRecord{
+		{PtySessionID: "pty-a-old", JobID: "job-a", Owner: "alice", State: "closed",
+			Cols: 80, Rows: 24, RecordingURI: "", Encrypted: 2, StartedAt: now - 30},
+		{PtySessionID: "pty-b-new", JobID: "job-b", Owner: "bob", State: "closed",
+			Cols: 100, Rows: 30, RecordingURI: filepath.Join(dirB, "pty.cast"), Encrypted: 1, StartedAt: now - 10},
+		{PtySessionID: "pty-a-new", JobID: "job-a", Owner: "alice", State: "closed",
+			Cols: 120, Rows: 40, RecordingURI: filepath.Join(dirA, "pty.cast"), Encrypted: 1, StartedAt: now},
+	}
+	for _, r := range rows {
+		if err := s.jobs.Meta().UpsertPtySession(r); err != nil {
+			t.Fatalf("upsert recent row %s: %v", r.PtySessionID, err)
+		}
+	}
+
+	resp, body := getRecentPtySessions(t, s, "tok-alice", "?limit=200")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("owner status=%d, want 200", resp.StatusCode)
+	}
+	sessions := body["sessions"].([]any)
+	if len(sessions) != 2 {
+		t.Fatalf("alice sessions=%#v, want 2 own rows", sessions)
+	}
+	first := sessions[0].(map[string]any)
+	if first["job_id"] != "job-a" || first["pty_session_id"] != "pty-a-new" {
+		t.Fatalf("alice first session=%#v", first)
+	}
+	for _, sess := range sessions {
+		if sess.(map[string]any)["job_id"] == "job-b" {
+			t.Fatalf("non-admin saw bob session: %#v", sessions)
+		}
+	}
+
+	resp, body = getRecentPtySessions(t, s, "tok-admin", "?limit=2")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("admin status=%d, want 200", resp.StatusCode)
+	}
+	sessions = body["sessions"].([]any)
+	if len(sessions) != 2 {
+		t.Fatalf("admin sessions=%#v, want limit 2", sessions)
+	}
+	if sessions[0].(map[string]any)["pty_session_id"] != "pty-a-new" ||
+		sessions[1].(map[string]any)["pty_session_id"] != "pty-b-new" {
+		t.Fatalf("admin sessions order=%#v", sessions)
+	}
+
+	resp, body = getRecentPtySessions(t, s, "tok-admin", "?limit=999")
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("admin cap status=%d, want 200", resp.StatusCode)
+	}
+	sessions = body["sessions"].([]any)
+	if len(sessions) != 3 {
+		t.Fatalf("admin capped sessions=%#v, want all 3 below cap", sessions)
+	}
+
+	raw, _ := json.Marshal(body)
+	for _, forbidden := range []string{dirA, dirB, "alice", "bob", "recording_uri"} {
+		if bytes.Contains(raw, []byte(forbidden)) {
+			t.Fatalf("recent response leaked %q: %s", forbidden, raw)
+		}
+	}
+}

@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gookit/rux/v2"
 
@@ -10,6 +11,7 @@ import (
 
 type ptySessionView struct {
 	PtySessionID string `json:"pty_session_id"`
+	JobID        string `json:"job_id,omitempty"`
 	State        string `json:"state"`
 	Cols         int    `json:"cols"`
 	Rows         int    `json:"rows"`
@@ -44,13 +46,52 @@ func (s *Server) handlePtySessions(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "pty sessions lookup failed", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, map[string]any{"sessions": ptySessionViews(rows)})
+	c.JSON(http.StatusOK, map[string]any{"sessions": ptySessionViews(rows, false)})
 }
 
-func ptySessionViews(rows []jobstore.PtySessionRecord) []ptySessionView {
+func (s *Server) handleRecentPtySessions(c *rux.Context) {
+	caller := callerFromCtx(c)
+	limit := parsePtySessionsLimit(c.Query("limit"))
+	if s.ptySessions == nil {
+		c.JSON(http.StatusOK, map[string]any{"sessions": []ptySessionView{}})
+		return
+	}
+	rows, err := s.ptySessions.ListRecentPtySessions(limit)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "pty sessions lookup failed", err.Error())
+		return
+	}
+
+	if s.cfg == nil || !s.cfg.CallerCanAdmin(caller) {
+		filtered := rows[:0]
+		for _, r := range rows {
+			if caller != "" && r.Owner == caller {
+				filtered = append(filtered, r)
+			}
+		}
+		rows = filtered
+	}
+	c.JSON(http.StatusOK, map[string]any{"sessions": ptySessionViews(rows, true)})
+}
+
+func parsePtySessionsLimit(raw string) int {
+	if raw == "" {
+		return 50
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return 50
+	}
+	if n > 200 {
+		return 200
+	}
+	return n
+}
+
+func ptySessionViews(rows []jobstore.PtySessionRecord, includeJobID bool) []ptySessionView {
 	out := make([]ptySessionView, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, ptySessionView{
+		v := ptySessionView{
 			PtySessionID: r.PtySessionID,
 			State:        r.State,
 			Cols:         r.Cols,
@@ -61,7 +102,11 @@ func ptySessionViews(rows []jobstore.PtySessionRecord) []ptySessionView {
 			StartedAt:    r.StartedAt,
 			EndedAt:      r.EndedAt,
 			HasRecording: r.RecordingURI != "",
-		})
+		}
+		if includeJobID {
+			v.JobID = r.JobID
+		}
+		out = append(out, v)
 	}
 	return out
 }
