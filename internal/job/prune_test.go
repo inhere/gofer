@@ -2,7 +2,6 @@ package job
 
 import (
 	"os"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -73,7 +72,7 @@ func TestPruneNoRetentionIsNoop(t *testing.T) {
 	if _, ok, _ := s.meta.GetJob(final.ID); !ok {
 		t.Fatalf("job %q should remain in DB", final.ID)
 	}
-	if _, err := os.Stat(filepath.Join(root, "self", final.ID)); err != nil {
+	if _, err := os.Stat(final.ResultDir); err != nil {
 		t.Fatalf("result dir should remain: %v", err)
 	}
 }

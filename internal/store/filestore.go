@@ -16,8 +16,9 @@ import (
 // tiny threshold without writing 500MB of data.
 var maxPerJobLogBytes int64 = 500 << 20 // 500 MiB
 
-// FileStore is a filesystem-backed Store rooted at a base directory. Each job's
-// log artifacts live under <base>/<job_id>/.
+// FileStore is a filesystem-backed Store rooted at a base directory. New job
+// artifacts live under <base>/<yyyymmdd>/<job_id>/; legacy flat dirs are still
+// readable through Dir.
 type FileStore struct {
 	base string
 }
@@ -30,20 +31,52 @@ func NewFileStore(base string) *FileStore {
 
 // Dir returns the absolute result directory for jobID.
 func (s *FileStore) Dir(jobID string) string {
-	return filepath.Join(s.base, jobID)
+	sub := dateSubdir(jobID)
+	if sub == "" {
+		return filepath.Join(s.base, jobID)
+	}
+	dated := filepath.Join(s.base, sub, jobID)
+	// 兼容历史扁平布局：老 job 仍按原路径读取日志和产物。
+	if !dirExists(dated) {
+		if flat := filepath.Join(s.base, jobID); dirExists(flat) {
+			return flat
+		}
+	}
+	return dated
 }
 
 // Ensure creates the result directory for jobID. It first MkdirAll's the parent
-// base, then creates the job dir with os.Mkdir so an existing dir is reported as
-// a collision (ErrExist) — the job service relies on this to retry the id.
+// date/base dir, then creates the job dir with os.Mkdir so an existing dir is
+// reported as a collision (ErrExist) — the job service relies on this to retry
+// the id.
 func (s *FileStore) Ensure(jobID string) error {
-	if err := os.MkdirAll(s.base, 0o755); err != nil {
-		return fmt.Errorf("mkdir result base: %w", err)
+	dir := s.Dir(jobID)
+	if err := os.MkdirAll(filepath.Dir(dir), 0o755); err != nil {
+		return fmt.Errorf("mkdir result date dir: %w", err)
 	}
-	if err := os.Mkdir(s.Dir(jobID), 0o755); err != nil {
+	if err := os.Mkdir(dir, 0o755); err != nil {
 		return fmt.Errorf("create job dir: %w", err)
 	}
 	return nil
+}
+
+// dateSubdir extracts the yyyymmdd prefix from expected job ids
+// (20060102-...). Store cannot import job, so the shape check stays local.
+func dateSubdir(jobID string) string {
+	if len(jobID) < 9 || jobID[8] != '-' {
+		return ""
+	}
+	for i := 0; i < 8; i++ {
+		if jobID[i] < '0' || jobID[i] > '9' {
+			return ""
+		}
+	}
+	return jobID[:8]
+}
+
+func dirExists(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
 }
 
 // LogWriter opens the stdout/stderr log file for streaming writes, truncating

@@ -23,6 +23,64 @@ func TestEnsureCreatesDirAndDetectsCollision(t *testing.T) {
 	}
 }
 
+func TestEnsureCreatesDatedJobDir(t *testing.T) {
+	base := t.TempDir()
+	fs := NewFileStore(base)
+	jobID := "20260706-150405-1a2b3c4d"
+	if err := fs.Ensure(jobID); err != nil {
+		t.Fatalf("Ensure: %v", err)
+	}
+	want := filepath.Join(base, "20260706", jobID)
+	if got := fs.Dir(jobID); got != want {
+		t.Fatalf("Dir=%q, want %q", got, want)
+	}
+	if fi, err := os.Stat(want); err != nil || !fi.IsDir() {
+		t.Fatalf("dated job dir not created: err=%v", err)
+	}
+}
+
+func TestDirReturnsLegacyFlatDirWhenPresent(t *testing.T) {
+	base := t.TempDir()
+	fs := NewFileStore(base)
+	jobID := "20260706-150405-1a2b3c4d"
+	flat := filepath.Join(base, jobID)
+	if err := os.Mkdir(flat, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if got := fs.Dir(jobID); got != flat {
+		t.Fatalf("Dir=%q, want legacy flat %q", got, flat)
+	}
+}
+
+func TestDatedLogWriterAndReadTail(t *testing.T) {
+	base := t.TempDir()
+	fs := NewFileStore(base)
+	jobID := "20260706-150405-1a2b3c4d"
+	if err := fs.Ensure(jobID); err != nil {
+		t.Fatal(err)
+	}
+	w, err := fs.LogWriter(jobID, StreamStdout)
+	if err != nil {
+		t.Fatalf("LogWriter: %v", err)
+	}
+	if _, err := w.Write([]byte("hello dated log")); err != nil {
+		t.Fatal(err)
+	}
+	if err := w.Close(); err != nil {
+		t.Fatal(err)
+	}
+	got, err := fs.ReadLogTail(jobID, StreamStdout, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(got) != "hello dated log" {
+		t.Fatalf("log=%q, want round-trip", got)
+	}
+	if _, err := os.Stat(filepath.Join(base, "20260706", jobID, StdoutFile)); err != nil {
+		t.Fatalf("dated stdout missing: %v", err)
+	}
+}
+
 func TestLogWriterAndReadTail(t *testing.T) {
 	fs := NewFileStore(t.TempDir())
 	if err := fs.Ensure("j"); err != nil {
