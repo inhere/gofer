@@ -90,16 +90,17 @@ type InteractionSink interface {
 // re-submit to a peer bridge (peer resolves agent/cwd/command with its own
 // config). Nil for local jobs; the local runner ignores it.
 type Forward struct {
-	ProjectKey  string
-	Agent       string
-	PeerRunner  string // runner to use on the peer; default "local"
-	Prompt      string
-	Cmd         []string
-	Cwd         string // ORIGINAL relative cwd; peer SafeJoins against ITS project
-	TimeoutSec  int
-	Interactive bool
-	Cols        int
-	Rows        int
+	ProjectKey   string
+	Agent        string
+	PeerRunner   string // runner to use on the peer; default "local"
+	Prompt       string
+	SystemPrompt string
+	Cmd          []string
+	Cwd          string // ORIGINAL relative cwd; peer SafeJoins against ITS project
+	TimeoutSec   int
+	Interactive  bool
+	Cols         int
+	Rows         int
 	// WorkerID is the resolved target worker for a runner=worker job (P2 dynamic
 	// routing): the explicit req.WorkerID or the one auto-selected from labels.
 	// Empty for peer-http forwards and for worker jobs that rely on the runner's

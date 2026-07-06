@@ -12,6 +12,12 @@ type Resolved struct {
 	Env     map[string]string
 }
 
+// BuildOptions adjusts request resolution for paths with different admission
+// semantics. The default zero value preserves the public Build behaviour.
+type BuildOptions struct {
+	AllowEmptyPrompt bool
+}
+
 // Build turns a single job request into an executable Resolved form. The
 // argv-preserving contract of Render (plan §11) is upheld: nothing is ever
 // joined into a shell string.
@@ -25,6 +31,11 @@ type Resolved struct {
 //     taken from the prompt parameter (vars.Prompt is overwritten to keep them
 //     consistent).
 func (r *Registry) Build(agentKey, prompt string, cmd []string, vars Vars) (Resolved, error) {
+	return r.BuildWithOptions(agentKey, prompt, cmd, vars, BuildOptions{})
+}
+
+// BuildWithOptions is Build with explicit resolution options.
+func (r *Registry) BuildWithOptions(agentKey, prompt string, cmd []string, vars Vars, opts BuildOptions) (Resolved, error) {
 	ac, ok := r.Get(agentKey)
 	if !ok {
 		return Resolved{}, fmt.Errorf("unknown agent %q", agentKey)
@@ -43,7 +54,7 @@ func (r *Registry) Build(agentKey, prompt string, cmd []string, vars Vars) (Reso
 		}, nil
 
 	case TypeCLIAgent:
-		if prompt == "" {
+		if prompt == "" && !opts.AllowEmptyPrompt {
 			return Resolved{}, fmt.Errorf("agent %q (cli-agent) requires a non-empty prompt", agentKey)
 		}
 		if ac.Command == "" {

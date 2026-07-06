@@ -329,6 +329,20 @@ func TestMarkdownSubmitCallerIDOverridden(t *testing.T) {
 	}
 }
 
+func TestMarkdownSubmitDefaultTitleFromBody(t *testing.T) {
+	s := newCLIAgentServer(t, testToken)
+	md := []byte("---\nproject_key: self\nagent: echoagent\nrunner: local\n---\nplease generate a script\n")
+	resp := doRaw(t, s, http.MethodPost, "/v1/jobs", testToken, "text/markdown", md)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d, want 200 (md submit accepted)", resp.StatusCode)
+	}
+	var jr job.JobResult
+	decode(t, resp, &jr)
+	if jr.Title != "please gener" {
+		t.Fatalf("title=%q, want body prefix", jr.Title)
+	}
+}
+
 // TestMarkdownSubmitReachesSubmit: a non-exec md submit forwards to Submit (the
 // agent-allow check rejects an unlisted cli-agent with a 400 whose message is NOT
 // the md-exec guard) — proving the content-type branch parsed and forwarded.

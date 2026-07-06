@@ -6,11 +6,12 @@
 //  - cwd（默认 .）/ title / timeout / sync 勾选
 // 提交成功跳详情；202（仍在后台）提示后仍跳详情（详情页自有 SSE 续看）。
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { getMeta, submitJob } from '../api/client'
 import type { MetaAgent, MetaProject, MetaRunner, MetaWorker } from '../api/types'
 
 const router = useRouter()
+const route = useRoute()
 
 const loading = ref(true)
 const loadError = ref('')
@@ -37,6 +38,13 @@ const sync = ref(false)
 const interactive = ref(false)
 const cols = ref(120)
 const rows = ref(32)
+const sessionMode = computed(() => route.query.mode === 'session' || route.query.interactive === '1')
+const promptLabel = computed(() => (sessionMode.value ? 'PROMPT（可选）' : 'PROMPT（可贴 markdown）'))
+const promptPlaceholder = computed(() =>
+  sessionMode.value
+    ? '可留空；填写后会作为系统提示打开会话'
+    : '描述任务，正文即 prompt...',
+)
 
 // runner=worker 高级项
 const advancedOpen = ref(false)
@@ -149,7 +157,7 @@ const validationError = computed<string>(() => {
   if (!runnerName.value) {
     return '请选择 runner'
   }
-  if (isCliAgent.value && prompt.value.trim() === '') {
+  if (isCliAgent.value && !sessionMode.value && prompt.value.trim() === '') {
     return 'cli-agent 需填写 prompt'
   }
   if (isExec.value && command.value.trim() === '') {
@@ -200,7 +208,11 @@ async function onSubmit() {
       // 提交来源（provenance）：web 控制台固定 channel=web；client(来源 IP)由 server 盖章。
       channel: 'web',
     } as Parameters<typeof submitJob>[0]
-    if (isCliAgent.value) {
+    if (isCliAgent.value && sessionMode.value) {
+      if (prompt.value.trim() !== '') {
+        req.system_prompt = prompt.value.trim()
+      }
+    } else if (isCliAgent.value) {
       req.prompt = prompt.value
     }
     if (isExec.value) {
@@ -245,6 +257,9 @@ async function onSubmit() {
 }
 
 onMounted(() => {
+  if (sessionMode.value) {
+    interactive.value = true
+  }
   void loadMeta()
 })
 </script>
@@ -296,15 +311,18 @@ onMounted(() => {
 
       <!-- cli-agent: prompt 文本域 -->
       <div v-if="isCliAgent" class="field">
-        <label class="label mono" for="nj-prompt">PROMPT（可贴 markdown）</label>
+        <label class="label mono" for="nj-prompt">{{ promptLabel }}</label>
         <textarea
           id="nj-prompt"
           v-model="prompt"
           class="control mono area"
           rows="8"
           spellcheck="false"
-          placeholder="描述任务，正文即 prompt..."
+          :placeholder="promptPlaceholder"
         ></textarea>
+        <p v-if="sessionMode" class="field-hint mono">
+          如果写入会作为系统提示打开会话
+        </p>
       </div>
 
       <!-- exec: command 输入 -->

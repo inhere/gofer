@@ -316,6 +316,64 @@ func TestTitleRoundTripsThroughDB(t *testing.T) {
 	}
 }
 
+func TestDefaultTitleFromCommandRoundTripsThroughDB(t *testing.T) {
+	root := t.TempDir()
+	s := newTestService(t, root)
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("setup: expected done, got %s", final.Status)
+	}
+	const want = "go version"
+	got, ok := s.Get(final.ID)
+	if !ok {
+		t.Fatalf("Get after terminal: job not found")
+	}
+	if got.Title != want {
+		t.Fatalf("default title = %q, want %q", got.Title, want)
+	}
+	var gotReq JobRequest
+	if err := json.Unmarshal([]byte(got.RequestJSON), &gotReq); err != nil {
+		t.Fatalf("request_json not valid JSON: %v", err)
+	}
+	if gotReq.Title != want {
+		t.Fatalf("request_json title = %q, want %q", gotReq.Title, want)
+	}
+}
+
+func TestDefaultJobTitlePrefersCommandThenPrompt(t *testing.T) {
+	cases := []struct {
+		name string
+		req  JobRequest
+		want string
+	}{
+		{
+			name: "command",
+			req:  JobRequest{Cmd: []string{"go", "test", "./internal/job"}, Prompt: "prompt ignored"},
+			want: "go test ./in",
+		},
+		{
+			name: "prompt runes",
+			req:  JobRequest{Prompt: "请打开一个会话并查看状态"},
+			want: "请打开一个会话并查看状态",
+		},
+		{
+			name: "trim",
+			req:  JobRequest{Prompt: "  hello world from prompt  "},
+			want: "hello world",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := defaultJobTitle(tc.req); got != tc.want {
+				t.Fatalf("defaultJobTitle = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestJobIDUniquenessSameSecond(t *testing.T) {
 	root := t.TempDir()
 	s := newTestService(t, root)

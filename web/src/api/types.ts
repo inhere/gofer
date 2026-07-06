@@ -576,6 +576,7 @@ export interface SubmitJobReq {
   agent: string
   runner: string
   prompt?: string
+  system_prompt?: string
   cmd?: string[]
   cwd?: string
   timeout_sec?: number

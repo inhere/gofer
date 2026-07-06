@@ -151,6 +151,7 @@ func TestSubmitWorkerSetsForward(t *testing.T) {
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "remote-w1", WorkerID: "w1",
 		Cmd: []string{"echo", "hi"}, Cwd: "sub/dir", TimeoutSec: 30,
+		SystemPrompt: "keep the session focused",
 	})
 	if final.Status != StatusDone {
 		t.Fatalf("expected done, got %s (err=%s)", final.Status, final.Error)
@@ -166,6 +167,9 @@ func TestSubmitWorkerSetsForward(t *testing.T) {
 	}
 	if stub.gotForward.WorkerID != "w1" {
 		t.Fatalf("Forward.WorkerID = %q, want w1 (explicit routing)", stub.gotForward.WorkerID)
+	}
+	if stub.gotForward.SystemPrompt != "keep the session focused" {
+		t.Fatalf("Forward.SystemPrompt = %q, want system prompt to round-trip", stub.gotForward.SystemPrompt)
 	}
 	if final.WorkerID != "w1" {
 		t.Fatalf("final.WorkerID = %q, want w1", final.WorkerID)
@@ -227,6 +231,27 @@ func TestSubmitInteractiveRunnerSelectionLocalVsWorker(t *testing.T) {
 		}
 		if !pty.reqs[0].Interactive || pty.reqs[0].Cols != 132 || pty.reqs[0].Rows != 43 {
 			t.Fatalf("runner.Request interactive size = (%v,%d,%d), want (true,132,43)", pty.reqs[0].Interactive, pty.reqs[0].Cols, pty.reqs[0].Rows)
+		}
+	})
+
+	t.Run("local interactive allows empty prompt", func(t *testing.T) {
+		pty := &recordingRunner{name: builtinPtyRunner}
+		s := newWorkerTestService(t, t.TempDir(), &stubWorkerRunner{})
+		s.runners[builtinPtyRunner] = pty
+
+		final := submitAndWait(t, s, JobRequest{
+			ProjectKey: "self", Agent: "term", Runner: "local",
+			Interactive: true,
+			Cwd:         ".", TimeoutSec: 30,
+		})
+		if final.Status != StatusDone {
+			t.Fatalf("expected done, got %s (err=%s)", final.Status, final.Error)
+		}
+		if len(pty.reqs) != 1 {
+			t.Fatalf("pty runner calls = %d, want 1", len(pty.reqs))
+		}
+		if pty.reqs[0].Command != "echo" || len(pty.reqs[0].Args) != 1 || pty.reqs[0].Args[0] != "" {
+			t.Fatalf("runner request command/args = %q %#v, want echo with empty prompt arg", pty.reqs[0].Command, pty.reqs[0].Args)
 		}
 	})
 }
