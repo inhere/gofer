@@ -12,6 +12,7 @@ const routes: RouteRecordRaw[] = [
   },
   { path: '/dashboard', name: 'dashboard', component: () => import('./views/Dashboard.vue') },
   { path: '/board', name: 'board', component: () => import('./views/Board.vue') },
+  { path: '/sessions', name: 'sessions', component: () => import('./views/Sessions.vue') },
   { path: '/new', name: 'new-job', component: () => import('./views/NewJob.vue') },
   {
     path: '/jobs/:id',
