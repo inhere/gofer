@@ -40,8 +40,12 @@ func (s *Server) handleAttachTicket(c *rux.Context) {
 		writeError(c, http.StatusConflict, "relay not live", "job has no live pty relay")
 		return
 	}
+	if !s.canAttachNow(caller, res) {
+		writeError(c, http.StatusConflict, "relay not live", "job has no open pty relay")
+		return
+	}
 	entry, ok := s.ptyRelays.Lookup(id)
-	if !ok || entry.Relay == nil || (entry.State != ptyrelay.RelayOpen && entry.State != ptyrelay.RelayAttached) {
+	if !ok {
 		writeError(c, http.StatusConflict, "relay not live", "job has no open pty relay")
 		return
 	}
@@ -82,4 +86,16 @@ func (s *Server) callerMayAttach(caller string, job job.JobResult) bool {
 		return s.cfg != nil && s.cfg.CallerCanAdmin(caller)
 	}
 	return job.CallerID == caller || (s.cfg != nil && s.cfg.CallerCanAdmin(caller))
+}
+
+func (s *Server) canAttachNow(caller string, res job.JobResult) bool {
+	if !res.Interactive || job.IsTerminal(res.Status) || !s.callerMayAttach(caller, res) {
+		return false
+	}
+	if s.ptyRelays == nil {
+		return false
+	}
+	entry, ok := s.ptyRelays.Lookup(res.ID)
+	return ok && entry.Relay != nil &&
+		(entry.State == ptyrelay.RelayOpen || entry.State == ptyrelay.RelayAttached)
 }
