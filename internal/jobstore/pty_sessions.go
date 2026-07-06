@@ -118,6 +118,32 @@ func (s *Store) GetPtySessionByJob(jobID string) (PtySessionRecord, bool, error)
 	return rec, true, nil
 }
 
+// ListPtySessionsByJob returns every pty session for a job, newest first. The
+// returned slice is always non-nil so HTTP list responses serialize as [].
+func (s *Store) ListPtySessionsByJob(jobID string) ([]PtySessionRecord, error) {
+	rows, err := s.db.Query(
+		selectPtyCols+" WHERE job_id = ? ORDER BY started_at DESC, pty_session_id DESC",
+		jobID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: list pty sessions by job %q: %w", jobID, err)
+	}
+	defer rows.Close()
+
+	out := make([]PtySessionRecord, 0)
+	for rows.Next() {
+		rec, scanErr := scanPtySession(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("jobstore: list pty sessions by job %q scan: %w", jobID, scanErr)
+		}
+		out = append(out, rec)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("jobstore: list pty sessions by job %q rows: %w", jobID, err)
+	}
+	return out, nil
+}
+
 // ExpireCastRecordings clears the recording of every closed pty session whose cast
 // TTL has elapsed (retention regime 1, design §D-P3-6). It runs in one transaction:
 // SELECT the expired recording_uris (so the caller can best-effort delete the cast
