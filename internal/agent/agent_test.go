@@ -81,6 +81,17 @@ func TestBuildCLIAgentEmptyPromptFails(t *testing.T) {
 	}
 }
 
+func TestBuildCLIAgentEmptyPromptAllowedByOption(t *testing.T) {
+	reg := NewRegistry(testConfig())
+	res, err := reg.BuildWithOptions("codex", "", nil, Vars{}, BuildOptions{AllowEmptyPrompt: true})
+	if err != nil {
+		t.Fatalf("build codex with empty prompt option: %v", err)
+	}
+	if res.Command != "codex" || len(res.Args) != 2 || res.Args[1] != "" {
+		t.Fatalf("resolved = %+v, want codex exec with empty prompt arg", res)
+	}
+}
+
 // TestBuildExecNoCmdFails: exec agent with no cmd must error.
 func TestBuildExecNoCmdFails(t *testing.T) {
 	reg := NewRegistry(testConfig())

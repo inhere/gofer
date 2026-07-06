@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/inhere/gofer/internal/agent"
@@ -53,6 +54,10 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// numbering is meaningful. A plain non-retry job leaves it 0 (omitempty).
 	if req.Attempt < 1 && (req.Retry != nil || req.WorkflowID != "") {
 		req.Attempt = 1
+	}
+
+	if strings.TrimSpace(req.Title) == "" {
+		req.Title = defaultJobTitle(req)
 	}
 
 	// Resolve the target worker for a worker runner when worker_id was not given
@@ -137,16 +142,17 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	runReq.Rows = req.Rows
 	if remote {
 		runReq.Forward = &runner.Forward{
-			ProjectKey:  req.ProjectKey,
-			Agent:       req.Agent,
-			PeerRunner:  builtinLocalRunner,
-			Prompt:      req.Prompt,
-			Cmd:         req.Cmd,
-			Cwd:         req.Cwd,
-			TimeoutSec:  req.TimeoutSec,
-			Interactive: req.Interactive,
-			Cols:        req.Cols,
-			Rows:        req.Rows,
+			ProjectKey:   req.ProjectKey,
+			Agent:        req.Agent,
+			PeerRunner:   builtinLocalRunner,
+			Prompt:       req.Prompt,
+			Cmd:          req.Cmd,
+			Cwd:          req.Cwd,
+			TimeoutSec:   req.TimeoutSec,
+			Interactive:  req.Interactive,
+			Cols:         req.Cols,
+			Rows:         req.Rows,
+			SystemPrompt: req.SystemPrompt,
 			// P2: the resolved target worker (explicit req.WorkerID or label-selected
 			// in selectTargetWorker). Empty for peer-http and for worker jobs relying
 			// on the runner's configured default (D4).
@@ -155,11 +161,11 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		// Bridge the peer's running-job interactions (P9) onto this host job.
 		runReq.Interactions = remoteInteractionSink{s: s, jobID: jobID}
 	} else {
-		resolved, berr := s.agents.Build(req.Agent, req.Prompt, req.Cmd, agent.Vars{
+		resolved, berr := s.agents.BuildWithOptions(req.Agent, req.Prompt, req.Cmd, agent.Vars{
 			Cwd:       workDir,
 			JobID:     jobID,
 			ResultDir: resultDir,
-		})
+		}, agent.BuildOptions{AllowEmptyPrompt: req.Interactive})
 		if berr != nil {
 			return JobResult{}, berr
 		}
@@ -318,6 +324,25 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	go s.execute(entry, run, sem, callerSem, runReq, timeout)
 
 	return entry.snapshot(), nil
+}
+
+func defaultJobTitle(req JobRequest) string {
+	if len(req.Cmd) > 0 {
+		return trimTitleRunes(strings.Join(req.Cmd, " "))
+	}
+	return trimTitleRunes(req.Prompt)
+}
+
+func trimTitleRunes(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	r := []rune(s)
+	if len(r) > 12 {
+		r = r[:12]
+	}
+	return strings.TrimSpace(string(r))
 }
 
 // createJobDir generates a unique job id and creates its result dir, retrying on

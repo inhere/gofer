@@ -62,14 +62,19 @@ onMounted(() => {
         <h1 class="sessions-title mono">Sessions</h1>
         <p class="sessions-sub mono">最近终端会话</p>
       </div>
-      <button
-        class="refresh mono"
-        type="button"
-        :disabled="loading"
-        @click="load"
-      >
-        {{ loading ? '刷新中…' : '刷新' }}
-      </button>
+      <div class="head-actions">
+        <RouterLink class="head-action head-action--primary mono" to="/new?mode=session">
+          新建会话
+        </RouterLink>
+        <button
+          class="head-action mono"
+          type="button"
+          :disabled="loading"
+          @click="load"
+        >
+          {{ loading ? '刷新中…' : '刷新' }}
+        </button>
+      </div>
     </header>
 
     <p v-if="error" class="error mono">{{ error }}</p>
@@ -133,7 +138,13 @@ onMounted(() => {
   color: var(--queue);
   font-size: 12px;
 }
-.refresh {
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+}
+.head-action {
   flex: none;
   background: transparent;
   color: var(--queue);
@@ -141,14 +152,23 @@ onMounted(() => {
   border-radius: var(--radius);
   padding: 4px 12px;
   font-size: 12px;
+  text-decoration: none;
 }
-.refresh:hover:not(:disabled) {
+.head-action:hover:not(:disabled) {
   color: var(--phosphor);
   border-color: var(--phosphor);
 }
-.refresh:disabled {
+.head-action:disabled {
   cursor: default;
   opacity: 0.5;
+}
+.head-action--primary {
+  background: var(--phosphor);
+  border-color: var(--phosphor);
+  color: var(--ink);
+}
+.head-action--primary:hover {
+  color: var(--ink);
 }
 .error {
   color: var(--fail);

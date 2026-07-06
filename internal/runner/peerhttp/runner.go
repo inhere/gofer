@@ -68,13 +68,14 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		peerRunner = defaultPeerRunner
 	}
 	jr := job.JobRequest{
-		ProjectKey: f.ProjectKey,
-		Agent:      f.Agent,
-		Runner:     peerRunner,
-		Prompt:     f.Prompt,
-		Cmd:        f.Cmd,
-		Cwd:        f.Cwd,
-		TimeoutSec: f.TimeoutSec,
+		ProjectKey:   f.ProjectKey,
+		Agent:        f.Agent,
+		Runner:       peerRunner,
+		Prompt:       f.Prompt,
+		SystemPrompt: f.SystemPrompt,
+		Cmd:          f.Cmd,
+		Cwd:          f.Cwd,
+		TimeoutSec:   f.TimeoutSec,
 	}
 
 	peerRes, err := r.c.SubmitJob(jr)

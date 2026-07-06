@@ -206,6 +206,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		Agent:        f.Agent,
 		Runner:       "local",
 		Prompt:       f.Prompt,
+		SystemPrompt: f.SystemPrompt,
 		Cmd:          f.Cmd,
 		Cwd:          f.Cwd,
 		TimeoutSec:   f.TimeoutSec,

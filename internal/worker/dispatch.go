@@ -44,13 +44,14 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 	}
 
 	res, err := cl.jobs.Submit(job.JobRequest{
-		ProjectKey: d.ProjectKey,
-		Agent:      d.Agent,
-		Runner:     builtinLocalRunner, // always local on the worker
-		Prompt:     d.Prompt,
-		Cmd:        d.Cmd,
-		Cwd:        d.Cwd,
-		TimeoutSec: d.TimeoutSec,
+		ProjectKey:   d.ProjectKey,
+		Agent:        d.Agent,
+		Runner:       builtinLocalRunner, // always local on the worker
+		Prompt:       d.Prompt,
+		SystemPrompt: d.SystemPrompt,
+		Cmd:          d.Cmd,
+		Cwd:          d.Cwd,
+		TimeoutSec:   d.TimeoutSec,
 		// T5 projection: carry the interactive flag + initial window so the worker's
 		// own job.Service picks its pty runner (Interactive && !remote). Zero-valued
 		// for a non-interactive dispatch → byte-for-byte the existing path (G023).
