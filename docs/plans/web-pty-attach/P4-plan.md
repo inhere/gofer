@@ -72,7 +72,7 @@ T3(前端基建: xterm 依赖+types+client) ─▶ T4(AttachTerminal 核心) ─
 - [x] T0 后端：job 详情 `can_attach` 计算位 — `a17702f`
 - [x] T1 后端：attach WS `{t:hello,write,cols,rows}` 首帧 + `{t:x,code?}` best-effort 退出帧 — `c490307`
 - [x] T2 后端：`GET /v1/jobs/{id}/pty/sessions` + jobstore `ListPtySessionsByJob` + 窄接口拓宽 — `e8b02b3`
-- [ ] T3 前端基建：`@xterm/xterm`+`addon-fit` 依赖 + api/types(Job.interactive/can_attach + PtySession) + api/client(attachTicket/downloadRecording/listPtySessions)
+- [x] T3 前端基建：`@xterm/xterm`+`addon-fit` 依赖 + api/types(Job.interactive/can_attach + PtySession) + api/client(attachTicket/downloadRecording/listPtySessions) + api/attach.ts 纯函数 — `(Wave B `386551e`, host pnpm build 绿)`
 - [ ] T4 前端：`AttachTerminal.vue` 核心（xterm+fit+ticket+WS 双向泵+resize+scrollback+hello/exit/close）
 - [ ] T5 前端：AttachTerminal 只读模式 + 断线自动重连（5min 窗口）
 - [ ] T6 前端：JobDetail「打开终端」入口（interactive+can_attach）+ 终端 drawer + 退出 refetch
