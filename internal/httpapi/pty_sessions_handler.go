@@ -12,6 +12,7 @@ import (
 type ptySessionView struct {
 	PtySessionID string `json:"pty_session_id"`
 	JobID        string `json:"job_id,omitempty"`
+	SessionID    string `json:"session_id,omitempty"`
 	State        string `json:"state"`
 	Cols         int    `json:"cols"`
 	Rows         int    `json:"rows"`
@@ -46,7 +47,7 @@ func (s *Server) handlePtySessions(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "pty sessions lookup failed", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, map[string]any{"sessions": ptySessionViews(rows, false)})
+	c.JSON(http.StatusOK, map[string]any{"sessions": s.ptySessionViews(rows, false)})
 }
 
 func (s *Server) handleRecentPtySessions(c *rux.Context) {
@@ -71,7 +72,7 @@ func (s *Server) handleRecentPtySessions(c *rux.Context) {
 		}
 		rows = filtered
 	}
-	c.JSON(http.StatusOK, map[string]any{"sessions": ptySessionViews(rows, true)})
+	c.JSON(http.StatusOK, map[string]any{"sessions": s.ptySessionViews(rows, true)})
 }
 
 func parsePtySessionsLimit(raw string) int {
@@ -88,11 +89,12 @@ func parsePtySessionsLimit(raw string) int {
 	return n
 }
 
-func ptySessionViews(rows []jobstore.PtySessionRecord, includeJobID bool) []ptySessionView {
+func (s *Server) ptySessionViews(rows []jobstore.PtySessionRecord, includeJobID bool) []ptySessionView {
 	out := make([]ptySessionView, 0, len(rows))
 	for _, r := range rows {
 		v := ptySessionView{
 			PtySessionID: r.PtySessionID,
+			SessionID:    s.sessionIDForJob(r.JobID),
 			State:        r.State,
 			Cols:         r.Cols,
 			Rows:         r.Rows,
@@ -109,4 +111,15 @@ func ptySessionViews(rows []jobstore.PtySessionRecord, includeJobID bool) []ptyS
 		out = append(out, v)
 	}
 	return out
+}
+
+func (s *Server) sessionIDForJob(jobID string) string {
+	if s == nil || s.jobs == nil || jobID == "" {
+		return ""
+	}
+	res, ok := s.jobs.Get(jobID)
+	if !ok {
+		return ""
+	}
+	return res.SessionID
 }

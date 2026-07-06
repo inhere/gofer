@@ -29,6 +29,14 @@ func TestPtySessionsOwnerViewHidesSensitiveFields(t *testing.T) {
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
 	})
 	dir := addRecordingJob(t, s, "job-sessions", "alice", "")
+	rec, ok, err := s.jobs.Meta().GetJob("job-sessions")
+	if err != nil || !ok {
+		t.Fatalf("get recording job: ok=%v err=%v", ok, err)
+	}
+	rec.SessionID = "sid-pty-sessions"
+	if err := s.jobs.Meta().UpsertJob(rec); err != nil {
+		t.Fatalf("upsert recording job session id: %v", err)
+	}
 	now := time.Now().Unix()
 	if err := s.jobs.Meta().UpsertPtySession(jobstore.PtySessionRecord{
 		PtySessionID: "pty-old", JobID: "job-sessions", WorkerID: "w1", InstanceID: "inst-secret",
@@ -55,7 +63,8 @@ func TestPtySessionsOwnerViewHidesSensitiveFields(t *testing.T) {
 	}
 	first := sessions[0].(map[string]any)
 	if first["pty_session_id"] != "pty-new" || first["encrypted"] != true ||
-		first["has_recording"] != true || int(first["cols"].(float64)) != 120 {
+		first["has_recording"] != true || first["session_id"] != "sid-pty-sessions" ||
+		int(first["cols"].(float64)) != 120 {
 		t.Fatalf("first session = %#v", first)
 	}
 	second := sessions[1].(map[string]any)

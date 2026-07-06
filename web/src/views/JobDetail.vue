@@ -3,6 +3,7 @@
 //  - SSE from 仅用于断线重连（已收 stdout 字节数）。
 //  - status 事件回填头部/徽标/耗时；end/终态停 live；running 显示 cancel。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import StatusBadge from '../components/StatusBadge.vue'
@@ -46,6 +47,7 @@ import type {
 } from '../api/types'
 
 const props = defineProps<{ id: string }>()
+const route = useRoute()
 
 const job = ref<Job | null>(null)
 const stdout = ref('')
@@ -475,6 +477,9 @@ onMounted(async () => {
   // 先取头部（即便 stream 也会回填，但 getJob 让头部更快可见）
   try {
     job.value = await getJob(props.id)
+    if (route.query.attach === '1') {
+      openTerminal()
+    }
   } catch (e) {
     headError.value = e instanceof Error ? e.message : String(e)
   }
