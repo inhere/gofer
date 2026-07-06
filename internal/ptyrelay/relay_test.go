@@ -527,6 +527,22 @@ func TestWithCastViaOpen(t *testing.T) {
 	}
 }
 
+func TestOutputObserverReceivesChunks(t *testing.T) {
+	src := newFakeSource()
+	var got bytes.Buffer
+	r := New(src, WithOutputObserver(func(b []byte) {
+		got.Write(b)
+	}))
+	r.Start()
+	src.Emit([]byte("session id: abc\n"))
+	waitFor(t, 2*time.Second, func() bool { return r.RecordedLen() >= len("session id: abc\n") })
+	if got.String() != "session id: abc\n" {
+		t.Fatalf("observer got %q", got.String())
+	}
+	src.EmitDone()
+	waitDone(t, r, 2*time.Second)
+}
+
 // readViewer reads from a viewer's output queue until it has accumulated at least
 // want bytes or the deadline elapses.
 func readViewer(t *testing.T, v *Viewer, want int, d time.Duration) []byte {

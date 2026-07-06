@@ -95,6 +95,38 @@ func TestBuiltinSessionDefaultsCodex(t *testing.T) {
 	}
 }
 
+func TestInteractiveAliasSessionDefaultsFromCommand(t *testing.T) {
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"tty-claude": {Type: TypeCLIAgent, Command: "claude", Interactive: true},
+		"tty-codex":  {Type: TypeCLIAgent, Command: `C:\tools\codex.exe`, Interactive: true},
+	}}
+	claude, _ := ResolveAgent(cfg, "tty-claude")
+	if len(claude.SessionInject) != 2 || claude.SessionInject[0] != "--session-id" {
+		t.Fatalf("tty-claude SessionInject = %#v, want claude inject default", claude.SessionInject)
+	}
+	if len(claude.SessionResume) != 4 || claude.SessionResume[0] != "--resume" {
+		t.Fatalf("tty-claude SessionResume = %#v, want claude resume default", claude.SessionResume)
+	}
+
+	codex, _ := ResolveAgent(cfg, "tty-codex")
+	if codex.SessionCapture != `session id:\s*([0-9a-f-]+)` {
+		t.Fatalf("tty-codex SessionCapture = %q, want codex capture default", codex.SessionCapture)
+	}
+	if len(codex.SessionResume) != 4 || codex.SessionResume[0] != "exec" {
+		t.Fatalf("tty-codex SessionResume = %#v, want codex resume default", codex.SessionResume)
+	}
+}
+
+func TestNonInteractiveAliasDoesNotGainSessionDefaults(t *testing.T) {
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"claude-sup": {Type: TypeCLIAgent, Command: "claude"},
+	}}
+	ac, _ := ResolveAgent(cfg, "claude-sup")
+	if len(ac.SessionInject) != 0 || ac.SessionCapture != "" || len(ac.SessionResume) != 0 {
+		t.Fatalf("non-interactive claude alias gained session defaults: %#v", ac)
+	}
+}
+
 // TestExplicitSessionConfigWinsOverBuiltin: an explicit session field is NOT
 // overwritten by the built-in default (per-field, independently).
 func TestExplicitSessionConfigWinsOverBuiltin(t *testing.T) {

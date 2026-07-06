@@ -65,12 +65,13 @@ var castCloseGrace = 2 * time.Second
 type Relay struct {
 	src  PtySource
 	cast CastSink // optional cast sink; nil = no recording
+	obs  OutputObserver
 
 	mu          sync.Mutex
 	ring        *ring
 	viewers     map[int]*Viewer
 	nextID      int
-	leaseHolder int  // viewer id holding the write lease; 0 = free
+	leaseHolder int // viewer id holding the write lease; 0 = free
 	closed      bool
 	started     bool
 
@@ -102,6 +103,14 @@ func WithViewerQueue(n int) Option { return func(r *Relay) { r.viewerQueue = n }
 
 // WithCast sets the recorder's cast sink (raw byte recording).
 func WithCast(w CastSink) Option { return func(r *Relay) { r.cast = w } }
+
+// OutputObserver receives every output chunk after the recorder's ring/cast
+// write. It is for tiny metadata extraction, e.g. detecting an agent session id;
+// implementations must not block the relay.
+type OutputObserver func([]byte)
+
+// WithOutputObserver wires a non-owning observer for pty output chunks.
+func WithOutputObserver(fn OutputObserver) Option { return func(r *Relay) { r.obs = fn } }
 
 // New builds a Relay over src. Call Start once to begin recording.
 func New(src PtySource, opts ...Option) *Relay {
@@ -153,6 +162,9 @@ func (r *Relay) recordLoop() {
 			r.ring.Write(chunk)
 			if r.cast != nil {
 				_, _ = r.cast.Write(chunk)
+			}
+			if r.obs != nil {
+				r.obs(chunk)
 			}
 			// Fan-out (may drop): each viewer's own bounded queue.
 			r.fanout(chunk)

@@ -158,6 +158,24 @@ func captureSessionID(path, reSrc string) string {
 	return strings.TrimSpace(string(m[1]))
 }
 
+// CaptureSessionIDBytes extracts the first capture group from b using the same
+// cached regex path as terminal log capture. It is exported for PTY relay output
+// observation, where interactive agent output does not enter stdout/stderr logs.
+func CaptureSessionIDBytes(b []byte, reSrc string) string {
+	if len(b) == 0 || reSrc == "" {
+		return ""
+	}
+	re := compileSessionRe(reSrc)
+	if re == nil {
+		return ""
+	}
+	m := re.FindSubmatch(b)
+	if len(m) < 2 {
+		return ""
+	}
+	return strings.TrimSpace(string(m[1]))
+}
+
 // compileSessionRe 返回 reSrc 编译后的正则（带缓存）；非法正则返回 nil（记一次 warning）。
 func compileSessionRe(reSrc string) *regexp.Regexp {
 	if v, ok := sessionReCache.Load(reSrc); ok {

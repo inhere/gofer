@@ -5,7 +5,9 @@
 package agent
 
 import (
+	"path/filepath"
 	"sort"
+	"strings"
 	"sync/atomic"
 
 	"github.com/inhere/gofer/internal/config"
@@ -120,7 +122,7 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 // unchanged. The input is a copy (value receiver upstream), so this never mutates
 // the loaded config.
 func applySessionDefaults(key string, a config.AgentConfig) config.AgentConfig {
-	def, ok := builtinSessionDefaults[key]
+	def, ok := builtinSessionDefaultFor(key, a)
 	if !ok {
 		return a
 	}
@@ -137,6 +139,21 @@ func applySessionDefaults(key string, a config.AgentConfig) config.AgentConfig {
 		a.SystemInject = def.SystemInject
 	}
 	return a
+}
+
+func builtinSessionDefaultFor(key string, a config.AgentConfig) (config.AgentConfig, bool) {
+	if def, ok := builtinSessionDefaults[key]; ok {
+		return def, true
+	}
+	if !a.Interactive {
+		return config.AgentConfig{}, false
+	}
+	command := strings.ToLower(filepath.Base(a.Command))
+	if strings.HasSuffix(command, ".exe") {
+		command = strings.TrimSuffix(command, ".exe")
+	}
+	def, ok := builtinSessionDefaults[command]
+	return def, ok
 }
 
 // Names returns all agent keys (config-declared plus the built-in exec), sorted
