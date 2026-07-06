@@ -45,6 +45,9 @@ const promptPlaceholder = computed(() =>
     ? '可留空；填写后会作为系统提示打开会话'
     : '描述任务，正文即 prompt...',
 )
+const timeoutPlaceholder = computed(() =>
+  interactive.value ? '不填则无超时' : '不填则默认 300s',
+)
 
 // runner=worker 高级项
 const advancedOpen = ref(false)
@@ -472,7 +475,7 @@ onMounted(() => {
             class="control mono"
             type="number"
             min="1"
-            placeholder="默认无超时"
+            :placeholder="timeoutPlaceholder"
           />
         </div>
         <div class="field field--check">
