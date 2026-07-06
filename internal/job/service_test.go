@@ -119,6 +119,18 @@ func TestSubmitTimeout(t *testing.T) {
 	}
 }
 
+func TestNormalizeTimeoutInteractiveUnsetMeansNoDeadline(t *testing.T) {
+	if got := normalizeTimeout(0, true); got != 0 {
+		t.Fatalf("interactive unset timeout = %s, want no deadline", got)
+	}
+	if got := normalizeTimeout(1, true); got != time.Second {
+		t.Fatalf("interactive explicit timeout = %s, want 1s", got)
+	}
+	if got := normalizeTimeout(0, false); got != DefaultTimeoutSec*time.Second {
+		t.Fatalf("non-interactive unset timeout = %s, want default", got)
+	}
+}
+
 func TestSubmitCancel(t *testing.T) {
 	s := newTestService(t, t.TempDir())
 	res, err := s.Submit(JobRequest{

@@ -320,7 +320,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// snapshot (caller override > governance default > unlimited). nil when the
 	// caller has no cap or no id — then execute does not gate on it.
 	callerSem := s.callerSemaphore(req.CallerID, cfg.Server.CallerConcurrencyLimit(req.CallerID))
-	timeout := normalizeTimeout(req.TimeoutSec)
+	timeout := normalizeTimeout(req.TimeoutSec, req.Interactive)
 	go s.execute(entry, run, sem, callerSem, runReq, timeout)
 
 	return entry.snapshot(), nil
@@ -456,7 +456,12 @@ func newUUID() string {
 }
 
 // normalizeTimeout applies the default and clamps to the max (plan §9 P4).
-func normalizeTimeout(sec int) time.Duration {
+// Interactive sessions are resident terminals: an omitted timeout means no job
+// deadline, while an explicit timeout_sec still bounds the session.
+func normalizeTimeout(sec int, interactive bool) time.Duration {
+	if interactive && sec <= 0 {
+		return 0
+	}
 	if sec <= 0 {
 		sec = DefaultTimeoutSec
 	}
