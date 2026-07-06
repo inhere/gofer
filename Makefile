@@ -136,7 +136,7 @@ release: build-all ## Create release archives for all platforms TODO 还未启�
 	tar -czf ../release/$(APP)-darwin-arm64.tar.gz $(APP)-darwin-arm64; \
 	zip ../release/$(APP)-windows-amd64.zip $(APP)-windows-amd64.exe;
 	@echo "Release archives created in release/"
-	ls -lh ../release
+	ls -lh release
 
 ## clean: remove build artifacts
 clean:
