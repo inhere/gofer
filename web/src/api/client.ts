@@ -290,6 +290,11 @@ export function listPtySessions(id: string): Promise<PtySessionsResp> {
   )
 }
 
+export function listRecentPtySessions(limit?: number): Promise<PtySessionsResp> {
+  const qs = limit != null ? `?limit=${encodeURIComponent(String(limit))}` : ''
+  return request<PtySessionsResp>(`/v1/pty/sessions${qs}`)
+}
+
 export function logsTail(id: string, stream: LogStream): Promise<string> {
   return requestText(
     `/v1/jobs/${encodeURIComponent(id)}/logs/${stream}?bytes=262144`,

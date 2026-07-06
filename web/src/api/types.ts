@@ -57,6 +57,7 @@ export interface Job {
 
 export interface PtySession {
   pty_session_id: string
+  job_id?: string
   state: string
   cols: number
   rows: number

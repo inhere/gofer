@@ -94,6 +94,7 @@ const navGroups = [
     label: '观察',
     items: [
       { to: '/board', label: 'Board' },
+      { to: '/sessions', label: 'Sessions' },
       { to: '/workflows', label: 'Workflows' },
       { to: '/schedules', label: 'Schedules' },
     ],

@@ -10,10 +10,12 @@ import Signal from '../components/Signal.vue'
 import LogTape from '../components/LogTape.vue'
 import InteractionCard from '../components/InteractionCard.vue'
 import FilePreview from '../components/FilePreview.vue'
+import AttachTerminal from '../components/AttachTerminal.vue'
 import {
   answerInteraction,
   cancelJob,
   downloadArtifact,
+  downloadPtyRecording,
   fetchArtifactBlob,
   fetchDiffText,
   fetchJobLog,
@@ -22,6 +24,7 @@ import {
   listArtifacts,
   listDeliveries,
   listEvents,
+  listPtySessions,
   puntInteraction,
 } from '../api/client'
 import { appendCapped, streamJob } from '../api/sse'
@@ -34,6 +37,7 @@ import type {
   JobEvent,
   JobStatus,
   LogStream,
+  PtySession,
   SSEEvent,
   SSEInteractionData,
   SSEJobEventData,
@@ -249,6 +253,15 @@ function isTerminal(s: JobStatus | undefined): boolean {
 const status = computed<JobStatus>(() => job.value?.status ?? 'queued')
 const live = computed(() => status.value === 'running')
 const showCancel = computed(() => status.value === 'running' && !cancelling.value)
+const canOpenTerminal = computed(
+  () =>
+    !!job.value?.interactive &&
+    status.value === 'running' &&
+    !!job.value?.can_attach,
+)
+const showTerminalButton = computed(
+  () => !!job.value?.interactive && status.value === 'running',
+)
 // 头部 exit_code 仅在终态展示（运行中无意义）
 const isTerminalView = computed(() => isTerminal(job.value?.status))
 const stdoutCanLoadEarlier = computed(() => canLoadEarlier('stdout'))
@@ -471,6 +484,8 @@ onMounted(async () => {
   void loadTimeline()
   // webhook 投递状态（E14）：拉一次只读快照（无通知配置时为空，整节不展示）。
   void loadDeliveries()
+  // pty 会话元数据：只读辅助面板，失败不阻断详情主流程。
+  void loadPtySessions()
   if (isTerminal(job.value?.status)) {
     // 终态 job 不再走 SSE 全量回放：按行分页加载，避免 2MiB 前端窗口丢历史。
     void loadTerminalLogs()
@@ -501,6 +516,54 @@ function fmtTime(v: string | number | undefined): string {
 function shortId(id: string): string {
   return id.length > 8 ? id.slice(-8) : id
 }
+
+// ── 浏览器终端 attach（WEB-03 P4）──────────────────────────────────
+const terminalOpen = ref(false)
+const termMode = ref<'write' | 'read'>('write')
+const termExitCode = ref<number | null>(null)
+const termExited = ref(false)
+const termError = ref('')
+
+function openTerminal(): void {
+  if (!canOpenTerminal.value) {
+    return
+  }
+  termError.value = ''
+  termExited.value = false
+  termExitCode.value = null
+  terminalOpen.value = true
+}
+
+function closeTerminal(): void {
+  terminalOpen.value = false
+}
+
+async function refreshJob(): Promise<void> {
+  try {
+    job.value = { ...(job.value ?? {}), ...(await getJob(props.id)) } as Job
+  } catch {
+    // 终端 ready 状态是辅助态，刷新失败不影响详情主流程。
+  }
+}
+
+async function onTermExit(code?: number): Promise<void> {
+  termExited.value = true
+  termExitCode.value = code ?? null
+  await refreshJob()
+  void loadPtySessions()
+}
+
+function onTermError(msg: string): void {
+  termError.value = msg
+}
+
+const terminalExitText = computed(() => {
+  if (!termExited.value && !isTerminalView.value) {
+    return ''
+  }
+  const code = isTerminalView.value ? job.value?.exit_code : termExitCode.value
+  return code == null ? '进程已退出' : `进程已退出 · exit ${code}`
+})
 
 // ── 产出与审计（job-outcomes-audit）──────────────────────────────
 // 渲染命令(E15)：后端 rendered_command 是 {command,args,env_keys} 的 JSON 字符串。
@@ -586,6 +649,47 @@ async function loadDeliveries(): Promise<void> {
     deliveries.value = resp.deliveries ?? []
   } catch {
     // 投递为辅助信息：拉取失败静默（不影响详情主流程）。
+  }
+}
+
+// ── pty sessions 元数据（WEB-03 P4）───────────────────────────────
+const ptySessions = ref<PtySession[]>([])
+const ptySessionError = ref('')
+const downloadingRecordingIds = ref<Set<string>>(new Set())
+
+async function loadPtySessions(): Promise<void> {
+  try {
+    const resp = await listPtySessions(props.id)
+    ptySessions.value = resp.sessions ?? []
+    ptySessionError.value = ''
+  } catch (e) {
+    ptySessionError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+function ptySessionDuration(s: PtySession): string {
+  const end = s.ended_at && s.ended_at > 0 ? s.ended_at : nowSec.value
+  return fmtDuration(Math.max(0, end - s.started_at))
+}
+
+function ptySessionBytes(s: PtySession): string {
+  return `输入 ${s.bytes_in} / 输出 ${s.bytes_out} 字节`
+}
+
+async function onDownloadRecording(sessionID: string): Promise<void> {
+  if (downloadingRecordingIds.value.has(sessionID)) {
+    return
+  }
+  ptySessionError.value = ''
+  downloadingRecordingIds.value = new Set(downloadingRecordingIds.value).add(sessionID)
+  try {
+    await downloadPtyRecording(props.id)
+  } catch (e) {
+    ptySessionError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    const next = new Set(downloadingRecordingIds.value)
+    next.delete(sessionID)
+    downloadingRecordingIds.value = next
   }
 }
 
@@ -761,6 +865,16 @@ async function copyCommand(): Promise<void> {
       <div class="head-right">
         <StatusBadge v-if="job" :status="status" />
         <Signal v-if="job" :status="status" :rate="logRate" :duration-sec="durationSec" />
+        <button
+          v-if="showTerminalButton"
+          class="terminal-open mono"
+          type="button"
+          :disabled="!canOpenTerminal"
+          :title="canOpenTerminal ? '打开终端' : '终端未就绪，稍后重试'"
+          @click="openTerminal"
+        >
+          打开终端
+        </button>
         <button
           v-if="showCancel"
           class="cancel mono"
@@ -957,6 +1071,34 @@ async function copyCommand(): Promise<void> {
       </ul>
     </section>
 
+    <!-- 终端会话：pty relay 元数据与录制下载入口。 -->
+    <section v-if="ptySessions.length > 0" class="pty-sessions">
+      <h2 class="pty-sessions-title mono">终端会话</h2>
+      <ul class="pty-sessions-list">
+        <li
+          v-for="s in ptySessions"
+          :key="s.pty_session_id"
+          class="pty-session-row"
+        >
+          <span class="pty-size mono">{{ s.cols }}×{{ s.rows }}</span>
+          <span class="pty-bytes mono">{{ ptySessionBytes(s) }}</span>
+          <span class="pty-duration mono">{{ ptySessionDuration(s) }}</span>
+          <span v-if="s.encrypted" class="pty-encrypted mono">加密</span>
+          <span class="pty-state mono">{{ s.state }}</span>
+          <button
+            v-if="s.has_recording"
+            class="pty-download mono"
+            type="button"
+            :disabled="downloadingRecordingIds.has(s.pty_session_id)"
+            @click="onDownloadRecording(s.pty_session_id)"
+          >
+            {{ downloadingRecordingIds.has(s.pty_session_id) ? '下载中…' : '下载录制' }}
+          </button>
+        </li>
+      </ul>
+      <p v-if="ptySessionError" class="artifact-err mono">{{ ptySessionError }}</p>
+    </section>
+
     <!-- 产出与审计：结构化结果(E6) + 产物 + diff。仅在有内容时展示。 -->
     <section v-if="hasOutcomes" class="outcomes">
       <h2 class="outcomes-title mono">
@@ -1085,6 +1227,52 @@ async function copyCommand(): Promise<void> {
         </div>
       </div>
     </div>
+
+    <!-- 浏览器终端右侧抽屉：与日志 SSE 并存，pty 输出不写 stdout.log。 -->
+    <div
+      v-if="terminalOpen"
+      class="drawer-overlay"
+      @click.self="closeTerminal"
+    >
+      <div
+        class="drawer-panel terminal-drawer"
+        role="dialog"
+        aria-label="终端"
+      >
+        <div class="drawer-head terminal-drawer-head">
+          <span class="drawer-title mono">终端 · {{ shortId(props.id) }}</span>
+          <div class="term-mode-toggle mono" role="group" aria-label="终端模式">
+            <button
+              type="button"
+              :class="{ active: termMode === 'write' }"
+              @click="termMode = 'write'"
+            >
+              写入
+            </button>
+            <button
+              type="button"
+              :class="{ active: termMode === 'read' }"
+              @click="termMode = 'read'"
+            >
+              只读
+            </button>
+          </div>
+          <button class="copy-btn mono" type="button" @click="closeTerminal">关闭</button>
+        </div>
+        <div class="drawer-body terminal-drawer-body">
+          <AttachTerminal
+            :key="termMode"
+            :job-id="props.id"
+            :mode="termMode"
+            @exit="onTermExit"
+            @closed="closeTerminal"
+            @error="onTermError"
+          />
+          <p v-if="terminalExitText" class="term-exit mono">{{ terminalExitText }}</p>
+          <p v-if="termError" class="term-error mono">{{ termError }}</p>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -1110,6 +1298,24 @@ async function copyCommand(): Promise<void> {
   display: flex;
   align-items: center;
   gap: 16px;
+}
+.terminal-open {
+  background: transparent;
+  color: var(--phosphor);
+  border: 1px solid var(--phosphor);
+  border-radius: var(--radius);
+  padding: 4px 12px;
+  font-size: 12px;
+}
+.terminal-open:hover:not(:disabled) {
+  background: var(--phosphor);
+  color: var(--ink);
+}
+.terminal-open:disabled {
+  color: var(--queue);
+  border-color: var(--line);
+  cursor: default;
+  opacity: 0.65;
 }
 .cancel {
   background: transparent;
@@ -1404,6 +1610,79 @@ async function copyCommand(): Promise<void> {
   flex: 0 0 auto;
   color: var(--queue);
   font-size: 11px;
+}
+
+/* pty_sessions 元数据：只读列表，与 timeline / deliveries 保持相同密度。 */
+.pty-sessions {
+  margin: 0 0 14px;
+}
+.pty-sessions-title {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--phosphor);
+  text-transform: uppercase;
+  margin: 0 0 10px;
+}
+.pty-sessions-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.pty-session-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.pty-session-row:last-child {
+  border-bottom: none;
+}
+.pty-size {
+  flex: 0 0 auto;
+  color: var(--phosphor);
+}
+.pty-bytes {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--paper);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pty-duration,
+.pty-state {
+  flex: 0 0 auto;
+  color: var(--queue);
+}
+.pty-encrypted {
+  flex: 0 0 auto;
+  color: var(--run);
+  border: 1px solid var(--run);
+  border-radius: 3px;
+  padding: 1px 6px;
+  font-size: 11px;
+}
+.pty-download {
+  flex: 0 0 auto;
+  background: transparent;
+  color: var(--queue);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 2px 10px;
+  font-size: 11px;
+}
+.pty-download:hover:not(:disabled) {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
+}
+.pty-download:disabled {
+  cursor: default;
+  opacity: 0.5;
 }
 
 /* 产出与审计面板：渲染命令 + 结构化结果。 */
@@ -1733,6 +2012,56 @@ async function copyCommand(): Promise<void> {
   line-height: 1.5;
   color: var(--paper);
   white-space: pre;
+}
+.terminal-drawer {
+  width: min(1040px, 96vw);
+}
+.terminal-drawer-head {
+  align-items: center;
+}
+.term-mode-toggle {
+  display: inline-flex;
+  flex: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.term-mode-toggle button {
+  background: transparent;
+  color: var(--queue);
+  border: 0;
+  border-right: 1px solid var(--line);
+  padding: 3px 10px;
+  font-size: 11px;
+}
+.term-mode-toggle button:last-child {
+  border-right: 0;
+}
+.term-mode-toggle button.active {
+  background: var(--phosphor);
+  color: var(--ink);
+}
+.terminal-drawer-body {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px;
+}
+.terminal-drawer-body :deep(.attach-terminal) {
+  flex: 1 1 auto;
+  min-height: 0;
+}
+.term-exit,
+.term-error {
+  flex: none;
+  margin: 0;
+  font-size: 12px;
+}
+.term-exit {
+  color: var(--queue);
+}
+.term-error {
+  color: var(--fail);
 }
 @media (prefers-reduced-motion: no-preference) {
   .drawer-panel {
