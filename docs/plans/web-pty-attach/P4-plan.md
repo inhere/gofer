@@ -75,8 +75,8 @@ T3(前端基建: xterm 依赖+types+client) ─▶ T4(AttachTerminal 核心) ─
 - [x] T3 前端基建：`@xterm/xterm`+`addon-fit` 依赖 + api/types(Job.interactive/can_attach + PtySession) + api/client(attachTicket/downloadRecording/listPtySessions) + api/attach.ts 纯函数 — `(Wave B `386551e`, host pnpm build 绿)`
 - [x] T4 前端：`AttachTerminal.vue` 核心（xterm+fit+ticket+WS 双向泵+resize+scrollback+hello/exit/close） — `25d32e8`
 - [x] T5 前端：AttachTerminal 只读模式 + 断线自动重连（5min 窗口） — `25d32e8`
-- [ ] T6 前端：JobDetail「打开终端」入口（interactive+can_attach）+ 终端 drawer + 退出 refetch
-- [ ] T7 前端：pty_sessions 元数据面板 + 录制下载入口 + `/sessions` 列表视图
+- [x] T6 前端：JobDetail「打开终端」入口（interactive+can_attach）+ 终端 drawer + 退出 refetch — `d81749a`
+- [x] T7：pty_sessions 元数据面板 + 录制下载 + 跨 job `/sessions` 视图(+后端端点) — `d81749a`
 - [ ] T8 e2e 全矩阵（后端 Go e2e + 前端帧解析/base64 单测）
 - [ ] T9 构建/环检/零回归（make web + vue-tsc + bundle 自包含 + GOOS=windows + 无 CDN 核对）
 
