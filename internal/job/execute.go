@@ -21,7 +21,10 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 
 	// Establish the cancellable context first so a cancel issued while the job is
 	// still queued (waiting for a concurrency slot) is honoured too.
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+	ctx, cancel := context.WithCancel(context.Background())
+	if timeout > 0 {
+		ctx, cancel = context.WithTimeout(context.Background(), timeout)
+	}
 	defer cancel()
 	entry.mu.Lock()
 	entry.cancel = cancel
