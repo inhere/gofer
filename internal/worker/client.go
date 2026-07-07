@@ -535,6 +535,13 @@ func (cl *Client) notify(event string) {
 
 // writeFrame marshals a typed payload into an envelope and writes it under
 // writeMu (coder/websocket requires a single concurrent writer).
+//
+// TODO(h-aii-wag4): always writes to the CURRENT cl.conn, not the connection the
+// job was dispatched on. If the worker reconnects while a job keeps running across
+// connections, its Result/Log/Outcome frames land on the NEW conn. Currently
+// harmless — pty attach tail ordering anchors on serve relay Done, not on worker
+// Result ordering — but strict per-dispatch-connection return needs the dispatch
+// conn threaded here (separate reconnect-semantics topic).
 func (cl *Client) writeFrame(ctx context.Context, t wsproto.FrameType, jobID string, payload any) error {
 	cl.writeMu.Lock()
 	defer cl.writeMu.Unlock()
