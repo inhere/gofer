@@ -404,6 +404,16 @@ func TestE2EWorkerDisconnectMidJobFailsJob(t *testing.T) {
 	if rec.Status != job.StatusFailed {
 		t.Fatalf("persisted status = %s, want failed", rec.Status)
 	}
+
+	// Wait for the dropped worker's dispatch goroutine (which owns the child
+	// process + its stderr.log handle under t.TempDir) to fully unwind before the
+	// test returns and TempDir cleanup runs. Without this, RemoveAll races the
+	// still-open stderr.log handle and fails on Windows (h-aii-4vqw).
+	idleCtx, idleCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer idleCancel()
+	if !cl.WaitIdle(idleCtx) {
+		t.Fatal("worker dispatch did not exit promptly after disconnect")
+	}
 }
 
 // TestE2EWrongTokenRejected: dialing with a bad token → handshake 401 (the WS
