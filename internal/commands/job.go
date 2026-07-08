@@ -52,20 +52,23 @@ var jobCommonOpts = struct {
 }{}
 
 // jobConnOpts holds the --server/--token connection flags shared by EVERY `job`
-// AND `workflow` subcommand (bound via bindServerFlags). Defaults read from
-// GOFER_SERVER_ADDR / GOFER_SERVER_TOKEN (gcli ${ENV} interpolation) so a node
-// submits without a config.yaml; an explicit flag or config server.addr still
-// applies (newClient).
+// AND `workflow` subcommand (bound via bindServerFlags). --server reads
+// GOFER_SERVER_ADDR via gcli ${ENV} interpolation; --token's GOFER_SERVER_TOKEN
+// fallback is resolved at runtime in resolveClientToken (NOT via the flag default,
+// which gcli would render into --help and leak). Either lets a node submit without
+// a config.yaml; an explicit flag or config server.addr still applies (newClient).
 var jobConnOpts = struct{ server, token string }{}
 
 // bindServerFlags binds the shared --server/-s and --token connection flags onto a
 // subcommand (mirrors bindConfigFlag for -c). Every `job` and `workflow` subcommand
-// calls it so the GOFER_SERVER_ADDR/TOKEN env defaults apply uniformly (do NOT
-// re-bind --server/--token per subcommand with empty defaults — that drops the env
-// fallback; see E38③).
+// calls it so the connection env defaults apply uniformly. --server keeps the
+// ${GOFER_SERVER_ADDR} env default (addr is not secret; do NOT switch it to an empty
+// default — that drops the env fallback, see E38③). --token uses an EMPTY default on
+// purpose: a ${GOFER_SERVER_TOKEN} default leaks the token into --help (xu64.1); its
+// env fallback lives in resolveClientToken instead.
 func bindServerFlags(c *gcli.Command) {
 	c.StrOpt(&jobConnOpts.server, "server", "s", "${GOFER_SERVER_ADDR}", "server address (overrides config server.addr)")
-	c.StrOpt(&jobConnOpts.token, "token", "", "${GOFER_SERVER_TOKEN}", "bearer token override (prefer config/env)")
+	c.StrOpt(&jobConnOpts.token, "token", "", "", "bearer token override (prefer config/env: GOFER_SERVER_TOKEN)")
 }
 
 // jobListOpts holds `job list` filter dimensions (mapped 1:1 onto job.ListOpts).
@@ -255,18 +258,23 @@ func newClient(configPath, serverFlag, tokenFlag string) (*client.Client, error)
 	return client.New(addr, token), nil
 }
 
-// resolveClientToken mirrors serve's token resolution for the client side:
-// server.token, overridden by server.token_env (when set and non-empty), then by
-// an explicit --token flag.
+// resolveClientToken resolves the bearer token for client-side calls.
+// Precedence (highest first): explicit --token flag > GOFER_SERVER_TOKEN env >
+// server.token_env > server.token. The GOFER_SERVER_TOKEN env fallback used to be
+// carried via the --token flag's ${ENV} default, but gcli interpolates that into
+// --help and leaks the token (xu64.1); it is resolved here at runtime instead.
 func resolveClientToken(sc *config.ServerConfig, flagToken string) string {
+	if flagToken != "" {
+		return flagToken
+	}
+	if v := os.Getenv("GOFER_SERVER_TOKEN"); v != "" {
+		return v
+	}
 	token := sc.Token
 	if sc.TokenEnv != "" {
 		if v := os.Getenv(sc.TokenEnv); v != "" {
 			token = v
 		}
-	}
-	if flagToken != "" {
-		token = flagToken
 	}
 	return token
 }
