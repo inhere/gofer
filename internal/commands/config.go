@@ -269,6 +269,18 @@ func runConfigInfo(c *gcli.Command, _ []string) error {
 	c.Printf("  projects:     %d\n", len(cfg.Projects))
 	c.Printf("  agents:       %d\n", len(cfg.Agents))
 	c.Printf("  runners:      %d\n", len(cfg.Runners))
+
+	// Client submit target: `job`/`wf`/`mcp` connect HERE (GOFER_SERVER_ADDR/TOKEN
+	// from env/.env), which is distinct from settings.server.addr above (the serve
+	// BIND address). Surfacing it answers "where do my `job` commands actually go".
+	// SR403: report only whether the token is set, never its value.
+	serverTokenSet := "no"
+	if os.Getenv("GOFER_SERVER_TOKEN") != "" {
+		serverTokenSet = "yes"
+	}
+	c.Println("client (job/wf submit target):")
+	c.Printf("  GOFER_SERVER_ADDR=%s\n", envOrUnset("GOFER_SERVER_ADDR"))
+	c.Printf("  GOFER_SERVER_TOKEN set=%s\n", serverTokenSet)
 	return nil
 }
 
@@ -368,7 +380,11 @@ func validateServerConfig(c *gcli.Command) error {
 		return errorx.Failf(configExitErr, "%v", err)
 	}
 
-	ccolor.Infof("validate the %q\n", reg.Path())
+	if p := reg.Path(); p != "" {
+		ccolor.Infof("validate config: %s\n", p)
+	} else {
+		ccolor.Infof("validate config: (built-in defaults — no config file found)\n")
+	}
 	keys := reg.List()
 	if len(keys) == 0 {
 		c.Println("(no projects registered)")

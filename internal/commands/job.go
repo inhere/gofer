@@ -214,7 +214,7 @@ func NewJobCmd() *gcli.Command {
 			},
 			{
 				Name: "resume",
-				Desc: "Resume a job's底层 agent 会话 as a new job (same runner)",
+				Desc: "Resume a job's underlying agent session as a new job (same runner)",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
