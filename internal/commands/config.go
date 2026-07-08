@@ -231,37 +231,58 @@ func resolveEditor() (ed string, tried []string) {
 	return "", tried
 }
 
-// runConfigInfo prints a diagnostic snapshot: the resolved config path, the key
-// gofer ENV vars and the key effective settings. The token is NEVER printed —
-// only whether it is set (SR403) — and neither is any secret value.
+// runConfigInfo prints a diagnostic snapshot tailored to the node role
+// (GOFER_RUN_MODE): server mode shows the serve config.yaml view; worker mode
+// shows the worker.yaml view (worker_id / hub link(s) / served projects), matching
+// how `project`/`config validate` already branch on run mode. The token is NEVER
+// printed — only whether it is set (SR403) — and neither is any secret value.
 func runConfigInfo(c *gcli.Command, _ []string) error {
-	cfg, path, err := config.Load(config.InputCfgFile)
-	if err != nil {
-		return errorx.Failf(configExitErr, "%v", err)
-	}
+	mode := config.RunMode()
 
-	c.Println("config path:")
-	if path == "" {
-		c.Printf("  (none — defaults + discovery)\n")
-	} else {
-		c.Printf("  %s\n", path)
-	}
+	c.Println("run_mode:")
+	c.Printf("  %s (%s=%s)\n", mode, config.EnvRunMode, envOrUnset(config.EnvRunMode))
 
 	c.Println("env:")
 	c.Printf("  %s=%s\n", config.EnvConfigPath, envOrUnset(config.EnvConfigPath))
 	c.Printf("  %s=%s\n", config.EnvConfigDir, envOrUnset(config.EnvConfigDir))
-	// SR403: never print the token value — only report whether it is set.
-	tokenSet := "no"
-	if os.Getenv("GOFER_TOKEN") != "" {
-		tokenSet = "yes"
-	}
-	c.Printf("  GOFER_TOKEN set=%s\n", tokenSet)
+	c.Printf("  GOFER_TOKEN set=%s\n", envSetYesNo("GOFER_TOKEN"))
 
+	var err error
+	if mode == config.RunModeWorker {
+		err = printWorkerConfigInfo(c)
+	} else {
+		err = printServerConfigInfo(c)
+	}
+	if err != nil {
+		return err
+	}
+
+	// Client submit target: `job`/`wf`/`mcp` connect HERE (GOFER_SERVER_ADDR/TOKEN
+	// from env/.env), distinct from the serve BIND address. Relevant in both roles
+	// (a worker node can still run job/wf CLI). SR403: report only whether set.
+	c.Println("client (job/wf submit target):")
+	c.Printf("  GOFER_SERVER_ADDR=%s\n", envOrUnset("GOFER_SERVER_ADDR"))
+	c.Printf("  GOFER_SERVER_TOKEN set=%s\n", envSetYesNo("GOFER_SERVER_TOKEN"))
+	return nil
+}
+
+// printServerConfigInfo prints the serve/config.yaml view (default role).
+func printServerConfigInfo(c *gcli.Command) error {
+	cfg, path, err := config.Load(config.InputCfgFile)
+	if err != nil {
+		return errorx.Failf(configExitErr, "%v", err)
+	}
+	c.Println("config path:")
+	if path == "" {
+		c.Println("  (none — defaults + discovery)")
+	} else {
+		c.Printf("  %s\n", path)
+	}
 	pathView := cfg.Server.PathView
 	if pathView == "" {
 		pathView = "host"
 	}
-	c.Println("settings:")
+	c.Println("settings (server):")
 	c.Printf("  server.addr:  %s\n", cfg.Server.Addr)
 	c.Printf("  path_view:    %s\n", pathView)
 	c.Printf("  web_enabled:  %v\n", cfg.Server.IsWebEnabled())
@@ -269,19 +290,55 @@ func runConfigInfo(c *gcli.Command, _ []string) error {
 	c.Printf("  projects:     %d\n", len(cfg.Projects))
 	c.Printf("  agents:       %d\n", len(cfg.Agents))
 	c.Printf("  runners:      %d\n", len(cfg.Runners))
-
-	// Client submit target: `job`/`wf`/`mcp` connect HERE (GOFER_SERVER_ADDR/TOKEN
-	// from env/.env), which is distinct from settings.server.addr above (the serve
-	// BIND address). Surfacing it answers "where do my `job` commands actually go".
-	// SR403: report only whether the token is set, never its value.
-	serverTokenSet := "no"
-	if os.Getenv("GOFER_SERVER_TOKEN") != "" {
-		serverTokenSet = "yes"
-	}
-	c.Println("client (job/wf submit target):")
-	c.Printf("  GOFER_SERVER_ADDR=%s\n", envOrUnset("GOFER_SERVER_ADDR"))
-	c.Printf("  GOFER_SERVER_TOKEN set=%s\n", serverTokenSet)
 	return nil
+}
+
+// printWorkerConfigInfo prints the worker.yaml view (GOFER_RUN_MODE=worker):
+// worker_id, the hub link(s) it dials, whether its bearer token resolves, and the
+// projects/agents/runners it can run. A missing/undecodable worker.yaml is shown
+// as a hint (not a hard error) so `config info` stays a diagnostic aid.
+func printWorkerConfigInfo(c *gcli.Command) error {
+	path, _ := config.UserWorkerConfigPath()
+	c.Println("config path:")
+	c.Printf("  %s\n", dashIfEmpty(path))
+
+	wc, err := loadWorkerConfig(config.InputCfgFile)
+	if err != nil {
+		c.Println("settings (worker):")
+		c.Printf("  worker.yaml: %v\n", err)
+		c.Println("  hint: run `gofer init worker` to scaffold, or pass --worker-config <path>")
+		return nil
+	}
+	c.Println("settings (worker):")
+	c.Printf("  worker_id:         %s\n", dashIfEmpty(wc.WorkerID))
+	c.Printf("  server_link.urls:  %s\n", dashIfEmpty(strings.Join(wc.ServerLink.URLs, ", ")))
+	c.Printf("  server_link.token set=%s\n", boolYesNo(resolveWorkerToken(wc.ServerLink) != ""))
+	c.Printf("  max_concurrent:    %d\n", wc.MaxConcurrent)
+	c.Printf("  labels:            %s\n", dashIfEmpty(strings.Join(wc.Labels, ", ")))
+	c.Printf("  projects:          %d\n", len(wc.Projects))
+	c.Printf("  agents:            %d\n", len(wc.Agents))
+	c.Printf("  runners:           %d\n", len(wc.Runners))
+	return nil
+}
+
+// envSetYesNo reports whether an env var is set to a non-empty value (SR403: used
+// to disclose token presence without printing its value). boolYesNo maps a bool.
+func envSetYesNo(name string) string { return boolYesNo(os.Getenv(name) != "") }
+
+func boolYesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
+}
+
+// dashIfEmpty renders an em-dash for empty diagnostic values so blank rows read as
+// "unset" rather than a formatting glitch.
+func dashIfEmpty(s string) string {
+	if s == "" {
+		return "-"
+	}
+	return s
 }
 
 // envOrUnset returns the env var value, or a "(unset)" sentinel when empty, so
