@@ -65,7 +65,7 @@ func NewInitCmd() *gcli.Command {
 			c.AddArg("target", "what to scaffold: server (default) | worker", false)
 			c.StrOpt(&initOpts.config, "output", "o", "", "path to write the config (default depends on target)")
 			c.BoolOpt(&initOpts.force, "force", "f", false, "overwrite an existing config file")
-			c.BoolOpt(&initOpts.global, "global", "g", false, "write to the user-global config dir (~/.config/gofer/config.yaml)")
+			c.BoolOpt(&initOpts.global, "global", "g", false, "write to the user-global config dir (<config-dir>/config.yaml for server, worker.yaml for worker)")
 		},
 		Func: runInit,
 	}
@@ -85,19 +85,20 @@ func runInit(c *gcli.Command, _ []string) error {
 	}
 
 	// Path resolution: an explicit --output always wins (backward compatible).
-	// Otherwise --global writes the user-global config.yaml for the server target
-	// (worker has no global discovery, so it keeps its ./worker.yaml default).
+	// Otherwise --global writes to the user-global config dir for BOTH targets —
+	// config.yaml for server, worker.yaml for worker (the very path `gofer worker`
+	// auto-discovers via UserWorkerConfigPath). Without --global, the CWD default.
 	path := initOpts.config
 	usedGlobal := false
 	if path == "" {
-		if initOpts.global && (target == "" || target == "server") {
-			gp, err := config.UserConfigPath()
+		if initOpts.global {
+			gp, err := globalConfigPath(target)
 			if err != nil {
 				return errorx.Failf(configExitErr, "resolve global config path: %v", err)
 			}
 			path = gp
 			usedGlobal = true
-			_ = os.MkdirAll(filepath.Dir(path), 0o755) // ensure ~/.config/gofer exists
+			_ = os.MkdirAll(filepath.Dir(path), 0o755) // ensure the config dir exists
 		} else {
 			path = defaultPath
 		}
@@ -116,7 +117,13 @@ func runInit(c *gcli.Command, _ []string) error {
 		return errorx.Failf(configExitErr, "write %s: %v", path, err)
 	}
 	if target == "worker" {
-		c.Printf("已生成 worker 配置 %s，编辑后运行 `gofer worker --worker-config %s` 启动\n", path, path)
+		if usedGlobal {
+			// Global worker.yaml is the path `gofer worker` auto-discovers, so no
+			// --worker-config is needed.
+			c.Printf("已生成全局 worker 配置 %s，编辑后直接运行 `gofer worker` 即可(自动发现该路径)\n", path)
+		} else {
+			c.Printf("已生成 worker 配置 %s，编辑后运行 `gofer worker --worker-config %s` 启动\n", path, path)
+		}
 	} else {
 		c.Printf("已生成 %s，编辑后运行 `gofer config validate` 校验\n", path)
 		if usedGlobal {
@@ -124,6 +131,16 @@ func runInit(c *gcli.Command, _ []string) error {
 		}
 	}
 	return nil
+}
+
+// globalConfigPath resolves the user-global config path for an init target:
+// worker → <config-dir>/worker.yaml (what `gofer worker` auto-discovers), server
+// (and the bare default) → <config-dir>/config.yaml.
+func globalConfigPath(target string) (string, error) {
+	if target == "worker" {
+		return config.UserWorkerConfigPath()
+	}
+	return config.UserConfigPath()
 }
 
 // NewConfigCmd builds the `config` command group. v1 exposes `config validate`,

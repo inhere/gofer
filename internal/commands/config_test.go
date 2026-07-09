@@ -162,6 +162,49 @@ func TestInitWorkerTarget(t *testing.T) {
 	}
 }
 
+// TestInitGlobalWorkerWritesToConfigDir is a regression for `gofer init -g worker`
+// ignoring --global and writing ./worker.yaml in the CWD. With --global the worker
+// target must land at the user-global <config-dir>/worker.yaml — the very path
+// `gofer worker` auto-discovers (h-aii-xu64).
+func TestInitGlobalWorkerWritesToConfigDir(t *testing.T) {
+	cfgDir := t.TempDir()
+	t.Setenv(config.EnvConfigDir, cfgDir) // ConfigDir() → cfgDir; UserWorkerConfigPath → cfgDir/worker.yaml
+
+	// Isolate CWD so a regression (writing ./worker.yaml) is asserted against and
+	// never pollutes the repo.
+	cwd, _ := os.Getwd()
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	if err := os.Chdir(t.TempDir()); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	c := bindCmd(NewInitCmd())
+	c.Arg("target").WithValue("worker")
+	initOpts.global = true
+	initOpts.config = ""
+	initOpts.force = false
+	t.Cleanup(func() { initOpts.global = false; initOpts.config = ""; initOpts.force = false })
+
+	if err := runInit(c, nil); err != nil {
+		t.Fatalf("init -g worker: %v", err)
+	}
+
+	want, err := config.UserWorkerConfigPath()
+	if err != nil {
+		t.Fatalf("UserWorkerConfigPath: %v", err)
+	}
+	got, err := os.ReadFile(want)
+	if err != nil {
+		t.Fatalf("global worker.yaml not written at %s (--global ignored?): %v", want, err)
+	}
+	if string(got) != configtmpl.WorkerExampleYAML {
+		t.Fatal("global worker.yaml content != embedded worker template")
+	}
+	if _, err := os.Stat(DefaultWorkerConfigPath); err == nil {
+		t.Errorf("init -g worker also wrote CWD ./%s; --global must target the config dir only", DefaultWorkerConfigPath)
+	}
+}
+
 // TestInitDefaultPath verifies init defaults to ./.gofer.yaml when no --config.
 func TestInitDefaultPath(t *testing.T) {
 	dir := t.TempDir()
@@ -219,35 +262,6 @@ func TestInitServerGlobalPath(t *testing.T) {
 	}
 }
 
-// TestInitWorkerGlobalNoEffect verifies --global has no effect for the worker
-// target: it still writes ./worker.yaml (worker has no global discovery).
-func TestInitWorkerGlobalNoEffect(t *testing.T) {
-	dir := t.TempDir()
-	cwd, err := os.Getwd()
-	if err != nil {
-		t.Fatalf("getwd: %v", err)
-	}
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(dir); err != nil {
-		t.Fatalf("chdir: %v", err)
-	}
-	// Point the global dir elsewhere; --global must NOT redirect the worker output there.
-	t.Setenv(config.EnvConfigDir, t.TempDir())
-
-	c := bindCmd(NewInitCmd())
-	c.Arg("target").WithValue("worker")
-	initOpts.config = ""
-	initOpts.global = true
-	initOpts.force = true
-	t.Cleanup(func() { initOpts.config = ""; initOpts.global = false; initOpts.force = false })
-
-	if err := runInit(c, nil); err != nil {
-		t.Fatalf("init worker --global: %v", err)
-	}
-	if _, err := os.Stat(filepath.Join(dir, DefaultWorkerConfigPath)); err != nil {
-		t.Fatalf("worker --global should still write ./worker.yaml: %v", err)
-	}
-}
 
 // writeRawConfig writes a raw config YAML body to a temp file and returns its
 // path (the reload_test writeConfig helper takes a *config.Config instead).
