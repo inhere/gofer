@@ -118,11 +118,11 @@ function closeDrawer() {
       <div class="topbar-right mono">
         <RouterLink to="/new" class="new-job" active-class="new-job--active">
           <span aria-hidden="true">+</span>
-          <span class="new-job-label">新建 job</span>
+          <span class="new-job-label"><span class="new-job-verb">新建 </span>job</span>
         </RouterLink>
         <RouterLink to="/schedules/new" class="new-job" active-class="new-job--active">
           <span aria-hidden="true">+</span>
-          <span class="new-job-label">新建 cron</span>
+          <span class="new-job-label"><span class="new-job-verb">新建 </span>cron</span>
         </RouterLink>
         <EscalationBell />
         <span class="conn" :class="connected ? 'conn--on' : 'conn--off'">
@@ -417,8 +417,10 @@ function closeDrawer() {
   .new-job {
     padding: 4px 8px;
   }
-  .new-job-label,
   .conn-label {
+    display: none;
+  }
+  .new-job-verb {
     display: none;
   }
   .conn {
