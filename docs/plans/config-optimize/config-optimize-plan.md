@@ -15,7 +15,7 @@
 | 期 | 内容 | 设计章节 | bd | 子计划 | 状态 |
 |---|---|---|---|---|---|
 | **P0 快赢** | §13 配置默认化（allowed_agents 空=默认可用 / local 默认）+ §14 per-job agent flags | §13/§14 | xu64.13 / xu64.12 | [P0-quickwins-plan.md](./P0-quickwins-plan.md) | ☐ 待实施 |
-| **P1 联邦核心** | 能力上报变功能性（Register 补字段 + 去 display-only）+ federated view（`CapabilitiesFor`）+ submit 按 runner 取能力校验 + selector 带 projects/agents | §5/§6.1-6.3/§7 | xu64.10 | P1-federation-plan.md（待拆） | ☐ 未拆 |
+| **P1 联邦核心** | 能力上报变功能性（Register 补字段 + 去 display-only）+ federated view（`CapabilitiesFor`）+ submit 按 runner 取能力校验 + selector 带 projects/agents | §5/§6.1-6.3/§7 | xu64.10 | [P1-federation-plan.md](./P1-federation-plan.md) | ☐ 待实施 |
 | **P2 UI + 可观测** | `/v1/capabilities` + NewJob/NewSchedule 级联选择 + 节点信息展示(os/arch/gofer 版本) | §6.4/§6.2/G5 | xu64.10 | P2-ui-observability-plan.md（待拆） | ☐ 未拆 |
 
 **排期理由**：P0 两项改动小、彼此独立、不依赖联邦，能立刻改善日常使用（消除项目重复配 agent + 非交互 job 授权卡死），先落。P1 是联邦核心（medium），P2 依赖 P1 的能力数据。
