@@ -111,4 +111,4 @@ while ($true) {
 **待确认**：
 1. 优雅停机（Ctrl-C 触发 `RunCtx` 退出）本期做，还是先硬停兜底、后续增强？（倾向：先硬停 MVP）
 2. 回滚保留几份历史 exe（默认只留 `gofer.old.exe` 一份）？
-3. `go build` 在主机的 GOCACHE / 耗时是否需预热考虑。
+3. ~~`go build` GOCACHE~~ → **已澄清**：非 GOCACHE 问题，是 **codex 权限**（用户手动 build 正常）；用户已给 host codex 完全访问标志，解决。更新脚本走 codex/exec 时需确保其对仓库/构建缓存有写权限。

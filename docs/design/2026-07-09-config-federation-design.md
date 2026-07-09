@@ -9,6 +9,7 @@
 |---|---|---|---|
 | v0.1 | 2026-07-09 | inhere/claude | 初稿：联邦模型总体设计，待审 |
 | v0.2 | 2026-07-09 | inhere/claude | 评审：**联邦方向确认**；补 worker 上报节点信息(os/arch/gofer 版本/启动时间) |
+| v0.3 | 2026-07-09 | inhere/claude | 评审续：新增 §13 配置默认化(allowed_agents 空=全放非exec / local 默认)、§14 per-job agent flags(创建 job 自定义 cli-agent 参数，解决非交互授权卡死) |
 
 ## 1. 背景与问题
 
@@ -36,6 +37,8 @@
 - G3 UI 创建表单支持 project→runner→agent **级联过滤**（只列目标 runner 真有的 agent）。
 - G4 不牺牲现有安全边界（worker 只能声明**自己**的能力；token↔worker_id 绑定不变）。
 - G5 worker 上报**节点关键信息**（os / arch / gofer 版本(含 commit/build date) / 启动时间），供可观测面板展示、兼容性判断（如协议/AgentBrief 降级）、排障。
+- G6 **配置默认化**：project 未显式列 `allowed_agents` 时默认可用所有已配置 agents（exec 除外，仍由 `allow_exec` 把关）；local runner 默认可用。降低重复配置（§13）。
+- G7 **per-job agent 参数**：创建 job 时可自定义追加 cli-agent 参数（如放权 flag），解决非交互 job 无法交互授权（§14）。
 
 **非目标**
 - 不做 server→worker 的**配置下发/同步**（那是「中心化」方向，本方案走「联邦/自治」，见 §11 取舍）。
@@ -158,3 +161,35 @@ client submit(project, agent, runner?)
 3. `/v1/capabilities` 独立新端点，还是并入 `/v1/runners` 快照？
 4. 自动选 worker 过滤后**无候选**时的报错语义（"无满足 project+agent 的在线 worker"）。
 5. 级联选择表单改造是否确认为**独立后续任务**（不阻塞本次 A+B UI）。
+6. 配置默认化（§13）：`allowed_agents` 空=全放（非 exec）语义变更确认？是否需要全局严格/宽松开关以兼容既有"空=全拒"期望？
+7. per-job agent flags（§14）：`agent_args` 追加式 + exec 禁用 + 可选 project gate 的安全边界确认？本期做还是与 interaction 授权一起排期？
+
+## 13. 配置默认化（降低重复配置，v0.3 新增）
+
+来源 iss-0709 §配置优化：server/worker 已配 `agents`，project 却要再列一遍 `allowed_agents` 才能用。
+
+**现状（已核实）**：
+- `agent.CheckAllowed`（`allow.go:17-28`）遍历 `project.allowed_agents`，**空列表 = 全拒** → 必须逐 project 显式白名单，即使 agent 已全局配置。这是重复配置的根因。
+- runner：`config.go:203` 已对 `allowed_runners` 为空时特殊放行 local → **local 默认可用现状已（部分）支持**，确认/补齐即可。
+
+**改动**：
+- `allowed_agents` **为空 → 默认允许所有已配置 agents**（server/worker 各自视角的 agents 全集）；非空时维持白名单语义（显式收紧）。
+- **exec 例外不变**：exec agent 仍由 project 的 `allow_exec` 单独把关（`config.go:109` 安全闸），即"默认全放"**不含** exec——exec 永远需要显式 `allow_exec`。
+- runner：确认 `allowed_runners` 空 → local 默认可用（现状 `config.go:203`）；补齐文档与单测。
+
+**安全**：默认放开的是**非 exec** 的受控 cli-agent/内置 agent；真正危险的任意命令执行(exec)仍双闸（`allow_exec` + 仅本地）。
+
+## 14. 创建 job 自定义 cli-agent 参数（per-job agent flags，v0.3 新增）
+
+来源 iss-0709：非交互 job 里 cli-agent（claude/codex）遇审批/授权提示会**卡死**——job 无法交互授权（用户实例："job 让 claude 用工具，输出说要权限，但 job 里给不了"）。
+
+**现状**：agent 的 `Command/Args` 是**静态**配置（`AgentConfig`）。用户已能在 server/worker 的 agent 配置里给 codex 设"完全访问"flag，但**同一 agent 不同 job 需要不同 flag**时无法区分；提交 job 无任何"额外 agent 参数"通道（`job run` 只有 `--prompt/--system-prompt/--role`）。
+
+**方案（务实解）**：JobRequest 增可选 `agent_args []string`，**追加**到解析后的 agent argv 末尾。
+- 提交渠道：CLI `--agent-arg`（可重复）/ web NewJob 高级区 / MCP `gofer_run_job` param。
+- **安全 gate**：
+  - 仅 `type=cli-agent` 可用；**exec agent 禁用**（否则等于注入任意命令参数、绕过 exec 安全闸）。
+  - 可选按 project 策略限制（如 `allow_agent_args`），或对危险 flag 做白/黑名单。
+- 典型用途：`--dangerously-skip-permissions`(claude) / codex 放权 flag，让非交互 job 预先带权，避免运行中卡授权。
+
+**与"交互授权"的关系（另一条更重的路，后续）**：把 cli-agent 的审批提示接入 gofer 现有 **interaction 机制**（`interactions` 表 + `gofer_answer_interaction`），让 job 运行中把授权请求弹到 gofer UI 由人应答。更强但需 agent 侧结构化输出审批请求 + gofer 侧解析拦截，成本高。**本期先做 per-job flags（预授权），interaction 授权列后续。**
