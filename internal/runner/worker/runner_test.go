@@ -786,7 +786,7 @@ func TestBoundedSinkTruncates(t *testing.T) {
 	defer func() { maxWSFrameBytes = old }()
 
 	var out bytes.Buffer
-	s := newBoundedSink(&out, &out)
+	s := newBoundedSink(&out, &out, nil)
 	s.WriteLog("stdout", 1, strings.Repeat("a", 100))
 	s.WriteLog("stdout", 2, strings.Repeat("b", 100)) // second oversize: no second marker
 
@@ -799,6 +799,28 @@ func TestBoundedSinkTruncates(t *testing.T) {
 	payload := strings.ReplaceAll(got, sinkTruncateMark, "")
 	if strings.Count(payload, "a") != 16 || strings.Count(payload, "b") != 16 {
 		t.Fatalf("each oversize frame should be capped to 16 bytes: %q", got)
+	}
+}
+
+// TestBoundedSinkOnRenderedFiresOnce verifies the sink pushes the worker's rendered
+// command onto the running host entry as soon as the first outcome carrying it
+// arrives (G1) and only once — the later full outcome must not re-fire it, and an
+// empty rendered command must not fire at all.
+func TestBoundedSinkOnRenderedFiresOnce(t *testing.T) {
+	var got []string
+	var out bytes.Buffer
+	s := newBoundedSink(&out, &out, func(cmd string) { got = append(got, cmd) })
+
+	s.OnOutcome(wsproto.Outcome{RenderedCommand: ""})                              // no command → no fire
+	s.OnOutcome(wsproto.Outcome{RenderedCommand: "claude -p x"})                   // early frame → fire once
+	s.OnOutcome(wsproto.Outcome{RenderedCommand: "claude -p x", ResultJSON: "{}"}) // full frame → no re-fire
+
+	if len(got) != 1 || got[0] != "claude -p x" {
+		t.Fatalf("onRendered calls = %v, want exactly [\"claude -p x\"]", got)
+	}
+	// The latest full outcome is still stashed for the completion path.
+	if o := s.takeOutcome(); o == nil || o.ResultJSON != "{}" {
+		t.Fatalf("takeOutcome() = %+v, want the latest full outcome stashed", o)
 	}
 }
 

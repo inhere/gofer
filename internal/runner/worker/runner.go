@@ -178,7 +178,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		}
 	}()
 
-	sink := newBoundedSink(req.Stdout, req.Stderr)
+	sink := newBoundedSink(req.Stdout, req.Stderr, req.OnRendered)
 	// Wire the interaction bridge: an inbound interaction{open} is injected onto
 	// the host job (via req.Interactions, the same remoteInteractionSink peer-http
 	// uses) and the host-side answer is sent back over WS (hub.Answer). Mirrors
@@ -258,8 +258,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// waited here — the worker is already gone, nothing more will drain.)
 		return runner.Result{ExitCode: -1, Err: err}
 	case <-ctx.Done():
-		timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded)
-		if timedOut {
+		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
 			relayCloseReason = "ctx_timeout"
 		} else {
 			relayCloseReason = "cancelled"
@@ -280,18 +279,11 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 			case <-time.After(hostCancelGrace):
 			}
 		}
-		// G1: on TIMEOUT, attach any outcome the worker reported early (the rendered
-		// command — dispatch.reportRenderedCommandEarly — sent before this deadline
-		// preempts the clean-completion Outcome), so a timed-out worker job still
-		// records WHAT ran. NOT on an explicit cancel: a cancelled job carries no
-		// worker outcome (preserves prior semantics — no worker Source is stamped).
-		// nil when nothing was reported yet (unchanged for old workers); takeOutcome
-		// is mutex-guarded, safe against a late OnOutcome write.
-		var out *runner.Outcome
-		if timedOut {
-			out = outcomeFrom(sink.takeOutcome(), workerID)
-		}
-		return runner.Result{ExitCode: -1, Err: ctx.Err(), Outcome: out}
+		// G1: no outcome is attached on timeout/cancel here. The rendered command was
+		// already applied to the RUNNING host entry the moment the worker reported it
+		// (req.OnRendered → boundedSink.onRendered), so a timed-out/cancelled job keeps
+		// it without stamping a worker Source (which a non-completed job must not have).
+		return runner.Result{ExitCode: -1, Err: ctx.Err()}
 	}
 }
 
@@ -362,23 +354,28 @@ type boundedSink struct {
 	resultCh       chan wsproto.Result // buffered 1: first result wins
 	lostCh         chan error          // buffered 1: worker-lost wakes Run (§5.3)
 	bridge         *interactionBridge  // P2 interaction passthrough (nil-safe)
+	// onRendered (nil-safe) pushes the worker's rendered command onto the RUNNING
+	// host job entry the moment it arrives (G1), so `job show`/web reflect WHAT is
+	// running immediately — not only at completion. Fired at most once.
+	onRendered func(string)
 
-	mu        sync.Mutex
-	truncated bool
-	// outcome stashes the latest P4 worker-captured产出 frame (see OnOutcome: an early
-	// rendered-command-only frame for G1, then the full frame before the terminal
-	// result). Run reads it via takeOutcome on the result-land AND timeout/cancel
-	// paths and returns it on runner.Result.Outcome. nil when an old worker sends no
-	// outcome frame (回归红线: host job outcome stays empty).
+	mu              sync.Mutex
+	truncated       bool
+	renderedApplied bool // onRendered fired (guards the once semantics)
+	// outcome stashes the latest P4 worker-captured产出 frame, delivered just before
+	// the terminal result frame (strict read-loop ordering). Run reads it after the
+	// result lands and returns it on runner.Result.Outcome. nil when an old worker
+	// sends no outcome frame (回归红线: host job outcome stays empty).
 	outcome *wsproto.Outcome
 }
 
-func newBoundedSink(stdout, stderr io.Writer) *boundedSink {
+func newBoundedSink(stdout, stderr io.Writer, onRendered func(string)) *boundedSink {
 	return &boundedSink{
-		stdout:   stdout,
-		stderr:   stderr,
-		resultCh: make(chan wsproto.Result, 1),
-		lostCh:   make(chan error, 1),
+		stdout:     stdout,
+		stderr:     stderr,
+		resultCh:   make(chan wsproto.Result, 1),
+		lostCh:     make(chan error, 1),
+		onRendered: onRendered,
 	}
 }
 
@@ -421,16 +418,26 @@ func (s *boundedSink) OnInteraction(action string, interaction json.RawMessage) 
 }
 
 // OnOutcome implements wshub.JobSink: it stashes the worker-captured产出 frame
-// (P4), latest-wins. The worker may send it twice: an early rendered-command-only
-// frame right after the job starts (G1, so a timeout still records the command)
-// and the full frame just before the terminal result. Run reads it via takeOutcome
-// on both the result-land and the timeout/cancel paths, so the mutex here is load-
-// bearing (guards against a late write racing takeOutcome).
+// (P4), latest-wins, and — on the first frame carrying a rendered command — pushes
+// it onto the running host entry via onRendered (G1: WHAT ran is visible while the
+// job runs, not only at completion). The worker sends it twice: an early
+// rendered-command-only frame right after the job starts, then the full frame just
+// before the terminal result. Run reads the stash after the result lands
+// (takeOutcome); the mutex guards the stash + the fire-once flag.
 func (s *boundedSink) OnOutcome(o wsproto.Outcome) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	cp := o
 	s.outcome = &cp
+	fire := o.RenderedCommand != "" && !s.renderedApplied && s.onRendered != nil
+	if fire {
+		s.renderedApplied = true
+	}
+	s.mu.Unlock()
+	// Invoke outside the sink lock: onRendered locks the host job entry (a different
+	// mutex) — keep the two lock domains disjoint.
+	if fire {
+		s.onRendered(o.RenderedCommand)
+	}
 }
 
 // takeOutcome returns the stashed outcome frame (nil when the worker sent none).

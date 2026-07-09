@@ -89,6 +89,14 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 
 	req.Stdout = stdout
 	req.Stderr = stderr
+	// G1: a remote runner (worker/peer) reports its rendered command out-of-band as
+	// soon as it starts — the host can't render a remote agent's argv (line 65 above
+	// yields "" for those). Apply it to the running entry at once so job show/web
+	// reflect WHAT is running immediately, not only at completion. Local runs set it
+	// inline above and never invoke this (OnRendered stays effectively unused).
+	req.OnRendered = func(rendered string) {
+		s.setRunningRenderedCommand(entry, req.JobID, rendered)
+	}
 	res := run.Run(ctx, req)
 
 	// 产出与审计(job-outcomes-audit)：在终态前 best-effort 采集产出

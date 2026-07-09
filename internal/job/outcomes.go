@@ -286,6 +286,29 @@ func renderedCommandJSON(req runner.Request) string {
 	return string(b)
 }
 
+// setRunningRenderedCommand applies a rendered command reported by a remote runner
+// (worker/peer) while the job is still running, then persists a snapshot so job
+// show/web reflect WHAT is running at once — not only at completion (G1). Idempotent
+// via first-non-empty-wins: the terminal Outcome's identical rendered command is
+// then a no-op, and a local job's inline value (execute.go) is never overwritten.
+// Called from the remote runner's frame goroutine, so it locks the entry.
+func (s *Service) setRunningRenderedCommand(entry *jobEntry, jobID, rendered string) {
+	if rendered == "" {
+		return
+	}
+	entry.mu.Lock()
+	if entry.result.RenderedCommand != "" {
+		entry.mu.Unlock()
+		return
+	}
+	entry.result.RenderedCommand = rendered
+	snap := entry.result
+	entry.mu.Unlock()
+	if err := s.persist(snap); err != nil {
+		slog.Warn("persist running rendered command", "job_id", jobID, "err", err)
+	}
+}
+
 // readResultJSON 读 <result_dir>/result.json（agent/wrapper 经 {{result_dir}}
 // 模板写入）：不存在 → ""；超上限(maxResultJSONBytes)或非法 JSON → 记 warning 返
 // ""（不污染 DB）。返回的字符串已是合法 JSON，get_job 透传后前端 JSON.parse。

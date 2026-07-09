@@ -58,6 +58,13 @@ type Request struct {
 	// Nil for local jobs; set by the job service for remote runners so a peer's
 	// interactions surface on the host job (see InteractionSink).
 	Interactions InteractionSink
+
+	// OnRendered (nil-safe) is invoked by a remote runner with the rendered command
+	// as soon as the executing machine reports it, so the host can show WHAT is
+	// running immediately (G1). The host cannot render a remote agent's argv itself
+	// (it lacks that worker's agent config), so a worker/peer reports it out-of-band.
+	// Local runs set the rendered command inline and leave this nil.
+	OnRendered func(rendered string)
 }
 
 // RemoteInteractionOption mirrors a peer interaction option without importing the
