@@ -50,11 +50,13 @@ projects:
 
 # agents: 若要跑 cli-agent(codex/claude/…), 在这里定义其命令(worker 本地需装这些 CLI)。
 # 纯 exec job 不需要本段。结构同服务端 example 的 agents。
+# claude 的 --output-format stream-json --verbose 让输出实时流式(长任务/超时也有
+# 进度),代价是日志为 NDJSON 事件(最终文本在 result 事件);去掉两个 flag 即纯文本。
 # agents:
 #   claude:
 #     type: cli-agent
 #     command: claude
-#     args: ["-p", "{{prompt}}"]
+#     args: ["-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"]
 
 # storage: 本 worker 的结果/日志落盘配置(同服务端 example 的 storage)。
 # db: 无需手设 root —— worker 元数据库默认按 worker_id 落到

@@ -182,12 +182,17 @@ agents:
     detect:
       command: codex
       args: [--version]
-  # claude: Claude Code CLI; `-p` (print) runs non-interactively and prints the
-  # result. Adjust the flag to your installed CLI if it differs.
+  # claude: Claude Code CLI. `-p` (print) runs non-interactively. Plain-text output
+  # only prints the FINAL result at the end, so a long/agentic run shows nothing
+  # until it finishes — and NOTHING at all if it hits the job timeout. `--output-format
+  # stream-json --verbose` streams JSON events as they happen, so gofer's live log
+  # shows real-time progress and a timed-out job still captured partial work. Trade-off:
+  # logs are NDJSON events, not prose (the final text is the `result` event). Drop the
+  # two flags for plain-text output. Adjust the flag to your installed CLI if it differs.
   claude:
     type: cli-agent
     command: claude
-    args: ["-p", "{{prompt}}"]
+    args: ["-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"]
     detect:
       command: claude
       args: [--version]
