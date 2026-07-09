@@ -88,6 +88,13 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		_ = cl.jobs.Cancel(localID)
 	}
 
+	// G1: report the rendered command as soon as the local job computes it
+	// (execute() sets it at StatusRunning). The full Outcome only ships at
+	// completion (below); without this, a HOST-side timeout — which finalises the
+	// job before the worker's terminal Outcome arrives — records no rendered
+	// command. Best-effort, bounded, never blocks the dispatch.
+	go cl.reportRenderedCommandEarly(ctx, d.JobID, localID)
+
 	// interactive: dial the SECOND, pty-dedicated ws and pump bytes both ways once
 	// the local pty session has started (the PtyRunner observer hands it to us via
 	// waitSession). pumpDone is joined below, before the terminal Result, so the
@@ -161,6 +168,38 @@ func outcomeFrame(remoteJobID string, final job.JobResult) (wsproto.Outcome, boo
 	}
 	send := o.RenderedCommand != "" || o.ResultJSON != "" || o.DiffSummary != "" || len(o.Artifacts) > 0 || o.SessionID != ""
 	return o, send
+}
+
+// reportRenderedCommandEarly sends a rendered-command-only Outcome frame as soon as
+// the local job has computed its argv (execute() sets RenderedCommand at
+// StatusRunning), so a host-side timeout/cancel still records WHAT ran (G1). The
+// hub sink stashes the latest Outcome (last wins): the final completion Outcome —
+// carrying result.json/diff/artifacts/session_id too — overwrites this on a clean
+// finish, so this early frame only takes effect when the job never completes
+// cleanly. Best-effort: a bounded poll and a single frame; it never blocks the
+// dispatch and gives up quietly if the command stays unrendered (e.g. the job died
+// before running).
+func (cl *Client) reportRenderedCommandEarly(ctx context.Context, remoteJobID, localID string) {
+	deadline := time.NewTimer(15 * time.Second)
+	defer deadline.Stop()
+	tick := time.NewTicker(100 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		if snap, ok := cl.jobs.Get(localID); ok && snap.RenderedCommand != "" {
+			_ = cl.writeFrame(ctx, wsproto.TypeOutcome, remoteJobID, wsproto.Outcome{
+				JobID:           remoteJobID,
+				RenderedCommand: snap.RenderedCommand,
+			})
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-deadline.C:
+			return
+		case <-tick.C:
+		}
+	}
 }
 
 // streamLocalJob tails the local job's stdout.log / stderr.log incrementally and

@@ -258,7 +258,8 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// waited here — the worker is already gone, nothing more will drain.)
 		return runner.Result{ExitCode: -1, Err: err}
 	case <-ctx.Done():
-		if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+		timedOut := errors.Is(ctx.Err(), context.DeadlineExceeded)
+		if timedOut {
 			relayCloseReason = "ctx_timeout"
 		} else {
 			relayCloseReason = "cancelled"
@@ -279,7 +280,18 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 			case <-time.After(hostCancelGrace):
 			}
 		}
-		return runner.Result{ExitCode: -1, Err: ctx.Err()}
+		// G1: on TIMEOUT, attach any outcome the worker reported early (the rendered
+		// command — dispatch.reportRenderedCommandEarly — sent before this deadline
+		// preempts the clean-completion Outcome), so a timed-out worker job still
+		// records WHAT ran. NOT on an explicit cancel: a cancelled job carries no
+		// worker outcome (preserves prior semantics — no worker Source is stamped).
+		// nil when nothing was reported yet (unchanged for old workers); takeOutcome
+		// is mutex-guarded, safe against a late OnOutcome write.
+		var out *runner.Outcome
+		if timedOut {
+			out = outcomeFrom(sink.takeOutcome(), workerID)
+		}
+		return runner.Result{ExitCode: -1, Err: ctx.Err(), Outcome: out}
 	}
 }
 
@@ -353,10 +365,11 @@ type boundedSink struct {
 
 	mu        sync.Mutex
 	truncated bool
-	// outcome stashes the P4 worker-captured产出 frame, delivered just before the
-	// terminal result frame (strict read-loop ordering). Run reads it after the
-	// result lands and returns it on runner.Result.Outcome. nil when an old worker
-	// sends no outcome frame (回归红线: host job outcome stays empty).
+	// outcome stashes the latest P4 worker-captured产出 frame (see OnOutcome: an early
+	// rendered-command-only frame for G1, then the full frame before the terminal
+	// result). Run reads it via takeOutcome on the result-land AND timeout/cancel
+	// paths and returns it on runner.Result.Outcome. nil when an old worker sends no
+	// outcome frame (回归红线: host job outcome stays empty).
 	outcome *wsproto.Outcome
 }
 
@@ -408,9 +421,11 @@ func (s *boundedSink) OnInteraction(action string, interaction json.RawMessage) 
 }
 
 // OnOutcome implements wshub.JobSink: it stashes the worker-captured产出 frame
-// (P4). It arrives strictly before Finish (the worker sends it just before the
-// result frame, enforced by the hub's single in-order read loop), so Run reads
-// s.outcome only after the result lands — no lock needed there beyond this write.
+// (P4), latest-wins. The worker may send it twice: an early rendered-command-only
+// frame right after the job starts (G1, so a timeout still records the command)
+// and the full frame just before the terminal result. Run reads it via takeOutcome
+// on both the result-land and the timeout/cancel paths, so the mutex here is load-
+// bearing (guards against a late write racing takeOutcome).
 func (s *boundedSink) OnOutcome(o wsproto.Outcome) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

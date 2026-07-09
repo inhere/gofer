@@ -286,6 +286,14 @@ func TestE2ETimeoutOverWS(t *testing.T) {
 	if final.Status != job.StatusTimeout {
 		t.Fatalf("hub job status = %s (err=%s), want timeout", final.Status, final.Error)
 	}
+	// G1: a timed-out worker job must still record the rendered command. The worker
+	// reports it early (dispatch.reportRenderedCommandEarly) so the host-side timeout
+	// — which preempts the clean-completion Outcome via the ctx.Done path — still has
+	// it to attach. Without the fix the ctx.Done path returns no Outcome and this is
+	// empty.
+	if snap, ok := hub.jobs.Get(created.ID); !ok || snap.RenderedCommand == "" {
+		t.Errorf("timed-out worker job missing rendered_command (ok=%v, cmd=%q); G1 regression", ok, snap.RenderedCommand)
+	}
 	waitLocalJobDone(t, localDone, localID)
 
 	stopWorkerClient(t, cl, cancel, clientErr)
