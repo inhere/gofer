@@ -16,6 +16,7 @@ type Resolved struct {
 // semantics. The default zero value preserves the public Build behaviour.
 type BuildOptions struct {
 	AllowEmptyPrompt bool
+	AgentArgs        []string // extra args appended to cli-agent argv (§14)
 }
 
 // Build turns a single job request into an executable Resolved form. The
@@ -61,9 +62,10 @@ func (r *Registry) BuildWithOptions(agentKey, prompt string, cmd []string, vars 
 			return Resolved{}, fmt.Errorf("agent %q (cli-agent) has no command configured", agentKey)
 		}
 		vars.Prompt = prompt
+		rendered := Render(ac.Args, vars)
 		return Resolved{
 			Command: ac.Command,
-			Args:    Render(ac.Args, vars),
+			Args:    append(append([]string{}, rendered...), opts.AgentArgs...),
 			Env:     copyEnv(ac.Env),
 		}, nil
 

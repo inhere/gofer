@@ -146,6 +146,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			Agent:        req.Agent,
 			PeerRunner:   builtinLocalRunner,
 			Prompt:       req.Prompt,
+			AgentArgs:    req.AgentArgs,
 			Cmd:          req.Cmd,
 			Cwd:          req.Cwd,
 			TimeoutSec:   req.TimeoutSec,
@@ -165,7 +166,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			Cwd:       workDir,
 			JobID:     jobID,
 			ResultDir: resultDir,
-		}, agent.BuildOptions{AllowEmptyPrompt: req.Interactive})
+		}, agent.BuildOptions{AllowEmptyPrompt: req.Interactive, AgentArgs: req.AgentArgs})
 		if berr != nil {
 			return JobResult{}, berr
 		}

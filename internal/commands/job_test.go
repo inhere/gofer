@@ -21,6 +21,7 @@ func parseRun(t *testing.T, in []string) (project, agent, runner, cwd, prompt st
 	// Reset shared state so tests don't leak into each other.
 	jobRunOpts.project, jobRunOpts.agent, jobRunOpts.runner = "", "", ""
 	jobRunOpts.cwd, jobRunOpts.prompt = "", ""
+	jobRunOpts.agentArgs = nil
 	jobRunOpts.interactive, jobRunOpts.cols, jobRunOpts.rows = false, 0, 0
 
 	app := NewApp("test")
@@ -117,6 +118,7 @@ func TestJobRunInteractiveFlagsBuildRequest(t *testing.T) {
 		channel      string
 		role         string
 		systemPrompt string
+		agentArgs    gcli.Strings
 		interactive  bool
 		cols         int
 		rows         int
@@ -146,6 +148,32 @@ func TestJobRunInteractiveFlagsBuildRequest(t *testing.T) {
 	}
 	if !gotInteractive || gotCols != 120 || gotRows != 32 {
 		t.Fatalf("interactive request = (%v,%d,%d), want (true,120,32)", gotInteractive, gotCols, gotRows)
+	}
+}
+
+func TestJobRunAgentArgFlagsBuildRequest(t *testing.T) {
+	jobRunOpts.agentArgs = nil
+	app := NewApp("test")
+	var got []string
+	runCmd := app.GetCommand("job").GetCommand("run")
+	runCmd.Func = func(c *gcli.Command, _ []string) error {
+		req, err := buildJobRunRequest(c, nil)
+		if err != nil {
+			return err
+		}
+		got = req.AgentArgs
+		return nil
+	}
+
+	code := app.Run([]string{
+		"job", "run", "-p", "self", "-a", "codex", "--prompt", "hi",
+		"--agent-arg", "--x", "--agent-arg", "1",
+	})
+	if code != 0 {
+		t.Fatalf("app.Run exit code=%d", code)
+	}
+	if !reflect.DeepEqual(got, []string{"--x", "1"}) {
+		t.Fatalf("agent_args = %#v, want [--x 1]", got)
 	}
 }
 

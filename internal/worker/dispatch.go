@@ -48,6 +48,7 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		Agent:        d.Agent,
 		Runner:       builtinLocalRunner, // always local on the worker
 		Prompt:       d.Prompt,
+		AgentArgs:    d.AgentArgs,
 		SystemPrompt: d.SystemPrompt,
 		Cmd:          d.Cmd,
 		Cwd:          d.Cwd,

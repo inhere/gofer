@@ -92,6 +92,27 @@ func TestBuildCLIAgentEmptyPromptAllowedByOption(t *testing.T) {
 	}
 }
 
+func TestBuildCLIAgentAppendsAgentArgs(t *testing.T) {
+	cfg := testConfig()
+	reg := NewRegistry(cfg)
+	res, err := reg.BuildWithOptions("codex", "prompt", nil, Vars{}, BuildOptions{AgentArgs: []string{"--x", "1"}})
+	if err != nil {
+		t.Fatalf("build codex with agent args: %v", err)
+	}
+	want := []string{"exec", "prompt", "--x", "1"}
+	if len(res.Args) != len(want) {
+		t.Fatalf("args = %#v, want %#v", res.Args, want)
+	}
+	for i := range want {
+		if res.Args[i] != want[i] {
+			t.Fatalf("args = %#v, want %#v", res.Args, want)
+		}
+	}
+	if got := cfg.Agents["codex"].Args; len(got) != 2 {
+		t.Fatalf("agent config args were mutated: %#v", got)
+	}
+}
+
 // TestBuildExecNoCmdFails: exec agent with no cmd must error.
 func TestBuildExecNoCmdFails(t *testing.T) {
 	reg := NewRegistry(testConfig())
@@ -112,6 +133,17 @@ func TestBuildExecWithCmdReturnsArgv(t *testing.T) {
 	}
 	if len(res.Args) != 1 || res.Args[0] != "version" {
 		t.Errorf("args = %#v, want [version]", res.Args)
+	}
+}
+
+func TestBuildExecIgnoresAgentArgs(t *testing.T) {
+	reg := NewRegistry(testConfig())
+	res, err := reg.BuildWithOptions("exec", "", []string{"go", "version"}, Vars{}, BuildOptions{AgentArgs: []string{"--x"}})
+	if err != nil {
+		t.Fatalf("build exec: %v", err)
+	}
+	if res.Command != "go" || len(res.Args) != 1 || res.Args[0] != "version" {
+		t.Fatalf("exec resolved = %+v, want go [version]", res)
 	}
 }
 

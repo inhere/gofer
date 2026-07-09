@@ -40,6 +40,7 @@ var jobRunOpts = struct {
 	channel      string
 	role         string
 	systemPrompt string
+	agentArgs    gcli.Strings
 	interactive  bool
 	cols         int
 	rows         int
@@ -129,6 +130,7 @@ func NewJobCmd() *gcli.Command {
 					c.StrOpt(&jobRunOpts.channel, "channel", "", "cli", "submission channel recorded as provenance (cli/web/mcp/...)")
 					c.StrOpt(&jobRunOpts.role, "role", "", "", "role preset (E35): fills agent/system_prompt/project/tags when unset")
 					c.StrOpt(&jobRunOpts.systemPrompt, "system-prompt", "", "", "resident system prompt injected via the agent (advanced; overrides role's)")
+					c.VarOpt(&jobRunOpts.agentArgs, "agent-arg", "", "extra arg appended to cli-agent argv (repeatable)")
 					c.BoolOpt(&jobRunOpts.interactive, "interactive", "", false, "request an interactive pty job")
 					c.IntOpt(&jobRunOpts.cols, "cols", "", 0, "initial terminal columns for --interactive (0 = server default 80)")
 					c.IntOpt(&jobRunOpts.rows, "rows", "", 0, "initial terminal rows for --interactive (0 = server default 24)")
@@ -404,6 +406,7 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		Agent:          jobRunOpts.agent,
 		Runner:         jobRunOpts.runner,
 		Prompt:         jobRunOpts.prompt,
+		AgentArgs:      []string(jobRunOpts.agentArgs),
 		Cmd:            cmd, // tokens after `--`, e.g. ["go","version"]
 		Cwd:            jobRunOpts.cwd,
 		TimeoutSec:     jobRunOpts.timeout,

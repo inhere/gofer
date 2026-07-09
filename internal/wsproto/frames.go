@@ -40,6 +40,7 @@ type Dispatch struct {
 	Agent        string   `json:"agent"`
 	Runner       string   `json:"runner"`
 	Prompt       string   `json:"prompt,omitempty"`
+	AgentArgs    []string `json:"agent_args,omitempty"`
 	SystemPrompt string   `json:"system_prompt,omitempty"`
 	Cmd          []string `json:"cmd,omitempty"`
 	Cwd          string   `json:"cwd,omitempty"`

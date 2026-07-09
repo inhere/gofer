@@ -101,6 +101,7 @@ type Forward struct {
 	Agent        string
 	PeerRunner   string // runner to use on the peer; default "local"
 	Prompt       string
+	AgentArgs    []string
 	SystemPrompt string
 	Cmd          []string
 	Cwd          string // ORIGINAL relative cwd; peer SafeJoins against ITS project

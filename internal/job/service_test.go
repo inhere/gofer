@@ -212,6 +212,103 @@ func TestExecSecurityGate(t *testing.T) {
 	}
 }
 
+func TestValidateConfigDefaultsAndAgentArgsGate(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		Projects: map[string]config.ProjectConfig{
+			"open": {
+				HostPath: root,
+			},
+			"openexec": {
+				HostPath:  root,
+				AllowExec: true,
+			},
+			"locked": {
+				HostPath:      root,
+				AllowedAgents: []string{"codex"},
+			},
+		},
+		Agents: map[string]config.AgentConfig{
+			"codex":  {Type: agent.TypeCLIAgent, Command: "go", Args: []string{"env"}},
+			"claude": {Type: agent.TypeCLIAgent, Command: "go", Args: []string{"env"}},
+		},
+	}
+	s := newTestService(t, root)
+
+	if _, err := s.Validate(cfg, JobRequest{ProjectKey: "open", Agent: "codex", Runner: "local", Prompt: "hi"}, false); err != nil {
+		t.Fatalf("empty allowed_agents should allow configured cli agent: %v", err)
+	}
+	if _, err := s.Validate(cfg, JobRequest{ProjectKey: "open", Agent: "exec", Runner: "local", Cmd: []string{"go", "version"}}, false); err == nil || !strings.Contains(err.Error(), "allow_exec=false") {
+		t.Fatalf("exec should still be rejected by allow_exec=false, got %v", err)
+	}
+	if _, err := s.Validate(cfg, JobRequest{ProjectKey: "openexec", Agent: "exec", Runner: "local", Cmd: []string{"go", "version"}}, false); err != nil {
+		t.Fatalf("exec should pass when allow_exec=true and allowed_agents is empty: %v", err)
+	}
+	if _, err := s.Validate(cfg, JobRequest{ProjectKey: "locked", Agent: "claude", Runner: "local", Prompt: "hi"}, false); err == nil {
+		t.Fatalf("non-empty allowed_agents should still reject unlisted agent")
+	}
+	if _, err := s.Validate(cfg, JobRequest{ProjectKey: "open", Agent: "codex", Runner: "local", Prompt: "hi"}, false); err != nil {
+		t.Fatalf("empty allowed_runners should allow local runner: %v", err)
+	}
+	if _, err := s.Validate(cfg, JobRequest{ProjectKey: "open", Agent: "codex", Runner: "worker-x", Prompt: "hi"}, false); err == nil {
+		t.Fatalf("empty allowed_runners should reject non-local runner")
+	}
+	if _, err := s.Validate(cfg, JobRequest{ProjectKey: "openexec", Agent: "exec", Runner: "local", Cmd: []string{"go", "version"}, AgentArgs: []string{"--x"}}, false); err == nil || !strings.Contains(err.Error(), "agent_args not allowed") {
+		t.Fatalf("exec + agent_args should be rejected, got %v", err)
+	}
+}
+
+func TestSubmitCLIAgentArgsFlowToRenderedCommand(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		Storage: config.StorageConfig{Root: root},
+		Projects: map[string]config.ProjectConfig{
+			"self": {
+				HostPath:       root,
+				AllowedAgents:  []string{"codex"},
+				AllowedRunners: []string{"local"},
+			},
+		},
+		Agents: map[string]config.AgentConfig{
+			"codex": {Type: agent.TypeCLIAgent, Command: "go", Args: []string{"env"}},
+		},
+	}
+	projReg := project.NewRegistry(cfg, "")
+	agentReg := agent.NewRegistry(cfg)
+	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
+	meta, err := jobstore.Open(filepath.Join(root, "gofer.db"))
+	if err != nil {
+		t.Fatalf("open jobstore: %v", err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	s := NewService(cfg, projReg, agentReg, runners, meta, nil)
+
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "codex", Runner: "local",
+		Prompt: "hi", AgentArgs: []string{"GOOS"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("expected done, got %s (err=%s)", final.Status, final.Error)
+	}
+	var rc struct {
+		Command string   `json:"command"`
+		Args    []string `json:"args"`
+	}
+	if err := json.Unmarshal([]byte(final.RenderedCommand), &rc); err != nil {
+		t.Fatalf("RenderedCommand not valid JSON: %v (%q)", err, final.RenderedCommand)
+	}
+	if rc.Command != "go" || len(rc.Args) != 2 || rc.Args[0] != "env" || rc.Args[1] != "GOOS" {
+		t.Fatalf("rendered command = %+v, want go [env GOOS]", rc)
+	}
+	var gotReq JobRequest
+	if err := json.Unmarshal([]byte(final.RequestJSON), &gotReq); err != nil {
+		t.Fatalf("request_json not valid JSON: %v", err)
+	}
+	if len(gotReq.AgentArgs) != 1 || gotReq.AgentArgs[0] != "GOOS" {
+		t.Fatalf("request_json agent_args = %#v, want [GOOS]", gotReq.AgentArgs)
+	}
+}
+
 func TestUnknownProjectRejected(t *testing.T) {
 	s := newTestService(t, t.TempDir())
 	if _, err := s.Submit(JobRequest{ProjectKey: "ghost", Agent: "exec", Runner: "local", Cmd: []string{"go"}}); err == nil {

@@ -61,9 +61,13 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 		gateAgent = req.ResumeSourceAgent
 	}
 
-	// Agent must be in the project's allowed_agents (exec is not exempt).
-	if err := agent.CheckAllowed(cfg, req.ProjectKey, gateAgent); err != nil {
-		return config.ProjectConfig{}, fmt.Errorf("%w: %s", ErrInvalidRequest, err.Error())
+	// Agent whitelist. Empty allowed_agents = allow all configured agents (§13,
+	// config-optimize); exec safety is enforced independently by the allow_exec
+	// gate below (default false), so an empty whitelist never opens exec.
+	if len(proj.AllowedAgents) > 0 {
+		if err := agent.CheckAllowed(cfg, req.ProjectKey, gateAgent); err != nil {
+			return config.ProjectConfig{}, fmt.Errorf("%w: %s", ErrInvalidRequest, err.Error())
+		}
 	}
 
 	if req.Interactive {
@@ -105,6 +109,9 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 		ac, ok := agent.ResolveAgent(cfg, gateAgent)
 		if !ok {
 			return config.ProjectConfig{}, fmt.Errorf("%w: unknown agent %q", ErrInvalidRequest, gateAgent)
+		}
+		if len(req.AgentArgs) > 0 && ac.Type == agent.TypeExec {
+			return config.ProjectConfig{}, fmt.Errorf("%w: agent_args not allowed for exec agent %q", ErrInvalidRequest, gateAgent)
 		}
 		if ac.Type == agent.TypeExec && !proj.AllowExec {
 			return config.ProjectConfig{}, fmt.Errorf("%w: exec agent %q not allowed: project %q has allow_exec=false", ErrInvalidRequest, gateAgent, req.ProjectKey)

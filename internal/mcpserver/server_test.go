@@ -170,10 +170,53 @@ func TestRunJobInputSchemaSnakeCase(t *testing.T) {
 	if err := json.Unmarshal(b, &schema); err != nil {
 		t.Fatalf("unmarshal input schema: %v", err)
 	}
-	for _, key := range []string{"project_key", "timeout_sec", "role", "system_prompt", "origin_agent", "escalate_to"} {
+	for _, key := range []string{"project_key", "timeout_sec", "agent_args", "role", "system_prompt", "origin_agent", "escalate_to"} {
 		if _, ok := schema.Properties[key]; !ok {
 			t.Fatalf("input schema missing snake_case property %q; properties=%v", key, schema.Properties)
 		}
+	}
+}
+
+func TestRunJobAgentArgsRoundTrip(t *testing.T) {
+	session, jobs := connect(t)
+	// Add a cli-agent to this test core and open the project allowlist to it.
+	cfg := jobs.Config()
+	if cfg.Agents == nil {
+		cfg.Agents = map[string]config.AgentConfig{}
+	}
+	cfg.Agents["codex"] = config.AgentConfig{Type: agent.TypeCLIAgent, Command: "go", Args: []string{"env"}}
+	p := cfg.Projects["self"]
+	p.AllowedAgents = []string{"codex"}
+	p.AllowExec = false
+	cfg.Projects["self"] = p
+
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "gofer_run_job",
+		Arguments: map[string]any{
+			"project_key": "self",
+			"agent":       "codex",
+			"runner":      "local",
+			"prompt":      "hi",
+			"agent_args":  []string{"GOOS"},
+			"cwd":         ".",
+			"timeout_sec": 30,
+		},
+	})
+	if err != nil {
+		t.Fatalf("CallTool run_job: %v", err)
+	}
+	var created jobView
+	structured(t, res, &created)
+	final, ok := jobs.Wait(created.ID)
+	if !ok {
+		t.Fatalf("Wait: job %s not found", created.ID)
+	}
+	var req job.JobRequest
+	if err := json.Unmarshal([]byte(final.RequestJSON), &req); err != nil {
+		t.Fatalf("request_json not valid JSON: %v", err)
+	}
+	if len(req.AgentArgs) != 1 || req.AgentArgs[0] != "GOOS" {
+		t.Fatalf("agent_args did not round-trip through MCP: %#v", req.AgentArgs)
 	}
 }
 
