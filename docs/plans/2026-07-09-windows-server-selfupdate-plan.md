@@ -8,6 +8,7 @@
 | 版本 | 日期 | 修改人 | 说明 |
 |---|---|---|---|
 | v0.1 | 2026-07-09 | inhere/claude | 初稿；§4 确认前台手动后，主推 supervisor loop 方案 |
+| v0.2 | 2026-07-09 | inhere/claude | 评审：确认引入 supervisor loop；补 nssm 长远路径(§5.1)；去掉 Windows-only 子命令；确认按精确 pid 杀(主机可能跑 worker) |
 
 ## 1. 目标
 
@@ -54,6 +55,14 @@ while ($true) {
 }
 ```
 
+### 5.1 长远：需要 nssm 吗？怎么结合（v0.2）
+- **何时需要**：pwsh supervisor loop 跑在**登录用户的终端**里——关终端 / 用户登出 / 机器重启后**不会自启**。若要**开机自启 / 免登录常驻 / 无人值守**，长远需要**服务化**：nssm（或 `sc.exe` / Task Scheduler "无论是否登录都运行"）。
+- **怎么结合**：nssm 本身**就是进程外监督者**（拉起并守护 gofer），角色**等同** supervisor loop——用 nssm 时**不再需要** pwsh loop。
+- **关键：更新机制与监督者选择解耦**。更新 job 只做三件事：`build 新 exe → rename-replace → 触发重启`。"触发重启"在两种监督者下只差最后一步：
+  - supervisor loop：`Stop-Process`（精确 pid）杀 gofer → loop 2s 后重启。
+  - nssm：`nssm restart gofer`（或 stop→start）。
+- → **迁移路径干净**：先上 supervisor loop（零依赖、马上可用），将来要常驻自启再换 nssm，**rename-replace 更新逻辑不变**，只替换"触发重启"这一步。建议 T2 脚本把"触发重启"抽成可切换的小函数（`loop-kill` / `nssm-restart`）。
+
 ## 6. 更新流程（两阶段，均可在触发 job 内完成）
 
 ### 阶段1（安全，不碰运行中 exe）
@@ -75,7 +84,7 @@ while ($true) {
 
 - **T1 引入 supervisor**：新增 `tools/gofer/scripts/win-supervisor.ps1`（§5 骨架 + 参数化 exe 路径 + 可选启动参数透传 + 循环退出保护）。改用它在终端启动 server（替代直接 `gofer serve`）。产出 runbook 说明。
 - **T2 更新脚本/任务**：`tools/gofer/scripts/win-selfupdate.ps1` 或一个 md+yaml 任务文件（`gofer job run -f`）派 exec/codex：执行 §6 阶段1+2；含失败回滚（§9）。参数化 `-RepoDir -ExeDir -HealthUrl`。
-- **T3（可选收敛）**：新增 `gofer serve update` 子命令，内部封装 build 新 exe + rename-replace + 自杀（依赖监督循环重启）。Windows 分支实现；非 Windows 复用既有 daemon 重启。
+- **T3（暂缓/重定位）**：`gofer serve update` **若只服务 Windows 则意义不大**（脚本已够）→ **暂不做 Windows-only 子命令**。仅当做成**跨平台**自更新命令（Linux/Mac 走 daemon re-exec 重启、Windows 走 rename-replace+触发监督者重启）才值得，列为**独立后续增强**，不阻塞本期。本期 MVP 用 T2 的任务文件/脚本。
 - **T4 验收 + runbook**：`docs/runbook/` 补"Windows server 监督运行 + 自更新"操作/排障流程。
 
 ## 8. 验收
@@ -92,11 +101,14 @@ while ($true) {
 - **硬停非优雅**：`Stop-Process` 会中断进行中 job；优雅停机（Ctrl-C）列为后续增强。
 - **误杀 worker**：若主机同跑 gofer worker，按 name 杀会误伤 → 用父 pid 精确杀。
 
-## 10. 待确认
+## 10. 已定 / 待确认
 
-1. 是否同意**引入 supervisor loop**（改用 `win-supervisor.ps1` 启动，替代裸 `gofer serve`）作为目标形态？它解决进程树 + 送崩溃自愈。
-2. MVP 先落**任务文件派单**（T2），还是直接做 `gofer serve update` 子命令（T3）？
-3. 优雅停机（Ctrl-C 触发 `RunCtx` 退出）是否要在本期做，还是先硬停兜底、后续增强？
-4. 主机是否**同时**跑 gofer worker？（影响杀进程策略：必须按 pid 精确杀）
-5. 回滚保留几份历史 exe（默认只留 `gofer.old.exe` 一份）？
-6. 构建入口 `./cmd/gofer` 已核实正确；`go build` 在主机的 GOCACHE/耗时是否需要预热考虑。
+**已定（v0.2 评审）**：
+- ✅ 引入 supervisor loop（`win-supervisor.ps1`）作为目标形态；nssm 作长远常驻/自启选项，更新逻辑与监督者解耦（§5.1）。
+- ✅ MVP 走任务文件/脚本（T2）；**不做** Windows-only 子命令（T3 暂缓，除非跨平台）。
+- ✅ 主机**可能同时跑 gofer worker** → 杀进程**必须按精确 pid**（本 job 父 pid），不按进程名。
+
+**待确认**：
+1. 优雅停机（Ctrl-C 触发 `RunCtx` 退出）本期做，还是先硬停兜底、后续增强？（倾向：先硬停 MVP）
+2. 回滚保留几份历史 exe（默认只留 `gofer.old.exe` 一份）？
+3. `go build` 在主机的 GOCACHE / 耗时是否需预热考虑。

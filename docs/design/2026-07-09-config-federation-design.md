@@ -8,6 +8,7 @@
 | 版本 | 日期 | 修改人 | 说明 |
 |---|---|---|---|
 | v0.1 | 2026-07-09 | inhere/claude | 初稿：联邦模型总体设计，待审 |
+| v0.2 | 2026-07-09 | inhere/claude | 评审：**联邦方向确认**；补 worker 上报节点信息(os/arch/gofer 版本/启动时间) |
 
 ## 1. 背景与问题
 
@@ -34,6 +35,7 @@
 - G2 提交/创建 job 时，能在 **host 端提前**校验「project/agent 在目标 runner 上可用」，错配 fail-fast，不再拖到远端。
 - G3 UI 创建表单支持 project→runner→agent **级联过滤**（只列目标 runner 真有的 agent）。
 - G4 不牺牲现有安全边界（worker 只能声明**自己**的能力；token↔worker_id 绑定不变）。
+- G5 worker 上报**节点关键信息**（os / arch / gofer 版本(含 commit/build date) / 启动时间），供可观测面板展示、兼容性判断（如协议/AgentBrief 降级）、排障。
 
 **非目标**
 - 不做 server→worker 的**配置下发/同步**（那是「中心化」方向，本方案走「联邦/自治」，见 §11 取舍）。
@@ -72,6 +74,7 @@
 ### 6.1 能力上报「变功能性」（协议）
 - `Register` 帧结构**无需加字段**（已有 `Projects/Agents/Labels`）；仅去掉 `frames.go:5-8` 的 "display only" 定性，改为**权威能力声明**。
 - 需补充：agent 上报**不只 key，还要带类型/interactive 能力**（UI 级联需要），即把 `Agents []string` 升级为 `Agents []AgentBrief{Key,Type,Interactive}`（协议 minor 版本兼容处理见 §9）。project 上报可保持 key 列表（准入细节仍由 worker 本地二次校验，见 6.5）。
+- **节点信息（G5）**：`Register` 补 `Arch`、`GoferVersion`（取 `buildinfo.Info`，含 commit/build date）、`StartedAt`；`OS` 字段已存在（`frames.go:11`）仅需 server 端 surface。这些进 `WorkerSnapshot`，供 `/v1/runners` 面板与 Cluster 视图展示，并作**兼容性判断**依据（如旧版 worker 上报 `Agents []string` 时按版本提示升级）。
 
 ### 6.2 server 端 federated view
 - 在 `wshub/registry.go` 现有 `workerConn.meta` 基础上，提供一个**按 runner 维度查询能力**的只读接口：`CapabilitiesFor(runnerKey) → {projects, agents}`。
@@ -101,6 +104,7 @@
 | 层 | 改动 | 兼容性 |
 |---|---|---|
 | `wsproto/frames.go` | `Register.Agents` 由 `[]string`→`[]AgentBrief`；去 "display only" 语义 | 协议 minor bump；旧 worker 上报 `[]string` 时降级为无 type（UI 不级联但可用） |
+| `wsproto/frames.go` | `Register` 补 `Arch/GoferVersion/StartedAt`（`OS` 已有，surface 即可） | 纯新增字段，旧 worker 留空降级 |
 | `wshub/registry.go` | 新增 `CapabilitiesFor(runner)` 只读查询 | 纯新增 |
 | `job/selector.go` | `WorkerCandidate` 加 projects/agents；过滤逻辑 | 内部 |
 | `job/config.go` | `validate` 按 runner 取能力校验；放宽全局 project 强制 | **行为变更**（见 §9 迁移） |
@@ -144,8 +148,11 @@ client submit(project, agent, runner?)
 
 倾向**联邦**：改动小、契合用户直觉、数据链路已存在。
 
-## 12. 待确认
+## 12. 已定 / 待确认
 
+**已定（v0.2 评审）**：走**联邦**方向；worker 补报节点信息（os/arch/gofer 版本/启动时间）。
+
+**待确认**：
 1. `Register.Agents` 升 `[]AgentBrief` 的协议版本策略：minor bump + 旧 worker 降级，是否可接受？
 2. worker-only project 的准入敏感字段是否**完全**留 worker 本地（server 不感知 allow_exec）——确认安全边界。
 3. `/v1/capabilities` 独立新端点，还是并入 `/v1/runners` 快照？
