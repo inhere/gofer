@@ -4,7 +4,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import StatusBadge from '../components/StatusBadge.vue'
 import Signal from '../components/Signal.vue'
-import { listJobs } from '../api/client'
+import { listJobs, listProjects } from '../api/client'
 import { fmtDuration, jobDurationSec } from '../api/time'
 import type { Job, JobStatus } from '../api/types'
 
@@ -28,6 +28,8 @@ const agentFilter = ref('')
 const runnerFilter = ref('')
 const callerFilter = ref('')
 const sinceFilter = ref<'' | '1h' | '24h' | '7d'>('')
+const projectKeys = ref<string[]>([])
+const projectLoadError = ref('')
 
 const statusOptions: Array<{ value: '' | JobStatus; label: string }> = [
   { value: '', label: '全部' },
@@ -115,7 +117,38 @@ const projectFilter = computed(() => {
   return typeof p === 'string' && p ? p : undefined
 })
 
+const projectSelectValue = computed({
+  get: () => projectFilter.value ?? '',
+  set: (value: string) => {
+    const nextQuery = { ...route.query }
+    if (value) {
+      nextQuery.project = value
+    } else {
+      delete nextQuery.project
+    }
+    void router.push({ path: '/board', query: nextQuery })
+  },
+})
+
+const projectOptions = computed(() => {
+  const keys = [...projectKeys.value]
+  if (projectFilter.value && !keys.includes(projectFilter.value)) {
+    keys.unshift(projectFilter.value)
+  }
+  return keys
+})
+
 let timer: number | null = null
+
+async function fetchProjects(): Promise<void> {
+  try {
+    const resp = await listProjects()
+    projectKeys.value = resp.projects ?? []
+    projectLoadError.value = ''
+  } catch (e) {
+    projectLoadError.value = e instanceof Error ? e.message : String(e)
+  }
+}
 
 async function fetchJobs(): Promise<void> {
   loading.value = true
@@ -265,6 +298,7 @@ function clearFilters(): void {
 }
 
 onMounted(() => {
+  void fetchProjects()
   void fetchJobs()
   void fetchStatusCounts()
   startPolling()
@@ -321,6 +355,19 @@ onUnmounted(() => {
 
       <div class="controls">
         <span v-if="projectFilter" class="proj-chip">project: {{ projectFilter }}</span>
+        <label class="filter">
+          <span class="filter-label">project</span>
+          <select
+            v-model="projectSelectValue"
+            class="filter-select filter-select--project mono"
+            :title="projectLoadError || undefined"
+          >
+            <option value="">全部</option>
+            <option v-for="key in projectOptions" :key="key" :value="key">
+              {{ key }}
+            </option>
+          </select>
+        </label>
         <label class="filter">
           <span class="filter-label">tag</span>
           <input

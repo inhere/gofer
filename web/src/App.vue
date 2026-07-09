@@ -2,10 +2,8 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { clearToken, hasToken } from './store/auth'
-import { listAgents, listPresence, listProjects } from './api/client'
-import type { AgentInfo, Presence } from './api/types'
 import EscalationBell from './components/EscalationBell.vue'
-import ThemeToggle from './components/ThemeToggle.vue'
+import TopbarMenu from './components/TopbarMenu.vue'
 
 const router = useRouter()
 const route = useRoute()
@@ -13,12 +11,6 @@ const route = useRoute()
 // 连接态：基于是否有 token 的简单标识（连通性探活留给具体页面/T6）
 const connected = ref(false)
 
-// 左轨数据
-const projects = ref<string[]>([])
-const agents = ref<AgentInfo[]>([])
-const driverOnlineCount = ref(0)
-const supervisorOnline = ref(false)
-const railError = ref('')
 // 窄屏抽屉开关
 const drawerOpen = ref(false)
 
@@ -26,47 +18,11 @@ function refreshConn() {
   connected.value = hasToken()
 }
 
-// 拉取左轨数据：失败静默（仅小错误提示），不阻塞主区
-async function loadRail() {
-  if (!hasToken()) {
-    projects.value = []
-    agents.value = []
-    driverOnlineCount.value = 0
-    supervisorOnline.value = false
-    return
-  }
-  railError.value = ''
-  const [prResult, arResult, drResult] = await Promise.allSettled([
-    listProjects(),
-    listAgents(),
-    listPresence(),
-  ])
-  if (prResult.status === 'fulfilled' && arResult.status === 'fulfilled') {
-    const pr = prResult.value
-    const ar = arResult.value
-    projects.value = pr.projects ?? []
-    agents.value = ar.agents ?? []
-  } else {
-    // 401 已由 client 处理（跳转登录）；其余仅在左轨给出轻提示
-    const e = prResult.status === 'rejected' ? prResult.reason : arResult.status === 'rejected' ? arResult.reason : ''
-    railError.value = e instanceof Error ? e.message : String(e)
-  }
-  if (drResult.status === 'fulfilled') {
-    const online = (drResult.value.agents ?? []).filter(isDriverOnline)
-    driverOnlineCount.value = online.length
-    supervisorOnline.value = online.some((a) => a.role === 'supervisor')
-  } else if (!railError.value) {
-    const e = drResult.reason
-    railError.value = e instanceof Error ? e.message : String(e)
-  }
-}
-
 onMounted(() => {
   refreshConn()
-  void loadRail()
 })
 
-// 是否展示导航壳（顶栏 + 左轨）：接入页不展示
+// 是否展示导航壳（顶栏 + 主内容）：接入页不展示
 const showChrome = computed(() => route.path !== '/access')
 
 // 登录态变化（进入/离开 /access）时刷新左轨与连接态
@@ -74,18 +30,9 @@ watch(
   () => route.path,
   () => {
     refreshConn()
-    if (showChrome.value && projects.value.length === 0 && agents.value.length === 0) {
-      void loadRail()
-    }
     drawerOpen.value = false
   },
 )
-
-// 当前看板过滤的 project（用于左轨高亮）
-const activeProject = computed(() => {
-  const p = route.query.project
-  return typeof p === 'string' && p ? p : ''
-})
 
 const homeNav = { to: '/dashboard', label: 'Home' }
 const settingsNav = { to: '/config', label: '⚙ 设置' }
@@ -114,39 +61,12 @@ const navGroups = [
 function logout() {
   clearToken()
   connected.value = false
-  projects.value = []
-  agents.value = []
-  driverOnlineCount.value = 0
-  supervisorOnline.value = false
+  drawerOpen.value = false
   router.replace({ path: '/access' })
 }
 
-// 左轨 Project 点击 -> 看板过滤
-function selectProject(key: string) {
+function closeDrawer() {
   drawerOpen.value = false
-  void router.push({ path: '/board', query: { project: key } })
-}
-// 清除看板过滤（“全部”）
-function clearProjectFilter() {
-  drawerOpen.value = false
-  void router.push({ path: '/board' })
-}
-// 左轨 Agent 点击 -> agents 页
-function gotoAgents() {
-  drawerOpen.value = false
-  void router.push('/agents')
-}
-function gotoDrivers() {
-  drawerOpen.value = false
-  void router.push('/drivers')
-}
-
-// agent 状态 -> 视觉 token（available=done，不可用=fail/queue）
-function agentDotColor(a: AgentInfo): string {
-  return a.available ? 'var(--done)' : 'var(--fail)'
-}
-function isDriverOnline(a: Presence): boolean {
-  return a.status !== 'stale'
 }
 </script>
 
@@ -156,7 +76,7 @@ function isDriverOnline(a: Presence): boolean {
       <button
         class="rail-toggle"
         type="button"
-        aria-label="切换侧栏"
+        aria-label="打开主导航"
         :aria-expanded="drawerOpen"
         @click="drawerOpen = !drawerOpen"
       >
@@ -197,114 +117,63 @@ function isDriverOnline(a: Presence): boolean {
       </nav>
       <div class="topbar-right mono">
         <RouterLink to="/new" class="new-job" active-class="new-job--active">
-          + 新建 job
+          <span aria-hidden="true">+</span>
+          <span class="new-job-label">新建 job</span>
         </RouterLink>
         <RouterLink to="/schedules/new" class="new-job" active-class="new-job--active">
-          + 新建 cron
+          <span aria-hidden="true">+</span>
+          <span class="new-job-label">新建 cron</span>
         </RouterLink>
         <EscalationBell />
         <span class="conn" :class="connected ? 'conn--on' : 'conn--off'">
           <span class="conn-dot"></span>
-          {{ connected ? 'connected' : 'offline' }}
+          <span class="conn-label">{{ connected ? 'connected' : 'offline' }}</span>
         </span>
-        <ThemeToggle />
-        <button class="logout" type="button" @click="logout">登出</button>
+        <TopbarMenu @logout="logout" />
       </div>
     </header>
 
     <div v-if="showChrome" class="shell">
-      <aside class="rail" :class="{ 'rail--open': drawerOpen }" aria-label="侧栏导航">
-        <!-- PROJECTS -->
-        <section class="rail-section">
-          <h2 class="rail-title mono">PROJECTS</h2>
-          <ul class="rail-list">
-            <li>
-              <button
-                type="button"
-                class="rail-item rail-item--all mono"
-                :class="{ 'rail-item--active': !activeProject }"
-                @click="clearProjectFilter"
-              >
-                全部
-              </button>
-            </li>
-            <li v-for="key in projects" :key="key">
-              <button
-                type="button"
-                class="rail-item mono"
-                :class="{ 'rail-item--active': key === activeProject }"
-                :title="key"
-                @click="selectProject(key)"
-              >
-                {{ key }}
-              </button>
-            </li>
-            <li v-if="projects.length === 0" class="rail-empty mono">无项目</li>
-          </ul>
-        </section>
-
-        <!-- DRIVERS -->
-        <section class="rail-section">
-          <h2 class="rail-title mono">DRIVERS</h2>
-          <button
-            type="button"
-            class="rail-item rail-item--driver mono"
-            @click="gotoDrivers"
+      <aside class="drawer-nav" :class="{ 'drawer-nav--open': drawerOpen }" aria-label="移动端主导航">
+        <nav class="drawer-nav-inner mono" aria-label="主导航抽屉">
+          <RouterLink
+            :to="homeNav.to"
+            class="drawer-link"
+            active-class="drawer-link--active"
+            @click="closeDrawer"
           >
-            <span
-              class="driver-dot"
-              :class="{ 'driver-dot--sup': supervisorOnline }"
-              aria-hidden="true"
-            ></span>
-            <span class="driver-label">online</span>
-            <span class="driver-count">{{ driverOnlineCount }}</span>
-          </button>
-        </section>
+            {{ homeNav.label }}
+          </RouterLink>
 
-        <!-- AGENTS -->
-        <section class="rail-section">
-          <h2 class="rail-title mono">AGENTS</h2>
-          <ul class="rail-list">
-            <li v-for="a in agents" :key="a.key">
-              <button
-                type="button"
-                class="rail-item rail-item--agent mono"
-                :title="a.available ? `${a.type} · available` : (a.error || `${a.type} · unavailable`)"
-                @click="gotoAgents"
-              >
-                <span
-                  class="agent-dot"
-                  :class="a.available ? 'agent-dot--on' : 'agent-dot--off'"
-                  :style="{ background: agentDotColor(a) }"
-                  aria-hidden="true"
-                ></span>
-                <span class="agent-key">{{ a.key }}</span>
-                <span class="agent-type">{{ a.type }}</span>
-              </button>
-            </li>
-            <li v-if="agents.length === 0" class="rail-empty mono">无 agent</li>
-          </ul>
-        </section>
+          <section v-for="group in navGroups" :key="group.label" class="drawer-section">
+            <h2 class="drawer-title mono">{{ group.label }}</h2>
+            <RouterLink
+              v-for="item in group.items"
+              :key="item.to"
+              :to="item.to"
+              class="drawer-link"
+              active-class="drawer-link--active"
+              @click="closeDrawer"
+            >
+              {{ item.label }}
+            </RouterLink>
+          </section>
 
-        <!-- SETTINGS -->
-        <section class="rail-section rail-section--settings">
           <RouterLink
             :to="settingsNav.to"
-            class="rail-item rail-item--settings mono"
-            active-class="rail-item--active"
-            @click="drawerOpen = false"
+            class="drawer-link drawer-link--settings"
+            active-class="drawer-link--active"
+            @click="closeDrawer"
           >
             {{ settingsNav.label }}
           </RouterLink>
-        </section>
-
-        <p v-if="railError" class="rail-error mono" :title="railError">侧栏加载失败</p>
+        </nav>
       </aside>
 
       <!-- 窄屏抽屉遮罩 -->
       <div
         v-if="drawerOpen"
-        class="rail-scrim"
+        class="drawer-scrim"
         aria-hidden="true"
         @click="drawerOpen = false"
       ></div>
@@ -421,6 +290,9 @@ function isDriverOnline(a: Presence): boolean {
 }
 
 .new-job {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   background: var(--phosphor);
   color: var(--ink);
   border: 1px solid var(--phosphor);
@@ -458,154 +330,57 @@ function isDriverOnline(a: Presence): boolean {
   color: var(--queue);
 }
 
-.logout {
-  background: transparent;
-  color: var(--paper);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 4px 10px;
-  font-size: 12px;
-}
-.logout:hover {
-  border-color: var(--phosphor);
-  color: var(--phosphor);
-}
-
-/* 壳：左轨 + 主区 */
+/* 壳：主区单栏 */
 .shell {
   flex: 1;
-  display: flex;
-  align-items: stretch;
   min-height: 0;
 }
 
-.rail {
-  width: 232px;
-  flex: none;
+.drawer-nav {
+  display: none;
   background: var(--panel);
   border-right: 1px solid var(--line);
-  padding: 14px 10px;
   overflow-y: auto;
 }
 
-.rail-section {
-  margin-bottom: 18px;
+.drawer-nav-inner {
+  padding: 14px 10px;
 }
-.rail-section--settings {
-  border-top: 1px solid var(--line);
-  padding-top: 12px;
+.drawer-section {
+  margin-top: 18px;
 }
-.rail-title {
+.drawer-title {
   font-size: 11px;
   letter-spacing: 0.08em;
   color: var(--queue);
   margin: 0 6px 8px;
   text-transform: uppercase;
 }
-.rail-list {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-
-.rail-item {
+.drawer-link {
   display: block;
-  width: 100%;
-  text-align: left;
-  background: transparent;
   color: var(--paper);
   border: 1px solid transparent;
   border-radius: var(--radius);
-  padding: 6px 8px;
+  padding: 7px 8px;
   font-size: 12px;
-  overflow: hidden;
-  text-overflow: ellipsis;
   white-space: nowrap;
 }
-.rail-item:hover {
+.drawer-link:hover {
   background: var(--ink);
+  text-decoration: none;
 }
-.rail-item--active {
+.drawer-link--active {
   color: var(--phosphor);
   border-color: var(--line);
   background: var(--ink);
 }
-.rail-item--all {
-  color: var(--queue);
-}
-.rail-item--settings {
-  color: var(--queue);
-}
-
-.rail-item--agent {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-}
-.agent-dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  flex: none;
-}
-.agent-dot--off {
-  opacity: 0.85;
-  box-shadow: 0 0 0 1px var(--line);
-}
-.agent-key {
-  color: var(--paper);
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.agent-type {
-  color: var(--queue);
-  font-size: 11px;
-  margin-left: auto;
-  flex: none;
+.drawer-link--settings {
+  border-top: 1px solid var(--line);
+  margin-top: 18px;
+  padding-top: 12px;
 }
 
-.rail-item--driver {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.driver-dot {
-  width: 8px;
-  height: 8px;
-  border-radius: 50%;
-  flex: none;
-  background: var(--done);
-}
-.driver-dot--sup {
-  background: var(--phosphor);
-  box-shadow: 0 0 0 2px color-mix(in srgb, var(--phosphor) 25%, transparent);
-}
-.driver-label {
-  color: var(--paper);
-}
-.driver-count {
-  margin-left: auto;
-  color: var(--phosphor);
-  font-weight: 600;
-}
-
-.rail-empty {
-  color: var(--queue);
-  font-size: 11px;
-  padding: 4px 8px;
-  opacity: 0.7;
-}
-.rail-error {
-  color: var(--fail);
-  font-size: 11px;
-  padding: 4px 6px;
-}
-
-.rail-scrim {
+.drawer-scrim {
   display: none;
 }
 
@@ -626,13 +401,31 @@ function isDriverOnline(a: Presence): boolean {
     display: inline-block;
   }
   .topbar {
-    gap: 14px;
+    gap: 10px;
     padding: 10px 12px;
+  }
+  .brand-sub,
+  .brand-sep {
+    display: none;
   }
   .nav {
     display: none;
   }
-  .rail {
+  .topbar-right {
+    gap: 8px;
+  }
+  .new-job {
+    padding: 4px 8px;
+  }
+  .new-job-label,
+  .conn-label {
+    display: none;
+  }
+  .conn {
+    gap: 0;
+  }
+  .drawer-nav {
+    display: block;
     position: fixed;
     top: 0;
     left: 0;
@@ -642,10 +435,10 @@ function isDriverOnline(a: Presence): boolean {
     transform: translateX(-100%);
     transition: transform 0.2s ease;
   }
-  .rail--open {
+  .drawer-nav--open {
     transform: translateX(0);
   }
-  .rail-scrim {
+  .drawer-scrim {
     display: block;
     position: fixed;
     inset: 0;
