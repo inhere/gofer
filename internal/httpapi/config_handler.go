@@ -112,6 +112,7 @@ type retentionView struct {
 type configAgentView struct {
 	Key            string           `json:"key"`
 	Type           string           `json:"type"`
+	Interactive    bool             `json:"interactive"`
 	Command        string           `json:"command,omitempty"`
 	Args           []string         `json:"args"`
 	EnvKeys        []string         `json:"env_keys"`
@@ -337,6 +338,7 @@ func buildAgentViews(agents map[string]config.AgentConfig) []configAgentView {
 		out = append(out, configAgentView{
 			Key:            k,
 			Type:           ac.Type,
+			Interactive:    ac.Interactive,
 			Command:        ac.Command,
 			Args:           nonNil(ac.Args),
 			EnvKeys:        sortedMapKeys(ac.Env),

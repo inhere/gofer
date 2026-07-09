@@ -246,6 +246,7 @@ export interface CastView {
 export interface ConfigAgentView {
   key: string
   type: string
+  interactive: boolean
   command?: string
   args: string[]
   env_keys: string[]
