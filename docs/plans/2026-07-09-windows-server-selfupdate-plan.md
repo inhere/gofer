@@ -112,3 +112,12 @@ while ($true) {
 1. 优雅停机（Ctrl-C 触发 `RunCtx` 退出）本期做，还是先硬停兜底、后续增强？（倾向：先硬停 MVP）
 2. 回滚保留几份历史 exe（默认只留 `gofer.old.exe` 一份）？
 3. ~~`go build` GOCACHE~~ → **已澄清**：非 GOCACHE 问题，是 **codex 权限**（用户手动 build 正常）；用户已给 host codex 完全访问标志，解决。更新脚本走 codex/exec 时需确保其对仓库/构建缓存有写权限。
+
+## 11. 进度跟踪（本文档即 Windows MVP 实施计划，规模小无需再拆子目录）
+
+- [ ] **T1** `scripts/win-supervisor.ps1`：§5 监督循环 + 参数化（exe 路径 / serve 启动参数透传）+ 看门狗（连续快速失败计数→回滚告警，§9）。改用它在终端启动 server。
+- [ ] **T2** `scripts/win-selfupdate.ps1`（或 `gofer job run -f` 任务文件）：阶段1 `git pull` + `go build -o gofer-new.exe ./cmd/gofer` + `-V` 校验；阶段2 rename-replace（`gofer.exe`→`gofer.old.exe`→新）+ **按本 job 父 pid 精确杀** gofer（`Get-CimInstance Win32_Process ... ParentProcessId`）→ 监督循环重启 → 轮询 `/health`。"触发重启"抽成可切换函数（`loop-kill` / 预留 `nssm-restart`，§5.1）。
+- [ ] **T3** runbook：`docs/runbook/` 补"Windows server 监督运行 + 自更新"操作/排障流程。
+- [ ] **T4** 验收（§8）：崩溃自愈 / 更新后新版 running + health 200 + 旧版留底 / 进程树分离（触发 job 随 gofer 亡但 supervisor 存活重启）。
+
+> 待确认（§10）仅剩 3 项非阻断（优雅停机时机 / 历史 exe 保留份数 / 构建预热），可在实施中定；已定项足以开工。构建入口 `./cmd/gofer` 已核实正确（`module github.com/inhere/gofer`）。
