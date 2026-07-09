@@ -292,15 +292,18 @@ onUnmounted(() => {
         <!-- 展开：被调度的 JobRequest 摘要 -->
         <div v-if="expanded.has(s.id)" class="detail mono">
           <div class="detail-grid">
+            <span class="dk">id</span><span class="dv dv--id" :title="s.id">{{ s.id }}</span>
             <span class="dk">type</span><span class="dv">{{ scheduleType(s) }}</span>
             <span class="dk">catch_up</span><span class="dv">{{ s.catch_up ? 'true' : 'false' }}</span>
             <span class="dk">cwd</span><span class="dv">{{ s.request.cwd || '.' }}</span>
             <template v-if="s.request.title">
               <span class="dk">title</span><span class="dv">{{ s.request.title }}</span>
             </template>
-            <template v-if="s.request.timeout_sec">
-              <span class="dk">timeout</span><span class="dv">{{ s.request.timeout_sec }}s</span>
-            </template>
+            <span class="dk">timeout</span>
+            <span class="dv">
+              <template v-if="s.request.timeout_sec">{{ s.request.timeout_sec }}s</template>
+              <template v-else>服务端默认</template>
+            </span>
             <template v-if="s.request.worker_id">
               <span class="dk">worker_id</span><span class="dv">{{ s.request.worker_id }}</span>
             </template>
@@ -573,6 +576,10 @@ onUnmounted(() => {
 .dv {
   color: var(--paper);
   word-break: break-word;
+}
+.dv--id {
+  user-select: all; /* click-select the whole schedule id for easy copy */
+  word-break: break-all;
 }
 .detail-cmd {
   margin: 8px 0 0;
