@@ -80,6 +80,7 @@ var jobListOpts = struct {
 	agent, runner   string
 	session         string
 	plan            string
+	sourceJob       string
 	since           int
 	limit           int
 }{}
@@ -191,6 +192,7 @@ func NewJobCmd() *gcli.Command {
 					c.StrOpt(&jobListOpts.runner, "runner", "", "", "filter by runner key")
 					c.StrOpt(&jobListOpts.session, "session", "", "", "filter by session id (exact match; lists a session's turns)")
 					c.StrOpt(&jobListOpts.plan, "plan", "", "", "filter by plan id (exact match)")
+					c.StrOpt(&jobListOpts.sourceJob, "source-job", "", "", "filter by source job id (list jobs derived from it)")
 					c.IntOpt(&jobListOpts.since, "since", "", 0, "keep jobs with started_at >= since (unix seconds)")
 					c.IntOpt(&jobListOpts.limit, "limit", "", 0, "max jobs to return (0 = server default)")
 				},
@@ -582,16 +584,17 @@ func runJobList(c *gcli.Command, _ []string) error {
 		return err
 	}
 	jobs, err := cli.ListJobs(job.ListOpts{
-		Project: jobListOpts.project,
-		Status:  jobListOpts.status,
-		Caller:  jobListOpts.caller,
-		Tag:     jobListOpts.tag,
-		Agent:   jobListOpts.agent,
-		Runner:  jobListOpts.runner,
-		Session: jobListOpts.session,
-		Plan:    jobListOpts.plan,
-		Since:   int64(jobListOpts.since),
-		Limit:   jobListOpts.limit,
+		Project:   jobListOpts.project,
+		Status:    jobListOpts.status,
+		Caller:    jobListOpts.caller,
+		Tag:       jobListOpts.tag,
+		Agent:     jobListOpts.agent,
+		Runner:    jobListOpts.runner,
+		Session:   jobListOpts.session,
+		Plan:      jobListOpts.plan,
+		SourceJob: jobListOpts.sourceJob,
+		Since:     int64(jobListOpts.since),
+		Limit:     jobListOpts.limit,
 	})
 	if err != nil {
 		return err

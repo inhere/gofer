@@ -185,6 +185,40 @@ func TestResumeJobInheritsPlanID(t *testing.T) {
 	}
 }
 
+func TestResumeJobStampsSourceJobID(t *testing.T) {
+	root := t.TempDir()
+	const sid = "sess-source-x"
+	s := newResumeRunnableService(t, root, "codex")
+
+	src := submitSourceCancel(t, s, JobRequest{
+		ProjectKey: "self", Agent: "codex", Runner: "local",
+		Prompt: "remember 42", Cwd: ".", TimeoutSec: 30, SessionID: sid,
+	})
+	if src.SessionID != sid {
+		t.Fatalf("setup source session = %q, want %q", src.SessionID, sid)
+	}
+
+	newJob, err := s.ResumeJob(src.ID, "what number", "", "caller-source")
+	if err != nil {
+		t.Fatalf("ResumeJob: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Cancel(newJob.ID); s.Wait(newJob.ID) })
+
+	if newJob.SourceJobID != src.ID {
+		t.Fatalf("resumed job source_job_id = %q, want %q", newJob.SourceJobID, src.ID)
+	}
+	if newJob.SessionID != sid {
+		t.Fatalf("resumed job session_id = %q, want %q", newJob.SessionID, sid)
+	}
+	got, ok := s.Get(newJob.ID)
+	if !ok {
+		t.Fatalf("resumed job %s not found", newJob.ID)
+	}
+	if got.SourceJobID != src.ID || got.SessionID != sid {
+		t.Fatalf("stored resumed job source/session = %q/%q, want %q/%q", got.SourceJobID, got.SessionID, src.ID, sid)
+	}
+}
+
 func TestResumeJobEmptyPlanIDStaysEmpty(t *testing.T) {
 	root := t.TempDir()
 	const sid = "sess-no-plan"

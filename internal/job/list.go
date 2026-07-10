@@ -31,6 +31,9 @@ type ListOpts struct {
 	Session string
 	// Plan, when non-empty, keeps only jobs whose plan_id matches exactly.
 	Plan string
+	// SourceJob, when non-empty, keeps only jobs whose source_job_id matches exactly
+	// (P5, ?source_job=：列出某 job 直接派生出的所有 job)。
+	SourceJob string
 	// Since, when > 0, keeps only jobs with started_at >= Since (E5; unix 秒)。
 	Since int64
 	// Limit caps the number of returned jobs; <= 0 means defaultListLimit.
@@ -72,16 +75,17 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 		dbLimit += opts.Offset
 	}
 	recs, _ := s.meta.ListJobs(jobstore.ListQuery{
-		Project: opts.Project,
-		Status:  opts.Status,
-		Caller:  opts.Caller,
-		Tag:     opts.Tag,
-		Agent:   opts.Agent,
-		Runner:  opts.Runner,
-		Session: opts.Session,
-		Plan:    opts.Plan,
-		Since:   opts.Since,
-		Limit:   dbLimit,
+		Project:   opts.Project,
+		Status:    opts.Status,
+		Caller:    opts.Caller,
+		Tag:       opts.Tag,
+		Agent:     opts.Agent,
+		Runner:    opts.Runner,
+		Session:   opts.Session,
+		Plan:      opts.Plan,
+		SourceJob: opts.SourceJob,
+		Since:     opts.Since,
+		Limit:     dbLimit,
 	})
 	for _, rec := range recs {
 		merged[rec.ID] = fromRecord(rec)
@@ -119,6 +123,9 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 			continue
 		}
 		if opts.Plan != "" && snap.PlanID != opts.Plan {
+			continue
+		}
+		if opts.SourceJob != "" && snap.SourceJobID != opts.SourceJob {
 			continue
 		}
 		if opts.Since > 0 && snap.StartedAt < opts.Since {

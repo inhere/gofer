@@ -96,6 +96,10 @@ func (s *Service) ResumeJob(jobID, prompt, runner, callerID string) (JobResult, 
 		// 使"一次会话里多轮续接"天然归入同一 plan 血缘（源 job 未归组时为空）。plan_id 是
 		// 客户端可设的归组键（区别引擎私有 workflow_id），这里由后端从源 job 继承而非客户端声明。
 		PlanID: src.PlanID,
+		// 血缘（P5，本次追加）：续投 job 指回源 job。resume 语义 = source_job_id=源 id 且
+		// SessionID 与源相同（上面 :84 已带 SessionID=src.SessionID）——据此区分"续会话"
+		// （rebuild 则 session 空/新）。
+		SourceJobID: jobID,
 	})
 }
 

@@ -73,3 +73,28 @@ func TestJobListSessionMapping(t *testing.T) {
 		t.Fatalf("ListOpts.Session=%q want sess-cli-xyz", gotOpts.Session)
 	}
 }
+
+func TestJobListSourceJobMapping(t *testing.T) {
+	// Reset shared flag state so the test does not leak / inherit.
+	jobListOpts.sourceJob = ""
+
+	app := NewApp("test")
+	var gotOpts job.ListOpts
+	listCmd := app.GetCommand("job").GetCommand("list")
+	listCmd.Func = func(c *gcli.Command, _ []string) error {
+		// Mirror runJobList's mapping (the source job dimension under test).
+		gotOpts = job.ListOpts{SourceJob: jobListOpts.sourceJob}
+		return nil
+	}
+
+	args := []string{"job", "list", "--source-job", "job-src"}
+	if code := app.Run(args); code != 0 {
+		t.Fatalf("app.Run exit code=%d for args %v", code, args)
+	}
+	if jobListOpts.sourceJob != "job-src" {
+		t.Fatalf("--source-job did not bind: jobListOpts.sourceJob=%q", jobListOpts.sourceJob)
+	}
+	if gotOpts.SourceJob != "job-src" {
+		t.Fatalf("ListOpts.SourceJob=%q want job-src", gotOpts.SourceJob)
+	}
+}

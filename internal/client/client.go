@@ -170,6 +170,9 @@ func (c *Client) ListJobs(opts job.ListOpts) ([]job.JobResult, error) {
 	if opts.Plan != "" {
 		q.Set("plan", opts.Plan)
 	}
+	if opts.SourceJob != "" {
+		q.Set("source_job", opts.SourceJob)
+	}
 	if opts.Since > 0 {
 		q.Set("since", strconv.FormatInt(opts.Since, 10))
 	}

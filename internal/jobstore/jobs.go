@@ -99,22 +99,27 @@ type JobRecord struct {
 	// PlanID 是客户端可设的归组键，把此 job 归入某个 plan。区别于引擎私有
 	// WorkflowID；空表示不属任何 plan（旧库经 selectCols COALESCE 成 ""）。
 	PlanID string
+	// SourceJobID 是血缘键（P5）：resume/rebuild 出的 job 指回源 job id（服务端盖章）。空=非
+	// 派生（旧库 COALESCE→""）。与 job.JobResult.SourceJobID 互转；反查 ?source_job=。
+	// 注意区别既有 Source 列（执行位置 worker:/peer:）。
+	SourceJobID string
 }
 
 // ListQuery filters/bounds a ListJobs query. A zero value lists every project's
 // jobs (no status filter), newest first, capped at DefaultListLimit.
 type ListQuery struct {
-	Project string // exact project_key match when non-empty
-	Status  string // exact status match when non-empty
-	Caller  string // exact caller_id match when non-empty (C2)
-	Tag     string // tags_json contains this tag element when non-empty (E5)
-	Agent   string // exact agent match when non-empty (E5)
-	Runner  string // exact runner match when non-empty (E5)
-	Session string // exact session_id match when non-empty (P3, list --session)
-	Plan    string // exact plan_id match when non-empty (plan-orchestration P1)
-	Limit   int    // <= 0 => DefaultListLimit
-	Offset  int    // skip the first Offset rows (pagination); ignored when <= 0
-	Since   int64  // when > 0, keep only jobs with started_at >= Since
+	Project   string // exact project_key match when non-empty
+	Status    string // exact status match when non-empty
+	Caller    string // exact caller_id match when non-empty (C2)
+	Tag       string // tags_json contains this tag element when non-empty (E5)
+	Agent     string // exact agent match when non-empty (E5)
+	Runner    string // exact runner match when non-empty (E5)
+	Session   string // exact session_id match when non-empty (P3, list --session)
+	Plan      string // exact plan_id match when non-empty (plan-orchestration P1)
+	SourceJob string // exact source_job_id match when non-empty (P5, list ?source_job=)
+	Limit     int    // <= 0 => DefaultListLimit
+	Offset    int    // skip the first Offset rows (pagination); ignored when <= 0
+	Since     int64  // when > 0, keep only jobs with started_at >= Since
 }
 
 // selectCols is the shared projection for GetJob/ListJobs. COALESCE guards the
@@ -128,10 +133,10 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,
   COALESCE(artifacts_json,''), COALESCE(diff_summary,''),
   COALESCE(source,''), COALESCE(tags_json,''),
   COALESCE(workflow_id,''), COALESCE(step_index,0),
-  COALESCE(attempt,1), COALESCE(fan_index,0),
-  COALESCE(session_id,''), COALESCE(channel,''), COALESCE(client,''),
-  COALESCE(origin_agent,''), COALESCE(escalate_to,''),
-  COALESCE(role,''), COALESCE(plan_id,'') FROM jobs`
+	COALESCE(attempt,1), COALESCE(fan_index,0),
+	COALESCE(session_id,''), COALESCE(channel,''), COALESCE(client,''),
+	COALESCE(origin_agent,''), COALESCE(escalate_to,''),
+  COALESCE(role,''), COALESCE(plan_id,''), COALESCE(source_job_id,'') FROM jobs`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -151,7 +156,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.Source, &r.TagsJSON,
 		&r.WorkflowID, &r.StepIndex, &r.Attempt, &r.FanIndex,
 		&r.SessionID, &r.Channel, &r.Client,
-		&r.OriginAgent, &r.EscalateTo, &r.Role, &r.PlanID,
+		&r.OriginAgent, &r.EscalateTo, &r.Role, &r.PlanID, &r.SourceJobID,
 	)
 	r.Interactive = interactive != 0
 	return r, err
@@ -172,10 +177,10 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 	const q = `INSERT INTO jobs
   (id, project_key, agent, runner, interactive, worker_id, status, exit_code, cwd, result_dir,
    request_json, error, started_at, ended_at, updated_at, caller_id, request_id,
-    rendered_command, result_json, artifacts_json, diff_summary, source, tags_json,
-    workflow_id, step_index, attempt, fan_index, session_id, channel, client,
-    origin_agent, escalate_to, role, plan_id)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	    rendered_command, result_json, artifacts_json, diff_summary, source, tags_json,
+	    workflow_id, step_index, attempt, fan_index, session_id, channel, client,
+	    origin_agent, escalate_to, role, plan_id, source_job_id)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -206,10 +211,11 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     session_id=excluded.session_id,
     channel=excluded.channel,
     client=excluded.client,
-    origin_agent=excluded.origin_agent,
-    escalate_to=excluded.escalate_to,
-    role=excluded.role,
-    plan_id=excluded.plan_id`
+	    origin_agent=excluded.origin_agent,
+	    escalate_to=excluded.escalate_to,
+	    role=excluded.role,
+    plan_id=excluded.plan_id,
+    source_job_id=excluded.source_job_id`
 	// Serialise writes in-process (see Store.writeMu) so SQLite never sees two
 	// concurrent writers and cannot return SQLITE_BUSY under burst.
 	s.writeMu.Lock()
@@ -223,7 +229,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.Source, rec.TagsJSON,
 		rec.WorkflowID, rec.StepIndex, rec.Attempt, rec.FanIndex,
 		rec.SessionID, rec.Channel, rec.Client,
-		rec.OriginAgent, rec.EscalateTo, rec.Role, rec.PlanID,
+		rec.OriginAgent, rec.EscalateTo, rec.Role, rec.PlanID, rec.SourceJobID,
 	)
 	if err != nil {
 		// A competing INSERT with the same non-empty request_id (different id)
@@ -407,6 +413,10 @@ func (s *Store) ListJobs(q ListQuery) ([]JobRecord, error) {
 	if q.Plan != "" {
 		where = append(where, "plan_id = ?")
 		args = append(args, q.Plan)
+	}
+	if q.SourceJob != "" {
+		where = append(where, "source_job_id = ?")
+		args = append(args, q.SourceJob)
 	}
 	if q.Since > 0 {
 		where = append(where, "started_at >= ?")

@@ -247,6 +247,8 @@ func (s *Service) maybeRetryJob(snap JobResult) {
 	// CallerID / WorkflowID / Attempt are not part of the client-facing JSON (tag
 	// "-"), so restore them from the persisted snapshot for the re-submit.
 	req.CallerID = snap.CallerID
+	// P5: SourceJobID 亦 json:"-"（不入 request_json），从快照恢复，使派生 job 的重试保留血缘。
+	req.SourceJobID = snap.SourceJobID
 	if req.Retry == nil {
 		return
 	}

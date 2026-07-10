@@ -87,7 +87,8 @@ var schemaStmts = []string{
   origin_agent     TEXT,
   escalate_to      TEXT,
   role             TEXT,
-  plan_id          TEXT
+  plan_id          TEXT,
+  source_job_id    TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -444,6 +445,11 @@ func (s *Store) migrate() error {
 	if err := add("plan_id", "plan_id TEXT"); err != nil {
 		return err
 	}
+	// plan 编排 P5：血缘键——resume/rebuild 出的 job 指回源 job（服务端盖章 source_job_id=源 id）。
+	// 旧库 ALTER ADD，旧行 COALESCE→""。区别引擎私有 workflow_id；区别 source 列（执行位置）。
+	if err := add("source_job_id", "source_job_id TEXT"); err != nil {
+		return err
+	}
 	if err := s.migrateWorkflows(); err != nil {
 		return err
 	}
@@ -465,6 +471,12 @@ func (s *Store) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_jobs_plan_id ON jobs(plan_id)`,
 	); err != nil {
 		return fmt.Errorf("jobstore: migrate plan_id index: %w", err)
+	}
+	// source_job_id 反查索引（list ?source_job=）：列出某 job 直接派生出的所有 job。
+	if _, err := s.db.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_jobs_source_job_id ON jobs(source_job_id)`,
+	); err != nil {
+		return fmt.Errorf("jobstore: migrate source_job_id index: %w", err)
 	}
 	return nil
 }

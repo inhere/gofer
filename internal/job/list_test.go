@@ -233,6 +233,67 @@ func TestListJobsPlanFilterDBAndLiveOverlay(t *testing.T) {
 	}
 }
 
+func TestSourceJobIDSubmitRoundTripAndFilterDBAndLiveOverlay(t *testing.T) {
+	root := t.TempDir()
+	s := newTestService(t, root)
+
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		SourceJobID: "job-src-db", Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if final.SourceJobID != "job-src-db" {
+		t.Fatalf("final SourceJobID = %q, want job-src-db", final.SourceJobID)
+	}
+	if e := s.entry(final.ID); e != nil {
+		t.Fatalf("setup: expected terminal job evicted")
+	}
+	got, ok := s.Get(final.ID)
+	if !ok {
+		t.Fatalf("Get(%s) not found", final.ID)
+	}
+	if got.SourceJobID != "job-src-db" {
+		t.Fatalf("Get SourceJobID = %q, want job-src-db", got.SourceJobID)
+	}
+
+	dbOnly, err := s.ListJobs(ListOpts{SourceJob: "job-src-db"})
+	if err != nil {
+		t.Fatalf("ListJobs(source db): %v", err)
+	}
+	if len(dbOnly) != 1 || dbOnly[0].ID != final.ID || dbOnly[0].SourceJobID != "job-src-db" {
+		t.Fatalf("source db list wrong: %+v", dbOnly)
+	}
+
+	live, err := s.Submit(JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		SourceJobID: "job-src-live", Cmd: []string{"sleep", "2"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if err != nil {
+		t.Fatalf("Submit live: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.Cancel(live.ID)
+		_, _ = s.Wait(live.ID)
+	})
+	waitForStatus(t, s, live.ID, StatusRunning, 2*time.Second)
+
+	other, err := s.ListJobs(ListOpts{SourceJob: "job-src-other"})
+	if err != nil {
+		t.Fatalf("ListJobs(source other): %v", err)
+	}
+	for _, j := range other {
+		if j.ID == live.ID {
+			t.Fatalf("live job leaked through unrelated source_job filter: %+v", other)
+		}
+	}
+	liveOnly, err := s.ListJobs(ListOpts{SourceJob: "job-src-live"})
+	if err != nil {
+		t.Fatalf("ListJobs(source live): %v", err)
+	}
+	if len(liveOnly) != 1 || liveOnly[0].ID != live.ID || liveOnly[0].SourceJobID != "job-src-live" {
+		t.Fatalf("source live list wrong: %+v", liveOnly)
+	}
+}
+
 // TestInteractiveRoundTripsThroughDB proves WEB-03 interactive survives Submit →
 // persist → Get/ListJobs on the DB read path after terminal eviction.
 func TestInteractiveRoundTripsThroughDB(t *testing.T) {

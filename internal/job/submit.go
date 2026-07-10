@@ -263,6 +263,9 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// 供监督路由器识别"sup 自身产生的 interaction"，对其永不自动答/回投 sup。
 			Role:   req.Role,
 			PlanID: req.PlanID,
+			// 血缘（P5）：ResumeJob/RebuildJob 内部盖在 req 上（源 job id）；普通 job 为空。
+			// json:"-" 不影响此 Go 赋值——落 jobs.source_job_id（血缘的真源，不进 request_json）。
+			SourceJobID: req.SourceJobID,
 		},
 	}
 	s.mu.Lock()

@@ -123,6 +123,25 @@ func TestListJobsEndpointOffset(t *testing.T) {
 	}
 }
 
+func TestListJobsEndpointSourceJobFilter(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	meta := s.jobs.Meta()
+
+	derived := statsJobRecord("job-derived", job.StatusDone, 200)
+	derived.SourceJobID = "job-src"
+	plain := statsJobRecord("job-plain", job.StatusDone, 100)
+	for _, rec := range []jobstore.JobRecord{derived, plain} {
+		if err := meta.UpsertJob(rec); err != nil {
+			t.Fatalf("upsert job: %v", err)
+		}
+	}
+
+	jobs := listJobs(t, s, "?source_job=job-src")
+	if len(jobs) != 1 || jobs[0].ID != "job-derived" || jobs[0].SourceJobID != "job-src" {
+		t.Fatalf("source_job filter wrong: %+v", jobs)
+	}
+}
+
 func TestListJobsEndpointRequiresAuth(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodGet, "/v1/jobs", "", nil)

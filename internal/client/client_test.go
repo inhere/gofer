@@ -115,6 +115,31 @@ func TestSubmitGetLogs(t *testing.T) {
 	}
 }
 
+func TestListJobsSourceJobQuery(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.URL.Query().Get("source_job"); got != "job-src" {
+			t.Fatalf("source_job query = %q, want job-src", got)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"jobs": []map[string]any{{
+				"id":            "job-derived",
+				"source_job_id": "job-src",
+			}},
+		})
+	}))
+	defer ts.Close()
+
+	c := New(ts.URL, testToken)
+	jobs, err := c.ListJobs(job.ListOpts{SourceJob: "job-src"})
+	if err != nil {
+		t.Fatalf("ListJobs(source): %v", err)
+	}
+	if len(jobs) != 1 || jobs[0].ID != "job-derived" || jobs[0].SourceJobID != "job-src" {
+		t.Fatalf("ListJobs(source) decoded wrong: %+v", jobs)
+	}
+}
+
 func TestCancelCompletedStable(t *testing.T) {
 	ts := newServer(t, testToken, false)
 	c := New(ts.URL, testToken)

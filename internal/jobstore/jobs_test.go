@@ -1,6 +1,7 @@
 package jobstore
 
 import (
+	"database/sql"
 	"fmt"
 	"path/filepath"
 	"sync"
@@ -270,6 +271,101 @@ func TestUpsertGetPlanIDRoundTripAndFilter(t *testing.T) {
 	gotPlain, _, err := s.GetJob("plain-job")
 	assert.NoErr(t, err)
 	assert.Eq(t, "", gotPlain.PlanID)
+}
+
+func TestUpsertGetSourceJobIDRoundTripAndFilter(t *testing.T) {
+	s := openTest(t)
+
+	in := sampleJob("job-1", "alpha", 2000)
+	in.SourceJobID = "job-src"
+	assert.NoErr(t, s.UpsertJob(in))
+
+	plain := sampleJob("job-2", "alpha", 2001)
+	assert.NoErr(t, s.UpsertJob(plain))
+
+	got, ok, err := s.GetJob("job-1")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "job-src", got.SourceJobID)
+
+	bySource, err := s.ListJobs(ListQuery{SourceJob: "job-src"})
+	assert.NoErr(t, err)
+	assert.Len(t, bySource, 1)
+	assert.Eq(t, "job-1", bySource[0].ID)
+
+	none, err := s.ListJobs(ListQuery{SourceJob: "job-none"})
+	assert.NoErr(t, err)
+	assert.Len(t, none, 0)
+
+	gotPlain, _, err := s.GetJob("job-2")
+	assert.NoErr(t, err)
+	assert.Eq(t, "", gotPlain.SourceJobID)
+}
+
+func TestUpsertSourceJobIDOnConflictUpdate(t *testing.T) {
+	s := openTest(t)
+
+	create := sampleJob("job-1", "alpha", 2000)
+	create.SourceJobID = "job-src-a"
+	assert.NoErr(t, s.UpsertJob(create))
+
+	finish := create
+	finish.Status = "done"
+	finish.EndedAt = 2100
+	finish.UpdatedAt = 2100
+	finish.SourceJobID = "job-src-b"
+	assert.NoErr(t, s.UpsertJob(finish))
+
+	got, ok, err := s.GetJob("job-1")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "job-src-b", got.SourceJobID)
+
+	bySource, err := s.ListJobs(ListQuery{SourceJob: "job-src-b"})
+	assert.NoErr(t, err)
+	assert.Len(t, bySource, 1)
+	assert.Eq(t, "job-1", bySource[0].ID)
+}
+
+func TestMigrateAddsSourceJobIDToOldDB(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old-source.db")
+
+	raw, err := sql.Open("sqlite", "file:"+path)
+	assert.NoErr(t, err)
+	_, err = raw.Exec(`CREATE TABLE jobs (
+	  id           TEXT PRIMARY KEY,
+	  project_key  TEXT NOT NULL,
+	  agent        TEXT NOT NULL,
+	  runner       TEXT NOT NULL,
+	  worker_id    TEXT,
+	  status       TEXT NOT NULL,
+	  exit_code    INTEGER NOT NULL DEFAULT 0,
+	  cwd          TEXT,
+	  result_dir   TEXT NOT NULL,
+	  request_json TEXT,
+	  error        TEXT,
+	  started_at   INTEGER NOT NULL,
+	  ended_at     INTEGER,
+	  updated_at   INTEGER NOT NULL
+	)`)
+	assert.NoErr(t, err)
+	_, err = raw.Exec(`INSERT INTO jobs
+	  (id, project_key, agent, runner, status, result_dir, started_at, updated_at)
+	  VALUES ('job-old', 'alpha', 'exec', 'local', 'done', '/tmp/results/job-old', 1000, 1000)`)
+	assert.NoErr(t, err)
+	assert.NoErr(t, raw.Close())
+
+	s, err := Open(path)
+	assert.NoErr(t, err)
+	defer s.Close()
+
+	assert.True(t, tableHasColumn(t, s, "jobs", "source_job_id"))
+	assert.True(t, indexExists(t, s, "idx_jobs_source_job_id"))
+
+	got, ok, err := s.GetJob("job-old")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "", got.SourceJobID)
 }
 
 func TestGetJobMissingReturnsFalseNoError(t *testing.T) {

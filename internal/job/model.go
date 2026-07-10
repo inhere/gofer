@@ -83,6 +83,16 @@ type JobRequest struct {
 	// WorkflowID/StepIndex, it is not engine-private: clients may attach a job to a
 	// plan at submit time via JSON, YAML, CLI, or future MCP inputs.
 	PlanID string `json:"plan_id,omitempty" yaml:"plan_id,omitempty"`
+	// SourceJobID is the lineage key set ONLY by ResumeJob / RebuildJob (P5): it points
+	// the new job back to its SOURCE job id. Like ResumeSourceAgent (model.go:163) it is
+	// json/yaml "-": it is NEVER written from a client body (c.BindJSON can't set it) nor
+	// from md frontmatter, and it does NOT round-trip through request_json. UNLIKE
+	// ResumeSourceAgent (whose "-" is a SECURITY requirement — it exempts allow_exec),
+	// here "-" is chosen to ELIMINATE the forge surface: the URL /jobs/{id}/rebuild
+	// already carries the authoritative source id, so the server stamps it internally
+	// (submit copies it into the JobResult → jobs.source_job_id via a plain Go assignment,
+	// which the json tag does not affect). Empty == not derived.
+	SourceJobID string `json:"-" yaml:"-"`
 	// Tags are free-form labels for the job (E5). They are persisted (jobs.tags_json)
 	// and queryable via ?tag= (exact element match). Unlike WorkerLabels (routing,
 	// not stored), Tags are索引/检索维度。
@@ -214,6 +224,11 @@ type JobResult struct {
 	// PlanID is the client-settable plan grouping key persisted to jobs.plan_id.
 	// Empty means this job is not grouped under a plan.
 	PlanID string `json:"plan_id,omitempty"`
+	// SourceJobID is the lineage key (P5): the source job this one was resumed/rebuilt
+	// from. Persisted to jobs.source_job_id (single source of truth — it is NOT in
+	// request_json, see JobRequest.SourceJobID). Surfaced in show/list and via
+	// ?source_job= for bidirectional lineage nav. Empty == not derived (omitempty).
+	SourceJobID string `json:"source_job_id,omitempty"`
 	// RequestID is the idempotency key (C5) this job was created with; it is
 	// persisted (jobs.request_id) and echoed so the idempotent-reuse path returns
 	// it and it round-trips through persist.
