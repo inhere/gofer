@@ -4,7 +4,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import StatusBadge from '../components/StatusBadge.vue'
 import Signal from '../components/Signal.vue'
-import { listJobs, listProjects } from '../api/client'
+import { listJobs, listPlans, listProjects } from '../api/client'
 import { fmtDuration, jobDurationSec } from '../api/time'
 import type { Job, JobStatus } from '../api/types'
 
@@ -29,6 +29,7 @@ const runnerFilter = ref('')
 const callerFilter = ref('')
 const sinceFilter = ref<'' | '1h' | '24h' | '7d'>('')
 const projectKeys = ref<string[]>([])
+const planKeys = ref<Array<{ id: string; title?: string }>>([])
 const projectLoadError = ref('')
 
 const statusOptions: Array<{ value: '' | JobStatus; label: string }> = [
@@ -59,6 +60,7 @@ const activeFilterCount = computed(() =>
   [
     statusFilter.value,
     projectFilter.value,
+    planFilter.value,
     tagFilter.value.trim(),
     agentFilter.value.trim(),
     runnerFilter.value.trim(),
@@ -117,6 +119,11 @@ const projectFilter = computed(() => {
   return typeof p === 'string' && p ? p : undefined
 })
 
+const planFilter = computed(() => {
+  const p = route.query.plan
+  return typeof p === 'string' && p ? p : undefined
+})
+
 const projectSelectValue = computed({
   get: () => projectFilter.value ?? '',
   set: (value: string) => {
@@ -126,6 +133,16 @@ const projectSelectValue = computed({
     } else {
       delete nextQuery.project
     }
+    void router.push({ path: '/board', query: nextQuery })
+  },
+})
+
+const planSelectValue = computed({
+  get: () => planFilter.value ?? '',
+  set: (value: string) => {
+    const nextQuery = { ...route.query }
+    if (value) nextQuery.plan = value
+    else delete nextQuery.plan
     void router.push({ path: '/board', query: nextQuery })
   },
 })
@@ -150,12 +167,22 @@ async function fetchProjects(): Promise<void> {
   }
 }
 
+async function fetchPlans(): Promise<void> {
+  try {
+    const resp = await listPlans()
+    planKeys.value = (resp.plans ?? []).map((p) => ({ id: p.plan_id, title: p.title }))
+  } catch {
+    // plan 下拉失败不阻塞 board（静默）
+  }
+}
+
 async function fetchJobs(): Promise<void> {
   loading.value = true
   try {
     const resp = await listJobs({
       status: statusFilter.value || undefined,
       project: projectFilter.value,
+      plan: planFilter.value,
       tag: tagFilter.value.trim() || undefined,
       agent: agentFilter.value.trim() || undefined,
       runner: runnerFilter.value.trim() || undefined,
@@ -179,6 +206,7 @@ async function fetchStatusCounts(): Promise<void> {
   try {
     const resp = await listJobs({
       project: projectFilter.value,
+      plan: planFilter.value,
       tag: tagFilter.value.trim() || undefined,
       agent: agentFilter.value.trim() || undefined,
       runner: runnerFilter.value.trim() || undefined,
@@ -224,6 +252,7 @@ watch(
   [
     statusFilter,
     projectFilter,
+    planFilter,
     tagFilter,
     agentFilter,
     runnerFilter,
@@ -236,7 +265,7 @@ watch(
   },
 )
 
-watch([projectFilter, tagFilter, agentFilter, runnerFilter, callerFilter, sinceFilter], () => {
+watch([projectFilter, planFilter, tagFilter, agentFilter, runnerFilter, callerFilter, sinceFilter], () => {
   void fetchStatusCounts()
 })
 
@@ -292,13 +321,14 @@ function clearFilters(): void {
   runnerFilter.value = ''
   callerFilter.value = ''
   sinceFilter.value = ''
-  if (projectFilter.value) {
+  if (projectFilter.value || planFilter.value) {
     void router.push({ path: '/board' })
   }
 }
 
 onMounted(() => {
   void fetchProjects()
+  void fetchPlans()
   void fetchJobs()
   void fetchStatusCounts()
   startPolling()
@@ -355,6 +385,7 @@ onUnmounted(() => {
 
       <div class="controls">
         <span v-if="projectFilter" class="proj-chip">project: {{ projectFilter }}</span>
+        <span v-if="planFilter" class="proj-chip">plan: {{ planFilter }}</span>
         <label class="filter">
           <span class="filter-label">project</span>
           <select
@@ -365,6 +396,15 @@ onUnmounted(() => {
             <option value="">全部</option>
             <option v-for="key in projectOptions" :key="key" :value="key">
               {{ key }}
+            </option>
+          </select>
+        </label>
+        <label class="filter">
+          <span class="filter-label">plan</span>
+          <select v-model="planSelectValue" class="filter-select mono">
+            <option value="">全部</option>
+            <option v-for="p in planKeys" :key="p.id" :value="p.id">
+              {{ p.title || p.id }}
             </option>
           </select>
         </label>

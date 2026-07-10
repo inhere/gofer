@@ -2,8 +2,8 @@
 // Job 详情：getJob 填头部；非终态走 SSE 回放+跟随，终态日志走 HTTP 按行分页。
 //  - SSE from 仅用于断线重连（已收 stdout 字节数）。
 //  - status 事件回填头部/徽标/耗时；end/终态停 live；running 显示 cancel。
-import { computed, onMounted, onUnmounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import StatusBadge from '../components/StatusBadge.vue'
@@ -25,8 +25,10 @@ import {
   listArtifacts,
   listDeliveries,
   listEvents,
+  listJobs,
   listPtySessions,
   puntInteraction,
+  resumeJob,
 } from '../api/client'
 import { appendCapped, streamJob } from '../api/sse'
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
@@ -48,6 +50,7 @@ import type {
 
 const props = defineProps<{ id: string }>()
 const route = useRoute()
+const router = useRouter()
 
 const job = ref<Job | null>(null)
 const stdout = ref('')
@@ -366,16 +369,17 @@ function countLines(text: string): number {
 }
 
 async function startStream(from?: number): Promise<void> {
-  abortCtrl = new AbortController()
+  const ctrl = new AbortController()
+  abortCtrl = ctrl
   try {
-    await streamJob(props.id, { from, signal: abortCtrl.signal, onEvent })
+    await streamJob(props.id, { from, signal: ctrl.signal, onEvent })
     // 流正常结束：若非终态且未重连过 -> 自动用 from 重连一次
     if (!isTerminal(job.value?.status) && !reconnectedOnce) {
       reconnectedOnce = true
       void startStream(stdoutBytes)
     }
   } catch (e) {
-    if (abortCtrl?.signal.aborted) {
+    if (ctrl.signal.aborted) {
       return
     }
     // 异常结束：非终态自动重连一次，再失败提示手动重连
@@ -454,6 +458,44 @@ function onLoadAll(stream: LogStream): void {
   void loadTerminalLog(stream, 'all')
 }
 
+// session 续跑：仅对有 session_id 的 job 可用。续投新 job（同会话、继承 plan_id），跳新 job。
+const showResumeForm = ref(false)
+const resumePrompt = ref('')
+const resuming = ref(false)
+const resumeError = ref('')
+
+async function doResume(): Promise<void> {
+  if (resuming.value) return
+  resuming.value = true
+  resumeError.value = ''
+  try {
+    const newJob = await resumeJob(props.id, resumePrompt.value)
+    resumePrompt.value = ''
+    showResumeForm.value = false
+    void router.push(`/jobs/${encodeURIComponent(newJob.id)}`)
+  } catch (e) {
+    resumeError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    resuming.value = false
+  }
+}
+
+// 会话链：同 session_id 的全部 job（含本 job）。resume 复用源 job 的 session_id，
+// 故一条 resume 链共享同一 sid。后端无 parent_job_id，链内顺序按 started_at 升序还原。
+const sessionJobs = ref<Job[]>([])
+const sessionJobsOpen = ref(false)
+
+async function loadSessionJobs(): Promise<void> {
+  const sid = job.value?.session_id
+  if (!sid) return
+  try {
+    const resp = await listJobs({ session: sid, limit: 50 })
+    sessionJobs.value = [...resp.jobs].sort((a, b) => a.started_at - b.started_at)
+  } catch {
+    sessionJobs.value = []  // 链表是增强信息，拉取失败静默降级，不打断详情页
+  }
+}
+
 async function doCancel(): Promise<void> {
   cancelling.value = true
   try {
@@ -472,11 +514,56 @@ function startClock(): void {
   }, 1000)
 }
 
-onMounted(async () => {
-  startClock()
+async function loadCurrentJob(): Promise<void> {
+  if (abortCtrl) {
+    abortCtrl.abort()
+    abortCtrl = null
+  }
+  job.value = null
+  stdout.value = ''
+  stderr.value = ''
+  headError.value = ''
+  streamError.value = ''
+  cancelling.value = false
+  showResumeForm.value = false
+  resumePrompt.value = ''
+  resumeError.value = ''
+  sessionJobs.value = []
+  sessionJobsOpen.value = false
+  interactions.value = new Map()
+  submittingIds.value = new Set()
+  interactionErrors.value = new Map()
+  timelineSeqs.clear()
+  timelineEvents.value = []
+  recentLines.value = []
+  stdoutBytes = 0
+  reconnectedOnce = false
+  logPages.value = {
+    stdout: { offset: 0, total: 0, loading: false },
+    stderr: { offset: 0, total: 0, loading: false },
+  }
+  artifacts.value = []
+  downloadingNames.value = new Set()
+  artifactError.value = ''
+  deliveries.value = []
+  ptySessions.value = []
+  ptySessionError.value = ''
+  downloadingRecordingIds.value = new Set()
+  preview.value = null
+  previewingNames.value = new Set()
+  previewError.value = ''
+  diffError.value = ''
+  diffLoading.value = false
+  diffOpen.value = false
+  fullDiffText.value = ''
+  terminalOpen.value = false
+  termExitCode.value = null
+  termExited.value = false
+  termError.value = ''
   // 先取头部（即便 stream 也会回填，但 getJob 让头部更快可见）
   try {
     job.value = await getJob(props.id)
+    void loadSessionJobs()
     if (route.query.attach === '1') {
       openTerminal()
     }
@@ -498,17 +585,7 @@ onMounted(async () => {
     // 非终态保持原 SSE 路径：历史回放 + 实时跟随 + 断线 from 重连。
     void startStream()
   }
-})
-
-onUnmounted(() => {
-  if (abortCtrl) {
-    abortCtrl.abort()
-  }
-  if (clockTimer != null) {
-    window.clearInterval(clockTimer)
-    clockTimer = null
-  }
-})
+}
 
 function fmtTime(v: string | number | undefined): string {
   const sec = toUnixSec(v)
@@ -861,6 +938,28 @@ async function copyCommand(): Promise<void> {
     // 剪贴板不可用（非安全上下文等）时静默：用户仍可手动选择文本复制。
   }
 }
+
+watch(
+  () => props.id,
+  () => {
+    void loadCurrentJob()
+  },
+)
+
+onMounted(() => {
+  startClock()
+  void loadCurrentJob()
+})
+
+onUnmounted(() => {
+  if (abortCtrl) {
+    abortCtrl.abort()
+  }
+  if (clockTimer != null) {
+    window.clearInterval(clockTimer)
+    clockTimer = null
+  }
+})
 </script>
 
 <template>
@@ -921,13 +1020,53 @@ async function copyCommand(): Promise<void> {
       <div v-if="job.channel" class="meta-item">
         <span class="meta-k mono">channel</span><span class="meta-v mono">{{ job.channel }}</span>
       </div>
+      <div v-if="job.plan_id" class="meta-item">
+        <span class="meta-k mono">plan</span>
+        <RouterLink class="meta-v mono" :to="`/plans/${encodeURIComponent(job.plan_id)}`">
+          {{ job.plan_id }}
+        </RouterLink>
+      </div>
       <div v-if="job.client" class="meta-item">
         <span class="meta-k mono">client</span><span class="meta-v mono">{{ job.client }}</span>
       </div>
       <div v-if="job.session_id" class="meta-item">
         <span class="meta-k mono">session_id</span>
-        <span class="meta-v mono" :title="`gofer job resume ${job.id}`">{{ job.session_id }}</span>
+        <span class="meta-v mono" :title="job.session_id">{{ job.session_id }}</span>
+        <button class="resume-btn mono" type="button" @click="showResumeForm = !showResumeForm">
+          {{ showResumeForm ? '收起' : '继续会话' }}
+        </button>
       </div>
+      <div v-if="job.session_id && showResumeForm" class="resume-form">
+        <textarea
+          v-model="resumePrompt"
+          class="resume-input mono"
+          rows="3"
+          placeholder="续接指令（可留空，让 agent 直接继续）"
+        ></textarea>
+        <div class="resume-actions">
+          <button class="resume-go mono" type="button" :disabled="resuming" @click="doResume">
+            {{ resuming ? '续投中…' : '续投新 job' }}
+          </button>
+          <span v-if="resumeError" class="resume-err mono">{{ resumeError }}</span>
+        </div>
+      </div>
+      <div v-if="job.session_id && sessionJobs.length > 1" class="meta-item">
+        <span class="meta-k mono">会话内 job</span>
+        <button class="chain-toggle mono" type="button" @click="sessionJobsOpen = !sessionJobsOpen">
+          共 {{ sessionJobs.length }} 个{{ sessionJobsOpen ? ' ▾' : ' ▸' }}
+        </button>
+      </div>
+      <ol v-if="sessionJobsOpen && sessionJobs.length > 1" class="chain-list">
+        <li v-for="sj in sessionJobs" :key="sj.id" class="chain-item">
+          <RouterLink
+            v-if="sj.id !== props.id"
+            class="chain-link mono"
+            :to="`/jobs/${encodeURIComponent(sj.id)}`"
+          >{{ sj.id }}</RouterLink>
+          <span v-else class="chain-self mono">{{ sj.id }}（当前）</span>
+          <StatusBadge :status="sj.status" />
+        </li>
+      </ol>
       <div class="meta-item">
         <span class="meta-k mono">cwd</span><span class="meta-v mono">{{ job.cwd }}</span>
       </div>
@@ -1393,6 +1532,7 @@ async function copyCommand(): Promise<void> {
 }
 .meta-v {
   color: var(--paper);
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1406,6 +1546,105 @@ async function copyCommand(): Promise<void> {
 }
 .meta-v.bad {
   color: var(--fail);
+}
+.resume-btn,
+.chain-toggle {
+  flex: none;
+  background: transparent;
+  color: var(--phosphor);
+  border: 1px solid var(--phosphor);
+  border-radius: var(--radius);
+  padding: 2px 9px;
+  font-size: 11px;
+}
+.resume-btn:hover,
+.chain-toggle:hover {
+  background: var(--phosphor);
+  color: var(--ink);
+}
+.resume-form {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-left: 90px;
+}
+.resume-input {
+  min-height: 70px;
+  resize: vertical;
+  background: var(--term-bg);
+  color: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.45;
+  outline: none;
+}
+.resume-input:focus {
+  border-color: var(--phosphor);
+}
+.resume-input::placeholder {
+  color: var(--queue);
+}
+.resume-actions {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.resume-go {
+  background: var(--phosphor);
+  color: var(--ink);
+  border: 1px solid var(--phosphor);
+  border-radius: var(--radius);
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+}
+.resume-go:hover:not(:disabled) {
+  opacity: 0.9;
+}
+.resume-go:disabled {
+  background: transparent;
+  color: var(--queue);
+  border-color: var(--line);
+  cursor: default;
+  opacity: 0.65;
+}
+.resume-err {
+  color: var(--fail);
+  font-size: 11px;
+}
+.chain-list {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin: 0;
+  padding: 0 0 0 90px;
+  list-style: none;
+}
+.chain-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+  font-size: 12px;
+}
+.chain-link,
+.chain-self {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.chain-link {
+  color: var(--phosphor);
+}
+.chain-self {
+  color: var(--queue);
+  opacity: 0.75;
 }
 
 .error {
