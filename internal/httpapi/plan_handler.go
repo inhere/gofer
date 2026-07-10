@@ -74,7 +74,8 @@ func (s *Server) handleListPlans(c *rux.Context) {
 
 type planDetail struct {
 	planView
-	Jobs []job.JobResult `json:"jobs"`
+	Counts jobstore.PlanCounts `json:"counts"`
+	Jobs   []job.JobResult     `json:"jobs"`
 }
 
 func (s *Server) handleGetPlan(c *rux.Context) {
@@ -93,7 +94,16 @@ func (s *Server) handleGetPlan(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "list plan jobs failed", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, planDetail{planView: toPlanView(p), Jobs: jobs})
+	raw, err := s.jobs.Meta().PlanJobStatusCounts(id)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "plan counts failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, planDetail{
+		planView: toPlanView(p),
+		Counts:   jobstore.RollupPlanCounts(raw),
+		Jobs:     jobs,
+	})
 }
 
 type attachJobReq struct {

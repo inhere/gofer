@@ -435,6 +435,12 @@ func TestPlanClientRoundTrip(t *testing.T) {
 	if detail.PlanID != "plan-client" || len(detail.Jobs) != 1 || detail.Jobs[0].ID != jobOut.ID {
 		t.Fatalf("plan detail mismatch: %+v", detail)
 	}
+	if detail.Counts == nil {
+		t.Fatalf("GetPlan Counts is nil, want live counts")
+	}
+	if detail.Counts.Total != 1 || detail.Counts.Done != 1 || detail.Counts.Failed != 0 {
+		t.Fatalf("GetPlan Counts mismatch: %+v", detail.Counts)
+	}
 
 	plans, err := c.ListPlans("open")
 	if err != nil {
@@ -444,6 +450,9 @@ func TestPlanClientRoundTrip(t *testing.T) {
 	for _, plan := range plans {
 		if plan.PlanID == "plan-client" {
 			found = true
+			if plan.Counts != nil {
+				t.Fatalf("ListPlans plan Counts = %+v, want nil", plan.Counts)
+			}
 		}
 	}
 	if !found {

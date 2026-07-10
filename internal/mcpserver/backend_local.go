@@ -4,9 +4,11 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/store"
@@ -152,6 +154,75 @@ func (b *localBackend) GetResult(id string) (string, error) {
 		return "", fmt.Errorf("unknown job %q", id)
 	}
 	return res.ResultJSON, nil
+}
+
+// --- plan grouping (local 直驱 jobstore via Meta) ---------------------------
+
+func newPlanID() string {
+	return "plan-" + time.Now().Format(job.JobIDLayout) + "-" + job.RandomSuffix()
+}
+
+func (b *localBackend) CreatePlan(title, description string) (planView, error) {
+	now := time.Now().Unix()
+	p := jobstore.Plan{
+		PlanID:      newPlanID(),
+		Title:       title,
+		Description: description,
+		Status:      jobstore.PlanOpen,
+		CreatedAt:   now,
+		UpdatedAt:   now,
+	}
+	if err := b.jobs.Meta().InsertPlan(p); err != nil {
+		return planView{}, err
+	}
+	return planHeaderView(p), nil
+}
+
+func (b *localBackend) AttachJob(planID, jobID string) (planView, error) {
+	st := b.jobs.Meta()
+	p, ok, err := st.GetPlan(planID)
+	if err != nil {
+		return planView{}, err
+	}
+	if !ok {
+		return planView{}, fmt.Errorf("unknown plan %q", planID)
+	}
+	attached, err := st.AttachJobToPlan(jobID, planID)
+	if err != nil {
+		return planView{}, err
+	}
+	if !attached {
+		return planView{}, fmt.Errorf("unknown job %q", jobID)
+	}
+	_ = st.TouchPlan(planID)
+	p, _, _ = st.GetPlan(planID)
+	return planHeaderView(p), nil
+}
+
+func (b *localBackend) GetPlan(planID string) (planView, error) {
+	st := b.jobs.Meta()
+	p, ok, err := st.GetPlan(planID)
+	if err != nil {
+		return planView{}, err
+	}
+	if !ok {
+		return planView{}, fmt.Errorf("unknown plan %q", planID)
+	}
+	jobs, err := b.jobs.ListJobs(job.ListOpts{Plan: planID, Limit: 1000})
+	if err != nil {
+		return planView{}, err
+	}
+	raw, err := st.PlanJobStatusCounts(planID)
+	if err != nil {
+		return planView{}, err
+	}
+	pv := planHeaderView(p)
+	pv.Counts = jobstore.RollupPlanCounts(raw)
+	pv.Jobs = make([]jobView, 0, len(jobs))
+	for _, j := range jobs {
+		pv.Jobs = append(pv.Jobs, toJobView(j))
+	}
+	return pv, nil
 }
 
 // --- E36 presence (local 直驱 presence.Service) ------------------------------

@@ -146,6 +146,53 @@ func (b *clientBackend) GetArtifacts(id string) ([]artifactView, error) {
 	return out, nil
 }
 
+// --- plan grouping (client 转发中央 serve) -----------------------------------
+
+func (b *clientBackend) CreatePlan(title, description string) (planView, error) {
+	p, err := b.cli.CreatePlan("", title, description)
+	if err != nil {
+		return planView{}, err
+	}
+	return clientPlanToView(p), nil
+}
+
+func (b *clientBackend) AttachJob(planID, jobID string) (planView, error) {
+	p, err := b.cli.AttachJob(planID, jobID)
+	if err != nil {
+		return planView{}, err
+	}
+	return clientPlanToView(p), nil
+}
+
+func (b *clientBackend) GetPlan(planID string) (planView, error) {
+	p, err := b.cli.GetPlan(planID)
+	if err != nil {
+		return planView{}, err
+	}
+	return clientPlanToView(p), nil
+}
+
+func clientPlanToView(p client.Plan) planView {
+	pv := planView{
+		PlanID:      p.PlanID,
+		Title:       p.Title,
+		Description: p.Description,
+		Status:      p.Status,
+		Owner:       p.Owner,
+		Progress:    p.Progress,
+		CreatedAt:   p.CreatedAt,
+		UpdatedAt:   p.UpdatedAt,
+		Jobs:        make([]jobView, 0, len(p.Jobs)),
+	}
+	if p.Counts != nil {
+		pv.Counts = *p.Counts
+	}
+	for _, j := range p.Jobs {
+		pv.Jobs = append(pv.Jobs, toJobView(j))
+	}
+	return pv
+}
+
 // --- E36 presence (client 转发中央 serve) ------------------------------------
 
 func (b *clientBackend) RegisterAgent(name, role, project string) (presence.RegisterResult, error) {

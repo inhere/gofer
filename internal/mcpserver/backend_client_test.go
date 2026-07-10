@@ -9,6 +9,7 @@ import (
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 // mockBackend starts an httptest server fronting mux and returns a clientBackend
@@ -322,6 +323,112 @@ func TestClientBackendGetArtifactsEmptyNonNil(t *testing.T) {
 	}
 	if len(got) != 0 {
 		t.Fatalf("want 0 artifacts, got %d: %+v", len(got), got)
+	}
+}
+
+func TestClientBackendPlanMethods(t *testing.T) {
+	mux := http.NewServeMux()
+	var sawCreate, sawAttach bool
+	mux.HandleFunc("/v1/plans", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "bad method", http.StatusMethodNotAllowed)
+			return
+		}
+		sawCreate = true
+		var body struct {
+			PlanID      string `json:"plan_id"`
+			Title       string `json:"title"`
+			Description string `json:"description"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.PlanID != "" || body.Title != "plan title" || body.Description != "desc" {
+			t.Fatalf("create body mismatch: %+v", body)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"plan_id":     "plan-1",
+			"title":       body.Title,
+			"description": body.Description,
+			"status":      "open",
+			"created_at":  int64(100),
+			"updated_at":  int64(100),
+		})
+	})
+	mux.HandleFunc("/v1/plans/plan-1/jobs", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "bad method", http.StatusMethodNotAllowed)
+			return
+		}
+		sawAttach = true
+		var body struct {
+			JobID string `json:"job_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.JobID != "job-1" {
+			t.Fatalf("attach body mismatch: %+v", body)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"plan_id": "plan-1",
+			"title":   "plan title",
+			"status":  "open",
+		})
+	})
+	mux.HandleFunc("/v1/plans/plan-1", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			http.Error(w, "bad method", http.StatusMethodNotAllowed)
+			return
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"plan_id":    "plan-1",
+			"title":      "plan title",
+			"status":     "open",
+			"created_at": int64(100),
+			"updated_at": int64(200),
+			"counts": map[string]any{
+				"total": 2, "queued": 0, "running": 1, "done": 1, "failed": 0,
+			},
+			"jobs": []map[string]any{
+				{"id": "job-1", "status": "done", "project_key": "self", "agent": "exec", "runner": "local", "plan_id": "plan-1"},
+				{"id": "job-2", "status": "running", "project_key": "self", "agent": "exec", "runner": "local", "plan_id": "plan-1"},
+			},
+		})
+	})
+	b := mockBackend(t, mux)
+
+	created, err := b.CreatePlan("plan title", "desc")
+	if err != nil {
+		t.Fatalf("CreatePlan: %v", err)
+	}
+	if !sawCreate || created.PlanID != "plan-1" || created.Jobs == nil || len(created.Jobs) != 0 {
+		t.Fatalf("created plan mismatch: saw=%v plan=%+v", sawCreate, created)
+	}
+
+	attached, err := b.AttachJob("plan-1", "job-1")
+	if err != nil {
+		t.Fatalf("AttachJob: %v", err)
+	}
+	if !sawAttach || attached.PlanID != "plan-1" || attached.Jobs == nil || len(attached.Jobs) != 0 {
+		t.Fatalf("attached plan mismatch: saw=%v plan=%+v", sawAttach, attached)
+	}
+
+	got, err := b.GetPlan("plan-1")
+	if err != nil {
+		t.Fatalf("GetPlan: %v", err)
+	}
+	if got.Counts != (jobstore.PlanCounts{Total: 2, Running: 1, Done: 1}) {
+		t.Fatalf("GetPlan counts mismatch: %+v", got.Counts)
+	}
+	if len(got.Jobs) != 2 || got.Jobs[0].PlanID != "plan-1" || got.Jobs[1].Status != "running" {
+		t.Fatalf("GetPlan jobs mismatch: %+v", got.Jobs)
+	}
+}
+
+func TestClientPlanToViewNilCountsAndJobs(t *testing.T) {
+	pv := clientPlanToView(client.Plan{PlanID: "plan-nil", Status: "open"})
+	if pv.Counts != (jobstore.PlanCounts{}) {
+		t.Fatalf("nil counts should map to zero value, got %+v", pv.Counts)
+	}
+	if pv.Jobs == nil || len(pv.Jobs) != 0 {
+		t.Fatalf("nil jobs should map to non-nil empty slice, got %+v", pv.Jobs)
 	}
 }
 

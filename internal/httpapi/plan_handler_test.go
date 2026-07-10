@@ -2,9 +2,11 @@ package httpapi
 
 import (
 	"net/http"
+	"strconv"
 	"testing"
 
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 func TestCreateListGetPlanAndAttachJob(t *testing.T) {
@@ -42,6 +44,25 @@ func TestCreateListGetPlanAndAttachJob(t *testing.T) {
 	if generated.PlanID == "" || len(generated.PlanID) < len("plan-") || generated.PlanID[:5] != "plan-" {
 		t.Fatalf("generated plan id = %q, want plan-*", generated.PlanID)
 	}
+	resp = do(t, s, http.MethodGet, "/v1/plans/"+generated.PlanID, testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get empty plan status=%d, want 200", resp.StatusCode)
+	}
+	var emptyDetail struct {
+		Counts struct {
+			Total   int `json:"total"`
+			Queued  int `json:"queued"`
+			Running int `json:"running"`
+			Done    int `json:"done"`
+			Failed  int `json:"failed"`
+		} `json:"counts"`
+		Jobs []job.JobResult `json:"jobs"`
+	}
+	decode(t, resp, &emptyDetail)
+	if emptyDetail.Counts.Total != 0 || emptyDetail.Counts.Queued != 0 ||
+		emptyDetail.Counts.Running != 0 || emptyDetail.Counts.Done != 0 || emptyDetail.Counts.Failed != 0 {
+		t.Fatalf("empty plan counts mismatch: %+v", emptyDetail.Counts)
+	}
 
 	jobID := createExec(t, s, []string{"go", "version"})
 	waitDone(t, s, jobID)
@@ -56,12 +77,22 @@ func TestCreateListGetPlanAndAttachJob(t *testing.T) {
 		t.Fatalf("get plan status=%d, want 200", resp.StatusCode)
 	}
 	var detail struct {
-		PlanID string          `json:"plan_id"`
-		Jobs   []job.JobResult `json:"jobs"`
+		PlanID string `json:"plan_id"`
+		Counts struct {
+			Total   int `json:"total"`
+			Queued  int `json:"queued"`
+			Running int `json:"running"`
+			Done    int `json:"done"`
+			Failed  int `json:"failed"`
+		} `json:"counts"`
+		Jobs []job.JobResult `json:"jobs"`
 	}
 	decode(t, resp, &detail)
 	if detail.PlanID != "plan-http" {
 		t.Fatalf("detail plan id = %q", detail.PlanID)
+	}
+	if detail.Counts.Total != 1 || detail.Counts.Done != 1 || detail.Counts.Failed != 0 {
+		t.Fatalf("detail counts mismatch: %+v", detail.Counts)
 	}
 	if len(detail.Jobs) != 1 || detail.Jobs[0].ID != jobID || detail.Jobs[0].PlanID != "plan-http" {
 		t.Fatalf("detail jobs mismatch: %+v", detail.Jobs)
@@ -115,6 +146,53 @@ func TestPlanAPIErrorCases(t *testing.T) {
 	resp = do(t, s, http.MethodPost, "/v1/plans/plan-errors/jobs", testToken, map[string]string{})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("attach missing job_id status=%d, want 400", resp.StatusCode)
+	}
+}
+
+func TestGetPlanCountsUseFullAggregateNotVisibleJobsLimit(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-many"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("create plan status=%d, want 200", resp.StatusCode)
+	}
+	decode(t, resp, &struct{}{})
+
+	const total = 1005
+	for i := 0; i < total; i++ {
+		rec := jobstore.JobRecord{
+			ID:         "many-job-" + strconv.Itoa(i),
+			ProjectKey: "self",
+			Agent:      "exec",
+			Runner:     "local",
+			Status:     job.StatusDone,
+			ResultDir:  "/tmp/results/many-job-" + strconv.Itoa(i),
+			StartedAt:  int64(i + 1),
+			UpdatedAt:  int64(i + 1),
+			EndedAt:    int64(i + 1),
+			PlanID:     "plan-many",
+		}
+		if err := s.jobs.Meta().UpsertJob(rec); err != nil {
+			t.Fatalf("upsert job %d: %v", i, err)
+		}
+	}
+
+	resp = do(t, s, http.MethodGet, "/v1/plans/plan-many", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get plan status=%d, want 200", resp.StatusCode)
+	}
+	var detail struct {
+		Counts struct {
+			Total int `json:"total"`
+			Done  int `json:"done"`
+		} `json:"counts"`
+		Jobs []job.JobResult `json:"jobs"`
+	}
+	decode(t, resp, &detail)
+	if len(detail.Jobs) != 1000 {
+		t.Fatalf("visible jobs len=%d, want 1000", len(detail.Jobs))
+	}
+	if detail.Counts.Total != total || detail.Counts.Done != total {
+		t.Fatalf("counts should be full aggregate despite jobs limit: %+v", detail.Counts)
 	}
 }
 

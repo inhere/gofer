@@ -69,6 +69,37 @@ func TestInsertPlanRequiresID(t *testing.T) {
 	assert.Err(t, s.InsertPlan(Plan{Status: PlanOpen, CreatedAt: 1, UpdatedAt: 1}))
 }
 
+func TestPlanJobStatusCountsAndRollup(t *testing.T) {
+	s := openTest(t)
+	assert.NoErr(t, s.InsertPlan(Plan{PlanID: "plan-counts", Status: PlanOpen, CreatedAt: 1, UpdatedAt: 1}))
+	assert.NoErr(t, s.InsertPlan(Plan{PlanID: "plan-empty", Status: PlanOpen, CreatedAt: 2, UpdatedAt: 2}))
+
+	statuses := []string{"queued", "running", "pending_interaction", "done", "failed", "timeout", "cancelled"}
+	for i, st := range statuses {
+		j := withStatus(sampleJob("job-"+st, "alpha", int64(100+i)), st)
+		j.PlanID = "plan-counts"
+		assert.NoErr(t, s.UpsertJob(j))
+	}
+	other := withStatus(sampleJob("job-other-plan", "alpha", 999), "done")
+	other.PlanID = "other-plan"
+	assert.NoErr(t, s.UpsertJob(other))
+
+	raw, err := s.PlanJobStatusCounts("plan-counts")
+	assert.NoErr(t, err)
+	assert.Eq(t, map[string]int{
+		"queued": 1, "running": 1, "pending_interaction": 1, "done": 1,
+		"failed": 1, "timeout": 1, "cancelled": 1,
+	}, raw)
+
+	assert.Eq(t, PlanCounts{Total: 7, Queued: 1, Running: 2, Done: 1, Failed: 3}, RollupPlanCounts(raw))
+
+	empty, err := s.PlanJobStatusCounts("plan-empty")
+	assert.NoErr(t, err)
+	assert.NotNil(t, empty)
+	assert.Len(t, empty, 0)
+	assert.Eq(t, PlanCounts{}, RollupPlanCounts(empty))
+}
+
 func TestMigrateAddsPlanSupportToOldDB(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "old.db")
 

@@ -36,6 +36,13 @@ type Backend interface {
 	GetArtifacts(id string) ([]artifactView, error)
 	GetResult(id string) (string, error)
 
+	// Plan grouping (plan-orchestration P2). The source shapes differ between
+	// local (jobstore.Plan) and client (client.Plan), so backends return the
+	// mcpserver view type directly.
+	CreatePlan(title, description string) (planView, error)
+	AttachJob(planID, jobID string) (planView, error)
+	GetPlan(planID string) (planView, error)
+
 	// E36 driver-agent identity/mailbox (4 of the 5 gofer_* presence tools;
 	// list_pending_interactions is P3). local 直驱 presence.Service; client 转发
 	// 中央 serve。返回 presence 域类型，handler 投影成 snake_case view。

@@ -9,7 +9,8 @@
 //
 // This package must NOT import internal/commands (commands wires mcpserver into
 // the `mcp` CLI command, so importing back would create a cycle). It depends only
-// on internal/job, internal/project, internal/agent and internal/store.
+// on internal/job, internal/project, internal/agent, internal/store and
+// internal/jobstore (plan grouping views).
 package mcpserver
 
 import (
@@ -22,6 +23,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/store"
@@ -78,7 +80,7 @@ func newServer(b Backend, originAgent, originToken string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_run_job",
-		Description: "Submit an agent/exec job in a project and return its initial state (status, id).",
+		Description: "Submit an agent/exec job in a project and return its initial state (status, id). Set plan_id to group it under a plan.",
 	}, runJobHandler(b, originAgent))
 
 	mcp.AddTool(s, &mcp.Tool{
@@ -150,6 +152,21 @@ func newServer(b Backend, originAgent, originToken string) *mcp.Server {
 		Name:        "gofer_list_pending_interactions",
 		Description: "List pending interactions across active jobs (for a supervisor agent to discover questions awaiting an answer).",
 	}, listPendingInteractionsHandler(b))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_create_plan",
+		Description: "Create a lightweight plan grouping header and return it. Use plan_id from the result to attach jobs or submit jobs with plan_id set.",
+	}, createPlanHandler(b))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_attach_job",
+		Description: "Attach an existing job to a plan by id. Returns the plan header.",
+	}, attachJobHandler(b))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_get_plan",
+		Description: "Get a plan with its jobs and a live status roll-up {total,queued,running,done,failed}.",
+	}, getPlanHandler(b))
 
 	return s
 }
@@ -228,6 +245,7 @@ type jobView struct {
 	ProjectKey string `json:"project_key"`
 	Agent      string `json:"agent"`
 	Runner     string `json:"runner"`
+	PlanID     string `json:"plan_id,omitempty"`
 	ExitCode   int    `json:"exit_code"`
 	Cwd        string `json:"cwd"`
 	ResultDir  string `json:"result_dir"`
@@ -257,6 +275,7 @@ func toJobView(r job.JobResult) jobView {
 		ProjectKey:  r.ProjectKey,
 		Agent:       r.Agent,
 		Runner:      r.Runner,
+		PlanID:      r.PlanID,
 		ExitCode:    r.ExitCode,
 		Cwd:         r.Cwd,
 		ResultDir:   r.ResultDir,
@@ -268,6 +287,38 @@ func toJobView(r job.JobResult) jobView {
 		Client:      r.Client,
 		OriginAgent: r.OriginAgent,
 		EscalateTo:  r.EscalateTo,
+	}
+}
+
+// planView is the snake_case projection returned by the plan tools. It mirrors
+// the HTTP plan detail shape: header + counts + jobs.
+type planView struct {
+	PlanID      string              `json:"plan_id"`
+	Title       string              `json:"title,omitempty"`
+	Description string              `json:"description,omitempty"`
+	Status      string              `json:"status"`
+	Owner       string              `json:"owner,omitempty"`
+	Progress    int                 `json:"progress,omitempty"`
+	CreatedAt   int64               `json:"created_at"`
+	UpdatedAt   int64               `json:"updated_at"`
+	Counts      jobstore.PlanCounts `json:"counts"`
+	Jobs        []jobView           `json:"jobs"`
+}
+
+// planHeaderView projects a jobstore.Plan header onto planView. GetPlan fills
+// Counts/Jobs; create/attach return a header with zero counts and an empty job
+// array.
+func planHeaderView(p jobstore.Plan) planView {
+	return planView{
+		PlanID:      p.PlanID,
+		Title:       p.Title,
+		Description: p.Description,
+		Status:      p.Status,
+		Owner:       p.Owner,
+		Progress:    p.Progress,
+		CreatedAt:   p.CreatedAt,
+		UpdatedAt:   p.UpdatedAt,
+		Jobs:        make([]jobView, 0),
 	}
 }
 
@@ -353,6 +404,9 @@ type runJobInput struct {
 	Cwd        string   `json:"cwd,omitempty"`
 	TimeoutSec int      `json:"timeout_sec,omitempty"`
 	Title      string   `json:"title,omitempty"`
+	// PlanID groups this job under a plan header. It is forwarded to
+	// job.JobRequest.PlanID so submit-time grouping works without a later attach.
+	PlanID string `json:"plan_id,omitempty"`
 	// Role is an optional E35 role preset (fills agent/system_prompt/project/tags
 	// when unset); SystemPrompt overrides the role's resident system prompt.
 	Role         string `json:"role,omitempty"`
@@ -386,6 +440,7 @@ func runJobHandler(b Backend, originAgent string) mcp.ToolHandlerFor[runJobInput
 			Cwd:        in.Cwd,
 			TimeoutSec: in.TimeoutSec,
 			Title:      in.Title,
+			PlanID:     in.PlanID,
 			// E35 role preset + optional system prompt override (resolved server-side).
 			Role:         in.Role,
 			SystemPrompt: in.SystemPrompt,
@@ -401,6 +456,52 @@ func runJobHandler(b Backend, originAgent string) mcp.ToolHandlerFor[runJobInput
 			return nil, jobView{}, err
 		}
 		return nil, toJobView(res), nil
+	}
+}
+
+// --- gofer_create_plan / gofer_attach_job / gofer_get_plan -----------------
+
+type createPlanToolInput struct {
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+func createPlanHandler(b Backend) mcp.ToolHandlerFor[createPlanToolInput, planView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in createPlanToolInput) (*mcp.CallToolResult, planView, error) {
+		pv, err := b.CreatePlan(in.Title, in.Description)
+		if err != nil {
+			return nil, planView{}, err
+		}
+		return nil, pv, nil
+	}
+}
+
+type attachJobToolInput struct {
+	PlanID string `json:"plan_id"`
+	JobID  string `json:"job_id"`
+}
+
+func attachJobHandler(b Backend) mcp.ToolHandlerFor[attachJobToolInput, planView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in attachJobToolInput) (*mcp.CallToolResult, planView, error) {
+		pv, err := b.AttachJob(in.PlanID, in.JobID)
+		if err != nil {
+			return nil, planView{}, err
+		}
+		return nil, pv, nil
+	}
+}
+
+type getPlanToolInput struct {
+	PlanID string `json:"plan_id"`
+}
+
+func getPlanHandler(b Backend) mcp.ToolHandlerFor[getPlanToolInput, planView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in getPlanToolInput) (*mcp.CallToolResult, planView, error) {
+		pv, err := b.GetPlan(in.PlanID)
+		if err != nil {
+			return nil, planView{}, err
+		}
+		return nil, pv, nil
 	}
 }
 

@@ -146,3 +146,59 @@ func (s *Store) TouchPlan(id string) error {
 	}
 	return nil
 }
+
+// PlanCounts is the query-time live roll-up of a plan's jobs by status bucket.
+type PlanCounts struct {
+	Total   int `json:"total"`
+	Queued  int `json:"queued"`
+	Running int `json:"running"`
+	Done    int `json:"done"`
+	Failed  int `json:"failed"`
+}
+
+// PlanJobStatusCounts returns a raw status->count map for jobs bound to planID.
+// It uses a full GROUP BY query so counts are not affected by any job list limit.
+func (s *Store) PlanJobStatusCounts(planID string) (map[string]int, error) {
+	rows, err := s.db.Query(`SELECT status, COUNT(*) FROM jobs WHERE plan_id = ? GROUP BY status`, planID)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: plan job status counts %q: %w", planID, err)
+	}
+	defer rows.Close()
+
+	out := make(map[string]int)
+	for rows.Next() {
+		var (
+			status string
+			n      int
+		)
+		if err := rows.Scan(&status, &n); err != nil {
+			return nil, fmt.Errorf("jobstore: scan plan job status %q: %w", planID, err)
+		}
+		out[status] = n
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("jobstore: plan job status rows %q: %w", planID, err)
+	}
+	return out, nil
+}
+
+// RollupPlanCounts folds raw job statuses into the public five-bucket summary.
+// Status strings stay hard-coded here so jobstore remains neutral and does not
+// import internal/job.
+func RollupPlanCounts(raw map[string]int) PlanCounts {
+	var c PlanCounts
+	for st, n := range raw {
+		c.Total += n
+		switch st {
+		case "queued":
+			c.Queued += n
+		case "running", "pending_interaction":
+			c.Running += n
+		case "done":
+			c.Done += n
+		case "failed", "timeout", "cancelled":
+			c.Failed += n
+		}
+	}
+	return c
+}

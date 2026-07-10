@@ -123,6 +123,10 @@ func TestListToolsAllPresent(t *testing.T) {
 		"gofer_list_presence": false,
 		// E25 supervisor discovery (1 tool).
 		"gofer_list_pending_interactions": false,
+		// Plan grouping (P2).
+		"gofer_create_plan": false,
+		"gofer_attach_job":  false,
+		"gofer_get_plan":    false,
 	}
 	for _, tl := range res.Tools {
 		if _, ok := want[tl.Name]; ok {
@@ -170,7 +174,7 @@ func TestRunJobInputSchemaSnakeCase(t *testing.T) {
 	if err := json.Unmarshal(b, &schema); err != nil {
 		t.Fatalf("unmarshal input schema: %v", err)
 	}
-	for _, key := range []string{"project_key", "timeout_sec", "agent_args", "role", "system_prompt", "origin_agent", "escalate_to"} {
+	for _, key := range []string{"project_key", "timeout_sec", "agent_args", "plan_id", "role", "system_prompt", "origin_agent", "escalate_to"} {
 		if _, ok := schema.Properties[key]; !ok {
 			t.Fatalf("input schema missing snake_case property %q; properties=%v", key, schema.Properties)
 		}
@@ -307,6 +311,155 @@ func TestRunJobAndGet(t *testing.T) {
 	structured(t, getRes, &got)
 	if got.Status != job.StatusDone || got.ExitCode != 0 {
 		t.Fatalf("expected done/exit 0, got status=%s exit=%d", got.Status, got.ExitCode)
+	}
+}
+
+func TestPlanToolsRoundTrip(t *testing.T) {
+	session, jobs := connect(t)
+
+	createRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "gofer_create_plan",
+		Arguments: map[string]any{
+			"title":       "MCP plan",
+			"description": "desc",
+		},
+	})
+	if err != nil {
+		t.Fatalf("create_plan: %v", err)
+	}
+	var createdPlan planView
+	structured(t, createRes, &createdPlan)
+	if !strings.HasPrefix(createdPlan.PlanID, "plan-") || createdPlan.Title != "MCP plan" || createdPlan.Status != jobstore.PlanOpen {
+		t.Fatalf("created plan mismatch: %+v", createdPlan)
+	}
+	if createdPlan.Jobs == nil || len(createdPlan.Jobs) != 0 || createdPlan.Counts.Total != 0 {
+		t.Fatalf("created plan should be header-only with zero counts: %+v", createdPlan)
+	}
+
+	runRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "gofer_run_job",
+		Arguments: map[string]any{
+			"project_key": "self",
+			"agent":       "exec",
+			"runner":      "local",
+			"plan_id":     createdPlan.PlanID,
+			"cmd":         []string{"go", "version"},
+			"cwd":         ".",
+			"timeout_sec": 30,
+		},
+	})
+	if err != nil {
+		t.Fatalf("run_job(plan_id): %v", err)
+	}
+	var createdJob jobView
+	structured(t, runRes, &createdJob)
+	if createdJob.PlanID != createdPlan.PlanID {
+		t.Fatalf("run_job plan_id = %q, want %q", createdJob.PlanID, createdPlan.PlanID)
+	}
+	final, ok := jobs.Wait(createdJob.ID)
+	if !ok || final.Status != job.StatusDone {
+		t.Fatalf("job not done: %+v", final)
+	}
+
+	getRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "gofer_get_plan",
+		Arguments: map[string]any{"plan_id": createdPlan.PlanID},
+	})
+	if err != nil {
+		t.Fatalf("get_plan: %v", err)
+	}
+	var got planView
+	structured(t, getRes, &got)
+	if got.Counts.Total != 1 || got.Counts.Done != 1 || got.Counts.Failed != 0 {
+		t.Fatalf("get_plan counts mismatch: %+v", got.Counts)
+	}
+	if len(got.Jobs) != 1 || got.Jobs[0].ID != createdJob.ID || got.Jobs[0].PlanID != createdPlan.PlanID {
+		t.Fatalf("get_plan jobs mismatch: %+v", got.Jobs)
+	}
+
+	attachPlanRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "gofer_create_plan",
+		Arguments: map[string]any{"title": "attach target"},
+	})
+	if err != nil {
+		t.Fatalf("create_plan attach target: %v", err)
+	}
+	var attachPlan planView
+	structured(t, attachPlanRes, &attachPlan)
+	standaloneJobID := runDoneJob(t, session, jobs)
+	attachRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "gofer_attach_job",
+		Arguments: map[string]any{
+			"plan_id": attachPlan.PlanID,
+			"job_id":  standaloneJobID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("attach_job: %v", err)
+	}
+	var attached planView
+	structured(t, attachRes, &attached)
+	if attached.PlanID != attachPlan.PlanID || attached.Jobs == nil || len(attached.Jobs) != 0 {
+		t.Fatalf("attach should return header-only plan: %+v", attached)
+	}
+	attachedGet, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "gofer_get_plan",
+		Arguments: map[string]any{"plan_id": attachPlan.PlanID},
+	})
+	if err != nil {
+		t.Fatalf("get_plan after attach: %v", err)
+	}
+	var attachedDetail planView
+	structured(t, attachedGet, &attachedDetail)
+	if attachedDetail.Counts.Total != 1 || attachedDetail.Counts.Done != 1 {
+		t.Fatalf("attached plan counts mismatch: %+v", attachedDetail.Counts)
+	}
+	if len(attachedDetail.Jobs) != 1 || attachedDetail.Jobs[0].ID != standaloneJobID {
+		t.Fatalf("attached plan jobs mismatch: %+v", attachedDetail.Jobs)
+	}
+}
+
+func TestPlanToolsUnknownIDs(t *testing.T) {
+	session, _ := connect(t)
+
+	for _, tc := range []struct {
+		name string
+		args map[string]any
+	}{
+		{name: "gofer_get_plan", args: map[string]any{"plan_id": "missing-plan"}},
+		{name: "gofer_attach_job", args: map[string]any{"plan_id": "missing-plan", "job_id": "job-1"}},
+	} {
+		res, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: tc.name, Arguments: tc.args})
+		if err != nil {
+			t.Fatalf("%s transport error: %v", tc.name, err)
+		}
+		if !res.IsError {
+			t.Fatalf("%s expected tool error, got success: %+v", tc.name, res.StructuredContent)
+		}
+	}
+
+	createRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name:      "gofer_create_plan",
+		Arguments: map[string]any{"title": "errors"},
+	})
+	if err != nil {
+		t.Fatalf("create_plan: %v", err)
+	}
+	var p planView
+	structured(t, createRes, &p)
+
+	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "gofer_attach_job",
+		Arguments: map[string]any{
+			"plan_id": p.PlanID,
+			"job_id":  "missing-job",
+		},
+	})
+	if err != nil {
+		t.Fatalf("attach missing job transport error: %v", err)
+	}
+	if !res.IsError {
+		t.Fatalf("expected tool error for missing job, got success: %+v", res.StructuredContent)
 	}
 }
 

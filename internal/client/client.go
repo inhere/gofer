@@ -17,6 +17,7 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/presence"
 )
 
@@ -512,15 +513,16 @@ func (c *Client) CancelWorkflow(id string) (Workflow, error) {
 
 // Plan is the client-side view of a plan header. GetPlan inlines its jobs.
 type Plan struct {
-	PlanID      string          `json:"plan_id"`
-	Title       string          `json:"title,omitempty"`
-	Description string          `json:"description,omitempty"`
-	Status      string          `json:"status"`
-	Owner       string          `json:"owner,omitempty"`
-	Progress    int             `json:"progress,omitempty"`
-	CreatedAt   int64           `json:"created_at"`
-	UpdatedAt   int64           `json:"updated_at"`
-	Jobs        []job.JobResult `json:"jobs,omitempty"`
+	PlanID      string               `json:"plan_id"`
+	Title       string               `json:"title,omitempty"`
+	Description string               `json:"description,omitempty"`
+	Status      string               `json:"status"`
+	Owner       string               `json:"owner,omitempty"`
+	Progress    int                  `json:"progress,omitempty"`
+	CreatedAt   int64                `json:"created_at"`
+	UpdatedAt   int64                `json:"updated_at"`
+	Counts      *jobstore.PlanCounts `json:"counts,omitempty"`
+	Jobs        []job.JobResult      `json:"jobs,omitempty"`
 }
 
 // CreatePlan POSTs /v1/plans and returns the created header.
