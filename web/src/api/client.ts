@@ -563,6 +563,15 @@ export function getPlan(id: string): Promise<PlanDetail> {
   return request<PlanDetail>(`/v1/plans/${encodeURIComponent(id)}`)
 }
 
+// plan 生命周期（P6）：手动置状态。系统不自动推进（C2）。
+export function updatePlan(id: string, status: PlanStatus, progress?: number): Promise<Plan> {
+  return request<Plan>(`/v1/plans/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(progress == null ? { status } : { status, progress }),
+  })
+}
+
 // 建计划（plan_id 缺省服务端生成；owner 由服务端盖 caller）。
 export function createPlan(req: {
   title?: string

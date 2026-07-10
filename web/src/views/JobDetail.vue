@@ -970,7 +970,7 @@ onUnmounted(() => {
         <StatusBadge v-if="job" :status="status" />
         <Signal v-if="job" :status="status" :rate="logRate" :duration-sec="durationSec" />
         <RouterLink
-          v-if="job"
+          v-if="job && isTerminalView"
           class="rebuild-btn mono"
           :to="`/new?from=${encodeURIComponent(job.id)}`"
           title="用本 job 的参数预填新建表单，提交为一个新 job（env 保留在服务端）"
@@ -1043,14 +1043,14 @@ onUnmounted(() => {
       <div v-if="job.client" class="meta-item">
         <span class="meta-k mono">client</span><span class="meta-v mono">{{ job.client }}</span>
       </div>
-      <div v-if="job.session_id" class="meta-item">
+      <div v-if="job.session_id && isTerminalView" class="meta-item">
         <span class="meta-k mono">session_id</span>
         <span class="meta-v mono" :title="job.session_id">{{ job.session_id }}</span>
         <button class="resume-btn mono" type="button" @click="showResumeForm = !showResumeForm">
           {{ showResumeForm ? '收起' : '继续会话' }}
         </button>
       </div>
-      <div v-if="job.session_id && showResumeForm" class="resume-form">
+      <div v-if="job.session_id && isTerminalView && showResumeForm" class="resume-form">
         <textarea
           v-model="resumePrompt"
           class="resume-input mono"

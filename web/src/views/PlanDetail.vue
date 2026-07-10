@@ -7,9 +7,9 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import PlanStatusBadge from '../components/PlanStatusBadge.vue'
 import StatusBadge from '../components/StatusBadge.vue'
-import { addTodo, attachJob, getPlan, updateTodo } from '../api/client'
+import { addTodo, attachJob, getPlan, updatePlan, updateTodo } from '../api/client'
 import { fmtDateTime, fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
-import type { Job, PlanCounts, PlanDetail, Todo } from '../api/types'
+import type { Job, PlanCounts, PlanDetail, PlanStatus, Todo } from '../api/types'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -25,6 +25,8 @@ const addingTodo = ref(false)
 const attachJobId = ref('')
 const attaching = ref(false)
 const opError = ref('')
+const updating = ref(false)
+const statusError = ref('')
 
 let timer: number | null = null
 
@@ -37,6 +39,12 @@ const isActive = computed(() => {
 const todoSummary = computed(() => {
   const todos = plan.value?.todos ?? []
   return `${todos.filter((t) => t.done).length}/${todos.length}`
+})
+
+const canFinish = computed(() => {
+  const c = plan.value?.counts
+  // 「其下 job 已全部终态」= 有 job 且没有 queued/running。仅作提示，不自动改状态（C2）。
+  return !!c && c.total > 0 && c.queued === 0 && c.running === 0
 })
 
 async function fetchPlan(): Promise<void> {
@@ -92,6 +100,19 @@ async function onAttach(): Promise<void> {
     opError.value = e instanceof Error ? e.message : String(e)
   } finally {
     attaching.value = false
+  }
+}
+
+async function setStatus(next: PlanStatus): Promise<void> {
+  if (updating.value) return
+  updating.value = true
+  try {
+    plan.value = { ...plan.value!, ...(await updatePlan(props.id, next)) }
+    statusError.value = ''
+  } catch (e) {
+    statusError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    updating.value = false
   }
 }
 
@@ -207,6 +228,35 @@ onUnmounted(() => {
       </button>
       <div v-if="plan" class="head-status">
         <PlanStatusBadge :status="plan.status" />
+        <div class="status-actions mono">
+          <button
+            v-if="plan.status === 'open' || plan.status === 'active'"
+            class="status-action"
+            type="button"
+            :disabled="updating"
+            @click="setStatus('done')"
+          >
+            标记完成
+          </button>
+          <button
+            v-if="plan.status === 'open' || plan.status === 'active' || plan.status === 'done'"
+            class="status-action"
+            type="button"
+            :disabled="updating"
+            @click="setStatus('archived')"
+          >
+            归档
+          </button>
+          <button
+            v-if="plan.status === 'done' || plan.status === 'archived'"
+            class="status-action"
+            type="button"
+            :disabled="updating"
+            @click="setStatus('open')"
+          >
+            重新打开
+          </button>
+        </div>
         <button class="board-btn mono" type="button" @click="viewInBoard">
           在 Board 查看
         </button>
@@ -215,6 +265,7 @@ onUnmounted(() => {
 
     <p v-if="error" class="error mono">{{ error }}</p>
     <p v-if="opError" class="error mono">{{ opError }}</p>
+    <p v-if="statusError" class="error mono">{{ statusError }}</p>
 
     <div v-if="plan" class="head-card">
       <h1 class="plan-title">{{ plan.title || plan.plan_id }}</h1>
@@ -265,6 +316,9 @@ onUnmounted(() => {
           </span>
           <span class="count-frac">{{ countsText(plan.counts) }}</span>
         </div>
+        <p v-if="canFinish && plan.status !== 'done'" class="finish-hint">
+          其下 job 已全部终态，可标记完成
+        </p>
         <div class="legend">
           <span><i class="dot dot--done"></i>done</span>
           <span><i class="dot dot--run"></i>running</span>
@@ -378,6 +432,28 @@ onUnmounted(() => {
   align-items: center;
   gap: 12px;
 }
+.status-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.status-action {
+  background: transparent;
+  color: var(--queue);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  font-size: 12px;
+}
+.status-action:hover:not(:disabled) {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
+}
+.status-action:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
 .board-btn,
 .op-btn {
   background: transparent;
@@ -475,6 +551,11 @@ onUnmounted(() => {
   text-align: right;
 }
 .count-detail {
+  color: var(--queue);
+  font-size: 12px;
+  margin: 8px 0 0;
+}
+.finish-hint {
   color: var(--queue);
   font-size: 12px;
   margin: 8px 0 0;
