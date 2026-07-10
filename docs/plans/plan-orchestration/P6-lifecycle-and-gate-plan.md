@@ -289,16 +289,18 @@ async function setStatus(next: PlanStatus): Promise<void> {
 ### T7 — 测试与验证门禁
 
 **7.1 后端（容器内）**
-- [ ] `go build ./... && go vet ./...` 绿。
-- [ ] 全量 `go test ./... -p 1 -count=1` 绿。
-- [ ] 新用例逐个 `-run '<Name>' -v -count=1` 确认**真实执行**（`go test` 报 ok 也可能一个用例没跑）。
+- [x] `go build ./... && go vet ./...` 绿（容器 Linux）。
+- [x] 全量 `go test ./... -p 1 -count=1` 绿（34 包，禁缓存）。
+- [x] 新用例逐个 `-run -v -count=1` 确认**真实执行**：`TestResumeJobRejectsRunningSourceBeforeNoSession`（断 `ErrJobNotTerminal` 而非 `ErrNoSession`）/ `TestRebuildJobRejectsRunningSource` / `TestUpdatePlan*` / `TestResume|RebuildRunningJobRejected`。
 
 **7.2 前端（主机）**
-- [ ] `pnpm build` 绿（= `vue-tsc --noEmit && vite build`），主控经 `gofer job -a exec` 独立复跑。
+- [x] `pnpm build` 绿（= `vue-tsc --noEmit && vite build`），主控经 `gofer job -a exec` 在主机独立复跑。
 
 **7.3 运行期冒烟（用户眼检）**
 - plan：`gofer plan set-status <id> done` → `gofer plan show <id>` 见 done；PlanDetail 上「标记完成」「归档」「重新打开」可用且 jobs/todos 不被清空。
 - job：running job 详情无「快速重建」「继续会话」；`gofer job rerun <running-id>` → **400**（有意变更）；对终态 job 一切照旧。
+
+> **主控实施中修正（v0.1 未列）**：codex 在 `handleResumeJob`/`handleRebuildJob` 里各加了提前 return 的 `ErrJobNotTerminal` 分支，与既有 `resumeStatus`/`rebuildStatus` 映射**冗余**且分叉了 error 文案。已删冗余、统一走 status 函数（error=类别、detail=具体原因，与 no-session/cross-runner 一致）；两个 HTTP 测试的断言相应从 `body.Error` 改为 `body.Detail`（`Contains "not in a terminal state"`）。`TestResume|RebuildStatusMapping` 独立锁住 sentinel→400，删分支不失覆盖。
 
 ## 测试清单汇总
 
