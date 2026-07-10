@@ -29,16 +29,21 @@ plan = 独立于 workflow 引擎的**轻量动态归组层**：`plans` 表存计
 | **P1** | 数据底座 | `plans` 表 + CRUD；`jobs.plan_id` 客户端可设列（+索引）；`JobRequest/JobResult.PlanID`；submit 落库；list `--plan` 过滤（HTTP/CLI/client）；`POST /v1/plans` 建计划 + `POST /v1/plans/{id}/jobs` attach + `gofer plan` CLI | [P1-data-plan.md](./P1-data-plan.md) | ✅ 已完成 |
 | **P2** | MCP + 进度聚合 | `gofer_create_plan` / `gofer_attach_job` / `gofer_get_plan` 工具；`gofer_run_job` 加 `plan_id` 入参（提交即归组）；`GetPlan` 实时聚合其下 jobs 状态 `{total,queued,running,done,failed}` | [P2-mcp-aggregate-plan.md](./P2-mcp-aggregate-plan.md) | ✅ 已完成 |
 | **P3** | todo | `plan_todos` 表（纯待办 / 绑 `job_id` 两种）+ CRUD + HTTP/MCP/CLI；纯手动 done（不做 job 终态自动联动） | [P3-todo-plan.md](./P3-todo-plan.md) | ✅ 已完成 |
-| **P4** | session 续跑 UI + Plans 前端 | JobDetail「继续会话」入口（续投同 session_id + 继承 plan_id）；`Plans.vue` 列表 + `PlanDetail.vue`；Board 加 plan 过滤维度 | P4-frontend-plan.md（outline，见下） | ⬜ 未开始 |
+| **P4** | session 续跑 UI + Plans 前端 | JobDetail「继续会话」入口（续投同 session_id + 继承 plan_id）；**会话链回看**（同 session 的 job 列表，T9.6）；`Plans.vue` 列表 + `PlanDetail.vue`；Board 加 plan 过滤维度；后端两处小改（T8 resume 继承 plan_id / T10 list 内联 counts） | [P4-frontend-plan.md](./P4-frontend-plan.md)（v0.3 代码级，T1..T11） | ⬜ 计划定稿，未执行 |
+| **P5** | job 血缘 + 快速重建 | `jobs.source_job_id` 血缘列（服务端盖章）；`POST /v1/jobs/{id}/rebuild`（服务端以源 request_json 为基底 + `env_set`/`env_unset`，**env 明文不出服务端**）；`rerun` = rebuild 空 body；`GET /v1/jobs/{id}/request` 默认脱敏（关闭安全 issue `h-aii-xqe1`）；`?source_job=` 反查 | [P5-lineage-rebuild-plan.md](./P5-lineage-rebuild-plan.md)（v0.2 代码级，T1..T15） | ⬜ 计划定稿，**规模超 SR1204，待用户确认** |
 
 > P1+P2 即打通「编排即归组」最小闭环（设计 §12 待确认 5 倾向）。P3/P4 增量叠加，不阻塞。
+> P5 由 P4 评审衍生（无 session 的 job 无法 resume → 需「重建」→ 需血缘键），与 plan 编排正交，独立成期。
+>
+> ⚠️ **P4/P5 merge 冲突点**：二者都改 `internal/job/resume.go:74-95` 的 `s.Submit(JobRequest{...})` —— P4 加 `PlanID: src.PlanID`（T8），P5 加 `SourceJobID: jobID`。**须并存**，先落者勿覆盖后落者。
 
 ## 进度跟踪
 
 - [x] P1 数据底座（子任务见 P1-data-plan.md 的 T1..T7）
 - [x] P2 MCP + 进度聚合
-- [x] P3 todo
-- [ ] P4 session 续跑 UI + Plans 前端
+- [x] P3 todo（`plan_todos` 表 + CRUD + HTTP/MCP/CLI 三通道，`a02070f`）
+- [ ] P4 session 续跑 UI + Plans 前端（计划 v0.3 定稿，T1..T11；**P4 只是前端渲染 P3 已建好的 todos，不新增 todo 后端**）
+- [ ] P5 job 血缘 + 快速重建（计划 v0.2 定稿，T1..T15；规模超 SR1204，待用户确认后执行）
 
 > SR1202：每个子阶段（T 级）完成后更新对应 checkbox 并 Git 提交，不要攒到最后。
 

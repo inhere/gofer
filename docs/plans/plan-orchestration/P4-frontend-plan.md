@@ -94,8 +94,8 @@ P1~P3 已把 plan/todo 三通道（HTTP/CLI/MCP）打通、后端零缺口；P4 
 │
 ├─ 状态 ─── plan · title / id ───────────── 进度 ──────────────── 创建
 │
-│  (active)  release-2.1 回归                ▓▓▓▓▓▓▒▒▒▒░░  5/12      2h 前
-│            plan-20260710-a1b2              done 5 · run 2 · fail 1
+│  (active)  release-2.1 回归                █████▓▓▒░░░░  5/12      2h 前
+│            plan-20260710-a1b2              done 5 · run 2 · fail 1 · queue 4
 │
 │  (open)    （无标题时退化为 id）            ░░░░░░░░░░░░  0/0       1d 前
 │            plan-20260710-c3d4
@@ -106,7 +106,9 @@ P1~P3 已把 plan/todo 三通道（HTTP/CLI/MCP）打通、后端零缺口；P4 
 
 - **状态 pill** `(active)` 用**本地实现**、非 `StatusBadge` —— 后者的 `statusColor` 只映射 `JobStatus`，不认 plan 的 `open/active/done/archived`（`StatusBadge.vue:5,7`）。
 - **进度条**数据源 = T10 给 list 内联的 `counts`（D2）。`total=0` 时渲染全空槽，不显示分项。
-- 分段语义：`▓`=done、`▒`=running、`░`=queued；`failed` 不占槽位，只在下行文字计数（避免"失败也算进度"的误读）。
+- **分段语义与顺序**（用户拍板：failed 占一段红色）：`█`=done → `▓`=running → `▒`=failed → `░`=queued。左侧为终态（done/failed），中间进行中，右侧未开始。
+- **颜色复用既有 token**，不另造：`.seg--done`→`var(--done)`、`.seg--run`→`var(--run)`、`.seg--fail`→`var(--fail)`、`.seg--queue`→`var(--queue)`，与 `statusColor()` 的 `STATUS_COLOR` 映射同色系（`client.ts:628-636`），保证徽章与进度条视觉一致。
+- 与 T5 的 `segments()` 实现**逐段对齐**（done/run/fail/queue 四段，见 T5.x）；`5/12` 的分子恒为 `done`（不含 failed），failed 的存在感由红色段与下行计数共同表达。
 
 ### ② PlanDetail.vue（T6，新）
 
@@ -120,8 +122,8 @@ P1~P3 已把 plan/todo 三通道（HTTP/CLI/MCP）打通、后端零缺口；P4 
 │    created   2026-07-10 14:22
 │
 ├─ 进度 ────────────────────────────────────────────────────────────────
-│    ▓▓▓▓▓▓▓▒▒▒░░░░   5/12
-│    done 5 · running 2 · queued 4 · failed 1
+│    █████▓▓▒░░░░   5/12          █ done  ▓ running  ▒ failed  ░ queued
+│    done 5 · running 2 · failed 1 · queued 4
 │
 ├─ JOBS (12) ───────────────────────────────────────────────────────────
 │    状态       job · title / id              agent      耗时
