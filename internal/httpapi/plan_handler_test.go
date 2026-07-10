@@ -125,6 +125,75 @@ func TestCreateListGetPlanAndAttachJob(t *testing.T) {
 	}
 }
 
+func TestListPlansIncludesCounts(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	for _, id := range []string{"plan-list-counts", "plan-list-empty"} {
+		resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": id})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("create plan %s status=%d, want 200", id, resp.StatusCode)
+		}
+		decode(t, resp, &struct{}{})
+	}
+
+	for _, rec := range []jobstore.JobRecord{
+		{
+			ID: "list-job-done", ProjectKey: "self", Agent: "exec", Runner: "local",
+			Status: job.StatusDone, ResultDir: "/tmp/results/list-job-done", StartedAt: 1, UpdatedAt: 1, EndedAt: 1,
+		},
+		{
+			ID: "list-job-failed", ProjectKey: "self", Agent: "exec", Runner: "local",
+			Status: job.StatusFailed, ResultDir: "/tmp/results/list-job-failed", StartedAt: 2, UpdatedAt: 2, EndedAt: 2,
+		},
+	} {
+		if err := s.jobs.Meta().UpsertJob(rec); err != nil {
+			t.Fatalf("upsert %s: %v", rec.ID, err)
+		}
+		resp := do(t, s, http.MethodPost, "/v1/plans/plan-list-counts/jobs", testToken, map[string]string{"job_id": rec.ID})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("attach %s status=%d, want 200", rec.ID, resp.StatusCode)
+		}
+		decode(t, resp, &struct{}{})
+	}
+
+	resp := do(t, s, http.MethodGet, "/v1/plans?status=open", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("list plans status=%d, want 200", resp.StatusCode)
+	}
+	var list struct {
+		Plans []struct {
+			PlanID string `json:"plan_id"`
+			Counts *struct {
+				Total   int `json:"total"`
+				Queued  int `json:"queued"`
+				Running int `json:"running"`
+				Done    int `json:"done"`
+				Failed  int `json:"failed"`
+			} `json:"counts"`
+		} `json:"plans"`
+	}
+	decode(t, resp, &list)
+	if len(list.Plans) != 2 {
+		t.Fatalf("list plans len=%d, want 2: %+v", len(list.Plans), list.Plans)
+	}
+	found := false
+	for _, p := range list.Plans {
+		if p.Counts == nil {
+			t.Fatalf("plan %s missing counts: %+v", p.PlanID, p)
+		}
+		if p.PlanID != "plan-list-counts" {
+			continue
+		}
+		found = true
+		if p.Counts.Total != 2 || p.Counts.Done != 1 || p.Counts.Failed != 1 ||
+			p.Counts.Queued != 0 || p.Counts.Running != 0 {
+			t.Fatalf("plan-list-counts counts mismatch: %+v", *p.Counts)
+		}
+	}
+	if !found {
+		t.Fatalf("plan-list-counts missing from list: %+v", list.Plans)
+	}
+}
+
 func TestPlanAPIErrorCases(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 

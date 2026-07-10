@@ -92,6 +92,10 @@ func (s *Service) ResumeJob(jobID, prompt, runner, callerID string) (JobResult, 
 		// 仍回投原 owner。
 		OriginAgent: src.OriginAgent,
 		EscalateTo:  src.EscalateTo,
+		// 续跑归组（plan-orchestration P4，design §7）：续投 job 继承源 job 的 plan_id，
+		// 使"一次会话里多轮续接"天然归入同一 plan 血缘（源 job 未归组时为空）。plan_id 是
+		// 客户端可设的归组键（区别引擎私有 workflow_id），这里由后端从源 job 继承而非客户端声明。
+		PlanID: src.PlanID,
 	})
 }
 

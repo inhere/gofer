@@ -22,6 +22,13 @@ type planView struct {
 	UpdatedAt   int64  `json:"updated_at"`
 }
 
+// planListItem 是 list 响应项：header + 其下 jobs 的 counts（列表进度条数据源，P4/T10）。
+// detail（planDetail）另含 jobs/todos；list 仅带 counts 保持轻量。
+type planListItem struct {
+	planView
+	Counts jobstore.PlanCounts `json:"counts"`
+}
+
 func toPlanView(p jobstore.Plan) planView {
 	return planView{
 		PlanID: p.PlanID, Title: p.Title, Description: p.Description,
@@ -83,9 +90,17 @@ func (s *Server) handleListPlans(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "list plans failed", err.Error())
 		return
 	}
-	out := make([]planView, 0, len(list))
+	out := make([]planListItem, 0, len(list))
 	for _, p := range list {
-		out = append(out, toPlanView(p))
+		raw, cErr := s.jobs.Meta().PlanJobStatusCounts(p.PlanID)
+		if cErr != nil {
+			writeError(c, http.StatusInternalServerError, "plan counts failed", cErr.Error())
+			return
+		}
+		out = append(out, planListItem{
+			planView: toPlanView(p),
+			Counts:   jobstore.RollupPlanCounts(raw),
+		})
 	}
 	c.JSON(http.StatusOK, map[string]any{"plans": out})
 }

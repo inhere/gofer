@@ -154,6 +154,68 @@ func submitSourceCancel(t *testing.T, s *Service, req JobRequest) JobResult {
 	return res
 }
 
+func TestResumeJobInheritsPlanID(t *testing.T) {
+	root := t.TempDir()
+	const sid = "sess-plan-x"
+	s := newResumeRunnableService(t, root, "codex")
+
+	src := submitSourceCancel(t, s, JobRequest{
+		ProjectKey: "self", Agent: "codex", Runner: "local",
+		Prompt: "remember 42", Cwd: ".", TimeoutSec: 30, SessionID: sid, PlanID: "plan-x",
+	})
+	if src.SessionID != sid || src.PlanID != "plan-x" {
+		t.Fatalf("setup source session/plan = %q/%q, want %q/plan-x", src.SessionID, src.PlanID, sid)
+	}
+
+	newJob, err := s.ResumeJob(src.ID, "what number", "", "caller-plan")
+	if err != nil {
+		t.Fatalf("ResumeJob: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Cancel(newJob.ID); s.Wait(newJob.ID) })
+
+	if newJob.PlanID != "plan-x" {
+		t.Fatalf("resumed job plan_id = %q, want plan-x", newJob.PlanID)
+	}
+	got, ok := s.Get(newJob.ID)
+	if !ok {
+		t.Fatalf("resumed job %s not found", newJob.ID)
+	}
+	if got.PlanID != "plan-x" {
+		t.Fatalf("stored resumed job plan_id = %q, want plan-x", got.PlanID)
+	}
+}
+
+func TestResumeJobEmptyPlanIDStaysEmpty(t *testing.T) {
+	root := t.TempDir()
+	const sid = "sess-no-plan"
+	s := newResumeRunnableService(t, root, "codex")
+
+	src := submitSourceCancel(t, s, JobRequest{
+		ProjectKey: "self", Agent: "codex", Runner: "local",
+		Prompt: "remember 42", Cwd: ".", TimeoutSec: 30, SessionID: sid,
+	})
+	if src.SessionID != sid || src.PlanID != "" {
+		t.Fatalf("setup source session/plan = %q/%q, want %q/empty", src.SessionID, src.PlanID, sid)
+	}
+
+	newJob, err := s.ResumeJob(src.ID, "what number", "", "caller-plan")
+	if err != nil {
+		t.Fatalf("ResumeJob: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Cancel(newJob.ID); s.Wait(newJob.ID) })
+
+	if newJob.PlanID != "" {
+		t.Fatalf("resumed job plan_id = %q, want empty", newJob.PlanID)
+	}
+	got, ok := s.Get(newJob.ID)
+	if !ok {
+		t.Fatalf("resumed job %s not found", newJob.ID)
+	}
+	if got.PlanID != "" {
+		t.Fatalf("stored resumed job plan_id = %q, want empty", got.PlanID)
+	}
+}
+
 // TestResumeJobRendersClaudeArgv: a claude source job resumes into the exec argv
 // [claude --resume <sid> -p <prompt>], on the same runner, links the same
 // session_id, and carries the authenticated caller id. The resume argv is read
