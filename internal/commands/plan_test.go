@@ -16,7 +16,7 @@ func TestPlanSubcommandsRegistered(t *testing.T) {
 	if planCmd == nil {
 		t.Fatal("plan command not registered")
 	}
-	for _, sub := range []string{"create", "list", "show", "attach", "add-todo", "set-todo"} {
+	for _, sub := range []string{"create", "list", "show", "attach", "set-status", "archive", "add-todo", "set-todo"} {
 		if planCmd.GetCommand(sub) == nil {
 			t.Fatalf("plan subcommand %q not registered", sub)
 		}

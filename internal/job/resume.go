@@ -16,6 +16,14 @@ var (
 	// ErrNoSession marks a resume of a source job that never captured a session
 	// id (claude not injected / codex regex未命中 / unsupported agent). HTTP: 400.
 	ErrNoSession = errors.New("job has no captured session_id")
+	// ErrJobNotTerminal marks a derive attempt (resume / rebuild) whose SOURCE job is
+	// still queued/running. Resuming a live job would hand the SAME session_id to a
+	// second process while the source still holds it (concurrent writes to one agent
+	// session). Rebuild of a live job is technically harmless but rejected too, for a
+	// consistent rule (P6/D2 — this intentionally changes `job rerun <running-id>`,
+	// which historically ignored the source status, to a 400).
+	// Do not confuse with ErrJobTerminal (terminal jobs cannot take interactions).
+	ErrJobNotTerminal = errors.New("source job is not in a terminal state")
 	// ErrResumeUnsupported marks a source job whose agent has no SessionResume
 	// template (it cannot be续接). HTTP: 400.
 	ErrResumeUnsupported = errors.New("agent does not support resume")
@@ -41,6 +49,9 @@ func (s *Service) ResumeJob(jobID, prompt, runner, callerID string) (JobResult, 
 	src, ok := s.Get(jobID)
 	if !ok {
 		return JobResult{}, fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
+	}
+	if !IsTerminal(src.Status) {
+		return JobResult{}, fmt.Errorf("%w: %q is %s", ErrJobNotTerminal, jobID, src.Status)
 	}
 	if src.SessionID == "" {
 		return JobResult{}, fmt.Errorf("%w: %q", ErrNoSession, jobID)

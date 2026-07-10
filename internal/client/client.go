@@ -590,6 +590,22 @@ func (c *Client) GetPlan(id string) (Plan, error) {
 	return p, err
 }
 
+// UpdatePlan moves a plan along its lifecycle (PATCH /v1/plans/{id}, P6). status must be
+// one of open/active/done/archived. A nil progress keeps the plan's current progress.
+func (c *Client) UpdatePlan(planID, status string, progress *int) (Plan, error) {
+	payload := map[string]any{"status": status}
+	if progress != nil {
+		payload["progress"] = *progress
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return Plan{}, fmt.Errorf("encode update plan: %w", err)
+	}
+	var p Plan
+	err = c.doJSON(http.MethodPatch, "/v1/plans/"+url.PathEscape(planID), bytes.NewReader(body), &p)
+	return p, err
+}
+
 // AttachJob binds an existing job to a plan.
 func (c *Client) AttachJob(planID, jobID string) (Plan, error) {
 	body, err := json.Marshal(map[string]string{"job_id": jobID})

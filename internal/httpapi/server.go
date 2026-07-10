@@ -433,6 +433,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/plans", s.handleCreatePlan)
 		r.GET("/plans", s.handleListPlans)
 		r.GET("/plans/{id}", s.handleGetPlan)
+		r.PATCH("/plans/{id}", s.handleUpdatePlan)
 		r.POST("/plans/{id}/jobs", s.handleAttachPlanJob)
 		r.POST("/plans/{id}/todos", s.handleAddPlanTodo)
 		r.PATCH("/todos/{todo_id}", s.handleUpdateTodo)

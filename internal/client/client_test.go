@@ -140,6 +140,37 @@ func TestListJobsSourceJobQuery(t *testing.T) {
 	}
 }
 
+func TestUpdatePlanPatchRoundTrip(t *testing.T) {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch || r.URL.Path != "/v1/plans/plan-client" {
+			t.Fatalf("UpdatePlan request = %s %s, want PATCH /v1/plans/plan-client", r.Method, r.URL.Path)
+		}
+		var body struct {
+			Status   string `json:"status"`
+			Progress *int   `json:"progress"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Fatalf("decode request body: %v", err)
+		}
+		if body.Status != "active" || body.Progress == nil || *body.Progress != 42 {
+			t.Fatalf("UpdatePlan body mismatch: %+v", body)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(Plan{PlanID: "plan-client", Status: "active", Progress: 42})
+	}))
+	defer ts.Close()
+
+	c := New(ts.URL, testToken)
+	progress := 42
+	p, err := c.UpdatePlan("plan-client", "active", &progress)
+	if err != nil {
+		t.Fatalf("UpdatePlan: %v", err)
+	}
+	if p.PlanID != "plan-client" || p.Status != "active" || p.Progress != 42 {
+		t.Fatalf("UpdatePlan response mismatch: %+v", p)
+	}
+}
+
 func TestCancelCompletedStable(t *testing.T) {
 	ts := newServer(t, testToken, false)
 	c := New(ts.URL, testToken)

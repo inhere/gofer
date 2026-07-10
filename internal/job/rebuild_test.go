@@ -5,8 +5,10 @@ import (
 	"errors"
 	"reflect"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/secret"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
 func requestFromJSON(t *testing.T, raw string) JobRequest {
@@ -113,5 +115,26 @@ func TestRebuildJobRejectsPlaceholdersAndUnknownSource(t *testing.T) {
 
 	if _, err := s.RebuildJob("missing", RebuildOverrides{}, "caller-new", "127.0.0.1"); !errors.Is(err, ErrUnknownJob) {
 		t.Fatalf("unknown source err = %v, want ErrUnknownJob", err)
+	}
+}
+
+func TestRebuildJobRejectsRunningSource(t *testing.T) {
+	s := newTestService(t, t.TempDir())
+	src, err := s.Submit(JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: testcmd.Cmd(t, "sleep", "2s"), Cwd: ".", TimeoutSec: 30,
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitForStatus(t, s, src.ID, StatusRunning, 2*time.Second)
+	t.Cleanup(func() {
+		_ = s.Cancel(src.ID)
+		s.Wait(src.ID)
+	})
+
+	_, err = s.RebuildJob(src.ID, RebuildOverrides{}, "caller-new", "127.0.0.1")
+	if !errors.Is(err, ErrJobNotTerminal) {
+		t.Fatalf("RebuildJob running source err = %v, want ErrJobNotTerminal", err)
 	}
 }

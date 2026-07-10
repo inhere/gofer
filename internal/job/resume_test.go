@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -11,6 +12,7 @@ import (
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
 // resumeArgv decodes the resumed job's persisted RequestJSON and returns its Cmd
@@ -134,24 +136,48 @@ func TestResumeJobCrossRunner(t *testing.T) {
 	s.Wait(ok.ID) // let the resumed job settle before teardown closes the jobstore.
 }
 
-// submitSourceCancel submits a source job, reads its IMMEDIATE snapshot (the
-// injected/explicit session_id is set at submit, before the command runs) and
-// cancels it so a real claude/codex CLI never runs to completion in the test.
+// submitSourceCancel submits a source job, cancels and waits it to terminal, then
+// returns the terminal snapshot for resume tests (P6 requires a terminal source).
 func submitSourceCancel(t *testing.T, s *Service, req JobRequest) JobResult {
 	t.Helper()
 	res, err := s.Submit(req)
 	if err != nil {
 		t.Fatalf("Submit source: %v", err)
 	}
-	// Cancel AND wait for terminal so the job goroutine fully settles (its final
-	// persist completes) before the jobstore is closed in teardown — otherwise a
-	// late best-effort persist races the close and logs a benign "database is
-	// closed" warning.
+	_ = s.Cancel(res.ID)
+	final, ok := s.Wait(res.ID)
+	if !ok {
+		t.Fatalf("Wait source: job %s not found", res.ID)
+	}
+	if !IsTerminal(final.Status) {
+		t.Fatalf("source status=%s, want terminal", final.Status)
+	}
+	return final
+}
+
+func TestResumeJobRejectsRunningSourceBeforeNoSession(t *testing.T) {
+	root := t.TempDir()
+	s := newTestService(t, root)
+	res, err := s.Submit(JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: testcmd.Cmd(t, "sleep", "2s"), Cwd: ".", TimeoutSec: 30,
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	waitForStatus(t, s, res.ID, StatusRunning, 2*time.Second)
 	t.Cleanup(func() {
 		_ = s.Cancel(res.ID)
 		s.Wait(res.ID)
 	})
-	return res
+
+	_, err = s.ResumeJob(res.ID, "again", "", "caller-1")
+	if !errors.Is(err, ErrJobNotTerminal) {
+		t.Fatalf("ResumeJob running source err = %v, want ErrJobNotTerminal", err)
+	}
+	if errors.Is(err, ErrNoSession) {
+		t.Fatalf("ResumeJob running source err = %v, must not be ErrNoSession", err)
+	}
 }
 
 func TestResumeJobInheritsPlanID(t *testing.T) {

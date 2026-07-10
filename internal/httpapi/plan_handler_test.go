@@ -239,6 +239,53 @@ func TestPlanAPIErrorCases(t *testing.T) {
 	}
 }
 
+func TestUpdatePlanStatusAndProgress(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-patch"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("create plan status=%d, want 200", resp.StatusCode)
+	}
+	decode(t, resp, &struct{}{})
+
+	progress := 7
+	resp = do(t, s, http.MethodPatch, "/v1/plans/plan-patch", testToken, updatePlanReq{
+		Status: jobstore.PlanActive, Progress: &progress,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("patch plan status=%d, want 200", resp.StatusCode)
+	}
+	var updated struct {
+		PlanID   string `json:"plan_id"`
+		Status   string `json:"status"`
+		Progress int    `json:"progress"`
+	}
+	decode(t, resp, &updated)
+	if updated.PlanID != "plan-patch" || updated.Status != jobstore.PlanActive || updated.Progress != 7 {
+		t.Fatalf("updated plan mismatch: %+v", updated)
+	}
+
+	resp = do(t, s, http.MethodPatch, "/v1/plans/plan-patch", testToken, map[string]string{
+		"status": jobstore.PlanDone,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("patch plan omit progress status=%d, want 200", resp.StatusCode)
+	}
+	decode(t, resp, &updated)
+	if updated.Status != jobstore.PlanDone || updated.Progress != 7 {
+		t.Fatalf("omitted progress should keep old value: %+v", updated)
+	}
+
+	resp = do(t, s, http.MethodPatch, "/v1/plans/plan-patch", testToken, map[string]string{"status": "bogus"})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid status patch status=%d, want 400", resp.StatusCode)
+	}
+
+	resp = do(t, s, http.MethodPatch, "/v1/plans/missing", testToken, map[string]string{"status": jobstore.PlanArchived})
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown plan patch status=%d, want 404", resp.StatusCode)
+	}
+}
+
 func TestPlanTodoAPI(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-todos"})

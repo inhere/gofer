@@ -61,6 +61,23 @@ type createPlanReq struct {
 	Description string `json:"description,omitempty"`
 }
 
+// updatePlanReq is the PATCH /v1/plans/{id} body (P6): move a plan along its
+// lifecycle. status is required; progress is optional (nil = keep current).
+// 系统不自动推进 plan 状态（C2：plan 是纯归组），全部由调用方显式置。
+type updatePlanReq struct {
+	Status   string `json:"status"`
+	Progress *int   `json:"progress,omitempty"`
+}
+
+// validPlanStatus 白名单：jobstore.SetPlanStatus 不校验取值，必须在入口挡住。
+func validPlanStatus(s string) bool {
+	switch s {
+	case jobstore.PlanOpen, jobstore.PlanActive, jobstore.PlanDone, jobstore.PlanArchived:
+		return true
+	}
+	return false
+}
+
 func (s *Server) handleCreatePlan(c *rux.Context) {
 	var body createPlanReq
 	if err := c.BindJSON(&body); err != nil {
@@ -148,6 +165,44 @@ func (s *Server) handleGetPlan(c *rux.Context) {
 		Jobs:     jobs,
 		Todos:    todoViews,
 	})
+}
+
+func (s *Server) handleUpdatePlan(c *rux.Context) {
+	id := c.Param("id")
+	var body updatePlanReq
+	if err := c.BindJSON(&body); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	status := strings.TrimSpace(body.Status)
+	if !validPlanStatus(status) {
+		writeError(c, http.StatusBadRequest, "invalid status",
+			"status must be one of open/active/done/archived")
+		return
+	}
+	// SetPlanStatus 用裸 UPDATE、不看 affected rows：不存在的 plan 会「假成功」。
+	// 故先 GetPlan 判存在（同 handleAttachPlanJob 的前置模式）。
+	if _, ok, err := s.jobs.Meta().GetPlan(id); err != nil {
+		writeError(c, http.StatusInternalServerError, "get plan failed", err.Error())
+		return
+	} else if !ok {
+		writeError(c, http.StatusNotFound, "unknown plan", "no plan with id "+id)
+		return
+	}
+	progress := -1 // <0 = 保持原 progress（plans.go:112）
+	if body.Progress != nil {
+		progress = *body.Progress
+	}
+	if err := s.jobs.Meta().SetPlanStatus(id, status, progress); err != nil {
+		writeError(c, http.StatusInternalServerError, "update plan failed", err.Error())
+		return
+	}
+	p, ok, err := s.jobs.Meta().GetPlan(id)
+	if err != nil || !ok {
+		writeError(c, http.StatusInternalServerError, "reload plan failed", "")
+		return
+	}
+	c.JSON(http.StatusOK, toPlanView(p))
 }
 
 type attachJobReq struct {

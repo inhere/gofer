@@ -79,6 +79,27 @@ func NewPlanCmd() *gcli.Command {
 				Func: runPlanAttach,
 			},
 			{
+				Name: "set-status",
+				Desc: "Set a plan status",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("plan-id", "plan id", true)
+					c.AddArg("status", "status (open/active/done/archived)", true)
+				},
+				Func: runPlanSetStatus,
+			},
+			{
+				Name: "archive",
+				Desc: "Archive a plan",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("plan-id", "plan id", true)
+				},
+				Func: runPlanArchive,
+			},
+			{
 				Name:    "add-todo",
 				Aliases: []string{"todo-add"},
 				Desc:    "Add a todo to a plan",
@@ -173,6 +194,30 @@ func runPlanAttach(c *gcli.Command, _ []string) error {
 		return err
 	}
 	c.Printf("job %s attached to plan %s\n", jobID, planID)
+	return nil
+}
+
+func runPlanSetStatus(c *gcli.Command, _ []string) error {
+	return setPlanStatus(c, argValue(c, "plan-id"), argValue(c, "status"))
+}
+
+func runPlanArchive(c *gcli.Command, _ []string) error {
+	return setPlanStatus(c, argValue(c, "plan-id"), "archived")
+}
+
+func setPlanStatus(c *gcli.Command, planID, status string) error {
+	if planID == "" || status == "" {
+		return fmt.Errorf("plan set-status requires <plan-id> and <status>")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	p, err := cli.UpdatePlan(planID, status, nil)
+	if err != nil {
+		return err
+	}
+	c.Printf("plan %s -> %s\n", p.PlanID, p.Status)
 	return nil
 }
 

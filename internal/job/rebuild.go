@@ -119,6 +119,9 @@ func (s *Service) RebuildJob(jobID string, ov RebuildOverrides, callerID, client
 	if !ok {
 		return JobResult{}, fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
 	}
+	if !IsTerminal(src.Status) {
+		return JobResult{}, fmt.Errorf("%w: %q is %s", ErrJobNotTerminal, jobID, src.Status)
+	}
 	if src.RequestJSON == "" {
 		return JobResult{}, fmt.Errorf("%w: %q has no stored request", ErrUnknownJob, jobID)
 	}

@@ -20,7 +20,8 @@ var (
 	// ErrUnknownInteraction — the job has no interaction with the given id. HTTP: 404.
 	ErrUnknownInteraction = errors.New("unknown interaction")
 	// ErrJobTerminal — the job already reached a terminal state, so there is no
-	// live agent to consume an interaction/answer. HTTP: 409.
+	// live agent to consume an interaction/answer. HTTP: 409. Do not confuse with
+	// ErrJobNotTerminal (derive operations require the source job to be terminal).
 	ErrJobTerminal = errors.New("job is terminal")
 	// ErrInteractionState — answering an interaction that is not pending (already
 	// answered/cancelled). HTTP: 400.

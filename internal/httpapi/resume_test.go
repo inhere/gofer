@@ -2,7 +2,9 @@ package httpapi
 
 import (
 	"net/http"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -11,10 +13,11 @@ import (
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
 // TestResumeStatusMapping covers the pure sentinel→status mapper (resumeStatus):
-// unknown job → 404; the three resume-rejection sentinels → 400; an unknown
+// unknown job → 404; the resume-rejection sentinels → 400; an unknown
 // project (surfaced by the inner Submit) → 404 via submitStatus; anything else →
 // 400.
 func TestResumeStatusMapping(t *testing.T) {
@@ -24,6 +27,7 @@ func TestResumeStatusMapping(t *testing.T) {
 		want int
 	}{
 		{"unknown-job", job.ErrUnknownJob, http.StatusNotFound},
+		{"not-terminal", job.ErrJobNotTerminal, http.StatusBadRequest},
 		{"no-session", job.ErrNoSession, http.StatusBadRequest},
 		{"resume-unsupported", job.ErrResumeUnsupported, http.StatusBadRequest},
 		{"cross-runner", job.ErrCrossRunner, http.StatusBadRequest},
@@ -64,6 +68,36 @@ func TestResumeNoSession(t *testing.T) {
 	rr := do(t, s, http.MethodPost, "/v1/jobs/"+created.ID+"/resume", testToken, resumeJobReq{Prompt: "again"})
 	if rr.StatusCode != http.StatusBadRequest {
 		t.Fatalf("resume no-session status=%d, want 400", rr.StatusCode)
+	}
+}
+
+func TestResumeRunningJobRejected(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: testcmd.Cmd(t, "sleep", "2s"), Cwd: ".", TimeoutSec: 30,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("create status=%d, want 200", resp.StatusCode)
+	}
+	var created job.JobResult
+	decode(t, resp, &created)
+	waitServerJobStatus(t, s, created.ID, job.StatusRunning, 2*time.Second)
+	t.Cleanup(func() {
+		_ = s.jobs.Cancel(created.ID)
+		s.jobs.Wait(created.ID)
+	})
+
+	rr := do(t, s, http.MethodPost, "/v1/jobs/"+created.ID+"/resume", testToken, resumeJobReq{Prompt: "again"})
+	if rr.StatusCode != http.StatusBadRequest {
+		t.Fatalf("resume running source status=%d, want 400", rr.StatusCode)
+	}
+	var body errorBody
+	decode(t, rr, &body)
+	// error 字段是错误类别（与 no-session / unsupported / cross-runner 共用 "resume rejected"）；
+	// detail 才区分具体原因。断 detail 以确认是「源 job 非终态」而非其他 400。
+	if !strings.Contains(body.Detail, "not in a terminal state") {
+		t.Fatalf("resume running detail=%q, want it to mention a non-terminal source", body.Detail)
 	}
 }
 
@@ -149,4 +183,17 @@ func newResumeTestServer(t *testing.T) *Server {
 	eng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(eng)
 	return New(&cfg.Server, testToken, false, jobs, eng, projects, agents, nil, nil, nil, nil)
+}
+
+func waitServerJobStatus(t *testing.T, s *Server, id, want string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if r, ok := s.jobs.Get(id); ok && r.Status == want {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	r, _ := s.jobs.Get(id)
+	t.Fatalf("job %s did not reach %q in time (status=%s)", id, want, r.Status)
 }

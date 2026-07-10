@@ -333,6 +333,9 @@ func rebuildStatus(err error) int {
 	if errors.Is(err, job.ErrUnknownJob) {
 		return http.StatusNotFound
 	}
+	if errors.Is(err, job.ErrJobNotTerminal) {
+		return http.StatusBadRequest
+	}
 	if errors.Is(err, job.ErrRedactedPlaceholder) {
 		return http.StatusBadRequest
 	}
@@ -348,7 +351,8 @@ func resumeStatus(err error) int {
 	if errors.Is(err, job.ErrUnknownJob) {
 		return http.StatusNotFound
 	}
-	if errors.Is(err, job.ErrNoSession) ||
+	if errors.Is(err, job.ErrJobNotTerminal) ||
+		errors.Is(err, job.ErrNoSession) ||
 		errors.Is(err, job.ErrResumeUnsupported) ||
 		errors.Is(err, job.ErrCrossRunner) {
 		return http.StatusBadRequest
