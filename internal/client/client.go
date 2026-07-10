@@ -166,6 +166,9 @@ func (c *Client) ListJobs(opts job.ListOpts) ([]job.JobResult, error) {
 	if opts.Session != "" {
 		q.Set("session", opts.Session)
 	}
+	if opts.Plan != "" {
+		q.Set("plan", opts.Plan)
+	}
 	if opts.Since > 0 {
 		q.Set("since", strconv.FormatInt(opts.Since, 10))
 	}
@@ -505,6 +508,65 @@ func (c *Client) CancelWorkflow(id string) (Workflow, error) {
 	var wf Workflow
 	err := c.doJSON(http.MethodPost, "/v1/workflows/"+url.PathEscape(id)+"/cancel", nil, &wf)
 	return wf, err
+}
+
+// Plan is the client-side view of a plan header. GetPlan inlines its jobs.
+type Plan struct {
+	PlanID      string          `json:"plan_id"`
+	Title       string          `json:"title,omitempty"`
+	Description string          `json:"description,omitempty"`
+	Status      string          `json:"status"`
+	Owner       string          `json:"owner,omitempty"`
+	Progress    int             `json:"progress,omitempty"`
+	CreatedAt   int64           `json:"created_at"`
+	UpdatedAt   int64           `json:"updated_at"`
+	Jobs        []job.JobResult `json:"jobs,omitempty"`
+}
+
+// CreatePlan POSTs /v1/plans and returns the created header.
+func (c *Client) CreatePlan(planID, title, description string) (Plan, error) {
+	body, err := json.Marshal(map[string]string{
+		"plan_id": planID, "title": title, "description": description,
+	})
+	if err != nil {
+		return Plan{}, fmt.Errorf("encode create plan: %w", err)
+	}
+	var p Plan
+	err = c.doJSON(http.MethodPost, "/v1/plans", bytes.NewReader(body), &p)
+	return p, err
+}
+
+// ListPlans queries GET /v1/plans, optionally filtered by status.
+func (c *Client) ListPlans(status string) ([]Plan, error) {
+	path := "/v1/plans"
+	if status != "" {
+		path += "?status=" + url.QueryEscape(status)
+	}
+	var resp struct {
+		Plans []Plan `json:"plans"`
+	}
+	if err := c.doJSON(http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Plans, nil
+}
+
+// GetPlan fetches a plan header plus jobs by id.
+func (c *Client) GetPlan(id string) (Plan, error) {
+	var p Plan
+	err := c.doJSON(http.MethodGet, "/v1/plans/"+url.PathEscape(id), nil, &p)
+	return p, err
+}
+
+// AttachJob binds an existing job to a plan.
+func (c *Client) AttachJob(planID, jobID string) (Plan, error) {
+	body, err := json.Marshal(map[string]string{"job_id": jobID})
+	if err != nil {
+		return Plan{}, fmt.Errorf("encode attach job: %w", err)
+	}
+	var p Plan
+	err = c.doJSON(http.MethodPost, "/v1/plans/"+url.PathEscape(planID)+"/jobs", bytes.NewReader(body), &p)
+	return p, err
 }
 
 // ExportWorkflow fetches a workflow's reconstructed WorkflowSpec (GET

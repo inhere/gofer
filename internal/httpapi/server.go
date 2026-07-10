@@ -425,6 +425,12 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/workflows/{id}/export", s.handleExportWorkflow)
 		r.POST("/workflows/{id}/cancel", s.handleCancelWorkflow)
 
+		// plan 编排：纯归组容器。jobs.plan_id 支持提交即归组；attach 补挂已有 job。
+		r.POST("/plans", s.handleCreatePlan)
+		r.GET("/plans", s.handleListPlans)
+		r.GET("/plans/{id}", s.handleGetPlan)
+		r.POST("/plans/{id}/jobs", s.handleAttachPlanJob)
+
 		// P9 running-job two-way interactions.
 		r.POST("/jobs/{id}/attach-ticket", s.handleAttachTicket)
 		r.POST("/jobs/{id}/interactions", s.handleCreateInteraction)

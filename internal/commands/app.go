@@ -34,6 +34,7 @@ func NewAppWithBuildInfo(info buildinfo.Info) *gcli.App {
 	app.Add(NewPresenceCmd())
 	app.Add(NewJobCmd())
 	app.Add(NewWorkflowCmd())
+	app.Add(NewPlanCmd())
 	app.Add(NewScheduleCmd())
 	app.Add(NewMcpCmd())
 	app.Add(NewWorkerCmd())

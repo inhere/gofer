@@ -86,7 +86,8 @@ var schemaStmts = []string{
   client           TEXT,
   origin_agent     TEXT,
   escalate_to      TEXT,
-  role             TEXT
+  role             TEXT,
+  plan_id          TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -261,6 +262,20 @@ var schemaStmts = []string{
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_pty_sessions_job   ON pty_sessions(job_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_pty_sessions_ended ON pty_sessions(ended_at)`,
+	// plans is the plan-orchestration grouping header. One row per plan; jobs
+	// join it via jobs.plan_id. It is a pure grouping container, not a workflow
+	// engine state machine.
+	`CREATE TABLE IF NOT EXISTS plans (
+  plan_id      TEXT PRIMARY KEY,
+  title        TEXT,
+  description  TEXT,
+  status       TEXT NOT NULL,
+  owner        TEXT,
+  progress     INTEGER NOT NULL DEFAULT 0,
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_plans_status ON plans(status)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema
@@ -412,6 +427,10 @@ func (s *Store) migrate() error {
 	if err := add("role", "role TEXT"); err != nil { // job 角色预设（套娃判定）
 		return err
 	}
+	// plan 编排：客户端可设的归组键，把独立 job 归到一个计划；区别于引擎私有 workflow_id。
+	if err := add("plan_id", "plan_id TEXT"); err != nil {
+		return err
+	}
 	if err := s.migrateWorkflows(); err != nil {
 		return err
 	}
@@ -427,6 +446,12 @@ func (s *Store) migrate() error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_jobs_request_id ON jobs(request_id) WHERE request_id <> ''`,
 	); err != nil {
 		return fmt.Errorf("jobstore: migrate request_id index: %w", err)
+	}
+	// plan_id 归组过滤索引（list --plan）。旧库需等 ALTER ADD 后再建索引。
+	if _, err := s.db.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_jobs_plan_id ON jobs(plan_id)`,
+	); err != nil {
+		return fmt.Errorf("jobstore: migrate plan_id index: %w", err)
 	}
 	return nil
 }

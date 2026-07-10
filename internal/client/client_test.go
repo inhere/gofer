@@ -393,6 +393,64 @@ func TestSubmitGetWorkflow(t *testing.T) {
 	}
 }
 
+func TestPlanClientRoundTrip(t *testing.T) {
+	ts := newServer(t, testToken, false)
+	c := New(ts.URL, testToken)
+
+	p, err := c.CreatePlan("plan-client", "client plan", "desc")
+	if err != nil {
+		t.Fatalf("CreatePlan: %v", err)
+	}
+	if p.PlanID != "plan-client" || p.Status != "open" || p.Owner != "default" {
+		t.Fatalf("created plan mismatch: %+v", p)
+	}
+
+	jobOut, err := c.SubmitJob(job.JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		PlanID: "plan-direct", Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if err != nil {
+		t.Fatalf("SubmitJob with PlanID: %v", err)
+	}
+	final := waitDone(t, c, jobOut.ID)
+	if final.PlanID != "plan-direct" {
+		t.Fatalf("final PlanID = %q, want plan-direct", final.PlanID)
+	}
+
+	filtered, err := c.ListJobs(job.ListOpts{Plan: "plan-direct"})
+	if err != nil {
+		t.Fatalf("ListJobs(plan): %v", err)
+	}
+	if len(filtered) != 1 || filtered[0].ID != jobOut.ID || filtered[0].PlanID != "plan-direct" {
+		t.Fatalf("filtered jobs mismatch: %+v", filtered)
+	}
+
+	if _, err := c.AttachJob("plan-client", jobOut.ID); err != nil {
+		t.Fatalf("AttachJob: %v", err)
+	}
+	detail, err := c.GetPlan("plan-client")
+	if err != nil {
+		t.Fatalf("GetPlan: %v", err)
+	}
+	if detail.PlanID != "plan-client" || len(detail.Jobs) != 1 || detail.Jobs[0].ID != jobOut.ID {
+		t.Fatalf("plan detail mismatch: %+v", detail)
+	}
+
+	plans, err := c.ListPlans("open")
+	if err != nil {
+		t.Fatalf("ListPlans: %v", err)
+	}
+	var found bool
+	for _, plan := range plans {
+		if plan.PlanID == "plan-client" {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("plan-client missing from ListPlans: %+v", plans)
+	}
+}
+
 // TestExportWorkflowRoundTrip: a submitted workflow exports back to a runnable spec
 // (T4.1) with secrets stripped, and the export re-imports (SubmitWorkflow) cleanly.
 func TestExportWorkflowRoundTrip(t *testing.T) {

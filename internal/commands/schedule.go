@@ -120,6 +120,7 @@ func bindScheduleAddFlags(c *gcli.Command) {
 	c.IntOpt(&jobRunOpts.timeout, "timeout", "", 0, "job timeout in seconds (0 = server default)")
 	c.StrOpt(&jobRunOpts.title, "title", "", "", "optional job title")
 	c.StrOpt(&jobRunOpts.tags, "tags", "", "", "comma-separated free-form tags for the job")
+	c.StrOpt(&jobRunOpts.plan, "plan", "", "", "attach the job to a plan (grouping key)")
 	c.StrOpt(&jobRunOpts.role, "role", "", "", "role preset: fills agent/system_prompt/project/tags when unset")
 	c.StrOpt(&jobRunOpts.systemPrompt, "system-prompt", "", "", "resident system prompt injected via the agent")
 	c.AddArg("cmd", "raw command for exec agent (after --)", false, true)

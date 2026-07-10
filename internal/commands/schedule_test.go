@@ -144,6 +144,7 @@ func resetScheduleTestState() {
 	scheduleOpts.catchUp = false
 	jobRunOpts.project, jobRunOpts.agent, jobRunOpts.runner = "", "", ""
 	jobRunOpts.cwd, jobRunOpts.prompt, jobRunOpts.title, jobRunOpts.tags = "", "", "", ""
+	jobRunOpts.plan = ""
 	jobRunOpts.role, jobRunOpts.systemPrompt = "", ""
 	jobRunOpts.timeout = 0
 	jobRunOpts.channel = "cli"

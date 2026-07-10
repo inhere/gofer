@@ -79,6 +79,10 @@ type JobRequest struct {
 	// UUID). When set, re-submitting the same RequestID returns the existing job
 	// instead of creating a new one (deduped by the jobs.request_id unique index).
 	RequestID string `json:"request_id,omitempty" yaml:"request_id,omitempty"`
+	// PlanID is the client-settable grouping key (plan-orchestration P1). Unlike
+	// WorkflowID/StepIndex, it is not engine-private: clients may attach a job to a
+	// plan at submit time via JSON, YAML, CLI, or future MCP inputs.
+	PlanID string `json:"plan_id,omitempty" yaml:"plan_id,omitempty"`
 	// Tags are free-form labels for the job (E5). They are persisted (jobs.tags_json)
 	// and queryable via ?tag= (exact element match). Unlike WorkerLabels (routing,
 	// not stored), Tags are索引/检索维度。
@@ -207,6 +211,9 @@ type JobResult struct {
 	// auto-answer or re-escalate its interactions (套娃防护, supervisor-routing P2.2,
 	// design §8.4) — those go straight to a human (L3). Empty for a roleless job.
 	Role string `json:"role,omitempty"`
+	// PlanID is the client-settable plan grouping key persisted to jobs.plan_id.
+	// Empty means this job is not grouped under a plan.
+	PlanID string `json:"plan_id,omitempty"`
 	// RequestID is the idempotency key (C5) this job was created with; it is
 	// persisted (jobs.request_id) and echoed so the idempotent-reuse path returns
 	// it and it round-trips through persist.

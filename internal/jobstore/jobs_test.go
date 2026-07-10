@@ -243,6 +243,35 @@ func TestUpsertGetOriginAgentRoundTrip(t *testing.T) {
 	assert.Eq(t, "", got2.Role)
 }
 
+func TestUpsertGetPlanIDRoundTripAndFilter(t *testing.T) {
+	s := openTest(t)
+
+	in := sampleJob("plan-job", "alpha", 2000)
+	in.PlanID = "plan-x"
+	assert.NoErr(t, s.UpsertJob(in))
+
+	plain := sampleJob("plain-job", "alpha", 2001)
+	assert.NoErr(t, s.UpsertJob(plain))
+
+	got, ok, err := s.GetJob("plan-job")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "plan-x", got.PlanID)
+
+	byPlan, err := s.ListJobs(ListQuery{Plan: "plan-x"})
+	assert.NoErr(t, err)
+	assert.Len(t, byPlan, 1)
+	assert.Eq(t, "plan-job", byPlan[0].ID)
+
+	none, err := s.ListJobs(ListQuery{Plan: "plan-none"})
+	assert.NoErr(t, err)
+	assert.Len(t, none, 0)
+
+	gotPlain, _, err := s.GetJob("plain-job")
+	assert.NoErr(t, err)
+	assert.Eq(t, "", gotPlain.PlanID)
+}
+
 func TestGetJobMissingReturnsFalseNoError(t *testing.T) {
 	s := openTest(t)
 	got, ok, err := s.GetJob("nope")

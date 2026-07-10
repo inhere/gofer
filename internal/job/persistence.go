@@ -59,7 +59,8 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		OriginAgent: r.OriginAgent,
 		EscalateTo:  r.EscalateTo,
 		// 套娃防护（supervisor-routing P2.2）：角色预设名（如 supervisor），路由器据此识别 sup 自身的 interaction。
-		Role: r.Role,
+		Role:   r.Role,
+		PlanID: r.PlanID,
 	}
 }
 
@@ -130,7 +131,8 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		OriginAgent: rec.OriginAgent,
 		EscalateTo:  rec.EscalateTo,
 		// 套娃防护（supervisor-routing P2.2）：角色预设名，路由器据此识别 sup 自身的 interaction。
-		Role: rec.Role,
+		Role:   rec.Role,
+		PlanID: rec.PlanID,
 	}
 }
 

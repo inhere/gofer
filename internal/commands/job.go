@@ -37,6 +37,7 @@ var jobRunOpts = struct {
 	workerID     string
 	workerLabels string
 	tags         string
+	plan         string
 	channel      string
 	role         string
 	systemPrompt string
@@ -78,6 +79,7 @@ var jobListOpts = struct {
 	caller, tag     string
 	agent, runner   string
 	session         string
+	plan            string
 	since           int
 	limit           int
 }{}
@@ -127,6 +129,7 @@ func NewJobCmd() *gcli.Command {
 					c.StrOpt(&jobRunOpts.workerID, "worker-id", "", "", "target worker id for runner=worker (explicit routing)")
 					c.StrOpt(&jobRunOpts.workerLabels, "worker-labels", "", "", "comma-separated labels to auto-select a worker (runner=worker, when --worker-id is unset)")
 					c.StrOpt(&jobRunOpts.tags, "tags", "", "", "comma-separated free-form tags for the job (E5 search dimension, e.g. --tags ci,nightly)")
+					c.StrOpt(&jobRunOpts.plan, "plan", "", "", "attach the job to a plan (grouping key)")
 					c.StrOpt(&jobRunOpts.channel, "channel", "", "cli", "submission channel recorded as provenance (cli/web/mcp/...)")
 					c.StrOpt(&jobRunOpts.role, "role", "", "", "role preset (E35): fills agent/system_prompt/project/tags when unset")
 					c.StrOpt(&jobRunOpts.systemPrompt, "system-prompt", "", "", "resident system prompt injected via the agent (advanced; overrides role's)")
@@ -187,6 +190,7 @@ func NewJobCmd() *gcli.Command {
 					c.StrOpt(&jobListOpts.agent, "agent", "a", "", "filter by agent key")
 					c.StrOpt(&jobListOpts.runner, "runner", "", "", "filter by runner key")
 					c.StrOpt(&jobListOpts.session, "session", "", "", "filter by session id (exact match; lists a session's turns)")
+					c.StrOpt(&jobListOpts.plan, "plan", "", "", "filter by plan id (exact match)")
 					c.IntOpt(&jobListOpts.since, "since", "", 0, "keep jobs with started_at >= since (unix seconds)")
 					c.IntOpt(&jobListOpts.limit, "limit", "", 0, "max jobs to return (0 = server default)")
 				},
@@ -416,6 +420,7 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		WorkerID:       jobRunOpts.workerID,
 		WorkerLabels:   splitLabels(jobRunOpts.workerLabels),
 		Tags:           splitLabels(jobRunOpts.tags), // comma-separated, same parsing as worker-labels
+		PlanID:         jobRunOpts.plan,
 		Interactive:    jobRunOpts.interactive,
 		Cols:           jobRunOpts.cols,
 		Rows:           jobRunOpts.rows,
@@ -584,6 +589,7 @@ func runJobList(c *gcli.Command, _ []string) error {
 		Agent:   jobListOpts.agent,
 		Runner:  jobListOpts.runner,
 		Session: jobListOpts.session,
+		Plan:    jobListOpts.plan,
 		Since:   int64(jobListOpts.since),
 		Limit:   jobListOpts.limit,
 	})

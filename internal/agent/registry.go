@@ -5,7 +5,6 @@
 package agent
 
 import (
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync/atomic"
@@ -148,12 +147,20 @@ func builtinSessionDefaultFor(key string, a config.AgentConfig) (config.AgentCon
 	if !a.Interactive {
 		return config.AgentConfig{}, false
 	}
-	command := strings.ToLower(filepath.Base(a.Command))
+	command := strings.ToLower(commandBase(a.Command))
 	if strings.HasSuffix(command, ".exe") {
 		command = strings.TrimSuffix(command, ".exe")
 	}
 	def, ok := builtinSessionDefaults[command]
 	return def, ok
+}
+
+func commandBase(command string) string {
+	command = strings.TrimSpace(command)
+	if i := strings.LastIndexAny(command, `/\`); i >= 0 {
+		return command[i+1:]
+	}
+	return command
 }
 
 // Names returns all agent keys (config-declared plus the built-in exec), sorted

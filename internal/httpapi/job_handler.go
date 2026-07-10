@@ -122,7 +122,7 @@ func submitStatus(err error) int {
 
 // handleListJobs returns job snapshots merged from the per-project index and
 // the in-memory live state. Optional query params: status, project, caller,
-// tag, agent, runner, since (unix 秒), limit, offset. A non-numeric limit/since/
+// tag, agent, runner, session, plan, since (unix 秒), limit, offset. A non-numeric limit/since/
 // offset falls back to 0 (default/no-filter). The list is always a non-nil array,
 // so an empty result serialises as {"jobs":[]}。
 func (s *Server) handleListJobs(c *rux.Context) {
@@ -138,6 +138,7 @@ func (s *Server) handleListJobs(c *rux.Context) {
 		Agent:   c.Query("agent"),
 		Runner:  c.Query("runner"),
 		Session: c.Query("session"),
+		Plan:    c.Query("plan"),
 		Since:   since,
 		Limit:   limit,
 		Offset:  offset,

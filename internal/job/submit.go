@@ -261,7 +261,8 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			EscalateTo:  req.EscalateTo,
 			// 套娃防护（supervisor-routing P2.2）：记录该 job 的角色预设名（如 supervisor），
 			// 供监督路由器识别"sup 自身产生的 interaction"，对其永不自动答/回投 sup。
-			Role: req.Role,
+			Role:   req.Role,
+			PlanID: req.PlanID,
 		},
 	}
 	s.mu.Lock()

@@ -26,7 +26,7 @@ plan = 独立于 workflow 引擎的**轻量动态归组层**：`plans` 表存计
 
 | 期 | 主题 | 范围 | 子计划 | 状态 |
 |---|---|---|---|---|
-| **P1** | 数据底座 | `plans` 表 + CRUD；`jobs.plan_id` 客户端可设列（+索引）；`JobRequest/JobResult.PlanID`；submit 落库；list `--plan` 过滤（HTTP/CLI/client）；`POST /v1/plans` 建计划 + `POST /v1/plans/{id}/jobs` attach + `gofer plan` CLI | [P1-data-plan.md](./P1-data-plan.md) | ⬜ 未开始 |
+| **P1** | 数据底座 | `plans` 表 + CRUD；`jobs.plan_id` 客户端可设列（+索引）；`JobRequest/JobResult.PlanID`；submit 落库；list `--plan` 过滤（HTTP/CLI/client）；`POST /v1/plans` 建计划 + `POST /v1/plans/{id}/jobs` attach + `gofer plan` CLI | [P1-data-plan.md](./P1-data-plan.md) | ✅ 已完成 |
 | **P2** | MCP + 进度聚合 | `gofer_create_plan` / `gofer_attach_job` / `gofer_get_plan` 工具；`gofer_run_job` 加 `plan_id` 入参（提交即归组）；`GetPlan` 实时聚合其下 jobs 状态 `{total,queued,running,done,failed}` | P2-mcp-aggregate-plan.md（P1 定稿后拆） | ⬜ 未开始 |
 | **P3** | todo | `plan_todos` 表（纯待办 / 绑 `job_id` 两种）+ CRUD + HTTP/MCP；job 终态可选联动 done | P3-todo-plan.md（outline，见下） | ⬜ 未开始 |
 | **P4** | session 续跑 UI + Plans 前端 | JobDetail「继续会话」入口（续投同 session_id + 继承 plan_id）；`Plans.vue` 列表 + `PlanDetail.vue`；Board 加 plan 过滤维度 | P4-frontend-plan.md（outline，见下） | ⬜ 未开始 |
@@ -35,7 +35,7 @@ plan = 独立于 workflow 引擎的**轻量动态归组层**：`plans` 表存计
 
 ## 进度跟踪
 
-- [ ] P1 数据底座（子任务见 P1-data-plan.md 的 T1..T7）
+- [x] P1 数据底座（子任务见 P1-data-plan.md 的 T1..T7）
 - [ ] P2 MCP + 进度聚合
 - [ ] P3 todo
 - [ ] P4 session 续跑 UI + Plans 前端

@@ -3,6 +3,7 @@ package job
 import (
 	"path/filepath"
 	"testing"
+	"time"
 )
 
 // TestListJobsMergedAndSorted runs one done + one failed job, then asserts
@@ -168,6 +169,67 @@ func TestListJobsSessionFilter(t *testing.T) {
 	}
 	if len(none) != 0 {
 		t.Fatalf("unknown session expected 0, got %d", len(none))
+	}
+}
+
+func TestListJobsPlanFilterDBAndLiveOverlay(t *testing.T) {
+	root := t.TempDir()
+	s := newTestService(t, root)
+
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		PlanID: "plan-db", Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if final.PlanID != "plan-db" {
+		t.Fatalf("final PlanID = %q, want plan-db", final.PlanID)
+	}
+	if e := s.entry(final.ID); e != nil {
+		t.Fatalf("setup: expected terminal job evicted")
+	}
+	got, ok := s.Get(final.ID)
+	if !ok {
+		t.Fatalf("Get(%s) not found", final.ID)
+	}
+	if got.PlanID != "plan-db" {
+		t.Fatalf("Get PlanID = %q, want plan-db", got.PlanID)
+	}
+
+	dbOnly, err := s.ListJobs(ListOpts{Plan: "plan-db"})
+	if err != nil {
+		t.Fatalf("ListJobs(plan-db): %v", err)
+	}
+	if len(dbOnly) != 1 || dbOnly[0].ID != final.ID || dbOnly[0].PlanID != "plan-db" {
+		t.Fatalf("plan-db list wrong: %+v", dbOnly)
+	}
+
+	live, err := s.Submit(JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		PlanID: "plan-live", Cmd: []string{"sleep", "2"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if err != nil {
+		t.Fatalf("Submit live: %v", err)
+	}
+	t.Cleanup(func() {
+		_ = s.Cancel(live.ID)
+		_, _ = s.Wait(live.ID)
+	})
+	waitForStatus(t, s, live.ID, StatusRunning, 2*time.Second)
+
+	other, err := s.ListJobs(ListOpts{Plan: "plan-other"})
+	if err != nil {
+		t.Fatalf("ListJobs(plan-other): %v", err)
+	}
+	for _, j := range other {
+		if j.ID == live.ID {
+			t.Fatalf("live job leaked through unrelated plan filter: %+v", other)
+		}
+	}
+	liveOnly, err := s.ListJobs(ListOpts{Plan: "plan-live"})
+	if err != nil {
+		t.Fatalf("ListJobs(plan-live): %v", err)
+	}
+	if len(liveOnly) != 1 || liveOnly[0].ID != live.ID || liveOnly[0].PlanID != "plan-live" {
+		t.Fatalf("plan-live list wrong: %+v", liveOnly)
 	}
 }
 
