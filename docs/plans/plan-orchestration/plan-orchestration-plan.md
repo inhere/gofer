@@ -30,12 +30,14 @@ plan = 独立于 workflow 引擎的**轻量动态归组层**：`plans` 表存计
 | **P2** | MCP + 进度聚合 | `gofer_create_plan` / `gofer_attach_job` / `gofer_get_plan` 工具；`gofer_run_job` 加 `plan_id` 入参（提交即归组）；`GetPlan` 实时聚合其下 jobs 状态 `{total,queued,running,done,failed}` | [P2-mcp-aggregate-plan.md](./P2-mcp-aggregate-plan.md) | ✅ 已完成 |
 | **P3** | todo | `plan_todos` 表（纯待办 / 绑 `job_id` 两种）+ CRUD + HTTP/MCP/CLI；纯手动 done（不做 job 终态自动联动） | [P3-todo-plan.md](./P3-todo-plan.md) | ✅ 已完成 |
 | **P4** | session 续跑 UI + Plans 前端 | JobDetail「继续会话」入口（续投同 session_id + 继承 plan_id）；**会话链回看**（同 session 的 job 列表，T9.6）；`Plans.vue` 列表 + `PlanDetail.vue`；Board 加 plan 过滤维度；后端两处小改（T8 resume 继承 plan_id / T10 list 内联 counts） | [P4-frontend-plan.md](./P4-frontend-plan.md)（v0.3 代码级，T1..T11） | ✅ 已完成（2026-07-10，用户眼检通过） |
-| **P5** | job 血缘 + 快速重建 | `jobs.source_job_id` 血缘列（服务端盖章）；`POST /v1/jobs/{id}/rebuild`（服务端以源 request_json 为基底 + `env_set`/`env_unset`，**env 明文不出服务端**）；`rerun` = rebuild 空 body；`GET /v1/jobs/{id}/request` 默认脱敏（关闭安全 issue `h-aii-xqe1`）；`?source_job=` 反查 | [P5-lineage-rebuild-plan.md](./P5-lineage-rebuild-plan.md)（v0.3 代码级，T1..T15） | ✅ 已完成（2026-07-10，对抗式复审后实施；**待用户重部署眼检**） |
+| **P5** | job 血缘 + 快速重建 | `jobs.source_job_id` 血缘列（服务端盖章、`json:"-"` 不可伪造）；`POST /v1/jobs/{id}/rebuild`（服务端以源 request_json 为基底 + `env_set`/`env_unset`，**env 真值不进请求/响应序列化**）；`rerun` = rebuild 空 body；`GET /v1/jobs/{id}/request` 默认脱敏（关闭 `h-aii-xqe1` 的**直读裸吐**）；`?source_job=` 反查 | [P5-lineage-rebuild-plan.md](./P5-lineage-rebuild-plan.md)（v0.3 代码级，T1..T15） | ✅ 已完成（2026-07-10，对抗式复审后实施；**待用户重部署眼检**） |
 
 > P1+P2 即打通「编排即归组」最小闭环（设计 §12 待确认 5 倾向）。P3/P4 增量叠加，不阻塞。
 > P5 由 P4 评审衍生（无 session 的 job 无法 resume → 需「重建」→ 需血缘键），与 plan 编排正交，独立成期。
 >
-> ⚠️ **P4/P5 merge 冲突点**：二者都改 `internal/job/resume.go:74-95` 的 `s.Submit(JobRequest{...})` —— P4 加 `PlanID: src.PlanID`（T8），P5 加 `SourceJobID: jobID`。**须并存**，先落者勿覆盖后落者。
+> ✅ **P4/P5 的 merge 冲突点已消解**：`internal/job/resume.go` 的 `s.Submit(JobRequest{...})` 现同时带 `PlanID: src.PlanID`（P4 T8）与 `SourceJobID: jobID`（P5 T4），二者并存、正交。
+>
+> ⚠️ **P5 的已知安全边界（用户拍板接受）**：rebuild 可覆盖执行体（`prompt`/`cmd`/`agent_args` 等）且继承源 env，故持 token 的 caller 能让新 job 把 env 打进日志再读回。`GET /request` 的脱敏防的是**意外暴露**，不防**恶意 caller 主动提取**（gofer 单信任层）。审计靠血缘列（`source_job_id` + 发起者 `caller_id`）。详见 P5 计划的 §安全声明。
 
 ## 进度跟踪
 
