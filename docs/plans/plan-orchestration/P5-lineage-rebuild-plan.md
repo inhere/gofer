@@ -1030,14 +1030,14 @@ function buildRebuildBody(): RebuildBody {
 ### T15 — 验证门禁（收尾）
 
 **后端（容器内）**
-- [ ] `go build ./... && go vet ./...` 绿（注意 job_handler.go 删裸吐后 `encoding/json` 若无其他用途需移 import）。
-- [ ] `go list -deps ./internal/secret` 仅 stdlib（叶包无环）。
-- [ ] `go test ./internal/jobstore/... ./internal/job/... ./internal/job/workflow/... ./internal/httpapi/... ./internal/client/... ./internal/commands/...` 绿。
-- [ ] 全量 `go test ./...` 绿（workflow export 既有测试证明 T6 零行为）。
+- [x] `go build ./... && go vet ./...` 绿（容器 Linux）。
+- [x] `go list -deps ./internal/secret` 无任何 gofer 内部包（叶包，仅 import `regexp`）；`go list -deps ./internal/job` 不含 `internal/job/workflow`（G024 无环）。
+- [x] 目标包全绿；安全关键用例逐个 `-run -v -count=1` 确认**真实执行**（非因命名不匹配静默跳过）。
+- [x] 全量 `go test ./... -p 1 -count=1` 绿（**34 包**，`-count=1` 禁缓存）；`TestExportWorkflowRoundTrip` 绿证明 T6 抽包零行为。
 
 **前端（主机跑；容器内无 node → `gofer job run -p <project> -a exec --runner local --sync -- bash -lc 'cd <gofer>/web && pnpm typecheck && pnpm build'`）**
-- [ ] `pnpm typecheck` 绿（T11~T14）。
-- [ ] `pnpm build` 绿（`/new` 懒加载解析）。
+- [x] `pnpm typecheck` 绿（`pnpm build` 脚本即 `vue-tsc --noEmit && vite build`，已覆盖）。
+- [x] `pnpm build` 绿；主控经 `gofer job -a exec` 在主机**独立复跑**，非仅采信实施方输出。
 
 **运行期冒烟（可选）**
 - exec 一次性 job → 详情「快速重建」→ 预填（env 显 key/占位）→ 改 env 值 + 改 prompt → 提交 → 新 job `source_job_id` 指回源、`gofer job list --source-job <源>` 命中；DB 里源 env 明文未泄漏到任何响应。
@@ -1046,8 +1046,13 @@ function buildRebuildBody(): RebuildBody {
 - resume 一个 session job（P4 已落 UI）→ 新 job `source_job_id`=源、`session_id`=源（区分 resume vs rebuild）。
 
 **收尾**
-- [ ] 关闭安全 issue `h-aii-xqe1`（默认脱敏已落）。
-- [ ] 更新总纲 P5 checkbox + 分子阶段提交（SR1202）。
+- [x] 关闭 `h-aii-xqe1`（裸吐分支已删、默认脱敏已落）。**口径**：关的是**直读**，非全部 env 泄露路径（见 §安全声明）。
+- [x] 更新总纲 P5 checkbox；分 4 个 commit 提交（批1 T1-T5 / 批2 T6-T10 / 批3 T11-T14 / 测试加固）。
+
+**11.x 主控额外加固（v0.3 未列，实施中追加）**
+- [x] `TestGetJobRequestReturnsRedacted` 的断言由「检查 `Env["API_TOKEN"]` 字段」升级为「先对**原始响应体** `bytes.Contains` 反泄漏，再 unmarshal 断结构字段」——字段级断言会漏掉 secret 从其他字段泄漏的情况。
+- [x] 该断言经**变异测试**验证有效（非恒真）：临时把 `RedactedRequest` 的 `req.Env[k] = secret.Placeholder` 改为 no-op，测试精确失败并打印泄漏的响应体；恢复后重新 PASS。
+
 
 ---
 

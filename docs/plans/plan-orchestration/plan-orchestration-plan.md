@@ -30,7 +30,7 @@ plan = 独立于 workflow 引擎的**轻量动态归组层**：`plans` 表存计
 | **P2** | MCP + 进度聚合 | `gofer_create_plan` / `gofer_attach_job` / `gofer_get_plan` 工具；`gofer_run_job` 加 `plan_id` 入参（提交即归组）；`GetPlan` 实时聚合其下 jobs 状态 `{total,queued,running,done,failed}` | [P2-mcp-aggregate-plan.md](./P2-mcp-aggregate-plan.md) | ✅ 已完成 |
 | **P3** | todo | `plan_todos` 表（纯待办 / 绑 `job_id` 两种）+ CRUD + HTTP/MCP/CLI；纯手动 done（不做 job 终态自动联动） | [P3-todo-plan.md](./P3-todo-plan.md) | ✅ 已完成 |
 | **P4** | session 续跑 UI + Plans 前端 | JobDetail「继续会话」入口（续投同 session_id + 继承 plan_id）；**会话链回看**（同 session 的 job 列表，T9.6）；`Plans.vue` 列表 + `PlanDetail.vue`；Board 加 plan 过滤维度；后端两处小改（T8 resume 继承 plan_id / T10 list 内联 counts） | [P4-frontend-plan.md](./P4-frontend-plan.md)（v0.3 代码级，T1..T11） | ✅ 已完成（2026-07-10，用户眼检通过） |
-| **P5** | job 血缘 + 快速重建 | `jobs.source_job_id` 血缘列（服务端盖章）；`POST /v1/jobs/{id}/rebuild`（服务端以源 request_json 为基底 + `env_set`/`env_unset`，**env 明文不出服务端**）；`rerun` = rebuild 空 body；`GET /v1/jobs/{id}/request` 默认脱敏（关闭安全 issue `h-aii-xqe1`）；`?source_job=` 反查 | [P5-lineage-rebuild-plan.md](./P5-lineage-rebuild-plan.md)（v0.2 代码级，T1..T15） | ⬜ 计划定稿，**规模超 SR1204，待用户确认** |
+| **P5** | job 血缘 + 快速重建 | `jobs.source_job_id` 血缘列（服务端盖章）；`POST /v1/jobs/{id}/rebuild`（服务端以源 request_json 为基底 + `env_set`/`env_unset`，**env 明文不出服务端**）；`rerun` = rebuild 空 body；`GET /v1/jobs/{id}/request` 默认脱敏（关闭安全 issue `h-aii-xqe1`）；`?source_job=` 反查 | [P5-lineage-rebuild-plan.md](./P5-lineage-rebuild-plan.md)（v0.3 代码级，T1..T15） | ✅ 已完成（2026-07-10，对抗式复审后实施；**待用户重部署眼检**） |
 
 > P1+P2 即打通「编排即归组」最小闭环（设计 §12 待确认 5 倾向）。P3/P4 增量叠加，不阻塞。
 > P5 由 P4 评审衍生（无 session 的 job 无法 resume → 需「重建」→ 需血缘键），与 plan 编排正交，独立成期。
@@ -43,7 +43,7 @@ plan = 独立于 workflow 引擎的**轻量动态归组层**：`plans` 表存计
 - [x] P2 MCP + 进度聚合
 - [x] P3 todo（`plan_todos` 表 + CRUD + HTTP/MCP/CLI 三通道，`a02070f`）
 - [x] P4 session 续跑 UI + Plans 前端（T1..T11 全绿 + 用户眼检通过 2026-07-10，**已收官**）。5 commit：T8+T10 后端 / T1-T6 前端 / T7+T9 前端 / client 契约回归修复 / T11 收尾
-- [ ] P5 job 血缘 + 快速重建（计划 v0.2 定稿，T1..T15；规模超 SR1204，待用户确认后执行）
+- [x] P5 job 血缘 + 快速重建（v0.3 定稿并实施，T1..T15 全绿）。4 commit：批1 T1-T5 数据层 / 批2 T6-T10 脱敏+rebuild / 批3 T11-T14 前端 / 测试加固。**待用户 `make web` + 重部署 server 眼检**
 
 > SR1202：每个子阶段（T 级）完成后更新对应 checkbox 并 Git 提交，不要攒到最后。
 
