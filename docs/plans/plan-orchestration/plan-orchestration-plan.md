@@ -42,7 +42,7 @@ plan = 独立于 workflow 引擎的**轻量动态归组层**：`plans` 表存计
 - [x] P1 数据底座（子任务见 P1-data-plan.md 的 T1..T7）
 - [x] P2 MCP + 进度聚合
 - [x] P3 todo（`plan_todos` 表 + CRUD + HTTP/MCP/CLI 三通道，`a02070f`）
-- [ ] P4 session 续跑 UI + Plans 前端（计划 v0.3 定稿，T1..T11；**P4 只是前端渲染 P3 已建好的 todos，不新增 todo 后端**）
+- [x] P4 session 续跑 UI + Plans 前端（T1..T11 全绿；**P4 只是前端渲染 P3 已建好的 todos，不新增 todo 后端**）。4 commit：T8+T10 后端 / T1-T6 前端 / T7+T9 前端 / client 契约回归修复。**待用户 `make web` 重部署眼检**
 - [ ] P5 job 血缘 + 快速重建（计划 v0.2 定稿，T1..T15；规模超 SR1204，待用户确认后执行）
 
 > SR1202：每个子阶段（T 级）完成后更新对应 checkbox 并 Git 提交，不要攒到最后。
