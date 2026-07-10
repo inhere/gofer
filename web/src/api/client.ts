@@ -30,6 +30,8 @@ import type {
   ProjectWriteResp,
   ProjectsResp,
   PtySessionsResp,
+  RebuildBody,
+  RedactedRequest,
   ReposResp,
   RunnersResp,
   Schedule,
@@ -270,6 +272,9 @@ export function listJobs(opts?: ListJobsOpts): Promise<JobsResp> {
   if (opts?.session) {
     params.set('session', opts.session)
   }
+  if (opts?.source_job) {
+    params.set('source_job', opts.source_job)
+  }
   if (opts?.limit != null) {
     params.set('limit', String(opts.limit))
   }
@@ -278,6 +283,33 @@ export function listJobs(opts?: ListJobsOpts): Promise<JobsResp> {
   }
   const qs = params.toString()
   return request<JobsResp>(`/v1/jobs${qs ? `?${qs}` : ''}`)
+}
+
+// rebuild 预填「显示」源（P5）：拉脱敏 JobRequest（env 值恒占位）。返回 { request, redacted }。
+export async function getJobRequest(
+  id: string,
+): Promise<{ request: RedactedRequest; redacted: boolean }> {
+  const res = await fetch(`/v1/jobs/${encodeURIComponent(id)}/request`, {
+    headers: authHeaders(),
+  })
+  if (res.status === 401) {
+    triggerUnauthorized()
+    throw new Error('未授权（401）：token 无效或已失效')
+  }
+  if (!res.ok) {
+    return raiseForStatus(res)
+  }
+  const request = (await res.json()) as RedactedRequest
+  return { request, redacted: res.headers.get('X-Gofer-Redacted') === '1' }
+}
+
+// rebuild 提交（P5）：只发改动过的字段 + env_set/env_unset。返回新 job（source_job_id 指回源）。
+export function rebuildJob(id: string, body: RebuildBody): Promise<Job> {
+  return request<Job>(`/v1/jobs/${encodeURIComponent(id)}/rebuild`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
 }
 
 export function getJob(id: string): Promise<Job> {

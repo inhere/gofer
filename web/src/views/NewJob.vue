@@ -7,8 +7,8 @@
 // 提交成功跳详情；202（仍在后台）提示后仍跳详情（详情页自有 SSE 续看）。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getMeta, submitJob } from '../api/client'
-import type { MetaAgent, MetaProject, MetaRunner, MetaWorker } from '../api/types'
+import { getJobRequest, getMeta, rebuildJob, submitJob } from '../api/client'
+import type { MetaAgent, MetaProject, MetaRunner, MetaWorker, RebuildBody } from '../api/types'
 
 const router = useRouter()
 const route = useRoute()
@@ -40,6 +40,10 @@ const recordPty = ref(false)
 const cols = ref(120)
 const rows = ref(32)
 const sessionMode = computed(() => route.query.mode === 'session' || route.query.interactive === '1')
+const rebuildFrom = computed(() => (typeof route.query.from === 'string' ? route.query.from : ''))
+const isRebuild = computed(() => rebuildFrom.value !== '')
+const rebuildRedacted = ref(false)
+const planId = ref('')   // 隐藏：rebuild 继承/可覆盖源 plan_id（若已有则复用）
 const promptLabel = computed(() => (interactive.value ? 'PROMPT（可选）' : 'PROMPT（可贴 markdown）'))
 const promptPlaceholder = computed(() =>
   interactive.value
@@ -55,6 +59,19 @@ const advancedOpen = ref(false)
 const workerMode = ref<'id' | 'labels'>('id')
 const workerId = ref('')
 const workerLabels = ref('')
+
+// 快照：预填后记下各标量初值，提交时 diff（只发改动过的字段，N6.1——未编辑字段不回传，
+// 占位符没机会回传；服务端继承源真值）。
+const baseline = ref<Record<string, unknown>>({})
+
+// env 编辑器（N5）：源 env 每 key 一行，值脱敏、初始 action='keep'（不发）。
+type EnvAction = 'keep' | 'set' | 'unset'
+const envRows = ref<Array<{ key: string; action: EnvAction; value: string }>>([])
+const envAdds = ref<Array<{ key: string; value: string }>>([])
+const redactedPlaceholder = '***REDACTED***'
+const promptRedacted = computed(() => isRebuild.value && prompt.value.includes(redactedPlaceholder))
+const commandRedacted = computed(() => isRebuild.value && command.value.includes(redactedPlaceholder))
+const cwdRedacted = computed(() => isRebuild.value && cwd.value.includes(redactedPlaceholder))
 
 async function loadMeta() {
   loading.value = true
@@ -203,6 +220,11 @@ async function onSubmit() {
   }
   submitting.value = true
   try {
+    if (isRebuild.value) {
+      const job = await rebuildJob(rebuildFrom.value, buildRebuildBody())
+      void router.push(`/jobs/${job.id}`)
+      return
+    }
     const req = {
       project_key: projectKey.value,
       agent: agentKey.value,
@@ -263,11 +285,112 @@ async function onSubmit() {
   }
 }
 
-onMounted(() => {
+// R8：selectProject 会按 allowlist 把 agent/runner 收敛到默认——必须先 selectProject 触发联动，
+// 再显式覆盖 agentKey/runnerName，否则被联动重置。env 只填 key（值脱敏、不进表单值）。
+async function prefillFrom(from: string): Promise<void> {
+  try {
+    const { request: r, redacted } = await getJobRequest(from)
+    if (r.project_key) selectProject(r.project_key)   // 先联动
+    if (r.agent) agentKey.value = r.agent             // 再覆盖
+    if (r.runner) runnerName.value = r.runner
+    if (r.cwd) cwd.value = r.cwd
+    if (r.interactive) interactive.value = true
+    if (r.system_prompt) prompt.value = r.system_prompt
+    else if (r.prompt) prompt.value = r.prompt             // 可能含占位；用户改则校验、不改则不发
+    if (r.cmd && r.cmd.length) command.value = r.cmd.join(' ')
+    if (r.title) title.value = r.title
+    if (r.tags && r.tags.length) tags.value = r.tags.join(', ')
+    if (r.timeout_sec) timeoutSec.value = r.timeout_sec
+    if (r.interactive) { if (r.cols) cols.value = r.cols; if (r.rows) rows.value = r.rows }
+    if (r.worker_id) { workerMode.value = 'id'; workerId.value = r.worker_id; advancedOpen.value = true }
+    else if (r.worker_labels?.length) { workerMode.value = 'labels'; workerLabels.value = r.worker_labels.join(', '); advancedOpen.value = true }
+    envRows.value = Object.keys(r.env ?? {}).map((k) => ({ key: k, action: 'keep' as EnvAction, value: '' }))
+    if (r.plan_id) planId.value = r.plan_id
+    rebuildRedacted.value = redacted
+    snapshotBaseline()   // 记初值，供提交 diff
+  } catch (e) {
+    submitError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+function snapshotBaseline(): void {
+  baseline.value = {
+    project_key: projectKey.value, agent: agentKey.value, runner: runnerName.value,
+    prompt: prompt.value, command: command.value, cwd: cwd.value, title: title.value,
+    tags: tags.value, timeout: timeoutSec.value, interactive: interactive.value,
+    cols: cols.value, rows: rows.value, worker_id: workerId.value,
+    worker_labels: workerLabels.value, plan_id: planId.value,
+  }
+}
+
+// 只发改动过的标量（对比 baseline）+ env_set/env_unset（来自 envRows/envAdds）。
+function buildRebuildBody(): RebuildBody {
+  const b: RebuildBody = {}
+  const chg = <T,>(key: string, cur: T, apply: (v: T) => void) => {
+    if (baseline.value[key] !== cur) apply(cur)
+  }
+  chg('project_key', projectKey.value, (v) => (b.project_key = v))
+  chg('agent', agentKey.value, (v) => (b.agent = v))
+  chg('runner', runnerName.value, (v) => (b.runner = v))
+  if (isCliAgent.value) {
+    if (interactive.value) chg('prompt', prompt.value, (v) => (b.system_prompt = v))
+    else chg('prompt', prompt.value, (v) => (b.prompt = v))
+  }
+  if (isExec.value) chg('command', command.value, () => (b.cmd = parseCmd(command.value)))
+  chg('cwd', cwd.value, (v) => (b.cwd = v))
+  chg('title', title.value, (v) => { if (String(v).trim() !== '') b.title = String(v).trim() })
+  chg('tags', tags.value, () => (b.tags = parseLabels(tags.value)))
+  // v0.3 零值陷阱规避：原 `v ?? 0` 会把「清空 timeout」发成 0（服务端显式清零而非继承）。
+  // 改为仅当填了正整数才发；清空/0 → 不发该字段 → 服务端继承源 timeout。（真要「无超时」须另设
+  // 显式选项，本期不做——见风险 R15。）
+  chg('timeout', timeoutSec.value, (v) => { if (v != null && (v as number) > 0) b.timeout_sec = v as number })
+  chg('interactive', interactive.value, (v) => (b.interactive = v))
+  if (interactive.value) {
+    chg('cols', cols.value, (v) => { if (Number(v) > 0) b.cols = Number(v) })
+    chg('rows', rows.value, (v) => { if (Number(v) > 0) b.rows = Number(v) })
+  }
+  if (isWorkerRunner.value) {
+    if (workerMode.value === 'id') {
+      chg('worker_id', workerId.value, (v) => { if (v.trim() !== '') b.worker_id = v })
+    } else {
+      chg('worker_labels', workerLabels.value, () => {
+        const labels = parseLabels(workerLabels.value)
+        if (labels.length > 0) b.worker_labels = labels
+      })
+    }
+  }
+  chg('plan_id', planId.value, (v) => { if (v.trim() !== '') b.plan_id = v })
+  b.channel = 'web'
+  // env：keep 不发；set → env_set；unset → env_unset；新增行 → env_set。
+  const envSet: Record<string, string> = {}
+  const envUnset: string[] = []
+  for (const row of envRows.value) {
+    const key = row.key.trim()
+    if (key === '') continue
+    if (row.action === 'set') {
+      if (row.value !== '' && row.value !== '••••') envSet[key] = row.value
+    } else if (row.action === 'unset') envUnset.push(key)
+  }
+  for (const a of envAdds.value) {
+    const key = a.key.trim()
+    if (key && a.value !== '' && a.value !== '••••') envSet[key] = a.value
+  }
+  // v0.3：同一 key 不同时进 env_set 与 env_unset（避免歧义；服务端亦 unset 优先）。unset 赢，
+  // 故从 envSet 剔除任何也在 envUnset 里的 key。
+  for (const k of envUnset) delete envSet[k]
+  if (Object.keys(envSet).length) b.env_set = envSet
+  if (envUnset.length) b.env_unset = envUnset
+  return b
+}
+
+onMounted(async () => {
   if (sessionMode.value) {
     interactive.value = true
   }
-  void loadMeta()
+  await loadMeta()
+  if (isRebuild.value) {
+    await prefillFrom(rebuildFrom.value)
+  }
 })
 
 watch(interactive, (on) => {
@@ -281,13 +404,17 @@ watch(interactive, (on) => {
   <div class="newjob">
     <div class="newjob-head">
       <RouterLink to="/board" class="back mono">← board</RouterLink>
-      <h1 class="title mono">新建 job</h1>
+      <h1 class="title mono">{{ isRebuild ? '快速重建' : '新建 job' }}</h1>
     </div>
 
     <p v-if="loadError" class="error mono">表单选项加载失败：{{ loadError }}</p>
     <p v-else-if="loading" class="hint mono">加载选项中…</p>
 
     <form v-else class="card" @submit.prevent="onSubmit">
+      <div v-if="isRebuild && rebuildRedacted" class="redacted-banner mono">
+        部分字段含已脱敏的占位值，提交前必须替换；未改字段不会提交，将沿用源 job 原值。
+      </div>
+
       <!-- project -->
       <div class="field">
         <label class="label mono" for="nj-project">PROJECT</label>
@@ -329,10 +456,14 @@ watch(interactive, (on) => {
           id="nj-prompt"
           v-model="prompt"
           class="control mono area"
+          :class="{ 'control--redacted': promptRedacted }"
           rows="8"
           spellcheck="false"
           :placeholder="promptPlaceholder"
         ></textarea>
+        <p v-if="promptRedacted" class="field-hint field-hint--warn mono">
+          该字段含脱敏占位；如需改动，提交前必须替换。
+        </p>
         <p v-if="interactive" class="field-hint mono">
           如果写入会作为系统提示打开会话
         </p>
@@ -345,10 +476,14 @@ watch(interactive, (on) => {
           id="nj-cmd"
           v-model="command"
           class="control mono"
+          :class="{ 'control--redacted': commandRedacted }"
           spellcheck="false"
           autocomplete="off"
           placeholder="echo hello"
         />
+        <p v-if="commandRedacted" class="field-hint field-hint--warn mono">
+          该字段含脱敏占位；如需改动，提交前必须替换。
+        </p>
       </div>
 
       <!-- runner=worker 高级项：二选一 -->
@@ -412,10 +547,14 @@ watch(interactive, (on) => {
             id="nj-cwd"
             v-model="cwd"
             class="control mono"
+            :class="{ 'control--redacted': cwdRedacted }"
             spellcheck="false"
             autocomplete="off"
             placeholder="."
           />
+          <p v-if="cwdRedacted" class="field-hint field-hint--warn mono">
+            该字段含脱敏占位；如需改动，提交前必须替换。
+          </p>
         </div>
         <div class="field">
           <label class="label mono" for="nj-title">TITLE（可选）</label>
@@ -483,6 +622,35 @@ watch(interactive, (on) => {
         <p class="field-hint mono">自由标签，提交后可按 tag 检索 / 行内徽标展示</p>
       </div>
 
+      <div v-if="isRebuild" class="field">
+        <label class="label mono">ENV（源 job 继承；值保留在服务端）</label>
+        <div v-if="envRows.length === 0 && envAdds.length === 0" class="field-hint mono">
+          源 job 无 env key；可新增覆盖项。
+        </div>
+        <div v-for="row in envRows" :key="row.key" class="env-row mono">
+          <span class="env-key">{{ row.key }}</span>
+          <template v-if="row.action === 'set'">
+            <input v-model="row.value" class="control mono env-value-input" placeholder="新值" />
+            <button type="button" class="env-btn" @click="row.action = 'keep'; row.value = ''">撤销</button>
+          </template>
+          <template v-else>
+            <span class="env-val" :class="{ struck: row.action === 'unset' }">••••（保留原值）</span>
+            <button type="button" class="env-btn" @click="row.action = 'set'">改值</button>
+            <button type="button" class="env-btn" @click="row.action = row.action === 'unset' ? 'keep' : 'unset'">
+              {{ row.action === 'unset' ? '恢复' : '删除' }}
+            </button>
+          </template>
+        </div>
+        <div v-for="(a, i) in envAdds" :key="'add' + i" class="env-row mono">
+          <input v-model="a.key" class="control mono env-key-input" placeholder="KEY" />
+          <input v-model="a.value" class="control mono env-value-input" placeholder="value" />
+        </div>
+        <button type="button" class="env-add mono" @click="envAdds.push({ key: '', value: '' })">+ 新增 env</button>
+        <p v-if="rebuildRedacted" class="field-hint field-hint--warn mono">
+          源 job 的 env / 命令含敏感值，已在服务端保留；仅改动过的字段会提交，未改字段沿用原值
+        </p>
+      </div>
+
       <div class="row">
         <div class="field">
           <label class="label mono" for="nj-timeout">TIMEOUT_SEC（可选）</label>
@@ -510,7 +678,7 @@ watch(interactive, (on) => {
       <p v-if="notice" class="notice mono">{{ notice }}</p>
 
       <button class="submit" type="submit" :disabled="!canSubmit">
-        {{ submitting ? '提交中…' : '提交 job' }}
+        {{ submitting ? '提交中…' : isRebuild ? '提交重建' : '提交 job' }}
       </button>
     </form>
   </div>
@@ -593,6 +761,9 @@ watch(interactive, (on) => {
 .control:focus {
   border-color: var(--phosphor);
 }
+.control--redacted {
+  border-color: var(--run);
+}
 .area {
   resize: vertical;
   min-height: 120px;
@@ -608,6 +779,15 @@ select.control {
 }
 .field-hint--warn {
   color: var(--run);
+}
+
+.redacted-banner {
+  color: var(--run);
+  background: var(--ink);
+  border: 1px solid var(--run);
+  border-radius: var(--radius);
+  padding: 9px 11px;
+  font-size: 12px;
 }
 
 .advanced {
@@ -664,6 +844,54 @@ select.control {
   accent-color: var(--phosphor);
 }
 
+.env-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(180px, 1fr) auto auto;
+  gap: 8px;
+  align-items: center;
+  background: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px;
+  margin-top: 8px;
+}
+.env-key {
+  color: var(--phosphor);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.env-val {
+  color: var(--queue);
+  font-size: 12px;
+}
+.env-val.struck {
+  color: var(--fail);
+  text-decoration: line-through;
+}
+.env-key-input,
+.env-value-input {
+  padding: 6px 8px;
+}
+.env-btn,
+.env-add {
+  background: transparent;
+  color: var(--phosphor);
+  border: 1px solid var(--phosphor);
+  border-radius: var(--radius);
+  padding: 5px 10px;
+  font-size: 12px;
+}
+.env-btn:hover,
+.env-add:hover {
+  background: var(--phosphor);
+  color: var(--ink);
+}
+.env-add {
+  margin-top: 8px;
+  align-self: flex-start;
+}
+
 .error {
   color: var(--fail);
   font-size: 12px;
@@ -699,6 +927,9 @@ select.control {
   .row {
     flex-direction: column;
     gap: 16px;
+  }
+  .env-row {
+    grid-template-columns: 1fr;
   }
 }
 </style>

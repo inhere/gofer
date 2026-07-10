@@ -56,6 +56,8 @@ export interface Job {
   // plan 编排（plan-orchestration）：客户端可设的归组键；归入某 plan 时非空。
   // 详情页据此展示 plan 链接；session 续跑的新 job 自动继承源 job 的 plan_id。
   plan_id?: string
+  // 血缘键（P5，本次追加）：本 job resume/rebuild 自哪个源 job
+  source_job_id?: string
 }
 
 export interface PtySession {
@@ -426,6 +428,8 @@ export interface ListJobsOpts {
   // session 会话链过滤（?session=<sid>，后端早已落：job/list.go:29-31,118 + job_handler.go:140，
   // 但前端此前从未透传）。T9.6 用它列出「同一 agent 会话下的全部 job」（resume 链）。
   session?: string
+  // 血缘反查（P5，本次追加）：列出某 job 派生出的所有 job
+  source_job?: string
   limit?: number
   offset?: number
 }
@@ -843,3 +847,54 @@ export interface SSEEvent {
   // event -> SSEJobEventData; end -> {}
   data: unknown
 }
+
+// GET /v1/jobs/{id}/request 的脱敏结果（rebuild 预填仅用于「显示」——env 值恒为占位、
+// request_id/caller_id/session_id 已清）。字段对齐脱敏后的 job.JobRequest。
+export interface RedactedRequest {
+  project_key: string
+  agent: string
+  runner: string
+  prompt?: string
+  system_prompt?: string
+  cmd?: string[]
+  agent_args?: string[]
+  cwd?: string
+  timeout_sec?: number
+  title?: string
+  tags?: string[]
+  env?: Record<string, string> // 值恒为 ***REDACTED*** 占位（明文不出服务端）
+  env_files?: string[]
+  plan_id?: string
+  interactive?: boolean
+  cols?: number
+  rows?: number
+  worker_id?: string
+  worker_labels?: string[]
+}
+
+// POST /v1/jobs/{id}/rebuild 提交体：只发用户改动过的字段（未改字段服务端继承源真值）。
+// env_set 新增/改值（值不出现在 GET，只在此处提交新值）；env_unset 删除 key。
+export interface RebuildRequest {
+  project_key?: string
+  agent?: string
+  runner?: string
+  prompt?: string
+  system_prompt?: string
+  cmd?: string[]
+  agent_args?: string[]
+  cwd?: string
+  title?: string
+  tags?: string[]
+  timeout_sec?: number
+  interactive?: boolean
+  cols?: number
+  rows?: number
+  worker_id?: string
+  worker_labels?: string[]
+  plan_id?: string
+  channel?: string
+  env_set?: Record<string, string>
+  env_unset?: string[]
+}
+
+export type RebuildBody = RebuildRequest

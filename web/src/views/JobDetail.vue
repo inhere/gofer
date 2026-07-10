@@ -969,6 +969,14 @@ onUnmounted(() => {
       <div class="head-right">
         <StatusBadge v-if="job" :status="status" />
         <Signal v-if="job" :status="status" :rate="logRate" :duration-sec="durationSec" />
+        <RouterLink
+          v-if="job"
+          class="rebuild-btn mono"
+          :to="`/new?from=${encodeURIComponent(job.id)}`"
+          title="用本 job 的参数预填新建表单，提交为一个新 job（env 保留在服务端）"
+        >
+          快速重建
+        </RouterLink>
         <button
           v-if="showTerminalButton"
           class="terminal-open mono"
@@ -1024,6 +1032,12 @@ onUnmounted(() => {
         <span class="meta-k mono">plan</span>
         <RouterLink class="meta-v mono" :to="`/plans/${encodeURIComponent(job.plan_id)}`">
           {{ job.plan_id }}
+        </RouterLink>
+      </div>
+      <div v-if="job.source_job_id" class="meta-item">
+        <span class="meta-k mono">派生自</span>
+        <RouterLink class="meta-v mono" :to="`/jobs/${encodeURIComponent(job.source_job_id)}`">
+          {{ job.source_job_id }}
         </RouterLink>
       </div>
       <div v-if="job.client" class="meta-item">
@@ -1443,7 +1457,8 @@ onUnmounted(() => {
   align-items: center;
   gap: 16px;
 }
-.terminal-open {
+.terminal-open,
+.rebuild-btn {
   background: transparent;
   color: var(--phosphor);
   border: 1px solid var(--phosphor);
@@ -1451,7 +1466,8 @@ onUnmounted(() => {
   padding: 4px 12px;
   font-size: 12px;
 }
-.terminal-open:hover:not(:disabled) {
+.terminal-open:hover:not(:disabled),
+.rebuild-btn:hover {
   background: var(--phosphor);
   color: var(--ink);
 }
