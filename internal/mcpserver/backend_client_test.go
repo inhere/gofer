@@ -328,7 +328,7 @@ func TestClientBackendGetArtifactsEmptyNonNil(t *testing.T) {
 
 func TestClientBackendPlanMethods(t *testing.T) {
 	mux := http.NewServeMux()
-	var sawCreate, sawAttach bool
+	var sawCreate, sawAttach, sawAddTodo, sawUpdateTodo bool
 	mux.HandleFunc("/v1/plans", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			http.Error(w, "bad method", http.StatusMethodNotAllowed)
@@ -372,6 +372,53 @@ func TestClientBackendPlanMethods(t *testing.T) {
 			"status":  "open",
 		})
 	})
+	mux.HandleFunc("/v1/plans/plan-1/todos", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			http.Error(w, "bad method", http.StatusMethodNotAllowed)
+			return
+		}
+		sawAddTodo = true
+		var body struct {
+			Title string `json:"title"`
+			JobID string `json:"job_id"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if body.Title != "todo title" || body.JobID != "job-1" {
+			t.Fatalf("add todo body mismatch: %+v", body)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"todo_id":    "todo-1",
+			"plan_id":    "plan-1",
+			"job_id":     body.JobID,
+			"title":      body.Title,
+			"done":       false,
+			"created_at": int64(300),
+			"updated_at": int64(300),
+		})
+	})
+	mux.HandleFunc("/v1/todos/todo-1", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPatch {
+			http.Error(w, "bad method", http.StatusMethodNotAllowed)
+			return
+		}
+		sawUpdateTodo = true
+		var body struct {
+			Done bool `json:"done"`
+		}
+		_ = json.NewDecoder(r.Body).Decode(&body)
+		if !body.Done {
+			t.Fatalf("update todo done mismatch: %+v", body)
+		}
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"todo_id":    "todo-1",
+			"plan_id":    "plan-1",
+			"job_id":     "job-1",
+			"title":      "todo title",
+			"done":       true,
+			"created_at": int64(300),
+			"updated_at": int64(400),
+		})
+	})
 	mux.HandleFunc("/v1/plans/plan-1", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
 			http.Error(w, "bad method", http.StatusMethodNotAllowed)
@@ -389,6 +436,9 @@ func TestClientBackendPlanMethods(t *testing.T) {
 			"jobs": []map[string]any{
 				{"id": "job-1", "status": "done", "project_key": "self", "agent": "exec", "runner": "local", "plan_id": "plan-1"},
 				{"id": "job-2", "status": "running", "project_key": "self", "agent": "exec", "runner": "local", "plan_id": "plan-1"},
+			},
+			"todos": []map[string]any{
+				{"todo_id": "todo-1", "plan_id": "plan-1", "job_id": "job-1", "title": "todo title", "done": true, "created_at": int64(300), "updated_at": int64(400)},
 			},
 		})
 	})
@@ -420,6 +470,24 @@ func TestClientBackendPlanMethods(t *testing.T) {
 	if len(got.Jobs) != 2 || got.Jobs[0].PlanID != "plan-1" || got.Jobs[1].Status != "running" {
 		t.Fatalf("GetPlan jobs mismatch: %+v", got.Jobs)
 	}
+	if len(got.Todos) != 1 || got.Todos[0].TodoID != "todo-1" || !got.Todos[0].Done || got.Todos[0].JobID != "job-1" {
+		t.Fatalf("GetPlan todos mismatch: %+v", got.Todos)
+	}
+
+	added, err := b.AddTodo("plan-1", "todo title", "job-1")
+	if err != nil {
+		t.Fatalf("AddTodo: %v", err)
+	}
+	if !sawAddTodo || added.TodoID != "todo-1" || added.JobID != "job-1" || added.Done {
+		t.Fatalf("AddTodo mismatch: saw=%v todo=%+v", sawAddTodo, added)
+	}
+	updated, err := b.UpdateTodo("todo-1", true)
+	if err != nil {
+		t.Fatalf("UpdateTodo: %v", err)
+	}
+	if !sawUpdateTodo || updated.TodoID != "todo-1" || !updated.Done {
+		t.Fatalf("UpdateTodo mismatch: saw=%v todo=%+v", sawUpdateTodo, updated)
+	}
 }
 
 func TestClientPlanToViewNilCountsAndJobs(t *testing.T) {
@@ -429,6 +497,9 @@ func TestClientPlanToViewNilCountsAndJobs(t *testing.T) {
 	}
 	if pv.Jobs == nil || len(pv.Jobs) != 0 {
 		t.Fatalf("nil jobs should map to non-nil empty slice, got %+v", pv.Jobs)
+	}
+	if pv.Todos == nil || len(pv.Todos) != 0 {
+		t.Fatalf("nil todos should map to non-nil empty slice, got %+v", pv.Todos)
 	}
 }
 

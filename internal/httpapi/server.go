@@ -430,6 +430,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/plans", s.handleListPlans)
 		r.GET("/plans/{id}", s.handleGetPlan)
 		r.POST("/plans/{id}/jobs", s.handleAttachPlanJob)
+		r.POST("/plans/{id}/todos", s.handleAddPlanTodo)
+		r.PATCH("/todos/{todo_id}", s.handleUpdateTodo)
 
 		// P9 running-job two-way interactions.
 		r.POST("/jobs/{id}/attach-ticket", s.handleAttachTicket)

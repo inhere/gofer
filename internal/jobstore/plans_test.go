@@ -12,6 +12,8 @@ func TestFreshOpenHasPlansTableAndPlanIDColumn(t *testing.T) {
 	s := openTest(t)
 	assert.True(t, tableExists(t, s, "plans"))
 	assert.True(t, indexExists(t, s, "idx_plans_status"))
+	assert.True(t, tableExists(t, s, "plan_todos"))
+	assert.True(t, indexExists(t, s, "idx_plan_todos_plan"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "plan_id"))
 	assert.True(t, indexExists(t, s, "idx_jobs_plan_id"))
 }
@@ -133,6 +135,7 @@ func TestMigrateAddsPlanSupportToOldDB(t *testing.T) {
 
 	assert.True(t, tableHasColumn(t, s, "jobs", "plan_id"))
 	assert.True(t, tableExists(t, s, "plans"))
+	assert.True(t, tableExists(t, s, "plan_todos"))
 	assert.True(t, indexExists(t, s, "idx_jobs_plan_id"))
 
 	got, ok, err := s.GetJob("old-1")

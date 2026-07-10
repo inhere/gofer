@@ -127,6 +127,8 @@ func TestListToolsAllPresent(t *testing.T) {
 		"gofer_create_plan": false,
 		"gofer_attach_job":  false,
 		"gofer_get_plan":    false,
+		"gofer_add_todo":    false,
+		"gofer_update_todo": false,
 	}
 	for _, tl := range res.Tools {
 		if _, ok := want[tl.Name]; ok {
@@ -332,8 +334,57 @@ func TestPlanToolsRoundTrip(t *testing.T) {
 	if !strings.HasPrefix(createdPlan.PlanID, "plan-") || createdPlan.Title != "MCP plan" || createdPlan.Status != jobstore.PlanOpen {
 		t.Fatalf("created plan mismatch: %+v", createdPlan)
 	}
-	if createdPlan.Jobs == nil || len(createdPlan.Jobs) != 0 || createdPlan.Counts.Total != 0 {
+	if createdPlan.Jobs == nil || len(createdPlan.Jobs) != 0 ||
+		createdPlan.Todos == nil || len(createdPlan.Todos) != 0 || createdPlan.Counts.Total != 0 {
 		t.Fatalf("created plan should be header-only with zero counts: %+v", createdPlan)
+	}
+
+	addTodoRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "gofer_add_todo",
+		Arguments: map[string]any{
+			"plan_id": createdPlan.PlanID,
+			"title":   "plain todo",
+		},
+	})
+	if err != nil {
+		t.Fatalf("add_todo plain: %v", err)
+	}
+	var plainTodo todoView
+	structured(t, addTodoRes, &plainTodo)
+	if !strings.HasPrefix(plainTodo.TodoID, "todo-") || plainTodo.PlanID != createdPlan.PlanID ||
+		plainTodo.JobID != "" || plainTodo.Title != "plain todo" || plainTodo.Done {
+		t.Fatalf("plain todo mismatch: %+v", plainTodo)
+	}
+
+	updateTodoRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "gofer_update_todo",
+		Arguments: map[string]any{
+			"todo_id": plainTodo.TodoID,
+			"done":    true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("update_todo true: %v", err)
+	}
+	var doneTodo todoView
+	structured(t, updateTodoRes, &doneTodo)
+	if doneTodo.TodoID != plainTodo.TodoID || !doneTodo.Done {
+		t.Fatalf("done todo mismatch: %+v", doneTodo)
+	}
+
+	updateTodoRes, err = session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "gofer_update_todo",
+		Arguments: map[string]any{
+			"todo_id": plainTodo.TodoID,
+			"done":    false,
+		},
+	})
+	if err != nil {
+		t.Fatalf("update_todo false: %v", err)
+	}
+	structured(t, updateTodoRes, &doneTodo)
+	if doneTodo.Done {
+		t.Fatalf("todo should be undone after false update: %+v", doneTodo)
 	}
 
 	runRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
@@ -375,6 +426,26 @@ func TestPlanToolsRoundTrip(t *testing.T) {
 	}
 	if len(got.Jobs) != 1 || got.Jobs[0].ID != createdJob.ID || got.Jobs[0].PlanID != createdPlan.PlanID {
 		t.Fatalf("get_plan jobs mismatch: %+v", got.Jobs)
+	}
+	if len(got.Todos) != 1 || got.Todos[0].TodoID != plainTodo.TodoID || got.Todos[0].Done {
+		t.Fatalf("get_plan todos mismatch: %+v", got.Todos)
+	}
+
+	boundTodoRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+		Name: "gofer_add_todo",
+		Arguments: map[string]any{
+			"plan_id": createdPlan.PlanID,
+			"title":   "bound todo",
+			"job_id":  createdJob.ID,
+		},
+	})
+	if err != nil {
+		t.Fatalf("add_todo bound: %v", err)
+	}
+	var boundTodo todoView
+	structured(t, boundTodoRes, &boundTodo)
+	if boundTodo.JobID != createdJob.ID {
+		t.Fatalf("bound todo job id mismatch: %+v", boundTodo)
 	}
 
 	attachPlanRes, err := session.CallTool(context.Background(), &mcp.CallToolParams{
@@ -428,6 +499,8 @@ func TestPlanToolsUnknownIDs(t *testing.T) {
 	}{
 		{name: "gofer_get_plan", args: map[string]any{"plan_id": "missing-plan"}},
 		{name: "gofer_attach_job", args: map[string]any{"plan_id": "missing-plan", "job_id": "job-1"}},
+		{name: "gofer_add_todo", args: map[string]any{"plan_id": "missing-plan", "title": "todo"}},
+		{name: "gofer_update_todo", args: map[string]any{"todo_id": "missing-todo", "done": true}},
 	} {
 		res, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: tc.name, Arguments: tc.args})
 		if err != nil {

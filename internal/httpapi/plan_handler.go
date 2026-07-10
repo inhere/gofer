@@ -30,6 +30,24 @@ func toPlanView(p jobstore.Plan) planView {
 	}
 }
 
+type todoView struct {
+	TodoID    string `json:"todo_id"`
+	PlanID    string `json:"plan_id"`
+	JobID     string `json:"job_id,omitempty"`
+	Title     string `json:"title"`
+	Done      bool   `json:"done"`
+	Sort      int    `json:"sort,omitempty"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+func toTodoView(t jobstore.PlanTodo) todoView {
+	return todoView{
+		TodoID: t.TodoID, PlanID: t.PlanID, JobID: t.JobID, Title: t.Title,
+		Done: t.Done, Sort: t.Sort, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
+	}
+}
+
 type createPlanReq struct {
 	PlanID      string `json:"plan_id,omitempty"`
 	Title       string `json:"title,omitempty"`
@@ -76,6 +94,7 @@ type planDetail struct {
 	planView
 	Counts jobstore.PlanCounts `json:"counts"`
 	Jobs   []job.JobResult     `json:"jobs"`
+	Todos  []todoView          `json:"todos"`
 }
 
 func (s *Server) handleGetPlan(c *rux.Context) {
@@ -99,10 +118,20 @@ func (s *Server) handleGetPlan(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "plan counts failed", err.Error())
 		return
 	}
+	todos, err := s.jobs.Meta().ListTodosByPlan(id)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "list plan todos failed", err.Error())
+		return
+	}
+	todoViews := make([]todoView, 0, len(todos))
+	for _, t := range todos {
+		todoViews = append(todoViews, toTodoView(t))
+	}
 	c.JSON(http.StatusOK, planDetail{
 		planView: toPlanView(p),
 		Counts:   jobstore.RollupPlanCounts(raw),
 		Jobs:     jobs,
+		Todos:    todoViews,
 	})
 }
 
@@ -141,4 +170,74 @@ func (s *Server) handleAttachPlanJob(c *rux.Context) {
 	_ = s.jobs.Meta().TouchPlan(id)
 	p, _, _ := s.jobs.Meta().GetPlan(id)
 	c.JSON(http.StatusOK, toPlanView(p))
+}
+
+type addTodoReq struct {
+	Title string `json:"title"`
+	JobID string `json:"job_id,omitempty"`
+	Sort  int    `json:"sort,omitempty"`
+}
+
+func (s *Server) handleAddPlanTodo(c *rux.Context) {
+	id := c.Param("id")
+	var body addTodoReq
+	if err := c.BindJSON(&body); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	if strings.TrimSpace(body.Title) == "" {
+		writeError(c, http.StatusBadRequest, "title required", "a todo requires a title")
+		return
+	}
+	if _, ok, err := s.jobs.Meta().GetPlan(id); err != nil {
+		writeError(c, http.StatusInternalServerError, "get plan failed", err.Error())
+		return
+	} else if !ok {
+		writeError(c, http.StatusNotFound, "unknown plan", "no plan with id "+id)
+		return
+	}
+	now := time.Now()
+	t := jobstore.PlanTodo{
+		TodoID:    "todo-" + now.Format(job.JobIDLayout) + "-" + job.RandomSuffix(),
+		PlanID:    id,
+		JobID:     strings.TrimSpace(body.JobID),
+		Title:     body.Title,
+		Sort:      body.Sort,
+		CreatedAt: now.Unix(),
+		UpdatedAt: now.Unix(),
+	}
+	if err := s.jobs.Meta().InsertTodo(t); err != nil {
+		writeError(c, http.StatusInternalServerError, "add todo failed", err.Error())
+		return
+	}
+	_ = s.jobs.Meta().TouchPlan(id)
+	c.JSON(http.StatusOK, toTodoView(t))
+}
+
+type updateTodoReq struct {
+	Done bool `json:"done"`
+}
+
+func (s *Server) handleUpdateTodo(c *rux.Context) {
+	tid := c.Param("todo_id")
+	var body updateTodoReq
+	if err := c.BindJSON(&body); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	ok, err := s.jobs.Meta().SetTodoDone(tid, body.Done)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "update todo failed", err.Error())
+		return
+	}
+	if !ok {
+		writeError(c, http.StatusNotFound, "unknown todo", "no todo with id "+tid)
+		return
+	}
+	t, _, err := s.jobs.Meta().GetTodo(tid)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "get todo failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, toTodoView(t))
 }

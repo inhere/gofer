@@ -56,12 +56,18 @@ func TestCreateListGetPlanAndAttachJob(t *testing.T) {
 			Done    int `json:"done"`
 			Failed  int `json:"failed"`
 		} `json:"counts"`
-		Jobs []job.JobResult `json:"jobs"`
+		Jobs  []job.JobResult `json:"jobs"`
+		Todos []struct {
+			TodoID string `json:"todo_id"`
+		} `json:"todos"`
 	}
 	decode(t, resp, &emptyDetail)
 	if emptyDetail.Counts.Total != 0 || emptyDetail.Counts.Queued != 0 ||
 		emptyDetail.Counts.Running != 0 || emptyDetail.Counts.Done != 0 || emptyDetail.Counts.Failed != 0 {
 		t.Fatalf("empty plan counts mismatch: %+v", emptyDetail.Counts)
+	}
+	if emptyDetail.Todos == nil || len(emptyDetail.Todos) != 0 {
+		t.Fatalf("empty plan todos should be non-nil empty array: %+v", emptyDetail.Todos)
 	}
 
 	jobID := createExec(t, s, []string{"go", "version"})
@@ -132,6 +138,11 @@ func TestPlanAPIErrorCases(t *testing.T) {
 		t.Fatalf("attach unknown plan status=%d, want 404", resp.StatusCode)
 	}
 
+	resp = do(t, s, http.MethodPost, "/v1/plans/ghost/todos", testToken, map[string]string{"title": "todo"})
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("add todo unknown plan status=%d, want 404", resp.StatusCode)
+	}
+
 	resp = do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-errors"})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("create status=%d, want 200", resp.StatusCode)
@@ -146,6 +157,102 @@ func TestPlanAPIErrorCases(t *testing.T) {
 	resp = do(t, s, http.MethodPost, "/v1/plans/plan-errors/jobs", testToken, map[string]string{})
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Fatalf("attach missing job_id status=%d, want 400", resp.StatusCode)
+	}
+
+	resp = do(t, s, http.MethodPost, "/v1/plans/plan-errors/todos", testToken, map[string]string{})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("add todo missing title status=%d, want 400", resp.StatusCode)
+	}
+
+	resp = do(t, s, http.MethodPatch, "/v1/todos/missing", testToken, map[string]bool{"done": true})
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("update unknown todo status=%d, want 404", resp.StatusCode)
+	}
+}
+
+func TestPlanTodoAPI(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-todos"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("create plan status=%d, want 200", resp.StatusCode)
+	}
+	decode(t, resp, &struct{}{})
+
+	resp = do(t, s, http.MethodPost, "/v1/plans/plan-todos/todos", testToken, map[string]any{
+		"title": "plain todo", "sort": 20,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("add plain todo status=%d, want 200", resp.StatusCode)
+	}
+	var plain struct {
+		TodoID string `json:"todo_id"`
+		PlanID string `json:"plan_id"`
+		JobID  string `json:"job_id"`
+		Title  string `json:"title"`
+		Done   bool   `json:"done"`
+		Sort   int    `json:"sort"`
+	}
+	decode(t, resp, &plain)
+	if plain.TodoID == "" || plain.PlanID != "plan-todos" || plain.JobID != "" ||
+		plain.Title != "plain todo" || plain.Done || plain.Sort != 20 {
+		t.Fatalf("plain todo mismatch: %+v", plain)
+	}
+
+	resp = do(t, s, http.MethodPost, "/v1/plans/plan-todos/todos", testToken, map[string]any{
+		"title": "bound todo", "job_id": "job-bound", "sort": 10,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("add bound todo status=%d, want 200", resp.StatusCode)
+	}
+	var bound struct {
+		TodoID string `json:"todo_id"`
+		JobID  string `json:"job_id"`
+	}
+	decode(t, resp, &bound)
+	if bound.TodoID == "" || bound.JobID != "job-bound" {
+		t.Fatalf("bound todo mismatch: %+v", bound)
+	}
+
+	resp = do(t, s, http.MethodPatch, "/v1/todos/"+plain.TodoID, testToken, map[string]bool{"done": true})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("set todo done status=%d, want 200", resp.StatusCode)
+	}
+	var updated struct {
+		TodoID string `json:"todo_id"`
+		Done   bool   `json:"done"`
+	}
+	decode(t, resp, &updated)
+	if updated.TodoID != plain.TodoID || !updated.Done {
+		t.Fatalf("updated todo mismatch: %+v", updated)
+	}
+
+	resp = do(t, s, http.MethodPatch, "/v1/todos/"+plain.TodoID, testToken, map[string]bool{"done": false})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unset todo done status=%d, want 200", resp.StatusCode)
+	}
+	decode(t, resp, &updated)
+	if updated.Done {
+		t.Fatalf("updated todo done should be false: %+v", updated)
+	}
+
+	resp = do(t, s, http.MethodGet, "/v1/plans/plan-todos", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get plan status=%d, want 200", resp.StatusCode)
+	}
+	var detail struct {
+		Todos []struct {
+			TodoID string `json:"todo_id"`
+			JobID  string `json:"job_id"`
+			Title  string `json:"title"`
+			Done   bool   `json:"done"`
+		} `json:"todos"`
+	}
+	decode(t, resp, &detail)
+	if len(detail.Todos) != 2 || detail.Todos[0].TodoID != bound.TodoID || detail.Todos[1].TodoID != plain.TodoID {
+		t.Fatalf("detail todos order mismatch: %+v", detail.Todos)
+	}
+	if detail.Todos[0].JobID != "job-bound" || detail.Todos[1].Done {
+		t.Fatalf("detail todos fields mismatch: %+v", detail.Todos)
 	}
 }
 

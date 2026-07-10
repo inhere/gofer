@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/inhere/gofer/internal/agent"
@@ -162,6 +163,10 @@ func newPlanID() string {
 	return "plan-" + time.Now().Format(job.JobIDLayout) + "-" + job.RandomSuffix()
 }
 
+func newTodoID() string {
+	return "todo-" + time.Now().Format(job.JobIDLayout) + "-" + job.RandomSuffix()
+}
+
 func (b *localBackend) CreatePlan(title, description string) (planView, error) {
 	now := time.Now().Unix()
 	p := jobstore.Plan{
@@ -222,7 +227,57 @@ func (b *localBackend) GetPlan(planID string) (planView, error) {
 	for _, j := range jobs {
 		pv.Jobs = append(pv.Jobs, toJobView(j))
 	}
+	todos, err := st.ListTodosByPlan(planID)
+	if err != nil {
+		return planView{}, err
+	}
+	pv.Todos = make([]todoView, 0, len(todos))
+	for _, t := range todos {
+		pv.Todos = append(pv.Todos, toTodoView(t))
+	}
 	return pv, nil
+}
+
+func (b *localBackend) AddTodo(planID, title, jobID string) (todoView, error) {
+	if strings.TrimSpace(title) == "" {
+		return todoView{}, fmt.Errorf("title required")
+	}
+	st := b.jobs.Meta()
+	if _, ok, err := st.GetPlan(planID); err != nil {
+		return todoView{}, err
+	} else if !ok {
+		return todoView{}, fmt.Errorf("unknown plan %q", planID)
+	}
+	now := time.Now()
+	t := jobstore.PlanTodo{
+		TodoID:    newTodoID(),
+		PlanID:    planID,
+		JobID:     strings.TrimSpace(jobID),
+		Title:     title,
+		CreatedAt: now.Unix(),
+		UpdatedAt: now.Unix(),
+	}
+	if err := st.InsertTodo(t); err != nil {
+		return todoView{}, err
+	}
+	_ = st.TouchPlan(planID)
+	return toTodoView(t), nil
+}
+
+func (b *localBackend) UpdateTodo(todoID string, done bool) (todoView, error) {
+	st := b.jobs.Meta()
+	ok, err := st.SetTodoDone(todoID, done)
+	if err != nil {
+		return todoView{}, err
+	}
+	if !ok {
+		return todoView{}, fmt.Errorf("unknown todo %q", todoID)
+	}
+	t, _, err := st.GetTodo(todoID)
+	if err != nil {
+		return todoView{}, err
+	}
+	return toTodoView(t), nil
 }
 
 // --- E36 presence (local 直驱 presence.Service) ------------------------------

@@ -511,7 +511,8 @@ func (c *Client) CancelWorkflow(id string) (Workflow, error) {
 	return wf, err
 }
 
-// Plan is the client-side view of a plan header. GetPlan inlines its jobs.
+// Plan is the client-side view of a plan header. GetPlan inlines its jobs and
+// todos.
 type Plan struct {
 	PlanID      string               `json:"plan_id"`
 	Title       string               `json:"title,omitempty"`
@@ -523,6 +524,19 @@ type Plan struct {
 	UpdatedAt   int64                `json:"updated_at"`
 	Counts      *jobstore.PlanCounts `json:"counts,omitempty"`
 	Jobs        []job.JobResult      `json:"jobs,omitempty"`
+	Todos       []Todo               `json:"todos,omitempty"`
+}
+
+// Todo is the client-side view of a plan todo item. JobID "" is a plain todo.
+type Todo struct {
+	TodoID    string `json:"todo_id"`
+	PlanID    string `json:"plan_id"`
+	JobID     string `json:"job_id,omitempty"`
+	Title     string `json:"title"`
+	Done      bool   `json:"done"`
+	Sort      int    `json:"sort,omitempty"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
 }
 
 // CreatePlan POSTs /v1/plans and returns the created header.
@@ -569,6 +583,28 @@ func (c *Client) AttachJob(planID, jobID string) (Plan, error) {
 	var p Plan
 	err = c.doJSON(http.MethodPost, "/v1/plans/"+url.PathEscape(planID)+"/jobs", bytes.NewReader(body), &p)
 	return p, err
+}
+
+// AddTodo creates a plan todo. jobID may be empty for a plain checklist item.
+func (c *Client) AddTodo(planID, title, jobID string) (Todo, error) {
+	body, err := json.Marshal(map[string]any{"title": title, "job_id": jobID})
+	if err != nil {
+		return Todo{}, fmt.Errorf("encode add todo: %w", err)
+	}
+	var t Todo
+	err = c.doJSON(http.MethodPost, "/v1/plans/"+url.PathEscape(planID)+"/todos", bytes.NewReader(body), &t)
+	return t, err
+}
+
+// UpdateTodo sets a todo's manual done flag.
+func (c *Client) UpdateTodo(todoID string, done bool) (Todo, error) {
+	body, err := json.Marshal(map[string]bool{"done": done})
+	if err != nil {
+		return Todo{}, fmt.Errorf("encode update todo: %w", err)
+	}
+	var t Todo
+	err = c.doJSON(http.MethodPatch, "/v1/todos/"+url.PathEscape(todoID), bytes.NewReader(body), &t)
+	return t, err
 }
 
 // ExportWorkflow fetches a workflow's reconstructed WorkflowSpec (GET

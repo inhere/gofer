@@ -168,6 +168,16 @@ func newServer(b Backend, originAgent, originToken string) *mcp.Server {
 		Description: "Get a plan with its jobs and a live status roll-up {total,queued,running,done,failed}.",
 	}, getPlanHandler(b))
 
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_add_todo",
+		Description: "Add a todo to a plan. Omit job_id for a plain checklist item, or set it to bind the todo to a job run.",
+	}, addTodoHandler(b))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_update_todo",
+		Description: "Mark a todo done or undone by todo_id. Returns the updated todo.",
+	}, updateTodoHandler(b))
+
 	return s
 }
 
@@ -291,7 +301,7 @@ func toJobView(r job.JobResult) jobView {
 }
 
 // planView is the snake_case projection returned by the plan tools. It mirrors
-// the HTTP plan detail shape: header + counts + jobs.
+// the HTTP plan detail shape: header + counts + jobs + todos.
 type planView struct {
 	PlanID      string              `json:"plan_id"`
 	Title       string              `json:"title,omitempty"`
@@ -303,11 +313,32 @@ type planView struct {
 	UpdatedAt   int64               `json:"updated_at"`
 	Counts      jobstore.PlanCounts `json:"counts"`
 	Jobs        []jobView           `json:"jobs"`
+	Todos       []todoView          `json:"todos"`
+}
+
+// todoView is the snake_case projection returned by todo tools and inlined in
+// gofer_get_plan. It mirrors the HTTP todo shape.
+type todoView struct {
+	TodoID    string `json:"todo_id"`
+	PlanID    string `json:"plan_id"`
+	JobID     string `json:"job_id,omitempty"`
+	Title     string `json:"title"`
+	Done      bool   `json:"done"`
+	Sort      int    `json:"sort,omitempty"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
+}
+
+func toTodoView(t jobstore.PlanTodo) todoView {
+	return todoView{
+		TodoID: t.TodoID, PlanID: t.PlanID, JobID: t.JobID, Title: t.Title,
+		Done: t.Done, Sort: t.Sort, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
+	}
 }
 
 // planHeaderView projects a jobstore.Plan header onto planView. GetPlan fills
-// Counts/Jobs; create/attach return a header with zero counts and an empty job
-// array.
+// Counts/Jobs/Todos; create/attach return a header with zero counts and empty
+// arrays.
 func planHeaderView(p jobstore.Plan) planView {
 	return planView{
 		PlanID:      p.PlanID,
@@ -319,6 +350,7 @@ func planHeaderView(p jobstore.Plan) planView {
 		CreatedAt:   p.CreatedAt,
 		UpdatedAt:   p.UpdatedAt,
 		Jobs:        make([]jobView, 0),
+		Todos:       make([]todoView, 0),
 	}
 }
 
@@ -502,6 +534,39 @@ func getPlanHandler(b Backend) mcp.ToolHandlerFor[getPlanToolInput, planView] {
 			return nil, planView{}, err
 		}
 		return nil, pv, nil
+	}
+}
+
+// --- gofer_add_todo / gofer_update_todo -----------------------------------
+
+type addTodoToolInput struct {
+	PlanID string `json:"plan_id"`
+	Title  string `json:"title"`
+	JobID  string `json:"job_id,omitempty"`
+}
+
+func addTodoHandler(b Backend) mcp.ToolHandlerFor[addTodoToolInput, todoView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in addTodoToolInput) (*mcp.CallToolResult, todoView, error) {
+		tv, err := b.AddTodo(in.PlanID, in.Title, in.JobID)
+		if err != nil {
+			return nil, todoView{}, err
+		}
+		return nil, tv, nil
+	}
+}
+
+type updateTodoToolInput struct {
+	TodoID string `json:"todo_id"`
+	Done   bool   `json:"done"`
+}
+
+func updateTodoHandler(b Backend) mcp.ToolHandlerFor[updateTodoToolInput, todoView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in updateTodoToolInput) (*mcp.CallToolResult, todoView, error) {
+		tv, err := b.UpdateTodo(in.TodoID, in.Done)
+		if err != nil {
+			return nil, todoView{}, err
+		}
+		return nil, tv, nil
 	}
 }
 

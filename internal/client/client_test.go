@@ -442,6 +442,36 @@ func TestPlanClientRoundTrip(t *testing.T) {
 		t.Fatalf("GetPlan Counts mismatch: %+v", detail.Counts)
 	}
 
+	todo, err := c.AddTodo("plan-client", "client todo", jobOut.ID)
+	if err != nil {
+		t.Fatalf("AddTodo: %v", err)
+	}
+	if todo.TodoID == "" || todo.PlanID != "plan-client" || todo.JobID != jobOut.ID ||
+		todo.Title != "client todo" || todo.Done {
+		t.Fatalf("AddTodo mismatch: %+v", todo)
+	}
+	updatedTodo, err := c.UpdateTodo(todo.TodoID, true)
+	if err != nil {
+		t.Fatalf("UpdateTodo(true): %v", err)
+	}
+	if updatedTodo.TodoID != todo.TodoID || !updatedTodo.Done {
+		t.Fatalf("UpdateTodo true mismatch: %+v", updatedTodo)
+	}
+	updatedTodo, err = c.UpdateTodo(todo.TodoID, false)
+	if err != nil {
+		t.Fatalf("UpdateTodo(false): %v", err)
+	}
+	if updatedTodo.Done {
+		t.Fatalf("UpdateTodo false mismatch: %+v", updatedTodo)
+	}
+	detail, err = c.GetPlan("plan-client")
+	if err != nil {
+		t.Fatalf("GetPlan after todo: %v", err)
+	}
+	if len(detail.Todos) != 1 || detail.Todos[0].TodoID != todo.TodoID || detail.Todos[0].Done {
+		t.Fatalf("GetPlan Todos mismatch: %+v", detail.Todos)
+	}
+
 	plans, err := c.ListPlans("open")
 	if err != nil {
 		t.Fatalf("ListPlans: %v", err)

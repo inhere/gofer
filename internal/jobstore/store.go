@@ -276,6 +276,19 @@ var schemaStmts = []string{
   updated_at   INTEGER NOT NULL
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_plans_status ON plans(status)`,
+	// plan_todos is the plan-orchestration checklist table. job_id NULL means a
+	// plain todo; a non-empty job_id binds the item to one job run as metadata.
+	`CREATE TABLE IF NOT EXISTS plan_todos (
+  todo_id      TEXT PRIMARY KEY,
+  plan_id      TEXT NOT NULL,
+  job_id       TEXT,
+  title        TEXT,
+  done         INTEGER NOT NULL DEFAULT 0,
+  sort         INTEGER NOT NULL DEFAULT 0,
+  created_at   INTEGER NOT NULL,
+  updated_at   INTEGER NOT NULL
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_plan_todos_plan ON plan_todos(plan_id)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema

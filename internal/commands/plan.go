@@ -20,6 +20,14 @@ var planListOpts = struct {
 	status string
 }{}
 
+var planAddTodoOpts = struct {
+	job string
+}{}
+
+var planSetTodoOpts = struct {
+	undone bool
+}{}
+
 // NewPlanCmd builds the `plan` command group for lightweight job grouping.
 func NewPlanCmd() *gcli.Command {
 	return &gcli.Command{
@@ -69,6 +77,31 @@ func NewPlanCmd() *gcli.Command {
 					c.AddArg("job-id", "job id", true)
 				},
 				Func: runPlanAttach,
+			},
+			{
+				Name:    "add-todo",
+				Aliases: []string{"todo-add"},
+				Desc:    "Add a todo to a plan",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("plan-id", "plan id", true)
+					c.AddArg("title", "todo title", true)
+					c.StrOpt(&planAddTodoOpts.job, "job", "", "", "bind the todo to a job id (optional)")
+				},
+				Func: runPlanAddTodo,
+			},
+			{
+				Name:    "set-todo",
+				Aliases: []string{"todo-done"},
+				Desc:    "Mark a todo done, or undone with --undone",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("todo-id", "todo id", true)
+					c.BoolOpt(&planSetTodoOpts.undone, "undone", "", false, "mark the todo not done")
+				},
+				Func: runPlanSetTodo,
 			},
 		},
 	}
@@ -123,6 +156,7 @@ func runPlanShow(c *gcli.Command, _ []string) error {
 	}
 	printPlan(c, p)
 	printPlanJobs(c, p.Jobs)
+	printPlanTodos(c, p.Todos)
 	return nil
 }
 
@@ -139,6 +173,40 @@ func runPlanAttach(c *gcli.Command, _ []string) error {
 		return err
 	}
 	c.Printf("job %s attached to plan %s\n", jobID, planID)
+	return nil
+}
+
+func runPlanAddTodo(c *gcli.Command, _ []string) error {
+	planID, title := argValue(c, "plan-id"), argValue(c, "title")
+	if planID == "" || title == "" {
+		return fmt.Errorf("plan add-todo requires <plan-id> and <title>")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	t, err := cli.AddTodo(planID, title, planAddTodoOpts.job)
+	if err != nil {
+		return err
+	}
+	c.Printf("todo %s added to plan %s\n", t.TodoID, planID)
+	return nil
+}
+
+func runPlanSetTodo(c *gcli.Command, _ []string) error {
+	todoID := argValue(c, "todo-id")
+	if todoID == "" {
+		return fmt.Errorf("plan set-todo requires a <todo-id>")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	t, err := cli.UpdateTodo(todoID, !planSetTodoOpts.undone)
+	if err != nil {
+		return err
+	}
+	c.Printf("todo %s done=%t\n", t.TodoID, t.Done)
 	return nil
 }
 
@@ -177,5 +245,24 @@ func printPlanJobs(c *gcli.Command, jobs []job.JobResult) {
 	c.Printf("  %-26s %-12s %-16s %s\n", "JOB ID", "STATUS", "AGENT", "STARTED")
 	for _, j := range jobs {
 		c.Printf("  %-26s %-12s %-16s %s\n", j.ID, j.Status, j.Agent, formatStarted(j.StartedAt))
+	}
+}
+
+func printPlanTodos(c *gcli.Command, todos []client.Todo) {
+	c.Println("todos:")
+	if len(todos) == 0 {
+		c.Println("  (no todos yet)")
+		return
+	}
+	for _, t := range todos {
+		box := "[ ]"
+		if t.Done {
+			box = "[x]"
+		}
+		bind := ""
+		if t.JobID != "" {
+			bind = "  (job=" + t.JobID + ")"
+		}
+		c.Printf("  %s %-26s %s%s\n", box, t.TodoID, t.Title, bind)
 	}
 }

@@ -172,6 +172,22 @@ func (b *clientBackend) GetPlan(planID string) (planView, error) {
 	return clientPlanToView(p), nil
 }
 
+func (b *clientBackend) AddTodo(planID, title, jobID string) (todoView, error) {
+	t, err := b.cli.AddTodo(planID, title, jobID)
+	if err != nil {
+		return todoView{}, err
+	}
+	return clientTodoToView(t), nil
+}
+
+func (b *clientBackend) UpdateTodo(todoID string, done bool) (todoView, error) {
+	t, err := b.cli.UpdateTodo(todoID, done)
+	if err != nil {
+		return todoView{}, err
+	}
+	return clientTodoToView(t), nil
+}
+
 func clientPlanToView(p client.Plan) planView {
 	pv := planView{
 		PlanID:      p.PlanID,
@@ -190,7 +206,18 @@ func clientPlanToView(p client.Plan) planView {
 	for _, j := range p.Jobs {
 		pv.Jobs = append(pv.Jobs, toJobView(j))
 	}
+	pv.Todos = make([]todoView, 0, len(p.Todos))
+	for _, t := range p.Todos {
+		pv.Todos = append(pv.Todos, clientTodoToView(t))
+	}
 	return pv
+}
+
+func clientTodoToView(t client.Todo) todoView {
+	return todoView{
+		TodoID: t.TodoID, PlanID: t.PlanID, JobID: t.JobID, Title: t.Title,
+		Done: t.Done, Sort: t.Sort, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
+	}
 }
 
 // --- E36 presence (client 转发中央 serve) ------------------------------------

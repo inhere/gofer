@@ -28,7 +28,7 @@ plan = 独立于 workflow 引擎的**轻量动态归组层**：`plans` 表存计
 |---|---|---|---|---|
 | **P1** | 数据底座 | `plans` 表 + CRUD；`jobs.plan_id` 客户端可设列（+索引）；`JobRequest/JobResult.PlanID`；submit 落库；list `--plan` 过滤（HTTP/CLI/client）；`POST /v1/plans` 建计划 + `POST /v1/plans/{id}/jobs` attach + `gofer plan` CLI | [P1-data-plan.md](./P1-data-plan.md) | ✅ 已完成 |
 | **P2** | MCP + 进度聚合 | `gofer_create_plan` / `gofer_attach_job` / `gofer_get_plan` 工具；`gofer_run_job` 加 `plan_id` 入参（提交即归组）；`GetPlan` 实时聚合其下 jobs 状态 `{total,queued,running,done,failed}` | [P2-mcp-aggregate-plan.md](./P2-mcp-aggregate-plan.md) | ✅ 已完成 |
-| **P3** | todo | `plan_todos` 表（纯待办 / 绑 `job_id` 两种）+ CRUD + HTTP/MCP；job 终态可选联动 done | P3-todo-plan.md（outline，见下） | ⬜ 未开始 |
+| **P3** | todo | `plan_todos` 表（纯待办 / 绑 `job_id` 两种）+ CRUD + HTTP/MCP/CLI；纯手动 done（不做 job 终态自动联动） | [P3-todo-plan.md](./P3-todo-plan.md) | ✅ 已完成 |
 | **P4** | session 续跑 UI + Plans 前端 | JobDetail「继续会话」入口（续投同 session_id + 继承 plan_id）；`Plans.vue` 列表 + `PlanDetail.vue`；Board 加 plan 过滤维度 | P4-frontend-plan.md（outline，见下） | ⬜ 未开始 |
 
 > P1+P2 即打通「编排即归组」最小闭环（设计 §12 待确认 5 倾向）。P3/P4 增量叠加，不阻塞。
@@ -37,7 +37,7 @@ plan = 独立于 workflow 引擎的**轻量动态归组层**：`plans` 表存计
 
 - [x] P1 数据底座（子任务见 P1-data-plan.md 的 T1..T7）
 - [x] P2 MCP + 进度聚合
-- [ ] P3 todo
+- [x] P3 todo
 - [ ] P4 session 续跑 UI + Plans 前端
 
 > SR1202：每个子阶段（T 级）完成后更新对应 checkbox 并 Git 提交，不要攒到最后。
@@ -46,9 +46,10 @@ plan = 独立于 workflow 引擎的**轻量动态归组层**：`plans` 表存计
 
 - **表** `plan_todos`（新，`schemaStmts` 建表）：`todo_id TEXT PK / plan_id TEXT idx / job_id TEXT NULL / title TEXT / done INTEGER / sort INTEGER / created_at / updated_at`。两种 todo：`job_id=NULL` 纯待办；`job_id` 非空 = 绑某次 job 执行（终态可联动 `done`）。
 - **jobstore CRUD**（todos.go，仿 workflows.go）：`InsertTodo` / `ListTodosByPlan` / `SetTodoDone` / `DeleteTodo`。
-- **HTTP**：`POST /v1/plans/{id}/todos`（建）/ `GET /v1/plans/{id}/todos`（`GetPlan` 详情内联）/ `PATCH /v1/todos/{todo_id}`（勾选 done）。
+- **HTTP**：`POST /v1/plans/{id}/todos`（建）/ `GET /v1/plans/{id}` 详情内联 `todos` / `PATCH /v1/todos/{todo_id}`（勾选 done）。
 - **MCP**：`gofer_add_todo(plan_id, title, job_id?)` / `gofer_update_todo(todo_id, done)`（设计 §8）。
-- **联动**（设计 §12 待确认 3，倾向：可勾但不强制自动）：job 终态 done 时，若有绑定 todo，提供接口勾选但默认不自动。P3 先落纯手动，自动联动留开关。
+- **CLI**：`gofer plan add-todo` / `gofer plan set-todo` / `gofer plan show` 渲染 todos。
+- **联动**（设计 §12 待确认 3，倾向：可勾但不强制自动）：P3 只落纯手动 `done`，自动联动留后续开关。
 
 ## P4 session 续跑 UI + Plans 前端（outline）
 
