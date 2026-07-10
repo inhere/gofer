@@ -167,6 +167,82 @@ function sendFrame(frame: object): void {
   }
 }
 
+function sendInput(data: string): void {
+  sendFrame({ t: 'i', d: encodeInput(data) })
+}
+
+async function copySelection(): Promise<void> {
+  const text = term?.getSelection() ?? ''
+  if (!text) {
+    return
+  }
+  try {
+    if (!navigator.clipboard?.writeText) {
+      throw new Error('clipboard api unavailable')
+    }
+    await navigator.clipboard.writeText(text)
+  } catch {
+    const ta = document.createElement('textarea')
+    ta.value = text
+    ta.style.position = 'fixed'
+    ta.style.opacity = '0'
+    document.body.appendChild(ta)
+    ta.select()
+    document.execCommand('copy')
+    ta.remove()
+  }
+}
+
+async function pasteClipboard(): Promise<void> {
+  if (!writeGranted.value || !navigator.clipboard?.readText) {
+    return
+  }
+  try {
+    const text = await navigator.clipboard.readText()
+    if (text) {
+      term?.paste(text)
+    }
+  } catch {
+    emit('error', '读取剪贴板失败')
+  }
+}
+
+function isCtrlKey(ev: KeyboardEvent, key: string): boolean {
+  return (ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === key
+}
+
+function onTerminalKey(ev: KeyboardEvent): boolean {
+  if (ev.type !== 'keydown') {
+    return true
+  }
+  if (isCtrlKey(ev, 'c')) {
+    ev.preventDefault()
+    ev.stopPropagation()
+    if (term?.hasSelection()) {
+      void copySelection()
+    } else {
+      sendInput('\x03')
+    }
+    return false
+  }
+  if (isCtrlKey(ev, 'v')) {
+    if (!navigator.clipboard?.readText) {
+      return true
+    }
+    ev.preventDefault()
+    ev.stopPropagation()
+    void pasteClipboard()
+    return false
+  }
+  if (ev.key === 'Escape') {
+    ev.preventDefault()
+    ev.stopPropagation()
+    sendInput('\x1b')
+    return false
+  }
+  return true
+}
+
 function closeSocket(): void {
   if (!ws) {
     return
@@ -318,12 +394,13 @@ onMounted(async () => {
   term = buildTerminal()
   fit = new FitAddon()
   term.loadAddon(fit)
+  term.attachCustomKeyEventHandler(onTerminalKey)
   if (hostEl.value) {
     term.open(hostEl.value)
     fit.fit()
   }
   term.onData((s) => {
-    sendFrame({ t: 'i', d: encodeInput(s) })
+    sendInput(s)
   })
   term.onResize(({ cols, rows }) => {
     sendFrame({ t: 'r', cols, rows })
