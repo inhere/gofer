@@ -692,9 +692,8 @@ func terminalExitCode(status string) int {
 	}
 }
 
-// runJobRerun reads the original JobRequest of <id>, clears its RequestID (D5: a
-// rerun is a brand-new job, not an idempotent hit on the source), re-submits it
-// and prints the new job id. With --watch it then streams the new job to terminal
+// runJobRerun re-submits <id> server-side via rebuild with empty overrides, then
+// prints the new job id. With --watch it then streams the new job to terminal
 // (reusing runJobWatch's path semantics by delegating to a fresh StreamJob).
 func runJobRerun(c *gcli.Command, _ []string) error {
 	id := argID(c)
@@ -705,24 +704,17 @@ func runJobRerun(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	req, err := cli.GetJobRequest(id)
+	// P5: rerun = 服务端 rebuild 空 body（原样重投；env 全程不出服务端；血缘服务端盖 source_job_id）。
+	res, err := cli.RebuildJob(id, job.RebuildOverrides{})
 	if err != nil {
 		return err
 	}
-	// D5: a rerun must not be deduped against the source job's idempotency key.
-	req.RequestID = ""
-
-	sub, err := cli.SubmitJobSync(req)
-	if err != nil {
-		return err
-	}
-	newID := sub.Job.ID
-	c.Printf("rerun of %s submitted: new job %s status=%s\n", id, newID, sub.Job.Status)
+	c.Printf("rerun of %s submitted: new job %s status=%s\n", id, res.ID, res.Status)
 
 	if !jobRerunOpts.watch {
 		return nil
 	}
-	return watchToTerminal(c, cli, newID, 0)
+	return watchToTerminal(c, cli, res.ID, 0)
 }
 
 // runJobResume续接 the source job's底层 agent 会话 (session-capture P2): it POSTs

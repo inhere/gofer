@@ -414,6 +414,10 @@ func (s *Server) buildRouter() *rux.Router {
 		// exec job（同 runner）。body {prompt, runner?}；校验失败 4xx/404(resumeStatus)。
 		r.POST("/jobs/{id}/resume", s.handleResumeJob)
 
+		// P5: rebuild a NEW job from a source job's request + edits (env stays server-side).
+		// rerun = empty-body rebuild. 校验失败 4xx/404(rebuildStatus)。
+		r.POST("/jobs/{id}/rebuild", s.handleRebuildJob)
+
 		// 工作流(job 链)：提交/列表/详情(含 step 链)/取消。详情附每步 {step_index,
 		// name,job_id,status}，列表 ?status= 过滤；提交校验失败复用 submitStatus(404/400)。
 		r.POST("/workflows", s.handleCreateWorkflow)

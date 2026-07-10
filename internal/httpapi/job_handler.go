@@ -1,7 +1,6 @@
 package httpapi
 
 import (
-	"encoding/json"
 	"errors"
 	"io"
 	"net"
@@ -171,26 +170,27 @@ type jobDetailView struct {
 	CanAttach bool `json:"can_attach"`
 }
 
-// handleGetJobRequest returns the original JobRequest a job was created from
-// (P2-b), read from the persisted jobs.request_json column. It exists for the
-// CLI `job rerun` path (re-submit the same request with a fresh idempotency key)
-// and audit. The request_json is intentionally NOT part of handleGetJob's
-// response (it would bloat list responses, D1), so this is a dedicated endpoint.
-// An unknown id or a job with no recorded request is a 404. The stored bytes are
-// already a valid JobRequest JSON object, so they are echoed verbatim
-// (json.RawMessage) without a re-marshal round-trip.
+// handleGetJobRequest returns the SECRET-STRIPPED JobRequest a job was created from
+// (P5, closes h-aii-xqe1). It no longer echoes request_json verbatim — the only verbatim
+// consumer (CLI rerun) moved server-side to POST /jobs/{id}/rebuild. env values / secret-
+// looking prompt/cmd/cwd/system_prompt are redacted (job.RedactedRequest); when anything
+// was stripped an X-Gofer-Redacted: 1 header is set (workflow-export parity). It backs the
+// web rebuild PREFILL (display only). Unknown id / no request → 404.
 func (s *Server) handleGetJobRequest(c *rux.Context) {
 	id := c.Param("id")
-	res, ok := s.jobs.Get(id)
-	if !ok {
-		writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
+	req, ok, redacted, err := s.jobs.RedactedRequest(id)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "read request failed", err.Error())
 		return
 	}
-	if res.RequestJSON == "" {
+	if !ok {
 		writeError(c, http.StatusNotFound, "no request recorded", "job "+id+" has no stored request")
 		return
 	}
-	c.JSON(http.StatusOK, json.RawMessage(res.RequestJSON))
+	if redacted {
+		c.SetHeader("X-Gofer-Redacted", "1")
+	}
+	c.JSON(http.StatusOK, req)
 }
 
 // handleJobLogsStdout / handleJobLogsStderr return a tail window of a job's log
@@ -305,6 +305,38 @@ func (s *Server) handleResumeJob(c *rux.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, res)
+}
+
+// handleRebuildJob starts a NEW job from a source job's request + the caller's edits
+// (P5, D1). 编排 in job.Service.RebuildJob (G021); the handler binds the overrides, stamps
+// the authenticated caller + client IP (anti-spoof, like handleCreateJob) and maps
+// sentinels. Default async — the client watches the new job. env plaintext is never in the
+// request or response (only env_set/env_unset carry NEW values in).
+func (s *Server) handleRebuildJob(c *rux.Context) {
+	id := c.Param("id")
+	var ov job.RebuildOverrides
+	if err := c.BindJSON(&ov); err != nil && !errors.Is(err, io.EOF) {
+		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	res, err := s.jobs.RebuildJob(id, ov, callerFromCtx(c), clientIP(c))
+	if err != nil {
+		writeError(c, rebuildStatus(err), "rebuild rejected", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, res)
+}
+
+// rebuildStatus: unknown source job → 404; a lingering placeholder → 400; inner Submit
+// errors (unknown project etc.) via submitStatus.
+func rebuildStatus(err error) int {
+	if errors.Is(err, job.ErrUnknownJob) {
+		return http.StatusNotFound
+	}
+	if errors.Is(err, job.ErrRedactedPlaceholder) {
+		return http.StatusBadRequest
+	}
+	return submitStatus(err)
 }
 
 // resumeStatus maps a ResumeJob error to an HTTP status: an unknown source job is

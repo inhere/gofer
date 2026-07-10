@@ -3,63 +3,20 @@ package workflow
 import (
 	"encoding/json"
 	"fmt"
-	"regexp"
+
+	"github.com/inhere/gofer/internal/secret"
 )
 
 // secretPlaceholder replaces a value that matched a secret pattern in an exported
 // workflow spec (T4.1, SR403): the structure is preserved so the export is still a
 // runnable template, but the secret material never leaves the server / lands in a
 // file. The importer must fill the real value back in before running.
-const secretPlaceholder = "***REDACTED***"
-
-// secretKVPattern matches a "key = value" / "key: value" / "--key value" / "KEY=value"
-// assignment whose KEY looks like a credential (token / secret / password / api_key /
-// access_key / private_key / auth / bearer / credential). It captures the leading
-// "key<sep>" so the redactor can keep it and replace only the trailing value. The value
-// is taken up to the next whitespace / quote / line end so a longer prompt is not
-// swallowed whole. Case-insensitive (?i); applied to prompt + each cmd arg + cwd.
-//
-// This is a defence-in-depth heuristic, NOT a guarantee — it strips the COMMON shapes a
-// secret leaks in (a flag, an env-style assignment, a JSON/yaml field). A spec author
-// who must keep a literal secret out of an export should not put it in the prompt/cmd in
-// the first place; the placeholder makes an accidental leak visible.
-var secretKVPattern = regexp.MustCompile(
-	`(?i)\b([\w.\-]*(?:secret|token|password|passwd|api[_\-]?key|access[_\-]?key|private[_\-]?key|auth|bearer|credential)[\w.\-]*\s*[:=]\s*)("?[^"\s]+"?)`,
-)
-
-// secretFlagPattern matches a "--flag value" / "-flag value" credential flag (the value is
-// a separate argv token, so the KV pattern above does not catch it). It captures the flag
-// (and its trailing space) so only the value token is redacted.
-var secretFlagPattern = regexp.MustCompile(
-	`(?i)(--?[\w\-]*(?:secret|token|password|passwd|api[_\-]?key|access[_\-]?key|private[_\-]?key|auth|bearer|credential)[\w\-]*[=\s]+)(\S+)`,
-)
+const secretPlaceholder = secret.Placeholder // 保留常量名供本包既有引用
 
 // redactSecretsInString replaces credential-looking assignments / flags in s with the
 // placeholder, keeping the key/flag so the export stays a usable template. It returns the
 // scrubbed string and whether anything was redacted (so the caller can report it).
-func redactSecretsInString(s string) (string, bool) {
-	if s == "" {
-		return s, false
-	}
-	redacted := false
-	out := secretFlagPattern.ReplaceAllStringFunc(s, func(m string) string {
-		sub := secretFlagPattern.FindStringSubmatch(m)
-		if len(sub) != 3 {
-			return m
-		}
-		redacted = true
-		return sub[1] + secretPlaceholder
-	})
-	out = secretKVPattern.ReplaceAllStringFunc(out, func(m string) string {
-		sub := secretKVPattern.FindStringSubmatch(m)
-		if len(sub) != 3 {
-			return m
-		}
-		redacted = true
-		return sub[1] + secretPlaceholder
-	})
-	return out, redacted
-}
+func redactSecretsInString(s string) (string, bool) { return secret.RedactString(s) }
 
 // redactStepSecrets scrubs a single step's prompt / cmd args / cwd in place and reports
 // whether any value was redacted. It recurses into an inline sub-workflow (a workflow-type

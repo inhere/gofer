@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/secret"
 )
 
 // TestListJobsParsesAndFilters submits two tagged jobs and asserts ListJobs
@@ -67,8 +68,8 @@ func TestListJobsParsesAndFilters(t *testing.T) {
 	}
 }
 
-// TestGetJobRequestRoundTrip submits a job then reads back its original request
-// via the P2-b endpoint.
+// TestGetJobRequestRoundTrip submits a job then reads back its redacted original
+// request via the P5 endpoint.
 func TestGetJobRequestRoundTrip(t *testing.T) {
 	ts := newServer(t, testToken, false)
 	c := New(ts.URL, testToken)
@@ -76,7 +77,9 @@ func TestGetJobRequestRoundTrip(t *testing.T) {
 	created, err := c.SubmitJob(job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
 		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
-		Tags: []string{"x", "y"},
+		Tags:      []string{"x", "y"},
+		Env:       map[string]string{"API_TOKEN": "sk-test-env"},
+		RequestID: "request-1", SessionID: "session-1", CallerID: "spoofed",
 	})
 	if err != nil {
 		t.Fatalf("SubmitJob: %v", err)
@@ -96,10 +99,54 @@ func TestGetJobRequestRoundTrip(t *testing.T) {
 	if !reflect.DeepEqual(req.Tags, []string{"x", "y"}) {
 		t.Fatalf("tags not round-tripped: %+v", req.Tags)
 	}
+	if req.Env["API_TOKEN"] != secret.Placeholder {
+		t.Fatalf("env token = %q, want placeholder", req.Env["API_TOKEN"])
+	}
+	if req.Env["API_TOKEN"] == "sk-test-env" {
+		t.Fatalf("env plaintext leaked: %+v", req.Env)
+	}
+	if req.RequestID != "" || req.SessionID != "" || req.CallerID != "" {
+		t.Fatalf("request/session/caller should be cleared, got %q/%q/%q", req.RequestID, req.SessionID, req.CallerID)
+	}
 
 	// Unknown id -> error (404 surfaced).
 	if _, err := c.GetJobRequest("nope"); err == nil {
 		t.Fatal("expected error for unknown job request")
+	}
+}
+
+func TestRebuildJobRoundTrip(t *testing.T) {
+	ts := newServer(t, testToken, false)
+	c := New(ts.URL, testToken)
+
+	created, err := c.SubmitJob(job.JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if err != nil {
+		t.Fatalf("SubmitJob: %v", err)
+	}
+	waitDone(t, c, created.ID)
+
+	rebuilt, err := c.RebuildJob(created.ID, job.RebuildOverrides{
+		EnvSet: map[string]string{"TOKEN": "sk-test-new"},
+	})
+	if err != nil {
+		t.Fatalf("RebuildJob: %v", err)
+	}
+	if rebuilt.ID == "" || rebuilt.ID == created.ID {
+		t.Fatalf("rebuilt id invalid: %+v", rebuilt)
+	}
+	if rebuilt.SourceJobID != created.ID {
+		t.Fatalf("rebuilt source_job_id = %q, want %q", rebuilt.SourceJobID, created.ID)
+	}
+
+	got, err := c.GetJob(rebuilt.ID)
+	if err != nil {
+		t.Fatalf("GetJob rebuilt: %v", err)
+	}
+	if got.SourceJobID != created.ID {
+		t.Fatalf("GetJob rebuilt source_job_id = %q, want %q", got.SourceJobID, created.ID)
 	}
 }
 

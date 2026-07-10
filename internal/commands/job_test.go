@@ -1,6 +1,9 @@
 package commands
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"reflect"
 	"strings"
@@ -9,6 +12,7 @@ import (
 	"github.com/gookit/gcli/v3"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/job"
 )
 
 // parseRun runs the gcli arg pipeline (NormalizeArgs -> app.Run) up to the point
@@ -256,6 +260,45 @@ func TestJobResumeFlagsBound(t *testing.T) {
 	}
 	if jobResumeOpts.runner != "local" {
 		t.Fatalf("--runner = %q, want local", jobResumeOpts.runner)
+	}
+}
+
+func TestJobRerunCallsRebuildEndpoint(t *testing.T) {
+	isolateConfigEnv(t)
+	config.InputCfgFile = ""
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	jobConnOpts.server, jobConnOpts.token = "", ""
+	jobRerunOpts.watch = false
+
+	called := false
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/jobs/job-1/request" || r.URL.Path == "/v1/jobs" {
+			t.Fatalf("job rerun must not use legacy request/submit path: %s %s", r.Method, r.URL.Path)
+		}
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/jobs/job-1/rebuild" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		called = true
+		var ov job.RebuildOverrides
+		if err := json.NewDecoder(r.Body).Decode(&ov); err != nil {
+			t.Fatalf("decode rebuild body: %v", err)
+		}
+		if ov.ProjectKey != nil || len(ov.EnvSet) != 0 || len(ov.EnvUnset) != 0 {
+			t.Fatalf("rerun should send empty overrides, got %+v", ov)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(job.JobResult{
+			ID: "job-new", Status: job.StatusQueued, SourceJobID: "job-1",
+		})
+	}))
+	defer ts.Close()
+
+	app := NewApp("test")
+	if code := app.Run([]string{"job", "rerun", "--server", ts.URL, "job-1"}); code != 0 {
+		t.Fatalf("app.Run exit code=%d", code)
+	}
+	if !called {
+		t.Fatal("rebuild endpoint was not called")
 	}
 }
 

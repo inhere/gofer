@@ -5,19 +5,22 @@ import (
 	"testing"
 
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/secret"
 )
 
-// TestGetJobRequestReturnsOriginal exercises GET /v1/jobs/{id}/request (P2-b):
-// the endpoint echoes the original JobRequest fields (project/agent/cmd/tags)
-// from the persisted request_json column, separate from get_job (D1).
-func TestGetJobRequestReturnsOriginal(t *testing.T) {
+// TestGetJobRequestReturnsRedacted exercises GET /v1/jobs/{id}/request (P5):
+// the endpoint returns a usable JobRequest shape but strips env values / secret-
+// looking strings and clears re-submit/session/caller noise.
+func TestGetJobRequestReturnsRedacted(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 
-	// Submit a job carrying a distinctive cmd + tags so we can assert round-trip.
+	// Submit a job carrying distinctive fields plus env so we can assert the new
+	// redacted contract instead of the old verbatim request_json echo.
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
 		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
-		Tags: []string{"alpha", "beta"},
+		Tags: []string{"alpha", "beta"}, Env: map[string]string{"API_TOKEN": "sk-test-env"},
+		RequestID: "request-1", SessionID: "session-1", CallerID: "spoofed",
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("create status=%d, want 200", resp.StatusCode)
@@ -33,6 +36,9 @@ func TestGetJobRequestReturnsOriginal(t *testing.T) {
 	if rr.StatusCode != http.StatusOK {
 		t.Fatalf("get request status=%d, want 200", rr.StatusCode)
 	}
+	if rr.Header.Get("X-Gofer-Redacted") != "1" {
+		t.Fatalf("missing X-Gofer-Redacted header")
+	}
 	var got job.JobRequest
 	decode(t, rr, &got)
 	if got.ProjectKey != "self" || got.Agent != "exec" {
@@ -43,6 +49,15 @@ func TestGetJobRequestReturnsOriginal(t *testing.T) {
 	}
 	if len(got.Tags) != 2 || got.Tags[0] != "alpha" || got.Tags[1] != "beta" {
 		t.Fatalf("tags not round-tripped: %+v", got.Tags)
+	}
+	if got.Env["API_TOKEN"] != secret.Placeholder {
+		t.Fatalf("env token = %q, want placeholder", got.Env["API_TOKEN"])
+	}
+	if got.Env["API_TOKEN"] == "sk-test-env" {
+		t.Fatalf("env plaintext leaked: %+v", got.Env)
+	}
+	if got.RequestID != "" || got.SessionID != "" || got.CallerID != "" {
+		t.Fatalf("request/session/caller should be cleared, got %q/%q/%q", got.RequestID, got.SessionID, got.CallerID)
 	}
 }
 

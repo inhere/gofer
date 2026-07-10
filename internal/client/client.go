@@ -349,14 +349,27 @@ func (c *Client) ListAgents() ([]AgentMeta, error) {
 	return out, nil
 }
 
-// GetJobRequest fetches the original JobRequest a job was created from
-// (GET /v1/jobs/{id}/request, P2-b). It is used by `job rerun` to re-submit the
-// same request. An unknown id or a job with no recorded request yields a 404
-// surfaced as an error.
+// GetJobRequest fetches a job's ORIGINAL request, SECRET-STRIPPED (GET /v1/jobs/{id}/
+// request, P5: the endpoint now redacts by default — env values and secret-looking
+// prompt/cmd become ***REDACTED***). It is for audit/display; it is NO LONGER used to
+// re-submit (that moved server-side to RebuildJob). Unknown id / no request → error.
 func (c *Client) GetJobRequest(id string) (job.JobRequest, error) {
 	var req job.JobRequest
 	err := c.doJSON(http.MethodGet, "/v1/jobs/"+url.PathEscape(id)+"/request", nil, &req)
 	return req, err
+}
+
+// RebuildJob re-runs a job from its stored request + edits (P5). Empty overrides == a
+// faithful re-run (the old `job rerun`); env stays server-side (only EnvSet/EnvUnset carry
+// new values). Returns the NEW job's JobResult (its source_job_id links back to the source).
+func (c *Client) RebuildJob(id string, ov job.RebuildOverrides) (job.JobResult, error) {
+	body, err := json.Marshal(ov)
+	if err != nil {
+		return job.JobResult{}, fmt.Errorf("encode rebuild request: %w", err)
+	}
+	var res job.JobResult
+	err = c.doJSON(http.MethodPost, "/v1/jobs/"+url.PathEscape(id)+"/rebuild", bytes.NewReader(body), &res)
+	return res, err
 }
 
 // ListArtifacts fetches a peer job's artifact manifest (GET
