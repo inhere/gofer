@@ -480,8 +480,18 @@ func TestPlanClientRoundTrip(t *testing.T) {
 	for _, plan := range plans {
 		if plan.PlanID == "plan-client" {
 			found = true
-			if plan.Counts != nil {
-				t.Fatalf("ListPlans plan Counts = %+v, want nil", plan.Counts)
+			// P4/T10：list 现在内联 counts（Plans 列表进度条的数据源，避免前端 N+1
+			// 逐个 getPlan）。此前 list 只回 header、Counts 为 nil。
+			if plan.Counts == nil {
+				t.Fatalf("ListPlans plan Counts = nil, want inlined counts (P4/T10)")
+			}
+			if plan.Counts.Total != 1 || plan.Counts.Done != 1 {
+				t.Fatalf("ListPlans plan Counts = %+v, want total=1 done=1", plan.Counts)
+			}
+			// list 仍须保持轻量：counts 之外不带 jobs/todos（那是 detail 的载荷）。
+			if len(plan.Jobs) != 0 || len(plan.Todos) != 0 {
+				t.Fatalf("ListPlans plan must stay lightweight: jobs=%d todos=%d",
+					len(plan.Jobs), len(plan.Todos))
 			}
 		}
 	}
