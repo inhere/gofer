@@ -999,7 +999,7 @@ function buildRebuildBody(): RebuildBody {
 - [ ] `go test ./internal/jobstore/... ./internal/job/... ./internal/job/workflow/... ./internal/httpapi/... ./internal/client/... ./internal/commands/...` 绿。
 - [ ] 全量 `go test ./...` 绿（workflow export 既有测试证明 T6 零行为）。
 
-**前端（主机跑；容器内无 node → `gofer job run -p example-project -a exec --runner local --sync -- bash -lc 'cd <gofer>/web && pnpm typecheck && pnpm build'`）**
+**前端（主机跑；容器内无 node → `gofer job run -p <project> -a exec --runner local --sync -- bash -lc 'cd <gofer>/web && pnpm typecheck && pnpm build'`）**
 - [ ] `pnpm typecheck` 绿（T11~T14）。
 - [ ] `pnpm build` 绿（`/new` 懒加载解析）。
 

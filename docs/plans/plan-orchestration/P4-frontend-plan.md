@@ -11,6 +11,7 @@
 |---|---|---|---|
 | v0.1 | 2026-07-10 | inhere/claude | 初稿：P4 代码级子计划（Plans 前端 + session 续跑归组 + Board plan 过滤），触点已实测 |
 | v0.2 | 2026-07-10 | inhere/claude | 用户审阅拍板：D1/D2/D3 按倾向，D4-D6 不做。补 **T9.6 会话链入口**（`?session=` 后端已就绪但前端无法过滤，「继续会话」跳转后无回看整链入口 → 闭环缺口）；T1/T2 随之加 `ListJobsOpts.session` 透传。新增 D7（已定）。**无 session 的 job 的「快速重建」+ 血缘 `source_job_id` 划归 P5**（跨数据层，不入 P4） |
+| v0.3 | 2026-07-10 | inhere/claude | 补 **UI 草图（ASCII）** 一节（Plans / PlanDetail / Board 增量 / JobDetail 增量），供设计评审；骨架照既有页面实测提取（`Workflows.vue` / `WorkflowDetail.vue` / `Board.vue:341` / `JobDetail.vue`） |
 
 ## 一句话
 
@@ -73,6 +74,111 @@ P1~P3 已把 plan/todo 三通道（HTTP/CLI/MCP）打通、后端零缺口；P4 
 
 - **Plans.vue ≈ Workflows.vue 90%**：列表轮询/Page Visibility/status 过滤/行点击/空态/表格样式几乎照搬；差异仅：① 列由 `step` 换 `counts 进度条`；② 顶部「创建」由跳 `/workflows/new` 改为**内联新建表单**（plan 创建轻量，只 title+desc，不值当单开路由/页面）；③ 状态 pill 用本地实现（非 StatusBadge）。
 - **PlanDetail.vue ≈ WorkflowDetail.vue 70%**：head-card + meta dl + running 轮询 + `watch(props.id)` 重取 + 返回按钮全照搬；新增段：counts 进度条、jobs 表（链 `/jobs/:id`，仿 WorkflowDetail 的 step→job 链）、todos 清单（勾选/新增/绑 job，本期新写）、attach-job 表单（本期新写）。无 workflow 的 step-group/fan-out/子 wf/events 复杂度。
+
+---
+
+## UI 草图（ASCII，供设计评审）
+
+> 骨架照既有页面实测提取：全 `mono` 等宽 + 暗色；列表 = `board-head`（标题 + controls + 轮询点 `●`）+ `thead`/`trow`（`Workflows.vue:1-50`）；详情 = `← 返回` + `StatusBadge` + `head-card`（`dl.meta` 的 `dt`/`dd` 行）+ `section`（`WorkflowDetail.vue:1-45`）；过滤 = `status-tabs`（带计数）+ 一排 `filter-select`（`Board.vue:341-370`）。
+> 下图**只画新增/变化处**，`←` 标注对应任务号。
+
+### ① Plans.vue（T5，新）
+
+```text
+╭─ PLANS ─────────────────────────────  [+ 新建计划]   status [全部 ▾]   ●
+│
+│  ▼ 新建计划（内联展开，D3：不单开 /plans/new）              ← T5
+│    title        [ release-2.1 回归                          ]
+│    description  [ 可选                                      ]
+│                                              [ 取消 ]  [ 创建 ]
+│
+├─ 状态 ─── plan · title / id ───────────── 进度 ──────────────── 创建
+│
+│  (active)  release-2.1 回归                ▓▓▓▓▓▓▒▒▒▒░░  5/12      2h 前
+│            plan-20260710-a1b2              done 5 · run 2 · fail 1
+│
+│  (open)    （无标题时退化为 id）            ░░░░░░░░░░░░  0/0       1d 前
+│            plan-20260710-c3d4
+│
+│  ── 空态 ──   暂无 plan
+╰────────────────────────────────────────────────────────────────────────
+```
+
+- **状态 pill** `(active)` 用**本地实现**、非 `StatusBadge` —— 后者的 `statusColor` 只映射 `JobStatus`，不认 plan 的 `open/active/done/archived`（`StatusBadge.vue:5,7`）。
+- **进度条**数据源 = T10 给 list 内联的 `counts`（D2）。`total=0` 时渲染全空槽，不显示分项。
+- 分段语义：`▓`=done、`▒`=running、`░`=queued；`failed` 不占槽位，只在下行文字计数（避免"失败也算进度"的误读）。
+
+### ② PlanDetail.vue（T6，新）
+
+```text
+╭─ ← plans ──────────────────────────────────  (active)   [ 归档计划 ]
+│
+│  release-2.1 回归
+│    id        plan-20260710-a1b2
+│    status    active
+│    owner     inhere
+│    created   2026-07-10 14:22
+│
+├─ 进度 ────────────────────────────────────────────────────────────────
+│    ▓▓▓▓▓▓▓▒▒▒░░░░   5/12
+│    done 5 · running 2 · queued 4 · failed 1
+│
+├─ JOBS (12) ───────────────────────────────────────────────────────────
+│    状态       job · title / id              agent      耗时
+│    [done]     build                         codex      1m02s
+│               20260710-1012-aaa                                  → /jobs/:id
+│    [running]  unit test                     claude     12s
+│               20260710-1130-bbb
+│
+├─ TODOS (2/4) ───────────────────────────────  [ + 新增待办 ]
+│    [x] 跑构建                 → 20260710-1012-aaa
+│    [x] 补 changelog
+│    [ ] 跑单测                 → 20260710-1130-bbb
+│    [ ] 打 tag
+│
+├─ 挂载已有 job ────────────────────────────────────────────────────────
+│    [ job id                          ]   [ attach ]
+╰────────────────────────────────────────────────────────────────────────
+```
+
+- jobs 行的 `[done]`/`[running]` 是 `StatusBadge`（吃 `JobStatus`，合法）。
+- todo 的 `→ job-id` 是可选绑定（P3 的 `todoView.job_id`），点击进 job 详情；未绑定则留空。
+- `running` 时整页轮询（仿 `WorkflowDetail.vue`）。
+
+### ③ Board.vue 增量（T7）
+
+```text
+│  [ 全部 12 ] [ queued 4 ] [ running 2 ] [ done 5 ] [ failed 1 ]
+│
+│  project: gofer ×
+│  project [ gofer ▾ ]   plan [ release-2.1 回归 ▾ ]   tag [    ]  agent [ ▾ ]  …
+│                             ↑ 新增，仿 project 下拉      ← T7
+```
+
+- 承载于 `route.query.plan`（可深链、非 ref），与 project 一致；`listPlans` 填充下拉。
+- D6：不做分页/搜索（plan 量可控）。
+
+### ④ JobDetail.vue 增量（T9）
+
+```text
+│    channel       web
+│    plan          plan-20260710-a1b2                      ← T9.4，可点进 plan
+│    session_id    sess-8f3a…                [ 继续会话 ]   ← T9.3
+│
+│      ┌ 展开后 ────────────────────────────────────────┐
+│      │  [ 续接指令（可留空，让 agent 直接继续）      ] │
+│      │                              [ 续投新 job ]    │
+│      └────────────────────────────────────────────────┘
+│
+│    会话内 job    共 3 个 ▾                              ← T9.6
+│       1. 20260710-1012-aaa   [done]
+│       2. 20260710-1130-bbb   [done]     （当前）
+│       3. 20260710-1201-ccc   [running]
+```
+
+- `plan` 行仅 `job.plan_id` 非空时出现；`session_id` 行仅有会话时出现（无会话的 job 不显示「继续会话」——它 resume 必然 `ErrNoSession`）。
+- 「会话内 job」仅 `length > 1` 时出现（单 job 会话不显示，避免噪声）；当前项弱化、不可点。
+- **本期不做**「快速重建」按钮（无会话 job 的重跑入口）—— 见 D7，划归 P5。
 
 ---
 
@@ -902,7 +1008,7 @@ func (s *Server) handleListPlans(c *rux.Context) {
 
 **11.1 前端（主机跑，容器内无 node 工具链按 workspace 约定走 gofer job/主机）**
 ```bash
-# 主机 web 目录：gofer job run -p example-project -a exec --runner local --sync -- \
+# 主机 web 目录：gofer job run -p <project> -a exec --runner local --sync -- \
 #   bash -lc 'cd <gofer>/web && pnpm typecheck && pnpm build'
 pnpm typecheck   # vue-tsc --noEmit：新类型/组件零 TS 报错
 pnpm build       # vue-tsc + vite build：路由懒加载组件解析、产物构建通过
