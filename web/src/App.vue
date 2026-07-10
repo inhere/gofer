@@ -43,6 +43,7 @@ const navGroups = [
       { to: '/board', label: 'Board' },
       { to: '/sessions', label: 'Sessions' },
       { to: '/workflows', label: 'Workflows' },
+      { to: '/plans', label: 'Plans' },
       { to: '/schedules', label: 'Schedules' },
     ],
   },

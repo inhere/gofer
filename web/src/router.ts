@@ -32,6 +32,13 @@ const routes: RouteRecordRaw[] = [
     component: () => import('./views/WorkflowDetail.vue'),
     props: true,
   },
+  { path: '/plans', name: 'plans', component: () => import('./views/Plans.vue') },
+  {
+    path: '/plans/:id',
+    name: 'plan-detail',
+    component: () => import('./views/PlanDetail.vue'),
+    props: true,
+  },
   { path: '/schedules', name: 'schedules', component: () => import('./views/Schedules.vue') },
   {
     path: '/schedules/new',

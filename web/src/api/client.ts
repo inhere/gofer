@@ -20,6 +20,10 @@ import type {
   ListJobsOpts,
   LogStream,
   MetaResp,
+  Plan,
+  PlanDetail,
+  PlansResp,
+  PlanStatus,
   PresenceResp,
   ProjectDetail,
   ProjectWriteReq,
@@ -33,6 +37,7 @@ import type {
   Stats,
   SubmitJobReq,
   SubmitJobResult,
+  Todo,
   Workflow,
   WorkflowEventsResp,
   WorkflowSpec,
@@ -259,6 +264,12 @@ export function listJobs(opts?: ListJobsOpts): Promise<JobsResp> {
   if (opts?.caller) {
     params.set('caller', opts.caller)
   }
+  if (opts?.plan) {
+    params.set('plan', opts.plan)
+  }
+  if (opts?.session) {
+    params.set('session', opts.session)
+  }
   if (opts?.limit != null) {
     params.set('limit', String(opts.limit))
   }
@@ -458,6 +469,17 @@ export function cancelJob(id: string): Promise<Job> {
   })
 }
 
+// session 续跑（session-capture P2）：续投新 job 续接源 job 的底层 agent 会话。
+// body {prompt}；后端同 runner、自动继承源 job 的 plan_id（归入同 plan 血缘，P4/T8）。
+// 返回新 job（其 session_id 链回源会话，plan_id 继承源 job）。前端据此跳转新 job 详情。
+export function resumeJob(id: string, prompt: string): Promise<Job> {
+  return request<Job>(`/v1/jobs/${encodeURIComponent(id)}/resume`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ prompt }),
+  })
+}
+
 // 工作流列表（GET /v1/workflows）：可选 status 过滤；返回头部数组（无 steps）。
 export function listWorkflows(status?: WorkflowStatus): Promise<WorkflowsResp> {
   const qs = status ? `?status=${encodeURIComponent(status)}` : ''
@@ -497,6 +519,60 @@ export function getWorkflowEvents(
   return request<WorkflowEventsResp>(
     `/v1/workflows/${encodeURIComponent(id)}/events${qs}`,
   )
+}
+
+// plan 编排（plan-orchestration）。list 仅头部（+counts，T10）；detail 内联 counts/jobs/todos。
+export function listPlans(status?: PlanStatus): Promise<PlansResp> {
+  const qs = status ? `?status=${encodeURIComponent(status)}` : ''
+  return request<PlansResp>(`/v1/plans${qs}`)
+}
+
+export function getPlan(id: string): Promise<PlanDetail> {
+  return request<PlanDetail>(`/v1/plans/${encodeURIComponent(id)}`)
+}
+
+// 建计划（plan_id 缺省服务端生成；owner 由服务端盖 caller）。
+export function createPlan(req: {
+  title?: string
+  description?: string
+  plan_id?: string
+}): Promise<Plan> {
+  return request<Plan>('/v1/plans', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+}
+
+// 补挂已有 job 到 plan（提交即归组走 POST /v1/jobs 的 plan_id；此为事后补挂）。返回 plan 头部。
+export function attachJob(planId: string, jobId: string): Promise<Plan> {
+  return request<Plan>(`/v1/plans/${encodeURIComponent(planId)}/jobs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ job_id: jobId }),
+  })
+}
+
+// 在 plan 下建 todo（纯待办或绑 job）。
+export function addTodo(
+  planId: string,
+  title: string,
+  jobId?: string,
+): Promise<Todo> {
+  return request<Todo>(`/v1/plans/${encodeURIComponent(planId)}/todos`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title, job_id: jobId ?? '' }),
+  })
+}
+
+// 勾/取消 todo 的 done（PATCH /v1/todos/{id}）。
+export function updateTodo(todoId: string, done: boolean): Promise<Todo> {
+  return request<Todo>(`/v1/todos/${encodeURIComponent(todoId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ done }),
+  })
 }
 
 // 工作流导出（GET /v1/workflows/{id}/export，T4.1）：返回剥离 secret 后的 spec JSON

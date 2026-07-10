@@ -53,6 +53,9 @@ export interface Job {
   role?: string
   origin_agent?: string
   escalate_to?: string
+  // plan 编排（plan-orchestration）：客户端可设的归组键；归入某 plan 时非空。
+  // 详情页据此展示 plan 链接；session 续跑的新 job 自动继承源 job 的 plan_id。
+  plan_id?: string
 }
 
 export interface PtySession {
@@ -418,6 +421,11 @@ export interface ListJobsOpts {
   runner?: string
   since?: number
   caller?: string
+  // plan 归组过滤（?plan=<id>，后端 P1 已落）：只列该 plan 下的 job。
+  plan?: string
+  // session 会话链过滤（?session=<sid>，后端早已落：job/list.go:29-31,118 + job_handler.go:140，
+  // 但前端此前从未透传）。T9.6 用它列出「同一 agent 会话下的全部 job」（resume 链）。
+  session?: string
   limit?: number
   offset?: number
 }
@@ -710,6 +718,62 @@ export interface Workflow {
 
 export interface WorkflowsResp {
   workflows: Workflow[]
+}
+
+// plan 编排（plan-orchestration，design §5/§10）。归组容器：把陆续产生的独立 job
+// 归到一个计划 + 跟进 todo。与 workflow（静态串行引擎）正交。字段严格对齐
+// internal/httpapi/plan_handler.go 的 planView/todoView/planDetail 及 jobstore.PlanCounts。
+export type PlanStatus = 'open' | 'active' | 'done' | 'archived'
+
+// plan 下 jobs 的实时状态聚合（查询期算，detail 恒有；list 经 T10 内联）。
+export interface PlanCounts {
+  total: number
+  queued: number
+  running: number
+  done: number
+  failed: number
+}
+
+// plan 待办项（P3）。job_id 为空=纯待办；非空=绑某次 job 执行（元数据，done 纯手动）。
+export interface Todo {
+  todo_id: string
+  plan_id: string
+  // 后端 omitempty
+  job_id?: string
+  title: string
+  done: boolean
+  // 后端 omitempty
+  sort?: number
+  // Unix 秒
+  created_at: number
+  updated_at: number
+}
+
+// plan 头部（list/create/attach 返回）。counts 在 detail 恒有、list 经 T10 内联（故 optional）。
+export interface Plan {
+  plan_id: string
+  // 后端 omitempty
+  title?: string
+  description?: string
+  status: PlanStatus
+  owner?: string
+  progress?: number
+  // Unix 秒
+  created_at: number
+  updated_at: number
+  // list（T10 后）与 detail 均带；老 list 响应缺省时为 undefined，渲染做兜底
+  counts?: PlanCounts
+}
+
+// plan 详情（GET /v1/plans/{id}）：头部 + counts + 其下 jobs + todos。
+export interface PlanDetail extends Plan {
+  counts: PlanCounts
+  jobs: Job[]
+  todos: Todo[]
+}
+
+export interface PlansResp {
+  plans: Plan[]
 }
 
 export interface WorkflowRetryPolicy {
