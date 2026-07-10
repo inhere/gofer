@@ -5,10 +5,11 @@
 //  - attach：把已有 job id 补挂到本 plan（attachJob）。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import PlanStatusBadge from '../components/PlanStatusBadge.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import { addTodo, attachJob, getPlan, updateTodo } from '../api/client'
-import { fmtDateTime, fmtDuration, jobDurationSec } from '../api/time'
-import type { Job, PlanCounts, PlanDetail, PlanStatus, Todo } from '../api/types'
+import { fmtDateTime, fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
+import type { Job, PlanCounts, PlanDetail, Todo } from '../api/types'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -131,17 +132,25 @@ function countsDetail(c?: PlanCounts): string {
   return `done ${c.done} · running ${c.running} · failed ${c.failed} · queued ${c.queued}`
 }
 
-// plan 状态 → 颜色 class（不复用 StatusBadge：其 statusColor 仅认 JobStatus）。
-function statusClass(s: PlanStatus): string {
-  return `pill pill--${s}` // open/active/done/archived 见 <style>
-}
-
 function shortId(id: string): string {
   return id.length > 14 ? id.slice(-14) : id
 }
 
 function rowDuration(j: Job): string {
   return fmtDuration(jobDurationSec(j))
+}
+
+function rowStartTime(j: Job): string {
+  const sec = toUnixSec(j.started_at)
+  if (sec == null) {
+    return '—'
+  }
+  const d = new Date(sec * 1000)
+  return [
+    String(d.getHours()).padStart(2, '0'),
+    String(d.getMinutes()).padStart(2, '0'),
+    String(d.getSeconds()).padStart(2, '0'),
+  ].join(':')
 }
 
 // 轮询/可见性 + watch(props.id) 重取：与 WorkflowDetail.vue 同构。
@@ -197,7 +206,7 @@ onUnmounted(() => {
         &larr; plans
       </button>
       <div v-if="plan" class="head-status">
-        <span :class="statusClass(plan.status)">{{ plan.status }}</span>
+        <PlanStatusBadge :status="plan.status" />
         <button class="board-btn mono" type="button" @click="viewInBoard">
           在 Board 查看
         </button>
@@ -216,7 +225,7 @@ onUnmounted(() => {
         </div>
         <div class="meta-row">
           <dt>status</dt>
-          <dd>{{ plan.status }}</dd>
+          <dd><PlanStatusBadge :status="plan.status" /></dd>
         </div>
         <div v-if="plan.owner" class="meta-row">
           <dt>owner</dt>
@@ -274,6 +283,7 @@ onUnmounted(() => {
           <span>job · title / id</span>
           <span>agent</span>
           <span>runner</span>
+          <span>开始</span>
           <span>耗时</span>
         </div>
         <button
@@ -290,6 +300,7 @@ onUnmounted(() => {
           </span>
           <span class="job-dim mono">{{ j.agent }}</span>
           <span class="job-dim mono">{{ j.runner }}</span>
+          <span class="job-dim mono">{{ rowStartTime(j) }}</span>
           <span class="job-dim mono">{{ rowDuration(j) }}</span>
         </button>
         <div v-if="plan.jobs.length === 0" class="empty mono">该计划暂无 job</div>
@@ -509,7 +520,7 @@ onUnmounted(() => {
 .jobs-head,
 .job-row {
   display: grid;
-  grid-template-columns: 130px minmax(180px, 1fr) 110px 110px 80px;
+  grid-template-columns: 130px minmax(180px, 1fr) 100px 100px 72px 80px;
   align-items: center;
   gap: 12px;
   padding: 9px 14px;
@@ -631,31 +642,6 @@ onUnmounted(() => {
   color: var(--queue);
   font-size: 13px;
   padding: 18px 0;
-}
-
-.pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 74px;
-  border: 1px solid currentColor;
-  border-radius: var(--radius);
-  padding: 2px 8px;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-}
-.pill--open {
-  color: var(--queue);
-}
-.pill--active {
-  color: var(--phosphor);
-}
-.pill--done {
-  color: var(--done);
-}
-.pill--archived {
-  color: var(--queue);
-  opacity: 0.55;
 }
 
 .cbar {

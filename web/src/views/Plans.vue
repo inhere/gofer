@@ -3,6 +3,7 @@
 // 行点击进详情；顶部内联「新建计划」表单（title + 可选 description）。仿 Workflows.vue。
 import { onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
+import PlanStatusBadge from '../components/PlanStatusBadge.vue'
 import { createPlan, listPlans } from '../api/client'
 import { fmtDuration } from '../api/time'
 import type { Plan, PlanCounts, PlanStatus } from '../api/types'
@@ -91,11 +92,6 @@ function countsDetail(c?: PlanCounts): string {
     return ''
   }
   return `done ${c.done} · running ${c.running} · failed ${c.failed} · queued ${c.queued}`
-}
-
-// plan 状态 → 颜色 class（不复用 StatusBadge：其 statusColor 仅认 JobStatus）。
-function statusClass(s: PlanStatus): string {
-  return `pill pill--${s}` // open/active/done/archived 见 <style>
 }
 
 function shortId(id: string): string {
@@ -199,7 +195,7 @@ onUnmounted(() => {
         @click="openPlan(p)"
         @keydown.enter="openPlan(p)"
       >
-        <span class="col-status"><span :class="statusClass(p.status)">{{ p.status }}</span></span>
+        <span class="col-status"><PlanStatusBadge :status="p.status" /></span>
         <span class="col-plan" :class="{ 'col-plan--titled': p.title }">
           <span v-if="p.title" class="plan-title" :title="p.title">{{ p.title }}</span>
           <span class="plan-id mono" :title="p.plan_id">{{ shortId(p.plan_id) }}</span>
@@ -437,31 +433,6 @@ onUnmounted(() => {
 }
 .empty p {
   margin: 0;
-}
-
-.pill {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  min-width: 74px;
-  border: 1px solid currentColor;
-  border-radius: var(--radius);
-  padding: 2px 8px;
-  font-size: 11px;
-  letter-spacing: 0.04em;
-}
-.pill--open {
-  color: var(--queue);
-}
-.pill--active {
-  color: var(--phosphor);
-}
-.pill--done {
-  color: var(--done);
-}
-.pill--archived {
-  color: var(--queue);
-  opacity: 0.55;
 }
 
 .cbar {
