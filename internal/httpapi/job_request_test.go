@@ -1,6 +1,9 @@
 package httpapi
 
 import (
+	"bytes"
+	"encoding/json"
+	"io"
 	"net/http"
 	"testing"
 
@@ -39,8 +42,21 @@ func TestGetJobRequestReturnsRedacted(t *testing.T) {
 	if rr.Header.Get("X-Gofer-Redacted") != "1" {
 		t.Fatalf("missing X-Gofer-Redacted header")
 	}
+	// Assert on the RAW body first: the core invariant is that the env plaintext never
+	// appears ANYWHERE in this response, not merely that Env["API_TOKEN"] holds the
+	// placeholder. A field-only check would miss a leak through some other field.
+	raw, err := io.ReadAll(rr.Body)
+	_ = rr.Body.Close()
+	if err != nil {
+		t.Fatalf("read body: %v", err)
+	}
+	if bytes.Contains(raw, []byte("sk-test-env")) {
+		t.Fatalf("env plaintext leaked somewhere in the response body: %s", raw)
+	}
 	var got job.JobRequest
-	decode(t, rr, &got)
+	if err := json.Unmarshal(raw, &got); err != nil {
+		t.Fatalf("decode body: %v", err)
+	}
 	if got.ProjectKey != "self" || got.Agent != "exec" {
 		t.Fatalf("request fields wrong: %+v", got)
 	}
