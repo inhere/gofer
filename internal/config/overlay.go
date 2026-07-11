@@ -1,9 +1,11 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	yaml "github.com/goccy/go-yaml"
 )
@@ -18,6 +20,12 @@ const ProjectOverlayName = ".gofer.project.yaml"
 // pointer so "absent" (nil) is distinguishable from a zero value — only non-nil
 // fields override the global ProjectConfig (D8).
 type ProjectOverlay struct {
+	// Key is the project's self-identifier (xu64.15): the primary source `--project
+	// auto` uses to resolve the current dir to a project key WITHOUT a central round
+	// trip. It is decode-only — never merged into ProjectConfig (a dir 自我标识, not a
+	// project setting), so MergeProjectConfig ignores it. Not a准入/server key, so it
+	// is absent from forbiddenOverlayKeys (blacklist) and needs no allow-list entry.
+	Key               *string `yaml:"key"`
 	ExchangeSubdir    *string `yaml:"exchange_subdir"`
 	ResultSubdir      *string `yaml:"result_subdir"`
 	DefaultAgent      *string `yaml:"default_agent"`
@@ -91,6 +99,29 @@ func ApplyProjectOverlays(cfg *Config) []string {
 		cfg.Projects[key] = MergeProjectConfig(p, ov)
 	}
 	return warns
+}
+
+// ProjectKeyFromDir reads dir/.gofer.project.yaml and returns its `key:` self-
+// identifier (xu64.15), trimmed. It is the primary `--project auto` resolution
+// source — client (thin MCP, no cfg) and standalone both use it, so it takes no
+// Config. A missing file → ("", nil) (unregistered dir is not an error); a decode
+// error → ("", err); a file without `key:` → ("", nil).
+func ProjectKeyFromDir(dir string) (string, error) {
+	b, err := os.ReadFile(filepath.Join(dir, ProjectOverlayName))
+	if errors.Is(err, os.ErrNotExist) {
+		return "", nil
+	}
+	if err != nil {
+		return "", err
+	}
+	var ov ProjectOverlay
+	if err := yaml.Unmarshal(b, &ov); err != nil {
+		return "", err
+	}
+	if ov.Key != nil {
+		return strings.TrimSpace(*ov.Key), nil
+	}
+	return "", nil
 }
 
 // detectForbiddenOverlayKeys decodes the overlay loosely and warns on any
