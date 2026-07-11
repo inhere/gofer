@@ -644,6 +644,7 @@ watch(interactive, (on) => {
         <div v-for="(a, i) in envAdds" :key="'add' + i" class="env-row mono">
           <input v-model="a.key" class="control mono env-key-input" placeholder="KEY" />
           <input v-model="a.value" class="control mono env-value-input" placeholder="value" />
+          <button type="button" class="env-btn" @click="envAdds.splice(i, 1)">删除</button>
         </div>
         <button type="button" class="env-add mono" @click="envAdds.push({ key: '', value: '' })">+ 新增 env</button>
         <p v-if="rebuildRedacted" class="field-hint field-hint--warn mono">

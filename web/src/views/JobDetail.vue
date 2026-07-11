@@ -472,7 +472,9 @@ async function doResume(): Promise<void> {
     const newJob = await resumeJob(props.id, resumePrompt.value)
     resumePrompt.value = ''
     showResumeForm.value = false
-    void router.push(`/jobs/${encodeURIComponent(newJob.id)}`)
+    // 交互源续接为 pty job：跳转即自动打开终端（?attach=1，:567 已有处理），在 TUI 里继续。
+    const q = job.value?.interactive ? '?attach=1' : ''
+    void router.push(`/jobs/${encodeURIComponent(newJob.id)}${q}`)
   } catch (e) {
     resumeError.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -1052,14 +1054,20 @@ onUnmounted(() => {
       </div>
       <div v-if="job.session_id && isTerminalView && showResumeForm" class="resume-form">
         <textarea
+          v-if="!job.interactive"
           v-model="resumePrompt"
           class="resume-input mono"
           rows="3"
-          placeholder="续接指令（可留空，让 agent 直接继续）"
+          placeholder="续接指令（必填）"
         ></textarea>
         <div class="resume-actions">
-          <button class="resume-go mono" type="button" :disabled="resuming" @click="doResume">
-            {{ resuming ? '续投中…' : '续投新 job' }}
+          <button
+            class="resume-go mono"
+            type="button"
+            :disabled="resuming || (!job.interactive && !resumePrompt.trim())"
+            @click="doResume"
+          >
+            {{ resuming ? '续投中…' : (job.interactive ? '续接终端' : '续投新 job') }}
           </button>
           <span v-if="resumeError" class="resume-err mono">{{ resumeError }}</span>
         </div>
