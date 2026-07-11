@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Gofer">
+  <rect width="64" height="64" rx="14" fill="#0E1A24"/>
+  <path d="M15 34V23c0-5 4-9 9-9h14" fill="none" stroke="#4FB0C6" stroke-width="7" stroke-linecap="round"/>
+  <path d="m35 9 8 5-8 6" fill="none" stroke="#4FB0C6" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M49 30v11c0 5-4 9-9 9H27" fill="none" stroke="#E8E2D4" stroke-width="7" stroke-linecap="round"/>
+  <path d="m29 44-8 6 8 5" fill="none" stroke="#E8E2D4" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
+  <rect x="10" y="30" width="15" height="15" rx="3" fill="#E0A24A"/>
+</svg>

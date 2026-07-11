@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">Gofer 图形标志</title>
+  <desc id="desc">由任务包裹、派发路径和返回路径组成的抽象标志</desc>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M112 276V184c0-40 32-72 72-72h104" stroke="#4FB0C6" stroke-width="48"/>
+    <path d="m270 64 64 48-64 48" stroke="#4FB0C6" stroke-width="48"/>
+    <path d="M400 236v92c0 40-32 72-72 72H224" stroke="#E8E2D4" stroke-width="48"/>
+    <path d="m242 448-64-48 64-48" stroke="#E8E2D4" stroke-width="48"/>
+  </g>
+  <rect x="72" y="252" width="112" height="112" rx="20" fill="#E0A24A"/>
+  <path d="M96 288h64M128 268v40" fill="none" stroke="#0E1A24" stroke-width="16" stroke-linecap="round"/>
+</svg>

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 800 256" role="img" aria-labelledby="title desc">
+  <title id="title">gofer 文字标志</title>
+  <desc id="desc">由矢量字形构成的 gofer 小写纯文字字标</desc>
+  <g fill="none" stroke="#E8E2D4" stroke-width="28" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M178 84h-54a58 58 0 1 0 0 116h54V100m0 92v20c0 24-18 36-48 36-18 0-34-4-48-12"/>
+    <rect x="228" y="84" width="116" height="116" rx="56"/>
+    <path d="M410 200V58c0-30 18-46 48-46 14 0 28 4 40 12M394 88h88"/>
+    <path d="M534 148h112v-8c0-34-24-56-56-56s-58 24-58 58 24 58 62 58c20 0 38-6 52-18"/>
+    <path d="M704 200V88m0 36c12-26 34-40 66-40"/>
+  </g>
+</svg>
