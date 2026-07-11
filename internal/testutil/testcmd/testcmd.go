@@ -1,6 +1,7 @@
 package testcmd
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -30,7 +31,11 @@ func Path(t testing.TB) string {
 			buildErr = err
 			return
 		}
-		name := "gofer-testcmd"
+		// Output name carries the PID so concurrent `go test ./...` package
+		// processes each build to a distinct file instead of racing the same
+		// path (text file busy). The shared build cache stays concurrency-safe;
+		// only the -o target must be unique per process.
+		name := fmt.Sprintf("gofer-testcmd-%d", os.Getpid())
 		if runtime.GOOS == "windows" {
 			name += ".exe"
 		}
