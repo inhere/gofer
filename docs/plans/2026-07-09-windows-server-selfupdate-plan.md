@@ -1,7 +1,7 @@
 # Windows gofer server 自更新重启（实施计划草案 v0.1）
 
 > bd: h-aii-xu64.11 ｜ 来源：iss-0709 §讨论点 追问
-> 状态：**v0.3 复审通过、可开工**（承重代码事实已逐条复验，F2–F6 已折入）。§4 部署形态已确认（前台手动、无 nssm）；仅剩 §10 两项非阻断待确认，可实施中定。
+> 状态：**实现完成**（T1–T4 全落，见 §11）。隔离第二实例主机实跑 **13/13 PASS**，零波及 live server。剩余仅一次运维切换（裸跑→监督循环，runbook §1）。
 
 ## 修订记录
 
@@ -151,9 +151,12 @@ while ($true) {
 
 ## 11. 进度跟踪（本文档即 Windows MVP 实施计划，规模小无需再拆子目录）
 
-- [ ] **T1** `scripts/win-supervisor.ps1`：§5 监督循环 + 参数化（exe 路径 / **强制**重放 serve 启动参数 F5）+ **try/catch 包裹 `& $exe`**(F3) + 看门狗（连续快速失败计数→回滚告警，§9）。改用它在终端启动 server。
-- [ ] **T2** `scripts/win-selfupdate.ps1`（或 `gofer job run -f` 任务文件，**派 `-a exec`** F2）：首行 `$ErrorActionPreference='Stop'`(F6)；阶段1 `git pull` + `go build -o gofer-new.exe ./cmd/gofer` + `-V` 校验；阶段2 **先校验 supervisor 存在**(F4) → rename-replace（`gofer.exe`→`gofer.old.exe`→新）+ **按本 job 父 pid 精确杀** gofer（`Get-CimInstance Win32_Process ... ParentProcessId`）→ 监督循环重启 → 轮询 `/health`。"触发重启"抽成可切换函数（`loop-kill` / 预留 `nssm-restart`，§5.1）。
-- [ ] **T3** runbook：`docs/runbook/` 补"Windows server 监督运行 + 自更新"操作/排障流程。
-- [ ] **T4** 验收（§8）：崩溃自愈 / 更新后新版 running + health 200 + 旧版留底 / 进程树分离（触发 job 随 gofer 亡但 supervisor 存活重启）。
+- [x] **T1** `scripts/win-supervisor.ps1`（commit 012997f）：监督循环 + try/catch(F3) + 看门狗回滚(§9) + `-WorkDir` 启动(R2) + 全参数化。parse 校验通过。
+- [x] **T2** `scripts/win-selfupdate.ps1`（commit 9bcb7c7）：`$ErrorActionPreference=Stop`+显式 `$LASTEXITCODE` 校验(F6)；F2/F4 守卫(父=gofer/祖父=supervisor)；阶段1 pull+build gofer-new.exe(RepoDir)；阶段2 rename-replace(ExeDir,R1) + 按父 pid 精确杀 + move 失败回滚 + 可选 health 轮询。`-SkipBuild/-SkipGuard` 测试钩子。
+- [x] **T3** runbook（commit 121147f）：`docs/runbook/2026-07-11-windows-server-selfupdate-runbook.md`——起服务/触发更新/带外确认/回滚/隔离验收/排障表/nssm。
+- [x] **T4** 验收（commit 28bcc67，`scripts/win-selftest.ps1`）：隔离第二实例(:9099+独立 GOFER_CONFIG_DIR)主机实跑 **13/13 PASS**——崩溃自愈(pid变) / rename-replace 换新 exe(pid变) / 看门狗回滚 / F2 守卫拒非 gofer 父。零波及 live server。
+
+> ✅ 就绪检查(2026-07-11) PASS：pwsh7.6.2/go1.25.10/git 齐备,exe 目录可写,server 前台裸跑印证§4。R1(ExeDir≠RepoDir)/R2(重启含 cwd)已落 T1/T2。
+> ⏭️ **剩余为运维动作(非代码)**：把 live server 从裸跑切到监督循环(runbook §1),需一次协调窗口(短暂中断);之后即可用 §2 触发自更新。
 
 > 待确认（§10）仅剩 2 项非阻断（优雅停机时机 / 历史 exe 保留份数；构建权限项已解决），可在实施中定；已定项（含 v0.3 复审 F2–F6）足以开工。全部承重代码事实已逐条复验（§2/§3 引用行号属实，构建入口 `./cmd/gofer` / `module github.com/inhere/gofer` 正确）。
