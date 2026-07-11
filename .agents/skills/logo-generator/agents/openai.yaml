@@ -1,0 +1,4 @@
+interface:
+  display_name: "Logo Generator"
+  short_description: "Design and export key-free SVG logo systems"
+  default_prompt: "Use $logo-generator to design several SVG logo directions and export production-ready web assets without an API key."
