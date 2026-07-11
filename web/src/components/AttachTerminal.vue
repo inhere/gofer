@@ -40,6 +40,7 @@ const connectionState = ref<ConnectionState>('connecting')
 const reconnectAttempts = ref(0)
 const showManualReconnect = ref(false)
 const exited = ref(false)
+const keyMenuEl = ref<HTMLDetailsElement | null>(null)
 
 let term: Terminal | null = null
 let fit: FitAddon | null = null
@@ -50,6 +51,29 @@ let firstConnectAt = Date.now()
 let resizeTimer: number | null = null
 let reconnectTimer: number | null = null
 let attachMode: AttachMode = props.mode
+
+interface KeyAction {
+  label: string
+  data: string
+}
+
+const keyActions: KeyAction[] = [
+  { label: 'Esc', data: '\x1b' },
+  { label: 'Ctrl+C', data: '\x03' },
+  { label: 'Ctrl+D', data: '\x04' },
+  { label: 'Ctrl+Z', data: '\x1a' },
+  { label: 'Ctrl+L', data: '\x0c' },
+  { label: 'Enter', data: '\r' },
+  { label: 'Tab', data: '\t' },
+  { label: 'Up', data: '\x1b[A' },
+  { label: 'Down', data: '\x1b[B' },
+  { label: 'Left', data: '\x1b[D' },
+  { label: 'Right', data: '\x1b[C' },
+  { label: 'Home', data: '\x1b[H' },
+  { label: 'End', data: '\x1b[F' },
+  { label: 'PgUp', data: '\x1b[5~' },
+  { label: 'PgDn', data: '\x1b[6~' },
+]
 
 const statusText = computed(() => {
   switch (connectionState.value) {
@@ -211,36 +235,57 @@ function isCtrlKey(ev: KeyboardEvent, key: string): boolean {
   return (ev.ctrlKey || ev.metaKey) && ev.key.toLowerCase() === key
 }
 
-function onTerminalKey(ev: KeyboardEvent): boolean {
+function isEscapeKey(ev: KeyboardEvent): boolean {
+  return ev.key === 'Escape' || ev.key === 'Esc' || ev.code === 'Escape' || ev.keyCode === 27
+}
+
+function consumeShortcut(ev: KeyboardEvent): boolean {
   if (ev.type !== 'keydown') {
-    return true
+    return false
   }
   if (isCtrlKey(ev, 'c')) {
     ev.preventDefault()
     ev.stopPropagation()
+    ev.stopImmediatePropagation()
     if (term?.hasSelection()) {
       void copySelection()
     } else {
       sendInput('\x03')
     }
-    return false
+    return true
   }
   if (isCtrlKey(ev, 'v')) {
     if (!navigator.clipboard?.readText) {
-      return true
+      return false
     }
     ev.preventDefault()
     ev.stopPropagation()
+    ev.stopImmediatePropagation()
     void pasteClipboard()
-    return false
+    return true
   }
-  if (ev.key === 'Escape') {
+  if (isEscapeKey(ev)) {
     ev.preventDefault()
     ev.stopPropagation()
+    ev.stopImmediatePropagation()
     sendInput('\x1b')
-    return false
+    return true
   }
-  return true
+  return false
+}
+
+function onTerminalKey(ev: KeyboardEvent): boolean {
+  return !consumeShortcut(ev)
+}
+
+function onTerminalHostKey(ev: KeyboardEvent): void {
+  consumeShortcut(ev)
+}
+
+function sendKeyAction(action: KeyAction): void {
+  sendInput(action.data)
+  keyMenuEl.value?.removeAttribute('open')
+  term?.focus()
 }
 
 function closeSocket(): void {
@@ -440,24 +485,42 @@ onUnmounted(() => {
       <span v-if="readOnlyBanner" class="readonly-banner mono">
         {{ readOnlyBanner }}
       </span>
-      <button
-        v-if="canClaimWrite"
-        class="terminal-btn mono"
-        type="button"
-        @click="reconnect('write')"
-      >
-        抢占写入
-      </button>
-      <button
-        v-if="showManualReconnect"
-        class="terminal-btn mono"
-        type="button"
-        @click="reconnect()"
-      >
-        重连
-      </button>
+      <div class="terminal-tools">
+        <details ref="keyMenuEl" class="key-menu">
+          <summary class="terminal-btn key-menu-trigger mono">发送键</summary>
+          <div class="key-menu-list" role="menu">
+            <button
+              v-for="action in keyActions"
+              :key="action.label"
+              class="key-menu-item mono"
+              type="button"
+              role="menuitem"
+              :disabled="!writeGranted"
+              @click="sendKeyAction(action)"
+            >
+              {{ action.label }}
+            </button>
+          </div>
+        </details>
+        <button
+          v-if="canClaimWrite"
+          class="terminal-btn mono"
+          type="button"
+          @click="reconnect('write')"
+        >
+          抢占写入
+        </button>
+        <button
+          v-if="showManualReconnect"
+          class="terminal-btn mono"
+          type="button"
+          @click="reconnect()"
+        >
+          重连
+        </button>
+      </div>
     </header>
-    <div ref="hostEl" class="terminal-host" />
+    <div ref="hostEl" class="terminal-host" @keydown.capture="onTerminalHostKey" />
     <footer v-if="exited" class="terminal-foot mono">进程已退出</footer>
   </section>
 </template>
@@ -527,9 +590,16 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
-.terminal-btn {
+.terminal-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   flex: none;
   margin-left: auto;
+}
+
+.terminal-btn {
+  flex: none;
   padding: 4px 8px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -538,12 +608,77 @@ onUnmounted(() => {
   font-size: 12px;
 }
 
-.terminal-btn + .terminal-btn {
-  margin-left: 0;
-}
-
 .terminal-btn:hover {
   border-color: var(--phosphor);
+}
+
+.key-menu {
+  position: relative;
+  flex: none;
+}
+
+.key-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
+}
+
+.key-menu-trigger::-webkit-details-marker {
+  display: none;
+}
+
+.key-menu-trigger::after {
+  content: '';
+  width: 0;
+  height: 0;
+  margin-left: 6px;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid currentColor;
+}
+
+.key-menu[open] .key-menu-trigger {
+  border-color: var(--phosphor);
+}
+
+.key-menu-list {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 5;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(58px, 1fr));
+  gap: 4px;
+  min-width: 210px;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.28);
+}
+
+.key-menu-item {
+  min-height: 26px;
+  padding: 4px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--term-bg);
+  color: var(--paper);
+  font-size: 11px;
+}
+
+.key-menu-item:hover:not(:disabled),
+.key-menu-item:focus-visible {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
+  outline: none;
+}
+
+.key-menu-item:disabled {
+  color: var(--queue);
+  cursor: default;
+  opacity: 0.45;
 }
 
 .terminal-host {
