@@ -1,7 +1,7 @@
 # gofer MCP 项目级作用域 — 实施计划
 
 > bd: h-aii-xu64.15 ｜ 设计: `docs/design/2026-07-10-mcp-project-scope-design.md`(v0.2 定稿)
-> 状态: **待执行**。承重代码事实已核实(mcp.go / mcpserver/server.go / config overlay·model)。规模小,单文档,逐任务提交(SR1206)。
+> 状态: **已完成**(2026-07-11)。T1-T4 全落, 全量 `go test ./... -p1 -count=1` 绿, 真实二进制 4 场景冒烟通过。提交: T1=a086bb5 / T2+T3=ac70831(编译耦合于 Serve/ServeLocal 边界, 合并为一次可构建提交)。
 
 ## 0. 决策基线(设计 §8,已批)
 
@@ -184,10 +184,10 @@
 
 ## 验收总纲(端到端)
 
-- [ ] T1 config: `key:` 字段+白名单 / `ProjectKeyFromDir` / `ProjectForPath` + 单测绿
-- [ ] T2 mcp.go: `--project` 三态 + `resolveScopedProject` + 单测绿
-- [ ] T3 mcpserver: scoped 贯穿 + 三类过滤 + 单测(工具注册差异/收窄/拒绝)绿
-- [ ] T4: 全量 test 绿 + 三场景冒烟(operator不变 / X / auto) + push
+- [x] T1 config: `key:` 字段(黑名单机制**无需**白名单) / `ProjectKeyFromDir` / `ProjectForPath` + 单测绿
+- [x] T2 mcp.go: `--project` 三态 + `resolveScopedProject` + 单测绿
+- [x] T3 mcpserver: scoped 贯穿 + 三类过滤 + 单测(工具注册差异/收窄/拒绝)绿 · `project_key` 改 omitempty 支持缺省即填
+- [x] T4: 全量 test 绿 + 4 场景冒烟(operator 21 工具不变 / demo 19 / auto→demo / auto 无解→exit2 快失败) + push
 
 ## 风险 / 边界
 

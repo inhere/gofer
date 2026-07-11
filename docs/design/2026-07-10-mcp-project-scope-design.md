@@ -1,7 +1,7 @@
 # gofer MCP 项目级作用域设计（v0.2）
 
 > bd: h-aii-xu64.15 ｜ 来源：2026-07-10 讨论（承接 config-federation / mcp 配置讨论）
-> 状态：**v0.2 定稿**（2026-07-11 用户批准 §8 全部决策，含 3 分歧点 #1/#4/B）。实施计划见 `docs/plans/2026-07-11-mcp-project-scope-plan.md`。
+> 状态：**已实现**（2026-07-11，T1-T4 全落 + 全量 test 绿 + 真实二进制 4 场景冒烟通过）。v0.2 定稿（用户批准 §8 全部决策，含 3 分歧点 #1/#4/B）。实施计划见 `docs/plans/2026-07-11-mcp-project-scope-plan.md`。
 
 ## 修订记录
 
@@ -9,6 +9,7 @@
 |---|---|---|---|
 | v0.1 | 2026-07-10 | inhere/claude | 初稿：两种 MCP 角色 + 方向 B + project-key 解析 |
 | v0.2 | 2026-07-11 | inhere/claude | 评审（承重代码事实已核实）：①解析改**三态显式**(none=operator / `--project X` / `--project auto`,不静默退全量)；④CWD 探测以 `.gofer.project.yaml` 的 `key:` **为主**、**砍掉** resolve-project 端点(降为后续可选)；B **create_plan 在 scope 下归 operator-only(隐藏)** 而非 scope-force；A 明确作用域=防误触**非鉴权**(显式非目标)；②③⑤按推荐定 |
+| 实现 | 2026-07-11 | inhere/claude | T1-T4 落地。实现期 2 处修正：(1) overlay `key:` **无需加白名单**——`detectForbiddenOverlayKeys` 是黑名单机制，`key` 不在其中，加字段即可；(2) `run_job` 的 `project_key` 由 required 改 **omitempty**(schema optional)，否则 SDK schema 校验先于 handler 拒绝"缺 project"，scoped 缺省即填无法生效；operator 缺 project 仍在 backend 报错（无回归）。 |
 
 ## 1. 背景与问题
 
