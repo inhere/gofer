@@ -25,7 +25,14 @@ const mcpExitErr = 2
 // forces in-process (local backend) mode even when GOFER_SERVER_ADDR/--server
 // is set. The --server/--token connection flags live in the shared jobConnOpts
 // (bound via bindServerFlags).
-var mcpOpts = struct{ standalone bool }{}
+var mcpOpts = struct {
+	standalone bool
+	// project scopes the MCP server to one project (xu64.15). Three states:
+	// "" = operator (all projects, 向后兼容), "<key>" = explicit scope,
+	// "auto" = resolve from CWD (.gofer.project.yaml key: → standalone
+	// ProjectForPath → GOFER_PROJECT env; error if none).
+	project string
+}{}
 
 // NewMcpCmd builds the `mcp` command: run the stdio MCP server (plan P8/E28).
 // Two backend modes (E28 D1/D2):
@@ -49,6 +56,8 @@ func NewMcpCmd() *gcli.Command {
 			bindServerFlags(c) // --server/-s + --token (GOFER_SERVER_ADDR/TOKEN env defaults)
 			c.BoolOpt(&mcpOpts.standalone, "standalone", "", false,
 				"force in-process mode (ignore GOFER_SERVER_ADDR / --server)")
+			c.StrOpt(&mcpOpts.project, "project", "", "",
+				"scope MCP to one project: <key> | auto (CWD/env) | empty=operator(all)")
 		},
 		Func: runMcp,
 	}
@@ -65,7 +74,38 @@ func mcpUseClient(standalone bool, serverAddr string) bool {
 	return !standalone && serverAddr != ""
 }
 
+// resolveScopedProject maps the --project flag's three states to a scoped project
+// key (xu64.15). It is a pure function (cfg may be nil for the client/thin path)
+// so the resolution truth table is unit-testable. An empty flag → ("", nil) =
+// operator (all projects, 向后兼容). "auto" resolves by precedence: the CWD's
+// .gofer.project.yaml key: (no round trip) → standalone ProjectForPath (cfg != nil)
+// → GOFER_PROJECT env → error (never silently fall back to operator).
+func resolveScopedProject(flag string, cfg *config.Config, cwd string) (string, error) {
+	if flag == "" {
+		return "", nil // operator (向后兼容)
+	}
+	if flag != "auto" {
+		return flag, nil // explicit --project <key>
+	}
+	if k, err := config.ProjectKeyFromDir(cwd); err != nil {
+		return "", err
+	} else if k != "" {
+		return k, nil
+	}
+	if cfg != nil {
+		if k, ok := cfg.ProjectForPath(cwd); ok {
+			return k, nil
+		}
+	}
+	if k := strings.TrimSpace(os.Getenv("GOFER_PROJECT")); k != "" {
+		return k, nil
+	}
+	return "", fmt.Errorf("--project auto: 无法从 CWD(%s) / .gofer.project.yaml / GOFER_PROJECT 解析 project", cwd)
+}
+
 func runMcp(_ *gcli.Command, _ []string) error {
+	cwd, _ := os.Getwd()
+
 	// D1: client mode — thin client forwarding to a central serve. No Core/DB is
 	// built (root-causes the standalone multi-process SQLite write-lock risk).
 	if mcpUseClient(mcpOpts.standalone, jobConnOpts.server) {
@@ -73,11 +113,17 @@ func runMcp(_ *gcli.Command, _ []string) error {
 		if err != nil {
 			return errorx.Failf(mcpExitErr, "%v", err)
 		}
-		return finishMcp(mcpserver.Serve(context.Background(), mcpserver.NewClientBackend(cli)))
+		// client (thin) has no full cfg → nil; --project auto resolves via the CWD
+		// overlay key: or GOFER_PROJECT only (no ProjectForPath).
+		scoped, err := resolveScopedProject(mcpOpts.project, nil, cwd)
+		if err != nil {
+			return errorx.Failf(mcpExitErr, "%v", err)
+		}
+		return finishMcp(mcpserver.Serve(context.Background(), mcpserver.NewClientBackend(cli), scoped))
 	}
 
-	// D2/standalone (現状路径，行为不变): load config + build Core + serve the
-	// in-process localBackend.
+	// D2/standalone (現状路径，operator 时行为不变): load config + build Core + serve
+	// the in-process localBackend.
 	cfg, _, err := config.Load(config.InputCfgFile)
 	if err != nil {
 		return errorx.Failf(mcpExitErr, "%v", err)
@@ -87,6 +133,11 @@ func runMcp(_ *gcli.Command, _ []string) error {
 	for _, w := range config.ApplyProjectOverlays(cfg) {
 		fmt.Fprintf(os.Stderr, "gofer mcp: overlay warn: %s\n", w)
 	}
+	// Resolve scope before Core so a bad --project auto fails fast (no wasted build).
+	scoped, err := resolveScopedProject(mcpOpts.project, cfg, cwd)
+	if err != nil {
+		return errorx.Failf(mcpExitErr, "%v", err)
+	}
 	cr, err := core.Build(cfg)
 	if err != nil {
 		return errorx.Failf(mcpExitErr, "%v", err)
@@ -94,7 +145,7 @@ func runMcp(_ *gcli.Command, _ []string) error {
 	// Graceful shutdown: close the metadata store (WAL checkpoint) when the MCP
 	// server returns (design §14).
 	defer func() { _ = cr.Close() }()
-	return finishMcp(mcpserver.ServeLocal(context.Background(), cr.Jobs, cr.Projects, cr.Agents, cr.Presence))
+	return finishMcp(mcpserver.ServeLocal(context.Background(), cr.Jobs, cr.Projects, cr.Agents, cr.Presence, scoped))
 }
 
 // finishMcp maps the mcp server's return error onto the command result, shared by

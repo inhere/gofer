@@ -56,7 +56,7 @@ const envAgentName = "GOFER_AGENT_NAME"
 // the Backend owns the actual backend access. The server is returned
 // unconnected; call Run (or Serve) to start serving over a transport.
 func New(b Backend) *mcp.Server {
-	return newServer(b, "", "")
+	return newServer(b, "", "", "")
 }
 
 // newServer builds the MCP server, threading the process-level self-registered driver
@@ -65,13 +65,22 @@ func New(b Backend) *mcp.Server {
 // (one consistent driver: poll = answer = role-one routing target). New passes ""/""
 // (no auto-stamp, e.g. presence-less test fixtures); Serve passes the self-registered
 // agent_id + token.
-func newServer(b Backend, originAgent, originToken string) *mcp.Server {
+// scoped (xu64.15): "" = operator (all tools, all projects — 向后兼容); a non-empty
+// project key confines the server to one project. Three tool-boundary effects:
+//   - 收窄: list_projects returns only the scoped project; run_job defaults/enforces
+//     project_key == scoped.
+//   - 隐藏 (operator-only): create_plan/attach_job are NOT registered under a scope.
+//   - 放行: the by-id get_*/interaction/mailbox tools are unchanged.
+//
+// This is a mis-touch guard, NOT authz (设计§7): the central serve still admits
+// every project — scoping only shapes what THIS thin client surfaces.
+func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "gofer", Version: "v1"}, nil)
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_list_projects",
 		Description: "List the registered projects and their agent/runner allowlists.",
-	}, listProjectsHandler(b))
+	}, listProjectsHandler(b, scoped))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_list_agents",
@@ -81,7 +90,7 @@ func newServer(b Backend, originAgent, originToken string) *mcp.Server {
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_run_job",
 		Description: "Submit an agent/exec job in a project and return its initial state (status, id). Set plan_id to group it under a plan.",
-	}, runJobHandler(b, originAgent))
+	}, runJobHandler(b, originAgent, scoped))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_get_job",
@@ -153,15 +162,19 @@ func newServer(b Backend, originAgent, originToken string) *mcp.Server {
 		Description: "List pending interactions across active jobs (for a supervisor agent to discover questions awaiting an answer).",
 	}, listPendingInteractionsHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
-		Name:        "gofer_create_plan",
-		Description: "Create a lightweight plan grouping header and return it. Use plan_id from the result to attach jobs or submit jobs with plan_id set.",
-	}, createPlanHandler(b))
+	// Operator-only (xu64.15): plan authoring is a cross-project orchestration
+	// concern, so a project-scoped MCP does NOT register these two tools.
+	if scoped == "" {
+		mcp.AddTool(s, &mcp.Tool{
+			Name:        "gofer_create_plan",
+			Description: "Create a lightweight plan grouping header and return it. Use plan_id from the result to attach jobs or submit jobs with plan_id set.",
+		}, createPlanHandler(b))
 
-	mcp.AddTool(s, &mcp.Tool{
-		Name:        "gofer_attach_job",
-		Description: "Attach an existing job to a plan by id. Returns the plan header.",
-	}, attachJobHandler(b))
+		mcp.AddTool(s, &mcp.Tool{
+			Name:        "gofer_attach_job",
+			Description: "Attach an existing job to a plan by id. Returns the plan header.",
+		}, attachJobHandler(b))
+	}
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_get_plan",
@@ -185,7 +198,7 @@ func newServer(b Backend, originAgent, originToken string) *mcp.Server {
 // blocks until stdin EOF or ctx cancellation. Nothing is written to stdout
 // outside the MCP protocol (stdout is the transport), so callers must not print
 // to stdout either.
-func Serve(ctx context.Context, b Backend) error {
+func Serve(ctx context.Context, b Backend, scoped string) error {
 	// P1.0: process-level self-registration. Register one driver agent for this mcp
 	// process so its run_job submissions are stamped with an owner (origin_agent)
 	// the supervisor can route escalations back to (主 agent 零感知). Best-effort: a
@@ -194,7 +207,7 @@ func Serve(ctx context.Context, b Backend) error {
 	// (~90s): the Backend exposes no Deregister, and a per-process name means a dead
 	// process's presence entry simply expires.
 	originAgent, originToken := selfRegister(b)
-	return newServer(b, originAgent, originToken).Run(ctx, &mcp.StdioTransport{})
+	return newServer(b, originAgent, originToken, scoped).Run(ctx, &mcp.StdioTransport{})
 }
 
 // selfRegister registers this mcp process as a driver agent and returns its
@@ -242,8 +255,8 @@ func NewLocal(jobs *job.Service, projects *project.Registry, agents *agent.Regis
 // over stdio. Convenience wrapper for the standalone path so callers (commands/
 // mcp.go) need not reach for newLocalBackend; equivalent to
 // Serve(ctx, newLocalBackend(...)). pres backs the E36 presence tools.
-func ServeLocal(ctx context.Context, jobs *job.Service, projects *project.Registry, agents *agent.Registry, pres *presence.Service) error {
-	return Serve(ctx, newLocalBackend(jobs, projects, agents, pres))
+func ServeLocal(ctx context.Context, jobs *job.Service, projects *project.Registry, agents *agent.Registry, pres *presence.Service, scoped string) error {
+	return Serve(ctx, newLocalBackend(jobs, projects, agents, pres), scoped)
 }
 
 // jobView is the snake_case projection of job.JobResult returned by the job
@@ -385,14 +398,32 @@ type listProjectsOutput struct {
 	Projects []projectEntry `json:"projects"`
 }
 
-func listProjectsHandler(b Backend) mcp.ToolHandlerFor[listProjectsInput, listProjectsOutput] {
+func listProjectsHandler(b Backend, scoped string) mcp.ToolHandlerFor[listProjectsInput, listProjectsOutput] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, _ listProjectsInput) (*mcp.CallToolResult, listProjectsOutput, error) {
 		entries, err := b.ListProjects()
 		if err != nil {
 			return nil, listProjectsOutput{}, err
 		}
-		return nil, listProjectsOutput{Projects: entries}, nil
+		// Scope 收窄 (xu64.15): a project-scoped MCP only surfaces its own project;
+		// operator ("") sees all. An unknown scope simply yields an empty list (not an
+		// error) — a mis-touch guard, not authz.
+		return nil, listProjectsOutput{Projects: filterProjectsByScope(entries, scoped)}, nil
 	}
+}
+
+// filterProjectsByScope returns only the entry whose Key == scoped; operator
+// ("") passes entries through unchanged. Always returns a non-nil slice.
+func filterProjectsByScope(entries []projectEntry, scoped string) []projectEntry {
+	if scoped == "" {
+		return entries
+	}
+	out := make([]projectEntry, 0, 1)
+	for _, e := range entries {
+		if e.Key == scoped {
+			out = append(out, e)
+		}
+	}
+	return out
 }
 
 // --- gofer_list_agents -----------------------------------------------------
@@ -427,7 +458,11 @@ func listAgentsHandler(b Backend) mcp.ToolHandlerFor[listAgentsInput, listAgents
 
 // runJobInput is the snake_case equivalent of job.JobRequest.
 type runJobInput struct {
-	ProjectKey string   `json:"project_key"`
+	// ProjectKey is omitempty so the SDK marks it OPTIONAL in the derived input
+	// schema (xu64.15): a project-scoped MCP fills it from the scope when omitted.
+	// Operator ("") still needs a real project — an empty key reaches RunJob and is
+	// rejected there (unknown project), so omitting it in operator mode still errors.
+	ProjectKey string   `json:"project_key,omitempty"`
 	Agent      string   `json:"agent"`
 	Runner     string   `json:"runner"`
 	Prompt     string   `json:"prompt,omitempty"`
@@ -451,8 +486,19 @@ type runJobInput struct {
 	EscalateTo  string `json:"escalate_to,omitempty"`
 }
 
-func runJobHandler(b Backend, originAgent string) mcp.ToolHandlerFor[runJobInput, jobView] {
+func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[runJobInput, jobView] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in runJobInput) (*mcp.CallToolResult, jobView, error) {
+		// Scope 收窄 (xu64.15): under a project scope, an omitted project_key defaults
+		// to the scoped project; an explicit mismatch is rejected (can't submit into
+		// another project). Operator ("") never interferes.
+		if scoped != "" {
+			if in.ProjectKey == "" {
+				in.ProjectKey = scoped
+			}
+			if in.ProjectKey != scoped {
+				return nil, jobView{}, fmt.Errorf("project-scoped MCP(--project %s): 不能向 project %q 提交", scoped, in.ProjectKey)
+			}
+		}
 		// Owner stamp (P1.0): an explicit origin_agent input wins; otherwise auto-
 		// inject this process's self-registered driver agent_id (empty when self-
 		// register failed or for non-self-registering callers like tests).

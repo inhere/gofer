@@ -602,7 +602,7 @@ func TestSelfRegisterInjectsOriginAgent(t *testing.T) {
 	if originAgent == "" {
 		t.Fatalf("selfRegister returned empty agent_id")
 	}
-	session := connectTo(t, newServer(b, originAgent, originToken))
+	session := connectTo(t, newServer(b, originAgent, originToken, ""))
 
 	// No explicit origin_agent -> auto-injected self-registered agent_id.
 	res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
@@ -656,7 +656,7 @@ func TestPollInboxDefaultsToSelfIdentity(t *testing.T) {
 	if selfID == "" || selfToken == "" {
 		t.Fatalf("selfRegister returned empty id/token: %q/%q", selfID, selfToken)
 	}
-	session := connectTo(t, newServer(b, selfID, selfToken))
+	session := connectTo(t, newServer(b, selfID, selfToken, ""))
 
 	// Deliver an escalation to the self-registered agent's own inbox.
 	if n, err := pres.Post("system", selfID, "escalation", "是否继续?", "job:demo"); err != nil || n != 1 {
