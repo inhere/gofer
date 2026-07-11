@@ -460,8 +460,9 @@ func listAgentsHandler(b Backend) mcp.ToolHandlerFor[listAgentsInput, listAgents
 type runJobInput struct {
 	// ProjectKey is omitempty so the SDK marks it OPTIONAL in the derived input
 	// schema (xu64.15): a project-scoped MCP fills it from the scope when omitted.
-	// Operator ("") still needs a real project — an empty key reaches RunJob and is
-	// rejected there (unknown project), so omitting it in operator mode still errors.
+	// Operator ("") does NOT fill it — an omitted key reaches RunJob as empty and is
+	// resolved downstream (a role preset may supply its own project; otherwise the
+	// unknown-project error). So relaxing the schema never yields a spurious success.
 	ProjectKey string   `json:"project_key,omitempty"`
 	Agent      string   `json:"agent"`
 	Runner     string   `json:"runner"`
