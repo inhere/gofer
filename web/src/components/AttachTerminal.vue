@@ -34,6 +34,7 @@ const emit = defineEmits<{
   error: [msg: string]
 }>()
 
+const rootEl = ref<HTMLElement | null>(null)
 const hostEl = ref<HTMLDivElement | null>(null)
 const writeGranted = ref(false)
 const connectionState = ref<ConnectionState>('connecting')
@@ -41,6 +42,7 @@ const reconnectAttempts = ref(0)
 const showManualReconnect = ref(false)
 const exited = ref(false)
 const keyMenuEl = ref<HTMLDetailsElement | null>(null)
+const terminalActive = ref(false)
 
 let term: Terminal | null = null
 let fit: FitAddon | null = null
@@ -54,12 +56,14 @@ let attachMode: AttachMode = props.mode
 
 interface KeyAction {
   label: string
-  data: string
+  data?: string
+  paste?: boolean
 }
 
 const keyActions: KeyAction[] = [
   { label: 'Esc', data: '\x1b' },
   { label: 'Ctrl+C', data: '\x03' },
+  { label: 'Ctrl+V', paste: true },
   { label: 'Ctrl+D', data: '\x04' },
   { label: 'Ctrl+Z', data: '\x1a' },
   { label: 'Ctrl+L', data: '\x0c' },
@@ -223,12 +227,22 @@ async function pasteClipboard(): Promise<void> {
   }
   try {
     const text = await navigator.clipboard.readText()
-    if (text) {
-      term?.paste(text)
-    }
+    pasteText(text)
   } catch {
     emit('error', '读取剪贴板失败')
   }
+}
+
+function pasteText(text: string): void {
+  if (!writeGranted.value || !text) {
+    return
+  }
+  const normalized = text.replace(/\r?\n/g, '\r')
+  if (term?.modes.bracketedPasteMode && term.options.ignoreBracketedPasteMode !== true) {
+    sendInput(`\x1b[200~${normalized}\x1b[201~`)
+    return
+  }
+  sendInput(normalized)
 }
 
 function isCtrlKey(ev: KeyboardEvent, key: string): boolean {
@@ -237,6 +251,18 @@ function isCtrlKey(ev: KeyboardEvent, key: string): boolean {
 
 function isEscapeKey(ev: KeyboardEvent): boolean {
   return ev.key === 'Escape' || ev.key === 'Esc' || ev.code === 'Escape' || ev.keyCode === 27
+}
+
+function isTerminalActive(target: EventTarget | null): boolean {
+  const host = hostEl.value
+  if (!host) {
+    return false
+  }
+  if (target instanceof Node && host.contains(target)) {
+    return true
+  }
+  const active = document.activeElement
+  return (active instanceof Node && host.contains(active)) || terminalActive.value
 }
 
 function consumeShortcut(ev: KeyboardEvent): boolean {
@@ -255,13 +281,8 @@ function consumeShortcut(ev: KeyboardEvent): boolean {
     return true
   }
   if (isCtrlKey(ev, 'v')) {
-    if (!navigator.clipboard?.readText) {
-      return false
-    }
-    ev.preventDefault()
     ev.stopPropagation()
     ev.stopImmediatePropagation()
-    void pasteClipboard()
     return true
   }
   if (isEscapeKey(ev)) {
@@ -282,8 +303,44 @@ function onTerminalHostKey(ev: KeyboardEvent): void {
   consumeShortcut(ev)
 }
 
+function markTerminalActive(): void {
+  terminalActive.value = true
+}
+
+function onDocumentKeydown(ev: KeyboardEvent): void {
+  if (isTerminalActive(ev.target)) {
+    consumeShortcut(ev)
+  }
+}
+
+function onDocumentPointerDown(ev: PointerEvent): void {
+  const target = ev.target
+  if (!(target instanceof Node)) {
+    return
+  }
+  const inRoot = !!rootEl.value?.contains(target)
+  terminalActive.value = inRoot
+  if (inRoot && !hostEl.value?.contains(target)) {
+    term?.focus()
+  }
+}
+
+function onDocumentPaste(ev: ClipboardEvent): void {
+  if (!isTerminalActive(ev.target)) {
+    return
+  }
+  ev.preventDefault()
+  ev.stopPropagation()
+  ev.stopImmediatePropagation()
+  pasteText(ev.clipboardData?.getData('text/plain') ?? '')
+}
+
 function sendKeyAction(action: KeyAction): void {
-  sendInput(action.data)
+  if (action.paste) {
+    void pasteClipboard()
+  } else if (action.data) {
+    sendInput(action.data)
+  }
   keyMenuEl.value?.removeAttribute('open')
   term?.focus()
 }
@@ -451,6 +508,9 @@ onMounted(async () => {
     sendFrame({ t: 'r', cols, rows })
   })
   window.addEventListener('resize', onWindowResize)
+  document.addEventListener('keydown', onDocumentKeydown, true)
+  document.addEventListener('pointerdown', onDocumentPointerDown, true)
+  document.addEventListener('paste', onDocumentPaste, true)
 
   try {
     await connect()
@@ -465,6 +525,9 @@ onUnmounted(() => {
   userClosed = true
   closeSocket()
   window.removeEventListener('resize', onWindowResize)
+  document.removeEventListener('keydown', onDocumentKeydown, true)
+  document.removeEventListener('pointerdown', onDocumentPointerDown, true)
+  document.removeEventListener('paste', onDocumentPaste, true)
   if (resizeTimer != null) {
     window.clearTimeout(resizeTimer)
   }
@@ -478,7 +541,7 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <section class="attach-terminal">
+  <section ref="rootEl" class="attach-terminal">
     <header class="terminal-bar">
       <span class="status-dot" :class="connectionState" aria-hidden="true" />
       <span class="status-text mono">{{ statusText }}</span>
@@ -520,7 +583,13 @@ onUnmounted(() => {
         </button>
       </div>
     </header>
-    <div ref="hostEl" class="terminal-host" @keydown.capture="onTerminalHostKey" />
+    <div
+      ref="hostEl"
+      class="terminal-host"
+      @focusin="markTerminalActive"
+      @keydown.capture="onTerminalHostKey"
+      @pointerdown="markTerminalActive"
+    />
     <footer v-if="exited" class="terminal-foot mono">进程已退出</footer>
   </section>
 </template>
