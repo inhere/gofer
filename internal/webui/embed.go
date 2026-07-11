@@ -12,6 +12,7 @@ import (
 	"embed"
 	"io/fs"
 	"net/http"
+	"os"
 )
 
 // dist holds the built web console assets. all: includes files whose names
@@ -31,6 +32,14 @@ func Handler() (http.Handler, bool) {
 		return placeholderHandler(dist, "dist/placeholder.html"), false
 	}
 	return handlerFor(sub)
+}
+
+// HandlerForDir serves the web console from an on-disk directory (dev convenience,
+// P7): `gofer serve --web-dir web/dist` avoids re-embedding via `make web` on every
+// front-end change. dir must be the built SPA root (containing index.html). Returns
+// the handler and whether a real build is present (index.html exists).
+func HandlerForDir(dir string) (http.Handler, bool) {
+	return handlerFor(os.DirFS(dir))
 }
 
 // handlerFor builds the static handler for fsys (a "dist" sub-FS): when

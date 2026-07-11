@@ -107,6 +107,9 @@ func TestInteractiveAliasSessionDefaultsFromCommand(t *testing.T) {
 	if len(claude.SessionResume) != 4 || claude.SessionResume[0] != "--resume" {
 		t.Fatalf("tty-claude SessionResume = %#v, want claude resume default", claude.SessionResume)
 	}
+	if len(claude.SessionResumeInteractive) != 2 || claude.SessionResumeInteractive[0] != "--resume" {
+		t.Fatalf("tty-claude SessionResumeInteractive = %#v, want claude interactive resume default", claude.SessionResumeInteractive)
+	}
 
 	codex, _ := ResolveAgent(cfg, "tty-codex")
 	if codex.SessionCapture != `session id:\s*([0-9a-f-]+)` {
@@ -115,6 +118,9 @@ func TestInteractiveAliasSessionDefaultsFromCommand(t *testing.T) {
 	if len(codex.SessionResume) != 4 || codex.SessionResume[0] != "exec" {
 		t.Fatalf("tty-codex SessionResume = %#v, want codex resume default", codex.SessionResume)
 	}
+	if len(codex.SessionResumeInteractive) != 2 || codex.SessionResumeInteractive[0] != "resume" {
+		t.Fatalf("tty-codex SessionResumeInteractive = %#v, want codex interactive resume default", codex.SessionResumeInteractive)
+	}
 }
 
 func TestNonInteractiveAliasDoesNotGainSessionDefaults(t *testing.T) {
@@ -122,8 +128,31 @@ func TestNonInteractiveAliasDoesNotGainSessionDefaults(t *testing.T) {
 		"claude-sup": {Type: TypeCLIAgent, Command: "claude"},
 	}}
 	ac, _ := ResolveAgent(cfg, "claude-sup")
-	if len(ac.SessionInject) != 0 || ac.SessionCapture != "" || len(ac.SessionResume) != 0 {
+	if len(ac.SessionInject) != 0 || ac.SessionCapture != "" || len(ac.SessionResume) != 0 || len(ac.SessionResumeInteractive) != 0 {
 		t.Fatalf("non-interactive claude alias gained session defaults: %#v", ac)
+	}
+}
+
+func TestBuiltinSessionResumeInteractiveDefaults(t *testing.T) {
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"claude": {Type: TypeCLIAgent, Command: "claude"},
+		"codex":  {Type: TypeCLIAgent, Command: "codex"},
+	}}
+	claude, _ := ResolveAgent(cfg, "claude")
+	wantClaude := []string{"--resume", "{{session_id}}"}
+	if !equalStringSlices(claude.SessionResumeInteractive, wantClaude) {
+		t.Fatalf("claude SessionResumeInteractive = %#v, want %#v", claude.SessionResumeInteractive, wantClaude)
+	}
+	for _, arg := range claude.SessionResumeInteractive {
+		if arg == "-p" {
+			t.Fatalf("claude interactive resume template must not include -p: %#v", claude.SessionResumeInteractive)
+		}
+	}
+
+	codex, _ := ResolveAgent(cfg, "codex")
+	wantCodex := []string{"resume", "{{session_id}}"}
+	if !equalStringSlices(codex.SessionResumeInteractive, wantCodex) {
+		t.Fatalf("codex SessionResumeInteractive = %#v, want %#v", codex.SessionResumeInteractive, wantCodex)
 	}
 }
 
@@ -132,10 +161,11 @@ func TestNonInteractiveAliasDoesNotGainSessionDefaults(t *testing.T) {
 func TestExplicitSessionConfigWinsOverBuiltin(t *testing.T) {
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{
 		"claude": {
-			Type:           TypeCLIAgent,
-			Command:        "claude",
-			SessionInject:  []string{"--sid", "{{session_id}}"},
-			SessionCapture: `custom:\s*(\S+)`,
+			Type:                     TypeCLIAgent,
+			Command:                  "claude",
+			SessionInject:            []string{"--sid", "{{session_id}}"},
+			SessionCapture:           `custom:\s*(\S+)`,
+			SessionResumeInteractive: []string{"resume-tui", "{{session_id}}"},
 		},
 	}}
 	ac, _ := ResolveAgent(cfg, "claude")
@@ -149,6 +179,24 @@ func TestExplicitSessionConfigWinsOverBuiltin(t *testing.T) {
 	if len(ac.SessionResume) != 4 || ac.SessionResume[0] != "--resume" {
 		t.Errorf("SessionResume should default-fill: %#v", ac.SessionResume)
 	}
+	if !equalStringSlices(ac.SessionResumeInteractive, []string{"resume-tui", "{{session_id}}"}) {
+		t.Errorf("explicit SessionResumeInteractive overwritten: %#v", ac.SessionResumeInteractive)
+	}
+}
+
+func TestExplicitSessionResumeInteractiveWins(t *testing.T) {
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"claude": {
+			Type:                     TypeCLIAgent,
+			Command:                  "claude",
+			SessionResumeInteractive: []string{"custom-resume", "{{session_id}}"},
+		},
+	}}
+	ac, _ := ResolveAgent(cfg, "claude")
+	want := []string{"custom-resume", "{{session_id}}"}
+	if !equalStringSlices(ac.SessionResumeInteractive, want) {
+		t.Fatalf("SessionResumeInteractive = %#v, want explicit %#v", ac.SessionResumeInteractive, want)
+	}
 }
 
 // TestNonSessionAgentUnchanged: an agent with no built-in default keeps all
@@ -158,7 +206,19 @@ func TestNonSessionAgentUnchanged(t *testing.T) {
 		"other": {Type: TypeCLIAgent, Command: "other", Args: []string{"{{prompt}}"}},
 	}}
 	ac, _ := ResolveAgent(cfg, "other")
-	if len(ac.SessionInject) != 0 || ac.SessionCapture != "" || len(ac.SessionResume) != 0 {
+	if len(ac.SessionInject) != 0 || ac.SessionCapture != "" || len(ac.SessionResume) != 0 || len(ac.SessionResumeInteractive) != 0 {
 		t.Errorf("non-session agent gained session fields: %#v", ac)
 	}
+}
+
+func equalStringSlices(a, b []string) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		if a[i] != b[i] {
+			return false
+		}
+	}
+	return true
 }

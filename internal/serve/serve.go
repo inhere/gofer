@@ -48,6 +48,7 @@ type Opts struct {
 	Token         string
 	AllowEmptyTok bool
 	NoWeb         bool
+	WebDir        string
 	CfgPath       string
 	ReloadPath    string
 	Build         buildinfo.Info
@@ -83,6 +84,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// reads it via serverCfg.IsWebEnabled().
 	webEnabled := cfg.Server.IsWebEnabled() && !opts.NoWeb
 	cfg.Server.WebEnabled = &webEnabled
+	cfg.Server.WebDir = opts.WebDir
 
 	// Merge per-project thin overlays (.gofer.project.yaml) into the loaded
 	// config before assembling Core, so admission/result-dir decisions observe

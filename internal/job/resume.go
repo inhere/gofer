@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/inhere/gofer/internal/agent"
 )
@@ -58,7 +59,7 @@ func (s *Service) ResumeJob(jobID, prompt, runner, callerID string) (JobResult, 
 	}
 
 	ac, ok := s.agents.Get(src.Agent)
-	if !ok || len(ac.SessionResume) == 0 {
+	if !ok {
 		return JobResult{}, fmt.Errorf("%w: agent %q", ErrResumeUnsupported, src.Agent)
 	}
 
@@ -68,10 +69,23 @@ func (s *Service) ResumeJob(jobID, prompt, runner, callerID string) (JobResult, 
 		return JobResult{}, fmt.Errorf("%w: session bound to runner %q, not %q", ErrCrossRunner, src.Runner, runner)
 	}
 
+	// 交互源走交互模板（进 TUI，无 -p/exec）；非交互源走 SessionResume。
+	tmpl := ac.SessionResume
+	if src.Interactive && len(ac.SessionResumeInteractive) > 0 {
+		tmpl = ac.SessionResumeInteractive
+	}
+	if len(tmpl) == 0 {
+		return JobResult{}, fmt.Errorf("%w: agent %q", ErrResumeUnsupported, src.Agent)
+	}
+	// 非交互 resume 需要非空 prompt：claude `-p ""` / 空续投无意义会崩。交互源不看 prompt。
+	if !src.Interactive && strings.TrimSpace(prompt) == "" {
+		return JobResult{}, fmt.Errorf("%w: non-interactive resume requires a prompt", ErrInvalidRequest)
+	}
+
 	// argv = [agentConfig.Command] + rendered SessionResume (design T2.1). The new
 	// job runs as the built-in exec agent so the resume argv executes verbatim; the
 	// agent's own Command (e.g. "claude"/"codex") is argv[0].
-	argv := append([]string{ac.Command}, agent.Render(ac.SessionResume, agent.Vars{SessionID: src.SessionID, Prompt: prompt})...)
+	argv := append([]string{ac.Command}, agent.Render(tmpl, agent.Vars{SessionID: src.SessionID, Prompt: prompt})...)
 
 	// E35 (review #5, 实测定稿 2026-06-29 / design §5 结论 / §12 已实测): the role system
 	// prompt is deliberately NOT re-injected on resume — BOTH built-ins restore it
@@ -88,6 +102,9 @@ func (s *Service) ResumeJob(jobID, prompt, runner, callerID string) (JobResult, 
 		Cmd:        argv,
 		Runner:     src.Runner,
 		WorkerID:   src.WorkerID,
+		// 交互源续接为交互 job：走 pty runner，命令用交互模板（上面已选）。前端跳转后
+		// ?attach=1 自动接入终端（P7 选 A）。非交互源 Interactive 为 false，行为不变。
+		Interactive: src.Interactive,
 		// 续接落原 job 的相对 cwd（从 RequestJSON 还原；JobResult.Cwd 是已解析的绝对路径）。
 		Cwd:      cwdFromRequestJSON(src.RequestJSON),
 		CallerID: callerID,

@@ -142,18 +142,19 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	runReq.Rows = req.Rows
 	if remote {
 		runReq.Forward = &runner.Forward{
-			ProjectKey:   req.ProjectKey,
-			Agent:        req.Agent,
-			PeerRunner:   builtinLocalRunner,
-			Prompt:       req.Prompt,
-			AgentArgs:    req.AgentArgs,
-			Cmd:          req.Cmd,
-			Cwd:          req.Cwd,
-			TimeoutSec:   req.TimeoutSec,
-			Interactive:  req.Interactive,
-			Cols:         req.Cols,
-			Rows:         req.Rows,
-			SystemPrompt: req.SystemPrompt,
+			ProjectKey:        req.ProjectKey,
+			Agent:             req.Agent,
+			PeerRunner:        builtinLocalRunner,
+			Prompt:            req.Prompt,
+			AgentArgs:         req.AgentArgs,
+			Cmd:               req.Cmd,
+			Cwd:               req.Cwd,
+			TimeoutSec:        req.TimeoutSec,
+			Interactive:       req.Interactive,
+			Cols:              req.Cols,
+			Rows:              req.Rows,
+			ResumeSourceAgent: req.ResumeSourceAgent,
+			SystemPrompt:      req.SystemPrompt,
 			// P2: the resolved target worker (explicit req.WorkerID or label-selected
 			// in selectTargetWorker). Empty for peer-http and for worker jobs relying
 			// on the runner's configured default (D4).

@@ -74,20 +74,25 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 		if remote && !isWorkerRunner(cfg, req.Runner) {
 			return config.ProjectConfig{}, fmt.Errorf("%w: interactive not supported on peer runner", ErrInvalidRequest)
 		}
-		ac, ok := agent.ResolveAgent(cfg, req.Agent)
+		interactiveAgent := req.Agent
+		resumeCarrier := req.ResumeSourceAgent != ""
+		if resumeCarrier {
+			interactiveAgent = req.ResumeSourceAgent
+		}
+		ac, ok := agent.ResolveAgent(cfg, interactiveAgent)
 		if !ok {
-			return config.ProjectConfig{}, fmt.Errorf("%w: unknown agent %q", ErrInvalidRequest, req.Agent)
+			return config.ProjectConfig{}, fmt.Errorf("%w: unknown agent %q", ErrInvalidRequest, interactiveAgent)
 		}
 		if !ac.Interactive {
-			return config.ProjectConfig{}, fmt.Errorf("%w: agent %q is not interactive", ErrInvalidRequest, req.Agent)
+			return config.ProjectConfig{}, fmt.Errorf("%w: agent %q is not interactive", ErrInvalidRequest, interactiveAgent)
 		}
-		if !slices.Contains(proj.InteractiveAllowedAgents, req.Agent) {
-			return config.ProjectConfig{}, fmt.Errorf("%w: agent %q not in interactive_allowed_agents", ErrInvalidRequest, req.Agent)
+		if !slices.Contains(proj.InteractiveAllowedAgents, interactiveAgent) {
+			return config.ProjectConfig{}, fmt.Errorf("%w: agent %q not in interactive_allowed_agents", ErrInvalidRequest, interactiveAgent)
 		}
 		if ac.Type == agent.TypeExec || !ac.NoRawCmd {
 			return config.ProjectConfig{}, fmt.Errorf("%w: interactive agent must be no-raw-cmd and non-exec", ErrInvalidRequest)
 		}
-		if len(req.Cmd) > 0 {
+		if len(req.Cmd) > 0 && !resumeCarrier {
 			return config.ProjectConfig{}, fmt.Errorf("%w: interactive job cannot override Cmd", ErrInvalidRequest)
 		}
 	}

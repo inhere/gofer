@@ -148,6 +148,9 @@ type ServerConfig struct {
 	// explicit web_enabled:false disables the embedded web console (see
 	// IsWebEnabled and applyDefaults).
 	WebEnabled *bool `yaml:"web_enabled,omitempty"`
+	// WebDir 指向磁盘上的 web SPA 构建目录（dev：serve --web-dir）。非空则服务从该目录
+	// 读取，而非嵌入的 dist；空则用嵌入版。不入持久化配置的常规路径，仅运行期设置。
+	WebDir string `yaml:"web_dir,omitempty"`
 	// Workers is the per-worker auth/binding set (ws-worker, §7 / review #1):
 	// each entry registers a legitimate worker identity keyed by worker_id and
 	// binds it to a token. A `register` frame whose worker_id does not match the
@@ -579,6 +582,10 @@ type AgentConfig struct {
 	// SessionResume resume 的整条 agent argv 模板（非追加 flag），{{session_id}}/{{prompt}}
 	// 占位。供 `gofer job resume`（P2）拼接续接命令。
 	SessionResume []string `yaml:"session_resume,omitempty"`
+	// SessionResumeInteractive 是 pty/交互会话续接的 argv 模板（区别于非交互 SessionResume）。
+	// 交互会话进 TUI 续接，不用非交互的一次性 flag（claude 的 -p / codex 的 exec）。
+	// 仅当源 job 是 interactive 时由 ResumeJob 选用；未配置则回退到内置默认。
+	SessionResumeInteractive []string `yaml:"session_resume_interactive,omitempty"`
 	// SystemInject 是 per-agent 的 system prompt 注入 argv 模板（E35 角色，类比
 	// SessionInject）。非空 + 请求带 system_prompt 时，submit 渲染 {{system_prompt}}
 	// 追加到 argv（如 claude `--append-system-prompt <p>`）。保 argv 结构、不 shell

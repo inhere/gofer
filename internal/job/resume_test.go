@@ -30,6 +30,21 @@ func resumeArgv(t *testing.T, requestJSON string) []string {
 	return r.Cmd
 }
 
+func resumeStoredRequest(t *testing.T, requestJSON string) struct {
+	Cmd         []string `json:"cmd"`
+	Interactive bool     `json:"interactive,omitempty"`
+} {
+	t.Helper()
+	var r struct {
+		Cmd         []string `json:"cmd"`
+		Interactive bool     `json:"interactive,omitempty"`
+	}
+	if err := json.Unmarshal([]byte(requestJSON), &r); err != nil {
+		t.Fatalf("resumed RequestJSON not valid JSON: %v (%q)", err, requestJSON)
+	}
+	return r
+}
+
 // equalArgs reports whether two argv slices are element-wise equal.
 func equalArgs(a, b []string) bool {
 	if len(a) != len(b) {
@@ -41,6 +56,15 @@ func equalArgs(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+func containsArg(args []string, want string) bool {
+	for _, arg := range args {
+		if arg == want {
+			return true
+		}
+	}
+	return false
 }
 
 // TestResumeJobUnknownJob: resuming a non-existent id is ErrUnknownJob (→404).
@@ -312,6 +336,9 @@ func TestResumeJobRendersClaudeArgv(t *testing.T) {
 	if newJob.CallerID != "caller-7" {
 		t.Fatalf("resumed job caller_id = %q, want caller-7", newJob.CallerID)
 	}
+	if newJob.Interactive {
+		t.Fatalf("resumed non-interactive source should stay non-interactive")
+	}
 
 	got := resumeArgv(t, newJob.RequestJSON)
 	want := []string{"claude", "--resume", sid, "-p", "what number"}
@@ -324,6 +351,95 @@ func TestResumeJobRendersClaudeArgv(t *testing.T) {
 	// mis-SafeJoin on re-submit).
 	if cwd := cwdFromRequestJSON(newJob.RequestJSON); cwd != "sub" {
 		t.Fatalf("resumed cwd = %q, want \"sub\" (source relative cwd)", cwd)
+	}
+}
+
+func TestResumeJobInteractiveSourceUsesInteractiveTemplate(t *testing.T) {
+	root := t.TempDir()
+	s := newInteractiveResumeService(t, root, "claude")
+
+	src := submitSourceCancel(t, s, JobRequest{
+		ProjectKey: "self", Agent: "claude", Runner: "local",
+		Interactive: true,
+		Prompt:      "start", Cwd: ".", TimeoutSec: 30,
+	})
+	if !src.Interactive {
+		t.Fatalf("setup source interactive = false, want true")
+	}
+	sid := src.SessionID
+	if sid == "" {
+		t.Fatalf("setup: claude inject should have a session_id")
+	}
+
+	newJob, err := s.ResumeJob(src.ID, "", "", "caller-pty")
+	if err != nil {
+		t.Fatalf("ResumeJob: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Cancel(newJob.ID); s.Wait(newJob.ID) })
+
+	if !newJob.Interactive {
+		t.Fatalf("resumed interactive source job Interactive=false, want true")
+	}
+	gotReq := resumeStoredRequest(t, newJob.RequestJSON)
+	if !gotReq.Interactive {
+		t.Fatalf("resumed request interactive=false, want true")
+	}
+	want := []string{"claude", "--resume", sid}
+	if !equalArgs(gotReq.Cmd, want) {
+		t.Fatalf("interactive resumed argv = %#v, want %#v", gotReq.Cmd, want)
+	}
+	if containsArg(gotReq.Cmd, "-p") {
+		t.Fatalf("interactive resumed argv must not contain -p: %#v", gotReq.Cmd)
+	}
+}
+
+func TestResumeJobNonInteractiveSourceUsesSessionResumeTemplate(t *testing.T) {
+	root := t.TempDir()
+	s := newResumeRunnableService(t, root, "claude")
+
+	src := submitSourceCancel(t, s, JobRequest{
+		ProjectKey: "self", Agent: "claude", Runner: "local",
+		Prompt: "remember 42", Cwd: ".", TimeoutSec: 30,
+	})
+	if src.Interactive {
+		t.Fatalf("setup source interactive = true, want false")
+	}
+	sid := src.SessionID
+	if sid == "" {
+		t.Fatalf("setup: claude inject should have a session_id")
+	}
+
+	newJob, err := s.ResumeJob(src.ID, "what number", "", "caller-non-pty")
+	if err != nil {
+		t.Fatalf("ResumeJob: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Cancel(newJob.ID); s.Wait(newJob.ID) })
+
+	if newJob.Interactive {
+		t.Fatalf("resumed non-interactive source job Interactive=true, want false")
+	}
+	got := resumeArgv(t, newJob.RequestJSON)
+	want := []string{"claude", "--resume", sid, "-p", "what number"}
+	if !equalArgs(got, want) {
+		t.Fatalf("non-interactive resumed argv = %#v, want %#v", got, want)
+	}
+}
+
+func TestResumeJobNonInteractiveSourceRejectsEmptyPrompt(t *testing.T) {
+	root := t.TempDir()
+	s := newResumeRunnableService(t, root, "claude")
+
+	src := submitSourceCancel(t, s, JobRequest{
+		ProjectKey: "self", Agent: "claude", Runner: "local",
+		Prompt: "remember 42", Cwd: ".", TimeoutSec: 30,
+	})
+	if src.Interactive {
+		t.Fatalf("setup source interactive = true, want false")
+	}
+
+	_, err := s.ResumeJob(src.ID, " \t", "", "caller-empty")
+	if !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("ResumeJob empty non-interactive prompt err = %v, want ErrInvalidRequest", err)
 	}
 }
 
@@ -486,4 +602,32 @@ func newResumeRunnableService(t *testing.T, root, agentKey string) *Service {
 		},
 	}
 	return newServiceFromCfg(t, root, cfg)
+}
+
+func newInteractiveResumeService(t *testing.T, root, agentKey string) *Service {
+	t.Helper()
+	cfg := &config.Config{
+		Storage: config.StorageConfig{Root: root},
+		Projects: map[string]config.ProjectConfig{
+			"self": {
+				HostPath:                 root,
+				AllowedAgents:            []string{agentKey, "exec"},
+				AllowedRunners:           []string{"local"},
+				InteractiveAllowedAgents: []string{agentKey},
+				AllowExec:                true,
+			},
+		},
+		Agents: map[string]config.AgentConfig{
+			agentKey: {
+				Type:        agent.TypeCLIAgent,
+				Command:     agentKey,
+				Args:        []string{"{{prompt}}"},
+				Interactive: true,
+				NoRawCmd:    true,
+			},
+		},
+	}
+	s := newServiceFromCfg(t, root, cfg)
+	s.runners[builtinPtyRunner] = &recordingRunner{name: builtinPtyRunner}
+	return s
 }

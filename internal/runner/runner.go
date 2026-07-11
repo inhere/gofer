@@ -109,6 +109,10 @@ type Forward struct {
 	Interactive  bool
 	Cols         int
 	Rows         int
+	// ResumeSourceAgent is an internal resume marker carried over trusted worker
+	// dispatch so the worker validates the exec resume carrier against the source
+	// agent. It is not part of the public HTTP job contract.
+	ResumeSourceAgent string
 	// WorkerID is the resolved target worker for a runner=worker job (P2 dynamic
 	// routing): the explicit req.WorkerID or the one auto-selected from labels.
 	// Empty for peer-http forwards and for worker jobs that rely on the runner's

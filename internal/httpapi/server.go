@@ -124,6 +124,7 @@ type Server struct {
 	// webEnabled mounts the embedded web console (static SPA) as the NotFound
 	// fallback for GET requests. Resolved from serverCfg.IsWebEnabled() in New.
 	webEnabled bool
+	webDir     string
 
 	// hub is the ws-worker hub singleton; when non-nil the /v1/workers/connect WS
 	// route is mounted (ws-worker). It is nil for callers that do not run the hub.
@@ -261,6 +262,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		allowEmptyToken: allowEmptyToken,
 		callers:         buildCallers(serverCfg, token),
 		webEnabled:      serverCfg.IsWebEnabled(),
+		webDir:          serverCfg.WebDir,
 		hub:             hub,
 		runners:         runners,
 		prober:          prober,
@@ -486,7 +488,14 @@ func (s *Server) buildRouter() *rux.Router {
 	// index.html. Non-GET unmatched requests return 404 (rux routes method
 	// mismatches to NotFound too, see plan/T4 notes).
 	if s.webEnabled {
-		h, _ := webui.Handler()
+		var h http.Handler
+		var ok bool
+		if s.webDir != "" {
+			h, ok = webui.HandlerForDir(s.webDir)
+		} else {
+			h, ok = webui.Handler()
+		}
+		_ = ok
 		r.NotFound(func(c *rux.Context) {
 			if c.Req.Method != http.MethodGet {
 				http.NotFound(c.Resp, c.Req)

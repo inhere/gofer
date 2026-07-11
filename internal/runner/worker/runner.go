@@ -201,21 +201,22 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 
 	// (b) dispatch (runner is always local on the worker side).
 	d := wsproto.Dispatch{
-		JobID:        req.JobID,
-		ProjectKey:   f.ProjectKey,
-		Agent:        f.Agent,
-		Runner:       "local",
-		Prompt:       f.Prompt,
-		AgentArgs:    f.AgentArgs,
-		SystemPrompt: f.SystemPrompt,
-		Cmd:          f.Cmd,
-		Cwd:          f.Cwd,
-		TimeoutSec:   f.TimeoutSec,
-		Interactive:  f.Interactive,
-		Cols:         f.Cols,
-		Rows:         f.Rows,
-		RelayNonce:   relayNonce,
-		PtySessionID: ptySessionID, // T1: worker echoes it in pty-connect hello for serve-side check
+		JobID:             req.JobID,
+		ProjectKey:        f.ProjectKey,
+		Agent:             f.Agent,
+		Runner:            "local",
+		Prompt:            f.Prompt,
+		AgentArgs:         f.AgentArgs,
+		SystemPrompt:      f.SystemPrompt,
+		Cmd:               f.Cmd,
+		Cwd:               f.Cwd,
+		TimeoutSec:        f.TimeoutSec,
+		Interactive:       f.Interactive,
+		Cols:              f.Cols,
+		Rows:              f.Rows,
+		ResumeSourceAgent: f.ResumeSourceAgent,
+		RelayNonce:        relayNonce,
+		PtySessionID:      ptySessionID, // T1: worker echoes it in pty-connect hello for serve-side check
 	}
 	if err := r.hub.Dispatch(workerID, d); err != nil {
 		relayCloseReason = "dispatch_failed"

@@ -17,6 +17,7 @@ var serveOpts = struct {
 	token         string
 	allowEmptyTok bool
 	noWeb         bool
+	webDir        string
 	daemon        bool
 }{}
 
@@ -42,6 +43,7 @@ func NewServeCmd(infos ...buildinfo.Info) *gcli.Command {
 			c.StrOpt(&serveOpts.token, "token", "", "", "bearer token override (prefer config/env)")
 			c.BoolOpt(&serveOpts.allowEmptyTok, "allow-empty-token", "", false, "allow starting without a token")
 			c.BoolOpt(&serveOpts.noWeb, "no-web", "", false, "disable the web console (static UI)")
+			c.StrOpt(&serveOpts.webDir, "web-dir", "", "", "serve the web console from this on-disk dir (dev; e.g. web/dist)")
 			c.BoolOpt(&serveOpts.daemon, "daemon", "d", false, "run in background (detached); logs to <config-dir>/run/serve.log")
 		},
 		Subs: []*gcli.Command{NewServeStopCmd()},
@@ -99,6 +101,7 @@ func runServe(c *gcli.Command, _ []string, info buildinfo.Info) error {
 		Token:         serveOpts.token,
 		AllowEmptyTok: serveOpts.allowEmptyTok,
 		NoWeb:         serveOpts.noWeb,
+		WebDir:        serveOpts.webDir,
 		CfgPath:       cfgPath,
 		ReloadPath:    config.InputCfgFile,
 		Build:         info,

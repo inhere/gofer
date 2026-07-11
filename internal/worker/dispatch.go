@@ -56,9 +56,10 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// T5 projection: carry the interactive flag + initial window so the worker's
 		// own job.Service picks its pty runner (Interactive && !remote). Zero-valued
 		// for a non-interactive dispatch → byte-for-byte the existing path (G023).
-		Interactive: d.Interactive,
-		Cols:        d.Cols,
-		Rows:        d.Rows,
+		Interactive:       d.Interactive,
+		Cols:              d.Cols,
+		Rows:              d.Rows,
+		ResumeSourceAgent: d.ResumeSourceAgent,
 	})
 	if err != nil {
 		_ = cl.writeFrame(ctx, wsproto.TypeResult, d.JobID, wsproto.Result{

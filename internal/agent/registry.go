@@ -89,15 +89,17 @@ func ResolveAgent(cfg *config.Config, key string) (config.AgentConfig, bool) {
 // G031：仅含通用 agent（claude/codex）默认，不含任何业务相关信息。
 var builtinSessionDefaults = map[string]config.AgentConfig{
 	"claude": {
-		SessionInject: []string{"--session-id", "{{session_id}}"},
-		SessionResume: []string{"--resume", "{{session_id}}", "-p", "{{prompt}}"},
+		SessionInject:            []string{"--session-id", "{{session_id}}"},
+		SessionResume:            []string{"--resume", "{{session_id}}", "-p", "{{prompt}}"},
+		SessionResumeInteractive: []string{"--resume", "{{session_id}}"}, // 交互:进 TUI，无 -p
 		// E35: claude injects a resident system prompt via --append-system-prompt
 		// (kept its own argv element so a multi-word prompt is never re-tokenised).
 		SystemInject: []string{"--append-system-prompt", "{{system_prompt}}"},
 	},
 	"codex": {
-		SessionCapture: `session id:\s*([0-9a-f-]+)`,
-		SessionResume:  []string{"exec", "resume", "{{session_id}}", "{{prompt}}"},
+		SessionCapture:           `session id:\s*([0-9a-f-]+)`,
+		SessionResume:            []string{"exec", "resume", "{{session_id}}", "{{prompt}}"},
+		SessionResumeInteractive: []string{"resume", "{{session_id}}"}, // ⚠️ 实测确认 codex 交互 resume 命令
 		// E35 (实测定稿 2026-06-29, codex-cli 0.142): codex has NO --append-system-prompt
 		// argv flag; the per-invocation steering channel is `-c developer_instructions=<p>`
 		// (a config override — `instructions` works too; verified recognised via
@@ -133,6 +135,9 @@ func applySessionDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	}
 	if len(a.SessionResume) == 0 {
 		a.SessionResume = def.SessionResume
+	}
+	if len(a.SessionResumeInteractive) == 0 {
+		a.SessionResumeInteractive = def.SessionResumeInteractive
 	}
 	if len(a.SystemInject) == 0 {
 		a.SystemInject = def.SystemInject
