@@ -26,18 +26,25 @@ func NewAppWithBuildInfo(info buildinfo.Info) *gcli.App {
 	// add global config option for all commands
 	app.Flags().StrOpt(&config.InputCfgFile, "config", "c", "${GOFER_CONFIG}", "path to the gofer config file")
 
-	app.Add(NewInitCmd())
-	app.Add(NewConfigCmd())
-	app.Add(NewServeCmd(info))
-	app.Add(NewProjectCmd())
-	app.Add(NewAgentCmd())
-	app.Add(NewPresenceCmd())
-	app.Add(NewJobCmd())
-	app.Add(NewWorkflowCmd())
-	app.Add(NewPlanCmd())
-	app.Add(NewScheduleCmd())
-	app.Add(NewMcpCmd())
-	app.Add(NewWorkerCmd())
+	// Group commands by role in --help. gcli renders one section per Category
+	// (in category insertion order), so the group order below is intentional:
+	// onboarding (setup) -> run the plane -> submit work.
+	addGroup := func(category string, cmds ...*gcli.Command) {
+		for _, c := range cmds {
+			c.Category = category
+			app.Add(c)
+		}
+	}
+	addGroup("Setup & config", NewInitCmd(), NewConfigCmd(), NewProjectCmd(), NewAgentCmd(), NewMcpCmd())
+	addGroup("Control plane", NewServeCmd(info), NewPresenceCmd(), NewWorkerCmd())
+	addGroup("Jobs & workflows", NewJobCmd(), NewWorkflowCmd(), NewPlanCmd(), NewScheduleCmd())
+
+	// Quickstart hint after the command list, so a new user has a path in.
+	app.HelpConfig.AfterCmdText = "\n<comment>Quickstart:</>\n" +
+		"  gofer init                 # scaffold config (server or worker node)\n" +
+		"  gofer serve                # start the control-plane server\n" +
+		"  gofer job run -- <cmd>     # submit a command as an async job\n" +
+		"  # worker node instead: gofer worker init  then  gofer worker\n\n"
 
 	return app
 }
