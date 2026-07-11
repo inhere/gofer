@@ -30,6 +30,8 @@ const agentKey = ref('')
 const runnerName = ref('')
 const prompt = ref('')
 const command = ref('')
+// per-job cli-agent flags（xu64.12 §14）：每行一个完整 argv 元素，追加到 agent argv 末尾。
+const agentArgs = ref('')
 const cwd = ref('.')
 const title = ref('')
 const tags = ref('')
@@ -211,6 +213,15 @@ function parseCmd(raw: string): string[] {
     .filter((s) => s !== '')
 }
 
+// agent_args 每行一个完整 argv 元素（不做空格分词：flag 值可能含空格，如
+// --allowedTools=Bash(git log)），trim 空白、去空行。
+function parseAgentArgs(raw: string): string[] {
+  return raw
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((s) => s !== '')
+}
+
 async function onSubmit() {
   submitError.value = ''
   notice.value = ''
@@ -240,6 +251,13 @@ async function onSubmit() {
       }
     } else if (isCliAgent.value) {
       req.prompt = prompt.value
+    }
+    if (isCliAgent.value) {
+      // per-job agent flags：仅 cli-agent 生效（exec 由后端拒绝 exec+agent_args）。
+      const aa = parseAgentArgs(agentArgs.value)
+      if (aa.length > 0) {
+        req.agent_args = aa
+      }
     }
     if (isExec.value) {
       req.cmd = parseCmd(command.value)
@@ -298,6 +316,7 @@ async function prefillFrom(from: string): Promise<void> {
     if (r.system_prompt) prompt.value = r.system_prompt
     else if (r.prompt) prompt.value = r.prompt             // 可能含占位；用户改则校验、不改则不发
     if (r.cmd && r.cmd.length) command.value = r.cmd.join(' ')
+    if (r.agent_args && r.agent_args.length) agentArgs.value = r.agent_args.join('\n')
     if (r.title) title.value = r.title
     if (r.tags && r.tags.length) tags.value = r.tags.join(', ')
     if (r.timeout_sec) timeoutSec.value = r.timeout_sec
@@ -320,6 +339,7 @@ function snapshotBaseline(): void {
     tags: tags.value, timeout: timeoutSec.value, interactive: interactive.value,
     cols: cols.value, rows: rows.value, worker_id: workerId.value,
     worker_labels: workerLabels.value, plan_id: planId.value,
+    agent_args: agentArgs.value,
   }
 }
 
@@ -335,6 +355,7 @@ function buildRebuildBody(): RebuildBody {
   if (isCliAgent.value) {
     if (interactive.value) chg('prompt', prompt.value, (v) => (b.system_prompt = v))
     else chg('prompt', prompt.value, (v) => (b.prompt = v))
+    chg('agent_args', agentArgs.value, () => (b.agent_args = parseAgentArgs(agentArgs.value)))
   }
   if (isExec.value) chg('command', command.value, () => (b.cmd = parseCmd(command.value)))
   chg('cwd', cwd.value, (v) => (b.cwd = v))
@@ -467,6 +488,20 @@ watch(interactive, (on) => {
         <p v-if="interactive" class="field-hint mono">
           如果写入会作为系统提示打开会话
         </p>
+      </div>
+
+      <!-- cli-agent: per-job agent flags（xu64.12 §14），每行一个完整参数 -->
+      <div v-if="isCliAgent" class="field">
+        <label class="label mono" for="nj-agent-args">AGENT ARGS（每行一个，追加到 agent argv 末尾）</label>
+        <textarea
+          id="nj-agent-args"
+          v-model="agentArgs"
+          class="control mono area"
+          rows="3"
+          spellcheck="false"
+          placeholder="每行一个完整参数，例如：&#10;--dangerously-skip-permissions"
+        ></textarea>
+        <p class="field-hint mono">仅 cli-agent 生效（exec 忽略）；不做空格分词，一行即一个 argv 元素。</p>
       </div>
 
       <!-- exec: command 输入 -->

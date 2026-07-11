@@ -599,6 +599,9 @@ export interface SubmitJobReq {
   prompt?: string
   system_prompt?: string
   cmd?: string[]
+  // per-job cli-agent flags（xu64.12 §14）：追加到 agent argv 末尾；仅 cli-agent 生效，
+  // 后端拒绝 exec+agent_args。与 JobRequest.AgentArgs（model.go:16）对齐。
+  agent_args?: string[]
   cwd?: string
   timeout_sec?: number
   title?: string
