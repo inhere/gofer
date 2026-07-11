@@ -1,8 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Gofer">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title desc">
+  <title id="title">Gofer</title>
+  <desc id="desc">A task parcel moving between dispatch and return rails</desc>
   <rect width="64" height="64" rx="14" fill="#0E1A24"/>
-  <path d="M15 34V23c0-5 4-9 9-9h14" fill="none" stroke="#4FB0C6" stroke-width="7" stroke-linecap="round"/>
-  <path d="m35 9 8 5-8 6" fill="none" stroke="#4FB0C6" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
-  <path d="M49 30v11c0 5-4 9-9 9H27" fill="none" stroke="#E8E2D4" stroke-width="7" stroke-linecap="round"/>
-  <path d="m29 44-8 6 8 5" fill="none" stroke="#E8E2D4" stroke-width="7" stroke-linecap="round" stroke-linejoin="round"/>
-  <rect x="10" y="30" width="15" height="15" rx="3" fill="#E0A24A"/>
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M11.5 35.75C11.5 21.75 21.75 12 35.75 12h6.75" stroke="#4FB0C6" stroke-width="6.5"/>
+    <path d="m39.5 5.75 9.5 6.25-9.5 6.25" stroke="#4FB0C6" stroke-width="6.5"/>
+    <path d="M52.5 28.25C52.5 42.25 42.25 52 28.25 52H21.5" stroke="#E8E2D4" stroke-width="6.5"/>
+    <path d="m24.5 58.25-9.5-6.25 9.5-6.25" stroke="#E8E2D4" stroke-width="6.5"/>
+  </g>
+  <g transform="rotate(45 32 32)">
+    <rect x="24.75" y="24.75" width="14.5" height="14.5" rx="2.25" fill="#E0A24A"/>
+    <path d="M28.375 28.375h7.25v7.25h-7.25z" fill="none" stroke="#0E1A24" stroke-width="1.75"/>
+  </g>
 </svg>

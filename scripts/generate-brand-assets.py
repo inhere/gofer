@@ -32,14 +32,14 @@ def render(source: Path, target: Path, width: int, height: int | None = None) ->
 
 def main() -> None:
     mark = SOURCE / "gofer-mark.svg"
-    wordmark = SOURCE / "gofer-wordmark.svg"
+    combination = SOURCE / "gofer-combination.svg"
     favicon = PUBLIC / "favicon.svg"
 
     for size in (1024, 512, 256, 128, 64, 48, 32, 16):
         render(mark, PNG / f"gofer-mark-{size}.png", size, size)
 
-    for width in (2048, 1024, 512, 256):
-        render(wordmark, PNG / f"gofer-wordmark-{width}.png", width, round(width * 256 / 800))
+    for width in (2048, 1200, 800, 400):
+        render(combination, PNG / f"gofer-combination-{width}.png", width)
 
     favicon_pngs = []
     for size in (16, 32, 48):

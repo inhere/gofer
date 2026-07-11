@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 320" role="img" aria-labelledby="title desc">
+  <title id="title">Gofer combination logo</title>
+  <desc id="desc">Gofer relay mark paired with a custom lowercase gofer wordmark</desc>
+  <g transform="translate(16 16) scale(.5625)">
+    <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+      <path d="M92 286c0-112 82-190 194-190h54" stroke="#4FB0C6" stroke-width="52"/>
+      <path d="m316 46 76 50-76 50" stroke="#4FB0C6" stroke-width="52"/>
+      <path d="M420 226c0 112-82 190-194 190h-54" stroke="#E8E2D4" stroke-width="52"/>
+      <path d="m196 466-76-50 76-50" stroke="#E8E2D4" stroke-width="52"/>
+    </g>
+    <g transform="rotate(45 256 256)">
+      <rect x="198" y="198" width="116" height="116" rx="18" fill="#E0A24A"/>
+      <path d="M227 227h58v58h-58z" fill="none" stroke="#0E1A24" stroke-width="14"/>
+    </g>
+  </g>
+  <g transform="translate(350 40)" fill="none" stroke="#E8E2D4" stroke-width="28" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M178 44h-54a58 58 0 1 0 0 116h54V60m0 92v20c0 24-18 36-48 36-18 0-34-4-48-12"/>
+    <rect x="228" y="44" width="116" height="116" rx="56"/>
+    <path d="M410 160V18c0-30 18-46 48-46 14 0 28 4 40 12M394 48h88"/>
+    <path d="M534 108h112v-8c0-34-24-56-56-56s-58 24-58 58 24 58 62 58c20 0 38-6 52-18"/>
+    <path d="M704 160V48m0 36c12-26 34-40 66-40"/>
+  </g>
+</svg>
