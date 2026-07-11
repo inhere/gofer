@@ -32,7 +32,7 @@ plan = 独立于 workflow 引擎的**轻量动态归组层**：`plans` 表存计
 | **P4** | session 续跑 UI + Plans 前端 | JobDetail「继续会话」入口（续投同 session_id + 继承 plan_id）；**会话链回看**（同 session 的 job 列表，T9.6）；`Plans.vue` 列表 + `PlanDetail.vue`；Board 加 plan 过滤维度；后端两处小改（T8 resume 继承 plan_id / T10 list 内联 counts） | [P4-frontend-plan.md](./P4-frontend-plan.md)（v0.3 代码级，T1..T11） | ✅ 已完成（2026-07-10，用户眼检通过） |
 | **P5** | job 血缘 + 快速重建 | `jobs.source_job_id` 血缘列（服务端盖章、`json:"-"` 不可伪造）；`POST /v1/jobs/{id}/rebuild`（服务端以源 request_json 为基底 + `env_set`/`env_unset`，**env 真值不进请求/响应序列化**）；`rerun` = rebuild 空 body；`GET /v1/jobs/{id}/request` 默认脱敏（关闭 `h-aii-xqe1` 的**直读裸吐**）；`?source_job=` 反查 | [P5-lineage-rebuild-plan.md](./P5-lineage-rebuild-plan.md)（v0.3 代码级，T1..T15） | ✅ 已完成（2026-07-10，对抗式复审后实施；**待用户重部署眼检**） |
 | **P6** | plan 生命周期 + 派生门禁 | `PATCH /v1/plans/{id}` 手动置状态（open/active/done/archived）+ client + CLI `plan set-status`/`archive` + PlanDetail 动作区；`ResumeJob`/`RebuildJob` 对**非终态源 job** 返回 `ErrJobNotTerminal`→400，前端两个派生按钮加 `isTerminalView` gate | [P6-lifecycle-and-gate-plan.md](./P6-lifecycle-and-gate-plan.md)（v0.1 代码级，T1..T7） | ✅ 已完成（2026-07-10；**待用户重部署 host server 眼检**） |
-| **P7** | interactive 续接修复 + env 删除 + serve --web-dir | ① env 新增行加删除按钮；② pty 交互会话「继续会话」完整打通（agent 交互 resume 模板 + resume 继承 interactive 起 pty job + 前端自动 attach；非交互源 prompt 必填，杜绝 `-p ""` 崩）；③ `gofer serve --web-dir` 从磁盘 dist 服务 web（dev 免重嵌） | [P7-resume-interactive-and-fixes-plan.md](./P7-resume-interactive-and-fixes-plan.md)（v0.1 代码级，T1..T5） | ⬜ 计划定稿，待执行 |
+| **P7** | interactive 续接修复 + env 删除 + serve --web-dir | ① env 新增行加删除按钮；② pty 交互会话「继续会话」完整打通（agent 交互 resume 模板 + resume 继承 interactive 起 pty job + 前端自动 attach；非交互源 prompt 必填，杜绝 `-p ""` 崩）；③ `gofer serve --web-dir` 从磁盘 dist 服务 web（dev 免重嵌） | [P7-resume-interactive-and-fixes-plan.md](./P7-resume-interactive-and-fixes-plan.md)（v0.1 代码级，T1..T5） | ✅ 已完成（2026-07-10；**待用户重部署 host server 眼检**） |
 
 > P1+P2 即打通「编排即归组」最小闭环（设计 §12 待确认 5 倾向）。P3/P4 增量叠加，不阻塞。
 > P5 由 P4 评审衍生（无 session 的 job 无法 resume → 需「重建」→ 需血缘键），与 plan 编排正交，独立成期。
@@ -49,7 +49,7 @@ plan = 独立于 workflow 引擎的**轻量动态归组层**：`plans` 表存计
 - [x] P4 session 续跑 UI + Plans 前端（T1..T11 全绿 + 用户眼检通过 2026-07-10，**已收官**）。5 commit：T8+T10 后端 / T1-T6 前端 / T7+T9 前端 / client 契约回归修复 / T11 收尾
 - [x] P5 job 血缘 + 快速重建（v0.3 定稿并实施，T1..T15 全绿）。4 commit：批1 T1-T5 数据层 / 批2 T6-T10 脱敏+rebuild / 批3 T11-T14 前端 / 测试加固。**待用户 `make web` + 重部署 server 眼检**
 - [x] P6 plan 生命周期（完结/归档）+ 派生操作终态门禁（T1..T7 全绿）。2 commit：T1-T3 后端 / T4-T6 前端。**待用户重部署 host server 眼检**
-- [ ] P7 interactive 续接修复 + env 删除 + serve --web-dir（用户重部署后实测发现的 3 个问题；问题 2 选 A 完整打通）
+- [x] P7 interactive 续接修复 + env 删除 + serve --web-dir（T1..T5 全绿）。2 commit：T2+T4 后端 / T1+T3 前端。**待用户重部署 host server 眼检**
 
 > SR1202：每个子阶段（T 级）完成后更新对应 checkbox 并 Git 提交，不要攒到最后。
 

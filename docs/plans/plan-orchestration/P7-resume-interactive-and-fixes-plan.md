@@ -208,19 +208,21 @@ func HandlerForDir(dir string) (http.Handler, bool) {
 ### T5 — 测试与验证门禁
 
 **5.1 后端（容器内）**
-- [ ] `go build ./... && go vet ./...` 绿。
-- [ ] 全量 `go test ./... -p 1 -count=1` 绿。
-- [ ] 新用例逐个 `-run '<Name>' -v -count=1` 确认真实执行。
-- [ ] `go list -deps` 无新增环（`webui` 加 `os` 依赖不影响分层）。
+- [x] `go build ./... && go vet ./...` 绿（容器 Linux）。
+- [x] 全量 `go test ./... -p 1 -count=1` 绿（34 包，禁缓存）。
+- [x] 新用例逐个 `-run -v -count=1` 确认真实执行（交互 resume 正/反向、非交互 argv 逐字回归、空 prompt 拒、agent 默认、HandlerForDir）。
+- [x] `go list -deps ./internal/webui` 无 gofer 内部依赖（叶包性质不变）。
 
 **5.2 前端（主机）**
-- [ ] `pnpm build` 绿（= `vue-tsc --noEmit && vite build`），主控经 `gofer job -a exec` 独立复跑。
+- [x] `pnpm build` 绿，主控经 `gofer job -a exec` 在主机独立复跑。
 
 **5.3 运行期冒烟（用户眼检，需重部署）**
 - 交互 pty 会话「继续会话」→ 起 pty job → 自动打开终端 → TUI 可继续（不再 `-p ""` 崩）。
 - 非交互 job「继续会话」空 prompt → 不能提交；填 prompt → 正常续投。
 - 「快速重建」env 新增行有「删除」。
 - `gofer serve --web-dir web/dist` → 改前端 `pnpm build` 后刷新即见。
+
+> **实施中的关键发现（v0.1 未预见，主控审并确认必要）**：resume 用 `exec` 载体 + `Interactive=true` 会被 `config.go` 准入门当作普通 interactive exec 拒绝（raw exec + interactive 是禁的组合）。故对 resume 载体（`req.ResumeSourceAgent != ""`，`json:"-"` 不可伪造）按**源 agent** 判交互门并豁免"不能带 Cmd"——与 resume 既有的 exec 门豁免同一安全模型。worker 场景：`ResumeSourceAgent` 沿 server→worker 内部 dispatch 帧（wsproto）传递，公开 HTTP job JSON 仍 `json:"-"`。安全边界两个方向均有测试锁死。
 
 ## 测试清单汇总
 
