@@ -60,7 +60,9 @@ const projectOptions = computed<MetaProject[]>(() => {
 - [x] T5.3 未选 worker（"先选 worker" 提示态）/ worker 无能力（回落全量，**fail-safe 绝不锁死**）空态
 - [x] `NewSchedule.vue` 同步（唯一分歧：无 interactive 开关，跳过该过滤，已注释说明）
 - [x] `pnpm build` 绿（**主机** `pnpm build` = `vue-tsc --noEmit && vite build` **双绿**，产出 NewJob/NewSchedule chunk）
-- [~] 手工浏览器冒烟：**建议人工验证**（需隔离 serve+worker+web 栈，重于本阶段收益；core G1/G2 已在 P3 真机冒烟证实，P5 为 fail-safe 加法式 UI 过滤 + typecheck 双绿）
+- [x] 手工浏览器冒烟：**真 Chrome(agent-browser)全 PASS** — 隔离 serve+worker+web(:8893, `--web-dir web/dist`)。A baseline `[alpha,beta]`/`[echoagent,exec]` → B runner=wrun 未选 worker 不变+"先选 worker"提示 → **C 选 worker w1: project→`[alpha]`、agent→`[exec]` 收窄且自动重收敛(非空白)** → D 切回 local 回宽、选择有效 → E interactive 开 agent→`[echoagent]`。literal `<select>` DOM 读取为证。
+
+> **浏览器冒烟确认的端到端缺口（超 P5 范围，归档 `tools-2gk`）**：worker-only project（host 未定义）**不出现在 NewJob 下拉**——`projectOptions` 从 host `meta.projects` 出发再按 worker 交集过滤，host 没有的 project 永进不了列表。故 **G1（可提交）与 G3（UI 级联）在 UI 层未接上**：worker-only project 能经 API/CLI 提交但 web 表单选不到。修法选项：(a) `/v1/meta` 并入在线 worker 上报 projects（带 source 标记）；(b) NewJob `projectOptions` 追加 `selectedWorker.projects` 里 host 没有的项。**待用户拍板是否本轮补 / 后续。**
 
 ## 实施补记（fail-safe 判断）
 

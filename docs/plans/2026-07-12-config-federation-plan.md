@@ -75,7 +75,7 @@ P1 协议+节点+版本闸 ──┬─→ P2 能力视图(snapshot/candidate/lo
 - [x] P2: `capabilitiesFor(local)`=全局 config（**含内置 exec**）；`capabilitiesFor(worker)`=上报能力、离线=不可用；`WorkerCandidate` 带 Projects/Agents 单测（8 表驱动用例）。
 - [x] P3: **逐分支单测**（local 缺 project 仍拒 / worker-only project 放行 / agent 不在 worker 拒 / 自动选无候选→ErrNoCapableWorker / worker 离线→fall-through 不拒）；worker-only project 结果落盘 `<config-dir>/remote/<key>/...`（R2 合成 proj）；真机双进程冒烟 5/5 PASS。
 - [x] P4: `/v1/meta` `metaAgent` 带 interactive、`metaWorker` 带 typed agents；`/v1/runners` workerView 带节点信息 + local 合成。契约单测绿。（web 类型对齐完成；`pnpm build` 待 P5 主机验证）
-- [x] P5: 选 worker runner → project/agent 下拉按该 worker 能力收窄；interactive agent 过滤；主机 `pnpm build`（vue-tsc+vite）双绿。手工浏览器冒烟建议人工验证。
+- [x] P5: 选 worker runner → project/agent 下拉按该 worker 能力收窄；interactive agent 过滤；主机 `pnpm build`（vue-tsc+vite）双绿。**真 Chrome 浏览器级联冒烟 A/B/C/D/E 全 PASS**（选 w1 → project→`[alpha]`/agent→`[exec]`；切回回宽；interactive 过滤）。→ 发现端到端缺口：worker-only project 在 web 下拉选不到（G1↔G3 未接），归档 `tools-2gk` 待拍板。
 - [x] 全量 `go build ./... && go vet ./... && go test ./... -p1 -count=1` 绿（最终认证 34 包 0 FAIL @ `070caab`）。
 - [x] 真机/隔离 serve+worker 端到端：worker-only project 提交成功（host 无该 project 定义，落盘 `<config-dir>/remote/<key>`）；错配 agent host 端即拒（P3 冒烟 5/5 PASS）。
 
