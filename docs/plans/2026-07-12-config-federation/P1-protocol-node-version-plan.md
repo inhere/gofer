@@ -124,11 +124,22 @@ type Register struct {
 
 **验收 T1.4**: `go build ./...` 绿；`gofer worker` 起来后（隔离）server 日志 accept 行含 `gofer_version`/`arch`（或 `/v1/runners` P4 后可见）。
 
-## P1 验收总纲
+## P1 验收总纲 — ✅ 全部完成（commit `ad29db9` + `64a05ef`）
 
-- [ ] T1.1 帧字段 + AgentBrief + ProtocolVersion 常量 + 往返/旧帧兼容单测绿
-- [ ] T1.2 版本闸 + 既有 hub fixture 补版本号 + 拒绝/接受单测绿
-- [ ] T1.3 worker 填充 AgentCaps/节点信息 + helper 单测绿
-- [ ] T1.4 buildinfo 接线 worker，`go build ./...` 绿
-- [ ] `go test ./internal/wsproto/... ./internal/wshub/... ./internal/worker/... -count=1` 绿
-- [ ] 隔离 serve+worker 冒烟：新 worker 连上被 accept；模拟旧 worker(ProtocolVersion 0)被拒 + Reason 含升级提示
+- [x] T1.1 帧字段 + AgentBrief + ProtocolVersion 常量 + 往返/旧帧兼容单测绿
+- [x] T1.2 版本闸 + 既有 hub fixture 补版本号 + 拒绝/接受单测绿
+- [x] T1.3 worker 填充 AgentCaps/节点信息 + helper 单测绿
+- [x] T1.4 buildinfo 接线 worker，`go build ./...` 绿
+- [x] `go test ./internal/wsproto/... ./internal/wshub/... ./internal/worker/... -count=1` 绿（全量 34 包 0 FAIL）
+- [x] 隔离 serve+worker 冒烟(:8891)：新 worker accept(`proto=2 arch=amd64 agent_caps=1`)；旧 worker(proto 0)被拒 + Reason「worker 协议版本过旧(v0)，请升级 worker 到 v2 后重连」，且拒绝发生在 registry Put **之前**（不扰动在线 worker）
+
+## 实施补记（对抗式复审拦下的 2 个真 bug，已在 `64a05ef` 修复）
+
+复审发现 T1.3 的能力上报**从原始 config map 构建**，有两处失真——**P1 内潜伏、P2/P3 必炸**（P3 要按上报能力做 fail-fast）：
+
+1. **漏内置 `exec`**：worker 的 agent registry 让 `exec` 恒可用（即使未声明），而随附 `config/worker.example.yaml` 的 `agents:` 整块是注释掉的 → 标准 exec-only worker 上报**零 agent**，在 P3 会被判定不可路由。
+2. **type 失真**：裸 `exec:` 块（无 `type:`）被上报为 `type:""`（registry 会规范化为 `exec`）。
+
+**修法**：`agentKeys`(key 列表，P3 校验用) 与 `agentBriefs`(AgentCaps，UI 用) 改为**共用同一 resolved 集合** `keys(cfg.Agents) ∪ {exec}`，逐个经 `agent.ResolveAgent` 取**解析后**的 Type/Interactive，两者不可能漂移。
+> 刻意**不**把空 Type 兜底成 `cli-agent`：`agent/adapter.go` 对非 exec 的空 type 是**硬错**，兜底会把坏 agent 误报为可用。取 `ResolveAgent` 的类型原值即正确。
+> 回归测试解析**真实随附的** `worker.example.yaml`，锁死"注释掉 agents 块 → 仍上报 exec"。
