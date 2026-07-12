@@ -30,11 +30,15 @@ type metaProject struct {
 	DefaultAgent   string   `json:"default_agent,omitempty"`
 }
 
-// metaAgent is one selectable agent: its key plus type (cli-agent vs exec) which
-// the form keys on to show a prompt textarea (cli-agent) or a command input (exec).
+// metaAgent is one selectable agent: its key, type (cli-agent vs exec) which the
+// form keys on to show a prompt textarea (cli-agent) or a command input (exec), and
+// the interactive flag (P4) so the cascade can filter interactive agents. Type +
+// interactive come from the RESOLVED agent registry (built-in exec included with
+// type exec), not the raw cfg.Agents map (consistency with P1's worker report).
 type metaAgent struct {
-	Key  string `json:"key"`
-	Type string `json:"type"`
+	Key         string `json:"key"`
+	Type        string `json:"type"`
+	Interactive bool   `json:"interactive,omitempty"`
 }
 
 // metaRunner is one selectable runner: name + type (local / peer-http / worker).
@@ -49,11 +53,14 @@ type metaRunner struct {
 // same WorkerStatus snapshot /v1/runners uses (so the two views agree); a
 // configured-but-disconnected worker reports connected=false with no labels.
 type metaWorker struct {
-	ID        string   `json:"id"`
-	Labels    []string `json:"labels,omitempty"`
-	Projects  []string `json:"projects,omitempty"`
-	Agents    []string `json:"agents,omitempty"`
-	Connected bool     `json:"connected"`
+	ID       string   `json:"id"`
+	Labels   []string `json:"labels,omitempty"`
+	Projects []string `json:"projects,omitempty"`
+	// Agents stays the bare-key list (back-compat); AgentCaps carries the typed
+	// detail (key/type/interactive) the P4 cascade narrows the agent dropdown by.
+	Agents    []string     `json:"agents,omitempty"`
+	AgentCaps []AgentBrief `json:"agent_caps,omitempty"`
+	Connected bool         `json:"connected"`
 }
 
 // handleMeta returns the aggregated form options (G4). Each group is always a
@@ -101,7 +108,7 @@ func (s *Server) metaAgents() []metaAgent {
 	sort.Strings(keys)
 	out := make([]metaAgent, 0, len(keys))
 	for _, k := range keys {
-		out = append(out, metaAgent{Key: k, Type: list[k].Type})
+		out = append(out, metaAgent{Key: k, Type: list[k].Type, Interactive: list[k].Interactive})
 	}
 	return out
 }
@@ -148,6 +155,7 @@ func (s *Server) metaWorkers() []metaWorker {
 				mw.Labels = ws.Labels
 				mw.Projects = ws.Projects
 				mw.Agents = ws.Agents
+				mw.AgentCaps = ws.AgentCaps
 			}
 		}
 		out = append(out, mw)

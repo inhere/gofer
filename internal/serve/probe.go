@@ -30,7 +30,28 @@ func (a hubWorkerRegistry) WorkerStatus(workerID string) (httpapi.WorkerStatus, 
 		Labels:        snap.Labels,
 		Projects:      snap.Projects,
 		Agents:        snap.Agents,
+		AgentCaps:     briefsFromSnapshot(snap),
+		OS:            snap.OS,
+		Arch:          snap.Arch,
+		GoferVersion:  snap.GoferVersion,
+		StartedAt:     snap.StartedAt,
 	}, true
+}
+
+// briefsFromSnapshot converts the wshub snapshot's typed agent capabilities into
+// httpapi's local AgentBrief type (P4 T4.1). Doing the field copy here — ranging
+// the snapshot rather than naming wsproto.AgentBrief — keeps httpapi free of any
+// wshub/wsproto import (the D2 boundary). Returns nil for an empty input so the
+// view's json omitempty tag drops the field.
+func briefsFromSnapshot(snap wshub.WorkerSnapshot) []httpapi.AgentBrief {
+	if len(snap.AgentCaps) == 0 {
+		return nil
+	}
+	out := make([]httpapi.AgentBrief, 0, len(snap.AgentCaps))
+	for _, c := range snap.AgentCaps {
+		out = append(out, httpapi.AgentBrief{Key: c.Key, Type: c.Type, Interactive: c.Interactive})
+	}
+	return out
 }
 
 // workerCounts returns (connected, totalInFlight) across the config-registered

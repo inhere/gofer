@@ -33,6 +33,18 @@ const (
 	statusUnknown      = "unknown"      // no signal yet
 )
 
+// AgentBrief is httpapi's local typed agent capability (key + type + interactive),
+// the detail the web capability cascade needs beyond a bare agent key. It mirrors
+// wsproto.AgentBrief but is redeclared here so httpapi never imports wshub/wsproto
+// (the D2 boundary): the serve-side adapter converts the wshub snapshot into this
+// type. It is exported because that adapter (package serve) constructs it. The JSON
+// tags match wsproto/the web MetaAgent shape (type/interactive omitempty).
+type AgentBrief struct {
+	Key         string `json:"key"`
+	Type        string `json:"type,omitempty"`
+	Interactive bool   `json:"interactive,omitempty"`
+}
+
 // WorkerStatus is the read-only worker view the handler renders (C6/P4). It is
 // produced by the serve-side adapter from the wshub registry snapshot, so httpapi
 // never imports wshub's internal types. Connected=false means offline / never
@@ -43,7 +55,16 @@ type WorkerStatus struct {
 	InFlight      int
 	Labels        []string
 	Projects      []string
-	Agents        []string
+	// Agents stays the bare agent-key list (validation / selector, back-compat);
+	// AgentCaps carries the typed detail (type/interactive) the UI cascade needs.
+	Agents    []string
+	AgentCaps []AgentBrief
+	// Node info reported by the worker on register (P1), surfaced for the P4
+	// runners observability panel.
+	OS           string
+	Arch         string
+	GoferVersion string
+	StartedAt    int64 // worker process start, unix seconds
 }
 
 // runnerProber is the consumer-side narrow interface (D2) the handler reads the
@@ -64,11 +85,18 @@ type workerRegistry interface {
 
 // runnerView is one row of the /v1/runners response (C6/P4 §5). Type-specific
 // blocks (Probe / Worker / BaseURL / WorkerID) are omitted when empty so a local
-// runner stays a clean three-field object.
+// runner stays a clean object.
 type runnerView struct {
 	Name   string `json:"name"`
 	Type   string `json:"type"`
 	Status string `json:"status"`
+
+	// Capabilities is the projects + typed agents this runner can serve, so the web
+	// can cascade project→agent per runner (P4 T4.3). It is present on the implicit
+	// local row (synthesized from the server's own config) and on connected worker
+	// rows (from the worker's register report) — uniform across runner types; a
+	// peer-http row has no known capabilities and omits it.
+	Capabilities *capsView `json:"capabilities,omitempty"`
 
 	// peer-http
 	BaseURL string     `json:"base_url,omitempty"`
@@ -79,6 +107,14 @@ type runnerView struct {
 	Worker   *workerView `json:"worker,omitempty"`
 }
 
+// capsView is a runner's capability summary (projects + typed agents) the web reads
+// to cascade project→agent for a chosen runner. On worker rows the same data also
+// lives in .worker; on the local row it is synthesized from the server's config.
+type capsView struct {
+	Projects  []string     `json:"projects,omitempty"`
+	AgentCaps []AgentBrief `json:"agent_caps,omitempty"`
+}
+
 // probeView is the peer-http probe detail (millis timestamp / latency / error).
 type probeView struct {
 	CheckedAt int64  `json:"checked_at"`
@@ -87,14 +123,22 @@ type probeView struct {
 }
 
 // workerView is the worker connection detail. HeartbeatAgeMS is computed at read
-// time from LastHeartbeat so the operator sees staleness directly.
+// time from LastHeartbeat so the operator sees staleness directly. AgentCaps + node
+// info (P4) enrich the observability panel with the worker's typed capabilities and
+// runtime; Agents stays the bare-key list for back-compat.
 type workerView struct {
-	LastHeartbeat  int64    `json:"last_heartbeat"`
-	HeartbeatAgeMS int64    `json:"heartbeat_age_ms"`
-	InFlight       int      `json:"in_flight"`
-	Labels         []string `json:"labels,omitempty"`
-	Projects       []string `json:"projects,omitempty"`
-	Agents         []string `json:"agents,omitempty"`
+	LastHeartbeat  int64        `json:"last_heartbeat"`
+	HeartbeatAgeMS int64        `json:"heartbeat_age_ms"`
+	InFlight       int          `json:"in_flight"`
+	Labels         []string     `json:"labels,omitempty"`
+	Projects       []string     `json:"projects,omitempty"`
+	Agents         []string     `json:"agents,omitempty"`
+	AgentCaps      []AgentBrief `json:"agent_caps,omitempty"`
+	// Node info reported on register (P1).
+	OS           string `json:"os,omitempty"`
+	Arch         string `json:"arch,omitempty"`
+	GoferVersion string `json:"gofer_version,omitempty"`
+	StartedAt    int64  `json:"started_at,omitempty"`
 }
 
 // handleListRunners returns the status of every configured runner plus the
@@ -105,8 +149,15 @@ type workerView struct {
 func (s *Server) handleListRunners(c *rux.Context) {
 	out := make([]runnerView, 0, len(s.runners)+1)
 
-	// The implicit local runner is always present and always up (in-process).
-	out = append(out, runnerView{Name: runnerTypeLocal, Type: runnerTypeLocal, Status: statusUp})
+	// The implicit local runner is always present and always up (in-process). Its
+	// capabilities are synthesized from the server's own config so the web can
+	// cascade project→agent on local just as it does for worker runners (P4 T4.3).
+	out = append(out, runnerView{
+		Name:         runnerTypeLocal,
+		Type:         runnerTypeLocal,
+		Status:       statusUp,
+		Capabilities: s.localCapabilities(),
+	})
 
 	probes := s.probeIndex()
 	for name, rc := range s.runners {
@@ -193,6 +244,41 @@ func (s *Server) renderWorkerStatus(workerID string, v *runnerView) string {
 		Labels:         ws.Labels,
 		Projects:       ws.Projects,
 		Agents:         ws.Agents,
+		AgentCaps:      ws.AgentCaps,
+		OS:             ws.OS,
+		Arch:           ws.Arch,
+		GoferVersion:   ws.GoferVersion,
+		StartedAt:      ws.StartedAt,
 	}
+	// Surface the same capability summary uniformly on the runner row so the web can
+	// cascade project→agent for a worker runner exactly as it does for local (P4).
+	v.Capabilities = &capsView{Projects: ws.Projects, AgentCaps: ws.AgentCaps}
 	return statusConnected
+}
+
+// localCapabilities synthesizes the implicit local runner's capability summary:
+// every configured project key + the resolved agent set (built-in exec always
+// present, with its true type), so the web can cascade project→agent for the local
+// runner just as it does for worker runners (P4 T4.3).
+func (s *Server) localCapabilities() *capsView {
+	return &capsView{Projects: s.projects.List(), AgentCaps: s.localAgentCaps()}
+}
+
+// localAgentCaps builds the typed agent capability list for the local runner from
+// the RESOLVED agent registry (agent.Registry.List includes the built-in exec with
+// its normalised type — mirroring P1's worker report), sorted by key for a stable
+// response. Reading the resolved registry (not the raw config map) is what keeps the
+// local capability set from under-reporting exec.
+func (s *Server) localAgentCaps() []AgentBrief {
+	list := s.agents.List()
+	keys := make([]string, 0, len(list))
+	for k := range list {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	out := make([]AgentBrief, 0, len(keys))
+	for _, k := range keys {
+		out = append(out, AgentBrief{Key: k, Type: list[k].Type, Interactive: list[k].Interactive})
+	}
+	return out
 }

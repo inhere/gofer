@@ -528,6 +528,14 @@ export interface RunnerProbe {
   error?: string
 }
 
+// worker/runner 上报的 typed agent 能力（P4）。type: cli-agent|exec；
+// interactive 省略即 false。前端级联据 type/interactive 收窄 agent 下拉。
+export interface AgentBrief {
+  key: string
+  type?: string
+  interactive?: boolean
+}
+
 // worker 连接明细。heartbeat_age_ms 由后端读取时即时计算。
 export interface RunnerWorker {
   // Unix 毫秒
@@ -537,12 +545,28 @@ export interface RunnerWorker {
   labels?: string[]
   projects?: string[]
   agents?: string[]
+  // typed agent 能力（key/type/interactive）与节点信息（P4，可观测面板）。
+  agent_caps?: AgentBrief[]
+  os?: string
+  arch?: string
+  gofer_version?: string
+  // worker 进程启动时间（Unix 秒）
+  started_at?: number
+}
+
+// 运行器能力摘要（projects + typed agents）：local 行由服务端配置合成、
+// worker 行同源 .worker（P4）。前端据此对所选 runner 级联 project→agent。
+export interface RunnerCapabilities {
+  projects?: string[]
+  agent_caps?: AgentBrief[]
 }
 
 export interface Runner {
   name: string
   type: RunnerType
   status: RunnerStatus
+  // 能力摘要（local 合成 / worker 上报；peer-http 无）
+  capabilities?: RunnerCapabilities
   // peer-http
   base_url?: string
   probe?: RunnerProbe
@@ -568,6 +592,8 @@ export interface MetaAgent {
   key: string
   // cli-agent | exec（前端据此切换 prompt 文本域 / command 输入）
   type: string
+  // 交互式 agent（P4）——级联据此过滤；省略即 false
+  interactive?: boolean
 }
 
 export interface MetaRunner {
@@ -580,6 +606,8 @@ export interface MetaWorker {
   labels?: string[]
   projects?: string[]
   agents?: string[]
+  // typed agent 能力（P4）：级联收窄目标 worker 的 agent 下拉
+  agent_caps?: AgentBrief[]
   connected: boolean
 }
 

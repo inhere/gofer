@@ -178,6 +178,81 @@ func TestListRunnersWorker(t *testing.T) {
 	}
 }
 
+// TestListRunnersWorkerAgentCapsAndNode (P4 T4.3): a connected worker row carries
+// the typed agent_caps + node info in .worker, and the same caps surface uniformly
+// on the runner row's .capabilities so the web can cascade project→agent.
+func TestListRunnersWorkerAgentCapsAndNode(t *testing.T) {
+	const now = int64(1750300005000)
+	orig := nowMillis
+	nowMillis = func() int64 { return now }
+	defer func() { nowMillis = orig }()
+
+	runnersCfg := map[string]config.RunnerConfig{
+		"r-online": {Type: "worker", WorkerID: "w-online"},
+	}
+	workers := fakeWorkers{
+		"w-online": {
+			Connected:     true,
+			LastHeartbeat: now - 500,
+			InFlight:      1,
+			Projects:      []string{"proj-a"},
+			Agents:        []string{"exec", "claude"},
+			AgentCaps: []AgentBrief{
+				{Key: "exec", Type: "exec"},
+				{Key: "claude", Type: "cli-agent", Interactive: true},
+			},
+			OS:           "linux",
+			Arch:         "amd64",
+			GoferVersion: "v1.2.3",
+			StartedAt:    1750299000,
+		},
+	}
+	rows := byName(listRunners(t, newRunnersServer(t, runnersCfg, nil, workers)))
+	on := rows["r-online"]
+	if on.Worker == nil {
+		t.Fatalf("online worker row missing worker detail: %+v", on)
+	}
+	if on.Worker.OS != "linux" || on.Worker.Arch != "amd64" ||
+		on.Worker.GoferVersion != "v1.2.3" || on.Worker.StartedAt != 1750299000 {
+		t.Fatalf("worker node info wrong: %+v", on.Worker)
+	}
+	caps := map[string]AgentBrief{}
+	for _, c := range on.Worker.AgentCaps {
+		caps[c.Key] = c
+	}
+	if caps["claude"].Type != "cli-agent" || !caps["claude"].Interactive {
+		t.Fatalf("worker agent_caps claude wrong: %+v", on.Worker.AgentCaps)
+	}
+	if caps["exec"].Type != "exec" || caps["exec"].Interactive {
+		t.Fatalf("worker agent_caps exec wrong: %+v", on.Worker.AgentCaps)
+	}
+	if on.Capabilities == nil || len(on.Capabilities.AgentCaps) != 2 ||
+		len(on.Capabilities.Projects) != 1 || on.Capabilities.Projects[0] != "proj-a" {
+		t.Fatalf("worker row .capabilities should mirror worker caps: %+v", on.Capabilities)
+	}
+}
+
+// TestListRunnersLocalCapabilities (P4 T4.3): the implicit local row carries
+// synthesized capabilities — every configured project + the resolved agent set
+// (built-in exec included) — so the web can cascade on local too.
+func TestListRunnersLocalCapabilities(t *testing.T) {
+	rows := byName(listRunners(t, newRunnersServer(t, nil, nil, nil)))
+	local := rows["local"]
+	if local.Capabilities == nil {
+		t.Fatalf("local row must carry synthesized capabilities: %+v", local)
+	}
+	if len(local.Capabilities.Projects) != 1 || local.Capabilities.Projects[0] != "self" {
+		t.Fatalf("local capabilities projects wrong: %+v", local.Capabilities.Projects)
+	}
+	caps := map[string]AgentBrief{}
+	for _, c := range local.Capabilities.AgentCaps {
+		caps[c.Key] = c
+	}
+	if a, ok := caps["exec"]; !ok || a.Type != "exec" {
+		t.Fatalf("local capabilities must include built-in exec with type exec: %+v", local.Capabilities.AgentCaps)
+	}
+}
+
 // TestListRunnersWorkerNoRegistry: with a nil workers registry every worker row
 // is `unknown` (P3/registry not wired).
 func TestListRunnersWorkerNoRegistry(t *testing.T) {

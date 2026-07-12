@@ -38,17 +38,26 @@ func newMetaServer(t *testing.T, workers workerRegistry) *Server {
 			},
 		},
 		Agents: map[string]config.AgentConfig{
-			"codex": {Type: "cli-agent"},
-			"exec":  {Type: "exec"},
+			"codex":  {Type: "cli-agent"},
+			"claude": {Type: "cli-agent", Interactive: true},
+			"exec":   {Type: "exec"},
 		},
 		Runners: map[string]config.RunnerConfig{
 			"w": {Type: "worker", WorkerID: "w-online"},
 		},
 	}
+	return wireMetaServer(t, cfg, workers)
+}
+
+// wireMetaServer wires a Server from an already-built config (shared by the fixtures
+// so a test can vary the config — e.g. omit the exec agent to exercise built-in
+// resolution). cfg.Storage.Root must be set (the backing store lives under it).
+func wireMetaServer(t *testing.T, cfg *config.Config, workers workerRegistry) *Server {
+	t.Helper()
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
+	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, cfg.Storage.Root), nil)
 	jobsEng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(jobsEng)
 	return New(&cfg.Server, testToken, false, jobs, jobsEng, projects, agents, nil, cfg.Runners, nil, workers)
@@ -168,6 +177,90 @@ func TestMetaWorkerConnectedMatchesRunners(t *testing.T) {
 	}
 	if len(wr.Worker.Projects) != len(online.Projects) || len(wr.Worker.Agents) != len(online.Agents) {
 		t.Fatalf("meta vs /v1/runners projects/agents mismatch: meta=%+v runners=%+v", online, wr.Worker)
+	}
+}
+
+// TestMetaAgentInteractive (P4 T4.2): metaAgent carries the resolved interactive
+// flag — true for an interactive cli-agent, absent/false for others — and the
+// built-in exec is present with type exec.
+func TestMetaAgentInteractive(t *testing.T) {
+	m := getMeta(t, newMetaServer(t, nil))
+	byKey := map[string]metaAgent{}
+	for _, a := range m.Agents {
+		byKey[a.Key] = a
+	}
+	if a, ok := byKey["claude"]; !ok || a.Type != "cli-agent" || !a.Interactive {
+		t.Fatalf("claude should be interactive cli-agent: %+v", byKey["claude"])
+	}
+	if a := byKey["codex"]; a.Interactive {
+		t.Fatalf("codex should not be interactive: %+v", a)
+	}
+	if a, ok := byKey["exec"]; !ok || a.Type != "exec" || a.Interactive {
+		t.Fatalf("exec should be present, type exec, non-interactive: %+v", byKey["exec"])
+	}
+}
+
+// TestMetaAgentExecBuiltin (P4 T4.2): the local agent set comes from the RESOLVED
+// registry, so the built-in exec is listed with type exec even when the config
+// never declares an exec agent (consistency with P1's worker capability report).
+func TestMetaAgentExecBuiltin(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		Server:  config.ServerConfig{Token: testToken},
+		Storage: config.StorageConfig{Root: root},
+		Projects: map[string]config.ProjectConfig{
+			"p": {HostPath: root, AllowExec: true},
+		},
+		Agents: map[string]config.AgentConfig{
+			"codex": {Type: "cli-agent"}, // note: NO exec declared
+		},
+	}
+	m := getMeta(t, wireMetaServer(t, cfg, nil))
+	byKey := map[string]metaAgent{}
+	for _, a := range m.Agents {
+		byKey[a.Key] = a
+	}
+	if a, ok := byKey["exec"]; !ok || a.Type != "exec" {
+		t.Fatalf("built-in exec must be listed with type exec even undeclared: %+v", m.Agents)
+	}
+}
+
+// TestMetaWorkerAgentCaps (P4 T4.2): a connected worker's metaWorker.agent_caps
+// carries the typed {key,type,interactive} detail; an offline worker carries none.
+func TestMetaWorkerAgentCaps(t *testing.T) {
+	workers := fakeWorkers{
+		"w-online": {
+			Connected:     true,
+			LastHeartbeat: 1750300000000,
+			Projects:      []string{"proj-a"},
+			Agents:        []string{"exec", "claude"},
+			AgentCaps: []AgentBrief{
+				{Key: "exec", Type: "exec"},
+				{Key: "claude", Type: "cli-agent", Interactive: true},
+			},
+		},
+	}
+	m := getMeta(t, newMetaServer(t, workers))
+	byID := map[string]metaWorker{}
+	for _, w := range m.Workers {
+		byID[w.ID] = w
+	}
+	on := byID["w-online"]
+	caps := map[string]AgentBrief{}
+	for _, c := range on.AgentCaps {
+		caps[c.Key] = c
+	}
+	if len(on.AgentCaps) != 2 {
+		t.Fatalf("w-online should carry 2 agent_caps, got %+v", on.AgentCaps)
+	}
+	if caps["claude"].Type != "cli-agent" || !caps["claude"].Interactive {
+		t.Fatalf("claude cap wrong: %+v", caps["claude"])
+	}
+	if caps["exec"].Type != "exec" || caps["exec"].Interactive {
+		t.Fatalf("exec cap wrong: %+v", caps["exec"])
+	}
+	if off := byID["w-offline"]; len(off.AgentCaps) != 0 {
+		t.Fatalf("offline worker must carry no agent_caps: %+v", off)
 	}
 }
 

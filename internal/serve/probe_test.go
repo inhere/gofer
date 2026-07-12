@@ -10,6 +10,8 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/wshub"
+	"github.com/inhere/gofer/internal/wsproto"
 )
 
 // proberFor builds a runner.PeerProber over a single peer-http runner pointing at
@@ -78,5 +80,30 @@ func TestHubWorkerRegistryNilHub(t *testing.T) {
 	a := hubWorkerRegistry{hub: nil}
 	if _, ok := a.WorkerStatus("w1"); ok {
 		t.Fatal("nil hub adapter should report ok=false")
+	}
+}
+
+// TestBriefsFromSnapshot (P4 T4.1): the adapter maps the wshub snapshot's typed
+// agent capabilities into httpapi's local AgentBrief type field-for-field, and an
+// empty capability set maps to nil (so the view's json omitempty drops the field).
+func TestBriefsFromSnapshot(t *testing.T) {
+	snap := wshub.WorkerSnapshot{
+		AgentCaps: []wsproto.AgentBrief{
+			{Key: "exec", Type: "exec"},
+			{Key: "claude", Type: "cli-agent", Interactive: true},
+		},
+	}
+	got := briefsFromSnapshot(snap)
+	if len(got) != 2 {
+		t.Fatalf("want 2 briefs, got %+v", got)
+	}
+	if got[0].Key != "exec" || got[0].Type != "exec" || got[0].Interactive {
+		t.Fatalf("exec brief wrong: %+v", got[0])
+	}
+	if got[1].Key != "claude" || got[1].Type != "cli-agent" || !got[1].Interactive {
+		t.Fatalf("claude brief wrong: %+v", got[1])
+	}
+	if briefsFromSnapshot(wshub.WorkerSnapshot{}) != nil {
+		t.Fatal("empty snapshot must map to nil (json omitempty)")
 	}
 }
