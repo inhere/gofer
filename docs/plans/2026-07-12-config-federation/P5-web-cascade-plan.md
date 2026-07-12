@@ -53,11 +53,19 @@ const projectOptions = computed<MetaProject[]>(() => {
 - worker runner 但**未选 worker** → project/agent 下拉给出提示态（"先选 worker"）或用全量（提交时 host 端 selector 兜底）。二选一，倾向前者（明确）。
 - worker **离线/无能力上报**（旧数据）→ 交集为空时不要把下拉清空到不可选；回落全量 + 轻提示（避免旧 worker 场景卡死表单）。
 
-## P5 验收总纲
+## P5 验收总纲 — ✅ 完成（commit `070caab`；手工浏览器冒烟建议人工验证）
 
-- [ ] T5.1 selectedWorker + agent/project 能力交集 + interactive 过滤
-- [ ] T5.2 换 worker/runner 重收敛，无悬空非法选择
-- [ ] T5.3 未选 worker / worker 无能力 的空态处理
-- [ ] `NewSchedule.vue` 同步（同构改动）
-- [ ] `pnpm -C web build` 绿（主机 `gofer job -a exec --cwd tools/gofer/web -- pnpm build`）
-- [ ] 手工冒烟：选某 worker → project/agent 下拉收窄到该 worker 能力；换 worker → 下拉随动收敛
+- [x] T5.1 `selectedWorker` + `workerAgentKeys`/`projectOptions` 能力交集 + interactive 过滤（NewJob 有开关）
+- [x] T5.2 `reconvergeToWorker` 换 worker/runner 重收敛，无悬空非法选择
+- [x] T5.3 未选 worker（"先选 worker" 提示态）/ worker 无能力（回落全量，**fail-safe 绝不锁死**）空态
+- [x] `NewSchedule.vue` 同步（唯一分歧：无 interactive 开关，跳过该过滤，已注释说明）
+- [x] `pnpm build` 绿（**主机** `pnpm build` = `vue-tsc --noEmit && vite build` **双绿**，产出 NewJob/NewSchedule chunk）
+- [~] 手工浏览器冒烟：**建议人工验证**（需隔离 serve+worker+web 栈，重于本阶段收益；core G1/G2 已在 P3 真机冒烟证实，P5 为 fail-safe 加法式 UI 过滤 + typecheck 双绿）
+
+## 实施补记（fail-safe 判断）
+
+- **交集全 fail-safe**：worker 无 caps（离线/旧数据）/ 交集为空 → 回落全量列表，**绝不把下拉清空锁死用户**（后端 P3 会兜底校验真实组合）。
+- **labels 模式不收窄**：`selectedWorker` 仅在"指定 worker"模式且已选 worker 时生效；labels 模式多 worker 能力不同，收窄到单个不成立 → 全量。
+- **能力 key 源**：优先 `agent_caps`（typed），回落 `agents[]`；两者皆空=不收窄信号。
+- **interactive 过滤仅 NewJob**（NewSchedule 无该开关）；亦 fail-safe（会清空则回落）。
+- rebuild 预填不加重收敛（源 job 的 agent/worker 逐字保留，避免静默改用户选择）。

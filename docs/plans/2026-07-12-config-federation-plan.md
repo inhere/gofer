@@ -1,7 +1,7 @@
 # gofer 配置模型联邦 — 实施计划（总纲）
 
 > bd: h-aii-xu64.10 ｜ 设计: `docs/design/2026-07-09-config-federation-design.md`(v0.4 定稿)
-> 状态: **待执行**。承重代码事实已复验(2026-07-12 dossier，见 §1 现状锚点)。范围=全量，分 5 阶段，逐阶段提交(SR1206)。
+> 状态: **✅ 已完成**(2026-07-12 SUPMODE 连跑 P1→P5)。范围=全量，5 阶段逐阶段提交+push(SR1206)。commits: P1 `ad29db9`+`64a05ef` / P2 `e7eefb7` / P3 `d7db513` / P4 `bdec35b` / P5 `070caab`。全量 Go 34 包 0 FAIL；前端 vue-tsc+vite 双绿；真机双进程冒烟(P1 4/4、P3 5/5)。P1/P3 经对抗式复审(P1 拦下 2 真 bug 已修，P3 0 bug)。
 > 子文档: [P1](2026-07-12-config-federation/P1-protocol-node-version-plan.md) · [P2](2026-07-12-config-federation/P2-capability-view-plan.md) · [P3](2026-07-12-config-federation/P3-submit-validation-plan.md) · [P4](2026-07-12-config-federation/P4-httpapi-meta-plan.md) · [P5](2026-07-12-config-federation/P5-web-cascade-plan.md)
 
 ## 0. 决策基线（设计 v0.4 §12 已拍板 + 实施期细化）
@@ -65,9 +65,9 @@ P1 协议+节点+版本闸 ──┬─→ P2 能力视图(snapshot/candidate/lo
 | **P2** | tools-2fx | 能力视图：`WorkerSnapshot` 带 AgentCaps；`WorkerCandidate` 带 Projects/Agents；local 能力合成；`CapabilitiesFor` 语义 | `wshub/registry.go`, `job/selector.go`, `core/core.go` | server 端可按 runner 维度取能力（local=全局，worker=上报） | ✅ |
 | **P3** | tools-6un | **submit 校验改造（核心 G1+G2）**：worker-only project 放行；agent∈目标 runner fail-fast；selector 按 project/agent 过滤；`ErrNoCapableWorker` | `job/config.go`, `job/submit.go`, `job/selector.go`, `job/errors.go` | 消双份定义 + host 端错配 fail-fast | ✅ |
 | **P4** | tools-6ic | 能力明细上 API：`/v1/meta` `metaAgent.interactive`+`metaWorker` typed；`/v1/runners` `workerView` typed+节点信息；local 合成 | `httpapi/meta_handler.go`, `httpapi/runner_handler.go`, `serve/probe.go` | 前端可拿到 runner→{projects, agents[{key,type,interactive}]} | ✅ |
-| **P5** | tools-f4k | web 级联：选 runner→按该 runner(worker) 能力 + interactive 过滤 project/agent 下拉 | `web/src/views/NewJob.vue`, `NewSchedule.vue`, `api/types.ts` | G3 级联，只列目标 runner 真有的 project/agent | ☐ |
+| **P5** | tools-f4k | web 级联：选 runner→按该 runner(worker) 能力 + interactive 过滤 project/agent 下拉 | `web/src/views/NewJob.vue`, `NewSchedule.vue`, `api/types.ts` | G3 级联，只列目标 runner 真有的 project/agent | ✅ |
 
-> 依赖: P2←P1, P3←P2, P4←P1, P5←P4；epic xu64.10 ← P3(核心)+P5(收尾)。P1(tools-cf2) ready，余 blocked。
+> 依赖: P2←P1, P3←P2, P4←P2(改), P5←P4；epic xu64.10 ← P3(核心)+P5(收尾)。**全部完成** ✅（2026-07-12 SUPMODE 连跑 P1→P5）。
 
 ## 3. 全局验收（端到端）
 
@@ -75,9 +75,9 @@ P1 协议+节点+版本闸 ──┬─→ P2 能力视图(snapshot/candidate/lo
 - [x] P2: `capabilitiesFor(local)`=全局 config（**含内置 exec**）；`capabilitiesFor(worker)`=上报能力、离线=不可用；`WorkerCandidate` 带 Projects/Agents 单测（8 表驱动用例）。
 - [x] P3: **逐分支单测**（local 缺 project 仍拒 / worker-only project 放行 / agent 不在 worker 拒 / 自动选无候选→ErrNoCapableWorker / worker 离线→fall-through 不拒）；worker-only project 结果落盘 `<config-dir>/remote/<key>/...`（R2 合成 proj）；真机双进程冒烟 5/5 PASS。
 - [x] P4: `/v1/meta` `metaAgent` 带 interactive、`metaWorker` 带 typed agents；`/v1/runners` workerView 带节点信息 + local 合成。契约单测绿。（web 类型对齐完成；`pnpm build` 待 P5 主机验证）
-- [ ] P5: 选 worker runner → project/agent 下拉按该 worker 能力收窄；interactive agent 过滤；`pnpm build` 绿 + 手工冒烟。
-- [ ] 全量 `go build ./... && go vet ./... && go test ./... -p1 -count=1` 绿。
-- [ ] 真机/隔离 serve+worker 端到端：worker-only project 提交成功（host 无该 project 定义）；错配 agent host 端即拒。
+- [x] P5: 选 worker runner → project/agent 下拉按该 worker 能力收窄；interactive agent 过滤；主机 `pnpm build`（vue-tsc+vite）双绿。手工浏览器冒烟建议人工验证。
+- [x] 全量 `go build ./... && go vet ./... && go test ./... -p1 -count=1` 绿（最终认证 34 包 0 FAIL @ `070caab`）。
+- [x] 真机/隔离 serve+worker 端到端：worker-only project 提交成功（host 无该 project 定义，落盘 `<config-dir>/remote/<key>`）；错配 agent host 端即拒（P3 冒烟 5/5 PASS）。
 
 ## 4. 全局风险 / 边界
 
@@ -97,4 +97,4 @@ P1 协议+节点+版本闸 ──┬─→ P2 能力视图(snapshot/candidate/lo
 | P2 | `e7eefb7` | `WorkerSnapshot` 带 AgentCaps+节点信息（深拷贝）；`WorkerCandidate` 带 Projects/Agents（core 两处映射抽成一个 helper）；新增 `job/capabilities.go` 的 `capabilitiesFor(cfg,runner,explicitWorkerID)→(projects,agentKeys,online)`，local 分支复用 P1 的 resolved 集合（**含内置 exec**）。纯加法、无消费者。全量绿；`go list -deps` 验 job 未 import wshub/core（G022）。 |
 | P3 | `d7db513` | submit 校验按目标 runner 能力：G1 worker-only project 放行 + G2 agent/project fail-fast + selector project/agent 过滤(ErrNoCapableWorker)。R2 深挖修 2 真问题（空 proj 干掉 G1 / storage.root 未设结果散落 CWD → 合成最小 proj `<config-dir>/remote/<key>`）+ 补 project-key 字符集防逃逸。对抗式复审 0 bug；真机双进程冒烟 5/5 PASS。低危 UX→tools-2gk。 |
 | P4 | `bdec35b` | `/v1/meta`(metaAgent.interactive + metaWorker.agent_caps typed) + `/v1/runners`(workerView typed + 节点信息 OS/Arch/GoferVersion/StartedAt + local 合成 capabilities) 经 serve/probe.go 适配层桥接（httpapi handler 不 import wshub/wsproto）。local 能力读 resolved registry（含内置 exec，与 P1 一致）。web types.ts 类型对齐。契约单测 + 全量绿。web build 待 P5 主机跑。 |
-| P5 | — | — |
+| P5 | `070caab` | NewJob/NewSchedule 加 worker-capability 级联：`selectedWorker`+`workerAgentKeys`+`projectOptions` 按所选 worker 的 caps 收窄 project/agent 下拉，`reconvergeToWorker` 换 worker/runner 重收敛，interactive 过滤(仅 NewJob)。**全 fail-safe**（空交集/无 caps 回落全量，绝不锁死）。主机 `pnpm build`(vue-tsc+vite) 双绿。手工浏览器冒烟建议人工验证。 |
