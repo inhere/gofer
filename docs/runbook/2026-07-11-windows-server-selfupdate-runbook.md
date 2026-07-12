@@ -83,6 +83,48 @@ pwsh -NoProfile -File scripts/win-selftest.ps1        # 期望 RESULT: pass=13 f
 | 监督器不断重启坏 exe | 达阈值会自动回滚；若无 `gofer.old.exe`，手动放回一份可用 exe |
 | 主机同时跑 gofer worker | 自更新按**父 pid**精确杀，不按进程名，不会误伤 worker |
 
-## 7. 长远：常驻 / 开机自启（可选）
+## 7. 常驻 / 开机自启：nssm 服务（推荐，替代 §1 的 pwsh 循环）
 
-监督循环跑在登录用户的终端里，**关终端 / 登出 / 重启不自启**。若需无人值守常驻，改用服务化（nssm / Task Scheduler「无论是否登录都运行」）：nssm 本身即进程外监督者，**替代**本 pwsh 循环，此时把 §2 的「杀 gofer」换成 `nssm restart gofer` 即可，**rename-replace 更新逻辑不变**。
+§1 的 pwsh 监督循环跑在登录用户终端里，**关终端 / 登出不自启**。生产/常驻用 **nssm** 把 gofer 跑成 Windows 服务——nssm 本身即进程外监督者（`AppExit=Restart` = 崩溃/被杀自愈 = 自更新需要的重启器），**替代**本 pwsh 循环，rename-replace 更新逻辑不变。配套脚本 `scripts/start.ps1`（已封装 install/up/stop/restart/remove/status/logs）。
+
+### 7.1 准备
+
+- 下载 nssm（`win64/nssm.exe`，https://nssm.cc）放 `<repo>\serve-run\`（与 gofer.exe 同目录）；二者均被 `.gitignore`（`*.exe` + `/serve-run/`）。
+- gofer.exe 构建到 `<repo>\serve-run\gofer.exe`（`go build -o serve-run\gofer.exe .\cmd\gofer`）。
+
+### 7.2 装并启动（**管理员** PowerShell）
+
+```powershell
+pwsh -File scripts\start.ps1 `
+  -ConfigDir 'D:/work/inhere/config/win-env/gofer' `
+  -Account '.\<user>'          # 强烈建议：以你的账号跑（见下）
+```
+
+- **`-ConfigDir` 必给**（或设 `$env:GOFER_CONFIG_DIR`）：服务**看不到你 shell 的 env**，靠它注入 `GOFER_CONFIG_DIR`，让 gofer 找到 `<dir>\config.yaml` + 加载该目录 `.env`（`GOFER_TOKEN`）。缺了 → gofer 报 `refusing to start without a token`。
+- **`-Account '.\<user>'` 强烈建议**：默认 **LocalSystem** → `--runner local` 的 job 以 **SYSTEM** 跑，破坏 git 属主 / 你的凭据 / 用户 PATH。传 `-Account` 让服务以**你**运行（安全提示密码，走 nssm `ObjectName`）→ local job 恢复成你（`whoami`=你的账号）。`-Account` 只需设一次；后续 `up` 不带它会保留。
+- `-Auto` 开机自启；端口默认走 `config.server.addr`（`-Addr` 可覆盖）。
+- 验证：`-Action status`（Running）/ `-Action logs`（tail stdout/stderr）。
+
+### 7.3 常见坑（本次落地实测）
+
+| 现象 | 处理 |
+|---|---|
+| `Unexpected status SERVICE_PAUSED in response to START` | gofer 启动即退 → nssm 节流。看 `-Action logs`，多半缺 config/token → 补 `-ConfigDir` |
+| `refusing to start without a token` | 服务没找到配置 → `-ConfigDir` 指到含 `config.yaml`+`.env` 的目录 |
+| local job 里 git `dubious ownership` / push 无凭据 | 服务在以 SYSTEM 跑 → `-Account` 切成你的账号 |
+| 服务起不来 **错误 1069**（登录失败） | `secpol.msc` → 用户权限分配 → 「作为服务登录」加上该账号，再 `-Action restart` |
+| SSH+ssh-agent 的 push 在服务内失败 | agent 只在交互会话 → 该类 push 仍在你自己终端做（HTTPS+凭据管理器则服务内可用） |
+
+### 7.4 nssm 下的自更新（**与 §2 的差异**）
+
+换 nssm 后 **gofer 的父进程 = `nssm.exe`**（不再是 `win-supervisor.ps1`），故 §2 自更新必须带 `-SupervisorMarker 'nssm'`（否则 F4 守卫拒）：
+
+```powershell
+gofer job run -a exec --runner local -- `
+  pwsh -NoProfile -File scripts\win-selfupdate.ps1 `
+    -RepoDir '<RepoDir>' -ExeDir '<repo>\serve-run' -SupervisorMarker 'nssm'
+```
+
+rename-replace 逻辑不变：换二进制 → 按 pid 杀 gofer → nssm `AppExit=Restart` ~2s 拉起新 exe。
+
+> ⚠️ **nssm 无 §4 的 fast-fail 自动回滚看门狗**（那是 win-supervisor.ps1 的逻辑）：若新 exe 能 build+`-V` 通过但**运行时**启动即崩，nssm 只会节流重启、**不会自动回滚**。stage-1（build+`-V`）已挡住构建失败；运行时失败需**手动回滚**：`Copy-Item serve-run\gofer.old.exe serve-run\gofer.exe -Force; serve-run\nssm.exe restart gofer`。
