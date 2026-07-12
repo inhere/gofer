@@ -1,4 +1,5 @@
 /dist/
+/serve-run/
 /gofer
 /dab
 *.exe

@@ -56,6 +56,11 @@ install-fast: build
 	@cp $(DIST_DIR)/$(BINARY) $(GOPATH)/bin/$(BINARY)
 	@echo "✅ Installed to $(GOPATH)/bin/$(BINARY)"
 
+## server: build gofer binary to current dir, use for win self-update run
+server: build
+	@cp $(DIST_DIR)/$(BINARY) serve-run/$(BINARY)
+	@echo "✅ Build gofer to serve-run/$(BINARY)"
+
 ## run: build and run with current directory
 run: web build
 	./$(DIST_DIR)/$(BINARY)

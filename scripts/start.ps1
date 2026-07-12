@@ -1,34 +1,141 @@
-# Build (if needed) and start the gofer HTTP server.
-#
-# Override via env:
-#   ADDR                 listen address (default 0.0.0.0:8765)
-#   GOFER_TOKEN   bearer token; read by the server via config token_env.
-#                        Prefer this over a CLI flag so the token never lands in
-#                        process args / shell history.
-#   TOKEN                fallback inline token; only passed as --token when set.
-#   CONFIG               path to a bridge config file (optional)
-$ErrorActionPreference = "Stop"
+#requires -Version 5.1
+<#
+.SYNOPSIS
+  Run the gofer HTTP server as a Windows service via nssm (out-of-process
+  supervisor: auto-restart on crash, and the restarter the self-update needs).
 
-Set-Location (Join-Path $PSScriptRoot "..")
+.DESCRIPTION
+  Quick start from the project dir. gofer.exe is expected under <repo>\serve-run\
+  (build it there first, e.g.  go build -o serve-run\gofer.exe .\cmd\gofer ).
+  nssm.exe sits next to it (serve-run\nssm.exe).
 
-$addr   = if ($env:ADDR) { $env:ADDR } else { "0.0.0.0:8765" }
-$config = $env:CONFIG
+  nssm.exe launches gofer.exe as its child and restarts it on exit — so it is the
+  "supervisor" for the rename-replace self-update (win-selfupdate.ps1). Because
+  gofer's parent is now nssm (not win-supervisor.ps1), self-update must pass
+  -SupervisorMarker 'nssm' (see NOTES).
 
-$serveArgs = @("serve", "--addr", $addr)
-# Prefer GOFER_TOKEN (the default token_env): the server reads it from the
-# environment. Only fall back to --token TOKEN when GOFER_TOKEN is unset.
-if (-not $env:GOFER_TOKEN -and $env:TOKEN) {
-    $serveArgs += @("--token", $env:TOKEN)
+  Actions (default = up):
+    up       install-or-update the service, then start/restart it
+    stop     stop the service
+    restart  restart the service
+    remove   stop + uninstall the service (binary/logs kept)
+    status   show service state + effective nssm config
+    logs     tail the stdout/stderr logs
+
+.NOTES
+  * Service ops (up/stop/restart/remove) need an ELEVATED (Administrator) shell.
+  * The service runs with AppDirectory = <repo>, so the RELATIVE `--web-dir ./web/dist`
+    (and any relative config lookup) resolves against the repo root — no absolute
+    paths in AppParameters, so a repo path with spaces stays safe.
+  * Self-update under nssm (kill → nssm relaunches the swapped exe):
+      gofer job run -a exec --runner local -- `
+        pwsh -NoProfile -File scripts\win-selfupdate.ps1 `
+          -RepoDir '<RepoDir>' -ExeDir '<repo>\serve-run' -SupervisorMarker 'nssm'
+#>
+param(
+    [ValidateSet('up', 'stop', 'restart', 'remove', 'status', 'logs')]
+    [string]$Action = 'up',
+    # Windows service name.
+    [string]$ServiceName = 'gofer',
+    # Listen address as --addr (overrides config server.addr). Empty = let the
+    # config's server.addr drive the port (don't force one).
+    [string]$Addr = '',
+    # Path to a gofer config file, passed as --config (optional).
+    [string]$Config = '',
+    # Boot behaviour: -Auto = start at boot (SERVICE_AUTO_START); default = manual.
+    [switch]$Auto,
+    # Bearer token injected into the service env as GOFER_TOKEN (read via token_env).
+    # Falls back to $env:GOFER_TOKEN. Leave empty if the config carries it / token is
+    # disabled. NOTE: stored in the service registry (admin-readable).
+    [string]$Token = ''
+)
+
+$ErrorActionPreference = 'Stop'
+
+# --- resolve project paths from THIS script's location (cwd-independent) ---
+$Repo   = Split-Path -Parent $PSScriptRoot          # <...>\tools\gofer
+$ExeDir = Join-Path $Repo 'serve-run'
+$Exe    = Join-Path $ExeDir 'gofer.exe'
+$Nssm   = Join-Path $ExeDir 'nssm.exe'
+$OutLog = Join-Path $ExeDir 'gofer.out.log'
+$ErrLog = Join-Path $ExeDir 'gofer.err.log'
+
+function Test-Admin {
+    $id = [Security.Principal.WindowsIdentity]::GetCurrent()
+    (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
+        [Security.Principal.WindowsBuiltinRole]::Administrator)
 }
-if ($config) {
-    $serveArgs += @("--config", $config)
+function Assert-Admin {
+    if (-not (Test-Admin)) {
+        throw "Action '$Action' modifies a Windows service and needs an elevated shell. " +
+              "Re-open PowerShell as Administrator, then re-run:  pwsh -File scripts\start.ps1 -Action $Action"
+    }
 }
+function Assert-Nssm {
+    if (-not (Test-Path $Nssm)) {
+        throw "nssm.exe not found at $Nssm. Download nssm (https://nssm.cc) and drop win64\nssm.exe there."
+    }
+}
+function Test-ServiceExists { $null -ne (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) }
 
-# Use the built binary if present, else build then run.
-$binary = Join-Path "dist" "gofer.exe"
-if (Test-Path $binary) {
-    & $binary @serveArgs
-} else {
-    & go build -o $binary ./cmd/gofer
-    & $binary @serveArgs
+switch ($Action) {
+    'up' {
+        Assert-Nssm; Assert-Admin
+        if (-not (Test-Path $Exe)) {
+            throw "gofer.exe not found at $Exe. Build it first, e.g.:  go build -o serve-run\gofer.exe .\cmd\gofer"
+        }
+        # Relative --web-dir resolves against AppDirectory (=$Repo) at runtime, so no
+        # absolute path lands in AppParameters (avoids the PowerShell->nssm quoting trap).
+        $params = 'serve --web-dir ./web/dist'
+        if ($Addr)   { $params += " --addr $Addr" }
+        if ($Config) { $params += " --config $Config" }
+
+        if (-not (Test-ServiceExists)) {
+            Write-Host "installing service '$ServiceName' -> $Exe"
+            & $Nssm install $ServiceName $Exe | Out-Null
+        } else {
+            Write-Host "service '$ServiceName' exists -> updating config"
+            & $Nssm set $ServiceName Application $Exe | Out-Null
+        }
+        # Set config every run so edits (addr / web-dir / token) take effect on restart.
+        & $Nssm set $ServiceName AppDirectory $Repo      | Out-Null   # relative config resolves here
+        & $Nssm set $ServiceName AppParameters $params   | Out-Null
+        & $Nssm set $ServiceName AppStdout $OutLog       | Out-Null
+        & $Nssm set $ServiceName AppStderr $ErrLog       | Out-Null
+        & $Nssm set $ServiceName AppExit Default Restart | Out-Null   # relaunch on any exit (incl. self-update kill)
+        & $Nssm set $ServiceName AppRestartDelay 2000    | Out-Null   # ~2s, mirrors the pwsh supervisor
+        & $Nssm set $ServiceName Start ($(if ($Auto) { 'SERVICE_AUTO_START' } else { 'SERVICE_DEMAND_START' })) | Out-Null
+
+        $tok = if ($Token) { $Token } elseif ($env:GOFER_TOKEN) { $env:GOFER_TOKEN } else { '' }
+        if ($tok) { & $Nssm set $ServiceName AppEnvironmentExtra ("GOFER_TOKEN={0}" -f $tok) | Out-Null }
+
+        # (Re)start.
+        if ((Get-Service -Name $ServiceName).Status -eq 'Running') { & $Nssm restart $ServiceName | Out-Null }
+        else { & $Nssm start $ServiceName | Out-Null }
+        Write-Host "service '$ServiceName' running: $params"
+        Write-Host "  logs: $OutLog / $ErrLog"
+    }
+    'stop'    { Assert-Nssm; Assert-Admin; & $Nssm stop    $ServiceName; Write-Host "stopped '$ServiceName'" }
+    'restart' { Assert-Nssm; Assert-Admin; & $Nssm restart $ServiceName; Write-Host "restarted '$ServiceName'" }
+    'remove'  {
+        Assert-Nssm; Assert-Admin
+        if (Test-ServiceExists) {
+            & $Nssm stop $ServiceName 2>$null | Out-Null
+            & $Nssm remove $ServiceName confirm | Out-Null
+            Write-Host "removed service '$ServiceName' (gofer.exe / logs kept)"
+        } else { Write-Host "service '$ServiceName' not installed" }
+    }
+    'status'  {
+        Assert-Nssm
+        if (Test-ServiceExists) {
+            Get-Service -Name $ServiceName | Format-Table -AutoSize
+            Write-Host "AppParameters: $(& $Nssm get $ServiceName AppParameters)"
+            Write-Host "AppDirectory : $(& $Nssm get $ServiceName AppDirectory)"
+            Write-Host "Start        : $(& $Nssm get $ServiceName Start)"
+        } else { Write-Host "service '$ServiceName' not installed" }
+    }
+    'logs'    {
+        if (Test-Path $OutLog) { Write-Host "== stdout =="; Get-Content $OutLog -Tail 30 }
+        if (Test-Path $ErrLog) { Write-Host "== stderr =="; Get-Content $ErrLog -Tail 30 }
+    }
 }
