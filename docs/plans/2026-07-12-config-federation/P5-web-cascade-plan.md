@@ -62,7 +62,11 @@ const projectOptions = computed<MetaProject[]>(() => {
 - [x] `pnpm build` 绿（**主机** `pnpm build` = `vue-tsc --noEmit && vite build` **双绿**，产出 NewJob/NewSchedule chunk）
 - [x] 手工浏览器冒烟：**真 Chrome(agent-browser)全 PASS** — 隔离 serve+worker+web(:8893, `--web-dir web/dist`)。A baseline `[alpha,beta]`/`[echoagent,exec]` → B runner=wrun 未选 worker 不变+"先选 worker"提示 → **C 选 worker w1: project→`[alpha]`、agent→`[exec]` 收窄且自动重收敛(非空白)** → D 切回 local 回宽、选择有效 → E interactive 开 agent→`[echoagent]`。literal `<select>` DOM 读取为证。
 
-> **浏览器冒烟确认的端到端缺口（超 P5 范围，归档 `tools-2gk`）**：worker-only project（host 未定义）**不出现在 NewJob 下拉**——`projectOptions` 从 host `meta.projects` 出发再按 worker 交集过滤，host 没有的 project 永进不了列表。故 **G1（可提交）与 G3（UI 级联）在 UI 层未接上**：worker-only project 能经 API/CLI 提交但 web 表单选不到。修法选项：(a) `/v1/meta` 并入在线 worker 上报 projects（带 source 标记）；(b) NewJob `projectOptions` 追加 `selectedWorker.projects` 里 host 没有的项。**待用户拍板是否本轮补 / 后续。**
+> **浏览器冒烟确认的端到端缺口 → ✅ 已补（`7b063d2`，用户选方案 a）**：原本 worker-only project（host 未定义）**不出现在 NewJob 下拉**——`projectOptions` 从 host `meta.projects` 出发过滤，host 没有的 project 永进不了列表，G1（可提交）与 G3（UI 级联）在 UI 层未接上。
+>
+> **方案 (a) 带标记实现**：`/v1/meta.projects` 并入**在线 worker** 上报的 project（`worker_only:true` + 空 allowlist；host 定义的同名 project 胜出、不标记；离线 worker 不并入）。消费方按标记处理：NewJob/NewSchedule `projectOptions` **选中 worker 后**才纳入其 worker-only project（baseline/local/labels 隐藏，因跑不了 local），切回 local 自动丢弃重收敛；NewWorkflow 一行 `filter(!p.worker_only)` 排除（workflow 不支持，行为逐字不变）。承重核查确认 `/v1/meta.projects` 仅被 NewJob/NewSchedule/NewWorkflow 消费（Cluster/Board/Projects 走别的端点），波及面可控。
+>
+> **浏览器复验 5/5 PASS**：`/v1/meta` 含 `wonly(worker_only:true)`；baseline `[alpha,beta]` 无 wonly；选 w1 → `[alpha,wonly]`（wonly 现身、beta 消失）；选 wonly 后切 local → wonly 丢弃重收敛 `alpha`；NewWorkflow 无 wonly。剩 `tools-2gk` 的另两项（交互式 worker-only 报错措辞 / `ListJobs(project=worker-only)` 可见性）后续。
 
 ## 实施补记（fail-safe 判断）
 
