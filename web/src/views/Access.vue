@@ -41,6 +41,15 @@ async function connect() {
       <ThemeToggle />
     </div>
     <div class="card">
+      <a
+        class="brand-link"
+        href="https://github.com/inhere/gofer"
+        target="_blank"
+        rel="noopener noreferrer"
+        aria-label="在 GitHub 查看 Gofer 仓库"
+      >
+        <img class="brand-logo" src="/favicon.svg" alt="Gofer" />
+      </a>
       <div class="card-head mono">
         <span class="card-name">Gofer</span>
         <span class="card-sep">&#9656;</span>
@@ -48,21 +57,25 @@ async function connect() {
       </div>
       <p class="hint">粘贴访问 token 以接入控制台。token 仅保存在当前会话（sessionStorage）。</p>
 
-      <label class="label mono" for="token-input">BEARER TOKEN</label>
-      <textarea
-        id="token-input"
-        v-model="tokenInput"
-        class="token-input mono"
-        rows="3"
-        placeholder="粘贴 token..."
-        spellcheck="false"
-        autocomplete="off"
-        @keydown.ctrl.enter="connect"
-      ></textarea>
+      <form @submit.prevent="connect">
+        <label class="label mono" for="token-input">BEARER TOKEN</label>
+        <input
+          id="token-input"
+          v-model="tokenInput"
+          class="token-input mono"
+          type="password"
+          name="password"
+          placeholder="输入 token..."
+          spellcheck="false"
+          autocomplete="current-password"
+          autocapitalize="none"
+          required
+        />
 
-      <button class="connect" type="button" :disabled="loading" @click="connect">
-        {{ loading ? '连接中...' : '连接' }}
-      </button>
+        <button class="connect" type="submit" :disabled="loading">
+          {{ loading ? '连接中...' : '连接' }}
+        </button>
+      </form>
 
       <p v-if="error" class="error mono">{{ error }}</p>
     </div>
@@ -92,6 +105,22 @@ async function connect() {
   border: 1px solid var(--line);
   border-radius: var(--radius);
   padding: 28px;
+}
+
+.brand-link {
+  display: block;
+  width: fit-content;
+  margin: 0 auto 18px;
+  border-radius: 14px;
+  line-height: 0;
+}
+.brand-link:hover {
+  text-decoration: none;
+}
+.brand-logo {
+  display: block;
+  width: 72px;
+  height: 72px;
 }
 
 .card-head {
@@ -135,7 +164,6 @@ async function connect() {
   border-radius: var(--radius);
   padding: 10px;
   font-size: 13px;
-  resize: vertical;
   outline: none;
 }
 .token-input:focus {

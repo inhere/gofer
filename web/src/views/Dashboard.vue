@@ -122,7 +122,16 @@ onUnmounted(() => {
     <div v-if="loading && !hasStats" class="empty mono">正在加载 stats...</div>
 
     <div v-if="hasStats" class="grid">
-      <div class="card">
+      <div class="card service-card">
+        <a
+          class="service-logo-link"
+          href="https://github.com/inhere/gofer"
+          target="_blank"
+          rel="noopener noreferrer"
+          aria-label="在 GitHub 查看 Gofer 仓库"
+        >
+          <img class="service-logo" src="/favicon.svg" alt="Gofer" />
+        </a>
         <h3>服务</h3>
         <div class="health">
           <span class="dot" :class="online ? 'dot--on' : 'dot--off'"></span>
@@ -244,6 +253,25 @@ onUnmounted(() => {
   border-radius: var(--radius);
   background: var(--panel);
   padding: 14px;
+}
+.service-card {
+  position: relative;
+  padding-right: 72px;
+}
+.service-logo-link {
+  position: absolute;
+  top: 14px;
+  right: 14px;
+  border-radius: 10px;
+  line-height: 0;
+}
+.service-logo-link:hover {
+  text-decoration: none;
+}
+.service-logo {
+  display: block;
+  width: 44px;
+  height: 44px;
 }
 .card h3 {
   color: var(--queue);
