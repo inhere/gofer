@@ -62,7 +62,7 @@ P1 协议+节点+版本闸 ──┬─→ P2 能力视图(snapshot/candidate/lo
 | 阶段 | bd | 目标 | 主要文件 | 交付 | 状态 |
 |---|---|---|---|---|---|
 | **P1** | tools-cf2 | 协议扩展(AgentCaps/ProtocolVersion/Arch/GoferVersion/StartedAt) + 版本闸 + worker 填充 + buildinfo 接线 | `wsproto/frames.go`, `wshub/hub.go`, `worker/*`, `commands/worker*.go`, `core`/`serve` 接线 | 新 worker 上报 typed 能力+节点信息；旧 worker 被拒+提示升级 | ✅ |
-| **P2** | tools-2fx | 能力视图：`WorkerSnapshot` 带 AgentCaps；`WorkerCandidate` 带 Projects/Agents；local 能力合成；`CapabilitiesFor` 语义 | `wshub/registry.go`, `job/selector.go`, `core/core.go` | server 端可按 runner 维度取能力（local=全局，worker=上报） | ☐ |
+| **P2** | tools-2fx | 能力视图：`WorkerSnapshot` 带 AgentCaps；`WorkerCandidate` 带 Projects/Agents；local 能力合成；`CapabilitiesFor` 语义 | `wshub/registry.go`, `job/selector.go`, `core/core.go` | server 端可按 runner 维度取能力（local=全局，worker=上报） | ✅ |
 | **P3** | tools-6un | **submit 校验改造（核心 G1+G2）**：worker-only project 放行；agent∈目标 runner fail-fast；selector 按 project/agent 过滤；`ErrNoCapableWorker` | `job/config.go`, `job/submit.go`, `job/selector.go`, `job/errors.go` | 消双份定义 + host 端错配 fail-fast | ☐ |
 | **P4** | tools-6ic | 能力明细上 API：`/v1/meta` `metaAgent.interactive`+`metaWorker` typed；`/v1/runners` `workerView` typed+节点信息；local 合成 | `httpapi/meta_handler.go`, `httpapi/runner_handler.go`, `serve/probe.go` | 前端可拿到 runner→{projects, agents[{key,type,interactive}]} | ☐ |
 | **P5** | tools-f4k | web 级联：选 runner→按该 runner(worker) 能力 + interactive 过滤 project/agent 下拉 | `web/src/views/NewJob.vue`, `NewSchedule.vue`, `api/types.ts` | G3 级联，只列目标 runner 真有的 project/agent | ☐ |
@@ -72,7 +72,7 @@ P1 协议+节点+版本闸 ──┬─→ P2 能力视图(snapshot/candidate/lo
 ## 3. 全局验收（端到端）
 
 - [x] P1: 帧 encode/decode 单测（新字段/AgentCaps）；版本闸单测（旧 worker protocol=0 → reject+reason）；worker 实连上报 AgentCaps+节点信息（隔离 serve+worker 冒烟 :8891 全 PASS）。
-- [ ] P2: `CapabilitiesFor(local)`=全局 config；`CapabilitiesFor(worker)`=上报能力、离线=不可用；`WorkerCandidate` 带 Projects/Agents 单测。
+- [x] P2: `capabilitiesFor(local)`=全局 config（**含内置 exec**）；`capabilitiesFor(worker)`=上报能力、离线=不可用；`WorkerCandidate` 带 Projects/Agents 单测（8 表驱动用例）。
 - [ ] P3: **逐分支单测**（local 缺 project 仍拒 / worker-only project 放行 / agent 不在 worker 拒 / 自动选无候选→ErrNoCapableWorker / worker 离线→不可用）；worker-only project 的 host 端 `proj` 处理不破坏结果落盘。
 - [ ] P4: `/v1/meta` `metaAgent` 带 interactive、`metaWorker` 带 typed agents；`/v1/runners` workerView 带节点信息；local 合成。契约单测。
 - [ ] P5: 选 worker runner → project/agent 下拉按该 worker 能力收窄；interactive agent 过滤；`pnpm build` 绿 + 手工冒烟。
@@ -94,7 +94,7 @@ P1 协议+节点+版本闸 ──┬─→ P2 能力视图(snapshot/candidate/lo
 | 阶段 | commit | 实施结果摘要 |
 |---|---|---|
 | P1 | `ad29db9` + `64a05ef` | 协议加法式扩展(AgentBrief/ProtocolVersion=2/Arch/GoferVersion/StartedAt) + hub 版本闸(旧 worker 拒绝+升级提示，在 registry Put 前) + worker 填充 + buildinfo 接线。**对抗式复审拦下 2 个真 bug**（能力上报漏内置 exec / type 失真）→ `64a05ef` 改为从 resolved agent registry 构建，`agentKeys` 与 `agentBriefs` 共用同一集合。全量 34 包 0 FAIL；隔离 serve+worker 真机冒烟 4/4 PASS。 |
-| P2 | — | — |
+| P2 | `e7eefb7` | `WorkerSnapshot` 带 AgentCaps+节点信息（深拷贝）；`WorkerCandidate` 带 Projects/Agents（core 两处映射抽成一个 helper）；新增 `job/capabilities.go` 的 `capabilitiesFor(cfg,runner,explicitWorkerID)→(projects,agentKeys,online)`，local 分支复用 P1 的 resolved 集合（**含内置 exec**）。纯加法、无消费者。全量绿；`go list -deps` 验 job 未 import wshub/core（G022）。 |
 | P3 | — | — |
 | P4 | — | — |
 | P5 | — | — |

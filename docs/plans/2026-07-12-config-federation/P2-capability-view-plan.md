@@ -93,9 +93,15 @@ func (s *Service) capabilitiesFor(cfg *config.Config, runner, explicitWorkerID s
 
 **验收 T2.3**: `capabilitiesFor` 表驱动单测——local 回全局 keys / worker 在线回其能力 / worker 离线 online=false / 显式 worker_id 覆盖 runner 默认。
 
-## P2 验收总纲
+## P2 验收总纲 — ✅ 全部完成（commit `e7eefb7`）
 
-- [ ] T2.1 WorkerSnapshot 带 AgentCaps/节点信息 + registry 单测绿
-- [ ] T2.2 WorkerCandidate 带 Projects/Agents + core 映射 + build 绿
-- [ ] T2.3 capabilitiesFor helper + 表驱动单测绿（local/worker 在线/离线/显式覆盖）
-- [ ] `go test ./internal/wshub/... ./internal/job/... ./internal/core/... -count=1` 绿
+- [x] T2.1 WorkerSnapshot 带 AgentCaps/节点信息 + registry 单测绿
+- [x] T2.2 WorkerCandidate 带 Projects/Agents + core 映射 + build 绿
+- [x] T2.3 capabilitiesFor helper + 表驱动单测绿（local/worker 在线/离线/显式覆盖）
+- [x] `go test ./internal/wshub/... ./internal/job/... ./internal/core/... -count=1` 绿（全量套件亦绿）
+
+## 实施补记
+
+- `capabilitiesFor` 的 local 分支判定用「**非 worker runner**」而非严格 `runner == "local"`——任何非 worker/非 peer 的 runner（如内置 pty）都在本进程用本机 config 执行，严格判等会把它们误判 `online=false`。
+- local 的 `agentKeys` **复用 P1 的 resolved 集合语义**（内置 `exec` 恒在，即使 `cfg.Agents` 为空）——否则 P3 会错误拒绝 local runner 上的 exec job。
+- **P3 需知的 offline 契约**：`capabilitiesFor` 在「worker runner 但 worker_id 不可解析（显式与 runner 配置默认都为空）」或 selector 为 nil 时返回 `(nil,nil,false)`。按 P3 T3.2 的 `if online { ... }` 设计，此路径**不拒绝**、落回既有行为（交 selector / worker 自解析默认）——与「自动选 → 交 selector 过滤」一致。
