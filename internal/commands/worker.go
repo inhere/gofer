@@ -12,6 +12,7 @@ import (
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/goutil/errorx"
 
+	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/core"
@@ -189,7 +190,10 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 
 	// Build the worker's LOCAL core (projects/agents/local runner/job.Service)
 	// from its own config — this is what re-validates dispatched jobs (review #8).
-	cr, err := core.Build(workerConfigToConfig(wc))
+	// wcfg is kept: the capability report below is resolved from the SAME snapshot,
+	// so what the worker advertises is exactly what it will accept on dispatch.
+	wcfg := workerConfigToConfig(wc)
+	cr, err := core.Build(wcfg)
 	if err != nil {
 		return errorx.Failf(workerExitErr, "%v", err)
 	}
@@ -202,8 +206,8 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 		Token:          resolveWorkerToken(wc.ServerLink),
 		Labels:         wc.Labels,
 		Projects:       mapKeys(wc.Projects),
-		Agents:         agentKeys(wc.Agents),
-		AgentCaps:      agentBriefs(wc.Agents),
+		Agents:         agentKeys(wcfg),
+		AgentCaps:      agentBriefs(wcfg),
 		GoferVersion:   info.DisplayVersion(),
 		MaxConc:        wc.MaxConcurrent,
 		InitialBackoff: msToDuration(rc.InitialBackoffMS),
@@ -325,31 +329,50 @@ func mapKeys(m map[string]config.ProjectConfig) []string {
 	return out
 }
 
-// agentKeys returns the keys of an agent map (for the register capability hint).
-func agentKeys(m map[string]config.AgentConfig) []string {
-	if len(m) == 0 {
-		return nil
+// resolvedAgentKeys returns every agent key the worker can ACTUALLY run: the keys
+// declared in its config PLUS the built-in exec agent, which agent.ResolveAgent
+// makes available even when undeclared (agent.ExecAgentKey). Reporting only the raw
+// config map would under-report the canonical exec-only worker — whose agents block
+// is typically absent entirely — and the hub now treats this report as authoritative
+// for validation/routing. Sorted for a stable report (Go map iteration is not).
+func resolvedAgentKeys(cfg *config.Config) []string {
+	seen := map[string]bool{agent.ExecAgentKey: true}
+	if cfg != nil {
+		for k := range cfg.Agents {
+			seen[k] = true
+		}
 	}
-	out := make([]string, 0, len(m))
-	for k := range m {
+	out := make([]string, 0, len(seen))
+	for k := range seen {
 		out = append(out, k)
 	}
+	sort.Strings(out)
 	return out
 }
 
-// agentBriefs projects the worker's agent map onto the TYPED capability report the
-// worker sends on register (wsproto.Register.AgentCaps): the hub/UI needs each
-// agent's type + interactive flag, not just its key, and the worker is the
-// authority for its own agents. Sorted by key so the reported order is stable
-// across registers (Go map iteration is not).
-func agentBriefs(m map[string]config.AgentConfig) []wsproto.AgentBrief {
-	if len(m) == 0 {
-		return nil
-	}
-	out := make([]wsproto.AgentBrief, 0, len(m))
-	for k, ac := range m {
+// agentKeys returns the worker's runnable agent keys for the register frame's
+// back-compat key list (Register.Agents). It is the same key set as agentBriefs so
+// the two never drift.
+func agentKeys(cfg *config.Config) []string { return resolvedAgentKeys(cfg) }
+
+// agentBriefs builds the TYPED capability report the worker sends on register
+// (wsproto.Register.AgentCaps): the hub/UI needs each agent's type + interactive
+// flag, not just its key, and the worker is the authority for its own agents.
+//
+// It resolves each key through agent.ResolveAgent — the SAME resolution the worker's
+// job service applies when it re-validates a dispatch — rather than reading the raw
+// config map. That is what makes the report true: the built-in exec agent is included
+// even when undeclared, and a bare `exec:` block with no explicit `type:` is reported
+// with its normalised Type (agent.TypeExec), not an empty string.
+func agentBriefs(cfg *config.Config) []wsproto.AgentBrief {
+	keys := resolvedAgentKeys(cfg)
+	out := make([]wsproto.AgentBrief, 0, len(keys))
+	for _, k := range keys {
+		ac, ok := agent.ResolveAgent(cfg, k)
+		if !ok {
+			continue
+		}
 		out = append(out, wsproto.AgentBrief{Key: k, Type: ac.Type, Interactive: ac.Interactive})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out
 }
