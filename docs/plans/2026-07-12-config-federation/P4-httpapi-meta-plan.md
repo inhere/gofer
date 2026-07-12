@@ -42,10 +42,22 @@
 
 **验收 T4.4**: `pnpm -C web build` / `tsc` 绿（类型对齐，无 runtime 改动）。
 
-## P4 验收总纲
+## P4 验收总纲 — ✅ 完成（commit `bdec35b`；web build 待 P5 主机跑）
 
-- [ ] T4.1 serve/httpapi 快照适配层带 AgentCaps/节点信息
-- [ ] T4.2 /v1/meta metaAgent.interactive + metaWorker.agent_caps + 契约单测绿
-- [ ] T4.3 /v1/runners workerView typed + 节点信息 + local 合成 + 契约单测绿
-- [ ] T4.4 web 类型对齐 + tsc/build 绿
-- [ ] `go test ./internal/httpapi/... ./internal/serve/... -count=1` 绿
+- [x] T4.1 serve/httpapi 快照适配层带 AgentCaps/节点信息（`serve/probe.go` `briefsFromSnapshot`，httpapi 仍不 import wshub/wsproto）
+- [x] T4.2 /v1/meta metaAgent.interactive + metaWorker.agent_caps + 契约单测绿
+- [x] T4.3 /v1/runners workerView typed + 节点信息 + local 合成 + 契约单测绿
+- [~] T4.4 web 类型对齐（types.ts 加 AgentBrief/RunnerCapabilities/interactive/agent_caps）；`pnpm build` **容器内跑不了**（node_modules 缺 tsc/vue-tsc）→ 由 **P5 走主机** `gofer job -a exec --cwd tools/gofer/web -- pnpm install && pnpm build` 验证
+- [x] `go test ./internal/httpapi/... ./internal/serve/... -count=1` 绿（全量套件亦绿）
+
+## 实施补记 + P5 契约
+
+- **无新增分层违规**：`httpapi/server.go` 早已直接 import `wshub`（P4 前既存）；P4 的 handler 文件（runner/meta）**0** 直接 wshub/wsproto 引用，经 `serve/probe.go` 适配层桥接。`localAgentCaps` 读**resolved registry**（`s.agents.List()`，含内置 exec、真类型），与 P1 一致——保证 local 能力不漏报 exec。
+- **单一导出 `AgentBrief` 类型**（而非计划的 `AgentBrief`+`agentBriewView` 两份）：`WorkerStatus` 导出且由 serve 包构造 `AgentCaps`，元素类型必须导出，故统一用一个带 JSON tag 的导出类型。
+- **`capabilities.{projects,agent_caps}` 统一挂 local + worker 两类 runner 行**（peer-http 不带），P5 一个字段跨类型读级联。
+
+**P5 契约（数据已就绪）**：
+- cascade 主源仍 `/v1/meta`：local runner → 交集全局 `projects` + `agents[]`(现带 `type`/`interactive`)；worker runner → 该 `workers[]` 条目的 `projects` + `agent_caps`(typed)。
+- `/v1/meta`: `agents[]{key,type,interactive?}`、`workers[]{...,agent_caps?[{key,type?,interactive?}],connected}`。
+- `/v1/runners`: 每行可选 `capabilities{projects?,agent_caps?}`（local 合成 + 在线 worker）；worker 行 `worker.{os,arch,gofer_version,started_at,agent_caps}` 节点信息。
+- 内置 `exec` 恒在 local 集合、`type:"exec"`。`interactive` omitempty（缺省即 false）。离线 worker 不带 caps。所有新字段加法式、可选。

@@ -108,11 +108,26 @@ func selectWorker(cands []WorkerCandidate, required []string, interactive bool, 
 
 **验收（隔离 serve+worker 或 job 包集成测试）**：worker 配 project `demo-w`（server 全局无 `demo-w`）→ 经 worker runner 提交 job → host 端**不报 ErrUnknownProject**、job 正常派发、worker 执行、结果 `storage.root/demo-w/<job_id>` 正常落盘 + 可经 `/v1/jobs/<id>` 回读。若空 proj 破坏此路径，按 T3.1 R2 合成最小 proj 修复并复测。
 
-## P3 验收总纲
+## P3 验收总纲 — ✅ 全部完成（commit `d7db513`）
 
-- [ ] T3.1 errors + worker-only project 放行（G1）
-- [ ] T3.2 worker 能力 fail-fast（显式/默认 worker，G2）
-- [ ] T3.3 selectWorker project+agent 过滤 + ErrNoCapableWorker（自动选，G2）
-- [ ] T3.4 worker-only project 端到端落盘验证通过（R2）
-- [ ] 逐分支单测全绿（8 分支见 T3）
-- [ ] `go test ./internal/job/... -count=1` 绿 + 全量 `go test ./... -p1 -count=1` 绿
+- [x] T3.1 errors + worker-only project 放行（G1）
+- [x] T3.2 worker 能力 fail-fast（显式/默认 worker，G2）
+- [x] T3.3 selectWorker project+agent 过滤 + ErrNoCapableWorker（自动选，G2）
+- [x] T3.4 worker-only project 端到端落盘验证通过（R2）—— in-process e2e + 真机双进程冒烟
+- [x] 逐分支单测全绿（8 分支 + selectWorker 过滤 + R2 落盘）
+- [x] `go test ./internal/job/... -count=1` 绿 + 全量 `go test ./... -p1 -count=1` 绿
+
+## 实施补记（R2 深挖 + 复审）
+
+**R2 用选项 (b)：空 `ProjectConfig{}` 不安全，必须合成最小 proj。** 实现子 agent 逐条追踪 `validate` 返回的 `proj` 在 worker 派发路径的下游用途，发现两处真问题（计划未预见）：
+- **空 proj 会让 `checkRunnerAllowed` 只放行 `local`** → 每个 worker-only job 被直接拒 = **干掉 G1**。合成 proj 设 `AllowedRunners:[req.Runner]`（host 对自己未定义的 project 无准入策略；真边界是 G2 闸 + worker 自校验，#2）。
+- **`storage.root` 未设时**（所有随附示例的默认）结果目录回落 `SafeJoin(ExecPath(""))` = **serve 进程 CWD**，静默错放。合成 proj 镜像 `ResolveDBPath` 回落：`HostPath=<config-dir>`、`ExchangeSubdir=remote`、`ResultSubdir=<key>` → `<config-dir>/remote/<key>/<date>/<job_id>`。
+- **安全（计划外）**：G1 让 project key 变**请求方可控**且落进路径 → `../` 可逃逸。加 `^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$` 仅在 worker-only 分支（已配 key 不动）。
+
+**G2 gate 条件细化**：`isWorker && (req.WorkerID != "" || len(req.WorkerLabels)==0)` —— labels 自动选路径不在 validate 查（default worker 非该 job 目标），交 selector 过滤，与矩阵一致。
+
+**sentinel 包装既有错误**（ErrNoCapableWorker→ErrNoEligibleWorker=503；On-Runner 类→ErrInvalidRequest=400），httpapi `submitStatus` 零改动、`errors.Is` 既有调用不破。
+
+**真机冒烟 5/5 PASS**：G1 `wonly`(host 无) 提交 done/exit0，落盘 `<config-dir>/remote/wonly/...`、serve CWD 零散落；G2 `nonesuch` agent → 400 ErrAgentNotOnRunner、`ghost` project → 400 ErrUnknownProjectOnRunner，均**无派发**（worker 日志停 2 行）。
+
+**对抗式复审 0 confirmed bug**（runner allowlist 绕过 / 路径逃逸 / fixture 掩盖 / 错误码 / local 回归 / fall-through 全攻过）。两个低危 UX 缺口（交互式 worker-only 报错误导 / `ListJobs(project=worker-only)` 空）→ 归档 `tools-2gk`，不扩 P3。
