@@ -84,9 +84,11 @@ async function loadMeta() {
     agents.value = m.agents ?? []
     runners.value = m.runners ?? []
     workers.value = m.workers ?? []
-    // 默认选中首个 project，触发联动
-    if (projects.value.length > 0) {
-      selectProject(projects.value[0].key)
+    // 默认选中首个 NON-worker_only project（baseline 是 local runner，worker-only 项此时不可选）。
+    // 若只有 worker-only 项（无 host project），projectKey 留空、不崩——用户切到 worker 后再选。
+    const firstHost = projects.value.find((p) => !p.worker_only)
+    if (firstHost) {
+      selectProject(firstHost.key)
     }
   } catch (e) {
     loadError.value = e instanceof Error ? e.message : String(e)
@@ -193,11 +195,16 @@ const workerAgentKeys = computed<Set<string> | null>(() => {
   return null
 })
 
-// project 下拉：worker runner 选定 worker 后只列该 worker 上报的 projects；
-// 无上报/交集为空则回落全量（T5.3b fail-safe）。
+// project 下拉。选定具体 worker → 列该 worker 上报的 projects（含仅该 worker 定义的 worker-only 项）；
+// 未选 worker（local/peer/labels）或交集为空 → 回落 HOST-only（worker-only 项无 worker 上下文不能本地跑，
+// 必须排除；绝不回落到含 worker-only 的全量——T5.3b fail-safe）。
 const projectOptions = computed<MetaProject[]>(() => {
+  const hostOnly = projects.value.filter((p) => !p.worker_only)
   const w = selectedWorker.value
-  const wp = w?.projects ?? []
+  if (!w) {
+    return hostOnly
+  }
+  const wp = w.projects ?? []
   if (wp.length > 0) {
     const set = new Set(wp)
     const narrowed = projects.value.filter((p) => set.has(p.key))
@@ -205,7 +212,7 @@ const projectOptions = computed<MetaProject[]>(() => {
       return narrowed
     }
   }
-  return projects.value
+  return hostOnly
 })
 
 // T5.3a：选了 worker runner 但尚未指定具体 worker（id 模式）→ 提示先选 worker（下拉暂用全量，不锁死）。
@@ -234,12 +241,16 @@ function onProjectChange() {
 }
 
 // T5.2：worker/runner 变更后，把 project/agent 收敛到（可能被 worker 收窄的）合法选项内，
-// 不留悬空非法选择。project 失效则整体重收敛（selectProject 内再收 agent/runner）；否则只补收 agent。
+// 不留悬空非法选择。切到 local 时 projectOptions 排除 worker-only → 悬空的 worker-only 选择被丢弃：
+// 有 host 项则收敛到首个（selectProject 内再收 agent/runner），无则清空 projectKey（不崩）；否则只补收 agent。
 function reconvergeToWorker() {
   const projs = projectOptions.value
-  if (projs.length > 0 && !projs.some((p) => p.key === projectKey.value)) {
-    selectProject(projs[0].key)
-    return
+  if (!projs.some((p) => p.key === projectKey.value)) {
+    if (projs.length > 0) {
+      selectProject(projs[0].key)
+      return
+    }
+    projectKey.value = '' // 无合法 project（仅 worker-only 且当前无 worker 上下文）→ 清空，交给校验兜底
   }
   const ags = agentOptions.value
   if (ags.length > 0 && !ags.some((a) => a.key === agentKey.value)) {

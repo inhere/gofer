@@ -264,6 +264,83 @@ func TestMetaWorkerAgentCaps(t *testing.T) {
 	}
 }
 
+// TestMetaWorkerOnlyProjects (federation follow-up): a project key reported ONLY
+// by an online worker (no host cfg) surfaces as a synthesized metaProject with
+// worker_only=true and empty allowlists; a project defined on BOTH host and worker
+// stays a single host entry (worker_only false); an OFFLINE worker's project keys
+// are not surfaced (connected-gated, same rule as agent_caps).
+func TestMetaWorkerOnlyProjects(t *testing.T) {
+	workers := fakeWorkers{
+		"w-online": {
+			Connected: true,
+			Projects:  []string{"proj-a", "wonly"}, // proj-a=host, wonly=worker-only
+			Agents:    []string{"codex"},
+		},
+		"w-offline": {
+			Connected: false,
+			Projects:  []string{"ghost"}, // offline → must NOT surface
+		},
+	}
+	m := getMeta(t, newMetaServer(t, workers))
+
+	byKey := map[string]metaProject{}
+	for _, p := range m.Projects {
+		if _, dup := byKey[p.Key]; dup {
+			t.Fatalf("duplicate project key %q in meta.projects: %+v", p.Key, m.Projects)
+		}
+		byKey[p.Key] = p
+	}
+
+	// host project present, single entry, not marked, keeps its allowlists
+	pa, ok := byKey["proj-a"]
+	if !ok || pa.WorkerOnly {
+		t.Fatalf("proj-a should be a single host entry with worker_only false: %+v", pa)
+	}
+	if len(pa.AllowedAgents) != 2 || len(pa.AllowedRunners) != 2 {
+		t.Fatalf("proj-a host allowlists lost: %+v", pa)
+	}
+
+	// worker-only project surfaced with the marker + empty host config
+	wo, ok := byKey["wonly"]
+	if !ok {
+		t.Fatalf("worker-only project 'wonly' missing from meta.projects: %+v", m.Projects)
+	}
+	if !wo.WorkerOnly {
+		t.Fatalf("'wonly' must be marked worker_only: %+v", wo)
+	}
+	if len(wo.AllowedAgents) != 0 || len(wo.AllowedRunners) != 0 || wo.DefaultAgent != "" {
+		t.Fatalf("'wonly' must carry empty host config: %+v", wo)
+	}
+
+	// offline worker's project must not surface
+	if _, ok := byKey["ghost"]; ok {
+		t.Fatalf("offline worker's project 'ghost' must not surface: %+v", m.Projects)
+	}
+}
+
+// TestMetaWorkerOnlyDedup: the same worker-only project key reported by multiple
+// online workers yields a single synthesized entry.
+func TestMetaWorkerOnlyDedup(t *testing.T) {
+	workers := fakeWorkers{
+		"w-online":  {Connected: true, Projects: []string{"shared-wonly"}},
+		"w-offline": {Connected: true, Projects: []string{"shared-wonly"}},
+	}
+	m := getMeta(t, newMetaServer(t, workers))
+	count := 0
+	for _, p := range m.Projects {
+		if p.Key != "shared-wonly" {
+			continue
+		}
+		count++
+		if !p.WorkerOnly {
+			t.Fatalf("shared-wonly must be worker_only: %+v", p)
+		}
+	}
+	if count != 1 {
+		t.Fatalf("shared worker-only key must dedup to 1 entry, got %d: %+v", count, m.Projects)
+	}
+}
+
 // TestMetaWorkersNilRegistry: with no workers registry wired, configured workers
 // still list (from config) but report connected=false / no labels.
 func TestMetaWorkersNilRegistry(t *testing.T) {

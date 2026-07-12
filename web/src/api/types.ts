@@ -586,6 +586,9 @@ export interface MetaProject {
   allowed_agents: string[]
   allowed_runners: string[]
   default_agent?: string
+  // 联邦（follow-up）：仅在线 worker 上报、host 无配置的 project。仅在选定该 worker 后可选；
+  // 本地/工作流等不能本地运行的消费方按此标记过滤掉。worker-only 项 allowlists 为空。
+  worker_only?: boolean
 }
 
 export interface MetaAgent {

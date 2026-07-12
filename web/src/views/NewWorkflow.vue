@@ -144,7 +144,9 @@ async function loadMeta() {
   loadError.value = ''
   try {
     const m = await getMeta()
-    projects.value = m.projects ?? []
+    // workflows 不支持 worker-only project（无 host 配置、不能本地/串行编排跑）→ 过滤掉，
+    // 使默认 project 选取 / firstAgentFor / firstRunnerFor 行为与之前保持一致。
+    projects.value = (m.projects ?? []).filter((p) => !p.worker_only)
     agents.value = m.agents ?? []
     runners.value = m.runners ?? []
   } catch (e) {

@@ -22,12 +22,17 @@ type metaResp struct {
 }
 
 // metaProject carries the per-project allowlists the form uses to constrain the
-// agent / runner dropdowns once a project is picked (plan P3-b).
+// agent / runner dropdowns once a project is picked (plan P3-b). WorkerOnly marks
+// a project that has NO host config and is defined only on an online worker
+// (federation follow-up): it is surfaced so a worker-runner submit can target it,
+// but consumers that cannot run it locally (workflows, baseline/local pickers)
+// filter it out by this flag. Worker-only entries carry empty allowlists.
 type metaProject struct {
 	Key            string   `json:"key"`
 	AllowedAgents  []string `json:"allowed_agents"`
 	AllowedRunners []string `json:"allowed_runners"`
 	DefaultAgent   string   `json:"default_agent,omitempty"`
+	WorkerOnly     bool     `json:"worker_only,omitempty"`
 }
 
 // metaAgent is one selectable agent: its key, type (cli-agent vs exec) which the
@@ -68,29 +73,72 @@ type metaWorker struct {
 // sources as /v1/projects, /v1/agents, /v1/runners); workers are the configured
 // worker ids resolved against the WorkerStatus snapshot for connected/labels.
 func (s *Server) handleMeta(c *rux.Context) {
+	workers := s.metaWorkers()
 	c.JSON(http.StatusOK, metaResp{
-		Projects: s.metaProjects(),
+		Projects: s.metaProjects(workers),
 		Agents:   s.metaAgents(),
 		Runners:  s.metaRunners(),
-		Workers:  s.metaWorkers(),
+		Workers:  workers,
 	})
 }
 
 // metaProjects lists every project with its allowlists, sorted by key. Allowed
 // lists are normalised to non-nil arrays so the front-end never sees JSON null.
-func (s *Server) metaProjects() []metaProject {
+//
+// After the host projects it appends worker-only projects: keys reported by an
+// ONLINE worker (from the already-built workers list, connected-gated like
+// agent_caps) that the host has no config for. Each is synthesized once (dedup
+// across workers) with WorkerOnly=true and empty allowlists — the host cannot run
+// it locally; only a submit targeting that worker can. A project defined on BOTH
+// host and worker stays the single host entry (WorkerOnly=false, host wins).
+// Order is deterministic: host projects (Registry.List order) then worker-only
+// keys sorted.
+func (s *Server) metaProjects(workers []metaWorker) []metaProject {
 	keys := s.projects.List() // already sorted (project.Registry.List)
 	out := make([]metaProject, 0, len(keys))
+	host := make(map[string]struct{}, len(keys))
 	for _, k := range keys {
 		p, err := s.projects.Get(k)
 		if err != nil {
 			continue
 		}
+		host[k] = struct{}{}
 		out = append(out, metaProject{
 			Key:            k,
 			AllowedAgents:  nonNil(p.AllowedAgents),
 			AllowedRunners: nonNil(p.AllowedRunners),
 			DefaultAgent:   p.DefaultAgent,
+		})
+	}
+	// Union of online workers' reported project keys not already host-defined.
+	// workers[].Projects is only populated for connected workers (metaWorkers gate).
+	seen := make(map[string]struct{})
+	extra := make([]string, 0)
+	for _, w := range workers {
+		if !w.Connected {
+			continue
+		}
+		for _, pk := range w.Projects {
+			if pk == "" {
+				continue
+			}
+			if _, ok := host[pk]; ok {
+				continue // defined on host too → single host entry wins
+			}
+			if _, ok := seen[pk]; ok {
+				continue // dedup across workers
+			}
+			seen[pk] = struct{}{}
+			extra = append(extra, pk)
+		}
+	}
+	sort.Strings(extra)
+	for _, pk := range extra {
+		out = append(out, metaProject{
+			Key:            pk,
+			AllowedAgents:  nonNil(nil),
+			AllowedRunners: nonNil(nil),
+			WorkerOnly:     true,
 		})
 	}
 	return out
