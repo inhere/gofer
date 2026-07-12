@@ -9,8 +9,13 @@ import (
 // is populated by the commands layer from the hub registry (see
 // commands.hubWorkerSelector) so the job package never imports wshub.
 type WorkerCandidate struct {
-	WorkerID   string
-	Labels     []string
+	WorkerID string
+	Labels   []string
+	// Projects / Agents are the capability keys the worker reported on register
+	// (authoritative, P1). They carry the worker's own view of what it can run so
+	// the host can validate/filter against it without importing wshub.
+	Projects   []string
+	Agents     []string
 	InFlight   int
 	PtyCapable bool
 	// HeartbeatAge is the time since the worker's most recent inbound frame

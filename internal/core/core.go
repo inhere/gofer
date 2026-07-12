@@ -164,13 +164,7 @@ func (h *hubWorkerSelector) Candidates() []job.WorkerCandidate {
 		if !ok {
 			continue
 		}
-		out = append(out, job.WorkerCandidate{
-			WorkerID:     ws.WorkerID,
-			Labels:       ws.Labels,
-			InFlight:     ws.InFlight,
-			PtyCapable:   ws.PtyCapable,
-			HeartbeatAge: time.Duration(now-ws.LastHeartbeat) * time.Second,
-		})
+		out = append(out, workerCandidate(ws, now))
 	}
 	return out
 }
@@ -185,14 +179,25 @@ func (h *hubWorkerSelector) Candidate(workerID string) (job.WorkerCandidate, boo
 	if !ok {
 		return job.WorkerCandidate{}, false
 	}
-	now := time.Now().Unix()
+	return workerCandidate(ws, time.Now().Unix()), true
+}
+
+// workerCandidate projects a hub snapshot onto the neutral job.WorkerCandidate
+// both selector methods hand to the job layer. Projects/Agents are the worker's
+// reported capability keys (federation P2): the job layer validates/filters on
+// them, so they must not be dropped here. The snapshot's slices are already
+// per-call defensive copies (wshub.WorkerRegistry.WorkerSnapshot), so handing
+// them over shares nothing with the live registry.
+func workerCandidate(ws wshub.WorkerSnapshot, now int64) job.WorkerCandidate {
 	return job.WorkerCandidate{
 		WorkerID:     ws.WorkerID,
 		Labels:       ws.Labels,
+		Projects:     ws.Projects,
+		Agents:       ws.Agents,
 		InFlight:     ws.InFlight,
 		PtyCapable:   ws.PtyCapable,
 		HeartbeatAge: time.Duration(now-ws.LastHeartbeat) * time.Second,
-	}, true
+	}
 }
 
 // workerBindings builds the hub's worker_id → caller-id binding map from

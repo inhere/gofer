@@ -247,8 +247,8 @@ func (r *WorkerRegistry) LastHeartbeat(workerID string) int64 {
 
 // WorkerSnapshot is a read-only view of one worker's live state, taken under the
 // registry lock. It seeds the C6/P4 /v1/runners observability surface without
-// leaking the internal workerConn. Labels is a defensive copy; an offline worker
-// has no snapshot (WorkerSnapshot returns ok=false).
+// leaking the internal workerConn. Every slice is a defensive copy; an offline
+// worker has no snapshot (WorkerSnapshot returns ok=false).
 type WorkerSnapshot struct {
 	WorkerID      string
 	InstanceID    string
@@ -257,7 +257,16 @@ type WorkerSnapshot struct {
 	PtyCapable    bool
 	Labels        []string
 	Projects      []string
-	Agents        []string
+	// Agents is the bare agent-key list (validation / selector, back-compat);
+	// AgentCaps carries the typed detail (type/interactive) the UI cascade needs.
+	// Both come straight from the worker's register frame (authoritative, P1).
+	Agents    []string
+	AgentCaps []wsproto.AgentBrief
+	// Node info reported on register (P1) — surfaced for the P4 runners panel.
+	OS           string
+	Arch         string
+	GoferVersion string
+	StartedAt    int64 // worker process start, unix seconds
 }
 
 // WorkerSnapshot returns a point-in-time read-only view of workerID's live
@@ -275,6 +284,7 @@ func (r *WorkerRegistry) WorkerSnapshot(workerID string) (WorkerSnapshot, bool) 
 	labels := append([]string(nil), wc.meta.Labels...)
 	projects := append([]string(nil), wc.meta.Projects...)
 	agents := append([]string(nil), wc.meta.Agents...)
+	agentCaps := append([]wsproto.AgentBrief(nil), wc.meta.AgentCaps...)
 	return WorkerSnapshot{
 		WorkerID:      wc.workerID,
 		InstanceID:    wc.meta.InstanceID,
@@ -284,5 +294,10 @@ func (r *WorkerRegistry) WorkerSnapshot(workerID string) (WorkerSnapshot, bool) 
 		Labels:        labels,
 		Projects:      projects,
 		Agents:        agents,
+		AgentCaps:     agentCaps,
+		OS:            wc.meta.OS,
+		Arch:          wc.meta.Arch,
+		GoferVersion:  wc.meta.GoferVersion,
+		StartedAt:     wc.meta.StartedAt,
 	}, true
 }
