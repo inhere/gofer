@@ -117,15 +117,32 @@ const selectedProject = computed<MetaProject | undefined>(() =>
   projects.value.find((p) => p.key === projectKey.value),
 )
 
-// 联动：project 选定后，agent/runner 仅取该 project 的 allowed_*（与 meta 全集求交，
-// 保证既在 allowlist 又确有配置）。allowlist 为空时回落到全集。
+// 联动：project 选定后，agent 先取该 project 的 allowed_agents 交集（allowlist 为空=全集）；
+// 再叠加联邦(G3)能力交集——worker runner 选定具体 worker 后只列该 worker 上报的 agent；
+// interactive 模式只列 interactive-capable。两处收窄都 fail-safe：交集为空则回落上一层，绝不清空到不可选。
 const agentOptions = computed<MetaAgent[]>(() => {
+  let list = agents.value
   const allowed = selectedProject.value?.allowed_agents ?? []
-  if (allowed.length === 0) {
-    return agents.value
+  if (allowed.length > 0) {
+    const set = new Set(allowed)
+    list = list.filter((a) => set.has(a.key))
   }
-  const set = new Set(allowed)
-  return agents.value.filter((a) => set.has(a.key))
+  // 联邦：选定 worker 后按其上报能力收窄（无能力上报/交集为空则不收窄——T5.3b fail-safe）
+  const wkeys = workerAgentKeys.value
+  if (wkeys) {
+    const narrowed = list.filter((a) => wkeys.has(a.key))
+    if (narrowed.length > 0) {
+      list = narrowed
+    }
+  }
+  // interactive 模式只列 interactive-capable（全空则回落，避免锁死表单——见 P5 报告）
+  if (interactive.value) {
+    const ia = list.filter((a) => a.interactive)
+    if (ia.length > 0) {
+      list = ia
+    }
+  }
+  return list
 })
 
 const runnerOptions = computed<MetaRunner[]>(() => {
@@ -149,6 +166,53 @@ const connectedWorkers = computed<MetaWorker[]>(() =>
   workers.value.filter((w) => w.connected),
 )
 
+// 联邦级联(G3)：worker runner 且「指定 worker」模式选定 worker 时，取该 worker 条目用于能力收窄。
+// labels 模式（可匹配多台、能力可能不同）与未选时返回 undefined → 不收窄（fail-safe 用全量）。
+const selectedWorker = computed<MetaWorker | undefined>(() => {
+  if (!isWorkerRunner.value || workerMode.value !== 'id' || workerId.value === '') {
+    return undefined
+  }
+  return workers.value.find((w) => w.id === workerId.value)
+})
+
+// 选定 worker 上报的 agent key 集合：优先 typed agent_caps，回落 bare agents[]。
+// 都为空（离线/旧 worker 未上报能力）返回 null = 不收窄（T5.3b fail-safe，绝不清空下拉）。
+const workerAgentKeys = computed<Set<string> | null>(() => {
+  const w = selectedWorker.value
+  if (!w) {
+    return null
+  }
+  const caps = w.agent_caps ?? []
+  if (caps.length > 0) {
+    return new Set(caps.map((c) => c.key))
+  }
+  const keys = w.agents ?? []
+  if (keys.length > 0) {
+    return new Set(keys)
+  }
+  return null
+})
+
+// project 下拉：worker runner 选定 worker 后只列该 worker 上报的 projects；
+// 无上报/交集为空则回落全量（T5.3b fail-safe）。
+const projectOptions = computed<MetaProject[]>(() => {
+  const w = selectedWorker.value
+  const wp = w?.projects ?? []
+  if (wp.length > 0) {
+    const set = new Set(wp)
+    const narrowed = projects.value.filter((p) => set.has(p.key))
+    if (narrowed.length > 0) {
+      return narrowed
+    }
+  }
+  return projects.value
+})
+
+// T5.3a：选了 worker runner 但尚未指定具体 worker（id 模式）→ 提示先选 worker（下拉暂用全量，不锁死）。
+const workerNarrowingPending = computed(
+  () => isWorkerRunner.value && workerMode.value === 'id' && workerId.value === '',
+)
+
 function selectProject(key: string) {
   projectKey.value = key
   // project 切换后，把 agent/runner 收敛到新 allowlist 内的首项（或保留仍合法的选择）
@@ -167,6 +231,21 @@ function selectProject(key: string) {
 // project select change 必须用最新 allowlist 重算，故包一层
 function onProjectChange() {
   selectProject(projectKey.value)
+}
+
+// T5.2：worker/runner 变更后，把 project/agent 收敛到（可能被 worker 收窄的）合法选项内，
+// 不留悬空非法选择。project 失效则整体重收敛（selectProject 内再收 agent/runner）；否则只补收 agent。
+function reconvergeToWorker() {
+  const projs = projectOptions.value
+  if (projs.length > 0 && !projs.some((p) => p.key === projectKey.value)) {
+    selectProject(projs[0].key)
+    return
+  }
+  const ags = agentOptions.value
+  if (ags.length > 0 && !ags.some((a) => a.key === agentKey.value)) {
+    const def = selectedProject.value?.default_agent
+    agentKey.value = def && ags.some((a) => a.key === def) ? def : ags[0].key
+  }
 }
 
 // 校验 + 组装请求
@@ -418,6 +497,12 @@ watch(interactive, (on) => {
   if (!on) {
     recordPty.value = false
   }
+  // interactive 切换改变 agentOptions（只列 interactive-capable）→ 收敛 agent，避免悬空非法选择。
+  const ags = agentOptions.value
+  if (ags.length > 0 && !ags.some((a) => a.key === agentKey.value)) {
+    const def = selectedProject.value?.default_agent
+    agentKey.value = def && ags.some((a) => a.key === def) ? def : ags[0].key
+  }
 })
 </script>
 
@@ -445,9 +530,9 @@ watch(interactive, (on) => {
           class="control mono"
           @change="onProjectChange"
         >
-          <option v-for="p in projects" :key="p.key" :value="p.key">{{ p.key }}</option>
+          <option v-for="p in projectOptions" :key="p.key" :value="p.key">{{ p.key }}</option>
         </select>
-        <p v-if="projects.length === 0" class="field-hint mono">无可用 project</p>
+        <p v-if="projectOptions.length === 0" class="field-hint mono">无可用 project</p>
       </div>
 
       <!-- agent / runner 两列 -->
@@ -462,13 +547,22 @@ watch(interactive, (on) => {
         </div>
         <div class="field">
           <label class="label mono" for="nj-runner">RUNNER</label>
-          <select id="nj-runner" v-model="runnerName" class="control mono">
+          <select
+            id="nj-runner"
+            v-model="runnerName"
+            class="control mono"
+            @change="reconvergeToWorker"
+          >
             <option v-for="r in runnerOptions" :key="r.name" :value="r.name">
               {{ r.name }} · {{ r.type }}
             </option>
           </select>
         </div>
       </div>
+
+      <p v-if="workerNarrowingPending" class="field-hint mono">
+        runner=worker：请在下方「worker 选机」指定具体 worker，agent / project 将按其上报能力收窄
+      </p>
 
       <!-- cli-agent: prompt 文本域 -->
       <div v-if="isCliAgent" class="field">
@@ -548,7 +642,7 @@ watch(interactive, (on) => {
 
           <div v-if="workerMode === 'id'" class="field">
             <label class="label mono" for="nj-wid">WORKER_ID（仅 connected）</label>
-            <select id="nj-wid" v-model="workerId" class="control mono">
+            <select id="nj-wid" v-model="workerId" class="control mono" @change="reconvergeToWorker">
               <option value="" disabled>选择一个已连接 worker</option>
               <option v-for="w in connectedWorkers" :key="w.id" :value="w.id">
                 {{ w.id }}<template v-if="w.labels && w.labels.length"> · {{ w.labels.join(',') }}</template>
