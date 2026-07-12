@@ -1,7 +1,7 @@
-# gofer 配置模型联邦设计（草案 v0.1）
+# gofer 配置模型联邦设计（v0.4 定稿）
 
 > bd: h-aii-xu64.10 ｜ 来源：2026-07-09 使用摩擦审计（iss-0709 §E 讨论点1）
-> 状态：**草案待审**。定稿后再拆实施计划。
+> 状态：**v0.4 定稿**（2026-07-11 用户拍板全部决策）。§13/§14 **已实现**（xu64.13 + `48b1634`），本设计剩**联邦核心**（G1/G2/G3/G5）待拆实施计划。承重代码事实已复验（2026-07-11，A–F+I 全成立，仅行号漂移）。
 
 ## 修订记录
 
@@ -10,6 +10,7 @@
 | v0.1 | 2026-07-09 | inhere/claude | 初稿：联邦模型总体设计，待审 |
 | v0.2 | 2026-07-09 | inhere/claude | 评审：**联邦方向确认**；补 worker 上报节点信息(os/arch/gofer 版本/启动时间) |
 | v0.3 | 2026-07-09 | inhere/claude | 评审续：新增 §13 配置默认化(allowed_agents 空=全放非exec / local 默认)、§14 per-job agent flags(创建 job 自定义 cli-agent 参数，解决非交互授权卡死) |
+| v0.4 | 2026-07-11 | inhere/claude | **复审+拍板定稿**：①范围=**全量**(MVP 消双份/fail-fast + G3 UI 级联 + G5 节点信息 + AgentBrief 升级)；②AgentBrief 升级采**硬不兼容**(旧 worker 拒绝+提示升级，非降级)；③§13/§14 **已实现**(校正落点/剔除待办)、残留可选加固(§13 全局开关 / §14 per-project gate)**都不做**；④能力 API=**扩展 `/v1/runners` 快照**(不新增端点)；⑤待确认 #2(敏感准入留 worker 本地)/#4(无候选明确报错)按推荐定。承重事实复验记入 §4。 |
 
 ## 1. 背景与问题
 
@@ -36,9 +37,9 @@
 - G2 提交/创建 job 时，能在 **host 端提前**校验「project/agent 在目标 runner 上可用」，错配 fail-fast，不再拖到远端。
 - G3 UI 创建表单支持 project→runner→agent **级联过滤**（只列目标 runner 真有的 agent）。
 - G4 不牺牲现有安全边界（worker 只能声明**自己**的能力；token↔worker_id 绑定不变）。
-- G5 worker 上报**节点关键信息**（os / arch / gofer 版本(含 commit/build date) / 启动时间），供可观测面板展示、兼容性判断（如协议/AgentBrief 降级）、排障。
-- G6 **配置默认化**：project 未显式列 `allowed_agents` 时默认可用所有已配置 agents（exec 除外，仍由 `allow_exec` 把关）；local runner 默认可用。降低重复配置（§13）。
-- G7 **per-job agent 参数**：创建 job 时可自定义追加 cli-agent 参数（如放权 flag），解决非交互 job 无法交互授权（§14）。
+- G5 worker 上报**节点关键信息**（os / arch / gofer 版本(含 commit/build date) / 启动时间），供可观测面板展示、兼容性判断、排障。**本轮做**（范围=全量）。
+- ~~G6 **配置默认化**~~ **✅ 已实现**（xu64.13 / `48b1634`）：空 `allowed_agents` = 放开所有已配 agents，exec 仍由 `allow_exec` 把关；local runner 空 `allowed_runners` 默认可用。落点在 `job/config.go` 调用处闸（**非** `allow.go`），无全局严格/宽松开关（v0.4 决策：不加）。详见 §13。
+- ~~G7 **per-job agent 参数**~~ **✅ 已实现**（`48b1634` + 后续）：CLI `--agent-arg` / MCP `agent_args` / web / worker dispatch 全链路追加 cli-agent 参数，exec 禁用 + secret 脱敏 + 追加式。无 per-project `allow_agent_args` 闸（v0.4 决策：不加）。详见 §14。
 
 **非目标**
 - 不做 server→worker 的**配置下发/同步**（那是「中心化」方向，本方案走「联邦/自治」，见 §11 取舍）。
@@ -46,6 +47,8 @@
 - 不引入服务注册中心/etcd 等外部依赖（保持单机收敛，符合 G001）。
 
 ## 4. 现状（代码级基线）
+
+> **2026-07-11 复审复验**：下表 A–F+I 各事实**语义仍成立**，仅行号漂移几行（xu64.13/xu64.15 改动所致）。实施计划以现行代码为准重取行号。补一条新事实：`config.go` 的"远程 agent 检查放宽"其注释写 "a peer-http runner"，但代码 `remote = IsRemoteRunner` **含 worker runner** —— 即 worker runner 的 agent 检查同样已放宽（与本设计假设一致，仅注释偏窄）。
 
 | 维度 | 现状 | 关键位置 |
 |---|---|---|
@@ -75,9 +78,10 @@
 ## 6. 详细设计
 
 ### 6.1 能力上报「变功能性」（协议）
-- `Register` 帧结构**无需加字段**（已有 `Projects/Agents/Labels`）；仅去掉 `frames.go:5-8` 的 "display only" 定性，改为**权威能力声明**。
-- 需补充：agent 上报**不只 key，还要带类型/interactive 能力**（UI 级联需要），即把 `Agents []string` 升级为 `Agents []AgentBrief{Key,Type,Interactive}`（协议 minor 版本兼容处理见 §9）。project 上报可保持 key 列表（准入细节仍由 worker 本地二次校验，见 6.5）。
-- **节点信息（G5）**：`Register` 补 `Arch`、`GoferVersion`（取 `buildinfo.Info`，含 commit/build date）、`StartedAt`；`OS` 字段已存在（`frames.go:11`）仅需 server 端 surface。这些进 `WorkerSnapshot`，供 `/v1/runners` 面板与 Cluster 视图展示，并作**兼容性判断**依据（如旧版 worker 上报 `Agents []string` 时按版本提示升级）。
+- 去掉 `frames.go:5-8` 的 "display only" 定性，`Register` 帧的能力字段改为**权威能力声明**（参与校验+路由）。
+- **AgentBrief 升级（v0.4 决策：硬不兼容）**：`Agents []string` 升级为 `Agents []AgentBrief{Key,Type,Interactive}`（UI 级联需 type/interactive）。**不做降级兼容**——旧格式 worker 连入直接**拒绝注册 + 回明确"请升级 worker 到 vX"错误**（版本闸见下）。project 上报保持 key 列表（准入细节仍由 worker 本地二次校验，见 6.5）。
+- **节点信息（G5）**：`Register` 补 `Arch`、`GoferVersion`（取 `buildinfo.Info`，含 commit/build date）、`StartedAt`；`OS` 已存在（`frames.go:11`）server 端 surface 即可。这些进 `WorkerSnapshot`，供 `/v1/runners` 面板/Cluster 视图展示。
+- **版本闸（硬不兼容的落地）**：server 在处理 `Register` 时先据 `GoferVersion` / 协议版本判定；worker 版本低于引入 AgentBrief 的最小版本（或能力字段解码为旧 `[]string` 形态）→ 注册被拒 + actionable 错误。**前置约束**：本项目单机同一份二进制部署（SR1005/G001），worker 与 server 天然同版本，故"全部 worker 随 server 一起升级"风险极低——升级窗口内旧 worker 短暂掉线属预期。
 
 ### 6.2 server 端 federated view
 - 在 `wshub/registry.go` 现有 `workerConn.meta` 基础上，提供一个**按 runner 维度查询能力**的只读接口：`CapabilitiesFor(runnerKey) → {projects, agents}`。
@@ -93,10 +97,10 @@
 4. 保留现有 exec 安全闸、runner 白名单校验。
 - **自动选 worker** 增强：`WorkerCandidate` 增加 `projects/agents` 字段（数据源已在 registry），`selectWorker` 过滤掉「不具备所需 project/agent」的候选。
 
-### 6.4 UI 级联选择
-- 新增只读 API：`GET /v1/capabilities?runner=<key>`（或扩展现有 `/v1/runners` 快照带能力明细）返回 `{projects:[], agents:[{key,type,interactive}]}`。
-- `NewJob.vue` / `NewSchedule.vue` 表单：选 runner → 拉该 runner 能力 → project/agent 下拉**只列可用项**（G3）。
-  - 注：本表单改造属**独立后续任务**，不在本次 UI 重构 A+B 范围（A+B 只动 App/Board）。
+### 6.4 UI 级联选择（v0.4：本轮做）
+- **API（v0.4 决策：扩展 `/v1/runners`，不新增端点）**：扩展现有 `/v1/runners` 快照，每个 runner 带能力明细 `{projects:[], agents:[{key,type,interactive}]}`；`local` runner 的能力由全局 config 合成并入同一视图。前端拉一次 runner 列表即含全部能力，选 runner 后**纯客户端过滤**做级联，无每选一次的额外请求。
+- `NewJob.vue` / `NewSchedule.vue` 表单：选 runner → 用已加载的该 runner 能力 → project/agent 下拉**只列可用项**（G3）。
+  - 若后续担心 `/v1/runners` 职责耦合（健康态 + 能力明细混在一起），可再拆独立 `GET /v1/capabilities?runner=` —— 成本很低、可后置。
 
 ### 6.5 agent-on-runner fail-fast + worker 端二次校验
 - host 端 fail-fast 是**第一道**（6.3）；worker 端 `dispatch.go` 的本地 `validate` **保留为第二道**（防御 view 过期/竞态）。即"信任但校验"。
@@ -106,13 +110,14 @@
 
 | 层 | 改动 | 兼容性 |
 |---|---|---|
-| `wsproto/frames.go` | `Register.Agents` 由 `[]string`→`[]AgentBrief`；去 "display only" 语义 | 协议 minor bump；旧 worker 上报 `[]string` 时降级为无 type（UI 不级联但可用） |
-| `wsproto/frames.go` | `Register` 补 `Arch/GoferVersion/StartedAt`（`OS` 已有，surface 即可） | 纯新增字段，旧 worker 留空降级 |
-| `wshub/registry.go` | 新增 `CapabilitiesFor(runner)` 只读查询 | 纯新增 |
-| `job/selector.go` | `WorkerCandidate` 加 projects/agents；过滤逻辑 | 内部 |
-| `job/config.go` | `validate` 按 runner 取能力校验；放宽全局 project 强制 | **行为变更**（见 §9 迁移） |
-| `httpapi` | 新增/扩展 `/v1/capabilities` | 纯新增 |
-| web `NewJob/NewSchedule` | 级联选择（后续独立任务） | 前端 |
+| `wsproto/frames.go` | `Register.Agents` 由 `[]string`→`[]AgentBrief`；去 "display only" 语义 | **协议 breaking**；旧 worker 注册被拒 + 提示升级（v0.4 硬不兼容，非降级） |
+| `wsproto/frames.go` | `Register` 补 `Arch/GoferVersion/StartedAt`（`OS` 已有，surface 即可） | 纯新增字段 |
+| `wshub/hub/registry.go` | 注册处**版本闸**：旧格式/低版本 worker 拒绝 + actionable 错误 | 新增校验 |
+| `wshub/registry.go` | 新增 `CapabilitiesFor(runner)` 只读查询（local=全局 config，worker=在线上报） | 纯新增 |
+| `job/selector.go` | `WorkerCandidate` 加 projects/agents；`selectWorker` 过滤不具备 project/agent 的候选 | 内部 |
+| `job/config.go` | `validate` 按目标 runner 取能力校验；放宽"全局 project 强制"（仅 local runner 才强制全局有） | **行为变更**（见 §9 迁移） |
+| `httpapi` `/v1/runners` | 快照带能力明细 `{projects,agents[{key,type,interactive}]}` + 合成 local 能力 | 扩展（字段新增） |
+| web `NewJob/NewSchedule` | 选 runner → 客户端过滤级联 | 前端 |
 
 ## 8. 关键流程（submit 校验时序）
 
@@ -129,9 +134,9 @@ client submit(project, agent, runner?)
 
 ## 9. 兼容与迁移
 
-- **旧 worker（上报 `Agents []string`）**：server 降级处理——能校验 key 归属，但 UI 无法按 type 级联（可接受，提示升级 worker）。
+- **旧 worker（上报 `Agents []string`）**：v0.4 **硬不兼容**——注册被拒 + 回"升级 worker 到 vX"错误，**不降级**。前置约束见 §6.1（单机同一份二进制，worker 随 server 同版本，升级窗口短暂掉线属预期）。
 - **全局 config 里已有的 project**：继续对 local runner 有效；不删除、不强制迁移。
-- **行为变更点**：submit 不再无条件要求 project 在全局 config——**仅当目标是 local runner** 时才要求全局有；worker runner 走该 worker 能力。需在实施计划里为 `job/config.go:46` 附**逐分支单测**（local 缺 project 仍拒 / worker-only project 放行 / agent 不在 worker 拒）。
+- **行为变更点**：submit 不再无条件要求 project 在全局 config——**仅当目标是 local runner** 时才要求全局有；worker runner 走该 worker 能力。需在实施计划里为 `job/config.go`(现 ~L46) 附**逐分支单测**（local 缺 project 仍拒 / worker-only project 放行 / agent 不在 worker 拒 / worker 离线时 CapabilitiesFor 返回不可用）。
 
 ## 10. 安全考量
 
@@ -151,20 +156,26 @@ client submit(project, agent, runner?)
 
 倾向**联邦**：改动小、契合用户直觉、数据链路已存在。
 
-## 12. 已定 / 待确认
+## 12. 已定（v0.4 全部拍板）
 
-**已定（v0.2 评审）**：走**联邦**方向；worker 补报节点信息（os/arch/gofer 版本/启动时间）。
+原 7 项待确认已全部有结论：
 
-**待确认**：
-1. `Register.Agents` 升 `[]AgentBrief` 的协议版本策略：minor bump + 旧 worker 降级，是否可接受？
-2. worker-only project 的准入敏感字段是否**完全**留 worker 本地（server 不感知 allow_exec）——确认安全边界。
-3. `/v1/capabilities` 独立新端点，还是并入 `/v1/runners` 快照？
-4. 自动选 worker 过滤后**无候选**时的报错语义（"无满足 project+agent 的在线 worker"）。
-5. 级联选择表单改造是否确认为**独立后续任务**（不阻塞本次 A+B UI）。
-6. 配置默认化（§13）：`allowed_agents` 空=全放（非 exec）语义变更确认？是否需要全局严格/宽松开关以兼容既有"空=全拒"期望？
-7. per-job agent flags（§14）：`agent_args` 追加式 + exec 禁用 + 可选 project gate 的安全边界确认？本期做还是与 interaction 授权一起排期？
+| # | 议题 | 结论（v0.4） |
+|---|---|---|
+| 范围 | 联邦做到哪一步 | **全量**：MVP(G1 消双份 + G2 fail-fast) + G3 UI 级联 + G5 节点信息 + AgentBrief 升级，一轮做完 |
+| 1 | `Register.Agents`→`[]AgentBrief` 版本策略 | **硬不兼容**：旧 worker 拒绝注册 + 提示升级（非降级）；单机同二进制部署风险低（§6.1） |
+| 2 | worker-only project 敏感准入归属 | **完全留 worker 本地**，server 只据上报 key 做可达性过滤，不感知/不据此授权 allow_exec（§10） |
+| 3 | 能力 API 形态 | **扩展 `/v1/runners` 快照**带能力明细，不新增端点；合成 local 能力（§6.4） |
+| 4 | 自动选 worker 无候选报错 | 返回明确错误 `无满足 project+agent 的在线 worker`（带缺失的 project/agent 名） |
+| 5 | UI 级联表单改造排期 | **本轮做**（范围=全量，不再后置） |
+| 6 | §13 配置默认化 + 全局严格/宽松开关 | §13 **已实现**；全局开关 **不做**（YAGNI，空=全放已够用） |
+| 7 | §14 per-job agent flags + per-project gate | §14 **已实现**（全链路）；per-project `allow_agent_args` gate **不做** |
 
-## 13. 配置默认化（降低重复配置，v0.3 新增）
+> 下一步：据本定稿拆**实施计划**（`docs/plans/`），按 SR1105 细化到关键代码片段 + 逐分支验收；改动面大（协议 breaking + submit 校验 + selector + registry + httpapi + web），走 design→plan→确认→实施。
+
+## 13. 配置默认化（降低重复配置，v0.3 新增）— ✅ 已实现（xu64.13 / `48b1634`）
+
+> **落地校正（2026-07-11 复审）**：实际实现**不是**改 `allow.go`（`allow.go` 仍文档化"空=全拒"），而是在 `job/config.go` 的**调用处加闸**：`if len(proj.AllowedAgents) > 0 { CheckAllowed(...) }` —— 空列表跳过白名单闸即"全放已配 agents"。exec 仍由 `job/config.go` 的 `allow_exec` 安全闸独立把关。local runner 空 `allowed_runners` 默认放行本就存在。**未加**全局严格/宽松开关（v0.4 决策：不加）。以下为原设计意图，保留备查：
 
 来源 iss-0709 §配置优化：server/worker 已配 `agents`，project 却要再列一遍 `allowed_agents` 才能用。
 
@@ -179,7 +190,9 @@ client submit(project, agent, runner?)
 
 **安全**：默认放开的是**非 exec** 的受控 cli-agent/内置 agent；真正危险的任意命令执行(exec)仍双闸（`allow_exec` + 仅本地）。
 
-## 14. 创建 job 自定义 cli-agent 参数（per-job agent flags，v0.3 新增）
+## 14. 创建 job 自定义 cli-agent 参数（per-job agent flags，v0.3 新增）— ✅ 已实现（`48b1634` + 后续）
+
+> **落地状态（2026-07-11 复审）**：`JobRequest.AgentArgs` **全链路已实现**——CLI `--agent-arg`(可重复) / MCP `gofer_run_job.agent_args` / web NewJob / worker dispatch 转发；追加到 cli-agent argv 末尾；**exec 禁用**（`job/config.go` 拒绝）+ secret 脱敏（`rebuild.go`）。**未加** per-project `allow_agent_args` gate（v0.4 决策：不加，exec 已禁用+注入面已受控）。interaction 授权（运行中弹权由人应答）仍为**后续更重的路**（见文末）。以下为原设计，保留备查：
 
 来源 iss-0709：非交互 job 里 cli-agent（claude/codex）遇审批/授权提示会**卡死**——job 无法交互授权（用户实例："job 让 claude 用工具，输出说要权限，但 job 里给不了"）。
 
