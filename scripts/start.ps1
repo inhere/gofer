@@ -24,10 +24,16 @@
 
 .NOTES
   * Service ops (up/stop/restart/remove) need an ELEVATED (Administrator) shell.
-  * The service runs as LocalSystem and sees NONE of your shell env, so point it at
-    your gofer config dir:  -ConfigDir 'D:/work/inhere/config/win-env/gofer'  (or set
-    $env:GOFER_CONFIG_DIR). It injects GOFER_CONFIG_DIR so gofer finds config.yaml +
-    loads that dir's .env (GOFER_TOKEN). Without it gofer refuses to start (no token).
+  * The service sees NONE of your shell env, so point it at your gofer config dir:
+    -ConfigDir 'D:/work/inhere/config/win-env/gofer'  (or set $env:GOFER_CONFIG_DIR).
+    It injects GOFER_CONFIG_DIR so gofer finds config.yaml + loads that dir's .env
+    (GOFER_TOKEN). Without it gofer refuses to start (no token).
+  * By default the service runs as LocalSystem, so `--runner local` jobs run as SYSTEM
+    (breaks git ownership / your credentials / user PATH). Pass -Account '.\<user>' to
+    run as YOU instead — jobs then behave like the old foreground run. Example:
+      pwsh -File scripts\start.ps1 -ConfigDir 'D:/.../gofer' -Account '.\KZL'
+    If the service then fails with error 1069 (logon failure), grant the account the
+    "Log on as a service" right via secpol.msc (User Rights Assignment).
   * The service runs with AppDirectory = <repo>, so the RELATIVE `--web-dir ./web/dist`
     (and any relative config lookup) resolves against the repo root — no absolute
     paths in AppParameters, so a repo path with spaces stays safe.
@@ -57,7 +63,16 @@ param(
     # Bearer token injected into the service env as GOFER_TOKEN (read via token_env).
     # Falls back to $env:GOFER_TOKEN. Leave empty if the config carries it / token is
     # disabled. NOTE: stored in the service registry (admin-readable).
-    [string]$Token = ''
+    [string]$Token = '',
+    # Logon account for the service (nssm ObjectName). Empty = LocalSystem (default).
+    # Set to YOUR account (e.g. '.\KZL' or 'PC-NAME\KZL') so `--runner local` jobs run
+    # as YOU — with your PATH, git ownership, and credential store — instead of SYSTEM.
+    # A user account needs a password (prompted securely if -Password omitted) and the
+    # "Log on as a service" right (nssm grants it; else add via secpol.msc).
+    [string]$Account = '',
+    # Password for -Account (SecureString). Omit to be prompted securely at run time.
+    # Built-in accounts (LocalSystem/LocalService/NetworkService) need no password.
+    [securestring]$Password
 )
 
 $ErrorActionPreference = 'Stop'
@@ -126,7 +141,29 @@ switch ($Action) {
         if ($envEntries.Count -gt 0) { & $Nssm set $ServiceName AppEnvironmentExtra @envEntries | Out-Null }
         else { & $Nssm reset $ServiceName AppEnvironmentExtra 2>$null | Out-Null }
         if (-not $cfgDir) {
-            Write-Warning "no -ConfigDir / GOFER_CONFIG_DIR set: the service (LocalSystem) may not find a config -> gofer refuses to start without a token."
+            Write-Warning "no -ConfigDir / GOFER_CONFIG_DIR set: the service may not find a config -> gofer refuses to start without a token."
+        }
+
+        # Logon account (nssm ObjectName): run as YOU so `--runner local` jobs use your
+        # identity / PATH / git ownership / credential store, not SYSTEM. Built-in
+        # service accounts take no password; a user account is prompted for one securely
+        # (kept off the command line / history).
+        if ($Account) {
+            $builtin = @('LocalSystem', 'LocalService', 'NetworkService',
+                         'NT AUTHORITY\LocalService', 'NT AUTHORITY\NetworkService')
+            if ($builtin -contains $Account) {
+                & $Nssm set $ServiceName ObjectName $Account | Out-Null
+            } else {
+                if (-not $Password) { $Password = Read-Host -AsSecureString "Windows password for $Account" }
+                $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password)
+                try {
+                    $plain = [Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
+                    & $Nssm set $ServiceName ObjectName $Account $plain | Out-Null
+                } finally {
+                    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr); $plain = $null
+                }
+            }
+            Write-Host "service logon account: $Account"
         }
 
         # (Re)start cleanly (stop covers a paused/throttled state), then verify.
