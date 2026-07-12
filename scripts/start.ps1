@@ -24,6 +24,10 @@
 
 .NOTES
   * Service ops (up/stop/restart/remove) need an ELEVATED (Administrator) shell.
+  * The service runs as LocalSystem and sees NONE of your shell env, so point it at
+    your gofer config dir:  -ConfigDir 'D:/work/inhere/config/win-env/gofer'  (or set
+    $env:GOFER_CONFIG_DIR). It injects GOFER_CONFIG_DIR so gofer finds config.yaml +
+    loads that dir's .env (GOFER_TOKEN). Without it gofer refuses to start (no token).
   * The service runs with AppDirectory = <repo>, so the RELATIVE `--web-dir ./web/dist`
     (and any relative config lookup) resolves against the repo root — no absolute
     paths in AppParameters, so a repo path with spaces stays safe.
@@ -42,6 +46,12 @@ param(
     [string]$Addr = '',
     # Path to a gofer config file, passed as --config (optional).
     [string]$Config = '',
+    # gofer config DIRECTORY, injected into the service env as GOFER_CONFIG_DIR.
+    # The service runs as LocalSystem and does NOT see your shell's env, so a
+    # user-level config (config.yaml + .env with GOFER_TOKEN) is invisible unless
+    # pointed at here. Falls back to $env:GOFER_CONFIG_DIR. Example:
+    #   -ConfigDir 'D:/work/inhere/config/win-env/gofer'
+    [string]$ConfigDir = '',
     # Boot behaviour: -Auto = start at boot (SERVICE_AUTO_START); default = manual.
     [switch]$Auto,
     # Bearer token injected into the service env as GOFER_TOKEN (read via token_env).
@@ -106,13 +116,30 @@ switch ($Action) {
         & $Nssm set $ServiceName AppRestartDelay 2000    | Out-Null   # ~2s, mirrors the pwsh supervisor
         & $Nssm set $ServiceName Start ($(if ($Auto) { 'SERVICE_AUTO_START' } else { 'SERVICE_DEMAND_START' })) | Out-Null
 
+        # Service env (LocalSystem sees none of your shell's env): point at the config
+        # dir (config.yaml + .env → GOFER_TOKEN) and optionally an explicit token.
+        $envEntries = @()
+        $cfgDir = if ($ConfigDir) { $ConfigDir } elseif ($env:GOFER_CONFIG_DIR) { $env:GOFER_CONFIG_DIR } else { '' }
+        if ($cfgDir) { $envEntries += "GOFER_CONFIG_DIR=$cfgDir" }
         $tok = if ($Token) { $Token } elseif ($env:GOFER_TOKEN) { $env:GOFER_TOKEN } else { '' }
-        if ($tok) { & $Nssm set $ServiceName AppEnvironmentExtra ("GOFER_TOKEN={0}" -f $tok) | Out-Null }
+        if ($tok) { $envEntries += "GOFER_TOKEN=$tok" }
+        if ($envEntries.Count -gt 0) { & $Nssm set $ServiceName AppEnvironmentExtra @envEntries | Out-Null }
+        else { & $Nssm reset $ServiceName AppEnvironmentExtra 2>$null | Out-Null }
+        if (-not $cfgDir) {
+            Write-Warning "no -ConfigDir / GOFER_CONFIG_DIR set: the service (LocalSystem) may not find a config -> gofer refuses to start without a token."
+        }
 
-        # (Re)start.
-        if ((Get-Service -Name $ServiceName).Status -eq 'Running') { & $Nssm restart $ServiceName | Out-Null }
-        else { & $Nssm start $ServiceName | Out-Null }
-        Write-Host "service '$ServiceName' running: $params"
+        # (Re)start cleanly (stop covers a paused/throttled state), then verify.
+        & $Nssm stop  $ServiceName 2>$null | Out-Null
+        & $Nssm start $ServiceName 2>$null | Out-Null
+        Start-Sleep -Seconds 2
+        $svc = Get-Service -Name $ServiceName
+        if ($svc.Status -eq 'Running') {
+            Write-Host "service '$ServiceName' RUNNING: gofer.exe $params"
+        } else {
+            Write-Warning "service '$ServiceName' is $($svc.Status), NOT Running — gofer likely failed to start. Check the logs:"
+            Write-Warning "  pwsh -File scripts\start.ps1 -Action logs"
+        }
         Write-Host "  logs: $OutLog / $ErrLog"
     }
     'stop'    { Assert-Nssm; Assert-Admin; & $Nssm stop    $ServiceName; Write-Host "stopped '$ServiceName'" }
