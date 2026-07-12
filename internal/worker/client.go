@@ -84,7 +84,16 @@ type Client struct {
 	labels     []string
 	projects   []string
 	agents     []string
-	maxConc    int
+	// agentCaps is the TYPED capability report (key/type/interactive) the hub keeps
+	// as authoritative for this worker's agents; agents stays the bare key list for
+	// back-compat. Both are sent on every register.
+	agentCaps []wsproto.AgentBrief
+	// goferVersion is buildinfo.Info.DisplayVersion(), threaded from the worker
+	// command; startedAt is this process's start time (unix sec). Both are node
+	// info reported on register for observability.
+	goferVersion string
+	startedAt    int64
+	maxConc      int
 
 	backoff      backoffPolicy
 	pingInterval time.Duration
@@ -145,12 +154,17 @@ type Client struct {
 // PingInterval/ReadDeadline are 0-defaulted to the package constants. Rng is the
 // jitter source (nil = time-seeded; tests inject a deterministic one).
 type Config struct {
-	WorkerID       string
-	URLs           []string
-	Token          string
-	Labels         []string
-	Projects       []string
-	Agents         []string
+	WorkerID string
+	URLs     []string
+	Token    string
+	Labels   []string
+	Projects []string
+	Agents   []string
+	// AgentCaps is the typed agent capability report (built from the worker config's
+	// agents map by the command); Agents stays the bare key list.
+	AgentCaps []wsproto.AgentBrief
+	// GoferVersion is the worker binary's display version (buildinfo).
+	GoferVersion   string
 	MaxConc        int
 	InitialBackoff time.Duration
 	MaxBackoff     time.Duration
@@ -181,6 +195,9 @@ func New(cfg Config, jobs Jobs) *Client {
 		labels:        cfg.Labels,
 		projects:      cfg.Projects,
 		agents:        cfg.Agents,
+		agentCaps:     cfg.AgentCaps,
+		goferVersion:  cfg.GoferVersion,
+		startedAt:     time.Now().Unix(),
 		maxConc:       cfg.MaxConc,
 		backoff:       newBackoffPolicy(cfg.InitialBackoff, cfg.MaxBackoff, cfg.Rng),
 		pingInterval:  ping,
@@ -406,14 +423,19 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 	// register → registered (bare ctx; the read deadline governs the steady-state
 	// recv loop, not the handshake).
 	if err := cl.writeFrame(ctx, wsproto.TypeRegister, "", wsproto.Register{
-		WorkerID:      cl.workerID,
-		InstanceID:    cl.instanceID,
-		PtyCapable:    ptyrunner.Available(),
-		OS:            runtime.GOOS,
-		Labels:        cl.labels,
-		Projects:      cl.projects,
-		Agents:        cl.agents,
-		MaxConcurrent: cl.maxConc,
+		WorkerID:        cl.workerID,
+		InstanceID:      cl.instanceID,
+		ProtocolVersion: wsproto.ProtocolVersion,
+		PtyCapable:      ptyrunner.Available(),
+		OS:              runtime.GOOS,
+		Arch:            runtime.GOARCH,
+		GoferVersion:    cl.goferVersion,
+		StartedAt:       cl.startedAt,
+		Labels:          cl.labels,
+		Projects:        cl.projects,
+		Agents:          cl.agents,
+		AgentCaps:       cl.agentCaps,
+		MaxConcurrent:   cl.maxConc,
 	}); err != nil {
 		return false, fmt.Errorf("send register: %w", err)
 	}

@@ -2,10 +2,29 @@ package wsproto
 
 import "encoding/json"
 
+// ProtocolVersion is the current worker↔hub wire capability version. Bumped to 2
+// when federation made the capability report authoritative (AgentCaps). A worker
+// that reports a lower/absent version is rejected at registration (hub gate) with
+// an upgrade prompt — old workers report 0 (field absent). NOT tied to the gofer
+// release version; it only gates capability-frame compatibility.
+const ProtocolVersion = 2
+
+// AgentBrief is a worker-reported agent capability with the detail the UI cascade
+// needs (type/interactive) beyond a bare key. Federation: the worker is the
+// authority for ITS agents' type/interactive (the server may not have them in its
+// own config).
+type AgentBrief struct {
+	Key         string `json:"key"`
+	Type        string `json:"type,omitempty"`
+	Interactive bool   `json:"interactive,omitempty"`
+}
+
 // Register (w→s, P1): the worker announces its identity + capability snapshot on
-// connect. The hub validates worker_id against the token binding (review #1);
-// labels/projects/agents are display/optional-prehint only — the worker
-// re-validates locally on dispatch (review #8).
+// connect. The hub validates worker_id against the token binding (review #1) AND
+// rejects a worker whose ProtocolVersion < wsproto.ProtocolVersion (federation:
+// hard incompatibility + upgrade prompt). AgentCaps/Projects are now AUTHORITATIVE
+// for validation+routing (was display-only); the worker still re-validates locally
+// on dispatch (review #8).
 type Register struct {
 	WorkerID string `json:"worker_id"`
 	// InstanceID is a per-PROCESS nonce minted once at worker start and reused
@@ -14,13 +33,24 @@ type Register struct {
 	// RESTART (new instance under the same worker_id → the old process's in-flight
 	// jobs died with it and must be failed, not exempted). Empty on old workers →
 	// the hub falls back to the legacy supersede-always behaviour (z8ow).
-	InstanceID    string   `json:"instance_id,omitempty"`
-	PtyCapable    bool     `json:"pty_capable,omitempty"`
-	OS            string   `json:"os,omitempty"`
-	Labels        []string `json:"labels,omitempty"`
-	Projects      []string `json:"projects,omitempty"`
-	Agents        []string `json:"agents,omitempty"`
-	MaxConcurrent int      `json:"max_concurrent,omitempty"`
+	InstanceID string `json:"instance_id,omitempty"`
+	// ProtocolVersion is the worker's capability-frame version (0 = pre-federation
+	// worker → rejected by the hub gate). New workers set wsproto.ProtocolVersion.
+	ProtocolVersion int      `json:"protocol_version,omitempty"`
+	PtyCapable      bool     `json:"pty_capable,omitempty"`
+	OS              string   `json:"os,omitempty"`
+	Arch            string   `json:"arch,omitempty"`          // runtime.GOARCH
+	GoferVersion    string   `json:"gofer_version,omitempty"` // buildinfo.DisplayVersion
+	StartedAt       int64    `json:"started_at,omitempty"`    // worker process start, unix sec
+	Labels          []string `json:"labels,omitempty"`
+	Projects        []string `json:"projects,omitempty"`
+	// Agents stays the bare key list (validation / selector, back-compat); AgentCaps
+	// carries the typed detail (type/interactive) the UI cascade needs. A new worker
+	// sends BOTH (the key redundancy is accepted; Agents is dropped once every
+	// consumer reads AgentCaps).
+	Agents        []string     `json:"agents,omitempty"`
+	AgentCaps     []AgentBrief `json:"agent_caps,omitempty"`
+	MaxConcurrent int          `json:"max_concurrent,omitempty"`
 }
 
 // Registered (s→w, P1): handshake ack. ServerTime is in milliseconds (SR102, in

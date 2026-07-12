@@ -12,11 +12,13 @@ import (
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/goutil/errorx"
 
+	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/daemon"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/worker"
+	"github.com/inhere/gofer/internal/wsproto"
 )
 
 // workerExitErr is the process exit code used when the worker fails to start or
@@ -48,7 +50,9 @@ func workerLogFile(id string) string { return config.RuntimeFilePath("run", "wor
 // NewWorkerCmd builds the `worker` command: load worker.yaml, build the local
 // job service (the worker runs jobs locally with its OWN config), dial the hub,
 // register and run the dispatch loop (ws-worker §4/§6).
-func NewWorkerCmd() *gcli.Command {
+// info carries the linker build metadata down to the worker client, which reports
+// it to the hub on register (gofer_version node info).
+func NewWorkerCmd(info buildinfo.Info) *gcli.Command {
 	return &gcli.Command{
 		Name:    "worker",
 		Desc:    "As worker that dials a central hub and executes dispatched jobs locally",
@@ -58,7 +62,9 @@ func NewWorkerCmd() *gcli.Command {
 			c.BoolOpt(&workerOpts.daemon, "daemon", "d", false, "run in background (detached); logs to <config-dir>/run/worker-<id>.log")
 		},
 		Subs: []*gcli.Command{NewWorkerStopCmd()},
-		Func: runWorker,
+		Func: func(c *gcli.Command, args []string) error {
+			return runWorker(c, args, info)
+		},
 	}
 }
 
@@ -148,7 +154,7 @@ func runningWorkerIDs() ([]string, error) {
 	return ids, nil
 }
 
-func runWorker(c *gcli.Command, _ []string) error {
+func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 	wc, err := loadWorkerConfig(workerOpts.config)
 	if err != nil {
 		return errorx.Failf(workerExitErr, "%v", err)
@@ -197,6 +203,8 @@ func runWorker(c *gcli.Command, _ []string) error {
 		Labels:         wc.Labels,
 		Projects:       mapKeys(wc.Projects),
 		Agents:         agentKeys(wc.Agents),
+		AgentCaps:      agentBriefs(wc.Agents),
+		GoferVersion:   info.DisplayVersion(),
 		MaxConc:        wc.MaxConcurrent,
 		InitialBackoff: msToDuration(rc.InitialBackoffMS),
 		MaxBackoff:     msToDuration(rc.MaxBackoffMS),
@@ -326,5 +334,22 @@ func agentKeys(m map[string]config.AgentConfig) []string {
 	for k := range m {
 		out = append(out, k)
 	}
+	return out
+}
+
+// agentBriefs projects the worker's agent map onto the TYPED capability report the
+// worker sends on register (wsproto.Register.AgentCaps): the hub/UI needs each
+// agent's type + interactive flag, not just its key, and the worker is the
+// authority for its own agents. Sorted by key so the reported order is stable
+// across registers (Go map iteration is not).
+func agentBriefs(m map[string]config.AgentConfig) []wsproto.AgentBrief {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make([]wsproto.AgentBrief, 0, len(m))
+	for k, ac := range m {
+		out = append(out, wsproto.AgentBrief{Key: k, Type: ac.Type, Interactive: ac.Interactive})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
 	return out
 }

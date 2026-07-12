@@ -106,8 +106,12 @@ func dialAndRegisterInstance(t *testing.T, ctx context.Context, wsURL, workerID,
 	}
 	conn.SetReadLimit(1 << 20)
 	if err := wsjson.Write(ctx, conn, wsproto.Envelope{
-		Type:    wsproto.TypeRegister,
-		Payload: mustRaw(wsproto.Register{WorkerID: workerID, InstanceID: instanceID}),
+		Type: wsproto.TypeRegister,
+		Payload: mustRaw(wsproto.Register{
+			WorkerID:        workerID,
+			InstanceID:      instanceID,
+			ProtocolVersion: wsproto.ProtocolVersion, // current worker: passes the hub version gate
+		}),
 	}); err != nil {
 		t.Fatalf("write register: %v", err)
 	}

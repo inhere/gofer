@@ -150,8 +150,12 @@ func TestDispatchAtCapacity(t *testing.T) {
 	defer conn.Close(websocket.StatusNormalClosure, "")
 	conn.SetReadLimit(1 << 20)
 	if err := wsjson.Write(ctx, conn, wsproto.Envelope{
-		Type:    wsproto.TypeRegister,
-		Payload: mustRaw(wsproto.Register{WorkerID: "w1", MaxConcurrent: 2}),
+		Type: wsproto.TypeRegister,
+		Payload: mustRaw(wsproto.Register{
+			WorkerID:        "w1",
+			ProtocolVersion: wsproto.ProtocolVersion,
+			MaxConcurrent:   2,
+		}),
 	}); err != nil {
 		t.Fatalf("write register: %v", err)
 	}
@@ -281,7 +285,7 @@ func TestRestartReplacementFailsInFlightJob(t *testing.T) {
 // TestTryReserveConcurrent (-race): many goroutines race to reserve capacity on
 // one worker conn; the in-flight count must never exceed maxConcurrent.
 func TestTryReserveConcurrent(t *testing.T) {
-	wc := newWorkerConn("w", "w", nil, wsproto.Register{MaxConcurrent: 4})
+	wc := newWorkerConn("w", "w", nil, wsproto.Register{ProtocolVersion: wsproto.ProtocolVersion, MaxConcurrent: 4})
 	const goroutines = 64
 	var granted int64
 	var mu sync.Mutex
@@ -374,13 +378,14 @@ func TestWorkerSnapshotExposed(t *testing.T) {
 	}
 
 	wc := newWorkerConn("w1", "w1", nil, wsproto.Register{
-		WorkerID:      "w1",
-		InstanceID:    "inst-1",
-		PtyCapable:    true,
-		Labels:        []string{"gpu", "linux"},
-		Projects:      []string{"proj-a", "proj-b"},
-		Agents:        []string{"codex", "exec"},
-		MaxConcurrent: 4,
+		WorkerID:        "w1",
+		InstanceID:      "inst-1",
+		ProtocolVersion: wsproto.ProtocolVersion,
+		PtyCapable:      true,
+		Labels:          []string{"gpu", "linux"},
+		Projects:        []string{"proj-a", "proj-b"},
+		Agents:          []string{"codex", "exec"},
+		MaxConcurrent:   4,
 	})
 	wc.lastHeartbeat.Store(1750300000)
 	wc.tryReserve("j1")

@@ -61,8 +61,9 @@ func registerPtyTestWorker(t *testing.T, base string) *websocket.Conn {
 	if err := wsjson.Write(ctx, conn, wsproto.Envelope{
 		Type: wsproto.TypeRegister,
 		Payload: mustRawForPtyTest(t, wsproto.Register{
-			WorkerID:   ptyTestWorkerID,
-			InstanceID: ptyTestInst,
+			WorkerID:        ptyTestWorkerID,
+			InstanceID:      ptyTestInst,
+			ProtocolVersion: wsproto.ProtocolVersion, // current worker: passes the hub version gate
 		}),
 	}); err != nil {
 		t.Fatalf("write register: %v", err)

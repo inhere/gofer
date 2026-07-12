@@ -6,6 +6,7 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/daemon"
 )
@@ -26,7 +27,7 @@ func TestServeStopRegistered(t *testing.T) {
 // TestWorkerStopRegistered: `worker` exposes a `stop` subcommand.
 func TestWorkerStopRegistered(t *testing.T) {
 	var have bool
-	for _, s := range NewWorkerCmd().Subs {
+	for _, s := range NewWorkerCmd(buildinfo.Info{}).Subs {
 		if s.Name == "stop" {
 			have = true
 		}
