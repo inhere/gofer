@@ -98,6 +98,18 @@ type fakeSelector struct {
 	cands []WorkerCandidate
 }
 
+// selfCaps is the capability set a REAL worker serving the newWorkerTestService
+// fixture would report on register (P1: its project keys + its resolved agent keys,
+// exec always included). The federation gates (P3) validate/filter against the
+// worker's REPORTED capabilities, so a candidate must carry them to stand in for a
+// live worker; a candidate with empty Projects/Agents means "this worker can run
+// nothing" and is correctly rejected.
+func selfCaps(c WorkerCandidate) WorkerCandidate {
+	c.Projects = []string{"self"}
+	c.Agents = []string{"exec", "term"}
+	return c
+}
+
 func (f fakeSelector) Candidates() []WorkerCandidate { return f.cands }
 
 func (f fakeSelector) Candidate(workerID string) (WorkerCandidate, bool) {
@@ -182,7 +194,7 @@ func TestSubmitInteractiveRunnerSelectionLocalVsWorker(t *testing.T) {
 		pty := &recordingRunner{name: builtinPtyRunner}
 		workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
 		sel := fakeSelector{cands: []WorkerCandidate{
-			{WorkerID: "w1", PtyCapable: true, HeartbeatAge: time.Second},
+			selfCaps(WorkerCandidate{WorkerID: "w1", PtyCapable: true, HeartbeatAge: time.Second}),
 		}}
 		s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
 		s.runners[builtinPtyRunner] = pty
@@ -289,8 +301,8 @@ func TestSubmitWorkerLabelsAutoSelect(t *testing.T) {
 		"w2": {Token: "tok-w2"},
 	}
 	sel := fakeSelector{cands: []WorkerCandidate{
-		{WorkerID: "w1", Labels: []string{"cpu"}, InFlight: 3, HeartbeatAge: time.Second},
-		{WorkerID: "w2", Labels: []string{"gpu"}, InFlight: 0, HeartbeatAge: time.Second},
+		selfCaps(WorkerCandidate{WorkerID: "w1", Labels: []string{"cpu"}, InFlight: 3, HeartbeatAge: time.Second}),
+		selfCaps(WorkerCandidate{WorkerID: "w2", Labels: []string{"gpu"}, InFlight: 0, HeartbeatAge: time.Second}),
 	}}
 	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
 	final := submitAndWait(t, s, JobRequest{
@@ -313,7 +325,7 @@ func TestSubmitInteractiveWorkerLabelsRejectsNonPtyCapable(t *testing.T) {
 	stub := &stubWorkerRunner{}
 	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
 	sel := fakeSelector{cands: []WorkerCandidate{
-		{WorkerID: "w1", Labels: []string{"gpu"}, PtyCapable: false, HeartbeatAge: time.Second},
+		selfCaps(WorkerCandidate{WorkerID: "w1", Labels: []string{"gpu"}, PtyCapable: false, HeartbeatAge: time.Second}),
 	}}
 	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
 	_, err := s.Submit(JobRequest{
@@ -333,7 +345,7 @@ func TestSubmitInteractiveWorkerLabelsAcceptsPtyCapable(t *testing.T) {
 	stub := &stubWorkerRunner{}
 	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
 	sel := fakeSelector{cands: []WorkerCandidate{
-		{WorkerID: "w1", Labels: []string{"gpu"}, PtyCapable: true, HeartbeatAge: time.Second},
+		selfCaps(WorkerCandidate{WorkerID: "w1", Labels: []string{"gpu"}, PtyCapable: true, HeartbeatAge: time.Second}),
 	}}
 	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
 	final := submitAndWait(t, s, JobRequest{
@@ -356,7 +368,7 @@ func TestSubmitInteractiveWorkerDefaultRejectsNonPtyCapable(t *testing.T) {
 	stub := &stubWorkerRunner{}
 	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
 	sel := fakeSelector{cands: []WorkerCandidate{
-		{WorkerID: "w1", PtyCapable: false, HeartbeatAge: time.Second},
+		selfCaps(WorkerCandidate{WorkerID: "w1", PtyCapable: false, HeartbeatAge: time.Second}),
 	}}
 	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
 	_, err := s.Submit(JobRequest{
@@ -375,7 +387,7 @@ func TestSubmitInteractiveWorkerDefaultAcceptsPtyCapable(t *testing.T) {
 	stub := &stubWorkerRunner{}
 	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
 	sel := fakeSelector{cands: []WorkerCandidate{
-		{WorkerID: "w1", PtyCapable: true, HeartbeatAge: time.Second},
+		selfCaps(WorkerCandidate{WorkerID: "w1", PtyCapable: true, HeartbeatAge: time.Second}),
 	}}
 	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
 	final := submitAndWait(t, s, JobRequest{
@@ -397,7 +409,7 @@ func TestSubmitNonInteractiveWorkerIgnoresPtyCapability(t *testing.T) {
 	stub := &stubWorkerRunner{}
 	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
 	sel := fakeSelector{cands: []WorkerCandidate{
-		{WorkerID: "w1", Labels: []string{"gpu"}, PtyCapable: false, HeartbeatAge: time.Second},
+		selfCaps(WorkerCandidate{WorkerID: "w1", Labels: []string{"gpu"}, PtyCapable: false, HeartbeatAge: time.Second}),
 	}}
 	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
 	final := submitAndWait(t, s, JobRequest{
@@ -422,7 +434,7 @@ func TestSubmitWorkerLabelsNoEligible(t *testing.T) {
 	stub := &stubWorkerRunner{}
 	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
 	sel := fakeSelector{cands: []WorkerCandidate{
-		{WorkerID: "w1", Labels: []string{"cpu"}, HeartbeatAge: time.Second},
+		selfCaps(WorkerCandidate{WorkerID: "w1", Labels: []string{"cpu"}, HeartbeatAge: time.Second}),
 	}}
 	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
 	_, err := s.Submit(JobRequest{
@@ -446,7 +458,7 @@ func TestSubmitWorkerIDWinsOverLabels(t *testing.T) {
 	}
 	// The selector would pick w2 for "gpu"; the explicit worker_id w1 must override.
 	sel := fakeSelector{cands: []WorkerCandidate{
-		{WorkerID: "w2", Labels: []string{"gpu"}, InFlight: 0, HeartbeatAge: time.Second},
+		selfCaps(WorkerCandidate{WorkerID: "w2", Labels: []string{"gpu"}, InFlight: 0, HeartbeatAge: time.Second}),
 	}}
 	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
 	final := submitAndWait(t, s, JobRequest{

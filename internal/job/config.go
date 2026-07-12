@@ -2,7 +2,9 @@ package job
 
 import (
 	"fmt"
+	"regexp"
 	"slices"
+	"strings"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -42,10 +44,31 @@ func IsRemoteRunner(cfg *config.Config, name string) bool {
 // the agent (it can be a peer-only agent) and must not impose its own exec gate.
 // The agent allowlist (CheckAllowed) and the runner allowlist still apply on the
 // host as the access-control boundary.
+//
+// Federation (P3): the project/agent checks are scoped to the runner the job will
+// EXECUTE on (capabilitiesFor, P2) — see the project block below (G1) and the
+// capability gate at the end (G2).
 func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (config.ProjectConfig, error) {
-	proj, ok := cfg.Projects[req.ProjectKey]
-	if !ok {
-		return config.ProjectConfig{}, fmt.Errorf("%w: unknown project %q", ErrUnknownProject, req.ProjectKey)
+	isWorker := isWorkerRunner(cfg, req.Runner)
+
+	proj, projKnown := cfg.Projects[req.ProjectKey]
+	if !projKnown {
+		if !isWorker {
+			// local / peer-http: the project must still be defined in the host's global
+			// config (behaviour unchanged — the host resolves the cwd/exec for a local
+			// job, and a peer job keeps the pre-federation contract).
+			return config.ProjectConfig{}, fmt.Errorf("%w: unknown project %q", ErrUnknownProject, req.ProjectKey)
+		}
+		// G1: a worker-only project (defined in the WORKER's config, reported at
+		// register) needs no duplicate definition here. The host does not execute the
+		// job — the worker resolves cwd/agent/exec with its own config — so a
+		// placeholder proj carrying only what the HOST still does is enough
+		// (workerOnlyProject). The key is request-supplied now (not a config map key)
+		// and becomes a directory name, so it is charset-checked first.
+		if err := checkProjectKey(req.ProjectKey); err != nil {
+			return config.ProjectConfig{}, fmt.Errorf("%w: %s", ErrInvalidRequest, err.Error())
+		}
+		proj = workerOnlyProject(cfg, req.ProjectKey, req.Runner)
 	}
 
 	// A resume submission (ResumeSourceAgent set) mechanically carries Agent="exec"
@@ -56,10 +79,7 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 	// so it must NOT demand the broad allow_exec the exec carrier would (2026-06-26
 	// decision; ResumeSourceAgent doc on JobRequest). For a normal job gateAgent ==
 	// req.Agent, preserving the established behaviour (exec is not exempt).
-	gateAgent := req.Agent
-	if req.ResumeSourceAgent != "" {
-		gateAgent = req.ResumeSourceAgent
-	}
+	gateAgent := gateAgentOf(req)
 
 	// Agent whitelist. Empty allowed_agents = allow all configured agents (§13,
 	// config-optimize); exec safety is enforced independently by the allow_exec
@@ -136,12 +156,111 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 	// has no live binding/conn). An empty worker_id is allowed now — the worker is
 	// resolved post-validate by selectTargetWorker (labels → auto-select, else the
 	// runner's configured default, D4).
-	if isWorkerRunner(cfg, req.Runner) && req.WorkerID != "" {
+	if isWorker && req.WorkerID != "" {
 		if _, ok := cfg.Server.Workers[req.WorkerID]; !ok {
 			return config.ProjectConfig{}, fmt.Errorf("%w: unknown worker_id %q", ErrInvalidRequest, req.WorkerID)
 		}
 	}
+
+	// G2 (federation): the target worker is DETERMINED here — an explicit worker_id,
+	// or the runner's configured default when no labels are given (the same order
+	// selectTargetWorker resolves in, D4). Fail fast on the host when the project or
+	// the agent is not on that worker instead of paying a dispatch round-trip for a
+	// rejection the worker's own validate would issue.
+	//
+	// Skipped when worker_labels drive an auto-select (worker not yet chosen): the
+	// runner's configured default is NOT the job's target then, so gating on it would
+	// reject jobs a labelled peer could run. selectWorker filters those candidates by
+	// project+agent instead (T3.3). Not applicable to peer-http (a peer resolves with
+	// its own config and is out of federation scope) nor to local (the global config
+	// IS the capability view — already enforced above).
+	//
+	// online=false (worker offline / unregistered / no worker id resolvable) leaves
+	// the pre-federation behaviour untouched: no capability view to validate against,
+	// so admission falls through and dispatch fails later as before.
+	if isWorker && (req.WorkerID != "" || len(req.WorkerLabels) == 0) {
+		if wprojs, wagents, online := s.capabilitiesFor(cfg, req.Runner, req.WorkerID); online {
+			if !slices.Contains(wprojs, req.ProjectKey) {
+				return config.ProjectConfig{}, fmt.Errorf("%w: project %q not on worker for runner %q", ErrUnknownProjectOnRunner, req.ProjectKey, req.Runner)
+			}
+			// An empty agent is left to the executor (unchanged): the host does not
+			// resolve agents for remote jobs, so it has no key to check here.
+			if gateAgent != "" && !slices.Contains(wagents, gateAgent) {
+				return config.ProjectConfig{}, fmt.Errorf("%w: agent %q not on worker for runner %q", ErrAgentNotOnRunner, gateAgent, req.Runner)
+			}
+		}
+	}
 	return proj, nil
+}
+
+// gateAgentOf returns the agent identity admission checks run against: for a
+// resume submission the SOURCE agent (the carrier is mechanically "exec", see
+// validate), otherwise the requested agent. Used by both validate (G2) and
+// selectTargetWorker (T3.3) so both gates judge the same identity.
+func gateAgentOf(req JobRequest) string {
+	if req.ResumeSourceAgent != "" {
+		return req.ResumeSourceAgent
+	}
+	return req.Agent
+}
+
+// projectKeyRe bounds a REQUEST-supplied project key (worker-only project, G1) to
+// one safe path segment. For a configured project the key is a config map key, but
+// a worker-only key comes from the request and still becomes a directory name
+// (<storage.root>/<key>/<job_id>, …) — so it must not be able to traverse (`..`),
+// absolutise or smuggle separators/control chars.
+var projectKeyRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+
+func checkProjectKey(key string) error {
+	if !projectKeyRe.MatchString(key) {
+		return fmt.Errorf("invalid project key %q", key)
+	}
+	return nil
+}
+
+// workerOnlyStoreSubdir is where the HOST keeps its side of a worker-only
+// project's jobs (mirrored logs + the DB-indexed result dir) when storage.root is
+// unset. See workerOnlyProject.
+const workerOnlyStoreSubdir = "remote"
+
+// workerOnlyProject synthesizes the host-side placeholder ProjectConfig for a
+// project that exists only on the target worker (G1, R2). The host never executes
+// such a job — the worker resolves cwd/agent/exec/allow_exec with ITS OWN config
+// (design §10, decision #2) — so the placeholder only has to carry what the HOST
+// still does with proj on the worker dispatch path:
+//
+//   - checkRunnerAllowed(proj, req.Runner): there is no host-side project policy for
+//     a project the host does not define, and the worker capability gate (G2) plus
+//     the worker's own validate are the real admission boundary — so the requested
+//     worker runner is the one this placeholder authorises.
+//   - project.ResultBaseDir(cfg, key, proj): the host keeps a local result dir for
+//     the mirrored logs / index entry even though the job runs remotely.
+//   - proj.MaxConcurrentJobs (0 = unbounded host-side gating; the worker enforces
+//     its own max_concurrent).
+//
+// Every other proj field is read only on the LOCAL branch of Submit (SafeJoin cwd,
+// env_files, allow_exec, agent build), which a worker job never takes.
+//
+// Result dir: with storage.root set, ResultBaseDir is key-driven (<root>/<key>) and
+// does not read proj at all. With root unset it falls back to
+// <host_path>/<exchange_subdir>/<result_subdir> — and an EMPTY host_path resolves
+// (filepath.Abs) to the serve process CWD, which would scatter results into a random
+// directory. Mirror Config.ResolveDBPath's fallback instead and keep the host side of
+// worker-only projects under the config dir, keyed by project:
+// <config-dir>/remote/<project_key>/<job_id>.
+func workerOnlyProject(cfg *config.Config, projectKey, runnerKey string) config.ProjectConfig {
+	proj := config.ProjectConfig{AllowedRunners: []string{runnerKey}}
+	if strings.TrimSpace(cfg.Storage.Root) != "" {
+		return proj
+	}
+	dir, err := config.ConfigDir()
+	if err != nil || dir == "" {
+		dir = "." // degrade like ResolveDBPath: a usable (if non-ideal) relative path.
+	}
+	proj.HostPath = dir
+	proj.ExchangeSubdir = workerOnlyStoreSubdir
+	proj.ResultSubdir = projectKey
+	return proj
 }
 
 // selectTargetWorker resolves req.WorkerID for a worker runner when it was not
@@ -153,7 +272,9 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 //
 // Resolution order when worker_id is empty:
 //   - worker_labels given: auto-select a connected worker advertising ALL labels
-//     (least loaded / freshest, D3). No eligible candidate → ErrNoEligibleWorker.
+//     AND the job's project+agent (G2, federation P3). No eligible candidate →
+//     ErrNoCapableWorker (which wraps ErrNoEligibleWorker, so the HTTP 503 mapping
+//     is unchanged).
 //   - no labels: leave worker_id empty and rely on the runner's configured default
 //     worker (D4 fallback). For interactive requests, resolve that default now
 //     and verify it is a live pty-capable worker so the final worker is known
@@ -182,9 +303,13 @@ func (s *Service) selectTargetWorker(cfg *config.Config, req *JobRequest) error 
 	if s.workers != nil {
 		cands = s.workers.Candidates()
 	}
-	picked := selectWorker(cands, req.WorkerLabels, req.Interactive)
+	// G2 (federation): the candidate must also REPORT the job's project + agent —
+	// labels/pty alone can pick a worker that cannot run the job. gateAgentOf keeps
+	// the resume carrier from being judged as "exec" (validate uses the same identity).
+	gateAgent := gateAgentOf(*req)
+	picked := selectWorker(cands, req.WorkerLabels, req.Interactive, req.ProjectKey, gateAgent)
 	if picked == "" {
-		return fmt.Errorf("%w: no eligible worker for labels %v", ErrNoEligibleWorker, req.WorkerLabels)
+		return fmt.Errorf("%w: labels=%v project=%q agent=%q", ErrNoCapableWorker, req.WorkerLabels, req.ProjectKey, gateAgent)
 	}
 	req.WorkerID = picked // inject: Forward + JobResult.worker_id now use it.
 	return nil

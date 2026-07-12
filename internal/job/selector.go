@@ -1,6 +1,7 @@
 package job
 
 import (
+	"slices"
 	"sort"
 	"time"
 )
@@ -38,11 +39,16 @@ type WorkerSelector interface {
 // with the C6 observability staleness口径).
 const workerStaleAfter = 30 * time.Second
 
-// selectWorker picks one worker that advertises ALL required labels and is fresh
-// (HeartbeatAge <= workerStaleAfter), preferring the least loaded then the most
-// recently seen (sort in_flight↑ → heartbeat_age↑, D3 load-aware). It returns ""
-// when no candidate qualifies (the caller maps that to ErrNoEligibleWorker).
-func selectWorker(cands []WorkerCandidate, required []string, interactive bool) string {
+// selectWorker picks one worker that advertises ALL required labels, CAN RUN the
+// job (its reported capabilities include project + agent, federation P3/G2) and is
+// fresh (HeartbeatAge <= workerStaleAfter), preferring the least loaded then the
+// most recently seen (sort in_flight↑ → heartbeat_age↑, D3 load-aware). It returns
+// "" when no candidate qualifies (the caller maps that to ErrNoCapableWorker).
+//
+// project / agent are the job's target capability keys; an empty value disables
+// that filter (the caller has nothing to match on — e.g. a remote job that leaves
+// the agent to the executor).
+func selectWorker(cands []WorkerCandidate, required []string, interactive bool, project, agent string) string {
 	ok := make([]WorkerCandidate, 0, len(cands))
 	for _, w := range cands {
 		if w.HeartbeatAge > workerStaleAfter {
@@ -52,6 +58,15 @@ func selectWorker(cands []WorkerCandidate, required []string, interactive bool) 
 			continue
 		}
 		if interactive && !w.PtyCapable {
+			continue
+		}
+		// The worker reports what it can actually run (register-time capability set,
+		// P1). A worker that does not carry the project / agent is not a candidate —
+		// dispatching to it would only earn a remote rejection.
+		if project != "" && !slices.Contains(w.Projects, project) {
+			continue
+		}
+		if agent != "" && !slices.Contains(w.Agents, agent) {
 			continue
 		}
 		ok = append(ok, w)
