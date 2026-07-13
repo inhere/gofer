@@ -9,6 +9,7 @@
 | v0.1 | 2026-07-13 | Claude | 初版：问题定义 + 权威模型 + 分阶段。待审 |
 | v0.2 | 2026-07-13 | Claude | 定稿 Q1(前缀最长匹配) / Q2(自动接受) / Q4(保留逃生舱, Policy 优先)；新增 D3：策略走**下发**而非远程改写 worker 配置文件（附理由）。 |
 | v0.3 | 2026-07-13 | Claude | **推翻 Q4**：worker 端零 project 配置（逃生舱与 D3「单一真源」自相矛盾，且 worker-only project 本就是「配置写两遍」的绕行方案，本设计从根上解决后它变成分裂的来源）。新增 D4：**放置由 roots 推导**——server 全量推目录、worker 用 roots 最长前缀映射自筛，取代 v0.2 里「按 allowed_runners 算该推给谁」（labels 型 runner 下 server 根本算不出）。 |
+| v0.4 | 2026-07-13 | Claude | **修正 D4 的过度简化**：roots 只回答「能不能跑」（能力），「准不准跑」（策略）仍由 `allowed_runners` 表达——共享盘下多台 worker 都能映射同一路径，但可能只准一台跑。推送目标改为**按 runner 可达性算**（pin 型精确到那台；池型才退化成全推），再由 roots 自筛。新增 D5：web 表单按 project 收窄 runner（今天的 agent 收窄的镜像，现有能力视图即可实现）。 |
 
 ## 1. 概览
 
@@ -51,12 +52,33 @@
 - **D4 project 放置由 roots 推导，worker 端零 project 配置**（v0.3，推翻 v0.2 的 Q4）
   - **worker.yaml 不再有 `projects` 段**，一条都没有。留「本地逃生舱」与 D3 的单一真源自相矛盾：只要 worker 还能自己声明 project，配置就仍是两半，还要额外背一条「同名谁赢」的合并规则。
   - **`worker-only project`（xu64.10 G1）随之退役**：它当初就是为了绕开「project 要在 server 和 worker 各写一遍」的痛点而生的**创可贴**；本设计从根上治好那个痛点后，它反而成了「配置分两半」的唯一来源。**配置概念砍掉，代码路径保留复用**——「server 声明了但本机路径不可解析的 project」仍走 `workerOnlyProject` 的 placeholder + `remote/` 结果目录逻辑（server 不执行它，只做归档）。
-  - **放置怎么决定**：**server 全量推**「所有可在 worker 上跑的 project」目录（key + 逻辑 host_path + 策略）给每台在线 worker；**worker 用自己的 `roots` 最长前缀映射自筛**——映射得到本机路径 → 接受；映射不到 → `Rejected(path_outside_roots)` 并回报原因（Cluster 页可见）。
-  - 于是「每台 worker 持有的 project 集」**不由任何一边手工维护，而是从能力自动推导**：A 机挂了 `/data/proj-a`、B 机没有 → proj-a 自然只在 A 上可用，两边都不用配。这正是「worker=能力 / server=策略」的一致贯彻。
-  - **取代 v0.2 §6.2 的「按 allowed_runners 算该推给谁」**：那条有洞——labels 型 runner 的候选 worker 是**提交时**按 job 携带的标签选的，runner 配置里没有 worker 列表，server 算不出目标集合。全量推 + worker 自筛没有这个问题。
-  - **收益线**：新增 project 到某 worker，只要路径落在该 worker **已有的 root** 下 → **纯 server 侧一行配置，worker 零改动零重启**。只有要暴露一个该机器从未暴露过的目录树时，才必须上机器加 root——而这正是 D3 推论里**故意**要求机器访问权的操作。
-  - 代价（可接受）：worker 会看到全部 worker-runnable project 的 key 与逻辑路径。单操作者场景无碍；若需收窄，P3 可选加 `projects.<key>.workers: [w-a]` / `worker_labels: [...]` 做**显式限制**（只收紧、非必需的放置声明）。
+  - **worker 用自己的 `roots` 最长前缀映射自筛**——映射得到本机路径 → 接受；映射不到 → `Rejected(path_outside_roots)` 并回报原因（Cluster 页可见）。
+  - 于是「这台机器**能**跑哪些 project」**不由任何一边手工维护，而是从能力自动推导**：A 机挂了 `/data/proj-a`、B 机没有 → proj-a 自然只在 A 上可用，两边都不用配。
   - 迁移：现存 worker.yaml 的 `projects` 段在 P3 转为**只读+告警**（server 在 register 时打印「worker w-x 仍在本地声明 project [...]，请迁到 server config」），下一个版本忽略。
+
+- **D4′ 推送目标 = runner 可达性；roots 只筛能力，不表达策略**（v0.4 修正 v0.3 的过度简化）
+  - **v0.3 的错**：把「放置」整个交给 roots 推导 = 用**能力**冒充**策略**。共享盘场景下（host 与容器 worker 共享同一份 `/d/work`）两台 worker 都能映射同一路径，能力上都能跑——但你可能**只准**其中一台跑。「能不能」和「准不准」必须分开。
+  - **表达机制已存在，无需新配置项**：`projects.<key>.allowed_runners` 里列了哪些 worker 型 runner，就等于声明了这个 project 在 worker 侧准给谁跑。现网配置里 `allowed_runners: [local, w-container-example]` 本来就是「worker 侧只准容器 worker 跑」。
+  - **推送目标算法**（对每台在线 worker W）：
+    ```txt
+    P 推给 W  ⟺  ∃ r ∈ P.allowed_runners 使 W 经 r 可达：
+        r 是 pin 型 worker runner(worker_id=X)  → 可达 ⟺ X == W        （精确，单机场景在此收敛）
+        r 是池型 worker runner(type=worker 无 pin) → 可达（候选集在提交时按 job 标签选，server 算不出 → 保守全推）
+        r 是 local / peer-http                    → 不是 worker 路由，忽略
+    ```
+    然后 worker 再用 roots 自筛一道。**有效 = 策略(可达性) ∩ 能力(roots) ∩ 已探测 agent。**
+  - v0.2 用 `allowed_runners` 算推送目标方向本就是对的，只是**对池型 runner 算不出**；v0.3 因此整个推翻改成全推 = 把孩子和洗澡水一起倒了。**pin 型精确算、池型才退化成全推**，两全。
+  - **「只准一台 worker 跑」怎么配**：`allowed_runners` 里只列那台 worker 的 pin 型 runner。**零新增配置面**，且现网配置一行都不用改。
+  - 可选（P4，非必需）：为池型 runner 补 `projects.<key>.worker_labels: [...]` 做**收紧**；不做也不影响正确性（提交时 selectWorker 仍按 project+agent 过滤候选）。
+  - 副作用（可接受）：池型 runner 场景下 worker 会看到超出自己能跑范围的 project key 与逻辑路径。单操作者场景无碍。
+  - **收益线**：新增 project 到某 worker，只要它的路径落在该 worker **已有的 root** 下、且 `allowed_runners` 列了该 worker 的 runner → **纯 server 侧配置 + SIGHUP，worker 零改动零重启**。只有要暴露一个该机器从未暴露过的目录树时，才必须上机器加 root（D3 推论：故意要求机器访问权）。
+
+- **D5 web 表单：选定 project 后收窄 runner**（今天 agent 收窄的镜像，`tools-de6` 的自然延伸）
+  - 数据已具备：`/v1/meta` 的 `workers[].projects`（worker 上报的可跑 project 集）+ `runners[].worker_id`（pin，`tools-de6` 刚补）。**不必等 P3 就能做**。
+  - 规则：worker 型 runner → 解析出目标 worker（显式选择 || pin）→ 其 `projects` 不含当前 project ⇒ 该 runner 不可选，**并给出理由**（"worker w-x 上没有 project X"），不静默消失。
+  - **fail-safe（今天踩过的坑）**：worker 离线 / 未上报 projects ⇒ **信息缺失 ≠ 不支持** ⇒ 不排除，照常列出，交后端拒（与 `tools-de6` 的「undefined ≠ false」同一条纪律）。
+  - 池型 runner（无 pin）：解析不到唯一 worker ⇒ 只做弱判断——「当前无任何在线 worker 具备该 project」才禁用并说明；否则放行。
+  - P3 之后可升级提示精度：worker 回报 `Rejected(path_outside_roots)` ⇒ UI 直接说「w-x 拒绝了 X：路径不在其 roots 内」，用户当场知道该去那台机器加哪个 root，而不是对着灰掉的选项发呆。
 
 ## 5. 架构
 
@@ -118,18 +140,22 @@ agents: {}
 
 - `projects.<key>.host_path` → **逻辑路径**，由每台 worker 的 `roots` 映射成本机路径（映射不到 = 那台机器跑不了它）。现有 `container_path` 是这个思路的硬编码单例，保留兼容。
 - `projects.<key>.allowed_agents` / `interactive_allowed_agents` / `allow_exec` → 该 project 在 worker 上的策略（与 worker 护栏 AND）。
-- `projects.<key>.allowed_runners` → 仍是**准入**（这个 project 允许经哪些 runner 提交），**不再兼任「推给谁」**（见 D4：那条在 labels 型 runner 下算不出来）。
+- `projects.<key>.allowed_runners` → **既是准入、也是放置策略**（D4′）：列了哪台 worker 的 pin 型 runner，就等于「worker 侧只准它跑」。推送目标据此计算。
 
-**放置（哪台 worker 持有哪些 project）不写在任何配置里，由 roots 推导**：
+**两道过滤，各司其职（D4′）**：
 
 ```txt
-server: 把所有 worker-runnable project 的目录整份推给每台在线 worker
-worker: 逐条用 roots 最长前缀映射
-          D:/work/inhere/foo  ──[from D:/work/inhere → to /path/to/ws-root]──▶ /path/to/ws-root/foo  ✅ 接受
-          /data/only-on-boxB  ──[无 root 命中]────────────────────────────▶ ❌ Rejected(path_outside_roots)
+① 策略（server 算）：P 推给 W ⟺ ∃ r ∈ P.allowed_runners，W 经 r 可达
+     pin 型 runner(worker_id=X) → 仅 X          ← 「只准一台跑」在这里收敛
+     池型 runner(无 pin)        → 全推（候选提交时才定）
+② 能力（worker 算）：逐条用 roots 最长前缀映射
+     D:/work/inhere/foo  ──[from D:/work/inhere → to /path/to/ws-root]──▶ /path/to/ws-root/foo  ✅ Accepted
+     /data/only-on-boxB  ──[无 root 命中]────────────────────────────▶ ❌ Rejected(path_outside_roots)
 ```
 
-于是「把 project X 放到 worker W 上」= 在 server 声明 X（路径落在 W 已有的 root 下即可）+ SIGHUP；「允许 X 用 tty-claude」= `interactive_allowed_agents` 加一行 + SIGHUP。**worker 零改动、零重启。**
+有效 = ① ∩ ② ∩ 已探测 agent。**「能跑」由 worker 说了算，「准跑」由 server 说了算——共享盘上两台机器都能跑同一个 project 时，靠 ① 收敛到你指定的那一台。**
+
+于是「把 project X 放到 worker W 上」= server 声明 X + `allowed_runners` 列上 W 的 runner（路径落在 W 已有 root 下即可）+ SIGHUP；「允许 X 用 tty-claude」= `interactive_allowed_agents` 加一行 + SIGHUP。**worker 零改动、零重启。**
 
 ### 6.3 协议（proto v2 → v3）
 
@@ -167,8 +193,8 @@ worker 启动
   → 对每个内置 agent 模板跑 detect → 得到「已安装 agent 集」
   → Register{proto:3, labels, agents=已探测集}                  ← 不再上报 projects
 server
-  → 把所有 worker-runnable project 的目录整份下发 → Policy{Rev, Projects}（不做 per-worker 裁剪）
-worker（自筛 = 放置决策）
+  → 按 runner 可达性算出该 worker 的 project 集（pin 型精确、池型全推，D4′）→ Policy{Rev, Projects}
+worker（按能力自筛）
   → 逐个 project：host_path 经 roots 最长前缀映射
         映射得到 → Accepted（记下本机路径，后续 job 的 cwd 由它解析）
         映射不到 → Rejected(path_outside_roots)
@@ -216,8 +242,9 @@ gofer project add X --path <逻辑路径> --agent tty-claude   (或直接编辑 
 |---|---|---|
 | **P1**（首期，已选） | worker 热重载：SIGHUP + `gofer worker reload <id>`（经 hub）+ `POST /v1/workers/{id}/reload`；reload = 重读 config + 重跑 detect + re-register，不中断在跑 job | — |
 | **P2** | 内置 agent 模板注册表 + detect 上报；worker.yaml 的 `agents` 降级为逃生舱 | P1 |
-| **P3** | Policy 下发（proto v3）：server 全量推 project 目录；worker 按 roots 最长前缀映射自筛（接受/拒绝/降级）并回报；worker.yaml 去掉 `projects`（旧字段只读+告警一个版本）；`worker-only project` 配置概念退役（placeholder 代码路径复用） | P1,P2 |
-| **P4** | 管理面：Cluster 页展示每台 worker 的 accepted / rejected(原因) / degraded / detected agents；CLI `gofer worker projects <id>`；可选 `projects.<key>.workers` 显式收窄 | P3 |
+| **P3** | Policy 下发（proto v3）：server 按 runner 可达性算推送目标（D4′）；worker 按 roots 最长前缀映射自筛（接受/拒绝/降级）并回报；worker.yaml 去掉 `projects`（旧字段只读+告警一个版本）；`worker-only project` 配置概念退役（placeholder 代码路径复用） | P1,P2 |
+| **P4** | 管理面：Cluster 页展示每台 worker 的 accepted / rejected(原因) / degraded / detected agents；CLI `gofer worker projects <id>`；可选 `projects.<key>.worker_labels` 为池型 runner 收紧 | P3 |
+| **D5**（独立小项，可插队） | web 表单按 project 收窄 runner（不可用的 runner 禁用 + 给理由，离线 worker fail-safe 放行）。**不依赖 P1-P3**，现有 `/v1/meta`（`workers[].projects` + `runners[].worker_id`）即可实现 | — |
 
 每阶段单独可发布、可回退；v2 worker 全程不受影响。
 
