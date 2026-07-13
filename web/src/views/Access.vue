@@ -50,11 +50,6 @@ async function connect() {
       >
         <img class="brand-logo" src="/gofer-combination-400.png" alt="Gofer" />
       </a>
-      <div class="card-head mono">
-        <span class="card-name">Gofer</span>
-        <span class="card-sep">&#9656;</span>
-        <span class="card-sub">access</span>
-      </div>
       <p class="hint">粘贴访问 token 以接入控制台。token 仅保存在当前会话（sessionStorage）。</p>
 
       <form @submit.prevent="connect">
@@ -121,25 +116,6 @@ async function connect() {
   display: block;
   width: min(280px, 100%);
   height: auto;
-}
-
-.card-head {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 16px;
-  letter-spacing: 0.04em;
-  margin-bottom: 4px;
-}
-.card-name {
-  color: var(--paper);
-  font-weight: 600;
-}
-.card-sep {
-  color: var(--phosphor);
-}
-.card-sub {
-  color: var(--queue);
 }
 
 .hint {
