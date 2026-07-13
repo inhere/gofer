@@ -585,6 +585,11 @@ export interface MetaProject {
   key: string
   allowed_agents: string[]
   allowed_runners: string[]
+  // 与 allowed_agents 相互独立的两道闸（后端 job/config.go）：交互 job 的 agent 必须在
+  // interactive_allowed_agents 内（为空=该 project 不支持交互）；exec 型 agent 在 LOCAL
+  // runner 上还需 allow_exec（worker/peer 由执行侧自己把关）。
+  interactive_allowed_agents: string[]
+  allow_exec?: boolean
   default_agent?: string
   // 联邦（follow-up）：仅在线 worker 上报、host 无配置的 project。仅在选定该 worker 后可选；
   // 本地/工作流等不能本地运行的消费方按此标记过滤掉。worker-only 项 allowlists 为空。
@@ -602,6 +607,9 @@ export interface MetaAgent {
 export interface MetaRunner {
   name: string
   type: RunnerType
+  // type=worker 时 config 里 pin 的目标 worker（提交时 worker_id 留空即回落到它）。
+  // 级联据此在用户未手选 worker 时也能按该 worker 的能力收窄。
+  worker_id?: string
 }
 
 export interface MetaWorker {

@@ -341,6 +341,66 @@ func TestMetaWorkerOnlyDedup(t *testing.T) {
 	}
 }
 
+// TestMetaRunnerWorkerID: a worker runner surfaces the worker it is PINNED to in
+// config, so the form can narrow agents/projects by that worker's caps without the
+// user re-picking it (the submit path already falls back to it — capabilitiesFor /
+// selectTargetWorker). The implicit local runner carries no worker_id.
+func TestMetaRunnerWorkerID(t *testing.T) {
+	m := getMeta(t, newMetaServer(t, nil))
+	for _, r := range m.Runners {
+		switch r.Name {
+		case "w":
+			if r.WorkerID != "w-online" {
+				t.Fatalf("worker runner must expose its pinned worker_id, got %q: %+v", r.WorkerID, r)
+			}
+		case "local":
+			if r.WorkerID != "" {
+				t.Fatalf("local runner must not carry a worker_id: %+v", r)
+			}
+		}
+	}
+}
+
+// TestMetaProjectGates: interactive_allowed_agents and allow_exec are the two
+// admission gates INDEPENDENT of allowed_agents (job/config.go). The form needs both
+// or it lists agents that are guaranteed to be rejected at submit.
+func TestMetaProjectGates(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		Server:  config.ServerConfig{Token: testToken},
+		Storage: config.StorageConfig{Root: root},
+		Projects: map[string]config.ProjectConfig{
+			"gated": {
+				HostPath:                 root,
+				AllowExec:                true,
+				InteractiveAllowedAgents: []string{"tty"},
+			},
+			"plain": {HostPath: root}, // no exec, no interactive
+		},
+		Agents: map[string]config.AgentConfig{
+			"tty":  {Type: "cli-agent", Interactive: true, NoRawCmd: true},
+			"exec": {Type: "exec"},
+		},
+	}
+	m := getMeta(t, wireMetaServer(t, cfg, nil))
+
+	byKey := map[string]metaProject{}
+	for _, p := range m.Projects {
+		byKey[p.Key] = p
+	}
+	gated, plain := byKey["gated"], byKey["plain"]
+	if !gated.AllowExec || len(gated.InteractiveAllowedAgents) != 1 || gated.InteractiveAllowedAgents[0] != "tty" {
+		t.Fatalf("gated project must carry both gates: %+v", gated)
+	}
+	if plain.AllowExec {
+		t.Fatalf("plain project must report allow_exec=false: %+v", plain)
+	}
+	// non-nil empty array, never JSON null (the form does a set-intersection on it)
+	if plain.InteractiveAllowedAgents == nil || len(plain.InteractiveAllowedAgents) != 0 {
+		t.Fatalf("empty interactive allowlist must serialise as []: %+v", plain)
+	}
+}
+
 // TestMetaWorkersNilRegistry: with no workers registry wired, configured workers
 // still list (from config) but report connected=false / no labels.
 func TestMetaWorkersNilRegistry(t *testing.T) {

@@ -27,12 +27,21 @@ type metaResp struct {
 // (federation follow-up): it is surfaced so a worker-runner submit can target it,
 // but consumers that cannot run it locally (workflows, baseline/local pickers)
 // filter it out by this flag. Worker-only entries carry empty allowlists.
+//
+// InteractiveAllowedAgents / AllowExec mirror the two admission gates that are
+// INDEPENDENT of AllowedAgents (job/config.go): an interactive job needs its agent
+// listed in interactive_allowed_agents (empty = no interactive job at all), and an
+// exec-type agent needs allow_exec on a LOCAL runner (worker/peer enforce their
+// own). Without them the form cannot tell a selectable agent from one that is
+// guaranteed to be rejected at submit.
 type metaProject struct {
-	Key            string   `json:"key"`
-	AllowedAgents  []string `json:"allowed_agents"`
-	AllowedRunners []string `json:"allowed_runners"`
-	DefaultAgent   string   `json:"default_agent,omitempty"`
-	WorkerOnly     bool     `json:"worker_only,omitempty"`
+	Key                      string   `json:"key"`
+	AllowedAgents            []string `json:"allowed_agents"`
+	AllowedRunners           []string `json:"allowed_runners"`
+	InteractiveAllowedAgents []string `json:"interactive_allowed_agents"`
+	AllowExec                bool     `json:"allow_exec,omitempty"`
+	DefaultAgent             string   `json:"default_agent,omitempty"`
+	WorkerOnly               bool     `json:"worker_only,omitempty"`
 }
 
 // metaAgent is one selectable agent: its key, type (cli-agent vs exec) which the
@@ -48,9 +57,16 @@ type metaAgent struct {
 
 // metaRunner is one selectable runner: name + type (local / peer-http / worker).
 // runner=worker drives the optional worker_id / worker_labels picker.
+//
+// WorkerID (type=worker only) is the worker this runner is PINNED to in config.
+// The submit path already resolves it — an empty request worker_id falls back to
+// it for both the capability gate (job.capabilitiesFor) and dispatch (D4) — so the
+// form must see it too: without it the cascade cannot narrow agents/projects until
+// the user redundantly re-picks the very worker the runner already names.
 type metaRunner struct {
-	Name string `json:"name"`
-	Type string `json:"type"`
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	WorkerID string `json:"worker_id,omitempty"`
 }
 
 // metaWorker is one registered worker the form may target explicitly: its id,
@@ -104,10 +120,12 @@ func (s *Server) metaProjects(workers []metaWorker) []metaProject {
 		}
 		host[k] = struct{}{}
 		out = append(out, metaProject{
-			Key:            k,
-			AllowedAgents:  nonNil(p.AllowedAgents),
-			AllowedRunners: nonNil(p.AllowedRunners),
-			DefaultAgent:   p.DefaultAgent,
+			Key:                      k,
+			AllowedAgents:            nonNil(p.AllowedAgents),
+			AllowedRunners:           nonNil(p.AllowedRunners),
+			InteractiveAllowedAgents: nonNil(p.InteractiveAllowedAgents),
+			AllowExec:                p.AllowExec,
+			DefaultAgent:             p.DefaultAgent,
 		})
 	}
 	// Union of online workers' reported project keys not already host-defined.
@@ -133,12 +151,18 @@ func (s *Server) metaProjects(workers []metaWorker) []metaProject {
 		}
 	}
 	sort.Strings(extra)
+	// Worker-only entries carry empty gates: the host never runs them, so its
+	// allowlists / allow_exec / interactive_allowed_agents do not apply — the worker
+	// validates with its own config on dispatch. (Interactive IS still host-gated and
+	// therefore unavailable for a worker-only project; see job/config.go's
+	// workerOnlyProject, which synthesizes the same empty interactive allowlist.)
 	for _, pk := range extra {
 		out = append(out, metaProject{
-			Key:            pk,
-			AllowedAgents:  nonNil(nil),
-			AllowedRunners: nonNil(nil),
-			WorkerOnly:     true,
+			Key:                      pk,
+			AllowedAgents:            nonNil(nil),
+			AllowedRunners:           nonNil(nil),
+			InteractiveAllowedAgents: nonNil(nil),
+			WorkerOnly:               true,
 		})
 	}
 	return out
@@ -170,7 +194,11 @@ func (s *Server) metaRunners() []metaRunner {
 		if rc.Type == runnerTypeLocal || name == runnerTypeLocal {
 			continue // would collide with the implicit local row
 		}
-		out = append(out, metaRunner{Name: name, Type: rc.Type})
+		mr := metaRunner{Name: name, Type: rc.Type}
+		if rc.Type == runnerTypeWorker {
+			mr.WorkerID = rc.WorkerID // config-pinned target (may be empty → labels-only runner)
+		}
+		out = append(out, mr)
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Type == runnerTypeLocal && out[j].Type != runnerTypeLocal {

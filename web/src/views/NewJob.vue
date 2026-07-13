@@ -97,54 +97,172 @@ async function loadMeta() {
   }
 }
 
-// agent key -> type 索引
-const agentTypeOf = computed<Record<string, string>>(() => {
-  const m: Record<string, string> = {}
-  for (const a of agents.value) {
-    m[a.key] = a.type
-  }
-  return m
-})
-
-// runner name -> type 索引
-const runnerTypeOf = computed<Record<string, string>>(() => {
-  const m: Record<string, string> = {}
-  for (const r of runners.value) {
-    m[r.name] = r.type
-  }
-  return m
-})
-
 const selectedProject = computed<MetaProject | undefined>(() =>
   projects.value.find((p) => p.key === projectKey.value),
 )
 
-// 联动：project 选定后，agent 先取该 project 的 allowed_agents 交集（allowlist 为空=全集）；
-// 再叠加联邦(G3)能力交集——worker runner 选定具体 worker 后只列该 worker 上报的 agent；
-// interactive 模式只列 interactive-capable。两处收窄都 fail-safe：交集为空则回落上一层，绝不清空到不可选。
+// 当前 runner（先于 agent 定：agent 候选由「project 白名单 ∩ 执行侧真实能力」共同决定，
+// 执行侧 = runner(+worker)，故表单顺序 project → runner → worker → agent）。
+const selectedRunner = computed<MetaRunner | undefined>(() =>
+  runners.value.find((r) => r.name === runnerName.value),
+)
+const runnerType = computed(() => selectedRunner.value?.type ?? '')
+const isWorkerRunner = computed(() => runnerType.value === 'worker')
+const isLocalRunner = computed(() => runnerType.value === 'local')
+
+// connected 的 worker（指定 worker_id 下拉用）
+const connectedWorkers = computed<MetaWorker[]>(() =>
+  workers.value.filter((w) => w.connected),
+)
+
+// runner 在 config 里 pin 的 worker（type=worker）。后端提交时 worker_id 留空即回落到它
+// （job/capabilities.go 的 capabilitiesFor + selectTargetWorker，D4），故前端同序回落：
+// 有 pin 就无需用户再手选一遍，能力收窄也立刻生效。
+const pinnedWorkerId = computed(() =>
+  isWorkerRunner.value ? (selectedRunner.value?.worker_id ?? '') : '',
+)
+const effectiveWorkerId = computed(() => {
+  if (!isWorkerRunner.value || workerMode.value !== 'id') {
+    return ''
+  }
+  return workerId.value || pinnedWorkerId.value
+})
+const selectedWorker = computed<MetaWorker | undefined>(() => {
+  const id = effectiveWorkerId.value
+  return id === '' ? undefined : workers.value.find((w) => w.id === id)
+})
+
+// labels 模式：AND 匹配的在线候选 worker（与后端 selectWorker 的 AND 语义一致）。
+const labelCandidates = computed<MetaWorker[]>(() => {
+  if (!isWorkerRunner.value || workerMode.value !== 'labels') {
+    return []
+  }
+  const want = parseLabels(workerLabels.value)
+  if (want.length === 0) {
+    return []
+  }
+  return workers.value.filter(
+    (w) => w.connected && want.every((l) => (w.labels ?? []).includes(l)),
+  )
+})
+
+// 本次提交可能落到的 worker 集合：id 模式=选定/pin 的那一台；labels 模式=全部候选。
+// labels 模式取能力「并集」——只要有一台候选能跑该 agent，后端 selectWorker 就会挑中它。
+const targetWorkers = computed<MetaWorker[]>(() => {
+  if (!isWorkerRunner.value) {
+    return []
+  }
+  const w = selectedWorker.value
+  return w ? [w] : labelCandidates.value
+})
+
+// 目标 worker 上报的 agent key 并集：优先 typed agent_caps，回落 bare agents[]。
+// 全部未上报能力（离线/旧 worker）返回 null = 无能力视图 → 不收窄，与后端 online=false 时
+// 放行、留给派发期失败的语义对齐（job/config.go G2）。
+const workerAgentKeys = computed<Set<string> | null>(() => {
+  const out = new Set<string>()
+  for (const w of targetWorkers.value) {
+    const caps = w.agent_caps ?? []
+    if (caps.length > 0) {
+      for (const c of caps) {
+        out.add(c.key)
+      }
+      continue
+    }
+    for (const k of w.agents ?? []) {
+      out.add(k)
+    }
+  }
+  return out.size > 0 ? out : null
+})
+
+const workerProjectKeys = computed<Set<string> | null>(() => {
+  const out = new Set<string>()
+  for (const w of targetWorkers.value) {
+    for (const p of w.projects ?? []) {
+      out.add(p)
+    }
+  }
+  return out.size > 0 ? out : null
+})
+
+// host 已定义的 agent key（meta.agents = server config 的 resolved registry）。
+// 交互 job 的准入由 HOST 解析（job/config.go 用 host 的 ResolveAgent 查 interactive/no_raw_cmd），
+// 故交互模式下只有 host 也认识的 agent 才可能通过——worker 独有的 agent 只能跑非交互 job。
+const hostAgentKeys = computed(() => new Set(agents.value.map((a) => a.key)))
+
+// agent 候选池：host agents ∪ 目标 worker 上报的 agent_caps（worker 独有的 agent 也可提交：
+// 远端 job 的 agent 由执行侧解析，host 不做 agent-must-be-known 校验）。
+const agentPool = computed<MetaAgent[]>(() => {
+  const out = new Map<string, MetaAgent>()
+  for (const a of agents.value) {
+    out.set(a.key, a)
+  }
+  for (const w of targetWorkers.value) {
+    for (const c of w.agent_caps ?? []) {
+      if (!out.has(c.key)) {
+        out.set(c.key, { key: c.key, type: c.type ?? '', interactive: c.interactive })
+      }
+    }
+  }
+  return [...out.values()].sort((a, b) => a.key.localeCompare(b.key))
+})
+
+// 联动：agent 候选 = project.allowed_agents（空=不限制）
+//                  ∩ 执行侧能力（worker 上报；local=host 全集）
+//                  ∩ [interactive: host 已知 & interactive-capable & 在 project.interactive_allowed_agents 内]
+//                  ∩ [local runner 且 allow_exec=false: 排除 exec 型]
+// 不再做「交集为空就回落不收窄」：那会列出提交必被拒的假选项（原 T5.3b fail-safe 的反效果）。
+// 空列表由 agentEmptyReason 说明原因。
 const agentOptions = computed<MetaAgent[]>(() => {
-  let list = agents.value
-  const allowed = selectedProject.value?.allowed_agents ?? []
+  const proj = selectedProject.value
+  let list = agentPool.value
+  const allowed = proj?.allowed_agents ?? []
   if (allowed.length > 0) {
     const set = new Set(allowed)
     list = list.filter((a) => set.has(a.key))
   }
-  // 联邦：选定 worker 后按其上报能力收窄（无能力上报/交集为空则不收窄——T5.3b fail-safe）
   const wkeys = workerAgentKeys.value
   if (wkeys) {
-    const narrowed = list.filter((a) => wkeys.has(a.key))
-    if (narrowed.length > 0) {
-      list = narrowed
-    }
+    list = list.filter((a) => wkeys.has(a.key))
   }
-  // interactive 模式只列 interactive-capable（全空则回落，避免锁死表单——见 P5 报告）
   if (interactive.value) {
-    const ia = list.filter((a) => a.interactive)
-    if (ia.length > 0) {
-      list = ia
-    }
+    const ia = new Set(proj?.interactive_allowed_agents ?? [])
+    list = list.filter((a) => a.interactive && hostAgentKeys.value.has(a.key) && ia.has(a.key))
+  }
+  // exec 安全闸只在 host 执行时由 host 把关（worker/peer 是 remote，各自校验自己的 allow_exec）
+  if (isLocalRunner.value && proj && !proj.allow_exec) {
+    list = list.filter((a) => a.type !== 'exec')
   }
   return list
+})
+
+// 空候选的原因（明示 > 静默回落）：按收窄顺序给出第一个成立的解释。
+const agentEmptyReason = computed<string>(() => {
+  if (agentOptions.value.length > 0 || !selectedProject.value) {
+    return ''
+  }
+  const proj = selectedProject.value
+  if (interactive.value) {
+    if (proj.worker_only) {
+      return `project ${proj.key} 是 worker-only：交互 job 由 host 校验准入，暂不支持`
+    }
+    if ((proj.interactive_allowed_agents ?? []).length === 0) {
+      return `project ${proj.key} 未配置 interactive_allowed_agents：不支持交互 job`
+    }
+    return '当前 project / runner 组合下没有可用的交互 agent（须同时在 interactive_allowed_agents 内、且执行侧已安装）'
+  }
+  if (workerAgentKeys.value) {
+    const where =
+      targetWorkers.value.length === 1
+        ? `worker ${targetWorkers.value[0].id}`
+        : `${targetWorkers.value.length} 台候选 worker`
+    return `${where} 上没有 project ${proj.key} 允许的 agent`
+  }
+  if (isLocalRunner.value && !proj.allow_exec) {
+    return `project ${proj.key} 的 allowed_agents 在本机无可用项（allow_exec=false，exec 已排除）`
+  }
+  return `project ${proj.key} 无可用 agent`
 })
 
 const runnerOptions = computed<MetaRunner[]>(() => {
@@ -156,69 +274,45 @@ const runnerOptions = computed<MetaRunner[]>(() => {
   return runners.value.filter((r) => set.has(r.name))
 })
 
-// 当前 agent / runner 类型
-const agentType = computed(() => agentTypeOf.value[agentKey.value] ?? '')
+// 当前 agent 类型（候选池含 worker 独有 agent，故索引也取自 agentPool）
+const agentType = computed(
+  () => agentPool.value.find((a) => a.key === agentKey.value)?.type ?? '',
+)
 const isExec = computed(() => agentType.value === 'exec')
 const isCliAgent = computed(() => agentType.value !== '' && agentType.value !== 'exec')
-const runnerType = computed(() => runnerTypeOf.value[runnerName.value] ?? '')
-const isWorkerRunner = computed(() => runnerType.value === 'worker')
 
-// connected 的 worker（指定 worker_id 下拉用）
-const connectedWorkers = computed<MetaWorker[]>(() =>
-  workers.value.filter((w) => w.connected),
-)
-
-// 联邦级联(G3)：worker runner 且「指定 worker」模式选定 worker 时，取该 worker 条目用于能力收窄。
-// labels 模式（可匹配多台、能力可能不同）与未选时返回 undefined → 不收窄（fail-safe 用全量）。
-const selectedWorker = computed<MetaWorker | undefined>(() => {
-  if (!isWorkerRunner.value || workerMode.value !== 'id' || workerId.value === '') {
-    return undefined
-  }
-  return workers.value.find((w) => w.id === workerId.value)
-})
-
-// 选定 worker 上报的 agent key 集合：优先 typed agent_caps，回落 bare agents[]。
-// 都为空（离线/旧 worker 未上报能力）返回 null = 不收窄（T5.3b fail-safe，绝不清空下拉）。
-const workerAgentKeys = computed<Set<string> | null>(() => {
-  const w = selectedWorker.value
-  if (!w) {
-    return null
-  }
-  const caps = w.agent_caps ?? []
-  if (caps.length > 0) {
-    return new Set(caps.map((c) => c.key))
-  }
-  const keys = w.agents ?? []
-  if (keys.length > 0) {
-    return new Set(keys)
-  }
-  return null
-})
-
-// project 下拉。选定具体 worker → 列该 worker 上报的 projects（含仅该 worker 定义的 worker-only 项）；
-// 未选 worker（local/peer/labels）或交集为空 → 回落 HOST-only（worker-only 项无 worker 上下文不能本地跑，
-// 必须排除；绝不回落到含 worker-only 的全量——T5.3b fail-safe）。
+// project 下拉。有目标 worker → 列其上报的 projects（含仅该 worker 定义的 worker-only 项）；
+// 无 worker 上下文（local/peer/labels 未填）→ HOST-only（worker-only 项不能本地跑，必须排除）。
 const projectOptions = computed<MetaProject[]>(() => {
   const hostOnly = projects.value.filter((p) => !p.worker_only)
-  const w = selectedWorker.value
-  if (!w) {
+  const wp = workerProjectKeys.value
+  if (!wp) {
     return hostOnly
   }
-  const wp = w.projects ?? []
-  if (wp.length > 0) {
-    const set = new Set(wp)
-    const narrowed = projects.value.filter((p) => set.has(p.key))
-    if (narrowed.length > 0) {
-      return narrowed
-    }
-  }
-  return hostOnly
+  const narrowed = projects.value.filter((p) => wp.has(p.key))
+  return narrowed.length > 0 ? narrowed : hostOnly
 })
 
-// T5.3a：选了 worker runner 但尚未指定具体 worker（id 模式）→ 提示先选 worker（下拉暂用全量，不锁死）。
+// 选了 worker runner 但目标 worker 还未确定（id 模式未选且 runner 无 pin / labels 模式未填标签
+// 或无匹配）→ 能力收窄尚未生效，提示用户先定机器。
 const workerNarrowingPending = computed(
-  () => isWorkerRunner.value && workerMode.value === 'id' && workerId.value === '',
+  () => isWorkerRunner.value && targetWorkers.value.length === 0,
 )
+
+// 收窄来源说明：让用户看见 agent 候选是被谁收窄的（pin / 显式选机 / 标签并集）。
+const capabilityHint = computed<string>(() => {
+  const ws = targetWorkers.value
+  if (!isWorkerRunner.value || ws.length === 0) {
+    return ''
+  }
+  if (ws.length === 1) {
+    const byPin = workerId.value === '' && pinnedWorkerId.value !== ''
+    return byPin
+      ? `agent / project 已按 runner 配置 pin 的 worker ${ws[0].id} 上报能力收窄（无需再指定）`
+      : `agent / project 已按 worker ${ws[0].id} 上报能力收窄`
+  }
+  return `标签匹配到 ${ws.length} 台在线 worker：agent 候选取其能力并集，实际选机由服务端提交时决定`
+})
 
 function selectProject(key: string) {
   projectKey.value = key
@@ -240,10 +334,11 @@ function onProjectChange() {
   selectProject(projectKey.value)
 }
 
-// T5.2：worker/runner 变更后，把 project/agent 收敛到（可能被 worker 收窄的）合法选项内，
-// 不留悬空非法选择。切到 local 时 projectOptions 排除 worker-only → 悬空的 worker-only 选择被丢弃：
-// 有 host 项则收敛到首个（selectProject 内再收 agent/runner），无则清空 projectKey（不崩）；否则只补收 agent。
-function reconvergeToWorker() {
+// T5.2：runner / worker / 交互开关变更后，把 project/agent 收敛到（可能被执行侧能力收窄的）
+// 合法选项内，不留悬空非法选择。切到 local 时 projectOptions 排除 worker-only → 悬空的
+// worker-only 选择被丢弃：有 host 项则收敛到首个（selectProject 内再收 agent/runner），无则清空。
+// agent 无候选时清空 agentKey（不再保留一个必被后端拒绝的悬空值）——原因见 agentEmptyReason。
+function reconverge() {
   const projs = projectOptions.value
   if (!projs.some((p) => p.key === projectKey.value)) {
     if (projs.length > 0) {
@@ -253,36 +348,47 @@ function reconvergeToWorker() {
     projectKey.value = '' // 无合法 project（仅 worker-only 且当前无 worker 上下文）→ 清空，交给校验兜底
   }
   const ags = agentOptions.value
-  if (ags.length > 0 && !ags.some((a) => a.key === agentKey.value)) {
+  if (!ags.some((a) => a.key === agentKey.value)) {
     const def = selectedProject.value?.default_agent
-    agentKey.value = def && ags.some((a) => a.key === def) ? def : ags[0].key
+    agentKey.value =
+      def && ags.some((a) => a.key === def) ? def : ags.length > 0 ? ags[0].key : ''
   }
 }
+
+// runner/worker 三元组的任一变化都会改变「执行侧能力」→ 重新收敛（含程序性赋值，如
+// selectProject 改 runnerName）。agent 排在最后定，故这里只收敛 project/agent，不反过来动 runner。
+watch([runnerName, workerId, workerMode, workerLabels], () => {
+  reconverge()
+})
 
 // 校验 + 组装请求
 const validationError = computed<string>(() => {
   if (!projectKey.value) {
     return '请选择 project'
   }
-  if (!agentKey.value) {
-    return '请选择 agent'
-  }
   if (!runnerName.value) {
     return '请选择 runner'
+  }
+  // worker 未定 → 能力未知，先定机器再选 agent（runner 已在 config 里 pin worker 时无需再指定）
+  if (isWorkerRunner.value) {
+    if (workerMode.value === 'id' && effectiveWorkerId.value === '') {
+      return 'runner=worker：请指定 worker，或切换为按标签自动'
+    }
+    if (workerMode.value === 'labels' && workerLabels.value.trim() === '') {
+      return 'runner=worker：请填写 worker_labels，或切换为指定 worker'
+    }
+    if (workerMode.value === 'labels' && labelCandidates.value.length === 0) {
+      return `无在线 worker 同时具备标签 ${parseLabels(workerLabels.value).join(',')}`
+    }
+  }
+  if (!agentKey.value) {
+    return agentEmptyReason.value !== '' ? agentEmptyReason.value : '请选择 agent'
   }
   if (isCliAgent.value && !interactive.value && prompt.value.trim() === '') {
     return 'cli-agent 需填写 prompt'
   }
   if (isExec.value && command.value.trim() === '') {
     return 'exec 需填写 command'
-  }
-  if (isWorkerRunner.value) {
-    if (workerMode.value === 'id' && workerId.value === '') {
-      return 'runner=worker：请指定 worker，或切换为按标签自动'
-    }
-    if (workerMode.value === 'labels' && workerLabels.value.trim() === '') {
-      return 'runner=worker：请填写 worker_labels，或切换为指定 worker'
-    }
   }
   return ''
 })
@@ -376,7 +482,10 @@ async function onSubmit() {
     }
     if (isWorkerRunner.value) {
       if (workerMode.value === 'id') {
-        req.worker_id = workerId.value
+        // 只发显式选择；留空即由后端回落到 runner 配置里 pin 的 worker（D4，与收窄同源）
+        if (workerId.value !== '') {
+          req.worker_id = workerId.value
+        }
       } else {
         req.worker_labels = parseLabels(workerLabels.value)
       }
@@ -546,34 +655,91 @@ watch(interactive, (on) => {
         <p v-if="projectOptions.length === 0" class="field-hint mono">无可用 project</p>
       </div>
 
-      <!-- agent / runner 两列 -->
-      <div class="row">
-        <div class="field">
-          <label class="label mono" for="nj-agent">AGENT</label>
-          <select id="nj-agent" v-model="agentKey" class="control mono">
-            <option v-for="a in agentOptions" :key="a.key" :value="a.key">
-              {{ a.key }} · {{ a.type }}
-            </option>
-          </select>
-        </div>
-        <div class="field">
-          <label class="label mono" for="nj-runner">RUNNER</label>
-          <select
-            id="nj-runner"
-            v-model="runnerName"
-            class="control mono"
-            @change="reconvergeToWorker"
-          >
-            <option v-for="r in runnerOptions" :key="r.name" :value="r.name">
-              {{ r.name }} · {{ r.type }}
-            </option>
-          </select>
-        </div>
+      <!-- runner（必须先于 agent：agent 候选 = project 白名单 ∩ 执行侧真实能力） -->
+      <div class="field">
+        <label class="label mono" for="nj-runner">RUNNER</label>
+        <select id="nj-runner" v-model="runnerName" class="control mono">
+          <option v-for="r in runnerOptions" :key="r.name" :value="r.name">
+            {{ r.name }} · {{ r.type }}<template v-if="r.worker_id"> · {{ r.worker_id }}</template>
+          </option>
+        </select>
       </div>
 
-      <p v-if="workerNarrowingPending" class="field-hint mono">
-        runner=worker：请在下方「worker 选机」指定具体 worker，agent / project 将按其上报能力收窄
+      <!-- runner=worker 选机：二选一（agent 之前——它决定 agent 候选） -->
+      <details v-if="isWorkerRunner" class="advanced" :open="advancedOpen">
+        <summary class="mono" @click.prevent="advancedOpen = !advancedOpen">
+          worker 选机{{ pinnedWorkerId ? `（runner 已 pin ${pinnedWorkerId}，可不指定）` : '（必填二选一）' }}
+        </summary>
+        <div class="advanced-body">
+          <div class="seg mono">
+            <button
+              type="button"
+              class="seg-btn"
+              :class="{ 'seg-btn--on': workerMode === 'id' }"
+              @click="workerMode = 'id'"
+            >
+              指定 worker
+            </button>
+            <button
+              type="button"
+              class="seg-btn"
+              :class="{ 'seg-btn--on': workerMode === 'labels' }"
+              @click="workerMode = 'labels'"
+            >
+              按标签自动
+            </button>
+          </div>
+
+          <div v-if="workerMode === 'id'" class="field">
+            <label class="label mono" for="nj-wid">WORKER_ID（仅 connected）</label>
+            <select id="nj-wid" v-model="workerId" class="control mono">
+              <option value="">
+                {{ pinnedWorkerId ? `跟随 runner 配置（${pinnedWorkerId}）` : '选择一个已连接 worker' }}
+              </option>
+              <option v-for="w in connectedWorkers" :key="w.id" :value="w.id">
+                {{ w.id }}<template v-if="w.labels && w.labels.length"> · {{ w.labels.join(',') }}</template>
+              </option>
+            </select>
+            <p v-if="connectedWorkers.length === 0" class="field-hint mono">
+              无已连接 worker，可改用「按标签自动」或先连接 worker
+            </p>
+          </div>
+
+          <div v-else class="field">
+            <label class="label mono" for="nj-labels">WORKER_LABELS（逗号分隔）</label>
+            <input
+              id="nj-labels"
+              v-model="workerLabels"
+              class="control mono"
+              spellcheck="false"
+              autocomplete="off"
+              placeholder="gpu, linux"
+            />
+            <p class="field-hint mono">worker 须包含全部标签（AND 匹配）</p>
+          </div>
+        </div>
+      </details>
+
+      <p v-if="workerNarrowingPending" class="field-hint field-hint--warn mono">
+        runner=worker：请先在「worker 选机」定下机器，agent / project 才能按其上报能力收窄
       </p>
+      <p v-else-if="capabilityHint" class="field-hint mono">{{ capabilityHint }}</p>
+
+      <!-- agent（最后定：受 project 白名单与执行侧能力双向约束） -->
+      <div class="field">
+        <label class="label mono" for="nj-agent">AGENT</label>
+        <select
+          id="nj-agent"
+          v-model="agentKey"
+          class="control mono"
+          :disabled="agentOptions.length === 0"
+        >
+          <option v-for="a in agentOptions" :key="a.key" :value="a.key">
+            {{ a.key }} · {{ a.type }}
+          </option>
+        </select>
+        <p v-if="agentEmptyReason" class="field-hint field-hint--warn mono">{{ agentEmptyReason }}</p>
+      </div>
 
       <!-- cli-agent: prompt 文本域 -->
       <div v-if="isCliAgent" class="field">
@@ -625,59 +791,6 @@ watch(interactive, (on) => {
           该字段含脱敏占位；如需改动，提交前必须替换。
         </p>
       </div>
-
-      <!-- runner=worker 高级项：二选一 -->
-      <details v-if="isWorkerRunner" class="advanced" :open="advancedOpen">
-        <summary class="mono" @click.prevent="advancedOpen = !advancedOpen">
-          worker 选机（必填二选一）
-        </summary>
-        <div class="advanced-body">
-          <div class="seg mono">
-            <button
-              type="button"
-              class="seg-btn"
-              :class="{ 'seg-btn--on': workerMode === 'id' }"
-              @click="workerMode = 'id'"
-            >
-              指定 worker
-            </button>
-            <button
-              type="button"
-              class="seg-btn"
-              :class="{ 'seg-btn--on': workerMode === 'labels' }"
-              @click="workerMode = 'labels'"
-            >
-              按标签自动
-            </button>
-          </div>
-
-          <div v-if="workerMode === 'id'" class="field">
-            <label class="label mono" for="nj-wid">WORKER_ID（仅 connected）</label>
-            <select id="nj-wid" v-model="workerId" class="control mono" @change="reconvergeToWorker">
-              <option value="" disabled>选择一个已连接 worker</option>
-              <option v-for="w in connectedWorkers" :key="w.id" :value="w.id">
-                {{ w.id }}<template v-if="w.labels && w.labels.length"> · {{ w.labels.join(',') }}</template>
-              </option>
-            </select>
-            <p v-if="connectedWorkers.length === 0" class="field-hint mono">
-              无已连接 worker，可改用「按标签自动」或先连接 worker
-            </p>
-          </div>
-
-          <div v-else class="field">
-            <label class="label mono" for="nj-labels">WORKER_LABELS（逗号分隔）</label>
-            <input
-              id="nj-labels"
-              v-model="workerLabels"
-              class="control mono"
-              spellcheck="false"
-              autocomplete="off"
-              placeholder="gpu, linux"
-            />
-            <p class="field-hint mono">worker 须包含全部标签（AND 匹配）</p>
-          </div>
-        </div>
-      </details>
 
       <!-- cwd / title / timeout -->
       <div class="row">
