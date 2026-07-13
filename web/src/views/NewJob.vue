@@ -300,18 +300,21 @@ const workerNarrowingPending = computed(
 )
 
 // 收窄来源说明：让用户看见 agent 候选是被谁收窄的（pin / 显式选机 / 标签并集）。
+// 归因先按 workerMode 分支——labels 模式下即使只匹配到一台、且恰好等于 runner 的 pin，
+// 收窄来源也是标签匹配而非 pin（选机仍由服务端在提交时做）。
 const capabilityHint = computed<string>(() => {
   const ws = targetWorkers.value
   if (!isWorkerRunner.value || ws.length === 0) {
     return ''
   }
-  if (ws.length === 1) {
-    const byPin = workerId.value === '' && pinnedWorkerId.value !== ''
-    return byPin
-      ? `agent / project 已按 runner 配置 pin 的 worker ${ws[0].id} 上报能力收窄（无需再指定）`
-      : `agent / project 已按 worker ${ws[0].id} 上报能力收窄`
+  if (workerMode.value === 'labels') {
+    return ws.length === 1
+      ? `标签匹配到 1 台在线 worker（${ws[0].id}）：agent / project 已按其上报能力收窄`
+      : `标签匹配到 ${ws.length} 台在线 worker：agent 候选取其能力并集，实际选机由服务端提交时决定`
   }
-  return `标签匹配到 ${ws.length} 台在线 worker：agent 候选取其能力并集，实际选机由服务端提交时决定`
+  return workerId.value === '' && pinnedWorkerId.value !== ''
+    ? `agent / project 已按 runner 配置 pin 的 worker ${ws[0].id} 上报能力收窄（无需再指定）`
+    : `agent / project 已按 worker ${ws[0].id} 上报能力收窄`
 })
 
 function selectProject(key: string) {
