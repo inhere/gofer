@@ -130,7 +130,7 @@ onUnmounted(() => {
           rel="noopener noreferrer"
           aria-label="在 GitHub 查看 Gofer 仓库"
         >
-          <img class="service-logo" src="/favicon.svg" alt="Gofer" />
+          <img class="service-logo" src="/gofer-mark-256.png" alt="Gofer" />
         </a>
         <h3>服务</h3>
         <div class="health">

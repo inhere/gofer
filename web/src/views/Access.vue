@@ -48,7 +48,7 @@ async function connect() {
         rel="noopener noreferrer"
         aria-label="在 GitHub 查看 Gofer 仓库"
       >
-        <img class="brand-logo" src="/favicon.svg" alt="Gofer" />
+        <img class="brand-logo" src="/gofer-combination-400.png" alt="Gofer" />
       </a>
       <div class="card-head mono">
         <span class="card-name">Gofer</span>
@@ -119,8 +119,8 @@ async function connect() {
 }
 .brand-logo {
   display: block;
-  width: 72px;
-  height: 72px;
+  width: min(280px, 100%);
+  height: auto;
 }
 
 .card-head {
