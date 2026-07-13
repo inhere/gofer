@@ -227,11 +227,17 @@ const agentOptions = computed<MetaAgent[]>(() => {
     list = list.filter((a) => wkeys.has(a.key))
   }
   if (interactive.value) {
-    const ia = new Set(proj?.interactive_allowed_agents ?? [])
-    list = list.filter((a) => a.interactive && hostAgentKeys.value.has(a.key) && ia.has(a.key))
+    list = list.filter((a) => a.interactive && hostAgentKeys.value.has(a.key))
+    // 旧 server 不带该字段（undefined）→ 无从收窄，退回仅按 interactive 标志过滤
+    const ia = proj?.interactive_allowed_agents
+    if (ia !== undefined) {
+      const set = new Set(ia)
+      list = list.filter((a) => set.has(a.key))
+    }
   }
-  // exec 安全闸只在 host 执行时由 host 把关（worker/peer 是 remote，各自校验自己的 allow_exec）
-  if (isLocalRunner.value && proj && !proj.allow_exec) {
+  // exec 安全闸只在 host 执行时由 host 把关（worker/peer 是 remote，各自校验自己的 allow_exec）。
+  // 严格比 false：undefined = 旧 server 没这个字段，不能当成"闸为假"把 exec 全藏掉。
+  if (isLocalRunner.value && proj?.allow_exec === false) {
     list = list.filter((a) => a.type !== 'exec')
   }
   return list
@@ -247,7 +253,7 @@ const agentEmptyReason = computed<string>(() => {
     if (proj.worker_only) {
       return `project ${proj.key} 是 worker-only：交互 job 由 host 校验准入，暂不支持`
     }
-    if ((proj.interactive_allowed_agents ?? []).length === 0) {
+    if (proj.interactive_allowed_agents?.length === 0) {
       return `project ${proj.key} 未配置 interactive_allowed_agents：不支持交互 job`
     }
     return '当前 project / runner 组合下没有可用的交互 agent（须同时在 interactive_allowed_agents 内、且执行侧已安装）'
@@ -259,7 +265,7 @@ const agentEmptyReason = computed<string>(() => {
         : `${targetWorkers.value.length} 台候选 worker`
     return `${where} 上没有 project ${proj.key} 允许的 agent`
   }
-  if (isLocalRunner.value && !proj.allow_exec) {
+  if (isLocalRunner.value && proj.allow_exec === false) {
     return `project ${proj.key} 的 allowed_agents 在本机无可用项（allow_exec=false，exec 已排除）`
   }
   return `project ${proj.key} 无可用 agent`

@@ -588,7 +588,12 @@ export interface MetaProject {
   // 与 allowed_agents 相互独立的两道闸（后端 job/config.go）：交互 job 的 agent 必须在
   // interactive_allowed_agents 内（为空=该 project 不支持交互）；exec 型 agent 在 LOCAL
   // runner 上还需 allow_exec（worker/peer 由执行侧自己把关）。
-  interactive_allowed_agents: string[]
+  //
+  // ⚠️ 两者都是 optional：控制台从磁盘热更（--web-dir），二进制另走一条发布线，故新前端
+  // 可能跑在旧 server 上。**undefined = 该 server 没有这个字段**（不是"闸为假"）——此时必须
+  // 退回不收窄，否则会把 exec 全藏起来 / 交互下拉清空。后端对 allow_exec 去掉了 omitempty，
+  // 就是为了让 false 与 undefined 可区分。
+  interactive_allowed_agents?: string[]
   allow_exec?: boolean
   default_agent?: string
   // 联邦（follow-up）：仅在线 worker 上报、host 无配置的 project。仅在选定该 worker 后可选；

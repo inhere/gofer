@@ -401,6 +401,43 @@ func TestMetaProjectGates(t *testing.T) {
 	}
 }
 
+// TestMetaGateFieldsAlwaysEmitted guards the wire contract the console's
+// backward-compat rule rests on: allow_exec and interactive_allowed_agents must be
+// present on EVERY project even when false/empty. The console is served from disk
+// (--web-dir) while the binary ships separately, so a new console can talk to an
+// older server; it treats a MISSING field as "this server predates the gate" and
+// skips that narrowing. Re-adding omitempty here would make a false gate
+// indistinguishable from an old server and hide every exec agent in the form.
+func TestMetaGateFieldsAlwaysEmitted(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		Server:  config.ServerConfig{Token: testToken},
+		Storage: config.StorageConfig{Root: root},
+		// allow_exec false + no interactive allowlist: both gates at their zero value
+		Projects: map[string]config.ProjectConfig{"plain": {HostPath: root}},
+		Agents:   map[string]config.AgentConfig{"codex": {Type: "cli-agent"}},
+	}
+	s := wireMetaServer(t, cfg, nil)
+
+	resp := do(t, s, http.MethodGet, "/v1/meta", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /v1/meta status=%d, want 200", resp.StatusCode)
+	}
+	var raw struct {
+		Projects []map[string]any `json:"projects"`
+	}
+	decode(t, resp, &raw)
+	if len(raw.Projects) != 1 {
+		t.Fatalf("want 1 project, got %d", len(raw.Projects))
+	}
+	for _, key := range []string{"allow_exec", "interactive_allowed_agents"} {
+		if _, ok := raw.Projects[0][key]; !ok {
+			t.Fatalf("%q must be emitted even at its zero value (console reads absence as 'old server'): %+v",
+				key, raw.Projects[0])
+		}
+	}
+}
+
 // TestMetaWorkersNilRegistry: with no workers registry wired, configured workers
 // still list (from config) but report connected=false / no labels.
 func TestMetaWorkersNilRegistry(t *testing.T) {

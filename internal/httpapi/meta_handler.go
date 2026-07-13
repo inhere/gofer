@@ -34,12 +34,18 @@ type metaResp struct {
 // exec-type agent needs allow_exec on a LOCAL runner (worker/peer enforce their
 // own). Without them the form cannot tell a selectable agent from one that is
 // guaranteed to be rejected at submit.
+//
+// AllowExec is emitted UNCONDITIONALLY (no omitempty): the web console is served
+// from disk (--web-dir) while the binary ships separately, so a new console can run
+// against an older server. The console distinguishes "gate says false" from "this
+// server predates the field" by presence — omitting false would collapse the two and
+// make the old server look like allow_exec=false (hiding every exec agent).
 type metaProject struct {
 	Key                      string   `json:"key"`
 	AllowedAgents            []string `json:"allowed_agents"`
 	AllowedRunners           []string `json:"allowed_runners"`
 	InteractiveAllowedAgents []string `json:"interactive_allowed_agents"`
-	AllowExec                bool     `json:"allow_exec,omitempty"`
+	AllowExec                bool     `json:"allow_exec"`
 	DefaultAgent             string   `json:"default_agent,omitempty"`
 	WorkerOnly               bool     `json:"worker_only,omitempty"`
 }
