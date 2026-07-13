@@ -176,15 +176,6 @@ const workerAgentKeys = computed<Set<string> | null>(() => {
   return out.size > 0 ? out : null
 })
 
-const workerProjectKeys = computed<Set<string> | null>(() => {
-  const out = new Set<string>()
-  for (const w of targetWorkers.value) {
-    for (const p of w.projects ?? []) {
-      out.add(p)
-    }
-  }
-  return out.size > 0 ? out : null
-})
 
 // host 已定义的 agent key（meta.agents = server config 的 resolved registry）。
 // 交互 job 的准入由 HOST 解析（job/config.go 用 host 的 ResolveAgent 查 interactive/no_raw_cmd），
@@ -280,6 +271,77 @@ const runnerOptions = computed<MetaRunner[]>(() => {
   return runners.value.filter((r) => set.has(r.name))
 })
 
+// D5：选定 project 后按执行侧能力判定每个 runner 能否跑它 —— tools-de6 的镜像
+// （那次用 runner/worker 收窄 agent，这次用 project 收窄 runner）。
+// 返回 runner名 → 不可用原因；空 = 可用。**禁用并说明，不静默移除**：悄悄消失的选项比
+// 灰掉的选项更难排查（用户不知道自己少了什么）。
+//
+// fail-safe（与 tools-de6 同一条纪律）：worker 离线 / 未上报 projects ⇒ 信息缺失 ≠ 不支持
+// ⇒ 不判它不可用，照常放行、由后端拒。绝不把"不知道"当成"不行"。
+// short 进 option 文本（不选中也能看见为什么不能用），full 在选中时展开成一行说明。
+type BlockNote = { short: string; full: string }
+
+const runnerBlocks = computed<Record<string, BlockNote>>(() => {
+  const out: Record<string, BlockNote> = {}
+  const proj = selectedProject.value
+  if (!proj) {
+    return out
+  }
+  // 有 project 上报的在线 worker 才算"有能力视图"；一个都没有 = 全瞎，什么都别拦
+  const anyReporting = workers.value.some((w) => w.connected && (w.projects ?? []).length > 0)
+
+  for (const r of runnerOptions.value) {
+    if (r.type !== 'worker') {
+      // worker-only project 只能经 worker runner 跑（host 上没有它的配置，解析不了路径）
+      if (proj.worker_only) {
+        out[r.name] = {
+          short: '仅 worker runner 可执行',
+          full: `${proj.key} 是 worker-only project（只在某台 worker 上定义）：只能经 worker runner 执行`,
+        }
+      }
+      continue
+    }
+    const pinned = r.worker_id ?? ''
+    if (pinned !== '') {
+      const w = workers.value.find((x) => x.id === pinned)
+      if (!w || !w.connected || (w.projects ?? []).length === 0) {
+        continue // 离线 / 未上报 → 不拦（fail-safe）
+      }
+      if (!(w.projects ?? []).includes(proj.key)) {
+        out[r.name] = {
+          short: `${pinned} 上无此 project`,
+          full: `worker ${pinned} 上没有 project ${proj.key}`,
+        }
+      }
+      continue
+    }
+    // 池型 runner（无 pin）：目标 worker 提交时才按标签选，无法精确判定 →
+    // 只做弱判断：连一台具备该 project 的在线 worker 都没有，才拦。
+    if (!anyReporting) {
+      continue
+    }
+    const anyCapable = workers.value.some(
+      (w) => w.connected && (w.projects ?? []).includes(proj.key),
+    )
+    if (!anyCapable) {
+      out[r.name] = {
+        short: '无在线 worker 具备此 project',
+        full: `当前没有在线 worker 具备 project ${proj.key}`,
+      }
+    }
+  }
+  return out
+})
+
+const usableRunners = computed<MetaRunner[]>(() =>
+  runnerOptions.value.filter((r) => !runnerBlocks.value[r.name]),
+)
+
+// 当前选中的 runner 若不可用，把完整原因摆到台面上（提交也会被 validationError 拦）
+const selectedRunnerBlock = computed(
+  () => (runnerName.value === '' ? '' : (runnerBlocks.value[runnerName.value]?.full ?? '')),
+)
+
 // 当前 agent 类型（候选池含 worker 独有 agent，故索引也取自 agentPool）
 const agentType = computed(
   () => agentPool.value.find((a) => a.key === agentKey.value)?.type ?? '',
@@ -287,17 +349,12 @@ const agentType = computed(
 const isExec = computed(() => agentType.value === 'exec')
 const isCliAgent = computed(() => agentType.value !== '' && agentType.value !== 'exec')
 
-// project 下拉。有目标 worker → 列其上报的 projects（含仅该 worker 定义的 worker-only 项）；
-// 无 worker 上下文（local/peer/labels 未填）→ HOST-only（worker-only 项不能本地跑，必须排除）。
-const projectOptions = computed<MetaProject[]>(() => {
-  const hostOnly = projects.value.filter((p) => !p.worker_only)
-  const wp = workerProjectKeys.value
-  if (!wp) {
-    return hostOnly
-  }
-  const narrowed = projects.value.filter((p) => wp.has(p.key))
-  return narrowed.length > 0 ? narrowed : hostOnly
-})
+// project 下拉 = 全部 project（含 worker-only），**不按选定的 worker 反向收窄**。
+// project 是表单的锚点（第一个字段）：下游的 runner/worker/agent 去适应它，而不是反过来
+// 把用户选好的 project 悄悄删掉——「该 worker 跑不了这个 project」这件事由 RUNNER 那一栏
+// 禁用 + 给理由来表达（D5），信息一样不丢，但没有"我的选项去哪了"。
+// worker-only 项也照常列出：它只在某台 worker 上存在，选中后 local runner 会被禁用并说明。
+const projectOptions = computed<MetaProject[]>(() => projects.value)
 
 // 选了 worker runner 但目标 worker 还未确定（id 模式未选且 runner 无 pin / labels 模式未填标签
 // 或无匹配）→ 能力收窄尚未生效，提示用户先定机器。
@@ -315,26 +372,29 @@ const capabilityHint = computed<string>(() => {
   }
   if (workerMode.value === 'labels') {
     return ws.length === 1
-      ? `标签匹配到 1 台在线 worker（${ws[0].id}）：agent / project 已按其上报能力收窄`
+      ? `标签匹配到 1 台在线 worker（${ws[0].id}）：agent 候选已按其上报能力收窄`
       : `标签匹配到 ${ws.length} 台在线 worker：agent 候选取其能力并集，实际选机由服务端提交时决定`
   }
   return workerId.value === '' && pinnedWorkerId.value !== ''
-    ? `agent / project 已按 runner 配置 pin 的 worker ${ws[0].id} 上报能力收窄（无需再指定）`
-    : `agent / project 已按 worker ${ws[0].id} 上报能力收窄`
+    ? `agent 候选已按 runner 配置 pin 的 worker ${ws[0].id} 上报能力收窄（无需再指定）`
+    : `agent 候选已按 worker ${ws[0].id} 上报能力收窄`
 })
 
 function selectProject(key: string) {
   projectKey.value = key
-  // project 切换后，把 agent/runner 收敛到新 allowlist 内的首项（或保留仍合法的选择）
+  // runner 先收敛（它决定 agent 的候选）：优先落在「跑得了这个 project」的 runner 上（D5）；
+  // 一个都跑不了时仍保留首个允许项，让 validationError 把原因讲清楚，而不是留空下拉。
+  const usable = usableRunners.value
+  const all = runnerOptions.value
+  if (!usable.some((r) => r.name === runnerName.value)) {
+    runnerName.value =
+      usable.length > 0 ? usable[0].name : all.length > 0 ? all[0].name : ''
+  }
   const ags = agentOptions.value
   if (!ags.some((a) => a.key === agentKey.value)) {
     const def = selectedProject.value?.default_agent
     agentKey.value =
       def && ags.some((a) => a.key === def) ? def : ags.length > 0 ? ags[0].key : ''
-  }
-  const rns = runnerOptions.value
-  if (!rns.some((r) => r.name === runnerName.value)) {
-    runnerName.value = rns.length > 0 ? rns[0].name : ''
   }
 }
 
@@ -343,19 +403,11 @@ function onProjectChange() {
   selectProject(projectKey.value)
 }
 
-// T5.2：runner / worker / 交互开关变更后，把 project/agent 收敛到（可能被执行侧能力收窄的）
-// 合法选项内，不留悬空非法选择。切到 local 时 projectOptions 排除 worker-only → 悬空的
-// worker-only 选择被丢弃：有 host 项则收敛到首个（selectProject 内再收 agent/runner），无则清空。
-// agent 无候选时清空 agentKey（不再保留一个必被后端拒绝的悬空值）——原因见 agentEmptyReason。
+// T5.2：runner / worker / 交互开关变更后，把 agent 收敛到（被执行侧能力收窄后的）合法候选内，
+// 不留悬空非法选择；无候选则清空（不保留一个必被后端拒绝的值——原因见 agentEmptyReason）。
+// **不动 projectKey**：project 是锚点，下游变化不得改写它（该 worker 跑不了它 → 由 RUNNER
+// 栏禁用+给理由表达，D5）。
 function reconverge() {
-  const projs = projectOptions.value
-  if (!projs.some((p) => p.key === projectKey.value)) {
-    if (projs.length > 0) {
-      selectProject(projs[0].key)
-      return
-    }
-    projectKey.value = '' // 无合法 project（仅 worker-only 且当前无 worker 上下文）→ 清空，交给校验兜底
-  }
   const ags = agentOptions.value
   if (!ags.some((a) => a.key === agentKey.value)) {
     const def = selectedProject.value?.default_agent
@@ -377,6 +429,9 @@ const validationError = computed<string>(() => {
   }
   if (!runnerName.value) {
     return '请选择 runner'
+  }
+  if (selectedRunnerBlock.value !== '') {
+    return selectedRunnerBlock.value // D5：选中的 runner 跑不了这个 project
   }
   // worker 未定 → 能力未知，先定机器再选 agent（runner 已在 config 里 pin worker 时无需再指定）
   if (isWorkerRunner.value) {
@@ -668,10 +723,19 @@ watch(interactive, (on) => {
       <div class="field">
         <label class="label mono" for="nj-runner">RUNNER</label>
         <select id="nj-runner" v-model="runnerName" class="control mono">
-          <option v-for="r in runnerOptions" :key="r.name" :value="r.name">
-            {{ r.name }} · {{ r.type }}<template v-if="r.worker_id"> · {{ r.worker_id }}</template>
+          <option
+            v-for="r in runnerOptions"
+            :key="r.name"
+            :value="r.name"
+            :disabled="!!runnerBlocks[r.name]"
+          >
+            {{ r.name }} · {{ r.type }}<template v-if="r.worker_id"> · {{ r.worker_id }}</template
+            ><template v-if="runnerBlocks[r.name]"> · {{ runnerBlocks[r.name].short }}</template>
           </option>
         </select>
+        <p v-if="selectedRunnerBlock" class="field-hint field-hint--warn mono">
+          {{ selectedRunnerBlock }}
+        </p>
       </div>
 
       <!-- runner=worker 选机：二选一（agent 之前——它决定 agent 候选） -->
