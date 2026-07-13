@@ -7,6 +7,7 @@
 | 版本 | 日期 | 修改人 | 调整说明 |
 |---|---|---|---|
 | v0.1 | 2026-07-13 | Claude | 初版：问题定义 + 权威模型 + 分阶段。待审 |
+| v0.2 | 2026-07-13 | Claude | 定稿 Q1(前缀最长匹配) / Q2(自动接受) / Q4(保留逃生舱, Policy 优先)；新增 D3：策略走**下发**而非远程改写 worker 配置文件（附理由）。 |
 
 ## 1. 概览
 
@@ -35,6 +36,16 @@
   - 安全含义：server 无法凭空定义任意命令让 worker 执行 → 即便 server 被攻破，活动范围受限于 worker 上真实安装的 agent + worker 护栏。（`exec` agent 本身仍是任意命令，由 worker 的 `allow_exec` 护栏把关。）
   - 被否决：server 全权推送（含 agent command 定义）——那等价于对 worker 的完全 RCE，`allow_exec` 护栏形同虚设。
 - **D2 首期范围**：**先做 worker 热重载 + 远程 reload**（P1）。它是所有后续阶段的公共前提，且立刻见效（改配置不必再重启进程）。
+
+- **D3 策略传递方式**：**server 下发（push desired state）**，**不是**「远程调用让 worker 改写自己的 `projects` 配置文件」。
+  - 根据：**worker 没有自主功能**——它只执行 server 派发的 job，离开 server 什么也不干。所以 worker 持久化一份 project 配置买不到任何东西，只会制造第二个真源。
+  - 漂移：下发只有一个真源（server config），构造上不会漂。远程改写有两份要同步的配置，server 眼里的"这台允许什么"退化成缓存，而缓存会因手工改文件 / 半截写入 / 从旧文件重启而失效。
+  - 离线 worker：远程写入对离线机器直接失败 → 集群进入"部分应用"状态要人工补。下发模式下离线不是事件——worker 上线 register 时 server 无条件重推当前 Rev，自动收敛。
+  - 回滚：下发＝改回 server config + SIGHUP 全体收敛；远程改写要逐台写回，漏一台就是雷。
+  - 实现代价：远程改写要在远端机器上 round-trip 一个 YAML 文件（丢注释/格式）并处理并发写、权限、磁盘满、半截写入；下发只是一个帧 + 内存应用，没有远端磁盘写入这个失败面。
+  - 校验不需要持久化：worker 的第二道 validate 用**当前生效的 Policy**（内存）即可；没连上 server 时它收不到任何派发。
+  - **推论（重要）**：worker.yaml 剩下的 `roots` / `guards` / identity 才是 worker 真正拥有的，**故意不做远程改写**——远程新增一个 `root` ＝ 远程扩大该机器的可执行目录范围，正是唯一应当要求机器访问权限的操作。把它做成远程一键就等于自己拆掉 D1 守住的边界。**"要上机器改"在这里是特性，不是缺陷。**
+  - 妥协：worker 可把「最后应用的 Policy」**只读**落一个缓存文件，仅供 `gofer worker show` / Cluster 页展示"这台机器现在认为自己能跑什么"。**非真源**，重连时以 server 重推的为准。
 
 ## 5. 架构
 
@@ -184,14 +195,18 @@ gofer project add X --runner w-container-example --agent tty-claude   (或直接
 
 每阶段单独可发布、可回退；v2 worker 全程不受影响。
 
-## 10. 待确认
+## 10. 已定稿的细节（原 Q1-Q5）
 
-- **Q1 roots 匹配语义**：前缀匹配（`D:/work/inhere` → `/path/to/ws-root`）够用，还是要显式 key？倾向前缀 + 最长匹配优先，需处理大小写/分隔符（Windows↔Linux）。
-- **Q2 project 是否需要 worker 侧显式白名单**：倾向**自动接受**（靠 roots 护栏兜底），否则又回到「要上机器改配置」的老路。反对意见？
-- **Q3 Policy 乱序 / 断连重连**：Rev 单调 + worker 丢弃旧 Rev；重连时 server 无条件重推当前 Rev（幂等）。
-- **Q4 worker 本地 `projects` 是否保留为逃生舱**：保留则 worker-only project（xu64.10）继续可用；倾向保留，与 Policy 下发的合并规则：**同名 key 以 Policy 为准**（server 是策略权威）。
-- **Q5 P1 的 reload 是否顺带重连 hub**：倾向不重连（只换配置快照 + re-register），避免打断在跑 job。
+- **Q1 roots 匹配语义** ✅ **前缀 + 最长匹配优先**。归一化后比较：统一分隔符为 `/`、Windows 侧大小写不敏感（`D:/work` == `d:/work`），Linux 侧敏感。映射不中任何 root → 拒绝该 project（`path_outside_roots`），**绝不回落到进程 CWD**。
+- **Q2 worker 侧是否要显式白名单确认** ✅ **自动接受**，靠 `roots` 护栏兜底。加一层"worker 侧确认"就又回到「要上机器改配置」的老路，等于白做；真正的准入边界是 roots + guards，而不是一张要人工维护的清单。
+- **Q3 Policy 乱序 / 断连重连** ✅ Rev 单调递增，worker 丢弃旧 Rev；重连时 server 无条件重推当前 Rev（幂等应用）。
+- **Q4 worker 本地 `projects` 逃生舱** ✅ **保留**（worker-only project，xu64.10 的能力不回退）。合并规则：**同名 key 以 Policy 为准**（server 是策略权威），worker 独有的 key 保持本地语义。
+- **Q5 P1 的 reload 是否重连 hub** ✅ **不重连**，只换配置快照 + 重跑 detect + re-register，避免打断在跑的 job。
 
-## 11. 结论
+## 11. 待确认
+
+（暂无——待实施中发现。）
+
+## 12. 结论
 
 问题的根不在「少了个远程改配置的接口」，而在**职责划错了边界**：策略被钉死在远端机器的静态文件里。把 worker 收敛为能力提供方后，「加 project」「开 pty agent」这类高频操作天然回到 server 侧——那里本来就有热重载和 CLI。P1 的热重载是所有后续阶段的地基，也是唯一一个现在就能立刻缓解疼痛的改动。
