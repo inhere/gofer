@@ -69,22 +69,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		c.Printf("gofer: config: %s\n", opts.CfgPath)
 	}
 
-	// --addr overrides server.addr; config.Load already defaulted addr to
-	// 0.0.0.0:8765 when unset (plan §11).
-	addr := cfg.Server.Addr
-	if opts.Addr != "" {
-		addr = opts.Addr
-	}
-
-	// --allow-empty-token (flag) OR allow_empty_token (config) opts out of auth.
-	allowEmpty := cfg.Server.AllowEmptyToken || opts.AllowEmptyTok
-
-	// Web console is on by default (config web_enabled, default true); --no-web
-	// force-disables it. Fold the final decision back onto cfg so httpapi.New
-	// reads it via serverCfg.IsWebEnabled().
-	webEnabled := cfg.Server.IsWebEnabled() && !opts.NoWeb
-	cfg.Server.WebEnabled = &webEnabled
-	cfg.Server.WebDir = opts.WebDir
+	addr, allowEmpty := mergeServeOpts(cfg, opts)
 
 	// Merge per-project thin overlays (.gofer.project.yaml) into the loaded
 	// config before assembling Core, so admission/result-dir decisions observe
@@ -856,6 +841,36 @@ func startReloadLoop(c *gcli.Command, cr *core.Core, path string, stop <-chan st
 			}
 		}
 	}()
+}
+
+// mergeServeOpts folds the serve flags onto the loaded config and returns the two
+// values Start needs directly (addr, allowEmpty). Every knob here is a CLI-OVERRIDES-
+// CONFIG merge, never a blind assignment: an unset flag must leave the config value
+// alone. web_dir learned that the hard way — it used to be assigned unconditionally,
+// so a serve without --web-dir wiped the configured dir and silently fell back to the
+// embedded dist, making server.web_dir a dead config key (tools-k0q).
+func mergeServeOpts(cfg *config.Config, opts Opts) (addr string, allowEmpty bool) {
+	// --addr overrides server.addr; config.Load already defaulted addr to
+	// 0.0.0.0:8765 when unset (plan §11).
+	addr = cfg.Server.Addr
+	if opts.Addr != "" {
+		addr = opts.Addr
+	}
+
+	// --allow-empty-token (flag) OR allow_empty_token (config) opts out of auth.
+	allowEmpty = cfg.Server.AllowEmptyToken || opts.AllowEmptyTok
+
+	// Web console is on by default (config web_enabled, default true); --no-web
+	// force-disables it. Fold the final decision back onto cfg so httpapi.New
+	// reads it via serverCfg.IsWebEnabled().
+	webEnabled := cfg.Server.IsWebEnabled() && !opts.NoWeb
+	cfg.Server.WebEnabled = &webEnabled
+
+	// --web-dir overrides server.web_dir; empty on both sides = embedded dist.
+	if opts.WebDir != "" {
+		cfg.Server.WebDir = opts.WebDir
+	}
+	return addr, allowEmpty
 }
 
 // resolveToken computes the effective bearer token (plan §7):
