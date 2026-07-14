@@ -49,11 +49,20 @@ func NewAgentCmd() *gcli.Command {
 }
 
 // loadAgentRegistry loads the config and wraps it in an agent.Registry.
+//
+// The `agent` command group never builds a Core, so — like every other core-less
+// assembly point in this package (loadRegistry, the worker doctor) — it MUST run
+// agent.Resolve itself (P2 T0-C), through the same single entry point core.Build uses.
+// Skipping it is how `gofer agent list` would miss every template-materialized agent:
+// serve would happily run `claude` while the operator debugging the box was told it
+// did not exist. Nothing is persisted from here, and injected keys are marked on the
+// config regardless, so resolving is write-safe.
 func loadAgentRegistry(explicitPath string) (*agent.Registry, error) {
 	cfg, _, err := config.Load(explicitPath)
 	if err != nil {
 		return nil, err
 	}
+	cfg, _ = agent.Resolve(cfg, agent.DefaultDetector())
 	return agent.NewRegistry(cfg), nil
 }
 

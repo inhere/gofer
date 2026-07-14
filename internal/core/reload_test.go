@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 )
 
@@ -31,7 +32,7 @@ func TestCoreReloadAddsProject(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	core, err := Build(cfg)
+	core, err := Build(cfg, WithAgentDetector(agent.NoopDetector{}))
 	if err != nil {
 		t.Fatalf("buildCore: %v", err)
 	}
@@ -73,7 +74,7 @@ func TestCoreReloadFailSafeKeepsOldConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	core, err := Build(cfg)
+	core, err := Build(cfg, WithAgentDetector(agent.NoopDetector{}))
 	if err != nil {
 		t.Fatalf("buildCore: %v", err)
 	}
@@ -114,7 +115,7 @@ func TestCoreReloadDeletedFileKeepsOldConfig(t *testing.T) {
 	if err != nil {
 		t.Fatalf("load: %v", err)
 	}
-	core, err := Build(cfg)
+	core, err := Build(cfg, WithAgentDetector(agent.NoopDetector{}))
 	if err != nil {
 		t.Fatalf("buildCore: %v", err)
 	}

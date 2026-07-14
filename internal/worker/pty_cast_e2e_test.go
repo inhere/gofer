@@ -31,6 +31,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/castrec"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/core"
@@ -63,7 +64,7 @@ func buildCastHubSide(t *testing.T, castCfg config.CastConfig, retention config.
 	}
 	config.ApplyDefaults(cfg)
 
-	cr, err := core.Build(cfg)
+	cr, err := core.Build(cfg, core.WithAgentDetector(agent.NoopDetector{}))
 	if err != nil {
 		t.Fatalf("core.Build: %v", err)
 	}

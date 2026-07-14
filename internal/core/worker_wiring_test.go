@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/httpapi"
 	workerrunner "github.com/inhere/gofer/internal/runner/worker"
@@ -32,7 +33,7 @@ func TestBuildCoreWorkerRunner(t *testing.T) {
 	}
 	config.ApplyDefaults(cfg)
 
-	core, err := Build(cfg)
+	core, err := Build(cfg, WithAgentDetector(agent.NoopDetector{}))
 	if err != nil {
 		t.Fatalf("buildCore: %v", err)
 	}
@@ -73,7 +74,7 @@ func TestServeMountsWorkerConnectRoute(t *testing.T) {
 	}
 	config.ApplyDefaults(cfg)
 
-	core, err := Build(cfg)
+	core, err := Build(cfg, WithAgentDetector(agent.NoopDetector{}))
 	if err != nil {
 		t.Fatalf("buildCore: %v", err)
 	}

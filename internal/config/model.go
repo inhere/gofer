@@ -39,6 +39,67 @@ type Config struct {
 	// Schedule tunes the AUTO-02 cron schedule sweeper. All fields are optional;
 	// serve applies conservative defaults when unset.
 	Schedule ScheduleConfig `yaml:"schedule,omitempty"`
+
+	// injectedAgents records the Agents keys that were MATERIALIZED AT RUNTIME from
+	// the built-in agent templates (agent.Resolve) instead of being authored by the
+	// operator. Runtime-only state: unexported, so it is never (de)serialized, and
+	// render() strips these keys from Agents before any save.
+	//
+	// Why this must exist (P2 T0-A): the *Config a Core holds is the SAME pointer the
+	// project registry writes back through (project.Registry.save -> config.Save). With
+	// no mark, a single "add project" from the web console would freeze every detected
+	// template into the operator's config.yaml — promoting it to an explicitly declared
+	// agent, which by the iron rule is never detect-gated again. The config would then
+	// keep claiming an agent after the CLI is uninstalled, and the whole point of
+	// detect-gating the templates would be cancelled by our own write path.
+	//
+	// Written once by agent.Resolve BEFORE the config is published to any atomic
+	// snapshot pointer, and read-only afterwards — so it adds no concurrent write to
+	// the shared-snapshot invariant.
+	injectedAgents map[string]bool
+}
+
+// MarkInjectedAgents records which Agents keys were materialized at runtime from a
+// built-in template. A nil/empty set clears the mark. agent.Resolve is the only
+// intended caller; it is exported solely because the templates live in another
+// package.
+func (c *Config) MarkInjectedAgents(keys map[string]bool) {
+	if c == nil {
+		return
+	}
+	out := make(map[string]bool, len(keys))
+	for k, v := range keys {
+		if v {
+			out[k] = true
+		}
+	}
+	if len(out) == 0 {
+		c.injectedAgents = nil
+		return
+	}
+	c.injectedAgents = out
+}
+
+// InjectedAgents returns a copy of the runtime-injected agent keys (nil if none).
+// These keys are NOT operator configuration and must never be persisted.
+func (c *Config) InjectedAgents() map[string]bool {
+	if c == nil || len(c.injectedAgents) == 0 {
+		return nil
+	}
+	out := make(map[string]bool, len(c.injectedAgents))
+	for k := range c.injectedAgents {
+		out[k] = true
+	}
+	return out
+}
+
+// IsInjectedAgent reports whether key was materialized from a built-in template
+// rather than declared by the operator.
+func (c *Config) IsInjectedAgent(key string) bool {
+	if c == nil {
+		return false
+	}
+	return c.injectedAgents[key]
 }
 
 // ScheduleConfig controls the AUTO-02 cron sweeper cadence and missed-run policy.

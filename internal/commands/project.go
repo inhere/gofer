@@ -10,6 +10,7 @@ import (
 
 	"github.com/gookit/gcli/v3"
 
+	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/project"
 )
@@ -122,11 +123,19 @@ func argKey(c *gcli.Command) string {
 }
 
 // loadRegistry loads the config (lookup chain) and wraps it in a Registry.
+//
+// It resolves the config through agent.Resolve for the same reason loadAgentRegistry
+// does (P2 T0-C): project.Registry.Validate enumerates agents (agentDefined) to check
+// default_agent / allowed_agents, so a core-less registry would report a
+// template-materialized agent as "not defined" while the very same agent runs fine
+// under serve. Registry.Add writes this config back, which is safe precisely because
+// Resolve marks the injected keys and config.Save strips them (T0-A).
 func loadRegistry(explicitPath string) (*project.Registry, error) {
 	cfg, path, err := config.Load(explicitPath)
 	if err != nil {
 		return nil, err
 	}
+	cfg, _ = agent.Resolve(cfg, agent.DefaultDetector())
 	return project.NewRegistry(cfg, path), nil
 }
 

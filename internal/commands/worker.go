@@ -377,6 +377,14 @@ func loadWorkerConfig(path string) (*config.WorkerConfig, error) {
 // so buildCore can assemble the worker's local job service. The worker has no
 // server.workers / token / web console; its hub singleton stays idle (no worker
 // runners are configured locally).
+//
+// It is a pure STRUCTURE mapping and must stay one: it does NOT detect agent CLIs and
+// does NOT merge the built-in agent templates (P2 T0-B). That merge belongs to
+// agent.Resolve, invoked exactly once per config snapshot by core.Build / core.ReloadWith,
+// both of which every caller here runs immediately afterwards. Merging here as well
+// would (a) probe the host twice per startup and (b) hand Build a config whose injected
+// keys already exist — which Build would read as operator declarations and promote to
+// un-gated escape hatches, leaving the detect gate effective only on the first pass.
 func workerConfigToConfig(wc *config.WorkerConfig) *config.Config {
 	cfg := &config.Config{
 		Storage:  wc.Storage,

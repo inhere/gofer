@@ -127,7 +127,7 @@ func buildInteractiveHubSide(t *testing.T) *ptyHubSide {
 	}
 	config.ApplyDefaults(cfg)
 
-	cr, err := core.Build(cfg)
+	cr, err := core.Build(cfg, core.WithAgentDetector(agent.NoopDetector{}))
 	if err != nil {
 		t.Fatalf("core.Build: %v", err)
 	}

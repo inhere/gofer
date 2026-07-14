@@ -59,7 +59,7 @@ func Save(path string, cfg *Config) error {
 // render produces the final YAML bytes, preserving unknown top-level fields
 // from any existing file at abs.
 func render(abs string, cfg *Config) ([]byte, error) {
-	newBytes, err := yaml.Marshal(cfg)
+	newBytes, err := yaml.Marshal(withoutInjectedAgents(cfg))
 	if err != nil {
 		return nil, fmt.Errorf("marshal config: %w", err)
 	}
@@ -79,6 +79,39 @@ func render(abs string, cfg *Config) ([]byte, error) {
 		return newBytes, nil
 	}
 	return merged, nil
+}
+
+// withoutInjectedAgents returns the config that should actually be serialized: cfg
+// itself when nothing was runtime-injected (so a plain config saves byte-identically
+// to before), otherwise a SHALLOW COPY whose Agents map drops every key that
+// agent.Resolve materialized from a built-in template.
+//
+// This is the write-back isolation (P2 T0-A). A runtime-materialized template is NOT
+// operator configuration: persisting it would (a) grow a config file with agents the
+// operator never wrote, and (b) promote it to an explicitly declared agent — which by
+// the iron rule is kept forever, even after its CLI is uninstalled. Since `agents` is
+// a managed top-level key (it is re-emitted from the struct, not preserved from the
+// file text), stripping here is the ONLY place that can keep templates out of the file.
+//
+// A config whose agents were ALL injected renders its Agents map back to nil, so it
+// never gains an `agents:` line the operator never had.
+func withoutInjectedAgents(cfg *Config) *Config {
+	if cfg == nil || len(cfg.injectedAgents) == 0 {
+		return cfg
+	}
+	clone := *cfg // shallow: only Agents is replaced, every other field is shared
+	kept := make(map[string]AgentConfig, len(cfg.Agents))
+	for key, ac := range cfg.Agents {
+		if cfg.injectedAgents[key] {
+			continue
+		}
+		kept[key] = ac
+	}
+	if len(kept) == 0 {
+		kept = nil
+	}
+	clone.Agents = kept
+	return &clone
 }
 
 // preserveUnknownTopKeys parses both the original and freshly-rendered YAML,

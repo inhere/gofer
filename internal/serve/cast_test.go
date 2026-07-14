@@ -9,6 +9,7 @@ import (
 
 	"github.com/gookit/gcli/v3"
 
+	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -101,7 +102,7 @@ func buildGateCore(t *testing.T) (*core.Core, string) {
 	t.Helper()
 	cfg := &config.Config{Storage: config.StorageConfig{Root: t.TempDir()}}
 	config.ApplyDefaults(cfg)
-	cr, err := core.Build(cfg)
+	cr, err := core.Build(cfg, core.WithAgentDetector(agent.NoopDetector{}))
 	if err != nil {
 		t.Fatalf("core.Build: %v", err)
 	}

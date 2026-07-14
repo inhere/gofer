@@ -51,6 +51,31 @@ type Core struct {
 	// worker dispatch, worker pty-connect (T5) and browser attach (T7).
 	RelayNonces *ptyrelay.NonceStore
 	PtyRelays   *ptyrelay.Registry
+	// detector is the agent.Detector this Core resolved its config with. It is kept
+	// so ReloadWith re-gates the built-in agent templates through the SAME seam the
+	// process started with (a test's fake detector must not silently become the real
+	// PATH probe on reload).
+	detector agent.Detector
+}
+
+// BuildOption customises Build.
+type BuildOption func(*buildOptions)
+
+type buildOptions struct {
+	detector agent.Detector
+}
+
+// WithAgentDetector injects the agent.Detector that gates materialization of the
+// built-in agent templates (agent.Resolve).
+//
+// Production callers omit it and get agent.DefaultDetector(). TESTS must inject
+// agent.NoopDetector{} (or a fake): with the real probe, the resolved agent set — and
+// therefore cfg.Agents, the caps report and any agent-name assertion — would depend on
+// which CLIs happen to be installed on the machine running `go test`.
+//
+// The detector is remembered on the Core and reused by ReloadWith.
+func WithAgentDetector(d agent.Detector) BuildOption {
+	return func(o *buildOptions) { o.detector = d }
 }
 
 // Workflow returns the Core's workflow engine (the handle serve/httpapi consume to
@@ -72,7 +97,22 @@ func (c *Core) Close() error {
 // runners declared in config are registered too (plan §11.1, P7). It opens the
 // SQLite metadata db (design §11 ResolveDBPath) and returns an error if that
 // fails, since the job service cannot operate without it.
-func Build(cfg *config.Config) (*Core, error) {
+func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
+	o := buildOptions{detector: agent.DefaultDetector()}
+	for _, opt := range opts {
+		if opt != nil {
+			opt(&o)
+		}
+	}
+	// THE single merge point (P2 T0-B): this is the only place a serve/mcp/worker
+	// process detects the host's agent CLIs and materializes the built-in templates.
+	// Every registry below is then wired from this one resolved snapshot, so the job
+	// service, the caps report and `gofer agent list` cannot drift apart. Callers must
+	// NOT pre-merge (see commands.workerConfigToConfig): a second merge would read the
+	// already-injected keys as operator declarations and silently promote them to
+	// un-gated escape hatches. Resolve is in-place, so a caller that derives its
+	// capability report from the very cfg it passed here observes exactly what was applied.
+	cfg, _ = agent.Resolve(cfg, o.detector)
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
@@ -132,7 +172,7 @@ func Build(cfg *config.Config) (*Core, error) {
 	// whitelist is the SAME source the L0 answerer reads (cfg.supervisor.allow_prompt_regex), so
 	// L0 auto-answer and L2 sup派生作答 share one policy. Role lookup is presence.Role.
 	jobs.SetAnswerGuard(answerguard.New(supervisorAllowRegex(cfg), pres))
-	return &Core{Cfg: cfg, Projects: projects, Agents: agents, Runners: runners, Store: store, Jobs: jobs, Presence: pres, workflowEngine: eng, Hub: hub, RelayNonces: relayNonces, PtyRelays: ptyRelays}, nil
+	return &Core{Cfg: cfg, Projects: projects, Agents: agents, Runners: runners, Store: store, Jobs: jobs, Presence: pres, workflowEngine: eng, Hub: hub, RelayNonces: relayNonces, PtyRelays: ptyRelays, detector: o.detector}, nil
 }
 
 // supervisorAllowRegex returns the answer闸 / L0 prompt whitelist from cfg.supervisor
@@ -282,6 +322,13 @@ func (c *Core) ReloadWith(cfg *config.Config) error {
 	if cfg == nil {
 		return fmt.Errorf("reload config: nil config")
 	}
+	// A reload is a NEW config snapshot, so it gets its own single resolve pass — that
+	// is how a newly installed CLI shows up on SIGHUP / `worker reload`, and how an
+	// uninstalled one disappears again. Reusing c.detector keeps a test's fake from
+	// silently turning into the real PATH probe here. Resolve is in-place, so a caller
+	// that reports capabilities from the same cfg it passed in reports exactly the
+	// agents that were applied (no "advertise one set, accept another").
+	cfg, _ = agent.Resolve(cfg, c.detector)
 	c.Cfg = cfg
 	c.Projects.Reload(cfg)
 	c.Agents.Reload(cfg)

@@ -7,6 +7,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/runner"
@@ -87,7 +88,7 @@ func TestReloadWithConfigSnapshotIsAtomic(t *testing.T) {
 	cfgV1 := atomicSwapConfig(rootV1, hostPath, dbPath, "v1")
 	cfgV2 := atomicSwapConfig(rootV2, hostPath, dbPath, "v2")
 
-	c, err := Build(cfgV1)
+	c, err := Build(cfgV1, WithAgentDetector(agent.NoopDetector{}))
 	if err != nil {
 		t.Fatalf("build core: %v", err)
 	}

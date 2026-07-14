@@ -13,6 +13,7 @@ import (
 	"github.com/gookit/goutil/x/ccolor"
 
 	configtmpl "github.com/inhere/gofer/config"
+	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/project"
 )
@@ -506,7 +507,12 @@ func validateWorkerConfig(c *gcli.Command) error {
 
 	// Per-project checks via a registry built from the worker's own config (host_path
 	// exists, agents/runners resolvable) — identical to server-side project validate.
-	reg := project.NewRegistry(workerConfigToConfig(wc), config.InputCfgFile)
+	// Resolved through agent.Resolve (P2 T0-C) so the doctor's agent view is the one
+	// the worker will actually run with: without it, a project whose default_agent is
+	// template-materialized would be reported "not defined" even though the worker runs
+	// it happily. This registry is read-only (never Add/save).
+	wdcfg, _ := agent.Resolve(workerConfigToConfig(wc), agent.DefaultDetector())
+	reg := project.NewRegistry(wdcfg, config.InputCfgFile)
 	keys := reg.List()
 	if len(keys) == 0 {
 		chk("projects", false, "no projects (the worker has nothing to run)")
