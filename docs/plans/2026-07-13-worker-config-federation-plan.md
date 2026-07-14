@@ -55,7 +55,7 @@
 - **hub registry 的 `maxConcurrent` 是独立字段**：`wc.meta`（展示）与 `wc.maxConcurrent`（`tryReserve` 真正用来准入，`registry.go:105-135`）**是两份**。只改 meta = 界面骗人。
 - **`WorkerSnapshot` 在释放 registry 锁之后才读 `wc.meta`**（`registry.go:277-302`）→ 若 caps 更新在 registry 锁下原地改 `wc.meta`，就是 data race。
 - **同一 worker 重连后 registry 会把 ID 指向新连接**，旧连接的 read loop 可能仍在收尾 → 按 workerID 更新能力会让**旧进程的迟到 caps 覆盖新连接**。
-- ✅ **`httpapi` 确实没有 import `wshub`**（codex 此条判断有误，已核实：全包搜索只有注释提及）。D2/G022 边界完好，新端点仍走 `serve` 侧适配器。
+- ❌ **~~`httpapi` 没有 import `wshub`~~ —— 这条"核实"是错的（v0.2 写错，T5 实施时推翻）**。`httpapi/server.go` 自 `0c93951` 起就有 `hub *wshub.Hub` 字段，G022 边界**本来就是破的**；codex 当初的判断是对的，是复核只搜了函数调用、漏看结构体字段。T5（`d936c70`）已把它收窄成 `workerHub` 窄接口（只要 `Accept`+`LiveInstance`），`errors.Is/As` 收敛到 `serve` 侧适配器一处，现在 `go list -deps ./internal/httpapi | grep wshub` 为空。**教训："已核实"三个字必须附上核实命令，否则下一个人会继续信它。**
 
 ## 任务分解
 
@@ -229,5 +229,5 @@ T0 → T1 → T2 → T3 → T4 → T5 每步单独 commit（每步 `go test ./..
 - [x] T2 wsproto：`Reload{RequestID}` / `ReloadResult` / `Caps`（广播与回执分离）— `df58c2c`
 - [x] T3 worker：串行 reload executor（SIGHUP 与远程同路径）+ 先构造后应用 — `5ee375b`
 - [x] T4 wshub：按连接更新能力（消 race、防旧连接污染、同步 `maxConcurrent`）— `58ecc7e`
-- [ ] T5 httpapi + CLI：同步回执语义（200/409/504）
+- [x] T5 httpapi + CLI：同步回执语义（200/409/504）— `d936c70`
 - [ ] T6 e2e 冒烟（含坏配置 409、旧 worker 409、在跑 job 不中断三条反例）
