@@ -1,7 +1,7 @@
 package agent
 
 import (
-	"os/exec"
+	"context"
 
 	"github.com/inhere/gofer/internal/config"
 )
@@ -100,43 +100,63 @@ func Resolve(cfg *config.Config, d Detector) (*config.Config, map[string]DetectR
 
 // DefaultDetector returns the Detector every production assembly path uses when the
 // caller injects none.
-//
-// T0 ships the minimal form (PATH lookup only). T2 replaces the body with a parallel,
-// budgeted probe that additionally fills Version best-effort; the interface and the
-// Available semantics below do not change.
 func DefaultDetector() Detector { return lookPathDetector{} }
 
-// lookPathDetector decides availability from a PATH lookup alone.
+// lookPathDetector decides availability from a PATH lookup alone (lookPathProbe) and
+// fills Version best-effort from a child process it can afford to lose.
 type lookPathDetector struct{}
 
 // Detect implements Detector.
+//
+// The availability verdict for EVERY agent is computed synchronously and up front: it
+// is a PATH lookup, it cannot hang, and it is what the caps report is built from. The
+// version probes — the only part that spawns a child — then fan out in parallel under
+// ONE overall budget (detectBudget), because this runs on the reload path, which owes
+// an HTTP answer within 10s (httpapi/worker_reload_handler.go); a serial per-agent
+// walk would blow that with a handful of agents.
+//
+// When the budget expires, the LookPath verdicts already in `out` stand and the
+// outstanding versions are simply dropped. A hung `--version` therefore costs a
+// display string, never an agent.
 func (lookPathDetector) Detect(agents map[string]config.AgentConfig) map[string]DetectResult {
 	out := make(map[string]DetectResult, len(agents))
+	if len(agents) == 0 {
+		return out
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), detectBudget)
+	defer cancel()
+
+	type keyed struct {
+		key string
+		res DetectResult
+	}
+	// Buffered for every possible sender: a probe that outlives the budget must be
+	// able to finish its send and exit instead of leaking on a blocked channel.
+	results := make(chan keyed, len(agents))
+
+	pending := 0
 	for key, ac := range agents {
-		out[key] = lookPathProbe(ac)
+		res := lookPathProbe(ac)
+		out[key] = res // stands regardless of what the version probe does
+		if !res.Available || ac.Type == TypeExec {
+			continue // nothing on PATH to ask, or nothing to ask at all (exec)
+		}
+		pending++
+		go func(key string, ac config.AgentConfig) {
+			results <- keyed{key: key, res: DetectResult{Available: true, Version: probeVersion(ctx, ac)}}
+		}(key, ac)
+	}
+
+	for i := 0; i < pending; i++ {
+		select {
+		case r := <-results:
+			out[r.key] = r.res
+		case <-ctx.Done():
+			return out // budget spent: keep the availability verdicts, drop the versions
+		}
 	}
 	return out
-}
-
-// lookPathProbe reports availability from PATH resolution and NEVER from a child
-// process' exit code: a slow-starting CLI, a first-run wizard or an auth prompt would
-// probe as a FALSE NEGATIVE, and a false negative means the agent disappears from the
-// caps report and its jobs get rejected. Being on PATH is exactly the condition for
-// being launchable (exec.Command and exec.LookPath share one lookup).
-func lookPathProbe(ac config.AgentConfig) DetectResult {
-	// exec runs the request's argv verbatim and needs no external CLI. This check
-	// MUST come before anything that consults a command: a Windows host has no `sh`,
-	// so probing exec would otherwise report the BUILT-IN exec agent unavailable.
-	if ac.Type == TypeExec {
-		return DetectResult{Available: true, Version: "builtin"}
-	}
-	if ac.Command == "" {
-		return DetectResult{Error: "no command configured"}
-	}
-	if _, err := exec.LookPath(ac.Command); err != nil {
-		return DetectResult{Error: err.Error()}
-	}
-	return DetectResult{Available: true}
 }
 
 // NoopDetector reports every agent unavailable without touching the host: no PATH
