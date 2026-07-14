@@ -67,7 +67,7 @@ func newWorkerTestServiceSel(t *testing.T, root string, stub runner.Runner, work
 			"self": {
 				HostPath:                 root,
 				AllowedAgents:            []string{"exec", "term"},
-				AllowedRunners:           []string{"local", "remote-w1"},
+				AllowedRunners:           []string{"local", "remote-w1", "pool-w"},
 				InteractiveAllowedAgents: []string{"term"},
 				AllowExec:                true,
 			},
@@ -75,8 +75,14 @@ func newWorkerTestServiceSel(t *testing.T, root string, stub runner.Runner, work
 		Agents: map[string]config.AgentConfig{
 			"term": {Type: agent.TypeCLIAgent, Command: "echo", Args: []string{"{{prompt}}"}, Interactive: true, NoRawCmd: true},
 		},
+		// Two shapes of worker runner, and the distinction is load-bearing:
+		//   remote-w1 is PINNED (worker_id) — it names one box, and that pin is an
+		//     authorization: a request may not re-route it (see pin_test.go).
+		//   pool-w has no pin — the target is chosen at submit time from worker_labels.
+		// Label auto-selection therefore belongs to pool-w; the tests below use it.
 		Runners: map[string]config.RunnerConfig{
 			"remote-w1": {Type: "worker", WorkerID: "w1"},
+			"pool-w":    {Type: "worker"},
 		},
 	}
 	projReg := project.NewRegistry(cfg, "")
@@ -84,6 +90,7 @@ func newWorkerTestServiceSel(t *testing.T, root string, stub runner.Runner, work
 	runners := map[string]runner.Runner{
 		localrunner.Name: localrunner.New(),
 		"remote-w1":      stub,
+		"pool-w":         stub,
 	}
 	meta, err := jobstore.Open(filepath.Join(root, "gofer.db"))
 	if err != nil {
@@ -306,7 +313,7 @@ func TestSubmitWorkerLabelsAutoSelect(t *testing.T) {
 	}}
 	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
 	final := submitAndWait(t, s, JobRequest{
-		ProjectKey: "self", Agent: "exec", Runner: "remote-w1",
+		ProjectKey: "self", Agent: "exec", Runner: "pool-w",
 		WorkerLabels: []string{"gpu"},
 		Cmd:          []string{"echo", "hi"}, Cwd: ".", TimeoutSec: 30,
 	})
@@ -329,7 +336,7 @@ func TestSubmitInteractiveWorkerLabelsRejectsNonPtyCapable(t *testing.T) {
 	}}
 	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
 	_, err := s.Submit(JobRequest{
-		ProjectKey: "self", Agent: "term", Runner: "remote-w1",
+		ProjectKey: "self", Agent: "term", Runner: "pool-w",
 		WorkerLabels: []string{"gpu"},
 		Interactive:  true, Prompt: "hi", Cwd: ".",
 	})
@@ -349,7 +356,7 @@ func TestSubmitInteractiveWorkerLabelsAcceptsPtyCapable(t *testing.T) {
 	}}
 	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
 	final := submitAndWait(t, s, JobRequest{
-		ProjectKey: "self", Agent: "term", Runner: "remote-w1",
+		ProjectKey: "self", Agent: "term", Runner: "pool-w",
 		WorkerLabels: []string{"gpu"},
 		Interactive:  true, Prompt: "hi", Cwd: ".", TimeoutSec: 30,
 	})
@@ -413,7 +420,7 @@ func TestSubmitNonInteractiveWorkerIgnoresPtyCapability(t *testing.T) {
 	}}
 	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
 	final := submitAndWait(t, s, JobRequest{
-		ProjectKey: "self", Agent: "exec", Runner: "remote-w1",
+		ProjectKey: "self", Agent: "exec", Runner: "pool-w",
 		WorkerLabels: []string{"gpu"},
 		Cmd:          []string{"echo", "hi"}, Cwd: ".", TimeoutSec: 30,
 	})
@@ -438,7 +445,7 @@ func TestSubmitWorkerLabelsNoEligible(t *testing.T) {
 	}}
 	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
 	_, err := s.Submit(JobRequest{
-		ProjectKey: "self", Agent: "exec", Runner: "remote-w1",
+		ProjectKey: "self", Agent: "exec", Runner: "pool-w",
 		WorkerLabels: []string{"gpu"}, // no candidate has gpu
 		Cmd:          []string{"echo", "hi"}, Cwd: ".",
 	})
@@ -462,7 +469,7 @@ func TestSubmitWorkerIDWinsOverLabels(t *testing.T) {
 	}}
 	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
 	final := submitAndWait(t, s, JobRequest{
-		ProjectKey: "self", Agent: "exec", Runner: "remote-w1",
+		ProjectKey: "self", Agent: "exec", Runner: "pool-w",
 		WorkerID: "w1", WorkerLabels: []string{"gpu"},
 		Cmd: []string{"echo", "hi"}, Cwd: ".", TimeoutSec: 30,
 	})

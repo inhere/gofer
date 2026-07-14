@@ -173,7 +173,7 @@ func TestFedAutoSelectNoCapableWorker(t *testing.T) {
 	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
 
 	_, err := s.Submit(JobRequest{
-		ProjectKey: "self", Agent: "term", Runner: "remote-w1",
+		ProjectKey: "self", Agent: "term", Runner: "pool-w",
 		WorkerLabels: []string{"gpu"},
 		Prompt:       "hi", Cwd: ".",
 	})
@@ -209,7 +209,7 @@ func TestFedAutoSelectPicksCapableWorker(t *testing.T) {
 	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
 
 	final := submitAndWait(t, s, JobRequest{
-		ProjectKey: "self", Agent: "term", Runner: "remote-w1",
+		ProjectKey: "self", Agent: "term", Runner: "pool-w",
 		WorkerLabels: []string{"gpu"},
 		Prompt:       "hi", Cwd: ".", TimeoutSec: 30,
 	})

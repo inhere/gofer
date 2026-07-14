@@ -162,6 +162,30 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 		}
 	}
 
+	// A PINNED runner (type=worker + worker_id in config) names exactly one target, and
+	// that pin is an AUTHORIZATION, not a default route: allowed_runners is how a project
+	// says "on the worker side, only this box may run me", and that statement is worthless
+	// if the request can re-point the runner elsewhere. It used to be able to — an explicit
+	// worker_id (runner/worker.Runner: f.WorkerID beats r.workerID) or worker_labels
+	// (selectTargetWorker prefers the label branch) silently overrode the pin, so a job
+	// submitted through a runner pinned to w-a could execute on w-b whenever w-b happened
+	// to carry the project. Reject the override instead of honouring it; an explicit
+	// worker_id equal to the pin stays legal (it is a no-op restatement).
+	if isWorker {
+		if pin := cfg.Runners[req.Runner].WorkerID; pin != "" {
+			if req.WorkerID != "" && req.WorkerID != pin {
+				return config.ProjectConfig{}, fmt.Errorf(
+					"%w: runner %q is pinned to worker %q; worker_id %q cannot re-route it",
+					ErrInvalidRequest, req.Runner, pin, req.WorkerID)
+			}
+			if len(req.WorkerLabels) > 0 {
+				return config.ProjectConfig{}, fmt.Errorf(
+					"%w: runner %q is pinned to worker %q; worker_labels cannot re-route it",
+					ErrInvalidRequest, req.Runner, pin)
+			}
+		}
+	}
+
 	// G2 (federation): the target worker is DETERMINED here — an explicit worker_id,
 	// or the runner's configured default when no labels are given (the same order
 	// selectTargetWorker resolves in, D4). Fail fast on the host when the project or

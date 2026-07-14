@@ -422,6 +422,17 @@ watch([runnerName, workerId, workerMode, workerLabels], () => {
   reconverge()
 })
 
+// pin 型 runner 不接受任何改派：显式 worker_id 或 worker_labels 都会被后端拒（pin 是授权，
+// 不是默认路由）。切到这类 runner 时把选机状态复位到「跟随 pin」，别把上一个 runner 的
+// labels 模式带过来变成一个必被拒的提交。
+watch(pinnedWorkerId, (pin) => {
+  if (pin !== '') {
+    workerMode.value = 'id'
+    workerId.value = ''
+    workerLabels.value = ''
+  }
+})
+
 // 校验 + 组装请求
 const validationError = computed<string>(() => {
   if (!projectKey.value) {
@@ -544,9 +555,9 @@ async function onSubmit() {
         req.rows = rows.value
       }
     }
-    if (isWorkerRunner.value) {
+    // pin 型 runner：一个字段都不发——worker_id/worker_labels 都是"改派"，后端一律拒。
+    if (isWorkerRunner.value && pinnedWorkerId.value === '') {
       if (workerMode.value === 'id') {
-        // 只发显式选择；留空即由后端回落到 runner 配置里 pin 的 worker（D4，与收窄同源）
         if (workerId.value !== '') {
           req.worker_id = workerId.value
         }
@@ -738,10 +749,19 @@ watch(interactive, (on) => {
         </p>
       </div>
 
-      <!-- runner=worker 选机：二选一（agent 之前——它决定 agent 候选） -->
-      <details v-if="isWorkerRunner" class="advanced" :open="advancedOpen">
+      <!-- runner=worker 选机（agent 之前——它决定 agent 候选）。
+           pin 型 runner 没有"选机"可言：配置已把它绑死到一台，且那是授权而非默认路由
+           （请求不得改路由，后端会拒），所以这里只陈述事实，不给选项。 -->
+      <div v-if="isWorkerRunner && pinnedWorkerId" class="field">
+        <label class="label mono">WORKER</label>
+        <p class="field-hint mono">
+          {{ pinnedWorkerId }} —— runner 配置已绑定该 worker（授权约束，不可在提交时改派）
+        </p>
+      </div>
+
+      <details v-else-if="isWorkerRunner" class="advanced" :open="advancedOpen">
         <summary class="mono" @click.prevent="advancedOpen = !advancedOpen">
-          worker 选机{{ pinnedWorkerId ? `（runner 已 pin ${pinnedWorkerId}，可不指定）` : '（必填二选一）' }}
+          worker 选机（必填二选一）
         </summary>
         <div class="advanced-body">
           <div class="seg mono">
@@ -766,9 +786,7 @@ watch(interactive, (on) => {
           <div v-if="workerMode === 'id'" class="field">
             <label class="label mono" for="nj-wid">WORKER_ID（仅 connected）</label>
             <select id="nj-wid" v-model="workerId" class="control mono">
-              <option value="">
-                {{ pinnedWorkerId ? `跟随 runner 配置（${pinnedWorkerId}）` : '选择一个已连接 worker' }}
-              </option>
+              <option value="">选择一个已连接 worker</option>
               <option v-for="w in connectedWorkers" :key="w.id" :value="w.id">
                 {{ w.id }}<template v-if="w.labels && w.labels.length"> · {{ w.labels.join(',') }}</template>
               </option>
