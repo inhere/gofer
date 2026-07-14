@@ -36,6 +36,14 @@ const (
 	// P3 frames (heartbeat; declared as placeholders).
 	TypePing FrameType = "ping" // both
 	TypePong FrameType = "pong" // both
+
+	// Config hot-reload frames (protocol v3, see ReloadMinProtocolVersion).
+	// reload/reload_result form an RPC PAIR correlated by request_id; caps is an
+	// UNSOLICITED broadcast. They are deliberately distinct types: a broadcast must
+	// never be able to pose as the response to a pending reload (see the Caps doc).
+	TypeReload       FrameType = "reload"        // s→w
+	TypeReloadResult FrameType = "reload_result" // w→s
+	TypeCaps         FrameType = "caps"          // w→s
 )
 
 // Envelope is the single-connection multiplexed message. Payload carries the

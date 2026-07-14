@@ -193,3 +193,66 @@ type Ping struct {
 type Pong struct {
 	TS int64 `json:"ts"`
 }
+
+// --- Config hot-reload frames (protocol v3; gate with SupportsReload). ---
+
+// Reload (s→w): ask the worker to re-read its local config and re-report what it
+// can do. It is an RPC REQUEST, not a fire-and-forget signal: RequestID is the
+// only thing that ties the worker's ReloadResult back to this call, so the caller
+// (which is blocking a synchronous HTTP request on the answer) can tell ITS reply
+// apart from any other reload happening on the same connection. Reason is free
+// text for logs/audit only.
+type Reload struct {
+	RequestID string `json:"request_id"`
+	Reason    string `json:"reason,omitempty"`
+}
+
+// ReloadResult (w→s): the reply to exactly one Reload, echoing its RequestID.
+//
+// OK=false means the worker REFUSED the new config (bad YAML, invalid agent, …)
+// and is still running the OLD one unchanged — the reload failed, but the worker
+// did not degrade; Err carries the reason so the caller can surface it instead of
+// answering "accepted" and losing the error. OK=true carries the resulting Caps,
+// so a successful reload updates the hub's view of the worker in the same frame
+// (no separate broadcast needed, no window where the hub routes on stale caps).
+//
+// ok has NO omitempty on purpose: false is the meaningful value here (a dropped
+// "ok":false would decode as the zero value anyway, but the explicit key keeps the
+// wire self-describing for logs and for any non-Go peer).
+type ReloadResult struct {
+	RequestID string `json:"request_id"`
+	OK        bool   `json:"ok"`
+	Err       string `json:"err,omitempty"`
+	Caps      *Caps  `json:"caps,omitempty"`
+}
+
+// Caps (w→s): an UNSOLICITED re-report of the worker's capabilities, sent when
+// they changed with no Reload request to answer — a SIGHUP-triggered reload is the
+// case that forces this frame to exist (it originates on the worker, so there is
+// no RequestID and nowhere to send a receipt).
+//
+// It is a SEPARATE type from ReloadResult, never a substitute for it. Collapsing
+// the two would let an unrelated broadcast (SIGHUP, a concurrent reload, a
+// re-report after reconnect) be mistaken for the answer to a pending Reload — the
+// caller would resolve its RPC against caps it never asked for, and the real reply
+// would then look unsolicited. A Caps frame therefore MUST NOT complete a pending
+// reload request; it only refreshes the hub's capability view.
+//
+// Register cannot be reused for this: it is accepted only as the FIRST frame of a
+// connection (the hub has no run-time branch for it), so re-reporting capabilities
+// on a live connection is what this frame is for. It is a re-report, not a
+// re-register: identity (worker_id/instance_id) and the immutable process facts
+// (os/arch/gofer_version/started_at/protocol_version/pty_capable) are NOT resent —
+// they cannot change without a restart, which brings a fresh Register anyway.
+//
+// The payload is a FULL SNAPSHOT of every capability field that a config reload can
+// change, i.e. exactly the config-derived subset of Register. No omitempty: a
+// reload that empties a capability (all projects removed, say) must travel as an
+// explicit empty list, not as an absent field indistinguishable from "unchanged".
+type Caps struct {
+	Labels    []string     `json:"labels"`
+	Projects  []string     `json:"projects"`
+	Agents    []string     `json:"agents"`
+	AgentCaps []AgentBrief `json:"agent_caps"`
+	MaxConc   int          `json:"max_concurrent"`
+}
