@@ -349,6 +349,80 @@ func (c *Client) ListAgents() ([]AgentMeta, error) {
 	return out, nil
 }
 
+// WorkerCaps is a worker's capability snapshot as reported by a successful reload.
+type WorkerCaps struct {
+	Labels        []string `json:"labels"`
+	Projects      []string `json:"projects"`
+	Agents        []string `json:"agents"`
+	MaxConcurrent int      `json:"max_concurrent"`
+}
+
+// WorkerReload is the reload endpoint's answer. Applied=true means the worker is
+// now running the new config and Caps is its resulting capability snapshot.
+type WorkerReload struct {
+	WorkerID string      `json:"worker_id"`
+	Applied  bool        `json:"applied"`
+	Caps     *WorkerCaps `json:"caps,omitempty"`
+}
+
+// ReloadWorker asks the server to make one worker re-read its config and WAITS for
+// the worker's receipt (POST /v1/workers/{id}/reload). A worker that refuses the new
+// config comes back as a non-2xx whose error text carries the worker's OWN reason
+// (errorFor keeps the server's {error,detail} verbatim) — the caller must print it
+// as-is: it names the thing to fix.
+//
+// wait is the server-side budget (0 = the server default). The HTTP timeout is set a
+// little wider so the server's own timeout answer (504, with context) wins the race
+// against a client-side abort, which would say nothing useful.
+func (c *Client) ReloadWorker(workerID, reason string, wait time.Duration) (WorkerReload, error) {
+	payload := struct {
+		Reason     string `json:"reason,omitempty"`
+		TimeoutSec int    `json:"timeout_sec,omitempty"`
+	}{Reason: reason, TimeoutSec: int(wait / time.Second)}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return WorkerReload{}, fmt.Errorf("encode reload request: %w", err)
+	}
+
+	path := "/v1/workers/" + url.PathEscape(workerID) + "/reload"
+	req, err := http.NewRequest(http.MethodPost, c.baseURL+path, bytes.NewReader(body))
+	if err != nil {
+		return WorkerReload{}, fmt.Errorf("build request: %w", err)
+	}
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	hc := &http.Client{Timeout: reloadClientTimeout(wait)}
+	resp, err := hc.Do(req)
+	if err != nil {
+		return WorkerReload{}, fmt.Errorf("request POST %s: %w", path, err)
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return WorkerReload{}, fmt.Errorf("read response: %w", err)
+	}
+	if err := errorFor(resp.StatusCode, data); err != nil {
+		return WorkerReload{}, err
+	}
+	var out WorkerReload
+	if err := json.Unmarshal(data, &out); err != nil {
+		return WorkerReload{}, fmt.Errorf("decode response: %w", err)
+	}
+	return out, nil
+}
+
+// reloadClientTimeout gives the server room to answer its own timeout before the
+// client gives up on it (default budget when wait is unset).
+func reloadClientTimeout(wait time.Duration) time.Duration {
+	if wait <= 0 {
+		wait = 10 * time.Second
+	}
+	return wait + 10*time.Second
+}
+
 // GetJobRequest fetches a job's ORIGINAL request, SECRET-STRIPPED (GET /v1/jobs/{id}/
 // request, P5: the endpoint now redacts by default — env values and secret-looking
 // prompt/cmd become ***REDACTED***). It is for audit/display; it is NO LONGER used to

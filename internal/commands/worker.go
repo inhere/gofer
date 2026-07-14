@@ -42,6 +42,15 @@ var workerStopOpts = struct {
 	config string
 }{}
 
+// workerReloadOpts holds `worker reload` flags. It carries NO --worker-config: the
+// reload is driven through the SERVER (the worker re-reads its own config file on
+// its own host), so the only connection this command needs is the app -c/--config +
+// --server/--token pair every other server-facing command uses.
+var workerReloadOpts = struct {
+	reason  string
+	timeout int
+}{}
+
 // workerPIDFile / workerLogFile are the daemon-mode runtime files (c44),
 // namespaced by worker id so multiple workers on one host never collide:
 // <config-dir>/run/worker-<id>.{pid,log}.
@@ -62,7 +71,7 @@ func NewWorkerCmd(info buildinfo.Info) *gcli.Command {
 			c.StrOpt(&workerOpts.config, "worker-config", "", "", "path to the worker config file (default: <config-dir>/worker.yaml)")
 			c.BoolOpt(&workerOpts.daemon, "daemon", "d", false, "run in background (detached); logs to <config-dir>/run/worker-<id>.log")
 		},
-		Subs: []*gcli.Command{NewWorkerStopCmd()},
+		Subs: []*gcli.Command{NewWorkerStopCmd(), NewWorkerReloadCmd()},
 		Func: func(c *gcli.Command, args []string) error {
 			return runWorker(c, args, info)
 		},
@@ -83,6 +92,62 @@ func NewWorkerStopCmd() *gcli.Command {
 		},
 		Func: runWorkerStop,
 	}
+}
+
+// NewWorkerReloadCmd builds `gofer worker reload <id>`: ask a CONNECTED worker to
+// re-read its own worker.yaml, without restarting it (its running jobs keep going).
+//
+// Unlike `worker stop`, this is a SERVER-side operation — it goes over HTTP to the
+// hub, which relays the request down the worker's live connection — so it runs
+// wherever the CLI can reach the server, not necessarily on the worker's host.
+// It waits for the worker's receipt and reports what the worker said: a config the
+// worker refuses fails the command (non-zero exit) with the worker's own reason.
+func NewWorkerReloadCmd() *gcli.Command {
+	return &gcli.Command{
+		Name:    "reload",
+		Desc:    "Ask a connected worker to re-read its config (no restart); waits for its receipt",
+		Aliases: []string{"rl"},
+		Config: func(c *gcli.Command) {
+			bindConfigFlag(c) // G011: one shared -c/--config binding
+			bindServerFlags(c)
+			c.StrOpt(&workerReloadOpts.reason, "reason", "", "", "why the reload was triggered (forwarded to the worker, logged)")
+			c.IntOpt(&workerReloadOpts.timeout, "timeout", "", 0, "seconds to wait for the worker's receipt (0 = server default)")
+			c.AddArg("id", "worker id (as registered in server.workers)", true)
+		},
+		Func: runWorkerReload,
+	}
+}
+
+// runWorkerReload posts the reload and prints the outcome. On failure the error is
+// surfaced VERBATIM (it carries the worker's own words — the bad key, the yaml line);
+// summarising it would hide the only actionable part.
+func runWorkerReload(c *gcli.Command, _ []string) error {
+	id := ""
+	if a := c.Arg("id"); a != nil {
+		id = strings.TrimSpace(a.String())
+	}
+	if id == "" {
+		return errorx.Failf(workerExitErr, "worker id is required: gofer worker reload <id>")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	wait := time.Duration(workerReloadOpts.timeout) * time.Second
+	out, err := cli.ReloadWorker(id, workerReloadOpts.reason, wait)
+	if err != nil {
+		return errorx.Failf(workerExitErr, "worker %s reload failed: %v", id, err)
+	}
+	c.Printf("worker %s reloaded its config\n", id)
+	if out.Caps != nil {
+		c.Printf("  agents:         %s\n", strings.Join(out.Caps.Agents, ", "))
+		c.Printf("  projects:       %s\n", strings.Join(out.Caps.Projects, ", "))
+		if len(out.Caps.Labels) > 0 {
+			c.Printf("  labels:         %s\n", strings.Join(out.Caps.Labels, ", "))
+		}
+		c.Printf("  max_concurrent: %d\n", out.Caps.MaxConcurrent)
+	}
+	return nil
 }
 
 func runWorkerStop(c *gcli.Command, _ []string) error {

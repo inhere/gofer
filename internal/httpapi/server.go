@@ -35,7 +35,6 @@ import (
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/ptyrelay"
 	"github.com/inhere/gofer/internal/webui"
-	"github.com/inhere/gofer/internal/wshub"
 )
 
 // ctxCallerID is the rux context key under which authMiddleware stores the
@@ -97,6 +96,21 @@ type PtySessionStore interface {
 	ListRecentPtySessions(limit int) ([]jobstore.PtySessionRecord, error)
 }
 
+// workerHub is the consumer-side narrow interface (D2/G022) for the ws-worker hub:
+// the only two things this entry layer asks of it are "take over this upgrade" and
+// "is that worker live". Naming *wshub.Hub here instead would drag the whole hub
+// package into httpapi's import graph — the boundary every worker-facing type in
+// this package (AgentBrief, WorkerStatus, WorkerCaps) exists to keep. *wshub.Hub
+// satisfies it; callers with no hub pass an untyped nil.
+type workerHub interface {
+	// Accept authenticates nothing (the caller already did) and upgrades the request
+	// to the worker's WS connection.
+	Accept(w http.ResponseWriter, req *http.Request, callerID string)
+	// LiveInstance reports the current connection instance of a worker, ok=false
+	// when it is offline.
+	LiveInstance(workerID string) (string, bool)
+}
+
 // Server holds the wired dependencies and the rux router. It is constructed once
 // (New) and either started with Run or exposed as an http.Handler (Handler) for
 // httptest.
@@ -126,9 +140,14 @@ type Server struct {
 	webEnabled bool
 	webDir     string
 
-	// hub is the ws-worker hub singleton; when non-nil the /v1/workers/connect WS
-	// route is mounted (ws-worker). It is nil for callers that do not run the hub.
-	hub *wshub.Hub
+	// hub is the ws-worker hub; when non-nil the /v1/workers/connect WS route is
+	// mounted (ws-worker). It is nil for callers that do not run the hub. Its type
+	// is the narrow workerHub interface (not *wshub.Hub) so this entry layer keeps
+	// no import of the hub package (D2/G022); serve passes the singleton.
+	hub workerHub
+	// reloader is the D2 seam for POST /v1/workers/{id}/reload (nil = not wired =>
+	// 503). serve injects an adapter over the same hub.
+	reloader workerReloader
 	// relayNonces/ptyRelays are live-only WEB-03 PTY relay state. T4 only wires
 	// them; T5/T7 mount handlers that consume the same instances.
 	relayNonces *ptyrelay.NonceStore
@@ -251,7 +270,7 @@ func (s *Server) SetPtySessionStore(store PtySessionStore) { s.ptySessions = sto
 // NOTE (D3, deferred): New is now a wide positional constructor. The plan flags a
 // future functional-option / Deps-struct refactor as optional cleanup; it is
 // intentionally NOT done here to keep the change backward-compatible and focused.
-func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, jobs *job.Service, wf *workflow.Engine, projects *project.Registry, agents *agent.Registry, hub *wshub.Hub, runners map[string]config.RunnerConfig, prober runnerProber, workers workerRegistry) *Server {
+func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, jobs *job.Service, wf *workflow.Engine, projects *project.Registry, agents *agent.Registry, hub workerHub, runners map[string]config.RunnerConfig, prober runnerProber, workers workerRegistry) *Server {
 	s := &Server{
 		cfg:             serverCfg,
 		jobs:            jobs,
@@ -370,6 +389,12 @@ func (s *Server) buildRouter() *rux.Router {
 		// (local / peer-http probe / worker heartbeat). Normal authed JSON endpoint
 		// (NOT the bare-401 WS path), list-style shape mirroring /v1/jobs.
 		r.GET("/runners", s.handleListRunners)
+
+		// Worker config reload (authed JSON, unlike the bare-401 WS routes above):
+		// ask one worker to re-read its own config and WAIT for its receipt, so a
+		// config the worker refuses fails this request instead of vanishing into a
+		// log. Always registered; answers 503 while no hub is wired.
+		r.POST("/workers/{id}/reload", s.handleWorkerReload)
 
 		// G4 (design §6.4): read-only form-options aggregate for the web console
 		// submit form (projects/agents/runners/workers in one authed GET).

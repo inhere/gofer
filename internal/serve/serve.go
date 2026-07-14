@@ -217,6 +217,9 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 
 	srv := httpapi.New(&cfg.Server, token, allowEmpty, cr.Jobs, cr.Workflow(), cr.Projects, cr.Agents, cr.Hub, cfg.Runners, proberOrNil(prober), workers)
 	srv.SetBuildInfo(opts.Build)
+	// POST /v1/workers/{id}/reload: adapt the same hub to the reload seam, which also
+	// translates the hub's error taxonomy so httpapi keeps its no-wshub boundary.
+	srv.SetWorkerReloader(hubWorkerReloader{hub: cr.Hub})
 
 	// E16 Prometheus metrics: build the registry, inject the lifecycle-counter sink
 	// into the job service, register the scrape-time GaugeFuncs (in-flight/queued/
