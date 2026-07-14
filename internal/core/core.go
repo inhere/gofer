@@ -253,9 +253,38 @@ func (c *Core) Reload(path string) error {
 	for _, w := range config.ApplyProjectOverlays(newCfg) {
 		slog.Warn("config reload: overlay warn", "detail", w)
 	}
-	c.Cfg = newCfg
-	c.Projects.Reload(newCfg)
-	c.Agents.Reload(newCfg)
-	c.Jobs.Reload(newCfg)
+	return c.ReloadWith(newCfg)
+}
+
+// ReloadWith swaps an ALREADY-BUILT config into every component that holds a
+// config snapshot. It is the apply half of Reload, split out so a caller that
+// obtains its config from somewhere other than a server config file (a worker
+// builds one from worker.yaml) reuses the exact same apply path instead of
+// re-implementing it.
+//
+// Error semantics — read this before touching the callers: the three component
+// Reloads (project.Registry / agent.Registry / job.Service) are plain
+// atomic.Store calls and CANNOT fail. The only error ReloadWith can return is
+// the nil-config precondition below. "A bad config keeps the old one" is
+// therefore NOT achieved by rolling back an apply that went wrong — it is
+// achieved by BUILDING the new config completely (load/parse/validate) BEFORE
+// calling this, so a bad config never reaches the apply stage at all. Callers
+// must not construct a half-built config and hope ReloadWith rejects it.
+//
+// The apply is safe against concurrent Submit: every consumer that needs more
+// than one config-derived fact takes ONE snapshot and uses it throughout
+// (job.Service.Submit resolves policy AND the agent argv from that one
+// snapshot), so a submit racing this swap sees either the old config or the new
+// one, never a mix of both.
+//
+// See Reload for the runner-instance limitation (Core.Runners is not rebuilt).
+func (c *Core) ReloadWith(cfg *config.Config) error {
+	if cfg == nil {
+		return fmt.Errorf("reload config: nil config")
+	}
+	c.Cfg = cfg
+	c.Projects.Reload(cfg)
+	c.Agents.Reload(cfg)
+	c.Jobs.Reload(cfg)
 	return nil
 }

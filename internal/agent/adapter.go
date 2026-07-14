@@ -1,6 +1,10 @@
 package agent
 
-import "fmt"
+import (
+	"fmt"
+
+	"github.com/inhere/gofer/internal/config"
+)
 
 // Resolved is the executable form of one job request: the command to run, its
 // argv (excluding command), and the agent-config-level env. The runner (P4)
@@ -35,9 +39,26 @@ func (r *Registry) Build(agentKey, prompt string, cmd []string, vars Vars) (Reso
 	return r.BuildWithOptions(agentKey, prompt, cmd, vars, BuildOptions{})
 }
 
-// BuildWithOptions is Build with explicit resolution options.
+// BuildWithOptions is Build with explicit resolution options. The agent is
+// resolved against the registry's CURRENT config pointer, so a caller that must
+// stay pinned to one config snapshot for a whole operation uses BuildFrom
+// instead (see its doc).
 func (r *Registry) BuildWithOptions(agentKey, prompt string, cmd []string, vars Vars, opts BuildOptions) (Resolved, error) {
-	ac, ok := r.Get(agentKey)
+	return BuildFrom(r.cfg.Load(), agentKey, prompt, cmd, vars, opts)
+}
+
+// BuildFrom is BuildWithOptions against an EXPLICIT config snapshot instead of
+// the registry's (concurrently swappable) config pointer — the Build-side
+// counterpart of ResolveAgent.
+//
+// It exists so an operation that consults the config more than once resolves
+// every fact from ONE version of it: job.Service.Submit validates the request
+// against a config snapshot taken at entry and must build the executable argv
+// from that same snapshot. Going through the registry there would let a reload
+// landing mid-submit produce a job that passed the OLD policy but executes the
+// NEW agent's command.
+func BuildFrom(cfg *config.Config, agentKey, prompt string, cmd []string, vars Vars, opts BuildOptions) (Resolved, error) {
+	ac, ok := ResolveAgent(cfg, agentKey)
 	if !ok {
 		return Resolved{}, fmt.Errorf("unknown agent %q", agentKey)
 	}

@@ -163,7 +163,13 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		// Bridge the peer's running-job interactions (P9) onto this host job.
 		runReq.Interactions = remoteInteractionSink{s: s, jobID: jobID}
 	} else {
-		resolved, berr := s.agents.BuildWithOptions(req.Agent, req.Prompt, req.Cmd, agent.Vars{
+		// Resolve the agent from the SAME cfg snapshot the request was validated
+		// against (BuildFrom/ResolveAgent, not the agent registry): going through the
+		// registry re-reads its own config pointer, so a Reload landing between
+		// validate and here produced a job that passed the OLD policy but executed the
+		// NEW agent's command (mixed config state). ac is resolved once and reused by
+		// every argv-injection below for the same reason.
+		resolved, berr := agent.BuildFrom(cfg, req.Agent, req.Prompt, req.Cmd, agent.Vars{
 			Cwd:       workDir,
 			JobID:     jobID,
 			ResultDir: resultDir,
@@ -171,12 +177,13 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		if berr != nil {
 			return JobResult{}, berr
 		}
+		ac, acOK := agent.ResolveAgent(cfg, req.Agent)
 		runReq.Command = resolved.Command
 		runReq.Args = resolved.Args
 		// 模式①注入(session-capture §5.1): the resolved agent has a SessionInject
 		// template (claude --session-id) → generate a uuid now and append the rendered
 		// inject args to argv, so gofer knows the session id without parsing output.
-		if ac, ok := s.agents.Get(req.Agent); ok && len(ac.SessionInject) > 0 {
+		if acOK && len(ac.SessionInject) > 0 {
 			sessionID = newUUID()
 			runReq.Args = append(runReq.Args, agent.Render(ac.SessionInject, agent.Vars{SessionID: sessionID})...)
 		}
@@ -185,7 +192,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		// {{system_prompt}} and append to argv (e.g. claude --append-system-prompt <p>).
 		// Independent of SessionInject (distinct flags, order-free); argv stays
 		// element-wise (SR403, no shell join).
-		if ac, ok := s.agents.Get(req.Agent); ok && len(ac.SystemInject) > 0 && req.SystemPrompt != "" {
+		if acOK && len(ac.SystemInject) > 0 && req.SystemPrompt != "" {
 			runReq.Args = append(runReq.Args, agent.Render(ac.SystemInject, agent.Vars{SystemPrompt: req.SystemPrompt})...)
 		}
 		// gap①(issue 7z6j) codex MCP env 注入: for a codex agent carrying job/role env
@@ -198,7 +205,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		// here — the MCP token stays in codex config.toml and never enters the rendered
 		// command (SR403). Distinct from SystemInject (own override path); argv stays
 		// element-wise (SR403, no shell join).
-		if ac, ok := s.agents.Get(req.Agent); ok {
+		if acOK {
 			runReq.Args = append(runReq.Args, agent.McpEnvInjectArgs(ac, req.Env)...)
 		}
 		secretMap, err := LoadEnvFilesMap(req.EnvFiles, cfg, proj)
