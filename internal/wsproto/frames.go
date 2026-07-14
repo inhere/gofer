@@ -43,10 +43,28 @@ func SupportsReload(proto int) bool { return proto >= ReloadMinProtocolVersion }
 // needs (type/interactive) beyond a bare key. Federation: the worker is the
 // authority for ITS agents' type/interactive (the server may not have them in its
 // own config).
+//
+// Adding Available/Version does NOT bump the protocol: As[T] (envelope.go) is a
+// plain json.Unmarshal with no DisallowUnknownFields, so an old peer silently
+// ignores the new keys and a new peer decodes their absence as the zero value.
 type AgentBrief struct {
 	Key         string `json:"key"`
 	Type        string `json:"type,omitempty"`
 	Interactive bool   `json:"interactive,omitempty"`
+	// Available is DISPLAY-ONLY. Never gate admission on it: a worker that predates
+	// this field reports nothing (nil), and an operator-declared agent whose probe
+	// failed reports false — BOTH OF THEM RUN FINE.
+	//
+	// That is also why it is a *bool and not a bool: a plain bool would decode the
+	// absent field of a pre-P2 worker as false, making "never reported" (unknown)
+	// indistinguishable from "reported unusable". Any consumer that filters or greys
+	// out on it therefore hits both of those false negatives at once — every agent of
+	// every old worker, plus every escape-hatch agent whose CLI the probe could not
+	// see. nil = unknown; the agent list itself is the authority on what can run.
+	Available *bool `json:"available,omitempty"`
+	// Version is the best-effort CLI version string (empty = not probed, probe failed
+	// or unavailable). Display-only, same rule as Available.
+	Version string `json:"version,omitempty"`
 }
 
 // Register (w→s, P1): the worker announces its identity + capability snapshot on

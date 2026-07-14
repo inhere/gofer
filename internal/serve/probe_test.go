@@ -107,3 +107,41 @@ func TestBriefsFromSnapshot(t *testing.T) {
 		t.Fatal("empty snapshot must map to nil (json omitempty)")
 	}
 }
+
+// TestBriefsFromSnapshotAvailabilityPassthrough (P2 T3): availability/version are copied
+// through as pure DISPLAY detail and never filter.
+//
+//   - An OLD worker (pre-P2 build) sends no `available` key at all → the brief carries
+//     nil, and BOTH its agents still reach /v1/meta. Dropping them — or defaulting them
+//     to false and letting some consumer grey them out — would blank the agent list of
+//     every worker in a fleet mid-rollout.
+//   - A NEW worker's explicit false (an operator-declared agent whose CLI the probe did
+//     not find) is likewise reported, never filtered: that agent still runs.
+func TestBriefsFromSnapshotAvailabilityPassthrough(t *testing.T) {
+	no, yes := false, true
+	snap := wshub.WorkerSnapshot{
+		AgentCaps: []wsproto.AgentBrief{
+			{Key: "old-a", Type: "cli-agent"},                 // old worker: field absent
+			{Key: "old-b", Type: "exec"},                      // old worker: field absent
+			{Key: "ghost", Type: "cli-agent", Available: &no}, // declared, CLI not found
+			{Key: "claude", Type: "cli-agent", Available: &yes, Version: "2.1.208"},
+		},
+	}
+
+	got := briefsFromSnapshot(snap)
+	if len(got) != 4 {
+		t.Fatalf("the view LOST agents (%d of 4 survived): %+v", len(got), got)
+	}
+	for _, b := range got[:2] {
+		if b.Available != nil {
+			t.Fatalf("old worker's agent %q became Available=%v; it must stay unknown (nil)",
+				b.Key, *b.Available)
+		}
+	}
+	if got[2].Available == nil || *got[2].Available {
+		t.Fatalf("ghost must be reported available=false (and still listed): %+v", got[2])
+	}
+	if got[3].Available == nil || !*got[3].Available || got[3].Version != "2.1.208" {
+		t.Fatalf("claude lost its availability/version: %+v", got[3])
+	}
+}

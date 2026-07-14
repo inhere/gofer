@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	yaml "github.com/goccy/go-yaml"
@@ -257,15 +258,22 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 	// from its own config — this is what re-validates dispatched jobs (review #8).
 	// wcfg is kept: the capability report below is resolved from the SAME snapshot,
 	// so what the worker advertises is exactly what it will accept on dispatch.
+	//
+	// The detector is wrapped in a recorder rather than left to core.Build's default:
+	// the caps report needs the availability/version the resolve pass produced, and the
+	// only alternative — probing the host a second time from workerCaps — would break
+	// "advertise exactly what was applied" (a CLI installed between the two passes would
+	// be reported but not merged) on top of doubling the startup/reload cost.
+	det := &availabilityRecorder{inner: agent.DefaultDetector()}
 	wcfg := workerConfigToConfig(wc)
-	cr, err := core.Build(wcfg)
+	cr, err := core.Build(wcfg, core.WithAgentDetector(det))
 	if err != nil {
 		return errorx.Failf(workerExitErr, "%v", err)
 	}
 	defer func() { _ = cr.Close() }()
 
 	rc := wc.ServerLink.Reconnect
-	caps := workerCaps(wc, wcfg)
+	caps := workerCaps(wc, wcfg, det.snapshot())
 	cl := worker.New(worker.Config{
 		WorkerID:  wc.WorkerID,
 		URLs:      wsDialURLs(wc.ServerLink.URLs),
@@ -276,7 +284,7 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 		AgentCaps: caps.AgentCaps,
 		// Config hot-reload (SIGHUP / hub request): the command owns "how to read
 		// worker.yaml", the worker package owns when/how a reload is applied (G021).
-		Reload:         newWorkerReloadFn(cr, workerOpts.config, wc.WorkerID),
+		Reload:         newWorkerReloadFn(cr, det, workerOpts.config, wc.WorkerID),
 		GoferVersion:   info.DisplayVersion(),
 		MaxConc:        caps.MaxConc,
 		InitialBackoff: msToDuration(rc.InitialBackoffMS),
@@ -316,7 +324,7 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 // Reload scope mirrors core.ReloadWith: projects / agents / labels / max_concurrent
 // take effect; process-level facts (worker id, hub urls/token, storage db path) are
 // frozen at startup and need a restart.
-func newWorkerReloadFn(cr *core.Core, path, workerID string) worker.ReloadFunc {
+func newWorkerReloadFn(cr *core.Core, det *availabilityRecorder, path, workerID string) worker.ReloadFunc {
 	return func() (wsproto.Caps, error) {
 		wc, err := loadWorkerConfig(path)
 		if err != nil {
@@ -328,23 +336,66 @@ func newWorkerReloadFn(cr *core.Core, path, workerID string) worker.ReloadFunc {
 				workerID, wc.WorkerID)
 		}
 		cfg := workerConfigToConfig(wc)
+		// ReloadWith runs THE resolve pass for this snapshot (one detect, reusing the
+		// recorder it was built with), so the snapshot read straight after it is that
+		// very pass's result — the report and the applied config come from one probe.
 		if err := cr.ReloadWith(cfg); err != nil {
 			return wsproto.Caps{}, err
 		}
-		return workerCaps(wc, cfg), nil
+		return workerCaps(wc, cfg, det.snapshot()), nil
 	}
+}
+
+// availabilityRecorder is the seam that carries ONE detect pass from the resolve that
+// applied it (core.Build / core.ReloadWith) to the capability report built from the
+// same config snapshot. It is a Detector decorator, not a second probe: it forwards to
+// inner and remembers what came back.
+//
+// Why a decorator and not a Core accessor: the merge point (agent.Resolve) is owned by
+// core and must stay the only one; the worker command needs the DetectResult map that
+// pass produced, and the injected Detector is the only handle it already holds on it.
+type availabilityRecorder struct {
+	inner agent.Detector
+	mu    sync.Mutex
+	last  map[string]agent.DetectResult
+}
+
+// Detect implements agent.Detector.
+func (r *availabilityRecorder) Detect(agents map[string]config.AgentConfig) map[string]agent.DetectResult {
+	res := r.inner.Detect(agents)
+	r.mu.Lock()
+	r.last = res
+	r.mu.Unlock()
+	return res
+}
+
+// snapshot returns the most recent detect result (nil before the first pass). The map
+// is never mutated after Detect returns it, so handing it out unlocked is safe; the
+// lock only guards the pointer swap against a reload racing a register.
+func (r *availabilityRecorder) snapshot() map[string]agent.DetectResult {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.last
 }
 
 // workerCaps derives the capability report from ONE worker config snapshot (the
 // raw worker.yaml for labels/projects/max_concurrent, the mapped config.Config for
-// the resolved agent keys/briefs). Startup register and every reload go through it,
-// so the two can never drift.
-func workerCaps(wc *config.WorkerConfig, cfg *config.Config) wsproto.Caps {
+// the resolved agent keys/briefs) plus the detect result of the SAME resolve pass that
+// produced that snapshot. Startup register and every reload go through it, so the two
+// can never drift.
+//
+// detected is display detail only (availability/version): the agent SET comes from the
+// resolved config, never from the probe. That is the iron rule — an agent the operator
+// declared stays in the caps report whether or not its CLI was found (only
+// template-injected agents are detect-gated, and that gating already happened in
+// agent.Resolve, before this config snapshot existed). A nil map simply leaves every
+// availability unknown.
+func workerCaps(wc *config.WorkerConfig, cfg *config.Config, detected map[string]agent.DetectResult) wsproto.Caps {
 	return wsproto.Caps{
 		Labels:    wc.Labels,
 		Projects:  mapKeys(wc.Projects),
 		Agents:    agentKeys(cfg),
-		AgentCaps: agentBriefs(cfg),
+		AgentCaps: agentBriefs(cfg, detected),
 		MaxConc:   wc.MaxConcurrent,
 	}
 }
@@ -488,7 +539,13 @@ func agentKeys(cfg *config.Config) []string { return resolvedAgentKeys(cfg) }
 // config map. That is what makes the report true: the built-in exec agent is included
 // even when undeclared, and a bare `exec:` block with no explicit `type:` is reported
 // with its normalised Type (agent.TypeExec), not an empty string.
-func agentBriefs(cfg *config.Config) []wsproto.AgentBrief {
+//
+// detected (the result of the one resolve pass this cfg came out of) fills the
+// DISPLAY-ONLY availability/version. It NEVER filters: a key present in the resolved
+// config is advertised even when its probe failed — see workerCaps and
+// wsproto.AgentBrief.Available. A key absent from detected keeps Available nil
+// (unknown), which is exactly what an old worker reports.
+func agentBriefs(cfg *config.Config, detected map[string]agent.DetectResult) []wsproto.AgentBrief {
 	keys := resolvedAgentKeys(cfg)
 	out := make([]wsproto.AgentBrief, 0, len(keys))
 	for _, k := range keys {
@@ -496,7 +553,13 @@ func agentBriefs(cfg *config.Config) []wsproto.AgentBrief {
 		if !ok {
 			continue
 		}
-		out = append(out, wsproto.AgentBrief{Key: k, Type: ac.Type, Interactive: ac.Interactive})
+		b := wsproto.AgentBrief{Key: k, Type: ac.Type, Interactive: ac.Interactive}
+		if res, probed := detected[k]; probed {
+			avail := res.Available
+			b.Available = &avail
+			b.Version = res.Version
+		}
+		out = append(out, b)
 	}
 	return out
 }

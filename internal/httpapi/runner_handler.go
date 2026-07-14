@@ -43,6 +43,14 @@ type AgentBrief struct {
 	Key         string `json:"key"`
 	Type        string `json:"type,omitempty"`
 	Interactive bool   `json:"interactive,omitempty"`
+	// Available/Version are DISPLAY-ONLY, and Available is a *bool for a reason —
+	// see wsproto.AgentBrief for the full rule. Short version: nil = the worker never
+	// reported it (pre-P2 build), false = a probe did not find the CLI. NEITHER means
+	// "cannot run": an operator-declared agent stays runnable whatever the probe says.
+	// Nothing in this package (or the web console) may filter or grey out an agent on
+	// this field; the agent list is the authority on what exists.
+	Available *bool  `json:"available,omitempty"`
+	Version   string `json:"version,omitempty"`
 }
 
 // WorkerStatus is the read-only worker view the handler renders (C6/P4). It is

@@ -74,7 +74,12 @@ func capsView(caps wsproto.Caps) httpapi.WorkerCaps {
 		MaxConcurrent: caps.MaxConc,
 	}
 	for _, c := range caps.AgentCaps {
-		out.AgentCaps = append(out.AgentCaps, httpapi.AgentBrief{Key: c.Key, Type: c.Type, Interactive: c.Interactive})
+		// Availability/version ride along as display detail (nil = the worker never
+		// reported it); the reload receipt shows what the worker applied, unfiltered.
+		out.AgentCaps = append(out.AgentCaps, httpapi.AgentBrief{
+			Key: c.Key, Type: c.Type, Interactive: c.Interactive,
+			Available: c.Available, Version: c.Version,
+		})
 	}
 	return out
 }
