@@ -70,6 +70,17 @@ var builtinTemplates = map[string]config.AgentConfig{
 	// specified, options will be forwarded to the interactive CLI", so a bare `codex`
 	// is the interactive CLI; its `resume` subcommand is what the built-in interactive
 	// session-resume template drives.
+	//
+	// Verified end to end on a real codex (v0.144.1) over the ConPTY backend: the TUI
+	// starts, typed input reaches the composer, Enter submits, and the model answers.
+	// Two behaviours worth knowing, both codex's own, neither a gofer bug:
+	//   - The TUI takes ~20-30s to come up (it starts its MCP servers first). Input
+	//     typed before the composer is ready echoes but does not submit.
+	//   - On a host that has never signed in, a bare codex lands in codex's sign-in
+	//     wizard rather than a session. Pick "Device Code" there: "Sign in with
+	//     ChatGPT" opens a browser on the WORKER host, which is useless for a remote
+	//     one. This is not specific to tty-codex — `codex exec` fails on such a host
+	//     too, and availability is a PATH lookup that says nothing about auth state.
 	"tty-codex": {
 		Type:        TypeCLIAgent,
 		Command:     "codex",
