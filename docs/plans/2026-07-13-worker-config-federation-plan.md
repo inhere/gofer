@@ -230,4 +230,18 @@ T0 → T1 → T2 → T3 → T4 → T5 每步单独 commit（每步 `go test ./..
 - [x] T3 worker：串行 reload executor（SIGHUP 与远程同路径）+ 先构造后应用 — `5ee375b`
 - [x] T4 wshub：按连接更新能力（消 race、防旧连接污染、同步 `maxConcurrent`）— `58ecc7e`
 - [x] T5 httpapi + CLI：同步回执语义（200/409/504）— `d936c70`
-- [ ] T6 e2e 冒烟（含坏配置 409、旧 worker 409、在跑 job 不中断三条反例）
+- [x] T6 e2e 冒烟（含坏配置 409、旧 worker 409、在跑 job 不中断三条反例）— 隔离栈实测 24/24 PASS，脚本 `tmp/smoke-t6/run-smoke.sh`（可复跑）
+
+**T6 实测结论**（隔离栈：serve :18899 + v3 worker + 从 `4def378` 编出的 v2 worker；证据在 `tmp/smoke-t6/out/`）：
+
+| 验收 | 结论 | 关键证据 |
+|---|---|---|
+| 1 消除痛点 | ✅ | reload 后 `/v1/meta.agent_caps` 出现新 agent；worker **pid+启动时刻逐字不变**；立刻用新 agent 提交的 job 直接跑通（stdout 为新 agent 命令的输出） |
+| 2 不中断在跑 job | ✅ | 25s 逐秒打点 job 跨 reload：`done`/`exit_code=0`，stdout **tick 1..25 无缺口**（reload 落在 tick 4~5） |
+| 3 SIGHUP 等价 | ✅ | `kill -HUP` 后 caps 同样推到 server，PID 不变（与远程 reload 同一 executor） |
+| 4 坏配置 | ✅ | HTTP **409** + `applied:false` + worker 原文 yaml 报错（文件/行/列）；能力不变、进程不变、随后仍能接 job；CLI 退出码 2 并逐字打印原因 |
+| 5 旧 worker | ✅ | v2 worker 正常连接（hub 日志 `proto=2`）、正常执行 job；reload → **409**「too old to reload its config: upgrade and restart it」；被拒后仍在线、继续干活 |
+| 矩阵 v3 server + v2 worker | ✅ | 同上（V5a/V5b/V5e） |
+| 矩阵 v2 server + v3 worker | ✅ | v3 worker 连上 v2 server 正常派活；SIGHUP 让它向 v2 server 发 v3-only 的 caps 帧 → **v2 server 不崩、不断连、继续派活**（v2 hub 的 `switch env.Type` 无 default 分支 → 未知帧被静默忽略）。计划 T0 里标注"须实测确认"的一格已确认。 |
+
+**顺带发现（不阻塞 P1，建议进 P4 管理面）**：`protocol_version` 只存在于 hub 内部与日志，`/v1/meta`、`/v1/runners` 都**不暴露**它 → 运维无法事先看出哪些 worker 太旧不能 reload，只能发一次 reload 吃 409 才知道。
