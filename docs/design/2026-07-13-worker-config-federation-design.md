@@ -10,6 +10,7 @@
 | v0.2 | 2026-07-13 | Claude | 定稿 Q1(前缀最长匹配) / Q2(自动接受) / Q4(保留逃生舱, Policy 优先)；新增 D3：策略走**下发**而非远程改写 worker 配置文件（附理由）。 |
 | v0.3 | 2026-07-13 | Claude | **推翻 Q4**：worker 端零 project 配置（逃生舱与 D3「单一真源」自相矛盾，且 worker-only project 本就是「配置写两遍」的绕行方案，本设计从根上解决后它变成分裂的来源）。新增 D4：**放置由 roots 推导**——server 全量推目录、worker 用 roots 最长前缀映射自筛，取代 v0.2 里「按 allowed_runners 算该推给谁」（labels 型 runner 下 server 根本算不出）。 |
 | v0.4 | 2026-07-13 | Claude | **修正 D4 的过度简化**：roots 只回答「能不能跑」（能力），「准不准跑」（策略）仍由 `allowed_runners` 表达——共享盘下多台 worker 都能映射同一路径，但可能只准一台跑。推送目标改为**按 runner 可达性算**（pin 型精确到那台；池型才退化成全推），再由 roots 自筛。新增 D5：web 表单按 project 收窄 runner（今天的 agent 收窄的镜像，现有能力视图即可实现）。 |
+| v0.5 | 2026-07-14 | Claude | **对抗式审查（host codex）后的修正**。v0.4 的 D4′ 建立在一个**错误前提**上：pin 并不是硬授权，显式 `worker_id` / `worker_labels` 可以覆盖它（已实测复现）。已先修代码（`1e69ff5`，pin=授权）使 D4′ 成立。另补：D6 Policy→worker 本地执行配置的**投影规范**（原文只说「记下路径」，按此实施会在 `dispatch.go → Submit → validate` 处失败）；§8 安全承诺**降级**为实事求是的表述（token 绑定只防冒充，不防被攻破的 server）。 |
 
 ## 1. 概览
 
@@ -56,9 +57,11 @@
   - 于是「这台机器**能**跑哪些 project」**不由任何一边手工维护，而是从能力自动推导**：A 机挂了 `/data/proj-a`、B 机没有 → proj-a 自然只在 A 上可用，两边都不用配。
   - 迁移：现存 worker.yaml 的 `projects` 段在 P3 转为**只读+告警**（server 在 register 时打印「worker w-x 仍在本地声明 project [...]，请迁到 server config」），下一个版本忽略。
 
-- **D4′ 推送目标 = runner 可达性；roots 只筛能力，不表达策略**（v0.4 修正 v0.3 的过度简化）
+- **D4′ 推送目标 = runner 可达性；roots 只筛能力，不表达策略**（v0.4 修正 v0.3；v0.5 补上它缺失的前提）
   - **v0.3 的错**：把「放置」整个交给 roots 推导 = 用**能力**冒充**策略**。共享盘场景下（host 与容器 worker 共享同一份 `/d/work`）两台 worker 都能映射同一路径，能力上都能跑——但你可能**只准**其中一台跑。「能不能」和「准不准」必须分开。
-  - **表达机制已存在，无需新配置项**：`projects.<key>.allowed_runners` 里列了哪些 worker 型 runner，就等于声明了这个 project 在 worker 侧准给谁跑。现网配置里 `allowed_runners: [local, w-container-example]` 本来就是「worker 侧只准容器 worker 跑」。
+  - **⚠️ v0.4 的错（codex 审查发现，已实测复现并修复）**：v0.4 断言「`allowed_runners` 里只列 pin 型 runner ＝ 只准那台 worker 跑」——**当时并不成立**。显式 `worker_id` 会覆盖 runner 的 pin（`internal/runner/worker/runner.go`：`f.WorkerID` 优先于 `r.workerID`），`worker_labels` 同样会改路由（`selectTargetWorker` 偏好标签分支）；validate 只校验 worker_id 是已登记 worker，**不校验它是否等于 pin**。实测：`runner=w-container-example(pin 容器) + worker_id=w-host-example` 会按主机 worker 的能力做校验——拦住它的只是「那台恰好没这个 project」，不是 pin。
+  - **前提已补齐**：commit `1e69ff5` 把 pin 改成**硬授权**——runner 配了 `worker_id=X` 时，请求的 `worker_id` 必须为空或等于 X，`worker_labels` 一律拒。**代价（须知晓）**：标签自动选机从此只能走**池型 runner**（`type: worker` 且不 pin），这本来就是它该待的地方。
+  - **表达机制无需新配置项**：`projects.<key>.allowed_runners` 里列了哪些 worker 型 runner，就等于声明了这个 project 在 worker 侧准给谁跑——**在 pin 成为硬授权之后，这句话才为真**。
   - **推送目标算法**（对每台在线 worker W）：
     ```txt
     P 推给 W  ⟺  ∃ r ∈ P.allowed_runners 使 W 经 r 可达：
@@ -72,6 +75,24 @@
   - 可选（P4，非必需）：为池型 runner 补 `projects.<key>.worker_labels: [...]` 做**收紧**；不做也不影响正确性（提交时 selectWorker 仍按 project+agent 过滤候选）。
   - 副作用（可接受）：池型 runner 场景下 worker 会看到超出自己能跑范围的 project key 与逻辑路径。单操作者场景无碍。
   - **收益线**：新增 project 到某 worker，只要它的路径落在该 worker **已有的 root** 下、且 `allowed_runners` 列了该 worker 的 runner → **纯 server 侧配置 + SIGHUP，worker 零改动零重启**。只有要暴露一个该机器从未暴露过的目录树时，才必须上机器加 root（D3 推论：故意要求机器访问权）。
+
+- **D6 Policy → worker 本地执行配置的投影**（v0.5 新增；缺了它 P3 会在 `dispatch.go` 处失败）
+  - **为什么必须有**：worker 收到 dispatch 后强制 `Runner=local` 再走**本地 `job.Service.Submit`**（`internal/worker/dispatch.go:46`）。那条链需要的**不是**一个 accepted key 集合，而是一份**完整可喂给 job.Service 的 `config.Config`**：`ProjectConfig.HostPath`（解析 cwd 与结果目录，`internal/job/submit.go:82-99`）、`AllowedAgents`/`InteractiveAllowedAgents`/`AllowExec`（本地二次 validate，`internal/job/config.go:84-143`）、以及 agent 定义本身。v0.4 只写了「记下本机路径」——按那样实施，job 会在 worker 的二次 validate 处被拒。
+  - **澄清一处误导**：v0.3/v0.4 说「复用 `workerOnlyProject` placeholder」——那是 **host 侧**用于归档/allowlist 的占位（`internal/job/config.go:221-263`），**替代不了 worker 本机的执行 project 配置**。两者不是一回事。
+  - **投影规范**（worker 收到 Policy 后构造本地 `config.Config`，整份**原子替换**）：
+
+    | 字段 | 取值 |
+    |---|---|
+    | `HostPath` | Policy 的逻辑路径经 `roots` 最长前缀映射后的**本机路径**（映射不到 → 拒绝该 project，不进配置） |
+    | `AllowedRunners` | 恒为 `["local"]` —— **不能**原样用 server 的 runner key，否则 `dispatch.go` 强制 local 后会被本地 validate 拒 |
+    | `AllowExec` | `policy.AllowExec && guards.allow_exec`（护栏只收紧） |
+    | `InteractiveAllowedAgents` | `policy.InteractiveAllowedAgents ∩ (已探测到的 interactive agent)`，且 `guards.allow_interactive=false` 时清空 |
+    | `AllowedAgents` | `policy.AllowedAgents ∩ (已探测模板 ∪ 本地逃生舱 agent)` |
+    | agent 定义 | 只来自**同一时刻**的已探测模板 / 本地 `agents`（server 不下发命令定义，D1） |
+    | result / exchange 子目录 | 取 worker 本地 `storage` 配置（这是本机事实，不由 server 定） |
+
+  - **拒绝语义**：Policy 里被拒的 project（`path_outside_roots`）**不进**本地配置，也不出现在能力上报里 → server 的能力视图与 worker 的实际准入天然一致（避免「server 以为能跑、worker 却拒」这类今天已经踩过的坑）。
+  - **原子性**：投影出的整份 `config.Config` 一次性替换（同 P1 的原子快照要求），不得逐字段改。
 
 - **D5 web 表单：选定 project 后收窄 runner**（今天 agent 收窄的镜像，`tools-de6` 的自然延伸）
   - 数据已具备：`/v1/meta` 的 `workers[].projects`（worker 上报的可跑 project 集）+ `runners[].worker_id`（pin，`tools-de6` 刚补）。**不必等 P3 就能做**。
@@ -181,7 +202,18 @@ type Applied struct {
 }
 ```
 
-**向后兼容**：现有版本闸（`hub.go` 按 `ProtocolVersion` 拒绝过旧 worker）扩展为「v2 worker 仍按旧语义跑（worker 本地 config 为准，不下发 Policy）」，v3 才吃 Policy。**不强制一次性升级所有 worker。**
+**向后兼容（v0.5 修正——原表述会当场踢掉所有 v2 worker）**：现有版本闸是 `reg.ProtocolVersion < wsproto.ProtocolVersion` 就**拒绝连接**（`hub.go:204-218`），即**单一整数同时承担「兼容下限」与「当前功能版本」**。把常量从 2 改成 3 会让所有 v2 worker 下次重连即被拒——滚动升级期间一次网络抖动就再也回不来。
+
+必须把两者拆开：
+
+```go
+const (
+    MinProtocolVersion     = 2  // 允许注册的最低版本（兼容下限）
+    CurrentProtocolVersion = 3  // 本端实现的版本（功能协商用）
+)
+```
+
+注册允许 `[Min, Current]`；Reload / Caps / Policy 等新能力**按对端上报的版本分别闸控**（proto<3 的 worker：不下发这些帧，reload 请求显式返回「不支持，请重启该 worker」）。并须在计划里补一张真实的滚动升级矩阵：v3 server + v2 worker / v2 server + v3 worker / worker 先升 / server 先升 / 多 URL 混合 server 时如何降级。
 
 ## 7. 关键流程
 
@@ -230,11 +262,16 @@ gofer project add X --path <逻辑路径> --agent tty-claude   (或直接编辑 
 
 ## 8. 安全
 
+**先把威胁模型说清楚（v0.5 修正——原文把安全承诺吹大了）**：worker **信任 server**。这是既有事实，不是本设计引入的：server 本来就能派发 job，一个开了 `allow_exec` 的 project 就等于任意命令执行。所以本设计**不承诺**「挡得住一个被攻破的 server」——那需要 OS 级隔离（容器 / 低权限用户 / seccomp），不是几个 yaml 字段能给的。
+
+护栏的真实作用是**限制爆炸半径 + 防止误配**，按这个尺度理解：
+
 - **护栏是 AND，不是 OR**：有效能力 = server 策略 ∩ worker 护栏 ∩ 实际探测到的 agent。server 只能收紧不能放宽。
-- **路径根**：`roots` 是 worker 上唯一可执行范围；server 下发的 `host_path` 映射不进任何 root 就直接拒（不是回落到当前目录）。杜绝「server 指哪打哪」。
-- **agent 定义不下发**（D1）：默认只认内置模板 + worker 本地 `agents`。`guards.allow_custom_agents` 是显式的、要在 worker 机器上开的逃生舱。
-- **exec**：`exec` agent 天然是任意命令。worker `guards.allow_exec=false` → 该 worker 上所有 project 的 exec 一律降级不可用，server 无法推翻。
-- **不放大信任面**：worker token ↔ worker_id 绑定不变（`hub.go` 现有校验），Policy 只在已鉴权的 hub 连接上下发。
+- **路径根**：`roots` 是 worker 上唯一可执行范围；server 下发的 `host_path` 映射不进任何 root 就直接拒（不回落到进程 CWD）。这挡住的是「server 端一条配置写错就把 job 跑到不该跑的目录」，**不是**一个存心作恶的 server（它还有 exec agent 这条路）。
+- **agent 定义不下发**（D1）：默认只认内置模板 + worker 本地 `agents`。这的确**收窄**了被攻破 server 的活动面（它不能凭空定义任意命令），但 `exec` agent 本身仍是任意命令 —— 所以只有 `guards.allow_exec=false` 的 worker 才真正把这条路堵死。
+- **`guards.allow_custom_agents`**：显式的、要在 worker 机器上开的逃生舱；开了就等于把 D1 的收窄让渡回去。
+- **worker token ↔ worker_id 绑定**（`hub.go:185-201` 现有校验）：它防的是**未授权客户端冒充 worker**，**不防**一个已被攻破的合法 server 向已认证 worker 派恶意任务。原文由此推出「Policy 不放大被攻破 server 的信任面」是**推理跳跃**，已删。
+- **真正要放大信任面时会明说**：本设计不新增 server→worker 的任意命令通道；Policy 只携带 project 元数据与白名单。
 
 ## 9. 分阶段
 
@@ -246,7 +283,7 @@ gofer project add X --path <逻辑路径> --agent tty-claude   (或直接编辑 
 | **P4** | 管理面：Cluster 页展示每台 worker 的 accepted / rejected(原因) / degraded / detected agents；CLI `gofer worker projects <id>`；可选 `projects.<key>.worker_labels` 为池型 runner 收紧 | P3 |
 | **D5**（独立小项，可插队） | web 表单按 project 收窄 runner（不可用的 runner 禁用 + 给理由，离线 worker fail-safe 放行）。**不依赖 P1-P3**，现有 `/v1/meta`（`workers[].projects` + `runners[].worker_id`）即可实现 | — |
 
-每阶段单独可发布、可回退；v2 worker 全程不受影响。
+每阶段单独可发布、可回退。**v2 worker 不受影响的前提是先做版本闸拆分**（§6.3）——不拆就直接把 `ProtocolVersion` 提到 3 的话，v2 worker 会在下次重连时被拒绝注册，这条承诺就是假的。故版本闸拆分是 P1 的**第一个**任务，不是顺带。
 
 ## 10. 已定稿的细节（原 Q1-Q5）
 
