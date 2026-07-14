@@ -200,16 +200,20 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 	defer func() { _ = cr.Close() }()
 
 	rc := wc.ServerLink.Reconnect
+	caps := workerCaps(wc, wcfg)
 	cl := worker.New(worker.Config{
-		WorkerID:       wc.WorkerID,
-		URLs:           wsDialURLs(wc.ServerLink.URLs),
-		Token:          resolveWorkerToken(wc.ServerLink),
-		Labels:         wc.Labels,
-		Projects:       mapKeys(wc.Projects),
-		Agents:         agentKeys(wcfg),
-		AgentCaps:      agentBriefs(wcfg),
+		WorkerID:  wc.WorkerID,
+		URLs:      wsDialURLs(wc.ServerLink.URLs),
+		Token:     resolveWorkerToken(wc.ServerLink),
+		Labels:    caps.Labels,
+		Projects:  caps.Projects,
+		Agents:    caps.Agents,
+		AgentCaps: caps.AgentCaps,
+		// Config hot-reload (SIGHUP / hub request): the command owns "how to read
+		// worker.yaml", the worker package owns when/how a reload is applied (G021).
+		Reload:         newWorkerReloadFn(cr, workerOpts.config, wc.WorkerID),
 		GoferVersion:   info.DisplayVersion(),
-		MaxConc:        wc.MaxConcurrent,
+		MaxConc:        caps.MaxConc,
 		InitialBackoff: msToDuration(rc.InitialBackoffMS),
 		MaxBackoff:     msToDuration(rc.MaxBackoffMS),
 		PingInterval:   secToDuration(rc.PingIntervalSec),
@@ -231,6 +235,53 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 		return errorx.Failf(workerExitErr, "%v", err)
 	}
 	return nil
+}
+
+// newWorkerReloadFn builds the worker's ReloadFunc: re-read worker.yaml from the
+// SAME path the process started from, rebuild the config, apply it to the running
+// core and report the capabilities of the config it applied.
+//
+// Order is the whole point (worker.ReloadFunc contract): read + decode + validate
+// FIRST, and only then apply. Every failure returns before core.ReloadWith is
+// reached, so a broken worker.yaml leaves the worker running its previous config
+// instead of half-applying a bad one — the apply itself cannot fail and therefore
+// cannot roll back. The caps are derived from the very config that was applied, so
+// what the worker advertises is exactly what it will accept on dispatch.
+//
+// Reload scope mirrors core.ReloadWith: projects / agents / labels / max_concurrent
+// take effect; process-level facts (worker id, hub urls/token, storage db path) are
+// frozen at startup and need a restart.
+func newWorkerReloadFn(cr *core.Core, path, workerID string) worker.ReloadFunc {
+	return func() (wsproto.Caps, error) {
+		wc, err := loadWorkerConfig(path)
+		if err != nil {
+			return wsproto.Caps{}, err
+		}
+		if wc.WorkerID != workerID {
+			return wsproto.Caps{}, fmt.Errorf(
+				"worker config: worker_id changed (%q -> %q); restart the worker to change its identity",
+				workerID, wc.WorkerID)
+		}
+		cfg := workerConfigToConfig(wc)
+		if err := cr.ReloadWith(cfg); err != nil {
+			return wsproto.Caps{}, err
+		}
+		return workerCaps(wc, cfg), nil
+	}
+}
+
+// workerCaps derives the capability report from ONE worker config snapshot (the
+// raw worker.yaml for labels/projects/max_concurrent, the mapped config.Config for
+// the resolved agent keys/briefs). Startup register and every reload go through it,
+// so the two can never drift.
+func workerCaps(wc *config.WorkerConfig, cfg *config.Config) wsproto.Caps {
+	return wsproto.Caps{
+		Labels:    wc.Labels,
+		Projects:  mapKeys(wc.Projects),
+		Agents:    agentKeys(cfg),
+		AgentCaps: agentBriefs(cfg),
+		MaxConc:   wc.MaxConcurrent,
+	}
 }
 
 // loadWorkerConfig reads and decodes the worker.yaml at path (the

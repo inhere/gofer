@@ -35,6 +35,27 @@ func Serve(cl *Client, wc *config.WorkerConfig) error {
 		}
 	}()
 
+	// Local config reload (SIGHUP on unix; no-op on Windows, which has no SIGHUP and
+	// reloads through the hub instead). It only ENQUEUES onto the same serial reload
+	// executor a hub-issued reload uses — one reload path, one ordering. A SIGHUP
+	// arriving while the queue is full is dropped (the reload already queued ahead of
+	// it will pick the same file up); there is no requester to answer.
+	hup := make(chan os.Signal, 1)
+	notifyReloadSignal(hup)
+	defer signal.Stop(hup)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-hup:
+				if !cl.enqueueReload(reloadReq{reason: "sighup"}) {
+					slog.Warn("worker reload queue full, dropping SIGHUP", "worker_id", wc.WorkerID)
+				}
+			}
+		}
+	}()
+
 	slog.Info("worker starting", "worker_id", wc.WorkerID, "urls", wc.ServerLink.URLs,
 		"labels", wc.Labels, "max_concurrent", wc.MaxConcurrent)
 	return cl.Run(ctx)

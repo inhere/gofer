@@ -81,19 +81,28 @@ type Client struct {
 	instanceID string
 	urls       []string // hub addresses; rotated on connect failure (C7, §5.2)
 	token      string
-	labels     []string
-	projects   []string
-	agents     []string
-	// agentCaps is the TYPED capability report (key/type/interactive) the hub keeps
-	// as authoritative for this worker's agents; agents stays the bare key list for
-	// back-compat. Both are sent on every register.
-	agentCaps []wsproto.AgentBrief
+
+	// caps is the config-derived capability snapshot this worker advertises
+	// (labels / projects / agents / typed agent caps / max_concurrent). It is what
+	// every register frame reports, and a successful reload REPLACES it wholesale
+	// (storeCaps), so a reconnect after a reload registers with the CURRENT config
+	// rather than the one the process booted with. capsMu guards it: the reload
+	// executor writes it while the reconnect loop reads it on register.
+	capsMu sync.RWMutex
+	caps   wsproto.Caps
+
 	// goferVersion is buildinfo.Info.DisplayVersion(), threaded from the worker
 	// command; startedAt is this process's start time (unix sec). Both are node
 	// info reported on register for observability.
 	goferVersion string
 	startedAt    int64
-	maxConc      int
+
+	// reloadFn re-reads + applies the worker's config and re-derives caps; it is
+	// injected by the command (see ReloadFunc). reloadCh feeds the SINGLE reload
+	// executor goroutine (reloadLoop), which is what keeps concurrent reload
+	// requests strictly ordered.
+	reloadFn ReloadFunc
+	reloadCh chan reloadReq
 
 	backoff      backoffPolicy
 	pingInterval time.Duration
@@ -164,8 +173,13 @@ type Config struct {
 	// agents map by the command); Agents stays the bare key list.
 	AgentCaps []wsproto.AgentBrief
 	// GoferVersion is the worker binary's display version (buildinfo).
-	GoferVersion   string
-	MaxConc        int
+	GoferVersion string
+	MaxConc      int
+	// Reload re-reads and applies the worker's config, returning the capabilities of
+	// the config it applied (see ReloadFunc). Injected by the command; nil disables
+	// config reload (a reload request is then answered with an error, never silently
+	// accepted).
+	Reload         ReloadFunc
 	InitialBackoff time.Duration
 	MaxBackoff     time.Duration
 	PingInterval   time.Duration
@@ -188,17 +202,21 @@ func New(cfg Config, jobs Jobs) *Client {
 		read = 3 * ping
 	}
 	cl := &Client{
-		workerID:      cfg.WorkerID,
-		instanceID:    newInstanceID(),
-		urls:          cfg.URLs,
-		token:         cfg.Token,
-		labels:        cfg.Labels,
-		projects:      cfg.Projects,
-		agents:        cfg.Agents,
-		agentCaps:     cfg.AgentCaps,
+		workerID:   cfg.WorkerID,
+		instanceID: newInstanceID(),
+		urls:       cfg.URLs,
+		token:      cfg.Token,
+		caps: wsproto.Caps{
+			Labels:    cfg.Labels,
+			Projects:  cfg.Projects,
+			Agents:    cfg.Agents,
+			AgentCaps: cfg.AgentCaps,
+			MaxConc:   cfg.MaxConc,
+		},
 		goferVersion:  cfg.GoferVersion,
 		startedAt:     time.Now().Unix(),
-		maxConc:       cfg.MaxConc,
+		reloadFn:      cfg.Reload,
+		reloadCh:      make(chan reloadReq, reloadQueueCap),
 		backoff:       newBackoffPolicy(cfg.InitialBackoff, cfg.MaxBackoff, cfg.Rng),
 		pingInterval:  ping,
 		readDeadline:  read,
@@ -362,6 +380,11 @@ func (cl *Client) Run(ctx context.Context) error {
 	if len(cl.urls) == 0 {
 		return errors.New("worker: no hub urls configured")
 	}
+	// One reload executor per worker process, started before the first connect and
+	// living ACROSS reconnects: a reload applies to the local core (and the caps we
+	// will register with) whether or not a hub is currently attached. It exits with
+	// ctx (worker shutdown).
+	go cl.reloadLoop(ctx)
 	idx := 0
 	attempt := 0
 	for {
@@ -415,13 +438,16 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 		return false, fmt.Errorf("dial hub %s: %w", url, derr)
 	}
 	conn.SetReadLimit(maxWSReadBytes)
-	cl.conn = conn
+	cl.setConn(conn)
 	// going-away (1001) on a clean shutdown; the deferred close also covers the
 	// drop/error paths so the fd is always released (no leak, §5.6).
 	defer conn.Close(websocket.StatusGoingAway, "worker session end")
 
 	// register → registered (bare ctx; the read deadline governs the steady-state
-	// recv loop, not the handshake).
+	// recv loop, not the handshake). The capability fields come from the CURRENT
+	// snapshot, so a worker that reloaded its config while disconnected re-registers
+	// with what it can do NOW.
+	caps := cl.currentCaps()
 	if err := cl.writeFrame(ctx, wsproto.TypeRegister, "", wsproto.Register{
 		WorkerID:        cl.workerID,
 		InstanceID:      cl.instanceID,
@@ -431,11 +457,11 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 		Arch:            runtime.GOARCH,
 		GoferVersion:    cl.goferVersion,
 		StartedAt:       cl.startedAt,
-		Labels:          cl.labels,
-		Projects:        cl.projects,
-		Agents:          cl.agents,
-		AgentCaps:       cl.agentCaps,
-		MaxConcurrent:   cl.maxConc,
+		Labels:          caps.Labels,
+		Projects:        caps.Projects,
+		Agents:          caps.Agents,
+		AgentCaps:       caps.AgentCaps,
+		MaxConcurrent:   caps.MaxConc,
 	}); err != nil {
 		return false, fmt.Errorf("send register: %w", err)
 	}
@@ -453,7 +479,7 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 	}
 	cl.notify("registered")
 	slog.Info("worker registered with hub",
-		"worker_id", cl.workerID, "url", url, "labels", cl.labels, "max_concurrent", cl.maxConc)
+		"worker_id", cl.workerID, "url", url, "labels", caps.Labels, "max_concurrent", caps.MaxConc)
 
 	// Per-session heartbeat: start the ping sender, stop it when the recv loop ends.
 	done := make(chan struct{})
@@ -519,6 +545,16 @@ func (cl *Client) recvLoop(ctx context.Context, url string) error {
 			if localID := cl.localJobID(af.JobID); localID != "" {
 				_, _ = cl.jobs.AnswerInteraction(localID, af.InteractionID, af.Answer)
 			}
+		case wsproto.TypeReload:
+			// P1/T3: ONLY enqueue. Running the reload here would block the read loop
+			// (no pongs, no cancels) and running it in a fresh goroutine per frame
+			// would let two reloads apply out of order — the serial executor
+			// (reloadLoop) owns the apply.
+			rf, derr := wsproto.As[wsproto.Reload](env)
+			if derr != nil {
+				continue
+			}
+			cl.onReload(ctx, rf)
 		case wsproto.TypePing:
 			// P3: the hub pings us; reply pong{ts} (symmetric, §5.1). Reading the
 			// frame already proves the connection is alive (refreshes our own read
@@ -567,7 +603,22 @@ func (cl *Client) notify(event string) {
 func (cl *Client) writeFrame(ctx context.Context, t wsproto.FrameType, jobID string, payload any) error {
 	cl.writeMu.Lock()
 	defer cl.writeMu.Unlock()
+	if cl.conn == nil {
+		// The reload executor outlives any single connection (a SIGHUP can land
+		// before the first connect / while reconnecting): applying the config still
+		// works, only the re-report has nowhere to go.
+		return errors.New("worker: not connected to a hub")
+	}
 	return wsjson.Write(ctx, cl.conn, wsproto.Envelope{Type: t, JobID: jobID, Payload: mustRaw(payload)})
+}
+
+// setConn publishes the current session's connection under writeMu — the same lock
+// writeFrame reads it under, so the reload executor (which writes frames across
+// reconnects) never races the reconnect loop's swap.
+func (cl *Client) setConn(conn *websocket.Conn) {
+	cl.writeMu.Lock()
+	cl.conn = conn
+	cl.writeMu.Unlock()
 }
 
 func (cl *Client) readEnvelope(ctx context.Context) (wsproto.Envelope, error) {
