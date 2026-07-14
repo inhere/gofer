@@ -12,14 +12,29 @@ import "github.com/inhere/gofer/internal/config"
 // detect-gated. A name clash is won by the escape hatch ENTIRELY (whole-entry
 // override, never a field-level merge: Interactive/NoRawCmd are plain bools, so
 // "unset" is indistinguishable from "explicit false" and a partial merge would
-// silently flip them).
+// silently flip them). The cost is that overriding one field (say a command path)
+// means restating the whole entry, args included — deliberate: a narrow
+// command-path override would be a new config surface for unclear gain.
 //
 // Injected entries are marked on the config (config.MarkInjectedAgents) and stripped
 // again before any save, so a template can never be frozen into the operator's file.
 //
-// TODO(T1): complete the table — codex / opencode / tty-claude / tty-codex.
-// `exec` is ALREADY built in (see ExecAgentKey / builtinExecAgent) — do NOT redeclare
-// it here.
+// `exec` is ALREADY built in (see ExecAgentKey / builtinExecAgent) — it is NOT
+// redeclared here: a second definition would make it a config-declared key and thus
+// an escape hatch, changing its resolution semantics.
+//
+// NO `detect` BLOCK IS SET on purpose. Availability comes from a PATH lookup of
+// Command (a child process' exit code would false-negative on a slow start / first-run
+// wizard / auth prompt, and a false negative silently drops the agent from a worker's
+// caps). `detect.command/args` only overrides the best-effort VERSION probe, whose
+// default is already `<command> --version` — restating that here would be duplication
+// that can drift away from Command, and, on the per-request probe paths, an extra
+// child process per agent per call.
+//
+// Session/system fields are omitted too: applySessionDefaults fills them from
+// builtinSessionDefaults, matching on the agent key and falling back to the base name
+// of Command for interactive agents — which is how tty-claude / tty-codex inherit the
+// claude / codex session defaults without restating them.
 var builtinTemplates = map[string]config.AgentConfig{
 	// claude: non-interactive run. `-p` (print) plus the stream-json trio so a long
 	// run streams progress instead of printing only the final result at the end.
@@ -27,5 +42,38 @@ var builtinTemplates = map[string]config.AgentConfig{
 		Type:    TypeCLIAgent,
 		Command: "claude",
 		Args:    []string{"-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"},
+	},
+	// codex: non-interactive run. `codex exec` is the CLI's documented
+	// "run Codex non-interactively" subcommand.
+	"codex": {
+		Type:    TypeCLIAgent,
+		Command: "codex",
+		Args:    []string{"exec", "{{prompt}}"},
+	},
+	// opencode: non-interactive run via the `run <prompt>` subcommand.
+	"opencode": {
+		Type:    TypeCLIAgent,
+		Command: "opencode",
+		Args:    []string{"run", "{{prompt}}"},
+	},
+	// tty-claude: the SAME CLI driven interactively. Bare `claude` with no args enters
+	// the REPL and the pty owns the session, so there is no {{prompt}} to render — the
+	// prompt is typed into the terminal. Interactive+NoRawCmd is not decoration: the
+	// job gate rejects an interactive agent that is not no-raw-cmd (or is type exec).
+	"tty-claude": {
+		Type:        TypeCLIAgent,
+		Command:     "claude",
+		Interactive: true,
+		NoRawCmd:    true,
+	},
+	// tty-codex: symmetric to tty-claude. Per `codex --help`, "if no subcommand is
+	// specified, options will be forwarded to the interactive CLI", so a bare `codex`
+	// is the interactive CLI; its `resume` subcommand is what the built-in interactive
+	// session-resume template drives.
+	"tty-codex": {
+		Type:        TypeCLIAgent,
+		Command:     "codex",
+		Interactive: true,
+		NoRawCmd:    true,
 	},
 }

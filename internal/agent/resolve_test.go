@@ -164,7 +164,9 @@ func TestResolveDetectsOncePerCall(t *testing.T) {
 	if d.calls != 1 {
 		t.Fatalf("detector called %d times, want exactly 1", d.calls)
 	}
-	want := []string{"claude", "exec", "mine"}
+	// Every injectable template + the operator's agent + the built-in exec, in one call.
+	want := append(templateKeys(), ExecAgentKey, "mine")
+	sort.Strings(want)
 	if !reflect.DeepEqual(d.last, want) {
 		t.Fatalf("detector candidate set = %v, want %v", d.last, want)
 	}
