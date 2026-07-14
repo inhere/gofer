@@ -2,12 +2,42 @@ package wsproto
 
 import "encoding/json"
 
-// ProtocolVersion is the current worker↔hub wire capability version. Bumped to 2
-// when federation made the capability report authoritative (AgentCaps). A worker
-// that reports a lower/absent version is rejected at registration (hub gate) with
-// an upgrade prompt — old workers report 0 (field absent). NOT tied to the gofer
-// release version; it only gates capability-frame compatibility.
-const ProtocolVersion = 2
+// Protocol versioning. The wire version is NOT the gofer release version; it only
+// describes worker↔hub capability-frame compatibility.
+//
+// The floor and the implemented version are deliberately TWO constants. Collapsing
+// them into one makes a rolling upgrade impossible: bumping the single constant to
+// ship a new frame instantly turns every already-deployed worker into "too old", so
+// the next reconnect (one network blip is enough) evicts a fleet that was working
+// fine. Splitting them lets a hub say "I implement N, but I still register anyone at
+// or above M": shipping a new frame only raises Current, and dropping support for an
+// old fleet is then a separate, deliberate decision that raises Min.
+const (
+	// MinProtocolVersion is the lowest version the hub still accepts at registration
+	// (the compatibility floor). v2 is the floor because it is where the worker's
+	// capability report (AgentCaps) became authoritative for validation and routing:
+	// a worker below it (pre-federation workers report 0 — field absent) cannot be
+	// trusted for that, so it is rejected with an upgrade prompt.
+	MinProtocolVersion = 2
+
+	// CurrentProtocolVersion is the version THIS build implements; a worker reports it
+	// on register and the hub uses the reported value to negotiate OPTIONAL features
+	// per peer (see ReloadMinProtocolVersion). It must never be used as the
+	// registration gate — that is MinProtocolVersion's job.
+	CurrentProtocolVersion = 3
+)
+
+// ReloadMinProtocolVersion is the first protocol version that carries the config
+// hot-reload frames. A worker registered below it stays fully usable for everything
+// else; it simply cannot be asked to reload, so the caller must check SupportsReload
+// with the version the peer reported and surface an explicit "worker too old" error
+// instead of sending a frame the peer will ignore.
+const ReloadMinProtocolVersion = 3
+
+// SupportsReload reports whether a peer that registered with protocol version proto
+// implements the hot-reload frames. It is the single place that knows which version
+// gained the capability — callers must not compare version numbers themselves.
+func SupportsReload(proto int) bool { return proto >= ReloadMinProtocolVersion }
 
 // AgentBrief is a worker-reported agent capability with the detail the UI cascade
 // needs (type/interactive) beyond a bare key. Federation: the worker is the
@@ -21,8 +51,8 @@ type AgentBrief struct {
 
 // Register (w→s, P1): the worker announces its identity + capability snapshot on
 // connect. The hub validates worker_id against the token binding (review #1) AND
-// rejects a worker whose ProtocolVersion < wsproto.ProtocolVersion (federation:
-// hard incompatibility + upgrade prompt). AgentCaps/Projects are now AUTHORITATIVE
+// rejects a worker whose ProtocolVersion < wsproto.MinProtocolVersion (hard
+// incompatibility + upgrade prompt). AgentCaps/Projects are now AUTHORITATIVE
 // for validation+routing (was display-only); the worker still re-validates locally
 // on dispatch (review #8).
 type Register struct {
@@ -35,7 +65,9 @@ type Register struct {
 	// the hub falls back to the legacy supersede-always behaviour (z8ow).
 	InstanceID string `json:"instance_id,omitempty"`
 	// ProtocolVersion is the worker's capability-frame version (0 = pre-federation
-	// worker → rejected by the hub gate). New workers set wsproto.ProtocolVersion.
+	// worker → below the floor, rejected by the hub gate). A worker sets it to
+	// wsproto.CurrentProtocolVersion — the version IT implements, which the hub keeps
+	// per connection to negotiate optional features (it may be older than the hub's).
 	ProtocolVersion int      `json:"protocol_version,omitempty"`
 	PtyCapable      bool     `json:"pty_capable,omitempty"`
 	OS              string   `json:"os,omitempty"`

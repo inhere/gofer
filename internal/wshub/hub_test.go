@@ -110,7 +110,7 @@ func dialAndRegisterInstance(t *testing.T, ctx context.Context, wsURL, workerID,
 		Payload: mustRaw(wsproto.Register{
 			WorkerID:        workerID,
 			InstanceID:      instanceID,
-			ProtocolVersion: wsproto.ProtocolVersion, // current worker: passes the hub version gate
+			ProtocolVersion: wsproto.CurrentProtocolVersion, // current worker: passes the hub version gate
 		}),
 	}); err != nil {
 		t.Fatalf("write register: %v", err)

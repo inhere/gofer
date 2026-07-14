@@ -201,17 +201,21 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 		return
 	}
 
-	// 2b) Version gate (hard incompatibility): a pre-federation worker (absent
-	// protocol_version → 0) does not report authoritative capabilities, so it is
-	// rejected with an upgrade prompt. The frame extension is additive, so an old
-	// worker's register still decodes cleanly — which is exactly why we can answer
-	// with a clear Reason here instead of failing to parse.
-	if reg.ProtocolVersion < wsproto.ProtocolVersion {
+	// 2b) Version gate (hard incompatibility): the gate is the compatibility FLOOR
+	// (MinProtocolVersion), never the version this build implements — a worker one
+	// release behind must keep working across a rolling upgrade, and only loses the
+	// features its version predates (negotiated per connection, see supportsReload).
+	// A pre-federation worker (absent protocol_version → 0) is below the floor: it
+	// does not report authoritative capabilities, so it is rejected with an upgrade
+	// prompt. The frame extension is additive, so an old worker's register still
+	// decodes cleanly — which is exactly why we can answer with a clear Reason here
+	// instead of failing to parse.
+	if reg.ProtocolVersion < wsproto.MinProtocolVersion {
 		slog.Warn("hub rejected worker: protocol too old",
-			"worker_id", reg.WorkerID, "worker_proto", reg.ProtocolVersion, "min", wsproto.ProtocolVersion)
+			"worker_id", reg.WorkerID, "worker_proto", reg.ProtocolVersion, "min", wsproto.MinProtocolVersion)
 		_ = writeEnvelope(ctx, conn, wsproto.TypeRegistered, "", wsproto.Registered{
 			Accepted:   false,
-			Reason:     fmt.Sprintf("worker 协议版本过旧(v%d)，请升级 worker 到 v%d 后重连", reg.ProtocolVersion, wsproto.ProtocolVersion),
+			Reason:     fmt.Sprintf("worker 协议版本过旧(v%d)，请升级 worker 到 v%d 后重连", reg.ProtocolVersion, wsproto.MinProtocolVersion),
 			ServerTime: h.nowMillis(),
 		})
 		_ = conn.Close(websocket.StatusPolicyViolation, "protocol version too old")

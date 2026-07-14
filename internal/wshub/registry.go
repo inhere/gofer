@@ -73,6 +73,21 @@ func newWorkerConn(workerID, callerID string, conn *websocket.Conn, meta wsproto
 	return wc
 }
 
+// protocolVersion is the wire version the peer reported on register. It is a
+// per-CONNECTION fact, not a hub-wide one: a fleet mid-upgrade holds connections of
+// several versions at once, and each is negotiated against its own report.
+func (wc *workerConn) protocolVersion() int { return wc.meta.ProtocolVersion }
+
+// supportsReload reports whether THIS connection's worker implements the config
+// hot-reload frames. It is the only reload capability check in the hub: callers ask
+// it instead of comparing protocol numbers, so the version that gained the feature
+// lives in exactly one place (wsproto.ReloadMinProtocolVersion). A worker below it
+// is registered and fully usable — it just cannot be asked to reload, and the caller
+// must say so explicitly rather than send a frame the peer will silently drop.
+func (wc *workerConn) supportsReload() bool {
+	return wsproto.SupportsReload(wc.protocolVersion())
+}
+
 // closeDone closes the per-connection done channel exactly once (stops the
 // heartbeat goroutine). Safe to call multiple times.
 func (wc *workerConn) closeDone() {

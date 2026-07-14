@@ -15,7 +15,7 @@ func TestWorkerSnapshotCarriesCapsAndNodeInfo(t *testing.T) {
 	meta := wsproto.Register{
 		WorkerID:        "w1",
 		InstanceID:      "inst-1",
-		ProtocolVersion: wsproto.ProtocolVersion,
+		ProtocolVersion: wsproto.CurrentProtocolVersion,
 		PtyCapable:      true,
 		OS:              "linux",
 		Arch:            "arm64",

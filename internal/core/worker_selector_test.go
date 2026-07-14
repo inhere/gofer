@@ -60,7 +60,7 @@ func registerWorker(t *testing.T, workerID string, reg wsproto.Register) *wshub.
 var workerRegister = wsproto.Register{
 	WorkerID:        "w1",
 	InstanceID:      "inst-1",
-	ProtocolVersion: wsproto.ProtocolVersion,
+	ProtocolVersion: wsproto.CurrentProtocolVersion,
 	PtyCapable:      true,
 	Labels:          []string{"gpu"},
 	Projects:        []string{"alpha", "beta"},

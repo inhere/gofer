@@ -63,7 +63,7 @@ func registerPtyTestWorker(t *testing.T, base string) *websocket.Conn {
 		Payload: mustRawForPtyTest(t, wsproto.Register{
 			WorkerID:        ptyTestWorkerID,
 			InstanceID:      ptyTestInst,
-			ProtocolVersion: wsproto.ProtocolVersion, // current worker: passes the hub version gate
+			ProtocolVersion: wsproto.CurrentProtocolVersion, // current worker: passes the hub version gate
 		}),
 	}); err != nil {
 		t.Fatalf("write register: %v", err)

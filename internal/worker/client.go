@@ -425,7 +425,7 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 	if err := cl.writeFrame(ctx, wsproto.TypeRegister, "", wsproto.Register{
 		WorkerID:        cl.workerID,
 		InstanceID:      cl.instanceID,
-		ProtocolVersion: wsproto.ProtocolVersion,
+		ProtocolVersion: wsproto.CurrentProtocolVersion, // the version THIS worker build implements
 		PtyCapable:      ptyrunner.Available(),
 		OS:              runtime.GOOS,
 		Arch:            runtime.GOARCH,

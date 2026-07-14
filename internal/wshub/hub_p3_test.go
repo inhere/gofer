@@ -153,7 +153,7 @@ func TestDispatchAtCapacity(t *testing.T) {
 		Type: wsproto.TypeRegister,
 		Payload: mustRaw(wsproto.Register{
 			WorkerID:        "w1",
-			ProtocolVersion: wsproto.ProtocolVersion,
+			ProtocolVersion: wsproto.CurrentProtocolVersion,
 			MaxConcurrent:   2,
 		}),
 	}); err != nil {
@@ -285,7 +285,7 @@ func TestRestartReplacementFailsInFlightJob(t *testing.T) {
 // TestTryReserveConcurrent (-race): many goroutines race to reserve capacity on
 // one worker conn; the in-flight count must never exceed maxConcurrent.
 func TestTryReserveConcurrent(t *testing.T) {
-	wc := newWorkerConn("w", "w", nil, wsproto.Register{ProtocolVersion: wsproto.ProtocolVersion, MaxConcurrent: 4})
+	wc := newWorkerConn("w", "w", nil, wsproto.Register{ProtocolVersion: wsproto.CurrentProtocolVersion, MaxConcurrent: 4})
 	const goroutines = 64
 	var granted int64
 	var mu sync.Mutex
@@ -380,7 +380,7 @@ func TestWorkerSnapshotExposed(t *testing.T) {
 	wc := newWorkerConn("w1", "w1", nil, wsproto.Register{
 		WorkerID:        "w1",
 		InstanceID:      "inst-1",
-		ProtocolVersion: wsproto.ProtocolVersion,
+		ProtocolVersion: wsproto.CurrentProtocolVersion,
 		PtyCapable:      true,
 		Labels:          []string{"gpu", "linux"},
 		Projects:        []string{"proj-a", "proj-b"},

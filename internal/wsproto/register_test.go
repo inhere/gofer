@@ -13,7 +13,7 @@ func TestRegisterFrameRoundTrip(t *testing.T) {
 	want := Register{
 		WorkerID:        "w1",
 		InstanceID:      "inst-1",
-		ProtocolVersion: ProtocolVersion,
+		ProtocolVersion: CurrentProtocolVersion,
 		PtyCapable:      true,
 		OS:              "linux",
 		Arch:            "amd64",
@@ -81,9 +81,46 @@ func TestRegisterOldFrameDecodes(t *testing.T) {
 	if got.WorkerID != "w" || !reflect.DeepEqual(got.Agents, []string{"a"}) {
 		t.Fatalf("old frame lost its known fields: %+v", got)
 	}
-	// A pre-federation worker is below the gate; a current one is not.
-	if got.ProtocolVersion >= ProtocolVersion {
+	// A pre-federation worker is below the registration FLOOR; a current one is not.
+	if got.ProtocolVersion >= MinProtocolVersion {
 		t.Fatalf("old frame must be below the version gate (proto=%d, min=%d)",
-			got.ProtocolVersion, ProtocolVersion)
+			got.ProtocolVersion, MinProtocolVersion)
+	}
+}
+
+// TestProtocolVersionSplit pins the invariant the two constants exist for: the
+// registration floor must never exceed the implemented version (a hub that refuses
+// everything below a version it does not itself implement would evict the whole
+// fleet), and a bump of the implemented version must not drag the floor with it.
+func TestProtocolVersionSplit(t *testing.T) {
+	if MinProtocolVersion > CurrentProtocolVersion {
+		t.Fatalf("floor %d > implemented %d: every peer would be rejected",
+			MinProtocolVersion, CurrentProtocolVersion)
+	}
+	if MinProtocolVersion < 1 {
+		t.Fatalf("floor must stay >= 1 so an absent protocol_version (0) is below it, got %d",
+			MinProtocolVersion)
+	}
+}
+
+// TestSupportsReload: the reload capability is negotiated against the version the
+// PEER reported, not the hub's own. A worker at the floor (v2 — the fleet that is
+// still registering fine during a rolling upgrade) predates the reload frames and
+// must be reported as not supporting them; the current build does.
+func TestSupportsReload(t *testing.T) {
+	cases := []struct {
+		proto int
+		want  bool
+	}{
+		{0, false},                            // pre-federation (never registers anyway)
+		{ReloadMinProtocolVersion - 1, false}, // v2: registers fine, but has no reload frames
+		{ReloadMinProtocolVersion, true},      // v3: first version with reload
+		{CurrentProtocolVersion, true},
+		{CurrentProtocolVersion + 1, true}, // a newer worker than this hub still has it
+	}
+	for _, tc := range cases {
+		if got := SupportsReload(tc.proto); got != tc.want {
+			t.Fatalf("SupportsReload(%d) = %v, want %v", tc.proto, got, tc.want)
+		}
 	}
 }
