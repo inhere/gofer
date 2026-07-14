@@ -349,6 +349,30 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 			if sk := wc.sink(env.JobID); sk != nil {
 				sk.OnInteraction(ifr.Action, ifr.Interaction)
 			}
+		case wsproto.TypeReloadResult:
+			// P1 federation: the receipt for exactly one ReloadWorker call on this
+			// connection. Apply the caps FIRST, resolve the waiter SECOND: the caller
+			// unblocks into an HTTP response that may immediately re-read the worker's
+			// capabilities, and it must never observe the pre-reload view of a reload it
+			// was just told succeeded.
+			rr, derr := wsproto.As[wsproto.ReloadResult](env)
+			if derr != nil {
+				continue
+			}
+			if rr.OK && rr.Caps != nil {
+				h.reg.UpdateCaps(wc, *rr.Caps)
+			}
+			wc.resolveReload(rr) // unknown / already-gone request_id: dropped, never fatal
+		case wsproto.TypeCaps:
+			// P1 federation: an UNSOLICITED capability re-report (the worker reloaded on
+			// its own, e.g. SIGHUP). There is no waiter to resolve — it must never be
+			// mistaken for the answer to a pending reload (wsproto.Caps doc) — so it only
+			// refreshes the hub's view of what this worker can now run.
+			cf, derr := wsproto.As[wsproto.Caps](env)
+			if derr != nil {
+				continue
+			}
+			h.reg.UpdateCaps(wc, cf)
 		case wsproto.TypePing:
 			// P3: the worker may send its own ping; reply pong{ts} (symmetric, §5.1).
 			pf, _ := wsproto.As[wsproto.Ping](env)

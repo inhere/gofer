@@ -52,9 +52,20 @@ type workerConn struct {
 	// concurrent writer per connection.
 	writeMu sync.Mutex
 
+	// mu guards every MUTABLE per-connection field: the sink/in-flight maps, the
+	// pending-reload map, and — since config hot-reload (P1) — meta and
+	// maxConcurrent, which a caps re-report rewrites on a live connection. It is the
+	// INNER lock: a path may take the registry lock and then mu, never the reverse
+	// (see WorkerRegistry.UpdateCaps).
 	mu       sync.Mutex
 	sinks    map[string]JobSink  // job_id → sink (review #2 lifecycle)
 	inflight map[string]struct{} // job_id set of server-side dispatched jobs (§3.1)
+
+	// pending maps a reload request_id → the 1-buffered channel its (synchronous)
+	// caller is parked on. The read loop resolves it when the matching ReloadResult
+	// arrives; the caller always removes its own entry, so a late answer finds
+	// nothing and is dropped. See reload.go.
+	pending map[string]chan wsproto.ReloadResult
 }
 
 // newWorkerConn builds a workerConn with its maps and done channel initialised.
@@ -69,6 +80,7 @@ func newWorkerConn(workerID, callerID string, conn *websocket.Conn, meta wsproto
 		done:          make(chan struct{}),
 		sinks:         map[string]JobSink{},
 		inflight:      map[string]struct{}{},
+		pending:       map[string]chan wsproto.ReloadResult{},
 	}
 	return wc
 }
@@ -76,6 +88,11 @@ func newWorkerConn(workerID, callerID string, conn *websocket.Conn, meta wsproto
 // protocolVersion is the wire version the peer reported on register. It is a
 // per-CONNECTION fact, not a hub-wide one: a fleet mid-upgrade holds connections of
 // several versions at once, and each is negotiated against its own report.
+//
+// Lock-free on purpose: the protocol version is an IMMUTABLE property of the
+// connection (a worker cannot change the wire version it speaks without
+// reconnecting), so UpdateCaps must never write it — only the config-derived
+// capability fields.
 func (wc *workerConn) protocolVersion() int { return wc.meta.ProtocolVersion }
 
 // supportsReload reports whether THIS connection's worker implements the config
@@ -139,15 +156,6 @@ func (wc *workerConn) release(jobID string) {
 	wc.mu.Lock()
 	delete(wc.inflight, jobID)
 	wc.mu.Unlock()
-}
-
-// inflightCount returns the number of in-flight server-side jobs on this
-// connection (C6 observability — read under the per-conn lock for a consistent
-// count without exposing the map).
-func (wc *workerConn) inflightCount() int {
-	wc.mu.Lock()
-	defer wc.mu.Unlock()
-	return len(wc.inflight)
 }
 
 // inflightJobs returns a snapshot of the in-flight job ids (for the worker-lost
@@ -287,8 +295,13 @@ type WorkerSnapshot struct {
 // WorkerSnapshot returns a point-in-time read-only view of workerID's live
 // connection (ok=false when offline / never connected). It is the registry's C6
 // observability accessor: the handler reads it through a narrow interface so it
-// never touches the internal conn. Reads under the registry RLock; the in-flight
-// count is taken under the per-conn lock so it is a consistent snapshot.
+// never touches the internal conn.
+//
+// The conn is looked up under the registry RLock, but everything it reads OUT of the
+// conn is read under the per-conn lock (snapshot): since config hot-reload (P1) the
+// capability fields are mutable on a live connection, so reading meta outside wc.mu
+// would be a data race against UpdateCaps. The in-flight count comes from the same
+// critical section, so a snapshot is internally consistent.
 func (r *WorkerRegistry) WorkerSnapshot(workerID string) (WorkerSnapshot, bool) {
 	r.mu.RLock()
 	wc, ok := r.conns[workerID]
@@ -296,23 +309,83 @@ func (r *WorkerRegistry) WorkerSnapshot(workerID string) (WorkerSnapshot, bool) 
 	if !ok {
 		return WorkerSnapshot{}, false
 	}
-	labels := append([]string(nil), wc.meta.Labels...)
-	projects := append([]string(nil), wc.meta.Projects...)
-	agents := append([]string(nil), wc.meta.Agents...)
-	agentCaps := append([]wsproto.AgentBrief(nil), wc.meta.AgentCaps...)
+	return wc.snapshot(), true
+}
+
+// snapshot reads the connection's whole observable state under the per-conn lock.
+// Every slice is a defensive copy so a consumer mutating its snapshot can never
+// corrupt the live registry's capability view.
+func (wc *workerConn) snapshot() WorkerSnapshot {
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
 	return WorkerSnapshot{
 		WorkerID:      wc.workerID,
 		InstanceID:    wc.meta.InstanceID,
 		LastHeartbeat: wc.lastHeartbeat.Load(),
-		InFlight:      wc.inflightCount(),
+		InFlight:      len(wc.inflight),
 		PtyCapable:    wc.meta.PtyCapable,
-		Labels:        labels,
-		Projects:      projects,
-		Agents:        agents,
-		AgentCaps:     agentCaps,
+		Labels:        append([]string(nil), wc.meta.Labels...),
+		Projects:      append([]string(nil), wc.meta.Projects...),
+		Agents:        append([]string(nil), wc.meta.Agents...),
+		AgentCaps:     append([]wsproto.AgentBrief(nil), wc.meta.AgentCaps...),
 		OS:            wc.meta.OS,
 		Arch:          wc.meta.Arch,
 		GoferVersion:  wc.meta.GoferVersion,
 		StartedAt:     wc.meta.StartedAt,
-	}, true
+	}
+}
+
+// current returns the connection currently registered for workerID (nil when the
+// worker is offline). Caller must hold no lock; it takes the registry RLock.
+func (r *WorkerRegistry) current(workerID string) *workerConn {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.conns[workerID]
+}
+
+// UpdateCaps applies a worker's re-reported capabilities (a successful reload's
+// ReloadResult.Caps, or an unsolicited SIGHUP-driven Caps frame) to ONE specific
+// connection. Three things it must get right, none of them optional:
+//
+//  1. It takes a *workerConn, not a worker_id. A worker that reconnects gets a NEW
+//     conn under the same id, while the OLD conn's read loop may still be draining
+//     frames — a caps frame from the dead process must not overwrite the live one's
+//     capabilities. So the update is dropped unless this conn is still the registered
+//     one (currentLocked check below).
+//  2. It writes meta under wc.mu, the same lock WorkerSnapshot reads it under. meta
+//     used to be immutable-after-register (published through the registry lock), which
+//     is exactly why the old lock-free read was safe and no longer is.
+//  3. It writes BOTH concurrency fields. wc.meta.MaxConcurrent is the displayed value;
+//     wc.maxConcurrent is the one tryReserve actually admits against. Updating only the
+//     first would show a new limit while enforcing the old one.
+//
+// Caps is a FULL SNAPSHOT, not a patch: an empty Projects list means "this worker now
+// serves no project", and is applied as such. MaxConc is the one exception — 0 means
+// "not reported" and leaves the admitted limit untouched (the register-time value
+// stands), because zero is also the encoding for "no hub-side cap" and a reload must
+// not silently uncap a worker.
+func (r *WorkerRegistry) UpdateCaps(wc *workerConn, c wsproto.Caps) {
+	if wc == nil {
+		return
+	}
+	// Lock order: registry lock (outer) → wc.mu (inner). Holding the registry RLock
+	// across the mutation closes the check-then-act window against a concurrent Put,
+	// and is deadlock-free because no path ever takes wc.mu and then a registry lock
+	// (WorkerSnapshot/Dispatch release the registry lock before touching the conn).
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.conns[wc.workerID] != wc {
+		return // superseded by a newer connection: a late caps frame from the old one is stale
+	}
+
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
+	wc.meta.Labels = c.Labels
+	wc.meta.Projects = c.Projects
+	wc.meta.Agents = c.Agents
+	wc.meta.AgentCaps = c.AgentCaps
+	if c.MaxConc > 0 {
+		wc.meta.MaxConcurrent = c.MaxConc
+		wc.maxConcurrent = c.MaxConc // the field tryReserve admits against
+	}
 }
