@@ -26,7 +26,11 @@ gofer job run -a exec --runner local -- `
 ```bash
 # 装并启动服务(默认 manual 启动，端口走 config 的 server.addr)
 pwsh -File scripts\start.ps1
-
+# 以当前用户运行
+pwsh -File scripts\start.ps1 `
+  -ConfigDir 'D:/work/inhere/config/win-env/gofer' `
+  -Account '.\KZL'
+  
 # 常用变体
 pwsh -File scripts\start.ps1 -Auto                 # 开机自启
 pwsh -File scripts\start.ps1 -Addr 0.0.0.0:LIVE-PORT    # 显式指定端口(覆盖 config)
