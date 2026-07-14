@@ -199,16 +199,11 @@ const agentPool = computed<MetaAgent[]>(() => {
   return [...out.values()].sort((a, b) => a.key.localeCompare(b.key))
 })
 
-// 联动：agent 候选 = project.allowed_agents（空=不限制）
-//                  ∩ 执行侧能力（worker 上报；local=host 全集）
-//                  ∩ [interactive: host 已知 & interactive-capable & 在 project.interactive_allowed_agents 内]
-//                  ∩ [local runner 且 allow_exec=false: 排除 exec 型]
-// 不再做「交集为空就回落不收窄」：那会列出提交必被拒的假选项（原 T5.3b fail-safe 的反效果）。
-// 空列表由 agentEmptyReason 说明原因。
-const agentOptions = computed<MetaAgent[]>(() => {
-  const proj = selectedProject.value
+// project.allowed_agents ∩ 执行侧能力 —— 模式(interactive/exec)过滤之前的候选池。
+// agentEmptyReason 据此区分「池子本来就空」与「被模式闸掉了」。
+const agentCandidates = computed<MetaAgent[]>(() => {
   let list = agentPool.value
-  const allowed = proj?.allowed_agents ?? []
+  const allowed = selectedProject.value?.allowed_agents ?? []
   if (allowed.length > 0) {
     const set = new Set(allowed)
     list = list.filter((a) => set.has(a.key))
@@ -217,6 +212,18 @@ const agentOptions = computed<MetaAgent[]>(() => {
   if (wkeys) {
     list = list.filter((a) => wkeys.has(a.key))
   }
+  return list
+})
+
+// 联动：agent 候选 = agentCandidates（allowed_agents ∩ 执行侧能力）
+//                  ∩ [interactive: host 已知 & interactive-capable & 在 project.interactive_allowed_agents 内]
+//                  ∩ [非 interactive: 排除 interactive-only agent]
+//                  ∩ [local runner 且 allow_exec=false: 排除 exec 型]
+// 不再做「交集为空就回落不收窄」：那会列出提交必被拒的假选项（原 T5.3b fail-safe 的反效果）。
+// 空列表由 agentEmptyReason 说明原因。
+const agentOptions = computed<MetaAgent[]>(() => {
+  const proj = selectedProject.value
+  let list = agentCandidates.value
   if (interactive.value) {
     list = list.filter((a) => a.interactive && hostAgentKeys.value.has(a.key))
     // 旧 server 不带该字段（undefined）→ 无从收窄，退回仅按 interactive 标志过滤
@@ -225,6 +232,11 @@ const agentOptions = computed<MetaAgent[]>(() => {
       const set = new Set(ia)
       list = list.filter((a) => set.has(a.key))
     }
+  } else {
+    // 反向闸（对齐 job/config.go 的 interactive-only 校验）：interactive agent 是裸启动进
+    // pty 的（arg 模板里没有 {{prompt}}），非交互提交会把 prompt 静默丢掉、跑一个空转到超时的
+    // 裸 CLI —— 后端已拒，这里就不该让它出现在下拉里（能选但提交必挂 = 最差体验）。
+    list = list.filter((a) => !a.interactive)
   }
   // exec 安全闸只在 host 执行时由 host 把关（worker/peer 是 remote，各自校验自己的 allow_exec）。
   // 严格比 false：undefined = 旧 server 没这个字段，不能当成"闸为假"把 exec 全藏掉。
@@ -248,6 +260,10 @@ const agentEmptyReason = computed<string>(() => {
       return `project ${proj.key} 未配置 interactive_allowed_agents：不支持交互 job`
     }
     return '当前 project / runner 组合下没有可用的交互 agent（须同时在 interactive_allowed_agents 内、且执行侧已安装）'
+  }
+  // 非交互模式：候选池非空、但全被 interactive-only 闸掉 —— 指路而不是让用户对着空下拉发呆。
+  if (agentCandidates.value.length > 0 && agentCandidates.value.every((a) => a.interactive)) {
+    return `project ${proj.key} 当前可选的 agent 全是交互式（interactive-only，非交互提交会被拒）：请打开「交互模式」`
   }
   if (workerAgentKeys.value) {
     const where =

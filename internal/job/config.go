@@ -135,6 +135,26 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 		if !ok {
 			return config.ProjectConfig{}, fmt.Errorf("%w: unknown agent %q", ErrInvalidRequest, gateAgent)
 		}
+		// Reverse of the req.Interactive gate above: an INTERACTIVE agent may only be
+		// submitted as an interactive job. A terminal agent is launched bare (its arg
+		// template holds no {{prompt}} — the prompt is typed into the pty), so the
+		// non-interactive build path renders an argv WITHOUT the prompt (BuildFrom,
+		// cli-agent branch) and silently execs a bare CLI that sits at its own prompt
+		// until the job timeout. Reject at admission instead of running a job that
+		// cannot do what was asked.
+		//
+		// Scope: this lives in the !remote block on purpose. A worker/peer job's agent
+		// is resolved on the REMOTE side with ITS config; judging it against the host's
+		// same-named agent definition would drift the federated verdict (the host may
+		// not even define the key). The remote's own validate runs this same gate.
+		//
+		// Resume is NOT hit: gateAgent is the SOURCE agent and ResumeJob carries
+		// Interactive=src.Interactive, so an interactive source resumes as an
+		// interactive job (resume.go). A non-interactive job on an interactive source
+		// agent can only come from a job that predates this gate.
+		if ac.Interactive && !req.Interactive {
+			return config.ProjectConfig{}, fmt.Errorf("%w: agent %q is interactive-only; submit it as an interactive job", ErrInvalidRequest, gateAgent)
+		}
 		if len(req.AgentArgs) > 0 && ac.Type == agent.TypeExec {
 			return config.ProjectConfig{}, fmt.Errorf("%w: agent_args not allowed for exec agent %q", ErrInvalidRequest, gateAgent)
 		}

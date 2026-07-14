@@ -111,9 +111,10 @@ const selectedProject = computed<MetaProject | undefined>(() =>
 
 // project 选定后 agent 先取 allowed_agents 交集（空=全集）；再叠加联邦(G3)能力交集——
 // worker runner 选定具体 worker 后只列该 worker 上报的 agent。收窄 fail-safe：交集为空则回落，绝不清空。
-// 注：调度表单无 interactive 开关（区别于 NewJob），故此处不做 interactive 过滤。
+// 注：调度表单无 interactive 开关（区别于 NewJob）→ 触发的 job 恒为非交互，故 interactive-only 的
+// agent 必须排除：后端 validate 会拒（interactive-only），列出来只会得到一个到点必失败的调度。
 const agentOptions = computed<MetaAgent[]>(() => {
-  let list = agents.value
+  let list = agents.value.filter((a) => !a.interactive)
   const allowed = selectedProject.value?.allowed_agents ?? []
   if (allowed.length > 0) {
     const set = new Set(allowed)
@@ -549,6 +550,9 @@ onMounted(() => {
               {{ a.key }} · {{ a.type }}
             </option>
           </select>
+          <p v-if="agentOptions.length === 0" class="field-hint mono">
+            无可用 agent（调度触发的 job 恒为非交互，交互式 agent 已排除）
+          </p>
         </div>
         <div class="field">
           <label class="label mono" for="ns-runner">RUNNER</label>
