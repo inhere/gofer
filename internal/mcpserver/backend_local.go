@@ -62,8 +62,15 @@ func (b *localBackend) ListProjects() ([]projectEntry, error) {
 	return out, nil
 }
 
+// ListAgents reports every agent with its availability.
+//
+// Availability is READ FROM THE CACHE (agent.Registry.Availability): the detect pass
+// ran once when the config was resolved (core.Build / core.ReloadWith). This tool is
+// called repeatedly by driver agents, and it used to spawn one `--version` child
+// process PER AGENT PER CALL — the worst amplifier of the two availability readers.
 func (b *localBackend) ListAgents() ([]agentEntry, error) {
 	list := b.agents.List()
+	avail := b.agents.Availability()
 	keys := make([]string, 0, len(list))
 	for k := range list {
 		keys = append(keys, k)
@@ -73,7 +80,7 @@ func (b *localBackend) ListAgents() ([]agentEntry, error) {
 	out := make([]agentEntry, 0, len(keys))
 	for _, k := range keys {
 		ac := list[k]
-		det := b.agents.Detect(k)
+		det := avail[k]
 		// detail: version when available, else the captured probe error.
 		detail := det.Version
 		if !det.Available {

@@ -44,7 +44,7 @@ func (r *Registry) Build(agentKey, prompt string, cmd []string, vars Vars) (Reso
 // stay pinned to one config snapshot for a whole operation uses BuildFrom
 // instead (see its doc).
 func (r *Registry) BuildWithOptions(agentKey, prompt string, cmd []string, vars Vars, opts BuildOptions) (Resolved, error) {
-	return BuildFrom(r.cfg.Load(), agentKey, prompt, cmd, vars, opts)
+	return BuildFrom(r.config(), agentKey, prompt, cmd, vars, opts)
 }
 
 // BuildFrom is BuildWithOptions against an EXPLICIT config snapshot instead of

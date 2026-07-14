@@ -112,9 +112,12 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	// already-injected keys as operator declarations and silently promote them to
 	// un-gated escape hatches. Resolve is in-place, so a caller that derives its
 	// capability report from the very cfg it passed here observes exactly what was applied.
-	cfg, _ = agent.Resolve(cfg, o.detector)
+	// The detect results of that one pass are cached on the agent registry (T5): every
+	// availability READER (GET /v1/agents, the MCP ListAgents tool) then serves them
+	// instead of re-probing per request.
+	cfg, detected := agent.Resolve(cfg, o.detector)
 	projects := project.NewRegistry(cfg, "")
-	agents := agent.NewRegistry(cfg)
+	agents := agent.NewRegistryWith(cfg, detected)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
 	// WEB-03: register the pty runner variant ONLY when a pty backend is available
 	// on this build/host. Its presence under key "pty" is the capability signal the
@@ -328,10 +331,14 @@ func (c *Core) ReloadWith(cfg *config.Config) error {
 	// silently turning into the real PATH probe here. Resolve is in-place, so a caller
 	// that reports capabilities from the same cfg it passed in reports exactly the
 	// agents that were applied (no "advertise one set, accept another").
-	cfg, _ = agent.Resolve(cfg, c.detector)
+	// The results of THIS pass replace the agent registry's availability cache in the
+	// same atomic swap as the config (T5), so the /v1/agents + MCP ListAgents views turn
+	// over with the config they describe: a CLI installed since boot appears here, and
+	// one that was uninstalled disappears.
+	cfg, detected := agent.Resolve(cfg, c.detector)
 	c.Cfg = cfg
 	c.Projects.Reload(cfg)
-	c.Agents.Reload(cfg)
+	c.Agents.ReloadWith(cfg, detected)
 	c.Jobs.Reload(cfg)
 	return nil
 }

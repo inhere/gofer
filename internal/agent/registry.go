@@ -35,29 +35,90 @@ func builtinExecAgent() config.AgentConfig {
 // Registry exposes the agents declared in a loaded config plus the built-in
 // exec agent. It is read-only over *config.Config.
 //
-// The config is held behind an atomic.Pointer so SIGHUP-driven hot-reload (C3)
-// can atomically swap it without locking the read paths. Each read takes one
-// snapshot (cfg.Load()) so a concurrent Reload cannot tear a single call.
+// The config AND the availability cache are held behind ONE atomic.Pointer so
+// SIGHUP-driven hot-reload (C3) can atomically swap both without locking the read
+// paths. Each read takes one snapshot so a concurrent Reload cannot tear a single
+// call — and, because the two live in the same snapshot, a reader can never pair a
+// new config with the previous config's detect results.
 type Registry struct {
-	cfg atomic.Pointer[config.Config]
+	snap atomic.Pointer[registrySnapshot]
 }
 
-// NewRegistry builds an agent registry over cfg.
+// registrySnapshot is the atomically swapped unit: a config plus the availability
+// results of THE detect pass that resolved it (agent.Resolve's second return).
+//
+// avail == nil means COLD: this registry was assembled without a detect pass
+// (NewRegistry / Reload — the core-less paths in internal/commands, and tests).
+// A cold cache is warmed lazily by Availability, never read as "everything is
+// unavailable" — that would be a false negative, i.e. an installed agent silently
+// disappearing from /v1/agents and the MCP tool.
+//
+// A non-nil (even empty) avail means SEEDED: a Detector ran and its verdict stands
+// as-is; a key it did not report is unavailable (Detector contract, see resolve.go).
+type registrySnapshot struct {
+	cfg   *config.Config
+	avail map[string]DetectResult
+}
+
+// NewRegistry builds an agent registry over cfg with a COLD availability cache.
+// Callers that already ran a detect pass (core.Build, via agent.Resolve) must use
+// NewRegistryWith so the results are cached instead of re-probed per request.
 func NewRegistry(cfg *config.Config) *Registry {
 	r := &Registry{}
-	r.cfg.Store(cfg)
+	r.snap.Store(&registrySnapshot{cfg: cfg}) // avail == nil: cold
 	return r
 }
 
-// Reload atomically swaps the registry's config to newCfg (C3 hot-reload). It
-// is safe to call concurrently with any read path.
-func (r *Registry) Reload(newCfg *config.Config) { r.cfg.Store(newCfg) }
+// NewRegistryWith builds an agent registry over cfg and SEEDS its availability
+// cache with avail — the second return of agent.Resolve, i.e. the results of the
+// one detect pass that already ran for this config.
+//
+// This is what keeps GET /v1/agents and the MCP ListAgents tool free of child
+// processes: both are read paths over this cache, and ListAgents in particular is a
+// tool an agent calls repeatedly. Passing a nil avail here still counts as seeded
+// (a Detector ran and reported nothing — e.g. NoopDetector in tests); pass through
+// NewRegistry to declare that no detect pass ran at all.
+func NewRegistryWith(cfg *config.Config, avail map[string]DetectResult) *Registry {
+	if avail == nil {
+		avail = map[string]DetectResult{} // seeded-but-empty, NOT cold (see registrySnapshot)
+	}
+	r := &Registry{}
+	r.snap.Store(&registrySnapshot{cfg: cfg, avail: avail})
+	return r
+}
+
+// Reload atomically swaps the registry's config to newCfg (C3 hot-reload), leaving
+// the availability cache COLD (lazily re-probed). Callers on the reload path already
+// hold fresh detect results (core.ReloadWith) and must use ReloadWith instead.
+func (r *Registry) Reload(newCfg *config.Config) { r.snap.Store(&registrySnapshot{cfg: newCfg}) }
+
+// ReloadWith atomically swaps BOTH the config and the availability cache (C3
+// hot-reload). The two are swapped as one snapshot, so a reader concurrent with the
+// swap sees either the old config with its old detect results or the new config with
+// its new ones — never a mix.
+//
+// This is how a newly installed CLI becomes visible: the reload runs one fresh detect
+// pass (core.ReloadWith → agent.Resolve) and its results land here.
+func (r *Registry) ReloadWith(newCfg *config.Config, avail map[string]DetectResult) {
+	if avail == nil {
+		avail = map[string]DetectResult{} // seeded-but-empty, NOT cold (see registrySnapshot)
+	}
+	r.snap.Store(&registrySnapshot{cfg: newCfg, avail: avail})
+}
 
 // Get returns the agent config for key. The built-in "exec" agent resolves even
 // when the config does not declare it. The second return is false for an
 // unknown key.
 func (r *Registry) Get(key string) (config.AgentConfig, bool) {
-	return ResolveAgent(r.cfg.Load(), key)
+	return ResolveAgent(r.config(), key)
+}
+
+// config returns the config of the current snapshot (nil-safe).
+func (r *Registry) config() *config.Config {
+	if s := r.snap.Load(); s != nil {
+		return s.cfg
+	}
+	return nil
 }
 
 // ResolveAgent resolves an agent config for key against a config snapshot, with
@@ -170,9 +231,14 @@ func commandBase(command string) string {
 
 // Names returns all agent keys (config-declared plus the built-in exec), sorted
 // for stable output. The built-in exec is included even if not declared.
-func (r *Registry) Names() []string {
+func (r *Registry) Names() []string { return agentNames(r.config()) }
+
+// agentNames lists the agent keys of a config snapshot (declared plus built-in
+// exec), sorted. Taking the snapshot as an argument lets a caller that must not
+// re-load the pointer mid-call (Availability) stay on ONE snapshot.
+func agentNames(cfg *config.Config) []string {
 	seen := map[string]bool{}
-	if cfg := r.cfg.Load(); cfg != nil {
+	if cfg != nil {
 		for k := range cfg.Agents {
 			seen[k] = true
 		}
@@ -195,4 +261,81 @@ func (r *Registry) List() map[string]config.AgentConfig {
 		out[name] = a
 	}
 	return out
+}
+
+// Availability returns the availability of EVERY agent in the registry WITHOUT
+// spawning a child process per call: it serves the results of the ONE detect pass
+// that already ran for the current config (core.Build / core.ReloadWith →
+// agent.Resolve → NewRegistryWith/ReloadWith).
+//
+// This is the read path GET /v1/agents and the MCP ListAgents tool sit on. Both used
+// to run a live probe per agent PER REQUEST — ListAgents especially, which an agent
+// calls over and over, and whose cost scales with the agent count that P2's template
+// injection is about to grow.
+//
+// Freshness: the cache turns over with the config snapshot, so a CLI installed after
+// the process started shows up on the next reload (SIGHUP / `gofer worker reload`),
+// which re-runs the detect pass. It does NOT self-refresh on a timer — availability
+// is a display/report fact, never an admission gate.
+//
+// Two invariants keep this cache from EVER producing a false negative (an installed
+// agent reported as missing — which is how an agent silently vanishes from a caps
+// view):
+//   - A COLD cache (registry built outside core: the core-less CLI paths, tests) is
+//     probed live once and memoized — never read as "everything unavailable".
+//   - An exec-type agent is available by construction (no external CLI to find), so it
+//     is answered from lookPathProbe regardless of what the cache holds — a hermetic
+//     Detector (NoopDetector) must not be able to report the BUILT-IN exec agent gone.
+//
+// The returned map is a fresh copy; callers may keep or mutate it freely.
+func (r *Registry) Availability() map[string]DetectResult {
+	s := r.snap.Load()
+	if s == nil {
+		return map[string]DetectResult{}
+	}
+	if s.avail == nil {
+		s = r.warm(s)
+	}
+
+	names := agentNames(s.cfg)
+	out := make(map[string]DetectResult, len(names))
+	for _, name := range names {
+		ac, ok := ResolveAgent(s.cfg, name)
+		if !ok {
+			continue
+		}
+		if ac.Type == TypeExec {
+			// Built-in, no CLI to look for: decided by the same rule every live probe
+			// path shares (lookPathProbe), never by the cache. Costs no syscall.
+			out[name] = lookPathProbe(ac)
+			continue
+		}
+		out[name] = s.avail[name] // a key the detect pass never reported is unavailable
+	}
+	return out
+}
+
+// warm probes a COLD snapshot once and memoizes the result into the registry, so a
+// registry assembled without a detect pass (NewRegistry) still answers Availability
+// from a cache after the first call instead of re-probing forever.
+//
+// It runs ONE batch detect (parallel, bounded by detectBudget), not a serial probe per
+// agent. The memoization is a CompareAndSwap: a Reload that lands mid-probe wins the
+// pointer and this stale result is dropped, while this call still returns the snapshot
+// it actually probed (never a torn mix).
+func (r *Registry) warm(cold *registrySnapshot) *registrySnapshot {
+	names := agentNames(cold.cfg)
+	candidates := make(map[string]config.AgentConfig, len(names))
+	for _, name := range names {
+		if ac, ok := ResolveAgent(cold.cfg, name); ok {
+			candidates[name] = ac
+		}
+	}
+	avail := DefaultDetector().Detect(candidates)
+	if avail == nil {
+		avail = map[string]DetectResult{}
+	}
+	warmed := &registrySnapshot{cfg: cold.cfg, avail: avail}
+	r.snap.CompareAndSwap(cold, warmed)
+	return warmed
 }
