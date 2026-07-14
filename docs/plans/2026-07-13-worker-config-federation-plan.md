@@ -224,8 +224,8 @@ T0 → T1 → T2 → T3 → T4 → T5 每步单独 commit（每步 `go test ./..
 
 ## 进度跟进
 
-- [ ] T0 版本闸拆分（Min/Current）+ 滚动升级矩阵单测
-- [ ] T1 配置快照原子化（含 `-race` 并发 Submit×Reload 测试）+ `core.ReloadWith`
+- [x] T0 版本闸拆分（Min/Current）+ 滚动升级矩阵单测 — `faee920`
+- [x] T1 配置快照原子化（含 `-race` 并发 Submit×Reload 测试）+ `core.ReloadWith` — `11eca78`
 - [ ] T2 wsproto：`Reload{RequestID}` / `ReloadResult` / `Caps`（广播与回执分离）
 - [ ] T3 worker：串行 reload executor（SIGHUP 与远程同路径）+ 先构造后应用
 - [ ] T4 wshub：按连接更新能力（消 race、防旧连接污染、同步 `maxConcurrent`）
