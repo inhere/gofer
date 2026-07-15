@@ -23,6 +23,7 @@ import (
 	"net/http"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/coder/websocket"
@@ -104,6 +105,40 @@ type Client struct {
 	reloadFn ReloadFunc
 	reloadCh chan reloadReq
 
+	// policyMode is true when this worker sources its projects from server-pushed
+	// Policy (worker.yaml has `roots`, T5-A modePolicy). LEGACY/EMPTY workers set it
+	// false: they never apply a pushed Policy, only reply an Applied{legacy_local_projects}
+	// so the hub clears its pending Rev (verification 1).
+	policyMode bool
+	// st is the single source of truth for the policy session (gen/lastRev/pending/
+	// lastPolicy, T5-C). applyMu is the B1 common-commit lock: it makes the executor's
+	// fence+apply+commit mutually exclusive with beginSession's gen turnover. Lock order
+	// is ALWAYS applyMu → st.mu. policyWake (cap 1) is the B2 merged wake feeding the
+	// reload executor's third source.
+	st         sessionState
+	applyMu    sync.Mutex
+	policyWake chan struct{}
+	// afterTakePendingHook is a test-only seam fired between taking a pending policy
+	// and acquiring applyMu, to model a beginSession racing the apply (F-B1). nil in prod.
+	afterTakePendingHook func()
+	// beforeParkHook is a test-only seam fired just before the executor parks in its
+	// select, to model an offer landing in the pre-park lost-wakeup window. nil in prod.
+	beforeParkHook func()
+
+	// Last-known-good policy cache (T5-F). cachePath is the on-disk file
+	// (<config-dir>/run/worker-<id>.policy.json); empty disables caching (LEGACY / tests).
+	// applySeq is the monotonic apply token; a cache write is dropped when its seq is no
+	// longer the latest (guards a late retry from overwriting a newer Rev). cacheMu guards
+	// the file I/O + the retry pending value and NEVER takes st.mu/applyMu/updateMu (G-H1).
+	cachePath         string
+	applySeq          atomic.Uint64
+	cacheMu           sync.Mutex
+	cacheRetryCh      chan struct{}
+	cacheRetryPending *pendingCacheWrite
+	// writeCacheFn does the actual atomic file write (default: WritePolicyCacheFile bound
+	// to cachePath/workerID). A test overrides it to inject a rename failure (verification 9).
+	writeCacheFn func(p *wsproto.Policy, seq uint64) error
+
 	backoff      backoffPolicy
 	pingInterval time.Duration
 	readDeadline time.Duration
@@ -179,7 +214,16 @@ type Config struct {
 	// the config it applied (see ReloadFunc). Injected by the command; nil disables
 	// config reload (a reload request is then answered with an error, never silently
 	// accepted).
-	Reload         ReloadFunc
+	Reload ReloadFunc
+	// PolicyMode is true when the worker sources projects from server Policy (roots
+	// configured, T5-A). LEGACY/EMPTY workers leave it false.
+	PolicyMode bool
+	// CachePath is the last-known-good policy cache file (POLICY mode only); empty
+	// disables the cache. InitialPolicy seeds the in-memory LKG at construction (a
+	// cold start that recovered a cached policy passes it here so a first SIGHUP
+	// re-projects it, verification 9).
+	CachePath      string
+	InitialPolicy  *wsproto.Policy
 	InitialBackoff time.Duration
 	MaxBackoff     time.Duration
 	PingInterval   time.Duration
@@ -217,6 +261,10 @@ func New(cfg Config, jobs Jobs) *Client {
 		startedAt:     time.Now().Unix(),
 		reloadFn:      cfg.Reload,
 		reloadCh:      make(chan reloadReq, reloadQueueCap),
+		policyMode:    cfg.PolicyMode,
+		policyWake:    make(chan struct{}, 1),
+		cachePath:     cfg.CachePath,
+		cacheRetryCh:  make(chan struct{}, 1),
 		backoff:       newBackoffPolicy(cfg.InitialBackoff, cfg.MaxBackoff, cfg.Rng),
 		pingInterval:  ping,
 		readDeadline:  read,
@@ -226,6 +274,18 @@ func New(cfg Config, jobs Jobs) *Client {
 		sessWaiters:   map[string]chan *ptyrunner.PtySession{},
 		pendingCancel: map[string]struct{}{},
 		pollInterval:  200 * time.Millisecond,
+	}
+	// Seed the in-memory last-known-good so a SIGHUP before the first server Policy
+	// re-projects the recovered cache rather than no-op'ing to empty (verification 9).
+	if cfg.InitialPolicy != nil {
+		p := *cfg.InitialPolicy
+		cl.st.lastPolicy = &p
+	}
+	// Default cache writer binds the atomic file helper to this worker's path/id; a
+	// test overrides writeCacheFn to inject a write failure.
+	wid, path := cfg.WorkerID, cfg.CachePath
+	cl.writeCacheFn = func(p *wsproto.Policy, seq uint64) error {
+		return WritePolicyCacheFile(path, wid, p, seq)
 	}
 	cl.pumpPtyFn = cl.pumpPty // real pump by default; tests override for join assertions
 	return cl
@@ -385,6 +445,9 @@ func (cl *Client) Run(ctx context.Context) error {
 	// will register with) whether or not a hub is currently attached. It exits with
 	// ctx (worker shutdown).
 	go cl.reloadLoop(ctx)
+	// Best-effort last-known-good cache retry (POLICY mode with a cache path); a no-op
+	// otherwise. Also lives across reconnects and exits with ctx.
+	go cl.cacheRetryLoop(ctx)
 	idx := 0
 	attempt := 0
 	for {
@@ -497,7 +560,26 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 	defer close(done)
 	cl.startHeartbeat(ctx, done)
 
-	err = cl.recvLoop(ctx, url)
+	// Open a policy session for this connection (T5-C/D). beginSession bumps the
+	// generation, clears the per-session Rev (a new server counts from its own Rev 1)
+	// and seeds any ack-bundled Policy as the first pending — the gen it returns tags
+	// every TypePolicy frame recvLoop reads on this connection. A non-POLICY worker
+	// never applies a pushed Policy; it only acknowledges one so the hub clears pending.
+	var gen uint64
+	if cl.policyMode {
+		if reg.Policy == nil && !wsproto.SupportsPolicy(reg.ProtocolVersion) {
+			// The server does not push policy (v3 or older). The worker keeps its
+			// last-known-good; a cold start with none simply has no projects until it
+			// reaches a v4 server (verification 16).
+			slog.Warn("worker in policy mode but server does not push policy; keeping last-known-good",
+				"worker_id", cl.workerID, "url", url, "server_proto", reg.ProtocolVersion)
+		}
+		gen = cl.beginSession(reg.Policy)
+	} else if reg.Policy != nil {
+		cl.replyLegacyApplied(ctx, reg.Policy.Rev)
+	}
+
+	err = cl.recvLoop(ctx, url, gen)
 	cl.notify("disconnected")
 	slog.Info("worker disconnected from hub", "worker_id", cl.workerID, "err", err)
 	return true, err
@@ -510,8 +592,10 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 // returns the error that ended the connection (disconnect / read-deadline / ctx).
 // url is THIS session's hub address; it is threaded to handleDispatch so an
 // interactive dispatch derives its pty-connect URL from the same hub it arrived
-// on (D-P2-7 per-dispatch URL).
-func (cl *Client) recvLoop(ctx context.Context, url string) error {
+// on (D-P2-7 per-dispatch URL). gen is the policy session generation opened by
+// beginSession for this connection; it tags every TypePolicy frame so a frame from a
+// superseded session can never be applied (T5-D).
+func (cl *Client) recvLoop(ctx context.Context, url string, gen uint64) error {
 	for {
 		rctx, cancel := context.WithTimeout(ctx, cl.readDeadline)
 		env, err := cl.readEnvelope(rctx)
@@ -566,6 +650,20 @@ func (cl *Client) recvLoop(ctx context.Context, url string) error {
 				continue
 			}
 			cl.onReload(ctx, rf)
+		case wsproto.TypePolicy:
+			// P3 policy push (mid-session or ack catch-up). A POLICY worker offers it to
+			// its session state (latest-wins, gen-tagged); the serial executor applies it
+			// and reports Applied. A non-POLICY worker never applies a pushed Policy — it
+			// only acknowledges the Rev so the hub clears pending (verification 1).
+			pf, derr := wsproto.As[wsproto.Policy](env)
+			if derr != nil {
+				continue
+			}
+			if cl.policyMode {
+				cl.offerPolicy(gen, pf)
+			} else {
+				cl.replyLegacyApplied(ctx, pf.Rev)
+			}
 		case wsproto.TypePing:
 			// P3: the hub pings us; reply pong{ts} (symmetric, §5.1). Reading the
 			// frame already proves the connection is alive (refreshes our own read

@@ -179,7 +179,7 @@ func capsFor(t *testing.T, wc *config.WorkerConfig, inner agent.Detector) wsprot
 		t.Fatalf("core.Build: %v", err)
 	}
 	t.Cleanup(func() { _ = cr.Close() })
-	return workerCaps(wc, cfg, det.snapshot())
+	return workerCaps(wc, cfg, det.snapshot(), mapKeys(wc.Projects))
 }
 
 // availabilityOf returns the reported availability of key as a printable tri-state.
@@ -314,17 +314,18 @@ func TestWorkerCapsDetectsOncePerSnapshot(t *testing.T) {
 	if d.calls != 1 {
 		t.Fatalf("startup probed the host %d times, want exactly 1", d.calls)
 	}
-	caps := workerCaps(wc, cfg, det.snapshot())
+	caps := workerCaps(wc, cfg, det.snapshot(), mapKeys(wc.Projects))
 	if b, ok := briefFor(caps.AgentCaps, "claude"); !ok || b.Available == nil || !*b.Available || b.Version != "9.9" {
 		t.Fatalf("register caps carry no detect detail: %+v", caps.AgentCaps)
 	}
 
 	// One reload = one more snapshot = exactly one more probe, and the receipt reports
-	// that pass — not a third one.
-	rcaps, err := newWorkerReloadFn(cr, det, path, "w1")()
+	// that pass — not a third one. A nil policy is a LEGACY reload (local projects).
+	rout, err := newWorkerReloadFn(cr, det, path, "w1")(nil)
 	if err != nil {
 		t.Fatalf("reload: %v", err)
 	}
+	rcaps := rout.Caps
 	if d.calls != 2 {
 		t.Fatalf("startup + one reload probed the host %d times, want exactly 2 (one per snapshot)", d.calls)
 	}

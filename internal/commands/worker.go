@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"sort"
@@ -265,7 +266,12 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 	// "advertise exactly what was applied" (a CLI installed between the two passes would
 	// be reported but not merged) on top of doubling the startup/reload cost.
 	det := &availabilityRecorder{inner: agent.DefaultDetector()}
-	wcfg := workerConfigToConfig(wc)
+	// T5-A: the initial config depends on the mode. LEGACY keeps its local projects;
+	// POLICY starts from the last-known-good cache (server-pushed projects survive a
+	// restart) or empty until the first policy arrives; EMPTY runs nothing.
+	mode := workerModeOf(wc)
+	cachePath := workerPolicyCachePath(wc.WorkerID)
+	wcfg, initialProjects, initialPolicy := initialWorkerConfig(mode, wc, cachePath)
 	cr, err := core.Build(wcfg, core.WithAgentDetector(det))
 	if err != nil {
 		return errorx.Failf(workerExitErr, "%v", err)
@@ -273,7 +279,11 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 	defer func() { _ = cr.Close() }()
 
 	rc := wc.ServerLink.Reconnect
-	caps := workerCaps(wc, wcfg, det.snapshot())
+	caps := workerCaps(wc, wcfg, det.snapshot(), initialProjects)
+	policyCachePath := ""
+	if mode == modePolicy {
+		policyCachePath = cachePath // only POLICY workers persist a last-known-good cache
+	}
 	cl := worker.New(worker.Config{
 		WorkerID:  wc.WorkerID,
 		URLs:      wsDialURLs(wc.ServerLink.URLs),
@@ -282,9 +292,13 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 		Projects:  caps.Projects,
 		Agents:    caps.Agents,
 		AgentCaps: caps.AgentCaps,
-		// Config hot-reload (SIGHUP / hub request): the command owns "how to read
-		// worker.yaml", the worker package owns when/how a reload is applied (G021).
+		// Config hot-reload (SIGHUP / hub request) + policy apply: the command owns "how
+		// to read worker.yaml / how to project a policy", the worker package owns
+		// when/how a reload or policy is applied (G021).
 		Reload:         newWorkerReloadFn(cr, det, workerOpts.config, wc.WorkerID),
+		PolicyMode:     mode == modePolicy,
+		CachePath:      policyCachePath,
+		InitialPolicy:  initialPolicy,
 		GoferVersion:   info.DisplayVersion(),
 		MaxConc:        caps.MaxConc,
 		InitialBackoff: msToDuration(rc.InitialBackoffMS),
@@ -325,24 +339,54 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 // take effect; process-level facts (worker id, hub urls/token, storage db path) are
 // frozen at startup and need a restart.
 func newWorkerReloadFn(cr *core.Core, det *availabilityRecorder, path, workerID string) worker.ReloadFunc {
-	return func() (wsproto.Caps, error) {
+	return func(p *wsproto.Policy) (worker.ReloadOutcome, error) {
 		wc, err := loadWorkerConfig(path)
 		if err != nil {
-			return wsproto.Caps{}, err
+			return worker.ReloadOutcome{}, err
 		}
 		if wc.WorkerID != workerID {
-			return wsproto.Caps{}, fmt.Errorf(
+			return worker.ReloadOutcome{}, fmt.Errorf(
 				"worker config: worker_id changed (%q -> %q); restart the worker to change its identity",
 				workerID, wc.WorkerID)
 		}
-		cfg := workerConfigToConfig(wc)
-		// ReloadWith runs THE resolve pass for this snapshot (one detect, reusing the
-		// recorder it was built with), so the snapshot read straight after it is that
-		// very pass's result — the report and the applied config come from one probe.
-		if err := cr.ReloadWith(cfg); err != nil {
-			return wsproto.Caps{}, err
+		switch workerModeOf(wc) {
+		case modePolicy:
+			// A policy to apply (a server push, or a SIGHUP re-projecting the in-memory
+			// last-known-good). Project it, apply, report caps from the PROJECTION.
+			if p != nil {
+				cfg, rejected := projectPolicy(wc, *p)
+				if err := cr.ReloadWith(cfg); err != nil {
+					return worker.ReloadOutcome{}, err
+				}
+				detected := det.snapshot()
+				return worker.ReloadOutcome{
+					Caps:       workerCaps(wc, cfg, detected, mapKeys(cfg.Projects)),
+					AppliedRev: p.Rev,
+					Rejected:   rejected,
+					Degraded:   diagnosePolicy(cfg, *p, wc, detected),
+				}, nil
+			}
+			// p == nil: a SIGHUP with no last-known-good yet (fresh POLICY worker, or one
+			// just switched from LEGACY). NO-OP on the project set (E-B2): keep whatever is
+			// running, re-report its caps — NEVER construct an empty cfg + ReloadWith, which
+			// would silently wipe the running projects. roots/guards changes take effect the
+			// next time a real policy is projected.
+			active := cr.Config()
+			return worker.ReloadOutcome{
+				Caps: workerCaps(wc, active, det.snapshot(), mapKeys(active.Projects)),
+			}, nil
+		default:
+			// LEGACY / EMPTY: source projects from the worker's own config. ReloadWith runs
+			// THE resolve pass for this snapshot (one detect, reusing the recorder it was
+			// built with), so the caps read straight after come from that same probe.
+			cfg := workerConfigToConfig(wc)
+			if err := cr.ReloadWith(cfg); err != nil {
+				return worker.ReloadOutcome{}, err
+			}
+			return worker.ReloadOutcome{
+				Caps: workerCaps(wc, cfg, det.snapshot(), mapKeys(wc.Projects)),
+			}, nil
 		}
-		return workerCaps(wc, cfg, det.snapshot()), nil
 	}
 }
 
@@ -379,10 +423,15 @@ func (r *availabilityRecorder) snapshot() map[string]agent.DetectResult {
 }
 
 // workerCaps derives the capability report from ONE worker config snapshot (the
-// raw worker.yaml for labels/projects/max_concurrent, the mapped config.Config for
-// the resolved agent keys/briefs) plus the detect result of the SAME resolve pass that
+// raw worker.yaml for labels/max_concurrent, the mapped config.Config for the
+// resolved agent keys/briefs) plus the detect result of the SAME resolve pass that
 // produced that snapshot. Startup register and every reload go through it, so the two
 // can never drift.
+//
+// projects is passed EXPLICITLY (rather than read from wc.Projects) because the source
+// differs by mode (T5-F): LEGACY reports mapKeys(wc.Projects); POLICY reports the
+// PROJECTED mapKeys(cfg.Projects). Making it a parameter forces each call site to name
+// its source instead of silently reporting the wrong one.
 //
 // detected is display detail only (availability/version): the agent SET comes from the
 // resolved config, never from the probe. That is the iron rule — an agent the operator
@@ -390,14 +439,134 @@ func (r *availabilityRecorder) snapshot() map[string]agent.DetectResult {
 // template-injected agents are detect-gated, and that gating already happened in
 // agent.Resolve, before this config snapshot existed). A nil map simply leaves every
 // availability unknown.
-func workerCaps(wc *config.WorkerConfig, cfg *config.Config, detected map[string]agent.DetectResult) wsproto.Caps {
+func workerCaps(wc *config.WorkerConfig, cfg *config.Config, detected map[string]agent.DetectResult, projects []string) wsproto.Caps {
 	return wsproto.Caps{
 		Labels:    wc.Labels,
-		Projects:  mapKeys(wc.Projects),
+		Projects:  projects,
 		Agents:    agentKeys(cfg),
 		AgentCaps: agentBriefs(cfg, detected),
 		MaxConc:   wc.MaxConcurrent,
 	}
+}
+
+// workerMode is the worker's project-sourcing mode, derived from worker.yaml (T5-A).
+type workerMode int
+
+const (
+	// modeLegacy: no roots, has local projects → the worker sources projects from its
+	// own worker.yaml and IGNORES any pushed policy (verification 1). The zero value.
+	modeLegacy workerMode = iota
+	// modePolicy: roots are configured → the server-pushed policy is authoritative and
+	// projected onto the roots; any local `projects:` is ignored.
+	modePolicy
+	// modeEmpty: neither roots nor projects → the worker can run nothing (loud WARN).
+	modeEmpty
+)
+
+// workerModeOf classifies a worker.yaml into its project-sourcing mode (T5-A):
+// roots present ⇒ POLICY (regardless of any leftover projects); else projects ⇒
+// LEGACY; else EMPTY.
+func workerModeOf(wc *config.WorkerConfig) workerMode {
+	switch {
+	case len(wc.Roots) > 0:
+		return modePolicy
+	case len(wc.Projects) > 0:
+		return modeLegacy
+	default:
+		return modeEmpty
+	}
+}
+
+// projectPolicy projects a server Policy onto the worker's LOCAL config (T5-E). The
+// project set is a COMPLETE-SNAPSHOT REPLACEMENT (E-B1): the returned cfg carries
+// exactly the policy's projects (a shorter/empty policy revokes the missing ones —
+// never a merge). A project whose host_path maps to no local root is REJECTED (never
+// admitted with an empty HostPath, which filepath.Abs would resolve to the process
+// CWD — verification 8). Everything else is a straight structure map:
+//
+//   - AllowedRunners is ALWAYS ["local"] (a worker executes dispatches locally);
+//   - AllowExec is the policy's AND the worker's exec guard (guards only tighten);
+//   - AllowedAgents is passed through VERBATIM — no intersection with cfg.Agents, whose
+//     empty-list-means-all semantics would silently open every agent (D6, verification 13);
+//   - InteractiveAllowedAgents is passed through, but CLEARED when the interactive guard
+//     is explicitly false (empty = all forbidden, the opposite polarity of AllowedAgents);
+//   - MaxConcurrentJobs / CaptureDiff are passed through verbatim (H2: dropping them
+//     would silently mean unlimited concurrency / diff-on, verification 14).
+//
+// container_path / default_agent / storage / exchange_subdir / result_subdir / agent
+// definitions are deliberately NOT projected (§4.4): the worker's own workerConfigToConfig
+// supplies them, and cfg.Agents is left to agent.Resolve inside core.ReloadWith.
+func projectPolicy(wc *config.WorkerConfig, p wsproto.Policy) (*config.Config, []wsproto.AppliedRejection) {
+	cfg := workerConfigToConfig(wc) // storage/agents/runners/db/defaults; Projects replaced below
+	projects := make(map[string]config.ProjectConfig, len(p.Projects))
+	var rejected []wsproto.AppliedRejection
+	for _, pp := range p.Projects {
+		host, ok := wc.MapRoot(pp.HostPath)
+		if !ok {
+			rejected = append(rejected, wsproto.AppliedRejection{Key: pp.Key, Reason: "path_outside_roots"})
+			continue // never admit an empty HostPath (verification 8)
+		}
+		projects[pp.Key] = config.ProjectConfig{
+			HostPath:                 host,
+			AllowedRunners:           []string{"local"},
+			AllowExec:                pp.AllowExec && wc.Guards.IsExecAllowed(),
+			AllowedAgents:            pp.AllowedAgents,
+			InteractiveAllowedAgents: policyInteractiveAgents(pp, wc),
+			MaxConcurrentJobs:        pp.MaxConcurrentJobs,
+			CaptureDiff:              pp.CaptureDiff,
+		}
+	}
+	cfg.Projects = projects // COMPLETE snapshot replace (E-B1); empty policy ⇒ empty set
+	return cfg, rejected
+}
+
+// policyInteractiveAgents passes the policy's interactive allowlist through verbatim,
+// but returns nil (clear) when the worker's interactive guard is explicitly false —
+// an empty InteractiveAllowedAgents means "all interactive agents forbidden", so
+// clearing it is how the guard tightens (opposite polarity to AllowedAgents).
+func policyInteractiveAgents(pp wsproto.PolicyProject, wc *config.WorkerConfig) []string {
+	if !wc.Guards.IsInteractiveAllowed() {
+		return nil
+	}
+	return pp.InteractiveAllowedAgents
+}
+
+// diagnosePolicy computes the READ-ONLY Applied.Degraded list: projects the worker
+// applied but with a capability the policy asked for gated off (guards) or an allowed
+// agent the host does not have. It runs AFTER ReloadWith on the applied cfg, so it
+// never writes config — pure diagnostics for the Cluster page, never routing.
+func diagnosePolicy(cfg *config.Config, p wsproto.Policy, wc *config.WorkerConfig, detected map[string]agent.DetectResult) []wsproto.AppliedDegrade {
+	var out []wsproto.AppliedDegrade
+	for _, pp := range p.Projects {
+		if _, ok := cfg.Projects[pp.Key]; !ok {
+			continue // rejected (path_outside_roots); not applied, not degraded
+		}
+		if pp.AllowExec && !wc.Guards.IsExecAllowed() {
+			out = append(out, wsproto.AppliedDegrade{Key: pp.Key, Gate: "exec"})
+		}
+		if len(pp.InteractiveAllowedAgents) > 0 && !wc.Guards.IsInteractiveAllowed() {
+			out = append(out, wsproto.AppliedDegrade{Key: pp.Key, Gate: "interactive"})
+		}
+		for _, a := range pp.AllowedAgents {
+			if !workerAgentAvailable(cfg, detected, a) {
+				out = append(out, wsproto.AppliedDegrade{Key: pp.Key, Gate: "agent_unavailable:" + a})
+			}
+		}
+	}
+	return out
+}
+
+// workerAgentAvailable reports whether agent key resolves on this worker AND (when
+// probed) its CLI was found. Unresolvable ⇒ unavailable; resolvable-but-unprobed ⇒
+// assumed available (do not over-report a degrade for an agent we simply did not probe).
+func workerAgentAvailable(cfg *config.Config, detected map[string]agent.DetectResult, key string) bool {
+	if _, ok := agent.ResolveAgent(cfg, key); !ok {
+		return false
+	}
+	if res, probed := detected[key]; probed {
+		return res.Available
+	}
+	return true
 }
 
 // loadWorkerConfig reads and decodes the worker.yaml at path (the
@@ -451,6 +620,52 @@ func workerConfigToConfig(wc *config.WorkerConfig) *config.Config {
 	// identically to a serve process.
 	config.ApplyDefaults(cfg)
 	return cfg
+}
+
+// workerPolicyCachePath is the last-known-good policy cache file for a worker
+// (<config-dir>/run/worker-<id>.policy.json). It is where a POLICY worker persists the
+// applied policy so a restart with an unreachable server keeps its projects (T5-F);
+// the T6 CLI reads the same path.
+func workerPolicyCachePath(workerID string) string {
+	return config.RuntimeFilePath("run", "worker-"+workerID+".policy.json")
+}
+
+// initialWorkerConfig builds the worker's STARTUP config per mode (T5-A), returning
+// the config, the projects to advertise on the first register, and the policy to seed
+// as the in-memory last-known-good (POLICY cold start from cache; nil otherwise). It
+// logs the migration/error hints that the three-state model requires.
+func initialWorkerConfig(mode workerMode, wc *config.WorkerConfig, cachePath string) (*config.Config, []string, *wsproto.Policy) {
+	switch mode {
+	case modePolicy:
+		if len(wc.Projects) > 0 {
+			slog.Warn("worker in policy mode ignores its local projects (the server pushes policy); delete `projects:` from worker.yaml",
+				"worker_id", wc.WorkerID, "ignored_projects", len(wc.Projects))
+		}
+		p, rerr := worker.ReadPolicyCacheFile(cachePath, wc.WorkerID)
+		if rerr != nil {
+			slog.Warn("worker ignoring unusable policy cache; starting with no projects until a policy arrives",
+				"worker_id", wc.WorkerID, "err", rerr)
+		}
+		if p != nil {
+			cfg, _ := projectPolicy(wc, *p)
+			slog.Info("worker recovered last-known-good policy from cache",
+				"worker_id", wc.WorkerID, "rev", p.Rev, "projects", len(cfg.Projects))
+			return cfg, mapKeys(cfg.Projects), p
+		}
+		// No usable cache: start empty (the projection of an empty policy) — the worker
+		// registers with zero projects and converges once the server pushes one.
+		cfg, _ := projectPolicy(wc, wsproto.Policy{})
+		return cfg, nil, nil
+	case modeEmpty:
+		slog.Error("worker has neither roots (policy mode) nor projects (legacy) — it will run no jobs",
+			"worker_id", wc.WorkerID)
+		return workerConfigToConfig(wc), nil, nil
+	default: // modeLegacy
+		slog.Warn("worker running in legacy local-projects mode; migrate by adding `roots:` and letting the server push policy",
+			"worker_id", wc.WorkerID, "projects", len(wc.Projects))
+		cfg := workerConfigToConfig(wc)
+		return cfg, mapKeys(wc.Projects), nil
+	}
 }
 
 // resolveWorkerToken resolves the hub Bearer token from the server_link (env var

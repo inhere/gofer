@@ -46,7 +46,7 @@ func TestReloadExecutorAppliesInArrivalOrder(t *testing.T) {
 	var mu sync.Mutex
 	var applied []string
 	calls := 0
-	cl.reloadFn = func() (wsproto.Caps, error) {
+	cl.reloadFn = func(*wsproto.Policy) (ReloadOutcome, error) {
 		mu.Lock()
 		calls++
 		n := calls
@@ -61,7 +61,7 @@ func TestReloadExecutorAppliesInArrivalOrder(t *testing.T) {
 		mu.Lock()
 		applied = append(applied, label)
 		mu.Unlock()
-		return capsWith(label, n), nil
+		return ReloadOutcome{Caps: capsWith(label, n)}, nil
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -114,13 +114,13 @@ func TestReloadBadConfigKeepsOldCapsAndReplies(t *testing.T) {
 
 	fail := true
 	var mu sync.Mutex
-	cl.reloadFn = func() (wsproto.Caps, error) {
+	cl.reloadFn = func(*wsproto.Policy) (ReloadOutcome, error) {
 		mu.Lock()
 		defer mu.Unlock()
 		if fail {
-			return wsproto.Caps{}, errBadConfig
+			return ReloadOutcome{}, errBadConfig
 		}
-		return capsWith("new", 5), nil
+		return ReloadOutcome{Caps: capsWith("new", 5)}, nil
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -178,7 +178,7 @@ func (e *reloadTestErr) Error() string { return e.msg }
 func TestReloadSighupBroadcastsCaps(t *testing.T) {
 	jobs := &stubJobs{}
 	cl, frames, _ := dialLiveClient(t, jobs)
-	cl.reloadFn = func() (wsproto.Caps, error) { return capsWith("hup", 7), nil }
+	cl.reloadFn = func(*wsproto.Policy) (ReloadOutcome, error) { return ReloadOutcome{Caps: capsWith("hup", 7)}, nil }
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -219,7 +219,7 @@ func TestReloadSighupBroadcastsCaps(t *testing.T) {
 func TestReloadQueueFullRepliesBusy(t *testing.T) {
 	jobs := &stubJobs{}
 	cl, frames, _ := dialLiveClient(t, jobs)
-	cl.reloadFn = func() (wsproto.Caps, error) { return capsWith("x", 1), nil }
+	cl.reloadFn = func(*wsproto.Policy) (ReloadOutcome, error) { return ReloadOutcome{Caps: capsWith("x", 1)}, nil }
 
 	// No executor running → nothing drains the queue; fill it to the brim.
 	for i := 0; i < reloadQueueCap; i++ {

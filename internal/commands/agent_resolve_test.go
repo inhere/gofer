@@ -68,7 +68,7 @@ func TestWorkerStartupMergesExactlyOnce(t *testing.T) {
 
 	// Step 3: the caps report is derived from the SAME snapshot Build resolved, so what
 	// the worker advertises is exactly what it will accept on dispatch.
-	caps := workerCaps(wc, wcfg, nil)
+	caps := workerCaps(wc, wcfg, nil, mapKeys(wc.Projects))
 	if !slices.Contains(caps.Agents, "claude") {
 		t.Fatalf("advertised caps miss the materialized template: %v", caps.Agents)
 	}
@@ -86,7 +86,7 @@ func TestWorkerStartupMergesExactlyOnce(t *testing.T) {
 	if d.calls != 2 {
 		t.Fatalf("after one reload: %d detect calls, want 2 (one per config snapshot)", d.calls)
 	}
-	if !slices.Contains(workerCaps(wc, next, nil).Agents, "claude") {
+	if !slices.Contains(workerCaps(wc, next, nil, mapKeys(wc.Projects)).Agents, "claude") {
 		t.Fatal("reload caps lost the materialized template")
 	}
 }
