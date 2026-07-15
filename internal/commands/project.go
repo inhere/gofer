@@ -13,6 +13,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/project"
+	"github.com/inhere/gofer/internal/worker"
 )
 
 // projectAddOpts holds `project add` flags. The config path is the app-level
@@ -171,16 +172,26 @@ func runProjectList(c *gcli.Command, _ []string) error {
 }
 
 // localProjects returns the projects from the LOCAL config file matching the node
-// role: GOFER_RUN_MODE=worker → worker.yaml.Projects; server (default) →
-// config.yaml.Projects. The second value is a short source label for the
-// empty-list hint. WorkerConfig.Projects and Config.Projects are the same
+// role: GOFER_RUN_MODE=worker → the worker's effective project set; server
+// (default) → config.yaml.Projects. The second value is a short source label for
+// the empty-list hint. WorkerConfig.Projects and Config.Projects are the same
 // map[string]config.ProjectConfig, so rendering is identical (E38②).
+//
+// A worker's effective project set depends on its mode (T6-A): a LEGACY worker
+// sources them VERBATIM from worker.yaml (unchanged behaviour); a POLICY worker's
+// projects come from the SERVER, so the live truth is the last-known-good policy
+// cache the running worker persisted (workerPolicyCachePath) — read-only, never a
+// panic when the file is absent (worker not running / no policy yet).
 func localProjects() (map[string]config.ProjectConfig, string, error) {
 	if config.RunMode() == config.RunModeWorker {
 		wc, err := loadWorkerConfig("") // <config-dir>/worker.yaml (UserWorkerConfigPath)
 		if err != nil {
 			return nil, "worker.yaml", err
 		}
+		if workerModeOf(wc) == modePolicy {
+			return workerPolicyProjects(wc)
+		}
+		// LEGACY / EMPTY: the worker sources projects from its own worker.yaml.
 		return wc.Projects, "worker.yaml (GOFER_RUN_MODE=worker)", nil
 	}
 	cfg, path, err := config.Load(config.InputCfgFile)
@@ -191,6 +202,26 @@ func localProjects() (map[string]config.ProjectConfig, string, error) {
 		path = "config.yaml"
 	}
 	return cfg.Projects, path, nil
+}
+
+// workerPolicyProjects returns a POLICY worker's currently-effective projects,
+// read from the last-known-good policy cache and projected onto the worker's roots
+// (the SAME projection the running worker applies, so `project list` shows exactly
+// what the worker would run). A missing/unusable cache is NOT an error: the worker
+// is simply not running or has not received a policy yet, so it returns an empty
+// set with an explanatory source label (the caller renders "(no projects in …)").
+func workerPolicyProjects(wc *config.WorkerConfig) (map[string]config.ProjectConfig, string, error) {
+	p, err := worker.ReadPolicyCacheFile(workerPolicyCachePath(wc.WorkerID), wc.WorkerID)
+	if err != nil {
+		// A half-written / foreign-worker cache: treat as "no cache" (never panic),
+		// but say why so the operator can tell it apart from a clean empty.
+		return nil, "policy 缓存不可用 (worker 未运行或尚未收到 Policy): " + err.Error(), nil
+	}
+	if p == nil {
+		return nil, "policy 缓存不存在 (worker 未运行或尚未收到 Policy)", nil
+	}
+	cfg, _ := projectPolicy(wc, *p) // rejected (path_outside_roots) drop out — not effective
+	return cfg.Projects, "policy 缓存 (server 下发)", nil
 }
 
 // runProjectListRemote lists the SERVER's live projects via API (--remote). It

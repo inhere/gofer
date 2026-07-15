@@ -7,6 +7,15 @@
 # registers, and runs dispatched jobs LOCALLY with its own config (it re-validates
 # project/agent/exec against THIS file). See the server example's `server.workers`
 # + `runners` comments for the connect-side requirements.
+#
+# PROJECT SOURCING — two modes (the worker picks one by what THIS file contains):
+#   * POLICY (recommended): declare `roots:` below. The SERVER pushes the set of
+#     projects this worker may run; the worker maps each server-side path onto a
+#     local root and runs it. Add/point a project server-side with NO worker edit.
+#   * LEGACY (deprecated): declare `projects:` (and NO roots). The worker sources
+#     projects from THIS file and ignores any pushed policy. Still works; migrate
+#     to roots — see docs/runbook/2026-07-15-worker-policy-migration.md.
+# roots present ⇒ POLICY (any leftover `projects:` is ignored, with a warning).
 
 # worker_id 必须等于【服务端 server.workers 段的 KEY】(以及 runners.<name>.worker_id)。
 # register 帧自报这个 id; 它与所用 token 绑定不一致就会被 hub 拒(日志: "registration
@@ -35,18 +44,43 @@ labels: [host, codex, claude]
 # max_concurrent: 本 worker 并发执行的 job 上限。
 max_concurrent: 4
 
-# projects: worker 用【自己的】这份项目配置执行 job(review #8 本地再校验)。
-# 关键: job 带的 project key 必须在这里也存在 —— 派发端(服务端)校验一次, 派到 worker
-# 后由 worker 用本文件再解析【同一个 key】, 对不上会以「未知项目」拒掉。
-# host_path 是【本执行机上】的真实工作目录; allowed_runners 含 local(worker 本地用 local
-# runner 真正执行, 不再向下派发)。
-projects:
-  w-host:
-    host_path: /abs/path/on/this/worker/host
-    default_agent: exec
-    allowed_agents: [exec]
-    allowed_runners: [local]
-    allow_exec: true
+# roots(POLICY 模式核心): 把【服务端逻辑路径前缀 from】映射到【本执行机 to】。
+# 服务端下发的每个 project 带一个逻辑 host_path; worker 用最长匹配的 root 把它换算成
+# 本机真实目录再执行。加一条 root = 【故意】扩大这台机可执行的目录树，因此 roots 只在
+# 本机维护(不会被远端改写、也不经 API 暴露)。
+#
+#   * to 必须是【本执行机上真实存在】的目录; from 是服务端视角的逻辑前缀(可为 Windows
+#     盘符形式, 大小写不敏感; POSIX 前缀大小写敏感)。
+#   * 匹配按【最长 from 优先】: 因此一条更长的 from 就是「更具体 root 覆盖」——既能改 project
+#     根、也一起改其子路径(例外目录本就是另一棵树, 无需 per-project 覆盖)。
+#   * 越界保护: 映射结果必须仍落在 to 之下(含 symlink), 否则该 project 被拒(path_outside_roots)。
+roots:
+  # 通配根: 服务端 D:/work/x 下的所有 project → 本机 /host/projects/x 下同名子目录。
+  - from: D:/work/x
+    to: /host/projects/x
+  # 更具体 root 覆盖(例外): 服务端末段名与本机不同名时, 用更长的 from 精确改写。
+  # 命中它的 project(及其子路径)映到 /host/projects/proj-b, 而非通配根的 .../proj-a。
+  - from: D:/work/x/proj-a
+    to: /host/projects/proj-b
+
+# guards(护栏): 本 worker 对下发能力的【本地收紧】开关。缺省语义 = 【不额外收紧】:
+#   * 字段【缺失/未写】= 不收紧(exec 与 interactive 都放行, 与升级前行为一致);
+#   * 显式 false 才拒: allow_exec:false 拒所有 exec job; allow_interactive:false 拒所有 pty/交互 job。
+# 迁移到 policy 模式时【建议显式声明】(别靠缺省), 让这台机的能力姿态一目了然(doctor 会 WARN)。
+guards:
+  allow_exec: true
+  allow_interactive: false
+
+# projects(【已废弃 / LEGACY】): 仅当【没有 roots】时生效 —— 此时 worker 用【自己的】这份
+# 项目配置执行 job(派发端校验一次, 派到 worker 后用本文件再解析【同一个 key】, 对不上以「未知
+# 项目」拒掉)。有了上面的 roots 就【无需本段】(留着也会被忽略并告警)。保留示例仅供参考:
+# projects:
+#   w-host:
+#     host_path: /host/projects/x/w-host   # 本执行机上的真实工作目录
+#     default_agent: exec
+#     allowed_agents: [exec]
+#     allowed_runners: [local]             # worker 本地用 local runner 真正执行
+#     allow_exec: true
 
 # agents: 若要跑 cli-agent(codex/claude/…), 在这里定义其命令(worker 本地需装这些 CLI)。
 # 纯 exec job 不需要本段。结构同服务端 example 的 agents。

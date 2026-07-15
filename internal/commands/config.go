@@ -16,6 +16,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/project"
+	"github.com/inhere/gofer/internal/worker"
 )
 
 // configExitErr is the process exit code returned when `config validate` finds
@@ -333,10 +334,29 @@ func printWorkerConfigInfo(c *gcli.Command) error {
 	c.Printf("  server_link.token set=%s\n", boolYesNo(resolveWorkerToken(wc.ServerLink) != ""))
 	c.Printf("  max_concurrent:    %d\n", wc.MaxConcurrent)
 	c.Printf("  labels:            %s\n", dashIfEmpty(strings.Join(wc.Labels, ", ")))
-	c.Printf("  projects:          %d\n", len(wc.Projects))
+	// mode (T6-B): roots present ⇒ POLICY (server pushes projects); else projects ⇒
+	// LEGACY (local, deprecated); else EMPTY (nothing to run).
+	c.Printf("  mode:              %s\n", workerModeLabel(wc))
+	c.Printf("  roots:             %d\n", len(wc.Roots))
+	c.Printf("  guards:            allow_exec=%s allow_interactive=%s\n",
+		boolPtrStr(wc.Guards.AllowExec), boolPtrStr(wc.Guards.AllowInteractive))
+	c.Printf("  projects:          %d (local; ignored in policy mode)\n", len(wc.Projects))
 	c.Printf("  agents:            %d\n", len(wc.Agents))
 	c.Printf("  runners:           %d\n", len(wc.Runners))
 	return nil
+}
+
+// workerModeLabel renders workerModeOf as a stable operator-facing string used by
+// `config info` (the doctor branches on the same modes).
+func workerModeLabel(wc *config.WorkerConfig) string {
+	switch workerModeOf(wc) {
+	case modePolicy:
+		return "policy (roots set; server pushes projects)"
+	case modeEmpty:
+		return "empty (no roots and no projects — runs nothing)"
+	default:
+		return "legacy (local projects; deprecated)"
+	}
 }
 
 // envSetYesNo reports whether an env var is set to a non-empty value (SR403: used
@@ -473,11 +493,32 @@ func validateServerConfig(c *gcli.Command) error {
 	return errorx.Failf(configExitErr, "config validation failed")
 }
 
+// Doctor line statuses. OK/FAIL keep their historical spellings (padded to 4 so
+// the fixed-width column aligns); WARN/INFO are advisory — they NEVER fail the
+// command (only FAIL sets a non-zero exit).
+const (
+	docStatusOK   = "OK  "
+	docStatusFail = "FAIL"
+	docStatusWarn = "WARN"
+	docStatusInfo = "INFO"
+)
+
+// migrationDoc is the in-repo path the LEGACY deprecation WARN points operators at
+// (T6-D). Kept as a const so the WARN text and the shipped doc never drift.
+const migrationDoc = "docs/runbook/2026-07-15-worker-policy-migration.md"
+
 // validateWorkerConfig decodes a worker.yaml and checks the worker-specific
-// fields (worker_id / server_link.urls / token resolvable) plus every project's
-// paths/agents/runners (reusing the project registry built from the worker's own
-// config — the same checks the worker runs at dispatch time, review #8). Any FAIL
-// → coded error (non-zero exit).
+// fields (worker_id / server_link.urls / token resolvable), then branches on the
+// worker's project-sourcing MODE (T6-B):
+//   - LEGACY (local projects, no roots): today's per-project checks, plus a WARN
+//     that `projects:` is deprecated (server-pushed policy is the future) — it
+//     still works, so this never fails.
+//   - POLICY (roots present): projects come from the SERVER, so 0 LOCAL projects is
+//     NOT a failure. Validate the roots (to exists / from set / no dup / overlap)
+//     and the guards instead, and report the effective project count (INFO).
+//   - EMPTY (neither): FAIL — the worker can run nothing (unchanged behaviour).
+//
+// Any FAIL → coded error (non-zero exit).
 func validateWorkerConfig(c *gcli.Command) error {
 	wc, err := loadWorkerConfig(config.InputCfgFile)
 	if err != nil {
@@ -485,13 +526,18 @@ func validateWorkerConfig(c *gcli.Command) error {
 	}
 
 	allOK := true
-	chk := func(name string, ok bool, info string) {
-		status := "OK  "
-		if !ok {
-			status = "FAIL"
+	line := func(status, name, info string) {
+		if status == docStatusFail {
 			allOK = false
 		}
 		c.Printf("[%s] worker/%-18s %s\n", status, name, info)
+	}
+	chk := func(name string, ok bool, info string) {
+		if ok {
+			line(docStatusOK, name, info)
+		} else {
+			line(docStatusFail, name, info)
+		}
 	}
 
 	chk("worker_id", wc.WorkerID != "", wc.WorkerID+" (must equal a server.workers key)")
@@ -505,29 +551,20 @@ func validateWorkerConfig(c *gcli.Command) error {
 	chk("server_link.token", resolveWorkerToken(wc.ServerLink) != "",
 		tokInfo+" (must equal server.workers."+wc.WorkerID+" token)")
 
-	// Per-project checks via a registry built from the worker's own config (host_path
-	// exists, agents/runners resolvable) — identical to server-side project validate.
-	// Resolved through agent.Resolve (P2 T0-C) so the doctor's agent view is the one
-	// the worker will actually run with: without it, a project whose default_agent is
-	// template-materialized would be reported "not defined" even though the worker runs
-	// it happily. This registry is read-only (never Add/save).
-	wdcfg, _ := agent.Resolve(workerConfigToConfig(wc), agent.DefaultDetector())
-	reg := project.NewRegistry(wdcfg, config.InputCfgFile)
-	keys := reg.List()
-	if len(keys) == 0 {
-		chk("projects", false, "no projects (the worker has nothing to run)")
-	} else {
-		sort.Strings(keys)
-		if !validateProjects(c, reg, keys) {
+	switch workerModeOf(wc) {
+	case modePolicy:
+		validateWorkerRoots(c, wc, line)
+		validateWorkerGuards(wc, line)
+		n, note := effectivePolicyProjectCount(wc)
+		line(docStatusInfo, "projects",
+			fmt.Sprintf("projects 由 server 下发; 当前生效 %d 个 (读自 policy 缓存%s)", n, note))
+	case modeEmpty:
+		chk("projects", false, "无 roots(policy 模式) 也无 projects(legacy) — 这台 worker 跑不了任何 job")
+	default: // modeLegacy
+		line(docStatusWarn, "projects",
+			"`projects:` 段已废弃(策略改由 server 下发)，迁移见 "+migrationDoc+"; 本版本仍然生效")
+		if !validateWorkerLocalProjects(c, wc, chk) {
 			allOK = false
-		}
-		for _, key := range keys {
-			// Worker-specific: a worker executes dispatched jobs LOCALLY, so each of its
-			// projects must allow the built-in `local` runner (not the server's worker
-			// runner name — a common copy-paste mistake).
-			p, _ := reg.Get(key)
-			chk(key+"/local-runner", allowsLocalRunner(p.AllowedRunners),
-				"worker runs locally → allowed_runners should include local")
 		}
 	}
 
@@ -536,6 +573,148 @@ func validateWorkerConfig(c *gcli.Command) error {
 	}
 	c.Println("worker config OK")
 	return nil
+}
+
+// validateWorkerLocalProjects runs the per-project checks for a LEGACY worker: a
+// registry built from the worker's OWN config (host_path exists, agents/runners
+// resolvable — identical to server-side project validate) plus the worker-specific
+// local-runner rule. Resolved through agent.Resolve (P2 T0-C) so the doctor's agent
+// view is the one the worker will actually run with. Read-only (never Add/save).
+// Returns whether every project passed.
+func validateWorkerLocalProjects(c *gcli.Command, wc *config.WorkerConfig, chk func(string, bool, string)) bool {
+	wdcfg, _ := agent.Resolve(workerConfigToConfig(wc), agent.DefaultDetector())
+	reg := project.NewRegistry(wdcfg, config.InputCfgFile)
+	keys := reg.List()
+	if len(keys) == 0 {
+		chk("projects", false, "no projects (the worker has nothing to run)")
+		return false
+	}
+	sort.Strings(keys)
+	ok := validateProjects(c, reg, keys)
+	for _, key := range keys {
+		// Worker-specific: a worker executes dispatched jobs LOCALLY, so each of its
+		// projects must allow the built-in `local` runner (not the server's worker
+		// runner name — a common copy-paste mistake).
+		p, _ := reg.Get(key)
+		if !allowsLocalRunner(p.AllowedRunners) {
+			chk(key+"/local-runner", false,
+				"worker runs locally → allowed_runners should include local")
+			ok = false
+		} else {
+			chk(key+"/local-runner", true,
+				"worker runs locally → allowed_runners should include local")
+		}
+	}
+	return ok
+}
+
+// validateWorkerRoots checks a POLICY worker's roots: each root's `to` must be an
+// existing directory and its `from` must be set; duplicate `from` prefixes are a
+// FAIL (ambiguous mapping); overlapping roots (one `from` a boundary-aligned prefix
+// of another) are an INFO reminder that the LONGEST prefix wins (§6-H3 — the
+// "更具体者优先" override is a first-class case, not a bug).
+func validateWorkerRoots(c *gcli.Command, wc *config.WorkerConfig, line func(string, string, string)) {
+	if len(wc.Roots) == 0 {
+		// modePolicy implies len(Roots)>0, so this only fires on a future refactor —
+		// keep it loud rather than silently skipping the roots check.
+		line(docStatusFail, "roots", "policy 模式需要至少一条 root (roots 为空)")
+		return
+	}
+	seen := map[string]bool{}
+	for i, r := range wc.Roots {
+		name := fmt.Sprintf("roots[%d]", i)
+		from := normRootPrefix(r.From)
+		to := strings.TrimSpace(r.To)
+		if from == "" {
+			line(docStatusFail, name, "from 不能为空")
+			continue
+		}
+		if to == "" {
+			line(docStatusFail, name, r.From+" -> (to 不能为空)")
+			continue
+		}
+		if seen[from] {
+			line(docStatusFail, name, "重复的 from: "+r.From+" (每个 from 只能映射一次)")
+			continue
+		}
+		seen[from] = true
+		if fi, statErr := os.Stat(to); statErr != nil || !fi.IsDir() {
+			line(docStatusFail, name, fmt.Sprintf("%s -> %s (to 目录不存在或不是目录)", r.From, to))
+			continue
+		}
+		line(docStatusOK, name, fmt.Sprintf("%s -> %s", r.From, to))
+	}
+	// Overlap hint (informational): a shorter from that is a boundary-aligned prefix
+	// of a longer one is intentional (最长前缀覆盖 = per-project override, §6-H3).
+	for i := range wc.Roots {
+		for j := range wc.Roots {
+			if i == j {
+				continue
+			}
+			a, b := normRootPrefix(wc.Roots[i].From), normRootPrefix(wc.Roots[j].From)
+			if a != "" && b != "" && a != b && isBoundaryPrefix(a, b) {
+				line(docStatusInfo, "roots/overlap",
+					fmt.Sprintf("%s 覆盖 %s 下的更长路径 (最长前缀/更具体者优先)", wc.Roots[j].From, wc.Roots[i].From))
+			}
+		}
+	}
+}
+
+// validateWorkerGuards warns when the guards block is entirely unset (both fields
+// nil): that is the "do NOT tighten" default — every exec/interactive job runs — so
+// it is not a failure, but an operator migrating to policy mode should DECLARE the
+// posture explicitly rather than inherit the permissive default (T6-B / T6-D step ①).
+func validateWorkerGuards(wc *config.WorkerConfig, line func(string, string, string)) {
+	if wc.Guards.AllowExec == nil && wc.Guards.AllowInteractive == nil {
+		line(docStatusWarn, "guards",
+			"护栏未设置 = 不额外收紧(exec/interactive 全放行); 建议显式声明 allow_exec / allow_interactive")
+		return
+	}
+	line(docStatusOK, "guards",
+		fmt.Sprintf("allow_exec=%s allow_interactive=%s",
+			boolPtrStr(wc.Guards.AllowExec), boolPtrStr(wc.Guards.AllowInteractive)))
+}
+
+// effectivePolicyProjectCount reads the POLICY worker's last-known-good cache and
+// returns how many projects would currently be EFFECTIVE (projected onto its roots,
+// path_outside_roots dropped). A missing/unusable cache is NOT an error — the worker
+// is simply not running or has not received a policy yet — so it returns (0, note).
+func effectivePolicyProjectCount(wc *config.WorkerConfig) (int, string) {
+	p, err := worker.ReadPolicyCacheFile(workerPolicyCachePath(wc.WorkerID), wc.WorkerID)
+	if err != nil {
+		return 0, ", 缓存不可用: " + err.Error()
+	}
+	if p == nil {
+		return 0, ", worker 未运行或尚未收到 Policy"
+	}
+	cfg, _ := projectPolicy(wc, *p)
+	return len(cfg.Projects), ""
+}
+
+// normRootPrefix normalizes a roots `from`/`to` prefix for comparison: backslashes
+// → '/', trailing slashes trimmed (a lone "/" survives). It mirrors the config
+// package's internal normalizeLogicalPath closely enough for the doctor's dup/overlap
+// checks (the authoritative mapping still lives in config.MapRoot).
+func normRootPrefix(s string) string {
+	s = strings.ReplaceAll(strings.TrimSpace(s), "\\", "/")
+	for len(s) > 1 && strings.HasSuffix(s, "/") {
+		s = s[:len(s)-1]
+	}
+	return s
+}
+
+// isBoundaryPrefix reports whether prefix is a strict, segment-aligned prefix of p
+// (so /a/b matches /a/b/c but NOT /a/bc). Both are assumed already normRootPrefix'd.
+// Case-sensitive — a conservative overlap HINT does not need MapRoot's Windows
+// case-folding.
+func isBoundaryPrefix(prefix, p string) bool {
+	if prefix == "/" {
+		return strings.HasPrefix(p, "/") && p != "/"
+	}
+	if len(p) <= len(prefix) || !strings.HasPrefix(p, prefix) {
+		return false
+	}
+	return p[len(prefix)] == '/'
 }
 
 // validateProjects prints one [OK]/[FAIL] line per per-project check and returns

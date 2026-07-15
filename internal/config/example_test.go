@@ -37,15 +37,28 @@ func TestWorkerExampleYAMLParses(t *testing.T) {
 	if wc.MaxConcurrent != 4 {
 		t.Errorf("max_concurrent = %d", wc.MaxConcurrent)
 	}
-	p, ok := wc.Projects["w-host"]
-	if !ok {
-		t.Fatalf("projects.w-host missing: %v", wc.Projects)
+	// The shipped example is the recommended POLICY shape: `projects:` is commented
+	// out (deprecated), and `roots:` + `guards:` are active. A typo in any of those
+	// yaml tags surfaces as a mismatch here.
+	if len(wc.Projects) != 0 {
+		t.Errorf("projects should be commented out (POLICY example), got %v", wc.Projects)
 	}
-	if len(p.AllowedRunners) != 1 || p.AllowedRunners[0] != "local" {
-		t.Errorf("projects.w-host.allowed_runners = %v (worker runs locally → local)", p.AllowedRunners)
+	if len(wc.Roots) != 2 {
+		t.Fatalf("roots = %v, want 2 (wildcard root + more-specific override)", wc.Roots)
 	}
-	if !p.AllowExec {
-		t.Errorf("projects.w-host.allow_exec = false")
+	if wc.Roots[0].From != "D:/work/x" || wc.Roots[0].To != "/host/projects/x" {
+		t.Errorf("roots[0] = %+v, want {D:/work/x -> /host/projects/x}", wc.Roots[0])
+	}
+	if wc.Roots[1].From != "D:/work/x/proj-a" || wc.Roots[1].To != "/host/projects/proj-b" {
+		t.Errorf("roots[1] = %+v, want {D:/work/x/proj-a -> /host/projects/proj-b}", wc.Roots[1])
+	}
+	// guards are explicitly declared in the example (T6-C): the *bool fields must
+	// decode to a non-nil true/false, not the "unset" nil default.
+	if wc.Guards.AllowExec == nil || !*wc.Guards.AllowExec {
+		t.Errorf("guards.allow_exec = %v, want explicit true", wc.Guards.AllowExec)
+	}
+	if wc.Guards.AllowInteractive == nil || *wc.Guards.AllowInteractive {
+		t.Errorf("guards.allow_interactive = %v, want explicit false", wc.Guards.AllowInteractive)
 	}
 }
 
