@@ -263,6 +263,12 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	// only snap.Store outside reloadLocked; it never re-resolves (the registries above
 	// were already built from this resolved cfg).
 	c.snap.Store(&ConfigSnapshot{Cfg: cfg, Rev: 1})
+	// Wire the per-worker Policy computation seam (T3). Until now (T1) it was nil, so
+	// PushPolicyAll was a no-op; from here the hub pushes whatever corePolicySource
+	// computes from the current snapshot. Set once at assemble time (single-threaded,
+	// before any connection): SetPolicySource only stores the pointer — no PolicyFor
+	// runs until a real broadcast, by when snap is already seeded above.
+	hub.SetPolicySource(&corePolicySource{core: c})
 	return c, nil
 }
 

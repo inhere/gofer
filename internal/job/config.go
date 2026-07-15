@@ -262,6 +262,13 @@ func checkProjectKey(key string) error {
 	return nil
 }
 
+// CheckProjectKey is the exported reuse of checkProjectKey for the SINGLE
+// project-key charset rule (one source of truth for projectKeyRe). core.computePolicy
+// calls it before pushing a project in a Policy: the key becomes a directory name on
+// the worker (<storage.root>/<key>/<job_id>), so an unsafe key must be excluded there
+// exactly as it is rejected here.
+func CheckProjectKey(key string) error { return checkProjectKey(key) }
+
 // workerOnlyStoreSubdir is where the HOST keeps its side of a worker-only
 // project's jobs (mirrored logs + the DB-indexed result dir) when storage.root is
 // unset. See workerOnlyProject.
