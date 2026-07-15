@@ -24,7 +24,12 @@ const (
 	// on register and the hub uses the reported value to negotiate OPTIONAL features
 	// per peer (see ReloadMinProtocolVersion). It must never be used as the
 	// registration gate — that is MinProtocolVersion's job.
-	CurrentProtocolVersion = 3
+	//
+	// v4 adds the server-authoritative policy push frames (policy/applied). Bumping
+	// Current (not Min) is the whole point of the two-constant split: a v3 worker
+	// stays registered, it just cannot be sent a policy frame (negotiated per peer via
+	// SupportsPolicy), so no already-deployed worker is evicted by shipping this frame.
+	CurrentProtocolVersion = 4
 )
 
 // ReloadMinProtocolVersion is the first protocol version that carries the config
@@ -38,6 +43,18 @@ const ReloadMinProtocolVersion = 3
 // implements the hot-reload frames. It is the single place that knows which version
 // gained the capability — callers must not compare version numbers themselves.
 func SupportsReload(proto int) bool { return proto >= ReloadMinProtocolVersion }
+
+// PolicyMinProtocolVersion is the first protocol version that carries the
+// server-authoritative policy push frames (policy/applied). Same negotiation rule as
+// ReloadMinProtocolVersion: a worker registered below it stays fully usable — it just
+// never receives a policy frame, so a v3 worker keeps sourcing its projects from its
+// own local config (LEGACY) and is never evicted for lacking the capability.
+const PolicyMinProtocolVersion = 4
+
+// SupportsPolicy reports whether a peer that registered with protocol version proto
+// implements the policy push frames. Like SupportsReload it is the single place that
+// knows which version gained the capability — callers must not compare versions.
+func SupportsPolicy(proto int) bool { return proto >= PolicyMinProtocolVersion }
 
 // AgentBrief is a worker-reported agent capability with the detail the UI cascade
 // needs (type/interactive) beyond a bare key. Federation: the worker is the
@@ -109,6 +126,17 @@ type Registered struct {
 	Accepted   bool   `json:"accepted"`
 	Reason     string `json:"reason,omitempty"`
 	ServerTime int64  `json:"server_time"`
+	// ProtocolVersion is the protocol version the SERVER implements (Q7-b). A worker
+	// reads it to negotiate optional server-side features. It is additive: an OLD
+	// server never sets it, so As[Registered] decodes the absent key to 0 — a worker
+	// must treat 0 as "server predates this field", never as a real version.
+	ProtocolVersion int `json:"protocol_version,omitempty"`
+	// Policy, when non-nil, is the authoritative policy the server pushes together
+	// with the ack so a freshly registered worker converges without a second frame
+	// (catch-up on register). Nil on old servers / when policy push is off. The frame
+	// carrying + apply behaviour is implemented later (T4); T0 only declares the field
+	// so the wire is stable.
+	Policy *Policy `json:"policy,omitempty"`
 }
 
 // Dispatch (s→w, P1): a job assignment = JobRequest projection. Runner is always
@@ -273,4 +301,67 @@ type Caps struct {
 	Agents    []string     `json:"agents"`
 	AgentCaps []AgentBrief `json:"agent_caps"`
 	MaxConc   int          `json:"max_concurrent"`
+}
+
+// --- Policy push frames (protocol v4; gate with SupportsPolicy). ---
+//
+// The server is the authority for which projects a worker may run and under what
+// guards; it computes a Policy and pushes it (TypePolicy, or bundled on the
+// Registered ack) so an operator can add/change a project server-side with no worker
+// edit. The worker projects the Policy onto its local config and reports back what it
+// actually applied (TypeApplied). D1 boundary: a Policy conveys projects + guards
+// ONLY — never agent definitions and never a "custom agents" escape hatch.
+
+// PolicyProject is one project entry in a pushed Policy: the server-side identity +
+// guards for a project a worker may run.
+type PolicyProject struct {
+	Key      string `json:"key"`
+	HostPath string `json:"host_path"` // 逻辑路径; the worker maps it onto a local root
+	// AllowedAgents / InteractiveAllowedAgents: computePolicy guarantees these are
+	// NON-nil (T3). The wire form of an empty list may still be null (a Go nil slice
+	// marshals to null even without omitempty), so a DOWNSTREAM consumer must treat
+	// null and [] as equivalent — judge by len, never by nil-ness (MEDIUM-1).
+	AllowedAgents            []string `json:"allowed_agents"`
+	InteractiveAllowedAgents []string `json:"interactive_allowed_agents"`
+	AllowExec                bool     `json:"allow_exec"`
+	// MaxConcurrentJobs uses omitempty (H2): "not sent" == 0 == unlimited concurrency.
+	MaxConcurrentJobs int `json:"max_concurrent_jobs,omitempty"`
+	// CaptureDiff is *bool (H2): "not sent" (nil) == default-on; only a present false
+	// is an explicit opt-out. Same "unset ≠ explicit false" reason as AgentBrief.Available.
+	CaptureDiff *bool `json:"capture_diff,omitempty"`
+}
+
+// Policy (s→w): the full set of projects a worker may run at revision Rev. Rev is the
+// config generation (monotonic); the worker applies latest-wins and reports the Rev
+// it converged to in Applied.
+type Policy struct {
+	Rev      int64           `json:"rev"`
+	Projects []PolicyProject `json:"projects"`
+}
+
+// AppliedRejection is one project the worker could NOT apply (e.g. host_path outside
+// every local root). It is diagnostic only — surfaced on the Cluster page — and does
+// NOT participate in routing.
+type AppliedRejection struct {
+	Key    string `json:"key"`
+	Reason string `json:"reason"`
+}
+
+// AppliedDegrade is one project the worker applied but with a capability gated off
+// (e.g. a legacy local-projects worker that ignores the pushed policy). Diagnostic
+// only, same as AppliedRejection.
+type AppliedDegrade struct {
+	Key  string `json:"key"`
+	Gate string `json:"gate"`
+}
+
+// Applied (w→s): the worker's report of what it actually applied for a Policy Rev.
+// Caps is EMBEDDED (not a new capability channel): the hub routes it through the same
+// reg.UpdateCaps path that reload/caps use. Rejected/Degraded are diagnostic only and
+// never gate routing.
+type Applied struct {
+	Rev      int64              `json:"rev"`
+	Caps     *Caps              `json:"caps,omitempty"`
+	Rejected []AppliedRejection `json:"rejected,omitempty"`
+	Degraded []AppliedDegrade   `json:"degraded,omitempty"`
 }

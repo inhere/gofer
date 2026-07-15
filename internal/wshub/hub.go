@@ -225,22 +225,29 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 	wc := newWorkerConn(reg.WorkerID, callerID, conn, reg)
 	wc.lastHeartbeat.Store(h.nowFn().Unix())
 
-	// 3) Same-worker_id reconnect replaces the prior connection (constraint #5).
-	// Put marks the old conn superseded — exempting its in-flight jobs from the
-	// teardown failure — ONLY when this conn has the same instance_id (same process
-	// reconnecting). A new instance_id means the worker restarted, so the old conn is
-	// left un-superseded and gracefulClose's teardown fails its now-dead jobs (z8ow).
-	if old := h.reg.Put(wc); old != nil {
-		old.gracefulClose("replaced by new registration")
-	}
-
-	// 4) Ack.
-	if err := writeEnvelope(ctx, conn, wsproto.TypeRegistered, "", wsproto.Registered{
+	// 3) Ack BEFORE the connection enters the registry (B3 / §7-N1). Any broadcast
+	// that iterates the registry (e.g. a policy push) must not be able to write a
+	// frame onto this connection before the worker has read its registered ack: the
+	// worker decodes the first frame As[Registered], so a stray frame ahead of the ack
+	// becomes Accepted=false with an empty reason → a bogus "registration rejected" →
+	// reconnect storm. Writing the ack through wc.writeFrame keeps a SINGLE writer
+	// (writeMu, §7-N2) instead of the package-level writeEnvelope. On ack failure the
+	// conn never entered the registry, so there is nothing to Remove — just close.
+	if err := wc.writeFrame(ctx, wsproto.TypeRegistered, "", wsproto.Registered{
 		Accepted:   true,
 		ServerTime: h.nowMillis(),
 	}); err != nil {
-		h.reg.Remove(reg.WorkerID, wc)
 		return
+	}
+
+	// 4) Only now publish the connection. A same-worker_id reconnect replaces the
+	// prior connection (constraint #5): Put marks the old conn superseded — exempting
+	// its in-flight jobs from the teardown failure — ONLY when this conn has the same
+	// instance_id (same process reconnecting). A new instance_id means the worker
+	// restarted, so the old conn is left un-superseded and gracefulClose's teardown
+	// fails its now-dead jobs (z8ow).
+	if old := h.reg.Put(wc); old != nil {
+		old.gracefulClose("replaced by new registration")
 	}
 	slog.Info("hub accepted worker", "worker_id", reg.WorkerID, "remote", req.RemoteAddr,
 		"labels", reg.Labels, "max_concurrent", reg.MaxConcurrent,

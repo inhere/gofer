@@ -469,7 +469,18 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 	if err != nil {
 		return false, fmt.Errorf("read registered: %w", err)
 	}
-	reg, _ := wsproto.As[wsproto.Registered](env)
+	// The first frame MUST be the registered ack. Asserting the type (and not dropping
+	// the decode error) stops a stray non-registered frame — a policy push that raced
+	// ahead of the ack (B3), a protocol desync — from being mis-decoded As[Registered]
+	// into Accepted=false with an empty reason, which used to masquerade as a
+	// "registration rejected" and drive a reconnect storm.
+	if env.Type != wsproto.TypeRegistered {
+		return false, fmt.Errorf("handshake: expected registered frame, got %q", env.Type)
+	}
+	reg, err := wsproto.As[wsproto.Registered](env)
+	if err != nil {
+		return false, fmt.Errorf("decode registered frame: %w", err)
+	}
 	if !reg.Accepted {
 		// A binding/token mismatch will not self-heal, but the supervisor still
 		// retries (the config may be fixed) — just backed off (§5.2).

@@ -44,6 +44,13 @@ const (
 	TypeReload       FrameType = "reload"        // s→w
 	TypeReloadResult FrameType = "reload_result" // w→s
 	TypeCaps         FrameType = "caps"          // w→s
+
+	// Policy push frames (protocol v4, see PolicyMinProtocolVersion). policy is the
+	// server→worker authoritative project/guard set; applied is the worker→server
+	// report of what it converged to. A policy may also ride on the Registered ack
+	// (catch-up on register); the standalone frame carries later revisions.
+	TypePolicy  FrameType = "policy"  // s→w
+	TypeApplied FrameType = "applied" // w→s
 )
 
 // Envelope is the single-connection multiplexed message. Payload carries the
