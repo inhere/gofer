@@ -7,6 +7,19 @@ import (
 	"github.com/inhere/gofer/internal/config"
 )
 
+// runnerCaps is the resolved capability + policy view of the runner a job would
+// execute on (capabilitiesFor). Projects/Agents are the runnable key sets; WorkerID,
+// PolicyPending and PolicyRev are meaningful only on a worker runner (a local runner
+// leaves them zero) and feed the policy_pending admission message (T4-E) — they never
+// add a rejection.
+type runnerCaps struct {
+	Projects      []string
+	Agents        []string
+	WorkerID      string
+	PolicyPending bool
+	PolicyRev     int64
+}
+
 // capabilitiesFor returns the capability view of the runner a job would execute
 // on: which project keys and agent keys are actually runnable THERE (config
 // federation P2). It is the single source P3's admission checks read, so a job
@@ -22,22 +35,28 @@ import (
 // peer-http runners never reach here: a peer resolves the job with ITS OWN config
 // and is deliberately out of scope for federation validation, so the caller (P3)
 // keeps peers on the pre-federation path.
-func (s *Service) capabilitiesFor(cfg *config.Config, runner, explicitWorkerID string) (projects []string, agentKeys []string, online bool) {
+func (s *Service) capabilitiesFor(cfg *config.Config, runner, explicitWorkerID string) (runnerCaps, bool) {
 	if isWorkerRunner(cfg, runner) {
 		wid := explicitWorkerID
 		if wid == "" {
 			wid = cfg.Runners[runner].WorkerID
 		}
 		if wid == "" || s.workers == nil {
-			return nil, nil, false
+			return runnerCaps{}, false
 		}
 		cand, ok := s.workers.Candidate(wid)
 		if !ok {
-			return nil, nil, false
+			return runnerCaps{}, false
 		}
-		return cand.Projects, cand.Agents, true
+		return runnerCaps{
+			Projects:      cand.Projects,
+			Agents:        cand.Agents,
+			WorkerID:      wid,
+			PolicyPending: cand.PolicyPending,
+			PolicyRev:     cand.PolicyRev,
+		}, true
 	}
-	return localProjectKeys(cfg), localAgentKeys(cfg), true
+	return runnerCaps{Projects: localProjectKeys(cfg), Agents: localAgentKeys(cfg)}, true
 }
 
 // localProjectKeys returns the project keys this process can run, sorted.

@@ -334,6 +334,11 @@ func workerCandidate(ws wshub.WorkerSnapshot, now int64) job.WorkerCandidate {
 		InFlight:     ws.InFlight,
 		PtyCapable:   ws.PtyCapable,
 		HeartbeatAge: time.Duration(now-ws.LastHeartbeat) * time.Second,
+		// P3 T4: carry the policy-push diagnostic state through to the job admission gate
+		// so a not-yet-applied worker gets a clearer error (policy_pending) — never a reject.
+		PolicyPending: ws.PolicyPending,
+		PolicyRev:     ws.PolicyRev,
+		AppliedRev:    ws.AppliedRev,
 	}
 }
 

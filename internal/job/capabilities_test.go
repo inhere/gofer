@@ -124,7 +124,8 @@ func TestCapabilitiesFor(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			s := &Service{workers: tc.sel}
-			projects, agents, online := s.capabilitiesFor(tc.cfg, tc.runner, tc.explicitWID)
+			caps, online := s.capabilitiesFor(tc.cfg, tc.runner, tc.explicitWID)
+			projects, agents := caps.Projects, caps.Agents
 			if online != tc.wantOnline {
 				t.Fatalf("online = %v, want %v", online, tc.wantOnline)
 			}
@@ -148,7 +149,8 @@ func TestCapabilitiesFor(t *testing.T) {
 // config is the authority, so a nil selector must NOT make it look offline.
 func TestCapabilitiesForNilSelectorLocal(t *testing.T) {
 	s := &Service{}
-	projects, agents, online := s.capabilitiesFor(capsCfg([]string{"alpha"}, []string{"claude"}), builtinLocalRunner, "")
+	caps, online := s.capabilitiesFor(capsCfg([]string{"alpha"}, []string{"claude"}), builtinLocalRunner, "")
+	projects, agents := caps.Projects, caps.Agents
 	if !online {
 		t.Fatal("local runner must always be online")
 	}

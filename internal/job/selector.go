@@ -22,6 +22,15 @@ type WorkerCandidate struct {
 	// HeartbeatAge is the time since the worker's most recent inbound frame
 	// (smaller = fresher). A candidate older than workerStaleAfter is excluded.
 	HeartbeatAge time.Duration
+	// PolicyPending is true when the worker negotiated server-side policy push (P3 T4)
+	// and the hub pushed a policy rev the worker has not yet reported applied. It NEVER
+	// adds a rejection: a pending worker is still running its previous, fully valid config
+	// and dispatch keeps working, so admission uses it ONLY to swap in a clearer error
+	// message when the requested project happens not to be in the reported caps yet.
+	// PolicyRev/AppliedRev are the pushed/applied revs (diagnostics for the message).
+	PolicyPending bool
+	PolicyRev     int64
+	AppliedRev    int64
 }
 
 // WorkerSelector exposes the currently-connected worker candidates for

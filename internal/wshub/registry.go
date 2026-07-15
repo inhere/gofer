@@ -66,6 +66,20 @@ type workerConn struct {
 	// arrives; the caller always removes its own entry, so a late answer finds
 	// nothing and is dropped. See reload.go.
 	pending map[string]chan wsproto.ReloadResult
+
+	// Policy-push diagnostic state (P3 T4), all guarded by wc.mu (the lock
+	// WorkerSnapshot reads them under). policyRev is the HIGHEST rev the hub has
+	// pushed to THIS connection (ack / catch-up / broadcast, max-monotonic);
+	// policyPending is true while the worker has not yet reported an Applied at or
+	// above policyRev; appliedRev is the highest rev the worker acknowledged applying.
+	// Both transitions are Rev-monotonic so a late frame can neither lower the pushed
+	// rev nor clear a pending set for a newer one. rejected/degraded are the last
+	// Applied's diagnostics (surfaced by P4; never gate routing).
+	policyRev      int64
+	appliedRev     int64
+	policyPending  bool
+	policyRejected []wsproto.AppliedRejection
+	policyDegraded []wsproto.AppliedDegrade
 }
 
 // newWorkerConn builds a workerConn with its maps and done channel initialised.
@@ -168,6 +182,22 @@ func (wc *workerConn) inflightJobs() []string {
 		out = append(out, id)
 	}
 	return out
+}
+
+// markPolicyPending records that the hub has pushed policy rev to this connection and
+// the worker has not yet reported it applied. It is Rev-monotonic (max): the three push
+// paths (ack / catch-up / PushPolicyAll) may target the same conn concurrently, and a
+// naive `if rev>cur { cur=rev }` off-lock could lose an update or let a lower rev lower
+// the pushed value. Callers commit this only AFTER the frame is on the wire, so a failed
+// write never leaves a phantom pending (F-HIGH-2). Only a policy-capable worker ever
+// reaches here (all callers gate on SupportsPolicy), so a v3 worker is never pending.
+func (wc *workerConn) markPolicyPending(rev int64) {
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
+	if rev > wc.policyRev {
+		wc.policyRev = rev
+		wc.policyPending = true
+	}
 }
 
 // writeFrame marshals and sends one envelope under writeMu (single-writer).
@@ -290,6 +320,13 @@ type WorkerSnapshot struct {
 	Arch         string
 	GoferVersion string
 	StartedAt    int64 // worker process start, unix seconds
+	// Policy-push diagnostic state (P3 T4). PolicyPending is true while the worker has
+	// negotiated policy support and the hub pushed a rev it has not yet reported applied;
+	// a pre-policy (v3) worker is never marked pending. PolicyRev is the highest rev
+	// pushed to it, AppliedRev the highest it reported applying.
+	PolicyPending bool
+	PolicyRev     int64
+	AppliedRev    int64
 }
 
 // WorkerSnapshot returns a point-in-time read-only view of workerID's live
@@ -332,6 +369,9 @@ func (wc *workerConn) snapshot() WorkerSnapshot {
 		Arch:          wc.meta.Arch,
 		GoferVersion:  wc.meta.GoferVersion,
 		StartedAt:     wc.meta.StartedAt,
+		PolicyPending: wc.policyPending,
+		PolicyRev:     wc.policyRev,
+		AppliedRev:    wc.appliedRev,
 	}
 }
 
@@ -388,4 +428,40 @@ func (r *WorkerRegistry) UpdateCaps(wc *workerConn, c wsproto.Caps) {
 		wc.meta.MaxConcurrent = c.MaxConc
 		wc.maxConcurrent = c.MaxConc // the field tryReserve admits against
 	}
+}
+
+// MarkPolicyApplied records a worker's Applied report for one policy rev on ONE
+// connection. It shares UpdateCaps's two invariants, on purpose (T4-D):
+//
+//  1. It takes a *workerConn and drops the update unless this conn is still the
+//     registered one — a late Applied from a superseded/old process must not touch the
+//     live conn's diagnostic state (the same r.conns[id] != wc guard UpdateCaps uses).
+//  2. It writes under wc.mu, the lock WorkerSnapshot reads pending/rev under.
+//
+// Clearing pending is Rev-MONOTONIC: only an Applied at or above the rev the hub is
+// waiting on (wc.policyRev) clears pending and advances appliedRev. A stale Applied
+// (rev < policyRev — the worker's report for an older rev arriving after the hub already
+// pushed a newer one) is IGNORED and never rolls state back; rolling back would report
+// an un-converged worker as converged. This pending is the SERVER-side diagnostic — a
+// separate rev ladder from the worker executor's own applied lastRev.
+func (r *WorkerRegistry) MarkPolicyApplied(wc *workerConn, rev int64, rejected []wsproto.AppliedRejection, degraded []wsproto.AppliedDegrade) {
+	if wc == nil {
+		return
+	}
+	// Lock order identical to UpdateCaps: registry RLock (outer) → wc.mu (inner).
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	if r.conns[wc.workerID] != wc {
+		return // superseded by a newer connection: a late Applied from the old one is stale
+	}
+
+	wc.mu.Lock()
+	defer wc.mu.Unlock()
+	if rev < wc.policyRev {
+		return // stale Applied for an older rev: ignore, do not clear a pending set for a newer rev
+	}
+	wc.appliedRev = rev
+	wc.policyPending = false
+	wc.policyRejected = rejected
+	wc.policyDegraded = degraded
 }

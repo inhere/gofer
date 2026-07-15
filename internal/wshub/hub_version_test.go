@@ -108,7 +108,7 @@ func TestRollingUpgradeMatrix(t *testing.T) {
 		wantReloadCapable bool
 	}{
 		{"v2 worker at the compat floor (mid rolling upgrade)", wsproto.MinProtocolVersion, false},
-		{"v3 worker on the current protocol", wsproto.CurrentProtocolVersion, true},
+		{"current-protocol worker (reload-capable)", wsproto.CurrentProtocolVersion, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

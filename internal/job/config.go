@@ -223,13 +223,23 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 	// the pre-federation behaviour untouched: no capability view to validate against,
 	// so admission falls through and dispatch fails later as before.
 	if isWorker && (req.WorkerID != "" || len(req.WorkerLabels) == 0) {
-		if wprojs, wagents, online := s.capabilitiesFor(cfg, req.Runner, req.WorkerID); online {
-			if !slices.Contains(wprojs, req.ProjectKey) {
+		if caps, online := s.capabilitiesFor(cfg, req.Runner, req.WorkerID); online {
+			if !slices.Contains(caps.Projects, req.ProjectKey) {
+				// T4-E (H1): policy_pending ONLY swaps the error MESSAGE — it must not add a
+				// rejection path. The pre-existing gate already fires here (project not in the
+				// worker's reported caps); when the worker has merely not yet applied a pushed
+				// policy, the misleading "not on worker" text becomes an explicit pending note so
+				// an operator retries rather than chasing a missing project. A project that IS in
+				// caps is never affected, so an in-flight/pending worker keeps taking jobs (no
+				// availability regression on workflow fan-out / cron).
+				if caps.PolicyPending {
+					return config.ProjectConfig{}, fmt.Errorf("%w: worker %q 尚未应用策略（policy_pending, rev=%d）", ErrUnknownProjectOnRunner, caps.WorkerID, caps.PolicyRev)
+				}
 				return config.ProjectConfig{}, fmt.Errorf("%w: project %q not on worker for runner %q", ErrUnknownProjectOnRunner, req.ProjectKey, req.Runner)
 			}
 			// An empty agent is left to the executor (unchanged): the host does not
 			// resolve agents for remote jobs, so it has no key to check here.
-			if gateAgent != "" && !slices.Contains(wagents, gateAgent) {
+			if gateAgent != "" && !slices.Contains(caps.Agents, gateAgent) {
 				return config.ProjectConfig{}, fmt.Errorf("%w: agent %q not on worker for runner %q", ErrAgentNotOnRunner, gateAgent, req.Runner)
 			}
 		}

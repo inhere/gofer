@@ -188,8 +188,38 @@ func (h *Hub) PushPolicyAll() {
 		if err != nil {
 			slog.Warn("hub policy push failed; skipping worker",
 				"worker_id", wc.workerID, "rev", pol.Rev, "err", err)
+			continue
 		}
+		// E-HIGH-1: mark pending on the broadcast path too (not just the ack), otherwise
+		// an online worker pushed a new rev would show not-pending in /v1/meta and the
+		// diagnostic would be useless. Committed only after the push is on the wire.
+		wc.markPolicyPending(pol.Rev)
 	}
+}
+
+// catchUpPolicy closes the §7-N1 race window: after Put makes wc visible, re-read the
+// policy source and push once more when the current rev is newer than the one the ack
+// carried (ackedRev). Without it, a broadcast that fired between the ack's PolicyFor and
+// Put — when wc was not yet in the registry — leaves the worker stuck on the ack's rev
+// until the next config change. A no-op for a pre-policy (v3) worker or an unwired
+// source. Pending is committed only after the frame is written (mark-after-write).
+func (h *Hub) catchUpPolicy(ctx context.Context, wc *workerConn, ackedRev int64) {
+	if h.policySrc == nil || !wsproto.SupportsPolicy(wc.protocolVersion()) {
+		return
+	}
+	p, ok := h.policySrc.PolicyFor(wc.workerID)
+	if !ok || p.Rev <= ackedRev {
+		return
+	}
+	wctx, cancel := context.WithTimeout(ctx, policyWriteTimeout)
+	err := wc.writeFrame(wctx, wsproto.TypePolicy, "", p)
+	cancel()
+	if err != nil {
+		slog.Warn("hub policy catch-up push failed; skipping worker",
+			"worker_id", wc.workerID, "rev", p.Rev, "err", err)
+		return
+	}
+	wc.markPolicyPending(p.Rev)
 }
 
 // nowMillis returns the current unix time in milliseconds (SR102 / Registered).
@@ -289,11 +319,30 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 	// reconnect storm. Writing the ack through wc.writeFrame keeps a SINGLE writer
 	// (writeMu, §7-N2) instead of the package-level writeEnvelope. On ack failure the
 	// conn never entered the registry, so there is nothing to Remove — just close.
-	if err := wc.writeFrame(ctx, wsproto.TypeRegistered, "", wsproto.Registered{
-		Accepted:   true,
-		ServerTime: h.nowMillis(),
-	}); err != nil {
+	//
+	// A policy-capable worker (SupportsPolicy) gets its authoritative Policy bundled ON
+	// the ack (Q7-b) so it converges on register with no second frame; ackedRev is what
+	// the ack carried and the catch-up (step 4b) compares against. ProtocolVersion lets
+	// the worker negotiate server-side features off the version THIS build implements.
+	ack := wsproto.Registered{
+		Accepted:        true,
+		ServerTime:      h.nowMillis(),
+		ProtocolVersion: wsproto.CurrentProtocolVersion,
+	}
+	ackedRev := int64(0)
+	if h.policySrc != nil && wsproto.SupportsPolicy(reg.ProtocolVersion) {
+		if p, ok := h.policySrc.PolicyFor(reg.WorkerID); ok {
+			ack.Policy = &p
+			ackedRev = p.Rev
+		}
+	}
+	if err := wc.writeFrame(ctx, wsproto.TypeRegistered, "", ack); err != nil {
 		return
+	}
+	if ack.Policy != nil {
+		// Commit pending only AFTER the ack (carrying the policy) is on the wire (F-HIGH-2):
+		// a failed ack returned above, so this never leaves a phantom pending.
+		wc.markPolicyPending(ackedRev)
 	}
 
 	// 4) Only now publish the connection. A same-worker_id reconnect replaces the
@@ -309,6 +358,13 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 		"labels", reg.Labels, "max_concurrent", reg.MaxConcurrent,
 		"proto", reg.ProtocolVersion, "os", reg.OS, "arch", reg.Arch,
 		"gofer_version", reg.GoferVersion, "agent_caps", len(reg.AgentCaps))
+
+	// 4b) Catch-up push (§7-N1). A PushPolicyAll that fired in the window between the
+	// ack's PolicyFor and Put could not see this conn (not yet registered), so the worker
+	// would sit forever on the rev the ack carried. Now that the conn is visible, re-read
+	// the source and push once more if the rev advanced. Idempotent: the worker applies
+	// only a rev newer than the one it last applied.
+	h.catchUpPolicy(ctx, wc, ackedRev)
 
 	// 5) Start the per-connection heartbeat sender, then run the single read loop
 	// (review #2: never goroutine-per-frame). When the read loop returns the
@@ -436,6 +492,20 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 				continue
 			}
 			h.reg.UpdateCaps(wc, cf)
+		case wsproto.TypeApplied:
+			// P3 policy push: the worker's report of what it applied for a policy rev. Caps
+			// is EMBEDDED and routes through the SAME reg.UpdateCaps path reload/caps use —
+			// the hub keeps ONE capability source of truth, not a second channel. Rejected /
+			// Degraded are diagnostic only (never gate routing). MarkPolicyApplied clears the
+			// server-side pending Rev-monotonically and reuses UpdateCaps's superseded-conn guard.
+			a, derr := wsproto.As[wsproto.Applied](env)
+			if derr != nil {
+				continue
+			}
+			if a.Caps != nil {
+				h.reg.UpdateCaps(wc, *a.Caps)
+			}
+			h.reg.MarkPolicyApplied(wc, a.Rev, a.Rejected, a.Degraded)
 		case wsproto.TypePing:
 			// P3: the worker may send its own ping; reply pong{ts} (symmetric, §5.1).
 			pf, _ := wsproto.As[wsproto.Ping](env)
