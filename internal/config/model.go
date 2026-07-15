@@ -742,6 +742,46 @@ type WorkerConfig struct {
 	MaxConcurrent int                      `yaml:"max_concurrent,omitempty"`
 	Labels        []string                 `yaml:"labels,omitempty"`
 	Storage       StorageConfig            `yaml:"storage,omitempty"`
+	// Roots maps server-side logical path prefixes to this machine's host path
+	// prefixes (P3 T2, design §10). Longest boundary-aligned From wins; see
+	// MapRoot. Adding a root deliberately widens what this worker can run, so it
+	// is a local-only knob (never remotely rewritten, never API-exposed, T2-C).
+	Roots []WorkerRoot `yaml:"roots,omitempty"`
+	// Guards are opt-in per-worker capability gates (P3 T2-D). See WorkerGuards.
+	Guards WorkerGuards `yaml:"guards,omitempty"`
+}
+
+// WorkerRoot maps a server-side logical path prefix (From) onto this worker's
+// host path prefix (To). It is the ONLY declaration a worker needs to expose a
+// tree for execution: matching + containment live in WorkerConfig.MapRoot.
+type WorkerRoot struct {
+	From string `yaml:"from"` // server-side logical path prefix
+	To   string `yaml:"to"`   // this machine's host path prefix
+}
+
+// WorkerGuards are opt-in capability gates for the worker (P3 T2-D).
+//
+// The fields are *bool (not bool) on purpose, diverging from design §6.1's
+// "default false": nil (field absent) means "do NOT tighten" — identical to
+// today's behaviour where no guards exist and every project runs exec/pty. A
+// bare bool zero value would flip to false and reject all exec/pty jobs the
+// instant the binary is upgraded (violates acceptance 1). This mirrors the
+// established *bool idiom in this repo (ProjectConfig.CaptureDiff /
+// NotifyEnabled). Enforcement is therefore opt-in: set the field explicitly to
+// tighten. (worker.example.yaml's explicit guards + doctor WARN are T6.)
+type WorkerGuards struct {
+	AllowExec        *bool `yaml:"allow_exec,omitempty"`
+	AllowInteractive *bool `yaml:"allow_interactive,omitempty"`
+}
+
+// IsExecAllowed reports whether exec jobs are permitted. Unset (nil) => allowed
+// (no extra tightening, T2-D); an explicit allow_exec:false rejects them.
+func (g WorkerGuards) IsExecAllowed() bool { return g.AllowExec == nil || *g.AllowExec }
+
+// IsInteractiveAllowed reports whether interactive/pty jobs are permitted. Unset
+// (nil) => allowed (T2-D); an explicit allow_interactive:false rejects them.
+func (g WorkerGuards) IsInteractiveAllowed() bool {
+	return g.AllowInteractive == nil || *g.AllowInteractive
 }
 
 // WorkerServerLink describes how the worker reaches the hub. URLs may list
