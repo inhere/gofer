@@ -70,8 +70,8 @@ func TestBuildDoesNotPersistTemplateAgents(t *testing.T) {
 
 	// Precondition: the template really did materialize (otherwise this test proves
 	// nothing — it would pass simply because there was nothing to leak).
-	if _, ok := cr.Cfg.Agents["claude"]; !ok {
-		t.Fatalf("precondition failed: template claude was not materialized; agents=%v", cr.Cfg.Agents)
+	if _, ok := cr.Config().Agents["claude"]; !ok {
+		t.Fatalf("precondition failed: template claude was not materialized; agents=%v", cr.Config().Agents)
 	}
 
 	// The trigger: exactly what one click on "new project" in the web console does
@@ -112,7 +112,7 @@ func TestSaveOfAllInjectedAgentsWritesNoAgentsBlock(t *testing.T) {
 		t.Fatalf("Build: %v", err)
 	}
 	defer func() { _ = cr.Close() }()
-	if _, ok := cr.Cfg.Agents["claude"]; !ok {
+	if _, ok := cr.Config().Agents["claude"]; !ok {
 		t.Fatal("precondition failed: template claude was not materialized")
 	}
 
@@ -165,7 +165,7 @@ func TestReloadWithReGatesTemplatesOnce(t *testing.T) {
 	if d.calls != 2 {
 		t.Fatalf("after one reload: %d detect calls, want 2 (one per config snapshot)", d.calls)
 	}
-	if _, ok := cr.Cfg.Agents["claude"]; !ok {
+	if _, ok := cr.Config().Agents["claude"]; !ok {
 		t.Fatal("reload lost the template agent")
 	}
 	// ReloadWith resolves IN PLACE, so the caller's own snapshot shows what was applied
@@ -179,10 +179,10 @@ func TestReloadWithReGatesTemplatesOnce(t *testing.T) {
 	if err := cr.ReloadWith(resolveTestConfig(t)); err != nil {
 		t.Fatalf("ReloadWith: %v", err)
 	}
-	if _, ok := cr.Cfg.Agents["claude"]; ok {
+	if _, ok := cr.Config().Agents["claude"]; ok {
 		t.Fatal("template survived a reload whose probe failed (it was promoted to an escape hatch)")
 	}
-	if _, ok := cr.Cfg.Agents["mine"]; !ok {
+	if _, ok := cr.Config().Agents["mine"]; !ok {
 		t.Fatal("reload dropped the operator's own agent")
 	}
 }

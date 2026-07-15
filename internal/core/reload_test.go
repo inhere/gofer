@@ -93,8 +93,8 @@ func TestCoreReloadFailSafeKeepsOldConfig(t *testing.T) {
 	if _, err := core.Projects.Get("alpha"); err != nil {
 		t.Fatalf("alpha must survive a failed reload (projects): %v", err)
 	}
-	if core.Cfg.Projects["alpha"].HostPath != host {
-		t.Fatal("Core.Cfg must still reference the old config after a failed reload")
+	if core.Config().Projects["alpha"].HostPath != host {
+		t.Fatal("Core.Config() must still reference the old config after a failed reload")
 	}
 }
 
@@ -134,7 +134,7 @@ func TestCoreReloadDeletedFileKeepsOldConfig(t *testing.T) {
 	if _, err := core.Projects.Get("alpha"); err != nil {
 		t.Fatalf("alpha must survive a reload of a deleted file: %v", err)
 	}
-	if core.Cfg.Projects["alpha"].HostPath != host {
-		t.Fatal("Core.Cfg must still reference the old config after a deleted-file reload")
+	if core.Config().Projects["alpha"].HostPath != host {
+		t.Fatal("Core.Config() must still reference the old config after a deleted-file reload")
 	}
 }

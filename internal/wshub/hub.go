@@ -97,7 +97,27 @@ type Hub struct {
 	// stop, when non-nil, is the serve-level shutdown channel. When it closes the
 	// hub gracefully closes every live connection (§5.6). Set via SetStop.
 	stop <-chan struct{}
+
+	// policySrc computes the per-worker Policy the hub pushes (T1-E seam). It is the
+	// ONLY way the hub obtains a Policy — the hub never imports config or computes a
+	// policy itself (verification 17: internal/wshub depends only on internal/wsproto).
+	// nil (T1 default, until T3 wires corePolicySource) ⇒ PushPolicyAll is a no-op.
+	policySrc PolicySource
 }
+
+// PolicySource is the seam through which the hub obtains the Policy for one
+// worker without importing config or knowing how a policy is computed (T1-E). ok
+// is false when no policy applies to that worker (source not wired, or the worker
+// has no projects) — the hub then pushes nothing to it.
+type PolicySource interface {
+	PolicyFor(workerID string) (wsproto.Policy, bool)
+}
+
+// policyWriteTimeout bounds a single policy-frame write so ONE slow/half-open
+// connection cannot stall the whole broadcast. Unlike Dispatch/Answer/Cancel
+// (which use context.Background()), a policy push must never block indefinitely
+// on a wedged writer — a skipped worker re-converges on its next reconnect.
+const policyWriteTimeout = 5 * time.Second
 
 // New builds a Hub. bindings is the worker_id → expected caller-id map (from
 // cfg.Server.Workers); a nil map means no worker may register (per-worker token
@@ -134,6 +154,42 @@ func (h *Hub) SetStop(stop <-chan struct{}) {
 			_ = wc.conn.Close(websocket.StatusGoingAway, "hub shutdown")
 		}
 	}()
+}
+
+// SetPolicySource wires the Policy computation seam (T1-E). serve/core calls it
+// once at assemble time (single-threaded) before any broadcast. A nil source
+// leaves PushPolicyAll a no-op.
+func (h *Hub) SetPolicySource(ps PolicySource) { h.policySrc = ps }
+
+// PushPolicyAll broadcasts the current per-worker Policy to every live connection
+// that negotiated policy support (SupportsPolicy). It is called OFF the caller's
+// config-write lock (core.flushPush): each frame is written under a short
+// per-connection deadline (policyWriteTimeout) and a slow/failing connection is
+// logged and skipped — never allowed to stall the others (D-HIGH-5). A skipped
+// worker re-converges on its next reconnect / the next push.
+//
+// With no policy source wired (T1, until T3) this returns immediately: there is
+// nothing to compute, so the broadcast is a legitimate no-op.
+func (h *Hub) PushPolicyAll() {
+	if h.policySrc == nil {
+		return
+	}
+	for _, wc := range h.reg.All() {
+		if !wsproto.SupportsPolicy(wc.protocolVersion()) {
+			continue // pre-v4 worker: cannot receive policy frames (stays on local/legacy)
+		}
+		pol, ok := h.policySrc.PolicyFor(wc.workerID)
+		if !ok {
+			continue // no policy applies to this worker
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), policyWriteTimeout)
+		err := wc.writeFrame(ctx, wsproto.TypePolicy, "", pol)
+		cancel()
+		if err != nil {
+			slog.Warn("hub policy push failed; skipping worker",
+				"worker_id", wc.workerID, "rev", pol.Rev, "err", err)
+		}
+	}
 }
 
 // nowMillis returns the current unix time in milliseconds (SR102 / Registered).

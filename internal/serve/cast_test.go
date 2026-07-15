@@ -130,7 +130,7 @@ func buildGateCore(t *testing.T) (*core.Core, string) {
 // the loop).
 func TestStartPruneLoopCastEnabledTriggersStart(t *testing.T) {
 	cr, castPath := buildGateCore(t)
-	cr.Cfg.Storage.Cast = config.CastConfig{Enabled: true, RetentionTTLHours: 24}
+	cr.Config().Storage.Cast = config.CastConfig{Enabled: true, RetentionTTLHours: 24}
 
 	stop := make(chan struct{})
 	defer close(stop)
@@ -155,7 +155,7 @@ func TestStartPruneLoopGateOffNoStart(t *testing.T) {
 	cr, castPath := buildGateCore(t)
 	// Config enables cast so a STARTED loop's sweep WOULD delete the file — the only
 	// thing keeping it is the gate returning early on castEnabled=false.
-	cr.Cfg.Storage.Cast = config.CastConfig{Enabled: true, RetentionTTLHours: 24}
+	cr.Config().Storage.Cast = config.CastConfig{Enabled: true, RetentionTTLHours: 24}
 
 	stop := make(chan struct{})
 	defer close(stop)

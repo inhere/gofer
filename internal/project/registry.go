@@ -21,14 +21,72 @@ import (
 type Registry struct {
 	cfg  atomic.Pointer[config.Config]
 	path string // config file path used for write-back; may be "" until Add picks one
+	// apply is THE single serial write seam (B2). It is handed a mutation that may
+	// only set/delete WHOLE entries on the projects map (never edit a value or any
+	// other config field, see ApplyProjects). In a serve/mcp process core.Core
+	// injects an applier that runs the mutation inside its updateMu write
+	// transaction (clone → mut → save → reload → repush); a standalone CLI process
+	// gets the localApply default (clone → mut → save → atomic Store), which keeps
+	// the same copy-on-write safety without the reload/push machinery. Never nil
+	// after NewRegistry.
+	apply ApplyProjects
+}
+
+// ApplyProjects is the injected serial-write seam (B2 / plan T1-B). The applier
+// owns the config write transaction; it calls mut with a NON-NIL projects map it
+// may set/delete whole entries on, and — on mut success — persists and publishes
+// the new config. The contract is deliberately narrow: mut MUST NOT edit a
+// ProjectConfig value's fields or touch any other top-level config field, so the
+// applier's one-level clone (config.Config.Clone) is sufficient.
+type ApplyProjects func(mut func(projects map[string]config.ProjectConfig) error) error
+
+// Option customises a Registry at construction.
+type Option func(*Registry)
+
+// WithProjectApplier injects the serial-write seam (core.Core.Update adapter in a
+// serve/mcp process). A nil applier is ignored, leaving the localApply default —
+// that is the standalone CLI degradation (`gofer project add` with no running
+// core): clone + save + atomic Store, in-process, no reload/push.
+func WithProjectApplier(a ApplyProjects) Option {
+	return func(r *Registry) {
+		if a != nil {
+			r.apply = a
+		}
+	}
 }
 
 // NewRegistry builds a registry over cfg loaded from path. path may be empty
-// (no config file yet); Add will resolve a user-level path on first write.
-func NewRegistry(cfg *config.Config, path string) *Registry {
+// (no config file yet); the localApply default resolves a user-level path on
+// first write. Opts may inject a project applier (WithProjectApplier).
+func NewRegistry(cfg *config.Config, path string, opts ...Option) *Registry {
 	r := &Registry{path: path}
 	r.cfg.Store(cfg)
+	r.apply = r.localApply
+	for _, opt := range opts {
+		if opt != nil {
+			opt(r)
+		}
+	}
 	return r
+}
+
+// localApply is the default (no-core) write transaction: it clones the current
+// snapshot, applies the whole-value mutation to the clone's Projects map, saves
+// the clone (副本, never the live config), then atomically swaps it in. Used by
+// the standalone CLI where there is no core.Core to route writes through.
+func (r *Registry) localApply(mut func(projects map[string]config.ProjectConfig) error) error {
+	next := r.cfg.Load().Clone()
+	if next.Projects == nil {
+		next.Projects = map[string]config.ProjectConfig{}
+	}
+	if err := mut(next.Projects); err != nil {
+		return err // mut rejected (e.g. duplicate key): live config untouched
+	}
+	if err := r.save(next); err != nil {
+		return err // save failed: do NOT publish (snapshot stays old)
+	}
+	r.cfg.Store(next)
+	return nil
 }
 
 // Config exposes the current config snapshot (read-only intent).
@@ -66,37 +124,42 @@ func (r *Registry) Get(key string) (config.ProjectConfig, error) {
 // Add registers proj under key and writes the config back. It refuses to
 // overwrite an existing key unless force is true.
 //
-// Add mutates the current config in place (the same struct the atomic pointer
-// references) and persists it; it is a CLI write path (`gofer project add`),
-// not a concurrent hot path, so no extra synchronisation is needed beyond the
-// atomic pointer the read paths use.
+// The existence check and the mutation run INSIDE the apply seam's transaction
+// (on the map the applier hands over), never on a pre-read snapshot: routing
+// every write through the one serial transaction is what makes concurrent
+// POST/DELETE lose no updates and share no Rev (B2 / plan T1-C). Add never edits
+// a ProjectConfig value in place — it sets a whole entry — honouring the seam
+// contract.
 func (r *Registry) Add(key string, proj config.ProjectConfig, force bool) error {
 	if key == "" {
 		return fmt.Errorf("project key is required")
 	}
-	cfg := r.cfg.Load()
-	if _, exists := cfg.Projects[key]; exists && !force {
-		return fmt.Errorf("project %q already exists (use --force to overwrite)", key)
-	}
-	if cfg.Projects == nil {
-		cfg.Projects = map[string]config.ProjectConfig{}
-	}
-	cfg.Projects[key] = proj
-	return r.save()
+	return r.apply(func(projects map[string]config.ProjectConfig) error {
+		if _, exists := projects[key]; exists && !force {
+			return fmt.Errorf("project %q already exists (use --force to overwrite)", key)
+		}
+		projects[key] = proj
+		return nil
+	})
 }
 
-// Remove deletes the project under key and writes back.
+// Remove deletes the project under key and writes back. Like Add it routes
+// through the serial write seam (B2): the结论句 that only named Add left DELETE
+// mutating the live map directly — so a revoked whitelist could not actually be
+// revoked. Both go through apply now.
 func (r *Registry) Remove(key string) error {
-	cfg := r.cfg.Load()
-	if _, exists := cfg.Projects[key]; !exists {
-		return fmt.Errorf("unknown project %q", key)
-	}
-	delete(cfg.Projects, key)
-	return r.save()
+	return r.apply(func(projects map[string]config.ProjectConfig) error {
+		if _, exists := projects[key]; !exists {
+			return fmt.Errorf("unknown project %q", key)
+		}
+		delete(projects, key)
+		return nil
+	})
 }
 
-// save persists the config, resolving a user-level path when none is known.
-func (r *Registry) save() error {
+// save persists cfg (a副本 built by localApply), resolving a user-level path when
+// none is known.
+func (r *Registry) save(cfg *config.Config) error {
 	if r.path == "" {
 		p, err := config.UserConfigPath()
 		if err != nil {
@@ -104,7 +167,7 @@ func (r *Registry) save() error {
 		}
 		r.path = p
 	}
-	return config.Save(r.path, r.cfg.Load())
+	return config.Save(r.path, cfg)
 }
 
 // CheckResult is a single named validation outcome.

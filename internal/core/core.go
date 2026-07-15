@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/inhere/gofer/internal/agent"
@@ -29,7 +31,37 @@ import (
 // wire the same Core so the MCP tools reuse the identical job.Service (plan §P8:
 // "MCP 内部复用 job.Service", 不复制执行逻辑).
 type Core struct {
-	Cfg      *config.Config
+	// snap holds the current (cfg, rev) generation behind a single atomic pointer
+	// so any reader gets a self-consistent pair in ONE load (Snapshot/Config).
+	// Replaces the old bare Cfg field (its unsynchronised concurrent reads were the
+	// tools-cg4 data race). Written only under updateMu, in reloadLocked.
+	snap atomic.Pointer[ConfigSnapshot]
+	// updateMu serialises EVERY config write path (Update / Reload / ReloadWith):
+	// clone → mut → save → reloadLocked all run under it so two concurrent writers
+	// can never clone the same snapshot, lose an update, or mint two different
+	// configs at the same Rev (B2). Network I/O (the policy broadcast) is
+	// deliberately kept OUT of it — see flushPush (D-HIGH-5).
+	updateMu sync.Mutex
+	// cfgPath is the file config.Save writes to inside the write transaction
+	// (empty ⇒ resolved lazily to the user-level path, like the old registry).
+	cfgPath string
+	// pendingPush records the snapshot a completed write transaction still needs to
+	// broadcast. reloadLocked stores it under updateMu; flushPush swaps it out and
+	// does the actual PushPolicyAll AFTER the lock is released (never holding
+	// updateMu across a network write).
+	pendingPush atomic.Pointer[ConfigSnapshot]
+	// pushHook, when non-nil, REPLACES the Hub broadcast in flushPush. It exists
+	// only so a test can spy on / count the policy-broadcast decision without a live
+	// worker connection (verification 4). Production leaves it nil and broadcasts
+	// through the Hub.
+	pushHook func()
+	// onCommit, when non-nil, is called at the END of reloadLocked (UNDER updateMu),
+	// exactly once per committed generation in commit order. Test-only: it lets a
+	// concurrency test record every (rev, content) pair the serial transaction
+	// produced and assert Rev is unique + strictly increasing (verification 5).
+	// Production leaves it nil.
+	onCommit func(ConfigSnapshot)
+
 	Projects *project.Registry
 	Agents   *agent.Registry
 	Runners  map[string]runner.Runner
@@ -58,11 +90,38 @@ type Core struct {
 	detector agent.Detector
 }
 
+// ConfigSnapshot is one atomic (config, revision) generation. Rev is the config
+// generation counter — Build seeds it at 1 and every write transaction
+// (reloadLocked) bumps it by 1, so a worker/consumer can drop any Policy whose
+// Rev is not strictly newer than the one it already applied. A given Rev value
+// therefore identifies exactly ONE config content (B2 verification 5).
+type ConfigSnapshot struct {
+	Cfg *config.Config
+	Rev int64
+}
+
+// Snapshot returns the current (cfg, rev) generation in a SINGLE atomic load, so
+// the caller never observes a cfg from one generation and a rev from another.
+func (c *Core) Snapshot() ConfigSnapshot { return *c.snap.Load() }
+
+// Config returns the current config pointer (= Snapshot().Cfg). It is the
+// read-only accessor serve/etc use in place of the old bare Cfg field.
+func (c *Core) Config() *config.Config { return c.snap.Load().Cfg }
+
 // BuildOption customises Build.
 type BuildOption func(*buildOptions)
 
 type buildOptions struct {
 	detector agent.Detector
+	cfgPath  string
+}
+
+// WithConfigPath tells the Core which file its write transaction (Core.Update)
+// persists to. serve passes the discovered config path; when empty the save path
+// is resolved lazily to the user-level config (config.UserConfigPath), matching
+// the old registry write-back behaviour.
+func WithConfigPath(path string) BuildOption {
+	return func(o *buildOptions) { o.cfgPath = path }
 }
 
 // WithAgentDetector injects the agent.Detector that gates materialization of the
@@ -116,7 +175,22 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	// availability READER (GET /v1/agents, the MCP ListAgents tool) then serves them
 	// instead of re-probing per request.
 	cfg, detected := agent.Resolve(cfg, o.detector)
-	projects := project.NewRegistry(cfg, "")
+	// Assemble the Core shell first so the project applier can close over it: every
+	// project write (Registry.Add/Remove) is routed through THE single serial write
+	// transaction c.Update (B2), which clones under updateMu, mutates only the
+	// Projects map, saves the副本 and republishes. c's other fields are filled in
+	// below and the initial snapshot is stored before Build returns — the applier is
+	// only ever invoked at runtime, long after that.
+	c := &Core{cfgPath: o.cfgPath, detector: o.detector}
+	projects := project.NewRegistry(cfg, o.cfgPath, project.WithProjectApplier(
+		func(mut func(map[string]config.ProjectConfig) error) error {
+			return c.Update(func(next *config.Config) error {
+				if next.Projects == nil {
+					next.Projects = map[string]config.ProjectConfig{}
+				}
+				return mut(next.Projects)
+			})
+		}))
 	agents := agent.NewRegistryWith(cfg, detected)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
 	// WEB-03: register the pty runner variant ONLY when a pty backend is available
@@ -175,7 +249,21 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	// whitelist is the SAME source the L0 answerer reads (cfg.supervisor.allow_prompt_regex), so
 	// L0 auto-answer and L2 sup派生作答 share one policy. Role lookup is presence.Role.
 	jobs.SetAnswerGuard(answerguard.New(supervisorAllowRegex(cfg), pres))
-	return &Core{Cfg: cfg, Projects: projects, Agents: agents, Runners: runners, Store: store, Jobs: jobs, Presence: pres, workflowEngine: eng, Hub: hub, RelayNonces: relayNonces, PtyRelays: ptyRelays, detector: o.detector}, nil
+	c.Projects = projects
+	c.Agents = agents
+	c.Runners = runners
+	c.Store = store
+	c.Jobs = jobs
+	c.Presence = pres
+	c.workflowEngine = eng
+	c.Hub = hub
+	c.RelayNonces = relayNonces
+	c.PtyRelays = ptyRelays
+	// Seed generation 1 (verification 5: Build=Rev 1, every write +1). This is the
+	// only snap.Store outside reloadLocked; it never re-resolves (the registries above
+	// were already built from this resolved cfg).
+	c.snap.Store(&ConfigSnapshot{Cfg: cfg, Rev: 1})
+	return c, nil
 }
 
 // supervisorAllowRegex returns the answer闸 / L0 prompt whitelist from cfg.supervisor
@@ -258,28 +346,92 @@ func workerBindings(cfg *config.Config) map[string]string {
 	return out
 }
 
+// Update is THE single serial config write transaction (B2). It clones the
+// current snapshot, applies mut to the clone (project whole-value add/remove
+// ONLY, per the project applier contract), saves the副本 to disk, then swaps the
+// new generation into every component and marks it for broadcast. The whole
+// clone→mut→save→reload runs under updateMu, so two concurrent writers can never
+// clone the same snapshot / lose an update / mint two configs at one Rev.
+//
+// Fail-safe: if mut or the save fails the OLD generation is untouched — nothing
+// is swapped, disk is unchanged (save writes a副本, never the live config) and no
+// broadcast happens. The policy broadcast is done by flushPush AFTER updateMu is
+// released (never a network write under the lock, D-HIGH-5).
+func (c *Core) Update(mut func(*config.Config) error) error {
+	err := c.updateLocked(mut)
+	c.flushPush() // no-op unless updateLocked published a new generation
+	return err
+}
+
+// updateLocked runs the write transaction under updateMu and returns without
+// broadcasting (the caller's flushPush does that off-lock). Split out precisely
+// so flushPush is NOT deferred alongside the unlock: a `defer flushPush()` would,
+// by LIFO, run before the deferred Unlock and drag the broadcast back under the
+// lock (G-H2). Here the unlock is this function's defer; flushPush is the
+// caller's next statement.
+func (c *Core) updateLocked(mut func(*config.Config) error) error {
+	c.updateMu.Lock()
+	defer c.updateMu.Unlock()
+	next := c.snap.Load().Cfg.Clone()
+	if err := mut(next); err != nil {
+		return err // old generation untouched: no save, no publish
+	}
+	if err := c.saveConfig(next); err != nil {
+		return err // save failed: do NOT publish (disk/snapshot/registries stay old)
+	}
+	c.reloadLocked(next)
+	return nil
+}
+
+// saveConfig persists cfg (a副本) to cfgPath, resolving the user-level path lazily
+// (and caching it) when none was configured — mirroring the old registry save.
+// Called only under updateMu.
+func (c *Core) saveConfig(cfg *config.Config) error {
+	if c.cfgPath == "" {
+		p, err := config.UserConfigPath()
+		if err != nil {
+			return fmt.Errorf("resolve user config path: %w", err)
+		}
+		c.cfgPath = p
+	}
+	return config.Save(c.cfgPath, cfg)
+}
+
 // Reload re-loads the config from path and atomically swaps it into every
 // component that holds a config snapshot — the project/agent registries and the
 // job service (C3 SIGHUP hot-reload). It does NOT restart the process, touch
 // in-flight jobs or reopen the jobstore.
 //
-// Fail-safe: if the new config fails to load/validate, the OLD config is kept
-// (nothing is swapped) and the error is returned so the caller can log and keep
-// serving. The swap itself never partially applies — all three components are
-// repointed at the same already-validated *config.Config.
+// 🔴 It holds updateMu from the entry and reads the file INSIDE the lock
+// (D-HIGH-4): a SIGHUP that read the file off-lock could load a stale file A,
+// race a web Update that publishes B, then re-publish A as a newer Rev — disk B,
+// memory A, the web edit lost. Locking the whole stat→load→overlay→reload closes
+// that window.
 //
-// LIMITATION: the runner instances in Core.Runners are built once here at
-// assemble time and are NOT rebuilt on reload. Swapping the config makes the
-// peer-runner classification and every allowlist/validation observe the new
-// config, but adding a brand-new runner TYPE (a new peer-http entry) still
-// needs a restart to instantiate its runner. Reload covers adding/removing
-// projects and agents and any config-derived validation.
+// Fail-safe: if the new config fails to load/validate, the OLD generation is kept
+// (nothing is swapped) and the error is returned so the caller can log and keep
+// serving.
+//
+// LIMITATION: the runner instances in Core.Runners are built once at assemble
+// time and are NOT rebuilt on reload. Swapping the config makes the peer-runner
+// classification and every allowlist/validation observe the new config, but
+// adding a brand-new runner TYPE (a new peer-http entry) still needs a restart to
+// instantiate its runner. Reload covers adding/removing projects and agents and
+// any config-derived validation.
 func (c *Core) Reload(path string) error {
-	// Fail-safe for a deleted config file: config.Load returns a fresh EMPTY
-	// config (no error) when the file is missing — fine on first run, but on a
-	// reload that would silently wipe all projects/agents. When an explicit path
-	// was given and it no longer exists, treat the reload as a failure and keep
-	// the old config (path=="" is default-resolution mode and keeps prior behaviour).
+	err := c.reloadFromPathLocked(path)
+	c.flushPush()
+	return err
+}
+
+func (c *Core) reloadFromPathLocked(path string) error {
+	c.updateMu.Lock()
+	defer c.updateMu.Unlock()
+	// Fail-safe for a deleted config file: config.Load returns a fresh EMPTY config
+	// (no error) when the file is missing — fine on first run, but on a reload that
+	// would silently wipe all projects/agents. When an explicit path was given and it
+	// no longer exists, treat the reload as a failure and keep the old config
+	// (path=="" is default-resolution mode and keeps prior behaviour).
 	if path != "" {
 		if _, err := os.Stat(path); err != nil {
 			return fmt.Errorf("reload config: %w", err)
@@ -289,14 +441,14 @@ func (c *Core) Reload(path string) error {
 	if err != nil {
 		return fmt.Errorf("reload config: %w", err)
 	}
-	// D6: reload merges overlays too. Fail-safe — overlay parse failures only
-	// warn (returned slice), they never make the reload fail. The startup path
-	// surfaces these on the console; on this runtime reload path there is no console
-	// handle, so log each warn via slog instead of dropping it silently.
+	// D6: reload merges overlays too. Fail-safe — overlay parse failures only warn
+	// (returned slice), they never make the reload fail. On this runtime reload path
+	// there is no console handle, so log each warn via slog instead of dropping it.
 	for _, w := range config.ApplyProjectOverlays(newCfg) {
 		slog.Warn("config reload: overlay warn", "detail", w)
 	}
-	return c.ReloadWith(newCfg)
+	c.reloadLocked(newCfg)
+	return nil
 }
 
 // ReloadWith swaps an ALREADY-BUILT config into every component that holds a
@@ -305,40 +457,66 @@ func (c *Core) Reload(path string) error {
 // builds one from worker.yaml) reuses the exact same apply path instead of
 // re-implementing it.
 //
-// Error semantics — read this before touching the callers: the three component
-// Reloads (project.Registry / agent.Registry / job.Service) are plain
-// atomic.Store calls and CANNOT fail. The only error ReloadWith can return is
-// the nil-config precondition below. "A bad config keeps the old one" is
-// therefore NOT achieved by rolling back an apply that went wrong — it is
-// achieved by BUILDING the new config completely (load/parse/validate) BEFORE
-// calling this, so a bad config never reaches the apply stage at all. Callers
-// must not construct a half-built config and hope ReloadWith rejects it.
+// Error semantics: the component Reloads are plain atomic.Store calls and CANNOT
+// fail. The only error ReloadWith can return is the nil-config precondition.
+// "A bad config keeps the old one" is achieved by BUILDING the new config
+// completely (load/parse/validate) BEFORE calling this, so a bad config never
+// reaches the apply stage.
 //
 // The apply is safe against concurrent Submit: every consumer that needs more
 // than one config-derived fact takes ONE snapshot and uses it throughout
-// (job.Service.Submit resolves policy AND the agent argv from that one
-// snapshot), so a submit racing this swap sees either the old config or the new
-// one, never a mix of both.
-//
-// See Reload for the runner-instance limitation (Core.Runners is not rebuilt).
+// (job.Service.Submit resolves policy AND the agent argv from that one snapshot),
+// so a submit racing this swap sees either the old config or the new one, never a
+// mix. See Reload for the runner-instance limitation.
 func (c *Core) ReloadWith(cfg *config.Config) error {
 	if cfg == nil {
 		return fmt.Errorf("reload config: nil config")
 	}
-	// A reload is a NEW config snapshot, so it gets its own single resolve pass — that
-	// is how a newly installed CLI shows up on SIGHUP / `worker reload`, and how an
-	// uninstalled one disappears again. Reusing c.detector keeps a test's fake from
-	// silently turning into the real PATH probe here. Resolve is in-place, so a caller
-	// that reports capabilities from the same cfg it passed in reports exactly the
-	// agents that were applied (no "advertise one set, accept another").
-	// The results of THIS pass replace the agent registry's availability cache in the
-	// same atomic swap as the config (T5), so the /v1/agents + MCP ListAgents views turn
-	// over with the config they describe: a CLI installed since boot appears here, and
-	// one that was uninstalled disappears.
+	c.reloadWithLocked(cfg)
+	c.flushPush()
+	return nil
+}
+
+func (c *Core) reloadWithLocked(cfg *config.Config) {
+	c.updateMu.Lock()
+	defer c.updateMu.Unlock()
+	c.reloadLocked(cfg)
+}
+
+// reloadLocked is the atomic换代: it ASSUMES updateMu is held. It runs the single
+// agent resolve pass, bumps Rev by 1, stores the new (cfg, rev) snapshot in ONE
+// atomic swap, repoints the component registries at the same cfg, then records
+// the snapshot as pending-broadcast — it never touches the network (that is
+// flushPush's job, off-lock, D-HIGH-5).
+//
+// The resolve pass is why a newly installed CLI shows up on SIGHUP / `worker
+// reload` and an uninstalled one disappears; reusing c.detector keeps a test's
+// fake from silently turning into the real PATH probe. Resolve is in-place on
+// cfg, which — on the Update path — is a private Clone, so its delete/insert of
+// injected agent keys never tears a running Submit's snapshot.
+func (c *Core) reloadLocked(cfg *config.Config) {
 	cfg, detected := agent.Resolve(cfg, c.detector)
-	c.Cfg = cfg
+	snap := &ConfigSnapshot{Cfg: cfg, Rev: c.snap.Load().Rev + 1}
+	c.snap.Store(snap) // ★ one atomic换代
 	c.Projects.Reload(cfg)
 	c.Agents.ReloadWith(cfg, detected)
 	c.Jobs.Reload(cfg)
-	return nil
+	c.pendingPush.Store(snap) // ★ only mark for broadcast; do not write frames here
+	if c.onCommit != nil {
+		c.onCommit(*snap)
+	}
+}
+
+// flushPush broadcasts the latest published generation to worker connections
+// AFTER updateMu is released. It is a no-op when nothing was published (mut/save
+// failed, or no write happened), and harmless when the hub has no policy source
+// wired yet (T1: PushPolicyAll is a no-op until T3 sets one).
+func (c *Core) flushPush() {
+	if s := c.pendingPush.Swap(nil); s != nil {
+		if c.pushHook != nil {
+			c.pushHook()
+			return
+		}
+		c.Hub.PushPolicyAll()
+	}
 }

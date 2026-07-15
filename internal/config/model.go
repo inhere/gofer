@@ -102,6 +102,56 @@ func (c *Config) IsInjectedAgent(key string) bool {
 	return c.injectedAgents[key]
 }
 
+// Clone returns a copy safe for the P3 copy-on-write write transaction
+// (core.Core.Update / reloadLocked): the struct is shallow-copied, then the
+// Projects, Agents and injectedAgents maps are deep-copied ONE level so a
+// mutation on the clone never touches a map a concurrent reader still holds.
+//
+// One-level deep is enough because every P3 runtime mutation is a WHOLE-VALUE
+// change: project set/delete (Registry.Add/Remove) replaces or drops a whole
+// ProjectConfig, and agent.Resolve deletes/inserts whole AgentConfig entries on
+// the Agents map — neither edits a value's inner slice in place. So the value
+// structs (and the slices they carry, e.g. AllowedAgents) may stay shared with
+// the source; only the map headers must be private to the clone. The Agents map
+// MUST be deep-copied for the same reason the Projects map is: reloadLocked runs
+// agent.Resolve on the clone, which delete()s the previously-injected keys — on a
+// shallow-shared map that would tear a running Submit's snapshot.
+//
+// Deliberately NOT deep-copied (D-MED-7): Server (Workers/Callers), Storage,
+// Runners, Roles, Supervisor, Presence, Schedule. No P3 runtime write path
+// mutates them, so sharing them with the source is safe. Extending the write
+// transaction to any of them REQUIRES widening this Clone first — today it makes
+// a structural guarantee for "project whole-value add/remove" (plus the agent
+// re-resolve that rides every reload) only, not for arbitrary mutation.
+func (c *Config) Clone() *Config {
+	if c == nil {
+		return nil
+	}
+	clone := *c
+	if c.Projects != nil {
+		p := make(map[string]ProjectConfig, len(c.Projects))
+		for k, v := range c.Projects {
+			p[k] = v
+		}
+		clone.Projects = p
+	}
+	if c.Agents != nil {
+		a := make(map[string]AgentConfig, len(c.Agents))
+		for k, v := range c.Agents {
+			a[k] = v
+		}
+		clone.Agents = a
+	}
+	if c.injectedAgents != nil {
+		m := make(map[string]bool, len(c.injectedAgents))
+		for k, v := range c.injectedAgents {
+			m[k] = v
+		}
+		clone.injectedAgents = m
+	}
+	return &clone
+}
+
 // ScheduleConfig controls the AUTO-02 cron sweeper cadence and missed-run policy.
 type ScheduleConfig struct {
 	SweepIntervalSec int `yaml:"sweep_interval_sec,omitempty"`

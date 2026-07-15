@@ -86,7 +86,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 		return errorx.Failf(ExitErr, "refusing to start without a token: set server.token / server.token_env / --token, or pass --allow-empty-token")
 	}
 
-	cr, err := core.Build(cfg)
+	cr, err := core.Build(cfg, core.WithConfigPath(opts.CfgPath))
 	if err != nil {
 		return errorx.Failf(ExitErr, "%v", err)
 	}
@@ -387,7 +387,7 @@ func startPresencePruneLoop(c *gcli.Command, pres *presence.Service, interval ti
 // Reload scope (C3): like the other loops, the enable gate + policy are frozen at
 // startup; toggling supervisor.enabled or editing the policy needs a restart.
 func startSupervisorLoop(c *gcli.Command, cr *core.Core, wake chan<- struct{}, stop <-chan struct{}) {
-	sc := cr.Cfg.Supervisor
+	sc := cr.Config().Supervisor
 	if sc == nil || !sc.Enabled {
 		return
 	}
@@ -493,7 +493,7 @@ func reconcileSupervisors(desired int, countActive, countDemand func() (int, err
 // timeout still bounds a hung sup; a sup that finishes draining demand simply exits and is
 // not re-spawned until new demand appears. Exits when stop closes.
 func startSupReconcileLoop(c *gcli.Command, cr *core.Core, wake <-chan struct{}, stop <-chan struct{}) {
-	sc := cr.Cfg.Supervisor
+	sc := cr.Config().Supervisor
 	if sc == nil || sc.DesiredSupervisors <= 0 {
 		return
 	}
@@ -670,11 +670,12 @@ func sweepSchedules(now int64, due []jobstore.ScheduleRecord, missGrace int64,
 // other serve loops: sweep once at startup for crash recovery, then on every
 // configured tick, and exit when stop closes.
 func startScheduleLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
+	sched := cr.Config().Schedule
 	interval := scheduleSweepInterval
-	if cr.Cfg.Schedule.SweepIntervalSec > 0 {
-		interval = time.Duration(cr.Cfg.Schedule.SweepIntervalSec) * time.Second
+	if sched.SweepIntervalSec > 0 {
+		interval = time.Duration(sched.SweepIntervalSec) * time.Second
 	}
-	missGrace := int64(cr.Cfg.Schedule.MissGraceSec)
+	missGrace := int64(sched.MissGraceSec)
 	if missGrace <= 0 {
 		missGrace = 3600
 	}
