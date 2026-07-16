@@ -2,6 +2,7 @@ package commands
 
 import (
 	"bytes"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -263,11 +264,75 @@ func TestInitServerGlobalPath(t *testing.T) {
 	}
 }
 
-// TestInitSkillWritesEmbeddedTree verifies `init skill -o <dir>` installs the
-// embedded gofer-usage/ tree under <dir> preserving structure: SKILL.md and
-// references/commands.md are both written, non-empty, and match the embedded
-// bytes (SKILL.md carries the `name: gofer-usage` front-matter).
+// assertSkillTree asserts the full embedded gofer-usage/ tree was written under
+// parent: every embedded file exists, is non-empty, and matches the embedded
+// bytes; SKILL.md carries the `name: gofer-usage` front-matter.
+func assertSkillTree(t *testing.T, parent string) {
+	t.Helper()
+	err := fs.WalkDir(skills.GoferUsage, ".", func(p string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if p == "." || d.IsDir() {
+			return nil
+		}
+		want, rErr := skills.GoferUsage.ReadFile(p)
+		if rErr != nil {
+			t.Fatalf("read embedded %s: %v", p, rErr)
+		}
+		dest := filepath.Join(parent, p)
+		got, gErr := os.ReadFile(dest)
+		if gErr != nil {
+			t.Fatalf("read written %s: %v", dest, gErr)
+		}
+		if len(got) == 0 {
+			t.Fatalf("written %s is empty", dest)
+		}
+		if string(got) != string(want) {
+			t.Fatalf("written %s != embedded content", dest)
+		}
+		if p == "gofer-usage/SKILL.md" && !strings.Contains(string(got), "name: gofer-usage") {
+			t.Fatalf("SKILL.md missing `name: gofer-usage` front-matter")
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk embedded skill tree: %v", err)
+	}
+}
+
+// TestInitSkillWritesEmbeddedTree verifies the DEFAULT `init skill` (no -o) fans
+// out to BOTH convention dirs — <cwd>/.claude/skills/gofer-usage/ AND
+// <cwd>/.agents/skills/gofer-usage/ — each with the full embedded tree.
 func TestInitSkillWritesEmbeddedTree(t *testing.T) {
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
+	work := t.TempDir()
+	if err := os.Chdir(work); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+
+	c := bindCmd(NewInitCmd())
+	c.Arg("target").WithValue("skill")
+	initOpts.config = ""
+	initOpts.force = false
+	initOpts.global = false
+	t.Cleanup(func() { initOpts.config = ""; initOpts.force = false; initOpts.global = false })
+
+	if err := runInit(c, nil); err != nil {
+		t.Fatalf("init skill: %v", err)
+	}
+
+	assertSkillTree(t, filepath.Join(work, ".claude", "skills"))
+	assertSkillTree(t, filepath.Join(work, ".agents", "skills"))
+}
+
+// TestInitSkillOutputSingleDir verifies `init skill -o <dir>` narrows to a SINGLE
+// explicit dir (<dir>/gofer-usage/) — no fan-out to .claude/.agents.
+func TestInitSkillOutputSingleDir(t *testing.T) {
 	parent := t.TempDir()
 
 	c := bindCmd(NewInitCmd())
@@ -278,44 +343,34 @@ func TestInitSkillWritesEmbeddedTree(t *testing.T) {
 	t.Cleanup(func() { initOpts.config = ""; initOpts.force = false; initOpts.global = false })
 
 	if err := runInit(c, nil); err != nil {
-		t.Fatalf("init skill: %v", err)
+		t.Fatalf("init skill -o: %v", err)
 	}
+	assertSkillTree(t, parent)
+	// No fan-out: the convention subdirs must NOT be created under -o.
+	if _, err := os.Stat(filepath.Join(parent, ".claude")); err == nil {
+		t.Error("init skill -o must not create a .claude subdir")
+	}
+}
 
-	skillMD := filepath.Join(parent, "gofer-usage", "SKILL.md")
-	refMD := filepath.Join(parent, "gofer-usage", "references", "commands.md")
+// TestInitSkillGlobalTwoDirs verifies `init -g skill` installs to BOTH
+// <home>/.claude/skills and <home>/.agents/skills (HOME redirected to a tmp dir).
+func TestInitSkillGlobalTwoDirs(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	t.Setenv("USERPROFILE", home) // Windows home resolution
 
-	gotSkill, err := os.ReadFile(skillMD)
-	if err != nil {
-		t.Fatalf("read written SKILL.md: %v", err)
-	}
-	if len(gotSkill) == 0 {
-		t.Fatal("written SKILL.md is empty")
-	}
-	if !strings.Contains(string(gotSkill), "name: gofer-usage") {
-		t.Fatalf("SKILL.md missing `name: gofer-usage` front-matter")
-	}
-	wantSkill, err := skills.GoferUsage.ReadFile("gofer-usage/SKILL.md")
-	if err != nil {
-		t.Fatalf("read embedded SKILL.md: %v", err)
-	}
-	if string(gotSkill) != string(wantSkill) {
-		t.Fatal("written SKILL.md != embedded content")
-	}
+	c := bindCmd(NewInitCmd())
+	c.Arg("target").WithValue("skill")
+	initOpts.config = ""
+	initOpts.global = true
+	initOpts.force = false
+	t.Cleanup(func() { initOpts.config = ""; initOpts.global = false; initOpts.force = false })
 
-	gotRef, err := os.ReadFile(refMD)
-	if err != nil {
-		t.Fatalf("read written references/commands.md: %v", err)
+	if err := runInit(c, nil); err != nil {
+		t.Fatalf("init -g skill: %v", err)
 	}
-	if len(gotRef) == 0 {
-		t.Fatal("written references/commands.md is empty")
-	}
-	wantRef, err := skills.GoferUsage.ReadFile("gofer-usage/references/commands.md")
-	if err != nil {
-		t.Fatalf("read embedded references/commands.md: %v", err)
-	}
-	if string(gotRef) != string(wantRef) {
-		t.Fatal("written references/commands.md != embedded content")
-	}
+	assertSkillTree(t, filepath.Join(home, ".claude", "skills"))
+	assertSkillTree(t, filepath.Join(home, ".agents", "skills"))
 }
 
 // TestInitSkillRefusesExistingAndForce verifies the overwrite guard: a second

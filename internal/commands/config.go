@@ -60,17 +60,17 @@ func initTemplate(target string) (tmpl, defaultPath string, ok bool) {
 // `server` (default), `worker`, or `skill`. For server/worker it writes the
 // matching embedded starter to its default path (./.gofer.yaml / ./worker.yaml)
 // or --output <path>; for skill it installs the embedded gofer-usage/ tree to
-// .claude/skills/. It refuses to overwrite an existing target unless --force is
-// given (design D6).
+// BOTH .claude/skills/ and .agents/skills/ (--output narrows to one dir). It
+// refuses to overwrite an existing target unless --force is given (design D6).
 func NewInitCmd() *gcli.Command {
 	return &gcli.Command{
 		Name: "init",
 		Desc: "Scaffold a starter config or skill from the embedded templates (target: server | worker | skill)",
 		Config: func(c *gcli.Command) {
 			c.AddArg("target", "what to scaffold: server (default) | worker | skill", false)
-			c.StrOpt(&initOpts.config, "output", "o", "", "output path (config file for server/worker; skills parent dir for skill)")
+			c.StrOpt(&initOpts.config, "output", "o", "", "output path (config file for server/worker; single skills parent dir for skill — overrides the default two-dir install)")
 			c.BoolOpt(&initOpts.force, "force", "f", false, "overwrite an existing config file or skill")
-			c.BoolOpt(&initOpts.global, "global", "g", false, "write to the user-global dir (<config-dir>/config.yaml|worker.yaml for server/worker; ~/.claude/skills for skill)")
+			c.BoolOpt(&initOpts.global, "global", "g", false, "write to the user-global dir (<config-dir>/config.yaml|worker.yaml for server/worker; skill installs to ~/.claude/skills and ~/.agents/skills)")
 		},
 		Func: runInit,
 	}
@@ -143,39 +143,51 @@ func runInit(c *gcli.Command, _ []string) error {
 	return nil
 }
 
-// runInitSkill installs the embedded gofer-usage/ skill tree under the resolved
-// skills parent dir (preserving structure). Landing point: --output <dir> writes
-// <dir>/gofer-usage/ (-o is the skills parent), --global writes
-// ~/.claude/skills/gofer-usage/, otherwise <cwd>/.claude/skills/gofer-usage/. It
-// refuses to overwrite an existing skill dir unless --force is given (design D6),
-// mirroring the config-init overwrite guard.
+// skillConventionDirs are the parallel skill-directory conventions this
+// environment honours: `.claude/skills/<name>/` and `.agents/skills/<name>/`.
+// `gofer init skill` (default / --global) installs into BOTH so either tool
+// picks the skill up; --output narrows to a single explicit dir.
+var skillConventionDirs = []string{".claude", ".agents"}
+
+// runInitSkill installs the embedded gofer-usage/ skill tree under EACH resolved
+// skills parent dir (preserving structure). Landing points: --output <dir> writes
+// the single <dir>/gofer-usage/ (explicit override, no fan-out); --global writes
+// ~/.claude/skills/ AND ~/.agents/skills/; otherwise the CWD's .claude/skills/
+// AND .agents/skills/. It refuses to overwrite an existing skill dir unless
+// --force is given (design D6), checked per target; --force overwrites all.
 func runInitSkill(c *gcli.Command) error {
-	parent, usedGlobal, err := skillDestParent()
+	parents, usedGlobal, err := skillDestParents()
 	if err != nil {
 		return errorx.Failf(configExitErr, "resolve skill dir: %v", err)
 	}
-	skillDir := filepath.Join(parent, skills.SkillDirName)
 
+	// Overwrite guard: check every target first, so a partial install never happens
+	// when one destination already exists without --force.
 	if !initOpts.force {
-		if _, err := os.Stat(skillDir); err == nil {
-			return errorx.Failf(configExitErr, "skill %s already exists; use --force to overwrite", skillDir)
-		} else if !os.IsNotExist(err) {
-			return errorx.Failf(configExitErr, "stat %s: %v", skillDir, err)
+		for _, parent := range parents {
+			skillDir := filepath.Join(parent, skills.SkillDirName)
+			if _, statErr := os.Stat(skillDir); statErr == nil {
+				return errorx.Failf(configExitErr, "skill %s already exists; use --force to overwrite", skillDir)
+			} else if !os.IsNotExist(statErr) {
+				return errorx.Failf(configExitErr, "stat %s: %v", skillDir, statErr)
+			}
 		}
 	}
 
-	written, err := skills.InstallTo(parent)
-	if err != nil {
-		return errorx.Failf(configExitErr, "write skill: %v", err)
-	}
-
-	abs := skillDir
-	if a, absErr := filepath.Abs(skillDir); absErr == nil {
-		abs = a
-	}
-	c.Printf("已安装 gofer-usage skill 到 %s (%d 个文件):\n", abs, len(written))
-	for _, f := range written {
-		c.Printf("  %s\n", f)
+	for _, parent := range parents {
+		written, wErr := skills.InstallTo(parent)
+		if wErr != nil {
+			return errorx.Failf(configExitErr, "write skill: %v", wErr)
+		}
+		skillDir := filepath.Join(parent, skills.SkillDirName)
+		abs := skillDir
+		if a, absErr := filepath.Abs(skillDir); absErr == nil {
+			abs = a
+		}
+		c.Printf("已安装 gofer-usage skill 到 %s (%d 个文件):\n", abs, len(written))
+		for _, f := range written {
+			c.Printf("  %s\n", f)
+		}
 	}
 	if usedGlobal {
 		c.Printf("提示: 全局 skill 对所有项目可见\n")
@@ -183,26 +195,27 @@ func runInitSkill(c *gcli.Command) error {
 	return nil
 }
 
-// skillDestParent resolves the skills PARENT dir for `gofer init skill` (the
-// gofer-usage/ dir is created underneath it). --output wins (it points at the
-// skills parent directly); else --global → ~/.claude/skills; else the CWD's
-// .claude/skills (project-level). usedGlobal drives the trailing global hint.
-func skillDestParent() (parent string, usedGlobal bool, err error) {
+// skillDestParents resolves the skills PARENT dir(s) for `gofer init skill` (the
+// gofer-usage/ dir is created underneath each). --output wins and yields a SINGLE
+// dir (explicit override, no fan-out); else --global → <home>/{.claude,.agents}/skills;
+// else the CWD's {.claude,.agents}/skills (project-level). usedGlobal drives the
+// trailing global hint.
+func skillDestParents() (parents []string, usedGlobal bool, err error) {
 	if initOpts.config != "" {
-		return initOpts.config, false, nil
+		return []string{initOpts.config}, false, nil
 	}
-	if initOpts.global {
-		home, herr := os.UserHomeDir()
-		if herr != nil {
-			return "", false, herr
-		}
-		return filepath.Join(home, ".claude", "skills"), true, nil
+	root, err := os.Getwd()
+	usedGlobal = initOpts.global
+	if usedGlobal {
+		root, err = os.UserHomeDir()
 	}
-	cwd, cerr := os.Getwd()
-	if cerr != nil {
-		return "", false, cerr
+	if err != nil {
+		return nil, false, err
 	}
-	return filepath.Join(cwd, ".claude", "skills"), false, nil
+	for _, conv := range skillConventionDirs {
+		parents = append(parents, filepath.Join(root, conv, "skills"))
+	}
+	return parents, usedGlobal, nil
 }
 
 // globalConfigPath resolves the user-global config path for an init target:

@@ -70,7 +70,7 @@ gofer config edit                       # 用 $VISUAL/$EDITOR 打开解析出的
 ```bash
 gofer init [server|worker]              # 从内置 example 模板生成 config(默认 server)
 gofer init -g worker                    # 写到用户全局 config 目录
-gofer init [-g] skill                   # 安装 gofer-usage skill(本 skill)到 ./.claude/skills 或 -g 全局 ~/.claude/skills
+gofer init [-g] skill                   # 装 gofer-usage skill: 默认写 ./.claude/skills 和 ./.agents/skills 两处; -g 写全局 ~/.claude+~/.agents; -o <dir> 单目标
 ```
 
 ## 运维向（AI 一般不直接用，了解即可）
