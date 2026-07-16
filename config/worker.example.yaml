@@ -16,6 +16,8 @@
 #     projects from THIS file and ignores any pushed policy. Still works; migrate
 #     to roots — see docs/runbook/2026-07-15-worker-policy-migration.md.
 # roots present ⇒ POLICY (any leftover `projects:` is ignored, with a warning).
+# 配置场景速查(恒等映射 / 跨盘 / Windows / worker 独有 project / 保持 LEGACY 等, 与 OS 无关):
+#   docs/design/worker-roots-config-reference.md
 
 # worker_id 必须等于【服务端 server.workers 段的 KEY】(以及 runners.<name>.worker_id)。
 # register 帧自报这个 id; 它与所用 token 绑定不一致就会被 hub 拒(日志: "registration
