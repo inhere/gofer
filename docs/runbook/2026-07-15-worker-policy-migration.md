@@ -2,7 +2,7 @@
 
 > 设计与验收见 `docs/plans/2026-07-15-worker-policy-push-plan.md`（§6-H3 表达力缺口 / §7-N3 既存错误 / 验收 24 回滚安全）。
 > 本文所有路径/端口/服务名均用 `<占位符>`，按实际部署替换。**迁移是 per-worker、可回滚的**：一台一台改，不动 server，随时能退回。
-> **roots 配置场景**（恒等映射 / 跨盘 / Windows / Linux / worker 独有 project / 保持 LEGACY 等，均跟操作系统无关）见 [worker `roots` 配置参考](../design/worker-roots-config-reference.md)。
+> **roots 配置场景**（恒等映射 / 跨盘 / Windows / Linux / worker 独有 project / 保持 LEGACY 等，均跟操作系统无关）见 [worker.yaml 配置参考](../../skills/gofer-usage/references/worker-config.md)。
 
 ## 0. 名词 / 前提
 

@@ -13,6 +13,7 @@ import (
 
 	configtmpl "github.com/inhere/gofer/config"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/skills"
 )
 
 // bindCmd builds a gcli.Command and runs its Config func so the package-level
@@ -262,6 +263,100 @@ func TestInitServerGlobalPath(t *testing.T) {
 	}
 }
 
+// TestInitSkillWritesEmbeddedTree verifies `init skill -o <dir>` installs the
+// embedded gofer-usage/ tree under <dir> preserving structure: SKILL.md and
+// references/commands.md are both written, non-empty, and match the embedded
+// bytes (SKILL.md carries the `name: gofer-usage` front-matter).
+func TestInitSkillWritesEmbeddedTree(t *testing.T) {
+	parent := t.TempDir()
+
+	c := bindCmd(NewInitCmd())
+	c.Arg("target").WithValue("skill")
+	initOpts.config = parent
+	initOpts.force = false
+	initOpts.global = false
+	t.Cleanup(func() { initOpts.config = ""; initOpts.force = false; initOpts.global = false })
+
+	if err := runInit(c, nil); err != nil {
+		t.Fatalf("init skill: %v", err)
+	}
+
+	skillMD := filepath.Join(parent, "gofer-usage", "SKILL.md")
+	refMD := filepath.Join(parent, "gofer-usage", "references", "commands.md")
+
+	gotSkill, err := os.ReadFile(skillMD)
+	if err != nil {
+		t.Fatalf("read written SKILL.md: %v", err)
+	}
+	if len(gotSkill) == 0 {
+		t.Fatal("written SKILL.md is empty")
+	}
+	if !strings.Contains(string(gotSkill), "name: gofer-usage") {
+		t.Fatalf("SKILL.md missing `name: gofer-usage` front-matter")
+	}
+	wantSkill, err := skills.GoferUsage.ReadFile("gofer-usage/SKILL.md")
+	if err != nil {
+		t.Fatalf("read embedded SKILL.md: %v", err)
+	}
+	if string(gotSkill) != string(wantSkill) {
+		t.Fatal("written SKILL.md != embedded content")
+	}
+
+	gotRef, err := os.ReadFile(refMD)
+	if err != nil {
+		t.Fatalf("read written references/commands.md: %v", err)
+	}
+	if len(gotRef) == 0 {
+		t.Fatal("written references/commands.md is empty")
+	}
+	wantRef, err := skills.GoferUsage.ReadFile("gofer-usage/references/commands.md")
+	if err != nil {
+		t.Fatalf("read embedded references/commands.md: %v", err)
+	}
+	if string(gotRef) != string(wantRef) {
+		t.Fatal("written references/commands.md != embedded content")
+	}
+}
+
+// TestInitSkillRefusesExistingAndForce verifies the overwrite guard: a second
+// `init skill` without --force is a coded (non-zero exit) error, and --force
+// re-installs, rewriting a locally-tampered SKILL.md back to the embedded copy.
+func TestInitSkillRefusesExistingAndForce(t *testing.T) {
+	parent := t.TempDir()
+
+	c := bindCmd(NewInitCmd())
+	c.Arg("target").WithValue("skill")
+	initOpts.config = parent
+	initOpts.force = false
+	initOpts.global = false
+	t.Cleanup(func() { initOpts.config = ""; initOpts.force = false; initOpts.global = false })
+
+	if err := runInit(c, nil); err != nil {
+		t.Fatalf("init skill (first): %v", err)
+	}
+
+	// Second write without --force → coded error (skill dir already exists).
+	if err := runInit(c, nil); err == nil {
+		t.Fatal("expected init skill to refuse overwriting an existing skill")
+	} else {
+		assertCodedExit(t, err)
+	}
+
+	// Tamper, then --force → re-install rewrites the file.
+	skillMD := filepath.Join(parent, "gofer-usage", "SKILL.md")
+	if err := os.WriteFile(skillMD, []byte("stale"), 0o644); err != nil {
+		t.Fatalf("seed stale SKILL.md: %v", err)
+	}
+	initOpts.force = true
+	if err := runInit(c, nil); err != nil {
+		t.Fatalf("init skill --force: %v", err)
+	}
+	got, _ := os.ReadFile(skillMD)
+	want, _ := skills.GoferUsage.ReadFile("gofer-usage/SKILL.md")
+	if string(got) != string(want) {
+		t.Fatal("--force did not rewrite SKILL.md to the embedded content")
+	}
+}
 
 // writeRawConfig writes a raw config YAML body to a temp file and returns its
 // path (the reload_test writeConfig helper takes a *config.Config instead).

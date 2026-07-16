@@ -10,6 +10,8 @@ gofer = 一套「主机 server + 多台 worker」的任务执行网。你在 doc
 - **server = 策略权威**：哪个 project 派给哪台 worker、允许哪些 agent、能否 exec/pty。
 - **worker = 能力提供方**：这台机器有哪些目录（roots）/ 装了哪些 agent。
 
+> 本 skill 详讲最常用的 `gofer job`。**其余命令**（`workflow`/`plan`/`schedule`/`project`/`config`/`init`）见 [`references/commands.md`](references/commands.md)；**配置 gofer**（worker.yaml / config.yaml / 加 project / 建 worker / 迁 POLICY 分步）见 [`references/worker-config.md`](references/worker-config.md)、[`references/server-config.md`](references/server-config.md)、[`references/setup-recipes.md`](references/setup-recipes.md)。需要时再读。
+
 ## 0. 先判断能不能用（30 秒自检）
 
 ```bash
@@ -100,7 +102,7 @@ job 在哪台机器执行，路径就按那台机器的项目根解析：同一 
 
 - POLICY 下 project 集合**完全**由 server 下发；worker 用 `roots` 把 server 的逻辑 `host_path` 映射成本机真实目录：`{ from: <server逻辑前缀>, to: <本机前缀> }`，**最长前缀优先**。加 project 到已有 root 下 = server 改一行 + reload，worker 零改动。
 - 自检：`gofer config validate worker`（按模式给判据 + 校验 roots：`to` 目录存在、`from` 不重复、重叠提示）；`gofer project list`（列当前生效 project 及**映射后的本机路径**）。
-- 配置场景（恒等 / 跨盘 / Windows / worker 独有 project / 保持 LEGACY 等，OS 无关）见 `docs/design/worker-roots-config-reference.md`；LEGACY→POLICY 迁移（含回滚）见 `docs/runbook/2026-07-15-worker-policy-migration.md`。
+- 配置场景（恒等 / 跨盘 / Windows / worker 独有 project / 保持 LEGACY 等，OS 无关）见 [`references/worker-config.md`](references/worker-config.md)；LEGACY→POLICY 迁移分步（含回滚 + 路径核对表）见 [`references/setup-recipes.md`](references/setup-recipes.md) 配方 3。
 
 ## 7. 排障
 
