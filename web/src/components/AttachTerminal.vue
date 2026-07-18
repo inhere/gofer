@@ -37,6 +37,14 @@ const emit = defineEmits<{
 const rootEl = ref<HTMLElement | null>(null)
 const hostEl = ref<HTMLDivElement | null>(null)
 const writeGranted = ref(false)
+// serve 端广播的 pty 权威尺寸（hello / r 帧）；只读端始终跟随它渲染（tools-3xy）。
+const serverCols = ref(0)
+const serverRows = ref(0)
+// 聊天式输入区（tools-j0e）：长文本先编辑确认再一次性写入 pty。
+const chatText = ref('')
+const chatSubmit = ref(true)
+const chatCollapsed = ref(localStorage.getItem('attach-chat-collapsed') === '1')
+const BASE_FONT_SIZE = 13
 const connectionState = ref<ConnectionState>('connecting')
 const reconnectAttempts = ref(0)
 const showManualReconnect = ref(false)
@@ -189,6 +197,39 @@ function setWriteGranted(granted: boolean): void {
   connectionState.value = granted ? 'connected' : 'read-only'
 }
 
+// 尺寸跟随（tools-3xy）：pty 尺寸的唯一真源在 serve（hello/r 帧）。
+//  - 写者：本地 FitAddon 主导（fit → onResize → 发 r → serve 广播），font 恢复默认；
+//  - 只读端：**绝不 fit**（手机弹软键盘触发 window resize 会把本地 xterm 改小、与
+//    pty 脱钩），改为按容器宽度自适应字号后 resize 到服务端尺寸，放不下横向滚动。
+function applyServerSize(): void {
+  if (!term) {
+    return
+  }
+  if (writeGranted.value) {
+    if (term.options.fontSize !== BASE_FONT_SIZE) {
+      term.options.fontSize = BASE_FONT_SIZE
+    }
+    fit?.fit()
+    return
+  }
+  const cols = serverCols.value
+  const rows = serverRows.value
+  if (!cols || !rows) {
+    return
+  }
+  const width = hostEl.value?.clientWidth ?? 0
+  if (width > 0) {
+    // 0.62 ≈ 常见等宽字体的字宽/字号比；夹在 8..13px，放不下由横向滚动兜底。
+    const size = Math.max(8, Math.min(BASE_FONT_SIZE, Math.floor(width / (cols * 0.62))))
+    if (term.options.fontSize !== size) {
+      term.options.fontSize = size
+    }
+  }
+  if (term.cols !== cols || term.rows !== rows) {
+    term.resize(cols, rows)
+  }
+}
+
 function sendFrame(frame: object): void {
   if (writeGranted.value && ws?.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify(frame))
@@ -243,6 +284,38 @@ function pasteText(text: string): void {
     return
   }
   sendInput(normalized)
+}
+
+// 聊天式输入（tools-j0e）：长文本在 textarea 里编辑确认后一次性写入 pty。
+// 文本经 bracketed paste 包裹（TUI 视作一次粘贴而非逐行提交），勾选"发送"时
+// 再单独补一个回车提交；不勾则只置入 TUI 输入区供继续编辑。
+function sendChat(): void {
+  const text = chatText.value
+  if (!writeGranted.value || !text.trim()) {
+    return
+  }
+  const normalized = text.replace(/\r?\n/g, '\r')
+  if (term?.modes.bracketedPasteMode && term.options.ignoreBracketedPasteMode !== true) {
+    sendInput(`\x1b[200~${normalized}\x1b[201~`)
+  } else {
+    sendInput(normalized)
+  }
+  if (chatSubmit.value) {
+    sendInput('\r')
+  }
+  chatText.value = ''
+}
+
+function onChatKeydown(ev: KeyboardEvent): void {
+  if ((ev.ctrlKey || ev.metaKey) && ev.key === 'Enter') {
+    ev.preventDefault()
+    sendChat()
+  }
+}
+
+function toggleChat(): void {
+  chatCollapsed.value = !chatCollapsed.value
+  localStorage.setItem('attach-chat-collapsed', chatCollapsed.value ? '1' : '0')
 }
 
 function isCtrlKey(ev: KeyboardEvent, key: string): boolean {
@@ -399,10 +472,17 @@ async function connect(): Promise<void> {
     }
     if (frame.t === 'hello') {
       reconnectAttempts.value = 0
-      const cols = frame.cols || 80
-      const rows = frame.rows || 24
-      term?.resize(cols, rows)
+      serverCols.value = frame.cols || 80
+      serverRows.value = frame.rows || 24
       setWriteGranted(frame.write)
+      applyServerSize()
+      return
+    }
+    if (frame.t === 'r') {
+      // pty 尺寸广播（tools-3xy）：所有端跟随权威尺寸，写者自己 resize 的回声幂等。
+      serverCols.value = frame.cols
+      serverRows.value = frame.rows
+      applyServerSize()
       return
     }
     if (frame.t === 'x') {
@@ -487,7 +567,8 @@ function onWindowResize(): void {
   }
   resizeTimer = window.setTimeout(() => {
     resizeTimer = null
-    fit?.fit()
+    // 只有写者的视口变化才允许改本地布局并传导给 pty；只读端跟随服务端尺寸。
+    applyServerSize()
   }, 120)
 }
 
@@ -590,6 +671,36 @@ onUnmounted(() => {
       @keydown.capture="onTerminalHostKey"
       @pointerdown="markTerminalActive"
     />
+    <!-- 聊天式输入区（tools-j0e）：长文本编辑确认后一次性写入，终端直输仍可用 -->
+    <div v-if="!exited" class="chat-box">
+      <button class="chat-toggle mono" type="button" @click="toggleChat">
+        {{ chatCollapsed ? '▸ 输入框' : '▾ 输入框' }}
+      </button>
+      <template v-if="!chatCollapsed">
+        <textarea
+          v-model="chatText"
+          class="chat-input mono"
+          rows="3"
+          :disabled="!writeGranted"
+          :placeholder="writeGranted ? '长文本在这里编辑，Ctrl+Enter 发送；终端里也可直接敲键盘' : '只读跟随中，无法输入'"
+          @keydown="onChatKeydown"
+        ></textarea>
+        <div class="chat-actions">
+          <label class="chat-submit-toggle mono">
+            <input v-model="chatSubmit" type="checkbox" />
+            发送后回车提交
+          </label>
+          <button
+            class="terminal-btn mono"
+            type="button"
+            :disabled="!writeGranted || !chatText.trim()"
+            @click="sendChat"
+          >
+            发送
+          </button>
+        </div>
+      </template>
+    </div>
     <footer v-if="exited" class="terminal-foot mono">进程已退出</footer>
   </section>
 </template>
@@ -754,8 +865,69 @@ onUnmounted(() => {
   flex: 1 1 auto;
   min-height: 0;
   padding: 8px;
-  overflow: hidden;
+  /* 只读端跟随服务端尺寸时可能超出容器宽度，横向滚动兜底（tools-3xy） */
+  overflow: auto;
   background: var(--term-bg);
+}
+
+/* 聊天式输入区（tools-j0e）：安静的第二输入面，不与终端争夺视觉 */
+.chat-box {
+  flex: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 6px 10px 8px;
+  border-top: 1px solid var(--line);
+  background: var(--panel);
+}
+.chat-toggle {
+  align-self: flex-start;
+  padding: 2px 6px;
+  border: none;
+  background: transparent;
+  color: var(--queue);
+  font-size: 11px;
+  cursor: pointer;
+}
+.chat-toggle:hover {
+  color: var(--phosphor);
+}
+.chat-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 56px;
+  max-height: 200px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--term-bg);
+  color: var(--paper);
+  font-size: 12px;
+  line-height: 1.45;
+}
+.chat-input:focus {
+  border-color: var(--phosphor);
+  outline: none;
+}
+.chat-input:disabled {
+  opacity: 0.5;
+}
+.chat-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+.chat-submit-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--queue);
+  font-size: 11px;
+  cursor: pointer;
+}
+.chat-submit-toggle input {
+  accent-color: var(--phosphor);
 }
 
 .terminal-host :deep(.xterm) {

@@ -123,14 +123,30 @@ func (s *Server) handleJobAttach(c *rux.Context) {
 		return conn.Write(ctx, websocket.MessageText, b)
 	}
 
+	// hello carries the relay's CURRENT size, not the binding's initial one: the
+	// pty may have been resized since submit, and a client that starts from a
+	// stale size renders garbage until the next resize (tools-3xy R1). Fall back
+	// to the binding only when the relay never learned a size.
+	helloCols, helloRows := relay.Size()
+	if helloCols <= 0 || helloRows <= 0 {
+		helloCols, helloRows = entry.Binding.Cols, entry.Binding.Rows
+	}
 	if err := writeControl(map[string]any{
 		"t":     "hello",
 		"write": gotLease,
-		"cols":  entry.Binding.Cols,
-		"rows":  entry.Binding.Rows,
+		"cols":  helloCols,
+		"rows":  helloRows,
 	}); err != nil {
 		return
 	}
+
+	// Follow pty size changes made by whoever holds the write lease: without this
+	// broadcast every other viewer keeps a layout the TUI no longer draws for and
+	// has no way to recover (tools-3xy R2). Registered after hello so the first
+	// size a client sees is the hello's.
+	viewer.SetSizeListener(func(cols, rows int) {
+		_ = writeControl(map[string]any{"t": "r", "cols": cols, "rows": rows})
+	})
 
 	if scroll := relay.Scrollback(); len(scroll) > 0 {
 		if err := writeBinary(scroll); err != nil {
@@ -209,7 +225,13 @@ func (s *Server) readAttachFrames(ctx context.Context, conn *websocket.Conn, vie
 			}
 			_ = viewer.SendInput(input)
 		case "r":
-			if frame.Cols >= attachResizeMinCols && frame.Cols <= attachResizeMaxCols &&
+			// Only the write-lease holder may resize the shared pty (tools-3xy R3).
+			// The front end already gates this on writeGranted; enforcing it here too
+			// stops a read-only client (old build, crafted frame) from squeezing the
+			// pty to its own viewport and garbling every other viewer. Ignored, not a
+			// protocol error, to tolerate older front ends.
+			if viewer.HoldsLease() &&
+				frame.Cols >= attachResizeMinCols && frame.Cols <= attachResizeMaxCols &&
 				frame.Rows >= attachResizeMinRows && frame.Rows <= attachResizeMaxRows {
 				_ = relay.Resize(frame.Cols, frame.Rows)
 			}

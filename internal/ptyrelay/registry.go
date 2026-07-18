@@ -131,6 +131,9 @@ func (r *Registry) Open(nonce string, source PtySource, opts ...Option) (*RelayE
 		return nil, ErrRelayNotFound
 	}
 	e.Relay = New(source, opts...)
+	// Seed the size truth from the binding's initial pty size so hello / the size
+	// broadcast report reality even before the first Resize (tools-3xy R1).
+	e.Relay.seedSize(e.Binding.Cols, e.Binding.Rows)
 	e.Relay.Start()
 	e.State = RelayOpen
 	e.OpenedAt = r.now()

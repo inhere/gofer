@@ -563,3 +563,55 @@ func readViewer(t *testing.T, v *Viewer, want int, d time.Duration) []byte {
 	}
 	return buf.Bytes()
 }
+
+// TestResizeBroadcastAndSizeTruth (tools-3xy): a successful Resize updates the
+// relay's size truth and notifies every viewer's size listener; HoldsLease
+// reflects the lease so the transport can gate WHO resizes.
+func TestResizeBroadcastAndSizeTruth(t *testing.T) {
+	src := newFakeSource()
+	r := New(src)
+	r.seedSize(120, 40)
+	if c, w := r.Size(); c != 120 || w != 40 {
+		t.Fatalf("seeded size = %dx%d, want 120x40", c, w)
+	}
+
+	writer, err := r.AddViewer(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	reader, err := r.AddViewer(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !writer.HoldsLease() || reader.HoldsLease() {
+		t.Fatalf("lease view wrong: writer=%v reader=%v", writer.HoldsLease(), reader.HoldsLease())
+	}
+
+	var mu sync.Mutex
+	var got [][2]int
+	reader.SetSizeListener(func(cols, rows int) {
+		mu.Lock()
+		got = append(got, [2]int{cols, rows})
+		mu.Unlock()
+	})
+
+	if err := r.Resize(40, 20); err != nil {
+		t.Fatal(err)
+	}
+	if c, w := r.Size(); c != 40 || w != 20 {
+		t.Fatalf("size after resize = %dx%d, want 40x20", c, w)
+	}
+	// Listener runs on its own goroutine — wait for delivery.
+	waitFor(t, time.Second, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(got) == 1 && got[0] == [2]int{40, 20}
+	})
+
+	// Writer detaches → lease frees → reader still holds no lease.
+	writer.Close()
+	if reader.HoldsLease() {
+		t.Fatal("reader must not inherit the lease on writer detach")
+	}
+	_ = r.Close()
+}

@@ -81,6 +81,8 @@ export interface PtySessionsResp {
 
 export type AttachServerFrame =
   | { t: 'hello'; write: boolean; cols: number; rows: number }
+  // pty 尺寸变更广播（tools-3xy）：写者 resize 后 serve 推给所有 viewer，客户端跟随。
+  | { t: 'r'; cols: number; rows: number }
   | { t: 'x'; code?: number }
 
 export type AttachClientFrame =
@@ -556,6 +558,8 @@ export interface RunnerWorker {
   gofer_version?: string
   // worker 进程启动时间（Unix 秒）
   started_at?: number
+  // worker 注册时上报的协议版本；过旧(< reload/policy 最低要求)时 reload/policy 会 409
+  protocol_version?: number
 }
 
 // 运行器能力摘要（projects + typed agents）：local 行由服务端配置合成、

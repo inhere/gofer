@@ -74,6 +74,10 @@ type Relay struct {
 	leaseHolder int // viewer id holding the write lease; 0 = free
 	closed      bool
 	started     bool
+	// cols/rows is the CURRENT pty size — the single size truth every viewer must
+	// follow (tools-3xy). Seeded from the binding's initial size at Open, updated
+	// on every successful Resize; 0 means "never known" (hello falls back).
+	cols, rows int
 
 	bytesIn     atomic.Int64 // total stdin bytes forwarded to the source (D-P3-8)
 	castClean   atomic.Bool  // true = no cast OR cast封尾 cleanly within grace; false = Close timed out (H1)
@@ -254,8 +258,34 @@ func (r *Relay) removeViewer(id int) {
 	}
 }
 
+// seedSize records the pty's initial size (the binding's cols/rows) so Size and
+// the size broadcast start from truth before any Resize happens. Zero values are
+// ignored (size stays "unknown" and consumers fall back).
+func (r *Relay) seedSize(cols, rows int) {
+	if cols <= 0 || rows <= 0 {
+		return
+	}
+	r.mu.Lock()
+	r.cols, r.rows = cols, rows
+	r.mu.Unlock()
+}
+
+// Size returns the current pty size ((0,0) when never known).
+func (r *Relay) Size() (cols, rows int) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.cols, r.rows
+}
+
 // Resize forwards a window-size change to the source (a writer-lease viewer's
-// resize; the relay does not gate resize beyond the source's own validation).
+// resize; the transport gates WHO may resize — see attach handler — the relay
+// gates nothing beyond the source's own validation).
+//
+// On success it records the new size and notifies every viewer's size listener
+// (tools-3xy): the pty size is a single shared truth, and a viewer that misses a
+// change has no way to recover (its terminal stays laid out for a size the TUI
+// no longer draws for). Listeners are invoked on their own goroutines so a slow
+// viewer connection can never stall the resizing client's read loop.
 func (r *Relay) Resize(cols, rows int) error {
 	r.mu.Lock()
 	closed := r.closed
@@ -263,7 +293,22 @@ func (r *Relay) Resize(cols, rows int) error {
 	if closed {
 		return ErrClosed
 	}
-	return r.src.Resize(cols, rows)
+	if err := r.src.Resize(cols, rows); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	r.cols, r.rows = cols, rows
+	fns := make([]func(int, int), 0, len(r.viewers))
+	for _, v := range r.viewers {
+		if fn := v.sizeListener(); fn != nil {
+			fns = append(fns, fn)
+		}
+	}
+	r.mu.Unlock()
+	for _, fn := range fns {
+		go fn(cols, rows)
+	}
+	return nil
 }
 
 // Close tears down the relay: closes the source, drops all viewers. Idempotent —
@@ -360,6 +405,7 @@ type Viewer struct {
 	mu       sync.Mutex
 	lagged   bool
 	outClosd bool
+	sizeFn   func(cols, rows int) // optional size-change listener (tools-3xy)
 }
 
 // Out is the viewer's bounded output stream. It is closed when the viewer is
@@ -387,6 +433,29 @@ func (v *Viewer) SendInput(b []byte) error {
 		v.relay.bytesIn.Add(int64(n)) // D-P3-8: count forwarded stdin bytes
 	}
 	return err
+}
+
+// HoldsLease reports whether this viewer currently holds the exclusive input
+// write lease. The transport uses it to gate resize the same way SendInput gates
+// stdin (tools-3xy R3): only the writer may change the shared pty size.
+func (v *Viewer) HoldsLease() bool {
+	v.relay.mu.Lock()
+	defer v.relay.mu.Unlock()
+	return v.relay.leaseHolder == v.id
+}
+
+// SetSizeListener registers fn to be called (on its own goroutine) after every
+// successful Resize, with the new pty size. One listener per viewer; nil clears.
+func (v *Viewer) SetSizeListener(fn func(cols, rows int)) {
+	v.mu.Lock()
+	v.sizeFn = fn
+	v.mu.Unlock()
+}
+
+func (v *Viewer) sizeListener() func(cols, rows int) {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	return v.sizeFn
 }
 
 // Lagged reports whether this viewer has dropped at least one chunk because its

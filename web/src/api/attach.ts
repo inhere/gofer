@@ -42,6 +42,12 @@ export function parseServerFrame(data: string): AttachServerFrame | null {
     }
     return null
   }
+  if (obj.t === 'r') {
+    if (typeof obj.cols === 'number' && typeof obj.rows === 'number') {
+      return { t: 'r', cols: obj.cols, rows: obj.rows }
+    }
+    return null
+  }
   if (obj.t === 'x') {
     if (obj.code == null) {
       return { t: 'x' }
