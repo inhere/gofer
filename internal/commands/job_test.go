@@ -183,6 +183,62 @@ func TestJobRunInteractiveFlagsBuildRequest(t *testing.T) {
 	}
 }
 
+// TestJobRunInteractiveIgnoresSync verifies guardInteractiveSync (tools-l8p): an
+// --interactive --sync combo must not block the submit response, so the command
+// forces Sync back to false before buildJobRunRequest runs.
+func TestJobRunInteractiveIgnoresSync(t *testing.T) {
+	jobRunOpts = struct {
+		project      string
+		agent        string
+		runner       string
+		cwd          string
+		prompt       string
+		timeout      int
+		title        string
+		wait         bool
+		sync         bool
+		waitTimeout  int
+		file         string
+		workerID     string
+		workerLabels string
+		tags         string
+		plan         string
+		channel      string
+		role         string
+		systemPrompt string
+		agentArgs    gcli.Strings
+		interactive  bool
+		cols         int
+		rows         int
+	}{}
+
+	app := NewApp("test")
+	var gotSync bool
+	runCmd := app.GetCommand("job").GetCommand("run")
+	runCmd.Func = func(c *gcli.Command, _ []string) error {
+		guardInteractiveSync(c)
+		req, err := buildJobRunRequest(c, nil)
+		if err != nil {
+			return err
+		}
+		gotSync = req.Sync
+		return nil
+	}
+
+	code := app.Run([]string{
+		"job", "run", "-p", "self", "-a", "term-agent", "--interactive", "--sync", "--prompt", "hello",
+	})
+	if code != 0 {
+		t.Fatalf("app.Run exit code=%d", code)
+	}
+	if gotSync {
+		t.Fatalf("req.Sync = true, want false (--sync must be ignored for --interactive)")
+	}
+	if !jobRunOpts.interactive {
+		t.Fatalf("--interactive not bound")
+	}
+}
+
 func TestJobRunAgentArgFlagsBuildRequest(t *testing.T) {
 	jobRunOpts.agentArgs = nil
 	app := NewApp("test")

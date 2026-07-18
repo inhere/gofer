@@ -307,6 +307,7 @@ func argID(c *gcli.Command) string {
 // transparently degrades to client-side polling.
 func runJobRun(c *gcli.Command, _ []string) error {
 	autoDetectJobProject(c)
+	guardInteractiveSync(c)
 
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
@@ -343,6 +344,18 @@ func runJobRun(c *gcli.Command, _ []string) error {
 		c.Printf("job %s finished: status=%s exit_code=%d\n", res.ID, res.Status, res.ExitCode)
 	}
 	return nil
+}
+
+// guardInteractiveSync forces async submission for --interactive jobs (tools-l8p).
+// Interactive jobs are resident pty sessions with no natural terminal state, so a
+// --sync submit would block the POST response for up to the server wait cap
+// (SubmitSync's 30-60s) before runJobRun ever reaches the "job %s submitted"
+// print — starving scripts that need the id right away to watch/attach next.
+func guardInteractiveSync(c *gcli.Command) {
+	if jobRunOpts.interactive && jobRunOpts.sync {
+		c.Println("note: --sync is ignored for --interactive (resident session); submitting async so the job id prints immediately")
+		jobRunOpts.sync = false
+	}
 }
 
 // autoDetectJobProject mirrors the `job run` D7 convenience: only when -p is
