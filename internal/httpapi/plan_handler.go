@@ -38,11 +38,17 @@ func toPlanView(p jobstore.Plan) planView {
 }
 
 type todoView struct {
-	TodoID    string `json:"todo_id"`
-	PlanID    string `json:"plan_id"`
-	JobID     string `json:"job_id,omitempty"`
-	Title     string `json:"title"`
-	Done      bool   `json:"done"`
+	TodoID string `json:"todo_id"`
+	PlanID string `json:"plan_id"`
+	JobID  string `json:"job_id,omitempty"`
+	Title  string `json:"title"`
+	Done   bool   `json:"done"`
+	// Lifecycle fields (Part C §C2): status pending|doing|done|skipped with
+	// auto-stamped transition times and a short outcome note.
+	Status    string `json:"status"`
+	StartedAt int64  `json:"started_at,omitempty"`
+	DoneAt    int64  `json:"done_at,omitempty"`
+	Note      string `json:"note,omitempty"`
 	Sort      int    `json:"sort,omitempty"`
 	CreatedAt int64  `json:"created_at"`
 	UpdatedAt int64  `json:"updated_at"`
@@ -51,7 +57,8 @@ type todoView struct {
 func toTodoView(t jobstore.PlanTodo) todoView {
 	return todoView{
 		TodoID: t.TodoID, PlanID: t.PlanID, JobID: t.JobID, Title: t.Title,
-		Done: t.Done, Sort: t.Sort, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
+		Done: t.Done, Status: t.Status, StartedAt: t.StartedAt, DoneAt: t.DoneAt,
+		Note: t.Note, Sort: t.Sort, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
 	}
 }
 
@@ -245,6 +252,7 @@ func (s *Server) handleAttachPlanJob(c *rux.Context) {
 type addTodoReq struct {
 	Title string `json:"title"`
 	JobID string `json:"job_id,omitempty"`
+	Note  string `json:"note,omitempty"`
 	Sort  int    `json:"sort,omitempty"`
 }
 
@@ -272,6 +280,8 @@ func (s *Server) handleAddPlanTodo(c *rux.Context) {
 		PlanID:    id,
 		JobID:     strings.TrimSpace(body.JobID),
 		Title:     body.Title,
+		Status:    jobstore.TodoPending,
+		Note:      body.Note,
 		Sort:      body.Sort,
 		CreatedAt: now.Unix(),
 		UpdatedAt: now.Unix(),
@@ -284,8 +294,14 @@ func (s *Server) handleAddPlanTodo(c *rux.Context) {
 	c.JSON(http.StatusOK, toTodoView(t))
 }
 
+// updateTodoReq moves a todo along its lifecycle and/or updates its note.
+// status (pending|doing|done|skipped) wins over the legacy done flag; done is a
+// *bool so an old client's {"done":...} body keeps working while a status-only
+// or note-only body doesn't accidentally reset done=false.
 type updateTodoReq struct {
-	Done bool `json:"done"`
+	Done   *bool   `json:"done,omitempty"`
+	Status string  `json:"status,omitempty"`
+	Note   *string `json:"note,omitempty"`
 }
 
 func (s *Server) handleUpdateTodo(c *rux.Context) {
@@ -295,7 +311,25 @@ func (s *Server) handleUpdateTodo(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
-	ok, err := s.jobs.Meta().SetTodoDone(tid, body.Done)
+	status := strings.TrimSpace(body.Status)
+	if status == "" && body.Done != nil {
+		// Legacy二态 body: map onto the lifecycle.
+		status = jobstore.TodoPending
+		if *body.Done {
+			status = jobstore.TodoDone
+		}
+	}
+	if status != "" && !jobstore.ValidTodoStatus(status) {
+		writeError(c, http.StatusBadRequest, "invalid status",
+			"status must be one of pending|doing|done|skipped")
+		return
+	}
+	if status == "" && body.Note == nil {
+		writeError(c, http.StatusBadRequest, "empty update",
+			"provide status, done or note")
+		return
+	}
+	ok, err := s.jobs.Meta().UpdateTodoStatus(tid, status, body.Note)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "update todo failed", err.Error())
 		return

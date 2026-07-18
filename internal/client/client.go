@@ -624,6 +624,10 @@ type Todo struct {
 	JobID     string `json:"job_id,omitempty"`
 	Title     string `json:"title"`
 	Done      bool   `json:"done"`
+	Status    string `json:"status,omitempty"`
+	StartedAt int64  `json:"started_at,omitempty"`
+	DoneAt    int64  `json:"done_at,omitempty"`
+	Note      string `json:"note,omitempty"`
 	Sort      int    `json:"sort,omitempty"`
 	CreatedAt int64  `json:"created_at"`
 	UpdatedAt int64  `json:"updated_at"`
@@ -691,9 +695,10 @@ func (c *Client) AttachJob(planID, jobID string) (Plan, error) {
 	return p, err
 }
 
-// AddTodo creates a plan todo. jobID may be empty for a plain checklist item.
-func (c *Client) AddTodo(planID, title, jobID string) (Todo, error) {
-	body, err := json.Marshal(map[string]any{"title": title, "job_id": jobID})
+// AddTodo creates a plan todo. jobID may be empty for a plain checklist item;
+// note is an optional short remark.
+func (c *Client) AddTodo(planID, title, jobID, note string) (Todo, error) {
+	body, err := json.Marshal(map[string]any{"title": title, "job_id": jobID, "note": note})
 	if err != nil {
 		return Todo{}, fmt.Errorf("encode add todo: %w", err)
 	}
@@ -702,9 +707,26 @@ func (c *Client) AddTodo(planID, title, jobID string) (Todo, error) {
 	return t, err
 }
 
-// UpdateTodo sets a todo's manual done flag.
+// UpdateTodo sets a todo's manual done flag (legacy二态 wrapper).
 func (c *Client) UpdateTodo(todoID string, done bool) (Todo, error) {
-	body, err := json.Marshal(map[string]bool{"done": done})
+	status := "pending"
+	if done {
+		status = "done"
+	}
+	return c.UpdateTodoStatus(todoID, status, nil)
+}
+
+// UpdateTodoStatus moves a todo along its lifecycle and/or updates its note
+// (Part C §C2). status "" = keep current (note-only); note nil = keep current.
+func (c *Client) UpdateTodoStatus(todoID, status string, note *string) (Todo, error) {
+	payload := map[string]any{}
+	if status != "" {
+		payload["status"] = status
+	}
+	if note != nil {
+		payload["note"] = *note
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return Todo{}, fmt.Errorf("encode update todo: %w", err)
 	}

@@ -794,6 +794,9 @@ export interface PlanCounts {
 }
 
 // plan 待办项（P3）。job_id 为空=纯待办；非空=绑某次 job 执行（元数据，done 纯手动）。
+// todo 生命周期状态（Part C §C2）：doing 自动记 started_at，done/skipped 记 done_at。
+export type TodoStatus = 'pending' | 'doing' | 'done' | 'skipped'
+
 export interface Todo {
   todo_id: string
   plan_id: string
@@ -801,6 +804,11 @@ export interface Todo {
   job_id?: string
   title: string
   done: boolean
+  status: TodoStatus
+  // Unix 秒；后端 omitempty（未开始/未完结为缺省）
+  started_at?: number
+  done_at?: number
+  note?: string
   // 后端 omitempty
   sort?: number
   // Unix 秒

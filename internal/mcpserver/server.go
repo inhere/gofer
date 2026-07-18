@@ -188,7 +188,7 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_update_todo",
-		Description: "Mark a todo done or undone by todo_id. Returns the updated todo.",
+		Description: "Update a todo by todo_id: move it along its lifecycle (status: pending|doing|done|skipped — doing stamps started_at, done/skipped stamp done_at) and/or set a short outcome note. Returns the updated todo.",
 	}, updateTodoHandler(b))
 
 	return s
@@ -337,6 +337,10 @@ type todoView struct {
 	JobID     string `json:"job_id,omitempty"`
 	Title     string `json:"title"`
 	Done      bool   `json:"done"`
+	Status    string `json:"status"`
+	StartedAt int64  `json:"started_at,omitempty"`
+	DoneAt    int64  `json:"done_at,omitempty"`
+	Note      string `json:"note,omitempty"`
 	Sort      int    `json:"sort,omitempty"`
 	CreatedAt int64  `json:"created_at"`
 	UpdatedAt int64  `json:"updated_at"`
@@ -345,7 +349,8 @@ type todoView struct {
 func toTodoView(t jobstore.PlanTodo) todoView {
 	return todoView{
 		TodoID: t.TodoID, PlanID: t.PlanID, JobID: t.JobID, Title: t.Title,
-		Done: t.Done, Sort: t.Sort, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
+		Done: t.Done, Status: t.Status, StartedAt: t.StartedAt, DoneAt: t.DoneAt,
+		Note: t.Note, Sort: t.Sort, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
 	}
 }
 
@@ -590,11 +595,12 @@ type addTodoToolInput struct {
 	PlanID string `json:"plan_id"`
 	Title  string `json:"title"`
 	JobID  string `json:"job_id,omitempty"`
+	Note   string `json:"note,omitempty"`
 }
 
 func addTodoHandler(b Backend) mcp.ToolHandlerFor[addTodoToolInput, todoView] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in addTodoToolInput) (*mcp.CallToolResult, todoView, error) {
-		tv, err := b.AddTodo(in.PlanID, in.Title, in.JobID)
+		tv, err := b.AddTodo(in.PlanID, in.Title, in.JobID, in.Note)
 		if err != nil {
 			return nil, todoView{}, err
 		}
@@ -604,12 +610,24 @@ func addTodoHandler(b Backend) mcp.ToolHandlerFor[addTodoToolInput, todoView] {
 
 type updateTodoToolInput struct {
 	TodoID string `json:"todo_id"`
-	Done   bool   `json:"done"`
+	// Status moves the todo along its lifecycle (pending|doing|done|skipped);
+	// it wins over the legacy done flag. Note updates the remark (omitted =
+	// unchanged). Done stays for old callers: true→done, false→pending.
+	Status string  `json:"status,omitempty"`
+	Note   *string `json:"note,omitempty"`
+	Done   *bool   `json:"done,omitempty"`
 }
 
 func updateTodoHandler(b Backend) mcp.ToolHandlerFor[updateTodoToolInput, todoView] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in updateTodoToolInput) (*mcp.CallToolResult, todoView, error) {
-		tv, err := b.UpdateTodo(in.TodoID, in.Done)
+		status := in.Status
+		if status == "" && in.Done != nil {
+			status = "pending"
+			if *in.Done {
+				status = "done"
+			}
+		}
+		tv, err := b.UpdateTodo(in.TodoID, status, in.Note)
 		if err != nil {
 			return nil, todoView{}, err
 		}

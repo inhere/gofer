@@ -6,22 +6,49 @@ import (
 	"fmt"
 )
 
+// Todo lifecycle statuses (Part C §C2). Done bool is kept in lockstep for
+// back-compat: Done ⟺ Status == TodoDone (skipped is terminal but NOT done).
+const (
+	TodoPending = "pending"
+	TodoDoing   = "doing"
+	TodoDone    = "done"
+	TodoSkipped = "skipped"
+)
+
+// ValidTodoStatus reports whether s is one of the todo lifecycle statuses.
+func ValidTodoStatus(s string) bool {
+	switch s {
+	case TodoPending, TodoDoing, TodoDone, TodoSkipped:
+		return true
+	}
+	return false
+}
+
 // PlanTodo is a plan-orchestration todo item. JobID "" is a plain checklist
 // item; a non-empty JobID binds it to one job run as metadata. Done is exposed
-// as bool while storage stays the 0/1 INTEGER column used by SQLite.
+// as bool while storage stays the 0/1 INTEGER column used by SQLite; Status is
+// the richer lifecycle (Part C §C2), StartedAt/DoneAt are stamped automatically
+// on status transitions, Note is a short outcome/remark (overwritten, not a
+// process log — that belongs to job logs).
 type PlanTodo struct {
 	TodoID    string
 	PlanID    string
 	JobID     string
 	Title     string
 	Done      bool
+	Status    string
+	StartedAt int64
+	DoneAt    int64
+	Note      string
 	Sort      int
 	CreatedAt int64
 	UpdatedAt int64
 }
 
 const selectTodoCols = `SELECT todo_id, plan_id, COALESCE(job_id,''),
-  COALESCE(title,''), COALESCE(done,0), COALESCE(sort,0), created_at, updated_at
+  COALESCE(title,''), COALESCE(done,0), COALESCE(status,''),
+  COALESCE(started_at,0), COALESCE(done_at,0), COALESCE(note,''),
+  COALESCE(sort,0), created_at, updated_at
   FROM plan_todos`
 
 func scanTodo(sc rowScanner) (PlanTodo, error) {
@@ -29,9 +56,18 @@ func scanTodo(sc rowScanner) (PlanTodo, error) {
 		t    PlanTodo
 		done int
 	)
-	err := sc.Scan(&t.TodoID, &t.PlanID, &t.JobID, &t.Title, &done, &t.Sort,
-		&t.CreatedAt, &t.UpdatedAt)
+	err := sc.Scan(&t.TodoID, &t.PlanID, &t.JobID, &t.Title, &done, &t.Status,
+		&t.StartedAt, &t.DoneAt, &t.Note, &t.Sort, &t.CreatedAt, &t.UpdatedAt)
 	t.Done = done != 0
+	if t.Status == "" {
+		// Rows written before the lifecycle columns (or by an old binary racing the
+		// migration backfill) surface a status derived from done.
+		if t.Done {
+			t.Status = TodoDone
+		} else {
+			t.Status = TodoPending
+		}
+	}
 	return t, err
 }
 
@@ -48,17 +84,28 @@ func (s *Store) InsertTodo(t PlanTodo) error {
 	if t.JobID != "" {
 		jobID = t.JobID
 	}
+	status := t.Status
+	if status == "" {
+		if t.Done {
+			status = TodoDone
+		} else {
+			status = TodoPending
+		}
+	}
+	if !ValidTodoStatus(status) {
+		return fmt.Errorf("jobstore: InsertTodo: invalid status %q", status)
+	}
 	done := 0
-	if t.Done {
+	if status == TodoDone {
 		done = 1
 	}
 	const q = `INSERT INTO plan_todos
-  (todo_id, plan_id, job_id, title, done, sort, created_at, updated_at)
-  VALUES (?,?,?,?,?,?,?,?)`
+  (todo_id, plan_id, job_id, title, done, status, started_at, done_at, note, sort, created_at, updated_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	if _, err := s.db.Exec(q, t.TodoID, t.PlanID, jobID, t.Title, done, t.Sort,
-		t.CreatedAt, t.UpdatedAt); err != nil {
+	if _, err := s.db.Exec(q, t.TodoID, t.PlanID, jobID, t.Title, done, status,
+		t.StartedAt, t.DoneAt, t.Note, t.Sort, t.CreatedAt, t.UpdatedAt); err != nil {
 		return fmt.Errorf("jobstore: insert todo %q: %w", t.TodoID, err)
 	}
 	return nil
@@ -99,19 +146,57 @@ func (s *Store) ListTodosByPlan(planID string) ([]PlanTodo, error) {
 	return out, nil
 }
 
-// SetTodoDone sets a todo's done flag. P3 keeps this purely manual; job terminal
-// state does not drive this field.
+// SetTodoDone sets a todo's done flag (legacy二态 surface). It maps onto the
+// lifecycle: done=true → TodoDone, done=false → TodoPending, with the same
+// automatic timestamps as UpdateTodoStatus.
 func (s *Store) SetTodoDone(todoID string, done bool) (bool, error) {
-	d := 0
+	status := TodoPending
 	if done {
-		d = 1
+		status = TodoDone
+	}
+	return s.UpdateTodoStatus(todoID, status, nil)
+}
+
+// UpdateTodoStatus moves a todo along its lifecycle and/or updates its note
+// (Part C §C2). status "" keeps the current status (note-only update); note nil
+// keeps the current note (status-only update). Timestamps are stamped on the
+// transition itself:
+//
+//   - → doing: started_at is set (only if still 0 — a redo keeps the original
+//     start), done_at is cleared (done → doing = redo);
+//   - → done/skipped: done_at is set;
+//   - → pending: both cleared (full reset).
+//
+// The legacy done flag stays in lockstep (done ⟺ status=done).
+func (s *Store) UpdateTodoStatus(todoID, status string, note *string) (bool, error) {
+	if status != "" && !ValidTodoStatus(status) {
+		return false, fmt.Errorf("jobstore: update todo %q: invalid status %q", todoID, status)
+	}
+	now := s.unixNow()
+	var noteVal any // nil = keep current note (COALESCE)
+	if note != nil {
+		noteVal = *note
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	res, err := s.db.Exec(`UPDATE plan_todos SET done=?, updated_at=? WHERE todo_id=?`,
-		d, s.unixNow(), todoID)
+	// Single conditional UPDATE: all timestamp rules live in SQL against the
+	// CURRENT row values, so a concurrent updater can never interleave a read-
+	// modify-write (same reasoning as the SR303-style conditional updates).
+	const q = `UPDATE plan_todos SET
+  status     = CASE WHEN ?1 = '' THEN COALESCE(NULLIF(status,''), CASE WHEN done=1 THEN 'done' ELSE 'pending' END) ELSE ?1 END,
+  done       = CASE WHEN ?1 = '' THEN done WHEN ?1 = 'done' THEN 1 ELSE 0 END,
+  started_at = CASE WHEN ?1 = 'doing' AND COALESCE(started_at,0) = 0 THEN ?2
+                    WHEN ?1 = 'pending' THEN 0
+                    ELSE COALESCE(started_at,0) END,
+  done_at    = CASE WHEN ?1 IN ('done','skipped') THEN ?2
+                    WHEN ?1 IN ('doing','pending') THEN 0
+                    ELSE COALESCE(done_at,0) END,
+  note       = COALESCE(?3, note),
+  updated_at = ?2
+  WHERE todo_id = ?4`
+	res, err := s.db.Exec(q, status, now, noteVal, todoID)
 	if err != nil {
-		return false, fmt.Errorf("jobstore: set todo %q done: %w", todoID, err)
+		return false, fmt.Errorf("jobstore: update todo %q status: %w", todoID, err)
 	}
 	n, _ := res.RowsAffected()
 	return n == 1, nil

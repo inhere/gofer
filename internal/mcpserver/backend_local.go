@@ -245,7 +245,7 @@ func (b *localBackend) GetPlan(planID string) (planView, error) {
 	return pv, nil
 }
 
-func (b *localBackend) AddTodo(planID, title, jobID string) (todoView, error) {
+func (b *localBackend) AddTodo(planID, title, jobID, note string) (todoView, error) {
 	if strings.TrimSpace(title) == "" {
 		return todoView{}, fmt.Errorf("title required")
 	}
@@ -261,6 +261,8 @@ func (b *localBackend) AddTodo(planID, title, jobID string) (todoView, error) {
 		PlanID:    planID,
 		JobID:     strings.TrimSpace(jobID),
 		Title:     title,
+		Status:    jobstore.TodoPending,
+		Note:      note,
 		CreatedAt: now.Unix(),
 		UpdatedAt: now.Unix(),
 	}
@@ -271,9 +273,15 @@ func (b *localBackend) AddTodo(planID, title, jobID string) (todoView, error) {
 	return toTodoView(t), nil
 }
 
-func (b *localBackend) UpdateTodo(todoID string, done bool) (todoView, error) {
+func (b *localBackend) UpdateTodo(todoID, status string, note *string) (todoView, error) {
 	st := b.jobs.Meta()
-	ok, err := st.SetTodoDone(todoID, done)
+	if status != "" && !jobstore.ValidTodoStatus(status) {
+		return todoView{}, fmt.Errorf("invalid status %q (want pending|doing|done|skipped)", status)
+	}
+	if status == "" && note == nil {
+		return todoView{}, fmt.Errorf("provide status and/or note")
+	}
+	ok, err := st.UpdateTodoStatus(todoID, status, note)
 	if err != nil {
 		return todoView{}, err
 	}

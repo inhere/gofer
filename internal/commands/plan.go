@@ -21,11 +21,14 @@ var planListOpts = struct {
 }{}
 
 var planAddTodoOpts = struct {
-	job string
+	job  string
+	note string
 }{}
 
 var planSetTodoOpts = struct {
 	undone bool
+	status string
+	note   string
 }{}
 
 // NewPlanCmd builds the `plan` command group for lightweight job grouping.
@@ -109,18 +112,21 @@ func NewPlanCmd() *gcli.Command {
 					c.AddArg("plan-id", "plan id", true)
 					c.AddArg("title", "todo title", true)
 					c.StrOpt(&planAddTodoOpts.job, "job", "", "", "bind the todo to a job id (optional)")
+					c.StrOpt(&planAddTodoOpts.note, "note", "", "", "short remark for the todo (optional)")
 				},
 				Func: runPlanAddTodo,
 			},
 			{
 				Name:    "set-todo",
 				Aliases: []string{"todo-done"},
-				Desc:    "Mark a todo done, or undone with --undone",
+				Desc:    "Update a todo: --status pending|doing|done|skipped and/or --note; bare = done, --undone = pending",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.AddArg("todo-id", "todo id", true)
-					c.BoolOpt(&planSetTodoOpts.undone, "undone", "", false, "mark the todo not done")
+					c.BoolOpt(&planSetTodoOpts.undone, "undone", "", false, "mark the todo not done (= --status pending)")
+					c.StrOpt(&planSetTodoOpts.status, "status", "", "", "lifecycle status: pending|doing|done|skipped (wins over --undone)")
+					c.StrOpt(&planSetTodoOpts.note, "note", "", "", "set the todo note (kept unchanged when omitted)")
 				},
 				Func: runPlanSetTodo,
 			},
@@ -230,7 +236,7 @@ func runPlanAddTodo(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	t, err := cli.AddTodo(planID, title, planAddTodoOpts.job)
+	t, err := cli.AddTodo(planID, title, planAddTodoOpts.job, planAddTodoOpts.note)
 	if err != nil {
 		return err
 	}
@@ -247,11 +253,26 @@ func runPlanSetTodo(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	t, err := cli.UpdateTodo(todoID, !planSetTodoOpts.undone)
+	// --status wins; bare invocation keeps the legacy semantics (done, or
+	// pending with --undone). --note alone leaves the status untouched.
+	status := planSetTodoOpts.status
+	if status == "" && planSetTodoOpts.note == "" {
+		status = "done"
+		if planSetTodoOpts.undone {
+			status = "pending"
+		}
+	} else if status == "" && planSetTodoOpts.undone {
+		status = "pending"
+	}
+	var note *string
+	if planSetTodoOpts.note != "" {
+		note = &planSetTodoOpts.note
+	}
+	t, err := cli.UpdateTodoStatus(todoID, status, note)
 	if err != nil {
 		return err
 	}
-	c.Printf("todo %s done=%t\n", t.TodoID, t.Done)
+	c.Printf("todo %s status=%s\n", t.TodoID, t.Status)
 	return nil
 }
 
@@ -300,14 +321,27 @@ func printPlanTodos(c *gcli.Command, todos []client.Todo) {
 		return
 	}
 	for _, t := range todos {
+		// Older servers may not send status yet — fall back to the done flag.
+		status := t.Status
+		if status == "" && t.Done {
+			status = "done"
+		}
 		box := "[ ]"
-		if t.Done {
+		switch status {
+		case "done":
 			box = "[x]"
+		case "doing":
+			box = "[~]"
+		case "skipped":
+			box = "[-]"
 		}
 		bind := ""
 		if t.JobID != "" {
 			bind = "  (job=" + t.JobID + ")"
 		}
 		c.Printf("  %s %-26s %s%s\n", box, t.TodoID, t.Title, bind)
+		if t.Note != "" {
+			c.Printf("      note: %s\n", t.Note)
+		}
 	}
 }

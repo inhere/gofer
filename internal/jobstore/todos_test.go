@@ -91,3 +91,97 @@ func TestInsertTodoRequiresIDs(t *testing.T) {
 	assert.Err(t, s.InsertTodo(PlanTodo{PlanID: "plan-1", CreatedAt: 1, UpdatedAt: 1}))
 	assert.Err(t, s.InsertTodo(PlanTodo{TodoID: "todo-1", CreatedAt: 1, UpdatedAt: 1}))
 }
+
+// TestTodoLifecycleTimestampsAndNote (Part C §C2): status transitions stamp
+// started_at/done_at automatically, note updates independently, and the legacy
+// done flag stays in lockstep with status.
+func TestTodoLifecycleTimestampsAndNote(t *testing.T) {
+	s := openTest(t)
+	assert.NoErr(t, s.InsertPlan(Plan{PlanID: "plan-lc", Status: PlanOpen, CreatedAt: 1, UpdatedAt: 1}))
+	assert.NoErr(t, s.InsertTodo(PlanTodo{
+		TodoID: "todo-lc", PlanID: "plan-lc", Title: "step 1", CreatedAt: 1, UpdatedAt: 1,
+	}))
+
+	// Fresh insert defaults to pending, no timestamps.
+	td, ok, err := s.GetTodo("todo-lc")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, TodoPending, td.Status)
+	assert.Eq(t, int64(0), td.StartedAt)
+	assert.Eq(t, int64(0), td.DoneAt)
+
+	// → doing stamps started_at.
+	okUp, err := s.UpdateTodoStatus("todo-lc", TodoDoing, nil)
+	assert.NoErr(t, err)
+	assert.True(t, okUp)
+	td, _, _ = s.GetTodo("todo-lc")
+	assert.Eq(t, TodoDoing, td.Status)
+	assert.True(t, td.StartedAt > 0)
+	assert.False(t, td.Done)
+	startedAt := td.StartedAt
+
+	// → done stamps done_at, keeps started_at, syncs Done.
+	note := "验收通过"
+	okUp, err = s.UpdateTodoStatus("todo-lc", TodoDone, &note)
+	assert.NoErr(t, err)
+	assert.True(t, okUp)
+	td, _, _ = s.GetTodo("todo-lc")
+	assert.Eq(t, TodoDone, td.Status)
+	assert.True(t, td.Done)
+	assert.True(t, td.DoneAt > 0)
+	assert.Eq(t, startedAt, td.StartedAt)
+	assert.Eq(t, "验收通过", td.Note)
+
+	// done → doing (redo): done_at cleared, original started_at kept, note kept.
+	okUp, err = s.UpdateTodoStatus("todo-lc", TodoDoing, nil)
+	assert.NoErr(t, err)
+	assert.True(t, okUp)
+	td, _, _ = s.GetTodo("todo-lc")
+	assert.Eq(t, TodoDoing, td.Status)
+	assert.False(t, td.Done)
+	assert.Eq(t, int64(0), td.DoneAt)
+	assert.Eq(t, startedAt, td.StartedAt)
+	assert.Eq(t, "验收通过", td.Note)
+
+	// Note-only update (status "") keeps the lifecycle state.
+	note2 := "returning to it"
+	okUp, err = s.UpdateTodoStatus("todo-lc", "", &note2)
+	assert.NoErr(t, err)
+	assert.True(t, okUp)
+	td, _, _ = s.GetTodo("todo-lc")
+	assert.Eq(t, TodoDoing, td.Status)
+	assert.Eq(t, "returning to it", td.Note)
+
+	// → skipped is terminal but NOT done.
+	okUp, err = s.UpdateTodoStatus("todo-lc", TodoSkipped, nil)
+	assert.NoErr(t, err)
+	assert.True(t, okUp)
+	td, _, _ = s.GetTodo("todo-lc")
+	assert.Eq(t, TodoSkipped, td.Status)
+	assert.False(t, td.Done)
+	assert.True(t, td.DoneAt > 0)
+
+	// → pending resets both timestamps.
+	okUp, err = s.UpdateTodoStatus("todo-lc", TodoPending, nil)
+	assert.NoErr(t, err)
+	assert.True(t, okUp)
+	td, _, _ = s.GetTodo("todo-lc")
+	assert.Eq(t, TodoPending, td.Status)
+	assert.Eq(t, int64(0), td.StartedAt)
+	assert.Eq(t, int64(0), td.DoneAt)
+
+	// Invalid status rejected; unknown todo reports ok=false.
+	_, err = s.UpdateTodoStatus("todo-lc", "bogus", nil)
+	assert.Err(t, err)
+	okUp, err = s.UpdateTodoStatus("todo-nope", TodoDone, nil)
+	assert.NoErr(t, err)
+	assert.False(t, okUp)
+
+	// Legacy SetTodoDone keeps working through the lifecycle mapping.
+	okUp, err = s.SetTodoDone("todo-lc", true)
+	assert.NoErr(t, err)
+	assert.True(t, okUp)
+	td, _, _ = s.GetTodo("todo-lc")
+	assert.Eq(t, TodoDone, td.Status)
+	assert.True(t, td.Done)
+}

@@ -42,8 +42,10 @@ type Backend interface {
 	CreatePlan(title, description string) (planView, error)
 	AttachJob(planID, jobID string) (planView, error)
 	GetPlan(planID string) (planView, error)
-	AddTodo(planID, title, jobID string) (todoView, error)
-	UpdateTodo(todoID string, done bool) (todoView, error)
+	AddTodo(planID, title, jobID, note string) (todoView, error)
+	// UpdateTodo moves a todo along its lifecycle (status ""=keep) and/or
+	// updates its note (nil=keep). See jobstore.UpdateTodoStatus.
+	UpdateTodo(todoID, status string, note *string) (todoView, error)
 
 	// E36 driver-agent identity/mailbox (4 of the 5 gofer_* presence tools;
 	// list_pending_interactions is P3). local 直驱 presence.Service; client 转发

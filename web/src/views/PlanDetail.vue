@@ -7,9 +7,9 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import PlanStatusBadge from '../components/PlanStatusBadge.vue'
 import StatusBadge from '../components/StatusBadge.vue'
-import { addTodo, attachJob, getPlan, updatePlan, updateTodo } from '../api/client'
+import { addTodo, attachJob, getPlan, updatePlan, updateTodo, updateTodoStatus } from '../api/client'
 import { fmtDateTime, fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
-import type { Job, PlanCounts, PlanDetail, PlanStatus, Todo } from '../api/types'
+import type { Job, PlanCounts, PlanDetail, PlanStatus, Todo, TodoStatus } from '../api/types'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -38,8 +38,39 @@ const isActive = computed(() => {
 
 const todoSummary = computed(() => {
   const todos = plan.value?.todos ?? []
-  return `${todos.filter((t) => t.done).length}/${todos.length}`
+  const doing = todos.filter((t) => t.status === 'doing').length
+  const base = `${todos.filter((t) => t.done).length}/${todos.length}`
+  return doing > 0 ? `${base} · ${doing} doing` : base
 })
+
+// 生命周期状态推进（Part C §C2）：下拉即改，doing/done 时间戳由服务端自动打。
+const TODO_STATUSES: TodoStatus[] = ['pending', 'doing', 'done', 'skipped']
+
+async function onTodoStatus(t: Todo, status: TodoStatus): Promise<void> {
+  if (status === t.status) return
+  opError.value = ''
+  try {
+    const updated = await updateTodoStatus(t.todo_id, status)
+    if (plan.value) {
+      plan.value.todos = plan.value.todos.map((x) =>
+        x.todo_id === updated.todo_id ? updated : x,
+      )
+    }
+  } catch (e) {
+    opError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+// 耗时展示：done/skipped 用 started→done 区间；doing 用 started→now。
+function todoDuration(t: Todo): string {
+  const start = t.started_at ?? 0
+  if (!start) return ''
+  const end = t.done_at && t.done_at > 0 ? t.done_at : Math.floor(Date.now() / 1000)
+  const s = Math.max(0, end - start)
+  if (s < 60) return `${s}s`
+  if (s < 3600) return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s`
+  return `${Math.floor(s / 3600)}h${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}m`
+}
 
 const canFinish = computed(() => {
   const c = plan.value?.counts
@@ -366,19 +397,34 @@ onUnmounted(() => {
         <h2 class="section-title mono">TODOS ({{ todoSummary }})</h2>
       </div>
       <div class="todos">
-        <label v-for="t in plan.todos" :key="t.todo_id" class="todo-row">
-          <input type="checkbox" :checked="t.done" @change="onToggleTodo(t)" />
-          <span class="todo-title" :class="{ 'todo-title--done': t.done }">{{ t.title }}</span>
-          <button
-            v-if="t.job_id"
-            class="todo-job mono"
-            type="button"
-            :title="t.job_id"
-            @click.prevent="openJob(t.job_id)"
-          >
-            job {{ shortId(t.job_id) }} &rarr;
-          </button>
-        </label>
+        <div v-for="t in plan.todos" :key="t.todo_id" class="todo-item">
+          <label class="todo-row">
+            <input type="checkbox" :checked="t.done" @change="onToggleTodo(t)" />
+            <span class="todo-title" :class="{ 'todo-title--done': t.done }">{{ t.title }}</span>
+            <select
+              class="todo-status mono"
+              :class="`todo-status--${t.status}`"
+              :value="t.status"
+              :title="t.started_at ? `开始 ${new Date(t.started_at * 1000).toLocaleString()}` : ''"
+              @change="onTodoStatus(t, ($event.target as HTMLSelectElement).value as TodoStatus)"
+            >
+              <option v-for="st in TODO_STATUSES" :key="st" :value="st">{{ st }}</option>
+            </select>
+            <span v-if="todoDuration(t)" class="todo-duration mono" :title="t.done_at ? `完结 ${new Date(t.done_at * 1000).toLocaleString()}` : '进行中'">
+              {{ todoDuration(t) }}
+            </span>
+            <button
+              v-if="t.job_id"
+              class="todo-job mono"
+              type="button"
+              :title="t.job_id"
+              @click.prevent="openJob(t.job_id)"
+            >
+              job {{ shortId(t.job_id) }} &rarr;
+            </button>
+          </label>
+          <p v-if="t.note" class="todo-note mono">{{ t.note }}</p>
+        </div>
         <div v-if="plan.todos.length === 0" class="empty mono">暂无待办</div>
       </div>
       <form class="op-form mono" @submit.prevent="onAddTodo">
@@ -659,17 +705,49 @@ onUnmounted(() => {
   white-space: nowrap;
 }
 
+.todo-item {
+  border-bottom: 1px solid var(--line);
+}
+.todo-item:last-child {
+  border-bottom: none;
+}
 .todo-row {
   display: grid;
-  grid-template-columns: 22px minmax(160px, 1fr) auto;
+  grid-template-columns: 22px minmax(160px, 1fr) auto auto auto;
   align-items: center;
   gap: 10px;
   padding: 9px 14px;
-  border-bottom: 1px solid var(--line);
   font-size: 13px;
 }
-.todo-row:last-child {
-  border-bottom: none;
+/* 状态下拉：安静的行内控件，按态着色（doing=run/done=done/skipped=queue） */
+.todo-status {
+  background: var(--term-bg);
+  color: var(--queue);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 2px 6px;
+  font-size: 11px;
+}
+.todo-status--doing {
+  color: var(--run);
+  border-color: var(--run);
+}
+.todo-status--done {
+  color: var(--done);
+}
+.todo-status--skipped {
+  color: var(--queue);
+}
+.todo-duration {
+  color: var(--paper);
+  font-size: 11px;
+}
+.todo-note {
+  margin: 0;
+  padding: 0 14px 9px 46px;
+  color: var(--queue);
+  font-size: 12px;
+  word-break: break-word;
 }
 .todo-row input {
   accent-color: var(--phosphor);
@@ -766,11 +844,16 @@ onUnmounted(() => {
     gap: 6px;
   }
   .todo-row {
-    grid-template-columns: 22px 1fr;
+    grid-template-columns: 22px 1fr auto;
   }
+  .todo-status,
+  .todo-duration,
   .todo-job {
-    grid-column: 2;
+    grid-column: 2 / -1;
     justify-self: start;
+  }
+  .todo-note {
+    padding-left: 14px;
   }
 }
 </style>

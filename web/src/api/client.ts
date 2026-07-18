@@ -40,6 +40,7 @@ import type {
   SubmitJobReq,
   SubmitJobResult,
   Todo,
+  TodoStatus,
   Workflow,
   WorkflowEventsResp,
   WorkflowSpec,
@@ -594,25 +595,42 @@ export function attachJob(planId: string, jobId: string): Promise<Plan> {
   })
 }
 
-// 在 plan 下建 todo（纯待办或绑 job）。
+// 在 plan 下建 todo（纯待办或绑 job，可带备注）。
 export function addTodo(
   planId: string,
   title: string,
   jobId?: string,
+  note?: string,
 ): Promise<Todo> {
   return request<Todo>(`/v1/plans/${encodeURIComponent(planId)}/todos`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ title, job_id: jobId ?? '' }),
+    body: JSON.stringify({ title, job_id: jobId ?? '', note: note ?? '' }),
   })
 }
 
-// 勾/取消 todo 的 done（PATCH /v1/todos/{id}）。
+// 勾/取消 todo 的 done（PATCH /v1/todos/{id}，旧二态入口）。
 export function updateTodo(todoId: string, done: boolean): Promise<Todo> {
   return request<Todo>(`/v1/todos/${encodeURIComponent(todoId)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ done }),
+  })
+}
+
+// todo 生命周期/备注更新（Part C §C2）：status 空串=不变，note undefined=不变。
+export function updateTodoStatus(
+  todoId: string,
+  status: TodoStatus | '',
+  note?: string,
+): Promise<Todo> {
+  const body: Record<string, unknown> = {}
+  if (status) body.status = status
+  if (note !== undefined) body.note = note
+  return request<Todo>(`/v1/todos/${encodeURIComponent(todoId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
   })
 }
 

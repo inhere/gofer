@@ -403,11 +403,11 @@ func TestClientBackendPlanMethods(t *testing.T) {
 		}
 		sawUpdateTodo = true
 		var body struct {
-			Done bool `json:"done"`
+			Status string `json:"status"`
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
-		if !body.Done {
-			t.Fatalf("update todo done mismatch: %+v", body)
+		if body.Status != "done" {
+			t.Fatalf("update todo status mismatch: %+v", body)
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
 			"todo_id":    "todo-1",
@@ -415,6 +415,7 @@ func TestClientBackendPlanMethods(t *testing.T) {
 			"job_id":     "job-1",
 			"title":      "todo title",
 			"done":       true,
+			"status":     "done",
 			"created_at": int64(300),
 			"updated_at": int64(400),
 		})
@@ -474,14 +475,14 @@ func TestClientBackendPlanMethods(t *testing.T) {
 		t.Fatalf("GetPlan todos mismatch: %+v", got.Todos)
 	}
 
-	added, err := b.AddTodo("plan-1", "todo title", "job-1")
+	added, err := b.AddTodo("plan-1", "todo title", "job-1", "")
 	if err != nil {
 		t.Fatalf("AddTodo: %v", err)
 	}
 	if !sawAddTodo || added.TodoID != "todo-1" || added.JobID != "job-1" || added.Done {
 		t.Fatalf("AddTodo mismatch: saw=%v todo=%+v", sawAddTodo, added)
 	}
-	updated, err := b.UpdateTodo("todo-1", true)
+	updated, err := b.UpdateTodo("todo-1", "done", nil)
 	if err != nil {
 		t.Fatalf("UpdateTodo: %v", err)
 	}

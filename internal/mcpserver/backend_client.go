@@ -172,16 +172,16 @@ func (b *clientBackend) GetPlan(planID string) (planView, error) {
 	return clientPlanToView(p), nil
 }
 
-func (b *clientBackend) AddTodo(planID, title, jobID string) (todoView, error) {
-	t, err := b.cli.AddTodo(planID, title, jobID)
+func (b *clientBackend) AddTodo(planID, title, jobID, note string) (todoView, error) {
+	t, err := b.cli.AddTodo(planID, title, jobID, note)
 	if err != nil {
 		return todoView{}, err
 	}
 	return clientTodoToView(t), nil
 }
 
-func (b *clientBackend) UpdateTodo(todoID string, done bool) (todoView, error) {
-	t, err := b.cli.UpdateTodo(todoID, done)
+func (b *clientBackend) UpdateTodo(todoID, status string, note *string) (todoView, error) {
+	t, err := b.cli.UpdateTodoStatus(todoID, status, note)
 	if err != nil {
 		return todoView{}, err
 	}
@@ -216,7 +216,8 @@ func clientPlanToView(p client.Plan) planView {
 func clientTodoToView(t client.Todo) todoView {
 	return todoView{
 		TodoID: t.TodoID, PlanID: t.PlanID, JobID: t.JobID, Title: t.Title,
-		Done: t.Done, Sort: t.Sort, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
+		Done: t.Done, Status: t.Status, StartedAt: t.StartedAt, DoneAt: t.DoneAt,
+		Note: t.Note, Sort: t.Sort, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
 	}
 }
 

@@ -459,6 +459,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateSchedules(); err != nil {
 		return err
 	}
+	if err := s.migratePlanTodos(); err != nil {
+		return err
+	}
 	// Partial unique index: only non-empty request_id values are constrained, so
 	// jobs without a request_id never collide. Created after the column exists.
 	if _, err := s.db.Exec(
@@ -560,6 +563,50 @@ func (s *Store) migrateSchedules() error {
 	if _, ok := cols["schedule_type"]; !ok {
 		if _, err := s.db.Exec("ALTER TABLE schedules ADD COLUMN schedule_type TEXT NOT NULL DEFAULT 'cron'"); err != nil {
 			return fmt.Errorf("jobstore: migrate schedules add schedule_type: %w", err)
+		}
+	}
+	return nil
+}
+
+// migratePlanTodos adds the todo lifecycle columns (Part C §C2): status /
+// started_at / done_at / note. Additive + idempotent; when the status column is
+// first added, existing rows are backfilled from the legacy done flag so old
+// checklists render correctly under the richer lifecycle.
+func (s *Store) migratePlanTodos() error {
+	cols, err := s.tableColumns("plan_todos")
+	if err != nil {
+		return err
+	}
+	backfill := false
+	add := func(col, ddl string) error {
+		if _, ok := cols[col]; ok {
+			return nil
+		}
+		if _, e := s.db.Exec("ALTER TABLE plan_todos ADD COLUMN " + ddl); e != nil {
+			return fmt.Errorf("jobstore: migrate plan_todos add %s: %w", col, e)
+		}
+		return nil
+	}
+	if _, ok := cols["status"]; !ok {
+		backfill = true
+	}
+	if err := add("status", "status TEXT"); err != nil {
+		return err
+	}
+	if err := add("started_at", "started_at INTEGER"); err != nil {
+		return err
+	}
+	if err := add("done_at", "done_at INTEGER"); err != nil {
+		return err
+	}
+	if err := add("note", "note TEXT"); err != nil {
+		return err
+	}
+	if backfill {
+		if _, err := s.db.Exec(
+			`UPDATE plan_todos SET status = CASE WHEN done=1 THEN 'done' ELSE 'pending' END
+			 WHERE status IS NULL OR status = ''`); err != nil {
+			return fmt.Errorf("jobstore: backfill plan_todos.status: %w", err)
 		}
 	}
 	return nil

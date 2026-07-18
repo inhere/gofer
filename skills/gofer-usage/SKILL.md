@@ -11,6 +11,8 @@ gofer = 一套「主机 server + 多台 worker」的任务执行网。你在 doc
 - **worker = 能力提供方**：这台机器有哪些目录（roots）/ 装了哪些 agent。
 
 > 本 skill 详讲最常用的 `gofer job`。**其余命令**（`workflow`/`plan`/`schedule`/`project`/`config`/`init`）见 [`references/commands.md`](references/commands.md)；**配置 gofer**（worker.yaml / config.yaml / 加 project / 建 worker / 迁 POLICY 分步）见 [`references/worker-config.md`](references/worker-config.md)、[`references/server-config.md`](references/server-config.md)、[`references/setup-recipes.md`](references/setup-recipes.md)。需要时再读。
+>
+> 💡 执行**多步骤长任务**时，建议用 `gofer plan` + todo 做进度看板（每步 `--status doing/done --note`，web/手机实时可看）——范式见 [`references/commands.md`](references/commands.md) 的「长任务进度跟进」。
 
 ## 0. 先判断能不能用（30 秒自检）
 

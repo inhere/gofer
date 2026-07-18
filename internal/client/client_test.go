@@ -498,7 +498,7 @@ func TestPlanClientRoundTrip(t *testing.T) {
 		t.Fatalf("GetPlan Counts mismatch: %+v", detail.Counts)
 	}
 
-	todo, err := c.AddTodo("plan-client", "client todo", jobOut.ID)
+	todo, err := c.AddTodo("plan-client", "client todo", jobOut.ID, "")
 	if err != nil {
 		t.Fatalf("AddTodo: %v", err)
 	}
