@@ -327,6 +327,11 @@ type WorkerSnapshot struct {
 	RemoteAddr   string // conn's remote addr as seen at accept (may be NAT/bridge)
 	GoferVersion string
 	StartedAt    int64 // worker process start, unix seconds
+	// ProtocolVersion is the wire version this connection registered with
+	// (wc.meta.ProtocolVersion, immutable per-connection — see protocolVersion()).
+	// Surfaced so an operator can spot a too-old worker (reload/policy gated by
+	// wsproto.SupportsReload/SupportsPolicy) before a reload/policy push 409s.
+	ProtocolVersion int
 	// Policy-push diagnostic state (P3 T4). PolicyPending is true while the worker has
 	// negotiated policy support and the hub pushed a rev it has not yet reported applied;
 	// a pre-policy (v3) worker is never marked pending. PolicyRev is the highest rev
@@ -363,24 +368,25 @@ func (wc *workerConn) snapshot() WorkerSnapshot {
 	wc.mu.Lock()
 	defer wc.mu.Unlock()
 	return WorkerSnapshot{
-		WorkerID:      wc.workerID,
-		InstanceID:    wc.meta.InstanceID,
-		LastHeartbeat: wc.lastHeartbeat.Load(),
-		InFlight:      len(wc.inflight),
-		PtyCapable:    wc.meta.PtyCapable,
-		Labels:        append([]string(nil), wc.meta.Labels...),
-		Projects:      append([]string(nil), wc.meta.Projects...),
-		Agents:        append([]string(nil), wc.meta.Agents...),
-		AgentCaps:     append([]wsproto.AgentBrief(nil), wc.meta.AgentCaps...),
-		OS:            wc.meta.OS,
-		Arch:          wc.meta.Arch,
-		Hostname:      wc.meta.Hostname,
-		RemoteAddr:    wc.remoteAddr,
-		GoferVersion:  wc.meta.GoferVersion,
-		StartedAt:     wc.meta.StartedAt,
-		PolicyPending: wc.policyPending,
-		PolicyRev:     wc.policyRev,
-		AppliedRev:    wc.appliedRev,
+		WorkerID:        wc.workerID,
+		InstanceID:      wc.meta.InstanceID,
+		LastHeartbeat:   wc.lastHeartbeat.Load(),
+		InFlight:        len(wc.inflight),
+		PtyCapable:      wc.meta.PtyCapable,
+		Labels:          append([]string(nil), wc.meta.Labels...),
+		Projects:        append([]string(nil), wc.meta.Projects...),
+		Agents:          append([]string(nil), wc.meta.Agents...),
+		AgentCaps:       append([]wsproto.AgentBrief(nil), wc.meta.AgentCaps...),
+		OS:              wc.meta.OS,
+		Arch:            wc.meta.Arch,
+		Hostname:        wc.meta.Hostname,
+		RemoteAddr:      wc.remoteAddr,
+		GoferVersion:    wc.meta.GoferVersion,
+		StartedAt:       wc.meta.StartedAt,
+		ProtocolVersion: wc.meta.ProtocolVersion,
+		PolicyPending:   wc.policyPending,
+		PolicyRev:       wc.policyRev,
+		AppliedRev:      wc.appliedRev,
 	}
 }
 
@@ -409,10 +415,13 @@ func (r *WorkerRegistry) current(workerID string) *workerConn {
 //     first would show a new limit while enforcing the old one.
 //
 // Caps is a FULL SNAPSHOT, not a patch: an empty Projects list means "this worker now
-// serves no project", and is applied as such. MaxConc is the one exception — 0 means
-// "not reported" and leaves the admitted limit untouched (the register-time value
-// stands), because zero is also the encoding for "no hub-side cap" and a reload must
-// not silently uncap a worker.
+// serves no project", and is applied as such. MaxConc is NOT an exception to that rule
+// — wsproto.Caps has no omitempty (see its doc) and every producer of a Caps value
+// (workerCaps, the register-time seed) fills MaxConc unconditionally from the worker's
+// resolved config, so a decoded 0 IS the worker's current "no cap" setting, not an
+// absent field. Gating on c.MaxConc > 0 here would silently keep the OLD limit on a
+// reload that intentionally uncaps the worker (max_concurrent: 0 in worker.yaml) —
+// that was tried once and reverted (tools-49r); 0 is applied like any other value.
 func (r *WorkerRegistry) UpdateCaps(wc *workerConn, c wsproto.Caps) {
 	if wc == nil {
 		return
@@ -433,10 +442,8 @@ func (r *WorkerRegistry) UpdateCaps(wc *workerConn, c wsproto.Caps) {
 	wc.meta.Projects = c.Projects
 	wc.meta.Agents = c.Agents
 	wc.meta.AgentCaps = c.AgentCaps
-	if c.MaxConc > 0 {
-		wc.meta.MaxConcurrent = c.MaxConc
-		wc.maxConcurrent = c.MaxConc // the field tryReserve admits against
-	}
+	wc.meta.MaxConcurrent = c.MaxConc
+	wc.maxConcurrent = c.MaxConc // the field tryReserve admits against
 }
 
 // MarkPolicyApplied records a worker's Applied report for one policy rev on ONE

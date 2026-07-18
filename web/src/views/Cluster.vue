@@ -423,6 +423,9 @@ function isActive(r: Runner): boolean {
           <template v-if="selectedRunner.worker?.started_at">
             <dt>运行时长</dt><dd>{{ fmtUptime(selectedRunner.worker.started_at) }}</dd>
           </template>
+          <template v-if="selectedRunner.worker?.protocol_version">
+            <dt>协议版本</dt><dd>{{ selectedRunner.worker.protocol_version }}</dd>
+          </template>
         </dl>
         <div v-if="selectedRunner.worker?.labels && selectedRunner.worker.labels.length" class="chips">
           <span v-for="l in selectedRunner.worker.labels" :key="l" class="chip mono">{{ l }}</span>

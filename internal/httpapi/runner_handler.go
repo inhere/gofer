@@ -78,6 +78,10 @@ type WorkerStatus struct {
 	RemoteAddr   string
 	GoferVersion string
 	StartedAt    int64 // worker process start, unix seconds
+	// ProtocolVersion is the wire version this worker registered with. Surfaced so
+	// an operator can spot a too-old worker (reload/policy gated by
+	// wsproto.SupportsReload/SupportsPolicy) before a reload/policy push 409s.
+	ProtocolVersion int
 }
 
 // runnerProber is the consumer-side narrow interface (D2) the handler reads the
@@ -154,6 +158,8 @@ type workerView struct {
 	RemoteAddr   string `json:"remote_addr,omitempty"`
 	GoferVersion string `json:"gofer_version,omitempty"`
 	StartedAt    int64  `json:"started_at,omitempty"`
+	// ProtocolVersion is the worker's wire version (see WorkerStatus.ProtocolVersion).
+	ProtocolVersion int `json:"protocol_version,omitempty"`
 }
 
 // handleListRunners returns the status of every configured runner plus the
@@ -253,19 +259,20 @@ func (s *Server) renderWorkerStatus(workerID string, v *runnerView) string {
 		age = 0
 	}
 	v.Worker = &workerView{
-		LastHeartbeat:  ws.LastHeartbeat,
-		HeartbeatAgeMS: age,
-		InFlight:       ws.InFlight,
-		Labels:         ws.Labels,
-		Projects:       ws.Projects,
-		Agents:         ws.Agents,
-		AgentCaps:      ws.AgentCaps,
-		OS:             ws.OS,
-		Arch:           ws.Arch,
-		Hostname:       ws.Hostname,
-		RemoteAddr:     ws.RemoteAddr,
-		GoferVersion:   ws.GoferVersion,
-		StartedAt:      ws.StartedAt,
+		LastHeartbeat:   ws.LastHeartbeat,
+		HeartbeatAgeMS:  age,
+		InFlight:        ws.InFlight,
+		Labels:          ws.Labels,
+		Projects:        ws.Projects,
+		Agents:          ws.Agents,
+		AgentCaps:       ws.AgentCaps,
+		OS:              ws.OS,
+		Arch:            ws.Arch,
+		Hostname:        ws.Hostname,
+		RemoteAddr:      ws.RemoteAddr,
+		GoferVersion:    ws.GoferVersion,
+		StartedAt:       ws.StartedAt,
+		ProtocolVersion: ws.ProtocolVersion,
 	}
 	// Surface the same capability summary uniformly on the runner row so the web can
 	// cascade project→agent for a worker runner exactly as it does for local (P4).
@@ -286,8 +293,16 @@ func (s *Server) localCapabilities() *capsView {
 // its normalised type — mirroring P1's worker report), sorted by key for a stable
 // response. Reading the resolved registry (not the raw config map) is what keeps the
 // local capability set from under-reporting exec.
+//
+// Available/Version are filled from the SAME cache handleListAgents reads
+// (agent.Registry.Availability): a map-lookup / already-memoized read, not a live
+// probe, so calling it on every /v1/runners poll (web polls at 4s) costs no extra
+// child-process spawns — it turns over only on reload, exactly like /v1/agents.
+// This keeps the two observability surfaces reporting the same fact instead of
+// /v1/runners always showing agent_caps.available=null.
 func (s *Server) localAgentCaps() []AgentBrief {
 	list := s.agents.List()
+	avail := s.agents.Availability()
 	keys := make([]string, 0, len(list))
 	for k := range list {
 		keys = append(keys, k)
@@ -295,7 +310,14 @@ func (s *Server) localAgentCaps() []AgentBrief {
 	sort.Strings(keys)
 	out := make([]AgentBrief, 0, len(keys))
 	for _, k := range keys {
-		out = append(out, AgentBrief{Key: k, Type: list[k].Type, Interactive: list[k].Interactive})
+		det := avail[k]
+		out = append(out, AgentBrief{
+			Key:         k,
+			Type:        list[k].Type,
+			Interactive: list[k].Interactive,
+			Available:   &det.Available,
+			Version:     det.Version,
+		})
 	}
 	return out
 }

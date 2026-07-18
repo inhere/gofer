@@ -24,19 +24,20 @@ func (a hubWorkerRegistry) WorkerStatus(workerID string) (httpapi.WorkerStatus, 
 		return httpapi.WorkerStatus{}, false
 	}
 	return httpapi.WorkerStatus{
-		Connected:     true,
-		LastHeartbeat: snap.LastHeartbeat * 1000, // seconds → millis (SR102)
-		InFlight:      snap.InFlight,
-		Labels:        snap.Labels,
-		Projects:      snap.Projects,
-		Agents:        snap.Agents,
-		AgentCaps:     briefsFromSnapshot(snap),
-		OS:            snap.OS,
-		Arch:          snap.Arch,
-		Hostname:      snap.Hostname,
-		RemoteAddr:    snap.RemoteAddr,
-		GoferVersion:  snap.GoferVersion,
-		StartedAt:     snap.StartedAt,
+		Connected:       true,
+		LastHeartbeat:   snap.LastHeartbeat * 1000, // seconds → millis (SR102)
+		InFlight:        snap.InFlight,
+		Labels:          snap.Labels,
+		Projects:        snap.Projects,
+		Agents:          snap.Agents,
+		AgentCaps:       briefsFromSnapshot(snap),
+		OS:              snap.OS,
+		Arch:            snap.Arch,
+		Hostname:        snap.Hostname,
+		RemoteAddr:      snap.RemoteAddr,
+		GoferVersion:    snap.GoferVersion,
+		StartedAt:       snap.StartedAt,
+		ProtocolVersion: snap.ProtocolVersion,
 	}, true
 }
 

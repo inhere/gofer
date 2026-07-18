@@ -201,10 +201,11 @@ func TestListRunnersWorkerAgentCapsAndNode(t *testing.T) {
 				{Key: "exec", Type: "exec"},
 				{Key: "claude", Type: "cli-agent", Interactive: true},
 			},
-			OS:           "linux",
-			Arch:         "amd64",
-			GoferVersion: "v1.2.3",
-			StartedAt:    1750299000,
+			OS:              "linux",
+			Arch:            "amd64",
+			GoferVersion:    "v1.2.3",
+			StartedAt:       1750299000,
+			ProtocolVersion: 4,
 		},
 	}
 	rows := byName(listRunners(t, newRunnersServer(t, runnersCfg, nil, workers)))
@@ -215,6 +216,11 @@ func TestListRunnersWorkerAgentCapsAndNode(t *testing.T) {
 	if on.Worker.OS != "linux" || on.Worker.Arch != "amd64" ||
 		on.Worker.GoferVersion != "v1.2.3" || on.Worker.StartedAt != 1750299000 {
 		t.Fatalf("worker node info wrong: %+v", on.Worker)
+	}
+	// tools-edr: protocol_version must surface on the worker row so ops can spot a
+	// too-old worker before a reload/policy push 409s.
+	if on.Worker.ProtocolVersion != 4 {
+		t.Fatalf("worker protocol_version wrong: %+v", on.Worker)
 	}
 	caps := map[string]AgentBrief{}
 	for _, c := range on.Worker.AgentCaps {
@@ -250,6 +256,11 @@ func TestListRunnersLocalCapabilities(t *testing.T) {
 	}
 	if a, ok := caps["exec"]; !ok || a.Type != "exec" {
 		t.Fatalf("local capabilities must include built-in exec with type exec: %+v", local.Capabilities.AgentCaps)
+	}
+	// tools-3sb: local row must fill available (not the always-null placeholder) —
+	// same cache /v1/agents reads, so exec (built-in) reports true.
+	if a := caps["exec"]; a.Available == nil || !*a.Available {
+		t.Fatalf("local capabilities exec.available should be true, got: %+v", a)
 	}
 }
 

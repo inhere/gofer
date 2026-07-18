@@ -47,6 +47,11 @@ func TestWorkerSnapshotCarriesCapsAndNodeInfo(t *testing.T) {
 	if snap.InstanceID != "inst-1" || !snap.PtyCapable || snap.LastHeartbeat != 1700000001 {
 		t.Fatalf("base fields not carried: %+v", snap)
 	}
+	// tools-edr: ProtocolVersion must round-trip so ops-facing surfaces (runners
+	// panel) can flag a too-old worker before a reload/policy push 409s.
+	if snap.ProtocolVersion != wsproto.CurrentProtocolVersion {
+		t.Fatalf("ProtocolVersion = %d, want %d", snap.ProtocolVersion, wsproto.CurrentProtocolVersion)
+	}
 	if len(snap.Projects) != 2 || snap.Projects[0] != "alpha" || snap.Agents[1] != "exec" || snap.Labels[0] != "gpu" {
 		t.Fatalf("labels/projects/agents = %v / %v / %v", snap.Labels, snap.Projects, snap.Agents)
 	}
@@ -215,22 +220,34 @@ func TestUpdateCapsMovesTheRealAdmissionLimit(t *testing.T) {
 	}
 }
 
-// TestUpdateCapsZeroMaxConcKeepsTheLimit: MaxConc=0 means "not reported", and must NOT
-// be applied — 0 is also the encoding for "no hub-side cap", so treating an absent
-// value as a real one would silently UNCAP the worker on every reload that omits it.
-func TestUpdateCapsZeroMaxConcKeepsTheLimit(t *testing.T) {
+// TestUpdateCapsZeroMaxConcUncapsOnReload is the tools-49r regression: MaxConc=0 in a
+// caps frame is the worker's CURRENT config value (wsproto.Caps has no omitempty, and
+// workerCaps always fills MaxConc from worker.yaml, never leaves it as a sentinel), so
+// it means "no hub-side cap" and must be applied like any other field in the snapshot —
+// an operator lowering max_concurrent to 0 (or deleting the key) to deliberately lift
+// the limit must not require a worker restart to take effect.
+func TestUpdateCapsZeroMaxConcUncapsOnReload(t *testing.T) {
 	r := newRegistry()
 	wc := newWorkerConn("w1", "w1", nil, wsproto.Register{
 		WorkerID: "w1", ProtocolVersion: wsproto.CurrentProtocolVersion, MaxConcurrent: 1,
 	})
 	r.Put(wc)
 
-	r.UpdateCaps(wc, capsFor("nomax", 0))
+	// Register-time limit of 1: a second job is refused before the reload.
 	if !wc.tryReserve("j1") {
-		t.Fatal("first job refused")
+		t.Fatal("first job refused at register-time max_concurrent=1")
 	}
 	if wc.tryReserve("j2") {
-		t.Fatal("max_concurrent=0 in a caps frame uncapped the worker: it must mean 'unchanged'")
+		t.Fatal("second job admitted before the reload: the register-time limit is not enforced")
+	}
+	wc.release("j1")
+
+	r.UpdateCaps(wc, capsFor("nomax", 0))
+	// The cap is gone: many jobs must now admit at once.
+	for i := 0; i < 8; i++ {
+		if !wc.tryReserve(fmt.Sprintf("u%d", i)) {
+			t.Fatalf("job %d refused after reload set max_concurrent=0: the worker must be uncapped", i)
+		}
 	}
 	// …while the rest of the snapshot still applied.
 	if snap, _ := r.WorkerSnapshot("w1"); snap.Projects[0] != "proj-nomax" {
