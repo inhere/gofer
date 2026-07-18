@@ -5,6 +5,7 @@
 | 版本 | 日期 | 修改人 | 说明 |
 |---|---|---|---|
 | v0.1 | 2026-07-18 | inhere + agent | 初稿：外部会话领养 + 双向交接 + pty 三问题修复设计 |
+| v0.2 | 2026-07-18 | inhere + agent | 分层为"登记→观察→接管"：新增活跃会话进度观察(§10)、hooks 通知中心(§11)、"不活跃"判定具体化(§7.3)；明确 gofer 内起重活是首选路线(§3.1) |
 
 > 关联 issue：tools-tsq（会话领养）、tools-it1（ESC）、tools-3xy（多端错乱）、tools-j0e（聊天输入框）。
 
@@ -43,6 +44,24 @@
 3. 回到电脑，在 web 里点"结束"（或让它退出），终端上 `claude --resume X` 又接回来了——**始终是同一个会话 X**，两边看到完整历史。
 
 约束一句话：**同一时刻只有一端在写**。会话文件是单写者模型，交接的本义就是"这边停、那边接"。
+
+能力分三层，约束各不同（v0.2 核心）：
+
+| 层 | 动作 | 前置约束 |
+|---|---|---|
+| 登记 adopt | 让 gofer 知道这个会话 | 无（会话活跃时就可登记，越早越好） |
+| 观察 observe | web/手机**只读**看进度、收通知 | 无（只读不碰会话文件） |
+| 接管 take over | web 起 resume job **写**会话 | 会话不活跃（终端进程已退出，或正卡在等人输入） |
+
+### 3.1 首选路线：重活直接在 gofer 里起
+
+若一开始就预期"要跑很久、人可能离开"，**直接用 gofer 起交互 job（tty-claude）跑这个大计划**，三层能力天然齐备、无需任何新东西：
+
+- 观察 = read-only attach（多端修复后手机可看）/ job logs；
+- 确认 = answerguard/supervisor 已有"agent 提问 → 自动答或升级到人（web InteractionCard）"机制；
+- 交接 = 本来就在 pty 里，桌面/手机 attach 写租约随取随用。
+
+本设计的 Part A 解决的是**没这么起**的存量终端会话（事后补救路径）。
 
 ## 4. 架构总览
 
@@ -156,28 +175,73 @@ serve: job 终态 → state=RELEASED（jobstore 终态钩子里顺带更新）
 
 要点：**session id 全程不变**，"接回"不需要 gofer 做任何事，只要 web 侧 job 已结束（单写者约束满足）即可。skill/文档要把"先结束 web 端再接回"讲清楚。
 
-### 7.3 防双开（单写者保障，尽力而为）
+### 7.3 防双开（单写者保障）与"不活跃"判定（v0.2 具体化）
+
+open（接管）前置 = **会话不活跃**，判定来源两级：
+
+1. **事件判定（有 §11 hooks 时，准）**：最近事件是 `Stop`（回合结束空闲）或 `Notification`（等权限/等提问回答）→ 不活跃，**这正是安全接管点**（进程虽在，但卡在等人，不会再写会话文件）；最近事件是工具执行/流式输出 → 活跃，open 硬拒绝；
+2. **mtime 兜底（无 hooks 时，粗）**：会话 jsonl 的 mtime 距今 < 阈值（如 60s）视为活跃 → open 给强警告需二次确认；超过阈值 → 放行。
+
+其余规则不变：
 
 - open 时若 state=WEB_ACTIVE 且 active_job 仍 RUNNING → 拒绝（提示先结束）；
-- adopt 时无法可靠检测"终端端是否真的停手"——以提示与约定为主（TBD-2：后续可探测会话文件 mtime 活跃度做告警）；
-- 终端接回前 web job 未结束 → claude 自身表现为两个进程写同一会话文件，后写覆盖——文档明示风险。
+- **接管发生在"终端进程还开着但卡在等输入"时**：web 端答复走的是新进程，终端里那个停留的提问界面已是陈旧的——回到电脑必须 Ctrl+C 丢弃旧进程再 `--resume`，**不要**在旧界面继续作答（文档/卡片提示）；
+- 终端接回前 web job 未结束 → 两进程写同一会话文件，后写覆盖——明示风险。
 
-## 8. 待确认事项
+## 10. 活跃会话的进度观察（v0.2 新增，场景：大计划跑着人要离开）
+
+会话**继续在终端跑**、人只想远程看进度——这是观察（只读），不需要也不应该接管。
+
+**方案：transcript 跟随**。Claude Code 会话全程实时追加 `~/.claude/projects/<slug>/<sid>.jsonl`；领养记录已知 runner/机器，观察即"在那台机器上 tail 这个文件"：
+
+```txt
+web 观察页 → GET /v1/sessions/adopted/{id}/tail?cursor=N
+serve → (runner=worker 时经既有 worker 通道)读会话 jsonl 增量
+web 渲染: assistant 文本段 / 工具调用一行摘要 / 最后活动时间 + 状态徽章
+```
+
+- 渲染做**摘要级**（每条 jsonl 事件一行：谁/干了什么/摘要），不是终端复刻——观察要的是"进行到哪了"，不是每个字节；
+- 轮询增量（cursor=字节偏移）即可，无需常驻流；页面 4s 轮询与 runners 页同律；
+- 该文件可能含敏感内容，观察页走既有 token 鉴权 + 只对 adopt 过的会话开放。
+
+## 11. 通知中心：确认点/完成推送（v0.2 新增，"有确认需要我处理"）
+
+**方案：Claude Code hooks → gofer 事件 API**。在工作区 hooks 配置里加两条（一次性配置，所有会话生效）：
+
+| hook | 触发 | 动作 |
+|---|---|---|
+| `Notification` | 需要人注意：权限确认、AskUserQuestion、空闲等待 | `POST /v1/sessions/events {sid, type:'needs_attention', text}` |
+| `Stop` | 回合结束（空闲） | `POST /v1/sessions/events {sid, type:'idle'}` |
+
+gofer 侧：
+
+- 事件按 session_id 关联 adopted 记录（未领养的 sid 事件也先收下，web 可从事件反向一键 adopt）；
+- adopted 卡片显示状态徽章：`运行中 / ⚠ 等待处理 / 空闲 / 已接管`；`等待处理` 直接给"在 web 接管"按钮（正是 §7.3 的安全接管点）；
+- 可选：接 PushNotification/webhook 把 `needs_attention` 推到手机。
+
+**边界说明（诚实）**：裸终端进程的交互 UI **无法被远程作答**——AskUserQuestion 的选项界面在终端进程里。web 上能做的是：看到"等待处理" → 接管（resume 新进程，把问题重新问出来/继续跑）→ 回桌后丢弃旧终端进程。真正的"远程直接点按钮作答"只有 §3.1 的 gofer-pty 路线才有（answerguard 升级卡片）。
+
+> 进阶（TBD-5，暂不做）：`PermissionRequest` hook 同步 long-poll gofer 决策，可实现权限类确认的 web 远程放行；超时默认拒绝。复杂度与风险都高，等前面跑顺再评估。
+
+## 12. 待确认事项
 
 | # | 事项 |
 |---|---|
 | TBD-1 | 会话内获取自身 session id 的可靠途径（env vs 最新 transcript 文件）需实测 |
-| TBD-2 | 是否要做"终端端仍活跃"探测（会话 jsonl mtime 心跳）辅助防双开 |
+| TBD-2 | mtime 活跃度阈值取值（§7.3 兜底判定，初稿 60s） |
 | TBD-3 | resume job 的 agent 选择：领养记录带 agent key（如 tty-claude）还是 serve 按 agent 类型自动挑 interactive 定义？初稿：领养时显式带，缺省 tty-claude |
 | TBD-4 | 手机端长文本体验依赖 Part B 的聊天输入框先落地 |
+| TBD-5 | PermissionRequest hook long-poll 远程放行（§11 进阶），先不做 |
 
-## 9. 实施拆分（建议顺序）
+## 13. 实施拆分（建议顺序）
 
-1. **T1** serve：adopted_sessions 表 + adopt/list/open/delete API + open 的防双开（含单测）
+1. **T1** serve：adopted_sessions 表 + adopt/list/open/delete API + open 的防双开与不活跃判定（含单测）
 2. **T2** CLI：`gofer session adopt/list/open`
-3. **T3** web：Sessions 页 Adopted 分组 + 按钮
+3. **T3** web：Sessions 页 Adopted 分组 + 状态徽章 + 按钮
 4. **T4** skill `/handoff-web`（含 sid 获取验证）+ MCP tool `adopt_session`
 5. **T5** e2e：容器内真实交接一轮（终端 → web → 终端），写 runbook
+6. **T6** 观察：transcript tail API + web 观察页（§10）
+7. **T7** 通知：hooks 配置 + `/v1/sessions/events` + 卡片徽章/接管入口（§11，可与 T6 并行）
 
 ---
 
