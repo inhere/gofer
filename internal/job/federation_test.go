@@ -385,8 +385,8 @@ func TestFedWorkerOnlyProjectResultLandsConfigDir(t *testing.T) {
 	if final.Status != StatusDone {
 		t.Fatalf("status = %s (err=%s), want done", final.Status, final.Error)
 	}
-	// <config-dir>/remote/<project_key>/<date>/<job_id>.
-	assertResultDirUnder(t, final, filepath.Join(cfgDir, workerOnlyStoreSubdir, "wonly"))
+	// <config-dir>/remote/<worker_id>/<project_key>/<date>/<job_id>.
+	assertResultDirUnder(t, final, filepath.Join(cfgDir, workerOnlyStoreSubdir, "w1", "wonly"))
 	if _, err := os.Stat(filepath.Join(final.ResultDir, "stdout.log")); err != nil {
 		t.Fatalf("stdout.log not in the worker-only project result dir: %v", err)
 	}
@@ -396,6 +396,45 @@ func TestFedWorkerOnlyProjectResultLandsConfigDir(t *testing.T) {
 	}
 	if got, ok := s.Get(final.ID); !ok || got.ResultDir != final.ResultDir {
 		t.Fatalf("Get(%s) = %+v, ok=%v", final.ID, got, ok)
+	}
+}
+
+// TestFedDefinedWorkerOnlyProjectMirrorRedirect: a project DEFINED in the host
+// config but not locally runnable (allowed_runners without "local") must get the
+// same config-dir mirror treatment as the G1 placeholder — the host must NOT
+// fabricate <host_path>/... on its own disk for a tree that only exists on the
+// worker's machine (web-added worker-only projects, bd tools-e4e follow-up).
+func TestFedDefinedWorkerOnlyProjectMirrorRedirect(t *testing.T) {
+	cfgDir := t.TempDir()
+	t.Setenv(config.EnvConfigDir, cfgDir)
+
+	stub := &stubWorkerRunner{}
+	s := newRootlessWorkerService(t, stub, fakeSelector{cands: []WorkerCandidate{wonlyCaps("w1")}})
+
+	// Define "wonly" on the host with a host_path that does not exist locally
+	// (the tree lives on the worker) and no "local" runner.
+	cfg := s.projects.Config()
+	ghost := filepath.Join(t.TempDir(), "only-on-worker")
+	cfg.Projects["wonly"] = config.ProjectConfig{
+		HostPath:       ghost,
+		AllowedRunners: []string{"remote-w1"},
+	}
+
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "wonly", Agent: "exec", Runner: "remote-w1", WorkerID: "w1",
+		Cmd: []string{"echo", "hi"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("status = %s (err=%s), want done", final.Status, final.Error)
+	}
+	// Mirror lands under <config-dir>/remote/<worker_id>/<project_key>/...
+	assertResultDirUnder(t, final, filepath.Join(cfgDir, workerOnlyStoreSubdir, "w1", "wonly"))
+	if _, err := os.Stat(filepath.Join(final.ResultDir, "stdout.log")); err != nil {
+		t.Fatalf("stdout.log not in the mirror result dir: %v", err)
+	}
+	// The defining property: the host_path tree was NOT fabricated locally.
+	if _, err := os.Stat(ghost); !os.IsNotExist(err) {
+		t.Fatalf("host_path %q must not be created on the host (stat err=%v)", ghost, err)
 	}
 }
 

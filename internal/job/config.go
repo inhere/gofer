@@ -2,12 +2,14 @@ package job
 
 import (
 	"fmt"
+	"path"
 	"regexp"
 	"slices"
 	"strings"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/project"
 )
 
 // isPeerRunner reports whether name is a configured peer-http runner (a remote
@@ -68,7 +70,7 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 		if err := checkProjectKey(req.ProjectKey); err != nil {
 			return config.ProjectConfig{}, fmt.Errorf("%w: %s", ErrInvalidRequest, err.Error())
 		}
-		proj = workerOnlyProject(cfg, req.ProjectKey, req.Runner)
+		proj = workerOnlyProject(req.Runner)
 	}
 
 	// A resume submission (ResumeSourceAgent set) mechanically carries Agent="exec"
@@ -244,6 +246,15 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 			}
 		}
 	}
+
+	// Worker-dispatched job whose project cannot run locally (allowed_runners
+	// without "local" — including the G1 placeholder above): the project tree
+	// belongs to the WORKER's machine, so the host-side mirror (logs + DB-indexed
+	// result dir) must not be fabricated under proj's host_path here. Redirect it
+	// to <config-dir>/remote/<worker>/<project_key> instead (remoteMirrorStore).
+	if isWorker && !project.AllowsLocalRunner(proj.AllowedRunners) {
+		proj = remoteMirrorStore(cfg, proj, req.ProjectKey, targetWorkerSegment(cfg, req))
+	}
 	return proj, nil
 }
 
@@ -281,7 +292,7 @@ func CheckProjectKey(key string) error { return checkProjectKey(key) }
 
 // workerOnlyStoreSubdir is where the HOST keeps its side of a worker-only
 // project's jobs (mirrored logs + the DB-indexed result dir) when storage.root is
-// unset. See workerOnlyProject.
+// unset. See remoteMirrorStore.
 const workerOnlyStoreSubdir = "remote"
 
 // workerOnlyProject synthesizes the host-side placeholder ProjectConfig for a
@@ -294,23 +305,47 @@ const workerOnlyStoreSubdir = "remote"
 //     a project the host does not define, and the worker capability gate (G2) plus
 //     the worker's own validate are the real admission boundary — so the requested
 //     worker runner is the one this placeholder authorises.
-//   - project.ResultBaseDir(cfg, key, proj): the host keeps a local result dir for
-//     the mirrored logs / index entry even though the job runs remotely.
 //   - proj.MaxConcurrentJobs (0 = unbounded host-side gating; the worker enforces
 //     its own max_concurrent).
 //
 // Every other proj field is read only on the LOCAL branch of Submit (SafeJoin cwd,
-// env_files, allow_exec, agent build), which a worker job never takes.
+// env_files, allow_exec, agent build), which a worker job never takes. The storage
+// fields stay empty here: the placeholder has no "local" runner, so validate's
+// remoteMirrorStore redirect fills them in with the config-dir mirror layout.
+func workerOnlyProject(runnerKey string) config.ProjectConfig {
+	return config.ProjectConfig{AllowedRunners: []string{runnerKey}}
+}
+
+// targetWorkerSegment resolves the directory segment identifying the worker a
+// job is dispatched to, for the host-side mirror store layout: the explicit
+// req.WorkerID, else the runner's configured pin, else the runner key itself
+// (label auto-select — the target is not determined until post-validate, and
+// the runner key is the stable identity the caller chose).
+func targetWorkerSegment(cfg *config.Config, req JobRequest) string {
+	if req.WorkerID != "" {
+		return req.WorkerID
+	}
+	if pin := cfg.Runners[req.Runner].WorkerID; pin != "" {
+		return pin
+	}
+	return req.Runner
+}
+
+// remoteMirrorStore rewrites proj's storage-resolution fields so the host-side
+// mirror of a worker-dispatched job (bridged logs + the DB-indexed result dir)
+// lands under <config-dir>/remote/<worker>/<project_key>/<job_id> instead of the
+// project's host_path. It applies to every project that cannot run locally —
+// both the G1 placeholder (host does not define the project) and a host-DEFINED
+// project whose allowed_runners has no "local": in either case the host_path
+// tree belongs to the worker's machine and must not be fabricated here.
+// Admission fields (AllowedRunners / MaxConcurrentJobs / ...) are preserved.
 //
-// Result dir: with storage.root set, ResultBaseDir is key-driven (<root>/<key>) and
-// does not read proj at all. With root unset it falls back to
-// <host_path>/<exchange_subdir>/<result_subdir> — and an EMPTY host_path resolves
-// (filepath.Abs) to the serve process CWD, which would scatter results into a random
-// directory. Mirror Config.ResolveDBPath's fallback instead and keep the host side of
-// worker-only projects under the config dir, keyed by project:
-// <config-dir>/remote/<project_key>/<job_id>.
-func workerOnlyProject(cfg *config.Config, projectKey, runnerKey string) config.ProjectConfig {
-	proj := config.ProjectConfig{AllowedRunners: []string{runnerKey}}
+// With storage.root set, ResultBaseDir is key-driven (<root>/<key>) and never
+// reads these fields, so proj is returned unchanged. Without it an EMPTY
+// host_path would resolve (filepath.Abs) to the serve process CWD and scatter
+// results into a random directory — mirror Config.ResolveDBPath's fallback and
+// keep the mirror under the config dir instead.
+func remoteMirrorStore(cfg *config.Config, proj config.ProjectConfig, projectKey, workerSeg string) config.ProjectConfig {
 	if strings.TrimSpace(cfg.Storage.Root) != "" {
 		return proj
 	}
@@ -319,8 +354,9 @@ func workerOnlyProject(cfg *config.Config, projectKey, runnerKey string) config.
 		dir = "." // degrade like ResolveDBPath: a usable (if non-ideal) relative path.
 	}
 	proj.HostPath = dir
+	proj.ContainerPath = "" // ExecPath must not flip to a container view of the config dir
 	proj.ExchangeSubdir = workerOnlyStoreSubdir
-	proj.ResultSubdir = projectKey
+	proj.ResultSubdir = path.Join(workerSeg, projectKey)
 	return proj
 }
 
