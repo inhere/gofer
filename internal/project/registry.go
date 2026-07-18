@@ -197,34 +197,44 @@ func (r *Registry) Validate(key string) ([]CheckResult, bool, error) {
 		}
 	}
 
-	// exec_path (E29/D10: the gofer-process execution root, = host_path by default,
-	// or container_path under server.path_view=container) exists and is a directory.
-	// This validates the path gofer can actually reach to run jobs.
-	execAbs, _ := filepath.Abs(cfg.ExecPath(proj))
-	if fi, statErr := os.Stat(execAbs); statErr != nil {
-		add("exec_path", false, fmt.Sprintf("%s: %v", execAbs, statErr))
-	} else if !fi.IsDir() {
-		add("exec_path", false, fmt.Sprintf("%s is not a directory", execAbs))
+	// Local FS checks (exec_path / exchange_dir / result_dir) only make sense when
+	// the project can run on THIS node's built-in local runner. A worker-only
+	// project (allowed_runners non-empty without "local", dispatched to a remote
+	// worker) must NOT be probed here: checkWritableDir's MkdirAll would fabricate
+	// the project tree on this machine even though the path only exists on the
+	// worker's host (the worker validates its own side after roots mapping).
+	if !AllowsLocalRunner(proj.AllowedRunners) {
+		add("local_fs", true, fmt.Sprintf("skipped: not locally runnable (allowed_runners=%v)", proj.AllowedRunners))
 	} else {
-		add("exec_path", true, execAbs)
-	}
+		// exec_path (E29/D10: the gofer-process execution root, = host_path by default,
+		// or container_path under server.path_view=container) exists and is a directory.
+		// This validates the path gofer can actually reach to run jobs.
+		execAbs, _ := filepath.Abs(cfg.ExecPath(proj))
+		if fi, statErr := os.Stat(execAbs); statErr != nil {
+			add("exec_path", false, fmt.Sprintf("%s: %v", execAbs, statErr))
+		} else if !fi.IsDir() {
+			add("exec_path", false, fmt.Sprintf("%s is not a directory", execAbs))
+		} else {
+			add("exec_path", true, execAbs)
+		}
 
-	// exchange dir creatable/writable.
-	if exDir, exErr := ExchangeDir(cfg, proj); exErr != nil {
-		add("exchange_dir", false, exErr.Error())
-	} else if wErr := checkWritableDir(exDir); wErr != nil {
-		add("exchange_dir", false, fmt.Sprintf("%s: %v", exDir, wErr))
-	} else {
-		add("exchange_dir", true, exDir)
-	}
+		// exchange dir creatable/writable.
+		if exDir, exErr := ExchangeDir(cfg, proj); exErr != nil {
+			add("exchange_dir", false, exErr.Error())
+		} else if wErr := checkWritableDir(exDir); wErr != nil {
+			add("exchange_dir", false, fmt.Sprintf("%s: %v", exDir, wErr))
+		} else {
+			add("exchange_dir", true, exDir)
+		}
 
-	// result base dir creatable/writable (covers storage.root branch too).
-	if resDir, resErr := ResultBaseDir(cfg, key, proj); resErr != nil {
-		add("result_dir", false, resErr.Error())
-	} else if wErr := checkWritableDir(resDir); wErr != nil {
-		add("result_dir", false, fmt.Sprintf("%s: %v", resDir, wErr))
-	} else {
-		add("result_dir", true, resDir)
+		// result base dir creatable/writable (covers storage.root branch too).
+		if resDir, resErr := ResultBaseDir(cfg, key, proj); resErr != nil {
+			add("result_dir", false, resErr.Error())
+		} else if wErr := checkWritableDir(resDir); wErr != nil {
+			add("result_dir", false, fmt.Sprintf("%s: %v", resDir, wErr))
+		} else {
+			add("result_dir", true, resDir)
+		}
 	}
 
 	// default_agent / allowed_agents references exist in config (if non-empty).
@@ -262,6 +272,15 @@ func (r *Registry) Validate(key string) ([]CheckResult, bool, error) {
 	}
 
 	return results, ok, nil
+}
+
+// AllowsLocalRunner reports whether the allowlist permits the built-in local
+// runner: an empty allowlist defaults to local, otherwise it must be listed.
+func AllowsLocalRunner(allowed []string) bool {
+	if len(allowed) == 0 {
+		return true
+	}
+	return slices.Contains(allowed, "local")
 }
 
 // builtinAgents are agent keys that are always valid without a config entry.

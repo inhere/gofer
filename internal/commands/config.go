@@ -679,7 +679,7 @@ func validateWorkerLocalProjects(c *gcli.Command, wc *config.WorkerConfig, chk f
 		// projects must allow the built-in `local` runner (not the server's worker
 		// runner name — a common copy-paste mistake).
 		p, _ := reg.Get(key)
-		if !allowsLocalRunner(p.AllowedRunners) {
+		if !project.AllowsLocalRunner(p.AllowedRunners) {
 			chk(key+"/local-runner", false,
 				"worker runs locally → allowed_runners should include local")
 			ok = false
@@ -823,18 +823,4 @@ func validateProjects(c *gcli.Command, reg *project.Registry, keys []string) boo
 		}
 	}
 	return allOK
-}
-
-// allowsLocalRunner reports whether the allowlist permits the built-in local
-// runner: an empty allowlist defaults to local, otherwise it must be listed.
-func allowsLocalRunner(allowed []string) bool {
-	if len(allowed) == 0 {
-		return true
-	}
-	for _, r := range allowed {
-		if r == "local" {
-			return true
-		}
-	}
-	return false
 }

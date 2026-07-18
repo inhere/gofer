@@ -216,6 +216,45 @@ func TestRegistryValidate(t *testing.T) {
 	}
 }
 
+// TestRegistryValidateWorkerOnlySkipsLocalFS: a project whose allowed_runners
+// has no "local" (worker-only, e.g. dispatched to a remote worker) must skip
+// the local FS checks — and above all must NOT MkdirAll the project tree on
+// this machine (bug: web project add auto-created worker-only host_path dirs
+// on the server node).
+func TestRegistryValidateWorkerOnlySkipsLocalFS(t *testing.T) {
+	base := t.TempDir()
+	host := filepath.Join(base, "only-on-worker") // does NOT exist locally
+	cfg := &config.Config{
+		Projects: map[string]config.ProjectConfig{
+			"remote": {
+				HostPath:       host,
+				AllowedRunners: []string{"w-remote"},
+			},
+		},
+		Agents: map[string]config.AgentConfig{},
+		Runners: map[string]config.RunnerConfig{
+			"w-remote": {Type: "worker", WorkerID: "w-remote"},
+		},
+	}
+	reg := NewRegistry(cfg, "")
+	results, ok, err := reg.Validate("remote")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ok {
+		t.Errorf("worker-only project should validate OK without local FS, results: %+v", results)
+	}
+	for _, r := range results {
+		if r.Name == "exec_path" || r.Name == "exchange_dir" || r.Name == "result_dir" {
+			t.Errorf("local FS check %q must be skipped for worker-only project", r.Name)
+		}
+	}
+	// The probe side effect must not have fabricated the project tree locally.
+	if _, statErr := os.Stat(host); !os.IsNotExist(statErr) {
+		t.Errorf("host_path %q must not be created on this node (stat err=%v)", host, statErr)
+	}
+}
+
 // TestRegistryValidateDefaultAgentInAllowed covers D5: when allowed_agents is
 // restricted, default_agent must be a member, else the default_agent check FAILs
 // (prevents an overlay from borrowing default_agent to bypass admission).
