@@ -13,8 +13,12 @@ import (
 // leaves them zero) and feed the policy_pending admission message (T4-E) — they never
 // add a rejection.
 type runnerCaps struct {
-	Projects      []string
-	Agents        []string
+	Projects []string
+	Agents   []string
+	// AgentCaps is the worker's typed agent report (tools-c9v G2 interactive-only
+	// gate); empty/nil on the local runner (not populated below — G2 only reads it
+	// on the isWorker path) and on an old worker that predates agent_caps.
+	AgentCaps     []AgentBrief
 	WorkerID      string
 	PolicyPending bool
 	PolicyRev     int64
@@ -51,6 +55,7 @@ func (s *Service) capabilitiesFor(cfg *config.Config, runner, explicitWorkerID s
 		return runnerCaps{
 			Projects:      cand.Projects,
 			Agents:        cand.Agents,
+			AgentCaps:     cand.AgentCaps,
 			WorkerID:      wid,
 			PolicyPending: cand.PolicyPending,
 			PolicyRev:     cand.PolicyRev,

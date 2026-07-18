@@ -331,6 +331,7 @@ func workerCandidate(ws wshub.WorkerSnapshot, now int64) job.WorkerCandidate {
 		Labels:       ws.Labels,
 		Projects:     ws.Projects,
 		Agents:       ws.Agents,
+		AgentCaps:    agentBriefsFromSnapshot(ws),
 		InFlight:     ws.InFlight,
 		PtyCapable:   ws.PtyCapable,
 		HeartbeatAge: time.Duration(now-ws.LastHeartbeat) * time.Second,
@@ -340,6 +341,23 @@ func workerCandidate(ws wshub.WorkerSnapshot, now int64) job.WorkerCandidate {
 		PolicyRev:     ws.PolicyRev,
 		AppliedRev:    ws.AppliedRev,
 	}
+}
+
+// agentBriefsFromSnapshot converts the wshub snapshot's typed agent capabilities
+// into job's local AgentBrief type (tools-c9v G2 interactive-only gate) — the same
+// "range without naming wsproto.AgentBrief" trick serve.briefsFromSnapshot uses,
+// so job stays free of any wshub/wsproto import (G022). Only Key/Interactive are
+// carried: G2 gates on interactive-ness alone, unlike the display-only
+// httpapi/serve copy which also keeps Type/Available/Version.
+func agentBriefsFromSnapshot(ws wshub.WorkerSnapshot) []job.AgentBrief {
+	if len(ws.AgentCaps) == 0 {
+		return nil
+	}
+	out := make([]job.AgentBrief, 0, len(ws.AgentCaps))
+	for _, c := range ws.AgentCaps {
+		out = append(out, job.AgentBrief{Key: c.Key, Interactive: c.Interactive})
+	}
+	return out
 }
 
 // workerBindings builds the hub's worker_id → caller-id binding map from

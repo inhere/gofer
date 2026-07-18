@@ -244,6 +244,24 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 			if gateAgent != "" && !slices.Contains(caps.Agents, gateAgent) {
 				return config.ProjectConfig{}, fmt.Errorf("%w: agent %q not on worker for runner %q", ErrAgentNotOnRunner, gateAgent, req.Runner)
 			}
+			// tools-c9v: an interactive-only agent submitted non-interactively to a
+			// worker runner used to be ADMITTED here — the !remote interactive-only gate
+			// above (line ~157) is scoped away from worker jobs on purpose, precisely to
+			// avoid judging a worker's agent against the host's own (possibly absent or
+			// differently-typed) same-named definition — and only failed once dispatched,
+			// burning a real run for what is really a 400. Do the same check here instead,
+			// but read Interactive from the WORKER's OWN reported agent_caps (never the
+			// host's config), so the federated verdict matches what the worker will
+			// actually enforce. An old worker that does not report agent_caps (caps.AgentCaps
+			// nil/no match) falls through unchanged: no capability view to gate on, so
+			// admission proceeds exactly as before this fix.
+			if gateAgent != "" && !req.Interactive {
+				for _, ab := range caps.AgentCaps {
+					if ab.Key == gateAgent && ab.Interactive {
+						return config.ProjectConfig{}, fmt.Errorf("%w: agent %q is interactive-only; submit it as an interactive job", ErrInvalidRequest, gateAgent)
+					}
+				}
+			}
 		}
 	}
 

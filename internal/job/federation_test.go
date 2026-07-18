@@ -127,6 +127,69 @@ func TestFedResumeGatesOnSourceAgent(t *testing.T) {
 	}
 }
 
+// --- branch 3b: interactive-only agent submitted non-interactively to a worker
+// runner → rejected at admission (tools-c9v), not left to fail once dispatched.
+//
+// Before this gate the !remote interactive-only check (config.go, ~line 157) is
+// scoped away from worker jobs on purpose (it must not judge a worker's agent
+// against the host's own same-named definition), so this used to be ADMITTED and
+// only failed once the worker actually ran it — a wasted dispatch instead of a
+// 400. The gate here reads Interactive off the WORKER's reported agent_caps.
+
+func TestFedInteractiveOnlyAgentRejectedNonInteractive(t *testing.T) {
+	stub := &stubWorkerRunner{}
+	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
+	sel := fakeSelector{cands: []WorkerCandidate{
+		{
+			WorkerID: "w1", HeartbeatAge: time.Second,
+			Projects:  []string{"self"},
+			Agents:    []string{"exec", "term"},
+			AgentCaps: []AgentBrief{{Key: "term", Interactive: true}},
+		},
+	}}
+	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
+
+	_, err := s.Submit(JobRequest{
+		ProjectKey: "self", Agent: "term", Runner: "remote-w1", WorkerID: "w1",
+		Cmd: []string{"echo", "hi"}, Cwd: ".",
+	})
+	if !errors.Is(err, ErrInvalidRequest) {
+		t.Fatalf("interactive-only agent submitted non-interactively: got %v, want ErrInvalidRequest", err)
+	}
+	if !strings.Contains(err.Error(), `"term"`) || !strings.Contains(err.Error(), "interactive-only") {
+		t.Fatalf("error should name the agent and say interactive-only: %v", err)
+	}
+	if stub.gotForward != nil {
+		t.Fatalf("rejected job must not be dispatched: %+v", stub.gotForward)
+	}
+}
+
+// An old worker that predates agent_caps (nil) must NOT be rejected on this gate:
+// there is no capability view to judge interactive-ness against, so admission
+// falls through exactly as it did before tools-c9v — this is the accepted,
+// documented gap for pre-P2 workers, not a regression.
+func TestFedInteractiveOnlyGateFallsThroughWithoutAgentCaps(t *testing.T) {
+	stub := &stubWorkerRunner{}
+	workers := map[string]config.WorkerAuthConfig{"w1": {Token: "tok-w1"}}
+	sel := fakeSelector{cands: []WorkerCandidate{
+		{
+			WorkerID: "w1", HeartbeatAge: time.Second,
+			Projects: []string{"self"},
+			Agents:   []string{"exec", "term"},
+			// AgentCaps intentionally left nil — stands in for a pre-P2 worker.
+		},
+	}}
+	s := newWorkerTestServiceSel(t, t.TempDir(), stub, workers, sel)
+
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "term", Runner: "remote-w1", WorkerID: "w1",
+		Cmd: []string{"echo", "hi"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("no agent_caps reported: admission must fall through (got status=%s err=%s)", final.Status, final.Error)
+	}
+}
+
 // --- branch 4: project not on the target worker → ErrUnknownProjectOnRunner ---
 
 func TestFedProjectNotOnWorker(t *testing.T) {

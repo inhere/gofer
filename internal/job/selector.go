@@ -6,6 +6,19 @@ import (
 	"time"
 )
 
+// AgentBrief is job's local typed agent capability (key + interactive), the
+// worker-reported detail the G2 admission gate (config.go) needs to judge an
+// agent's interactive-only-ness against the WORKER's OWN definition rather than
+// the host's (tools-c9v — same federation reasoning as Projects/Agents below:
+// the worker's identically-named agent can differ, or not even exist, on the
+// host). Mirrors wsproto.AgentBrief but is redeclared here — and only carries
+// the fields G2 actually gates on — so the job package never imports
+// wshub/wsproto (G022).
+type AgentBrief struct {
+	Key         string
+	Interactive bool
+}
+
 // WorkerCandidate is the neutral, point-in-time snapshot selectWorker scores. It
 // is populated by the commands layer from the hub registry (see
 // commands.hubWorkerSelector) so the job package never imports wshub.
@@ -15,8 +28,13 @@ type WorkerCandidate struct {
 	// Projects / Agents are the capability keys the worker reported on register
 	// (authoritative, P1). They carry the worker's own view of what it can run so
 	// the host can validate/filter against it without importing wshub.
-	Projects   []string
-	Agents     []string
+	Projects []string
+	Agents   []string
+	// AgentCaps is the worker-reported typed agent capability list (P2 register),
+	// keyed the same as Agents. nil on an old worker that predates agent_caps
+	// (or on the local runner, which never populates this field) — the G2 gate
+	// must fall through unchanged in that case, not reject.
+	AgentCaps  []AgentBrief
 	InFlight   int
 	PtyCapable bool
 	// HeartbeatAge is the time since the worker's most recent inbound frame
