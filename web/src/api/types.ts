@@ -549,6 +549,10 @@ export interface RunnerWorker {
   agent_caps?: AgentBrief[]
   os?: string
   arch?: string
+  // worker 自报的机器 hostname（标识机器；remote_addr 经 NAT/网桥可能失真）
+  hostname?: string
+  // hub 侧看到的连接来源地址（观测辅助）
+  remote_addr?: string
   gofer_version?: string
   // worker 进程启动时间（Unix 秒）
   started_at?: number

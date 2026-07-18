@@ -309,6 +309,7 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 	}
 
 	wc := newWorkerConn(reg.WorkerID, callerID, conn, reg)
+	wc.remoteAddr = req.RemoteAddr // observability only; hostname is the machine identity
 	wc.lastHeartbeat.Store(h.nowFn().Unix())
 
 	// 3) Ack BEFORE the connection enters the registry (B3 / §7-N1). Any broadcast
@@ -355,7 +356,7 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 		old.gracefulClose("replaced by new registration")
 	}
 	slog.Info("hub accepted worker", "worker_id", reg.WorkerID, "remote", req.RemoteAddr,
-		"labels", reg.Labels, "max_concurrent", reg.MaxConcurrent,
+		"hostname", reg.Hostname, "labels", reg.Labels, "max_concurrent", reg.MaxConcurrent,
 		"proto", reg.ProtocolVersion, "os", reg.OS, "arch", reg.Arch,
 		"gofer_version", reg.GoferVersion, "agent_caps", len(reg.AgentCaps))
 

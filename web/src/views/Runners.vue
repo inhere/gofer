@@ -113,6 +113,34 @@ function beatOf(r: Runner): 'connected' | 'stale' | 'flatline' {
   return 'connected'
 }
 
+// 运行时长：从 started_at（Unix 秒）到现在，粗粒度即可（up 3d4h / up 5h02m / up 12m）。
+function fmtUptime(startedAtSec: number | undefined): string {
+  if (!startedAtSec || startedAtSec <= 0) {
+    return ''
+  }
+  const s = Math.max(0, Math.floor(nowMs.value / 1000) - startedAtSec)
+  if (s < 60) {
+    return `up ${s}s`
+  }
+  if (s < 3600) {
+    return `up ${Math.floor(s / 60)}m`
+  }
+  if (s < 86400) {
+    const h = Math.floor(s / 3600)
+    const m = Math.floor((s % 3600) / 60)
+    return `up ${h}h${String(m).padStart(2, '0')}m`
+  }
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  return `up ${d}d${h}h`
+}
+
+// worker 节点信息行（hostname / 来源地址 / os/arch / 版本 / 运行时长）是否有内容可展示。
+function hasNodeInfo(r: Runner): boolean {
+  const w = r.worker
+  return !!w && !!(w.hostname || w.remote_addr || w.os || w.gofer_version || w.started_at)
+}
+
 // 人类可读年龄：12s ago / 3m20s ago / 1h05m ago。
 function fmtAge(ms: number | null): string {
   if (ms == null) {
@@ -224,6 +252,14 @@ function peerStatusClass(r: Runner): string {
                 <span class="inflight">{{ w.worker?.in_flight ?? 0 }} in-flight</span>
               </span>
               <span class="st mono" :class="workerStatusClass(w)">{{ workerStatusText(w) }}</span>
+            </div>
+            <!-- 节点信息行：hostname（机器标识）· 来源地址 · os/arch · 版本 · 运行时长 -->
+            <div v-if="hasNodeInfo(w)" class="node-line mono">
+              <span v-if="w.worker?.hostname" class="node-host" :title="`hostname ${w.worker.hostname}`">{{ w.worker.hostname }}</span>
+              <span v-if="w.worker?.remote_addr" class="node-item" :title="`remote addr ${w.worker.remote_addr}`">{{ w.worker.remote_addr }}</span>
+              <span v-if="w.worker?.os" class="node-item">{{ w.worker.os }}/{{ w.worker.arch || '?' }}</span>
+              <span v-if="w.worker?.gofer_version" class="node-item" :title="`gofer ${w.worker.gofer_version}`">v{{ w.worker.gofer_version }}</span>
+              <span v-if="w.worker?.started_at" class="node-item">{{ fmtUptime(w.worker.started_at) }}</span>
             </div>
             <div v-if="w.worker?.labels && w.worker.labels.length" class="chips">
               <span v-for="l in w.worker.labels" :key="l" class="chip mono">{{ l }}</span>
@@ -483,6 +519,31 @@ function peerStatusClass(r: Runner): string {
 }
 .latency {
   color: var(--paper);
+}
+
+/* 节点信息行：安静的第二行 meta（hostname 用磷光强调 = 机器标识主键） */
+.node-line {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 4px 10px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: var(--queue);
+  overflow: hidden;
+}
+.node-host {
+  color: var(--phosphor);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 220px;
+}
+.node-item {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 200px;
 }
 
 .chips {

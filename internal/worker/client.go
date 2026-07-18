@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	mathrand "math/rand"
 	"net/http"
+	"os"
 	"runtime"
 	"sync"
 	"sync/atomic"
@@ -46,6 +47,16 @@ func newInstanceID() string {
 		return "inst-fallback"
 	}
 	return hex.EncodeToString(b[:])
+}
+
+// readHostname returns this machine's hostname for the register frame's node
+// info; a failure just yields "" (the field is display-only, omitempty).
+func readHostname() string {
+	hn, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return hn
 }
 
 // maxWSReadBytes caps a single inbound message on the worker side (mirrors the
@@ -97,6 +108,11 @@ type Client struct {
 	// info reported on register for observability.
 	goferVersion string
 	startedAt    int64
+	// hostname identifies the machine this worker runs on (os.Hostname(), read once
+	// at construction). Reported on register as node info: the hub's remote addr can
+	// be a NAT/bridge address, so the self-reported hostname is what actually tells
+	// an operator which box a worker is.
+	hostname string
 
 	// reloadFn re-reads + applies the worker's config and re-derives caps; it is
 	// injected by the command (see ReloadFunc). reloadCh feeds the SINGLE reload
@@ -259,6 +275,7 @@ func New(cfg Config, jobs Jobs) *Client {
 		},
 		goferVersion:  cfg.GoferVersion,
 		startedAt:     time.Now().Unix(),
+		hostname:      readHostname(),
 		reloadFn:      cfg.Reload,
 		reloadCh:      make(chan reloadReq, reloadQueueCap),
 		policyMode:    cfg.PolicyMode,
@@ -518,6 +535,7 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 		PtyCapable:      ptyrunner.Available(),
 		OS:              runtime.GOOS,
 		Arch:            runtime.GOARCH,
+		Hostname:        cl.hostname,
 		GoferVersion:    cl.goferVersion,
 		StartedAt:       cl.startedAt,
 		Labels:          caps.Labels,

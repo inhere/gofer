@@ -33,6 +33,8 @@ func (a hubWorkerRegistry) WorkerStatus(workerID string) (httpapi.WorkerStatus, 
 		AgentCaps:     briefsFromSnapshot(snap),
 		OS:            snap.OS,
 		Arch:          snap.Arch,
+		Hostname:      snap.Hostname,
+		RemoteAddr:    snap.RemoteAddr,
 		GoferVersion:  snap.GoferVersion,
 		StartedAt:     snap.StartedAt,
 	}, true

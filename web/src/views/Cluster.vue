@@ -206,6 +206,28 @@ function fmtAge(ms: number | null): string {
   return `${h}h${String(m).padStart(2, '0')}m ago`
 }
 
+// 运行时长（同 Runners.vue）：up 3d4h / up 5h02m / up 12m。
+function fmtUptime(startedAtSec: number | undefined): string {
+  if (!startedAtSec || startedAtSec <= 0) {
+    return '—'
+  }
+  const s = Math.max(0, Math.floor(nowMs.value / 1000) - startedAtSec)
+  if (s < 60) {
+    return `up ${s}s`
+  }
+  if (s < 3600) {
+    return `up ${Math.floor(s / 60)}m`
+  }
+  if (s < 86400) {
+    const h = Math.floor(s / 3600)
+    const m = Math.floor((s % 3600) / 60)
+    return `up ${h}h${String(m).padStart(2, '0')}m`
+  }
+  const d = Math.floor(s / 86400)
+  const h = Math.floor((s % 86400) / 3600)
+  return `up ${d}d${h}h`
+}
+
 // 节点强调色 token：worker 随心跳态（connected=done / stale=run / flatline=fail），
 // peer 随探活（up=done / down=fail / unknown=queue），local 恒 up=done。
 function nodeColorVar(r: Runner): string {
@@ -386,6 +408,21 @@ function isActive(r: Runner): boolean {
           <dt>心跳</dt>
           <dd>{{ selectedRunner.status === 'connected' ? fmtAge(workerAgeMs(selectedRunner)) : 'offline' }}</dd>
           <dt>in-flight</dt><dd>{{ selectedRunner.worker?.in_flight ?? 0 }}</dd>
+          <template v-if="selectedRunner.worker?.hostname">
+            <dt>主机</dt><dd class="brk">{{ selectedRunner.worker.hostname }}</dd>
+          </template>
+          <template v-if="selectedRunner.worker?.remote_addr">
+            <dt>来源地址</dt><dd class="brk">{{ selectedRunner.worker.remote_addr }}</dd>
+          </template>
+          <template v-if="selectedRunner.worker?.os">
+            <dt>系统</dt><dd>{{ selectedRunner.worker.os }}/{{ selectedRunner.worker.arch || '?' }}</dd>
+          </template>
+          <template v-if="selectedRunner.worker?.gofer_version">
+            <dt>版本</dt><dd class="brk">{{ selectedRunner.worker.gofer_version }}</dd>
+          </template>
+          <template v-if="selectedRunner.worker?.started_at">
+            <dt>运行时长</dt><dd>{{ fmtUptime(selectedRunner.worker.started_at) }}</dd>
+          </template>
         </dl>
         <div v-if="selectedRunner.worker?.labels && selectedRunner.worker.labels.length" class="chips">
           <span v-for="l in selectedRunner.worker.labels" :key="l" class="chip mono">{{ l }}</span>

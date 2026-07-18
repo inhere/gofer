@@ -69,8 +69,13 @@ type WorkerStatus struct {
 	AgentCaps []AgentBrief
 	// Node info reported by the worker on register (P1), surfaced for the P4
 	// runners observability panel.
-	OS           string
-	Arch         string
+	OS   string
+	Arch string
+	// Hostname is the worker's self-reported machine hostname; RemoteAddr is the
+	// conn's remote address as the hub saw it (may be a NAT/bridge address —
+	// hostname is the machine-identifying field).
+	Hostname     string
+	RemoteAddr   string
 	GoferVersion string
 	StartedAt    int64 // worker process start, unix seconds
 }
@@ -145,6 +150,8 @@ type workerView struct {
 	// Node info reported on register (P1).
 	OS           string `json:"os,omitempty"`
 	Arch         string `json:"arch,omitempty"`
+	Hostname     string `json:"hostname,omitempty"`
+	RemoteAddr   string `json:"remote_addr,omitempty"`
 	GoferVersion string `json:"gofer_version,omitempty"`
 	StartedAt    int64  `json:"started_at,omitempty"`
 }
@@ -255,6 +262,8 @@ func (s *Server) renderWorkerStatus(workerID string, v *runnerView) string {
 		AgentCaps:      ws.AgentCaps,
 		OS:             ws.OS,
 		Arch:           ws.Arch,
+		Hostname:       ws.Hostname,
+		RemoteAddr:     ws.RemoteAddr,
 		GoferVersion:   ws.GoferVersion,
 		StartedAt:      ws.StartedAt,
 	}

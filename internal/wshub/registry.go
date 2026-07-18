@@ -23,6 +23,11 @@ type workerConn struct {
 	callerID   string // authenticated identity (= the token-bound worker_id), review #1
 	conn       *websocket.Conn
 	meta       wsproto.Register
+	// remoteAddr is the connection's remote address as the hub saw it at accept
+	// (req.RemoteAddr). Display-only observability: behind NAT/docker bridges it
+	// may not be the worker machine's real address — meta.Hostname is the
+	// machine-identifying field. Set once before Put, never mutated after.
+	remoteAddr string
 
 	// maxConcurrent is the worker's advertised per-worker concurrency cap (from the
 	// register frame). 0 means "no hub-side cap" (the worker still has its own
@@ -318,6 +323,8 @@ type WorkerSnapshot struct {
 	// Node info reported on register (P1) — surfaced for the P4 runners panel.
 	OS           string
 	Arch         string
+	Hostname     string // self-reported machine hostname (register node info)
+	RemoteAddr   string // conn's remote addr as seen at accept (may be NAT/bridge)
 	GoferVersion string
 	StartedAt    int64 // worker process start, unix seconds
 	// Policy-push diagnostic state (P3 T4). PolicyPending is true while the worker has
@@ -367,6 +374,8 @@ func (wc *workerConn) snapshot() WorkerSnapshot {
 		AgentCaps:     append([]wsproto.AgentBrief(nil), wc.meta.AgentCaps...),
 		OS:            wc.meta.OS,
 		Arch:          wc.meta.Arch,
+		Hostname:      wc.meta.Hostname,
+		RemoteAddr:    wc.remoteAddr,
 		GoferVersion:  wc.meta.GoferVersion,
 		StartedAt:     wc.meta.StartedAt,
 		PolicyPending: wc.policyPending,

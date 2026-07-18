@@ -107,6 +107,7 @@ type Register struct {
 	PtyCapable      bool     `json:"pty_capable,omitempty"`
 	OS              string   `json:"os,omitempty"`
 	Arch            string   `json:"arch,omitempty"`          // runtime.GOARCH
+	Hostname        string   `json:"hostname,omitempty"`      // os.Hostname() — identifies the machine (NAT-safe, unlike the conn's remote addr)
 	GoferVersion    string   `json:"gofer_version,omitempty"` // buildinfo.DisplayVersion
 	StartedAt       int64    `json:"started_at,omitempty"`    // worker process start, unix sec
 	Labels          []string `json:"labels,omitempty"`
