@@ -6,6 +6,7 @@
 |---|---|---|---|
 | v0.1 | 2026-07-18 | inhere + agent | 初稿：外部会话领养 + 双向交接 + pty 三问题修复设计 |
 | v0.2 | 2026-07-18 | inhere + agent | 分层为"登记→观察→接管"：新增活跃会话进度观察(§10)、hooks 通知中心(§11)、"不活跃"判定具体化(§7.3)；明确 gofer 内起重活是首选路线(§3.1) |
+| v0.3 | 2026-07-18 | inhere + agent | 新增 Part C：plan todos 增强(三态+时间戳+note) + gofer_ask_human 决策通道——终端大计划经 MCP 主动汇报进度/上抛决策，web 跟进与作答 |
 
 > 关联 issue：tools-tsq（会话领养）、tools-it1（ESC）、tools-3xy（多端错乱）、tools-j0e（聊天输入框）。
 
@@ -313,3 +314,69 @@ gofer 侧：
 | B1 | 视实测 | live 桌面 ESC / 手机菜单 Esc 生效 |
 
 发布顺序：后端先（旧前端兼容 `r` 帧忽略），前端随后（同天可一起发）。
+
+---
+
+# Part C · plan todos 增强 + 决策通道（v0.3 新增）
+
+## C1. 背景与定位
+
+Part A/B 解决"离开后**看** + 极端时**接管**"；Part C 解决更常用的中间态：**终端里的大计划继续跑，但它把进度和决策主动汇报给 gofer**——观察从"被动 tail 原始 transcript"（§10，字节级、噪声大）升级为"agent 主动汇报的结构化进度"（步骤级、可跟进），决策从"通知我回来处理"升级为"web 上直接答，agent 原地拿到答案继续跑"。
+
+与 §10/§11 的关系：互补不替代。§10/§11 零侵入（会话不用配合）；Part C 要求会话**主动配合**（按范式调 MCP），换来结构化与可远程作答。大计划（SUPMODE）应默认走 Part C 范式。
+
+## C2. Todo 模型增强
+
+现状 `PlanTodo{TodoID, PlanID, JobID, Title, Done bool, Sort, CreatedAt, UpdatedAt}` 只有二态，无过程信息。增强：
+
+```txt
+status     TEXT    pending | doing | done | skipped     (Done bool 保留兼容: done⟺status=done)
+started_at INTEGER 置 doing 时自动记(也可显式传)
+done_at    INTEGER 置 done/skipped 时自动记
+note       TEXT    备注/结果说明(覆盖式更新; 过程流水不塞这里, 属 job logs/observe 的职责)
+```
+
+- DB：`plan_todos` 增 4 列（sqlite `ALTER TABLE ... ADD COLUMN`，存量行 status 由 done 反推回填）；
+- 状态机：`pending → doing → done|skipped`，允许 `done → doing`（重做，清 done_at）；时间戳只在**状态迁移时**自动打，显式传参可覆盖（补录场景）；
+- API/CLI/MCP 同步扩展：
+  - CLI：`plan add-todo --note`、`plan set-todo <id> --status doing|done|skipped --note "..."`（`--done/--undone` 兼容保留）
+  - MCP：`gofer_add_todo` + `note`；`gofer_update_todo` + `status`/`note`
+  - HTTP plan detail：todoView 带全部新字段
+- web PlanDetail：todo 行显示 状态徽章 / `开始→完结(耗时)` / note（折叠长文本）；计划头部聚合进度（x/y done，当前 doing 项高亮）。
+
+## C3. 决策通道 gofer_ask_human
+
+**关键洞察**：§11 的边界（裸终端 UI 无法远程作答）只适用于 *Claude Code 内建*的交互；**agent 主动经 MCP 上抛的决策没有这个限制**——提问方是 MCP 调用（阻塞等待返回值），谁在 web 上答，答案就从 tool 返回值流回 agent，会话原地继续。
+
+```txt
+终端 agent(大计划中遇决策点)
+  → MCP tool gofer_ask_human{plan_id?, title, question, options[]?, timeout_sec}
+  → serve 落 decision 记录(OPEN) → web 铃铛/PlanDetail 决策卡片(复用 InteractionCard 形态)
+  → 人(手机/web) 选选项或输入文本 → 记录置 ANSWERED
+  → MCP tool(内部 2s 轮询)拿到答案返回 → agent 继续
+```
+
+- 数据：`plan_decisions(id, plan_id?, title, question, options_json, answer, state OPEN|ANSWERED|EXPIRED, asked_at, answered_at, answered_by)`；
+- 超时：`timeout_sec` 缺省 30min，到期置 EXPIRED，tool 返回 `{state:expired}`——**agent 侧约定**：按预案继续（推荐项）或把该步 todo 置 skipped+note 后跳过，不无限阻塞；
+- 通知：decision OPEN 时经 §11 通知面（铃铛徽标 + 可选手机推送）；
+- 卡片位置：PlanDetail 内 + 全局 EscalationBell 聚合（与 supervisor 升级卡片同一入口，不同来源标签）；
+- 安全：走既有 token 鉴权；answer 原文返回 agent，不做二次解释。
+
+## C4. 使用范式（写进 skill / SUPMODE 约定）
+
+```txt
+大计划开工:  gofer_create_plan("xxx 实施") → 每阶段 gofer_add_todo
+每步开始:    gofer_update_todo{status:doing}
+每步完成:    gofer_update_todo{status:done, note:"结果/验收一句话"}
+遇决策点:    gofer_ask_human{question, options} → 按答案继续
+人离开:      什么都不用做——web PlanDetail 就是进度页, 铃铛就是待办
+```
+
+## C5. 实施拆分
+
+1. **C-T1** jobstore/plan：todo 新列 + 迁移 + 状态机（单测含回填与时间戳自动打点）
+2. **C-T2** HTTP/CLI/MCP 三面扩展（todoView/set-todo/gofer_update_todo）
+3. **C-T3** web PlanDetail：徽章/耗时/note/头部进度
+4. **C-T4** 决策通道后端：plan_decisions 表 + ask/answer/list API + MCP gofer_ask_human（轮询+超时）
+5. **C-T5** web 决策卡片 + 铃铛聚合 + （可选）推送
+6. **C-T6** 范式落地：SUPMODE/skill 文档补"大计划必建 plan"约定 + e2e 演练一轮
