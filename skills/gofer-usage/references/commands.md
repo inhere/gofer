@@ -55,6 +55,27 @@ gofer plan set-todo <todo-id> --status skipped --note "原因..."
 
 要点：note 写**结果/验收一句话**（不是过程流水，过程在 job logs）；跑长命令的步骤尽量用 `gofer job run` 执行并 `--plan <id>` 或 `plan attach` 挂进来，进度页可直接点进日志。
 
+### 范式：决策点问人（gofer_ask_human）
+
+大计划跑到**需要人拍板的分叉**时，agent 经 MCP 工具 `gofer_ask_human` **阻塞提问**；人在 web 铃铛 / Plan 详情页作答，答案从工具返回值流回，会话原地继续（设计 §C3）：
+
+```
+# agent 会话里(MCP 工具, 阻塞等待):
+gofer_ask_human{plan_id, title, question, options: ["方案A","方案B"], timeout_sec: 1800}
+# → 返回 {state:"answered", answer, answered_by} 或 {state:"expired"}
+
+# 人这一侧(CLI 等价面, 不阻塞; web 更常用):
+gofer plan ask --plan <id> --title "..." --question "..." [--option A --option B] [--timeout 30m]
+gofer plan decisions --state OPEN
+gofer plan answer <decision-id> --answer "方案A"
+```
+
+要点：
+
+- **超时兜底在 agent 侧**：收到 `{state:"expired"}` 后按预案继续（执行推荐项），或把该步 todo 置 `skipped` + note 说明后跳过——**不无限阻塞、不原地重问**。
+- `timeout_sec` 缺省 1800s（clamp `[2s, 24h]`）。按**宿主客户端的 tool 调用超时上限**设定：宿主若先杀调用，decision 留 OPEN、到期自动 EXPIRED，通道本身无错。
+- **决策点串行提问是范式建议**（宿主客户端可能串行执行 tool call），**不是** MCP 连接限制——go-sdk 服务端并发执行 tool call，ask 阻塞不排队其他调用。
+
 ## schedule（别名 `sch`）— 定时 job
 
 ```bash
