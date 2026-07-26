@@ -290,6 +290,27 @@ var schemaStmts = []string{
   updated_at   INTEGER NOT NULL
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_plan_todos_plan ON plan_todos(plan_id)`,
+	// plan_decisions is the决策通道 (decision-channel, Part C §C3) table: an agent
+	// raises a blocking question (gofer_ask_human), a human answers it on the web.
+	// plan_id NULL means a global question (no plan attached); options_json NULL
+	// means free-text answer. state OPEN|ANSWERED|EXPIRED; expiry is lazy
+	// (expireDueDecisions on the read/answer paths). All timestamps are unix
+	// SECONDS, matching unixNow() (workflows.go) — never milliseconds.
+	`CREATE TABLE IF NOT EXISTS plan_decisions (
+  id          TEXT PRIMARY KEY,
+  plan_id     TEXT,
+  title       TEXT NOT NULL,
+  question    TEXT NOT NULL,
+  options_json TEXT,
+  answer      TEXT,
+  state       TEXT NOT NULL DEFAULT 'OPEN',
+  timeout_sec INTEGER NOT NULL DEFAULT 1800,
+  asked_at    INTEGER NOT NULL,
+  answered_at INTEGER,
+  answered_by TEXT
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_plan_decisions_plan ON plan_decisions(plan_id)`,
+	`CREATE INDEX IF NOT EXISTS idx_plan_decisions_state ON plan_decisions(state)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema

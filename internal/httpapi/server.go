@@ -465,6 +465,14 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/plans/{id}/todos", s.handleAddPlanTodo)
 		r.PATCH("/todos/{todo_id}", s.handleUpdateTodo)
 
+		// 决策通道 (decision channel, Part C §C3): agent raises a blocking question
+		// (MCP gofer_ask_human), a human answers here. D1: single ask entry with
+		// optional plan_id in the body; list/get serve the bell + MCP polling.
+		r.POST("/decisions", s.handleAskDecision)
+		r.GET("/decisions", s.handleListDecisions)
+		r.GET("/decisions/{id}", s.handleGetDecision)
+		r.POST("/decisions/{id}/answer", s.handleAnswerDecision)
+
 		// P9 running-job two-way interactions.
 		r.POST("/jobs/{id}/attach-ticket", s.handleAttachTicket)
 		r.POST("/jobs/{id}/interactions", s.handleCreateInteraction)
