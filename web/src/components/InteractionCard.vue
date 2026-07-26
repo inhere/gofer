@@ -2,22 +2,34 @@
 // 运行中交互卡：question 文本问答 / choice 选项 / confirmation 确认。
 //  - pending：可输入/点选，emit answer(value)，未留人时可 emit punt；
 //  - answered：整卡只读，展示「已提交：{answer}」和归属；
+//  - expired（decision 投影，T4）：只读展示「已过期」，无按钮、无回显；
+//  - cancelled 等非 pending 态：不渲染任何可点按钮（此前会落入 confirmation 分支）；
 //  - submitting：禁用全部输入/按钮，防重复提交。
+// isDecision：decision 投影卡（T4）恒无 punt（无 job 可 punt）。
 // 视觉：--panel 底 + --line 边 + --phosphor 强调标题；id/type mono 小字。
 // 一次性滑入动画，prefers-reduced-motion 下关闭。
 import { computed, ref } from 'vue'
 import type { Interaction } from '../api/types'
 
-const props = defineProps<{ interaction: Interaction; submitting?: boolean }>()
+const props = defineProps<{
+  interaction: Interaction
+  submitting?: boolean
+  isDecision?: boolean
+}>()
 const emit = defineEmits<{
   (e: 'answer', value: string): void
   (e: 'punt'): void
 }>()
 
+const pending = computed(() => props.interaction.status === 'pending')
 const answered = computed(() => props.interaction.status === 'answered')
-const disabled = computed(() => !!props.submitting || answered.value)
+const expired = computed(() => props.interaction.status === 'expired')
+const disabled = computed(() => !!props.submitting || !pending.value)
 const canPunt = computed(
-  () => props.interaction.status === 'pending' && props.interaction.needs_human !== 1,
+  () =>
+    pending.value &&
+    !props.isDecision &&
+    props.interaction.needs_human !== 1,
 )
 const answeredBy = computed(() => props.interaction.answered_by?.trim() || 'human')
 
@@ -73,7 +85,7 @@ function fmtTime(v: number | undefined): string {
 </script>
 
 <template>
-  <div class="icard" :class="{ 'icard--answered': answered }">
+  <div class="icard" :class="{ 'icard--answered': answered || expired }">
     <div class="icard-head mono">
       <span class="icard-type">{{ interaction.type }}</span>
       <span class="icard-id">{{ interaction.id }}</span>
@@ -93,8 +105,18 @@ function fmtTime(v: number | undefined): string {
       </p>
     </template>
 
+    <!-- expired（decision 投影）：只读，无按钮、无假回显 -->
+    <template v-else-if="expired">
+      <p class="icard-done mono">已过期 · 未在限时内作答</p>
+      <p class="icard-meta mono">
+        <span v-if="fmtTime(interaction.created_at)">asked {{ fmtTime(interaction.created_at) }}</span>
+      </p>
+    </template>
+
+    <!-- 非 pending（cancelled 等）：只读，不渲染任何可点按钮 -->
+
     <!-- question：文本输入 + 提交 -->
-    <div v-else-if="interaction.type === 'question'" class="icard-body">
+    <div v-else-if="pending && interaction.type === 'question'" class="icard-body">
       <label class="icard-label" :for="`ia-${interaction.id}`">回答</label>
       <div class="icard-row">
         <input
@@ -119,7 +141,7 @@ function fmtTime(v: number | undefined): string {
 
     <!-- choice：选项按钮组 -->
     <div
-      v-else-if="interaction.type === 'choice'"
+      v-else-if="pending && interaction.type === 'choice'"
       class="icard-body icard-choices"
     >
       <button
@@ -134,8 +156,8 @@ function fmtTime(v: number | undefined): string {
       </button>
     </div>
 
-    <!-- confirmation：确认 / 取消 -->
-    <div v-else class="icard-body icard-confirm">
+    <!-- confirmation：确认 / 取消（仅 pending；cancelled/expired 已在上方拦截） -->
+    <div v-else-if="pending" class="icard-body icard-confirm">
       <button
         class="icard-btn icard-btn--primary mono"
         type="button"

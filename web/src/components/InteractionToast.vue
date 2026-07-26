@@ -1,9 +1,9 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+// 通用提示条（T4 参数化）：标题/正文/跳转目标由调用方给出。
+// to 为空时点击仅关闭（如全局 decision 无 plan 可跳）。
 import { useRouter } from 'vue-router'
-import type { Interaction } from '../api/types'
 
-const props = defineProps<{ interaction: Interaction }>()
+const props = defineProps<{ title: string; text: string; to?: string }>()
 const emit = defineEmits<{
   (e: 'close'): void
   (e: 'goto'): void
@@ -11,19 +11,11 @@ const emit = defineEmits<{
 
 const router = useRouter()
 
-const promptLine = computed(() => {
-  const first = props.interaction.prompt.split(/\r?\n/)[0]?.trim() ?? ''
-  return first.length > 96 ? `${first.slice(0, 96)}...` : first
-})
-
-const shortJobId = computed(() => {
-  const id = props.interaction.job_id
-  return id.length > 10 ? `...${id.slice(-10)}` : id
-})
-
-function gotoJob(): void {
+function goto(): void {
   emit('goto')
-  void router.push(`/jobs/${encodeURIComponent(props.interaction.job_id)}`)
+  if (props.to) {
+    void router.push(props.to)
+  }
 }
 </script>
 
@@ -32,11 +24,9 @@ function gotoJob(): void {
     <button class="close" type="button" aria-label="关闭提示" @click="emit('close')">
       ×
     </button>
-    <button class="body" type="button" @click="gotoJob">
-      <span class="t1 mono">⚠ 新的人工介入请求 · needs_human</span>
-      <span class="tx mono">
-        job {{ shortJobId }} — {{ promptLine || '等待人工介入' }}
-      </span>
+    <button class="body" type="button" @click="goto">
+      <span class="t1 mono">{{ title }}</span>
+      <span class="tx mono">{{ text }}</span>
     </button>
   </div>
 </template>

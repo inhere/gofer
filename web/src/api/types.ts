@@ -439,8 +439,9 @@ export interface ListJobsOpts {
 export type LogStream = 'stdout' | 'stderr'
 
 // 运行中交互：question 文本问答 / choice 选项 / confirmation 确认
+// 'expired' 目前只由 decision 投影产生（EXPIRED 决策，只读），job interaction 不会返回。
 export type InteractionType = 'question' | 'choice' | 'confirmation'
-export type InteractionStatus = 'pending' | 'answered' | 'cancelled'
+export type InteractionStatus = 'pending' | 'answered' | 'cancelled' | 'expired'
 
 export interface InteractionOption {
   value: string
@@ -459,6 +460,28 @@ export interface Interaction {
   // Unix 秒
   created_at: number
   escalated_at?: number
+  answered_at?: number
+  answered_by?: string
+}
+
+// plan 决策通道（decision channel，T4）：agent 经 MCP gofer_ask_human 提问，
+// 人在 web 作答。字段对齐 internal/httpapi/decision_handler.go 的 decisionView；
+// 时间为 Unix 秒。options 为空 = 自由文本作答。
+export type DecisionState = 'OPEN' | 'ANSWERED' | 'EXPIRED'
+
+export interface Decision {
+  id: string
+  // 后端 omitempty（可空=全局提问）
+  plan_id?: string
+  title: string
+  question: string
+  // 后端 omitempty
+  options?: string[]
+  answer?: string
+  state: DecisionState
+  timeout_sec: number
+  // Unix 秒
+  asked_at: number
   answered_at?: number
   answered_by?: string
 }
@@ -832,11 +855,13 @@ export interface Plan {
   counts?: PlanCounts
 }
 
-// plan 详情（GET /v1/plans/{id}）：头部 + counts + 其下 jobs + todos。
+// plan 详情（GET /v1/plans/{id}）：头部 + counts + 其下 jobs + todos + decisions。
 export interface PlanDetail extends Plan {
   counts: PlanCounts
   jobs: Job[]
   todos: Todo[]
+  // 决策通道（T4）：该 plan 下的全部 decision（含 OPEN/ANSWERED/EXPIRED）
+  decisions?: Decision[]
 }
 
 export interface PlansResp {

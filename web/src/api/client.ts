@@ -8,6 +8,7 @@ import type {
   ArtifactsResp,
   ConfigView,
   CreateScheduleReq,
+  Decision,
   DeliveriesResp,
   FileContent,
   GitStatus,
@@ -631,6 +632,27 @@ export function updateTodoStatus(
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+  })
+}
+
+// 决策通道（decision channel，T4）：列 OPEN decision（EscalationBell 全量 /
+// PlanDetail 可按 plan 过滤），GET /v1/decisions?state=OPEN[&plan_id=]。
+export function listOpenDecisions(
+  planId?: string,
+): Promise<{ decisions: Decision[] }> {
+  const qs = planId
+    ? `?state=OPEN&plan_id=${encodeURIComponent(planId)}`
+    : '?state=OPEN'
+  return request<{ decisions: Decision[] }>(`/v1/decisions${qs}`)
+}
+
+// 作答 decision（POST /v1/decisions/{id}/answer，body {answer}）：
+// 返回更新后的 Decision（state=ANSWERED）；已答/已过期返回 409、未知 id 404。
+export function answerDecision(id: string, answer: string): Promise<Decision> {
+  return request<Decision>(`/v1/decisions/${encodeURIComponent(id)}/answer`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answer }),
   })
 }
 

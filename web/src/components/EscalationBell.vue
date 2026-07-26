@@ -2,58 +2,121 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
+  answerDecision,
   answerInteraction,
+  listOpenDecisions,
   listPendingInteractions,
   puntInteraction,
 } from '../api/client'
-import type { Interaction } from '../api/types'
+import type { Decision, Interaction } from '../api/types'
 import InteractionToast from './InteractionToast.vue'
 
 const POLL_MS = 5000
 
+// 分源聚合（T4/H2）：铃铛条目 = supervisor 升级的 job interaction + OPEN decision。
+// 条目键用 `{source}:{id}` 复合键——interaction PK 是 (job_id, id)，裸 id 跨 job 可撞。
+type BellItem =
+  | { source: 'interaction'; key: string; interaction: Interaction }
+  | { source: 'decision'; key: string; decision: Decision }
+
+interface ToastPayload {
+  title: string
+  text: string
+  to?: string
+}
+
 const router = useRouter()
 
-const items = ref<Interaction[]>([])
+const items = ref<BellItem[]>([])
 const open = ref(false)
-const toast = ref<Interaction | null>(null)
+const toast = ref<ToastPayload | null>(null)
 const submittingIds = ref<Set<string>>(new Set())
 const itemErrors = ref<Map<string, string>>(new Map())
 const seenNeedsHuman = new Set<string>()
+const seenDecisions = new Set<string>()
 
 let timer: number | null = null
 
+function isNeedsHuman(item: BellItem): boolean {
+  return item.source === 'interaction' && item.interaction.needs_human === 1
+}
+
+function sortAt(item: BellItem): number {
+  return item.source === 'interaction'
+    ? (item.interaction.escalated_at ?? item.interaction.created_at)
+    : item.decision.asked_at
+}
+
 const sortedItems = computed(() =>
   [...items.value].sort((a, b) => {
-    const hot = Number(b.needs_human === 1) - Number(a.needs_human === 1)
+    const hot = Number(isNeedsHuman(b)) - Number(isNeedsHuman(a))
     if (hot !== 0) {
       return hot
     }
-    return (b.escalated_at ?? b.created_at) - (a.escalated_at ?? a.created_at)
+    return sortAt(b) - sortAt(a)
   }),
 )
 
 const badgeCount = computed(() => items.value.length)
-const needsHumanCount = computed(
-  () => items.value.filter((i) => i.needs_human === 1).length,
-)
+const needsHumanCount = computed(() => items.value.filter(isNeedsHuman).length)
+
+function truncLine(s: string, max: number): string {
+  const first = s.split(/\r?\n/)[0]?.trim() ?? ''
+  return first.length > max ? `${first.slice(0, max)}...` : first
+}
 
 async function fetchPending(): Promise<void> {
   if (document.hidden) {
     return
   }
-  const resp = await listPendingInteractions()
-  const next = resp.interactions ?? []
+  const [iresp, dresp] = await Promise.all([
+    listPendingInteractions(),
+    listOpenDecisions(),
+  ])
+  const next: BellItem[] = [
+    ...(iresp.interactions ?? []).map((i) => ({
+      source: 'interaction' as const,
+      key: `interaction:${i.id}`,
+      interaction: i,
+    })),
+    ...(dresp.decisions ?? []).map((d) => ({
+      source: 'decision' as const,
+      key: `decision:${d.id}`,
+      decision: d,
+    })),
+  ]
   const freshNeedsHuman = next.find(
-    (i) => i.needs_human === 1 && !seenNeedsHuman.has(i.id),
+    (it) =>
+      it.source === 'interaction' &&
+      it.interaction.needs_human === 1 &&
+      !seenNeedsHuman.has(it.key),
   )
-  next.forEach((i) => {
-    if (i.needs_human === 1) {
-      seenNeedsHuman.add(i.id)
+  const freshDecision = next.find(
+    (it) => it.source === 'decision' && !seenDecisions.has(it.decision.id),
+  )
+  next.forEach((it) => {
+    if (it.source === 'interaction' && it.interaction.needs_human === 1) {
+      seenNeedsHuman.add(it.key)
+    }
+    if (it.source === 'decision') {
+      seenDecisions.add(it.decision.id)
     }
   })
   items.value = next
-  if (freshNeedsHuman) {
-    toast.value = freshNeedsHuman
+  if (freshNeedsHuman && freshNeedsHuman.source === 'interaction') {
+    const i = freshNeedsHuman.interaction
+    toast.value = {
+      title: '⚠ 新的人工介入请求 · needs_human',
+      text: `job ${shortId(i.job_id)} — ${truncLine(i.prompt, 96) || '等待人工介入'}`,
+      to: `/jobs/${encodeURIComponent(i.job_id)}`,
+    }
+  } else if (freshDecision && freshDecision.source === 'decision') {
+    const d = freshDecision.decision
+    toast.value = {
+      title: `新的决策请求 · ${d.title || d.id}`,
+      text: truncLine(d.question, 96) || '等待人工作答',
+      to: d.plan_id ? `/plans/${encodeURIComponent(d.plan_id)}` : undefined,
+    }
   }
 }
 
@@ -93,83 +156,100 @@ function close(): void {
   open.value = false
 }
 
-function gotoJob(item: Interaction): void {
-  close()
-  void router.push(`/jobs/${encodeURIComponent(item.job_id)}`)
+// 按 source 分流跳转：interaction → job 详情；decision → plan 详情
+// （无 plan_id 的全局提问仅展开，无跳转目标）。
+function gotoItem(item: BellItem): void {
+  if (item.source === 'interaction') {
+    close()
+    void router.push(`/jobs/${encodeURIComponent(item.interaction.job_id)}`)
+    return
+  }
+  if (item.decision.plan_id) {
+    close()
+    void router.push(`/plans/${encodeURIComponent(item.decision.plan_id)}`)
+  }
 }
 
-function shortJobId(id: string): string {
+function shortId(id: string): string {
   return id.length > 10 ? `...${id.slice(-10)}` : id
 }
 
 function promptLine(item: Interaction): string {
-  const first = item.prompt.split(/\r?\n/)[0]?.trim() ?? ''
-  return first.length > 110 ? `${first.slice(0, 110)}...` : first
+  return truncLine(item.prompt, 110)
 }
 
-function setSubmitting(iid: string, submitting: boolean): void {
+function setSubmitting(key: string, submitting: boolean): void {
   const next = new Set(submittingIds.value)
   if (submitting) {
-    next.add(iid)
+    next.add(key)
   } else {
-    next.delete(iid)
+    next.delete(key)
   }
   submittingIds.value = next
 }
 
-function clearItemError(iid: string): void {
-  if (!itemErrors.value.has(iid)) {
+function clearItemError(key: string): void {
+  if (!itemErrors.value.has(key)) {
     return
   }
   const next = new Map(itemErrors.value)
-  next.delete(iid)
+  next.delete(key)
   itemErrors.value = next
 }
 
-function setItemError(iid: string, message: string): void {
-  itemErrors.value = new Map(itemErrors.value).set(iid, message)
+function setItemError(key: string, message: string): void {
+  itemErrors.value = new Map(itemErrors.value).set(key, message)
 }
 
-function removeItem(iid: string): void {
-  items.value = items.value.filter((item) => item.id !== iid)
-  clearItemError(iid)
+function removeItem(key: string): void {
+  items.value = items.value.filter((item) => item.key !== key)
+  clearItemError(key)
 }
 
 function errorMessage(e: unknown): string {
   return e instanceof Error ? e.message : String(e)
 }
 
-async function submitAnswer(item: Interaction, value: string): Promise<void> {
-  if (submittingIds.value.has(item.id)) {
+// 作答按 source 分流：interaction 走 job 通道，decision 走 /v1/decisions/{id}/answer。
+async function submitAnswer(item: BellItem, value: string): Promise<void> {
+  if (submittingIds.value.has(item.key)) {
     return
   }
-  setSubmitting(item.id, true)
-  clearItemError(item.id)
+  setSubmitting(item.key, true)
+  clearItemError(item.key)
   try {
-    await answerInteraction(item.job_id, item.id, value)
-    removeItem(item.id)
+    if (item.source === 'interaction') {
+      await answerInteraction(item.interaction.job_id, item.interaction.id, value)
+    } else {
+      await answerDecision(item.decision.id, value)
+    }
+    removeItem(item.key)
     void fetchPending().catch(() => {})
   } catch (e) {
-    setItemError(item.id, errorMessage(e))
+    setItemError(item.key, errorMessage(e))
   } finally {
-    setSubmitting(item.id, false)
+    setSubmitting(item.key, false)
   }
 }
 
-async function submitPunt(item: Interaction): Promise<void> {
-  if (submittingIds.value.has(item.id)) {
+// punt 只属于 job interaction；decision 无 punt。
+async function submitPunt(item: BellItem): Promise<void> {
+  if (item.source !== 'interaction') {
     return
   }
-  setSubmitting(item.id, true)
-  clearItemError(item.id)
+  if (submittingIds.value.has(item.key)) {
+    return
+  }
+  setSubmitting(item.key, true)
+  clearItemError(item.key)
   try {
-    await puntInteraction(item.job_id, item.id)
-    removeItem(item.id)
+    await puntInteraction(item.interaction.job_id, item.interaction.id)
+    removeItem(item.key)
     void fetchPending().catch(() => {})
   } catch (e) {
-    setItemError(item.id, errorMessage(e))
+    setItemError(item.key, errorMessage(e))
   } finally {
-    setSubmitting(item.id, false)
+    setSubmitting(item.key, false)
   }
 }
 
@@ -219,7 +299,7 @@ onUnmounted(() => {
         v-if="badgeCount > 0"
         class="badge"
         :class="{ 'badge--hot': needsHumanCount > 0 }"
-        :title="`待应答交互 ${badgeCount}，其中 ${needsHumanCount} 需人工介入`"
+        :title="`待应答 ${badgeCount}，其中 ${needsHumanCount} 需人工介入`"
       >
         {{ badgeCount }}
       </span>
@@ -234,95 +314,148 @@ onUnmounted(() => {
 
       <div
         v-for="item in sortedItems"
-        :key="item.id"
+        :key="item.key"
         class="esc"
-        :class="{ hot: item.needs_human === 1 }"
+        :class="{ hot: isNeedsHuman(item) }"
         role="menuitem"
       >
-        <span class="e1 mono">
-          <span v-if="item.needs_human === 1" class="mark mark--needs">needs_human</span>
-          <span v-else-if="(item.escalated_at ?? 0) > 0" class="mark">escalated</span>
-          <span class="idp">job {{ shortJobId(item.job_id) }}</span>
-          <span class="chan">{{ item.type }}</span>
-        </span>
-        <span class="p">{{ promptLine(item) || '等待人工介入' }}</span>
+        <!-- job interaction 条目（既有分支不动，仅键改复合键） -->
+        <template v-if="item.source === 'interaction'">
+          <span class="e1 mono">
+            <span v-if="item.interaction.needs_human === 1" class="mark mark--needs">needs_human</span>
+            <span v-else-if="(item.interaction.escalated_at ?? 0) > 0" class="mark">escalated</span>
+            <span class="idp">job {{ shortId(item.interaction.job_id) }}</span>
+            <span class="chan">{{ item.interaction.type }}</span>
+          </span>
+          <span class="p">{{ promptLine(item.interaction) || '等待人工介入' }}</span>
 
-        <div v-if="item.type === 'choice'" class="actions">
-          <button
-            v-for="opt in item.options ?? []"
-            :key="opt.value"
-            class="mini-btn mono"
-            type="button"
-            :disabled="submittingIds.has(item.id)"
-            @click="submitAnswer(item, opt.value)"
-          >
-            {{ optLabel(opt) }}
-          </button>
-        </div>
+          <div v-if="item.interaction.type === 'choice'" class="actions">
+            <button
+              v-for="opt in item.interaction.options ?? []"
+              :key="opt.value"
+              class="mini-btn mono"
+              type="button"
+              :disabled="submittingIds.has(item.key)"
+              @click="submitAnswer(item, opt.value)"
+            >
+              {{ optLabel(opt) }}
+            </button>
+          </div>
 
-        <div v-else-if="item.type === 'confirmation'" class="actions">
-          <button
-            class="mini-btn mini-btn--primary mono"
-            type="button"
-            :disabled="submittingIds.has(item.id)"
-            @click="submitAnswer(item, confirmYes(item))"
-          >
-            {{ confirmYesLabel(item) }}
-          </button>
-          <button
-            class="mini-btn mono"
-            type="button"
-            :disabled="submittingIds.has(item.id)"
-            @click="submitAnswer(item, confirmNo(item))"
-          >
-            {{ confirmNoLabel(item) }}
-          </button>
-        </div>
+          <div v-else-if="item.interaction.type === 'confirmation'" class="actions">
+            <button
+              class="mini-btn mini-btn--primary mono"
+              type="button"
+              :disabled="submittingIds.has(item.key)"
+              @click="submitAnswer(item, confirmYes(item.interaction))"
+            >
+              {{ confirmYesLabel(item.interaction) }}
+            </button>
+            <button
+              class="mini-btn mono"
+              type="button"
+              :disabled="submittingIds.has(item.key)"
+              @click="submitAnswer(item, confirmNo(item.interaction))"
+            >
+              {{ confirmNoLabel(item.interaction) }}
+            </button>
+          </div>
 
-        <div v-else class="actions">
-          <button
-            class="mini-btn mini-btn--primary mono"
-            type="button"
-            :disabled="submittingIds.has(item.id)"
-            @click="gotoJob(item)"
-          >
-            进详情作答
-          </button>
-        </div>
+          <div v-else class="actions">
+            <button
+              class="mini-btn mini-btn--primary mono"
+              type="button"
+              :disabled="submittingIds.has(item.key)"
+              @click="gotoItem(item)"
+            >
+              进详情作答
+            </button>
+          </div>
 
-        <div class="foot-actions">
-          <button
-            class="link-btn mono"
-            type="button"
-            :disabled="submittingIds.has(item.id)"
-            @click="gotoJob(item)"
-          >
-            详情
-          </button>
-          <button
-            v-if="item.needs_human !== 1"
-            class="link-btn link-btn--warn mono"
-            type="button"
-            :disabled="submittingIds.has(item.id)"
-            @click="submitPunt(item)"
-          >
-            {{ submittingIds.has(item.id) ? '提交中' : 'punt' }}
-          </button>
-        </div>
+          <div class="foot-actions">
+            <button
+              class="link-btn mono"
+              type="button"
+              :disabled="submittingIds.has(item.key)"
+              @click="gotoItem(item)"
+            >
+              详情
+            </button>
+            <button
+              v-if="item.interaction.needs_human !== 1"
+              class="link-btn link-btn--warn mono"
+              type="button"
+              :disabled="submittingIds.has(item.key)"
+              @click="submitPunt(item)"
+            >
+              {{ submittingIds.has(item.key) ? '提交中' : 'punt' }}
+            </button>
+          </div>
+        </template>
 
-        <p v-if="itemErrors.get(item.id)" class="item-error mono">
-          操作失败：{{ itemErrors.get(item.id) }}
+        <!-- decision 条目（T4）：选项型就地作答；自由文本型进 plan 详情作答；无 punt -->
+        <template v-else>
+          <span class="e1 mono">
+            <span class="mark mark--decision">决策</span>
+            <span v-if="item.decision.plan_id" class="idp">plan {{ shortId(item.decision.plan_id) }}</span>
+            <span v-else class="idp">全局</span>
+            <span class="chan">{{ (item.decision.options?.length ?? 0) > 0 ? 'choice' : 'question' }}</span>
+          </span>
+          <span class="p">
+            {{ item.decision.title ? `${item.decision.title} — ` : '' }}{{ truncLine(item.decision.question, 110) || '等待人工作答' }}
+          </span>
+
+          <div v-if="(item.decision.options?.length ?? 0) > 0" class="actions">
+            <button
+              v-for="opt in item.decision.options ?? []"
+              :key="opt"
+              class="mini-btn mono"
+              type="button"
+              :disabled="submittingIds.has(item.key)"
+              @click="submitAnswer(item, opt)"
+            >
+              {{ opt }}
+            </button>
+          </div>
+
+          <div v-else-if="item.decision.plan_id" class="actions">
+            <button
+              class="mini-btn mini-btn--primary mono"
+              type="button"
+              :disabled="submittingIds.has(item.key)"
+              @click="gotoItem(item)"
+            >
+              进详情作答
+            </button>
+          </div>
+
+          <div v-if="item.decision.plan_id" class="foot-actions">
+            <button
+              class="link-btn mono"
+              type="button"
+              :disabled="submittingIds.has(item.key)"
+              @click="gotoItem(item)"
+            >
+              详情
+            </button>
+          </div>
+        </template>
+
+        <p v-if="itemErrors.get(item.key)" class="item-error mono">
+          操作失败：{{ itemErrors.get(item.key) }}
         </p>
       </div>
 
       <div v-if="sortedItems.length === 0" class="empty mono">
-        无 pending interaction
+        无待应答的交互或决策
       </div>
     </div>
 
     <InteractionToast
       v-if="toast"
-      :interaction="toast"
+      :title="toast.title"
+      :text="toast.text"
+      :to="toast.to"
       @close="toast = null"
       @goto="toast = null"
     />
@@ -461,6 +594,11 @@ onUnmounted(() => {
   background: var(--fail);
   border-color: var(--fail);
   color: #fff;
+}
+
+.mark--decision {
+  border-color: var(--phosphor);
+  color: var(--phosphor);
 }
 
 .chan {
