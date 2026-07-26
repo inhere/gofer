@@ -1,6 +1,7 @@
 package mcpserver
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"sort"
@@ -293,6 +294,37 @@ func (b *localBackend) UpdateTodo(todoID, status string, note *string) (todoView
 		return todoView{}, err
 	}
 	return toTodoView(t), nil
+}
+
+// --- decision channel (local 直驱 jobstore via Meta) -------------------------
+
+// AskDecision raises an OPEN decision in-process. The store insert owns id
+// generation / timeout clamp / options normalisation (single收口, plan HIGH-2) —
+// standalone MCP never touches httpapi, so nothing is re-done here.
+func (b *localBackend) AskDecision(planID, title, question string, options []string, timeoutSec int64) (jobstore.PlanDecision, error) {
+	var optionsJSON string
+	if len(options) > 0 {
+		raw, err := json.Marshal(options)
+		if err != nil {
+			return jobstore.PlanDecision{}, fmt.Errorf("encode options: %w", err)
+		}
+		optionsJSON = string(raw)
+	}
+	d := jobstore.PlanDecision{
+		PlanID:      strings.TrimSpace(planID),
+		Title:       title,
+		Question:    question,
+		OptionsJSON: optionsJSON,
+		TimeoutSec:  timeoutSec,
+	}
+	if err := b.jobs.Meta().InsertDecision(&d); err != nil {
+		return jobstore.PlanDecision{}, err
+	}
+	return d, nil
+}
+
+func (b *localBackend) GetDecision(id string) (jobstore.PlanDecision, bool, error) {
+	return b.jobs.Meta().GetDecision(id)
 }
 
 // --- E36 presence (local 直驱 presence.Service) ------------------------------

@@ -129,6 +129,8 @@ func TestListToolsAllPresent(t *testing.T) {
 		"gofer_get_plan":    false,
 		"gofer_add_todo":    false,
 		"gofer_update_todo": false,
+		// Decision channel (Part C §C3).
+		"gofer_ask_human": false,
 	}
 	for _, tl := range res.Tools {
 		if _, ok := want[tl.Name]; ok {
@@ -1306,4 +1308,95 @@ func callGetResult(t *testing.T, session *mcp.ClientSession, id string) getResul
 	var out getResultOutput
 	structured(t, res, &out)
 	return out
+}
+
+// fastAskHumanPoll shortens the gofer_ask_human poll cadence for tests and
+// restores it on cleanup (production semantics = 2s, plan T2).
+func fastAskHumanPoll(t *testing.T) {
+	t.Helper()
+	old := askHumanPollInterval
+	askHumanPollInterval = 20 * time.Millisecond
+	t.Cleanup(func() { askHumanPollInterval = old })
+}
+
+// TestAskHumanRoundTrip drives the gofer_ask_human happy path over the in-memory
+// session: the tool call blocks while a concurrent "human" (the test, acting as
+// the web answer path via the store) answers, then the tool returns
+// {state:"answered", answer, answered_by}. Also covers input validation.
+func TestAskHumanRoundTrip(t *testing.T) {
+	fastAskHumanPoll(t)
+	session, jobs := connect(t)
+	if err := jobs.Meta().InsertPlan(jobstore.Plan{
+		PlanID: "plan-ask", Status: jobstore.PlanOpen, CreatedAt: 1, UpdatedAt: 1,
+	}); err != nil {
+		t.Fatalf("InsertPlan: %v", err)
+	}
+
+	// Validation: missing title/question are tool errors (no decision raised).
+	for _, args := range []map[string]any{
+		{"question": "q"},
+		{"title": "t"},
+	} {
+		res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+			Name: "gofer_ask_human", Arguments: args,
+		})
+		if err != nil {
+			t.Fatalf("ask_human transport: %v", err)
+		}
+		if !res.IsError {
+			t.Fatalf("ask_human args %v must be a tool error", args)
+		}
+	}
+
+	type callResult struct {
+		res *mcp.CallToolResult
+		err error
+	}
+	done := make(chan callResult, 1)
+	go func() {
+		res, err := session.CallTool(context.Background(), &mcp.CallToolParams{
+			Name: "gofer_ask_human",
+			Arguments: map[string]any{
+				"plan_id": "plan-ask", "title": "pick", "question": "which format?",
+				"options": []string{"json", "yaml"}, "timeout_sec": 30,
+			},
+		})
+		done <- callResult{res, err}
+	}()
+
+	// Wait for the OPEN decision to land, then answer it via the store (the web
+	// answer path ends here server-side).
+	var decID string
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		list, err := jobs.Meta().ListDecisions(jobstore.DecisionOpen, "plan-ask")
+		if err != nil {
+			t.Fatalf("ListDecisions: %v", err)
+		}
+		if len(list) == 1 {
+			decID = list[0].ID
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if decID == "" {
+		t.Fatal("no OPEN decision landed")
+	}
+	if ok, err := jobs.Meta().AnswerDecision(decID, "json", "human"); err != nil || !ok {
+		t.Fatalf("AnswerDecision ok=%v err=%v", ok, err)
+	}
+
+	select {
+	case rc := <-done:
+		if rc.err != nil {
+			t.Fatalf("ask_human: %v", rc.err)
+		}
+		var out askHumanOutput
+		structured(t, rc.res, &out)
+		if out.State != "answered" || out.Answer != "json" || out.AnsweredBy != "human" {
+			t.Fatalf("ask_human output = %+v, want answered/json/human", out)
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("ask_human did not return after the answer")
+	}
 }

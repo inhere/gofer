@@ -6,6 +6,7 @@ import (
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/presence"
 )
 
@@ -218,6 +219,45 @@ func clientTodoToView(t client.Todo) todoView {
 		TodoID: t.TodoID, PlanID: t.PlanID, JobID: t.JobID, Title: t.Title,
 		Done: t.Done, Status: t.Status, StartedAt: t.StartedAt, DoneAt: t.DoneAt,
 		Note: t.Note, Sort: t.Sort, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
+	}
+}
+
+// --- decision channel (client 转发中央 serve) --------------------------------
+
+func (b *clientBackend) AskDecision(planID, title, question string, options []string, timeoutSec int64) (jobstore.PlanDecision, error) {
+	d, err := b.cli.AskDecision(planID, title, question, options, timeoutSec)
+	if err != nil {
+		return jobstore.PlanDecision{}, err
+	}
+	return clientDecisionToStore(d), nil
+}
+
+// GetDecision forwards the poll; the central serve's read path applies lazy
+// expiry. A 404 (unknown id) surfaces as an error via the client's errorFor —
+// for the ask_human polling loop that is a hard anomaly, not a "keep waiting".
+func (b *clientBackend) GetDecision(id string) (jobstore.PlanDecision, bool, error) {
+	d, err := b.cli.GetDecision(id)
+	if err != nil {
+		return jobstore.PlanDecision{}, false, err
+	}
+	return clientDecisionToStore(d), true, nil
+}
+
+// clientDecisionToStore maps the client wire view onto the store domain type
+// the handler polls. Options are re-marshalled into OptionsJSON for parity with
+// the local backend (the ask_human handler itself only reads state/answer).
+func clientDecisionToStore(d client.Decision) jobstore.PlanDecision {
+	var optionsJSON string
+	if len(d.Options) > 0 {
+		if raw, err := json.Marshal(d.Options); err == nil {
+			optionsJSON = string(raw)
+		}
+	}
+	return jobstore.PlanDecision{
+		ID: d.ID, PlanID: d.PlanID, Title: d.Title, Question: d.Question,
+		OptionsJSON: optionsJSON, Answer: d.Answer, State: d.State,
+		TimeoutSec: d.TimeoutSec, AskedAt: d.AskedAt,
+		AnsweredAt: d.AnsweredAt, AnsweredBy: d.AnsweredBy,
 	}
 }
 
