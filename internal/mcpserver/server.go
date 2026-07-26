@@ -18,6 +18,8 @@ import (
 	"fmt"
 	"hash/crc32"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -190,6 +192,13 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 		Name:        "gofer_update_todo",
 		Description: "Update a todo by todo_id: move it along its lifecycle (status: pending|doing|done|skipped — doing stamps started_at, done/skipped stamp done_at) and/or set a short outcome note. Returns the updated todo.",
 	}, updateTodoHandler(b))
+
+	// Decision channel (Part C §C3). Registered UNCONDITIONALLY (plan M4, same
+	// precedent as add_todo/update_todo): a project-scoped MCP keeps it too.
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_ask_human",
+		Description: "Block and ask a HUMAN a question when a plan hits a decision point; the call returns when a person answers on the web console (bell / plan page) or the timeout expires. Returns {state:\"answered\", answer, answered_by} or {state:\"expired\"} — on expired, continue with your prepared fallback (e.g. recommended option, or mark the todo skipped+note); never block forever. Set timeout_sec within your host's own tool-call timeout.",
+	}, askHumanHandler(b))
 
 	return s
 }
@@ -995,4 +1004,115 @@ func listPresenceHandler(b Backend) mcp.ToolHandlerFor[listPresenceToolInput, li
 		}
 		return nil, listPresenceOutput{Agents: list}, nil
 	}
+}
+
+// --- gofer_ask_human ---------------------------------------------------------
+
+// askHumanPollInterval is the GetDecision poll cadence while a gofer_ask_human
+// call blocks waiting for the human answer. It is a package variable (NOT a
+// const) so tests can shorten it; production keeps the 2s semantics (plan T2).
+var askHumanPollInterval = 2 * time.Second
+
+// askHumanInput is the gofer_ask_human tool input (Part C §C3). plan_id /
+// options are optional (empty plan = global question, empty options = free-text
+// answer). timeout_sec <= 0 falls back to the 1800s default; values outside
+// [2, 86400] are clamped here as an EARLY failure — the authoritative clamp
+// lives in jobstore.InsertDecision (plan HIGH-2).
+type askHumanInput struct {
+	PlanID     string   `json:"plan_id,omitempty"`
+	Title      string   `json:"title"`
+	Question   string   `json:"question"`
+	Options    []string `json:"options,omitempty"`
+	TimeoutSec int64    `json:"timeout_sec,omitempty"`
+}
+
+// askHumanOutput is the structured tool result: state "answered" carries the
+// human's answer (+ answered_by attribution); state "expired" means the timeout
+// lapsed unanswered and the agent must continue with its prepared fallback.
+type askHumanOutput struct {
+	State      string `json:"state"` // "answered" | "expired"
+	Answer     string `json:"answer,omitempty"`
+	AnsweredBy string `json:"answered_by,omitempty"`
+}
+
+// askHumanHandler raises an OPEN decision then blocks polling until it is
+// answered or expires (plan T2):
+//  1. validate + clamp timeout (early failure; the store re-clamps anyway);
+//  2. AskDecision 落库拿 id;
+//  3. ticker + deadline loop GetDecision: ANSWERED → answered, EXPIRED (lazy
+//     expiry flipped it) → expired;
+//  4. deadline 到 → 最后再 GetDecision 一次, 按实际状态返回 (H1: 不主动 expire);
+//  5. ctx.Done() (agent 宿主断连) → 返回 ctx err, decision 留 OPEN 交懒过期 (D6).
+func askHumanHandler(b Backend) mcp.ToolHandlerFor[askHumanInput, askHumanOutput] {
+	return func(ctx context.Context, _ *mcp.CallToolRequest, in askHumanInput) (*mcp.CallToolResult, askHumanOutput, error) {
+		if strings.TrimSpace(in.Title) == "" {
+			return nil, askHumanOutput{}, fmt.Errorf("title required")
+		}
+		if strings.TrimSpace(in.Question) == "" {
+			return nil, askHumanOutput{}, fmt.Errorf("question required")
+		}
+		timeoutSec := in.TimeoutSec
+		switch {
+		case timeoutSec <= 0:
+			timeoutSec = jobstore.DefaultDecisionTimeoutSec
+		case timeoutSec < jobstore.MinDecisionTimeoutSec:
+			timeoutSec = jobstore.MinDecisionTimeoutSec
+		case timeoutSec > jobstore.MaxDecisionTimeoutSec:
+			timeoutSec = jobstore.MaxDecisionTimeoutSec
+		}
+		d, err := b.AskDecision(in.PlanID, in.Title, in.Question, in.Options, timeoutSec)
+		if err != nil {
+			return nil, askHumanOutput{}, err
+		}
+		deadline := time.Now().Add(time.Duration(d.TimeoutSec) * time.Second)
+		ticker := time.NewTicker(askHumanPollInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				// 提问方消失 ≠ 超时: decision 保持 OPEN (D6), 懒过期收尾.
+				return nil, askHumanOutput{}, ctx.Err()
+			case <-ticker.C:
+			}
+			out, done, err := pollDecisionOnce(b, d.ID)
+			if err != nil {
+				return nil, askHumanOutput{}, err
+			}
+			if done {
+				return nil, out, nil
+			}
+			if !time.Now().Before(deadline) {
+				// 最后一次读: 读路径懒过期会把到期 decision 置 EXPIRED; 恰被答则
+				// 按 ANSWERED 返回. 仍 OPEN (时钟差) 也按 expired 收口 —— deadline 已过.
+				out, done, err := pollDecisionOnce(b, d.ID)
+				if err != nil {
+					return nil, askHumanOutput{}, err
+				}
+				if done {
+					return nil, out, nil
+				}
+				return nil, askHumanOutput{State: "expired"}, nil
+			}
+		}
+	}
+}
+
+// pollDecisionOnce reads one decision and maps a terminal state onto the tool
+// output. done=false means still OPEN (keep polling). An unknown id after a
+// successful ask is a hard anomaly, not a "keep waiting".
+func pollDecisionOnce(b Backend, id string) (askHumanOutput, bool, error) {
+	d, ok, err := b.GetDecision(id)
+	if err != nil {
+		return askHumanOutput{}, false, err
+	}
+	if !ok {
+		return askHumanOutput{}, false, fmt.Errorf("decision %q not found", id)
+	}
+	switch d.State {
+	case jobstore.DecisionAnswered:
+		return askHumanOutput{State: "answered", Answer: d.Answer, AnsweredBy: d.AnsweredBy}, true, nil
+	case jobstore.DecisionExpired:
+		return askHumanOutput{State: "expired"}, true, nil
+	}
+	return askHumanOutput{}, false, nil
 }

@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/presence"
 )
 
@@ -46,6 +47,15 @@ type Backend interface {
 	// UpdateTodo moves a todo along its lifecycle (status ""=keep) and/or
 	// updates its note (nil=keep). See jobstore.UpdateTodoStatus.
 	UpdateTodo(todoID, status string, note *string) (todoView, error)
+
+	// Decision channel (Part C §C3, gofer_ask_human). Exactly two methods —
+	// there is NO active ExpireDecision (plan H1): expiry is lazy inside the
+	// store's read/answer paths. AskDecision raises an OPEN decision and
+	// returns it with the store-generated id + clamped timeout; GetDecision
+	// reads one back (lazy expiry already applied — a past-deadline decision
+	// comes back EXPIRED), ok=false when the id is unknown.
+	AskDecision(planID, title, question string, options []string, timeoutSec int64) (jobstore.PlanDecision, error)
+	GetDecision(id string) (jobstore.PlanDecision, bool, error)
 
 	// E36 driver-agent identity/mailbox (4 of the 5 gofer_* presence tools;
 	// list_pending_interactions is P3). local 直驱 presence.Service; client 转发

@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/gookit/gcli/v3"
 
@@ -29,6 +30,23 @@ var planSetTodoOpts = struct {
 	undone bool
 	status string
 	note   string
+}{}
+
+var planAskOpts = struct {
+	plan     string
+	title    string
+	question string
+	options  gcli.Strings // repeatable: --option
+	timeout  string
+}{}
+
+var planDecisionsOpts = struct {
+	state string
+	plan  string
+}{}
+
+var planAnswerOpts = struct {
+	answer string
 }{}
 
 // NewPlanCmd builds the `plan` command group for lightweight job grouping.
@@ -129,6 +147,42 @@ func NewPlanCmd() *gcli.Command {
 					c.StrOpt(&planSetTodoOpts.note, "note", "", "", "set the todo note (kept unchanged when omitted)")
 				},
 				Func: runPlanSetTodo,
+			},
+			{
+				Name: "ask",
+				Desc: "Raise a decision question for a human (does NOT wait; blocking wait is the MCP gofer_ask_human semantics)",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.StrOpt(&planAskOpts.plan, "plan", "", "", "plan id to attach the decision to (optional; empty = global question)")
+					c.StrOpt(&planAskOpts.title, "title", "", "", "decision title (required)")
+					c.StrOpt(&planAskOpts.question, "question", "", "", "the question for the human (required)")
+					c.VarOpt(&planAskOpts.options, "option", "", "answer option (repeatable; omit all for free-text answer)")
+					c.StrOpt(&planAskOpts.timeout, "timeout", "", "", "answer timeout, e.g. 30m (default 30m; clamped server-side to [2s,24h])")
+				},
+				Func: runPlanAsk,
+			},
+			{
+				Name: "decisions",
+				Desc: "List decisions, optionally filtered by state/plan",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.StrOpt(&planDecisionsOpts.state, "state", "", "", "filter by state (OPEN/ANSWERED/EXPIRED)")
+					c.StrOpt(&planDecisionsOpts.plan, "plan", "", "", "filter by plan id")
+				},
+				Func: runPlanDecisions,
+			},
+			{
+				Name: "answer",
+				Desc: "Answer an OPEN decision",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("decision-id", "decision id", true)
+					c.StrOpt(&planAnswerOpts.answer, "answer", "", "", "the answer text (required)")
+				},
+				Func: runPlanAnswer,
 			},
 		},
 	}
@@ -273,6 +327,74 @@ func runPlanSetTodo(c *gcli.Command, _ []string) error {
 		return err
 	}
 	c.Printf("todo %s status=%s\n", t.TodoID, t.Status)
+	return nil
+}
+
+// runPlanAsk raises a decision and prints its id. It does NOT block waiting
+// for the answer (plan D5): blocking wait is the MCP gofer_ask_human semantics;
+// a human follows up with `plan decisions --state OPEN` / `plan answer`.
+// The timeout clamp is owned by the store (HIGH-2) — the CLI passes the parsed
+// seconds through unchanged.
+func runPlanAsk(c *gcli.Command, _ []string) error {
+	if planAskOpts.title == "" || planAskOpts.question == "" {
+		return fmt.Errorf("plan ask requires --title and --question")
+	}
+	var timeoutSec int64
+	if planAskOpts.timeout != "" {
+		dur, err := time.ParseDuration(planAskOpts.timeout)
+		if err != nil {
+			return fmt.Errorf("invalid --timeout %q: %w", planAskOpts.timeout, err)
+		}
+		timeoutSec = int64(dur / time.Second)
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	d, err := cli.AskDecision(planAskOpts.plan, planAskOpts.title, planAskOpts.question,
+		[]string(planAskOpts.options), timeoutSec)
+	if err != nil {
+		return err
+	}
+	c.Printf("decision %s asked: state=%s timeout=%ds\n", d.ID, d.State, d.TimeoutSec)
+	return nil
+}
+
+func runPlanDecisions(c *gcli.Command, _ []string) error {
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	list, err := cli.ListDecisions(planDecisionsOpts.state, planDecisionsOpts.plan)
+	if err != nil {
+		return err
+	}
+	if len(list) == 0 {
+		c.Println("no decisions matched the given filter")
+		return nil
+	}
+	c.Printf("%-32s %-10s %-24s %s\n", "DECISION ID", "STATE", "TITLE", "ASKED")
+	for _, d := range list {
+		c.Printf("%-32s %-10s %-24s %s\n",
+			d.ID, d.State, truncate(d.Title, 24), formatStarted(d.AskedAt))
+	}
+	return nil
+}
+
+func runPlanAnswer(c *gcli.Command, _ []string) error {
+	id := argValue(c, "decision-id")
+	if id == "" || planAnswerOpts.answer == "" {
+		return fmt.Errorf("plan answer requires <decision-id> and --answer")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	d, err := cli.AnswerDecision(id, planAnswerOpts.answer)
+	if err != nil {
+		return err
+	}
+	c.Printf("decision %s answered: state=%s\n", d.ID, d.State)
 	return nil
 }
 
