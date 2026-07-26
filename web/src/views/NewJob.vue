@@ -53,7 +53,7 @@ const promptPlaceholder = computed(() =>
     : '描述任务，正文即 prompt...',
 )
 const timeoutPlaceholder = computed(() =>
-  interactive.value ? '不填则无超时' : '不填则默认 300s',
+  interactive.value ? '不填则无超时' : '不填则默认 300s（agent 1200s）',
 )
 
 // runner=worker 高级项

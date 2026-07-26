@@ -333,10 +333,21 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// snapshot (caller override > governance default > unlimited). nil when the
 	// caller has no cap or no id — then execute does not gate on it.
 	callerSem := s.callerSemaphore(req.CallerID, cfg.Server.CallerConcurrencyLimit(req.CallerID))
-	timeout := normalizeTimeout(req.TimeoutSec, req.Interactive)
+	timeout := normalizeTimeout(req.TimeoutSec, req.Interactive, isCLIAgent(cfg, req.Agent))
 	go s.execute(entry, run, sem, callerSem, runReq, timeout)
 
 	return entry.snapshot(), nil
+}
+
+// titleMaxRunes caps an auto-extracted job title (defaultJobTitle).
+const titleMaxRunes = 32
+
+// isCLIAgent reports whether the named agent is a cli-agent (claude/codex
+// style long-running session). Unknown agents (e.g. peer-only agents on a
+// remote submit the host cannot resolve) are not cli-agents.
+func isCLIAgent(cfg *config.Config, name string) bool {
+	a, ok := cfg.Agents[name]
+	return ok && a.Type == "cli-agent"
 }
 
 func defaultJobTitle(req JobRequest) string {
@@ -352,8 +363,8 @@ func trimTitleRunes(s string) string {
 		return ""
 	}
 	r := []rune(s)
-	if len(r) > 12 {
-		r = r[:12]
+	if len(r) > titleMaxRunes {
+		r = r[:titleMaxRunes]
 	}
 	return strings.TrimSpace(string(r))
 }
@@ -470,13 +481,19 @@ func newUUID() string {
 
 // normalizeTimeout applies the default and clamps to the max (plan §9 P4).
 // Interactive sessions are resident terminals: an omitted timeout means no job
-// deadline, while an explicit timeout_sec still bounds the session.
-func normalizeTimeout(sec int, interactive bool) time.Duration {
+// deadline, while an explicit timeout_sec still bounds the session. cli-agent
+// jobs default to DefaultAgentTimeoutSec (agents run long); everything else
+// defaults to DefaultTimeoutSec.
+func normalizeTimeout(sec int, interactive bool, cliAgent bool) time.Duration {
 	if interactive && sec <= 0 {
 		return 0
 	}
 	if sec <= 0 {
-		sec = DefaultTimeoutSec
+		if cliAgent {
+			sec = DefaultAgentTimeoutSec
+		} else {
+			sec = DefaultTimeoutSec
+		}
 	}
 	if sec > MaxTimeoutSec {
 		sec = MaxTimeoutSec

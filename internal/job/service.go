@@ -16,10 +16,12 @@ import (
 )
 
 // Timeout bounds (plan §9 P4, §11). TimeoutSec defaults to DefaultTimeoutSec
-// when unset and is clamped to MaxTimeoutSec.
+// when unset and is clamped to MaxTimeoutSec. cli-agent jobs (claude/codex
+// sessions run long) get their own larger default DefaultAgentTimeoutSec.
 const (
-	DefaultTimeoutSec = 300
-	MaxTimeoutSec     = 3600
+	DefaultTimeoutSec      = 300
+	DefaultAgentTimeoutSec = 1200
+	MaxTimeoutSec          = 3600
 )
 
 // JobIDLayout is the time prefix for a job id (no separators that would clash
