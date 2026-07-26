@@ -1,15 +1,19 @@
 <script setup lang="ts">
-// Plan 详情：getPlan 填头部 + counts 进度 + jobs 表 + todos 清单；有未终态 job 时轮询（2.5s）。
+// Plan 详情：getPlan 填头部 + counts 进度 + jobs 表 + decisions 决策卡 + todos 清单；
+// 有未终态 job 或 OPEN decision 时轮询（2.5s，H4：规划期提问也要刷新）。
 //  - jobs 链入 /jobs/{id}（仿 WorkflowDetail 的 step→job）。
+//  - decisions：投影成 Interaction 复用 InteractionCard（OPEN→choice/question、
+//    ANSWERED→answered 回显、EXPIRED→expired 只读），作答走 answerDecision 后整刷。
 //  - todos：勾选(updateTodo) / 新增(addTodo，可绑 job) / 展示绑定 job。
 //  - attach：把已有 job id 补挂到本 plan（attachJob）。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import PlanStatusBadge from '../components/PlanStatusBadge.vue'
 import StatusBadge from '../components/StatusBadge.vue'
-import { addTodo, attachJob, getPlan, updatePlan, updateTodo, updateTodoStatus } from '../api/client'
+import InteractionCard from '../components/InteractionCard.vue'
+import { addTodo, answerDecision, attachJob, getPlan, updatePlan, updateTodo, updateTodoStatus } from '../api/client'
 import { fmtDateTime, fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
-import type { Job, PlanCounts, PlanDetail, PlanStatus, Todo, TodoStatus } from '../api/types'
+import type { Decision, Interaction, Job, PlanCounts, PlanDetail, PlanStatus, Todo, TodoStatus } from '../api/types'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -30,11 +34,69 @@ const statusError = ref('')
 
 let timer: number | null = null
 
-// plan「进行中」= 其下有 queued/running 的 job；据此决定是否轮询（仿 WorkflowDetail.isRunning）。
+// plan「进行中」= 其下有 queued/running 的 job，或存在 OPEN decision（H4：
+// 规划期提问时无 running job，也要保持轮询）；据此决定是否轮询（仿 WorkflowDetail.isRunning）。
 const isActive = computed(() => {
   const c = plan.value?.counts
-  return !!c && c.running + c.queued > 0
+  const hasOpenDecision = plan.value?.decisions?.some((d) => d.state === 'OPEN') ?? false
+  return (!!c && c.running + c.queued > 0) || hasOpenDecision
 })
+
+// 决策通道（T4）：decision → Interaction 投影（复用 InteractionCard）。
+// OPEN→pending（options 非空→choice、空→question 自由文本）、ANSWERED→answered、EXPIRED→expired。
+const submittingDecisions = ref<Set<string>>(new Set())
+
+function toDecisionInteraction(d: Decision): Interaction {
+  const options = (d.options ?? []).map((o) => ({ value: o }))
+  if (d.state === 'ANSWERED') {
+    return {
+      id: d.id,
+      job_id: '',
+      type: options.length > 0 ? 'choice' : 'question',
+      prompt: d.question,
+      status: 'answered',
+      answer: d.answer,
+      created_at: d.asked_at,
+      answered_at: d.answered_at,
+      answered_by: d.answered_by,
+    }
+  }
+  if (d.state === 'EXPIRED') {
+    return {
+      id: d.id,
+      job_id: '',
+      type: options.length > 0 ? 'choice' : 'question',
+      prompt: d.question,
+      status: 'expired',
+      created_at: d.asked_at,
+    }
+  }
+  return {
+    id: d.id,
+    job_id: '',
+    type: options.length > 0 ? 'choice' : 'question',
+    prompt: d.question,
+    options: options.length > 0 ? options : undefined,
+    status: 'pending',
+    created_at: d.asked_at,
+  }
+}
+
+async function onAnswerDecision(d: Decision, value: string): Promise<void> {
+  if (submittingDecisions.value.has(d.id)) return
+  submittingDecisions.value = new Set(submittingDecisions.value).add(d.id)
+  opError.value = ''
+  try {
+    await answerDecision(d.id, value)
+    await fetchPlan() // 整刷：卡片变只读回显，OPEN 计数/轮询门同步
+  } catch (e) {
+    opError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    const next = new Set(submittingDecisions.value)
+    next.delete(d.id)
+    submittingDecisions.value = next
+  }
+}
 
 const todoSummary = computed(() => {
   const todos = plan.value?.todos ?? []
@@ -390,6 +452,18 @@ onUnmounted(() => {
         </button>
         <div v-if="plan.jobs.length === 0" class="empty mono">该计划暂无 job</div>
       </div>
+    </section>
+
+    <section v-if="plan && (plan.decisions?.length ?? 0) > 0" class="section">
+      <h2 class="section-title mono">DECISIONS ({{ plan.decisions!.length }})</h2>
+      <InteractionCard
+        v-for="d in plan.decisions"
+        :key="d.id"
+        :interaction="toDecisionInteraction(d)"
+        :is-decision="true"
+        :submitting="submittingDecisions.has(d.id)"
+        @answer="onAnswerDecision(d, $event)"
+      />
     </section>
 
     <section v-if="plan" class="section">
