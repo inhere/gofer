@@ -601,8 +601,8 @@ func (c *Client) CancelWorkflow(id string) (Workflow, error) {
 	return wf, err
 }
 
-// Plan is the client-side view of a plan header. GetPlan inlines its jobs and
-// todos.
+// Plan is the client-side view of a plan header. GetPlan inlines its jobs,
+// todos and decisions.
 type Plan struct {
 	PlanID      string               `json:"plan_id"`
 	Title       string               `json:"title,omitempty"`
@@ -615,6 +615,7 @@ type Plan struct {
 	Counts      *jobstore.PlanCounts `json:"counts,omitempty"`
 	Jobs        []job.JobResult      `json:"jobs,omitempty"`
 	Todos       []Todo               `json:"todos,omitempty"`
+	Decisions   []Decision           `json:"decisions,omitempty"`
 }
 
 // Todo is the client-side view of a plan todo item. JobID "" is a plain todo.
@@ -733,6 +734,83 @@ func (c *Client) UpdateTodoStatus(todoID, status string, note *string) (Todo, er
 	var t Todo
 	err = c.doJSON(http.MethodPatch, "/v1/todos/"+url.PathEscape(todoID), bytes.NewReader(body), &t)
 	return t, err
+}
+
+// Decision is the client-side view of a plan_decisions row (decision channel,
+// Part C §C3). PlanID "" is a global question; Options empty = free-text
+// answer. State is OPEN|ANSWERED|EXPIRED; timestamps are unix seconds.
+type Decision struct {
+	ID         string   `json:"id"`
+	PlanID     string   `json:"plan_id,omitempty"`
+	Title      string   `json:"title"`
+	Question   string   `json:"question"`
+	Options    []string `json:"options,omitempty"`
+	Answer     string   `json:"answer,omitempty"`
+	State      string   `json:"state"`
+	TimeoutSec int64    `json:"timeout_sec"`
+	AskedAt    int64    `json:"asked_at"`
+	AnsweredAt int64    `json:"answered_at,omitempty"`
+	AnsweredBy string   `json:"answered_by,omitempty"`
+}
+
+// AskDecision POSTs /v1/decisions and returns the created OPEN decision.
+// planID may be "" (global question); options empty = free-text answer.
+// timeoutSec <= 0 / out-of-range values are clamped server-side (the
+// authoritative clamp lives in jobstore.InsertDecision, plan HIGH-2).
+func (c *Client) AskDecision(planID, title, question string, options []string, timeoutSec int64) (Decision, error) {
+	body, err := json.Marshal(map[string]any{
+		"plan_id": planID, "title": title, "question": question,
+		"options": options, "timeout_sec": timeoutSec,
+	})
+	if err != nil {
+		return Decision{}, fmt.Errorf("encode ask decision: %w", err)
+	}
+	var d Decision
+	err = c.doJSON(http.MethodPost, "/v1/decisions", bytes.NewReader(body), &d)
+	return d, err
+}
+
+// GetDecision fetches one decision (GET /v1/decisions/{id}); the read path
+// applies lazy expiry, so a past-deadline decision comes back EXPIRED.
+func (c *Client) GetDecision(id string) (Decision, error) {
+	var d Decision
+	err := c.doJSON(http.MethodGet, "/v1/decisions/"+url.PathEscape(id), nil, &d)
+	return d, err
+}
+
+// ListDecisions queries GET /v1/decisions, optionally filtered by state and/or
+// plan id ("" = no filter).
+func (c *Client) ListDecisions(state, planID string) ([]Decision, error) {
+	q := url.Values{}
+	if state != "" {
+		q.Set("state", state)
+	}
+	if planID != "" {
+		q.Set("plan_id", planID)
+	}
+	path := "/v1/decisions"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var out struct {
+		Decisions []Decision `json:"decisions"`
+	}
+	if err := c.doJSON(http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Decisions, nil
+}
+
+// AnswerDecision POSTs /v1/decisions/{id}/answer. A non-2xx surfaces via
+// errorFor: unknown id → 404 error, already answered/expired → 409 error.
+func (c *Client) AnswerDecision(id, answer string) (Decision, error) {
+	body, err := json.Marshal(map[string]string{"answer": answer})
+	if err != nil {
+		return Decision{}, fmt.Errorf("encode answer decision: %w", err)
+	}
+	var d Decision
+	err = c.doJSON(http.MethodPost, "/v1/decisions/"+url.PathEscape(id)+"/answer", bytes.NewReader(body), &d)
+	return d, err
 }
 
 // ExportWorkflow fetches a workflow's reconstructed WorkflowSpec (GET

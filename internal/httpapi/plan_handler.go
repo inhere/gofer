@@ -131,9 +131,10 @@ func (s *Server) handleListPlans(c *rux.Context) {
 
 type planDetail struct {
 	planView
-	Counts jobstore.PlanCounts `json:"counts"`
-	Jobs   []job.JobResult     `json:"jobs"`
-	Todos  []todoView          `json:"todos"`
+	Counts    jobstore.PlanCounts `json:"counts"`
+	Jobs      []job.JobResult     `json:"jobs"`
+	Todos     []todoView          `json:"todos"`
+	Decisions []decisionView      `json:"decisions"`
 }
 
 func (s *Server) handleGetPlan(c *rux.Context) {
@@ -166,11 +167,23 @@ func (s *Server) handleGetPlan(c *rux.Context) {
 	for _, t := range todos {
 		todoViews = append(todoViews, toTodoView(t))
 	}
+	// Additive: inline the plan's decisions so PlanDetail gets everything in one
+	// request on the existing poll (decision channel, Part C §C3).
+	decisions, err := s.jobs.Meta().ListDecisions("", id)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "list plan decisions failed", err.Error())
+		return
+	}
+	decisionViews := make([]decisionView, 0, len(decisions))
+	for _, d := range decisions {
+		decisionViews = append(decisionViews, toDecisionView(*d))
+	}
 	c.JSON(http.StatusOK, planDetail{
-		planView: toPlanView(p),
-		Counts:   jobstore.RollupPlanCounts(raw),
-		Jobs:     jobs,
-		Todos:    todoViews,
+		planView:  toPlanView(p),
+		Counts:    jobstore.RollupPlanCounts(raw),
+		Jobs:      jobs,
+		Todos:     todoViews,
+		Decisions: decisionViews,
 	})
 }
 
