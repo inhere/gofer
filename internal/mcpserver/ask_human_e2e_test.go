@@ -110,8 +110,11 @@ func TestAskHumanExpiredE2E(t *testing.T) {
 		t.Fatalf("expired output must not carry an answer: %+v", out)
 	}
 	// ~timeout_sec wall time, not an instant return (proves it actually waited).
-	if elapsed := time.Since(start); elapsed < 1500*time.Millisecond {
-		t.Fatalf("ask_human returned after %v, want ~2s wait", elapsed)
+	// asked_at is stored with SECOND granularity (jobstore convention), so
+	// truncation can shave up to ~1s off the wait: floor is timeout_sec-1s,
+	// not timeout_sec.
+	if elapsed := time.Since(start); elapsed < 900*time.Millisecond {
+		t.Fatalf("ask_human returned after %v, want ~2s wait (±1s second-granularity)", elapsed)
 	}
 
 	// The stored decision is EXPIRED, not still OPEN.

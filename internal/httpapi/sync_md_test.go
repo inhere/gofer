@@ -338,7 +338,7 @@ func TestMarkdownSubmitDefaultTitleFromBody(t *testing.T) {
 	}
 	var jr job.JobResult
 	decode(t, resp, &jr)
-	if jr.Title != "please gener" {
+	if jr.Title != "please generate a script" {
 		t.Fatalf("title=%q, want body prefix", jr.Title)
 	}
 }

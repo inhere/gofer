@@ -120,14 +120,20 @@ func TestSubmitTimeout(t *testing.T) {
 }
 
 func TestNormalizeTimeoutInteractiveUnsetMeansNoDeadline(t *testing.T) {
-	if got := normalizeTimeout(0, true); got != 0 {
+	if got := normalizeTimeout(0, true, false); got != 0 {
 		t.Fatalf("interactive unset timeout = %s, want no deadline", got)
 	}
-	if got := normalizeTimeout(1, true); got != time.Second {
+	if got := normalizeTimeout(1, true, false); got != time.Second {
 		t.Fatalf("interactive explicit timeout = %s, want 1s", got)
 	}
-	if got := normalizeTimeout(0, false); got != DefaultTimeoutSec*time.Second {
+	if got := normalizeTimeout(0, false, false); got != DefaultTimeoutSec*time.Second {
 		t.Fatalf("non-interactive unset timeout = %s, want default", got)
+	}
+	if got := normalizeTimeout(0, false, true); got != DefaultAgentTimeoutSec*time.Second {
+		t.Fatalf("cli-agent unset timeout = %s, want agent default", got)
+	}
+	if got := normalizeTimeout(30, false, true); got != 30*time.Second {
+		t.Fatalf("cli-agent explicit timeout = %s, want 30s (explicit wins)", got)
 	}
 }
 
@@ -461,7 +467,7 @@ func TestDefaultJobTitlePrefersCommandThenPrompt(t *testing.T) {
 		{
 			name: "command",
 			req:  JobRequest{Cmd: []string{"go", "test", "./internal/job"}, Prompt: "prompt ignored"},
-			want: "go test ./in",
+			want: "go test ./internal/job",
 		},
 		{
 			name: "prompt runes",
@@ -471,7 +477,12 @@ func TestDefaultJobTitlePrefersCommandThenPrompt(t *testing.T) {
 		{
 			name: "trim",
 			req:  JobRequest{Prompt: "  hello world from prompt  "},
-			want: "hello world",
+			want: "hello world from prompt",
+		},
+		{
+			name: "cap at 32 runes",
+			req:  JobRequest{Prompt: "1234567890123456789012345678901234567890"},
+			want: "12345678901234567890123456789012",
 		},
 	}
 	for _, tc := range cases {
