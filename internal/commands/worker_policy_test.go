@@ -107,7 +107,8 @@ func TestInitialWorkerConfigRecoversCache(t *testing.T) {
 	if !slices.Contains(projs, "svc") {
 		t.Fatalf("cold start advertised projects = %v, want svc", projs)
 	}
-	if got := cfg.Projects["svc"].HostPath; got != filepath.Join(hostRoot, "svc") {
+	// MapRoot returns slash-normalized host paths (cross-platform logical form).
+	if got := cfg.Projects["svc"].HostPath; got != filepath.ToSlash(filepath.Join(hostRoot, "svc")) {
 		t.Fatalf("recovered host_path = %q, want it mapped under the root", got)
 	}
 }

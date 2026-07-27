@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 )
 
@@ -128,13 +129,9 @@ func TestMapRootSymlinkEscape(t *testing.T) {
 		}
 	}
 	// escape: <to>/link -> <outside>
-	if err := os.Symlink(outside, filepath.Join(to, "link")); err != nil {
-		t.Fatalf("symlink escape: %v", err)
-	}
+	mustSymlink(t, outside, filepath.Join(to, "link"))
 	// safe: <to>/safe -> <to>/inbounds
-	if err := os.Symlink(filepath.Join(to, "inbounds"), filepath.Join(to, "safe")); err != nil {
-		t.Fatalf("symlink safe: %v", err)
-	}
+	mustSymlink(t, filepath.Join(to, "inbounds"), filepath.Join(to, "safe"))
 
 	wc := rootsOf([2]string{"/srv", to})
 
@@ -152,5 +149,19 @@ func TestMapRootSymlinkEscape(t *testing.T) {
 	}
 	if escapesDir(realTo, realPathBestEffort(host)) {
 		t.Fatalf("mapped host %q escaped real To %q", host, realTo)
+	}
+}
+
+// mustSymlink creates a symlink or fails the test. On Windows, symlink creation
+// needs SeCreateSymbolicLinkPrivilege (admin) or Developer Mode; a machine
+// without either is a platform/environment limitation, not a code regression,
+// so the test skips instead of failing there.
+func mustSymlink(t *testing.T, oldname, newname string) {
+	t.Helper()
+	if err := os.Symlink(oldname, newname); err != nil {
+		if runtime.GOOS == "windows" {
+			t.Skipf("symlink creation requires admin or Developer Mode on Windows: %v", err)
+		}
+		t.Fatalf("symlink %s -> %s: %v", newname, oldname, err)
 	}
 }

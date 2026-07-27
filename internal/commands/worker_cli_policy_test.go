@@ -106,7 +106,8 @@ func TestProjectListPolicyWorkerFromCache(t *testing.T) {
 	if !ok {
 		t.Fatalf("alpha should be effective (maps under root), got %v", projs)
 	}
-	wantHost := filepath.Join(toDir, "alpha")
+	// MapRoot returns slash-normalized host paths (cross-platform logical form).
+	wantHost := filepath.ToSlash(filepath.Join(toDir, "alpha"))
 	if p.HostPath != wantHost {
 		t.Errorf("alpha host_path = %q, want mapped %q", p.HostPath, wantHost)
 	}
