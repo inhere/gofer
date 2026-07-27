@@ -99,6 +99,16 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 	}
 	res := run.Run(ctx, req)
 
+	// Close the per-job log streams NOW, before finish() makes the terminal
+	// state observable (persist + eviction + workflow advance). Observers key
+	// teardown off the terminal DB row / Get() — not entry.done — and on
+	// Windows an open stdout.log/stderr.log blocks deletion of the job dir, so
+	// "terminal ⇒ log handles closed" must hold for every observer, not just
+	// Wait callers. The deferred closes above stay as a panic safety net; a
+	// second Close is a harmless (ignored) error.
+	_ = stdout.Close()
+	_ = stderr.Close()
+
 	// 产出与审计(job-outcomes-audit)：在终态前 best-effort 采集产出
 	// (渲染命令/结构化结果/…)，写入 entry.result，由随后的 finish 一并 persist。
 	// 绝不影响 job 终态(classify/finish 不受其结果影响)。res 携带远端回传的 Outcome

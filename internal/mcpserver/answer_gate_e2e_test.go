@@ -40,7 +40,14 @@ func liveJobOwnedBy(t *testing.T, session *mcp.ClientSession, jobs *job.Service,
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Cleanup(func() { _ = jobs.Cancel(created.ID) })
+	t.Cleanup(func() {
+		_ = jobs.Cancel(created.ID)
+		// Cancel is fire-and-forget: the execute goroutine still holds the job's
+		// stdout.log/stderr.log open until it observes the kill and finishes.
+		// Block until terminal so t.TempDir cleanup (running after this cleanup)
+		// never races an open log file — Windows cannot delete open files.
+		jobs.Wait(created.ID)
+	})
 	return created.ID
 }
 

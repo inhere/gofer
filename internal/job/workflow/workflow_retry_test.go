@@ -401,12 +401,21 @@ func TestRetryConcurrentSingleAttemptJob(t *testing.T) {
 	}
 
 	// Drain: hand the chain to completion so background goroutines settle before the
-	// test store closes. Bump the clock well past any backoff and let it run out.
-	clk.set(nowUnix + 1_000_000)
-	for i := 0; i < 5; i++ {
+	// test store closes. Each iteration bumps the clock past any backoff scheduled
+	// by the previous one (a scheduled retry sets next_step_at = now+30, so a
+	// single fixed bump would never make it due) and polls on a real deadline: each
+	// attempt spawns a real `sh` child process, whose startup cost varies widely on
+	// Windows — and a job left running at test end still holds its
+	// stdout.log/stderr.log open, which blocks t.TempDir's RemoveAll there.
+	drainDeadline := time.Now().Add(15 * time.Second)
+	for {
+		clk.set(clk.now() + 1_000_000)
 		e.Advance(wf.ID)
 		if wf, _, _ := e.meta.GetWorkflow(wf.ID); wf.Status != jobstore.WorkflowRunning {
 			break
+		}
+		if time.Now().After(drainDeadline) {
+			t.Fatal("workflow did not drain to a terminal state in time")
 		}
 		time.Sleep(50 * time.Millisecond)
 	}

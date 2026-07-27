@@ -59,12 +59,19 @@ func TestPinnedRunnerRejectsWorkerLabels(t *testing.T) {
 // it must stay legal (the web form and rebuild path both send it).
 func TestPinnedRunnerAcceptsMatchingWorkerID(t *testing.T) {
 	s := newWorkerTestService(t, t.TempDir(), &stubWorkerRunner{})
-	if _, err := s.Submit(JobRequest{
+	res, err := s.Submit(JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "remote-w1",
 		WorkerID: "w1",
 		Cmd:      []string{"echo", "hi"}, Cwd: ".",
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("worker_id equal to the pin must be accepted, got: %v", err)
+	}
+	// Async submit: block until terminal so the execute goroutine has closed the
+	// job's log files before the test returns — Windows cannot delete an open
+	// stdout.log/stderr.log during t.TempDir cleanup.
+	if _, ok := s.Wait(res.ID); !ok {
+		t.Fatalf("job %s not found after submit", res.ID)
 	}
 }
 
@@ -72,10 +79,17 @@ func TestPinnedRunnerAcceptsMatchingWorkerID(t *testing.T) {
 // stops sending worker_id once the runner names its worker).
 func TestPinnedRunnerEmptyWorkerIDStillWorks(t *testing.T) {
 	s := newWorkerTestService(t, t.TempDir(), &stubWorkerRunner{})
-	if _, err := s.Submit(JobRequest{
+	res, err := s.Submit(JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "remote-w1",
 		Cmd: []string{"echo", "hi"}, Cwd: ".",
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("empty worker_id must fall back to the pin, got: %v", err)
+	}
+	// Async submit: block until terminal so the execute goroutine has closed the
+	// job's log files before the test returns — Windows cannot delete an open
+	// stdout.log/stderr.log during t.TempDir cleanup.
+	if _, ok := s.Wait(res.ID); !ok {
+		t.Fatalf("job %s not found after submit", res.ID)
 	}
 }
