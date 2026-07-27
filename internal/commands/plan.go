@@ -27,9 +27,10 @@ var planAddTodoOpts = struct {
 }{}
 
 var planSetTodoOpts = struct {
-	undone bool
-	status string
-	note   string
+	undone     bool
+	status     string
+	note       string
+	appendNote string
 }{}
 
 var planAskOpts = struct {
@@ -145,6 +146,7 @@ func NewPlanCmd() *gcli.Command {
 					c.BoolOpt(&planSetTodoOpts.undone, "undone", "", false, "mark the todo not done (= --status pending)")
 					c.StrOpt(&planSetTodoOpts.status, "status", "", "", "lifecycle status: pending|doing|done|skipped (wins over --undone)")
 					c.StrOpt(&planSetTodoOpts.note, "note", "", "", "set the todo note (kept unchanged when omitted)")
+					c.StrOpt(&planSetTodoOpts.appendNote, "append-note", "", "", "append a line to the todo note (mutually exclusive with --note)")
 				},
 				Func: runPlanSetTodo,
 			},
@@ -308,9 +310,13 @@ func runPlanSetTodo(c *gcli.Command, _ []string) error {
 		return err
 	}
 	// --status wins; bare invocation keeps the legacy semantics (done, or
-	// pending with --undone). --note alone leaves the status untouched.
+	// pending with --undone). --note/--append-note alone leaves the status
+	// untouched.
+	if planSetTodoOpts.note != "" && planSetTodoOpts.appendNote != "" {
+		return fmt.Errorf("plan set-todo: --note and --append-note are mutually exclusive")
+	}
 	status := planSetTodoOpts.status
-	if status == "" && planSetTodoOpts.note == "" {
+	if status == "" && planSetTodoOpts.note == "" && planSetTodoOpts.appendNote == "" {
 		status = "done"
 		if planSetTodoOpts.undone {
 			status = "pending"
@@ -322,7 +328,17 @@ func runPlanSetTodo(c *gcli.Command, _ []string) error {
 	if planSetTodoOpts.note != "" {
 		note = &planSetTodoOpts.note
 	}
-	t, err := cli.UpdateTodoStatus(todoID, status, note)
+	if status != "" || note != nil {
+		t, err := cli.UpdateTodoStatus(todoID, status, note)
+		if err != nil {
+			return err
+		}
+		if planSetTodoOpts.appendNote == "" {
+			c.Printf("todo %s status=%s\n", t.TodoID, t.Status)
+			return nil
+		}
+	}
+	t, err := cli.AppendTodoNote(todoID, planSetTodoOpts.appendNote)
 	if err != nil {
 		return err
 	}

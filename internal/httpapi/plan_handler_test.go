@@ -445,3 +445,64 @@ func TestJobListPlanQueryAndSubmitPlanID(t *testing.T) {
 		t.Fatalf("plan-other expected 0, got %+v", none)
 	}
 }
+
+func TestPlanTodoAppendNoteAPI(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-append"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("create plan status=%d, want 200", resp.StatusCode)
+	}
+	decode(t, resp, &struct{}{})
+	resp = do(t, s, http.MethodPost, "/v1/plans/plan-append/todos", testToken, map[string]any{
+		"title": "append me", "note": "line1",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("add todo status=%d, want 200", resp.StatusCode)
+	}
+	var todo struct {
+		TodoID string `json:"todo_id"`
+	}
+	decode(t, resp, &todo)
+
+	// append_note only: 200, newline-joined.
+	resp = do(t, s, http.MethodPatch, "/v1/todos/"+todo.TodoID, testToken, map[string]any{"append_note": "line2"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("append_note status=%d, want 200", resp.StatusCode)
+	}
+	var updated struct {
+		Note   string `json:"note"`
+		Status string `json:"status"`
+	}
+	decode(t, resp, &updated)
+	if updated.Note != "line1\nline2" {
+		t.Fatalf("note after append = %q, want %q", updated.Note, "line1\nline2")
+	}
+
+	// status + append_note in one body: both applied.
+	resp = do(t, s, http.MethodPatch, "/v1/todos/"+todo.TodoID, testToken, map[string]any{
+		"status": "doing", "append_note": "line3",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status+append status=%d, want 200", resp.StatusCode)
+	}
+	decode(t, resp, &updated)
+	if updated.Note != "line1\nline2\nline3" || updated.Status != "doing" {
+		t.Fatalf("after status+append: %+v", updated)
+	}
+
+	// note + append_note conflict: 400.
+	resp = do(t, s, http.MethodPatch, "/v1/todos/"+todo.TodoID, testToken, map[string]any{
+		"note": "overwrite", "append_note": "x",
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("note+append_note status=%d, want 400", resp.StatusCode)
+	}
+	decode(t, resp, &struct{}{})
+
+	// append_note on unknown todo: 404.
+	resp = do(t, s, http.MethodPatch, "/v1/todos/missing", testToken, map[string]any{"append_note": "x"})
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("append unknown status=%d, want 404", resp.StatusCode)
+	}
+	decode(t, resp, &struct{}{})
+}

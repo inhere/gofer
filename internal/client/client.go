@@ -736,6 +736,19 @@ func (c *Client) UpdateTodoStatus(todoID, status string, note *string) (Todo, er
 	return t, err
 }
 
+// AppendTodoNote appends a line to the todo's note (server-side atomic append,
+// newline-separated). Mutually exclusive with UpdateTodoStatus's note
+// (overwrite) — the server rejects a body carrying both.
+func (c *Client) AppendTodoNote(todoID, note string) (Todo, error) {
+	body, err := json.Marshal(map[string]any{"append_note": note})
+	if err != nil {
+		return Todo{}, fmt.Errorf("encode append todo note: %w", err)
+	}
+	var t Todo
+	err = c.doJSON(http.MethodPatch, "/v1/todos/"+url.PathEscape(todoID), bytes.NewReader(body), &t)
+	return t, err
+}
+
 // Decision is the client-side view of a plan_decisions row (decision channel,
 // Part C §C3). PlanID "" is a global question; Options empty = free-text
 // answer. State is OPEN|ANSWERED|EXPIRED; timestamps are unix seconds.

@@ -185,3 +185,33 @@ func TestTodoLifecycleTimestampsAndNote(t *testing.T) {
 	assert.Eq(t, TodoDone, td.Status)
 	assert.True(t, td.Done)
 }
+
+func TestAppendTodoNote(t *testing.T) {
+	s := openTest(t)
+	assert.NoErr(t, s.InsertPlan(Plan{PlanID: "plan-an", Status: PlanOpen, CreatedAt: 1, UpdatedAt: 1}))
+	assert.NoErr(t, s.InsertTodo(PlanTodo{
+		TodoID: "todo-an", PlanID: "plan-an", Title: "step 1", CreatedAt: 1, UpdatedAt: 1,
+	}))
+
+	// Append onto an empty note = set.
+	ok, err := s.AppendTodoNote("todo-an", "first line")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	td, _, _ := s.GetTodo("todo-an")
+	assert.Eq(t, "first line", td.Note)
+
+	// Append again = newline-joined, status untouched.
+	ok, err = s.AppendTodoNote("todo-an", "second line")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	td, _, _ = s.GetTodo("todo-an")
+	assert.Eq(t, "first line\nsecond line", td.Note)
+	assert.Eq(t, TodoPending, td.Status)
+
+	// Empty/blank append rejected; unknown todo reports ok=false.
+	_, err = s.AppendTodoNote("todo-an", "  ")
+	assert.Err(t, err)
+	ok, err = s.AppendTodoNote("todo-nope", "x")
+	assert.NoErr(t, err)
+	assert.False(t, ok)
+}
