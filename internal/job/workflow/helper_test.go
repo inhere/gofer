@@ -4,6 +4,7 @@ import (
 	"path/filepath"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -76,5 +77,28 @@ func newTestEngine(t *testing.T, root string) *Engine {
 	svc := job.NewService(cfg, projReg, agentReg, runners, meta, nil)
 	eng := NewEngine(svc)
 	svc.SetWorkflow(eng)
+	// Drain in-flight jobs before the store closes and (later) the test's
+	// TempDir is removed. Tests submit workflows and assert on submission-time
+	// state without waiting for the chain to finish, so a step job can still be
+	// executing at test end — holding its stdout.log/stderr.log open, which
+	// blocks t.TempDir's RemoveAll on Windows. Registered after the meta.Close
+	// cleanup so it runs first (cleanups are LIFO).
+	t.Cleanup(func() {
+		deadline := time.Now().Add(15 * time.Second)
+		for {
+			jobs, _ := meta.ListJobs(jobstore.ListQuery{})
+			inFlight := false
+			for _, j := range jobs {
+				if !job.IsTerminal(j.Status) {
+					inFlight = true
+					_ = svc.Cancel(j.ID) // best-effort: speed up the drain
+				}
+			}
+			if !inFlight || time.Now().After(deadline) {
+				return
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+	})
 	return eng
 }

@@ -42,6 +42,10 @@ func submitRunningJob(t *testing.T, s *Server) string {
 	waitRunning(t, s, created.ID)
 	t.Cleanup(func() {
 		do(t, s, http.MethodPost, "/v1/jobs/"+created.ID+"/cancel", testToken, nil)
+		// Cancel is fire-and-forget: block until terminal so the execute
+		// goroutine has closed the job's log files before t.TempDir cleanup
+		// runs — Windows cannot delete an open stdout.log/stderr.log.
+		waitDone(t, s, created.ID)
 	})
 	return created.ID
 }
@@ -95,6 +99,10 @@ func submitRunningJobTok(t *testing.T, s *Server, token, originAgent string) str
 	waitRunningTok(t, s, created.ID, token)
 	t.Cleanup(func() {
 		do(t, s, http.MethodPost, "/v1/jobs/"+created.ID+"/cancel", token, nil)
+		// Cancel is fire-and-forget: block until terminal so the execute
+		// goroutine has closed the job's log files before t.TempDir cleanup
+		// runs — Windows cannot delete an open stdout.log/stderr.log.
+		waitDoneTok(t, s, created.ID, token)
 	})
 	return created.ID
 }

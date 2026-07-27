@@ -175,8 +175,12 @@ func TestInitGlobalWorkerWritesToConfigDir(t *testing.T) {
 	// Isolate CWD so a regression (writing ./worker.yaml) is asserted against and
 	// never pollutes the repo.
 	cwd, _ := os.Getwd()
+	workDir := t.TempDir()
+	// Register the chdir-back AFTER t.TempDir: cleanups run LIFO, so the cwd is
+	// restored BEFORE TempDir's RemoveAll — Windows refuses to delete the
+	// process's working directory.
 	t.Cleanup(func() { _ = os.Chdir(cwd) })
-	if err := os.Chdir(t.TempDir()); err != nil {
+	if err := os.Chdir(workDir); err != nil {
 		t.Fatalf("chdir: %v", err)
 	}
 
@@ -309,8 +313,11 @@ func TestInitSkillWritesEmbeddedTree(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
 	}
-	t.Cleanup(func() { _ = os.Chdir(cwd) })
 	work := t.TempDir()
+	// Register the chdir-back AFTER t.TempDir: cleanups run LIFO, so the cwd is
+	// restored BEFORE TempDir's RemoveAll — Windows refuses to delete the
+	// process's working directory.
+	t.Cleanup(func() { _ = os.Chdir(cwd) })
 	if err := os.Chdir(work); err != nil {
 		t.Fatalf("chdir: %v", err)
 	}
