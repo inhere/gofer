@@ -27,6 +27,11 @@ import (
 //
 // On any miss or containment violation it returns ("", false); it NEVER returns
 // an empty host as "success".
+//
+// The returned host is slash-normalized (filepath.ToSlash): MapRoot is a
+// logical-path resolver and its output must be identical on every GOOS. Go's
+// file APIs accept forward slashes on Windows, so callers can use the result
+// as a host path directly.
 func (wc *WorkerConfig) MapRoot(logical string) (host string, ok bool) {
 	norm := normalizeLogicalPath(logical)
 
@@ -79,7 +84,7 @@ func (wc *WorkerConfig) MapRoot(logical string) (host string, ok bool) {
 		return "", false
 	}
 
-	return cleanHost, true
+	return filepath.ToSlash(cleanHost), true
 }
 
 // escapesDir reports whether child is NOT contained within parent, using host
