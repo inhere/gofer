@@ -29,9 +29,10 @@ gofer plan create --title "<标题>" [--desc "<说明>"] [--plan-id <id>]
 gofer plan attach <job-id> <plan-id>    # 把已有 job 挂到 plan
 gofer plan list / show <id> / archive <id>
 gofer plan add-todo <id> "<待办>" [--note "<备注>"]       # 加 todo(别名 todo-add)
-gofer plan set-todo <todo-id> [--status doing|done|skipped|pending] [--note "<结果>"]
+gofer plan set-todo <todo-id> [--status doing|done|skipped|pending] [--note "<结果>"] [--append-note "<追加一行>"]
     # 生命周期推进：--status doing 自动记开始时间, done/skipped 记完结时间;
-    # 裸调用=done, --undone=pending(旧用法兼容); --note 单独用只改备注
+    # 裸调用=done, --undone=pending(旧用法兼容); --note 单独用只改备注;
+    # --append-note 追加一行到现有备注(与 --note 互斥, 服务端原子追加)
 gofer plan set-status <id> <status>
 ```
 

@@ -310,11 +310,14 @@ func (s *Server) handleAddPlanTodo(c *rux.Context) {
 // updateTodoReq moves a todo along its lifecycle and/or updates its note.
 // status (pending|doing|done|skipped) wins over the legacy done flag; done is a
 // *bool so an old client's {"done":...} body keeps working while a status-only
-// or note-only body doesn't accidentally reset done=false.
+// or note-only body doesn't accidentally reset done=false. append_note appends
+// a line to the current note (atomically, newline-separated) and is mutually
+// exclusive with note (overwrite).
 type updateTodoReq struct {
-	Done   *bool   `json:"done,omitempty"`
-	Status string  `json:"status,omitempty"`
-	Note   *string `json:"note,omitempty"`
+	Done       *bool   `json:"done,omitempty"`
+	Status     string  `json:"status,omitempty"`
+	Note       *string `json:"note,omitempty"`
+	AppendNote string  `json:"append_note,omitempty"`
 }
 
 func (s *Server) handleUpdateTodo(c *rux.Context) {
@@ -337,19 +340,37 @@ func (s *Server) handleUpdateTodo(c *rux.Context) {
 			"status must be one of pending|doing|done|skipped")
 		return
 	}
-	if status == "" && body.Note == nil {
+	if body.Note != nil && body.AppendNote != "" {
+		writeError(c, http.StatusBadRequest, "conflicting note fields",
+			"note (overwrite) and append_note are mutually exclusive")
+		return
+	}
+	if status == "" && body.Note == nil && body.AppendNote == "" {
 		writeError(c, http.StatusBadRequest, "empty update",
-			"provide status, done or note")
+			"provide status, done, note or append_note")
 		return
 	}
-	ok, err := s.jobs.Meta().UpdateTodoStatus(tid, status, body.Note)
-	if err != nil {
-		writeError(c, http.StatusInternalServerError, "update todo failed", err.Error())
-		return
+	if status != "" || body.Note != nil {
+		ok, err := s.jobs.Meta().UpdateTodoStatus(tid, status, body.Note)
+		if err != nil {
+			writeError(c, http.StatusInternalServerError, "update todo failed", err.Error())
+			return
+		}
+		if !ok {
+			writeError(c, http.StatusNotFound, "unknown todo", "no todo with id "+tid)
+			return
+		}
 	}
-	if !ok {
-		writeError(c, http.StatusNotFound, "unknown todo", "no todo with id "+tid)
-		return
+	if body.AppendNote != "" {
+		ok, err := s.jobs.Meta().AppendTodoNote(tid, body.AppendNote)
+		if err != nil {
+			writeError(c, http.StatusInternalServerError, "append todo note failed", err.Error())
+			return
+		}
+		if !ok {
+			writeError(c, http.StatusNotFound, "unknown todo", "no todo with id "+tid)
+			return
+		}
 	}
 	t, _, err := s.jobs.Meta().GetTodo(tid)
 	if err != nil {

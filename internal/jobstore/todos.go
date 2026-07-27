@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // Todo lifecycle statuses (Part C §C2). Done bool is kept in lockstep for
@@ -197,6 +198,28 @@ func (s *Store) UpdateTodoStatus(todoID, status string, note *string) (bool, err
 	res, err := s.db.Exec(q, status, now, noteVal, todoID)
 	if err != nil {
 		return false, fmt.Errorf("jobstore: update todo %q status: %w", todoID, err)
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
+}
+
+// AppendTodoNote atomically appends a line to the todo's note (newline-separated;
+// empty/NULL note becomes the appended text). Single UPDATE, so concurrent
+// appends cannot lose each other's lines.
+func (s *Store) AppendTodoNote(todoID, note string) (bool, error) {
+	if strings.TrimSpace(note) == "" {
+		return false, fmt.Errorf("jobstore: append todo note %q: empty note", todoID)
+	}
+	now := s.unixNow()
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	const q = `UPDATE plan_todos SET
+  note       = CASE WHEN note IS NULL OR note = '' THEN ?1 ELSE note || char(10) || ?1 END,
+  updated_at = ?2
+  WHERE todo_id = ?3`
+	res, err := s.db.Exec(q, note, now, todoID)
+	if err != nil {
+		return false, fmt.Errorf("jobstore: append todo note %q: %w", todoID, err)
 	}
 	n, _ := res.RowsAffected()
 	return n == 1, nil
