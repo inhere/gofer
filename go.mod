@@ -11,7 +11,7 @@ require (
 	github.com/gookit/gcli/v3 v3.8.3
 	github.com/gookit/goutil v0.8.0
 	github.com/gookit/rux/v2 v2.0.2
-	github.com/modelcontextprotocol/go-sdk v1.6.1
+	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/prometheus/client_golang v1.24.0
 	github.com/robfig/cron/v3 v3.0.1
 	golang.org/x/sys v0.47.0
