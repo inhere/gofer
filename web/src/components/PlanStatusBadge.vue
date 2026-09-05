@@ -31,6 +31,9 @@ const dim = computed(() => props.status === 'archived')
   flex: none;
   background: var(--queue);
 }
+.badge-dot--open {
+  background: var(--run);
+}
 .badge-dot--active {
   background: var(--phosphor);
 }
