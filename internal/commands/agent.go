@@ -3,12 +3,18 @@ package commands
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/gookit/gcli/v3"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 )
+
+var agentListOpts struct {
+	runner string
+}
 
 // NewAgentCmd builds the `agent` command group (list/detect/show). P3 logic.
 // The config path is the app-level global -c (config.InputCfgFile), not a
@@ -24,6 +30,8 @@ func NewAgentCmd() *gcli.Command {
 				Aliases: []string{"ls"},
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.StrOpt(&agentListOpts.runner, "runner", "", "", "list source: server/local or a configured runner id (default: local config)")
 				},
 				Func: runAgentList,
 			},
@@ -67,6 +75,9 @@ func loadAgentRegistry(explicitPath string) (*agent.Registry, error) {
 }
 
 func runAgentList(c *gcli.Command, _ []string) error {
+	if source := strings.TrimSpace(agentListOpts.runner); source != "" {
+		return runAgentListRemote(c, source)
+	}
 	reg, err := loadAgentRegistry(config.InputCfgFile)
 	if err != nil {
 		return err
@@ -85,6 +96,60 @@ func runAgentList(c *gcli.Command, _ []string) error {
 		c.Printf("%-12s type=%-10s command=%s\n", name, ac.Type, command)
 	}
 	return nil
+}
+
+func runAgentListRemote(c *gcli.Command, source string) error {
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	if source == "server" || source == "local" {
+		agents, err := cli.ListAgents()
+		if err != nil {
+			return err
+		}
+		printRemoteAgents(c, "server", agents)
+		return nil
+	}
+	runners, err := cli.ListRunners()
+	if err != nil {
+		return err
+	}
+	for _, runner := range runners {
+		if runner.Name != source {
+			continue
+		}
+		if runner.Capabilities == nil {
+			return fmt.Errorf("runner %q has no advertised agent capabilities (status=%s)", source, runner.Status)
+		}
+		agents := make([]client.AgentMeta, 0, len(runner.Capabilities.AgentCaps))
+		for _, a := range runner.Capabilities.AgentCaps {
+			available := a.Available != nil && *a.Available
+			detail := a.Version
+			if a.Available != nil && !*a.Available {
+				detail = "unavailable"
+			}
+			agents = append(agents, client.AgentMeta{Name: a.Key, Type: a.Type, Available: available, Detail: detail})
+		}
+		printRemoteAgents(c, source, agents)
+		return nil
+	}
+	return fmt.Errorf("unknown runner %q (use server or a configured runner id)", source)
+}
+
+func printRemoteAgents(c *gcli.Command, source string, agents []client.AgentMeta) {
+	if len(agents) == 0 {
+		c.Printf("(no agents on %s)\n", source)
+		return
+	}
+	sort.Slice(agents, func(i, j int) bool { return agents[i].Name < agents[j].Name })
+	for _, a := range agents {
+		detail := a.Detail
+		if detail == "" {
+			detail = "-"
+		}
+		c.Printf("%-12s type=%-10s available=%-5t detail=%s\n", a.Name, a.Type, a.Available, detail)
+	}
 }
 
 // runAgentDetect probes every agent. Unavailable CLIs are reported but the

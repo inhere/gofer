@@ -1,6 +1,9 @@
 package commands
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -26,6 +29,12 @@ func TestAgentCmdSubsRegistered(t *testing.T) {
 		if !found {
 			t.Errorf("missing agent sub-command %q", name)
 		}
+	}
+	list := findSub(t, cmd, "list")
+	bound := gcli.NewCommand(list.Name, list.Desc, nil)
+	list.Config(bound)
+	if bound.Opts()["runner"] == nil {
+		t.Fatal("agent list should expose --runner")
 	}
 }
 
@@ -90,5 +99,29 @@ agents:
 	setArg("key", "ghost")
 	if err := runAgentShow(c, nil); err == nil {
 		t.Fatal("show of unknown agent should fail")
+	}
+}
+
+func TestAgentListRemoteServerAndRunner(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/v1/agents":
+			_ = json.NewEncoder(w).Encode(map[string]any{"agents": []any{map[string]any{"key": "claude", "type": "cli-agent", "available": true, "version": "1.0"}}})
+		case "/v1/runners":
+			_ = json.NewEncoder(w).Encode(map[string]any{"runners": []any{map[string]any{"name": "w1", "type": "worker", "status": "connected", "capabilities": map[string]any{"agent_caps": []any{map[string]any{"key": "claude", "type": "cli-agent", "available": true}}}}}})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	jobConnOpts.server = server.URL
+	jobConnOpts.token = ""
+	defer func() { jobConnOpts.server, jobConnOpts.token = "", "" }()
+	c := bindCmd(NewAgentCmd().Subs[0])
+	if err := runAgentListRemote(c, "server"); err != nil {
+		t.Fatalf("server agent list: %v", err)
+	}
+	if err := runAgentListRemote(c, "w1"); err != nil {
+		t.Fatalf("runner agent list: %v", err)
 	}
 }
