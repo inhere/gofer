@@ -11,6 +11,7 @@ import (
 
 	"github.com/gookit/cliui/show/table"
 	"github.com/gookit/gcli/v3"
+	"github.com/gookit/gcli/v3/gflag"
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
@@ -60,6 +61,17 @@ var jobCommonOpts = struct {
 // which gcli would render into --help and leak). Either lets a node submit without
 // a config.yaml; an explicit flag or config server.addr still applies (newClient).
 var jobConnOpts = struct{ server, token string }{}
+
+// jobRunOptCategory applies a help category and an explicit default to options
+// bound through gcli's *Opt2 helpers. Keeping both in one helper makes the
+// category assignment happen while the option is registered, which is required
+// for gcli to build grouped help sections.
+func jobRunOptCategory(category string, def any) gflag.CliOptFn {
+	return func(opt *gflag.CliOpt) {
+		opt.Category = category
+		opt.DefVal = def
+	}
+}
 
 // bindServerFlags binds the shared --server/-s and --token connection flags onto a
 // subcommand (mirrors bindConfigFlag for -c). Every `job` and `workflow` subcommand
@@ -116,33 +128,7 @@ func NewJobCmd() *gcli.Command {
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
-					c.StrOpt(&jobRunOpts.project, "project", "p", "", "project key (required)")
-					c.StrOpt(&jobRunOpts.agent, "agent", "a", "", "agent key (required)")
-					c.StrOpt(&jobRunOpts.runner, "runner", "", "local", "runner key")
-					c.StrOpt(&jobRunOpts.cwd, "cwd", "", ".", "working dir within the project")
-					c.StrOpt(&jobRunOpts.prompt, "prompt", "", "", "prompt text for cli-agent (use -- <argv...> for exec)")
-					c.IntOpt(&jobRunOpts.timeout, "timeout", "", 0, "job timeout in seconds (0 = server default)")
-					c.StrOpt(&jobRunOpts.title, "title", "", "", "optional job title")
-					c.BoolOpt(&jobRunOpts.wait, "wait", "", false, "poll until the job reaches a terminal state")
-					c.BoolOpt(&jobRunOpts.sync, "sync", "", false, "submit synchronously: server waits for terminal state, then returns")
-					c.IntOpt(&jobRunOpts.waitTimeout, "wait-timeout", "", 0, "sync wait cap in seconds (0 = server default 30s)")
-					c.StrOpt(&jobRunOpts.file, "file", "f", "", "submit a md+yaml task file (frontmatter params + prompt body)")
-					c.StrOpt(&jobRunOpts.workerID, "worker-id", "", "", "target worker id for runner=worker (explicit routing)")
-					c.StrOpt(&jobRunOpts.workerLabels, "worker-labels", "", "", "comma-separated labels to auto-select a worker (runner=worker, when --worker-id is unset)")
-					c.StrOpt(&jobRunOpts.tags, "tags", "", "", "comma-separated free-form tags for the job (E5 search dimension, e.g. --tags ci,nightly)")
-					c.StrOpt(&jobRunOpts.plan, "plan", "", "", "attach the job to a plan (grouping key)")
-					c.StrOpt(&jobRunOpts.channel, "channel", "", "cli", "submission channel recorded as provenance (cli/web/mcp/...)")
-					c.StrOpt(&jobRunOpts.role, "role", "", "", "role preset (E35): fills agent/system_prompt/project/tags when unset")
-					c.StrOpt(&jobRunOpts.systemPrompt, "system-prompt", "", "", "resident system prompt injected via the agent (advanced; overrides role's)")
-					c.VarOpt(&jobRunOpts.agentArgs, "agent-arg", "", "extra arg appended to cli-agent argv (repeatable)")
-					c.BoolOpt(&jobRunOpts.interactive, "interactive", "", false, "request an interactive pty job")
-					c.IntOpt(&jobRunOpts.cols, "cols", "", 0, "initial terminal columns for --interactive (0 = server default 80)")
-					c.IntOpt(&jobRunOpts.rows, "rows", "", 0, "initial terminal rows for --interactive (0 = server default 24)")
-					// exec argv after `--`, e.g. `job run -a exec -- go version`.
-					// Declared as an optional arrayed arg so gcli binds the post-`--`
-					// tokens natively (HasArguments()=true also suppresses the spurious
-					// "subcommand not found" notice a no-arg leaf would print).
-					c.AddArg("cmd", "raw command for exec agent (after --)", false, true)
+					bindJobRunFlags(c)
 				},
 				Func: runJobRun,
 			},
@@ -234,6 +220,46 @@ func NewJobCmd() *gcli.Command {
 			},
 		},
 	}
+}
+
+// bindJobRunFlags registers the deliberately large `job run` option surface in
+// help groups. Connection flags (--config/--server/--token) remain in the
+// uncategorized section; the groups below describe the request itself.
+func bindJobRunFlags(c *gcli.Command) {
+	// Target: where the job should run and which project/agent it targets.
+	c.StrOpt2(&jobRunOpts.project, "project,p", "project key (required)", jobRunOptCategory("Target", ""))
+	c.StrOpt2(&jobRunOpts.agent, "agent,a", "agent key (required)", jobRunOptCategory("Target", ""))
+	c.StrOpt2(&jobRunOpts.runner, "runner", "runner key (server = server-local; local is a compatibility alias)", jobRunOptCategory("Target", "server"))
+	c.StrOpt2(&jobRunOpts.workerID, "worker-id", "target worker id for runner=worker (explicit routing)", jobRunOptCategory("Target", ""))
+	c.StrOpt2(&jobRunOpts.workerLabels, "worker-labels", "comma-separated labels to auto-select a worker (runner=worker, when --worker-id is unset)", jobRunOptCategory("Target", ""))
+
+	// Execution: command/prompt construction and execution policy.
+	c.StrOpt2(&jobRunOpts.cwd, "cwd", "working dir within the project", jobRunOptCategory("Execution", "."))
+	c.StrOpt2(&jobRunOpts.prompt, "prompt", "prompt text for cli-agent (use -- <argv...> for exec)", jobRunOptCategory("Execution", ""))
+	c.StrOpt2(&jobRunOpts.file, "file,f", "submit a md+yaml task file (frontmatter params + prompt body)", jobRunOptCategory("Execution", ""))
+	c.StrOpt2(&jobRunOpts.role, "role", "role preset (E35): fills agent/system_prompt/project/tags when unset", jobRunOptCategory("Execution", ""))
+	c.StrOpt2(&jobRunOpts.systemPrompt, "system-prompt", "resident system prompt injected via the agent (advanced; overrides role's)", jobRunOptCategory("Execution", ""))
+	c.VarOpt(&jobRunOpts.agentArgs, "agent-arg", "", "extra arg appended to cli-agent argv (repeatable)", gflag.WithCategory("Execution"))
+	c.IntOpt2(&jobRunOpts.timeout, "timeout", "job timeout in seconds (0 = server default)", jobRunOptCategory("Execution", 0))
+
+	// Submission: provenance and grouping metadata.
+	c.StrOpt2(&jobRunOpts.title, "title", "optional job title", jobRunOptCategory("Submission", ""))
+	c.StrOpt2(&jobRunOpts.tags, "tags", "comma-separated free-form tags for the job (E5 search dimension, e.g. --tags ci,nightly)", jobRunOptCategory("Submission", ""))
+	c.StrOpt2(&jobRunOpts.plan, "plan", "attach the job to a plan (grouping key)", jobRunOptCategory("Submission", ""))
+	c.StrOpt2(&jobRunOpts.channel, "channel", "submission channel recorded as provenance (cli/web/mcp/...)", jobRunOptCategory("Submission", "cli"))
+
+	// Wait: synchronous submission and client-side polling controls.
+	c.BoolOpt2(&jobRunOpts.wait, "wait", "poll until the job reaches a terminal state", gflag.WithCategory("Wait"))
+	c.BoolOpt2(&jobRunOpts.sync, "sync", "submit synchronously: server waits for terminal state, then returns", gflag.WithCategory("Wait"))
+	c.IntOpt2(&jobRunOpts.waitTimeout, "wait-timeout", "sync wait cap in seconds (0 = server default 30s)", jobRunOptCategory("Wait", 0))
+
+	// Interactive: pty-specific controls.
+	c.BoolOpt2(&jobRunOpts.interactive, "interactive", "request an interactive pty job", gflag.WithCategory("Interactive"))
+	c.IntOpt2(&jobRunOpts.cols, "cols", "initial terminal columns for --interactive (0 = server default 80)", jobRunOptCategory("Interactive", 0))
+	c.IntOpt2(&jobRunOpts.rows, "rows", "initial terminal rows for --interactive (0 = server default 24)", jobRunOptCategory("Interactive", 0))
+
+	// exec argv after `--`, e.g. `job run -a exec -- go version`.
+	c.AddArg("cmd", "raw command for exec agent (after --)", false, true)
 }
 
 // newClient loads the config and builds an HTTP client. The server address
@@ -420,10 +446,11 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 	if channel == "" {
 		channel = "cli"
 	}
+	runner := normalizeJobRunner(jobRunOpts.runner)
 	req := job.JobRequest{
 		ProjectKey:     jobRunOpts.project,
 		Agent:          jobRunOpts.agent,
-		Runner:         jobRunOpts.runner,
+		Runner:         runner,
 		Prompt:         jobRunOpts.prompt,
 		AgentArgs:      []string(jobRunOpts.agentArgs),
 		Cmd:            cmd, // tokens after `--`, e.g. ["go","version"]
@@ -448,6 +475,19 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		SystemPrompt: jobRunOpts.systemPrompt,
 	}
 	return req, nil
+}
+
+// normalizeJobRunner keeps the public CLI name unambiguous while preserving the
+// server's existing wire identifier. `server` and the legacy `local` alias both
+// mean the server process's built-in local runner; configured runner ids pass
+// through unchanged.
+func normalizeJobRunner(value string) string {
+	switch strings.TrimSpace(value) {
+	case "", "server", "local":
+		return "local"
+	default:
+		return value
+	}
 }
 
 func validateJobRunRequired() error {

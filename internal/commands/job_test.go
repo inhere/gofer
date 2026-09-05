@@ -268,11 +268,73 @@ func TestJobRunAgentArgFlagsBuildRequest(t *testing.T) {
 func TestJobRunDefaults(t *testing.T) {
 	_, _, runner, cwd, _, _, _ := parseRun(t,
 		[]string{"job", "run", "-p", "self", "-a", "exec", "--", "ls"})
-	if runner != "local" {
-		t.Fatalf("runner default=%q want local", runner)
+	if runner != "server" {
+		t.Fatalf("runner default=%q want server", runner)
 	}
 	if cwd != "." {
 		t.Fatalf("cwd default=%q want .", cwd)
+	}
+}
+
+func TestJobRunRunnerAliasesNormalizeRequest(t *testing.T) {
+	cases := []struct {
+		input, want string
+	}{
+		{input: "", want: "local"},
+		{input: "server", want: "local"},
+		{input: "local", want: "local"},
+		{input: "remote-w1", want: "remote-w1"},
+	}
+	for _, tc := range cases {
+		if got := normalizeJobRunner(tc.input); got != tc.want {
+			t.Errorf("normalizeJobRunner(%q)=%q, want %q", tc.input, got, tc.want)
+		}
+	}
+}
+
+func TestJobRunRunnerAliasBuildsServerLocalRequest(t *testing.T) {
+	for _, input := range []string{"server", "local"} {
+		jobRunOpts = struct {
+			project      string
+			agent        string
+			runner       string
+			cwd          string
+			prompt       string
+			timeout      int
+			title        string
+			wait         bool
+			sync         bool
+			waitTimeout  int
+			file         string
+			workerID     string
+			workerLabels string
+			tags         string
+			plan         string
+			channel      string
+			role         string
+			systemPrompt string
+			agentArgs    gcli.Strings
+			interactive  bool
+			cols         int
+			rows         int
+		}{}
+		app := NewApp("test")
+		var got string
+		runCmd := app.GetCommand("job").GetCommand("run")
+		runCmd.Func = func(c *gcli.Command, _ []string) error {
+			req, err := buildJobRunRequest(c, nil)
+			if err != nil {
+				return err
+			}
+			got = req.Runner
+			return nil
+		}
+		if code := app.Run([]string{"job", "run", "-p", "self", "-a", "exec", "--runner", input}); code != 0 {
+			t.Fatalf("app.Run exit code=%d for runner %q", code, input)
+		}
+		if got != "local" {
+			t.Fatalf("runner %q built request runner=%q, want local", input, got)
+		}
 	}
 }
 
