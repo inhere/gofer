@@ -35,6 +35,15 @@ func TestWorkerStopRegistered(t *testing.T) {
 	if !have {
 		t.Fatal("missing `worker stop` subcommand")
 	}
+	var haveList bool
+	for _, s := range NewWorkerCmd(buildinfo.Info{}).Subs {
+		if s.Name == "list" {
+			haveList = true
+		}
+	}
+	if !haveList {
+		t.Fatal("missing `worker list` subcommand")
+	}
 }
 
 // TestServeStopNotRunning: no pidfile → idempotent no-op (returns nil).

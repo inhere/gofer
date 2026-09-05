@@ -73,11 +73,51 @@ func NewWorkerCmd(info buildinfo.Info) *gcli.Command {
 			c.StrOpt(&workerOpts.config, "worker-config", "", "", "path to the worker config file (default: <config-dir>/worker.yaml)")
 			c.BoolOpt(&workerOpts.daemon, "daemon", "d", false, "run in background (detached); logs to <config-dir>/run/worker-<id>.log")
 		},
-		Subs: []*gcli.Command{NewWorkerStopCmd(), NewWorkerReloadCmd()},
+		Subs: []*gcli.Command{NewWorkerListCmd(), NewWorkerStopCmd(), NewWorkerReloadCmd()},
 		Func: func(c *gcli.Command, args []string) error {
 			return runWorker(c, args, info)
 		},
 	}
+}
+
+// NewWorkerListCmd builds `gofer worker list`, a read-only server view of all
+// configured workers (including disconnected workers).
+func NewWorkerListCmd() *gcli.Command {
+	return &gcli.Command{
+		Name:    "list",
+		Aliases: []string{"ls"},
+		Desc:    "List workers registered on the server",
+		Config: func(c *gcli.Command) {
+			bindConfigFlag(c)
+			bindServerFlags(c)
+		},
+		Func: runWorkerList,
+	}
+}
+
+func runWorkerList(c *gcli.Command, _ []string) error {
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	workers, err := cli.ListWorkers()
+	if err != nil {
+		return err
+	}
+	if len(workers) == 0 {
+		c.Println("(no workers registered on server)")
+		return nil
+	}
+	sort.Slice(workers, func(i, j int) bool { return workers[i].ID < workers[j].ID })
+	for _, w := range workers {
+		status := "disconnected"
+		if w.Connected {
+			status = "connected"
+		}
+		c.Printf("%-24s status=%-12s labels=%s projects=%s agents=%s\n",
+			w.ID, status, strings.Join(w.Labels, ","), strings.Join(w.Projects, ","), strings.Join(w.Agents, ","))
+	}
+	return nil
 }
 
 // NewWorkerStopCmd builds `gofer worker stop [<id>]`: stop the backgrounded (-d)
