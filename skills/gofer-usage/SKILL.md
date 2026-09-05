@@ -1,11 +1,11 @@
 ---
 name: gofer-usage
-description: "Use `gofer` from inside a dev container: submit tasks to the host gofer server with `gofer job` — run a command in the HOST environment, do multi-service / integration / external-callback testing the container can't do alone, or invoke a host AI agent (codex/claude) — and understand worker config (LEGACY local projects vs POLICY server-pushed roots) enough to tell WHY a project/agent isn't runnable. Use when inside a dev container and something must run on the host (outside the container) or on a specific worker, when a workspace's CLAUDE.md points to gofer / an old codex-bridge for host tasks, or when a gofer worker/project/agent is rejected and you need to diagnose it. Covers submit (--runner local), reading logs, sync vs async, agent/runner selection, project discovery, worker LEGACY/POLICY modes + roots mapping, and troubleshooting."
+description: "Use `gofer` from inside a dev container: submit tasks to the host gofer server with `gofer job` — run a command in the HOST environment, do multi-service / integration / external-callback testing the container can't do alone, or invoke a host AI agent (codex/claude) — and understand worker config (LEGACY local projects vs POLICY server-pushed roots) enough to tell WHY a project/agent isn't runnable. Use when inside a dev container and something must run on the host (outside the container) or on a specific worker, when a workspace's CLAUDE.md points to gofer / an old codex-bridge for host tasks, or when a gofer worker/project/agent is rejected and you need to diagnose it. Covers submit (--runner server; local remains a compatibility alias), reading logs, sync vs async, agent/runner selection, project discovery, worker LEGACY/POLICY modes + roots mapping, and troubleshooting."
 ---
 
 # gofer 使用：job 提交 + worker 配置
 
-gofer = 一套「主机 server + 多台 worker」的任务执行网。你在 docker 容器里够不着主机环境 / 主机网络 / 主机上其他服务时，用 `gofer job` 把任务提交到 **主机 gofer server**，由它在 **主机**（`--runner local`）或某台 **worker**（`--runner <worker-id>`）执行。这取代了「写 tmp 通知外部 codex / curl host-bridge」这类旧机制。
+gofer = 一套「主机 server + 多台 worker」的任务执行网。你在 docker 容器里够不着主机环境 / 主机网络 / 主机上其他服务时，用 `gofer job` 把任务提交到 **主机 gofer server**，由它在 **主机**（`--runner server`；旧值 `local` 仍兼容）或某台 **worker**（`--runner <worker-id>`）执行。这取代了「写 tmp 通知外部 codex / curl host-bridge」这类旧机制。
 
 - **server = 策略权威**：哪个 project 派给哪台 worker、允许哪些 agent、能否 exec/pty。
 - **worker = 能力提供方**：这台机器有哪些目录（roots）/ 装了哪些 agent。
@@ -37,8 +37,8 @@ gofer job list 2>&1 | head  # 能列出 job 即说明: .env 已自动加载 + �
 ## 2. 最常用：在主机执行命令并等结果
 
 ```bash
-# --runner local=主机执行；--sync=server 等到终态返回；--cwd=项目内相对目录；--title=便于 list 辨识
-gofer job run -p <project> -a exec --runner local --sync \
+# --runner server=主机执行（local 仍兼容）；--sync=server 等到终态返回；--cwd=项目内相对目录；--title=便于 list 辨识
+gofer job run -p <project> -a exec --runner server --sync \
   --cwd <相对项目根的子目录> --title "<一句话任务名>" \
   -- bash -lc '<你的命令>'
 ```
@@ -83,9 +83,10 @@ job 在哪台机器执行，路径就按那台机器的项目根解析：同一 
 - `exec`：直接跑命令，命令放 `--` 之后：`-a exec -- <cmd> <args...>`。
 - `codex` / `claude`：跑 AI agent，提示词用 `--prompt "..."` 或任务文件 `-f task.md`（YAML frontmatter + 正文）。
 
-**runner**（`--runner`，默认 `local`）：
+**runner**（`--runner`，默认 `server`；`local` 为兼容别名）：
 
-- `local` → **主机**执行（需要主机环境/多服务联调时用它）。
+- `server` → **主机 server** 执行（需要主机环境/多服务联调时用它）。
+- `local` → **主机 server** 执行（兼容旧写法，与 `server` 等价）。
 - `<worker-id>` → 对应 **worker** 执行（容器自带的活直接在 bash 跑即可，一般无需绕 worker）。
 
 ## 5. 同步 vs 异步
