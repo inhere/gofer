@@ -74,7 +74,7 @@
 | D3 | **turn 复用 `plan_decisions`**（additive 加 `session_id`、`kind` 列），不新建消息表 | 铃铛/InteractionCard/自由文本作答/懒过期/`gofer plan answer` 全部现成；web 只需加来源标签与跳转 |
 | D4 | 新表 `agent_sessions` 作统一会话注册表，字段吸收 handoff 设计 §5 的 `adopted_sessions` | 一张表同时服务中继与后续的 adopt/resume，避免两套会话记录 |
 | D5 | Claude 与 Codex 共用一个执行体，差异在 payload 归一化层 | Codex 直接给 `last_assistant_message`；Claude 解析 transcript，失败降级为固定提示，不阻断 |
-| D6 | UserPromptSubmit 自动 relay off（可配置 `relay.auto_off_on_prompt`，默认 true） | 人在终端敲了字就是回来了；web 回复经 hook 注入不经过该事件，不会误关 |
+| D6 | UserPromptSubmit 自动 relay off（可配置 `relay.auto_off_on_prompt`，默认 true）；**注入回复触发的 UserPromptSubmit 除外**（hook 按 `[gofer web 回复]` 前缀识别并上报 `injected`） | 人在终端敲了字就是回来了；Claude Code 会为 Stop-hook 续跑再触发一次 UserPromptSubmit，靠前缀区分 |
 | D7 | 回复文本带前缀 `[gofer web 回复]` 注入 | 让模型知道来源与终端输入等价；便于 transcript 审计 |
 | D8 | `SessionStart` 只登记不开开关；开开关是人的动作（终端 CLI / web / 回复框指令） | 与 handoff 设计"领养是离场动作"一致，避免每个会话都进入中继 |
 | D9 | 第一版不做 tmux 按键注入 | 硬边界场景占比待观察；见 §9 |
@@ -256,10 +256,12 @@ gofer session rm <sid>
 
 ## 11. 待确认
 
-| # | 事项 |
-|---|---|
-| TBD-1 | Claude Code hook `timeout` 设 7200 是否被接受（文档未写上限），实测 |
-| TBD-2 | Stop hook 等待期间用户按 Esc：预期取消 hook、会话正常停下；确认不会误触发 block |
-| TBD-3 | Codex 连续 block 是否有上限、`stop_hook_active` 后是否仍允许 block；`codex exec` 非交互模式是否触发 hooks |
-| TBD-4 | Claude transcript 中 assistant 文本路径（当前 `.message.content[].text`），版本升级后回归 |
-| TBD-5 | 项目层 `.claude/settings.json` 已被其他工具管理（如 bd 的 SessionStart hook）时的合并冲突策略：只追加、不重排 |
+| # | 事项 | 状态 |
+|---|---|---|
+| TBD-1 | Claude Code hook `timeout` 设 7200 是否被接受 | e2e 中 Stop 条目 timeout 7200 被接受（长时等待上限仍待观察） |
+| TBD-2 | Stop hook 等待期间用户按 Esc 的行为 | 未在交互 TUI 实测（e2e 为 `-p`）；hook 被杀等价 exit 0，turn 由 server 懒过期，不会误 block |
+| TBD-3 | Codex 连续 block 上限 / `codex exec` 是否触发 hooks | 待主机 Codex 真机 |
+| TBD-4 | Claude transcript assistant 文本路径 | Claude Code 2.1.263 实测为 `type=assistant` + `message.content[].text`；解析器同时接受 string content 与 `message.role`；失败降级为固定提示 |
+| TBD-5 | 与其他工具共管 `.claude/settings.json` 的合并 | 已实现：只增删 `command` 以 `gofer hook` 开头的条目，其余原样保留（与 bd 的 SessionStart hook 共存已验证）；`json.Marshal` 会按 key 重排序，语义不变 |
+| 新-1 | **注入的回复会触发 `UserPromptSubmit`**（主机真机 e2e 发现，临时 serve 的 e2e 未出现），D6 自动关中继会把中继关掉、第二轮直接放行 | 已修：执行体识别 prompt 以 `[gofer web 回复]` 开头即上报 `injected=true`，server 对其不自动关 |
+| 新-2 | 脚本化「会话启动即开开关」时序：SessionStart 后立刻 relay on，随后到达的首个 UserPromptSubmit 会把它关掉 | 真人使用中开关总在首个 prompt 之后打开，不受影响；脚本需等 title 出现后再开 |

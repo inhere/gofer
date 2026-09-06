@@ -40,6 +40,7 @@ Stop hook → gofer hook <agent>
 
 - 会话表 `agent_sessions`；turn 复用 `plan_decisions`（additive 列 `session_id`, `kind`）。
 - 状态：`running → idle`(Stop, 关) / `waiting_reply`(Stop, 开) / `needs_attention`(Claude Notification) / `ended`(SessionEnd)。
+- 自动关：人在终端输入（UserPromptSubmit）即关中继；web 注入的回复也会触发该事件，但带 `[gofer web 回复]` 前缀，hook 上报 `injected`，不会误关。
 - 日志：`<config-dir>/run/hook.log`（>5MB 自动清空）；每个事件一行，含 state / relay。
 
 ## 4. 排障
