@@ -33,6 +33,7 @@ import (
 	"github.com/inhere/gofer/internal/metrics"
 	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
+	"github.com/inhere/gofer/internal/sessionrelay"
 	"github.com/inhere/gofer/internal/ptyrelay"
 	"github.com/inhere/gofer/internal/webui"
 )
@@ -197,6 +198,9 @@ type Server struct {
 	// untouched (design D3). nil => the presence routes are not mounted (most
 	// tests / mcp-less callers).
 	presence *presence.Service
+	// relay is the session-relay service (SESS-01) behind /v1/sessions/*. It only
+	// needs the shared job store, so it is built in New and always mounted.
+	relay *sessionrelay.Service
 
 	// limiters holds one token-bucket per caller for the E17 submit-rate limit
 	// (design §7.3). Guarded by its OWN limMu (NOT s.mu, which lives in the job
@@ -289,6 +293,9 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		limiters:        map[string]*rate.Limiter{},
 		attachTickets:   NewAttachTicketStore(),
 		startedAt:       time.UnixMilli(nowMillis()),
+	}
+	if jobs != nil && jobs.Meta() != nil {
+		s.relay = sessionrelay.NewService(jobs.Meta())
 	}
 	s.router = s.buildRouter()
 	return s
@@ -468,6 +475,19 @@ func (s *Server) buildRouter() *rux.Router {
 		// 决策通道 (decision channel, Part C §C3): agent raises a blocking question
 		// (MCP gofer_ask_human), a human answers here. D1: single ask entry with
 		// optional plan_id in the body; list/get serve the bell + MCP polling.
+		// 会话中继 (session relay, SESS-01): terminal agent-CLI sessions register via
+		// their hooks; the Stop hook posts a turn and long-polls for the human reply
+		// the web gives, then injects it back into the same terminal session.
+		r.POST("/sessions", s.handleRegisterSession)
+		r.GET("/sessions", s.handleListSessions)
+		r.GET("/sessions/{sid}", s.handleGetSession)
+		r.DELETE("/sessions/{sid}", s.handleDeleteSession)
+		r.POST("/sessions/{sid}/heartbeat", s.handleSessionHeartbeat)
+		r.POST("/sessions/{sid}/relay", s.handleSetSessionRelay)
+		r.POST("/sessions/{sid}/turns", s.handleOpenTurn)
+		r.GET("/sessions/{sid}/turns/{id}", s.handleWaitTurn)
+		r.POST("/sessions/{sid}/say", s.handleSessionSay)
+
 		r.POST("/decisions", s.handleAskDecision)
 		r.GET("/decisions", s.handleListDecisions)
 		r.GET("/decisions/{id}", s.handleGetDecision)

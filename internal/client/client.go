@@ -764,6 +764,9 @@ type Decision struct {
 	AskedAt    int64    `json:"asked_at"`
 	AnsweredAt int64    `json:"answered_at,omitempty"`
 	AnsweredBy string   `json:"answered_by,omitempty"`
+	// SessionID / Kind identify a session-relay turn (SESS-01); empty otherwise.
+	SessionID string `json:"session_id,omitempty"`
+	Kind      string `json:"kind,omitempty"`
 }
 
 // AskDecision POSTs /v1/decisions and returns the created OPEN decision.
@@ -1089,4 +1092,180 @@ func errorFor(status int, body []byte) error {
 		msg = http.StatusText(status)
 	}
 	return fmt.Errorf("server %d: %s", status, msg)
+}
+
+// ---- session relay (SESS-01) ----
+
+// AgentSession mirrors httpapi's sessionView (a terminal agent-CLI session
+// registered through its hooks). Timestamps are unix seconds.
+type AgentSession struct {
+	SessionID   string `json:"session_id"`
+	Agent       string `json:"agent"`
+	ProjectKey  string `json:"project_key,omitempty"`
+	Runner      string `json:"runner,omitempty"`
+	Cwd         string `json:"cwd,omitempty"`
+	Title       string `json:"title,omitempty"`
+	Transcript  string `json:"transcript,omitempty"`
+	TmuxPane    string `json:"tmux_pane,omitempty"`
+	State       string `json:"state"`
+	Relay       bool   `json:"relay"`
+	TurnNo      int64  `json:"turn_no"`
+	LastMessage string `json:"last_message,omitempty"`
+	LastEvent   string `json:"last_event,omitempty"`
+	LastSeenAt  int64  `json:"last_seen_at"`
+	StartedAt   int64  `json:"started_at"`
+	EndedAt     int64  `json:"ended_at,omitempty"`
+}
+
+// SessionRegister is the POST /v1/sessions body.
+type SessionRegister struct {
+	SessionID  string `json:"session_id"`
+	Agent      string `json:"agent"`
+	ProjectKey string `json:"project_key,omitempty"`
+	Runner     string `json:"runner,omitempty"`
+	Cwd        string `json:"cwd,omitempty"`
+	Title      string `json:"title,omitempty"`
+	Transcript string `json:"transcript,omitempty"`
+	TmuxPane   string `json:"tmux_pane,omitempty"`
+	Event      string `json:"event,omitempty"`
+}
+
+// SessionHeartbeat is the POST /v1/sessions/{sid}/heartbeat body.
+type SessionHeartbeat struct {
+	Event       string `json:"event"`
+	State       string `json:"state,omitempty"`
+	LastMessage string `json:"last_message,omitempty"`
+	Title       string `json:"title,omitempty"`
+}
+
+// SessionDetail is GET /v1/sessions/{sid}: the session + recent turns (newest first).
+type SessionDetail struct {
+	Session AgentSession `json:"session"`
+	Turns   []Decision   `json:"turns"`
+}
+
+// TurnStatus is GET /v1/sessions/{sid}/turns/{id}: outcome is one of
+// open|answered|expired|relay_off; Decision.Answer holds the reply when answered.
+type TurnStatus struct {
+	Outcome  string   `json:"outcome"`
+	Relay    bool     `json:"relay"`
+	Decision Decision `json:"decision"`
+}
+
+// SessionListOpts filters ListSessions.
+type SessionListOpts struct {
+	Project, State, Agent, Cwd string
+	IncludeEnded               bool
+	Limit                      int
+}
+
+// RegisterSession upserts an agent session (hook SessionStart / first contact).
+func (c *Client) RegisterSession(in SessionRegister) (AgentSession, error) {
+	body, err := json.Marshal(in)
+	if err != nil {
+		return AgentSession{}, fmt.Errorf("encode register session: %w", err)
+	}
+	var a AgentSession
+	err = c.doJSON(http.MethodPost, "/v1/sessions", bytes.NewReader(body), &a)
+	return a, err
+}
+
+// HeartbeatSession applies a hook event; the returned session's Relay is the
+// switch the Stop hook keys on. A 404 error means the session is unknown.
+func (c *Client) HeartbeatSession(sid string, hb SessionHeartbeat) (AgentSession, error) {
+	body, err := json.Marshal(hb)
+	if err != nil {
+		return AgentSession{}, fmt.Errorf("encode heartbeat: %w", err)
+	}
+	var a AgentSession
+	err = c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/heartbeat", bytes.NewReader(body), &a)
+	return a, err
+}
+
+// ListSessions lists agent sessions (GET /v1/sessions).
+func (c *Client) ListSessions(opts SessionListOpts) ([]AgentSession, error) {
+	q := url.Values{}
+	if opts.Project != "" {
+		q.Set("project", opts.Project)
+	}
+	if opts.State != "" {
+		q.Set("state", opts.State)
+	}
+	if opts.Agent != "" {
+		q.Set("agent", opts.Agent)
+	}
+	if opts.Cwd != "" {
+		q.Set("cwd", opts.Cwd)
+	}
+	if opts.IncludeEnded {
+		q.Set("all", "1")
+	}
+	if opts.Limit > 0 {
+		q.Set("limit", strconv.Itoa(opts.Limit))
+	}
+	path := "/v1/sessions"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var out struct {
+		Sessions []AgentSession `json:"sessions"`
+	}
+	if err := c.doJSON(http.MethodGet, path, nil, &out); err != nil {
+		return nil, err
+	}
+	return out.Sessions, nil
+}
+
+// GetSession fetches one session with its recent turns.
+func (c *Client) GetSession(sid string) (SessionDetail, error) {
+	var d SessionDetail
+	err := c.doJSON(http.MethodGet, "/v1/sessions/"+url.PathEscape(sid), nil, &d)
+	return d, err
+}
+
+// SetSessionRelay flips the relay switch.
+func (c *Client) SetSessionRelay(sid string, on bool) (AgentSession, error) {
+	body, _ := json.Marshal(map[string]bool{"relay": on})
+	var a AgentSession
+	err := c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/relay", bytes.NewReader(body), &a)
+	return a, err
+}
+
+// OpenSessionTurn posts the agent's last message as a relay turn (hook Stop).
+// A 409 error means relay is off.
+func (c *Client) OpenSessionTurn(sid, msg string, timeoutSec int64) (Decision, error) {
+	body, err := json.Marshal(map[string]any{"body": msg, "timeout_sec": timeoutSec})
+	if err != nil {
+		return Decision{}, fmt.Errorf("encode open turn: %w", err)
+	}
+	var d Decision
+	err = c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/turns", bytes.NewReader(body), &d)
+	return d, err
+}
+
+// WaitSessionTurn long-polls a turn for up to waitSec seconds (server caps at 25).
+func (c *Client) WaitSessionTurn(sid, decisionID string, waitSec int) (TurnStatus, error) {
+	path := "/v1/sessions/" + url.PathEscape(sid) + "/turns/" + url.PathEscape(decisionID)
+	if waitSec > 0 {
+		path += "?wait=" + strconv.Itoa(waitSec)
+	}
+	var st TurnStatus
+	err := c.doJSON(http.MethodGet, path, nil, &st)
+	return st, err
+}
+
+// SaySession answers the session's newest OPEN turn. A 409 error means no turn is waiting.
+func (c *Client) SaySession(sid, answer string) (Decision, error) {
+	body, err := json.Marshal(map[string]string{"answer": answer})
+	if err != nil {
+		return Decision{}, fmt.Errorf("encode say: %w", err)
+	}
+	var d Decision
+	err = c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/say", bytes.NewReader(body), &d)
+	return d, err
+}
+
+// DeleteSession removes a session registration.
+func (c *Client) DeleteSession(sid string) error {
+	return c.doJSON(http.MethodDelete, "/v1/sessions/"+url.PathEscape(sid), nil, nil)
 }

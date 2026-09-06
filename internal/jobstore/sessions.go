@@ -264,7 +264,7 @@ func (s *Store) ListAgentSessions(opts ListSessionsOpts) ([]AgentSession, error)
 		where = append(where, "state <> 'ended'")
 	}
 	if cwd := strings.TrimRight(strings.TrimSpace(opts.Cwd), "/\\"); cwd != "" {
-		where = append(where, "(cwd = ? OR ? LIKE cwd || '/%' OR ? LIKE cwd || '\\%')")
+		where = append(where, "(COALESCE(cwd,'') <> '' AND (cwd = ? OR ? LIKE cwd || '/%' OR ? LIKE cwd || '\\%'))")
 		args = append(args, cwd, cwd, cwd)
 	}
 	q := selectSessionCols

@@ -26,6 +26,10 @@ type decisionView struct {
 	AskedAt    int64    `json:"asked_at"`
 	AnsweredAt int64    `json:"answered_at,omitempty"`
 	AnsweredBy string   `json:"answered_by,omitempty"`
+	// SessionID / Kind identify a session-relay turn (SESS-01, kind="relay");
+	// both empty for a plain gofer_ask_human decision.
+	SessionID string `json:"session_id,omitempty"`
+	Kind      string `json:"kind,omitempty"`
 }
 
 func toDecisionView(d jobstore.PlanDecision) decisionView {
@@ -33,6 +37,7 @@ func toDecisionView(d jobstore.PlanDecision) decisionView {
 		ID: d.ID, PlanID: d.PlanID, Title: d.Title, Question: d.Question,
 		Answer: d.Answer, State: d.State, TimeoutSec: d.TimeoutSec,
 		AskedAt: d.AskedAt, AnsweredAt: d.AnsweredAt, AnsweredBy: d.AnsweredBy,
+		SessionID: d.SessionID, Kind: d.Kind,
 	}
 	if d.OptionsJSON != "" {
 		// options_json is written only by InsertDecision from validated input;
@@ -179,6 +184,10 @@ func (s *Server) handleAnswerDecision(c *rux.Context) {
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "reload decision failed", err.Error())
 		return
+	}
+	// A relay turn answered from the bell: the waiting session goes back to running.
+	if s.relay != nil {
+		s.relay.OnAnswered(d)
 	}
 	c.JSON(http.StatusOK, toDecisionView(d))
 }
