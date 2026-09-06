@@ -54,18 +54,29 @@ type PlanDecision struct {
 	AskedAt     int64
 	AnsweredAt  int64
 	AnsweredBy  string
+	// SessionID / Kind are the session-relay additive columns (SESS-01 D3): a
+	// relay turn is a decision with Kind = DecisionKindRelay owned by an agent
+	// session; plain gofer_ask_human decisions leave both empty.
+	SessionID string
+	Kind      string
 }
+
+// DecisionKindRelay marks a decision that is a session-relay turn (the hook
+// posted the agent's last message; the human answer is injected back).
+const DecisionKindRelay = "relay"
 
 const selectDecisionCols = `SELECT id, COALESCE(plan_id,''), COALESCE(title,''),
   COALESCE(question,''), COALESCE(options_json,''), COALESCE(answer,''),
   state, COALESCE(timeout_sec,1800), asked_at,
-  COALESCE(answered_at,0), COALESCE(answered_by,'')
+  COALESCE(answered_at,0), COALESCE(answered_by,''),
+  COALESCE(session_id,''), COALESCE(kind,'')
   FROM plan_decisions`
 
 func scanDecision(sc rowScanner) (PlanDecision, error) {
 	var d PlanDecision
 	err := sc.Scan(&d.ID, &d.PlanID, &d.Title, &d.Question, &d.OptionsJSON,
-		&d.Answer, &d.State, &d.TimeoutSec, &d.AskedAt, &d.AnsweredAt, &d.AnsweredBy)
+		&d.Answer, &d.State, &d.TimeoutSec, &d.AskedAt, &d.AnsweredAt, &d.AnsweredBy,
+		&d.SessionID, &d.Kind)
 	return d, err
 }
 
@@ -118,20 +129,26 @@ func (s *Store) InsertDecision(d *PlanDecision) error {
 	if d.AskedAt == 0 {
 		d.AskedAt = s.unixNow()
 	}
-	var planID, options any
+	var planID, options, sessionID, kind any
 	if d.PlanID != "" {
 		planID = d.PlanID
 	}
 	if d.OptionsJSON != "" {
 		options = d.OptionsJSON
 	}
+	if d.SessionID != "" {
+		sessionID = d.SessionID
+	}
+	if d.Kind != "" {
+		kind = d.Kind
+	}
 	const q = `INSERT INTO plan_decisions
-  (id, plan_id, title, question, options_json, answer, state, timeout_sec, asked_at, answered_at, answered_by)
-  VALUES (?,?,?,?,?,NULL,?,?,?,NULL,NULL)`
+  (id, plan_id, title, question, options_json, answer, state, timeout_sec, asked_at, answered_at, answered_by, session_id, kind)
+  VALUES (?,?,?,?,?,NULL,?,?,?,NULL,NULL,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q, d.ID, planID, d.Title, d.Question, options,
-		d.State, d.TimeoutSec, d.AskedAt); err != nil {
+		d.State, d.TimeoutSec, d.AskedAt, sessionID, kind); err != nil {
 		return fmt.Errorf("jobstore: insert decision %q: %w", d.ID, err)
 	}
 	return nil
@@ -241,4 +258,67 @@ func (s *Store) expireDueDecisions() error {
 		return fmt.Errorf("jobstore: expire due decisions: %w", err)
 	}
 	return nil
+}
+
+// ListSessionDecisions returns the relay turns (and any other decisions) owned
+// by an agent session, NEWEST first, capped at limit (<= 0 → 50). state "" =
+// all states. Lazy expiry runs first, as on every decision read path.
+func (s *Store) ListSessionDecisions(sessionID, state string, limit int) ([]*PlanDecision, error) {
+	if sessionID == "" {
+		return nil, errors.New("jobstore: list session decisions: empty session_id")
+	}
+	if state != "" && !ValidDecisionState(state) {
+		return nil, fmt.Errorf("jobstore: list session decisions: invalid state %q", state)
+	}
+	if err := s.expireDueDecisions(); err != nil {
+		return nil, err
+	}
+	if limit <= 0 {
+		limit = 50
+	}
+	q := selectDecisionCols + " WHERE session_id = ?"
+	args := []any{sessionID}
+	if state != "" {
+		q += " AND state = ?"
+		args = append(args, state)
+	}
+	q += " ORDER BY asked_at DESC, id DESC LIMIT ?"
+	args = append(args, limit)
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: list session decisions: %w", err)
+	}
+	defer rows.Close()
+	out := make([]*PlanDecision, 0)
+	for rows.Next() {
+		d, scanErr := scanDecision(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("jobstore: scan decision row: %w", scanErr)
+		}
+		dd := d
+		out = append(out, &dd)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("jobstore: list session decisions rows: %w", err)
+	}
+	return out, nil
+}
+
+// ExpireSessionDecisions moves every OPEN decision of a session to EXPIRED
+// (relay switched off while a turn was waiting: the hook must stop waiting and
+// let the agent stop normally). It returns the number of rows expired.
+//
+// 🔒 Takes writeMu itself; callers must not hold it.
+func (s *Store) ExpireSessionDecisions(sessionID string) (int64, error) {
+	if sessionID == "" {
+		return 0, errors.New("jobstore: expire session decisions: empty session_id")
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(`UPDATE plan_decisions SET state='EXPIRED' WHERE state='OPEN' AND session_id = ?`, sessionID)
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: expire session decisions %q: %w", sessionID, err)
+	}
+	n, _ := res.RowsAffected()
+	return n, nil
 }

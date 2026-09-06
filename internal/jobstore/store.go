@@ -311,6 +311,31 @@ var schemaStmts = []string{
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_plan_decisions_plan ON plan_decisions(plan_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_plan_decisions_state ON plan_decisions(state)`,
+	// agent_sessions is the terminal agent-CLI session registry (session relay,
+	// SESS-01 §5): registered by the CLI's hooks, observed on the web, and the
+	// owner of the per-session relay switch. session_id is the CLI's own id.
+	// Relay turns live in plan_decisions (kind='relay', session_id set — the
+	// additive columns are added by migratePlanDecisions for pre-existing dbs).
+	`CREATE TABLE IF NOT EXISTS agent_sessions (
+  session_id   TEXT PRIMARY KEY,
+  agent        TEXT NOT NULL,
+  project_key  TEXT,
+  runner       TEXT,
+  cwd          TEXT,
+  title        TEXT,
+  transcript   TEXT,
+  tmux_pane    TEXT,
+  state        TEXT NOT NULL DEFAULT 'running',
+  relay        INTEGER NOT NULL DEFAULT 0,
+  turn_no      INTEGER NOT NULL DEFAULT 0,
+  last_message TEXT,
+  last_event   TEXT,
+  last_seen_at INTEGER NOT NULL,
+  started_at   INTEGER NOT NULL,
+  ended_at     INTEGER
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_seen ON agent_sessions(state, last_seen_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_project ON agent_sessions(project_key)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema
@@ -483,6 +508,9 @@ func (s *Store) migrate() error {
 	if err := s.migratePlanTodos(); err != nil {
 		return err
 	}
+	if err := s.migratePlanDecisions(); err != nil {
+		return err
+	}
 	// Partial unique index: only non-empty request_id values are constrained, so
 	// jobs without a request_id never collide. Created after the column exists.
 	if _, err := s.db.Exec(
@@ -629,6 +657,38 @@ func (s *Store) migratePlanTodos() error {
 			 WHERE status IS NULL OR status = ''`); err != nil {
 			return fmt.Errorf("jobstore: backfill plan_todos.status: %w", err)
 		}
+	}
+	return nil
+}
+
+// migratePlanDecisions adds the session-relay columns (SESS-01 D3) to
+// plan_decisions: session_id (owning agent session) and kind ('relay' for a
+// relay turn; NULL for a plain gofer_ask_human decision). Old rows read back as
+// "" via COALESCE. The per-session index is created after the column exists.
+func (s *Store) migratePlanDecisions() error {
+	cols, err := s.tableColumns("plan_decisions")
+	if err != nil {
+		return err
+	}
+	add := func(col, ddl string) error {
+		if _, ok := cols[col]; ok {
+			return nil
+		}
+		if _, e := s.db.Exec("ALTER TABLE plan_decisions ADD COLUMN " + ddl); e != nil {
+			return fmt.Errorf("jobstore: migrate plan_decisions add %s: %w", col, e)
+		}
+		return nil
+	}
+	if err := add("session_id", "session_id TEXT"); err != nil {
+		return err
+	}
+	if err := add("kind", "kind TEXT"); err != nil {
+		return err
+	}
+	if _, err := s.db.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_plan_decisions_session ON plan_decisions(session_id, asked_at)`,
+	); err != nil {
+		return fmt.Errorf("jobstore: migrate plan_decisions session index: %w", err)
 	}
 	return nil
 }
