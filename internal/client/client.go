@@ -7,6 +7,7 @@ package client
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -1083,15 +1084,35 @@ func errorFor(status int, body []byte) error {
 	var se serverError
 	if json.Unmarshal(body, &se) == nil && se.ErrMsg != "" {
 		if se.Detail != "" {
-			return fmt.Errorf("server %d: %s: %s", status, se.ErrMsg, se.Detail)
+			return &StatusError{Status: status, Msg: fmt.Sprintf("server %d: %s: %s", status, se.ErrMsg, se.Detail)}
 		}
-		return fmt.Errorf("server %d: %s", status, se.ErrMsg)
+		return &StatusError{Status: status, Msg: fmt.Sprintf("server %d: %s", status, se.ErrMsg)}
 	}
 	msg := strings.TrimSpace(string(body))
 	if msg == "" {
 		msg = http.StatusText(status)
 	}
-	return fmt.Errorf("server %d: %s", status, msg)
+	return &StatusError{Status: status, Msg: fmt.Sprintf("server %d: %s", status, msg)}
+}
+
+// StatusError is the error doJSON returns for a non-2xx response. Its message
+// is the same friendly text as before; Status lets callers branch on 404/409
+// without parsing strings (session relay hook: unknown session → re-register).
+type StatusError struct {
+	Status int
+	Msg    string
+}
+
+func (e *StatusError) Error() string { return e.Msg }
+
+// StatusOf returns the HTTP status carried by err (0 when err is not a
+// StatusError, e.g. a transport failure).
+func StatusOf(err error) int {
+	var se *StatusError
+	if errors.As(err, &se) {
+		return se.Status
+	}
+	return 0
 }
 
 // ---- session relay (SESS-01) ----

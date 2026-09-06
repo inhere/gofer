@@ -1,0 +1,19 @@
+{
+  "hooks": {
+    "SessionStart": [
+      { "matcher": "", "hooks": [ { "type": "command", "command": "gofer hook codex", "timeout": 10 } ] }
+    ],
+    "UserPromptSubmit": [
+      { "matcher": "", "hooks": [ { "type": "command", "command": "gofer hook codex", "timeout": 5 } ] }
+    ],
+    "Stop": [
+      { "matcher": "", "hooks": [ { "type": "command", "command": "gofer hook codex --wait 7140", "timeout": 7200 } ] }
+    ],
+    "SessionEnd": [
+      { "matcher": "", "hooks": [ { "type": "command", "command": "gofer hook codex", "timeout": 3 } ] }
+    ],
+    "Interrupt": [
+      { "matcher": "", "hooks": [ { "type": "command", "command": "gofer hook codex", "timeout": 3 } ] }
+    ]
+  }
+}

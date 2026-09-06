@@ -15,6 +15,7 @@ import (
 	configtmpl "github.com/inhere/gofer/config"
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/hookrelay"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/worker"
 	"github.com/inhere/gofer/skills"
@@ -30,6 +31,8 @@ var initOpts = struct {
 	config string
 	force  bool
 	global bool
+	agent  string
+	remove bool
 }{}
 
 // DefaultInitConfigPath is where `gofer init [server]` writes the starter server
@@ -65,12 +68,14 @@ func initTemplate(target string) (tmpl, defaultPath string, ok bool) {
 func NewInitCmd() *gcli.Command {
 	return &gcli.Command{
 		Name: "init",
-		Desc: "Scaffold a starter config or skill from the embedded templates (target: server | worker | skill)",
+		Desc: "Scaffold a starter config, skill or agent hooks from the embedded templates (target: server | worker | skill | hooks)",
 		Config: func(c *gcli.Command) {
-			c.AddArg("target", "what to scaffold: server (default) | worker | skill", false)
-			c.StrOpt(&initOpts.config, "output", "o", "", "output path (config file for server/worker; single skills parent dir for skill — overrides the default two-dir install)")
-			c.BoolOpt(&initOpts.force, "force", "f", false, "overwrite an existing config file or skill")
-			c.BoolOpt(&initOpts.global, "global", "g", false, "write to the user-global dir (<config-dir>/config.yaml|worker.yaml for server/worker; skill installs to ~/.claude/skills and ~/.agents/skills)")
+			c.AddArg("target", "what to scaffold: server (default) | worker | skill | hooks", false)
+			c.StrOpt(&initOpts.config, "output", "o", "", "output path (config file for server/worker; single skills parent dir for skill; project dir for hooks — overrides the default)")
+			c.BoolOpt(&initOpts.force, "force", "f", false, "overwrite an existing config file or skill (hooks: replace an unparsable hook config)")
+			c.BoolOpt(&initOpts.global, "global", "g", false, "write to the user-global dir (<config-dir>/config.yaml|worker.yaml for server/worker; skill installs to ~/.claude/skills and ~/.agents/skills; hooks to ~/.claude and ~/.codex)")
+			c.StrOpt(&initOpts.agent, "agent", "a", "claude", "hooks: which agent config to write: claude | codex | all")
+			c.BoolOpt(&initOpts.remove, "remove", "", false, "hooks: remove gofer's hook entries instead of installing them")
 		},
 		Func: runInit,
 	}
@@ -89,9 +94,12 @@ func runInit(c *gcli.Command, _ []string) error {
 	if target == "skill" {
 		return runInitSkill(c)
 	}
+	if target == "hooks" || target == "hook" {
+		return runInitHooks(c)
+	}
 	tmpl, defaultPath, ok := initTemplate(target)
 	if !ok {
-		return errorx.Failf(configExitErr, "unknown init target %q (use: server | worker | skill)", target)
+		return errorx.Failf(configExitErr, "unknown init target %q (use: server | worker | skill | hooks)", target)
 	}
 
 	// Path resolution: an explicit --output always wins (backward compatible).
@@ -139,6 +147,66 @@ func runInit(c *gcli.Command, _ []string) error {
 		if usedGlobal {
 			c.Printf("提示: export GOFER_CONFIG=%s 后任意目录可用\n", path)
 		}
+	}
+	return nil
+}
+
+// runInitHooks merges gofer's agent-CLI hook entries (session relay, SESS-01)
+// into the Claude Code / Codex hook config of the current project (or the
+// user's home with --global, or --output <dir>). The merge is idempotent and
+// keeps every foreign entry; --remove takes gofer's entries out again.
+func runInitHooks(c *gcli.Command) error {
+	var agents []string
+	switch strings.ToLower(initOpts.agent) {
+	case "", hookrelay.AgentClaude:
+		agents = []string{hookrelay.AgentClaude}
+	case hookrelay.AgentCodex:
+		agents = []string{hookrelay.AgentCodex}
+	case "all", "both":
+		agents = []string{hookrelay.AgentClaude, hookrelay.AgentCodex}
+	default:
+		return errorx.Failf(configExitErr, "unknown --agent %q (use: claude | codex | all)", initOpts.agent)
+	}
+	dir := initOpts.config
+	var err error
+	switch {
+	case dir != "":
+	case initOpts.global:
+		dir, err = os.UserHomeDir()
+	default:
+		dir, err = os.Getwd()
+	}
+	if err != nil {
+		return errorx.Failf(configExitErr, "resolve hooks dir: %v", err)
+	}
+	for _, agent := range agents {
+		path, perr := hookrelay.ConfigFileFor(agent, dir)
+		if perr != nil {
+			return errorx.Failf(configExitErr, "%v", perr)
+		}
+		res, ierr := hookrelay.Install(agent, path, initOpts.remove, initOpts.force)
+		if ierr != nil {
+			return errorx.Failf(configExitErr, "install %s hooks: %v", agent, ierr)
+		}
+		switch {
+		case initOpts.remove:
+			c.Printf("已从 %s 移除 gofer 的 %s hooks (%d 条)\n", res.Path, agent, res.Removed)
+		case res.Created:
+			c.Printf("已生成 %s 并写入 gofer 的 %s hooks (%d 条)\n", res.Path, agent, res.Added)
+		default:
+			c.Printf("已合并 gofer 的 %s hooks 到 %s (%d 条, 替换旧条目 %d)\n", agent, res.Path, res.Added, res.Replaced)
+		}
+		for _, n := range res.Notes {
+			c.Printf("  注意: %s\n", n)
+		}
+		if !initOpts.remove {
+			for _, n := range hookrelay.PostInstallNotes(agent) {
+				c.Printf("  提示: %s\n", n)
+			}
+		}
+	}
+	if !initOpts.remove {
+		c.Printf("用法: 离开电脑前 `gofer session relay on`; web「会话」页可查看/回复; 回来后终端输入任意一条即自动关闭 (或 web 回复 /off)\n")
 	}
 	return nil
 }

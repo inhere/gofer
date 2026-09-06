@@ -35,9 +35,9 @@ func NewAppWithBuildInfo(info buildinfo.Info) *gcli.App {
 			app.Add(c)
 		}
 	}
-	addGroup("Setup & config", NewInitCmd(), NewConfigCmd(), NewProjectCmd(), NewAgentCmd(), NewMcpCmd())
+	addGroup("Setup & config", NewInitCmd(), NewConfigCmd(), NewProjectCmd(), NewAgentCmd(), NewMcpCmd(), NewHookCmd())
 	addGroup("Control plane", NewServeCmd(info), NewPresenceCmd(), NewWorkerCmd(info))
-	addGroup("Jobs & workflows", NewJobCmd(), NewWorkflowCmd(), NewPlanCmd(), NewScheduleCmd())
+	addGroup("Jobs & workflows", NewJobCmd(), NewWorkflowCmd(), NewPlanCmd(), NewScheduleCmd(), NewSessionCmd())
 
 	// Quickstart hint after the command list, so a new user has a path in.
 	app.HelpConfig.AfterCmdText = "\n<comment>Quickstart:</>\n" +
