@@ -93,22 +93,19 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 	case "SessionStart":
 		return Result{}, r.sessionStart()
 	case "UserPromptSubmit":
-		r.heartbeat(client.SessionHeartbeat{Event: p.Event, Title: makeTitle(p.Cwd, p.Prompt)})
+		r.beatAndLog(client.SessionHeartbeat{Event: p.Event, Title: makeTitle(p.Cwd, p.Prompt)})
 		return Result{}, nil
 	case "Stop":
 		return r.stop(), nil
-	case "SessionEnd":
-		r.heartbeat(client.SessionHeartbeat{Event: p.Event})
-		return Result{}, nil
-	case "Interrupt":
-		r.heartbeat(client.SessionHeartbeat{Event: p.Event})
+	case "SessionEnd", "Interrupt":
+		r.beatAndLog(client.SessionHeartbeat{Event: p.Event})
 		return Result{}, nil
 	case "Notification":
 		hb := client.SessionHeartbeat{Event: p.Event, LastMessage: strings.TrimSpace(p.Message)}
 		if p.NotificationType == "idle_prompt" {
 			hb.State = "idle"
 		}
-		r.heartbeat(hb)
+		r.beatAndLog(hb)
 		return Result{}, nil
 	default:
 		log("ignored")
@@ -182,6 +179,13 @@ func (r *runner) heartbeat(hb client.SessionHeartbeat) (client.AgentSession, boo
 		return client.AgentSession{}, false
 	}
 	return a, true
+}
+
+// beatAndLog is heartbeat plus a one-line trace of the resulting state.
+func (r *runner) beatAndLog(hb client.SessionHeartbeat) {
+	if a, ok := r.heartbeat(hb); ok {
+		r.log("state=%s relay=%v", a.State, a.Relay)
+	}
 }
 
 // stop is the relay main path (design §7).
