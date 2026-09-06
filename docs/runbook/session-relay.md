@@ -40,7 +40,7 @@ Stop hook → gofer hook <agent>
 
 - 会话表 `agent_sessions`；turn 复用 `plan_decisions`（additive 列 `session_id`, `kind`）。
 - 状态：`running → idle`(Stop, 关) / `waiting_reply`(Stop, 开) / `needs_attention`(Claude Notification) / `ended`(SessionEnd)。
-- 自动关：人在终端输入（UserPromptSubmit）即关中继；web 注入的回复也会触发该事件，但带 `[gofer web 回复]` 前缀，hook 上报 `injected`，不会误关。
+- 自动关：人在终端输入（UserPromptSubmit）即关中继。harness 产生的同名事件（注入回复带 `[gofer web 回复]` 前缀、后台任务通知 `<task-notification>`、系统提醒）hook 会上报 `injected`，不会误关；`hook.log` 里能看到 `human prompt` / `harness prompt` 的判定。
 - 日志：`<config-dir>/run/hook.log`（>5MB 自动清空）；每个事件一行，含 state / relay。
 
 ## 4. 排障
@@ -66,5 +66,7 @@ Stop hook → gofer hook <agent>
 
 6. web 侧（agent-browser）：会话页「AGENT 会话」分组显示等待回复行 + 铃铛 toast；抽屉内输入框发送 → 挂起的 hook 立即输出 `{"decision":"block","reason":"[gofer web 回复] …"}`，会话回到 running。
 7. 等待超过 hook 预算（`--wait`）时 turn 过期、hook 放行、会话置 idle，开关保持 on（下一次 Stop 继续中继）。
+
+8. 工作空间根 + 主机 serve（nssm）真机：`gofer init hooks` 与 bd 的 SessionStart hook 共存；会话按 cwd 匹配到项目、runner=容器 worker；后台任务通知触发的 UserPromptSubmit 被判为 harness、中继保持；web 抽屉作答注入、`/off` 放行，两轮全通。
 
 未覆盖：Codex 真机（容器内无 codex），待主机上按 §1 装配后跑同样四步；交互 TUI 下等待期间按 Esc 的表现。

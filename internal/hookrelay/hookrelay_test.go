@@ -167,6 +167,15 @@ func TestRunSessionStartAndPromptRegisterThenBeat(t *testing.T) {
 	assert.True(t, last.Injected)
 	assert.Eq(t, "", last.Title)
 
+	// Harness-generated turns (background task notifications etc.) are injected too.
+	for _, pr := range []string{"", "<task-notification>done</task-notification>", "[SYSTEM] <system-reminder>x</system-reminder>"} {
+		_, err = Run(f, payload(t, "claude", map[string]any{"session_id": "s2", "hook_event_name": "UserPromptSubmit", "cwd": "/w/repo", "prompt": pr}), opts)
+		assert.NoErr(t, err)
+		assert.True(t, f.beats[len(f.beats)-1].Injected, pr)
+	}
+	assert.False(t, IsHarnessPrompt("please continue"))
+	assert.False(t, IsHarnessPrompt("< 5 files changed"))
+
 	// Unknown event → no-op.
 	_, err = Run(f, payload(t, "claude", map[string]any{"session_id": "s1", "hook_event_name": "PreToolUse"}), opts)
 	assert.NoErr(t, err)

@@ -263,5 +263,5 @@ gofer session rm <sid>
 | TBD-3 | Codex 连续 block 上限 / `codex exec` 是否触发 hooks | 待主机 Codex 真机 |
 | TBD-4 | Claude transcript assistant 文本路径 | Claude Code 2.1.263 实测为 `type=assistant` + `message.content[].text`；解析器同时接受 string content 与 `message.role`；失败降级为固定提示 |
 | TBD-5 | 与其他工具共管 `.claude/settings.json` 的合并 | 已实现：只增删 `command` 以 `gofer hook` 开头的条目，其余原样保留（与 bd 的 SessionStart hook 共存已验证）；`json.Marshal` 会按 key 重排序，语义不变 |
-| 新-1 | **注入的回复会触发 `UserPromptSubmit`**（主机真机 e2e 发现，临时 serve 的 e2e 未出现），D6 自动关中继会把中继关掉、第二轮直接放行 | 已修：执行体识别 prompt 以 `[gofer web 回复]` 开头即上报 `injected=true`，server 对其不自动关 |
+| 新-1 | **harness 产生的 `UserPromptSubmit`**（主机真机 e2e 发现）：Stop-hook 续跑的注入回复、后台任务完成通知（`<task-notification>`）等都会触发该事件，D6 自动关中继会把中继关掉、下一轮直接放行 | 已修：执行体只把"像人敲的" prompt 当作回到键盘；空 prompt、以 `[gofer web 回复]` 开头、以 XML 标签开头或含 `<task-notification>`/`<system-reminder>` 的一律上报 `injected=true`，server 不自动关。主机真机 e2e 二次验证 PASS |
 | 新-2 | 脚本化「会话启动即开开关」时序：SessionStart 后立刻 relay on，随后到达的首个 UserPromptSubmit 会把它关掉 | 真人使用中开关总在首个 prompt 之后打开，不受影响；脚本需等 title 出现后再开 |
