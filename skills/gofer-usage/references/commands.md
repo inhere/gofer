@@ -77,6 +77,30 @@ gofer plan answer <decision-id> --answer "方案A"
 - `timeout_sec` 缺省 1800s（clamp `[2s, 24h]`）。按**宿主客户端的 tool 调用超时上限**设定：宿主若先杀调用，decision 留 OPEN、到期自动 EXPIRED，通道本身无错。
 - **决策点串行提问是范式建议**（宿主客户端可能串行执行 tool call），**不是** MCP 连接限制——go-sdk 服务端并发执行 tool call，ask 阻塞不排队其他调用。
 
+## session（别名 `sess`）— 终端会话中继（web ↔ 终端）
+
+终端里的 Claude Code / Codex 会话经 hooks 登记到 server；会话的 **relay 开关**打开时，Stop hook 把 agent 最后一条消息发成一个 turn 并阻塞等待，人在 web「会话」页 / 铃铛 / CLI 作答，答案经 `decision: block` 注入同一会话继续（设计 SESS-01）。
+
+```bash
+gofer init hooks [--agent claude|codex|all] [--global] [--remove] [--force]
+#   合并写 ./.claude/settings.json 与/或 ./.codex/hooks.json(--global 写 ~/); 幂等、只增删 `gofer hook` 自己的条目
+#   Codex 另需 config.toml [features] hooks = true(旧名 codex_hooks), 且项目 .codex/ 需 trust
+gofer session ls [-p <project>] [--state waiting_reply] [--all]   # 列会话(waiting_reply/needs_attention 置顶)
+gofer session show <id>                 # 详情 + 最近 turn(id 可用前 8 位)
+gofer session relay on|off [--session <id>]   # 省略 --session: 按当前目录反查(歧义时列出候选)
+gofer session say <id> "<回复>"         # 答最新 OPEN turn; "/off" = 关中继放行
+gofer session rm <id>                   # 移除登记(turn 保留)
+gofer hook claude|codex [--wait N]      # hook 执行体(由 hooks 配置调用, 人不直接用); 日志 <config-dir>/run/hook.log
+```
+
+要点：
+
+- 开关在 server、按会话；hook 每次 Stop 先查开关，关着零阻塞，server 不可达也直接放行，**永不卡死终端**。
+- `UserPromptSubmit`（人在终端输入）自动把 relay 关掉；web 注入的回复不经过该事件，不会误关。
+- Stop hook 等待期间终端显示 hook 运行中；人回到电脑想直接输入可按 Esc 取消。
+- 硬边界：会话已停在空闲提示符时没有 hook 进程活着，web 拨开开关要等下一次 Stop；需终端输入一次。
+- turn 复用决策通道：铃铛里「会话」标签条目可直接内联作答；`gofer plan decisions --state OPEN` 也能看到（kind=relay）。
+
 ## schedule（别名 `sch`）— 定时 job
 
 ```bash
@@ -114,6 +138,8 @@ gofer init [server|worker]              # 从内置 example 模板生成 config(
 gofer init -g worker                    # 写到用户全局 config 目录
 gofer init [-g] skill                   # 装 gofer-usage skill: 默认写 ./.claude/skills 和 ./.agents/skills 两处; -g 写全局 ~/.claude+~/.agents; -o <dir> 单目标
 ```
+
+`gofer init hooks [--agent claude|codex|all] [--global] [--remove]`：安装/卸载会话中继 hooks（见上文 session 节）。
 
 ## 运维向（AI 一般不直接用，了解即可）
 

@@ -117,6 +117,26 @@ job 在哪台机器执行，路径就按那台机器的项目根解析：同一 
 | 连不上 / 401 | 主机 `gofer server` 未起，或 `$GOFER_CONFIG_DIR/.env` 的 `GOFER_SERVER_ADDR/TOKEN` 与 server 不一致。 |
 | 有 job 但看不到输出 | `--sync` 只回状态；输出用 `gofer job logs <id>`。 |
 
+## 8. 离开电脑：把终端会话交给 web 接着聊（session relay）
+
+人要离开时，让**这个终端会话**停下来等人的那条消息进 gofer web「会话」页，人在 web（手机也行）回复，回复直接注入**同一个**会话继续跑。不开 pty、不重开会话；靠 Claude Code / Codex 的 Stop hook 阻塞等待实现。
+
+```bash
+gofer init hooks                  # 一次性: 把 hook 写进 ./.claude/settings.json (Codex: --agent codex → ./.codex/hooks.json; --agent all 两个都写)
+gofer session relay on            # 要走了: 打开当前目录会话的中继(多个会话时按提示加 --session <id>)
+gofer session ls                  # 看哪些会话在等回复(waiting_reply 置顶)
+gofer session say <id> "<回复>"   # web 输入框的 CLI 等价; 回复 /off = 关中继并让会话正常停下
+gofer session relay off           # 回来了(终端里任意输入一条也会自动关)
+gofer init hooks --remove         # 卸载
+```
+
+约定：
+
+- 用户说「打开中继 / 我要离开了 / 交给 web」→ 执行 `gofer session relay on`，然后正常结束回合即可；之后每次回合结束都会在 web 等回复，直到 web 回复 `/off`、终端有人输入、或 `relay off`。
+- **忘了开**：web 会话列表里找到该会话拨开开关，**下一次回合结束**生效（会话正在跑长任务时最常见，能接上）；已经停在空闲提示符的会话没有 hook 在跑，必须在终端输入一次。
+- 注入的回复带前缀 `[gofer web 回复]`，与终端输入等价处理。
+- 详见 [`references/commands.md`](references/commands.md) 的「session — 终端会话中继」。
+
 ## 备注
 
 - 本 skill 是**通用机制**说明；本工作空间的具体 project key / 可用 agent 以该工作空间 `CLAUDE.md` 为准。
