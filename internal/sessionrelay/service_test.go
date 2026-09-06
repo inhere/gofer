@@ -122,6 +122,9 @@ func TestRelayExpiryAndErrors(t *testing.T) {
 	st, err := s.WaitTurn(context.Background(), "sid-c", d.ID, 4*time.Second)
 	assert.NoErr(t, err)
 	assert.Eq(t, TurnExpired, st.Outcome)
+	idle, _ := s.Get("sid-c", 1)
+	assert.Eq(t, jobstore.SessionIdle, idle.Session.State) // expired turn → idle, relay stays on
+	assert.True(t, idle.Session.Relay)
 
 	// A new turn expires the stale one and is the only answerable turn.
 	d2, err := s.OpenTurn("sid-c", "again", 60)

@@ -327,6 +327,12 @@ func (s *Service) readTurn(sid, decisionID string) (TurnStatus, error) {
 		st.Outcome = TurnRelayOff
 	case d.State == jobstore.DecisionExpired:
 		st.Outcome = TurnExpired
+		// Nobody answered within the hook's budget: the hook releases and the
+		// agent stops normally, so the session is idle, not waiting.
+		if a.State == jobstore.SessionWaitingReply {
+			_, _ = s.store.SetSessionState(sid, jobstore.SessionIdle)
+			st.Relay = a.Relay
+		}
 	default:
 		st.Outcome = TurnOpen
 	}
