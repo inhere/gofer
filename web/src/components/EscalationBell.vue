@@ -32,6 +32,8 @@ const open = ref(false)
 const toast = ref<ToastPayload | null>(null)
 const submittingIds = ref<Set<string>>(new Set())
 const itemErrors = ref<Map<string, string>>(new Map())
+// 会话中继（SESS-01）relay 条目的内联回复草稿（按 item.key）
+const relayDrafts = ref<Map<string, string>>(new Map())
 const seenNeedsHuman = new Set<string>()
 const seenDecisions = new Set<string>()
 
@@ -39,6 +41,49 @@ let timer: number | null = null
 
 function isNeedsHuman(item: BellItem): boolean {
   return item.source === 'interaction' && item.interaction.needs_human === 1
+}
+
+// 会话中继（SESS-01）：kind=relay 的 decision 是 agent 会话的一个 turn——来源标签
+// 显示「会话」、跳转会话抽屉（/sessions?sid=）而非 PlanDetail，自由文本就地作答。
+function isRelay(item: BellItem): boolean {
+  return item.source === 'decision' && item.decision.kind === 'relay' && !!item.decision.session_id
+}
+
+function relayTarget(d: Decision): string {
+  return `/sessions?sid=${encodeURIComponent(d.session_id ?? '')}`
+}
+
+function shortSid(id?: string): string {
+  return id ? id.slice(0, 8) : '—'
+}
+
+function relayDraft(key: string): string {
+  return relayDrafts.value.get(key) ?? ''
+}
+
+function setRelayDraft(key: string, v: string): void {
+  relayDrafts.value = new Map(relayDrafts.value).set(key, v)
+}
+
+function submitRelayDraft(item: BellItem): void {
+  const text = relayDraft(item.key).trim()
+  if (!text) {
+    return
+  }
+  void submitAnswer(item, text).then(() => {
+    if (!itemErrors.value.has(item.key)) {
+      const next = new Map(relayDrafts.value)
+      next.delete(item.key)
+      relayDrafts.value = next
+    }
+  })
+}
+
+function onRelayKeydown(item: BellItem, ev: KeyboardEvent): void {
+  if (ev.key === 'Enter' && (ev.ctrlKey || ev.metaKey)) {
+    ev.preventDefault()
+    submitRelayDraft(item)
+  }
 }
 
 function sortAt(item: BellItem): number {
@@ -112,10 +157,18 @@ async function fetchPending(): Promise<void> {
     }
   } else if (freshDecision && freshDecision.source === 'decision') {
     const d = freshDecision.decision
-    toast.value = {
-      title: `新的决策请求 · ${d.title || d.id}`,
-      text: truncLine(d.question, 96) || '等待人工作答',
-      to: d.plan_id ? `/plans/${encodeURIComponent(d.plan_id)}` : undefined,
+    if (isRelay(freshDecision)) {
+      toast.value = {
+        title: `会话等待回复 · ${d.title || shortSid(d.session_id)}`,
+        text: truncLine(d.question, 96) || '会话停下等你回复',
+        to: relayTarget(d),
+      }
+    } else {
+      toast.value = {
+        title: `新的决策请求 · ${d.title || d.id}`,
+        text: truncLine(d.question, 96) || '等待人工作答',
+        to: d.plan_id ? `/plans/${encodeURIComponent(d.plan_id)}` : undefined,
+      }
     }
   }
 }
@@ -156,12 +209,17 @@ function close(): void {
   open.value = false
 }
 
-// 按 source 分流跳转：interaction → job 详情；decision → plan 详情
-// （无 plan_id 的全局提问仅展开，无跳转目标）。
+// 按 source 分流跳转：interaction → job 详情；relay decision → 会话抽屉；
+// 其它 decision → plan 详情（无 plan_id 的全局提问仅展开，无跳转目标）。
 function gotoItem(item: BellItem): void {
   if (item.source === 'interaction') {
     close()
     void router.push(`/jobs/${encodeURIComponent(item.interaction.job_id)}`)
+    return
+  }
+  if (isRelay(item)) {
+    close()
+    void router.push(relayTarget(item.decision))
     return
   }
   if (item.decision.plan_id) {
@@ -393,6 +451,49 @@ onUnmounted(() => {
           </div>
         </template>
 
+        <!-- relay 条目（SESS-01）：agent 会话停下等回复，自由文本就地作答；详情跳会话抽屉 -->
+        <template v-else-if="isRelay(item)">
+          <span class="e1 mono">
+            <span class="mark mark--relay">会话</span>
+            <span class="idp" :title="item.decision.session_id">{{ shortSid(item.decision.session_id) }}</span>
+            <span class="chan">relay</span>
+          </span>
+          <span class="p">
+            {{ item.decision.title ? `${item.decision.title} — ` : '' }}{{ truncLine(item.decision.question, 110) || '会话停下等你回复' }}
+          </span>
+
+          <div class="relay-reply">
+            <textarea
+              class="relay-input mono"
+              rows="2"
+              placeholder="回复 agent…（Ctrl/Cmd+Enter 发送；/off 关闭中继）"
+              :value="relayDraft(item.key)"
+              :disabled="submittingIds.has(item.key)"
+              @input="setRelayDraft(item.key, ($event.target as HTMLTextAreaElement).value)"
+              @keydown="onRelayKeydown(item, $event)"
+            ></textarea>
+            <button
+              class="mini-btn mini-btn--primary mono"
+              type="button"
+              :disabled="submittingIds.has(item.key) || !relayDraft(item.key).trim()"
+              @click="submitRelayDraft(item)"
+            >
+              {{ submittingIds.has(item.key) ? '发送中' : '发送' }}
+            </button>
+          </div>
+
+          <div class="foot-actions">
+            <button
+              class="link-btn mono"
+              type="button"
+              :disabled="submittingIds.has(item.key)"
+              @click="gotoItem(item)"
+            >
+              打开会话
+            </button>
+          </div>
+        </template>
+
         <!-- decision 条目（T4）：选项型就地作答；自由文本型进 plan 详情作答；无 punt -->
         <template v-else>
           <span class="e1 mono">
@@ -599,6 +700,40 @@ onUnmounted(() => {
 .mark--decision {
   border-color: var(--phosphor);
   color: var(--phosphor);
+}
+
+.mark--relay {
+  border-color: var(--run);
+  color: var(--run);
+}
+
+.relay-reply {
+  display: flex;
+  align-items: flex-end;
+  gap: 7px;
+  margin-top: 9px;
+}
+
+.relay-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  resize: vertical;
+  background: var(--ink);
+  color: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 5px 8px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.relay-input:focus {
+  outline: none;
+  border-color: var(--phosphor);
+}
+
+.relay-input:disabled {
+  opacity: 0.55;
 }
 
 .chan {

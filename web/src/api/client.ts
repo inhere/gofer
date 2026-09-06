@@ -31,6 +31,10 @@ import type {
   ProjectWriteResp,
   ProjectsResp,
   PtySessionsResp,
+  AgentSession,
+  AgentSessionState,
+  AgentSessionsResp,
+  SessionDetailResp,
   RebuildBody,
   RedactedRequest,
   ReposResp,
@@ -338,6 +342,58 @@ export function listPtySessions(id: string): Promise<PtySessionsResp> {
 export function listRecentPtySessions(limit?: number): Promise<PtySessionsResp> {
   const qs = limit != null ? `?limit=${encodeURIComponent(String(limit))}` : ''
   return request<PtySessionsResp>(`/v1/pty/sessions${qs}`)
+}
+
+// 会话中继（SESS-01）：agent 会话列表（GET /v1/sessions）。默认不含 ended，
+// all=true 含；后端已按 waiting_reply / needs_attention 优先、再按 last_seen_at 倒序。
+export function listAgentSessions(opts?: {
+  project?: string
+  state?: AgentSessionState
+  agent?: string
+  all?: boolean
+  limit?: number
+}): Promise<AgentSessionsResp> {
+  const params = new URLSearchParams()
+  if (opts?.project) params.set('project', opts.project)
+  if (opts?.state) params.set('state', opts.state)
+  if (opts?.agent) params.set('agent', opts.agent)
+  if (opts?.all) params.set('all', '1')
+  if (opts?.limit) params.set('limit', String(opts.limit))
+  const qs = params.toString()
+  return request<AgentSessionsResp>(`/v1/sessions${qs ? `?${qs}` : ''}`)
+}
+
+// 会话详情 + 最近 turns（GET /v1/sessions/{sid}?turns=N，turns 最新在前）。
+export function getAgentSession(sid: string, turns = 50): Promise<SessionDetailResp> {
+  return request<SessionDetailResp>(
+    `/v1/sessions/${encodeURIComponent(sid)}?turns=${encodeURIComponent(String(turns))}`,
+  )
+}
+
+// 中继开关（POST /v1/sessions/{sid}/relay，body {relay}）：返回更新后的会话。
+export function setSessionRelay(sid: string, on: boolean): Promise<AgentSession> {
+  return request<AgentSession>(`/v1/sessions/${encodeURIComponent(sid)}/relay`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ relay: on }),
+  })
+}
+
+// 回复会话当前 OPEN turn（POST /v1/sessions/{sid}/say，body {answer}）：
+// 返回作答后的 Decision；无 OPEN turn 时 409（request 抛 Error）。
+export function saySession(sid: string, answer: string): Promise<Decision> {
+  return request<Decision>(`/v1/sessions/${encodeURIComponent(sid)}/say`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ answer }),
+  })
+}
+
+// 移除会话登记（DELETE /v1/sessions/{sid}）。
+export function deleteAgentSession(sid: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/v1/sessions/${encodeURIComponent(sid)}`, {
+    method: 'DELETE',
+  })
 }
 
 export function logsTail(id: string, stream: LogStream): Promise<string> {

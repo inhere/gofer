@@ -61,3 +61,25 @@ export function fmtDuration(sec: number | null): string {
   const m = Math.floor((s % 3600) / 60)
   return `${h}h${String(m).padStart(2, '0')}m`
 }
+
+// 相对时间（过去）：Unix 秒 -> "刚刚 / 12s前 / 3m前 / 2h前 / 5d前"（0/空/非法返回 —）。
+export function fmtAgo(sec: number | null | undefined, nowSec?: number): string {
+  const n = toUnixSec(sec ?? null)
+  if (n == null) {
+    return '—'
+  }
+  const d = (nowSec ?? Math.floor(Date.now() / 1000)) - n
+  if (d < 5) {
+    return '刚刚'
+  }
+  if (d < 60) {
+    return `${d}s前`
+  }
+  if (d < 3600) {
+    return `${Math.floor(d / 60)}m前`
+  }
+  if (d < 86400) {
+    return `${Math.floor(d / 3600)}h前`
+  }
+  return `${Math.floor(d / 86400)}d前`
+}

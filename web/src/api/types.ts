@@ -79,6 +79,49 @@ export interface PtySessionsResp {
   sessions: PtySession[]
 }
 
+// 会话中继（SESS-01）：hook 登记的 agent 会话（claude/codex 等），与 pty 会话无关。
+// state：running 执行中 / idle 已停且未开中继 / waiting_reply 开中继且等人回复 /
+// needs_attention 需人工注意（如 hook 报错）/ ended 已结束。
+export type AgentSessionState =
+  | 'running'
+  | 'idle'
+  | 'waiting_reply'
+  | 'needs_attention'
+  | 'ended'
+
+export interface AgentSession {
+  session_id: string
+  agent: string
+  project_key?: string
+  runner?: string
+  cwd?: string
+  title?: string
+  // transcript 只存路径，不读内容
+  transcript?: string
+  tmux_pane?: string
+  state: AgentSessionState
+  // 中继开关：开着时 agent 停下会生成一个 OPEN turn（Decision kind=relay）等 web 回复
+  relay: boolean
+  turn_no: number
+  last_message?: string
+  last_event?: string
+  // Unix 秒
+  last_seen_at: number
+  started_at: number
+  ended_at?: number
+}
+
+export interface AgentSessionsResp {
+  sessions: AgentSession[]
+}
+
+// GET /v1/sessions/{sid}?turns=N：turns 最新在前；每条 turn 是一个 Decision
+// （question = agent 停下时最后一条消息，answer = 人的回复）。
+export interface SessionDetailResp {
+  session: AgentSession
+  turns: Decision[]
+}
+
 export type AttachServerFrame =
   | { t: 'hello'; write: boolean; cols: number; rows: number }
   // pty 尺寸变更广播（tools-3xy）：写者 resize 后 serve 推给所有 viewer，客户端跟随。
@@ -484,6 +527,10 @@ export interface Decision {
   asked_at: number
   answered_at?: number
   answered_by?: string
+  // 会话中继（SESS-01）：kind=relay 的 decision 是某个 agent 会话的一个 turn，
+  // session_id 指向该会话；无 options、自由文本作答。
+  session_id?: string
+  kind?: 'relay' | string
 }
 
 // job 生命周期事件（E13，append-only）。GET /v1/jobs/{id}/events 与 SSE event 帧。
