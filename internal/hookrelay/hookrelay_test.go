@@ -159,6 +159,14 @@ func TestRunSessionStartAndPromptRegisterThenBeat(t *testing.T) {
 	assert.Eq(t, 2, f.registers)
 	assert.Eq(t, "repo: fix the flaky test", f.sessions["s2"].Title)
 
+	// The relay's own continuation raises UserPromptSubmit with our prefix: it is
+	// reported as injected (no title, server skips auto-off).
+	_, err = Run(f, payload(t, "claude", map[string]any{"session_id": "s2", "hook_event_name": "UserPromptSubmit", "cwd": "/w/repo", "prompt": ReplyPrefix + "go on"}), opts)
+	assert.NoErr(t, err)
+	last := f.beats[len(f.beats)-1]
+	assert.True(t, last.Injected)
+	assert.Eq(t, "", last.Title)
+
 	// Unknown event → no-op.
 	_, err = Run(f, payload(t, "claude", map[string]any{"session_id": "s1", "hook_event_name": "PreToolUse"}), opts)
 	assert.NoErr(t, err)

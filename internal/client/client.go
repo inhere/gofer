@@ -1157,6 +1157,8 @@ type SessionHeartbeat struct {
 	State       string `json:"state,omitempty"`
 	LastMessage string `json:"last_message,omitempty"`
 	Title       string `json:"title,omitempty"`
+	// Injected: this UserPromptSubmit is the relay's own continuation (no auto-off).
+	Injected bool `json:"injected,omitempty"`
 }
 
 // SessionDetail is GET /v1/sessions/{sid}: the session + recent turns (newest first).

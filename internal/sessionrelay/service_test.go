@@ -104,8 +104,12 @@ func TestRelayOffReleasesWaitAndAutoOff(t *testing.T) {
 	assert.Eq(t, jobstore.SessionRunning, hb.State)
 	assert.Eq(t, "repo: task", hb.Title)
 
-	s.AutoOffOnPrompt = false
+	// An injected continuation (the relay's own reply) never auto-offs.
 	_, _ = s.SetRelay("sid-b", true)
+	hb, _ = s.Heartbeat("sid-b", HeartbeatInput{Event: EventUserPromptSubmit, Injected: true})
+	assert.True(t, hb.Relay)
+
+	s.AutoOffOnPrompt = false
 	hb, _ = s.Heartbeat("sid-b", HeartbeatInput{Event: EventUserPromptSubmit})
 	assert.True(t, hb.Relay)
 }

@@ -212,6 +212,7 @@ type sessionHeartbeatReq struct {
 	State       string `json:"state,omitempty"`
 	LastMessage string `json:"last_message,omitempty"`
 	Title       string `json:"title,omitempty"`
+	Injected    bool   `json:"injected,omitempty"`
 }
 
 // handleSessionHeartbeat applies a hook event (POST /v1/sessions/{sid}/heartbeat)
@@ -232,6 +233,7 @@ func (s *Server) handleSessionHeartbeat(c *rux.Context) {
 	}
 	a, err := s.relay.Heartbeat(c.Param("sid"), sessionrelay.HeartbeatInput{
 		Event: body.Event, State: body.State, LastMessage: body.LastMessage, Title: body.Title,
+		Injected: body.Injected,
 	})
 	if err != nil {
 		writeError(c, relayStatus(err), "session heartbeat failed", err.Error())

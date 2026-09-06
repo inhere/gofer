@@ -93,6 +93,13 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 	case "SessionStart":
 		return Result{}, r.sessionStart()
 	case "UserPromptSubmit":
+		// Claude Code may raise UserPromptSubmit for the Stop-hook continuation
+		// itself; that prompt is our own injected reply (ReplyPrefix) and must not
+		// count as "the human is back" — otherwise relay switches off mid-relay.
+		if strings.HasPrefix(strings.TrimSpace(p.Prompt), strings.TrimSpace(ReplyPrefix)) {
+			r.beatAndLog(client.SessionHeartbeat{Event: p.Event, Injected: true})
+			return Result{}, nil
+		}
 		r.beatAndLog(client.SessionHeartbeat{Event: p.Event, Title: makeTitle(p.Cwd, p.Prompt)})
 		return Result{}, nil
 	case "Stop":

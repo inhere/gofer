@@ -96,7 +96,7 @@ gofer hook claude|codex [--wait N]      # hook 执行体(由 hooks 配置调用,
 要点：
 
 - 开关在 server、按会话；hook 每次 Stop 先查开关，关着零阻塞，server 不可达也直接放行，**永不卡死终端**。
-- `UserPromptSubmit`（人在终端输入）自动把 relay 关掉；web 注入的回复不经过该事件，不会误关。
+- `UserPromptSubmit`（人在终端输入）自动把 relay 关掉；web 注入的回复虽也触发该事件，但带 `[gofer web 回复]` 前缀，hook 上报 injected，不会误关。
 - Stop hook 等待期间终端显示 hook 运行中；人回到电脑想直接输入可按 Esc 取消。
 - 硬边界：会话已停在空闲提示符时没有 hook 进程活着，web 拨开开关要等下一次 Stop；需终端输入一次。
 - turn 复用决策通道：铃铛里「会话」标签条目可直接内联作答；`gofer plan decisions --state OPEN` 也能看到（kind=relay）。

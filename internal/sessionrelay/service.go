@@ -113,6 +113,10 @@ type HeartbeatInput struct {
 	State       string
 	LastMessage string
 	Title       string
+	// Injected marks a UserPromptSubmit raised by the relay's own continuation
+	// (the hook recognises its ReplyPrefix): it must NOT auto-off relay — the
+	// human is still on the web, not at the keyboard.
+	Injected bool
 }
 
 // DefaultState maps a hook event to the session state it implies when the
@@ -141,7 +145,7 @@ func (s *Service) Heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 	if state == "" {
 		state = DefaultState(in.Event)
 	}
-	if in.Event == EventUserPromptSubmit && s.AutoOffOnPrompt {
+	if in.Event == EventUserPromptSubmit && s.AutoOffOnPrompt && !in.Injected {
 		if _, err := s.SetRelay(sid, false); err != nil && !errors.Is(err, ErrUnknownSession) {
 			return jobstore.AgentSession{}, err
 		}
