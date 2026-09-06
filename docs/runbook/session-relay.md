@@ -63,4 +63,7 @@ Stop hook → gofer hook <agent>
 4. 第二次停下 → `say /off` → hook 放行，SessionEnd → `ended`。
 5. 关着开关的 Stop 耗时 12ms；server 停机时 hook 直接退出。
 
-未覆盖：Codex 真机（容器内无 codex），待主机上按 §1 装配后跑同样四步。
+6. web 侧（agent-browser）：会话页「AGENT 会话」分组显示等待回复行 + 铃铛 toast；抽屉内输入框发送 → 挂起的 hook 立即输出 `{"decision":"block","reason":"[gofer web 回复] …"}`，会话回到 running。
+7. 等待超过 hook 预算（`--wait`）时 turn 过期、hook 放行、会话置 idle，开关保持 on（下一次 Stop 继续中继）。
+
+未覆盖：Codex 真机（容器内无 codex），待主机上按 §1 装配后跑同样四步；交互 TUI 下等待期间按 Esc 的表现。
