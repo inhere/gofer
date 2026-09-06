@@ -426,7 +426,7 @@ onUnmounted(() => {
 .drawer-overlay {
   position: fixed;
   inset: 0;
-  z-index: 50;
+  z-index: 80; /* above EscalationBell (60) and InteractionToast (70): the composer must stay clickable */
   display: flex;
   justify-content: flex-end;
   background: rgba(0, 0, 0, 0.6);
