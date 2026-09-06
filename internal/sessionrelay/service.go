@@ -161,6 +161,24 @@ func (s *Service) Heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 // SetRelay flips the switch. Turning it OFF also expires any OPEN turn (so a
 // blocked hook releases on its next poll) and moves a waiting session to idle.
 func (s *Service) SetRelay(sid string, on bool) (jobstore.AgentSession, error) {
+	if !on {
+		// Order matters for a concurrently blocked WaitTurn: settle the session
+		// state FIRST, then drop the flag (which releases the waiter with
+		// outcome relay_off), then expire the turn — so whoever observes the
+		// release also sees idle, and sees relay_off rather than expired.
+		a, ok, err := s.store.GetAgentSession(sid)
+		if err != nil {
+			return jobstore.AgentSession{}, err
+		}
+		if !ok {
+			return jobstore.AgentSession{}, ErrUnknownSession
+		}
+		if a.State == jobstore.SessionWaitingReply {
+			if _, err := s.store.SetSessionState(sid, jobstore.SessionIdle); err != nil {
+				return jobstore.AgentSession{}, err
+			}
+		}
+	}
 	ok, err := s.store.SetSessionRelay(sid, on)
 	if err != nil {
 		return jobstore.AgentSession{}, err
@@ -169,13 +187,9 @@ func (s *Service) SetRelay(sid string, on bool) (jobstore.AgentSession, error) {
 		return jobstore.AgentSession{}, ErrUnknownSession
 	}
 	if !on {
+		// After the flag: a waiter polling now reports relay_off (not expired).
 		if _, err := s.store.ExpireSessionDecisions(sid); err != nil {
 			return jobstore.AgentSession{}, err
-		}
-		if a, ok, _ := s.store.GetAgentSession(sid); ok && a.State == jobstore.SessionWaitingReply {
-			if _, err := s.store.SetSessionState(sid, jobstore.SessionIdle); err != nil {
-				return jobstore.AgentSession{}, err
-			}
 		}
 	}
 	a, ok, err := s.store.GetAgentSession(sid)

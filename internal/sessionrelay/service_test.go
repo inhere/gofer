@@ -88,9 +88,12 @@ func TestRelayOffReleasesWaitAndAutoOff(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, TurnRelayOff, st.Outcome)
 	assert.False(t, st.Relay)
-	assert.Eq(t, jobstore.DecisionExpired, st.Decision.State)
 	got, _ := s.Get("sid-b", 5)
 	assert.Eq(t, jobstore.SessionIdle, got.Session.State)
+	// Once SetRelay(false) has returned the turn is expired.
+	time.Sleep(50 * time.Millisecond)
+	expired, _, _ := s.store.GetDecision(d.ID)
+	assert.Eq(t, jobstore.DecisionExpired, expired.State)
 
 	// Auto-off on UserPromptSubmit.
 	_, err = s.SetRelay("sid-b", true)
