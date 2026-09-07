@@ -1,13 +1,17 @@
 <script setup lang="ts">
 // 会话中继（SESS-01）详情抽屉：右侧滑入面板。
-//  - 头部：元数据（sid 可复制 / agent / project / runner / cwd / transcript /
-//    started / last_seen / 状态徽章 / 中继开关）。
+//  - 头部：一行摘要（sid / agent / project / runner / turn / last_seen），点击展开
+//    完整元数据（cwd / transcript / started / …）。默认收起，把纵向空间让给消息，
+//    展开状态存 localStorage。
 //  - 中间：turn 时间线。后端 newest-first，这里反转成最旧在上、最新在下（聊天习惯）；
-//    每个 turn 两条气泡：灰 = agent 消息（question），蓝 = 人的回复（answer）。
+//    每个 turn 两条气泡：灰 = agent 消息（question，**markdown 渲染**，marked +
+//    DOMPurify.sanitize 后注入），蓝 = 人的回复（answer，纯文本原样显示）。
 //  - 底部：输入框 + 发送。仅存在 OPEN turn 时可用，走 POST /v1/sessions/{sid}/say；
 //    回复 `/off` 会关闭中继让会话正常停下。Ctrl/Cmd+Enter 发送。
 //  - 打开期间 3s 轮询详情（页面可见时）。
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { marked } from 'marked'
+import DOMPurify from 'dompurify'
 import {
   deleteAgentSession,
   getAgentSession,
@@ -27,8 +31,8 @@ const emit = defineEmits<{
 
 const POLL_MS = 3000
 const TURNS_LIMIT = 50
-// 超过此长度的 agent 消息默认折叠
-const COLLAPSE_CHARS = 600
+// 超过此长度的 agent 消息默认折叠（约合 320px 裁剪高度，见 .bubble-md.clamped）
+const COLLAPSE_CHARS = 900
 
 const session = ref<AgentSession | null>(null)
 const turns = ref<Decision[]>([])
@@ -41,6 +45,9 @@ const relayBusy = ref(false)
 const deleting = ref(false)
 const copied = ref(false)
 const expanded = ref<Set<string>>(new Set())
+// 元数据面板展开状态：默认收起（消息优先），记住用户选择。
+const META_OPEN_KEY = 'gofer.sessionDrawer.metaOpen'
+const metaOpen = ref(readMetaOpen())
 const nowSec = ref(Math.floor(Date.now() / 1000))
 const timelineEl = ref<HTMLElement | null>(null)
 
@@ -57,6 +64,54 @@ const STATE_LABELS: Record<AgentSessionState, string> = {
 
 function stateLabel(s: AgentSessionState): string {
   return STATE_LABELS[s] ?? s
+}
+
+function readMetaOpen(): boolean {
+  try {
+    return window.localStorage.getItem(META_OPEN_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function toggleMeta(): void {
+  metaOpen.value = !metaOpen.value
+  try {
+    window.localStorage.setItem(META_OPEN_KEY, metaOpen.value ? '1' : '0')
+  } catch {
+    // 隐私模式 / 禁用存储：只影响记忆，不影响使用
+  }
+}
+
+// agent 消息按 markdown 渲染。XSS 安全核心：marked 渲染后必经 DOMPurify.sanitize
+// 才注入（与 FilePreview 同一约定）。3s 轮询会重复渲染同一条消息，故按内容缓存。
+const mdCache = new Map<string, string>()
+
+function renderMd(text: string): string {
+  const key = text
+  const hit = mdCache.get(key)
+  if (hit !== undefined) {
+    return hit
+  }
+  let html: string
+  try {
+    html = DOMPurify.sanitize(marked.parse(text, { async: false }))
+  } catch {
+    // 渲染失败不能吞消息：退化为转义后的纯文本
+    html = `<pre>${escapeHtml(text)}</pre>`
+  }
+  if (mdCache.size > 200) {
+    mdCache.clear()
+  }
+  mdCache.set(key, html)
+  return html
+}
+
+function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
 }
 
 // 时间线：最旧在上、最新在下
@@ -78,13 +133,6 @@ function shortSid(id: string): string {
 
 function isLong(text: string): boolean {
   return text.length > COLLAPSE_CHARS
-}
-
-function shown(text: string, id: string): string {
-  if (!isLong(text) || expanded.value.has(id)) {
-    return text
-  }
-  return `${text.slice(0, COLLAPSE_CHARS)}…`
 }
 
 function toggleExpand(id: string): void {
@@ -321,7 +369,32 @@ onUnmounted(() => {
 
       <p v-if="error" class="error mono">{{ error }}</p>
 
-      <dl v-if="session" class="meta mono">
+      <div v-if="session" class="meta-wrap">
+        <button
+          class="meta-toggle mono"
+          type="button"
+          :aria-expanded="metaOpen"
+          @click="toggleMeta"
+        >
+          <span class="caret">{{ metaOpen ? '▾' : '▸' }}</span>
+          <span class="meta-summary">
+            <span :title="session.session_id">{{ shortSid(session.session_id) }}</span>
+            <span class="dim">·</span>
+            <span>{{ session.agent }}</span>
+            <template v-if="session.project_key">
+              <span class="dim">·</span><span>{{ session.project_key }}</span>
+            </template>
+            <template v-if="session.runner">
+              <span class="dim">·</span><span>{{ session.runner }}</span>
+            </template>
+            <span class="dim">·</span>
+            <span>turn {{ session.turn_no }}</span>
+            <span class="dim">·</span>
+            <span :title="fmtDateTime(session.last_seen_at)">{{ fmtAgo(session.last_seen_at, nowSec) }}</span>
+          </span>
+          <span class="meta-hint">{{ metaOpen ? '收起' : '详情' }}</span>
+        </button>
+      <dl v-show="metaOpen" class="meta mono">
         <dt>sid</dt>
         <dd class="meta-sid">
           <span :title="session.session_id">{{ session.session_id }}</span>
@@ -353,6 +426,7 @@ onUnmounted(() => {
         <dt>turns</dt>
         <dd>{{ session.turn_no }}</dd>
       </dl>
+      </div>
 
       <div ref="timelineEl" class="timeline">
         <div v-if="!loading && timeline.length === 0" class="empty mono">
@@ -365,7 +439,13 @@ onUnmounted(() => {
                 <span>{{ session?.agent || 'agent' }}</span>
                 <span :title="fmtDateTime(t.asked_at)">{{ fmtAgo(t.asked_at, nowSec) }}</span>
               </div>
-              <pre class="bubble-text">{{ shown(t.question, t.id) || '（无消息）' }}</pre>
+              <div
+                v-if="t.question"
+                class="bubble-md"
+                :class="{ clamped: isLong(t.question) && !expanded.has(t.id) }"
+                v-html="renderMd(t.question)"
+              ></div>
+              <pre v-else class="bubble-text">（无消息）</pre>
               <button
                 v-if="isLong(t.question)"
                 class="link-btn mono"
@@ -585,14 +665,54 @@ onUnmounted(() => {
   word-break: break-word;
 }
 
+.meta-wrap {
+  flex: none;
+  border-bottom: 1px solid var(--line);
+}
+.meta-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 7px 14px;
+  background: transparent;
+  border: none;
+  color: var(--paper);
+  font-size: 11px;
+  text-align: left;
+  cursor: pointer;
+}
+.meta-toggle:hover {
+  background: var(--hover, rgba(127, 127, 127, 0.08));
+}
+.meta-toggle .caret {
+  flex: none;
+  color: var(--queue);
+}
+.meta-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.meta-summary .dim {
+  color: var(--queue);
+}
+.meta-hint {
+  flex: none;
+  margin-left: auto;
+  color: var(--queue);
+}
 .meta {
   flex: none;
   display: grid;
   grid-template-columns: 84px minmax(0, 1fr) 84px minmax(0, 1fr);
   gap: 4px 10px;
   margin: 0;
-  padding: 10px 14px;
-  border-bottom: 1px solid var(--line);
+  padding: 2px 14px 10px;
   font-size: 11px;
 }
 .meta dt {
@@ -697,6 +817,93 @@ onUnmounted(() => {
   font-size: 12px;
   white-space: pre-wrap;
   word-break: break-word;
+}
+/* markdown 渲染的 agent 消息：紧凑排版，折叠时用高度裁剪 + 渐隐，
+   避免截断 markdown 源码破坏语法。 */
+.bubble-md {
+  font-size: 12px;
+  line-height: 1.55;
+  word-break: break-word;
+}
+.bubble-md.clamped {
+  max-height: 320px;
+  overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 78%, transparent 100%);
+  mask-image: linear-gradient(180deg, #000 78%, transparent 100%);
+}
+.bubble-md :first-child {
+  margin-top: 0;
+}
+.bubble-md :last-child {
+  margin-bottom: 0;
+}
+.bubble-md p,
+.bubble-md ul,
+.bubble-md ol,
+.bubble-md blockquote,
+.bubble-md table {
+  margin: 0 0 8px;
+}
+.bubble-md ul,
+.bubble-md ol {
+  padding-left: 20px;
+}
+.bubble-md li {
+  margin: 2px 0;
+}
+.bubble-md h1,
+.bubble-md h2,
+.bubble-md h3,
+.bubble-md h4 {
+  margin: 10px 0 6px;
+  font-size: 13px;
+  font-weight: 600;
+}
+.bubble-md code {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--hover, rgba(127, 127, 127, 0.14));
+}
+.bubble-md pre {
+  margin: 0 0 8px;
+  padding: 8px 10px;
+  overflow-x: auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--hover, rgba(127, 127, 127, 0.08));
+}
+.bubble-md pre code {
+  padding: 0;
+  background: transparent;
+}
+.bubble-md blockquote {
+  padding-left: 10px;
+  border-left: 2px solid var(--line);
+  color: var(--queue);
+}
+.bubble-md a {
+  color: var(--phosphor);
+}
+.bubble-md table {
+  border-collapse: collapse;
+  display: block;
+  overflow-x: auto;
+}
+.bubble-md th,
+.bubble-md td {
+  border: 1px solid var(--line);
+  padding: 3px 7px;
+  font-size: 11px;
+}
+.bubble-md hr {
+  border: none;
+  border-top: 1px solid var(--line);
+  margin: 10px 0;
+}
+.bubble-md img {
+  max-width: 100%;
 }
 .link-btn {
   background: transparent;
