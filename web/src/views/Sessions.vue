@@ -248,19 +248,6 @@ onUnmounted(() => {
   <div class="board">
     <header class="board-head">
       <h1 class="title mono">SESSIONS</h1>
-      <div class="controls mono">
-        <RouterLink class="act act--primary mono" to="/new?mode=session">
-          新建会话
-        </RouterLink>
-        <button
-          class="act mono"
-          type="button"
-          :disabled="loading || agentLoading"
-          @click="load(); loadAgentSessions()"
-        >
-          {{ loading || agentLoading ? '刷新中…' : '刷新' }}
-        </button>
-      </div>
     </header>
 
     <!-- Agent 会话（会话中继 SESS-01）：hook 登记的 claude/codex 会话，点击行开详情抽屉 -->
@@ -354,7 +341,18 @@ onUnmounted(() => {
 
     <section class="group">
       <header class="group-head">
-        <h2 class="group-title mono">终端会话</h2>
+        <h2 class="group-title mono">
+          终端会话
+          <span v-if="hasSessions" class="group-count mono">{{ sessions.length }}</span>
+        </h2>
+        <div class="controls mono">
+          <RouterLink class="act act--primary mono" to="/new?mode=session">
+            新建会话
+          </RouterLink>
+          <button class="act mono" type="button" :disabled="loading" @click="load()">
+            {{ loading ? '刷新中…' : '刷新' }}
+          </button>
+        </div>
       </header>
 
     <p v-if="error" class="error mono">{{ error }}</p>
