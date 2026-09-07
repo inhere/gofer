@@ -88,6 +88,11 @@ server:
   #   default_rate_limit: 5          # 每秒 5 次提交
   #   default_rate_burst: 10
 
+  # web_base_url: 人从外部访问本控制台的地址(如 https://gofer.example.com)。
+  # 只有外发通知需要它 —— server 在反代/内网 IP 后面无法自己推断出公网地址。
+  # 留空则通知里不带可点链接。
+  # web_base_url: https://gofer.example.com
+
   # notification: E14 webhook 外发。关键事件(默认 job.terminal + interaction.created)
   # 触发，向每个订阅 webhook 主动 POST(durable 投递 + 退避重试 30s→2m→5m→15m→60m)。
   # 安全(最大对外出站面)：URL 出站白名单(allow_hosts) + 仅 https + 拒 loopback/内网
@@ -101,6 +106,23 @@ server:
   #   allow_hosts: [hooks.example.com]                # 出站 host 白名单(空=全部拒绝)
   #   allow_http: false                               # 默认仅 https; true 仅本地测试用
   #   max_attempts: 6                                 # 重试上限(默认 6=退避表 5 步+首次)
+  #
+  # kind: 出站适配(OBS-07a)。省略/generic=上面的 {event, job} 机器契约 + HMAC 头;
+  # dingtalk / feishu = 渲染成对应机器人自己的消息 JSON(群机器人才认)。
+  # 钉钉自定义机器人只能进群 —— 想只发给自己: 建多人群再把其他成员移除即可。
+  # 安全模式二选一: 「自定义关键词」(不填 secret_env, 最省事) 或「加签」(填 secret_env,
+  # 钉钉签名进 query、飞书进 body, 由 gofer 按 kind 自动处理)。
+  # 会话中继事件 session.waiting 不在默认订阅集里, 必须显式写进 events 才会推。
+  # notification:
+  #   allow_hosts: [oapi.dingtalk.com, open.feishu.cn]
+  #   webhooks:
+  #     - url: https://oapi.dingtalk.com/robot/send?access_token=xxx
+  #       kind: dingtalk
+  #       secret_env: GOFER_DINGTALK_SECRET   # 加签模式才需要; 关键词模式留空
+  #       events: [session.waiting, job.terminal]
+  #     - url: https://open.feishu.cn/open-apis/bot/v2/hook/xxx
+  #       kind: feishu
+  #       events: [session.waiting]
 
 storage:
   # Per-project data exchange subdir (default: tmp).

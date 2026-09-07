@@ -136,6 +136,7 @@ gofer init hooks --remove         # 卸载
 - **忘了开**：web 会话列表里找到该会话拨开开关，**下一次回合结束**生效（会话正在跑长任务时最常见，能接上）；已经停在空闲提示符的会话没有 hook 在跑，必须在终端输入一次。
 - 注入的回复带前缀 `[gofer web 回复]`，与终端输入等价处理。
 - 详见 [`references/commands.md`](references/commands.md) 的「session — 终端会话中继」。
+- **想让手机响一下**：配个钉钉/飞书群机器人，事件订阅 `session.waiting`（不在默认集里，必须显式写），消息带直达会话的链接。配置见 gofer 仓库 `docs/runbook/im-notification.md`。
 
 ## 备注
 

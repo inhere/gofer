@@ -43,6 +43,13 @@ Stop hook → gofer hook <agent>
 - 自动关：人在终端输入（UserPromptSubmit）即关中继。harness 产生的同名事件（注入回复带 `[gofer web 回复]` 前缀、后台任务通知 `<task-notification>`、系统提醒）hook 会上报 `injected`，不会误关；`hook.log` 里能看到 `human prompt` / `harness prompt` 的判定。
 - 日志：`<config-dir>/run/hook.log`（>5MB 自动清空）；每个事件一行，含 state / relay。
 
+## 3.1 手机提醒（可选）
+
+会话等在那里时想让手机响一下，配一个钉钉/飞书群机器人即可，见
+[`im-notification.md`](im-notification.md)。要点：事件名 `session.waiting` 必须
+显式写进 webhook 的 `events`（默认订阅集不含它），并配 `server.web_base_url`
+让消息里带一条直达会话抽屉的链接。
+
 ## 4. 排障
 
 | 现象 | 查看 | 处理 |

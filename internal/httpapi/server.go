@@ -296,6 +296,8 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 	}
 	if jobs != nil && jobs.Meta() != nil {
 		s.relay = sessionrelay.NewService(jobs.Meta())
+		// job.Service is the outbound notifier (webhook queue + IM adapters).
+		s.relay.SetNotifier(jobs)
 	}
 	s.router = s.buildRouter()
 	return s

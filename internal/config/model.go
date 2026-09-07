@@ -4,6 +4,7 @@ package config
 
 import (
 	"math"
+	"strings"
 	"time"
 )
 
@@ -291,6 +292,11 @@ type ServerConfig struct {
 	// per-caller override on a CallerConfig (> 0) takes precedence; otherwise the
 	// governance default applies (see CallerConcurrencyLimit / CallerRate).
 	Governance GovernanceConfig `yaml:"governance,omitempty"`
+	// WebBaseURL is the address a human uses to reach this console from the
+	// outside (e.g. https://gofer.example.com). Only outbound notifications need
+	// it — the server cannot derive it from its listen address behind a proxy or
+	// a LAN IP. Empty = notifications carry no link.
+	WebBaseURL string `yaml:"web_base_url,omitempty"`
 }
 
 // GovernanceConfig is the E17 global fallback for per-caller quotas (design
@@ -354,11 +360,37 @@ type NotificationConfig struct {
 // subscribed trigger set (omit => the default set job.terminal + interaction.created);
 // SecretEnv names the env var holding the HMAC secret (SR403, never inlined);
 // Projects restricts the webhook to those project keys (omit => all projects).
+// Webhook kinds (OBS-07a): the outbound adapter a webhook speaks. The list lives
+// here, next to the yaml field it validates, because internal/notify imports
+// this package (the reverse would be an import cycle).
+const (
+	WebhookKindGeneric  = "generic"
+	WebhookKindDingTalk = "dingtalk"
+	WebhookKindFeishu   = "feishu"
+)
+
+// ValidWebhookKind reports whether k names a supported adapter ("" = generic).
+func ValidWebhookKind(k string) bool {
+	switch strings.ToLower(strings.TrimSpace(k)) {
+	case "", WebhookKindGeneric, WebhookKindDingTalk, WebhookKindFeishu:
+		return true
+	}
+	return false
+}
+
 type WebhookConfig struct {
-	URL       string   `yaml:"url,omitempty"`
-	Events    []string `yaml:"events,omitempty"`
+	URL    string   `yaml:"url,omitempty"`
+	Events []string `yaml:"events,omitempty"`
+	// SecretEnv names the env var holding the shared secret. Its meaning follows
+	// Kind: generic → HMAC of the body in the X-Gofer-Signature header; dingtalk /
+	// feishu → the bot's 加签 secret (empty when the bot uses keyword or IP
+	// allow-list security instead).
 	SecretEnv string   `yaml:"secret_env,omitempty"`
 	Projects  []string `yaml:"projects,omitempty"`
+	// Kind selects the outbound adapter (OBS-07a; see WebhookKind* / ValidWebhookKind): "" / generic keeps the original
+	// `{event, job}` JSON contract; dingtalk / feishu render the provider's own bot
+	// message so a group robot shows a readable card.
+	Kind string `yaml:"kind,omitempty"`
 }
 
 // DefaultMaxAttempts is the delivery retry cap used when NotificationConfig

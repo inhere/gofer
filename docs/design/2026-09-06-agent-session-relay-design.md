@@ -234,6 +234,15 @@ gofer session rm <sid>
 - 忘了开：web 会话列表找到它拨开开关，会话下一次停下时生效；已空闲的会话需终端输入一次
 ```
 
+## 8.4 手机提醒（OBS-07a，已落地）
+
+会话进入 `waiting_reply` 时经既有 webhook 队列推一条 IM 消息（钉钉/飞书群机器人），
+消息带一条直达该会话抽屉的链接。事件名 `session.waiting`，**不在默认订阅集里**，
+需在 webhook 的 `events` 显式订阅。实现要点见 [`../runbook/im-notification.md`](../runbook/im-notification.md)：
+`OpenTurn` 经 `sessionrelay.Notifier` 接口回调（`job.Service` 注入，relay 不感知通知与配置），
+投递复用 `event_deliveries` 的预渲染路径（`body`/`event_type` 两列 additive）。
+IM 自定义机器人只能收不能发回，**回复仍在 web**；IM 内直接作答属 OBS-07c，未做。
+
 ## 9. 兜底与后续
 
 - **tmux 按键注入（可选，阶段 3）**：会话跑在 tmux 中时登记带 `tmux_pane`；web 对 idle 会话回复时，server 派一个 `exec` job 到该会话的 runner 执行 `tmux send-keys -t <pane> -l "<回复>"` + `Enter`。这是向现有终端敲字，不是重开会话，能补上 §1.2 的空白格。

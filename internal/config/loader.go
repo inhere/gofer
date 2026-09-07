@@ -283,6 +283,15 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("project %q: host_path is required", key)
 		}
 	}
+	// OBS-07a: an unknown webhook kind must fail at load, not silently fall back to
+	// the generic body (an IM bot would then reject every delivery at post time).
+	if n := cfg.Server.Notification; n != nil {
+		for i, w := range n.Webhooks {
+			if !ValidWebhookKind(w.Kind) {
+				return fmt.Errorf("server.notification.webhooks[%d].kind %q is unknown (use: generic | dingtalk | feishu)", i, w.Kind)
+			}
+		}
+	}
 	// E17 governance / per-caller quota sanity (design §7.1): negative values are a
 	// config mistake (a negative cap/rate/burst has no meaning). 0 = unlimited is
 	// fine; only reject < 0 so the legacy zero-everywhere config still validates.

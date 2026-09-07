@@ -35,12 +35,20 @@ type Delivery struct {
 	LastError   string `json:"last_error,omitempty"`
 	CreatedAt   int64  `json:"created_at"`
 	UpdatedAt   int64  `json:"updated_at"`
+	// Body / EventType carry a PRE-RENDERED delivery (OBS-07a). They are empty for
+	// the classic job-event path, whose body is rebuilt from the events table at
+	// post time. A delivery that has a Body is posted verbatim and needs neither a
+	// job nor a row in `events` — that is what lets non-job notifications (session
+	// relay turns) reuse this queue's retry/backoff/audit.
+	Body      string `json:"-"`
+	EventType string `json:"event_type,omitempty"`
 }
 
 // selectDeliveryCols is the shared projection. COALESCE guards the nullable
 // last_error so a NULL scans into "" instead of failing the scan.
 const selectDeliveryCols = `SELECT id, event_seq, job_id, target, status, attempts,
-  next_retry_at, COALESCE(last_error,''), created_at, updated_at
+  next_retry_at, COALESCE(last_error,''), created_at, updated_at,
+  COALESCE(body,''), COALESCE(event_type,'')
   FROM event_deliveries`
 
 // scanDelivery reads one row (in selectDeliveryCols order) into a Delivery.
@@ -49,6 +57,7 @@ func scanDelivery(sc rowScanner) (Delivery, error) {
 	err := sc.Scan(
 		&d.ID, &d.EventSeq, &d.JobID, &d.Target, &d.Status, &d.Attempts,
 		&d.NextRetryAt, &d.LastError, &d.CreatedAt, &d.UpdatedAt,
+		&d.Body, &d.EventType,
 	)
 	return d, err
 }
@@ -60,8 +69,10 @@ func scanDelivery(sc rowScanner) (Delivery, error) {
 // next_retry_at=now so the row is immediately due). Writes go through s.writeMu
 // (like every other writer) so SQLite never sees two concurrent writers.
 func (s *Store) InsertDelivery(d Delivery) (int64, error) {
-	if d.JobID == "" {
-		return 0, errors.New("jobstore: InsertDelivery: empty job id")
+	// A delivery is addressed either by a job event (job_id + event_seq, body
+	// rebuilt later) or by a pre-rendered body (no job involved).
+	if d.JobID == "" && d.Body == "" {
+		return 0, errors.New("jobstore: InsertDelivery: empty job id and empty body")
 	}
 	if d.Target == "" {
 		return 0, errors.New("jobstore: InsertDelivery: empty target")
@@ -70,17 +81,24 @@ func (s *Store) InsertDelivery(d Delivery) (int64, error) {
 		d.Status = DeliveryPending
 	}
 	const q = `INSERT INTO event_deliveries
-  (event_seq, job_id, target, status, attempts, next_retry_at, last_error, created_at, updated_at)
-  VALUES (?,?,?,?,?,?,?,?,?)`
+  (event_seq, job_id, target, status, attempts, next_retry_at, last_error, created_at, updated_at, body, event_type)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	var lastErr any
 	if d.LastError != "" {
 		lastErr = d.LastError
 	}
+	var body, evType any
+	if d.Body != "" {
+		body = d.Body
+	}
+	if d.EventType != "" {
+		evType = d.EventType
+	}
 	res, err := s.db.Exec(q,
 		d.EventSeq, d.JobID, d.Target, d.Status, d.Attempts,
-		d.NextRetryAt, lastErr, d.CreatedAt, d.CreatedAt,
+		d.NextRetryAt, lastErr, d.CreatedAt, d.CreatedAt, body, evType,
 	)
 	if err != nil {
 		return 0, fmt.Errorf("jobstore: insert delivery %q->%q: %w", d.JobID, d.Target, err)

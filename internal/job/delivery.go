@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
@@ -85,10 +86,24 @@ func (s *Service) deliverOne(ctx context.Context, d jobstore.Delivery, nconf *co
 		_ = s.meta.MarkFailed(d.ID, d.Attempts+1, "source event missing", s.nowFn().Unix())
 		return
 	}
-	secretEnv := s.secretEnvForTarget(nconf, d.Target)
+	w := s.webhookForTarget(nconf, d.Target)
+	kind := notify.NormalizeKind(w.Kind)
 	secret := ""
-	if secretEnv != "" {
-		secret = os.Getenv(secretEnv)
+	if w.SecretEnv != "" {
+		secret = os.Getenv(w.SecretEnv)
+	}
+	// Generic webhooks authenticate with an HMAC header over the body; IM bots
+	// carry the provider's own signature in the URL (DingTalk) or the body
+	// (Feishu), bound to a fresh timestamp — hence applied here, not at enqueue.
+	target, hmacSecret := d.Target, secret
+	if kind != notify.KindGeneric {
+		hmacSecret = ""
+		signedURL, signedBody, sErr := notify.ApplyProviderAuth(kind, d.Target, body, secret, s.nowFn())
+		if sErr != nil {
+			_ = s.meta.MarkFailed(d.ID, d.Attempts+1, "sign: "+sErr.Error(), s.nowFn().Unix())
+			return
+		}
+		target, body = signedURL, signedBody
 	}
 
 	postCtx, cancel := context.WithTimeout(ctx, notify.DefaultPostTimeoutSeconds*time.Second)
@@ -97,7 +112,7 @@ func (s *Service) deliverOne(ctx context.Context, d jobstore.Delivery, nconf *co
 	if post == nil {
 		post = notify.PostWebhook
 	}
-	err := post(postCtx, d.Target, eventType, body, secret, *nconf)
+	err := post(postCtx, target, eventType, body, hmacSecret, *nconf)
 	now := s.nowFn().Unix()
 	if err == nil {
 		if mErr := s.meta.MarkDelivered(d.ID, now); mErr != nil {
@@ -123,6 +138,10 @@ func (s *Service) deliverOne(ctx context.Context, d jobstore.Delivery, nconf *co
 // source event (by seq) for type/detail/at and a job summary (by id) for the job
 // block. ok is false when the source event no longer exists.
 func (s *Service) buildDeliveryBody(d jobstore.Delivery) (body []byte, eventType string, ok bool) {
+	// Pre-rendered delivery (OBS-07a): post it verbatim, no events/job lookup.
+	if d.Body != "" {
+		return []byte(d.Body), d.EventType, true
+	}
 	ev, found, err := s.meta.GetEvent(d.EventSeq)
 	if err != nil {
 		slog.Warn("DeliverDue: get event", "seq", d.EventSeq, "err", err)
@@ -144,6 +163,25 @@ func (s *Service) buildDeliveryBody(d jobstore.Delivery) (body []byte, eventType
 	} else {
 		summary = notify.JobSummary{ID: d.JobID}
 	}
+	// An IM bot cannot read the `{event, job}` contract: render its own message.
+	if cfg := s.config(); cfg != nil && cfg.Server.Notification != nil {
+		if kind := notify.NormalizeKind(s.webhookForTarget(cfg.Server.Notification, d.Target).Kind); kind != notify.KindGeneric {
+			msg := notify.Message{
+				EventType: ev.Type,
+				Title:     "job " + ev.Type,
+				Text:      jobEventText(summary),
+				Link:      s.webURL("/jobs/" + summary.ID),
+				LinkLabel: "查看 job",
+				At:        ev.At,
+			}
+			rendered, rErr := notify.RenderMessage(kind, msg)
+			if rErr != nil {
+				slog.Warn("DeliverDue: render im body", "seq", d.EventSeq, "kind", kind, "err", rErr)
+				return nil, "", false
+			}
+			return rendered, ev.Type, true
+		}
+	}
 	b, err := notify.BuildBody(ev.Seq, ev.JobID, ev.Type, ev.Detail, ev.At, summary)
 	if err != nil {
 		slog.Warn("DeliverDue: build body", "seq", d.EventSeq, "err", err)
@@ -156,10 +194,53 @@ func (s *Service) buildDeliveryBody(d jobstore.Delivery) (body []byte, eventType
 // delivery target. Multiple webhooks can share a URL; the first match wins (they
 // would carry the same secret in practice).
 func (s *Service) secretEnvForTarget(nconf *config.NotificationConfig, target string) string {
+	return s.webhookForTarget(nconf, target).SecretEnv
+}
+
+// webhookForTarget returns the configured webhook whose URL is target (the zero
+// value when it was removed from the config after the delivery was enqueued —
+// the delivery then posts as a generic unsigned body, which is what it was
+// before kinds existed).
+func (s *Service) webhookForTarget(nconf *config.NotificationConfig, target string) config.WebhookConfig {
 	for _, w := range nconf.Webhooks {
 		if w.URL == target {
-			return w.SecretEnv
+			return w
 		}
 	}
-	return ""
+	return config.WebhookConfig{}
+}
+
+// jobEventText is the human line an IM notification shows for a job event.
+func jobEventText(j notify.JobSummary) string {
+	parts := []string{"id " + j.ID}
+	if j.Project != "" {
+		parts = append(parts, "project "+j.Project)
+	}
+	if j.Status != "" {
+		parts = append(parts, "status "+j.Status)
+	}
+	if j.Agent != "" {
+		parts = append(parts, "agent "+j.Agent)
+	}
+	if j.Runner != "" {
+		parts = append(parts, "runner "+j.Runner)
+	}
+	return strings.Join(parts, " · ")
+}
+
+// webURL joins the configured public console base with path; "" when no
+// server.web_base_url is set (the notification then carries no link).
+func (s *Service) webURL(path string) string {
+	cfg := s.config()
+	if cfg == nil {
+		return ""
+	}
+	base := strings.TrimRight(strings.TrimSpace(cfg.Server.WebBaseURL), "/")
+	if base == "" {
+		return ""
+	}
+	if !strings.HasPrefix(path, "/") {
+		path = "/" + path
+	}
+	return base + path
 }

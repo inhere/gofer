@@ -138,7 +138,9 @@ var schemaStmts = []string{
   next_retry_at INTEGER NOT NULL,
   last_error    TEXT,
   created_at    INTEGER NOT NULL,
-  updated_at    INTEGER NOT NULL
+  updated_at    INTEGER NOT NULL,
+  body          TEXT,
+  event_type    TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_deliveries_due ON event_deliveries(status, next_retry_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_deliveries_job ON event_deliveries(job_id, id)`,
@@ -511,6 +513,9 @@ func (s *Store) migrate() error {
 	if err := s.migratePlanDecisions(); err != nil {
 		return err
 	}
+	if err := s.migrateDeliveries(); err != nil {
+		return err
+	}
 	// Partial unique index: only non-empty request_id values are constrained, so
 	// jobs without a request_id never collide. Created after the column exists.
 	if _, err := s.db.Exec(
@@ -691,6 +696,30 @@ func (s *Store) migratePlanDecisions() error {
 		return fmt.Errorf("jobstore: migrate plan_decisions session index: %w", err)
 	}
 	return nil
+}
+
+// migrateDeliveries adds the pre-rendered delivery columns (OBS-07a) to
+// event_deliveries: body (the exact payload to POST) and event_type (the header
+// / audit label that would otherwise come from the events row). Old rows read
+// back as "" via COALESCE and keep the rebuild-from-event behaviour.
+func (s *Store) migrateDeliveries() error {
+	cols, err := s.tableColumns("event_deliveries")
+	if err != nil {
+		return err
+	}
+	add := func(col, ddl string) error {
+		if _, ok := cols[col]; ok {
+			return nil
+		}
+		if _, e := s.db.Exec("ALTER TABLE event_deliveries ADD COLUMN " + ddl); e != nil {
+			return fmt.Errorf("jobstore: migrate event_deliveries add %s: %w", col, e)
+		}
+		return nil
+	}
+	if err := add("body", "body TEXT"); err != nil {
+		return err
+	}
+	return add("event_type", "event_type TEXT")
 }
 
 // tableColumns returns the set of column names of a table via PRAGMA table_info.

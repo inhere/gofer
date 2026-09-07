@@ -49,9 +49,17 @@ var (
 	ErrInvalidInput   = errors.New("sessionrelay: invalid input")
 )
 
+// Notifier is the outbound-notification seam (OBS-07a). The relay knows WHEN a
+// human is needed; it must not know about webhooks, IM adapters or config — the
+// entry layer injects an implementation (job.Service). nil = no notification.
+type Notifier interface {
+	NotifySessionWaiting(sessionID, projectKey, title, lastMessage string, turn int64)
+}
+
 // Service owns the relay rules on top of the store.
 type Service struct {
-	store *jobstore.Store
+	store    *jobstore.Store
+	notifier Notifier
 	// AutoOffOnPrompt turns relay off when the human types in the terminal
 	// (UserPromptSubmit): they are back at the keyboard (design D6). A reply
 	// injected by the hook does NOT raise UserPromptSubmit, so web replies never
@@ -66,6 +74,10 @@ type Service struct {
 func NewService(store *jobstore.Store) *Service {
 	return &Service{store: store, AutoOffOnPrompt: true, pollInterval: 500 * time.Millisecond, nowFn: time.Now}
 }
+
+// SetNotifier injects the outbound notifier (see Notifier). Safe to leave unset:
+// the relay then simply sends no notifications.
+func (s *Service) SetNotifier(n Notifier) { s.notifier = n }
 
 // SetPollInterval overrides the WaitTurn re-read cadence (tests).
 func (s *Service) SetPollInterval(d time.Duration) {
@@ -255,6 +267,11 @@ func (s *Service) OpenTurn(sid, body string, timeoutSec int64) (jobstore.PlanDec
 		Event: EventStop, State: jobstore.SessionWaitingReply, LastMessage: body,
 	}); err != nil {
 		return jobstore.PlanDecision{}, err
+	}
+	// Tell the human their session is waiting (best-effort, never blocks the
+	// hook: the notifier only enqueues, the delivery sweeper does the posting).
+	if s.notifier != nil {
+		s.notifier.NotifySessionWaiting(sid, a.ProjectKey, a.Title, body, turn)
 	}
 	return d, nil
 }
