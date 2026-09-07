@@ -22,6 +22,61 @@ func newSvc(t *testing.T) *Service {
 	return s
 }
 
+// fakeNotifier records the outbound notifications the relay raises.
+type fakeNotifier struct {
+	waiting   []string
+	attention []string
+}
+
+func (f *fakeNotifier) NotifySessionWaiting(sid, _, _, msg string, _ int64) {
+	f.waiting = append(f.waiting, sid+":"+msg)
+}
+func (f *fakeNotifier) NotifySessionAttention(sid, _, _, detail string) {
+	f.attention = append(f.attention, sid+":"+detail)
+}
+
+// TestNotifierHooks covers when the relay pushes to the outbound notifier:
+// every opened turn, and only the TRANSITION into needs_attention while the
+// session is relayed.
+func TestNotifierHooks(t *testing.T) {
+	s := newSvc(t)
+	f := &fakeNotifier{}
+	s.SetNotifier(f)
+	_, err := s.Register(RegisterInput{SessionID: "sid-n", Agent: "claude"})
+	assert.NoErr(t, err)
+
+	// relay off: attention raises no notification (the human is at the keyboard)
+	_, err = s.Heartbeat("sid-n", HeartbeatInput{Event: EventNotification, LastMessage: "允许运行 rm?"})
+	assert.NoErr(t, err)
+	assert.Len(t, f.attention, 0)
+
+	_, _ = s.SetRelay("sid-n", true)
+
+	// same prompt re-raised while already needs_attention: suppressed
+	_, err = s.Heartbeat("sid-n", HeartbeatInput{Event: EventNotification, LastMessage: "允许运行 rm?"})
+	assert.NoErr(t, err)
+	assert.Len(t, f.attention, 0)
+
+	// a DIFFERENT prompt while still waiting is new information: notified
+	_, err = s.Heartbeat("sid-n", HeartbeatInput{Event: EventNotification, LastMessage: "允许写入 /etc?"})
+	assert.NoErr(t, err)
+	assert.Len(t, f.attention, 1)
+	assert.Eq(t, "sid-n:允许写入 /etc?", f.attention[0])
+
+	// leaving and re-entering notifies again, even with no detail text
+	_, err = s.Heartbeat("sid-n", HeartbeatInput{Event: EventUserPromptSubmit, Injected: true})
+	assert.NoErr(t, err)
+	_, err = s.Heartbeat("sid-n", HeartbeatInput{Event: EventNotification})
+	assert.NoErr(t, err)
+	assert.Len(t, f.attention, 2)
+
+	// an opened turn always notifies
+	_, err = s.OpenTurn("sid-n", "选 A 还是 B？", 60)
+	assert.NoErr(t, err)
+	assert.Len(t, f.waiting, 1)
+	assert.Eq(t, "sid-n:选 A 还是 B？", f.waiting[0])
+}
+
 func TestRelayHappyPath(t *testing.T) {
 	s := newSvc(t)
 	a, err := s.Register(RegisterInput{SessionID: "sid-a", Agent: "Claude", Cwd: "/w/repo", Event: EventSessionStart})

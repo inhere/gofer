@@ -119,7 +119,7 @@ server:
   #     - url: https://oapi.dingtalk.com/robot/send?access_token=xxx
   #       kind: dingtalk
   #       secret_env: GOFER_DINGTALK_SECRET   # 加签模式才需要; 关键词模式留空
-  #       events: [session.waiting, job.terminal]
+  #       events: [session.waiting, session.attention, job.terminal]
   #     - url: https://open.feishu.cn/open-apis/bot/v2/hook/xxx
   #       kind: feishu
   #       events: [session.waiting]

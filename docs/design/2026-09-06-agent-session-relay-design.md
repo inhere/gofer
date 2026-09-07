@@ -241,6 +241,10 @@ gofer session rm <sid>
 需在 webhook 的 `events` 显式订阅。实现要点见 [`../runbook/im-notification.md`](../runbook/im-notification.md)：
 `OpenTurn` 经 `sessionrelay.Notifier` 接口回调（`job.Service` 注入，relay 不感知通知与配置），
 投递复用 `event_deliveries` 的预渲染路径（`body`/`event_type` 两列 additive）。
+另有 `session.attention`：会话进入 `needs_attention`（Claude 的权限确认等终端内对话框）时推送，
+按内容去重（同一提示反复弹只推一次），且**只在中继开着时**推。它**不能**在 web 上作答——
+那是 Claude Code 自己的对话框，不是 relay turn——通知的作用是叫人回终端。
+
 IM 自定义机器人只能收不能发回，**回复仍在 web**；IM 内直接作答属 OBS-07c，未做。
 
 ## 9. 兜底与后续

@@ -16,6 +16,12 @@ const (
 	// EventSessionWaiting fires when a relayed terminal session stops and opens a
 	// turn waiting for a human reply (session relay, SESS-01).
 	EventSessionWaiting = "session.waiting"
+	// EventSessionAttention fires when a relayed session needs a human at the
+	// TERMINAL — a permission prompt or a built-in question the agent raised.
+	// Unlike session.waiting this cannot be answered on the web (it is Claude
+	// Code's own dialog, not a relay turn), so the notification exists to get the
+	// human back to the keyboard, not to hand them a reply box.
+	EventSessionAttention = "session.attention"
 )
 
 // NotifyEvent enqueues a pre-rendered notification for every webhook subscribed
@@ -86,6 +92,27 @@ func (s *Service) NotifySessionWaiting(sessionID, projectKey, title, lastMessage
 		Text:      lastMessage,
 		Link:      s.webURL("/sessions?sid=" + sessionID),
 		LinkLabel: "打开会话回复",
+	})
+}
+
+// NotifySessionAttention is raised when a relayed session enters
+// needs_attention (SESS-01 → OBS-07a). The link goes to the session page so the
+// human can see WHICH session is blocked, but the answer has to happen in the
+// terminal — the message says so.
+func (s *Service) NotifySessionAttention(sessionID, projectKey, title, detail string) {
+	label := strings.TrimSpace(title)
+	if label == "" {
+		label = shortID(sessionID)
+	}
+	text := strings.TrimSpace(detail)
+	if text == "" {
+		text = "会话在等待确认（权限或选择），需要回到终端处理。"
+	}
+	s.NotifyEvent(EventSessionAttention, projectKey, notify.Message{
+		Title:     "会话需要确认 · " + label,
+		Text:      text,
+		Link:      s.webURL("/sessions?sid=" + sessionID),
+		LinkLabel: "查看会话",
 	})
 }
 

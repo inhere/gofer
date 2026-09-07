@@ -54,6 +54,7 @@ var (
 // entry layer injects an implementation (job.Service). nil = no notification.
 type Notifier interface {
 	NotifySessionWaiting(sessionID, projectKey, title, lastMessage string, turn int64)
+	NotifySessionAttention(sessionID, projectKey, title, detail string)
 }
 
 // Service owns the relay rules on top of the store.
@@ -157,6 +158,14 @@ func (s *Service) Heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 	if state == "" {
 		state = DefaultState(in.Event)
 	}
+	// Read the prior state only when this beat could raise attention, so the
+	// common path (Stop / prompt) keeps its single write.
+	prevState, prevMsg := "", ""
+	if state == jobstore.SessionNeedsAttention {
+		if prev, ok, _ := s.store.GetAgentSession(sid); ok {
+			prevState, prevMsg = prev.State, prev.LastMessage
+		}
+	}
 	if in.Event == EventUserPromptSubmit && s.AutoOffOnPrompt && !in.Injected {
 		if _, err := s.SetRelay(sid, false); err != nil && !errors.Is(err, ErrUnknownSession) {
 			return jobstore.AgentSession{}, err
@@ -170,6 +179,17 @@ func (s *Service) Heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 	}
 	if !ok {
 		return jobstore.AgentSession{}, ErrUnknownSession
+	}
+	// Needs attention while relayed: tell the human their session is blocked on a
+	// terminal dialog. An agent re-raises the SAME notification while it waits, so
+	// suppress identical repeats — but a different prompt raised while still
+	// waiting is a new thing to know about, and must not be swallowed.
+	if s.notifier != nil && a.Relay && a.State == jobstore.SessionNeedsAttention {
+		fresh := prevState != jobstore.SessionNeedsAttention ||
+			(in.LastMessage != "" && in.LastMessage != prevMsg)
+		if fresh {
+			s.notifier.NotifySessionAttention(sid, a.ProjectKey, a.Title, in.LastMessage)
+		}
 	}
 	return a, nil
 }

@@ -46,7 +46,7 @@ server:
       - url: https://oapi.dingtalk.com/robot/send?access_token=xxx
         kind: dingtalk
         secret_env: GOFER_DINGTALK_SECRET   # 加签模式才要；关键词模式删掉这行
-        events: [session.waiting]
+        events: [session.waiting, session.attention]
       - url: https://open.feishu.cn/open-apis/bot/v2/hook/xxx
         kind: feishu
         events: [session.waiting, job.terminal]
@@ -65,11 +65,15 @@ export GOFER_DINGTALK_SECRET='SECxxxxxx'
 
 ## 5. 可订阅的事件
 
-| 事件 | 何时触发 |
-|---|---|
-| `session.waiting` | 中继会话停下来等人回复（手机提醒的主力） |
-| `job.terminal` | job 进入终态 |
-| `interaction.created` | 产生新的待人工交互 |
+| 事件 | 何时触发 | 能在手机上处理吗 |
+|---|---|---|
+| `session.waiting` | 中继会话停下来等人回复 | ✅ 点链接进 web 回复 |
+| `session.attention` | 中继会话弹权限确认等终端内对话框 | ❌ 只能回终端处理，通知是叫你回去 |
+| `job.terminal` | job 进入终态 | — |
+| `interaction.created` | 产生新的待人工交互 | — |
+
+两个会话事件都**只在该会话的中继开关打开时**才推：关着说明人就在键盘前，终端里能直接看到。
+`session.attention` 会按内容去重——同一个提示反复弹不会重复推，换了个不同的提示才会再推一条。
 
 **注意**：省略 `events` 时用的是默认集（`job.terminal` + `interaction.created`），**不含** `session.waiting`。想收会话提醒必须显式写进 `events`，这样既有配置不会平白多出流量。
 
