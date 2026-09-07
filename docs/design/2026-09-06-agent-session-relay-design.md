@@ -215,7 +215,7 @@ gofer session rm <sid>
 ### 8.1 Web
 
 - `Sessions` 页新增「Agent 会话」分组（现有 pty 会话保持）：列 `title / agent / project / runner / state 徽章 / relay 开关 / last_seen`，`waiting_reply` 置顶。
-- 会话详情抽屉：turn 时间线（out 灰 / in 蓝，含时间与 answered_by）、底部输入框（提交即 `POST /decisions/{id}/answer` 到最近 OPEN turn；无 OPEN turn 时禁用并提示"会话未在等待"）、右上 relay 开关、元数据（cwd / transcript / sid 复制）。
+- 会话详情抽屉：头部一行摘要（sid/agent/project/runner/turn/last_seen），点击展开完整元数据（默认收起，状态存 localStorage，把纵向空间留给消息）；turn 时间线（out 灰、**markdown 渲染**（marked + DOMPurify.sanitize，长消息按高度裁剪而非截断源码） / in 蓝，含时间与 answered_by）、底部输入框（提交即 `POST /decisions/{id}/answer` 到最近 OPEN turn；无 OPEN turn 时禁用并提示"会话未在等待"）、右上 relay 开关、元数据（cwd / transcript / sid 复制）。
 - `EscalationBell`：`kind=relay` 的 OPEN decision 以来源标签「会话」展示，点击跳会话抽屉而非 PlanDetail；沿用决策通道 v0.2 已做的联合类型 `{source, …}` 扩一个 `source:'relay'`。
 - 前端改动需 `make web` 重 embed。
 

@@ -360,10 +360,23 @@ onUnmounted(() => {
           <button class="act mono" type="button" :disabled="loading" @click="load()">
             {{ loading ? '刷新中…' : '刷新' }}
           </button>
-          <button class="act act--warn mono" type="button" :disabled="deleting" @click="remove">
+          <button
+            class="act act--warn mono"
+            type="button"
+            :disabled="deleting"
+            title="把这个会话从 gofer 的登记表里删掉（列表中不再出现）。终端里的 agent 进程不受影响，它下次触发 hook 时会自动重新登记。"
+            @click="remove"
+          >
             {{ deleting ? '移除中…' : '移除登记' }}
           </button>
-          <button class="act mono" type="button" @click="emit('close')">关闭</button>
+          <button
+            class="act mono"
+            type="button"
+            title="只关闭这个面板，不改变会话与中继开关"
+            @click="emit('close')"
+          >
+            关闭面板
+          </button>
         </div>
       </div>
 
