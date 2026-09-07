@@ -471,14 +471,20 @@ onUnmounted(() => {
   margin: 0 0 12px;
   word-break: break-word;
 }
+/* 表格容器负责横向滚动：列有固定最小宽度，窄屏（手机）或窄窗口下整表可左右滑动，
+   不再靠隐藏列来适配（隐藏会丢信息）。行自带 min-width，保证滚动时行背景/边框
+   跟着一起延伸，而不是只画到视口宽度。 */
 .table {
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  overflow: hidden;
+  overflow-x: auto;
+  overflow-y: hidden;
+  -webkit-overflow-scrolling: touch;
 }
 .thead,
 .trow {
   display: grid;
+  min-width: 1150px;
   grid-template-columns:
     minmax(92px, 0.9fr)
     72px
@@ -682,6 +688,7 @@ onUnmounted(() => {
 /* Agent 会话表 */
 .thead--agent,
 .trow--agent {
+  min-width: 860px;
   grid-template-columns:
     minmax(180px, 2fr)
     76px
@@ -858,28 +865,22 @@ onUnmounted(() => {
 }
 
 @media (max-width: 900px) {
-  .thead,
-  .trow {
-    grid-template-columns: minmax(92px, 1fr) 72px 84px 76px;
-  }
+  /* 窄屏：标题列收窄一点，让第一屏能多露出几列；其余列靠横向滚动查看。 */
   .thead--agent,
   .trow--agent {
-    grid-template-columns: minmax(140px, 2fr) 84px 78px 64px;
+    grid-template-columns:
+      minmax(150px, 2fr)
+      76px
+      minmax(100px, 1fr)
+      minmax(90px, 0.8fr)
+      84px
+      78px
+      76px
+      52px;
   }
-  .a-agent,
-  .a-project,
-  .a-runner,
-  .a-turns {
-    display: none;
-  }
-  .bytes,
-  .session-id,
-  .state,
-  .started,
-  .flag--encrypted,
-  .flag--recording,
-  .session-action--recording {
-    display: none;
+  .group-head {
+    flex-wrap: wrap;
+    gap: 8px;
   }
 }
 </style>
