@@ -62,6 +62,7 @@ type TunnelOpen struct {
 	TunnelID   string `json:"tunnel_id"`
 	Target     string `json:"target"`
 	RelayNonce string `json:"relay_nonce"`
+	Network    string `json:"network,omitempty"`
 }
 
 // SupportsPolicy reports whether a peer that registered with protocol version proto

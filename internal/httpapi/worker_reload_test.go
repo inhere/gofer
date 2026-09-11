@@ -40,8 +40,9 @@ func (f *fakeReloader) ReloadWorker(ctx context.Context, workerID, reason string
 // path segment, and this is what proves the router accepts both.
 type fakeHub struct{}
 
-func (fakeHub) Accept(http.ResponseWriter, *http.Request, string) {}
-func (fakeHub) LiveInstance(string) (string, bool)                { return "", false }
+func (fakeHub) Accept(http.ResponseWriter, *http.Request, string)       {}
+func (fakeHub) LiveInstance(string) (string, bool)                      { return "", false }
+func (fakeHub) OpenTunnel(string, string, string, string, string) error { return nil }
 
 // newReloadServer builds a server with one REGISTERED worker (w1) and an injected
 // reloader, so the tests can separate "unknown worker" from "known but unreachable".

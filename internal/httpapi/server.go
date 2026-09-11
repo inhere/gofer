@@ -33,8 +33,9 @@ import (
 	"github.com/inhere/gofer/internal/metrics"
 	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
-	"github.com/inhere/gofer/internal/sessionrelay"
 	"github.com/inhere/gofer/internal/ptyrelay"
+	"github.com/inhere/gofer/internal/sessionrelay"
+	"github.com/inhere/gofer/internal/tunnel"
 	"github.com/inhere/gofer/internal/webui"
 )
 
@@ -110,6 +111,7 @@ type workerHub interface {
 	// LiveInstance reports the current connection instance of a worker, ok=false
 	// when it is offline.
 	LiveInstance(workerID string) (string, bool)
+	OpenTunnel(workerID, tunnelID, network, target, relayNonce string) error
 }
 
 // Server holds the wired dependencies and the rux router. It is constructed once
@@ -182,6 +184,7 @@ type Server struct {
 	// callers (most tests, mcp) pass nil.
 	prober  runnerProber
 	workers workerRegistry
+	tunnels *tunnel.Registry
 
 	// metrics is the E16 Prometheus instrumentation (nil = no /metrics endpoint,
 	// no HTTP middleware). It is injected post-construction by SetMetrics (serve)
@@ -290,6 +293,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		runners:         runners,
 		prober:          prober,
 		workers:         workers,
+		tunnels:         tunnel.NewRegistry(),
 		limiters:        map[string]*rate.Limiter{},
 		attachTickets:   NewAttachTicketStore(),
 		startedAt:       time.UnixMilli(nowMillis()),
@@ -372,6 +376,8 @@ func (s *Server) buildRouter() *rux.Router {
 	// when the hub is wired (serve); nil for hub-less callers (some tests).
 	if s.hub != nil {
 		r.GET("/v1/workers/connect", s.handleWorkerConnect)
+		r.GET(tunnel.ConnectPath, s.handleTunnelConnect)
+		r.GET(tunnel.WorkerConnectPath, s.handleWorkerTunnelConnect)
 	}
 	if s.hub != nil && s.relayNonces != nil && s.ptyRelays != nil {
 		r.GET("/v1/workers/pty-connect", s.handlePtyConnect)
@@ -398,6 +404,7 @@ func (s *Server) buildRouter() *rux.Router {
 		// (local / peer-http probe / worker heartbeat). Normal authed JSON endpoint
 		// (NOT the bare-401 WS path), list-style shape mirroring /v1/jobs.
 		r.GET("/runners", s.handleListRunners)
+		r.GET("/tunnels", s.handleListTunnels)
 
 		// Worker config reload (authed JSON, unlike the bare-401 WS routes above):
 		// ask one worker to re-read its own config and WAIT for its receipt, so a

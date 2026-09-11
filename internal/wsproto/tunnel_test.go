@@ -27,7 +27,7 @@ func TestSupportsTunnel(t *testing.T) {
 }
 
 func TestTunnelOpenEncodeDecodeAs(t *testing.T) {
-	want := TunnelOpen{TunnelID: "t-0123456789ab", Target: "127.0.0.1:8080", RelayNonce: "0123456789abcdef"}
+	want := TunnelOpen{TunnelID: "t-0123456789ab", Target: "127.0.0.1:8080", RelayNonce: "0123456789abcdef", Network: "tcp"}
 	b, err := EncodeFrame(TypeTunnelOpen, "", want)
 	if err != nil {
 		t.Fatalf("EncodeFrame: %v", err)
@@ -40,7 +40,7 @@ func TestTunnelOpenEncodeDecodeAs(t *testing.T) {
 	if err := json.Unmarshal(wire["payload"], &payload); err != nil {
 		t.Fatalf("payload JSON: %v", err)
 	}
-	for _, key := range []string{"tunnel_id", "target", "relay_nonce"} {
+	for _, key := range []string{"tunnel_id", "target", "relay_nonce", "network"} {
 		if _, ok := payload[key]; !ok {
 			t.Errorf("payload missing JSON field %q", key)
 		}

@@ -12,6 +12,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
+	"github.com/inhere/gofer/internal/tunnel"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -593,6 +594,21 @@ func (h *Hub) LiveInstance(workerID string) (string, bool) {
 		return "", false
 	}
 	return ws.InstanceID, true
+}
+
+// OpenTunnel sends a tunnel control frame without consuming job capacity.
+func (h *Hub) OpenTunnel(workerID, tunnelID, network, target, relayNonce string) error {
+	wc, ok := h.reg.Get(workerID)
+	if !ok {
+		return fmt.Errorf("%w: %w", ErrWorkerOffline, tunnel.ErrWorkerOffline)
+	}
+	if !wsproto.SupportsTunnel(wc.protocolVersion()) {
+		return fmt.Errorf("%w: worker protocol %d", tunnel.ErrUnsupported, wc.protocolVersion())
+	}
+	if network == "" {
+		network = "tcp"
+	}
+	return wc.writeFrame(context.Background(), wsproto.TypeTunnelOpen, "", wsproto.TunnelOpen{TunnelID: tunnelID, Target: target, RelayNonce: relayNonce, Network: network})
 }
 
 // Dispatch sends a dispatch frame to the target worker. It errors when the

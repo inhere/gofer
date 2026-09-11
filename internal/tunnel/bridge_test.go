@@ -109,3 +109,90 @@ func TestBridgeContextCancel(t *testing.T) {
 		t.Fatal("timeout")
 	}
 }
+
+func TestBridgeTCPClosed(t *testing.T) {
+	result := make(chan error, 1)
+	started := make(chan struct{})
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		a, b := net.Pipe()
+		go func() {
+			close(started)
+			_, _, err := Bridge(context.Background(), ws, a)
+			result <- err
+		}()
+		// Closing the peer simulates the TCP endpoint going away.
+		<-started
+		go func() { _ = b.Close() }()
+	}))
+	t.Cleanup(srv.Close)
+	u := "ws" + srv.URL[4:]
+	ws, _, err := websocket.Dial(context.Background(), u, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = ws.Close(websocket.StatusNormalClosure, "") })
+	clientRead := make(chan error, 1)
+	go func() {
+		_, _, err := ws.Reader(context.Background())
+		clientRead <- err
+	}()
+
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("Bridge returned error after TCP close: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Bridge did not return after TCP close")
+	}
+	err = <-clientRead
+	if websocket.CloseStatus(err) != websocket.StatusNormalClosure {
+		t.Fatalf("websocket close status = %v, err = %v", websocket.CloseStatus(err), err)
+	}
+}
+
+func TestBridgeWSClosed(t *testing.T) {
+	result := make(chan error, 1)
+	peer := make(chan net.Conn, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ws, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		a, b := net.Pipe()
+		peer <- b
+		go func() {
+			_, _, err := Bridge(context.Background(), ws, a)
+			result <- err
+		}()
+	}))
+	t.Cleanup(srv.Close)
+	u := "ws" + srv.URL[4:]
+	ws, _, err := websocket.Dial(context.Background(), u, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := <-peer
+	defer b.Close()
+	if err := ws.Close(websocket.StatusNormalClosure, ""); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("Bridge returned error after websocket close: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Bridge did not return after websocket close")
+	}
+	_ = b.SetReadDeadline(time.Now().Add(time.Second))
+	var buf [1]byte
+	_, err = b.Read(buf[:])
+	if err != io.EOF && err != net.ErrClosed {
+		t.Fatalf("TCP peer read error = %v, want EOF or closed", err)
+	}
+}
