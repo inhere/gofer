@@ -48,4 +48,6 @@ type Store interface {
 	// ReadLogTail returns the last maxBytes of a log stream (whole file when
 	// maxBytes <= 0). It is the read path used by the HTTP log endpoints (P5).
 	ReadLogTail(jobID string, stream Stream, maxBytes int64) ([]byte, error)
+	// ReadLogHead returns the first lines and total logical line count.
+	ReadLogHead(jobID string, stream Stream, lines int) ([]byte, int, error)
 }

@@ -235,6 +235,27 @@ func (s *FileStore) ReadLogLines(jobID string, stream Stream, lines, offset int)
 	return data[startByte:endByte], totalLines, nil
 }
 
+// ReadLogHead returns the first lines of a log and its total logical line count.
+func (s *FileStore) ReadLogHead(jobID string, stream Stream, lines int) ([]byte, int, error) {
+	name, err := logFileName(stream)
+	if err != nil {
+		return nil, 0, err
+	}
+	data, err := os.ReadFile(filepath.Join(s.Dir(jobID), name))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return []byte{}, 0, nil
+		}
+		return nil, 0, err
+	}
+	total := countLogicalLines(data)
+	if lines <= 0 || total == 0 || lines >= total {
+		return data, total, nil
+	}
+	starts := lineStartOffsets(data, total)
+	return data[:starts[lines]], total, nil
+}
+
 func countLogicalLines(data []byte) int {
 	if len(data) == 0 {
 		return 0

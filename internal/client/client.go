@@ -528,12 +528,49 @@ func (c *Client) ListArtifacts(id string) (json.RawMessage, error) {
 	return resp.Artifacts, nil
 }
 
-// GetLogs reads the tail of a job's "stdout" or "stderr" stream as plain text.
+// GetLogs reads the byte tail of a job log stream as plain text.
 func (c *Client) GetLogs(id, stream string) (string, error) {
 	if stream != "stdout" && stream != "stderr" {
 		return "", fmt.Errorf("invalid log stream %q (want stdout|stderr)", stream)
 	}
 	resp, err := c.do(http.MethodGet, "/v1/jobs/"+url.PathEscape(id)+"/logs/"+stream+"?bytes=262144", nil)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read log response: %w", err)
+	}
+	if err := errorFor(resp.StatusCode, data); err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// LogOpts controls a line-window log request.
+type LogOpts struct {
+	Stream string
+	Lines  int
+	Head   bool
+}
+
+// GetLogsWindow reads a log using a line window, or the legacy byte tail when Lines is zero.
+func (c *Client) GetLogsWindow(id string, opts LogOpts) (string, error) {
+	if opts.Stream != "stdout" && opts.Stream != "stderr" {
+		return "", fmt.Errorf("invalid log stream %q (want stdout|stderr)", opts.Stream)
+	}
+	path := "/v1/jobs/" + url.PathEscape(id) + "/logs/" + opts.Stream
+	if opts.Lines > 0 {
+		if opts.Head {
+			path += "?head=1&lines=" + strconv.Itoa(opts.Lines)
+		} else {
+			path += "?lines=" + strconv.Itoa(opts.Lines)
+		}
+	} else {
+		path += "?bytes=262144"
+	}
+	resp, err := c.do(http.MethodGet, path, nil)
 	if err != nil {
 		return "", err
 	}

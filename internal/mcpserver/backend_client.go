@@ -68,9 +68,8 @@ func (b *clientBackend) ListPendingInteractions() ([]job.Interaction, error) {
 	return b.cli.ListPendingInteractions()
 }
 
-// TailLog reads the full stream from the server then trims to the last maxBytes
-// client-side (the /logs endpoint returns the whole tail; the byte cap is the
-// handler's contract). maxBytes<=0 means "no cap".
+// TailLog reads the server's legacy byte-tail response and optionally trims it
+// further client-side. maxBytes<=0 means "no cap".
 func (b *clientBackend) TailLog(id, stream string, maxBytes int64) (string, error) {
 	s, err := b.cli.GetLogs(id, stream)
 	if err != nil {

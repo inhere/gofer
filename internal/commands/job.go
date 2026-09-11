@@ -52,6 +52,10 @@ var jobRunOpts = struct {
 // --server/--token connection flags live in the shared jobConnOpts).
 var jobCommonOpts = struct {
 	logsStream string
+	logsStderr bool
+	logsLines  int
+	logsHead   bool
+	logsTail   bool
 }{}
 
 // jobConnOpts holds the --server/--token connection flags shared by EVERY `job`
@@ -148,7 +152,11 @@ func NewJobCmd() *gcli.Command {
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
-					c.StrOpt(&jobCommonOpts.logsStream, "stream", "", "stdout", "log stream: stdout|stderr")
+					c.StrOpt(&jobCommonOpts.logsStream, "stream", "", "", "log stream: stdout|stderr")
+					c.BoolOpt(&jobCommonOpts.logsStderr, "stderr", "", false, "read stderr stream")
+					c.IntOpt(&jobCommonOpts.logsLines, "lines", "n", 0, "number of lines (last N; first N with --head; default 20 with --head/--tail)")
+					c.BoolOpt(&jobCommonOpts.logsHead, "head", "", false, "read first lines")
+					c.BoolOpt(&jobCommonOpts.logsTail, "tail", "", false, "read last lines")
 					c.AddArg("id", "job id", true)
 				},
 				Func: runJobLogs,
@@ -357,7 +365,7 @@ func runJobRun(c *gcli.Command, _ []string) error {
 	// final result, so no extra poll is needed.
 	polled := false
 	if jobRunOpts.wait || sub.Async {
-		final, err := waitTerminal(cli, res.ID)
+		final, err := waitTerminal(cli, res.ID, jobRunOpts.timeout)
 		if err != nil {
 			return err
 		}
@@ -368,8 +376,17 @@ func runJobRun(c *gcli.Command, _ []string) error {
 	// server-side, sync/md that fell back to polling, or --wait).
 	if polled || jobRunOpts.sync || job.IsTerminal(res.Status) {
 		c.Printf("job %s finished: status=%s exit_code=%d\n", res.ID, res.Status, res.ExitCode)
+		if shouldPrintJobStderr(res) {
+			if logs, e := cli.GetLogsWindow(res.ID, client.LogOpts{Stream: "stderr", Lines: 20}); e == nil && logs != "" {
+				fmt.Fprint(os.Stderr, "--- stderr (last 20 lines) ---\n", logs)
+			}
+		}
 	}
 	return nil
+}
+
+func shouldPrintJobStderr(res job.JobResult) bool {
+	return res.ExitCode != 0 || res.Status == job.StatusFailed || res.Status == job.StatusTimeout || res.Status == job.StatusCancelled
 }
 
 // guardInteractiveSync forces async submission for --interactive jobs (tools-l8p).
@@ -533,9 +550,22 @@ func splitLabels(s string) []string {
 }
 
 // waitTerminal polls GetJob until the job reaches a terminal state.
-func waitTerminal(cli *client.Client, id string) (job.JobResult, error) {
-	deadline := time.Now().Add(10 * time.Minute)
-	for time.Now().Before(deadline) {
+// waitGrace is how long the client keeps polling past the job's own timeout.
+const waitGrace = 2 * time.Minute
+
+// waitDeadline bounds a client-side wait: the job's timeout plus waitGrace when
+// the caller knows it, else the zero time (no client cap — the server's own
+// timeout still drives the job to a terminal state).
+func waitDeadline(now time.Time, timeoutSec int) time.Time {
+	if timeoutSec <= 0 {
+		return time.Time{}
+	}
+	return now.Add(time.Duration(timeoutSec)*time.Second + waitGrace)
+}
+
+func waitTerminal(cli *client.Client, id string, timeoutSec int) (job.JobResult, error) {
+	deadline := waitDeadline(time.Now(), timeoutSec)
+	for {
 		res, err := cli.GetJob(id)
 		if err != nil {
 			return res, err
@@ -544,9 +574,11 @@ func waitTerminal(cli *client.Client, id string) (job.JobResult, error) {
 		case job.StatusDone, job.StatusFailed, job.StatusCancelled, job.StatusTimeout:
 			return res, nil
 		}
+		if !deadline.IsZero() && time.Now().After(deadline) {
+			return job.JobResult{}, fmt.Errorf("job %s did not finish within the wait window", id)
+		}
 		time.Sleep(300 * time.Millisecond)
 	}
-	return job.JobResult{}, fmt.Errorf("job %s did not finish within the wait window", id)
 }
 
 func runJobShow(c *gcli.Command, _ []string) error {
@@ -589,20 +621,50 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	return nil
 }
 
+// defaultLogWindowLines is the line count `job logs --head/--tail` uses without -n.
+const defaultLogWindowLines = 20
+
+// resolveLogOpts maps the `job logs` flags onto a log window request. Without
+// -n/--head/--tail the result keeps the legacy byte-tail read (Lines == 0); -n
+// alone means the last N lines; --head/--tail without -n default to
+// defaultLogWindowLines.
+func resolveLogOpts(stream string, stderr bool, lines int, head, tail bool) (client.LogOpts, error) {
+	if head && tail {
+		return client.LogOpts{}, fmt.Errorf("--head and --tail are mutually exclusive")
+	}
+	if stderr && stream != "" && stream != "stderr" {
+		return client.LogOpts{}, fmt.Errorf("--stderr conflicts with --stream %s", stream)
+	}
+	if lines < 0 {
+		return client.LogOpts{}, fmt.Errorf("--lines must be >= 1")
+	}
+	if stderr {
+		stream = "stderr"
+	}
+	if stream == "" {
+		stream = "stdout"
+	}
+	if (head || tail) && lines == 0 {
+		lines = defaultLogWindowLines
+	}
+	return client.LogOpts{Stream: stream, Lines: lines, Head: head}, nil
+}
+
 func runJobLogs(c *gcli.Command, _ []string) error {
 	id := argID(c)
 	if id == "" {
 		return fmt.Errorf("job logs requires an <id> argument")
 	}
-	stream := jobCommonOpts.logsStream
-	if stream == "" {
-		stream = "stdout"
+	opts, err := resolveLogOpts(jobCommonOpts.logsStream, jobCommonOpts.logsStderr,
+		jobCommonOpts.logsLines, jobCommonOpts.logsHead, jobCommonOpts.logsTail)
+	if err != nil {
+		return err
 	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
 		return err
 	}
-	out, err := cli.GetLogs(id, stream)
+	out, err := cli.GetLogsWindow(id, opts)
 	if err != nil {
 		return err
 	}

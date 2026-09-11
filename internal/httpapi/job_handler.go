@@ -223,6 +223,25 @@ func (s *Server) serveLog(c *rux.Context, stream store.Stream) {
 		c.Text(http.StatusOK, string(data))
 		return
 	}
+	if c.Query("head") == "1" {
+		if c.Query("offset") != "" {
+			writeError(c, http.StatusBadRequest, "invalid log window", "head and offset are mutually exclusive")
+			return
+		}
+		lines, _ := strconv.Atoi(c.Query("lines"))
+		if lines <= 0 {
+			lines = defaultLogLines
+		}
+		data, total, err := fs.ReadLogHead(id, stream, lines)
+		if err != nil {
+			writeError(c, http.StatusInternalServerError, "read log failed", err.Error())
+			return
+		}
+		c.SetHeader("X-Log-Total-Lines", strconv.Itoa(total))
+		c.SetHeader("X-Log-Lines", strconv.Itoa(countResponseLines(data)))
+		c.Text(http.StatusOK, string(data))
+		return
+	}
 
 	lines, offset := parseLogLineWindow(c)
 	data, total, err := fs.ReadLogLines(id, stream, lines, offset)
