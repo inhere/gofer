@@ -11,6 +11,12 @@ import (
 	"time"
 )
 
+// spliceTestWait bounds how long a test waits for Splice to return. It is an upper
+// bound, not an expected duration (passing runs take milliseconds): closing both
+// websockets can take noticeably longer when the whole suite runs in parallel, and
+// the websocket close handshake alone may wait up to 5s.
+const spliceTestWait = 10 * time.Second
+
 func spliceEndpoint(t *testing.T, ch chan<- *websocket.Conn) (*websocket.Conn, func()) {
 	s := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, e := websocket.Accept(w, r, nil)
@@ -99,7 +105,7 @@ func TestSpliceWorkerClosedAndCtx(t *testing.T) {
 		if r.Reason != "worker_closed" {
 			t.Fatal(r.Reason)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(spliceTestWait):
 		t.Fatal("timeout")
 	}
 	ca, cb = make(chan *websocket.Conn, 1), make(chan *websocket.Conn, 1)
@@ -119,7 +125,7 @@ func TestSpliceWorkerClosedAndCtx(t *testing.T) {
 		if r.Reason != "ctx_done" {
 			t.Fatal(r.Reason)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(spliceTestWait):
 		t.Fatal("timeout")
 	}
 	_ = a
@@ -142,7 +148,7 @@ func TestSplicePingTimeout(t *testing.T) {
 		if r.Reason != "ping_timeout" {
 			t.Fatal(r.Reason)
 		}
-	case <-time.After(time.Second):
+	case <-time.After(spliceTestWait):
 		t.Fatal("timeout")
 	}
 	_ = a
