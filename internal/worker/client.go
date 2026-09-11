@@ -30,6 +30,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/wsproto"
@@ -90,9 +91,12 @@ type Client struct {
 	// instanceID is this process's nonce (minted once in New, reused across
 	// reconnects) sent in every register frame so the hub can tell a reconnect from
 	// a restart (z8ow). See newInstanceID / wsproto.Register.InstanceID.
-	instanceID string
-	urls       []string // hub addresses; rotated on connect failure (C7, §5.2)
-	token      string
+	instanceID   string
+	urls         []string // hub addresses; rotated on connect failure (C7, §5.2)
+	token        string
+	tunnelPolicy atomic.Pointer[tunnelPolicy]
+	tunnelMu     sync.Mutex
+	tunnelActive int
 
 	// caps is the config-derived capability snapshot this worker advertises
 	// (labels / projects / agents / typed agent caps / max_concurrent). It is what
@@ -245,6 +249,7 @@ type Config struct {
 	PingInterval   time.Duration
 	ReadDeadline   time.Duration
 	Rng            *mathrand.Rand
+	Tunnel         config.WorkerTunnelConfig
 }
 
 // New builds a worker client. jobs is the worker's local job service (built from
@@ -292,6 +297,7 @@ func New(cfg Config, jobs Jobs) *Client {
 		pendingCancel: map[string]struct{}{},
 		pollInterval:  200 * time.Millisecond,
 	}
+	cl.applyTunnel(outTunnel(cfg.Tunnel))
 	// Seed the in-memory last-known-good so a SIGHUP before the first server Policy
 	// re-projects the recovered cache rather than no-op'ing to empty (verification 9).
 	if cfg.InitialPolicy != nil {
@@ -681,6 +687,11 @@ func (cl *Client) recvLoop(ctx context.Context, url string, gen uint64) error {
 				cl.offerPolicy(gen, pf)
 			} else {
 				cl.replyLegacyApplied(ctx, pf.Rev)
+			}
+		case wsproto.TypeTunnelOpen:
+			t, derr := wsproto.As[wsproto.TunnelOpen](env)
+			if derr == nil {
+				go cl.handleTunnelOpen(ctx, url, t)
 			}
 		case wsproto.TypePing:
 			// P3: the hub pings us; reply pong{ts} (symmetric, §5.1). Reading the

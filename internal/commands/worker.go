@@ -341,6 +341,7 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 		InitialPolicy:  initialPolicy,
 		GoferVersion:   info.DisplayVersion(),
 		MaxConc:        caps.MaxConc,
+		Tunnel:         wc.Tunnel,
 		InitialBackoff: msToDuration(rc.InitialBackoffMS),
 		MaxBackoff:     msToDuration(rc.MaxBackoffMS),
 		PingInterval:   secToDuration(rc.PingIntervalSec),
@@ -404,6 +405,7 @@ func newWorkerReloadFn(cr *core.Core, det *availabilityRecorder, path, workerID 
 					AppliedRev: p.Rev,
 					Rejected:   rejected,
 					Degraded:   diagnosePolicy(cfg, *p, wc, detected),
+					Tunnel:     &wc.Tunnel,
 				}, nil
 			}
 			// p == nil: a SIGHUP with no last-known-good yet (fresh POLICY worker, or one
@@ -413,7 +415,8 @@ func newWorkerReloadFn(cr *core.Core, det *availabilityRecorder, path, workerID 
 			// next time a real policy is projected.
 			active := cr.Config()
 			return worker.ReloadOutcome{
-				Caps: workerCaps(wc, active, det.snapshot(), mapKeys(active.Projects)),
+				Caps:   workerCaps(wc, active, det.snapshot(), mapKeys(active.Projects)),
+				Tunnel: &wc.Tunnel,
 			}, nil
 		default:
 			// LEGACY / EMPTY: source projects from the worker's own config. ReloadWith runs
@@ -424,7 +427,8 @@ func newWorkerReloadFn(cr *core.Core, det *availabilityRecorder, path, workerID 
 				return worker.ReloadOutcome{}, err
 			}
 			return worker.ReloadOutcome{
-				Caps: workerCaps(wc, cfg, det.snapshot(), mapKeys(wc.Projects)),
+				Caps:   workerCaps(wc, cfg, det.snapshot(), mapKeys(wc.Projects)),
+				Tunnel: &wc.Tunnel,
 			}, nil
 		}
 	}

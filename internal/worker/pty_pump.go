@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"net/url"
 	"sync/atomic"
 
 	"github.com/coder/websocket"
@@ -171,13 +170,11 @@ func (cl *Client) ptyInputLoop(ctx context.Context, conn *websocket.Conn, sess p
 // for the pty-connect endpoint (D-P2-7 per-dispatch). A URL with no host is a
 // fail-fast error (the caller cancels rather than dial garbage).
 func derivePtyConnectURL(hubURL string) (string, error) {
-	u, err := url.Parse(hubURL)
-	if err != nil || u.Host == "" {
+	u, err := deriveConnectURL(hubURL, ptyConnectPath)
+	if err != nil {
 		return "", fmt.Errorf("pty pump: bad hub url %q", hubURL)
 	}
-	u.Path = ptyConnectPath
-	u.RawQuery = ""
-	return u.String(), nil
+	return u, nil
 }
 
 // clampSize bounds a requested window size to sane limits (cols 1..500, rows

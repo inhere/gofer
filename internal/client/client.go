@@ -6,6 +6,7 @@ package client
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,11 +17,74 @@ import (
 	"strings"
 	"time"
 
+	"github.com/coder/websocket"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/presence"
+	"github.com/inhere/gofer/internal/tunnel"
 )
+
+// TunnelError reports an HTTP tunnel refusal.
+type TunnelError struct {
+	Status int
+	Msg    string
+}
+
+func (e *TunnelError) Error() string { return fmt.Sprintf("tunnel: HTTP %d: %s", e.Status, e.Msg) }
+
+type TunnelInfo struct {
+	ID           string    `json:"id"`
+	CallerID     string    `json:"caller_id"`
+	WorkerID     string    `json:"worker_id"`
+	Target       string    `json:"target"`
+	ClientRemote string    `json:"client_remote"`
+	StartedAt    time.Time `json:"started_at"`
+	BytesUp      int64     `json:"bytes_up"`
+	BytesDown    int64     `json:"bytes_down"`
+}
+
+// DialTunnel opens a worker TCP tunnel websocket.
+func (c *Client) DialTunnel(ctx context.Context, workerID, target string) (*websocket.Conn, error) {
+	u, err := url.Parse(c.baseURL)
+	if err != nil {
+		return nil, err
+	}
+	if u.Scheme == "http" {
+		u.Scheme = "ws"
+	} else if u.Scheme == "https" {
+		u.Scheme = "wss"
+	}
+	u.Path = tunnel.ConnectPath
+	q := u.Query()
+	q.Set("worker", workerID)
+	q.Set("target", target)
+	u.RawQuery = q.Encode()
+	h := http.Header{}
+	if c.token != "" {
+		h.Set("Authorization", "Bearer "+c.token)
+	}
+	ws, resp, err := websocket.Dial(ctx, u.String(), &websocket.DialOptions{HTTPHeader: h, CompressionMode: websocket.CompressionDisabled})
+	if err != nil {
+		if resp != nil {
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			resp.Body.Close()
+			return nil, &TunnelError{Status: resp.StatusCode, Msg: strings.TrimSpace(string(b))}
+		}
+		return nil, err
+	}
+	ws.SetReadLimit(tunnel.ReadLimit)
+	return ws, nil
+}
+
+// ListTunnels lists active tunnels.
+func (c *Client) ListTunnels() ([]TunnelInfo, error) {
+	var out struct {
+		Tunnels []TunnelInfo `json:"tunnels"`
+	}
+	err := c.doJSON(http.MethodGet, "/v1/tunnels", nil, &out)
+	return out.Tunnels, err
+}
 
 // Client talks to a running gofer server. It is safe for sequential use;
 // the zero value is not usable — construct it with New.

@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"time"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -19,6 +20,7 @@ type ReloadOutcome struct {
 	AppliedRev int64
 	Rejected   []wsproto.AppliedRejection
 	Degraded   []wsproto.AppliedDegrade
+	Tunnel     *config.WorkerTunnelConfig
 }
 
 // ReloadFunc re-reads the worker's config from disk and applies it, returning the
@@ -188,6 +190,9 @@ func (cl *Client) runReload(p *wsproto.Policy) (ReloadOutcome, error) {
 	out, err := cl.reloadFn(p)
 	if err == nil {
 		cl.storeCaps(out.Caps)
+		if out.Tunnel != nil {
+			cl.applyTunnel(outTunnel(*out.Tunnel))
+		}
 	}
 	return out, err
 }
