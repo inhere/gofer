@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -39,6 +40,10 @@ func Splice(ctx context.Context, client, worker *websocket.Conn, opt SpliceOptio
 	}
 	ch := make(chan r, 2)
 	var up, down int64
+	// progMu serialises "add bytes + OnProgress" across the two directions so the
+	// callback always observes monotonically non-decreasing totals (the registry's
+	// update stores them as-is, so an out-of-order call would briefly regress them).
+	var progMu sync.Mutex
 	f := func(src, dst *websocket.Conn) {
 		for {
 			t, rd, e := src.Reader(ctx)
@@ -53,13 +58,17 @@ func Splice(ctx context.Context, client, worker *websocket.Conn, opt SpliceOptio
 			buf, e := io.ReadAll(io.LimitReader(rd, ReadLimit))
 			if e == nil {
 				e = dst.Write(ctx, websocket.MessageBinary, buf)
-				if src == client {
-					atomic.AddInt64(&up, int64(len(buf)))
-				} else {
-					atomic.AddInt64(&down, int64(len(buf)))
-				}
-				if opt.OnProgress != nil {
-					opt.OnProgress(atomic.LoadInt64(&up), atomic.LoadInt64(&down))
+				if e == nil { // only bytes actually delivered count
+					progMu.Lock()
+					if src == client {
+						atomic.AddInt64(&up, int64(len(buf)))
+					} else {
+						atomic.AddInt64(&down, int64(len(buf)))
+					}
+					if opt.OnProgress != nil {
+						opt.OnProgress(atomic.LoadInt64(&up), atomic.LoadInt64(&down))
+					}
+					progMu.Unlock()
 				}
 			}
 			if e != nil {

@@ -20,21 +20,21 @@ var tunnelOpts struct {
 
 // NewTunnelCmd builds tunnel subcommands.
 func NewTunnelCmd() *gcli.Command {
-	f := &gcli.Command{Name: "forward", Aliases: []string{"fwd"}, Config: func(c *gcli.Command) {
+	f := &gcli.Command{Name: "forward", Aliases: []string{"fwd"}, Desc: "Forward local TCP ports through a worker tunnel.", Config: func(c *gcli.Command) {
 		bindConfigFlag(c)
 		bindServerFlags(c)
 		c.StrOpt(&tunnelOpts.worker, "worker", "w", "", "worker id")
 		c.BoolOpt(&tunnelOpts.quiet, "quiet", "", false, "quiet")
 		c.AddArg("spec", "forward spec [bind:]lport:host:port (one or more)", true, true)
 	}, Func: runTunnelForward}
-	ch := &gcli.Command{Name: "check", Config: func(c *gcli.Command) {
+	ch := &gcli.Command{Name: "check", Desc: "Check connectivity to a worker tunnel target.", Config: func(c *gcli.Command) {
 		bindConfigFlag(c)
 		bindServerFlags(c)
 		c.StrOpt(&tunnelOpts.worker, "worker", "w", "", "worker id")
 		c.AddArg("target", "host:port", true)
 	}, Func: runTunnelCheck}
-	ls := &gcli.Command{Name: "ls", Aliases: []string{"list"}, Config: func(c *gcli.Command) { bindConfigFlag(c); bindServerFlags(c) }, Func: runTunnelList}
-	return &gcli.Command{Name: "tunnel", Aliases: []string{"tun"}, Subs: []*gcli.Command{f, ch, ls}}
+	ls := &gcli.Command{Name: "ls", Aliases: []string{"list"}, Desc: "List active worker tunnels.", Config: func(c *gcli.Command) { bindConfigFlag(c); bindServerFlags(c) }, Func: runTunnelList}
+	return &gcli.Command{Name: "tunnel", Aliases: []string{"tun"}, Desc: "Manage TCP tunnels.", Subs: []*gcli.Command{f, ch, ls}}
 }
 func tunnelClient() (*client.Client, error) {
 	return newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)

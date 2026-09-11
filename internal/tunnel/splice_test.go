@@ -41,22 +41,32 @@ func TestSpliceBidirectionalProgress(t *testing.T) {
 	x := []byte("hello")
 	y := []byte("world!")
 	rd := make(chan struct{}, 2)
-	go func() {
-		_, r, _ := a.Reader(context.Background())
-		if r != nil {
-			io.ReadAll(r)
+	// drain signals once the forwarded message arrived, then keeps reading so the
+	// close handshake Splice starts on teardown completes without the 5s timeout.
+	drain := func(c *websocket.Conn) {
+		signalled := false
+		for {
+			_, r, err := c.Reader(context.Background())
+			if err == nil {
+				_, _ = io.ReadAll(r)
+			}
+			if !signalled {
+				signalled = true
+				rd <- struct{}{}
+			}
+			if err != nil {
+				return
+			}
 		}
-		rd <- struct{}{}
-	}()
-	go func() {
-		_, r, _ := b.Reader(context.Background())
-		if r != nil {
-			io.ReadAll(r)
-		}
-		rd <- struct{}{}
-	}()
+	}
+	go drain(a)
+	go drain(b)
 	a.Write(context.Background(), websocket.MessageBinary, x)
 	b.Write(context.Background(), websocket.MessageBinary, y)
+	// Both messages must be delivered before the client closes; otherwise the
+	// worker->client write races the close and the splice ends as worker_closed.
+	<-rd
+	<-rd
 	a.Close(websocket.StatusNormalClosure, "")
 	r := <-done
 	if r.Up != int64(len(x)) || r.Down != int64(len(y)) {
