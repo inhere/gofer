@@ -29,11 +29,14 @@ type planView struct {
 	UpdatedAt   int64  `json:"updated_at"`
 }
 
-// planListItem 是 list 响应项：header + 其下 jobs 的 counts（列表进度条数据源，P4/T10）。
-// detail（planDetail）另含 jobs/todos；list 仅带 counts 保持轻量。
+// planListItem 是 list 响应项：header + 进度汇总（列表进度条数据源，P4/T10）。
+// completion 是唯一进度口径（待办优先、无待办回落 job，jobstore.RollupPlanCompletion）；
+// counts / todo_counts 是原始汇总。detail（planDetail）另含 jobs/todos/decisions 明细。
 type planListItem struct {
 	planView
-	Counts jobstore.PlanCounts `json:"counts"`
+	Counts     jobstore.PlanCounts     `json:"counts"`
+	TodoCounts jobstore.PlanTodoCounts `json:"todo_counts"`
+	Completion jobstore.PlanCompletion `json:"completion"`
 }
 
 func toPlanView(p jobstore.Plan) planView {
@@ -129,6 +132,16 @@ func (s *Server) handleListPlans(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "list plans failed", err.Error())
 		return
 	}
+	ids := make([]string, len(list))
+	for i, p := range list {
+		ids[i] = p.PlanID
+	}
+	// One grouped query for every listed plan's todos (no per-plan todo query).
+	todoCounts, err := s.jobs.Meta().PlanTodoCountsByPlan(ids)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "plan todo counts failed", err.Error())
+		return
+	}
 	out := make([]planListItem, 0, len(list))
 	for _, p := range list {
 		raw, cErr := s.jobs.Meta().PlanJobStatusCounts(p.PlanID)
@@ -136,9 +149,12 @@ func (s *Server) handleListPlans(c *rux.Context) {
 			writeError(c, http.StatusInternalServerError, "plan counts failed", cErr.Error())
 			return
 		}
+		jc, tc := jobstore.RollupPlanCounts(raw), todoCounts[p.PlanID]
 		out = append(out, planListItem{
-			planView: toPlanView(p),
-			Counts:   jobstore.RollupPlanCounts(raw),
+			planView:   toPlanView(p),
+			Counts:     jc,
+			TodoCounts: tc,
+			Completion: jobstore.RollupPlanCompletion(jc, tc),
 		})
 	}
 	c.JSON(http.StatusOK, map[string]any{"plans": out})
@@ -146,10 +162,12 @@ func (s *Server) handleListPlans(c *rux.Context) {
 
 type planDetail struct {
 	planView
-	Counts    jobstore.PlanCounts `json:"counts"`
-	Jobs      []job.JobResult     `json:"jobs"`
-	Todos     []todoView          `json:"todos"`
-	Decisions []decisionView      `json:"decisions"`
+	Counts     jobstore.PlanCounts     `json:"counts"`
+	TodoCounts jobstore.PlanTodoCounts `json:"todo_counts"`
+	Completion jobstore.PlanCompletion `json:"completion"`
+	Jobs       []job.JobResult         `json:"jobs"`
+	Todos      []todoView              `json:"todos"`
+	Decisions  []decisionView          `json:"decisions"`
 }
 
 func (s *Server) handleGetPlan(c *rux.Context) {
@@ -182,6 +200,7 @@ func (s *Server) handleGetPlan(c *rux.Context) {
 	for _, t := range todos {
 		todoViews = append(todoViews, toTodoView(t))
 	}
+	jc, tc := jobstore.RollupPlanCounts(raw), jobstore.CountTodos(todos)
 	// Additive: inline the plan's decisions so PlanDetail gets everything in one
 	// request on the existing poll (decision channel, Part C §C3).
 	decisions, err := s.jobs.Meta().ListDecisions("", id)
@@ -194,11 +213,13 @@ func (s *Server) handleGetPlan(c *rux.Context) {
 		decisionViews = append(decisionViews, toDecisionView(*d))
 	}
 	c.JSON(http.StatusOK, planDetail{
-		planView:  toPlanView(p),
-		Counts:    jobstore.RollupPlanCounts(raw),
-		Jobs:      jobs,
-		Todos:     todoViews,
-		Decisions: decisionViews,
+		planView:   toPlanView(p),
+		Counts:     jc,
+		TodoCounts: tc,
+		Completion: jobstore.RollupPlanCompletion(jc, tc),
+		Jobs:       jobs,
+		Todos:      todoViews,
+		Decisions:  decisionViews,
 	})
 }
 

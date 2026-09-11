@@ -706,18 +706,20 @@ func (c *Client) CancelWorkflow(id string) (Workflow, error) {
 // Plan is the client-side view of a plan header. GetPlan inlines its jobs,
 // todos and decisions.
 type Plan struct {
-	PlanID      string               `json:"plan_id"`
-	Title       string               `json:"title,omitempty"`
-	Description string               `json:"description,omitempty"`
-	Status      string               `json:"status"`
-	Owner       string               `json:"owner,omitempty"`
-	Progress    int                  `json:"progress,omitempty"`
-	CreatedAt   int64                `json:"created_at"`
-	UpdatedAt   int64                `json:"updated_at"`
-	Counts      *jobstore.PlanCounts `json:"counts,omitempty"`
-	Jobs        []job.JobResult      `json:"jobs,omitempty"`
-	Todos       []Todo               `json:"todos,omitempty"`
-	Decisions   []Decision           `json:"decisions,omitempty"`
+	PlanID      string                   `json:"plan_id"`
+	Title       string                   `json:"title,omitempty"`
+	Description string                   `json:"description,omitempty"`
+	Status      string                   `json:"status"`
+	Owner       string                   `json:"owner,omitempty"`
+	Progress    int                      `json:"progress,omitempty"`
+	CreatedAt   int64                    `json:"created_at"`
+	UpdatedAt   int64                    `json:"updated_at"`
+	Counts      *jobstore.PlanCounts     `json:"counts,omitempty"`
+	TodoCounts  *jobstore.PlanTodoCounts `json:"todo_counts,omitempty"`
+	Completion  *jobstore.PlanCompletion `json:"completion,omitempty"`
+	Jobs        []job.JobResult          `json:"jobs,omitempty"`
+	Todos       []Todo                   `json:"todos,omitempty"`
+	Decisions   []Decision               `json:"decisions,omitempty"`
 }
 
 // Todo is the client-side view of a plan todo item. JobID "" is a plain todo.

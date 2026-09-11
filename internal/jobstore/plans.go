@@ -4,6 +4,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 )
 
 // Plan status values. A plan is a lightweight grouping header; it does not
@@ -155,6 +156,124 @@ type PlanCounts struct {
 	Running int `json:"running"`
 	Done    int `json:"done"`
 	Failed  int `json:"failed"`
+}
+
+// PlanTodoCounts is the query-time roll-up of a plan's todos by lifecycle status.
+type PlanTodoCounts struct {
+	Total   int `json:"total"`
+	Pending int `json:"pending"`
+	Doing   int `json:"doing"`
+	Done    int `json:"done"`
+	Skipped int `json:"skipped"`
+}
+
+// add counts n todos of status st (an unknown/legacy status counts as pending).
+func (c *PlanTodoCounts) add(st string, n int) {
+	c.Total += n
+	switch st {
+	case TodoDoing:
+		c.Doing += n
+	case TodoDone:
+		c.Done += n
+	case TodoSkipped:
+		c.Skipped += n
+	default:
+		c.Pending += n
+	}
+}
+
+// CountTodos rolls up already-loaded todos (the plan detail has them in hand).
+func CountTodos(todos []PlanTodo) PlanTodoCounts {
+	var c PlanTodoCounts
+	for _, t := range todos {
+		c.add(t.Status, 1)
+	}
+	return c
+}
+
+// PlanCompletion.Basis values.
+const (
+	CompletionTodos = "todos"
+	CompletionJobs  = "jobs"
+	CompletionNone  = "none"
+)
+
+// PlanCompletion is a plan's single progress figure. Todos are the planned work
+// items, so they win whenever a plan has any (done + skipped count as complete).
+// Only a todo-less plan falls back to its jobs (succeeded / all): jobs include
+// retries and failed attempts, which makes them a poor primary measure. Percent is
+// nil when there is nothing to measure, so clients show "—" rather than 0%.
+type PlanCompletion struct {
+	Basis   string `json:"basis"`
+	Done    int    `json:"done"`
+	Total   int    `json:"total"`
+	Percent *int   `json:"percent"`
+}
+
+// RollupPlanCompletion applies the PlanCompletion rule to a plan's job and todo
+// roll-ups. It is the only place the rule lives; API, CLI and web consume it.
+func RollupPlanCompletion(j PlanCounts, t PlanTodoCounts) PlanCompletion {
+	c := PlanCompletion{Basis: CompletionNone}
+	switch {
+	case t.Total > 0:
+		c.Basis, c.Done, c.Total = CompletionTodos, t.Done+t.Skipped, t.Total
+	case j.Total > 0:
+		c.Basis, c.Done, c.Total = CompletionJobs, j.Done, j.Total
+	}
+	if c.Total > 0 {
+		p := (c.Done*100 + c.Total/2) / c.Total
+		c.Percent = &p
+	}
+	return c
+}
+
+// todoCountsChunk bounds the IN (...) list per query, well under SQLite's
+// host-parameter limit.
+const todoCountsChunk = 500
+
+// PlanTodoCountsByPlan rolls up todo statuses for many plans with one grouped
+// query per chunk (the plan list must not issue a query per plan). Plans without
+// todos are absent from the map, i.e. read as the zero PlanTodoCounts.
+func (s *Store) PlanTodoCountsByPlan(planIDs []string) (map[string]PlanTodoCounts, error) {
+	out := make(map[string]PlanTodoCounts, len(planIDs))
+	for start := 0; start < len(planIDs); start += todoCountsChunk {
+		chunk := planIDs[start:min(start+todoCountsChunk, len(planIDs))]
+		args := make([]any, len(chunk))
+		for i, id := range chunk {
+			args[i] = id
+		}
+		query := `SELECT plan_id, status, COUNT(*) FROM plan_todos WHERE plan_id IN (` +
+			strings.TrimSuffix(strings.Repeat("?,", len(chunk)), ",") + `) GROUP BY plan_id, status`
+		if err := s.scanTodoCounts(query, args, out); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// scanTodoCounts runs one grouped (plan_id, status, count) query into out.
+func (s *Store) scanTodoCounts(query string, args []any, out map[string]PlanTodoCounts) error {
+	rows, err := s.db.Query(query, args...)
+	if err != nil {
+		return fmt.Errorf("jobstore: plan todo counts: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var (
+			planID, status string
+			n              int
+		)
+		if err := rows.Scan(&planID, &status, &n); err != nil {
+			return fmt.Errorf("jobstore: scan plan todo counts: %w", err)
+		}
+		c := out[planID]
+		c.add(status, n)
+		out[planID] = c
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("jobstore: plan todo count rows: %w", err)
+	}
+	return nil
 }
 
 // PlanJobStatusCounts returns a raw status->count map for jobs bound to planID.

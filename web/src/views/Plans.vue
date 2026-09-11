@@ -6,7 +6,8 @@ import { useRouter } from 'vue-router'
 import PlanStatusBadge from '../components/PlanStatusBadge.vue'
 import { createPlan, listPlans } from '../api/client'
 import { fmtDuration } from '../api/time'
-import type { Plan, PlanCounts, PlanStatus } from '../api/types'
+import type { Plan, PlanStatus } from '../api/types'
+import { progressDetail, progressSegments, progressText } from '../utils/planProgress'
 
 const router = useRouter()
 const POLL_MS = 2500
@@ -66,33 +67,8 @@ async function onCreate(): Promise<void> {
   }
 }
 
-// counts 进度条分段（done/running/failed/queued 占比）。counts 缺省（老 list）→ 空条。
-function segments(c?: PlanCounts): Array<{ cls: string; pct: number }> {
-  if (!c || c.total <= 0) {
-    return []
-  }
-  const pct = (n: number) => (n / c.total) * 100
-  return [
-    { cls: 'seg--done', pct: pct(c.done) },
-    { cls: 'seg--run', pct: pct(c.running) },
-    { cls: 'seg--fail', pct: pct(c.failed) },
-    { cls: 'seg--queue', pct: pct(c.queued) },
-  ].filter((s) => s.pct > 0)
-}
-
-function countsText(c?: PlanCounts): string {
-  if (!c) {
-    return '—'
-  }
-  return `${c.done}/${c.total}`
-}
-
-function countsDetail(c?: PlanCounts): string {
-  if (!c || c.total <= 0) {
-    return ''
-  }
-  return `done ${c.done} · running ${c.running} · failed ${c.failed} · queued ${c.queued}`
-}
+// 进度条 / 进度文字 / 副信息见 utils/planProgress：completion（待办优先、无待办回落 job）；
+// 旧服务端无 completion 时回落原 job counts 显示。
 
 function shortId(id: string): string {
   return id.length > 14 ? id.slice(-14) : id
@@ -204,17 +180,17 @@ onUnmounted(() => {
           <span class="count-line">
             <span class="cbar" aria-hidden="true">
               <span
-                v-for="s in segments(p.counts)"
+                v-for="s in progressSegments(p)"
                 :key="s.cls"
                 class="seg"
                 :class="s.cls"
                 :style="{ width: `${s.pct}%` }"
               ></span>
             </span>
-            <span class="count-frac">{{ countsText(p.counts) }}</span>
+            <span class="count-frac">{{ progressText(p) }}</span>
           </span>
-          <span v-if="countsDetail(p.counts)" class="count-detail">
-            {{ countsDetail(p.counts) }}
+          <span v-if="progressDetail(p)" class="count-detail">
+            {{ progressDetail(p) }}
           </span>
         </span>
         <span class="col-updated mono">{{ rowAge(p) }}</span>

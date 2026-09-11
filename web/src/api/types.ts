@@ -862,6 +862,24 @@ export interface PlanCounts {
   done: number
   failed: number
 }
+// A plan's todos by lifecycle status (server roll-up).
+export interface PlanTodoCounts {
+  total: number
+  pending: number
+  doing: number
+  done: number
+  skipped: number
+}
+
+// A plan's single progress figure: todos when it has any (done + skipped count as
+// complete), else its jobs; basis 'none' + percent null = nothing to measure.
+// Absent (undefined) on older servers — treat that as "not supported", not as 0.
+export interface PlanCompletion {
+  basis: 'todos' | 'jobs' | 'none'
+  done: number
+  total: number
+  percent: number | null
+}
 
 // plan 待办项（P3）。job_id 为空=纯待办；非空=绑某次 job 执行（元数据，done 纯手动）。
 // todo 生命周期状态（Part C §C2）：doing 自动记 started_at，done/skipped 记 done_at。
@@ -900,6 +918,8 @@ export interface Plan {
   updated_at: number
   // list（T10 后）与 detail 均带；老 list 响应缺省时为 undefined，渲染做兜底
   counts?: PlanCounts
+  todo_counts?: PlanTodoCounts
+  completion?: PlanCompletion
 }
 
 // plan 详情（GET /v1/plans/{id}）：头部 + counts + 其下 jobs + todos + decisions。

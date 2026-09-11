@@ -13,7 +13,8 @@ import StatusBadge from '../components/StatusBadge.vue'
 import InteractionCard from '../components/InteractionCard.vue'
 import { addTodo, answerDecision, attachJob, getPlan, updatePlan, updateTodo, updateTodoStatus } from '../api/client'
 import { fmtDateTime, fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
-import type { Decision, Interaction, Job, PlanCounts, PlanDetail, PlanStatus, Todo, TodoStatus } from '../api/types'
+import type { Decision, Interaction, Job, PlanDetail, PlanStatus, Todo, TodoStatus } from '../api/types'
+import { progressDetail, progressSegments, progressText } from '../utils/planProgress'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -38,8 +39,9 @@ let timer: number | null = null
 // 规划期提问时无 running job，也要保持轮询）；据此决定是否轮询（仿 WorkflowDetail.isRunning）。
 const isActive = computed(() => {
   const c = plan.value?.counts
+  const todos = plan.value?.todos ?? []
   const hasOpenDecision = plan.value?.decisions?.some((d) => d.state === 'OPEN') ?? false
-  return (!!c && c.running + c.queued > 0) || hasOpenDecision
+  return (!!c && c.running + c.queued > 0) || todos.some((t) => t.status === 'doing') || hasOpenDecision
 })
 
 // 决策通道（T4）：decision → Interaction 投影（复用 InteractionCard）。
@@ -101,8 +103,10 @@ async function onAnswerDecision(d: Decision, value: string): Promise<void> {
 const todoSummary = computed(() => {
   const todos = plan.value?.todos ?? []
   const doing = todos.filter((t) => t.status === 'doing').length
-  const base = `${todos.filter((t) => t.done).length}/${todos.length}`
-  return doing > 0 ? `${base} · ${doing} doing` : base
+  const skipped = todos.filter((t) => t.status === 'skipped').length
+  const complete = todos.filter((t) => t.done || t.status === 'skipped').length
+  const base = `完成 ${complete}/${todos.length}${skipped ? `（含跳过 ${skipped}）` : ''}`
+  return doing > 0 ? `${base} · 进行中 ${doing}` : base
 })
 
 // 生命周期状态推进（Part C §C2）：下拉即改，doing/done 时间戳由服务端自动打。
@@ -136,8 +140,10 @@ function todoDuration(t: Todo): string {
 
 const canFinish = computed(() => {
   const c = plan.value?.counts
-  // 「其下 job 已全部终态」= 有 job 且没有 queued/running。仅作提示，不自动改状态（C2）。
-  return !!c && c.total > 0 && c.queued === 0 && c.running === 0
+  // 「可以收尾」= 没有 queued/running 的 job，且待办为空或全部 done/skipped。仅作提示，不自动改状态（C2）。
+  const todos = plan.value?.todos ?? []
+  const todosDone = todos.length === 0 || todos.every((t) => t.done || t.status === 'skipped')
+  return !!c && c.queued === 0 && c.running === 0 && todosDone
 })
 
 async function fetchPlan(): Promise<void> {
@@ -218,33 +224,8 @@ function viewInBoard(): void {
   void router.push({ path: '/board', query: { plan: props.id } })
 }
 
-// counts 进度条分段（done/running/failed/queued 占比）。counts 缺省（老 list）→ 空条。
-function segments(c?: PlanCounts): Array<{ cls: string; pct: number }> {
-  if (!c || c.total <= 0) {
-    return []
-  }
-  const pct = (n: number) => (n / c.total) * 100
-  return [
-    { cls: 'seg--done', pct: pct(c.done) },
-    { cls: 'seg--run', pct: pct(c.running) },
-    { cls: 'seg--fail', pct: pct(c.failed) },
-    { cls: 'seg--queue', pct: pct(c.queued) },
-  ].filter((s) => s.pct > 0)
-}
-
-function countsText(c?: PlanCounts): string {
-  if (!c) {
-    return '—'
-  }
-  return `${c.done}/${c.total}`
-}
-
-function countsDetail(c?: PlanCounts): string {
-  if (!c || c.total <= 0) {
-    return ''
-  }
-  return `done ${c.done} · running ${c.running} · failed ${c.failed} · queued ${c.queued}`
-}
+// 进度条 / 进度文字 / 副信息见 utils/planProgress：completion（待办优先、无待办回落 job）；
+// 旧服务端无 completion 时回落原 job counts 显示。
 
 function shortId(id: string): string {
   return id.length > 14 ? id.slice(-14) : id
@@ -395,30 +376,34 @@ onUnmounted(() => {
     </div>
 
     <section v-if="plan" class="section">
-      <h2 class="section-title mono">COUNTS</h2>
+      <h2 class="section-title mono">PROGRESS</h2>
       <div class="counts-card mono">
         <div class="count-line">
           <span class="cbar" aria-hidden="true">
             <span
-              v-for="s in segments(plan.counts)"
+              v-for="s in progressSegments(plan)"
               :key="s.cls"
               class="seg"
               :class="s.cls"
               :style="{ width: `${s.pct}%` }"
             ></span>
           </span>
-          <span class="count-frac">{{ countsText(plan.counts) }}</span>
+          <span class="count-frac">{{ progressText(plan) }}</span>
         </div>
         <p v-if="canFinish && plan.status !== 'done'" class="finish-hint">
-          其下 job 已全部终态，可标记完成
+          job 与待办都已收尾，可标记完成
         </p>
-        <div class="legend">
+        <div v-if="plan.completion?.basis === 'todos'" class="legend">
+          <span><i class="dot dot--done"></i>done / skipped</span>
+          <span><i class="dot dot--run"></i>doing</span>
+        </div>
+        <div v-else class="legend">
           <span><i class="dot dot--done"></i>done</span>
           <span><i class="dot dot--run"></i>running</span>
           <span><i class="dot dot--fail"></i>failed</span>
           <span><i class="dot dot--queue"></i>queued</span>
         </div>
-        <p v-if="countsDetail(plan.counts)" class="count-detail">{{ countsDetail(plan.counts) }}</p>
+        <p v-if="progressDetail(plan)" class="count-detail">{{ progressDetail(plan) }}</p>
       </div>
     </section>
 

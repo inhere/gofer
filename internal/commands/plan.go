@@ -234,10 +234,10 @@ func runPlanList(c *gcli.Command, _ []string) error {
 		c.Println("no plans matched the given filter")
 		return nil
 	}
-	c.Printf("%-30s %-10s %-24s %s\n", "PLAN ID", "STATUS", "TITLE", "CREATED")
+	c.Printf("%-30s %-10s %-14s %-24s %s\n", "PLAN ID", "STATUS", "PROGRESS", "TITLE", "CREATED")
 	for _, p := range plans {
-		c.Printf("%-30s %-10s %-24s %s\n",
-			p.PlanID, p.Status, truncate(p.Title, 24), formatStarted(p.CreatedAt))
+		c.Printf("%-30s %-10s %-14s %-24s %s\n",
+			p.PlanID, p.Status, formatCompletionShort(p), truncate(p.Title, 24), formatStarted(p.CreatedAt))
 	}
 	return nil
 }
@@ -484,10 +484,58 @@ func printPlan(c *gcli.Command, p client.Plan) {
 	if p.Owner != "" {
 		c.Printf("owner:       %s\n", p.Owner)
 	}
-	if p.Progress > 0 {
-		c.Printf("progress:    %d\n", p.Progress)
+	if s := formatCompletion(p); s != "" {
+		c.Printf("progress:    %s\n", s)
 	}
 	c.Println("jobs:")
+}
+
+// formatCompletion renders a plan's progress for `plan show`: the server's
+// completion (todos first, jobs as fallback) plus the other dimension, e.g.
+// "5/6 todos (83%) · jobs: 10 done / 1 failed / 11 total". An older server sends
+// no completion; then the legacy manual progress (if set) is shown as before.
+func formatCompletion(p client.Plan) string {
+	c := p.Completion
+	if c == nil {
+		if p.Progress > 0 {
+			return fmt.Sprintf("%d", p.Progress)
+		}
+		return ""
+	}
+	if c.Percent == nil {
+		return "—"
+	}
+	s := fmt.Sprintf("%d/%d %s (%d%%)", c.Done, c.Total, c.Basis, *c.Percent)
+	j := p.Counts
+	switch {
+	case j != nil && j.Total > 0 && c.Basis == jobstore.CompletionTodos:
+		s += fmt.Sprintf(" · jobs: %d done / %d failed / %d total", j.Done, j.Failed, j.Total)
+	case j != nil && c.Basis == jobstore.CompletionJobs:
+		var extra []string
+		if j.Failed > 0 {
+			extra = append(extra, fmt.Sprintf("%d failed", j.Failed))
+		}
+		if j.Running > 0 {
+			extra = append(extra, fmt.Sprintf("%d running", j.Running))
+		}
+		if j.Queued > 0 {
+			extra = append(extra, fmt.Sprintf("%d queued", j.Queued))
+		}
+		if len(extra) > 0 {
+			s += " · " + strings.Join(extra, ", ")
+		}
+	}
+	return s
+}
+
+// formatCompletionShort is the PROGRESS column of `plan list`: "5/6 todos",
+// "10/11 jobs", or "—" when there is nothing to measure (or an older server).
+func formatCompletionShort(p client.Plan) string {
+	c := p.Completion
+	if c == nil || c.Percent == nil {
+		return "—"
+	}
+	return fmt.Sprintf("%d/%d %s", c.Done, c.Total, c.Basis)
 }
 
 func printPlanJobs(c *gcli.Command, jobs []job.JobResult) {
