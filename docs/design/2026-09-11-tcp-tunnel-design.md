@@ -9,6 +9,7 @@
 |---|---|---|---|
 | v0.1 | 2026-09-11 | Claude | 初版：场景、方案取舍、协议 v5、安全模型、配置、CLI、代码落点、实施拆分 T1–T4。 |
 | v0.2 | 2026-09-11 | Claude | 补 §13.2 PLC IDE 经 worker 侧 Gateway 远程在线（CODESYS）、§13.3 其它 IDE/HMI 软件判断方法；§11 补 UDP 广播发现类工具的限制与替代。CLI 须可在 Windows 运行。 |
+| v0.3 | 2026-09-11 | Claude | `TunnelOpen` 与 ws① 预留 `network` 字段（v1 仅 tcp，worker 对非 tcp 明确拒绝），使后续 UDP 转发为纯增量；§11 补 UDP 转发复杂度评估与「已有 VPN」时的取舍。 |
 
 ## 2. 背景与目标
 
@@ -66,6 +67,7 @@
       TunnelID   string `json:"tunnel_id"`
       Target     string `json:"target"`      // host:port，已由 server 做语法校验
       RelayNonce string `json:"relay_nonce"` // 一次性，worker 在 ws② hello 中回传
+      Network    string `json:"network,omitempty"` // 空=tcp；预留 "udp"（v0.3），v1 worker 对非 tcp 回 bad_target
   }
   ```
 
@@ -75,7 +77,7 @@
 ### 5.2 客户端 ws①：`GET /v1/tunnels/connect`
 
 - 注册在 `/v1` 鉴权组**之外**（与 `/v1/workers/pty-connect` 一样：ws 升级失败要裸状态码），handler 自行 Bearer 鉴权。
-- 查询参数：`worker`（必填，worker_id）、`target`（必填，`host:port`，`net.SplitHostPort` 可解析、端口 1–65535、host 非空）。
+- 查询参数：`worker`（必填，worker_id）、`target`（必填，`host:port`，`net.SplitHostPort` 可解析、端口 1–65535、host 非空）、`network`（可选，缺省 `tcp`；v1 只接受 tcp，其它值 400——为 UDP 预留）。
 - 升级前失败 → 裸 HTTP 状态 + `text/plain` 一行原因：
 
 | 状态 | 条件 |
@@ -198,6 +200,8 @@ gofer tunnel ls
 
 - 每条 TCP 连接一次 ws 握手 + rendezvous（通常几十 ms）；对「频繁短连接」协议不友好——后续可在 ws① 上做 yamux 多路复用。
 - 不支持半关闭；不支持 UDP。依赖 **UDP 广播发现**的工具（PLC IDE 网络扫描、部分 HMI 组态软件搜索设备）不能直接穿过隧道：优先把其网关/代理放到 worker 侧、本机只转发网关的 TCP 端口（见 §13.2）；确需 UDP 时再做 UDP 转发（TUN-02 候选）或用三层 VPN（全协议透明，但配置与暴露面更大）。
+- **UDP 转发（TUN-02 候选）评估**：数据面已是按消息转发，UDP 数据报 1:1 映射为 ws 消息，server 拼接无需改动；需增加：`network` 字段启用（v5 已预留，届时无需再升协议版本）、白名单区分 udp、worker 端 connected UDP 收发、CLI 端 UDP 监听按来源地址建会话 + 空闲超时（UDP 无断开信号）。约一个实施任务（~300 行代码 + ~300 行测试）。只覆盖**单播且目标固定**的 UDP；广播/组播发现、报文内嵌 IP 地址的协议（端口映射后地址不符）仍不适用。
+- **与现有 VPN 的关系**：若各机器已在同一 VPN 中，可在 VPN 中把设备网段路由到 worker 所在机（VPN 服务端路由 + 该机 IP 转发/NAT），则 TCP/UDP 单播原生可达（广播仍需 L2 桥接）。本隧道的优势是：无需改网络配置、按白名单细粒度放行、各现场设备网段重叠也无冲突（目标在 worker 本地拨号）、无 VPN 的现场同样可用。
 - 设备端并发连接数通常很小（部分 PLC 仅 1–4 个 Modbus TCP 连接）：隧道是 1:1 透传，**本地开几条连接就占设备几条**，调试时注意别和现场上位机抢连接。
 - 后续可选：`gofer tunnel socks`（SOCKS5 动态目标，仍受 worker 白名单约束）、Web 控制台展示活跃隧道、metrics 计数、server 侧 per-caller 隧道配额。
 
