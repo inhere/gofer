@@ -60,3 +60,6 @@ gofer job run -a exec --runner local -- `
 ```
 
 rename-replace 逻辑不变:换二进制文件 → 按 pid 杀 gofer → nssm 的 AppExit=Restart ~2s 拉起新 exe。(这条我已写进 start.ps1 的头部注释。)
+## TCP 隧道冒烟
+
+隔离 serve、worker 与 echo 的 11 项回归检查：[`smoke/tunnel/run-smoke.sh`](smoke/tunnel/run-smoke.sh)。

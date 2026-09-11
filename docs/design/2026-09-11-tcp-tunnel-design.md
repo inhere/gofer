@@ -10,6 +10,7 @@
 | v0.1 | 2026-09-11 | Claude | 初版：场景、方案取舍、协议 v5、安全模型、配置、CLI、代码落点、实施拆分 T1–T4。 |
 | v0.2 | 2026-09-11 | Claude | 补 §13.2 PLC IDE 经 worker 侧 Gateway 远程在线（CODESYS）、§13.3 其它 IDE/HMI 软件判断方法；§11 补 UDP 广播发现类工具的限制与替代。CLI 须可在 Windows 运行。 |
 | v0.3 | 2026-09-11 | Claude | `TunnelOpen` 与 ws① 预留 `network` 字段（v1 仅 tcp，worker 对非 tcp 明确拒绝），使后续 UDP 转发为纯增量；§11 补 UDP 转发复杂度评估与「已有 VPN」时的取舍。 |
+| v1.0 | 2026-09-11 | Claude | 已实现：协议 v5 `tunnel_open`、server 两个 ws 端点与 `GET /v1/tunnels`（响应 `{"tunnels":[...]}`）、worker 隧道处理（白名单热重载）、`gofer tunnel forward/check/ls`；端到端回归 `scripts/smoke/tunnel/run-smoke.sh`（11 项）。待补：Go 端到端测试与 ws② 校验关闭码的单元测试。 |
 
 ## 2. 背景与目标
 
@@ -213,6 +214,8 @@ gofer tunnel ls
 | T2 server 侧 | `Hub.OpenTunnel` + httpapi 三个端点 + 审计日志 + 单测（401/403/404/409/504、worker token 被拒、能力位） | 同上 + 新测覆盖 §5.2 表中可在单测构造的状态 |
 | T3 worker + CLI | worker `handleTunnelOpen`、`internal/client` 两个方法、`gofer tunnel forward/check/ls`；**端到端测试**：真 hub+httpapi+worker+本地 TCP echo：放行目标往返字节一致、未放行 403、拨号失败 502、超限 429、老协议 409 | 全量绿；容器内起独立 serve（非 live 端口）+ worker + echo 手工冒烟 `forward`/`check`/`ls` |
 | T4 文档 | worker 示例配置 `tunnel` 段、README/用法、roadmap 行、架构总览提一句 | 文档与实现一致 |
+
+端到端回归 = `scripts/smoke/tunnel/run-smoke.sh`（Go 版 `TestTunnelE2E*` 另行跟进）。
 
 ## 13. 使用示例
 

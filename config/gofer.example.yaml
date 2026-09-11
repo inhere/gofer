@@ -87,6 +87,11 @@ server:
   #   default_caller_max_concurrent: 4
   #   default_rate_limit: 5          # 每秒 5 次提交
   #   default_rate_burst: 10
+  #   require_tunnel_capability: false # true requires caller can_tunnel: true
+  # callers:
+  #   - id: operator
+  #     token_env: GOFER_CALLER_OPERATOR_TOKEN
+  #     can_tunnel: true
 
   # web_base_url: 人从外部访问本控制台的地址(如 https://gofer.example.com)。
   # 只有外发通知需要它 —— server 在反代/内网 IP 后面无法自己推断出公网地址。

@@ -8,6 +8,9 @@
 
 ## 修订记录
 
+| TUN-01 ✅ | **TCP 隧道** | 高 | 中 | 已落地：worker 白名单约束的 TCP check/forward/ls，见 [`design/2026-09-11-tcp-tunnel-design.md`](design/2026-09-11-tcp-tunnel-design.md)。 |
+| TUN-02 | **UDP 单播转发** | 中 | 中 | 候选：在保持对端白名单与审计约束下支持 UDP 单播（协议 v5 已预留 `network` 字段，见 TUN-01 设计 §11）。 |
+
 | 版本 | 日期 | 修改人 | 调整说明 |
 |---|---|---|---|
 | v1.0 | 2026-06-20 | inhere | 初版：E1-E17 三轴增强想法 + 建议优先级（思考清单，非实施计划） |

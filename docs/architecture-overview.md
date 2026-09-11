@@ -18,8 +18,11 @@
 | v0.9 | 2026-06-19 | Claude | **ws-worker（WP1–WP3）+ C6 落地，C7 最小版**：远端 worker 端到端执行 + 运行中交互透传 + 心跳/重连/worker-lost/多 worker 弹性全部实现并逐阶段独立验收；C6 `/v1/runners` 可观测（worker 心跳态 + peer-http 主动探针）已解决；C7 经 worker 多地址退避重连最小缓解（多 hub HA 仍 out-of-scope）。§5/§6/§8 worker 行 + §9.1 C6/C7 行同步更新。WP4（标签自动调度 + Web Workers 仪表盘）缓做。详见 [`../plans/2026-06-19-ws-worker-c6c7/`](../plans/2026-06-19-ws-worker-c6c7/)。 |
 | v0.10 | 2026-06-19 | Claude | **WP4 Workers 仪表盘前端落地**（commit `84655cf`）：Web 控制台新增 `/runners` 视图，按真实运行器分类（Workers/Peers/Local）分组名册，签名元素「心跳脉冲」(`Heartbeat.vue` 扩展 `Signal` 波形语言，connected 脉冲/stale 减速/断连 flatline)，4s 轮询 + 1s 本地 tick 实时年龄，消费 C6 `/v1/runners`。§5/§8 worker 行、§9.1 C6 行、§9.2 扩展点同步。**WP4 标签自动调度仍缓做**。容器内未做真机视觉确认（typecheck/build/embed 绿）。 |
 | v0.11 | 2026-06-29 | inhere | 新增 **§10「多 agent 协作维度」**：`driver agent` vs `job agent` 核心区分、`presence` 在线名册、interaction→**分层升级路由(L0–L3)**；术语表补对应词。细节链 [`multi-agent-collab`](./design/2026-06-28-multi-agent-collab-design.md) + [`supervisor-routing`](./design/2026-06-29-supervisor-routing-design.md)。 |
+| v0.12 | 2026-09-11 | Claude | 新增 TCP 隧道扩展点说明。 |
 
 ## 2. 核心心智模型：两条正交的轴
+
+TCP 隧道由控制帧下发请求，再为每条连接建立专用数据 WebSocket；授权始终留在 worker 白名单，与“执行授权留在对端”的不变量一致。详见 [`2026-09-11-tcp-tunnel-design.md`](design/2026-09-11-tcp-tunnel-design.md)。
 
 dev-gofer 的一切围绕一个异步 **job**（`{项目, agent, prompt/命令, cwd}` → 状态/退出码/日志/结果）。理解整体只需抓住**两条互相独立的轴**：
 

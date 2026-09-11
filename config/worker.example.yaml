@@ -40,6 +40,14 @@ server_link:
   #   ping_interval_ms: 15000
   #   read_deadline_ms: 45000
 
+# TCP tunnel is disabled by default. Add allow entries to opt in; each entry is
+# host:port, CIDR:port, host:* (any port), or [IPv6]:port. max_conns limits
+# simultaneous tunnels and dial_timeout_sec bounds device dialing.
+# tunnel:
+#   allow: ["192.168.1.10:502", "192.168.1.0/24:502"]   # keep entries as narrow as possible
+#   max_conns: 8
+#   dial_timeout_sec: 5
+
 # labels: 展示 + 调度提示(WP4 自动调度按 label 选 worker)。
 labels: [host, codex, claude]
 

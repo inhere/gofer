@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/tunnel"
@@ -68,5 +69,40 @@ func TestTunnelHandlerOpenErrors(t *testing.T) {
 		if w.Code != tc.want {
 			t.Fatalf("status=%d want %d", w.Code, tc.want)
 		}
+	}
+}
+
+func TestTunnelHandlerCapabilityRequired(t *testing.T) {
+	cfg := config.ServerConfig{Token: "api-token", Governance: config.GovernanceConfig{RequireTunnelCapability: true}, Callers: []config.CallerConfig{{ID: "operator", Token: "caller-token", CanTunnel: true}}}
+	s := newTestServerCfg(t, cfg)
+	s.hub = &tunnelTestHub{live: true, openErr: tunnel.ErrWorkerOffline}
+	s.router = s.buildRouter()
+	for _, tc := range []struct {
+		token string
+		want  int
+	}{{"api-token", http.StatusForbidden}, {"caller-token", http.StatusNotFound}} {
+		r := httptest.NewRequest(http.MethodGet, "/v1/tunnels/connect?worker=w1&target=127.0.0.1:80", nil)
+		r.Header.Set("Authorization", "Bearer "+tc.token)
+		w := httptest.NewRecorder()
+		s.Handler().ServeHTTP(w, r)
+		if w.Code != tc.want {
+			t.Fatalf("status=%d want %d", w.Code, tc.want)
+		}
+	}
+}
+
+func TestTunnelHandlerRendezvousTimeout(t *testing.T) {
+	old := tunnelRendezvousTimeout
+	tunnelRendezvousTimeout = 10 * time.Millisecond
+	defer func() { tunnelRendezvousTimeout = old }()
+	s := newTestServerCfg(t, config.ServerConfig{Token: "api-token"})
+	s.hub = &tunnelTestHub{live: true}
+	s.router = s.buildRouter()
+	r := httptest.NewRequest(http.MethodGet, "/v1/tunnels/connect?worker=w1&target=127.0.0.1:80", nil)
+	r.Header.Set("Authorization", "Bearer api-token")
+	w := httptest.NewRecorder()
+	s.Handler().ServeHTTP(w, r)
+	if w.Code != http.StatusGatewayTimeout {
+		t.Fatalf("status=%d want %d", w.Code, http.StatusGatewayTimeout)
 	}
 }

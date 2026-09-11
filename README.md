@@ -11,6 +11,7 @@
 - **多项目**：每个项目登记 `host_path`/`container_path` + 允许的 agent/runner + `allow_exec` + 并发上限。
 - **三种执行位置（runner）**：`local`（本进程）/ `peer-http`（转发到另一台 gofer）/ `worker`（WS 远端执行机）；远端的日志/交互经"镜像"机制透明回传，读路径不变。
 - **WS 远端 worker + 标签调度**：worker 经 WebSocket 连入 hub，按 `worker_labels` 自动选机（或显式 `worker_id`）；实际执行机记入结果可审计。
+- **TCP 隧道**：`gofer tunnel` 提供受 worker 白名单约束的 TCP check/forward/list，用法见 [`docs/runbook/tcp-tunnel.md`](docs/runbook/tcp-tunnel.md)。
 - **同步 / 异步提交**：默认异步（立即返 `id`）；`sync` 让服务端等到终态再返回（封顶 30s/60s，超时退回异步）。
 - **多种提交格式**：JSON、`-- argv`（exec）、**md+yaml**（frontmatter 定参数 + 正文即 prompt）。
 - **运行中交互**：agent 可在执行途中提问 → job 置 `pending_interaction` → 用户作答 → 续跑。

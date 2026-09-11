@@ -13,8 +13,10 @@ import (
 	"github.com/inhere/gofer/internal/tunnel"
 )
 
+// tunnelRendezvousTimeout bounds the wait for a worker data connection.
 var tunnelRendezvousTimeout = 15 * time.Second
 
+// tunnelAuth resolves the bearer token to a caller entry.
 func (s *Server) tunnelAuth(r *http.Request) (callerEntry, bool) {
 	if len(s.callers) == 0 && s.allowEmptyToken {
 		return callerEntry{id: "", kind: callerKindUser}, true
@@ -27,10 +29,10 @@ func (s *Server) tunnelAuth(r *http.Request) (callerEntry, bool) {
 	return ce, ok
 }
 
-// handleTunnelConnect performs tunnel authentication outside the shared auth group and owns the tunnel lifetime.
+// handleTunnelConnect adapts the tunnelConnect HTTP handler to rux.
 func (s *Server) handleTunnelConnect(c *rux.Context) { s.tunnelConnect(c.Resp, c.Req) }
 
-// handleTunnelConnect is deliberately a raw HTTP handler; rux adapts it through the wrapper below.
+// tunnelConnect authenticates a caller and bridges one client websocket to a worker tunnel.
 func (s *Server) tunnelConnect(w http.ResponseWriter, r *http.Request) {
 	fail := func(code int, reason string, attrs ...any) {
 		slog.Warn("tunnel connect failed", append([]any{"status", code, "reason", reason}, attrs...)...)
@@ -71,10 +73,10 @@ func (s *Server) tunnelConnect(w http.ResponseWriter, r *http.Request) {
 		p.Cancel()
 		code := http.StatusBadGateway
 		if errors.Is(err, tunnel.ErrWorkerOffline) {
-			code = 404
+			code = http.StatusNotFound
 		}
 		if errors.Is(err, tunnel.ErrUnsupported) {
-			code = 409
+			code = http.StatusConflict
 		}
 		fail(code, err.Error(), "caller", ce.id, "worker", worker, "target", target, "tunnel_id", p.TunnelID())
 		return
@@ -126,28 +128,34 @@ func (s *Server) handleWorkerTunnelConnectRaw(w http.ResponseWriter, r *http.Req
 	defer cancel()
 	var h tunnel.Hello
 	if err := wsjson.Read(ctx, conn, &h); err != nil {
+		slog.Warn("worker tunnel failed", "caller", ce.id, "close_code", int(websocket.StatusProtocolError), "reason", "hello read failed", "error", err)
 		_ = conn.Close(websocket.StatusProtocolError, "expected hello")
 		return
 	}
 	b, ok := s.tunnels.Consume(h.RelayNonce, time.Now())
 	if !ok {
+		slog.Warn("worker tunnel failed", "caller", ce.id, "tunnel_id", h.TunnelID, "status", 401, "close_code", 4401, "reason", "invalid nonce")
 		_ = conn.Close(4401, "invalid nonce")
 		return
 	}
 	if b.WorkerID != ce.id {
+		slog.Warn("worker tunnel failed", "caller", ce.id, "tunnel_id", h.TunnelID, "status", 409, "close_code", 4409, "reason", "worker mismatch")
 		_ = conn.Close(4409, "worker mismatch")
 		return
 	}
 	if inst, live := s.hub.LiveInstance(b.WorkerID); !live || inst != b.InstanceID {
+		slog.Warn("worker tunnel failed", "caller", ce.id, "tunnel_id", h.TunnelID, "status", 409, "close_code", 4409, "reason", "instance mismatch")
 		_ = conn.Close(4409, "instance mismatch")
 		return
 	}
 	if h.TunnelID != b.TunnelID {
+		slog.Warn("worker tunnel failed", "caller", ce.id, "tunnel_id", h.TunnelID, "status", 404, "close_code", 4404, "reason", "tunnel mismatch")
 		_ = conn.Close(4404, "tunnel mismatch")
 		return
 	}
 	done, ok := s.tunnels.Deliver(h.TunnelID, tunnel.Arrival{Conn: conn, Hello: h})
 	if !ok {
+		slog.Warn("worker tunnel failed", "caller", ce.id, "tunnel_id", h.TunnelID, "status", 404, "close_code", 4404, "reason", "rendezvous gone")
 		_ = conn.Close(4404, "gone")
 		return
 	}
