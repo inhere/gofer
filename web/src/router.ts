@@ -55,7 +55,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/projects', name: 'projects', component: () => import('./views/Projects.vue') },
   { path: '/agents', name: 'agents', component: () => import('./views/Agents.vue') },
   { path: '/runners', name: 'runners', component: () => import('./views/Runners.vue') },
-  { path: '/cluster', name: 'cluster', component: () => import('./views/Cluster.vue') },
+  { path: '/cluster', redirect: '/runners' },
   { path: '/config', name: 'config', component: () => import('./views/Config.vue') },
 ]
 

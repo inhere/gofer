@@ -4,19 +4,21 @@
 //  - 轮询间隔之间每秒本地推进心跳/探活年龄，让 worker 行“活着”。
 //  - 失败软处理：保留上一帧数据，仅在头部给出 in-voice 错误条，不清空页面。
 //  - worker 心跳脉冲为唯一“张扬”元素；peer-http/local 用静态点，舰队可见地在跳。
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import Heartbeat from '../components/Heartbeat.vue'
-import { listRunners } from '../api/client'
+import ClusterTopology from '../components/ClusterTopology.vue'
+import { listProjects, listRunners } from '../api/client'
 import type { Runner } from '../api/types'
+import { beatOf, fmtAge, fmtUptime, workerAgeMs, workerStatusText } from '../utils/runners'
 
 const POLL_MS = 4000
-// 心跳过期阈值（毫秒）：约 2× ping(15s)。超过即 stale。
-const STALE_MS = 30_000
 
 const runners = ref<Runner[]>([])
+const projects = ref<string[]>([])
 const loading = ref(false)
 const error = ref('')
 const loaded = ref(false)
+const topologyOpen = ref(true)
 // 本地时钟（毫秒）：用于在两次轮询之间推进“xx ago”年龄，使其逐秒走动。
 const nowMs = ref(Date.now())
 
@@ -30,8 +32,9 @@ const locals = computed(() => runners.value.filter((r) => r.type === 'local'))
 async function fetchRunners(): Promise<void> {
   loading.value = true
   try {
-    const resp = await listRunners()
+    const [resp, projectsResp] = await Promise.all([listRunners(), listProjects().catch(() => null)])
     runners.value = resp.runners ?? []
+    projects.value = projectsResp?.projects ?? []
     error.value = ''
     loaded.value = true
     nowMs.value = Date.now()
@@ -78,105 +81,27 @@ function onVisibility(): void {
 }
 
 onMounted(() => {
+  try { topologyOpen.value = localStorage.getItem('gofer.runners.topology-open') !== 'false' } catch { /* ignore storage failures */ }
   void fetchRunners()
   startPolling()
   document.addEventListener('visibilitychange', onVisibility)
 })
+
+watch(topologyOpen, (value) => {
+  try { localStorage.setItem('gofer.runners.topology-open', String(value)) } catch { /* ignore storage failures */ }
+})
+
+function onTopologyToggle(event: Event): void {
+  topologyOpen.value = (event.target as HTMLDetailsElement).open
+}
 
 onUnmounted(() => {
   stopPolling()
   document.removeEventListener('visibilitychange', onVisibility)
 })
 
-// ── worker 心跳：实时年龄（轮询年龄 + 本地经过的时间）──
-// 后端 heartbeat_age_ms 是上次轮询时刻的快照；叠加本地 now 相对最近一次拉取的增量。
-function workerAgeMs(r: Runner): number | null {
-  if (!r.worker) {
-    return null
-  }
-  // last_heartbeat 是绝对毫秒时间戳，可直接用本地时钟算实时年龄（避免依赖拉取时刻）
-  if (r.worker.last_heartbeat > 0) {
-    return Math.max(0, nowMs.value - r.worker.last_heartbeat)
-  }
-  return Math.max(0, r.worker.heartbeat_age_ms)
-}
-
-// 心跳态：connected 且年龄超阈 -> stale；disconnected/unknown -> flatline。
-function beatOf(r: Runner): 'connected' | 'stale' | 'flatline' {
-  if (r.status !== 'connected') {
-    return 'flatline'
-  }
-  const age = workerAgeMs(r)
-  if (age != null && age > STALE_MS) {
-    return 'stale'
-  }
-  return 'connected'
-}
-
-// 运行时长：从 started_at（Unix 秒）到现在，粗粒度即可（up 3d4h / up 5h02m / up 12m）。
-function fmtUptime(startedAtSec: number | undefined): string {
-  if (!startedAtSec || startedAtSec <= 0) {
-    return ''
-  }
-  const s = Math.max(0, Math.floor(nowMs.value / 1000) - startedAtSec)
-  if (s < 60) {
-    return `up ${s}s`
-  }
-  if (s < 3600) {
-    return `up ${Math.floor(s / 60)}m`
-  }
-  if (s < 86400) {
-    const h = Math.floor(s / 3600)
-    const m = Math.floor((s % 3600) / 60)
-    return `up ${h}h${String(m).padStart(2, '0')}m`
-  }
-  const d = Math.floor(s / 86400)
-  const h = Math.floor((s % 86400) / 3600)
-  return `up ${d}d${h}h`
-}
-
-// worker 节点信息行（hostname / 来源地址 / os/arch / 版本 / 运行时长）是否有内容可展示。
-function hasNodeInfo(r: Runner): boolean {
-  const w = r.worker
-  return !!w && !!(w.hostname || w.remote_addr || w.os || w.gofer_version || w.started_at)
-}
-
-// 人类可读年龄：12s ago / 3m20s ago / 1h05m ago。
-function fmtAge(ms: number | null): string {
-  if (ms == null) {
-    return '—'
-  }
-  const s = Math.floor(ms / 1000)
-  if (s < 1) {
-    return 'just now'
-  }
-  if (s < 60) {
-    return `${s}s ago`
-  }
-  if (s < 3600) {
-    const m = Math.floor(s / 60)
-    const r = s % 60
-    return r ? `${m}m${String(r).padStart(2, '0')}s ago` : `${m}m ago`
-  }
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  return `${h}h${String(m).padStart(2, '0')}m ago`
-}
-
-// worker 状态文案（operator-facing）：connected 12s / no heartbeat 41s / offline。
-function workerStatusText(r: Runner): string {
-  if (r.status !== 'connected') {
-    return 'offline'
-  }
-  const age = workerAgeMs(r)
-  if (age != null && age > STALE_MS) {
-    return `no heartbeat ${Math.floor(age / 1000)}s`
-  }
-  return 'connected'
-}
-
 function workerStatusClass(r: Runner): string {
-  const beat = beatOf(r)
+  const beat = beatOf(r, nowMs.value)
   if (beat === 'connected') {
     return 'st--ok'
   }
@@ -184,6 +109,12 @@ function workerStatusClass(r: Runner): string {
     return 'st--warn'
   }
   return 'st--down'
+}
+
+// 节点信息行是否有内容（hostname / 来源地址 / os / 版本 / 启动时间任一存在）。
+function hasNodeInfo(r: Runner): boolean {
+  const w = r.worker
+  return !!w && !!(w.hostname || w.remote_addr || w.os || w.gofer_version || w.started_at)
 }
 
 // ── peer-http 探活：实时年龄 + 延迟 + 错误 ──
@@ -225,6 +156,13 @@ function peerStatusClass(r: Runner): string {
 
     <p v-if="error" class="error mono" :title="error">舰队状态拉取失败：{{ error }}</p>
 
+    <section class="group topology-group">
+      <details :open="topologyOpen" @toggle="onTopologyToggle">
+        <summary class="group-head"><h2 class="group-title mono">拓扑 / TOPOLOGY</h2></summary>
+      <ClusterTopology :runners="runners" :projects="projects" :now-ms="nowMs" />
+      </details>
+    </section>
+
     <!-- WORKERS（主角，置顶） -->
     <section class="group" aria-labelledby="grp-workers">
       <header class="group-head">
@@ -235,7 +173,7 @@ function peerStatusClass(r: Runner): string {
       <div v-if="workers.length" class="cards">
         <article v-for="w in workers" :key="w.name" class="card card--worker">
           <div class="card-pulse">
-            <Heartbeat :beat="beatOf(w)" :label="workerStatusText(w)" />
+            <Heartbeat :beat="beatOf(w, nowMs)" :label="workerStatusText(w, nowMs)" />
           </div>
           <div class="card-main">
             <div class="card-row1">
@@ -247,11 +185,11 @@ function peerStatusClass(r: Runner): string {
                   class="age"
                   :class="{ 'age--down': w.status !== 'connected' }"
                   :title="w.worker ? `last heartbeat ${new Date(w.worker.last_heartbeat).toLocaleString()}` : ''"
-                >{{ w.status === 'connected' ? fmtAge(workerAgeMs(w)) : 'offline' }}</span>
+                >{{ w.status === 'connected' ? fmtAge(workerAgeMs(w, nowMs)) : 'offline' }}</span>
                 <span class="dot-sep" aria-hidden="true">·</span>
                 <span class="inflight">{{ w.worker?.in_flight ?? 0 }} in-flight</span>
               </span>
-              <span class="st mono" :class="workerStatusClass(w)">{{ workerStatusText(w) }}</span>
+              <span class="st mono" :class="workerStatusClass(w)">{{ workerStatusText(w, nowMs) }}</span>
             </div>
             <!-- 节点信息行：hostname（机器标识）· 来源地址 · os/arch · 版本 · 运行时长 -->
             <div v-if="hasNodeInfo(w)" class="node-line mono">
@@ -259,7 +197,7 @@ function peerStatusClass(r: Runner): string {
               <span v-if="w.worker?.remote_addr" class="node-item" :title="`remote addr ${w.worker.remote_addr}`">{{ w.worker.remote_addr }}</span>
               <span v-if="w.worker?.os" class="node-item">{{ w.worker.os }}/{{ w.worker.arch || '?' }}</span>
               <span v-if="w.worker?.gofer_version" class="node-item" :title="`gofer ${w.worker.gofer_version}`">v{{ w.worker.gofer_version }}</span>
-              <span v-if="w.worker?.started_at" class="node-item">{{ fmtUptime(w.worker.started_at) }}</span>
+              <span v-if="w.worker?.started_at" class="node-item">{{ fmtUptime(w.worker.started_at, nowMs) }}</span>
             </div>
             <div v-if="w.worker?.labels && w.worker.labels.length" class="chips">
               <span v-for="l in w.worker.labels" :key="l" class="chip mono">{{ l }}</span>

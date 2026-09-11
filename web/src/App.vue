@@ -53,7 +53,6 @@ const navGroups = [
       { to: '/drivers', label: 'Drivers' },
       { to: '/agents', label: 'Agents' },
       { to: '/runners', label: 'Runners' },
-      { to: '/cluster', label: 'Cluster' },
       { to: '/projects', label: 'Projects' },
     ],
   },
@@ -126,9 +125,8 @@ function closeDrawer() {
           <span class="new-job-label"><span class="new-job-verb">新建 </span>cron</span>
         </RouterLink>
         <EscalationBell />
-        <span class="conn" :class="connected ? 'conn--on' : 'conn--off'">
+        <span class="conn" :class="connected ? 'conn--on' : 'conn--off'" :title="connected ? 'connected' : 'offline'" role="status" :aria-label="connected ? 'connected' : 'offline'">
           <span class="conn-dot"></span>
-          <span class="conn-label">{{ connected ? 'connected' : 'offline' }}</span>
         </span>
         <TopbarMenu @logout="logout" />
       </div>
@@ -418,14 +416,8 @@ function closeDrawer() {
   .new-job {
     padding: 4px 8px;
   }
-  .conn-label {
-    display: none;
-  }
   .new-job-verb {
     display: none;
-  }
-  .conn {
-    gap: 0;
   }
   .drawer-nav {
     display: block;

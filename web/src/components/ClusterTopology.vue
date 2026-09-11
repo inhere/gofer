@@ -1,38 +1,31 @@
 <script setup lang="ts">
-// Cluster「集群拓扑」（E31，design §6.1）：把 Runners 名册推成 hub-worker-peer-local 星型拓扑。
-//  - 数据源现成、纯前端、无新后端：并发 listRunners() + listProjects()，4s 轮询（复用 Runners 节奏）。
+// Cluster topology rendered inside the Runners page.
+//  - 不自己轮询：runners / projects / nowMs 由 Runners 页（listRunners + listProjects，4s）经 props 传入。
 //  - SVG 手绘星型（D1，不引重图库）：中心 hub=server；辐射节点均匀分布在圆周（三角函数算坐标）。
 //    边用 SVG <line>（viewBox 0..100 + preserveAspectRatio=none + non-scaling-stroke）；
 //    节点为绝对定位 HTML（left/top 同百分比对齐边端点），故能直接复用 Heartbeat.vue 而无 foreignObject 命名空间坑。
 //  - 点击节点 → 右侧抽屉面板：worker(id/心跳/in_flight/labels/状态) / peer(base_url/latency/error) / local(本机 + server projects 概览)。
 //  - 不画「项目→节点」映射边（D2/§10.2：worker.yaml 独立、server 不知 worker 的 projects）。
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, ref } from 'vue'
 import Heartbeat from '../components/Heartbeat.vue'
-import { listProjects, listRunners } from '../api/client'
 import type { Runner } from '../api/types'
+import { beatOf, fmtAge, fmtUptime, workerAgeMs, workerStatusText } from '../utils/runners'
 
-const POLL_MS = 4000
-// 心跳过期阈值（毫秒）：约 2× ping(15s)。超过即 stale。
-const STALE_MS = 30_000
+const props = defineProps<{ runners: Runner[]; projects: string[]; nowMs: number }>()
 
 // 星型几何（百分比坐标，相对 stage）：容器宽高比 AR；为让节点摆成视觉圆形，水平半径 = 垂直半径 / AR。
 const AR = 1.3
 const RY = 36
 const RX = RY / AR
 
-const runners = ref<Runner[]>([])
-const projects = ref<string[]>([])
-const loading = ref(false)
-const error = ref('')
-const loaded = ref(false)
-// 本地时钟（毫秒）：在两次轮询之间逐秒推进「xx ago」年龄。
-const nowMs = ref(Date.now())
+const runners = computed(() => props.runners)
+const projects = computed(() => props.projects)
+const nowMs = computed(() => props.nowMs)
+const loaded = computed(() => true)
 
 // 当前选中节点：Runner（某辐射节点）/ 'hub'（中心 server）/ null（未选）。
 const selected = ref<Runner | 'hub' | null>(null)
 
-let pollTimer: number | null = null
-let tickTimer: number | null = null
 
 // 节点排序：worker（主角）→ peer → local，与 Runners 名册分组一致。
 const orderedRunners = computed(() => {
@@ -72,99 +65,6 @@ const workerCount = computed(() => runners.value.filter((r) => r.type === 'worke
 const peerCount = computed(() => runners.value.filter((r) => r.type === 'peer-http').length)
 const localCount = computed(() => runners.value.filter((r) => r.type === 'local').length)
 
-async function fetchData(): Promise<void> {
-  loading.value = true
-  try {
-    const [runnersResp, projectsResp] = await Promise.all([listRunners(), listProjects()])
-    runners.value = runnersResp.runners ?? []
-    projects.value = projectsResp.projects ?? []
-    error.value = ''
-    loaded.value = true
-    nowMs.value = Date.now()
-  } catch (e) {
-    // 401 已由 client 处理（跳转登录）；其余仅给头部错误条，保留上一帧
-    error.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    loading.value = false
-  }
-}
-
-function startPolling(): void {
-  stopPolling()
-  if (document.hidden) {
-    return
-  }
-  pollTimer = window.setInterval(() => {
-    void fetchData()
-  }, POLL_MS)
-  tickTimer = window.setInterval(() => {
-    nowMs.value = Date.now()
-  }, 1000)
-}
-
-function stopPolling(): void {
-  if (pollTimer != null) {
-    window.clearInterval(pollTimer)
-    pollTimer = null
-  }
-  if (tickTimer != null) {
-    window.clearInterval(tickTimer)
-    tickTimer = null
-  }
-}
-
-function onVisibility(): void {
-  if (document.hidden) {
-    stopPolling()
-  } else {
-    void fetchData()
-    startPolling()
-  }
-}
-
-onMounted(() => {
-  void fetchData()
-  startPolling()
-  document.addEventListener('visibilitychange', onVisibility)
-})
-
-onUnmounted(() => {
-  stopPolling()
-  document.removeEventListener('visibilitychange', onVisibility)
-})
-
-// ── worker 心跳：实时年龄（同 Runners.vue）──
-function workerAgeMs(r: Runner): number | null {
-  if (!r.worker) {
-    return null
-  }
-  if (r.worker.last_heartbeat > 0) {
-    return Math.max(0, nowMs.value - r.worker.last_heartbeat)
-  }
-  return Math.max(0, r.worker.heartbeat_age_ms)
-}
-
-function beatOf(r: Runner): 'connected' | 'stale' | 'flatline' {
-  if (r.status !== 'connected') {
-    return 'flatline'
-  }
-  const age = workerAgeMs(r)
-  if (age != null && age > STALE_MS) {
-    return 'stale'
-  }
-  return 'connected'
-}
-
-function workerStatusText(r: Runner): string {
-  if (r.status !== 'connected') {
-    return 'offline'
-  }
-  const age = workerAgeMs(r)
-  if (age != null && age > STALE_MS) {
-    return `no heartbeat ${Math.floor(age / 1000)}s`
-  }
-  return 'connected'
-}
 
 // peer-http 探活年龄
 function probeAgeMs(r: Runner): number | null {
@@ -184,55 +84,11 @@ function peerStatusText(r: Runner): string {
   return 'not probed yet'
 }
 
-// 人类可读年龄：12s ago / 3m20s ago / 1h05m ago。
-function fmtAge(ms: number | null): string {
-  if (ms == null) {
-    return '—'
-  }
-  const s = Math.floor(ms / 1000)
-  if (s < 1) {
-    return 'just now'
-  }
-  if (s < 60) {
-    return `${s}s ago`
-  }
-  if (s < 3600) {
-    const m = Math.floor(s / 60)
-    const r = s % 60
-    return r ? `${m}m${String(r).padStart(2, '0')}s ago` : `${m}m ago`
-  }
-  const h = Math.floor(s / 3600)
-  const m = Math.floor((s % 3600) / 60)
-  return `${h}h${String(m).padStart(2, '0')}m ago`
-}
-
-// 运行时长（同 Runners.vue）：up 3d4h / up 5h02m / up 12m。
-function fmtUptime(startedAtSec: number | undefined): string {
-  if (!startedAtSec || startedAtSec <= 0) {
-    return '—'
-  }
-  const s = Math.max(0, Math.floor(nowMs.value / 1000) - startedAtSec)
-  if (s < 60) {
-    return `up ${s}s`
-  }
-  if (s < 3600) {
-    return `up ${Math.floor(s / 60)}m`
-  }
-  if (s < 86400) {
-    const h = Math.floor(s / 3600)
-    const m = Math.floor((s % 3600) / 60)
-    return `up ${h}h${String(m).padStart(2, '0')}m`
-  }
-  const d = Math.floor(s / 86400)
-  const h = Math.floor((s % 86400) / 3600)
-  return `up ${d}d${h}h`
-}
-
 // 节点强调色 token：worker 随心跳态（connected=done / stale=run / flatline=fail），
 // peer 随探活（up=done / down=fail / unknown=queue），local 恒 up=done。
 function nodeColorVar(r: Runner): string {
   if (r.type === 'worker') {
-    const beat = beatOf(r)
+    const beat = beatOf(r, nowMs.value)
     if (beat === 'connected') {
       return 'var(--done)'
     }
@@ -281,13 +137,6 @@ function isActive(r: Runner): boolean {
 
 <template>
   <div class="cluster">
-    <div class="head">
-      <span class="eyebrow mono">TOPOLOGY</span>
-      <h1 class="title mono">CLUSTER</h1>
-      <span class="poll-hint mono" :class="{ 'poll-hint--on': loading }" aria-hidden="true">●</span>
-    </div>
-
-    <p v-if="error" class="error mono" :title="error">集群状态拉取失败：{{ error }}</p>
 
     <!-- 星型拓扑舞台 -->
     <div class="stage">
@@ -343,8 +192,8 @@ function isActive(r: Runner): boolean {
           <!-- worker：心跳脉冲复用 Heartbeat.vue；peer/local：静态点 -->
           <Heartbeat
             v-if="node.runner.type === 'worker'"
-            :beat="beatOf(node.runner)"
-            :label="workerStatusText(node.runner)"
+            :beat="beatOf(node.runner, nowMs)"
+            :label="workerStatusText(node.runner, nowMs)"
           />
           <span v-else class="static-dot" :class="dotClass(node.runner)" aria-hidden="true"></span>
         </span>
@@ -352,7 +201,7 @@ function isActive(r: Runner): boolean {
         <span class="node-meta mono">
           <template v-if="node.runner.type === 'worker'">
             {{ node.runner.worker?.in_flight ?? 0 }} ·
-            {{ node.runner.status === 'connected' ? fmtAge(workerAgeMs(node.runner)) : 'offline' }}
+            {{ node.runner.status === 'connected' ? fmtAge(workerAgeMs(node.runner, nowMs)) : 'offline' }}
           </template>
           <template v-else-if="node.runner.type === 'peer-http'">
             {{ node.runner.probe && node.runner.probe.checked_at > 0
@@ -404,9 +253,9 @@ function isActive(r: Runner): boolean {
         <dl class="kv mono">
           <dt>worker id</dt><dd class="brk">{{ selectedRunner.worker_id || '—' }}</dd>
           <dt>状态</dt>
-          <dd :style="{ color: nodeColorVar(selectedRunner) }">{{ workerStatusText(selectedRunner) }}</dd>
+          <dd :style="{ color: nodeColorVar(selectedRunner) }">{{ workerStatusText(selectedRunner, nowMs) }}</dd>
           <dt>心跳</dt>
-          <dd>{{ selectedRunner.status === 'connected' ? fmtAge(workerAgeMs(selectedRunner)) : 'offline' }}</dd>
+          <dd>{{ selectedRunner.status === 'connected' ? fmtAge(workerAgeMs(selectedRunner, nowMs)) : 'offline' }}</dd>
           <dt>in-flight</dt><dd>{{ selectedRunner.worker?.in_flight ?? 0 }}</dd>
           <template v-if="selectedRunner.worker?.hostname">
             <dt>主机</dt><dd class="brk">{{ selectedRunner.worker.hostname }}</dd>
@@ -421,7 +270,7 @@ function isActive(r: Runner): boolean {
             <dt>版本</dt><dd class="brk">{{ selectedRunner.worker.gofer_version }}</dd>
           </template>
           <template v-if="selectedRunner.worker?.started_at">
-            <dt>运行时长</dt><dd>{{ fmtUptime(selectedRunner.worker.started_at) }}</dd>
+            <dt>运行时长</dt><dd>{{ fmtUptime(selectedRunner.worker.started_at, nowMs) }}</dd>
           </template>
           <template v-if="selectedRunner.worker?.protocol_version">
             <dt>协议版本</dt><dd>{{ selectedRunner.worker.protocol_version }}</dd>
@@ -481,33 +330,6 @@ function isActive(r: Runner): boolean {
   margin: 0 auto;
 }
 
-.head {
-  display: flex;
-  align-items: baseline;
-  gap: 10px;
-  margin-bottom: 18px;
-}
-.eyebrow {
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  color: var(--queue);
-  text-transform: uppercase;
-}
-.title {
-  font-size: 16px;
-  letter-spacing: 0.08em;
-  color: var(--paper);
-  margin: 0;
-}
-.poll-hint {
-  color: var(--line);
-  font-size: 10px;
-  transition: color 0.2s;
-  margin-left: auto;
-}
-.poll-hint--on {
-  color: var(--phosphor);
-}
 
 .error {
   color: var(--fail);

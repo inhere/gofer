@@ -72,7 +72,7 @@ function listValue(v?: string[]): string {
 
     <p class="scope-note mono">
       以下为 <b>serve 主机</b>配置的 agents 及其可用性；worker 节点各自的 agents 见
-      <RouterLink to="/cluster">Cluster</RouterLink>。
+      <RouterLink to="/runners">Runners</RouterLink>。
     </p>
 
     <p v-if="error" class="error mono">{{ error }}</p>
