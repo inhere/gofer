@@ -11,7 +11,7 @@ import (
 func TestDecisionStatusMatrix(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 
-	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-dec"})
+	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-decision"})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("create plan status=%d, want 200", resp.StatusCode)
 	}
@@ -40,7 +40,7 @@ func TestDecisionStatusMatrix(t *testing.T) {
 
 	// Valid ask against the plan -> 200 OPEN, options echoed, dec- id.
 	resp = do(t, s, http.MethodPost, "/v1/decisions", testToken, map[string]any{
-		"plan_id": "plan-dec", "title": "pick", "question": "which?",
+		"plan_id": "plan-decision", "title": "pick", "question": "which?",
 		"options": []string{"a", "b"},
 	})
 	if resp.StatusCode != http.StatusOK {
@@ -51,7 +51,7 @@ func TestDecisionStatusMatrix(t *testing.T) {
 	if asked.ID == "" || asked.ID[:4] != "dec-" {
 		t.Fatalf("asked id = %q, want dec-*", asked.ID)
 	}
-	if asked.State != "OPEN" || asked.PlanID != "plan-dec" {
+	if asked.State != "OPEN" || asked.PlanID != "plan-decision" {
 		t.Fatalf("asked state/plan mismatch: %+v", asked)
 	}
 	if len(asked.Options) != 2 || asked.Options[0] != "a" {
@@ -104,7 +104,7 @@ func TestDecisionStatusMatrix(t *testing.T) {
 		t.Fatalf("list invalid state status=%d, want 400", resp.StatusCode)
 	}
 	resp.Body.Close()
-	resp = do(t, s, http.MethodGet, "/v1/decisions?state=OPEN&plan_id=plan-dec", testToken, nil)
+	resp = do(t, s, http.MethodGet, "/v1/decisions?state=OPEN&plan_id=plan-decision", testToken, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("list status=%d, want 200", resp.StatusCode)
 	}
@@ -113,7 +113,7 @@ func TestDecisionStatusMatrix(t *testing.T) {
 	}
 	decode(t, resp, &listed)
 	if len(listed.Decisions) != 1 || listed.Decisions[0].ID != asked.ID {
-		t.Fatalf("list plan-dec OPEN mismatch: %+v", listed.Decisions)
+		t.Fatalf("list plan-decision OPEN mismatch: %+v", listed.Decisions)
 	}
 	resp = do(t, s, http.MethodGet, "/v1/decisions?plan_id=plan-other", testToken, nil)
 	decode(t, resp, &listed)
@@ -164,7 +164,7 @@ func TestDecisionStatusMatrix(t *testing.T) {
 	}
 
 	// Plan detail inlines the decisions array (additive).
-	resp = do(t, s, http.MethodGet, "/v1/plans/plan-dec", testToken, nil)
+	resp = do(t, s, http.MethodGet, "/v1/plans/plan-decision", testToken, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("get plan status=%d, want 200", resp.StatusCode)
 	}

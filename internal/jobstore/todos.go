@@ -127,7 +127,7 @@ func (s *Store) GetTodo(id string) (PlanTodo, bool, error) {
 // ListTodosByPlan returns a plan's todos in stable display order.
 func (s *Store) ListTodosByPlan(planID string) ([]PlanTodo, error) {
 	rows, err := s.db.Query(
-		selectTodoCols+" WHERE plan_id = ? ORDER BY sort ASC, created_at ASC, todo_id ASC",
+		selectTodoCols+" WHERE plan_id = ? ORDER BY sort ASC, created_at ASC, rowid ASC",
 		planID)
 	if err != nil {
 		return nil, fmt.Errorf("jobstore: list todos of plan %q: %w", planID, err)

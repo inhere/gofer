@@ -838,6 +838,17 @@ func (c *Client) UpdateTodoStatus(todoID, status string, note *string) (Todo, er
 	return t, err
 }
 
+// UpdateTodoStatusAppend updates status and appends a note in one PATCH request.
+func (c *Client) UpdateTodoStatusAppend(todoID, status, note string) (Todo, error) {
+	body, err := json.Marshal(map[string]any{"status": status, "append_note": note})
+	if err != nil {
+		return Todo{}, fmt.Errorf("encode update todo: %w", err)
+	}
+	var t Todo
+	err = c.doJSON(http.MethodPatch, "/v1/todos/"+url.PathEscape(todoID), bytes.NewReader(body), &t)
+	return t, err
+}
+
 // AppendTodoNote appends a line to the todo's note (server-side atomic append,
 // newline-separated). Mutually exclusive with UpdateTodoStatus's note
 // (overwrite) — the server rejects a body carrying both.

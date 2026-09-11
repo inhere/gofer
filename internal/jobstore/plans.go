@@ -9,10 +9,11 @@ import (
 // Plan status values. A plan is a lightweight grouping header; it does not
 // advance jobs itself.
 const (
-	PlanOpen     = "open"
-	PlanActive   = "active"
-	PlanDone     = "done"
-	PlanArchived = "archived"
+	PlanIDMinLength = 9
+	PlanOpen        = "open"
+	PlanActive      = "active"
+	PlanDone        = "done"
+	PlanArchived    = "archived"
 )
 
 // Plan is the SQLite-persisted plan grouping header. It is neutral (no
@@ -79,7 +80,7 @@ func (s *Store) ListPlans(status string, limit int) ([]Plan, error) {
 		query += " WHERE status = ?"
 		args = append(args, status)
 	}
-	query += " ORDER BY created_at DESC, plan_id DESC"
+	query += " ORDER BY created_at DESC, rowid DESC"
 	if limit <= 0 {
 		limit = DefaultListLimit
 	}

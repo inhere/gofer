@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -10,6 +11,12 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
+
+var planIDPattern = regexp.MustCompile(`^[A-Za-z0-9._:-]+$`)
+
+func validExplicitPlanID(id string) bool {
+	return len(id) >= jobstore.PlanIDMinLength && planIDPattern.MatchString(id)
+}
 
 type planView struct {
 	PlanID      string `json:"plan_id"`
@@ -92,6 +99,10 @@ func (s *Server) handleCreatePlan(c *rux.Context) {
 		return
 	}
 	planID := strings.TrimSpace(body.PlanID)
+	if planID != "" && !validExplicitPlanID(planID) {
+		writeError(c, http.StatusBadRequest, "invalid plan id", "plan id must be at least 9 characters (short ids are too easy to collide) and contain only A-Z, a-z, 0-9, '.', '_', ':' or '-'")
+		return
+	}
 	if planID == "" {
 		planID = "plan-" + time.Now().Format(job.JobIDLayout) + "-" + job.RandomSuffix()
 	}
@@ -100,6 +111,10 @@ func (s *Server) handleCreatePlan(c *rux.Context) {
 		PlanID: planID, Title: body.Title, Description: body.Description,
 		Status: jobstore.PlanOpen, Owner: callerFromCtx(c),
 		CreatedAt: now, UpdatedAt: now,
+	}
+	if _, ok, _ := s.jobs.Meta().GetPlan(planID); ok {
+		writeError(c, http.StatusConflict, "plan already exists", "plan already exists")
+		return
 	}
 	if err := s.jobs.Meta().InsertPlan(p); err != nil {
 		writeError(c, http.StatusInternalServerError, "create plan failed", err.Error())

@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/gookit/gcli/v3"
@@ -9,7 +10,21 @@ import (
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/jobstore"
 )
+
+func validPlanID(id string) bool {
+	if len(id) < jobstore.PlanIDMinLength {
+		return false
+	}
+	for _, r := range id {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '.' || r == '_' || r == ':' || r == '-' {
+			continue
+		}
+		return false
+	}
+	return true
+}
 
 var planCreateOpts = struct {
 	planID string
@@ -29,7 +44,7 @@ var planAddTodoOpts = struct {
 var planSetTodoOpts = struct {
 	undone     bool
 	status     string
-	note       string
+	note       optionalString
 	appendNote string
 }{}
 
@@ -131,7 +146,7 @@ func NewPlanCmd() *gcli.Command {
 					c.AddArg("plan-id", "plan id", true)
 					c.AddArg("title", "todo title", true)
 					c.StrOpt(&planAddTodoOpts.job, "job", "", "", "bind the todo to a job id (optional)")
-					c.StrOpt(&planAddTodoOpts.note, "note", "", "", "short remark for the todo (optional)")
+					c.StrOpt(&planAddTodoOpts.note, "note", "", "", "short remark for the todo (optional); append later with gofer plan set-todo <todo-id> --append-note \"...\"")
 				},
 				Func: runPlanAddTodo,
 			},
@@ -145,7 +160,7 @@ func NewPlanCmd() *gcli.Command {
 					c.AddArg("todo-id", "todo id", true)
 					c.BoolOpt(&planSetTodoOpts.undone, "undone", "", false, "mark the todo not done (= --status pending)")
 					c.StrOpt(&planSetTodoOpts.status, "status", "", "", "lifecycle status: pending|doing|done|skipped (wins over --undone)")
-					c.StrOpt(&planSetTodoOpts.note, "note", "", "", "set the todo note (kept unchanged when omitted)")
+					c.VarOpt(&planSetTodoOpts.note, "note", "", "set the todo note; --note \"\" clears it (kept unchanged when omitted)")
 					c.StrOpt(&planSetTodoOpts.appendNote, "append-note", "", "", "append a line to the todo note (mutually exclusive with --note)")
 				},
 				Func: runPlanSetTodo,
@@ -191,6 +206,9 @@ func NewPlanCmd() *gcli.Command {
 }
 
 func runPlanCreate(c *gcli.Command, _ []string) error {
+	if planCreateOpts.planID != "" && !validPlanID(planCreateOpts.planID) {
+		return fmt.Errorf("invalid plan id: must be at least 9 characters (short ids are too easy to collide) and contain only A-Z, a-z, 0-9, '.', '_', ':' or '-'")
+	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
 		return err
@@ -300,6 +318,54 @@ func runPlanAddTodo(c *gcli.Command, _ []string) error {
 	return nil
 }
 
+// optionalString is a string flag that remembers whether it was given at all, so
+// an explicit empty value (`--note ""`, which clears the note) is distinguishable
+// from an omitted flag (note kept unchanged).
+type optionalString struct {
+	val string
+	set bool
+}
+
+// Set implements flag.Value.
+func (o *optionalString) Set(s string) error {
+	o.val, o.set = s, true
+	return nil
+}
+
+// String implements flag.Value.
+func (o *optionalString) String() string { return o.val }
+
+// todoUpdate is the single request `plan set-todo` sends: Status "" leaves the
+// status alone, Note nil leaves the note alone, AppendNote "" appends nothing.
+type todoUpdate struct {
+	Status     string
+	Note       *string
+	AppendNote string
+}
+
+// resolveTodoUpdate maps the set-todo flags onto one update. --status wins; a
+// bare call keeps the legacy meaning (done, or pending with --undone); --note or
+// --append-note alone leaves the status untouched.
+func resolveTodoUpdate(status string, undone bool, note optionalString, appendNote string) (todoUpdate, error) {
+	if note.set && appendNote != "" {
+		return todoUpdate{}, fmt.Errorf("plan set-todo: --note and --append-note are mutually exclusive")
+	}
+	if status == "" {
+		switch {
+		case undone:
+			status = "pending"
+		case !note.set && appendNote == "":
+			status = "done"
+		}
+	}
+	u := todoUpdate{Status: status, AppendNote: appendNote}
+	if note.set {
+		v := note.val
+		u.Note = &v
+	}
+	return u, nil
+}
+
 func runPlanSetTodo(c *gcli.Command, _ []string) error {
 	todoID := argValue(c, "todo-id")
 	if todoID == "" {
@@ -309,36 +375,19 @@ func runPlanSetTodo(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	// --status wins; bare invocation keeps the legacy semantics (done, or
-	// pending with --undone). --note/--append-note alone leaves the status
-	// untouched.
-	if planSetTodoOpts.note != "" && planSetTodoOpts.appendNote != "" {
-		return fmt.Errorf("plan set-todo: --note and --append-note are mutually exclusive")
+	upd, err := resolveTodoUpdate(planSetTodoOpts.status, planSetTodoOpts.undone,
+		planSetTodoOpts.note, planSetTodoOpts.appendNote)
+	if err != nil {
+		return err
 	}
-	status := planSetTodoOpts.status
-	if status == "" && planSetTodoOpts.note == "" && planSetTodoOpts.appendNote == "" {
-		status = "done"
-		if planSetTodoOpts.undone {
-			status = "pending"
-		}
-	} else if status == "" && planSetTodoOpts.undone {
-		status = "pending"
+	var t client.Todo
+	if upd.AppendNote != "" {
+		// status (if any) and the appended line travel in ONE request, so a
+		// failure never leaves a half-applied update.
+		t, err = cli.UpdateTodoStatusAppend(todoID, upd.Status, upd.AppendNote)
+	} else {
+		t, err = cli.UpdateTodoStatus(todoID, upd.Status, upd.Note)
 	}
-	var note *string
-	if planSetTodoOpts.note != "" {
-		note = &planSetTodoOpts.note
-	}
-	if status != "" || note != nil {
-		t, err := cli.UpdateTodoStatus(todoID, status, note)
-		if err != nil {
-			return err
-		}
-		if planSetTodoOpts.appendNote == "" {
-			c.Printf("todo %s status=%s\n", t.TodoID, t.Status)
-			return nil
-		}
-	}
-	t, err := cli.AppendTodoNote(todoID, planSetTodoOpts.appendNote)
 	if err != nil {
 		return err
 	}
@@ -479,7 +528,13 @@ func printPlanTodos(c *gcli.Command, todos []client.Todo) {
 		}
 		c.Printf("  %s %-26s %s%s\n", box, t.TodoID, t.Title, bind)
 		if t.Note != "" {
-			c.Printf("      note: %s\n", t.Note)
+			for i, line := range strings.Split(t.Note, "\n") {
+				if i == 0 {
+					c.Printf("      note: %s\n", line)
+				} else {
+					c.Printf("            %s\n", line)
+				}
+			}
 		}
 	}
 }

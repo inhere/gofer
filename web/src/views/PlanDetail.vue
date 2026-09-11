@@ -822,6 +822,7 @@ onUnmounted(() => {
   color: var(--queue);
   font-size: 12px;
   word-break: break-word;
+  white-space: pre-line;
 }
 .todo-row input {
   accent-color: var(--phosphor);
