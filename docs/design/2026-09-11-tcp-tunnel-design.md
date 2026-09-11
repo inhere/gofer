@@ -8,6 +8,7 @@
 | 版本 | 日期 | 修改人 | 调整说明 |
 |---|---|---|---|
 | v0.1 | 2026-09-11 | Claude | 初版：场景、方案取舍、协议 v5、安全模型、配置、CLI、代码落点、实施拆分 T1–T4。 |
+| v0.2 | 2026-09-11 | Claude | 补 §13.2 PLC IDE 经 worker 侧 Gateway 远程在线（CODESYS）、§13.3 其它 IDE/HMI 软件判断方法；§11 补 UDP 广播发现类工具的限制与替代。CLI 须可在 Windows 运行。 |
 
 ## 2. 背景与目标
 
@@ -196,7 +197,7 @@ gofer tunnel ls
 ## 11. 已知限制与后续
 
 - 每条 TCP 连接一次 ws 握手 + rendezvous（通常几十 ms）；对「频繁短连接」协议不友好——后续可在 ws① 上做 yamux 多路复用。
-- 不支持半关闭；不支持 UDP。
+- 不支持半关闭；不支持 UDP。依赖 **UDP 广播发现**的工具（PLC IDE 网络扫描、部分 HMI 组态软件搜索设备）不能直接穿过隧道：优先把其网关/代理放到 worker 侧、本机只转发网关的 TCP 端口（见 §13.2）；确需 UDP 时再做 UDP 转发（TUN-02 候选）或用三层 VPN（全协议透明，但配置与暴露面更大）。
 - 设备端并发连接数通常很小（部分 PLC 仅 1–4 个 Modbus TCP 连接）：隧道是 1:1 透传，**本地开几条连接就占设备几条**，调试时注意别和现场上位机抢连接。
 - 后续可选：`gofer tunnel socks`（SOCKS5 动态目标，仍受 worker 白名单约束）、Web 控制台展示活跃隧道、metrics 计数、server 侧 per-caller 隧道配额。
 
@@ -209,9 +210,29 @@ gofer tunnel ls
 | T3 worker + CLI | worker `handleTunnelOpen`、`internal/client` 两个方法、`gofer tunnel forward/check/ls`；**端到端测试**：真 hub+httpapi+worker+本地 TCP echo：放行目标往返字节一致、未放行 403、拨号失败 502、超限 429、老协议 409 | 全量绿；容器内起独立 serve（非 live 端口）+ worker + echo 手工冒烟 `forward`/`check`/`ls` |
 | T4 文档 | worker 示例配置 `tunnel` 段、README/用法、roadmap 行、架构总览提一句 | 文档与实现一致 |
 
-## 13. 使用示例（Modbus 真机调试）
+## 13. 使用示例
+
+### 13.1 Modbus 真机调试
 
 1. 电脑 B：`worker.yaml` 加 `tunnel.allow: ["192.168.1.10:502"]`，然后 `gofer worker reload <B 的 worker_id>`（或重启 worker）。B 的 gofer 需是支持协议 v5 的新版本。
 2. 本机：`gofer tunnel check -w <B> 192.168.1.10:502` 确认连通。
 3. 本机：`gofer tunnel forward -w <B> 1502:192.168.1.10:502`（保持运行）。
 4. 上位机服务把 Modbus 地址配成 `127.0.0.1:1502`；超时建议 ≥ 1–2s（多了一段 B↔server 的网络往返）。
+
+### 13.2 PLC 编程 IDE 远程在线（以 CODESYS V3 为例）
+
+CODESYS IDE 不直连 PLC，而是经 **Gateway**（TCP 1217）通信；Gateway 再用 UDP 1740–1743（网络扫描为广播）或 TCP 11740 连 PLC。广播/UDP 过不了本隧道，所以**把 Gateway 放在 worker 侧**：
+
+1. 电脑 B 运行 CODESYS Gateway；`worker.yaml`：`tunnel.allow: ["127.0.0.1:1217"]`。
+2. IDE 所在的 Windows 主机：`gofer tunnel forward -w <B> 11217:127.0.0.1:1217`（避开本机自带 Gateway 占用的 1217）。
+3. IDE 通讯设置 → 添加网关 `127.0.0.1:11217` → 扫描网络（扫描发生在 B 的网段）→ 登录/下载/在线监视。
+
+备选：PLC 固件开启了 TCP 块驱动时可只转发 `11740` 直连，依赖固件，不如 Gateway 方案稳。
+
+### 13.3 其它 IDE / HMI 组态软件的判断方法
+
+- 能手动填设备 IP、且下载/在线走**纯 TCP** → 可用：逐端口转发，IDE 目标 IP 填 `127.0.0.1`（端口写死时本地端口用同号）。
+- 依赖 **UDP 广播搜索**或 UDP 传输 → v1 不支持：优先找「worker 侧网关/代理」形态（同 13.2），否则需 UDP 转发（后续）或三层 VPN。
+- 确认方式：在与设备同网段的机器上用该软件操作一次，同时用 Wireshark / `netstat -ano` 观察协议与端口。
+- 软件拒绝 `127.0.0.1` 或校验同网段时：本机加一块环回网卡（Windows KM-TEST Loopback Adapter）配成设备网段地址，forward 的 bind 绑到该地址。
+- 远程下载/在线修改会驱动真实设备，操作前确保现场知情。
