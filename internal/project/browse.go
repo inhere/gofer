@@ -105,6 +105,10 @@ func runGitRO(dir string, capBytes int, args ...string) (string, error) {
 
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = dir
+	// Read-only: never take .git/index.lock (tools-3wc). The web console polls this;
+	// without it `status` refreshes the index under an "optional" lock and the user's
+	// own commit/rebase in that repo intermittently fails with "index.lock: File exists".
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 	out, err := cmd.Output()
 	if err != nil {
 		return "", err

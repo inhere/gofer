@@ -60,6 +60,11 @@ func isGitWorkTree(ctx context.Context, cwd string) bool {
 func runGit(ctx context.Context, cwd string, capBytes int, args ...string) []byte {
 	cmd := exec.CommandContext(ctx, "git", args...)
 	cmd.Dir = cwd
+	// Read-only: never take .git/index.lock (tools-3wc). status/diff otherwise refresh
+	// the index under an "optional" lock, so a concurrent user commit/rebase in the
+	// same repo fails with "index.lock: File exists", and a child killed by ctx or the
+	// output cap can leave the lock behind.
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
