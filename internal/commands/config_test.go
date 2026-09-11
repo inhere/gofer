@@ -599,6 +599,28 @@ func TestLoadWorkerConfigDefaultMissing(t *testing.T) {
 	}
 }
 
+func TestLoadWorkerConfigTunnelAllowValidation(t *testing.T) {
+	dir := t.TempDir()
+	bad := filepath.Join(dir, "bad-worker.yaml")
+	if err := os.WriteFile(bad, []byte("tunnel:\n  allow: [invalid]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := loadWorkerConfig(bad); err == nil || !strings.Contains(err.Error(), "worker.tunnel") {
+		t.Fatalf("expected tunnel validation error, got %v", err)
+	}
+	good := filepath.Join(dir, "good-worker.yaml")
+	if err := os.WriteFile(good, []byte("tunnel:\n  allow: [example.com:443]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wc, err := loadWorkerConfig(good)
+	if err != nil {
+		t.Fatalf("load valid worker: %v", err)
+	}
+	if len(wc.Tunnel.Allow) != 1 || wc.Tunnel.Allow[0] != "example.com:443" {
+		t.Fatalf("tunnel allow = %#v", wc.Tunnel.Allow)
+	}
+}
+
 // TestConfigValidateUnknownTarget: an unrecognised target is a coded error.
 func TestConfigValidateUnknownTarget(t *testing.T) {
 	c := bindCmd(NewConfigCmd().Subs[0])

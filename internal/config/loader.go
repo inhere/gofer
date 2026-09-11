@@ -341,6 +341,18 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("server.governance.require_attach_capability is on but no caller has can_attach: true (would lock out all attach)")
 		}
 	}
+	if g.RequireTunnelCapability {
+		has := false
+		for _, cc := range cfg.Server.Callers {
+			if cc.CanTunnel {
+				has = true
+				break
+			}
+		}
+		if !has {
+			return fmt.Errorf("server.governance.require_tunnel_capability is on but no caller has can_tunnel: true (would lock out all tunnels)")
+		}
+	}
 	for i, pattern := range g.AttachOrigins {
 		trimmed := strings.TrimSpace(pattern)
 		if trimmed == "" {

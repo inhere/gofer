@@ -29,7 +29,7 @@ const (
 	// Current (not Min) is the whole point of the two-constant split: a v3 worker
 	// stays registered, it just cannot be sent a policy frame (negotiated per peer via
 	// SupportsPolicy), so no already-deployed worker is evicted by shipping this frame.
-	CurrentProtocolVersion = 4
+	CurrentProtocolVersion = 5
 )
 
 // ReloadMinProtocolVersion is the first protocol version that carries the config
@@ -50,6 +50,19 @@ func SupportsReload(proto int) bool { return proto >= ReloadMinProtocolVersion }
 // never receives a policy frame, so a v3 worker keeps sourcing its projects from its
 // own local config (LEGACY) and is never evicted for lacking the capability.
 const PolicyMinProtocolVersion = 4
+
+// TunnelMinProtocolVersion is the first protocol version carrying TCP tunnel frames.
+const TunnelMinProtocolVersion = 5
+
+// SupportsTunnel reports whether a peer supports TCP tunnel frames.
+func SupportsTunnel(proto int) bool { return proto >= TunnelMinProtocolVersion }
+
+// TunnelOpen requests a worker to open a TCP tunnel (protocol v5).
+type TunnelOpen struct {
+	TunnelID   string `json:"tunnel_id"`
+	Target     string `json:"target"`
+	RelayNonce string `json:"relay_nonce"`
+}
 
 // SupportsPolicy reports whether a peer that registered with protocol version proto
 // implements the policy push frames. Like SupportsReload it is the single place that

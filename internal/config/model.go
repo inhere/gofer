@@ -3,9 +3,12 @@
 package config
 
 import (
+	"fmt"
 	"math"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/tunnel"
 )
 
 // Default values used during config loading. See plan §6.1.
@@ -323,6 +326,7 @@ type GovernanceConfig struct {
 	// RequireAttachCapability gates interactive attach to callers with
 	// can_attach:true. false = any authenticated caller may attach (legacy).
 	RequireAttachCapability bool `yaml:"require_attach_capability,omitempty"`
+	RequireTunnelCapability bool `yaml:"require_tunnel_capability,omitempty"`
 	// AttachOrigins is the Origin allowlist for attach websocket requests.
 	AttachOrigins []string `yaml:"attach_origins,omitempty"`
 }
@@ -461,6 +465,8 @@ type CallerConfig struct {
 	// CanAttach permits this caller to attach to interactive sessions when
 	// governance.require_attach_capability is enabled.
 	CanAttach bool `yaml:"can_attach,omitempty"`
+	// CanTunnel permits TCP tunnel connections when governance requires it.
+	CanTunnel bool `yaml:"can_tunnel,omitempty"`
 	// E17 per-caller quota overrides (design §7.1). Each 0/empty value falls back to
 	// the server.governance default; if that is also 0 the dimension is unlimited
 	// (向后兼容). A value > 0 wins over the governance default.
@@ -518,6 +524,19 @@ func (sc *ServerConfig) CallerCanAttach(callerID string) bool {
 			if cc.ID == callerID {
 				return cc.CanAttach
 			}
+		}
+	}
+	return false
+}
+
+// CallerCanTunnel reports whether callerID has tunnel capability.
+func (sc *ServerConfig) CallerCanTunnel(callerID string) bool {
+	if callerID == "" {
+		return false
+	}
+	for _, cc := range sc.Callers {
+		if cc.ID == callerID {
+			return cc.CanTunnel
 		}
 	}
 	return false
@@ -780,8 +799,43 @@ type WorkerConfig struct {
 	// is a local-only knob (never remotely rewritten, never API-exposed, T2-C).
 	Roots []WorkerRoot `yaml:"roots,omitempty"`
 	// Guards are opt-in per-worker capability gates (P3 T2-D). See WorkerGuards.
-	Guards WorkerGuards `yaml:"guards,omitempty"`
+	Guards WorkerGuards       `yaml:"guards,omitempty"`
+	Tunnel WorkerTunnelConfig `yaml:"tunnel,omitempty"`
 }
+
+// WorkerTunnelConfig controls outbound TCP tunnels.
+type WorkerTunnelConfig struct {
+	Allow          []string `yaml:"allow,omitempty"`
+	MaxConns       int      `yaml:"max_conns,omitempty"`
+	DialTimeoutSec int      `yaml:"dial_timeout_sec,omitempty"`
+}
+
+// ValidateWorkerTunnel validates worker tunnel allowlist entries.
+func ValidateWorkerTunnel(w WorkerConfig) error {
+	if _, err := tunnel.ParseAllowlist(w.Tunnel.Allow); err != nil {
+		return fmt.Errorf("worker.tunnel: %w", err)
+	}
+	return nil
+}
+
+// EffectiveMaxConns returns configured limit or default 8.
+func (t WorkerTunnelConfig) EffectiveMaxConns() int {
+	if t.MaxConns > 0 {
+		return t.MaxConns
+	}
+	return 8
+}
+
+// DialTimeout returns configured timeout or default 5 seconds.
+func (t WorkerTunnelConfig) DialTimeout() time.Duration {
+	if t.DialTimeoutSec > 0 {
+		return time.Duration(t.DialTimeoutSec) * time.Second
+	}
+	return 5 * time.Second
+}
+
+// Enabled reports whether any tunnel target is allowed.
+func (t WorkerTunnelConfig) Enabled() bool { return len(t.Allow) > 0 }
 
 // WorkerRoot maps a server-side logical path prefix (From) onto this worker's
 // host path prefix (To). It is the ONLY declaration a worker needs to expose a

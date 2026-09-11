@@ -630,6 +630,9 @@ func loadWorkerConfig(path string) (*config.WorkerConfig, error) {
 	if err := yaml.Unmarshal(data, &wc); err != nil {
 		return nil, fmt.Errorf("decode worker config %s: %w", path, err)
 	}
+	if err := config.ValidateWorkerTunnel(wc); err != nil {
+		return nil, fmt.Errorf("validate worker config %s: %w", path, err)
+	}
 	return &wc, nil
 }
 

@@ -49,8 +49,9 @@ const (
 	// server→worker authoritative project/guard set; applied is the worker→server
 	// report of what it converged to. A policy may also ride on the Registered ack
 	// (catch-up on register); the standalone frame carries later revisions.
-	TypePolicy  FrameType = "policy"  // s→w
-	TypeApplied FrameType = "applied" // w→s
+	TypePolicy     FrameType = "policy"      // s→w
+	TypeApplied    FrameType = "applied"     // w→s
+	TypeTunnelOpen FrameType = "tunnel_open" // s→w
 )
 
 // Envelope is the single-connection multiplexed message. Payload carries the

@@ -278,6 +278,52 @@ server:
 	}
 }
 
+func TestCallerCanTunnel(t *testing.T) {
+	sc := ServerConfig{Callers: []CallerConfig{{ID: "operator", CanTunnel: true}}}
+	if sc.CallerCanTunnel("") || sc.CallerCanTunnel("unknown") {
+		t.Fatal("empty or unknown caller must not have tunnel capability")
+	}
+	if !sc.CallerCanTunnel("operator") {
+		t.Fatal("configured caller should have tunnel capability")
+	}
+}
+
+func TestLoadRequireTunnelCapabilityNeedsCaller(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cfg.yaml")
+	write(t, p, `server:
+  governance:
+    require_tunnel_capability: true
+  callers:
+    - id: readonly
+      token: ro
+`)
+	_, _, err := Load(p)
+	if err == nil || !strings.Contains(err.Error(), "require_tunnel_capability is on but no caller has can_tunnel: true") {
+		t.Fatalf("expected tunnel capability guard error, got %v", err)
+	}
+}
+
+func TestLoadRequireTunnelCapabilityAllowsCaller(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cfg.yaml")
+	write(t, p, `server:
+  governance:
+    require_tunnel_capability: true
+  callers:
+    - id: operator
+      token: op
+      can_tunnel: true
+`)
+	cfg, _, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !cfg.Server.CallerCanTunnel("operator") {
+		t.Fatal("operator should retain can_tunnel after Load")
+	}
+}
+
 func TestLoadCastEncryptionRequiresKeyEnv(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "cfg.yaml")
