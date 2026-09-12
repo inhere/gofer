@@ -30,6 +30,8 @@ func (cl *Client) handleTunnelOpen(ctx context.Context, sessionURL string, t wsp
 	p := cl.tunnelPolicy.Load()
 	code, msg := "", ""
 	var nc net.Conn
+	var pc net.PacketConn
+	var udpTarget net.Addr
 	network := t.Network
 	if network == "" {
 		network = "tcp"
@@ -58,8 +60,21 @@ func (cl *Client) handleTunnelOpen(ctx context.Context, sessionURL string, t wsp
 		if code == "" {
 			defer func() { cl.tunnelMu.Lock(); cl.tunnelActive--; cl.tunnelMu.Unlock() }()
 			var err error
-			nc, err = net.DialTimeout(network, t.Target, p.timeout)
-			if err != nil {
+			if network == "udp" {
+				// UDP uses an UNCONNECTED socket: a connected one would drop a reply
+				// that the device sends from a different port, which is common enough
+				// on industrial gear to look like a dead tunnel. DatagramBridge keeps
+				// the authorization boundary by only accepting the target's own IP.
+				if udpTarget, err = net.ResolveUDPAddr("udp", t.Target); err != nil {
+					code = tunnel.CodeBadTarget
+					msg = err.Error()
+				} else if pc, err = net.ListenPacket("udp", ":0"); err != nil {
+					code = tunnel.CodeDialFailed
+					msg = err.Error()
+				} else {
+					defer pc.Close()
+				}
+			} else if nc, err = net.DialTimeout(network, t.Target, p.timeout); err != nil {
 				code = tunnel.CodeDialFailed
 				msg = err.Error()
 			} else {
@@ -101,7 +116,7 @@ func (cl *Client) handleTunnelOpen(ctx context.Context, sessionURL string, t wsp
 	var fromDevice, toDevice int64
 	var e error
 	if network == "udp" {
-		fromDevice, toDevice, e = tunnel.DatagramBridge(ctx, ws, nc)
+		fromDevice, toDevice, e = tunnel.DatagramBridge(ctx, ws, pc, udpTarget)
 	} else {
 		fromDevice, toDevice, e = tunnel.Bridge(ctx, ws, nc)
 	}

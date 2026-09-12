@@ -112,30 +112,38 @@ func udpEcho(t *testing.T) (addr string, stop func()) {
 	return pc.LocalAddr().String(), func() { pc.Close(); <-done }
 }
 
+// startDatagramBridge wires a websocket pair to an unconnected device socket and
+// returns the client end plus the bridge's byte counts when it finishes.
+func startDatagramBridge(t *testing.T, ctx context.Context, target string) (*websocket.Conn, <-chan [2]int64) {
+	t.Helper()
+	ua, err := net.ResolveUDPAddr("udp", target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	accepted := make(chan *websocket.Conn, 1)
+	client, closeSrv := spliceEndpoint(t, accepted)
+	t.Cleanup(closeSrv)
+	server := <-accepted
+
+	done := make(chan [2]int64, 1)
+	go func() {
+		up, down, _ := DatagramBridge(ctx, server, pc, ua)
+		done <- [2]int64{up, down}
+	}()
+	return client, done
+}
+
 func TestDatagramBridgeRoundTrip(t *testing.T) {
 	echo, stopEcho := udpEcho(t)
 	defer stopEcho()
 
-	// The worker side of a udp tunnel: a connected UDP socket to the device.
-	dev, err := net.Dial("udp", echo)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer dev.Close()
-
-	accepted := make(chan *websocket.Conn, 1)
-	client, closeSrv := spliceEndpoint(t, accepted)
-	defer closeSrv()
-	server := <-accepted
-
-	type res struct{ toWS, fromWS int64 }
-	done := make(chan res, 1)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go func() {
-		up, down, _ := DatagramBridge(ctx, server, dev)
-		done <- res{up, down}
-	}()
+	client, done := startDatagramBridge(t, ctx, echo)
 
 	payload := []byte("modbus-ish datagram")
 	if err := client.Write(ctx, websocket.MessageBinary, payload); err != nil {
@@ -156,11 +164,89 @@ func TestDatagramBridgeRoundTrip(t *testing.T) {
 	select {
 	case r := <-done:
 		// One datagram each way: what the device sent up, and what we sent down.
-		if r.toWS != int64(len(payload)) || r.fromWS != int64(len(payload)) {
-			t.Fatalf("counts toWS=%d fromWS=%d, want %d each", r.toWS, r.fromWS, len(payload))
+		if r[0] != int64(len(payload)) || r[1] != int64(len(payload)) {
+			t.Fatalf("counts toWS=%d fromWS=%d, want %d each", r[0], r[1], len(payload))
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("DatagramBridge did not return")
+	}
+}
+
+// TestDatagramBridgeAcceptsReplyFromAnotherPort is the regression guard for the
+// failure that made a real HMI download time out: the device answered from a port
+// other than the one it was asked on, and a connected socket dropped every reply.
+// Verified against the live worker before the fix — the tunnel opened and then
+// nothing came back.
+func TestDatagramBridgeAcceptsReplyFromAnotherPort(t *testing.T) {
+	// A device that always answers from a second socket, i.e. a different port.
+	dev, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dev.Close()
+	alt, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer alt.Close()
+	go func() {
+		b := make([]byte, 2048)
+		for {
+			n, from, e := dev.ReadFrom(b)
+			if e != nil {
+				return
+			}
+			if _, e := alt.WriteTo(append([]byte("alt:"), b[:n]...), from); e != nil {
+				return
+			}
+		}
+	}()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client, _ := startDatagramBridge(t, ctx, dev.LocalAddr().String())
+
+	if err := client.Write(ctx, websocket.MessageBinary, []byte("ping")); err != nil {
+		t.Fatal(err)
+	}
+	readCtx, readCancel := context.WithTimeout(ctx, 10*time.Second)
+	defer readCancel()
+	_, got, err := client.Read(readCtx)
+	if err != nil {
+		t.Fatalf("a reply from another port of the same device must be relayed: %v", err)
+	}
+	if string(got) != "alt:ping" {
+		t.Fatalf("got %q want %q", got, "alt:ping")
+	}
+}
+
+// TestDatagramBridgeIgnoresForeignSource keeps the authorization boundary: only
+// the target host's datagrams ride the tunnel, so an unrelated sender on the
+// device network cannot inject into someone else's session.
+func TestDatagramBridgeIgnoresForeignSource(t *testing.T) {
+	echo, stopEcho := udpEcho(t)
+	defer stopEcho()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	client, _ := startDatagramBridge(t, ctx, echo)
+
+	// Learn the bridge's own address by making the echo answer it once.
+	if err := client.Write(ctx, websocket.MessageBinary, []byte("warmup")); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := client.Read(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	// A different host would be a different IP; on loopback the closest honest
+	// check is that a foreign *address* object is rejected by sameHost.
+	foreign := &net.UDPAddr{IP: net.ParseIP("10.11.12.13"), Port: 9}
+	if sameHost(net.ParseIP("127.0.0.1"), foreign) {
+		t.Fatal("a datagram from another host must not be relayed")
+	}
+	if !sameHost(net.ParseIP("127.0.0.1"), &net.UDPAddr{IP: net.ParseIP("127.0.0.1"), Port: 65000}) {
+		t.Fatal("the target host answering from another port must be relayed")
 	}
 }
 

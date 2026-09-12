@@ -9,11 +9,20 @@ import (
 )
 
 // DatagramBridge maps one UDP datagram to one binary websocket message.
-func DatagramBridge(ctx context.Context, ws *websocket.Conn, conn net.Conn) (toWS, fromWS int64, err error) {
+//
+// The device socket is deliberately UNCONNECTED. A connected UDP socket only
+// receives datagrams whose source is exactly the target address, and devices
+// commonly answer from a different port than the one they were asked on — those
+// replies are dropped by the kernel and the exchange just times out, which looks
+// exactly like a dead tunnel. Replies are therefore accepted from any port of the
+// target's IP; anything from another host is ignored so an unrelated sender on the
+// device network cannot inject traffic into someone's tunnel.
+func DatagramBridge(ctx context.Context, ws *websocket.Conn, pc net.PacketConn, target net.Addr) (toWS, fromWS int64, err error) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var once sync.Once
-	stop := func() { once.Do(func() { conn.Close(); ws.Close(websocket.StatusNormalClosure, "closed") }) }
+	stop := func() { once.Do(func() { pc.Close(); ws.Close(websocket.StatusNormalClosure, "closed") }) }
+	targetIP := addrIP(target)
 	type result struct {
 		n   int64
 		err error
@@ -24,8 +33,11 @@ func DatagramBridge(ctx context.Context, ws *websocket.Conn, conn net.Conn) (toW
 		var n int64
 		b := make([]byte, ReadLimit)
 		for {
-			nr, e := conn.Read(b)
+			nr, from, e := pc.ReadFrom(b)
 			if nr > 0 {
+				if !sameHost(targetIP, from) {
+					continue // not our device: ignore rather than relay
+				}
 				if e2 := ws.Write(ctx, websocket.MessageBinary, b[:nr]); e2 != nil {
 					e = e2
 				} else {
@@ -54,7 +66,7 @@ func DatagramBridge(ctx context.Context, ws *websocket.Conn, conn net.Conn) (toW
 			}
 			b, e := io.ReadAll(io.LimitReader(r, ReadLimit+1))
 			if e == nil && len(b) <= ReadLimit {
-				_, e = conn.Write(b)
+				_, e = pc.WriteTo(b, target)
 				if e == nil {
 					n += int64(len(b))
 				}
@@ -80,4 +92,26 @@ func DatagramBridge(ctx context.Context, ws *websocket.Conn, conn net.Conn) (toW
 		return toWS, fromWS, nil
 	}
 	return toWS, fromWS, a.err
+}
+
+// addrIP extracts the IP of a UDP address, or nil when it cannot be determined
+// (in which case sameHost accepts everything, matching a plain relay).
+func addrIP(a net.Addr) net.IP {
+	if u, ok := a.(*net.UDPAddr); ok {
+		return u.IP
+	}
+	if host, _, err := net.SplitHostPort(a.String()); err == nil {
+		return net.ParseIP(host)
+	}
+	return nil
+}
+
+// sameHost reports whether a reply came from the device we are talking to,
+// ignoring the port it chose to answer from.
+func sameHost(want net.IP, from net.Addr) bool {
+	if want == nil {
+		return true
+	}
+	got := addrIP(from)
+	return got != nil && got.Equal(want)
 }
