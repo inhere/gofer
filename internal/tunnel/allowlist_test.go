@@ -41,3 +41,57 @@ func TestAllows(t *testing.T) {
 		t.Fatal("empty mismatch")
 	}
 }
+
+// TestParseAllowlistPortListsAndRanges pins the compact port syntax: one entry may
+// carry a comma separated list and inclusive ranges, so a device answering on
+// several ports stays one line. "*" inside a list is rejected on purpose — an
+// entry that mixes them no longer shows its real breadth at a glance.
+func TestParseAllowlistPortListsAndRanges(t *testing.T) {
+	for _, s := range []string{
+		"192.168.0.100:502,1217,11740",
+		"192.168.0.100:11740-11743",
+		"192.168.0.100:502, 11740-11743",
+		"10.0.0.0/24:502,503",
+		"[fe80::1]:502,503",
+	} {
+		if _, e := ParseAllowlist([]string{s}); e != nil {
+			t.Errorf("%s should parse: %v", s, e)
+		}
+	}
+	for _, s := range []string{
+		"192.168.0.100:502,",
+		"192.168.0.100:,502",
+		"192.168.0.100:502,abc",
+		"192.168.0.100:11743-11740",
+		"192.168.0.100:0-5",
+		"192.168.0.100:1-",
+		"192.168.0.100:*,502",
+	} {
+		if _, e := ParseAllowlist([]string{s}); e == nil {
+			t.Errorf("%s should be rejected", s)
+		}
+	}
+}
+
+// TestAllowsPortListsAndRanges checks membership, including both range edges and
+// the ports just outside them: a range must not leak one port either side.
+func TestAllowsPortListsAndRanges(t *testing.T) {
+	a, e := ParseAllowlist([]string{"192.168.0.100:502,1217,11740", "10.0.0.0/24:11740-11743", "plc.local:502,503"})
+	if e != nil {
+		t.Fatal(e)
+	}
+	for _, c := range []struct {
+		s    string
+		want bool
+	}{
+		{"192.168.0.100:502", true}, {"192.168.0.100:1217", true}, {"192.168.0.100:11740", true},
+		{"192.168.0.100:503", false}, {"192.168.0.100:11741", false},
+		{"10.0.0.5:11740", true}, {"10.0.0.5:11743", true},
+		{"10.0.0.5:11739", false}, {"10.0.0.5:11744", false},
+		{"plc.local:503", true}, {"PLC.LOCAL:502", true}, {"plc.local:504", false},
+	} {
+		if a.Allows(c.s) != c.want {
+			t.Errorf("%s: want %v", c.s, c.want)
+		}
+	}
+}

@@ -41,10 +41,12 @@ server_link:
   #   read_deadline_ms: 45000
 
 # TCP tunnel is disabled by default. Add allow entries to opt in; each entry is
-# host:port, CIDR:port, host:* (any port), or [IPv6]:port. max_conns limits
-# simultaneous tunnels and dial_timeout_sec bounds device dialing.
+# host:port, CIDR:port, host:* (any port), or [IPv6]:port. The port half may also
+# be a comma separated list or an inclusive range, so one device is one line:
+# "192.168.1.10:502,1217,11740-11743". max_conns limits simultaneous tunnels and
+# dial_timeout_sec bounds device dialing.
 # tunnel:
-#   allow: ["192.168.1.10:502", "192.168.1.0/24:502"]   # keep entries as narrow as possible
+#   allow: ["192.168.1.10:502,1217", "192.168.1.0/24:502"]   # keep entries as narrow as possible
 #   max_conns: 8
 #   dial_timeout_sec: 5
 
