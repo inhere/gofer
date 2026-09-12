@@ -46,3 +46,18 @@ t-3967153a246e default w-plc 192.168.1.10:502 127.0.0.1:59948 2s 32 32
 常见问题：协议过旧时升级 worker；目标未放行时增加 `tunnel.allow`；达到 `max_conns` 时关闭不用的转发；广播和组播发现仍不支持。
 
 server 审计事件包含 `tunnel_id caller worker target client_remote bytes_up bytes_down close_reason duration_ms`；worker 事件包含 `tunnel_id target error_code bytes_from_device bytes_to_device duration_ms`。
+
+## 转发预设
+
+转发规格较长时可存成具名预设，之后用 `--name`（`-n`）复用：
+
+```bash
+gofer tunnel save hw-win11 -w w-hw-windows11 --note "现场 HMI + PLC" \
+      udp/21845:192.168.0.200:21845 1502:192.168.0.100:502
+gofer tunnel saved            # 列出预设（tunnel ls 是活跃隧道，不要混）
+gofer tunnel forward -n hw-win11
+gofer tunnel check -n hw-win11   # 逐个检查预设里每条规格的设备地址
+gofer tunnel forget hw-win11
+```
+
+一条预设可存多条规格，一次全开。预设保存在用户级 `<config-dir>/tunnels.yaml`（与 `worker.yaml` 同级，认 `GOFER_CONFIG_DIR`），文件权限 0600。`save` 时每条规格都会校验，非法规格不写入；同名预设需 `--force` 才覆盖。`forward`/`check` 显式给出的 worker 或规格优先于预设，便于临时改端口而不必先改预设。

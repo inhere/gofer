@@ -175,6 +175,15 @@ func UserWorkerConfigPath() (string, error) {
 	return filepath.Join(dir, WorkerConfigFileName), nil
 }
 
+// UserTunnelsPath returns the user-level tunnel presets path.
+func UserTunnelsPath() (string, error) {
+	dir, err := ConfigDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(dir, "tunnels.yaml"), nil
+}
+
 // DBFileName is the SQLite metadata database file name used when db_path is
 // resolved from storage.root or the config dir (see ResolveDBPath, design §11).
 const DBFileName = "gofer.db"
