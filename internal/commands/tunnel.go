@@ -60,6 +60,11 @@ func runTunnelForward(c *gcli.Command, args []string) error {
 		f := &tunnel.Forwarder{Spec: sp, Ready: make(chan error, 1), Dial: func(x context.Context) (*websocket.Conn, error) {
 			return cli.DialTunnel(x, tunnelOpts.worker, sp.Target)
 		}}
+		if !tunnelOpts.quiet {
+			// One line per local connection (up, and closed with byte counts).
+			// --quiet leaves Log nil, which still logs dial failures via slog.
+			f.Log = func(format string, args ...any) { fmt.Printf(format+"\n", args...) }
+		}
 		go func() { errCh <- f.Run(ctx) }()
 		if e := <-f.Ready; e != nil {
 			return e
