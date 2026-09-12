@@ -93,10 +93,11 @@ func parsePort(p string) (int, bool) {
 }
 
 type rule struct {
-	host  string
-	ports portMatch
-	net   *net.IPNet
-	cidr  bool
+	network string
+	host    string
+	ports   portMatch
+	net     *net.IPNet
+	cidr    bool
 }
 
 // Allowlist contains parsed outbound target rules.
@@ -107,7 +108,19 @@ type Allowlist struct{ rules []rule }
 func ParseAllowlist(es []string) (*Allowlist, error) {
 	a := &Allowlist{}
 	for _, s := range es {
-		h, p, e := net.SplitHostPort(strings.TrimSpace(s))
+		raw := strings.TrimSpace(s)
+		network := "tcp"
+		// An entry may name its network: "udp/host:port" (and "tcp/..." for symmetry).
+		// Only these two prefixes are stripped; anything else keeps its slash and is
+		// caught below, so a typo like "sctp/1.2.3.4:1" fails loudly instead of
+		// silently becoming a rule for the host named "sctp/1.2.3.4".
+		if i := strings.IndexByte(raw, '/'); i > 0 {
+			switch p := strings.ToLower(raw[:i]); p {
+			case "tcp", "udp":
+				network, raw = p, raw[i+1:]
+			}
+		}
+		h, p, e := net.SplitHostPort(raw)
 		if e != nil || h == "" {
 			return nil, fmt.Errorf("invalid allowlist entry %q", s)
 		}
@@ -115,11 +128,15 @@ func ParseAllowlist(es []string) (*Allowlist, error) {
 		if pe != nil {
 			return nil, fmt.Errorf("invalid allowlist entry %q: %v", s, pe)
 		}
-		r := rule{host: strings.ToLower(strings.Trim(h, "[]")), ports: ports}
+		r := rule{network: network, host: strings.ToLower(strings.Trim(h, "[]")), ports: ports}
 		if ip, n, er := net.ParseCIDR(r.host); er == nil {
 			n.IP = ip
 			r.net = n
 			r.cidr = true
+		} else if strings.Contains(r.host, "/") {
+			// A slash survives only in a CIDR; anything else is a malformed entry
+			// (unknown network prefix, bad mask) and must not become a hostname.
+			return nil, fmt.Errorf("invalid allowlist entry %q", s)
 		}
 		a.rules = append(a.rules, r)
 	}
@@ -131,6 +148,9 @@ func (a *Allowlist) Empty() bool { return a == nil || len(a.rules) == 0 }
 
 // Allows reports whether target matches a rule.
 func (a *Allowlist) Allows(t string) bool {
+	return a.AllowsNetwork("tcp", t)
+}
+func (a *Allowlist) AllowsNetwork(network, t string) bool {
 	if a == nil {
 		return false
 	}
@@ -143,6 +163,9 @@ func (a *Allowlist) Allows(t string) bool {
 		return false
 	}
 	for _, r := range a.rules {
+		if r.network != network {
+			continue
+		}
 		if !r.ports.contains(n) {
 			continue
 		}

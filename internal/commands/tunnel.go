@@ -10,6 +10,7 @@ import (
 	"github.com/inhere/gofer/internal/tunnel"
 	"os"
 	"os/signal"
+	"strings"
 	"time"
 )
 
@@ -58,7 +59,7 @@ func runTunnelForward(c *gcli.Command, args []string) error {
 			return e
 		}
 		f := &tunnel.Forwarder{Spec: sp, Ready: make(chan error, 1), Dial: func(x context.Context) (*websocket.Conn, error) {
-			return cli.DialTunnel(x, tunnelOpts.worker, sp.Target)
+			return cli.DialTunnel(x, tunnelOpts.worker, sp.Target, sp.Network)
 		}}
 		if !tunnelOpts.quiet {
 			// One line per local connection (up, and closed with byte counts).
@@ -70,7 +71,13 @@ func runTunnelForward(c *gcli.Command, args []string) error {
 			return e
 		}
 		if !tunnelOpts.quiet {
-			fmt.Printf("forwarding %s -> %s:%s\n", f.ActualAddr, tunnelOpts.worker, sp.Target)
+			// Mark udp: the two listeners behave differently enough (per-source
+			// sessions, idle reaping) that the startup line should say which one ran.
+			label := ""
+			if sp.Network == "udp" {
+				label = "UDP "
+			}
+			fmt.Printf("forwarding %s%s -> %s:%s\n", label, f.ActualAddr, tunnelOpts.worker, sp.Target)
 		}
 	}
 	for {
@@ -97,7 +104,12 @@ func runTunnelCheck(c *gcli.Command, _ []string) error {
 		return e
 	}
 	st := time.Now()
-	ws, e := cli.DialTunnel(context.Background(), tunnelOpts.worker, target)
+	network := "tcp"
+	if strings.HasPrefix(target, "udp/") {
+		network = "udp"
+		target = target[4:]
+	}
+	ws, e := cli.DialTunnel(context.Background(), tunnelOpts.worker, target, network)
 	if e != nil {
 		return e
 	}

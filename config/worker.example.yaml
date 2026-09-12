@@ -47,6 +47,8 @@ server_link:
 # dial_timeout_sec bounds device dialing.
 # tunnel:
 #   allow: ["192.168.1.10:502,1217", "192.168.1.0/24:502"]   # keep entries as narrow as possible
+#   # UDP 单播示例：仅允许目标 UDP 1502（转发命令使用 udp/ 前缀）
+#   # allow: ["udp/192.168.1.10:1502"]
 #   max_conns: 8
 #   dial_timeout_sec: 5
 

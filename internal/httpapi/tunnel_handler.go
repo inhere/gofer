@@ -59,7 +59,7 @@ func (s *Server) tunnelConnect(w http.ResponseWriter, r *http.Request) {
 		fail(http.StatusBadRequest, "invalid worker or target", "caller", ce.id, "worker", worker, "target", target)
 		return
 	}
-	if network != "tcp" {
+	if network != "tcp" && network != "udp" {
 		fail(http.StatusBadRequest, "network is not supported", "caller", ce.id, "worker", worker, "target", target)
 		return
 	}

@@ -28,7 +28,8 @@ func TestTunnelHandlerAuthAndValidation(t *testing.T) {
 		{"missing token", "/v1/tunnels/connect?worker=w1&target=127.0.0.1:80", http.StatusUnauthorized},
 		{"worker token", "/v1/tunnels/connect?worker=w1&target=127.0.0.1:80", http.StatusForbidden},
 		{"bad target", "/v1/tunnels/connect?worker=w1&target=bad", http.StatusBadRequest},
-		{"udp", "/v1/tunnels/connect?worker=w1&target=127.0.0.1:80&network=udp", http.StatusBadRequest},
+		// udp is a supported network since TUN-02, so only an unknown one is a 400.
+		{"unsupported network", "/v1/tunnels/connect?worker=w1&target=127.0.0.1:80&network=sctp", http.StatusBadRequest},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

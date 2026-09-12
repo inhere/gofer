@@ -30,7 +30,11 @@ func (cl *Client) handleTunnelOpen(ctx context.Context, sessionURL string, t wsp
 	p := cl.tunnelPolicy.Load()
 	code, msg := "", ""
 	var nc net.Conn
-	if t.Network != "" && t.Network != "tcp" {
+	network := t.Network
+	if network == "" {
+		network = "tcp"
+	}
+	if network != "tcp" && network != "udp" {
 		code = tunnel.CodeBadTarget
 		msg = fmt.Sprintf("network %s unsupported", t.Network)
 	} else if p == nil || p.allow.Empty() {
@@ -39,7 +43,7 @@ func (cl *Client) handleTunnelOpen(ctx context.Context, sessionURL string, t wsp
 	} else if err := tunnel.ValidateTarget(t.Target); err != nil {
 		code = tunnel.CodeBadTarget
 		msg = err.Error()
-	} else if !p.allow.Allows(t.Target) {
+	} else if !p.allow.AllowsNetwork(network, t.Target) {
 		code = tunnel.CodeNotAllowed
 		msg = "target not allowed"
 	} else {
@@ -54,7 +58,7 @@ func (cl *Client) handleTunnelOpen(ctx context.Context, sessionURL string, t wsp
 		if code == "" {
 			defer func() { cl.tunnelMu.Lock(); cl.tunnelActive--; cl.tunnelMu.Unlock() }()
 			var err error
-			nc, err = net.DialTimeout("tcp", t.Target, p.timeout)
+			nc, err = net.DialTimeout(network, t.Target, p.timeout)
 			if err != nil {
 				code = tunnel.CodeDialFailed
 				msg = err.Error()
@@ -94,7 +98,13 @@ func (cl *Client) handleTunnelOpen(ctx context.Context, sessionURL string, t wsp
 	}
 	slog.Info("tunnel opened", "worker_id", cl.workerID, "tunnel_id", t.TunnelID, "target", t.Target)
 	started := time.Now()
-	fromDevice, toDevice, e := tunnel.Bridge(ctx, ws, nc)
+	var fromDevice, toDevice int64
+	var e error
+	if network == "udp" {
+		fromDevice, toDevice, e = tunnel.DatagramBridge(ctx, ws, nc)
+	} else {
+		fromDevice, toDevice, e = tunnel.Bridge(ctx, ws, nc)
+	}
 	slog.Info("tunnel closed", "worker_id", cl.workerID, "tunnel_id", t.TunnelID, "target", t.Target,
 		"bytes_from_device", fromDevice, "bytes_to_device", toDevice,
 		"duration_ms", time.Since(started).Milliseconds(), "error", e)

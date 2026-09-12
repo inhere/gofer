@@ -45,7 +45,7 @@ type TunnelInfo struct {
 }
 
 // DialTunnel opens a worker TCP tunnel websocket.
-func (c *Client) DialTunnel(ctx context.Context, workerID, target string) (*websocket.Conn, error) {
+func (c *Client) DialTunnel(ctx context.Context, workerID, target string, networks ...string) (*websocket.Conn, error) {
 	u, err := url.Parse(c.baseURL)
 	if err != nil {
 		return nil, err
@@ -59,6 +59,9 @@ func (c *Client) DialTunnel(ctx context.Context, workerID, target string) (*webs
 	q := u.Query()
 	q.Set("worker", workerID)
 	q.Set("target", target)
+	if len(networks) > 0 && networks[0] != "" {
+		q.Set("network", networks[0])
+	}
 	u.RawQuery = q.Encode()
 	h := http.Header{}
 	if c.token != "" {

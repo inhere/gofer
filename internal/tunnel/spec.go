@@ -9,6 +9,7 @@ import (
 
 // ForwardSpec describes a local listener and remote target.
 type ForwardSpec struct {
+	Network   string
 	Bind      string
 	LocalPort int
 	Target    string
@@ -16,6 +17,14 @@ type ForwardSpec struct {
 
 // ParseForwardSpec parses [bind:]lport:host:port.
 func ParseForwardSpec(s string) (ForwardSpec, error) {
+	network := "tcp"
+	if strings.HasPrefix(strings.ToLower(s), "udp/") {
+		network = "udp"
+		s = s[4:]
+	}
+	if strings.Contains(s, "/") {
+		return ForwardSpec{}, fmt.Errorf("invalid spec")
+	}
 	idx := strings.LastIndex(s, ":")
 	if idx <= 0 || idx == len(s)-1 {
 		return ForwardSpec{}, fmt.Errorf("invalid spec")
@@ -39,7 +48,7 @@ func ParseForwardSpec(s string) (ForwardSpec, error) {
 		}
 		targetHost, prefix = targetPart[colon+1:], targetPart[:colon]
 	}
-	f := ForwardSpec{Bind: "127.0.0.1"}
+	f := ForwardSpec{Bind: "127.0.0.1", Network: network}
 	local := prefix
 	if strings.HasPrefix(prefix, "[") {
 		j := strings.Index(prefix, "]:")

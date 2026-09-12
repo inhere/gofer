@@ -12,6 +12,7 @@
 | v0.3 | 2026-09-11 | Claude | `TunnelOpen` 与 ws① 预留 `network` 字段（v1 仅 tcp，worker 对非 tcp 明确拒绝），使后续 UDP 转发为纯增量；§11 补 UDP 转发复杂度评估与「已有 VPN」时的取舍。 |
 | v1.0 | 2026-09-11 | Claude | 已实现：协议 v5 `tunnel_open`、server 两个 ws 端点与 `GET /v1/tunnels`（响应 `{"tunnels":[...]}`）、worker 隧道处理（白名单热重载）、`gofer tunnel forward/check/ls`；端到端回归 `scripts/smoke/tunnel/run-smoke.sh`（11 项）。待补：Go 端到端测试与 ws② 校验关闭码的单元测试。 |
 | v1.1 | 2026-09-12 | Claude | 白名单端口半段支持逗号列表与闭区间范围（`192.168.1.10:502,1217,11740-11743`），同一设备多端口写一行；`*` 不与列表混写。纯增量，老条目语义不变。 |
+| v1.2 | 2026-09-12 | Claude | TUN-02 已实现：UDP 单播转发。CLI 按**来源地址**建独立会话（各自一条隧道，回包只回该来源），默认空闲 60s 回收、最多 32 个来源；worker 用 connected UDP socket 收发，`DatagramBridge` 一个数据报对应一条 ws 二进制消息。白名单条目支持 `udp/`、`tcp/` 前缀并**按 network 隔离**，未知前缀在加载时报错。协议未升版（`network` 字段 v5 已预留）。 |
 
 ## 2. 背景与目标
 
@@ -23,7 +24,7 @@
 - 通用 TCP，不解析上层协议（Modbus/HTTP/SSH/数据库…都可）。
 - B 侧只需在 `worker.yaml` 显式放行目标；默认关闭。
 
-**非目标（v1 不做）**：UDP、串口（Modbus RTU，可在 B 上用串口转 TCP 工具后再走本隧道）、SOCKS 动态代理、Web 控制台 UI、TCP 半关闭语义、多 hub。
+**非目标（v1 不做）**：串口（Modbus RTU，可在 B 上用串口转 TCP 工具后再走本隧道）、SOCKS 动态代理、Web 控制台 UI、TCP 半关闭语义、多 hub。UDP 单播已由 TUN-02 补上（§11），广播/组播仍不支持。
 
 ## 3. 方案取舍
 
@@ -69,7 +70,7 @@
       TunnelID   string `json:"tunnel_id"`
       Target     string `json:"target"`      // host:port，已由 server 做语法校验
       RelayNonce string `json:"relay_nonce"` // 一次性，worker 在 ws② hello 中回传
-      Network    string `json:"network,omitempty"` // 空=tcp；预留 "udp"（v0.3），v1 worker 对非 tcp 回 bad_target
+      Network    string `json:"network,omitempty"` // 空=tcp；"udp" 为单播 UDP（TUN-02）；其它值 worker 回 bad_target
   }
   ```
 
@@ -79,7 +80,7 @@
 ### 5.2 客户端 ws①：`GET /v1/tunnels/connect`
 
 - 注册在 `/v1` 鉴权组**之外**（与 `/v1/workers/pty-connect` 一样：ws 升级失败要裸状态码），handler 自行 Bearer 鉴权。
-- 查询参数：`worker`（必填，worker_id）、`target`（必填，`host:port`，`net.SplitHostPort` 可解析、端口 1–65535、host 非空）、`network`（可选，缺省 `tcp`；v1 只接受 tcp，其它值 400——为 UDP 预留）。
+- 查询参数：`worker`（必填，worker_id）、`target`（必填，`host:port`，`net.SplitHostPort` 可解析、端口 1–65535、host 非空）、`network`（可选，缺省 `tcp`；接受 `tcp` 与 `udp`，其它值 400）。
 - 升级前失败 → 裸 HTTP 状态 + `text/plain` 一行原因：
 
 | 状态 | 条件 |
@@ -127,6 +128,7 @@
    - `CIDR:port` —— 如 `192.168.1.0/24:502`，**只匹配 IP 字面量目标**（不为匹配 CIDR 去解析主机名，避免 DNS 带来的意外放行）。
    - 端口可写 `*` 表示任意端口，如 `192.168.1.10:*`。
    - 端口也可写逗号列表与闭区间范围，如 `192.168.1.10:502,1217,11740-11743`（一台设备的多个端口写一行）。`*` 不与列表混写，否则条目实际放开多大一眼看不出来。
+   - 条目可加网络前缀：`udp/host:port` 放行 UDP 单播，`tcp/...` 与不写前缀等价。**白名单按 network 隔离**：tcp 条目不会放行同一 host:port 的 UDP，反之亦然。未知前缀（如 `sctp/...`）在加载时报错，不会被当成主机名。
    - 非法条目在 worker 加载配置时报错（启动失败 / reload 被拒，沿用现有 reload 失败语义）。
    - worker 拨号使用请求里的**原样 target**；白名单每次打开时读**当前生效配置**（`gofer worker reload` 后即生效）。
 2. **只允许 user caller**：worker token 调 ws① 一律 403。
@@ -202,8 +204,8 @@ gofer tunnel ls
 ## 11. 已知限制与后续
 
 - 每条 TCP 连接一次 ws 握手 + rendezvous（通常几十 ms）；对「频繁短连接」协议不友好——后续可在 ws① 上做 yamux 多路复用。
-- 不支持半关闭；不支持 UDP。依赖 **UDP 广播发现**的工具（PLC IDE 网络扫描、部分 HMI 组态软件搜索设备）不能直接穿过隧道：优先把其网关/代理放到 worker 侧、本机只转发网关的 TCP 端口（见 §13.2）；确需 UDP 时再做 UDP 转发（TUN-02 候选）或用三层 VPN（全协议透明，但配置与暴露面更大）。
-- **UDP 转发（TUN-02 候选）评估**：数据面已是按消息转发，UDP 数据报 1:1 映射为 ws 消息，server 拼接无需改动；需增加：`network` 字段启用（v5 已预留，届时无需再升协议版本）、白名单区分 udp、worker 端 connected UDP 收发、CLI 端 UDP 监听按来源地址建会话 + 空闲超时（UDP 无断开信号）。约一个实施任务（~300 行代码 + ~300 行测试）。只覆盖**单播且目标固定**的 UDP；广播/组播发现、报文内嵌 IP 地址的协议（端口映射后地址不符）仍不适用。
+- 不支持半关闭；UDP 仅支持固定目标的单播，按来源地址隔离会话并在空闲超时后回收。依赖 **UDP 广播发现**的工具仍不能直接穿过隧道。
+- **UDP 转发（TUN-02）**：`udp/` 前缀启用，worker 使用 connected UDP socket；CLI 监听按来源地址建独立会话，默认空闲 60 秒、最多 32 个来源。只覆盖单播且目标固定的 UDP；广播/组播发现仍不适用。
 - **与现有 VPN 的关系**：若各机器已在同一 VPN 中，可在 VPN 中把设备网段路由到 worker 所在机（VPN 服务端路由 + 该机 IP 转发/NAT），则 TCP/UDP 单播原生可达（广播仍需 L2 桥接）。本隧道的优势是：无需改网络配置、按白名单细粒度放行、各现场设备网段重叠也无冲突（目标在 worker 本地拨号）、无 VPN 的现场同样可用。
 - 设备端并发连接数通常很小（部分 PLC 仅 1–4 个 Modbus TCP 连接）：隧道是 1:1 透传，**本地开几条连接就占设备几条**，调试时注意别和现场上位机抢连接。
 - 后续可选：`gofer tunnel socks`（SOCKS5 动态目标，仍受 worker 白名单约束）、Web 控制台展示活跃隧道、metrics 计数、server 侧 per-caller 隧道配额。
@@ -241,7 +243,8 @@ CODESYS IDE 不直连 PLC，而是经 **Gateway**（TCP 1217）通信；Gateway 
 ### 13.3 其它 IDE / HMI 组态软件的判断方法
 
 - 能手动填设备 IP、且下载/在线走**纯 TCP** → 可用：逐端口转发，IDE 目标 IP 填 `127.0.0.1`（端口写死时本地端口用同号）。
-- 依赖 **UDP 广播搜索**或 UDP 传输 → v1 不支持：优先找「worker 侧网关/代理」形态（同 13.2），否则需 UDP 转发（后续）或三层 VPN。
+- 能手填设备 IP 的 **UDP 单播** → 可用：白名单加 `udp/host:port`，转发写 `udp/lport:host:port`（TUN-02）。
+- 依赖 **UDP 广播搜索** → 仍不支持：优先找「worker 侧网关/代理」形态（同 13.2），否则用三层 VPN。
 - 确认方式：在与设备同网段的机器上用该软件操作一次，同时用 Wireshark / `netstat -ano` 观察协议与端口。
 - 软件拒绝 `127.0.0.1` 或校验同网段时：本机加一块环回网卡（Windows KM-TEST Loopback Adapter）配成设备网段地址，forward 的 bind 绑到该地址。
 - 远程下载/在线修改会驱动真实设备，操作前确保现场知情。

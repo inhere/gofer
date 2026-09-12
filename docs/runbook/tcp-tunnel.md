@@ -13,7 +13,7 @@ tunnel:
   dial_timeout_sec: 5
 ```
 
-条目支持 `host:port`、`CIDR:port`、任意端口 `*`，IPv6 使用 `[2001:db8::10]:502`。端口还可写逗号列表与闭区间范围，如 `192.168.1.10:502,1217,11740-11743`，同一设备的多个端口不必拆成多行；`*` 不能与列表混写。修改后执行 `gofer worker reload <worker-id>`，或重启 worker。worker 必须支持协议 v5。
+条目支持 `host:port`、`CIDR:port`、任意端口 `*`，IPv6 使用 `[2001:db8::10]:502`。端口还可写逗号列表与闭区间范围，如 `192.168.1.10:502,1217,11740-11743`，同一设备的多个端口不必拆成多行；`*` 不能与列表混写。条目还可加网络前缀：`udp/192.168.1.10:1502` 放行 UDP 单播，`tcp/...` 与不写前缀等价；白名单按 network 隔离，tcp 条目不会放行同一端口的 UDP。修改后执行 `gofer worker reload <worker-id>`，或重启 worker。worker 必须支持协议 v5。
 
 ## 命令
 
@@ -28,6 +28,8 @@ $ gofer tunnel check -w w-plc 192.168.1.10:503
 ERROR: tunnel: HTTP 502: dial tcp 192.168.1.10:503: connect: connection refused
 $ gofer tunnel forward -w w-plc 1502:192.168.1.10:502
 forwarding 127.0.0.1:1502 -> w-plc:192.168.1.10:502
+$ gofer tunnel forward -w w-plc udp/1502:192.168.1.10:1502
+forwarding UDP 127.0.0.1:1502 -> w-plc:192.168.1.10:1502
 $ gofer tunnel ls
 ID CALLER WORKER TARGET CLIENT AGE UP DOWN
 t-3967153a246e default w-plc 192.168.1.10:502 127.0.0.1:59948 2s 32 32
@@ -39,6 +41,8 @@ t-3967153a246e default w-plc 192.168.1.10:502 127.0.0.1:59948 2s 32 32
 
 容器隔离冒烟脚本位于 [`scripts/smoke/tunnel/run-smoke.sh`](../../scripts/smoke/tunnel/run-smoke.sh)，说明见同目录 README。脚本覆盖 serve、worker、echo 隔离和 11 项检查。
 
-常见问题：协议过旧时升级 worker；目标未放行时增加 `tunnel.allow`；达到 `max_conns` 时关闭不用的转发；UDP 和广播发现不支持，参见设计 §11、§13.2。
+`tunnel check` 只验证 worker 拨号与授权，不会建立 UDP 监听，也不代表业务协议端到端可用。UDP 转发仅支持固定目标的单播；监听端按来源地址建立会话，空闲 60 秒回收，最多 32 个来源。
+
+常见问题：协议过旧时升级 worker；目标未放行时增加 `tunnel.allow`；达到 `max_conns` 时关闭不用的转发；广播和组播发现仍不支持。
 
 server 审计事件包含 `tunnel_id caller worker target client_remote bytes_up bytes_down close_reason duration_ms`；worker 事件包含 `tunnel_id target error_code bytes_from_device bytes_to_device duration_ms`。
