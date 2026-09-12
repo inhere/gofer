@@ -43,6 +43,8 @@ t-3967153a246e default w-plc 192.168.1.10:502 127.0.0.1:59948 2s 32 32
 
 `tunnel check` 只验证 worker 拨号与授权，不会建立 UDP 监听，也不代表业务协议端到端可用。UDP 转发仅支持固定目标的单播；监听端按来源地址建立会话，空闲 60 秒回收，最多 32 个来源。
 
+设备**从另一个端口回包**是可以的：worker 侧用非连接 socket，回包只要源 IP 是目标设备就转发（端口不限），其它主机的数据报忽略。早期版本用 connected socket，这类回包会被静默丢弃，现象是隧道建立后一直等不到响应、最终超时——若遇到这个现象，先确认 worker 已升级到含该修复的版本。
+
 常见问题：协议过旧时升级 worker；目标未放行时增加 `tunnel.allow`；达到 `max_conns` 时关闭不用的转发；广播和组播发现仍不支持。
 
 server 审计事件包含 `tunnel_id caller worker target client_remote bytes_up bytes_down close_reason duration_ms`；worker 事件包含 `tunnel_id target error_code bytes_from_device bytes_to_device duration_ms`。

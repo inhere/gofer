@@ -13,6 +13,7 @@
 | v1.0 | 2026-09-11 | Claude | 已实现：协议 v5 `tunnel_open`、server 两个 ws 端点与 `GET /v1/tunnels`（响应 `{"tunnels":[...]}`）、worker 隧道处理（白名单热重载）、`gofer tunnel forward/check/ls`；端到端回归 `scripts/smoke/tunnel/run-smoke.sh`（11 项）。待补：Go 端到端测试与 ws② 校验关闭码的单元测试。 |
 | v1.1 | 2026-09-12 | Claude | 白名单端口半段支持逗号列表与闭区间范围（`192.168.1.10:502,1217,11740-11743`），同一设备多端口写一行；`*` 不与列表混写。纯增量，老条目语义不变。 |
 | v1.2 | 2026-09-12 | Claude | TUN-02 已实现：UDP 单播转发。CLI 按**来源地址**建独立会话（各自一条隧道，回包只回该来源），默认空闲 60s 回收、最多 32 个来源；worker 用 connected UDP socket 收发，`DatagramBridge` 一个数据报对应一条 ws 二进制消息。白名单条目支持 `udp/`、`tcp/` 前缀并**按 network 隔离**，未知前缀在加载时报错。协议未升版（`network` 字段 v5 已预留）。 |
+| v1.3 | 2026-09-12 | Claude | 修正 v1.2 的 connected socket 做法（现场实测证伪）：真机 UDP 隧道建立后一直超时。受控实验（经真实 server+worker）显示设备从**同一端口**回包 65ms 往返正常、从**另一端口**回包则完全收不到——connected socket 只投递源地址等于目标的数据报。worker 改用非连接 `net.ListenPacket`，回包按**目标 IP** 放行、端口不限，其它主机忽略。 |
 
 ## 2. 背景与目标
 
@@ -205,7 +206,7 @@ gofer tunnel ls
 
 - 每条 TCP 连接一次 ws 握手 + rendezvous（通常几十 ms）；对「频繁短连接」协议不友好——后续可在 ws① 上做 yamux 多路复用。
 - 不支持半关闭；UDP 仅支持固定目标的单播，按来源地址隔离会话并在空闲超时后回收。依赖 **UDP 广播发现**的工具仍不能直接穿过隧道。
-- **UDP 转发（TUN-02）**：`udp/` 前缀启用，worker 使用 connected UDP socket；CLI 监听按来源地址建独立会话，默认空闲 60 秒、最多 32 个来源。只覆盖单播且目标固定的 UDP；广播/组播发现仍不适用。
+- **UDP 转发（TUN-02）**：`udp/` 前缀启用。worker 用 **非连接** socket（`net.ListenPacket`）收发：connected socket 只接收源地址严格等于目标的数据报，而工控设备常从**另一个端口**回包，那些回包会被内核静默丢弃、表现得和隧道不通一模一样（现场实测确认，见 v1.3）。回包按**目标 IP** 放行（端口不限），其它主机的数据报忽略，授权边界不变。CLI 监听按来源地址建独立会话，默认空闲 60 秒、最多 32 个来源。只覆盖单播且目标固定的 UDP；广播/组播发现仍不适用。
 - **与现有 VPN 的关系**：若各机器已在同一 VPN 中，可在 VPN 中把设备网段路由到 worker 所在机（VPN 服务端路由 + 该机 IP 转发/NAT），则 TCP/UDP 单播原生可达（广播仍需 L2 桥接）。本隧道的优势是：无需改网络配置、按白名单细粒度放行、各现场设备网段重叠也无冲突（目标在 worker 本地拨号）、无 VPN 的现场同样可用。
 - 设备端并发连接数通常很小（部分 PLC 仅 1–4 个 Modbus TCP 连接）：隧道是 1:1 透传，**本地开几条连接就占设备几条**，调试时注意别和现场上位机抢连接。
 - 后续可选：`gofer tunnel socks`（SOCKS5 动态目标，仍受 worker 白名单约束）、Web 控制台展示活跃隧道、metrics 计数、server 侧 per-caller 隧道配额。
