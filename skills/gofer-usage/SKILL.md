@@ -89,6 +89,20 @@ job 在哪台机器执行，路径就按那台机器的项目根解析：同一 
 - `local` → **主机 server** 执行（兼容旧写法，与 `server` 等价）。
 - `<worker-id>` → 对应 **worker** 执行（容器自带的活直接在 bash 跑即可，一般无需绕 worker）。
 
+### 派活给主机 codex / claude：Windows 主机的两个坑
+
+- **反引号会被 PowerShell 吃掉。** 主机是 Windows 时 agent 常用 PowerShell 写文件，而反引号是 PowerShell 的转义符：
+  `` `t `` / `` `n `` / `` `r `` / `` `0 `` 会变成制表符、换行、回车、空字符。Markdown 行内代码（`` `run.pid` ``、`` `net.Listen` ``）
+  和 Go 注释里的反引号会被**悄悄**改坏，编译与测试都照样通过；文件含空字符还会被 git 当成二进制。
+  2026-09 实测发生过：设计文档里出现空字符、注释 `The `target` field` 被写成 `The <TAB>arget` field`。
+  任务书里要写明：**改文件用 apply_patch，不要用 PowerShell 双引号字符串（含 `@"..."@`）**；非用不可时只用单引号 here-string `@'...'@`。
+  并要求提交前自查 `git grep -nP "[\x00-\x08\x0b\x0c\x0e-\x1f]" -- <本次改动的文件>` 无输出，把原始输出贴进汇报。
+- **Windows 上写出的文件常是 CRLF。** 与容器共用工作区的仓库最好有 `.gitattributes`（`* text=auto eol=lf`），
+  否则容器侧会看到大批"已修改但 diff 为空"的假改动。
+
+另外，**agent 的汇报不能当验收依据**：实测出现过"汇报称已按要求修改，代码其实一行没动"。
+关键结论要自己 `grep` 源码、自己跑测试核对；必要时在任务书里要求它贴出指定命令的原始输出。
+
 ## 5. 同步 vs 异步
 
 - **同步** `--sync`：server 阻塞到终态返回（默认上限 ~30s，可 `--wait-timeout <秒>`）。短任务、要立刻拿结果用它。
@@ -116,6 +130,7 @@ job 在哪台机器执行，路径就按那台机器的项目根解析：同一 
 | agent 报 `unknown agent` | 该 agent 未在这台 worker 装 / 定义（如容器没装 codex）；换已装的 agent，或到该 worker 装上。 |
 | 连不上 / 401 | 主机 `gofer server` 未起，或 `$GOFER_CONFIG_DIR/.env` 的 `GOFER_SERVER_ADDR/TOKEN` 与 server 不一致。 |
 | 有 job 但看不到输出 | `--sync` 只回状态；输出用 `gofer job logs <id>`。 |
+| agent 改出的文件里混进制表符 / 空字符 / 回车，Markdown 行内代码或注释被吃掉 | Windows 主机上 agent 用 PowerShell 双引号字符串写文件，反引号被当成转义符（见 §4）。任务书要求改文件用 apply_patch，并在提交前用 `git grep -nP "[\x00-\x08\x0b\x0c\x0e-\x1f]"` 自查。 |
 
 ## 8. 离开电脑：把终端会话交给 web 接着聊（session relay）
 
