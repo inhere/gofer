@@ -257,6 +257,7 @@ type fakeTunnel struct {
 	srv      *httptest.Server
 	opened   atomic.Int64
 	closed   atomic.Int64
+	dials    atomic.Int64 // ids handed out by dial; opened is bumped by the server goroutine later
 	holdOpen time.Duration
 }
 
@@ -292,7 +293,12 @@ func newFakeTunnel(t *testing.T) *fakeTunnel {
 
 func (ft *fakeTunnel) dial(ctx context.Context) (DialResult, error) {
 	c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(ft.srv.URL, "http"), nil)
-	return DialResult{Conn: c, TunnelID: fmt.Sprintf("fake-%d", ft.opened.Load())}, err
+	if err != nil {
+		return DialResult{}, err
+	}
+	// Number the id here, not from opened: the server goroutine bumps opened
+	// after Accept, which can land after Dial has already returned.
+	return DialResult{Conn: c, TunnelID: fmt.Sprintf("fake-%d", ft.dials.Add(1))}, nil
 }
 
 func (ft *fakeTunnel) Close() { ft.srv.Close() }
