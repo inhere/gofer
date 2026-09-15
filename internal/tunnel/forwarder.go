@@ -155,8 +155,9 @@ func (f *Forwarder) runUDP(ctx context.Context) error {
 		}
 		s.cancel()
 		s.ws.Close(websocket.StatusNormalClosure, "")
+		up, down := s.counts()
+		f.emit("session.closed", "session_id", key, "tunnel_id", "", "close_reason", "idle", "bytes_up", up, "bytes_down", down)
 		if f.Log != nil {
-			up, down := s.counts()
 			f.Log("%s closed: up=%d down=%d", key, up, down)
 		}
 	}
