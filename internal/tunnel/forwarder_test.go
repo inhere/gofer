@@ -15,6 +15,11 @@ import (
 	"github.com/coder/websocket"
 )
 
+func TestForwarderTCPEventSequence(t *testing.T)      { t.Skip("contract") }
+func TestForwarderUDPEventSequence(t *testing.T)      { t.Skip("contract") }
+func TestForwarderUDPDroppedMaxSessions(t *testing.T) { t.Skip("contract") }
+func TestForwarderDialFailed(t *testing.T)            { t.Skip("contract") }
+
 func TestTunnelForwarderRoundTrip(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := websocket.Accept(w, r, nil)
