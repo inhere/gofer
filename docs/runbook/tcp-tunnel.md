@@ -37,7 +37,9 @@ t-3967153a246e default w-plc 192.168.1.10:502 127.0.0.1:59948 2s 32 32
 
 `tunnel forward` 支持 `--log-file <path>` 或 `--log-dir <dir>`（二选一）；目录模式生成唯一的 `forward-<YYYYmmdd-HHMMSS>-<pid>.log`。未指定时写入 `<config-dir>/run/tunnels/`。`--quiet` 仅关闭终端输出，文件日志仍保留；显式路径失败会使命令报错，默认路径失败则警告后降级为 stderr。
 
-日志为 JSONL，可用同一 `tunnel_id` 关联 server、worker、forwarder：`rg '"tunnel_id":"t-..."' <config-dir>/run/tunnels/*.log`。
+日志为 JSONL，可用同一 `tunnel_id` 关联 server、worker、forwarder：`rg '"tunnel_id":"t-..."' <config-dir>/run/tunnels/*.log`。`tunnel_id` 由 server 分配，随 connect 的 101 响应头 `X-Gofer-Tunnel-Id` 回传给 forwarder（旧 server 无此头时字段为空，其余不受影响）。
+
+forwarder 事件（`component=forward`，每条都带 `session_id`；UDP 的 session_id 是本地来源 host:port，TCP 是本地连接 host:port）：`forward.started`（local/target/network）→ `session.opened` → `tunnel.opened`（`dial_ms`）→ `tunnel.first_up`/`tunnel.first_down`（`first_byte_ms`，自 dial 开始计，每 session 各一次）→ `session.closed`（`close_reason`、`bytes_up`、`bytes_down`、`duration_ms`）。`close_reason` 取值：`client_closed`（本地客户端挂断）、`worker_closed`（隧道远端挂断）、`idle`（UDP 空闲回收）、`ctx_done`（forwarder 退出）、`dial_failed`（隧道没建起来，带 `error`）、`write_failed`；超出 UDP session 上限的新来源记 `session.rejected`（`dropped_max_sessions`）。判断"慢在哪一段"：`dial_ms` 大 = rendezvous/worker 慢；`first_up` 正常而 `first_down` 迟迟不来或没有 = 设备侧无响应。
 
 错误码：400 参数或网络不支持；401 凭证无效；403 无权限或目标未放行；404 worker 不在线；409 worker 协议过旧（需升级到支持协议 v5 的版本）；429 超出连接上限；502 worker 拨号失败；504 等待 worker 回连超时。
 
