@@ -15,11 +15,6 @@ import (
 	"github.com/coder/websocket"
 )
 
-func TestForwarderTCPEventSequence(t *testing.T)      { t.Skip("contract") }
-func TestForwarderUDPEventSequence(t *testing.T)      { t.Skip("contract") }
-func TestForwarderUDPDroppedMaxSessions(t *testing.T) { t.Skip("contract") }
-func TestForwarderDialFailed(t *testing.T)            { t.Skip("contract") }
-
 func TestTunnelForwarderRoundTrip(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := websocket.Accept(w, r, nil)
@@ -41,9 +36,9 @@ func TestTunnelForwarderRoundTrip(t *testing.T) {
 	defer srv.Close()
 	sp := ForwardSpec{Bind: "127.0.0.1", LocalPort: 0, Target: "x:1"}
 	f := &Forwarder{Spec: sp, Ready: make(chan error, 1)}
-	f.Dial = func(ctx context.Context) (*websocket.Conn, error) {
+	f.Dial = func(ctx context.Context) (DialResult, error) {
 		c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
-		return c, err
+		return DialResult{Conn: c}, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -68,7 +63,7 @@ func TestTunnelForwarderRoundTrip(t *testing.T) {
 func TestTunnelForwarderDialFail(t *testing.T) {
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	defer l.Close()
-	f := &Forwarder{Spec: ForwardSpec{Bind: "127.0.0.1", LocalPort: 0}, Ready: make(chan error, 1), Dial: func(context.Context) (*websocket.Conn, error) { return nil, io.ErrUnexpectedEOF }}
+	f := &Forwarder{Spec: ForwardSpec{Bind: "127.0.0.1", LocalPort: 0}, Ready: make(chan error, 1), Dial: func(context.Context) (DialResult, error) { return DialResult{}, io.ErrUnexpectedEOF }}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	go f.Run(ctx)
@@ -126,9 +121,9 @@ func TestTunnelForwarderLogsConnections(t *testing.T) {
 			mu.Unlock()
 		},
 	}
-	f.Dial = func(ctx context.Context) (*websocket.Conn, error) {
+	f.Dial = func(ctx context.Context) (DialResult, error) {
 		c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
-		return c, err
+		return DialResult{Conn: c}, err
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

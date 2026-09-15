@@ -290,9 +290,9 @@ func newFakeTunnel(t *testing.T) *fakeTunnel {
 	return ft
 }
 
-func (ft *fakeTunnel) dial(ctx context.Context) (*websocket.Conn, error) {
+func (ft *fakeTunnel) dial(ctx context.Context) (DialResult, error) {
 	c, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(ft.srv.URL, "http"), nil)
-	return c, err
+	return DialResult{Conn: c, TunnelID: fmt.Sprintf("fake-%d", ft.opened.Load())}, err
 }
 
 func (ft *fakeTunnel) Close() { ft.srv.Close() }

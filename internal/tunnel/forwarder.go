@@ -20,11 +20,37 @@ const (
 	defaultUDPMaxSessions = 32
 )
 
+// DialResult is what Dial hands back: the tunnel websocket plus the id the server
+// assigned to it (the X-Gofer-Tunnel-Id header; empty against a server that
+// predates it). The id is what lets a forwarder log line be matched with the
+// server and worker lines for the same tunnel.
+type DialResult struct {
+	Conn     *websocket.Conn
+	TunnelID string
+}
+
 // Forwarder accepts local connections and bridges them to a tunnel.
+//
+// Two observation surfaces coexist: Log (human one-liners, legacy) and OnEvent
+// (structured events, see the event list below). Either may be nil. A dial
+// failure always surfaces through slog when neither is set.
+//
+// Events, with their attrs (all events also carry session_id; tunnel_id is set
+// once the dial succeeded):
+//
+//	forward.started   local, target, network
+//	session.opened    local, target, network
+//	tunnel.opened     tunnel_id, dial_ms
+//	tunnel.first_up   tunnel_id, first_byte_ms   (first local->tunnel bytes)
+//	tunnel.first_down tunnel_id, first_byte_ms   (first tunnel->local bytes)
+//	session.closed    tunnel_id, close_reason, bytes_up, bytes_down, duration_ms[, error]
+//	session.rejected  close_reason (dropped_max_sessions), max_sessions
+//
+// first_byte_ms and duration_ms count from the moment the dial started, so a
+// slow rendezvous and a slow device answer are told apart via dial_ms.
 type Forwarder struct {
 	Spec           ForwardSpec
-	Dial           func(context.Context) (*websocket.Conn, error)
-	TunnelID       func(context.Context) string
+	Dial           func(context.Context) (DialResult, error)
 	Log            func(string, ...any)
 	OnEvent        func(string, ...any)
 	active         sync.WaitGroup
@@ -32,6 +58,34 @@ type Forwarder struct {
 	Ready          chan error
 	UDPIdleTimeout time.Duration
 	UDPMaxSessions int
+}
+
+// Forwarder-side close reasons that have no Bridge counterpart. The Bridge
+// reasons (ReasonClientClosed, ReasonWorkerClosed, ...) are reused verbatim for
+// TCP so the three log ends speak the same vocabulary.
+const (
+	// ReasonDialFailed: the tunnel could never be opened (no session existed).
+	ReasonDialFailed = "dial_failed"
+	// ReasonDroppedMaxSessions: a new UDP source was refused because UDPMaxSessions
+	// sessions were already open.
+	ReasonDroppedMaxSessions = "dropped_max_sessions"
+	// ReasonIdle: a UDP session was reaped after UDPIdleTimeout of silence.
+	ReasonIdle = "idle"
+	// ReasonWriteFailed: a datagram could not be written up the tunnel.
+	ReasonWriteFailed = "write_failed"
+)
+
+// localSeatReason flips Bridge's worker-seat close reasons for the forwarder,
+// where the plain conn is the local client rather than the device: the local
+// client hanging up is client_closed, the far end of the tunnel is worker_closed.
+func localSeatReason(r string) string {
+	switch r {
+	case ReasonWorkerClosed:
+		return ReasonClientClosed
+	case ReasonClientClosed:
+		return ReasonWorkerClosed
+	}
+	return r
 }
 
 func (f *Forwarder) emit(event string, attrs ...any) {
@@ -42,7 +96,6 @@ func (f *Forwarder) emit(event string, attrs ...any) {
 
 // Run starts listening and forwards connections until ctx is cancelled.
 func (f *Forwarder) Run(ctx context.Context) error {
-	f.emit("forward.started", "local", f.Spec.ListenAddr(), "target", f.Spec.Target, "network", f.Spec.Network)
 	if f.Spec.Network == "udp" {
 		return f.runUDP(ctx)
 	}
@@ -57,6 +110,7 @@ func (f *Forwarder) Run(ctx context.Context) error {
 		return err
 	}
 	f.ActualAddr = l.Addr().String()
+	f.emit("forward.started", "local", f.ActualAddr, "target", f.Spec.Target, "network", "tcp")
 	if f.Ready != nil {
 		f.Ready <- nil
 	}
@@ -80,13 +134,28 @@ func (f *Forwarder) Run(ctx context.Context) error {
 // which is what keeps two clients on the same forwarded port from seeing each
 // other's traffic.
 type udpSession struct {
-	ws     *websocket.Conn
-	cancel context.CancelFunc
+	ws       *websocket.Conn
+	cancel   context.CancelFunc
+	tunnelID string
+	started  time.Time // when the dial began; first_byte_ms / duration_ms origin
 
-	mu   sync.Mutex
-	last time.Time
-	up   int64
-	down int64
+	firstUp, firstDown sync.Once
+
+	mu     sync.Mutex
+	last   time.Time
+	up     int64
+	down   int64
+	reason string // close reason recorded by whoever decided to drop the session
+}
+
+// fail records why the session is being dropped; the first caller wins so a
+// reap racing a write failure keeps the cause that actually happened first.
+func (s *udpSession) fail(reason string) {
+	s.mu.Lock()
+	if s.reason == "" {
+		s.reason = reason
+	}
+	s.mu.Unlock()
 }
 
 func (s *udpSession) touch() {
@@ -114,7 +183,6 @@ func (s *udpSession) counts() (int64, int64) {
 // websocket, the worker dials the device on its own network, and the reply comes
 // back down the same websocket to the source that sent it.
 func (f *Forwarder) runUDP(ctx context.Context) error {
-	f.emit("forward.started", "local", f.Spec.ListenAddr(), "target", f.Spec.Target, "network", "udp")
 	pc, err := net.ListenPacket("udp", f.Spec.ListenAddr())
 	if f.Ready != nil {
 		defer close(f.Ready)
@@ -126,6 +194,7 @@ func (f *Forwarder) runUDP(ctx context.Context) error {
 		return err
 	}
 	f.ActualAddr = pc.LocalAddr().String()
+	f.emit("forward.started", "local", f.ActualAddr, "target", f.Spec.Target, "network", "udp")
 	if f.Ready != nil {
 		f.Ready <- nil
 	}
@@ -146,7 +215,9 @@ func (f *Forwarder) runUDP(ctx context.Context) error {
 
 	var mu sync.Mutex
 	sessions := map[string]*udpSession{}
-	drop := func(key string) {
+	// drop removes and closes one session, emitting session.closed with the
+	// reason recorded on it (ctx_done when nobody recorded one, i.e. shutdown).
+	drop := func(key string, reason string) {
 		mu.Lock()
 		s := sessions[key]
 		delete(sessions, key)
@@ -154,10 +225,14 @@ func (f *Forwarder) runUDP(ctx context.Context) error {
 		if s == nil {
 			return
 		}
+		s.fail(reason)
 		s.cancel()
 		s.ws.Close(websocket.StatusNormalClosure, "")
-		up, down := s.counts()
-		f.emit("session.closed", "session_id", key, "tunnel_id", "", "close_reason", "idle", "bytes_up", up, "bytes_down", down)
+		s.mu.Lock()
+		up, down, why := s.up, s.down, s.reason
+		s.mu.Unlock()
+		f.emit("session.closed", "session_id", key, "tunnel_id", s.tunnelID, "close_reason", why,
+			"bytes_up", up, "bytes_down", down, "duration_ms", time.Since(s.started).Milliseconds())
 		if f.Log != nil {
 			f.Log("%s closed: up=%d down=%d", key, up, down)
 		}
@@ -170,7 +245,7 @@ func (f *Forwarder) runUDP(ctx context.Context) error {
 		}
 		mu.Unlock()
 		for _, k := range keys {
-			drop(k)
+			drop(k, ReasonContextDone)
 		}
 	}()
 	go f.reapUDP(ctx, idle, &mu, sessions, drop)
@@ -190,6 +265,7 @@ func (f *Forwarder) runUDP(ctx context.Context) error {
 		full := s == nil && len(sessions) >= maxSessions
 		mu.Unlock()
 		if full {
+			f.emit("session.rejected", "session_id", key, "close_reason", ReasonDroppedMaxSessions, "max_sessions", maxSessions)
 			if f.Log != nil {
 				f.Log("%s dropped: %d udp sessions already open", key, maxSessions)
 			}
@@ -214,9 +290,12 @@ func (f *Forwarder) runUDP(ctx context.Context) error {
 			}
 		}
 		if err := s.ws.Write(ctx, websocket.MessageBinary, buf[:n]); err != nil {
-			drop(key)
+			drop(key, ReasonWriteFailed)
 			continue
 		}
+		s.firstUp.Do(func() {
+			f.emit("tunnel.first_up", "session_id", key, "tunnel_id", s.tunnelID, "first_byte_ms", time.Since(s.started).Milliseconds())
+		})
 		s.mu.Lock()
 		s.up += int64(n)
 		s.last = time.Now()
@@ -227,17 +306,14 @@ func (f *Forwarder) runUDP(ctx context.Context) error {
 // openUDPSession dials one tunnel for src and starts pumping replies back to it.
 // It returns nil when the tunnel could not be opened, which is logged like a failed
 // TCP dial rather than retried: the next datagram tries again.
-func (f *Forwarder) openUDPSession(ctx context.Context, pc net.PacketConn, src net.Addr, key string, drop func(string)) *udpSession {
+func (f *Forwarder) openUDPSession(ctx context.Context, pc net.PacketConn, src net.Addr, key string, drop func(string, string)) *udpSession {
 	dctx, dcancel := context.WithTimeout(ctx, 20*time.Second)
 	started := time.Now()
-	ws, err := f.Dial(dctx)
-	tunnelID := ""
-	if f.TunnelID != nil {
-		tunnelID = f.TunnelID(dctx)
-	}
+	f.emit("session.opened", "session_id", key, "local", f.ActualAddr, "target", f.Spec.Target, "network", "udp")
+	d, err := f.Dial(dctx)
 	dcancel()
 	if err != nil {
-		f.emit("session.closed", "session_id", key, "close_reason", "dial_failed", "error", err)
+		f.emit("session.closed", "session_id", key, "close_reason", ReasonDialFailed, "duration_ms", time.Since(started).Milliseconds(), "error", err)
 		if f.Log != nil {
 			f.Log("%s dial failed: %v", key, err)
 		} else {
@@ -246,16 +322,18 @@ func (f *Forwarder) openUDPSession(ctx context.Context, pc net.PacketConn, src n
 		return nil
 	}
 	sctx, scancel := context.WithCancel(ctx)
-	s := &udpSession{ws: ws, cancel: scancel, last: time.Now()}
-	f.emit("session.opened", "session_id", key, "local", f.Spec.ListenAddr(), "target", f.Spec.Target)
-	f.emit("tunnel.opened", "session_id", key, "tunnel_id", tunnelID, "dial_ms", time.Since(started).Milliseconds())
+	s := &udpSession{ws: d.Conn, cancel: scancel, tunnelID: d.TunnelID, started: started, last: time.Now()}
+	f.emit("tunnel.opened", "session_id", key, "tunnel_id", s.tunnelID, "dial_ms", time.Since(started).Milliseconds())
 	if f.Log != nil {
 		f.Log("%s -> %s connected (%d ms)", key, f.Spec.Target, time.Since(started).Milliseconds())
 	}
 	go func() {
-		defer drop(key)
+		// The worker (or server) hanging up is the only way this loop ends on
+		// its own; a reap or write failure cancels sctx after recording its
+		// reason, and drop keeps whichever reason was recorded first.
+		defer drop(key, ReasonWorkerClosed)
 		for {
-			typ, r, e := ws.Reader(sctx)
+			typ, r, e := s.ws.Reader(sctx)
 			if e != nil {
 				return
 			}
@@ -270,7 +348,9 @@ func (f *Forwarder) openUDPSession(ctx context.Context, pc net.PacketConn, src n
 			if _, e := pc.WriteTo(b, src); e != nil {
 				return
 			}
-			f.emit("tunnel.first_down", "session_id", key, "tunnel_id", tunnelID, "first_byte_ms", time.Since(started).Milliseconds())
+			s.firstDown.Do(func() {
+				f.emit("tunnel.first_down", "session_id", key, "tunnel_id", s.tunnelID, "first_byte_ms", time.Since(started).Milliseconds())
+			})
 			s.mu.Lock()
 			s.down += int64(len(b))
 			s.last = time.Now()
@@ -283,7 +363,7 @@ func (f *Forwarder) openUDPSession(ctx context.Context, pc net.PacketConn, src n
 // reapUDP closes sessions that have been silent for idle. It ticks at half the idle
 // window so a session lives at most ~1.5x idle, which is close enough for freeing a
 // device-side socket and cheap to reason about.
-func (f *Forwarder) reapUDP(ctx context.Context, idle time.Duration, mu *sync.Mutex, sessions map[string]*udpSession, drop func(string)) {
+func (f *Forwarder) reapUDP(ctx context.Context, idle time.Duration, mu *sync.Mutex, sessions map[string]*udpSession, drop func(string, string)) {
 	tick := idle / 2
 	if tick < 10*time.Millisecond {
 		tick = 10 * time.Millisecond
@@ -307,7 +387,7 @@ func (f *Forwarder) reapUDP(ctx context.Context, idle time.Duration, mu *sync.Mu
 				if f.Log != nil {
 					f.Log("%s idle for %s, closing udp session", k, idle)
 				}
-				drop(k)
+				drop(k, ReasonIdle)
 			}
 		}
 	}
@@ -324,13 +404,10 @@ func (f *Forwarder) handle(ctx context.Context, c net.Conn) {
 	defer cancel()
 	peer := c.RemoteAddr().String()
 	started := time.Now()
-	ws, err := f.Dial(dctx)
-	tunnelID := ""
-	if f.TunnelID != nil {
-		tunnelID = f.TunnelID(dctx)
-	}
+	f.emit("session.opened", "session_id", peer, "local", f.ActualAddr, "target", f.Spec.Target, "network", "tcp")
+	d, err := f.Dial(dctx)
 	if err != nil {
-		f.emit("session.closed", "session_id", peer, "close_reason", "dial_failed", "error", err)
+		f.emit("session.closed", "session_id", peer, "close_reason", ReasonDialFailed, "duration_ms", time.Since(started).Milliseconds(), "error", err)
 		if f.Log != nil {
 			f.Log("%s dial failed: %v", peer, err)
 		} else {
@@ -338,19 +415,26 @@ func (f *Forwarder) handle(ctx context.Context, c net.Conn) {
 		}
 		return
 	}
-	f.emit("session.opened", "session_id", peer, "local", f.Spec.ListenAddr(), "target", f.Spec.Target)
+	ws, tunnelID := d.Conn, d.TunnelID
 	f.emit("tunnel.opened", "session_id", peer, "tunnel_id", tunnelID, "dial_ms", time.Since(started).Milliseconds())
 	if f.Log != nil {
 		f.Log("%s -> %s connected (%d ms)", peer, f.Spec.Target, time.Since(started).Milliseconds())
 	}
 	defer ws.Close(websocket.StatusNormalClosure, "")
+	// Bridge names its directions from the worker's seat (Up = websocket ->
+	// conn). Here conn is the local client, so Bridge's "up" is the reply coming
+	// back down the tunnel and its "down" is the client's data going up.
 	res := BridgeWithOptions(ctx, ws, c, BridgeOptions{OnFirstUp: func() {
-		f.emit("tunnel.first_up", "session_id", peer, "tunnel_id", tunnelID, "first_byte_ms", time.Since(started).Milliseconds())
-	}, OnFirstDown: func() {
 		f.emit("tunnel.first_down", "session_id", peer, "tunnel_id", tunnelID, "first_byte_ms", time.Since(started).Milliseconds())
+	}, OnFirstDown: func() {
+		f.emit("tunnel.first_up", "session_id", peer, "tunnel_id", tunnelID, "first_byte_ms", time.Since(started).Milliseconds())
 	}})
 	up, down, err := res.ToWS, res.FromWS, res.Err
-	f.emit("session.closed", "session_id", peer, "tunnel_id", tunnelID, "close_reason", res.Reason, "bytes_up", up, "bytes_down", down, "duration_ms", time.Since(started).Milliseconds(), "error", err)
+	closed := []any{"session_id", peer, "tunnel_id", tunnelID, "close_reason", localSeatReason(res.Reason), "bytes_up", up, "bytes_down", down, "duration_ms", time.Since(started).Milliseconds()}
+	if err != nil {
+		closed = append(closed, "error", err)
+	}
+	f.emit("session.closed", closed...)
 	if f.Log != nil {
 		msg := "%s closed: up=%d down=%d after %s"
 		args := []any{peer, up, down, time.Since(started).Round(time.Millisecond)}
