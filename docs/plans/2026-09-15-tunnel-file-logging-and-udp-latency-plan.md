@@ -166,3 +166,8 @@ workspace baseline：Git root=D:/work/inhere/hyy-ai-inspect/tools/gofer；branch
 ## 完成 Gate 与剩余工作
 
 完成必须同时满足 server/worker 运行日志、tunnel 日志、代码质量、性能对照、文档验证和 dirty work 保护。若 HMI 真实下载未授权或未执行，只报告模拟/本地证据，不宣称硬件验收。若 UDP 性能没有改善，保留分段测量结论，后续直连 data plane 另立 design。
+## T06 测量结论
+
+全链路 loopback 下 relay + forwarder 的 RTT p50 约 0 ms、p95 约 0.52 ms，最大值约 1.0–2.2 ms；dial/首包通常 0–1 ms。
+池化开关在该样本上 p95 基本无可测差异，最大值仅有调度噪声级波动，未显示稳定收益。
+因此 HMI 下载慢时应先看 `first_down` 与设备侧响应；当前 loopback 证据不足以认定 relay 是主要瓶颈。
