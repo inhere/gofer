@@ -157,22 +157,8 @@ func runTunnelForward(c *gcli.Command, args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
-	logPath := tunnelOpts.logFile
-	if logPath == "" {
-		dir := tunnelOpts.logDir
-		if dir == "" {
-			if cd, e := config.ConfigDir(); e == nil {
-				dir = filepath.Join(cd, "run", "tunnels")
-			}
-		}
-		if dir != "" {
-			logPath = filepath.Join(dir, fmt.Sprintf("forward-%s-%d.log", time.Now().Format("20060102-150405"), os.Getpid()))
-		}
-	}
-	if logPath != "" {
-		if e := logx.ConfigureFile(logx.FileOptions{Path: logPath, Explicit: tunnelOpts.logFile != "", Component: "forward"}); e != nil {
-			return e
-		}
+	if e := configureForwardLogging(tunnelOpts.quiet, tunnelOpts.logFile, tunnelOpts.logDir, time.Now(), os.Getpid()); e != nil {
+		return e
 	}
 	errCh := make(chan error, len(specs))
 	for _, s := range specs {
@@ -180,22 +166,14 @@ func runTunnelForward(c *gcli.Command, args []string) error {
 		if e != nil {
 			return e
 		}
-		f := &tunnel.Forwarder{Spec: sp, Ready: make(chan error, 1), Dial: func(x context.Context) (*websocket.Conn, error) {
+		f := &tunnel.Forwarder{Spec: sp, Ready: make(chan error, 1), Dial: func(x context.Context) (tunnel.DialResult, error) {
 			tc, err := cli.DialTunnel(x, worker, sp.Target, sp.Network)
-			return tc.Conn, err
+			return tunnel.DialResult{Conn: tc.Conn, TunnelID: tc.TunnelID}, err
 		}}
-		f.OnEvent = func(event string, attrs ...any) {
-			a := append([]any{"event", event, "component", "forward", "worker", worker}, attrs...)
-			if !tunnelOpts.quiet {
-				slog.Info(event, a...)
-			}
-		}
+		f.OnEvent = forwardEventSink(worker)
 		go func() { errCh <- f.Run(ctx) }()
 		if e := <-f.Ready; e != nil {
 			return e
-		}
-		if !tunnelOpts.quiet {
-			slog.Info("forward.started", "event", "forward.started", "component", "forward", "local", f.ActualAddr, "target", sp.Target, "worker", worker, "network", sp.Network)
 		}
 	}
 	for {
@@ -209,6 +187,50 @@ func runTunnelForward(c *gcli.Command, args []string) error {
 		}
 	}
 }
+
+// forwardLogPath picks the forwarder's JSONL log file. An explicit --log-file
+// wins; otherwise the file lives in --log-dir (or <config-dir>/run/tunnels) and
+// is named after the start time and pid so concurrent forwarders never share a
+// file. explicit reports whether the user chose the location, which decides
+// whether an unwritable path is fatal (see logx.FileOptions.Explicit).
+func forwardLogPath(logFile, logDir string, now time.Time, pid int) (path string, explicit bool) {
+	if logFile != "" {
+		return logFile, true
+	}
+	dir, explicit := logDir, logDir != ""
+	if dir == "" {
+		cd, err := config.ConfigDir()
+		if err != nil {
+			return "", false
+		}
+		dir = filepath.Join(cd, "run", "tunnels")
+	}
+	return filepath.Join(dir, fmt.Sprintf("forward-%s-%d.log", now.Format("20060102-150405"), pid)), explicit
+}
+
+// configureForwardLogging wires the forward command's two sinks: --quiet drops
+// the terminal (stderr) sink only, the file sink is always attempted. An
+// unwritable default location degrades to a warning; an explicit one fails.
+func configureForwardLogging(quiet bool, logFile, logDir string, now time.Time, pid int) error {
+	if quiet {
+		logx.SilenceStderr()
+	}
+	path, explicit := forwardLogPath(logFile, logDir, now, pid)
+	if path == "" {
+		return nil
+	}
+	return logx.ConfigureFile(logx.FileOptions{Path: path, Explicit: explicit, Component: "forward"})
+}
+
+// forwardEventSink turns Forwarder events into slog records tagged with the
+// worker; the Forwarder already supplies event-specific attrs such as
+// session_id, tunnel_id, first_byte_ms and close_reason.
+func forwardEventSink(worker string) func(string, ...any) {
+	return func(event string, attrs ...any) {
+		slog.Info(event, append([]any{"event", event, "worker", worker}, attrs...)...)
+	}
+}
+
 func runTunnelCheck(c *gcli.Command, _ []string) error {
 	if tunnelOpts.worker == "" && tunnelOpts.name == "" {
 		return fmt.Errorf("worker required")

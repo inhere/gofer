@@ -10,6 +10,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -43,6 +44,18 @@ func Setup() {
 	if operationID == "" {
 		operationID = runID()
 	}
+	setupMu.Unlock()
+	slog.SetDefault(slog.New(h))
+}
+
+// SilenceStderr drops the stderr text sink for the rest of the process: a
+// later ConfigureFile keeps only its file sink, and until then the default
+// logger discards everything. It is what `gofer tunnel forward --quiet` means:
+// nothing on the terminal, the file log untouched.
+func SilenceStderr() {
+	h := slog.NewTextHandler(io.Discard, nil)
+	setupMu.Lock()
+	stderrHandler = h
 	setupMu.Unlock()
 	slog.SetDefault(slog.New(h))
 }
