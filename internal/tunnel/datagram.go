@@ -11,9 +11,10 @@ import (
 )
 
 var datagramReadPool = sync.Pool{New: func() any { return make([]byte, ReadLimit+1) }}
+var udpBufferPoolEnabled = os.Getenv("GOFER_UDP_BUFFER_POOL") != "0"
 
 func readDatagramMessage(r io.Reader) ([]byte, func(), error) {
-	if os.Getenv("GOFER_UDP_BUFFER_POOL") == "0" {
+	if !udpBufferPoolEnabled {
 		b, err := io.ReadAll(io.LimitReader(r, ReadLimit+1))
 		return b, func() {}, err
 	}
