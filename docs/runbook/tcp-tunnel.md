@@ -96,6 +96,8 @@ UDP 缓冲池可用环境变量 `GOFER_UDP_BUFFER_POOL` 调整；设为 `0` 可�
 
 server 审计事件包含 `tunnel_id caller worker target client_remote bytes_up bytes_down close_reason duration_ms`；worker 事件包含 `tunnel_id target error_code bytes_from_device bytes_to_device duration_ms`。
 
+server 侧拒绝统一记 `tunnel.rejected`：client connect 一侧带 `status`（HTTP 状态）与 `error_code`（`http_rejected`，或 worker 回的 Hello 错误码如 `target_not_allowed`）；worker 回连一侧带 `side=worker` 与 `error_code`（`invalid_nonce` / `worker_mismatch` / `instance_mismatch` / `tunnel_mismatch` / `rendezvous_gone` / `worker_unauthorized` / `hello_read_failed`），并附 `close_code`（4401/4409/4404）。同一 `tunnel_id` 下先看 worker 侧的拒绝原因，client 侧的 504 只是其结果。
+
 ## 转发预设
 
 转发规格较长时可存成具名预设，之后用 `--name`（`-n`）复用：
