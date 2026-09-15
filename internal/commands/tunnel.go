@@ -7,20 +7,25 @@ import (
 	"github.com/gookit/gcli/v3"
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/logx"
 	"github.com/inhere/gofer/internal/tunnel"
+	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
 )
 
 var tunnelOpts struct {
-	worker string
-	quiet  bool
-	name   string
-	note   string
-	force  bool
+	worker  string
+	quiet   bool
+	logFile string
+	logDir  string
+	name    string
+	note    string
+	force   bool
 }
 
 // NewTunnelCmd builds tunnel subcommands.
@@ -30,6 +35,8 @@ func NewTunnelCmd() *gcli.Command {
 		bindServerFlags(c)
 		c.StrOpt(&tunnelOpts.worker, "worker", "w", "", "worker id")
 		c.BoolOpt(&tunnelOpts.quiet, "quiet", "", false, "quiet")
+		c.StrOpt(&tunnelOpts.logFile, "log-file", "", "", "forwarder log file")
+		c.StrOpt(&tunnelOpts.logDir, "log-dir", "", "", "forwarder log directory")
 		c.StrOpt(&tunnelOpts.name, "name", "n", "", "saved preset name (gofer tunnel saved)")
 		c.AddArg("spec", "forward spec [udp/][bind:]lport:host:port (one or more; optional with --name)", false, true)
 	}, Func: runTunnelForward}
@@ -133,6 +140,9 @@ func parseCheckTarget(s string) checkTarget {
 }
 
 func runTunnelForward(c *gcli.Command, args []string) error {
+	if tunnelOpts.logFile != "" && tunnelOpts.logDir != "" {
+		return fmt.Errorf("--log-file and --log-dir are mutually exclusive")
+	}
 	if tunnelOpts.worker == "" && tunnelOpts.name == "" {
 		return fmt.Errorf("worker required")
 	}
@@ -147,6 +157,23 @@ func runTunnelForward(c *gcli.Command, args []string) error {
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
+	logPath := tunnelOpts.logFile
+	if logPath == "" {
+		dir := tunnelOpts.logDir
+		if dir == "" {
+			if cd, e := config.ConfigDir(); e == nil {
+				dir = filepath.Join(cd, "run", "tunnels")
+			}
+		}
+		if dir != "" {
+			logPath = filepath.Join(dir, fmt.Sprintf("forward-%s-%d.log", time.Now().Format("20060102-150405"), os.Getpid()))
+		}
+	}
+	if logPath != "" {
+		if e := logx.ConfigureFile(logx.FileOptions{Path: logPath, Explicit: tunnelOpts.logFile != "", Component: "forward"}); e != nil {
+			return e
+		}
+	}
 	errCh := make(chan error, len(specs))
 	for _, s := range specs {
 		sp, e := tunnel.ParseForwardSpec(s)
@@ -159,7 +186,14 @@ func runTunnelForward(c *gcli.Command, args []string) error {
 		if !tunnelOpts.quiet {
 			// One line per local connection (up, and closed with byte counts).
 			// --quiet leaves Log nil, which still logs dial failures via slog.
-			f.Log = func(format string, args ...any) { fmt.Printf(format+"\n", args...) }
+			f.Log = func(format string, args ...any) {
+				slog.Info(fmt.Sprintf(format, args...), "event", "tunnel.lifecycle", "worker", worker, "target", sp.Target, "network", sp.Network)
+			}
+		}
+		if tunnelOpts.quiet {
+			f.Log = func(format string, args ...any) {
+				slog.Info(fmt.Sprintf(format, args...), "event", "tunnel.lifecycle", "worker", worker, "target", sp.Target, "network", sp.Network)
+			}
 		}
 		go func() { errCh <- f.Run(ctx) }()
 		if e := <-f.Ready; e != nil {
@@ -174,6 +208,7 @@ func runTunnelForward(c *gcli.Command, args []string) error {
 			}
 			fmt.Printf("forwarding %s%s -> %s:%s\n", label, f.ActualAddr, worker, sp.Target)
 		}
+		slog.Info("forward started", "event", "forward.started", "local", f.ActualAddr, "target", sp.Target, "worker", worker, "network", sp.Network)
 	}
 	for {
 		select {
