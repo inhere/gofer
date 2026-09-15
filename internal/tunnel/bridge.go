@@ -18,8 +18,14 @@ type BridgeOptions struct{ OnFirstUp, OnFirstDown func() }
 // first teardown cause using the same reason vocabulary as SpliceResult.
 type BridgeResult struct {
 	ToWS, FromWS int64
-	Reason       string
-	Err          error
+	// PacketsToWS / PacketsFromWS count datagrams (DatagramBridge only; zero
+	// for the TCP Bridge, where the stream has no packet boundary worth
+	// reporting). bytes / packets gives the mean datagram size and
+	// duration / packets the mean per-packet turnaround, which is what tells a
+	// chatty stop-and-wait protocol from a slow link.
+	PacketsToWS, PacketsFromWS int64
+	Reason                     string
+	Err                        error
 }
 type bridgeRes struct {
 	n    int64

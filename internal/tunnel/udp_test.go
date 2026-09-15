@@ -477,3 +477,44 @@ func TestForwarderUDPMaxSessions(t *testing.T) {
 		t.Fatalf("hitting the cap should be logged, got %v", logs)
 	}
 }
+
+// TestDatagramBridgeCountsPackets: the bridge reports datagram counts in both
+// directions alongside the byte counts.
+func TestDatagramBridgeCountsPackets(t *testing.T) {
+	echoAddr, stop := udpEcho(t)
+	defer stop()
+	target, err := net.ResolveUDPAddr("udp", echoAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pc, err := net.ListenPacket("udp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		c, err := websocket.Accept(w, r, nil)
+		if err != nil {
+			return
+		}
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		for i := 0; i < 3; i++ {
+			if err := c.Write(ctx, websocket.MessageBinary, []byte("hi")); err != nil {
+				return
+			}
+			if _, _, err := c.Read(ctx); err != nil {
+				return
+			}
+		}
+		c.Close(websocket.StatusNormalClosure, "")
+	}))
+	defer srv.Close()
+	ws, _, err := websocket.Dial(context.Background(), "ws"+strings.TrimPrefix(srv.URL, "http"), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := DatagramBridgeWithOptions(context.Background(), ws, pc, target, BridgeOptions{})
+	if res.PacketsFromWS != 3 || res.PacketsToWS != 3 || res.FromWS != 6 || res.ToWS != 6 {
+		t.Fatalf("counts: %+v", res)
+	}
+}

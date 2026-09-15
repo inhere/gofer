@@ -51,13 +51,13 @@ func DatagramBridgeWithOptions(ctx context.Context, ws *websocket.Conn, pc net.P
 	stop := func() { once.Do(func() { pc.Close(); ws.Close(websocket.StatusNormalClosure, "closed") }) }
 	targetIP := addrIP(target)
 	type result struct {
-		n   int64
-		err error
-		out bool
+		n, pkts int64
+		err     error
+		out     bool
 	}
 	ch := make(chan result, 2)
 	go func() {
-		var n int64
+		var n, pkts int64
 		b := make([]byte, ReadLimit)
 		for {
 			nr, from, e := pc.ReadFrom(b)
@@ -69,6 +69,7 @@ func DatagramBridgeWithOptions(ctx context.Context, ws *websocket.Conn, pc net.P
 					e = e2
 				} else {
 					n += int64(nr)
+					pkts++
 					firstDown.Do(func() {
 						if opt.OnFirstDown != nil {
 							opt.OnFirstDown()
@@ -77,18 +78,18 @@ func DatagramBridgeWithOptions(ctx context.Context, ws *websocket.Conn, pc net.P
 				}
 			}
 			if e != nil {
-				ch <- result{n, e, true}
+				ch <- result{n, pkts, e, true}
 				stop()
 				return
 			}
 		}
 	}()
 	go func() {
-		var n int64
+		var n, pkts int64
 		for {
 			typ, r, e := ws.Reader(ctx)
 			if e != nil {
-				ch <- result{n, e, false}
+				ch <- result{n, pkts, e, false}
 				stop()
 				return
 			}
@@ -102,6 +103,7 @@ func DatagramBridgeWithOptions(ctx context.Context, ws *websocket.Conn, pc net.P
 				release()
 				if e == nil {
 					n += int64(len(b))
+					pkts++
 					firstUp.Do(func() {
 						if opt.OnFirstUp != nil {
 							opt.OnFirstUp()
@@ -113,23 +115,19 @@ func DatagramBridgeWithOptions(ctx context.Context, ws *websocket.Conn, pc net.P
 				e = io.ErrShortBuffer
 			}
 			if e != nil {
-				ch <- result{n, e, false}
+				ch <- result{n, pkts, e, false}
 				stop()
 				return
 			}
 		}
 	}()
 	a, b := <-ch, <-ch
-	var toWS, fromWS int64
-	if a.out {
-		toWS = a.n
-		fromWS = b.n
-	} else {
-		fromWS = a.n
-		toWS = b.n
+	out, in := a, b // out = the device->ws pump, in = the ws->device pump
+	if !a.out {
+		out, in = b, a
 	}
 	reason, err := closeReason(ctx, a.err, a.out)
-	return BridgeResult{ToWS: toWS, FromWS: fromWS, Reason: reason, Err: err}
+	return BridgeResult{ToWS: out.n, FromWS: in.n, PacketsToWS: out.pkts, PacketsFromWS: in.pkts, Reason: reason, Err: err}
 }
 
 // addrIP extracts the IP of a UDP address, or nil when it cannot be determined

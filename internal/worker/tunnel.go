@@ -124,16 +124,19 @@ func (cl *Client) handleTunnelOpen(ctx context.Context, sessionURL string, t wsp
 	firstDown := func() {
 		slog.Info("tunnel.first_down", "event", "tunnel.first_down", "component", "worker", "worker_id", cl.workerID, "tunnel_id", t.TunnelID, "network", network, "target", t.Target, "first_byte_ms", time.Since(started).Milliseconds())
 	}
+	var packets []any // udp only: datagram counts ride along on tunnel.closed
 	if network == "udp" {
 		r := tunnel.DatagramBridgeWithOptions(ctx, ws, pc, udpTarget, tunnel.BridgeOptions{OnFirstUp: firstUp, OnFirstDown: firstDown})
 		fromDevice, toDevice, reason, e = r.ToWS, r.FromWS, r.Reason, r.Err
+		packets = []any{"packets_down", r.PacketsToWS, "packets_up", r.PacketsFromWS}
 	} else {
 		r := tunnel.BridgeWithOptions(ctx, ws, nc, tunnel.BridgeOptions{OnFirstUp: firstUp, OnFirstDown: firstDown})
 		fromDevice, toDevice, reason, e = r.ToWS, r.FromWS, r.Reason, r.Err
 	}
-	slog.Info("tunnel.closed", "event", "tunnel.closed", "component", "worker", "worker_id", cl.workerID, "tunnel_id", t.TunnelID, "network", network, "target", t.Target,
+	closed := []any{"event", "tunnel.closed", "component", "worker", "worker_id", cl.workerID, "tunnel_id", t.TunnelID, "network", network, "target", t.Target,
 		"bytes_down", fromDevice, "bytes_up", toDevice,
-		"duration_ms", time.Since(started).Milliseconds(), "close_reason", reason, "error", e)
+		"duration_ms", time.Since(started).Milliseconds(), "close_reason", reason, "error", e}
+	slog.Info("tunnel.closed", append(closed, packets...)...)
 }
 func deriveConnectURL(raw, path string) (string, error) {
 	u, e := url.Parse(raw)

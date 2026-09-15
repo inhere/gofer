@@ -6,6 +6,7 @@ import (
 	"io"
 	"log/slog"
 	"net"
+	"os"
 	"sync"
 	"time"
 )
@@ -44,7 +45,9 @@ type DialResult struct {
 //	tunnel.first_up   tunnel_id, first_byte_ms   (first local->tunnel bytes)
 //	tunnel.first_down tunnel_id, first_byte_ms   (first tunnel->local bytes)
 //	session.closed    tunnel_id, close_reason, bytes_up, bytes_down, duration_ms[, error]
+//	                  (UDP adds packets_up, packets_down)
 //	session.rejected  close_reason (dropped_max_sessions), max_sessions
+//	tunnel.datagram   tunnel_id, dir (up|down), len, gap_ms — only with GOFER_TUNNEL_TRACE=1
 //
 // first_byte_ms and duration_ms count from the moment the dial started, so a
 // slow rendezvous and a slow device answer are told apart via dial_ms.
@@ -141,11 +144,32 @@ type udpSession struct {
 
 	firstUp, firstDown sync.Once
 
-	mu     sync.Mutex
-	last   time.Time
-	up     int64
-	down   int64
-	reason string // close reason recorded by whoever decided to drop the session
+	mu       sync.Mutex
+	last     time.Time
+	up       int64
+	down     int64
+	pktUp    int64 // datagrams sent up the tunnel
+	pktDown  int64 // datagrams delivered back to the local source
+	lastUp   time.Time
+	lastDown time.Time
+	reason   string // close reason recorded by whoever decided to drop the session
+}
+
+// traceDatagrams enables the per-datagram tunnel.datagram event (direction,
+// length, gap since the previous datagram of that session). It is read once
+// so the off path costs one branch per datagram and no formatting.
+var traceDatagrams = os.Getenv("GOFER_TUNNEL_TRACE") == "1"
+
+// traceDatagram emits one tunnel.datagram record for a session when tracing is
+// on. gap_ms is the time since the previous datagram in the same direction,
+// which is the per-packet turnaround a stop-and-wait protocol pays; prev is
+// the zero time for the first datagram (gap_ms then reads 0).
+func (f *Forwarder) traceDatagram(key, tunnelID, dir string, n int, prev, now time.Time) {
+	gap := int64(0)
+	if !prev.IsZero() {
+		gap = now.Sub(prev).Milliseconds()
+	}
+	f.emit("tunnel.datagram", "session_id", key, "tunnel_id", tunnelID, "dir", dir, "len", n, "gap_ms", gap)
 }
 
 // fail records why the session is being dropped; the first caller wins so a
@@ -229,10 +253,11 @@ func (f *Forwarder) runUDP(ctx context.Context) error {
 		s.cancel()
 		s.ws.Close(websocket.StatusNormalClosure, "")
 		s.mu.Lock()
-		up, down, why := s.up, s.down, s.reason
+		up, down, pktUp, pktDown, why := s.up, s.down, s.pktUp, s.pktDown, s.reason
 		s.mu.Unlock()
 		f.emit("session.closed", "session_id", key, "tunnel_id", s.tunnelID, "close_reason", why,
-			"bytes_up", up, "bytes_down", down, "duration_ms", time.Since(s.started).Milliseconds())
+			"bytes_up", up, "bytes_down", down, "packets_up", pktUp, "packets_down", pktDown,
+			"duration_ms", time.Since(s.started).Milliseconds())
 		if f.Log != nil {
 			f.Log("%s closed: up=%d down=%d", key, up, down)
 		}
@@ -296,10 +321,16 @@ func (f *Forwarder) runUDP(ctx context.Context) error {
 		s.firstUp.Do(func() {
 			f.emit("tunnel.first_up", "session_id", key, "tunnel_id", s.tunnelID, "first_byte_ms", time.Since(s.started).Milliseconds())
 		})
+		now := time.Now()
 		s.mu.Lock()
 		s.up += int64(n)
-		s.last = time.Now()
+		s.pktUp++
+		prev := s.lastUp
+		s.lastUp, s.last = now, now
 		s.mu.Unlock()
+		if traceDatagrams {
+			f.traceDatagram(key, s.tunnelID, "up", n, prev, now)
+		}
 	}
 }
 
@@ -351,10 +382,16 @@ func (f *Forwarder) openUDPSession(ctx context.Context, pc net.PacketConn, src n
 			s.firstDown.Do(func() {
 				f.emit("tunnel.first_down", "session_id", key, "tunnel_id", s.tunnelID, "first_byte_ms", time.Since(started).Milliseconds())
 			})
+			now := time.Now()
 			s.mu.Lock()
 			s.down += int64(len(b))
-			s.last = time.Now()
+			s.pktDown++
+			prev := s.lastDown
+			s.lastDown, s.last = now, now
 			s.mu.Unlock()
+			if traceDatagrams {
+				f.traceDatagram(key, s.tunnelID, "down", len(b), prev, now)
+			}
 		}
 	}()
 	return s

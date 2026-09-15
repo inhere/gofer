@@ -229,6 +229,12 @@ func TestForwarderUDPEventSequence(t *testing.T) {
 	if int64Attr(t, closed, "bytes_up") != 8 || int64Attr(t, closed, "bytes_down") != 14 {
 		t.Fatalf("bytes: %#v", closed.attrs)
 	}
+	if int64Attr(t, closed, "packets_up") != 2 || int64Attr(t, closed, "packets_down") != 2 {
+		t.Fatalf("packets: %#v", closed.attrs)
+	}
+	if _, traced := log.find("tunnel.datagram"); traced {
+		t.Fatalf("tunnel.datagram must stay silent unless GOFER_TUNNEL_TRACE=1: %v", log.names())
+	}
 	if int64Attr(t, closed, "duration_ms") < 100 {
 		t.Fatalf("duration_ms = %d, should span the idle window", int64Attr(t, closed, "duration_ms"))
 	}
@@ -316,5 +322,62 @@ func TestForwarderDialFailed(t *testing.T) {
 			}
 			assertOrder(t, log.names(), []string{"forward.started", "session.opened", "session.closed"})
 		})
+	}
+}
+
+// TestForwarderUDPTraceDatagrams flips the trace switch and expects one
+// tunnel.datagram per datagram per direction, with the per-direction gap.
+func TestForwarderUDPTraceDatagrams(t *testing.T) {
+	old := traceDatagrams
+	traceDatagrams = true
+	defer func() { traceDatagrams = old }()
+	ft := newFakeTunnel(t)
+	defer ft.Close()
+	log := &eventLog{}
+	f := &Forwarder{Spec: ForwardSpec{Network: "udp", Bind: "127.0.0.1", LocalPort: 0, Target: "dev:1"}, UDPIdleTimeout: time.Hour, Dial: ft.dial, OnEvent: log.record}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	startUDPForwarder(t, ctx, f)
+	c, err := net.Dial("udp", f.ActualAddr)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	for i := 0; i < 3; i++ {
+		c.Write([]byte("ping"))
+		reply := make([]byte, 64)
+		c.SetReadDeadline(time.Now().Add(5 * time.Second))
+		if _, err := c.Read(reply); err != nil {
+			t.Fatal(err)
+		}
+	}
+	deadline := time.Now().Add(2 * time.Second)
+	var up, down []recordedEvent
+	for time.Now().Before(deadline) && len(up)+len(down) < 6 {
+		up, down = up[:0], down[:0]
+		log.mu.Lock()
+		for _, e := range log.events {
+			if e.name != "tunnel.datagram" {
+				continue
+			}
+			if e.attrs["dir"] == "up" {
+				up = append(up, e)
+			} else {
+				down = append(down, e)
+			}
+		}
+		log.mu.Unlock()
+		time.Sleep(5 * time.Millisecond)
+	}
+	if len(up) != 3 || len(down) != 3 {
+		t.Fatalf("datagram trace: up=%d down=%d, want 3/3", len(up), len(down))
+	}
+	if int64Attr(t, up[0], "len") != 4 || int64Attr(t, down[0], "len") != 7 || int64Attr(t, up[0], "gap_ms") != 0 {
+		t.Fatalf("first trace records: %#v %#v", up[0].attrs, down[0].attrs)
+	}
+	for _, e := range append(up, down...) {
+		if e.attrs["tunnel_id"] != "fake-1" || e.attrs["session_id"] != c.LocalAddr().String() || int64Attr(t, e, "gap_ms") < 0 {
+			t.Fatalf("trace attrs: %#v", e.attrs)
+		}
 	}
 }
