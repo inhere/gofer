@@ -24,6 +24,7 @@ const (
 type Forwarder struct {
 	Spec           ForwardSpec
 	Dial           func(context.Context) (*websocket.Conn, error)
+	TunnelID       func(context.Context) string
 	Log            func(string, ...any)
 	OnEvent        func(string, ...any)
 	active         sync.WaitGroup
@@ -230,6 +231,10 @@ func (f *Forwarder) openUDPSession(ctx context.Context, pc net.PacketConn, src n
 	dctx, dcancel := context.WithTimeout(ctx, 20*time.Second)
 	started := time.Now()
 	ws, err := f.Dial(dctx)
+	tunnelID := ""
+	if f.TunnelID != nil {
+		tunnelID = f.TunnelID(dctx)
+	}
 	dcancel()
 	if err != nil {
 		f.emit("session.closed", "session_id", key, "close_reason", "dial_failed", "error", err)
@@ -243,7 +248,7 @@ func (f *Forwarder) openUDPSession(ctx context.Context, pc net.PacketConn, src n
 	sctx, scancel := context.WithCancel(ctx)
 	s := &udpSession{ws: ws, cancel: scancel, last: time.Now()}
 	f.emit("session.opened", "session_id", key, "local", f.Spec.ListenAddr(), "target", f.Spec.Target)
-	f.emit("tunnel.opened", "session_id", key, "tunnel_id", "", "dial_ms", time.Since(started).Milliseconds())
+	f.emit("tunnel.opened", "session_id", key, "tunnel_id", tunnelID, "dial_ms", time.Since(started).Milliseconds())
 	if f.Log != nil {
 		f.Log("%s -> %s connected (%d ms)", key, f.Spec.Target, time.Since(started).Milliseconds())
 	}
@@ -265,7 +270,7 @@ func (f *Forwarder) openUDPSession(ctx context.Context, pc net.PacketConn, src n
 			if _, e := pc.WriteTo(b, src); e != nil {
 				return
 			}
-			f.emit("tunnel.first_down", "session_id", key, "tunnel_id", "", "first_byte_ms", 0)
+			f.emit("tunnel.first_down", "session_id", key, "tunnel_id", tunnelID, "first_byte_ms", time.Since(started).Milliseconds())
 			s.mu.Lock()
 			s.down += int64(len(b))
 			s.last = time.Now()
@@ -320,6 +325,10 @@ func (f *Forwarder) handle(ctx context.Context, c net.Conn) {
 	peer := c.RemoteAddr().String()
 	started := time.Now()
 	ws, err := f.Dial(dctx)
+	tunnelID := ""
+	if f.TunnelID != nil {
+		tunnelID = f.TunnelID(dctx)
+	}
 	if err != nil {
 		f.emit("session.closed", "session_id", peer, "close_reason", "dial_failed", "error", err)
 		if f.Log != nil {
@@ -330,14 +339,18 @@ func (f *Forwarder) handle(ctx context.Context, c net.Conn) {
 		return
 	}
 	f.emit("session.opened", "session_id", peer, "local", f.Spec.ListenAddr(), "target", f.Spec.Target)
-	f.emit("tunnel.opened", "session_id", peer, "tunnel_id", "", "dial_ms", time.Since(started).Milliseconds())
+	f.emit("tunnel.opened", "session_id", peer, "tunnel_id", tunnelID, "dial_ms", time.Since(started).Milliseconds())
 	if f.Log != nil {
 		f.Log("%s -> %s connected (%d ms)", peer, f.Spec.Target, time.Since(started).Milliseconds())
 	}
 	defer ws.Close(websocket.StatusNormalClosure, "")
-	res := BridgeWithOptions(ctx, ws, c, BridgeOptions{OnFirstUp: func() { f.emit("tunnel.first_up", "session_id", peer, "tunnel_id", "", "first_byte_ms", 0) }, OnFirstDown: func() { f.emit("tunnel.first_down", "session_id", peer, "tunnel_id", "", "first_byte_ms", 0) }})
+	res := BridgeWithOptions(ctx, ws, c, BridgeOptions{OnFirstUp: func() {
+		f.emit("tunnel.first_up", "session_id", peer, "tunnel_id", tunnelID, "first_byte_ms", time.Since(started).Milliseconds())
+	}, OnFirstDown: func() {
+		f.emit("tunnel.first_down", "session_id", peer, "tunnel_id", tunnelID, "first_byte_ms", time.Since(started).Milliseconds())
+	}})
 	up, down, err := res.ToWS, res.FromWS, res.Err
-	f.emit("session.closed", "session_id", peer, "tunnel_id", "", "close_reason", res.Reason, "bytes_up", up, "bytes_down", down, "duration_ms", time.Since(started).Milliseconds(), "error", err)
+	f.emit("session.closed", "session_id", peer, "tunnel_id", tunnelID, "close_reason", res.Reason, "bytes_up", up, "bytes_down", down, "duration_ms", time.Since(started).Milliseconds(), "error", err)
 	if f.Log != nil {
 		msg := "%s closed: up=%d down=%d after %s"
 		args := []any{peer, up, down, time.Since(started).Round(time.Millisecond)}
