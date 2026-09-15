@@ -22,6 +22,8 @@ type deliveringHub struct {
 	s      *Server
 	echo   *httptest.Server
 	opened chan string // tunnel ids OpenTunnel was called with
+	reject string      // when set, the "worker" answers with this Hello.ErrorCode instead of a data conn
+	nonce  string      // when set, overrides the relay nonce the "worker" presents
 }
 
 func (h *deliveringHub) Accept(http.ResponseWriter, *http.Request, string) {}
@@ -33,7 +35,14 @@ func (h *deliveringHub) OpenTunnel(_ string, id, _ string, _ string, nonce strin
 		if err != nil {
 			return
 		}
-		h.s.tunnels.Deliver(id, tunnel.Arrival{Conn: c, Hello: tunnel.Hello{TunnelID: id, RelayNonce: nonce}})
+		if h.nonce != "" {
+			nonce = h.nonce
+		}
+		hello := tunnel.Hello{TunnelID: id, RelayNonce: nonce, ErrorCode: h.reject}
+		if h.reject != "" {
+			hello.Error = "worker says no"
+		}
+		h.s.tunnels.Deliver(id, tunnel.Arrival{Conn: c, Hello: hello})
 	}()
 	return nil
 }

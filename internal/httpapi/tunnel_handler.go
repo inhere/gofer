@@ -126,13 +126,13 @@ func (s *Server) tunnelConnect(w http.ResponseWriter, r *http.Request) {
 func (s *Server) handleWorkerTunnelConnectRaw(w http.ResponseWriter, r *http.Request) {
 	ce, ok := s.tunnelAuth(r)
 	if !ok || ce.kind != callerKindWorker {
-		slog.Warn("worker tunnel failed", "status", http.StatusUnauthorized, "reason", "unauthorized")
+		slog.Warn("tunnel.rejected", "event", "tunnel.rejected", "component", "server", "side", "worker", "error_code", "worker_unauthorized", "status", http.StatusUnauthorized, "reason", "unauthorized")
 		http.Error(w, "unauthorized", http.StatusUnauthorized)
 		return
 	}
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{CompressionMode: websocket.CompressionDisabled})
 	if err != nil {
-		slog.Warn("worker tunnel failed", "status", http.StatusBadGateway, "reason", err.Error(), "caller", ce.id)
+		slog.Warn("tunnel.rejected", "event", "tunnel.rejected", "component", "server", "side", "worker", "error_code", "worker_upgrade_failed", "status", http.StatusBadGateway, "reason", err.Error(), "caller", ce.id)
 		return
 	}
 	defer conn.Close(websocket.StatusInternalError, "closed")
@@ -141,34 +141,34 @@ func (s *Server) handleWorkerTunnelConnectRaw(w http.ResponseWriter, r *http.Req
 	defer cancel()
 	var h tunnel.Hello
 	if err := wsjson.Read(ctx, conn, &h); err != nil {
-		slog.Warn("worker tunnel failed", "caller", ce.id, "close_code", int(websocket.StatusProtocolError), "reason", "hello read failed", "error", err)
+		slog.Warn("tunnel.rejected", "event", "tunnel.rejected", "component", "server", "side", "worker", "error_code", "hello_read_failed", "caller", ce.id, "close_code", int(websocket.StatusProtocolError), "reason", "hello read failed", "error", err)
 		_ = conn.Close(websocket.StatusProtocolError, "expected hello")
 		return
 	}
 	b, ok := s.tunnels.Consume(h.RelayNonce, time.Now())
 	if !ok {
-		slog.Warn("worker tunnel failed", "caller", ce.id, "tunnel_id", h.TunnelID, "status", 401, "close_code", 4401, "reason", "invalid nonce")
+		slog.Warn("tunnel.rejected", "event", "tunnel.rejected", "component", "server", "side", "worker", "error_code", "invalid_nonce", "caller", ce.id, "tunnel_id", h.TunnelID, "status", 401, "close_code", 4401, "reason", "invalid nonce")
 		_ = conn.Close(4401, "invalid nonce")
 		return
 	}
 	if b.WorkerID != ce.id {
-		slog.Warn("worker tunnel failed", "caller", ce.id, "tunnel_id", h.TunnelID, "status", 409, "close_code", 4409, "reason", "worker mismatch")
+		slog.Warn("tunnel.rejected", "event", "tunnel.rejected", "component", "server", "side", "worker", "error_code", "worker_mismatch", "caller", ce.id, "tunnel_id", h.TunnelID, "status", 409, "close_code", 4409, "reason", "worker mismatch")
 		_ = conn.Close(4409, "worker mismatch")
 		return
 	}
 	if inst, live := s.hub.LiveInstance(b.WorkerID); !live || inst != b.InstanceID {
-		slog.Warn("worker tunnel failed", "caller", ce.id, "tunnel_id", h.TunnelID, "status", 409, "close_code", 4409, "reason", "instance mismatch")
+		slog.Warn("tunnel.rejected", "event", "tunnel.rejected", "component", "server", "side", "worker", "error_code", "instance_mismatch", "caller", ce.id, "tunnel_id", h.TunnelID, "status", 409, "close_code", 4409, "reason", "instance mismatch")
 		_ = conn.Close(4409, "instance mismatch")
 		return
 	}
 	if h.TunnelID != b.TunnelID {
-		slog.Warn("worker tunnel failed", "caller", ce.id, "tunnel_id", h.TunnelID, "status", 404, "close_code", 4404, "reason", "tunnel mismatch")
+		slog.Warn("tunnel.rejected", "event", "tunnel.rejected", "component", "server", "side", "worker", "error_code", "tunnel_mismatch", "caller", ce.id, "tunnel_id", h.TunnelID, "status", 404, "close_code", 4404, "reason", "tunnel mismatch")
 		_ = conn.Close(4404, "tunnel mismatch")
 		return
 	}
 	done, ok := s.tunnels.Deliver(h.TunnelID, tunnel.Arrival{Conn: conn, Hello: h})
 	if !ok {
-		slog.Warn("worker tunnel failed", "caller", ce.id, "tunnel_id", h.TunnelID, "status", 404, "close_code", 4404, "reason", "rendezvous gone")
+		slog.Warn("tunnel.rejected", "event", "tunnel.rejected", "component", "server", "side", "worker", "error_code", "rendezvous_gone", "caller", ce.id, "tunnel_id", h.TunnelID, "status", 404, "close_code", 4404, "reason", "rendezvous gone")
 		_ = conn.Close(4404, "gone")
 		return
 	}
