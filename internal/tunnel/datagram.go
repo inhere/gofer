@@ -1,12 +1,31 @@
 package tunnel
 
 import (
+	"bytes"
 	"context"
 	"github.com/coder/websocket"
 	"io"
 	"net"
+	"os"
 	"sync"
 )
+
+var datagramReadPool = sync.Pool{New: func() any { return make([]byte, ReadLimit+1) }}
+
+func readDatagramMessage(r io.Reader) ([]byte, func(), error) {
+	if os.Getenv("GOFER_UDP_BUFFER_POOL") == "0" {
+		b, err := io.ReadAll(io.LimitReader(r, ReadLimit+1))
+		return b, func() {}, err
+	}
+	buf := datagramReadPool.Get().([]byte)
+	b := bytes.NewBuffer(buf[:0])
+	_, err := io.CopyN(b, r, int64(ReadLimit+1))
+	if err != nil && err != io.EOF {
+		datagramReadPool.Put(buf)
+		return nil, func() {}, err
+	}
+	return b.Bytes(), func() { datagramReadPool.Put(buf) }, nil
+}
 
 // DatagramBridge maps one UDP datagram to one binary websocket message.
 //
@@ -76,9 +95,10 @@ func DatagramBridgeWithOptions(ctx context.Context, ws *websocket.Conn, pc net.P
 				io.Copy(io.Discard, r)
 				continue
 			}
-			b, e := io.ReadAll(io.LimitReader(r, ReadLimit+1))
+			b, release, e := readDatagramMessage(r)
 			if e == nil && len(b) <= ReadLimit {
 				_, e = pc.WriteTo(b, target)
+				release()
 				if e == nil {
 					n += int64(len(b))
 					firstUp.Do(func() {
@@ -88,6 +108,7 @@ func DatagramBridgeWithOptions(ctx context.Context, ws *websocket.Conn, pc net.P
 					})
 				}
 			} else if e == nil {
+				release()
 				e = io.ErrShortBuffer
 			}
 			if e != nil {
