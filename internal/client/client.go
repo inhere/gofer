@@ -43,12 +43,16 @@ type TunnelInfo struct {
 	BytesUp      int64     `json:"bytes_up"`
 	BytesDown    int64     `json:"bytes_down"`
 }
+type TunnelConn struct {
+	Conn     *websocket.Conn
+	TunnelID string
+}
 
 // DialTunnel opens a worker TCP tunnel websocket.
-func (c *Client) DialTunnel(ctx context.Context, workerID, target string, networks ...string) (*websocket.Conn, error) {
+func (c *Client) DialTunnel(ctx context.Context, workerID, target string, networks ...string) (TunnelConn, error) {
 	u, err := url.Parse(c.baseURL)
 	if err != nil {
-		return nil, err
+		return TunnelConn{}, err
 	}
 	if u.Scheme == "http" {
 		u.Scheme = "ws"
@@ -72,12 +76,12 @@ func (c *Client) DialTunnel(ctx context.Context, workerID, target string, networ
 		if resp != nil {
 			b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
 			resp.Body.Close()
-			return nil, &TunnelError{Status: resp.StatusCode, Msg: strings.TrimSpace(string(b))}
+			return TunnelConn{}, &TunnelError{Status: resp.StatusCode, Msg: strings.TrimSpace(string(b))}
 		}
-		return nil, err
+		return TunnelConn{}, err
 	}
 	ws.SetReadLimit(tunnel.ReadLimit)
-	return ws, nil
+	return TunnelConn{Conn: ws, TunnelID: resp.Header.Get(tunnel.HeaderTunnelID)}, nil
 }
 
 // ListTunnels lists active tunnels.

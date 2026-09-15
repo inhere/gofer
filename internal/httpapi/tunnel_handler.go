@@ -70,6 +70,7 @@ func (s *Server) tunnelConnect(w http.ResponseWriter, r *http.Request) {
 	}
 	p, nonce := s.tunnels.Begin(tunnel.Binding{WorkerID: worker, InstanceID: inst, CallerID: ce.id, Target: target, ClientRemote: r.RemoteAddr}, tunnelRendezvousTimeout)
 	tunnelID := p.TunnelID()
+	w.Header().Set(tunnel.HeaderTunnelID, tunnelID)
 	slog.Info("tunnel.requested", "event", "tunnel.requested", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "worker_id", worker, "caller", ce.id, "client_remote", r.RemoteAddr)
 	rendezvousStart := time.Now()
 	slog.Info("tunnel.rendezvous_started", "event", "tunnel.rendezvous_started", "component", "server", "tunnel_id", tunnelID, "worker_id", worker)
