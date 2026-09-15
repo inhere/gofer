@@ -38,7 +38,10 @@ func captureStderr(t *testing.T, fn func()) string {
 }
 
 // resetLogx puts the process logger back to the plain stderr handler after a
-// test that configured a file sink or silenced stderr.
+// test that configured a file sink or silenced stderr. Call it AFTER
+// t.TempDir(): cleanups run last-registered-first, and the file sink must be
+// closed (logx.Setup does that) before the TempDir removal, or Windows refuses
+// to delete the still-open log file.
 func resetLogx(t *testing.T) {
 	t.Helper()
 	t.Cleanup(func() { logx.Setup(); slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil))) })
@@ -79,8 +82,8 @@ func TestTunnelForwardLogDirUniqueNames(t *testing.T) {
 }
 
 func TestTunnelForwardQuietStillWritesFile(t *testing.T) {
-	resetLogx(t)
 	logFile := filepath.Join(t.TempDir(), "fwd.log")
+	resetLogx(t)
 	out := captureStderr(t, func() {
 		logx.Setup()
 		if err := configureForwardLogging(true, logFile, "", time.Now(), 1); err != nil {
@@ -116,8 +119,8 @@ func TestTunnelForwardQuietStillWritesFile(t *testing.T) {
 }
 
 func TestTunnelForwardNotQuietPrintsEachEventOnce(t *testing.T) {
-	resetLogx(t)
 	logFile := filepath.Join(t.TempDir(), "fwd.log")
+	resetLogx(t)
 	out := captureStderr(t, func() {
 		logx.Setup() // bind the stderr sink to the captured pipe, as main does at start
 		if err := configureForwardLogging(false, logFile, "", time.Now(), 1); err != nil {
@@ -135,10 +138,10 @@ func TestTunnelForwardNotQuietPrintsEachEventOnce(t *testing.T) {
 }
 
 func TestTunnelForwardDefaultLogPathFallback(t *testing.T) {
-	resetLogx(t)
 	// GOFER_CONFIG_DIR pointing at a regular file makes <dir>/run/tunnels
 	// uncreatable, which is the "config dir not writable" case.
 	blocker := filepath.Join(t.TempDir(), "not-a-dir")
+	resetLogx(t)
 	if err := os.WriteFile(blocker, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
