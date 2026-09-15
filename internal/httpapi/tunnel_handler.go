@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -35,7 +36,7 @@ func (s *Server) handleTunnelConnect(c *rux.Context) { s.tunnelConnect(c.Resp, c
 // tunnelConnect authenticates a caller and bridges one client websocket to a worker tunnel.
 func (s *Server) tunnelConnect(w http.ResponseWriter, r *http.Request) {
 	fail := func(code int, reason string, attrs ...any) {
-		slog.Warn("tunnel connect failed", append([]any{"status", code, "reason", reason}, attrs...)...)
+		slog.Warn("tunnel.rejected", append([]any{"event", "tunnel.rejected", "component", "server", "error_code", "http_rejected", "status", code, "error", reason}, attrs...)...)
 		http.Error(w, reason, code)
 	}
 	ce, ok := s.tunnelAuth(r)
@@ -69,7 +70,11 @@ func (s *Server) tunnelConnect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	p, nonce := s.tunnels.Begin(tunnel.Binding{WorkerID: worker, InstanceID: inst, CallerID: ce.id, Target: target, ClientRemote: r.RemoteAddr}, tunnelRendezvousTimeout)
-	if err := s.hub.OpenTunnel(worker, p.TunnelID(), network, target, nonce); err != nil {
+	tunnelID := p.TunnelID()
+	slog.Info("tunnel.requested", "event", "tunnel.requested", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "worker_id", worker, "caller", ce.id, "client_remote", r.RemoteAddr)
+	rendezvousStart := time.Now()
+	slog.Info("tunnel.rendezvous_started", "event", "tunnel.rendezvous_started", "component", "server", "tunnel_id", tunnelID, "worker_id", worker)
+	if err := s.hub.OpenTunnel(worker, tunnelID, network, target, nonce); err != nil {
 		p.Cancel()
 		code := http.StatusBadGateway
 		if errors.Is(err, tunnel.ErrWorkerOffline) {
@@ -78,23 +83,23 @@ func (s *Server) tunnelConnect(w http.ResponseWriter, r *http.Request) {
 		if errors.Is(err, tunnel.ErrUnsupported) {
 			code = http.StatusConflict
 		}
-		fail(code, err.Error(), "caller", ce.id, "worker", worker, "target", target, "tunnel_id", p.TunnelID())
+		fail(code, err.Error(), "caller", ce.id, "worker", worker, "target", target, "tunnel_id", tunnelID)
 		return
 	}
 	a, err := p.Wait(r.Context(), tunnelRendezvousTimeout)
 	if err != nil {
-		fail(http.StatusGatewayTimeout, err.Error(), "caller", ce.id, "worker", worker, "target", target, "tunnel_id", p.TunnelID())
+		fail(http.StatusGatewayTimeout, err.Error(), "caller", ce.id, "worker", worker, "target", target, "tunnel_id", tunnelID)
 		return
 	}
 	defer p.Finish()
 	if a.Hello.ErrorCode != "" {
-		fail(tunnel.HTTPStatusForCode(a.Hello.ErrorCode), a.Hello.Error, "caller", ce.id, "worker", worker, "target", target, "tunnel_id", p.TunnelID())
+		fail(tunnel.HTTPStatusForCode(a.Hello.ErrorCode), a.Hello.Error, "caller", ce.id, "worker", worker, "target", target, "tunnel_id", tunnelID, "error_code", a.Hello.ErrorCode)
 		_ = a.Conn.Close(websocket.StatusNormalClosure, "worker rejected")
 		return
 	}
 	conn, err := websocket.Accept(w, r, &websocket.AcceptOptions{CompressionMode: websocket.CompressionDisabled})
 	if err != nil {
-		slog.Warn("tunnel connect failed", "tunnel_id", p.TunnelID(), "reason", err.Error(), "status", http.StatusBadGateway, "caller", ce.id, "worker", worker, "target", target)
+		slog.Error("tunnel.error", "event", "tunnel.error", "component", "server", "tunnel_id", tunnelID, "error", err, "status", http.StatusBadGateway)
 		_ = a.Conn.Close(websocket.StatusNormalClosure, "client upgrade failed")
 		return
 	}
@@ -104,9 +109,23 @@ func (s *Server) tunnelConnect(w http.ResponseWriter, r *http.Request) {
 	defer conn.Close(websocket.StatusNormalClosure, "closed")
 	defer a.Conn.Close(websocket.StatusNormalClosure, "closed")
 	started := time.Now()
-	slog.Info("tunnel opened", "tunnel_id", p.TunnelID(), "caller", ce.id, "worker", worker, "target", target, "client_remote", r.RemoteAddr)
-	res := tunnel.Splice(r.Context(), conn, a.Conn, tunnel.SpliceOptions{OnProgress: upd})
-	slog.Info("tunnel closed", "tunnel_id", p.TunnelID(), "caller", ce.id, "worker", worker, "target", target, "client_remote", r.RemoteAddr, "bytes_up", res.Up, "bytes_down", res.Down, "close_reason", res.Reason, "duration_ms", time.Since(started).Milliseconds(), "err", res.Err)
+	slog.Info("tunnel.worker_connected", "event", "tunnel.worker_connected", "component", "server", "tunnel_id", tunnelID, "worker_id", worker, "rendezvous_ms", time.Since(rendezvousStart).Milliseconds())
+	slog.Info("tunnel.opened", "event", "tunnel.opened", "component", "server", "tunnel_id", tunnelID, "network", network, "caller", ce.id, "worker_id", worker, "target", target, "client_remote", r.RemoteAddr)
+	firstUp := sync.Once{}
+	firstDown := sync.Once{}
+	res := tunnel.Splice(r.Context(), conn, a.Conn, tunnel.SpliceOptions{OnProgress: upd,
+		OnFirstUp: func() {
+			firstUp.Do(func() {
+				slog.Info("tunnel.first_up", "event", "tunnel.first_up", "component", "server", "tunnel_id", tunnelID)
+			})
+		},
+		OnFirstDown: func() {
+			firstDown.Do(func() {
+				slog.Info("tunnel.first_down", "event", "tunnel.first_down", "component", "server", "tunnel_id", tunnelID)
+			})
+		},
+	})
+	slog.Info("tunnel.closed", "event", "tunnel.closed", "component", "server", "tunnel_id", tunnelID, "caller", ce.id, "worker_id", worker, "target", target, "client_remote", r.RemoteAddr, "bytes_up", res.Up, "bytes_down", res.Down, "close_reason", res.Reason, "duration_ms", time.Since(started).Milliseconds(), "error", res.Err)
 }
 
 // handleWorkerTunnelConnectRaw authenticates worker callbacks outside the shared auth group and releases rendezvous resources before returning.

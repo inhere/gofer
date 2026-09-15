@@ -27,6 +27,8 @@ func outTunnel(c config.WorkerTunnelConfig) *tunnelPolicy {
 }
 func (cl *Client) applyTunnel(p *tunnelPolicy) { cl.tunnelPolicy.Store(p) }
 func (cl *Client) handleTunnelOpen(ctx context.Context, sessionURL string, t wsproto.TunnelOpen) {
+	slog.Info("tunnel.requested", "event", "tunnel.requested", "component", "worker", "tunnel_id", t.TunnelID, "network", t.Network, "target", t.Target, "worker_id", cl.workerID)
+	dialStarted := time.Now()
 	p := cl.tunnelPolicy.Load()
 	code, msg := "", ""
 	var nc net.Conn
@@ -85,8 +87,8 @@ func (cl *Client) handleTunnelOpen(ctx context.Context, sessionURL string, t wsp
 		}
 	}
 	if code != "" {
-		slog.Warn("tunnel rejected", "worker_id", cl.workerID, "tunnel_id", t.TunnelID,
-			"target", t.Target, "error_code", code, "error", msg)
+		slog.Warn("tunnel.rejected", "event", "tunnel.rejected", "component", "worker", "worker_id", cl.workerID, "tunnel_id", t.TunnelID,
+			"network", network, "target", t.Target, "error_code", code, "error", msg, "dial_ms", time.Since(dialStarted).Milliseconds())
 	}
 	u, err := deriveConnectURL(sessionURL, tunnel.WorkerConnectPath)
 	if err != nil {
@@ -98,8 +100,8 @@ func (cl *Client) handleTunnelOpen(ctx context.Context, sessionURL string, t wsp
 	}
 	ws, _, err := websocket.Dial(ctx, u, &websocket.DialOptions{HTTPHeader: h})
 	if err != nil {
-		slog.Warn("tunnel data connection to server failed", "worker_id", cl.workerID,
-			"tunnel_id", t.TunnelID, "err", err)
+		slog.Error("tunnel.error", "event", "tunnel.error", "component", "worker", "worker_id", cl.workerID,
+			"tunnel_id", t.TunnelID, "error", err)
 		return
 	}
 	defer ws.Close(websocket.StatusNormalClosure, "")
@@ -111,7 +113,7 @@ func (cl *Client) handleTunnelOpen(ctx context.Context, sessionURL string, t wsp
 	if code != "" {
 		return
 	}
-	slog.Info("tunnel opened", "worker_id", cl.workerID, "tunnel_id", t.TunnelID, "target", t.Target)
+	slog.Info("tunnel.opened", "event", "tunnel.opened", "component", "worker", "worker_id", cl.workerID, "tunnel_id", t.TunnelID, "network", network, "target", t.Target, "dial_ms", time.Since(dialStarted).Milliseconds())
 	started := time.Now()
 	var fromDevice, toDevice int64
 	var e error
@@ -120,9 +122,15 @@ func (cl *Client) handleTunnelOpen(ctx context.Context, sessionURL string, t wsp
 	} else {
 		fromDevice, toDevice, e = tunnel.Bridge(ctx, ws, nc)
 	}
-	slog.Info("tunnel closed", "worker_id", cl.workerID, "tunnel_id", t.TunnelID, "target", t.Target,
-		"bytes_from_device", fromDevice, "bytes_to_device", toDevice,
-		"duration_ms", time.Since(started).Milliseconds(), "error", e)
+	if toDevice > 0 {
+		slog.Info("tunnel.first_up", "event", "tunnel.first_up", "component", "worker", "worker_id", cl.workerID, "tunnel_id", t.TunnelID)
+	}
+	if fromDevice > 0 {
+		slog.Info("tunnel.first_down", "event", "tunnel.first_down", "component", "worker", "worker_id", cl.workerID, "tunnel_id", t.TunnelID)
+	}
+	slog.Info("tunnel.closed", "event", "tunnel.closed", "component", "worker", "worker_id", cl.workerID, "tunnel_id", t.TunnelID, "network", network, "target", t.Target,
+		"bytes_down", fromDevice, "bytes_up", toDevice,
+		"duration_ms", time.Since(started).Milliseconds(), "close_reason", "bridge_complete", "error", e)
 }
 func deriveConnectURL(raw, path string) (string, error) {
 	u, e := url.Parse(raw)

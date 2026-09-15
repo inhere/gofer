@@ -15,6 +15,7 @@ import (
 type SpliceOptions struct {
 	PingInterval, PingTimeout time.Duration
 	OnProgress                func(up, down int64)
+	OnFirstUp, OnFirstDown    func()
 }
 
 // SpliceResult reports forwarded byte counts and teardown reason.
@@ -40,6 +41,7 @@ func Splice(ctx context.Context, client, worker *websocket.Conn, opt SpliceOptio
 	}
 	ch := make(chan r, 2)
 	var up, down int64
+	var firstUp, firstDown sync.Once
 	// progMu serialises "add bytes + OnProgress" across the two directions so the
 	// callback always observes monotonically non-decreasing totals (the registry's
 	// update stores them as-is, so an out-of-order call would briefly regress them).
@@ -62,8 +64,18 @@ func Splice(ctx context.Context, client, worker *websocket.Conn, opt SpliceOptio
 					progMu.Lock()
 					if src == client {
 						atomic.AddInt64(&up, int64(len(buf)))
+						firstUp.Do(func() {
+							if opt.OnFirstUp != nil {
+								opt.OnFirstUp()
+							}
+						})
 					} else {
 						atomic.AddInt64(&down, int64(len(buf)))
+						firstDown.Do(func() {
+							if opt.OnFirstDown != nil {
+								opt.OnFirstDown()
+							}
+						})
 					}
 					if opt.OnProgress != nil {
 						opt.OnProgress(atomic.LoadInt64(&up), atomic.LoadInt64(&down))
