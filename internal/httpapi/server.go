@@ -357,6 +357,7 @@ func buildCallers(serverCfg *config.ServerConfig, token string) []callerEntry {
 // clean way to keep /health open — plan §7).
 func (s *Server) buildRouter() *rux.Router {
 	r := rux.New()
+	r.Use(s.httpErrorMiddleware)
 
 	r.GET("/health", s.handleHealth)
 
