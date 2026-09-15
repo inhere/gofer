@@ -11,7 +11,7 @@ import (
 // reexecDetached starts a copy of the current binary fully detached from the
 // controlling terminal: a new session (Setsid) so it survives the parent's exit
 // and is not in the parent's process group, with stdin closed and stdout/stderr
-// redirected to the log file. The EnvSentinel guard makes the child skip its own
+// redirected to the sidecar output file. The EnvSentinel guard makes the child skip its own
 // daemonization. The parent does NOT Wait — the child keeps running after Spawn
 // returns and the parent exits.
 func reexecDetached(logPath string) (*exec.Cmd, error) {

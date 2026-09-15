@@ -19,6 +19,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/daemon"
+	"github.com/inhere/gofer/internal/logx"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/worker"
 	"github.com/inhere/gofer/internal/wsproto"
@@ -58,6 +59,7 @@ var workerReloadOpts = struct {
 // <config-dir>/run/worker-<id>.{pid,log}.
 func workerPIDFile(id string) string { return config.RuntimeFilePath("run", "worker-"+id+".pid") }
 func workerLogFile(id string) string { return config.RuntimeFilePath("run", "worker-"+id+".log") }
+func workerOutFile(id string) string { return config.RuntimeFilePath("run", "worker-"+id+".out.log") }
 
 // NewWorkerCmd builds the `worker` command: load worker.yaml, build the local
 // job service (the worker runs jobs locally with its OWN config), dial the hub,
@@ -283,7 +285,7 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 		pid, err := daemon.Spawn(daemon.Options{
 			Name:    "worker-" + wc.WorkerID,
 			PIDPath: workerPIDFile(wc.WorkerID),
-			LogPath: workerLogFile(wc.WorkerID),
+			LogPath: workerOutFile(wc.WorkerID),
 		})
 		if err != nil {
 			return errorx.Failf(workerExitErr, "%v", err)
@@ -293,6 +295,16 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 	}
 	if daemon.Daemonized() {
 		defer daemon.RemovePIDFile(workerPIDFile(wc.WorkerID))
+	}
+	logPath := wc.Log.File
+	if logPath == "" {
+		logPath = workerLogFile(wc.WorkerID)
+	}
+	if wc.Log.Dir != "" && wc.Log.File == "" {
+		logPath = filepath.Join(wc.Log.Dir, "worker-"+wc.WorkerID+".log")
+	}
+	if err := logx.ConfigureFile(logx.FileOptions{Path: logPath, MaxSizeMB: wc.Log.MaxSizeMB, MaxAgeDays: wc.Log.MaxAgeDays, MaxBackups: wc.Log.MaxBackups, Explicit: wc.Log.File != "" || wc.Log.Dir != "", Component: "worker"}); err != nil {
+		return errorx.Failf(workerExitErr, "%v", err)
 	}
 
 	// Build the worker's LOCAL core (projects/agents/local runner/job.Service)
@@ -633,6 +645,15 @@ func loadWorkerConfig(path string) (*config.WorkerConfig, error) {
 	var wc config.WorkerConfig
 	if err := yaml.Unmarshal(data, &wc); err != nil {
 		return nil, fmt.Errorf("decode worker config %s: %w", path, err)
+	}
+	if wc.Log.MaxSizeMB <= 0 {
+		wc.Log.MaxSizeMB = 50
+	}
+	if wc.Log.MaxAgeDays <= 0 {
+		wc.Log.MaxAgeDays = 14
+	}
+	if wc.Log.MaxBackups <= 0 {
+		wc.Log.MaxBackups = 10
 	}
 	if err := config.ValidateWorkerTunnel(wc); err != nil {
 		return nil, fmt.Errorf("validate worker config %s: %w", path, err)

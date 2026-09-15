@@ -3,10 +3,12 @@ package commands
 import (
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/goutil/errorx"
+	"path/filepath"
 
 	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/daemon"
+	"github.com/inhere/gofer/internal/logx"
 	"github.com/inhere/gofer/internal/serve"
 )
 
@@ -25,6 +27,7 @@ var serveOpts = struct {
 // <config-dir>/run/serve.{pid,log}.
 func servePIDFile() string { return config.RuntimeFilePath("run", "serve.pid") }
 func serveLogFile() string { return config.RuntimeFilePath("run", "serve.log") }
+func serveOutFile() string { return config.RuntimeFilePath("run", "serve.out.log") }
 
 // NewServeCmd builds the `serve` command: load config, wire the job service and
 // the httpapi server, then start the HTTP control plane (plan §9-P5).
@@ -78,7 +81,7 @@ func runServe(c *gcli.Command, _ []string, info buildinfo.Info) error {
 	// and runs the real server below (c44). A second start is refused when a live
 	// pidfile exists.
 	if serveOpts.daemon && !daemon.Daemonized() {
-		pid, err := daemon.Spawn(daemon.Options{Name: "serve", PIDPath: servePIDFile(), LogPath: serveLogFile()})
+		pid, err := daemon.Spawn(daemon.Options{Name: "serve", PIDPath: servePIDFile(), LogPath: serveOutFile()})
 		if err != nil {
 			return errorx.Failf(serve.ExitErr, "%v", err)
 		}
@@ -93,6 +96,16 @@ func runServe(c *gcli.Command, _ []string, info buildinfo.Info) error {
 
 	cfg, cfgPath, err := config.Load(config.InputCfgFile)
 	if err != nil {
+		return errorx.Failf(serve.ExitErr, "%v", err)
+	}
+	logPath := cfg.Log.File
+	if logPath == "" {
+		logPath = serveLogFile()
+	}
+	if cfg.Log.Dir != "" && cfg.Log.File == "" {
+		logPath = filepath.Join(cfg.Log.Dir, "serve.log")
+	}
+	if err := logx.ConfigureFile(logx.FileOptions{Path: logPath, MaxSizeMB: cfg.Log.MaxSizeMB, MaxAgeDays: cfg.Log.MaxAgeDays, MaxBackups: cfg.Log.MaxBackups, Explicit: cfg.Log.File != "" || cfg.Log.Dir != "", Component: "serve"}); err != nil {
 		return errorx.Failf(serve.ExitErr, "%v", err)
 	}
 

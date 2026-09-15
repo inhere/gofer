@@ -31,7 +31,7 @@ var ErrAlreadyRunning = errors.New("already running")
 type Options struct {
 	Name    string // diagnostic label, e.g. "serve" / "worker-<id>"
 	PIDPath string // pidfile absolute path
-	LogPath string // child stdout/stderr redirect target
+	LogPath string // child stdout/stderr sidecar output target (for example *.out.log)
 }
 
 // Daemonized reports whether the current process is the detached child (the
