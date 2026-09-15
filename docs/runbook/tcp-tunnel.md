@@ -37,6 +37,8 @@ t-3967153a246e default w-plc 192.168.1.10:502 127.0.0.1:59948 2s 32 32
 
 `tunnel forward` 支持 `--log-file <path>` 或 `--log-dir <dir>`（二选一）；目录模式生成唯一的 `forward-<YYYYmmdd-HHMMSS>-<pid>.log`。未指定时写入 `<config-dir>/run/tunnels/`。`--quiet` 仅关闭终端输出，文件日志仍保留；显式路径失败会使命令报错，默认路径失败则警告后降级为 stderr。
 
+日志为 JSONL，可用同一 `tunnel_id` 关联 server、worker、forwarder：`rg '"tunnel_id":"t-..."' <config-dir>/run/tunnels/*.log`。
+
 错误码：400 参数或网络不支持；401 凭证无效；403 无权限或目标未放行；404 worker 不在线；409 worker 协议过旧（需升级到支持协议 v5 的版本）；429 超出连接上限；502 worker 拨号失败；504 等待 worker 回连超时。
 
 ## 验证与排障
