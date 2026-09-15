@@ -37,6 +37,9 @@ func TestWorkerExampleYAMLParses(t *testing.T) {
 	if wc.MaxConcurrent != 4 {
 		t.Errorf("max_concurrent = %d", wc.MaxConcurrent)
 	}
+	if wc.Log.MaxSizeMB != 50 || wc.Log.MaxAgeDays != 14 || wc.Log.MaxBackups != 10 {
+		t.Errorf("log defaults = %+v", wc.Log)
+	}
 	// The shipped example is the recommended POLICY shape: `projects:` is commented
 	// out (deprecated), and `roots:` + `guards:` are active. A typo in any of those
 	// yaml tags surfaces as a mismatch here.
@@ -70,6 +73,10 @@ func TestExampleYAMLParses(t *testing.T) {
 	cfg := &Config{}
 	if err := yaml.Unmarshal([]byte(configtmpl.ExampleYAML), cfg); err != nil {
 		t.Fatalf("decode example: %v", err)
+	}
+	ApplyDefaults(cfg)
+	if cfg.Log.MaxSizeMB != 50 || cfg.Log.MaxAgeDays != 14 || cfg.Log.MaxBackups != 10 {
+		t.Fatalf("log defaults = %+v", cfg.Log)
 	}
 	ApplyDefaults(cfg)
 	if err := validate(cfg); err != nil {

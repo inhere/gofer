@@ -22,6 +22,7 @@ const (
 // keys present in the source file are preserved on write (see writer.go).
 type Config struct {
 	Server   ServerConfig             `yaml:"server,omitempty"`
+	Log      LogConfig                `yaml:"log,omitempty"`
 	Storage  StorageConfig            `yaml:"storage,omitempty"`
 	Projects map[string]ProjectConfig `yaml:"projects,omitempty"`
 	Agents   map[string]AgentConfig   `yaml:"agents,omitempty"`
@@ -61,6 +62,15 @@ type Config struct {
 	// snapshot pointer, and read-only afterwards — so it adds no concurrent write to
 	// the shared-snapshot invariant.
 	injectedAgents map[string]bool
+}
+
+// LogConfig controls the optional rotating JSONL sink.
+type LogConfig struct {
+	File       string `yaml:"file,omitempty"`
+	Dir        string `yaml:"dir,omitempty"`
+	MaxSizeMB  int    `yaml:"max_size_mb,omitempty"`
+	MaxAgeDays int    `yaml:"max_age_days,omitempty"`
+	MaxBackups int    `yaml:"max_backups,omitempty"`
 }
 
 // MarkInjectedAgents records which Agents keys were materialized at runtime from a
@@ -793,6 +803,7 @@ type WorkerConfig struct {
 	MaxConcurrent int                      `yaml:"max_concurrent,omitempty"`
 	Labels        []string                 `yaml:"labels,omitempty"`
 	Storage       StorageConfig            `yaml:"storage,omitempty"`
+	Log           LogConfig                `yaml:"log,omitempty"`
 	// Roots maps server-side logical path prefixes to this machine's host path
 	// prefixes (P3 T2, design §10). Longest boundary-aligned From wins; see
 	// MapRoot. Adding a root deliberately widens what this worker can run, so it

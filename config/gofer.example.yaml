@@ -129,6 +129,15 @@ server:
   #       kind: feishu
   #       events: [session.waiting]
 
+# Logging: server/worker default to JSONL files under <config-dir>/run.
+# file and dir are mutually exclusive; setting either makes failures fatal.
+log:
+  # file: C:/var/log/gofer/serve.log
+  # dir: C:/var/log/gofer
+  max_size_mb: 50
+  max_age_days: 14
+  max_backups: 10
+
 storage:
   # Per-project data exchange subdir (default: tmp).
   default_exchange_subdir: tmp

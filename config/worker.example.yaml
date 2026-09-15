@@ -106,6 +106,15 @@ guards:
 #     command: claude
 #     args: ["-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"]
 
+# log: worker JSONL logs default to <config-dir>/run/worker-<worker_id>.log.
+# file and dir are mutually exclusive; setting either makes failures fatal.
+log:
+  # file: C:/var/log/gofer/worker.log
+  # dir: C:/var/log/gofer
+  max_size_mb: 50
+  max_age_days: 14
+  max_backups: 10
+
 # storage: 本 worker 的结果/日志落盘配置(同服务端 example 的 storage)。
 # db: 无需手设 root —— worker 元数据库默认按 worker_id 落到
 #     <config-dir>/worker/<worker_id>.db，不会与 serve 的 <config-dir>/gofer.db 或其它

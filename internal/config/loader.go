@@ -264,6 +264,15 @@ func ApplyDefaults(cfg *Config) {
 	if cfg.Storage.DefaultResultSubdir == "" {
 		cfg.Storage.DefaultResultSubdir = DefaultResultSubdir
 	}
+	if cfg.Log.MaxSizeMB == 0 {
+		cfg.Log.MaxSizeMB = 50
+	}
+	if cfg.Log.MaxAgeDays == 0 {
+		cfg.Log.MaxAgeDays = 14
+	}
+	if cfg.Log.MaxBackups == 0 {
+		cfg.Log.MaxBackups = 10
+	}
 	if cfg.Projects == nil {
 		cfg.Projects = map[string]ProjectConfig{}
 	}
