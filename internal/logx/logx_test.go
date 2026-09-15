@@ -137,6 +137,27 @@ func TestConfigureFileRotationAndConcurrentWrites(t *testing.T) {
 	closeFileSink()
 }
 
+func TestRotationKeepsUnexpiredBackup(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "run.log")
+	recent := filepath.Join(dir, "run-20990101-000000.log")
+	if err := os.WriteFile(recent, []byte(`{"msg":"recent"}\n`), 0644); err != nil {
+		t.Fatal(err)
+	}
+	Setup()
+	t.Cleanup(closeFileSink)
+	if err := ConfigureFile(FileOptions{Path: path, Explicit: true, Component: "test", MaxSizeMB: 1, MaxAgeDays: 14, MaxBackups: 10}); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < 900; i++ {
+		slog.Info("rotate", "value", strings.Repeat("x", 1500))
+	}
+	closeFileSink()
+	if _, err := os.Stat(recent); err != nil {
+		t.Fatalf("recent backup was removed: %v", err)
+	}
+}
+
 func TestConfigureFileExplicitFailureAndImplicitFallback(t *testing.T) {
 	dir := t.TempDir()
 	blocked := filepath.Join(dir, "blocked")
