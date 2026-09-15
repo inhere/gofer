@@ -25,6 +25,7 @@ type Forwarder struct {
 	Spec           ForwardSpec
 	Dial           func(context.Context) (*websocket.Conn, error)
 	Log            func(string, ...any)
+	OnEvent        func(string, ...any)
 	active         sync.WaitGroup
 	ActualAddr     string
 	Ready          chan error
@@ -32,8 +33,15 @@ type Forwarder struct {
 	UDPMaxSessions int
 }
 
+func (f *Forwarder) emit(event string, attrs ...any) {
+	if f.OnEvent != nil {
+		f.OnEvent(event, attrs...)
+	}
+}
+
 // Run starts listening and forwards connections until ctx is cancelled.
 func (f *Forwarder) Run(ctx context.Context) error {
+	f.emit("forward.started", "local", f.Spec.ListenAddr(), "target", f.Spec.Target, "network", f.Spec.Network)
 	if f.Spec.Network == "udp" {
 		return f.runUDP(ctx)
 	}
@@ -105,6 +113,7 @@ func (s *udpSession) counts() (int64, int64) {
 // websocket, the worker dials the device on its own network, and the reply comes
 // back down the same websocket to the source that sent it.
 func (f *Forwarder) runUDP(ctx context.Context) error {
+	f.emit("forward.started", "local", f.Spec.ListenAddr(), "target", f.Spec.Target, "network", "udp")
 	pc, err := net.ListenPacket("udp", f.Spec.ListenAddr())
 	if f.Ready != nil {
 		defer close(f.Ready)
@@ -222,6 +231,7 @@ func (f *Forwarder) openUDPSession(ctx context.Context, pc net.PacketConn, src n
 	ws, err := f.Dial(dctx)
 	dcancel()
 	if err != nil {
+		f.emit("session.closed", "session_id", key, "close_reason", "dial_failed", "error", err)
 		if f.Log != nil {
 			f.Log("%s dial failed: %v", key, err)
 		} else {
@@ -231,6 +241,8 @@ func (f *Forwarder) openUDPSession(ctx context.Context, pc net.PacketConn, src n
 	}
 	sctx, scancel := context.WithCancel(ctx)
 	s := &udpSession{ws: ws, cancel: scancel, last: time.Now()}
+	f.emit("session.opened", "session_id", key, "local", f.Spec.ListenAddr(), "target", f.Spec.Target)
+	f.emit("tunnel.opened", "session_id", key, "tunnel_id", "", "dial_ms", time.Since(started).Milliseconds())
 	if f.Log != nil {
 		f.Log("%s -> %s connected (%d ms)", key, f.Spec.Target, time.Since(started).Milliseconds())
 	}
@@ -252,6 +264,7 @@ func (f *Forwarder) openUDPSession(ctx context.Context, pc net.PacketConn, src n
 			if _, e := pc.WriteTo(b, src); e != nil {
 				return
 			}
+			f.emit("tunnel.first_down", "session_id", key, "tunnel_id", "", "first_byte_ms", 0)
 			s.mu.Lock()
 			s.down += int64(len(b))
 			s.last = time.Now()
@@ -307,6 +320,7 @@ func (f *Forwarder) handle(ctx context.Context, c net.Conn) {
 	started := time.Now()
 	ws, err := f.Dial(dctx)
 	if err != nil {
+		f.emit("session.closed", "session_id", peer, "close_reason", "dial_failed", "error", err)
 		if f.Log != nil {
 			f.Log("%s dial failed: %v", peer, err)
 		} else {
@@ -314,11 +328,15 @@ func (f *Forwarder) handle(ctx context.Context, c net.Conn) {
 		}
 		return
 	}
+	f.emit("session.opened", "session_id", peer, "local", f.Spec.ListenAddr(), "target", f.Spec.Target)
+	f.emit("tunnel.opened", "session_id", peer, "tunnel_id", "", "dial_ms", time.Since(started).Milliseconds())
 	if f.Log != nil {
 		f.Log("%s -> %s connected (%d ms)", peer, f.Spec.Target, time.Since(started).Milliseconds())
 	}
 	defer ws.Close(websocket.StatusNormalClosure, "")
-	up, down, err := Bridge(ctx, ws, c)
+	res := BridgeWithOptions(ctx, ws, c, BridgeOptions{OnFirstUp: func() { f.emit("tunnel.first_up", "session_id", peer, "tunnel_id", "", "first_byte_ms", 0) }, OnFirstDown: func() { f.emit("tunnel.first_down", "session_id", peer, "tunnel_id", "", "first_byte_ms", 0) }})
+	up, down, err := res.ToWS, res.FromWS, res.Err
+	f.emit("session.closed", "session_id", peer, "tunnel_id", "", "close_reason", res.Reason, "bytes_up", up, "bytes_down", down, "duration_ms", time.Since(started).Milliseconds(), "error", err)
 	if f.Log != nil {
 		msg := "%s closed: up=%d down=%d after %s"
 		args := []any{peer, up, down, time.Since(started).Round(time.Millisecond)}

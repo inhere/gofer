@@ -181,18 +181,13 @@ func runTunnelForward(c *gcli.Command, args []string) error {
 			return e
 		}
 		f := &tunnel.Forwarder{Spec: sp, Ready: make(chan error, 1), Dial: func(x context.Context) (*websocket.Conn, error) {
-			return cli.DialTunnel(x, worker, sp.Target, sp.Network)
+			tc, err := cli.DialTunnel(x, worker, sp.Target, sp.Network)
+			return tc.Conn, err
 		}}
-		if !tunnelOpts.quiet {
-			// One line per local connection (up, and closed with byte counts).
-			// --quiet leaves Log nil, which still logs dial failures via slog.
-			f.Log = func(format string, args ...any) {
-				slog.Info(fmt.Sprintf(format, args...), "event", "tunnel.lifecycle", "worker", worker, "target", sp.Target, "network", sp.Network)
-			}
-		}
-		if tunnelOpts.quiet {
-			f.Log = func(format string, args ...any) {
-				slog.Info(fmt.Sprintf(format, args...), "event", "tunnel.lifecycle", "worker", worker, "target", sp.Target, "network", sp.Network)
+		f.OnEvent = func(event string, attrs ...any) {
+			a := append([]any{"event", event, "component", "forward", "worker", worker}, attrs...)
+			if !tunnelOpts.quiet {
+				slog.Info(event, a...)
 			}
 		}
 		go func() { errCh <- f.Run(ctx) }()
@@ -200,15 +195,8 @@ func runTunnelForward(c *gcli.Command, args []string) error {
 			return e
 		}
 		if !tunnelOpts.quiet {
-			// Mark udp: the two listeners behave differently enough (per-source
-			// sessions, idle reaping) that the startup line should say which one ran.
-			label := ""
-			if sp.Network == "udp" {
-				label = "UDP "
-			}
-			fmt.Printf("forwarding %s%s -> %s:%s\n", label, f.ActualAddr, worker, sp.Target)
+			slog.Info("forward.started", "event", "forward.started", "component", "forward", "local", f.ActualAddr, "target", sp.Target, "worker", worker, "network", sp.Network)
 		}
-		slog.Info("forward started", "event", "forward.started", "local", f.ActualAddr, "target", sp.Target, "worker", worker, "network", sp.Network)
 	}
 	for {
 		select {
@@ -253,7 +241,8 @@ func runTunnelCheck(c *gcli.Command, _ []string) error {
 	}
 	for _, tg := range targets {
 		st := time.Now()
-		ws, e := cli.DialTunnel(context.Background(), worker, tg.addr, tg.network)
+		tc, e := cli.DialTunnel(context.Background(), worker, tg.addr, tg.network)
+		ws := tc.Conn
 		if e != nil {
 			return e
 		}
