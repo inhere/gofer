@@ -126,10 +126,10 @@ func BridgeWithOptions(ctx context.Context, ws *websocket.Conn, c net.Conn, opt 
 const (
 	ReasonClientClosed = "client_closed"
 	ReasonWorkerClosed = "worker_closed"
-	ReasonIdleTimeout = "idle_timeout"
-	ReasonContextDone = "ctx_done"
-	ReasonError = "error"
-	ReasonPingTimeout = "ping_timeout"
+	ReasonIdleTimeout  = "idle_timeout"
+	ReasonContextDone  = "ctx_done"
+	ReasonError        = "error"
+	ReasonPingTimeout  = "ping_timeout"
 )
 
 func closeReason(ctx context.Context, err error, workerSide bool) (string, error) {
@@ -145,6 +145,8 @@ func closeReason(ctx context.Context, err error, workerSide bool) (string, error
 		status != websocket.StatusNormalClosure && status != websocket.StatusGoingAway {
 		return ReasonError, err
 	}
-	if workerSide { return ReasonWorkerClosed, nil }
+	if workerSide {
+		return ReasonWorkerClosed, nil
+	}
 	return ReasonClientClosed, nil
 }
