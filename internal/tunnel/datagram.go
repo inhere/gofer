@@ -17,10 +17,17 @@ import (
 // exactly like a dead tunnel. Replies are therefore accepted from any port of the
 // target's IP; anything from another host is ignored so an unrelated sender on the
 // device network cannot inject traffic into someone's tunnel.
-func DatagramBridge(ctx context.Context, ws *websocket.Conn, pc net.PacketConn, target net.Addr) (toWS, fromWS int64, err error) {
+func DatagramBridge(ctx context.Context, ws *websocket.Conn, pc net.PacketConn, target net.Addr) (int64, int64, error) {
+	r := DatagramBridgeWithOptions(ctx, ws, pc, target, BridgeOptions{})
+	return r.ToWS, r.FromWS, r.Err
+}
+
+// DatagramBridgeWithOptions adds first-datagram callbacks and teardown cause.
+func DatagramBridgeWithOptions(ctx context.Context, ws *websocket.Conn, pc net.PacketConn, target net.Addr, opt BridgeOptions) BridgeResult {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	var once sync.Once
+	var firstUp, firstDown sync.Once
 	stop := func() { once.Do(func() { pc.Close(); ws.Close(websocket.StatusNormalClosure, "closed") }) }
 	targetIP := addrIP(target)
 	type result struct {
@@ -42,6 +49,11 @@ func DatagramBridge(ctx context.Context, ws *websocket.Conn, pc net.PacketConn, 
 					e = e2
 				} else {
 					n += int64(nr)
+					firstDown.Do(func() {
+						if opt.OnFirstDown != nil {
+							opt.OnFirstDown()
+						}
+					})
 				}
 			}
 			if e != nil {
@@ -69,6 +81,11 @@ func DatagramBridge(ctx context.Context, ws *websocket.Conn, pc net.PacketConn, 
 				_, e = pc.WriteTo(b, target)
 				if e == nil {
 					n += int64(len(b))
+					firstUp.Do(func() {
+						if opt.OnFirstUp != nil {
+							opt.OnFirstUp()
+						}
+					})
 				}
 			} else if e == nil {
 				e = io.ErrShortBuffer
@@ -81,6 +98,7 @@ func DatagramBridge(ctx context.Context, ws *websocket.Conn, pc net.PacketConn, 
 		}
 	}()
 	a, b := <-ch, <-ch
+	var toWS, fromWS int64
 	if a.out {
 		toWS = a.n
 		fromWS = b.n
@@ -88,10 +106,8 @@ func DatagramBridge(ctx context.Context, ws *websocket.Conn, pc net.PacketConn, 
 		fromWS = a.n
 		toWS = b.n
 	}
-	if a.err == nil || a.err == io.EOF || a.err == net.ErrClosed || websocket.CloseStatus(a.err) == websocket.StatusNormalClosure {
-		return toWS, fromWS, nil
-	}
-	return toWS, fromWS, a.err
+	reason, err := closeReason(ctx, a.err, a.out)
+	return BridgeResult{ToWS: toWS, FromWS: fromWS, Reason: reason, Err: err}
 }
 
 // addrIP extracts the IP of a UDP address, or nil when it cannot be determined

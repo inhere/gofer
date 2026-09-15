@@ -113,24 +113,27 @@ func (cl *Client) handleTunnelOpen(ctx context.Context, sessionURL string, t wsp
 	if code != "" {
 		return
 	}
-	slog.Info("tunnel.opened", "event", "tunnel.opened", "component", "worker", "worker_id", cl.workerID, "tunnel_id", t.TunnelID, "network", network, "target", t.Target, "dial_ms", time.Since(dialStarted).Milliseconds())
 	started := time.Now()
+	slog.Info("tunnel.opened", "event", "tunnel.opened", "component", "worker", "worker_id", cl.workerID, "tunnel_id", t.TunnelID, "network", network, "target", t.Target, "dial_ms", time.Since(dialStarted).Milliseconds())
 	var fromDevice, toDevice int64
+	var reason string
 	var e error
+	firstUp := func() {
+		slog.Info("tunnel.first_up", "event", "tunnel.first_up", "component", "worker", "worker_id", cl.workerID, "tunnel_id", t.TunnelID, "network", network, "target", t.Target, "first_byte_ms", time.Since(started).Milliseconds())
+	}
+	firstDown := func() {
+		slog.Info("tunnel.first_down", "event", "tunnel.first_down", "component", "worker", "worker_id", cl.workerID, "tunnel_id", t.TunnelID, "network", network, "target", t.Target, "first_byte_ms", time.Since(started).Milliseconds())
+	}
 	if network == "udp" {
-		fromDevice, toDevice, e = tunnel.DatagramBridge(ctx, ws, pc, udpTarget)
+		r := tunnel.DatagramBridgeWithOptions(ctx, ws, pc, udpTarget, tunnel.BridgeOptions{OnFirstUp: firstUp, OnFirstDown: firstDown})
+		fromDevice, toDevice, reason, e = r.ToWS, r.FromWS, r.Reason, r.Err
 	} else {
-		fromDevice, toDevice, e = tunnel.Bridge(ctx, ws, nc)
-	}
-	if toDevice > 0 {
-		slog.Info("tunnel.first_up", "event", "tunnel.first_up", "component", "worker", "worker_id", cl.workerID, "tunnel_id", t.TunnelID)
-	}
-	if fromDevice > 0 {
-		slog.Info("tunnel.first_down", "event", "tunnel.first_down", "component", "worker", "worker_id", cl.workerID, "tunnel_id", t.TunnelID)
+		r := tunnel.BridgeWithOptions(ctx, ws, nc, tunnel.BridgeOptions{OnFirstUp: firstUp, OnFirstDown: firstDown})
+		fromDevice, toDevice, reason, e = r.ToWS, r.FromWS, r.Reason, r.Err
 	}
 	slog.Info("tunnel.closed", "event", "tunnel.closed", "component", "worker", "worker_id", cl.workerID, "tunnel_id", t.TunnelID, "network", network, "target", t.Target,
 		"bytes_down", fromDevice, "bytes_up", toDevice,
-		"duration_ms", time.Since(started).Milliseconds(), "close_reason", "bridge_complete", "error", e)
+		"duration_ms", time.Since(started).Milliseconds(), "close_reason", reason, "error", e)
 }
 func deriveConnectURL(raw, path string) (string, error) {
 	u, e := url.Parse(raw)

@@ -3,7 +3,6 @@ package tunnel
 import (
 	"context"
 	"io"
-	"net"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -101,17 +100,10 @@ func Splice(ctx context.Context, client, worker *websocket.Conn, opt SpliceOptio
 	for {
 		select {
 		case x := <-ch:
+			reason, err := closeReason(ctx, x.err, !x.up)
 			closeBoth()
 			y := <-ch
 			_ = y
-			reason := "client_closed"
-			if !x.up {
-				reason = "worker_closed"
-			}
-			var err error
-			if x.err != nil && x.err != io.EOF && x.err != net.ErrClosed && websocket.CloseStatus(x.err) != websocket.StatusNormalClosure {
-				err = x.err
-			}
 			return SpliceResult{Up: atomic.LoadInt64(&up), Down: atomic.LoadInt64(&down), Reason: reason, Err: err}
 		case <-tick.C:
 			pc := context.Background()
@@ -123,13 +115,13 @@ func Splice(ctx context.Context, client, worker *websocket.Conn, opt SpliceOptio
 				closeBoth()
 				<-ch
 				<-ch
-				return SpliceResult{Up: atomic.LoadInt64(&up), Down: atomic.LoadInt64(&down), Reason: "ping_timeout"}
+				return SpliceResult{Up: atomic.LoadInt64(&up), Down: atomic.LoadInt64(&down), Reason: ReasonPingTimeout}
 			}
 		case <-ctx.Done():
 			closeBoth()
 			<-ch
 			<-ch
-			return SpliceResult{Up: atomic.LoadInt64(&up), Down: atomic.LoadInt64(&down), Reason: "ctx_done"}
+			return SpliceResult{Up: atomic.LoadInt64(&up), Down: atomic.LoadInt64(&down), Reason: ReasonContextDone}
 		}
 	}
 }

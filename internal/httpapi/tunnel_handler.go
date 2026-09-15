@@ -5,7 +5,6 @@ import (
 	"errors"
 	"log/slog"
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -111,18 +110,12 @@ func (s *Server) tunnelConnect(w http.ResponseWriter, r *http.Request) {
 	started := time.Now()
 	slog.Info("tunnel.worker_connected", "event", "tunnel.worker_connected", "component", "server", "tunnel_id", tunnelID, "worker_id", worker, "rendezvous_ms", time.Since(rendezvousStart).Milliseconds())
 	slog.Info("tunnel.opened", "event", "tunnel.opened", "component", "server", "tunnel_id", tunnelID, "network", network, "caller", ce.id, "worker_id", worker, "target", target, "client_remote", r.RemoteAddr)
-	firstUp := sync.Once{}
-	firstDown := sync.Once{}
 	res := tunnel.Splice(r.Context(), conn, a.Conn, tunnel.SpliceOptions{OnProgress: upd,
 		OnFirstUp: func() {
-			firstUp.Do(func() {
-				slog.Info("tunnel.first_up", "event", "tunnel.first_up", "component", "server", "tunnel_id", tunnelID)
-			})
+			slog.Info("tunnel.first_up", "event", "tunnel.first_up", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "first_byte_ms", time.Since(started).Milliseconds())
 		},
 		OnFirstDown: func() {
-			firstDown.Do(func() {
-				slog.Info("tunnel.first_down", "event", "tunnel.first_down", "component", "server", "tunnel_id", tunnelID)
-			})
+			slog.Info("tunnel.first_down", "event", "tunnel.first_down", "component", "server", "tunnel_id", tunnelID, "network", network, "target", target, "first_byte_ms", time.Since(started).Milliseconds())
 		},
 	})
 	slog.Info("tunnel.closed", "event", "tunnel.closed", "component", "server", "tunnel_id", tunnelID, "caller", ce.id, "worker_id", worker, "target", target, "client_remote", r.RemoteAddr, "bytes_up", res.Up, "bytes_down", res.Down, "close_reason", res.Reason, "duration_ms", time.Since(started).Milliseconds(), "error", res.Err)
