@@ -56,7 +56,9 @@ func Serve(cl *Client, wc *config.WorkerConfig) error {
 		}
 	}()
 
-	slog.Info("worker starting", "worker_id", wc.WorkerID, "urls", wc.ServerLink.URLs,
+	slog.Info("worker.starting", "event", "worker.starting", "component", "worker", "worker_id", wc.WorkerID, "urls", wc.ServerLink.URLs,
 		"labels", wc.Labels, "max_concurrent", wc.MaxConcurrent)
-	return cl.Run(ctx)
+	err := cl.Run(ctx)
+	slog.Info("worker.shutdown", "event", "worker.shutdown", "component", "worker", "worker_id", wc.WorkerID)
+	return err
 }

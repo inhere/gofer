@@ -356,7 +356,7 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 	if old := h.reg.Put(wc); old != nil {
 		old.gracefulClose("replaced by new registration")
 	}
-	slog.Info("hub accepted worker", "worker_id", reg.WorkerID, "remote", req.RemoteAddr,
+	slog.Info("worker.registered", "event", "worker.registered", "component", "server", "worker_id", reg.WorkerID, "remote", req.RemoteAddr,
 		"hostname", reg.Hostname, "labels", reg.Labels, "max_concurrent", reg.MaxConcurrent,
 		"proto", reg.ProtocolVersion, "os", reg.OS, "arch", reg.Arch,
 		"gofer_version", reg.GoferVersion, "agent_caps", len(reg.AgentCaps))
@@ -375,7 +375,7 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 	h.startHeartbeat(ctx, wc)
 	h.readLoop(ctx, wc)
 	h.onDisconnect(wc)
-	slog.Info("hub worker disconnected", "worker_id", reg.WorkerID)
+	slog.Info("worker.disconnected", "event", "worker.disconnected", "component", "server", "worker_id", reg.WorkerID, "reason", "connection_closed")
 }
 
 // startHeartbeat launches the per-connection ping sender (P3, review #7). It

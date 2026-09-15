@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"time"
@@ -25,6 +26,8 @@ import (
 // D-P2-7). An interactive dispatch derives its pty-connect URL from it (T5); the
 // non-interactive path never reads it.
 func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wsproto.Dispatch) {
+	startedAt := time.Now()
+	slog.Info("worker.job_started", "event", "worker.job_started", "component", "worker", "worker_id", cl.workerID, "job_id", d.JobID)
 	// stale pendingCancel cleanup (D-P2-9): whichever return path this dispatch
 	// takes, ensure d.JobID does not linger in pendingCancel. The normal consume is
 	// the inline take after putJobMapping below; this defer backstops the paths that
@@ -36,6 +39,7 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 	// never be attached (the serve pty-connect endpoint strong-checks nonce +
 	// pty_session_id). Do not start a bare, un-attachable pty — report failed.
 	if d.Interactive && (d.RelayNonce == "" || d.PtySessionID == "") {
+		slog.Warn("worker.job_rejected", "event", "worker.job_rejected", "component", "worker", "worker_id", cl.workerID, "job_id", d.JobID, "reason", "interactive dispatch missing relay credentials")
 		_ = cl.writeFrame(ctx, wsproto.TypeResult, d.JobID, wsproto.Result{
 			JobID: d.JobID, Status: job.StatusFailed, ExitCode: -1,
 			Error: "interactive dispatch missing relay credentials",
@@ -62,6 +66,7 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		ResumeSourceAgent: d.ResumeSourceAgent,
 	})
 	if err != nil {
+		slog.Warn("worker.job_rejected", "event", "worker.job_rejected", "component", "worker", "worker_id", cl.workerID, "job_id", d.JobID, "reason", err.Error())
 		_ = cl.writeFrame(ctx, wsproto.TypeResult, d.JobID, wsproto.Result{
 			JobID: d.JobID, Status: job.StatusFailed, ExitCode: -1, Error: err.Error(),
 		})
@@ -118,6 +123,7 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 
 	final, ok := cl.jobs.Wait(localID)
 	if !ok {
+		slog.Info("worker.job_finished", "event", "worker.job_finished", "component", "worker", "worker_id", cl.workerID, "job_id", d.JobID, "status", job.StatusFailed, "exit_code", -1, "duration_ms", time.Since(startedAt).Milliseconds())
 		if pumpDone != nil {
 			<-pumpDone
 		}
@@ -148,6 +154,7 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		ExitCode: final.ExitCode,
 		Error:    final.Error,
 	})
+	slog.Info("worker.job_finished", "event", "worker.job_finished", "component", "worker", "worker_id", cl.workerID, "job_id", d.JobID, "status", final.Status, "exit_code", final.ExitCode, "duration_ms", time.Since(startedAt).Milliseconds())
 }
 
 // outcomeFrame builds the P4 Outcome frame from the worker's local terminal

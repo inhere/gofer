@@ -9,6 +9,7 @@ package serve
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"os"
 	"os/signal"
 	"syscall"
@@ -60,6 +61,7 @@ type Opts struct {
 // (zero behaviour change). cfg is the already-loaded config (the caller passes
 // the discovered path via opts.CfgPath).
 func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
+	slog.Info("server.starting", "event", "server.starting", "component", "server")
 	// Surface which config file serve actually loaded (or that it is running on
 	// defaults + discovery), so an operator can tell at a glance whether the
 	// expected config was picked up (P2/T2.1).
@@ -68,6 +70,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	} else {
 		c.Printf("gofer: config: %s\n", opts.CfgPath)
 	}
+	slog.Info("server.config_loaded", "event", "server.config_loaded", "component", "server", "path", opts.CfgPath)
 
 	addr, allowEmpty := mergeServeOpts(cfg, opts)
 
@@ -255,6 +258,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	} else {
 		c.Printf("gofer: starting on %s (token auth enabled)\n", addr)
 	}
+	slog.Info("server.ready", "event", "server.ready", "component", "server", "addr", addr)
 	// SIGINT/SIGTERM trigger a graceful shutdown: the http.Server stops accepting
 	// new connections and drains in-flight ones, RunCtx returns nil, then every
 	// deferred cleanup above (store close, stop-channel closes for the sweeper /
@@ -266,8 +270,10 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// RunCtx blocks until the server stops (signal-driven shutdown or bind
 	// failure). The token is never printed (plan §11).
 	if err := srv.RunCtx(ctx, addr); err != nil {
+		slog.Error("server.http_error", "event", "server.http_error", "component", "server", "error", err)
 		return errorx.Failf(ExitErr, "%v", err)
 	}
+	slog.Info("server.shutdown", "event", "server.shutdown", "component", "server")
 	return nil
 }
 

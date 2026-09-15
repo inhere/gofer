@@ -95,6 +95,7 @@ func (cl *Client) offerPolicy(gen uint64, p wsproto.Policy) {
 	}
 	cl.st.mu.Unlock()
 	if ok {
+		slog.Info("worker.policy_received", "event", "worker.policy_received", "component", "worker", "worker_id", cl.workerID, "rev", p.Rev)
 		cl.wakeExecutor()
 	}
 }
@@ -170,8 +171,8 @@ func (cl *Client) tryApplyPending(ctx context.Context) {
 	cl.applyMu.Unlock()
 
 	if err != nil {
-		slog.Error("worker policy apply failed, keeping old config",
-			"worker_id", cl.workerID, "rev", localPol.Rev, "err", err)
+		slog.Error("worker.policy_received", "event", "worker.policy_received", "component", "worker",
+			"worker_id", cl.workerID, "rev", localPol.Rev, "error", err)
 		cl.wakeExecutor() // a newer offer may have arrived; re-check
 		return
 	}
@@ -193,6 +194,8 @@ func (cl *Client) tryApplyPending(ctx context.Context) {
 		cl.enqueueCacheRetry(&localPol, seq)
 	}
 	caps := out.Caps
+	slog.Info("worker.policy_applied", "event", "worker.policy_applied", "component", "worker",
+		"worker_id", cl.workerID, "project_count", len(caps.Projects), "roots_hit", len(caps.Projects), "rev", localPol.Rev)
 	cl.writeAppliedFrame(ctx, wsproto.Applied{
 		Rev:      localPol.Rev,
 		Caps:     &caps,

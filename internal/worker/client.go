@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"log/slog"
 	mathrand "math/rand"
+	"net"
 	"net/http"
 	"os"
 	"runtime"
@@ -498,8 +499,8 @@ func (cl *Client) Run(ctx context.Context) error {
 			// main signal that a worker is not reaching the hub (bad token/binding,
 			// wrong url, hub down). The err already carries the cause (dial /
 			// register rejection / disconnect).
-			slog.Warn("worker reconnecting to hub",
-				"worker_id", cl.workerID, "retry_in", wait.String(), "err", err)
+			slog.Warn("worker.reconnecting", "event", "worker.reconnecting", "component", "worker",
+				"worker_id", cl.workerID, "attempt", attempt, "backoff_ms", wait.Milliseconds(), "error", err)
 		}
 		select {
 		case <-ctx.Done():
@@ -571,12 +572,12 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 	if !reg.Accepted {
 		// A binding/token mismatch will not self-heal, but the supervisor still
 		// retries (the config may be fixed) — just backed off (§5.2).
-		slog.Warn("worker registration rejected by hub",
-			"worker_id", cl.workerID, "url", url, "reason", reg.Reason)
+		slog.Warn("worker.disconnected", "event", "worker.disconnected", "component", "worker",
+			"worker_id", cl.workerID, "reason", "registration_rejected", "error", reg.Reason)
 		return false, fmt.Errorf("register rejected: %s", reg.Reason)
 	}
 	cl.notify("registered")
-	slog.Info("worker registered with hub",
+	slog.Info("worker.registered", "event", "worker.registered", "component", "worker",
 		"worker_id", cl.workerID, "url", url, "labels", caps.Labels, "max_concurrent", caps.MaxConc)
 
 	// Per-session heartbeat: start the ping sender, stop it when the recv loop ends.
@@ -605,7 +606,11 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 
 	err = cl.recvLoop(ctx, url, gen)
 	cl.notify("disconnected")
-	slog.Info("worker disconnected from hub", "worker_id", cl.workerID, "err", err)
+	reason := "disconnected"
+	if err != nil {
+		reason = err.Error()
+	}
+	slog.Info("worker.disconnected", "event", "worker.disconnected", "component", "worker", "worker_id", cl.workerID, "reason", reason)
 	return true, err
 }
 
@@ -625,6 +630,9 @@ func (cl *Client) recvLoop(ctx context.Context, url string, gen uint64) error {
 		env, err := cl.readEnvelope(rctx)
 		cancel()
 		if err != nil {
+			if ne, ok := err.(net.Error); ok && ne.Timeout() {
+				slog.Warn("worker.heartbeat_missed", "event", "worker.heartbeat_missed", "component", "worker", "worker_id", cl.workerID, "error", err)
+			}
 			return err // disconnect / read-deadline / ctx done
 		}
 		switch env.Type {
