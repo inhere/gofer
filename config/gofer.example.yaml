@@ -132,6 +132,8 @@ server:
 # Logging: server/worker default to JSONL files under <config-dir>/run.
 # file and dir are mutually exclusive; setting either makes failures fatal.
 log:
+  # server/worker 默认开启文件 sink；纯 CLI 子命令默认仅 stderr。
+  # file 与 dir 互斥；显式路径不可写会阻止启动，未配置的默认路径失败则降级 stderr。
   # file: C:/var/log/gofer/serve.log
   # dir: C:/var/log/gofer
   max_size_mb: 50

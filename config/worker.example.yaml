@@ -109,6 +109,8 @@ guards:
 # log: worker JSONL logs default to <config-dir>/run/worker-<worker_id>.log.
 # file and dir are mutually exclusive; setting either makes failures fatal.
 log:
+  # worker 默认写入 <config-dir>/run/worker-<worker_id>.log（JSONL）。
+  # file 与 dir 互斥；显式路径不可写会阻止启动，未配置的默认路径失败则降级 stderr。
   # file: C:/var/log/gofer/worker.log
   # dir: C:/var/log/gofer
   max_size_mb: 50

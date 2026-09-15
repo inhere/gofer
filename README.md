@@ -64,6 +64,10 @@ gofer job run -p workspace -a exec --sync -- go version
 gofer job run -p workspace -a codex --prompt "总结本目录的测试失败用例" --wait
 gofer job logs <id> --stream stdout
 
+# 隧道转发可用 --log-file/--log-dir 指定 JSONL 文件；--quiet 只静默终端输出，
+# 不影响文件与 stderr 日志。
+gofer tunnel forward --log-dir ~/.config/gofer/run/tunnels -w w-plc 1502:192.168.1.10:502
+
 # 5. 浏览器打开 http://<addr>/ ，粘贴 token 接入，看板/详情/实时日志/新建 job
 ```
 

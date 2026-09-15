@@ -171,3 +171,20 @@ workspace baseline：Git root=D:/work/inhere/hyy-ai-inspect/tools/gofer；branch
 全链路 loopback 下 relay + forwarder 的 RTT p50 约 0 ms、p95 约 0.52 ms，最大值约 1.0–2.2 ms；dial/首包通常 0–1 ms。
 池化开关在该样本上 p95 基本无可测差异，最大值仅有调度噪声级波动，未显示稳定收益。
 因此 HMI 下载慢时应先看 `first_down` 与设备侧响应；当前 loopback 证据不足以认定 relay 是主要瓶颈。
+
+## 实施记录
+
+状态：**Done / 已实施，待人工外部验收（真机 HMI）**
+
+| 任务 | 提交 hash | 验证命令 |
+|---|---|---|
+| T02 统一文件日志与轮转 | `a37d67a`、`95b4415`、`6d3bcdf` | `go test ./internal/logx ./internal/config ./internal/daemon` |
+| T03 server/worker 生命周期事件 | `221cb4e`、`125e7cd` | `go test ./internal/httpapi ./internal/worker` |
+| T04 tunnel 生命周期与关联字段 | `6f94b99`、`dc84536`、`e08da3b` | `go test ./internal/httpapi ./internal/worker` |
+| T05 forwarder 持久日志与 quiet | `23f837a`、`c5a1ba9`、`68e777d`、`55694f6`、`c9f9a66` | `go test ./internal/tunnel ./internal/commands` |
+| T06 UDP 优化与测量 | `c2dc04b`、`34745da`、`94b5d9e`、`d58e718` | `go test ./internal/tunnel`（loopback p95 < 1 ms） |
+| T07 文档与验收收口 | 本提交 | `gofmt -l ./internal ./cmd`; `go build ./...`; `go vet ./...`; `go test ./...`; `git diff --check`; 敏感字段/控制字符扫描 |
+
+前序 review 要求的 Windows daemon、`.out.log` 旁路、旧 server 的
+`X-Gofer-Tunnel-Id` 兼容、`GOFER_UDP_BUFFER_POOL=0` 回退、`--quiet` 语义及 T06
+结论已写入 runbook。真实 HMI 下载与部署仍待单独授权。

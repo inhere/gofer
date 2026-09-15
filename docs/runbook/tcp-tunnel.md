@@ -45,6 +45,47 @@ forwarder 事件（`component=forward`，每条都带 `session_id`；UDP 的 ses
 
 ## 验证与排障
 
+## 日志与诊断
+
+日志默认使用 JSON Lines 文件 sink（stderr 保持现有 text 格式）。server 写入
+`<config-dir>/run/serve.log`，worker 写入
+`<config-dir>/run/worker-<worker_id>.log`；`tunnel forward` 写入
+`<config-dir>/run/tunnels/forward-<YYYYmmdd-HHMMSS>-<pid>.log`。Windows
+daemon 不支持后台化，serve/worker 均前台运行，上述文件 sink 是唯一持久日志；Unix
+后台进程的 `.out.log`（如 `serve.out.log`、`worker-<id>.out.log`）仅追加接收 panic
+或非 slog 输出，不轮转。显式 `--log-file`、`--log-dir` 或配置路径打开失败会使启动失败；
+隐式默认路径失败时警告并降级到 stderr。
+
+每行常见字段包括 `time`、`level`、`msg`、`component`、`event`、`operation_id`
+（一次进程运行的 run id）、`tunnel_id`、`session_id`、`worker_id`、`target`、
+`rendezvous_ms`、`first_byte_ms`、`bytes_up`、`bytes_down`、`close_reason`。
+用同一个隧道 ID 可重建三端链路：
+
+```bash
+rg '"tunnel_id":"t-abc123"' ~/.config/gofer/run/serve.log ~/.config/gofer/run/worker-*.log ~/.config/gofer/run/tunnels/*.log
+```
+
+`rendezvous_ms` 或 `dial_ms` 偏大表示 server 等待 worker/拨号阶段慢；有
+`first_up` 但迟迟没有 `first_down`，通常是设备侧无响应。`bytes_up` 持续增加而
+`bytes_down` 为零也指向设备回包路径；两者都为零则连接尚未真正传输。`close_reason`
+结合 `duration_ms` 可区分客户端主动关闭、worker 关闭、UDP idle 回收和拨号失败。
+
+UDP 缓冲池可用环境变量 `GOFER_UDP_BUFFER_POOL` 调整；设为 `0` 可回退到默认分配路径。
+逐报文 trace 默认关闭，显式设置 `GOFER_UDP_TRACE=1` 后才记录方向、长度和耗时，
+不会记录 payload、token、Authorization 或完整查询串。`--quiet` 只关闭终端进度输出，
+不会关闭文件或 stderr 日志。
+
+脱敏样本（每端 2 行）：
+
+```jsonl
+{"component":"server","event":"tunnel.requested","tunnel_id":"t-abc123","worker_id":"w-plc"}
+{"component":"server","event":"tunnel.worker_connected","tunnel_id":"t-abc123","rendezvous_ms":4}
+{"component":"worker","event":"tunnel.opened","tunnel_id":"t-abc123","target":"192.168.1.10:502"}
+{"component":"worker","event":"tunnel.first_down","tunnel_id":"t-abc123","first_byte_ms":12,"bytes_down":64}
+{"component":"forward","event":"tunnel.first_up","tunnel_id":"t-abc123","session_id":"127.0.0.1:59948","first_byte_ms":3}
+{"component":"forward","event":"session.closed","tunnel_id":"t-abc123","bytes_up":32,"bytes_down":64,"close_reason":"client_closed"}
+```
+
 容器隔离冒烟脚本位于 [`scripts/smoke/tunnel/run-smoke.sh`](../../scripts/smoke/tunnel/run-smoke.sh)，说明见同目录 README。脚本覆盖 serve、worker、echo 隔离和 11 项检查。
 
 `tunnel check` 只验证 worker 拨号与授权，不会建立 UDP 监听，也不代表业务协议端到端可用。UDP 转发仅支持固定目标的单播；监听端按来源地址建立会话，空闲 60 秒回收，最多 32 个来源。
