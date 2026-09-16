@@ -192,6 +192,15 @@ export interface ProjectDetail {
   allowed_agents?: string[]
   allowed_runners?: string[]
   allow_exec: boolean
+  // 项目级交互总开关（AGT-02 §2）：false = 交互 job 一律不放行。后端始终下发；旧 yaml 里非空的
+  // interactive_allowed_agents 后端会折算成 true（有效值），故这里读到的就是"能不能跑交互 job"的
+  // 最终答案。⚠️ 控制台从磁盘热更（--web-dir）而二进制另走发布线，运行时仍可能是旧 server 不返回
+  // 该字段 → 消费方须退回旧规则 `(interactive_allowed_agents?.length ?? 0) > 0`，不能当 false。
+  allow_interactive: boolean
+  // 交互 agent 的**可选收窄**（AGT-02 语义修正）：空数组 = 不按 agent 收窄（凡有交互模式的 agent
+  // 都放行，仍受 allowed_agents 限制）；**旧语义「空 = 该项目完全不支持交互」已废弃**，那个判断看
+  // allow_interactive。后端始终下发（可能为 []），非 nil。同样：运行时 undefined = 旧 server 无此字段。
+  interactive_allowed_agents: string[]
   max_concurrent_jobs?: number
 }
 
@@ -360,11 +369,17 @@ export interface ConfigScheduleView {
 export interface ProjectWriteReq {
   key: string
   host_path: string
+  // 以下字段全部可选 = **不发送即保持不变**（PUT 是合并语义，AGT-02 §2）：字段缺失不动，字段存在
+  // （哪怕 false / [] / ""）即覆盖。故控制台保存时必须整体下发整份表单（含空数组）——省略空数组
+  // 会让"取消最后一个勾选"发不出 []，旧值被静默保留（老 bug h-aii-3scy 的另一面）。
   container_path?: string
   default_agent?: string
   allowed_agents?: string[]
   allowed_runners?: string[]
   allow_exec: boolean
+  allow_interactive?: boolean
+  // 空数组 = 不收窄（见 ProjectDetail 同名注释）；要清空收窄就必须显式发 []。
+  interactive_allowed_agents?: string[]
   max_concurrent_jobs?: number
 }
 
@@ -664,14 +679,19 @@ export interface MetaProject {
   key: string
   allowed_agents: string[]
   allowed_runners: string[]
-  // 与 allowed_agents 相互独立的两道闸（后端 job/config.go）：交互 job 的 agent 必须在
-  // interactive_allowed_agents 内（为空=该 project 不支持交互）；exec 型 agent 在 LOCAL
-  // runner 上还需 allow_exec（worker/peer 由执行侧自己把关）。
+  // 交互 job 的放行是「总开关 + 可选收窄」，与 allowed_agents 相互独立（后端 job/config.go）：
+  //  - allow_interactive（AGT-02 §2）：项目级总开关，false = 交互 job 一律不放行。
+  //  - interactive_allowed_agents：**可选收窄**，不再是开关（0.2 语义修正）。空 = 不按 agent 收窄
+  //    （凡有交互模式的都放行）；非空才把交互 agent 限制在列表内。旧语义「空 = 不支持交互」已废弃。
+  //  - allow_exec：exec 型 agent 在 LOCAL runner 上还需它为真（worker/peer 由执行侧自己把关）。
   //
-  // ⚠️ 两者都是 optional：控制台从磁盘热更（--web-dir），二进制另走一条发布线，故新前端
+  // ⚠️ 三者都是 optional：控制台从磁盘热更（--web-dir），二进制另走一条发布线，故新前端
   // 可能跑在旧 server 上。**undefined = 该 server 没有这个字段**（不是"闸为假"）——此时必须
   // 退回不收窄，否则会把 exec 全藏起来 / 交互下拉清空。后端对 allow_exec 去掉了 omitempty，
   // 就是为了让 false 与 undefined 可区分。
+  // allow_interactive 的旧 server 回退 = 旧规则 `(interactive_allowed_agents?.length ?? 0) > 0`
+  // （旧语义里非空列表本身就是"支持交互"的判据，见 NewJob.vue projectAllowsInteractive）。
+  allow_interactive?: boolean
   interactive_allowed_agents?: string[]
   allow_exec?: boolean
   default_agent?: string
