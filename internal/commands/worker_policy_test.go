@@ -160,16 +160,12 @@ func TestProjectPolicyWhitelistVerbatim(t *testing.T) {
 	wc := policyWC("/host", config.WorkerGuards{})
 	p := wsproto.Policy{Rev: 1, Projects: []wsproto.PolicyProject{{
 		Key: "svc", HostPath: "/srv/svc",
-		AllowedAgents:            []string{"claude", "tty-codex"},
-		InteractiveAllowedAgents: []string{"tty-codex"},
+		AllowedAgents: []string{"claude", "tty-codex"},
 	}}}
 	cfg, _ := projectPolicy(wc, p)
 	got := cfg.Projects["svc"].AllowedAgents
 	if !reflect.DeepEqual(got, []string{"claude", "tty-codex"}) {
 		t.Fatalf("allowed_agents = %v, want verbatim [claude tty-codex] (no intersection)", got)
-	}
-	if !reflect.DeepEqual(cfg.Projects["svc"].InteractiveAllowedAgents, []string{"tty-codex"}) {
-		t.Fatalf("interactive_allowed_agents = %v, want verbatim [tty-codex]", cfg.Projects["svc"].InteractiveAllowedAgents)
 	}
 }
 
@@ -196,22 +192,24 @@ func TestProjectPolicyH2Fields(t *testing.T) {
 }
 
 // TestProjectPolicyGuardsOnlyTighten (verification 11): a worker guard set to false
-// overrides a policy's allow_exec: true, and the interactive guard clears the interactive
-// allowlist. The exec-gated project is flagged in Degraded (diagnostic).
+// overrides a policy's allow_exec: true, and the interactive guard denies the project's
+// interactive jobs even when the pushed policy (an old server, here) asked for them. The
+// exec-gated project is flagged in Degraded (diagnostic).
 func TestProjectPolicyGuardsOnlyTighten(t *testing.T) {
 	wc := policyWC("/host", config.WorkerGuards{AllowExec: boolPtr(false), AllowInteractive: boolPtr(false)})
 	p := wsproto.Policy{Rev: 1, Projects: []wsproto.PolicyProject{{
 		Key: "svc", HostPath: "/srv/svc",
 		AllowExec:                true,
-		InteractiveAllowedAgents: []string{"tty-claude"},
+		AllowInteractive:         boolPtr(true),
+		InteractiveAllowedAgents: []string{"tty-claude"}, // deprecated pre-AGT-02 wire field
 	}}}
 	cfg, _ := projectPolicy(wc, p)
 	pc := cfg.Projects["svc"]
 	if pc.AllowExec {
 		t.Fatal("worker allow_exec:false must override the policy's allow_exec:true")
 	}
-	if len(pc.InteractiveAllowedAgents) != 0 {
-		t.Fatalf("allow_interactive:false must clear the interactive allowlist, got %v", pc.InteractiveAllowedAgents)
+	if pc.AllowInteractive == nil || *pc.AllowInteractive || pc.IsInteractiveAllowed() {
+		t.Fatalf("allow_interactive guard must deny the project, got %v", pc.AllowInteractive)
 	}
 	deg := diagnosePolicy(cfg, p, wc, nil)
 	if !slices.ContainsFunc(deg, func(d wsproto.AppliedDegrade) bool { return d.Key == "svc" && d.Gate == "exec" }) {

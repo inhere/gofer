@@ -29,13 +29,12 @@ type metaResp struct {
 // but consumers that cannot run it locally (workflows, baseline/local pickers)
 // filter it out by this flag. Worker-only entries carry empty allowlists.
 //
-// InteractiveAllowedAgents / AllowInteractive / AllowExec mirror the admission gates
-// that are INDEPENDENT of AllowedAgents (job/config.go): an interactive job needs the
-// project switch on (AGT-02 — before it, a non-empty interactive_allowed_agents was
-// the switch itself), the narrowing list (empty = do not narrow) must contain the
-// agent when it is set, and an exec-type agent needs allow_exec on a LOCAL runner
-// (worker/peer enforce their own). Without them the form cannot tell a selectable
-// agent from one that is guaranteed to be rejected at submit.
+// AllowInteractive / AllowExec mirror the admission gates that are INDEPENDENT of
+// AllowedAgents (job/config.go): an interactive job needs the project switch on, and an
+// exec-type agent needs allow_exec on a LOCAL runner (worker/peer enforce their own).
+// Without them the form cannot tell a selectable agent from one that is guaranteed to
+// be rejected at submit. The AGT-02 narrowing list is NOT mirrored: 0.3 removed it, so
+// the switch is the only interactive gate left on a project.
 //
 // AllowExec and AllowInteractive are emitted UNCONDITIONALLY (no omitempty): the web
 // console is served from disk (--web-dir) while the binary ships separately, so a new
@@ -44,14 +43,13 @@ type metaResp struct {
 // collapse the two and make the old server look like allow_exec/allow_interactive
 // =false (hiding every exec / interactive agent).
 type metaProject struct {
-	Key                      string   `json:"key"`
-	AllowedAgents            []string `json:"allowed_agents"`
-	AllowedRunners           []string `json:"allowed_runners"`
-	InteractiveAllowedAgents []string `json:"interactive_allowed_agents"`
-	AllowInteractive         bool     `json:"allow_interactive"`
-	AllowExec                bool     `json:"allow_exec"`
-	DefaultAgent             string   `json:"default_agent,omitempty"`
-	WorkerOnly               bool     `json:"worker_only,omitempty"`
+	Key              string   `json:"key"`
+	AllowedAgents    []string `json:"allowed_agents"`
+	AllowedRunners   []string `json:"allowed_runners"`
+	AllowInteractive bool     `json:"allow_interactive"`
+	AllowExec        bool     `json:"allow_exec"`
+	DefaultAgent     string   `json:"default_agent,omitempty"`
+	WorkerOnly       bool     `json:"worker_only,omitempty"`
 }
 
 // metaAgent is one selectable agent: its key, type (cli-agent vs exec) which the
@@ -131,13 +129,12 @@ func (s *Server) metaProjects(workers []metaWorker) []metaProject {
 		}
 		host[k] = struct{}{}
 		out = append(out, metaProject{
-			Key:                      k,
-			AllowedAgents:            nonNil(p.AllowedAgents),
-			AllowedRunners:           nonNil(p.AllowedRunners),
-			InteractiveAllowedAgents: nonNil(p.InteractiveAllowedAgents),
-			AllowInteractive:         p.IsInteractiveAllowed(),
-			AllowExec:                p.AllowExec,
-			DefaultAgent:             p.DefaultAgent,
+			Key:              k,
+			AllowedAgents:    nonNil(p.AllowedAgents),
+			AllowedRunners:   nonNil(p.AllowedRunners),
+			AllowInteractive: p.IsInteractiveAllowed(),
+			AllowExec:        p.AllowExec,
+			DefaultAgent:     p.DefaultAgent,
 		})
 	}
 	// Union of online workers' reported project keys not already host-defined.
@@ -170,11 +167,10 @@ func (s *Server) metaProjects(workers []metaWorker) []metaProject {
 	// which synthesizes the same switched-off interactive state.)
 	for _, pk := range extra {
 		out = append(out, metaProject{
-			Key:                      pk,
-			AllowedAgents:            nonNil(nil),
-			AllowedRunners:           nonNil(nil),
-			InteractiveAllowedAgents: nonNil(nil),
-			WorkerOnly:               true,
+			Key:            pk,
+			AllowedAgents:  nonNil(nil),
+			AllowedRunners: nonNil(nil),
+			WorkerOnly:     true,
 		})
 	}
 	return out

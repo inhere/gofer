@@ -28,14 +28,6 @@ func TestValidateInteractiveAdmission(t *testing.T) {
 			wantMsg: `agent "plain" has no interactive mode`,
 		},
 		{
-			name: "not in interactive allowlist",
-			req: JobRequest{
-				ProjectKey: "self", Agent: "term-unlisted", Runner: "local",
-				Interactive: true, Prompt: "hi",
-			},
-			wantMsg: `agent "term-unlisted" not in interactive_allowed_agents`,
-		},
-		{
 			name: "exec-type agent",
 			req: JobRequest{
 				ProjectKey: "self", Agent: "exec-web", Runner: "local",
@@ -223,22 +215,20 @@ func interactiveAdmissionConfig(root string) *config.Config {
 				AllowedAgents: []string{
 					"plain",
 					"term",
-					"term-unlisted",
 					"exec-web",
 					"raw-term",
 					"tty-term",
 				},
-				InteractiveAllowedAgents: []string{"term", "exec-web", "raw-term"},
-				AllowedRunners:           []string{"local", "remote-w1", "peer"},
-				AllowExec:                true,
+				AllowInteractive: boolPtr(true),
+				AllowedRunners:   []string{"local", "remote-w1", "peer"},
+				AllowExec:        true,
 			},
 		},
 		Agents: map[string]config.AgentConfig{
-			"plain":         {Type: agent.TypeCLIAgent, Command: "echo", Args: []string{"{{prompt}}"}},
-			"term":          {Type: agent.TypeCLIAgent, Command: "echo", Args: []string{"{{prompt}}"}, Interactive: true, NoRawCmd: true},
-			"term-unlisted": {Type: agent.TypeCLIAgent, Command: "echo", Args: []string{"{{prompt}}"}, Interactive: true, NoRawCmd: true},
-			"exec-web":      {Type: agent.TypeExec, Interactive: true, NoRawCmd: true},
-			"raw-term":      {Type: agent.TypeCLIAgent, Command: "echo", Args: []string{"{{prompt}}"}, Interactive: true},
+			"plain":    {Type: agent.TypeCLIAgent, Command: "echo", Args: []string{"{{prompt}}"}},
+			"term":     {Type: agent.TypeCLIAgent, Command: "echo", Args: []string{"{{prompt}}"}, Interactive: true, NoRawCmd: true},
+			"exec-web": {Type: agent.TypeExec, Interactive: true, NoRawCmd: true},
+			"raw-term": {Type: agent.TypeCLIAgent, Command: "echo", Args: []string{"{{prompt}}"}, Interactive: true},
 			// A real terminal agent: launched bare (no arg template — the prompt is typed
 			// into the pty), so a non-interactive submit would render an argv with no
 			// prompt at all. See TestValidateRejectsInteractiveOnlyAgentOnNonInteractiveJob.

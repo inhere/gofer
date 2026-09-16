@@ -14,7 +14,6 @@ func TestAdmitDualModeAgentBothWays(t *testing.T) {
 	cfg := interactiveAdmissionConfig(t.TempDir())
 	p := cfg.Projects["self"]
 	p.AllowedAgents = append(p.AllowedAgents, "codex")
-	p.InteractiveAllowedAgents = append(p.InteractiveAllowedAgents, "codex")
 	cfg.Projects["self"] = p
 	cfg.Agents["codex"] = config.AgentConfig{Type: agent.TypeCLIAgent, Command: "codex", Args: []string{"exec", "{{prompt}}"}, InteractiveArgs: []string{"tui"}}
 	s := &Service{}

@@ -544,13 +544,11 @@ func workerModeOf(wc *config.WorkerConfig) workerMode {
 //   - AllowExec is the policy's AND the worker's exec guard (guards only tighten);
 //   - AllowedAgents is passed through VERBATIM — no intersection with cfg.Agents, whose
 //     empty-list-means-all semantics would silently open every agent (D6, verification 13);
-//   - InteractiveAllowedAgents is the optional NARROWING (AGT-02) and is passed
-//     through, but CLEARED when the interactive guard is explicitly false — the
-//     guard's denial is carried by AllowInteractive below, and leaving a narrowing
-//     list without a switch would be a half-tightened config;
 //   - AllowInteractive is the resolved project switch AND the worker's interactive
-//     guard (guards only tighten; a pre-AGT-02 server sends no switch and the legacy
-//     list decides — policyAllowsInteractive);
+//     guard (guards only tighten; a pre-AGT-02 server sends no switch and then the
+//     deprecated wire list decides — policyAllowsInteractive). AGT-02 0.3 removed the
+//     narrowing list, so the worker's local project carries ONLY this switch — there is
+//     no second gate left to clear;
 //   - MaxConcurrentJobs / CaptureDiff are passed through verbatim (H2: dropping them
 //     would silently mean unlimited concurrency / diff-on, verification 14).
 //
@@ -568,14 +566,13 @@ func projectPolicy(wc *config.WorkerConfig, p wsproto.Policy) (*config.Config, [
 			continue // never admit an empty HostPath (verification 8)
 		}
 		projects[pp.Key] = config.ProjectConfig{
-			HostPath:                 host,
-			AllowedRunners:           []string{"local"},
-			AllowExec:                pp.AllowExec && wc.Guards.IsExecAllowed(),
-			AllowedAgents:            pp.AllowedAgents,
-			InteractiveAllowedAgents: policyInteractiveAgents(pp, wc),
-			AllowInteractive:         policyAllowInteractive(pp, wc),
-			MaxConcurrentJobs:        pp.MaxConcurrentJobs,
-			CaptureDiff:              pp.CaptureDiff,
+			HostPath:          host,
+			AllowedRunners:    []string{"local"},
+			AllowExec:         pp.AllowExec && wc.Guards.IsExecAllowed(),
+			AllowedAgents:     pp.AllowedAgents,
+			AllowInteractive:  policyAllowInteractive(pp, wc),
+			MaxConcurrentJobs: pp.MaxConcurrentJobs,
+			CaptureDiff:       pp.CaptureDiff,
 		}
 	}
 	cfg.Projects = projects // COMPLETE snapshot replace (E-B1); empty policy ⇒ empty set
@@ -584,8 +581,11 @@ func projectPolicy(wc *config.WorkerConfig, p wsproto.Policy) (*config.Config, [
 
 // policyAllowsInteractive reports whether the POLICY's project asks for interactive
 // jobs, ignoring the worker guard: the server's resolved allow_interactive when it
-// sent one, else the legacy reading of the interactive allowlist (a pre-AGT-02
-// server sends no switch, and there a non-empty list WAS "interactive allowed").
+// sent one, else the legacy reading of the DEPRECATED wire narrowing list (a pre-AGT-02
+// server sends no switch, and there a non-empty list WAS "interactive allowed"). AGT-02
+// 0.3 removed the list from the config/API, so this pre-AGT-02 fallback is the ONLY
+// place the wire field still carries meaning; it is read as an on/off bit, never as a
+// narrowing (the worker's own admission has only the switch left).
 func policyAllowsInteractive(pp wsproto.PolicyProject) bool {
 	if pp.AllowInteractive != nil {
 		return *pp.AllowInteractive
@@ -595,24 +595,11 @@ func policyAllowsInteractive(pp wsproto.PolicyProject) bool {
 
 // policyAllowInteractive resolves the worker-side project switch: the server's ask
 // AND the worker's own guard (a guard only ever tightens, so an explicit
-// guards.allow_interactive:false denies regardless of the pushed policy). The
-// result is always explicit — the worker's local config has no legacy list to fall
-// back on once policyInteractiveAgents has cleared it.
+// guards.allow_interactive:false denies regardless of the pushed policy). The result is
+// always explicit, so the worker's local project never depends on the wire field again.
 func policyAllowInteractive(pp wsproto.PolicyProject, wc *config.WorkerConfig) *bool {
 	allowed := policyAllowsInteractive(pp) && wc.Guards.IsInteractiveAllowed()
 	return &allowed
-}
-
-// policyInteractiveAgents passes the policy's interactive narrowing list through
-// verbatim, but returns nil (clear) when the worker's interactive guard is explicitly
-// false: the denial itself rides on AllowInteractive, and a narrowing list under a
-// switched-off project would only be noise (opposite polarity to AllowedAgents,
-// where an empty list means "all allowed").
-func policyInteractiveAgents(pp wsproto.PolicyProject, wc *config.WorkerConfig) []string {
-	if !wc.Guards.IsInteractiveAllowed() {
-		return nil
-	}
-	return pp.InteractiveAllowedAgents
 }
 
 // diagnosePolicy computes the READ-ONLY Applied.Degraded list: projects the worker
@@ -674,6 +661,10 @@ func loadWorkerConfig(path string) (*config.WorkerConfig, error) {
 	if err := yaml.Unmarshal(data, &wc); err != nil {
 		return nil, fmt.Errorf("decode worker config %s: %w", path, err)
 	}
+	// Same one-shot AGT-02 read as config.Load: this file is a second yaml surface for
+	// projects, and a LEGACY-mode worker's own `projects:` must not lose its interactive
+	// switch just because the old key was removed from the type.
+	wc.Projects = config.ApplyLegacyInteractiveCompat(data, wc.Projects)
 	if wc.Log.MaxSizeMB <= 0 {
 		wc.Log.MaxSizeMB = 50
 	}

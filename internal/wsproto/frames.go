@@ -352,11 +352,17 @@ type Caps struct {
 type PolicyProject struct {
 	Key      string `json:"key"`
 	HostPath string `json:"host_path"` // 逻辑路径; the worker maps it onto a local root
-	// AllowedAgents / InteractiveAllowedAgents: computePolicy guarantees these are
-	// NON-nil (T3). The wire form of an empty list may still be null (a Go nil slice
-	// marshals to null even without omitempty), so a DOWNSTREAM consumer must treat
-	// null and [] as equivalent — judge by len, never by nil-ness (MEDIUM-1).
-	AllowedAgents            []string `json:"allowed_agents"`
+	// AllowedAgents: computePolicy guarantees a NON-nil value (T3). The wire form of an
+	// empty list may still be null (a Go nil slice marshals to null even without
+	// omitempty), so a DOWNSTREAM consumer must treat null and [] as equivalent — judge
+	// by len, never by nil-ness (MEDIUM-1).
+	AllowedAgents []string `json:"allowed_agents"`
+	// InteractiveAllowedAgents is DEPRECATED (AGT-02 0.3 removed the narrowing list) and
+	// is kept ONLY to READ what a pre-AGT-02 server still sends: this server never sets
+	// it, so it now marshals to null/[] and carries no authority. A worker reads a
+	// non-empty value as the old rule "the project allows interactive jobs" when
+	// AllowInteractive is absent (see commands.policyAllowsInteractive); it must never
+	// narrow with it again.
 	InteractiveAllowedAgents []string `json:"interactive_allowed_agents"`
 	// AllowInteractive is the project's interactive-job switch (AGT-02 §2). It is a
 	// pointer for the same "unset ≠ explicit false" reason as CaptureDiff below: a

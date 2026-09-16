@@ -40,7 +40,7 @@ func matrixCfg() *config.Config {
 			// —— whitelist passthrough (non-intersection, non-nil) ——
 			"ag-nil": {HostPath: "/srv/ag-nil", AllowedRunners: []string{"pool"}}, // AllowedAgents nil → []
 			"ag-set": {HostPath: "/srv/ag-set", AllowedRunners: []string{"pool"},
-				AllowedAgents: []string{"claude", "tty-codex"}, InteractiveAllowedAgents: []string{"claude"}},
+				AllowedAgents: []string{"claude", "tty-codex"}},
 		},
 	}
 }
@@ -120,10 +120,11 @@ func TestComputePolicyEmptyAllowedRunnersNeverPushed(t *testing.T) {
 	}
 }
 
-// TestComputePolicyWhitelistNonNilNoIntersection: AllowedAgents /
-// InteractiveAllowedAgents are always NON-nil (wire `[]`, never null) and are passed
-// through VERBATIM — no intersection with anything (D6). An unset whitelist becomes an
-// empty non-nil slice; a set one is byte-for-byte preserved.
+// TestComputePolicyWhitelistNonNilNoIntersection: AllowedAgents is always NON-nil
+// (wire `[]`, never null) and is passed through VERBATIM — no intersection with
+// anything (D6). An unset whitelist becomes an empty non-nil slice; a set one is
+// byte-for-byte preserved. The AGT-02 narrowing list is NOT projected any more (0.3):
+// this server never fills it, so a re-added projection reddens the last assertion.
 func TestComputePolicyWhitelistNonNilNoIntersection(t *testing.T) {
 	byKey := policyByKey(computePolicy(matrixCfg(), "w-a", 1))
 
@@ -131,16 +132,15 @@ func TestComputePolicyWhitelistNonNilNoIntersection(t *testing.T) {
 	if nilAg.AllowedAgents == nil || len(nilAg.AllowedAgents) != 0 {
 		t.Errorf("ag-nil AllowedAgents = %#v, want non-nil empty slice", nilAg.AllowedAgents)
 	}
-	if nilAg.InteractiveAllowedAgents == nil || len(nilAg.InteractiveAllowedAgents) != 0 {
-		t.Errorf("ag-nil InteractiveAllowedAgents = %#v, want non-nil empty slice", nilAg.InteractiveAllowedAgents)
-	}
 
 	setAg := byKey["ag-set"]
 	if !reflect.DeepEqual(setAg.AllowedAgents, []string{"claude", "tty-codex"}) {
 		t.Errorf("ag-set AllowedAgents = %v, want verbatim [claude tty-codex] (no intersection)", setAg.AllowedAgents)
 	}
-	if !reflect.DeepEqual(setAg.InteractiveAllowedAgents, []string{"claude"}) {
-		t.Errorf("ag-set InteractiveAllowedAgents = %v, want [claude]", setAg.InteractiveAllowedAgents)
+	// Deprecated wire key: kept for READING what a pre-AGT-02 server sends, never sent
+	// by this one.
+	if len(setAg.InteractiveAllowedAgents) != 0 {
+		t.Errorf("ag-set InteractiveAllowedAgents = %v, want empty (this server no longer sends the removed narrowing list)", setAg.InteractiveAllowedAgents)
 	}
 
 	// Wire assertion: an empty whitelist marshals to [] (not null) so a downstream that

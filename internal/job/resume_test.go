@@ -610,11 +610,11 @@ func newInteractiveResumeService(t *testing.T, root, agentKey string) *Service {
 		Storage: config.StorageConfig{Root: root},
 		Projects: map[string]config.ProjectConfig{
 			"self": {
-				HostPath:                 root,
-				AllowedAgents:            []string{agentKey, "exec"},
-				AllowedRunners:           []string{"local"},
-				InteractiveAllowedAgents: []string{agentKey},
-				AllowExec:                true,
+				HostPath:         root,
+				AllowedAgents:    []string{agentKey, "exec"},
+				AllowedRunners:   []string{"local"},
+				AllowInteractive: boolPtr(true),
+				AllowExec:        true,
 			},
 		},
 		Agents: map[string]config.AgentConfig{

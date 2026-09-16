@@ -65,11 +65,11 @@ func newWorkerTestServiceSel(t *testing.T, root string, stub runner.Runner, work
 		Storage: config.StorageConfig{Root: root},
 		Projects: map[string]config.ProjectConfig{
 			"self": {
-				HostPath:                 root,
-				AllowedAgents:            []string{"exec", "term"},
-				AllowedRunners:           []string{"local", "remote-w1", "pool-w"},
-				InteractiveAllowedAgents: []string{"term"},
-				AllowExec:                true,
+				HostPath:         root,
+				AllowedAgents:    []string{"exec", "term"},
+				AllowedRunners:   []string{"local", "remote-w1", "pool-w"},
+				AllowInteractive: boolPtr(true),
+				AllowExec:        true,
 			},
 		},
 		Agents: map[string]config.AgentConfig{

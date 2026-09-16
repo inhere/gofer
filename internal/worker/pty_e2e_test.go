@@ -83,13 +83,14 @@ func interactiveAgents() map[string]config.AgentConfig {
 // side) and remote-w1 (host side). maxConc gates local execution concurrency
 // (0 = unbounded; 1 exercises queued-interactive rendezvous).
 func interactiveProject(host string, allowedRunners []string, maxConc int) config.ProjectConfig {
+	allow := true
 	return config.ProjectConfig{
-		HostPath:                 host,
-		AllowedAgents:            interactiveAgentNames,
-		InteractiveAllowedAgents: []string{"termecho", "termtail", "termchatty"},
-		AllowedRunners:           allowedRunners,
-		AllowExec:                true,
-		MaxConcurrentJobs:        maxConc,
+		HostPath:          host,
+		AllowedAgents:     interactiveAgentNames,
+		AllowInteractive:  &allow,
+		AllowedRunners:    allowedRunners,
+		AllowExec:         true,
+		MaxConcurrentJobs: maxConc,
 	}
 }
 
