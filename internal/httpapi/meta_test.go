@@ -386,9 +386,9 @@ func TestMetaRunnerWorkerID(t *testing.T) {
 	}
 }
 
-// TestMetaProjectGates: interactive_allowed_agents and allow_exec are the two
-// admission gates INDEPENDENT of allowed_agents (job/config.go). The form needs both
-// or it lists agents that are guaranteed to be rejected at submit.
+// TestMetaProjectGates: interactive_allowed_agents / allow_interactive and allow_exec
+// are the admission gates INDEPENDENT of allowed_agents (job/config.go). The form needs
+// them or it lists agents that are guaranteed to be rejected at submit.
 func TestMetaProjectGates(t *testing.T) {
 	root := t.TempDir()
 	cfg := &config.Config{
@@ -417,8 +417,13 @@ func TestMetaProjectGates(t *testing.T) {
 	if !gated.AllowExec || len(gated.InteractiveAllowedAgents) != 1 || gated.InteractiveAllowedAgents[0] != "tty" {
 		t.Fatalf("gated project must carry both gates: %+v", gated)
 	}
-	if plain.AllowExec {
-		t.Fatalf("plain project must report allow_exec=false: %+v", plain)
+	// The switch is emitted RESOLVED: a legacy non-empty list means the project allows
+	// interactive jobs, so the form does not have to know the compatibility rule.
+	if !gated.AllowInteractive {
+		t.Fatalf("gated project must report allow_interactive=true (legacy list): %+v", gated)
+	}
+	if plain.AllowExec || plain.AllowInteractive {
+		t.Fatalf("plain project must report both gates false: %+v", plain)
 	}
 	// non-nil empty array, never JSON null (the form does a set-intersection on it)
 	if plain.InteractiveAllowedAgents == nil || len(plain.InteractiveAllowedAgents) != 0 {
@@ -427,18 +432,19 @@ func TestMetaProjectGates(t *testing.T) {
 }
 
 // TestMetaGateFieldsAlwaysEmitted guards the wire contract the console's
-// backward-compat rule rests on: allow_exec and interactive_allowed_agents must be
-// present on EVERY project even when false/empty. The console is served from disk
-// (--web-dir) while the binary ships separately, so a new console can talk to an
-// older server; it treats a MISSING field as "this server predates the gate" and
-// skips that narrowing. Re-adding omitempty here would make a false gate
-// indistinguishable from an old server and hide every exec agent in the form.
+// backward-compat rule rests on: allow_exec, allow_interactive and
+// interactive_allowed_agents must be present on EVERY project even when
+// false/empty. The console is served from disk (--web-dir) while the binary ships
+// separately, so a new console can talk to an older server; it treats a MISSING field
+// as "this server predates the gate" and skips that narrowing. Re-adding omitempty
+// here would make a false gate indistinguishable from an old server and hide every
+// exec / interactive agent in the form.
 func TestMetaGateFieldsAlwaysEmitted(t *testing.T) {
 	root := t.TempDir()
 	cfg := &config.Config{
 		Server:  config.ServerConfig{Token: testToken},
 		Storage: config.StorageConfig{Root: root},
-		// allow_exec false + no interactive allowlist: both gates at their zero value
+		// allow_exec false + no interactive switch/allowlist: every gate at its zero value
 		Projects: map[string]config.ProjectConfig{"plain": {HostPath: root}},
 		Agents:   map[string]config.AgentConfig{"codex": {Type: "cli-agent"}},
 	}
@@ -455,7 +461,7 @@ func TestMetaGateFieldsAlwaysEmitted(t *testing.T) {
 	if len(raw.Projects) != 1 {
 		t.Fatalf("want 1 project, got %d", len(raw.Projects))
 	}
-	for _, key := range []string{"allow_exec", "interactive_allowed_agents"} {
+	for _, key := range []string{"allow_exec", "allow_interactive", "interactive_allowed_agents"} {
 		if _, ok := raw.Projects[0][key]; !ok {
 			t.Fatalf("%q must be emitted even at its zero value (console reads absence as 'old server'): %+v",
 				key, raw.Projects[0])

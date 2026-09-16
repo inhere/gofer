@@ -29,23 +29,26 @@ type metaResp struct {
 // but consumers that cannot run it locally (workflows, baseline/local pickers)
 // filter it out by this flag. Worker-only entries carry empty allowlists.
 //
-// InteractiveAllowedAgents / AllowExec mirror the two admission gates that are
-// INDEPENDENT of AllowedAgents (job/config.go): an interactive job needs its agent
-// listed in interactive_allowed_agents (empty = no interactive job at all), and an
-// exec-type agent needs allow_exec on a LOCAL runner (worker/peer enforce their
-// own). Without them the form cannot tell a selectable agent from one that is
-// guaranteed to be rejected at submit.
+// InteractiveAllowedAgents / AllowInteractive / AllowExec mirror the admission gates
+// that are INDEPENDENT of AllowedAgents (job/config.go): an interactive job needs the
+// project switch on (AGT-02 — before it, a non-empty interactive_allowed_agents was
+// the switch itself), the narrowing list (empty = do not narrow) must contain the
+// agent when it is set, and an exec-type agent needs allow_exec on a LOCAL runner
+// (worker/peer enforce their own). Without them the form cannot tell a selectable
+// agent from one that is guaranteed to be rejected at submit.
 //
-// AllowExec is emitted UNCONDITIONALLY (no omitempty): the web console is served
-// from disk (--web-dir) while the binary ships separately, so a new console can run
-// against an older server. The console distinguishes "gate says false" from "this
-// server predates the field" by presence — omitting false would collapse the two and
-// make the old server look like allow_exec=false (hiding every exec agent).
+// AllowExec and AllowInteractive are emitted UNCONDITIONALLY (no omitempty): the web
+// console is served from disk (--web-dir) while the binary ships separately, so a new
+// console can run against an older server. The console distinguishes "gate says
+// false" from "this server predates the field" by presence — omitting false would
+// collapse the two and make the old server look like allow_exec/allow_interactive
+// =false (hiding every exec / interactive agent).
 type metaProject struct {
 	Key                      string   `json:"key"`
 	AllowedAgents            []string `json:"allowed_agents"`
 	AllowedRunners           []string `json:"allowed_runners"`
 	InteractiveAllowedAgents []string `json:"interactive_allowed_agents"`
+	AllowInteractive         bool     `json:"allow_interactive"`
 	AllowExec                bool     `json:"allow_exec"`
 	DefaultAgent             string   `json:"default_agent,omitempty"`
 	WorkerOnly               bool     `json:"worker_only,omitempty"`
@@ -132,6 +135,7 @@ func (s *Server) metaProjects(workers []metaWorker) []metaProject {
 			AllowedAgents:            nonNil(p.AllowedAgents),
 			AllowedRunners:           nonNil(p.AllowedRunners),
 			InteractiveAllowedAgents: nonNil(p.InteractiveAllowedAgents),
+			AllowInteractive:         p.IsInteractiveAllowed(),
 			AllowExec:                p.AllowExec,
 			DefaultAgent:             p.DefaultAgent,
 		})
@@ -160,10 +164,10 @@ func (s *Server) metaProjects(workers []metaWorker) []metaProject {
 	}
 	sort.Strings(extra)
 	// Worker-only entries carry empty gates: the host never runs them, so its
-	// allowlists / allow_exec / interactive_allowed_agents do not apply — the worker
-	// validates with its own config on dispatch. (Interactive IS still host-gated and
-	// therefore unavailable for a worker-only project; see job/config.go's
-	// workerOnlyProject, which synthesizes the same empty interactive allowlist.)
+	// allowlists / allow_exec / allow_interactive do not apply — the worker validates
+	// with its own config on dispatch. (Interactive IS still host-gated and therefore
+	// unavailable for a worker-only project; see job/config.go's workerOnlyProject,
+	// which synthesizes the same switched-off interactive state.)
 	for _, pk := range extra {
 		out = append(out, metaProject{
 			Key:                      pk,

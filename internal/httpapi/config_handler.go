@@ -315,17 +315,7 @@ func buildProjectViews(projects map[string]config.ProjectConfig) []projectView {
 	keys := sortedMapKeys(projects)
 	out := make([]projectView, 0, len(keys))
 	for _, k := range keys {
-		p := projects[k]
-		out = append(out, projectView{
-			Key:               k,
-			HostPath:          p.HostPath,
-			ContainerPath:     p.ContainerPath,
-			DefaultAgent:      p.DefaultAgent,
-			AllowedAgents:     p.AllowedAgents,
-			AllowedRunners:    p.AllowedRunners,
-			AllowExec:         p.AllowExec,
-			MaxConcurrentJobs: p.MaxConcurrentJobs,
-		})
+		out = append(out, projectViewOf(k, projects[k]))
 	}
 	return out
 }
