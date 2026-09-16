@@ -13,6 +13,7 @@
 #   4. ~/.config/gofer/config.yaml
 
 server:
+  # auto_resume_max: 1                  # 瞬时 agent 错误命中时自动 resume 次数；0=关闭
   # Listen address. Default 0.0.0.0:8765 so a container can reach the host via
   # host.docker.internal; security relies on a mandatory token + internal access.
   addr: 0.0.0.0:8765
