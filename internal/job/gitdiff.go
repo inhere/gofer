@@ -28,6 +28,11 @@ const (
 // (0644)，返回 `git diff --stat` 摘要（截断）。非 git 仓 / git 不在 PATH / 超时 /
 // 出错一律返回 ""（best-effort，整体优雅降级，绝不 panic、绝不影响 job 终态）。
 func captureDiff(cwd, resultDir string) string {
+	// No cwd means no checkout to diff: an empty Dir would make git run in the
+	// serve process's own directory and diff an unrelated (possibly huge) repo.
+	if cwd == "" {
+		return ""
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), diffTimeout)
 	defer cancel()
 

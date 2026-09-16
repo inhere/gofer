@@ -114,7 +114,10 @@ func seedRecoveringJob(t *testing.T, hub *hubSide, jobID, instanceID, stdout str
 	rec := jobstore.JobRecord{
 		ID: jobID, ProjectKey: "alpha", Agent: "exec", Runner: "remote-w1",
 		Status: job.StatusRecovering, WorkerID: e2eWorkerID, WorkerInstanceID: instanceID,
-		Cwd: ".", ResultDir: dir, StartedAt: now - 30, UpdatedAt: now, RecoveringSince: now - 5,
+		// A throwaway cwd, NOT ".": the terminal outcome capture runs `git diff` in
+		// the job's cwd, and "." is this package inside the gofer checkout — on a
+		// slow mount that alone blows the 5s status waits below.
+		Cwd: t.TempDir(), ResultDir: dir, StartedAt: now - 30, UpdatedAt: now, RecoveringSince: now - 5,
 		Error: "recovering: orphaned: serve restarted while job was non-terminal",
 	}
 	if err := hub.store.UpsertJob(rec); err != nil {
