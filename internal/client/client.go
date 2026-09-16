@@ -961,6 +961,9 @@ type Decision struct {
 	// SessionID / Kind identify a session-relay turn (SESS-01); empty otherwise.
 	SessionID string `json:"session_id,omitempty"`
 	Kind      string `json:"kind,omitempty"`
+	// ReleasedBy is set when a relay turn was closed without an answer (SR-A5,
+	// "user_returned"): the hook saw the human come back. Empty otherwise.
+	ReleasedBy string `json:"released_by,omitempty"`
 }
 
 // AskDecision POSTs /v1/decisions and returns the created OPEN decision.
@@ -1329,6 +1332,12 @@ type AgentSession struct {
 	LastSeenAt  int64  `json:"last_seen_at"`
 	StartedAt   int64  `json:"started_at"`
 	EndedAt     int64  `json:"ended_at,omitempty"`
+	// AutoArmed reports that the server's idle rule alone arms relay for this
+	// session (the human has been away for >= server.session_auto_relay_idle_sec);
+	// the Stop hook blocks on Relay||AutoArmed. IdleSec is the idle reading the
+	// hook reported last, -1 = unknown.
+	AutoArmed bool  `json:"auto_armed"`
+	IdleSec   int64 `json:"idle_sec"`
 }
 
 // SessionRegister is the POST /v1/sessions body.
@@ -1352,6 +1361,10 @@ type SessionHeartbeat struct {
 	Title       string `json:"title,omitempty"`
 	// Injected: this UserPromptSubmit is the relay's own continuation (no auto-off).
 	Injected bool `json:"injected,omitempty"`
+	// IdleSec is the OS input idle time in seconds (-1 = unknown). Set it only on
+	// events that actually probed: nil means "this beat carries no reading" and
+	// leaves the server's stored value alone.
+	IdleSec *int64 `json:"idle_sec,omitempty"`
 }
 
 // SessionDetail is GET /v1/sessions/{sid}: the session + recent turns (newest first).
@@ -1468,6 +1481,26 @@ func (c *Client) WaitSessionTurn(sid, decisionID string, waitSec int) (TurnStatu
 	var st TurnStatus
 	err := c.doJSON(http.MethodGet, path, nil, &st)
 	return st, err
+}
+
+// ReleaseSessionTurn tells the server the hook's fresh idle reading while it
+// blocks on an auto-armed turn: released=true means the human is back, the turn
+// is closed (EXPIRED + released_by=user_returned) and the hook must let the
+// agent stop. A false return (still away, explicit relay, turn already settled)
+// leaves the wait running.
+func (c *Client) ReleaseSessionTurn(sid, decisionID string, idleSec int64) (bool, error) {
+	body, err := json.Marshal(map[string]int64{"idle_sec": idleSec})
+	if err != nil {
+		return false, fmt.Errorf("encode release turn: %w", err)
+	}
+	var out struct {
+		Released bool `json:"released"`
+	}
+	path := "/v1/sessions/" + url.PathEscape(sid) + "/turns/" + url.PathEscape(decisionID) + "/release"
+	if err := c.doJSON(http.MethodPost, path, bytes.NewReader(body), &out); err != nil {
+		return false, err
+	}
+	return out.Released, nil
 }
 
 // SaySession answers the session's newest OPEN turn. A 409 error means no turn is waiting.
