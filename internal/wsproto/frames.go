@@ -153,6 +153,51 @@ type Register struct {
 	Agents        []string     `json:"agents,omitempty"`
 	AgentCaps     []AgentBrief `json:"agent_caps,omitempty"`
 	MaxConcurrent int          `json:"max_concurrent,omitempty"`
+	// Inflight (w→s, RECOV-01) is the worker's view of the jobs it currently
+	// tracks for this hub: the remote job_id, its local status and the byte
+	// offsets/seq it has ALREADY pushed on the wire. The hub uses it on a
+	// same-instance reconnect to decide, per recovering job, whether the worker
+	// still has the job (→ resume + replay from the server's offsets), has it but
+	// already finished (→ wait for the replayed Result) or no longer has it
+	// (→ fail at once, "worker no longer tracks job").
+	//
+	// NO omitempty on purpose: a nil slice means "a pre-RECOV-01 worker that cannot
+	// prove anything" (the hub then falls back to the recovery-window timer), while
+	// an EMPTY slice means "a new worker that tracks nothing" — and those two must
+	// not be conflated, or a worker that dropped all its jobs would silently keep
+	// the server waiting instead of failing them. Same absent≠empty reasoning as
+	// AgentBrief.Available. The addition does NOT bump protocol_version: an old
+	// server ignores the unknown key (As is a plain json.Unmarshal).
+	Inflight []InflightJob `json:"inflight"`
+}
+
+// InflightJob is one entry of Register.Inflight: a job the worker still tracks on
+// behalf of the hub (RECOV-01). Status is the WORKER-side local job status; the
+// hub only needs to know whether it is terminal (job.IsTerminal lives in job, so
+// the hub compares against the wire vocabulary below).
+type InflightJob struct {
+	JobID string `json:"job_id"`
+	// Status is the worker's local job status ("queued"/"running"/"pending_interaction"/
+	// "done"/"failed"/"cancelled"/"timeout"/"recovering").
+	Status string `json:"status,omitempty"`
+	// StdoutOff/StderrOff are the byte offsets the worker has successfully SENT for
+	// this job's stdout/stderr log files (a frame that failed to write does NOT
+	// advance them), so the hub can rewind the worker to what it actually persisted.
+	StdoutOff int64 `json:"stdout_off,omitempty"`
+	StderrOff int64 `json:"stderr_off,omitempty"`
+	// Seq is the highest log-frame seq the worker has sent for this job.
+	Seq int64 `json:"seq,omitempty"`
+}
+
+// ResumeJob is one entry of Registered.Resume: a job the hub is holding in
+// `recovering` and the worker must resume (RECOV-01). The offsets are the
+// SERVER-side durably written byte counts — the authoritative source — so the
+// worker rewinds its local read offsets to them and re-sends whatever was lost
+// while the connection was down (no gaps, no duplicates beyond the rewind point).
+type ResumeJob struct {
+	JobID     string `json:"job_id"`
+	StdoutOff int64  `json:"stdout_off,omitempty"`
+	StderrOff int64  `json:"stderr_off,omitempty"`
 }
 
 // Registered (s→w, P1): handshake ack. ServerTime is in milliseconds (SR102, in
@@ -172,6 +217,12 @@ type Registered struct {
 	// carrying + apply behaviour is implemented later (T4); T0 only declares the field
 	// so the wire is stable.
 	Policy *Policy `json:"policy,omitempty"`
+	// Resume (s→w, RECOV-01) lists the jobs this hub is holding in `recovering` for
+	// the registering worker process and has decided to resume from. It is carried on
+	// the ack so the worker can rewind its log offsets BEFORE it resumes streaming —
+	// a second frame would race the worker's own replay. Empty/nil on an old server
+	// or when nothing is recovering (the fields are optional, no version bump).
+	Resume []ResumeJob `json:"resume,omitempty"`
 }
 
 // Dispatch (s→w, P1): a job assignment = JobRequest projection. Runner is always
