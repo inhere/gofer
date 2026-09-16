@@ -6,6 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"path/filepath"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/inhere/gofer/internal/runner"
@@ -159,12 +163,6 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	if err != nil {
 		errStr = err.Error()
 	}
-	s.recordEvent(jobID, EventJobTerminal, map[string]any{
-		"status":    status,
-		"exit_code": exitCode,
-		"error":     errStr,
-	})
-
 	entry.mu.Lock()
 	entry.result.Status = status
 	entry.result.ExitCode = exitCode
@@ -227,6 +225,13 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// (near-zero, given Store.writeMu) count of jobs whose terminal write failed,
 	// not by history — C1's invariant still holds.
 	persistErr := s.persist(snap)
+	autoResumed := false
+	if persistErr == nil && status == StatusFailed {
+		autoResumed = s.tryAutoResume(snap)
+	}
+	if !autoResumed {
+		s.recordEvent(jobID, EventJobTerminal, map[string]any{"status": status, "exit_code": exitCode, "error": errStr})
+	}
 	if persistErr == nil && isTerminal(status) {
 		s.mu.Lock()
 		delete(s.jobs, jobID)
@@ -246,6 +251,48 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// 进程内延迟重投 attempt+1。工作流 step 的重试走 advanceWorkflow（上面 return），
 	// 二者不重叠。可靠版（sweeper 驱动 next_retry_at）留后续。
 	s.maybeRetryJob(snap)
+}
+
+func (s *Service) tryAutoResume(snap JobResult) bool {
+	cfg := s.config()
+	if cfg == nil || cfg.Server.EffectiveAutoResumeMax() <= 0 || snap.SessionID == "" || snap.AutoResumeAttempt >= cfg.Server.EffectiveAutoResumeMax() {
+		return false
+	}
+	ac, ok := s.agents.Get(snap.Agent)
+	if !ok || len(ac.SessionResume) == 0 {
+		return false
+	}
+	b, err := os.ReadFile(filepath.Join(snap.ResultDir, "stderr.log"))
+	if err != nil {
+		return false
+	}
+	if len(b) > 8192 {
+		b = b[len(b)-8192:]
+	}
+	var hit string
+	for _, p := range ac.TransientErrorPatterns {
+		if re, e := regexp.Compile("(?i)" + p); e == nil {
+			if m := re.FindString(string(b)); m != "" {
+				hit = m
+				break
+			}
+		}
+	}
+	if hit == "" {
+		return false
+	}
+	if len(hit) > 120 {
+		hit = hit[:120]
+	}
+	prompt := "The previous run was interrupted by a transient error (" + strings.TrimSpace(hit) + "). Check git status / git log to see how far you got, finish only the remaining work, do not redo committed work, then report as originally asked."
+	res, err := s.resumeJob(snap.ID, prompt, snap.Runner, snap.CallerID, snap.AutoResumeAttempt+1)
+	if err != nil {
+		return false
+	}
+	snap.AutoResumedBy = res.ID
+	_ = s.persist(snap)
+	s.recordEvent(snap.ID, "job.auto_resumed", map[string]any{"job_id": res.ID})
+	return true
 }
 
 // maybeRetryJob implements the E24 unified job-level retry (P1 最小版, design §6.2)

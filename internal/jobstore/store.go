@@ -510,6 +510,15 @@ func (s *Store) migrate() error {
 	if err := add("source_job_id", "source_job_id TEXT"); err != nil {
 		return err
 	}
+	if err := add("resumed_from", "resumed_from TEXT"); err != nil {
+		return err
+	}
+	if err := add("auto_resume_attempt", "auto_resume_attempt INTEGER DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := add("auto_resumed_by", "auto_resumed_by TEXT"); err != nil {
+		return err
+	}
 	// job 超时上限可配（bd h-aii-s9ck）：timeout_sec=生效deadline、requested_timeout_sec=请求值、
 	// timeout_clamped=请求是否被上限截断。旧库 ALTER ADD，旧行 COALESCE→0/false（旧 job 未记录，
 	// 正好表示"未知"，不会伪造成"被截断"）。

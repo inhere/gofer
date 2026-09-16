@@ -340,7 +340,9 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			PlanID: req.PlanID,
 			// 血缘（P5）：ResumeJob/RebuildJob 内部盖在 req 上（源 job id）；普通 job 为空。
 			// json:"-" 不影响此 Go 赋值——落 jobs.source_job_id（血缘的真源，不进 request_json）。
-			SourceJobID: req.SourceJobID,
+			SourceJobID:       req.SourceJobID,
+			ResumedFrom:       req.ResumedFrom,
+			AutoResumeAttempt: req.AutoResumeAttempt,
 			// WT-01：受管 worktree 的交付物位置与基线（终态时 captureOutcomes 再补
 			// head sha / commits_ahead / 两段 diff）。远端 job 由执行机经 Outcome 回传。
 			WorktreePath:    wtPath,

@@ -48,6 +48,10 @@ var (
 // target runner: when empty the source runner is used; when non-empty it must
 // equal the source runner (同 runner 约束) — a mismatch is ErrCrossRunner.
 func (s *Service) ResumeJob(jobID, prompt, runner, callerID string) (JobResult, error) {
+	return s.resumeJob(jobID, prompt, runner, callerID, 0)
+}
+
+func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt int) (JobResult, error) {
 	src, ok := s.Get(jobID)
 	if !ok {
 		return JobResult{}, fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
@@ -139,7 +143,9 @@ func (s *Service) ResumeJob(jobID, prompt, runner, callerID string) (JobResult, 
 		// 血缘（P5，本次追加）：续投 job 指回源 job。resume 语义 = source_job_id=源 id 且
 		// SessionID 与源相同（上面 :84 已带 SessionID=src.SessionID）——据此区分"续会话"
 		// （rebuild 则 session 空/新）。
-		SourceJobID: jobID,
+		SourceJobID:       jobID,
+		ResumedFrom:       jobID,
+		AutoResumeAttempt: autoAttempt,
 	})
 }
 

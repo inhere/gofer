@@ -87,7 +87,10 @@ type JobRecord struct {
 	// SessionID 是底层 agent CLI 的会话标识（claude/codex 等），注入或捕获得到。空表示
 	// 无/未捕获；持久化到 jobs.session_id（旧库经 selectCols COALESCE 成 ""）；与
 	// job.JobResult.SessionID 互转，供 show/list/resume 使用。
-	SessionID string
+	SessionID         string
+	ResumedFrom       string
+	AutoResumeAttempt int
+	AutoResumedBy     string
 	// Channel / Client 是提交来源（provenance）：channel=cli/web/mcp/im（提交渠道），
 	// client=来源主机名(CLI)/IP(HTTP)。空表示旧库/未提供（selectCols COALESCE 成 ""）；
 	// 与 job.JobResult 互转，配合 CallerID 供 show/list 标识"谁/哪台/经哪渠道提交"。
@@ -197,7 +200,7 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,
   COALESCE(source,''), COALESCE(tags_json,''),
   COALESCE(workflow_id,''), COALESCE(step_index,0),
 	COALESCE(attempt,1), COALESCE(fan_index,0),
-	COALESCE(session_id,''), COALESCE(channel,''), COALESCE(client,''),
+	COALESCE(session_id,''), COALESCE(resumed_from,''), COALESCE(auto_resume_attempt,0), COALESCE(auto_resumed_by,''), COALESCE(channel,''), COALESCE(client,''),
 	COALESCE(origin_agent,''), COALESCE(escalate_to,''),
   COALESCE(role,''), COALESCE(plan_id,''), COALESCE(source_job_id,''),
   COALESCE(timeout_sec,0), COALESCE(requested_timeout_sec,0), COALESCE(timeout_clamped,0),
@@ -223,7 +226,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.RenderedCommand, &r.ResultJSON, &r.ArtifactsJSON, &r.DiffSummary,
 		&r.Source, &r.TagsJSON,
 		&r.WorkflowID, &r.StepIndex, &r.Attempt, &r.FanIndex,
-		&r.SessionID, &r.Channel, &r.Client,
+		&r.SessionID, &r.ResumedFrom, &r.AutoResumeAttempt, &r.AutoResumedBy, &r.Channel, &r.Client,
 		&r.OriginAgent, &r.EscalateTo, &r.Role, &r.PlanID, &r.SourceJobID,
 		&r.TimeoutSec, &r.RequestedTimeoutSec, &timeoutClamped,
 		&r.RecoveringSince,
@@ -251,11 +254,11 @@ func (s *Store) UpsertJob(rec JobRecord) error {
   (id, project_key, agent, runner, interactive, worker_id, worker_instance_id, status, exit_code, cwd, result_dir,
    request_json, error, started_at, ended_at, updated_at, caller_id, request_id,
 	    rendered_command, result_json, artifacts_json, diff_summary, source, tags_json,
-	    workflow_id, step_index, attempt, fan_index, session_id, channel, client,
+	    workflow_id, step_index, attempt, fan_index, session_id, resumed_from, auto_resume_attempt, auto_resumed_by, channel, client,
 	    origin_agent, escalate_to, role, plan_id, source_job_id,
 	    timeout_sec, requested_timeout_sec, timeout_clamped, recovering_since,
 	    worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -284,7 +287,10 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     step_index=excluded.step_index,
     attempt=excluded.attempt,
     fan_index=excluded.fan_index,
-    session_id=excluded.session_id,
+	    session_id=excluded.session_id,
+    resumed_from=excluded.resumed_from,
+    auto_resume_attempt=excluded.auto_resume_attempt,
+    auto_resumed_by=excluded.auto_resumed_by,
     channel=excluded.channel,
     client=excluded.client,
 	    origin_agent=excluded.origin_agent,
@@ -314,7 +320,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.RenderedCommand, rec.ResultJSON, rec.ArtifactsJSON, rec.DiffSummary,
 		rec.Source, rec.TagsJSON,
 		rec.WorkflowID, rec.StepIndex, rec.Attempt, rec.FanIndex,
-		rec.SessionID, rec.Channel, rec.Client,
+		rec.SessionID, rec.ResumedFrom, rec.AutoResumeAttempt, rec.AutoResumedBy, rec.Channel, rec.Client,
 		rec.OriginAgent, rec.EscalateTo, rec.Role, rec.PlanID, rec.SourceJobID,
 		rec.TimeoutSec, rec.RequestedTimeoutSec, rec.TimeoutClamped,
 		rec.RecoveringSince,
