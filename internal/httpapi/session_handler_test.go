@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"testing"
 	"time"
+
+	"github.com/inhere/gofer/internal/config"
 )
 
 // TestSessionRelayHTTPContract walks the session-relay endpoints (SESS-01 T3):
@@ -191,4 +193,164 @@ func TestSessionRelayHTTPContract(t *testing.T) {
 		t.Fatalf("get deleted status=%d, want 404", resp.StatusCode)
 	}
 	resp.Body.Close()
+}
+
+// sessionAutoArmServer builds a test server whose idle auto-arm threshold is
+// `sec` (0 = disabled), mirroring the shared "self" project wiring.
+func sessionAutoArmServer(t *testing.T, sec int) *Server {
+	t.Helper()
+	return newTestServerCfg(t, config.ServerConfig{
+		Token: testToken, SessionAutoRelayIdleSec: &sec,
+	})
+}
+
+func registerIdleSession(t *testing.T, s *Server, sid string) {
+	t.Helper()
+	resp := do(t, s, http.MethodPost, "/v1/sessions", testToken, map[string]any{
+		"session_id": sid, "agent": "claude", "cwd": ".", "event": "SessionStart",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("register %s status=%d, want 200", sid, resp.StatusCode)
+	}
+	resp.Body.Close()
+}
+
+// heartbeatStop posts a Stop heartbeat carrying an idle reading and returns the
+// resulting view.
+func heartbeatStop(t *testing.T, s *Server, sid string, idleSec int64) sessionView {
+	t.Helper()
+	resp := do(t, s, http.MethodPost, "/v1/sessions/"+sid+"/heartbeat", testToken, map[string]any{
+		"event": "Stop", "last_message": "what next?", "idle_sec": idleSec,
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("heartbeat status=%d, want 200", resp.StatusCode)
+	}
+	var sv sessionView
+	decode(t, resp, &sv)
+	return sv
+}
+
+// TestSessionHeartbeatAutoArmsOnIdle walks the SR-A5 idle auto-arm contract: the
+// reported idle reading arms relay (threshold 300s) without anyone touching the
+// switch, an auto-armed wait can be opened and is released only when the hook
+// sees the human back, and an explicitly switched-on relay is never released
+// that way.
+func TestSessionHeartbeatAutoArmsOnIdle(t *testing.T) {
+	s := sessionAutoArmServer(t, 300)
+	registerIdleSession(t, s, "sid-idle")
+
+	// Away for 10 min → armed (relay itself stays off: the switch is the human's).
+	sv := heartbeatStop(t, s, "sid-idle", 600)
+	if !sv.AutoArmed || sv.Relay || sv.IdleSec != 600 {
+		t.Fatalf("idle 600 view=%+v, want auto_armed with relay off", sv)
+	}
+	// Just typed (10s) → not armed; unknown (-1) → never armed.
+	if sv = heartbeatStop(t, s, "sid-idle", 10); sv.AutoArmed {
+		t.Fatalf("idle 10 view=%+v, want not armed", sv)
+	}
+	if sv = heartbeatStop(t, s, "sid-idle", -1); sv.AutoArmed || sv.IdleSec != -1 {
+		t.Fatalf("idle -1 view=%+v, want unarmed unknown", sv)
+	}
+	// A heartbeat without a reading keeps the last one instead of clearing it.
+	resp := do(t, s, http.MethodPost, "/v1/sessions/sid-idle/heartbeat", testToken, map[string]any{
+		"event": "Notification",
+	})
+	decode(t, resp, &sv)
+	if sv.IdleSec != -1 {
+		t.Fatalf("beat without reading changed idle to %d", sv.IdleSec)
+	}
+
+	// Armed again → the Stop hook may open a turn even though relay is off.
+	heartbeatStop(t, s, "sid-idle", 600)
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-idle/turns", testToken, map[string]any{"body": "A or B?", "timeout_sec": 120})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("open turn on auto-armed session status=%d, want 200", resp.StatusCode)
+	}
+	var turn decisionView
+	decode(t, resp, &turn)
+	resp = do(t, s, http.MethodGet, "/v1/sessions/sid-idle", testToken, nil)
+	var detail struct {
+		Session sessionView `json:"session"`
+	}
+	decode(t, resp, &detail)
+	if detail.Session.State != "waiting_reply" {
+		t.Fatalf("auto-armed wait state=%s, want waiting_reply", detail.Session.State)
+	}
+	// Still away → the release request keeps the wait alive.
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-idle/turns/"+turn.ID+"/release", testToken, map[string]any{"idle_sec": 420})
+	var rel struct {
+		Released bool `json:"released"`
+	}
+	decode(t, resp, &rel)
+	if rel.Released {
+		t.Fatalf("release while still away must not fire")
+	}
+	// Human back at the keyboard → released, turn EXPIRED + tagged, session idle.
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-idle/turns/"+turn.ID+"/release", testToken, map[string]any{"idle_sec": 3})
+	decode(t, resp, &rel)
+	if !rel.Released {
+		t.Fatalf("release after user return must fire")
+	}
+	resp = do(t, s, http.MethodGet, "/v1/sessions/sid-idle", testToken, nil)
+	var after struct {
+		Session sessionView    `json:"session"`
+		Turns   []decisionView `json:"turns"`
+	}
+	decode(t, resp, &after)
+	if after.Session.State != "idle" {
+		t.Fatalf("state after release=%s, want idle", after.Session.State)
+	}
+	if len(after.Turns) != 1 || after.Turns[0].State != "EXPIRED" || after.Turns[0].ReleasedBy != "user_returned" {
+		t.Fatalf("turn after release=%+v, want EXPIRED released_by=user_returned", after.Turns)
+	}
+
+	// An EXPLICIT switch is not released by the idle reading (design SR-A5 §3):
+	// the human owns that switch, only they (or typing) turn it off.
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-idle/relay", testToken, map[string]any{"relay": true})
+	resp.Body.Close()
+	heartbeatStop(t, s, "sid-idle", 600)
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-idle/turns", testToken, map[string]any{"body": "still here?", "timeout_sec": 120})
+	var explicit decisionView
+	decode(t, resp, &explicit)
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-idle/turns/"+explicit.ID+"/release", testToken, map[string]any{"idle_sec": 1})
+	decode(t, resp, &rel)
+	if rel.Released {
+		t.Fatalf("explicit relay must not be released by the idle probe")
+	}
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-idle/say", testToken, map[string]string{"answer": "/off"})
+	resp.Body.Close()
+}
+
+// TestSessionAutoRelayDisabledByZero pins `session_auto_relay_idle_sec: 0`: no
+// idle reading ever arms relay, so a Stop with relay off stays a plain stop.
+func TestSessionAutoRelayDisabledByZero(t *testing.T) {
+	s := sessionAutoArmServer(t, 0)
+	registerIdleSession(t, s, "sid-noidle")
+
+	if sv := heartbeatStop(t, s, "sid-noidle", 9999); sv.AutoArmed {
+		t.Fatalf("auto-arm disabled but view=%+v", sv)
+	}
+	resp := do(t, s, http.MethodPost, "/v1/sessions/sid-noidle/turns", testToken, map[string]any{"body": "x"})
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("open turn with auto-arm disabled status=%d, want 409", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-noidle/turns/dec-nope/release", testToken, map[string]any{"idle_sec": 0})
+	var rel struct {
+		Released bool `json:"released"`
+	}
+	decode(t, resp, &rel)
+	if rel.Released {
+		t.Fatalf("release must be a no-op with auto-arm disabled")
+	}
+
+	// Unset threshold on a plain server falls back to the 5-minute default.
+	def := newTestServer(t, testToken, false)
+	registerIdleSession(t, def, "sid-def")
+	if sv := heartbeatStop(t, def, "sid-def", 600); !sv.AutoArmed {
+		t.Fatalf("default threshold should arm at idle 600: %+v", sv)
+	}
+	if sv := heartbeatStop(t, def, "sid-def", 299); sv.AutoArmed {
+		t.Fatalf("idle 299 below the 5-minute default must not arm: %+v", sv)
+	}
 }

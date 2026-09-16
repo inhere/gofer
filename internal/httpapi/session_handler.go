@@ -33,14 +33,23 @@ type sessionView struct {
 	LastSeenAt  int64  `json:"last_seen_at"`
 	StartedAt   int64  `json:"started_at"`
 	EndedAt     int64  `json:"ended_at,omitempty"`
+	// AutoArmed reports that the idle rule alone arms relay for this session
+	// (the human has been away for >= server.session_auto_relay_idle_sec) and
+	// IdleSec is the reading that decided it (-1 = unknown). The Stop hook blocks
+	// on Relay||AutoArmed; the web renders "auto (idle 12m)" from the pair.
+	AutoArmed bool  `json:"auto_armed"`
+	IdleSec   int64 `json:"idle_sec"`
 }
 
-func toSessionView(a jobstore.AgentSession) sessionView {
+// toSessionView projects a stored session; AutoArmed is derived from the relay
+// service's single policy (the store only keeps the raw idle reading).
+func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 	return sessionView{
 		SessionID: a.SessionID, Agent: a.Agent, ProjectKey: a.ProjectKey, Runner: a.Runner,
 		Cwd: a.Cwd, Title: a.Title, Transcript: a.Transcript, TmuxPane: a.TmuxPane,
 		State: a.State, Relay: a.Relay, TurnNo: a.TurnNo, LastMessage: a.LastMessage,
 		LastEvent: a.LastEvent, LastSeenAt: a.LastSeenAt, StartedAt: a.StartedAt, EndedAt: a.EndedAt,
+		AutoArmed: s.relay != nil && s.relay.AutoArmed(a), IdleSec: a.IdleSec,
 	}
 }
 
@@ -139,7 +148,7 @@ func (s *Server) handleRegisterSession(c *rux.Context) {
 		writeError(c, relayStatus(err), "register session failed", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, toSessionView(a))
+	c.JSON(http.StatusOK, s.toSessionView(a))
 }
 
 // handleListSessions lists sessions (GET /v1/sessions?project=&state=&agent=&cwd=&all=1).
@@ -169,7 +178,7 @@ func (s *Server) handleListSessions(c *rux.Context) {
 	}
 	out := make([]sessionView, 0, len(list))
 	for _, a := range list {
-		out = append(out, toSessionView(a))
+		out = append(out, s.toSessionView(a))
 	}
 	c.JSON(http.StatusOK, map[string]any{"sessions": out})
 }
@@ -192,7 +201,7 @@ func (s *Server) handleGetSession(c *rux.Context) {
 	for _, t := range d.Turns {
 		turns = append(turns, toDecisionView(*t))
 	}
-	c.JSON(http.StatusOK, map[string]any{"session": toSessionView(d.Session), "turns": turns})
+	c.JSON(http.StatusOK, map[string]any{"session": s.toSessionView(d.Session), "turns": turns})
 }
 
 // handleDeleteSession removes a registration (DELETE /v1/sessions/{sid}).
@@ -213,6 +222,10 @@ type sessionHeartbeatReq struct {
 	LastMessage string `json:"last_message,omitempty"`
 	Title       string `json:"title,omitempty"`
 	Injected    bool   `json:"injected,omitempty"`
+	// IdleSec is the OS input idle time in seconds (-1 = unknown), sent by the
+	// events that probe for it (Stop, Notification/idle_prompt). Omitted by
+	// older hooks: nil then means "no reading", NOT "the human is here".
+	IdleSec *int64 `json:"idle_sec,omitempty"`
 }
 
 // handleSessionHeartbeat applies a hook event (POST /v1/sessions/{sid}/heartbeat)
@@ -233,13 +246,13 @@ func (s *Server) handleSessionHeartbeat(c *rux.Context) {
 	}
 	a, err := s.relay.Heartbeat(c.Param("sid"), sessionrelay.HeartbeatInput{
 		Event: body.Event, State: body.State, LastMessage: body.LastMessage, Title: body.Title,
-		Injected: body.Injected,
+		Injected: body.Injected, IdleSec: body.IdleSec,
 	})
 	if err != nil {
 		writeError(c, relayStatus(err), "session heartbeat failed", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, toSessionView(a))
+	c.JSON(http.StatusOK, s.toSessionView(a))
 }
 
 type sessionRelayReq struct {
@@ -261,7 +274,7 @@ func (s *Server) handleSetSessionRelay(c *rux.Context) {
 		writeError(c, relayStatus(err), "set relay failed", err.Error())
 		return
 	}
-	c.JSON(http.StatusOK, toSessionView(a))
+	c.JSON(http.StatusOK, s.toSessionView(a))
 }
 
 type openTurnReq struct {
@@ -316,6 +329,32 @@ func (s *Server) handleWaitTurn(c *rux.Context) {
 		"relay":    st.Relay,
 		"decision": toDecisionView(st.Decision),
 	})
+}
+
+type sessionReleaseReq struct {
+	IdleSec int64 `json:"idle_sec"`
+}
+
+// handleReleaseTurn closes an auto-armed wait because the hook's fresh idle
+// reading says the human is back (POST /v1/sessions/{sid}/turns/{id}/release,
+// SR-A5). `released:false` is a normal answer meaning "keep waiting" (still
+// away, explicit relay, or the turn already settled) — the hook only stops
+// blocking when it gets true.
+func (s *Server) handleReleaseTurn(c *rux.Context) {
+	if !s.relayReady(c) {
+		return
+	}
+	var body sessionReleaseReq
+	if err := c.BindJSON(&body); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	released, err := s.relay.ReleaseTurn(c.Param("sid"), c.Param("id"), body.IdleSec)
+	if err != nil {
+		writeError(c, relayStatus(err), "release turn failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"released": released})
 }
 
 type sessionSayReq struct {

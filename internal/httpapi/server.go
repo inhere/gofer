@@ -300,6 +300,9 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 	}
 	if jobs != nil && jobs.Meta() != nil {
 		s.relay = sessionrelay.NewService(jobs.Meta())
+		// SR-A5: idle auto-arm threshold from server.session_auto_relay_idle_sec
+		// (unset ⇒ 5 min, explicit 0 ⇒ disabled).
+		s.relay.AutoArmIdleSec = serverCfg.EffectiveSessionAutoRelayIdleSec()
 		// job.Service is the outbound notifier (webhook queue + IM adapters).
 		s.relay.SetNotifier(jobs)
 	}
@@ -501,6 +504,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/sessions/{sid}/relay", s.handleSetSessionRelay)
 		r.POST("/sessions/{sid}/turns", s.handleOpenTurn)
 		r.GET("/sessions/{sid}/turns/{id}", s.handleWaitTurn)
+		r.POST("/sessions/{sid}/turns/{id}/release", s.handleReleaseTurn)
 		r.POST("/sessions/{sid}/say", s.handleSessionSay)
 
 		r.POST("/decisions", s.handleAskDecision)

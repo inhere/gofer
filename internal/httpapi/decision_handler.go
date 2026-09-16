@@ -30,6 +30,10 @@ type decisionView struct {
 	// both empty for a plain gofer_ask_human decision.
 	SessionID string `json:"session_id,omitempty"`
 	Kind      string `json:"kind,omitempty"`
+	// ReleasedBy marks a relay turn closed WITHOUT an answer (SR-A5,
+	// "user_returned"): the human came back to the keyboard, so the wait ended
+	// instead of being answered. Empty for answered / timed-out turns.
+	ReleasedBy string `json:"released_by,omitempty"`
 }
 
 func toDecisionView(d jobstore.PlanDecision) decisionView {
@@ -37,7 +41,7 @@ func toDecisionView(d jobstore.PlanDecision) decisionView {
 		ID: d.ID, PlanID: d.PlanID, Title: d.Title, Question: d.Question,
 		Answer: d.Answer, State: d.State, TimeoutSec: d.TimeoutSec,
 		AskedAt: d.AskedAt, AnsweredAt: d.AnsweredAt, AnsweredBy: d.AnsweredBy,
-		SessionID: d.SessionID, Kind: d.Kind,
+		SessionID: d.SessionID, Kind: d.Kind, ReleasedBy: d.ReleasedBy,
 	}
 	if d.OptionsJSON != "" {
 		// options_json is written only by InsertDecision from validated input;

@@ -329,6 +329,31 @@ type ServerConfig struct {
 	// fails the in-flight jobs at once — the pre-RECOV-01 behaviour). Same
 	// unset≠zero reasoning as WebEnabled. See Config.JobRecoverWindow.
 	JobRecoverWindowSec *int `yaml:"job_recover_window_sec,omitempty"`
+	// SessionAutoRelayIdleSec is the idle auto-arm threshold in seconds for the
+	// terminal session relay (SR-A5): when the hooks report that the machine has
+	// seen no keyboard/mouse input for at least this long, a stopping agent
+	// session blocks for a web reply even though nobody flipped its relay switch
+	// (and the wait is released as soon as the human is back). A POINTER so unset
+	// (nil → DefaultSessionAutoRelayIdleSec, 5 min) is distinguishable from an
+	// explicit `session_auto_relay_idle_sec: 0`, which turns auto-arming OFF —
+	// the explicit per-session switch is then the only gate, exactly as before
+	// this feature. Same unset≠zero reasoning as JobRecoverWindowSec.
+	SessionAutoRelayIdleSec *int `yaml:"session_auto_relay_idle_sec,omitempty"`
+}
+
+// DefaultSessionAutoRelayIdleSec is the idle-detection auto-arm threshold used
+// when server.session_auto_relay_idle_sec is unset: 5 minutes away from the
+// keyboard is long enough to mean "not coming back in a moment".
+const DefaultSessionAutoRelayIdleSec = 300
+
+// EffectiveSessionAutoRelayIdleSec resolves the idle auto-arm threshold
+// (seconds) for the session relay: the configured value when set, else the
+// default. 0 = auto-arming disabled (never falls back to the default).
+func (sc *ServerConfig) EffectiveSessionAutoRelayIdleSec() int {
+	if sc == nil || sc.SessionAutoRelayIdleSec == nil {
+		return DefaultSessionAutoRelayIdleSec
+	}
+	return *sc.SessionAutoRelayIdleSec
 }
 
 // GovernanceConfig is the E17 global fallback for per-caller quotas (design
