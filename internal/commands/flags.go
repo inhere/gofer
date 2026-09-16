@@ -1,6 +1,8 @@
 package commands
 
 import (
+	"fmt"
+
 	"github.com/gookit/gcli/v3"
 
 	"github.com/inhere/gofer/internal/config"
@@ -23,4 +25,17 @@ import (
 // config.Load("") falls through env GOFER_CONFIG → the discovery chain (D-A2).
 func bindConfigFlag(c *gcli.Command) {
 	c.StrOpt(&config.InputCfgFile, "config", "c", "", "path to the gofer config file")
+}
+
+// clientModeRefusal is the uniform refusal for a command that needs a LOCAL gofer
+// config (serve a node, run a worker, edit/validate a config file, add/remove a
+// project, run mcp in-process) when the node is a pure client
+// (GOFER_RUN_MODE=client). Such a node has no local config by design, so the
+// command would either fail confusingly or silently do nothing useful — say what
+// was refused and where the same command DOES work.
+//
+// what names the refused local action, e.g. "project add/remove edits a local
+// config"; the remedy is invariant, so it stays in the helper.
+func clientModeRefusal(what string) error {
+	return fmt.Errorf("run mode is client: %s; unset GOFER_RUN_MODE or use server/worker on that node", what)
 }

@@ -265,6 +265,12 @@ func runningWorkerIDs() ([]string, error) {
 }
 
 func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
+	// A worker is a local node with its own worker.yaml (roots/projects to run);
+	// a client node has no such config, so refuse before the daemon re-exec instead
+	// of failing later with "worker.yaml not found".
+	if config.IsClientRunMode() {
+		return clientModeRefusal("worker runs a local node from worker.yaml")
+	}
 	wc, err := loadWorkerConfig(workerOpts.config)
 	if err != nil {
 		return errorx.Failf(workerExitErr, "%v", err)

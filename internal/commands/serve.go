@@ -76,6 +76,11 @@ func runServeStop(c *gcli.Command, _ []string) error {
 // assembly, sweeper/probe/reload loops, httpapi). The command layer keeps only
 // flag binding + config loading + the thin call.
 func runServe(c *gcli.Command, _ []string, info buildinfo.Info) error {
+	// A client node owns no config to serve (and must not start a second control
+	// plane next to the remote one it talks to): refuse before the daemon re-exec.
+	if config.IsClientRunMode() {
+		return clientModeRefusal("serve starts a local server from a local config")
+	}
 	// -d/--daemon: the parent re-execs itself detached, prints the child pid and
 	// returns; the detached child re-enters runServe with daemon.Daemonized()==true
 	// and runs the real server below (c44). A second start is refused when a live

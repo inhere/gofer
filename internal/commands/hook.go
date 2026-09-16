@@ -87,6 +87,10 @@ func runHook(c *gcli.Command, _ []string) error {
 
 // resolveHookRunner picks the runner label for registration: the flag/env
 // wins; in worker mode the worker.yaml worker_id; else "server".
+//
+// Client mode (GOFER_RUN_MODE=client) deliberately takes the "server" branch: a
+// client node has no worker.yaml (only the config dir + .env), so there is no local
+// worker id to report and nothing beyond the config dir is read.
 func resolveHookRunner(flag string) string {
 	if v := strings.TrimSpace(flag); v != "" {
 		return v

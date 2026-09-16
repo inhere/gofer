@@ -267,12 +267,67 @@ func (c *Client) ListJobs(opts job.ListOpts) ([]job.JobResult, error) {
 // ProjectMeta is one project as the server exposes it via /v1/meta (key +
 // allowlists + default agent). It carries no host_path (that is a server-side
 // filesystem path; the meta endpoint omits it). Used by `project list --remote`
-// (E38②) and shared with the mcp client mode / worker init (E28/E37).
+// (E38②) and shared with the mcp client mode / worker init (E28/E37), plus the
+// client-mode `project show/validate` (C2).
 type ProjectMeta struct {
 	Key            string   `json:"key"`
 	AllowedAgents  []string `json:"allowed_agents,omitempty"`
 	AllowedRunners []string `json:"allowed_runners,omitempty"`
 	DefaultAgent   string   `json:"default_agent,omitempty"`
+	// AllowInteractive / AllowExec mirror the server's admission gates that are
+	// independent of the allowlists (web console parity); WorkerOnly marks a project
+	// that exists ONLY on an online worker (no host config), which is why it has no
+	// host_path and carries empty allowlists.
+	AllowInteractive bool `json:"allow_interactive"`
+	AllowExec        bool `json:"allow_exec"`
+	WorkerOnly       bool `json:"worker_only,omitempty"`
+}
+
+// MetaAgent is one agent from the server's /v1/meta aggregate: its key/type plus the
+// AGT-02 capability bits (batch = submittable as a plain job, interactive = has an
+// interactive argv). Unlike AgentMeta (/v1/agents) it carries no availability probe —
+// /v1/meta answers what is DEFINED, which is what a client node's `agent list` shows.
+type MetaAgent struct {
+	Key         string `json:"key"`
+	Type        string `json:"type"`
+	Batch       bool   `json:"batch"`
+	Interactive bool   `json:"interactive,omitempty"`
+}
+
+// MetaRunner is one runner row from /v1/meta (name + type, plus the worker id a
+// worker runner is pinned to in the server config).
+type MetaRunner struct {
+	Name     string `json:"name"`
+	Type     string `json:"type"`
+	WorkerID string `json:"worker_id,omitempty"`
+}
+
+// Meta is the server's read-only form-options aggregate (GET /v1/meta): the one
+// authed round trip a config-less client node needs to answer what the server has.
+type Meta struct {
+	Projects []ProjectMeta `json:"projects"`
+	Agents   []MetaAgent   `json:"agents"`
+	Runners  []MetaRunner  `json:"runners"`
+}
+
+// Meta fetches the server's projects/agents/runners aggregate (GET /v1/meta).
+func (c *Client) Meta() (Meta, error) {
+	var out Meta
+	if err := c.doJSON(http.MethodGet, "/v1/meta", nil, &out); err != nil {
+		return Meta{}, err
+	}
+	return out, nil
+}
+
+// ListProjects returns the server's live projects (GET /v1/meta → projects). It
+// is the remote counterpart to reading the local config's projects, so a node
+// (esp. a worker) can see what the SERVER has registered.
+func (c *Client) ListProjects() ([]ProjectMeta, error) {
+	m, err := c.Meta()
+	if err != nil {
+		return nil, err
+	}
+	return m.Projects, nil
 }
 
 // Schedule is the client-side view of /v1/schedules. It mirrors the HTTP wire
@@ -302,19 +357,6 @@ type CreateScheduleRequest struct {
 	Request  job.JobRequest `json:"request"`
 	Enabled  *bool          `json:"enabled,omitempty"`
 	CatchUp  *bool          `json:"catch_up,omitempty"`
-}
-
-// ListProjects returns the server's live projects (GET /v1/meta → projects). It
-// is the remote counterpart to reading the local config's projects, so a node
-// (esp. a worker) can see what the SERVER has registered.
-func (c *Client) ListProjects() ([]ProjectMeta, error) {
-	var resp struct {
-		Projects []ProjectMeta `json:"projects"`
-	}
-	if err := c.doJSON(http.MethodGet, "/v1/meta", nil, &resp); err != nil {
-		return nil, err
-	}
-	return resp.Projects, nil
 }
 
 // CreateSchedule creates a cron schedule via POST /v1/schedules.

@@ -355,6 +355,11 @@ var configEditors = []string{"code", "vim", "nano"}
 // when you most need to edit it — so it only resolves the path. When no config is
 // found it tells the operator to scaffold one first (gofer init).
 func runConfigEdit(c *gcli.Command, _ []string) error {
+	// Nothing to open: a client node keeps only the connection env, and the file it
+	// would want to edit (its .env) is not a gofer config at all.
+	if config.IsClientRunMode() {
+		return clientModeRefusal("config edit opens a local config")
+	}
 	path, err := config.Resolve(config.InputCfgFile)
 	if err != nil {
 		return errorx.Failf(configExitErr, "%v", err)
@@ -638,6 +643,11 @@ func boolPtrStr(b *bool) string {
 // config; `worker` validates a worker.yaml. Backward compatible — a bare
 // `gofer config validate` still validates the server config.
 func runConfigValidate(c *gcli.Command, _ []string) error {
+	// Both targets are LOCAL configs (config.yaml / worker.yaml); a client node has
+	// neither, so there is nothing to validate here — the server owns the config.
+	if config.IsClientRunMode() {
+		return clientModeRefusal("config validate checks a local config")
+	}
 	target := "server"
 	if a := c.Arg("target"); a != nil && a.String() != "" {
 		target = strings.ToLower(a.String())

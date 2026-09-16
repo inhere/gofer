@@ -108,7 +108,15 @@ func runMcp(_ *gcli.Command, _ []string) error {
 
 	// D1: client mode — thin client forwarding to a central serve. No Core/DB is
 	// built (root-causes the standalone multi-process SQLite write-lock risk).
-	if mcpUseClient(mcpOpts.standalone, jobConnOpts.server) {
+	useClient := mcpUseClient(mcpOpts.standalone, jobConnOpts.server)
+	if !useClient && config.IsClientRunMode() {
+		// The standalone path builds a Core from a LOCAL config, which a client node
+		// does not have (it would come up with an empty registry). Point at the two
+		// ways out: drop the role, or give mcp a server to forward to.
+		return errorx.Failf(mcpExitErr, "%v", clientModeRefusal(
+			"mcp --standalone runs jobs in-process from a local config"))
+	}
+	if useClient {
 		cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 		if err != nil {
 			return errorx.Failf(mcpExitErr, "%v", err)

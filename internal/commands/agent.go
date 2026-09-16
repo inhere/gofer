@@ -14,6 +14,7 @@ import (
 
 var agentListOpts struct {
 	runner string
+	local  bool
 }
 
 // NewAgentCmd builds the `agent` command group (list/detect/show). P3 logic.
@@ -26,12 +27,13 @@ func NewAgentCmd() *gcli.Command {
 		Subs: []*gcli.Command{
 			{
 				Name:    "list",
-				Desc:    "List configured agents",
+				Desc:    "List agents: the server's agents by default in client mode, else the local config's",
 				Aliases: []string{"ls"},
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
-					c.StrOpt(&agentListOpts.runner, "runner", "", "", "list source: server/local or a configured runner id (default: local config)")
+					c.StrOpt(&agentListOpts.runner, "runner", "", "", "list source: server/local or a configured runner id (default: local config, or the server when GOFER_RUN_MODE=client)")
+					c.BoolOpt(&agentListOpts.local, "local", "", false, "force the LOCAL agent registry (built-in templates) even in client mode")
 				},
 				Func: runAgentList,
 			},
@@ -74,9 +76,17 @@ func loadAgentRegistry(explicitPath string) (*agent.Registry, error) {
 	return agent.NewRegistry(cfg), nil
 }
 
+// runAgentList lists agents. Source precedence: an explicit --runner (server / a
+// configured runner id) wins; then, on a client node (GOFER_RUN_MODE=client, no
+// local config) the SERVER's agents; otherwise the local registry. --local forces
+// the local registry, so a client node can still inspect the built-in templates
+// (what a bare `gofer` binary ships, independent of the server).
 func runAgentList(c *gcli.Command, _ []string) error {
 	if source := strings.TrimSpace(agentListOpts.runner); source != "" {
 		return runAgentListRemote(c, source)
+	}
+	if config.IsClientRunMode() && !agentListOpts.local {
+		return runAgentListMeta(c)
 	}
 	reg, err := loadAgentRegistry(config.InputCfgFile)
 	if err != nil {
@@ -94,6 +104,30 @@ func runAgentList(c *gcli.Command, _ []string) error {
 			command = "-"
 		}
 		c.Printf("%-12s type=%-10s command=%s\n", name, ac.Type, command)
+	}
+	return nil
+}
+
+// runAgentListMeta lists the SERVER's agents from /v1/meta (client mode default).
+// /v1/meta is used rather than /v1/agents because it carries the AGT-02 capability
+// bits (batch/interactive) — which decide whether an agent can be submitted as a
+// plain job or with --interactive — without paying for the availability probe a
+// listing does not need.
+func runAgentListMeta(c *gcli.Command) error {
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	m, err := cli.Meta()
+	if err != nil {
+		return err
+	}
+	if len(m.Agents) == 0 {
+		c.Println("(no agents on server)")
+		return nil
+	}
+	for _, a := range m.Agents {
+		c.Printf("%-12s type=%-10s batch=%-5v interactive=%v\n", a.Key, a.Type, a.Batch, a.Interactive)
 	}
 	return nil
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/gookit/gcli/v3"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/worker"
@@ -47,12 +48,12 @@ func NewProjectCmd() *gcli.Command {
 		Subs: []*gcli.Command{
 			{
 				Name:    "list",
-				Desc:    "List projects: local config by GOFER_RUN_MODE (server→config.yaml / worker→worker.yaml), or --remote for the server's live projects",
+				Desc:    "List projects: local config by GOFER_RUN_MODE (server→config.yaml / worker→worker.yaml), or the server's live projects (--remote; always in client mode)",
 				Aliases: []string{"ls"},
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c) // for --remote (shares jobConnOpts + GOFER_SERVER_* env)
-					c.BoolOpt(&projectListOpts.remote, "remote", "", false, "list the server's live projects via API (GET /v1/meta) instead of local config")
+					c.BoolOpt(&projectListOpts.remote, "remote", "", false, "list the server's live projects via API (GET /v1/meta) instead of local config (the default when GOFER_RUN_MODE=client)")
 				},
 				Func: runProjectList,
 			},
@@ -142,9 +143,11 @@ func loadRegistry(explicitPath string) (*project.Registry, error) {
 
 // runProjectList lists projects. Default: the LOCAL config matching the node role
 // (GOFER_RUN_MODE — server→config.yaml / worker→worker.yaml). With --remote it
-// queries the server's live projects via API instead (E38②).
+// queries the server's live projects via API instead (E38②) — which is also the
+// only thing a client node (GOFER_RUN_MODE=client, no local config) can list, so
+// there --remote is the default.
 func runProjectList(c *gcli.Command, _ []string) error {
-	if projectListOpts.remote {
+	if projectListOpts.remote || config.IsClientRunMode() {
 		return runProjectListRemote(c)
 	}
 	projs, src, err := localProjects()
@@ -252,10 +255,156 @@ func runProjectListRemote(c *gcli.Command) error {
 	return nil
 }
 
+// clientMeta fetches the server's form-options aggregate for a client node
+// (GOFER_RUN_MODE=client), which has no local config to answer `project show` /
+// `project validate` from. Connection flags/env are the shared jobConnOpts, i.e.
+// exactly what `--remote` uses.
+func clientMeta() (client.Meta, error) {
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return client.Meta{}, err
+	}
+	return cli.Meta()
+}
+
+// findMetaProject picks one project out of the server's list.
+func findMetaProject(projs []client.ProjectMeta, key string) (client.ProjectMeta, bool) {
+	for _, p := range projs {
+		if p.Key == key {
+			return p, true
+		}
+	}
+	return client.ProjectMeta{}, false
+}
+
+// runProjectShowRemote renders a project from the SERVER's view (client mode). The
+// path fields of the local view (host_path / container_path / exchange / result
+// subdir) are deliberately absent: they are filesystem paths on the SERVER, and
+// /v1/meta does not expose them — printing placeholders for them would invent data.
+func runProjectShowRemote(c *gcli.Command, key string) error {
+	m, err := clientMeta()
+	if err != nil {
+		return err
+	}
+	p, ok := findMetaProject(m.Projects, key)
+	if !ok {
+		return fmt.Errorf("unknown project %q on the server", key)
+	}
+	c.Printf("key:               %s\n", p.Key)
+	c.Printf("default_agent:     %s\n", dashIfEmpty(p.DefaultAgent))
+	c.Printf("allowed_agents:    %v\n", p.AllowedAgents)
+	c.Printf("allowed_runners:   %v\n", p.AllowedRunners)
+	c.Printf("allow_exec:        %v\n", p.AllowExec)
+	c.Printf("allow_interactive: %v\n", p.AllowInteractive)
+	c.Printf("worker_only:       %v\n", p.WorkerOnly)
+	c.Println("source:            server (GET /v1/meta; client mode has no local config)")
+	return nil
+}
+
+// runProjectValidateRemote validates a project against the SERVER's view (client
+// mode): the project exists, every agent it names is defined there, and every
+// runner it allows is one the server offers. The local validate's filesystem checks
+// (host_path / exchange / result dirs) stay out on purpose — a client node cannot
+// see the server's disk, so reporting them as OK/FAIL here would be a lie.
+func runProjectValidateRemote(c *gcli.Command, key string) error {
+	m, err := clientMeta()
+	if err != nil {
+		return err
+	}
+	p, ok := findMetaProject(m.Projects, key)
+	if !ok {
+		return fmt.Errorf("unknown project %q on the server", key)
+	}
+
+	agents := make(map[string]struct{}, len(m.Agents))
+	for _, a := range m.Agents {
+		agents[a.Key] = struct{}{}
+	}
+	runners := make(map[string]struct{}, len(m.Runners))
+	for _, r := range m.Runners {
+		runners[r.Name] = struct{}{}
+	}
+
+	var results []project.CheckResult
+	ok = true
+	add := func(name string, pass bool, info string) {
+		results = append(results, project.CheckResult{Name: name, OK: pass, Info: info})
+		if !pass {
+			ok = false
+		}
+	}
+
+	add("project on server", true, key)
+	if p.WorkerOnly {
+		// The host cannot run it; only a submit targeting that worker can. Say so
+		// rather than leaving the empty allowlists looking suspicious.
+		add("scope", true, "worker-only project (defined on a worker, not on the server host)")
+	}
+	if p.DefaultAgent == "" {
+		add("default_agent", true, "none")
+	} else {
+		_, defined := agents[p.DefaultAgent]
+		add("default_agent", defined, agentCheckInfo(p.DefaultAgent, defined))
+	}
+	missingAgents := missingNames(p.AllowedAgents, agents)
+	add("allowed_agents", len(missingAgents) == 0, allowlistInfo(p.AllowedAgents, missingAgents, "all agents (no allowlist)"))
+	missingRunners := missingNames(p.AllowedRunners, runners)
+	add("allowed_runners", len(missingRunners) == 0, allowlistInfo(p.AllowedRunners, missingRunners, "all runners (no allowlist)"))
+
+	for _, res := range results {
+		status := "OK  "
+		if !res.OK {
+			status = "FAIL"
+		}
+		c.Printf("[%s] %-22s %s\n", status, res.Name, res.Info)
+	}
+	if !ok {
+		return fmt.Errorf("project %q validation failed (server view)", key)
+	}
+	c.Printf("project %q is valid (server view; filesystem checks run on the server)\n", key)
+	return nil
+}
+
+// missingNames returns the names of want that are absent from have (nil when all
+// are present), preserving want's order so the message reads like the config.
+func missingNames(want []string, have map[string]struct{}) []string {
+	var missing []string
+	for _, name := range want {
+		if _, ok := have[name]; !ok {
+			missing = append(missing, name)
+		}
+	}
+	return missing
+}
+
+// agentCheckInfo renders the default_agent check's detail.
+func agentCheckInfo(name string, defined bool) string {
+	if !defined {
+		return name + " (not defined on the server)"
+	}
+	return name + " (defined)"
+}
+
+// allowlistInfo renders an allowlist check's detail: the configured names, or the
+// "no allowlist = everything allowed" reading, plus what is missing from the server.
+func allowlistInfo(want, missing []string, emptyInfo string) string {
+	if len(want) == 0 {
+		return emptyInfo
+	}
+	info := strings.Join(want, ",")
+	if len(missing) > 0 {
+		info += " — not on the server: " + strings.Join(missing, ",")
+	}
+	return info
+}
+
 func runProjectShow(c *gcli.Command, _ []string) error {
 	key := argKey(c)
 	if key == "" {
 		return fmt.Errorf("project show requires a <key> argument")
+	}
+	if config.IsClientRunMode() {
+		return runProjectShowRemote(c, key)
 	}
 	reg, err := loadRegistry(config.InputCfgFile)
 	if err != nil {
@@ -279,6 +428,11 @@ func runProjectShow(c *gcli.Command, _ []string) error {
 }
 
 func runProjectAdd(c *gcli.Command, _ []string) error {
+	// A client node has no local config to add the project TO (that is the whole
+	// point of the role); the project belongs on the server/worker that will run it.
+	if config.IsClientRunMode() {
+		return clientModeRefusal("project add/remove edits a local config")
+	}
 	// -i: interactively register the current directory, prompting for the fields
 	// (key defaults to the cwd dir name, host_path is the cwd). Non-interactive
 	// behaviour below is unchanged.
@@ -398,6 +552,9 @@ func splitCSV(s string) []string {
 }
 
 func runProjectRemove(c *gcli.Command, _ []string) error {
+	if config.IsClientRunMode() {
+		return clientModeRefusal("project add/remove edits a local config")
+	}
 	key := argKey(c)
 	if key == "" {
 		return fmt.Errorf("project remove requires a <key> argument")
@@ -417,6 +574,9 @@ func runProjectValidate(c *gcli.Command, _ []string) error {
 	key := argKey(c)
 	if key == "" {
 		return fmt.Errorf("project validate requires a <key> argument")
+	}
+	if config.IsClientRunMode() {
+		return runProjectValidateRemote(c, key)
 	}
 	reg, err := loadRegistry(config.InputCfgFile)
 	if err != nil {
