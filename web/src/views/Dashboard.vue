@@ -12,6 +12,7 @@ const online = ref(false)
 
 const jobStatuses: JobStatus[] = [
   'running',
+  'recovering', // RECOV-01：worker 断线 held 中（非终态）
   'pending_interaction',
   'queued',
   'done',

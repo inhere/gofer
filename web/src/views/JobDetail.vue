@@ -1095,6 +1095,11 @@ onUnmounted(() => {
       <div class="meta-item">
         <span class="meta-k mono">started</span><span class="meta-v mono">{{ fmtTime(job.started_at) }}</span>
       </div>
+      <!-- RECOV-01：worker 断线后 job 被 held 在 recovering；显示进入该状态的时刻（0/缺省不渲染） -->
+      <div v-if="job.recovering_since" class="meta-item">
+        <span class="meta-k mono">recovering_since</span>
+        <span class="meta-v mono">{{ fmtTime(job.recovering_since) }}</span>
+      </div>
       <div class="meta-item">
         <span class="meta-k mono">duration</span><span class="meta-v mono">{{ durationText }}</span>
       </div>

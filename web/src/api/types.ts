@@ -8,6 +8,9 @@ export type JobStatus =
   | 'failed'
   | 'cancelled'
   | 'timeout'
+  // RECOV-01：worker 连接断开后 job 被 held（非终态），等同一 worker 进程在窗口内重连续接；
+  // 窗口超时/换实例 → failed(worker_lost)。枚举尾部追加，与后端 job.StatusRecovering 对齐。
+  | 'recovering'
 
 export interface Job {
   id: string
@@ -29,6 +32,9 @@ export interface Job {
   // Unix 秒（后端 int64）
   started_at: number
   ended_at?: number
+  // RECOV-01：进入 recovering 的 unix 秒（后端 omitempty，0/缺省=不在 recovering）。详情页据此
+  // 展示 job 在等 worker 重连了多久。
+  recovering_since?: number
   error?: string
   // 产出与审计（job-outcomes-audit）：均为 JSON 字符串，前端 JSON.parse。
   // 渲染命令 {command,args,env_keys}（E15，后端 omitempty）。

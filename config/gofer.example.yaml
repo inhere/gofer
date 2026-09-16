@@ -32,6 +32,15 @@ server:
   #                         # requested_timeout_sec/timeout_clamped, CLI 提交时在 stderr 打
   #                         # warning, `job show` 显示生效 timeout. 长任务(如 2h 构建)把它调大,
   #                         # 或只给某个项目写 max_timeout_sec 覆盖. 0/未写 = 3600.
+  #
+  # job_recover_window_sec: 120  # RECOV-01(worker 断线恢复)窗口(秒), 默认 120s. worker 连接抖动
+  #                         # 时, 它的 in-flight job 不再立刻 failed, 而是 held 在非终态的
+  #                         # `recovering`(黄)这么久, 等【同一个 worker 进程】(instance_id 不变)
+  #                         # 重连: 仍持有该 job → 回到 running, 日志按 server 已落盘偏移续传,
+  #                         # 断线期间完成的结果重连后补发; 窗口超时或连上来的是新进程 →
+  #                         # failed(error 为 `worker lost …`). 显式写 0 = 关闭恢复(旧的
+  #                         # 立即失败行为). 未写(nil) = 120. 注意: 这是 server 侧开关, 改它需
+  #                         # 重启 serve(SIGHUP 只换阈值类配置, 不重挂该窗口).
 
   # callers: multi-caller auth (C2). Each entry maps a bearer token to a caller
   # id stamped onto submitted jobs (audit / per-caller filtering). The legacy

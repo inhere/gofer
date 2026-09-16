@@ -846,6 +846,10 @@ const STATUS_COLOR: Record<JobStatus, string> = {
   timeout: 'var(--fail)',
   queued: 'var(--queue)',
   cancelled: 'var(--queue)',
+  // RECOV-01 recovering：黄色（设计要求的「recovering 黄」）。复用 --run 的琥珀色而不新增
+  // token：--run 就是"job 仍由 worker 持有、还没结束"的活信号色，两个几乎一样的黄只会让
+  // 调度板上多一个看不出区别的色值；区分靠徽标文案与信号形态（见 StatusBadge/Signal）。
+  recovering: 'var(--run)',
 }
 
 export function statusColor(status: JobStatus): string {

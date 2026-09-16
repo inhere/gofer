@@ -309,9 +309,12 @@ func (s *Store) GetJobByRequestID(reqID string) (JobRecord, bool, error) {
 	return rec, true, nil
 }
 
-// nonTerminalJobStatuses are the live states a job can be left in by a serve that
-// died / restarted mid-flight. Mirrors the job package's non-terminal set (the
-// complement of terminalStatuses). Kept local so jobstore never imports job.
+// nonTerminalJobStatuses are the live states a LOCAL job can be left in by a serve
+// that died / restarted mid-flight — exactly the ones ReconcileOrphanJobs fails
+// outright, because no in-process orchestration survived to ever finish them. It
+// deliberately excludes `recovering`: only a WORKER job ever enters that state, and
+// such jobs are held (not failed) via orphanWorkerJobStatuses instead. Kept local so
+// jobstore never imports job.
 var nonTerminalJobStatuses = []string{"queued", "running"}
 
 // activeJobStatuses are the states a daemon-style job passes through while alive.
@@ -366,15 +369,61 @@ func (s *Store) CountJobsByStatus() (map[string]int, error) {
 	return out, nil
 }
 
-// ReconcileOrphanJobs marks every job still in a non-terminal state as failed — the
-// crash-recovery backstop (mirrors ReconcileOrphanInteractions). A job left
-// "queued"/"running" in the store by a previous serve instance can never reach a
-// real terminal state on its own: the in-memory orchestration that drove it (the
-// dispatch entry / worker sink) did not survive the restart, so even a worker that
-// keeps executing has nowhere to report back. Run ONCE at serve startup, before new
-// work is accepted, so the in-memory map is empty and no live job can be misclassified.
-// ts stamps ended_at/updated_at; reason is recorded in the error column. Returns rows fixed.
+// orphanWorkerJobStatuses are the states a WORKER job can be left in by a serve
+// process that died / restarted mid-flight: the two live states, plus `recovering`
+// itself — a row held by an earlier run of the recovery window whose serve then
+// died too. Those are re-held (window re-armed by the caller) rather than left
+// stranded, so the re-armed window still ends them.
+var orphanWorkerJobStatuses = []string{"queued", "running", "recovering"}
+
+// ReconcileOrphanJobs resolves every job left non-terminal by a previous serve
+// instance — the crash-recovery backstop (mirrors ReconcileOrphanInteractions).
+// Run ONCE at serve startup, before new work is accepted, so the in-memory job map
+// is empty and no live job can be misclassified. Two outcomes (RECOV-01):
+//
+//   - worker job (non-empty worker_id): held in `recovering` with recovering_since=ts
+//     and an explanatory error. The worker process may still be RUNNING the job
+//     (its job.Service is process-scoped, so a worker-side job survives a hub
+//     blip), and serve arms the recovery window so a same-instance reconnect can
+//     prove it and resume. NOTE: the hub CANNOT adopt these jobs — the in-memory
+//     sink/runner that drove them died with the previous serve, and the hub's
+//     recovery set is built from live connections only. So the window only DEFERS
+//     the failure: whatever the worker does, these rows end failed via
+//     FailRecoveringJobs unless a future change teaches the hub to adopt store-held
+//     recovering jobs (follow-up). Holding them is still strictly better than
+//     failing at once: the window is exactly the time the worker needs to finish
+//     and report its real outcome through a normal re-dispatch.
+//   - every other non-terminal job (local runner / peer, `worker_id` empty or NULL):
+//     failed, as before — its in-process state really is gone.
+//
+// ts stamps updated_at (+ ended_at on the failed rows); reason is recorded in the
+// error column (the recovering rows prefix it and append the worker id). Returns the
+// total rows touched (held + failed), so the caller's startup log reports both.
 func (s *Store) ReconcileOrphanJobs(ts int64, reason string) (int, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	// 1) Hold worker jobs in `recovering` for the (re-armed) recovery window.
+	heldPlaceholders := strings.TrimSuffix(strings.Repeat("?,", len(orphanWorkerJobStatuses)), ",")
+	heldQ := `UPDATE jobs SET status = 'recovering', recovering_since = ?, error = ? || worker_id, updated_at = ?
+  WHERE worker_id <> '' AND status IN (` + heldPlaceholders + `)`
+	heldArgs := make([]any, 0, len(orphanWorkerJobStatuses)+3)
+	heldArgs = append(heldArgs, ts, "recovering: "+reason+" — awaiting worker ", ts)
+	for _, st := range orphanWorkerJobStatuses {
+		heldArgs = append(heldArgs, st)
+	}
+	heldRes, err := s.db.Exec(heldQ, heldArgs...)
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: hold orphan worker jobs: %w", err)
+	}
+	held, err := heldRes.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: hold orphan worker jobs rows: %w", err)
+	}
+
+	// 2) Fail every remaining non-terminal job (local/peer: no state survived the
+	// restart). A worker row held in step 1 is now `recovering`, which is NOT in
+	// nonTerminalJobStatuses, so it is not touched again here.
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(nonTerminalJobStatuses)), ",")
 	q := `UPDATE jobs SET status = 'failed', error = ?, ended_at = ?, updated_at = ?
   WHERE status IN (` + placeholders + `)`
@@ -383,8 +432,6 @@ func (s *Store) ReconcileOrphanJobs(ts int64, reason string) (int, error) {
 	for _, st := range nonTerminalJobStatuses {
 		args = append(args, st)
 	}
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
 	res, err := s.db.Exec(q, args...)
 	if err != nil {
 		return 0, fmt.Errorf("jobstore: reconcile orphan jobs: %w", err)
@@ -392,6 +439,28 @@ func (s *Store) ReconcileOrphanJobs(ts int64, reason string) (int, error) {
 	n, err := res.RowsAffected()
 	if err != nil {
 		return 0, fmt.Errorf("jobstore: reconcile orphan jobs rows: %w", err)
+	}
+	return int(held) + int(n), nil
+}
+
+// FailRecoveringJobs fails every job still held in `recovering`: its reconnect
+// window elapsed (or no window was armed at all) without the worker coming back, so
+// the job can never reach a real terminal state. Called by serve when the RECOV-01
+// window armed by ReconcileOrphanJobs expires. ts stamps ended_at/updated_at; reason
+// (which should name the cause, e.g. "worker lost") goes in the error column so
+// CLI/web show WHY the job ended. Returns rows failed.
+func (s *Store) FailRecoveringJobs(ts int64, reason string) (int, error) {
+	q := `UPDATE jobs SET status = 'failed', error = ?, ended_at = ?, updated_at = ?
+  WHERE status = 'recovering'`
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(q, reason, ts, ts)
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: fail recovering jobs: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: fail recovering jobs rows: %w", err)
 	}
 	return int(n), nil
 }

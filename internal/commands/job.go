@@ -179,7 +179,7 @@ func NewJobCmd() *gcli.Command {
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.StrOpt(&jobListOpts.project, "project", "p", "", "filter by project key")
-					c.StrOpt(&jobListOpts.status, "status", "", "", "filter by status (queued/running/done/failed/cancelled/timeout)")
+					c.StrOpt(&jobListOpts.status, "status", "", "", "filter by status (queued/running/recovering/done/failed/cancelled/timeout)")
 					c.StrOpt(&jobListOpts.caller, "caller", "", "", "filter by caller id")
 					c.StrOpt(&jobListOpts.tag, "tag", "", "", "filter by tag (exact element match)")
 					c.StrOpt(&jobListOpts.agent, "agent", "a", "", "filter by agent key")
@@ -614,6 +614,11 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	c.Printf("timeout:    %ds\n", res.TimeoutSec)
 	if res.TimeoutClamped {
 		c.Printf("            (requested %ds, clamped to the project ceiling)\n", res.RequestedTimeoutSec)
+	}
+	// RECOV-01：worker 断线后台 job 被 held 在 recovering（同实例重连→running，窗口超时→
+	// failed/worker_lost）。打印进入 recovering 的时刻（本地时间），与 list 的 STARTED 同格式。
+	if res.RecoveringSince > 0 {
+		c.Printf("recovering_since: %s\n", formatStarted(res.RecoveringSince))
 	}
 	// 提交来源（provenance）：渠道 / 来源主机|IP / 鉴权身份——回答"谁/哪台/经哪渠道提交"。
 	if res.Channel != "" {

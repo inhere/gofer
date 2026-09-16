@@ -161,12 +161,22 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// Crash-recovery backstop for jobs: a serve that died / restarted mid-flight (or a
 	// worker that restarted and was superseded on the hub, §5.5) leaves jobs stuck
 	// "running"/"queued" in the store with no live orchestration to ever finish them.
-	// Fail them once at startup, before new work is accepted, so they don't hang forever.
+	// A LOCAL job is failed at once (its in-process state is gone). A WORKER job is held
+	// in `recovering` instead (RECOV-01): the worker process may still be running it, so
+	// give it the reconnect window before ending it. Run before new work is accepted.
 	if n, rerr := cr.Jobs.ReconcileOrphanJobs(); rerr != nil {
 		c.Errorf("gofer: reconcile orphan jobs failed: %v\n", rerr)
 	} else if n > 0 {
 		c.Printf("gofer: reconciled %d orphan non-terminal job(s) left by a prior serve/worker\n", n)
 	}
+
+	// RECOV-01 expiry window for the jobs ReconcileOrphanJobs just held. Only when the
+	// resolved window is > 0: 0 (recovery disabled) fails the held rows right away, the
+	// pre-RECOV-01 behaviour. stop is closed when serve returns so the one-shot timer
+	// exits cleanly and leaves the rows for the next serve instead of failing them.
+	stopRecover := make(chan struct{})
+	defer close(stopRecover)
+	startRecoverExpiry(c, cr.Jobs, cfg.JobRecoverWindow(), stopRecover)
 
 	// supWake connects the answerer (producer) to the reconciler (consumer) for
 	// event-driven sup dispatch (y5wt): the answerer's escalate() signals it when a

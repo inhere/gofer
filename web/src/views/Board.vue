@@ -36,6 +36,8 @@ const statusOptions: Array<{ value: '' | JobStatus; label: string }> = [
   { value: '', label: '全部' },
   { value: 'queued', label: 'queued' },
   { value: 'running', label: 'running' },
+  // RECOV-01：worker 断线 held 中（非终态），等同一进程重连
+  { value: 'recovering', label: 'recovering' },
   { value: 'pending_interaction', label: '⚠ 待应答' },
   { value: 'done', label: 'done' },
   { value: 'failed', label: 'failed' },
@@ -73,6 +75,7 @@ const statusCounts = computed<Record<JobStatus, number>>(() => {
   const base: Record<JobStatus, number> = {
     queued: 0,
     running: 0,
+    recovering: 0,
     pending_interaction: 0,
     done: 0,
     failed: 0,
@@ -88,7 +91,12 @@ const statusCounts = computed<Record<JobStatus, number>>(() => {
 const runningCount = computed(
   () =>
     jobs.value.filter(
-      (job) => job.status === 'running' || job.status === 'pending_interaction',
+      (job) =>
+        job.status === 'running' ||
+        // RECOV-01 recovering 仍是「活」job（worker 还在跑/等重连），计入 active 才不会
+        // 让一个跑了几十分钟的 job 在表头看起来已经结束。
+        job.status === 'recovering' ||
+        job.status === 'pending_interaction',
     ).length,
 )
 const problemCount = computed(

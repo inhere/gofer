@@ -534,3 +534,73 @@ func TestNewClientConfigPresentNoServerFlagStillWorks(t *testing.T) {
 		t.Fatal("want non-nil client")
 	}
 }
+
+// TestJobShowPrintsRecoveringSince: RECOV-01. A job held `recovering` (its worker's
+// connection dropped; the hub is holding it for the reconnect window) must show WHEN
+// it entered that state — otherwise `job show` gives no hint that the job is waiting
+// on a worker instead of running. The line is omitted for a job that never recovered.
+func TestJobShowPrintsRecoveringSince(t *testing.T) {
+	isolateConfigEnv(t)
+	config.InputCfgFile = ""
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	jobConnOpts.server, jobConnOpts.token = "", ""
+	t.Cleanup(func() { jobConnOpts.server, jobConnOpts.token = "", "" })
+
+	const since = int64(1_700_000_000)
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Path != "/v1/jobs/job-rec" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(job.JobResult{
+			ID: "job-rec", ProjectKey: "self", Status: job.StatusRecovering,
+			WorkerID: "w1", RecoveringSince: since,
+		})
+	}))
+	defer ts.Close()
+	jobConnOpts.server = ts.URL
+
+	app := NewApp("test")
+	errOut := captureOutput(t, func() {
+		if code := app.Run([]string{"job", "show", "job-rec", "--server", ts.URL}); code != 0 {
+			t.Fatalf("app.Run exit code=%d", code)
+		}
+	})
+	if strings.Contains(errOut, "requires an <id>") {
+		t.Fatalf("job show rejected the id argument:\n%s", errOut)
+	}
+	if !strings.Contains(errOut, "status:     "+job.StatusRecovering) {
+		t.Fatalf("job show must report the recovering status:\n%s", errOut)
+	}
+	want := "recovering_since: " + formatStarted(since)
+	if !strings.Contains(errOut, want) {
+		t.Fatalf("job show output missing %q:\n%s", want, errOut)
+	}
+}
+
+// TestJobShowOmitsRecoveringSinceWhenUnset: the field is 0 for a job that is not (or
+// no longer) recovering, and then the line must not appear at all.
+func TestJobShowOmitsRecoveringSinceWhenUnset(t *testing.T) {
+	isolateConfigEnv(t)
+	config.InputCfgFile = ""
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	jobConnOpts.server, jobConnOpts.token = "", ""
+	t.Cleanup(func() { jobConnOpts.server, jobConnOpts.token = "", "" })
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(job.JobResult{ID: "job-run", ProjectKey: "self", Status: job.StatusRunning})
+	}))
+	defer ts.Close()
+	jobConnOpts.server = ts.URL
+
+	app := NewApp("test")
+	out := captureOutput(t, func() {
+		if code := app.Run([]string{"job", "show", "job-run", "--server", ts.URL}); code != 0 {
+			t.Fatalf("app.Run exit code=%d", code)
+		}
+	})
+	if strings.Contains(out, "recovering_since") {
+		t.Fatalf("a running job must not show recovering_since:\n%s", out)
+	}
+}

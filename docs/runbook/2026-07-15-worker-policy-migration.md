@@ -109,3 +109,5 @@ gofer project list --remote        # 或看 web Cluster 页 /v1/meta
 - [ ] 观察期跑稳（此期间二进制可安全回滚）
 - [ ] 删 `projects` 段 + reload（**此后不可回滚二进制**）
 - [ ] 需回滚配置时：删 `roots`、恢复 `projects` → reload → 回 LEGACY
+
+> **排障 · job 卡在 `recovering`（RECOV-01）**：worker 断线时它的 in-flight job 会被 host held 在非终态的 `recovering`（黄），这是有意行为——同一个 worker 进程在 `server.job_recover_window_sec`（默认 120s，`0` 关闭）内重连即回 `running` 并续传日志，窗口超时或连上来的是新进程则 `failed`（error 含 `worker lost`）；先确认 worker 进程还活着且已重连（`/v1/runners` 或 `gofer worker list` 显示 connected，日志里有 `worker.registered`）。

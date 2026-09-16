@@ -301,15 +301,34 @@ func (s *Service) ReconcileOrphanInteractions() (int, error) {
 	return s.meta.ReconcileOrphanInteractions(s.nowFn().Unix())
 }
 
-// ReconcileOrphanJobs fails every job left non-terminal (queued/running) in the
+// ReconcileOrphanJobs resolves the jobs left non-terminal (queued/running) in the
 // store by a serve that died / restarted mid-flight — their in-memory orchestration
-// (dispatch entry / worker sink) did not survive, so a worker that restarted (hub
-// supersede, §5.5) or kept running has nowhere to report back and the job would hang
-// "running" forever. Mirrors ReconcileOrphanInteractions; serve calls it once at
-// startup, before new work is accepted (the in-memory map is empty, so no live job
-// is touched). Returns the rows fixed.
+// (dispatch entry / worker sink) did not survive. Two outcomes (RECOV-01):
+//
+//   - worker job: HELD in `recovering` with recovering_since stamped, because the
+//     worker process may still be running it and reconnect within the recovery
+//     window. The hub cannot ADOPT it (the sink that drove it died with the previous
+//     serve), so serve arms a one-shot window that ends it via FailRecoveringJobs
+//     unless a later change teaches the hub to adopt store-held jobs — the hold only
+//     buys the worker time to reconnect and be re-dispatched normally.
+//   - local/peer job: failed, as before — no in-process registry entry survived, so
+//     nothing could ever finish it and it would hang "running" forever.
+//
+// Mirrors ReconcileOrphanInteractions; serve calls it once at startup, before new
+// work is accepted (the in-memory map is empty, so no live job is touched). Returns
+// the rows resolved (held + failed).
 func (s *Service) ReconcileOrphanJobs() (int, error) {
 	return s.meta.ReconcileOrphanJobs(s.nowFn().Unix(), "orphaned: serve restarted while job was non-terminal")
+}
+
+// FailRecoveringJobs fails every job still held in `recovering` — RECOV-01's
+// one-shot window (armed by serve after ReconcileOrphanJobs, or by the hub for a live
+// disconnect) elapsed without the worker proving it still runs the job, so the job
+// can never reach a real terminal state. reason (RECOV-01 uses "worker lost: ...")
+// is what CLI/web then show as the job's error. Best-effort at the caller: serve logs
+// a failure and carries on. Returns the rows failed.
+func (s *Service) FailRecoveringJobs(reason string) (int, error) {
+	return s.meta.FailRecoveringJobs(s.nowFn().Unix(), reason)
 }
 
 // MarkInteractionEscalated stamps escalated_at on a pending interaction — the
