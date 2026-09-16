@@ -292,14 +292,14 @@ func TestUpdateProjectPreservesUnspecifiedFields(t *testing.T) {
 		},
 		Projects: map[string]config.ProjectConfig{
 			"demo": {
-				HostPath:                 root,
-				ExchangeSubdir:           "tmp",
-				ResultSubdir:             "gofer",
-				DefaultAgent:             "claude",
-				AllowedAgents:            []string{"claude", "tty-echo"},
-				AllowedRunners:           []string{"local", "peer"},
-				InteractiveAllowedAgents: []string{"tty-echo"},
-				CaptureDiff:              &captureOff,
+				HostPath:         root,
+				ExchangeSubdir:   "tmp",
+				ResultSubdir:     "gofer",
+				DefaultAgent:     "claude",
+				AllowedAgents:    []string{"claude", "tty-echo"},
+				AllowedRunners:   []string{"local", "peer"},
+				AllowInteractive: boolptr(true),
+				CaptureDiff:      &captureOff,
 			},
 		},
 	}
@@ -324,8 +324,8 @@ func TestUpdateProjectPreservesUnspecifiedFields(t *testing.T) {
 		!slices.Equal(stored.AllowedRunners, []string{"local", "peer"}) {
 		t.Fatalf("allowlists dropped by a partial PUT: %+v", stored)
 	}
-	if !slices.Equal(stored.InteractiveAllowedAgents, []string{"tty-echo"}) || !stored.IsInteractiveAllowed() {
-		t.Fatalf("interactive narrowing dropped by a partial PUT: %+v", stored)
+	if stored.AllowInteractive == nil || !*stored.AllowInteractive || !stored.IsInteractiveAllowed() {
+		t.Fatalf("allow_interactive dropped by a partial PUT: %v", stored.AllowInteractive)
 	}
 	if stored.CaptureDiff == nil || *stored.CaptureDiff {
 		t.Fatalf("capture_diff dropped by a partial PUT: %v", stored.CaptureDiff)
@@ -335,10 +335,8 @@ func TestUpdateProjectPreservesUnspecifiedFields(t *testing.T) {
 	}
 }
 
-// TestUpdateProjectInteractiveSettingsRoundTrip: the AGT-02 switch and the narrowing
-// list survive create → read → update. The switch is read back RESOLVED (the console
-// never has to know the legacy rule), and an explicit false written by the switch is
-// not resurrected by the leftover list.
+// TestUpdateProjectInteractiveSettingsRoundTrip: the AGT-02 switch survives create →
+// read → update, and an explicit false written through the console is persisted as such.
 func TestUpdateProjectInteractiveSettingsRoundTrip(t *testing.T) {
 	root := t.TempDir()
 	cfg := &config.Config{
@@ -350,30 +348,28 @@ func TestUpdateProjectInteractiveSettingsRoundTrip(t *testing.T) {
 	s := newProjectWriteTestServer(t, cfg)
 
 	resp := do(t, s, http.MethodPost, "/v1/projects", testToken, projectWriteReq{
-		Key:                      "demo",
-		HostPath:                 strPtr(root),
-		AllowedAgents:            strsPtr("tty-echo"),
-		AllowInteractive:         boolptr(true),
-		InteractiveAllowedAgents: strsPtr("tty-echo"),
+		Key:              "demo",
+		HostPath:         strPtr(root),
+		AllowedAgents:    strsPtr("tty-echo"),
+		AllowInteractive: boolptr(true),
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("create status=%d, want 200", resp.StatusCode)
 	}
 	var created projectWriteResp
 	decode(t, resp, &created)
-	if !created.AllowInteractive || !slices.Equal(created.InteractiveAllowedAgents, []string{"tty-echo"}) {
-		t.Fatalf("created project = %+v, want the interactive switch + narrowing echoed back", created)
+	if !created.AllowInteractive {
+		t.Fatalf("created project = %+v, want the interactive switch echoed back", created)
 	}
 
 	resp = do(t, s, http.MethodGet, "/v1/projects/demo", testToken, nil)
 	var got projectView
 	decode(t, resp, &got)
-	if !got.AllowInteractive || !slices.Equal(got.InteractiveAllowedAgents, []string{"tty-echo"}) {
-		t.Fatalf("GET project = %+v, want allow_interactive with the narrowing list", got)
+	if !got.AllowInteractive {
+		t.Fatalf("GET project = %+v, want allow_interactive true", got)
 	}
 
-	// Flip the switch off, leaving the narrowing list in place: the stored pointer must
-	// be an explicit false (not "unset", which the legacy list would read as true).
+	// Flip the switch off: the stored pointer must be an explicit false, not "unset".
 	resp = do(t, s, http.MethodPut, "/v1/projects/demo", testToken, projectWriteReq{AllowInteractive: boolptr(false)})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("update status=%d, want 200", resp.StatusCode)
@@ -384,9 +380,6 @@ func TestUpdateProjectInteractiveSettingsRoundTrip(t *testing.T) {
 	if got.AllowInteractive {
 		t.Fatalf("GET project = %+v, want allow_interactive false after the flip", got)
 	}
-	if !slices.Equal(got.InteractiveAllowedAgents, []string{"tty-echo"}) {
-		t.Fatalf("the narrowing list must survive a switch-only PUT, got %v", got.InteractiveAllowedAgents)
-	}
 	stored, err := s.projects.Get("demo")
 	if err != nil {
 		t.Fatalf("Get: %v", err)
@@ -394,10 +387,9 @@ func TestUpdateProjectInteractiveSettingsRoundTrip(t *testing.T) {
 	if stored.AllowInteractive == nil || *stored.AllowInteractive {
 		t.Fatalf("stored AllowInteractive = %v, want an explicit false", stored.AllowInteractive)
 	}
-	// And the WRITTEN yaml must carry it: omitempty on a *bool drops only nil, so a
-	// reload still reads an explicit false. If the write lost it, the next serve start
-	// would read "unset" and the leftover narrowing list would flip this project back
-	// to allowed — the exact reversal the switch exists to prevent.
+	// And the WRITTEN yaml must carry the explicit false instead of dropping the key:
+	// the console's off switch has to be visible in the file the operator reads, and a
+	// PUT that wrote nothing back would leave the project looking untouched.
 	persisted, _, err := config.Load(s.projects.Path())
 	if err != nil {
 		t.Fatalf("reload persisted config: %v", err)
@@ -408,31 +400,28 @@ func TestUpdateProjectInteractiveSettingsRoundTrip(t *testing.T) {
 	}
 }
 
-// TestUpdateProjectRejectsNonInteractiveNarrowing: every entry of the narrowing list
-// must name a defined agent that CAN run interactively and, when allowed_agents is
-// non-empty, one inside that whitelist — otherwise the console offers a submit that
-// admission is guaranteed to reject. The error names the offending agent.
-func TestUpdateProjectRejectsNonInteractiveNarrowing(t *testing.T) {
+// TestUpdateProjectRejectsRemovedNarrowingField: the AGT-02 narrowing key is gone
+// (0.3), and a write body that still carries it is refused with 400 rather than
+// silently dropped — a caller that believed it had narrowed the project would otherwise
+// leave it open to every interactive-capable agent. A present-but-empty list is refused
+// too: [], like ["tty-echo"], means the caller is written against the old contract.
+// Neither path touches the stored project.
+func TestUpdateProjectRejectsRemovedNarrowingField(t *testing.T) {
 	root := t.TempDir()
 	cfg := &config.Config{
 		Server: config.ServerConfig{Token: testToken},
-		Agents: map[string]config.AgentConfig{
-			"tty-echo": {Type: agent.TypeCLIAgent, Command: "echo", InteractiveArgs: []string{}},
-		},
 		Projects: map[string]config.ProjectConfig{
-			"demo": {HostPath: root, AllowedAgents: []string{"claude"}, AllowInteractive: boolptr(true)},
+			"demo": {HostPath: root, AllowInteractive: boolptr(true)},
 		},
 	}
 	s := newProjectWriteTestServer(t, cfg)
 
 	cases := []struct {
-		name    string
-		narrow  []string
-		wantMsg string
+		name   string
+		narrow []string
 	}{
-		{"unnamed agent", []string{"ghost"}, `agent "ghost" is not defined`},
-		{"agent without an interactive mode", []string{"claude"}, `agent "claude" has no interactive mode`},
-		{"agent outside allowed_agents", []string{"tty-echo"}, `agent "tty-echo" is not in allowed_agents`},
+		{name: "non-empty list", narrow: []string{"tty-echo"}},
+		{name: "empty list", narrow: []string{}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -443,19 +432,34 @@ func TestUpdateProjectRejectsNonInteractiveNarrowing(t *testing.T) {
 				t.Fatalf("update status=%d, want 400", resp.StatusCode)
 			}
 			var body struct {
+				Error  string `json:"error"`
 				Detail string `json:"detail"`
 			}
 			decode(t, resp, &body)
-			if !strings.Contains(body.Detail, tc.wantMsg) {
-				t.Fatalf("detail = %q, want it to contain %q", body.Detail, tc.wantMsg)
+			if !strings.Contains(body.Error, "interactive_allowed_agents has been removed; use allow_interactive") {
+				t.Fatalf("error = %q, want it to name the removed field and its replacement", body.Error)
 			}
 			stored, err := s.projects.Get("demo")
 			if err != nil {
 				t.Fatalf("Get: %v", err)
 			}
-			if len(stored.InteractiveAllowedAgents) != 0 {
-				t.Fatalf("a rejected update must not be stored, got %v", stored.InteractiveAllowedAgents)
+			if !stored.IsInteractiveAllowed() || len(stored.AllowedAgents) != 0 {
+				t.Fatalf("a rejected update must not touch the stored project: %+v", stored)
 			}
 		})
 	}
+
+	t.Run("create", func(t *testing.T) {
+		resp := do(t, s, http.MethodPost, "/v1/projects", testToken, projectWriteReq{
+			Key:                      "new",
+			HostPath:                 strPtr(root),
+			InteractiveAllowedAgents: strsPtr("tty-echo"),
+		})
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("create status=%d, want 400", resp.StatusCode)
+		}
+		if _, err := s.projects.Get("new"); err == nil {
+			t.Fatal("a rejected create must not register the project")
+		}
+	})
 }

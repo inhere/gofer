@@ -73,7 +73,7 @@ gofer tunnel forward --log-dir ~/.config/gofer/run/tunnels -w w-plc 1502:192.168
 
 ## 核心概念
 
-- **project**：一个可执行任务的真实目录。`host_path`（主机路径）/`container_path`（容器路径）/`allowed_agents`/`allowed_runners`/`allow_exec`/`allow_interactive`（默认关，pty/交互 job 的项目级总开关，与 `allow_exec`、worker 的 `guards.allow_interactive` 同一套词汇；`interactive_allowed_agents` 只是它的**可选收窄**而非开关，留空=不收窄）/`max_concurrent_jobs`。
+- **project**：一个可执行任务的真实目录。`host_path`（主机路径）/`container_path`（容器路径）/`allowed_agents`/`allowed_runners`/`allow_exec`/`allow_interactive`（默认关，pty/交互 job 的项目级总开关，与 `allow_exec`、worker 的 `guards.allow_interactive` 同一套词汇，且是项目侧**唯一**的交互闸——曾有 `interactive_allowed_agents` 这份按 agent 收窄的名单，已移除；想只放行一部分 agent，定义一个不带 `interactive_args` 的 agent 变体即可。旧 yaml 里非空的历史列表若未写本开关，加载期会当作 `allow_interactive: true` 并 warn）/`max_concurrent_jobs`。
 - **agent**：怎么执行。`cli-agent` 用 `command`+`args` 模板渲染（占位符 `{{prompt}}`/`{{cwd}}`/`{{job_id}}`/`{{result_dir}}`，逐元素替换、不过 shell）；再加 `interactive_args` 即**一个 key 同时支持批处理与 pty**（`args`=批处理 argv，`interactive_args`=交互 argv，`[]`=裸 TUI 启动；不得含 `{{prompt}}`，`type: exec` 不能设）；`exec` 原样跑请求里的 `cmd` argv（需项目 `allow_exec`）。
 - **runner**：在哪执行。`local`（内置，本进程子进程）/ `peer-http`（转发到另一台 gofer）/ `worker`（WS 连入的远端执行机）。
 - **job 生命周期**：`queued → running → done|failed|cancelled|timeout`；运行中提问时 `running → pending_interaction → running`。
@@ -210,8 +210,7 @@ projects:
     allowed_agents: [codex, claude, exec]
     allowed_runners: [local, worker]     # 含 worker 才能远端派发
     allow_exec: true
-    allow_interactive: true              # pty/交互 job 的项目级开关（默认关）
-    # interactive_allowed_agents: [claude]   # 可选收窄；只放行一部分 agent 时才写
+    allow_interactive: true              # pty/交互 job 的项目级开关（默认关；项目侧唯一的交互闸）
     max_concurrent_jobs: 4
 
 agents:                                  # 占位符：{{prompt}} {{cwd}} {{job_id}} {{result_dir}}

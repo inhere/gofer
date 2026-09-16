@@ -200,12 +200,11 @@ projects:
     # 交互提交都被拒:
     #   project "x" does not allow interactive jobs (allow_interactive)
     # 本项目放行的 codex/claude 都有交互模式(见下 agents 段), 所以这里真的打开.
-    # interactive_allowed_agents 现在是可选【收窄】, 不再是开关: 只有想只放行其中一部分
-    # agent 时才写(如 [claude]); 留空 = 不收窄, 所有有交互模式的 agent 都可用.
-    # 兼容: 旧 yaml 只写了非空 interactive_allowed_agents 而没写本开关时, 仍视为开启
-    # (加载时 warn 一次, 建议把本开关显式写出来).
+    # 这是项目侧【唯一】的交互闸: 曾有 interactive_allowed_agents 这份"按 agent 收窄"的名单,
+    # 已移除(想只放行一部分 agent, 就定义一个不带 interactive_args 的 agent 变体即可).
+    # 兼容: 旧 yaml 里非空的 interactive_allowed_agents 且未写本开关时, 加载期会当作
+    # allow_interactive: true 并 warn 一次(写了本开关则忽略旧字段), 请把本开关显式写出来.
     allow_interactive: true
-    # interactive_allowed_agents: [claude]   # 可选收窄; 仅当只想放行一部分 agent
     max_concurrent_jobs: 4
     # capture_diff toggles git-diff capture on job outcomes (E12). Unset defaults
     # to "on when cwd is a git work tree"; set false to disable outright.

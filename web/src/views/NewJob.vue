@@ -215,24 +215,19 @@ const agentCandidates = computed<MetaAgent[]>(() => {
   return list
 })
 
-// 项目是否允许交互 job 的"有效值"（AGT-02 §2）：新 server 直接给 allow_interactive；旧 server
-// （控制台热更、二进制未更新 → 该字段 undefined）退回旧规则「interactive_allowed_agents 非空即
-// 支持交互」——undefined 是"没有这个字段"，不能当成"闸为假"。
-// 未选 project（无从判断）→ 返回 true（不收窄）：与 allow_exec 的 undefined 处理同一条 fail-safe
-// 纪律，宁可让后端拒，也不给出一个空下拉。
+// 项目是否允许交互 job（AGT-02 §2）：只看项目级总开关 allow_interactive。undefined = 旧 server
+// 没有该字段（控制台热更、二进制未更新）→ 不当作"闸为假"，交给后端拒（与 allow_exec 的 undefined
+// 处理同一条 fail-safe 纪律，宁可让后端拒，也不给出一个空下拉）；未选 project（无从判断）同 true。
+// AGT-02 0.3 起不再有按 agent 收窄的第二份名单（旧字段已移除）。
 function projectAllowsInteractive(proj: MetaProject | undefined): boolean {
   if (!proj) {
     return true
   }
-  if (proj.allow_interactive !== undefined) {
-    return proj.allow_interactive
-  }
-  return (proj.interactive_allowed_agents?.length ?? 0) > 0
+  return proj.allow_interactive ?? true
 }
 
 // 联动：agent 候选 = agentCandidates（allowed_agents ∩ 执行侧能力）
-//                  ∩ [interactive: host 已知 & 有交互模式 & 项目 allow_interactive 为真
-//                                & (收窄列表为空 或 命中该 agent)]
+//                  ∩ [interactive: host 已知 & 有交互模式 & 项目 allow_interactive 为真]
 //                  ∩ [非 interactive: 排除 interactive-only agent]
 //                  ∩ [local runner 且 allow_exec=false: 排除 exec 型]
 // 不再做「交集为空就回落不收窄」：那会列出提交必被拒的假选项（原 T5.3b fail-safe 的反效果）。
@@ -245,13 +240,6 @@ const agentOptions = computed<MetaAgent[]>(() => {
     // 项目级总开关（AGT-02 §2）：关掉就一个交互 agent 都不给选。
     if (!projectAllowsInteractive(proj)) {
       list = []
-    }
-    // 收窄列表**非空才**收窄（旧语义「空 = 该 project 不支持交互」已废弃，那个判断归 allow_interactive）；
-    // undefined = 旧 server 不带该字段 → 无从收窄，退回仅按交互能力过滤。
-    const ia = proj?.interactive_allowed_agents
-    if (ia !== undefined && ia.length > 0) {
-      const set = new Set(ia)
-      list = list.filter((a) => set.has(a.key))
     }
   } else {
     // 反向闸（对齐 job/config.go 的 interactive-only 校验）：interactive agent 是裸启动进
@@ -279,9 +267,6 @@ const agentEmptyReason = computed<string>(() => {
     }
     if (!projectAllowsInteractive(proj)) {
       return `project ${proj.key} 未开启交互 job（allow_interactive）`
-    }
-    if ((proj.interactive_allowed_agents?.length ?? 0) > 0) {
-      return `project ${proj.key} 的 interactive_allowed_agents 收窄后没有可选项（须在收窄列表内、host 已安装且有交互模式）`
     }
     return `project ${proj.key} 没有可用的交互 agent（host 未安装有交互模式的 agent，或当前 runner/worker 上不可达）`
   }

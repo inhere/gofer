@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -10,7 +11,6 @@ import (
 
 	"github.com/gookit/rux/v2"
 
-	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 )
 
@@ -33,24 +33,30 @@ func (s *Server) handleListProjects(c *rux.Context) {
 // for the operator driving the bridge.
 //
 // AllowInteractive carries the RESOLVED switch (config.ProjectConfig
-// .IsInteractiveAllowed, so a legacy non-empty interactive_allowed_agents reads as
-// true) and InteractiveAllowedAgents the optional narrowing list. Both are emitted
-// UNCONDITIONALLY (no omitempty), like allow_exec and /v1/meta's gates: the console
-// is served from disk while the binary ships separately, so a new console may talk to
-// an older server and must read a MISSING field as "server predates AGT-02", never as
-// "gate off".
+// .IsInteractiveAllowed — with the one-shot legacy compat read already applied at load).
+// It is emitted UNCONDITIONALLY (no omitempty), like allow_exec and /v1/meta's gates:
+// the console is served from disk while the binary ships separately, so a new console
+// may talk to an older server and must read a
+// MISSING field as "server predates AGT-02", never as "gate off". The AGT-02 narrowing
+// list is gone from this payload (0.3): a console that still sends it back on a write
+// gets a 400 (removedNarrowingFieldMsg).
 type projectView struct {
-	Key                      string   `json:"key"`
-	HostPath                 string   `json:"host_path"`
-	ContainerPath            string   `json:"container_path,omitempty"`
-	DefaultAgent             string   `json:"default_agent,omitempty"`
-	AllowedAgents            []string `json:"allowed_agents,omitempty"`
-	AllowedRunners           []string `json:"allowed_runners,omitempty"`
-	AllowInteractive         bool     `json:"allow_interactive"`
-	InteractiveAllowedAgents []string `json:"interactive_allowed_agents"`
-	AllowExec                bool     `json:"allow_exec"`
-	MaxConcurrentJobs        int      `json:"max_concurrent_jobs,omitempty"`
+	Key               string   `json:"key"`
+	HostPath          string   `json:"host_path"`
+	ContainerPath     string   `json:"container_path,omitempty"`
+	DefaultAgent      string   `json:"default_agent,omitempty"`
+	AllowedAgents     []string `json:"allowed_agents,omitempty"`
+	AllowedRunners    []string `json:"allowed_runners,omitempty"`
+	AllowInteractive  bool     `json:"allow_interactive"`
+	AllowExec         bool     `json:"allow_exec"`
+	MaxConcurrentJobs int      `json:"max_concurrent_jobs,omitempty"`
 }
+
+// removedNarrowingFieldMsg is the answer to a write that still carries the AGT-02
+// narrowing key. It is a hard 400 rather than a silent drop: the field used to gate
+// interactive submission, so ignoring it would leave a caller believing it had
+// narrowed a project that is in fact open to every interactive-capable agent.
+const removedNarrowingFieldMsg = "interactive_allowed_agents has been removed; use allow_interactive"
 
 // projectWriteReq is the create/update body. Every value field is a pointer so "not
 // in the request" is distinguishable from "cleared": PUT MERGES the request over the
@@ -58,6 +64,11 @@ type projectView struct {
 // value — before this, saving the console's form silently wiped exchange_subdir /
 // result_subdir / capture_diff / notify_enabled, none of which the form carries. A
 // present empty value ("", [], false, 0) is applied as written.
+//
+// InteractiveAllowedAgents exists ONLY to detect the removed key: it is never merged
+// into the config (mergeProjectWrite ignores it) and any non-nil value is rejected by
+// rejectRemovedNarrowingField. Decoding it is the only way to tell "caller sent the
+// dead field" from "caller sent nothing".
 type projectWriteReq struct {
 	Key                      string    `json:"key"`
 	HostPath                 *string   `json:"host_path,omitempty"`
@@ -69,6 +80,16 @@ type projectWriteReq struct {
 	InteractiveAllowedAgents *[]string `json:"interactive_allowed_agents,omitempty"`
 	AllowExec                *bool     `json:"allow_exec,omitempty"`
 	MaxConcurrentJobs        *int      `json:"max_concurrent_jobs,omitempty"`
+}
+
+// rejectRemovedNarrowingField fails a write body that still carries the AGT-02-removed
+// narrowing key. A present key is rejected even when empty: [], like ["x"], means the
+// caller is written against the old contract and must be told so once, loudly.
+func rejectRemovedNarrowingField(req projectWriteReq) error {
+	if req.InteractiveAllowedAgents != nil {
+		return errors.New(removedNarrowingFieldMsg)
+	}
+	return nil
 }
 
 type projectWriteResp struct {
@@ -96,6 +117,10 @@ func (s *Server) handleCreateProject(c *rux.Context) {
 	var req projectWriteReq
 	if err := c.BindJSON(&req); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	if err := rejectRemovedNarrowingField(req); err != nil {
+		writeError(c, http.StatusBadRequest, err.Error(), "delete interactive_allowed_agents from the request")
 		return
 	}
 	key := strings.TrimSpace(req.Key)
@@ -131,6 +156,10 @@ func (s *Server) handleUpdateProject(c *rux.Context) {
 	var req projectWriteReq
 	if err := c.BindJSON(&req); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	if err := rejectRemovedNarrowingField(req); err != nil {
+		writeError(c, http.StatusBadRequest, err.Error(), "delete interactive_allowed_agents from the request")
 		return
 	}
 	key := strings.TrimSpace(c.Param("key"))
@@ -194,9 +223,6 @@ func mergeProjectWrite(base config.ProjectConfig, req projectWriteReq) config.Pr
 		allow := *req.AllowInteractive
 		base.AllowInteractive = &allow
 	}
-	if req.InteractiveAllowedAgents != nil {
-		base.InteractiveAllowedAgents = *req.InteractiveAllowedAgents
-	}
 	if req.AllowExec != nil {
 		base.AllowExec = *req.AllowExec
 	}
@@ -238,21 +264,6 @@ func (s *Server) validateProjectWrite(key string, proj config.ProjectConfig) err
 			return fmt.Errorf("allowed_runner %q is not defined", rn)
 		}
 	}
-	// AGT-02: every entry of the interactive narrowing list must name an agent the
-	// project may use at all AND one that can actually run interactively — otherwise
-	// the console offers a submit admission is guaranteed to reject.
-	for _, a := range proj.InteractiveAllowedAgents {
-		ac, ok := cfg.Agents[a]
-		if !ok {
-			return fmt.Errorf("interactive_allowed_agents: agent %q is not defined", a)
-		}
-		if _, interactive := agent.Modes(ac); !interactive {
-			return fmt.Errorf("interactive_allowed_agents: agent %q has no interactive mode", a)
-		}
-		if len(proj.AllowedAgents) > 0 && !slices.Contains(proj.AllowedAgents, a) {
-			return fmt.Errorf("interactive_allowed_agents: agent %q is not in allowed_agents", a)
-		}
-	}
 	return nil
 }
 
@@ -260,16 +271,15 @@ func (s *Server) validateProjectWrite(key string, proj config.ProjectConfig) err
 // and the /v1/config aggregate), so the two can never drift.
 func projectViewOf(key string, proj config.ProjectConfig) projectView {
 	return projectView{
-		Key:                      key,
-		HostPath:                 proj.HostPath,
-		ContainerPath:            proj.ContainerPath,
-		DefaultAgent:             proj.DefaultAgent,
-		AllowedAgents:            proj.AllowedAgents,
-		AllowedRunners:           proj.AllowedRunners,
-		AllowInteractive:         proj.IsInteractiveAllowed(),
-		InteractiveAllowedAgents: nonNil(proj.InteractiveAllowedAgents),
-		AllowExec:                proj.AllowExec,
-		MaxConcurrentJobs:        proj.MaxConcurrentJobs,
+		Key:               key,
+		HostPath:          proj.HostPath,
+		ContainerPath:     proj.ContainerPath,
+		DefaultAgent:      proj.DefaultAgent,
+		AllowedAgents:     proj.AllowedAgents,
+		AllowedRunners:    proj.AllowedRunners,
+		AllowInteractive:  proj.IsInteractiveAllowed(),
+		AllowExec:         proj.AllowExec,
+		MaxConcurrentJobs: proj.MaxConcurrentJobs,
 	}
 }
 
