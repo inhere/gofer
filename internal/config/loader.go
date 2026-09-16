@@ -382,6 +382,16 @@ func validate(cfg *Config) error {
 		if p.HostPath == "" {
 			return fmt.Errorf("project %q: host_path is required", key)
 		}
+		// bd h-aii-s9ck: a negative job-timeout ceiling has no meaning (0 = inherit
+		// server.max_job_timeout_sec); reject it at load rather than clamping to
+		// something surprising at submit.
+		if p.MaxTimeoutSec < 0 {
+			return fmt.Errorf("project %q: max_timeout_sec must be >= 0", key)
+		}
+	}
+	// bd h-aii-s9ck: same for the server-wide ceiling (0 = DefaultMaxJobTimeoutSec).
+	if cfg.Server.MaxJobTimeoutSec < 0 {
+		return fmt.Errorf("server.max_job_timeout_sec must be >= 0")
 	}
 	// OBS-07a: an unknown webhook kind must fail at load, not silently fall back to
 	// the generic body (an IM bot would then reject every delivery at post time).

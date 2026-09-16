@@ -114,6 +114,111 @@ agents:
 	}
 }
 
+// TestEffectiveMaxTimeoutDefault: with neither server.max_job_timeout_sec nor a
+// project max_timeout_sec set, the ceiling is the historical 1h — so an existing
+// config keeps the exact behaviour it had when the clamp was hard-coded
+// (bd h-aii-s9ck). An unknown project key resolves the same way (no project to
+// consult).
+func TestEffectiveMaxTimeoutDefault(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cfg.yaml")
+	write(t, p, `
+server:
+  token_env: MY_TOKEN
+projects:
+  demo:
+    host_path: /tmp/demo
+`)
+	cfg, _, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got := cfg.EffectiveMaxTimeoutSec("demo"); got != DefaultMaxJobTimeoutSec {
+		t.Errorf("EffectiveMaxTimeoutSec(demo) = %d, want the default %d", got, DefaultMaxJobTimeoutSec)
+	}
+	if got := cfg.EffectiveMaxTimeoutSec("no-such-project"); got != DefaultMaxJobTimeoutSec {
+		t.Errorf("EffectiveMaxTimeoutSec(unknown) = %d, want the default %d", got, DefaultMaxJobTimeoutSec)
+	}
+}
+
+// TestEffectiveMaxTimeoutProjectOverride: a project's max_timeout_sec REPLACES the
+// server ceiling in either direction (bd h-aii-s9ck states the override is not a
+// tightening): unset inherits the server value, a lower value tightens, a higher
+// value lifts the ceiling for that one project only.
+func TestEffectiveMaxTimeoutProjectOverride(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "cfg.yaml")
+	write(t, p, `
+server:
+  token_env: MY_TOKEN
+  max_job_timeout_sec: 7200
+projects:
+  inherit:
+    host_path: /tmp/inherit
+  lower:
+    host_path: /tmp/lower
+    max_timeout_sec: 900
+  higher:
+    host_path: /tmp/higher
+    max_timeout_sec: 10800
+`)
+	cfg, _, err := Load(p)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	cases := []struct {
+		name    string
+		project string
+		want    int
+	}{
+		{"unset inherits the server ceiling", "inherit", 7200},
+		{"lower than the server ceiling", "lower", 900},
+		{"higher than the server ceiling", "higher", 10800},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := cfg.EffectiveMaxTimeoutSec(tc.project); got != tc.want {
+				t.Errorf("EffectiveMaxTimeoutSec(%s) = %d, want %d", tc.project, got, tc.want)
+			}
+		})
+	}
+}
+
+// TestLoadRejectsNegativeMaxTimeout: a negative ceiling is a config mistake (0 =
+// inherit/default) and must fail at load, not silently clamp at submit.
+func TestLoadRejectsNegativeMaxTimeout(t *testing.T) {
+	dir := t.TempDir()
+	serverCfg := filepath.Join(dir, "server.yaml")
+	write(t, serverCfg, `
+server:
+  token_env: MY_TOKEN
+  max_job_timeout_sec: -1
+projects:
+  demo:
+    host_path: /tmp/demo
+`)
+	if _, _, err := Load(serverCfg); err == nil {
+		t.Fatal("expected error for negative server.max_job_timeout_sec")
+	} else if !strings.Contains(err.Error(), "max_job_timeout_sec") {
+		t.Errorf("error should name the field, got: %v", err)
+	}
+
+	projectCfg := filepath.Join(dir, "project.yaml")
+	write(t, projectCfg, `
+server:
+  token_env: MY_TOKEN
+projects:
+  demo:
+    host_path: /tmp/demo
+    max_timeout_sec: -1
+`)
+	if _, _, err := Load(projectCfg); err == nil {
+		t.Fatal("expected error for negative project max_timeout_sec")
+	} else if !strings.Contains(err.Error(), "max_timeout_sec") {
+		t.Errorf("error should name the field, got: %v", err)
+	}
+}
+
 // TestResolveLookupOrder verifies explicit > env > cwd file ordering.
 func TestResolveLookupOrder(t *testing.T) {
 	dir := t.TempDir()

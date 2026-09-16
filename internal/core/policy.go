@@ -47,7 +47,7 @@ func computePolicy(cfg *config.Config, workerID string, rev int64) wsproto.Polic
 		if !projectReachesWorker(cfg, proj, workerID) {
 			continue
 		}
-		pol.Projects = append(pol.Projects, projectToPolicy(key, proj))
+		pol.Projects = append(pol.Projects, projectToPolicy(key, proj, cfg.EffectiveMaxTimeoutSec(key)))
 	}
 	return pol
 }
@@ -83,7 +83,9 @@ func projectReachesWorker(cfg *config.Config, proj config.ProjectConfig, workerI
 // 下发). MaxConcurrentJobs / CaptureDiff ride along unchanged (H2). AllowedAgents is
 // forced NON-nil so the wire form is `[]`, never null (MEDIUM-1: a nil slice marshals
 // to null, which a downstream must not confuse with "no whitelist" — computePolicy
-// guarantees non-nil here).
+// guarantees non-nil here). maxTimeoutSec is the caller-resolved job-timeout ceiling
+// (config.Config.EffectiveMaxTimeoutSec) — resolved there, not here, so this stays a
+// pure projection of one project.
 //
 // AllowInteractive carries the RESOLVED switch (ProjectConfig.IsInteractiveAllowed —
 // with the one-shot legacy-list read already applied at load) rather than the raw
@@ -93,7 +95,7 @@ func projectReachesWorker(cfg *config.Config, proj config.ProjectConfig, workerI
 // (deprecated) wire list (see commands.projectPolicy). That deprecated list is
 // deliberately NOT sent any more: AGT-02 0.3 removed the narrowing list, and its wire
 // field survives only to be read FROM old servers.
-func projectToPolicy(key string, proj config.ProjectConfig) wsproto.PolicyProject {
+func projectToPolicy(key string, proj config.ProjectConfig, maxTimeoutSec int) wsproto.PolicyProject {
 	allowInteractive := proj.IsInteractiveAllowed()
 	return wsproto.PolicyProject{
 		Key:               key,
@@ -103,6 +105,7 @@ func projectToPolicy(key string, proj config.ProjectConfig) wsproto.PolicyProjec
 		AllowExec:         proj.AllowExec,
 		MaxConcurrentJobs: proj.MaxConcurrentJobs,
 		CaptureDiff:       proj.CaptureDiff,
+		MaxTimeoutSec:     maxTimeoutSec,
 	}
 }
 

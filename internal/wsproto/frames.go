@@ -378,6 +378,14 @@ type PolicyProject struct {
 	// CaptureDiff is *bool (H2): "not sent" (nil) == default-on; only a present false
 	// is an explicit opt-out. Same "unset ≠ explicit false" reason as AgentBrief.Available.
 	CaptureDiff *bool `json:"capture_diff,omitempty"`
+	// MaxTimeoutSec is the RESOLVED job-timeout ceiling for this project
+	// (config.Config.EffectiveMaxTimeoutSec: the project's max_timeout_sec, else the
+	// server's max_job_timeout_sec, else 1h — bd h-aii-s9ck). The server already
+	// clamped the dispatched timeout_sec, so the worker applies THIS value as its own
+	// clamp ceiling and the second clamp becomes a no-op instead of silently
+	// re-clamping an admitted timeout against a worker-local default. omitempty: a
+	// pre-change server sends nothing (0) and the worker falls back to its own config.
+	MaxTimeoutSec int `json:"max_timeout_sec,omitempty"`
 }
 
 // Policy (s→w): the full set of projects a worker may run at revision Rev. Rev is the

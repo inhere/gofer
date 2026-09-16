@@ -310,6 +310,15 @@ type ServerConfig struct {
 	// it — the server cannot derive it from its listen address behind a proxy or
 	// a LAN IP. Empty = notifications carry no link.
 	WebBaseURL string `yaml:"web_base_url,omitempty"`
+	// MaxJobTimeoutSec is the server-wide CEILING on a job's timeout_sec (bd
+	// h-aii-s9ck). 0/unset => DefaultMaxJobTimeoutSec (1h), which is exactly the
+	// value this clamp used to be hard-coded to, so every existing config behaves
+	// as before. It is a ceiling, not a default: a request above it is clamped and
+	// the clamp is REPORTED (job.JobResult.RequestedTimeoutSec/TimeoutClamped, plus
+	// a CLI warning) so a long job can no longer be truncated silently. Raise it for
+	// long-running work; a project overrides it in either direction via
+	// ProjectConfig.MaxTimeoutSec (see EffectiveMaxTimeoutSec).
+	MaxJobTimeoutSec int `yaml:"max_job_timeout_sec,omitempty"`
 }
 
 // GovernanceConfig is the E17 global fallback for per-caller quotas (design
@@ -724,6 +733,13 @@ type ProjectConfig struct {
 	AllowedRunners    []string `yaml:"allowed_runners,omitempty"`
 	AllowExec         bool     `yaml:"allow_exec,omitempty"`
 	MaxConcurrentJobs int      `yaml:"max_concurrent_jobs,omitempty"`
+	// MaxTimeoutSec overrides the job-timeout ceiling for THIS project (bd
+	// h-aii-s9ck). 0/unset => inherit server.max_job_timeout_sec (or its default);
+	// a non-zero value REPLACES it in EITHER direction — raising it above the
+	// server value (one project runs 2h builds without lifting the ceiling for
+	// everyone) or lowering it (a tenant that must not exceed 10m). See
+	// Config.EffectiveMaxTimeoutSec, the single source of truth for the resolution.
+	MaxTimeoutSec int `yaml:"max_timeout_sec,omitempty"`
 	// CaptureDiff toggles E12 git-diff capture (job-outcomes-audit, P3). It is a
 	// pointer so "unset" (nil) can default to "on when cwd is a git work tree"
 	// while an explicit capture_diff:false disables it outright. nil/true defer to
@@ -954,6 +970,28 @@ func (c *Config) ProjectAllowedAgents(projectKey string) ([]string, bool) {
 		return nil, false
 	}
 	return p.AllowedAgents, true
+}
+
+// DefaultMaxJobTimeoutSec is the job-timeout ceiling used when NEITHER
+// server.max_job_timeout_sec NOR the project's max_timeout_sec is set. It is the
+// value the clamp was hard-coded to before it became configurable (bd h-aii-s9ck),
+// so an existing config keeps its exact previous behaviour.
+const DefaultMaxJobTimeoutSec = 3600
+
+// EffectiveMaxTimeoutSec resolves the ONE ceiling a job in projectKey is clamped
+// against (bd h-aii-s9ck): the project's max_timeout_sec when set, else the
+// server's max_job_timeout_sec, else DefaultMaxJobTimeoutSec. A project override
+// is a REPLACEMENT rather than a tightening, so it may exceed the server value.
+// Callers: the job submit clamp (and its "clamped" report) and serve's supervisor
+// reconciler — both must see the same number, hence one resolver on *Config.
+func (c *Config) EffectiveMaxTimeoutSec(projectKey string) int {
+	if p, ok := c.Projects[projectKey]; ok && p.MaxTimeoutSec > 0 {
+		return p.MaxTimeoutSec
+	}
+	if c.Server.MaxJobTimeoutSec > 0 {
+		return c.Server.MaxJobTimeoutSec
+	}
+	return DefaultMaxJobTimeoutSec
 }
 
 // ResolvedExchangeSubdir returns the effective exchange subdir for a project,
