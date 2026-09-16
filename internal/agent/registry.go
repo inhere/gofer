@@ -175,6 +175,12 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 		// claude), so ResumeJob does NOT re-inject (see resume.go).
 		SystemInject: []string{"-c", "developer_instructions={{system_prompt}}"},
 	},
+	"omp": {
+		// OMP emits the session row only with --mode json; text mode has no session line.
+		SessionCapture:           `"type"\s*:\s*"session".*"id"\s*:\s*"([0-9a-f-]+)"`,
+		SessionResume:            []string{"--resume", "{{session_id}}", "-p", "{{prompt}}"},
+		SessionResumeInteractive: []string{"--resume", "{{session_id}}"},
+	},
 }
 
 // applySessionDefaults fills an agent's unset session fields from the built-in

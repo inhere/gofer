@@ -2,11 +2,26 @@ package agent
 
 import (
 	"reflect"
+	"regexp"
 	"sort"
 	"testing"
 
 	"github.com/inhere/gofer/internal/config"
 )
+
+func TestBuiltinSessionDefaultsOmp(t *testing.T) {
+	def := builtinSessionDefaults["omp"]
+	m := regexp.MustCompile(def.SessionCapture).FindStringSubmatch(`{"type":"session","id":"123e4567-e89b-12d3-a456-426614174000"}`)
+	if len(m) != 2 || m[1] != "123e4567-e89b-12d3-a456-426614174000" {
+		t.Fatalf("omp session capture = %v", m)
+	}
+	if got, want := def.SessionResume, []string{"--resume", "{{session_id}}", "-p", "{{prompt}}"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("omp resume = %v, want %v", got, want)
+	}
+	if got, want := def.SessionResumeInteractive, []string{"--resume", "{{session_id}}"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("omp interactive resume = %v, want %v", got, want)
+	}
+}
 
 // TestBuiltinTemplatesTable pins every field of every template. These entries are
 // auto-injected on every host that has the CLI on PATH, so a wrong arg does not fail
