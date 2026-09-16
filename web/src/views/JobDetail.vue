@@ -1092,6 +1092,16 @@ onUnmounted(() => {
       <div class="meta-item">
         <span class="meta-k mono">cwd</span><span class="meta-v mono">{{ job.cwd }}</span>
       </div>
+      <!-- WT-01：受管 worktree。commits_ahead>0 = 分支上已有提交、还没合回基线分支，
+           这就是"job 干完了但代码还没合"的可视信号。 -->
+      <div v-if="job.worktree_path" class="meta-item">
+        <span class="meta-k mono">worktree</span>
+        <span class="meta-v mono" :title="job.worktree_path">{{ job.worktree_path }}</span>
+      </div>
+      <div v-if="job.worktree_branch" class="meta-item">
+        <span class="meta-k mono">wt_branch</span>
+        <span class="meta-v mono">{{ job.worktree_branch }}<template v-if="job.commits_ahead"> · {{ job.commits_ahead }} commit(s) ahead</template></span>
+      </div>
       <div class="meta-item">
         <span class="meta-k mono">started</span><span class="meta-v mono">{{ fmtTime(job.started_at) }}</span>
       </div>

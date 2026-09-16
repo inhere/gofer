@@ -46,6 +46,8 @@ var jobRunOpts = struct {
 	interactive  bool
 	cols         int
 	rows         int
+	worktree     bool
+	worktreeBase string
 }{}
 
 // jobCommonOpts holds non-connection flags shared by show/logs/cancel (the
@@ -243,6 +245,10 @@ func bindJobRunFlags(c *gcli.Command) {
 
 	// Execution: command/prompt construction and execution policy.
 	c.StrOpt2(&jobRunOpts.cwd, "cwd", "working dir within the project", jobRunOptCategory("Execution", "."))
+	// WT-01: run in a managed git worktree (own branch gofer/<job-id>) so parallel
+	// jobs stop sharing one checkout/index.
+	c.BoolOpt2(&jobRunOpts.worktree, "worktree", "run in a managed git worktree of the project checkout (branch gofer/<job-id>, kept afterwards)", gflag.WithCategory("Execution"))
+	c.StrOpt2(&jobRunOpts.worktreeBase, "worktree-base", "base ref for --worktree (default: the checkout's current HEAD)", jobRunOptCategory("Execution", ""))
 	c.StrOpt2(&jobRunOpts.prompt, "prompt", "prompt text for cli-agent (use -- <argv...> for exec)", jobRunOptCategory("Execution", ""))
 	c.StrOpt2(&jobRunOpts.file, "file,f", "submit a md+yaml task file (frontmatter params + prompt body)", jobRunOptCategory("Execution", ""))
 	c.StrOpt2(&jobRunOpts.role, "role", "role preset (E35): fills agent/system_prompt/project/tags when unset", jobRunOptCategory("Execution", ""))
@@ -494,6 +500,8 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		AgentArgs:      []string(jobRunOpts.agentArgs),
 		Cmd:            cmd, // tokens after `--`, e.g. ["go","version"]
 		Cwd:            jobRunOpts.cwd,
+		Worktree:       jobRunOpts.worktree,
+		WorktreeBase:   jobRunOpts.worktreeBase,
 		TimeoutSec:     jobRunOpts.timeout,
 		Title:          jobRunOpts.title,
 		Sync:           jobRunOpts.sync,
@@ -647,6 +655,18 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	}
 	if res.SessionID != "" {
 		c.Printf("session_id: %s\n", res.SessionID)
+	}
+	// WT-01：受管 worktree 的交付物位置与分支状态（commits_ahead>0 = 分支上已提交、
+	// 还没合回基线分支的交付物；这就是"job 干完了但代码还没合"的可视信号）。
+	if res.WorktreePath != "" {
+		c.Printf("worktree:   %s\n", res.WorktreePath)
+		c.Printf("wt_branch:  %s\n", res.WorktreeBranch)
+		if res.WorktreeBaseSHA != "" {
+			c.Printf("wt_base:    %s\n", res.WorktreeBaseSHA)
+		}
+		if res.WorktreeHeadSHA != "" {
+			c.Printf("wt_head:    %s (%d commit(s) ahead)\n", res.WorktreeHeadSHA, res.CommitsAhead)
+		}
 	}
 	if res.Error != "" {
 		c.Printf("error:      %s\n", res.Error)

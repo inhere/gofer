@@ -760,6 +760,10 @@ type ProjectConfig struct {
 	// notify_enabled:false suppresses all notification for the project's jobs
 	// (no deliveries are enqueued). nil/true => notification on.
 	NotifyEnabled *bool `yaml:"notify_enabled,omitempty"`
+	// WorktreeDefault turns WT-01 managed worktrees ON for every job of this project
+	// (a per-job --worktree is then redundant). The resolved decision rides the
+	// request, so a worker executes exactly what the submitter decided.
+	WorktreeDefault bool `yaml:"worktree_default,omitempty"`
 }
 
 // IsNotifyEnabled reports whether E14 webhook delivery is enabled for the

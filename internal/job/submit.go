@@ -1,6 +1,7 @@
 package job
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -75,6 +76,11 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		return JobResult{}, err
 	}
 
+	// WT-01: resolve the project-level worktree_default into the request NOW, so the
+	// Forward, request_json and the executing machine all act on one explicit
+	// decision (a worker then never has to re-derive a default from its own config).
+	req.Worktree = worktreeRequested(cfg, &req)
+
 	// C5 idempotency: if this request carries an idempotency key already claimed
 	// by an earlier job, reuse it (no new job/dir). The concurrent-submit race
 	// (two submits both miss this lookup) is caught below by the unique-index
@@ -111,6 +117,32 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		return JobResult{}, err
 	}
 	resultDir := st.Dir(jobID)
+
+	// WT-01: `--worktree` runs the job in a managed git worktree of this checkout
+	// (<top>/tmp/gofer/wt/<job-id>, branch gofer/<job-id>) so parallel jobs stop
+	// sharing one index. Created HERE — on the EXECUTING machine (serve-local, or the
+	// worker's own job.Service, which re-enters this very function with runner=local)
+	// — and only after the job's result dir exists, because the worktree dir is keyed
+	// by job id. A remote (forwarding) submit skips it: the flag rides the Forward and
+	// the peer creates the worktree against its own project root (设计 §二).
+	var wt *worktreeRef
+	if req.Worktree && !remote {
+		wtCtx, wtCancel := context.WithTimeout(context.Background(), worktreeTimeout)
+		wt, err = prepareJobWorktree(wtCtx, workDir, jobID, req.WorktreeBase)
+		wtCancel()
+		if err != nil {
+			// No job was launched, so drop the just-created result dir (nothing else
+			// references this id yet).
+			_ = os.RemoveAll(resultDir)
+			return JobResult{}, err
+		}
+		if mapped, merr := wt.mapCwd(workDir); merr != nil {
+			_ = os.RemoveAll(resultDir)
+			return JobResult{}, merr
+		} else {
+			workDir = mapped
+		}
+	}
 
 	// Marshal the original request for audit / re-submit. It rides along on the
 	// entry's result so every persist (queued/running/terminal) carries it into the
@@ -157,6 +189,11 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			AgentArgs:  req.AgentArgs,
 			Cmd:        req.Cmd,
 			Cwd:        req.Cwd,
+			// WT-01: the executor creates the worktree (that machine owns the
+			// checkout); the submitting side already resolved worktree_default into
+			// req.Worktree.
+			Worktree:     req.Worktree,
+			WorktreeBase: req.WorktreeBase,
 			// The ADMITTED deadline (clamped above), not the raw request: the server
 			// owns admission, so a remote execution must not re-admit 2h for a request
 			// this server already cut to 1h (bd h-aii-s9ck).
@@ -235,6 +272,12 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		// / E6 result.json. Set on the worker/peer side too (they run this same
 		// local branch), so remote exec jobs get the executor-local paths.
 		runReq.Env = goferJobEnv(mergeEnv(mergeEnv(secretMap, resolved.Env), req.Env), jobID, workDir, resultDir)
+		// WT-01: the job also learns WHERE its worktree/branch/base are. Applied after
+		// goferJobEnv so a user-supplied Env key can never shadow them (same rule as
+		// the gofer metadata vars).
+		if wt != nil {
+			runReq.Env = wt.worktreeEnv(runReq.Env)
+		}
 	}
 	// An explicit req.SessionID (resume path, P2) wins over auto-injection and is
 	// honoured for both local and remote branches: the job binds to that exact
@@ -243,10 +286,18 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		sessionID = req.SessionID
 	}
 
+	// WT-01: flat the managed worktree (nil for a plain job) onto the result row —
+	// the deliverable location is known from the moment the worktree exists, so even a
+	// job that dies before its terminal capture advertises where its branch lives.
+	var wtPath, wtBranch, wtBase string
+	if wt != nil {
+		wtPath, wtBranch, wtBase = wt.Path, wt.Branch, wt.BaseSHA
+	}
 	now := s.nowFn().Unix()
 	entry := &jobEntry{
 		store: st,
 		done:  make(chan struct{}),
+		wt:    wt,
 		result: JobResult{
 			ID:          jobID,
 			ProjectKey:  req.ProjectKey,
@@ -290,6 +341,11 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// 血缘（P5）：ResumeJob/RebuildJob 内部盖在 req 上（源 job id）；普通 job 为空。
 			// json:"-" 不影响此 Go 赋值——落 jobs.source_job_id（血缘的真源，不进 request_json）。
 			SourceJobID: req.SourceJobID,
+			// WT-01：受管 worktree 的交付物位置与基线（终态时 captureOutcomes 再补
+			// head sha / commits_ahead / 两段 diff）。远端 job 由执行机经 Outcome 回传。
+			WorktreePath:    wtPath,
+			WorktreeBranch:  wtBranch,
+			WorktreeBaseSHA: wtBase,
 		},
 	}
 	s.mu.Lock()

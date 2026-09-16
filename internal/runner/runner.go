@@ -126,6 +126,14 @@ type Forward struct {
 	SystemPrompt string
 	Cmd          []string
 	Cwd          string // ORIGINAL relative cwd; peer SafeJoins against ITS project
+	// Worktree (WT-01) asks the EXECUTING machine to run the job in a managed git
+	// worktree of ITS project checkout (the peer SafeJoins Cwd against its own
+	// project root and then maps it into the worktree). WorktreeBase is the base ref
+	// (empty = the executing checkout's HEAD). The project-level worktree_default is
+	// already resolved into Worktree by the submitting service, so the executor never
+	// re-derives a default from its own config.
+	Worktree     bool
+	WorktreeBase string
 	TimeoutSec   int
 	Interactive  bool
 	Cols         int
@@ -185,4 +193,13 @@ type Outcome struct {
 	// `job resume` / `list --session` for remotely-executed jobs. Empty = the
 	// remote produced no session id (unsupported agent / not captured).
 	SessionID string `json:"session_id,omitempty"`
+	// WT-01: the managed worktree the job ran in — recorded on the EXECUTION machine
+	// (it owns that path), so a host row for a runner=worker/peer job still shows
+	// where the deliverable branch lives. All empty/0 for a non-worktree job and for
+	// an old worker that never sends them (host fields stay empty).
+	WorktreePath    string `json:"worktree_path,omitempty"`
+	WorktreeBranch  string `json:"worktree_branch,omitempty"`
+	WorktreeBaseSHA string `json:"worktree_base_sha,omitempty"`
+	WorktreeHeadSHA string `json:"worktree_head_sha,omitempty"`
+	CommitsAhead    int    `json:"commits_ahead,omitempty"`
 }

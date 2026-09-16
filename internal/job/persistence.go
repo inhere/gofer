@@ -69,6 +69,12 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		TimeoutClamped:      r.TimeoutClamped,
 		// RECOV-01：进入 recovering 的时刻（0=不在 recovering）。
 		RecoveringSince: r.RecoveringSince,
+		// WT-01：受管 worktree 的交付物位置与分支状态。
+		WorktreePath:    r.WorktreePath,
+		WorktreeBranch:  r.WorktreeBranch,
+		WorktreeBaseSHA: r.WorktreeBaseSHA,
+		WorktreeHeadSHA: r.WorktreeHeadSHA,
+		CommitsAhead:    r.CommitsAhead,
 	}
 }
 
@@ -151,6 +157,12 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		TimeoutClamped:      rec.TimeoutClamped,
 		// RECOV-01：进入 recovering 的时刻（旧行 0 = 从未 recovering）。
 		RecoveringSince: rec.RecoveringSince,
+		// WT-01：受管 worktree（旧行空/0 = 该 job 没有 worktree）。
+		WorktreePath:    rec.WorktreePath,
+		WorktreeBranch:  rec.WorktreeBranch,
+		WorktreeBaseSHA: rec.WorktreeBaseSHA,
+		WorktreeHeadSHA: rec.WorktreeHeadSHA,
+		CommitsAhead:    rec.CommitsAhead,
 	}
 }
 

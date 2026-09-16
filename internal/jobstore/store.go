@@ -93,7 +93,12 @@ var schemaStmts = []string{
   timeout_sec      INTEGER,
   requested_timeout_sec INTEGER,
   timeout_clamped  INTEGER NOT NULL DEFAULT 0,
-  recovering_since INTEGER
+  recovering_since INTEGER,
+  worktree_path    TEXT,
+  worktree_branch  TEXT,
+  worktree_base_sha TEXT,
+  worktree_head_sha TEXT,
+  commits_ahead    INTEGER
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -526,6 +531,24 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := add("recovering_since", "recovering_since INTEGER"); err != nil {
+		return err
+	}
+	// WT-01 受管 worktree：job 在独立 git worktree 里执行时，记录交付物位置（path/branch）、
+	// 基线 sha、终态 HEAD sha 与领先提交数。旧库 ALTER ADD，旧行 COALESCE 成 ""/0，正好读作
+	// "该 job 没有 worktree"（WT-01 之前的语义），不会把老 job 伪造成有 worktree。
+	if err := add("worktree_path", "worktree_path TEXT"); err != nil {
+		return err
+	}
+	if err := add("worktree_branch", "worktree_branch TEXT"); err != nil {
+		return err
+	}
+	if err := add("worktree_base_sha", "worktree_base_sha TEXT"); err != nil {
+		return err
+	}
+	if err := add("worktree_head_sha", "worktree_head_sha TEXT"); err != nil {
+		return err
+	}
+	if err := add("commits_ahead", "commits_ahead INTEGER"); err != nil {
 		return err
 	}
 	if err := s.migrateWorkflows(); err != nil {

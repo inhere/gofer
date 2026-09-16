@@ -275,6 +275,12 @@ type jobEntry struct {
 	// there is no execute/Run goroutine behind it. Set once at creation under Service.mu
 	// before the entry is published in s.jobs; read under the same lock (adoptRecoveringJob).
 	adopted *AdoptedJob
+	// wt is the WT-01 managed worktree this job runs in (nil for a plain job). It is
+	// set once at Submit, before the entry is published, and only read afterwards, so
+	// it needs no lock: it carries the live paths the terminal capture (head sha /
+	// commits ahead / two-section diff) probes. A job never created in this process
+	// (adopted / read back from the store) has no entry at all.
+	wt *worktreeRef
 }
 
 // NewService builds a job service. runners is the set of usable runners keyed by

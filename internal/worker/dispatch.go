@@ -73,6 +73,10 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		SystemPrompt: d.SystemPrompt,
 		Cmd:          d.Cmd,
 		Cwd:          d.Cwd,
+		// WT-01: the worktree is created HERE (the worker owns the checkout) by the
+		// shared job.Service. An old hub never sets these → byte-identical to before.
+		Worktree:     d.Worktree,
+		WorktreeBase: d.WorktreeBase,
 		TimeoutSec:   d.TimeoutSec,
 		// T5 projection: carry the interactive flag + initial window so the worker's
 		// own job.Service picks its pty runner (Interactive && !remote). Zero-valued
@@ -189,11 +193,19 @@ func outcomeFrame(remoteJobID string, final job.JobResult) (wsproto.Outcome, boo
 		// worker 侧共享 job.Service 已在终态 captureOutcomes 把 session_id 填进本地
 		// JobResult（claude 注入 / codex 捕获, P1）；随 Outcome 帧回传 host (P3)。
 		SessionID: final.SessionID,
+		// WT-01：worker 侧 worktree 位置/分支/基线/终态分支状态，随产出回传 host，
+		// 让 host 行也能显示交付物分支（路径是那台 worker 机器上的）。
+		WorktreePath:    final.WorktreePath,
+		WorktreeBranch:  final.WorktreeBranch,
+		WorktreeBaseSHA: final.WorktreeBaseSHA,
+		WorktreeHeadSHA: final.WorktreeHeadSHA,
+		CommitsAhead:    final.CommitsAhead,
 	}
 	if final.ArtifactsJSON != "" {
 		o.Artifacts = json.RawMessage(final.ArtifactsJSON)
 	}
-	send := o.RenderedCommand != "" || o.ResultJSON != "" || o.DiffSummary != "" || len(o.Artifacts) > 0 || o.SessionID != ""
+	send := o.RenderedCommand != "" || o.ResultJSON != "" || o.DiffSummary != "" || len(o.Artifacts) > 0 ||
+		o.SessionID != "" || o.WorktreePath != ""
 	return o, send
 }
 

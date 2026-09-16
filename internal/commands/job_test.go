@@ -27,6 +27,7 @@ func parseRun(t *testing.T, in []string) (project, agent, runner, cwd, prompt, p
 	jobRunOpts.cwd, jobRunOpts.prompt, jobRunOpts.plan = "", "", ""
 	jobRunOpts.agentArgs = nil
 	jobRunOpts.interactive, jobRunOpts.cols, jobRunOpts.rows = false, 0, 0
+	jobRunOpts.worktree, jobRunOpts.worktreeBase = false, ""
 
 	app := NewApp("test")
 	// Replace job run's Func with a capturing one so we never hit the network.
@@ -154,6 +155,8 @@ func TestJobRunInteractiveFlagsBuildRequest(t *testing.T) {
 		interactive  bool
 		cols         int
 		rows         int
+		worktree     bool
+		worktreeBase string
 	}{}
 
 	app := NewApp("test")
@@ -210,6 +213,8 @@ func TestJobRunInteractiveIgnoresSync(t *testing.T) {
 		interactive  bool
 		cols         int
 		rows         int
+		worktree     bool
+		worktreeBase string
 	}{}
 
 	app := NewApp("test")
@@ -317,6 +322,8 @@ func TestJobRunRunnerAliasBuildsServerLocalRequest(t *testing.T) {
 			interactive  bool
 			cols         int
 			rows         int
+			worktree     bool
+			worktreeBase string
 		}{}
 		app := NewApp("test")
 		var got string

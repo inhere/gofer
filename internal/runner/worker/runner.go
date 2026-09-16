@@ -229,6 +229,8 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		SystemPrompt:      f.SystemPrompt,
 		Cmd:               f.Cmd,
 		Cwd:               f.Cwd,
+		Worktree:          f.Worktree,     // WT-01: created on the worker (below)
+		WorktreeBase:      f.WorktreeBase, // WT-01: base ref, empty = that checkout's HEAD
 		TimeoutSec:        f.TimeoutSec,
 		Interactive:       f.Interactive,
 		Cols:              f.Cols,
@@ -341,6 +343,13 @@ func OutcomeFrom(o *wsproto.Outcome, workerID string) *runner.Outcome {
 		Artifacts:       o.Artifacts,
 		Source:          "worker:" + workerID,
 		SessionID:       o.SessionID, // worker 本地捕获/注入的 agent 会话标识 (P3)
+		// WT-01: the worker owns the worktree paths it reports; pass them through so the
+		// host row shows where the deliverable branch lives (empty for an old worker).
+		WorktreePath:    o.WorktreePath,
+		WorktreeBranch:  o.WorktreeBranch,
+		WorktreeBaseSHA: o.WorktreeBaseSHA,
+		WorktreeHeadSHA: o.WorktreeHeadSHA,
+		CommitsAhead:    o.CommitsAhead,
 	}
 }
 

@@ -64,6 +64,14 @@ export interface Job {
   plan_id?: string
   // 血缘键（P5，本次追加）：本 job resume/rebuild 自哪个源 job
   source_job_id?: string
+  // WT-01 受管 worktree（后端 omitempty）：--worktree job 在独立 worktree 里执行，
+  // 交付物是该分支上的提交。详情页展示路径/分支/基线/领先提交数；rm/ls 走
+  // `gofer job worktree` 与 /v1/jobs/{id}/worktree。
+  worktree_path?: string
+  worktree_branch?: string
+  worktree_base_sha?: string
+  worktree_head_sha?: string
+  commits_ahead?: number
 }
 
 export interface PtySession {

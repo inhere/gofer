@@ -1,6 +1,7 @@
 package job
 
 import (
+	"context"
 	"encoding/json"
 	"log/slog"
 	"os"
@@ -58,6 +59,7 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 	resultDir := entry.result.ResultDir
 	cwd := entry.result.Cwd
 	projectKey := entry.result.ProjectKey
+	wt := entry.wt
 	entry.mu.Unlock()
 
 	rendered := renderedCommandJSON(req)  // E15 渲染命令
@@ -66,9 +68,26 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 
 	// E12 diff 快照(P3)：项目 capture_diff 显式 false → 跳过；否则交给 captureDiff
 	// 自身的 is-git 判定（非 git 仓自然返 ""）。全量写 changes.diff，--stat 摘要入库。
+	// WT-01: a worktree job diffs its BRANCH (base..HEAD) plus the leftover working-tree
+	// changes, so a job that committed its deliverable still produces a diff (the plain
+	// `git diff` of a clean worktree is empty).
 	var diffSummary string
 	if s.shouldCaptureDiff(projectKey) {
-		diffSummary = captureDiff(cwd, resultDir)
+		if wt != nil {
+			diffSummary = captureWorktreeDiff(wt, resultDir)
+		} else {
+			diffSummary = captureDiff(cwd, resultDir)
+		}
+	}
+	// WT-01: the branch state (HEAD sha + commits ahead of the base) is part of the
+	// job's outcome independent of the diff toggle — it is how `job worktree ls` and
+	// the retention sweep tell "delivered but unmerged" from "nothing to keep".
+	var headSHA string
+	var commitsAhead int
+	if wt != nil {
+		wctx, wcancel := context.WithTimeout(context.Background(), diffTimeout)
+		headSHA, commitsAhead, _ = wt.worktreeState(wctx)
+		wcancel()
 	}
 
 	entry.mu.Lock()
@@ -87,6 +106,10 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 	}
 	if diffSummary != "" {
 		entry.result.DiffSummary = diffSummary
+	}
+	if wt != nil {
+		entry.result.WorktreeHeadSHA = headSHA
+		entry.result.CommitsAhead = commitsAhead
 	}
 	entry.mu.Unlock()
 
@@ -224,6 +247,23 @@ func (s *Service) applyOutcome(entry *jobEntry, o *runner.Outcome) {
 	// resume / list --session。空=远端未捕获，不覆盖既有值（与其他字段同语义）。
 	if o.SessionID != "" {
 		entry.result.SessionID = o.SessionID
+	}
+	// WT-01：执行机自报的受管 worktree 位置与分支状态（它持有那台机器的路径）。旧 worker
+	// 不发这组字段 → 全空，host 行保持无 worktree（回归红线：不伪造）。
+	if o.WorktreePath != "" {
+		entry.result.WorktreePath = o.WorktreePath
+	}
+	if o.WorktreeBranch != "" {
+		entry.result.WorktreeBranch = o.WorktreeBranch
+	}
+	if o.WorktreeBaseSHA != "" {
+		entry.result.WorktreeBaseSHA = o.WorktreeBaseSHA
+	}
+	if o.WorktreeHeadSHA != "" {
+		entry.result.WorktreeHeadSHA = o.WorktreeHeadSHA
+	}
+	if o.CommitsAhead > 0 {
+		entry.result.CommitsAhead = o.CommitsAhead
 	}
 }
 

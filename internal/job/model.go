@@ -13,11 +13,26 @@ type JobRequest struct {
 	Prompt     string `json:"prompt,omitempty" yaml:"prompt,omitempty"`
 	// AgentArgs are extra CLI flags appended to a cli-agent's argv at build time.
 	// Ignored for exec agents (§14). Persisted in request_json for rerun/replay.
-	AgentArgs  []string `json:"agent_args,omitempty" yaml:"agent_args,omitempty"`
-	Cmd        []string `json:"cmd,omitempty" yaml:"cmd,omitempty"`
-	Cwd        string   `json:"cwd,omitempty" yaml:"cwd,omitempty"`
-	TimeoutSec int      `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
-	Title      string   `json:"title,omitempty" yaml:"title,omitempty"`
+	AgentArgs []string `json:"agent_args,omitempty" yaml:"agent_args,omitempty"`
+	Cmd       []string `json:"cmd,omitempty" yaml:"cmd,omitempty"`
+	// Cwd is the job's working directory, relative to the project root. Under
+	// --worktree it is mapped into the job's worktree (see Worktree).
+	Cwd string `json:"cwd,omitempty" yaml:"cwd,omitempty"`
+	// Worktree (WT-01) runs the job in a MANAGED git worktree of the project
+	// checkout instead of the checkout itself: gofer creates
+	// <repo top>/tmp/gofer/wt/<job-id> on a fresh branch gofer/<job-id> at
+	// WorktreeBase, runs the whole job there (cwd mapped by the same relative
+	// sub-path, env GOFER_WORKTREE/_BRANCH/_BASE exported) and KEEPS it afterwards
+	// (the branch is the deliverable). It is what lets several agent jobs edit and
+	// commit in one checkout in parallel without fighting over .git/index.lock.
+	// Rejected when the resolved cwd is not inside a git checkout. A project may
+	// turn it on for every job with worktree_default: true.
+	Worktree bool `json:"worktree,omitempty" yaml:"worktree,omitempty"`
+	// WorktreeBase is the ref the worktree branch starts at (WT-01). Empty = the
+	// checkout's current HEAD. Only meaningful together with Worktree.
+	WorktreeBase string `json:"worktree_base,omitempty" yaml:"worktree_base,omitempty"`
+	TimeoutSec   int    `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
+	Title        string `json:"title,omitempty" yaml:"title,omitempty"`
 	// Interactive requests a pty-attached run (WEB-03, design §5/§8): the job
 	// service routes an interactive job to the pty runner variant (when a pty
 	// backend is registered) instead of req.Runner, so its stdin/stdout is a raw
@@ -296,6 +311,17 @@ type JobResult struct {
 	// SessionID 底层 agent CLI 会话标识(claude/codex)。注入(提交时 gofer 生成)或捕获(终态从输出)。
 	// 空=无/未捕获。持久化 jobs.session_id，供 show/list/resume。
 	SessionID string `json:"session_id,omitempty"`
+	// WT-01 受管 worktree：该 job 在独立 worktree 中执行时，记录交付物位置与分支状态。
+	// WorktreePath=<repo top>/tmp/gofer/wt/<job-id>（默认保留，分支上的提交即交付物），
+	// WorktreeBranch=gofer/<job-id>，WorktreeBaseSHA=基线提交，WorktreeHeadSHA=终态时该分支
+	// HEAD（git rev-parse HEAD），CommitsAhead=领先基线的提交数（git rev-list --count
+	// base..HEAD）。非 worktree job 全为空/0（omitempty 不出现）；一并入库 jobs 表，供
+	// `job show` / web 详情 / `job worktree ls|rm` 与 retention 使用。
+	WorktreePath    string `json:"worktree_path,omitempty"`
+	WorktreeBranch  string `json:"worktree_branch,omitempty"`
+	WorktreeBaseSHA string `json:"worktree_base_sha,omitempty"`
+	WorktreeHeadSHA string `json:"worktree_head_sha,omitempty"`
+	CommitsAhead    int    `json:"commits_ahead,omitempty"`
 }
 
 // Job status values (plan §6.2).

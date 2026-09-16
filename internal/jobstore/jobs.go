@@ -121,6 +121,16 @@ type JobRecord struct {
 	TimeoutSec          int
 	RequestedTimeoutSec int
 	TimeoutClamped      bool
+	// WT-01 受管 worktree：job 在 <repo top>/tmp/gofer/wt/<job-id> 的独立 worktree 中执行，
+	// 提交落在分支 gofer/<job-id> 上。WorktreePath/Branch 是交付物位置，BaseSHA=基线提交，
+	// HeadSHA/CommitsAhead=终态时该分支的 HEAD 与领先基线的提交数。非 worktree job 为空/0
+	// （旧库经 selectCols COALESCE 成 ""/0）；与 job.JobResult 同名字段互转，供 job show /
+	// web 详情 / worktree ls 使用。
+	WorktreePath    string
+	WorktreeBranch  string
+	WorktreeBaseSHA string
+	WorktreeHeadSHA string
+	CommitsAhead    int
 }
 
 // ListQuery filters/bounds a ListJobs query. A zero value lists every project's
@@ -157,7 +167,9 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,
 	COALESCE(origin_agent,''), COALESCE(escalate_to,''),
   COALESCE(role,''), COALESCE(plan_id,''), COALESCE(source_job_id,''),
   COALESCE(timeout_sec,0), COALESCE(requested_timeout_sec,0), COALESCE(timeout_clamped,0),
-  COALESCE(recovering_since,0) FROM jobs`
+  COALESCE(recovering_since,0),
+  COALESCE(worktree_path,''), COALESCE(worktree_branch,''), COALESCE(worktree_base_sha,''),
+  COALESCE(worktree_head_sha,''), COALESCE(commits_ahead,0) FROM jobs`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -181,6 +193,8 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.OriginAgent, &r.EscalateTo, &r.Role, &r.PlanID, &r.SourceJobID,
 		&r.TimeoutSec, &r.RequestedTimeoutSec, &timeoutClamped,
 		&r.RecoveringSince,
+		&r.WorktreePath, &r.WorktreeBranch, &r.WorktreeBaseSHA,
+		&r.WorktreeHeadSHA, &r.CommitsAhead,
 	)
 	r.Interactive = interactive != 0
 	r.TimeoutClamped = timeoutClamped != 0
@@ -205,8 +219,9 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 	    rendered_command, result_json, artifacts_json, diff_summary, source, tags_json,
 	    workflow_id, step_index, attempt, fan_index, session_id, channel, client,
 	    origin_agent, escalate_to, role, plan_id, source_job_id,
-	    timeout_sec, requested_timeout_sec, timeout_clamped, recovering_since)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	    timeout_sec, requested_timeout_sec, timeout_clamped, recovering_since,
+	    worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -246,7 +261,12 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     timeout_sec=excluded.timeout_sec,
     requested_timeout_sec=excluded.requested_timeout_sec,
     timeout_clamped=excluded.timeout_clamped,
-    recovering_since=excluded.recovering_since`
+    recovering_since=excluded.recovering_since,
+    worktree_path=excluded.worktree_path,
+    worktree_branch=excluded.worktree_branch,
+    worktree_base_sha=excluded.worktree_base_sha,
+    worktree_head_sha=excluded.worktree_head_sha,
+    commits_ahead=excluded.commits_ahead`
 	// Serialise writes in-process (see Store.writeMu) so SQLite never sees two
 	// concurrent writers and cannot return SQLITE_BUSY under burst.
 	s.writeMu.Lock()
@@ -264,6 +284,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.OriginAgent, rec.EscalateTo, rec.Role, rec.PlanID, rec.SourceJobID,
 		rec.TimeoutSec, rec.RequestedTimeoutSec, rec.TimeoutClamped,
 		rec.RecoveringSince,
+		rec.WorktreePath, rec.WorktreeBranch, rec.WorktreeBaseSHA,
+		rec.WorktreeHeadSHA, rec.CommitsAhead,
 	)
 	if err != nil {
 		// A competing INSERT with the same non-empty request_id (different id)

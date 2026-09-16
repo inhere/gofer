@@ -76,6 +76,9 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		SystemPrompt: f.SystemPrompt,
 		Cmd:          f.Cmd,
 		Cwd:          f.Cwd,
+		// WT-01: the peer creates the worktree against its OWN project root.
+		Worktree:     f.Worktree,
+		WorktreeBase: f.WorktreeBase,
 		TimeoutSec:   f.TimeoutSec,
 	}
 
@@ -134,6 +137,13 @@ func (r *Runner) captureRemoteOutcome(peerID string, final job.JobResult) *runne
 		// peer 的 get_job 返回的 JobResult 已含其本地捕获/注入的 session_id (P1)，原样
 		// 回传 host (P3)，让远端执行的 job 也能 resume / list --session。
 		SessionID: final.SessionID,
+		// WT-01: the peer's own worktree paths (they are on the peer machine), so the
+		// host row still names the deliverable branch.
+		WorktreePath:    final.WorktreePath,
+		WorktreeBranch:  final.WorktreeBranch,
+		WorktreeBaseSHA: final.WorktreeBaseSHA,
+		WorktreeHeadSHA: final.WorktreeHeadSHA,
+		CommitsAhead:    final.CommitsAhead,
 	}
 	if manifest, err := r.c.ListArtifacts(peerID); err == nil && len(manifest) > 0 {
 		o.Artifacts = manifest
