@@ -105,14 +105,15 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 		if !ok {
 			return config.ProjectConfig{}, fmt.Errorf("%w: unknown agent %q", ErrInvalidRequest, interactiveAgent)
 		}
-		if !ac.Interactive {
-			return config.ProjectConfig{}, fmt.Errorf("%w: agent %q is not interactive", ErrInvalidRequest, interactiveAgent)
+		_, hasInteractive := agent.Modes(ac)
+		if !hasInteractive {
+			return config.ProjectConfig{}, fmt.Errorf("%w: agent %q has no interactive mode", ErrInvalidRequest, interactiveAgent)
 		}
 		if !slices.Contains(proj.InteractiveAllowedAgents, interactiveAgent) {
 			return config.ProjectConfig{}, fmt.Errorf("%w: agent %q not in interactive_allowed_agents", ErrInvalidRequest, interactiveAgent)
 		}
-		if ac.Type == agent.TypeExec || !ac.NoRawCmd {
-			return config.ProjectConfig{}, fmt.Errorf("%w: interactive agent must be no-raw-cmd and non-exec", ErrInvalidRequest)
+		if ac.Type == agent.TypeExec {
+			return config.ProjectConfig{}, fmt.Errorf("%w: interactive agent must be non-exec", ErrInvalidRequest)
 		}
 		if len(req.Cmd) > 0 && !resumeCarrier {
 			return config.ProjectConfig{}, fmt.Errorf("%w: interactive job cannot override Cmd", ErrInvalidRequest)
@@ -154,8 +155,9 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 		// Interactive=src.Interactive, so an interactive source resumes as an
 		// interactive job (resume.go). A non-interactive job on an interactive source
 		// agent can only come from a job that predates this gate.
-		if ac.Interactive && !req.Interactive {
-			return config.ProjectConfig{}, fmt.Errorf("%w: agent %q is interactive-only; submit it as an interactive job", ErrInvalidRequest, gateAgent)
+		batch, _ := agent.Modes(ac)
+		if !batch && !req.Interactive {
+			return config.ProjectConfig{}, fmt.Errorf("%w: agent %q has no batch mode; submit it as an interactive job", ErrInvalidRequest, gateAgent)
 		}
 		if len(req.AgentArgs) > 0 && ac.Type == agent.TypeExec {
 			return config.ProjectConfig{}, fmt.Errorf("%w: agent_args not allowed for exec agent %q", ErrInvalidRequest, gateAgent)
@@ -257,8 +259,8 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 			// admission proceeds exactly as before this fix.
 			if gateAgent != "" && !req.Interactive {
 				for _, ab := range caps.AgentCaps {
-					if ab.Key == gateAgent && ab.Interactive {
-						return config.ProjectConfig{}, fmt.Errorf("%w: agent %q is interactive-only; submit it as an interactive job", ErrInvalidRequest, gateAgent)
+					if ab.Key == gateAgent && !ab.Batch {
+						return config.ProjectConfig{}, fmt.Errorf("%w: agent %q has no batch mode; submit it as an interactive job", ErrInvalidRequest, gateAgent)
 					}
 				}
 			}

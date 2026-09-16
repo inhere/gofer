@@ -173,7 +173,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			Cwd:       workDir,
 			JobID:     jobID,
 			ResultDir: resultDir,
-		}, agent.BuildOptions{AllowEmptyPrompt: req.Interactive, AgentArgs: req.AgentArgs})
+		}, agent.BuildOptions{AllowEmptyPrompt: req.Interactive, Interactive: req.Interactive, AgentArgs: req.AgentArgs})
 		if berr != nil {
 			return JobResult{}, berr
 		}

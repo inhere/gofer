@@ -25,7 +25,7 @@ func TestValidateInteractiveAdmission(t *testing.T) {
 				ProjectKey: "self", Agent: "plain", Runner: "local",
 				Interactive: true, Prompt: "hi",
 			},
-			wantMsg: `agent "plain" is not interactive`,
+			wantMsg: `agent "plain" has no interactive mode`,
 		},
 		{
 			name: "not in interactive allowlist",
@@ -41,15 +41,7 @@ func TestValidateInteractiveAdmission(t *testing.T) {
 				ProjectKey: "self", Agent: "exec-web", Runner: "local",
 				Interactive: true, Prompt: "hi",
 			},
-			wantMsg: "interactive agent must be no-raw-cmd and non-exec",
-		},
-		{
-			name: "raw command capable agent",
-			req: JobRequest{
-				ProjectKey: "self", Agent: "raw-term", Runner: "local",
-				Interactive: true, Prompt: "hi",
-			},
-			wantMsg: "interactive agent must be no-raw-cmd and non-exec",
+			wantMsg: `agent "exec-web" has no interactive mode`,
 		},
 		{
 			name: "cmd override",
@@ -105,6 +97,16 @@ func TestValidateInteractiveAdmission(t *testing.T) {
 		}, false)
 		if err != nil {
 			t.Fatalf("Validate valid local interactive: %v", err)
+		}
+	})
+
+	t.Run("valid local interactive allows raw command capable agent", func(t *testing.T) {
+		_, err := s.Validate(cfg, JobRequest{
+			ProjectKey: "self", Agent: "raw-term", Runner: "local",
+			Interactive: true, Prompt: "hi",
+		}, false)
+		if err != nil {
+			t.Fatalf("Validate valid raw local interactive: %v", err)
 		}
 	})
 
@@ -167,7 +169,7 @@ func TestValidateRejectsInteractiveOnlyAgentOnNonInteractiveJob(t *testing.T) {
 	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("Validate err = %v, want ErrInvalidRequest", err)
 	}
-	if want := `agent "tty-term" is interactive-only`; !strings.Contains(err.Error(), want) {
+	if want := `agent "tty-term" has no batch mode; submit it as an interactive job`; !strings.Contains(err.Error(), want) {
 		t.Fatalf("Validate err = %v, want message containing %q", err, want)
 	}
 }

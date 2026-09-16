@@ -156,8 +156,8 @@ func TestFedInteractiveOnlyAgentRejectedNonInteractive(t *testing.T) {
 	if !errors.Is(err, ErrInvalidRequest) {
 		t.Fatalf("interactive-only agent submitted non-interactively: got %v, want ErrInvalidRequest", err)
 	}
-	if !strings.Contains(err.Error(), `"term"`) || !strings.Contains(err.Error(), "interactive-only") {
-		t.Fatalf("error should name the agent and say interactive-only: %v", err)
+	if !strings.Contains(err.Error(), `"term"`) || !strings.Contains(err.Error(), "no batch mode") {
+		t.Fatalf("error should name the agent and say no batch mode: %v", err)
 	}
 	if stub.gotForward != nil {
 		t.Fatalf("rejected job must not be dispatched: %+v", stub.gotForward)
