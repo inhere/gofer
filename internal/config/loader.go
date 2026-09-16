@@ -97,7 +97,7 @@ func Load(explicitPath string) (*Config, string, error) {
 	}
 
 	ApplyDefaults(cfg)
-	warnLegacyInteractiveProjects(cfg)
+	cfg.Projects = ApplyLegacyInteractiveCompat(data, cfg.Projects)
 	if err := validate(cfg); err != nil {
 		return nil, path, fmt.Errorf("invalid config %s: %w", path, err)
 	}
@@ -297,19 +297,63 @@ func ApplyDefaults(cfg *Config) {
 	}
 }
 
-// warnLegacyInteractiveProjects logs one line per project that still relies on the
-// pre-AGT-02 interactive switch: a non-empty interactive_allowed_agents with
-// allow_interactive left unwritten. The combination keeps working (the compat rule
-// in ProjectConfig.IsInteractiveAllowed), but the field to read from now on is the
-// switch — nudge the operator once per load. Keys are sorted for stable output.
-func warnLegacyInteractiveProjects(cfg *Config) {
-	for _, key := range slices.Sorted(maps.Keys(cfg.Projects)) {
-		p := cfg.Projects[key]
-		if p.AllowInteractive == nil && len(p.InteractiveAllowedAgents) > 0 {
-			slog.Warn("project allows interactive jobs through the legacy interactive_allowed_agents list; write allow_interactive explicitly",
-				"project", key)
-		}
+// legacyInteractiveYAML mirrors the REMOVED AGT-02 project key. ProjectConfig no
+// longer carries interactive_allowed_agents, so the key has to be probed off the raw
+// document: a second decode into this shadow struct (rather than a yaml.Node walk or
+// strict-field handling) keeps the compat read independent of the typed decode —
+// goccy/go-yaml ignores unknown keys, so detection has to be explicit either way, and
+// the shadow struct states the exact shape it looks for.
+type legacyInteractiveYAML struct {
+	Projects map[string]struct {
+		InteractiveAllowedAgents []string `yaml:"interactive_allowed_agents"`
+	} `yaml:"projects"`
+}
+
+// ApplyLegacyInteractiveCompat is the ONE-SHOT read of the REMOVED AGT-02 key
+// interactive_allowed_agents (design §2). It projects the raw document's project
+// blocks onto the config and, for every project whose legacy list is NON-EMPTY:
+//
+//   - allow_interactive unwritten → set it to true (the pre-AGT-02 reading of a
+//     non-empty list: "this project wants interactive jobs") and warn to rewrite;
+//   - allow_interactive written (either value) → keep it verbatim, warn that the
+//     legacy list is ignored.
+//
+// A present-but-empty list changes nothing and does not warn: empty never meant
+// "allowed", so there is nothing to carry over. Everything else (no such key, an
+// undecodable document — the typed decode has already failed by then) is a no-op.
+// Callers: config.Load (config.yaml) and the worker's own worker.yaml decode, so both
+// existing operator files keep working unchanged.
+func ApplyLegacyInteractiveCompat(raw []byte, projects map[string]ProjectConfig) map[string]ProjectConfig {
+	if len(projects) == 0 {
+		return projects
 	}
+	var legacy legacyInteractiveYAML
+	if err := yaml.Unmarshal(raw, &legacy); err != nil {
+		return projects // the typed decode already reported the real error
+	}
+	if len(legacy.Projects) == 0 {
+		return projects
+	}
+	for _, key := range slices.Sorted(maps.Keys(legacy.Projects)) {
+		if len(legacy.Projects[key].InteractiveAllowedAgents) == 0 {
+			continue
+		}
+		p, ok := projects[key]
+		if !ok {
+			continue
+		}
+		if p.AllowInteractive != nil {
+			slog.Warn("interactive_allowed_agents has been removed and is ignored; delete it from the config",
+				"project", key)
+			continue
+		}
+		allow := true
+		p.AllowInteractive = &allow
+		projects[key] = p
+		slog.Warn("interactive_allowed_agents has been removed; treating it as allow_interactive: true — rewrite the config",
+			"project", key)
+	}
+	return projects
 }
 
 // validate runs lightweight structural checks that do not touch the filesystem;

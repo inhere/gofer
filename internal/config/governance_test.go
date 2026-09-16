@@ -453,8 +453,10 @@ agents:
 	if !cfg.Agents["term"].Interactive || !cfg.Agents["term"].NoRawCmd {
 		t.Fatalf("agent term = %+v, want interactive/no_raw_cmd true", cfg.Agents["term"])
 	}
-	if got := cfg.Projects["demo"].InteractiveAllowedAgents; len(got) != 1 || got[0] != "term" {
-		t.Fatalf("interactive_allowed_agents = %v, want [term]", got)
+	// AGT-02 0.3: the removed interactive_allowed_agents key is read once at load — a
+	// non-empty legacy list is carried over as an explicit allow_interactive: true.
+	if !cfg.Projects["demo"].IsInteractiveAllowed() {
+		t.Fatalf("demo = %+v, want the legacy interactive_allowed_agents list read as allow_interactive:true", cfg.Projects["demo"])
 	}
 	if cfg.Storage.Cast.RetentionTTLHours != 24 || cfg.Storage.Cast.Encryption.KeyEnv != "GOFER_CAST_KEY" {
 		t.Fatalf("cast config = %+v, want ttl/key_env set", cfg.Storage.Cast)

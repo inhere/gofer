@@ -4,25 +4,17 @@ import (
 	"bytes"
 	"log/slog"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
 
-// interactiveProjectYAML is a pre-AGT-02 project: the interactive switch does not
-// exist yet and interactive_allowed_agents is the only interactive field. switchLine
-// is spliced in verbatim (already indented) so both the "unset" and the "explicit
-// false" reading of the same yaml can be loaded.
-func loadInteractiveProject(t *testing.T, switchLine string) ProjectConfig {
-	t.Helper()
-	p := writeInteractiveProject(t, switchLine)
-	cfg, _, err := Load(p)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	return cfg.Projects["demo"]
-}
-
-func writeInteractiveProject(t *testing.T, switchLine string) string {
+// legacyInteractiveProjectYAML is a pre-AGT-02 project block: it still carries the
+// REMOVED interactive_allowed_agents key. listLine and switchLine are spliced in
+// verbatim (already indented) or left empty, so every combination of "old key present
+// / absent" × "switch written / unwritten" loads from the same shape an operator's file
+// has on disk.
+func writeLegacyInteractiveProject(t *testing.T, listLine, switchLine string) string {
 	t.Helper()
 	p := filepath.Join(t.TempDir(), "cfg.yaml")
 	write(t, p, `
@@ -30,8 +22,7 @@ projects:
   demo:
     host_path: /tmp/demo
     allowed_agents: [term]
-    interactive_allowed_agents: [term]
-`+switchLine+`
+`+listLine+switchLine+`
 agents:
   term:
     type: cli
@@ -42,82 +33,121 @@ agents:
 	return p
 }
 
-// TestProjectInteractiveLegacyListImpliesAllow pins the AGT-02 compatibility rule:
-// an existing yaml that only lists interactive_allowed_agents (non-empty) with no
-// allow_interactive keeps working — the list is read as "interactive jobs allowed".
-func TestProjectInteractiveLegacyListImpliesAllow(t *testing.T) {
-	proj := loadInteractiveProject(t, "")
+// loadCapturingLog loads the yaml with the default slog redirected into a buffer,
+// returning the project and the captured log text (the compat read warns once per
+// project at load).
+func loadCapturingLog(t *testing.T, path string) (ProjectConfig, string) {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	cfg, _, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	return cfg.Projects["demo"], buf.String()
+}
+
+// TestLoadCompatLegacyInteractiveListImpliesAllow pins the one-shot compat read of the
+// removed key: an existing yaml with a non-empty interactive_allowed_agents and no
+// allow_interactive keeps working — the list is carried over as an explicit true, so
+// nothing downstream (admission, policy push, worker) ever has to know the old rule —
+// and the operator is told to rewrite it.
+func TestLoadCompatLegacyInteractiveListImpliesAllow(t *testing.T) {
+	proj, log := loadCapturingLog(t, writeLegacyInteractiveProject(t, "    interactive_allowed_agents: [term]\n", ""))
 
 	if !proj.IsInteractiveAllowed() {
 		t.Fatalf("IsInteractiveAllowed() = false, want true for a legacy non-empty interactive_allowed_agents (%+v)", proj)
 	}
-	if len(proj.InteractiveAllowedAgents) != 1 || proj.InteractiveAllowedAgents[0] != "term" {
-		t.Fatalf("interactive_allowed_agents = %v, want [term]", proj.InteractiveAllowedAgents)
+	if proj.AllowInteractive == nil || !*proj.AllowInteractive {
+		t.Fatalf("AllowInteractive = %v, want an explicit true (the compat read must store the switch, not re-derive it)", proj.AllowInteractive)
 	}
-	if proj.AllowInteractive != nil {
-		t.Fatalf("AllowInteractive = %v, want nil (unset) for a legacy yaml", *proj.AllowInteractive)
+	if !strings.Contains(log, "interactive_allowed_agents has been removed; treating it as allow_interactive: true") {
+		t.Fatalf("missing rewrite warning; log: %s", log)
+	}
+	if !strings.Contains(log, "project=demo") {
+		t.Fatalf("warning must name the project; log: %s", log)
 	}
 }
 
-// TestProjectInteractiveExplicitFalseWinsOverList is the other half of the
-// compatibility rule: a bool could not express "unset", so the switch is a *bool. An
-// explicit allow_interactive:false must deny interactive jobs even with a leftover
-// narrowing list in the yaml — flipping the switch off must not leave the project
-// half-open.
-func TestProjectInteractiveExplicitFalseWinsOverList(t *testing.T) {
-	proj := loadInteractiveProject(t, "    allow_interactive: false\n")
+// TestLoadCompatLegacyListIgnoredWhenSwitchWritten: once allow_interactive is written —
+// either value — the removed key is inert and the written value wins, so a switch
+// deliberately flipped off is not resurrected by a leftover list. The load still warns,
+// because the dead key should be deleted.
+func TestLoadCompatLegacyListIgnoredWhenSwitchWritten(t *testing.T) {
+	tests := []struct {
+		name       string
+		switchLine string
+		want       bool
+	}{
+		{name: "explicit true", switchLine: "    allow_interactive: true\n", want: true},
+		{name: "explicit false", switchLine: "    allow_interactive: false\n", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			proj, log := loadCapturingLog(t, writeLegacyInteractiveProject(t, "    interactive_allowed_agents: [term]\n", tt.switchLine))
+
+			if proj.AllowInteractive == nil || *proj.AllowInteractive != tt.want {
+				t.Fatalf("AllowInteractive = %v, want an explicit %v (the written switch wins)", proj.AllowInteractive, tt.want)
+			}
+			if proj.IsInteractiveAllowed() != tt.want {
+				t.Fatalf("IsInteractiveAllowed() = %v, want %v", proj.IsInteractiveAllowed(), tt.want)
+			}
+			if !strings.Contains(log, "interactive_allowed_agents has been removed and is ignored") {
+				t.Fatalf("missing ignore warning; log: %s", log)
+			}
+			if strings.Contains(log, "treating it as allow_interactive: true") {
+				t.Fatalf("a written switch must not be overridden by the legacy list; log: %s", log)
+			}
+		})
+	}
+}
+
+// TestLoadCompatEmptyLegacyListStaysClosed: only a NON-EMPTY legacy list implies the
+// switch. An empty list never meant "interactive allowed" (it meant the opposite), so
+// it stays closed and there is nothing to warn about.
+func TestLoadCompatEmptyLegacyListStaysClosed(t *testing.T) {
+	proj, log := loadCapturingLog(t, writeLegacyInteractiveProject(t, "    interactive_allowed_agents: []\n", ""))
 
 	if proj.IsInteractiveAllowed() {
-		t.Fatalf("IsInteractiveAllowed() = true, want false: an explicit allow_interactive:false beats the list (%+v)", proj)
+		t.Fatalf("IsInteractiveAllowed() = true, want false for an empty legacy list (%+v)", proj)
 	}
-	if len(proj.InteractiveAllowedAgents) != 1 || proj.InteractiveAllowedAgents[0] != "term" {
-		t.Fatalf("interactive_allowed_agents = %v, want the list preserved as-is", proj.InteractiveAllowedAgents)
+	if proj.AllowInteractive != nil {
+		t.Fatalf("AllowInteractive = %v, want nil (nothing to carry over)", *proj.AllowInteractive)
+	}
+	if strings.Contains(log, "interactive_allowed_agents") {
+		t.Fatalf("an empty legacy list must not warn; log: %s", log)
 	}
 }
 
-// TestProjectInteractiveSwitchAloneAllows loads the switch WITHOUT any narrowing list
-// — the post-AGT-02 shape: allow_interactive:true on its own means "every
-// interactive-capable agent, subject to allowed_agents".
+// TestProjectInteractiveSwitchAloneAllows loads the post-AGT-02 shape: allow_interactive
+// on its own, no legacy key anywhere in the document (hence no warning).
 func TestProjectInteractiveSwitchAloneAllows(t *testing.T) {
-	proj := loadInteractiveProject(t, "    allow_interactive: true\n")
+	proj, log := loadCapturingLog(t, writeLegacyInteractiveProject(t, "", "    allow_interactive: true\n"))
 
 	if !proj.IsInteractiveAllowed() {
 		t.Fatalf("IsInteractiveAllowed() = false, want true for an explicit allow_interactive:true (%+v)", proj)
 	}
+	if strings.Contains(log, "interactive_allowed_agents") {
+		t.Fatalf("no legacy key in the document → no compat warning; log: %s", log)
+	}
 }
 
-// TestLoadWarnsOnLegacyInteractiveList: the legacy combination still works, but the
-// operator should be told to write the switch explicitly (once per project, at load).
-// An explicit switch — either value — must not warn.
-func TestLoadWarnsOnLegacyInteractiveList(t *testing.T) {
-	tests := []struct {
-		name       string
-		switchLine string
-		wantWarn   bool
-	}{
-		{name: "legacy list without switch", switchLine: "", wantWarn: true},
-		{name: "explicit true", switchLine: "    allow_interactive: true\n"},
-		{name: "explicit false", switchLine: "    allow_interactive: false\n"},
-	}
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			p := writeInteractiveProject(t, tt.switchLine)
-
-			var buf bytes.Buffer
-			prev := slog.Default()
-			slog.SetDefault(slog.New(slog.NewTextHandler(&buf, nil)))
-			t.Cleanup(func() { slog.SetDefault(prev) })
-
-			if _, _, err := Load(p); err != nil {
-				t.Fatalf("Load: %v", err)
-			}
-			got := buf.String()
-			if warned := strings.Contains(got, "legacy interactive_allowed_agents"); warned != tt.wantWarn {
-				t.Fatalf("warn = %v, want %v; log: %s", warned, tt.wantWarn, got)
-			}
-			if tt.wantWarn && !strings.Contains(got, `project=demo`) {
-				t.Fatalf("warning must name the project: %s", got)
-			}
-		})
+// TestProjectConfigHasNoInteractiveAllowedAgents is the anti-relapse guard (design 0.3):
+// the narrowing list must not come back to the config type or to its yaml surface. A
+// re-added field would silently start decoding operator yaml again and re-open a second
+// interactive gate next to allow_interactive.
+func TestProjectConfigHasNoInteractiveAllowedAgents(t *testing.T) {
+	typ := reflect.TypeOf(ProjectConfig{})
+	for i := range typ.NumField() {
+		f := typ.Field(i)
+		if f.Name == "InteractiveAllowedAgents" {
+			t.Fatalf("ProjectConfig.%s is back; AGT-02 0.3 removed it in favour of allow_interactive", f.Name)
+		}
+		if strings.Contains(f.Tag.Get("yaml"), "interactive_allowed_agents") {
+			t.Fatalf("ProjectConfig.%s still decodes the removed interactive_allowed_agents key (tag %q)", f.Name, f.Tag)
+		}
 	}
 }
