@@ -1,20 +1,21 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # worker 断线恢复（RECOV-01）与受管 worktree 执行（WT-01）设计
 
-> 状态：Approved 0.1 / 实施中（2026-09-16 人工拍板；对标 WebCodex 的 `recovering` 与 task worktree）
+> 状态：Approved 0.2 / 实施中（2026-09-16 人工拍板；0.2 为 RECOV-01 实施期修正与 R4 补齐）
 
 ## 修订记录
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
 | 0.1 | 2026-09-16 | Claude | 初稿：断线→recovering→同实例重连续接/补发；`job run --worktree` 在 `tmp/gofer/wt/<job-id>` 的 git worktree 中执行 |
+| 0.2 | 2026-09-17 | Claude | RECOV-01 实施期修正：dispatch goroutine 本就跑在进程 ctx 下（0.1 事实有误，丢数据点只是"写失败仍推进偏移"与无重放）；`error_code=worker_lost` 以 `jobs.error` 文本 + 结构化日志表达；新增 R4：dispatch 时持久化解析后的 worker_id/instance_id，serve 重启后 hub 按 inflight **收养**无 sink 的 recovering job；superseded 同实例重连时 sink 随之 adopt；worker 侧 Result 缓存上限取镜像默认 240s |
 
 ## 一、RECOV-01 worker 断线时 in-flight job 进入 recovering
 
 ### 背景与已确认事实
 
 - server：`internal/wshub/hub.go` 读循环返回后 `onDisconnect` 对该连接的 in-flight job 调 `sink.OnDisconnect(errWorkerDisconnected)` → host job 立即 `failed`（`TestWorkerDisconnectMidJobFailsJob`）。唯一豁免是"新注册先于旧连接断开"的竞态：`reg.Put` 对**同 instance_id** 的旧连接标记 superseded（`hub.go:349-357`）。
-- worker：`writeFrame` 永远写**当前** `cl.conn`（`client.go:740-758`，注释里已标 TODO h-aii-wag4），断线期间返回 `not connected`；`streamLocalJob` 在 writeFrame 失败后**仍推进文件偏移**（`dispatch.go:236-246`），该段日志永久丢失；dispatch goroutine 跑在 recvLoop 的 ctx 下（`client.go:644-648`），连接一断 `streamLocalJob` 就退出、Result 发到死连接后被 `_ =` 吞掉。本地 job 本身由 worker 的 `job.Service` 持有，进程不退就继续跑。
+- worker：`writeFrame` 永远写**当前** `cl.conn`（`client.go:740-758`，注释里已标 TODO h-aii-wag4），断线期间返回 `not connected`；`streamLocalJob` 在 writeFrame 失败后**仍推进文件偏移**（`dispatch.go:236-246`），该段日志永久丢失；Result 发到死连接后被 `_ =` 吞掉。dispatch goroutine 跑在**进程** ctx 下（0.2 更正：0.1 误写为连接 ctx），本就跨连接存活；本地 job 由 worker 的 `job.Service` 持有，进程不退就继续跑。
 - serve 重启：`ReconcileOrphanJobs` 把所有非终态 job 直接 failed。
 - 后果：WS 经 WSL/Docker/VPN 抖动一次，跑了几十分钟的 codex job 在 host 侧 failed，而 worker 侧其实跑完了。
 
@@ -37,7 +38,8 @@
   - 旧 worker 不带 `inflight` 字段（nil）→ 视为"无法证实"，沿用恢复定时器：窗口内收到该 job 的任何 Log/Result 帧即回 running，否则超时 failed。
 - 新 instance_id 注册（进程重启）→ 立即 failed 该 worker 的全部 recovering job（与现状 z8ow 语义一致）。
 - 定时器超时 → `sink.OnDisconnect(errWorkerLost)` 走现有 classify/finish；`error_code=worker_lost`，`close_reason` 写 recovering 持续时长。
-- `ReconcileOrphanJobs`（serve 重启）：worker job 不再直接 failed，而是置 `recovering` 并启动同一窗口；worker 重连时按上面的 `inflight` 协议恢复。local runner job 仍按现状 failed（进程内状态确实丢了）。
+- `ReconcileOrphanJobs`（serve 重启）：worker job 不再直接 failed，而是置 `recovering` 并启动同一窗口；local runner job 仍按现状 failed（进程内状态确实丢了）。
+- **R4 收养（0.2）**：serve 重启后旧进程的 sink/runner 已不存在，hub 无法把 DB 行翻回 running——因此 (a) dispatch 选定 worker 时把解析后的 `worker_id` 与 `worker_instance_id` 写入 job 行（D4 默认 worker 回退的 job 此前 `worker_id` 为空，orphan 分类漏掉它们）；(b) worker Register 带 `inflight` 且 instance_id 与行内一致时，对每个"DB 为 recovering 且无 live sink"的 job 由 hub **重建一个收养 sink**：Log 帧按 stream 追加到该 job 的结果目录文件（偏移取当前文件大小回给 worker 重放）、Result 帧经 job service 的 classify/finish 收尾、Outcome 帧照常落盘；job 行翻回 running。instance_id 不一致或不在 inflight → failed(`worker_lost`)。
 
 **worker**
 
