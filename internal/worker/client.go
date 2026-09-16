@@ -1039,7 +1039,8 @@ func (cl *Client) notify(event string) {
 // writeFrame marshals a typed payload into an envelope and writes it under
 // writeMu (coder/websocket requires a single concurrent writer).
 //
-// RECOV-01: it always writes to the CURRENT cl.conn. That is the point, not a
+// RECOV-01 (see docs/design/2026-09-16-job-recovery-and-worktree-design.md): it
+// intentionally writes to the CURRENT cl.conn. That is the point, not a
 // limitation: a job outlives the connection it was dispatched on, so its Log /
 // Outcome / Result frames must follow the current one — and because a session's
 // connection is published (setConn) only after its handshake is complete, a write
