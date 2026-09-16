@@ -8,7 +8,7 @@
 
 - **多入口控制面**：CLI（`gofer job ...`）/ HTTP（`/v1/jobs`）/ MCP（stdio tools）/ Web 控制台（含提交表单），同一套 `job.Service`。
 - **多 agent**：`type: cli-agent`（模板渲染 `--prompt`，如 codex/claude/opencode）与内置 `type: exec`（原样跑 argv）。未安装的 agent 仅标 `unavailable`，不影响启动。
-- **多项目**：每个项目登记 `host_path`/`container_path` + 允许的 agent/runner + `allow_exec` + 并发上限。
+- **多项目**：每个项目登记 `host_path`/`container_path` + 允许的 agent/runner + `allow_exec` + `allow_interactive`（默认关）+ 并发上限。
 - **三种执行位置（runner）**：`local`（本进程）/ `peer-http`（转发到另一台 gofer）/ `worker`（WS 远端执行机）；远端的日志/交互经"镜像"机制透明回传，读路径不变。
 - **WS 远端 worker + 标签调度**：worker 经 WebSocket 连入 hub，按 `worker_labels` 自动选机（或显式 `worker_id`）；实际执行机记入结果可审计。
 - **TCP 隧道**：`gofer tunnel` 提供受 worker 白名单约束的 TCP check/forward/list，用法见 [`docs/runbook/tcp-tunnel.md`](docs/runbook/tcp-tunnel.md)。
@@ -73,8 +73,8 @@ gofer tunnel forward --log-dir ~/.config/gofer/run/tunnels -w w-plc 1502:192.168
 
 ## 核心概念
 
-- **project**：一个可执行任务的真实目录。`host_path`（主机路径）/`container_path`（容器路径）/`allowed_agents`/`allowed_runners`/`allow_exec`/`max_concurrent_jobs`。
-- **agent**：怎么执行。`cli-agent` 用 `command`+`args` 模板渲染（占位符 `{{prompt}}`/`{{cwd}}`/`{{job_id}}`/`{{result_dir}}`，逐元素替换、不过 shell）；`exec` 原样跑请求里的 `cmd` argv（需项目 `allow_exec`）。
+- **project**：一个可执行任务的真实目录。`host_path`（主机路径）/`container_path`（容器路径）/`allowed_agents`/`allowed_runners`/`allow_exec`/`allow_interactive`（默认关，pty/交互 job 的项目级总开关，与 `allow_exec`、worker 的 `guards.allow_interactive` 同一套词汇；`interactive_allowed_agents` 只是它的**可选收窄**而非开关，留空=不收窄）/`max_concurrent_jobs`。
+- **agent**：怎么执行。`cli-agent` 用 `command`+`args` 模板渲染（占位符 `{{prompt}}`/`{{cwd}}`/`{{job_id}}`/`{{result_dir}}`，逐元素替换、不过 shell）；再加 `interactive_args` 即**一个 key 同时支持批处理与 pty**（`args`=批处理 argv，`interactive_args`=交互 argv，`[]`=裸 TUI 启动；不得含 `{{prompt}}`，`type: exec` 不能设）；`exec` 原样跑请求里的 `cmd` argv（需项目 `allow_exec`）。
 - **runner**：在哪执行。`local`（内置，本进程子进程）/ `peer-http`（转发到另一台 gofer）/ `worker`（WS 连入的远端执行机）。
 - **job 生命周期**：`queued → running → done|failed|cancelled|timeout`；运行中提问时 `running → pending_interaction → running`。
 
@@ -130,7 +130,7 @@ worker 侧用独立配置连入并本地执行（`gofer worker --worker-config w
 worker_id: w-gpu
 server_link: { urls: [ws://hub:8765/v1/workers/connect], token_env: WTOK_GPU }
 labels: [gpu, linux]
-projects: { workspace: { host_path: /abs, container_path: /abs, allowed_agents: [exec], allow_exec: true } }
+projects: { workspace: { host_path: /abs, container_path: /abs, allowed_agents: [exec], allow_exec: true } }   # 交互 job 还需该项目 allow_interactive: true
 ```
 
 - **显式路由**：提交 `{"runner":"worker","worker_id":"w-gpu"}`。
@@ -210,11 +210,15 @@ projects:
     allowed_agents: [codex, claude, exec]
     allowed_runners: [local, worker]     # 含 worker 才能远端派发
     allow_exec: true
+    allow_interactive: true              # pty/交互 job 的项目级开关（默认关）
+    # interactive_allowed_agents: [claude]   # 可选收窄；只放行一部分 agent 时才写
     max_concurrent_jobs: 4
 
 agents:                                  # 占位符：{{prompt}} {{cwd}} {{job_id}} {{result_dir}}
-  codex:  { type: cli-agent, command: codex, args: [exec, "{{prompt}}"], detect: { command: codex, args: [--version] } }
-  claude: { type: cli-agent, command: claude, args: ["-p", "{{prompt}}"], detect: { command: claude, args: [--version] } }
+  # 加 interactive_args 即批处理 + pty 双模（一个 key 两种启动）；[] = 裸 TUI 启动，
+  # 不得含 {{prompt}}；type: exec 不能设。四种组合见 config/gofer.example.yaml。
+  codex:  { type: cli-agent, command: codex, args: [exec, "{{prompt}}"], interactive_args: [], detect: { command: codex, args: [--version] } }
+  claude: { type: cli-agent, command: claude, args: ["-p", "{{prompt}}"], interactive_args: [], detect: { command: claude, args: [--version] } }
   exec:   { type: exec, detect: { command: sh, args: [-c, "true"] } }
 
 runners:
@@ -243,7 +247,7 @@ gofer mcp                                  # stdio MCP server（配置走全局 
 gofer --gen-completion bash|zsh > ~/.gofer.completion.sh  # 补全脚本
 ```
 
-`job run` 关键参数：`-p/--project`、`-a/--agent`（必填）、`--runner`（默认 `server`，表示 server 本地执行；旧值 `local` 继续兼容，指定 worker/peer runner 时填写其 runner key）、`--cwd`（默认 `.`，限项目内）、`--prompt`（cli-agent）、`-- argv`（exec）、`-f/--file`（md+yaml）、`--sync` + `--wait-timeout`（同步等待）、`--wait`（客户端轮询到终态）、`--worker-id` / `--worker-labels`（worker 路由）、`--tags`、`--timeout`、`--title`、`-s/--server`、`--token`。
+`job run` 关键参数：`-p/--project`、`-a/--agent`（必填）、`--runner`（默认 `server`，表示 server 本地执行；旧值 `local` 继续兼容，指定 worker/peer runner 时填写其 runner key）、`--cwd`（默认 `.`，限项目内）、`--prompt`（cli-agent）、`-- argv`（exec）、`-f/--file`（md+yaml）、`--sync` + `--wait-timeout`（同步等待）、`--wait`（客户端轮询到终态）、`--worker-id` / `--worker-labels`（worker 路由）、`--interactive` + `--cols`/`--rows`（pty 交互 job；需项目 `allow_interactive` 且 agent 有交互模式）、`--tags`、`--timeout`、`--title`、`-s/--server`、`--token`。
 
 > ⚠️ **工作流跨项目 / 跨机传值（`${steps.N.result_dir}`）**：`result_dir` 是**绝对路径**。各 step 可指向不同项目（开发项目产物→测试项目读），只要这些 step 都在**同一文件系统**（本机 / 同容器 local runner）上执行，下一步即可直接读取上一步的 `result_dir`，无需拷贝。**但**当某 step 用 **worker 远端 / peer 跨机**执行时，`result_dir` 在那台机器上，跨机**不可直接读**——此时改用 `${steps.N.result}`（inline result.json，≤32KB）/ `${steps.N.stdout}` 传值，或将产物落到**共享盘**。远端产物自动拉取通道留后续。
 
