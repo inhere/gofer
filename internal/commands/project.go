@@ -59,9 +59,10 @@ func NewProjectCmd() *gcli.Command {
 			},
 			{
 				Name: "show",
-				Desc: "Show a project's details",
+				Desc: "Show a project's details (from the server in client mode)",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
+					bindServerFlags(c) // client mode reads the server's /v1/meta view
 					c.AddArg("key", "project key", true)
 				},
 				Func: runProjectShow,
@@ -101,9 +102,10 @@ func NewProjectCmd() *gcli.Command {
 			{
 				Name:    "validate",
 				Aliases: []string{"check"},
-				Desc:    "Validate a project's paths, agents and runners",
+				Desc:    "Validate a project's paths, agents and runners (against the server in client mode)",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
+					bindServerFlags(c) // client mode validates the server's /v1/meta view
 					c.AddArg("key", "project key", true)
 				},
 				Func: runProjectValidate,
