@@ -29,28 +29,43 @@ const EnvConfigDir = "GOFER_CONFIG_DIR"
 const DefaultConfigDirName = "gofer"
 
 // EnvRunMode declares a node's ROLE so role-default commands pick the matching
-// LOCAL config file: "server" (default) → config.yaml; "worker" → worker.yaml.
-// E38②. mcp is intentionally NOT a value here — standalone mcp still loads
-// config.yaml (it executes jobs in-process), and client-mode mcp's config is
-// governed by its --server flag (E28), not by this role.
+// LOCAL config file: "server" (default) → config.yaml; "worker" → worker.yaml;
+// "client" → NO local config at all (a pure client node holds only the connection
+// env in <config-dir>/.env and talks to a remote server). E38②/C1. mcp is
+// intentionally NOT a value here — standalone mcp still loads config.yaml (it
+// executes jobs in-process), and client-mode mcp's config is governed by its
+// --server flag (E28), not by this role.
 const EnvRunMode = "GOFER_RUN_MODE"
 
 // Run-mode values for EnvRunMode.
 const (
 	RunModeServer = "server"
 	RunModeWorker = "worker"
+	// RunModeClient marks a node that has NO local gofer config: `config.Load` skips
+	// the discovery chain, and commands that edit or serve a local config refuse to
+	// run (get whatever the server knows via the API instead).
+	RunModeClient = "client"
 )
 
-// RunMode returns the node role from GOFER_RUN_MODE: RunModeWorker when the env
-// is set to "worker" (case-insensitive), else RunModeServer (the default for any
-// empty/other value). Role-default commands (e.g. `project list`) use it to read
-// the matching local config (config.yaml vs worker.yaml).
+// RunMode returns the node role from GOFER_RUN_MODE: RunModeWorker / RunModeClient
+// when the env is set to that value (case-insensitive), else RunModeServer (the
+// default for any empty/other value). Role-default commands (e.g. `project list`)
+// use it to read the matching local config (config.yaml vs worker.yaml vs none).
 func RunMode() string {
-	if strings.EqualFold(strings.TrimSpace(os.Getenv(EnvRunMode)), RunModeWorker) {
+	switch v := strings.ToLower(strings.TrimSpace(os.Getenv(EnvRunMode))); v {
+	case RunModeWorker:
 		return RunModeWorker
+	case RunModeClient:
+		return RunModeClient
+	default:
+		return RunModeServer
 	}
-	return RunModeServer
 }
+
+// IsClientRunMode reports whether this process is a pure client node
+// (GOFER_RUN_MODE=client). It is the single predicate every client-mode branch
+// reads, so the role string is never compared by hand at the call sites.
+func IsClientRunMode() bool { return RunMode() == RunModeClient }
 
 // CurrentDirConfigNames are the per-directory config file names, in priority
 // order (§6.1): a local override (.gofer.local.yaml, gitignored) takes
@@ -69,7 +84,19 @@ var CurrentDirConfigNames = []string{".gofer.local.yaml", ".gofer.yaml"}
 //
 // When no file is found, Load returns a defaulted empty Config and an empty
 // path (no error) so that `project add` can create the first config.
+//
+// Client mode (GOFER_RUN_MODE=client) stops the chain after step 2: a pure client
+// node has no local gofer config by design, so the AUTO-DISCOVERED locations
+// (./.gofer[.local].yaml, <config-dir>/config.yaml) are never read and an empty
+// defaulted Config comes back with an empty path — a missing local file is the
+// normal state there, not an error. The EXPLICIT tier stays untouched: --config
+// and the GOFER_CONFIG env pointer still name a file the operator asked for.
 func Load(explicitPath string) (*Config, string, error) {
+	if IsClientRunMode() && explicitPath == "" && os.Getenv(EnvConfigPath) == "" {
+		cfg := &Config{}
+		ApplyDefaults(cfg)
+		return cfg, "", nil
+	}
 	path, err := Resolve(explicitPath)
 	if err != nil {
 		return nil, "", err

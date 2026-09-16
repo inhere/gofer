@@ -403,9 +403,11 @@ func resolveEditor() (ed string, tried []string) {
 
 // runConfigInfo prints a diagnostic snapshot tailored to the node role
 // (GOFER_RUN_MODE): server mode shows the serve config.yaml view; worker mode
-// shows the worker.yaml view (worker_id / hub link(s) / served projects), matching
-// how `project`/`config validate` already branch on run mode. The token is NEVER
-// printed — only whether it is set (SR403) — and neither is any secret value.
+// shows the worker.yaml view (worker_id / hub link(s) / served projects); client
+// mode shows that there is NO local config and where the node gets its connection
+// from — matching how `project`/`config validate` already branch on run mode. The
+// token is NEVER printed — only whether it is set (SR403) — and neither is any
+// secret value.
 func runConfigInfo(c *gcli.Command, _ []string) error {
 	mode := config.RunMode()
 
@@ -418,13 +420,22 @@ func runConfigInfo(c *gcli.Command, _ []string) error {
 	c.Printf("  GOFER_TOKEN set=%s\n", envSetYesNo("GOFER_TOKEN"))
 
 	var err error
-	if mode == config.RunModeWorker {
+	switch mode {
+	case config.RunModeClient:
+		err = printClientConfigInfo(c)
+	case config.RunModeWorker:
 		err = printWorkerConfigInfo(c)
-	} else {
+	default:
 		err = printServerConfigInfo(c)
 	}
 	if err != nil {
 		return err
+	}
+
+	if mode == config.RunModeClient {
+		// printClientConfigInfo already reported the submit target (it IS the only
+		// thing a client node has); repeating it here would just be noise.
+		return nil
 	}
 
 	// Client submit target: `job`/`wf`/`mcp` connect HERE (GOFER_SERVER_ADDR/TOKEN
@@ -433,6 +444,33 @@ func runConfigInfo(c *gcli.Command, _ []string) error {
 	c.Println("client (job/wf submit target):")
 	c.Printf("  GOFER_SERVER_ADDR=%s\n", envOrUnset("GOFER_SERVER_ADDR"))
 	c.Printf("  GOFER_SERVER_TOKEN set=%s\n", envSetYesNo("GOFER_SERVER_TOKEN"))
+	return nil
+}
+
+// printClientConfigInfo prints the client-node view (GOFER_RUN_MODE=client): a
+// client holds no local config at all, so there is no path to show — only the
+// connection env (<config-dir>/.env) it runs on. The address comes from
+// GOFER_SERVER_ADDR (or an explicit --config, which a client node may still name),
+// and the token is reported as set/not-set only (SR403).
+func printClientConfigInfo(c *gcli.Command) error {
+	cfg, _, err := config.Load(config.InputCfgFile)
+	if err != nil {
+		return errorx.Failf(configExitErr, "%v", err)
+	}
+	addr := cfg.Server.Addr
+	if env := strings.TrimSpace(os.Getenv("GOFER_SERVER_ADDR")); env != "" {
+		addr = env // the env (incl. <config-dir>/.env) is a client node's normal source
+	}
+	dir, err := config.ConfigDir()
+	if err != nil {
+		dir = ""
+	}
+	c.Println("config path:")
+	c.Println("  (no local config in client mode)")
+	c.Println("settings (client):")
+	c.Printf("  server.addr:  %s\n", dashIfEmpty(addr))
+	c.Printf("  server token: set=%s\n", envSetYesNo("GOFER_SERVER_TOKEN"))
+	c.Printf("  config dir:   %s\n", dashIfEmpty(dir))
 	return nil
 }
 

@@ -275,10 +275,29 @@ func bindJobRunFlags(c *gcli.Command) {
 // is resolved from config/env (and an optional --token override) so it never
 // needs to appear in shell history. A bare host:port is normalised and
 // 0.0.0.0 -> 127.0.0.1 (see client.NormalizeBaseURL).
+//
+// In client mode (GOFER_RUN_MODE=client) there is no local config to point at, so
+// a missing address is reported as the connection env the node is supposed to
+// carry instead of the generic "no config file" hint (which would send the
+// operator looking for a config.yaml a client node must not have).
 func newClient(configPath, serverFlag, tokenFlag string) (*client.Client, error) {
 	cfg, path, err := config.Load(configPath)
 	if err != nil {
 		return nil, err
+	}
+	addr := cfg.Server.Addr
+	if serverFlag != "" {
+		addr = serverFlag
+	}
+	if config.IsClientRunMode() {
+		// A client node's address arrives from --server (bound to the
+		// ${GOFER_SERVER_ADDR} env default) or from an explicitly named --config;
+		// with neither, ApplyDefaults' fallback address would point at a local
+		// 0.0.0.0:8765 nobody is serving — so fail with the client-node hint.
+		if path == "" && serverFlag == "" {
+			return nil, fmt.Errorf("client mode: set GOFER_SERVER_ADDR/GOFER_SERVER_TOKEN in $GOFER_CONFIG_DIR/.env or pass -s/--token")
+		}
+		return client.New(addr, resolveClientToken(&cfg.Server, tokenFlag)), nil
 	}
 	// 配置文件缺失(path=="") 且未显式指定 server 时，ApplyDefaults 会静默回落到
 	// DefaultAddr(0.0.0.0:8765)，导致请求失败时报出含糊的 connection refused/404，
@@ -288,10 +307,6 @@ func newClient(configPath, serverFlag, tokenFlag string) (*client.Client, error)
 	if path == "" && serverFlag == "" {
 		return nil, fmt.Errorf("未找到配置文件，且未通过 -s/--server 指定 server 地址；" +
 			"请用 -s/--server 指定，或配置 $GOFER_CONFIG_DIR/.env（或 --config 指定配置文件）")
-	}
-	addr := cfg.Server.Addr
-	if serverFlag != "" {
-		addr = serverFlag
 	}
 	if addr == "" {
 		return nil, fmt.Errorf("no server address: pass --server or set server.addr in config")
