@@ -87,7 +87,7 @@ func TestAgentBriefsDeclaredCLIAgent(t *testing.T) {
 	want := []wsproto.AgentBrief{
 		{Key: "claude", Type: agent.TypeCLIAgent, Interactive: true},
 		{Key: "codex", Type: agent.TypeCLIAgent, Interactive: false},
-		{Key: agent.ExecAgentKey, Type: agent.TypeExec, Interactive: false},
+		{Key: agent.ExecAgentKey, Type: agent.TypeExec, Interactive: false, Batch: true},
 	}
 	if !reflect.DeepEqual(briefs, want) {
 		t.Fatalf("agent_caps:\n got %+v\nwant %+v", briefs, want)
