@@ -401,15 +401,18 @@ func (h *Hub) deliverCancel(wc *workerConn, jobID string) {
 
 // restoreRecovery puts the planned jobs back into the recovering set: the ack never
 // reached the worker (its write failed), so the registration did not happen and the
-// jobs must keep waiting under a freshly armed window rather than disappear.
-func (h *Hub) restoreRecovery(workerID string, plan pendingRecovery) {
+// jobs must keep waiting under a freshly armed window rather than disappear. The
+// adopting jobs of a previous serve process (RECOV-01 R4) go in with the REGISTERING
+// instance id: their store rows are still `recovering`, so the next successful
+// register must be able to reconcile them against the same process.
+func (h *Hub) restoreRecovery(workerID, instanceID string, plan pendingRecovery) {
 	if len(plan.resumed) == 0 && len(plan.waiting) == 0 {
 		return
 	}
 	h.recMu.Lock()
 	rs := h.recov[workerID]
 	if rs == nil {
-		rs = &recoverySet{workerID: workerID, jobs: map[string]*recoveringJob{}, cancels: map[string]struct{}{}}
+		rs = &recoverySet{workerID: workerID, instanceID: instanceID, jobs: map[string]*recoveringJob{}, cancels: map[string]struct{}{}}
 		h.recov[workerID] = rs
 	}
 	for id, rj := range plan.resumed {

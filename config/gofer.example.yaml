@@ -39,7 +39,9 @@ server:
   #                         # 重连: 仍持有该 job → 回到 running, 日志按 server 已落盘偏移续传,
   #                         # 断线期间完成的结果重连后补发; 窗口超时或连上来的是新进程 →
   #                         # failed(error 为 `worker lost …`). 显式写 0 = 关闭恢复(旧的
-  #                         # 立即失败行为). 未写(nil) = 120. 注意: 这是 server 侧开关, 改它需
+  #                         # 立即失败行为). 未写(nil) = 120. serve 重启同样适用: 窗口内
+  #                         # 有 worker 重连即被收养(job 行翻回 running、日志接着写), 窗口
+  #                         # 到期仍无人认领才 failed. 注意: 这是 server 侧开关, 改它需
   #                         # 重启 serve(SIGHUP 只换阈值类配置, 不重挂该窗口).
 
   # callers: multi-caller auth (C2). Each entry maps a bearer token to a caller

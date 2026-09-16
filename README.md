@@ -138,7 +138,7 @@ projects: { workspace: { host_path: /abs, container_path: /abs, allowed_agents: 
 - 实际落机的 `worker_id` 记入 `JobResult`，看板 runner 列与详情 meta 均可见。
 - worker 多 hub 地址 + 全抖动退避重连（hub 重启=短暂中断而非永久失联）。
 
-**断线恢复（RECOV-01）**：worker 连接抖动（WSL/Docker/VPN 瞬断）时，它在飞的 job **不再立刻 `failed`**，而是进入非终态 **`recovering`**（黄色徽标，看板可筛选、`job list --status recovering` 可查、`job show` 与详情页显示 `recovering_since`），等**同一个 worker 进程**在 `server.job_recover_window_sec`（默认 120s，写 `0` = 关闭恢复即旧行为）内重连：仍持有该 job → 回到 `running`，日志按 server 已落盘偏移续传（不丢不重），断线期间跑完的结果在重连后补发；窗口超时或重连上来的是新进程（instance_id 变了）→ `failed`，error 为 `worker lost …`。通知只认 `job.terminal`，所以 recovering→running 不打扰，recovering→failed 才投递。
+**断线恢复（RECOV-01）**：worker 连接抖动（WSL/Docker/VPN 瞬断）时，它在飞的 job **不再立刻 `failed`**，而是进入非终态 **`recovering`**（黄色徽标，看板可筛选、`job list --status recovering` 可查、`job show` 与详情页显示 `recovering_since`），等**同一个 worker 进程**在 `server.job_recover_window_sec`（默认 120s，写 `0` = 关闭恢复即旧行为）内重连：仍持有该 job → 回到 `running`，日志按 server 已落盘偏移续传（不丢不重），断线期间跑完的结果在重连后补发；窗口超时或重连上来的是新进程（instance_id 变了）→ `failed`，error 为 `worker lost …`。**serve 重启同样适用**：新 serve 启动时把上一个进程遗留的非终态 worker job 重新计入该窗口（`recovering`），worker 在窗口内重连即被**收养**——job 行翻回 `running`，日志接着原文件写（偏移取已落盘大小，不丢不重），期间完成的结果照常收尾；窗口到期仍无人认领才 `failed`。通知只认 `job.terminal`，所以 recovering→running 不打扰，recovering→failed 才投递。
 
 ### 配置一个 worker（init → 校验 → 启动）
 

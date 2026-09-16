@@ -119,6 +119,13 @@ type Hub struct {
 	// block the hub's recovery decisions for other workers.
 	recMu sync.Mutex
 	recov map[string]*recoverySet
+
+	// adopter is the RECOV-01 R4 adoption seam (SetAdopter): the store-backed
+	// reconciler that hands the hub a sink for a `recovering` job a PREVIOUS serve
+	// process left behind and reports the ones nobody claims. nil (no adopter wired)
+	// disables adoption — the store rows then live out the one-shot startup window and
+	// are failed, exactly as before R4. Immutable after assemble.
+	adopter Adopter
 }
 
 // PolicySource is the seam through which the hub obtains the Policy for one
@@ -353,6 +360,11 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 	// streaming. The sinks themselves are attached after Put (step 4) so they land on
 	// the registered connection.
 	plan := h.planRecovery(reg)
+	// RECOV-01 R4: the jobs a PREVIOUS serve process left in the store have no live
+	// sink at all — the recovery set above only ever holds jobs of live connections —
+	// so they are reconciled against the store separately and merged into the same plan
+	// (their resume offsets come from the log files on disk).
+	plan = h.planAdoption(reg, plan)
 	ack.Resume = plan.resumeEntries()
 	ackedRev := int64(0)
 	if h.policySrc != nil && wsproto.SupportsPolicy(reg.ProtocolVersion) {
@@ -364,7 +376,7 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 	if err := wc.writeFrame(ctx, wsproto.TypeRegistered, "", ack); err != nil {
 		// The worker never learned the outcome: the jobs stay recovering and the
 		// window is re-armed rather than letting them vanish from the hub's books.
-		h.restoreRecovery(reg.WorkerID, plan)
+		h.restoreRecovery(reg.WorkerID, reg.InstanceID, plan)
 		return
 	}
 	if ack.Policy != nil {

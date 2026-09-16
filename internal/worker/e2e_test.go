@@ -17,6 +17,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/httpapi"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
@@ -42,14 +43,21 @@ type hubSide struct {
 	jobs  *job.Service
 	store *jobstore.Store
 	hub   *wshub.Hub
+	root  string
 }
 
 // buildHubSide stands up the serve side: a real Core (job service + hub) with a
 // server.workers.w1 binding + a remote-w1 worker runner + a project allowing it.
 func buildHubSide(t *testing.T) *hubSide {
 	t.Helper()
-	host := t.TempDir()
-	root := t.TempDir()
+	return buildHubSideAt(t, t.TempDir(), t.TempDir())
+}
+
+// buildHubSideAt is buildHubSide on an EXPLICIT project host dir + storage root, so a
+// test can stand up the "next serve process" of a restart over the SAME jobstore and
+// result dirs (RECOV-01 R4 adoption).
+func buildHubSideAt(t *testing.T, host, root string) *hubSide {
+	t.Helper()
 
 	cfg := &config.Config{
 		Server: config.ServerConfig{
@@ -86,13 +94,16 @@ func buildHubSide(t *testing.T) *hubSide {
 		"remote-w1":      workerrunner.New("remote-w1", e2eWorkerID, hub),
 	}
 	jobs := job.NewService(cfg, projReg, agentReg, runners, st, nil)
+	// RECOV-01 R4: the same adoption seam production wires (core.Build), so a hub that
+	// starts over a jobstore holding `recovering` rows adopts the worker's jobs back.
+	hub.SetAdopter(core.NewJobAdopter(hub, jobs))
 
 	jobsEng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(jobsEng)
 	srv := httpapi.New(&cfg.Server, "server-default-token", false, jobs, jobsEng, projReg, agentReg, hub, nil, nil, nil)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
-	return &hubSide{ts: ts, jobs: jobs, store: st, hub: hub}
+	return &hubSide{ts: ts, jobs: jobs, store: st, hub: hub, root: root}
 }
 
 // buildWorkerSide builds the worker's own local job service (project alpha with
@@ -124,6 +135,14 @@ type workerSideOpts struct {
 // buildWorkerSideJobsOpts is buildWorkerSideJobs with an explicit client wiring.
 func buildWorkerSideJobsOpts(t *testing.T, hubURL string, opts workerSideOpts) (*worker.Client, *job.Service) {
 	t.Helper()
+	return buildWorkerSideURLs(t, []string{hubURL}, opts)
+}
+
+// buildWorkerSideURLs is buildWorkerSideJobsOpts with several hub addresses: the
+// client's C7 failover rotates through them, which is how a restart test hands the
+// worker from the dying serve process to its replacement.
+func buildWorkerSideURLs(t *testing.T, hubURLs []string, opts workerSideOpts) (*worker.Client, *job.Service) {
+	t.Helper()
 	host := t.TempDir()
 	root := t.TempDir()
 	cfg := &config.Config{
@@ -148,10 +167,13 @@ func buildWorkerSideJobsOpts(t *testing.T, hubURL string, opts workerSideOpts) (
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
 	localJobs := job.NewService(cfg, projReg, agentReg, runners, st, nil)
 
-	wsURL := "ws" + strings.TrimPrefix(hubURL, "http") + "/v1/workers/connect"
+	urls := make([]string, 0, len(hubURLs))
+	for _, u := range hubURLs {
+		urls = append(urls, "ws"+strings.TrimPrefix(u, "http")+"/v1/workers/connect")
+	}
 	cl := worker.New(worker.Config{
 		WorkerID:       e2eWorkerID,
-		URLs:           []string{wsURL},
+		URLs:           urls,
 		Token:          e2eToken,
 		Projects:       []string{"alpha"},
 		Agents:         []string{"exec"},

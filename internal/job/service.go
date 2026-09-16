@@ -170,6 +170,12 @@ type Service struct {
 	// the old "a non-workflow job does not advance" behaviour.
 	wf WorkflowAdvancer
 
+	// adoptWake is the RECOV-01 R4 adoption signal: a capacity-1 channel pinged (never
+	// blocking) whenever an adoption runs, so serve's one-shot startup recovery window
+	// can re-check whether any `recovering` row is still unclaimed instead of failing
+	// jobs a reconnecting worker already took back. Created in NewService; read-only
+	// afterwards.
+	adoptWake chan struct{}
 	// answerGuard is the派生作答白名单闸 seam (监督分层升级路由 P3.1, design §8.5). It gates
 	// an ATTRIBUTED driver answer (AnswerInteractionBy with a non-empty responder) so a
 	// 通用 supervisor cannot answer outside the whitelist; owner/human are放行. nil = no gate
@@ -264,6 +270,11 @@ type jobEntry struct {
 	// job, in creation order. Guarded by mu (shared with result, so a status
 	// flip and an interaction edit never race). P9.
 	interactions []*interactionRec
+	// adopted, when non-nil, is the RECOV-01 R4 adoption handle that drives this job:
+	// the entry was rebuilt from the store by a serve process that did NOT start it, so
+	// there is no execute/Run goroutine behind it. Set once at creation under Service.mu
+	// before the entry is published in s.jobs; read under the same lock (adoptRecoveringJob).
+	adopted *AdoptedJob
 }
 
 // NewService builds a job service. runners is the set of usable runners keyed by
@@ -283,6 +294,7 @@ func NewService(cfg *config.Config, projects *project.Registry, agents *agent.Re
 		jobs:       map[string]*jobEntry{},
 		sems:       map[string]chan struct{}{},
 		callerSems: map[string]chan struct{}{},
+		adoptWake:  make(chan struct{}, 1),
 		nowFn:      time.Now,
 	}
 	s.cfg.Store(cfg)

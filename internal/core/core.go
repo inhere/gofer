@@ -236,6 +236,12 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	// ever considered.
 	sel := &hubWorkerSelector{hub: hub, allowed: cfg.Server.Workers}
 	jobs := job.NewService(cfg, projects, agents, runners, store, sel)
+	// RECOV-01 R4: let the hub ADOPT the `recovering` jobs a PREVIOUS serve process left
+	// in the store. The hub cannot see the store (it depends on wsproto only) and the
+	// job service cannot see the wire, so the two are bridged here, at assemble time,
+	// before any connection is accepted — the first worker to reconnect is already
+	// reconciled.
+	hub.SetAdopter(NewJobAdopter(hub, jobs))
 	// Bind the workflow engine to the job service (layering design §13.4): the engine
 	// reads/drives job-chain workflows over jobs, and is injected back as the
 	// WorkflowAdvancer so finish() can advance a chain when a step-job reaches terminal.

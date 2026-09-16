@@ -100,6 +100,32 @@ func (s *FileStore) LogWriter(jobID string, stream Stream) (io.WriteCloser, erro
 	return &rotatingWriter{path: path, f: f}, nil
 }
 
+// AppendLogWriter opens the stdout/stderr log file for APPEND (creating it when
+// absent) and reports the byte offset the stream already holds. It is the RECOV-01 R4
+// counterpart of LogWriter: a serve that ADOPTS a job it did not start must continue
+// the log the previous process wrote, not truncate it — and the offset it starts from
+// is exactly what the hub tells the worker to rewind to, so the resumed stream has no
+// gap and no duplicate.
+//
+// Rotation is the same as LogWriter's, with the counter seeded from the existing size
+// so the cap applies to the WHOLE stream rather than to the adopted tail.
+func (s *FileStore) AppendLogWriter(jobID string, stream Stream) (io.WriteCloser, int64, error) {
+	name, err := logFileName(stream)
+	if err != nil {
+		return nil, 0, err
+	}
+	path := filepath.Join(s.Dir(jobID), name)
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+	if err != nil {
+		return nil, 0, fmt.Errorf("open %s for append: %w", name, err)
+	}
+	size := int64(0)
+	if fi, serr := f.Stat(); serr == nil {
+		size = fi.Size()
+	}
+	return &rotatingWriter{path: path, f: f, written: size}, size, nil
+}
+
 // rotatingWriter wraps an *os.File for a per-job log stream and rotates it when
 // the live file would exceed maxPerJobLogBytes. Rotation renames the current
 // file to "<path>.1" (overwriting any prior .1) and reopens a fresh truncated
