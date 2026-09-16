@@ -270,6 +270,27 @@ func TestProjectPolicyAllowInteractiveSwitch(t *testing.T) {
 	}
 }
 
+// TestProjectPolicyAdoptsServerTimeoutCeiling pins the bd h-aii-s9ck ceiling handoff:
+// the policy's RESOLVED job-timeout ceiling lands on the worker's projected project, so
+// the worker's own submit clamp cannot re-clamp a dispatched timeout that the server
+// already admitted (a worker-local 1h default would silently truncate a raised ceiling).
+// An absent value (pre-change server) stays 0 => the worker keeps its own config ceiling.
+func TestProjectPolicyAdoptsServerTimeoutCeiling(t *testing.T) {
+	cfg, _ := projectPolicy(policyWC("/host", config.WorkerGuards{}), wsproto.Policy{Rev: 1, Projects: []wsproto.PolicyProject{
+		{Key: "svc", HostPath: "/srv/svc", MaxTimeoutSec: 7200},
+		{Key: "old", HostPath: "/srv/old"},
+	}})
+	if got := cfg.Projects["svc"].MaxTimeoutSec; got != 7200 {
+		t.Errorf("projected max_timeout_sec = %d, want 7200 (the server-admitted ceiling)", got)
+	}
+	if got := cfg.EffectiveMaxTimeoutSec("svc"); got != 7200 {
+		t.Errorf("EffectiveMaxTimeoutSec(svc) = %d, want 7200 (the worker clamps to the same ceiling)", got)
+	}
+	if got := cfg.Projects["old"].MaxTimeoutSec; got != 0 {
+		t.Errorf("pre-change policy ceiling = %d, want 0 (the worker falls back to its own config)", got)
+	}
+}
+
 // TestProjectPolicyCompleteSnapshotReplace (verification 26): each projection is a
 // COMPLETE snapshot — a shorter policy revokes the missing project, and an empty policy
 // revokes everything. There is no merge that keeps a key the server dropped.
