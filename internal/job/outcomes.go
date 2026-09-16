@@ -364,7 +364,44 @@ func (s *Service) setRunningRenderedCommand(entry *jobEntry, jobID, rendered str
 	}
 }
 
-// readResultJSON 读 <result_dir>/result.json（agent/wrapper 经 {{result_dir}}
+// setDispatchedWorker records WHICH worker — and which of its PROCESS instances — the
+// job was actually dispatched to (RECOV-01 R4). The remote runner resolves the target
+// at dispatch time (explicit / label-selected / the runner's configured default, D4),
+// so this is the earliest point at which the host row can name it; a D4 job would
+// otherwise keep an empty worker_id and be misclassified as a local orphan by
+// ReconcileOrphanJobs after a serve restart.
+//
+// The worker_id column is REUSED (overwriting the request-side value, which is empty
+// on the D4 path); worker_instance_id is what lets the NEXT serve process adopt the
+// job: only the same worker process may claim it back. Best-effort persistence — a
+// write failure is logged, never fatal: the job is already dispatched.
+func (s *Service) setDispatchedWorker(entry *jobEntry, jobID, workerID, instanceID string) {
+	if workerID == "" {
+		return
+	}
+	entry.mu.Lock()
+	same := entry.result.WorkerID == workerID &&
+		(instanceID == "" || entry.result.WorkerInstanceID == instanceID)
+	if same {
+		entry.mu.Unlock()
+		return
+	}
+	entry.result.WorkerID = workerID
+	if instanceID != "" {
+		entry.result.WorkerInstanceID = instanceID
+	}
+	snap := entry.result
+	entry.mu.Unlock()
+
+	if err := s.persist(snap); err != nil {
+		slog.Warn("persist dispatched worker identity", "job_id", jobID, "worker_id", workerID, "err", err)
+		return
+	}
+	slog.Info("job.dispatched_worker", "event", "job.dispatched_worker", "component", "server",
+		"job_id", jobID, "worker_id", workerID, "worker_instance_id", instanceID)
+}
+
+// readResultJSON 读 <result_dir>/result.json（agent/wrapper 经 {{result_dir}} 模板
 // 模板写入）：不存在 → ""；超上限(maxResultJSONBytes)或非法 JSON → 记 warning 返
 // ""（不污染 DB）。返回的字符串已是合法 JSON，get_job 透传后前端 JSON.parse。
 func readResultJSON(resultDir string) string {

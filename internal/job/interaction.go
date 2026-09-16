@@ -307,10 +307,11 @@ func (s *Service) ReconcileOrphanInteractions() (int, error) {
 //
 //   - worker job: HELD in `recovering` with recovering_since stamped, because the
 //     worker process may still be running it and reconnect within the recovery
-//     window. The hub cannot ADOPT it (the sink that drove it died with the previous
-//     serve), so serve arms a one-shot window that ends it via FailRecoveringJobs
-//     unless a later change teaches the hub to adopt store-held jobs — the hold only
-//     buys the worker time to reconnect and be re-dispatched normally.
+//     window. "Worker job" covers both a non-empty worker_id and a runner=worker
+//     row whose worker_id is empty (the D4 default-worker fallback is resolved at
+//     dispatch time, so such a row is classified by its runner). The new serve's hub
+//     ADOPTS the row when the same worker process reconnects and reports it in
+//     `inflight` (R4); the one-shot window only ends whatever nobody claimed.
 //   - local/peer job: failed, as before — no in-process registry entry survived, so
 //     nothing could ever finish it and it would hang "running" forever.
 //
@@ -318,7 +319,22 @@ func (s *Service) ReconcileOrphanInteractions() (int, error) {
 // work is accepted (the in-memory map is empty, so no live job is touched). Returns
 // the rows resolved (held + failed).
 func (s *Service) ReconcileOrphanJobs() (int, error) {
-	return s.meta.ReconcileOrphanJobs(s.nowFn().Unix(), "orphaned: serve restarted while job was non-terminal")
+	return s.meta.ReconcileOrphanJobs(s.nowFn().Unix(), "orphaned: serve restarted while job was non-terminal", s.workerRunnerNames())
+}
+
+// workerRunnerNames lists the configured runner keys of type=worker — the runners
+// whose jobs may still be running on a worker process after a serve restart, so
+// ReconcileOrphanJobs holds them for the recovery window even when their worker_id
+// column is empty. Resolved from the SAME cfg snapshot the rest of the service uses.
+func (s *Service) workerRunnerNames() []string {
+	cfg := s.config()
+	out := make([]string, 0, len(cfg.Runners))
+	for name := range cfg.Runners {
+		if isWorkerRunner(cfg, name) {
+			out = append(out, name)
+		}
+	}
+	return out
 }
 
 // FailRecoveringJobs fails every job still held in `recovering` — RECOV-01's

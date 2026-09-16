@@ -76,6 +76,16 @@ type Request struct {
 	// must be safe to call after a terminal signal (it is a no-op then). Local runs
 	// leave it nil.
 	OnResume func()
+
+	// OnDispatchedWorker (nil-safe) is invoked by a remote runner the moment it has
+	// committed the job to a resolved target — after the sink is registered and the
+	// worker proven online, before the dispatch frame is written (RECOV-01 R4). It
+	// carries the RESOLVED worker_id (explicit, label-selected, or the runner's
+	// configured default — the D4 fallback the request itself never names) plus that
+	// connection's process instance id, so the host row records which worker PROCESS
+	// owns the job. Only the same instance may later ADOPT the job after a serve
+	// restart. Local runs leave it nil.
+	OnDispatchedWorker func(workerID, instanceID string)
 }
 
 // RemoteInteractionOption mirrors a peer interaction option without importing the

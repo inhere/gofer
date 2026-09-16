@@ -33,7 +33,7 @@ func TestReconcileOrphanWorkerJobsRecovering(t *testing.T) {
 	}
 
 	// Total rows touched: the 2 worker jobs (held) + the 1 local job (failed).
-	n, err := s.ReconcileOrphanJobs(ts, "orphaned-test")
+	n, err := s.ReconcileOrphanJobs(ts, "orphaned-test", nil)
 	assert.NoErr(t, err)
 	assert.Eq(t, 3, n)
 
@@ -68,7 +68,7 @@ func TestReconcileOrphanWorkerJobsRecovering(t *testing.T) {
 
 	// A second reconcile (another serve restart before the worker reconnected) still
 	// touches only the 2 held rows: they stay recovering, window re-armed.
-	n2, err := s.ReconcileOrphanJobs(ts+5, "orphaned-test-2")
+	n2, err := s.ReconcileOrphanJobs(ts+5, "orphaned-test-2", nil)
 	assert.NoErr(t, err)
 	assert.Eq(t, 2, n2)
 	held, _, _ := s.GetJob("w-run")

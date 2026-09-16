@@ -103,6 +103,14 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 	// (the runner never calls them) and for a job that already reached terminal.
 	req.OnSuspend = func(reason string) { s.setRecovering(entry, req.JobID, reason) }
 	req.OnResume = func() { s.clearRecovering(entry, req.JobID) }
+	// RECOV-01 R4: the remote runner resolves its target worker at dispatch time
+	// (including the D4 default-worker fallback), so the host row learns the resolved
+	// worker_id + the process instance that owns the job from the runner — and only
+	// then can a later serve process decide whether a reconnecting worker may ADOPT
+	// this job. A no-op for local jobs (the runner never calls it).
+	req.OnDispatchedWorker = func(workerID, instanceID string) {
+		s.setDispatchedWorker(entry, req.JobID, workerID, instanceID)
+	}
 	res := run.Run(ctx, req)
 
 	// Close the per-job log streams NOW, before finish() makes the terminal

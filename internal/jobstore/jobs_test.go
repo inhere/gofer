@@ -57,7 +57,7 @@ func TestReconcileOrphanJobs(t *testing.T) {
 		assert.NoErr(t, s.UpsertJob(j))
 	}
 
-	n, err := s.ReconcileOrphanJobs(ts, "orphaned-test")
+	n, err := s.ReconcileOrphanJobs(ts, "orphaned-test", nil)
 	assert.NoErr(t, err)
 	assert.Eq(t, 2, n)
 
@@ -81,7 +81,7 @@ func TestReconcileOrphanJobs(t *testing.T) {
 	assert.Eq(t, int64(200), f.EndedAt)
 
 	// Idempotent: a second pass finds nothing non-terminal.
-	n2, err := s.ReconcileOrphanJobs(ts+1, "orphaned-test-2")
+	n2, err := s.ReconcileOrphanJobs(ts+1, "orphaned-test-2", nil)
 	assert.NoErr(t, err)
 	assert.Eq(t, 0, n2)
 }

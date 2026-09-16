@@ -37,15 +37,22 @@ type JobRecord struct {
 	Runner      string
 	Interactive bool
 	WorkerID    string // reserved for ws-worker; empty for local/peer jobs
-	Status      string
-	ExitCode    int
-	Cwd         string
-	ResultDir   string // per-job log/artifact directory (logs stay on disk)
-	RequestJSON string // original JobRequest JSON, for re-submit/audit
-	Error       string
-	StartedAt   int64
-	EndedAt     int64
-	UpdatedAt   int64
+	// WorkerInstanceID is the process nonce (wsproto.Register.InstanceID) of the
+	// worker connection the job was dispatched to (RECOV-01 R4). Together with
+	// WorkerID it proves WHICH worker process owns the job, so a hub starting after a
+	// serve restart can ADOPT a store-held `recovering` job only when the
+	// re-registering process is the very one that was running it. Empty for
+	// local/peer jobs and for rows written before R4 (which are never adopted).
+	WorkerInstanceID string
+	Status           string
+	ExitCode         int
+	Cwd              string
+	ResultDir        string // per-job log/artifact directory (logs stay on disk)
+	RequestJSON      string // original JobRequest JSON, for re-submit/audit
+	Error            string
+	StartedAt        int64
+	EndedAt          int64
+	UpdatedAt        int64
 	// CallerID is the authenticated submitter id (C2). Empty for jobs created
 	// without a caller token (legacy / allow_empty_token).
 	CallerID string
@@ -137,6 +144,7 @@ type ListQuery struct {
 // nullable columns so a NULL (from any future writer) scans into the zero value
 // instead of failing the scan into a plain string/int64.
 const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,0), COALESCE(worker_id,''),
+  COALESCE(worker_instance_id,''),
   status, exit_code, COALESCE(cwd,''), result_dir, COALESCE(request_json,''),
   COALESCE(error,''), started_at, COALESCE(ended_at,0), updated_at,
   COALESCE(caller_id,''), COALESCE(request_id,''),
@@ -162,6 +170,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 	var interactive, timeoutClamped int
 	err := sc.Scan(
 		&r.ID, &r.ProjectKey, &r.Agent, &r.Runner, &interactive, &r.WorkerID,
+		&r.WorkerInstanceID,
 		&r.Status, &r.ExitCode, &r.Cwd, &r.ResultDir, &r.RequestJSON,
 		&r.Error, &r.StartedAt, &r.EndedAt, &r.UpdatedAt,
 		&r.CallerID, &r.RequestID,
@@ -191,19 +200,20 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.UpdatedAt = rec.StartedAt
 	}
 	const q = `INSERT INTO jobs
-  (id, project_key, agent, runner, interactive, worker_id, status, exit_code, cwd, result_dir,
+  (id, project_key, agent, runner, interactive, worker_id, worker_instance_id, status, exit_code, cwd, result_dir,
    request_json, error, started_at, ended_at, updated_at, caller_id, request_id,
 	    rendered_command, result_json, artifacts_json, diff_summary, source, tags_json,
 	    workflow_id, step_index, attempt, fan_index, session_id, channel, client,
 	    origin_agent, escalate_to, role, plan_id, source_job_id,
 	    timeout_sec, requested_timeout_sec, timeout_clamped, recovering_since)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
     runner=excluded.runner,
     interactive=excluded.interactive,
     worker_id=excluded.worker_id,
+    worker_instance_id=excluded.worker_instance_id,
     status=excluded.status,
     exit_code=excluded.exit_code,
     cwd=excluded.cwd,
@@ -243,6 +253,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 	defer s.writeMu.Unlock()
 	_, err := s.db.Exec(q,
 		rec.ID, rec.ProjectKey, rec.Agent, rec.Runner, rec.Interactive, rec.WorkerID,
+		rec.WorkerInstanceID,
 		rec.Status, rec.ExitCode, rec.Cwd, rec.ResultDir, rec.RequestJSON,
 		rec.Error, rec.StartedAt, rec.EndedAt, rec.UpdatedAt,
 		rec.CallerID, rec.RequestID,
@@ -381,37 +392,44 @@ var orphanWorkerJobStatuses = []string{"queued", "running", "recovering"}
 // Run ONCE at serve startup, before new work is accepted, so the in-memory job map
 // is empty and no live job can be misclassified. Two outcomes (RECOV-01):
 //
-//   - worker job (non-empty worker_id): held in `recovering` with recovering_since=ts
-//     and an explanatory error. The worker process may still be RUNNING the job
-//     (its job.Service is process-scoped, so a worker-side job survives a hub
-//     blip), and serve arms the recovery window so a same-instance reconnect can
-//     prove it and resume. NOTE: the hub CANNOT adopt these jobs — the in-memory
-//     sink/runner that drove them died with the previous serve, and the hub's
-//     recovery set is built from live connections only. So the window only DEFERS
-//     the failure: whatever the worker does, these rows end failed via
-//     FailRecoveringJobs unless a future change teaches the hub to adopt store-held
-//     recovering jobs (follow-up). Holding them is still strictly better than
-//     failing at once: the window is exactly the time the worker needs to finish
-//     and report its real outcome through a normal re-dispatch.
-//   - every other non-terminal job (local runner / peer, `worker_id` empty or NULL):
-//     failed, as before — its in-process state really is gone.
+//   - worker job: held in `recovering` with recovering_since=ts and an explanatory
+//     error. A worker job is a row whose worker_id is non-empty OR whose runner is
+//     one of workerRunners (the worker-type runner names the caller resolved from
+//     config). The runner half is load-bearing: a runner=worker job whose worker_id
+//     was empty on the request (the D4 "runner's configured default worker" fallback,
+//     resolved at dispatch) used to be misclassified as a local job and failed at
+//     once. The worker process may still be RUNNING the job (its job.Service is
+//     process-scoped, so a worker-side job survives a serve restart), and serve arms
+//     the recovery window so the same process can reconnect and be ADOPTED (R4: the
+//     hub rebuilds a sink for a store-held recovering row whose worker_instance_id
+//     matches the re-registering process). Rows with no recorded instance are still
+//     held for the window and then failed (they can never be adopted).
+//   - every other non-terminal job (local runner / peer-http): failed, as before —
+//     its in-process state really is gone.
 //
 // ts stamps updated_at (+ ended_at on the failed rows); reason is recorded in the
 // error column (the recovering rows prefix it and append the worker id). Returns the
 // total rows touched (held + failed), so the caller's startup log reports both.
-func (s *Store) ReconcileOrphanJobs(ts int64, reason string) (int, error) {
-	s.writeMu.Lock()
-	defer s.writeMu.Unlock()
-
-	// 1) Hold worker jobs in `recovering` for the (re-armed) recovery window.
+func (s *Store) ReconcileOrphanJobs(ts int64, reason string, workerRunners []string) (int, error) {
+	// 1) Hold worker jobs in `recovering` for the (re-armed) recovery window. The
+	// worker predicate is (worker_id <> '' OR runner IN workerRunners); the runner
+	// placeholders are built only when the caller resolved any, so an empty list
+	// degrades to exactly the column test.
 	heldPlaceholders := strings.TrimSuffix(strings.Repeat("?,", len(orphanWorkerJobStatuses)), ",")
-	heldQ := `UPDATE jobs SET status = 'recovering', recovering_since = ?, error = ? || worker_id, updated_at = ?
-  WHERE worker_id <> '' AND status IN (` + heldPlaceholders + `)`
-	heldArgs := make([]any, 0, len(orphanWorkerJobStatuses)+3)
+	workerPred := "worker_id <> ''"
+	heldArgs := make([]any, 0, len(orphanWorkerJobStatuses)+len(workerRunners)+3)
 	heldArgs = append(heldArgs, ts, "recovering: "+reason+" — awaiting worker ", ts)
+	heldArgs = append(heldArgs, workerRunnersToAny(workerRunners)...)
+	if len(workerRunners) > 0 {
+		workerPred += " OR runner IN (" + strings.TrimSuffix(strings.Repeat("?,", len(workerRunners)), ",") + ")"
+	}
+	heldQ := `UPDATE jobs SET status = 'recovering', recovering_since = ?, error = ? || worker_id, updated_at = ?
+  WHERE (` + workerPred + `) AND status IN (` + heldPlaceholders + `)`
 	for _, st := range orphanWorkerJobStatuses {
 		heldArgs = append(heldArgs, st)
 	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
 	heldRes, err := s.db.Exec(heldQ, heldArgs...)
 	if err != nil {
 		return 0, fmt.Errorf("jobstore: hold orphan worker jobs: %w", err)
@@ -441,6 +459,82 @@ func (s *Store) ReconcileOrphanJobs(ts int64, reason string) (int, error) {
 		return 0, fmt.Errorf("jobstore: reconcile orphan jobs rows: %w", err)
 	}
 	return int(held) + int(n), nil
+}
+
+// workerRunnersToAny widens a runner-name list into the []any the driver binds.
+func workerRunnersToAny(names []string) []any {
+	out := make([]any, 0, len(names))
+	for _, n := range names {
+		out = append(out, n)
+	}
+	return out
+}
+
+// ListRecoveringJobs returns every job the store holds in `recovering` for workerID
+// (all workers when workerID is empty). It is the RECOV-01 R4 adoption source: after
+// a serve restart the new hub has no in-memory recovery set, so the rows are the only
+// record of what a reconnecting worker process may still be running.
+func (s *Store) ListRecoveringJobs(workerID string) ([]JobRecord, error) {
+	q := selectCols + " WHERE status = 'recovering'"
+	var args []any
+	if workerID != "" {
+		q += " AND worker_id = ?"
+		args = append(args, workerID)
+	}
+	q += " ORDER BY id"
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: list recovering jobs: %w", err)
+	}
+	defer rows.Close()
+
+	var out []JobRecord
+	for rows.Next() {
+		rec, scanErr := scanJob(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("jobstore: scan recovering job row: %w", scanErr)
+		}
+		out = append(out, rec)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("jobstore: list recovering jobs rows: %w", err)
+	}
+	return out, nil
+}
+
+// FailRecoveringJob fails ONE store-held recovering job: the worker process
+// reconnected but did not prove it still runs this job (absent from its inflight
+// report, or the row belongs to a different process instance), so RECOV-01 R4 ends it
+// right away instead of leaving it held for a window that can no longer adopt it.
+// The `status = 'recovering'` guard makes it a no-op for a row that has meanwhile
+// become terminal (or was adopted). reason goes in the error column; ts stamps
+// ended_at/updated_at. Returns rows affected (0 or 1).
+func (s *Store) FailRecoveringJob(id string, ts int64, reason string) (int, error) {
+	q := `UPDATE jobs SET status = 'failed', error = ?, ended_at = ?, updated_at = ?
+  WHERE id = ? AND status = 'recovering'`
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(q, reason, ts, ts, id)
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: fail recovering job %q: %w", id, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: fail recovering job %q rows: %w", id, err)
+	}
+	return int(n), nil
+}
+
+// CountRecoveringJobs returns how many jobs are currently held in `recovering`. It is
+// the RECOV-01 R4 check behind serve's one-shot startup window: once every held row
+// has been ADOPTED (back to `running`) there is nothing left for the window to end, so
+// the timer is cancelled instead of failing adopted work.
+func (s *Store) CountRecoveringJobs() (int, error) {
+	var n int
+	if err := s.db.QueryRow(`SELECT COUNT(*) FROM jobs WHERE status = 'recovering'`).Scan(&n); err != nil {
+		return 0, fmt.Errorf("jobstore: count recovering jobs: %w", err)
+	}
+	return n, nil
 }
 
 // FailRecoveringJobs fails every job still held in `recovering`: its reconnect

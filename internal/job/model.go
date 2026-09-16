@@ -207,9 +207,16 @@ type JobResult struct {
 	// WorkerID is the worker that executed a runner=worker job (ws-worker §8),
 	// persisted to jobs.worker_id and echoed for audit / filtering. Empty for
 	// local/peer-http jobs.
-	WorkerID  string `json:"worker_id,omitempty"`
-	StartedAt int64  `json:"started_at"`
-	EndedAt   int64  `json:"ended_at,omitempty"`
+	WorkerID string `json:"worker_id,omitempty"`
+	// WorkerInstanceID is the PROCESS nonce of the worker connection this job was
+	// dispatched to (RECOV-01 R4, wsproto.Register.InstanceID), persisted to
+	// jobs.worker_instance_id. It is what makes adoption decidable after a serve
+	// restart: a re-registering worker may only take a store-held `recovering` job
+	// over when its instance matches this value (the very process that ran it).
+	// Empty for local/peer jobs and for jobs dispatched before R4.
+	WorkerInstanceID string `json:"worker_instance_id,omitempty"`
+	StartedAt        int64  `json:"started_at"`
+	EndedAt          int64  `json:"ended_at,omitempty"`
 	// RecoveringSince is the unix time the job entered `recovering` (RECOV-01); 0
 	// when the job is not (or no longer) recovering. It is persisted so the window
 	// a job spent waiting for its worker is visible after the fact in `job show` /

@@ -64,6 +64,7 @@ var schemaStmts = []string{
   runner       TEXT NOT NULL,
   interactive  INTEGER NOT NULL DEFAULT 0,
   worker_id    TEXT,
+  worker_instance_id TEXT,
   status       TEXT NOT NULL,
   exit_code    INTEGER NOT NULL DEFAULT 0,
   cwd          TEXT,
@@ -517,6 +518,13 @@ func (s *Store) migrate() error {
 	// RECOV-01 worker 断线恢复：recovering_since=job 进入 recovering 的时刻（unix 秒，0=不在
 	// recovering）。旧库 ALTER ADD，旧行 COALESCE→0，正好读作"从未 recovering"（RECOV-01 之前
 	// 的语义），不会把老 job 伪造成恢复中的 job。
+	// RECOV-01 R4 worker 身份持久化：worker_instance_id=dispatch 时该 worker 连接的 process
+	// nonce（wsproto.Register.InstanceID），让 serve 重启后新 hub 能把 store 里 recovering 的
+	// job 与重连进程对上（instance_id 一致才收养）。旧库 ALTER ADD，旧行 COALESCE→""，读作
+	// "无 instance 记录"——永远无法被收养，只能按 worker_lost 结束（安全侧）。
+	if err := add("worker_instance_id", "worker_instance_id TEXT"); err != nil {
+		return err
+	}
 	if err := add("recovering_since", "recovering_since INTEGER"); err != nil {
 		return err
 	}

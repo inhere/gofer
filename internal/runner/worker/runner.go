@@ -206,6 +206,18 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	}
 	defer r.hub.DeregisterSink(workerID, req.JobID) // (e)
 
+	// RECOV-01 R4: the target is now FINAL and the connection is proven live, so the
+	// host row can record which worker process owns this job. Reported BEFORE the
+	// dispatch frame so a crash between the two never leaves the job running on a
+	// worker the row cannot name (which would make it unadoptable after a restart).
+	// LiveInstance can only fail for an offline worker, and RegisterSink just proved
+	// the opposite, so an empty instance id here means a legacy worker connection
+	// with no instance — reported as-is (the row is then correctly never adopted).
+	if req.OnDispatchedWorker != nil {
+		instanceID, _ := r.hub.LiveInstance(workerID)
+		req.OnDispatchedWorker(workerID, instanceID)
+	}
+
 	// (b) dispatch (runner is always local on the worker side).
 	d := wsproto.Dispatch{
 		JobID:             req.JobID,
@@ -254,8 +266,8 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// and sent no outcome frame (host job outcome then stays empty —回归红线).
 		return runner.Result{
 			ExitCode: res.ExitCode,
-			Err:      errFromResult(res),
-			Outcome:  outcomeFrom(sink.takeOutcome(), workerID),
+			Err:      ResultErr(res),
+			Outcome:  OutcomeFrom(sink.takeOutcome(), workerID),
 		}
 	case err := <-sink.lostCh:
 		relayCloseReason = "worker_lost"
@@ -309,12 +321,16 @@ func newPtySessionID(jobID string) string {
 	return jobID + "-pty-" + hex.EncodeToString(b[:])
 }
 
-// outcomeFrom projects a worker-sent Outcome frame onto a runner.Outcome,
+// OutcomeFrom projects a worker-sent Outcome frame onto a runner.Outcome,
+// stamping the Source as worker:<id> so the host job records WHERE it ran. It is
+// exported because the serve-side ADOPTION path (RECOV-01 R4, internal/core) must
+// apply exactly the same projection to a frame that arrives for a job this process
+// did not dispatch — one mapping, two entry points.
 // stamping Source="worker:<id>" so the host job records WHERE it ran (P4-c). A
 // nil frame (old worker, no产出回传) yields nil so the host job outcome stays
 // empty (回归红线). Artifacts is the raw清单 JSON the worker already serialised —
 // passed through verbatim (大产物文件本身留 worker 侧, D6).
-func outcomeFrom(o *wsproto.Outcome, workerID string) *runner.Outcome {
+func OutcomeFrom(o *wsproto.Outcome, workerID string) *runner.Outcome {
 	if o == nil {
 		return nil
 	}
@@ -328,11 +344,12 @@ func outcomeFrom(o *wsproto.Outcome, workerID string) *runner.Outcome {
 	}
 }
 
-// errFromResult maps a worker terminal result to a runner error (mirrors
+// ResultErr maps a worker terminal result to a runner error (mirrors
 // peerhttp.errFromStatus): done → nil; failed/timeout/cancelled or a non-terminal
 // status → an error so the host job service classifies the job. The host still
-// inspects its own ctx, so cancel/timeout stay correct.
-func errFromResult(res wsproto.Result) error {
+// inspects its own ctx, so cancel/timeout stay correct. Exported for the RECOV-01 R4
+// adoption path (internal/core), which finishes a job from the same wire frame.
+func ResultErr(res wsproto.Result) error {
 	switch res.Status {
 	case "done":
 		return nil
