@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # agent 双模式启动与项目级交互开关设计 — AGT-02
 
-> 状态：Approved 0.2 / 实施中（2026-09-15 人工拍板，0.2 为实施期语义修正）
+> 状态：Approved 0.3 / 实施中（2026-09-15 人工拍板；0.2 为实施期语义修正；0.3 为人工决定彻底移除收窄列表）
 
 ## 修订记录
 
@@ -9,6 +9,7 @@
 |---|---|---|---|
 | 0.1 | 2026-09-15 | Claude | 初稿：agent 用 `interactive_args` 同时支持批处理与 pty 两种启动；项目用 `allow_interactive` 总开关取代必填的 `interactive_allowed_agents` |
 | 0.2 | 2026-09-16 | Claude | 修正批处理能力的推导：= 非 legacy `interactive: true`（不再要求 args 含 `{{prompt}}`），保住从 stdin/env 取 prompt 或无需 prompt 的既有 cli-agent；阶段 A 实施中发现 |
+| 0.3 | 2026-09-16 | Claude | 人工决策：`interactive_allowed_agents` 彻底移除（不再作为可选收窄），`allow_interactive` 成为唯一项目级开关；只保留一次性加载期兼容读取 |
 
 ## 背景与目标
 
@@ -59,25 +60,24 @@ agents:
 - 内置模板：`claude` 与 `codex` 加 `InteractiveArgs: []string{}`（裸 TUI，已在 ConPTY 上验证过），`tty-claude`/`tty-codex` 保留不动。用户 overlay 时按现有"整体覆盖"规则，不做字段级合并。
 - 配置加载校验（`internal/config` 或 agent registry 解析处）：`interactive: true && args 含 {{prompt}}` → 报错并提示改用 `interactive_args`；`interactive_args` 含 `{{prompt}}` → 报错；`type: exec` 带 `interactive_args` → 报错。
 
-### 2. 项目：`allow_interactive` 总开关，`interactive_allowed_agents` 退为可选收窄
+### 2. 项目：`allow_interactive` 是唯一开关，`interactive_allowed_agents` 移除（0.3）
 
 ```yaml
 projects:
   work-tools-dev:
     allowed_agents: [codex, claude, exec]
     allow_interactive: true          # 默认 false；与 allow_exec、worker guards.allow_interactive 同一套词汇
-    # interactive_allowed_agents: [claude]   # 可选：只想放行其中一部分时才写
 ```
 
-交互 job 放行条件（全部满足）：项目 `allow_interactive` 为真；agent ∈ `allowed_agents`（`allowed_agents` 为空沿用现状语义）；agent 有交互模式；若 `interactive_allowed_agents` 非空则 agent 也在其中；runner 为 local 或 worker 且 worker `allow_interactive` 未显式关闭。
+交互 job 放行条件（全部满足）：项目 `allow_interactive` 为真；agent ∈ `allowed_agents`（`allowed_agents` 为空沿用现状语义）；agent 有交互模式；runner 为 local 或 worker 且 worker `allow_interactive` 未显式关闭。想只放行部分 agent，定义一个不带 `interactive_args` 的 agent 变体即可，不再有第二份名单。
 
-兼容：加载时若 `interactive_allowed_agents` 非空而 `allow_interactive` 未写，视为 `allow_interactive: true`（并在日志 warn 一次建议显式写出）；`interactive_allowed_agents` 为空且 `allow_interactive` 未写 → 关闭，与现状一致。
+0.1/0.2 曾把 `interactive_allowed_agents` 保留为可选收窄；0.3 按人工决策彻底移除：字段从 `ProjectConfig`、`PUT/GET /v1/projects`、`/v1/meta`、策略下发 `PolicyProject`、web 表单与 example 全部删除。**唯一保留的是一次性加载期兼容**：yaml 里仍有非空 `interactive_allowed_agents` 且未写 `allow_interactive` → 视为 `allow_interactive: true`，并 warn "interactive_allowed_agents 已移除，请改写为 allow_interactive"；写了 `allow_interactive`（无论真假）则旧字段被忽略并 warn。旧 worker 收到不含 `allow_interactive` 的旧 server 策略时，仍按"旧列表非空 = 开"推导（wire 兼容，下个大版本清理）。
 
 ### 3. 能力上报与 web
 
 - `wsproto.AgentBrief` 增加 `Batch bool`、保留 `Interactive bool`（含义改为"有交互模式"）；旧 worker 不上报 `Batch` 时 server 视为 `Batch = !Interactive`（与旧语义等价）。
 - `/v1/meta` agents 同样带两个能力位；`NewJob.vue` 收窄改为：普通 job 看 `batch`，交互 job 看 `interactive && project.allow_interactive && (收窄列表为空或包含)`。
-- `Projects.vue` 表单：复选框「允许交互 job」（`allow_interactive`），高级折叠里可选多选「仅限这些 agent」（`interactive_allowed_agents`，候选 = allowed_agents 中有交互模式者）；`PUT /v1/projects/{key}` 以现有配置为基底只覆盖显式给出的字段（修 h-aii-3scy 的丢字段）。
+- `Projects.vue` 表单：复选框「允许交互 job」（`allow_interactive`）；`PUT /v1/projects/{key}` 以现有配置为基底只覆盖显式给出的字段（修 h-aii-3scy 的丢字段）。0.3：高级折叠里的「仅限这些 agent」多选随字段一起删除。
 
 ## 安全与回滚
 
@@ -87,7 +87,7 @@ projects:
 ## 决策
 
 - 用显式 `interactive_args` 表达交互 argv，不从批处理 args 里"去掉 exec 和 {{prompt}}"推导。
-- 项目开关命名 `allow_interactive`，与 `allow_exec` 对齐；`interactive_allowed_agents` 不删除、降级为可选收窄。
+- 项目开关命名 `allow_interactive`，与 `allow_exec` 对齐；`interactive_allowed_agents` 彻底移除（0.3），只留一次性加载期兼容读取。
 - 误配在加载期失败，不再依赖提交期拒绝。
 
 ## 非目标
@@ -98,6 +98,6 @@ projects:
 
 - 同一 `codex` key 能分别以 `job run` 与 `job run --interactive` 提交并各自按正确 argv 启动（单测断言 argv）。
 - `interactive: true` + `{{prompt}}` 的配置在 serve 启动时报错，错误信息含字段名与修法。
-- 未开 `allow_interactive` 的项目提交交互 job 被拒；开了且 agent 有交互模式则放行；`interactive_allowed_agents` 非空时按收窄生效；旧 yaml（非空列表、未写开关）自动视为开启。
+- 未开 `allow_interactive` 的项目提交交互 job 被拒；开了且 agent 有交互模式则放行；旧 yaml（非空列表、未写开关）自动视为开启并 warn；代码、API、web、example 中不再出现 `interactive_allowed_agents`（`rg` 只允许命中 loader 的兼容读取与其测试）。
 - web 编辑项目后 yaml 中未在表单出现的字段保持不变；`/v1/meta` 与 worker 上报含两个能力位。
 - `go test ./...` 无新增失败；`pnpm -C web build` 通过。
