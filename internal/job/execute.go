@@ -6,6 +6,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"regexp"
+	"strings"
 	"time"
 
 	"github.com/inhere/gofer/internal/runner"
@@ -227,6 +230,9 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// (near-zero, given Store.writeMu) count of jobs whose terminal write failed,
 	// not by history — C1's invariant still holds.
 	persistErr := s.persist(snap)
+	if persistErr == nil && status == StatusFailed {
+		_ = s.tryAutoResume(entry, jobID)
+	}
 	if persistErr == nil && isTerminal(status) {
 		s.mu.Lock()
 		delete(s.jobs, jobID)
@@ -246,6 +252,53 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// 进程内延迟重投 attempt+1。工作流 step 的重试走 advanceWorkflow（上面 return），
 	// 二者不重叠。可靠版（sweeper 驱动 next_retry_at）留后续。
 	s.maybeRetryJob(snap)
+}
+
+func (s *Service) tryAutoResume(entry *jobEntry, jobID string) bool {
+	cfg := s.config()
+	if cfg == nil || cfg.Server.AutoResumeMax <= 0 {
+		return false
+	}
+	entry.mu.Lock()
+	snap := entry.result
+	entry.mu.Unlock()
+	if snap.SessionID == "" || snap.Status == StatusCancelled || snap.Status == StatusTimeout {
+		return false
+	}
+	if snap.AutoResumeAttempt >= cfg.Server.AutoResumeMax {
+		return false
+	}
+	ac, ok := s.agents.Get(snap.Agent)
+	if !ok || len(ac.SessionResume) == 0 {
+		return false
+	}
+	b, _ := os.ReadFile(snap.ResultDir + string(os.PathSeparator) + "stderr.log")
+	if len(b) > 8192 {
+		b = b[len(b)-8192:]
+	}
+	text := string(b)
+	var hit string
+	for _, p := range ac.TransientErrorPatterns {
+		if re, e := regexp.Compile("(?i)" + p); e == nil {
+			if m := re.FindString(text); m != "" {
+				hit = m
+				break
+			}
+		}
+	}
+	if hit == "" {
+		return false
+	}
+	prompt := "The previous run was interrupted by a transient error (" + strings.TrimSpace(hit) + "). Check git status / git log to see how far you got, finish only the remaining work, do not redo committed work, then report as originally asked."
+	res, e := s.ResumeJob(jobID, prompt, snap.Runner, snap.CallerID)
+	if e != nil {
+		return false
+	}
+	entry.mu.Lock()
+	entry.result.AutoResumedBy = res.ID
+	entry.mu.Unlock()
+	s.recordEvent(jobID, "job.auto_resumed", map[string]any{"job_id": res.ID})
+	return true
 }
 
 // maybeRetryJob implements the E24 unified job-level retry (P1 最小版, design §6.2)
