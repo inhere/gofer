@@ -534,7 +534,7 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("caller %q: rate_burst must be >= 0", cc.ID)
 		}
 	}
-	if cfg.Server.AutoResumeMax < 0 {
+	if cfg.Server.EffectiveAutoResumeMax() < 0 {
 		return fmt.Errorf("server.auto_resume_max must be >= 0")
 	}
 	for name, ac := range cfg.Agents {

@@ -192,6 +192,9 @@ var builtinTransientPatterns = []string{`(?i)at capacity|rate limit|overloaded|t
 // unchanged. The input is a copy (value receiver upstream), so this never mutates
 // the loaded config.
 func applySessionDefaults(key string, a config.AgentConfig) config.AgentConfig {
+	if a.TransientErrorPatterns == nil {
+		a.TransientErrorPatterns = builtinTransientPatternsFor(key, a)
+	}
 	def, ok := builtinSessionDefaultFor(key, a)
 	if !ok {
 		return a
@@ -210,9 +213,6 @@ func applySessionDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	}
 	if len(a.SystemInject) == 0 {
 		a.SystemInject = def.SystemInject
-	}
-	if len(a.TransientErrorPatterns) == 0 {
-		a.TransientErrorPatterns = builtinTransientPatternsFor(key, a)
 	}
 	return a
 }

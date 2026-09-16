@@ -339,7 +339,17 @@ type ServerConfig struct {
 	// the explicit per-session switch is then the only gate, exactly as before
 	// this feature. Same unset≠zero reasoning as JobRecoverWindowSec.
 	SessionAutoRelayIdleSec *int `yaml:"session_auto_relay_idle_sec,omitempty"`
-	AutoResumeMax           int  `yaml:"auto_resume_max,omitempty"`
+	// AutoResumeMax counts automatic session continuations, independently of RetryPolicy.
+	// Unset defaults to one; an explicit zero disables automatic resume.
+	AutoResumeMax *int `yaml:"auto_resume_max,omitempty"`
+}
+
+// EffectiveAutoResumeMax preserves the distinction between omitted and explicit zero.
+func (sc *ServerConfig) EffectiveAutoResumeMax() int {
+	if sc == nil || sc.AutoResumeMax == nil {
+		return 1
+	}
+	return *sc.AutoResumeMax
 }
 
 // DefaultSessionAutoRelayIdleSec is the idle-detection auto-arm threshold used
@@ -836,7 +846,9 @@ type AgentConfig struct {
 	// 交互会话进 TUI 续接，不用非交互的一次性 flag（claude 的 -p / codex 的 exec）。
 	// 仅当源 job 是 interactive 时由 ResumeJob 选用；未配置则回退到内置默认。
 	SessionResumeInteractive []string `yaml:"session_resume_interactive,omitempty"`
-	TransientErrorPatterns   []string `yaml:"transient_error_patterns,omitempty"`
+	// TransientErrorPatterns override the complete built-in list, including when empty.
+	// Matching is case insensitive; nil selects the command's built-in defaults.
+	TransientErrorPatterns []string `yaml:"transient_error_patterns,omitempty"`
 	// SystemInject 是 per-agent 的 system prompt 注入 argv 模板（E35 角色，类比
 	// SessionInject）。非空 + 请求带 system_prompt 时，submit 渲染 {{system_prompt}}
 	// 追加到 argv（如 claude `--append-system-prompt <p>`）。保 argv 结构、不 shell
