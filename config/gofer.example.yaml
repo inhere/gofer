@@ -195,6 +195,17 @@ projects:
     #     config 再解析同一个 key, key 对不上 worker 会以「未知项目」拒掉。
     allowed_runners: [local]
     allow_exec: true
+    # allow_interactive: 项目级 pty/交互 job 开关 (`job run --interactive`), 默认 false=关.
+    # 与上面的 allow_exec、worker 的 guards.allow_interactive 是同一套词汇. 关着时任何
+    # 交互提交都被拒:
+    #   project "x" does not allow interactive jobs (allow_interactive)
+    # 本项目放行的 codex/claude 都有交互模式(见下 agents 段), 所以这里真的打开.
+    # interactive_allowed_agents 现在是可选【收窄】, 不再是开关: 只有想只放行其中一部分
+    # agent 时才写(如 [claude]); 留空 = 不收窄, 所有有交互模式的 agent 都可用.
+    # 兼容: 旧 yaml 只写了非空 interactive_allowed_agents 而没写本开关时, 仍视为开启
+    # (加载时 warn 一次, 建议把本开关显式写出来).
+    allow_interactive: true
+    # interactive_allowed_agents: [claude]   # 可选收窄; 仅当只想放行一部分 agent
     max_concurrent_jobs: 4
     # capture_diff toggles git-diff capture on job outcomes (E12). Unset defaults
     # to "on when cwd is a git work tree"; set false to disable outright.
@@ -211,12 +222,30 @@ agents:
   # {{result_dir}}. Each arg element is substituted independently and the argv
   # array is preserved — {{prompt}} stays ONE argv element, so a prompt with
   # spaces/quotes is never re-tokenised by a shell (no shell is used).
+  #
+  # Batch vs interactive (`interactive_args`). `args` is the batch argv (`job run`)
+  # and `interactive_args` the pty argv (`job run --interactive`), so ONE key serves
+  # both. The four combinations:
+  #   1. no `interactive: true`, no `interactive_args`            -> batch only.
+  #   2. `interactive_args` present (`[]` = launch the bare TUI)  -> batch + interactive.
+  #   3. legacy `interactive: true` without {{prompt}} in `args`  -> interactive only;
+  #      `args` itself IS the interactive argv (built-in tty-claude/tty-codex do this).
+  #   4. `interactive: true` WITH {{prompt}} in `args`            -> LOAD ERROR, telling
+  #      you to move the TUI argv into `interactive_args`.
+  # `interactive_args` must NEVER contain {{prompt}} (load error: the prompt is typed
+  # into the pty, not rendered into argv), and `type: exec` cannot set it at all.
+  # A CLI with no known-good bare TUI argv just gets no `interactive_args` (batch only).
 
-  # codex: non-interactive run via `codex exec "<prompt>"`.
+  # codex: batch run via `codex exec "<prompt>"`, plus a pty mode. An empty
+  # `interactive_args` launches the BARE TUI: per `codex --help`, a codex with no
+  # subcommand forwards to the interactive CLI. The built-in codex template ships
+  # exactly this pair, so `job run -a codex` and `job run -a codex --interactive`
+  # both work off this one key (no separate tty-codex entry needed).
   codex:
     type: cli-agent
     command: codex
-    args: [exec, "{{prompt}}"]
+    args: [exec, "{{prompt}}"]        # batch: job run
+    interactive_args: []              # pty: job run --interactive (bare TUI)
     detect:
       command: codex
       args: [--version]
@@ -227,15 +256,21 @@ agents:
   # shows real-time progress and a timed-out job still captured partial work. Trade-off:
   # logs are NDJSON events, not prose (the final text is the `result` event). Drop the
   # two flags for plain-text output. Adjust the flag to your installed CLI if it differs.
+  # `interactive_args: []` below adds the pty mode: a bare `claude` enters the REPL and
+  # the pty owns the session (same pair the built-in claude template ships). Drop that
+  # line to keep this key batch-only.
   claude:
     type: cli-agent
     command: claude
     args: ["-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"]
+    interactive_args: []              # pty: 裸 `claude` 进 REPL
     detect:
       command: claude
       args: [--version]
   # opencode: non-interactive run; `run <prompt>` per the opencode CLI.
-  # Adjust to your installed CLI if it differs.
+  # Adjust to your installed CLI if it differs. Batch only as written — the built-in
+  # opencode template sets no `interactive_args`, so `job run --interactive` is rejected
+  # for this key until you add a TUI argv you have verified on your installed CLI.
   opencode:
     type: cli-agent
     command: opencode
