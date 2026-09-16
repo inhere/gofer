@@ -3,6 +3,7 @@ package job
 import (
 	"encoding/json"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -630,4 +631,41 @@ func newInteractiveResumeService(t *testing.T, root, agentKey string) *Service {
 	s := newServiceFromCfg(t, root, cfg)
 	s.runners[builtinPtyRunner] = &recordingRunner{name: builtinPtyRunner}
 	return s
+}
+
+// TestResumeJobInheritsTimeoutTagsAndTitle: the exec carrier must not fall back
+// to the 5-minute exec default — a continuation is governed like the run it
+// continues (timeout, tags), and its title marks it as resumed.
+func TestResumeJobInheritsTimeoutTagsAndTitle(t *testing.T) {
+	root := t.TempDir()
+	const sid = "sess-inherit"
+	s := newResumeRunnableService(t, root, "codex")
+
+	src := submitSourceCancel(t, s, JobRequest{
+		ProjectKey: "self", Agent: "codex", Runner: "local",
+		Prompt: "long task", Cwd: ".", TimeoutSec: 2400, SessionID: sid,
+		Tags: []string{"nightly", "wave2"}, Title: "big refactor",
+	})
+	if src.TimeoutSec != 2400 {
+		t.Fatalf("setup: source timeout_sec = %d, want 2400", src.TimeoutSec)
+	}
+
+	newJob, err := s.ResumeJob(src.ID, "continue", "", "caller-inherit")
+	if err != nil {
+		t.Fatalf("ResumeJob: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Cancel(newJob.ID); s.Wait(newJob.ID) })
+
+	if newJob.TimeoutSec != 2400 {
+		t.Fatalf("resumed timeout_sec = %d, want the source's 2400 (not the exec default)", newJob.TimeoutSec)
+	}
+	if got := strings.Join(newJob.Tags, ","); got != "nightly,wave2" {
+		t.Fatalf("resumed tags = %q, want nightly,wave2", got)
+	}
+	if newJob.Title != "big refactor (resumed)" {
+		t.Fatalf("resumed title = %q, want %q", newJob.Title, "big refactor (resumed)")
+	}
+	if resumedTitle(newJob.Title) != newJob.Title {
+		t.Fatalf("a second resume must not stack the suffix: %q", resumedTitle(newJob.Title))
+	}
 }

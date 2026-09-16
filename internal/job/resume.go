@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/inhere/gofer/internal/agent"
@@ -102,11 +103,22 @@ func (s *Service) ResumeJob(jobID, prompt, runner, callerID string) (JobResult, 
 		Cmd:        argv,
 		Runner:     src.Runner,
 		WorkerID:   src.WorkerID,
+		// The carrier is an exec job, whose default timeout is the 5-minute
+		// DefaultTimeoutSec — far below what the agent run it continues was given
+		// (a resumed codex run died at 300s while its source had 3600s). Inherit
+		// the source's effective timeout, tags and title so the continuation is
+		// governed like the run it continues.
+		TimeoutSec: src.TimeoutSec,
+		Tags:       src.Tags,
+		Title:      resumedTitle(src.Title),
 		// 交互源续接为交互 job：走 pty runner，命令用交互模板（上面已选）。前端跳转后
 		// ?attach=1 自动接入终端（P7 选 A）。非交互源 Interactive 为 false，行为不变。
 		Interactive: src.Interactive,
 		// 续接落原 job 的相对 cwd（从 RequestJSON 还原；JobResult.Cwd 是已解析的绝对路径）。
-		Cwd:      cwdFromRequestJSON(src.RequestJSON),
+		// A --worktree source keeps its own checkout: continue INSIDE that worktree
+		// (its path is under the project root, so it is a valid relative cwd) rather
+		// than back in the main checkout where the branch's work is not visible.
+		Cwd:      s.resumeCwd(src),
 		CallerID: callerID,
 		// 显式带 SessionID：new job 复用同会话 id（注入/捕获均跳过），链回原会话、可再续。
 		SessionID: src.SessionID,
@@ -129,6 +141,38 @@ func (s *Service) ResumeJob(jobID, prompt, runner, callerID string) (JobResult, 
 		// （rebuild 则 session 空/新）。
 		SourceJobID: jobID,
 	})
+}
+
+// resumedTitle marks a continuation in the title so a plan or board reads
+// "<title> (resumed)" instead of two identical rows; repeated resumes keep one
+// suffix.
+func resumedTitle(title string) string {
+	if title == "" || strings.HasSuffix(title, " (resumed)") {
+		return title
+	}
+	return title + " (resumed)"
+}
+
+// resumeCwd picks the continuation's cwd: the source's worktree (as a path
+// relative to the project root, which is what Submit expects) when the source
+// ran with --worktree, else the source's original relative cwd. A worktree that
+// cannot be expressed under the project root (remote job, unknown project,
+// checkout above the root) falls back to the original cwd.
+func (s *Service) resumeCwd(src JobResult) string {
+	orig := cwdFromRequestJSON(src.RequestJSON)
+	if src.WorktreePath == "" || src.Cwd == "" {
+		return orig
+	}
+	cfg := s.config()
+	proj, ok := cfg.Projects[src.ProjectKey]
+	if !ok {
+		return orig
+	}
+	rel, err := filepath.Rel(cfg.ExecPath(proj), src.Cwd)
+	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
+		return orig
+	}
+	return filepath.ToSlash(rel)
 }
 
 // cwdFromRequestJSON recovers the original RELATIVE cwd from a job's persisted

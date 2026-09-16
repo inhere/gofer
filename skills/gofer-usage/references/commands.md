@@ -26,7 +26,7 @@ gofer workflow export <id>              # 导出 spec(去密钥)可再 import, �
 
 ```bash
 gofer plan create --title "<标题>" [--desc "<说明>"] [--plan-id <id>]
-gofer plan attach <job-id> <plan-id>    # 把已有 job 挂到 plan
+gofer plan attach <plan-id> <job-id>    # 把已有 job 挂到 plan（注意顺序：先 plan 后 job）
 gofer plan list / show <id> / archive <id>
 gofer plan add-todo <id> "<待办>" [--note "<备注>"]       # 加 todo(别名 todo-add)
 gofer plan set-todo <todo-id> [--status doing|done|skipped|pending] [--note "<结果>"] [--append-note "<追加一行>"]
