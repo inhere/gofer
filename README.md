@@ -24,6 +24,7 @@ gofer bridges configurable **CLI agents** (`codex` / `claude` / `omp` / `opencod
 - **Reconnect recovery**: when a worker link blips or the server restarts, in-flight jobs enter `recovering`; the same worker process reconnecting within the window resumes log streaming and delivers the result — jobs no longer fail on the first hiccup.
 - **Managed worktrees**: `--worktree` runs each job in its own git worktree so parallel agents never step on each other.
 - **Resume**: `job resume` lets codex/claude continue from where an interrupted job stopped, with its own session context.
+  Set `server.auto_resume_max: 1` to automatically resume once when codex/claude/omp reports a transient capacity, rate-limit, or connection error; `0` disables it.
 - **Tunnels**: `gofer tunnel` forwards TCP/UDP ports through a worker under an allowlist (e.g. container → shop-floor PLC/HMI); all three ends log the same `tunnel_id` with per-stage latencies.
 - **Human in the loop**: mid-run questions (`pending_interaction`), `plan` + todo progress boards, blocking `ask_human` decisions, and a terminal session relay that arms itself when you walk away and injects your web/phone reply into the very same session.
 - **Scheduling and orchestration**: `schedule` for cron jobs, `workflow` for dependent multi-step chains (fan-out / join / retries).

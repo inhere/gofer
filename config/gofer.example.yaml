@@ -45,6 +45,7 @@ server:
   #                         # 重启 serve(SIGHUP 只换阈值类配置, 不重挂该窗口).
   #
   # session_auto_relay_idle_sec: 300  # 终端会话中继的空闲自动布防阈值(秒, SR-A5).
+  # auto_resume_max: 1                  # 瞬时供应商错误命中时自动 resume 次数；0=关闭
   #                         # hook 每次 Stop/空闲提示上报"键鼠已空闲多少秒", 到了这个
   #                         # 阈值就【即使没人拨中继开关】也把会话停下时的消息发到 web
   #                         # 等回复, 人一回到键盘立刻放行(web 会话列表显示 `auto

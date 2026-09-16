@@ -144,6 +144,7 @@ gofer job resume <源 job-id> --prompt "上一次运行因 <原因> 中断。先
 ```
 
 前提：源 job 已终态、捕获到了 `session_id`（`job show` 可见；codex 靠输出捕获，claude 靠 `--session-id` 注入）、agent 有 resume 模板（内置 claude/codex；其他 agent 用 `session_capture` / `session_resume` 配）、同一 runner。`rerun` 则是同请求重提（新会话）。
+配置 `server.auto_resume_max: 1` 后，codex/claude/omp 的瞬时容量、限流、连接中断等错误会自动续跑一次；设为 `0` 关闭。
 
 ## 远端执行与 worker
 
