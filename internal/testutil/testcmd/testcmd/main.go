@@ -22,6 +22,12 @@ func main() {
 	case "exit":
 		code, _ := strconv.Atoi(arg(2))
 		os.Exit(code)
+	case "stderr-exit":
+		// stderr-exit <code> <text>: print text to stderr, exit with code — a
+		// stand-in for an agent CLI dying with a provider error.
+		code, _ := strconv.Atoi(arg(2))
+		fmt.Fprintln(os.Stderr, arg(3))
+		os.Exit(code)
 	case "sleep":
 		d, err := time.ParseDuration(arg(2))
 		if err != nil {
