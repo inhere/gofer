@@ -183,6 +183,8 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 	},
 }
 
+var builtinTransientPatterns = []string{`(?i)at capacity|rate limit|overloaded|too many requests|\b429\b|\b503\b|ECONNRESET|connection reset|stream disconnected|temporarily unavailable`}
+
 // applySessionDefaults fills an agent's unset session fields from the built-in
 // defaults for that agent name (session-capture §6.4). Each of the three session
 // fields is filled INDEPENDENTLY and ONLY when empty, so an explicit config value
@@ -209,7 +211,21 @@ func applySessionDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	if len(a.SystemInject) == 0 {
 		a.SystemInject = def.SystemInject
 	}
+	if len(a.TransientErrorPatterns) == 0 {
+		a.TransientErrorPatterns = builtinTransientPatternsFor(key, a)
+	}
 	return a
+}
+
+func builtinTransientPatternsFor(key string, a config.AgentConfig) []string {
+	name := key
+	if _, ok := builtinSessionDefaults[name]; !ok {
+		name = strings.TrimSuffix(strings.ToLower(commandBase(a.Command)), ".exe")
+	}
+	if name == "codex" || name == "claude" || name == "omp" {
+		return append([]string(nil), builtinTransientPatterns...)
+	}
+	return nil
 }
 
 func builtinSessionDefaultFor(key string, a config.AgentConfig) (config.AgentConfig, bool) {

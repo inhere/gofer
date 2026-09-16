@@ -534,6 +534,16 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("caller %q: rate_burst must be >= 0", cc.ID)
 		}
 	}
+	if cfg.Server.AutoResumeMax < 0 {
+		return fmt.Errorf("server.auto_resume_max must be >= 0")
+	}
+	for name, ac := range cfg.Agents {
+		for i, p := range ac.TransientErrorPatterns {
+			if _, err := regexp.Compile("(?i)" + p); err != nil {
+				return fmt.Errorf("agent %q transient_error_patterns[%d] %q: %w", name, i, p, err)
+			}
+		}
+	}
 	// E25 supervisor auto-answer whitelist: every allow_prompt_regex must compile, so
 	// a typo'd pattern fails fast here (serve start / `config validate`) instead of
 	// being silently dropped at supervisor construction — where a missing pattern would

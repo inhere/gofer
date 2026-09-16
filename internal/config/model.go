@@ -339,6 +339,7 @@ type ServerConfig struct {
 	// the explicit per-session switch is then the only gate, exactly as before
 	// this feature. Same unset≠zero reasoning as JobRecoverWindowSec.
 	SessionAutoRelayIdleSec *int `yaml:"session_auto_relay_idle_sec,omitempty"`
+	AutoResumeMax           int  `yaml:"auto_resume_max,omitempty"`
 }
 
 // DefaultSessionAutoRelayIdleSec is the idle-detection auto-arm threshold used
@@ -835,6 +836,7 @@ type AgentConfig struct {
 	// 交互会话进 TUI 续接，不用非交互的一次性 flag（claude 的 -p / codex 的 exec）。
 	// 仅当源 job 是 interactive 时由 ResumeJob 选用；未配置则回退到内置默认。
 	SessionResumeInteractive []string `yaml:"session_resume_interactive,omitempty"`
+	TransientErrorPatterns   []string `yaml:"transient_error_patterns,omitempty"`
 	// SystemInject 是 per-agent 的 system prompt 注入 argv 模板（E35 角色，类比
 	// SessionInject）。非空 + 请求带 system_prompt 时，submit 渲染 {{system_prompt}}
 	// 追加到 argv（如 claude `--append-system-prompt <p>`）。保 argv 结构、不 shell
