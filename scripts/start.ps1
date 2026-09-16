@@ -16,6 +16,11 @@
 
   Actions (default = up):
     up       install-or-update the service, then start/restart it
+    upgrade  rebuild gofer.exe from this checkout and swap it into the running
+             service: `make build` FIRST (service keeps running; a failed build
+             changes nothing), then nssm stop -> copy dist\gofer.exe over
+             serve-run\gofer.exe -> nssm start -> print the new version.
+             Add -Web to also rebuild the web console (`make web`) before it.
     stop     stop the service
     restart  restart the service
     remove   stop + uninstall the service (binary/logs kept)
@@ -43,8 +48,12 @@
           -RepoDir '<RepoDir>' -ExeDir '<repo>\serve-run' -SupervisorMarker 'nssm'
 #>
 param(
-    [ValidateSet('up', 'stop', 'restart', 'remove', 'status', 'logs')]
+    [ValidateSet('up', 'upgrade', 'stop', 'restart', 'remove', 'status', 'logs')]
     [string]$Action = 'up',
+    # upgrade only: also run `make web` (pnpm build + embed) before the Go build, so
+    # the swapped binary carries the current web console. Off by default: the web
+    # build is slow and most upgrades are Go-only.
+    [switch]$Web,
     # Windows service name.
     [string]$ServiceName = 'gofer',
     # Listen address as --addr (overrides config server.addr). Empty = let the
@@ -81,6 +90,7 @@ $ErrorActionPreference = 'Stop'
 $Repo   = Split-Path -Parent $PSScriptRoot          # <...>\tools\gofer
 $ExeDir = Join-Path $Repo 'serve-run'
 $Exe    = Join-Path $ExeDir 'gofer.exe'
+$Built  = Join-Path $Repo 'dist\gofer.exe'           # `make build` output, swapped in by upgrade
 $Nssm   = Join-Path $ExeDir 'nssm.exe'
 $OutLog = Join-Path $ExeDir 'gofer.out.log'
 $ErrLog = Join-Path $ExeDir 'gofer.err.log'
@@ -176,6 +186,52 @@ switch ($Action) {
         } else {
             Write-Warning "service '$ServiceName' is $($svc.Status), NOT Running — gofer likely failed to start. Check the logs:"
             Write-Warning "  pwsh -File scripts\start.ps1 -Action logs"
+        }
+        Write-Host "  logs: $OutLog / $ErrLog"
+    }
+    'upgrade' {
+        Assert-Nssm; Assert-Admin
+        if (-not (Test-ServiceExists)) {
+            throw "service '$ServiceName' is not installed; run  pwsh -File scripts\start.ps1  (Action up) first."
+        }
+        if (-not (Get-Command make -ErrorAction SilentlyContinue)) {
+            throw "make not found on PATH (Git Bash / MSYS make is expected). Build by hand instead:  go build -o serve-run\gofer.exe .\cmd\gofer"
+        }
+        # 1) Build while the old service keeps serving. `make build` writes dist\gofer.exe,
+        #    which nothing holds open, so this step never touches the live binary and a
+        #    compile error leaves the service exactly as it was.
+        $targets = if ($Web) { 'web build' } else { 'build' }
+        Write-Host "building ($targets) in $Repo ..."
+        Push-Location $Repo
+        try {
+            & make $targets.Split(' ')
+            if ($LASTEXITCODE -ne 0) { throw "make $targets failed (exit $LASTEXITCODE); service left untouched." }
+        } finally { Pop-Location }
+        if (-not (Test-Path $Built)) { throw "build succeeded but $Built is missing; check the Makefile DIST_DIR." }
+        $newVer = (& $Built --version 2>&1 | Select-Object -First 1)
+        $oldVer = if (Test-Path $Exe) { (& $Exe --version 2>&1 | Select-Object -First 1) } else { '(none)' }
+
+        # 2) Swap: stop (releases the exe lock), copy, start. Keep the previous exe as
+        #    gofer.exe.prev so a bad build can be rolled back by hand.
+        Write-Host "stopping '$ServiceName' ..."
+        & $Nssm stop $ServiceName 2>$null | Out-Null
+        $deadline = (Get-Date).AddSeconds(15)
+        while ((Get-Service -Name $ServiceName).Status -ne 'Stopped' -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 300 }
+        if ((Get-Service -Name $ServiceName).Status -ne 'Stopped') { throw "service did not stop within 15s; not swapping the binary." }
+        if (Test-Path $Exe) { Copy-Item $Exe "$Exe.prev" -Force }
+        Copy-Item $Built $Exe -Force
+        Write-Host "swapped: $oldVer  ->  $newVer"
+
+        # 3) Start and verify, same as `up`.
+        & $Nssm start $ServiceName 2>$null | Out-Null
+        Start-Sleep -Seconds 2
+        $svc = Get-Service -Name $ServiceName
+        if ($svc.Status -eq 'Running') {
+            Write-Host "service '$ServiceName' RUNNING: $(& $Exe --version 2>&1 | Select-Object -First 1)"
+        } else {
+            Write-Warning "service '$ServiceName' is $($svc.Status), NOT Running after the swap. Check the logs:"
+            Write-Warning "  pwsh -File scripts\start.ps1 -Action logs"
+            Write-Warning "Roll back:  Copy-Item '$Exe.prev' '$Exe' -Force; pwsh -File scripts\start.ps1 -Action restart"
         }
         Write-Host "  logs: $OutLog / $ErrLog"
     }

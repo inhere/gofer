@@ -38,6 +38,8 @@ pwsh -File scripts\start.ps1 -Config .\.gofer.yaml # 指定配置
 pwsh -File scripts\start.ps1 -Action status        # 看状态/生效参数
 pwsh -File scripts\start.ps1 -Action logs          # tail stdout/stderr
 pwsh -File scripts\start.ps1 -Action restart       # 重启
+pwsh -File scripts\start.ps1 -Action upgrade       # 升级: 先 make build(服务不停) -> stop -> 换 serve-run\gofer.exe -> start; 旧 exe 留作 gofer.exe.prev
+pwsh -File scripts\start.ps1 -Action upgrade -Web  # 同上, 但先 make web 重打 web 控制台
 pwsh -File scripts\start.ps1 -Action remove        # 停 + 卸载服务(exe/日志保留)
 ```
 
