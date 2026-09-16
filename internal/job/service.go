@@ -15,13 +15,19 @@ import (
 	"github.com/inhere/gofer/internal/store"
 )
 
-// Timeout bounds (plan §9 P4, §11). TimeoutSec defaults to DefaultTimeoutSec
-// when unset and is clamped to MaxTimeoutSec. cli-agent jobs (claude/codex
-// sessions run long) get their own larger default DefaultAgentTimeoutSec.
+// Timeout bounds (plan §9 P4, §11; bd h-aii-s9ck). TimeoutSec defaults to
+// DefaultTimeoutSec when unset and is clamped to the ceiling the CALLER resolves
+// (config.Config.EffectiveMaxTimeoutSec — server.max_job_timeout_sec, overridable
+// per project by max_timeout_sec). cli-agent jobs (claude/codex sessions run long)
+// get their own larger default DefaultAgentTimeoutSec.
 const (
 	DefaultTimeoutSec      = 300
 	DefaultAgentTimeoutSec = 1200
-	MaxTimeoutSec          = 3600
+	// DefaultMaxTimeoutSec is the clamp ceiling for a caller that configured none
+	// (normalizeTimeout's max <= 0). It is aliased to config.DefaultMaxJobTimeoutSec
+	// so both layers agree on one literal — the value this clamp used to be
+	// hard-coded to — and a ceiling-less caller still cannot run a job unbounded.
+	DefaultMaxTimeoutSec = config.DefaultMaxJobTimeoutSec
 )
 
 // JobIDLayout is the time prefix for a job id (no separators that would clash

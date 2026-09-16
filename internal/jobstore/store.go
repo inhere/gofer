@@ -88,7 +88,10 @@ var schemaStmts = []string{
   escalate_to      TEXT,
   role             TEXT,
   plan_id          TEXT,
-  source_job_id    TEXT
+  source_job_id    TEXT,
+  timeout_sec      INTEGER,
+  requested_timeout_sec INTEGER,
+  timeout_clamped  INTEGER NOT NULL DEFAULT 0
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -496,6 +499,18 @@ func (s *Store) migrate() error {
 	// plan 编排 P5：血缘键——resume/rebuild 出的 job 指回源 job（服务端盖章 source_job_id=源 id）。
 	// 旧库 ALTER ADD，旧行 COALESCE→""。区别引擎私有 workflow_id；区别 source 列（执行位置）。
 	if err := add("source_job_id", "source_job_id TEXT"); err != nil {
+		return err
+	}
+	// job 超时上限可配（bd h-aii-s9ck）：timeout_sec=生效deadline、requested_timeout_sec=请求值、
+	// timeout_clamped=请求是否被上限截断。旧库 ALTER ADD，旧行 COALESCE→0/false（旧 job 未记录，
+	// 正好表示"未知"，不会伪造成"被截断"）。
+	if err := add("timeout_sec", "timeout_sec INTEGER"); err != nil {
+		return err
+	}
+	if err := add("requested_timeout_sec", "requested_timeout_sec INTEGER"); err != nil {
+		return err
+	}
+	if err := add("timeout_clamped", "timeout_clamped INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
 	if err := s.migrateWorkflows(); err != nil {

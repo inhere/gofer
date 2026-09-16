@@ -180,6 +180,21 @@ type JobResult struct {
 	Agent       string `json:"agent"`
 	Runner      string `json:"runner"`
 	Interactive bool   `json:"interactive,omitempty"`
+	// TimeoutSec is the EFFECTIVE job deadline in seconds AFTER the configured
+	// ceiling clamp (bd h-aii-s9ck), persisted to jobs.timeout_sec so a post-mortem
+	// answers "why did my 2h request die at 1h?" without replaying config history.
+	// 0 = no deadline (an interactive session submitted without an explicit timeout).
+	TimeoutSec int `json:"timeout_sec,omitempty"`
+	// RequestedTimeoutSec is the timeout_sec the caller actually asked for (0 =
+	// unset, the server default applies). It differs from TimeoutSec only when the
+	// ceiling truncated it.
+	RequestedTimeoutSec int `json:"requested_timeout_sec,omitempty"`
+	// TimeoutClamped reports that the REQUEST was truncated to the ceiling, i.e. the
+	// job will be killed earlier than asked. It exists so the clamp is never silent:
+	// the CLI warns on submit, and an API/Web caller can see why. A server-side
+	// default that merely happens to exceed the ceiling is not a clamp (nothing was
+	// requested), so it stays false.
+	TimeoutClamped bool `json:"timeout_clamped,omitempty"`
 	// Title is the optional human-readable job name from the original JobRequest.
 	// The jobs table has no title column; it persists inside request_json and is
 	// recovered on the DB read path (fromRecord) so it round-trips, not just on

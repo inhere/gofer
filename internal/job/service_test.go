@@ -2,6 +2,7 @@ package job
 
 import (
 	"encoding/json"
+	"maps"
 	"os"
 	"path/filepath"
 	"strings"
@@ -120,20 +121,142 @@ func TestSubmitTimeout(t *testing.T) {
 }
 
 func TestNormalizeTimeoutInteractiveUnsetMeansNoDeadline(t *testing.T) {
-	if got := normalizeTimeout(0, true, false); got != 0 {
+	if got, _ := normalizeTimeout(0, true, false, 0); got != 0 {
 		t.Fatalf("interactive unset timeout = %s, want no deadline", got)
 	}
-	if got := normalizeTimeout(1, true, false); got != time.Second {
+	if got, _ := normalizeTimeout(1, true, false, 0); got != time.Second {
 		t.Fatalf("interactive explicit timeout = %s, want 1s", got)
 	}
-	if got := normalizeTimeout(0, false, false); got != DefaultTimeoutSec*time.Second {
+	if got, _ := normalizeTimeout(0, false, false, 0); got != DefaultTimeoutSec*time.Second {
 		t.Fatalf("non-interactive unset timeout = %s, want default", got)
 	}
-	if got := normalizeTimeout(0, false, true); got != DefaultAgentTimeoutSec*time.Second {
+	if got, _ := normalizeTimeout(0, false, true, 0); got != DefaultAgentTimeoutSec*time.Second {
 		t.Fatalf("cli-agent unset timeout = %s, want agent default", got)
 	}
-	if got := normalizeTimeout(30, false, true); got != 30*time.Second {
+	if got, _ := normalizeTimeout(30, false, true, 0); got != 30*time.Second {
 		t.Fatalf("cli-agent explicit timeout = %s, want 30s (explicit wins)", got)
+	}
+}
+
+// TestNormalizeTimeoutUsesConfiguredCeiling: the clamp ceiling is the caller-
+// resolved, per-project value (bd h-aii-s9ck) rather than a hard-coded 1h, and a
+// truncated REQUEST is reported so the caller can say so instead of silently
+// running a shorter job. A default that merely exceeds the ceiling is NOT a clamp
+// (the caller never asked for that value).
+func TestNormalizeTimeoutUsesConfiguredCeiling(t *testing.T) {
+	cases := []struct {
+		name        string
+		sec         int
+		interactive bool
+		cliAgent    bool
+		max         int
+		want        time.Duration
+		wantClamped bool
+	}{
+		{"under the ceiling", 60, false, false, 7200, 60 * time.Second, false},
+		{"ceiling raised above the old 1h", 5400, false, false, 7200, 5400 * time.Second, false},
+		{"request above the ceiling is clamped", 5400, false, false, 3600, 3600 * time.Second, true},
+		{"project ceiling below the default", 1200, false, false, 120, 120 * time.Second, true},
+		{"unset timeout takes the default, not the ceiling", 0, false, false, 3600, DefaultTimeoutSec * time.Second, false},
+		{"default above a low ceiling is not a request clamp", 0, false, false, 120, 120 * time.Second, false},
+		{"no configured ceiling falls back to the built-in one", 9999, false, false, 0, DefaultMaxTimeoutSec * time.Second, true},
+		{"interactive unset stays unbounded even with a ceiling", 0, true, false, 600, 0, false},
+		{"interactive explicit above the ceiling is clamped", 5400, true, false, 600, 600 * time.Second, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, clamped := normalizeTimeout(tc.sec, tc.interactive, tc.cliAgent, tc.max)
+			if got != tc.want {
+				t.Errorf("normalizeTimeout(%d, interactive=%v, cli=%v, max=%d) = %s, want %s",
+					tc.sec, tc.interactive, tc.cliAgent, tc.max, got, tc.want)
+			}
+			if clamped != tc.wantClamped {
+				t.Errorf("normalizeTimeout(%d, …, max=%d) clamped = %v, want %v",
+					tc.sec, tc.max, clamped, tc.wantClamped)
+			}
+		})
+	}
+}
+
+// withProjectCeiling returns a copy of cfg with projectKey's job-timeout ceiling
+// pinned, leaving the original untouched (shallow Config copy + copied project map).
+func withProjectCeiling(cfg *config.Config, projectKey string, ceiling int) *config.Config {
+	out := *cfg
+	out.Projects = maps.Clone(cfg.Projects)
+	p := out.Projects[projectKey]
+	p.MaxTimeoutSec = ceiling
+	out.Projects[projectKey] = p
+	return &out
+}
+
+// TestSubmitReportsTimeoutClamp: a request above the project ceiling is admitted at
+// the ceiling, and the response says so (effective + requested + clamped) instead of
+// silently truncating; the three values survive the DB round trip so `job show`/GET
+// can explain a job's early death after a server restart (bd h-aii-s9ck).
+func TestSubmitReportsTimeoutClamp(t *testing.T) {
+	root := t.TempDir()
+	s := newTestService(t, root)
+	s.Reload(withProjectCeiling(s.config(), "self", 120))
+
+	res, err := s.Submit(JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 5400,
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if res.TimeoutSec != 120 {
+		t.Errorf("effective timeout_sec = %d, want 120 (the project ceiling)", res.TimeoutSec)
+	}
+	if res.RequestedTimeoutSec != 5400 {
+		t.Errorf("requested_timeout_sec = %d, want 5400 (what the caller asked for)", res.RequestedTimeoutSec)
+	}
+	if !res.TimeoutClamped {
+		t.Error("timeout_clamped = false, want true (the request exceeded the ceiling)")
+	}
+
+	rec, ok, err := s.meta.GetJob(res.ID)
+	if err != nil || !ok {
+		t.Fatalf("GetJob(%s): ok=%v err=%v", res.ID, ok, err)
+	}
+	got := fromRecord(rec)
+	if got.TimeoutSec != 120 || got.RequestedTimeoutSec != 5400 || !got.TimeoutClamped {
+		t.Errorf("persisted timeout triple = (%d, %d, %v), want (120, 5400, true)",
+			got.TimeoutSec, got.RequestedTimeoutSec, got.TimeoutClamped)
+	}
+
+	// A request under the ceiling is reported as-is, unclamped.
+	res, err = s.Submit(JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 60,
+	})
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if res.TimeoutSec != 60 || res.TimeoutClamped {
+		t.Errorf("under-ceiling submit = (timeout %d, clamped %v), want (60, false)",
+			res.TimeoutSec, res.TimeoutClamped)
+	}
+}
+
+// TestSubmitRunsWithConfiguredCeiling: the reported deadline is the one the job
+// actually RUNS under — a request far above a 1s project ceiling is killed at the
+// ceiling, proving the clamp reaches execute's context and is not just a response field.
+func TestSubmitRunsWithConfiguredCeiling(t *testing.T) {
+	root := t.TempDir()
+	s := newTestService(t, root)
+	s.Reload(withProjectCeiling(s.config(), "self", 1))
+
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"sleep", "5"}, Cwd: ".", TimeoutSec: 3600,
+	})
+	if final.Status != StatusTimeout {
+		t.Fatalf("expected timeout at the 1s project ceiling, got %s (err=%s)", final.Status, final.Error)
+	}
+	if final.TimeoutSec != 1 || !final.TimeoutClamped {
+		t.Errorf("final timeout triple = (%d, %d, %v), want effective 1, requested 3600, clamped true",
+			final.TimeoutSec, final.RequestedTimeoutSec, final.TimeoutClamped)
 	}
 }
 

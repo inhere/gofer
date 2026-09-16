@@ -62,6 +62,10 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		Role:        r.Role,
 		PlanID:      r.PlanID,
 		SourceJobID: r.SourceJobID,
+		// job 超时上限可配（bd h-aii-s9ck）：生效 deadline + 请求值 + 截断标记三元组。
+		TimeoutSec:          r.TimeoutSec,
+		RequestedTimeoutSec: r.RequestedTimeoutSec,
+		TimeoutClamped:      r.TimeoutClamped,
 	}
 }
 
@@ -135,6 +139,11 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		Role:        rec.Role,
 		PlanID:      rec.PlanID,
 		SourceJobID: rec.SourceJobID,
+		// job 超时上限可配（bd h-aii-s9ck）：生效 deadline + 请求值 + 截断标记。旧行全为
+		// 0/false = "未记录"（旧 job 早于该列），不会伪装成"被截断"。
+		TimeoutSec:          rec.TimeoutSec,
+		RequestedTimeoutSec: rec.RequestedTimeoutSec,
+		TimeoutClamped:      rec.TimeoutClamped,
 	}
 }
 

@@ -103,6 +103,13 @@ type JobRecord struct {
 	// 派生（旧库 COALESCE→""）。与 job.JobResult.SourceJobID 互转；反查 ?source_job=。
 	// 注意区别既有 Source 列（执行位置 worker:/peer:）。
 	SourceJobID string
+	// TimeoutSec / RequestedTimeoutSec / TimeoutClamped 是 job 超时上限可配（bd h-aii-s9ck）
+	// 的三元组：生效 deadline 秒数（0=无 deadline）、调用方请求值（0=未指定）、请求是否被上限
+	// 截断。旧库/旧 job 经 selectCols COALESCE 成 0/0/false，含义是"未记录"，不会被误判成
+	// "被截断"。与 job.JobResult 同名字段互转（post-mortem 据此解释 job 为何提前被杀）。
+	TimeoutSec          int
+	RequestedTimeoutSec int
+	TimeoutClamped      bool
 }
 
 // ListQuery filters/bounds a ListJobs query. A zero value lists every project's
@@ -136,7 +143,8 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,
 	COALESCE(attempt,1), COALESCE(fan_index,0),
 	COALESCE(session_id,''), COALESCE(channel,''), COALESCE(client,''),
 	COALESCE(origin_agent,''), COALESCE(escalate_to,''),
-  COALESCE(role,''), COALESCE(plan_id,''), COALESCE(source_job_id,'') FROM jobs`
+  COALESCE(role,''), COALESCE(plan_id,''), COALESCE(source_job_id,''),
+  COALESCE(timeout_sec,0), COALESCE(requested_timeout_sec,0), COALESCE(timeout_clamped,0) FROM jobs`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -146,7 +154,7 @@ type rowScanner interface {
 // scanJob reads one row (in selectCols order) into a JobRecord.
 func scanJob(sc rowScanner) (JobRecord, error) {
 	var r JobRecord
-	var interactive int
+	var interactive, timeoutClamped int
 	err := sc.Scan(
 		&r.ID, &r.ProjectKey, &r.Agent, &r.Runner, &interactive, &r.WorkerID,
 		&r.Status, &r.ExitCode, &r.Cwd, &r.ResultDir, &r.RequestJSON,
@@ -157,8 +165,10 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.WorkflowID, &r.StepIndex, &r.Attempt, &r.FanIndex,
 		&r.SessionID, &r.Channel, &r.Client,
 		&r.OriginAgent, &r.EscalateTo, &r.Role, &r.PlanID, &r.SourceJobID,
+		&r.TimeoutSec, &r.RequestedTimeoutSec, &timeoutClamped,
 	)
 	r.Interactive = interactive != 0
+	r.TimeoutClamped = timeoutClamped != 0
 	return r, err
 }
 
@@ -179,8 +189,9 @@ func (s *Store) UpsertJob(rec JobRecord) error {
    request_json, error, started_at, ended_at, updated_at, caller_id, request_id,
 	    rendered_command, result_json, artifacts_json, diff_summary, source, tags_json,
 	    workflow_id, step_index, attempt, fan_index, session_id, channel, client,
-	    origin_agent, escalate_to, role, plan_id, source_job_id)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	    origin_agent, escalate_to, role, plan_id, source_job_id,
+	    timeout_sec, requested_timeout_sec, timeout_clamped)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -215,7 +226,10 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 	    escalate_to=excluded.escalate_to,
 	    role=excluded.role,
     plan_id=excluded.plan_id,
-    source_job_id=excluded.source_job_id`
+    source_job_id=excluded.source_job_id,
+    timeout_sec=excluded.timeout_sec,
+    requested_timeout_sec=excluded.requested_timeout_sec,
+    timeout_clamped=excluded.timeout_clamped`
 	// Serialise writes in-process (see Store.writeMu) so SQLite never sees two
 	// concurrent writers and cannot return SQLITE_BUSY under burst.
 	s.writeMu.Lock()
@@ -230,6 +244,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.WorkflowID, rec.StepIndex, rec.Attempt, rec.FanIndex,
 		rec.SessionID, rec.Channel, rec.Client,
 		rec.OriginAgent, rec.EscalateTo, rec.Role, rec.PlanID, rec.SourceJobID,
+		rec.TimeoutSec, rec.RequestedTimeoutSec, rec.TimeoutClamped,
 	)
 	if err != nil {
 		// A competing INSERT with the same non-empty request_id (different id)

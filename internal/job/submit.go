@@ -45,6 +45,14 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	if err != nil {
 		return JobResult{}, err
 	}
+	// bd h-aii-s9ck: resolve the job's deadline ONCE, from the SAME cfg snapshot as
+	// validation (project ceiling > server ceiling > 1h default), BEFORE the entry /
+	// forward are built. The running job (execute's ctx), the persisted row, the API
+	// response and a remote dispatch then all carry one number, and a truncated
+	// request is reported instead of silently clamped.
+	timeout, timeoutClamped := normalizeTimeout(req.TimeoutSec, req.Interactive,
+		isCLIAgent(cfg, req.Agent), cfg.EffectiveMaxTimeoutSec(req.ProjectKey))
+	timeoutSec := int(timeout / time.Second)
 	if len(req.EnvFiles) > 0 && (remote || req.Runner != builtinLocalRunner) {
 		return JobResult{}, fmt.Errorf("%w: env_files are supported only for local runner jobs", ErrInvalidRequest)
 	}
@@ -142,14 +150,17 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	runReq.Rows = req.Rows
 	if remote {
 		runReq.Forward = &runner.Forward{
-			ProjectKey:        req.ProjectKey,
-			Agent:             req.Agent,
-			PeerRunner:        builtinLocalRunner,
-			Prompt:            req.Prompt,
-			AgentArgs:         req.AgentArgs,
-			Cmd:               req.Cmd,
-			Cwd:               req.Cwd,
-			TimeoutSec:        req.TimeoutSec,
+			ProjectKey: req.ProjectKey,
+			Agent:      req.Agent,
+			PeerRunner: builtinLocalRunner,
+			Prompt:     req.Prompt,
+			AgentArgs:  req.AgentArgs,
+			Cmd:        req.Cmd,
+			Cwd:        req.Cwd,
+			// The ADMITTED deadline (clamped above), not the raw request: the server
+			// owns admission, so a remote execution must not re-admit 2h for a request
+			// this server already cut to 1h (bd h-aii-s9ck).
+			TimeoutSec:        timeoutSec,
 			Interactive:       req.Interactive,
 			Cols:              req.Cols,
 			Rows:              req.Rows,
@@ -242,16 +253,21 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			Agent:       req.Agent,
 			Runner:      req.Runner,
 			Interactive: req.Interactive,
-			Title:       req.Title,
-			WorkerID:    req.WorkerID,
-			Status:      StatusQueued,
-			Cwd:         workDir,
-			ResultDir:   resultDir,
-			StartedAt:   now,
-			RequestJSON: string(reqJSON),
-			CallerID:    req.CallerID,
-			RequestID:   req.RequestID,
-			Tags:        req.Tags,
+			// bd h-aii-s9ck: the deadline this job actually runs under, plus the
+			// clamp report (requested > ceiling) so it is never a silent truncation.
+			TimeoutSec:          timeoutSec,
+			RequestedTimeoutSec: req.TimeoutSec,
+			TimeoutClamped:      timeoutClamped,
+			Title:               req.Title,
+			WorkerID:            req.WorkerID,
+			Status:              StatusQueued,
+			Cwd:                 workDir,
+			ResultDir:           resultDir,
+			StartedAt:           now,
+			RequestJSON:         string(reqJSON),
+			CallerID:            req.CallerID,
+			RequestID:           req.RequestID,
+			Tags:                req.Tags,
 			// 工作流(job 链)：引擎起 step-job 时已在 req 上设好；普通 job 为 ""/0。
 			WorkflowID: req.WorkflowID,
 			StepIndex:  req.StepIndex,
@@ -333,7 +349,6 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// snapshot (caller override > governance default > unlimited). nil when the
 	// caller has no cap or no id — then execute does not gate on it.
 	callerSem := s.callerSemaphore(req.CallerID, cfg.Server.CallerConcurrencyLimit(req.CallerID))
-	timeout := normalizeTimeout(req.TimeoutSec, req.Interactive, isCLIAgent(cfg, req.Agent))
 	go s.execute(entry, run, sem, callerSem, runReq, timeout)
 
 	return entry.snapshot(), nil
@@ -479,15 +494,27 @@ func newUUID() string {
 	return fmt.Sprintf("%x-%x-%x-%x-%x", b[0:4], b[4:6], b[6:8], b[8:10], b[10:16])
 }
 
-// normalizeTimeout applies the default and clamps to the max (plan §9 P4).
-// Interactive sessions are resident terminals: an omitted timeout means no job
-// deadline, while an explicit timeout_sec still bounds the session. cli-agent
-// jobs default to DefaultAgentTimeoutSec (agents run long); everything else
-// defaults to DefaultTimeoutSec.
-func normalizeTimeout(sec int, interactive bool, cliAgent bool) time.Duration {
-	if interactive && sec <= 0 {
-		return 0
+// normalizeTimeout applies the default and clamps to the CONFIGURED ceiling
+// (plan §9 P4; bd h-aii-s9ck: the ceiling is no longer hard-coded — it is
+// config.Config.EffectiveMaxTimeoutSec for the job's project). Interactive
+// sessions are resident terminals: an omitted timeout means no job deadline,
+// while an explicit timeout_sec still bounds the session. cli-agent jobs default
+// to DefaultAgentTimeoutSec (agents run long); everything else defaults to
+// DefaultTimeoutSec. max <= 0 means the caller resolved no ceiling and falls back
+// to DefaultMaxTimeoutSec.
+//
+// The second return reports whether the clamp actually truncated an EXPLICIT
+// request (requested > max). A default that happens to exceed the ceiling is not
+// a clamp of the request — the caller never asked for that value — so it does not
+// raise the flag and does not warn.
+func normalizeTimeout(sec int, interactive bool, cliAgent bool, max int) (time.Duration, bool) {
+	if max <= 0 {
+		max = DefaultMaxTimeoutSec
 	}
+	if interactive && sec <= 0 {
+		return 0, false
+	}
+	requested := sec
 	if sec <= 0 {
 		if cliAgent {
 			sec = DefaultAgentTimeoutSec
@@ -495,8 +522,9 @@ func normalizeTimeout(sec int, interactive bool, cliAgent bool) time.Duration {
 			sec = DefaultTimeoutSec
 		}
 	}
-	if sec > MaxTimeoutSec {
-		sec = MaxTimeoutSec
+	clamped := requested > max
+	if sec > max {
+		sec = max
 	}
-	return time.Duration(sec) * time.Second
+	return time.Duration(sec) * time.Second, clamped
 }

@@ -359,6 +359,13 @@ func runJobRun(c *gcli.Command, _ []string) error {
 	}
 	res := sub.Job
 	c.Printf("job %s submitted: status=%s result_dir=%s\n", res.ID, res.Status, res.ResultDir)
+	// bd h-aii-s9ck: the server clamps timeout_sec to the project ceiling. Say so on
+	// stderr (never silently truncate a long job's budget) — the job will be killed
+	// at res.TimeoutSec, not at what was asked for.
+	if res.TimeoutClamped {
+		fmt.Fprintf(os.Stderr, "warning: --timeout %ds exceeds the project ceiling (%ds); the job will run with %ds\n",
+			res.RequestedTimeoutSec, res.TimeoutSec, res.TimeoutSec)
+	}
 
 	// --wait (client polling) or a sync submit that fell back to async (202): poll
 	// until terminal. A sync submit that completed server-side already returns the
@@ -602,6 +609,12 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	c.Printf("exit_code:  %d\n", res.ExitCode)
 	c.Printf("cwd:        %s\n", res.Cwd)
 	c.Printf("result_dir: %s\n", res.ResultDir)
+	// bd h-aii-s9ck：生效 deadline 与截断提示，解释 job 为何在请求时长之前被杀
+	// （0 = 无 deadline，例如未显式给 timeout 的交互会话）。
+	c.Printf("timeout:    %ds\n", res.TimeoutSec)
+	if res.TimeoutClamped {
+		c.Printf("            (requested %ds, clamped to the project ceiling)\n", res.RequestedTimeoutSec)
+	}
 	// 提交来源（provenance）：渠道 / 来源主机|IP / 鉴权身份——回答"谁/哪台/经哪渠道提交"。
 	if res.Channel != "" {
 		c.Printf("channel:    %s\n", res.Channel)

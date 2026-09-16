@@ -381,6 +381,53 @@ func TestJobResumeFlagsBound(t *testing.T) {
 	}
 }
 
+// TestJobRunPrintsClampWarning: when the server truncates --timeout to the project
+// ceiling, `job run` must SAY SO on stderr (bd h-aii-s9ck) instead of leaving the
+// caller believing the job got the budget it asked for.
+func TestJobRunPrintsClampWarning(t *testing.T) {
+	isolateConfigEnv(t)
+	config.InputCfgFile = ""
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	jobConnOpts.server, jobConnOpts.token = "", ""
+	jobRunOpts.timeout, jobRunOpts.wait, jobRunOpts.sync = 0, false, false
+	t.Cleanup(func() { jobRunOpts.timeout, jobRunOpts.wait, jobRunOpts.sync = 0, false, false })
+
+	var gotReq job.JobRequest
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost || r.URL.Path != "/v1/jobs" {
+			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
+		}
+		if err := json.NewDecoder(r.Body).Decode(&gotReq); err != nil {
+			t.Fatalf("decode request: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		// What a server with a 3600s ceiling returns for --timeout 5400.
+		_ = json.NewEncoder(w).Encode(job.JobResult{
+			ID: "job-1", Status: job.StatusQueued,
+			TimeoutSec: 3600, RequestedTimeoutSec: 5400, TimeoutClamped: true,
+		})
+	}))
+	defer ts.Close()
+
+	var code int
+	errOut := captureStderr(t, func() {
+		code = NewApp("test").Run([]string{
+			"job", "run", "-p", "self", "-a", "exec", "--timeout", "5400",
+			"--server", ts.URL, "--", "go", "version",
+		})
+	})
+	if code != 0 {
+		t.Fatalf("app.Run exit code=%d", code)
+	}
+	if gotReq.TimeoutSec != 5400 {
+		t.Fatalf("client must send the REQUESTED timeout (the server clamps), got %d", gotReq.TimeoutSec)
+	}
+	want := "warning: --timeout 5400s exceeds the project ceiling (3600s); the job will run with 3600s"
+	if !strings.Contains(errOut, want) {
+		t.Fatalf("stderr missing the clamp warning\nwant substring: %s\ngot: %q", want, errOut)
+	}
+}
+
 func TestJobRerunCallsRebuildEndpoint(t *testing.T) {
 	isolateConfigEnv(t)
 	config.InputCfgFile = ""
