@@ -83,6 +83,31 @@ func TestMetaRequiresAuth(t *testing.T) {
 	}
 }
 
+func TestMetaAgentsCarryBothModes(t *testing.T) {
+	cfg := &config.Config{
+		Server:  config.ServerConfig{Token: testToken},
+		Storage: config.StorageConfig{Root: t.TempDir()},
+		Agents: map[string]config.AgentConfig{
+			"dual":  {Type: "cli-agent", Args: []string{"exec", "{{prompt}}"}, InteractiveArgs: []string{}},
+			"batch": {Type: "cli-agent", Args: []string{"{{prompt}}"}},
+			"tty":   {Type: "cli-agent", Interactive: true},
+		},
+	}
+	m := getMeta(t, wireMetaServer(t, cfg, nil))
+	want := map[string][2]bool{"dual": {true, true}, "batch": {true, false}, "tty": {false, true}, "exec": {true, false}}
+	for _, a := range m.Agents {
+		if modes, ok := want[a.Key]; ok {
+			if a.Batch != modes[0] || a.Interactive != modes[1] {
+				t.Errorf("%s: batch/interactive = %v/%v, want %v", a.Key, a.Batch, a.Interactive, modes)
+			}
+			delete(want, a.Key)
+		}
+	}
+	if len(want) != 0 {
+		t.Fatalf("missing agents: %v", want)
+	}
+}
+
 // TestMetaGroupsNonEmpty: every group is a non-nil populated array and the
 // project carries its allowlists + default_agent.
 func TestMetaGroups(t *testing.T) {

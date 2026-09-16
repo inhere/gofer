@@ -6,6 +6,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 )
 
@@ -59,6 +60,7 @@ type metaAgent struct {
 	Key         string `json:"key"`
 	Type        string `json:"type"`
 	Interactive bool   `json:"interactive,omitempty"`
+	Batch       bool   `json:"batch"`
 }
 
 // metaRunner is one selectable runner: name + type (local / peer-http / worker).
@@ -186,7 +188,8 @@ func (s *Server) metaAgents() []metaAgent {
 	sort.Strings(keys)
 	out := make([]metaAgent, 0, len(keys))
 	for _, k := range keys {
-		out = append(out, metaAgent{Key: k, Type: list[k].Type, Interactive: list[k].Interactive})
+		batch, interactive := agent.Modes(list[k])
+		out = append(out, metaAgent{Key: k, Type: list[k].Type, Interactive: interactive, Batch: batch})
 	}
 	return out
 }

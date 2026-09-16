@@ -355,7 +355,7 @@ func agentBriefsFromSnapshot(ws wshub.WorkerSnapshot) []job.AgentBrief {
 	}
 	out := make([]job.AgentBrief, 0, len(ws.AgentCaps))
 	for _, c := range ws.AgentCaps {
-		out = append(out, job.AgentBrief{Key: c.Key, Interactive: c.Interactive})
+		out = append(out, job.AgentBrief{Key: c.Key, Interactive: c.Interactive, Batch: c.Batch})
 	}
 	return out
 }

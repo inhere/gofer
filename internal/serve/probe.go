@@ -56,7 +56,7 @@ func briefsFromSnapshot(snap wshub.WorkerSnapshot) []httpapi.AgentBrief {
 		// does not report it). It is display detail; it must never remove an agent from
 		// the view, or every agent of every pre-P2 worker would vanish from /v1/meta.
 		out = append(out, httpapi.AgentBrief{
-			Key: c.Key, Type: c.Type, Interactive: c.Interactive,
+			Key: c.Key, Type: c.Type, Interactive: c.Interactive, Batch: c.Batch,
 			Available: c.Available, Version: c.Version,
 		})
 	}

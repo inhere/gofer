@@ -836,7 +836,8 @@ func agentBriefs(cfg *config.Config, detected map[string]agent.DetectResult) []w
 		if !ok {
 			continue
 		}
-		b := wsproto.AgentBrief{Key: k, Type: ac.Type, Interactive: ac.Interactive}
+		batch, interactive := agent.Modes(ac)
+		b := wsproto.AgentBrief{Key: k, Type: ac.Type, Interactive: interactive, Batch: batch}
 		if res, probed := detected[k]; probed {
 			avail := res.Available
 			b.Available = &avail

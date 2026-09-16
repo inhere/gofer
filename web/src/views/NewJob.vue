@@ -192,7 +192,7 @@ const agentPool = computed<MetaAgent[]>(() => {
   for (const w of targetWorkers.value) {
     for (const c of w.agent_caps ?? []) {
       if (!out.has(c.key)) {
-        out.set(c.key, { key: c.key, type: c.type ?? '', interactive: c.interactive })
+        out.set(c.key, { key: c.key, type: c.type ?? '', interactive: c.interactive, batch: c.batch })
       }
     }
   }
@@ -236,7 +236,7 @@ const agentOptions = computed<MetaAgent[]>(() => {
     // 反向闸（对齐 job/config.go 的 interactive-only 校验）：interactive agent 是裸启动进
     // pty 的（arg 模板里没有 {{prompt}}），非交互提交会把 prompt 静默丢掉、跑一个空转到超时的
     // 裸 CLI —— 后端已拒，这里就不该让它出现在下拉里（能选但提交必挂 = 最差体验）。
-    list = list.filter((a) => !a.interactive)
+    list = list.filter((a) => a.batch === true || (a.batch === undefined && !a.interactive))
   }
   // exec 安全闸只在 host 执行时由 host 把关（worker/peer 是 remote，各自校验自己的 allow_exec）。
   // 严格比 false：undefined = 旧 server 没这个字段，不能当成"闸为假"把 exec 全藏掉。

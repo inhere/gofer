@@ -5,6 +5,26 @@ import (
 	"testing"
 )
 
+func TestAgentBriefBatchDefaultsFromLegacyWorker(t *testing.T) {
+	for _, tc := range []struct {
+		data  string
+		batch bool
+	}{
+		{`{"key":"legacy-batch"}`, true},
+		{`{"key":"legacy-tty","interactive":true}`, false},
+		{`{"key":"dual","interactive":true,"batch":true}`, true},
+		{`{"key":"neither","batch":false}`, false},
+	} {
+		var brief AgentBrief
+		if err := json.Unmarshal([]byte(tc.data), &brief); err != nil {
+			t.Fatal(err)
+		}
+		if brief.Batch != tc.batch {
+			t.Fatalf("%s: batch = %v, want %v", tc.data, brief.Batch, tc.batch)
+		}
+	}
+}
+
 // TestAgentBriefOldWorkerReportsUnknownAvailability is the *bool decision's regression
 // lock. A worker built before P2 sends agent_caps WITHOUT an `available` key. With a
 // plain bool that absence would decode as false — indistinguishable from a new worker

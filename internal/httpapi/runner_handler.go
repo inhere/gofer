@@ -43,6 +43,7 @@ type AgentBrief struct {
 	Key         string `json:"key"`
 	Type        string `json:"type,omitempty"`
 	Interactive bool   `json:"interactive,omitempty"`
+	Batch       bool   `json:"batch"`
 	// Available/Version are DISPLAY-ONLY, and Available is a *bool for a reason —
 	// see wsproto.AgentBrief for the full rule. Short version: nil = the worker never
 	// reported it (pre-P2 build), false = a probe did not find the CLI. NEITHER means

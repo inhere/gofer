@@ -77,7 +77,7 @@ func capsView(caps wsproto.Caps) httpapi.WorkerCaps {
 		// Availability/version ride along as display detail (nil = the worker never
 		// reported it); the reload receipt shows what the worker applied, unfiltered.
 		out.AgentCaps = append(out.AgentCaps, httpapi.AgentBrief{
-			Key: c.Key, Type: c.Type, Interactive: c.Interactive,
+			Key: c.Key, Type: c.Type, Interactive: c.Interactive, Batch: c.Batch,
 			Available: c.Available, Version: c.Version,
 		})
 	}

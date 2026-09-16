@@ -82,6 +82,7 @@ type AgentBrief struct {
 	Key         string `json:"key"`
 	Type        string `json:"type,omitempty"`
 	Interactive bool   `json:"interactive,omitempty"`
+	Batch       bool   `json:"batch"`
 	// Available is DISPLAY-ONLY. Never gate admission on it: a worker that predates
 	// this field reports nothing (nil), and an operator-declared agent whose probe
 	// failed reports false — BOTH OF THEM RUN FINE.
@@ -96,6 +97,25 @@ type AgentBrief struct {
 	// Version is the best-effort CLI version string (empty = not probed, probe failed
 	// or unavailable). Display-only, same rule as Available.
 	Version string `json:"version,omitempty"`
+}
+
+// UnmarshalJSON derives batch capability for legacy workers that omitted it.
+func (a *AgentBrief) UnmarshalJSON(data []byte) error {
+	type alias AgentBrief
+	var raw struct {
+		*alias
+		Batch *bool `json:"batch"`
+	}
+	raw.alias = (*alias)(a)
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	if raw.Batch == nil {
+		a.Batch = !a.Interactive
+	} else {
+		a.Batch = *raw.Batch
+	}
+	return nil
 }
 
 // Register (w→s, P1): the worker announces its identity + capability snapshot on

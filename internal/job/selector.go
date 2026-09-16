@@ -17,6 +17,7 @@ import (
 type AgentBrief struct {
 	Key         string
 	Interactive bool
+	Batch       bool
 }
 
 // WorkerCandidate is the neutral, point-in-time snapshot selectWorker scores. It

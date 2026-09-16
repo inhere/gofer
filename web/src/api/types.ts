@@ -606,6 +606,7 @@ export interface AgentBrief {
   key: string
   type?: string
   interactive?: boolean
+  batch?: boolean
 }
 
 // worker 连接明细。heartbeat_age_ms 由后端读取时即时计算。
@@ -685,6 +686,7 @@ export interface MetaAgent {
   type: string
   // 交互式 agent（P4）——级联据此过滤；省略即 false
   interactive?: boolean
+  batch?: boolean
 }
 
 export interface MetaRunner {
