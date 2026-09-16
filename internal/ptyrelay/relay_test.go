@@ -529,15 +529,27 @@ func TestWithCastViaOpen(t *testing.T) {
 
 func TestOutputObserverReceivesChunks(t *testing.T) {
 	src := newFakeSource()
+	// The observer runs on the record loop's goroutine; guard the buffer and
+	// wait on what the OBSERVER has seen, not on RecordedLen — the two advance
+	// independently, so polling RecordedLen raced the observer's write.
+	var mu sync.Mutex
 	var got bytes.Buffer
 	r := New(src, WithOutputObserver(func(b []byte) {
+		mu.Lock()
 		got.Write(b)
+		mu.Unlock()
 	}))
 	r.Start()
-	src.Emit([]byte("session id: abc\n"))
-	waitFor(t, 2*time.Second, func() bool { return r.RecordedLen() >= len("session id: abc\n") })
-	if got.String() != "session id: abc\n" {
-		t.Fatalf("observer got %q", got.String())
+	const want = "session id: abc\n"
+	src.Emit([]byte(want))
+	observed := func() string {
+		mu.Lock()
+		defer mu.Unlock()
+		return got.String()
+	}
+	waitFor(t, 2*time.Second, func() bool { return len(observed()) >= len(want) })
+	if s := observed(); s != want {
+		t.Fatalf("observer got %q", s)
 	}
 	src.EmitDone()
 	waitDone(t, r, 2*time.Second)
