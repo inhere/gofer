@@ -19,6 +19,7 @@ type API interface {
 	HeartbeatSession(sid string, hb client.SessionHeartbeat) (client.AgentSession, error)
 	OpenSessionTurn(sid, msg string, timeoutSec int64) (client.Decision, error)
 	WaitSessionTurn(sid, decisionID string, waitSec int) (client.TurnStatus, error)
+	ReleaseSessionTurn(sid, decisionID string, idleSec int64) (bool, error)
 	SetSessionRelay(sid string, on bool) (client.AgentSession, error)
 }
 
@@ -33,7 +34,9 @@ type Options struct {
 	// Wait is the Stop hook's total blocking budget (the hook's own timeout
 	// minus a margin). Default 540s (the Claude default hook timeout is 600s).
 	Wait time.Duration
-	// PollSec is the per-request long-poll window (server caps at 25).
+	// PollSec is the per-request long-poll window (server caps at 25). An
+	// idle-armed wait caps it at autoArmPollSec instead, so the human's return
+	// is noticed promptly.
 	PollSec int
 	// MaxMessage caps the relayed last message (bytes). Default 4000.
 	MaxMessage int
@@ -71,6 +74,10 @@ const (
 	// loop tolerates before giving up (never blocking the terminal on a dead hub).
 	transientRetries = 5
 	transientBackoff = 2 * time.Second
+	// autoArmPollSec caps a poll round on an idle-armed wait: the human's return
+	// is only visible at a poll boundary, so the wait checks more often than the
+	// 25s a switched-on relay uses.
+	autoArmPollSec = 5
 )
 
 // noMessageFallback is relayed when the last assistant text cannot be read.
@@ -115,6 +122,9 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 		hb := client.SessionHeartbeat{Event: p.Event, LastMessage: strings.TrimSpace(p.Message)}
 		if p.NotificationType == "idle_prompt" {
 			hb.State = "idle"
+			// The agent is sitting at an idle prompt: report how long the machine
+			// has been untouched, which is exactly the auto-arm evidence.
+			hb.IdleSec = idleSecPtr()
 		}
 		r.beatAndLog(hb)
 		return Result{}, nil
@@ -199,14 +209,24 @@ func (r *runner) beatAndLog(hb client.SessionHeartbeat) {
 	}
 }
 
-// stop is the relay main path (design §7).
+// stop is the relay main path (design §7): while relay is on — explicitly
+// switched on, or armed by the server's idle rule (SR-A5) — the agent's last
+// message becomes a turn and the hook blocks here until the human answers on
+// the web.
 func (r *runner) stop() Result {
 	last := r.lastMessage()
-	a, ok := r.heartbeat(client.SessionHeartbeat{Event: r.p.Event, LastMessage: last})
+	a, ok := r.heartbeat(client.SessionHeartbeat{
+		Event: r.p.Event, LastMessage: last, IdleSec: idleSecPtr(),
+	})
 	if !ok {
 		return Result{}
 	}
-	if !a.Relay {
+	// autoArmed marks the wait that exists only because the human is away: it is
+	// released as soon as they are back. An explicit switch is theirs to turn
+	// off (typing in the terminal, or /off on the web) and is never released by
+	// the keyboard probe.
+	autoArmed := !a.Relay && a.AutoArmed
+	if !a.Relay && !a.AutoArmed {
 		r.log("relay off, released")
 		return Result{}
 	}
@@ -215,7 +235,13 @@ func (r *runner) stop() Result {
 		r.log("open turn failed: %v", err) // 409 = relay flipped off in between
 		return Result{}
 	}
-	r.log("turn %s open, waiting up to %s", turn.ID, r.opts.Wait)
+	pollSec := r.opts.PollSec
+	if autoArmed && pollSec > autoArmPollSec {
+		// The human's return can only be noticed at a poll boundary, so an
+		// auto-armed wait re-reads the keyboard more often than a switched-on one.
+		pollSec = autoArmPollSec
+	}
+	r.log("turn %s open (auto=%v), waiting up to %s", turn.ID, autoArmed, r.opts.Wait)
 	deadline := r.opts.now().Add(r.opts.Wait)
 	failures := 0
 	for {
@@ -223,7 +249,7 @@ func (r *runner) stop() Result {
 		if r.opts.now().After(deadline) || remaining <= 0 {
 			break
 		}
-		wait := r.opts.PollSec
+		wait := pollSec
 		if rs := int(remaining / time.Second); rs < wait {
 			wait = rs
 		}
@@ -257,10 +283,30 @@ func (r *runner) stop() Result {
 			r.log("turn %s, released", st.Outcome)
 			return Result{}
 		}
+		if autoArmed && r.releasedOnUserReturn(turn.ID) {
+			return Result{}
+		}
 	}
 	r.log("wait budget exhausted, released")
 	_, _ = r.api.HeartbeatSession(r.p.SessionID, client.SessionHeartbeat{Event: r.p.Event, State: "idle"})
 	return Result{}
+}
+
+// releasedOnUserReturn reports this round's keyboard reading to the server,
+// which owns the threshold and decides whether it means "the human is back"
+// (then it closes the turn with released_by=user_returned). A hub that cannot
+// answer is simply ignored: the wait continues.
+func (r *runner) releasedOnUserReturn(turnID string) bool {
+	sec := idleSeconds()
+	released, err := r.api.ReleaseSessionTurn(r.p.SessionID, turnID, sec)
+	if err != nil {
+		r.log("release probe failed: %v", err)
+		return false
+	}
+	if released {
+		r.log("user returned (idle %ds), release confirmed", sec)
+	}
+	return released
 }
 
 // lastMessage picks the agent's last assistant text: Codex hands it over on

@@ -28,6 +28,11 @@ type fakeAPI struct {
 	answerAfter   int // waits before the turn is answered
 	answer        string
 	relayOffAfter int // waits before relay flips off
+	// release scripting: released is what ReleaseSessionTurn answers; the idle
+	// readings the hook reported are recorded for assertions.
+	released    bool
+	releases    int
+	idleReports []int64
 }
 
 func newFake() *fakeAPI {
@@ -69,7 +74,7 @@ func (f *fakeAPI) OpenSessionTurn(sid, msg string, timeoutSec int64) (client.Dec
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	a := f.sessions[sid]
-	if !a.Relay {
+	if !a.Relay && !a.AutoArmed {
 		return client.Decision{}, &client.StatusError{Status: 409, Msg: "relay off"}
 	}
 	d := client.Decision{ID: "dec-1", Question: msg, State: "OPEN", TimeoutSec: timeoutSec, SessionID: sid, Kind: "relay"}
@@ -108,6 +113,23 @@ func (f *fakeAPI) SetSessionRelay(sid string, on bool) (client.AgentSession, err
 	a.Relay = on
 	f.sessions[sid] = a
 	return a, nil
+}
+
+func (f *fakeAPI) ReleaseSessionTurn(sid, id string, idleSec int64) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.releases++
+	f.idleReports = append(f.idleReports, idleSec)
+	if !f.released {
+		return false, nil
+	}
+	d := f.turns[id]
+	d.State = "EXPIRED"
+	f.turns[id] = d
+	a := f.sessions[sid]
+	a.State = "idle"
+	f.sessions[sid] = a
+	return true, nil
 }
 
 func payload(t *testing.T, agent string, m map[string]any) Payload {
