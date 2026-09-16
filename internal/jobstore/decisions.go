@@ -59,6 +59,10 @@ type PlanDecision struct {
 	// session; plain gofer_ask_human decisions leave both empty.
 	SessionID string
 	Kind      string
+	// ReleasedBy is set when the turn was closed WITHOUT an answer (SR-A5:
+	// "user_returned" = the hook saw the human come back and released the wait).
+	// Empty for answered / timed-out turns.
+	ReleasedBy string
 }
 
 // DecisionKindRelay marks a decision that is a session-relay turn (the hook
@@ -69,14 +73,14 @@ const selectDecisionCols = `SELECT id, COALESCE(plan_id,''), COALESCE(title,''),
   COALESCE(question,''), COALESCE(options_json,''), COALESCE(answer,''),
   state, COALESCE(timeout_sec,1800), asked_at,
   COALESCE(answered_at,0), COALESCE(answered_by,''),
-  COALESCE(session_id,''), COALESCE(kind,'')
+  COALESCE(session_id,''), COALESCE(kind,''), COALESCE(released_by,'')
   FROM plan_decisions`
 
 func scanDecision(sc rowScanner) (PlanDecision, error) {
 	var d PlanDecision
 	err := sc.Scan(&d.ID, &d.PlanID, &d.Title, &d.Question, &d.OptionsJSON,
 		&d.Answer, &d.State, &d.TimeoutSec, &d.AskedAt, &d.AnsweredAt, &d.AnsweredBy,
-		&d.SessionID, &d.Kind)
+		&d.SessionID, &d.Kind, &d.ReleasedBy)
 	return d, err
 }
 
@@ -302,6 +306,26 @@ func (s *Store) ListSessionDecisions(sessionID, state string, limit int) ([]*Pla
 		return nil, fmt.Errorf("jobstore: list session decisions rows: %w", err)
 	}
 	return out, nil
+}
+
+// ReleaseDecision closes an OPEN decision WITHOUT an answer: state EXPIRED plus
+// the released_by tag (SR-A5, "user_returned"). ok is false when the row is
+// unknown or no longer OPEN — an answer that beat the release wins.
+//
+// 🔒 Takes writeMu itself; callers must not hold it.
+func (s *Store) ReleaseDecision(id, releasedBy string) (bool, error) {
+	if id == "" {
+		return false, errors.New("jobstore: release decision: empty id")
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(`UPDATE plan_decisions SET state='EXPIRED', released_by=?
+  WHERE id = ? AND state='OPEN'`, releasedBy, id)
+	if err != nil {
+		return false, fmt.Errorf("jobstore: release decision %q: %w", id, err)
+	}
+	n, _ := res.RowsAffected()
+	return n > 0, nil
 }
 
 // ExpireSessionDecisions moves every OPEN decision of a session to EXPIRED

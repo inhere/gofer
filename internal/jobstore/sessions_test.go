@@ -187,12 +187,98 @@ func TestMigratePlanDecisionsAdditive(t *testing.T) {
 	assert.NoErr(t, err)
 	_, hasSid := cols["session_id"]
 	_, hasKind := cols["kind"]
+	_, hasReleased := cols["released_by"]
 	assert.True(t, hasSid)
 	assert.True(t, hasKind)
+	assert.True(t, hasReleased)
 	old, ok, err := s.GetDecision("dec-old")
 	assert.NoErr(t, err)
 	assert.True(t, ok)
 	assert.Eq(t, "", old.SessionID)
+	assert.Eq(t, "", old.ReleasedBy)
 	// Idempotent.
 	assert.NoErr(t, s.migrate())
+}
+
+// TestSessionIdleSecReported verifies the idle-detection column (SR-A5): a fresh
+// session has never reported (unknown), a beat that carries a reading stores it,
+// and a beat that carries none (OpenTurn's own touch, a plain event) leaves the
+// stored reading alone — the relay keys its auto-arm on exactly this value.
+func TestSessionIdleSecReported(t *testing.T) {
+	s := openTest(t)
+	secs := func(v int64) *int64 { return &v }
+
+	a, err := s.UpsertAgentSession(AgentSession{SessionID: "sid-i", Agent: "claude"})
+	assert.NoErr(t, err)
+	assert.Eq(t, int64(-1), a.IdleSec)
+
+	a, ok, err := s.TouchAgentSession("sid-i", SessionHeartbeat{Event: "Stop", IdleSec: secs(600)})
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, int64(600), a.IdleSec)
+
+	// No reading in the beat → the stored one survives (never silently cleared).
+	a, ok, err = s.TouchAgentSession("sid-i", SessionHeartbeat{Event: "Stop", State: SessionWaitingReply})
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, int64(600), a.IdleSec)
+
+	// An explicit 0 (the human just typed) is a real reading and does overwrite.
+	a, ok, err = s.TouchAgentSession("sid-i", SessionHeartbeat{Event: "UserPromptSubmit", IdleSec: secs(0)})
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, int64(0), a.IdleSec)
+}
+
+// TestReleaseDecisionTagsExpiredTurn verifies the "released without an answer"
+// path (SR-A5): only an OPEN turn can be released, it ends EXPIRED with the
+// release tag instead of an answer, and a second release is a no-op.
+func TestReleaseDecisionTagsExpiredTurn(t *testing.T) {
+	s := openTest(t)
+	d := PlanDecision{Title: "s · turn 1", Question: "what next?", TimeoutSec: 300, SessionID: "sid-r"}
+	assert.NoErr(t, s.InsertDecision(&d))
+
+	ok, err := s.ReleaseDecision(d.ID, "user_returned")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	got, ok, err := s.GetDecision(d.ID)
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, DecisionExpired, got.State)
+	assert.Eq(t, "user_returned", got.ReleasedBy)
+	assert.Eq(t, "", got.Answer)
+
+	ok, err = s.ReleaseDecision(d.ID, "user_returned") // already closed
+	assert.NoErr(t, err)
+	assert.False(t, ok)
+	ok, err = s.ReleaseDecision("dec-missing", "user_returned")
+	assert.NoErr(t, err)
+	assert.False(t, ok)
+	_, err = s.ReleaseDecision("", "user_returned")
+	assert.Err(t, err)
+}
+
+// TestMigrateAgentSessionsAddsIdleSec opens a db whose agent_sessions predates
+// the idle column: Open must add it, and a row written by the old binary reads
+// back as "unknown" (-1) rather than as "the human is right there".
+func TestMigrateAgentSessionsAddsIdleSec(t *testing.T) {
+	s := openTest(t)
+	for _, q := range []string{
+		`DROP TABLE agent_sessions`,
+		`CREATE TABLE agent_sessions (session_id TEXT PRIMARY KEY, agent TEXT NOT NULL,
+  project_key TEXT, runner TEXT, cwd TEXT, title TEXT, transcript TEXT, tmux_pane TEXT,
+  state TEXT NOT NULL DEFAULT 'running', relay INTEGER NOT NULL DEFAULT 0,
+  turn_no INTEGER NOT NULL DEFAULT 0, last_message TEXT, last_event TEXT,
+  last_seen_at INTEGER NOT NULL, started_at INTEGER NOT NULL, ended_at INTEGER)`,
+		`INSERT INTO agent_sessions (session_id, agent, last_seen_at, started_at) VALUES ('sid-old','claude',1,1)`,
+	} {
+		_, err := s.db.Exec(q)
+		assert.NoErr(t, err)
+	}
+	assert.NoErr(t, s.migrate())
+	a, ok, err := s.GetAgentSession("sid-old")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, int64(-1), a.IdleSec)
+	assert.NoErr(t, s.migrate()) // idempotent
 }

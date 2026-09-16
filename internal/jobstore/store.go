@@ -319,7 +319,8 @@ var schemaStmts = []string{
   timeout_sec INTEGER NOT NULL DEFAULT 1800,
   asked_at    INTEGER NOT NULL,
   answered_at INTEGER,
-  answered_by TEXT
+  answered_by TEXT,
+  released_by TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_plan_decisions_plan ON plan_decisions(plan_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_plan_decisions_state ON plan_decisions(state)`,
@@ -339,6 +340,7 @@ var schemaStmts = []string{
   tmux_pane    TEXT,
   state        TEXT NOT NULL DEFAULT 'running',
   relay        INTEGER NOT NULL DEFAULT 0,
+  idle_sec     INTEGER,
   turn_no      INTEGER NOT NULL DEFAULT 0,
   last_message TEXT,
   last_event   TEXT,
@@ -566,6 +568,9 @@ func (s *Store) migrate() error {
 	if err := s.migratePlanDecisions(); err != nil {
 		return err
 	}
+	if err := s.migrateAgentSessions(); err != nil {
+		return err
+	}
 	if err := s.migrateDeliveries(); err != nil {
 		return err
 	}
@@ -721,8 +726,10 @@ func (s *Store) migratePlanTodos() error {
 
 // migratePlanDecisions adds the session-relay columns (SESS-01 D3) to
 // plan_decisions: session_id (owning agent session) and kind ('relay' for a
-// relay turn; NULL for a plain gofer_ask_human decision). Old rows read back as
-// "" via COALESCE. The per-session index is created after the column exists.
+// relay turn; NULL for a plain gofer_ask_human decision), plus released_by
+// (turn closed without an answer; see migrateAgentSessions' sibling column).
+// Old rows read back as "" via COALESCE. The per-session index is created after
+// the column exists.
 func (s *Store) migratePlanDecisions() error {
 	cols, err := s.tableColumns("plan_decisions")
 	if err != nil {
@@ -743,10 +750,33 @@ func (s *Store) migratePlanDecisions() error {
 	if err := add("kind", "kind TEXT"); err != nil {
 		return err
 	}
+	// released_by records a turn closed WITHOUT an answer (SR-A5: the hook saw
+	// the human return and the server released the wait). Old rows read "".
+	if err := add("released_by", "released_by TEXT"); err != nil {
+		return err
+	}
 	if _, err := s.db.Exec(
 		`CREATE INDEX IF NOT EXISTS idx_plan_decisions_session ON plan_decisions(session_id, asked_at)`,
 	); err != nil {
 		return fmt.Errorf("jobstore: migrate plan_decisions session index: %w", err)
+	}
+	return nil
+}
+
+// migrateAgentSessions adds the idle-detection column (SR-A5) to
+// agent_sessions: idle_sec, the system input idle reading the hook reported
+// last (-1 = never reported; COALESCE covers rows written before the column
+// existed, so an old session simply reads as "no evidence the human is away").
+func (s *Store) migrateAgentSessions() error {
+	cols, err := s.tableColumns("agent_sessions")
+	if err != nil {
+		return err
+	}
+	if _, ok := cols["idle_sec"]; ok {
+		return nil
+	}
+	if _, e := s.db.Exec("ALTER TABLE agent_sessions ADD COLUMN idle_sec INTEGER"); e != nil {
+		return fmt.Errorf("jobstore: migrate agent_sessions add idle_sec: %w", e)
 	}
 	return nil
 }

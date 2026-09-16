@@ -58,11 +58,16 @@ type AgentSession struct {
 	LastSeenAt  int64
 	StartedAt   int64
 	EndedAt     int64
+	// IdleSec is the system input idle time (seconds) the hook reported last;
+	// -1 = unknown / never reported. The relay service derives its idle auto-arm
+	// from this value (it is NOT the session's own idle time).
+	IdleSec int64
 }
 
 const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(project_key,''),
   COALESCE(runner,''), COALESCE(cwd,''), COALESCE(title,''), COALESCE(transcript,''),
-  COALESCE(tmux_pane,''), state, relay, turn_no, COALESCE(last_message,''),
+  COALESCE(tmux_pane,''), state, relay, COALESCE(idle_sec,-1), turn_no,
+  COALESCE(last_message,''),
   COALESCE(last_event,''), last_seen_at, started_at, COALESCE(ended_at,0)
   FROM agent_sessions`
 
@@ -70,7 +75,7 @@ func scanSession(sc rowScanner) (AgentSession, error) {
 	var a AgentSession
 	var relay int64
 	err := sc.Scan(&a.SessionID, &a.Agent, &a.ProjectKey, &a.Runner, &a.Cwd, &a.Title,
-		&a.Transcript, &a.TmuxPane, &a.State, &relay, &a.TurnNo, &a.LastMessage,
+		&a.Transcript, &a.TmuxPane, &a.State, &relay, &a.IdleSec, &a.TurnNo, &a.LastMessage,
 		&a.LastEvent, &a.LastSeenAt, &a.StartedAt, &a.EndedAt)
 	a.Relay = relay == 1
 	return a, err
@@ -149,11 +154,16 @@ type SessionHeartbeat struct {
 	State       string
 	LastMessage string
 	Title       string
+	// IdleSec is the hook's system input idle reading. nil = this event carried
+	// none, so the stored value stays (a beat must never clear evidence the
+	// human is away, nor invent it).
+	IdleSec *int64
 }
 
 // TouchAgentSession applies a hook heartbeat: refreshes last_seen_at and
-// last_event, optionally moves state and stores the latest assistant message.
-// State `ended` also stamps ended_at. ok is false when the session is unknown.
+// last_event, optionally moves state, stores the latest assistant message and
+// records the hook's input-idle reading (IdleSec nil = leave it). State `ended`
+// also stamps ended_at. ok is false when the session is unknown.
 func (s *Store) TouchAgentSession(sid string, hb SessionHeartbeat) (AgentSession, bool, error) {
 	if hb.State != "" && !ValidSessionState(hb.State) {
 		return AgentSession{}, false, fmt.Errorf("jobstore: TouchAgentSession: invalid state %q", hb.State)
@@ -184,6 +194,10 @@ func (s *Store) TouchAgentSession(sid string, hb SessionHeartbeat) (AgentSession
 	if strings.TrimSpace(hb.Title) != "" {
 		sets = append(sets, "title=CASE WHEN COALESCE(title,'')='' THEN ? ELSE title END")
 		args = append(args, hb.Title)
+	}
+	if hb.IdleSec != nil {
+		sets = append(sets, "idle_sec=?")
+		args = append(args, *hb.IdleSec)
 	}
 	args = append(args, sid)
 	s.writeMu.Lock()
