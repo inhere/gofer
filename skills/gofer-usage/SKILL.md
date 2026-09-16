@@ -10,7 +10,7 @@ gofer = 一套「主机 server + 多台 worker」的任务执行网。你在 doc
 - **server = 策略权威**：哪个 project 派给哪台 worker、允许哪些 agent、能否 exec/pty。
 - **worker = 能力提供方**：这台机器有哪些目录（roots）/ 装了哪些 agent。
 
-> 本 skill 详讲最常用的 `gofer job`。**其余命令**（`workflow`/`plan`/`schedule`/`project`/`config`/`init`）见 [`references/commands.md`](references/commands.md)；**配置 gofer**（worker.yaml / config.yaml / 加 project / 建 worker / 迁 POLICY 分步）见 [`references/worker-config.md`](references/worker-config.md)、[`references/server-config.md`](references/server-config.md)、[`references/setup-recipes.md`](references/setup-recipes.md)。需要时再读。
+> 本 skill 详讲最常用的 `gofer job`。**其余命令**（`workflow`/`plan`/`schedule`/`session`/`tunnel`/`project`/`config`/`init`）见 [`references/commands.md`](references/commands.md)；**配置 gofer** 按节点角色看：纯客户端节点（容器里最常见）→ [`references/client-config.md`](references/client-config.md)；server → [`references/server-config.md`](references/server-config.md)；worker（含 LEGACY/POLICY 与 roots）→ [`references/worker-config.md`](references/worker-config.md)；加 project / 建 worker / 迁 POLICY 的分步 → [`references/setup-recipes.md`](references/setup-recipes.md)。需要时再读。
 >
 > 💡 执行**多步骤长任务**时，建议用 `gofer plan` + todo 做进度看板（每步 `--status doing/done --note`，web/手机实时可看）——范式见 [`references/commands.md`](references/commands.md) 的「长任务进度跟进」。**遇到需要人拍板的决策点**，用 MCP 工具 `gofer_ask_human` 阻塞提问、人在 web 作答后答案流回（超时按预案继续，不无限阻塞）——见同文「决策点问人」。
 
@@ -75,14 +75,21 @@ job 在哪台机器执行，路径就按那台机器的项目根解析：同一 
 | `gofer job watch <id>` | 实时跟随状态+日志直到结束（异步任务用） |
 | `gofer job list`（别名 `ls`） | 列 job（`-p` / `--tag` / `--agent` / `--runner` / `--since` 过滤） |
 | `gofer job cancel <id>` | 取消运行中的 job |
-| `gofer job rerun <id>` | 用原请求重提（新幂等 key） |
+| `gofer job rerun <id>` | 用原请求重提（新幂等 key，**新会话**，agent 重读全部上下文） |
+| `gofer job resume <id> --prompt "…"` | **续跑同一个 agent 会话**（codex `exec resume` / claude `--resume`）：job 中途失败/超时后让它带着自己的上下文继续，见 §5b |
+| `gofer job worktree ls [-p] / rm <id> [--force] [--delete-branch]` | 列出/清理 `--worktree` job 留下的 git worktree（见 §5c） |
+
+`--timeout <秒>` 有上限：`server.max_job_timeout_sec`（默认 3600）或项目 `max_timeout_sec`；超出会被 **clamp** 并在提交后打一行 `warning: --timeout … exceeds the project ceiling`，`job show` 显示生效的 `timeout:`。超 1 小时的任务：让管理员提高上限，或把任务拆成多个 job。
+
+job 状态里的 **`recovering`** 不是失败：执行它的 worker 断线了，server 在 `job_recover_window_sec`（默认 120s）内等同一个 worker 进程重连；重连上 → 回到 `running`，日志不丢不重；窗口到期才 `failed`（error `worker lost …`）。看到 recovering 先别重派。
 
 ## 4. agent 与 runner
 
 **agent**（`-a`，取决于该 project 在 server 配的 allowed_agents，常见 `exec`/`codex`/`claude`）：
 
 - `exec`：直接跑命令，命令放 `--` 之后：`-a exec -- <cmd> <args...>`。
-- `codex` / `claude`：跑 AI agent，提示词用 `--prompt "..."` 或任务文件 `-f task.md`（YAML frontmatter + 正文）。
+- `codex` / `claude` / `omp`：跑 AI agent，提示词用 `--prompt "..."` 或任务文件 `-f task.md`（YAML frontmatter + 正文）。
+- **一个 agent 两种启动方式**：agent 定义的 `args` 是批处理 argv（`job run`），`interactive_args` 是 pty argv（`job run --interactive`，`[]` = 裸 TUI）。提交时若被拒：`agent "x" has no batch mode` = 该定义只写了 `interactive: true`（旧的 tty-* 写法），只能 `--interactive` 提交；`has no interactive mode` = 没写 `interactive_args`；`project "p" does not allow interactive jobs` = 项目没开 `allow_interactive`。`gofer agent list` 的 `batch/interactive` 两列就是能力位。
 
 **runner**（`--runner`，默认 `server`；`local` 为兼容别名）：
 
@@ -109,6 +116,26 @@ job 在哪台机器执行，路径就按那台机器的项目根解析：同一 
 - **同步** `--sync`：server 阻塞到终态返回（默认上限 ~30s，可 `--wait-timeout <秒>`）。短任务、要立刻拿结果用它。
 - **异步**（不加 `--sync`）：立即返回 job id，再 `gofer job watch <id>` 跟随 / `gofer job show <id>` 轮询。长任务（构建、联调、FFmpeg 等）用它，配 `--timeout <秒>` 限执行时长。
 
+### 5b. job 中断了怎么续（`job resume`）
+
+codex/claude 因供应商容量错误、网络抖动或超时把 job 干掉一半时，**不要重派整份任务书**（新会话 = 重读上下文），用 resume 让它带着自己的会话继续：
+
+```bash
+gofer job show <源 job-id> | grep session_id     # 有 session_id 才能续
+gofer job resume <源 job-id> --plan <plan-id> \
+  --prompt "上一次运行因 <原因> 中断。先 git status / git log --oneline -5 判断进度，只完成任务书剩余项，不要重做已提交部分；汇报格式同前。"
+```
+
+前提：源 job 已终态（done/failed/timeout/cancelled 都行）、捕获到了 `session_id`（codex 靠输出 `session id:` 捕获，claude 靠 `--session-id` 注入；omp 需在 agent 定义加 `session_capture`/`session_resume`）、agent 有 resume 模板（内置 claude/codex）、同一 runner。resume 产生一个**新 job id**，`--plan` 照常可挂。
+
+### 5c. 并行派活用 `--worktree`
+
+多个 agent job 在同一 checkout 里并行改代码会互相踩（`.git/index.lock` 残留、互相覆盖）。加 `--worktree` 让每个 job 在 `<仓库顶层>/tmp/gofer/wt/<job-id>` 的独立 git worktree 里跑，提交落在分支 `gofer/<job-id>`，主 checkout 不动；结束后分支保留供人合并，`gofer job worktree ls/rm` 清理。`--cwd` 仍相对项目根，会映射进 worktree 的同一子路径；嵌套仓库按 `--cwd` 所在的最近 git 顶层建。任务书里要提醒 agent：**不要 `git checkout` 别的分支、不要 push**。
+
+### 5d. 日志与隧道诊断
+
+server/worker/forwarder 都写 JSONL 文件日志（轮转、脱敏）：server `<config-dir>/run/serve.log`，worker `run/worker-<id>.log`，`tunnel forward` 默认 `run/tunnels/forward-<时间>-<pid>.log`（`--log-file`/`--log-dir` 可改，`--quiet` 只静默终端）。一次隧道在三端共用同一 `tunnel_id`（server 经 `X-Gofer-Tunnel-Id` 回传），`rg '"tunnel_id":"…"'` 三个文件即可重建全链路；`first_byte_ms`/`bytes_up|down`/`packets_up|down`/`close_reason` 能判断"慢在 relay、设备还是往返次数"（`duration_ms / packets_up` ≈ ping RTT = 协议逐包 stop-and-wait）；`GOFER_TUNNEL_TRACE=1` 逐报文记 `tunnel.datagram`。详见仓库 `docs/runbook/tcp-tunnel.md`。
+
 ## 6. worker 配置模式：LEGACY vs POLICY（P3 起）
 
 一台 worker 有两种模式，决定它能跑哪些 project——排障（§7）前先分清它是哪种：
@@ -131,6 +158,12 @@ job 在哪台机器执行，路径就按那台机器的项目根解析：同一 
 | agent 报 `unknown agent` | 该 agent 未在这台 worker 装 / 定义（如容器没装 codex）；换已装的 agent，或到该 worker 装上。 |
 | 连不上 / 401 | 主机 `gofer server` 未起，或 `$GOFER_CONFIG_DIR/.env` 的 `GOFER_SERVER_ADDR/TOKEN` 与 server 不一致。 |
 | 有 job 但看不到输出 | `--sync` 只回状态；输出用 `gofer job logs <id>`。 |
+| `agent "codex" is interactive-only` / `has no batch mode` | 主机 agent 定义里误加了 `interactive: true`（旧语义=仅 pty）。批处理 + pty 两用应写 `args` + `interactive_args`，删掉 `interactive: true`，重启 serve。 |
+| `project "x" does not allow interactive jobs (allow_interactive)` | 项目未开 `allow_interactive: true`（server config.yaml 或 web 项目表单复选框）。 |
+| 提交后 stderr 出现 `warning: --timeout … exceeds the project ceiling` | 超时被 clamp 到上限（默认 3600s）。要么拆 job，要么让管理员改 `server.max_job_timeout_sec` / 项目 `max_timeout_sec`。 |
+| job 状态 `recovering` | worker 断线，server 在恢复窗口内等它重连；**不要重派**，等它回到 running 或 failed(worker lost) 再处理。 |
+| job 中途失败（供应商 `at capacity` 等） | `gofer job resume <id> --prompt "…"` 续跑同一会话（§5b），不要重派整份任务书。 |
+| `gofer project list` 报 `worker.yaml: no such file` | 这是纯客户端节点却设了 `GOFER_RUN_MODE=worker`。改为 `GOFER_RUN_MODE=client`（见 `references/client-config.md`）。 |
 | agent 改出的文件里混进制表符 / 空字符 / 回车，Markdown 行内代码或注释被吃掉 | Windows 主机上 agent 用 PowerShell 双引号字符串写文件，反引号被当成转义符（见 §4）。任务书要求改文件用 apply_patch，并在提交前用 `git grep -nP "[\x00-\x08\x0b\x0c\x0e-\x1f]"` 自查。 |
 
 ## 8. 离开电脑：把终端会话交给 web 接着聊（session relay）

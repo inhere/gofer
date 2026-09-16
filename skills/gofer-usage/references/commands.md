@@ -1,6 +1,6 @@
 # gofer 命令参考（`job` 之外）
 
-> 主 `SKILL.md` 详讲最常用的 `gofer job`。本文补齐其余命令，**按需查阅**——AI 要用 workflow / plan / schedule 等时读这里。
+> 主 `SKILL.md` 详讲最常用的 `gofer job`。本文补齐其余命令，**按需查阅**——AI 要用 workflow / plan / schedule / tunnel / session 等时读这里。
 > 每个命令的**完整 flag** 用 `gofer <cmd> --help`（本文只给"是什么 + 常用法 + 何时用"）。
 > 命令通过主机 server 执行；连接、project key、agent/runner 的通用规则见 `SKILL.md`。
 
@@ -76,6 +76,31 @@ gofer plan answer <decision-id> --answer "方案A"
 - **超时兜底在 agent 侧**：收到 `{state:"expired"}` 后按预案继续（执行推荐项），或把该步 todo 置 `skipped` + note 说明后跳过——**不无限阻塞、不原地重问**。
 - `timeout_sec` 缺省 1800s（clamp `[2s, 24h]`）。按**宿主客户端的 tool 调用超时上限**设定：宿主若先杀调用，decision 留 OPEN、到期自动 EXPIRED，通道本身无错。
 - **决策点串行提问是范式建议**（宿主客户端可能串行执行 tool call），**不是** MCP 连接限制——go-sdk 服务端并发执行 tool call，ask 阻塞不排队其他调用。
+
+## job 的两个"续"：`resume` 与 `worktree`
+
+```bash
+gofer job resume <源id> --prompt "…" [--runner <同源>]   # 续跑源 job 的 agent 会话(新 job id); 源 job 须终态且有 session_id
+gofer job worktree ls [-p <project>]                     # 列 --worktree job 留下的 worktree: 分支/领先提交/是否脏/是否已合并
+gofer job worktree rm <job-id> [--force] [--delete-branch]   # 移除 worktree(脏且无 --force 拒绝); 分支默认保留
+gofer job run … --worktree [--worktree-base <ref>]       # 在 <顶层>/tmp/gofer/wt/<job-id> 的 worktree 里跑, 分支 gofer/<job-id>
+```
+
+- `resume` vs `rerun`：`rerun` 是同一请求重提（新会话）；`resume` 是让 codex/claude 用 `exec resume <sid>` / `--resume <sid>` 接着上次会话跑，prompt 只说"从哪继续"。
+- 断线恢复：worker 断线时 job 进 `recovering`（`job list --status recovering`），窗口内同进程重连即恢复；serve 重启也一样。**recovering 不要重派。**
+
+## tunnel（别名 `tun`）— 经 worker 的 TCP/UDP 端口转发
+
+```bash
+gofer tunnel forward -w <worker> [udp/][bind:]lport:host:port …   # 本机端口 → worker 所在网络的目标; 可多条
+gofer tunnel forward --name <preset>                              # 用 tunnel save 存的预设
+gofer tunnel save <name> -w <worker> <spec…> [--note …] / saved / forget <name>
+gofer tunnel check -w <worker> [udp/]host:port                    # 只验 worker 能否建到目标的 socket(UDP 不代表设备会应答)
+gofer tunnel ls                                                   # 活动隧道(id/caller/worker/target/bytes)
+```
+
+- forward 的日志：默认 `<config-dir>/run/tunnels/forward-<时间>-<pid>.log`（`--log-file`/`--log-dir` 改；`--quiet` 只静默终端）；事件带 `tunnel_id`（与 server/worker 日志同一个）、`session_id`（UDP=本地来源地址）、`dial_ms`、`first_byte_ms`、`bytes_up/down`、`packets_up/down`（UDP）、`close_reason`。`GOFER_TUNNEL_TRACE=1` 逐报文记 `tunnel.datagram`（`dir/len/gap_ms`）。
+- 目标必须在 worker 的 `tunnels.allow` 白名单内；判读"慢在哪"见仓库 `docs/runbook/tcp-tunnel.md`。
 
 ## session（别名 `sess`）— 终端会话中继（web ↔ 终端）
 

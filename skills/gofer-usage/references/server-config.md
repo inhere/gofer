@@ -22,10 +22,14 @@ projects:
     container_path: /work/projects/my-project1 # 容器执行视角(server path_view=container 时用)
     default_agent: codex
     allowed_agents: [codex, claude, exec]      # 准入白名单(空=放行全部)
-    interactive_allowed_agents: [tty-claude]   # pty 交互白名单(空=全禁)
     allowed_runners: [local, builder]          # ★ 见下 —— 决定派给谁
     allow_exec: true
+    allow_interactive: true                    # pty/交互 job 的项目级开关(默认 false); 项目侧唯一的交互闸
+                                               # (旧字段 interactive_allowed_agents 已移除: 旧 yaml 里非空列表
+                                               #  且未写本开关 → 加载期当作 true 并 warn, 请改写)
     max_concurrent_jobs: 4                      # 该 project 并发上限(0/不写=无限)
+    # max_timeout_sec: 7200                     # 该项目 job 超时上限(秒), 覆盖 server.max_job_timeout_sec(可高可低)
+    # worktree_default: true                    # 该项目 job 默认在受管 git worktree 里跑(= 每个 job 都 --worktree)
     # capture_diff: false                       # 关 git-diff 抓取(不写=cwd 是 git 树时默认开)
   # 瘦写法: 只写 host_path/container_path + allowed_agents, 其余走默认
   my-tools:
@@ -95,11 +99,14 @@ agents:
   codex:
     type: cli-agent
     command: codex
-    args: [exec, "{{prompt}}"]          # 模板: {{prompt}} {{cwd}} {{job_id}} {{result_dir}}
+    args: [exec, "{{prompt}}"]          # 批处理 argv(job run); 模板: {{prompt}} {{cwd}} {{job_id}} {{result_dir}}
+    interactive_args: []                # pty argv(job run --interactive); [] = 裸 TUI; 有此字段 = 支持交互
     detect: { command: codex, args: [--version] }   # 探测本机是否装了
   exec:
     type: exec                          # 内置; 跑请求给的 argv, 不用模板
 ```
+
+🔴 **一个 key 两种模式**：`args` = 批处理，`interactive_args` = pty；两者都写就是双模（内置模板的 claude/codex 已默认双模，但**自定义同名 agent 是整体覆盖**，要自己写 `interactive_args`）。旧写法 `interactive: true` = "仅交互、args 即 pty argv"（tty-claude 之类），这种 agent 普通 `job run` 会被拒 `has no batch mode`；`interactive: true` 配 `{{prompt}}` 是配置错误，serve **启动即拒**。四种组合与校验规则见 `config/gofer.example.yaml` 的 agents 注释。
 
 ## 6. server / storage（常用项）
 
@@ -112,6 +119,14 @@ server:
   # path_view: host|container          # 执行视角(默认 host=用 host_path); 不自检容器
   # callers: [...]                     # 多调用方鉴权 + per-caller 配额/限流
   # governance: {...}                  # 限流全局兜底
+  # max_job_timeout_sec: 3600          # job --timeout 上限(默认 1h); 超出被 clamp 且 CLI/API 明示; 项目 max_timeout_sec 可覆盖
+  # job_recover_window_sec: 120        # worker 断线后 in-flight job 停在 recovering 等重连的窗口; 0 = 关(断线即 failed)
+  # session_auto_relay_idle_sec: 300   # 终端会话中继的空闲自动布防阈值; 0 = 关
+log:                                   # 结构化 JSONL 文件日志(server 默认 <config-dir>/run/serve.log; worker 为 run/worker-<id>.log)
+  # file: /var/log/gofer/serve.log     # 显式路径(打不开则启动失败); 不写=默认路径(打不开只 warn 并降级为 stderr)
+  max_size_mb: 50                      # 单文件上限; 超过轮转
+  max_age_days: 14                     # 轮转文件保留天数
+  max_backups: 10                      # 轮转文件保留份数
 storage:
   default_exchange_subdir: tmp
   default_result_subdir: gofer

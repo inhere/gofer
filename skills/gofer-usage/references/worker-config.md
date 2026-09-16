@@ -137,6 +137,10 @@ projects:
     default_agent: exec
 ```
 
+## 7b. log（可选）
+
+worker 与 server 同一套文件日志：默认 `<config-dir>/run/worker-<worker_id>.log`（JSONL，按 `max_size_mb`/`max_age_days`/`max_backups` 轮转，token 等敏感键脱敏）；`log.file`/`log.dir` 显式指定则打不开即启动失败，默认路径打不开只 warn。Windows 上 worker 是前台/服务进程，这个文件就是唯一的持久日志；unix `-d` 后台模式另有 `run/worker-<id>.out.log` 旁路承接 panic 等非 slog 输出。排障时按 `event` 字段筛：`worker.registered` / `worker.reconnecting` / `worker.policy_applied` / `worker.job_started|finished|rejected` / `worker.job_recovering|resumed` / `tunnel.*`。
+
 ## 8. storage（可选）
 
 ```yaml

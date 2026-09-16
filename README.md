@@ -1,94 +1,106 @@
 # gofer
 
-把可配置的 **CLI Agent**（`codex` / `claude` / `opencode` / 任意命令）与已登记的**项目**，桥接为一个统一的**异步 job 控制面**：一端提交 `{项目, agent, prompt/命令, cwd}`，gofer 在该项目的真实工作目录里执行（本机 / 远端 worker / peer 容器），把状态、日志、退出码、结果统一回传，并可经 **CLI / HTTP / MCP / Web 控制台** 四种入口提交与观测。
+English · [中文](README.zh-CN.md)
 
-> gofer = "跑腿取送的人"：派任务给 agent → 在目标项目目录执行 → 回传日志/结果。自带 `gofer`↔`gopher` 的 Go 双关。
+gofer bridges configurable **CLI agents** (`codex` / `claude` / `omp` / `opencode` / any command) and registered **projects** into one **asynchronous job control plane**: submit `{project, agent, prompt or command, cwd}`, and gofer runs it inside that project's real working directory (locally, on a remote worker, or on a peer), streams status, logs, exit code and results back, and lets you submit and observe through **CLI / HTTP / MCP / Web console**.
 
-## 能力总览
+> A gofer is "the one who runs errands": hand a task to an agent → run it in the target project → bring back logs and results. The `gofer`↔`gopher` pun is intentional.
 
-- **多入口控制面**：CLI（`gofer job ...`）/ HTTP（`/v1/jobs`）/ MCP（stdio tools）/ Web 控制台（含提交表单），同一套 `job.Service`。
-- **多 agent**：`type: cli-agent`（模板渲染 `--prompt`，如 codex/claude/opencode）与内置 `type: exec`（原样跑 argv）。未安装的 agent 仅标 `unavailable`，不影响启动。
-- **多项目**：每个项目登记 `host_path`/`container_path` + 允许的 agent/runner + `allow_exec` + `allow_interactive`（默认关）+ 并发上限。
-- **三种执行位置（runner）**：`local`（本进程）/ `peer-http`（转发到另一台 gofer）/ `worker`（WS 远端执行机）；远端的日志/交互经"镜像"机制透明回传，读路径不变。
-- **WS 远端 worker + 标签调度**：worker 经 WebSocket 连入 hub，按 `worker_labels` 自动选机（或显式 `worker_id`）；实际执行机记入结果可审计。
-- **TCP 隧道**：`gofer tunnel` 提供受 worker 白名单约束的 TCP check/forward/list，用法见 [`docs/runbook/tcp-tunnel.md`](docs/runbook/tcp-tunnel.md)。
-- **同步 / 异步提交**：默认异步（立即返 `id`）；`sync` 让服务端等到终态再返回（封顶 30s/60s，超时退回异步）。
-- **多种提交格式**：JSON、`-- argv`（exec）、**md+yaml**（frontmatter 定参数 + 正文即 prompt）。
-- **运行中交互**：agent 可在执行途中提问 → job 置 `pending_interaction` → 用户作答 → 续跑。
-- **可观测 / 可审计**：`/v1/runners` 健康名册、`/v1/jobs` 状态/日志/SSE 实时流、`caller_id`（谁提交）/`worker_id`（在哪执行）入库，retention 周期清理。
-- **存储**：job 元数据/索引/交互入 SQLite（纯 Go modernc），日志为结果目录文件；内存只留在飞 job。
+## Contents
 
-## 架构总览
+- [Features](#features) · [Architecture](#architecture) · [Install / build](#install--build) · [Quick start](#quick-start)
+- [Core concepts](#core-concepts) · [Submitting jobs](#submitting-jobs) · [Parallel jobs: --worktree](#parallel-jobs---worktree) · [Continuing a job: resume](#continuing-an-interrupted-job-job-resume)
+- [Remote execution and workers](#remote-execution-and-workers) · [Reconnect recovery](#reconnect-recovery-recovering) · [Tunnels](#tunnels)
+- [Human in the loop](#human-in-the-loop-interactions-plans-session-relay) · [Logging and observability](#logging-and-observability)
+- [Configuration](#configuration) · [CLI](#cli-reference) · [MCP](#mcp) · [Web console](#web-console) · [HTTP API](#http-api)
+- [Deployment](#deployment) · [Security](#security-notes) · [History](#history)
+
+## Features
+
+- **One control plane, four entry points**: CLI (`gofer job …`), HTTP (`/v1/*`), MCP (stdio, 22 `gofer_*` tools) and a Web console (board, job detail, live logs, runners, plans, sessions, new-job form) — all on the same `job.Service`.
+- **Many agents, one key for two modes**: `type: cli-agent` renders an argv template (`args` for batch runs, `interactive_args` for pty sessions); `type: exec` runs argv verbatim. Agents that are not installed are merely marked `unavailable`.
+- **Per-project governance**: `host_path` / `container_path`, allowed agents and runners, `allow_exec`, `allow_interactive`, concurrency cap, timeout ceiling, default worktree.
+- **Three execution places (runners)**: `local` (in-process), `peer-http` (forward to another gofer), `worker` (remote executor over WebSocket, label-based scheduling). Remote logs, status and interactions are mirrored back transparently.
+- **Reconnect recovery**: when a worker link blips or the server restarts, in-flight jobs enter `recovering`; the same worker process reconnecting within the window resumes log streaming and delivers the result — jobs no longer fail on the first hiccup.
+- **Managed worktrees**: `--worktree` runs each job in its own git worktree so parallel agents never step on each other.
+- **Resume**: `job resume` lets codex/claude continue from where an interrupted job stopped, with its own session context.
+- **Tunnels**: `gofer tunnel` forwards TCP/UDP ports through a worker under an allowlist (e.g. container → shop-floor PLC/HMI); all three ends log the same `tunnel_id` with per-stage latencies.
+- **Human in the loop**: mid-run questions (`pending_interaction`), `plan` + todo progress boards, blocking `ask_human` decisions, and a terminal session relay that arms itself when you walk away and injects your web/phone reply into the very same session.
+- **Scheduling and orchestration**: `schedule` for cron jobs, `workflow` for dependent multi-step chains (fan-out / join / retries).
+- **Observable and auditable**: JSONL file logs (rotation, redaction), `/v1/runners` health roster, SSE live streams, `caller_id` / `worker_id` persisted, retention pruning; SQLite (pure Go) for metadata.
+- **Windows friendly**: nssm service script (`scripts/start.ps1`, including one-shot `upgrade`), ConPTY-backed interactive sessions.
+
+## Architecture
 
 ```txt
-  提交/观测入口                    控制面 (serve)                 执行位置 (runner)        agent
-┌───────────────┐           ┌────────────────────────┐      ┌─ local  (本进程) ─┐
-│ CLI  gofer job │──HTTP────▶│  /v1/jobs  job.Service  │─────▶│ peer-http (另一台 gofer) │──▶ cli-agent
-│ HTTP /v1/*     │           │  registry: project/agent │      │ worker (WS 远端执行机) │     (codex/claude/…)
-│ MCP  stdio     │           │  runners  + ws hub       │      └────────┬───────────┘      或 exec(argv)
-│ Web  控制台     │           │  jobstore(SQLite)+logs   │◀────镜像日志/状态/交互────┘
+  entry points                     control plane (serve)            execution (runner)         agent
+┌───────────────┐           ┌────────────────────────┐      ┌─ local  (in-process) ─┐
+│ CLI  gofer job │──HTTP────▶│  /v1/*   job.Service    │─────▶│ peer-http (another gofer) │──▶ cli-agent
+│ HTTP /v1/*     │           │  registry: project/agent │      │ worker (remote over WS) │     (codex/claude/…)
+│ MCP  stdio     │           │  runners + ws hub        │      └────────┬───────────┘      or exec(argv)
+│ Web  console   │           │  jobstore(SQLite)+logs   │◀──── mirrored logs/status/interactions ─┘
 └───────────────┘           └────────────────────────┘
-   Authorization: Bearer <token>（/health 除外）         结果: <host_path>/tmp/gofer/<job_id>/ + DB
+   Authorization: Bearer <token> (except /health)        results: <host_path>/tmp/gofer/<job_id>/ + DB
 ```
 
-## 安装 / 构建
+## Install / build
 
-需要 Go 1.25+（含 Web 控制台时另需 Node + pnpm）。
+Go 1.25+ (plus Node + pnpm if you want the Web console).
 
 ```bash
-make build            # 当前平台 → dist/gofer（默认 upx 压缩；无 upx 用下面的 go build）
+make build            # current platform → dist/gofer (upx-compressed by default; without upx use go build below)
 go build -o dist/gofer ./cmd/gofer
-
-make web build        # 构建前端并嵌入二进制（= make web 拷 dist 入 internal/webui/dist + make build）
-make build-all        # 跨平台交叉编译（linux/darwin/windows × amd64/arm64）
+make web build        # build the console and embed it into the binary
+make build-all        # linux/darwin/windows × amd64/arm64
 ```
 
-## 快速开始
+## Quick start
 
 ```bash
-# 1. 登记项目（host-path 必须是已存在的绝对目录）
+# 1. Register a project (host-path must be an existing absolute directory)
 gofer project add workspace \
   --host-path /work/projects/workspace --container-path /workspace \
   --default-agent codex --allow-agent codex --allow-agent claude --allow-agent exec \
   --allow-runner local --allow-exec
 
-# 2. 起服务（token 走 env）
+# 2. Start the server (token from env)
 export GOFER_TOKEN=dev-token
 gofer serve --addr 0.0.0.0:8765
 
-# 3. 跑一个 exec job（-- 之后为命令 argv）；--sync 让服务端等到终态再返回
+# 3. An exec job (argv after --); --sync makes the server wait for the terminal state
 gofer job run -p workspace -a exec --sync -- go version
 # → status=done exit_code=0
 
-# 4. 跑一个 cli-agent job；查日志
-gofer job run -p workspace -a codex --prompt "总结本目录的测试失败用例" --wait
+# 4. A cli-agent job; read its logs
+gofer job run -p workspace -a codex --prompt "Summarise the failing tests in this directory" --wait
 gofer job logs <id> --stream stdout
 
-# 隧道转发可用 --log-file/--log-dir 指定 JSONL 文件；--quiet 只静默终端输出，
-# 不影响文件与 stderr 日志。
-gofer tunnel forward --log-dir ~/.config/gofer/run/tunnels -w w-plc 1502:192.168.1.10:502
-
-# 5. 浏览器打开 http://<addr>/ ，粘贴 token 接入，看板/详情/实时日志/新建 job
+# 5. Open http://<addr>/ in a browser and paste the token
 ```
 
-## 核心概念
-
-- **project**：一个可执行任务的真实目录。`host_path`（主机路径）/`container_path`（容器路径）/`allowed_agents`/`allowed_runners`/`allow_exec`/`allow_interactive`（默认关，pty/交互 job 的项目级总开关，与 `allow_exec`、worker 的 `guards.allow_interactive` 同一套词汇，且是项目侧**唯一**的交互闸——曾有 `interactive_allowed_agents` 这份按 agent 收窄的名单，已移除；想只放行一部分 agent，定义一个不带 `interactive_args` 的 agent 变体即可。旧 yaml 里非空的历史列表若未写本开关，加载期会当作 `allow_interactive: true` 并 warn）/`max_concurrent_jobs`。
-- **agent**：怎么执行。`cli-agent` 用 `command`+`args` 模板渲染（占位符 `{{prompt}}`/`{{cwd}}`/`{{job_id}}`/`{{result_dir}}`，逐元素替换、不过 shell）；再加 `interactive_args` 即**一个 key 同时支持批处理与 pty**（`args`=批处理 argv，`interactive_args`=交互 argv，`[]`=裸 TUI 启动；不得含 `{{prompt}}`，`type: exec` 不能设）；`exec` 原样跑请求里的 `cmd` argv（需项目 `allow_exec`）。
-- **runner**：在哪执行。`local`（内置，本进程子进程）/ `peer-http`（转发到另一台 gofer）/ `worker`（WS 连入的远端执行机）。
-- **job 生命周期**：`queued → running → done|failed|cancelled|timeout`；运行中提问时 `running → pending_interaction → running`。
-
-## 提交 job 的几种方式
-
-同一个 `JobRequest`，四种入口、两种时序：
+A pure client (for example inside a container that only submits work) needs no yaml at all:
 
 ```bash
-# CLI —— cli-agent 用 --prompt；exec 用 -- argv
-gofer job run -p workspace -a codex --prompt "审查改动并给风险点"
-gofer job run -p workspace -a exec  --sync -- mvn -q test     # --sync：服务端等终态
+gofer init client      # writes <config-dir>/.env: GOFER_SERVER_ADDR / GOFER_SERVER_TOKEN / GOFER_RUN_MODE=client
+gofer job list         # fill in the address and token and you are done
+```
 
-# md+yaml 文件 —— frontmatter 定参数，正文即 prompt（仅 cli-agent）
-gofer job run -f task.md
+## Core concepts
+
+- **project**: a real directory work can run in. Fields: `host_path` / `container_path` / `default_agent` / `allowed_agents` / `allowed_runners` / `allow_exec` / `allow_interactive` (the project-level switch for pty/interactive jobs, off by default, and the **only** interactive gate on the project side) / `max_concurrent_jobs` / `max_timeout_sec` / `worktree_default`.
+- **agent**: how to run. A `cli-agent` renders `command` + `args` (placeholders `{{prompt}}` `{{cwd}}` `{{job_id}}` `{{result_dir}}`, substituted per argv element, never through a shell); add `interactive_args` and **the same key serves both batch and pty runs** (`[]` = bare TUI launch; must not contain `{{prompt}}`). `exec` runs the request's `cmd` argv verbatim (needs the project's `allow_exec`).
+- **runner**: where to run. `local` (child process of this server) / `peer-http` (forward to another gofer) / `worker` (remote executor connected over WebSocket).
+- **job lifecycle**: `queued → running → done | failed | cancelled | timeout`; a mid-run question is `running → pending_interaction → running`; a worker link loss is `running → recovering → running | failed`.
+
+## Submitting jobs
+
+One `JobRequest`, four entry points, two timings:
+
+```bash
+# CLI — --prompt for cli-agents, -- argv for exec
+gofer job run -p workspace -a codex --prompt "Review the changes and list the risks"
+gofer job run -p workspace -a exec  --sync -- mvn -q test     # --sync: server waits for the terminal state
+gofer job run -f task.md                                      # md+yaml: frontmatter = parameters, body = prompt
 ```
 
 ```markdown
@@ -97,284 +109,262 @@ gofer job run -f task.md
 project_key: workspace
 agent: codex
 runner: worker
-worker_labels: [gpu]      # 或 worker_id: w-01
-sync: false
+worker_labels: [gpu]      # or worker_id: w-01
+worktree: true
 ---
-在 scripts/ 下生成批处理脚本，读取 config.yaml 的任务列表……（正文即 prompt）
+Generate batch scripts under scripts/ that read the task list from config.yaml … (the body is the prompt)
 ```
 
-- **HTTP**：`POST /v1/jobs`（JSON）。加 `"sync": true` 或 `?wait=1` 走同步（命中终态 `200`+完整结果；超服务端上限 `202`+`X-Gofer-Async:1`+id）。md 提交用 `Content-Type: text/markdown`。
-- **Web 控制台**：顶栏「+ 新建 job」表单，选 项目/agent/runner（worker 可显式选 id 或填 labels）、勾 sync，提交后跳详情。
+- **HTTP**: `POST /v1/jobs` (JSON or `text/markdown`). `"sync": true` or `?wait=1` waits (terminal state → `200` with the full result; past the server cap → `202` + `X-Gofer-Async: 1` + id).
+- **MCP**: `gofer_run_job` and friends (see [MCP](#mcp)).
+- **Web**: the "+ New job" form.
+- **Sync vs async**: async by default (returns the `id` immediately; follow with `job watch <id>`); `--sync` waits server-side (30s cap by default, `--wait-timeout` adjusts it, then falls back to async).
+- **Timeout ceiling**: a `--timeout` above `server.max_job_timeout_sec` (default 3600) or the project's `max_timeout_sec` is **clamped, never silently**: the CLI prints `warning: --timeout <requested>s exceeds the project ceiling (<max>s)…` and the response carries `requested_timeout_sec` / `timeout_clamped`.
 
-### 并行 job：`--worktree`（受管 git worktree）
+### Parallel jobs: `--worktree`
 
-多个 job 在同一个 checkout 里并行改代码会互相踩（`.git/index.lock` 残留、互相覆盖改动）。`--worktree` 让 job 在**自己的 worktree** 里跑：
+Several jobs editing the same checkout collide (stale `.git/index.lock`, overwritten changes). `--worktree` gives each job **its own git worktree**:
 
 ```bash
-# 在 <仓库顶层>/tmp/gofer/wt/<job-id> 里执行，提交落在分支 gofer/<job-id> 上
-gofer job run -p workspace -a codex --prompt "修 3 个 issue，逐个 commit"
-gofer job run -p workspace -a codex --worktree --worktree-base v1.2.0 --prompt "..."
+gofer job run -p workspace -a codex --worktree [--worktree-base v1.2.0] --prompt "Fix the 3 issues, one commit each"
+gofer job worktree ls [-p workspace]                        # branch / commits ahead / dirty / merged
+gofer job worktree rm <job-id> [--force] [--delete-branch]  # refuses a dirty tree without --force; keeps the branch by default
 ```
 
-- 参数：`--worktree`（在受管 worktree 里执行）、`--worktree-base <ref>`（基线，默认当前 HEAD）；md 任务文件 frontmatter 同名键（`worktree: true`）；项目级 `worktree_default: true` 让该项目所有 job 默认开启。
-- 执行位置：worktree 建在**执行机**上（`runner=worker` 时由 worker 建），cwd 按相同相对子路径映射进去（`--cwd sub` → `<worktree>/sub`）；环境变量 `GOFER_WORKTREE` / `GOFER_WORKTREE_BRANCH` / `GOFER_WORKTREE_BASE` 指给 job。
-- 结束：**默认保留**（分支上的提交就是交付物）。结果里记 `worktree_path`/`worktree_branch`/`worktree_base_sha`/`worktree_head_sha`/`commits_ahead`；`changes.diff` 分两段：`=== committed (base..HEAD) ===`（已提交）+ `=== uncommitted ===`（未提交残留）。
-- 清理：`gofer job worktree ls [-p <project>]` 列出分支/领先提交数/是否脏/是否已合并到基线分支；`gofer job worktree rm <job-id> [--force] [--delete-branch]` 移除（有未提交改动且未加 `--force` 会被拒；分支默认保留）。HTTP 对应 `GET/DELETE /v1/jobs/{id}/worktree`。retention 清理 job 时，只有"无未提交改动且分支已合并"的 worktree 会被一并移除，其余保留并记日志（`job.worktree_retained`）。
-- cwd 不是 git checkout 时提交被拒（`worktree requires a git checkout`）。详见 `docs/runbook/parallel-jobs-with-worktree.md`。
+- Location `<repo top>/tmp/gofer/wt/<job-id>`, branch `gofer/<job-id>` (base defaults to the current HEAD); `--cwd sub` maps to `<worktree>/sub`; nested repositories use the nearest git top-level of the cwd; the worktree is created on the **executing machine**.
+- Environment `GOFER_WORKTREE` / `GOFER_WORKTREE_BRANCH` / `GOFER_WORKTREE_BASE`; the result records `worktree_path` / `worktree_branch` / `worktree_base_sha` / `worktree_head_sha` / `commits_ahead`; `changes.diff` has a `committed (base..HEAD)` and an `uncommitted` section.
+- **Kept by default** when the job ends (the commits on the branch are the deliverable); retention only removes worktrees that are clean *and* merged. `worktree_default: true` on a project turns it on for every job. See `docs/runbook/parallel-jobs-with-worktree.md`.
 
-## 远端执行（peer-http / ws-worker / 标签调度）
+### Continuing an interrupted job: `job resume`
 
-远端 job 的日志、状态、运行中交互都经"镜像"透明回传到本地 job，**看板/详情/日志读路径无需任何改动**。
+When a provider capacity error, a network blip or a timeout kills a job halfway, do not resubmit the whole task (a new session re-reads all the context):
+
+```bash
+gofer job resume <source job-id> --prompt "The previous run was interrupted by <reason>. Check git status/log to see how far you got, finish only the remaining items, do not redo committed work."
+```
+
+Requirements: the source job is terminal, it captured a `session_id` (visible in `job show`; codex via output capture, claude via `--session-id` injection), the agent has a resume template (built in for claude/codex; others via `session_capture` / `session_resume`), same runner. `rerun`, by contrast, resubmits the same request as a fresh session.
+
+## Remote execution and workers
+
+Logs, status and mid-run interactions of remote jobs are mirrored back to the local job; every read path stays the same.
 
 ```yaml
-# 方式 A：peer-http —— 转发给另一台 gofer（如容器内的 peer）
+# A: peer-http — forward to another gofer
 runners:
   docker-peer: { type: peer-http, base_url: http://127.0.0.1:8766, token_env: PEER_TOKEN }
 
-# 方式 B：ws-worker —— 远端执行机主动连入本 hub
+# B: ws-worker — a remote executor dials into this hub
 server:
-  workers:                         # 在册 worker（worker_id ↔ token 绑定 + 调度标签）
+  workers:                         # registered workers (worker_id ↔ token binding + scheduling labels)
     w-gpu: { token_env: WTOK_GPU, labels: [gpu, linux] }
-    w-cpu: { token_env: WTOK_CPU, labels: [cpu, linux] }
 runners:
-  worker: { type: worker }         # worker 类型 runner（动态按 worker_id 派发）
+  w-gpu:  { type: worker, worker_id: w-gpu }   # named worker runner (visible in the roster, explicitly routable)
+  worker: { type: worker }                     # generic worker runner (label-based dispatch)
 ```
 
-worker 侧用独立配置连入并本地执行（`gofer worker --worker-config worker.yaml`）：
+The worker side connects with its own config and executes locally:
+
+```bash
+gofer init worker -o worker.yaml             # template
+gofer -c worker.yaml config validate worker  # checks token / host_path / roots
+gofer worker --worker-config worker.yaml     # start
+```
 
 ```yaml
 worker_id: w-gpu
 server_link: { urls: [ws://hub:8765/v1/workers/connect], token_env: WTOK_GPU }
 labels: [gpu, linux]
-projects: { workspace: { host_path: /abs, container_path: /abs, allowed_agents: [exec], allow_exec: true } }   # 交互 job 还需该项目 allow_interactive: true
+roots:                                   # POLICY mode: projects are pushed by the server, only path prefixes are mapped here
+  - { from: D:/work, to: /srv/work }
+guards: { allow_exec: true, allow_interactive: true }   # local tightening only
 ```
 
-- **显式路由**：提交 `{"runner":"worker","worker_id":"w-gpu"}`。
-- **标签自动调度**：提交 `{"runner":"worker","worker_labels":["gpu"]}` → 在**已连接且标签全包含**的 worker 里按 `in_flight↑ → 心跳新鲜↑` 选一台；无合格候选返 `503`。
-- 实际落机的 `worker_id` 记入 `JobResult`，看板 runner 列与详情 meta 均可见。
-- worker 多 hub 地址 + 全抖动退避重连（hub 重启=短暂中断而非永久失联）。
+- **Routing**: explicit `{"runner":"w-gpu"}` / `--worker-id`, or `{"runner":"worker","worker_labels":["gpu"]}` picks among connected workers whose labels contain all requested ones, by `in_flight↑ → heartbeat freshness↑`; no candidate → `503`. The chosen `worker_id` is recorded on the result.
+- **Three places must agree**: the `server.workers.<id>` key, `runners.<name>.worker_id` and the worker's own `worker_id` are the same string; the worker's token equals `server.workers.<id>`'s.
+- **LEGACY vs POLICY**: a worker.yaml with `roots` is POLICY (the project set comes from the server; adding a project touches nothing on the worker); one with only `projects` is LEGACY. Self-check with `gofer config validate worker` / `gofer project list`.
+- Workers reconnect to multiple hub URLs with full-jitter backoff; `POST /v1/workers/{id}/reload` makes a worker re-read its config.
 
-**断线恢复（RECOV-01）**：worker 连接抖动（WSL/Docker/VPN 瞬断）时，它在飞的 job **不再立刻 `failed`**，而是进入非终态 **`recovering`**（黄色徽标，看板可筛选、`job list --status recovering` 可查、`job show` 与详情页显示 `recovering_since`），等**同一个 worker 进程**在 `server.job_recover_window_sec`（默认 120s，写 `0` = 关闭恢复即旧行为）内重连：仍持有该 job → 回到 `running`，日志按 server 已落盘偏移续传（不丢不重），断线期间跑完的结果在重连后补发；窗口超时或重连上来的是新进程（instance_id 变了）→ `failed`，error 为 `worker lost …`。**serve 重启同样适用**：新 serve 启动时把上一个进程遗留的非终态 worker job 重新计入该窗口（`recovering`），worker 在窗口内重连即被**收养**——job 行翻回 `running`，日志接着原文件写（偏移取已落盘大小，不丢不重），期间完成的结果照常收尾；窗口到期仍无人认领才 `failed`。通知只认 `job.terminal`，所以 recovering→running 不打扰，recovering→failed 才投递。
+### Reconnect recovery (`recovering`)
 
-### 配置一个 worker（init → 校验 → 启动）
+When a worker link blips (WSL / Docker / VPN), its in-flight jobs **no longer fail immediately**: they enter **`recovering`** (yellow badge on the board, `job list --status recovering`) and wait for **the same worker process** to reconnect within `server.job_recover_window_sec` (default 120; `0` disables recovery, i.e. the old behaviour):
+
+- On reconnect the worker reports its in-flight list and sent log offsets; the server answers with what it has persisted, so logs are **neither lost nor duplicated**; results produced while offline are delivered afterwards; a `job cancel` issued during the outage is delivered on reconnect.
+- Window expired, or a *new* process reconnecting (`instance_id` changed) → `failed` with `worker lost …`.
+- **A server restart is covered too**: the new server re-arms the window for the non-terminal worker jobs it inherited, and a reconnecting worker gets them **adopted** (back to `running`, logs appended to the same files).
+- Notifications only fire on terminal states: recovering→running is silent, recovering→failed is delivered.
+
+## Tunnels
+
+Forward local ports through a worker to targets on the worker's network (e.g. a container or office PC → a shop-floor PLC / HMI). Targets are restricted by the worker's `tunnels.allow` list; the server only relays:
 
 ```bash
-gofer init worker -o worker.yaml             # 生成 worker 配置模板（init 用 -o/--output 指定写出路径）
-# 编辑 worker.yaml（见下「三处对齐」）后自查，重点看 token 是否可解析 / host_path 是否存在：
-gofer -c worker.yaml config validate worker  # 全局 -c 须在子命令前（app 级 flag）
-gofer worker --worker-config worker.yaml     # 启动；worker.yaml 独立语义，专用 --worker-config
+gofer tunnel forward -w w-plc 1502:192.168.1.10:502 udp/21845:192.168.1.20:21845   # TCP + UDP
+gofer tunnel save hmi -w w-plc udp/21845:192.168.1.20:21845 && gofer tunnel forward --name hmi
+gofer tunnel check -w w-plc udp/192.168.1.20:21845   # proves the worker can open the socket, not that the device answers
+gofer tunnel ls
 ```
 
-**三处对齐**（同一个 worker_id，缺一则连不上或 Web 看不到）：
+Forwarder, server and worker log the same `tunnel_id`, with `dial_ms`, `first_byte_ms`, `bytes_up|down`, `packets_up|down` (UDP) and `close_reason`; `GOFER_TUNNEL_TRACE=1` logs every datagram. How to tell a slow relay from a slow device or a chatty protocol is in [`docs/runbook/tcp-tunnel.md`](docs/runbook/tcp-tunnel.md).
 
-| 位置 | 字段 | 必须等于 |
+## Human in the loop: interactions, plans, session relay
+
+- **Mid-run interactions**: an agent asks via `POST /v1/jobs/{id}/interactions` → the job becomes `pending_interaction` → a human answers via `POST …/answer` → the job continues. MCP: `gofer_get_interactions` / `gofer_answer_interaction`; web and IM notifications (DingTalk / Feishu webhooks under `server.notification`).
+- **Plan boards**: `gofer plan create/add-todo/set-todo`, jobs attached with `--plan <id>`; the web Plan page (phone-friendly) is the live progress view. **Decisions**: the MCP tool `gofer_ask_human` blocks until a human answers on the web (with a timeout fallback).
+- **Terminal session relay**: after `gofer init hooks`, a Claude Code / Codex session that stops can post its last message to the web "Sessions" page and wait; the reply is injected into **the same** session (`gofer session relay on|off`, `gofer session say`). **Idle auto-arm**: once you have been away from the keyboard for `server.session_auto_relay_idle_sec` (default 300, `0` disables), the session waits for a web reply even if you forgot the switch, and releases as soon as you touch the keyboard. Linux needs `xprintidle`.
+
+## Logging and observability
+
+- **File logs**: server `<config-dir>/run/serve.log`, worker `run/worker-<id>.log`, `tunnel forward` `run/tunnels/forward-<time>-<pid>.log` (`--log-file` / `--log-dir`; `--quiet` silences only the terminal). JSON Lines, rotated by `log.max_size_mb` / `max_age_days` / `max_backups`, with `token` / `authorization` / `password` / `secret` keys redacted. An explicit path that cannot be opened fails startup; a default path only warns. On unix the `-d` daemon mode keeps a `run/*.out.log` sidecar for panics and other non-slog output; on Windows (foreground or service) the file log is the only persistent log.
+- **Events**: each line carries `event` (`server.*` / `worker.*` / `tunnel.*` / `job.*`), `operation_id` (one process run), and `job_id` / `worker_id` / `tunnel_id` where relevant; `GOFER_LOG_LEVEL=debug|info|warn|error` applies to stderr and file alike.
+- **API**: `GET /v1/runners` health roster; `GET /v1/jobs` filters, `/v1/jobs/{id}/stream` SSE (logs + status + interactions), `/logs/{stdout,stderr}` (last 256KB), `/diff`, `/artifacts`, `/events`; `GET /v1/metrics`.
+- **Audit**: `caller_id` (who submitted, derived from the token and overwritten server-side) and `worker_id` / `worker_instance_id` (where it ran) are persisted with the job; `storage.retention` prunes old / excess terminal jobs.
+
+## Configuration
+
+### Lookup chain and run modes
+
+1. `--config <path>` → 2. `GOFER_CONFIG` → 3. `./.gofer.local.yaml` → `./.gofer.yaml` → 4. `<config-dir>/config.yaml` (default `~/.config/gofer`, override with `GOFER_CONFIG_DIR`).
+
+| `GOFER_RUN_MODE` | local config | purpose |
 |---|---|---|
-| 服务端 `server.workers` | 段的 KEY（鉴权/绑定） | worker 端 `worker_id` |
-| 服务端 `runners.<name>` | `worker_id`（名册/派发） | 同一个 worker_id —— **缺这段=连上了但 `/v1/runners`、Web 看不到** |
-| worker 端 `server_link` | `token` / `token_env` | `server.workers.<worker_id>` 的同一 token |
+| `server` (default) | the chain above | `gofer serve`; local jobs |
+| `worker` | `<config-dir>/worker.yaml` | connect to a hub and execute dispatched jobs |
+| `client` | **none** (only `<config-dir>/.env`) | pure client: `project list` / `agent list` read the server; `serve` / `worker` / `project add` etc. are refused with a clear message |
 
-> 要在 Web「Runners」看到某台 worker 为 `connected`，必须声明一个**带 `worker_id` 的具名 worker runner**（如 `w-gpu: {type: worker, worker_id: w-gpu}`）；不带 `worker_id` 的通用 `worker` runner 只用于标签动态派发，不对应具体一台。
+`.env` auto-loading: `<config-dir>/.env` (global) then `./.env` (current directory, overrides); exported OS env always wins; **never commit real tokens**.
 
-**派发要点**：
-- **提交端**项目 `allowed_runners` 要含那个 **worker-runner 的名字**（如 `w-gpu`，不是字面量 `worker`）才能派给它；**worker 端**项目 `allowed_runners` 含 `local`（worker 收到后用本地 local runner 真正执行）。
-- job 带的 `project` key 必须**两边配置都有**（worker 用自己的配置再解析一次同名项目，对不上会以「未知项目」拒掉）。
+### Key server sections
 
-**连接日志**：worker / serve 在关键点输出结构化日志（`worker registered with hub` / `hub accepted worker` / `registration rejected … reason=…`），出问题一眼定位。`GOFER_LOG_LEVEL=debug|info|warn|error` 调详细度（默认 `info`，写 stderr）。
-
-## 运行中交互
-
-1. 运行中的 agent 经 `POST /v1/jobs/{id}/interactions` 提问 → job 置 `pending_interaction`。
-2. 用户 `GET /v1/jobs/{id}/interactions` 看到待答项 → `POST .../answer`（`{"answer":"..."}`）。
-3. 无其它待答项时 job 自动回到 `running`，agent 读到答案续跑。MCP 侧对应 `bridge_get_interactions` / `bridge_answer_interaction`。
-
-终端里的 Claude Code / Codex 会话另有**会话中继**：`gofer init hooks` 装配后，会话停下时最后一条消息可发到 web「会话」页等回复并注入同一会话（`gofer session relay on`）；人离开电脑超过 `server.session_auto_relay_idle_sec`（默认 5 分钟，`0` = 关闭）时无需拨开关也会自动布防，人回到键盘即自动放行。
-
-## 观测与审计
-
-- **执行位置可见**：`GET /v1/runners` 列每个 runner 健康态（local 恒 up；peer-http 周期主动探针 up/down；worker 心跳态 connected/disconnected + 在飞数 + 标签 + 心跳年龄）。Web `/runners` 仪表盘消费它。
-- **job 状态/日志**：`GET /v1/jobs`（按 project/status/caller 过滤）、`/v1/jobs/{id}`、`/logs/{stdout,stderr}`（尾部 256KB）、`/stream`（SSE 实时日志+状态+交互）。
-- **审计字段**：`caller_id`（谁提交，由 token 解析、服务端覆盖防伪）+ `worker_id`（在哪执行）随 job 入库、随响应回显、可过滤。
-- **留存**：`storage.retention` 周期清理超期/超量的终态 job 及其日志目录。
-
-## 配置参考
-
-### 查找链（命中即用）
-
-1. `--config <path>` → 2. 环境变量 `GOFER_CONFIG` → 3. `./.gofer.local.yaml` → `./.gofer.yaml` → 4. `<config-dir>/config.yaml`（默认 `~/.config/gofer/config.yaml`，可用 `GOFER_CONFIG_DIR` 改）。
-
-### 运行模式（`GOFER_RUN_MODE`）
-
-节点角色决定读哪个本地配置（`config.Load` 的发现链只对 `server` 生效）：
-
-| 值 | 本地配置 | 用途 |
-|---|---|---|
-| `server`（默认） | `./.gofer[.local].yaml` → `<config-dir>/config.yaml` | `gofer serve`；本地 job 执行 |
-| `worker` | `<config-dir>/worker.yaml` | 连入 hub、执行派发来的 job |
-| `client` | **无**（只有 `<config-dir>/.env`） | 纯客户端节点：只当 CLI 用，不起 serve/worker |
-
-**纯客户端节点**（容器里最省事的用法）只需一个 `.env`：
-
-```bash
-gofer init client            # 生成 <config-dir>/.env: GOFER_SERVER_ADDR / GOFER_SERVER_TOKEN / GOFER_RUN_MODE=client
-# 填好 server 地址与 token 即可，无需 worker.yaml/config.yaml：
-gofer job list
-gofer project list           # client 模式默认即 server 的实时列表（等价 --remote）
-gofer agent list             # 默认列 server 的 agents（含 batch/interactive 能力位）；--local 看内置模板
-```
-
-- client 模式**不读** `./.gofer[.local].yaml` 与 `<config-dir>/config.yaml`，`config.Load` 直接返回空配置（本地没有配置文件是正常状态，不报错）；显式 `--config` / `GOFER_CONFIG` 仍按指定文件加载。
-- 需要本地配置的命令在 client 模式下明确拒绝：`project add/remove`、`serve`、`worker`、`config validate`、`config edit`、`mcp --standalone`；`config info` 打印 client 视图（server 地址 / token 是否已设 / config dir）。
-- `gofer mcp`（不带 `--standalone`，连 `--server`）照常可用。
-
-完整示例见 [`config/gofer.example.yaml`](config/gofer.example.yaml)。关键段：
+Full example: [`config/gofer.example.yaml`](config/gofer.example.yaml).
 
 ```yaml
 server:
-  addr: 0.0.0.0:8765          # 默认对容器可达；安全靠强制 token + 内网准入
-  token_env: GOFER_TOKEN      # bearer token 来源：token_env > 内联 token > --token
-  allow_empty_token: false    # 必须显式 true 才能无 token 启动
-  # callers:                  # 可选：多调用方身份（每个 token → caller_id，入 job 审计）
-  #   - { id: docker, token_env: DOCKER_CALLER_TOKEN }
-  # workers:                  # 可选：在册 worker（worker_id↔token 绑定 + 调度标签）
-  #   w-gpu: { token_env: WTOK_GPU, labels: [gpu, linux] }
-  # web_enabled: true         # 内置 Web 控制台开关（默认开；serve --no-web 关）
-
+  addr: 0.0.0.0:8765            # reachable from containers; security = mandatory token + network admission
+  token_env: GOFER_TOKEN        # token source: token_env > inline token > --token
+  allow_empty_token: false
+  # max_job_timeout_sec: 3600   # --timeout ceiling; a project's max_timeout_sec overrides it
+  # job_recover_window_sec: 120 # reconnect recovery window; 0 = off
+  # session_auto_relay_idle_sec: 300   # session relay idle auto-arm; 0 = off
+  # workers: { w-gpu: { token_env: WTOK_GPU, labels: [gpu] } }
+  # callers: [ { id: docker, token_env: DOCKER_CALLER_TOKEN } ]
+log:
+  max_size_mb: 50
+  max_age_days: 14
+  max_backups: 10
 storage:
   default_exchange_subdir: tmp
   default_result_subdir: gofer
-  # root: /var/lib/gofer       # 可选：集中 store（设后容器侧只能经 HTTP 回读）
-  # db_path: ""                # SQLite 元数据库；空则 <root>/gofer.db > <config-dir>/gofer.db
+  # root: /var/lib/gofer
   # retention: { max_age_days: 30, max_count: 5000, prune_interval_minutes: 60 }
-
 projects:
-  my-project1:
-    host_path: /work/projects/my-project1
-    container_path: /work/my-project1
+  my-project:
+    host_path: /work/projects/my-project
+    container_path: /work/my-project
     default_agent: codex
     allowed_agents: [codex, claude, exec]
-    allowed_runners: [local, worker]     # 含 worker 才能远端派发
+    allowed_runners: [local, w-gpu]
     allow_exec: true
-    allow_interactive: true              # pty/交互 job 的项目级开关（默认关；项目侧唯一的交互闸）
+    allow_interactive: true
     max_concurrent_jobs: 4
-
-agents:                                  # 占位符：{{prompt}} {{cwd}} {{job_id}} {{result_dir}}
-  # 加 interactive_args 即批处理 + pty 双模（一个 key 两种启动）；[] = 裸 TUI 启动，
-  # 不得含 {{prompt}}；type: exec 不能设。四种组合见 config/gofer.example.yaml。
-  codex:  { type: cli-agent, command: codex, args: [exec, "{{prompt}}"], interactive_args: [], detect: { command: codex, args: [--version] } }
+    # max_timeout_sec: 7200
+    # worktree_default: true
+agents:                            # placeholders: {{prompt}} {{cwd}} {{job_id}} {{result_dir}}
+  codex:  { type: cli-agent, command: codex,  args: [exec, "{{prompt}}"], interactive_args: [], detect: { command: codex,  args: [--version] } }
   claude: { type: cli-agent, command: claude, args: ["-p", "{{prompt}}"], interactive_args: [], detect: { command: claude, args: [--version] } }
-  exec:   { type: exec, detect: { command: sh, args: [-c, "true"] } }
-
+  exec:   { type: exec }
 runners:
   local: { type: local }
-  # docker-peer: { type: peer-http, base_url: http://127.0.0.1:8766, token_env: PEER_TOKEN }
-  # worker: { type: worker }             # WS 远端执行机（标签调度，见上）
 ```
 
-- **`.env` 自动加载**：启动最早期按序加载 `<config-dir>/.env`（全局）→ `./.env`（当前目录，覆盖全局）；已导出的 OS env 始终最高优先；文件不存在跳过。仅本地便利，**不要提交真实 token**（`.gitignore` 已忽略 `.env`，见 [`.env.example`](.env.example)）。
-- **结果目录**：默认 `<host_path>/tmp/gofer/<job_id>/`（设 `storage.root` 则 `<root>/<project_key>/<job_id>/`）。每 job 目录只留 `stdout.log`/`stderr.log`；状态/元数据/交互在 SQLite，经 HTTP 回读。
+- The four agent shapes: `args` only = batch only; `args` + `interactive_args` = dual mode; legacy `interactive: true` (args *are* the pty argv) = interactive only; `interactive: true` with `{{prompt}}` in `args` = **configuration error, rejected at load time**.
+- Result directory: `<host_path>/tmp/gofer/<job_id>/` by default (`<root>/<project_key>/<job_id>/` with `storage.root`), holding `stdout.log` / `stderr.log` / `changes.diff` / artifacts; status and metadata live in SQLite.
 
-## CLI 参考
+## CLI reference
 
-全局 `-c/--config`（默认 `${GOFER_CONFIG}`，否则按发现链：cwd `.gofer[.local].yaml` → `~/.config/gofer/config.yaml`）是 **app 级 flag，须置于子命令之前**：`gofer -c <path> <command> [sub] [--options]`。`init` 用 `-o/--output` 指定写出路径；`worker` 用独立的 `--worker-config`（worker.yaml 与 gofer 配置语义不同）。
+The global `-c/--config` is an app-level flag and goes before the subcommand: `gofer -c <path> <command> …`.
 
 ```bash
-gofer init    [server|worker|client] [-o path]   # 生成配置模板（默认 server→.gofer.yaml；worker→worker.yaml；client→<config-dir>/.env；-o 指定写出路径）
-gofer serve   --addr 0.0.0.0:8765 [--token …] [--allow-empty-token] [--no-web]
-gofer worker  --worker-config worker.yaml  # 作为 WS 远端执行机连入 hub（worker.yaml 独立配置）
-gofer [-c path] config validate [server|worker]    # 校验配置（默认 server；worker 查 token/host_path 等）
-gofer project list | show <k> | add <k> … | remove <k> | validate <k>
-gofer agent   list | detect | show <k>     # detect 未装报 unavailable，不退非零
-gofer job     run … | list … | show <id> | watch <id> | logs <id> --stream … | rerun <id> | cancel <id>
-gofer workflow run <file.yaml> [--watch] | show <id> | list | cancel <id>   # 多步 job 链（上一步产出喂下一步；支持 step 重试/失败策略、并行 fan-out、子工作流嵌套 type=workflow）
-gofer mcp                                  # stdio MCP server（配置走全局 -c / 发现链）
-gofer --gen-completion bash|zsh > ~/.gofer.completion.sh  # 补全脚本
+gofer init     [server|worker|client] [-o path]     # config templates; init hooks installs the session-relay hooks; init skill installs the gofer-usage skill
+gofer serve    --addr 0.0.0.0:8765 [--no-web] [-d]  # -d = daemon (unix)
+gofer worker   --worker-config worker.yaml [-d]
+gofer config   info | show <project> | validate [server|worker] | edit
+gofer project  list [--remote] | show <k> | add <k> … | remove <k> | validate <k>
+gofer agent    list [--local] | detect | show <k>
+gofer job      run … | list … | show <id> | watch <id> | logs <id> --stream … | cancel <id> | rerun <id> | resume <id> --prompt … | worktree ls|rm
+gofer plan     create | list | show <id> | add-todo | set-todo | set-status | attach | ask | decisions | answer
+gofer workflow run <file.yaml> [-w] | list | show <id> | events <id> | cancel <id> | export <id>
+gofer schedule add … | list | show | enable | disable | run <id> | rm <id>
+gofer session  ls | show <id> | relay on|off | say <id> "…" | rm <id>
+gofer tunnel   forward | check | ls | save | saved | forget
+gofer mcp      [--standalone]                        # stdio MCP server
 ```
 
-`job run` 关键参数：`-p/--project`、`-a/--agent`（必填）、`--runner`（默认 `server`，表示 server 本地执行；旧值 `local` 继续兼容，指定 worker/peer runner 时填写其 runner key）、`--cwd`（默认 `.`，限项目内）、`--prompt`（cli-agent）、`-- argv`（exec）、`-f/--file`（md+yaml）、`--sync` + `--wait-timeout`（同步等待）、`--wait`（客户端轮询到终态）、`--worker-id` / `--worker-labels`（worker 路由）、`--interactive` + `--cols`/`--rows`（pty 交互 job；需项目 `allow_interactive` 且 agent 有交互模式）、`--worktree` + `--worktree-base`（受管 git worktree 里执行，见上）、`--tags`、`--timeout`、`--title`、`-s/--server`、`--token`。
+Key `job run` flags: `-p/--project`, `-a/--agent`, `--runner` (default `server`; `local` is a compatibility alias; give the runner name for workers/peers), `--cwd` (relative to the project root), `--prompt` / `-- argv` / `-f task.md`, `--sync` + `--wait-timeout`, `--wait`, `--worker-id` / `--worker-labels`, `--interactive` + `--cols`/`--rows` (needs the project's `allow_interactive` and an agent with `interactive_args`), `--worktree` + `--worktree-base`, `--plan`, `--tags`, `--timeout`, `--title`, `-s/--server`, `--token`.
 
-`--timeout`（秒）有上限：超出项目上限会被 **clamp** 到上限，且**不会静默**——CLI 在提交后往 stderr 打一行 `warning: --timeout <请求值>s exceeds the project ceiling (<上限>s); the job will run with <上限>s`，响应里带 `requested_timeout_sec` / `timeout_clamped`，`job show` 显示生效的 `timeout:` 行。上限来自 `server.max_job_timeout_sec`（默认 3600=1h），可被项目的 `max_timeout_sec` 覆盖（可高于也可低于服务级）。0/未写即默认；负数是配置错误，加载期报错。
+> Passing values across workflow steps: `${steps.N.result_dir}` is an absolute path on the executing machine and is only readable within the same filesystem; across workers/peers use `${steps.N.result}` (inline result.json ≤ 32KB) / `${steps.N.stdout}` or a shared drive.
 
-> ⚠️ **工作流跨项目 / 跨机传值（`${steps.N.result_dir}`）**：`result_dir` 是**绝对路径**。各 step 可指向不同项目（开发项目产物→测试项目读），只要这些 step 都在**同一文件系统**（本机 / 同容器 local runner）上执行，下一步即可直接读取上一步的 `result_dir`，无需拷贝。**但**当某 step 用 **worker 远端 / peer 跨机**执行时，`result_dir` 在那台机器上，跨机**不可直接读**——此时改用 `${steps.N.result}`（inline result.json，≤32KB）/ `${steps.N.stdout}` 传值，或将产物落到**共享盘**。远端产物自动拉取通道留后续。
+## MCP
 
-> `GOFER_LOG_LEVEL=debug|info|warn|error`（默认 `info`，写 stderr）调结构化日志详细度——worker/serve 的连接生命周期在此输出。
-
-## 推荐部署（单机）
-
-一台机器只起一个 server，项目映射收敛到全局单文件：
-
-```bash
-export GOFER_CONFIG=~/.config/gofer/config.yaml   # 写进 shell profile
-gofer init server --global                         # 生成全局骨架
-# 编辑：填 server.token_env / agents / runners
-gofer project add demo-api --host-path /abs/demo-api --container-path /work/demo-api
-gofer serve                                        # 一个进程
-# 任意目录:
-gofer job run -p demo-api -a claude "..."               # CLI 连 serve
-```
-
-`GOFER_CONFIG` 优先于当前目录的 `.gofer.yaml`，任意目录命令都走全局。
-项目专属偏好放项目目录 `.gofer.project.yaml`（瘦配置，后续阶段落地）。
-
-## MCP 接入
-
-`gofer mcp` 以 **stdio MCP server** 暴露同一套控制面（复用 serve 的 `job.Service`/注册表）。stdout 为协议通道，不输出日志。
+`gofer mcp` exposes the same control plane as a **stdio MCP server** (it talks to the server at `GOFER_SERVER_ADDR` by default; `--standalone` executes in-process). stdout is the protocol channel; no logs are written there.
 
 ```json
-{ "mcpServers": { "gofer": { "command": "/abs/path/to/gofer", "args": ["-c", "/abs/path/to/config.yaml", "mcp"] } } }
+{ "mcpServers": { "gofer": { "command": "/abs/path/to/gofer", "args": ["mcp"], "env": { "GOFER_CONFIG_DIR": "/abs/config/dir" } } } }
 ```
 
-暴露 8 个 tool（字段 snake_case，与 HTTP 对齐）：`bridge_list_projects` / `bridge_list_agents` / `bridge_run_job` / `bridge_get_job` / `bridge_tail_log` / `bridge_cancel_job` / `bridge_get_interactions` / `bridge_answer_interaction`。
+Tools (snake_case, aligned with HTTP): `gofer_list_projects` `gofer_list_agents` `gofer_run_job` `gofer_get_job` `gofer_tail_log` `gofer_get_result` `gofer_get_artifacts` `gofer_cancel_job` `gofer_attach_job` `gofer_get_interactions` `gofer_list_pending_interactions` `gofer_answer_interaction` `gofer_punt_interaction` `gofer_create_plan` `gofer_get_plan` `gofer_add_todo` `gofer_update_todo` `gofer_ask_human` `gofer_register` `gofer_list_presence` `gofer_post_message` `gofer_poll_inbox`.
 
-## Web 控制台
+## Web console
 
-`serve` 默认内置静态 SPA（挂根路径，页面打开免鉴权，页内 `/v1/*` 仍需 token），资源**嵌入二进制**。`make web build` 构建并烘入；裸 `go build`（未跑 `make web`）显示占位页、不影响 API。开发态 `pnpm -C web dev`（vite 代理 `/v1`）。提供深/浅双主题（跟随系统 + 持久化）。看板/详情/实时日志/Workers 仪表盘/新建 job 表单。关 Web：`serve --no-web` 或 `server.web_enabled: false`。
+`serve` embeds a static SPA (the page itself needs no auth; its `/v1/*` calls do). Build and embed it with `make web build`; a bare `go build` serves a placeholder page without affecting the API. Pages: board / job detail (live logs, diff, artifacts, pty attach) / Runners / Plans (todos, decisions) / Sessions (relay switch, `auto (idle Xm)`) / Projects (including "allow interactive jobs") / New job. Disable with `serve --no-web` or `server.web_enabled: false`.
 
 ## HTTP API
 
-基于 `gookit/rux`。`/health` 不鉴权；`/v1/*` 全部要求 `Authorization: Bearer <token>`。错误体 `{"error":"…","detail":"…"}`。
+`/health` is unauthenticated; everything under `/v1/*` requires `Authorization: Bearer <token>`. Error body: `{"error":"…","detail":"…"}`.
 
-| 方法 | 路径 | 说明 |
-|---|---|---|
-| GET | `/health` | 进程存活（不鉴权） |
-| GET | `/v1/projects` · `/v1/projects/{key}` | 项目列表 / 详情 |
-| GET | `/v1/agents` | agent 列表 + 检测状态 |
-| GET | `/v1/runners` | 各 runner 健康名册（local/peer-http 探针/worker 心跳） |
-| GET | `/v1/meta` | 提交表单选项聚合（projects/agents/runners/workers） |
-| POST | `/v1/jobs` | 创建 job（JSON 或 `text/markdown`；`sync`/`?wait=1` 同步） |
-| GET | `/v1/jobs` · `/v1/jobs/{id}` | job 列表（project/status/caller 过滤）/ 详情 |
-| GET | `/v1/jobs/{id}/logs/{stdout,stderr}` | 日志尾部（256KB） |
-| GET | `/v1/jobs/{id}/stream` | SSE 实时日志 + 状态 + 交互 |
-| POST | `/v1/jobs/{id}/cancel` | 取消 |
-| POST/GET | `/v1/jobs/{id}/interactions` | 运行中交互：发起（提问）/ 列出 |
-| POST | `/v1/jobs/{id}/interactions/{iid}/answer` | 回答（`{"answer":"…"}`） |
-| GET | `/v1/workers/connect` | worker WS 升级入口（裸 Bearer，失败裸 401） |
+| group | main endpoints |
+|---|---|
+| projects / agents / roster | `GET/POST /v1/projects`, `GET/PUT/DELETE /v1/projects/{key}`, `GET /v1/agents`, `GET /v1/runners`, `GET /v1/meta`, `GET /v1/metrics` |
+| jobs | `POST/GET /v1/jobs`, `GET /v1/jobs/{id}`, `/logs/{stdout,stderr}`, `/stream` (SSE), `/events`, `/diff`, `/artifacts`, `POST …/cancel`, `POST …/resume`, `GET/DELETE …/worktree`, `POST …/attach-ticket`, `GET …/pty/sessions` |
+| interactions | `POST/GET /v1/jobs/{id}/interactions`, `POST …/{iid}/answer`, `POST …/{iid}/punt`, `GET /v1/interactions` |
+| plans / decisions | `POST/GET /v1/plans`, `GET /v1/plans/{id}`, `POST …/todos`, `POST …/jobs`, `POST/GET /v1/decisions`, `POST /v1/decisions/{id}/answer` |
+| session relay | `GET/POST /v1/sessions`, `POST /v1/sessions/{sid}/heartbeat`, `…/relay`, `…/say`, `…/turns` |
+| workflows / schedules | `POST/GET /v1/workflows`, `…/{id}/cancel`, `…/events`, `…/export`; `POST/GET /v1/schedules`, `…/enable`, `…/disable`, `…/run-now` |
+| workers / tunnels | `GET /v1/workers/connect` (WS), `/v1/workers/pty-connect`, `POST /v1/workers/{id}/reload`, `GET /v1/tunnels`, `/v1/tunnels/connect`, `/v1/workers/tunnel-connect` |
 
-`POST /v1/jobs` body（snake_case）：`project_key`、`agent`、`runner`、`prompt`(cli-agent)/`cmd`(exec argv)、`cwd`、`timeout_sec`、`title`、`worker_id`/`worker_labels`(worker)、`sync`/`wait_timeout_sec`、`request_id`(幂等键)。
+`POST /v1/jobs` body (snake_case): `project_key`, `agent`, `runner`, `prompt` / `cmd`, `cwd`, `timeout_sec`, `title`, `worker_id` / `worker_labels`, `interactive`, `worktree` / `worktree_base`, `plan_id`, `tags`, `sync` / `wait_timeout_sec`, `request_id` (idempotency key).
 
-## 安全注意事项
+## Deployment
 
-- **监听 `0.0.0.0:8765`**：为让容器经 `host.docker.internal` 可达；安全靠**强制 token + 内网准入**，非默认绑回环。纯本地自用可收紧 `127.0.0.1`。
-- **强制 token**：默认无 token 拒绝启动；空 token 须显式 `--allow-empty-token`。多 caller token 用 `crypto/subtle` 常时间比对，`caller_id` 入库防伪。
-- **worker 绑定**：`worker_id` 必须与其 token 绑定（per-worker token MVP 强制，`allow_empty_token` 不豁免）。
-- **exec 双重放行** + **cwd 限项目内 safeJoin**（防 `../` 越界）+ **不拼 shell**（argv 数组）+ **token/密钥不入日志** + **日志接口仅尾部 256KB**。
-
-## Docker 容器 ↔ 主机（本工作空间主要用法）
-
-Claude 在容器内，需要主机配合的活（调主机 `codex`、跑需要主机环境的命令、真实外部依赖联调等）经主机上的 gofer 转交：
+**Single machine (Linux/macOS)**:
 
 ```bash
-# 容器内提交（经 host.docker.internal）
-curl -s -X POST http://host.docker.internal:8765/v1/jobs \
-  -H "Authorization: Bearer $GOFER_TOKEN" -H "Content-Type: application/json" \
-  -d '{"project_key":"workspace","agent":"exec","runner":"local",
-       "cmd":["mvn","-q","test"],"cwd":"services/demo-api","timeout_sec":1200}'
-# 经共享盘读日志 / 或经 HTTP 读状态
-tail -n 50 tmp/gofer/<id>/stdout.log
-curl -s -H "Authorization: Bearer $GOFER_TOKEN" http://host.docker.internal:8765/v1/jobs/<id>
+export GOFER_CONFIG=~/.config/gofer/config.yaml
+gofer init server --global && $EDITOR ~/.config/gofer/config.yaml
+gofer project add demo-api --host-path /abs/demo-api --container-path /work/demo-api
+gofer serve -d                                     # daemon; log at <config-dir>/run/serve.log
 ```
 
-## 历史
+**Windows service (nssm)** — `scripts/start.ps1` from an elevated pwsh:
 
-代号沿革：`codex-bridge`（单 codex+exec 直跑）→ `dev-agent-bridge`（多 agent/项目注册表 + `/v1` 异步 job）→ **`gofer`**（+ ws 远端 worker / 标签调度 / 同步与 md 提交 / Web 控制台 / MCP / SQLite 存储）。
+```powershell
+pwsh -File scripts\start.ps1 -ConfigDir 'D:/path/to/gofer' -Account '.\you'   # install + start as your account (jobs get your PATH / git identity)
+pwsh -File scripts\start.ps1 -Action upgrade [-Web]   # make build first (service keeps running) → stop → swap serve-run\gofer.exe → start; previous exe kept as .prev
+pwsh -File scripts\start.ps1 -Action status|logs|restart|stop|remove
+```
 
-> 设计与实施计划见 [`docs/`](docs/)（`design/` 设计、`plans/` 实施计划、`TODO.md` 待办与路线）。
+**Container ↔ host**: the container is a pure client (`gofer init client`, `GOFER_SERVER_ADDR=http://host.docker.internal:8765`), the host runs the server (and/or a worker); a job's `--cwd` resolves against the executing machine's project root, so never hard-code container paths in commands.
+
+## Security notes
+
+- **Listening on `0.0.0.0:8765`** keeps the server reachable from containers; security relies on **a mandatory token + network admission**. Tighten to `127.0.0.1` for purely local use.
+- **Mandatory token**: startup is refused without one; an empty token needs an explicit `--allow-empty-token`. Multiple caller tokens are compared in constant time and `caller_id` is persisted to prevent spoofing.
+- **Worker binding**: a `worker_id` is bound to its token; in POLICY mode projects are pushed by the server and the worker can only tighten via `roots` + `guards`.
+- **Execution boundaries**: exec needs both the project's and the request's consent; cwd is confined to the project (safeJoin blocks `../`); argv arrays, never shell strings; `--worktree` stays under the repo's `tmp/gofer/wt`; tunnel targets are allowlisted on the worker.
+- **Logs**: tokens / Authorization / nonces / payloads are never written; the log API serves only the last 256KB.
+
+## History
+
+Codenames: `codex-bridge` (single codex + exec) → `dev-agent-bridge` (multi-agent/project registry + `/v1` async jobs) → **`gofer`** (+ WS workers / label scheduling / sync & markdown submission / Web / MCP / SQLite / plans & decisions / session relay / tunnels / reconnect recovery / worktrees).
+
+> Designs and implementation plans live under [`docs/`](docs/) (`design/`, `plans/`, `runbook/`).
