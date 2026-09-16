@@ -191,6 +191,16 @@ func (s *Server) handleJobAttach(c *rux.Context) {
 
 	select {
 	case <-relay.Done():
+		// Done fires once the pty tail has been dispatched to the viewers'
+		// channels, but THIS viewer's pump may still be writing it to the
+		// socket; a close frame sent ahead of those bytes truncates what the
+		// browser sees (the flaky FINAL_TAIL_SENTINEL read). Let the pump
+		// drain first, bounded so a stalled socket cannot pin the handler.
+		select {
+		case <-pumpDone:
+		case <-time.After(attachDrainGrace):
+		case <-ctx.Done():
+		}
 		writeExitAndClose()
 	case endedByRelay := <-pumpDone:
 		if endedByRelay {
@@ -201,6 +211,12 @@ func (s *Server) handleJobAttach(c *rux.Context) {
 	case <-ctx.Done():
 	}
 }
+
+// attachDrainGrace bounds how long the attach handler waits for its output
+// pump to flush the pty tail after the relay finished before closing the
+// socket. Two seconds is far above a loopback flush and short enough that a
+// dead browser does not hold the handler.
+const attachDrainGrace = 2 * time.Second
 
 func (s *Server) readAttachFrames(ctx context.Context, conn *websocket.Conn, viewer *ptyrelay.Viewer, relay *ptyrelay.Relay) {
 	for {
