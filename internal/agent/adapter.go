@@ -20,6 +20,7 @@ type Resolved struct {
 // semantics. The default zero value preserves the public Build behaviour.
 type BuildOptions struct {
 	AllowEmptyPrompt bool
+	Interactive      bool     // select interactive_args when building an interactive job
 	AgentArgs        []string // extra args appended to cli-agent argv (§14)
 }
 
@@ -83,7 +84,11 @@ func BuildFrom(cfg *config.Config, agentKey, prompt string, cmd []string, vars V
 			return Resolved{}, fmt.Errorf("agent %q (cli-agent) has no command configured", agentKey)
 		}
 		vars.Prompt = prompt
-		rendered := Render(ac.Args, vars)
+		argvTemplate := ac.Args
+		if opts.Interactive && ac.InteractiveArgs != nil {
+			argvTemplate = ac.InteractiveArgs
+		}
+		rendered := Render(argvTemplate, vars)
 		return Resolved{
 			Command: ac.Command,
 			Args:    append(append([]string{}, rendered...), opts.AgentArgs...),
