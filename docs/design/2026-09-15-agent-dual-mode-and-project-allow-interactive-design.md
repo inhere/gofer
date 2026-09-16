@@ -1,13 +1,14 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # agent 双模式启动与项目级交互开关设计 — AGT-02
 
-> 状态：Approved 0.1 / 实施中（2026-09-15 人工拍板）
+> 状态：Approved 0.2 / 实施中（2026-09-15 人工拍板，0.2 为实施期语义修正）
 
 ## 修订记录
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
 | 0.1 | 2026-09-15 | Claude | 初稿：agent 用 `interactive_args` 同时支持批处理与 pty 两种启动；项目用 `allow_interactive` 总开关取代必填的 `interactive_allowed_agents` |
+| 0.2 | 2026-09-16 | Claude | 修正批处理能力的推导：= 非 legacy `interactive: true`（不再要求 args 含 `{{prompt}}`），保住从 stdin/env 取 prompt 或无需 prompt 的既有 cli-agent；阶段 A 实施中发现 |
 
 ## 背景与目标
 
@@ -44,12 +45,14 @@ agents:
 
 | 字段状态 | 批处理模式 | 交互模式 |
 |---|---|---|
-| `args` 含 `{{prompt}}`，无 `interactive_args` | 有 | 无 |
-| `args` 含 `{{prompt}}`，有 `interactive_args`（可为空列表 `[]` = 裸启动） | 有 | 有 |
+| 无 `interactive: true`、无 `interactive_args`（`args` 含不含 `{{prompt}}` 都算：不含时 prompt 由 agent 自行从 stdin/env 取或不需要，现状即如此） | 有 | 无 |
+| 无 `interactive: true`，有 `interactive_args`（可为空列表 `[]` = 裸启动） | 有 | 有 |
 | `interactive: true`（旧写法），`args` 不含 `{{prompt}}` | 无 | 有；`args` 即交互 argv |
 | `interactive: true` 且 `args` 含 `{{prompt}}` | **配置错误**，加载即拒 | — |
+| `type: exec` | 有 | 无（带 `interactive_args` 是配置错误） |
 
 - 新增 `AgentConfig.InteractiveArgs []string`（yaml `interactive_args`）；`Interactive bool` 保留为兼容别名，语义固定为"仅交互、args 即交互 argv"。
+- 批处理能力 = 非 legacy `interactive: true`（0.2 修正：0.1 写的"`args` 含 `{{prompt}}`"会误伤既有的无占位符 cli-agent，而旧的反向闸本来也只拒 `interactive: true`）。
 - 能力位统一由一个函数给出：`agent.Modes(ac) (batch, interactive bool)`；admission、worker 上报、`/v1/meta`、web 收窄全部只看能力位，不再直接读 `Interactive` 布尔。
 - admission 两条闸对称：`--interactive` 而无交互模式 → `agent %q has no interactive mode`；非交互提交而无批处理模式 → `agent %q has no batch mode; submit it as an interactive job`（替换现在的 interactive-only 文案）。去掉 "交互 agent 必须 `no_raw_cmd`" 的 agent 级要求——`interactive job cannot override Cmd` 这条请求级闸已经覆盖同一风险；`no_raw_cmd` 字段本身保留、语义不变。
 - 交互 argv 的构建：有 `interactive_args` 用它，否则（旧写法）用 `args`；`system_inject` / `session_inject` 追加规则与现在一致。

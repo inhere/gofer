@@ -8,18 +8,19 @@ import (
 )
 
 // Modes reports whether an agent supports batch and interactive execution.
+//
+// Batch is every agent that is not declared interactive-only: exec agents and
+// any cli-agent without the legacy `interactive: true`. A cli-agent whose args
+// carry no {{prompt}} is still a batch agent — wrappers that take the prompt
+// from stdin/env, or probes like `go env`, have always run that way and the
+// only thing the old reverse gate rejected was `interactive: true`.
+// Interactive is `interactive_args` (an empty list means a bare TUI launch) or
+// the legacy flag, whose args ARE the interactive argv.
 func Modes(ac config.AgentConfig) (batch, interactive bool) {
 	if ac.Type == TypeExec {
 		return true, false
 	}
-	for _, arg := range ac.Args {
-		if strings.Contains(arg, "{{prompt}}") {
-			batch = true
-			break
-		}
-	}
-	interactive = ac.InteractiveArgs != nil || ac.Interactive
-	return
+	return !ac.Interactive, ac.InteractiveArgs != nil || ac.Interactive
 }
 
 // ValidateConfig checks mode combinations shared by server and worker loading.

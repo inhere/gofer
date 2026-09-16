@@ -14,9 +14,10 @@ func TestModesTable(t *testing.T) {
 		batch, interactive bool
 	}{
 		{"batch", config.AgentConfig{Args: []string{"run", "{{prompt}}"}}, true, false},
-		{"interactive", config.AgentConfig{InteractiveArgs: []string{}}, false, true},
+		{"batch without prompt placeholder", config.AgentConfig{Args: []string{"env"}}, true, false},
 		{"dual", config.AgentConfig{Args: []string{"{{prompt}}"}, InteractiveArgs: []string{}}, true, true},
-		{"legacy", config.AgentConfig{Interactive: true}, false, true},
+		{"dual without prompt placeholder", config.AgentConfig{Args: []string{"run"}, InteractiveArgs: []string{"--tui"}}, true, true},
+		{"legacy interactive-only", config.AgentConfig{Interactive: true}, false, true},
 		{"exec", config.AgentConfig{Type: TypeExec}, true, false},
 	}
 	for _, tt := range tests {
