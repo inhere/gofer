@@ -225,9 +225,11 @@ type SupervisorConfig struct {
 	ReconcilePrompt string `yaml:"reconcile_prompt,omitempty"`
 	// ReconcileJobTimeoutSec is the per-sup-job timeout the reconciler sets. Under event-driven
 	// dispatch a healthy sup drains the demand and EXITS early, so this is really a HUNG-sup cap
-	// (serve.supReconcileJobTimeoutDefault=3600, the 1h MaxTimeoutSec): a wedged sup is force-
-	// terminated within it, freeing the active-sup gate for the next on-demand spawn. <=0 => that
-	// default; clamped to MaxTimeoutSec at submit. Lower it only to recycle a wedged sup sooner.
+	// (a wedged sup is force-terminated within it, freeing the active-sup gate for the next
+	// on-demand spawn): <=0 => the job-timeout ceiling configured for roles.supervisor.project
+	// (Config.EffectiveMaxTimeoutSec — server.max_job_timeout_sec, or that project's
+	// max_timeout_sec, else 1h), so raising the ceiling also lifts this cap. Lower it only to
+	// recycle a wedged sup sooner.
 	ReconcileJobTimeoutSec int `yaml:"reconcile_job_timeout_sec,omitempty"`
 }
 

@@ -5,7 +5,44 @@ import (
 	"testing"
 
 	"github.com/gookit/goutil/testutil/assert"
+
+	"github.com/inhere/gofer/internal/config"
 )
+
+// TestSupReconcileTimeoutFollowsCeiling: the reconciler's hung-sup cap follows the
+// CONFIGURED job-timeout ceiling for the sup's project instead of a fixed 1h
+// (bd h-aii-s9ck) — otherwise a raised ceiling would be clamped right back down when
+// the sup job is submitted. An explicit reconcile_job_timeout_sec still wins.
+func TestSupReconcileTimeoutFollowsCeiling(t *testing.T) {
+	newCfg := func(serverCeiling, projectCeiling int) *config.Config {
+		return &config.Config{
+			Server: config.ServerConfig{MaxJobTimeoutSec: serverCeiling},
+			Projects: map[string]config.ProjectConfig{
+				"sup-proj": {HostPath: "/tmp/sup-proj", MaxTimeoutSec: projectCeiling},
+			},
+			Roles: map[string]config.RoleConfig{
+				"supervisor": {Agent: "codex", Project: "sup-proj"},
+			},
+		}
+	}
+	cases := []struct {
+		name     string
+		cfg      *config.Config
+		explicit int
+		want     int
+	}{
+		{"server ceiling", newCfg(7200, 0), 0, 7200},
+		{"project ceiling wins over the server one", newCfg(7200, 10800), 0, 10800},
+		{"unset everywhere keeps the built-in default", &config.Config{}, 0, config.DefaultMaxJobTimeoutSec},
+		{"explicit reconcile_job_timeout_sec wins", newCfg(7200, 10800), 900, 900},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			sc := &config.SupervisorConfig{DesiredSupervisors: 1, ReconcileJobTimeoutSec: tc.explicit}
+			assert.Eq(t, tc.want, supReconcileTimeout(sc, tc.cfg))
+		})
+	}
+}
 
 // reconcileSupervisors (event-driven, y5wt) spawns a sup ONLY when a sup is wanted
 // (demand>0) AND none is running (active<desired), filling the deficit to desired. Idle

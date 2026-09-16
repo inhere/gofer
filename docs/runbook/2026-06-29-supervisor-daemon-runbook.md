@@ -33,10 +33,10 @@ host serve(进程 env)
 | role 预设字段 | `agent / system_prompt / project / tags`，**无 env、无 non-interactive 字段** | `internal/config/model.go:77` `RoleConfig` |
 | 能否给被起 agent 进程**设 env** | ✅ 但**只能 per-agent**（agent 配置 `env:` map）或 serve 进程级 env；**无 per-job `--env` flag、`JobRequest` 无 `Env` 字段** | `internal/agent/adapter.go:42` `copyEnv(ac.Env)` → `internal/runner/local/runner.go:55` `cmd.Env=mergedEnv(req.Env)`；`job.go` flag 集无 `--env` |
 | GOFER_AGENT_ROLE 能否贯通到 sup mcp | ✅ **gofer 侧到 codex 进程 env 这一跳已验证**（mergedEnv 注入）；**codex → 其 spawn 的 mcp 子进程 env 透传是唯一未在真机核实的一跳**（见 §6 gap①） | 同上 + 待真机验证 codex MCP env |
-| `--timeout 0` / 长生命周期 | ❌ **不支持无限 timeout**。`--timeout 0`=默认 `DefaultTimeoutSec=300s`；任何值被 `normalizeTimeout` 钳到 `MaxTimeoutSec=3600s`（1h）**硬上限** → sup job 最多活 1h（gap②，靠外部 relaunch 兜底） | `internal/job/service.go:21-22`；`internal/job/submit.go:372-379` |
+| `--timeout 0` / 长生命周期 | ⚠️ **没有"无限 timeout"**：`--timeout 0`=默认 `DefaultTimeoutSec=300s`；任何值被 `normalizeTimeout` 钳到**项目上限**（`server.max_job_timeout_sec`，可被项目 `max_timeout_sec` 覆盖，缺省 3600s=1h）。上限**可配**（bd h-aii-s9ck）：调大即可让 sup job 活更久；被 clamp 时 CLI/API **明示**（stderr warning + `requested_timeout_sec`/`timeout_clamped`） | `internal/config/model.go` `EffectiveMaxTimeoutSec`；`internal/job/submit.go` `normalizeTimeout` |
 | non-interactive 怎么传 | 经 **agent 定义的 `command`/`args`**（codex 用 `exec` 子命令本身即非交互 + 沙箱 flag），role 预设不承载；写进 sup 专用 agent 的 args | `internal/agent/registry.go:97` codex 内置 `args:[exec,...]` |
 
-> **gap 小结**：①codex→mcp 子进程 env 透传需真机核实（有不依赖透传的稳妥兜底，§6）；②job timeout 1h 硬上限（用外部 relaunch loop 兜底，根治留 P4b reconciler）。**两者都无需改 gofer 代码即可文档绕过**。
+> **gap 小结**：①codex→mcp 子进程 env 透传需真机核实（有不依赖透传的稳妥兜底，§6）；②job timeout 上限缺省 1h，现已可配（`server.max_job_timeout_sec` / 项目 `max_timeout_sec`，超限会被 clamp 并明示）——在此之前用外部 relaunch loop 兜底。**两者都无需改 gofer 代码即可文档绕过**。
 
 ## 3. 关键：把 `GOFER_AGENT_ROLE=supervisor` 注入到 sup（不污染普通 job）
 
@@ -128,12 +128,13 @@ roles:
 
 > 验证：配好 token + 起 `--role supervisor` sup → `presence?role=supervisor` 见到在线 driver = 贯通。
 
-### gap② job timeout 1h 硬上限 → sup 活不久
+### gap② job timeout 上限 → sup 活不久
 
-`normalizeTimeout` 把所有 timeout 钳到 `MaxTimeoutSec=3600s`，**没有无限 timeout**。sup job 最多活 1h 会被杀。
+`normalizeTimeout` 把所有 timeout 钳到**项目上限**（`server.max_job_timeout_sec`，可被项目 `max_timeout_sec` 覆盖，缺省 3600s=1h），**没有无限 timeout**。sup job 活不过该上限会被杀。
 
+- **调大上限（首选）**：把 `server.max_job_timeout_sec`（或该项目 `max_timeout_sec`）配大，sup job 即可对应活得更久；reconciler 的 `supervisor.reconcile_job_timeout_sec` 缺省跟随同一上限（bd h-aii-s9ck）。超出上限的提交会被 clamp，并在 CLI stderr / API 响应里明示，不再静默截断。
 - **MVP 兜底（本 runbook 采用）**：外部 **relaunch loop** 拉起（shell `while true` / systemd `Restart=always` / cron）。`escalated_at`/`answered_by` 已落表、`fellBack` 偏安全方向、presence 90s TTL 自然过期，**relaunch 安全**（不会重复投递/双重作答）。
-- **根治**：留 P4b serve `sup reconciler`（周期核对在线 sup 数 < desired → 自动重派），或后续给 job 增加“长生命周期/不被 timeout 杀”形态（design §11 待确认）。
+- **更长期形态**：给 job 增加"长生命周期/不被 timeout 杀"形态（design §11 待确认）。
 
 > codex `exec` 本身是**一次性**执行（agentic loop 跑到它认为完成即退）。即便不撞 1h 上限，单次 exec 也可能提前结束——这同样靠 relaunch loop 兜底，每次 relaunch 做“注册→轮询若干次→答能答的→退出”。
 
@@ -144,7 +145,7 @@ roles:
 **形式一：用 role 预设（推荐，复用 system_prompt）**
 
 ```bash
-# 单次（会被 1h 上限/exec 结束所限）
+# 单次（会被超时上限/exec 结束所限）
 gofer job run -p my-project1 --role supervisor --runner local
 # --role supervisor 解析出 agent=codex + 注入 roles.supervisor.env(GOFER_AGENT_ROLE) + system_prompt
 ```

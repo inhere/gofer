@@ -248,6 +248,8 @@ gofer --gen-completion bash|zsh > ~/.gofer.completion.sh  # 补全脚本
 
 `job run` 关键参数：`-p/--project`、`-a/--agent`（必填）、`--runner`（默认 `server`，表示 server 本地执行；旧值 `local` 继续兼容，指定 worker/peer runner 时填写其 runner key）、`--cwd`（默认 `.`，限项目内）、`--prompt`（cli-agent）、`-- argv`（exec）、`-f/--file`（md+yaml）、`--sync` + `--wait-timeout`（同步等待）、`--wait`（客户端轮询到终态）、`--worker-id` / `--worker-labels`（worker 路由）、`--interactive` + `--cols`/`--rows`（pty 交互 job；需项目 `allow_interactive` 且 agent 有交互模式）、`--tags`、`--timeout`、`--title`、`-s/--server`、`--token`。
 
+`--timeout`（秒）有上限：超出项目上限会被 **clamp** 到上限，且**不会静默**——CLI 在提交后往 stderr 打一行 `warning: --timeout <请求值>s exceeds the project ceiling (<上限>s); the job will run with <上限>s`，响应里带 `requested_timeout_sec` / `timeout_clamped`，`job show` 显示生效的 `timeout:` 行。上限来自 `server.max_job_timeout_sec`（默认 3600=1h），可被项目的 `max_timeout_sec` 覆盖（可高于也可低于服务级）。0/未写即默认；负数是配置错误，加载期报错。
+
 > ⚠️ **工作流跨项目 / 跨机传值（`${steps.N.result_dir}`）**：`result_dir` 是**绝对路径**。各 step 可指向不同项目（开发项目产物→测试项目读），只要这些 step 都在**同一文件系统**（本机 / 同容器 local runner）上执行，下一步即可直接读取上一步的 `result_dir`，无需拷贝。**但**当某 step 用 **worker 远端 / peer 跨机**执行时，`result_dir` 在那台机器上，跨机**不可直接读**——此时改用 `${steps.N.result}`（inline result.json，≤32KB）/ `${steps.N.stdout}` 传值，或将产物落到**共享盘**。远端产物自动拉取通道留后续。
 
 > `GOFER_LOG_LEVEL=debug|info|warn|error`（默认 `info`，写 stderr）调结构化日志详细度——worker/serve 的连接生命周期在此输出。

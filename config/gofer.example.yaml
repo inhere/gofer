@@ -26,6 +26,12 @@ server:
   #                         # => use project host_path; container => use container_path
   #                         # (falls back to host_path if unset). Explicit operator
   #                         # switch — gofer does NOT self-detect a container.
+  #
+  # max_job_timeout_sec: 3600  # job 超时上限(秒), 服务级默认 3600(1h). 提交的 timeout_sec
+  #                         # 超过它会被 clamp 到该值 —— 且不再静默: 响应带
+  #                         # requested_timeout_sec/timeout_clamped, CLI 提交时在 stderr 打
+  #                         # warning, `job show` 显示生效 timeout. 长任务(如 2h 构建)把它调大,
+  #                         # 或只给某个项目写 max_timeout_sec 覆盖. 0/未写 = 3600.
 
   # callers: multi-caller auth (C2). Each entry maps a bearer token to a caller
   # id stamped onto submitted jobs (audit / per-caller filtering). The legacy
@@ -206,6 +212,12 @@ projects:
     # allow_interactive: true 并 warn 一次(写了本开关则忽略旧字段), 请把本开关显式写出来.
     allow_interactive: true
     max_concurrent_jobs: 4
+    # max_timeout_sec: 项目级 job 超时上限(秒), 覆盖 server.max_job_timeout_sec —— 是【覆盖】不是
+    # 收紧: 可以比服务级更高(只有本项目跑 2h 构建), 也可以更低(某租户不得超过 10min).
+    # 0/未写 = 继承服务级(再缺省 3600). 超出的 timeout_sec 被 clamp 到该值并【明示】:
+    # 响应的 requested_timeout_sec/timeout_clamped + CLI stderr warning + `job show` 的 timeout 行.
+    # max_timeout_sec: 7200
+
     # capture_diff toggles git-diff capture on job outcomes (E12). Unset defaults
     # to "on when cwd is a git work tree"; set false to disable outright.
     # capture_diff: true

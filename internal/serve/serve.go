@@ -443,13 +443,22 @@ const defaultSupReconcilePrompt = "你是 supervisor。循环调用 gofer_poll_i
 	"用 gofer_get_interactions 找到对应 interaction_id：通用、低危的问题用 gofer_answer_interaction 作答；" +
 	"拿不准或高危的不要猜，用 gofer_punt_interaction 标记留给人处理(不要只是跳过)。连续2轮空箱即结束。non-interactive。"
 
-// supReconcileJobTimeoutDefault is the per-sup-job timeout when
-// supervisor.reconcile_job_timeout_sec is unset/<=0. Under event-driven dispatch a healthy
-// sup drains the pending demand and EXITS early (seconds), so this is really a HUNG-sup cap:
-// a sup that wedged (job running but agent not polling) is force-terminated within the cap,
-// freeing the active-sup gate so the next demand re-spawns a fresh one. 1h (MaxTimeoutSec;
-// submit clamps to the same cap) is a safe upper bound on a wedged sup's blast radius.
-const supReconcileJobTimeoutDefault = 3600
+// supReconcileTimeout resolves the per-sup-job timeout: the explicit
+// supervisor.reconcile_job_timeout_sec when set, else the JOB-TIMEOUT CEILING
+// configured for the sup's project (bd h-aii-s9ck). The fallback used to be a fixed
+// 1h; following the ceiling means raising server.max_job_timeout_sec (or the
+// project's max_timeout_sec) also lifts the hung-sup cap instead of the new ceiling
+// being clamped right back down at submit. Pure (no *Core / *gcli.Command) so the
+// resolution is unit-testable without booting a server.
+func supReconcileTimeout(sc *config.SupervisorConfig, cfg *config.Config) int {
+	if sc.ReconcileJobTimeoutSec > 0 {
+		return sc.ReconcileJobTimeoutSec
+	}
+	// The reconciler submits with no -p, so the sup's project comes from the preset
+	// (validated present when desired_supervisors>0). An absent role/key resolves to
+	// "" and simply yields the server-wide ceiling.
+	return cfg.EffectiveMaxTimeoutSec(cfg.Roles["supervisor"].Project)
+}
 
 // reconcileSupervisors is the pure event-driven dispatch decision (y5wt): spawn a sup
 // ON DEMAND, gated so at most `desired` run at once. Two guards, cheapest first:
@@ -499,7 +508,8 @@ func reconcileSupervisors(desired int, countActive, countDemand func() (int, err
 // timeout still bounds a hung sup; a sup that finishes draining demand simply exits and is
 // not re-spawned until new demand appears. Exits when stop closes.
 func startSupReconcileLoop(c *gcli.Command, cr *core.Core, wake <-chan struct{}, stop <-chan struct{}) {
-	sc := cr.Config().Supervisor
+	cfg := cr.Config()
+	sc := cfg.Supervisor
 	if sc == nil || sc.DesiredSupervisors <= 0 {
 		return
 	}
@@ -516,10 +526,7 @@ func startSupReconcileLoop(c *gcli.Command, cr *core.Core, wake <-chan struct{},
 	if prompt == "" {
 		prompt = defaultSupReconcilePrompt
 	}
-	jobTimeout := sc.ReconcileJobTimeoutSec
-	if jobTimeout <= 0 {
-		jobTimeout = supReconcileJobTimeoutDefault
-	}
+	jobTimeout := supReconcileTimeout(sc, cfg)
 	logf := func(f string, a ...any) { c.Printf(f, a...) }
 	errf := func(f string, a ...any) { c.Errorf(f, a...) }
 	countActive := func() (int, error) { return cr.Store.CountActiveJobsByRole("supervisor") }
