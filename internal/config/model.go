@@ -321,6 +321,14 @@ type ServerConfig struct {
 	// long-running work; a project overrides it in either direction via
 	// ProjectConfig.MaxTimeoutSec (see EffectiveMaxTimeoutSec).
 	MaxJobTimeoutSec int `yaml:"max_job_timeout_sec,omitempty"`
+	// JobRecoverWindowSec is the RECOV-01 worker reconnect window in seconds: how
+	// long a worker's in-flight jobs are held in `recovering` after its connection
+	// drops, before they are failed with worker_lost. It is a POINTER so "unset"
+	// (nil → DefaultJobRecoverWindowSec, 120s) is distinguishable from an explicit
+	// `job_recover_window_sec: 0`, which DISABLES recovery entirely (a disconnect
+	// fails the in-flight jobs at once — the pre-RECOV-01 behaviour). Same
+	// unset≠zero reasoning as WebEnabled. See Config.JobRecoverWindow.
+	JobRecoverWindowSec *int `yaml:"job_recover_window_sec,omitempty"`
 }
 
 // GovernanceConfig is the E17 global fallback for per-caller quotas (design
@@ -979,6 +987,29 @@ func (c *Config) ProjectAllowedAgents(projectKey string) ([]string, bool) {
 // value the clamp was hard-coded to before it became configurable (bd h-aii-s9ck),
 // so an existing config keeps its exact previous behaviour.
 const DefaultMaxJobTimeoutSec = 3600
+
+// DefaultJobRecoverWindowSec is the RECOV-01 window applied when
+// server.job_recover_window_sec is UNSET: how long a worker's in-flight jobs are
+// held in `recovering` while the same worker process reconnects (e.g. a WSL /
+// Docker / VPN blip). 120s covers a reconnect with exponential backoff plus a few
+// retries; an explicit 0 disables recovery (Config.JobRecoverWindow returns 0).
+const DefaultJobRecoverWindowSec = 120
+
+// JobRecoverWindow resolves the RECOV-01 recovery window (design §一). Unset
+// (nil) → DefaultJobRecoverWindowSec; an explicit value ≤ 0 → 0, meaning recovery
+// is OFF and a worker disconnect fails its in-flight jobs immediately (the
+// pre-RECOV-01 behaviour). It is the ONE resolver every consumer (hub, serve
+// orphan reconciliation) reads, so the "unset vs 0" distinction lives in a single
+// place instead of being re-derived from a raw int.
+func (c *Config) JobRecoverWindow() time.Duration {
+	if c == nil || c.Server.JobRecoverWindowSec == nil {
+		return DefaultJobRecoverWindowSec * time.Second
+	}
+	if *c.Server.JobRecoverWindowSec <= 0 {
+		return 0
+	}
+	return time.Duration(*c.Server.JobRecoverWindowSec) * time.Second
+}
 
 // EffectiveMaxTimeoutSec resolves the ONE ceiling a job in projectKey is clamped
 // against (bd h-aii-s9ck): the project's max_timeout_sec when set, else the

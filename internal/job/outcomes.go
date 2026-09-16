@@ -286,6 +286,61 @@ func renderedCommandJSON(req runner.Request) string {
 	return string(b)
 }
 
+// setRecovering moves a RUNNING worker job into the RECOV-01 `recovering` holding
+// state: its worker connection dropped, but the hub is holding the job for a bounded
+// window while the same worker process may reconnect. It records recovering_since
+// and persists the snapshot so the state (and how long it lasts) is queryable from
+// CLI/web rather than only visible in logs. Idempotent: a second Suspend is a no-op.
+//
+// A job that is already terminal (its Result beat the disconnect, or the host
+// cancelled it) is NOT flipped back: the terminal state is authoritative.
+func (s *Service) setRecovering(entry *jobEntry, jobID, reason string) {
+	entry.mu.Lock()
+	if isTerminal(entry.result.Status) || entry.result.Status == StatusRecovering {
+		entry.mu.Unlock()
+		return
+	}
+	entry.result.Status = StatusRecovering
+	entry.result.RecoveringSince = s.nowFn().Unix()
+	if reason != "" {
+		// Keep the reason visible while the job waits: a `job show` of a recovering
+		// job answers WHY it is waiting without a log dive.
+		entry.result.Error = "recovering: " + reason
+	}
+	snap := entry.result
+	entry.mu.Unlock()
+
+	if err := s.persist(snap); err != nil {
+		slog.Warn("persist recovering snapshot", "job_id", jobID, "err", err)
+	}
+	slog.Info("job.recovering", "event", "job.recovering", "component", "server",
+		"job_id", jobID, "worker_id", snap.WorkerID, "reason", reason)
+}
+
+// clearRecovering returns a `recovering` job to `running`: the worker process came
+// back and still has the job (RECOV-01). It clears recovering_since and the
+// recovering reason, and persists the snapshot. A job that is not recovering is
+// left alone, so a Resume arriving after the terminal state (or after a redundant
+// frame) can never resurrect a finished job.
+func (s *Service) clearRecovering(entry *jobEntry, jobID string) {
+	entry.mu.Lock()
+	if entry.result.Status != StatusRecovering {
+		entry.mu.Unlock()
+		return
+	}
+	entry.result.Status = StatusRunning
+	entry.result.RecoveringSince = 0
+	entry.result.Error = ""
+	snap := entry.result
+	entry.mu.Unlock()
+
+	if err := s.persist(snap); err != nil {
+		slog.Warn("persist resumed snapshot", "job_id", jobID, "err", err)
+	}
+	slog.Info("job.resumed", "event", "job.resumed", "component", "server",
+		"job_id", jobID, "worker_id", snap.WorkerID)
+}
+
 // setRunningRenderedCommand applies a rendered command reported by a remote runner
 // (worker/peer) while the job is still running, then persists a snapshot so job
 // show/web reflect WHAT is running at once — not only at completion (G1). Idempotent

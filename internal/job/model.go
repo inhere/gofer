@@ -210,6 +210,11 @@ type JobResult struct {
 	WorkerID  string `json:"worker_id,omitempty"`
 	StartedAt int64  `json:"started_at"`
 	EndedAt   int64  `json:"ended_at,omitempty"`
+	// RecoveringSince is the unix time the job entered `recovering` (RECOV-01); 0
+	// when the job is not (or no longer) recovering. It is persisted so the window
+	// a job spent waiting for its worker is visible after the fact in `job show` /
+	// the web detail, not just in the live event log.
+	RecoveringSince int64 `json:"recovering_since,omitempty"`
 	// UpdatedAt is the unix time of the last persisted snapshot. It is stamped by
 	// the metadata store write path (Service.persist) so listing/retention always
 	// have a monotonic ordering value; it is not set by the runner state machine.
@@ -298,6 +303,16 @@ const (
 	// interaction). Declared here so the status set is documented in one place;
 	// P4 never sets it.
 	StatusPendingInteraction = "pending_interaction"
+	// StatusRecovering (RECOV-01) is a NON-terminal holding state: a worker job
+	// whose worker connection dropped but whose worker process may still be running
+	// it. It is entered when the hub suspends the job's sink (the connection died
+	// with the job in flight and recovery is enabled) and left either back to
+	// StatusRunning (the same worker process reconnected and proved it still has the
+	// job) or to StatusFailed / the job's own terminal state (the recovery window
+	// expired → worker_lost, or the worker replayed the real Result). A recovering
+	// job keeps its timeout running: a job that hangs in recovering still ends by
+	// timeout. Appended to the END of the enum so existing values never shift.
+	StatusRecovering = "recovering"
 )
 
 // Job lifecycle event types (E13, design §5.2). Each is recorded append-only via

@@ -91,7 +91,8 @@ var schemaStmts = []string{
   source_job_id    TEXT,
   timeout_sec      INTEGER,
   requested_timeout_sec INTEGER,
-  timeout_clamped  INTEGER NOT NULL DEFAULT 0
+  timeout_clamped  INTEGER NOT NULL DEFAULT 0,
+  recovering_since INTEGER
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -511,6 +512,12 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := add("timeout_clamped", "timeout_clamped INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	// RECOV-01 worker 断线恢复：recovering_since=job 进入 recovering 的时刻（unix 秒，0=不在
+	// recovering）。旧库 ALTER ADD，旧行 COALESCE→0，正好读作"从未 recovering"（RECOV-01 之前
+	// 的语义），不会把老 job 伪造成恢复中的 job。
+	if err := add("recovering_since", "recovering_since INTEGER"); err != nil {
 		return err
 	}
 	if err := s.migrateWorkflows(); err != nil {

@@ -80,10 +80,14 @@ func TestHalfOpenDetection(t *testing.T) {
 	waitFor(t, func() bool { _, ok := hub.reg.Get("w1"); return !ok })
 }
 
-// TestWorkerDisconnectMidJobFailsJob (acceptance #4): a clean close of the worker
-// connection mid-job must fail the in-flight job (worker-lost MVP, §5.3).
-func TestWorkerDisconnectMidJobFailsJob(t *testing.T) {
+// TestRecoverWindowZeroKeepsOldBehaviour (acceptance #4 + RECOV-01 regression): with
+// job_recover_window_sec: 0 (recovery DISABLED) a clean close of the worker
+// connection mid-job fails the in-flight job at once with errWorkerDisconnected —
+// exactly the pre-RECOV-01 behaviour (worker-lost MVP, §5.3). The recovery machinery
+// must be inert, not merely "fast": the sink gets no Suspend.
+func TestRecoverWindowZeroKeepsOldBehaviour(t *testing.T) {
 	hub := shortHeartbeat(map[string]string{"w1": "w1"}, time.Second, 3*time.Second)
+	hub.SetRecoverWindow(0) // explicit: recovery off
 	_, wsURL := hubServer(t, hub, "w1")
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
@@ -112,6 +116,12 @@ func TestWorkerDisconnectMidJobFailsJob(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("in-flight job not failed on worker disconnect")
+	}
+	if got := sink.snapshot(); len(got) != 1 || got[0] != "disconnect:worker disconnected" {
+		t.Fatalf("sink events = %v, want a single immediate disconnect (no suspend)", got)
+	}
+	if hub.recov["w1"] != nil {
+		t.Fatal("a recovering set was created even though the window is disabled")
 	}
 }
 

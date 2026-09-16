@@ -241,6 +241,11 @@ func (s *Service) Stats() ServiceStats {
 			st.Queued++
 		case StatusRunning:
 			st.Running++
+		case StatusRecovering:
+			// RECOV-01: a recovering job is still occupying an execution slot on its
+			// worker (the worker process is expected back), so it counts as running —
+			// otherwise the in-flight gauge would drop during every network blip.
+			st.Running++
 		}
 		e.mu.Unlock()
 	}

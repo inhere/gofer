@@ -802,6 +802,51 @@ func TestBoundedSinkTruncates(t *testing.T) {
 	}
 }
 
+// TestDuplicateResultIgnored (RECOV-01): the terminal result is delivered EXACTLY
+// once per sink. A worker that finished a job while its connection was down replays
+// the Result after reconnecting — that replay must not re-finish an already-finished
+// job (which would re-enter the host job's terminal path: a duplicate terminal event,
+// a second workflow advance). Only the FIRST result reaches the Run wait.
+func TestDuplicateResultIgnored(t *testing.T) {
+	var out bytes.Buffer
+	s := newBoundedSink(&out, &out, nil)
+
+	s.Finish(wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
+	first, ok := <-s.resultCh
+	if !ok || first.Status != "done" {
+		t.Fatalf("first result = %+v, want done", first)
+	}
+	// The replayed frame (a different outcome!) must be dropped, not queued again.
+	s.Finish(wsproto.Result{JobID: "j1", Status: "failed", ExitCode: -1, Error: "replay"})
+	select {
+	case dup := <-s.resultCh:
+		t.Fatalf("duplicate result was delivered again: %+v", dup)
+	default:
+	}
+}
+
+// TestBoundedSinkSuspendReportsServerOffsets (RECOV-01): Suspend must report the
+// bytes the HOST has durably written per stream — the offsets the hub echoes in the
+// resume ack — and must keep them per stream (a stderr frame never advances stdout).
+func TestBoundedSinkSuspendReportsServerOffsets(t *testing.T) {
+	var out, errOut bytes.Buffer
+	var reason string
+	s := newBoundedSink(&out, &errOut, nil)
+	s.onSuspend = func(r string) { reason = r }
+
+	s.WriteLog("stdout", 1, "hello")
+	s.WriteLog("stderr", 2, "oops")
+	s.WriteLog("stdout", 3, " world")
+
+	stdoutOff, stderrOff := s.Suspend("worker disconnected")
+	if stdoutOff != int64(len("hello world")) || stderrOff != int64(len("oops")) {
+		t.Fatalf("offsets = (%d,%d), want (%d,%d)", stdoutOff, stderrOff, len("hello world"), len("oops"))
+	}
+	if reason != "worker disconnected" {
+		t.Fatalf("onSuspend reason = %q", reason)
+	}
+}
+
 // TestBoundedSinkOnRenderedFiresOnce verifies the sink pushes the worker's rendered
 // command onto the running host entry as soon as the first outcome carrying it
 // arrives (G1) and only once — the later full outcome must not re-fire it, and an

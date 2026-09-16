@@ -20,7 +20,9 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/inhere/gofer/internal/ptyrelay"
@@ -179,6 +181,11 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	}()
 
 	sink := newBoundedSink(req.Stdout, req.Stderr, req.OnRendered)
+	// RECOV-01: the hub holds this job in `recovering` while the worker's connection
+	// is down (Suspend) and returns it to `running` when the same worker process
+	// proves it still runs it (Resume). Both are nil for a local job.
+	sink.onSuspend = req.OnSuspend
+	sink.onResume = req.OnResume
 	// Wire the interaction bridge: an inbound interaction{open} is injected onto
 	// the host job (via req.Interactions, the same remoteInteractionSink peer-http
 	// uses) and the host-side answer is sent back over WS (hub.Answer). Mirrors
@@ -360,10 +367,23 @@ type boundedSink struct {
 	// host job entry the moment it arrives (G1), so `job show`/web reflect WHAT is
 	// running immediately — not only at completion. Fired at most once.
 	onRendered func(string)
+	// onSuspend / onResume (nil-safe) drive the host job's `recovering` state
+	// (RECOV-01): the hub calls Suspend when the worker connection dropped but the
+	// job is being held, Resume when the same worker process proved it still runs it.
+	onSuspend func(reason string)
+	onResume  func()
 
 	mu              sync.Mutex
 	truncated       bool
 	renderedApplied bool // onRendered fired (guards the once semantics)
+	// delivered latches the terminal result: Finish delivers at most one result per
+	// job even if the worker replays it (RECOV-01).
+	delivered atomic.Bool
+	// stdoutOff / stderrOff count the bytes this sink has DURABLY written to each
+	// stream. They are the SERVER-side offsets a resuming worker is rewound to
+	// (RECOV-01): a frame that fails to write never advances them, so "what the host
+	// has" and "what the worker may re-send from" can never drift apart.
+	stdoutOff, stderrOff int64
 	// outcome stashes the latest P4 worker-captured产出 frame, delivered just before
 	// the terminal result frame (strict read-loop ordering). Run reads it after the
 	// result lands and returns it on runner.Result.Outcome. nil when an old worker
@@ -383,12 +403,18 @@ func newBoundedSink(stdout, stderr io.Writer, onRendered func(string)) *boundedS
 
 // WriteLog implements wshub.JobSink: it writes text to the matching stream
 // writer, capping oversize frames and appending a one-time truncation marker.
+//
+// It also counts the bytes actually written per stream (RECOV-01): those offsets
+// are the authoritative server-side positions a resuming worker is rewound to, so
+// the count must reflect ONLY what landed (a short/failed write advances it by what
+// the writer took, and no write at all advances nothing).
 func (s *boundedSink) WriteLog(stream string, _ int, text string) {
 	if text == "" {
 		return
 	}
 	w := s.stdout
-	if stream == "stderr" {
+	stderrStream := stream == "stderr"
+	if stderrStream {
 		w = s.stderr
 	}
 	if w == nil {
@@ -400,13 +426,53 @@ func (s *boundedSink) WriteLog(stream string, _ int, text string) {
 		first := !s.truncated
 		s.truncated = true
 		s.mu.Unlock()
-		_, _ = io.WriteString(w, text)
+		n, _ := io.WriteString(w, text)
 		if first {
-			_, _ = io.WriteString(w, sinkTruncateMark)
+			n2, _ := io.WriteString(w, sinkTruncateMark)
+			n += n2
 		}
+		s.addOffset(stderrStream, int64(n))
 		return
 	}
-	_, _ = io.WriteString(w, text)
+	n, _ := io.WriteString(w, text)
+	s.addOffset(stderrStream, int64(n))
+}
+
+// addOffset advances the per-stream mirrored-byte counter by n (n <= 0 is a no-op:
+// a failed write must never move the resume point forward).
+func (s *boundedSink) addOffset(stderr bool, n int64) {
+	if n <= 0 {
+		return
+	}
+	s.mu.Lock()
+	if stderr {
+		s.stderrOff += n
+	} else {
+		s.stdoutOff += n
+	}
+	s.mu.Unlock()
+}
+
+// Suspend implements wshub.JobSink (RECOV-01): the worker connection dropped while
+// this job was in flight and the hub is holding it for a possible reconnect. It
+// moves the host job to `recovering` and returns the byte counts the host has
+// durably written, which the hub echoes in the resume ack.
+func (s *boundedSink) Suspend(reason string) (int64, int64) {
+	s.mu.Lock()
+	out, errOut := s.stdoutOff, s.stderrOff
+	s.mu.Unlock()
+	if s.onSuspend != nil {
+		s.onSuspend(reason)
+	}
+	return out, errOut
+}
+
+// Resume implements wshub.JobSink (RECOV-01): the same worker process came back
+// and still runs this job, so the host job returns to `running`.
+func (s *boundedSink) Resume() {
+	if s.onResume != nil {
+		s.onResume()
+	}
 }
 
 // OnInteraction implements wshub.JobSink: it forwards one worker interaction frame
@@ -450,8 +516,19 @@ func (s *boundedSink) takeOutcome() *wsproto.Outcome {
 }
 
 // Finish implements wshub.JobSink: it delivers the terminal result, non-blocking
-// (a duplicate result is dropped).
+// and EXACTLY ONCE (a duplicate result is dropped with a debug line).
+//
+// Recovery (RECOV-01) makes the duplicate case reachable: a worker that finished a
+// job while its connection was down replays the Result after reconnecting (and the
+// design relies on that replay being idempotent). A job must never be finished twice
+// — the second Finish would re-enter the host job's terminal path (a second event,
+// a second workflow advance attempt) for a job that is already terminal.
 func (s *boundedSink) Finish(res wsproto.Result) {
+	if !s.delivered.CompareAndSwap(false, true) {
+		slog.Debug("worker.result_duplicate", "event", "worker.result_duplicate", "component", "server",
+			"job_id", res.JobID, "status", res.Status, "reason", "result already delivered")
+		return
+	}
 	select {
 	case s.resultCh <- res:
 	default:

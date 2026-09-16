@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"sync"
 	"time"
 
 	"github.com/coder/websocket"
@@ -104,6 +105,20 @@ type Hub struct {
 	// policy itself (verification 17: internal/wshub depends only on internal/wsproto).
 	// nil (T1 default, until T3 wires corePolicySource) ⇒ PushPolicyAll is a no-op.
 	policySrc PolicySource
+
+	// recoverWindow is the RECOV-01 reconnect window (server.job_recover_window_sec,
+	// resolved by config.JobRecoverWindow and set at assemble time via
+	// SetRecoverWindow). 0 DISABLES recovery: a worker disconnect fails its
+	// in-flight jobs immediately, exactly as before RECOV-01. Immutable after
+	// assemble, so it needs no lock.
+	recoverWindow time.Duration
+
+	// recMu guards recov — the jobs held in `recovering` per worker. It is a LEAF
+	// lock: it is never held across a sink call (Suspend/Resume/OnDisconnect flip the
+	// host job and hit the DB) nor across a registry lock, so a slow sink can never
+	// block the hub's recovery decisions for other workers.
+	recMu sync.Mutex
+	recov map[string]*recoverySet
 }
 
 // PolicySource is the seam through which the hub obtains the Policy for one
@@ -132,6 +147,7 @@ func New(bindings map[string]string) *Hub {
 		bindings: bindings,
 		nowFn:    time.Now,
 		hb:       HeartbeatConfig{}.withDefaults(),
+		recov:    map[string]*recoverySet{},
 	}
 }
 
@@ -331,6 +347,13 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 		ServerTime:      h.nowMillis(),
 		ProtocolVersion: wsproto.CurrentProtocolVersion,
 	}
+	// RECOV-01: decide what happens to this worker's jobs held in `recovering` BEFORE
+	// the ack is written, because the resume entries (with the server-side log
+	// offsets) must ride ON the ack — the worker has to rewind before it resumes
+	// streaming. The sinks themselves are attached after Put (step 4) so they land on
+	// the registered connection.
+	plan := h.planRecovery(reg)
+	ack.Resume = plan.resumeEntries()
 	ackedRev := int64(0)
 	if h.policySrc != nil && wsproto.SupportsPolicy(reg.ProtocolVersion) {
 		if p, ok := h.policySrc.PolicyFor(reg.WorkerID); ok {
@@ -339,6 +362,9 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 		}
 	}
 	if err := wc.writeFrame(ctx, wsproto.TypeRegistered, "", ack); err != nil {
+		// The worker never learned the outcome: the jobs stay recovering and the
+		// window is re-armed rather than letting them vanish from the hub's books.
+		h.restoreRecovery(reg.WorkerID, plan)
 		return
 	}
 	if ack.Policy != nil {
@@ -353,9 +379,20 @@ func (h *Hub) Accept(w http.ResponseWriter, req *http.Request, callerID string) 
 	// instance_id (same process reconnecting). A new instance_id means the worker
 	// restarted, so the old conn is left un-superseded and gracefulClose's teardown
 	// fails its now-dead jobs (z8ow).
+	//
+	// A superseded conn's still-running jobs move WITH the process: adopt transfers
+	// their sinks and in-flight slots to this connection, so the frames that keep
+	// arriving (and the terminal Result) have a sink to land on instead of being
+	// dropped until the host times the job out.
 	if old := h.reg.Put(wc); old != nil {
+		if old.superseded.Load() {
+			wc.adopt(old)
+		}
 		old.gracefulClose("replaced by new registration")
 	}
+	// RECOV-01: attach the recovering jobs' sinks to the live connection and resume
+	// the ones the worker confirmed it still runs (status back to `running`).
+	h.applyRecovery(wc, plan)
 	slog.Info("worker.registered", "event", "worker.registered", "component", "server", "worker_id", reg.WorkerID, "remote", req.RemoteAddr,
 		"hostname", reg.Hostname, "labels", reg.Labels, "max_concurrent", reg.MaxConcurrent,
 		"proto", reg.ProtocolVersion, "os", reg.OS, "arch", reg.Arch,
@@ -421,6 +458,10 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 			return // disconnect / read-deadline / ctx done → caller runs onDisconnect
 		}
 		wc.lastHeartbeat.Store(h.nowFn().Unix())
+		// RECOV-01: a frame addressed to a job this hub is still holding in
+		// `recovering` is proof that the worker process still has it — resume it (and
+		// deliver any cancel recorded meanwhile). A cheap no-op for every other job.
+		h.markLive(wc, env.JobID)
 		switch env.Type {
 		case wsproto.TypeLog:
 			lf, derr := wsproto.As[wsproto.Log](env)
@@ -454,7 +495,14 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 			// A terminal result frees the in-flight slot (§3.1) BEFORE the sink is
 			// notified, so a worker that immediately re-dispatches is not falsely at
 			// capacity. The sink (workerRunner) deregisters separately on Run exit.
-			wc.release(env.JobID)
+			// A result for a job that is NOT in flight is a replay/duplicate (RECOV-01:
+			// a worker re-sends the result of a job that finished while its connection
+			// was down): the sink drops the second delivery itself, and the debug line
+			// is what makes the duplicate visible at all.
+			if !wc.release(env.JobID) {
+				slog.Debug("worker.result_duplicate", "event", "worker.result_duplicate", "component", "server",
+					"worker_id", wc.workerID, "job_id", env.JobID, "status", rf.Status)
+			}
 			if sk := wc.sink(env.JobID); sk != nil {
 				sk.Finish(rf)
 			}
@@ -519,16 +567,26 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 }
 
 // onDisconnect runs when a connection's read loop has exited: it stops the
-// heartbeat goroutine, evicts the connection from the registry and fails every
-// in-flight server-side job (worker-lost MVP, §5.3) — UNLESS the connection was
-// superseded by a same-worker_id, same-instance replacement (§5.5), in which case
-// the same worker process has taken the jobs over and they must NOT be failed. A
-// replacement by a DIFFERENT instance (worker restart) is left un-superseded by Put,
-// so this path correctly fails the dead process's in-flight jobs (z8ow).
+// heartbeat goroutine, evicts the connection from the registry and disposes of
+// every in-flight server-side job — UNLESS the connection was superseded by a
+// same-worker_id, same-instance replacement (§5.5), in which case the same worker
+// process has taken the jobs over and they must NOT be failed. A replacement by a
+// DIFFERENT instance (worker restart) is left un-superseded by Put, so this path
+// correctly fails the dead process's in-flight jobs (z8ow).
 //
-// Worker-lost is signalled through each in-flight job's sink (OnDisconnect),
-// keeping the hub free of any runner/job import. The sink unblocks the
-// workerRunner.Run wait with a worker-disconnected error → classify → StatusFailed.
+// Disposal has two modes (RECOV-01):
+//
+//   - recovery DISABLED (recoverWindow == 0, the pre-RECOV-01 behaviour): each
+//     in-flight job is failed immediately through its sink's OnDisconnect
+//     (errWorkerDisconnected).
+//   - recovery ENABLED: each in-flight job is put in `recovering` through its
+//     sink's Suspend and the per-worker window is armed; the jobs are only failed
+//     (errWorkerLost) if the same worker process does not come back and prove it
+//     still runs them within that window.
+//
+// Either way the hub stays free of any runner/job import: the sink is what
+// unblocks the workerRunner.Run wait (worker-disconnected error → classify →
+// StatusFailed), and it is the sink that knows how to hold a job in `recovering`.
 func (h *Hub) onDisconnect(wc *workerConn) {
 	wc.closeDone() // stop the heartbeat sender
 	h.reg.Remove(wc.workerID, wc)
@@ -537,7 +595,12 @@ func (h *Hub) onDisconnect(wc *workerConn) {
 		// Replaced connection: the new conn owns these jobs now. Do NOT fail them.
 		return
 	}
-	for _, jobID := range wc.inflightJobs() {
+	jobIDs := wc.inflightJobs()
+	if h.recoverWindow > 0 {
+		h.suspendOnDisconnect(wc, jobIDs)
+		return
+	}
+	for _, jobID := range jobIDs {
 		wc.release(jobID)
 		if sk := wc.sink(jobID); sk != nil {
 			sk.OnDisconnect(errWorkerDisconnected)
@@ -647,11 +710,20 @@ func (h *Hub) Answer(workerID, jobID, interactionID, answer string) error {
 }
 
 // Cancel sends a cancel frame to the worker so it cancels the matching local job
-// (P2). It errors when the worker is offline (best-effort: the host classifies
-// the job from its own ctx regardless, so a lost cancel never strands the host).
+// (P2). It errors when the worker is offline (best-effort: the host classifies the
+// job from its own ctx regardless, so a lost cancel never strands the host).
+//
+// RECOV-01: when the worker is offline but the job is being held in `recovering`
+// for it, the intent is RECORDED and delivered as soon as that job is resumed —
+// otherwise a cancel issued during the outage would be lost and the worker would
+// keep running a job the host has already finished as cancelled.
 func (h *Hub) Cancel(workerID, jobID string) error {
 	wc, ok := h.reg.Get(workerID)
 	if !ok {
+		if h.recordPendingCancel(workerID, jobID) {
+			slog.Info("worker.cancel_deferred", "event", "worker.cancel_deferred", "component", "server",
+				"worker_id", workerID, "job_id", jobID, "reason", "worker recovering")
+		}
 		return ErrWorkerOffline
 	}
 	return wc.writeFrame(context.Background(), wsproto.TypeCancel, jobID, wsproto.Cancel{JobID: jobID})

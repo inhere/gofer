@@ -66,6 +66,8 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		TimeoutSec:          r.TimeoutSec,
 		RequestedTimeoutSec: r.RequestedTimeoutSec,
 		TimeoutClamped:      r.TimeoutClamped,
+		// RECOV-01：进入 recovering 的时刻（0=不在 recovering）。
+		RecoveringSince: r.RecoveringSince,
 	}
 }
 
@@ -144,6 +146,8 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		TimeoutSec:          rec.TimeoutSec,
 		RequestedTimeoutSec: rec.RequestedTimeoutSec,
 		TimeoutClamped:      rec.TimeoutClamped,
+		// RECOV-01：进入 recovering 的时刻（旧行 0 = 从未 recovering）。
+		RecoveringSince: rec.RecoveringSince,
 	}
 }
 

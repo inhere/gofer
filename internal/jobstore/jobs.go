@@ -103,6 +103,10 @@ type JobRecord struct {
 	// 派生（旧库 COALESCE→""）。与 job.JobResult.SourceJobID 互转；反查 ?source_job=。
 	// 注意区别既有 Source 列（执行位置 worker:/peer:）。
 	SourceJobID string
+	// RecoveringSince is the unix time the job entered the RECOV-01 `recovering`
+	// state (0 = never / not recovering). Old rows COALESCE to 0, which reads as
+	// "not recovering" — exactly the pre-RECOV-01 meaning.
+	RecoveringSince int64
 	// TimeoutSec / RequestedTimeoutSec / TimeoutClamped 是 job 超时上限可配（bd h-aii-s9ck）
 	// 的三元组：生效 deadline 秒数（0=无 deadline）、调用方请求值（0=未指定）、请求是否被上限
 	// 截断。旧库/旧 job 经 selectCols COALESCE 成 0/0/false，含义是"未记录"，不会被误判成
@@ -144,7 +148,8 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,
 	COALESCE(session_id,''), COALESCE(channel,''), COALESCE(client,''),
 	COALESCE(origin_agent,''), COALESCE(escalate_to,''),
   COALESCE(role,''), COALESCE(plan_id,''), COALESCE(source_job_id,''),
-  COALESCE(timeout_sec,0), COALESCE(requested_timeout_sec,0), COALESCE(timeout_clamped,0) FROM jobs`
+  COALESCE(timeout_sec,0), COALESCE(requested_timeout_sec,0), COALESCE(timeout_clamped,0),
+  COALESCE(recovering_since,0) FROM jobs`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -166,6 +171,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.SessionID, &r.Channel, &r.Client,
 		&r.OriginAgent, &r.EscalateTo, &r.Role, &r.PlanID, &r.SourceJobID,
 		&r.TimeoutSec, &r.RequestedTimeoutSec, &timeoutClamped,
+		&r.RecoveringSince,
 	)
 	r.Interactive = interactive != 0
 	r.TimeoutClamped = timeoutClamped != 0
@@ -190,8 +196,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 	    rendered_command, result_json, artifacts_json, diff_summary, source, tags_json,
 	    workflow_id, step_index, attempt, fan_index, session_id, channel, client,
 	    origin_agent, escalate_to, role, plan_id, source_job_id,
-	    timeout_sec, requested_timeout_sec, timeout_clamped)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	    timeout_sec, requested_timeout_sec, timeout_clamped, recovering_since)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -229,7 +235,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     source_job_id=excluded.source_job_id,
     timeout_sec=excluded.timeout_sec,
     requested_timeout_sec=excluded.requested_timeout_sec,
-    timeout_clamped=excluded.timeout_clamped`
+    timeout_clamped=excluded.timeout_clamped,
+    recovering_since=excluded.recovering_since`
 	// Serialise writes in-process (see Store.writeMu) so SQLite never sees two
 	// concurrent writers and cannot return SQLITE_BUSY under burst.
 	s.writeMu.Lock()
@@ -245,6 +252,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.SessionID, rec.Channel, rec.Client,
 		rec.OriginAgent, rec.EscalateTo, rec.Role, rec.PlanID, rec.SourceJobID,
 		rec.TimeoutSec, rec.RequestedTimeoutSec, rec.TimeoutClamped,
+		rec.RecoveringSince,
 	)
 	if err != nil {
 		// A competing INSERT with the same non-empty request_id (different id)

@@ -24,10 +24,19 @@ type fakeSink struct {
 	events   []string // "log:<text>" / "finish:<status>" / "disconnect:<err>" in arrival order
 	finished chan wsproto.Result
 	lost     chan error
+	// resumed receives one value per Resume() (RECOV-01), so a test can wait for the
+	// reconnecting worker's job to be back in `running`. stdoutOff/stderrOff are the
+	// canned server-side offsets Suspend reports.
+	resumed              chan struct{}
+	stdoutOff, stderrOff int64
 }
 
 func newFakeSink() *fakeSink {
-	return &fakeSink{finished: make(chan wsproto.Result, 1), lost: make(chan error, 1)}
+	return &fakeSink{
+		finished: make(chan wsproto.Result, 1),
+		lost:     make(chan error, 1),
+		resumed:  make(chan struct{}, 1),
+	}
 }
 
 func (s *fakeSink) WriteLog(_ string, _ int, text string) {
@@ -64,6 +73,27 @@ func (s *fakeSink) OnDisconnect(err error) {
 	s.mu.Unlock()
 	select {
 	case s.lost <- err:
+	default:
+	}
+}
+
+// Suspend/Resume record the RECOV-01 transitions in the same ordered event list, so
+// a test can assert the exact sequence (suspend → resume → finish) a recovering job
+// goes through. stdoutOff/stderrOff are the canned offsets the hub would echo in the
+// resume ack; a test sets them to model "the host has N bytes".
+func (s *fakeSink) Suspend(reason string) (int64, int64) {
+	s.mu.Lock()
+	s.events = append(s.events, "suspend:"+reason)
+	s.mu.Unlock()
+	return s.stdoutOff, s.stderrOff
+}
+
+func (s *fakeSink) Resume() {
+	s.mu.Lock()
+	s.events = append(s.events, "resume")
+	s.mu.Unlock()
+	select {
+	case s.resumed <- struct{}{}:
 	default:
 	}
 }

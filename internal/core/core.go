@@ -206,6 +206,12 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	// runner references the same hub instance). Its token→worker bindings come
 	// from cfg.Server.Workers (review #1: worker_id is its own caller id).
 	hub := wshub.New(workerBindings(cfg))
+	// RECOV-01: hand the hub the worker reconnect window (server.job_recover_window_sec;
+	// unset ⇒ 120s, explicit 0 ⇒ recovery disabled = pre-RECOV-01 behaviour). It is
+	// resolved ONCE at assemble time, like the heartbeat timings: changing the window
+	// is a restart-level setting, not a hot-reload one, so it never depends on which
+	// config snapshot a later reload swaps in.
+	hub.SetRecoverWindow(cfg.JobRecoverWindow())
 	relayNonces := ptyrelay.NewNonceStore()
 	ptyRelays := ptyrelay.NewRegistry()
 

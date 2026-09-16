@@ -65,6 +65,17 @@ type Request struct {
 	// (it lacks that worker's agent config), so a worker/peer reports it out-of-band.
 	// Local runs set the rendered command inline and leave this nil.
 	OnRendered func(rendered string)
+
+	// OnSuspend (nil-safe) is invoked by a remote runner when the executing machine's
+	// connection dropped but the job is being HELD for a possible reconnect (RECOV-01)
+	// instead of failed: the host job moves to `recovering` and keeps its timeout
+	// running. Local runs leave it nil.
+	OnSuspend func(reason string)
+	// OnResume (nil-safe) is called when that connection came back and the executing
+	// machine still runs the job: the host job returns to `running` (RECOV-01). It
+	// must be safe to call after a terminal signal (it is a no-op then). Local runs
+	// leave it nil.
+	OnResume func()
 }
 
 // RemoteInteractionOption mirrors a peer interaction option without importing the

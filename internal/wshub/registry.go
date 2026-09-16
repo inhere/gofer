@@ -170,10 +170,55 @@ func (wc *workerConn) tryReserve(jobID string) bool {
 	return true
 }
 
-// release removes jobID from the in-flight set (on result / cancel / disconnect).
-func (wc *workerConn) release(jobID string) {
+// release removes jobID from the in-flight set (on result / cancel / disconnect),
+// reporting whether it was actually there: a Result for a job that is NOT in flight
+// is a duplicate/replay (RECOV-01) rather than the job's first terminal frame.
+func (wc *workerConn) release(jobID string) bool {
 	wc.mu.Lock()
+	_, ok := wc.inflight[jobID]
 	delete(wc.inflight, jobID)
+	wc.mu.Unlock()
+	return ok
+}
+
+// adoptReserve re-adds jobID to the in-flight set WITHOUT the capacity check: the
+// job was already admitted when it was first dispatched and is still running on the
+// worker (it is being carried over a reconnect), so re-admitting it must not be
+// refused by a cap the restarted view may momentarily exceed.
+func (wc *workerConn) adoptReserve(jobID string) {
+	wc.mu.Lock()
+	wc.inflight[jobID] = struct{}{}
+	wc.mu.Unlock()
+}
+
+// adopt moves the per-job sinks and in-flight reservations of a SUPERSEDED
+// connection onto this one (§5.5): the same worker process reconnected while its
+// jobs keep running, so bookkeeping must follow the live connection — otherwise
+// every frame for those jobs would arrive on a connection with no sink to demux to,
+// and the job would be silently reduced to its logs being dropped until the host
+// timeout. The old connection is drained of its maps first so a late frame on it
+// cannot deliver a second time through a half-moved state.
+func (wc *workerConn) adopt(old *workerConn) {
+	old.mu.Lock()
+	sinks := make(map[string]JobSink, len(old.sinks))
+	for id, sk := range old.sinks {
+		sinks[id] = sk
+	}
+	inflight := make([]string, 0, len(old.inflight))
+	for id := range old.inflight {
+		inflight = append(inflight, id)
+	}
+	old.sinks = map[string]JobSink{}
+	old.inflight = map[string]struct{}{}
+	old.mu.Unlock()
+
+	wc.mu.Lock()
+	for id, sk := range sinks {
+		wc.sinks[id] = sk
+	}
+	for _, id := range inflight {
+		wc.inflight[id] = struct{}{}
+	}
 	wc.mu.Unlock()
 }
 

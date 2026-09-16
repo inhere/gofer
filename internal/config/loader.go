@@ -393,6 +393,12 @@ func validate(cfg *Config) error {
 	if cfg.Server.MaxJobTimeoutSec < 0 {
 		return fmt.Errorf("server.max_job_timeout_sec must be >= 0")
 	}
+	// RECOV-01: a negative recovery window has no meaning (nil = default 120s,
+	// 0 = recovery disabled); reject it at load rather than silently treating it as
+	// "disabled" or clamping it to something surprising at disconnect time.
+	if w := cfg.Server.JobRecoverWindowSec; w != nil && *w < 0 {
+		return fmt.Errorf("server.job_recover_window_sec must be >= 0")
+	}
 	// OBS-07a: an unknown webhook kind must fail at load, not silently fall back to
 	// the generic body (an IM bot would then reject every delivery at post time).
 	if n := cfg.Server.Notification; n != nil {

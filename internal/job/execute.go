@@ -97,6 +97,12 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 	req.OnRendered = func(rendered string) {
 		s.setRunningRenderedCommand(entry, req.JobID, rendered)
 	}
+	// RECOV-01: a worker connection drop holds the job in `recovering` instead of
+	// failing it (the hub decides; the runner only relays what the hub reported), and
+	// a successful reconnect returns it to `running`. Both are no-ops for a local job
+	// (the runner never calls them) and for a job that already reached terminal.
+	req.OnSuspend = func(reason string) { s.setRecovering(entry, req.JobID, reason) }
+	req.OnResume = func() { s.clearRecovering(entry, req.JobID) }
 	res := run.Run(ctx, req)
 
 	// Close the per-job log streams NOW, before finish() makes the terminal
