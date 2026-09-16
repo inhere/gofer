@@ -358,7 +358,15 @@ type PolicyProject struct {
 	// null and [] as equivalent — judge by len, never by nil-ness (MEDIUM-1).
 	AllowedAgents            []string `json:"allowed_agents"`
 	InteractiveAllowedAgents []string `json:"interactive_allowed_agents"`
-	AllowExec                bool     `json:"allow_exec"`
+	// AllowInteractive is the project's interactive-job switch (AGT-02 §2). It is a
+	// pointer for the same "unset ≠ explicit false" reason as CaptureDiff below: a
+	// pre-AGT-02 server does not send it at all, and the worker must then fall back
+	// to the legacy reading of InteractiveAllowedAgents (non-empty = allowed) instead
+	// of treating the absent field as a denial. A server that does send it sends the
+	// RESOLVED value (ProjectConfig.IsInteractiveAllowed), so a plain false here is
+	// an explicit "no interactive jobs" even with a leftover allowlist.
+	AllowInteractive *bool `json:"allow_interactive,omitempty"`
+	AllowExec        bool  `json:"allow_exec"`
 	// MaxConcurrentJobs uses omitempty (H2): "not sent" == 0 == unlimited concurrency.
 	MaxConcurrentJobs int `json:"max_concurrent_jobs,omitempty"`
 	// CaptureDiff is *bool (H2): "not sent" (nil) == default-on; only a present false

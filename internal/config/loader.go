@@ -4,10 +4,13 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"fmt"
+	"log/slog"
+	"maps"
 	"os"
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 
 	yaml "github.com/goccy/go-yaml"
@@ -94,6 +97,7 @@ func Load(explicitPath string) (*Config, string, error) {
 	}
 
 	ApplyDefaults(cfg)
+	warnLegacyInteractiveProjects(cfg)
 	if err := validate(cfg); err != nil {
 		return nil, path, fmt.Errorf("invalid config %s: %w", path, err)
 	}
@@ -290,6 +294,21 @@ func ApplyDefaults(cfg *Config) {
 	// before validate so the combination check below sees the effective TTL.
 	if cfg.Storage.Cast.Enabled && cfg.Storage.Cast.RetentionTTLHours == 0 {
 		cfg.Storage.Cast.RetentionTTLHours = castDefaultTTLHours
+	}
+}
+
+// warnLegacyInteractiveProjects logs one line per project that still relies on the
+// pre-AGT-02 interactive switch: a non-empty interactive_allowed_agents with
+// allow_interactive left unwritten. The combination keeps working (the compat rule
+// in ProjectConfig.IsInteractiveAllowed), but the field to read from now on is the
+// switch — nudge the operator once per load. Keys are sorted for stable output.
+func warnLegacyInteractiveProjects(cfg *Config) {
+	for _, key := range slices.Sorted(maps.Keys(cfg.Projects)) {
+		p := cfg.Projects[key]
+		if p.AllowInteractive == nil && len(p.InteractiveAllowedAgents) > 0 {
+			slog.Warn("project allows interactive jobs through the legacy interactive_allowed_agents list; write allow_interactive explicitly",
+				"project", key)
+		}
 	}
 }
 

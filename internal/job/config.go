@@ -93,6 +93,13 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 	}
 
 	if req.Interactive {
+		// Three independent gates, in the order the operator can act on them: the
+		// project switch (allow_interactive, with the legacy interactive_allowed_agents
+		// fallback folded in by IsInteractiveAllowed), then the agent's own capability,
+		// then the optional narrowing list.
+		if !proj.IsInteractiveAllowed() {
+			return config.ProjectConfig{}, fmt.Errorf("%w: project %q does not allow interactive jobs (allow_interactive)", ErrInvalidRequest, req.ProjectKey)
+		}
 		if remote && !isWorkerRunner(cfg, req.Runner) {
 			return config.ProjectConfig{}, fmt.Errorf("%w: interactive not supported on peer runner", ErrInvalidRequest)
 		}
@@ -109,11 +116,12 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 		if !hasInteractive {
 			return config.ProjectConfig{}, fmt.Errorf("%w: agent %q has no interactive mode", ErrInvalidRequest, interactiveAgent)
 		}
-		if !slices.Contains(proj.InteractiveAllowedAgents, interactiveAgent) {
+		// The narrowing list is OPTIONAL (AGT-02): empty means "no narrowing", the
+		// switch above is the on/off gate. A type-exec agent never reaches this point
+		// with a mode (Modes reports exec as batch-only, and setting interactive_args
+		// on exec is a load error), so no separate non-exec check is needed here.
+		if len(proj.InteractiveAllowedAgents) > 0 && !slices.Contains(proj.InteractiveAllowedAgents, interactiveAgent) {
 			return config.ProjectConfig{}, fmt.Errorf("%w: agent %q not in interactive_allowed_agents", ErrInvalidRequest, interactiveAgent)
-		}
-		if ac.Type == agent.TypeExec {
-			return config.ProjectConfig{}, fmt.Errorf("%w: interactive agent must be non-exec", ErrInvalidRequest)
 		}
 		if len(req.Cmd) > 0 && !resumeCarrier {
 			return config.ProjectConfig{}, fmt.Errorf("%w: interactive job cannot override Cmd", ErrInvalidRequest)

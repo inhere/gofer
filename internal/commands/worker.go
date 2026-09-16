@@ -544,8 +544,13 @@ func workerModeOf(wc *config.WorkerConfig) workerMode {
 //   - AllowExec is the policy's AND the worker's exec guard (guards only tighten);
 //   - AllowedAgents is passed through VERBATIM — no intersection with cfg.Agents, whose
 //     empty-list-means-all semantics would silently open every agent (D6, verification 13);
-//   - InteractiveAllowedAgents is passed through, but CLEARED when the interactive guard
-//     is explicitly false (empty = all forbidden, the opposite polarity of AllowedAgents);
+//   - InteractiveAllowedAgents is the optional NARROWING (AGT-02) and is passed
+//     through, but CLEARED when the interactive guard is explicitly false — the
+//     guard's denial is carried by AllowInteractive below, and leaving a narrowing
+//     list without a switch would be a half-tightened config;
+//   - AllowInteractive is the resolved project switch AND the worker's interactive
+//     guard (guards only tighten; a pre-AGT-02 server sends no switch and the legacy
+//     list decides — policyAllowsInteractive);
 //   - MaxConcurrentJobs / CaptureDiff are passed through verbatim (H2: dropping them
 //     would silently mean unlimited concurrency / diff-on, verification 14).
 //
@@ -568,6 +573,7 @@ func projectPolicy(wc *config.WorkerConfig, p wsproto.Policy) (*config.Config, [
 			AllowExec:                pp.AllowExec && wc.Guards.IsExecAllowed(),
 			AllowedAgents:            pp.AllowedAgents,
 			InteractiveAllowedAgents: policyInteractiveAgents(pp, wc),
+			AllowInteractive:         policyAllowInteractive(pp, wc),
 			MaxConcurrentJobs:        pp.MaxConcurrentJobs,
 			CaptureDiff:              pp.CaptureDiff,
 		}
@@ -576,10 +582,32 @@ func projectPolicy(wc *config.WorkerConfig, p wsproto.Policy) (*config.Config, [
 	return cfg, rejected
 }
 
-// policyInteractiveAgents passes the policy's interactive allowlist through verbatim,
-// but returns nil (clear) when the worker's interactive guard is explicitly false —
-// an empty InteractiveAllowedAgents means "all interactive agents forbidden", so
-// clearing it is how the guard tightens (opposite polarity to AllowedAgents).
+// policyAllowsInteractive reports whether the POLICY's project asks for interactive
+// jobs, ignoring the worker guard: the server's resolved allow_interactive when it
+// sent one, else the legacy reading of the interactive allowlist (a pre-AGT-02
+// server sends no switch, and there a non-empty list WAS "interactive allowed").
+func policyAllowsInteractive(pp wsproto.PolicyProject) bool {
+	if pp.AllowInteractive != nil {
+		return *pp.AllowInteractive
+	}
+	return len(pp.InteractiveAllowedAgents) > 0
+}
+
+// policyAllowInteractive resolves the worker-side project switch: the server's ask
+// AND the worker's own guard (a guard only ever tightens, so an explicit
+// guards.allow_interactive:false denies regardless of the pushed policy). The
+// result is always explicit — the worker's local config has no legacy list to fall
+// back on once policyInteractiveAgents has cleared it.
+func policyAllowInteractive(pp wsproto.PolicyProject, wc *config.WorkerConfig) *bool {
+	allowed := policyAllowsInteractive(pp) && wc.Guards.IsInteractiveAllowed()
+	return &allowed
+}
+
+// policyInteractiveAgents passes the policy's interactive narrowing list through
+// verbatim, but returns nil (clear) when the worker's interactive guard is explicitly
+// false: the denial itself rides on AllowInteractive, and a narrowing list under a
+// switched-off project would only be noise (opposite polarity to AllowedAgents,
+// where an empty list means "all allowed").
 func policyInteractiveAgents(pp wsproto.PolicyProject, wc *config.WorkerConfig) []string {
 	if !wc.Guards.IsInteractiveAllowed() {
 		return nil
@@ -600,7 +628,7 @@ func diagnosePolicy(cfg *config.Config, p wsproto.Policy, wc *config.WorkerConfi
 		if pp.AllowExec && !wc.Guards.IsExecAllowed() {
 			out = append(out, wsproto.AppliedDegrade{Key: pp.Key, Gate: "exec"})
 		}
-		if len(pp.InteractiveAllowedAgents) > 0 && !wc.Guards.IsInteractiveAllowed() {
+		if policyAllowsInteractive(pp) && !wc.Guards.IsInteractiveAllowed() {
 			out = append(out, wsproto.AppliedDegrade{Key: pp.Key, Gate: "interactive"})
 		}
 		for _, a := range pp.AllowedAgents {

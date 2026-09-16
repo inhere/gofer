@@ -80,16 +80,25 @@ func projectReachesWorker(cfg *config.Config, proj config.ProjectConfig, workerI
 
 // projectToPolicy maps a server ProjectConfig onto its wire PolicyProject. HostPath
 // is the server's host_path verbatim (it IS the logical path; ContainerPath is never
-//下发). MaxConcurrentJobs / CaptureDiff ride along unchanged (H2). AllowedAgents /
+// 下发). MaxConcurrentJobs / CaptureDiff ride along unchanged (H2). AllowedAgents /
 // InteractiveAllowedAgents are forced NON-nil so the wire form is `[]`, never null
 // (MEDIUM-1: a nil slice marshals to null, which a downstream must not confuse with
 // "no whitelist" — computePolicy guarantees non-nil here).
+//
+// AllowInteractive carries the RESOLVED switch (ProjectConfig.IsInteractiveAllowed,
+// which folds in the legacy list) rather than the raw *bool: the wire value is what
+// this server's admission would decide, so a worker never has to re-derive it. A
+// pre-AGT-02 worker ignores the field and falls back to its own list semantics, and
+// a pre-AGT-02 SERVER sends nothing → the worker derives from the list (see
+// commands.projectPolicy).
 func projectToPolicy(key string, proj config.ProjectConfig) wsproto.PolicyProject {
+	allowInteractive := proj.IsInteractiveAllowed()
 	return wsproto.PolicyProject{
 		Key:                      key,
 		HostPath:                 proj.HostPath,
 		AllowedAgents:            nonNilStrings(proj.AllowedAgents),
 		InteractiveAllowedAgents: nonNilStrings(proj.InteractiveAllowedAgents),
+		AllowInteractive:         &allowInteractive,
 		AllowExec:                proj.AllowExec,
 		MaxConcurrentJobs:        proj.MaxConcurrentJobs,
 		CaptureDiff:              proj.CaptureDiff,

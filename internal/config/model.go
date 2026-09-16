@@ -707,16 +707,28 @@ func (r RetentionConfig) PruneInterval() time.Duration {
 // ResultSubdir may be empty; they fall back to the storage defaults at resolve
 // time (see ResolvedExchangeSubdir/ResolvedResultSubdir).
 type ProjectConfig struct {
-	HostPath                 string   `yaml:"host_path,omitempty"`
-	ContainerPath            string   `yaml:"container_path,omitempty"`
-	ExchangeSubdir           string   `yaml:"exchange_subdir,omitempty"`
-	ResultSubdir             string   `yaml:"result_subdir,omitempty"`
-	DefaultAgent             string   `yaml:"default_agent,omitempty"`
-	AllowedAgents            []string `yaml:"allowed_agents,omitempty"`
+	HostPath       string   `yaml:"host_path,omitempty"`
+	ContainerPath  string   `yaml:"container_path,omitempty"`
+	ExchangeSubdir string   `yaml:"exchange_subdir,omitempty"`
+	ResultSubdir   string   `yaml:"result_subdir,omitempty"`
+	DefaultAgent   string   `yaml:"default_agent,omitempty"`
+	AllowedAgents  []string `yaml:"allowed_agents,omitempty"`
+	// InteractiveAllowedAgents is the OPTIONAL narrowing of AllowInteractive: when
+	// non-empty, only these agents may run the project's interactive jobs (each must
+	// still be in AllowedAgents and have an interactive mode). Before AGT-02 it WAS
+	// the switch, where empty meant "no interactive job at all" — that reading is
+	// gone, the empty list now means "do not narrow"; see AllowInteractive.
 	InteractiveAllowedAgents []string `yaml:"interactive_allowed_agents,omitempty"`
-	AllowedRunners           []string `yaml:"allowed_runners,omitempty"`
-	AllowExec                bool     `yaml:"allow_exec,omitempty"`
-	MaxConcurrentJobs        int      `yaml:"max_concurrent_jobs,omitempty"`
+	// AllowInteractive is the project's interactive-job switch (AGT-02 §2), the
+	// project-level counterpart of WorkerGuards.AllowInteractive. It is a pointer so
+	// "unset" stays distinguishable from an explicit false: nil defers to the legacy
+	// allowlist (a non-empty InteractiveAllowedAgents always meant the project wanted
+	// interactive jobs), while an explicit allow_interactive:false keeps them
+	// rejected even with a leftover list. See IsInteractiveAllowed.
+	AllowInteractive  *bool    `yaml:"allow_interactive,omitempty"`
+	AllowedRunners    []string `yaml:"allowed_runners,omitempty"`
+	AllowExec         bool     `yaml:"allow_exec,omitempty"`
+	MaxConcurrentJobs int      `yaml:"max_concurrent_jobs,omitempty"`
 	// CaptureDiff toggles E12 git-diff capture (job-outcomes-audit, P3). It is a
 	// pointer so "unset" (nil) can default to "on when cwd is a git work tree"
 	// while an explicit capture_diff:false disables it outright. nil/true defer to
@@ -733,6 +745,20 @@ type ProjectConfig struct {
 // project. Unset (nil) defaults to true; an explicit notify_enabled:false
 // suppresses it.
 func (p ProjectConfig) IsNotifyEnabled() bool { return p.NotifyEnabled == nil || *p.NotifyEnabled }
+
+// IsInteractiveAllowed reports whether the project permits interactive (pty) jobs.
+// An explicit allow_interactive wins either way; when it is unset the legacy
+// interactive_allowed_agents list decides (non-empty = allowed), which is the
+// pre-AGT-02 semantics — so an existing yaml keeps working unchanged. It is the
+// shared derivation of server admission (job.validate) and the POLICY push
+// (core.projectToPolicy), which is why it lives on the type, not in a loader: a
+// worker's own legacy projects never pass through the server's loader.
+func (p ProjectConfig) IsInteractiveAllowed() bool {
+	if p.AllowInteractive != nil {
+		return *p.AllowInteractive
+	}
+	return len(p.InteractiveAllowedAgents) > 0
+}
 
 // AgentConfig describes a configurable CLI agent. Detect is refined in P3; P2
 // only needs it to decode cleanly.

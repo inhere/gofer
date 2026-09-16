@@ -219,6 +219,59 @@ func TestProjectPolicyGuardsOnlyTighten(t *testing.T) {
 	}
 }
 
+// TestProjectPolicyAllowInteractiveSwitch pins the AGT-02 switch on the WORKER side:
+// the pushed value is honoured verbatim (including an explicit false sitting next to a
+// leftover narrowing list — the case a plain bool could not express, since "absent"
+// must keep meaning "pre-AGT-02 server"), an absent switch falls back to the legacy
+// list reading, and the worker's own guard can only tighten.
+func TestProjectPolicyAllowInteractiveSwitch(t *testing.T) {
+	cases := []struct {
+		name   string
+		guards config.WorkerGuards
+		policy wsproto.PolicyProject
+		want   bool
+	}{
+		{
+			name:   "explicit true from the server",
+			policy: wsproto.PolicyProject{Key: "svc", HostPath: "/srv/svc", AllowInteractive: boolPtr(true)},
+			want:   true,
+		},
+		{
+			name:   "explicit false beats a leftover narrowing list",
+			policy: wsproto.PolicyProject{Key: "svc", HostPath: "/srv/svc", AllowInteractive: boolPtr(false), InteractiveAllowedAgents: []string{"tty-claude"}},
+			want:   false,
+		},
+		{
+			name:   "pre-AGT-02 server: non-empty legacy list means allowed",
+			policy: wsproto.PolicyProject{Key: "svc", HostPath: "/srv/svc", InteractiveAllowedAgents: []string{"tty-claude"}},
+			want:   true,
+		},
+		{
+			name:   "pre-AGT-02 server: empty legacy list means denied",
+			policy: wsproto.PolicyProject{Key: "svc", HostPath: "/srv/svc"},
+			want:   false,
+		},
+		{
+			name:   "worker guard tightens a pushed true",
+			guards: config.WorkerGuards{AllowInteractive: boolPtr(false)},
+			policy: wsproto.PolicyProject{Key: "svc", HostPath: "/srv/svc", AllowInteractive: boolPtr(true)},
+			want:   false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			cfg, _ := projectPolicy(policyWC("/host", c.guards), wsproto.Policy{Rev: 1, Projects: []wsproto.PolicyProject{c.policy}})
+			pc := cfg.Projects["svc"]
+			if pc.AllowInteractive == nil {
+				t.Fatalf("AllowInteractive = nil, want an explicit %v (the worker resolves the switch, it never re-derives)", c.want)
+			}
+			if *pc.AllowInteractive != c.want || pc.IsInteractiveAllowed() != c.want {
+				t.Fatalf("AllowInteractive = %v / IsInteractiveAllowed() = %v, want %v", *pc.AllowInteractive, pc.IsInteractiveAllowed(), c.want)
+			}
+		})
+	}
+}
+
 // TestProjectPolicyCompleteSnapshotReplace (verification 26): each projection is a
 // COMPLETE snapshot — a shorter policy revokes the missing project, and an empty policy
 // revokes everything. There is no merge that keeps a key the server dropped.
