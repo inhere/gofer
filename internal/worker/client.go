@@ -34,6 +34,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
+	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -180,6 +181,15 @@ type Client struct {
 	jobMu  sync.Mutex
 	jobMap map[string]string
 
+	// inflMu guards inflight: the RECOV-01 recovery table of the jobs this PROCESS
+	// still owns on behalf of the hub (remote job_id → inflightJob). It is visible to
+	// both sides of a reconnect — the per-dispatch streaming goroutines update it,
+	// the register path (runSession) reads it — and it is a LEAF lock: it is never
+	// held across a frame write or a call into the job service, so a stalled log
+	// tailer can never delay a reconnect's register frame.
+	inflMu   sync.Mutex
+	inflight map[string]*inflightJob
+
 	// sessMu guards the interactive-session rendezvous + pendingCancel state below
 	// (D-P2-3 / D-P2-9). The PtyRunner observer callback (OnSessionStart) and the
 	// per-dispatch handleDispatch goroutine (waitSession) meet here.
@@ -293,6 +303,7 @@ func New(cfg Config, jobs Jobs) *Client {
 		readDeadline:  read,
 		jobs:          jobs,
 		jobMap:        map[string]string{},
+		inflight:      map[string]*inflightJob{},
 		sessReady:     map[string]*ptyrunner.PtySession{},
 		sessWaiters:   map[string]chan *ptyrunner.PtySession{},
 		pendingCancel: map[string]struct{}{},
@@ -335,6 +346,266 @@ func (cl *Client) dropJobMapping(remoteID string) {
 	cl.jobMu.Lock()
 	delete(cl.jobMap, remoteID)
 	cl.jobMu.Unlock()
+}
+
+// workerResultTTL bounds how long a terminal Result that could not be delivered is
+// kept for replay (RECOV-01). The worker cannot read the SERVER's config, so this
+// MIRRORS the server default (config.DefaultJobRecoverWindowSec = 120s) rather than
+// the server's actual setting, at 2x: once the hub's own window has elapsed it has
+// already failed the job, so a later replay would only write into a finished job.
+// The 2x margin covers the worker detecting the outage later than the hub does (a
+// half-open socket only dies on our read deadline).
+const workerResultTTL = 2 * config.DefaultJobRecoverWindowSec * time.Second
+
+// inflightJob is the worker's recovery record for ONE hub job (RECOV-01): the local
+// counterpart of the hub's `recovering` set. It answers the three questions the hub
+// asks about a job on every reconnect — is it still here, how much of its log has
+// already reached the hub, and is there a terminal Result that never made it — so a
+// job survives a connection blip untouched: the job itself lives in the
+// process-scoped job.Service and does not care about the socket.
+//
+// Every field is guarded by Client.inflMu.
+type inflightJob struct {
+	// localID is the worker's LOCAL job id: it locates the job's log directory and
+	// is the id the job service is asked about. Empty until Submit returns (and for a
+	// dispatch that never produced a local job at all).
+	localID string
+	// stdoutOff / stderrOff are the offsets of the local log files this worker has
+	// SUCCESSFULLY written to the wire. A failed writeFrame leaves them exactly where
+	// they were (the unsent bytes are retried verbatim on the next tick), and a
+	// resume ack moves them BACKWARDS to the hub's durable byte counts.
+	stdoutOff int64
+	stderrOff int64
+	// seq is the highest log-frame seq this worker has successfully sent.
+	seq int64
+	// status is the worker-side local status last observed for this job. It is what
+	// the register frame's `inflight` snapshot reports, and the hub decides on it
+	// whether to resume the job (non-terminal) or to wait for a replayed Result
+	// (terminal).
+	status string
+	// result, when non-nil, is a terminal Result the worker could not deliver because
+	// the connection was down when the job finished. resultAt bounds how long it is
+	// kept for replay (workerResultTTL).
+	result   *wsproto.Result
+	resultAt time.Time
+}
+
+// wireStatus is the status reported for this job in the register frame: the local
+// job's last observed status, or — once a Result is cached — that Result's terminal
+// status, which is what the hub must see to WAIT for the replayed Result instead of
+// resuming a job that is already over.
+func (f *inflightJob) wireStatus() string {
+	if f.result != nil {
+		return f.result.Status
+	}
+	if f.status != "" {
+		return f.status
+	}
+	return job.StatusRunning
+}
+
+// inflightCreate records a dispatch in the recovery table. It runs at the very start
+// of handleDispatch — before any path that can send a Result — so the entry can hold
+// a Result whose write fails, and so the register frame never reports a job as gone
+// while its dispatch goroutine is still unwinding.
+func (cl *Client) inflightCreate(remoteID string) {
+	cl.inflMu.Lock()
+	if _, dup := cl.inflight[remoteID]; !dup {
+		cl.inflight[remoteID] = &inflightJob{status: job.StatusRunning}
+	}
+	cl.inflMu.Unlock()
+}
+
+// inflightSetLocal binds the local job id once the dispatch has submitted its job.
+func (cl *Client) inflightSetLocal(remoteID, localID string) {
+	cl.inflMu.Lock()
+	if f := cl.inflight[remoteID]; f != nil {
+		f.localID = localID
+	}
+	cl.inflMu.Unlock()
+}
+
+// inflightSetStatus records the local job's status. The log tailer observes it on
+// every poll, so the recovery table follows the local job WITHOUT inflMu ever being
+// held across a call into the job service.
+func (cl *Client) inflightSetStatus(remoteID, status string) {
+	cl.inflMu.Lock()
+	if f := cl.inflight[remoteID]; f != nil {
+		f.status = status
+	}
+	cl.inflMu.Unlock()
+}
+
+// inflightOffset returns the local log offset the tailer for stream must read from.
+// An unknown job has nothing sent yet (0).
+func (cl *Client) inflightOffset(remoteID, stream string) int64 {
+	cl.inflMu.Lock()
+	defer cl.inflMu.Unlock()
+	f := cl.inflight[remoteID]
+	if f == nil {
+		return 0
+	}
+	if stream == string(store.StreamStderr) {
+		return f.stderrOff
+	}
+	return f.stdoutOff
+}
+
+// inflightSeq returns the highest log seq successfully sent for this job.
+func (cl *Client) inflightSeq(remoteID string) int64 {
+	cl.inflMu.Lock()
+	defer cl.inflMu.Unlock()
+	if f := cl.inflight[remoteID]; f != nil {
+		return f.seq
+	}
+	return 0
+}
+
+// inflightCommit records a log frame that actually reached the wire: the stream's
+// offset becomes off and the job's seq becomes seq. It is called ONLY after a
+// successful writeFrame — that single rule is what makes a blip lossless, since a
+// failed write is re-sent rather than skipped.
+func (cl *Client) inflightCommit(remoteID, stream string, off, seq int64) {
+	cl.inflMu.Lock()
+	if f := cl.inflight[remoteID]; f != nil {
+		if stream == string(store.StreamStderr) {
+			f.stderrOff = off
+		} else {
+			f.stdoutOff = off
+		}
+		f.seq = seq
+	}
+	cl.inflMu.Unlock()
+}
+
+// inflightRewind moves a job's log offsets BACK to the hub's durable byte counts
+// (the resume ack). It reports whether the job is tracked at all: an entry this
+// process does not have (a stale ack) has nothing to rewind.
+func (cl *Client) inflightRewind(remoteID string, stdoutOff, stderrOff int64) bool {
+	cl.inflMu.Lock()
+	defer cl.inflMu.Unlock()
+	f := cl.inflight[remoteID]
+	if f == nil {
+		return false
+	}
+	f.stdoutOff, f.stderrOff = stdoutOff, stderrOff
+	return true
+}
+
+// inflightCacheResult stores a terminal Result that could not be delivered, for
+// replay after the next successful register. The entry is created if missing: this
+// process owes the hub a Result either way.
+func (cl *Client) inflightCacheResult(remoteID string, res wsproto.Result) {
+	cl.inflMu.Lock()
+	f := cl.inflight[remoteID]
+	if f == nil {
+		f = &inflightJob{}
+		cl.inflight[remoteID] = f
+	}
+	r := res
+	f.result, f.resultAt, f.status = &r, time.Now(), res.Status
+	cl.inflMu.Unlock()
+}
+
+// inflightResult returns the cached, not-yet-delivered terminal Result. An entry
+// whose Result is older than workerResultTTL is dropped instead — the hub gave up on
+// that job long ago, so there is nothing left to replay into.
+func (cl *Client) inflightResult(remoteID string) (wsproto.Result, bool) {
+	cl.inflMu.Lock()
+	defer cl.inflMu.Unlock()
+	f := cl.inflight[remoteID]
+	if f == nil || f.result == nil {
+		return wsproto.Result{}, false
+	}
+	if time.Since(f.resultAt) > workerResultTTL {
+		delete(cl.inflight, remoteID)
+		return wsproto.Result{}, false
+	}
+	return *f.result, true
+}
+
+// inflightDrop forgets a job: its terminal Result is on the wire (or the dispatch is
+// gone), so this process no longer owes the hub anything for it.
+func (cl *Client) inflightDrop(remoteID string) {
+	cl.inflMu.Lock()
+	delete(cl.inflight, remoteID)
+	cl.inflMu.Unlock()
+}
+
+// inflightIDs lists the job ids this process currently tracks.
+func (cl *Client) inflightIDs() []string {
+	cl.inflMu.Lock()
+	defer cl.inflMu.Unlock()
+	ids := make([]string, 0, len(cl.inflight))
+	for id := range cl.inflight {
+		ids = append(ids, id)
+	}
+	return ids
+}
+
+// inflightSnapshot renders the register frame's `inflight` list (RECOV-01): what
+// this process still holds and how much of each log it has successfully sent. It is
+// ALWAYS non-nil — nil tells the hub "pre-RECOV-01 worker, it cannot prove
+// anything" (the hub then waits out its whole window), while an EMPTY slice tells it
+// "a RECOV-01 worker that tracks nothing", so the jobs the hub is holding for us are
+// failed at once instead of after a pointless wait. Expired Results are swept here,
+// which is also what bounds the cache in a worker that never reconnects.
+func (cl *Client) inflightSnapshot() []wsproto.InflightJob {
+	now := time.Now()
+	cl.inflMu.Lock()
+	defer cl.inflMu.Unlock()
+	out := make([]wsproto.InflightJob, 0, len(cl.inflight))
+	for id, f := range cl.inflight {
+		if f.result != nil && now.Sub(f.resultAt) > workerResultTTL {
+			delete(cl.inflight, id)
+			continue
+		}
+		out = append(out, wsproto.InflightJob{
+			JobID:     id,
+			Status:    f.wireStatus(),
+			StdoutOff: f.stdoutOff,
+			StderrOff: f.stderrOff,
+			Seq:       f.seq,
+		})
+	}
+	return out
+}
+
+// logRecoveringJobs emits one worker.job_recovering event per job still held when a
+// connection dropped (RECOV-01). It mirrors the hub's own worker.job_recovering
+// (component=server, emitted when the hub suspends the same jobs) so an operator can
+// pair the two: the hub holds the host job in `recovering` while this process keeps
+// running it and re-announces it (`inflight`) on the next register.
+func (cl *Client) logRecoveringJobs() {
+	for _, id := range cl.inflightIDs() {
+		slog.Info("worker.job_recovering", "event", "worker.job_recovering", "component", "worker", "worker_id", cl.workerID, "job_id", id)
+	}
+}
+
+// applyResume applies the hub's resume ack (RECOV-01). It runs on the freshly
+// handshaken connection BEFORE that connection is published (see runSession), so no
+// log frame can slip out with a stale offset in the window between ack and rewind:
+//
+//   - every resumed job's log offsets are rewound to the hub's DURABLE byte counts.
+//     The hub is the source of truth for what the host actually has, so whatever
+//     this worker sent but the hub never persisted is re-sent from there — no gap,
+//     no duplicated chunk.
+//   - every terminal Result this process could not deliver (a job that finished
+//     while the connection was down) is replayed, and its entry dropped once the
+//     write lands. The hub is already waiting for it (the job's `inflight` status
+//     was terminal) and finishes the host job from it.
+func (cl *Client) applyResume(ctx context.Context, conn *websocket.Conn, resumes []wsproto.ResumeJob) {
+	for _, r := range resumes {
+		if !cl.inflightRewind(r.JobID, r.StdoutOff, r.StderrOff) {
+			// The hub is resuming a job this process does not track (a stale ack, or a
+			// job whose Result already went out): nothing to rewind, and the hub's own
+			// window governs what happens to it.
+			continue
+		}
+		slog.Info("worker.job_resumed", "event", "worker.job_resumed", "component", "worker",
+			"worker_id", cl.workerID, "job_id", r.JobID, "stdout_off", r.StdoutOff, "stderr_off", r.StderrOff)
+	}
+	cl.replayCachedResults(ctx, conn)
 }
 
 // The worker Client is the pty session observer on the worker side (wired by the
@@ -525,7 +796,6 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 		return false, fmt.Errorf("dial hub %s: %w", url, derr)
 	}
 	conn.SetReadLimit(maxWSReadBytes)
-	cl.setConn(conn)
 	// going-away (1001) on a clean shutdown; the deferred close also covers the
 	// drop/error paths so the fd is always released (no leak, §5.6).
 	defer conn.Close(websocket.StatusGoingAway, "worker session end")
@@ -534,8 +804,17 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 	// recv loop, not the handshake). The capability fields come from the CURRENT
 	// snapshot, so a worker that reloaded its config while disconnected re-registers
 	// with what it can do NOW.
+	//
+	// RECOV-01: the handshake runs on the RAW connection, which is only published as
+	// cl.conn further down (setConn) — never here. A dispatch goroutine outlives a
+	// blip and keeps polling its job's logs the whole time (see handleDispatch); if
+	// cl.conn already pointed at this half-handshaken connection it could push a Log
+	// frame AHEAD of the register frame — the hub reads the first frame as the
+	// register — or, in the window between the ack and the resume rewind below, push
+	// bytes the host already has. Until setConn, those writes hit the previous (dead)
+	// connection and fail fast, and the tailer simply retries them afterwards.
 	caps := cl.currentCaps()
-	if err := cl.writeFrame(ctx, wsproto.TypeRegister, "", wsproto.Register{
+	if err := cl.writeFrameOn(ctx, conn, wsproto.TypeRegister, "", wsproto.Register{
 		WorkerID:        cl.workerID,
 		InstanceID:      cl.instanceID,
 		ProtocolVersion: wsproto.CurrentProtocolVersion, // the version THIS worker build implements
@@ -550,10 +829,15 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 		Agents:          caps.Agents,
 		AgentCaps:       caps.AgentCaps,
 		MaxConcurrent:   caps.MaxConc,
+		// RECOV-01: what this process still holds, so the hub can pair it against the
+		// jobs it is holding in `recovering`. ALWAYS non-nil (an empty list is a
+		// statement — "I track nothing" — while nil would mean "old worker, cannot
+		// prove anything"); see inflightSnapshot.
+		Inflight: cl.inflightSnapshot(),
 	}); err != nil {
 		return false, fmt.Errorf("send register: %w", err)
 	}
-	env, err := cl.readEnvelope(ctx)
+	env, err := readEnvelopeOn(ctx, conn)
 	if err != nil {
 		return false, fmt.Errorf("read registered: %w", err)
 	}
@@ -579,6 +863,13 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 	cl.notify("registered")
 	slog.Info("worker.registered", "event", "worker.registered", "component", "worker",
 		"worker_id", cl.workerID, "url", url, "labels", caps.Labels, "max_concurrent", caps.MaxConc)
+
+	// RECOV-01: the hub's resume ack is the FIRST thing applied to the new session —
+	// still on the raw connection, so no frame can carry a pre-rewind offset — and
+	// only then is the connection published and the (still running) log tailers free
+	// to push onto it again.
+	cl.applyResume(ctx, conn, reg.Resume)
+	cl.setConn(conn)
 
 	// Per-session heartbeat: start the ping sender, stop it when the recv loop ends.
 	done := make(chan struct{})
@@ -606,6 +897,11 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 
 	err = cl.recvLoop(ctx, url, gen)
 	cl.notify("disconnected")
+	// RECOV-01: the connection is gone, the jobs it carried are NOT. Each one keeps
+	// running under its own (process-scoped) dispatch ctx and will be re-announced in
+	// the next register frame's `inflight` list; the hub mirrors these events with its
+	// own worker.job_recovering as it suspends the same jobs.
+	cl.logRecoveringJobs()
 	reason := "disconnected"
 	if err != nil {
 		reason = err.Error()
@@ -644,6 +940,9 @@ func (cl *Client) recvLoop(ctx context.Context, url string, gen uint64) error {
 			cl.dispatchWG.Add(1)
 			go func() {
 				defer cl.dispatchWG.Done()
+				// RECOV-01: ctx here is the PROCESS ctx (recvLoop ← runSession ← Run),
+				// deliberately NOT a per-connection one — the dispatch must outlive the
+				// connection it arrived on. See handleDispatch's lifetime note.
 				cl.handleDispatch(ctx, url, d)
 			}()
 		case wsproto.TypeCancel:
@@ -740,12 +1039,11 @@ func (cl *Client) notify(event string) {
 // writeFrame marshals a typed payload into an envelope and writes it under
 // writeMu (coder/websocket requires a single concurrent writer).
 //
-// TODO(h-aii-wag4): always writes to the CURRENT cl.conn, not the connection the
-// job was dispatched on. If the worker reconnects while a job keeps running across
-// connections, its Result/Log/Outcome frames land on the NEW conn. Currently
-// harmless — pty attach tail ordering anchors on serve relay Done, not on worker
-// Result ordering — but strict per-dispatch-connection return needs the dispatch
-// conn threaded here (separate reconnect-semantics topic).
+// RECOV-01: it always writes to the CURRENT cl.conn. That is the point, not a
+// limitation: a job outlives the connection it was dispatched on, so its Log /
+// Outcome / Result frames must follow the current one — and because a session's
+// connection is published (setConn) only after its handshake is complete, a write
+// either goes to a fully registered connection or fails fast.
 func (cl *Client) writeFrame(ctx context.Context, t wsproto.FrameType, jobID string, payload any) error {
 	cl.writeMu.Lock()
 	defer cl.writeMu.Unlock()
@@ -758,6 +1056,16 @@ func (cl *Client) writeFrame(ctx context.Context, t wsproto.FrameType, jobID str
 	return wsjson.Write(ctx, cl.conn, wsproto.Envelope{Type: t, JobID: jobID, Payload: mustRaw(payload)})
 }
 
+// writeFrameOn is writeFrame bound to an EXPLICIT connection, for the frames that
+// must reach the wire BEFORE that connection is published: the register frame, and
+// the Results replayed from the resume ack (RECOV-01). Both belong to the handshake,
+// which by design happens while cl.conn still points at the previous connection.
+func (cl *Client) writeFrameOn(ctx context.Context, conn *websocket.Conn, t wsproto.FrameType, jobID string, payload any) error {
+	cl.writeMu.Lock()
+	defer cl.writeMu.Unlock()
+	return wsjson.Write(ctx, conn, wsproto.Envelope{Type: t, JobID: jobID, Payload: mustRaw(payload)})
+}
+
 // setConn publishes the current session's connection under writeMu — the same lock
 // writeFrame reads it under, so the reload executor (which writes frames across
 // reconnects) never races the reconnect loop's swap.
@@ -768,8 +1076,15 @@ func (cl *Client) setConn(conn *websocket.Conn) {
 }
 
 func (cl *Client) readEnvelope(ctx context.Context) (wsproto.Envelope, error) {
+	return readEnvelopeOn(ctx, cl.conn)
+}
+
+// readEnvelopeOn reads one frame from an explicit connection: the handshake reads
+// its ack off the connection it registered on, which is not yet cl.conn (see
+// runSession).
+func readEnvelopeOn(ctx context.Context, conn *websocket.Conn) (wsproto.Envelope, error) {
 	var env wsproto.Envelope
-	if err := wsjson.Read(ctx, cl.conn, &env); err != nil {
+	if err := wsjson.Read(ctx, conn, &env); err != nil {
 		return wsproto.Envelope{}, err
 	}
 	return env, nil

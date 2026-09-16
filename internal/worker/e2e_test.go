@@ -3,6 +3,8 @@ package worker_test
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	mathrand "math/rand"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -105,6 +107,23 @@ func buildWorkerSide(t *testing.T, hubURL string) *worker.Client {
 // seed产出 (result.json / artifacts) into it before the job finishes.
 func buildWorkerSideJobs(t *testing.T, hubURL string) (*worker.Client, *job.Service) {
 	t.Helper()
+	return buildWorkerSideJobsOpts(t, hubURL, workerSideOpts{})
+}
+
+// workerSideOpts tunes the worker client an e2e test stands up. The zero value is the
+// production wiring (default backoff/heartbeat, time-seeded jitter).
+type workerSideOpts struct {
+	// InitialBackoff/MaxBackoff override the reconnect backoff (0 = package default).
+	InitialBackoff time.Duration
+	MaxBackoff     time.Duration
+	// Rng pins the reconnect jitter source, so a test can decide deterministically how
+	// long the worker stays off-line after a blip (see pinSlowReconnect).
+	Rng *mathrand.Rand
+}
+
+// buildWorkerSideJobsOpts is buildWorkerSideJobs with an explicit client wiring.
+func buildWorkerSideJobsOpts(t *testing.T, hubURL string, opts workerSideOpts) (*worker.Client, *job.Service) {
+	t.Helper()
 	host := t.TempDir()
 	root := t.TempDir()
 	cfg := &config.Config{
@@ -131,13 +150,37 @@ func buildWorkerSideJobs(t *testing.T, hubURL string) (*worker.Client, *job.Serv
 
 	wsURL := "ws" + strings.TrimPrefix(hubURL, "http") + "/v1/workers/connect"
 	cl := worker.New(worker.Config{
-		WorkerID: e2eWorkerID,
-		URLs:     []string{wsURL},
-		Token:    e2eToken,
-		Projects: []string{"alpha"},
-		Agents:   []string{"exec"},
+		WorkerID:       e2eWorkerID,
+		URLs:           []string{wsURL},
+		Token:          e2eToken,
+		Projects:       []string{"alpha"},
+		Agents:         []string{"exec"},
+		InitialBackoff: opts.InitialBackoff,
+		MaxBackoff:     opts.MaxBackoff,
+		Rng:            opts.Rng,
 	}, localJobs)
 	return cl, localJobs
+}
+
+// pinSlowReconnect returns a seeded jitter source whose FIRST backoff draw is a long
+// wait. The worker's reconnect policy is full jitter — rand[0, cap) — so an
+// un-pinned source can come back within microseconds and a test would have no chance
+// to observe the host job in `recovering`. The seed is searched deterministically
+// (the worker draws exactly one value per reconnect), and this returns a fresh rand
+// with that seed so the client reproduces the same draw.
+//
+// (Legacy math/rand, not math/rand/v2: worker.Config.Rng is a *mathrand.Rand — the
+// production client's own backoff source — so the fixed-seed classic API is what the
+// caller depends on here.)
+func pinSlowReconnect(t *testing.T, cap time.Duration) *mathrand.Rand {
+	t.Helper()
+	for seed := int64(1); seed < 10_000; seed++ {
+		if time.Duration(mathrand.New(mathrand.NewSource(seed)).Int63n(int64(cap))) >= cap/2 {
+			return mathrand.New(mathrand.NewSource(seed))
+		}
+	}
+	t.Fatalf("no seed produced a first backoff >= %s", cap/2)
+	return nil
 }
 
 // createJob POSTs a job via the HTTP API and returns the created JobResult.
@@ -493,6 +536,113 @@ func TestE2EWorkerIDBindingMismatch(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not return after ctx cancel")
 	}
+}
+
+// TestE2EJobSurvivesHubBlip is the RECOV-01 full-stack acceptance: the WORKER
+// PROCESS is never touched — only its connection dies and comes back — and the job
+// that was in flight must be held as `recovering`, resume as `running`, finish
+// `done`, and leave a host-side stdout log that is the command's output EXACTLY once
+// (no gap from the dead connection, no duplicated chunk from the replay).
+func TestE2EJobSurvivesHubBlip(t *testing.T) {
+	hub := buildHubSide(t)
+	// RECOV-01 is opt-in on the server side; the other e2e tests pin the pre-RECOV-01
+	// behaviour (a disconnect fails the job at once), so it is enabled here only.
+	hub.hub.SetRecoverWindow(30 * time.Second)
+	// The blip: when stop closes, the hub closes every LIVE connection (going-away)
+	// while it keeps accepting new ones. The worker process, its local job service and
+	// the running job are untouched — which is the whole point of RECOV-01.
+	stop := make(chan struct{})
+	hub.hub.SetStop(stop)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// A slow, PINNED reconnect (~1.5-2s) keeps the job off-line long enough for the
+	// test to observe `recovering` before it resumes.
+	const reconnectCap = 2 * time.Second
+	cl, _ := buildWorkerSideJobsOpts(t, hub.ts.URL, workerSideOpts{
+		InitialBackoff: reconnectCap,
+		MaxBackoff:     reconnectCap,
+		Rng:            pinSlowReconnect(t, reconnectCap),
+	})
+	clientErr := make(chan error, 1)
+	go func() { clientErr <- cl.Run(ctx) }()
+	waitWorkerOnline(t, hub.hub)
+
+	// 12 lines at 400ms ≈ 4.8s of output: the blip lands mid-stream, so the rest of
+	// the output can only arrive after the reconnect.
+	created := createJob(t, hub.ts, job.JobRequest{
+		ProjectKey: "alpha", Agent: "exec", Runner: "remote-w1", WorkerID: e2eWorkerID,
+		Cmd: testcmd.Cmd(t, "stdout-lines", "LINE", "12", "400ms"), Cwd: ".", TimeoutSec: 120,
+	})
+	if created.ID == "" {
+		t.Fatal("created job has no id")
+	}
+	// Wait until the mirror is genuinely streaming before cutting the connection.
+	waitForLogContains(t, hub.ts, created.ID, "LINE2", 15*time.Second)
+
+	// --- blip the connection (NOT the worker) ---
+	close(stop)
+
+	// The host job is HELD in recovering while the same worker process is away...
+	waitHostStatus(t, hub.jobs, created.ID, job.StatusRecovering, 10*time.Second)
+	// ...and returns to running when it re-registers with its inflight list.
+	waitHostStatus(t, hub.jobs, created.ID, job.StatusRunning, 20*time.Second)
+
+	final, ok := hub.jobs.Wait(created.ID)
+	if !ok {
+		t.Fatalf("hub job %s not found", created.ID)
+	}
+	if final.Status != job.StatusDone {
+		t.Fatalf("status = %s (err=%s), want done", final.Status, final.Error)
+	}
+	if final.ExitCode != 0 {
+		t.Fatalf("exit_code = %d, want 0", final.ExitCode)
+	}
+
+	var want strings.Builder
+	for i := 1; i <= 12; i++ {
+		fmt.Fprintf(&want, "LINE%d\n", i)
+	}
+	if got := getLogs(t, hub.ts, created.ID, "stdout"); got != want.String() {
+		t.Fatalf("host stdout log across the blip =\n%q\nwant exactly\n%q", got, want.String())
+	}
+
+	cancel()
+	select {
+	case <-clientErr:
+	case <-time.After(3 * time.Second):
+		t.Log("worker client did not exit promptly after cancel (non-fatal)")
+	}
+}
+
+// waitHostStatus polls the hub-side job until it reports status. The RECOV-01
+// recovering → running transition is short-lived, so the poll is tight.
+func waitHostStatus(t *testing.T, jobs *job.Service, id, status string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if r, ok := jobs.Get(id); ok && r.Status == status {
+			return
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
+	got, _ := jobs.Get(id)
+	t.Fatalf("hub job %s never reached %q within %s (last status %q, err %q)", id, status, timeout, got.Status, got.Error)
+}
+
+// waitForLogContains polls the hub-side log endpoint until it contains substr, so a
+// blip lands while the mirror is genuinely streaming.
+func waitForLogContains(t *testing.T, ts *httptest.Server, id, substr string, timeout time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if strings.Contains(getLogs(t, ts, id, "stdout"), substr) {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("host log for %s never contained %q", id, substr)
 }
 
 // waitWorkerOnline polls the hub's registry until the worker has dialed +

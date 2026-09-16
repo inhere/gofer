@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/coder/websocket"
+
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/wsproto"
@@ -25,8 +27,23 @@ import (
 // sessionURL is the hub address this dispatch arrived on (recvLoop threads it,
 // D-P2-7). An interactive dispatch derives its pty-connect URL from it (T5); the
 // non-interactive path never reads it.
+//
+// Lifetime (RECOV-01). ctx is the PROCESS-scoped ctx of Run — threaded recvLoop ←
+// runSession ← Run — and NOT the connection's: this goroutine already outlives the
+// connection that dispatched it, keeps the local job running across a hub blip, and
+// re-sends whatever it could not push while the socket was down. That is exactly the
+// RECOV-01 requirement, and it is why no ctx change is needed here: a connection
+// ends when recvLoop returns, never by cancelling this ctx. The goroutine ends when
+// the job reaches its terminal Result (below) or when the process shuts down (ctx
+// cancelled → the local job is cancelled and its terminal Result is attempted — or
+// cached — as usual).
 func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wsproto.Dispatch) {
 	startedAt := time.Now()
+	// RECOV-01: this job is in the recovery table from the moment its dispatch exists
+	// — BEFORE any early return — so a terminal Result nobody could receive is cached
+	// and replayed, and the register frame never reports the job as gone while this
+	// goroutine is still unwinding.
+	cl.inflightCreate(d.JobID)
 	slog.Info("worker.job_started", "event", "worker.job_started", "component", "worker", "worker_id", cl.workerID, "job_id", d.JobID)
 	// stale pendingCancel cleanup (D-P2-9): whichever return path this dispatch
 	// takes, ensure d.JobID does not linger in pendingCancel. The normal consume is
@@ -40,7 +57,7 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 	// pty_session_id). Do not start a bare, un-attachable pty — report failed.
 	if d.Interactive && (d.RelayNonce == "" || d.PtySessionID == "") {
 		slog.Warn("worker.job_rejected", "event", "worker.job_rejected", "component", "worker", "worker_id", cl.workerID, "job_id", d.JobID, "reason", "interactive dispatch missing relay credentials")
-		_ = cl.writeFrame(ctx, wsproto.TypeResult, d.JobID, wsproto.Result{
+		cl.sendResult(ctx, d.JobID, wsproto.Result{
 			JobID: d.JobID, Status: job.StatusFailed, ExitCode: -1,
 			Error: "interactive dispatch missing relay credentials",
 		})
@@ -67,13 +84,14 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 	})
 	if err != nil {
 		slog.Warn("worker.job_rejected", "event", "worker.job_rejected", "component", "worker", "worker_id", cl.workerID, "job_id", d.JobID, "reason", err.Error())
-		_ = cl.writeFrame(ctx, wsproto.TypeResult, d.JobID, wsproto.Result{
+		cl.sendResult(ctx, d.JobID, wsproto.Result{
 			JobID: d.JobID, Status: job.StatusFailed, ExitCode: -1, Error: err.Error(),
 		})
 		return
 	}
 
 	localID := res.ID
+	cl.inflightSetLocal(d.JobID, localID)
 	// Register the hub→local id mapping so an inbound cancel/answer frame (keyed by
 	// the hub id d.JobID) reaches this local job; drop it when the dispatch ends.
 	cl.putJobMapping(d.JobID, localID)
@@ -127,7 +145,7 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		if pumpDone != nil {
 			<-pumpDone
 		}
-		_ = cl.writeFrame(ctx, wsproto.TypeResult, d.JobID, wsproto.Result{
+		cl.sendResult(ctx, d.JobID, wsproto.Result{
 			JobID: d.JobID, Status: job.StatusFailed, ExitCode: -1, Error: "local job not found",
 		})
 		return
@@ -148,7 +166,7 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		_ = cl.writeFrame(ctx, wsproto.TypeOutcome, d.JobID, o)
 	}
 
-	_ = cl.writeFrame(ctx, wsproto.TypeResult, d.JobID, wsproto.Result{
+	cl.sendResult(ctx, d.JobID, wsproto.Result{
 		JobID:    d.JobID,
 		Status:   final.Status,
 		ExitCode: final.ExitCode,
@@ -216,13 +234,19 @@ func (cl *Client) reportRenderedCommandEarly(ctx context.Context, remoteJobID, l
 // terminal state (a final drain follows). It is a mini in-process log consumer
 // (no HTTP): it reads the files directly under <base>/<localID>/. seq is
 // monotonic per (worker job, stream).
+//
+// RECOV-01: this loop is the worker's outage buffer. It runs for the JOB's lifetime
+// (it returns only on a terminal local job or process shutdown), so a hub blip
+// neither stops it nor loses bytes: the read offsets live on the job's in-flight
+// entry (not in a local variable), advance ONLY after a writeFrame actually
+// succeeded, and the hub's resume ack can rewind them — a dropped chunk is therefore
+// re-sent verbatim after the reconnect, and a chunk the hub already has is not sent
+// twice.
 func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remoteJobID string) {
 	base := filepath.Dir(resultDir)
 	stdoutPath := filepath.Join(base, localID, store.StdoutFile)
 	stderrPath := filepath.Join(base, localID, store.StderrFile)
 
-	var stdoutOff, stderrOff int64
-	seq := 0
 	// seenStatus dedupes interaction frames: it remembers the last status pushed
 	// per interaction id, so a re-poll only emits a frame on a status change (same
 	// open/answered/cancelled vocabulary the SSE pumpInteractions uses).
@@ -232,20 +256,25 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 		for _, ent := range []struct {
 			stream string
 			path   string
-			off    *int64
 		}{
-			{string(store.StreamStdout), stdoutPath, &stdoutOff},
-			{string(store.StreamStderr), stderrPath, &stderrOff},
+			{string(store.StreamStdout), stdoutPath},
+			{string(store.StreamStderr), stderrPath},
 		} {
-			chunk, next := tailFrom(ent.path, *ent.off)
+			// The offset comes from the shared in-flight entry: the resume ack may have
+			// rewound it since the last tick, and this read must pick that up.
+			chunk, next := tailFrom(ent.path, cl.inflightOffset(remoteJobID, ent.stream))
 			if len(chunk) == 0 {
 				continue
 			}
-			*ent.off = next
-			seq++
-			_ = cl.writeFrame(ctx, wsproto.TypeLog, remoteJobID, wsproto.Log{
-				JobID: remoteJobID, Stream: ent.stream, Seq: seq, Text: string(chunk),
-			})
+			seq := cl.inflightSeq(remoteJobID) + 1
+			if err := cl.writeFrame(ctx, wsproto.TypeLog, remoteJobID, wsproto.Log{
+				JobID: remoteJobID, Stream: ent.stream, Seq: int(seq), Text: string(chunk),
+			}); err != nil {
+				// Do NOT advance: the same chunk is retried (with the same seq+offset
+				// relationship) on the next tick, which is what makes a blip lossless.
+				continue
+			}
+			cl.inflightCommit(remoteJobID, ent.stream, next, seq)
 		}
 		cl.pumpInteractions(ctx, localID, remoteJobID, seenStatus)
 	}
@@ -260,11 +289,54 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 		case <-ticker.C:
 			pump()
 			cur, ok := cl.jobs.Get(localID)
+			if ok {
+				// Keep the recovery table's view of the job current: the register frame
+				// reports it, and the hub decides resume-vs-wait-for-Result on it.
+				cl.inflightSetStatus(remoteJobID, cur.Status)
+			}
 			if !ok || job.IsTerminal(cur.Status) {
 				pump() // drain the tail produced just before terminal
 				return
 			}
 		}
+	}
+}
+
+// sendResult delivers a job's terminal Result and keeps the recovery table
+// consistent (RECOV-01), and it is the ONLY way a dispatch reports a Result:
+//
+//   - on success the in-flight entry is dropped — the hub owns the job from here on;
+//   - on failure (the connection is down, or dropped exactly while the job was
+//     finishing) the Result is CACHED on the entry and replayed by
+//     replayCachedResults after the next successful register. The local job is
+//     already terminal, so nothing needs recomputing — the hub just never heard it.
+func (cl *Client) sendResult(ctx context.Context, remoteJobID string, res wsproto.Result) error {
+	if err := cl.writeFrame(ctx, wsproto.TypeResult, remoteJobID, res); err != nil {
+		cl.inflightCacheResult(remoteJobID, res)
+		return err
+	}
+	cl.inflightDrop(remoteJobID)
+	return nil
+}
+
+// replayCachedResults re-sends every terminal Result that could not be delivered
+// while the connection was down (RECOV-01) and drops each entry that lands. It runs
+// from applyResume, on the freshly handshaken connection and BEFORE that connection
+// is published — so the hub's recovery plan (which saw these jobs as terminal in our
+// `inflight` snapshot and is holding their host jobs in `recovering`, waiting for the
+// Result) gets the authoritative ending. A Result whose entry is past
+// workerResultTTL was already swept by inflightResult: the hub has given up on that
+// job, and replaying into a finished job would be noise.
+func (cl *Client) replayCachedResults(ctx context.Context, conn *websocket.Conn) {
+	for _, id := range cl.inflightIDs() {
+		res, ok := cl.inflightResult(id)
+		if !ok {
+			continue
+		}
+		if err := cl.writeFrameOn(ctx, conn, wsproto.TypeResult, id, res); err != nil {
+			return // still not deliverable: keep the cache for the next reconnect
+		}
+		cl.inflightDrop(id)
 	}
 }
 
@@ -299,11 +371,18 @@ func (cl *Client) pumpInteractions(ctx context.Context, localID, remoteJobID str
 		if mErr != nil {
 			continue
 		}
-		_ = cl.writeFrame(ctx, wsproto.TypeInteraction, remoteJobID, wsproto.Interaction{
+		if err := cl.writeFrame(ctx, wsproto.TypeInteraction, remoteJobID, wsproto.Interaction{
 			JobID:       remoteJobID,
 			Action:      action,
 			Interaction: body,
-		})
+		}); err != nil {
+			// Do NOT latch the status: a frame that never reached the wire must be
+			// retried on the next tick, exactly like the log frames above — otherwise an
+			// interaction that opened while the connection was down is never announced
+			// and the host would wait for an answer to a question it never saw.
+			// (A repeat is accepted-and-ignored by the hub bridge, P2 §3.1.)
+			continue
+		}
 		seenStatus[it.ID] = it.Status
 	}
 }
