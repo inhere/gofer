@@ -22,15 +22,15 @@ import (
 // stubJobs is a fake worker.Jobs for unit-testing handleDispatch without a real
 // job.Service: it returns a configurable Submit result/error and a terminal Wait.
 type stubJobs struct {
-	submitErr   error
-	submitID    string
-	submitDir   string
-	waitResult  job.JobResult
-	waitOK      bool
-	getResult   job.JobResult
-	getOK       bool
-	gotProject  string
-	gotRunner   string
+	submitErr  error
+	submitID   string
+	submitDir  string
+	waitResult job.JobResult
+	waitOK     bool
+	getResult  job.JobResult
+	getOK      bool
+	gotProject string
+	gotRunner  string
 	// gotInteractive/gotCols/gotRows capture the T5 interactive projection so a test
 	// can assert the worker forwards Interactive+window to its own job.Service.
 	gotInteractive bool

@@ -78,7 +78,7 @@ func TestProjectForPath(t *testing.T) {
 
 	t.Run("simple hit (equal + below)", func(t *testing.T) {
 		c := host(map[string]ProjectConfig{
-			"demo": {HostPath: "/root/demo"},
+			"demo":  {HostPath: "/root/demo"},
 			"other": {HostPath: "/root/other"},
 		})
 		for _, cwd := range []string{"/root/demo", "/root/demo/sub/x"} {

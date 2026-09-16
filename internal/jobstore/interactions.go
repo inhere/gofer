@@ -218,7 +218,7 @@ func (s *Store) ListPendingInteractions() ([]InteractionRecord, error) {
 // PRECISION (avoids waking a sup for the COMMON owner-pending case): an interaction routed
 // to its OWNER (L1) and still within the owner-answer window is NOT sup demand — the owner
 // should answer it. It counts only interactions the router would route to the SUP (design
-// §8.1/§8.2): no owner at all (origin_agent==''), OR an owner whose answer window has
+// §8.1/§8.2): no owner at all (origin_agent==”), OR an owner whose answer window has
 // elapsed (now - escalated_at > ownerTimeoutSec, mirroring maybeOwnerTimeoutFallback). So a
 // freshly owner-escalated interaction stays off demand until its owner times out. now is the
 // current unix seconds; ownerTimeoutSec mirrors supervisor.owner_answer_timeout_sec. 0 demand

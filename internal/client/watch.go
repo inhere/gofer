@@ -120,6 +120,7 @@ func (c *Client) StreamJob(ctx context.Context, id string, from int, onEvent fun
 // exit code (the exit-code mapping is a command concern, kept in commands).
 //   - OnStatus fires once per status CHANGE (the first time a new status is seen).
 //   - OnLog fires for each non-empty log frame's raw text.
+//
 // Both may be nil.
 type WatchHandlers struct {
 	OnStatus func(status string)

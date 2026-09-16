@@ -259,6 +259,7 @@ func (s *Service) ListInbox(agentID string, includeRead bool) ([]Message, error)
 //   - "role-one:<name>" → 1 row to ONE random online agent of that role
 //     (work-assignment); no online match → 0.
 //   - "broadcast" → 1 row per online agent.
+//
 // With no reachable recipient nothing is stored and delivered=0 is returned, so the
 // sender (or supervisor) can retry — best-effort by design (§9/§12; role/broadcast
 // queue-on-online is explicitly out of scope). from is the sender's agent_id (or

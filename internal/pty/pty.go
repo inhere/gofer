@@ -26,8 +26,8 @@ type Spec struct {
 	Args    []string // args (not including argv[0])
 	Env     []string // full process env (KEY=VALUE); nil = inherit os.Environ
 	Dir     string   // working directory; "" = inherit
-	Cols    int       // initial terminal width (columns); 0 = platform default
-	Rows    int       // initial terminal height (rows); 0 = platform default
+	Cols    int      // initial terminal width (columns); 0 = platform default
+	Rows    int      // initial terminal height (rows); 0 = platform default
 }
 
 // Pty is a running child attached to a pty master. Read/Write carry the raw byte
