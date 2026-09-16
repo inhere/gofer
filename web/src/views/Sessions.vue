@@ -51,6 +51,37 @@ function agentTitle(s: AgentSession): string {
   return s.title || `${s.agent} · ${s.session_id.slice(0, 8)}`
 }
 
+// idleText renders an idle reading (seconds) for the 中继 column: "8m", "1h05m",
+// "—" when the hook could not tell (-1) or never reported.
+function idleText(sec: number): string {
+  if (sec < 0) {
+    return '—'
+  }
+  if (sec < 60) {
+    return `${sec}s`
+  }
+  const mins = Math.floor(sec / 60)
+  if (mins < 60) {
+    return `${mins}m`
+  }
+  const hours = Math.floor(mins / 60)
+  return `${hours}h${String(mins % 60).padStart(2, '0')}m`
+}
+
+function relayTitle(s: AgentSession): string {
+  const err = relayErrors.value.get(s.session_id)
+  if (err) {
+    return `切换失败：${err}`
+  }
+  if (s.relay) {
+    return '中继开启：会话停下时在此等你回复'
+  }
+  if (s.auto_armed) {
+    return `空闲自动布防：人已离开约 ${idleText(s.idle_sec)}，本次停下会在 web 等回复；人回到键盘即自动放行（开关本身仍是关的）`
+  }
+  return '中继关闭：拨开后下一次停下生效（server.session_auto_relay_idle_sec 开启时，人离开也会自动布防）'
+}
+
 async function loadAgentSessions(opts?: { silent?: boolean }): Promise<void> {
   if (!opts?.silent) {
     agentLoading.value = true
@@ -315,8 +346,8 @@ onUnmounted(() => {
           <span class="a-relay" @click.stop>
             <label
               class="relay-toggle mono"
-              :class="{ on: s.relay, busy: relayBusyIds.has(s.session_id) }"
-              :title="relayErrors.get(s.session_id) ? `切换失败：${relayErrors.get(s.session_id)}` : (s.relay ? '中继开启：会话停下时在此等你回复' : '中继关闭：拨开后下一次停下生效')"
+              :class="{ on: s.relay, auto: !s.relay && s.auto_armed, busy: relayBusyIds.has(s.session_id) }"
+              :title="relayTitle(s)"
             >
               <input
                 type="checkbox"
@@ -325,8 +356,11 @@ onUnmounted(() => {
                 @change="onToggleRelay(s)"
               />
               <span class="relay-track"><span class="relay-knob"></span></span>
-              <span class="relay-text">{{ s.relay ? 'ON' : 'OFF' }}</span>
+              <span class="relay-text">{{ s.relay ? 'ON' : s.auto_armed ? 'AUTO' : 'OFF' }}</span>
             </label>
+            <span v-if="s.auto_armed" class="relay-auto mono" :title="relayTitle(s)">
+              auto (idle {{ idleText(s.idle_sec) }})
+            </span>
             <span v-if="relayErrors.get(s.session_id)" class="relay-err mono">!</span>
           </span>
           <span class="a-seen mono" :title="fmtTime(s.last_seen_at)">{{ fmtAgo(s.last_seen_at, nowSec) }}</span>
@@ -847,6 +881,21 @@ onUnmounted(() => {
 }
 .relay-toggle.on .relay-text {
   color: var(--phosphor);
+}
+.relay-toggle.auto .relay-track {
+  border-color: var(--run);
+}
+.relay-toggle.auto .relay-knob {
+  background: var(--run);
+}
+.relay-toggle.auto .relay-text {
+  color: var(--run);
+}
+/* 空闲自动布防标记：开关没开、但 server 判人已离开时中继实际生效 */
+.relay-auto {
+  font-size: 10px;
+  color: var(--run);
+  white-space: nowrap;
 }
 .relay-toggle.busy {
   opacity: 0.6;

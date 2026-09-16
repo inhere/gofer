@@ -131,6 +131,37 @@ function shortSid(id: string): string {
   return id.length > 8 ? id.slice(0, 8) : id
 }
 
+// idleText renders the hook's idle reading (seconds) for display; -1 = the
+// probe could not tell.
+function idleText(sec: number | undefined): string {
+  if (sec === undefined || sec < 0) {
+    return '—'
+  }
+  if (sec < 60) {
+    return `${sec}s`
+  }
+  const mins = Math.floor(sec / 60)
+  if (mins < 60) {
+    return `${mins}m`
+  }
+  return `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, '0')}m`
+}
+
+// relaySummary is the one-line relay state of the session, reading the explicit
+// switch and the server's idle auto-arm together.
+function relaySummary(s: AgentSession | null): string {
+  if (!s) {
+    return '关闭'
+  }
+  if (s.relay) {
+    return '显式 ON'
+  }
+  if (s.auto_armed) {
+    return `空闲自动布防（已离开约 ${idleText(s.idle_sec)}）`
+  }
+  return '关闭'
+}
+
 function isLong(text: string): boolean {
   return text.length > COLLAPSE_CHARS
 }
@@ -347,7 +378,7 @@ onUnmounted(() => {
           </span>
         </div>
         <div class="head-actions mono">
-          <label v-if="session" class="relay-toggle" :class="{ on: session.relay, busy: relayBusy }" title="中继开关：开着时会话每次停下都会在这里等你回复">
+          <label v-if="session" class="relay-toggle" :class="{ on: session.relay, auto: !session.relay && session.auto_armed, busy: relayBusy }" title="中继开关：开着时会话每次停下都会在这里等你回复；人离开电脑时 server 会按空闲自动布防，无需拨这个开关">
             <input
               type="checkbox"
               :checked="session.relay"
@@ -355,7 +386,7 @@ onUnmounted(() => {
               @change="toggleRelay"
             />
             <span class="relay-track"><span class="relay-knob"></span></span>
-            <span class="relay-text">中继 {{ session.relay ? 'ON' : 'OFF' }}</span>
+            <span class="relay-text">中继 {{ session.relay ? 'ON' : session.auto_armed ? 'AUTO' : 'OFF' }}</span>
           </label>
           <button class="act mono" type="button" :disabled="loading" @click="load()">
             {{ loading ? '刷新中…' : '刷新' }}
@@ -427,6 +458,11 @@ onUnmounted(() => {
         <dd class="meta-path" :title="session.transcript">{{ session.transcript || '—' }}</dd>
         <dt v-if="session.tmux_pane">tmux</dt>
         <dd v-if="session.tmux_pane">{{ session.tmux_pane }}</dd>
+        <dt>relay</dt>
+        <dd>
+          {{ relaySummary(session) }}
+          <span v-if="session.auto_armed" class="dim">· 终端侧空闲 {{ idleText(session.idle_sec) }}</span>
+        </dd>
         <dt>started</dt>
         <dd>{{ fmtDateTime(session.started_at) }}</dd>
         <dt>last_seen</dt>
@@ -440,6 +476,10 @@ onUnmounted(() => {
         <dd>{{ session.turn_no }}</dd>
       </dl>
       </div>
+
+      <p v-if="session" class="relay-note mono">
+        自动布防：终端侧检测到人离开 ≥ <code>server.session_auto_relay_idle_sec</code>（默认 5 分钟）时，会话停下会自动在这里等你回复——不用拨开关；人回到键盘即自动放行。
+      </p>
 
       <div ref="timelineEl" class="timeline">
         <div v-if="!loading && timeline.length === 0" class="empty mono">
@@ -476,7 +516,7 @@ onUnmounted(() => {
               <pre class="bubble-text">{{ t.answer }}</pre>
             </div>
             <div v-else-if="t.state === 'EXPIRED'" class="bubble bubble--expired mono">
-              已过期 / 未回复
+              {{ t.released_by === 'user_returned' ? '人回到键盘，等待已自动放行' : '已过期 / 未回复' }}
             </div>
             <div v-else class="bubble bubble--pending mono">
               等待回复…
@@ -633,9 +673,32 @@ onUnmounted(() => {
 .relay-toggle.on .relay-text {
   color: var(--phosphor);
 }
+/* 空闲自动布防：开关没开，但 server 判人已离开，中继实际生效 */
+.relay-toggle.auto .relay-track {
+  border-color: var(--run);
+}
+.relay-toggle.auto .relay-knob {
+  background: var(--run);
+}
+.relay-toggle.auto .relay-text {
+  color: var(--run);
+}
 .relay-toggle.busy {
   opacity: 0.6;
   cursor: progress;
+}
+/* 自动布防说明：常显一行，避免"没拨开关却在等回复"看着像故障 */
+.relay-note {
+  flex: none;
+  margin: 0;
+  padding: 6px 14px;
+  border-bottom: 1px solid var(--line);
+  color: var(--queue);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.relay-note code {
+  color: var(--run);
 }
 
 .act {

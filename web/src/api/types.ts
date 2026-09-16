@@ -116,6 +116,11 @@ export interface AgentSession {
   state: AgentSessionState
   // 中继开关：开着时 agent 停下会生成一个 OPEN turn（Decision kind=relay）等 web 回复
   relay: boolean
+  // 空闲自动布防（SR-A5）：开关没开，但 server 侧判定人已离开 >=
+  // server.session_auto_relay_idle_sec 时自动按“开着”处理（Stop 会等 web 回复，
+  // 人回到键盘即自动放行）。idle_sec 是 hook 最近上报的系统输入空闲秒数，-1 = 未知。
+  auto_armed: boolean
+  idle_sec: number
   turn_no: number
   last_message?: string
   last_event?: string
@@ -556,6 +561,8 @@ export interface Decision {
   // session_id 指向该会话；无 options、自由文本作答。
   session_id?: string
   kind?: 'relay' | string
+  // 未作答关闭的原因（SR-A5）：'user_returned' = 人回到键盘，自动布防的等待被放行
+  released_by?: string
 }
 
 // job 生命周期事件（E13，append-only）。GET /v1/jobs/{id}/events 与 SSE event 帧。
