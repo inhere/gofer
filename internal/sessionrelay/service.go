@@ -49,6 +49,10 @@ var (
 	ErrInvalidInput   = errors.New("sessionrelay: invalid input")
 )
 
+// ReleaseByUserReturned tags a turn closed without an answer because the hook
+// saw the human come back to the keyboard (SR-A5 idle auto-arm).
+const ReleaseByUserReturned = "user_returned"
+
 // Notifier is the outbound-notification seam (OBS-07a). The relay knows WHEN a
 // human is needed; it must not know about webhooks, IM adapters or config — the
 // entry layer injects an implementation (job.Service). nil = no notification.
@@ -66,6 +70,12 @@ type Service struct {
 	// injected by the hook does NOT raise UserPromptSubmit, so web replies never
 	// trip it. Default true.
 	AutoOffOnPrompt bool
+	// AutoArmIdleSec is the idle auto-arm threshold in seconds
+	// (server.session_auto_relay_idle_sec, SR-A5): a session whose last reported
+	// system input idle is at least this long behaves as if its relay switch were
+	// on, even though the human never flipped it. 0 = disabled (the explicit
+	// switch is then the only gate). Set once at construction from config.
+	AutoArmIdleSec int
 	// pollInterval is how often WaitTurn re-reads the decision while blocking.
 	pollInterval time.Duration
 	nowFn        func() time.Time
@@ -85,6 +95,18 @@ func (s *Service) SetPollInterval(d time.Duration) {
 	if d > 0 {
 		s.pollInterval = d
 	}
+}
+
+// AutoArmed reports whether the idle rule ALONE arms relay for this session:
+// the human has been away for at least AutoArmIdleSec, measured by the last
+// reading the hook reported. The effective gate everywhere is Relay||AutoArmed
+// — an explicit switch stays authoritative, and a session whose idle is unknown
+// (never reported, probe failed) is never armed.
+func (s *Service) AutoArmed(a jobstore.AgentSession) bool {
+	if s.AutoArmIdleSec <= 0 || a.IdleSec < 0 {
+		return false
+	}
+	return a.IdleSec >= int64(s.AutoArmIdleSec)
 }
 
 // RegisterInput is the SessionStart / first-contact registration.
@@ -130,6 +152,9 @@ type HeartbeatInput struct {
 	// (the hook recognises its ReplyPrefix): it must NOT auto-off relay — the
 	// human is still on the web, not at the keyboard.
 	Injected bool
+	// IdleSec is the hook's system input idle reading (SR-A5, -1 = unknown). nil
+	// = this event carried none, so the stored reading stays.
+	IdleSec *int64
 }
 
 // DefaultState maps a hook event to the session state it implies when the
@@ -173,6 +198,7 @@ func (s *Service) Heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 	}
 	a, ok, err := s.store.TouchAgentSession(sid, jobstore.SessionHeartbeat{
 		Event: in.Event, State: state, LastMessage: in.LastMessage, Title: in.Title,
+		IdleSec: in.IdleSec,
 	})
 	if err != nil {
 		return jobstore.AgentSession{}, err
@@ -244,8 +270,9 @@ const maxTurnBody = 16 * 1024
 // OpenTurn posts the agent's last message as a relay turn: bumps turn_no,
 // inserts an OPEN decision (kind=relay, free-text answer) and marks the session
 // waiting_reply. timeoutSec is the hook's remaining budget (clamped by the
-// store). Relay must be on (ErrRelayOff otherwise — the hook re-checks the
-// switch through Heartbeat first, this guards the race).
+// store). Relay must be on — explicitly, or through the idle auto-arm — else
+// ErrRelayOff (the hook re-checks the switch through Heartbeat first, this
+// guards the race).
 func (s *Service) OpenTurn(sid, body string, timeoutSec int64) (jobstore.PlanDecision, error) {
 	a, ok, err := s.store.GetAgentSession(sid)
 	if err != nil {
@@ -254,7 +281,7 @@ func (s *Service) OpenTurn(sid, body string, timeoutSec int64) (jobstore.PlanDec
 	if !ok {
 		return jobstore.PlanDecision{}, ErrUnknownSession
 	}
-	if !a.Relay {
+	if !a.Relay && !s.AutoArmed(a) {
 		return jobstore.PlanDecision{}, ErrRelayOff
 	}
 	body = strings.TrimSpace(body)
@@ -364,7 +391,7 @@ func (s *Service) readTurn(sid, decisionID string) (TurnStatus, error) {
 		// moment ago (or Say's OnAnswered may not have run yet): settle the
 		// session state here too so whoever observes "answered" sees running.
 		s.OnAnswered(d)
-	case !a.Relay:
+	case !a.Relay && !s.AutoArmed(a):
 		st.Outcome = TurnRelayOff
 	case d.State == jobstore.DecisionExpired:
 		st.Outcome = TurnExpired
@@ -378,6 +405,47 @@ func (s *Service) readTurn(sid, decisionID string) (TurnStatus, error) {
 		st.Outcome = TurnOpen
 	}
 	return st, nil
+}
+
+// ReleaseTurn closes an OPEN turn because the hook's FRESH idle reading shows
+// the human is back at the keyboard (SR-A5 item 3): the wait was armed by the
+// idle rule, not by an explicit switch, and the new reading is below the
+// threshold. The turn ends EXPIRED tagged released_by=user_returned and the
+// session goes idle, so the agent stops normally at its prompt.
+//
+// released=false means "keep waiting": still away (idle above the threshold or
+// unreadable), an explicitly switched-on relay (that one is only ever turned
+// off by the human — typing in the terminal or the web /off), or a turn that
+// already settled (an answer that beat the release wins).
+func (s *Service) ReleaseTurn(sid, turnID string, idleSec int64) (bool, error) {
+	a, ok, err := s.store.GetAgentSession(sid)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, ErrUnknownSession
+	}
+	if a.Relay || !s.AutoArmed(a) {
+		return false, nil
+	}
+	if idleSec < 0 || idleSec >= int64(s.AutoArmIdleSec) {
+		return false, nil
+	}
+	d, ok, err := s.store.GetDecision(turnID)
+	if err != nil {
+		return false, err
+	}
+	if !ok || d.SessionID != sid {
+		return false, ErrUnknownTurn
+	}
+	released, err := s.store.ReleaseDecision(turnID, ReleaseByUserReturned)
+	if err != nil || !released {
+		return false, err
+	}
+	if a.State == jobstore.SessionWaitingReply {
+		_, _ = s.store.SetSessionState(sid, jobstore.SessionIdle)
+	}
+	return true, nil
 }
 
 // Say answers the session's newest OPEN turn (the web input box / `gofer
