@@ -211,6 +211,36 @@ func (c *Client) GetJob(id string) (job.JobResult, error) {
 	return res, err
 }
 
+// GetJobWorktree fetches the live state of a job's WT-01 managed worktree (branch,
+// HEAD, commits ahead of the base, uncommitted changes, merged-into-base). A job
+// without a managed worktree is a 404 from the server.
+func (c *Client) GetJobWorktree(id string) (job.WorktreeStatus, error) {
+	var st job.WorktreeStatus
+	err := c.doJSON(http.MethodGet, "/v1/jobs/"+url.PathEscape(id)+"/worktree", nil, &st)
+	return st, err
+}
+
+// RemoveJobWorktree runs `git worktree remove` for a job's managed worktree on the
+// machine serving the request. A worktree with uncommitted changes is refused (409)
+// unless force is set; deleteBranch also deletes the branch (the deliverable, so it
+// is opt-in). The returned status has Exists=false on success.
+func (c *Client) RemoveJobWorktree(id string, force, deleteBranch bool) (job.WorktreeStatus, error) {
+	var st job.WorktreeStatus
+	q := url.Values{}
+	if force {
+		q.Set("force", "1")
+	}
+	if deleteBranch {
+		q.Set("delete_branch", "1")
+	}
+	path := "/v1/jobs/" + url.PathEscape(id) + "/worktree"
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	err := c.doJSON(http.MethodDelete, path, nil, &st)
+	return st, err
+}
+
 // ListJobs queries GET /v1/jobs with the given filters and returns the unwrapped
 // job array (from the {"jobs":[...]} envelope). Empty filter fields are omitted
 // from the query string. It reuses job.ListOpts (the same shape the server

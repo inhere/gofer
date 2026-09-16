@@ -106,6 +106,22 @@ sync: false
 - **HTTP**：`POST /v1/jobs`（JSON）。加 `"sync": true` 或 `?wait=1` 走同步（命中终态 `200`+完整结果；超服务端上限 `202`+`X-Gofer-Async:1`+id）。md 提交用 `Content-Type: text/markdown`。
 - **Web 控制台**：顶栏「+ 新建 job」表单，选 项目/agent/runner（worker 可显式选 id 或填 labels）、勾 sync，提交后跳详情。
 
+### 并行 job：`--worktree`（受管 git worktree）
+
+多个 job 在同一个 checkout 里并行改代码会互相踩（`.git/index.lock` 残留、互相覆盖改动）。`--worktree` 让 job 在**自己的 worktree** 里跑：
+
+```bash
+# 在 <仓库顶层>/tmp/gofer/wt/<job-id> 里执行，提交落在分支 gofer/<job-id> 上
+gofer job run -p workspace -a codex --prompt "修 3 个 issue，逐个 commit"
+gofer job run -p workspace -a codex --worktree --worktree-base v1.2.0 --prompt "..."
+```
+
+- 参数：`--worktree`（在受管 worktree 里执行）、`--worktree-base <ref>`（基线，默认当前 HEAD）；md 任务文件 frontmatter 同名键（`worktree: true`）；项目级 `worktree_default: true` 让该项目所有 job 默认开启。
+- 执行位置：worktree 建在**执行机**上（`runner=worker` 时由 worker 建），cwd 按相同相对子路径映射进去（`--cwd sub` → `<worktree>/sub`）；环境变量 `GOFER_WORKTREE` / `GOFER_WORKTREE_BRANCH` / `GOFER_WORKTREE_BASE` 指给 job。
+- 结束：**默认保留**（分支上的提交就是交付物）。结果里记 `worktree_path`/`worktree_branch`/`worktree_base_sha`/`worktree_head_sha`/`commits_ahead`；`changes.diff` 分两段：`=== committed (base..HEAD) ===`（已提交）+ `=== uncommitted ===`（未提交残留）。
+- 清理：`gofer job worktree ls [-p <project>]` 列出分支/领先提交数/是否脏/是否已合并到基线分支；`gofer job worktree rm <job-id> [--force] [--delete-branch]` 移除（有未提交改动且未加 `--force` 会被拒；分支默认保留）。HTTP 对应 `GET/DELETE /v1/jobs/{id}/worktree`。retention 清理 job 时，只有"无未提交改动且分支已合并"的 worktree 会被一并移除，其余保留并记日志（`job.worktree_retained`）。
+- cwd 不是 git checkout 时提交被拒（`worktree requires a git checkout`）。详见 `docs/runbook/parallel-jobs-with-worktree.md`。
+
 ## 远端执行（peer-http / ws-worker / 标签调度）
 
 远端 job 的日志、状态、运行中交互都经"镜像"透明回传到本地 job，**看板/详情/日志读路径无需任何改动**。
@@ -272,7 +288,7 @@ gofer mcp                                  # stdio MCP server（配置走全局 
 gofer --gen-completion bash|zsh > ~/.gofer.completion.sh  # 补全脚本
 ```
 
-`job run` 关键参数：`-p/--project`、`-a/--agent`（必填）、`--runner`（默认 `server`，表示 server 本地执行；旧值 `local` 继续兼容，指定 worker/peer runner 时填写其 runner key）、`--cwd`（默认 `.`，限项目内）、`--prompt`（cli-agent）、`-- argv`（exec）、`-f/--file`（md+yaml）、`--sync` + `--wait-timeout`（同步等待）、`--wait`（客户端轮询到终态）、`--worker-id` / `--worker-labels`（worker 路由）、`--interactive` + `--cols`/`--rows`（pty 交互 job；需项目 `allow_interactive` 且 agent 有交互模式）、`--tags`、`--timeout`、`--title`、`-s/--server`、`--token`。
+`job run` 关键参数：`-p/--project`、`-a/--agent`（必填）、`--runner`（默认 `server`，表示 server 本地执行；旧值 `local` 继续兼容，指定 worker/peer runner 时填写其 runner key）、`--cwd`（默认 `.`，限项目内）、`--prompt`（cli-agent）、`-- argv`（exec）、`-f/--file`（md+yaml）、`--sync` + `--wait-timeout`（同步等待）、`--wait`（客户端轮询到终态）、`--worker-id` / `--worker-labels`（worker 路由）、`--interactive` + `--cols`/`--rows`（pty 交互 job；需项目 `allow_interactive` 且 agent 有交互模式）、`--worktree` + `--worktree-base`（受管 git worktree 里执行，见上）、`--tags`、`--timeout`、`--title`、`-s/--server`、`--token`。
 
 `--timeout`（秒）有上限：超出项目上限会被 **clamp** 到上限，且**不会静默**——CLI 在提交后往 stderr 打一行 `warning: --timeout <请求值>s exceeds the project ceiling (<上限>s); the job will run with <上限>s`，响应里带 `requested_timeout_sec` / `timeout_clamped`，`job show` 显示生效的 `timeout:` 行。上限来自 `server.max_job_timeout_sec`（默认 3600=1h），可被项目的 `max_timeout_sec` 覆盖（可高于也可低于服务级）。0/未写即默认；负数是配置错误，加载期报错。
 

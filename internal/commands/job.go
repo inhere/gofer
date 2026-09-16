@@ -228,8 +228,134 @@ func NewJobCmd() *gcli.Command {
 				},
 				Func: runJobResume,
 			},
+			newJobWorktreeCmd(),
 		},
 	}
+}
+
+// jobWorktreeOpts holds `job worktree ls/rm` flags (WT-01).
+var jobWorktreeOpts = struct {
+	project      string
+	limit        int
+	force        bool
+	deleteBranch bool
+}{}
+
+// newJobWorktreeCmd builds the `job worktree` group: the cleanup/inspection surface
+// for WT-01 managed worktrees. `job run --worktree` KEEPS its worktree (the branch
+// is the deliverable), so an operator needs a way to see what is still lying around
+// and to reclaim it once the branch is merged.
+func newJobWorktreeCmd() *gcli.Command {
+	return &gcli.Command{
+		Name:    "worktree",
+		Desc:    "List or remove the managed worktrees of --worktree jobs (WT-01)",
+		Aliases: []string{"wt"},
+		Subs: []*gcli.Command{
+			{
+				Name:    "ls",
+				Desc:    "List managed worktrees of --worktree jobs (branch, commits ahead, dirty, merged)",
+				Aliases: []string{"list"},
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.StrOpt(&jobWorktreeOpts.project, "project", "p", "", "filter by project key")
+					c.IntOpt(&jobWorktreeOpts.limit, "limit", "", 0, "max jobs to inspect (0 = server default)")
+				},
+				Func: runJobWorktreeList,
+			},
+			{
+				Name:    "rm",
+				Desc:    "Remove a job's managed worktree (refuses uncommitted changes without --force)",
+				Aliases: []string{"remove", "delete"},
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.BoolOpt(&jobWorktreeOpts.force, "force", "", false, "discard uncommitted changes in the worktree")
+					c.BoolOpt(&jobWorktreeOpts.deleteBranch, "delete-branch", "", false, "also delete the branch (the deliverable — only when it is safe to lose)")
+					c.AddArg("id", "job id", true)
+				},
+				Func: runJobWorktreeRemove,
+			},
+		},
+	}
+}
+
+// runJobWorktreeList prints one line per managed worktree of the (project-filtered)
+// job list. Branch state is fetched per job from the server so it is LIVE — `ls`
+// answers "which branches are still unmerged / still dirty", not "what did the job
+// look like when it ended".
+func runJobWorktreeList(c *gcli.Command, _ []string) error {
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	listed, err := cli.ListJobs(job.ListOpts{Project: jobWorktreeOpts.project, Limit: jobWorktreeOpts.limit})
+	if err != nil {
+		return err
+	}
+	// Only --worktree jobs carry one; a job whose row has no path (removed already,
+	// or a job predating WT-01) is skipped rather than shown empty.
+	var rows []job.WorktreeStatus
+	for _, j := range listed {
+		if j.WorktreePath == "" {
+			continue
+		}
+		st, err := cli.GetJobWorktree(j.ID)
+		if err != nil {
+			return fmt.Errorf("job %s: %w", j.ID, err)
+		}
+		rows = append(rows, st)
+	}
+	if len(rows) == 0 {
+		c.Printf("no managed worktrees\n")
+		return nil
+	}
+	c.Printf("%-14s %-28s %-26s %5s %-6s %-7s %s\n", "JOB", "PROJECT", "BRANCH", "AHEAD", "DIRTY", "MERGED", "PATH")
+	for _, st := range rows {
+		state := "present"
+		if !st.Exists {
+			state = "MISSING"
+		}
+		c.Printf("%-14s %-28s %-26s %5d %-6s %-7s %s (%s)\n",
+			st.JobID, st.Project, st.Branch, st.CommitsAhead,
+			yesNo(st.Dirty), yesNo(st.Merged), st.Path, state)
+	}
+	return nil
+}
+
+// runJobWorktreeRemove removes one job's managed worktree on the server (which runs
+// the git command), then reports what happened. It does not re-list: the returned
+// status is the post-removal state.
+func runJobWorktreeRemove(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("job worktree rm requires an <id> argument")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	st, err := cli.RemoveJobWorktree(id, jobWorktreeOpts.force, jobWorktreeOpts.deleteBranch)
+	if err != nil {
+		return err
+	}
+	c.Printf("removed worktree %s\n", st.Path)
+	if jobWorktreeOpts.deleteBranch {
+		c.Printf("deleted branch  %s\n", st.Branch)
+	} else if st.Branch != "" {
+		// The branch is the deliverable and is kept by default — say so, with the
+		// hint that removes it, so nobody assumes the job's commits were dropped.
+		c.Printf("kept branch     %s (use --delete-branch once it is merged)\n", st.Branch)
+	}
+	return nil
+}
+
+// yesNo renders a boolean flag column in the `worktree ls` table.
+func yesNo(v bool) string {
+	if v {
+		return "yes"
+	}
+	return "no"
 }
 
 // bindJobRunFlags registers the deliberately large `job run` option surface in

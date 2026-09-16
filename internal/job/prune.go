@@ -1,10 +1,56 @@
 package job
 
 import (
+	"context"
+	"log/slog"
 	"os"
 
 	"github.com/inhere/gofer/internal/jobstore"
 )
+
+// retireWorktree is the WT-01 retention decision for a managed worktree whose job
+// row has just been pruned (design §二：清理 job 时若其 worktree 无未提交改动且分支
+// 已合并 → 移除，否则保留并在日志里列出). "Nothing to lose" is verified, never
+// assumed: uncommitted changes OR unmerged commits ⇒ the worktree and its branch are
+// KEPT (they are the deliverable) and named in the log; a probe that cannot decide
+// (no git / broken checkout) also keeps it, because deleting unverified work is
+// unrecoverable.
+//
+// Note the deliberate asymmetry with `job worktree rm --force`: the retention sweep
+// never forces. It runs unattended, so the only thing it may delete is work it has
+// positively proven redundant.
+func (s *Service) retireWorktree(w jobstore.WorktreeRecord) {
+	logArgs := []any{"job_id", w.JobID, "project", w.ProjectKey, "path", w.Path, "branch", w.Branch}
+	if !isDir(w.Path) {
+		// Nothing on disk to delete. The row is already gone, so a stale
+		// `.git/worktrees` entry (if the checkout is still around) is the owning
+		// machine's to clean with `git worktree prune`; say so rather than silently
+		// doing nothing.
+		slog.Info("job.worktree_retained", append(logArgs,
+			"reason", "directory is gone; run `git worktree prune` in the checkout to drop a stale entry")...)
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	defer cancel()
+	wt := &worktreeRef{Path: w.Path, Branch: w.Branch, BaseSHA: w.BaseSHA}
+	head, ahead, dirty := wt.worktreeState(ctx)
+	switch {
+	case head == "":
+		slog.Info("job.worktree_retained", append(logArgs, "reason", "cannot probe the checkout")...)
+		return
+	case dirty:
+		slog.Info("job.worktree_retained", append(logArgs, "reason", "uncommitted changes", "commits_ahead", ahead)...)
+		return
+	case !worktreeMerged(ctx, wt, ahead):
+		slog.Info("job.worktree_retained", append(logArgs, "reason", "branch not merged into the base branch", "commits_ahead", ahead)...)
+		return
+	}
+	if err := removeWorktree(ctx, wt, false, true); err != nil {
+		slog.Warn("job.worktree_cleanup_failed", append(logArgs, "err", err)...)
+		return
+	}
+	slog.Info("job.worktree_removed", append(logArgs, "reason", "clean and merged", "commits_ahead", ahead)...)
+}
 
 // Prune enforces the configured retention policy (storage.retention): it evicts
 // terminal jobs from the metadata store per the policy and best-effort removes
@@ -28,6 +74,17 @@ import (
 func (s *Service) Prune() (int, error) {
 	r := s.config().Storage.Retention
 	now := s.nowFn().Unix()
+
+	// WT-01: snapshot the managed worktrees BEFORE deleting any row — the prune
+	// returns result dirs, not ids, so afterwards the only way to tell which
+	// worktrees became orphans is "the row is gone". A job's branch is its
+	// deliverable, so this only ever removes worktrees whose work is safe (see
+	// retireWorktree). A read error is not fatal: retention still prunes rows, and
+	// the worktrees are simply left for the next pass.
+	worktrees, wterr := s.meta.ListWorktrees()
+	if wterr != nil {
+		slog.Warn("prune: list worktrees", "err", wterr)
+	}
 
 	// Workflow retention first: drop aged terminal workflows + their step-jobs +
 	// workflow_events. Doing this before the loose-job prune means a workflow's
@@ -58,6 +115,20 @@ func (s *Service) Prune() (int, error) {
 		if dir != "" {
 			_ = os.RemoveAll(dir)
 		}
+	}
+
+	// WT-01: reconcile the worktrees whose job row just went away (loose-job prune or
+	// workflow prune — both make the row disappear). Merged + clean → remove the
+	// worktree and its branch; anything else is KEPT (the branch is the deliverable)
+	// and listed in the log so a human can merge or reclaim it.
+	for _, w := range worktrees {
+		if _, ok, gerr := s.meta.GetJob(w.JobID); gerr != nil {
+			slog.Warn("prune: look up worktree job", "job_id", w.JobID, "err", gerr)
+			continue
+		} else if ok {
+			continue // row survived this pass — its worktree is not orphaned yet
+		}
+		s.retireWorktree(w)
 	}
 
 	// WEB-03 P3 cast retention (regime 1, D-P3-6): when recording is enabled, expire

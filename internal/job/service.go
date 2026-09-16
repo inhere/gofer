@@ -66,6 +66,11 @@ var (
 	// no connected worker advertises all of them (or all such workers are stale).
 	// HTTP layer maps it to 503 (temporarily unavailable — retry / pick another).
 	ErrNoEligibleWorker = errors.New("no eligible worker")
+	// ErrJobNotFound is returned by the job-scoped management helpers (WT-01
+	// WorktreeStatus / RemoveWorktree) for an id that no job has. The HTTP layer maps
+	// it to 404 (the Get-based read paths signal the same condition with ok=false; a
+	// helper that must distinguish "no such job" from "no worktree" needs a sentinel).
+	ErrJobNotFound = errors.New("unknown job")
 )
 
 // MetricsSink receives job lifecycle counters (E16, design §6). The job package

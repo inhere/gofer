@@ -1,12 +1,14 @@
 package job
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -382,5 +384,133 @@ func TestWorktreeEnvExported(t *testing.T) {
 	}
 	if final.WorktreeBaseSHA != head {
 		t.Fatalf("base sha = %q, want the checkout HEAD %q", final.WorktreeBaseSHA, head)
+	}
+}
+
+// TestWorktreeRmRefusesDirtyWithoutForce proves `job worktree rm` will not throw
+// away uncommitted work: a worktree holding a leftover file is refused (with the
+// work still on disk), and only an explicit force removes it — together with the
+// branch when asked. A successful removal also stops the job row from advertising
+// a checkout that no longer exists.
+func TestWorktreeRmRefusesDirtyWithoutForce(t *testing.T) {
+	repo, _ := gitRepo(t)
+	state := t.TempDir()
+	s := newWorktreeService(t, repo, state)
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "repo", Agent: "exec", Runner: "local",
+		Cmd: []string{"git", "status", "--porcelain"}, Cwd: ".",
+		TimeoutSec: 60, Worktree: true,
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("status = %s (err=%s)", final.Status, final.Error)
+	}
+	// What an agent job typically leaves behind: an uncommitted file.
+	writeRepoFile(t, final.WorktreePath, "leftover.txt", "agent leftover\n")
+
+	st, err := s.RemoveWorktree(final.ID, false, false)
+	if !errors.Is(err, ErrWorktreeDirty) {
+		t.Fatalf("rm without --force: err = %v, want ErrWorktreeDirty", err)
+	}
+	if !st.Dirty {
+		t.Fatal("status should report the worktree as dirty")
+	}
+	if !isDir(final.WorktreePath) {
+		t.Fatal("a refused rm must leave the worktree in place")
+	}
+
+	if _, err := s.RemoveWorktree(final.ID, true, true); err != nil {
+		t.Fatalf("rm --force --delete-branch: %v", err)
+	}
+	if isDir(final.WorktreePath) {
+		t.Fatalf("worktree %s still present after rm --force", final.WorktreePath)
+	}
+	if out := gitOutIn(t, repo, "branch", "--list", final.WorktreeBranch); out != "" {
+		t.Fatalf("branch %s still exists: %q", final.WorktreeBranch, out)
+	}
+	if got, ok := s.Get(final.ID); !ok || got.WorktreePath != "" {
+		t.Fatalf("job row still advertises the removed worktree: %+v (ok=%v)", got.WorktreePath, ok)
+	}
+}
+
+// TestRetentionRemovesMergedWorktree proves the retention sweep reclaims a worktree
+// whose deliverable is safe: the job row is pruned, the branch was merged into the
+// base branch, so both the worktree and the branch go away.
+func TestRetentionRemovesMergedWorktree(t *testing.T) {
+	repo, _ := gitRepo(t)
+	sha := payloadCommit(t, repo, "payload", "deliverable.txt", "merged deliverable\n")
+	state := t.TempDir()
+	s := newWorktreeService(t, repo, state)
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "repo", Agent: "exec", Runner: "local",
+		Cmd: []string{"git", "cherry-pick", sha}, Cwd: ".",
+		TimeoutSec: 60, Worktree: true,
+	})
+	if final.Status != StatusDone || final.CommitsAhead != 1 {
+		t.Fatalf("fixture job = %s with %d commit(s) ahead (err=%s)", final.Status, final.CommitsAhead, final.Error)
+	}
+	// The reviewer merges the deliverable into the base branch.
+	gitOutIn(t, repo, "merge", "--ff-only", final.WorktreeBranch)
+
+	s.config().Storage.Retention = config.RetentionConfig{MaxAgeDays: 1}
+	base := time.Now()
+	s.nowFn = func() time.Time { return base.Add(48 * time.Hour) }
+
+	deleted, err := s.Prune()
+	if err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("pruned %d jobs, want 1", deleted)
+	}
+	if _, ok, _ := s.meta.GetJob(final.ID); ok {
+		t.Fatalf("job %s still in DB after prune", final.ID)
+	}
+	if isDir(final.WorktreePath) {
+		t.Fatalf("merged worktree %s was not removed", final.WorktreePath)
+	}
+	if out := gitOutIn(t, repo, "branch", "--list", final.WorktreeBranch); out != "" {
+		t.Fatalf("merged branch %s was not deleted: %q", final.WorktreeBranch, out)
+	}
+}
+
+// TestRetentionKeepsUnmergedWorktree proves the sweep never drops a deliverable:
+// when the job's branch is not merged into the base branch, pruning the job row
+// leaves the worktree and the branch intact.
+func TestRetentionKeepsUnmergedWorktree(t *testing.T) {
+	repo, _ := gitRepo(t)
+	sha := payloadCommit(t, repo, "payload", "deliverable.txt", "unmerged deliverable\n")
+	state := t.TempDir()
+	s := newWorktreeService(t, repo, state)
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "repo", Agent: "exec", Runner: "local",
+		Cmd: []string{"git", "cherry-pick", sha}, Cwd: ".",
+		TimeoutSec: 60, Worktree: true,
+	})
+	if final.Status != StatusDone || final.CommitsAhead != 1 {
+		t.Fatalf("fixture job = %s with %d commit(s) ahead (err=%s)", final.Status, final.CommitsAhead, final.Error)
+	}
+
+	s.config().Storage.Retention = config.RetentionConfig{MaxAgeDays: 1}
+	base := time.Now()
+	s.nowFn = func() time.Time { return base.Add(48 * time.Hour) }
+
+	deleted, err := s.Prune()
+	if err != nil {
+		t.Fatalf("Prune: %v", err)
+	}
+	if deleted != 1 {
+		t.Fatalf("pruned %d jobs, want 1", deleted)
+	}
+	if _, ok, _ := s.meta.GetJob(final.ID); ok {
+		t.Fatalf("job %s still in DB after prune", final.ID)
+	}
+	if !isDir(final.WorktreePath) {
+		t.Fatalf("unmerged worktree %s must be kept", final.WorktreePath)
+	}
+	if _, err := os.Stat(filepath.Join(final.WorktreePath, "deliverable.txt")); err != nil {
+		t.Fatalf("kept worktree lost the deliverable: %v", err)
+	}
+	if out := gitOutIn(t, repo, "branch", "--list", final.WorktreeBranch); !strings.Contains(out, final.WorktreeBranch) {
+		t.Fatalf("unmerged branch %s must be kept, branch --list = %q", final.WorktreeBranch, out)
 	}
 }

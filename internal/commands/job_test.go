@@ -105,6 +105,33 @@ func TestJobRunRoleFlags(t *testing.T) {
 	}
 }
 
+// TestJobRunWorktreeFlags verifies WT-01 --worktree / --worktree-base bind onto
+// jobRunOpts AND survive the mapping into the JobRequest (a flag that parses but is
+// never copied into the request would silently run the job in the shared checkout).
+func TestJobRunWorktreeFlags(t *testing.T) {
+	jobRunOpts.worktree, jobRunOpts.worktreeBase = false, ""
+	var got job.JobRequest
+	app := NewApp("test")
+	runCmd := app.GetCommand("job").GetCommand("run")
+	runCmd.Func = func(c *gcli.Command, _ []string) error {
+		req, err := buildJobRunRequest(c, nil)
+		if err != nil {
+			return err
+		}
+		got = req
+		return nil
+	}
+	if code := app.Run([]string{"job", "run", "-p", "self", "-a", "exec", "--worktree", "--worktree-base", "v1.2.0", "--", "go", "version"}); code != 0 {
+		t.Fatalf("app.Run exit code=%d", code)
+	}
+	if !got.Worktree {
+		t.Fatal("--worktree was not mapped onto JobRequest.Worktree")
+	}
+	if got.WorktreeBase != "v1.2.0" {
+		t.Fatalf("JobRequest.WorktreeBase = %q, want v1.2.0", got.WorktreeBase)
+	}
+}
+
 func TestJobRunPlanFlagBuildsRequest(t *testing.T) {
 	_, _, _, _, _, plan, _ := parseRun(t,
 		[]string{"job", "run", "-p", "self", "-a", "exec", "--plan", "plan-cli", "--", "go", "version"})

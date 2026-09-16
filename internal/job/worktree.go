@@ -263,3 +263,190 @@ func gitOut(ctx context.Context, dir string, args ...string) (string, error) {
 	}
 	return strings.TrimSpace(string(out)), nil
 }
+
+// --- ls / rm（W2）----------------------------------------------------------
+
+// WorktreeStatus is the LIVE state of one job's managed worktree (WT-01), as the
+// `job worktree ls/rm` commands and GET /v1/jobs/{id}/worktree report it. The
+// path/branch/base come from the JOB ROW (recorded at submit) while head/commits/
+// dirty/merged are probed from the checkout on the machine serving the request —
+// so a row whose worktree was already removed (or whose path lives on another
+// machine, e.g. a worker job) reports Exists=false and carries no live state.
+type WorktreeStatus struct {
+	JobID   string `json:"job_id"`
+	Project string `json:"project,omitempty"`
+	Path    string `json:"path,omitempty"`
+	Branch  string `json:"branch,omitempty"`
+	BaseSHA string `json:"base_sha,omitempty"`
+	// HeadSHA/CommitsAhead are probed live (and fall back to the recorded terminal
+	// values when the worktree is gone), so `ls` answers "did this branch deliver
+	// anything, and is it still there?".
+	HeadSHA      string `json:"head_sha,omitempty"`
+	CommitsAhead int    `json:"commits_ahead"`
+	// Dirty reports uncommitted changes (tracked or untracked) in the worktree:
+	// removing it would lose them, so `rm` refuses without --force.
+	Dirty bool `json:"dirty"`
+	// Merged reports that the branch's commits are contained in the base branch's
+	// current tip, i.e. nothing is lost by deleting the branch (see worktreeMerged).
+	Merged bool `json:"merged"`
+	// Exists reports that the worktree directory is present on THIS machine.
+	Exists bool `json:"exists"`
+}
+
+var (
+	// ErrNoManagedWorktree: the job carries no WT-01 managed worktree (nothing to
+	// list or remove). The HTTP layer maps it to 404.
+	ErrNoManagedWorktree = errors.New("job has no managed worktree")
+	// ErrWorktreeDirty: removal refused because the worktree still has uncommitted
+	// changes — deleting it would throw away work the job left behind. Re-run with
+	// --force to discard it. The HTTP layer maps it to 409.
+	ErrWorktreeDirty = errors.New("worktree has uncommitted changes; re-run with --force to discard them")
+	// ErrWorktreeGone: the recorded worktree directory is not there anymore (deleted
+	// by hand / the job ran on another machine). The row may still be cleaned up by
+	// `git worktree prune` on the owning machine.
+	ErrWorktreeGone = errors.New("worktree directory is not present on this machine")
+)
+
+// WorktreeStatus returns the live state of the job's managed worktree. It is a
+// read-only probe: git failures downgrade to "not a live worktree" (Exists=false)
+// rather than erroring, so `job worktree ls` still lists the branch a job
+// delivered even when its checkout is gone.
+func (s *Service) WorktreeStatus(jobID string) (WorktreeStatus, error) {
+	res, ok := s.Get(jobID)
+	if !ok {
+		return WorktreeStatus{}, ErrJobNotFound
+	}
+	if res.WorktreePath == "" {
+		return WorktreeStatus{}, fmt.Errorf("%w: job %s", ErrNoManagedWorktree, jobID)
+	}
+	st := WorktreeStatus{
+		JobID:        res.ID,
+		Project:      res.ProjectKey,
+		Path:         res.WorktreePath,
+		Branch:       res.WorktreeBranch,
+		BaseSHA:      res.WorktreeBaseSHA,
+		HeadSHA:      res.WorktreeHeadSHA,
+		CommitsAhead: res.CommitsAhead,
+	}
+	wt := &worktreeRef{Path: res.WorktreePath, Branch: res.WorktreeBranch, BaseSHA: res.WorktreeBaseSHA}
+	if !isDir(res.WorktreePath) {
+		return st, nil // recorded, but no checkout here: Exists stays false
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), diffTimeout)
+	defer cancel()
+	st.Exists = true
+	if head, ahead, dirty := wt.worktreeState(ctx); head != "" {
+		st.HeadSHA, st.CommitsAhead, st.Dirty = head, ahead, dirty
+	}
+	st.Merged = worktreeMerged(ctx, wt, st.CommitsAhead)
+	return st, nil
+}
+
+// RemoveWorktree removes a job's managed worktree (WT-01 `job worktree rm`). It
+// refuses when the worktree still has uncommitted changes unless force is set, and
+// optionally deletes the branch (the deliverable — hence opt-in). The job row's
+// worktree_path is cleared on success so `ls` stops advertising a checkout that is
+// gone; branch/base/head stay for audit.
+func (s *Service) RemoveWorktree(jobID string, force, deleteBranch bool) (WorktreeStatus, error) {
+	st, err := s.WorktreeStatus(jobID)
+	if err != nil {
+		return WorktreeStatus{}, err
+	}
+	if !st.Exists {
+		return st, fmt.Errorf("%w: %s", ErrWorktreeGone, st.Path)
+	}
+	if st.Dirty && !force {
+		return st, fmt.Errorf("%w: %s", ErrWorktreeDirty, st.Path)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), worktreeTimeout)
+	defer cancel()
+	wt := &worktreeRef{Path: st.Path, Branch: st.Branch, BaseSHA: st.BaseSHA}
+	if err := removeWorktree(ctx, wt, force, deleteBranch); err != nil {
+		return st, err
+	}
+	st.Exists = false
+
+	// The row is the index of record: drop the path so a later `ls` does not report a
+	// checkout that no longer exists. Best-effort — the removal already happened, and
+	// a write failure only leaves a stale path (which `ls` reports as Exists=false).
+	if res, ok := s.Get(jobID); ok {
+		res.WorktreePath = ""
+		if perr := s.persist(res); perr != nil {
+			slog.Warn("remove worktree: clear worktree_path", "job_id", jobID, "err", perr)
+		}
+	}
+	slog.Info("job.worktree_removed", "event", "job.worktree_removed", "component", "job",
+		"job_id", jobID, "path", st.Path, "branch", st.Branch, "delete_branch", deleteBranch)
+	return st, nil
+}
+
+// removeWorktree runs `git worktree remove` for wt and, optionally, deletes the
+// branch. It runs from the repository's MAIN checkout (derived from the worktree's
+// own git dir) so it works regardless of the process's cwd.
+func removeWorktree(ctx context.Context, wt *worktreeRef, force, deleteBranch bool) error {
+	main, err := mainCheckout(ctx, wt.Path)
+	if err != nil {
+		return err
+	}
+	args := []string{"worktree", "remove"}
+	if force {
+		args = append(args, "--force")
+	}
+	if _, err := gitOut(ctx, main, append(args, wt.Path)...); err != nil {
+		return err
+	}
+	if deleteBranch && wt.Branch != "" {
+		// -D (not -d): the caller has decided to discard the branch, which is usually
+		// unmerged (otherwise retention would have taken the merged path); `-d` would
+		// refuse and leave the branch behind AFTER its worktree is gone — half-done and
+		// confusing.
+		if _, err := gitOut(ctx, main, "branch", "-D", wt.Branch); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// mainCheckout resolves the repository's MAIN worktree from a managed worktree
+// path: `<common git dir>/..`. For a normal checkout `--git-common-dir` is the
+// relative ".git", so the result is the checkout itself.
+func mainCheckout(ctx context.Context, wtPath string) (string, error) {
+	common, err := gitOut(ctx, wtPath, "rev-parse", "--git-common-dir")
+	if err != nil {
+		return "", err
+	}
+	if !filepath.IsAbs(common) {
+		common = filepath.Join(wtPath, common)
+	}
+	return filepath.Dir(filepath.Clean(common)), nil
+}
+
+// worktreeMerged reports whether the worktree branch is already contained in the
+// base branch, i.e. deleting it loses nothing. "Base branch" is the branch checked
+// out in the repository's MAIN worktree: that is the lineage the worktree was
+// forked from (base defaults to that checkout's HEAD), and it is the branch a
+// reviewer merges the deliverable into. A branch with NOTHING ahead of its base is
+// trivially merged. Any git failure reads as "not merged" — the safe side, since it
+// only means the worktree is KEPT.
+func worktreeMerged(ctx context.Context, wt *worktreeRef, commitsAhead int) bool {
+	if commitsAhead == 0 {
+		return true
+	}
+	if wt.Branch == "" {
+		return false
+	}
+	main, err := mainCheckout(ctx, wt.Path)
+	if err != nil {
+		return false
+	}
+	if _, err := gitOut(ctx, main, "merge-base", "--is-ancestor", wt.Branch, "HEAD"); err != nil {
+		return false
+	}
+	return true
+}
+
+// isDir reports whether p exists and is a directory.
+func isDir(p string) bool {
+	fi, err := os.Stat(p)
+	return err == nil && fi.IsDir()
+}

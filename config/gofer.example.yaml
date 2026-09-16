@@ -232,6 +232,16 @@ projects:
     # capture_diff toggles git-diff capture on job outcomes (E12). Unset defaults
     # to "on when cwd is a git work tree"; set false to disable outright.
     # capture_diff: true
+
+    # worktree_default: 本项目所有 job 默认在【受管 git worktree】里跑(WT-01), 等价于每次
+    # 都加 `--worktree`. worktree 落在 <仓库顶层>/tmp/gofer/wt/<job-id>, 提交落在独立分支
+    # gofer/<job-id> 上(默认保留, 分支上的提交即交付物), 因此多个 agent job 并行改同一个
+    # checkout 也不会互相踩 index.lock. 需要 cwd 是 git checkout, 否则提交被拒:
+    #   worktree requires a git checkout
+    # 清理: `gofer job worktree ls` 看还有哪些分支没合; `gofer job worktree rm <job-id>`
+    # (有未提交改动需 --force; 分支默认保留, 合并后加 --delete-branch 删). retention 清理
+    # job 时, 只有"无未提交改动且分支已合并"的 worktree 会被一并移除, 其余保留并记日志.
+    # worktree_default: false
   # Second project: 瘦写法 — 只写 host_path/container_path + 准入 allowed_agents,
   # 其余(exchange_subdir/result_subdir/default_agent/max_concurrent_jobs 等)留空走默认。
   my-tools:

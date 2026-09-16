@@ -443,6 +443,11 @@ func (s *Server) buildRouter() *rux.Router {
 		// E12 diff 快照(P3)：默认回 --stat 摘要(库)，?full=1 回 changes.diff 全量。
 		r.GET("/jobs/{id}/diff", s.handleGetDiff)
 
+		// WT-01 受管 worktree：GET 实时状态（分支/head/领先提交数/脏/是否已合并），
+		// DELETE 移除（有未提交改动且无 ?force=1 → 409；?delete_branch=1 连带删分支）。
+		r.GET("/jobs/{id}/worktree", s.handleGetJobWorktree)
+		r.DELETE("/jobs/{id}/worktree", s.handleDeleteJobWorktree)
+
 		// WEB-03 P3 (D-P3-7): download a job's recorded pty session (asciinema v2
 		// cast). Same owner/admin gate as the browser attach path. The recording
 		// gate does NOT do a remote-source 409 (unlike artifact download): a pty
