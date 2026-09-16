@@ -199,3 +199,78 @@ func TestServeRejectedInClientMode(t *testing.T) {
 		t.Fatalf("client mode serve must not create %s", servePIDFile())
 	}
 }
+
+// TestInitClientWritesEnvTemplate proves `gofer init client` scaffolds the client
+// node's <config-dir>/.env — the only file such a node has — with the three
+// connection/role keys the loader and CLI read.
+func TestInitClientWritesEnvTemplate(t *testing.T) {
+	cfgDir := t.TempDir()
+	t.Setenv(config.EnvConfigDir, cfgDir)
+
+	c := bindCmd(NewInitCmd())
+	c.Arg("target").WithValue("client")
+	initOpts.config, initOpts.force, initOpts.global = "", false, false
+	t.Cleanup(func() { initOpts.config, initOpts.force, initOpts.global = "", false, false })
+
+	if err := runInit(c, nil); err != nil {
+		t.Fatalf("init client: %v", err)
+	}
+
+	path := filepath.Join(cfgDir, config.EnvFileName)
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("client .env not written at %s: %v", path, err)
+	}
+	if string(got) != clientEnvTemplate {
+		t.Fatalf("written content != client env template:\n%s", got)
+	}
+	for _, line := range []string{"GOFER_SERVER_ADDR=", "GOFER_SERVER_TOKEN=", "GOFER_RUN_MODE=client"} {
+		if !strings.Contains(string(got), line) {
+			t.Errorf("client .env is missing %q:\n%s", line, got)
+		}
+	}
+	// -o still overrides the target path.
+	other := filepath.Join(t.TempDir(), "custom.env")
+	initOpts.config = other
+	if err := runInit(c, nil); err != nil {
+		t.Fatalf("init client -o: %v", err)
+	}
+	if _, err := os.Stat(other); err != nil {
+		t.Fatalf("init client -o did not write %s: %v", other, err)
+	}
+}
+
+// TestInitClientDoesNotOverwrite proves an existing client .env (which holds the
+// node's real token) survives `gofer init client` without --force, and is only
+// replaced with --force.
+func TestInitClientDoesNotOverwrite(t *testing.T) {
+	cfgDir := t.TempDir()
+	t.Setenv(config.EnvConfigDir, cfgDir)
+	path := filepath.Join(cfgDir, config.EnvFileName)
+	seeded := "GOFER_SERVER_ADDR=10.0.0.5:8765\nGOFER_SERVER_TOKEN=real-secret\nGOFER_RUN_MODE=client\n"
+	if err := os.WriteFile(path, []byte(seeded), 0o644); err != nil {
+		t.Fatalf("seed .env: %v", err)
+	}
+
+	c := bindCmd(NewInitCmd())
+	c.Arg("target").WithValue("client")
+	initOpts.config, initOpts.force, initOpts.global = "", false, false
+	t.Cleanup(func() { initOpts.config, initOpts.force, initOpts.global = "", false, false })
+
+	err := runInit(c, nil)
+	if err == nil {
+		t.Fatal("init client must refuse to overwrite an existing .env")
+	}
+	assertCodedExit(t, err)
+	if got, _ := os.ReadFile(path); string(got) != seeded {
+		t.Fatalf("refused init still rewrote the .env:\n%s", got)
+	}
+
+	initOpts.force = true
+	if err := runInit(c, nil); err != nil {
+		t.Fatalf("init client --force: %v", err)
+	}
+	if got, _ := os.ReadFile(path); string(got) != clientEnvTemplate {
+		t.Fatalf("--force did not rewrite the template:\n%s", got)
+	}
+}

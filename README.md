@@ -184,6 +184,30 @@ gofer worker --worker-config worker.yaml     # 启动；worker.yaml 独立语义
 
 1. `--config <path>` → 2. 环境变量 `GOFER_CONFIG` → 3. `./.gofer.local.yaml` → `./.gofer.yaml` → 4. `<config-dir>/config.yaml`（默认 `~/.config/gofer/config.yaml`，可用 `GOFER_CONFIG_DIR` 改）。
 
+### 运行模式（`GOFER_RUN_MODE`）
+
+节点角色决定读哪个本地配置（`config.Load` 的发现链只对 `server` 生效）：
+
+| 值 | 本地配置 | 用途 |
+|---|---|---|
+| `server`（默认） | `./.gofer[.local].yaml` → `<config-dir>/config.yaml` | `gofer serve`；本地 job 执行 |
+| `worker` | `<config-dir>/worker.yaml` | 连入 hub、执行派发来的 job |
+| `client` | **无**（只有 `<config-dir>/.env`） | 纯客户端节点：只当 CLI 用，不起 serve/worker |
+
+**纯客户端节点**（容器里最省事的用法）只需一个 `.env`：
+
+```bash
+gofer init client            # 生成 <config-dir>/.env: GOFER_SERVER_ADDR / GOFER_SERVER_TOKEN / GOFER_RUN_MODE=client
+# 填好 server 地址与 token 即可，无需 worker.yaml/config.yaml：
+gofer job list
+gofer project list           # client 模式默认即 server 的实时列表（等价 --remote）
+gofer agent list             # 默认列 server 的 agents（含 batch/interactive 能力位）；--local 看内置模板
+```
+
+- client 模式**不读** `./.gofer[.local].yaml` 与 `<config-dir>/config.yaml`，`config.Load` 直接返回空配置（本地没有配置文件是正常状态，不报错）；显式 `--config` / `GOFER_CONFIG` 仍按指定文件加载。
+- 需要本地配置的命令在 client 模式下明确拒绝：`project add/remove`、`serve`、`worker`、`config validate`、`config edit`、`mcp --standalone`；`config info` 打印 client 视图（server 地址 / token 是否已设 / config dir）。
+- `gofer mcp`（不带 `--standalone`，连 `--server`）照常可用。
+
 完整示例见 [`config/gofer.example.yaml`](config/gofer.example.yaml)。关键段：
 
 ```yaml
@@ -236,7 +260,7 @@ runners:
 全局 `-c/--config`（默认 `${GOFER_CONFIG}`，否则按发现链：cwd `.gofer[.local].yaml` → `~/.config/gofer/config.yaml`）是 **app 级 flag，须置于子命令之前**：`gofer -c <path> <command> [sub] [--options]`。`init` 用 `-o/--output` 指定写出路径；`worker` 用独立的 `--worker-config`（worker.yaml 与 gofer 配置语义不同）。
 
 ```bash
-gofer init    [server|worker] [-o path]    # 生成配置模板（默认 server→.gofer.yaml；worker→worker.yaml；-o 指定写出路径）
+gofer init    [server|worker|client] [-o path]   # 生成配置模板（默认 server→.gofer.yaml；worker→worker.yaml；client→<config-dir>/.env；-o 指定写出路径）
 gofer serve   --addr 0.0.0.0:8765 [--token …] [--allow-empty-token] [--no-web]
 gofer worker  --worker-config worker.yaml  # 作为 WS 远端执行机连入 hub（worker.yaml 独立配置）
 gofer [-c path] config validate [server|worker]    # 校验配置（默认 server；worker 查 token/host_path 等）

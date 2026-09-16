@@ -22,6 +22,7 @@ gofer job list 2>&1 | head  # 能列出 job 即说明: .env 已自动加载 + �
 ```
 
 - `gofer` 启动时自动加载 `$GOFER_CONFIG_DIR/.env`，把 `GOFER_SERVER_ADDR` / `GOFER_SERVER_TOKEN` 注入；`gofer job` 的 `--server/--token` 默认就读这两个 env。**正常情况零配置、无需手动 source、无需传 token。**
+- **纯客户端节点**：`GOFER_RUN_MODE=client` + `$GOFER_CONFIG_DIR/.env` 即可，**无需** worker.yaml / config.yaml（`gofer init client` 生成模板）；`project`/`agent` 等命令默认读 **server** 的实时视图（`project list` 即远程列表、`agent list` 列 server 的 agents）。
 - 若 `gofer job list` 报连不上 / 401 → 主机 server 没起或 `.env` 不对，见 §7；这种环境就别用本 skill。
 
 ## 1. 找到本工作空间的 project key
@@ -30,7 +31,7 @@ gofer job list 2>&1 | head  # 能列出 job 即说明: .env 已自动加载 + �
 
 1. **本工作空间的 `CLAUDE.md`**：通常已写明 gofer 项目 key（最权威）。
 2. `gofer job list` 输出的 `PROJECT` 列（看历史 job 用的哪个 key）。
-3. `gofer project list`（列这台 worker 当前生效的 project；POLICY 模式读 server 下发的策略缓存）。
+3. `gofer project list`（列这台 worker 当前生效的 project；POLICY 模式读 server 下发的策略缓存；**client 模式即 server 的远程列表**，等价 `--remote`）。
 
 > project key 因工作空间而异，**不要硬编码**。该 key 必须已在**主机 server**注册（否则 `unknown project`）。
 

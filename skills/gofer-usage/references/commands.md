@@ -114,10 +114,10 @@ gofer schedule rm <id>
 ## project（别名 `p` / `proj`）
 
 ```bash
-gofer project list [--remote]           # 不带=本地(按 GOFER_RUN_MODE 读 config.yaml/worker.yaml); --remote=server 实时 project
-gofer project show <key>                # project 详情
+gofer project list [--remote]           # 不带=本地(按 GOFER_RUN_MODE 读 config.yaml/worker.yaml); --remote=server 实时 project(client 模式默认即 --remote)
+gofer project show <key>                # project 详情(client 模式来自 server 的 /v1/meta)
 gofer project validate <key>            # 校验路径/agent/runner(别名 check)
-gofer project add / remove <key>        # 注册 / 移除
+gofer project add / remove <key>        # 注册 / 移除(client 模式拒绝: 需本地配置)
 ```
 
 - POLICY 模式 worker 上 `gofer project list` 读 server 下发的策略缓存，列**映射后的本机路径**（见 `SKILL.md` §6）。
@@ -134,8 +134,8 @@ gofer config edit                       # 用 $VISUAL/$EDITOR 打开解析出的
 ## init — 脚手架
 
 ```bash
-gofer init [server|worker]              # 从内置 example 模板生成 config(默认 server)
-gofer init -g worker                    # 写到用户全局 config 目录
+gofer init [server|worker|client]       # 从内置 example 模板生成 config(默认 server); client 生成 <config-dir>/.env(GOFER_RUN_MODE=client 的纯客户端节点, 无 config.yaml/worker.yaml)
+gofer init -g worker                    # 写到用户全局 config 目录(client 默认就写全局 config dir 的 .env)
 gofer init [-g] skill                   # 装 gofer-usage skill: 默认写 ./.claude/skills 和 ./.agents/skills 两处; -g 写全局 ~/.claude+~/.agents; -o <dir> 单目标
 ```
 

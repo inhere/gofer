@@ -46,6 +46,26 @@ const DefaultInitConfigPath = ".gofer.yaml"
 // back to <config-dir>/worker.yaml when the flag is omitted (loadWorkerConfig).
 const DefaultWorkerConfigPath = "worker.yaml"
 
+// clientEnvTemplate is the starter dotenv `gofer init client` writes for a pure
+// client node (GOFER_RUN_MODE=client). Unlike the server/worker targets this is not
+// a gofer config at all: a client node has NO local config.yaml / worker.yaml, it
+// only carries the connection to a remote server — which is exactly what these keys
+// hold. The three keys are left empty on purpose (the operator fills in the address
+// and token); only the role is preset.
+const clientEnvTemplate = `# gofer client node (GOFER_RUN_MODE=client)
+#
+# A client node has NO local config.yaml / worker.yaml: it only carries the
+# connection to a remote gofer server, so job/workflow/mcp/project/agent all talk
+# to that server. gofer loads this file automatically from $GOFER_CONFIG_DIR/.env.
+#
+# Server the CLI connects to, e.g. 127.0.0.1:8765 or host.docker.internal:8765.
+GOFER_SERVER_ADDR=
+# Bearer token of that server (never commit a real token).
+GOFER_SERVER_TOKEN=
+# This node's role: client → never load a local gofer config.
+GOFER_RUN_MODE=client
+`
+
 // initTemplate maps an init target to its embedded starter template + default
 // output path. `server` is the default (backward-compatible: bare `gofer init`).
 func initTemplate(target string) (tmpl, defaultPath string, ok bool) {
@@ -60,20 +80,22 @@ func initTemplate(target string) (tmpl, defaultPath string, ok bool) {
 }
 
 // NewInitCmd builds the top-level `gofer init [target]` command (E3). target is
-// `server` (default), `worker`, or `skill`. For server/worker it writes the
-// matching embedded starter to its default path (./.gofer.yaml / ./worker.yaml)
-// or --output <path>; for skill it installs the embedded gofer-usage/ tree to
-// BOTH .claude/skills/ and .agents/skills/ (--output narrows to one dir). It
-// refuses to overwrite an existing target unless --force is given (design D6).
+// `server` (default), `worker`, `client`, or `skill`. For server/worker it writes
+// the matching embedded starter to its default path (./.gofer.yaml / ./worker.yaml)
+// or --output <path>; for client it writes the client node's <config-dir>/.env
+// starter (the node holds only the connection env — no config file); for skill it
+// installs the embedded gofer-usage/ tree to BOTH .claude/skills/ and
+// .agents/skills/ (--output narrows to one dir). It refuses to overwrite an
+// existing target unless --force is given (design D6).
 func NewInitCmd() *gcli.Command {
 	return &gcli.Command{
 		Name: "init",
-		Desc: "Scaffold a starter config, skill or agent hooks from the embedded templates (target: server | worker | skill | hooks)",
+		Desc: "Scaffold a starter config, skill or agent hooks from the embedded templates (target: server | worker | client | skill | hooks)",
 		Config: func(c *gcli.Command) {
-			c.AddArg("target", "what to scaffold: server (default) | worker | skill | hooks", false)
-			c.StrOpt(&initOpts.config, "output", "o", "", "output path (config file for server/worker; single skills parent dir for skill; project dir for hooks — overrides the default)")
+			c.AddArg("target", "what to scaffold: server (default) | worker | client | skill | hooks", false)
+			c.StrOpt(&initOpts.config, "output", "o", "", "output path (config file for server/worker; .env for client; single skills parent dir for skill; project dir for hooks — overrides the default)")
 			c.BoolOpt(&initOpts.force, "force", "f", false, "overwrite an existing config file or skill (hooks: replace an unparsable hook config)")
-			c.BoolOpt(&initOpts.global, "global", "g", false, "write to the user-global dir (<config-dir>/config.yaml|worker.yaml for server/worker; skill installs to ~/.claude/skills and ~/.agents/skills; hooks to ~/.claude and ~/.codex)")
+			c.BoolOpt(&initOpts.global, "global", "g", false, "write to the user-global dir (<config-dir>/config.yaml|worker.yaml|.env for server/worker/client; skill installs to ~/.claude/skills and ~/.agents/skills; hooks to ~/.claude and ~/.codex)")
 			c.StrOpt(&initOpts.agent, "agent", "a", "claude", "hooks: which agent config to write: claude | codex | all")
 			c.BoolOpt(&initOpts.remove, "remove", "", false, "hooks: remove gofer's hook entries instead of installing them")
 		},
@@ -97,9 +119,12 @@ func runInit(c *gcli.Command, _ []string) error {
 	if target == "hooks" || target == "hook" {
 		return runInitHooks(c)
 	}
+	if target == "client" {
+		return runInitClient(c)
+	}
 	tmpl, defaultPath, ok := initTemplate(target)
 	if !ok {
-		return errorx.Failf(configExitErr, "unknown init target %q (use: server | worker | skill | hooks)", target)
+		return errorx.Failf(configExitErr, "unknown init target %q (use: server | worker | client | skill | hooks)", target)
 	}
 
 	// Path resolution: an explicit --output always wins (backward compatible).
@@ -148,6 +173,48 @@ func runInit(c *gcli.Command, _ []string) error {
 			c.Printf("提示: export GOFER_CONFIG=%s 后任意目录可用\n", path)
 		}
 	}
+	return nil
+}
+
+// runInitClient writes the starter dotenv for a pure client node
+// (GOFER_RUN_MODE=client) — see clientEnvTemplate. Unlike server/worker it is not a
+// config file, and its home is fixed by the loader: the client node's connection env
+// is <config-dir>/.env (config.EnvFileName under config.ConfigDir), which is exactly
+// what `init --global` targets — so the config dir is the DEFAULT here (no -g needed),
+// --global spells the same path out, and --output still overrides.
+//
+// An existing .env is never overwritten: it holds this node's real server token, so
+// clobbering it would silently disconnect the node. The refusal is a coded error
+// (non-zero exit) and names --force, mirroring init server|worker (design D6).
+func runInitClient(c *gcli.Command) error {
+	// -g/--global needs no branch: the global dir IS the config dir, and for this
+	// target that is already the default (initOpts.global is therefore accepted and
+	// has nothing left to change).
+	path := initOpts.config
+	if path == "" {
+		dir, err := config.ConfigDir()
+		if err != nil {
+			return errorx.Failf(configExitErr, "resolve config dir: %v", err)
+		}
+		path = filepath.Join(dir, config.EnvFileName)
+	}
+
+	if !initOpts.force {
+		if _, err := os.Stat(path); err == nil {
+			return errorx.Failf(configExitErr,
+				"%s already exists; use --force to overwrite (it holds this node's server token)", path)
+		} else if !os.IsNotExist(err) {
+			return errorx.Failf(configExitErr, "stat %s: %v", path, err)
+		}
+	}
+
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return errorx.Failf(configExitErr, "create %s: %v", filepath.Dir(path), err)
+	}
+	if err := os.WriteFile(path, []byte(clientEnvTemplate), 0o644); err != nil {
+		return errorx.Failf(configExitErr, "write %s: %v", path, err)
+	}
+	c.Printf("已生成客户端节点 .env %s，填入 GOFER_SERVER_ADDR/GOFER_SERVER_TOKEN 后即可用 `gofer job list` 等命令\n", path)
 	return nil
 }
 
