@@ -296,6 +296,25 @@ func ApplyDefaults(cfg *Config) {
 // validate runs lightweight structural checks that do not touch the filesystem;
 // path/agent existence checks live in internal/project Registry.Validate.
 func validate(cfg *Config) error {
+	for key, ac := range cfg.Agents {
+		hasPrompt := func(args []string) bool {
+			for _, arg := range args {
+				if strings.Contains(arg, "{{prompt}}") {
+					return true
+				}
+			}
+			return false
+		}
+		if ac.Interactive && hasPrompt(ac.Args) {
+			return fmt.Errorf("agent %q: interactive with args containing {{prompt}}; use interactive_args for a dual-mode agent", key)
+		}
+		if hasPrompt(ac.InteractiveArgs) {
+			return fmt.Errorf("agent %q: interactive_args must not contain {{prompt}}", key)
+		}
+		if ac.Type == "exec" && ac.InteractiveArgs != nil {
+			return fmt.Errorf("agent %q: type exec cannot set interactive_args", key)
+		}
+	}
 	for key, p := range cfg.Projects {
 		if p.HostPath == "" {
 			return fmt.Errorf("project %q: host_path is required", key)

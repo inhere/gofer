@@ -39,16 +39,18 @@ var builtinTemplates = map[string]config.AgentConfig{
 	// claude: non-interactive run. `-p` (print) plus the stream-json trio so a long
 	// run streams progress instead of printing only the final result at the end.
 	"claude": {
-		Type:    TypeCLIAgent,
-		Command: "claude",
-		Args:    []string{"-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"},
+		Type:            TypeCLIAgent,
+		Command:         "claude",
+		Args:            []string{"-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"},
+		InteractiveArgs: []string{},
 	},
 	// codex: non-interactive run. `codex exec` is the CLI's documented
 	// "run Codex non-interactively" subcommand.
 	"codex": {
-		Type:    TypeCLIAgent,
-		Command: "codex",
-		Args:    []string{"exec", "{{prompt}}"},
+		Type:            TypeCLIAgent,
+		Command:         "codex",
+		Args:            []string{"exec", "{{prompt}}"},
+		InteractiveArgs: []string{},
 	},
 	// opencode: non-interactive run via the `run <prompt>` subcommand.
 	"opencode": {

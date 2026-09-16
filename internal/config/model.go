@@ -737,14 +737,17 @@ func (p ProjectConfig) IsNotifyEnabled() bool { return p.NotifyEnabled == nil ||
 // AgentConfig describes a configurable CLI agent. Detect is refined in P3; P2
 // only needs it to decode cleanly.
 type AgentConfig struct {
-	Type        string            `yaml:"type,omitempty"`
-	Command     string            `yaml:"command,omitempty"`
-	Args        []string          `yaml:"args,omitempty"`
-	Env         map[string]string `yaml:"env,omitempty"`
-	AllowRawCmd bool              `yaml:"allow_raw_cmd,omitempty"`
-	Interactive bool              `yaml:"interactive,omitempty"`
-	NoRawCmd    bool              `yaml:"no_raw_cmd,omitempty"`
-	Detect      DetectConfig      `yaml:"detect,omitempty"`
+	Type    string   `yaml:"type,omitempty"`
+	Command string   `yaml:"command,omitempty"`
+	Args    []string `yaml:"args,omitempty"`
+	// InteractiveArgs defines argv for interactive mode. Four combinations: args with {{prompt}} only=batch; InteractiveArgs non-nil only=interactive; both=dual-mode; neither=mode-less (except exec, which is batch by definition).
+	InteractiveArgs []string          `yaml:"interactive_args,omitempty"`
+	Env             map[string]string `yaml:"env,omitempty"`
+	AllowRawCmd     bool              `yaml:"allow_raw_cmd,omitempty"`
+	// Interactive 兼容别名：仅交互、args 即交互 argv。
+	Interactive bool         `yaml:"interactive,omitempty"`
+	NoRawCmd    bool         `yaml:"no_raw_cmd,omitempty"`
+	Detect      DetectConfig `yaml:"detect,omitempty"`
 	// SessionInject 注入模式 argv 模板（模式①，首选）。非空 => 提交时 gofer 生成 uuid
 	// 渲染追加到 argv，立即知 id、无需解析输出。{{session_id}} 占位（session-capture §6.4）。
 	SessionInject []string `yaml:"session_inject,omitempty"`

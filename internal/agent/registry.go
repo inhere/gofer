@@ -210,7 +210,8 @@ func builtinSessionDefaultFor(key string, a config.AgentConfig) (config.AgentCon
 	if def, ok := builtinSessionDefaults[key]; ok {
 		return def, true
 	}
-	if !a.Interactive {
+	_, interactive := Modes(a)
+	if !interactive {
 		return config.AgentConfig{}, false
 	}
 	command := strings.ToLower(commandBase(a.Command))
