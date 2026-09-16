@@ -15,14 +15,16 @@ import (
 func TestBuiltinTemplatesTable(t *testing.T) {
 	want := map[string]config.AgentConfig{
 		"claude": {
-			Type:    TypeCLIAgent,
-			Command: "claude",
-			Args:    []string{"-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"},
+			Type:            TypeCLIAgent,
+			Command:         "claude",
+			Args:            []string{"-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"},
+			InteractiveArgs: []string{},
 		},
 		"codex": {
-			Type:    TypeCLIAgent,
-			Command: "codex",
-			Args:    []string{"exec", "{{prompt}}"},
+			Type:            TypeCLIAgent,
+			Command:         "codex",
+			Args:            []string{"exec", "{{prompt}}"},
+			InteractiveArgs: []string{},
 		},
 		"opencode": {
 			Type:    TypeCLIAgent,
