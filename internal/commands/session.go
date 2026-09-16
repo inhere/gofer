@@ -151,8 +151,12 @@ func runSessionList(c *gcli.Command, _ []string) error {
 	c.Printf("%-9s %-7s %-15s %-6s %-4s %-5s %-9s %s\n", "SESSION", "AGENT", "STATE", "RELAY", "TURN", "SEEN", "PROJECT", "TITLE")
 	for _, a := range list {
 		relay := "off"
-		if a.Relay {
+		switch {
+		case a.Relay:
 			relay = "ON"
+		case a.AutoArmed:
+			// SWITCH off, but the server's idle rule arms this session (SR-A5).
+			relay = "auto"
 		}
 		c.Printf("%-9s %-7s %-15s %-6s %-4d %-5s %-9s %s\n",
 			shortSID(a.SessionID), a.Agent, a.State, relay, a.TurnNo, ago(a.LastSeenAt), a.ProjectKey, sessionTitle(a))
@@ -174,8 +178,15 @@ func runSessionShow(c *gcli.Command, _ []string) error {
 		return err
 	}
 	a := d.Session
-	c.Printf("session:  %s\nagent:    %s\nproject:  %s\nrunner:   %s\ncwd:      %s\ntitle:    %s\nstate:    %s\nrelay:    %v\nturns:    %d\nseen:     %s ago\ntranscript: %s\n",
-		a.SessionID, a.Agent, a.ProjectKey, a.Runner, a.Cwd, a.Title, a.State, a.Relay, a.TurnNo, ago(a.LastSeenAt), a.Transcript)
+	relay := "off"
+	switch {
+	case a.Relay:
+		relay = "ON (switch)"
+	case a.AutoArmed:
+		relay = fmt.Sprintf("auto (idle %ds >= threshold)", a.IdleSec)
+	}
+	c.Printf("session:  %s\nagent:    %s\nproject:  %s\nrunner:   %s\ncwd:      %s\ntitle:    %s\nstate:    %s\nrelay:    %s\nturns:    %d\nseen:     %s ago\ntranscript: %s\n",
+		a.SessionID, a.Agent, a.ProjectKey, a.Runner, a.Cwd, a.Title, a.State, relay, a.TurnNo, ago(a.LastSeenAt), a.Transcript)
 	if a.LastMessage != "" {
 		c.Printf("\nlast message:\n  %s\n", strings.ReplaceAll(strings.TrimSpace(a.LastMessage), "\n", "\n  "))
 	}
