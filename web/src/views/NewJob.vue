@@ -215,8 +215,24 @@ const agentCandidates = computed<MetaAgent[]>(() => {
   return list
 })
 
+// 项目是否允许交互 job 的"有效值"（AGT-02 §2）：新 server 直接给 allow_interactive；旧 server
+// （控制台热更、二进制未更新 → 该字段 undefined）退回旧规则「interactive_allowed_agents 非空即
+// 支持交互」——undefined 是"没有这个字段"，不能当成"闸为假"。
+// 未选 project（无从判断）→ 返回 true（不收窄）：与 allow_exec 的 undefined 处理同一条 fail-safe
+// 纪律，宁可让后端拒，也不给出一个空下拉。
+function projectAllowsInteractive(proj: MetaProject | undefined): boolean {
+  if (!proj) {
+    return true
+  }
+  if (proj.allow_interactive !== undefined) {
+    return proj.allow_interactive
+  }
+  return (proj.interactive_allowed_agents?.length ?? 0) > 0
+}
+
 // 联动：agent 候选 = agentCandidates（allowed_agents ∩ 执行侧能力）
-//                  ∩ [interactive: host 已知 & interactive-capable & 在 project.interactive_allowed_agents 内]
+//                  ∩ [interactive: host 已知 & 有交互模式 & 项目 allow_interactive 为真
+//                                & (收窄列表为空 或 命中该 agent)]
 //                  ∩ [非 interactive: 排除 interactive-only agent]
 //                  ∩ [local runner 且 allow_exec=false: 排除 exec 型]
 // 不再做「交集为空就回落不收窄」：那会列出提交必被拒的假选项（原 T5.3b fail-safe 的反效果）。
@@ -226,9 +242,14 @@ const agentOptions = computed<MetaAgent[]>(() => {
   let list = agentCandidates.value
   if (interactive.value) {
     list = list.filter((a) => a.interactive && hostAgentKeys.value.has(a.key))
-    // 旧 server 不带该字段（undefined）→ 无从收窄，退回仅按 interactive 标志过滤
+    // 项目级总开关（AGT-02 §2）：关掉就一个交互 agent 都不给选。
+    if (!projectAllowsInteractive(proj)) {
+      list = []
+    }
+    // 收窄列表**非空才**收窄（旧语义「空 = 该 project 不支持交互」已废弃，那个判断归 allow_interactive）；
+    // undefined = 旧 server 不带该字段 → 无从收窄，退回仅按交互能力过滤。
     const ia = proj?.interactive_allowed_agents
-    if (ia !== undefined) {
+    if (ia !== undefined && ia.length > 0) {
       const set = new Set(ia)
       list = list.filter((a) => set.has(a.key))
     }
@@ -256,10 +277,13 @@ const agentEmptyReason = computed<string>(() => {
     if (proj.worker_only) {
       return `project ${proj.key} 是 worker-only：交互 job 由 host 校验准入，暂不支持`
     }
-    if (proj.interactive_allowed_agents?.length === 0) {
-      return `project ${proj.key} 未配置 interactive_allowed_agents：不支持交互 job`
+    if (!projectAllowsInteractive(proj)) {
+      return `project ${proj.key} 未开启交互 job（allow_interactive）`
     }
-    return '当前 project / runner 组合下没有可用的交互 agent（须同时在 interactive_allowed_agents 内、且执行侧已安装）'
+    if ((proj.interactive_allowed_agents?.length ?? 0) > 0) {
+      return `project ${proj.key} 的 interactive_allowed_agents 收窄后没有可选项（须在收窄列表内、host 已安装且有交互模式）`
+    }
+    return `project ${proj.key} 没有可用的交互 agent（host 未安装有交互模式的 agent，或当前 runner/worker 上不可达）`
   }
   // 非交互模式：候选池非空、但全被 interactive-only 闸掉 —— 指路而不是让用户对着空下拉发呆。
   if (agentCandidates.value.length > 0 && agentCandidates.value.every((a) => a.interactive)) {

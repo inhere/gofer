@@ -52,6 +52,9 @@ interface ProjectForm {
   allowed_agents: string[]
   allowed_runners: string[]
   allow_exec: boolean
+  // 交互 job 总开关（AGT-02 §2）与之配套的可选收窄：空数组 = 不收窄（不再是"不支持交互"）。
+  allow_interactive: boolean
+  interactive_allowed_agents: string[]
   max_concurrent_jobs: string
 }
 
@@ -63,6 +66,8 @@ const form = reactive<ProjectForm>({
   allowed_agents: [],
   allowed_runners: [],
   allow_exec: false,
+  allow_interactive: false,
+  interactive_allowed_agents: [],
   max_concurrent_jobs: '',
 })
 
@@ -74,6 +79,40 @@ const runnerOptions = computed(() => [
 ])
 const isEditing = computed(() => mode.value === 'edit')
 const canSubmit = computed(() => !saving.value && form.key.trim() !== '' && form.host_path.trim() !== '')
+
+// 项目是否允许交互 job 的"有效值"（AGT-02 §2）：新 server 直接给 allow_interactive；旧 server
+// （控制台热更、二进制未更新 → 运行时无该字段）退回旧语义「interactive_allowed_agents 非空即支持」。
+function effectiveAllowInteractive(p: ProjectDetail): boolean {
+  return p.allow_interactive ?? (p.interactive_allowed_agents?.length ?? 0) > 0
+}
+
+// 详情行展示用的开关（同上；旧 server 时退回旧规则）。
+const detailAllowInteractive = computed(() => (detail.value ? effectiveAllowInteractive(detail.value) : false))
+
+// 收窄候选 = 当前 allowed_agents（为空 = 项目不限制 agent，候选即全部）中的 agent。
+// ⚠️ getConfig() 的 configAgentView 不带交互能力位（只有 /v1/meta 的 MetaAgent 有），故这里
+// 拿不到"有交互模式"这层过滤；收窄合法性由 server 校验：PUT 时 agent 必须已定义、必须有交互模式、
+// 且必须在 allowed_agents 内，否则 400 并回传原因。
+const interactiveAgentCandidates = computed(() => {
+  const list = agents.value
+  const allowed = form.allowed_agents
+  return allowed.length === 0 ? list : list.filter((a) => allowed.includes(a.key))
+})
+
+// 收窄项必须落在候选内（server 也会拒）：allowed_agents 变化 / 载入配置后剔除失联项，
+// 用户不必手动去取消勾选 —— 移出 allowed_agents 的 agent 自动从收窄列表消失。
+// config 还没加载成功时（agents 视图为空）不裁剪：那是"信息缺失"而非"没有候选"，
+// 静默清空等于把 yaml 里的收窄配置丢掉。
+function pruneInteractiveAgents(): void {
+  if (!config.value) {
+    return
+  }
+  const keys = new Set(interactiveAgentCandidates.value.map((a) => a.key))
+  const next = form.interactive_allowed_agents.filter((k) => keys.has(k))
+  if (next.length !== form.interactive_allowed_agents.length) {
+    form.interactive_allowed_agents = next
+  }
+}
 
 // git 状态卡（E20）
 const gitStatus = ref<GitStatus | null>(null)
@@ -180,6 +219,8 @@ function startCreate(): void {
     allowed_agents: [],
     allowed_runners: ['local'],
     allow_exec: false,
+    allow_interactive: false,
+    interactive_allowed_agents: [],
     max_concurrent_jobs: '',
   })
 }
@@ -193,8 +234,12 @@ function fillForm(p: ProjectDetail): void {
     allowed_agents: [...(p.allowed_agents ?? [])],
     allowed_runners: [...(p.allowed_runners ?? [])],
     allow_exec: p.allow_exec,
+    allow_interactive: effectiveAllowInteractive(p),
+    interactive_allowed_agents: [...(p.interactive_allowed_agents ?? [])],
     max_concurrent_jobs: p.max_concurrent_jobs != null ? String(p.max_concurrent_jobs) : '',
   })
+  // 收窄列表必须 ⊆ 候选（server 也会校验）：载入后清掉不在候选内的残留项。
+  pruneInteractiveAgents()
 }
 
 function resetForm(): void {
@@ -207,6 +252,8 @@ function resetForm(): void {
     allowed_agents: [],
     allowed_runners: [],
     allow_exec: false,
+    allow_interactive: false,
+    interactive_allowed_agents: [],
     max_concurrent_jobs: '',
   })
 }
@@ -216,6 +263,12 @@ function toggleAgent(key: string): void {
   if (form.default_agent && form.allowed_agents.length > 0 && !form.allowed_agents.includes(form.default_agent)) {
     form.default_agent = ''
   }
+  // agent 移出 allowed_agents → 收窄项自动失联（server 会拒一个不在 allowed_agents 内的收窄项）。
+  pruneInteractiveAgents()
+}
+
+function toggleInteractiveAgent(key: string): void {
+  form.interactive_allowed_agents = toggleValue(form.interactive_allowed_agents, key)
 }
 
 function toggleRunner(key: string): void {
@@ -226,30 +279,23 @@ function toggleValue(list: string[], value: string): string[] {
   return list.includes(value) ? list.filter((v) => v !== value) : [...list, value]
 }
 
+// 保存时**整体**下发表单（AGT-02 §2）：PUT 是合并语义 —— 缺字段 = 保持不变，存在即覆盖。
+// 所以清空的字段要用 []/0/'' 显式表达，不能靠省略：省略 allowed_agents 这种数组会让"取消最后一个
+// 勾选"发不出 []，用户永远删不掉收窄列表里的最后一项（h-aii-3scy 的另一面）。
 function buildReq(): ProjectWriteReq {
-  const req: ProjectWriteReq = {
+  const max = Number.parseInt(form.max_concurrent_jobs, 10)
+  return {
     key: form.key.trim(),
     host_path: form.host_path.trim(),
+    container_path: form.container_path.trim(),
+    default_agent: form.default_agent,
+    allowed_agents: [...form.allowed_agents],
+    allowed_runners: [...form.allowed_runners],
     allow_exec: form.allow_exec,
+    max_concurrent_jobs: Number.isFinite(max) && max > 0 ? max : 0,
+    allow_interactive: form.allow_interactive,
+    interactive_allowed_agents: [...form.interactive_allowed_agents],
   }
-  const containerPath = form.container_path.trim()
-  if (containerPath) {
-    req.container_path = containerPath
-  }
-  if (form.default_agent) {
-    req.default_agent = form.default_agent
-  }
-  if (form.allowed_agents.length > 0) {
-    req.allowed_agents = [...form.allowed_agents]
-  }
-  if (form.allowed_runners.length > 0) {
-    req.allowed_runners = [...form.allowed_runners]
-  }
-  const max = Number.parseInt(form.max_concurrent_jobs, 10)
-  if (Number.isFinite(max) && max > 0) {
-    req.max_concurrent_jobs = max
-  }
-  return req
 }
 
 async function saveProject(): Promise<void> {
@@ -499,6 +545,24 @@ onMounted(() => {
               </span>
             </dd>
 
+            <!-- 交互 job 总开关 + 可选收窄（AGT-02 §2）：收窄为空 = 不按 agent 收窄（不是"不支持交互"）。 -->
+            <dt class="mono">allow_interactive</dt>
+            <dd class="mono">
+              <span class="flag" :class="detailAllowInteractive ? 'flag--yes' : 'flag--no'">
+                {{ detailAllowInteractive ? '是' : '否' }}
+              </span>
+              <template
+                v-if="detail.interactive_allowed_agents && detail.interactive_allowed_agents.length"
+              >
+                <span
+                  v-for="a in detail.interactive_allowed_agents"
+                  :key="a"
+                  class="tag"
+                >{{ a }}</span>
+              </template>
+              <span v-else>—</span>
+            </dd>
+
             <dt class="mono">max_concurrent_jobs</dt>
             <dd class="mono">{{ detail.max_concurrent_jobs ?? '—' }}</dd>
           </dl>
@@ -588,6 +652,12 @@ onMounted(() => {
                   <span>allow_exec</span>
                 </label>
               </div>
+              <div class="field field--check">
+                <label class="check mono">
+                  <input v-model="form.allow_interactive" type="checkbox" />
+                  <span>允许交互 job（allow_interactive）</span>
+                </label>
+              </div>
               <div class="field">
                 <label class="label mono" for="cfg-max">MAX_CONCURRENT_JOBS</label>
                 <input
@@ -600,6 +670,27 @@ onMounted(() => {
                 />
               </div>
             </div>
+
+            <!-- 收窄候选 = ALLOWED_AGENTS（为空时 = 全部已配置 agent）；config 视图不带交互能力位，
+                 故"有交互模式"这层由 server 在 PUT 时校验（必须已定义、有交互模式、且在 ALLOWED_AGENTS 内）。 -->
+            <fieldset class="pick">
+              <legend class="label mono">INTERACTIVE_ALLOWED_AGENTS（可选收窄）</legend>
+              <label v-for="a in interactiveAgentCandidates" :key="a.key" class="check mono">
+                <input
+                  type="checkbox"
+                  :checked="form.interactive_allowed_agents.includes(a.key)"
+                  @change="toggleInteractiveAgent(a.key)"
+                />
+                <span>{{ a.key }}</span>
+              </label>
+              <p v-if="interactiveAgentCandidates.length === 0" class="field-hint mono">无 agent 选项</p>
+              <p v-else-if="form.allowed_agents.length === 0" class="field-hint mono">
+                ALLOWED_AGENTS 为空（不限制 agent）：候选为全部已配置 agent
+              </p>
+              <p v-else class="field-hint mono">
+                留空 = 不按 agent 收窄（凡有交互模式的 agent 都放行）；仅「允许交互 job」开启时生效
+              </p>
+            </fieldset>
 
             <p v-if="formError" class="error mono">{{ formError }}</p>
             <p v-if="notice" class="notice mono">{{ notice }}</p>
