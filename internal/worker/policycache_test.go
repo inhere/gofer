@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -127,6 +128,9 @@ func TestPolicyCacheRoundTrip(t *testing.T) {
 	fi, err := os.Stat(path)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if runtime.GOOS == "windows" {
+		t.Skip("POSIX file mode not applicable on windows")
 	}
 	if fi.Mode().Perm() != 0o600 {
 		t.Fatalf("cache mode = %v, want 0600", fi.Mode().Perm())
