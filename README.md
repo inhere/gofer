@@ -187,6 +187,8 @@ gofer worker --worker-config worker.yaml     # 启动；worker.yaml 独立语义
 2. 用户 `GET /v1/jobs/{id}/interactions` 看到待答项 → `POST .../answer`（`{"answer":"..."}`）。
 3. 无其它待答项时 job 自动回到 `running`，agent 读到答案续跑。MCP 侧对应 `bridge_get_interactions` / `bridge_answer_interaction`。
 
+终端里的 Claude Code / Codex 会话另有**会话中继**：`gofer init hooks` 装配后，会话停下时最后一条消息可发到 web「会话」页等回复并注入同一会话（`gofer session relay on`）；人离开电脑超过 `server.session_auto_relay_idle_sec`（默认 5 分钟，`0` = 关闭）时无需拨开关也会自动布防，人回到键盘即自动放行。
+
 ## 观测与审计
 
 - **执行位置可见**：`GET /v1/runners` 列每个 runner 健康态（local 恒 up；peer-http 周期主动探针 up/down；worker 心跳态 connected/disconnected + 在飞数 + 标签 + 心跳年龄）。Web `/runners` 仪表盘消费它。

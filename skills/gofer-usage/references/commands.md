@@ -96,10 +96,12 @@ gofer hook claude|codex [--wait N]      # hook 执行体(由 hooks 配置调用,
 要点：
 
 - 开关在 server、按会话；hook 每次 Stop 先查开关，关着零阻塞，server 不可达也直接放行，**永不卡死终端**。
+- **空闲自动布防（SR-A5）**：hook 每次 Stop / Notification(idle_prompt) 上报"键鼠空闲秒数"（Windows `GetLastInputInfo`、macOS `ioreg HIDIdleTime`、Linux `xprintidle`；取不到或超 ~200ms = 未知）。server 的 `server.session_auto_relay_idle_sec`（默认 300s，显式 `0` = 关闭）以内没到阈值就不布防；**人离开超过阈值时，即使开关没开，Stop 也会把消息发成 turn 并在 web 等回复**（列表 relay 列显示 `auto`）。生效条件只看最近一次上报的空闲值，`-1`（未知）永不布防。
+- **人回来即放行**：自动布防的等待期间 hook 每轮（≤5s）重探空闲值并报告给 server；人一碰键鼠（空闲 < 阈值）server 就把 turn 关成 `EXPIRED` 且 `released_by=user_returned`，终端恢复正常提示符。**显式开关不受此影响**——它只由终端输入（UserPromptSubmit）或 web `/off` 关闭。
 - `UserPromptSubmit`（人在终端输入）自动把 relay 关掉；web 注入的回复虽也触发该事件，但带 `[gofer web 回复]` 前缀，hook 上报 injected，不会误关。
 - Stop hook 等待期间终端显示 hook 运行中；人回到电脑想直接输入可按 Esc 取消。
-- 硬边界：会话已停在空闲提示符时没有 hook 进程活着，web 拨开开关要等下一次 Stop；需终端输入一次。
-- turn 复用决策通道：铃铛里「会话」标签条目可直接内联作答；`gofer plan decisions --state OPEN` 也能看到（kind=relay）。
+- 硬边界：会话已停在空闲提示符、且人从未离开过的场景没有 hook 进程活着，web 拨开开关要等下一次 Stop；需终端输入一次（人离开过则由自动布防覆盖）。
+- turn 复用决策通道：铃铛里「会话」标签条目可直接内联作答；`gofer plan decisions --state OPEN` 也能看到（kind=relay；被"人回来"关掉的 turn 是 EXPIRED + `released_by=user_returned`）。
 
 ## schedule（别名 `sch`）— 定时 job
 

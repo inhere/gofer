@@ -43,6 +43,14 @@ server:
   #                         # 有 worker 重连即被收养(job 行翻回 running、日志接着写), 窗口
   #                         # 到期仍无人认领才 failed. 注意: 这是 server 侧开关, 改它需
   #                         # 重启 serve(SIGHUP 只换阈值类配置, 不重挂该窗口).
+  #
+  # session_auto_relay_idle_sec: 300  # 终端会话中继的空闲自动布防阈值(秒, SR-A5).
+  #                         # hook 每次 Stop/空闲提示上报"键鼠已空闲多少秒", 到了这个
+  #                         # 阈值就【即使没人拨中继开关】也把会话停下时的消息发到 web
+  #                         # 等回复, 人一回到键盘立刻放行(web 会话列表显示 `auto
+  #                         # (idle 12m)`). 未写 = 300(5 分钟); 显式写 0 = 关闭自动布防,
+  #                         # 只认每会话的中继开关. 平台支持: Windows/macOS 开箱可用,
+  #                         # Linux 需装 xprintidle(X11), 否则视为未知、不布防.
 
   # callers: multi-caller auth (C2). Each entry maps a bearer token to a caller
   # id stamped onto submitted jobs (audit / per-caller filtering). The legacy

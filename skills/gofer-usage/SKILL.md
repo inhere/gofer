@@ -149,7 +149,10 @@ gofer init hooks --remove         # 卸载
 约定：
 
 - 用户说「打开中继 / 我要离开了 / 交给 web」→ 执行 `gofer session relay on`，然后正常结束回合即可；之后每次回合结束都会在 web 等回复，直到 web 回复 `/off`、终端有人输入、或 `relay off`。
-- **忘了开**：web 会话列表里找到该会话拨开开关，**下一次回合结束**生效（会话正在跑长任务时最常见，能接上）；已经停在空闲提示符的会话没有 hook 在跑，必须在终端输入一次。
+- **忘了开也不要紧（空闲自动布防）**：hook 每次 Stop 都会上报"键鼠已空闲多少秒"，server 按 `server.session_auto_relay_idle_sec` 判定（默认 300 = 5 分钟，写 `0` = 关闭该功能）——**人离开电脑超过阈值时，即使没拨开关，会话停下也会在 web 等回复**（web 会话列表 RELAY 列显示 `auto (idle 12m)`，CLI `gofer session ls` 的 RELAY 列显示 `auto`）。
+- **人回来即放行**：自动布防的等待期间 hook 每 ≤5s 重探一次空闲值，人一碰键鼠就放行（turn 标 `released_by=user_returned`，会话回到提示符）；只有**显式**拨开的开关才靠终端输入 / `/off` 关掉。
+- 依赖：Windows/macOS 开箱可用；**Linux 需要 `xprintidle`**（X11），缺失或 Wayland/无桌面时为"未知"，只回到显式开关的行为。
+- web 会话列表里找到该会话也可以直接拨开开关，**下一次回合结束**生效（会话正在跑长任务时最常见，能接上）；已经停在空闲提示符、且人一直没离开过的会话没有 hook 在跑，仍需在终端输入一次。
 - 注入的回复带前缀 `[gofer web 回复]`，与终端输入等价处理。
 - 详见 [`references/commands.md`](references/commands.md) 的「session — 终端会话中继」。
 - **想让手机响一下**：配个钉钉/飞书群机器人，事件订阅 `session.waiting`（不在默认集里，必须显式写），消息带直达会话的链接。配置见 gofer 仓库 `docs/runbook/im-notification.md`。
