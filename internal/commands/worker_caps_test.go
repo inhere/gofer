@@ -75,8 +75,10 @@ func TestAgentBriefsBareExecBlockKeepsExecType(t *testing.T) {
 }
 
 // TestAgentBriefsDeclaredCLIAgent: a declared cli-agent reports its real key, type
-// and interactive flag (the fields the UI cascade exists for) — alongside the
-// always-present built-in exec.
+// and both mode bits (the fields the UI cascade exists for) — alongside the
+// always-present built-in exec. A plain cli-agent is batch-capable even though it
+// has no {{prompt}}/interactive_args here (AGT-02 0.2: batch = "not declared
+// interactive-only"), while the legacy `interactive: true` agent is not.
 func TestAgentBriefsDeclaredCLIAgent(t *testing.T) {
 	cfg := workerCfg(t, map[string]config.AgentConfig{
 		"claude": {Type: agent.TypeCLIAgent, Command: "claude", Interactive: true},
@@ -86,7 +88,7 @@ func TestAgentBriefsDeclaredCLIAgent(t *testing.T) {
 	briefs := agentBriefs(cfg, nil)
 	want := []wsproto.AgentBrief{
 		{Key: "claude", Type: agent.TypeCLIAgent, Interactive: true},
-		{Key: "codex", Type: agent.TypeCLIAgent, Interactive: false},
+		{Key: "codex", Type: agent.TypeCLIAgent, Interactive: false, Batch: true},
 		{Key: agent.ExecAgentKey, Type: agent.TypeExec, Interactive: false, Batch: true},
 	}
 	if !reflect.DeepEqual(briefs, want) {
