@@ -8,6 +8,7 @@ import (
 )
 
 func TestWorkerListReadsServerMeta(t *testing.T) {
+	t.Setenv("GOFER_CONFIG_DIR", t.TempDir())
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/meta" {
 			http.NotFound(w, r)

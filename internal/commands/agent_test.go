@@ -103,6 +103,7 @@ agents:
 }
 
 func TestAgentListRemoteServerAndRunner(t *testing.T) {
+	t.Setenv("GOFER_CONFIG_DIR", t.TempDir())
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/agents":
