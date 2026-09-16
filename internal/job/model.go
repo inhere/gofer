@@ -310,10 +310,7 @@ type JobResult struct {
 	FanIndex int `json:"fan_index,omitempty"`
 	// SessionID 底层 agent CLI 会话标识(claude/codex)。注入(提交时 gofer 生成)或捕获(终态从输出)。
 	// 空=无/未捕获。持久化 jobs.session_id，供 show/list/resume。
-	SessionID         string `json:"session_id,omitempty"`
-	ResumedFrom       string `json:"resumed_from,omitempty"`
-	AutoResumeAttempt int    `json:"auto_resume_attempt,omitempty"`
-	AutoResumedBy     string `json:"auto_resumed_by,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
 	// WT-01 受管 worktree：该 job 在独立 worktree 中执行时，记录交付物位置与分支状态。
 	// WorktreePath=<repo top>/tmp/gofer/wt/<job-id>（默认保留，分支上的提交即交付物），
 	// WorktreeBranch=gofer/<job-id>，WorktreeBaseSHA=基线提交，WorktreeHeadSHA=终态时该分支
