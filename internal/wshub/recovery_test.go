@@ -246,6 +246,50 @@ func TestLegacyWorkerFrameResumesWithinWindow(t *testing.T) {
 	}
 }
 
+// TestSuspendAttachesSinksToLiveReconnect covers the teardown/reconnect race: the
+// same worker process reconnects WHILE the old connection's teardown is still
+// suspending its jobs, so the reconnect's register could not plan anything for them.
+// The suspended jobs' sinks must still be attached to the live connection (otherwise
+// the frames the still-running worker sends would have no sink to land on), and the
+// first frame for the job then resumes it.
+func TestSuspendAttachesSinksToLiveReconnect(t *testing.T) {
+	hub := recoverHub(2 * time.Second)
+
+	old := newWorkerConn("w1", "w1", nil, wsproto.Register{WorkerID: "w1", InstanceID: "inst-1"})
+	sink := newFakeSink()
+	old.putSink("j1", sink)
+	old.adoptReserve("j1")
+
+	live := newWorkerConn("w1", "w1", nil, wsproto.Register{WorkerID: "w1", InstanceID: "inst-1"})
+	hub.reg.conns["w1"] = live // the reconnect won the race and is already registered
+
+	hub.suspendOnDisconnect(old, []string{"j1"})
+
+	if got := live.sink("j1"); got != JobSink(sink) {
+		t.Fatalf("live connection sink = %v, want the suspended job's sink", got)
+	}
+	if got := live.inflightJobs(); len(got) != 1 || got[0] != "j1" {
+		t.Fatalf("live in-flight = %v, want [j1]", got)
+	}
+	if got := sink.snapshot(); len(got) != 1 || got[0] != "suspend:worker disconnected" {
+		t.Fatalf("sink events = %v, want one suspend", got)
+	}
+
+	// A frame on the live connection proves the worker still has the job.
+	hub.markLive(live, "j1")
+	select {
+	case <-sink.resumed:
+	case <-time.After(time.Second):
+		t.Fatal("frame on the live reconnect did not resume the job")
+	}
+	hub.recMu.Lock()
+	rs := hub.recov["w1"]
+	hub.recMu.Unlock()
+	if rs != nil {
+		t.Fatalf("recovery set not released after resume: %+v", rs.jobs)
+	}
+}
+
 // TestCancelDuringRecoveringDelivered: a cancel issued while the worker is offline
 // is recorded and delivered as soon as the job is resumed, so the worker stops
 // running a job the host has already finished as cancelled.

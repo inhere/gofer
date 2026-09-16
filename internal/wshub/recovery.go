@@ -166,7 +166,37 @@ func (h *Hub) suspendOnDisconnect(wc *workerConn, jobIDs []string) {
 			"worker_id", wc.workerID, "job_id", heldJobs[i].id,
 			"window_sec", int(h.recoverWindow.Seconds()))
 	}
+	h.attachToLiveReconnect(wc, jobIDs)
 	h.armRecoverTimer(wc.workerID)
+}
+
+// attachToLiveReconnect handles the teardown/reconnect race: the SAME worker process
+// may already have a live connection by the time this torn-down connection's jobs are
+// suspended (its register ran while this teardown was still in flight, so it could not
+// see these jobs and planned nothing for them). Attaching the sinks to that live
+// connection is the only way the frames the still-running worker keeps sending reach
+// their sink; the first frame for a job then proves it (markLive) and the window still
+// bounds a job that never shows one. A connection of a DIFFERENT instance is not
+// touched: its register already failed these jobs.
+func (h *Hub) attachToLiveReconnect(wc *workerConn, jobIDs []string) {
+	live, ok := h.reg.Get(wc.workerID)
+	if !ok || live == wc || live.instanceID != wc.instanceID {
+		return
+	}
+	for _, jobID := range jobIDs {
+		h.recMu.Lock()
+		rs := h.recov[wc.workerID]
+		var rj *recoveringJob
+		if rs != nil {
+			rj = rs.jobs[jobID]
+		}
+		h.recMu.Unlock()
+		if rj == nil || rj.sink == nil {
+			continue
+		}
+		live.putSink(jobID, rj.sink)
+		live.adoptReserve(jobID)
+	}
 }
 
 // armRecoverTimer (re)arms the per-worker recovery window: after it elapses, every
