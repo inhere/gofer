@@ -671,6 +671,18 @@ func (h *Hub) LiveInstance(workerID string) (string, bool) {
 	return ws.InstanceID, true
 }
 
+// WorkerProtocol returns the wire protocol version the worker's live connection
+// reported at registration (ok=false when the worker is offline / never connected).
+// It is the negotiated-feature check for callers that must know whether an additive
+// dispatch field will be understood — see wsproto.SupportsSessionLoad.
+func (h *Hub) WorkerProtocol(workerID string) (int, bool) {
+	ws, ok := h.reg.WorkerSnapshot(workerID)
+	if !ok {
+		return 0, false
+	}
+	return ws.ProtocolVersion, true
+}
+
 // OpenTunnel sends a tunnel control frame without consuming job capacity.
 func (h *Hub) OpenTunnel(workerID, tunnelID, network, target, relayNonce string) error {
 	wc, ok := h.reg.Get(workerID)

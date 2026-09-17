@@ -53,6 +53,9 @@ const sinkTruncateMark = "\n[gofer: log frame truncated by worker back-pressure]
 // value is the concrete hub singleton). *wshub.Hub satisfies it.
 type dispatcher interface {
 	LiveInstance(workerID string) (instanceID string, ok bool)
+	// WorkerProtocol reports the wire protocol version the target worker registered
+	// with (ok=false when offline), for negotiation of additive dispatch fields.
+	WorkerProtocol(workerID string) (proto int, ok bool)
 	RegisterSink(workerID, jobID string, sk wshub.JobSink) error
 	DeregisterSink(workerID, jobID string)
 	Dispatch(workerID string, d wsproto.Dispatch) error
@@ -238,6 +241,24 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		ResumeSourceAgent: f.ResumeSourceAgent,
 		RelayNonce:        relayNonce,
 		PtySessionID:      ptySessionID, // T1: worker echoes it in pty-connect hello for serve-side check
+	}
+	// ACP-01 S2: a continuation carries its session + lineage so the worker's local
+	// job resolves the same session/load. Set ONLY for a resume — a plain job's
+	// session_id is not a continuation and never travels here.
+	if f.ResumedFrom != "" {
+		d.SessionID = f.SessionID
+		d.ResumedFrom = f.ResumedFrom
+	}
+	// The dispatch fields above are additive, so a worker built before
+	// wsproto.SessionLoadMinProtocolVersion IGNORES them: it opens a fresh session for
+	// a resume. The hub cannot fix that — the worker's own code decides — so it
+	// records what will actually happen instead of failing a job whose only defect is
+	// the peer's vintage.
+	if f.ResumedFrom != "" {
+		if proto, ok := r.hub.WorkerProtocol(workerID); ok && !wsproto.SupportsSessionLoad(proto) {
+			slog.Warn("worker runner: target worker predates the resume dispatch fields; it will open a new session",
+				"worker_id", workerID, "worker_proto", proto, "job_id", req.JobID)
+		}
 	}
 	if err := r.hub.Dispatch(workerID, d); err != nil {
 		relayCloseReason = "dispatch_failed"

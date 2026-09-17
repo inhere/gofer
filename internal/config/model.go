@@ -1159,9 +1159,22 @@ type ACPConfig struct {
 	// option; `ask`/`strict` belong to the S1 approval gate, and the runner refuses
 	// them rather than silently auto-approving.
 	PermissionPolicy string `yaml:"permission_policy,omitempty"`
+	// LoadSession declares whether a resume may try session/load on this agent.
+	// nil/true = try (the protocol negotiates the real capability at initialize and a
+	// refusal fails the job); explicit false = "don't even try": `job resume` and the
+	// automatic continuation refuse the source up front (ErrResumeUnsupported) instead
+	// of submitting a job the agent cannot serve.
+	LoadSession *bool `yaml:"load_session,omitempty"`
 	// MCPServers are advertised to the agent in session/new (stdio transport). S0
 	// passes them through verbatim; empty means the agent gets none.
 	MCPServers []ACPMCPServerConfig `yaml:"mcp_servers,omitempty"`
+}
+
+// AllowsLoadSession reports whether a resume may try session/load on this agent:
+// unset means yes (the protocol negotiates it), an explicit false means "don't try".
+// A nil ACPConfig has no acp-agent settings at all and therefore allows the attempt.
+func (a *ACPConfig) AllowsLoadSession() bool {
+	return a == nil || a.LoadSession == nil || *a.LoadSession
 }
 
 // ACPMCPServerConfig is one MCP server handed to an acp-agent at session/new.

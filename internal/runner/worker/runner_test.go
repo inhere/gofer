@@ -36,6 +36,9 @@ type fakeHub struct {
 	instanceID        string
 	liveInstanceCalls int
 	cancelCalls       int // count of Cancel(workerID, jobID) calls
+	// workerProto is the protocol version WorkerProtocol reports (the fake always
+	// answers ok=true; tests that care about the version check set it).
+	workerProto int
 }
 
 func (h *fakeHub) LiveInstance(workerID string) (string, bool) {
@@ -47,6 +50,14 @@ func (h *fakeHub) LiveInstance(workerID string) (string, bool) {
 		return "", false
 	}
 	return h.instanceID, true
+}
+
+// WorkerProtocol reports the fake worker's registered protocol version; a test sets
+// workerProto to model an older worker (0 = the zero value, i.e. not reported).
+func (h *fakeHub) WorkerProtocol(_ string) (int, bool) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.workerProto, true
 }
 
 func (h *fakeHub) RegisterSink(workerID, _ string, sk wshub.JobSink) error {

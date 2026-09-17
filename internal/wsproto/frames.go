@@ -29,7 +29,9 @@ const (
 	// Current (not Min) is the whole point of the two-constant split: a v3 worker
 	// stays registered, it just cannot be sent a policy frame (negotiated per peer via
 	// SupportsPolicy), so no already-deployed worker is evicted by shipping this frame.
-	CurrentProtocolVersion = 5
+	// v5 adds the TCP tunnel frames; v6 adds the resume/read-only dispatch fields
+	// (session_id/resumed_from/read_only — see SessionLoadMinProtocolVersion).
+	CurrentProtocolVersion = 6
 )
 
 // ReloadMinProtocolVersion is the first protocol version that carries the config
@@ -56,6 +58,19 @@ const TunnelMinProtocolVersion = 5
 
 // SupportsTunnel reports whether a peer supports TCP tunnel frames.
 func SupportsTunnel(proto int) bool { return proto >= TunnelMinProtocolVersion }
+
+// SessionLoadMinProtocolVersion is the first protocol version whose Dispatch carries
+// session_id/resumed_from (an acp-agent continuation) and read_only. Same negotiation
+// rule as the other capability constants: a worker below it stays fully usable — it
+// just ignores the additive fields, which costs it exactly the S2 semantics (a resume
+// opens a NEW session instead of loading the source one; a read-only job runs
+// writable). The hub therefore cannot fix it from its side and says so per dispatch
+// instead of failing the job.
+const SessionLoadMinProtocolVersion = 6
+
+// SupportsSessionLoad reports whether a peer that registered with protocol version
+// proto understands the resume dispatch fields (session_id/resumed_from).
+func SupportsSessionLoad(proto int) bool { return proto >= SessionLoadMinProtocolVersion }
 
 // TunnelOpen requests a worker to open a TCP tunnel (protocol v5).
 type TunnelOpen struct {
@@ -249,7 +264,16 @@ type Dispatch struct {
 	Cols              int    `json:"cols,omitempty"`
 	Rows              int    `json:"rows,omitempty"`
 	ResumeSourceAgent string `json:"resume_source_agent,omitempty"`
-	RelayNonce        string `json:"relay_nonce,omitempty"`
+	// SessionID/ResumedFrom (ACP-01 S2) ask the worker to CONTINUE an existing agent
+	// session instead of opening a fresh one: for an acp-agent the local job resolves
+	// SessionID into the runner's session/load, and ResumedFrom is the lineage marker
+	// that makes the session a LOAD rather than a plain binding. Both are set only for
+	// a resume (the hub projects them from a Forward whose ResumedFrom is non-empty) —
+	// a plain job's session_id never travels here. An OLD worker ignores the unknown
+	// fields and starts a new session (see SessionLoadMinProtocolVersion).
+	SessionID   string `json:"session_id,omitempty"`
+	ResumedFrom string `json:"resumed_from,omitempty"`
+	RelayNonce  string `json:"relay_nonce,omitempty"`
 	// PtySessionID is the host-minted relay session id the worker echoes back in
 	// its pty-connect hello so the serve endpoint can strong-check it against the
 	// binding (httpapi/pty_connect_handler; D-P2-4). Empty on non-interactive.

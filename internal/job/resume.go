@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/config"
 )
 
 // Resume-path sentinels (session-capture P2, design §5.2 / §8). They wrap the
@@ -72,6 +73,49 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 	// empty runner defaults to the source runner (the common case).
 	if runner != "" && runner != src.Runner {
 		return JobResult{}, fmt.Errorf("%w: session bound to runner %q, not %q", ErrCrossRunner, src.Runner, runner)
+	}
+
+	// ACP-01 S2: an acp-agent's session lives behind the ACP protocol, so the
+	// continuation is NOT an exec carrier — it is a new acp-agent job that LOADS the
+	// source session (session/load) and drives the new prompt as its turn. The exec
+	// SessionResume templates below do not apply: nothing re-runs a CLI here.
+	if ac.Type == agent.TypeACPAgent {
+		// An agent that declares acp.load_session: false is not resumable at all — say
+		// so up front rather than submitting a job the agent will refuse.
+		if !ac.ACP.AllowsLoadSession() {
+			return JobResult{}, fmt.Errorf("%w: agent %q declares acp.load_session: false", ErrResumeUnsupported, src.Agent)
+		}
+		if strings.TrimSpace(prompt) == "" {
+			return JobResult{}, fmt.Errorf("%w: resume requires a prompt", ErrInvalidRequest)
+		}
+		// Same inheritance as the exec carrier (below): the continuation is governed
+		// like the run it continues and keeps the source's provenance/lineage. An
+		// acp-agent is batch-only by definition, so Interactive stays false.
+		return s.Submit(JobRequest{
+			ProjectKey: src.ProjectKey,
+			Agent:      src.Agent,
+			Runner:     src.Runner,
+			WorkerID:   src.WorkerID,
+			Prompt:     prompt,
+			TimeoutSec: src.TimeoutSec,
+			Tags:       src.Tags,
+			Title:      resumedTitle(src.Title),
+			Cwd:        s.resumeCwd(src),
+			CallerID:   callerID,
+			// Explicit SessionID: the new job binds to the SAME session, and
+			// ResumedFrom marks it a continuation — which is what makes submit fill
+			// the runner's LoadSessionID (a plain job's session_id never loads).
+			SessionID:         src.SessionID,
+			ResumeSourceAgent: src.Agent,
+			Channel:           src.Channel,
+			Client:            src.Client,
+			OriginAgent:       src.OriginAgent,
+			EscalateTo:        src.EscalateTo,
+			PlanID:            src.PlanID,
+			SourceJobID:       jobID,
+			ResumedFrom:       jobID,
+			AutoResumeAttempt: autoAttempt,
+		})
 	}
 
 	// 交互源走交互模板（进 TUI，无 -p/exec）；非交互源走 SessionResume。
@@ -147,6 +191,17 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		ResumedFrom:       jobID,
 		AutoResumeAttempt: autoAttempt,
 	})
+}
+
+// resumable reports whether an agent's session can be continued, which is the
+// question the automatic continuation asks BEFORE re-submitting. An acp-agent does
+// it over the protocol (session/load) unless it declares acp.load_session: false; a
+// cli-agent needs the resume argv template that continuation would render.
+func resumable(ac config.AgentConfig) bool {
+	if ac.Type == agent.TypeACPAgent {
+		return ac.ACP.AllowsLoadSession()
+	}
+	return len(ac.SessionResume) > 0
 }
 
 // resumedTitle marks a continuation in the title so a plan or board reads

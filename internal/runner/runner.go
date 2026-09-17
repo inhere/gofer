@@ -126,6 +126,13 @@ type ACPRequest struct {
 	Approval config.ApprovalConfig
 	// MCPServers are advertised to the agent in session/new.
 	MCPServers []ACPMCPServer
+	// LoadSessionID, when non-empty, is the agent session this job CONTINUES: the
+	// runner calls session/load{sessionId} instead of session/new (ACP-01 S2). It is
+	// filled only for a resume (JobRequest.ResumedFrom set) — a plain job that carries
+	// a session_id binds to it without replaying the agent's history. An agent that
+	// does not advertise agentCapabilities.loadSession fails the job rather than
+	// silently running the prompt in a fresh, context-free session.
+	LoadSessionID string
 }
 
 // ACPMCPServer is one MCP server advertised to an acp-agent through session/new.
@@ -272,6 +279,12 @@ type Forward struct {
 	// dispatch so the worker validates the exec resume carrier against the source
 	// agent. It is not part of the public HTTP job contract.
 	ResumeSourceAgent string
+	// SessionID / ResumedFrom (ACP-01 S2) carry a continuation to a remote executor:
+	// ResumedFrom is the source job id (set only by ResumeJob) and SessionID the agent
+	// session to LOAD. A remote runner sends them over Dispatch only when the request
+	// really is a resume — a plain job that merely carries a session_id is not one.
+	SessionID   string
+	ResumedFrom string
 	// WorkerID is the resolved target worker for a runner=worker job (P2 dynamic
 	// routing): the explicit req.WorkerID or the one auto-selected from labels.
 	// Empty for peer-http forwards and for worker jobs that rely on the runner's

@@ -202,6 +202,11 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			Rows:              req.Rows,
 			ResumeSourceAgent: req.ResumeSourceAgent,
 			SystemPrompt:      req.SystemPrompt,
+			// ACP-01 S2: a continuation reaches a remote executor with its session and
+			// lineage so the worker's local job resolves the same session/load. Empty for
+			// a plain job (a bare session_id is not a resume).
+			SessionID:   req.SessionID,
+			ResumedFrom: req.ResumedFrom,
 			// P2: the resolved target worker (explicit req.WorkerID or label-selected
 			// in selectTargetWorker). Empty for peer-http and for worker jobs relying
 			// on the runner's configured default (D4).
@@ -238,7 +243,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 				return JobResult{}, fmt.Errorf("%w: agent %q (acp-agent) requires the acp runner", ErrInvalidRequest, req.Agent)
 			}
 			run = ar
-			runReq.ACP = acpRequest(cfg, req.ProjectKey, req.Agent, ac, req.Prompt, resultDir)
+			runReq.ACP = acpRequest(cfg, ac, req, resultDir)
 			// GATE-01: the approval gate asks THROUGH this job's interaction surface
 			// (the card lands in web/CLI/MCP exactly like any other interaction, and a
 			// worker's local job mirrors it up to the hub).
@@ -439,16 +444,18 @@ func isCLIAgent(cfg *config.Config, name string) bool {
 	return ok && a.Type == "cli-agent"
 }
 
-// acpRequest builds the acp runner payload (ACP-01) from an acp-agent's config:
-// the prompt, the result dir the runner writes acp.jsonl under, the RESOLVED approval
-// policy of this job (GATE-01: the project's approval block tightened by the agent's
-// acp.permission_policy) and the MCP servers it advertises in session/new. A nil acp
-// sub-block yields the defaults (auto-allow permissions, no MCP servers).
-func acpRequest(cfg *config.Config, projectKey, agentKey string, ac config.AgentConfig, prompt, resultDir string) *runner.ACPRequest {
+// acpRequest builds the acp runner payload (ACP-01) from an acp-agent's config and
+// the request being submitted: the prompt, the result dir the runner writes
+// acp.jsonl under, the RESOLVED approval policy of this job (GATE-01: the project's
+// approval block tightened by the agent's acp.permission_policy), the MCP servers it
+// advertises in session/new, and — for a continuation — the session to LOAD. A nil
+// acp sub-block yields the defaults (auto-allow permissions, no MCP servers).
+func acpRequest(cfg *config.Config, ac config.AgentConfig, req JobRequest, resultDir string) *runner.ACPRequest {
 	r := &runner.ACPRequest{
-		Prompt:    prompt,
-		ResultDir: resultDir,
-		Approval:  cfg.EffectiveApproval(projectKey, agentKey),
+		Prompt:        req.Prompt,
+		ResultDir:     resultDir,
+		Approval:      cfg.EffectiveApproval(req.ProjectKey, req.Agent),
+		LoadSessionID: resumeLoadSessionID(req),
 	}
 	if ac.ACP == nil {
 		return r
@@ -462,6 +469,17 @@ func acpRequest(cfg *config.Config, projectKey, agentKey string, ac config.Agent
 		})
 	}
 	return r
+}
+
+// resumeLoadSessionID returns the session an acp-agent job must LOAD, or "" for a
+// fresh session. Only a continuation LOADS: ResumedFrom is stamped by ResumeJob and
+// never travels through a client body (json:"-"), so a plain `job run` that carries a
+// session_id binds to that id without replaying the agent's history (design §S2).
+func resumeLoadSessionID(req JobRequest) string {
+	if req.ResumedFrom == "" || req.SessionID == "" {
+		return ""
+	}
+	return req.SessionID
 }
 
 func defaultJobTitle(req JobRequest) string {

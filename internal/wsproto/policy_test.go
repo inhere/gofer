@@ -35,8 +35,8 @@ func TestPolicyVersionConstants(t *testing.T) {
 	if MinProtocolVersion != 2 {
 		t.Fatalf("MinProtocolVersion = %d, want 2 (must not rise — would evict existing workers)", MinProtocolVersion)
 	}
-	if CurrentProtocolVersion != 5 {
-		t.Fatalf("CurrentProtocolVersion = %d, want 5 (tunnel frames)", CurrentProtocolVersion)
+	if CurrentProtocolVersion != 6 {
+		t.Fatalf("CurrentProtocolVersion = %d, want 6 (resume/read-only dispatch fields)", CurrentProtocolVersion)
 	}
 	if PolicyMinProtocolVersion != 4 {
 		t.Fatalf("PolicyMinProtocolVersion = %d, want 4", PolicyMinProtocolVersion)
@@ -45,6 +45,37 @@ func TestPolicyVersionConstants(t *testing.T) {
 	// frame it cannot parse, yet both remain above the registration floor.
 	if SupportsPolicy(MinProtocolVersion) {
 		t.Fatal("a floor (v2) worker must not be considered policy-capable")
+	}
+}
+
+// TestSupportsSessionLoad: the resume dispatch fields are negotiated exactly like the
+// other capability constants — a worker below the version that added them keeps
+// registering and running jobs, it just ignores session_id/read_only (so a resume
+// opens a new session), which is why the hub warns instead of failing the dispatch.
+func TestSupportsSessionLoad(t *testing.T) {
+	cases := []struct {
+		proto int
+		want  bool
+	}{
+		{0, false},                  // pre-federation (never registers anyway)
+		{MinProtocolVersion, false}, // v2: registers fine, no resume fields
+		{SessionLoadMinProtocolVersion - 1, false}, // the last version without them
+		{SessionLoadMinProtocolVersion, true},      // first version with them
+		{CurrentProtocolVersion, true},             // this build understands them
+		{CurrentProtocolVersion + 1, true},         // a newer worker still has them
+	}
+	for _, tc := range cases {
+		if got := SupportsSessionLoad(tc.proto); got != tc.want {
+			t.Fatalf("SupportsSessionLoad(%d) = %v, want %v", tc.proto, got, tc.want)
+		}
+	}
+	if SessionLoadMinProtocolVersion <= TunnelMinProtocolVersion {
+		t.Fatalf("SessionLoadMinProtocolVersion = %d, want above the tunnel version %d",
+			SessionLoadMinProtocolVersion, TunnelMinProtocolVersion)
+	}
+	if SessionLoadMinProtocolVersion > CurrentProtocolVersion {
+		t.Fatalf("SessionLoadMinProtocolVersion = %d is newer than this build's %d",
+			SessionLoadMinProtocolVersion, CurrentProtocolVersion)
 	}
 }
 

@@ -85,6 +85,11 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		Cols:              d.Cols,
 		Rows:              d.Rows,
 		ResumeSourceAgent: d.ResumeSourceAgent,
+		// ACP-01 S2: a continuation's session + lineage (both empty on a plain
+		// dispatch, and both absent entirely from a pre-S2 hub's frame). ResumedFrom
+		// is what makes SessionID a session/load rather than a plain binding.
+		SessionID:   d.SessionID,
+		ResumedFrom: d.ResumedFrom,
 	})
 	if err != nil {
 		slog.Warn("worker.job_rejected", "event", "worker.job_rejected", "component", "worker", "worker_id", cl.workerID, "job_id", d.JobID, "reason", err.Error())

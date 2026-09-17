@@ -1,6 +1,7 @@
 package job
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -74,6 +75,31 @@ func TestACPResumeUsesSessionLoad(t *testing.T) {
 	}
 	if strings.Contains(agentLog, "session/new") {
 		t.Fatalf("a resume must not open a new session:\n%s", agentLog)
+	}
+}
+
+// TestACPResumeRefusedWhenLoadSessionDisabled: an agent whose config declares
+// acp.load_session: false is refused UP FRONT (ErrResumeUnsupported → 400) — the
+// declaration means "don't even try", so no job is submitted for the agent to reject
+// over the protocol. The automatic continuation makes the same call (resumable).
+func TestACPResumeRefusedWhenLoadSessionDisabled(t *testing.T) {
+	root := t.TempDir()
+	noLoad := false
+	s := newACPServiceAgent(t, root, acptest.Options{}, nil, func(ac *config.AgentConfig) {
+		ac.ACP = &config.ACPConfig{LoadSession: &noLoad}
+	})
+
+	src := acpSubmit(t, s, 30)
+	if src.Status != StatusDone || src.SessionID == "" {
+		t.Fatalf("setup: source = %s/%q, want done with a session", src.Status, src.SessionID)
+	}
+
+	if _, err := s.ResumeJob(src.ID, "keep going", "", "caller-acp"); !errors.Is(err, ErrResumeUnsupported) {
+		t.Fatalf("ResumeJob with acp.load_session=false err = %v, want ErrResumeUnsupported", err)
+	}
+	ac, ok := s.agents.Get("acpbot")
+	if !ok || resumable(ac) {
+		t.Fatalf("resumable(acpbot with load_session=false) = %v, want false", ok)
 	}
 }
 

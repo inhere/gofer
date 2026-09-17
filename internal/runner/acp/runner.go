@@ -115,16 +115,43 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		"job_id", req.JobID, "agent", agentName(initRes), "protocol_version", initRes.ProtocolVersion,
 		"load_session", initRes.AgentCapabilities.LoadSession)
 
-	sess, err := client.NewSession(ctx, acp.SessionNewParams{Cwd: req.WorkDir, MCPServers: mcpServers(req.ACP.MCPServers)})
-	if err != nil {
-		return runner.Result{ExitCode: -1, Err: fmt.Errorf("acp: session/new: %w", err)}
+	// S2 (design §一.4): a continuation LOADS the source session instead of opening a
+	// new one, so the agent starts the new turn with the previous turn's context. A
+	// load the agent cannot serve is a HARD failure — falling back to session/new
+	// would run the prompt in a context-free session while the job claims to continue
+	// one. Both the capability check and a failed/served call record a stderr line so
+	// the job explains itself without the runner's slog.
+	load := req.ACP.LoadSessionID
+	if load != "" && !initRes.AgentCapabilities.LoadSession {
+		err := errors.New("acp: agent does not support session/load (agentCapabilities.loadSession=false)")
+		writeStderrLine(req.Stderr, err.Error())
+		return runner.Result{ExitCode: -1, Err: err}
+	}
+	var sess acp.SessionNewResult
+	if load != "" {
+		sess, err = client.LoadSession(ctx, acp.SessionLoadParams{
+			SessionID:  load,
+			Cwd:        req.WorkDir,
+			MCPServers: mcpServers(req.ACP.MCPServers),
+		})
+		if err != nil {
+			err = fmt.Errorf("acp: session/load %q: %w", load, err)
+			writeStderrLine(req.Stderr, err.Error())
+			return runner.Result{ExitCode: -1, Err: err}
+		}
+	} else {
+		sess, err = client.NewSession(ctx, acp.SessionNewParams{Cwd: req.WorkDir, MCPServers: mcpServers(req.ACP.MCPServers)})
+		if err != nil {
+			return runner.Result{ExitCode: -1, Err: fmt.Errorf("acp: session/new: %w", err)}
+		}
 	}
 	// The agent's mode block is S2's read_only lever; logging it here makes an S0
 	// run's transcript answer "does this agent offer modes, and which ids?" without a
 	// bespoke probe.
 	slog.Info("acp runner: session opened",
 		"job_id", req.JobID, "session_id", sess.SessionID,
-		"mode", modeSummary(sess.Modes))
+		"mode", modeSummary(sess.Modes), "loaded", load != "")
+	events.write(map[string]any{"t": "session", "load": load != "", "session_id": sess.SessionID, "mode": modeSummary(sess.Modes)})
 
 	res := runner.Result{SessionID: sess.SessionID}
 	pr, perr := client.Prompt(ctx, sess.SessionID, req.ACP.Prompt, h)
@@ -172,6 +199,17 @@ func agentName(res acp.InitializeResult) string {
 		return ""
 	}
 	return res.AgentInfo.Name
+}
+
+// writeStderrLine records a runner-side failure on the JOB's stderr log. A job that
+// dies before the agent produces anything would otherwise leave stderr.log empty and
+// the reason visible only in the server's slog — while stderr.log is what `job show`,
+// the web console and the automatic-resume scan read.
+func writeStderrLine(w io.Writer, line string) {
+	if w == nil {
+		return
+	}
+	_, _ = io.WriteString(w, line+"\n")
 }
 
 // modeSummary renders a session's mode block for logging: "" when the agent

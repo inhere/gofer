@@ -295,7 +295,7 @@ func (s *Service) tryAutoResume(snap JobResult) bool {
 		return false
 	}
 	ac, ok := s.agents.Get(snap.Agent)
-	if !ok || len(ac.SessionResume) == 0 {
+	if !ok || !resumable(ac) {
 		return false
 	}
 	b, err := os.ReadFile(filepath.Join(snap.ResultDir, "stderr.log"))
