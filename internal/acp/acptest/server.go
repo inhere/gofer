@@ -52,6 +52,18 @@ type Options struct {
 	// Delay is inserted before the final prompt response (lets a test cancel a
 	// turn that is otherwise about to finish).
 	Delay time.Duration
+	// PermissionKind is the toolCall.kind of the session/request_permission the turn
+	// raises ("" => PermissionKindDefault, "edit"). A "read"-ish kind is what the
+	// approval gate's auto_allow_kinds is about.
+	PermissionKind string
+	// PermissionOptions lists the option KINDS the request offers, in order
+	// ("" => allow_once, allow_always, reject_once — the S0 script). Dropping
+	// reject_once is how a test reaches "rejected with no reject option available".
+	PermissionOptions []string
+	// PermissionRepeats is how many times the turn asks for permission (0 => 1). Every
+	// ask repeats the SAME tool call and options, so an approval policy can be watched
+	// across consecutive asks (e.g. allow_always remembering a kind).
+	PermissionRepeats int
 }
 
 // Main runs the fake server over stdin/stdout. It returns the process exit code.
@@ -91,6 +103,33 @@ func parseArgs(args []string) (Options, error) {
 				return o, fmt.Errorf("--delay: %w", err)
 			}
 			o.Delay = d
+		case "--perm-kind":
+			if i+1 >= len(args) {
+				return o, fmt.Errorf("--perm-kind needs a value")
+			}
+			i++
+			o.PermissionKind = args[i]
+		case "--perm-options":
+			if i+1 >= len(args) {
+				return o, fmt.Errorf("--perm-options needs a value")
+			}
+			i++
+			o.PermissionOptions = strings.Split(args[i], ",")
+			for _, k := range o.PermissionOptions {
+				if _, ok := permissionOptionID[k]; !ok {
+					return o, fmt.Errorf("--perm-options: unknown option kind %q", k)
+				}
+			}
+		case "--perm-repeats":
+			if i+1 >= len(args) {
+				return o, fmt.Errorf("--perm-repeats needs a value")
+			}
+			i++
+			n, err := strconv.Atoi(args[i])
+			if err != nil || n < 0 {
+				return o, fmt.Errorf("--perm-repeats: want a non-negative integer, got %q", args[i])
+			}
+			o.PermissionRepeats = n
 		default:
 			return o, fmt.Errorf("unknown flag %q", args[i])
 		}
@@ -333,23 +372,72 @@ type permOutcome struct {
 	cancelled  bool
 }
 
-// requestPermission asks the client to approve a tool call and records the options
-// it was offered plus the answer it gave (the test asserts on both).
+// requestPermission asks the client to approve a tool call — opts.PermissionRepeats
+// times in a row (0/1 = once), each ask identical so a policy can be watched across
+// consecutive asks. It returns the LAST outcome (what runTurn's reject branch keys on).
 func (s *server) requestPermission() *permOutcome {
+	n := s.opts.PermissionRepeats
+	if n < 1 {
+		n = 1
+	}
+	var last *permOutcome
+	for range n {
+		last = s.requestPermissionOnce()
+	}
+	return last
+}
+
+// permissionOptionID maps an ACP option kind to the optionId the fake agent offers
+// for it; permissionOptionName is the matching human label.
+var permissionOptionID = map[string]string{
+	"allow_once":    AllowOnceOptionID,
+	"allow_always":  AllowAlwaysOptionID,
+	"reject_once":   RejectOnceOptionID,
+	"reject_always": RejectAlwaysOptionID,
+}
+
+var permissionOptionName = map[string]string{
+	"allow_once":    "Allow once",
+	"allow_always":  "Always allow",
+	"reject_once":   "Reject",
+	"reject_always": "Always reject",
+}
+
+// permissionToolCall is the scripted tool call the request is about: the kind is
+// scriptable (a "read" ask must be auto-allowed by the approval gate, an "edit" ask
+// must reach a human), the id/title/rawInput stay fixed so a test can assert them.
+func (s *server) permissionToolCall() map[string]any {
+	kind := s.opts.PermissionKind
+	if kind == "" {
+		kind = PermissionKindDefault
+	}
+	return map[string]any{
+		"toolCallId": ToolCallID,
+		"title":      PermissionTitle,
+		"kind":       kind,
+		"status":     "pending",
+		"rawInput":   map[string]any{"path": "main.go"},
+		"locations":  []any{map[string]any{"path": "main.go"}},
+	}
+}
+
+// requestPermissionOnce performs one session/request_permission round trip and
+// records the options it offered plus the answer it got (the test asserts on both).
+func (s *server) requestPermissionOnce() *permOutcome {
+	kinds := s.opts.PermissionOptions
+	if len(kinds) == 0 {
+		kinds = []string{"allow_once", "allow_always", "reject_once"}
+	}
+	options := make([]any, 0, len(kinds))
+	for _, k := range kinds {
+		options = append(options, map[string]any{
+			"optionId": permissionOptionID[k], "name": permissionOptionName[k], "kind": k,
+		})
+	}
 	params := map[string]any{
 		"sessionId": SessionID,
-		"toolCall": map[string]any{
-			"toolCallId": ToolCallID,
-			"title":      "Write main.go",
-			"kind":       "edit",
-			"status":     "pending",
-			"rawInput":   map[string]any{"path": "main.go"},
-		},
-		"options": []any{
-			map[string]any{"optionId": "allow-once-id", "name": "Allow once", "kind": "allow_once"},
-			map[string]any{"optionId": "allow-always-id", "name": "Always allow", "kind": "allow_always"},
-			map[string]any{"optionId": "reject-once-id", "name": "Reject", "kind": "reject_once"},
-		},
+		"toolCall":  s.permissionToolCall(),
+		"options":   options,
 	}
 	raw, err := s.call("session/request_permission", params)
 	if err != nil {

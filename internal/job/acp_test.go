@@ -20,11 +20,27 @@ import (
 	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
+// acpTestPrompt is the prompt every acp-agent test job runs.
+const acpTestPrompt = "List the files in this directory and explain what this repository is in three sentences."
+
 // newACPService wires a Service whose only agent is an acp-agent running the repo's
 // fake ACP server, with the acp runner registered under its own key (the local
-// runner stays registered too, mirroring core.Build).
+// runner stays registered too, mirroring core.Build). The project sets no approval
+// policy, i.e. the gate is OFF (the S0 auto-allow behaviour).
 func newACPService(t *testing.T, root string, o acptest.Options) *Service {
 	t.Helper()
+	return newACPServiceWith(t, root, o, nil, "")
+}
+
+// newACPServiceWith is newACPService with the approval gate configured: ap is the
+// project's `approval` block (nil = unset) and agentPolicy the agent's
+// acp.permission_policy tightening ("" = not set).
+func newACPServiceWith(t *testing.T, root string, o acptest.Options, ap *config.ApprovalConfig, agentPolicy string) *Service {
+	t.Helper()
+	agentCfg := config.AgentConfig{Type: agent.TypeACPAgent, Command: testcmd.Path(t), Args: acptest.CmdArgs(o)}
+	if agentPolicy != "" {
+		agentCfg.ACP = &config.ACPConfig{PermissionPolicy: agentPolicy}
+	}
 	cfg := &config.Config{
 		Storage: config.StorageConfig{Root: root},
 		Projects: map[string]config.ProjectConfig{
@@ -32,11 +48,10 @@ func newACPService(t *testing.T, root string, o acptest.Options) *Service {
 				HostPath:       root,
 				AllowedAgents:  []string{"acpbot"},
 				AllowedRunners: []string{"local"},
+				Approval:       ap,
 			},
 		},
-		Agents: map[string]config.AgentConfig{
-			"acpbot": {Type: agent.TypeACPAgent, Command: testcmd.Path(t), Args: acptest.CmdArgs(o)},
-		},
+		Agents: map[string]config.AgentConfig{"acpbot": agentCfg},
 	}
 	projReg := project.NewRegistry(cfg, "")
 	agentReg := agent.NewRegistry(cfg)
@@ -57,7 +72,7 @@ func acpSubmit(t *testing.T, s *Service, timeoutSec int) JobResult {
 	t.Helper()
 	return submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "acpbot", Runner: "local",
-		Prompt: "List the files in this directory and explain what this repository is in three sentences.",
+		Prompt: acpTestPrompt,
 		Cwd:    ".", TimeoutSec: timeoutSec,
 	})
 }

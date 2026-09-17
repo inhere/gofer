@@ -69,8 +69,9 @@ func buildHubSideAt(t *testing.T, host, root string) *hubSide {
 			"alpha": {
 				HostPath: host,
 				// wrapper is allowed for the WP2 interaction e2e (the hub validates the
-				// agent allowlist before dispatch; the worker resolves/executes it).
-				AllowedAgents:  []string{"exec", "wrapper"},
+				// agent allowlist before dispatch; the worker resolves/executes it);
+				// acpbot for the GATE-01 permission-interaction e2e (same rule).
+				AllowedAgents:  []string{"exec", "wrapper", "acpbot"},
 				AllowedRunners: []string{"remote-w1"},
 				AllowExec:      true,
 			},
