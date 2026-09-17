@@ -73,6 +73,13 @@ func main() {
 		}
 	case "printf":
 		fmt.Print(arg(2))
+	case "cat-file":
+		// cat-file <path>: replay a fixture byte-for-byte on stdout (used by tests
+		// that need a realistic multi-line agent stream without argv size limits).
+		b, err := os.ReadFile(arg(2))
+		must(err)
+		_, err = os.Stdout.Write(b)
+		must(err)
 	case "stdout-sleep":
 		fmt.Println(arg(2))
 		d, err := time.ParseDuration(arg(3))
