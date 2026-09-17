@@ -240,6 +240,12 @@ agents:
 - **无 modes**：session/new 未返回 modes 块（`mode=""`）→ S2 的只读映射对 codex-acp 只能拒绝。
 - `session/prompt` 同样在 job 超时窗口内没有 `session/update`（本机 codex 未登录属于待查项之一）。
 
+#### codex-acp 复查（同一最小客户端）
+
+- `initialize` OK（`authMethods=[chatgpt, …]`、`loadSession=true`、`sessionCapabilities={list, close}`、**无 modes**），`session/new` OK（`currentModelId=gpt-6-astra`，来自主机 `~/.codex/config.toml` 的自定义模型；适配器读到了 `~/.codex/auth.json`，**鉴权没有问题**）。
+- turn 真正开始：首个 `agent_message_chunk` 是 codex 自己的提示 "Model metadata for `gpt-6-astra` not found. Defaulting to fallback metadata…"，随后 API 流 `stream disconnected before completion` 重连 5/5 失败 → 适配器回 `-32603 Internal error {codex_error_info: other}`（48s）。这与今天 codex CLI job 反复出现的 `stream disconnected` 是同一个供应商/网关问题，与 ACP 无关。
+- 结论：codex-acp **协议路径通**；S1 只需把 `-32603` 的 `data.message` 透传进 job error（现已如此），并让自动 resume 的瞬时模式表覆盖 `stream disconnected before completion`（v0.42 内置表已含）。`gpt-6-astra` 元数据缺失是主机 codex 配置问题，建议 `~/.codex/config.toml` 用 codex 认识的模型 id 或补 metadata。
+
 ### gemini --acp（❌ 未安装）
 
 - 主机无 `gemini` 可执行文件（`command -v gemini` = MISSING）。npm registry 可达，`npx -y @google/gemini-cli --acp`
@@ -250,6 +256,6 @@ agents:
 - ✅ **`clientInfo.version` 必须非空**（claude-code-acp 会拒），已修。
 - ✅ 四家模板的 argv 与本机 PATH 探测（`npx`/`codex-acp`/`gemini`/`omp`）保持设计值；`claude-acp` 的 `detect`
   用适配器自己的 `--version`（`npx` 的 `--version` 报的是 Node 版本，无意义）。
-- 待定（S1）：`claude-acp` / `codex-acp` 的 prompt turn 未起来的原因；`omp` 的逐 token thought 是否默认丢；
+- ✅ 已查明（2026-09-17 复查）：`claude-acp` = 鉴权（需 `CLAUDE_CODE_EXECUTABLE` 或 `CLAUDE_CODE_OAUTH_TOKEN`），`codex-acp` = 供应商流断线（协议通）；`omp` 的逐 token thought 是否默认丢；
   permission option 的实际取值（本机 omp 未发起权限请求，假 server 已覆盖 `allow_once/allow_always/reject_once` 三种）。
 - 待定（S2）：只读 mode id —— omp 无只读 mode（只有 default/plan），claude-acp 只有 `plan` 接近，codex-acp 无 modes。
