@@ -8,6 +8,7 @@
 | v0.2 | 2026-09-06 | claude | **T1-T6 已落地**（jobstore `agent_sessions` + decisions additive 列 / `internal/sessionrelay` / `/v1/sessions/*` 9 端点 / `internal/hookrelay` 执行体 + `hooks/` 嵌入模板 + JSON 合并安装 / `gofer hook`·`gofer session`·`gofer init hooks` / web Sessions 分组+抽屉+铃铛来源 / skill+runbook）。容器内 **Claude Code 真机 e2e PASS**（`claude -p`：停→CLI 作答→续跑→`/off` 放行，见 runbook §5）。落地偏差：`SetRelay(off)` 先置 idle 再过期 turn 再落开关（并发观察一致性）；`WaitTurn` 观察到 answered 时也把会话置 running；`init hooks` 用 `--output <dir>` 指定项目目录。TBD-1/2/4 见 §11 更新；Codex 真机待主机验证 |
 | v0.3 | 2026-09-17 | inhere + claude | **R1/R2 落地**（bd h-aii-1hmo）：开关 bool → 三态 `relay_mode: auto\|on\|off`（旧 `relay=1→on` / `0→auto`；`relay` 列留作 `mode=='on'` 的镜像给旧二进制）；`auto` 由 server 判定：判据一 = 键盘空闲（`session.auto_relay_idle_sec`，旧 `server.session_auto_relay_idle_sec` 仅作别名 + warn 一次），判据二 = **距本会话上次人工输入**（`session.auto_relay_turn_sec`，新列 `last_human_at`）——专治"键盘在主机、hook 在容器里探不到"；判定结果以 `wait_reason`（mode_on / idle_probe / turn_age）回给 hook。判据二的等待无读数可探，人回来时靠 `UserPromptSubmit` / `Interrupt` 事件由 server 释放（`released_by=user_returned`），设计细节见 `../runbook/session-relay.md` |
 | v0.4 | 2026-09-17 | inhere + claude | **阶段 2 定案**（bd h-aii-w934）：空闲会话（无 OPEN turn）收到 web 回复时的两条送话路径——**A. tmux 按键注入**（首选，续同一进程）与 **B. `--resume` pty 接管**（无 tmux 时兜底），见 §9.1；IM 双向作答继续不做 |
+| v0.5 | 2026-09-17 | claude | 阶段 2 实施细化（任务书依据）：**hook 的 runner 登记**在 client 运行模式下不再假装 `server`（取 `GOFER_HOOK_RUNNER`/`--runner`，否则为空 → A/B 均不可用并明示原因；容器会话要可送话必须在容器内起 worker）；新增 `Deliver` 选路入口（`Say` 保持只答 turn），HTTP `POST /v1/sessions/{sid}/deliver {text, allow_takeover}`——B 只在 `allow_takeover=true` 时执行（web 二次确认）；B 用 pty job 新增的 `InitialInput`（TUI 首次输出后安静 1.5s 再写入）；`handed_off` 会话可 `release-takeover` 解除；A/B 分两个 job（P2-1/P2-2） |
 
 > 关联：[`2026-07-18-session-handoff-and-pty-ux-design.md`](2026-07-18-session-handoff-and-pty-ux-design.md) Part A §11（hooks 通知中心，T7 未实施）与 Part C（决策通道，已落地 `tools-frx`）。本设计**取代 §11 的"裸终端不可远程作答"边界结论**，并吸收 §5 `adopted_sessions` 为统一的会话注册表。
 
@@ -271,6 +272,15 @@ IM 自定义机器人只能收不能发回，**回复仍在 web**；IM 内直接
 **选路**：有 OPEN turn → 注入 turn（阶段 1）；否则 `tmux_pane` 有效 → A；否则满足 B 前提 → B（web 二次确认"将起新进程接管"）；都不行 → 明确提示"该会话无法远程送话：请在终端运行于 tmux，或开启项目 allow_interactive"。
 
 **实施拆分**：P2-1 A（server 选路 + 内部 exec job + pane 校验 + 回执 + 审计 + web 输入框，`internal/sessionrelay`/`httpapi`/`web`）；P2-2 B（复用 pty job 与 attach，`handed_off` 状态与提示）；P2-3 skill/README/runbook（tmux 入口建议、两条路径的适用条件）。测试：A 用假 runner 断言派发的 argv 与 pane 校验；B 用现有 interactive e2e 基础设施。
+
+**v0.5 细化（实施依据）**：
+
+- **runner 登记**：hook 登记的 `runner` 决定 A/B 的内部 job 派到哪台机器。`resolveHookRunner` 在 server 模式登记 `server`、worker 模式登记 worker id；**client 模式**（容器里只做客户端）取 `GOFER_HOOK_RUNNER` / `gofer hook --runner`，都没有则登记空串，server 对 `runner=''` 的会话明确回"无法远程送话：会话未登记执行机"。因此容器会话要能被 web 送话，容器内必须起一个 gofer worker 并把 `GOFER_HOOK_RUNNER` 指向它；Windows 主机终端（无 tmux）的会话只能走 B。
+- **入口分离**：`Say` 保持"只答 OPEN turn"的旧语义；新增 `Deliver(sid, text, by, allowTakeover)` 做选路 turn → A → B，HTTP `POST /v1/sessions/{sid}/deliver {text, allow_takeover}`，CLI `session say --deliver [--takeover]`。B 只在 `allow_takeover=true` 时执行（web 先二次确认），否则在 A 不可用处以 409 `no_tmux` 停下。失败原因码：`no_runner | no_tmux | ended | handed_off:<job> | inject_failed:<pane_missing|pane_busy:<cmd>|runner_error> | no_resume_template | interactive_not_allowed | cwd_outside_project`。
+- **A 的注入 job**：一条 `sh -c` 脚本：`tmux display -p -t <pane> '#{pane_current_command}'` 存活与前台白名单（`claude|codex|omp|node|gemini|opencode`，可配 `session.inject_commands`）校验 → 逐行 `send-keys -t <pane> -l -- <行>` + `Enter`；文本带 `[gofer web 回复] ` 前缀、≤8KB、shell 单引号转义；hook 的 `UserPromptSubmit` 见该前缀即按 injected 处理（不翻 relay_mode、不更新 `last_human_at`）。
+- **B 的首条输入**：pty job 新增内部字段 `InitialInput`（不入 request_json；worker 路径经 Dispatch 下发）：子进程首次输出后 `session.takeover_input_delay_ms`（默认 1500）内无新输出即写入，最多等 10s；记 `job.input_injected` 事件。会话置 `handed_off`（新列 `handed_off_job_id/handed_off_at`），`OpenTurn` 对其拒绝，hook 通过 heartbeat 响应的 `notice` 在原终端打一行提示；`POST /v1/sessions/{sid}/release-takeover` 解除（接管 job 在跑则先 cancel）。
+- **cwd 换算**：B 需要把会话的绝对 cwd 换算成项目相对路径：runner=server 用 `cfg.ExecPath(proj)` 前缀；worker runner 用 server 侧 `host_path` 前缀（POLICY roots 映射后本机路径不同者换算失败 → `cwd_outside_project`，已知限制）。
+
 
 ### 9.2 其他
 
