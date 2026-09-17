@@ -22,6 +22,11 @@ const (
 	// Code's own dialog, not a relay turn), so the notification exists to get the
 	// human back to the keyboard, not to hand them a reply box.
 	EventSessionAttention = "session.attention"
+	// EventSessionHandedOff fires when a session is taken over by a new interactive
+	// pty job (session relay §9.1 B, `--resume`): the conversation continues in that
+	// job's terminal, so the notification carries the link to it. Like the other two
+	// session events it is NOT a default trigger — a webhook subscribes explicitly.
+	EventSessionHandedOff = "session.handed_off"
 )
 
 // NotifyEvent enqueues a pre-rendered notification for every webhook subscribed
@@ -113,6 +118,23 @@ func (s *Service) NotifySessionAttention(sessionID, projectKey, title, detail st
 		Text:      text,
 		Link:      s.webURL("/sessions?sid=" + sessionID),
 		LinkLabel: "查看会话",
+	})
+}
+
+// NotifySessionHandedOff is raised when a session is taken over by a new
+// interactive pty job (SESS-01 §9.1 B, the `--resume` path): the conversation
+// continues in THAT job's terminal, so the link goes to the job (which attaches
+// the pty), not back to the session drawer that has nothing left to answer.
+func (s *Service) NotifySessionHandedOff(sessionID, projectKey, title, jobID string) {
+	label := strings.TrimSpace(title)
+	if label == "" {
+		label = shortID(sessionID)
+	}
+	s.NotifyEvent(EventSessionHandedOff, projectKey, notify.Message{
+		Title:     "会话已在 web 接管 · " + label,
+		Text:      "已用 `--resume` 起新进程接管该会话，请在该终端继续对话。",
+		Link:      s.webURL("/jobs/" + jobID + "?attach=1"),
+		LinkLabel: "打开接管终端",
 	})
 }
 

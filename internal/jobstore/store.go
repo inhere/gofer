@@ -367,7 +367,9 @@ var schemaStmts = []string{
   last_event   TEXT,
   last_seen_at INTEGER NOT NULL,
   started_at   INTEGER NOT NULL,
-  ended_at     INTEGER
+  ended_at     INTEGER,
+  handed_off_job_id TEXT,
+  handed_off_at     INTEGER
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_seen ON agent_sessions(state, last_seen_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_project ON agent_sessions(project_key)`,
@@ -855,6 +857,8 @@ func (s *Store) migratePlanDecisions() error {
 //     human-input clock. The migration maps the old boolean: relay=1 → `on`
 //     (the human had flipped it), relay=0 → `auto` (nobody did — but the idle
 //     rules may now arm it, which is exactly the new default).
+//   - handed_off_job_id + handed_off_at (P2-2, §9.1 B): which pty job took the
+//     session over (and when); both NULL on a session that was never handed off.
 func (s *Store) migrateAgentSessions() error {
 	cols, err := s.tableColumns("agent_sessions")
 	if err != nil {
@@ -877,6 +881,19 @@ func (s *Store) migrateAgentSessions() error {
 	if _, ok := cols["last_human_at"]; !ok {
 		if _, e := s.db.Exec("ALTER TABLE agent_sessions ADD COLUMN last_human_at INTEGER NOT NULL DEFAULT 0"); e != nil {
 			return fmt.Errorf("jobstore: migrate agent_sessions add last_human_at: %w", e)
+		}
+	}
+	// handed_off_job_id / handed_off_at (design §9.1 B): the pty job that took the
+	// session over and when. Pre-column rows read back as "" / 0 (COALESCE in the
+	// select), i.e. "never taken over", which is what they are.
+	if _, ok := cols["handed_off_job_id"]; !ok {
+		if _, e := s.db.Exec("ALTER TABLE agent_sessions ADD COLUMN handed_off_job_id TEXT"); e != nil {
+			return fmt.Errorf("jobstore: migrate agent_sessions add handed_off_job_id: %w", e)
+		}
+	}
+	if _, ok := cols["handed_off_at"]; !ok {
+		if _, e := s.db.Exec("ALTER TABLE agent_sessions ADD COLUMN handed_off_at INTEGER"); e != nil {
+			return fmt.Errorf("jobstore: migrate agent_sessions add handed_off_at: %w", e)
 		}
 	}
 	return nil

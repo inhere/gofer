@@ -52,10 +52,14 @@ type Options struct {
 }
 
 // Result is what the hook must do after Run: when Blocked, print the
-// `{"decision":"block","reason":Reason}` continuation and exit 0.
+// `{"decision":"block","reason":Reason}` continuation and exit 0. Notice is a
+// one-line message the SERVER wants the person at this terminal to see (session
+// relay §9.1 B: the session was taken over on the web) — the caller prints it on
+// stderr, which is the only channel the human at the keyboard reads.
 type Result struct {
 	Blocked bool
 	Reason  string
+	Notice  string
 }
 
 // ReplyPrefix marks an injected web reply so the model knows the source is
@@ -108,12 +112,10 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 		// the server keeps relay on.
 		if IsHarnessPrompt(p.Prompt) {
 			log("harness prompt %q → injected", head(p.Prompt, 60))
-			r.beatAndLog(client.SessionHeartbeat{Event: p.Event, Injected: true})
-			return Result{}, nil
+			return noticeResult(r.beatAndLog(client.SessionHeartbeat{Event: p.Event, Injected: true})), nil
 		}
 		log("human prompt %q", head(p.Prompt, 60))
-		r.beatAndLog(client.SessionHeartbeat{Event: p.Event, Title: makeTitle(p.Cwd, p.Prompt)})
-		return Result{}, nil
+		return noticeResult(r.beatAndLog(client.SessionHeartbeat{Event: p.Event, Title: makeTitle(p.Cwd, p.Prompt)})), nil
 	case "Stop":
 		return r.stop(), nil
 	case "SessionEnd", "Interrupt":
@@ -203,11 +205,26 @@ func (r *runner) heartbeat(hb client.SessionHeartbeat) (client.AgentSession, boo
 	return a, true
 }
 
-// beatAndLog is heartbeat plus a one-line trace of the resulting state.
-func (r *runner) beatAndLog(hb client.SessionHeartbeat) {
-	if a, ok := r.heartbeat(hb); ok {
-		r.log("state=%s relay=%s wait=%s", a.State, a.RelayMode, a.WaitReason)
+// beatAndLog is heartbeat plus a one-line trace of the resulting state. It
+// returns the server's view of the session (zero when the beat failed) so a
+// caller can act on what the server said — see noticeResult.
+func (r *runner) beatAndLog(hb client.SessionHeartbeat) client.AgentSession {
+	a, ok := r.heartbeat(hb)
+	if !ok {
+		return client.AgentSession{}
 	}
+	r.log("state=%s relay=%s wait=%s", a.State, a.RelayMode, a.WaitReason)
+	return a
+}
+
+// noticeResult turns the server's `notice` into the hook's result: a session that
+// was taken over on the web (§9.1 B) is announced to the person at THIS terminal,
+// and nothing is blocked (the takeover process owns the conversation now).
+func noticeResult(a client.AgentSession) Result {
+	if a.Notice == "" {
+		return Result{}
+	}
+	return Result{Notice: a.Notice}
 }
 
 // stop is the relay main path (design §7): while the server says this session
@@ -222,6 +239,13 @@ func (r *runner) stop() Result {
 	})
 	if !ok {
 		return Result{}
+	}
+	// The session belongs to a takeover job now (§9.1 B): say so at this terminal
+	// and let the agent stop. Checked BEFORE the wait rules — this is not a wait,
+	// it is a handoff.
+	if a.Notice != "" {
+		r.log("session handed off: %s", a.Notice)
+		return Result{Notice: a.Notice}
 	}
 	reason := a.WaitReason
 	if reason == "" {

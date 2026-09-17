@@ -1376,9 +1376,15 @@ type AgentSession struct {
 	// IdleSec is the idle reading the hook reported last, -1 = unknown.
 	// LastHumanAt is when a human last acted here (0 = never), the anchor of the
 	// turn-age fallback.
-	AutoArmed   bool  `json:"auto_armed"`
-	IdleSec     int64 `json:"idle_sec"`
-	LastHumanAt int64 `json:"last_human_at,omitempty"`
+	AutoArmed bool  `json:"auto_armed"`
+	IdleSec   int64 `json:"idle_sec"`
+	// HandedOffJobID is set while the session is taken over by path B's pty job
+	// (§9.1 B); Notice is the one-liner the hook prints on stderr so the person at
+	// the ORIGINAL terminal learns where the conversation went.
+	HandedOffJobID string `json:"handed_off_job_id,omitempty"`
+	HandedOffAt    int64  `json:"handed_off_at,omitempty"`
+	Notice         string `json:"notice,omitempty"`
+	LastHumanAt    int64  `json:"last_human_at,omitempty"`
 }
 
 // Relay wait reasons reported by the server (see sessionrelay.WaitReason); the
@@ -1594,8 +1600,9 @@ func (c *Client) DeleteSession(sid string) error {
 // SessionDeliverResult is POST /v1/sessions/{sid}/deliver's answer: where the
 // reply went. Path "turn" means it answered the session's OPEN turn (decision_id
 // is that turn); "tmux" means it was typed into the session's terminal by an
-// internal job (job_id is that job, decision_id its audit row). See
-// sessionrelay.PathTurn / PathTmux.
+// internal job; "takeover" means a NEW interactive pty job continues the session
+// (`--resume`) and received the text as its first input (job_id is that job,
+// decision_id its audit row). See sessionrelay.PathTurn / PathTmux / PathTakeover.
 type SessionDeliverResult struct {
 	Path       string `json:"path"`
 	JobID      string `json:"job_id,omitempty"`
@@ -1604,16 +1611,35 @@ type SessionDeliverResult struct {
 
 // DeliverSession sends a reply to a session that is NOT waiting for one
 // (POST /v1/sessions/{sid}/deliver, design §9.1): an OPEN turn is answered like
-// SaySession, otherwise the text is typed into the session's tmux pane. A 409
-// means the session cannot be reached (its body names the reason: no_runner /
-// no_tmux / ended), 502 that the injection failed, 400 that the text is empty or
-// over 8KB.
-func (c *Client) DeliverSession(sid, text string) (SessionDeliverResult, error) {
-	body, err := json.Marshal(map[string]string{"text": text})
+// SaySession, otherwise the text is typed into the session's tmux pane. With
+// allowTakeover the server may instead start a NEW `--resume` process when the
+// session has no usable pane (path B) — that moves the conversation off the
+// terminal the human left, so it is opt-in.
+//
+// A 409 means the session cannot be reached (its body names the reason: no_runner
+// / no_tmux / ended / handed_off:<job> / no_resume_template /
+// interactive_not_allowed / cwd_outside_project), 502 that the dispatch failed,
+// 400 that the text is empty or over 8KB.
+func (c *Client) DeliverSession(sid, text string, allowTakeover bool) (SessionDeliverResult, error) {
+	req := map[string]any{"text": text}
+	if allowTakeover {
+		req["allow_takeover"] = true
+	}
+	body, err := json.Marshal(req)
 	if err != nil {
 		return SessionDeliverResult{}, fmt.Errorf("encode deliver: %w", err)
 	}
 	var out SessionDeliverResult
 	err = c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/deliver", bytes.NewReader(body), &out)
 	return out, err
+}
+
+// ReleaseSessionTakeover gives a taken-over session back to its terminal
+// (POST /v1/sessions/{sid}/release-takeover, design §9.1 B): the server cancels the
+// takeover job and returns the session to idle. 409 when the session is not handed
+// off, 502 when the takeover job could not be stopped.
+func (c *Client) ReleaseSessionTakeover(sid string) (AgentSession, error) {
+	var a AgentSession
+	err := c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/release-takeover", nil, &a)
+	return a, err
 }

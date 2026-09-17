@@ -293,5 +293,30 @@ func TestMigrateAgentSessionsAddsIdleSec(t *testing.T) {
 	assert.Eq(t, RelayModeAuto, a.RelayMode)
 	assert.False(t, a.Relay)
 	assert.Eq(t, int64(0), a.LastHumanAt)
+	// P2-2: the takeover columns land with the same migration and a pre-column row
+	// reads as "never taken over" — not as a session held by an empty job.
+	assert.Eq(t, "", a.HandedOffJobID)
+	assert.Eq(t, int64(0), a.HandedOffAt)
 	assert.NoErr(t, s.migrate()) // idempotent
+
+	// And the migrated table carries the takeover: a handoff round-trips, and the
+	// release clears both columns plus the state.
+	handed, err := s.SetSessionHandedOff("sid-old", "job-1")
+	assert.NoErr(t, err)
+	assert.Eq(t, SessionHandedOff, handed.State)
+	assert.Eq(t, "job-1", handed.HandedOffJobID)
+	assert.True(t, handed.HandedOffAt > 0)
+
+	released, err := s.ReleaseSessionHandedOff("sid-old")
+	assert.NoErr(t, err)
+	assert.True(t, released)
+	a, ok, err = s.GetAgentSession("sid-old")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, SessionIdle, a.State)
+	assert.Eq(t, "", a.HandedOffJobID)
+	assert.Eq(t, int64(0), a.HandedOffAt)
+	if _, err := s.SetSessionHandedOff("sid-missing", "job-1"); err == nil {
+		t.Fatal("handing off an unknown session must be an error, not a silent no-op")
+	}
 }

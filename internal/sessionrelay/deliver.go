@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 
 	"github.com/inhere/gofer/internal/jobstore"
@@ -18,6 +19,10 @@ const (
 	// PathTmux is path A: the session is idle at its prompt, so the reply is
 	// typed into its tmux pane by an internal exec job.
 	PathTmux = "tmux"
+	// PathTakeover is path B: the session had no usable tmux pane, so an
+	// interactive pty job continues it (`--resume`) and the reply is primed into
+	// that new terminal.
+	PathTakeover = "takeover"
 )
 
 // MaxDeliverText caps a reply delivered to a session (bytes). The tmux path
@@ -28,6 +33,11 @@ const MaxDeliverText = 8 * 1024
 // TagRelayInject labels the internal exec jobs path A dispatches, so they can be
 // told apart from human-submitted jobs in `gofer job ls --tag`.
 const TagRelayInject = "relay-inject"
+
+// TagRelayTakeover labels path B's interactive pty jobs (the same tagging idea as
+// TagRelayInject: `gofer job ls --tag relay-takeover` lists every session a web
+// user has taken over).
+const TagRelayTakeover = "relay-takeover"
 
 // InjectPrefix marks the text path A types into the terminal (design D7). The
 // hook keys on it to recognise its own input: it MUST stay identical to
@@ -54,6 +64,32 @@ const (
 	// InjectFailedPrefix introduces a failure of an ATTEMPTED injection; the
 	// remainder is pane_missing, pane_busy:<cmd> or runner_error.
 	InjectFailedPrefix = "inject_failed:"
+	// ReasonNoResumeTemplate: path B's precondition — the session's agent is not a
+	// cli-agent with an interactive resume template (`--resume <sid>`), so there is
+	// no argv that would continue the conversation.
+	ReasonNoResumeTemplate = "no_resume_template"
+	// ReasonInteractiveNotAllowed: path B's precondition — the session's project
+	// does not allow interactive (pty) jobs, so gofer will not start one.
+	ReasonInteractiveNotAllowed = "interactive_not_allowed"
+	// ReasonCwdOutsideProject: path B's precondition — the session's cwd cannot be
+	// expressed relative to the project root the RUNNER sees, so the resumed
+	// process would start in the wrong directory (a real possibility when POLICY
+	// root mapping gives a worker a different absolute path than the hub's).
+	ReasonCwdOutsideProject = "cwd_outside_project"
+	// HandedOffPrefix introduces path B's "already taken over" reason: the session
+	// is held by the job named after the prefix, and that job must be released
+	// before anything else may speak to this session.
+	HandedOffPrefix = "handed_off:"
+)
+
+// Path B's job shape (design §9.1 B): a terminal larger than the pty default (a
+// resumed TUI is unusable in 80x24), and an hour of budget — the takeover is a
+// working session, not a scripted injection. The job service clamps both to the
+// project's/server's own ceilings.
+const (
+	takeoverCols    = 120
+	takeoverRows    = 40
+	takeoverTimeout = 3600
 )
 
 // pane-check failure codes the injection script prints (the reason vocabulary
@@ -168,6 +204,80 @@ func (f InjectorFunc) InjectSession(ctx context.Context, req InjectRequest) (Inj
 // pretending to have typed anything.
 func (s *Service) SetInjector(i Injector) { s.injector = i }
 
+// TakeoverPlan is what the host knows about continuing a session's CLI
+// interactively (design §9.1 B). The relay owns the routing policy and the
+// failure reason codes, but it neither reads agent config nor project config, so
+// the host resolves the three facts it needs and answers them here:
+//   - Argv: the interactive resume command for this agent and session
+//     ([agent command] + rendered SessionResumeInteractive), empty when the agent
+//     has none — the relay then reports no_resume_template.
+//   - AllowInteractive: the project's allow_interactive switch.
+//   - ExecRoot: the project root AS THE RUNNER SEES IT (the server's own execution
+//     path view for a server-run session, the host path for a worker), against
+//     which the relay converts the session's absolute cwd into a relative one.
+//     Empty when the project is unknown.
+type TakeoverPlan struct {
+	Argv             []string
+	AllowInteractive bool
+	ExecRoot         string
+}
+
+// TakeoverRequest is path B's interactive pty job (design §9.1 B): a value type
+// owned by this package so the host can submit it without the relay importing the
+// job layer (G022). The host maps it onto its own request (an interactive exec job
+// carrying the resume argv, authorised as the SOURCE agent so it does not need the
+// broad allow_exec — the same rule as a job resume).
+type TakeoverRequest struct {
+	ProjectKey string
+	Runner     string
+	// Cmd is the argv that continues the session (TakeoverPlan.Argv).
+	Cmd []string
+	// Cwd is project-RELATIVE (the job service SafeJoins it on the runner), so the
+	// resumed process opens in the session's own directory.
+	Cwd   string
+	Title string
+	Tags  []string
+	// Cols/Rows are the new terminal's initial size.
+	Cols, Rows int
+	TimeoutSec int
+	// SessionID is the CLI session the takeover continues; ResumeSourceAgent is the
+	// agent that owns it (the exec carrier's access-control identity).
+	SessionID         string
+	ResumeSourceAgent string
+	// InitialInput is the reply, prefixed and Enter-terminated: the pty runner
+	// types it once the resumed TUI has settled (see runner.Request.InitialInput).
+	InitialInput string
+	CallerID     string
+}
+
+// TakeoverResult is the host's report of one takeover job.
+type TakeoverResult struct {
+	// JobID is the interactive pty job the web attaches to.
+	JobID string
+}
+
+// Takeoverer is path B's host seam. The host owns agent/project config resolution
+// and job submission; the relay owns when a takeover is allowed and what each
+// failure means.
+type Takeoverer interface {
+	// PlanTakeover answers what continuing this session would take (see TakeoverPlan).
+	// A zero plan (no argv, no admission) is a legitimate answer, not an error.
+	PlanTakeover(agentKey, projectKey, runner, sessionID string) TakeoverPlan
+	// TakeoverSession submits the interactive resume job and returns its id. It
+	// returns as soon as the job is ACCEPTED — the job runs for as long as the human
+	// keeps talking.
+	TakeoverSession(ctx context.Context, req TakeoverRequest) (TakeoverResult, error)
+	// CancelTakeover stops a takeover job that is still running. A job that already
+	// ended (or is not known any more) is NOT an error: the caller wants the session
+	// back, and a process that is gone holds nothing.
+	CancelTakeover(ctx context.Context, jobID string) error
+}
+
+// SetTakeoverer wires path B's planner/submitter. Without one (a server built with
+// no job service, or a test) a takeover reports no_runner rather than dispatching
+// nothing and claiming success.
+func (s *Service) SetTakeoverer(t Takeoverer) { s.takeoverer = t }
+
 // SetInjectCommands overrides the foreground-process whitelist of path A
 // (session.inject_commands). Empty keeps the built-in list (DefaultInjectCommands).
 func (s *Service) SetInjectCommands(cmds []string) {
@@ -177,20 +287,27 @@ func (s *Service) SetInjectCommands(cmds []string) {
 // DeliverResult is where a delivered message ended up.
 type DeliverResult struct {
 	Path string
-	// JobID is the internal exec job of PathTmux ("" on the turn path).
+	// JobID is the internal exec job of PathTmux ("" on the turn path) or the
+	// interactive pty job of PathTakeover.
 	JobID string
-	// DecisionID is the answered turn of PathTurn, or the audit row of PathTmux.
+	// DecisionID is the answered turn of PathTurn, or the audit row of the
+	// terminal paths.
 	DecisionID string
 }
 
 // Deliver routes a reply to a session (design §9.1 选路): an OPEN turn is
 // answered exactly as Say does (phase 1 — the blocked hook injects it into the
 // same terminal), otherwise the reply is typed into the session's tmux pane
-// (path A). Say itself keeps its old turn-only semantics.
+// (path A), and — only when the caller explicitly allows it (allowTakeover, the
+// web's confirmation) and A has no usable pane — a NEW interactive pty job
+// continues the session with `--resume` and gets the reply as its first input
+// (path B). Say itself keeps its old turn-only semantics.
 //
 // Failures carry a reason code (see DeliverReason): no_runner, no_tmux, ended,
-// inject_failed:<...>. An over-long or empty reply is ErrInvalidInput.
-func (s *Service) Deliver(ctx context.Context, sid, text, by string) (DeliverResult, error) {
+// handed_off:<job>, inject_failed:<...>, no_resume_template,
+// interactive_not_allowed, cwd_outside_project. An over-long or empty reply is
+// ErrInvalidInput.
+func (s *Service) Deliver(ctx context.Context, sid, text, by string, allowTakeover bool) (DeliverResult, error) {
 	if strings.TrimSpace(text) == "" {
 		return DeliverResult{}, fmt.Errorf("%w: empty text", ErrInvalidInput)
 	}
@@ -221,7 +338,26 @@ func (s *Service) Deliver(ctx context.Context, sid, text, by string) (DeliverRes
 		}
 		// The turn settled between the read and the answer: fall through to A.
 	}
-	return s.deliverTmux(ctx, a, text, by)
+	res, err := s.deliverTmux(ctx, a, text, by)
+	if err == nil {
+		return res, nil
+	}
+	// Path B is the fallback for the ONE failure A cannot fix: the session has no
+	// usable tmux pane. Anything else (an ended or already handed-off session, no
+	// execution machine, a broken runner) would fail on B too, and reporting the
+	// real reason is more useful than a second attempt.
+	if !allowTakeover || !takeoverFallback(DeliverReason(err)) {
+		return DeliverResult{}, err
+	}
+	return s.deliverTakeover(ctx, a, text, by)
+}
+
+// takeoverFallback reports whether a failed path-A delivery is worth retrying as
+// path B: the session simply has no usable tmux pane (none was ever registered, or
+// the pane is gone since it was). Every other failure means the takeover would not
+// help, and the caller is better served by A's own reason.
+func takeoverFallback(reason string) bool {
+	return reason == ReasonNoTmux || reason == InjectFailedPrefix+injectPaneMissing
 }
 
 // deliverTmux is path A: dispatch the internal job that types the reply into the
@@ -230,10 +366,16 @@ func (s *Service) Deliver(ctx context.Context, sid, text, by string) (DeliverRes
 // is auditable — the row is the only trace left when someone asks later "who
 // typed this into my terminal?".
 func (s *Service) deliverTmux(ctx context.Context, a jobstore.AgentSession, text, by string) (DeliverResult, error) {
-	// An `ended` session has no terminal left. (A `handed_off` session — path B's
-	// takeover, design §9.1 v0.5 — joins this switch when that state lands.)
+	// An `ended` session has no terminal left.
 	if a.State == jobstore.SessionEnded {
 		return DeliverResult{}, undeliverable(ReasonEnded, errors.New("the session has ended"))
+	}
+	// A handed-off session's terminal belongs to path B's takeover job: typing into
+	// the ORIGINAL pane would feed a process that no longer owns the conversation
+	// (design §9.1 B). The caller releases the takeover first.
+	if a.State == jobstore.SessionHandedOff {
+		return DeliverResult{}, undeliverable(HandedOffPrefix+a.HandedOffJobID, fmt.Errorf(
+			"the session is already taken over by job %s; release the takeover to speak to this terminal again", a.HandedOffJobID))
 	}
 	if strings.TrimSpace(a.Runner) == "" {
 		return DeliverResult{}, undeliverable(ReasonNoRunner, errors.New(
@@ -276,6 +418,138 @@ func (s *Service) deliverTmux(ctx context.Context, a jobstore.AgentSession, text
 		return DeliverResult{}, err
 	}
 	return DeliverResult{Path: PathTmux, JobID: res.JobID, DecisionID: d.ID}, nil
+}
+
+// deliverTakeover is path B: start a new interactive pty job that continues the
+// session's CLI conversation and prime it with the reply. The four preconditions
+// are checked HERE, before anything is dispatched, because each of them has its own
+// reason code the caller acts on (design §9.1 v0.5): no resume argv for this agent,
+// a project that forbids interactive jobs, a cwd that cannot be expressed relative
+// to the project root the runner sees, and a session that is already taken over.
+func (s *Service) deliverTakeover(ctx context.Context, a jobstore.AgentSession, text, by string) (DeliverResult, error) {
+	if a.State == jobstore.SessionEnded {
+		return DeliverResult{}, undeliverable(ReasonEnded, errors.New("the session has ended"))
+	}
+	if a.State == jobstore.SessionHandedOff {
+		return DeliverResult{}, undeliverable(HandedOffPrefix+a.HandedOffJobID, fmt.Errorf(
+			"the session is already taken over by job %s", a.HandedOffJobID))
+	}
+	if strings.TrimSpace(a.Runner) == "" {
+		return DeliverResult{}, undeliverable(ReasonNoRunner, errors.New(
+			"the session did not register an execution machine: the takeover process has to run where the session runs"))
+	}
+	if s.takeoverer == nil {
+		return DeliverResult{}, undeliverable(ReasonNoRunner, errors.New("no takeover executor is wired on this server"))
+	}
+
+	plan := s.takeoverer.PlanTakeover(a.Agent, a.ProjectKey, a.Runner, a.SessionID)
+	if len(plan.Argv) == 0 {
+		return DeliverResult{}, undeliverable(ReasonNoResumeTemplate, fmt.Errorf(
+			"agent %q has no interactive resume template, so no new process could continue this session (start it inside tmux for path A)", a.Agent))
+	}
+	if !plan.AllowInteractive {
+		return DeliverResult{}, undeliverable(ReasonInteractiveNotAllowed, fmt.Errorf(
+			"project %q does not allow interactive jobs (allow_interactive)", a.ProjectKey))
+	}
+	cwd, ok := projectRelCwd(plan.ExecRoot, a.Cwd)
+	if !ok {
+		return DeliverResult{}, undeliverable(ReasonCwdOutsideProject, fmt.Errorf(
+			"session cwd %q is not under the project root %q as runner %q sees it", a.Cwd, plan.ExecRoot, a.Runner))
+	}
+
+	res, err := s.takeoverer.TakeoverSession(ctx, TakeoverRequest{
+		ProjectKey: a.ProjectKey,
+		Runner:     a.Runner,
+		Cmd:        plan.Argv,
+		Cwd:        cwd,
+		Title:      "relay takeover → " + shortSessionID(a.SessionID),
+		Tags:       []string{TagRelayTakeover},
+		Cols:       takeoverCols,
+		Rows:       takeoverRows,
+		TimeoutSec: takeoverTimeout,
+		SessionID:  a.SessionID,
+		// The exec carrier is authorised as the session's OWN agent (the same
+		// exemption a job resume uses): the takeover runs the agent's resume argv,
+		// it is not a new grant of exec.
+		ResumeSourceAgent: a.Agent,
+		// The reply is the new terminal's first input, carrying the same prefix path
+		// A types (design D7) so the hook's UserPromptSubmit recognises it as ours
+		// and does not treat it as the human returning to the keyboard.
+		InitialInput: InjectPrefix + text + "\r",
+		CallerID:     by,
+	})
+	if err != nil {
+		// An attempted takeover that could not be submitted is a runner-side failure;
+		// it shares path A's code for "we tried and the execution machine said no".
+		return DeliverResult{}, undeliverable(InjectFailedPrefix+injectRunnerError, err)
+	}
+
+	// The session now belongs to the new process: from here its original terminal
+	// stops relaying (WaitReason) and refuses new turns (OpenTurn).
+	if _, err := s.store.SetSessionHandedOff(a.SessionID, res.JobID); err != nil {
+		return DeliverResult{}, err
+	}
+	d, err := s.recordTakeover(a, text, by, res.JobID)
+	if err != nil {
+		return DeliverResult{}, err
+	}
+	if s.notifier != nil {
+		s.notifier.NotifySessionHandedOff(a.SessionID, a.ProjectKey, a.Title, res.JobID)
+	}
+	return DeliverResult{Path: PathTakeover, JobID: res.JobID, DecisionID: d.ID}, nil
+}
+
+// projectRelCwd converts a session's absolute cwd into a project-relative path
+// against root — the project root as the RUNNER sees it, which is what the job
+// service SafeJoins on that machine. ok is false when cwd is not under root, which
+// path B must not paper over: starting the resumed process elsewhere would open the
+// human's session in the wrong directory (design §9.1 v0.5, the POLICY roots
+// limitation).
+func projectRelCwd(root, cwd string) (string, bool) {
+	root = strings.TrimRight(filepath.ToSlash(strings.TrimSpace(root)), "/")
+	cwd = strings.TrimRight(filepath.ToSlash(strings.TrimSpace(cwd)), "/")
+	if root == "" || cwd == "" {
+		return "", false
+	}
+	if cwd == root {
+		return ".", true
+	}
+	rel := strings.TrimPrefix(cwd, root+"/")
+	if rel == cwd {
+		return "", false
+	}
+	return rel, true
+}
+
+// recordTakeover writes path B's audit row: as with an injection, nothing was
+// WAITING, so the row records where the conversation went instead. question keeps
+// the timeline readable — the agent side of this row says why there is no agent
+// message.
+func (s *Service) recordTakeover(a jobstore.AgentSession, text, by, jobID string) (jobstore.PlanDecision, error) {
+	detail, err := json.Marshal(map[string]string{"path": PathTakeover, "job_id": jobID})
+	if err != nil {
+		return jobstore.PlanDecision{}, err
+	}
+	d := jobstore.PlanDecision{
+		Title:      fmt.Sprintf("%s · 接管", sessionLabel(a)),
+		Question:   "（会话未在等待回复：这条消息由 web 新起的 `--resume` 进程接收）",
+		TimeoutSec: 60,
+		SessionID:  a.SessionID,
+		Kind:       jobstore.DecisionKindRelay,
+		Detail:     string(detail),
+	}
+	if err := s.store.InsertDecision(&d); err != nil {
+		return jobstore.PlanDecision{}, err
+	}
+	answered, err := s.store.AnswerDecision(d.ID, text, by)
+	if err != nil {
+		return jobstore.PlanDecision{}, err
+	}
+	if !answered {
+		return jobstore.PlanDecision{}, ErrUnknownTurn
+	}
+	stored, _, err := s.store.GetDecision(d.ID)
+	return stored, err
 }
 
 // injectResultReason maps the injection job's exit code to the failure reason

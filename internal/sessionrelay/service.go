@@ -47,6 +47,10 @@ var (
 	ErrNoOpenTurn     = errors.New("sessionrelay: session has no open turn")
 	ErrRelayOff       = errors.New("sessionrelay: relay is off")
 	ErrInvalidInput   = errors.New("sessionrelay: invalid input")
+	// ErrNotHandedOff reports a release of a session that is not (or no longer)
+	// taken over by a pty job: the takeover button is shown only while it is, so
+	// this is a stale request rather than a no-op to hide.
+	ErrNotHandedOff = errors.New("sessionrelay: session is not handed off")
 )
 
 // ReleaseByUserReturned tags a turn closed without an answer because the hook
@@ -74,6 +78,10 @@ const (
 type Notifier interface {
 	NotifySessionWaiting(sessionID, projectKey, title, lastMessage string, turn int64)
 	NotifySessionAttention(sessionID, projectKey, title, detail string)
+	// NotifySessionHandedOff is path B (design §9.1 B): the session was taken over
+	// by a pty job, so the conversation continues there — the human who was about
+	// to answer on their phone needs the new address, not another reply box.
+	NotifySessionHandedOff(sessionID, projectKey, title, jobID string)
 }
 
 // Service owns the relay rules on top of the store.
@@ -103,6 +111,9 @@ type Service struct {
 	// injector runs the internal exec jobs of path A (deliver.go, design §9.1 A).
 	// nil = no executor wired: Deliver reports no_runner instead of pretending.
 	injector Injector
+	// takeoverer plans and submits path B's interactive resume jobs (deliver.go,
+	// design §9.1 B). nil = no executor wired: a takeover reports no_runner.
+	takeoverer Takeoverer
 	// injectCommands is the foreground-process whitelist of path A
 	// (session.inject_commands); empty keeps DefaultInjectCommands.
 	injectCommands []string
@@ -140,6 +151,13 @@ func (s *Service) SetPollInterval(d time.Duration) {
 //     input in this session: last_human_at == 0 means no human was ever seen and
 //     is not evidence of absence.
 func (s *Service) WaitReason(a jobstore.AgentSession) string {
+	// A handed-off session belongs to the takeover process (design §9.1 B): the
+	// original terminal's relay is over — no switch, no idle rule, no turn-age
+	// fallback may arm a Stop there again, or two processes would write one CLI
+	// session.
+	if a.State == jobstore.SessionHandedOff {
+		return ""
+	}
 	switch a.RelayMode {
 	case jobstore.RelayModeOn:
 		return WaitModeOn
@@ -388,6 +406,14 @@ func (s *Service) OpenTurn(sid, body string, timeoutSec int64) (jobstore.PlanDec
 	}
 	if !ok {
 		return jobstore.PlanDecision{}, ErrUnknownSession
+	}
+	// Path B owns the session now: the original terminal must let its agent stop
+	// instead of parking a turn nobody will answer there (design §9.1 B). WaitReason
+	// already reports "" for it — this guards the race where the takeover landed
+	// between the heartbeat and this call.
+	if a.State == jobstore.SessionHandedOff {
+		return jobstore.PlanDecision{}, fmt.Errorf("%w: the session was taken over by job %s",
+			ErrRelayOff, a.HandedOffJobID)
 	}
 	if s.WaitReason(a) == "" {
 		return jobstore.PlanDecision{}, ErrRelayOff
@@ -655,4 +681,46 @@ func (s *Service) Delete(sid string) error {
 		return ErrUnknownSession
 	}
 	return nil
+}
+
+// ReleaseTakeover undoes path B's takeover (design §9.1 B): the takeover job is
+// cancelled FIRST — while it runs, IT owns the CLI session, and releasing the
+// original terminal into a session two processes are writing would diverge it —
+// and only then does the session return to idle with handed_off_* cleared, so the
+// terminal that registered it relays again.
+//
+// A cancel failure is reported rather than swallowed: the caller asked for the
+// session back, and the one thing we must not do is pretend they have it while a
+// live process continues to hold it.
+func (s *Service) ReleaseTakeover(ctx context.Context, sid string) (jobstore.AgentSession, error) {
+	a, ok, err := s.store.GetAgentSession(sid)
+	if err != nil {
+		return jobstore.AgentSession{}, err
+	}
+	if !ok {
+		return jobstore.AgentSession{}, ErrUnknownSession
+	}
+	if a.State != jobstore.SessionHandedOff {
+		return jobstore.AgentSession{}, fmt.Errorf("%w: session %s is %s", ErrNotHandedOff, sid, a.State)
+	}
+	if s.takeoverer != nil && a.HandedOffJobID != "" {
+		if err := s.takeoverer.CancelTakeover(ctx, a.HandedOffJobID); err != nil {
+			return jobstore.AgentSession{}, fmt.Errorf("cancel takeover job %s: %w", a.HandedOffJobID, err)
+		}
+	}
+	released, err := s.store.ReleaseSessionHandedOff(sid)
+	if err != nil {
+		return jobstore.AgentSession{}, err
+	}
+	if !released {
+		return jobstore.AgentSession{}, ErrUnknownSession
+	}
+	a, ok, err = s.store.GetAgentSession(sid)
+	if err != nil {
+		return jobstore.AgentSession{}, err
+	}
+	if !ok {
+		return jobstore.AgentSession{}, ErrUnknownSession
+	}
+	return a, nil
 }

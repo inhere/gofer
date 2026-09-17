@@ -151,22 +151,16 @@ func TestDeliverTakeoverSubmitsInteractiveResume(t *testing.T) {
 // takeover.
 func TestDeliverTakeoverRequiresAllowTakeover(t *testing.T) {
 	s := newSvc(t)
-	// No injector at all: path A reports no_runner — a takeover must not rescue it
-	// (there is no execution machine to run the pty on either).
 	to := &fakeTakeoverer{res: TakeoverResult{JobID: "job-takeover-2"}}
 	s.SetTakeoverer(to)
+	s.SetInjector(&fakeInjector{})
 	takeoverSession(t, s, "sid-noperm")
 
+	// Without the opt-in the reply stops where path A stops: no pane to type into.
+	// A takeover starts a SECOND process against the session, so it never happens
+	// implicitly (the web asks first).
 	_, err := s.Deliver(context.Background(), "sid-noperm", "hello", "alice", false)
 	assert.True(t, errors.Is(err, ErrUndeliverable))
-	assert.Eq(t, ReasonNoRunner, DeliverReason(err))
-	assert.Len(t, to.reqs, 0)
-
-	// With an injector wired but no tmux pane, the refusal is no_tmux — still no
-	// takeover without the flag.
-	inj := &fakeInjector{}
-	s.SetInjector(inj)
-	_, err = s.Deliver(context.Background(), "sid-noperm", "hello", "alice", false)
 	assert.Eq(t, ReasonNoTmux, DeliverReason(err))
 	assert.Len(t, to.reqs, 0)
 
@@ -176,7 +170,7 @@ func TestDeliverTakeoverRequiresAllowTakeover(t *testing.T) {
 
 	// A registered pane that is GONE by the time the reply arrives: path A fails
 	// with pane_missing, and the takeover takes over from there.
-	tmuxSession(t, s, "sid-stale-pane")
+	paneSession(t, s, "sid-stale-pane", "%9")
 	s.SetInjector(&fakeInjector{res: InjectResult{JobID: "job-gone", ExitCode: 3, Output: "pane_missing\n"}})
 	res, err = s.Deliver(context.Background(), "sid-stale-pane", "hi", "alice", true)
 	assert.NoErr(t, err)
@@ -184,10 +178,23 @@ func TestDeliverTakeoverRequiresAllowTakeover(t *testing.T) {
 
 	// A pane held by something else is NOT a takeover trigger: the human is using
 	// that terminal, and typing into it was correctly refused.
-	tmuxSession(t, s, "sid-busy-pane")
+	paneSession(t, s, "sid-busy-pane", "%10")
 	s.SetInjector(&fakeInjector{res: InjectResult{JobID: "job-busy", ExitCode: 4, Output: "pane_busy:vim\n"}})
 	_, err = s.Deliver(context.Background(), "sid-busy-pane", "hi", "alice", true)
 	assert.Eq(t, "inject_failed:pane_busy:vim", DeliverReason(err))
+}
+
+// paneSession registers a session that path A can reach (a tmux pane) at the
+// takeover root, so a test can drive path A's failures and assert what happens next.
+func paneSession(t *testing.T, s *Service, sid, pane string) {
+	t.Helper()
+	_, err := s.Register(RegisterInput{
+		SessionID: sid, Agent: "claude", ProjectKey: "self", Runner: "w-claude",
+		Cwd: defaultTakeoverRoot + "/sub", TmuxPane: pane, Event: EventSessionStart,
+	})
+	assert.NoErr(t, err)
+	_, err = s.Heartbeat(sid, HeartbeatInput{Event: EventStop})
+	assert.NoErr(t, err)
 }
 
 // TestDeliverTakeoverPreconditions pins the four reasons path B refuses BEFORE
@@ -275,6 +282,29 @@ func TestOpenTurnRefusedWhenHandedOff(t *testing.T) {
 
 	_, err = s.OpenTurn("sid-taken", "still here?", 60)
 	assert.True(t, errors.Is(err, ErrRelayOff))
+
+	// The original terminal keeps beating (its agent stops, the human types, the CLI
+	// quits): none of it may hand the session back — a live pty job still owns it.
+	for _, ev := range []struct {
+		event string
+		state string
+	}{{EventStop, ""}, {EventUserPromptSubmit, ""}, {EventNotification, jobstore.SessionIdle}, {EventSessionEnd, ""}} {
+		_, err := s.Heartbeat("sid-taken", HeartbeatInput{Event: ev.event, State: ev.state})
+		assert.NoErr(t, err)
+		after, ok, err := s.store.GetAgentSession("sid-taken")
+		assert.NoErr(t, err)
+		assert.True(t, ok)
+		assert.Eq(t, jobstore.SessionHandedOff, after.State)
+		assert.Eq(t, "job-takeover-9", after.HandedOffJobID)
+	}
+
+	// Only the release ends it.
+	_, err = s.ReleaseTakeover(context.Background(), "sid-taken")
+	assert.NoErr(t, err)
+	after, ok, err := s.store.GetAgentSession("sid-taken")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, jobstore.SessionIdle, after.State)
 }
 
 // TestReleaseTakeover pins the way back: releasing cancels the takeover job FIRST

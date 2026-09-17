@@ -392,15 +392,31 @@ export function saySession(sid: string, answer: string): Promise<Decision> {
   })
 }
 
-// 送话到会话（POST /v1/sessions/{sid}/deliver，body {text}，设计 §9.1 选路）：
+// 送话到会话（POST /v1/sessions/{sid}/deliver，body {text, allow_takeover}，设计 §9.1 选路）：
 // 有 OPEN turn 就当作答（path=turn），否则把文本敲进会话的 tmux pane（path=tmux，
-// job_id 为注入 job）。会话够不着时 409，body.error 带原因码
-// （no_runner / no_tmux / ended），注入失败 502，文本超 8KB 400。
-export function deliverSession(sid: string, text: string): Promise<SessionDeliverResult> {
+// job_id 为注入 job）；allowTakeover=true 且会话没有可用 pane 时，服务端改用 `--resume`
+// 起新进程接管并把文本作为它的首条输入（path=takeover，§9.1 B —— 会把会话从原终端移走，
+// 所以由调用方二次确认后显式打开）。会话够不着时 409，body.error 带原因码
+// （no_runner / no_tmux / ended / handed_off:<job> / no_resume_template /
+// interactive_not_allowed / cwd_outside_project），派发失败 502，文本超 8KB 400。
+export function deliverSession(
+  sid: string,
+  text: string,
+  allowTakeover = false,
+): Promise<SessionDeliverResult> {
   return request<SessionDeliverResult>(`/v1/sessions/${encodeURIComponent(sid)}/deliver`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ text }),
+    body: JSON.stringify(allowTakeover ? { text, allow_takeover: true } : { text }),
+  })
+}
+
+// 解除接管（POST /v1/sessions/{sid}/release-takeover，设计 §9.1 B）：服务端先 cancel
+// 接管 job，再把会话置回 idle、清空 handed_off_*，原终端恢复中继。未接管时 409，
+// 接管 job 停不下来时 502。
+export function releaseSessionTakeover(sid: string): Promise<AgentSession> {
+  return request<AgentSession>(`/v1/sessions/${encodeURIComponent(sid)}/release-takeover`, {
+    method: 'POST',
   })
 }
 

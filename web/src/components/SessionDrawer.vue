@@ -10,6 +10,7 @@
 //    回复 `/off` 会关闭中继让会话正常停下。Ctrl/Cmd+Enter 发送。
 //  - 打开期间 3s 轮询详情（页面可见时）。
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import {
@@ -17,6 +18,7 @@ import {
   deleteAgentSession,
   deliverSession,
   getAgentSession,
+  releaseSessionTakeover,
   saySession,
   setSessionRelay,
 } from '../api/client'
@@ -29,6 +31,7 @@ import type {
 } from '../api/types'
 
 const props = defineProps<{ sid: string }>()
+const router = useRouter()
 const emit = defineEmits<{
   (e: 'close'): void
   // 会话有变更（中继开关 / 作答 / 删除）→ 父级列表可即时刷新
@@ -52,6 +55,11 @@ const draft = ref('')
 const sending = ref(false)
 const relayBusy = ref(false)
 const deleting = ref(false)
+// takeover* 是路径 B 的二次确认（§9.1 B）：deliver 报 no_tmux / pane_missing 后，
+// 输入框旁出现"起新进程接管并发送"，点一次进入确认态，确认后才真的起进程。
+const takeoverOffered = ref(false)
+const takeoverConfirm = ref(false)
+const releasing = ref(false)
 const copied = ref(false)
 const expanded = ref<Set<string>>(new Set())
 // 元数据面板展开状态：默认收起（消息优先），记住用户选择。
@@ -68,6 +76,7 @@ const STATE_LABELS: Record<AgentSessionState, string> = {
   idle: '空闲',
   waiting_reply: '等待回复',
   needs_attention: '需注意',
+  handed_off: '已接管',
   ended: '已结束',
 }
 
@@ -127,10 +136,23 @@ function escapeHtml(text: string): string {
 const timeline = computed(() => [...turns.value].reverse())
 const openTurn = computed(() => turns.value.find((t) => t.state === 'OPEN') ?? null)
 // canSend：当前这封消息能不能发出去 —— 有 OPEN turn 就是作答，没有就是"送到终端"
-// （§9.1 A 的 tmux 注入）。会话结束后两者都不行。
-const canSend = computed(() => !sending.value && session.value?.state !== 'ended')
+// （§9.1 A 的 tmux 注入）。会话结束后两者都不行；已接管（§9.1 B）时终端已不属于
+// 本会话，要发话得先解除接管。
+const canSend = computed(
+  () =>
+    !sending.value &&
+    session.value?.state !== 'ended' &&
+    session.value?.state !== 'handed_off',
+)
 // toTerminal：这封消息走的是注入路径（没有 turn 在等），占位与回执据此切换。
 const toTerminal = computed(() => !openTurn.value)
+// handedOffJob：会话当前被哪个 pty job 接管（§9.1 B），空 = 没被接管。
+const handedOffJob = computed(() => session.value?.handed_off_job_id ?? '')
+// takeoverHint 是二次确认的文案（设计 §9.1 B 的原话）：说明要起什么进程、原终端会怎样。
+const takeoverHint = computed(
+  () =>
+    `将用 \`${session.value?.agent ?? 'agent'} --resume\` 起一个新进程接管该会话，原终端将不能继续。是否继续？`,
+)
 
 const titleText = computed(() => {
   const s = session.value
@@ -315,6 +337,8 @@ async function send(): Promise<void> {
   sending.value = true
   actionError.value = ''
   actionInfo.value = ''
+  takeoverOffered.value = false
+  takeoverConfirm.value = false
   try {
     if (openTurn.value) {
       await saySession(props.sid, text)
@@ -329,23 +353,96 @@ async function send(): Promise<void> {
     scrollToBottom()
     emit('changed')
   } catch (e) {
-    actionError.value = toTerminal.value
-      ? `发送到终端失败：${deliverErrorMessage(e)}`
-      : `发送失败：${errorMessage(e)}`
+    if (toTerminal.value) {
+      actionError.value = `发送到终端失败：${deliverErrorMessage(e)}`
+      // 消息还在草稿里：A 送不进去时会提示接管（§9.1 B），由用户二次确认后再发。
+      takeoverOffered.value = takeoverAvailable(e)
+    } else {
+      actionError.value = `发送失败：${errorMessage(e)}`
+    }
   } finally {
     sending.value = false
   }
 }
 
-// deliverErrorMessage 把服务端的原因码翻成能照做的提示：no_tmux 是当前唯一
-// 有替代路径的情况（2-B 的 pty 接管），其余原样把服务端的话带出来。
+// takeoverAvailable 判断这次失败是否能用路径 B 兜底：会话没有可用的 tmux pane
+// （no_tmux / pane_missing）——服务端把 pane_missing 也算进接管兜底集合。
+function takeoverAvailable(e: unknown): boolean {
+  const code = e instanceof ApiError ? `${e.code ?? ''} ${e.detail ?? ''}` : String(e)
+  return code.includes('no_tmux') || code.includes('pane_missing')
+}
+
+// takeOver 是确认后的路径 B 发送（§9.1 B）：服务端起 `--resume` pty job 接管会话，
+// 把草稿作为它的首条输入，然后跳到该 job 的终端（?attach=1 自动接入）。
+async function takeOver(): Promise<void> {
+  const text = draft.value.trim()
+  if (!text || sending.value) {
+    return
+  }
+  sending.value = true
+  actionError.value = ''
+  actionInfo.value = ''
+  try {
+    const res = await deliverSession(props.sid, text, true)
+    if (res.path !== 'takeover' || !res.job_id) {
+      actionInfo.value = res.path === 'tmux' ? '已送入终端 ✓' : '已回复 agent ✓'
+      draft.value = ''
+      await load({ silent: true })
+      emit('changed')
+      return
+    }
+    draft.value = ''
+    actionInfo.value = `已起新进程接管（job ${res.job_id}）✓`
+    await load({ silent: true })
+    emit('changed')
+    await router.push(`/jobs/${encodeURIComponent(res.job_id)}?attach=1`)
+  } catch (e) {
+    actionError.value = `接管失败：${deliverErrorMessage(e)}`
+  } finally {
+    sending.value = false
+    takeoverOffered.value = false
+    takeoverConfirm.value = false
+  }
+}
+
+// releaseTakeover 解除接管（§9.1 B）：服务端 cancel 接管 job 并把会话交还原终端。
+async function releaseTakeover(): Promise<void> {
+  releasing.value = true
+  actionError.value = ''
+  actionInfo.value = ''
+  try {
+    session.value = await releaseSessionTakeover(props.sid)
+    actionInfo.value = '已解除接管，原终端恢复中继 ✓'
+    await load({ silent: true })
+    emit('changed')
+  } catch (e) {
+    actionError.value = `解除接管失败：${errorMessage(e)}`
+  } finally {
+    releasing.value = false
+  }
+}
+
+// deliverErrorMessage 把服务端的原因码翻成能照做的提示：no_tmux / pane_missing 提示
+// 接管（§9.1 B），no_resume_template 等说清为什么接管也不可用。
 function deliverErrorMessage(e: unknown): string {
   const code = e instanceof ApiError ? `${e.code ?? ''} ${e.detail ?? ''}` : String(e)
   if (code.includes('no_tmux')) {
-    return '该会话不在 tmux 中；请在 tmux 里启动会话，pty 接管（B）待阶段 2-B'
+    return '该会话不在 tmux 中；可在 tmux 里启动会话，或用「起新进程接管并发送」'
   }
   if (code.includes('no_runner')) {
     return '该会话未登记执行机：容器内需起一个 gofer worker，并把 GOFER_HOOK_RUNNER 指向它'
+  }
+  if (code.includes('handed_off')) {
+    return '该会话已被接管：请先「解除接管」，或到接管的终端里继续'
+  }
+  if (code.includes('no_resume_template')) {
+    return '该 agent 没有交互式 resume 模板（claude/codex/omp 内置支持），无法起新进程接管'
+  }
+  if (code.includes('interactive_not_allowed')) {
+    return '该项目未开启 allow_interactive，无法起新进程接管'
+  }
+  if (code.includes('cwd_outside_project')) {
+    return '会话目录无法换算成执行机上的项目相对路径，无法起新进程接管'
   }
   if (code.includes('ended')) {
     return '会话已结束'
@@ -600,6 +697,37 @@ onUnmounted(() => {
       <div class="composer">
         <p v-if="actionError" class="error mono">{{ actionError }}</p>
         <p v-else-if="actionInfo" class="receipt mono">{{ actionInfo }}</p>
+        <!-- 已接管（§9.1 B）：对话在 pty job 里继续，这里只提供跳转与解除。 -->
+        <div v-if="handedOffJob" class="takeover-bar mono">
+          <span class="takeover-text">已接管 → </span>
+          <RouterLink
+            class="takeover-link"
+            :to="`/jobs/${encodeURIComponent(handedOffJob)}?attach=1`"
+          >
+            job {{ handedOffJob }}（打开终端）
+          </RouterLink>
+          <button
+            class="act mono"
+            type="button"
+            :disabled="releasing"
+            title="cancel 接管 job，把会话交还原终端"
+            @click="releaseTakeover"
+          >
+            {{ releasing ? '解除中…' : '解除接管' }}
+          </button>
+        </div>
+        <!-- 二次确认（§9.1 B）：起新进程会把会话从原终端移走，必须先说清楚。 -->
+        <div v-if="takeoverConfirm" class="takeover-confirm mono">
+          <span class="takeover-text">{{ takeoverHint }}</span>
+          <span class="takeover-acts">
+            <button class="act act--primary mono" type="button" :disabled="sending" @click="takeOver">
+              {{ sending ? '接管中…' : '确认接管并发送' }}
+            </button>
+            <button class="act mono" type="button" :disabled="sending" @click="takeoverConfirm = false">
+              取消
+            </button>
+          </span>
+        </div>
         <textarea
           v-model="draft"
           class="composer-input mono"
@@ -608,9 +736,11 @@ onUnmounted(() => {
           :placeholder="
             session?.state === 'ended'
               ? '会话已结束'
-              : openTurn
-                ? '回复 agent…（Ctrl/Cmd+Enter 发送；输入 /off 关闭中继，让会话正常停下）'
-                : '发送到终端（tmux）…（Ctrl/Cmd+Enter 发送；会话没有在等回复，消息直接敲进终端）'
+              : session?.state === 'handed_off'
+                ? '会话已被 web 接管：到接管终端里继续，或先解除接管'
+                : openTurn
+                  ? '回复 agent…（Ctrl/Cmd+Enter 发送；输入 /off 关闭中继，让会话正常停下）'
+                  : '发送到终端（tmux）…（Ctrl/Cmd+Enter 发送；会话没有在等回复，消息直接敲进终端）'
           "
           @keydown="onKeydown"
         ></textarea>
@@ -618,15 +748,31 @@ onUnmounted(() => {
           <span class="hint">
             <template v-if="openTurn">回复将原样进入 agent 上下文；输入 <code>/off</code> 关闭中继并让会话正常停下。</template>
             <template v-else-if="session?.state === 'ended'">会话已结束。</template>
+            <template v-else-if="session?.state === 'handed_off'">
+              本会话已被 web 用 <code>--resume</code> 起的新进程接管；原终端不再中继，要恢复请解除接管。
+            </template>
+            <template v-else-if="takeoverOffered">
+              送不进终端（{{ session?.tmux_pane ? 'pane 已失效' : '未登记 tmux pane' }}），可起新进程接管。
+            </template>
             <template v-else-if="toTerminal">
               会话没有在等回复：消息直接送入终端（需要会话跑在 tmux 里，且登记了执行机）{{ session && !session.tmux_pane ? '——本会话未登记 tmux pane' : '' }}。
             </template>
             <template v-else>会话未在等待回复。</template>
           </span>
           <button
+            v-if="takeoverOffered && !takeoverConfirm"
+            class="act mono"
+            type="button"
+            :disabled="!draft.trim() || sending"
+            title="用 --resume 起一个新进程接管该会话，把这条消息作为它的首条输入"
+            @click="takeoverConfirm = true"
+          >
+            起新进程接管并发送
+          </button>
+          <button
             class="act act--primary mono"
             type="button"
-            :disabled="!canSend || !draft.trim()"
+            :disabled="!canSend || !draft.trim() || takeoverConfirm"
             @click="send"
           >
             {{ sending ? '发送中…' : toTerminal ? '送入终端' : '发送' }}
@@ -1098,6 +1244,38 @@ onUnmounted(() => {
   padding: 8px 10px;
   font-size: 12px;
   line-height: 1.5;
+}
+
+/* 已接管提示条（§9.1 B）：一行说清会话去哪了，并给出跳转与解除 */
+.takeover-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--run);
+}
+.takeover-bar .takeover-link {
+  color: var(--phosphor);
+  text-decoration: none;
+  border-bottom: 1px dotted currentcolor;
+}
+/* 二次确认块：与提示条同位置，确认前不发送 */
+.takeover-confirm {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  color: var(--run);
+  border: 1px solid currentcolor;
+  border-radius: var(--radius);
+  padding: 6px 10px;
+}
+.takeover-confirm .takeover-acts {
+  display: inline-flex;
+  gap: 6px;
 }
 .composer-input:focus {
   outline: none;

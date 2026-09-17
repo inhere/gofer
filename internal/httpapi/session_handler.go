@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"fmt"
 	"net/http"
 	"path/filepath"
 	"strconv"
@@ -49,6 +50,16 @@ type sessionView struct {
 	AutoArmed   bool  `json:"auto_armed"`
 	IdleSec     int64 `json:"idle_sec"`
 	LastHumanAt int64 `json:"last_human_at,omitempty"`
+	// HandedOffJobID / HandedOffAt are path B's takeover (design §9.1 B): the
+	// interactive pty job that now continues this session, so the web can link to it
+	// (and offer the release).
+	HandedOffJobID string `json:"handed_off_job_id,omitempty"`
+	HandedOffAt    int64  `json:"handed_off_at,omitempty"`
+	// Notice is a one-line message for the ORIGINAL terminal, which the hook prints
+	// on stderr (design §9.1 B): set while the session is taken over, so the person
+	// at the keyboard learns why its relay went quiet and where to continue. Empty
+	// for every other state — an ordinary session has nothing to announce.
+	Notice string `json:"notice,omitempty"`
 }
 
 // toSessionView projects a stored session. Relay / WaitReason / AutoArmed are
@@ -66,7 +77,26 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		TurnNo: a.TurnNo, LastMessage: a.LastMessage,
 		LastEvent: a.LastEvent, LastSeenAt: a.LastSeenAt, StartedAt: a.StartedAt, EndedAt: a.EndedAt,
 		AutoArmed: reason == sessionrelay.WaitIdleProbe, IdleSec: a.IdleSec, LastHumanAt: a.LastHumanAt,
+		HandedOffJobID: a.HandedOffJobID, HandedOffAt: a.HandedOffAt,
+		Notice: handedOffNotice(a),
 	}
+}
+
+// handedOffNotice is what the ORIGINAL terminal is told once its session belongs
+// to a takeover job (design §9.1 B): why its relay stopped, where the
+// conversation continues, and how to get back — printed by the hook on stderr,
+// where the person at the keyboard actually sees it. "" for every other state.
+func handedOffNotice(a jobstore.AgentSession) string {
+	if a.State != jobstore.SessionHandedOff {
+		return ""
+	}
+	when := "刚刚"
+	if a.HandedOffAt > 0 {
+		when = time.Unix(a.HandedOffAt, 0).Format("2006-01-02 15:04")
+	}
+	return fmt.Sprintf(
+		"该会话已于 %s 在 web 接管（job %s），继续请在 web 终端或 --resume；本终端的中继已停用",
+		when, a.HandedOffJobID)
 }
 
 // relayStatus maps sessionrelay sentinel errors to HTTP statuses.
@@ -74,7 +104,8 @@ func relayStatus(err error) int {
 	switch {
 	case errors.Is(err, sessionrelay.ErrUnknownSession), errors.Is(err, sessionrelay.ErrUnknownTurn):
 		return http.StatusNotFound
-	case errors.Is(err, sessionrelay.ErrNoOpenTurn), errors.Is(err, sessionrelay.ErrRelayOff):
+	case errors.Is(err, sessionrelay.ErrNoOpenTurn), errors.Is(err, sessionrelay.ErrRelayOff),
+		errors.Is(err, sessionrelay.ErrNotHandedOff):
 		return http.StatusConflict
 	case errors.Is(err, sessionrelay.ErrInvalidInput):
 		return http.StatusBadRequest
@@ -441,14 +472,21 @@ func deliverStatus(err error) int {
 
 type sessionDeliverReq struct {
 	Text string `json:"text"`
+	// AllowTakeover is path B's opt-in (design §9.1 B): the reply may start a NEW
+	// process (`--resume`) that continues the session when it has no usable tmux
+	// pane. Off by default — a takeover moves the session away from the terminal the
+	// human left, so it is asked for explicitly (the web confirms first).
+	AllowTakeover bool `json:"allow_takeover,omitempty"`
 }
 
 // handleSessionDeliver routes a reply to a session that is not waiting
 // (POST /v1/sessions/{sid}/deliver, design §9.1): an OPEN turn is answered as
-// `say` does, otherwise the text is typed into the session's tmux pane (path A).
-// 409 when the session cannot be reached (no runner / no tmux / ended) — the
-// response body says which — 502 when the injection itself failed, 400 when the
-// text is empty or over 8KB.
+// `say` does, otherwise the text is typed into the session's tmux pane (path A) —
+// or, with allow_takeover, into a new `--resume` process when no pane is usable
+// (path B). 409 when the session cannot be reached (no runner / no tmux / ended /
+// handed_off / no_resume_template / interactive_not_allowed / cwd_outside_project)
+// — the response body says which — 502 when the dispatch itself failed, 400 when
+// the text is empty or over 8KB.
 //
 // Only a human caller may drive a terminal: a worker token is refused (a worker
 // runs jobs, it does not answer for a person).
@@ -466,7 +504,7 @@ func (s *Server) handleSessionDeliver(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
-	res, err := s.relay.Deliver(c.Req.Context(), c.Param("sid"), body.Text, callerFromCtx(c))
+	res, err := s.relay.Deliver(c.Req.Context(), c.Param("sid"), body.Text, callerFromCtx(c), body.AllowTakeover)
 	if err != nil {
 		// An undeliverable session reports its reason code in the envelope's short
 		// error string, so a client can act on it without parsing the message
@@ -481,4 +519,37 @@ func (s *Server) handleSessionDeliver(c *rux.Context) {
 	c.JSON(http.StatusOK, map[string]any{
 		"path": res.Path, "job_id": res.JobID, "decision_id": res.DecisionID,
 	})
+}
+
+// handleSessionReleaseTakeover gives a taken-over session back to the terminal it
+// came from (POST /v1/sessions/{sid}/release-takeover, design §9.1 B): the takeover
+// job is cancelled and the session returns to idle. 409 when it is not handed off
+// (the button is only shown while it is), 404 when the session is unknown, 502 when
+// the takeover job could not be stopped — a session two processes write would
+// diverge, so a failed release must not look like a successful one.
+func (s *Server) handleSessionReleaseTakeover(c *rux.Context) {
+	if !s.relayReady(c) {
+		return
+	}
+	if callerKindFromCtx(c) == callerKindWorker {
+		writeError(c, http.StatusForbidden, "release not permitted for this caller",
+			"worker tokens cannot release a session: only a human drives a terminal session")
+		return
+	}
+	a, err := s.relay.ReleaseTakeover(c.Req.Context(), c.Param("sid"))
+	if err != nil {
+		writeError(c, releaseTakeoverStatus(err), "release takeover failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, s.toSessionView(a))
+}
+
+// releaseTakeoverStatus maps a failed release: everything the relay reports is a
+// client-actionable state (unknown session / not handed off), while a cancel that
+// the execution machine refused is the server's side of the wire.
+func releaseTakeoverStatus(err error) int {
+	if errors.Is(err, sessionrelay.ErrUnknownSession) || errors.Is(err, sessionrelay.ErrNotHandedOff) {
+		return relayStatus(err)
+	}
+	return http.StatusBadGateway
 }

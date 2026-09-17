@@ -92,6 +92,7 @@ const SESSION_STATES: AgentSessionState[] = [
   'running',
   'waiting_reply',
   'needs_attention',
+  'handed_off',
   'idle',
   'ended',
 ]
@@ -100,6 +101,7 @@ const SESSION_STATE_LABELS: Record<AgentSessionState, string> = {
   running: '执行中',
   waiting_reply: '等待回复',
   needs_attention: '需注意',
+  handed_off: '已接管',
   idle: '空闲',
   ended: '已结束',
 }

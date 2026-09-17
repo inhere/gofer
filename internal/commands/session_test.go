@@ -67,11 +67,13 @@ func TestSessionSayTakeoverFlag(t *testing.T) {
 		t.Fatalf("body=%q, want no takeover field", gotBody)
 	}
 
-	// --takeover alone: refused before any request is made.
+	// --takeover alone: refused before any request is made. (The command is built
+	// FIRST: Config resets the option globals to their defaults.)
+	onlyTakeover := newSayCmd()
 	sessionSayOpts.deliver, sessionSayOpts.takeover = false, true
 	t.Cleanup(func() { sessionSayOpts.deliver, sessionSayOpts.takeover = false, false })
 	gotPath = ""
-	err := runSessionSay(newSayCmd(), nil)
+	err := runSessionSay(onlyTakeover, nil)
 	if err == nil || !strings.Contains(err.Error(), "--deliver") {
 		t.Fatalf("err=%v, want a refusal naming --deliver", err)
 	}

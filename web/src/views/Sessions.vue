@@ -40,6 +40,7 @@ const AGENT_STATE_LABELS: Record<AgentSessionState, string> = {
   idle: '空闲',
   waiting_reply: '等待回复',
   needs_attention: '需注意',
+  handed_off: '已接管',
   ended: '已结束',
 }
 
@@ -870,6 +871,11 @@ onUnmounted(() => {
 .state--needs_attention {
   color: var(--fail);
   border-color: var(--fail);
+}
+/* 已被 web 用 --resume 接管（§9.1 B）：对话继续在 pty job 里，原终端只是不再中继 */
+.state--handed_off {
+  color: var(--accent, var(--run));
+  border-color: var(--accent, var(--run));
 }
 
 /* 中继三态开关（auto / on / off，与 SessionDrawer 同款） */

@@ -2,10 +2,12 @@ package httpapi
 
 import (
 	"context"
+	"errors"
 	"strings"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/sessionrelay"
 	"github.com/inhere/gofer/internal/store"
 )
@@ -26,6 +28,12 @@ const injectWaitSec = 25
 // owns the submission vocabulary.
 type sessionInjector struct {
 	jobs *job.Service
+	// projects / agents resolve what path B needs to plan a takeover (design §9.1
+	// B): the agent's interactive resume argv, the project's allow_interactive
+	// switch and the project root as the runner sees it. The relay holds neither
+	// (it must not import config/agent — G022), so the questions arrive here.
+	projects *project.Registry
+	agents   *agent.Registry
 }
 
 // InjectSession runs one injection job to completion and reports its exit code
@@ -80,4 +88,88 @@ func runnerKeyForSession(runner string) string {
 	default:
 		return runner
 	}
+}
+
+// PlanTakeover answers what continuing this session would take (design §9.1 B):
+// the agent's interactive resume argv, the project's interactive switch, and the
+// project root AS THE RUNNER SEES IT — the session's absolute cwd is converted
+// against that root, and the pty job resolves its cwd on the runner.
+//
+// An unknown agent/project is not an error here: it is reported as an empty plan,
+// and the relay turns that into the reason code the caller acts on
+// (no_resume_template / interactive_not_allowed / cwd_outside_project).
+func (x sessionInjector) PlanTakeover(agentKey, projectKey, runner, sessionID string) sessionrelay.TakeoverPlan {
+	var plan sessionrelay.TakeoverPlan
+	if x.agents == nil || x.projects == nil {
+		return plan
+	}
+	if ac, ok := x.agents.Get(agentKey); ok && ac.Type == agent.TypeCLIAgent && len(ac.SessionResumeInteractive) > 0 {
+		plan.Argv = append([]string{ac.Command},
+			agent.Render(ac.SessionResumeInteractive, agent.Vars{SessionID: sessionID})...)
+	}
+	cfg := x.projects.Config()
+	if cfg == nil {
+		return plan
+	}
+	proj, ok := cfg.Projects[projectKey]
+	if !ok {
+		return plan
+	}
+	plan.AllowInteractive = proj.IsInteractiveAllowed()
+	// G002: a server-run session's pty starts in THIS process's path view of the
+	// project; a worker-run one starts on the worker, which sees the host path.
+	if runnerKeyForSession(runner) == runnerLocalKey {
+		plan.ExecRoot = cfg.ExecPath(proj)
+	} else {
+		plan.ExecRoot = proj.HostPath
+	}
+	return plan
+}
+
+// runnerLocalKey is the built-in local runner's key (see runnerKeyForSession).
+const runnerLocalKey = "local"
+
+// TakeoverSession starts path B's interactive job (design §9.1 B): an ordinary
+// pty-attached job on the session's own runner carrying the resume argv, primed
+// with the reply. It is submitted AS the session's agent (`ResumeSourceAgent`), the
+// same authorization a job resume uses — the argv is the agent's own, so this is
+// not a new grant of exec — and it returns as soon as the job is accepted, because
+// the job lives as long as the human keeps talking.
+func (x sessionInjector) TakeoverSession(_ context.Context, req sessionrelay.TakeoverRequest) (sessionrelay.TakeoverResult, error) {
+	out, err := x.jobs.Submit(job.JobRequest{
+		ProjectKey: req.ProjectKey,
+		Agent:      agent.ExecAgentKey,
+		Runner:     runnerKeyForSession(req.Runner),
+		Cmd:        req.Cmd,
+		Cwd:        req.Cwd,
+		Title:      req.Title,
+		Tags:       req.Tags,
+		Cols:       req.Cols,
+		Rows:       req.Rows,
+		TimeoutSec: req.TimeoutSec,
+		// Interactive routes the job to the pty runner and is what makes the web's
+		// ?attach=1 terminal work on it.
+		Interactive: true,
+		// SessionID binds the job to the CLI session it continues; ResumedFrom stays
+		// empty because this is an exec carrier, not an acp session/load.
+		SessionID:         req.SessionID,
+		ResumeSourceAgent: req.ResumeSourceAgent,
+		InitialInput:      req.InitialInput,
+		CallerID:          req.CallerID,
+	})
+	if err != nil {
+		return sessionrelay.TakeoverResult{}, err
+	}
+	return sessionrelay.TakeoverResult{JobID: out.ID}, nil
+}
+
+// CancelTakeover stops a running takeover job (design §9.1 B release). A job that
+// already reached a terminal state is a no-op in the job service, so this only
+// fails for a job id the hub has never known — which the release must NOT hide: it
+// would leave a live process holding the session the human just took back.
+func (x sessionInjector) CancelTakeover(_ context.Context, jobID string) error {
+	if err := x.jobs.Cancel(jobID); err != nil && !errors.Is(err, job.ErrJobNotRunning) {
+		return err
+	}
+	return nil
 }

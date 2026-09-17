@@ -110,12 +110,14 @@ export interface PtySessionsResp {
 
 // 会话中继（SESS-01）：hook 登记的 agent 会话（claude/codex 等），与 pty 会话无关。
 // state：running 执行中 / idle 已停且未开中继 / waiting_reply 开中继且等人回复 /
-// needs_attention 需人工注意（如 hook 报错）/ ended 已结束。
+// needs_attention 需人工注意（如 hook 报错）/ handed_off 已被 web 用 --resume 起的新进程
+// 接管（原终端不再中继，见 §9.1 B）/ ended 已结束。
 export type AgentSessionState =
   | 'running'
   | 'idle'
   | 'waiting_reply'
   | 'needs_attention'
+  | 'handed_off'
   | 'ended'
 
 // AgentSessionRelayMode 是会话中继开关的三态（R1）。
@@ -155,6 +157,13 @@ export interface AgentSession {
   last_seen_at: number
   started_at: number
   ended_at?: number
+  // 接管（§9.1 B）：会话被 web 用 `--resume` 起的新 pty job 接管时，指向那个 job
+  // （web 跳到 /jobs/<id>?attach=1 继续对话）；解除接管后清空。
+  handed_off_job_id?: string
+  handed_off_at?: number
+  // notice 是给【原终端】的一行提示（hook 打到 stderr）：会话已被 web 接管、本终端
+  // 中继已停用。仅 handed_off 时非空。
+  notice?: string
 }
 
 export interface AgentSessionsResp {
@@ -170,9 +179,11 @@ export interface SessionDetailResp {
 
 // POST /v1/sessions/{sid}/deliver（设计 §9.1 选路）：回复去了哪里。
 // path='turn' = 答了当前 OPEN turn（decision_id 是该 turn）；path='tmux' = 被内部
-// job 敲进终端（job_id 是那个 job，decision_id 是审计行）。
+// job 敲进终端（job_id 是那个 job，decision_id 是审计行）；path='takeover' = 会话没有
+// 可用的 tmux pane，已用 `--resume` 起了新进程接管（§9.1 B，job_id 是那个交互 job，
+// web 跳到 /jobs/<id>?attach=1）。
 export interface SessionDeliverResult {
-  path: 'turn' | 'tmux'
+  path: 'turn' | 'tmux' | 'takeover'
   job_id?: string
   decision_id?: string
 }

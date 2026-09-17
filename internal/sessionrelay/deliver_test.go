@@ -49,7 +49,7 @@ func TestDeliverAnswersOpenTurnFirst(t *testing.T) {
 	turn, err := s.OpenTurn("sid-turn-first", "which plan?", 60)
 	assert.NoErr(t, err)
 
-	res, err := s.Deliver(context.Background(), "sid-turn-first", "plan B", "alice")
+	res, err := s.Deliver(context.Background(), "sid-turn-first", "plan B", "alice", false)
 	assert.NoErr(t, err)
 	assert.Eq(t, PathTurn, res.Path)
 	assert.Eq(t, turn.ID, res.DecisionID)
@@ -80,7 +80,7 @@ func TestDeliverTmuxDispatchesInjectJob(t *testing.T) {
 	_, err := s.Heartbeat("sid-tmux-0001", HeartbeatInput{Event: EventStop})
 	assert.NoErr(t, err)
 
-	res, err := s.Deliver(context.Background(), "sid-tmux-0001", "carry on", "alice")
+	res, err := s.Deliver(context.Background(), "sid-tmux-0001", "carry on", "alice", false)
 	assert.NoErr(t, err)
 	assert.Eq(t, PathTmux, res.Path)
 	assert.Eq(t, "job-inject-1", res.JobID)
@@ -128,7 +128,7 @@ func TestDeliverTmuxShellEscaping(t *testing.T) {
 	tmuxSession(t, s, "sid-escape")
 
 	text := "it's $(x) `y`\nsecond 'line'"
-	_, err := s.Deliver(context.Background(), "sid-escape", text, "alice")
+	_, err := s.Deliver(context.Background(), "sid-escape", text, "alice", false)
 	assert.NoErr(t, err)
 
 	script := inj.reqs[0].Cmd[2]
@@ -174,7 +174,7 @@ func TestDeliverRefusesNoRunnerNoTmuxEnded(t *testing.T) {
 				assert.NoErr(t, err)
 			}
 
-			_, err = s.Deliver(context.Background(), "sid-"+tc.name, "hello", "alice")
+			_, err = s.Deliver(context.Background(), "sid-"+tc.name, "hello", "alice", false)
 			assert.True(t, errors.Is(err, ErrUndeliverable))
 			assert.Eq(t, tc.want, DeliverReason(err))
 			assert.Len(t, inj.reqs, 0)
@@ -205,7 +205,7 @@ func TestDeliverTmuxInjectFailure(t *testing.T) {
 			_, err := s.Heartbeat("sid-fail", HeartbeatInput{Event: EventStop})
 			assert.NoErr(t, err)
 
-			_, err = s.Deliver(context.Background(), "sid-fail", "hello", "alice")
+			_, err = s.Deliver(context.Background(), "sid-fail", "hello", "alice", false)
 			assert.True(t, errors.Is(err, ErrUndeliverable))
 			assert.Eq(t, tc.want, DeliverReason(err))
 
@@ -228,11 +228,11 @@ func TestDeliverTooLong(t *testing.T) {
 	s.SetInjector(inj)
 	tmuxSession(t, s, "sid-long")
 
-	_, err := s.Deliver(context.Background(), "sid-long", strings.Repeat("a", MaxDeliverText+1), "alice")
+	_, err := s.Deliver(context.Background(), "sid-long", strings.Repeat("a", MaxDeliverText+1), "alice", false)
 	assert.True(t, errors.Is(err, ErrInvalidInput))
 	assert.Len(t, inj.reqs, 0)
 
-	res, err := s.Deliver(context.Background(), "sid-long", strings.Repeat("a", MaxDeliverText), "alice")
+	res, err := s.Deliver(context.Background(), "sid-long", strings.Repeat("a", MaxDeliverText), "alice", false)
 	assert.NoErr(t, err)
 	assert.Eq(t, PathTmux, res.Path)
 	assert.Len(t, inj.reqs, 1)
@@ -250,7 +250,7 @@ func TestDeliverInjectCommandsWhitelist(t *testing.T) {
 	s.SetInjectCommands([]string{"claude", "my agent; rm -rf /", "$(x)"})
 	tmuxSession(t, s, "sid-whitelist")
 
-	_, err := s.Deliver(context.Background(), "sid-whitelist", "hello", "alice")
+	_, err := s.Deliver(context.Background(), "sid-whitelist", "hello", "alice", false)
 	assert.NoErr(t, err)
 
 	script := inj.reqs[0].Cmd[2]

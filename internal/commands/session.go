@@ -26,7 +26,8 @@ var sessionRelayOpts = struct {
 }{}
 
 var sessionSayOpts = struct {
-	deliver bool
+	deliver  bool
+	takeover bool
 }{}
 
 // NewSessionCmd builds the `session` command group: the human/CLI face of the
@@ -84,6 +85,8 @@ func NewSessionCmd() *gcli.Command {
 					c.AddArg("text", "the reply text (`/off` releases the session and turns relay off)", true)
 					c.BoolOpt(&sessionSayOpts.deliver, "deliver", "", false,
 						"route the reply: answer the OPEN turn if there is one, else type it into the session's tmux pane (§9.1 A)")
+					c.BoolOpt(&sessionSayOpts.takeover, "takeover", "", false,
+						"with --deliver: if the session has no usable tmux pane, start a new `--resume` process and send it there (§9.1 B; the original terminal stops relaying)")
 				},
 				Func: runSessionSay,
 			},
@@ -341,6 +344,11 @@ func runSessionSay(c *gcli.Command, _ []string) error {
 		return err
 	}
 	text := c.Arg("text").String()
+	if sessionSayOpts.takeover && !sessionSayOpts.deliver {
+		// Answering a waiting turn and taking a session over are different acts; a
+		// --takeover that silently did nothing would be worse than saying so.
+		return fmt.Errorf("--takeover requires --deliver: a takeover starts a new process, it does not answer a waiting turn")
+	}
 	if sessionSayOpts.deliver {
 		return runSessionDeliver(c, cli, sid, text)
 	}
@@ -356,17 +364,22 @@ func runSessionSay(c *gcli.Command, _ []string) error {
 // An OPEN turn is answered; otherwise the text goes to the session's terminal, so
 // a session that is merely idle (no hook waiting) is still reachable. Failures
 // come back verbatim: the server's message names the reason code
-// (no_runner / no_tmux / ended / inject_failed:…) and what to do about it.
+// (no_runner / no_tmux / ended / no_resume_template / inject_failed:…) and what to
+// do about it. With --takeover the server may start a `--resume` pty job instead
+// (§9.1 B) and the receipt points at that job, which the web console attaches to.
 func runSessionDeliver(c *gcli.Command, cli *client.Client, sid, text string) error {
-	res, err := cli.DeliverSession(sid, text)
+	res, err := cli.DeliverSession(sid, text, sessionSayOpts.takeover)
 	if err != nil {
 		return err
 	}
-	if res.Path == "tmux" {
+	switch res.Path {
+	case "tmux":
 		c.Printf("typed into the terminal (job %s)\n", res.JobID)
-		return nil
+	case "takeover":
+		c.Printf("took the session over with a new process (job %s)\n", res.JobID)
+	default:
+		c.Printf("answered turn %s\n", res.DecisionID)
 	}
-	c.Printf("answered turn %s\n", res.DecisionID)
 	return nil
 }
 

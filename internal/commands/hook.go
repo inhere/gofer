@@ -78,6 +78,12 @@ func runHook(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	// A notice is meant for the PERSON at this terminal (the session was taken over
+	// on the web, §9.1 B): stderr is where the agent CLI shows them text, and it is
+	// the channel the hook otherwise never uses (the decision channel is stdout).
+	if res.Notice != "" {
+		fmt.Fprintln(os.Stderr, res.Notice)
+	}
 	if res.Blocked {
 		os.Stdout.Write(hookrelay.BlockJSON(res.Reason))
 		os.Stdout.Write([]byte{'\n'})

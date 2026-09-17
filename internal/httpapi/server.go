@@ -334,8 +334,11 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		s.relay.AutoArmIdleSec = serverCfg.EffectiveSessionAutoRelayIdleSec()
 		// job.Service is the outbound notifier (webhook queue + IM adapters).
 		s.relay.SetNotifier(jobs)
-		// job.Service also runs path A's internal injection jobs (§9.1 A).
-		s.relay.SetInjector(sessionInjector{jobs: jobs})
+		// job.Service also runs path A's internal injection jobs (§9.1 A) and path
+		// B's interactive takeover jobs (§9.1 B): one adapter, because both are
+		// "submit an internal job on the session's own runner".
+		s.relay.SetInjector(sessionInjector{jobs: jobs, projects: projects, agents: agents})
+		s.relay.SetTakeoverer(sessionInjector{jobs: jobs, projects: projects, agents: agents})
 	}
 	s.router = s.buildRouter()
 	return s
@@ -545,6 +548,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/sessions/{sid}/say", s.handleSessionSay)
 		// §9.1 A: deliver to a session that is NOT waiting — tmux send-keys.
 		r.POST("/sessions/{sid}/deliver", s.handleSessionDeliver)
+		// §9.1 B: give a taken-over session (`--resume` pty job) back to its terminal.
+		r.POST("/sessions/{sid}/release-takeover", s.handleSessionReleaseTakeover)
 
 		r.POST("/decisions", s.handleAskDecision)
 		r.GET("/decisions", s.handleListDecisions)

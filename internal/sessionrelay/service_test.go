@@ -28,6 +28,7 @@ func newSvc(t *testing.T) *Service {
 type fakeNotifier struct {
 	waiting   []string
 	attention []string
+	handedOff []string
 }
 
 func (f *fakeNotifier) NotifySessionWaiting(sid, _, _, msg string, _ int64) {
@@ -35,6 +36,9 @@ func (f *fakeNotifier) NotifySessionWaiting(sid, _, _, msg string, _ int64) {
 }
 func (f *fakeNotifier) NotifySessionAttention(sid, _, _, detail string) {
 	f.attention = append(f.attention, sid+":"+detail)
+}
+func (f *fakeNotifier) NotifySessionHandedOff(sid, _, _, jobID string) {
+	f.handedOff = append(f.handedOff, sid+":"+jobID)
 }
 
 // TestNotifierHooks covers when the relay pushes to the outbound notifier:

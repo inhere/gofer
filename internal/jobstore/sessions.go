@@ -15,11 +15,16 @@ import (
 //	running ─Stop(relay on)──▶ waiting_reply ─answer─▶ running
 //	running ─Notification────▶ needs_attention (display only)
 //	*       ─SessionEnd──────▶ ended
+//
+// handed_off is path B's state (design §9.1 B): a pty job started with
+// `--resume` continues THIS session, so the terminal that registered it stops
+// relaying (its stops no longer open turns) until the takeover is released.
 const (
 	SessionRunning        = "running"
 	SessionIdle           = "idle"
 	SessionWaitingReply   = "waiting_reply"
 	SessionNeedsAttention = "needs_attention"
+	SessionHandedOff      = "handed_off"
 	SessionEnded          = "ended"
 )
 
@@ -46,7 +51,7 @@ func ValidRelayMode(m string) bool {
 // ValidSessionState reports whether s is one of the agent-session states.
 func ValidSessionState(s string) bool {
 	switch s {
-	case SessionRunning, SessionIdle, SessionWaitingReply, SessionNeedsAttention, SessionEnded:
+	case SessionRunning, SessionIdle, SessionWaitingReply, SessionNeedsAttention, SessionHandedOff, SessionEnded:
 		return true
 	}
 	return false
@@ -93,6 +98,11 @@ type AgentSession struct {
 	// Where no keyboard probe exists (containers without X11), the relay's
 	// turn-age fallback anchors on this instead of IdleSec.
 	LastHumanAt int64
+	// HandedOffJobID / HandedOffAt describe path B's takeover (design §9.1 B):
+	// the interactive pty job that continues this session, and when the handoff
+	// happened. Both zero unless State is handed_off (cleared on release).
+	HandedOffJobID string
+	HandedOffAt    int64
 }
 
 const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(project_key,''),
@@ -100,7 +110,8 @@ const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(proje
   COALESCE(tmux_pane,''), state, COALESCE(relay_mode,'auto'), relay,
   COALESCE(idle_sec,-1), COALESCE(last_human_at,0), turn_no,
   COALESCE(last_message,''),
-  COALESCE(last_event,''), last_seen_at, started_at, COALESCE(ended_at,0)
+  COALESCE(last_event,''), last_seen_at, started_at, COALESCE(ended_at,0),
+  COALESCE(handed_off_job_id,''), COALESCE(handed_off_at,0)
   FROM agent_sessions`
 
 func scanSession(sc rowScanner) (AgentSession, error) {
@@ -109,7 +120,8 @@ func scanSession(sc rowScanner) (AgentSession, error) {
 	err := sc.Scan(&a.SessionID, &a.Agent, &a.ProjectKey, &a.Runner, &a.Cwd, &a.Title,
 		&a.Transcript, &a.TmuxPane, &a.State, &a.RelayMode, &relay,
 		&a.IdleSec, &a.LastHumanAt, &a.TurnNo, &a.LastMessage,
-		&a.LastEvent, &a.LastSeenAt, &a.StartedAt, &a.EndedAt)
+		&a.LastEvent, &a.LastSeenAt, &a.StartedAt, &a.EndedAt,
+		&a.HandedOffJobID, &a.HandedOffAt)
 	a.Relay = relay == 1
 	return a, err
 }
@@ -232,10 +244,18 @@ func (s *Store) TouchAgentSession(sid string, hb SessionHeartbeat) (AgentSession
 		args = append(args, hb.Event)
 	}
 	if hb.State != "" {
-		sets = append(sets, "state=?")
+		// A handed-off session's state belongs to the takeover (design §9.1 B): the
+		// ORIGINAL terminal keeps beating (its agent still stops, prompts, quits),
+		// and every one of those beats would otherwise rewrite the state — Stop and
+		// Notification to idle, UserPromptSubmit to running, SessionEnd to ended —
+		// silently un-taking-over a session that a live pty job is still driving.
+		// Only an explicit release clears it (ReleaseSessionHandedOff).
+		sets = append(sets, "state=CASE WHEN state='handed_off' THEN state ELSE ? END")
 		args = append(args, hb.State)
 		if hb.State == SessionEnded {
-			sets = append(sets, "ended_at=?")
+			// Same reasoning for the terminal stamp: a session that is still held by
+			// the takeover has not ended.
+			sets = append(sets, "ended_at=CASE WHEN state='handed_off' THEN ended_at ELSE ? END")
 			args = append(args, now)
 		}
 	}
@@ -439,9 +459,45 @@ func (s *Store) IncrSessionTurn(sid string) (int64, bool, error) {
 func (s *Store) DeleteAgentSession(sid string) (bool, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	res, err := s.db.Exec(`DELETE FROM agent_sessions WHERE session_id=?`, sid)
+	res, err := s.db.Exec("DELETE FROM agent_sessions WHERE session_id=?", sid)
 	if err != nil {
 		return false, fmt.Errorf("jobstore: delete agent session %q: %w", sid, err)
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
+}
+
+// SetSessionHandedOff records path B's takeover (design §9.1 B): the interactive
+// pty job that now continues this session takes it over, so the state moves to
+// handed_off with the job and the moment stored — that is what the web links to,
+// what the original terminal is told, and what a release must undo.
+func (s *Store) SetSessionHandedOff(sid, jobID string) (AgentSession, error) {
+	now := s.unixNow()
+	s.writeMu.Lock()
+	res, err := s.db.Exec(
+		`UPDATE agent_sessions SET state=?, handed_off_job_id=?, handed_off_at=? WHERE session_id=?`,
+		SessionHandedOff, jobID, now, sid)
+	s.writeMu.Unlock()
+	if err != nil {
+		return AgentSession{}, fmt.Errorf("jobstore: set session %q handed off: %w", sid, err)
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return AgentSession{}, fmt.Errorf("jobstore: set session %q handed off: unknown session", sid)
+	}
+	return s.getSession(sid)
+}
+
+// ReleaseSessionHandedOff undoes that: the session returns to idle and the
+// takeover columns are cleared, so the terminal that registered it relays again.
+// ok is false when the session is unknown.
+func (s *Store) ReleaseSessionHandedOff(sid string) (bool, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(
+		`UPDATE agent_sessions SET state=?, handed_off_job_id=NULL, handed_off_at=NULL WHERE session_id=?`,
+		SessionIdle, sid)
+	if err != nil {
+		return false, fmt.Errorf("jobstore: release session %q takeover: %w", sid, err)
 	}
 	n, _ := res.RowsAffected()
 	return n == 1, nil
