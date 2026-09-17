@@ -20,8 +20,10 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/inhere/gofer/internal/acp"
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/runner"
 )
 
@@ -62,14 +64,10 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	if req.ACP == nil {
 		return runner.Result{ExitCode: -1, Err: errors.New("acp: runner called without an acp request")}
 	}
-	switch req.ACP.PermissionPolicy {
-	case "", runner.ACPPermissionAutoAllow:
-		// S0: auto-allow (or unset, which defaults to it).
-	default:
-		// Refuse rather than silently auto-approving a policy the operator asked to
-		// be stricter: ask/strict are S1.
-		return runner.Result{ExitCode: -1, Err: fmt.Errorf("acp: permission_policy %q is not supported yet (S1)", req.ACP.PermissionPolicy)}
-	}
+	// GATE-01: the approval policy is resolved by the job service (project policy
+	// tightened by the agent's), but WithDefaults here is the runner's own guarantee
+	// that it never has to reason about an unset field.
+	policy := req.ACP.Approval.WithDefaults()
 
 	events, err := openEventWriter(req.ACP.ResultDir)
 	if err != nil {
@@ -83,7 +81,16 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		}
 	}()
 
-	h := &handler{stdout: req.Stdout, events: events, onJobEvent: req.OnJobEvent, toolStatus: map[string]string{}}
+	h := &handler{
+		ctx:        ctx,
+		stdout:     req.Stdout,
+		events:     events,
+		onJobEvent: req.OnJobEvent,
+		policy:     policy,
+		approvals:  req.Approvals,
+		jobID:      req.JobID,
+		toolStatus: map[string]string{},
+	}
 	client, err := acp.Start(ctx, acp.Options{
 		Command: req.Command,
 		Args:    req.Args,
@@ -205,14 +212,28 @@ func mcpServers(in []runner.ACPMCPServer) []acp.MCPServer {
 }
 
 // handler implements acp.Handler for one job: agent text to stdout, everything
-// structured to the event stream, and tool-call status changes to job events.
+// structured to the event stream, tool-call status changes to job events, and the
+// approval gate (GATE-01 §1) on permission requests.
 type handler struct {
+	// ctx is the JOB's context: the approval wait is bounded by it, and a cancelled
+	// job must unwind a pending approval instead of hanging the runner.
+	ctx        context.Context
 	stdout     io.Writer
 	events     *eventWriter
 	onJobEvent func(string, map[string]any)
+	// policy is the RESOLVED approval policy of this job.
+	policy config.ApprovalConfig
+	// approvals raises a permission interaction and blocks for the answer; nil when
+	// the executing side has no interaction surface (then a gated call is cancelled,
+	// never approved).
+	approvals runner.ApprovalSink
+	jobID     string
 
 	mu         sync.Mutex
 	toolStatus map[string]string
+	// remembered marks the tool kinds a human answered allow_always for in THIS job
+	// (remember_allow_always): the same kind stops re-asking. Guarded by mu.
+	remembered map[string]bool
 }
 
 // SessionUpdate implements acp.Handler.
@@ -276,29 +297,294 @@ func (h *handler) emitToolCallJobEvent(tc *acp.ToolCall) {
 	})
 }
 
-// RequestPermission implements acp.Handler with the S0 policy: auto-allow. The
-// first allow_once option is chosen; failing that the first allow_always; if the
-// agent offers neither, the request is cancelled (never run an unapproved tool
-// call). S1 replaces this with the approval gate.
+// RequestPermission implements acp.Handler with the job's approval policy (GATE-01
+// §1). Mode off auto-allows (the S0 behaviour); ask auto-allows the policy's
+// auto_allow_kinds and remembers an allow_always answer for the kind; everything else
+// is put to a human as a `permission` interaction and the agent waits for the answer.
 func (h *handler) RequestPermission(p acp.RequestPermissionParams) acp.PermissionOutcome {
-	chosen := pickOption(p.Options, acp.OptionAllowOnce)
-	if chosen == "" {
-		chosen = pickOption(p.Options, acp.OptionAllowAlways)
+	kind := ""
+	if p.ToolCall != nil {
+		kind = p.ToolCall.Kind
 	}
+	switch {
+	case h.policy.Mode == config.ApprovalOff:
+		return h.answerAutomatically(p, kind, "off")
+	case h.rememberedAllowAlways(kind):
+		return h.answerAutomatically(p, kind, "remembered_allow_always")
+	case h.policy.Mode == config.ApprovalAsk && h.policy.AutoAllow(kind):
+		return h.answerAutomatically(p, kind, "auto_allow_kind")
+	default:
+		return h.askApprover(p, kind)
+	}
+}
+
+// answerAutomatically resolves a request without a human: allow_once, falling back to
+// allow_always — except in the remembered case, where the human's allow_always answer
+// is what the agent is told again. An option the agent never offered is never invented;
+// with neither offered the request is cancelled (never run an unapproved tool call).
+func (h *handler) answerAutomatically(p acp.RequestPermissionParams, kind, reason string) acp.PermissionOutcome {
+	preferred, fallback := acp.OptionAllowOnce, acp.OptionAllowAlways
+	if reason == "remembered_allow_always" {
+		preferred, fallback = acp.OptionAllowAlways, acp.OptionAllowOnce
+	}
+	chosen := pickOption(p.Options, preferred)
+	if chosen == "" {
+		chosen = pickOption(p.Options, fallback)
+	}
+	if chosen == "" {
+		h.recordPermission(p, kind, "cancelled", "", "", true, reason)
+		return acp.PermissionCancelled()
+	}
+	optionKind := kindOfOption(p.Options, chosen)
+	h.recordPermission(p, kind, "selected", chosen, optionKind, true, reason)
+	if h.onJobEvent != nil {
+		h.onJobEvent("job.permission_answered", map[string]any{
+			"option_id": chosen, "kind": optionKind, "by": "", "auto": true,
+		})
+	}
+	return acp.PermissionSelected(chosen)
+}
+
+// askApprover is the gate proper: it raises a permission interaction carrying the tool
+// call and the agent's options, and blocks until the answer arrives, the approval
+// deadline passes, or the job ends. The runner (not the caller) owns the timeout
+// policy, so an unanswered request is resolved by on_timeout rather than by a deadlock.
+func (h *handler) askApprover(p acp.RequestPermissionParams, kind string) acp.PermissionOutcome {
+	prompt := "Approve tool call"
+	if title := toolCallTitle(p.ToolCall); title != "" {
+		prompt = fmt.Sprintf("Approve tool call %q", title)
+	}
+	if kind != "" {
+		prompt = fmt.Sprintf("%s (kind=%s)", prompt, kind)
+	}
+	hint := h.policy.Mode + ": kind=" + kind
+
+	if h.approvals == nil {
+		// No interaction surface to ask through: never run an unapproved tool call.
+		slog.Warn("acp runner: approval gate has no interaction surface; cancelling the request",
+			"job_id", h.jobID, "kind", kind)
+		h.recordPermission(p, kind, "cancelled", "", "", false, "no_approval_surface")
+		return acp.PermissionCancelled()
+	}
+
+	ctx, cancel := context.WithTimeout(h.ctx, time.Duration(h.policy.TimeoutSec)*time.Second)
+	defer cancel()
+	var interactionID string
+	out, err := h.approvals.RequestApproval(ctx, runner.ApprovalRequest{
+		Prompt:     prompt,
+		Options:    approvalRequestOptions(p.Options),
+		ToolCall:   approvalRequestToolCall(p.ToolCall),
+		PolicyHint: hint,
+		// The gate now waits on a human: announce it as soon as the card exists (this
+		// is the event a webhook subscribes to for an approval notification), not
+		// after the answer.
+		OnRaised: func(id string) {
+			interactionID = id
+			if h.onJobEvent == nil {
+				return
+			}
+			h.onJobEvent("job.permission_requested", map[string]any{
+				"interaction_id": id,
+				"tool_call_id":   toolCallID(p.ToolCall),
+				"kind":           kind,
+				"title":          toolCallTitle(p.ToolCall),
+				"policy_hint":    hint,
+			})
+		},
+	})
+	if err == nil {
+		if out.Answer == "" {
+			// Cancelled instead of answered (the job ended underneath us).
+			h.recordPermission(p, kind, "cancelled", "", "", false, "cancelled")
+			return acp.PermissionCancelled()
+		}
+		optionKind := kindOfOption(p.Options, out.Answer)
+		if optionKind == "" {
+			// An answer that matches no offered option cannot be relayed as `selected`
+			// (the protocol demands one of the agent's optionIds): cancel rather than
+			// lie to the agent about what was approved.
+			slog.Warn("acp runner: approval answer is not one of the offered options",
+				"job_id", h.jobID, "answer", out.Answer)
+			h.recordPermission(p, kind, "cancelled", out.Answer, "", false, "unknown_option")
+			return acp.PermissionCancelled()
+		}
+		if optionKind == acp.OptionAllowAlways && h.policy.AllowsAlways() {
+			h.rememberAllowAlways(kind)
+		}
+		h.recordPermission(p, kind, "selected", out.Answer, optionKind, false, out.By)
+		if h.onJobEvent != nil {
+			h.onJobEvent("job.permission_answered", map[string]any{
+				"option_id": out.Answer, "kind": optionKind, "by": out.By, "auto": false,
+			})
+		}
+		return acp.PermissionSelected(out.Answer)
+	}
+	if h.ctx.Err() != nil {
+		// The JOB ended (cancel/timeout): the turn is being torn down, so the agent
+		// gets a cancellation and the job's own status is decided by the runner's
+		// context handling — no timeout policy applies to a dead job.
+		h.recordPermission(p, kind, "cancelled", "", "", false, "job_ended")
+		return acp.PermissionCancelled()
+	}
+	// The approval deadline passed (the sink returns the ctx error it gave up on).
+	return h.answerOnTimeout(p, kind, hint, interactionID, err)
+}
+
+// answerOnTimeout applies the project's on_timeout policy to a request nobody
+// answered: allow answers allow_once; anything else answers reject_once, and when the
+// agent offered no reject_once the request is CANCELLED rather than answered with an
+// option it never offered.
+func (h *handler) answerOnTimeout(p acp.RequestPermissionParams, kind, hint, interactionID string, waitErr error) acp.PermissionOutcome {
+	chosen, optionKind := "", ""
+	if h.policy.OnTimeout == config.ApprovalOnTimeoutAllow {
+		chosen = pickOption(p.Options, acp.OptionAllowOnce)
+		optionKind = acp.OptionAllowOnce
+	} else {
+		chosen = pickOption(p.Options, acp.OptionRejectOnce)
+		optionKind = acp.OptionRejectOnce
+	}
+	slog.Warn("acp runner: approval timed out",
+		"job_id", h.jobID, "kind", kind, "on_timeout", h.policy.OnTimeout,
+		"timeout_sec", h.policy.TimeoutSec, "err", waitErr)
+	detail := map[string]any{
+		"tool_call_id": toolCallID(p.ToolCall),
+		"kind":         kind,
+		"title":        toolCallTitle(p.ToolCall),
+		"on_timeout":   h.policy.OnTimeout,
+		"policy_hint":  hint,
+	}
+	if interactionID != "" {
+		detail["interaction_id"] = interactionID
+	}
+	if chosen == "" {
+		h.recordPermission(p, kind, "cancelled", "", "", false, "timeout_no_option")
+		if h.onJobEvent != nil {
+			h.onJobEvent("job.permission_timed_out", detail)
+		}
+		return acp.PermissionCancelled()
+	}
+	h.recordPermission(p, kind, "selected", chosen, optionKind, true, "timeout")
+	if h.onJobEvent != nil {
+		h.onJobEvent("job.permission_answered", map[string]any{
+			"option_id": chosen, "kind": optionKind, "by": "", "auto": true,
+		})
+		h.onJobEvent("job.permission_timed_out", detail)
+	}
+	return acp.PermissionSelected(chosen)
+}
+
+// recordPermission appends the approval decision to acp.jsonl (the job's audit trail:
+// every permission request the agent made and what gofer answered, with why).
+func (h *handler) recordPermission(p acp.RequestPermissionParams, kind, outcome, optionID, optionKind string, auto bool, why string) {
 	options := make([]map[string]string, 0, len(p.Options))
 	for _, o := range p.Options {
 		options = append(options, map[string]string{"option_id": o.OptionID, "kind": o.Kind, "name": o.Name})
 	}
-	ev := map[string]any{"t": "permission_request", "options": options, "chosen": chosen}
-	if p.ToolCall != nil {
-		ev["tool_call_id"] = p.ToolCall.ToolCallID
-		ev["kind"] = p.ToolCall.Kind
+	ev := map[string]any{
+		"t":            "permission",
+		"tool_call_id": toolCallID(p.ToolCall),
+		"kind":         kind,
+		"title":        toolCallTitle(p.ToolCall),
+		"mode":         h.policy.Mode,
+		"options":      options,
+		"outcome":      outcome,
+		"auto":         auto,
+		"reason":       why,
+	}
+	if optionID != "" {
+		ev["option_id"] = optionID
+	}
+	if optionKind != "" {
+		ev["option_kind"] = optionKind
+	}
+	if p.ToolCall != nil && len(p.ToolCall.RawInput) > 0 {
+		ev["raw_input"] = truncate(string(p.ToolCall.RawInput))
 	}
 	h.events.write(ev)
-	if chosen == "" {
-		return acp.PermissionCancelled()
+}
+
+// rememberedAllowAlways reports whether a human already chose allow_always for this
+// tool kind in THIS job (remember_allow_always), so the same kind stops re-asking.
+func (h *handler) rememberedAllowAlways(kind string) bool {
+	if kind == "" {
+		return false
 	}
-	return acp.PermissionSelected(chosen)
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.remembered[kind]
+}
+
+// rememberAllowAlways records an allow_always answer for a tool kind (per job only —
+// the gate is deliberately not a cross-job grant).
+func (h *handler) rememberAllowAlways(kind string) {
+	if kind == "" {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.remembered == nil {
+		h.remembered = map[string]bool{}
+	}
+	h.remembered[kind] = true
+}
+
+// kindOfOption returns the ACP kind of the option with this optionId ("" when the id
+// matches nothing — an answer that selects an option the agent never offered).
+func kindOfOption(options []acp.PermissionOption, optionID string) string {
+	if optionID == "" {
+		return ""
+	}
+	for _, o := range options {
+		if o.OptionID == optionID {
+			return o.Kind
+		}
+	}
+	return ""
+}
+
+// approvalRequestOptions projects the agent's options onto the runner-neutral shape.
+func approvalRequestOptions(options []acp.PermissionOption) []runner.ApprovalOption {
+	if len(options) == 0 {
+		return nil
+	}
+	out := make([]runner.ApprovalOption, 0, len(options))
+	for _, o := range options {
+		out = append(out, runner.ApprovalOption{ID: o.OptionID, Label: o.Name, Kind: o.Kind})
+	}
+	return out
+}
+
+// approvalRequestToolCall projects the gated tool call onto the runner-neutral shape,
+// summarising rawInput (an approver needs the shape, not a megabyte payload).
+func approvalRequestToolCall(tc *acp.ToolCall) *runner.ApprovalToolCall {
+	if tc == nil {
+		return nil
+	}
+	out := &runner.ApprovalToolCall{
+		ID:              tc.ToolCallID,
+		Title:           tc.Title,
+		Kind:            tc.Kind,
+		RawInputSummary: truncate(string(tc.RawInput)),
+	}
+	for _, l := range tc.Locations {
+		out.Locations = append(out.Locations, l.Path)
+	}
+	return out
+}
+
+// toolCallID / toolCallTitle read a possibly-absent tool call.
+func toolCallID(tc *acp.ToolCall) string {
+	if tc == nil {
+		return ""
+	}
+	return tc.ToolCallID
+}
+
+func toolCallTitle(tc *acp.ToolCall) string {
+	if tc == nil {
+		return ""
+	}
+	return tc.Title
 }
 
 // pickOption returns the first offered optionId of the given kind ("" if none).

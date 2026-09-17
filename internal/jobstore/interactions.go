@@ -37,6 +37,13 @@ type InteractionRecord struct {
 	// 派发 y5wt）：1=留给人。CountSupPendingDemand 据此把它排除出 sup demand，避免反复唤醒 sup
 	// 去重新拒答同一条。0=未标记（旧库/未拒答，COALESCE→0）。
 	NeedsHuman int64
+	// ToolCallJSON holds the marshalled approval detail of a kind=permission
+	// interaction (toolCallId/title/kind/locations/rawInput 摘要) — "" for every other
+	// interaction (and for a row written by a pre-GATE gofer).
+	ToolCallJSON string
+	// PolicyHint is the approval gate's human-readable rationale for a permission
+	// interaction (e.g. "ask: kind=edit"); "" otherwise.
+	PolicyHint string
 }
 
 // selectInterCols is the shared projection for ListInteractions. COALESCE guards
@@ -44,7 +51,8 @@ type InteractionRecord struct {
 // zero value instead of failing the scan, mirroring jobs.selectCols.
 const selectInterCols = `SELECT id, job_id, type, prompt, COALESCE(options_json,''),
   status, COALESCE(answer,''), created_at, COALESCE(answered_at,0),
-  COALESCE(escalated_at,0), COALESCE(answered_by,''), COALESCE(needs_human,0)
+  COALESCE(escalated_at,0), COALESCE(answered_by,''), COALESCE(needs_human,0),
+  COALESCE(tool_call_json,''), COALESCE(policy_hint,'')
   FROM interactions`
 
 // scanInteraction reads one row (in selectInterCols order) into an InteractionRecord.
@@ -54,6 +62,7 @@ func scanInteraction(sc rowScanner) (InteractionRecord, error) {
 		&r.ID, &r.JobID, &r.Type, &r.Prompt, &r.OptionsJSON,
 		&r.Status, &r.Answer, &r.CreatedAt, &r.AnsweredAt,
 		&r.EscalatedAt, &r.AnsweredBy, &r.NeedsHuman,
+		&r.ToolCallJSON, &r.PolicyHint,
 	)
 	return r, err
 }
@@ -73,8 +82,8 @@ func (s *Store) UpsertInteraction(rec InteractionRecord) error {
 	}
 	const q = `INSERT INTO interactions
   (id, job_id, type, prompt, options_json, status, answer, created_at, answered_at,
-   escalated_at, answered_by, needs_human)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+   escalated_at, answered_by, needs_human, tool_call_json, policy_hint)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(job_id, id) DO UPDATE SET
     type=excluded.type,
     prompt=excluded.prompt,
@@ -85,13 +94,16 @@ func (s *Store) UpsertInteraction(rec InteractionRecord) error {
     answered_at=excluded.answered_at,
     escalated_at=excluded.escalated_at,
     answered_by=excluded.answered_by,
-    needs_human=excluded.needs_human`
+    needs_human=excluded.needs_human,
+    tool_call_json=excluded.tool_call_json,
+    policy_hint=excluded.policy_hint`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	_, err := s.db.Exec(q,
 		rec.ID, rec.JobID, rec.Type, rec.Prompt, rec.OptionsJSON,
 		rec.Status, rec.Answer, rec.CreatedAt, rec.AnsweredAt,
 		rec.EscalatedAt, rec.AnsweredBy, rec.NeedsHuman,
+		rec.ToolCallJSON, rec.PolicyHint,
 	)
 	if err != nil {
 		return fmt.Errorf("jobstore: upsert interaction %q/%q: %w", rec.JobID, rec.ID, err)
@@ -179,7 +191,8 @@ func (s *Store) ListPendingInteractions() ([]InteractionRecord, error) {
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(pendingInteractionTerminalJobStatuses)), ",")
 	q := `SELECT i.id, i.job_id, i.type, i.prompt, COALESCE(i.options_json,''),
   i.status, COALESCE(i.answer,''), i.created_at, COALESCE(i.answered_at,0),
-  COALESCE(i.escalated_at,0), COALESCE(i.answered_by,''), COALESCE(i.needs_human,0)
+  COALESCE(i.escalated_at,0), COALESCE(i.answered_by,''), COALESCE(i.needs_human,0),
+  COALESCE(i.tool_call_json,''), COALESCE(i.policy_hint,'')
   FROM interactions i JOIN jobs j ON i.job_id = j.id
   WHERE i.status = 'pending' AND j.status NOT IN (` + placeholders + `)
   ORDER BY i.created_at ASC, i.id ASC`

@@ -56,7 +56,7 @@ func waitPermissionInteraction(t *testing.T, s *Service, jobID string, d time.Du
 		time.Sleep(10 * time.Millisecond)
 	}
 	snap, _ := s.Get(jobID)
-	t.Fatalf("no pending permission interaction within %s (job status=%s)", d, snap.Status)
+	t.Fatalf("no pending permission interaction within %s (job status=%s err=%s)", d, snap.Status, snap.Error)
 	return Interaction{}
 }
 

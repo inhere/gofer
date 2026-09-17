@@ -226,10 +226,12 @@ func (r *Runner) handleFrame(ctx context.Context, fr client.SSEEvent, req runner
 		if ifr.Action == "open" && req.Interactions != nil && !seen[ifr.Interaction.ID] {
 			seen[ifr.Interaction.ID] = true
 			ri := runner.RemoteInteraction{
-				ID:      ifr.Interaction.ID,
-				Type:    ifr.Interaction.Type,
-				Prompt:  ifr.Interaction.Prompt,
-				Options: toRemoteOptions(ifr.Interaction.Options),
+				ID:         ifr.Interaction.ID,
+				Type:       ifr.Interaction.Type,
+				Prompt:     ifr.Interaction.Prompt,
+				Options:    toRemoteOptions(ifr.Interaction.Options),
+				ToolCall:   toRemoteToolCall(ifr.Interaction.ToolCall),
+				PolicyHint: ifr.Interaction.PolicyHint,
 			}
 			if ansCh, err := req.Interactions.Open(ctx, ri); err == nil {
 				iid := ifr.Interaction.ID
@@ -282,9 +284,24 @@ func toRemoteOptions(in []job.InteractionOption) []runner.RemoteInteractionOptio
 	}
 	out := make([]runner.RemoteInteractionOption, 0, len(in))
 	for _, o := range in {
-		out = append(out, runner.RemoteInteractionOption{Value: o.Value, Label: o.Label})
+		out = append(out, runner.RemoteInteractionOption{Value: o.Value, Label: o.Label, ID: o.ID, Kind: o.Kind})
 	}
 	return out
+}
+
+// toRemoteToolCall mirrors a permission interaction's tool call onto the runner shape
+// (nil-safe) so the host can rebuild it without importing job from runner.
+func toRemoteToolCall(in *job.InteractionToolCall) *runner.RemoteInteractionToolCall {
+	if in == nil {
+		return nil
+	}
+	return &runner.RemoteInteractionToolCall{
+		ID:              in.ID,
+		Title:           in.Title,
+		Kind:            in.Kind,
+		Locations:       in.Locations,
+		RawInputSummary: in.RawInputSummary,
+	}
 }
 
 // errFromStatus maps a peer terminal JobResult to a runner error: done => nil;

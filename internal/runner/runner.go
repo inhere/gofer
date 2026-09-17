@@ -8,6 +8,8 @@ import (
 	"context"
 	"encoding/json"
 	"io"
+
+	"github.com/inhere/gofer/internal/config"
 )
 
 // Runner executes one resolved command and reports how it ended.
@@ -59,6 +61,13 @@ type Request struct {
 	// interactions surface on the host job (see InteractionSink).
 	Interactions InteractionSink
 
+	// Approvals lets a runner RAISE an approval request of its own — an interaction of
+	// type permission — and block until it is answered (GATE-01 §1). The acp runner
+	// uses it for a tool call the project's approval policy will not auto-approve; nil
+	// means the executing side has no interaction surface, and a runner that needs one
+	// must refuse to run the gated action rather than approve it silently.
+	Approvals ApprovalSink
+
 	// OnRendered (nil-safe) is invoked by a remote runner with the rendered command
 	// as soon as the executing machine reports it, so the host can show WHAT is
 	// running immediately (G1). The host cannot render a remote agent's argv itself
@@ -108,20 +117,16 @@ type ACPRequest struct {
 	// ResultDir is the job's result directory; the runner writes its structured
 	// event stream to <ResultDir>/artifacts/acp.jsonl.
 	ResultDir string
-	// PermissionPolicy is the agent's configured policy. S0 supports only
-	// ACPPermissionAutoAllow (the default); the runner refuses anything else rather
-	// than silently auto-approving a stricter policy (ask/strict land in S1).
-	PermissionPolicy string
+	// Approval is the RESOLVED approval policy of this job (GATE-01 §1): the project's
+	// approval block tightened by the agent's acp.permission_policy
+	// (config.Config.EffectiveApproval), defaults applied. It is the runner's ONLY
+	// input for session/request_permission — the agent's raw permission_policy is
+	// folded in by the resolver, so a stricter policy can never be lost in transit —
+	// and Mode off reproduces the S0 auto-allow.
+	Approval config.ApprovalConfig
 	// MCPServers are advertised to the agent in session/new.
 	MCPServers []ACPMCPServer
 }
-
-// ACP permission policies (config agents.<key>.acp.permission_policy).
-const (
-	// ACPPermissionAutoAllow approves every permission request automatically,
-	// preferring an allow_once option (see the design's S0 scope).
-	ACPPermissionAutoAllow = "auto_allow"
-)
 
 // ACPMCPServer is one MCP server advertised to an acp-agent through session/new.
 type ACPMCPServer struct {
@@ -131,11 +136,73 @@ type ACPMCPServer struct {
 	Env     map[string]string
 }
 
+// ApprovalOption is one choice offered for an approval request, mirroring an ACP
+// permission option (session/request_permission.options).
+type ApprovalOption struct {
+	// ID is the ACP optionId — what an answer selects.
+	ID string
+	// Label is the agent's human-facing name for the option.
+	Label string
+	// Kind is the ACP option kind: allow_once|allow_always|reject_once|reject_always.
+	Kind string
+}
+
+// ApprovalToolCall is the tool call an approval request is about (ACP toolCall,
+// reduced to what an approver needs).
+type ApprovalToolCall struct {
+	ID              string
+	Title           string
+	Kind            string
+	Locations       []string
+	RawInputSummary string
+}
+
+// ApprovalRequest is one approval gate request (GATE-01 §1): the tool call an agent
+// wants to run, the options the agent offered for it, and why the gate stopped it.
+type ApprovalRequest struct {
+	// Prompt is the question shown to the approver.
+	Prompt string
+	// Options are the agent's own options, verbatim and in its order.
+	Options []ApprovalOption
+	// ToolCall is the gated tool call (nil when the agent sent none).
+	ToolCall *ApprovalToolCall
+	// PolicyHint is the human-readable rationale, e.g. "ask: kind=edit".
+	PolicyHint string
+	// OnRaised (nil-safe) is invoked EXACTLY ONCE, synchronously, with the interaction
+	// id as soon as the request is visible to approvers — before the call starts
+	// waiting. That is where a caller records its "a human is needed" event or
+	// notification; emitting it after the wait would announce an approval nobody can
+	// act on any more.
+	OnRaised func(interactionID string)
+}
+
+// ApprovalOutcome is the approver's decision.
+type ApprovalOutcome struct {
+	// Answer is the chosen optionId ("" when the request was cancelled instead of
+	// answered — the caller decides what a cancellation means).
+	Answer string
+	// By is the interaction's answered_by attribution (human / agent:<id> /
+	// auto:<policy>); "" for an unattributed or cancelled answer.
+	By string
+}
+
+// ApprovalSink raises an approval request on a job and blocks until it is answered or
+// ctx ends. The implementation is the job service (an interaction of type permission);
+// the interface lives here so runner implementations need not import job. A ctx that
+// ends (the gate's own deadline or the job's) MUST leave no pending interaction behind.
+type ApprovalSink interface {
+	RequestApproval(ctx context.Context, req ApprovalRequest) (ApprovalOutcome, error)
+}
+
 // RemoteInteractionOption mirrors a peer interaction option without importing the
 // job package (runner must stay cycle-free: job imports runner).
 type RemoteInteractionOption struct {
 	Value string
 	Label string
+	// ID / Kind carry a permission interaction's ACP option identity and kind
+	// (GATE-01 §1); "" for every other interaction.
+	ID   string
+	Kind string
 }
 
 // RemoteInteraction is a peer-raised interaction a remote runner surfaces to the
@@ -145,6 +212,20 @@ type RemoteInteraction struct {
 	Type    string
 	Prompt  string
 	Options []RemoteInteractionOption
+	// ToolCall / PolicyHint carry a type=permission interaction's approval detail
+	// (GATE-01 §1); nil/"" for every other interaction.
+	ToolCall   *RemoteInteractionToolCall
+	PolicyHint string
+}
+
+// RemoteInteractionToolCall mirrors job.InteractionToolCall for the same
+// cycle-free reason as RemoteInteractionOption.
+type RemoteInteractionToolCall struct {
+	ID              string
+	Title           string
+	Kind            string
+	Locations       []string
+	RawInputSummary string
 }
 
 // InteractionSink lets a remote runner bridge a peer's running-job interactions

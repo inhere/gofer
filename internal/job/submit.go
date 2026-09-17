@@ -238,7 +238,11 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 				return JobResult{}, fmt.Errorf("%w: agent %q (acp-agent) requires the acp runner", ErrInvalidRequest, req.Agent)
 			}
 			run = ar
-			runReq.ACP = acpRequest(ac, req.Prompt, resultDir)
+			runReq.ACP = acpRequest(cfg, req.ProjectKey, req.Agent, ac, req.Prompt, resultDir)
+			// GATE-01: the approval gate asks THROUGH this job's interaction surface
+			// (the card lands in web/CLI/MCP exactly like any other interaction, and a
+			// worker's local job mirrors it up to the hub).
+			runReq.Approvals = approvalSink{s: s, jobID: jobID}
 		}
 		// 模式①注入(session-capture §5.1): the resolved agent has a SessionInject
 		// template (claude --session-id) → generate a uuid now and append the rendered
@@ -436,15 +440,19 @@ func isCLIAgent(cfg *config.Config, name string) bool {
 }
 
 // acpRequest builds the acp runner payload (ACP-01) from an acp-agent's config:
-// the prompt, the result dir the runner writes acp.jsonl under, the permission
-// policy and the MCP servers it advertises in session/new. A nil acp sub-block
-// yields the defaults (auto-allow permissions, no MCP servers).
-func acpRequest(ac config.AgentConfig, prompt, resultDir string) *runner.ACPRequest {
-	r := &runner.ACPRequest{Prompt: prompt, ResultDir: resultDir}
+// the prompt, the result dir the runner writes acp.jsonl under, the RESOLVED approval
+// policy of this job (GATE-01: the project's approval block tightened by the agent's
+// acp.permission_policy) and the MCP servers it advertises in session/new. A nil acp
+// sub-block yields the defaults (auto-allow permissions, no MCP servers).
+func acpRequest(cfg *config.Config, projectKey, agentKey string, ac config.AgentConfig, prompt, resultDir string) *runner.ACPRequest {
+	r := &runner.ACPRequest{
+		Prompt:    prompt,
+		ResultDir: resultDir,
+		Approval:  cfg.EffectiveApproval(projectKey, agentKey),
+	}
 	if ac.ACP == nil {
 		return r
 	}
-	r.PermissionPolicy = ac.ACP.PermissionPolicy
 	for _, s := range ac.ACP.MCPServers {
 		r.MCPServers = append(r.MCPServers, runner.ACPMCPServer{
 			Name:    s.Name,

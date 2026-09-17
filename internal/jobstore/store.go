@@ -119,6 +119,8 @@ var schemaStmts = []string{
   escalated_at INTEGER,
   answered_by  TEXT,
   needs_human  INTEGER,
+  tool_call_json TEXT,
+  policy_hint  TEXT,
   PRIMARY KEY (job_id, id)
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_inter_job ON interactions(job_id)`,
@@ -671,6 +673,9 @@ func (s *Store) migrateWorkflows() error {
 //   - needs_human（事件驱动按需派发 y5wt）：通用 sup 对高危/拿不准的 interaction 拒答时置 1，
 //     标记"留给人处理"，把它排除出 CountSupPendingDemand 的 sup demand → 不再重复唤醒 sup。
 //     旧行 COALESCE→0。
+//   - tool_call_json / policy_hint（GATE-01 §1）：kind=permission 审批交互的工具调用详情
+//     （toolCallId/title/kind/locations/rawInput 摘要）与策略提示（"ask: kind=edit"）。旧库
+//     经 migrate 自动补全，旧行（普通交互）COALESCE→空。
 func (s *Store) migrateInteractions() error {
 	cols, err := s.tableColumns("interactions")
 	if err != nil {
@@ -691,7 +696,13 @@ func (s *Store) migrateInteractions() error {
 	if err := add("answered_by", "answered_by TEXT"); err != nil {
 		return err
 	}
-	return add("needs_human", "needs_human INTEGER")
+	if err := add("needs_human", "needs_human INTEGER"); err != nil {
+		return err
+	}
+	if err := add("tool_call_json", "tool_call_json TEXT"); err != nil {
+		return err
+	}
+	return add("policy_hint", "policy_hint TEXT")
 }
 
 // migrateSchedules adds post-AUTO-02 columns to the schedules table. All changes

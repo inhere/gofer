@@ -22,13 +22,15 @@ type remoteInteractionSink struct {
 // cancelled first (so the runner never blocks forever).
 func (k remoteInteractionSink) Open(ctx context.Context, ri runner.RemoteInteraction) (<-chan string, error) {
 	it := Interaction{
-		ID:        ri.ID,
-		JobID:     k.jobID,
-		Type:      ri.Type,
-		Prompt:    ri.Prompt,
-		Options:   fromRemoteOptions(ri.Options),
-		Status:    InteractionPending,
-		CreatedAt: k.s.nowFn().Unix(),
+		ID:         ri.ID,
+		JobID:      k.jobID,
+		Type:       ri.Type,
+		Prompt:     ri.Prompt,
+		Options:    fromRemoteOptions(ri.Options),
+		Status:     InteractionPending,
+		CreatedAt:  k.s.nowFn().Unix(),
+		ToolCall:   fromRemoteToolCall(ri.ToolCall),
+		PolicyHint: ri.PolicyHint,
 	}
 	if err := k.s.injectInteraction(k.jobID, it); err != nil {
 		return nil, err
@@ -51,7 +53,7 @@ func fromRemoteOptions(in []runner.RemoteInteractionOption) []InteractionOption 
 	}
 	out := make([]InteractionOption, 0, len(in))
 	for _, o := range in {
-		out = append(out, InteractionOption{Value: o.Value, Label: o.Label})
+		out = append(out, InteractionOption{Value: o.Value, ID: o.ID, Label: o.Label, Kind: o.Kind})
 	}
 	return out
 }

@@ -584,7 +584,19 @@ type wireInteraction struct {
 	Options []struct {
 		Value string `json:"value"`
 		Label string `json:"label,omitempty"`
+		ID    string `json:"id,omitempty"`
+		Kind  string `json:"kind,omitempty"`
 	} `json:"options,omitempty"`
+	// ToolCall / PolicyHint carry a permission interaction's approval detail
+	// (GATE-01 §1); absent on every other interaction type.
+	ToolCall *struct {
+		ID              string   `json:"id"`
+		Title           string   `json:"title,omitempty"`
+		Kind            string   `json:"kind,omitempty"`
+		Locations       []string `json:"locations,omitempty"`
+		RawInputSummary string   `json:"raw_input_summary,omitempty"`
+	} `json:"tool_call,omitempty"`
+	PolicyHint string `json:"policy_hint,omitempty"`
 }
 
 // interactionBridge bridges worker-raised interactions onto the host job. It is
@@ -626,13 +638,25 @@ func (b *interactionBridge) handle(action string, raw json.RawMessage) {
 
 	opts := make([]runner.RemoteInteractionOption, 0, len(wi.Options))
 	for _, o := range wi.Options {
-		opts = append(opts, runner.RemoteInteractionOption{Value: o.Value, Label: o.Label})
+		opts = append(opts, runner.RemoteInteractionOption{Value: o.Value, Label: o.Label, ID: o.ID, Kind: o.Kind})
+	}
+	var tc *runner.RemoteInteractionToolCall
+	if wi.ToolCall != nil {
+		tc = &runner.RemoteInteractionToolCall{
+			ID:              wi.ToolCall.ID,
+			Title:           wi.ToolCall.Title,
+			Kind:            wi.ToolCall.Kind,
+			Locations:       wi.ToolCall.Locations,
+			RawInputSummary: wi.ToolCall.RawInputSummary,
+		}
 	}
 	ansCh, err := b.sinks.Open(b.ctx, runner.RemoteInteraction{
-		ID:      wi.ID,
-		Type:    wi.Type,
-		Prompt:  wi.Prompt,
-		Options: opts,
+		ID:         wi.ID,
+		Type:       wi.Type,
+		Prompt:     wi.Prompt,
+		Options:    opts,
+		ToolCall:   tc,
+		PolicyHint: wi.PolicyHint,
 	})
 	if err != nil {
 		return

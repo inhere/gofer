@@ -48,10 +48,31 @@ const (
 	answeredByAutoPrefix = "auto:"
 )
 
-// InteractionOption is one selectable option for a choice/confirmation.
+// InteractionOption is one selectable option for a choice/confirmation — or, for a
+// permission interaction, one option the ACP agent offered (GATE-01 §1).
 type InteractionOption struct {
 	Value string `json:"value"`
 	Label string `json:"label,omitempty"`
+	// ID is the ACP optionId of a permission interaction's option. It mirrors Value
+	// (the answer token every generic path — web button, CLI, MCP, the answer guard —
+	// already round-trips) so a consumer that speaks ACP can address the option by its
+	// protocol id. "" for non-permission interactions.
+	ID string `json:"id,omitempty"`
+	// Kind is the ACP option kind (allow_once|allow_always|reject_once|reject_always)
+	// the approval card groups its buttons by. "" for non-permission interactions.
+	Kind string `json:"kind,omitempty"`
+}
+
+// InteractionToolCall is the tool call a permission interaction is about: the agent's
+// ACP toolCall, reduced to what an approver needs to judge it (GATE-01 §1).
+type InteractionToolCall struct {
+	ID        string   `json:"id"`
+	Title     string   `json:"title,omitempty"`
+	Kind      string   `json:"kind,omitempty"`
+	Locations []string `json:"locations,omitempty"`
+	// RawInputSummary is the agent's rawInput, summarised and capped (the full input
+	// can be megabytes; an approver needs the shape, not the payload).
+	RawInputSummary string `json:"raw_input_summary,omitempty"`
 }
 
 // Interaction is one running-job interaction event (plan §P9). Persisted (SP4)
@@ -61,13 +82,18 @@ type InteractionOption struct {
 type Interaction struct {
 	ID         string              `json:"id"`
 	JobID      string              `json:"job_id"`
-	Type       string              `json:"type"` // question | choice | confirmation
+	Type       string              `json:"type"` // question | choice | confirmation | permission
 	Prompt     string              `json:"prompt"`
 	Options    []InteractionOption `json:"options,omitempty"`
 	Status     string              `json:"status"` // pending | answered | cancelled
 	Answer     string              `json:"answer,omitempty"`
 	CreatedAt  int64               `json:"created_at"`
 	AnsweredAt int64               `json:"answered_at,omitempty"`
+	// ToolCall and PolicyHint describe a type=permission interaction (GATE-01 §1): the
+	// tool call awaiting approval and the policy that stopped it ("ask: kind=edit").
+	// Both are absent on every other interaction type.
+	ToolCall   *InteractionToolCall `json:"tool_call,omitempty"`
+	PolicyHint string               `json:"policy_hint,omitempty"`
 	// EscalatedAt 是该 interaction 被 escalate（投递给上层应答者）的 unix 秒时间戳（监督
 	// 分层升级路由 P1.1, design §9）：承载 escalate dedup 标记 + owner 超时计时。0 表示尚未
 	// escalate。P1.1 仅落库 + 透传读出，写入由 P1.2（escalate dedup）/P2.1（超时）落地。
@@ -94,6 +120,10 @@ const (
 	InteractionTypeQuestion     = "question"
 	InteractionTypeChoice       = "choice"
 	InteractionTypeConfirmation = "confirmation"
+	// InteractionTypePermission is an approval gate request (GATE-01 §1): an ACP
+	// session/request_permission parked until a human picks one of the agent's own
+	// options. It carries ToolCall + PolicyHint and is answered with an option id.
+	InteractionTypePermission = "permission"
 )
 
 // interactionRec is the in-process record for one interaction: the persisted
@@ -106,11 +136,16 @@ type interactionRec struct {
 	answered chan struct{}
 }
 
-// InteractionInput is the create-interaction payload (Type/Prompt/Options).
+// InteractionInput is the create-interaction payload (Type/Prompt/Options, plus the
+// approval detail of a type=permission interaction).
 type InteractionInput struct {
 	Type    string
 	Prompt  string
 	Options []InteractionOption
+	// ToolCall / PolicyHint are carried onto a type=permission interaction (GATE-01
+	// §1) and ignored by every other type.
+	ToolCall   *InteractionToolCall
+	PolicyHint string
 }
 
 // CreateInteraction raises a new interaction on a LIVE job: it records a pending
@@ -127,7 +162,7 @@ func (s *Service) CreateInteraction(jobID string, in InteractionInput) (Interact
 		in.Type = InteractionTypeQuestion
 	}
 	switch in.Type {
-	case InteractionTypeQuestion, InteractionTypeChoice, InteractionTypeConfirmation:
+	case InteractionTypeQuestion, InteractionTypeChoice, InteractionTypeConfirmation, InteractionTypePermission:
 	default:
 		return Interaction{}, fmt.Errorf("%w: unknown type %q", ErrInvalidInteraction, in.Type)
 	}
@@ -151,13 +186,15 @@ func (s *Service) CreateInteraction(jobID string, in InteractionInput) (Interact
 
 	rec := &interactionRec{
 		data: Interaction{
-			ID:        RandomSuffix(),
-			JobID:     jobID,
-			Type:      in.Type,
-			Prompt:    in.Prompt,
-			Options:   in.Options,
-			Status:    InteractionPending,
-			CreatedAt: s.nowFn().Unix(),
+			ID:         RandomSuffix(),
+			JobID:      jobID,
+			Type:       in.Type,
+			Prompt:     in.Prompt,
+			Options:    in.Options,
+			Status:     InteractionPending,
+			CreatedAt:  s.nowFn().Unix(),
+			ToolCall:   in.ToolCall,
+			PolicyHint: in.PolicyHint,
 		},
 		answered: make(chan struct{}),
 	}
@@ -200,19 +237,27 @@ func toInteractionRecord(it Interaction) jobstore.InteractionRecord {
 			optsJSON = string(b)
 		}
 	}
+	var tcJSON string
+	if it.ToolCall != nil {
+		if b, err := json.Marshal(it.ToolCall); err == nil {
+			tcJSON = string(b)
+		}
+	}
 	return jobstore.InteractionRecord{
-		ID:          it.ID,
-		JobID:       it.JobID,
-		Type:        it.Type,
-		Prompt:      it.Prompt,
-		OptionsJSON: optsJSON,
-		Status:      it.Status,
-		Answer:      it.Answer,
-		CreatedAt:   it.CreatedAt,
-		AnsweredAt:  it.AnsweredAt,
-		EscalatedAt: it.EscalatedAt,
-		AnsweredBy:  it.AnsweredBy,
-		NeedsHuman:  it.NeedsHuman,
+		ID:           it.ID,
+		JobID:        it.JobID,
+		Type:         it.Type,
+		Prompt:       it.Prompt,
+		OptionsJSON:  optsJSON,
+		Status:       it.Status,
+		Answer:       it.Answer,
+		CreatedAt:    it.CreatedAt,
+		AnsweredAt:   it.AnsweredAt,
+		EscalatedAt:  it.EscalatedAt,
+		AnsweredBy:   it.AnsweredBy,
+		NeedsHuman:   it.NeedsHuman,
+		ToolCallJSON: tcJSON,
+		PolicyHint:   it.PolicyHint,
 	}
 }
 
@@ -224,6 +269,15 @@ func fromInteractionRecord(rec jobstore.InteractionRecord) Interaction {
 	var opts []InteractionOption
 	if rec.OptionsJSON != "" {
 		_ = json.Unmarshal([]byte(rec.OptionsJSON), &opts)
+	}
+	var tc *InteractionToolCall
+	if rec.ToolCallJSON != "" {
+		var got InteractionToolCall
+		// An unparseable blob leaves ToolCall nil rather than failing the read,
+		// mirroring the OptionsJSON handling above.
+		if err := json.Unmarshal([]byte(rec.ToolCallJSON), &got); err == nil {
+			tc = &got
+		}
 	}
 	return Interaction{
 		ID:          rec.ID,
@@ -238,6 +292,8 @@ func fromInteractionRecord(rec jobstore.InteractionRecord) Interaction {
 		EscalatedAt: rec.EscalatedAt,
 		AnsweredBy:  rec.AnsweredBy,
 		NeedsHuman:  rec.NeedsHuman,
+		ToolCall:    tc,
+		PolicyHint:  rec.PolicyHint,
 	}
 }
 
@@ -568,6 +624,61 @@ func (s *Service) WaitAnswer(ctx context.Context, jobID, interactionID string) (
 	case <-ctx.Done():
 		return Interaction{}, ctx.Err()
 	}
+}
+
+// cancelInteraction closes a pending interaction WITHOUT an answer: the requester
+// gave up (the approval gate's deadline passed, or the job's context ended) so no
+// human decision is coming, and leaving the row pending would park the job status on
+// a question nobody is waiting for. The cancelled snapshot is persisted and any
+// WaitAnswer caller is woken, exactly like finish()'s terminal reconciliation. An
+// already-answered interaction is left alone (the answer won; the requester's timeout
+// is a no-op), and a terminal/unknown job is a no-op too — finish() has already
+// reconciled its rows.
+func (s *Service) cancelInteraction(jobID, interactionID string) error {
+	entry := s.entry(jobID)
+	if entry == nil {
+		return s.notLiveErr(jobID, "cancel")
+	}
+
+	entry.mu.Lock()
+	rec := findInteraction(entry.interactions, interactionID)
+	if rec == nil {
+		entry.mu.Unlock()
+		return fmt.Errorf("%w: %q for job %q", ErrUnknownInteraction, interactionID, jobID)
+	}
+	if rec.data.Status != InteractionPending {
+		entry.mu.Unlock()
+		return nil
+	}
+	rec.data.Status = InteractionCancelled
+	rec.data.AnsweredAt = s.nowFn().Unix()
+	out := rec.data
+
+	// Mirror answerInteraction: only return the job to running when nothing else is
+	// pending AND it is parked on an interaction (never revive a terminal/drifted job).
+	var resumeSnap *JobResult
+	if !IsTerminal(entry.result.Status) && !hasPendingInteraction(entry.interactions) &&
+		entry.result.Status == StatusPendingInteraction {
+		entry.result.Status = StatusRunning
+		snap := entry.result
+		resumeSnap = &snap
+	}
+	entry.mu.Unlock()
+
+	if err := s.meta.UpsertInteraction(toInteractionRecord(out)); err != nil {
+		slog.Warn("upsert cancelled interaction", "job_id", jobID, "interaction_id", out.ID, "err", err)
+	}
+	if resumeSnap != nil {
+		if err := s.persist(*resumeSnap); err != nil {
+			slog.Warn("persist resumed-running snapshot", "job_id", jobID, "err", err)
+		}
+	}
+	s.recordEvent(jobID, EventInteractionAnswered, map[string]any{
+		"interaction_id": out.ID,
+		"status":         InteractionCancelled,
+	})
+	close(rec.answered)
+	return nil
 }
 
 // findInteraction returns the rec with the given id, or nil. Caller holds mu.
