@@ -178,7 +178,7 @@ func TestRunJobInputSchemaSnakeCase(t *testing.T) {
 	if err := json.Unmarshal(b, &schema); err != nil {
 		t.Fatalf("unmarshal input schema: %v", err)
 	}
-	for _, key := range []string{"project_key", "timeout_sec", "agent_args", "plan_id", "role", "system_prompt", "origin_agent", "escalate_to"} {
+	for _, key := range []string{"project_key", "timeout_sec", "agent_args", "plan_id", "role", "system_prompt", "origin_agent", "escalate_to", "read_only"} {
 		if _, ok := schema.Properties[key]; !ok {
 			t.Fatalf("input schema missing snake_case property %q; properties=%v", key, schema.Properties)
 		}

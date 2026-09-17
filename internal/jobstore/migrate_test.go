@@ -73,6 +73,8 @@ func TestMigrateAddsColumnsToOldDB(t *testing.T) {
 	assert.True(t, tableHasColumn(t, s, "jobs", "caller_id"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "request_id"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "interactive"))
+	// read_only（bd h-aii-0ql3）：旧库经 migrate 必须补全该列（历史行读回 false）。
+	assert.True(t, tableHasColumn(t, s, "jobs", "read_only"))
 	assert.True(t, indexExists(t, s, "idx_jobs_request_id"))
 	assert.NoErr(t, s.migrate()) // idempotent second pass: column already exists.
 	// 产出与审计（job-outcomes-audit）：旧库经 migrate 必须补全这 4 列。
@@ -128,6 +130,8 @@ func TestFreshOpenHasNewColumnsAndIndex(t *testing.T) {
 	assert.True(t, tableHasColumn(t, s, "jobs", "caller_id"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "request_id"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "interactive"))
+	// read_only（bd h-aii-0ql3）：新库一次建全该列。
+	assert.True(t, tableHasColumn(t, s, "jobs", "read_only"))
 	assert.True(t, indexExists(t, s, "idx_jobs_request_id"))
 	// 产出与审计（job-outcomes-audit）：新库一次建全这 4 列。
 	assert.True(t, tableHasColumn(t, s, "jobs", "rendered_command"))

@@ -73,6 +73,13 @@ func main() {
 				time.Sleep(delay)
 			}
 		}
+	case "argv":
+		// argv: echo the arguments this process ACTUALLY received, one per line. A
+		// test asserting the argv gofer built reads it from the child's own view
+		// rather than from what gofer intended to send.
+		for _, a := range os.Args[2:] {
+			fmt.Println(a)
+		}
 	case "printf":
 		fmt.Print(arg(2))
 	case "cat-file":
