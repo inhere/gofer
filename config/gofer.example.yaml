@@ -267,6 +267,28 @@ projects:
     # (有未提交改动需 --force; 分支默认保留, 合并后加 --delete-branch 删). retention 清理
     # job 时, 只有"无未提交改动且分支已合并"的 worktree 会被一并移除, 其余保留并记日志.
     # worktree_default: false
+
+    # approval: 审批门(GATE-01), 只作用于 acp-agent —— agent 经 ACP
+    # session/request_permission 求批时, gofer 按本段策略决定「直接放行」还是「停下等人」。
+    # 默认 mode: off(= 历史行为: 自动放行, 升级 gofer 不会让存量 job 卡在人身上);
+    # 想让 agent 改代码/执行命令前必须有人点头, 就开 ask:
+    # approval:
+    #   mode: ask                # off=全自动放行 | ask=按 kind 决定 | strict=全部求批
+    #   auto_allow_kinds: [read, search, think, fetch]      # 这些 kind 不问人(默认值)
+    #   ask_kinds: [edit, delete, move, execute, other, switch_mode]   # 这些 kind 必问(默认值)
+    #   timeout_sec: 1800        # 等人上限(秒), 超时按 on_timeout 兜底(默认 1800)
+    #   on_timeout: reject       # reject=超时选拒绝(默认) | allow=超时放行
+    #   remember_allow_always: true   # 有人选了 allow_always, 本 job 内同类不再问(默认 true)
+    # kind 取值就是 ACP ToolKind 词汇(加载期校验, 写错直接启动失败); ask_kinds 优先于
+    # auto_allow_kinds(同时写了就问人), 两个名单都没有的 kind 也问人(拿不准就求批)。
+    # agent 侧只能【收紧】: agents.<key>.acp.permission_policy = ask|strict 会把本项目的
+    # off 抬到 ask/strict, 但 auto_allow 永远压低不了项目的 ask/strict。
+    # 求批时 job 置 pending_interaction, web 交互面板出现审批卡片(工具调用 + 选项按钮 +
+    # 倒计时), 作答值就是 ACP optionId:
+    #   gofer job interactions <job-id>                      # 看有哪些待批 / 可用的 optionId
+    #   gofer job answer <job-id> <interaction-id> <optionId>
+    # 也可在 web 点按钮或经 MCP gofer_answer_interaction 作答; IM 只发通知(可订阅
+    # job.permission_requested), 不支持在 IM 里作答。
   # Second project: 瘦写法 — 只写 host_path/container_path + 准入 allowed_agents,
   # 其余(exchange_subdir/result_subdir/default_agent/max_concurrent_jobs 等)留空走默认。
   my-tools:

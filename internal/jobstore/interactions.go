@@ -44,6 +44,10 @@ type InteractionRecord struct {
 	// PolicyHint is the approval gate's human-readable rationale for a permission
 	// interaction (e.g. "ask: kind=edit"); "" otherwise.
 	PolicyHint string
+	// ExpiresAt is a permission interaction's answer deadline (unix seconds, 0 = none):
+	// the gate stops waiting then and applies on_timeout. 0 for every other kind (and
+	// for a row written by a pre-GATE gofer, COALESCE→0).
+	ExpiresAt int64
 }
 
 // selectInterCols is the shared projection for ListInteractions. COALESCE guards
@@ -52,7 +56,7 @@ type InteractionRecord struct {
 const selectInterCols = `SELECT id, job_id, type, prompt, COALESCE(options_json,''),
   status, COALESCE(answer,''), created_at, COALESCE(answered_at,0),
   COALESCE(escalated_at,0), COALESCE(answered_by,''), COALESCE(needs_human,0),
-  COALESCE(tool_call_json,''), COALESCE(policy_hint,'')
+  COALESCE(tool_call_json,''), COALESCE(policy_hint,''), COALESCE(expires_at,0)
   FROM interactions`
 
 // scanInteraction reads one row (in selectInterCols order) into an InteractionRecord.
@@ -62,7 +66,7 @@ func scanInteraction(sc rowScanner) (InteractionRecord, error) {
 		&r.ID, &r.JobID, &r.Type, &r.Prompt, &r.OptionsJSON,
 		&r.Status, &r.Answer, &r.CreatedAt, &r.AnsweredAt,
 		&r.EscalatedAt, &r.AnsweredBy, &r.NeedsHuman,
-		&r.ToolCallJSON, &r.PolicyHint,
+		&r.ToolCallJSON, &r.PolicyHint, &r.ExpiresAt,
 	)
 	return r, err
 }
@@ -82,8 +86,8 @@ func (s *Store) UpsertInteraction(rec InteractionRecord) error {
 	}
 	const q = `INSERT INTO interactions
   (id, job_id, type, prompt, options_json, status, answer, created_at, answered_at,
-   escalated_at, answered_by, needs_human, tool_call_json, policy_hint)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+   escalated_at, answered_by, needs_human, tool_call_json, policy_hint, expires_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(job_id, id) DO UPDATE SET
     type=excluded.type,
     prompt=excluded.prompt,
@@ -96,14 +100,15 @@ func (s *Store) UpsertInteraction(rec InteractionRecord) error {
     answered_by=excluded.answered_by,
     needs_human=excluded.needs_human,
     tool_call_json=excluded.tool_call_json,
-    policy_hint=excluded.policy_hint`
+    policy_hint=excluded.policy_hint,
+    expires_at=excluded.expires_at`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	_, err := s.db.Exec(q,
 		rec.ID, rec.JobID, rec.Type, rec.Prompt, rec.OptionsJSON,
 		rec.Status, rec.Answer, rec.CreatedAt, rec.AnsweredAt,
 		rec.EscalatedAt, rec.AnsweredBy, rec.NeedsHuman,
-		rec.ToolCallJSON, rec.PolicyHint,
+		rec.ToolCallJSON, rec.PolicyHint, rec.ExpiresAt,
 	)
 	if err != nil {
 		return fmt.Errorf("jobstore: upsert interaction %q/%q: %w", rec.JobID, rec.ID, err)
@@ -192,7 +197,7 @@ func (s *Store) ListPendingInteractions() ([]InteractionRecord, error) {
 	q := `SELECT i.id, i.job_id, i.type, i.prompt, COALESCE(i.options_json,''),
   i.status, COALESCE(i.answer,''), i.created_at, COALESCE(i.answered_at,0),
   COALESCE(i.escalated_at,0), COALESCE(i.answered_by,''), COALESCE(i.needs_human,0),
-  COALESCE(i.tool_call_json,''), COALESCE(i.policy_hint,'')
+  COALESCE(i.tool_call_json,''), COALESCE(i.policy_hint,''), COALESCE(i.expires_at,0)
   FROM interactions i JOIN jobs j ON i.job_id = j.id
   WHERE i.status = 'pending' AND j.status NOT IN (` + placeholders + `)
   ORDER BY i.created_at ASC, i.id ASC`

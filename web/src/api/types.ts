@@ -523,14 +523,29 @@ export interface ListJobsOpts {
 
 export type LogStream = 'stdout' | 'stderr'
 
-// 运行中交互：question 文本问答 / choice 选项 / confirmation 确认
+// 运行中交互：question 文本问答 / choice 选项 / confirmation 确认 /
+// permission 审批门（GATE-01：acp-agent 的 session/request_permission 求批，
+// 作答值取 options[].value = ACP optionId）。
 // 'expired' 目前只由 decision 投影产生（EXPIRED 决策，只读），job interaction 不会返回。
-export type InteractionType = 'question' | 'choice' | 'confirmation'
+export type InteractionType = 'question' | 'choice' | 'confirmation' | 'permission'
 export type InteractionStatus = 'pending' | 'answered' | 'cancelled' | 'expired'
 
 export interface InteractionOption {
   value: string
   label?: string
+  // permission 专用：ACP optionId（= value）与该选项的 ACP kind
+  // （allow_once|allow_always|reject_once|reject_always），用于分组/徽标。
+  id?: string
+  kind?: string
+}
+
+// permission 交互的工具调用详情（GATE-01 §1）
+export interface InteractionToolCall {
+  id: string
+  title?: string
+  kind?: string
+  locations?: string[]
+  raw_input_summary?: string
 }
 
 export interface Interaction {
@@ -547,6 +562,11 @@ export interface Interaction {
   escalated_at?: number
   answered_at?: number
   answered_by?: string
+  // permission 交互：被求批的工具调用、策略提示（"ask: kind=edit"）与作答截止时间
+  // （unix 秒，0 = 无倒计时）。
+  tool_call?: InteractionToolCall
+  policy_hint?: string
+  expires_at?: number
 }
 
 // plan 决策通道（decision channel，T4）：agent 经 MCP gofer_ask_human 提问，
@@ -586,8 +606,14 @@ export type JobEventType =
   | 'job.running'
   | 'job.terminal'
   | 'job.cancelled'
+  | 'job.tool_call'
   | 'interaction.created'
   | 'interaction.answered'
+  // 审批门（GATE-01 S1）：acp-agent 的一次 session/request_permission 被求批 /
+  // 被作答（含自动放行与超时兜底）/ 超时兜底
+  | 'job.permission_requested'
+  | 'job.permission_answered'
+  | 'job.permission_timed_out'
 
 export interface JobEvent {
   seq: number

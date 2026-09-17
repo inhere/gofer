@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -227,6 +228,28 @@ func NewJobCmd() *gcli.Command {
 					c.AddArg("id", "source job id", true)
 				},
 				Func: runJobResume,
+			},
+			{
+				Name: "interactions",
+				Desc: "List a job's interactions (questions, choices, approval requests)",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("id", "job id", true)
+				},
+				Func: runJobInteractions,
+			},
+			{
+				Name: "answer",
+				Desc: "Answer a job's pending interaction (an approval takes one of its option ids)",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("id", "job id", true)
+					c.AddArg("interaction-id", "interaction id (see `job interactions`)", true)
+					c.AddArg("answer", "the answer; for an approval, one of the interaction's option ids", true)
+				},
+				Func: runJobAnswer,
 			},
 			newJobWorktreeCmd(),
 		},
@@ -474,6 +497,118 @@ func resolveClientToken(sc *config.ServerConfig, flagToken string) string {
 func argID(c *gcli.Command) string {
 	if c != nil {
 		if a := c.Arg("id"); a != nil {
+			return a.String()
+		}
+	}
+	return ""
+}
+
+// runJobInteractions lists a job's interactions (question/choice/confirmation and —
+// for an acp-agent under an approval policy — the permission requests waiting for a
+// human). Each permission line names the gated tool call, and every line lists the
+// option ids an answer may name, so `job answer` can be driven straight from it.
+func runJobInteractions(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("job interactions requires an <id> argument")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	list, err := cli.GetInteractions(id)
+	if err != nil {
+		return err
+	}
+	if len(list) == 0 {
+		c.Printf("job %s has no interactions\n", id)
+		return nil
+	}
+	for _, it := range list {
+		c.Printf("%s  %-8s %-12s %s\n", it.ID, it.Status, it.Type, interactionSummary(it))
+		if opts := interactionOptions(it.Options); opts != "" {
+			c.Printf("    options: %s\n", opts)
+		}
+	}
+	return nil
+}
+
+// runJobAnswer answers one pending interaction. For a permission interaction the
+// answer is one of the ACP option ids (`allow-once-id`, `reject-once-id`, …) — the
+// agent's own option is relayed to it verbatim, so gofer never decides for the agent
+// what a rejection means.
+func runJobAnswer(c *gcli.Command, _ []string) error {
+	id, iid := argID(c), argString(c, "interaction-id")
+	answer := argString(c, "answer")
+	if id == "" || iid == "" || answer == "" {
+		return fmt.Errorf("job answer requires <id> <interaction-id> <answer>")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	it, err := cli.AnswerInteraction(id, iid, answer, "")
+	if err != nil {
+		return err
+	}
+	c.Printf("interaction %s answered: %s (status=%s, by=%s)\n", it.ID, it.Answer, it.Status, it.AnsweredBy)
+	return nil
+}
+
+// interactionSummary renders an interaction's one-line description: for a permission
+// request (GATE-01 §1) the gated tool call comes first — kind, title, the files it
+// touches and the truncated raw input — followed by the prompt and the policy hint.
+func interactionSummary(it job.Interaction) string {
+	var parts []string
+	if tc := it.ToolCall; tc != nil {
+		tool := "tool call"
+		if tc.Kind != "" {
+			tool = "[" + tc.Kind + "]"
+		}
+		if tc.Title != "" {
+			tool += " " + strconv.Quote(tc.Title)
+		}
+		if len(tc.Locations) > 0 {
+			tool += " @" + strings.Join(tc.Locations, ",")
+		}
+		if tc.RawInputSummary != "" {
+			tool += " input=" + tc.RawInputSummary
+		}
+		parts = append(parts, tool)
+	}
+	if it.Prompt != "" {
+		parts = append(parts, it.Prompt)
+	}
+	if it.PolicyHint != "" {
+		parts = append(parts, "("+it.PolicyHint+")")
+	}
+	if it.Answer != "" {
+		parts = append(parts, "answer="+it.Answer)
+	}
+	return strings.Join(parts, " ")
+}
+
+// interactionOptions renders "label=value" pairs (label falls back to the value), so
+// the ids to pass to `job answer` are visible without another call.
+func interactionOptions(opts []job.InteractionOption) string {
+	if len(opts) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(opts))
+	for _, o := range opts {
+		label := o.Label
+		if label == "" {
+			label = o.Value
+		}
+		out = append(out, label+"="+o.Value)
+	}
+	return strings.Join(out, ", ")
+}
+
+// argString reads a named positional argument ("" when absent).
+func argString(c *gcli.Command, name string) string {
+	if c != nil {
+		if a := c.Arg(name); a != nil {
 			return a.String()
 		}
 	}

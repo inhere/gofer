@@ -145,12 +145,36 @@ projects:
 | 阶段 | 内容 | 验收 |
 |---|---|---|
 | S0 spike | `internal/acp` 最小 client（initialize/new/prompt/update/permission/cancel）+ `acp-agent` 类型；用 omp acp、gemini --acp、claude-code-acp 各跑通一个"列出目录并解释"的 job，事件落 `acp.jsonl`，permission 自动 allow_once | 三家 job done，`acp.jsonl` 有 tool_call 事件，stdout 为纯文本 |
-| S1 | 审批门 `mode: ask/strict`、交互 kind=permission、web 审批卡片、IM 事件、超时策略；worker 镜像 | 一个 edit 类 tool_call 在 web 被人批准/拒绝，agent 相应继续/停止 |
+| S1 ✅ | 审批门 `mode: ask/strict`、交互 kind=permission、web 审批卡片、IM 事件、超时策略；worker 镜像 | 一个 edit 类 tool_call 在 web 被人批准/拒绝，agent 相应继续/停止 |
 | S2 | resume 走 `session/load`、自动 resume 兼容、`--read-only` → set_mode | resume 后 agent 记得上轮内容；只读 job 写文件被 agent 拒绝 |
 | S3 | `needs_review`：状态、accept/reject、web 列表、IM、`reject --resume`、agent 不可 accept | 端到端 e2e |
 | S4 | 阶段 2 候选：fs/terminal 委托、claude `--permission-prompt-tool` 桥、plan→todo 同步 | 另立 |
 
 回滚：acp-agent 是新增类型，不改 cli-agent；审批门默认 `off`；`needs_review` 默认关闭；三者都可按项目/agent 单独关闭。
+
+## S1 实测记录（2026-09-17）
+
+实现：`internal/config`（`ProjectConfig.Approval` + `Config.EffectiveApproval`，加载期校验 ACP ToolKind 词汇）、
+`internal/job`（交互 `type=permission` + `ToolCall`/`PolicyHint`/`ExpiresAt`、`approvalSink`）、
+`internal/runner/acp`（求批决策、`remember_allow_always`、超时兜底、`acp.jsonl` 审批记录）、
+`internal/wsproto`/`internal/core`/`internal/commands`（`PolicyProject.approval` 随策略下发，
+worker 侧 `projectPolicy` 还原）、web 审批卡片（`InteractionCard.vue` + 详情页时间线）、
+CLI `gofer job interactions|answer`。
+
+测试替身：`internal/acp/acptest` 的假 ACP server 支持脚本化 permission 请求
+（`--perm-kind` / `--perm-options` / `--perm-repeats`），agent 把每次收到的答案打到 stderr，
+测试据此断言 **agent 实际收到了什么**（而不只看 gofer 内部状态）。
+
+单测覆盖（全绿）：`internal/config` 的默认值/校验/agent 只能收紧；`internal/job` 的
+off 自动放行、ask 放行 read 类、edit 类建卡并阻塞、拒绝使 agent 停手（stopReason=refusal）、
+两种 `on_timeout`、`allow_always` 记忆同类、strict 连 read 也求批、agent 级 ask 抬升项目 off、
+job 取消时解卡、`WaitAnswer` 契约；`internal/worker` 的 **worker→hub 镜像**
+（hub 侧看到 `type=permission` 卡片与 tool_call/options/expires_at，hub 作答后 worker 侧 agent
+收到该 optionId 并跑到 done）；`internal/commands` 的 `job interactions/answer` 输出与请求体。
+
+实测方式：仓库内假 server（`gofer-testcmd acp-fake`）+ 本地 `job.Service`（`t.TempDir()`），
+真 agent（omp/gemini/claude-acp）仍需人工在 web 上点一次按钮才能验（S0 已记：本机 omp 在该配置下
+不自发 `request_permission`，故 S1 用假 server 覆盖）。`gofmt`/`go build`/`go vet`/全量 `go test ./...` 均绿。
 
 ## 决策（待批准）
 

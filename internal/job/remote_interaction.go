@@ -31,6 +31,7 @@ func (k remoteInteractionSink) Open(ctx context.Context, ri runner.RemoteInterac
 		CreatedAt:  k.s.nowFn().Unix(),
 		ToolCall:   fromRemoteToolCall(ri.ToolCall),
 		PolicyHint: ri.PolicyHint,
+		ExpiresAt:  ri.ExpiresAt,
 	}
 	if err := k.s.injectInteraction(k.jobID, it); err != nil {
 		return nil, err

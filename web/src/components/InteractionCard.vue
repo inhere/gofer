@@ -8,7 +8,7 @@
 // isDecision：decision 投影卡（T4）恒无 punt（无 job 可 punt）。
 // 视觉：--panel 底 + --line 边 + --phosphor 强调标题；id/type mono 小字。
 // 一次性滑入动画，prefers-reduced-motion 下关闭。
-import { computed, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref } from 'vue'
 import type { Interaction } from '../api/types'
 
 const props = defineProps<{
@@ -64,6 +64,78 @@ function submit(value: string): void {
   emit('answer', value)
 }
 
+// ---- 审批卡（type=permission，GATE-01 §1）----
+
+const isPermission = computed(() => props.interaction.type === 'permission')
+const toolCall = computed(() => props.interaction.tool_call)
+const KNOWN_PERMISSION_KINDS = new Set([
+  'allow_once',
+  'allow_always',
+  'reject_once',
+  'reject_always',
+])
+// 选项按 ACP kind 分组：放行（allow_once/allow_always）在前，拒绝在后；未知 kind
+// 归入「其他」，按钮文案取 label（回退 optionId）。
+const allowOptions = computed(() => permissionOptions(['allow_once', 'allow_always']))
+const rejectOptions = computed(() => permissionOptions(['reject_once', 'reject_always']))
+const otherOptions = computed(() =>
+  (props.interaction.options ?? []).filter((o) => !KNOWN_PERMISSION_KINDS.has(o.kind ?? '')),
+)
+
+function permissionOptions(kinds: string[]) {
+  const wanted = new Set(kinds)
+  return (props.interaction.options ?? []).filter((o) => wanted.has(o.kind ?? ''))
+}
+
+// kind 徽标：allow_* 主色、reject_* 幽灵（样式类由 kindClass 给）。
+function kindClass(kind: string | undefined): string {
+  if (kind?.startsWith('allow')) {
+    return 'icard-btn--primary'
+  }
+  if (kind?.startsWith('reject')) {
+    return 'icard-btn--ghost'
+  }
+  return ''
+}
+
+// 倒计时：后端 expires_at 是审批门放弃等待的时刻；到期后清空（答案是权威，超时由
+// 后端兜底），不做本地推断。
+const now = ref(Math.floor(Date.now() / 1000))
+const leftSec = computed(() => {
+  const exp = props.interaction.expires_at ?? 0
+  if (exp <= 0) {
+    return -1
+  }
+  return exp - now.value
+})
+let ticker: number | undefined
+onMounted(() => {
+  if ((props.interaction.expires_at ?? 0) > 0) {
+    ticker = window.setInterval(() => {
+      now.value = Math.floor(Date.now() / 1000)
+      if (leftSec.value <= 0 && ticker !== undefined) {
+        window.clearInterval(ticker)
+        ticker = undefined
+      }
+    }, 1000)
+  }
+})
+onUnmounted(() => {
+  if (ticker !== undefined) {
+    window.clearInterval(ticker)
+  }
+})
+
+// fmtLeft 渲染剩余时间为 mm:ss（未设置截止 / 已过期时返回 ''）。
+function fmtLeft(sec: number): string {
+  if (sec < 0) {
+    return ''
+  }
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
 function punt(): void {
   if (disabled.value || !canPunt.value) {
     return
@@ -114,6 +186,59 @@ function fmtTime(v: number | undefined): string {
     </template>
 
     <!-- 非 pending（cancelled 等）：只读，不渲染任何可点按钮 -->
+
+    <!-- permission：审批卡（GATE-01 §1）——工具调用摘要 + 按 ACP kind 分组的选项按钮 -->
+    <div v-if="pending && isPermission" class="icard-body icard-approve">
+      <div v-if="toolCall" class="icard-tool">
+        <span v-if="toolCall.kind" class="icard-kind mono">{{ toolCall.kind }}</span>
+        <span class="icard-tool-title mono">{{ toolCall.title || toolCall.id }}</span>
+        <span v-if="toolCall.locations?.length" class="icard-tool-path mono">
+          {{ toolCall.locations.join(', ') }}
+        </span>
+      </div>
+      <pre v-if="toolCall?.raw_input_summary" class="icard-raw mono">{{
+        toolCall.raw_input_summary
+      }}</pre>
+      <p v-if="interaction.policy_hint" class="icard-meta mono">
+        <span>{{ interaction.policy_hint }}</span>
+        <span v-if="leftSec >= 0">倒计时 {{ fmtLeft(leftSec) }}</span>
+      </p>
+      <div class="icard-choices">
+        <button
+          v-for="opt in allowOptions"
+          :key="opt.value"
+          class="icard-btn mono"
+          :class="kindClass(opt.kind)"
+          type="button"
+          :disabled="disabled"
+          @click="submit(opt.value)"
+        >
+          {{ optLabel(opt) }}
+        </button>
+      </div>
+      <div class="icard-choices">
+        <button
+          v-for="opt in rejectOptions"
+          :key="opt.value"
+          class="icard-btn mono icard-btn--ghost"
+          type="button"
+          :disabled="disabled"
+          @click="submit(opt.value)"
+        >
+          {{ optLabel(opt) }}
+        </button>
+        <button
+          v-for="opt in otherOptions"
+          :key="opt.value"
+          class="icard-btn mono"
+          type="button"
+          :disabled="disabled"
+          @click="submit(opt.value)"
+        >
+          {{ optLabel(opt) }}
+        </button>
+      </div>
+    </div>
 
     <!-- question：文本输入 + 提交 -->
     <div v-else-if="pending && interaction.type === 'question'" class="icard-body">
@@ -258,6 +383,49 @@ function fmtTime(v: number | undefined): string {
   display: flex;
   flex-direction: column;
   gap: 6px;
+}
+
+/* 审批卡（GATE-01）：工具调用摘要 + 原始输入片段 + 分组选项按钮 */
+.icard-approve {
+  gap: 8px;
+}
+.icard-tool {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+}
+.icard-kind {
+  border: 1px solid var(--phosphor);
+  border-radius: 9px;
+  color: var(--phosphor);
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  padding: 0 6px;
+  text-transform: uppercase;
+}
+.icard-tool-title {
+  color: var(--paper);
+  word-break: break-word;
+}
+.icard-tool-path {
+  color: var(--queue);
+  font-size: 11px;
+  word-break: break-all;
+}
+.icard-raw {
+  margin: 0;
+  padding: 6px 8px;
+  max-height: 120px;
+  overflow: auto;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--queue);
+  font-size: 11px;
+  white-space: pre-wrap;
+  word-break: break-all;
 }
 .icard-label {
   font-size: 11px;

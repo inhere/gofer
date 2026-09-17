@@ -121,6 +121,7 @@ var schemaStmts = []string{
   needs_human  INTEGER,
   tool_call_json TEXT,
   policy_hint  TEXT,
+  expires_at   INTEGER,
   PRIMARY KEY (job_id, id)
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_inter_job ON interactions(job_id)`,
@@ -702,7 +703,10 @@ func (s *Store) migrateInteractions() error {
 	if err := add("tool_call_json", "tool_call_json TEXT"); err != nil {
 		return err
 	}
-	return add("policy_hint", "policy_hint TEXT")
+	if err := add("policy_hint", "policy_hint TEXT"); err != nil {
+		return err
+	}
+	return add("expires_at", "expires_at INTEGER")
 }
 
 // migrateSchedules adds post-AUTO-02 columns to the schedules table. All changes

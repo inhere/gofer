@@ -375,6 +375,7 @@ func (h *handler) askApprover(p acp.RequestPermissionParams, kind string) acp.Pe
 		Options:    approvalRequestOptions(p.Options),
 		ToolCall:   approvalRequestToolCall(p.ToolCall),
 		PolicyHint: hint,
+		TimeoutSec: h.policy.TimeoutSec,
 		// The gate now waits on a human: announce it as soon as the card exists (this
 		// is the event a webhook subscribes to for an approval notification), not
 		// after the answer.

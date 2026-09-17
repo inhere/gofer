@@ -232,6 +232,7 @@ func (r *Runner) handleFrame(ctx context.Context, fr client.SSEEvent, req runner
 				Options:    toRemoteOptions(ifr.Interaction.Options),
 				ToolCall:   toRemoteToolCall(ifr.Interaction.ToolCall),
 				PolicyHint: ifr.Interaction.PolicyHint,
+				ExpiresAt:  ifr.Interaction.ExpiresAt,
 			}
 			if ansCh, err := req.Interactions.Open(ctx, ri); err == nil {
 				iid := ifr.Interaction.ID

@@ -31,16 +31,26 @@ func TestMatchWebhooksDefaultTriggerSet(t *testing.T) {
 	if got := urls(MatchWebhooks(cfg, "job.running", "p")); len(got) != 0 {
 		t.Errorf("job.running should not match default set, got %v", got)
 	}
+	// GATE-01: an approval request is NOT a default trigger (a project that never ran
+	// the gate must not suddenly get approval notifications); a webhook that wants
+	// them subscribes explicitly.
+	if got := urls(MatchWebhooks(cfg, "job.permission_requested", "p")); len(got) != 0 {
+		t.Errorf("job.permission_requested should not match default set, got %v", got)
+	}
 }
 
 func TestMatchWebhooksExplicitEvents(t *testing.T) {
 	cfg := &config.NotificationConfig{
 		Webhooks: []config.WebhookConfig{
-			{URL: "https://a", Events: []string{"job.running"}},
+			{URL: "https://a", Events: []string{"job.running", "job.permission_requested"}},
 		},
 	}
 	if got := urls(MatchWebhooks(cfg, "job.running", "p")); len(got) != 1 {
 		t.Errorf("explicit job.running => %v", got)
+	}
+	// An approval notification is opt-in: subscribing to the event is enough.
+	if got := urls(MatchWebhooks(cfg, "job.permission_requested", "p")); len(got) != 1 {
+		t.Errorf("explicit job.permission_requested => %v", got)
 	}
 	if got := urls(MatchWebhooks(cfg, "job.terminal", "p")); len(got) != 0 {
 		t.Errorf("job.terminal not subscribed => %v", got)

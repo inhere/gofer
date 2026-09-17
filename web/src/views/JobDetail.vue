@@ -152,6 +152,11 @@ const EVENT_META: Record<string, { icon: string; label: string }> = {
   'job.cancelled': { icon: '✕', label: '请求取消' },
   'interaction.created': { icon: '?', label: '发起交互' },
   'interaction.answered': { icon: '✎', label: '交互已答' },
+  // 审批门（GATE-01 S1）
+  'job.tool_call': { icon: '⚙', label: '工具调用' },
+  'job.permission_requested': { icon: '⚠', label: '求批' },
+  'job.permission_answered': { icon: '✎', label: '审批已答' },
+  'job.permission_timed_out': { icon: '⏱', label: '审批超时' },
 }
 
 function eventIcon(type: string): string {
@@ -194,6 +199,22 @@ function eventDetailText(ev: JobEvent): string {
       return String(d.prompt ?? '')
     case 'interaction.answered':
       return String(d.answer ?? '')
+    // 审批门（GATE-01 S1）：求批/作答/超时都带工具调用与选项，时间线据此可读。
+    case 'job.tool_call':
+      return [d.kind, d.title, d.status].filter(Boolean).join(' · ')
+    case 'job.permission_requested':
+      return [d.kind, d.title, d.policy_hint].filter(Boolean).join(' · ')
+    case 'job.permission_answered': {
+      const parts = [d.kind, d.option_id].filter(Boolean).map(String)
+      if (d.auto === true) {
+        parts.push('自动')
+      } else if (d.by) {
+        parts.push(`by ${d.by}`)
+      }
+      return parts.join(' · ')
+    }
+    case 'job.permission_timed_out':
+      return [d.kind, d.title, `on_timeout=${d.on_timeout ?? 'reject'}`].filter(Boolean).join(' · ')
     default:
       return ''
   }

@@ -128,6 +128,9 @@ func TestPermissionInteractionMirroredToHub(t *testing.T) {
 	if hint, _ := got["policy_hint"].(string); !strings.Contains(hint, "ask") {
 		t.Fatalf("hub interaction policy_hint = %q, want it to name the mode", got["policy_hint"])
 	}
+	if exp, _ := got["expires_at"].(float64); exp <= 0 {
+		t.Fatalf("hub interaction expires_at = %v, want the worker gate's deadline", got["expires_at"])
+	}
 	if snap, _ := hub.jobs.Get(created.ID); snap.Status != job.StatusPendingInteraction {
 		t.Fatalf("hub job status = %s, want pending_interaction", snap.Status)
 	}

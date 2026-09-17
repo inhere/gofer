@@ -29,6 +29,9 @@ func (k approvalSink) RequestApproval(ctx context.Context, req runner.ApprovalRe
 		Options:    approvalOptions(req.Options),
 		ToolCall:   approvalToolCall(req.ToolCall),
 		PolicyHint: req.PolicyHint,
+		// The requester's own deadline, so the card can count down to the moment the
+		// gate gives up (and the answer paths can see how long is left).
+		ExpiresAt: approvalDeadline(k.s.nowFn().Unix(), req.TimeoutSec),
 	})
 	if err != nil {
 		return runner.ApprovalOutcome{}, err
@@ -53,6 +56,15 @@ func (k approvalSink) RequestApproval(ctx context.Context, req runner.ApprovalRe
 		return runner.ApprovalOutcome{}, nil
 	}
 	return runner.ApprovalOutcome{Answer: ans.Answer, By: ans.AnsweredBy}, nil
+}
+
+// approvalDeadline converts the request's timeout into an absolute unix-second
+// deadline (0 when the request has none, so "no countdown" stays distinguishable).
+func approvalDeadline(now int64, timeoutSec int) int64 {
+	if timeoutSec <= 0 {
+		return 0
+	}
+	return now + int64(timeoutSec)
 }
 
 // approvalOptions projects the agent's options onto the interaction's. The ACP

@@ -597,6 +597,7 @@ type wireInteraction struct {
 		RawInputSummary string   `json:"raw_input_summary,omitempty"`
 	} `json:"tool_call,omitempty"`
 	PolicyHint string `json:"policy_hint,omitempty"`
+	ExpiresAt  int64  `json:"expires_at,omitempty"`
 }
 
 // interactionBridge bridges worker-raised interactions onto the host job. It is
@@ -657,6 +658,7 @@ func (b *interactionBridge) handle(action string, raw json.RawMessage) {
 		Options:    opts,
 		ToolCall:   tc,
 		PolicyHint: wi.PolicyHint,
+		ExpiresAt:  wi.ExpiresAt,
 	})
 	if err != nil {
 		return

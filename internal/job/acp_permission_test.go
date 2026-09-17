@@ -233,6 +233,11 @@ func TestPermissionAskCreatesInteractionAndBlocks(t *testing.T) {
 	if !strings.Contains(it.PolicyHint, config.ApprovalAsk) || !strings.Contains(it.PolicyHint, acp.ToolKindEdit) {
 		t.Errorf("policy_hint = %q, want it to name the mode and the kind", it.PolicyHint)
 	}
+	// The deadline the gate will honour is on the card, so an approver can see how
+	// long is left (the default timeout, since the project did not set one).
+	if got := it.ExpiresAt - it.CreatedAt; got != int64(config.DefaultApprovalTimeoutSec) {
+		t.Errorf("expires_at - created_at = %d, want the policy's %d", got, config.DefaultApprovalTimeoutSec)
+	}
 	// The options are the AGENT's, verbatim: my answer is one of their optionIds.
 	var kinds []string
 	for _, o := range it.Options {

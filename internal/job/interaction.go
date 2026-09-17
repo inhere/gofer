@@ -94,6 +94,10 @@ type Interaction struct {
 	// Both are absent on every other interaction type.
 	ToolCall   *InteractionToolCall `json:"tool_call,omitempty"`
 	PolicyHint string               `json:"policy_hint,omitempty"`
+	// ExpiresAt is the unix-second deadline of a type=permission interaction — when the
+	// approval gate stops waiting and applies on_timeout. 0 = no deadline (every other
+	// interaction type, and a request the runner raised without one).
+	ExpiresAt int64 `json:"expires_at,omitempty"`
 	// EscalatedAt 是该 interaction 被 escalate（投递给上层应答者）的 unix 秒时间戳（监督
 	// 分层升级路由 P1.1, design §9）：承载 escalate dedup 标记 + owner 超时计时。0 表示尚未
 	// escalate。P1.1 仅落库 + 透传读出，写入由 P1.2（escalate dedup）/P2.1（超时）落地。
@@ -146,6 +150,9 @@ type InteractionInput struct {
 	// §1) and ignored by every other type.
 	ToolCall   *InteractionToolCall
 	PolicyHint string
+	// ExpiresAt is the permission interaction's answer deadline (unix seconds, 0 =
+	// none) — the callers' own deadline, carried through so answerers can show it.
+	ExpiresAt int64
 }
 
 // CreateInteraction raises a new interaction on a LIVE job: it records a pending
@@ -195,6 +202,7 @@ func (s *Service) CreateInteraction(jobID string, in InteractionInput) (Interact
 			CreatedAt:  s.nowFn().Unix(),
 			ToolCall:   in.ToolCall,
 			PolicyHint: in.PolicyHint,
+			ExpiresAt:  in.ExpiresAt,
 		},
 		answered: make(chan struct{}),
 	}
@@ -258,6 +266,7 @@ func toInteractionRecord(it Interaction) jobstore.InteractionRecord {
 		NeedsHuman:   it.NeedsHuman,
 		ToolCallJSON: tcJSON,
 		PolicyHint:   it.PolicyHint,
+		ExpiresAt:    it.ExpiresAt,
 	}
 }
 
@@ -294,6 +303,7 @@ func fromInteractionRecord(rec jobstore.InteractionRecord) Interaction {
 		NeedsHuman:  rec.NeedsHuman,
 		ToolCall:    tc,
 		PolicyHint:  rec.PolicyHint,
+		ExpiresAt:   rec.ExpiresAt,
 	}
 }
 

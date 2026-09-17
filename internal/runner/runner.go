@@ -168,6 +168,10 @@ type ApprovalRequest struct {
 	ToolCall *ApprovalToolCall
 	// PolicyHint is the human-readable rationale, e.g. "ask: kind=edit".
 	PolicyHint string
+	// TimeoutSec is how long this request may wait for an answer (0 = no deadline).
+	// The sink stamps it onto the raised interaction so an answerer can show a
+	// countdown: the deadline is the one the runner will actually honour.
+	TimeoutSec int
 	// OnRaised (nil-safe) is invoked EXACTLY ONCE, synchronously, with the interaction
 	// id as soon as the request is visible to approvers — before the call starts
 	// waiting. That is where a caller records its "a human is needed" event or
@@ -213,9 +217,11 @@ type RemoteInteraction struct {
 	Prompt  string
 	Options []RemoteInteractionOption
 	// ToolCall / PolicyHint carry a type=permission interaction's approval detail
-	// (GATE-01 §1); nil/"" for every other interaction.
+	// (GATE-01 §1); nil/"" for every other interaction, as does ExpiresAt (the
+	// approval deadline, unix seconds, 0 = none).
 	ToolCall   *RemoteInteractionToolCall
 	PolicyHint string
+	ExpiresAt  int64
 }
 
 // RemoteInteractionToolCall mirrors job.InteractionToolCall for the same
