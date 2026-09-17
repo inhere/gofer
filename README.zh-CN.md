@@ -321,7 +321,7 @@ tool（snake_case，与 HTTP 对齐）：`gofer_list_projects` `gofer_list_agent
 
 ## Web 控制台
 
-`serve` 内置静态 SPA（页面免鉴权，页内 `/v1/*` 需 token），资源嵌入二进制：`make web build`；裸 `go build` 显示占位页不影响 API。页面：看板 / job 详情（实时日志、diff、产物、pty attach）/ Runners / Plans（todo、决策）/ 会话（中继开关、`auto (idle Xm)`）/ 项目（含「允许交互 job」）/ 新建 job。关 Web：`serve --no-web` 或 `server.web_enabled: false`。
+`serve` 内置静态 SPA（页面免鉴权，页内 `/v1/*` 需 token），资源嵌入二进制：`make web build`；裸 `go build` 显示占位页不影响 API。页面：Home 看板（服务健康、drivers/runners、需人工介入、job 状态分布、schedules、projects，外加两块元数据库卡片——**Server DB**：db + WAL 文件大小、page 几何、行数最多的若干张表；**Sessions**：按状态与中继三态的总数、待回复的 relay turn 数，整卡可点进 Sessions）/ job 详情（实时日志、diff、产物、pty attach）/ Plans（todo、决策）/ 会话（中继开关、`auto (idle Xm)`）/ Workflows / Schedules / Agents（已配置 agent 及其 detect 状态，下方同页列出在线 driver presence，点行进 `/agents/presence/:id` 收件箱；旧 `/drivers`、`/drivers/:id` 链接自动重定向到这里）/ Runners / 项目（含「允许交互 job」）/ 新建 job。左侧导航「观察」组为 Board、Plans、Sessions、Workflows、Schedules，「舰队」组为 Agents、Runners、Projects（Drivers 不再是独立菜单项）。关 Web：`serve --no-web` 或 `server.web_enabled: false`。
 
 ## HTTP API
 
