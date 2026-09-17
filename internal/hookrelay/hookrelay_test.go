@@ -229,6 +229,32 @@ func TestRunSessionStartAndPromptRegisterThenBeat(t *testing.T) {
 	assert.True(t, strings.Contains(log.String(), "ignored"))
 }
 
+// TestInjectedPromptWithoutTurnIsNotHuman pins the tmux-injection case of the
+// injected-prompt rule (design §9.1 A): path A types the prefixed reply straight
+// into the terminal, so its UserPromptSubmit arrives with NO relay turn behind
+// it — unlike the Stop-hook continuation, which has one. It is still our own
+// input, not the human's: the beat goes out as injected (the server must not
+// auto-off relay nor move the human-input clock), carries no title, and opens no
+// wait of its own.
+func TestInjectedPromptWithoutTurnIsNotHuman(t *testing.T) {
+	f := newFake()
+	f.sessions["s1"] = client.AgentSession{SessionID: "s1", RelayMode: client.RelayModeOn, State: "idle"}
+	var log strings.Builder
+
+	_, err := Run(f, payload(t, "claude", map[string]any{
+		"session_id": "s1", "hook_event_name": "UserPromptSubmit", "cwd": "/w/repo",
+		"prompt": ReplyPrefix + "carry on\nand then report back",
+	}), fastOpts(&log))
+	assert.NoErr(t, err)
+
+	last := f.beats[len(f.beats)-1]
+	assert.True(t, last.Injected)
+	assert.Eq(t, "", last.Title)
+	assert.Eq(t, 0, f.humanEvents, "an injected prompt is not the human returning")
+	assert.Len(t, f.turns, 0)
+	assert.Eq(t, 0, f.waits)
+}
+
 func TestRunStopRelayOffReleases(t *testing.T) {
 	f := newFake()
 	f.sessions["s1"] = client.AgentSession{SessionID: "s1", RelayMode: client.RelayModeOff}
