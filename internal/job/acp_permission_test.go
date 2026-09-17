@@ -100,6 +100,30 @@ func readPermAsks(t *testing.T, s *Service, root, jobID string) []permAsk {
 	return asks
 }
 
+// waitPermissionRequested waits for the `job.permission_requested` announcement of
+// interactionID and asserts the job is STILL parked on the request when it lands: the
+// announcement must reach the notification/audit layer while the gate is waiting, not
+// after somebody answered it.
+func waitPermissionRequested(t *testing.T, s *Service, jobID, interactionID string, d time.Duration) map[string]any {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		for _, ev := range jobEventDetails(t, s, jobID, "job.permission_requested") {
+			if ev["interaction_id"] != interactionID {
+				continue
+			}
+			if snap, _ := s.Get(jobID); snap.Status != StatusPendingInteraction {
+				t.Fatalf("job.permission_requested landed while the job was %s, want %s",
+					snap.Status, StatusPendingInteraction)
+			}
+			return ev
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	t.Fatalf("no job.permission_requested event for interaction %s within %s", interactionID, d)
+	return nil
+}
+
 // jobEventDetails returns the detail maps of every recorded event of type eventType.
 func jobEventDetails(t *testing.T, s *Service, jobID, eventType string) []map[string]any {
 	t.Helper()
@@ -221,13 +245,16 @@ func TestPermissionAskCreatesInteractionAndBlocks(t *testing.T) {
 		t.Fatalf("option kinds = %q, want %q", got, want)
 	}
 
-	// The approval is announced for the notification/audit layer.
-	reqs := jobEventDetails(t, s, jobID, "job.permission_requested")
-	if len(reqs) != 1 {
-		t.Fatalf("job.permission_requested events = %d, want 1", len(reqs))
-	}
+	// The approval is announced for the notification/audit layer — while the request
+	// is still open (that is the whole point of the event), so poll for it rather than
+	// sampling once: the card becomes visible microseconds before the event is
+	// recorded, and reading the log in that window must not fail the test.
+	reqs := []map[string]any{waitPermissionRequested(t, s, jobID, it.ID, 10*time.Second)}
 	if reqs[0]["interaction_id"] != it.ID || reqs[0]["kind"] != acp.ToolKindEdit {
 		t.Errorf("job.permission_requested detail = %+v, want interaction_id=%s kind=%s", reqs[0], it.ID, acp.ToolKindEdit)
+	}
+	if got := len(jobEventDetails(t, s, jobID, "job.permission_requested")); got != 1 {
+		t.Errorf("job.permission_requested events = %d, want exactly 1", got)
 	}
 
 	// The agent is BLOCKED until we answer: the turn cannot have progressed.
