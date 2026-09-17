@@ -20,11 +20,11 @@ import (
 	"github.com/inhere/gofer/internal/project"
 )
 
-// jobRunOpts holds `job run` flags. prompt is supplied via the --prompt flag
-// (for cli-agents); exec argv comes from the tokens after `--`, which gcli hands
-// to the Func handler as remainArgs (see runJobRun). The config path is the
-// app-level global -c (config.InputCfgFile), not a per-command flag (P1).
-var jobRunOpts = struct {
+// jobRunFlags is the `job run` flag surface. It is a NAMED type so tests (and any
+// future caller) can reset the flag state with one literal instead of restating every
+// field — restating it is how a newly added flag silently fell out of the tests'
+// reset path.
+type jobRunFlags struct {
 	project      string
 	agent        string
 	runner       string
@@ -49,7 +49,14 @@ var jobRunOpts = struct {
 	rows         int
 	worktree     bool
 	worktreeBase string
-}{}
+	readOnly     bool
+}
+
+// jobRunOpts holds `job run` flags. prompt is supplied via the --prompt flag
+// (for cli-agents); exec argv comes from the tokens after `--`, which gcli hands
+// to the Func handler as remainArgs (see runJobRun). The config path is the
+// app-level global -c (config.InputCfgFile), not a per-command flag (P1).
+var jobRunOpts = jobRunFlags{}
 
 // jobCommonOpts holds non-connection flags shared by show/logs/cancel (the
 // --server/--token connection flags live in the shared jobConnOpts).
@@ -403,6 +410,8 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.StrOpt2(&jobRunOpts.role, "role", "role preset (E35): fills agent/system_prompt/project/tags when unset", jobRunOptCategory("Execution", ""))
 	c.StrOpt2(&jobRunOpts.systemPrompt, "system-prompt", "resident system prompt injected via the agent (advanced; overrides role's)", jobRunOptCategory("Execution", ""))
 	c.VarOpt(&jobRunOpts.agentArgs, "agent-arg", "", "extra arg appended to cli-agent argv (repeatable)", gflag.WithCategory("Execution"))
+	// bd h-aii-0ql3：只读 job（cli-agent 追加沙箱参数 / acp-agent session/set_mode）。
+	c.BoolOpt2(&jobRunOpts.readOnly, "read-only", "run read-only: audit/analysis only, the agent cannot write (cli-agent read_only_args / acp-agent acp.modes.read_only)", gflag.WithCategory("Execution"))
 	c.IntOpt2(&jobRunOpts.timeout, "timeout", "job timeout in seconds (0 = server default)", jobRunOptCategory("Execution", 0))
 
 	// Submission: provenance and grouping metadata.
@@ -772,6 +781,7 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		Tags:           splitLabels(jobRunOpts.tags), // comma-separated, same parsing as worker-labels
 		PlanID:         jobRunOpts.plan,
 		Interactive:    jobRunOpts.interactive,
+		ReadOnly:       jobRunOpts.readOnly,
 		Cols:           jobRunOpts.cols,
 		Rows:           jobRunOpts.rows,
 		// 提交来源（provenance）：CLI 渠道(默认 cli，可 --channel 覆盖) + 本机 hostname。
@@ -917,6 +927,10 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	if res.SessionID != "" {
 		c.Printf("session_id: %s\n", res.SessionID)
 	}
+	// bd h-aii-0ql3：只读 job（沙箱）——回答"这次运行是否被允许写文件"。
+	if res.ReadOnly {
+		c.Printf("read_only:  true\n")
+	}
 	// WT-01：受管 worktree 的交付物位置与分支状态（commits_ahead>0 = 分支上已提交、
 	// 还没合回基线分支的交付物；这就是"job 干完了但代码还没合"的可视信号）。
 	if res.WorktreePath != "" {
@@ -1037,8 +1051,17 @@ func runJobList(c *gcli.Command, _ []string) error {
 	tb := table.New("", table.WithColMaxWidth(30))
 	tb.SetHeads("ID", "TITLE", "STATUS", "CHANNEL", "CLIENT", "AGENT", "RUNNER", "PROJECT", "TAGS", "STARTED")
 	for _, j := range jobs {
+		// bd h-aii-0ql3：只读 job 在 TAGS 列前标 [ro]（列不宜再加一列，标记随行即可见）。
+		tags := strings.Join(j.Tags, ",")
+		if j.ReadOnly {
+			if tags == "" {
+				tags = "[ro]"
+			} else {
+				tags = "[ro] " + tags
+			}
+		}
 		tb.AddRow(j.ID, j.Title, j.Status, j.Channel, j.Client, j.Agent, j.Runner,
-			j.ProjectKey, strings.Join(j.Tags, ","), formatStarted(j.StartedAt))
+			j.ProjectKey, tags, formatStarted(j.StartedAt))
 	}
 	c.Print(tb.Render())
 	return nil

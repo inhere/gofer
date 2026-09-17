@@ -107,6 +107,9 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 			// the runner's LoadSessionID (a plain job's session_id never loads).
 			SessionID:         src.SessionID,
 			ResumeSourceAgent: src.Agent,
+			// bd h-aii-0ql3: read-only is a property of the work, so it is inherited —
+			// the executor switches the loaded session back into the read-only mode.
+			ReadOnly:          src.ReadOnly,
 			Channel:           src.Channel,
 			Client:            src.Client,
 			OriginAgent:       src.OriginAgent,
@@ -135,6 +138,14 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 	// job runs as the built-in exec agent so the resume argv executes verbatim; the
 	// agent's own Command (e.g. "claude"/"codex") is argv[0].
 	argv := append([]string{ac.Command}, agent.Render(tmpl, agent.Vars{SessionID: src.SessionID, Prompt: prompt})...)
+	// bd h-aii-0ql3: a read-only source continues read-only. The carrier is an exec job,
+	// whose argv is passed through verbatim (BuildFrom never appends for exec), so the
+	// SOURCE agent's sandbox flags are baked in here — the continuation cannot be
+	// upgraded to writable, and the flag still rides JobRequest.ReadOnly (below) so the
+	// next link of the chain inherits it too.
+	if src.ReadOnly {
+		argv = append(argv, ac.ReadOnlyArgs...)
+	}
 
 	// E35 (review #5, 实测定稿 2026-06-29 / design §5 结论 / §12 已实测): the role system
 	// prompt is deliberately NOT re-injected on resume — BOTH built-ins restore it
@@ -170,6 +181,8 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		CallerID: callerID,
 		// 显式带 SessionID：new job 复用同会话 id（注入/捕获均跳过），链回原会话、可再续。
 		SessionID: src.SessionID,
+		// bd h-aii-0ql3：只读随链继承（argv 已带沙箱参数，这里同时记录在 job 行上）。
+		ReadOnly: src.ReadOnly,
 		// 访问门按 SOURCE agent 判定：resume 只是用 exec 载体跑原 agent 的受限续接 argv，
 		// 故豁免 exec/allow_exec 门（2026-06-26 决策）。仅 ResumeJob 设置，不入 request_json、不可伪造。
 		ResumeSourceAgent: src.Agent,

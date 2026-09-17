@@ -106,7 +106,8 @@ var schemaStmts = []string{
   worktree_branch  TEXT,
   worktree_base_sha TEXT,
   worktree_head_sha TEXT,
-  commits_ahead    INTEGER
+  commits_ahead    INTEGER,
+  read_only        INTEGER NOT NULL DEFAULT 0
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -587,6 +588,12 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := add("commits_ahead", "commits_ahead INTEGER"); err != nil {
+		return err
+	}
+	// bd h-aii-0ql3 只读 job：read_only=该 job 是否在只读沙箱下运行（cli 走 read_only_args，
+	// acp 走 session/set_mode）。旧库 ALTER ADD 默认 0，旧行读作"可写"——正是 S2 之前的语义，
+	// 不会把历史 job 伪造成只读。resume 延续该值（同一 job 链内不可升级为可写）。
+	if err := add("read_only", "read_only INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
 	if err := s.migrateWorkflows(); err != nil {

@@ -153,6 +153,24 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		"mode", modeSummary(sess.Modes), "loaded", load != "")
 	events.write(map[string]any{"t": "session", "load": load != "", "session_id": sess.SessionID, "mode": modeSummary(sess.Modes)})
 
+	// bd h-aii-0ql3: a read-only job switches the session's agent mode before the turn.
+	// The agent's mode list is authoritative: an id it does not offer must not be
+	// guessed past, because the alternative is running a "read-only" job writable.
+	if mode := req.ACP.ReadOnlyModeID; mode != "" {
+		if !modeOffered(sess.Modes, mode) {
+			err := fmt.Errorf("acp: read-only mode %q not offered by agent (available: %s)", mode, modeIDs(sess.Modes))
+			writeStderrLine(req.Stderr, err.Error())
+			return runner.Result{ExitCode: -1, Err: err}
+		}
+		if err := client.SetMode(ctx, sess.SessionID, mode); err != nil {
+			err = fmt.Errorf("acp: session/set_mode %q: %w", mode, err)
+			writeStderrLine(req.Stderr, err.Error())
+			return runner.Result{ExitCode: -1, Err: err}
+		}
+		events.write(map[string]any{"t": "set_mode", "mode": mode})
+		slog.Info("acp runner: session mode set", "job_id", req.JobID, "mode", mode)
+	}
+
 	res := runner.Result{SessionID: sess.SessionID}
 	pr, perr := client.Prompt(ctx, sess.SessionID, req.ACP.Prompt, h)
 	res.StopReason = pr.StopReason
@@ -210,6 +228,34 @@ func writeStderrLine(w io.Writer, line string) {
 		return
 	}
 	_, _ = io.WriteString(w, line+"\n")
+}
+
+// modeOffered reports whether the session's advertised mode list permits modeID. An
+// agent that reports NO modes (codex-acp today) is not second-guessed: the check is
+// vacuous and set_mode is still attempted, because refusing to try would reject an
+// agent whose support just is not advertised in the response.
+func modeOffered(m *acp.SessionModes, modeID string) bool {
+	if m == nil || len(m.AvailableModes) == 0 {
+		return true
+	}
+	for _, mode := range m.AvailableModes {
+		if mode.ID == modeID {
+			return true
+		}
+	}
+	return false
+}
+
+// modeIDs renders a session's available mode ids for an error message.
+func modeIDs(m *acp.SessionModes) string {
+	if m == nil || len(m.AvailableModes) == 0 {
+		return "none reported"
+	}
+	ids := make([]string, 0, len(m.AvailableModes))
+	for _, mode := range m.AvailableModes {
+		ids = append(ids, mode.ID)
+	}
+	return strings.Join(ids, ", ")
 }
 
 // modeSummary renders a session's mode block for logging: "" when the agent

@@ -133,6 +133,12 @@ type ACPRequest struct {
 	// does not advertise agentCapabilities.loadSession fails the job rather than
 	// silently running the prompt in a fresh, context-free session.
 	LoadSessionID string
+	// ReadOnlyModeID, when non-empty, switches the session into this agent mode
+	// (session/set_mode) BEFORE the prompt turn (bd h-aii-0ql3): it is the operator's
+	// acp.modes.read_only mapping, and admission has already refused the job when the
+	// agent maps none. When the session reports availableModes and this id is not
+	// among them, the run fails instead of prompting in a writable mode.
+	ReadOnlyModeID string
 }
 
 // ACPMCPServer is one MCP server advertised to an acp-agent through session/new.
@@ -285,6 +291,11 @@ type Forward struct {
 	// really is a resume — a plain job that merely carries a session_id is not one.
 	SessionID   string
 	ResumedFrom string
+	// ReadOnly (bd h-aii-0ql3) asks the remote executor to run the job in its own
+	// read-only mode (cli-agent argv sandbox / acp-agent session/set_mode). The
+	// executor validates it against ITS agent config, so an agent without a read-only
+	// mode fails there with the explanation the host could not have produced.
+	ReadOnly bool
 	// WorkerID is the resolved target worker for a runner=worker job (P2 dynamic
 	// routing): the explicit req.WorkerID or the one auto-selected from labels.
 	// Empty for peer-http forwards and for worker jobs that rely on the runner's

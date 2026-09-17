@@ -289,6 +289,7 @@ func applySessionDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	if a.TransientErrorPatterns == nil {
 		a.TransientErrorPatterns = builtinTransientPatternsFor(key, a)
 	}
+	a = applyReadOnlyDefaults(key, a)
 	def, ok := builtinSessionDefaultFor(key, a)
 	if !ok {
 		return a
@@ -308,6 +309,24 @@ func applySessionDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	if len(a.SystemInject) == 0 {
 		a.SystemInject = def.SystemInject
 	}
+	return a
+}
+
+// applyReadOnlyDefaults fills an agent's unset read_only_args from the built-in table
+// (bd h-aii-0ql3), looking the name up by agent key first and then by the base name of
+// Command — the same fallback builtinSessionDefaults uses, so `my-claude` running
+// claude inherits claude's sandbox flags. An explicit list always wins, and the argv
+// suffix is a cli-agent concept only (an exec agent's argv belongs to the caller; an
+// acp-agent's read-only mode is the protocol's).
+func applyReadOnlyDefaults(key string, a config.AgentConfig) config.AgentConfig {
+	if len(a.ReadOnlyArgs) > 0 || a.Type == TypeExec || a.Type == TypeACPAgent {
+		return a
+	}
+	if args := config.BuiltinReadOnlyArgs(key); args != nil {
+		a.ReadOnlyArgs = args
+		return a
+	}
+	a.ReadOnlyArgs = config.BuiltinReadOnlyArgs(strings.TrimSuffix(strings.ToLower(commandBase(a.Command)), ".exe"))
 	return a
 }
 

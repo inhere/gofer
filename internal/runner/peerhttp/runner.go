@@ -80,6 +80,9 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		Worktree:     f.Worktree,
 		WorktreeBase: f.WorktreeBase,
 		TimeoutSec:   f.TimeoutSec,
+		// bd h-aii-0ql3: read-only reaches the peer with its own admission deciding
+		// whether its agent can honour it (same rule as the worker dispatch).
+		ReadOnly: f.ReadOnly,
 	}
 
 	peerRes, err := r.c.SubmitJob(jr)

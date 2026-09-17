@@ -22,6 +22,11 @@ type BuildOptions struct {
 	AllowEmptyPrompt bool
 	Interactive      bool     // select interactive_args when building an interactive job
 	AgentArgs        []string // extra args appended to cli-agent argv (§14)
+	// ReadOnly appends the agent's resolved read-only args to a cli-agent's argv
+	// (agent config read_only_args, filled from the built-in table) — the flag is what
+	// actually puts the CLI in its sandbox. Admission has already refused the request
+	// when the agent has no read-only mode, so an empty list here appends nothing.
+	ReadOnly bool
 }
 
 // Build turns a single job request into an executable Resolved form. The
@@ -102,9 +107,16 @@ func BuildFrom(cfg *config.Config, agentKey, prompt string, cmd []string, vars V
 			argvTemplate = ac.InteractiveArgs
 		}
 		rendered := Render(argvTemplate, vars)
+		args := append([]string{}, rendered...)
+		args = append(args, opts.AgentArgs...)
+		// --read-only: the sandbox flags ride at the END of whichever argv shape was
+		// chosen (batch or interactive), exactly like agent_args.
+		if opts.ReadOnly {
+			args = append(args, ac.ReadOnlyArgs...)
+		}
 		return Resolved{
 			Command: ac.Command,
-			Args:    append(append([]string{}, rendered...), opts.AgentArgs...),
+			Args:    args,
 			Env:     copyEnv(ac.Env),
 		}, nil
 

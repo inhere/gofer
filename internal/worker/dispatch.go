@@ -90,6 +90,10 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// is what makes SessionID a session/load rather than a plain binding.
 		SessionID:   d.SessionID,
 		ResumedFrom: d.ResumedFrom,
+		// bd h-aii-0ql3: the worker's own job.Service re-validates read_only against
+		// ITS agent config, so a worker whose agent has no read-only mode fails the job
+		// with an error the hub can show instead of running it writable.
+		ReadOnly: d.ReadOnly,
 	})
 	if err != nil {
 		slog.Warn("worker.job_rejected", "event", "worker.job_rejected", "component", "worker", "worker_id", cl.workerID, "job_id", d.JobID, "reason", err.Error())

@@ -22,6 +22,9 @@ export interface Job {
   status: JobStatus
   // 交互式 pty job（后端 omitempty）；详情页据此决定是否展示终端入口。
   interactive?: boolean
+  // 只读 job（bd h-aii-0ql3，后端 omitempty）：cli-agent 走 read_only_args 沙箱参数、
+  // acp-agent 走 session/set_mode；列表打 [只读] 徽章、详情展示一行。
+  read_only?: boolean
   // 仅 job 详情端点计算；list 端点无该字段。
   can_attach?: boolean
   exit_code: number
@@ -823,6 +826,9 @@ export interface SubmitJobReq {
   worker_labels?: string[]
   sync?: boolean
   interactive?: boolean
+  // 只读提交（bd h-aii-0ql3）：agent 不能写文件；需 agent 配了 read_only_args（cli-agent）
+  // 或 acp.modes.read_only（acp-agent），否则后端 400。
+  read_only?: boolean
   cols?: number
   rows?: number
   record_pty?: boolean
@@ -1113,6 +1119,7 @@ export interface RedactedRequest {
   env_files?: string[]
   plan_id?: string
   interactive?: boolean
+  read_only?: boolean
   cols?: number
   rows?: number
   worker_id?: string
@@ -1134,6 +1141,7 @@ export interface RebuildRequest {
   tags?: string[]
   timeout_sec?: number
   interactive?: boolean
+  read_only?: boolean
   cols?: number
   rows?: number
   worker_id?: string

@@ -165,6 +165,27 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 		if len(req.AgentArgs) > 0 && ac.Type == agent.TypeExec {
 			return config.ProjectConfig{}, fmt.Errorf("%w: agent_args not allowed for exec agent %q", ErrInvalidRequest, gateAgent)
 		}
+		// read_only (bd h-aii-0ql3 / design §S2): the flag must be SERVABLE by the
+		// agent, so the verdict is taken here rather than half-way into a run — an
+		// agent with no read-only mode would otherwise either run writable (a lie) or
+		// fail after the job was already accepted.
+		if req.ReadOnly {
+			switch ac.Type {
+			case agent.TypeExec:
+				return config.ProjectConfig{}, fmt.Errorf(
+					"%w: exec agent cannot run read-only (agent %q passes its argv through verbatim)", ErrInvalidRequest, gateAgent)
+			case agent.TypeACPAgent:
+				if ac.ACP == nil || ac.ACP.Modes["read_only"] == "" {
+					return config.ProjectConfig{}, fmt.Errorf(
+						"%w: agent %q has no read-only mode (set agents.%s.acp.modes.read_only)", ErrInvalidRequest, gateAgent, gateAgent)
+				}
+			default:
+				if len(ac.ReadOnlyArgs) == 0 {
+					return config.ProjectConfig{}, fmt.Errorf(
+						"%w: agent %q has no read-only mode (set agents.%s.read_only_args)", ErrInvalidRequest, gateAgent, gateAgent)
+				}
+			}
+		}
 		if ac.Type == agent.TypeExec && !proj.AllowExec {
 			return config.ProjectConfig{}, fmt.Errorf("%w: exec agent %q not allowed: project %q has allow_exec=false", ErrInvalidRequest, gateAgent, req.ProjectKey)
 		}

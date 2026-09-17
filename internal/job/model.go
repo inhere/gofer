@@ -42,8 +42,15 @@ type JobRequest struct {
 	// no-raw-cmd / reject exec+workflow+schedule) and threading Cols/Rows through
 	// runner.Request land in P1 — P0 only wires the runner-selection seam.
 	Interactive bool `json:"interactive,omitempty" yaml:"interactive,omitempty"`
-	Cols        int  `json:"cols,omitempty" yaml:"cols,omitempty"`
-	Rows        int  `json:"rows,omitempty" yaml:"rows,omitempty"`
+	// ReadOnly (bd h-aii-0ql3) asks for a job that cannot write: a cli-agent gets its
+	// read-only argv suffix (config read_only_args, built-in for codex/claude), an
+	// acp-agent gets session/set_mode with the id mapped by acp.modes.read_only, and
+	// an exec agent is refused (its argv is whatever the caller wrote). It is
+	// persisted (jobs.read_only) and inherited by a resume — a continuation cannot be
+	// upgraded to writable, only a new job can.
+	ReadOnly bool `json:"read_only,omitempty" yaml:"read_only,omitempty"`
+	Cols     int  `json:"cols,omitempty" yaml:"cols,omitempty"`
+	Rows     int  `json:"rows,omitempty" yaml:"rows,omitempty"`
 	// RecordPty requests asciinema recording for this interactive pty session.
 	// It is a per-job opt-in layered under the serve-wide storage.cast.enabled
 	// capability; false means "track session metadata only, do not write pty.cast".
@@ -197,6 +204,10 @@ type JobResult struct {
 	Agent       string `json:"agent"`
 	Runner      string `json:"runner"`
 	Interactive bool   `json:"interactive,omitempty"`
+	// ReadOnly mirrors JobRequest.ReadOnly and is persisted to jobs.read_only (bd
+	// h-aii-0ql3): whether THIS job ran under a read-only sandbox, inheritable by a
+	// resume and visible in `job show` / the web console after the fact.
+	ReadOnly bool `json:"read_only,omitempty"`
 	// TimeoutSec is the EFFECTIVE job deadline in seconds AFTER the configured
 	// ceiling clamp (bd h-aii-s9ck), persisted to jobs.timeout_sec so a post-mortem
 	// answers "why did my 2h request die at 1h?" without replaying config history.

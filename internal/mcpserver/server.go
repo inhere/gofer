@@ -296,6 +296,9 @@ type jobView struct {
 	// surfaced so MCP callers can read back the job's owner + escalate override.
 	OriginAgent string `json:"origin_agent,omitempty"`
 	EscalateTo  string `json:"escalate_to,omitempty"`
+	// ReadOnly reports whether this job ran under a read-only sandbox (bd
+	// h-aii-0ql3), so a caller can tell a review run from an editing one.
+	ReadOnly bool `json:"read_only,omitempty"`
 }
 
 // toJobView projects a job.JobResult onto the snake_case jobView. It is the
@@ -319,6 +322,7 @@ func toJobView(r job.JobResult) jobView {
 		Client:      r.Client,
 		OriginAgent: r.OriginAgent,
 		EscalateTo:  r.EscalateTo,
+		ReadOnly:    r.ReadOnly,
 	}
 }
 
@@ -499,6 +503,11 @@ type runJobInput struct {
 	// override (to-spec). Both are透传 to job.JobRequest and persisted.
 	OriginAgent string `json:"origin_agent,omitempty"`
 	EscalateTo  string `json:"escalate_to,omitempty"`
+	// ReadOnly asks for a job that cannot write (bd h-aii-0ql3): review/analysis runs
+	// where the agent must not modify files. The agent needs a read-only mode
+	// (cli-agent read_only_args / acp-agent acp.modes.read_only); otherwise the submit
+	// is refused.
+	ReadOnly bool `json:"read_only,omitempty"`
 }
 
 func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[runJobInput, jobView] {
@@ -544,6 +553,7 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 			// escalate 覆盖。origin 为显式入参（优先）或 P1.0 自注册的进程 driver id。
 			OriginAgent: origin,
 			EscalateTo:  in.EscalateTo,
+			ReadOnly:    in.ReadOnly,
 		})
 		if err != nil {
 			return nil, jobView{}, err

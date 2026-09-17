@@ -1103,6 +1103,14 @@ type AgentConfig struct {
 	// TransientErrorPatterns override the complete built-in list, including when empty.
 	// Matching is case insensitive; nil selects the command's built-in defaults.
 	TransientErrorPatterns []string `yaml:"transient_error_patterns,omitempty"`
+	// ReadOnlyArgs is the argv a `job run --read-only` appends to a cli-agent's argv
+	// (both the batch and the interactive shape, at the end like AgentArgs) so the
+	// sandbox is the CLI's own. Unset means "use the built-in table for this agent"
+	// (agent.applyReadOnlyDefaults: codex `-s read-only`, claude `--permission-mode
+	// plan`); an agent with no built-in and no configured value cannot run read-only
+	// at all and a --read-only submit is refused (bd h-aii-0ql3). An acp-agent has no
+	// argv suffix — its read-only mode is the protocol's, see acp.modes.read_only.
+	ReadOnlyArgs []string `yaml:"read_only_args,omitempty"`
 	// SystemInject 是 per-agent 的 system prompt 注入 argv 模板（E35 角色，类比
 	// SessionInject）。非空 + 请求带 system_prompt 时，submit 渲染 {{system_prompt}}
 	// 追加到 argv（如 claude `--append-system-prompt <p>`）。保 argv 结构、不 shell

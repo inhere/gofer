@@ -26,6 +26,7 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		Agent:            r.Agent,
 		Runner:           r.Runner,
 		Interactive:      r.Interactive,
+		ReadOnly:         r.ReadOnly,
 		WorkerID:         r.WorkerID,
 		WorkerInstanceID: r.WorkerInstanceID,
 		Status:           r.Status,
@@ -119,6 +120,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		Runner:      rec.Runner,
 		Title:       TitleFromRequestJSON(rec.RequestJSON),
 		Interactive: rec.Interactive,
+		ReadOnly:    rec.ReadOnly,
 		WorkerID:    rec.WorkerID,
 		// RECOV-01 R4：dispatch 时记录的 worker 进程 nonce（旧行 ""＝无法被收养）。
 		WorkerInstanceID: rec.WorkerInstanceID,

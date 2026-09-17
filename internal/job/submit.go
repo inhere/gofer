@@ -207,6 +207,9 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// a plain job (a bare session_id is not a resume).
 			SessionID:   req.SessionID,
 			ResumedFrom: req.ResumedFrom,
+			// bd h-aii-0ql3: read-only rides to the executor, whose own admission +
+			// agent config decide how (or whether) it can be honoured.
+			ReadOnly: req.ReadOnly,
 			// P2: the resolved target worker (explicit req.WorkerID or label-selected
 			// in selectTargetWorker). Empty for peer-http and for worker jobs relying
 			// on the runner's configured default (D4).
@@ -225,7 +228,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			Cwd:       workDir,
 			JobID:     jobID,
 			ResultDir: resultDir,
-		}, agent.BuildOptions{AllowEmptyPrompt: req.Interactive, Interactive: req.Interactive, AgentArgs: req.AgentArgs})
+		}, agent.BuildOptions{AllowEmptyPrompt: req.Interactive, Interactive: req.Interactive, AgentArgs: req.AgentArgs, ReadOnly: req.ReadOnly})
 		if berr != nil {
 			return JobResult{}, berr
 		}
@@ -325,6 +328,8 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			Agent:       req.Agent,
 			Runner:      req.Runner,
 			Interactive: req.Interactive,
+			// bd h-aii-0ql3：只读是 job 的持久属性（jobs.read_only），resume 继承、show/web 可见。
+			ReadOnly: req.ReadOnly,
 			// bd h-aii-s9ck: the deadline this job actually runs under, plus the
 			// clamp report (requested > ceiling) so it is never a silent truncation.
 			TimeoutSec:          timeoutSec,
@@ -459,6 +464,11 @@ func acpRequest(cfg *config.Config, ac config.AgentConfig, req JobRequest, resul
 	}
 	if ac.ACP == nil {
 		return r
+	}
+	if req.ReadOnly {
+		// The id is guaranteed non-empty here: admission refuses a read-only acp job
+		// whose agent maps no read-only mode.
+		r.ReadOnlyModeID = ac.ACP.Modes["read_only"]
 	}
 	for _, s := range ac.ACP.MCPServers {
 		r.MCPServers = append(r.MCPServers, runner.ACPMCPServer{

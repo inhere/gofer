@@ -241,6 +241,9 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		ResumeSourceAgent: f.ResumeSourceAgent,
 		RelayNonce:        relayNonce,
 		PtySessionID:      ptySessionID, // T1: worker echoes it in pty-connect hello for serve-side check
+		// bd h-aii-0ql3: the worker applies the read-only mode with its own agent config
+		// (and its own admission, which refuses the job if that agent has no mode).
+		ReadOnly: f.ReadOnly,
 	}
 	// ACP-01 S2: a continuation carries its session + lineage so the worker's local
 	// job resolves the same session/load. Set ONLY for a resume — a plain job's
@@ -251,13 +254,14 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	}
 	// The dispatch fields above are additive, so a worker built before
 	// wsproto.SessionLoadMinProtocolVersion IGNORES them: it opens a fresh session for
-	// a resume. The hub cannot fix that — the worker's own code decides — so it
-	// records what will actually happen instead of failing a job whose only defect is
-	// the peer's vintage.
-	if f.ResumedFrom != "" {
+	// a resume and runs a read-only job writable. The hub cannot fix that — the
+	// worker's own code decides — so it records what will actually happen instead of
+	// failing a job whose only defect is the peer's vintage.
+	if f.ResumedFrom != "" || f.ReadOnly {
 		if proto, ok := r.hub.WorkerProtocol(workerID); ok && !wsproto.SupportsSessionLoad(proto) {
-			slog.Warn("worker runner: target worker predates the resume dispatch fields; it will open a new session",
-				"worker_id", workerID, "worker_proto", proto, "job_id", req.JobID)
+			slog.Warn("worker runner: target worker predates the resume/read-only dispatch fields; it will open a new session / run writable",
+				"worker_id", workerID, "worker_proto", proto, "job_id", req.JobID,
+				"resume", f.ResumedFrom != "", "read_only", f.ReadOnly)
 		}
 	}
 	if err := r.hub.Dispatch(workerID, d); err != nil {

@@ -38,6 +38,8 @@ const tags = ref('')
 const timeoutSec = ref<number | null>(null)
 const sync = ref(false)
 const interactive = ref(false)
+// 只读 job（bd h-aii-0ql3）：审查/分析类任务，agent 不能写文件。
+const readOnly = ref(false)
 const recordPty = ref(false)
 const cols = ref(120)
 const rows = ref(32)
@@ -568,6 +570,9 @@ async function onSubmit() {
     if (timeoutSec.value != null && timeoutSec.value > 0) {
       req.timeout_sec = timeoutSec.value
     }
+    if (readOnly.value) {
+      req.read_only = true
+    }
     if (interactive.value) {
       req.interactive = true
       if (recordPty.value) {
@@ -612,6 +617,7 @@ async function prefillFrom(from: string): Promise<void> {
     if (r.runner) runnerName.value = r.runner
     if (r.cwd) cwd.value = r.cwd
     if (r.interactive) interactive.value = true
+    if (r.read_only) readOnly.value = true
     if (r.system_prompt) prompt.value = r.system_prompt
     else if (r.prompt) prompt.value = r.prompt             // 可能含占位；用户改则校验、不改则不发
     if (r.cmd && r.cmd.length) command.value = r.cmd.join(' ')
@@ -636,6 +642,7 @@ function snapshotBaseline(): void {
     project_key: projectKey.value, agent: agentKey.value, runner: runnerName.value,
     prompt: prompt.value, command: command.value, cwd: cwd.value, title: title.value,
     tags: tags.value, timeout: timeoutSec.value, interactive: interactive.value,
+    read_only: readOnly.value,
     cols: cols.value, rows: rows.value, worker_id: workerId.value,
     worker_labels: workerLabels.value, plan_id: planId.value,
     agent_args: agentArgs.value,
@@ -657,6 +664,7 @@ function buildRebuildBody(): RebuildBody {
     chg('agent_args', agentArgs.value, () => (b.agent_args = parseAgentArgs(agentArgs.value)))
   }
   if (isExec.value) chg('command', command.value, () => (b.cmd = parseCmd(command.value)))
+  chg('read_only', readOnly.value, (v) => (b.read_only = v))
   chg('cwd', cwd.value, (v) => (b.cwd = v))
   chg('title', title.value, (v) => { if (String(v).trim() !== '') b.title = String(v).trim() })
   chg('tags', tags.value, () => (b.tags = parseLabels(tags.value)))
@@ -942,6 +950,14 @@ watch(interactive, (on) => {
         <label class="check mono">
           <input v-model="interactive" type="checkbox" />
           <span>交互式（pty，可在详情页接入终端；通常需 runner=worker）</span>
+        </label>
+      </div>
+
+      <!-- 只读：agent 不能写文件（cli-agent 追加沙箱参数 / acp-agent set_mode）。 -->
+      <div class="field">
+        <label class="check mono">
+          <input v-model="readOnly" type="checkbox" />
+          <span>只读（审查/分析类任务：agent 不能写文件；需该 agent 配置了只读模式）</span>
         </label>
       </div>
 

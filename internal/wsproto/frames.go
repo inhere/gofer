@@ -273,7 +273,12 @@ type Dispatch struct {
 	// fields and starts a new session (see SessionLoadMinProtocolVersion).
 	SessionID   string `json:"session_id,omitempty"`
 	ResumedFrom string `json:"resumed_from,omitempty"`
-	RelayNonce  string `json:"relay_nonce,omitempty"`
+	// ReadOnly (bd h-aii-0ql3) asks the worker to run the job in its own read-only mode
+	// (cli-agent argv sandbox / acp-agent session/set_mode). The worker validates it
+	// against its OWN agent config. An OLD worker ignores the field and runs the job
+	// writable (see SessionLoadMinProtocolVersion).
+	ReadOnly   bool   `json:"read_only,omitempty"`
+	RelayNonce string `json:"relay_nonce,omitempty"`
 	// PtySessionID is the host-minted relay session id the worker echoes back in
 	// its pty-connect hello so the serve endpoint can strong-check it against the
 	// binding (httpapi/pty_connect_handler; D-P2-4). Empty on non-interactive.

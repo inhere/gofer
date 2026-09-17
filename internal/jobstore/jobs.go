@@ -36,7 +36,11 @@ type JobRecord struct {
 	Agent       string
 	Runner      string
 	Interactive bool
-	WorkerID    string // reserved for ws-worker; empty for local/peer jobs
+	// ReadOnly (bd h-aii-0ql3) records whether the job ran under a read-only sandbox
+	// (cli-agent read_only_args / acp-agent session/set_mode). Persisted so a finished
+	// job still answers "was this run allowed to write?".
+	ReadOnly bool
+	WorkerID string // reserved for ws-worker; empty for local/peer jobs
 	// WorkerInstanceID is the process nonce (wsproto.Register.InstanceID) of the
 	// worker connection the job was dispatched to (RECOV-01 R4). Together with
 	// WorkerID it proves WHICH worker process owns the job, so a hub starting after a
@@ -217,7 +221,7 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,
   COALESCE(timeout_sec,0), COALESCE(requested_timeout_sec,0), COALESCE(timeout_clamped,0),
   COALESCE(recovering_since,0),
   COALESCE(worktree_path,''), COALESCE(worktree_branch,''), COALESCE(worktree_base_sha,''),
-  COALESCE(worktree_head_sha,''), COALESCE(commits_ahead,0) FROM jobs`
+  COALESCE(worktree_head_sha,''), COALESCE(commits_ahead,0), COALESCE(read_only,0) FROM jobs`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -227,7 +231,7 @@ type rowScanner interface {
 // scanJob reads one row (in selectCols order) into a JobRecord.
 func scanJob(sc rowScanner) (JobRecord, error) {
 	var r JobRecord
-	var interactive, timeoutClamped int
+	var interactive, timeoutClamped, readOnly int
 	err := sc.Scan(
 		&r.ID, &r.ProjectKey, &r.Agent, &r.Runner, &interactive, &r.WorkerID,
 		&r.WorkerInstanceID,
@@ -243,10 +247,11 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.TimeoutSec, &r.RequestedTimeoutSec, &timeoutClamped,
 		&r.RecoveringSince,
 		&r.WorktreePath, &r.WorktreeBranch, &r.WorktreeBaseSHA,
-		&r.WorktreeHeadSHA, &r.CommitsAhead,
+		&r.WorktreeHeadSHA, &r.CommitsAhead, &readOnly,
 	)
 	r.Interactive = interactive != 0
 	r.TimeoutClamped = timeoutClamped != 0
+	r.ReadOnly = readOnly != 0
 	return r, err
 }
 
@@ -269,8 +274,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 	    workflow_id, step_index, attempt, fan_index, session_id, stop_reason, resumed_from, auto_resume_attempt, auto_resumed_by, channel, client,
 	    origin_agent, escalate_to, role, plan_id, source_job_id,
 	    timeout_sec, requested_timeout_sec, timeout_clamped, recovering_since,
-	    worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	    worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead, read_only)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -322,7 +327,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     worktree_branch=excluded.worktree_branch,
     worktree_base_sha=excluded.worktree_base_sha,
     worktree_head_sha=excluded.worktree_head_sha,
-    commits_ahead=excluded.commits_ahead`
+    commits_ahead=excluded.commits_ahead,
+    read_only=excluded.read_only`
 	// Serialise writes in-process (see Store.writeMu) so SQLite never sees two
 	// concurrent writers and cannot return SQLITE_BUSY under burst.
 	s.writeMu.Lock()
@@ -342,7 +348,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.TimeoutSec, rec.RequestedTimeoutSec, rec.TimeoutClamped,
 		rec.RecoveringSince,
 		rec.WorktreePath, rec.WorktreeBranch, rec.WorktreeBaseSHA,
-		rec.WorktreeHeadSHA, rec.CommitsAhead,
+		rec.WorktreeHeadSHA, rec.CommitsAhead, rec.ReadOnly,
 	)
 	if err != nil {
 		// A competing INSERT with the same non-empty request_id (different id)

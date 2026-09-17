@@ -1113,6 +1113,11 @@ onUnmounted(() => {
       <div class="meta-item">
         <span class="meta-k mono">cwd</span><span class="meta-v mono">{{ job.cwd }}</span>
       </div>
+      <!-- 只读 job（bd h-aii-0ql3）：agent 不能写文件；resume 继承该状态，不可升级为可写。 -->
+      <div v-if="job.read_only" class="meta-item">
+        <span class="meta-k mono">read_only</span>
+        <span class="meta-v mono">只读（agent 不能写文件）</span>
+      </div>
       <!-- WT-01：受管 worktree。commits_ahead>0 = 分支上已有提交、还没合回基线分支，
            这就是"job 干完了但代码还没合"的可视信号。 -->
       <div v-if="job.worktree_path" class="meta-item">

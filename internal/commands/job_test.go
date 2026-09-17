@@ -159,32 +159,7 @@ func TestJobRunPlanFlagBuildsRequest(t *testing.T) {
 }
 
 func TestJobRunInteractiveFlagsBuildRequest(t *testing.T) {
-	jobRunOpts = struct {
-		project      string
-		agent        string
-		runner       string
-		cwd          string
-		prompt       string
-		timeout      int
-		title        string
-		wait         bool
-		sync         bool
-		waitTimeout  int
-		file         string
-		workerID     string
-		workerLabels string
-		tags         string
-		plan         string
-		channel      string
-		role         string
-		systemPrompt string
-		agentArgs    gcli.Strings
-		interactive  bool
-		cols         int
-		rows         int
-		worktree     bool
-		worktreeBase string
-	}{}
+	jobRunOpts = jobRunFlags{}
 
 	app := NewApp("test")
 	var gotInteractive bool
@@ -217,32 +192,7 @@ func TestJobRunInteractiveFlagsBuildRequest(t *testing.T) {
 // --interactive --sync combo must not block the submit response, so the command
 // forces Sync back to false before buildJobRunRequest runs.
 func TestJobRunInteractiveIgnoresSync(t *testing.T) {
-	jobRunOpts = struct {
-		project      string
-		agent        string
-		runner       string
-		cwd          string
-		prompt       string
-		timeout      int
-		title        string
-		wait         bool
-		sync         bool
-		waitTimeout  int
-		file         string
-		workerID     string
-		workerLabels string
-		tags         string
-		plan         string
-		channel      string
-		role         string
-		systemPrompt string
-		agentArgs    gcli.Strings
-		interactive  bool
-		cols         int
-		rows         int
-		worktree     bool
-		worktreeBase string
-	}{}
+	jobRunOpts = jobRunFlags{}
 
 	app := NewApp("test")
 	var gotSync bool
@@ -326,32 +276,7 @@ func TestJobRunRunnerAliasesNormalizeRequest(t *testing.T) {
 
 func TestJobRunRunnerAliasBuildsServerLocalRequest(t *testing.T) {
 	for _, input := range []string{"server", "local"} {
-		jobRunOpts = struct {
-			project      string
-			agent        string
-			runner       string
-			cwd          string
-			prompt       string
-			timeout      int
-			title        string
-			wait         bool
-			sync         bool
-			waitTimeout  int
-			file         string
-			workerID     string
-			workerLabels string
-			tags         string
-			plan         string
-			channel      string
-			role         string
-			systemPrompt string
-			agentArgs    gcli.Strings
-			interactive  bool
-			cols         int
-			rows         int
-			worktree     bool
-			worktreeBase string
-		}{}
+		jobRunOpts = jobRunFlags{}
 		app := NewApp("test")
 		var got string
 		runCmd := app.GetCommand("job").GetCommand("run")

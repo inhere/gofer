@@ -497,7 +497,12 @@ onUnmounted(() => {
           <span v-if="job.tags && job.tags.length" class="job-tags">
             <span v-for="t in job.tags" :key="t" class="tag-chip mono" :title="t">{{ t }}</span>
           </span>
-          <span v-if="job.role || job.channel" class="job-badges">
+          <span v-if="job.role || job.channel || job.read_only" class="job-badges">
+            <span
+              v-if="job.read_only"
+              class="job-badge job-badge--ro mono"
+              title="只读 job：agent 不能写文件"
+            >只读</span>
             <span
               v-if="job.role"
               class="job-badge mono"
@@ -820,6 +825,10 @@ onUnmounted(() => {
 }
 .job-badge--chan {
   color: var(--paper);
+}
+.job-badge--ro {
+  color: var(--warn, var(--phosphor));
+  border-color: var(--warn, var(--phosphor));
 }
 .col-proj {
   color: var(--paper);
