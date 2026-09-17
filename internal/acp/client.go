@@ -10,7 +10,9 @@ import (
 	"log/slog"
 	"os"
 	"os/exec"
+	"runtime/debug"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -39,6 +41,28 @@ type Options struct {
 	Stderr io.Writer
 	// ClientInfo identifies this client in initialize. Nil means {Name: "gofer"}.
 	ClientInfo *Implementation
+}
+
+// DefaultClientVersion is the clientInfo.version advertised when Options.ClientInfo
+// carries none. A version is REQUIRED by the ACP schema in practice — the
+// claude-code-acp adapter rejects an initialize whose clientInfo has no version
+// (-32602 Invalid params) — so the client never omits it.
+const DefaultClientVersion = "0.0.0"
+
+// defaultClientVersion reports this binary's version as seen by the Go runtime
+// (linker-injected for a release build), falling back to DefaultClientVersion for
+// a development build. It spares every caller from threading build metadata down
+// to the ACP client just to fill initialize's clientInfo.
+func defaultClientVersion() string {
+	bi, ok := debug.ReadBuildInfo()
+	if !ok {
+		return DefaultClientVersion
+	}
+	v := strings.TrimSpace(bi.Main.Version)
+	if v == "" || v == "(devel)" {
+		return DefaultClientVersion
+	}
+	return v
 }
 
 // Handler consumes what the agent sends: session/update notifications and
@@ -110,9 +134,15 @@ func Start(_ context.Context, opts Options) (*Client, error) {
 		return nil, fmt.Errorf("acp: start %q: %w", opts.Command, err)
 	}
 
-	info := Implementation{Name: "gofer"}
+	info := Implementation{Name: "gofer", Version: defaultClientVersion()}
 	if opts.ClientInfo != nil {
 		info = *opts.ClientInfo
+		if info.Name == "" {
+			info.Name = "gofer"
+		}
+		if info.Version == "" {
+			info.Version = defaultClientVersion()
+		}
 	}
 	c := &Client{
 		cmd:        cmd,

@@ -134,11 +134,17 @@ func handshake(t *testing.T, c *acp.Client, ctx context.Context) string {
 // agent: initialize capability negotiation, session/new, and one prompt turn whose
 // session/update variants all reach the handler.
 func TestACPClientHandshakeAndPrompt(t *testing.T) {
-	c, _ := startFake(t, acptest.Options{})
+	c, stderr := startFake(t, acptest.Options{})
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
 	sid := handshake(t, c, ctx)
+	// clientInfo must be complete: the claude-code-acp adapter rejects an initialize
+	// whose clientInfo carries no version (-32602), so the client always sends one.
+	if !strings.Contains(stderr.String(), "acptest: initialize client=gofer/") ||
+		strings.Contains(stderr.String(), "client=gofer/\n") {
+		t.Fatalf("initialize did not advertise a client name/version:\n%s", stderr.String())
+	}
 	h := newRecorder()
 	pr, err := c.Prompt(ctx, sid, "list the repo", h)
 	if err != nil {

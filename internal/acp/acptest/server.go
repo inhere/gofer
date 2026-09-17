@@ -171,6 +171,14 @@ func (s *server) dispatch(line []byte) {
 func (s *server) handleRequest(msg *rpcMsg) {
 	switch msg.Method {
 	case "initialize":
+		var p struct {
+			ClientInfo struct {
+				Name    string `json:"name"`
+				Version string `json:"version"`
+			} `json:"clientInfo"`
+		}
+		_ = json.Unmarshal(msg.Params, &p)
+		fmt.Fprintf(s.errOut, "acptest: initialize client=%s/%s\n", p.ClientInfo.Name, p.ClientInfo.Version)
 		s.reply(msg.ID, map[string]any{
 			"protocolVersion": 1,
 			"agentCapabilities": map[string]any{
