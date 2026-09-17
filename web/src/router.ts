@@ -45,9 +45,14 @@ const routes: RouteRecordRaw[] = [
     name: 'new-schedule',
     component: () => import('./views/NewSchedule.vue'),
   },
-  { path: '/drivers', name: 'drivers', component: () => import('./views/Drivers.vue') },
+  { path: '/drivers', redirect: '/agents/presence' },
   {
     path: '/drivers/:id',
+    redirect: (to) => `/agents/presence/${encodeURIComponent(String(to.params.id))}`,
+  },
+  { path: '/agents/presence', name: 'agent-presence', component: () => import('./views/Agents.vue') },
+  {
+    path: '/agents/presence/:id',
     name: 'driver-inbox',
     component: () => import('./views/DriverInbox.vue'),
     props: true,

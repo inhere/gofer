@@ -1,14 +1,26 @@
 <script setup lang="ts">
 // Agents：listAgents 展示 detect 状态，getConfig 展开只读 agent 关键配置。
-import { computed, onMounted, ref } from 'vue'
-import { getConfig, listAgents } from '../api/client'
-import type { AgentInfo, ConfigAgentView } from '../api/types'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
+import { useRouter } from 'vue-router'
+import { getConfig, listAgents, listPresence } from '../api/client'
+import { fmtDateTime } from '../api/time'
+import type { AgentInfo, ConfigAgentView, Presence } from '../api/types'
+
+const router = useRouter()
 
 const agents = ref<AgentInfo[]>([])
 const configAgents = ref<ConfigAgentView[]>([])
 const expanded = ref<Set<string>>(new Set())
 const loading = ref(false)
 const error = ref('')
+const presenceAgents = ref<Presence[]>([])
+const presenceLoading = ref(false)
+const roleFilter = ref('')
+const projectFilter = ref('')
+
+const PRESENCE_POLL_MS = 3000
+const ONLINE_TTL_SEC = 30
+let presenceTimer: number | null = null
 
 const configByKey = computed(() => {
   const out = new Map<string, ConfigAgentView>()
@@ -34,7 +46,74 @@ async function load() {
 
 onMounted(() => {
   void load()
+  void fetchPresence()
+  startPresencePolling()
+  document.addEventListener('visibilitychange', onPresenceVisibility)
 })
+
+onUnmounted(() => {
+  stopPresencePolling()
+  document.removeEventListener('visibilitychange', onPresenceVisibility)
+})
+
+watch([roleFilter, projectFilter], () => {
+  void fetchPresence()
+})
+
+async function fetchPresence(): Promise<void> {
+  presenceLoading.value = true
+  try {
+    const resp = await listPresence(
+      roleFilter.value || undefined,
+      projectFilter.value.trim() || undefined,
+    )
+    presenceAgents.value = resp.agents ?? []
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    presenceLoading.value = false
+  }
+}
+
+function startPresencePolling(): void {
+  stopPresencePolling()
+  if (document.hidden) return
+  presenceTimer = window.setInterval(() => void fetchPresence(), PRESENCE_POLL_MS)
+}
+
+function stopPresencePolling(): void {
+  if (presenceTimer != null) {
+    window.clearInterval(presenceTimer)
+    presenceTimer = null
+  }
+}
+
+function onPresenceVisibility(): void {
+  if (document.hidden) {
+    stopPresencePolling()
+    return
+  }
+  void fetchPresence()
+  startPresencePolling()
+}
+
+function isOnline(a: Presence): boolean {
+  const age = Math.floor(Date.now() / 1000) - a.last_seen_at
+  return a.status !== 'stale' && age <= ONLINE_TTL_SEC
+}
+
+function shortId(id: string): string {
+  return id.length > 12 ? `...${id.slice(-12)}` : id
+}
+
+function relSeen(sec: number): string {
+  const age = Math.max(0, Math.floor(Date.now() / 1000) - sec)
+  return `${age} 秒前`
+}
+
+function openPresenceInbox(a: Presence): void {
+  void router.push(`/agents/presence/${encodeURIComponent(a.agent_id)}`)
+}
 
 function toggleExpand(key: string): void {
   const next = new Set(expanded.value)
@@ -146,12 +225,49 @@ function listValue(v?: string[]): string {
         探测中…
       </div>
     </div>
+
+    <section class="presence-section">
+      <div class="presence-head">
+        <div>
+          <h2 class="section-title mono">在线 driver / presence</h2>
+          <p class="section-note mono">已注册的 driver presence，可点击进入 inbox。</p>
+        </div>
+        <div class="presence-ctrls mono">
+          <label class="filter"><span>role</span><select v-model="roleFilter" class="filter-select mono"><option value="">全部</option><option value="supervisor">supervisor</option></select></label>
+          <label class="filter"><span>project</span><input v-model.trim="projectFilter" class="filter-input mono" type="text" placeholder="全部" /></label>
+          <span class="poll-hint mono" :class="{ 'poll-hint--on': presenceLoading }">●</span>
+        </div>
+      </div>
+
+      <div class="presence-table mono">
+        <div class="presence-thead"><span>状态</span><span>name</span><span>role</span><span>project</span><span>client</span><span>agent_id</span><span>last_seen</span></div>
+        <div
+          v-for="a in presenceAgents"
+          :key="a.agent_id"
+          class="presence-row"
+          role="button"
+          tabindex="0"
+          @click="openPresenceInbox(a)"
+          @keydown.enter="openPresenceInbox(a)"
+          @keydown.space.prevent="openPresenceInbox(a)"
+        >
+          <span class="pcol-state"><span class="presence-dot" :class="isOnline(a) ? 'presence-dot--on' : 'presence-dot--stale'" :title="isOnline(a) ? 'online' : 'stale'"></span></span>
+          <span class="pcol-name presence-name" :title="a.name || a.agent_id">{{ a.name || shortId(a.agent_id) }}</span>
+          <span class="pcol-role"><span v-if="a.role" class="presence-badge" :class="{ 'presence-badge--sup': a.role === 'supervisor' }">{{ a.role }}</span><span v-else class="presence-muted">—</span></span>
+          <span class="pcol-project presence-muted" :title="a.project_key || ''">{{ a.project_key || '—' }}</span>
+          <span class="pcol-client presence-muted" :title="a.client || ''">{{ a.client || '—' }}</span>
+          <span class="pcol-agent presence-id" :title="a.agent_id">{{ shortId(a.agent_id) }}</span>
+          <span class="pcol-seen presence-seen"><span>{{ fmtDateTime(a.last_seen_at) }}</span><small>{{ relSeen(a.last_seen_at) }}</small></span>
+        </div>
+        <div v-if="presenceAgents.length === 0" class="empty mono">暂无在线 driver</div>
+      </div>
+    </section>
   </div>
 </template>
 
 <style scoped>
 .agents {
-  max-width: 900px;
+  max-width: 1160px;
   margin: 0 auto;
 }
 .head {
@@ -335,6 +451,159 @@ function listValue(v?: string[]): string {
   font-size: 13px;
 }
 
+/* 下段：driver presence（原 Drivers.vue，样式加 presence- 前缀避免与上段表格撞名） */
+.presence-section {
+  margin-top: 26px;
+}
+.presence-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 10px;
+}
+.section-title {
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  color: var(--paper);
+  margin: 0;
+}
+.section-note {
+  color: var(--queue);
+  font-size: 12px;
+  margin: 4px 0 0;
+}
+.presence-ctrls {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 12px;
+}
+.filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--queue);
+}
+.filter-select,
+.filter-input {
+  background: var(--panel);
+  color: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 8px;
+  font-size: 12px;
+  outline: none;
+}
+.filter-input {
+  width: 150px;
+}
+.filter-select:focus,
+.filter-input:focus {
+  border-color: var(--phosphor);
+}
+
+.presence-table {
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  overflow: hidden;
+}
+.presence-thead,
+.presence-row {
+  display: grid;
+  grid-template-columns: 54px minmax(160px, 1fr) 124px 142px 130px 142px 168px;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+}
+.presence-thead {
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  color: var(--queue);
+  text-transform: uppercase;
+}
+.presence-row {
+  border-bottom: 1px solid var(--line);
+  cursor: pointer;
+  font-size: 13px;
+  outline: none;
+}
+.presence-row:last-child {
+  border-bottom: none;
+}
+.presence-row:hover {
+  background: var(--panel);
+}
+.presence-row:focus-visible {
+  background: var(--panel);
+  box-shadow: inset 2px 0 0 var(--phosphor);
+}
+.pcol-state {
+  display: flex;
+  justify-content: center;
+}
+.presence-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  flex: none;
+}
+.presence-dot--on {
+  background: var(--done);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--done) 20%, transparent);
+}
+.presence-dot--stale {
+  background: var(--queue);
+  opacity: 0.65;
+  box-shadow: 0 0 0 1px var(--line);
+}
+.presence-name {
+  color: var(--paper);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.presence-badge {
+  display: inline-block;
+  color: var(--phosphor);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 2px 7px;
+  font-size: 11px;
+}
+.presence-badge--sup {
+  color: var(--run);
+  border-color: var(--run);
+}
+.presence-muted {
+  color: var(--queue);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.presence-id {
+  color: var(--phosphor);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.presence-seen {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  font-size: 12px;
+}
+.presence-seen > span {
+  color: var(--paper);
+}
+.presence-seen > small {
+  color: var(--queue);
+  font-size: 11px;
+}
+
 @media (max-width: 768px) {
   .thead,
   .trow {
@@ -348,6 +617,54 @@ function listValue(v?: string[]): string {
   }
   .detail {
     padding-left: 14px;
+  }
+}
+
+@media (max-width: 940px) {
+  .presence-head {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .presence-ctrls {
+    flex-wrap: wrap;
+    width: 100%;
+  }
+  .filter-input {
+    width: 180px;
+  }
+  .presence-thead {
+    display: none;
+  }
+  .presence-row {
+    grid-template-columns: 24px 1fr 118px;
+    grid-template-areas:
+      'state name role'
+      'state project agent'
+      'state client seen';
+    row-gap: 6px;
+  }
+  .pcol-state {
+    grid-area: state;
+    align-items: flex-start;
+    padding-top: 4px;
+  }
+  .pcol-name {
+    grid-area: name;
+  }
+  .pcol-role {
+    grid-area: role;
+  }
+  .pcol-project {
+    grid-area: project;
+  }
+  .pcol-client {
+    grid-area: client;
+  }
+  .pcol-agent {
+    grid-area: agent;
+  }
+  .pcol-seen {
+    grid-area: seen;
   }
 }
 </style>

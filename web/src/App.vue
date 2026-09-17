@@ -41,16 +41,15 @@ const navGroups = [
     label: '观察',
     items: [
       { to: '/board', label: 'Board' },
+      { to: '/plans', label: 'Plans' },
       { to: '/sessions', label: 'Sessions' },
       { to: '/workflows', label: 'Workflows' },
-      { to: '/plans', label: 'Plans' },
       { to: '/schedules', label: 'Schedules' },
     ],
   },
   {
     label: '舰队',
     items: [
-      { to: '/drivers', label: 'Drivers' },
       { to: '/agents', label: 'Agents' },
       { to: '/runners', label: 'Runners' },
       { to: '/projects', label: 'Projects' },

@@ -100,7 +100,7 @@ onMounted(() => {
 <template>
   <div class="board">
     <div class="head">
-      <RouterLink to="/drivers" class="back mono">← drivers</RouterLink>
+      <RouterLink to="/agents/presence" class="back mono">← presence</RouterLink>
       <h1 class="title mono">INBOX · {{ driverTitle }}</h1>
     </div>
 
