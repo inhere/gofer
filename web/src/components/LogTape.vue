@@ -8,6 +8,7 @@
 import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
+import NdjsonTimeline from './NdjsonTimeline.vue'
 import type { LogStream } from '../api/types'
 
 const props = defineProps<{
@@ -40,6 +41,8 @@ const errPinned = ref(true)
 const outNew = ref(0)
 const errNew = ref(0)
 const stdoutMarkdownMode = ref(false)
+// 结构化视图开关（bd h-aii-rpky）：ndjson agent 的 stdout 逐行解析成时间线。
+const stdoutStructuredMode = ref(false)
 let outPrev = 0
 let errPrev = 0
 
@@ -168,6 +171,36 @@ const showStdoutMarkdown = computed(
   () => paged.value && activeStream.value === 'stdout' && props.stdout.length > 200,
 )
 
+// hasStructuredLines：stdout 是否像 ndjson 事件流 —— 前若干行里存在带字符串 type 的
+// JSON 对象即可（真流开头必然就有事件行）。只在为真时提供「结构化视图」切换，避免给
+// 纯文本 agent 的日志显示一个没意义的开关。
+const structuredSampleLines = 200
+const hasStructuredLines = computed(() => {
+  const text = props.stdout || ''
+  if (text === '') {
+    return false
+  }
+  for (const line of text.split('\n', structuredSampleLines)) {
+    const trimmed = line.trim()
+    if (!trimmed.startsWith('{')) {
+      continue
+    }
+    try {
+      const parsed: unknown = JSON.parse(trimmed)
+      if (
+        typeof parsed === 'object' &&
+        parsed !== null &&
+        typeof (parsed as Record<string, unknown>).type === 'string'
+      ) {
+        return true
+      }
+    } catch {
+      // 非 JSON 行：继续扫描。
+    }
+  }
+  return false
+})
+
 function selectStream(stream: 'stdout' | 'stderr'): void {
   activeStream.value = stream
   userTouchedTabs.value = true
@@ -190,6 +223,10 @@ function loadAll(): void {
 
 function toggleStdoutMarkdown(): void {
   stdoutMarkdownMode.value = !stdoutMarkdownMode.value
+}
+
+function toggleStdoutStructured(): void {
+  stdoutStructuredMode.value = !stdoutStructuredMode.value
 }
 
 function scrollPane(el: HTMLElement): void {
@@ -330,7 +367,7 @@ onMounted(() => {
         </div>
         <span v-if="live" class="live-pulse" title="streaming">live</span>
       </div>
-      <div v-if="showLogActions || showStdoutMarkdown" class="log-actions">
+      <div v-if="showLogActions || showStdoutMarkdown || hasStructuredLines" class="log-actions">
         <span v-if="paged && activeTotal > 0" class="log-scope">
           已显示 {{ activeDisplayed }} / {{ activeTotal }} 行
         </span>
@@ -354,6 +391,14 @@ onMounted(() => {
             全部加载
           </button>
           <button
+            v-if="hasStructuredLines"
+            class="log-action"
+            type="button"
+            @click="toggleStdoutStructured"
+          >
+            {{ stdoutStructuredMode ? '原始视图' : '结构化视图' }}
+          </button>
+          <button
             v-if="showStdoutMarkdown"
             class="log-action"
             type="button"
@@ -372,7 +417,13 @@ onMounted(() => {
         @scroll="onScrollOut"
       >
         <div
-          v-if="stdoutMarkdownMode && showStdoutMarkdown"
+          v-if="stdoutStructuredMode && hasStructuredLines"
+          class="log-structured"
+        >
+          <NdjsonTimeline :text="stdout" />
+        </div>
+        <div
+          v-else-if="stdoutMarkdownMode && showStdoutMarkdown"
           class="log-md"
           v-html="stdoutMarkdownHtml"
         ></div>
