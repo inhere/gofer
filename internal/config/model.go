@@ -936,6 +936,21 @@ type AgentConfig struct {
 	// NDJSONRaw 为 true 时把原始（未过滤）行另存 <result_dir>/stdout.raw.log，仅排障用
 	// （体积与过滤前一致，默认关闭）。
 	NDJSONRaw bool `yaml:"ndjson_raw,omitempty"`
+	// NDJSONEventsTo 选择紧凑事件行的落点（bd h-aii-525u，仅 ndjson 时有意义）：
+	// "stderr"（默认）像 codex 那样把过程事件写进 stderr、stdout 只留最终答复；
+	// "stdout" 保持一期落点（事件写到 stdout，答复追加其后）。
+	NDJSONEventsTo string `yaml:"ndjson_events_to,omitempty"`
+	// NDJSONStdout 决定 stdout 承载什么（仅 ndjson 时有意义）："final_text"（默认）只写
+	// agent 的最终答复（omp 取最后一条 assistant 消息，claude 取 result.result）；
+	// "events" = 一期行为：stdout 即紧凑事件流，不提取答复。
+	NDJSONStdout string `yaml:"ndjson_stdout,omitempty"`
+	// NDJSONStdoutPath 是最终答复所在的 JSON 路径（点号分隔，如 result.result），给内置
+	// 投影器认不出的 agent 用；显式配置覆盖内置的答复提取规则。
+	NDJSONStdoutPath string `yaml:"ndjson_stdout_path,omitempty"`
+	// NDJSONFields 按事件类型覆盖投影输出的事件内容（如
+	// `ndjson_fields: {turn_end: [type, usage, model]}`）：该类型的行只带这些路径
+	// （点号分隔，取最后一段作键）；对投影器默认丢弃的类型也生效。
+	NDJSONFields map[string][]string `yaml:"ndjson_fields,omitempty"`
 	// McpServerName 是该 agent（codex）config.toml 里 gofer MCP server 的块名
 	// （`[mcp_servers.<name>]`）。gap①(issue 7z6j)：codex 启动 MCP stdio 子进程用净化
 	// env、不透传 codex 进程 env，故 role.env 注入 codex 进程对 MCP 子进程无效；改经
@@ -980,6 +995,23 @@ const (
 	// OutputFormatNDJSON declares the agent's stdout a JSON-Lines event stream to
 	// be compacted at capture time (bd h-aii-rpky). See AgentConfig.NDJSONKeep.
 	OutputFormatNDJSON = "ndjson"
+)
+
+// Where the compacted event lines go (AgentConfig.NDJSONEventsTo), and what the
+// stdout stream carries (AgentConfig.NDJSONStdout). The capture projects a
+// structured agent stream onto the two logs (bd h-aii-525u): the process events
+// belong on stderr, the agent's final answer on stdout.
+const (
+	// NDJSONEventsStderr writes the events to stderr.log — the default, and the
+	// shape codex users expect: stdout is the answer, stderr is the process log.
+	NDJSONEventsStderr = "stderr"
+	// NDJSONEventsStdout keeps the phase-1 destination (events on stdout.log).
+	NDJSONEventsStdout = "stdout"
+	// NDJSONStdoutFinalText writes only the agent's final answer to stdout.log.
+	NDJSONStdoutFinalText = "final_text"
+	// NDJSONStdoutEvents writes the compact event stream to stdout.log and skips
+	// answer extraction: the pre-525u capture, byte for byte.
+	NDJSONStdoutEvents = "events"
 )
 
 // EffectiveOutputFormat is the configured capture format with the default

@@ -46,6 +46,7 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		DiffSummary:     r.DiffSummary,
 		NDJSONKept:      r.NDJSONKept,
 		NDJSONDropped:   r.NDJSONDropped,
+		NDJSONTruncated: r.NDJSONTruncated,
 		Source:          r.Source,
 		TagsJSON:        marshalTags(r.Tags),
 		// 工作流(job 链)：step-job 反向关联其 workflow + 1-based 步序号 + 重试 attempt。
@@ -139,6 +140,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		DiffSummary:     rec.DiffSummary,
 		NDJSONKept:      rec.NDJSONKept,
 		NDJSONDropped:   rec.NDJSONDropped,
+		NDJSONTruncated: rec.NDJSONTruncated,
 		Source:          rec.Source,
 		Tags:            unmarshalTags(rec.TagsJSON),
 		// 工作流(job 链)。

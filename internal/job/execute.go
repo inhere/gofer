@@ -93,11 +93,12 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 	}
 	defer stderr.Close()
 
-	// 结构化输出采集（bd h-aii-rpky）：ndjson agent 的 stdout 在被交给 runner 之前先包一层
-	// 过滤器，逐 token 增量事件不入盘。只在本进程真正执行（local runner）时包 —— 远端
-	// (worker/peer) job 的 stdout 是执行机过滤后镜像回来的，host 侧再包一层只会把已过滤的
-	// 流过滤第二遍，并把 raw 旁路记成误导性内容。文本 agent 原样返回。
-	stdout = s.captureStdoutNDJSON(entry, req.JobID, run.Name(), stdout)
+	// 结构化输出采集（bd h-aii-rpky / bd h-aii-525u）：ndjson agent 的 stdout 在被交给
+	// runner 之前先包一层投影器 —— 逐 token 增量事件不入盘，中间过程进 stderr.log（紧凑
+	// 事件行），stdout.log 只留 agent 的最终答复。只在本进程真正执行（local runner）时包
+	// —— 远端 (worker/peer) job 的两路日志是执行机投影后镜像回来的，host 侧再包一层只会
+	// 把已投影的流投影第二遍，并把 raw 旁路记成误导性内容。文本 agent 原样返回。
+	stdout = s.captureNDJSON(entry, req.JobID, run.Name(), stdout, stderr)
 
 	req.Stdout = stdout
 	req.Stderr = stderr
@@ -157,9 +158,10 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 	_ = stdout.Close()
 	_ = stderr.Close()
 
-	// 结构化采集计数（bd h-aii-rpky）：过滤器已 flush + 关闭，计数即最终值；写入
-	// entry.result，由紧随其后的 captureOutcomes/finish 一并 persist（审计字段）。
-	s.recordNDJSONCounts(entry, req.JobID, stdout)
+	// 结构化采集结果（bd h-aii-rpky / bd h-aii-525u）：投影器已 flush + 关闭，计数即
+	// 最终值；把保留/丢弃/截断行数与投影出的 session_id 写入 entry.result，由紧随其后的
+	// captureOutcomes/finish 一并 persist（审计字段 + 会话捕获优先于正则兜底）。
+	s.recordNDJSONCapture(entry, req.JobID, stdout)
 
 	// 产出与审计(job-outcomes-audit)：在终态前 best-effort 采集产出
 	// (渲染命令/结构化结果/…)，写入 entry.result，由随后的 finish 一并 persist。

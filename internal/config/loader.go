@@ -412,6 +412,18 @@ func validate(cfg *Config) error {
 		default:
 			return fmt.Errorf("agent %q: unknown output_format %q (want %s|%s)", key, ac.OutputFormat, OutputFormatText, OutputFormatNDJSON)
 		}
+		// bd h-aii-525u: same for the two projection switches — an unknown value
+		// would silently fall back to the default stream layout.
+		switch ac.NDJSONEventsTo {
+		case "", NDJSONEventsStderr, NDJSONEventsStdout:
+		default:
+			return fmt.Errorf("agent %q: unknown ndjson_events_to %q (want %s|%s)", key, ac.NDJSONEventsTo, NDJSONEventsStderr, NDJSONEventsStdout)
+		}
+		switch ac.NDJSONStdout {
+		case "", NDJSONStdoutFinalText, NDJSONStdoutEvents:
+		default:
+			return fmt.Errorf("agent %q: unknown ndjson_stdout %q (want %s|%s)", key, ac.NDJSONStdout, NDJSONStdoutFinalText, NDJSONStdoutEvents)
+		}
 	}
 	for key, p := range cfg.Projects {
 		if p.HostPath == "" {

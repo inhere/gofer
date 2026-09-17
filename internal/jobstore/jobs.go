@@ -64,10 +64,12 @@ type JobRecord struct {
 	ResultJSON      string // <result_dir>/result.json 内容（E6）
 	ArtifactsJSON   string // [{name,size,mtime}] 产物清单（E1，P2）
 	DiffSummary     string // git diff --stat 截断摘要（E12，P3）
-	// NDJSONKept / NDJSONDropped 是采集期 NDJSON 过滤器（bd h-aii-rpky）的行数审计：
-	// stdout.log 保留/丢弃的行数。旧行 COALESCE 成 0（文本 agent 也是 0，同义）。
-	NDJSONKept    int
-	NDJSONDropped int
+	// NDJSONKept / NDJSONDropped / NDJSONTruncated 是采集期 NDJSON 投影器
+	// （bd h-aii-rpky / bd h-aii-525u）的行数审计：stderr.log 写入/丢弃/截断的行数。
+	// 旧行 COALESCE 成 0（文本 agent 也是 0，同义）。
+	NDJSONKept      int
+	NDJSONDropped   int
+	NDJSONTruncated int
 	// Source 标记 job 实际执行位置（P4）：""(local) / worker:<id> / peer:<name>。
 	Source string
 	// TagsJSON 是 job 标签的 JSON 数组原文（E5），如 `["a","b"]`。空表示无标签。
@@ -205,7 +207,7 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,
   COALESCE(caller_id,''), COALESCE(request_id,''),
   COALESCE(rendered_command,''), COALESCE(result_json,''),
   COALESCE(artifacts_json,''), COALESCE(diff_summary,''),
-  COALESCE(ndjson_kept,0), COALESCE(ndjson_dropped,0),
+  COALESCE(ndjson_kept,0), COALESCE(ndjson_dropped,0), COALESCE(ndjson_truncated,0),
   COALESCE(source,''), COALESCE(tags_json,''),
   COALESCE(workflow_id,''), COALESCE(step_index,0),
 	COALESCE(attempt,1), COALESCE(fan_index,0),
@@ -233,7 +235,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.Error, &r.StartedAt, &r.EndedAt, &r.UpdatedAt,
 		&r.CallerID, &r.RequestID,
 		&r.RenderedCommand, &r.ResultJSON, &r.ArtifactsJSON, &r.DiffSummary,
-		&r.NDJSONKept, &r.NDJSONDropped,
+		&r.NDJSONKept, &r.NDJSONDropped, &r.NDJSONTruncated,
 		&r.Source, &r.TagsJSON,
 		&r.WorkflowID, &r.StepIndex, &r.Attempt, &r.FanIndex,
 		&r.SessionID, &r.StopReason, &r.ResumedFrom, &r.AutoResumeAttempt, &r.AutoResumedBy, &r.Channel, &r.Client,
@@ -263,12 +265,12 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 	const q = `INSERT INTO jobs
   (id, project_key, agent, runner, interactive, worker_id, worker_instance_id, status, exit_code, cwd, result_dir,
    request_json, error, started_at, ended_at, updated_at, caller_id, request_id,
-	    rendered_command, result_json, artifacts_json, diff_summary, ndjson_kept, ndjson_dropped, source, tags_json,
+	    rendered_command, result_json, artifacts_json, diff_summary, ndjson_kept, ndjson_dropped, ndjson_truncated, source, tags_json,
 	    workflow_id, step_index, attempt, fan_index, session_id, stop_reason, resumed_from, auto_resume_attempt, auto_resumed_by, channel, client,
 	    origin_agent, escalate_to, role, plan_id, source_job_id,
 	    timeout_sec, requested_timeout_sec, timeout_clamped, recovering_since,
 	    worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -293,6 +295,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     diff_summary=excluded.diff_summary,
     ndjson_kept=excluded.ndjson_kept,
     ndjson_dropped=excluded.ndjson_dropped,
+    ndjson_truncated=excluded.ndjson_truncated,
     source=excluded.source,
     tags_json=excluded.tags_json,
     workflow_id=excluded.workflow_id,
@@ -331,7 +334,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.Error, rec.StartedAt, rec.EndedAt, rec.UpdatedAt,
 		rec.CallerID, rec.RequestID,
 		rec.RenderedCommand, rec.ResultJSON, rec.ArtifactsJSON, rec.DiffSummary,
-		rec.NDJSONKept, rec.NDJSONDropped,
+		rec.NDJSONKept, rec.NDJSONDropped, rec.NDJSONTruncated,
 		rec.Source, rec.TagsJSON,
 		rec.WorkflowID, rec.StepIndex, rec.Attempt, rec.FanIndex,
 		rec.SessionID, rec.StopReason, rec.ResumedFrom, rec.AutoResumeAttempt, rec.AutoResumedBy, rec.Channel, rec.Client,

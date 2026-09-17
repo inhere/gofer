@@ -10,6 +10,7 @@ import (
 	"sync/atomic"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/runner/ndjsonfilter"
 )
 
 // Agent type identifiers (AgentConfig.Type).
@@ -190,31 +191,53 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 
 var builtinTransientPatterns = []string{`(?i)at capacity|rate limit|overloaded|too many requests|\b429\b|\b503\b|ECONNRESET|connection reset|stream disconnected|temporarily unavailable`}
 
-// builtinNDJSONKeep holds the实测内置 ndjson keep 列表（bd h-aii-rpky），按 agent 名兜底
-// （再退回 command 基名，与 builtinSessionDefaults 同机制）。只保留有信息量的事件，丢弃
-// 逐 token 增量（omp: message_update/tool_execution_update/message_start/turn_start；
-// claude: stream_event）—— 这些事件占了输出体积的绝大部分。
+// builtinNDJSON holds the实测内置 ndjson 配置（bd h-aii-rpky / bd h-aii-525u），按
+// agent 名兜底（再退回 command 基名，与 builtinSessionDefaults 同机制）：
+//   - keep 是事件白名单：只保留有信息量的事件，丢弃逐 token 增量（omp:
+//     message_update/tool_execution_update/message_start/turn_start；claude:
+//     stream_event）—— 这些事件占了输出体积的绝大部分。
+//   - projector 是该 agent 事件流的投影器（internal/runner/ndjsonfilter）：它把每个事件
+//     压成一行紧凑事件写 stderr，并把"最终答复"提取到 stdout（omp 取最后一条 assistant
+//     消息、claude 取 result.result）。
 //
 // 仅在 agent 显式 output_format: ndjson 时生效（applyOutputDefaults），显式 ndjson_keep
-// 覆盖内置。session 行由过滤器本身无条件保留（omp 的 session_capture 依赖它），此处仍列出
+// 覆盖内置。session 行由过滤器本身无条件读取（omp 的 session_capture 依赖它），此处仍列出
 // 以表达"这是白名单的一部分"。
 // G031：仅含通用 agent（omp/claude）默认，不含任何业务相关信息。
-var builtinNDJSONKeep = map[string][]string{
+var builtinNDJSON = map[string]builtinNDJSONDef{
 	"omp": {
-		"session",
-		"tool_execution_start",
-		"tool_execution_end",
-		"message_end",
-		"turn_end",
-		"agent_end",
-		"advisor_cost_changed",
+		keep: []string{
+			"session",
+			"tool_execution_start",
+			"tool_execution_end",
+			"message_end",
+			"turn_end",
+			"agent_end",
+			"advisor_cost_changed",
+		},
+		projector: ndjsonfilter.ProjectorOMP,
 	},
 	"claude": {
-		"system",
-		"assistant",
-		"user",
-		"result",
+		keep: []string{
+			"system",
+			"assistant",
+			"user",
+			"result",
+		},
+		projector: ndjsonfilter.ProjectorClaude,
 	},
+}
+
+// NDJSONProjectorFor resolves the built-in event projector for an agent: by agent
+// key first, then by the base name of Command (lower-cased, .exe stripped), the
+// same fallback builtinSessionDefaults / the ndjson keep list use. An agent with
+// no built-in projector gets the generic one, which projects nothing on its own
+// (the whitelist is its only filter).
+func NDJSONProjectorFor(key string, a config.AgentConfig) string {
+	if def, ok := builtinNDJSONFor(key, a); ok {
+		return def.projector
+	}
+	return ndjsonfilter.ProjectorGeneric
 }
 
 // applyOutputDefaults fills an agent's ndjson_keep from the built-in list for that
@@ -231,23 +254,29 @@ func applyOutputDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	if !a.NDJSONOutput() || a.NDJSONKeep != nil {
 		return a
 	}
-	if def, ok := builtinNDJSONKeepFor(key, a); ok {
-		a.NDJSONKeep = def
+	if def, ok := builtinNDJSONFor(key, a); ok {
+		a.NDJSONKeep = append([]string(nil), def.keep...)
 	}
 	return a
 }
 
-func builtinNDJSONKeepFor(key string, a config.AgentConfig) ([]string, bool) {
-	if def, ok := builtinNDJSONKeep[key]; ok {
-		return append([]string(nil), def...), true
+// builtinNDJSONDef is one built-in ndjson entry: the event whitelist that gates
+// the stream and the projector that compacts it.
+type builtinNDJSONDef struct {
+	keep      []string
+	projector string
+}
+
+// builtinNDJSONFor looks a built-in ndjson config up by agent key, then by the
+// base name of the agent's command.
+func builtinNDJSONFor(key string, a config.AgentConfig) (builtinNDJSONDef, bool) {
+	if def, ok := builtinNDJSON[key]; ok {
+		return def, true
 	}
 	command := strings.ToLower(commandBase(a.Command))
 	command = strings.TrimSuffix(command, ".exe")
-	def, ok := builtinNDJSONKeep[command]
-	if !ok {
-		return nil, false
-	}
-	return append([]string(nil), def...), true
+	def, ok := builtinNDJSON[command]
+	return def, ok
 }
 
 // applySessionDefaults fills an agent's unset session fields from the built-in

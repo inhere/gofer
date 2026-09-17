@@ -41,10 +41,11 @@ func ndjsonSample() []string {
 }
 
 // TestJobRunNdjsonAgentStdoutIsCompact is the end-to-end proof of the capture-time
-// filter (bd h-aii-rpky): an `output_format: ndjson` cli-agent writing an omp-style
-// event stream lands a COMPACT stdout.log (whitelisted events only, incremental
-// tokens gone), the session row survives so session capture still works, and the
-// kept/dropped counts are recorded on the job result.
+// projection (bd h-aii-rpky / bd h-aii-525u): an `output_format: ndjson`
+// cli-agent writing an omp-style event stream lands the agent's FINAL answer in
+// stdout.log (one line of text, no JSON at all), the compact events in stderr.log
+// (incremental tokens gone), the session id on the result, and the kept/dropped
+// counts recorded and persisted.
 func TestJobRunNdjsonAgentStdoutIsCompact(t *testing.T) {
 	root := t.TempDir()
 	sample := ndjsonSample()
@@ -63,8 +64,8 @@ func TestJobRunNdjsonAgentStdoutIsCompact(t *testing.T) {
 			},
 		},
 		Agents: map[string]config.AgentConfig{
-			// Keyed "omp" so the built-in omp whitelist + session capture apply;
-			// the command merely replays the sample fixture.
+			// Keyed "omp" so the built-in omp whitelist + projector + session capture
+			// apply; the command merely replays the sample fixture.
 			"omp": {
 				Type:         agent.TypeCLIAgent,
 				Command:      testcmd.Path(t),
@@ -82,38 +83,52 @@ func TestJobRunNdjsonAgentStdoutIsCompact(t *testing.T) {
 		t.Fatalf("status = %s (err=%s), want done", final.Status, final.Error)
 	}
 
-	out, err := store.NewFileStore(filepath.Join(root, "self")).ReadLogTail(final.ID, store.StreamStdout, 0)
+	// stdout.log is the ANSWER: the last assistant message, and nothing else.
+	stdout, err := store.NewFileStore(filepath.Join(root, "self")).ReadLogTail(final.ID, store.StreamStdout, 0)
 	if err != nil {
 		t.Fatalf("read stdout.log: %v", err)
 	}
-	kept := strings.Split(strings.TrimSuffix(string(out), "\n"), "\n")
-	if len(kept) != 6 {
-		t.Fatalf("stdout.log has %d lines, want the 6 whitelisted events:\n%s", len(kept), out)
+	if got, want := string(stdout), "listed the root\n"; got != want {
+		t.Fatalf("stdout.log = %q, want exactly the final assistant text %q", got, want)
+	}
+
+	// stderr.log is the EVENT STREAM: one compact JSON line per information-bearing
+	// event, no per-token noise, no final-text row.
+	stderr, err := store.NewFileStore(filepath.Join(root, "self")).ReadLogTail(final.ID, store.StreamStderr, 0)
+	if err != nil {
+		t.Fatalf("read stderr.log: %v", err)
+	}
+	kept := splitLogLines(string(stderr))
+	if len(kept) != 5 {
+		t.Fatalf("stderr.log has %d lines, want the 5 compact events:\n%s", len(kept), stderr)
 	}
 	types := map[string]int{}
 	for _, l := range kept {
 		var obj map[string]any
 		if err := json.Unmarshal([]byte(l), &obj); err != nil {
-			t.Fatalf("stdout.log line is not valid JSON: %q: %v", l, err)
+			t.Fatalf("stderr.log line is not valid JSON: %q: %v", l, err)
 		}
 		typ, _ := obj["type"].(string)
 		types[typ]++
 		if typ == "message_update" || typ == "tool_execution_update" || typ == "message_start" || typ == "turn_start" {
-			t.Fatalf("incremental event reached stdout.log: %s", l)
+			t.Fatalf("incremental event reached stderr.log: %s", l)
 		}
 	}
-	for _, typ := range []string{"session", "tool_execution_start", "tool_execution_end", "message_end", "turn_end"} {
+	for _, typ := range []string{"session", "tool_execution_start", "tool_execution_end", "turn_end", "agent_end"} {
 		if types[typ] != 1 {
-			t.Fatalf("stdout.log is missing the %q event (kept types: %v)", typ, types)
+			t.Fatalf("stderr.log is missing the %q event (kept types: %v)", typ, types)
 		}
 	}
 
-	// The session row survived the filter, so capture still finds it.
+	// The session row was projected, so capture finds the session id.
 	if final.SessionID != ndjsonSampleSessionID {
-		t.Fatalf("session_id = %q, want %q (the filtered stream must keep the session row)", final.SessionID, ndjsonSampleSessionID)
+		t.Fatalf("session_id = %q, want %q (the projected session row must be read)", final.SessionID, ndjsonSampleSessionID)
 	}
 	if final.NDJSONKept != 6 || final.NDJSONDropped != len(sample)-6 {
 		t.Fatalf("ndjson kept/dropped = %d/%d, want 6/%d", final.NDJSONKept, final.NDJSONDropped, len(sample)-6)
+	}
+	if final.NDJSONTruncated != 0 {
+		t.Fatalf("ndjson truncated = %d, want 0 (the sample fits the event cap)", final.NDJSONTruncated)
 	}
 
 	// Evicted from memory by now: this read goes through the metadata store, so it
@@ -126,6 +141,20 @@ func TestJobRunNdjsonAgentStdoutIsCompact(t *testing.T) {
 		t.Fatalf("persisted counts = %d/%d, want %d/%d",
 			persisted.NDJSONKept, persisted.NDJSONDropped, final.NDJSONKept, final.NDJSONDropped)
 	}
+	if persisted.SessionID != final.SessionID {
+		t.Fatalf("persisted session_id = %q, want %q", persisted.SessionID, final.SessionID)
+	}
+}
+
+// splitLogLines splits a log tail into its non-empty lines.
+func splitLogLines(s string) []string {
+	var out []string
+	for _, l := range strings.Split(strings.TrimSuffix(s, "\n"), "\n") {
+		if l != "" {
+			out = append(out, l)
+		}
+	}
+	return out
 }
 
 // TestJobRunTextAgentStdoutIsUntouched guards the other half of the contract: a
