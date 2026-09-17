@@ -19,7 +19,12 @@ import {
   setSessionRelay,
 } from '../api/client'
 import { fmtAgo, fmtDateTime } from '../api/time'
-import type { AgentSession, AgentSessionState, Decision } from '../api/types'
+import type {
+  AgentSession,
+  AgentSessionRelayMode,
+  AgentSessionState,
+  Decision,
+} from '../api/types'
 
 const props = defineProps<{ sid: string }>()
 const emit = defineEmits<{
@@ -147,19 +152,38 @@ function idleText(sec: number | undefined): string {
   return `${Math.floor(mins / 60)}h${String(mins % 60).padStart(2, '0')}m`
 }
 
-// relaySummary is the one-line relay state of the session, reading the explicit
-// switch and the server's idle auto-arm together.
+// RELAY_MODES 是三态开关的展示顺序（R1）。
+const RELAY_MODES: AgentSessionRelayMode[] = ['auto', 'on', 'off']
+
+// humanSilence 是人在这个会话里安静了多久（秒，-1 = 还没见过人工输入）；探测不到
+// 键盘的终端（容器）靠它判定（R2）。
+function humanSilence(s: AgentSession): number {
+  if (!s.last_human_at) {
+    return -1
+  }
+  return Math.max(0, nowSec.value - s.last_human_at)
+}
+
+// relaySummary is the one-line relay state: the switch, whether it is waiting
+// right now, and the evidence behind the decision.
 function relaySummary(s: AgentSession | null): string {
   if (!s) {
-    return '关闭'
+    return '—'
   }
-  if (s.relay) {
-    return '显式 ON'
+  const mode = s.relay_mode || (s.relay ? 'on' : 'auto')
+  if (!s.relay) {
+    return `${mode}：当前不等`
   }
-  if (s.auto_armed) {
-    return `空闲自动布防（已离开约 ${idleText(s.idle_sec)}）`
+  switch (s.wait_reason) {
+    case 'mode_on':
+      return 'on：显式开关，本次停下在等你回复'
+    case 'idle_probe':
+      return `auto：键盘空闲 ${idleText(s.idle_sec)}，本次停下在等你回复`
+    case 'turn_age':
+      return `auto：探测不到键盘，距上次人工输入 ${idleText(humanSilence(s))}`
+    default:
+      return `${mode}：本次停下在等你回复`
   }
-  return '关闭'
 }
 
 function isLong(text: string): boolean {
@@ -250,24 +274,23 @@ async function copySid(): Promise<void> {
   }
 }
 
-// 中继开关：乐观更新，失败回滚。
-async function toggleRelay(): Promise<void> {
+// 中继三态开关：点击即 POST，乐观更新，失败回滚。
+async function setRelayMode(mode: AgentSessionRelayMode): Promise<void> {
   const s = session.value
-  if (!s || relayBusy.value) {
+  if (!s || relayBusy.value || s.relay_mode === mode) {
     return
   }
-  const prev = s.relay
-  const next = !prev
+  const prev = s.relay_mode
   relayBusy.value = true
   actionError.value = ''
-  s.relay = next
+  s.relay_mode = mode
   try {
-    const updated = await setSessionRelay(s.session_id, next)
+    const updated = await setSessionRelay(s.session_id, mode)
     session.value = updated
     emit('changed')
   } catch (e) {
     if (session.value) {
-      session.value.relay = prev
+      session.value.relay_mode = prev
     }
     actionError.value = `切换中继失败：${errorMessage(e)}`
   } finally {
@@ -378,16 +401,24 @@ onUnmounted(() => {
           </span>
         </div>
         <div class="head-actions mono">
-          <label v-if="session" class="relay-toggle" :class="{ on: session.relay, auto: !session.relay && session.auto_armed, busy: relayBusy }" title="中继开关：开着时会话每次停下都会在这里等你回复；人离开电脑时 server 会按空闲自动布防，无需拨这个开关">
-            <input
-              type="checkbox"
-              :checked="session.relay"
+          <span
+            v-if="session"
+            class="relay-modes mono"
+            :class="{ busy: relayBusy }"
+            title="中继开关（三态）：on = 每次停下都在这里等你回复；off = 从不等；auto = server 按键盘空闲 / 距上次人工输入的时长决定"
+          >
+            <button
+              v-for="m in RELAY_MODES"
+              :key="m"
+              type="button"
+              class="relay-mode"
+              :class="{ active: (session.relay_mode || 'auto') === m }"
               :disabled="relayBusy || session.state === 'ended'"
-              @change="toggleRelay"
-            />
-            <span class="relay-track"><span class="relay-knob"></span></span>
-            <span class="relay-text">中继 {{ session.relay ? 'ON' : session.auto_armed ? 'AUTO' : 'OFF' }}</span>
-          </label>
+              @click="setRelayMode(m)"
+            >
+              {{ m }}
+            </button>
+          </span>
           <button class="act mono" type="button" :disabled="loading" @click="load()">
             {{ loading ? '刷新中…' : '刷新' }}
           </button>
@@ -461,7 +492,9 @@ onUnmounted(() => {
         <dt>relay</dt>
         <dd>
           {{ relaySummary(session) }}
-          <span v-if="session.auto_armed" class="dim">· 终端侧空闲 {{ idleText(session.idle_sec) }}</span>
+          <span class="dim">· mode {{ session.relay_mode || '—' }}</span>
+          <span v-if="session.idle_sec >= 0" class="dim">· 终端侧空闲 {{ idleText(session.idle_sec) }}</span>
+          <span v-if="session.last_human_at" class="dim">· 上次人工输入 {{ fmtAgo(session.last_human_at, nowSec) }} 前</span>
         </dd>
         <dt>started</dt>
         <dd>{{ fmtDateTime(session.started_at) }}</dd>
@@ -478,7 +511,10 @@ onUnmounted(() => {
       </div>
 
       <p v-if="session" class="relay-note mono">
-        自动布防：终端侧检测到人离开 ≥ <code>server.session_auto_relay_idle_sec</code>（默认 5 分钟）时，会话停下会自动在这里等你回复——不用拨开关；人回到键盘即自动放行。
+        三态开关：<code>on</code> = 每次停下都等你回复；<code>off</code> = 从不等；<code>auto</code> =
+        键盘空闲 ≥ <code>session.auto_relay_idle_sec</code>（默认 5 分钟）时等你回复，探测不到键盘的终端（容器）改用
+        距上次人工输入 ≥ <code>session.auto_relay_turn_sec</code>（默认 15 分钟）判定——不用拨开关。
+        自动判定开的等待，人回来即放行（键盘一碰即放，或按 Esc / 直接输入一条）。
       </p>
 
       <div ref="timelineEl" class="timeline">
@@ -539,7 +575,7 @@ onUnmounted(() => {
           <span class="hint">
             <template v-if="openTurn">回复将原样进入 agent 上下文；输入 <code>/off</code> 关闭中继并让会话正常停下。</template>
             <template v-else-if="session?.state === 'ended'">会话已结束。</template>
-            <template v-else>会话未在等待回复{{ session && !session.relay ? '（中继未开，拨开开关后下一次停下生效）' : '' }}。</template>
+            <template v-else>会话未在等待回复{{ session && session.relay_mode === 'off' ? '（中继 off，从不等回复）' : '（下一次停下若判据成立即生效）' }}。</template>
           </span>
           <button
             class="act act--primary mono"
@@ -628,62 +664,46 @@ onUnmounted(() => {
   opacity: 0.6;
 }
 
-.relay-toggle {
+/* 中继三态开关：auto / on / off */
+.relay-modes {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  font-size: 11px;
-  color: var(--queue);
-  user-select: none;
-}
-.relay-toggle input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-.relay-track {
-  position: relative;
-  width: 28px;
-  height: 14px;
-  border-radius: 7px;
   border: 1px solid var(--line);
-  background: transparent;
-  transition: background 0.15s, border-color 0.15s;
+  border-radius: var(--radius);
+  overflow: hidden;
 }
-.relay-knob {
-  position: absolute;
-  top: 1px;
-  left: 1px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--queue);
-  transition: transform 0.15s, background 0.15s;
+.relay-mode {
+  all: unset;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 16px;
+  color: var(--queue);
+  cursor: pointer;
+  border-right: 1px solid var(--line);
 }
-.relay-toggle.on .relay-track {
-  border-color: var(--phosphor);
-  background: rgba(79, 176, 198, 0.18);
+.relay-mode:last-child {
+  border-right: none;
 }
-.relay-toggle.on .relay-knob {
-  transform: translateX(14px);
-  background: var(--phosphor);
+.relay-mode:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
 }
-.relay-toggle.on .relay-text {
-  color: var(--phosphor);
+.relay-mode.active {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--paper);
 }
-/* 空闲自动布防：开关没开，但 server 判人已离开，中继实际生效 */
-.relay-toggle.auto .relay-track {
-  border-color: var(--run);
-}
-.relay-toggle.auto .relay-knob {
-  background: var(--run);
-}
-.relay-toggle.auto .relay-text {
+.relay-mode.active:first-child {
+  background: rgba(224, 162, 74, 0.18);
   color: var(--run);
 }
-.relay-toggle.busy {
+.relay-mode.active:nth-child(2) {
+  background: rgba(79, 176, 198, 0.18);
+  color: var(--phosphor);
+}
+.relay-mode:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.relay-modes.busy {
   opacity: 0.6;
   cursor: progress;
 }
@@ -1054,7 +1074,7 @@ onUnmounted(() => {
   .meta-path {
     grid-column: 2;
   }
-  .head-actions .relay-text {
+  .head-actions .relay-modes {
     display: none;
   }
 }

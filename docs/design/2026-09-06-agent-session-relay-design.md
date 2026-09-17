@@ -6,6 +6,7 @@
 |---|---|---|---|
 | v0.1 | 2026-09-06 | inhere + claude | 初稿：Stop hook 阻塞中继 + server 侧会话注册/开关 + `gofer hook` 内置执行体 + `gofer init hooks` 一键装配；Claude Code 与 Codex CLI 双支持 |
 | v0.2 | 2026-09-06 | claude | **T1-T6 已落地**（jobstore `agent_sessions` + decisions additive 列 / `internal/sessionrelay` / `/v1/sessions/*` 9 端点 / `internal/hookrelay` 执行体 + `hooks/` 嵌入模板 + JSON 合并安装 / `gofer hook`·`gofer session`·`gofer init hooks` / web Sessions 分组+抽屉+铃铛来源 / skill+runbook）。容器内 **Claude Code 真机 e2e PASS**（`claude -p`：停→CLI 作答→续跑→`/off` 放行，见 runbook §5）。落地偏差：`SetRelay(off)` 先置 idle 再过期 turn 再落开关（并发观察一致性）；`WaitTurn` 观察到 answered 时也把会话置 running；`init hooks` 用 `--output <dir>` 指定项目目录。TBD-1/2/4 见 §11 更新；Codex 真机待主机验证 |
+| v0.3 | 2026-09-17 | inhere + claude | **R1/R2 落地**（bd h-aii-1hmo）：开关 bool → 三态 `relay_mode: auto\|on\|off`（旧 `relay=1→on` / `0→auto`；`relay` 列留作 `mode=='on'` 的镜像给旧二进制）；`auto` 由 server 判定：判据一 = 键盘空闲（`session.auto_relay_idle_sec`，旧 `server.session_auto_relay_idle_sec` 仅作别名 + warn 一次），判据二 = **距本会话上次人工输入**（`session.auto_relay_turn_sec`，新列 `last_human_at`）——专治"键盘在主机、hook 在容器里探不到"；判定结果以 `wait_reason`（mode_on / idle_probe / turn_age）回给 hook。判据二的等待无读数可探，人回来时靠 `UserPromptSubmit` / `Interrupt` 事件由 server 释放（`released_by=user_returned`），设计细节见 `../runbook/session-relay.md` |
 
 > 关联：[`2026-07-18-session-handoff-and-pty-ux-design.md`](2026-07-18-session-handoff-and-pty-ux-design.md) Part A §11（hooks 通知中心，T7 未实施）与 Part C（决策通道，已落地 `tools-frx`）。本设计**取代 §11 的"裸终端不可远程作答"边界结论**，并吸收 §5 `adopted_sessions` 为统一的会话注册表。
 

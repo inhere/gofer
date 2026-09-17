@@ -18,30 +18,46 @@ Codex 额外条件：`config.toml` 里 `[features] hooks = true`（旧版本键�
 
 ## 2. 日常使用
 
+开关是**三态**（按会话存在 server，缺省 `auto`）：
+
+| mode | 含义 | 怎么结束等待 |
+|---|---|---|
+| `on` | 每次停下都在 web 等你回复（显式开关） | 终端输入（降回 `auto`）、web 回复 `/off`、`gofer session relay off` |
+| `off` | 从不等；已打开的 turn 被释放 | — |
+| `auto`（缺省） | server 按下面两条判据决定本次停下要不要等 | 见「判据」 |
+
+`auto` 的两条判据（各自显式写 `0` = 关闭该判据）：
+
+1. **键盘空闲**（`session.auto_relay_idle_sec`，默认 300s）：hook 上报的键鼠空闲 ≥ 阈值 ⇒ 布防；人一碰键鼠 ⇒ 放行。
+2. **距上次人工输入**（`session.auto_relay_turn_sec`，默认 900s，R2）：**探测不到键盘时**（容器 / 无 X11，空闲值恒为 -1）改用本会话的 `last_human_at`（SessionStart 与非注入的 UserPromptSubmit 会刷新）⇒ 布防；放行靠人的动作：按 Esc，或直接在终端输入一条（`UserPromptSubmit`/`Interrupt` 事件到达即把 turn 关成 `EXPIRED` + `released_by=user_returned`）。
+
 | 时机 | 做法 |
 |---|---|
 | 要离开 | 对 agent 说"打开中继"，或自己敲 `gofer session relay on`（同目录多个会话时按提示加 `--session`） |
 | 在外面 | gofer web → 会话页（`/sessions`）：等回复的会话置顶，打开抽屉看最后一条消息，底部输入框回复；铃铛里「会话」条目也可内联作答 |
-| 让它停下 | web 回复 `/off`：关中继，agent 正常结束回合 |
-| 回到电脑 | 终端里任意输入一条即自动关中继；或 `gofer session relay off` |
-| 忘了开 | web 会话列表拨开开关 → 下一次回合结束生效；会话已空闲则需终端输入一次 |
+| 让它停下 | web 回复 `/off`：关掉中继（mode=off），agent 正常结束回合 |
+| 回到电脑 | 终端里任意输入一条（`on` → 降回 `auto`，`auto` 的等待直接释放）；或 `gofer session relay off` / `auto` |
+| 忘了开 | `auto` 模式两条判据会自动布防（容器靠判据二）；要显式开就在 web 会话列表点 `on`，**下一次回合结束**生效；会话已空闲则需终端输入一次 |
 
-CLI 等价面：`gofer session ls / show <id> / say <id> "<回复>" / rm <id>`（id 可用前 8 位）。
+CLI 等价面：`gofer session ls / show <id> / say <id> "<回复>" / rm <id>`（id 可用前 8 位）；`ls` 的 RELAY 列显示 `on` / `off` / `auto`，auto 且当前在等时显示 `auto·wait(i)`（键盘空闲）或 `auto·wait(t)`（距上次人工输入）；`show` 额外打印 mode 与判定依据。
 
 ## 3. 运行机制速览
 
 ```
 Stop hook → gofer hook <agent>
-  → POST /v1/sessions/{sid}/heartbeat {event:Stop, last_message}   # 关着开关: 到此结束(<300ms)
-  → relay on: POST /v1/sessions/{sid}/turns → plan_decisions(kind=relay, OPEN)
+  → POST /v1/sessions/{sid}/heartbeat {event:Stop, last_message, idle_sec}  # 不等: 到此结束(<300ms)
+       返回 wait_reason = mode_on | idle_probe | turn_age | ""(不等)
+  → 等待: POST /v1/sessions/{sid}/turns → plan_decisions(kind=relay, OPEN)
   → GET /v1/sessions/{sid}/turns/{id}?wait=25 长轮询, 直到 answered / expired / relay_off
   → answered: stdout {"decision":"block","reason":"[gofer web 回复] <文本>"} → agent 续跑
+      · idle_probe 的等待: 每 ≤5s 补一次 POST …/turns/{id}/release {idle_sec}(人回来即放行)
+      · turn_age 的等待: 不探测; 人回来时的事件(UserPromptSubmit/Interrupt)由 server 直接关 turn
 ```
 
-- 会话表 `agent_sessions`；turn 复用 `plan_decisions`（additive 列 `session_id`, `kind`）。
-- 状态：`running → idle`(Stop, 关) / `waiting_reply`(Stop, 开) / `needs_attention`(Claude Notification) / `ended`(SessionEnd)。
-- 自动关：人在终端输入（UserPromptSubmit）即关中继。harness 产生的同名事件（注入回复带 `[gofer web 回复]` 前缀、后台任务通知 `<task-notification>`、系统提醒）hook 会上报 `injected`，不会误关；`hook.log` 里能看到 `human prompt` / `harness prompt` 的判定。
-- 日志：`<config-dir>/run/hook.log`（>5MB 自动清空）；每个事件一行，含 state / relay。
+- 会话表 `agent_sessions`：开关是 `relay_mode`（auto|on|off；`relay` 列保留为 `relay_mode=='on'` 的镜像，给旧二进制读），加上 `idle_sec`（键盘空闲读数）与 `last_human_at`（判据二的锚点）。turn 复用 `plan_decisions`（additive 列 `session_id`, `kind`）。
+- 状态：`running → idle`(Stop, 不等) / `waiting_reply`(Stop, 等) / `needs_attention`(Claude Notification) / `ended`(SessionEnd)。
+- `on` → 人在终端输入（UserPromptSubmit）即降回 `auto`；`auto` 的等待在人回来时直接释放（探得到就探，探不到就靠事件）。harness 产生的同名事件（注入回复带 `[gofer web 回复]` 前缀、后台任务通知 `<task-notification>`、系统提醒）hook 会上报 `injected`：不动开关、也不当作"人回来了"；`hook.log` 里能看到 `human prompt` / `harness prompt` 的判定。
+- 日志：`<config-dir>/run/hook.log`（>5MB 自动清空）；每个事件一行，含 state / relay mode / wait reason。
 
 ## 3.1 手机提醒（可选）
 
@@ -55,7 +71,9 @@ Stop hook → gofer hook <agent>
 | 现象 | 查看 | 处理 |
 |---|---|---|
 | web 看不到会话 | `gofer session ls`；`hook.log` 有无 `SessionStart registered` | hooks 未装（`gofer init hooks`）；或 hook 进程连不上 server（`hook.log` 出现 `register failed` → 检查 `.env`）。装好后新会话才登记，老会话在下一个事件时自动补登记 |
-| 开了中继但停下时没进 web | `hook.log` 该会话最后一行 | `relay off, released` = 开关在 Stop 前被关了（多半是终端里输入过一条 → 自动关）；`open turn failed ... 409` = 同一瞬间被关 |
+| 开了中继但停下时没进 web | `hook.log` 该会话最后一行 | `relay off, released` = server 说这次不等（mode off，或 auto 的判据没成立：看 `gofer session show <id>` 的 relay 行）；`open turn failed ... 409` = 同一瞬间被关 |
+| 容器里会话不自动布防 | `gofer session show <id>` 的 relay 行 | 空闲值恒为 `-1`（无 X11）→ 走判据二：确认 `session.auto_relay_turn_sec`（默认 15 分钟）没被写成 `0`，且 `last_human_at` 不是 0 |
+| auto 判据没成立却以为会等 | `gofer session ls` 的 `auto·wait(i)` / `auto·wait(t)` | 探到键盘时以空闲值为准：人还在别的窗口打字（空闲小）就不会布防 |
 | 回复后 agent 没继续 | `hook.log` 有无 `answered (...) continuing` | 有 → agent 已收到，看终端；没有 → turn 可能已过期（`gofer session show` 里 `[EXPIRED]`），重新让它停一次 |
 | 终端一直"hook 运行中" | 正常：这就是等待 | 想直接输入按 Esc 取消；或 web 回复 `/off` |
 | Stop 后终端立刻恢复但没走中继 | `hook.log` 有 `heartbeat failed` | server 不可达，hook 按设计直接放行 |

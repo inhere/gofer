@@ -112,7 +112,7 @@ gofer init hooks [--agent claude|codex|all] [--global] [--remove] [--force]
 #   Codex 另需 config.toml [features] hooks = true(旧名 codex_hooks), 且项目 .codex/ 需 trust
 gofer session ls [-p <project>] [--state waiting_reply] [--all]   # 列会话(waiting_reply/needs_attention 置顶)
 gofer session show <id>                 # 详情 + 最近 turn(id 可用前 8 位)
-gofer session relay on|off [--session <id>]   # 省略 --session: 按当前目录反查(歧义时列出候选)
+gofer session relay auto|on|off [--session <id>]  # 省略 --session: 按当前目录反查(歧义时列出候选); auto = 缺省
 gofer session say <id> "<回复>"         # 答最新 OPEN turn; "/off" = 关中继放行
 gofer session rm <id>                   # 移除登记(turn 保留)
 gofer hook claude|codex [--wait N]      # hook 执行体(由 hooks 配置调用, 人不直接用); 日志 <config-dir>/run/hook.log
@@ -120,10 +120,13 @@ gofer hook claude|codex [--wait N]      # hook 执行体(由 hooks 配置调用,
 
 要点：
 
-- 开关在 server、按会话；hook 每次 Stop 先查开关，关着零阻塞，server 不可达也直接放行，**永不卡死终端**。
-- **空闲自动布防（SR-A5）**：hook 每次 Stop / Notification(idle_prompt) 上报"键鼠空闲秒数"（Windows `GetLastInputInfo`、macOS `ioreg HIDIdleTime`、Linux `xprintidle`；取不到或超 ~200ms = 未知）。server 的 `server.session_auto_relay_idle_sec`（默认 300s，显式 `0` = 关闭）以内没到阈值就不布防；**人离开超过阈值时，即使开关没开，Stop 也会把消息发成 turn 并在 web 等回复**（列表 relay 列显示 `auto`）。生效条件只看最近一次上报的空闲值，`-1`（未知）永不布防。
-- **人回来即放行**：自动布防的等待期间 hook 每轮（≤5s）重探空闲值并报告给 server；人一碰键鼠（空闲 < 阈值）server 就把 turn 关成 `EXPIRED` 且 `released_by=user_returned`，终端恢复正常提示符。**显式开关不受此影响**——它只由终端输入（UserPromptSubmit）或 web `/off` 关闭。
-- `UserPromptSubmit`（人在终端输入）自动把 relay 关掉；web 注入的回复虽也触发该事件，但带 `[gofer web 回复]` 前缀，hook 上报 injected，不会误关。
+- 开关在 server、按会话、**三态**（`agent_sessions.relay_mode`）：`on` 每次停下都等；`off` 从不等（已打开的 turn 释放）；`auto`（缺省）由 server 判定。hook 每次 Stop 先问 server（heartbeat 返回 `wait_reason`），不等则零阻塞，server 不可达也直接放行，**永不卡死终端**。
+- **自动布防（`auto`，两条判据；`0` 分别关闭）**：
+  1. **键盘空闲**（`session.auto_relay_idle_sec`，默认 300s）：hook 每次 Stop / Notification(idle_prompt) 上报"键鼠空闲秒数"（Windows `GetLastInputInfo`、macOS `ioreg HIDIdleTime`、Linux `xprintidle`；取不到或超 ~200ms = 未知）。空闲 ≥ 阈值 ⇒ 停下就发 turn 并在 web 等回复（`wait_reason=idle_probe`，列表显示 `auto (idle 12m)`）。
+  2. **距上次人工输入**（`session.auto_relay_turn_sec`，默认 900s，R2）：**探测不到键盘时**（容器/无 X11，`idle_sec` 恒为 -1）改用本会话的 `last_human_at`（SessionStart、以及非注入的 UserPromptSubmit 会刷新），距今 ≥ 阈值 ⇒ 同样布防（`wait_reason=turn_age`，列表显示 `auto (no input 22m)`）。这条是为"键盘在主机、hook 在容器里"的场景准备的。
+  - 探测成功时以判据一为准，不会再用判据二猜；`last_human_at = 0`（没见过人工输入）不构成布防理由。
+- **人回来即放行**：判据一的等待，hook 每轮（≤5s）重探空闲值并报告给 server，空闲 < 阈值 ⇒ turn 关成 `EXPIRED` + `released_by=user_returned`。判据二的等待没有可探的读数，靠人的动作本身：按 Esc（hook 被杀，等价放行）或在终端输入一条 —— `UserPromptSubmit` / `Interrupt` 事件到达时 server 把该会话的 OPEN turn 关成 `EXPIRED` + `released_by=user_returned`，`hook.log` 里该轮随即 `turn expired, released`。**显式 `on` 的等待不受此影响**——它只由终端输入（UserPromptSubmit 把 mode 降回 `auto`）、web `/off`、或 `session relay off` 结束。
+- `UserPromptSubmit`（人在终端输入）在 `on` 下把 mode 降回 `auto`（"人回到键盘就交还给自动判据"）；web 注入的回复虽也触发该事件，但带 `[gofer web 回复]` 前缀，hook 上报 injected，不会动开关，也不会被当成"人回来了"。
 - Stop hook 等待期间终端显示 hook 运行中；人回到电脑想直接输入可按 Esc 取消。
 - 硬边界：会话已停在空闲提示符、且人从未离开过的场景没有 hook 进程活着，web 拨开开关要等下一次 Stop；需终端输入一次（人离开过则由自动布防覆盖）。
 - turn 复用决策通道：铃铛里「会话」标签条目可直接内联作答；`gofer plan decisions --state OPEN` 也能看到（kind=relay；被"人回来"关掉的 turn 是 EXPIRED + `released_by=user_returned`）。

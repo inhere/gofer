@@ -172,20 +172,30 @@ server/worker/forwarder 都写 JSONL 文件日志（轮转、脱敏）：server 
 
 ```bash
 gofer init hooks                  # 一次性: 把 hook 写进 ./.claude/settings.json (Codex: --agent codex → ./.codex/hooks.json; --agent all 两个都写)
-gofer session relay on            # 要走了: 打开当前目录会话的中继(多个会话时按提示加 --session <id>)
-gofer session ls                  # 看哪些会话在等回复(waiting_reply 置顶)
-gofer session say <id> "<回复>"   # web 输入框的 CLI 等价; 回复 /off = 关中继并让会话正常停下
-gofer session relay off           # 回来了(终端里任意输入一条也会自动关)
+gofer session relay auto          # 回到缺省三态(server 按判据决定; 也可以 on / off, 见下)
+gofer session ls                  # 看哪些会话在等回复(waiting_reply 置顶), RELAY 列显示 on / off / auto
+gofer session say <id> "<回复>"   # web 输入框的 CLI 等价; 回复 /off = 关掉中继并让会话正常停下
+gofer session show <id>           # relay 行显示当前 mode + 判定依据(空闲多久 / 距上次人工输入多久)
 gofer init hooks --remove         # 卸载
 ```
+
+开关是**三态**（按会话存在 server，缺省 `auto`）：
+
+| mode | 含义 |
+|---|---|
+| `on` | 每次停下都在 web 等你回复（今天的显式开关）；终端有人输入、web 回复 `/off`、或 `relay off` 才关掉 |
+| `off` | 从不等；已经打开的 turn 会被释放 |
+| `auto` | server 按判据决定本次停下要不要等（下面两条） |
 
 约定：
 
 - 用户说「打开中继 / 我要离开了 / 交给 web」→ 执行 `gofer session relay on`，然后正常结束回合即可；之后每次回合结束都会在 web 等回复，直到 web 回复 `/off`、终端有人输入、或 `relay off`。
-- **忘了开也不要紧（空闲自动布防）**：hook 每次 Stop 都会上报"键鼠已空闲多少秒"，server 按 `server.session_auto_relay_idle_sec` 判定（默认 300 = 5 分钟，写 `0` = 关闭该功能）——**人离开电脑超过阈值时，即使没拨开关，会话停下也会在 web 等回复**（web 会话列表 RELAY 列显示 `auto (idle 12m)`，CLI `gofer session ls` 的 RELAY 列显示 `auto`）。
-- **人回来即放行**：自动布防的等待期间 hook 每 ≤5s 重探一次空闲值，人一碰键鼠就放行（turn 标 `released_by=user_returned`，会话回到提示符）；只有**显式**拨开的开关才靠终端输入 / `/off` 关掉。
-- 依赖：Windows/macOS 开箱可用；**Linux 需要 `xprintidle`**（X11），缺失或 Wayland/无桌面时为"未知"，只回到显式开关的行为。
-- web 会话列表里找到该会话也可以直接拨开开关，**下一次回合结束**生效（会话正在跑长任务时最常见，能接上）；已经停在空闲提示符、且人一直没离开过的会话没有 hook 在跑，仍需在终端输入一次。
+- **忘了开也不要紧（自动布防）**：`auto` 模式下 server 按两条判据自动布防，**不用拨开关**：
+  1. **键盘空闲**（`session.auto_relay_idle_sec`，默认 300 = 5 分钟，写 `0` 关）：hook 每次 Stop 上报"键鼠已空闲多少秒"，人离开超过阈值就等 web 回复（web 列表显示 `auto (idle 12m)`）。
+  2. **距上次人工输入**（`session.auto_relay_turn_sec`，默认 900 = 15 分钟，写 `0` 关）：**容器里的 hook 测不到主机键盘**（Linux 无 X11 → 空闲值恒为"未知"，这条正是为你这种场景准备的），于是改看这个会话里人最后一次输入（SessionStart / 非注入的 UserPromptSubmit）距今多久，到了阈值同样自动布防（web 列表显示 `auto (no input 22m)`）。
+- **人回来即放行**：判据一开的等待，hook 每 ≤5s 重探空闲值，人一碰键鼠就放行；判据二开的等待没有可探的东西，靠**你的动作本身**——按 Esc 结束等待，或直接在终端输入一条（UserPromptSubmit / Interrupt 事件一到达，server 就把 turn 关成 `released_by=user_returned`）。**显式 `on` 的等待不受此影响**：只有终端输入 / `/off` / `relay off` 才关。
+- 依赖：Windows/macOS 探得到键盘；**Linux 需要 `xprintidle`**（X11），缺失或 Wayland/无桌面时为"未知"——此时**自动走判据二**，不再退回到"只能手动拨开关"。
+- web 会话列表里找到该会话也可以直接点 auto / on / off 切换，**下一次回合结束**生效（会话正在跑长任务时最常见，能接上）；已经停在空闲提示符、且人一直没离开过的会话没有 hook 在跑，仍需在终端输入一次。
 - 注入的回复带前缀 `[gofer web 回复]`，与终端输入等价处理。
 - 详见 [`references/commands.md`](references/commands.md) 的「session — 终端会话中继」。
 - **想让手机响一下**：配个钉钉/飞书群机器人，事件订阅 `session.waiting`（不在默认集里，必须显式写），消息带直达会话的链接。配置见 gofer 仓库 `docs/runbook/im-notification.md`。

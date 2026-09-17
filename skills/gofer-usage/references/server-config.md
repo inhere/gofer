@@ -121,7 +121,10 @@ server:
   # governance: {...}                  # 限流全局兜底
   # max_job_timeout_sec: 3600          # job --timeout 上限(默认 1h); 超出被 clamp 且 CLI/API 明示; 项目 max_timeout_sec 可覆盖
   # job_recover_window_sec: 120        # worker 断线后 in-flight job 停在 recovering 等重连的窗口; 0 = 关(断线即 failed)
-  # session_auto_relay_idle_sec: 300   # 终端会话中继的空闲自动布防阈值; 0 = 关
+  # session_auto_relay_idle_sec: 300   # 【已迁移】顶层 session.auto_relay_idle_sec 的别名
+session:                               # 终端会话中继(SESS-01 R1/R2)的自动布防判据; 0 = 关该判据
+  # auto_relay_idle_sec: 300           # 键盘空闲 >= 阈值 → 会话停下时在 web 等回复
+  # auto_relay_turn_sec: 900           # 探测不到键盘(容器)时改看距上次人工输入的秒数
 log:                                   # 结构化 JSONL 文件日志(server 默认 <config-dir>/run/serve.log; worker 为 run/worker-<id>.log)
   # file: /var/log/gofer/serve.log     # 显式路径(打不开则启动失败); 不写=默认路径(打不开只 warn 并降级为 stderr)
   max_size_mb: 50                      # 单文件上限; 超过轮转

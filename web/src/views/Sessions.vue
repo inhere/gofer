@@ -8,7 +8,7 @@ import {
   setSessionRelay,
 } from '../api/client'
 import { fmtAgo, fmtDuration } from '../api/time'
-import type { AgentSession, AgentSessionState, PtySession } from '../api/types'
+import type { AgentSession, AgentSessionRelayMode, AgentSessionState, PtySession } from '../api/types'
 import SessionDrawer from '../components/SessionDrawer.vue'
 
 const DEFAULT_LIMIT = 50
@@ -68,18 +68,54 @@ function idleText(sec: number): string {
   return `${hours}h${String(mins % 60).padStart(2, '0')}m`
 }
 
+// RELAY_MODES 是三态开关的展示顺序（R1）。
+const RELAY_MODES: AgentSessionRelayMode[] = ['auto', 'on', 'off']
+
+// humanSilence 是人在这个会话里安静了多久（秒，-1 = 还没见过人工输入）；容器里
+// 探测不到键盘时，server 用 last_human_at 算这个值（R2）。
+function humanSilence(s: AgentSession): number {
+  if (!s.last_human_at) {
+    return -1
+  }
+  return Math.max(0, nowSec.value - s.last_human_at)
+}
+
+// relayEvidence 是 auto 判定的依据文字（R2）：键盘探得到就读空闲秒数，探不到的
+// 终端读“距上次人工输入多久”。不等待时不显示。
+function relayEvidence(s: AgentSession): string {
+  if (s.relay_mode !== 'auto' || !s.wait_reason) {
+    return ''
+  }
+  if (s.wait_reason === 'idle_probe') {
+    return `auto (idle ${idleText(s.idle_sec)})`
+  }
+  if (s.wait_reason === 'turn_age') {
+    return `auto (no input ${idleText(humanSilence(s))})`
+  }
+  return ''
+}
+
 function relayTitle(s: AgentSession): string {
   const err = relayErrors.value.get(s.session_id)
   if (err) {
     return `切换失败：${err}`
   }
-  if (s.relay) {
-    return '中继开启：会话停下时在此等你回复'
+  const reason =
+    s.wait_reason === 'mode_on'
+      ? '显式开关：每次停下都在 web 等你回复'
+      : s.wait_reason === 'idle_probe'
+        ? `键盘空闲 ${idleText(s.idle_sec)} ≥ session.auto_relay_idle_sec，本次停下会在 web 等回复`
+        : s.wait_reason === 'turn_age'
+          ? `探测不到键盘，距上次人工输入 ${idleText(humanSilence(s))} ≥ session.auto_relay_turn_sec，本次停下会在 web 等回复`
+          : '当前不等：没有判据成立，下一次停下直接放行'
+  switch (s.relay_mode) {
+    case 'on':
+      return `中继 on（显式开关）：${reason}；终端输入或 web /off 才会关掉`
+    case 'off':
+      return '中继 off：这个会话从不等 web 回复，已打开的 turn 会被释放'
+    default:
+      return `中继 auto：server 判定——${reason}；人回来（键盘 / 直接输入 / Esc）即放行`
   }
-  if (s.auto_armed) {
-    return `空闲自动布防：人已离开约 ${idleText(s.idle_sec)}，本次停下会在 web 等回复；人回到键盘即自动放行（开关本身仍是关的）`
-  }
-  return '中继关闭：拨开后下一次停下生效（server.session_auto_relay_idle_sec 开启时，人离开也会自动布防）'
 }
 
 async function loadAgentSessions(opts?: { silent?: boolean }): Promise<void> {
@@ -125,27 +161,26 @@ function onVisibility(): void {
   }
 }
 
-// 中继开关（行内）：乐观更新，失败回滚并在行内提示。
-async function onToggleRelay(s: AgentSession): Promise<void> {
-  if (relayBusyIds.value.has(s.session_id)) {
+// 中继三态开关（行内）：点击即 POST，乐观更新，失败回滚并在行内提示。
+async function onSetRelayMode(s: AgentSession, mode: AgentSessionRelayMode): Promise<void> {
+  if (relayBusyIds.value.has(s.session_id) || s.relay_mode === mode) {
     return
   }
-  const prev = s.relay
-  const next = !prev
+  const prev = s.relay_mode
   relayBusyIds.value = new Set(relayBusyIds.value).add(s.session_id)
   const errs = new Map(relayErrors.value)
   errs.delete(s.session_id)
   relayErrors.value = errs
-  s.relay = next
+  s.relay_mode = mode
   try {
-    const updated = await setSessionRelay(s.session_id, next)
+    const updated = await setSessionRelay(s.session_id, mode)
     agentSessions.value = agentSessions.value.map((it) =>
       it.session_id === updated.session_id ? updated : it,
     )
   } catch (e) {
     const cur = agentSessions.value.find((it) => it.session_id === s.session_id)
     if (cur) {
-      cur.relay = prev
+      cur.relay_mode = prev
     }
     relayErrors.value = new Map(relayErrors.value).set(
       s.session_id,
@@ -344,22 +379,21 @@ onUnmounted(() => {
             <span class="state-badge mono" :class="`state--${s.state}`">{{ agentStateLabel(s.state) }}</span>
           </span>
           <span class="a-relay" @click.stop>
-            <label
-              class="relay-toggle mono"
-              :class="{ on: s.relay, auto: !s.relay && s.auto_armed, busy: relayBusyIds.has(s.session_id) }"
-              :title="relayTitle(s)"
-            >
-              <input
-                type="checkbox"
-                :checked="s.relay"
+            <span class="relay-modes mono" :class="{ busy: relayBusyIds.has(s.session_id) }" :title="relayTitle(s)">
+              <button
+                v-for="m in RELAY_MODES"
+                :key="m"
+                type="button"
+                class="relay-mode"
+                :class="{ active: s.relay_mode === m, on: m === 'on', auto: m === 'auto' }"
                 :disabled="relayBusyIds.has(s.session_id) || s.state === 'ended'"
-                @change="onToggleRelay(s)"
-              />
-              <span class="relay-track"><span class="relay-knob"></span></span>
-              <span class="relay-text">{{ s.relay ? 'ON' : s.auto_armed ? 'AUTO' : 'OFF' }}</span>
-            </label>
-            <span v-if="s.auto_armed" class="relay-auto mono" :title="relayTitle(s)">
-              auto (idle {{ idleText(s.idle_sec) }})
+                @click="onSetRelayMode(s, m)"
+              >
+                {{ m }}
+              </button>
+            </span>
+            <span v-if="relayEvidence(s)" class="relay-auto mono" :title="relayTitle(s)">
+              {{ relayEvidence(s) }}
             </span>
             <span v-if="relayErrors.get(s.session_id)" class="relay-err mono">!</span>
           </span>
@@ -729,7 +763,7 @@ onUnmounted(() => {
     minmax(100px, 1fr)
     minmax(90px, 0.8fr)
     84px
-    78px
+    124px
     76px
     52px;
 }
@@ -806,8 +840,10 @@ onUnmounted(() => {
 }
 .a-relay {
   display: flex;
-  align-items: center;
-  gap: 5px;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-width: 0;
 }
 .relay-err {
   color: var(--fail);
@@ -836,73 +872,53 @@ onUnmounted(() => {
   border-color: var(--fail);
 }
 
-/* 中继 toggle（与 SessionDrawer 同款） */
-.relay-toggle {
-  position: relative;
+/* 中继三态开关（auto / on / off，与 SessionDrawer 同款） */
+.relay-modes {
   display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  cursor: pointer;
-  font-size: 10px;
-  color: var(--queue);
-  user-select: none;
-}
-.relay-toggle input {
-  position: absolute;
-  opacity: 0;
-  width: 0;
-  height: 0;
-}
-.relay-track {
-  position: relative;
-  width: 28px;
-  height: 14px;
-  border-radius: 7px;
   border: 1px solid var(--line);
-  transition: background 0.15s, border-color 0.15s;
+  border-radius: var(--radius);
+  overflow: hidden;
 }
-.relay-knob {
-  position: absolute;
-  top: 1px;
-  left: 1px;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  background: var(--queue);
-  transition: transform 0.15s, background 0.15s;
+.relay-mode {
+  all: unset;
+  padding: 1px 5px;
+  font-size: 10px;
+  line-height: 14px;
+  color: var(--queue);
+  cursor: pointer;
+  border-right: 1px solid var(--line);
 }
-.relay-toggle.on .relay-track {
-  border-color: var(--phosphor);
+.relay-mode:last-child {
+  border-right: none;
+}
+.relay-mode:hover:not(:disabled) {
+  background: rgba(255, 255, 255, 0.06);
+}
+.relay-mode.active {
+  background: rgba(255, 255, 255, 0.1);
+  color: var(--paper);
+}
+.relay-mode.active.auto {
   background: rgba(79, 176, 198, 0.18);
-}
-.relay-toggle.on .relay-knob {
-  transform: translateX(14px);
-  background: var(--phosphor);
-}
-.relay-toggle.on .relay-text {
-  color: var(--phosphor);
-}
-.relay-toggle.auto .relay-track {
-  border-color: var(--run);
-}
-.relay-toggle.auto .relay-knob {
-  background: var(--run);
-}
-.relay-toggle.auto .relay-text {
   color: var(--run);
 }
-/* 空闲自动布防标记：开关没开、但 server 判人已离开时中继实际生效 */
+.relay-mode.active.on {
+  background: rgba(79, 176, 198, 0.18);
+  color: var(--phosphor);
+}
+.relay-mode:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.relay-modes.busy {
+  opacity: 0.6;
+  cursor: progress;
+}
+/* auto 判定的依据：键盘空闲 / 距上次人工输入 */
 .relay-auto {
   font-size: 10px;
   color: var(--run);
   white-space: nowrap;
-}
-.relay-toggle.busy {
-  opacity: 0.6;
-  cursor: progress;
-}
-.relay-toggle input:disabled ~ .relay-track {
-  opacity: 0.5;
 }
 .empty {
   border: 1px solid var(--line);
@@ -923,7 +939,7 @@ onUnmounted(() => {
       minmax(100px, 1fr)
       minmax(90px, 0.8fr)
       84px
-      78px
+      124px
       76px
       52px;
   }

@@ -103,6 +103,9 @@ export type AgentSessionState =
   | 'needs_attention'
   | 'ended'
 
+// AgentSessionRelayMode 是会话中继开关的三态（R1）。
+export type AgentSessionRelayMode = 'auto' | 'on' | 'off'
+
 export interface AgentSession {
   session_id: string
   agent: string
@@ -114,13 +117,22 @@ export interface AgentSession {
   transcript?: string
   tmux_pane?: string
   state: AgentSessionState
-  // 中继开关：开着时 agent 停下会生成一个 OPEN turn（Decision kind=relay）等 web 回复
+  // 中继开关（R1，三态）：on 每次停下都等 web 回复；off 从不等；auto 由 server 按
+  // 键盘空闲 / 距上次人工输入的时长判定（session.auto_relay_idle_sec /
+  // auto_relay_turn_sec）。新会话默认 auto。
+  relay_mode: AgentSessionRelayMode
+  // relay 是 server 派生值：本次 Stop 会不会等（on，或 auto 的判据成立）。旧客户端读它。
   relay: boolean
-  // 空闲自动布防（SR-A5）：开关没开，但 server 侧判定人已离开 >=
-  // server.session_auto_relay_idle_sec 时自动按“开着”处理（Stop 会等 web 回复，
-  // 人回到键盘即自动放行）。idle_sec 是 hook 最近上报的系统输入空闲秒数，-1 = 未知。
+  // wait_reason 是当前判定依据：mode_on（显式开关）/ idle_probe（键盘空闲）/
+  // turn_age（探测不到键盘，距上次人工输入够久）；空 = 不等。
+  wait_reason?: 'mode_on' | 'idle_probe' | 'turn_age' | ''
+  // 空闲自动布防（SR-A5）：仅键盘空闲判据成立（wait_reason = idle_probe），
+  // idle_sec 是 hook 最近上报的系统输入空闲秒数，-1 = 未知。
   auto_armed: boolean
   idle_sec: number
+  // 最近一次【人】在这个会话里输入的时间（unix 秒，0 = 还没见过人）：容器里探测不到
+  // 键盘时，server 用它算“安静了多久”（turn_age 判据）。
+  last_human_at?: number
   turn_no: number
   last_message?: string
   last_event?: string

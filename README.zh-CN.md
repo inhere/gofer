@@ -211,7 +211,7 @@ gofer tunnel ls
 
 - **运行中交互**：agent 经 `POST /v1/jobs/{id}/interactions` 提问 → job 置 `pending_interaction` → 人 `POST …/answer` → 续跑；MCP 对应 `gofer_get_interactions` / `gofer_answer_interaction`；web 与 IM 通知（钉钉/飞书 webhook，`server.notification`）。
 - **plan 进度看板**：`gofer plan create/add-todo/set-todo`，job 用 `--plan <id>` 挂上；web Plan 页（手机可开）就是实时进度页。**决策点问人**：MCP `gofer_ask_human` 阻塞提问，人在 web 作答后答案流回 agent（超时按预案继续）。
-- **终端会话中继**：`gofer init hooks` 装 Stop/UserPromptSubmit 等 hook 后，Claude Code / Codex 会话停下时最后一条消息可发到 web「会话」页等回复，回复注入**同一个**会话继续（`gofer session relay on|off`、`gofer session say`）。**空闲自动布防**：人离开电脑超过 `server.session_auto_relay_idle_sec`（默认 300，`0` 关）时无需拨开关也会等 web 回复；人回到键盘即自动放行。Linux 需 `xprintidle`。
+- **终端会话中继**：`gofer init hooks` 装 Stop/UserPromptSubmit 等 hook 后，Claude Code / Codex 会话停下时最后一条消息可发到 web「会话」页等回复，回复注入**同一个**会话继续（`gofer session relay auto|on|off`、`gofer session say`）。开关**三态**：`on` 每次停下都等，`off` 从不等，`auto`（缺省）交给 server 判——离开键盘超过 `session.auto_relay_idle_sec`（默认 300，`0` 关）自动布防，人一碰键盘即放行；**容器里探测不到键盘**（无 X11，`xprintidle` 不可用）时改看 `session.auto_relay_turn_sec`（默认 900，`0` 关）——距本会话人最后一次输入多久，人下次输入或按 Esc 即放行。
 
 ## 日志与观测
 
@@ -245,9 +245,12 @@ server:
   allow_empty_token: false
   # max_job_timeout_sec: 3600   # job --timeout 上限；项目 max_timeout_sec 可覆盖
   # job_recover_window_sec: 120 # 断线恢复窗口；0 = 关
-  # session_auto_relay_idle_sec: 300   # 会话中继空闲自动布防；0 = 关
+  # session_auto_relay_idle_sec: 300   # 【已迁移】session.auto_relay_idle_sec 的别名
   # workers: { w-gpu: { token_env: WTOK_GPU, labels: [gpu] } }
   # callers: [ { id: docker, token_env: DOCKER_CALLER_TOKEN } ]
+session:                             # 终端会话中继: 自动布防的两条判据(0 = 关闭该判据)
+  # auto_relay_idle_sec: 300         # 键盘空闲 >= 阈值 → 会话停下时在 web 等回复
+  # auto_relay_turn_sec: 900         # 探测不到键盘(容器)? 改看距上次人工输入多久
 log:
   max_size_mb: 50
   max_age_days: 14
@@ -295,7 +298,7 @@ gofer job      run … | list … | show <id> | watch <id> | logs <id> --stream 
 gofer plan     create | list | show <id> | add-todo | set-todo | set-status | attach | ask | decisions | answer
 gofer workflow run <file.yaml> [-w] | list | show <id> | events <id> | cancel <id> | export <id>
 gofer schedule add … | list | show | enable | disable | run <id> | rm <id>
-gofer session  ls | show <id> | relay on|off | say <id> "…" | rm <id>
+gofer session  ls | show <id> | relay auto|on|off | say <id> "…" | rm <id>
 gofer tunnel   forward | check | ls | save | saved | forget
 gofer mcp      [--standalone]                        # stdio MCP server
 ```

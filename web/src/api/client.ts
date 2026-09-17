@@ -32,6 +32,7 @@ import type {
   ProjectsResp,
   PtySessionsResp,
   AgentSession,
+  AgentSessionRelayMode,
   AgentSessionState,
   AgentSessionsResp,
   SessionDetailResp,
@@ -371,11 +372,12 @@ export function getAgentSession(sid: string, turns = 50): Promise<SessionDetailR
 }
 
 // 中继开关（POST /v1/sessions/{sid}/relay，body {relay}）：返回更新后的会话。
-export function setSessionRelay(sid: string, on: boolean): Promise<AgentSession> {
+// setSessionRelay 设置会话中继开关（R1 三态 auto|on|off；POST /v1/sessions/{sid}/relay）。
+export function setSessionRelay(sid: string, mode: AgentSessionRelayMode): Promise<AgentSession> {
   return request<AgentSession>(`/v1/sessions/${encodeURIComponent(sid)}/relay`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ relay: on }),
+    body: JSON.stringify({ mode }),
   })
 }
 

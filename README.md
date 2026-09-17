@@ -212,7 +212,7 @@ Forwarder, server and worker log the same `tunnel_id`, with `dial_ms`, `first_by
 
 - **Mid-run interactions**: an agent asks via `POST /v1/jobs/{id}/interactions` → the job becomes `pending_interaction` → a human answers via `POST …/answer` → the job continues. MCP: `gofer_get_interactions` / `gofer_answer_interaction`; web and IM notifications (DingTalk / Feishu webhooks under `server.notification`).
 - **Plan boards**: `gofer plan create/add-todo/set-todo`, jobs attached with `--plan <id>`; the web Plan page (phone-friendly) is the live progress view. **Decisions**: the MCP tool `gofer_ask_human` blocks until a human answers on the web (with a timeout fallback).
-- **Terminal session relay**: after `gofer init hooks`, a Claude Code / Codex session that stops can post its last message to the web "Sessions" page and wait; the reply is injected into **the same** session (`gofer session relay on|off`, `gofer session say`). **Idle auto-arm**: once you have been away from the keyboard for `server.session_auto_relay_idle_sec` (default 300, `0` disables), the session waits for a web reply even if you forgot the switch, and releases as soon as you touch the keyboard. Linux needs `xprintidle`.
+- **Terminal session relay**: after `gofer init hooks`, a Claude Code / Codex session that stops can post its last message to the web "Sessions" page and wait; the reply is injected into **the same** session (`gofer session relay auto|on|off`, `gofer session say`). The switch is **three-state**: `on` waits on every stop, `off` never does, `auto` (the default) leaves it to the server — it arms once you have been away from the keyboard for `session.auto_relay_idle_sec` (default 300, `0` disables) and releases the moment you touch it. Where the keyboard cannot be probed at all (a container hook, no X11 → `xprintidle`), the `session.auto_relay_turn_sec` fallback (default 900, `0` disables) arms on the time since your last input in that session instead, and your next input or Esc releases it.
 
 ## Logging and observability
 
@@ -246,9 +246,12 @@ server:
   allow_empty_token: false
   # max_job_timeout_sec: 3600   # --timeout ceiling; a project's max_timeout_sec overrides it
   # job_recover_window_sec: 120 # reconnect recovery window; 0 = off
-  # session_auto_relay_idle_sec: 300   # session relay idle auto-arm; 0 = off
+  # session_auto_relay_idle_sec: 300   # LEGACY alias of session.auto_relay_idle_sec
   # workers: { w-gpu: { token_env: WTOK_GPU, labels: [gpu] } }
   # callers: [ { id: docker, token_env: DOCKER_CALLER_TOKEN } ]
+session:                             # terminal session relay: auto-arm thresholds (0 = that rule off)
+  # auto_relay_idle_sec: 300         # keyboard idle >= this -> a stopping session waits on the web
+  # auto_relay_turn_sec: 900         # no keyboard probe (container)? use the time since your last input
 log:
   max_size_mb: 50
   max_age_days: 14
@@ -296,7 +299,7 @@ gofer job      run … | list … | show <id> | watch <id> | logs <id> --stream 
 gofer plan     create | list | show <id> | add-todo | set-todo | set-status | attach | ask | decisions | answer
 gofer workflow run <file.yaml> [-w] | list | show <id> | events <id> | cancel <id> | export <id>
 gofer schedule add … | list | show | enable | disable | run <id> | rm <id>
-gofer session  ls | show <id> | relay on|off | say <id> "…" | rm <id>
+gofer session  ls | show <id> | relay auto|on|off | say <id> "…" | rm <id>
 gofer tunnel   forward | check | ls | save | saved | forget
 gofer mcp      [--standalone]                        # stdio MCP server
 ```

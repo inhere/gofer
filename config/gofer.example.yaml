@@ -45,13 +45,8 @@ server:
   #                         # 到期仍无人认领才 failed. 注意: 这是 server 侧开关, 改它需
   #                         # 重启 serve(SIGHUP 只换阈值类配置, 不重挂该窗口).
   #
-  # session_auto_relay_idle_sec: 300  # 终端会话中继的空闲自动布防阈值(秒, SR-A5).
-  #                         # hook 每次 Stop/空闲提示上报"键鼠已空闲多少秒", 到了这个
-  #                         # 阈值就【即使没人拨中继开关】也把会话停下时的消息发到 web
-  #                         # 等回复, 人一回到键盘立刻放行(web 会话列表显示 `auto
-  #                         # (idle 12m)`). 未写 = 300(5 分钟); 显式写 0 = 关闭自动布防,
-  #                         # 只认每会话的中继开关. 平台支持: Windows/macOS 开箱可用,
-  #                         # Linux 需装 xprintidle(X11), 否则视为未知、不布防.
+  # session_auto_relay_idle_sec: 300  # 【已迁移(R2)】改为顶层的 session.auto_relay_idle_sec;
+  #                         # 这里仍可读(别名), 但会 slog.Warn 一次提醒改写.
 
   # callers: multi-caller auth (C2). Each entry maps a bearer token to a caller
   # id stamped onto submitted jobs (audit / per-caller filtering). The legacy
@@ -154,6 +149,27 @@ server:
   #     - url: https://open.feishu.cn/open-apis/bot/v2/hook/xxx
   #       kind: feishu
   #       events: [session.waiting]
+
+# 终端会话中继(SESS-01 R1/R2): 会话开关是三态 auto | on | off, 按会话存在 server 侧
+# (CLI `gofer session relay on|off|auto`, web 会话页点选).
+#   on   = 每次停下都在 web 等你回复(显式开关)
+#   off  = 从不等(已打开的 turn 会被释放)
+#   auto = 缺省; server 按下面两条判据决定本次停下要不要等
+session:
+  # 判据一(键盘空闲): hook 每次 Stop / 空闲提示上报"键鼠已空闲多少秒"(Windows
+  # GetLastInputInfo / macOS ioreg HIDIdleTime / Linux xprintidle; 取不到或超时 =
+  # 未知). 人离开达到这个阈值就【即使没人拨开关】也把会话停下时的消息发到 web 等
+  # 回复, 人一回到键盘立刻放行(web 会话列表显示 `auto (idle 12m)`).
+  # 未写 = 300(5 分钟); 显式 0 = 关闭这条判据.
+  # auto_relay_idle_sec: 300
+  #
+  # 判据二(距上次人工输入, R2): 容器里的 hook 摸不到主机键盘(X11 之外一律"未知"),
+  # 这条判据不看空闲值, 改看【本会话内人最后一次输入(非注入的 UserPromptSubmit /
+  # SessionStart)距今多久】. 到阈值同样自动布防; 放行不靠探测, 而是人回来的动作
+  # 本身——按 Esc 结束等待, 或直接在终端输入一条(UserPromptSubmit / Interrupt 事件
+  # 到达即把 turn 关成 EXPIRED + released_by=user_returned).
+  # 未写 = 900(15 分钟); 显式 0 = 关闭这条判据.
+  # auto_relay_turn_sec: 900
 
 # Logging: server/worker default to JSONL files under <config-dir>/run.
 # file and dir are mutually exclusive; setting either makes failures fatal.
