@@ -244,7 +244,11 @@ func (s *Store) TouchAgentSession(sid string, hb SessionHeartbeat) (AgentSession
 		args = append(args, msg)
 	}
 	if strings.TrimSpace(hb.Title) != "" {
-		sets = append(sets, "title=CASE WHEN COALESCE(title,'')='' THEN ? ELSE title END")
+		// The hook only sends a title on a HUMAN prompt (makeTitle in hookrelay),
+		// so a non-empty title here means "the person just asked something new":
+		// the latest ask is what the web list should show, not the first one the
+		// session ever registered with.
+		sets = append(sets, "title=?")
 		args = append(args, hb.Title)
 	}
 	if hb.IdleSec != nil {

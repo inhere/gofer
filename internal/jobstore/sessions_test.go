@@ -33,16 +33,21 @@ func TestAgentSessionUpsertTouchList(t *testing.T) {
 	assert.Eq(t, "repo: fix bug", a2.Title)
 	assert.True(t, a2.Relay)
 
-	// Heartbeat: state + last_message; title only fills an empty title.
+	// Heartbeat: state + last_message; a non-empty title (sent only on a human prompt) replaces the old one.
 	a3, ok, err := s.TouchAgentSession("sid-1", SessionHeartbeat{
-		Event: "Stop", State: SessionIdle, LastMessage: "done, what next?", Title: "ignored",
+		Event: "UserPromptSubmit", State: SessionIdle, LastMessage: "done, what next?", Title: "repo: now the tests",
 	})
 	assert.NoErr(t, err)
 	assert.True(t, ok)
 	assert.Eq(t, SessionIdle, a3.State)
-	assert.Eq(t, "Stop", a3.LastEvent)
+	assert.Eq(t, "UserPromptSubmit", a3.LastEvent)
 	assert.Eq(t, "done, what next?", a3.LastMessage)
-	assert.Eq(t, "repo: fix bug", a3.Title)
+	assert.Eq(t, "repo: now the tests", a3.Title)
+
+	// A heartbeat without a title (Stop / Notification) leaves the title alone.
+	a3b, _, err := s.TouchAgentSession("sid-1", SessionHeartbeat{Event: "Stop", State: SessionIdle})
+	assert.NoErr(t, err)
+	assert.Eq(t, "repo: now the tests", a3b.Title)
 
 	_, ok, err = s.TouchAgentSession("sid-nope", SessionHeartbeat{Event: "Stop"})
 	assert.NoErr(t, err)

@@ -213,6 +213,27 @@ cwd = 本仓库根，agent = `acp-agent`，runner = local。
   即：协议层面走通、后端（claude CLI 自身会话）未起来。原因待查（claude 版本/登录态/`npx` 冷启动，或该适配器在
   无 fs/terminal 能力时的行为），S1 开局第一件事在此复现。
 
+#### claude-acp 复查（2026-09-17 深夜，最小 Node ACP 客户端逐帧）
+
+- `session/prompt` **立即**返回 JSON-RPC `-32000 Authentication required`（7.3s），不是"无 update"——S0 记录里的"420s 无 update"描述不准，runner 对 prompt 错误本就是即时 fail。
+- 适配器 `authMethods` 只有 `claude-login`（"在终端跑 `claude /login`"），`authenticate` 未实现（`-32603 Method not implemented`）；鉴权完全交给底层 Claude Agent SDK。主机 `claude auth status` 为 `loggedIn (oauth_token)`，但 SDK 自带 CLI 读不到原生安装 `claude` 的凭据（`~/.claude/.credentials.json` 不存在），job 环境也没有 `CLAUDE_CODE_OAUTH_TOKEN`/`ANTHROPIC_API_KEY`。
+- **修法已验证**：给适配器进程设 `CLAUDE_CODE_EXECUTABLE=<已登录的 claude.exe>` 后鉴权通过、prompt 真正开跑（走用户自己的 claude 配置——本机是自定义模型 `kimi-k3[1m]`），随后卡在该供应商的 `429 rate_limit` 重试（SDK 自动重试 10 次，90s 内未完成，`session/cancel` 后 `stopReason=cancelled`，取消路径正确）。
+- 配置方式：`agents.<key>.env` 已经会层叠进 acp-agent 进程环境（`os.Environ < env_files < agent.env < job.env`，与 cli-agent 同一规则），无需新代码：
+
+```yaml
+agents:
+  claude-acp:
+    type: acp-agent
+    command: npx
+    args: [-y, "@zed-industries/claude-code-acp"]
+    env:
+      CLAUDE_CODE_EXECUTABLE: C:/Users/<you>/.local/bin/claude.exe   # 复用已登录 CLI 的凭据与配置
+      # 或 headless 正规路径：`claude setup-token` 生成长期 OAuth token，放 <config-dir>/.env 再引用
+      # CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN}
+```
+
+- 待办（S1）：内置 `claude-acp` 模板默认探测 PATH 上的 `claude` 并填 `CLAUDE_CODE_EXECUTABLE`；`api_retry` 这类 SDK 侧 system 事件适配器打到 stderr（"Unexpected case"），gofer 原样落 `stderr.log` 即可。
+
 ### codex-acp（`npx -y @zed-industries/codex-acp`）⚠️ 握手与 session 通过、turn 未完成
 
 - `initialize` OK（`agentInfo.name=codex-acp`，`loadSession=true`），`session/new` OK（`sessionId=01a0ae41-…`）。
