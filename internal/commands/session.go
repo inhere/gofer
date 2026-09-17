@@ -148,9 +148,10 @@ func runSessionList(c *gcli.Command, _ []string) error {
 		c.Println("no agent sessions registered (install hooks with `gofer init hooks`)")
 		return nil
 	}
-	c.Printf("%-9s %-7s %-15s %-6s %-4s %-5s %-9s %s\n", "SESSION", "AGENT", "STATE", "RELAY", "TURN", "SEEN", "PROJECT", "TITLE")
+	// RELAY is 13 wide: `auto·wait(t)` (the longest cell) must not push the rest.
+	c.Printf("%-9s %-7s %-15s %-13s %-4s %-5s %-9s %s\n", "SESSION", "AGENT", "STATE", "RELAY", "TURN", "SEEN", "PROJECT", "TITLE")
 	for _, a := range list {
-		c.Printf("%-9s %-7s %-15s %-6s %-4d %-5s %-9s %s\n",
+		c.Printf("%-9s %-7s %-15s %-13s %-4d %-5s %-9s %s\n",
 			shortSID(a.SessionID), a.Agent, a.State, relayCell(a), a.TurnNo, ago(a.LastSeenAt), a.ProjectKey, sessionTitle(a))
 	}
 	return nil
@@ -171,14 +172,20 @@ func relayCell(a client.AgentSession) string {
 		}
 		return "auto·waiting"
 	}
+	return modeLabel(a)
+}
+
+// modeLabel is the stored switch; a pre-R1 server reports only the derived
+// boolean, which reads as `on` when it waits and `auto` otherwise (the old
+// server's boolean was exactly the explicit switch plus its own idle rule).
+func modeLabel(a client.AgentSession) string {
 	if a.RelayMode != "" {
 		return a.RelayMode
 	}
-	// Pre-R1 servers report only the derived boolean.
 	if a.Relay {
 		return "on"
 	}
-	return "off"
+	return "auto"
 }
 
 // relayDetail is the `session show` relay line: mode, whether it is waiting
@@ -235,7 +242,7 @@ func runSessionShow(c *gcli.Command, _ []string) error {
 	a := d.Session
 	c.Printf("session:  %s\nagent:    %s\nproject:  %s\nrunner:   %s\ncwd:      %s\ntitle:    %s\nstate:    %s\nrelay:    %s\nmode:     %s\nturns:    %d\nseen:     %s ago\ntranscript: %s\n",
 		a.SessionID, a.Agent, a.ProjectKey, a.Runner, a.Cwd, a.Title, a.State, relayDetail(a),
-		relayCell(a), a.TurnNo, ago(a.LastSeenAt), a.Transcript)
+		modeLabel(a), a.TurnNo, ago(a.LastSeenAt), a.Transcript)
 	if a.LastMessage != "" {
 		c.Printf("\nlast message:\n  %s\n", strings.ReplaceAll(strings.TrimSpace(a.LastMessage), "\n", "\n  "))
 	}
