@@ -312,7 +312,9 @@ agents:
   # stream-json --verbose` streams JSON events as they happen, so gofer's live log
   # shows real-time progress and a timed-out job still captured partial work. Trade-off:
   # logs are NDJSON events, not prose (the final text is the `result` event). Drop the
-  # two flags for plain-text output. Adjust the flag to your installed CLI if it differs.
+  # two flags for plain-text output — or keep them and add `output_format: ndjson` to
+  # compact the per-token stream events at capture time (see the omp entry below).
+  # Adjust the flag to your installed CLI if it differs.
   # `interactive_args: []` below adds the pty mode: a bare `claude` enters the REPL and
   # the pty owns the session (same pair the built-in claude template ships). Drop that
   # line to keep this key batch-only.
@@ -323,6 +325,32 @@ agents:
     interactive_args: []              # pty: 裸 `claude` 进 REPL
     detect:
       command: claude
+      args: [--version]
+  # omp: structured (ndjson) capture. `--mode json` streams one JSON event per line,
+  # and the per-token incremental events (message_update / tool_execution_update)
+  # make the log 10-30x bigger than it needs to be. `output_format: ndjson` filters
+  # them out AT CAPTURE time: stdout.log keeps only the events worth reading (the
+  # built-in omp whitelist: session, tool_execution_start/end, message_end, turn_end,
+  # agent_end, advisor_cost_changed; the session row is ALWAYS kept — session
+  # capture / resume read it from stdout.log), and the web job detail gains a
+  # 结构化 view over what is left. A text agent is unaffected: no `output_format`
+  # means no filtering.
+  #   output_format: text|ndjson   default text.
+  #   ndjson_keep: [<event>, ...]  event whitelist. A bare name matches the JSON
+  #                                top-level `type`; a dotted name reads a nested
+  #                                path (`message.role`). Unset = the built-in list
+  #                                for this agent (omp/claude, by key or command
+  #                                base name); explicitly empty = keep everything.
+  #   ndjson_raw: true             ALSO write every unfiltered line to
+  #                                <result_dir>/stdout.raw.log (troubleshooting
+  #                                only, off by default).
+  omp:
+    type: cli-agent
+    command: omp
+    args: [--approval-mode=yolo, --mode, json, -p, "{{prompt}}"]
+    output_format: ndjson
+    detect:
+      command: omp
       args: [--version]
   # opencode: non-interactive run; `run <prompt>` per the opencode CLI.
   # Adjust to your installed CLI if it differs. Batch only as written — the built-in

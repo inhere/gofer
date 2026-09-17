@@ -217,6 +217,7 @@ gofer tunnel ls
 
 - **文件日志**：server `<config-dir>/run/serve.log`、worker `run/worker-<id>.log`、`tunnel forward` `run/tunnels/forward-<时间>-<pid>.log`（`--log-file` / `--log-dir`，`--quiet` 只静默终端）。JSON Lines，按 `log.max_size_mb` / `max_age_days` / `max_backups` 轮转，`token`/`authorization`/`password`/`secret` 键脱敏；显式路径打不开则启动失败，默认路径打不开只 warn。unix `-d` 后台模式另有 `run/*.out.log` 旁路承接 panic 等非 slog 输出；Windows 前台/服务进程的文件日志就是唯一持久日志。
 - **事件**：每行带 `event`（`server.*` / `worker.*` / `tunnel.*` / `job.*`）、`operation_id`（进程一次运行）、`job_id` / `worker_id` / `tunnel_id`；`GOFER_LOG_LEVEL=debug|info|warn|error` 调详细度（stderr 与文件共用）。
+- **Agent 输出**：结构化输出的 agent（`omp --mode json`、`claude --output-format stream-json`）逐行输出 JSON 事件；配 `output_format: ndjson` 后 gofer 在**采集时**就丢掉逐 token 的增量事件，`stdout.log` 只留有信息量的事件（`session` 行恒保留）——体积小 10~30 倍，web 详情还能按时间线渲染（`ndjson_keep` 调白名单，`ndjson_raw` 另存未过滤的 `stdout.raw.log`；保留/丢弃行数落在 `ndjson_kept` / `ndjson_dropped`）。
 - **API**：`GET /v1/runners` 健康名册；`GET /v1/jobs` 过滤、`/v1/jobs/{id}/stream` SSE 实时日志 + 状态 + 交互、`/logs/{stdout,stderr}` 尾部 256KB、`/diff`、`/artifacts`、`/events`；`GET /v1/metrics`。
 - **审计**：`caller_id`（谁提交，由 token 解析、服务端覆盖防伪）+ `worker_id` / `worker_instance_id`（在哪执行）随 job 入库；`storage.retention` 周期清理超期/超量的终态 job。
 
