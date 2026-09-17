@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # acp-agent 类型（ACP-01）与审批门 / 人工验收（GATE-01）设计
 
-> 状态：Approved 0.2 / 实施中（2026-09-17 人工批准；IM 双向审批暂不做）
+> 状态：Approved 0.3 / 实施中（2026-09-17 人工批准；IM 双向审批暂不做；S1 已合入，S2/S3 语义细化见文末）
 
 ## 修订记录
 
@@ -9,6 +9,7 @@
 |---|---|---|---|
 | 0.1 | 2026-09-17 | Claude | 初稿：以 Agent Client Protocol 统一驱动 claude/codex/gemini/omp；ACP 的 permission 请求作为审批门输入；job 级 needs_review 验收态 |
 | 0.2 | 2026-09-17 | Claude | 人工批准。决策：IM 侧只做通知不做双向审批（当前 bot 只能发不能收）；`read_only`（bd h-aii-0ql3）并入 S2；补协议细节（JSON-RPC 2.0、stdio 换行分隔、`protocolVersion` 整数、ToolKind 取值）与 S0 的可测试性要求（仓内假 ACP server 测试替身） |
+| 0.3 | 2026-09-17 | Claude | S1 审批门合入后的 S2/S3 语义细化（实施依据）：resume 的 `session/load` 失败不回退新 session、`acp.load_session:false` 声明不可续；`--read-only` 的 cli 侧沙箱参数 `read_only_args` 内置取值（codex `-s read-only`、claude `--permission-mode plan`）、内置 acp 模板不硬编只读 mode id、同一 job 不可升级；`needs_review` 非终态但"已结束"（`IsFinished`），accept→done、reject→新增终态 `rejected`，`job.needs_review` 进通知默认集，accept 仅 user caller、MCP 只有 reject |
 
 ## 背景与目标
 
@@ -175,6 +176,27 @@ job 取消时解卡、`WaitAnswer` 契约；`internal/worker` 的 **worker→hub
 实测方式：仓库内假 server（`gofer-testcmd acp-fake`）+ 本地 `job.Service`（`t.TempDir()`），
 真 agent（omp/gemini/claude-acp）仍需人工在 web 上点一次按钮才能验（S0 已记：本机 omp 在该配置下
 不自发 `request_permission`，故 S1 用假 server 覆盖）。`gofmt`/`go build`/`go vet`/全量 `go test ./...` 均绿。
+
+## S2 / S3 语义细化（0.3，实施依据）
+
+### S2 resume / read_only
+
+- **acp-agent 的 resume**：`job resume` 不再走 exec 载体，而是以原 acp-agent key 新开 job，`ACPRequest.LoadSessionID = 源 session_id`，runner 用 `session/load` 代替 `session/new`。`agentCapabilities.loadSession=false` 或 load 返回 method-not-found → **明确失败**（不偷偷开新 session 让 agent 在无上下文下"继续"）。agent 配置可声明 `acp.load_session: false`（"别试"），此时 `job resume` 直接报不支持；自动续投（v0.42）对 acp-agent 同样适用。
+- **load 只在续投链路触发**：普通 `job run` 即使带 `session_id` 也不 load（`ResumedFrom` 非空才填 `LoadSessionID`）。
+- **worker 路径**：`Dispatch` 增 `session_id` / `read_only`；旧版本 worker 忽略这两个字段（会开新 session / 不只读），hub 只记 warn。
+- **`--read-only`**（bd h-aii-0ql3）：
+  - exec agent → 拒绝；cli-agent → 追加 `read_only_args`（用户配置覆盖内置；内置：codex `-s read-only`，claude `--permission-mode plan`；omp 视 `--help` 实测），批处理与交互 argv 都追加；无参数可用 → 提交时拒绝并提示配置项。
+  - acp-agent → `acp.modes.read_only` 映射到 agent 的 mode id，在 prompt 前 `session/set_mode`；agent 报告的 `availableModes` 不含该 id → 明确失败。**内置四家模板不硬编只读 mode id**（S0 实测：omp 只有 default/plan，claude-acp 只有 plan 接近，codex-acp 无 modes），由用户按自己的 agent 配置。
+  - `read_only` 持久化到 job 行并随 resume 继承；同一 job 链内没有"升级为可写"的入口。
+
+### S3 needs_review
+
+- `needs_review` 是**非终态**（不进 retention、`job resume` 要求先 accept/reject），但 agent 进程已经结束：新增 `IsFinished(status) = IsTerminal || needs_review`，供 `job watch`/SSE `end`、attach、serve 重启的 inflight/adoption（不当 running 去 recover）、内存 entry 驱逐使用。
+- 进入条件：仅 agent 正常 `done` 且 job 带 `review`（`--review` / 项目 `require_review` / workflow 步骤 `review` 覆盖）；failed/cancelled/timeout 不进。进入时记 `job.needs_review`（**不**记 `job.terminal`），不触发 workflow 推进/重试/自动续投。
+- 验收判定只在 hub 做（worker job 也经 hub 的 finish 收尾），`Dispatch` 不带 review 字段。
+- `accept` → `done`（记 `job.reviewed{accepted}` + `job.terminal{done}`，再走 finish 的后置钩子）；`reject` → **新增终态 `rejected`**（枚举尾部追加；workflow 聚合按 failed；retention 按终态；自动续投/重试不对 rejected 触发）。`reject --resume` 以 note 为 prompt 走 `job resume`。审计字段 `require_review/reviewed_by/reviewed_at/review_note`。
+- 权限：HTTP accept/reject 仅 `user` caller（worker 403），`governance.require_answer_capability` 开启时需 `can_answer`；MCP **不提供 accept**，只有 `gofer_reject_job`。
+- 通知：`job.needs_review` 加入 `DefaultTriggerEvents`（与 `interaction.created` 同类的"需要人"信号，只在开了 review 的 job 上发生）；`job.reviewed` 可显式订阅。
 
 ## 决策（待批准）
 
