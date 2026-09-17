@@ -14,11 +14,15 @@ const jobStatuses: JobStatus[] = [
   'running',
   'recovering', // RECOV-01：worker 断线 held 中（非终态）
   'pending_interaction',
+  // GATE-01 S3：人工验收（非终态，等人裁决）——统计里必须出现，否则一个等人验收的 job
+  // 在首页看起来像"什么都没发生"。
+  'needs_review',
   'queued',
   'done',
   'failed',
   'cancelled',
   'timeout',
+  'rejected',
 ]
 
 let timer: number | null = null
@@ -69,9 +73,13 @@ function jobCount(status: JobStatus): number {
   return stats.value?.jobs.by_status[status] ?? 0
 }
 
-// pending_interaction 芯片显示缩写 pending（列宽限制），完整状态放 title。
+// 长状态名在芯片里显示缩写（列宽限制），完整状态放 title。
+const SHORT: Partial<Record<JobStatus, string>> = {
+  pending_interaction: 'pending',
+  needs_review: 'review',
+}
 function shortStatus(status: JobStatus): string {
-  return status === 'pending_interaction' ? 'pending' : status
+  return SHORT[status] ?? status
 }
 
 // chipTitle 只给被缩写的芯片挂 tooltip；其余状态名本身就是全称，无需悬停提示。

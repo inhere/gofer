@@ -561,6 +561,25 @@ export function cancelJob(id: string): Promise<Job> {
   })
 }
 
+// 人工验收（GATE-01 S3）：accept 接受交付物（needs_review → done，可带备注）；
+// reject 拒绝（needs_review → rejected，reason 必填），resume 时以原因为 prompt 续投
+// 新 job（后端返回 resume_job_id，前端据此跳转）。二者仅人类可调用（服务端按 caller 判定）。
+export function acceptJob(id: string, note?: string): Promise<Job> {
+  return request<Job>(`/v1/jobs/${encodeURIComponent(id)}/accept`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note: note ?? '' }),
+  })
+}
+
+export function rejectJob(id: string, reason: string, resume = false): Promise<Job & { resume_job_id?: string }> {
+  return request<Job & { resume_job_id?: string }>(`/v1/jobs/${encodeURIComponent(id)}/reject`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ note: reason, resume }),
+  })
+}
+
 // session 续跑（session-capture P2）：续投新 job 续接源 job 的底层 agent 会话。
 // body {prompt}；后端同 runner、自动继承源 job 的 plan_id（归入同 plan 血缘，P4/T8）。
 // 返回新 job（其 session_id 链回源会话，plan_id 继承源 job）。前端据此跳转新 job 详情。
@@ -852,6 +871,10 @@ const STATUS_COLOR: Record<JobStatus, string> = {
   // token：--run 就是"job 仍由 worker 持有、还没结束"的活信号色，两个几乎一样的黄只会让
   // 调度板上多一个看不出区别的色值；区分靠徽标文案与信号形态（见 StatusBadge/Signal）。
   recovering: 'var(--run)',
+  // GATE-01 S3：needs_review = "等人裁决"（与待应答同族的琥珀色，醒目但不同于 running 的
+  // 活信号）；rejected = 终态失败族（人明确拒绝，用它自己的红）。
+  needs_review: 'var(--phosphor)',
+  rejected: 'var(--fail)',
 }
 
 export function statusColor(status: JobStatus): string {

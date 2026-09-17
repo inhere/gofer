@@ -15,6 +15,8 @@ import AttachTerminal from '../components/AttachTerminal.vue'
 import {
   answerInteraction,
   cancelJob,
+  acceptJob,
+  rejectJob,
   downloadArtifact,
   downloadPtyRecording,
   fetchArtifactBlob,
@@ -270,8 +272,8 @@ async function onPunt(iid: string): Promise<void> {
   }
 }
 
-// 终态集合
-const TERMINAL: JobStatus[] = ['done', 'failed', 'cancelled', 'timeout']
+// 终态集合（rejected = GATE-01 S3：人拒绝，与 failed 一样是终态，只是不会被自动重试/续投）
+const TERMINAL: JobStatus[] = ['done', 'failed', 'cancelled', 'timeout', 'rejected']
 function isTerminal(s: JobStatus | undefined): boolean {
   return s != null && TERMINAL.includes(s)
 }
@@ -516,6 +518,46 @@ async function loadSessionJobs(): Promise<void> {
     sessionJobs.value = [...resp.jobs].sort((a, b) => a.started_at - b.started_at)
   } catch {
     sessionJobs.value = []  // 链表是增强信息，拉取失败静默降级，不打断详情页
+  }
+}
+
+// 人工验收（GATE-01 S3）：needs_review 的 job 由人裁决。accept 直接通过（可留备注）；
+// reject 必须写理由，可选"拒绝后自动续投"——后端以该理由为 prompt 续投新 job，前端跳过去继续看。
+const showReviewCard = computed(() => status.value === 'needs_review')
+const reviewing = ref(false)
+const reviewError = ref('')
+const rejectOpen = ref(false)
+const rejectNote = ref('')
+const rejectResume = ref(false)
+
+async function doAccept(): Promise<void> {
+  if (reviewing.value) return
+  reviewing.value = true
+  reviewError.value = ''
+  try {
+    applyStatus(await acceptJob(props.id))
+  } catch (e) {
+    reviewError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    reviewing.value = false
+  }
+}
+
+async function doReject(): Promise<void> {
+  if (reviewing.value || !rejectNote.value.trim()) return
+  reviewing.value = true
+  reviewError.value = ''
+  try {
+    const res = await rejectJob(props.id, rejectNote.value.trim(), rejectResume.value)
+    // 源 job 的裁决已落库（rejected）；续投成功则跳转新 job 继续盯。
+    applyStatus(res)
+    if (res.resume_job_id) {
+      void router.push(`/jobs/${encodeURIComponent(res.resume_job_id)}`)
+    }
+  } catch (e) {
+    reviewError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    reviewing.value = false
   }
 }
 
@@ -1118,6 +1160,22 @@ onUnmounted(() => {
         <span class="meta-k mono">read_only</span>
         <span class="meta-v mono">只读（agent 不能写文件）</span>
       </div>
+      <!-- 人工验收（GATE-01 S3）：是否要求人验收 + 已经做出的裁决（谁/何时/为什么）。
+           needs_review 时 reviewed_* 为空，正说明还没人裁。 -->
+      <div v-if="job.require_review" class="meta-item">
+        <span class="meta-k mono">require_review</span>
+        <span class="meta-v mono">需要人验收</span>
+      </div>
+      <div v-if="job.reviewed_by" class="meta-item">
+        <span class="meta-k mono">reviewed_by</span>
+        <span class="meta-v mono"
+          >{{ job.reviewed_by }}<template v-if="job.reviewed_at"> · {{ fmtTime(job.reviewed_at) }}</template></span
+        >
+      </div>
+      <div v-if="job.review_note" class="meta-item">
+        <span class="meta-k mono">review_note</span>
+        <span class="meta-v mono">{{ job.review_note }}</span>
+      </div>
       <!-- WT-01：受管 worktree。commits_ahead>0 = 分支上已有提交、还没合回基线分支，
            这就是"job 干完了但代码还没合"的可视信号。 -->
       <div v-if="job.worktree_path" class="meta-item">
@@ -1153,6 +1211,49 @@ onUnmounted(() => {
       连接断开：{{ streamError }}
       <button class="reconnect" type="button" @click="manualReconnect">点击重连</button>
     </p>
+
+    <!-- 验收卡（GATE-01 S3）：needs_review 时 agent 已停、交付物等人定论。 -->
+    <section v-if="job && showReviewCard" class="review-card">
+      <div class="outcome-block">
+        <div class="outcome-head">
+          <span class="outcome-k mono">人工验收</span>
+          <span class="outcome-actions">
+            <button class="resume-go mono" type="button" :disabled="reviewing" @click="doAccept">
+              {{ reviewing ? '处理中…' : '验收通过' }}
+            </button>
+            <button class="resume-btn mono" type="button" @click="rejectOpen = !rejectOpen">
+              {{ rejectOpen ? '收起' : '拒绝…' }}
+            </button>
+          </span>
+        </div>
+        <p class="review-hint mono">
+          agent 已完成，但交付物还没人定论：通过即标记 done；拒绝必须写明理由。
+        </p>
+        <div v-if="rejectOpen" class="resume-form">
+          <textarea
+            v-model="rejectNote"
+            class="resume-input mono"
+            rows="3"
+            placeholder="拒绝理由（必填；勾选自动续投时它会作为续投指令）"
+          ></textarea>
+          <label class="review-check mono">
+            <input v-model="rejectResume" type="checkbox" />
+            <span>拒绝后自动续投（以理由为 prompt 起一个新 job）</span>
+          </label>
+          <div class="resume-actions">
+            <button
+              class="resume-go mono"
+              type="button"
+              :disabled="reviewing || !rejectNote.trim()"
+              @click="doReject"
+            >
+              {{ reviewing ? '处理中…' : '确认拒绝' }}
+            </button>
+          </div>
+        </div>
+        <span v-if="reviewError" class="resume-err mono">{{ reviewError }}</span>
+      </div>
+    </section>
 
     <!-- 渲染命令：独立于「产出与审计」，running 态只要后端给出 rendered_command 即展示。 -->
     <section v-if="renderedCommand" class="rendered-command">
@@ -1626,6 +1727,26 @@ onUnmounted(() => {
 .chain-toggle:hover {
   background: var(--phosphor);
   color: var(--ink);
+}
+/* 验收卡（GATE-01 S3）：沿用 resume 系列的输入/按钮样式，只补卡片与复选行。 */
+.review-card {
+  margin-top: 12px;
+}
+.review-hint {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--queue);
+}
+.review-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--paper);
+  cursor: pointer;
+}
+.review-check input {
+  accent-color: var(--phosphor);
 }
 .resume-form {
   grid-column: 1 / -1;

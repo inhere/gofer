@@ -39,10 +39,13 @@ const statusOptions: Array<{ value: '' | JobStatus; label: string }> = [
   // RECOV-01：worker 断线 held 中（非终态），等同一进程重连
   { value: 'recovering', label: 'recovering' },
   { value: 'pending_interaction', label: '⚠ 待应答' },
+  // GATE-01 S3：人工验收——agent 干完等人裁决（非终态）。
+  { value: 'needs_review', label: '⚠ 待验收' },
   { value: 'done', label: 'done' },
   { value: 'failed', label: 'failed' },
   { value: 'cancelled', label: 'cancelled' },
   { value: 'timeout', label: 'timeout' },
+  { value: 'rejected', label: 'rejected' },
 ]
 
 // since 相对预设 -> 秒偏移；请求时换算成绝对 unix 秒（started_at >= now-offset）。
@@ -77,10 +80,13 @@ const statusCounts = computed<Record<JobStatus, number>>(() => {
     running: 0,
     recovering: 0,
     pending_interaction: 0,
+    // GATE-01 S3：needs_review 是"等人"的非终态（和待应答一样要出现在表头统计里）。
+    needs_review: 0,
     done: 0,
     failed: 0,
     cancelled: 0,
     timeout: 0,
+    rejected: 0,
   }
   for (const job of countJobsLoaded.value ? countJobs.value : jobs.value) {
     base[job.status] += 1
@@ -96,11 +102,15 @@ const runningCount = computed(
         // RECOV-01 recovering 仍是「活」job（worker 还在跑/等重连），计入 active 才不会
         // 让一个跑了几十分钟的 job 在表头看起来已经结束。
         job.status === 'recovering' ||
-        job.status === 'pending_interaction',
+        job.status === 'pending_interaction' ||
+        // GATE-01 S3：needs_review 也是「等人」的活信号（agent 已停，但交付物还没定论）。
+        job.status === 'needs_review',
     ).length,
 )
 const problemCount = computed(
-  () => jobs.value.filter((job) => job.status === 'failed' || job.status === 'timeout').length,
+  () =>
+    jobs.value.filter((job) => job.status === 'failed' || job.status === 'timeout' || job.status === 'rejected')
+      .length,
 )
 const pageNumber = computed(() => Math.floor(offset.value / PAGE_SIZE) + 1)
 const canPrevPage = computed(() => offset.value > 0)

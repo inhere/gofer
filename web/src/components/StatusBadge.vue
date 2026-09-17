@@ -7,15 +7,19 @@ import type { JobStatus } from '../api/types'
 const props = defineProps<{ status: JobStatus }>()
 
 const dotColor = computed(() => statusColor(props.status))
-// queued/cancelled 共用 --queue，cancelled 视觉上压暗以区分
-const dim = computed(() => props.status === 'cancelled')
+// queued/cancelled 共用 --queue，cancelled 视觉上压暗以区分（rejected 也压暗：
+// 与 cancelled 一样是"没交付"的终态，不该和 done/failed 抢注意力）。
+const dim = computed(() => props.status === 'cancelled' || props.status === 'rejected')
 
-// 文案映射：多数状态直接用原值，pending_interaction 用「⚠ 待应答」提示
+// 文案映射：多数状态直接用原值，pending_interaction/needs_review 用「⚠ ...」提示
+// （两者都是"等人"的信号，只是等的动作不同：答问题 vs 验收）。
 const LABELS: Partial<Record<JobStatus, string>> = {
   pending_interaction: '⚠ 待应答',
+  needs_review: '⚠ 待验收',
 }
 const label = computed(() => LABELS[props.status] ?? props.status)
-const attention = computed(() => props.status === 'pending_interaction')
+// needs_review 同样脉冲：agent 干完了，现在轮到人。
+const attention = computed(() => props.status === 'pending_interaction' || props.status === 'needs_review')
 </script>
 
 <template>

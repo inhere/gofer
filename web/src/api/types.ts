@@ -11,6 +11,11 @@ export type JobStatus =
   // RECOV-01：worker 连接断开后 job 被 held（非终态），等同一 worker 进程在窗口内重连续接；
   // 窗口超时/换实例 → failed(worker_lost)。枚举尾部追加，与后端 job.StatusRecovering 对齐。
   | 'recovering'
+  // GATE-01 S3：人工验收。needs_review = agent 正常完成但等人 accept/reject（非终态、
+  // 但进程已结束：它和 pending_interaction 一样"等人"，只是等的不是 agent 继续跑）；
+  // rejected = 人拒绝（终态），与 failed 一样算失败但不会被自动重试/续投。
+  | 'needs_review'
+  | 'rejected'
 
 export interface Job {
   id: string
@@ -25,6 +30,13 @@ export interface Job {
   // 只读 job（bd h-aii-0ql3，后端 omitempty）：cli-agent 走 read_only_args 沙箱参数、
   // acp-agent 走 session/set_mode；列表打 [只读] 徽章、详情展示一行。
   read_only?: boolean
+  // 人工验收（GATE-01 S3，后端 omitempty）：require_review=该 job 要人验收（正常完成
+  // 落在 needs_review）；reviewed_by/at/note=已经做出的裁决（谁/何时/为什么）。needs_review
+  // 时后者为空，正说明还没人裁。
+  require_review?: boolean
+  reviewed_by?: string
+  reviewed_at?: number
+  review_note?: string
   // 仅 job 详情端点计算；list 端点无该字段。
   can_attach?: boolean
   exit_code: number

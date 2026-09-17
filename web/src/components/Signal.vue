@@ -18,8 +18,9 @@ const props = defineProps<{
 
 const isRunning = computed(() => props.status === 'running')
 const isQueued = computed(() => props.status === 'queued')
-// 待应答：非终态等待用户输入，复用 queued 的点阵提示（不显示终态横线）
-const isWaiting = computed(() => props.status === 'pending_interaction')
+// 待应答/待验收：非终态等待人的输入（答问题 / 验收裁决），复用 queued 的点阵提示
+// （不显示终态横线——GATE-01 needs_review 的进程已结束，但对人的意义仍是"等待中"）
+const isWaiting = computed(() => props.status === 'pending_interaction' || props.status === 'needs_review')
 // RECOV-01 recovering：worker 断线、host 侧 held 中（等同一进程重连），也是「等待」而非终态——
 // 不并入 waiting 分支就会落到终态横线 + 时长的渲染，让一个还在跑的 job 看起来已经结束。
 const isRecovering = computed(() => props.status === 'recovering')
@@ -60,7 +61,7 @@ const durationText = computed(() => fmtDuration(props.durationSec ?? null))
     <span
       v-else-if="isQueued || isWaiting || isRecovering"
       class="queued"
-      :aria-label="isWaiting ? 'pending interaction' : isRecovering ? 'recovering' : 'queued'"
+      :aria-label="isWaiting ? 'waiting for a human' : isRecovering ? 'recovering' : 'queued'"
     >
       <span class="dot"></span><span class="dot"></span><span class="dot"></span>
     </span>
