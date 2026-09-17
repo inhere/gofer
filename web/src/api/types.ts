@@ -168,6 +168,15 @@ export interface SessionDetailResp {
   turns: Decision[]
 }
 
+// POST /v1/sessions/{sid}/deliver（设计 §9.1 选路）：回复去了哪里。
+// path='turn' = 答了当前 OPEN turn（decision_id 是该 turn）；path='tmux' = 被内部
+// job 敲进终端（job_id 是那个 job，decision_id 是审计行）。
+export interface SessionDeliverResult {
+  path: 'turn' | 'tmux'
+  job_id?: string
+  decision_id?: string
+}
+
 export type AttachServerFrame =
   | { t: 'hello'; write: boolean; cols: number; rows: number }
   // pty 尺寸变更广播（tools-3xy）：写者 resize 后 serve 推给所有 viewer，客户端跟随。
@@ -629,6 +638,9 @@ export interface Decision {
   kind?: 'relay' | string
   // 未作答关闭的原因（SR-A5）：'user_returned' = 人回到键盘，自动布防的等待被放行
   released_by?: string
+  // 非 turn 投递的审计 JSON（§9.1 A）：'{"path":"tmux","job_id":"…"}' —— 这条消息
+  // 没有等待中的 turn，是被直接敲进终端的。真 turn 为空。
+  detail?: string
 }
 
 // job 生命周期事件（E13，append-only）。GET /v1/jobs/{id}/events 与 SSE event 帧。

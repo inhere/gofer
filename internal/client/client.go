@@ -1590,3 +1590,30 @@ func (c *Client) SaySession(sid, answer string) (Decision, error) {
 func (c *Client) DeleteSession(sid string) error {
 	return c.doJSON(http.MethodDelete, "/v1/sessions/"+url.PathEscape(sid), nil, nil)
 }
+
+// SessionDeliverResult is POST /v1/sessions/{sid}/deliver's answer: where the
+// reply went. Path "turn" means it answered the session's OPEN turn (decision_id
+// is that turn); "tmux" means it was typed into the session's terminal by an
+// internal job (job_id is that job, decision_id its audit row). See
+// sessionrelay.PathTurn / PathTmux.
+type SessionDeliverResult struct {
+	Path       string `json:"path"`
+	JobID      string `json:"job_id,omitempty"`
+	DecisionID string `json:"decision_id,omitempty"`
+}
+
+// DeliverSession sends a reply to a session that is NOT waiting for one
+// (POST /v1/sessions/{sid}/deliver, design §9.1): an OPEN turn is answered like
+// SaySession, otherwise the text is typed into the session's tmux pane. A 409
+// means the session cannot be reached (its body names the reason: no_runner /
+// no_tmux / ended), 502 that the injection failed, 400 that the text is empty or
+// over 8KB.
+func (c *Client) DeliverSession(sid, text string) (SessionDeliverResult, error) {
+	body, err := json.Marshal(map[string]string{"text": text})
+	if err != nil {
+		return SessionDeliverResult{}, fmt.Errorf("encode deliver: %w", err)
+	}
+	var out SessionDeliverResult
+	err = c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/deliver", bytes.NewReader(body), &out)
+	return out, err
+}

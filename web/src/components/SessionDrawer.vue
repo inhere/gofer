@@ -13,7 +13,9 @@ import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import {
+  ApiError,
   deleteAgentSession,
+  deliverSession,
   getAgentSession,
   saySession,
   setSessionRelay,
@@ -44,6 +46,8 @@ const turns = ref<Decision[]>([])
 const loading = ref(false)
 const error = ref('')
 const actionError = ref('')
+// actionInfo 是成功回执（"已送入终端 ✓"）：与错误分开，避免下一帧被覆盖。
+const actionInfo = ref('')
 const draft = ref('')
 const sending = ref(false)
 const relayBusy = ref(false)
@@ -122,7 +126,11 @@ function escapeHtml(text: string): string {
 // 时间线：最旧在上、最新在下
 const timeline = computed(() => [...turns.value].reverse())
 const openTurn = computed(() => turns.value.find((t) => t.state === 'OPEN') ?? null)
-const canSend = computed(() => !!openTurn.value && !sending.value && session.value?.state !== 'ended')
+// canSend：当前这封消息能不能发出去 —— 有 OPEN turn 就是作答，没有就是"送到终端"
+// （§9.1 A 的 tmux 注入）。会话结束后两者都不行。
+const canSend = computed(() => !sending.value && session.value?.state !== 'ended')
+// toTerminal：这封消息走的是注入路径（没有 turn 在等），占位与回执据此切换。
+const toTerminal = computed(() => !openTurn.value)
 
 const titleText = computed(() => {
   const s = session.value
@@ -283,6 +291,7 @@ async function setRelayMode(mode: AgentSessionRelayMode): Promise<void> {
   const prev = s.relay_mode
   relayBusy.value = true
   actionError.value = ''
+  actionInfo.value = ''
   s.relay_mode = mode
   try {
     const updated = await setSessionRelay(s.session_id, mode)
@@ -305,17 +314,43 @@ async function send(): Promise<void> {
   }
   sending.value = true
   actionError.value = ''
+  actionInfo.value = ''
   try {
-    await saySession(props.sid, text)
+    if (openTurn.value) {
+      await saySession(props.sid, text)
+      actionInfo.value = '已回复 agent ✓'
+    } else {
+      // 没有 turn 在等：走选路端点，服务端把消息敲进该会话的 tmux（§9.1 A）。
+      const res = await deliverSession(props.sid, text)
+      actionInfo.value = res.path === 'tmux' ? '已送入终端 ✓' : '已回复 agent ✓'
+    }
     draft.value = ''
     await load({ silent: true })
     scrollToBottom()
     emit('changed')
   } catch (e) {
-    actionError.value = `发送失败：${errorMessage(e)}`
+    actionError.value = toTerminal.value
+      ? `发送到终端失败：${deliverErrorMessage(e)}`
+      : `发送失败：${errorMessage(e)}`
   } finally {
     sending.value = false
   }
+}
+
+// deliverErrorMessage 把服务端的原因码翻成能照做的提示：no_tmux 是当前唯一
+// 有替代路径的情况（2-B 的 pty 接管），其余原样把服务端的话带出来。
+function deliverErrorMessage(e: unknown): string {
+  const code = e instanceof ApiError ? `${e.code ?? ''} ${e.detail ?? ''}` : String(e)
+  if (code.includes('no_tmux')) {
+    return '该会话不在 tmux 中；请在 tmux 里启动会话，pty 接管（B）待阶段 2-B'
+  }
+  if (code.includes('no_runner')) {
+    return '该会话未登记执行机：容器内需起一个 gofer worker，并把 GOFER_HOOK_RUNNER 指向它'
+  }
+  if (code.includes('ended')) {
+    return '会话已结束'
+  }
+  return errorMessage(e)
 }
 
 function onKeydown(ev: KeyboardEvent): void {
@@ -359,6 +394,7 @@ watch(
     draft.value = ''
     error.value = ''
     actionError.value = ''
+    actionInfo.value = ''
     expanded.value = new Set()
     void load().then(scrollToBottom)
     startPolling()
@@ -563,19 +599,29 @@ onUnmounted(() => {
 
       <div class="composer">
         <p v-if="actionError" class="error mono">{{ actionError }}</p>
+        <p v-else-if="actionInfo" class="receipt mono">{{ actionInfo }}</p>
         <textarea
           v-model="draft"
           class="composer-input mono"
           rows="3"
           :disabled="!canSend"
-          :placeholder="canSend ? '回复 agent…（Ctrl/Cmd+Enter 发送；输入 /off 关闭中继，让会话正常停下）' : '会话未在等待回复'"
+          :placeholder="
+            session?.state === 'ended'
+              ? '会话已结束'
+              : openTurn
+                ? '回复 agent…（Ctrl/Cmd+Enter 发送；输入 /off 关闭中继，让会话正常停下）'
+                : '发送到终端（tmux）…（Ctrl/Cmd+Enter 发送；会话没有在等回复，消息直接敲进终端）'
+          "
           @keydown="onKeydown"
         ></textarea>
         <div class="composer-foot mono">
           <span class="hint">
             <template v-if="openTurn">回复将原样进入 agent 上下文；输入 <code>/off</code> 关闭中继并让会话正常停下。</template>
             <template v-else-if="session?.state === 'ended'">会话已结束。</template>
-            <template v-else>会话未在等待回复{{ session && session.relay_mode === 'off' ? '（中继 off，从不等回复）' : '（下一次停下若判据成立即生效）' }}。</template>
+            <template v-else-if="toTerminal">
+              会话没有在等回复：消息直接送入终端（需要会话跑在 tmux 里，且登记了执行机）{{ session && !session.tmux_pane ? '——本会话未登记 tmux pane' : '' }}。
+            </template>
+            <template v-else>会话未在等待回复。</template>
           </span>
           <button
             class="act act--primary mono"
@@ -583,7 +629,7 @@ onUnmounted(() => {
             :disabled="!canSend || !draft.trim()"
             @click="send"
           >
-            {{ sending ? '发送中…' : '发送' }}
+            {{ sending ? '发送中…' : toTerminal ? '送入终端' : '发送' }}
           </button>
         </div>
       </div>
@@ -1029,6 +1075,16 @@ onUnmounted(() => {
 }
 .composer .error {
   margin: 0;
+}
+/* 成功回执（已送入终端 ✓）：绿色一边，和错误同位置同尺寸，避免布局跳动 */
+.composer .receipt {
+  color: var(--done);
+  font-size: 12px;
+  border: 1px solid currentcolor;
+  border-radius: var(--radius);
+  padding: 6px 10px;
+  margin: 0;
+  word-break: break-word;
 }
 .composer-input {
   width: 100%;

@@ -422,3 +422,63 @@ func (s *Server) handleSessionSay(c *rux.Context) {
 	}
 	c.JSON(http.StatusOK, toDecisionView(d))
 }
+
+// deliverStatus maps a Deliver failure to its HTTP status. A session that cannot
+// be reached is a 409 (the client can act: use tmux, or the takeover path once
+// 2-B lands) — except an injection that was dispatched and FAILED, which is the
+// server's side of the wire: 502.
+func deliverStatus(err error) int {
+	reason := sessionrelay.DeliverReason(err)
+	switch {
+	case reason == "":
+		return relayStatus(err)
+	case strings.HasPrefix(reason, sessionrelay.InjectFailedPrefix):
+		return http.StatusBadGateway
+	default:
+		return http.StatusConflict
+	}
+}
+
+type sessionDeliverReq struct {
+	Text string `json:"text"`
+}
+
+// handleSessionDeliver routes a reply to a session that is not waiting
+// (POST /v1/sessions/{sid}/deliver, design §9.1): an OPEN turn is answered as
+// `say` does, otherwise the text is typed into the session's tmux pane (path A).
+// 409 when the session cannot be reached (no runner / no tmux / ended) — the
+// response body says which — 502 when the injection itself failed, 400 when the
+// text is empty or over 8KB.
+//
+// Only a human caller may drive a terminal: a worker token is refused (a worker
+// runs jobs, it does not answer for a person).
+func (s *Server) handleSessionDeliver(c *rux.Context) {
+	if !s.relayReady(c) {
+		return
+	}
+	if callerKindFromCtx(c) == callerKindWorker {
+		writeError(c, http.StatusForbidden, "deliver not permitted for this caller",
+			"worker tokens cannot deliver: only a human drives a terminal session")
+		return
+	}
+	var body sessionDeliverReq
+	if err := c.BindJSON(&body); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	res, err := s.relay.Deliver(c.Req.Context(), c.Param("sid"), body.Text, callerFromCtx(c))
+	if err != nil {
+		// An undeliverable session reports its reason code in the envelope's short
+		// error string, so a client can act on it without parsing the message
+		// (the web reads that field as `code`: no_tmux ⇒ offer the takeover path).
+		if reason := sessionrelay.DeliverReason(err); reason != "" {
+			writeError(c, deliverStatus(err), "deliver failed: "+reason, err.Error())
+			return
+		}
+		writeError(c, deliverStatus(err), "deliver failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{
+		"path": res.Path, "job_id": res.JobID, "decision_id": res.DecisionID,
+	})
+}

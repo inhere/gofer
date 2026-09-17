@@ -25,6 +25,10 @@ var sessionRelayOpts = struct {
 	session string
 }{}
 
+var sessionSayOpts = struct {
+	deliver bool
+}{}
+
 // NewSessionCmd builds the `session` command group: the human/CLI face of the
 // session relay (SESS-01 §6.2) — list registered terminal agent sessions, flip
 // a session's relay switch, answer a waiting turn.
@@ -72,12 +76,14 @@ func NewSessionCmd() *gcli.Command {
 			},
 			{
 				Name: "say",
-				Desc: "Answer a session's waiting turn from the CLI (same as the web input box)",
+				Desc: "Answer a session's waiting turn from the CLI (same as the web input box; --deliver also reaches an idle session in tmux)",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.AddArg("id", "session id (prefix ok when unique)", true)
 					c.AddArg("text", "the reply text (`/off` releases the session and turns relay off)", true)
+					c.BoolOpt(&sessionSayOpts.deliver, "deliver", "", false,
+						"route the reply: answer the OPEN turn if there is one, else type it into the session's tmux pane (§9.1 A)")
 				},
 				Func: runSessionSay,
 			},
@@ -335,11 +341,32 @@ func runSessionSay(c *gcli.Command, _ []string) error {
 		return err
 	}
 	text := c.Arg("text").String()
+	if sessionSayOpts.deliver {
+		return runSessionDeliver(c, cli, sid, text)
+	}
 	d, err := cli.SaySession(sid, text)
 	if err != nil {
 		return err
 	}
 	c.Printf("answered turn %s (%s)\n", d.ID, d.Title)
+	return nil
+}
+
+// runSessionDeliver is `session say --deliver`: the routed send of design §9.1.
+// An OPEN turn is answered; otherwise the text goes to the session's terminal, so
+// a session that is merely idle (no hook waiting) is still reachable. Failures
+// come back verbatim: the server's message names the reason code
+// (no_runner / no_tmux / ended / inject_failed:…) and what to do about it.
+func runSessionDeliver(c *gcli.Command, cli *client.Client, sid, text string) error {
+	res, err := cli.DeliverSession(sid, text)
+	if err != nil {
+		return err
+	}
+	if res.Path == "tmux" {
+		c.Printf("typed into the terminal (job %s)\n", res.JobID)
+		return nil
+	}
+	c.Printf("answered turn %s\n", res.DecisionID)
 	return nil
 }
 

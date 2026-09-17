@@ -36,6 +36,7 @@ import type {
   AgentSessionState,
   AgentSessionsResp,
   SessionDetailResp,
+  SessionDeliverResult,
   RebuildBody,
   RedactedRequest,
   ReposResp,
@@ -388,6 +389,18 @@ export function saySession(sid: string, answer: string): Promise<Decision> {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ answer }),
+  })
+}
+
+// 送话到会话（POST /v1/sessions/{sid}/deliver，body {text}，设计 §9.1 选路）：
+// 有 OPEN turn 就当作答（path=turn），否则把文本敲进会话的 tmux pane（path=tmux，
+// job_id 为注入 job）。会话够不着时 409，body.error 带原因码
+// （no_runner / no_tmux / ended），注入失败 502，文本超 8KB 400。
+export function deliverSession(sid: string, text: string): Promise<SessionDeliverResult> {
+  return request<SessionDeliverResult>(`/v1/sessions/${encodeURIComponent(sid)}/deliver`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ text }),
   })
 }
 
