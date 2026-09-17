@@ -35,8 +35,8 @@ func TestPolicyVersionConstants(t *testing.T) {
 	if MinProtocolVersion != 2 {
 		t.Fatalf("MinProtocolVersion = %d, want 2 (must not rise — would evict existing workers)", MinProtocolVersion)
 	}
-	if CurrentProtocolVersion != 6 {
-		t.Fatalf("CurrentProtocolVersion = %d, want 6 (resume/read-only dispatch fields)", CurrentProtocolVersion)
+	if CurrentProtocolVersion != 7 {
+		t.Fatalf("CurrentProtocolVersion = %d, want 7 (resume/read-only + priming dispatch fields)", CurrentProtocolVersion)
 	}
 	if PolicyMinProtocolVersion != 4 {
 		t.Fatalf("PolicyMinProtocolVersion = %d, want 4", PolicyMinProtocolVersion)
@@ -76,6 +76,39 @@ func TestSupportsSessionLoad(t *testing.T) {
 	if SessionLoadMinProtocolVersion > CurrentProtocolVersion {
 		t.Fatalf("SessionLoadMinProtocolVersion = %d is newer than this build's %d",
 			SessionLoadMinProtocolVersion, CurrentProtocolVersion)
+	}
+}
+
+// TestSupportsInitialInput: path B's priming dispatch fields are negotiated exactly
+// like the other capability constants — a worker below the version that added them
+// keeps registering and running jobs, it just ignores initial_input (so a takeover's
+// first message is never typed), which is why the hub warns instead of failing the
+// dispatch.
+func TestSupportsInitialInput(t *testing.T) {
+	cases := []struct {
+		proto int
+		want  bool
+	}{
+		{0, false}, // pre-federation (never registers anyway)
+		{MinProtocolVersion, false},
+		{SessionLoadMinProtocolVersion, false},      // v6: resume fields, no priming
+		{InitialInputMinProtocolVersion - 1, false}, // the last version without it
+		{InitialInputMinProtocolVersion, true},      // first version with it
+		{CurrentProtocolVersion, true},              // this build understands it
+		{CurrentProtocolVersion + 1, true},          // a newer worker still has it
+	}
+	for _, tc := range cases {
+		if got := SupportsInitialInput(tc.proto); got != tc.want {
+			t.Fatalf("SupportsInitialInput(%d) = %v, want %v", tc.proto, got, tc.want)
+		}
+	}
+	if InitialInputMinProtocolVersion <= SessionLoadMinProtocolVersion {
+		t.Fatalf("InitialInputMinProtocolVersion = %d, want above the resume-fields version %d",
+			InitialInputMinProtocolVersion, SessionLoadMinProtocolVersion)
+	}
+	if InitialInputMinProtocolVersion > CurrentProtocolVersion {
+		t.Fatalf("InitialInputMinProtocolVersion = %d is newer than this build's %d",
+			InitialInputMinProtocolVersion, CurrentProtocolVersion)
 	}
 }
 

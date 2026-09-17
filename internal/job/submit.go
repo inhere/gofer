@@ -185,6 +185,16 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	runReq.Interactive = req.Interactive
 	runReq.Cols = req.Cols
 	runReq.Rows = req.Rows
+	// Path B priming (session relay §9.1 B): the takeover job's first message is
+	// typed into the pty once its terminal settles. The quiet window is resolved
+	// HERE, from the same config snapshot as every other admitted value, so a
+	// dispatched worker (Forward below) uses the window this server decided rather
+	// than re-deriving one from its own config.
+	runReq.InitialInput = req.InitialInput
+	runReq.InitialInputQuietMs = req.InitialInputQuietMs
+	if req.InitialInput != "" && runReq.InitialInputQuietMs == 0 {
+		runReq.InitialInputQuietMs = cfg.EffectiveSessionTakeoverInputDelayMs()
+	}
 	if remote {
 		runReq.Forward = &runner.Forward{
 			ProjectKey: req.ProjectKey,
@@ -202,12 +212,16 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// The ADMITTED deadline (clamped above), not the raw request: the server
 			// owns admission, so a remote execution must not re-admit 2h for a request
 			// this server already cut to 1h (bd h-aii-s9ck).
-			TimeoutSec:        timeoutSec,
-			Interactive:       req.Interactive,
-			Cols:              req.Cols,
-			Rows:              req.Rows,
-			ResumeSourceAgent: req.ResumeSourceAgent,
-			SystemPrompt:      req.SystemPrompt,
+			TimeoutSec:  timeoutSec,
+			Interactive: req.Interactive,
+			Cols:        req.Cols,
+			Rows:        req.Rows,
+			// Path B priming rides to the executor, whose pty starts the resumed
+			// TUI: the text and the quiet window travel together (see above).
+			InitialInput:        runReq.InitialInput,
+			InitialInputQuietMs: runReq.InitialInputQuietMs,
+			ResumeSourceAgent:   req.ResumeSourceAgent,
+			SystemPrompt:        req.SystemPrompt,
 			// ACP-01 S2: a continuation reaches a remote executor with its session and
 			// lineage so the worker's local job resolves the same session/load. Empty for
 			// a plain job (a bare session_id is not a resume).

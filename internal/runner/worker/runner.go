@@ -244,6 +244,10 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// bd h-aii-0ql3: the worker applies the read-only mode with its own agent config
 		// (and its own admission, which refuses the job if that agent has no mode).
 		ReadOnly: f.ReadOnly,
+		// Session relay §9.1 B: the worker starts the pty, so path B's priming text
+		// and the quiet window the hub resolved travel with the dispatch.
+		InitialInput:        f.InitialInput,
+		InitialInputQuietMs: f.InitialInputQuietMs,
 	}
 	// ACP-01 S2: a continuation carries its session + lineage so the worker's local
 	// job resolves the same session/load. Set ONLY for a resume — a plain job's
@@ -262,6 +266,15 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 			slog.Warn("worker runner: target worker predates the resume/read-only dispatch fields; it will open a new session / run writable",
 				"worker_id", workerID, "worker_proto", proto, "job_id", req.JobID,
 				"resume", f.ResumedFrom != "", "read_only", f.ReadOnly)
+		}
+	}
+	// Same negotiation for path B's priming: a worker below v7 silently drops the
+	// fields, so the takeover's first message never reaches the resumed TUI. Say so
+	// per dispatch — failing the job would not make the worker type anything.
+	if f.InitialInput != "" {
+		if proto, ok := r.hub.WorkerProtocol(workerID); ok && !wsproto.SupportsInitialInput(proto) {
+			slog.Warn("worker runner: target worker predates the initial-input dispatch fields; the takeover message will not be typed into the session",
+				"worker_id", workerID, "worker_proto", proto, "job_id", req.JobID)
 		}
 	}
 	if err := r.hub.Dispatch(workerID, d); err != nil {

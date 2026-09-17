@@ -85,6 +85,11 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		Cols:              d.Cols,
 		Rows:              d.Rows,
 		ResumeSourceAgent: d.ResumeSourceAgent,
+		// Session relay §9.1 B: the pty started here, so the hub's priming text and
+		// the quiet window it resolved come from the dispatch — the worker does not
+		// re-derive them from its own config. Both are empty on a pre-v7 hub's frame.
+		InitialInput:        d.InitialInput,
+		InitialInputQuietMs: d.InitialInputQuietMs,
 		// ACP-01 S2: a continuation's session + lineage (both empty on a plain
 		// dispatch, and both absent entirely from a pre-S2 hub's frame). ResumedFrom
 		// is what makes SessionID a session/load rather than a plain binding.

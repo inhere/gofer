@@ -30,8 +30,10 @@ const (
 	// stays registered, it just cannot be sent a policy frame (negotiated per peer via
 	// SupportsPolicy), so no already-deployed worker is evicted by shipping this frame.
 	// v5 adds the TCP tunnel frames; v6 adds the resume/read-only dispatch fields
-	// (session_id/resumed_from/read_only — see SessionLoadMinProtocolVersion).
-	CurrentProtocolVersion = 6
+	// (session_id/resumed_from/read_only — see SessionLoadMinProtocolVersion); v7 adds
+	// the priming dispatch fields (initial_input/initial_input_quiet_ms — see
+	// InitialInputMinProtocolVersion).
+	CurrentProtocolVersion = 7
 )
 
 // ReloadMinProtocolVersion is the first protocol version that carries the config
@@ -71,6 +73,20 @@ const SessionLoadMinProtocolVersion = 6
 // SupportsSessionLoad reports whether a peer that registered with protocol version
 // proto understands the resume dispatch fields (session_id/resumed_from).
 func SupportsSessionLoad(proto int) bool { return proto >= SessionLoadMinProtocolVersion }
+
+// InitialInputMinProtocolVersion is the first protocol version whose Dispatch carries
+// initial_input/initial_input_quiet_ms — path B's priming text and quiet window
+// (session relay §9.1 B). Same negotiation rule as the other capability constants: a
+// worker below it stays fully usable, it just ignores the additive fields, which costs
+// it exactly the priming (the resumed TUI opens with the message missing, and the
+// human's next input arrives by hand). The hub cannot type it from its side — the pty
+// is the worker's — so a dispatch that needs priming to a peer below this version is
+// reported per dispatch (a warning), never failed.
+const InitialInputMinProtocolVersion = 7
+
+// SupportsInitialInput reports whether a peer that registered with protocol version
+// proto understands the priming dispatch fields.
+func SupportsInitialInput(proto int) bool { return proto >= InitialInputMinProtocolVersion }
 
 // TunnelOpen requests a worker to open a TCP tunnel (protocol v5).
 type TunnelOpen struct {
@@ -277,8 +293,15 @@ type Dispatch struct {
 	// (cli-agent argv sandbox / acp-agent session/set_mode). The worker validates it
 	// against its OWN agent config. An OLD worker ignores the field and runs the job
 	// writable (see SessionLoadMinProtocolVersion).
-	ReadOnly   bool   `json:"read_only,omitempty"`
-	RelayNonce string `json:"relay_nonce,omitempty"`
+	ReadOnly bool `json:"read_only,omitempty"`
+	// InitialInput / InitialInputQuietMs carry path B's priming text and quiet
+	// window (session relay §9.1 B): the worker starts the pty, so the text the hub
+	// wants typed and the window it resolved must arrive with the dispatch. A hub
+	// that predates them omits the keys and the worker behaves as before (nothing
+	// is primed).
+	InitialInput        string `json:"initial_input,omitempty"`
+	InitialInputQuietMs int    `json:"initial_input_quiet_ms,omitempty"`
+	RelayNonce          string `json:"relay_nonce,omitempty"`
 	// PtySessionID is the host-minted relay session id the worker echoes back in
 	// its pty-connect hello so the serve endpoint can strong-check it against the
 	// binding (httpapi/pty_connect_handler; D-P2-4). Empty on non-interactive.

@@ -378,6 +378,11 @@ type SessionConfig struct {
 	// because the human may have that pane in an editor by the time the web sends
 	// a message.
 	InjectCommands []string `yaml:"inject_commands,omitempty"`
+	// TakeoverInputDelayMs is path B's priming delay (design §9.1 B): how long
+	// the resumed TUI is given to settle — after its FIRST output and then with no
+	// new output for this long — before the web reply is typed into it. Unset
+	// keeps the default; 0 types the reply as soon as the TUI has drawn anything.
+	TakeoverInputDelayMs *int `yaml:"takeover_input_delay_ms,omitempty"`
 }
 
 // DefaultSessionAutoRelayIdleSec is the idle-detection auto-arm threshold used
@@ -415,6 +420,21 @@ func (c *Config) EffectiveAutoRelayTurnSec() int {
 		return DefaultSessionAutoRelayTurnSec
 	}
 	return *c.Session.AutoRelayTurnSec
+}
+
+// DefaultSessionTakeoverInputDelayMs is path B's priming delay when
+// session.takeover_input_delay_ms is unset: a terminal that has stopped
+// painting for 1.5s has drawn its prompt, and typing earlier would race the
+// TUI's own startup output.
+const DefaultSessionTakeoverInputDelayMs = 1500
+
+// EffectiveSessionTakeoverInputDelayMs resolves path B's quiet window in
+// milliseconds (see SessionConfig.TakeoverInputDelayMs).
+func (c *Config) EffectiveSessionTakeoverInputDelayMs() int {
+	if c == nil || c.Session.TakeoverInputDelayMs == nil {
+		return DefaultSessionTakeoverInputDelayMs
+	}
+	return *c.Session.TakeoverInputDelayMs
 }
 
 // legacySessionRelayWarn keeps the migration notice to one per process: config

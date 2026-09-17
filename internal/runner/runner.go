@@ -12,6 +12,13 @@ import (
 	"github.com/inhere/gofer/internal/config"
 )
 
+// EventInputInjected is the job event a runner records when it wrote priming
+// input into an interactive child's stdin (session relay §9.1 B). It lives here —
+// not in the job package — because the runner emits it and the runner package
+// cannot import job (G022); job.EventJobInputInjected aliases it, so the literal
+// has exactly one definition.
+const EventInputInjected = "job.input_injected"
+
 // Runner executes one resolved command and reports how it ended.
 type Runner interface {
 	// Name returns the runner's stable identifier (e.g. "local").
@@ -51,6 +58,16 @@ type Request struct {
 	Interactive bool
 	Cols        int
 	Rows        int
+
+	// InitialInput is text the pty runner writes to the interactive child's stdin
+	// once its terminal is ready — after the FIRST output and then a quiet window,
+	// so a TUI has drawn its prompt before the text arrives (session relay §9.1 B:
+	// the takeover job's first message). "" = nothing is written. Only the pty
+	// runner reads it; every other runner ignores it.
+	InitialInput string
+	// InitialInputQuietMs is that quiet window in milliseconds (0 = the runner's
+	// default, resolved from session.takeover_input_delay_ms by the job service).
+	InitialInputQuietMs int
 
 	// Forward carries the original (pre-resolution) request a remote runner
 	// re-submits to a peer bridge. Nil for local jobs.
@@ -281,6 +298,12 @@ type Forward struct {
 	Interactive  bool
 	Cols         int
 	Rows         int
+	// InitialInput / InitialInputQuietMs carry path B's priming text and quiet
+	// window to the EXECUTING machine (session relay §9.1 B): the pty is started
+	// there, so the text and the window the hub resolved must travel with the
+	// dispatch instead of being re-derived from the worker's own config.
+	InitialInput        string
+	InitialInputQuietMs int
 	// ResumeSourceAgent is an internal resume marker carried over trusted worker
 	// dispatch so the worker validates the exec resume carrier against the source
 	// agent. It is not part of the public HTTP job contract.

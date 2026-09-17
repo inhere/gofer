@@ -3,6 +3,8 @@
 // the store and tracks status/timeout/cancel. See plan §6.2 and §9 (P4).
 package job
 
+import "github.com/inhere/gofer/internal/runner"
+
 // JobRequest is the create-job payload. JSON tags are snake_case (plan §6.2).
 // yaml tags mirror the json names so the md+yaml frontmatter submit path
 // (design §6.2 / P1-b) reuses the same struct via goccy/go-yaml.
@@ -64,6 +66,18 @@ type JobRequest struct {
 	ReviewFixed bool `json:"-" yaml:"-"`
 	Cols        int  `json:"cols,omitempty" yaml:"cols,omitempty"`
 	Rows        int  `json:"rows,omitempty" yaml:"rows,omitempty"`
+	// InitialInput is text the pty runner types into an INTERACTIVE job's stdin
+	// once its terminal has settled (session relay §9.1 B: the first message of a
+	// `--resume` takeover). Internal: json/yaml "-" keeps it off the wire and out
+	// of request_json (it is one-shot text, not a reusable request property); the
+	// worker path carries it in wsproto.Dispatch.InitialInput instead. Renaming a
+	// request property would be the caller's fault, so the value is never rendered
+	// into argv — it goes to the child as terminal INPUT.
+	InitialInput string `json:"-" yaml:"-"`
+	// InitialInputQuietMs is the quiet window that decides when that text is
+	// written (see runner.Request.InitialInputQuietMs). Internal for the same
+	// reason; a dispatched worker receives the hub's resolved value.
+	InitialInputQuietMs int `json:"-" yaml:"-"`
 	// RecordPty requests asciinema recording for this interactive pty session.
 	// It is a per-job opt-in layered under the serve-wide storage.cast.enabled
 	// capability; false means "track session metadata only, do not write pty.cast".
@@ -441,6 +455,12 @@ const (
 	// {verdict, by, note, resume_job_id?}. It is followed by the job.terminal event of
 	// the state the decision produced (done / rejected).
 	EventJobReviewed = "job.reviewed"
+	// EventJobInputInjected is the pty runner writing priming text into an
+	// interactive child's stdin once its terminal settled (session relay §9.1 B):
+	// {bytes, written, quiet_ms, error?}. The literal lives in the runner package
+	// (which emits it and cannot import this one — G022); it is aliased here so the
+	// job event vocabulary has ONE definition and a caller may read it by name.
+	EventJobInputInjected = runner.EventInputInjected
 )
 
 // Workflow lifecycle event types (P1, design §5.4). Recorded append-only via

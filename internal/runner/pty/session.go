@@ -64,6 +64,14 @@ type PtySession struct {
 	exitCode     int
 	exitErr      error
 
+	// outMu guards the output-activity clock that path B's priming waits on
+	// (design §9.1 B). It is written by Read — the SOLE reader's goroutine — and
+	// read by the injector, so it is a separate lock from mu (which guards the
+	// state machine) and never held across a write.
+	outMu   sync.Mutex
+	outSeen bool
+	lastOut time.Time
+
 	childExited chan struct{} // closed by the wait goroutine after cmd reaped
 	teardownOne sync.Once
 	done        chan struct{} // closed when the session reaches StateClosed
@@ -109,8 +117,53 @@ func (ps *PtySession) WriteInput(b []byte) (int, error) {
 	return ps.p.Write(b)
 }
 
-// Read exposes the raw pty output stream (the relay/recorder consumes it).
-func (ps *PtySession) Read(b []byte) (int, error) { return ps.p.Read(b) }
+// Read exposes the raw pty output stream (the relay/recorder consumes it). It
+// also stamps the output-activity clock the priming wait uses (see
+// WaitOutputQuiet) — the reader is the only place that sees when the child last
+// painted, and there is exactly ONE reader (design §9.1 B).
+func (ps *PtySession) Read(b []byte) (int, error) {
+	n, err := ps.p.Read(b)
+	if n > 0 {
+		ps.outMu.Lock()
+		ps.outSeen, ps.lastOut = true, time.Now()
+		ps.outMu.Unlock()
+	}
+	return n, err
+}
+
+// WaitOutputQuiet reports that the child's terminal is ready to be typed into:
+// it has produced output and then stayed silent for quiet, OR limit has elapsed
+// since the call (a TUI that never stops repainting must not hold the message
+// forever — it is written anyway). It is how path B's first message waits for
+// the TUI to draw its prompt (design §9.1 B). false = ctx ended first.
+//
+// It polls rather than blocking on a channel: the wait is bounded by 10s, the
+// cadence is coarse on purpose (nothing here is latency-sensitive), and a poll
+// cannot be lost the way a coalescing signal can.
+func (ps *PtySession) WaitOutputQuiet(ctx context.Context, quiet, limit time.Duration) bool {
+	deadline := time.Now().Add(limit)
+	for {
+		ps.outMu.Lock()
+		seen, last := ps.outSeen, ps.lastOut
+		ps.outMu.Unlock()
+		if seen && time.Since(last) >= quiet {
+			return true
+		}
+		if !time.Now().Before(deadline) {
+			return true
+		}
+		select {
+		case <-ctx.Done():
+			return false
+		case <-time.After(quietPollInterval):
+		}
+	}
+}
+
+// quietPollInterval is how often WaitOutputQuiet re-checks the output clock. It
+// bounds the extra delay the quiet window can overshoot by, and is far below the
+// window's default (1500ms).
+const quietPollInterval = 20 * time.Millisecond
 
 // Resize forwards a window-size change to the pty.
 func (ps *PtySession) Resize(cols, rows int) error { return ps.p.Resize(cols, rows) }
