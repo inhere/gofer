@@ -371,6 +371,13 @@ type SessionConfig struct {
 	// seen no human input for this long waits anyway. It exists because the
 	// keyboard lives on the host while the hook runs in the container.
 	AutoRelayTurnSec *int `yaml:"auto_relay_turn_sec,omitempty"`
+	// InjectCommands is the foreground-process whitelist of the tmux delivery
+	// path (session relay §9.1 A, `gofer session say --deliver`): a reply is typed
+	// into a pane only when the CLI sitting there is one of these. Empty keeps the
+	// built-in list (claude|codex|omp|node|gemini|opencode) — the guard exists
+	// because the human may have that pane in an editor by the time the web sends
+	// a message.
+	InjectCommands []string `yaml:"inject_commands,omitempty"`
 }
 
 // DefaultSessionAutoRelayIdleSec is the idle-detection auto-arm threshold used

@@ -336,7 +336,8 @@ var schemaStmts = []string{
   asked_at    INTEGER NOT NULL,
   answered_at INTEGER,
   answered_by TEXT,
-  released_by TEXT
+  released_by TEXT,
+  detail      TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_plan_decisions_plan ON plan_decisions(plan_id)`,
 	`CREATE INDEX IF NOT EXISTS idx_plan_decisions_state ON plan_decisions(state)`,
@@ -801,7 +802,9 @@ func (s *Store) migratePlanTodos() error {
 // migratePlanDecisions adds the session-relay columns (SESS-01 D3) to
 // plan_decisions: session_id (owning agent session) and kind ('relay' for a
 // relay turn; NULL for a plain gofer_ask_human decision), plus released_by
-// (turn closed without an answer; see migrateAgentSessions' sibling column).
+// (turn closed without an answer; see migrateAgentSessions' sibling column) and
+// detail (the JSON audit blob of a non-turn delivery, e.g. path A's tmux
+// injection: {"path":"tmux","job_id":"…"}).
 // Old rows read back as "" via COALESCE. The per-session index is created after
 // the column exists.
 func (s *Store) migratePlanDecisions() error {
@@ -827,6 +830,11 @@ func (s *Store) migratePlanDecisions() error {
 	// released_by records a turn closed WITHOUT an answer (SR-A5: the hook saw
 	// the human return and the server released the wait). Old rows read "".
 	if err := add("released_by", "released_by TEXT"); err != nil {
+		return err
+	}
+	// detail carries the machine-readable audit of a delivery that was NOT a turn
+	// (path A's tmux injection: path + the internal job that typed the text).
+	if err := add("detail", "detail TEXT"); err != nil {
 		return err
 	}
 	if _, err := s.db.Exec(

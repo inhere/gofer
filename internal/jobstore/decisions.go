@@ -63,6 +63,10 @@ type PlanDecision struct {
 	// "user_returned" = the hook saw the human come back and released the wait).
 	// Empty for answered / timed-out turns.
 	ReleasedBy string
+	// Detail is the JSON audit blob of a delivery that was not a turn (design
+	// §9.1 A): path A's tmux injection records {"path":"tmux","job_id":"…"} — the
+	// internal job that typed the reply into the terminal. Empty for real turns.
+	Detail string
 }
 
 // DecisionKindRelay marks a decision that is a session-relay turn (the hook
@@ -73,14 +77,14 @@ const selectDecisionCols = `SELECT id, COALESCE(plan_id,''), COALESCE(title,''),
   COALESCE(question,''), COALESCE(options_json,''), COALESCE(answer,''),
   state, COALESCE(timeout_sec,1800), asked_at,
   COALESCE(answered_at,0), COALESCE(answered_by,''),
-  COALESCE(session_id,''), COALESCE(kind,''), COALESCE(released_by,'')
+  COALESCE(session_id,''), COALESCE(kind,''), COALESCE(released_by,''), COALESCE(detail,'')
   FROM plan_decisions`
 
 func scanDecision(sc rowScanner) (PlanDecision, error) {
 	var d PlanDecision
 	err := sc.Scan(&d.ID, &d.PlanID, &d.Title, &d.Question, &d.OptionsJSON,
 		&d.Answer, &d.State, &d.TimeoutSec, &d.AskedAt, &d.AnsweredAt, &d.AnsweredBy,
-		&d.SessionID, &d.Kind, &d.ReleasedBy)
+		&d.SessionID, &d.Kind, &d.ReleasedBy, &d.Detail)
 	return d, err
 }
 
@@ -133,7 +137,7 @@ func (s *Store) InsertDecision(d *PlanDecision) error {
 	if d.AskedAt == 0 {
 		d.AskedAt = s.unixNow()
 	}
-	var planID, options, sessionID, kind any
+	var planID, options, sessionID, kind, detail any
 	if d.PlanID != "" {
 		planID = d.PlanID
 	}
@@ -146,13 +150,16 @@ func (s *Store) InsertDecision(d *PlanDecision) error {
 	if d.Kind != "" {
 		kind = d.Kind
 	}
+	if d.Detail != "" {
+		detail = d.Detail
+	}
 	const q = `INSERT INTO plan_decisions
-  (id, plan_id, title, question, options_json, answer, state, timeout_sec, asked_at, answered_at, answered_by, session_id, kind)
-  VALUES (?,?,?,?,?,NULL,?,?,?,NULL,NULL,?,?)`
+  (id, plan_id, title, question, options_json, answer, state, timeout_sec, asked_at, answered_at, answered_by, session_id, kind, detail)
+  VALUES (?,?,?,?,?,NULL,?,?,?,NULL,NULL,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q, d.ID, planID, d.Title, d.Question, options,
-		d.State, d.TimeoutSec, d.AskedAt, sessionID, kind); err != nil {
+		d.State, d.TimeoutSec, d.AskedAt, sessionID, kind, detail); err != nil {
 		return fmt.Errorf("jobstore: insert decision %q: %w", d.ID, err)
 	}
 	return nil

@@ -233,6 +233,8 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// `session:` block (legacy `server.session_auto_relay_idle_sec` is read as an
 	// alias), and only the whole config can resolve them.
 	srv.SetSessionRelayPolicy(cfg.EffectiveAutoRelayIdleSec(), cfg.EffectiveAutoRelayTurnSec())
+	// §9.1 A: the commands a relay reply may be typed into (default list in the relay).
+	srv.SetSessionInjectCommands(cfg.Session.InjectCommands)
 	srv.SetBuildInfo(opts.Build)
 	// POST /v1/workers/{id}/reload: adapt the same hub to the reload seam, which also
 	// translates the hub's error taxonomy so httpapi keeps its no-wshub boundary.

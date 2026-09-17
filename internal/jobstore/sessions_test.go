@@ -193,14 +193,17 @@ func TestMigratePlanDecisionsAdditive(t *testing.T) {
 	_, hasSid := cols["session_id"]
 	_, hasKind := cols["kind"]
 	_, hasReleased := cols["released_by"]
+	_, hasDetail := cols["detail"]
 	assert.True(t, hasSid)
 	assert.True(t, hasKind)
 	assert.True(t, hasReleased)
+	assert.True(t, hasDetail)
 	old, ok, err := s.GetDecision("dec-old")
 	assert.NoErr(t, err)
 	assert.True(t, ok)
 	assert.Eq(t, "", old.SessionID)
 	assert.Eq(t, "", old.ReleasedBy)
+	assert.Eq(t, "", old.Detail)
 	// Idempotent.
 	assert.NoErr(t, s.migrate())
 }

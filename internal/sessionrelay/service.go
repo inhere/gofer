@@ -100,11 +100,20 @@ type Service struct {
 	// pollInterval is how often WaitTurn re-reads the decision while blocking.
 	pollInterval time.Duration
 	nowFn        func() time.Time
+	// injector runs the internal exec jobs of path A (deliver.go, design §9.1 A).
+	// nil = no executor wired: Deliver reports no_runner instead of pretending.
+	injector Injector
+	// injectCommands is the foreground-process whitelist of path A
+	// (session.inject_commands); empty keeps DefaultInjectCommands.
+	injectCommands []string
 }
 
 // NewService builds the relay service over the shared job store.
 func NewService(store *jobstore.Store) *Service {
-	return &Service{store: store, AutoOffOnPrompt: true, pollInterval: 500 * time.Millisecond, nowFn: time.Now}
+	return &Service{
+		store: store, AutoOffOnPrompt: true, pollInterval: 500 * time.Millisecond, nowFn: time.Now,
+		injectCommands: DefaultInjectCommands(),
+	}
 }
 
 // SetNotifier injects the outbound notifier (see Notifier). Safe to leave unset:

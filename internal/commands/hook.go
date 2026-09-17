@@ -86,21 +86,29 @@ func runHook(c *gcli.Command, _ []string) error {
 }
 
 // resolveHookRunner picks the runner label for registration: the flag/env
-// wins; in worker mode the worker.yaml worker_id; else "server".
+// wins; in worker mode the worker.yaml worker_id; in client mode nothing (see
+// below); else "server".
 //
-// Client mode (GOFER_RUN_MODE=client) deliberately takes the "server" branch: a
-// client node has no worker.yaml (only the config dir + .env), so there is no local
-// worker id to report and nothing beyond the config dir is read.
+// Client mode (GOFER_RUN_MODE=client) must NOT claim the server: a client node
+// runs the session SOMEWHERE ELSE (typically inside a container that has no
+// gofer of its own), so the honest label is the one the environment provides —
+// GOFER_HOOK_RUNNER, the worker the container runs — and otherwise empty. The
+// server reads runner="" as "this session did not say where it runs" and refuses
+// to deliver to it with a reason (design §9.1 v0.5) instead of dispatching into
+// the void.
 func resolveHookRunner(flag string) string {
 	if v := strings.TrimSpace(flag); v != "" {
 		return v
 	}
-	if config.RunMode() == config.RunModeWorker {
+	switch config.RunMode() {
+	case config.RunModeWorker:
 		if path, err := config.UserWorkerConfigPath(); err == nil {
 			if wc, err := loadWorkerConfig(path); err == nil && wc != nil && wc.WorkerID != "" {
 				return wc.WorkerID
 			}
 		}
+	case config.RunModeClient:
+		return ""
 	}
 	return "server"
 }

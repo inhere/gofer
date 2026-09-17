@@ -84,7 +84,6 @@ func TestDeliverTmuxDispatchesInjectJob(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, PathTmux, res.Path)
 	assert.Eq(t, "job-inject-1", res.JobID)
-	assert.Eq(t, "", res.DecisionID)
 
 	assert.Len(t, inj.reqs, 1)
 	req := inj.reqs[0]
@@ -109,6 +108,7 @@ func TestDeliverTmuxDispatchesInjectJob(t *testing.T) {
 	assert.Eq(t, jobstore.SessionRunning, a.State)
 
 	d := latestRow(t, s, "sid-tmux-0001")
+	assert.Eq(t, res.DecisionID, d.ID)
 	assert.Eq(t, jobstore.DecisionAnswered, d.State)
 	assert.Eq(t, "carry on", d.Answer)
 	assert.Eq(t, "alice", d.AnsweredBy)
@@ -140,7 +140,7 @@ func TestDeliverTmuxShellEscaping(t *testing.T) {
 	assert.Eq(t, 2, strings.Count(script, "send-keys -t '%3' Enter"))
 	for _, line := range strings.Split(script, "\n") {
 		if strings.Contains(line, " -l -- ") {
-			assert.True(t, strings.HasSuffix(line, "'"), line)
+			assert.True(t, strings.HasSuffix(line, "' || exit 1"), line)
 		}
 	}
 }

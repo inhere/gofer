@@ -276,6 +276,17 @@ func (s *Server) SetSessionRelayPolicy(idleSec, turnSec int) {
 	s.relay.AutoArmTurnSec = turnSec
 }
 
+// SetSessionInjectCommands injects the tmux-injection whitelist (SESS-01 §9.1 A,
+// session.inject_commands): the CLI commands a reply may be typed into. Empty
+// keeps the relay's built-in list. Like SetSessionRelayPolicy it is a no-op
+// without a relay service.
+func (s *Server) SetSessionInjectCommands(commands []string) {
+	if s.relay == nil {
+		return
+	}
+	s.relay.SetInjectCommands(commands)
+}
+
 // New builds a Server: it resolves the effective token, wires the rux router
 // (routes + auth middleware) and returns it ready to Run or hand to httptest.
 //
@@ -323,6 +334,8 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		s.relay.AutoArmIdleSec = serverCfg.EffectiveSessionAutoRelayIdleSec()
 		// job.Service is the outbound notifier (webhook queue + IM adapters).
 		s.relay.SetNotifier(jobs)
+		// job.Service also runs path A's internal injection jobs (§9.1 A).
+		s.relay.SetInjector(sessionInjector{jobs: jobs})
 	}
 	s.router = s.buildRouter()
 	return s

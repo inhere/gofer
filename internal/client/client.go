@@ -993,6 +993,10 @@ type Decision struct {
 	// ReleasedBy is set when a relay turn was closed without an answer (SR-A5,
 	// "user_returned"): the hook saw the human come back. Empty otherwise.
 	ReleasedBy string `json:"released_by,omitempty"`
+	// Detail is the JSON audit blob of a NON-turn delivery (SESS-01 §9.1 A):
+	// {"path":"tmux","job_id":"…"} when the relay typed the text into a terminal
+	// instead of answering a turn. Empty for real turns.
+	Detail string `json:"detail,omitempty"`
 }
 
 // AskDecision POSTs /v1/decisions and returns the created OPEN decision.
