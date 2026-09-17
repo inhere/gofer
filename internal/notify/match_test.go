@@ -39,6 +39,22 @@ func TestMatchWebhooksDefaultTriggerSet(t *testing.T) {
 	}
 }
 
+// TestDefaultTriggerEventsIncludeNeedsReview: a job parking for人工验收 (GATE-01 S3) is
+// a "a human must act" signal, so a webhook with no explicit event filter receives it —
+// while the follow-up decision (job.reviewed) stays opt-in (it closes a loop the
+// subscriber already opened).
+func TestDefaultTriggerEventsIncludeNeedsReview(t *testing.T) {
+	cfg := &config.NotificationConfig{
+		Webhooks: []config.WebhookConfig{{URL: "https://a"}},
+	}
+	if got := urls(MatchWebhooks(cfg, "job.needs_review", "p")); len(got) != 1 {
+		t.Errorf("job.needs_review => %v, want the default set to admit it", got)
+	}
+	if got := urls(MatchWebhooks(cfg, "job.reviewed", "p")); len(got) != 0 {
+		t.Errorf("job.reviewed should not match the default set, got %v", got)
+	}
+}
+
 func TestMatchWebhooksExplicitEvents(t *testing.T) {
 	cfg := &config.NotificationConfig{
 		Webhooks: []config.WebhookConfig{
