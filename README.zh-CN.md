@@ -101,6 +101,9 @@ gofer job list         # 填好地址与 token 即可
 gofer job run -p workspace -a codex --prompt "审查改动并给风险点"
 gofer job run -p workspace -a exec  --sync -- mvn -q test     # --sync：服务端等终态
 gofer job run -f task.md                                      # md+yaml 文件：frontmatter 定参数，正文即 prompt
+gofer job run -p workspace -a codex --review --prompt "重构解析器"  # 交付物需人验收
+gofer job accept <job-id> [--note "看着不错"]                  # needs_review → done
+gofer job reject <job-id> --note "拒绝理由" [--resume]          # → rejected；--resume 以理由为 prompt 续投
 ```
 
 ```markdown
@@ -143,7 +146,23 @@ agent 因供应商容量错误、网络抖动或超时把 job 干掉一半时，
 gofer job resume <源 job-id> --prompt "上一次运行因 <原因> 中断。先看 git status/log 判断进度，只完成剩余项，不要重做已提交部分。"
 ```
 
-前提：源 job 已终态、捕获到了 `session_id`（`job show` 可见；codex 靠输出捕获，claude 靠 `--session-id` 注入）、agent 有 resume 模板（内置 claude/codex；其他 agent 用 `session_capture` / `session_resume` 配）、同一 runner。`rerun` 则是同请求重提（新会话）。命中配置的瞬时错误模式时 server 会自动续跑一次（`server.auto_resume_max`，设为 `0` 关闭）。
+前提：源 job 已终态、捕获到了 `session_id`（`job show` 可见；codex 靠输出捕获，claude 靠 `--session-id` 注入）、agent 有 resume 模板（内置 claude/codex；其他 agent 用 `session_capture` / `session_resume` 配）、同一 runner。`rerun` 则是同请求重提（新会话）。命中配置的瞬时错误模式时 server 会自动续跑一次（`server.auto_resume_max`，设为 `0` 关闭）。（`reject --resume` 走的是同一条续投路径，只是由验收人的理由触发，而不是瞬时错误。）
+
+### 人工验收：`needs_review` 与 `job accept` / `job reject`
+
+"agent 跑完了"不等于"交付被接受"。带 `job run --review`（或项目级 `require_review: true`，或 workflow 步骤的 `review: true|false` 覆盖）的 job，agent **正常完成**后不会落 `done`，而是停在**非终态**的 `needs_review`，等人裁决：
+
+```bash
+gofer job accept <job-id> [--note "合格"]                    # → done（记 job.reviewed{accepted} + job.terminal{done}）
+gofer job reject <job-id> --note "测试还是红的"               # → rejected（终态；理由必填）
+gofer job reject <job-id> --note "测试还是红的" --resume       # 同时以该理由为 prompt 续投一个新 job
+gofer job list --status needs_review                         # 还有哪些等人验收
+```
+
+- 失败（`failed`/`cancelled`/`timeout`）**不**进验收，只有正常完成才进。`rejected` 是终态：workflow 步骤按失败聚合，**不会**被自动重试/自动续投——只有人的 `--resume` 才继续这份工作。
+- **只有人能 accept**：`POST /v1/jobs/{id}/accept|reject` 对 worker token 一律 403（开 `governance.require_answer_capability` 时还需 `can_answer`）；MCP 只提供 `gofer_reject_job`，**故意没有** accept 工具。验收入口是 web job 页的验收卡、CLI 或 HTTP。
+- `job cancel` 对 `needs_review` 返回 409——已经没东西可取消，请用 `reject`；`job resume` 同样要求先裁决。
+- 审计字段 `require_review` / `reviewed_by` / `reviewed_at` / `review_note` 落库，`job show` 与 web 页可见。`job.needs_review` 是**IM 通知默认事件**（与 `job.terminal` 同列），`job.reviewed` 需显式订阅。
 
 ## 远端执行与 worker
 

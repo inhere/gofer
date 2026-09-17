@@ -360,3 +360,73 @@ agents:
   round-trip + schema 属性）、`internal/wsproto`（Dispatch 三个字段 round-trip + 能力位）。
 - 测试替身：`acptest` 假 server 新增 `--stderr-line` / `--prompt-error`（脚本化 agent 侧错误文本，供自动续投）、`session/load`
   的 stderr 行、turn 起始标记（断言 `set_mode` 早于 prompt）；`testcmd` 新增 `argv` 子命令（回显子进程**实际收到**的 argv）。
+
+## S3 实测记录（2026-09-18）
+
+### 状态机与终态语义
+
+- 新增 `job.StatusNeedsReview = "needs_review"`（**非终态**）与 `job.StatusRejected = "rejected"`（**终态**，枚举尾部追加）。
+  `isTerminal` 收 `rejected`；新增 `IsFinished(status) = IsTerminal || needs_review`，用于 SSE `end`、attach（ticket/handler/
+  local pty observer/pty-connect）、`job watch`、CLI `--wait`/sync 轮询、`SubmitSync` 与**内存 entry 驱逐**——needs_review
+  的进程已结束，但状态刻意不终态（retention 不清、`job resume` 要求先裁决）。recovering/adoption 天然不受影响
+  （`ReconcileAdoption` 只认 `recovering`，`ReconcileOrphanJobs` 只认 queued/running/recovering）。
+- `finish()` 在 `status==done && RequireReview` 时改置 `needs_review`（**在同一个临界区里**翻状态，外部永远不会先看到 done），
+  只记 `job.needs_review{job_id,exit_code}`（**不记** `job.terminal`），persist + 驱逐，**不**触发 wf.Advance/重试/自动续投。
+- `AcceptJob` → done：记 `job.reviewed{verdict:"accepted",by,note}` + `job.terminal{status:done}`，随后走 finish 的后置钩子
+  （`wf.Advance`）。`RejectJob` → 终态 rejected：note **必填**（`ErrReviewNoteRequired`），记 reviewed + terminal；`resume`
+  时以 note 为 prompt 调 `ResumeJob`，续投 id 进 `ReviewOutcome.ResumeJobID` 与 reviewed 事件 detail（续投失败**不回滚**裁决，
+  错误单独返回）。`Cancel` 对 needs_review 返回 `ErrJobNotRunning`（HTTP 409，提示用 reject）；`resume` 复用 `ErrJobNotTerminal`
+  并在文案里提示先 accept/reject。
+- 审计字段 `JobRequest.Review` / `JobResult.RequireReview|ReviewedBy|ReviewedAt|ReviewNote` → `jobs.require_review/reviewed_by/
+  reviewed_at/review_note`（add-column 迁移，旧行读作"未要求、未验收"）。
+- 触发解析：`reviewRequested(cfg, req)`（--review 或项目 `require_review`）；`StepSpec.Review *bool` 为步骤级覆盖，显式值经
+  `JobRequest.ReviewFixed`（`json:"-"`）标记为**终审**——否则 bool 零值分不清"显式关"与"未设"，项目默认会把 `review:false` 顶回去。
+  resume 继承 `src.RequireReview`（`ReviewFixed: true`），续投链不会自证合格。
+
+### worker / peer 的边界
+
+设计写明"验收判定只在 hub 做"，但远端**本地 job 行的状态**是 Result 帧的一部分（worker 的 `streamLocalJob` 等 `IsTerminal`，
+peer 的 `errFromStatus` 把非终态当失败）。因此 `worker/dispatch.go` 与 `runner/peerhttp` 构造的 JobRequest 显式 `ReviewFixed: true`：
+远端执行机的 project `require_review` **不**作用于它只是代跑的任务，本地行照常终态并回传 Result；hub 自己的 finish 决定验收。
+
+### 入口与权限
+
+- HTTP `POST /v1/jobs/{id}/accept|reject`（可选 body `{note,resume?}`）：**worker token 403**（"只有人给交付物签字"），
+  `governance.require_answer_capability` 开启时要求 `can_answer`；`reviewStatus` 映射 404/409/400。`handleCancelJob` 新增
+  409（`ErrJobNotRunning`）分支。
+- CLI：`job accept <id> [--note]` / `job reject <id> --note … [--resume]`（note 本地必填）、`job run --review`、`job show`
+  打印 `require_review/reviewed_by/reviewed_at/review_note`；`job list --status needs_review` 复用既有 status 过滤。
+- MCP：`gofer_reject_job{job_id,note,resume?}`（`by` 记本会话 driver agent id，local 与 client backend 各一份实现），
+  **不提供**任何 accept 工具；`jobView` 增 4 个 review 字段。
+- 通知：`job.needs_review` 进 `DefaultTriggerEvents`（`job.reviewed` 需显式订阅）；IM 正文复用既有 `/jobs/{id}` Link 逻辑。
+- web：状态联合类型 + `STATUS_COLOR`/`statusCounts` 补 `needs_review`（醒目脉冲、琥珀色）与 `rejected`（压暗、失败色）；
+  Board 筛选芯片与表头计数（needs_review 计入 active、rejected 计入 problem）；Home 状态分布补两项；详情页验收卡
+  （Accept 按钮 / Reject：note 必填 + "拒绝后自动续投"复选框）与 reviewed_by/at/note 展示。`vue-tsc --noEmit` 通过。
+
+### 单测覆盖（全绿）
+
+- `internal/job`（`review_test.go`，10 条）：--review 落 needs_review 且**无** `job.terminal`、内存 entry 已驱逐、`job.needs_review`
+  detail；失败不进验收；项目级 `require_review`；accept（审计字段落库 + 事件顺序 reviewed→terminal(done)）；reject（终态 rejected；
+  **同一配置下"flaky"失败 job 确实自动续投**作为对照，证明"reject 不触发自动续投/重试、不产生衍生 job"不是空断言）；
+  `reject --resume`（续投 ResumedFrom/SessionID 正确、argv 携带 note）；cancel/resume 对 needs_review 的拒绝；
+  非 needs_review 状态与未知 id 的拒绝；reject 缺 note；空 caller 记 `anonymous`；`IsFinished` 全状态表。
+- `internal/jobstore`：review 4 列 round-trip（含 upsert 更新路径）+ 新旧库迁移列断言；`needs_review` 不被 retention 清理、
+  `rejected` 被清理。
+- `internal/job/workflow`：step `review: true` 时 job 停 needs_review → workflow **不推进**（CurrentStep 不变、不启下一步），
+  accept 后推进到 done；reject 后按失败聚合（fail-fast）；step `review:false` 覆盖项目 `require_review`。
+- `internal/httpapi`：`review:true` 提交 + GET 回显 + 未开验收仍 done；worker token accept/reject 403（user 200）；
+  governed 时无 `can_answer` 403 / 有则 200；`reject --resume` 返回 `resume_job_id` 且续投 `resumed_from` 正确；
+  缺 note 400、done job 409、未知 id 404、needs_review 的 cancel 409。
+- `internal/commands`：accept/reject 的请求路径与 body（note/resume）、缺 note 本地拒绝、`job show` review 三行、
+  `job run --review` 的 wire 字段。
+- `internal/mcpserver`：`gofer_reject_job`（含 resume 续投 + 落库断言）、本地/远程两个 backend、未知 id 报错、
+  **工具列表无任何 accept**、`TestListToolsAllPresent` 精确集合已更新。
+- `internal/notify`：`job.needs_review` 命中默认集、`job.reviewed` 不命中。
+
+### 实测方式与未覆盖
+
+仓库内 fake/`testcmd` 替身 + `t.TempDir()`：不需要真实 agent（验收是 hub 侧的状态机，与 ACP 无关），端到端路径为
+`Submit → 进程退出 → hub finish 落 needs_review → HTTP/CLI/MCP accept|reject → 终态 + 事件/审计`。`go build ./...`、
+`go vet ./...`、`go test ./...` 全绿，`vue-tsc --noEmit` 通过。
+未覆盖：IM 侧 accept/reject 双向操作（本设计已明确不做，IM 只发链接）；`reject --resume` 在 peer-http 解析（与既有 resume
+相同的 peer 限制：`ResumedFrom` 不跨公开 HTTP 契约）；web 的人工点击（无 e2e 框架，改动止于 vue-tsc 与代码审查）。

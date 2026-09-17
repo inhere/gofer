@@ -105,6 +105,9 @@ gofer job run -f task.md                                      # md+yaml: frontma
 gofer job run -p workspace -a codex --read-only --prompt "Review only: list the risks, change nothing"
                                                               # --read-only: the agent cannot write (cli sandbox
                                                               # args / acp-agent session/set_mode; inherited by resume)
+gofer job run -p workspace -a codex --review --prompt "Refactor the parser"   # a human must accept the result
+gofer job accept <job-id> [--note "looks good"]              # needs_review -> done
+gofer job reject <job-id> --note "why it is refused" [--resume]  # -> rejected; --resume continues with the note
 ```
 
 ```markdown
@@ -148,6 +151,22 @@ gofer job resume <source job-id> --prompt "The previous run was interrupted by <
 ```
 
 Requirements: the source job is terminal, it captured a `session_id` (visible in `job show`; codex via output capture, claude via `--session-id` injection), the agent has a resume template (built in for claude/codex; others via `session_capture` / `session_resume`), same runner. `rerun`, by contrast, resubmits the same request as a fresh session.
+
+### Human review: `needs_review`, `job accept` / `job reject`
+
+"Agent finished" is not "the work is accepted". With `job run --review` — or a project's `require_review: true`, or a workflow step's `review: true|false` override — a job whose agent finishes **normally** stops in the non-terminal `needs_review` state instead of `done`, and stays there until a person rules:
+
+```bash
+gofer job accept <job-id> [--note "looks good"]              # -> done (job.reviewed{accepted} + job.terminal{done})
+gofer job reject <job-id> --note "tests are red"             # -> rejected (terminal; the note is required)
+gofer job reject <job-id> --note "tests are red" --resume    # also start a continuation with the note as its prompt
+gofer job list --status needs_review                         # what is waiting on a human
+```
+
+- A failure (`failed`/`cancelled`/`timeout`) never enters review; only a normal completion does. `rejected` is terminal, is aggregated as a failure by a workflow step, and is **never** retried or auto-continued — only a person's `--resume` continues the work.
+- **Only a person can accept**: `POST /v1/jobs/{id}/accept|reject` refuses a worker token with 403 (and requires `can_answer` when `governance.require_answer_capability` is on); MCP exposes `gofer_reject_job` and deliberately **no** accept tool. Accepting happens on the web job page's review card, in the CLI, or over HTTP.
+- `job cancel` refuses a `needs_review` job (409) — there is nothing left to cancel, use `reject`. `job resume` likewise demands the review be settled first.
+- Audit fields `require_review` / `reviewed_by` / `reviewed_at` / `review_note` are persisted and shown by `job show` and the web page. `job.needs_review` is a **default IM notification event** (like `job.terminal`); `job.reviewed` can be subscribed explicitly.
 
 ## Remote execution and workers
 
@@ -309,7 +328,7 @@ gofer tunnel   forward | check | ls | save | saved | forget
 gofer mcp      [--standalone]                        # stdio MCP server
 ```
 
-Key `job run` flags: `-p/--project`, `-a/--agent`, `--runner` (default `server`; `local` is a compatibility alias; give the runner name for workers/peers), `--cwd` (relative to the project root), `--prompt` / `-- argv` / `-f task.md`, `--sync` + `--wait-timeout`, `--wait`, `--worker-id` / `--worker-labels`, `--interactive` + `--cols`/`--rows` (needs the project's `allow_interactive` and an agent with `interactive_args`), `--read-only` (the agent cannot write: cli-agent `read_only_args` — built-in `codex -s read-only` / `claude --permission-mode plan` — or acp-agent `acp.modes.read_only` → `session/set_mode`; exec agents and agents without a read-only mode are refused), `--worktree` + `--worktree-base`, `--plan`, `--tags`, `--timeout`, `--title`, `-s/--server`, `--token`.
+Key `job run` flags: `-p/--project`, `-a/--agent`, `--runner` (default `server`; `local` is a compatibility alias; give the runner name for workers/peers), `--cwd` (relative to the project root), `--prompt` / `-- argv` / `-f task.md`, `--sync` + `--wait-timeout`, `--wait`, `--worker-id` / `--worker-labels`, `--interactive` + `--cols`/`--rows` (needs the project's `allow_interactive` and an agent with `interactive_args`), `--read-only` (the agent cannot write: cli-agent `read_only_args` — built-in `codex -s read-only` / `claude --permission-mode plan` — or acp-agent `acp.modes.read_only` → `session/set_mode`; exec agents and agents without a read-only mode are refused), `--worktree` + `--worktree-base`, `--review` (a normal completion parks in `needs_review` until a human accepts or rejects it), `--plan`, `--tags`, `--timeout`, `--title`, `-s/--server`, `--token`.
 
 > Passing values across workflow steps: `${steps.N.result_dir}` is an absolute path on the executing machine and is only readable within the same filesystem; across workers/peers use `${steps.N.result}` (inline result.json ≤ 32KB) / `${steps.N.stdout}` or a shared drive.
 
