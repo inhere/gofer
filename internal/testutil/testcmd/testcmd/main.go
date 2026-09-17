@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -82,6 +83,28 @@ func main() {
 		}
 	case "printf":
 		fmt.Print(arg(2))
+	case "pty-echo":
+		// pty-echo <banner> [tick]: print the banner, then echo every stdin line as
+		// "ECHO:<line>" — the stand-in for an agent TUI in the pty tests. A tick
+		// duration makes the child keep printing "TICK:<n>" forever, i.e. a terminal
+		// that never goes quiet (the InitialInput timeout case).
+		fmt.Println(arg(2))
+		if len(os.Args) > 3 {
+			d, err := time.ParseDuration(os.Args[3])
+			must(err)
+			if d > 0 {
+				go func() {
+					for i := 1; ; i++ {
+						fmt.Printf("TICK:%d\n", i)
+						time.Sleep(d)
+					}
+				}()
+			}
+		}
+		sc := bufio.NewScanner(os.Stdin)
+		for sc.Scan() {
+			fmt.Println("ECHO:" + sc.Text())
+		}
 	case "cat-file":
 		// cat-file <path>: replay a fixture byte-for-byte on stdout (used by tests
 		// that need a realistic multi-line agent stream without argv size limits).
