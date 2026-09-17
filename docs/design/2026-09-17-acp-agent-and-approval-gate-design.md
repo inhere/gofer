@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # acp-agent 类型（ACP-01）与审批门 / 人工验收（GATE-01）设计
 
-> 状态：Approved 0.3 / 实施中（2026-09-17 人工批准；IM 双向审批暂不做；S1 已合入，S2/S3 语义细化见文末）
+> 状态：Approved 0.3 / 实施中（2026-09-17 人工批准；IM 双向审批暂不做；S1、S2 已合入，S3 语义细化见文末）
 
 ## 修订记录
 
@@ -305,3 +305,58 @@ agents:
 - ✅ 已查明（2026-09-17 复查）：`claude-acp` = 鉴权（需 `CLAUDE_CODE_EXECUTABLE` 或 `CLAUDE_CODE_OAUTH_TOKEN`），`codex-acp` = 供应商流断线（协议通）；`omp` 的逐 token thought 是否默认丢；
   permission option 的实际取值（本机 omp 未发起权限请求，假 server 已覆盖 `allow_once/allow_always/reject_once` 三种）。
 - 待定（S2）：只读 mode id —— omp 无只读 mode（只有 default/plan），claude-acp 只有 `plan` 接近，codex-acp 无 modes。
+
+## S2 实测记录（2026-09-17）
+
+### resume 走 `session/load`
+
+- `runner.ACPRequest.LoadSessionID`（submit 由 `resumeLoadSessionID(req)` 填：**仅 `ResumedFrom != ""`**，普通 `job run` 带
+  `session_id` 不 load）→ `internal/runner/acp`：`initialize` 后按 `LoadSessionID` 二选一 `session/load` / `session/new`。
+  `agentCapabilities.loadSession=false` 或 load 失败 → **硬失败**（`acp: agent does not support session/load
+  (agentCapabilities.loadSession=false)` / `acp: session/load "<sid>": …`），同时把该行写进 job 的 `stderr.log`；不回退新会话。
+  `acp.jsonl` 新增首行 `{"t":"session","load":true|false,"session_id":…,"mode":…}`。
+- `job.resumeJob`：源 agent 是 `acp-agent` 时**不走 exec 载体**，以原 agent key 新开 job（`SessionID=src.SessionID`、
+  `ResumedFrom=src.ID`、`ResumeSourceAgent=src.Agent`，其余继承项与 exec 载体一致；acp-agent 恒 batch，`Interactive=false`）。
+- `acp.load_session: false`（`config.ACPConfig.LoadSession *bool`，`AllowsLoadSession()`）→ `job resume` 直接 `ErrResumeUnsupported`；
+  `tryAutoResume` 用同一个 `resumable(agent)` 判定（acp-agent 不再要求 `SessionResume` 模板）。
+- worker 路径：`wsproto.Dispatch` 增 `session_id`/`resumed_from`（**仅 resume 时下发**），worker 还原进本地 `JobRequest`；
+  协议版本 `CurrentProtocolVersion` 5→6（新 `SessionLoadMinProtocolVersion`/`SupportsSessionLoad`，`MinProtocolVersion` 仍为 2，
+  旧 worker 照常注册）；hub 在 dispatch 前发现目标 worker 的 hello 版本不含该能力时只 `slog.Warn` 一行，**不阻断**。
+- 未覆盖：peer-http 侧的 acp resume —— `ResumedFrom` 是 `json:"-"`（不可跨公开 HTTP 契约），peer 侧无法区分"续投"与"绑定会话"，
+  故 peer 上的 acp 续投会开新会话；worker 路径（本次要求）已覆盖。cli-agent 的 peer resume 不受影响（argv 自带 `--resume`）。
+
+### `--read-only`
+
+- 模型：`JobRequest.ReadOnly` / `JobResult.ReadOnly`（`jobs.read_only INTEGER NOT NULL DEFAULT 0`，旧库 ALTER ADD 默认 0）；
+  `wsproto.Dispatch.ReadOnly`、`runner.Forward.ReadOnly`（worker 与 peer 都由执行侧按**自己的** agent 配置复校）。
+- 准入（`internal/job/config.go`，`!remote` 分支，按 `gateAgent` 的解析结果判定）：exec → `exec agent cannot run read-only`；
+  cli-agent 无 `read_only_args` → `agent %q has no read-only mode (set agents.<key>.read_only_args)`；
+  acp-agent 无 `acp.modes.read_only` → `… (set agents.<key>.acp.modes.read_only)`。
+- cli-agent：`agent.BuildOptions.ReadOnly` → `BuildFrom` 把 `ac.ReadOnlyArgs` 追加到 argv **末尾**（批处理与交互 argv 都追加，
+  与 `agent_args` 同位置）。`read_only_args` 未配时由 `agent.applyReadOnlyDefaults` 从 `config.BuiltinReadOnlyArgs` 兜底
+  （**先 agent key、再 command 基名**，与 `builtinSessionDefaults` 同机制；显式配置覆盖内置）。
+- **内置取值与出处（本机 CLI `--help` 实测）**：
+  - `codex → ["-s","read-only"]`：`codex --help` 的 `-s, --sandbox <SANDBOX_MODE>`，possible values
+    `read-only, workspace-write, danger-full-access`。
+  - `claude → ["--permission-mode","plan"]`：`claude --help` 的 `--permission-mode <mode>`，choices
+    `acceptEdits, auto, bypassPermissions, manual, dontAsk, plan` —— **无纯只读模式**，`plan` 是最接近的（只提案不改文件）。
+  - `omp → 不配`：`omp --help` 无只读开关（`--plan-yolo` = "Force read-only plan mode at start, auto-approve the plan on the
+    model's first resolve call, then switch to --plan-yolo-into to implement it"，会自动转入实施，语义不符）；
+    `--approval-mode=always-ask|write|yolo` 也不是只读。omp 用户须自己配 `read_only_args`。
+- acp-agent：`runner.ACPRequest.ReadOnlyModeID`（submit 从 `acp.modes.read_only` 填）→ runner 在会话建立后、`session/prompt`
+  **之前** `session/set_mode`；session 的 `availableModes` 非空且不含该 id → 硬失败
+  `acp: read-only mode %q not offered by agent (available: …)`（不猜、不在可写模式下跑）。`acp.jsonl` 记 `{"t":"set_mode","mode":…}`。
+  会话未上报 modes（codex-acp 现状）时不做二次猜测，仍尝试 `set_mode`。
+- **同一 job 链不可升级**：`ResumeJob` 两条路径都继承 `src.ReadOnly`——acp 路径透传；exec 载体路径把**源 agent 的
+  `read_only_args` 直接拼进 resume argv**（exec 的 argv 原样执行、`BuildFrom` 不会为它追加），并把 `ReadOnly` 记在续投 job 上。
+- 入口：`gofer job run --read-only`（`jobRunFlags` 由匿名 struct 改为**具名类型**，避免新增 flag 时测试的复位字面量漏字段）、
+  `POST /v1/jobs` 的 `read_only` 字段与 GET 回显（`jobDetailView` 内嵌 `JobResult`，无需改 handler）、MCP `gofer_run_job`
+  的 `read_only` + `jobView.read_only`、`job show`（`read_only:  true`）与 `job list`（TAGS 列前 `[ro]`）、
+  web（提交表单「只读」复选框、列表「只读」徽章、详情 `read_only` 一行）。
+- 单测覆盖（全绿）：`internal/config`（内置表 + 拷贝语义）、`internal/agent`（override/命令基名继承/两种 argv 追加/exec 不动）、
+  `internal/job`（exec 与无模式 agent 的拒绝、child argv 实测含沙箱参数、acp `set_mode` 在 prompt 之前、mode 不在
+  `availableModes` 时失败且不跑 prompt、两条 resume 路径继承只读）、`internal/jobstore`（列 round-trip + 新旧库迁移）、
+  `internal/httpapi`（提交与 GET 回显）、`internal/commands`（flag → 请求体、`job show` 输出）、`internal/mcpserver`（参数
+  round-trip + schema 属性）、`internal/wsproto`（Dispatch 三个字段 round-trip + 能力位）。
+- 测试替身：`acptest` 假 server 新增 `--stderr-line` / `--prompt-error`（脚本化 agent 侧错误文本，供自动续投）、`session/load`
+  的 stderr 行、turn 起始标记（断言 `set_mode` 早于 prompt）；`testcmd` 新增 `argv` 子命令（回显子进程**实际收到**的 argv）。

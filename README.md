@@ -102,6 +102,9 @@ One `JobRequest`, four entry points, two timings:
 gofer job run -p workspace -a codex --prompt "Review the changes and list the risks"
 gofer job run -p workspace -a exec  --sync -- mvn -q test     # --sync: server waits for the terminal state
 gofer job run -f task.md                                      # md+yaml: frontmatter = parameters, body = prompt
+gofer job run -p workspace -a codex --read-only --prompt "Review only: list the risks, change nothing"
+                                                              # --read-only: the agent cannot write (cli sandbox
+                                                              # args / acp-agent session/set_mode; inherited by resume)
 ```
 
 ```markdown
@@ -306,7 +309,7 @@ gofer tunnel   forward | check | ls | save | saved | forget
 gofer mcp      [--standalone]                        # stdio MCP server
 ```
 
-Key `job run` flags: `-p/--project`, `-a/--agent`, `--runner` (default `server`; `local` is a compatibility alias; give the runner name for workers/peers), `--cwd` (relative to the project root), `--prompt` / `-- argv` / `-f task.md`, `--sync` + `--wait-timeout`, `--wait`, `--worker-id` / `--worker-labels`, `--interactive` + `--cols`/`--rows` (needs the project's `allow_interactive` and an agent with `interactive_args`), `--worktree` + `--worktree-base`, `--plan`, `--tags`, `--timeout`, `--title`, `-s/--server`, `--token`.
+Key `job run` flags: `-p/--project`, `-a/--agent`, `--runner` (default `server`; `local` is a compatibility alias; give the runner name for workers/peers), `--cwd` (relative to the project root), `--prompt` / `-- argv` / `-f task.md`, `--sync` + `--wait-timeout`, `--wait`, `--worker-id` / `--worker-labels`, `--interactive` + `--cols`/`--rows` (needs the project's `allow_interactive` and an agent with `interactive_args`), `--read-only` (the agent cannot write: cli-agent `read_only_args` — built-in `codex -s read-only` / `claude --permission-mode plan` — or acp-agent `acp.modes.read_only` → `session/set_mode`; exec agents and agents without a read-only mode are refused), `--worktree` + `--worktree-base`, `--plan`, `--tags`, `--timeout`, `--title`, `-s/--server`, `--token`.
 
 > Passing values across workflow steps: `${steps.N.result_dir}` is an absolute path on the executing machine and is only readable within the same filesystem; across workers/peers use `${steps.N.result}` (inline result.json ≤ 32KB) / `${steps.N.stdout}` or a shared drive.
 

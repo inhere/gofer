@@ -78,6 +78,7 @@ job 在哪台机器执行，路径就按那台机器的项目根解析：同一 
 | `gofer job rerun <id>` | 用原请求重提（新幂等 key，**新会话**，agent 重读全部上下文） |
 | `gofer job resume <id> --prompt "…"` | **续跑同一个 agent 会话**（codex `exec resume` / claude `--resume`）：job 中途失败/超时后让它带着自己的上下文继续，见 §5b |
 | `gofer job worktree ls [-p] / rm <id> [--force] [--delete-branch]` | 列出/清理 `--worktree` job 留下的 git worktree（见 §5c） |
+| `gofer job run --read-only …` | **只读 job**：审查/分析类任务，agent 不能写文件（cli-agent 追加 `read_only_args` 沙箱参数、acp-agent `session/set_mode`）；exec agent 与没配只读模式的 agent 提交即被拒（见 §5e） |
 
 `--timeout <秒>` 有上限：`server.max_job_timeout_sec`（默认 3600）或项目 `max_timeout_sec`；超出会被 **clamp** 并在提交后打一行 `warning: --timeout … exceeds the project ceiling`，`job show` 显示生效的 `timeout:`。超 1 小时的任务：让管理员提高上限，或把任务拆成多个 job。
 
@@ -127,7 +128,7 @@ gofer job resume <源 job-id> --plan <plan-id> \
   --prompt "上一次运行因 <原因> 中断。先 git status / git log --oneline -5 判断进度，只完成任务书剩余项，不要重做已提交部分；汇报格式同前。"
 ```
 
-前提：源 job 已终态（done/failed/timeout/cancelled 都行）、捕获到了 `session_id`（codex 靠输出 `session id:` 捕获，claude 靠 `--session-id` 注入；omp 需在 agent 定义加 `session_capture`/`session_resume`）、agent 有 resume 模板（内置 claude/codex）、同一 runner。resume 产生一个**新 job id**，`--plan` 照常可挂。命中瞬时错误会自动续跑一次（`auto_resume_max`）。
+前提：源 job 已终态（done/failed/timeout/cancelled 都行）、捕获到了 `session_id`（codex 靠输出 `session id:` 捕获，claude 靠 `--session-id` 注入；omp 需在 agent 定义加 `session_capture`/`session_resume`）、agent 有 resume 模板（内置 claude/codex）、同一 runner。**acp-agent 不需要 resume 模板**：它的 resume 是原样新开一个 acp-agent job、用协议 `session/load` 载入源会话（agent 不支持 `loadSession` 或配了 `acp.load_session: false` 时直接报不支持）。resume 产生一个**新 job id**，`--plan` 照常可挂。命中瞬时错误会自动续跑一次（`auto_resume_max`）。
 
 ### 5c. 并行派活用 `--worktree`
 
@@ -139,8 +140,20 @@ server/worker/forwarder 都写 JSONL 文件日志（轮转、脱敏）：server 
 
 **job 日志（stdout.log / stderr.log）**：ndjson agent（`omp --mode json`、`claude --output-format stream-json`）在 agent 定义里写 `output_format: ndjson` 后**stdout=最终答复、stderr=过程事件**（逐 token 增量在**采集时**就被丢掉；事件一行一个、单行 ≤2KB，超长标 `…(truncated)`；`session` 行恒留，`ndjson_keep` 调白名单，`ndjson_raw: true` 才另存未过滤的 `<result_dir>/stdout.raw.log`）；`gofer job show <id>` 的 `ndjson_kept`/`ndjson_dropped`/`ndjson_truncated` 就是保留/丢弃/截断行数，web 详情页对**事件流（stderr）**有「结构化视图」切换。**看不到输出**先分清是"agent 没输出"还是"被过滤了"：`ndjson_raw` 打开重跑一次即可对照。
 
-## 6. worker 配置模式：LEGACY vs POLICY（P3 起）
+### 5e. 只读 job（`--read-only`）
 
+审查/分析类任务不想让 agent 动手改文件时，`job run --read-only`（MCP 的 `gofer_run_job` 用 `read_only: true`）：
+
+```bash
+gofer job run -p <project> -a codex --read-only --prompt "只做审查：列出这次改动的问题，不要修改任何文件"
+```
+
+- **cli-agent**：追加该 agent 的 `read_only_args`（内置 codex `-s read-only`、claude `--permission-mode plan`；omp 无对应开关，须自己配 `agents.<key>.read_only_args`）——沙箱是 CLI 自己的，不是 gofer 的口头约定。
+- **acp-agent**：`acp.modes.read_only` 映射到 agent 的 mode id，在 prompt 前 `session/set_mode`；agent 的 `availableModes` 不含该 id 就**失败**（不会在可写模式下跑完还自称只读）。
+- **exec agent 一律拒绝**（argv 由调用方写死，gofer 无法约束）；没配只读模式的 agent 提交即 400，错误会点名要配哪个键。
+- 只读随 job 落库（`job show` 打 `read_only: true`、list 打 `[ro]`、web 列表/详情有徽章），**resume 继承只读**——想把只读改成可写只能新开 job。
+
+## 6. worker 配置模式：LEGACY vs POLICY（P3 起）
 一台 worker 有两种模式，决定它能跑哪些 project——排障（§7）前先分清它是哪种：
 
 | 模式 | worker.yaml | project 来源 |
