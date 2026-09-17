@@ -7,6 +7,7 @@
 | v0.1 | 2026-09-06 | inhere + claude | 初稿：Stop hook 阻塞中继 + server 侧会话注册/开关 + `gofer hook` 内置执行体 + `gofer init hooks` 一键装配；Claude Code 与 Codex CLI 双支持 |
 | v0.2 | 2026-09-06 | claude | **T1-T6 已落地**（jobstore `agent_sessions` + decisions additive 列 / `internal/sessionrelay` / `/v1/sessions/*` 9 端点 / `internal/hookrelay` 执行体 + `hooks/` 嵌入模板 + JSON 合并安装 / `gofer hook`·`gofer session`·`gofer init hooks` / web Sessions 分组+抽屉+铃铛来源 / skill+runbook）。容器内 **Claude Code 真机 e2e PASS**（`claude -p`：停→CLI 作答→续跑→`/off` 放行，见 runbook §5）。落地偏差：`SetRelay(off)` 先置 idle 再过期 turn 再落开关（并发观察一致性）；`WaitTurn` 观察到 answered 时也把会话置 running；`init hooks` 用 `--output <dir>` 指定项目目录。TBD-1/2/4 见 §11 更新；Codex 真机待主机验证 |
 | v0.3 | 2026-09-17 | inhere + claude | **R1/R2 落地**（bd h-aii-1hmo）：开关 bool → 三态 `relay_mode: auto\|on\|off`（旧 `relay=1→on` / `0→auto`；`relay` 列留作 `mode=='on'` 的镜像给旧二进制）；`auto` 由 server 判定：判据一 = 键盘空闲（`session.auto_relay_idle_sec`，旧 `server.session_auto_relay_idle_sec` 仅作别名 + warn 一次），判据二 = **距本会话上次人工输入**（`session.auto_relay_turn_sec`，新列 `last_human_at`）——专治"键盘在主机、hook 在容器里探不到"；判定结果以 `wait_reason`（mode_on / idle_probe / turn_age）回给 hook。判据二的等待无读数可探，人回来时靠 `UserPromptSubmit` / `Interrupt` 事件由 server 释放（`released_by=user_returned`），设计细节见 `../runbook/session-relay.md` |
+| v0.4 | 2026-09-17 | inhere + claude | **阶段 2 定案**（bd h-aii-w934）：空闲会话（无 OPEN turn）收到 web 回复时的两条送话路径——**A. tmux 按键注入**（首选，续同一进程）与 **B. `--resume` pty 接管**（无 tmux 时兜底），见 §9.1；IM 双向作答继续不做 |
 
 > 关联：[`2026-07-18-session-handoff-and-pty-ux-design.md`](2026-07-18-session-handoff-and-pty-ux-design.md) Part A §11（hooks 通知中心，T7 未实施）与 Part C（决策通道，已落地 `tools-frx`）。本设计**取代 §11 的"裸终端不可远程作答"边界结论**，并吸收 §5 `adopted_sessions` 为统一的会话注册表。
 
@@ -250,7 +251,30 @@ IM 自定义机器人只能收不能发回，**回复仍在 web**；IM 内直接
 
 ## 9. 兜底与后续
 
-- **tmux 按键注入（可选，阶段 3）**：会话跑在 tmux 中时登记带 `tmux_pane`；web 对 idle 会话回复时，server 派一个 `exec` job 到该会话的 runner 执行 `tmux send-keys -t <pane> -l "<回复>"` + `Enter`。这是向现有终端敲字，不是重开会话，能补上 §1.2 的空白格。
+### 9.1 阶段 2：向空闲会话送话（A tmux 注入 + B resume 接管）
+
+阶段 1（Stop 阻塞 + 三态 + 空闲回退）只能在**回合结束那一刻**决定要不要等。盖不住的场景：短回合结束时人还在（未布防），随后人离开，几小时后想从 web 接着说——此时会话停在提示符，没有任何 hook 进程活着，回复无处注入。阶段 2 给"没有 OPEN turn 的会话"两条送话路径，web「会话」页对这类会话的输入框改为「发送到终端」并按可用性自动选路：
+
+**A. tmux 按键注入（首选）**
+
+- 前提：会话跑在 tmux 里。hook 已在 SessionStart/heartbeat 登记 `TMUX_PANE`（`agent_sessions.tmux_pane`）；容器/主机的 shell 入口建议默认 `tmux new -A -s claude` 起 Claude Code / Codex，让所有会话天然可注入。
+- 流程：web/CLI `session say <id> "<回复>"` → server 发现该会话无 OPEN turn 且 `tmux_pane` 非空 → 向该会话所在 runner（`agent_sessions.runner`，容器会话即 `w-docker-claude`）派一个内部 exec job：`tmux send-keys -t <pane> -l -- "<回复>"` 再 `tmux send-keys -t <pane> Enter`（两次调用，`-l` 字面量防止按键名解释；回复先经 `[gofer web 回复]` 前缀，hook 的 UserPromptSubmit 据此识别为 injected，不改 relay_mode）。
+- 校验与回执：注入前 `tmux display -p -t <pane> '#{pane_current_command}'` 确认 pane 仍存活且前台是 agent 进程（claude/codex/node）；否则回退 B。注入成功后会话状态置 `running`，web 显示"已送入终端 ✓"；失败给出原因（pane 不存在 / runner 离线）。
+- 安全：只允许向**本 caller 自己登记的会话**送话；内容长度上限 8KB；多行回复按行 `send-keys -l` + `Enter`（Claude Code 支持粘贴多行）。审计进 `session_turns`（kind=inject_tmux）。
+
+**B. `--resume` pty 接管（兜底）**
+
+- 前提：会话无 tmux（典型：Windows 主机的 Windows Terminal）且 agent 有 `SessionResumeInteractive` 模板（内置 claude/codex/omp）、项目 `allow_interactive: true`。
+- 流程：server 用该会话的 `session_id` 在同一 cwd 起一个 **交互 pty job**（`claude --resume <sid>` / `codex resume <sid>` / `omp --resume <sid>`），把回复作为首条输入写入 pty；web 跳转到该 job 的 attach 终端继续对话。原终端进程仍在，但会话已在另一进程延续——原终端人回来时，会话页与 hook（下一次 UserPromptSubmit）提示"该会话已在 web 接管于 <时间>，继续请在 web 或 `--resume`"。
+- 限制：Claude Code 同一会话被两个进程写入会分叉，所以接管后标记原终端会话为 `handed_off`，其后续 Stop 不再开 turn。
+
+**选路**：有 OPEN turn → 注入 turn（阶段 1）；否则 `tmux_pane` 有效 → A；否则满足 B 前提 → B（web 二次确认"将起新进程接管"）；都不行 → 明确提示"该会话无法远程送话：请在终端运行于 tmux，或开启项目 allow_interactive"。
+
+**实施拆分**：P2-1 A（server 选路 + 内部 exec job + pane 校验 + 回执 + 审计 + web 输入框，`internal/sessionrelay`/`httpapi`/`web`）；P2-2 B（复用 pty job 与 attach，`handed_off` 状态与提示）；P2-3 skill/README/runbook（tmux 入口建议、两条路径的适用条件）。测试：A 用假 runner 断言派发的 argv 与 pane 校验；B 用现有 interactive e2e 基础设施。
+
+### 9.2 其他
+
+- **tmux 按键注入（原阶段 3 备忘，已并入 §9.1 A）**：会话跑在 tmux 中时登记带 `tmux_pane`；web 对 idle 会话回复时，server 派一个 `exec` job 到该会话的 runner 执行 `tmux send-keys -t <pane> -l "<回复>"` + `Enter`。这是向现有终端敲字，不是重开会话，能补上 §1.2 的空白格。
 - **PermissionRequest 远程放行**（handoff 设计 TBD-5）：同一执行体可加 `PermissionRequest` 事件，长轮询 web 决策；仍按原判断"等中继跑顺再评估"。
 - **与 handoff Part A 的衔接**：`agent_sessions` 即 adopt 记录，后续 `session open`（web 起 `--resume` 接管）直接在这张表上做，接管前置的"不活跃判定"可直接读 `state`。
 
