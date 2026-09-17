@@ -1,13 +1,14 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # acp-agent 类型（ACP-01）与审批门 / 人工验收（GATE-01）设计
 
-> 状态：Draft 0.1 / 待人工批准
+> 状态：Approved 0.2 / 实施中（2026-09-17 人工批准；IM 双向审批暂不做）
 
 ## 修订记录
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
 | 0.1 | 2026-09-17 | Claude | 初稿：以 Agent Client Protocol 统一驱动 claude/codex/gemini/omp；ACP 的 permission 请求作为审批门输入；job 级 needs_review 验收态 |
+| 0.2 | 2026-09-17 | Claude | 人工批准。决策：IM 侧只做通知不做双向审批（当前 bot 只能发不能收）；`read_only`（bd h-aii-0ql3）并入 S2；补协议细节（JSON-RPC 2.0、stdio 换行分隔、`protocolVersion` 整数、ToolKind 取值）与 S0 的可测试性要求（仓内假 ACP server 测试替身） |
 
 ## 背景与目标
 
@@ -158,8 +159,18 @@ projects:
 - 审批门默认 `off`，`needs_review` 默认关；策略按项目配置、agent 可收紧不可放宽。
 - 紧凑事件落 `acp.jsonl`，stdout 只留 agent 文本。
 
-## 待确认事项
+## 协议细节备忘（S0 实施依据，以 `agentclientprotocol/agent-client-protocol` 仓库的 `schema.json` 为准）
 
-- `claude-code-acp` 与 `codex-acp` 在 Windows 主机上的安装与 Node 版本要求（spike 时核实）。
-- 各家 mode id（只读）与 permission option 的实际取值，需实测后固化进内置模板。
-- IM 审批双向（在钉钉/飞书里直接点"允许"）是否纳入 S1，还是沿用 web 链接。
+- 传输：JSON-RPC 2.0，stdio，**一行一条消息**（换行分隔 JSON）；agent 的 stderr 是它自己的日志，gofer 原样落 `stderr.log`。
+- `initialize{protocolVersion:<int>, clientCapabilities:{fs:{readTextFile:false,writeTextFile:false}, terminal:false}, clientInfo}` → `{protocolVersion, agentCapabilities:{loadSession, promptCapabilities, mcpCapabilities}, authMethods, agentInfo}`。
+- `session/new{cwd(绝对路径), mcpServers:[]}` → `{sessionId, modes?}`；`session/load{sessionId, cwd, mcpServers}`；`session/set_mode{sessionId, modeId}`；`session/prompt{sessionId, prompt:[{type:"text", text}]}` → `{stopReason}`；`session/cancel{sessionId}`（通知）。
+- 通知 `session/update{sessionId, update:{sessionUpdate:"agent_message_chunk"|"agent_thought_chunk"|"user_message_chunk"|"tool_call"|"tool_call_update"|"plan"|"available_commands_update"|"current_mode_update", …}}`；tool_call 字段 `toolCallId,title,kind,status(pending|in_progress|completed|failed),content,locations,rawInput,rawOutput`；ToolKind：`read, edit, delete, move, search, execute, think, fetch, switch_mode, other`。
+- agent→client 请求 `session/request_permission{sessionId, toolCall, options:[{optionId,name,kind(allow_once|allow_always|reject_once|reject_always)}]}` → `{outcome:{outcome:"selected", optionId}}` 或 `{outcome:{outcome:"cancelled"}}`；agent 可能还会调 `fs/*`、`terminal/*`（我们未声明能力，收到则返回 JSON-RPC method-not-found）。
+- `stopReason`：`end_turn | max_tokens | max_turn_requests | refusal | cancelled`；取消后 agent 仍可能先发若干 update 再以 `cancelled` 回应。
+
+## 已确认 / 待确认事项
+
+- ✅ IM 双向审批**不做**（bot 只能通知）；审批只在 web / CLI / MCP 作答，IM 发链接。
+- ✅ `read_only` 并入 S2：acp-agent 走 `session/set_mode`，cli-agent 走沙箱参数映射。
+- `claude-code-acp` 与 `codex-acp` 在 Windows 主机上的安装与 Node 版本要求（S0 核实，装不上就如实报告、以假 server 与 omp 为准）。
+- 各家 mode id（只读）与 permission option 的实际取值，S0 实测后固化进内置模板。
