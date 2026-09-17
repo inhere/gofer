@@ -239,6 +239,26 @@ func TestDeliverTooLong(t *testing.T) {
 	assert.Contains(t, inj.reqs[0].Cmd[2], "[gofer web 回复] "+strings.Repeat("a", MaxDeliverText))
 }
 
+// TestDeliverInjectCommandsWhitelist pins the pane whitelist plumbing: the
+// configured commands replace the built-in list, and an unusable entry is dropped
+// rather than mangled — an operator may narrow who gets typed into, never smuggle
+// script into the injection command line.
+func TestDeliverInjectCommandsWhitelist(t *testing.T) {
+	s := newSvc(t)
+	inj := &fakeInjector{res: InjectResult{JobID: "job-w", ExitCode: 0}}
+	s.SetInjector(inj)
+	s.SetInjectCommands([]string{"claude", "my agent; rm -rf /", "$(x)"})
+	tmuxSession(t, s, "sid-whitelist")
+
+	_, err := s.Deliver(context.Background(), "sid-whitelist", "hello", "alice")
+	assert.NoErr(t, err)
+
+	script := inj.reqs[0].Cmd[2]
+	assert.Contains(t, script, "claude) ;;")
+	assert.True(t, !strings.Contains(script, "rm -rf"), script)
+	assert.True(t, !strings.Contains(script, "$(x)"), script)
+}
+
 // latestRow returns a session's newest plan_decisions row: the audit row of an
 // injection has no OPEN turn behind it, so it is simply the most recent one.
 func latestRow(t *testing.T, s *Service, sid string) jobstore.PlanDecision {

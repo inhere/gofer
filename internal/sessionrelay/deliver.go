@@ -337,8 +337,9 @@ func (s *Service) recordInject(a jobstore.AgentSession, text, by, jobID string) 
 }
 
 // injectAllowList resolves the whitelist actually used by the script: the
-// configured commands, sanitised to shell words (an operator-supplied entry may
-// not smuggle script of its own), else the built-in list.
+// configured commands, kept only when they are plain shell words (anything else
+// is DROPPED — an operator-supplied entry may narrow who can be typed into, never
+// smuggle script into the command line), else the built-in list.
 func (s *Service) injectAllowList() []string {
 	out := make([]string, 0, len(s.injectCommands))
 	for _, c := range s.injectCommands {
@@ -352,16 +353,22 @@ func (s *Service) injectAllowList() []string {
 	return out
 }
 
-// sanitizeCommandName keeps the shell-word characters a command name may consist
-// of and drops everything else ("" when nothing is left).
+// sanitizeCommandName returns s when it is a plain shell word (what a command
+// name is made of) and "" when it is not — an unusable entry is dropped, not
+// mangled into a name that would silently never match.
 func sanitizeCommandName(s string) string {
-	return strings.Map(func(r rune) rune {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return ""
+	}
+	for _, r := range s {
 		switch {
 		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9', r == '-', r == '_', r == '.', r == '+':
-			return r
+		default:
+			return ""
 		}
-		return -1
-	}, strings.TrimSpace(s))
+	}
+	return s
 }
 
 // injectScript builds the ONE POSIX shell script path A runs on the session's
