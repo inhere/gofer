@@ -174,7 +174,7 @@ func (s *server) handleRequest(msg *rpcMsg) {
 		s.reply(msg.ID, map[string]any{
 			"protocolVersion": 1,
 			"agentCapabilities": map[string]any{
-				"loadSession":       !s.opts.RefuseLoad,
+				"loadSession":        !s.opts.RefuseLoad,
 				"promptCapabilities": map[string]any{"image": false, "audio": false},
 				"mcpCapabilities":    map[string]any{"http": false, "sse": false},
 			},
@@ -411,7 +411,7 @@ func (s *server) call(method string, params any) (json.RawMessage, error) {
 	s.nextID++
 	id := strconv.Itoa(1000 + s.nextID)
 	ch := make(chan *rpcMsg, 1)
-	s.pending[id] = ch
+	s.pending[idKey(json.RawMessage(strconv.Quote(id)))] = ch
 	s.mu.Unlock()
 
 	rawParams, err := json.Marshal(params)
@@ -434,7 +434,7 @@ func (s *server) call(method string, params any) (json.RawMessage, error) {
 
 // deliver routes a response to the goroutine waiting on it.
 func (s *server) deliver(msg *rpcMsg) {
-	key := string(msg.ID)
+	key := idKey(msg.ID)
 	s.mu.Lock()
 	ch := s.pending[key]
 	delete(s.pending, key)
@@ -442,6 +442,12 @@ func (s *server) deliver(msg *rpcMsg) {
 	if ch != nil {
 		ch <- msg
 	}
+}
+
+// idKey normalises a JSON-RPC id to its unquoted form: a string id arrives as
+// `"1001"` and a numeric one as `1`, and both must key the same pending map.
+func idKey(raw json.RawMessage) string {
+	return strings.Trim(string(raw), `"`)
 }
 
 func (s *server) update(update map[string]any) {
