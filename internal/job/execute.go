@@ -199,6 +199,32 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	if err != nil {
 		errStr = err.Error()
 	}
+	// The outcome is DECIDED before anything becomes observable, so the one event
+	// that describes it can be recorded first (the E13 invariant above):
+	//   - needsReview (GATE-01 S3): a job that asked for人工验收 and finished
+	//     NORMALLY parks in needs_review instead of done — no job.terminal event, no
+	//     workflow advance, no retry and no auto-resume apply to work that is not
+	//     accepted yet;
+	//   - willAutoResume (v0.42): a transient failure the source agent can continue
+	//     is announced as job.auto_resumed instead of job.terminal (an IM subscriber
+	//     must not see a "failed" it is about to be spared) — the eligibility check
+	//     is pure (config, session, attempt budget, stderr pattern) so it can run
+	//     here; the continuation itself is submitted after the row is persisted, and
+	//     a submit that fails then falls back to the late job.terminal below.
+	entry.mu.Lock()
+	pre := entry.result
+	entry.mu.Unlock()
+	needsReview := status == StatusDone && pre.RequireReview
+	autoResumeHit, willAutoResume := "", false
+	if status == StatusFailed {
+		autoResumeHit, willAutoResume = s.autoResumeHit(pre)
+	}
+	switch {
+	case needsReview:
+		s.recordEvent(jobID, EventJobNeedsReview, map[string]any{"job_id": jobID, "exit_code": exitCode})
+	case !willAutoResume:
+		s.recordEvent(jobID, EventJobTerminal, map[string]any{"status": status, "exit_code": exitCode, "error": errStr})
+	}
 	entry.mu.Lock()
 	entry.result.Status = status
 	entry.result.ExitCode = exitCode
@@ -206,13 +232,9 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	if err != nil {
 		entry.result.Error = err.Error()
 	}
-	// GATE-01 S3: a job that asked for人工验收 and finished NORMALLY parks in
-	// needs_review instead of done. Decided here, under the same lock that flips the
-	// status, so no reader can ever observe a transient `done` (which would let a
-	// watcher report the delivery as accepted and skip the review). needsReview==true
-	// also means: no job.terminal event (see below), no workflow advance, no retry and
-	// no auto-resume — none of them apply to work that is not accepted yet.
-	needsReview := status == StatusDone && entry.result.RequireReview
+	// needs_review is set under the same lock that flips the status, so no reader
+	// can ever observe a transient `done` (which would let a watcher report the
+	// delivery as accepted and skip the review).
 	if needsReview {
 		entry.result.Status = StatusNeedsReview
 	}
@@ -277,7 +299,6 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// job-level retry, no automatic continuation happen here: they all wait for a
 	// human's accept/reject (review.go).
 	if needsReview {
-		s.recordEvent(jobID, EventJobNeedsReview, map[string]any{"job_id": jobID, "exit_code": exitCode})
 		if persistErr == nil && isFinished(snap.Status) {
 			s.mu.Lock()
 			delete(s.jobs, jobID)
@@ -286,10 +307,12 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 		return
 	}
 	autoResumed := false
-	if persistErr == nil && status == StatusFailed {
-		autoResumed = s.tryAutoResume(snap)
+	if persistErr == nil && willAutoResume {
+		autoResumed = s.autoResume(snap, autoResumeHit)
 	}
-	if !autoResumed {
+	if willAutoResume && !autoResumed {
+		// The continuation could not be submitted (or the row never landed): the
+		// failure IS terminal after all — record it now, late but never missing.
 		s.recordEvent(jobID, EventJobTerminal, map[string]any{"status": status, "exit_code": exitCode, "error": errStr})
 	}
 	if persistErr == nil && isFinished(status) {
@@ -313,18 +336,23 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	s.maybeRetryJob(snap)
 }
 
-func (s *Service) tryAutoResume(snap JobResult) bool {
+// autoResumeHit is the PURE half of automatic continuation (v0.42): it reports
+// whether a failed job is eligible — auto-resume enabled and budget left, a session
+// to continue, an agent that can resume it, and a transient-error pattern in the
+// tail of its stderr — and returns the matched text. It submits nothing, so finish
+// can consult it before the failure becomes observable and pick the right event.
+func (s *Service) autoResumeHit(snap JobResult) (string, bool) {
 	cfg := s.config()
 	if cfg == nil || cfg.Server.EffectiveAutoResumeMax() <= 0 || snap.SessionID == "" || snap.AutoResumeAttempt >= cfg.Server.EffectiveAutoResumeMax() {
-		return false
+		return "", false
 	}
 	ac, ok := s.agents.Get(snap.Agent)
 	if !ok || !resumable(ac) {
-		return false
+		return "", false
 	}
 	b, err := os.ReadFile(filepath.Join(snap.ResultDir, "stderr.log"))
 	if err != nil {
-		return false
+		return "", false
 	}
 	if len(b) > 8192 {
 		b = b[len(b)-8192:]
@@ -339,11 +367,19 @@ func (s *Service) tryAutoResume(snap JobResult) bool {
 		}
 	}
 	if hit == "" {
-		return false
+		return "", false
 	}
 	if len(hit) > 120 {
 		hit = hit[:120]
 	}
+	return hit, true
+}
+
+// autoResume submits the continuation autoResumeHit qualified: a resume of the
+// failed job with a prompt naming the transient error, one attempt deeper. The
+// source row records the continuation (AutoResumedBy) and job.auto_resumed; the
+// caller records job.terminal instead when this returns false.
+func (s *Service) autoResume(snap JobResult, hit string) bool {
 	prompt := "The previous run was interrupted by a transient error (" + strings.TrimSpace(hit) + "). Check git status / git log to see how far you got, finish only the remaining work, do not redo committed work, then report as originally asked."
 	res, err := s.resumeJob(snap.ID, prompt, snap.Runner, snap.CallerID, snap.AutoResumeAttempt+1)
 	if err != nil {
