@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/inhere/gofer/internal/acp/acptest"
 )
 
 func main() {
@@ -106,6 +108,11 @@ func main() {
 		}
 	case "interaction-wrapper":
 		interactionWrapper(arg(2))
+	case "acp-fake":
+		// acp-fake [--stop-reason X] [--slow] [--refuse-load] [--delay D]: the
+		// in-repo fake ACP agent (internal/acp/acptest) used as a test double by
+		// the acp client and acp-agent end-to-end tests.
+		os.Exit(acptest.Main(os.Args[2:]))
 	default:
 		fmt.Fprintf(os.Stderr, "unknown command %q\n", os.Args[1])
 		os.Exit(2)
