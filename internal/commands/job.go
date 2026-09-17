@@ -49,6 +49,7 @@ type jobRunFlags struct {
 	rows         int
 	worktree     bool
 	worktreeBase string
+	review       bool
 	readOnly     bool
 }
 
@@ -182,6 +183,29 @@ func NewJobCmd() *gcli.Command {
 				Func: runJobCancel,
 			},
 			{
+				Name: "accept",
+				Desc: "Accept a job awaiting review (needs_review -> done)",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.StrOpt(&jobAcceptOpts.note, "note", "", "", "optional note recorded with the acceptance")
+					c.AddArg("id", "job id", true)
+				},
+				Func: runJobAccept,
+			},
+			{
+				Name: "reject",
+				Desc: "Reject a job awaiting review (needs_review -> rejected); --resume continues it with the note",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.StrOpt(&jobRejectOpts.note, "note", "", "", "why the delivery is refused (required; also the continuation's prompt with --resume)")
+					c.BoolOpt(&jobRejectOpts.resume, "resume", "", false, "continue the work: start a new job with the note as its prompt")
+					c.AddArg("id", "job id", true)
+				},
+				Func: runJobReject,
+			},
+			{
 				Name:    "list",
 				Desc:    "List jobs with optional filters (tag/agent/runner/since/...)",
 				Aliases: []string{"ls"},
@@ -189,7 +213,7 @@ func NewJobCmd() *gcli.Command {
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.StrOpt(&jobListOpts.project, "project", "p", "", "filter by project key")
-					c.StrOpt(&jobListOpts.status, "status", "", "", "filter by status (queued/running/recovering/done/failed/cancelled/timeout)")
+					c.StrOpt(&jobListOpts.status, "status", "", "", "filter by status (queued/running/recovering/pending_interaction/needs_review/done/failed/cancelled/timeout/rejected)")
 					c.StrOpt(&jobListOpts.caller, "caller", "", "", "filter by caller id")
 					c.StrOpt(&jobListOpts.tag, "tag", "", "", "filter by tag (exact element match)")
 					c.StrOpt(&jobListOpts.agent, "agent", "a", "", "filter by agent key")
@@ -412,6 +436,8 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.VarOpt(&jobRunOpts.agentArgs, "agent-arg", "", "extra arg appended to cli-agent argv (repeatable)", gflag.WithCategory("Execution"))
 	// bd h-aii-0ql3：只读 job（cli-agent 追加沙箱参数 / acp-agent session/set_mode）。
 	c.BoolOpt2(&jobRunOpts.readOnly, "read-only", "run read-only: audit/analysis only, the agent cannot write (cli-agent read_only_args / acp-agent acp.modes.read_only)", gflag.WithCategory("Execution"))
+	// GATE-01 S3：人工验收——agent 正常完成后停在 needs_review，等人 accept/reject。
+	c.BoolOpt2(&jobRunOpts.review, "review", "require human review: on a normal completion the job parks in needs_review until someone accepts or rejects it", gflag.WithCategory("Execution"))
 	c.IntOpt2(&jobRunOpts.timeout, "timeout", "job timeout in seconds (0 = server default)", jobRunOptCategory("Execution", 0))
 
 	// Submission: provenance and grouping metadata.
@@ -782,8 +808,10 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		PlanID:         jobRunOpts.plan,
 		Interactive:    jobRunOpts.interactive,
 		ReadOnly:       jobRunOpts.readOnly,
-		Cols:           jobRunOpts.cols,
-		Rows:           jobRunOpts.rows,
+		// GATE-01 S3：人工验收（正常完成 → needs_review，等人 accept/reject）。
+		Review: jobRunOpts.review,
+		Cols:   jobRunOpts.cols,
+		Rows:   jobRunOpts.rows,
 		// 提交来源（provenance）：CLI 渠道(默认 cli，可 --channel 覆盖) + 本机 hostname。
 		// server 端若 client 为空会以 remote IP 兜底盖章。
 		Channel: channel,
@@ -930,6 +958,20 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	if res.ReadOnly {
 		c.Printf("read_only:  true\n")
 	}
+	// GATE-01 S3：人工验收——是否要求人验收，以及已经做出的裁决（谁/何时/为什么）。
+	// needs_review 时 reviewed_* 为空，正说明"还没人裁"。
+	if res.RequireReview {
+		c.Printf("require_review: true\n")
+	}
+	if res.ReviewedBy != "" {
+		c.Printf("reviewed_by: %s\n", res.ReviewedBy)
+	}
+	if res.ReviewedAt > 0 {
+		c.Printf("reviewed_at: %s\n", formatStarted(res.ReviewedAt))
+	}
+	if res.ReviewNote != "" {
+		c.Printf("review_note: %s\n", res.ReviewNote)
+	}
 	// WT-01：受管 worktree 的交付物位置与分支状态（commits_ahead>0 = 分支上已提交、
 	// 还没合回基线分支的交付物；这就是"job 干完了但代码还没合"的可视信号）。
 	if res.WorktreePath != "" {
@@ -1013,6 +1055,61 @@ func runJobCancel(c *gcli.Command, _ []string) error {
 		return err
 	}
 	c.Printf("job %s cancel requested: status=%s\n", res.ID, res.Status)
+	return nil
+}
+
+// jobAcceptOpts / jobRejectOpts hold the review subcommand flags (GATE-01 S3). The
+// note is optional on accept and required on reject.
+var (
+	jobAcceptOpts struct{ note string }
+	jobRejectOpts struct {
+		note   string
+		resume bool
+	}
+)
+
+// runJobAccept records a human's acceptance of a job awaiting review. The server
+// stamps the reviewer from the token, so the CLI never sends an identity.
+func runJobAccept(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("job accept requires an <id> argument")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	res, err := cli.AcceptJob(id, jobAcceptOpts.note)
+	if err != nil {
+		return err
+	}
+	c.Printf("job %s accepted: status=%s by=%s\n", res.ID, res.Status, res.ReviewedBy)
+	return nil
+}
+
+// runJobReject records a human's refusal of a job awaiting review. --note is required
+// (the reason, and with --resume the continuation's prompt); --resume starts that
+// continuation and prints its id so the caller can watch it.
+func runJobReject(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("job reject requires an <id> argument")
+	}
+	if strings.TrimSpace(jobRejectOpts.note) == "" {
+		return fmt.Errorf("job reject requires --note \"<why the delivery is refused>\"")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	res, err := cli.RejectJob(id, jobRejectOpts.note, jobRejectOpts.resume)
+	if err != nil {
+		return err
+	}
+	c.Printf("job %s rejected: status=%s by=%s\n", res.ID, res.Status, res.ReviewedBy)
+	if res.ResumeJobID != "" {
+		c.Printf("continuation job %s started with the note as its prompt\n", res.ResumeJobID)
+	}
 	return nil
 }
 

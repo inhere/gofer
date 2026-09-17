@@ -22,6 +22,11 @@ type Backend interface {
 	GetJob(id string) (job.JobResult, error)
 	TailLog(id, stream string, maxBytes int64) (string, error)
 	CancelJob(id string) (job.JobResult, error)
+	// RejectJob records this caller's REFUSAL of a job awaiting人工验收 (GATE-01 S3)
+	// and returns the rejected job plus, with resume, the continuation it started.
+	// There is deliberately NO AcceptJob: an agent (which is what speaks MCP) must
+	// never sign off its own work — accepting is a human action (web / CLI / HTTP).
+	RejectJob(id, note string, resume bool, by string) (job.ReviewOutcome, error)
 	GetInteractions(id string) ([]job.Interaction, error)
 	// AnswerInteraction answers a pending interaction attributed to responder — the driver
 	// agent_id of the answering session (监督分层升级路由 P3.1: the answer闸 grades owner /

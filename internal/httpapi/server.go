@@ -480,6 +480,12 @@ func (s *Server) buildRouter() *rux.Router {
 
 		r.POST("/jobs/{id}/cancel", s.handleCancelJob)
 
+		// GATE-01 S3 人工验收：accept/reject 是人对交付物的裁决（agent 永远不能 accept
+		// 自己的工作）。仅 user caller（worker 403）；governance.require_answer_capability
+		// 开启时需 can_answer。reject {note,resume?} 可带 resume 以 note 为 prompt 续投。
+		r.POST("/jobs/{id}/accept", s.handleAcceptJob)
+		r.POST("/jobs/{id}/reject", s.handleRejectJob)
+
 		// session-capture(P2)：用源 job 的 SessionID 续接底层 agent 会话，起一个新
 		// exec job（同 runner）。body {prompt, runner?}；校验失败 4xx/404(resumeStatus)。
 		r.POST("/jobs/{id}/resume", s.handleResumeJob)

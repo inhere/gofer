@@ -40,6 +40,12 @@ func (b *clientBackend) CancelJob(id string) (job.JobResult, error) {
 	return b.cli.CancelJob(id)
 }
 
+// RejectJob forwards the refusal to the central serve, whose own auth stamps the
+// reviewer (by here is only used by the in-process backend).
+func (b *clientBackend) RejectJob(id, note string, resume bool, _ string) (job.ReviewOutcome, error) {
+	return b.cli.RejectJob(id, note, resume)
+}
+
 // GetResult returns the job's result.json content (the get_job snapshot's
 // ResultJSON), mirroring localBackend.GetResult.
 func (b *clientBackend) GetResult(id string) (string, error) {

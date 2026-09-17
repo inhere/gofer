@@ -126,6 +126,13 @@ func (b *localBackend) CancelJob(id string) (job.JobResult, error) {
 	return res, nil
 }
 
+// RejectJob records the MCP caller's refusal of a needs_review job. by is this
+// session's registered driver agent id ("" when unregistered — the job layer records
+// that as anonymous), so the audit trail names the agent that refused the delivery.
+func (b *localBackend) RejectJob(id, note string, resume bool, by string) (job.ReviewOutcome, error) {
+	return b.jobs.RejectJob(id, by, note, resume)
+}
+
 func (b *localBackend) GetInteractions(id string) ([]job.Interaction, error) {
 	return b.jobs.GetInteractions(id)
 }

@@ -109,6 +109,15 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 		Description: "Request cancellation of a running job and return its current state.",
 	}, cancelJobHandler(b))
 
+	// GATE-01 S3: an agent may REFUSE a delivery it judges unacceptable (with a reason,
+	// and optionally hand the work back for another attempt), but it can never ACCEPT
+	// one — there is deliberately no gofer_accept_job tool. Accepting is a human action
+	// (web / CLI / HTTP /v1/jobs/{id}/accept).
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_reject_job",
+		Description: "Reject a job awaiting human review (needs_review): record why it is unacceptable, and with resume=true start a continuation that uses the note as its prompt.",
+	}, rejectJobHandler(b, originAgent))
+
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_get_interactions",
 		Description: "List a job's running-time interactions (pending questions and their answers).",
@@ -299,6 +308,14 @@ type jobView struct {
 	// ReadOnly reports whether this job ran under a read-only sandbox (bd
 	// h-aii-0ql3), so a caller can tell a review run from an editing one.
 	ReadOnly bool `json:"read_only,omitempty"`
+	// RequireReview / ReviewedBy / ReviewedAt / ReviewNote are the人工验收 (GATE-01 S3)
+	// audit fields: whether this delivery is gated on a human's verdict, and — once it
+	// exists — who made it, when, and why. A needs_review job reports require_review
+	// with the reviewed_* fields empty (nobody has ruled yet).
+	RequireReview bool   `json:"require_review,omitempty"`
+	ReviewedBy    string `json:"reviewed_by,omitempty"`
+	ReviewedAt    int64  `json:"reviewed_at,omitempty"`
+	ReviewNote    string `json:"review_note,omitempty"`
 }
 
 // toJobView projects a job.JobResult onto the snake_case jobView. It is the
@@ -323,6 +340,12 @@ func toJobView(r job.JobResult) jobView {
 		OriginAgent: r.OriginAgent,
 		EscalateTo:  r.EscalateTo,
 		ReadOnly:    r.ReadOnly,
+		// GATE-01 S3 人工验收：是否要求验收 + 已做出的裁决（谁/何时/为什么）。needs_review
+		// 时后者为空，正说明还没人裁。
+		RequireReview: r.RequireReview,
+		ReviewedBy:    r.ReviewedBy,
+		ReviewedAt:    r.ReviewedAt,
+		ReviewNote:    r.ReviewNote,
 	}
 }
 
@@ -715,6 +738,37 @@ func cancelJobHandler(b Backend) mcp.ToolHandlerFor[jobIDInput, jobView] {
 			return nil, jobView{}, err
 		}
 		return nil, toJobView(res), nil
+	}
+}
+
+// --- gofer_reject_job ------------------------------------------------------
+
+// rejectJobInput is the gofer_reject_job argument shape (GATE-01 S3): the job awaiting
+// review, the reason it is refused, and whether the reason should also be handed back
+// to the agent as a continuation prompt.
+type rejectJobInput struct {
+	JobID string `json:"job_id"`
+	// Note is why the delivery is unacceptable. It is required by the server, and with
+	// resume=true it is also the continuation's prompt (so write it as an instruction).
+	Note string `json:"note"`
+	// Resume continues the work with the note as its prompt, instead of just ending the
+	// job. The outcome carries the new job id.
+	Resume bool `json:"resume,omitempty"`
+}
+
+// rejectJobView is jobView plus the continuation a resume reject started ("" = none).
+type rejectJobView struct {
+	jobView
+	ResumeJobID string `json:"resume_job_id,omitempty"`
+}
+
+func rejectJobHandler(b Backend, originAgent string) mcp.ToolHandlerFor[rejectJobInput, rejectJobView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in rejectJobInput) (*mcp.CallToolResult, rejectJobView, error) {
+		res, err := b.RejectJob(in.JobID, in.Note, in.Resume, originAgent)
+		if err != nil {
+			return nil, rejectJobView{}, err
+		}
+		return nil, rejectJobView{jobView: toJobView(res.JobResult), ResumeJobID: res.ResumeJobID}, nil
 	}
 }
 

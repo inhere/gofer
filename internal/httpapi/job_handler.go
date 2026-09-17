@@ -380,14 +380,119 @@ func resumeStatus(err error) int {
 }
 
 // handleCancelJob requests cancellation. Cancel is a stable no-op for an already
-// terminal job (returns the current snapshot), and a 404 for an unknown id.
+// terminal job (returns the current snapshot), a 409 for a job that has finished but
+// is not terminal yet (needs_review: the caller wants reject), and a 404 for an
+// unknown id.
 func (s *Server) handleCancelJob(c *rux.Context) {
 	id := c.Param("id")
 	if err := s.jobs.Cancel(id); err != nil {
-		// The only Cancel error is an unknown job id (terminal jobs are no-ops).
+		if errors.Is(err, job.ErrJobNotRunning) {
+			writeError(c, http.StatusConflict, "job is not running", err.Error())
+			return
+		}
+		// The only other Cancel error is an unknown job id (terminal jobs are no-ops).
 		writeError(c, http.StatusNotFound, "unknown job", err.Error())
 		return
 	}
 	res, _ := s.jobs.Get(id)
 	c.JSON(http.StatusOK, res)
+}
+
+// reviewJobReq is the optional body of POST /jobs/{id}/accept|reject: the note is the
+// human's reason (required for a reject, optional for an accept) and, with resume, the
+// continuation's prompt.
+type reviewJobReq struct {
+	Note string `json:"note,omitempty"`
+	// Resume asks a REJECT to continue the work: a new job is started with the note as
+	// its prompt. Ignored by accept.
+	Resume bool `json:"resume,omitempty"`
+}
+
+// handleAcceptJob records a human's acceptance of a needs_review job (→done). The
+// orchestration lives in job.Service.AcceptJob (G021); the handler only enforces the
+// human-only rule, binds the optional note and maps the job-package sentinels.
+func (s *Server) handleAcceptJob(c *rux.Context) {
+	caller, ok := s.humanReviewer(c, "accept")
+	if !ok {
+		return
+	}
+	req, ok := bindReviewJobReq(c)
+	if !ok {
+		return
+	}
+	res, err := s.jobs.AcceptJob(c.Param("id"), caller, req.Note)
+	if err != nil {
+		writeError(c, reviewStatus(err), "accept failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, res)
+}
+
+// handleRejectJob records a human's rejection of a needs_review job (→ the terminal
+// rejected) and, with resume, starts the continuation the note asks for. The rejection
+// itself is durable even when the continuation cannot be started — the error then
+// reports only that (job.Service.RejectJob).
+func (s *Server) handleRejectJob(c *rux.Context) {
+	caller, ok := s.humanReviewer(c, "reject")
+	if !ok {
+		return
+	}
+	req, ok := bindReviewJobReq(c)
+	if !ok {
+		return
+	}
+	res, err := s.jobs.RejectJob(c.Param("id"), caller, req.Note, req.Resume)
+	if err != nil {
+		writeError(c, reviewStatus(err), "reject failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, res)
+}
+
+// humanReviewer enforces the GATE-01 S3 rule that only a PERSON signs off a delivery:
+// a worker caller (an executing machine, and in practice the agent's own runtime) is
+// refused outright, and when governance.require_answer_capability is on the caller must
+// hold can_answer — the same capability that lets it answer an interaction on a human's
+// behalf. It writes the 403 and returns ok=false when the caller may not review.
+func (s *Server) humanReviewer(c *rux.Context, action string) (string, bool) {
+	if callerKindFromCtx(c) == callerKindWorker {
+		writeError(c, http.StatusForbidden, action+" not permitted for this caller",
+			"worker tokens cannot "+action+" a job: only a human reviews a delivery")
+		return "", false
+	}
+	caller := callerFromCtx(c)
+	if !s.callerMayAnswer(caller) {
+		writeError(c, http.StatusForbidden, action+" not permitted for this caller", "caller lacks can_answer capability")
+		return "", false
+	}
+	return caller, true
+}
+
+// bindReviewJobReq binds the optional review body. An empty body is legal (accept with
+// no note): the JSON binder reports io.EOF for it, which is not an error here.
+func bindReviewJobReq(c *rux.Context) (reviewJobReq, bool) {
+	var req reviewJobReq
+	if err := c.BindJSON(&req); err != nil && !errors.Is(err, io.EOF) {
+		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return reviewJobReq{}, false
+	}
+	return req, true
+}
+
+// reviewStatus maps an accept/reject error to an HTTP status: an unknown job is 404;
+// "not awaiting review" and "not running" (cancel of a needs_review job) are 409 —
+// the job exists but is in the wrong state for the request; a missing reject note is a
+// 400; a continuation that could not start keeps the caller's attention on the request
+// (400) while the rejection itself already stands.
+func reviewStatus(err error) int {
+	switch {
+	case errors.Is(err, job.ErrUnknownJob):
+		return http.StatusNotFound
+	case errors.Is(err, job.ErrJobNotNeedsReview), errors.Is(err, job.ErrJobNotRunning):
+		return http.StatusConflict
+	case errors.Is(err, job.ErrReviewNoteRequired):
+		return http.StatusBadRequest
+	default:
+		return submitStatus(err)
+	}
 }
