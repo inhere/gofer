@@ -94,6 +94,11 @@ func TestMigrateAddsColumnsToOldDB(t *testing.T) {
 	assert.True(t, tableHasColumn(t, s, "jobs", "origin_agent"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "escalate_to"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "role"))
+	// 人工验收（GATE-01 S3）：旧库经 migrate 必须补全验收审计 4 列（历史行读作"未验收"）。
+	assert.True(t, tableHasColumn(t, s, "jobs", "require_review"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "reviewed_by"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "reviewed_at"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "review_note"))
 
 	// The migrated DB is usable: a job with a request_id round-trips.
 	rec := sampleJob("j1", "proj", 100)
@@ -147,6 +152,11 @@ func TestFreshOpenHasNewColumnsAndIndex(t *testing.T) {
 	assert.True(t, tableHasColumn(t, s, "jobs", "origin_agent"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "escalate_to"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "role"))
+	// 人工验收（GATE-01 S3）：新库一次建全验收审计 4 列。
+	assert.True(t, tableHasColumn(t, s, "jobs", "require_review"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "reviewed_by"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "reviewed_at"))
+	assert.True(t, tableHasColumn(t, s, "jobs", "review_note"))
 	assert.True(t, tableHasColumn(t, s, "interactions", "escalated_at"))
 	// 派生作答审计区分（supervisor-routing P3.2）：新库一次建全 answered_by 列。
 	assert.True(t, tableHasColumn(t, s, "interactions", "answered_by"))
