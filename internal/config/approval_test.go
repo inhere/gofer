@@ -116,7 +116,7 @@ func TestApprovalPolicyDefaultsAndValidation(t *testing.T) {
 	}}); err == nil || !strings.Contains(err.Error(), "permission_policy") {
 		t.Fatalf("validate(agent permission_policy) = %v, want an error naming permission_policy", err)
 	}
-	for _, pol := range []string{"", ApprovalOff, ApprovalAsk, ApprovalStrict, "auto_allow"} {
+	for _, pol := range []string{"", ApprovalAutoAllow, ApprovalAsk, ApprovalStrict} {
 		if err := validate(&Config{Agents: map[string]AgentConfig{
 			"bot": {Type: "acp-agent", ACP: &ACPConfig{PermissionPolicy: pol}},
 		}}); err != nil {

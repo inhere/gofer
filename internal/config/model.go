@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/inhere/gofer/internal/acp"
 	"github.com/inhere/gofer/internal/tunnel"
 )
 
@@ -869,6 +870,190 @@ type ProjectConfig struct {
 	// (a per-job --worktree is then redundant). The resolved decision rides the
 	// request, so a worker executes exactly what the submitter decided.
 	WorktreeDefault bool `yaml:"worktree_default,omitempty"`
+	// Approval is the project's run-time approval gate (GATE-01 §1): how an
+	// acp-agent's session/request_permission is answered. Nil means the defaults,
+	// and the default mode is off (= the pre-GATE behaviour: the agent's own
+	// permission handling decides, gofer auto-allows) so upgrading cannot strand
+	// existing jobs on a human. See ApprovalPolicy.
+	Approval *ApprovalConfig `yaml:"approval,omitempty"`
+}
+
+// ApprovalConfig is a project's approval gate for ACP permission requests
+// (docs/design/2026-09-17-acp-agent-and-approval-gate-design.md §二.1).
+//
+// It only applies to acp-agent jobs: the ACP `session/request_permission` request is
+// the gate's input. `mode` decides — off auto-allows exactly as S0 did, ask asks a
+// human unless the tool call's kind is auto_allowed, strict asks for everything.
+// An agent may only TIGHTEN this (Config.EffectiveApproval).
+type ApprovalConfig struct {
+	// Mode is off|ask|strict ("" => off).
+	Mode string `yaml:"mode,omitempty"`
+	// AutoAllowKinds lists the ACP ToolKinds approved without asking under mode=ask
+	// ("" => DefaultApprovalAutoAllowKinds).
+	AutoAllowKinds []string `yaml:"auto_allow_kinds,omitempty"`
+	// AskKinds lists the ACP ToolKinds that always ask ("" => DefaultApprovalAskKinds).
+	// It takes precedence over AutoAllowKinds, so a kind in both lists asks.
+	AskKinds []string `yaml:"ask_kinds,omitempty"`
+	// TimeoutSec bounds how long a pending approval waits for an answer ("" / <=0 =>
+	// DefaultApprovalTimeoutSec). The job's own timeout still applies on top.
+	TimeoutSec int `yaml:"timeout_sec,omitempty"`
+	// OnTimeout is reject|allow — what the agent is told when nobody answers in time
+	// ("" => reject).
+	OnTimeout string `yaml:"on_timeout,omitempty"`
+	// RememberAllowAlways makes a human's allow_always answer cover the SAME tool
+	// kind for the rest of the job, so one approval does not become twenty prompts.
+	// A pointer so "unset" defaults to true while an explicit false asks every time.
+	RememberAllowAlways *bool `yaml:"remember_allow_always,omitempty"`
+}
+
+// Approval modes (ApprovalConfig.Mode, ACPConfig.PermissionPolicy).
+const (
+	// ApprovalOff auto-allows every permission request (the S0 behaviour, and the
+	// default: upgrading gofer must not park every job on a human).
+	ApprovalOff = "off"
+	// ApprovalAsk auto-allows the auto_allow_kinds and asks a human for the rest.
+	ApprovalAsk = "ask"
+	// ApprovalStrict asks a human for every permission request.
+	ApprovalStrict = "strict"
+	// ApprovalAutoAllow is the AGENT-level spelling of "no tightening"
+	// (agents.<key>.acp.permission_policy). It is deliberately distinct from
+	// ApprovalOff at the agent level: an agent may never turn the gate OFF, only
+	// decline to raise it.
+	ApprovalAutoAllow = "auto_allow"
+)
+
+// Approval on-timeout outcomes (ApprovalConfig.OnTimeout).
+const (
+	// ApprovalOnTimeoutReject answers a timed-out request with a reject option (or a
+	// cancellation when the agent offers none) — the default: an unanswered request
+	// must not become an approval.
+	ApprovalOnTimeoutReject = "reject"
+	// ApprovalOnTimeoutAllow answers a timed-out request with allow_once.
+	ApprovalOnTimeoutAllow = "allow"
+)
+
+// DefaultApprovalTimeoutSec is how long a pending approval waits for an answer when
+// the project does not say (30min — long enough for a human to notice the card, short
+// enough that a forgotten job does not hold the agent forever).
+const DefaultApprovalTimeoutSec = 1800
+
+// Approval tool kinds approved/asked by default. Together they cover the whole ACP
+// vocabulary; a kind in NEITHER list (a future protocol addition) asks.
+var (
+	// DefaultApprovalAutoAllowKinds are read-only, side-effect-free tool calls.
+	DefaultApprovalAutoAllowKinds = []string{
+		acp.ToolKindRead, acp.ToolKindSearch, acp.ToolKindThink, acp.ToolKindFetch,
+	}
+	// DefaultApprovalAskKinds are the kinds that mutate the workspace or run code.
+	DefaultApprovalAskKinds = []string{
+		acp.ToolKindEdit, acp.ToolKindDelete, acp.ToolKindMove,
+		acp.ToolKindExecute, acp.ToolKindOther, acp.ToolKindSwitchMode,
+	}
+)
+
+// WithDefaults returns the policy with every unset field resolved, so a consumer
+// (the runner) never has to know the defaults. Slices are copied: the returned value
+// shares no backing array with the config.
+func (a ApprovalConfig) WithDefaults() ApprovalConfig {
+	if a.Mode == "" {
+		a.Mode = ApprovalOff
+	}
+	if a.AutoAllowKinds == nil {
+		a.AutoAllowKinds = append([]string(nil), DefaultApprovalAutoAllowKinds...)
+	}
+	if a.AskKinds == nil {
+		a.AskKinds = append([]string(nil), DefaultApprovalAskKinds...)
+	}
+	if a.TimeoutSec <= 0 {
+		a.TimeoutSec = DefaultApprovalTimeoutSec
+	}
+	if a.OnTimeout == "" {
+		a.OnTimeout = ApprovalOnTimeoutReject
+	}
+	if a.RememberAllowAlways == nil {
+		t := true
+		a.RememberAllowAlways = &t
+	}
+	return a
+}
+
+// AllowsAlways reports the remember_allow_always switch (unset = true).
+func (a ApprovalConfig) AllowsAlways() bool {
+	return a.RememberAllowAlways == nil || *a.RememberAllowAlways
+}
+
+// AutoAllow reports whether a tool call of this kind needs no approval. It is asked
+// of a RESOLVED policy (WithDefaults/ApprovalPolicy): ask_kinds wins over
+// auto_allow_kinds, and a kind named by neither list is asked about — fail closed, so
+// a new protocol kind can never slip through unapproved.
+func (a ApprovalConfig) AutoAllow(kind string) bool {
+	for _, k := range a.AskKinds {
+		if k == kind {
+			return false
+		}
+	}
+	for _, k := range a.AutoAllowKinds {
+		if k == kind {
+			return true
+		}
+	}
+	return false
+}
+
+// ApprovalPolicy returns the project's approval policy with the defaults applied
+// (nil block => the default policy).
+func (p ProjectConfig) ApprovalPolicy() ApprovalConfig {
+	var a ApprovalConfig
+	if p.Approval != nil {
+		a = *p.Approval
+	}
+	return a.WithDefaults()
+}
+
+// EffectiveApproval resolves the approval policy that governs a job of this project
+// run by this agent: the project's policy, TIGHTENED — never relaxed — by the agent's
+// acp.permission_policy (design §GATE-01.1). The agent knob therefore has three
+// effects and no others: auto_allow (or unset) leaves the project policy alone, ask
+// raises off to ask, strict raises anything to strict. An unknown project/agent
+// resolves to the default (off) policy.
+func (c *Config) EffectiveApproval(projectKey, agent string) ApprovalConfig {
+	pol := ProjectConfig{}.ApprovalPolicy()
+	if c == nil {
+		return pol
+	}
+	if p, ok := c.Projects[projectKey]; ok {
+		pol = p.ApprovalPolicy()
+	}
+	if a, ok := c.Agents[agent]; ok && a.ACP != nil {
+		if rank := approvalRank(a.ACP.PermissionPolicy); rank > approvalRank(pol.Mode) {
+			pol.Mode = approvalModeByRank(rank)
+		}
+	}
+	return pol
+}
+
+// approvalRank orders the modes by strictness so "only tighten" is a max().
+func approvalRank(mode string) int {
+	switch mode {
+	case ApprovalAsk:
+		return 1
+	case ApprovalStrict:
+		return 2
+	default: // "", off, auto_allow, and anything unknown (validated at load)
+		return 0
+	}
+}
+
+// approvalModeByRank is approvalRank's inverse for the ranks it produces.
+func approvalModeByRank(rank int) string {
+	switch rank {
+	case 1:
+		return ApprovalAsk
+	case 2:
+		return ApprovalStrict
+	default:
+		return ApprovalOff
+	}
 }
 
 // IsNotifyEnabled reports whether E14 webhook delivery is enabled for the

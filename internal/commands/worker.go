@@ -585,10 +585,34 @@ func projectPolicy(wc *config.WorkerConfig, p wsproto.Policy) (*config.Config, [
 			// of truth for a worker job's timeout. 0 (pre-change server) => the worker
 			// keeps its own config ceiling.
 			MaxTimeoutSec: pp.MaxTimeoutSec,
+			// GATE-01: the acp-agent job runs HERE, so the approval gate must ride the
+			// policy. The server already resolved the defaults; a pre-GATE server sends
+			// nothing (nil) and the worker's own default (off) applies.
+			Approval: approvalFromPolicy(pp.Approval),
 		}
 	}
 	cfg.Projects = projects // COMPLETE snapshot replace (E-B1); empty policy ⇒ empty set
 	return cfg, rejected
+}
+
+// approvalFromPolicy maps the pushed approval gate onto the worker's local project
+// config (GATE-01 §1). A nil wire block (pre-GATE server) stays nil, so the worker's
+// ProjectConfig.ApprovalPolicy resolves its own default; the kind lists are copied
+// verbatim — nil means "unset" (defaults) while an explicitly empty list means "none",
+// which is why the server forces empty lists to `[]` rather than null.
+func approvalFromPolicy(ap *wsproto.ApprovalPolicy) *config.ApprovalConfig {
+	if ap == nil {
+		return nil
+	}
+	remember := ap.RememberAllowAlways
+	return &config.ApprovalConfig{
+		Mode:                ap.Mode,
+		AutoAllowKinds:      ap.AutoAllowKinds,
+		AskKinds:            ap.AskKinds,
+		TimeoutSec:          ap.TimeoutSec,
+		OnTimeout:           ap.OnTimeout,
+		RememberAllowAlways: &remember,
+	}
 }
 
 // policyAllowsInteractive reports whether the POLICY's project asks for interactive

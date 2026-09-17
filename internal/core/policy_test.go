@@ -27,10 +27,11 @@ func matrixCfg() *config.Config {
 			"peer":  {Type: "peer-http"},               // not a worker path
 		},
 		Projects: map[string]config.ProjectConfig{
-			"pin-a":  {HostPath: "/srv/pin-a", AllowedRunners: []string{"run-a"}},
-			"pin-b":  {HostPath: "/srv/pin-b", AllowedRunners: []string{"run-b"}},
-			"pooled": {HostPath: "/srv/pooled", AllowedRunners: []string{"pool"}, MaxConcurrentJobs: 3, CaptureDiff: &captureOff},
-			"multi":  {HostPath: "/srv/multi", AllowedRunners: []string{"run-a", "pool"}}, // reachable via pool from any worker
+			"pin-a": {HostPath: "/srv/pin-a", AllowedRunners: []string{"run-a"}},
+			"pin-b": {HostPath: "/srv/pin-b", AllowedRunners: []string{"run-b"}},
+			"pooled": {HostPath: "/srv/pooled", AllowedRunners: []string{"pool"}, MaxConcurrentJobs: 3, CaptureDiff: &captureOff,
+				Approval: &config.ApprovalConfig{Mode: config.ApprovalAsk, TimeoutSec: 90}},
+			"multi": {HostPath: "/srv/multi", AllowedRunners: []string{"run-a", "pool"}}, // reachable via pool from any worker
 			// —— Q8 / ignore branches: NONE of these reach any worker ——
 			"empty":     {HostPath: "/srv/empty", AllowedRunners: []string{}}, // 🔴 Q8: empty ≠ wildcard
 			"nilrun":    {HostPath: "/srv/nilrun"},                            // AllowedRunners nil → same as empty
@@ -184,6 +185,39 @@ func TestComputePolicyH2Fields(t *testing.T) {
 	// (PolicyProject has no such field — structurally guaranteed).
 	if byKey["pin-a"].HostPath != "/srv/pin-a" {
 		t.Errorf("pin-a HostPath = %q, want /srv/pin-a", byKey["pin-a"].HostPath)
+	}
+}
+
+// TestComputePolicyCarriesApproval: the project approval gate rides the pushed policy
+// (GATE-01 §1) — the acp-agent job runs on the worker, so the resolved policy must be
+// there. A project without an approval block is still sent the RESOLVED default (off),
+// and the kind lists are non-nil so the wire never confuses "unset" with "none".
+func TestComputePolicyCarriesApproval(t *testing.T) {
+	byKey := policyByKey(computePolicy(matrixCfg(), "w-a", 1))
+
+	pooled := byKey["pooled"]
+	if pooled.Approval == nil {
+		t.Fatal("pooled has no approval block on the wire")
+	}
+	if pooled.Approval.Mode != config.ApprovalAsk || pooled.Approval.TimeoutSec != 90 {
+		t.Errorf("pooled approval = %+v, want mode=ask timeout_sec=90", pooled.Approval)
+	}
+	// Unset fields are resolved before they are sent: ask_kinds defaults, on_timeout
+	// defaults to reject, remember_allow_always defaults to true.
+	if len(pooled.Approval.AskKinds) != len(config.DefaultApprovalAskKinds) ||
+		len(pooled.Approval.AutoAllowKinds) != len(config.DefaultApprovalAutoAllowKinds) {
+		t.Errorf("pooled approval kinds = %+v, want the resolved defaults", pooled.Approval)
+	}
+	if pooled.Approval.OnTimeout != config.ApprovalOnTimeoutReject || !pooled.Approval.RememberAllowAlways {
+		t.Errorf("pooled approval = %+v, want on_timeout=reject remember=true", pooled.Approval)
+	}
+
+	multi := byKey["multi"]
+	if multi.Approval == nil || multi.Approval.Mode != config.ApprovalOff {
+		t.Errorf("multi approval = %+v, want the resolved default (mode=off)", multi.Approval)
+	}
+	if multi.Approval != nil && multi.Approval.AutoAllowKinds == nil {
+		t.Error("approval auto_allow_kinds marshal to null; an empty list must stay []")
 	}
 }
 

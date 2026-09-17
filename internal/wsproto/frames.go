@@ -450,6 +450,24 @@ type PolicyProject struct {
 	// re-clamping an admitted timeout against a worker-local default. omitempty: a
 	// pre-change server sends nothing (0) and the worker falls back to its own config.
 	MaxTimeoutSec int `json:"max_timeout_sec,omitempty"`
+	// Approval is the project's RESOLVED approval gate (GATE-01 §1) — the worker
+	// needs it because the acp-agent job runs THERE and the gate is decided at
+	// permission-request time. omitempty: a pre-GATE server sends nothing (nil) and
+	// the worker falls back to its own default (off).
+	Approval *ApprovalPolicy `json:"approval,omitempty"`
+}
+
+// ApprovalPolicy is the wire form of a project's approval gate
+// (config.ApprovalConfig). Every field is RESOLVED (the server applied the defaults)
+// so the worker never re-derives them, and the type lives here because wsproto must
+// not import internal/config.
+type ApprovalPolicy struct {
+	Mode                string   `json:"mode"`
+	AutoAllowKinds      []string `json:"auto_allow_kinds"`
+	AskKinds            []string `json:"ask_kinds"`
+	TimeoutSec          int      `json:"timeout_sec"`
+	OnTimeout           string   `json:"on_timeout"`
+	RememberAllowAlways bool     `json:"remember_allow_always"`
 }
 
 // Policy (s→w): the full set of projects a worker may run at revision Rev. Rev is the

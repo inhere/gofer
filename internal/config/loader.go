@@ -14,6 +14,8 @@ import (
 	"strings"
 
 	yaml "github.com/goccy/go-yaml"
+
+	"github.com/inhere/gofer/internal/acp"
 )
 
 // EnvConfigPath is the env var consulted in the config lookup chain (§6.1).
@@ -384,6 +386,44 @@ func ApplyLegacyInteractiveCompat(raw []byte, projects map[string]ProjectConfig)
 	return projects
 }
 
+// validateApproval checks a project's approval block against the ACP vocabulary
+// (GATE-01 §1). Every field is an enum or a kind list, so a typo is caught here
+// rather than silently widening the gate: an unknown kind in auto_allow_kinds would
+// otherwise never match and an unknown mode would read as off.
+func validateApproval(project string, a ApprovalConfig) error {
+	switch a.Mode {
+	case "", ApprovalOff, ApprovalAsk, ApprovalStrict:
+	default:
+		return fmt.Errorf("project %q: unknown approval.mode %q (want %s|%s|%s)",
+			project, a.Mode, ApprovalOff, ApprovalAsk, ApprovalStrict)
+	}
+	switch a.OnTimeout {
+	case "", ApprovalOnTimeoutReject, ApprovalOnTimeoutAllow:
+	default:
+		return fmt.Errorf("project %q: unknown approval.on_timeout %q (want %s|%s)",
+			project, a.OnTimeout, ApprovalOnTimeoutReject, ApprovalOnTimeoutAllow)
+	}
+	if a.TimeoutSec < 0 {
+		return fmt.Errorf("project %q: approval.timeout_sec must be >= 0", project)
+	}
+	if err := validateApprovalKinds(project, "auto_allow_kinds", a.AutoAllowKinds); err != nil {
+		return err
+	}
+	return validateApprovalKinds(project, "ask_kinds", a.AskKinds)
+}
+
+// validateApprovalKinds rejects a kind outside the ACP ToolKind vocabulary — kinds
+// come from the protocol, so an unknown one is a typo, never a future feature.
+func validateApprovalKinds(project, field string, kinds []string) error {
+	for _, k := range kinds {
+		if !slices.Contains(acp.ToolKinds, k) {
+			return fmt.Errorf("project %q: unknown approval.%s entry %q (want one of %s)",
+				project, field, k, strings.Join(acp.ToolKinds, "|"))
+		}
+	}
+	return nil
+}
+
 // validate runs lightweight structural checks that do not touch the filesystem;
 // path/agent existence checks live in internal/project Registry.Validate.
 func validate(cfg *Config) error {
@@ -424,6 +464,17 @@ func validate(cfg *Config) error {
 		default:
 			return fmt.Errorf("agent %q: unknown ndjson_stdout %q (want %s|%s)", key, ac.NDJSONStdout, NDJSONStdoutFinalText, NDJSONStdoutEvents)
 		}
+		// GATE-01: the agent-level approval knob only tightens the project policy, so
+		// an unknown value would silently do nothing (a typo'd `strict` would leave the
+		// gate off) — reject it at load.
+		if ac.ACP != nil {
+			switch ac.ACP.PermissionPolicy {
+			case "", ApprovalAutoAllow, ApprovalAsk, ApprovalStrict:
+			default:
+				return fmt.Errorf("agent %q: unknown acp.permission_policy %q (want %s|%s|%s)",
+					key, ac.ACP.PermissionPolicy, ApprovalAutoAllow, ApprovalAsk, ApprovalStrict)
+			}
+		}
 	}
 	for key, p := range cfg.Projects {
 		if p.HostPath == "" {
@@ -434,6 +485,11 @@ func validate(cfg *Config) error {
 		// something surprising at submit.
 		if p.MaxTimeoutSec < 0 {
 			return fmt.Errorf("project %q: max_timeout_sec must be >= 0", key)
+		}
+		if p.Approval != nil {
+			if err := validateApproval(key, *p.Approval); err != nil {
+				return err
+			}
 		}
 	}
 	// bd h-aii-s9ck: same for the server-wide ceiling (0 = DefaultMaxJobTimeoutSec).

@@ -97,6 +97,7 @@ func projectReachesWorker(cfg *config.Config, proj config.ProjectConfig, workerI
 // field survives only to be read FROM old servers.
 func projectToPolicy(key string, proj config.ProjectConfig, maxTimeoutSec int) wsproto.PolicyProject {
 	allowInteractive := proj.IsInteractiveAllowed()
+	approval := proj.ApprovalPolicy()
 	return wsproto.PolicyProject{
 		Key:               key,
 		HostPath:          proj.HostPath,
@@ -106,6 +107,23 @@ func projectToPolicy(key string, proj config.ProjectConfig, maxTimeoutSec int) w
 		MaxConcurrentJobs: proj.MaxConcurrentJobs,
 		CaptureDiff:       proj.CaptureDiff,
 		MaxTimeoutSec:     maxTimeoutSec,
+		Approval:          approvalToPolicy(approval),
+	}
+}
+
+// approvalToPolicy maps the RESOLVED approval policy onto its wire form (GATE-01 §1).
+// The kind lists are forced non-nil for the same reason as AllowedAgents: a nil slice
+// would marshal to null, and null must mean "not sent" (a pre-GATE server), never "no
+// kinds at all" — the worker then fills in the defaults and would silently replace an
+// explicitly empty list.
+func approvalToPolicy(a config.ApprovalConfig) *wsproto.ApprovalPolicy {
+	return &wsproto.ApprovalPolicy{
+		Mode:                a.Mode,
+		AutoAllowKinds:      nonNilStrings(a.AutoAllowKinds),
+		AskKinds:            nonNilStrings(a.AskKinds),
+		TimeoutSec:          a.TimeoutSec,
+		OnTimeout:           a.OnTimeout,
+		RememberAllowAlways: a.AllowsAlways(),
 	}
 }
 

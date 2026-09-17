@@ -39,6 +39,28 @@ const (
 	UpdateCurrentMode       = "current_mode_update"
 )
 
+// toolCall.kind values — the ACP ToolKind vocabulary. A gofer policy that names
+// tool kinds (the project approval gate) is validated against ToolKinds, so the
+// vocabulary has exactly one home.
+const (
+	ToolKindRead       = "read"
+	ToolKindEdit       = "edit"
+	ToolKindDelete     = "delete"
+	ToolKindMove       = "move"
+	ToolKindSearch     = "search"
+	ToolKindExecute    = "execute"
+	ToolKindThink      = "think"
+	ToolKindFetch      = "fetch"
+	ToolKindSwitchMode = "switch_mode"
+	ToolKindOther      = "other"
+)
+
+// ToolKinds is the complete ToolKind vocabulary, in schema order.
+var ToolKinds = []string{
+	ToolKindRead, ToolKindEdit, ToolKindDelete, ToolKindMove, ToolKindSearch,
+	ToolKindExecute, ToolKindThink, ToolKindFetch, ToolKindSwitchMode, ToolKindOther,
+}
+
 // session/request_permission option kinds.
 const (
 	OptionAllowOnce    = "allow_once"
