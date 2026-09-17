@@ -1,5 +1,6 @@
 <script setup lang="ts">
 // 终端式日志带（stdout | stderr），等宽 mono、深底。
+//  - stdout = agent 的最终答复（ndjson agent 也如此，过程事件在 stderr）；
 //  - 自动滚底：有新内容滚到底；
 //  - 用户上滚 -> 暂停自动滚动 + 显示「N 行新」提示，点击/回到底部恢复；
 //  - stdout/stderr 用 tab 切换；stderr 首次出现内容时自动聚焦；
@@ -41,8 +42,9 @@ const errPinned = ref(true)
 const outNew = ref(0)
 const errNew = ref(0)
 const stdoutMarkdownMode = ref(false)
-// 结构化视图开关（bd h-aii-rpky）：ndjson agent 的 stdout 逐行解析成时间线。
-const stdoutStructuredMode = ref(false)
+// 结构化视图开关（bd h-aii-rpky / bd h-aii-525u）：ndjson agent 的**过程事件**在 stderr
+// （stdout 只有最终答复文本），逐行解析成时间线。
+const structuredMode = ref(false)
 let outPrev = 0
 let errPrev = 0
 
@@ -171,12 +173,11 @@ const showStdoutMarkdown = computed(
   () => paged.value && activeStream.value === 'stdout' && props.stdout.length > 200,
 )
 
-// hasStructuredLines：stdout 是否像 ndjson 事件流 —— 前若干行里存在带字符串 type 的
-// JSON 对象即可（真流开头必然就有事件行）。只在为真时提供「结构化视图」切换，避免给
-// 纯文本 agent 的日志显示一个没意义的开关。
+// looksStructured：某一路日志是否像 ndjson 事件流 —— 前若干行里存在带字符串 type 的
+// JSON 对象即可（真流开头必然就有事件行）。只在为真时提供「结构化视图」切换，避免给纯
+// 文本 agent 的日志显示一个没意义的开关。
 const structuredSampleLines = 200
-const hasStructuredLines = computed(() => {
-  const text = props.stdout || ''
+function looksStructured(text: string): boolean {
   if (text === '') {
     return false
   }
@@ -199,7 +200,12 @@ const hasStructuredLines = computed(() => {
     }
   }
   return false
-})
+}
+
+const stdoutStructured = computed(() => looksStructured(props.stdout || ''))
+const stderrStructured = computed(() => looksStructured(props.stderr || ''))
+// 任一路是事件流就给开关（切到另一路时开关不闪没）；应用范围按各路各自的判定。
+const hasStructuredLines = computed(() => stdoutStructured.value || stderrStructured.value)
 
 function selectStream(stream: 'stdout' | 'stderr'): void {
   activeStream.value = stream
@@ -225,8 +231,8 @@ function toggleStdoutMarkdown(): void {
   stdoutMarkdownMode.value = !stdoutMarkdownMode.value
 }
 
-function toggleStdoutStructured(): void {
-  stdoutStructuredMode.value = !stdoutStructuredMode.value
+function toggleStructured(): void {
+  structuredMode.value = !structuredMode.value
 }
 
 function scrollPane(el: HTMLElement): void {
@@ -394,9 +400,9 @@ onMounted(() => {
             v-if="hasStructuredLines"
             class="log-action"
             type="button"
-            @click="toggleStdoutStructured"
+            @click="toggleStructured"
           >
-            {{ stdoutStructuredMode ? '原始视图' : '结构化视图' }}
+            {{ structuredMode ? '原始视图' : '结构化视图' }}
           </button>
           <button
             v-if="showStdoutMarkdown"
@@ -416,10 +422,7 @@ onMounted(() => {
         role="tabpanel"
         @scroll="onScrollOut"
       >
-        <div
-          v-if="stdoutStructuredMode && hasStructuredLines"
-          class="log-structured"
-        >
+        <div v-if="structuredMode && stdoutStructured" class="log-structured">
           <NdjsonTimeline :text="stdout" />
         </div>
         <div
@@ -445,7 +448,11 @@ onMounted(() => {
         role="tabpanel"
         @scroll="onScrollErr"
       >
-        <pre class="log-text" v-html="stderrHtml"></pre>
+        <!-- ndjson agent 的过程事件走 stderr（h-aii-525u），结构化视图读这一路。 -->
+        <div v-if="structuredMode && stderrStructured" class="log-structured">
+          <NdjsonTimeline :text="stderr" />
+        </div>
+        <pre v-else class="log-text" v-html="stderrHtml"></pre>
       </div>
       <button
         v-if="activeStream === 'stderr' && errNew > 0 && !errPinned"

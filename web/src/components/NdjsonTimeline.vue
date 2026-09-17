@@ -1,12 +1,15 @@
 <script setup lang="ts">
-// NDJSON 结构化视图（bd h-aii-rpky）：把 ndjson agent 的 stdout（omp --mode json /
-// claude --output-format stream-json）按事件类型渲染成时间线。
-//  - tool_execution_start：intent + toolName + command（可折叠），
-//  - tool_execution_end：结果前 N 行（可折叠，超出即提示还有多少行），
-//  - message_end：assistant 文本，
-//  - turn_end：usage / model，
-//  - session：会话行（id/model/cwd），
+// NDJSON 结构化视图（bd h-aii-rpky / bd h-aii-525u）：把 ndjson agent 的**紧凑事件流**
+// 按事件类型渲染成时间线。事件现在是投影器给的（omp/claude 各有内置规则，字段名固定）：
+//  - session/system：会话行（id/model/cwd，claude 的 init 带工具数），
+//  - tool_execution_start：intent + toolName + args 摘要（可折叠），
+//  - tool_execution_end：ok + 结果前 N 行（可折叠，超出即提示还有多少行），
+//  - assistant/user/result（claude）：工具调用摘要 / tool_result 摘要 / 终局统计
+//    （答复文本本身已进 stdout，不在这里重复），
+//  - turn_end：usage / model / provider / stop_reason（不含整条 message），
 //  - 识别不了的行 / 解析失败的行：原样显示（绝不吞输出）。
+// 老 job 的事件流可能仍在 stdout、字段也更全（如 message_end 带整条 message）：这些形状
+// 一并兼容，避免历史日志变成 raw。
 // 只读展示：不发起任何请求。
 import { computed, ref } from 'vue'
 
@@ -74,6 +77,10 @@ function assistantText(obj: Record<string, unknown>): string {
 }
 
 function toolCommand(obj: Record<string, unknown>): string {
+  // 投影器给的是摘要字符串（h-aii-525u）；老日志里 args 还是对象。
+  if (typeof obj.args === 'string') {
+    return obj.args
+  }
   const args = isRecord(obj.args) ? obj.args : undefined
   if (args) {
     if (typeof args.command === 'string') {
@@ -90,6 +97,9 @@ function toolCommand(obj: Record<string, unknown>): string {
 
 function toolResultText(obj: Record<string, unknown>): string {
   const result = obj.result ?? obj.output ?? obj.partialOutput
+  if (typeof result === 'string') {
+    return result
+  }
   if (isRecord(result)) {
     const inner = result.stdout ?? result.output ?? result.content
     if (inner !== undefined) {
@@ -121,10 +131,41 @@ function usageText(obj: Record<string, unknown>): string {
   if (typeof model === 'string' && model !== '') {
     parts.push(model)
   }
-  if (typeof obj.cost_usd === 'number') {
-    parts.push(`$${obj.cost_usd}`)
+  if (typeof obj.provider === 'string' && obj.provider !== '') {
+    parts.push(obj.provider)
+  }
+  if (typeof obj.stop_reason === 'string' && obj.stop_reason !== '') {
+    parts.push(`stop ${obj.stop_reason}`)
+  }
+  const cost = obj.cost_usd ?? obj.total_cost_usd
+  if (typeof cost === 'number') {
+    parts.push(`$${cost}`)
+  }
+  if (typeof obj.duration_ms === 'number') {
+    parts.push(`${obj.duration_ms}ms`)
+  }
+  if (typeof obj.num_turns === 'number') {
+    parts.push(`${obj.num_turns} turns`)
   }
   return parts.join(' · ')
+}
+
+// toolLines 把投影器给的工具调用摘要渲染成每行一个：`name: input`。
+function toolLines(tools: unknown): string {
+  if (!Array.isArray(tools)) {
+    return ''
+  }
+  return tools
+    .map((t) => {
+      if (!isRecord(t)) {
+        return asString(t)
+      }
+      const name = asString(t.name ?? 'tool')
+      const input = asString(t.input ?? '')
+      return input === '' ? name : `${name}: ${input}`
+    })
+    .filter((line) => line !== '')
+    .join('\n')
 }
 
 type ItemKind = 'session' | 'tool-start' | 'tool-end' | 'message' | 'turn' | 'raw'
@@ -166,8 +207,25 @@ function classify(line: string, index: number): TimelineItem {
   const type = typeof parsed.type === 'string' ? parsed.type : ''
   switch (type) {
     case 'session': {
-      const parts = [asString(parsed.id), asString(parsed.model)].filter((s) => s !== '')
-      return { ...base, kind: 'session', label: 'session', title: asString(parsed.id), meta: parts.slice(1).join(' · ') }
+      const id = asString(parsed.id ?? parsed.session_id)
+      const parts = [asString(parsed.model), asString(parsed.cwd)].filter((s) => s !== '')
+      return { ...base, kind: 'session', label: 'session', title: id, meta: parts.join(' · ') }
+    }
+    // claude 的 init 行：会话 id + 模型/cwd + 工具数。
+    case 'system': {
+      const parts = [asString(parsed.subtype), asString(parsed.model), asString(parsed.cwd)].filter(
+        (s) => s !== '',
+      )
+      if (typeof parsed.tool_count === 'number') {
+        parts.push(`${parsed.tool_count} tools`)
+      }
+      return {
+        ...base,
+        kind: 'session',
+        label: 'init',
+        title: asString(parsed.session_id),
+        meta: parts.join(' · '),
+      }
     }
     case 'tool_execution_start':
     case 'tool_execution_call':
@@ -180,7 +238,11 @@ function classify(line: string, index: number): TimelineItem {
         meta: asString(parsed.toolName ?? parsed.tool ?? ''),
       }
     case 'tool_execution_end': {
-      const isError = parsed.isError === true || (isRecord(parsed.result) && parsed.result.isError === true)
+      // 投影器写 ok（h-aii-525u）；老日志用 isError。
+      const isError =
+        parsed.ok === false ||
+        parsed.isError === true ||
+        (isRecord(parsed.result) && parsed.result.isError === true)
       return {
         ...base,
         kind: 'tool-end',
@@ -191,11 +253,32 @@ function classify(line: string, index: number): TimelineItem {
         foldable: true,
       }
     }
+    // claude 的 user 行 = tool_result 回填：只留摘要。
+    case 'user': {
+      return {
+        ...base,
+        kind: 'tool-end',
+        label: 'tool result',
+        body: asString(parsed.tool_result ?? assistantText(parsed)),
+        foldable: true,
+      }
+    }
+    // claude 的 assistant 行：工具调用摘要 + 文本长度（文本已在 stdout）。
+    case 'assistant': {
+      const textLen = typeof parsed.text_len === 'number' ? parsed.text_len : 0
+      return {
+        ...base,
+        kind: 'message',
+        label: type,
+        body: toolLines(parsed.tools),
+        meta: textLen > 0 ? `文本 ${textLen} 字（已进 stdout）` : '',
+        foldable: true,
+      }
+    }
     case 'message_end':
-    case 'assistant':
     case 'result': {
       const body = assistantText(parsed)
-      return { ...base, kind: 'message', label: type, body, foldable: true }
+      return { ...base, kind: 'message', label: type, body, meta: usageText(parsed), foldable: true }
     }
     case 'turn_end':
       return { ...base, kind: 'turn', label: 'turn', title: asString(parsed.turn ?? ''), meta: usageText(parsed) }
@@ -241,10 +324,10 @@ function hiddenLineCount(item: TimelineItem): number {
 
 <template>
   <div class="timeline">
-    <p v-if="items.length === 0" class="empty">（无 stdout 输出）</p>
+    <p v-if="items.length === 0" class="empty">（无事件输出）</p>
     <template v-else>
       <p v-if="!looksStructured" class="hint">
-        该 job 的 stdout 不是结构化事件流，已按原始行显示。
+        该路日志不是结构化事件流，已按原始行显示。
       </p>
       <article v-for="item in items" :key="item.index" class="event" :class="`event--${item.kind}`">
         <header class="event-head">
