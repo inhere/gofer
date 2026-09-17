@@ -9,6 +9,7 @@
 | v0.3 | 2026-09-17 | inhere + claude | **R1/R2 落地**（bd h-aii-1hmo）：开关 bool → 三态 `relay_mode: auto\|on\|off`（旧 `relay=1→on` / `0→auto`；`relay` 列留作 `mode=='on'` 的镜像给旧二进制）；`auto` 由 server 判定：判据一 = 键盘空闲（`session.auto_relay_idle_sec`，旧 `server.session_auto_relay_idle_sec` 仅作别名 + warn 一次），判据二 = **距本会话上次人工输入**（`session.auto_relay_turn_sec`，新列 `last_human_at`）——专治"键盘在主机、hook 在容器里探不到"；判定结果以 `wait_reason`（mode_on / idle_probe / turn_age）回给 hook。判据二的等待无读数可探，人回来时靠 `UserPromptSubmit` / `Interrupt` 事件由 server 释放（`released_by=user_returned`），设计细节见 `../runbook/session-relay.md` |
 | v0.4 | 2026-09-17 | inhere + claude | **阶段 2 定案**（bd h-aii-w934）：空闲会话（无 OPEN turn）收到 web 回复时的两条送话路径——**A. tmux 按键注入**（首选，续同一进程）与 **B. `--resume` pty 接管**（无 tmux 时兜底），见 §9.1；IM 双向作答继续不做 |
 | v0.5 | 2026-09-17 | claude | 阶段 2 实施细化（任务书依据）：**hook 的 runner 登记**在 client 运行模式下不再假装 `server`（取 `GOFER_HOOK_RUNNER`/`--runner`，否则为空 → A/B 均不可用并明示原因；容器会话要可送话必须在容器内起 worker）；新增 `Deliver` 选路入口（`Say` 保持只答 turn），HTTP `POST /v1/sessions/{sid}/deliver {text, allow_takeover}`——B 只在 `allow_takeover=true` 时执行（web 二次确认）；B 用 pty job 新增的 `InitialInput`（TUI 首次输出后安静 1.5s 再写入）；`handed_off` 会话可 `release-takeover` 解除；A/B 分两个 job（P2-1/P2-2） |
+| v0.6 | 2026-09-18 | claude | **P2-1 已落地**（A = tmux 注入）：`Deliver` + `Injector` 注入 seam + `POST /v1/sessions/{sid}/deliver` + `session say --deliver` + web「送入终端」+ 失败原因码（409/502/400）+ `plan_decisions.detail` 审计列 + client 模式 runner 登记修正；未做项与前置条件（exec 护栏）见 §9.1 的 P2-1 落地记录 |
 
 > 关联：[`2026-07-18-session-handoff-and-pty-ux-design.md`](2026-07-18-session-handoff-and-pty-ux-design.md) Part A §11（hooks 通知中心，T7 未实施）与 Part C（决策通道，已落地 `tools-frx`）。本设计**取代 §11 的"裸终端不可远程作答"边界结论**，并吸收 §5 `adopted_sessions` 为统一的会话注册表。
 
@@ -281,6 +282,17 @@ IM 自定义机器人只能收不能发回，**回复仍在 web**；IM 内直接
 - **B 的首条输入**：pty job 新增内部字段 `InitialInput`（不入 request_json；worker 路径经 Dispatch 下发）：子进程首次输出后 `session.takeover_input_delay_ms`（默认 1500）内无新输出即写入，最多等 10s；记 `job.input_injected` 事件。会话置 `handed_off`（新列 `handed_off_job_id/handed_off_at`），`OpenTurn` 对其拒绝，hook 通过 heartbeat 响应的 `notice` 在原终端打一行提示；`POST /v1/sessions/{sid}/release-takeover` 解除（接管 job 在跑则先 cancel）。
 - **cwd 换算**：B 需要把会话的绝对 cwd 换算成项目相对路径：runner=server 用 `cfg.ExecPath(proj)` 前缀；worker runner 用 server 侧 `host_path` 前缀（POLICY roots 映射后本机路径不同者换算失败 → `cwd_outside_project`，已知限制）。
 
+**P2-1 落地记录（2026-09-18，A = tmux 注入）**
+
+- 落点：`sessionrelay.Deliver(ctx, sid, text, by)` 做选路（`Say` 仍是"只答 OPEN turn"）；注入 job 经 `sessionrelay.Injector` 接口注入（`httpapi.sessionInjector` 适配 `job.Service.SubmitSync`，relay 不 import job —— G022）。HTTP `POST /v1/sessions/{sid}/deliver {text}` → `{path, job_id?, decision_id?}`；`gofer session say --deliver`；web 抽屉对无 OPEN turn 的会话把输入框切成「送入终端」。
+- 注入脚本：一条 `sh -c`（Windows 执行机上没有 tmux ⇒ 直接失败，报 `runner_error`）。先 `tmux display -p -t '<pane>' '#{pane_current_command}'` 判存活（exit 3 / stdout `pane_missing`）与前台白名单（默认 `claude|codex|omp|node|gemini|opencode`，`session.inject_commands` 可配，exit 4 / stdout `pane_busy:<cmd>`），再逐行 `send-keys -t '<pane>' -l -- '<行>'` + `Enter`；pane 与文本都是单引号 shell 词（`'` → `'\''`），`$`/反引号/换行都不执行。文本 = `[gofer web 回复] ` + 回复，上限 8KB（超出 400）。
+- 选路/失败码实测：`no_runner`（runner 登记为空或服务端没接 job service）、`no_tmux`（无 pane）、`ended` → HTTP 409；`inject_failed:<pane_missing|pane_busy:<cmd>|runner_error>` → 502；超长/空文本 → 400（`ErrInvalidInput`）。失败时**不改会话状态、不写审计行**。原因码放在错误信封的 `error` 字段（`deliver failed: no_tmux`），web 读作 `ApiError.code` —— 不新增 wire 字段就有机器可读的原因，客户端不必解析 detail 文案。
+- 成功回执：会话 `state=running`；审计行 `plan_decisions(kind='relay', state=answered, answered_by=by, answer=文本)`，`question` 写明"会话未在等待、已送入终端"（web 时间线渲染成一条无 agent 消息的 turn），`detail` 存 `{"path":"tmux","job_id":"<注入 job>"}`。为此给 `plan_decisions` 加了一列 `detail`（additive 迁移，沿用 `released_by` 的做法）：这是"最省事且可查询"的落法 —— 塞进 `question` 会把审计信息混进对话语义，加列则 SQL/接口都能直接查，且 `task` 查询无需 LIKE 文案。
+- **client 模式 runner 登记修正**：`resolveHookRunner` 在 `GOFER_RUN_MODE=client` 下不再登记 `server`，改取 `--runner`/`GOFER_HOOK_RUNNER`，都没有则登记空串。于是"容器里跑的会话"要么在容器内起 worker 并把 `GOFER_HOOK_RUNNER` 指向它（A 可用），要么登记为空并在 web 收到明确原因（A/B 都不可用）。`gofer init hooks` 生成的命令不变。
+- **hook 侧**：`SessionStart`/heartbeat 早已登记 `TMUX_PANE`；`UserPromptSubmit` 的 `[gofer web 回复]` 前缀判定本来就不依赖是否存在 OPEN turn，故 tmux 注入的提示词天然按 injected 处理（不翻 relay_mode、不更新 `last_human_at`）。本次只补测试固化（`TestInjectedPromptWithoutTurnIsNotHuman`）+ 一条双包常量一致性测试（`sessionrelay.InjectPrefix` == `hookrelay.ReplyPrefix`）。
+- 等待预算：注入 job 的 deadline 是 30s，但 HTTP 侧的 sync 等待只到 **25s**（`injectWaitSec`，低于 CLI 客户端 30s 的 HTTP 超时、也低于 job 自己的 deadline），超时按 `inject_failed:runner_error` 返回并带 job id —— job 自己会跑完，`gofer job show` 是真相，避免"客户端先超时、服务端后返回"的假失败。
+- **已知前置条件（未在本阶段解决）**：注入 job 走 `exec` agent，因此受项目 `allow_exec` 与 worker `guards.allow_exec` 约束；项目没开 `allow_exec` 时会以 `inject_failed:runner_error`（"exec agent … not allowed"）失败。这是既有安全护栏，未为本路径开例外；需要的项目请显式 `allow_exec: true`。同类的还有：`project_key` 为空 / 本项目不认的会话，注入 job 提交即被拒，同样报 `inject_failed:runner_error`（词表里没有"没项目"这一档，直接让 job 提交的错误原话讲清楚比硬套一个码好）。
+- **未做/待办**：`allow_takeover` 字段与 `handed_off` 状态的拒绝分支属 P2-2（B 落地时加）；`Detail` 目前只在响应里透出，web 未单独渲染；真机 tmux e2e（容器内 worker + tmux 会话 → web 送入终端 → agent 继续）待有 tmux 的环境验证，本次验证是单测级的（argv/转义/选路/状态/审计/HTTP 码）。
 
 ### 9.2 其他
 

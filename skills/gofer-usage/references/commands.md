@@ -120,6 +120,7 @@ gofer session ls [-p <project>] [--state waiting_reply] [--all]   # 列会话(wa
 gofer session show <id>                 # 详情 + 最近 turn(id 可用前 8 位)
 gofer session relay auto|on|off [--session <id>]  # 省略 --session: 按当前目录反查(歧义时列出候选); auto = 缺省
 gofer session say <id> "<回复>"         # 答最新 OPEN turn; "/off" = 关中继放行
+gofer session say <id> "<回复>" --deliver   # 选路: 有 OPEN turn 就当作答, 否则敲进该会话的 tmux pane(§9.1 A)
 gofer session rm <id>                   # 移除登记(turn 保留)
 gofer hook claude|codex [--wait N]      # hook 执行体(由 hooks 配置调用, 人不直接用); 日志 <config-dir>/run/hook.log
 ```
@@ -135,6 +136,9 @@ gofer hook claude|codex [--wait N]      # hook 执行体(由 hooks 配置调用,
 - `UserPromptSubmit`（人在终端输入）在 `on` 下把 mode 降回 `auto`（"人回到键盘就交还给自动判据"）；web 注入的回复虽也触发该事件，但带 `[gofer web 回复]` 前缀，hook 上报 injected，不会动开关，也不会被当成"人回来了"。
 - Stop hook 等待期间终端显示 hook 运行中；人回到电脑想直接输入可按 Esc 取消。
 - 硬边界：会话已停在空闲提示符、且人从未离开过的场景没有 hook 进程活着，web 拨开开关要等下一次 Stop；需终端输入一次（人离开过则由自动布防覆盖）。
+- **无 OPEN turn 时送话（阶段 2-A，tmux 注入）**：`POST /v1/sessions/{sid}/deliver {text}`（CLI 是 `session say --deliver`，web 是抽屉里变成「送入终端」的输入框）先看有没有 OPEN turn —— 有就等价 `say` 作答（`path=turn`）；否则派一个内部 exec job 到该会话的 runner：`tmux display -p -t <pane> '#{pane_current_command}'` 确认 pane 存活且前台是 agent CLI（白名单默认 `claude|codex|omp|node|gemini|opencode`，`session.inject_commands` 可配），再逐行 `tmux send-keys -t <pane> -l -- '<行>'` + `Enter`；文本前缀 `[gofer web 回复] `、上限 8KB、pane 与文本都按 shell 单引号转义。成功：`{path:"tmux", job_id, decision_id}`，会话置 running，审计行 `plan_decisions(kind=relay, detail={"path":"tmux","job_id":…})`。
+  - 失败码（HTTP 状态）：`no_runner` / `no_tmux` / `ended` → 409（原因码写在错误信封的 `error` 字段，如 `deliver failed: no_tmux`）；`inject_failed:pane_missing|pane_busy:<cmd>|runner_error` → 502；空文本 / 超 8KB → 400。**worker token 不能送话**（403）。
+  - 前置条件：会话跑在 tmux 里 + 登记了执行机（容器里要在容器内起 worker 并配 `GOFER_HOOK_RUNNER=<worker-id>`，纯客户端节点不再假装登记成 `server`）；注入 job 是 exec 类型，project 需 `allow_exec: true`。
 - turn 复用决策通道：铃铛里「会话」标签条目可直接内联作答；`gofer plan decisions --state OPEN` 也能看到（kind=relay；被"人回来"关掉的 turn 是 EXPIRED + `released_by=user_returned`）。
 
 ## schedule（别名 `sch`）— 定时 job

@@ -170,6 +170,13 @@ session:
   # 到达即把 turn 关成 EXPIRED + released_by=user_returned).
   # 未写 = 900(15 分钟); 显式 0 = 关闭这条判据.
   # auto_relay_turn_sec: 900
+  #
+  # 无 OPEN turn 时送话(设计 §9.1 A, web 抽屉的「送入终端」/ `session say --deliver`):
+  # server 在该会话的执行机上起一个内部 exec job, 把文本敲进会话的 tmux pane.
+  # 前台命令不在下面的白名单里就拒绝(exit 4 pane_busy), 免得把消息敲进人正在用的
+  # vim / shell. 未写 = 内置列表 claude|codex|omp|node|gemini|opencode.
+  # 注意: 注入 job 是 exec 类型, 需要该 project 的 allow_exec: true.
+  # inject_commands: [claude, codex, omp, node, gemini, opencode]
 
 # Logging: server/worker default to JSONL files under <config-dir>/run.
 # file and dir are mutually exclusive; setting either makes failures fatal.

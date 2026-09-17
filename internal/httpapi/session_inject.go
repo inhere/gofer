@@ -10,6 +10,12 @@ import (
 	"github.com/inhere/gofer/internal/store"
 )
 
+// injectWaitSec is how long the HTTP request waits for the injection job before
+// reporting it as still running. It is deliberately BELOW the CLI client's 30s
+// HTTP timeout (and below the job's own 30s deadline) so the caller always gets
+// a real answer instead of a client-side timeout racing the server.
+const injectWaitSec = 25
+
 // sessionInjector adapts the job service to the relay's injection seam (design
 // §9.1 A): path A's internal exec job is an ordinary job — it runs on the
 // session's own runner, in its project, under its timeout — so it shows up in
@@ -34,9 +40,11 @@ func (x sessionInjector) InjectSession(_ context.Context, req sessionrelay.Injec
 		Title:      req.Title,
 		Tags:       req.Tags,
 		TimeoutSec: req.TimeoutSec,
-		// Wait a little past the job's own deadline: the fallback to async is for
-		// a hung runner, not for a job that is about to be killed by its timeout.
-		WaitTimeoutSec: req.TimeoutSec + 10,
+		// The wait must finish inside the CLI client's 30s HTTP budget (the job's own
+		// deadline is 30s): stop waiting a little earlier and report the still-running
+		// job as a failure carrying its id — the job finishes on its own and
+		// `gofer job show` tells the truth (never a silent double-injection).
+		WaitTimeoutSec: injectWaitSec,
 	}, true)
 	if err != nil {
 		return sessionrelay.InjectResult{}, err

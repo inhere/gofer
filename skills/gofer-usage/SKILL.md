@@ -190,7 +190,8 @@ gofer job run -p <project> -a codex --read-only --prompt "只做审查：列出�
 gofer init hooks                  # 一次性: 把 hook 写进 ./.claude/settings.json (Codex: --agent codex → ./.codex/hooks.json; --agent all 两个都写)
 gofer session relay auto          # 回到缺省三态(server 按判据决定; 也可以 on / off, 见下)
 gofer session ls                  # 看哪些会话在等回复(waiting_reply 置顶), RELAY 列显示 on / off / auto
-gofer session say <id> "<回复>"   # web 输入框的 CLI 等价; 回复 /off = 关掉中继并让会话正常停下
+gofer session say <id> "<回复>"   # web 输入框的 CLI 等价(= 答最新 OPEN turn); 回复 /off = 关掉中继并让会话正常停下
+gofer session say <id> "<回复>" --deliver   # 无 turn 在等也送: 消息直接敲进该会话的 tmux 终端(§9.1 A)
 gofer session show <id>           # relay 行显示当前 mode + 判定依据(空闲多久 / 距上次人工输入多久)
 gofer init hooks --remove         # 卸载
 ```
@@ -212,6 +213,11 @@ gofer init hooks --remove         # 卸载
 - **人回来即放行**：判据一开的等待，hook 每 ≤5s 重探空闲值，人一碰键鼠就放行；判据二开的等待没有可探的东西，靠**你的动作本身**——按 Esc 结束等待，或直接在终端输入一条（UserPromptSubmit / Interrupt 事件一到达，server 就把 turn 关成 `released_by=user_returned`）。**显式 `on` 的等待不受此影响**：只有终端输入 / `/off` / `relay off` 才关。
 - 依赖：Windows/macOS 探得到键盘；**Linux 需要 `xprintidle`**（X11），缺失或 Wayland/无桌面时为"未知"——此时**自动走判据二**，不再退回到"只能手动拨开关"。
 - web 会话列表里找到该会话也可以直接点 auto / on / off 切换，**下一次回合结束**生效（会话正在跑长任务时最常见，能接上）；已经停在空闲提示符、且人一直没离开过的会话没有 hook 在跑，仍需在终端输入一次。
+- **已经空闲的会话也能送话（tmux 注入，阶段 2-A）**：没有 OPEN turn 时，web 会话抽屉的输入框变成「送入终端」，`--deliver` 是它的 CLI 等价。server 会在该会话登记的执行机上起一个内部 exec job，先确认 pane 还在、前台是 agent CLI（白名单默认 `claude|codex|omp|node|gemini|opencode`，`session.inject_commands` 可配），再把 `[gofer web 回复] …` 逐行 `tmux send-keys -l` 敲进去（文本按行拆、单引号转义，上限 8KB）。成功即"已送入终端 ✓"，会话状态回到 running，并记一条带注入 job id 的审计行。
+  - **前提**：会话必须跑在 tmux 里（容器/主机入口建议 `tmux new -A -s claude`），且登记了执行机。
+  - **容器里跑的会话要能被送话**：容器内必须起一个 gofer worker，并把 `GOFER_HOOK_RUNNER=<worker-id>` 配进该容器的 `.env`（hook 用 `--runner` 的值）；否则会话登记的 runner 为空，server 只能回"未登记执行机"。纯客户端节点（`GOFER_RUN_MODE=client`）不会再假装登记成 `server`。
+  - 送不进去时按原因给话：`no_tmux`（不在 tmux 中 —— pty 接管属阶段 2-B，未做）、`no_runner`（未登记执行机）、`ended`、`inject_failed:pane_missing|pane_busy:<cmd>|runner_error`（pane 没了 / 前台是别的程序如 vim / 执行机出错）。
+  - 注入 job 是 exec 类型，因此该 project 需要 `allow_exec: true`（worker 侧还要 `guards.allow_exec` 不收紧），否则会以 `inject_failed:runner_error` 失败。
 - 注入的回复带前缀 `[gofer web 回复]`，与终端输入等价处理。
 - 详见 [`references/commands.md`](references/commands.md) 的「session — 终端会话中继」。
 - **想让手机响一下**：配个钉钉/飞书群机器人，事件订阅 `session.waiting`（不在默认集里，必须显式写），消息带直达会话的链接。配置见 gofer 仓库 `docs/runbook/im-notification.md`。

@@ -37,9 +37,23 @@ Codex 额外条件：`config.toml` 里 `[features] hooks = true`（旧版本键�
 | 在外面 | gofer web → 会话页（`/sessions`）：等回复的会话置顶，打开抽屉看最后一条消息，底部输入框回复；铃铛里「会话」条目也可内联作答 |
 | 让它停下 | web 回复 `/off`：关掉中继（mode=off），agent 正常结束回合 |
 | 回到电脑 | 终端里任意输入一条（`on` → 降回 `auto`，`auto` 的等待直接释放）；或 `gofer session relay off` / `auto` |
-| 忘了开 | `auto` 模式两条判据会自动布防（容器靠判据二）；要显式开就在 web 会话列表点 `on`，**下一次回合结束**生效；会话已空闲则需终端输入一次 |
+| 忘了开 | `auto` 模式两条判据会自动布防（容器靠判据二）；要显式开就在 web 会话列表点 `on`，**下一次回合结束**生效；会话已空闲则见「无 turn 时送话」 |
+| 会话已空闲 | web 会话抽屉的输入框（没有 OPEN turn 时变成「送入终端」）直接送话；CLI `gofer session say <id> "<回复>" --deliver`。前提：会话在 tmux 里 + 登记了执行机（见下表） |
 
-CLI 等价面：`gofer session ls / show <id> / say <id> "<回复>" / rm <id>`（id 可用前 8 位）；`ls` 的 RELAY 列显示 `on` / `off` / `auto`，auto 且当前在等时显示 `auto·wait(i)`（键盘空闲）或 `auto·wait(t)`（距上次人工输入）；`show` 额外打印 mode 与判定依据。
+**无 turn 时送话（阶段 2-A，tmux 注入）**：`POST /v1/sessions/{sid}/deliver {text}`。有 OPEN turn 就等价 `say`（作答）；否则 server 在该会话的 runner 上起一个内部 exec job，确认 pane 存活、前台是 agent CLI（白名单 `session.inject_commands`，默认 `claude|codex|omp|node|gemini|opencode`），再逐行 `tmux send-keys -t <pane> -l -- '<行>'` + `Enter`（文本前缀 `[gofer web 回复] `，上限 8KB，单引号转义）。成功后会话置 `running`，审计行 `plan_decisions(kind=relay, detail={"path":"tmux","job_id":…})`。
+
+失败原因（看 server 返回的 `error` 字段 / web 提示）：
+
+| 原因码 | 含义 / 处理 |
+|---|---|
+| `no_tmux` | 会话不在 tmux 里（web 报 409）。用 `tmux new -A -s claude` 重开会话；pty 接管（B）未做 |
+| `no_runner` | 会话没登记执行机：容器内没起 worker，或 `.env` 里缺 `GOFER_HOOK_RUNNER=<worker-id>`（`GOFER_RUN_MODE=client` 的节点不再假装登记成 `server`） |
+| `ended` | 会话已结束 |
+| `inject_failed:pane_missing` | pane 没了（tmux 会话被关 / 换了 window） |
+| `inject_failed:pane_busy:<cmd>` | pane 前台不是 agent CLI（例如 vim / shell），拒绝敲字 |
+| `inject_failed:runner_error` | 执行机侧失败（runner 不可用、job 超时、project 未开 `allow_exec` 等）；用 `gofer job ls --tag relay-inject` 找到那个 job 看日志 |
+
+CLI 等价面：`gofer session ls / show <id> / say <id> "<回复>" [--deliver] / rm <id>`（id 可用前 8 位）；`ls` 的 RELAY 列显示 `on` / `off` / `auto`，auto 且当前在等时显示 `auto·wait(i)`（键盘空闲）或 `auto·wait(t)`（距上次人工输入）；`show` 额外打印 mode 与判定依据。
 
 ## 3. 运行机制速览
 
@@ -77,7 +91,7 @@ Stop hook → gofer hook <agent>
 | 回复后 agent 没继续 | `hook.log` 有无 `answered (...) continuing` | 有 → agent 已收到，看终端；没有 → turn 可能已过期（`gofer session show` 里 `[EXPIRED]`），重新让它停一次 |
 | 终端一直"hook 运行中" | 正常：这就是等待 | 想直接输入按 Esc 取消；或 web 回复 `/off` |
 | Stop 后终端立刻恢复但没走中继 | `hook.log` 有 `heartbeat failed` | server 不可达，hook 按设计直接放行 |
-| 忘开开关且会话已空闲 | — | 硬边界：终端输入一次；或后续启用 tmux 兜底 |
+| 忘开开关且会话已空闲 | — | 走「无 turn 时送话」：web 抽屉「送入终端」/ `session say --deliver`（需 tmux + 已登记执行机）；否则在终端输入一次 |
 
 ## 5. 端到端验证（容器内自测记录 2026-09-06）
 
