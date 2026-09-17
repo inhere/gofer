@@ -174,3 +174,61 @@ projects:
 - ✅ `read_only` 并入 S2：acp-agent 走 `session/set_mode`，cli-agent 走沙箱参数映射。
 - `claude-code-acp` 与 `codex-acp` 在 Windows 主机上的安装与 Node 版本要求（S0 核实，装不上就如实报告、以假 server 与 omp 为准）。
 - 各家 mode id（只读）与 permission option 的实际取值，S0 实测后固化进内置模板。
+## S0 实测记录（2026-09-17，Windows 11 主机）
+
+实现与测试：`internal/acp`（client + `internal/acp/acptest` 假 ACP server，经 `testcmd acp-fake` 启动）、
+`internal/runner/acp`（job 映射层）、`internal/agent` 的 `acp-agent` 类型与四个内置模板。
+单测全绿：`internal/acp`（握手/权限往返/取消/拒绝 fs-terminal/session-load 拒绝）、
+`internal/agent`（Modes 位、内置模板）、`internal/job`（端到端 job：stdout 纯文本、`acp.jsonl`
+tool_call 三态 + plan、`session_id` 落库、`job.tool_call` 事件、refusal→failed、超时→timeout）。
+
+实测方式：临时配置（`t.TempDir()` 之外的一次性目录）起本地 `job.Service`，提交同一个 job：
+`"List the files in this directory and explain what this repository is in three sentences."`，
+cwd = 本仓库根，agent = `acp-agent`，runner = local。
+
+### omp acp（✅ 全流程通过）
+
+| 项 | 实测值 |
+|---|---|
+| 握手 | OK，`protocolVersion=1`，`agentInfo.name=oh-my-pi`，`agentCapabilities.loadSession=true` |
+| session/new | OK，`sessionId=01a0ae40-…`（uuid 形态），**modes 有**：`currentModeId=default`，`availableModes=[default, plan]` |
+| stopReason | `end_turn` → job `done`，exit 0 |
+| 耗时 | 约 11s（另一次 14s） |
+| stdout.log | 纯 agent 文本（markdown 表格），无任何协议帧 |
+| acp.jsonl | 26 行：`thought`×12、`tool_call`×9（状态序列 `pending,pending,in_progress,completed,completed,pending,pending,completed,completed`）、`available_commands_update`、`session_info_update`×2、`usage_update`（含 cost）、`stop` |
+| request_permission | **未发起**（该配置下 omp 自行批准工具调用）；`permission_options=[]` |
+| 备注 | thought 是**逐 token** 分片（一句话 12 行），S1 需要按 turn 合并或默认丢弃；`usage_update` 已在 `acp.jsonl` 里，为 `JobResult.usage` 留了数据来源 |
+
+### claude-acp（`npx -y @zed-industries/claude-code-acp`，npm 0.16.2）⚠️ 握手通过、turn 未完成
+
+- Node/npx 已装（`C:\Program Files\nodejs`），npm registry 可达（`npm view` = 0.16.2）。
+- **首个抓手（已修）**：适配器对我们的 `initialize` 回 **-32602 Invalid params**，其 zod schema
+  **要求 `clientInfo.version`**，而我们把 version 设成了 `omitempty` → 现已恒发非空 version
+  （`fix(acp): always advertise clientInfo.version`）。
+- 修复后：`initialize` OK（`agentInfo.name=@zed-industries/claude-code-acp`，`loadSession=true`）；
+  `session/new` OK（`sessionId=8072ecf2-…`）。
+- **modes 有**：`currentModeId=default`，`availableModes=[default, acceptEdits, plan, dontAsk, bypassPermissions]`
+  —— **没有只读 mode id**，S2 的 `modes.read_only` 对该适配器只能映射到 `plan`（语义最接近）或在模板里留空。
+- `session/prompt` 在 420s job 超时内**没有产生任何 `session/update`**（`stdout.log` 0 字节、`acp.jsonl` 仅有 `stop`），
+  即：协议层面走通、后端（claude CLI 自身会话）未起来。原因待查（claude 版本/登录态/`npx` 冷启动，或该适配器在
+  无 fs/terminal 能力时的行为），S1 开局第一件事在此复现。
+
+### codex-acp（`npx -y @zed-industries/codex-acp`）⚠️ 握手与 session 通过、turn 未完成
+
+- `initialize` OK（`agentInfo.name=codex-acp`，`loadSession=true`），`session/new` OK（`sessionId=01a0ae41-…`）。
+- **无 modes**：session/new 未返回 modes 块（`mode=""`）→ S2 的只读映射对 codex-acp 只能拒绝。
+- `session/prompt` 同样在 job 超时窗口内没有 `session/update`（本机 codex 未登录属于待查项之一）。
+
+### gemini --acp（❌ 未安装）
+
+- 主机无 `gemini` 可执行文件（`command -v gemini` = MISSING）。npm registry 可达，`npx -y @google/gemini-cli --acp`
+  在 S0 时间窗内没有尝试；未做 ≠ 不支持，S1 补测。
+
+### 由此固化/待定的结论
+
+- ✅ **`clientInfo.version` 必须非空**（claude-code-acp 会拒），已修。
+- ✅ 四家模板的 argv 与本机 PATH 探测（`npx`/`codex-acp`/`gemini`/`omp`）保持设计值；`claude-acp` 的 `detect`
+  用适配器自己的 `--version`（`npx` 的 `--version` 报的是 Node 版本，无意义）。
+- 待定（S1）：`claude-acp` / `codex-acp` 的 prompt turn 未起来的原因；`omp` 的逐 token thought 是否默认丢；
+  permission option 的实际取值（本机 omp 未发起权限请求，假 server 已覆盖 `allow_once/allow_always/reject_once` 三种）。
+- 待定（S2）：只读 mode id —— omp 无只读 mode（只有 default/plan），claude-acp 只有 `plan` 接近，codex-acp 无 modes。
