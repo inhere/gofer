@@ -78,6 +78,8 @@ var schemaStmts = []string{
   result_json      TEXT,
   artifacts_json   TEXT,
   diff_summary     TEXT,
+  ndjson_kept      INTEGER,
+  ndjson_dropped   INTEGER,
   source           TEXT,
   tags_json        TEXT,
   workflow_id      TEXT,
@@ -453,6 +455,12 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := add("diff_summary", "diff_summary TEXT"); err != nil { // E12 diff 摘要(P3)
+		return err
+	}
+	if err := add("ndjson_kept", "ndjson_kept INTEGER"); err != nil { // ndjson 采集过滤器保留行数
+		return err
+	}
+	if err := add("ndjson_dropped", "ndjson_dropped INTEGER"); err != nil { // ndjson 采集过滤器丢弃行数
 		return err
 	}
 	if err := add("source", "source TEXT"); err != nil { // P4 执行来源 worker:/peer:

@@ -923,6 +923,19 @@ type AgentConfig struct {
 	// 追加到 argv（如 claude `--append-system-prompt <p>`）。保 argv 结构、不 shell
 	// 拼接（SR403）。claude 有内置默认（applySystemDefaults），codex 留空待实测。
 	SystemInject []string `yaml:"system_inject,omitempty"`
+	// OutputFormat 是采集该 agent stdout 的格式（bd h-aii-rpky）：""/"text"（默认）
+	// 逐字落盘；"ndjson" 表示 stdout 是逐行 JSON 事件流（omp --mode json、claude
+	// --output-format stream-json），落盘时按 NDJSONKeep 过滤掉逐 token 增量事件，
+	// 否则日志体积膨胀 10~30 倍且 web 实时日志不可读（过滤实现见
+	// internal/runner/ndjsonfilter）。
+	OutputFormat string `yaml:"output_format,omitempty"`
+	// NDJSONKeep 是事件类型白名单（仅 OutputFormat=="ndjson" 时有意义）：无点号的条目
+	// 匹配顶层 `type`，带点号的条目按嵌套路径取（如 `message.role` 命中该路径存在非空
+	// 字符串的行）。留空且未命中内置默认 = 不过滤。内置默认见 agent.applyOutputDefaults。
+	NDJSONKeep []string `yaml:"ndjson_keep,omitempty"`
+	// NDJSONRaw 为 true 时把原始（未过滤）行另存 <result_dir>/stdout.raw.log，仅排障用
+	// （体积与过滤前一致，默认关闭）。
+	NDJSONRaw bool `yaml:"ndjson_raw,omitempty"`
 	// McpServerName 是该 agent（codex）config.toml 里 gofer MCP server 的块名
 	// （`[mcp_servers.<name>]`）。gap①(issue 7z6j)：codex 启动 MCP stdio 子进程用净化
 	// env、不透传 codex 进程 env，故 role.env 注入 codex 进程对 MCP 子进程无效；改经
@@ -931,6 +944,29 @@ type AgentConfig struct {
 	// 仅当 codex config 改了块名时才需配置此项。
 	McpServerName string `yaml:"mcp_server_name,omitempty"`
 }
+
+// Agent stdout capture formats (AgentConfig.OutputFormat).
+const (
+	// OutputFormatText captures the agent's stdout verbatim. It is the default,
+	// so an agent that does not ask for structured capture is never filtered.
+	OutputFormatText = "text"
+	// OutputFormatNDJSON declares the agent's stdout a JSON-Lines event stream to
+	// be compacted at capture time (bd h-aii-rpky). See AgentConfig.NDJSONKeep.
+	OutputFormatNDJSON = "ndjson"
+)
+
+// EffectiveOutputFormat is the configured capture format with the default
+// applied: unset and "text" are the same thing.
+func (a AgentConfig) EffectiveOutputFormat() string {
+	if a.OutputFormat == "" {
+		return OutputFormatText
+	}
+	return a.OutputFormat
+}
+
+// NDJSONOutput reports whether this agent's stdout is a structured NDJSON stream
+// that must be compacted at capture time.
+func (a AgentConfig) NDJSONOutput() bool { return a.OutputFormat == OutputFormatNDJSON }
 
 // DetectConfig is the agent availability probe. Placeholder in P2, refined P3.
 type DetectConfig struct {

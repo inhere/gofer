@@ -292,6 +292,11 @@ type JobResult struct {
 	ArtifactsJSON string `json:"-"`
 	// DiffSummary git diff --stat 截断摘要（E12，P3）。
 	DiffSummary string `json:"diff_summary,omitempty"`
+	// NDJSONKept / NDJSONDropped 是采集期 NDJSON 过滤器的行数审计（bd h-aii-rpky）：
+	// 该 job 的 stdout.log 保留了多少行、丢掉了多少行逐 token 增量事件。文本 agent、
+	// 远端执行（执行机自己计数）或过滤未启用的 job 恒为 0（omitempty 不出现在响应里）。
+	NDJSONKept    int `json:"ndjson_kept,omitempty"`
+	NDJSONDropped int `json:"ndjson_dropped,omitempty"`
 	// Source 标记 job 实际执行位置（P4）：""(local) / worker:<id> / peer:<name>。
 	// 远端 runner 回传时填充并入库，详情据此标注执行来源（P4-c）。
 	Source string `json:"source,omitempty"`

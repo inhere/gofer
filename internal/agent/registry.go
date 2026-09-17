@@ -134,7 +134,7 @@ func ResolveAgent(cfg *config.Config, key string) (config.AgentConfig, bool) {
 			if key == ExecAgentKey && a.Type == "" {
 				a.Type = TypeExec
 			}
-			return applySessionDefaults(key, a), true
+			return applyOutputDefaults(key, applySessionDefaults(key, a)), true
 		}
 	}
 	if key == ExecAgentKey {
@@ -184,6 +184,66 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 }
 
 var builtinTransientPatterns = []string{`(?i)at capacity|rate limit|overloaded|too many requests|\b429\b|\b503\b|ECONNRESET|connection reset|stream disconnected|temporarily unavailable`}
+
+// builtinNDJSONKeep holds the实测内置 ndjson keep 列表（bd h-aii-rpky），按 agent 名兜底
+// （再退回 command 基名，与 builtinSessionDefaults 同机制）。只保留有信息量的事件，丢弃
+// 逐 token 增量（omp: message_update/tool_execution_update/message_start/turn_start；
+// claude: stream_event）—— 这些事件占了输出体积的绝大部分。
+//
+// 仅在 agent 显式 output_format: ndjson 时生效（applyOutputDefaults），显式 ndjson_keep
+// 覆盖内置。session 行由过滤器本身无条件保留（omp 的 session_capture 依赖它），此处仍列出
+// 以表达"这是白名单的一部分"。
+// G031：仅含通用 agent（omp/claude）默认，不含任何业务相关信息。
+var builtinNDJSONKeep = map[string][]string{
+	"omp": {
+		"session",
+		"tool_execution_start",
+		"tool_execution_end",
+		"message_end",
+		"turn_end",
+		"agent_end",
+		"advisor_cost_changed",
+	},
+	"claude": {
+		"system",
+		"assistant",
+		"user",
+		"result",
+	},
+}
+
+// applyOutputDefaults fills an agent's ndjson_keep from the built-in list for that
+// agent name when the config left it unset AND the agent opted into structured
+// capture (output_format: ndjson). An explicit list — including an empty one — wins,
+// and a text agent is returned untouched: without output_format: ndjson the built-in
+// list is inert.
+//
+// Lookup is by agent key first, then by the base name of Command (lower-cased, .exe
+// stripped), so `my-omp` running `omp` inherits the omp list. The input is a copy, so
+// nothing is written back into the loaded config (a later save must not freeze a
+// built-in into gofer.yaml).
+func applyOutputDefaults(key string, a config.AgentConfig) config.AgentConfig {
+	if !a.NDJSONOutput() || a.NDJSONKeep != nil {
+		return a
+	}
+	if def, ok := builtinNDJSONKeepFor(key, a); ok {
+		a.NDJSONKeep = def
+	}
+	return a
+}
+
+func builtinNDJSONKeepFor(key string, a config.AgentConfig) ([]string, bool) {
+	if def, ok := builtinNDJSONKeep[key]; ok {
+		return append([]string(nil), def...), true
+	}
+	command := strings.ToLower(commandBase(a.Command))
+	command = strings.TrimSuffix(command, ".exe")
+	def, ok := builtinNDJSONKeep[command]
+	if !ok {
+		return nil, false
+	}
+	return append([]string(nil), def...), true
+}
 
 // applySessionDefaults fills an agent's unset session fields from the built-in
 // defaults for that agent name (session-capture §6.4). Each of the three session

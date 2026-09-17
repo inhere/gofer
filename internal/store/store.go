@@ -21,6 +21,11 @@ import (
 const (
 	StdoutFile = "stdout.log"
 	StderrFile = "stderr.log"
+	// StdoutRawFile is the DEBUGGING sidecar written only when an ndjson agent sets
+	// ndjson_raw: the unfiltered line stream that stdout.log was compacted from
+	// (bd h-aii-rpky). It is never read by gofer — nothing in the read paths knows
+	// it — and it is as large as the raw stream, so it is off by default.
+	StdoutRawFile = "stdout.raw.log"
 )
 
 // Stream identifies which log file to open/read.

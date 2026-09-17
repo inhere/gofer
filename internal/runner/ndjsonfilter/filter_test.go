@@ -143,8 +143,12 @@ func TestNdjsonFilterKeepsWhitelistedEvents(t *testing.T) {
 		t.Fatalf("Write(dotted): %v", err)
 	}
 	_ = df.Close()
-	if got := splitLines(dotted.String()); len(got) != 2 || eventType(t, got[0]) != "tool_execution_end" {
-		t.Fatalf("dotted whitelist kept %v, want the 2 tool_execution_end lines", got)
+	dottedTypes := map[string]int{}
+	for _, l := range splitLines(dotted.String()) {
+		dottedTypes[eventType(t, l)]++
+	}
+	if dottedTypes["tool_execution_end"] != 2 || dottedTypes["session"] != 1 || len(dottedTypes) != 2 {
+		t.Fatalf("dotted whitelist kept types %v, want the 2 tool_execution_end lines plus the session row", dottedTypes)
 	}
 
 	// The session row is ALWAYS kept: omp's session capture depends on it, so a

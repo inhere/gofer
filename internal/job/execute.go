@@ -83,13 +83,21 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 		s.finish(entry, req.JobID, StatusFailed, -1, fmt.Errorf("open stdout log: %w", errOut))
 		return
 	}
-	defer stdout.Close()
+	// Closure (not `defer stdout.Close()`): stdout is REBOUND below to the ndjson
+	// capture wrapper, and this safety net must close whichever writer is live.
+	defer func() { _ = stdout.Close() }()
 	stderr, errErr := entry.store.LogWriter(req.JobID, store.StreamStderr)
 	if errErr != nil {
 		s.finish(entry, req.JobID, StatusFailed, -1, fmt.Errorf("open stderr log: %w", errErr))
 		return
 	}
 	defer stderr.Close()
+
+	// 结构化输出采集（bd h-aii-rpky）：ndjson agent 的 stdout 在被交给 runner 之前先包一层
+	// 过滤器，逐 token 增量事件不入盘。只在本进程真正执行（local runner）时包 —— 远端
+	// (worker/peer) job 的 stdout 是执行机过滤后镜像回来的，host 侧再包一层只会把已过滤的
+	// 流过滤第二遍，并把 raw 旁路记成误导性内容。文本 agent 原样返回。
+	stdout = s.captureStdoutNDJSON(entry, req.JobID, run.Name(), stdout)
 
 	req.Stdout = stdout
 	req.Stderr = stderr
@@ -126,6 +134,10 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 	// second Close is a harmless (ignored) error.
 	_ = stdout.Close()
 	_ = stderr.Close()
+
+	// 结构化采集计数（bd h-aii-rpky）：过滤器已 flush + 关闭，计数即最终值；写入
+	// entry.result，由紧随其后的 captureOutcomes/finish 一并 persist（审计字段）。
+	s.recordNDJSONCounts(entry, req.JobID, stdout)
 
 	// 产出与审计(job-outcomes-audit)：在终态前 best-effort 采集产出
 	// (渲染命令/结构化结果/…)，写入 entry.result，由随后的 finish 一并 persist。

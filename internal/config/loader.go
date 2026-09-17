@@ -405,6 +405,13 @@ func validate(cfg *Config) error {
 		if ac.Type == "exec" && ac.InteractiveArgs != nil {
 			return fmt.Errorf("agent %q: type exec cannot set interactive_args", key)
 		}
+		// bd h-aii-rpky: a typo'd capture format would silently capture verbatim
+		// (i.e. NDJSON_RAW-like log bloat), so reject it at load.
+		switch ac.OutputFormat {
+		case "", OutputFormatText, OutputFormatNDJSON:
+		default:
+			return fmt.Errorf("agent %q: unknown output_format %q (want %s|%s)", key, ac.OutputFormat, OutputFormatText, OutputFormatNDJSON)
+		}
 	}
 	for key, p := range cfg.Projects {
 		if p.HostPath == "" {
