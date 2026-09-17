@@ -261,6 +261,21 @@ func (s *Server) SetCastRecorder(rec *castrec.Recorder) { s.castRecorder = rec }
 // pty session persistence off (mcp/tests). It mounts no routes → no router rebuild.
 func (s *Server) SetPtySessionStore(store PtySessionStore) { s.ptySessions = store }
 
+// SetSessionRelayPolicy injects the effective session-relay auto-arm policy
+// (SESS-01 R2): the keyboard idle threshold and the last-human-input fallback
+// threshold, in seconds (see config.SessionConfig; 0 disables that criterion).
+// serve calls it with the whole config's effective values — the `session:` block
+// with its legacy server alias — while a Server built from a bare ServerConfig
+// keeps New's ServerConfig-visible default. No-op without a relay service
+// (a server with no job store).
+func (s *Server) SetSessionRelayPolicy(idleSec, turnSec int) {
+	if s.relay == nil {
+		return
+	}
+	s.relay.AutoArmIdleSec = idleSec
+	s.relay.AutoArmTurnSec = turnSec
+}
+
 // New builds a Server: it resolves the effective token, wires the rux router
 // (routes + auth middleware) and returns it ready to Run or hand to httptest.
 //
@@ -300,8 +315,11 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 	}
 	if jobs != nil && jobs.Meta() != nil {
 		s.relay = sessionrelay.NewService(jobs.Meta())
-		// SR-A5: idle auto-arm threshold from server.session_auto_relay_idle_sec
-		// (unset ⇒ 5 min, explicit 0 ⇒ disabled).
+		// Session-relay auto-arm thresholds: a Server built from a bare
+		// ServerConfig can only see the LEGACY server.session_auto_relay_idle_sec
+		// alias (or the 5-minute default); serve, which holds the whole config,
+		// overrides both thresholds from the `session:` block through
+		// SetSessionRelayPolicy (R2).
 		s.relay.AutoArmIdleSec = serverCfg.EffectiveSessionAutoRelayIdleSec()
 		// job.Service is the outbound notifier (webhook queue + IM adapters).
 		s.relay.SetNotifier(jobs)

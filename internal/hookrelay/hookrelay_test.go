@@ -33,6 +33,8 @@ type fakeAPI struct {
 	released    bool
 	releases    int
 	idleReports []int64
+	// humanEvents counts the beats that proved a human acted in the session.
+	humanEvents int
 }
 
 func newFake() *fakeAPI {
@@ -66,6 +68,21 @@ func (f *fakeAPI) HeartbeatSession(sid string, hb client.SessionHeartbeat) (clie
 	if hb.Title != "" && a.Title == "" {
 		a.Title = hb.Title
 	}
+	// A prompt the human typed, or an interrupt, is the server-side release of a
+	// non-explicit wait (R2): the open turn settles and the blocked Stop hook
+	// sees it on its next poll.
+	if hb.Event == "UserPromptSubmit" && !hb.Injected || hb.Event == "Interrupt" {
+		f.humanEvents++
+		if a.WaitReason != client.WaitModeOn {
+			for id, d := range f.turns {
+				if d.State == "OPEN" {
+					d.State, d.ReleasedBy = "EXPIRED", "user_returned"
+					f.turns[id] = d
+				}
+			}
+			a.State = "idle"
+		}
+	}
 	f.sessions[sid] = a
 	return a, nil
 }
@@ -74,7 +91,7 @@ func (f *fakeAPI) OpenSessionTurn(sid, msg string, timeoutSec int64) (client.Dec
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	a := f.sessions[sid]
-	if !a.Relay && !a.AutoArmed {
+	if a.WaitReason == "" {
 		return client.Decision{}, &client.StatusError{Status: 409, Msg: "relay off"}
 	}
 	d := client.Decision{ID: "dec-1", Question: msg, State: "OPEN", TimeoutSec: timeoutSec, SessionID: sid, Kind: "relay"}
@@ -92,6 +109,14 @@ func (f *fakeAPI) WaitSessionTurn(sid, id string, waitSec int) (client.TurnStatu
 	}
 	d := f.turns[id]
 	a := f.sessions[sid]
+	// A turn settled by something OTHER than this poll (the human-event release no
+	// served answer) reports its outcome, exactly like the server's long poll.
+	switch d.State {
+	case "EXPIRED":
+		return client.TurnStatus{Outcome: "expired", Relay: a.WaitReason != "", WaitReason: a.WaitReason, Decision: d}, nil
+	case "ANSWERED":
+		return client.TurnStatus{Outcome: "answered", Relay: true, Decision: d}, nil
+	}
 	if f.relayOffAfter > 0 && f.waits >= f.relayOffAfter {
 		a.Relay = false
 		f.sessions[sid] = a
@@ -206,7 +231,7 @@ func TestRunSessionStartAndPromptRegisterThenBeat(t *testing.T) {
 
 func TestRunStopRelayOffReleases(t *testing.T) {
 	f := newFake()
-	f.sessions["s1"] = client.AgentSession{SessionID: "s1", Relay: false}
+	f.sessions["s1"] = client.AgentSession{SessionID: "s1", RelayMode: client.RelayModeOff}
 	var log strings.Builder
 	res, err := Run(f, payload(t, "codex", map[string]any{"session_id": "s1", "hook_event_name": "Stop", "last_assistant_message": "what next?"}), fastOpts(&log))
 	assert.NoErr(t, err)
@@ -218,7 +243,7 @@ func TestRunStopRelayOffReleases(t *testing.T) {
 
 func TestRunStopAnsweredBlocks(t *testing.T) {
 	f := newFake()
-	f.sessions["s1"] = client.AgentSession{SessionID: "s1", Relay: true}
+	f.sessions["s1"] = client.AgentSession{SessionID: "s1", RelayMode: client.RelayModeOn, Relay: true, WaitReason: client.WaitModeOn}
 	f.answerAfter, f.answer = 2, "  use plan B  "
 	var log strings.Builder
 	res, err := Run(f, payload(t, "codex", map[string]any{"session_id": "s1", "hook_event_name": "Stop", "last_assistant_message": "A or B?"}), fastOpts(&log))
@@ -234,7 +259,7 @@ func TestRunStopAnsweredBlocks(t *testing.T) {
 func TestRunStopOffCommandAndRelayOffAndTransient(t *testing.T) {
 	// /off → relay switched off, not blocked.
 	f := newFake()
-	f.sessions["s1"] = client.AgentSession{SessionID: "s1", Relay: true}
+	f.sessions["s1"] = client.AgentSession{SessionID: "s1", RelayMode: client.RelayModeOn, Relay: true, WaitReason: client.WaitModeOn}
 	f.answerAfter, f.answer = 1, "/OFF"
 	var log strings.Builder
 	res, _ := Run(f, payload(t, "codex", map[string]any{"session_id": "s1", "hook_event_name": "Stop", "last_assistant_message": "x"}), fastOpts(&log))
@@ -243,14 +268,14 @@ func TestRunStopOffCommandAndRelayOffAndTransient(t *testing.T) {
 
 	// relay flipped off from the web while waiting → released.
 	f = newFake()
-	f.sessions["s1"] = client.AgentSession{SessionID: "s1", Relay: true}
+	f.sessions["s1"] = client.AgentSession{SessionID: "s1", RelayMode: client.RelayModeOn, Relay: true, WaitReason: client.WaitModeOn}
 	f.relayOffAfter = 2
 	res, _ = Run(f, payload(t, "codex", map[string]any{"session_id": "s1", "hook_event_name": "Stop", "last_assistant_message": "x"}), fastOpts(&log))
 	assert.False(t, res.Blocked)
 
 	// transient wait failures are retried, then the answer still lands.
 	f = newFake()
-	f.sessions["s1"] = client.AgentSession{SessionID: "s1", Relay: true}
+	f.sessions["s1"] = client.AgentSession{SessionID: "s1", RelayMode: client.RelayModeOn, Relay: true, WaitReason: client.WaitModeOn}
 	f.failWaitTimes, f.answerAfter, f.answer = 2, 3, "ok"
 	res, _ = Run(f, payload(t, "codex", map[string]any{"session_id": "s1", "hook_event_name": "Stop", "last_assistant_message": "x"}), fastOpts(&log))
 	assert.True(t, res.Blocked)
@@ -266,7 +291,7 @@ func TestRunStopOffCommandAndRelayOffAndTransient(t *testing.T) {
 
 func TestRunStopBudgetExhausted(t *testing.T) {
 	f := newFake()
-	f.sessions["s1"] = client.AgentSession{SessionID: "s1", Relay: true}
+	f.sessions["s1"] = client.AgentSession{SessionID: "s1", RelayMode: client.RelayModeOn, Relay: true, WaitReason: client.WaitModeOn}
 	var log strings.Builder
 	opts := fastOpts(&log)
 	opts.Wait = 1 * time.Second

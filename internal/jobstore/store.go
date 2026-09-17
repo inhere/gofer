@@ -326,9 +326,11 @@ var schemaStmts = []string{
 	`CREATE INDEX IF NOT EXISTS idx_plan_decisions_state ON plan_decisions(state)`,
 	// agent_sessions is the terminal agent-CLI session registry (session relay,
 	// SESS-01 §5): registered by the CLI's hooks, observed on the web, and the
-	// owner of the per-session relay switch. session_id is the CLI's own id.
-	// Relay turns live in plan_decisions (kind='relay', session_id set — the
-	// additive columns are added by migratePlanDecisions for pre-existing dbs).
+	// owner of the per-session relay switch — relay_mode (auto|on|off, R1) with
+	// `relay` kept mirrored to mode=='on' for pre-R1 binaries. session_id is the
+	// CLI's own id. Relay turns live in plan_decisions (kind='relay', session_id
+	// set — the additive columns are added by migratePlanDecisions for
+	// pre-existing dbs); the R1/R2 columns are added by migrateAgentSessions.
 	`CREATE TABLE IF NOT EXISTS agent_sessions (
   session_id   TEXT PRIMARY KEY,
   agent        TEXT NOT NULL,
@@ -339,8 +341,10 @@ var schemaStmts = []string{
   transcript   TEXT,
   tmux_pane    TEXT,
   state        TEXT NOT NULL DEFAULT 'running',
+  relay_mode   TEXT NOT NULL DEFAULT 'auto',
   relay        INTEGER NOT NULL DEFAULT 0,
   idle_sec     INTEGER,
+  last_human_at INTEGER NOT NULL DEFAULT 0,
   turn_no      INTEGER NOT NULL DEFAULT 0,
   last_message TEXT,
   last_event   TEXT,
@@ -772,20 +776,39 @@ func (s *Store) migratePlanDecisions() error {
 	return nil
 }
 
-// migrateAgentSessions adds the idle-detection column (SR-A5) to
-// agent_sessions: idle_sec, the system input idle reading the hook reported
-// last (-1 = never reported; COALESCE covers rows written before the column
-// existed, so an old session simply reads as "no evidence the human is away").
+// migrateAgentSessions brings agent_sessions up to the current shape for dbs
+// written by older binaries. Every step is independent and idempotent:
+//
+//   - idle_sec (SR-A5): the system input idle reading the hook reported last
+//     (-1 = never reported; COALESCE covers pre-column rows, so an old session
+//     reads as "no evidence the human is away").
+//   - relay_mode + last_human_at (R1/R2): the three-state switch and the
+//     human-input clock. The migration maps the old boolean: relay=1 → `on`
+//     (the human had flipped it), relay=0 → `auto` (nobody did — but the idle
+//     rules may now arm it, which is exactly the new default).
 func (s *Store) migrateAgentSessions() error {
 	cols, err := s.tableColumns("agent_sessions")
 	if err != nil {
 		return err
 	}
-	if _, ok := cols["idle_sec"]; ok {
-		return nil
+	if _, ok := cols["idle_sec"]; !ok {
+		if _, e := s.db.Exec("ALTER TABLE agent_sessions ADD COLUMN idle_sec INTEGER"); e != nil {
+			return fmt.Errorf("jobstore: migrate agent_sessions add idle_sec: %w", e)
+		}
 	}
-	if _, e := s.db.Exec("ALTER TABLE agent_sessions ADD COLUMN idle_sec INTEGER"); e != nil {
-		return fmt.Errorf("jobstore: migrate agent_sessions add idle_sec: %w", e)
+	if _, ok := cols["relay_mode"]; !ok {
+		if _, e := s.db.Exec("ALTER TABLE agent_sessions ADD COLUMN relay_mode TEXT NOT NULL DEFAULT 'auto'"); e != nil {
+			return fmt.Errorf("jobstore: migrate agent_sessions add relay_mode: %w", e)
+		}
+		if _, e := s.db.Exec(`UPDATE agent_sessions
+  SET relay_mode = CASE WHEN relay = 1 THEN 'on' ELSE 'auto' END`); e != nil {
+			return fmt.Errorf("jobstore: migrate agent_sessions backfill relay_mode: %w", e)
+		}
+	}
+	if _, ok := cols["last_human_at"]; !ok {
+		if _, e := s.db.Exec("ALTER TABLE agent_sessions ADD COLUMN last_human_at INTEGER NOT NULL DEFAULT 0"); e != nil {
+			return fmt.Errorf("jobstore: migrate agent_sessions add last_human_at: %w", e)
+		}
 	}
 	return nil
 }

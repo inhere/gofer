@@ -2,12 +2,14 @@ package sessionrelay
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"path/filepath"
 	"testing"
 	"time"
 
 	"github.com/gookit/goutil/x/assert"
+	_ "modernc.org/sqlite" // the "sqlite" driver the store opens (legacy-db test)
 
 	"github.com/inhere/gofer/internal/jobstore"
 )
@@ -50,7 +52,7 @@ func TestNotifierHooks(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Len(t, f.attention, 0)
 
-	_, _ = s.SetRelay("sid-n", true)
+	_, _ = s.SetRelayMode("sid-n", jobstore.RelayModeOn)
 
 	// same prompt re-raised while already needs_attention: suppressed
 	_, err = s.Heartbeat("sid-n", HeartbeatInput{Event: EventNotification, LastMessage: "允许运行 rm?"})
@@ -93,7 +95,7 @@ func TestRelayHappyPath(t *testing.T) {
 	assert.True(t, errors.Is(err, ErrRelayOff))
 
 	// Switch on, open a turn, wait → answered via Say.
-	on, err := s.SetRelay("sid-a", true)
+	on, err := s.SetRelayMode("sid-a", jobstore.RelayModeOn)
 	assert.NoErr(t, err)
 	assert.True(t, on.Relay)
 	d, err := s.OpenTurn("sid-a", "need a decision", 60)
@@ -130,14 +132,14 @@ func TestRelayOffReleasesWaitAndAutoOff(t *testing.T) {
 	s := newSvc(t)
 	_, err := s.Register(RegisterInput{SessionID: "sid-b", Agent: "codex"})
 	assert.NoErr(t, err)
-	_, err = s.SetRelay("sid-b", true)
+	_, err = s.SetRelayMode("sid-b", jobstore.RelayModeOn)
 	assert.NoErr(t, err)
 	d, err := s.OpenTurn("sid-b", "waiting", 60)
 	assert.NoErr(t, err)
 
 	go func() {
 		time.Sleep(30 * time.Millisecond)
-		_, _ = s.SetRelay("sid-b", false)
+		_, _ = s.SetRelayMode("sid-b", jobstore.RelayModeOff)
 	}()
 	st, err := s.WaitTurn(context.Background(), "sid-b", d.ID, 2*time.Second)
 	assert.NoErr(t, err)
@@ -145,22 +147,24 @@ func TestRelayOffReleasesWaitAndAutoOff(t *testing.T) {
 	assert.False(t, st.Relay)
 	got, _ := s.Get("sid-b", 5)
 	assert.Eq(t, jobstore.SessionIdle, got.Session.State)
-	// Once SetRelay(false) has returned the turn is expired.
+	// Once the mode is off the turn is expired.
 	time.Sleep(50 * time.Millisecond)
 	expired, _, _ := s.store.GetDecision(d.ID)
 	assert.Eq(t, jobstore.DecisionExpired, expired.State)
 
-	// Auto-off on UserPromptSubmit.
-	_, err = s.SetRelay("sid-b", true)
+	// A human prompt drops an explicit `on` back to `auto` (they are back at the
+	// keyboard: the switch hands the decision back to the idle rules).
+	_, err = s.SetRelayMode("sid-b", jobstore.RelayModeOn)
 	assert.NoErr(t, err)
 	hb, err := s.Heartbeat("sid-b", HeartbeatInput{Event: EventUserPromptSubmit, Title: "repo: task"})
 	assert.NoErr(t, err)
 	assert.False(t, hb.Relay)
+	assert.Eq(t, jobstore.RelayModeAuto, hb.RelayMode)
 	assert.Eq(t, jobstore.SessionRunning, hb.State)
 	assert.Eq(t, "repo: task", hb.Title)
 
 	// An injected continuation (the relay's own reply) never auto-offs.
-	_, _ = s.SetRelay("sid-b", true)
+	_, _ = s.SetRelayMode("sid-b", jobstore.RelayModeOn)
 	hb, _ = s.Heartbeat("sid-b", HeartbeatInput{Event: EventUserPromptSubmit, Injected: true})
 	assert.True(t, hb.Relay)
 
@@ -173,7 +177,7 @@ func TestRelayExpiryAndErrors(t *testing.T) {
 	s := newSvc(t)
 	_, err := s.Register(RegisterInput{SessionID: "sid-c", Agent: "claude"})
 	assert.NoErr(t, err)
-	_, _ = s.SetRelay("sid-c", true)
+	_, _ = s.SetRelayMode("sid-c", jobstore.RelayModeOn)
 	d, err := s.OpenTurn("sid-c", "short fuse", 2) // store min clamp = 2s
 	assert.NoErr(t, err)
 	assert.Eq(t, int64(2), d.TimeoutSec)
@@ -219,4 +223,176 @@ func TestRelayExpiryAndErrors(t *testing.T) {
 	assert.Len(t, found, 1)
 	assert.Eq(t, "sid-d", found[0].SessionID)
 	assert.NoErr(t, s.Delete("sid-d"))
+}
+
+// TestRelayDecisionTable is the R1/R2 rule table: for every relay mode and every
+// combination of readings, which wait does a Stop get — and why. The two auto
+// criteria interact in exactly one place: a WORKING keyboard probe (idle >= 0)
+// is authoritative while its criterion is enabled, so a machine where the human
+// is demonstrably present never waits on the input clock alone; a disabled
+// criterion falls through to the other one.
+func TestRelayDecisionTable(t *testing.T) {
+	const now = int64(1_700_000_000)
+	const unknown = int64(-1)
+	const never = int64(0) // last_human_at 0 = no human ever seen
+	cases := []struct {
+		name     string
+		mode     string
+		idle     int64
+		humanAgo int64 // seconds since the last human input; 0 = never
+		idleSec  int
+		turnSec  int
+		want     string
+	}{
+		// An explicit switch is authoritative over every reading.
+		{"on ignores an unknowable keyboard", jobstore.RelayModeOn, unknown, never, 300, 900, WaitModeOn},
+		{"on waits even while the human is typing", jobstore.RelayModeOn, 3, 5, 300, 900, WaitModeOn},
+		{"off never waits, however long the silence", jobstore.RelayModeOff, 9999, 9999, 300, 900, ""},
+		{"off ignores a missing probe", jobstore.RelayModeOff, unknown, never, 300, 900, ""},
+		// auto with a working probe: the keyboard reading decides.
+		{"probe at the threshold waits", jobstore.RelayModeAuto, 300, 9000, 300, 900, WaitIdleProbe},
+		{"probe above the threshold waits", jobstore.RelayModeAuto, 901, never, 300, 900, WaitIdleProbe},
+		{"probe below the threshold does not wait", jobstore.RelayModeAuto, 299, 9000, 300, 900, ""},
+		{"a zero reading is a reading, not unknown", jobstore.RelayModeAuto, 0, 9000, 300, 900, ""},
+		// auto without a probe (containers): the human-input clock decides.
+		{"no probe waits on turn age", jobstore.RelayModeAuto, unknown, 900, 300, 900, WaitTurnAge},
+		{"no probe, below the turn age", jobstore.RelayModeAuto, unknown, 899, 300, 900, ""},
+		{"no probe and no human ever seen is not evidence", jobstore.RelayModeAuto, unknown, never, 300, 900, ""},
+		// 0 disables one criterion (falling through to the other).
+		{"idle criterion off falls back to turn age", jobstore.RelayModeAuto, unknown, 900, 0, 900, WaitTurnAge},
+		{"idle criterion off with a reading still uses turn age", jobstore.RelayModeAuto, 9999, 900, 0, 900, WaitTurnAge},
+		{"turn criterion off blocks the fallback", jobstore.RelayModeAuto, unknown, 9999, 300, 0, ""},
+		{"both criteria off never wait", jobstore.RelayModeAuto, unknown, 9999, 0, 0, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			s := newSvc(t)
+			s.AutoArmIdleSec, s.AutoArmTurnSec = tc.idleSec, tc.turnSec
+			s.nowFn = func() time.Time { return time.Unix(now, 0) }
+			a := jobstore.AgentSession{SessionID: "sid-t", RelayMode: tc.mode, IdleSec: tc.idle}
+			if tc.humanAgo > 0 {
+				a.LastHumanAt = now - tc.humanAgo
+			}
+			assert.Eq(t, tc.want, s.WaitReason(a))
+			// The arming gate the hook's turn-open obeys follows the same rule.
+			assert.Eq(t, tc.want != "", s.WaitReason(a) != "")
+		})
+	}
+}
+
+// TestRelayModeMigrationFromBool opens a database written by a pre-R1 binary and
+// checks the migration's reading of the old boolean: relay=1 was an explicit
+// switch (→ `on`), relay=0 was "nobody flipped it" (→ `auto`, so the idle rules
+// may arm it without the human doing anything).
+func TestRelayModeMigrationFromBool(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy.db")
+	// The pre-R1 schema: a boolean relay column, no relay_mode / last_human_at.
+	db, err := sql.Open("sqlite", path)
+	assert.NoErr(t, err)
+	_, err = db.Exec(`CREATE TABLE agent_sessions (
+  session_id TEXT PRIMARY KEY, agent TEXT NOT NULL, project_key TEXT, runner TEXT, cwd TEXT,
+  title TEXT, transcript TEXT, tmux_pane TEXT, state TEXT NOT NULL DEFAULT 'running',
+  relay INTEGER NOT NULL DEFAULT 0, idle_sec INTEGER, turn_no INTEGER NOT NULL DEFAULT 0,
+  last_message TEXT, last_event TEXT, last_seen_at INTEGER NOT NULL, started_at INTEGER NOT NULL,
+  ended_at INTEGER)`)
+	assert.NoErr(t, err)
+	_, err = db.Exec(`INSERT INTO agent_sessions (session_id, agent, relay, last_seen_at, started_at)
+  VALUES ('sid-switch','claude',1,1,1), ('sid-auto','codex',0,1,1)`)
+	assert.NoErr(t, err)
+	assert.NoErr(t, db.Close())
+
+	st, err := jobstore.Open(path)
+	assert.NoErr(t, err)
+	t.Cleanup(func() { _ = st.Close() })
+	switched, ok, err := st.GetAgentSession("sid-switch")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, jobstore.RelayModeOn, switched.RelayMode)
+	assert.True(t, switched.Relay)
+	assert.Eq(t, int64(0), switched.LastHumanAt)
+	idle, ok, err := st.GetAgentSession("sid-auto")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, jobstore.RelayModeAuto, idle.RelayMode)
+	assert.False(t, idle.Relay)
+
+	// Re-opening (the migration runs on every Open) changes nothing.
+	st2, err := jobstore.Open(path)
+	assert.NoErr(t, err)
+	t.Cleanup(func() { _ = st2.Close() })
+	again, _, err := st2.GetAgentSession("sid-switch")
+	assert.NoErr(t, err)
+	assert.Eq(t, jobstore.RelayModeOn, again.RelayMode)
+}
+
+// TestHumanPromptResetsOnToAuto pins the R1 demotion rule: a prompt a HUMAN
+// typed hands an explicit switch back to `auto` (the idle rules take over), while
+// the relay's own injected continuation leaves the switch alone — the human is on
+// the web, not at the keyboard.
+func TestHumanPromptResetsOnToAuto(t *testing.T) {
+	s := newSvc(t)
+	_, err := s.Register(RegisterInput{SessionID: "sid-r", Agent: "claude", Event: EventSessionStart})
+	assert.NoErr(t, err)
+	_, err = s.SetRelayMode("sid-r", jobstore.RelayModeOn)
+	assert.NoErr(t, err)
+
+	a, err := s.Heartbeat("sid-r", HeartbeatInput{Event: EventUserPromptSubmit, Injected: true})
+	assert.NoErr(t, err)
+	assert.Eq(t, jobstore.RelayModeOn, a.RelayMode, "an injected reply must not touch the switch")
+
+	a, err = s.Heartbeat("sid-r", HeartbeatInput{Event: EventUserPromptSubmit, Title: "repo: task"})
+	assert.NoErr(t, err)
+	assert.Eq(t, jobstore.RelayModeAuto, a.RelayMode)
+
+	// `off` is not resurrected by typing either: the human's explicit "never
+	// wait" stays.
+	_, err = s.SetRelayMode("sid-r", jobstore.RelayModeOff)
+	assert.NoErr(t, err)
+	a, err = s.Heartbeat("sid-r", HeartbeatInput{Event: EventUserPromptSubmit})
+	assert.NoErr(t, err)
+	assert.Eq(t, jobstore.RelayModeOff, a.RelayMode)
+
+	// With the auto-demotion knob off an explicit switch survives a prompt too.
+	_, err = s.SetRelayMode("sid-r", jobstore.RelayModeOn)
+	assert.NoErr(t, err)
+	s.AutoOffOnPrompt = false
+	a, err = s.Heartbeat("sid-r", HeartbeatInput{Event: EventUserPromptSubmit})
+	assert.NoErr(t, err)
+	assert.Eq(t, jobstore.RelayModeOn, a.RelayMode)
+}
+
+// TestLastHumanAtUpdatedOnlyByHumanPrompt pins the anchor of the turn-age
+// fallback: it moves on a HUMAN prompt (and on registration) and on nothing else
+// — a Stop heartbeat or an injected continuation must never fake a return.
+func TestLastHumanAtUpdatedOnlyByHumanPrompt(t *testing.T) {
+	s := newSvc(t)
+	started, err := s.Register(RegisterInput{SessionID: "sid-h", Agent: "claude", Event: EventSessionStart})
+	assert.NoErr(t, err)
+	assert.True(t, started.LastHumanAt > 0, "SessionStart stamps last_human_at")
+
+	// Wind the stamp back so "unchanged" is distinguishable from "stamped now".
+	old := time.Now().Unix() - 7200
+	_, err = s.store.UpsertAgentSession(jobstore.AgentSession{SessionID: "sid-h", LastHumanAt: old})
+	assert.NoErr(t, err)
+
+	for _, hb := range []HeartbeatInput{
+		{Event: EventStop, LastMessage: "done"},
+		{Event: EventNotification, LastMessage: "allow?"},
+		{Event: EventUserPromptSubmit, Injected: true},
+	} {
+		got, err := s.Heartbeat("sid-h", hb)
+		assert.NoErr(t, err)
+		assert.Eq(t, old, got.LastHumanAt, hb.Event)
+	}
+
+	human, err := s.Heartbeat("sid-h", HeartbeatInput{Event: EventUserPromptSubmit, Title: "repo: task"})
+	assert.NoErr(t, err)
+	assert.True(t, human.LastHumanAt > old, "a human prompt stamps last_human_at")
+	assert.True(t, human.LastHumanAt <= time.Now().Unix())
+
+	// A registration that is NOT a SessionStart (a hook retrying mid-session)
+	// keeps the stored evidence instead of clearing it.
+	again, err := s.Register(RegisterInput{SessionID: "sid-h", Agent: "claude", Event: EventStop})
+	assert.NoErr(t, err)
+	assert.Eq(t, human.LastHumanAt, again.LastHumanAt)
 }

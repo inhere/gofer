@@ -61,11 +61,11 @@ func NewSessionCmd() *gcli.Command {
 			},
 			{
 				Name: "relay",
-				Desc: "Switch a session's web relay on|off (omit --session: the session of the current directory)",
+				Desc: "Set a session's web relay mode auto|on|off (omit --session: the session of the current directory)",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
-					c.AddArg("switch", "on | off", true)
+					c.AddArg("mode", "auto | on | off", true)
 					c.StrOpt(&sessionRelayOpts.session, "session", "", "", "session id (default: resolve by current directory)")
 				},
 				Func: runSessionRelay,
@@ -150,18 +150,73 @@ func runSessionList(c *gcli.Command, _ []string) error {
 	}
 	c.Printf("%-9s %-7s %-15s %-6s %-4s %-5s %-9s %s\n", "SESSION", "AGENT", "STATE", "RELAY", "TURN", "SEEN", "PROJECT", "TITLE")
 	for _, a := range list {
-		relay := "off"
-		switch {
-		case a.Relay:
-			relay = "ON"
-		case a.AutoArmed:
-			// SWITCH off, but the server's idle rule arms this session (SR-A5).
-			relay = "auto"
-		}
 		c.Printf("%-9s %-7s %-15s %-6s %-4d %-5s %-9s %s\n",
-			shortSID(a.SessionID), a.Agent, a.State, relay, a.TurnNo, ago(a.LastSeenAt), a.ProjectKey, sessionTitle(a))
+			shortSID(a.SessionID), a.Agent, a.State, relayCell(a), a.TurnNo, ago(a.LastSeenAt), a.ProjectKey, sessionTitle(a))
 	}
 	return nil
+}
+
+// relayCell is the RELAY column: the switch the human set (on/off/auto), and —
+// for an `auto` session that is waiting right now — the reason it is waiting, so
+// "auto" next to a waiting_reply row is explained instead of puzzling.
+func relayCell(a client.AgentSession) string {
+	if a.RelayMode == "auto" && a.Relay {
+		switch a.WaitReason {
+		case client.WaitIdleProbe:
+			return "auto·wait(i)"
+		case client.WaitTurnAge:
+			return "auto·wait(t)"
+		case client.WaitModeOn:
+			return "on"
+		}
+		return "auto·waiting"
+	}
+	if a.RelayMode != "" {
+		return a.RelayMode
+	}
+	// Pre-R1 servers report only the derived boolean.
+	if a.Relay {
+		return "on"
+	}
+	return "off"
+}
+
+// relayDetail is the `session show` relay line: mode, whether it is waiting
+// right now, and the evidence the server decided on.
+func relayDetail(a client.AgentSession) string {
+	switch a.WaitReason {
+	case client.WaitModeOn:
+		return "on (switch: every stop waits)"
+	case client.WaitIdleProbe:
+		return fmt.Sprintf("auto: waiting — keyboard idle %ds (>= session.auto_relay_idle_sec)", a.IdleSec)
+	case client.WaitTurnAge:
+		return fmt.Sprintf("auto: waiting — no human input for %ds (>= session.auto_relay_turn_sec)", humanAgo(a))
+	}
+	switch a.RelayMode {
+	case "on":
+		return "on (switch: every stop waits)"
+	case "off":
+		return "off (this session never waits)"
+	}
+	// auto, not waiting: show which reading decided that.
+	if a.IdleSec >= 0 {
+		return fmt.Sprintf("auto: not waiting — keyboard idle %ds (< threshold)", a.IdleSec)
+	}
+	if a.LastHumanAt > 0 {
+		return fmt.Sprintf("auto: not waiting — last human input %ds ago (< threshold; no keyboard probe on this host)", humanAgo(a))
+	}
+	return "auto: not waiting — no keyboard probe and no human input seen yet"
+}
+
+// humanAgo is the seconds since the last human input (0 = never seen).
+func humanAgo(a client.AgentSession) int64 {
+	if a.LastHumanAt <= 0 {
+		return 0
+	}
+	if d := time.Now().Unix() - a.LastHumanAt; d > 0 {
+		return d
+	}
+	return 0
 }
 
 func runSessionShow(c *gcli.Command, _ []string) error {
@@ -178,15 +233,9 @@ func runSessionShow(c *gcli.Command, _ []string) error {
 		return err
 	}
 	a := d.Session
-	relay := "off"
-	switch {
-	case a.Relay:
-		relay = "ON (switch)"
-	case a.AutoArmed:
-		relay = fmt.Sprintf("auto (idle %ds >= threshold)", a.IdleSec)
-	}
-	c.Printf("session:  %s\nagent:    %s\nproject:  %s\nrunner:   %s\ncwd:      %s\ntitle:    %s\nstate:    %s\nrelay:    %s\nturns:    %d\nseen:     %s ago\ntranscript: %s\n",
-		a.SessionID, a.Agent, a.ProjectKey, a.Runner, a.Cwd, a.Title, a.State, relay, a.TurnNo, ago(a.LastSeenAt), a.Transcript)
+	c.Printf("session:  %s\nagent:    %s\nproject:  %s\nrunner:   %s\ncwd:      %s\ntitle:    %s\nstate:    %s\nrelay:    %s\nmode:     %s\nturns:    %d\nseen:     %s ago\ntranscript: %s\n",
+		a.SessionID, a.Agent, a.ProjectKey, a.Runner, a.Cwd, a.Title, a.State, relayDetail(a),
+		relayCell(a), a.TurnNo, ago(a.LastSeenAt), a.Transcript)
 	if a.LastMessage != "" {
 		c.Printf("\nlast message:\n  %s\n", strings.ReplaceAll(strings.TrimSpace(a.LastMessage), "\n", "\n  "))
 	}
@@ -204,15 +253,15 @@ func runSessionShow(c *gcli.Command, _ []string) error {
 }
 
 func runSessionRelay(c *gcli.Command, _ []string) error {
-	sw := strings.ToLower(c.Arg("switch").String())
-	var on bool
-	switch sw {
+	mode := strings.ToLower(strings.TrimSpace(c.Arg("mode").String()))
+	switch mode {
 	case "on", "1", "true":
-		on = true
+		mode = "on"
 	case "off", "0", "false":
-		on = false
+		mode = "off"
+	case "auto":
 	default:
-		return errorx.Failf(configExitErr, "relay switch must be on|off, got %q", sw)
+		return errorx.Failf(configExitErr, "relay mode must be auto|on|off, got %q", mode)
 	}
 	cli, err := sessionClient()
 	if err != nil {
@@ -227,14 +276,18 @@ func runSessionRelay(c *gcli.Command, _ []string) error {
 	} else if sid, err = resolveSessionID(cli, sid); err != nil {
 		return err
 	}
-	a, err := cli.SetSessionRelay(sid, on)
+	a, err := cli.SetSessionRelayMode(sid, mode)
 	if err != nil {
 		return err
 	}
-	if a.Relay {
-		c.Printf("relay ON for session %s (%s): the next time the agent stops, its message goes to the gofer web 会话 page; reply there to continue\n", shortSID(a.SessionID), sessionTitle(a))
-	} else {
-		c.Printf("relay off for session %s (%s)\n", shortSID(a.SessionID), sessionTitle(a))
+	c.Printf("relay %s for session %s (%s)\n", a.RelayMode, shortSID(a.SessionID), sessionTitle(a))
+	switch a.RelayMode {
+	case "on":
+		c.Println("  every stop now waits on the gofer web 会话 page until you reply there (/off releases it)")
+	case "auto":
+		c.Println("  the server decides: you are away (keyboard idle, or no input for a while) → it waits; your next terminal input releases it")
+	default:
+		c.Println("  this session never waits; the turn already open (if any) was released")
 	}
 	return nil
 }

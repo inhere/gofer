@@ -229,6 +229,10 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	var workers = hubWorkerRegistry{hub: cr.Hub}
 
 	srv := httpapi.New(&cfg.Server, token, allowEmpty, cr.Jobs, cr.Workflow(), cr.Projects, cr.Agents, cr.Hub, cfg.Runners, proberOrNil(prober), workers)
+	// SESS-01 R2: the session-relay auto-arm thresholds live in the top-level
+	// `session:` block (legacy `server.session_auto_relay_idle_sec` is read as an
+	// alias), and only the whole config can resolve them.
+	srv.SetSessionRelayPolicy(cfg.EffectiveAutoRelayIdleSec(), cfg.EffectiveAutoRelayTurnSec())
 	srv.SetBuildInfo(opts.Build)
 	// POST /v1/workers/{id}/reload: adapt the same hub to the reload seam, which also
 	// translates the hub's error taxonomy so httpapi keeps its no-wshub boundary.

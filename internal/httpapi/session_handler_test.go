@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 // TestSessionRelayHTTPContract walks the session-relay endpoints (SESS-01 T3):
@@ -239,16 +240,17 @@ func TestSessionHeartbeatAutoArmsOnIdle(t *testing.T) {
 	s := sessionAutoArmServer(t, 300)
 	registerIdleSession(t, s, "sid-idle")
 
-	// Away for 10 min → armed (relay itself stays off: the switch is the human's).
+	// Away for 10 min → armed: the switch itself stays `auto` (nobody flipped it)
+	// while the derived `relay` says a Stop WOULD wait right now.
 	sv := heartbeatStop(t, s, "sid-idle", 600)
-	if !sv.AutoArmed || sv.Relay || sv.IdleSec != 600 {
-		t.Fatalf("idle 600 view=%+v, want auto_armed with relay off", sv)
+	if !sv.AutoArmed || !sv.Relay || sv.RelayMode != "auto" || sv.WaitReason != "idle_probe" {
+		t.Fatalf("idle 600 view=%+v, want auto_armed (relay_mode auto, reason idle_probe)", sv)
 	}
 	// Just typed (10s) → not armed; unknown (-1) → never armed.
-	if sv = heartbeatStop(t, s, "sid-idle", 10); sv.AutoArmed {
+	if sv = heartbeatStop(t, s, "sid-idle", 10); sv.AutoArmed || sv.Relay || sv.WaitReason != "" {
 		t.Fatalf("idle 10 view=%+v, want not armed", sv)
 	}
-	if sv = heartbeatStop(t, s, "sid-idle", -1); sv.AutoArmed || sv.IdleSec != -1 {
+	if sv = heartbeatStop(t, s, "sid-idle", -1); sv.AutoArmed || sv.IdleSec != -1 || sv.Relay {
 		t.Fatalf("idle -1 view=%+v, want unarmed unknown", sv)
 	}
 	// A heartbeat without a reading keeps the last one instead of clearing it.
@@ -352,5 +354,102 @@ func TestSessionAutoRelayDisabledByZero(t *testing.T) {
 	}
 	if sv := heartbeatStop(t, def, "sid-def", 299); sv.AutoArmed {
 		t.Fatalf("idle 299 below the 5-minute default must not arm: %+v", sv)
+	}
+}
+
+// TestSetSessionRelayModeAndLegacyBool pins the R1 switch contract on the wire:
+// the new {"mode":...} form is the three-state switch, the pre-R1 {"relay":bool}
+// form still means on/off, malformed bodies are rejected, and `relay` stays the
+// DERIVED "would this Stop wait" answer while `relay_mode` is what was stored.
+// The tail covers the R2 fallback: with no keyboard probe at all (idle unknown)
+// the session waits once the human has been silent for the turn threshold, and a
+// prompt they typed releases it.
+func TestSetSessionRelayModeAndLegacyBool(t *testing.T) {
+	s := sessionAutoArmServer(t, 300)
+	s.SetSessionRelayPolicy(300, 900)
+	sid := "sid-mode"
+	registerIdleSession(t, s, sid)
+
+	post := func(body any) sessionView {
+		t.Helper()
+		resp := do(t, s, http.MethodPost, "/v1/sessions/"+sid+"/relay", testToken, body)
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("relay %v status=%d, want 200", body, resp.StatusCode)
+		}
+		var sv sessionView
+		decode(t, resp, &sv)
+		return sv
+	}
+
+	// The default is auto: nobody flipped anything.
+	resp := do(t, s, http.MethodGet, "/v1/sessions/"+sid, testToken, nil)
+	var detail struct {
+		Session sessionView    `json:"session"`
+		Turns   []decisionView `json:"turns"`
+	}
+	decode(t, resp, &detail)
+	if detail.Session.RelayMode != "auto" || detail.Session.Relay {
+		t.Fatalf("fresh session=%+v, want mode auto and no wait", detail.Session)
+	}
+
+	if sv := post(map[string]any{"mode": "on"}); sv.RelayMode != "on" || !sv.Relay || sv.WaitReason != "mode_on" {
+		t.Fatalf("mode on view=%+v", sv)
+	}
+	if sv := post(map[string]any{"mode": "auto"}); sv.RelayMode != "auto" || sv.Relay {
+		t.Fatalf("mode auto view=%+v, want auto without a wait", sv)
+	}
+	// Legacy boolean form: true → on, false → off.
+	if sv := post(map[string]any{"relay": true}); sv.RelayMode != "on" || !sv.Relay {
+		t.Fatalf("legacy true view=%+v, want on", sv)
+	}
+	if sv := post(map[string]any{"relay": false}); sv.RelayMode != "off" || sv.Relay {
+		t.Fatalf("legacy false view=%+v, want off", sv)
+	}
+
+	// A mode nobody knows, and a body with neither field, are 400s.
+	for _, body := range []map[string]any{{"mode": "sometimes"}, {}} {
+		resp := do(t, s, http.MethodPost, "/v1/sessions/"+sid+"/relay", testToken, body)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("relay %v status=%d, want 400", body, resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+
+	// R2 fallback: a terminal whose hook can never read the keyboard (idle stays
+	// -1) and a human who has said nothing for 20 minutes → the Stop waits.
+	aged := time.Now().Unix() - 1200
+	if _, err := s.jobs.Meta().UpsertAgentSession(jobstore.AgentSession{SessionID: sid, LastHumanAt: aged}); err != nil {
+		t.Fatalf("age session: %v", err)
+	}
+	sv := post(map[string]any{"mode": "auto"})
+	if sv.WaitReason != "turn_age" || !sv.Relay || sv.LastHumanAt != aged {
+		t.Fatalf("turn-age view=%+v, want wait_reason turn_age", sv)
+	}
+	resp = do(t, s, http.MethodPost, "/v1/sessions/"+sid+"/turns", testToken, map[string]any{"body": "anyone there?", "timeout_sec": 120})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("open turn on a fallback-armed session status=%d, want 200", resp.StatusCode)
+	}
+	var turn decisionView
+	decode(t, resp, &turn)
+
+	// The human is back: a prompt THEY typed reaches the hub (the only evidence a
+	// probe-less terminal can give) and the fallback wait is released.
+	resp = do(t, s, http.MethodPost, "/v1/sessions/"+sid+"/heartbeat", testToken, map[string]any{
+		"event": "UserPromptSubmit", "title": "sub: back",
+	})
+	decode(t, resp, &sv)
+	if sv.LastHumanAt <= aged {
+		t.Fatalf("a human prompt must stamp last_human_at: %+v", sv)
+	}
+	resp = do(t, s, http.MethodGet, "/v1/sessions/"+sid, testToken, nil)
+	decode(t, resp, &detail)
+	if len(detail.Turns) != 1 || detail.Turns[0].State != "EXPIRED" || detail.Turns[0].ReleasedBy != "user_returned" {
+		t.Fatalf("turn after the human returned=%+v, want EXPIRED released_by=user_returned", detail.Turns)
+	}
+	if detail.Session.State != "running" {
+		// The prompt they typed is the session's new state: the agent is working
+		// again, and the released turn is no longer "waiting".
+		t.Fatalf("state after the release=%s, want running", detail.Session.State)
 	}
 }

@@ -23,7 +23,7 @@ func TestAgentSessionUpsertTouchList(t *testing.T) {
 
 	// Re-register: non-empty fields overwrite, empty ones keep the stored value,
 	// relay/turn untouched.
-	ok, err := s.SetSessionRelay("sid-1", true)
+	ok, err := s.SetSessionRelayMode("sid-1", RelayModeOn)
 	assert.NoErr(t, err)
 	assert.True(t, ok)
 	a2, err := s.UpsertAgentSession(AgentSession{SessionID: "sid-1", Agent: "claude", Title: "repo: fix bug"})
@@ -260,7 +260,9 @@ func TestReleaseDecisionTagsExpiredTurn(t *testing.T) {
 
 // TestMigrateAgentSessionsAddsIdleSec opens a db whose agent_sessions predates
 // the idle column: Open must add it, and a row written by the old binary reads
-// back as "unknown" (-1) rather than as "the human is right there".
+// back as "unknown" (-1) rather than as "the human is right there". The same
+// migration adds the R1/R2 columns, whose defaults read as "nobody flipped the
+// switch" (auto) and "no human seen yet" (0).
 func TestMigrateAgentSessionsAddsIdleSec(t *testing.T) {
 	s := openTest(t)
 	for _, q := range []string{
@@ -280,5 +282,8 @@ func TestMigrateAgentSessionsAddsIdleSec(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.True(t, ok)
 	assert.Eq(t, int64(-1), a.IdleSec)
+	assert.Eq(t, RelayModeAuto, a.RelayMode)
+	assert.False(t, a.Relay)
+	assert.Eq(t, int64(0), a.LastHumanAt)
 	assert.NoErr(t, s.migrate()) // idempotent
 }

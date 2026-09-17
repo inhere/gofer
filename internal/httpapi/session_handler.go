@@ -17,39 +17,55 @@ import (
 // sessionView is the HTTP projection of an agent_sessions row (session relay,
 // SESS-01 §5). Timestamps are unix seconds.
 type sessionView struct {
-	SessionID   string `json:"session_id"`
-	Agent       string `json:"agent"`
-	ProjectKey  string `json:"project_key,omitempty"`
-	Runner      string `json:"runner,omitempty"`
-	Cwd         string `json:"cwd,omitempty"`
-	Title       string `json:"title,omitempty"`
-	Transcript  string `json:"transcript,omitempty"`
-	TmuxPane    string `json:"tmux_pane,omitempty"`
-	State       string `json:"state"`
+	SessionID  string `json:"session_id"`
+	Agent      string `json:"agent"`
+	ProjectKey string `json:"project_key,omitempty"`
+	Runner     string `json:"runner,omitempty"`
+	Cwd        string `json:"cwd,omitempty"`
+	Title      string `json:"title,omitempty"`
+	Transcript string `json:"transcript,omitempty"`
+	TmuxPane   string `json:"tmux_pane,omitempty"`
+	State      string `json:"state"`
+	// RelayMode is the three-state switch (auto|on|off, R1) — what the CLI/web
+	// toggle writes. Relay is DERIVED from the relay service's rules and reports
+	// whether a Stop would wait right now (mode `on`, or an auto rule holding);
+	// it is what pre-R1 clients read. WaitReason says WHY (mode_on / idle_probe /
+	// turn_age, empty = does not wait).
+	RelayMode   string `json:"relay_mode"`
 	Relay       bool   `json:"relay"`
+	WaitReason  string `json:"wait_reason,omitempty"`
 	TurnNo      int64  `json:"turn_no"`
 	LastMessage string `json:"last_message,omitempty"`
 	LastEvent   string `json:"last_event,omitempty"`
 	LastSeenAt  int64  `json:"last_seen_at"`
 	StartedAt   int64  `json:"started_at"`
 	EndedAt     int64  `json:"ended_at,omitempty"`
-	// AutoArmed reports that the idle rule alone arms relay for this session
-	// (the human has been away for >= server.session_auto_relay_idle_sec) and
-	// IdleSec is the reading that decided it (-1 = unknown). The Stop hook blocks
-	// on Relay||AutoArmed; the web renders "auto (idle 12m)" from the pair.
-	AutoArmed bool  `json:"auto_armed"`
-	IdleSec   int64 `json:"idle_sec"`
+	// AutoArmed reports that the keyboard idle rule alone arms relay for this
+	// session (the human has been away for >= session.auto_relay_idle_sec) and
+	// IdleSec is the reading that decided it (-1 = unknown). Kept for pre-R2
+	// clients; new clients read WaitReason. LastHumanAt is when a human last
+	// acted here (unix seconds, 0 = never) — the turn_age anchor, so the web can
+	// render "auto (no input 22m)".
+	AutoArmed   bool  `json:"auto_armed"`
+	IdleSec     int64 `json:"idle_sec"`
+	LastHumanAt int64 `json:"last_human_at,omitempty"`
 }
 
-// toSessionView projects a stored session; AutoArmed is derived from the relay
-// service's single policy (the store only keeps the raw idle reading).
+// toSessionView projects a stored session. Relay / WaitReason / AutoArmed are
+// derived from the relay service's single policy (the store only keeps the raw
+// mode and readings).
 func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
+	reason := ""
+	if s.relay != nil {
+		reason = s.relay.WaitReason(a)
+	}
 	return sessionView{
 		SessionID: a.SessionID, Agent: a.Agent, ProjectKey: a.ProjectKey, Runner: a.Runner,
 		Cwd: a.Cwd, Title: a.Title, Transcript: a.Transcript, TmuxPane: a.TmuxPane,
-		State: a.State, Relay: a.Relay, TurnNo: a.TurnNo, LastMessage: a.LastMessage,
+		State: a.State, RelayMode: a.RelayMode, Relay: reason != "", WaitReason: reason,
+		TurnNo: a.TurnNo, LastMessage: a.LastMessage,
 		LastEvent: a.LastEvent, LastSeenAt: a.LastSeenAt, StartedAt: a.StartedAt, EndedAt: a.EndedAt,
-		AutoArmed: s.relay != nil && s.relay.AutoArmed(a), IdleSec: a.IdleSec,
+		AutoArmed: reason == sessionrelay.WaitIdleProbe, IdleSec: a.IdleSec, LastHumanAt: a.LastHumanAt,
 	}
 }
 
@@ -255,11 +271,31 @@ func (s *Server) handleSessionHeartbeat(c *rux.Context) {
 	c.JSON(http.StatusOK, s.toSessionView(a))
 }
 
+// sessionRelayReq is the POST /v1/sessions/{sid}/relay body: the three-state
+// switch (R1). Pre-R1 clients send the boolean form, which maps to on/off —
+// exactly what those clients meant; `auto` (the default for everyone else) is
+// only reachable through the new form.
 type sessionRelayReq struct {
-	Relay bool `json:"relay"`
+	Mode string `json:"mode,omitempty"`
+	// Relay is the LEGACY boolean switch (true → on, false → off).
+	Relay *bool `json:"relay,omitempty"`
 }
 
-// handleSetSessionRelay flips the relay switch (POST /v1/sessions/{sid}/relay).
+// mode resolves the request into one relay mode ("" = malformed: neither field).
+func (b sessionRelayReq) mode() string {
+	if strings.TrimSpace(b.Mode) != "" {
+		return strings.ToLower(strings.TrimSpace(b.Mode))
+	}
+	if b.Relay != nil {
+		if *b.Relay {
+			return jobstore.RelayModeOn
+		}
+		return jobstore.RelayModeOff
+	}
+	return ""
+}
+
+// handleSetSessionRelay sets the relay switch (POST /v1/sessions/{sid}/relay).
 func (s *Server) handleSetSessionRelay(c *rux.Context) {
 	if !s.relayReady(c) {
 		return
@@ -269,7 +305,13 @@ func (s *Server) handleSetSessionRelay(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
 		return
 	}
-	a, err := s.relay.SetRelay(c.Param("sid"), body.Relay)
+	mode := body.mode()
+	if mode == "" {
+		writeError(c, http.StatusBadRequest, "relay mode required",
+			`send {"mode":"auto|on|off"} (or the legacy {"relay":true|false})`)
+		return
+	}
+	a, err := s.relay.SetRelayMode(c.Param("sid"), mode)
 	if err != nil {
 		writeError(c, relayStatus(err), "set relay failed", err.Error())
 		return
@@ -325,9 +367,10 @@ func (s *Server) handleWaitTurn(c *rux.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, map[string]any{
-		"outcome":  st.Outcome,
-		"relay":    st.Relay,
-		"decision": toDecisionView(st.Decision),
+		"outcome":     st.Outcome,
+		"relay":       st.Relay,
+		"wait_reason": st.Reason,
+		"decision":    toDecisionView(st.Decision),
 	})
 }
 

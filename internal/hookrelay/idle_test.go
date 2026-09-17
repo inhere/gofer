@@ -60,7 +60,7 @@ func TestIdleSecondsUnknownIsMinusOne(t *testing.T) {
 // so the Stop hook opens a turn and waits like an explicitly relayed session.
 func TestStopBlocksWhenAutoArmed(t *testing.T) {
 	f := newFake()
-	f.sessions["s1"] = client.AgentSession{SessionID: "s1", Relay: false, AutoArmed: true, IdleSec: 600}
+	f.sessions["s1"] = client.AgentSession{SessionID: "s1", RelayMode: client.RelayModeAuto, AutoArmed: true, WaitReason: client.WaitIdleProbe, IdleSec: 600}
 	f.answerAfter, f.answer = 1, "carry on"
 	injectIdleProbe(t, 600)
 	var log strings.Builder
@@ -72,7 +72,7 @@ func TestStopBlocksWhenAutoArmed(t *testing.T) {
 	assert.Eq(t, ReplyPrefix+"carry on", res.Reason)
 	// The human never came back, so no release was ever requested.
 	assert.Eq(t, 0, f.releases)
-	assert.True(t, strings.Contains(log.String(), "auto=true"))
+	assert.True(t, strings.Contains(log.String(), "reason=idle_probe"))
 
 	// The reading travelled with the Stop heartbeat (that is what arms it).
 	first := f.beats[0]
@@ -85,7 +85,7 @@ func TestStopBlocksWhenAutoArmed(t *testing.T) {
 // lets the server close the turn — the agent stops normally at its prompt.
 func TestStopReleasesWhenUserReturns(t *testing.T) {
 	f := newFake()
-	f.sessions["s1"] = client.AgentSession{SessionID: "s1", Relay: false, AutoArmed: true, IdleSec: 600}
+	f.sessions["s1"] = client.AgentSession{SessionID: "s1", RelayMode: client.RelayModeAuto, AutoArmed: true, WaitReason: client.WaitIdleProbe, IdleSec: 600}
 	f.released = true
 	injectIdleProbe(t, 0) // the human is back at the keyboard
 	var log strings.Builder
@@ -109,7 +109,7 @@ func TestStopReleasesWhenUserReturns(t *testing.T) {
 // keyboard shows activity — only the human ends that wait (typing, or /off).
 func TestStopIgnoresIdleWhenRelayExplicit(t *testing.T) {
 	f := newFake()
-	f.sessions["s1"] = client.AgentSession{SessionID: "s1", Relay: true, AutoArmed: true, IdleSec: 600}
+	f.sessions["s1"] = client.AgentSession{SessionID: "s1", RelayMode: client.RelayModeOn, Relay: true, WaitReason: client.WaitModeOn, IdleSec: 600}
 	f.answerAfter, f.answer = 2, "go on"
 	injectIdleProbe(t, 0) // the probe would release an auto-armed wait
 	var log strings.Builder

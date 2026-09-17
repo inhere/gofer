@@ -23,6 +23,26 @@ const (
 	SessionEnded          = "ended"
 )
 
+// Relay modes (SESS-01 R1): the per-session switch that decides whether a Stop
+// waits for a web reply. `on` waits on every Stop (the human flipped it on),
+// `off` never waits, and `auto` (the default) leaves the decision to the
+// server's rules — the keyboard idle probe, or the last-human-input fallback
+// for a terminal that cannot be probed at all.
+const (
+	RelayModeAuto = "auto"
+	RelayModeOn   = "on"
+	RelayModeOff  = "off"
+)
+
+// ValidRelayMode reports whether m is one of the relay modes.
+func ValidRelayMode(m string) bool {
+	switch m {
+	case RelayModeAuto, RelayModeOn, RelayModeOff:
+		return true
+	}
+	return false
+}
+
 // ValidSessionState reports whether s is one of the agent-session states.
 func ValidSessionState(s string) bool {
 	switch s {
@@ -42,15 +62,21 @@ const maxSessionLastMessage = 8 * 1024
 // the CLI's own session id (the hook stdin `session_id`). Timestamps are unix
 // seconds.
 type AgentSession struct {
-	SessionID   string
-	Agent       string
-	ProjectKey  string
-	Runner      string
-	Cwd         string
-	Title       string
-	Transcript  string
-	TmuxPane    string
-	State       string
+	SessionID  string
+	Agent      string
+	ProjectKey string
+	Runner     string
+	Cwd        string
+	Title      string
+	Transcript string
+	TmuxPane   string
+	State      string
+	// RelayMode is the switch itself (auto | on | off) and the source of truth
+	// for the relay rules (see RelayModeAuto).
+	RelayMode string
+	// Relay mirrors RelayMode=="on": the pre-three-state explicit switch, kept
+	// readable for binaries built before R1 (a rolled-back server reads the same
+	// row). Derived, read-only — write it through SetSessionRelayMode only.
 	Relay       bool
 	TurnNo      int64
 	LastMessage string
@@ -62,11 +88,17 @@ type AgentSession struct {
 	// -1 = unknown / never reported. The relay service derives its idle auto-arm
 	// from this value (it is NOT the session's own idle time).
 	IdleSec int64
+	// LastHumanAt is when a HUMAN last acted in this session (unix seconds):
+	// SessionStart / a UserPromptSubmit that was not injected. 0 = never seen.
+	// Where no keyboard probe exists (containers without X11), the relay's
+	// turn-age fallback anchors on this instead of IdleSec.
+	LastHumanAt int64
 }
 
 const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(project_key,''),
   COALESCE(runner,''), COALESCE(cwd,''), COALESCE(title,''), COALESCE(transcript,''),
-  COALESCE(tmux_pane,''), state, relay, COALESCE(idle_sec,-1), turn_no,
+  COALESCE(tmux_pane,''), state, COALESCE(relay_mode,'auto'), relay,
+  COALESCE(idle_sec,-1), COALESCE(last_human_at,0), turn_no,
   COALESCE(last_message,''),
   COALESCE(last_event,''), last_seen_at, started_at, COALESCE(ended_at,0)
   FROM agent_sessions`
@@ -75,7 +107,8 @@ func scanSession(sc rowScanner) (AgentSession, error) {
 	var a AgentSession
 	var relay int64
 	err := sc.Scan(&a.SessionID, &a.Agent, &a.ProjectKey, &a.Runner, &a.Cwd, &a.Title,
-		&a.Transcript, &a.TmuxPane, &a.State, &relay, &a.IdleSec, &a.TurnNo, &a.LastMessage,
+		&a.Transcript, &a.TmuxPane, &a.State, &a.RelayMode, &relay,
+		&a.IdleSec, &a.LastHumanAt, &a.TurnNo, &a.LastMessage,
 		&a.LastEvent, &a.LastSeenAt, &a.StartedAt, &a.EndedAt)
 	a.Relay = relay == 1
 	return a, err
@@ -83,11 +116,13 @@ func scanSession(sc rowScanner) (AgentSession, error) {
 
 // UpsertAgentSession registers a session or refreshes an existing one. On
 // insert the row starts `running` (unless in.State is given) with started_at =
-// now. On update only NON-EMPTY descriptive fields overwrite the stored ones
+// now and relay_mode `auto` (unless in.RelayMode is given). On update only
+// NON-EMPTY descriptive fields overwrite the stored ones
 // (agent/project/runner/cwd/title/transcript/tmux_pane), last_seen_at is
 // refreshed, and an `ended` session comes back to `running` (a resumed CLI
-// session re-registers under the same id). Relay and turn_no are never touched
-// here. It returns the stored row.
+// session re-registers under the same id). in.LastHumanAt > 0 stamps
+// last_human_at (see RegisterInput.Event == SessionStart); relay_mode and
+// turn_no are never touched here. It returns the stored row.
 func (s *Store) UpsertAgentSession(in AgentSession) (AgentSession, error) {
 	sid := strings.TrimSpace(in.SessionID)
 	if sid == "" {
@@ -108,12 +143,18 @@ func (s *Store) UpsertAgentSession(in AgentSession) (AgentSession, error) {
 		if state == "" {
 			state = SessionRunning
 		}
+		// A brand-new session starts `auto`: nobody has flipped the switch, so
+		// the server's idle rules decide (R1).
+		relayMode := in.RelayMode
+		if relayMode == "" {
+			relayMode = RelayModeAuto
+		}
 		const q = `INSERT INTO agent_sessions
-  (session_id, agent, project_key, runner, cwd, title, transcript, tmux_pane, state, relay,
-   turn_no, last_message, last_event, last_seen_at, started_at, ended_at)
-  VALUES (?,?,?,?,?,?,?,?,?,0,0,NULL,?,?,?,NULL)`
+  (session_id, agent, project_key, runner, cwd, title, transcript, tmux_pane, state, relay_mode,
+   relay, turn_no, last_message, last_event, last_seen_at, started_at, last_human_at, ended_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,0,0,NULL,?,?,?,?,NULL)`
 		_, err = s.db.Exec(q, sid, in.Agent, in.ProjectKey, in.Runner, in.Cwd, in.Title,
-			in.Transcript, in.TmuxPane, state, in.LastEvent, now, now)
+			in.Transcript, in.TmuxPane, state, relayMode, in.LastEvent, now, now, in.LastHumanAt)
 		s.writeMu.Unlock()
 		if err != nil {
 			return AgentSession{}, fmt.Errorf("jobstore: insert agent session %q: %w", sid, err)
@@ -132,13 +173,20 @@ func (s *Store) UpsertAgentSession(in AgentSession) (AgentSession, error) {
 	} else if state == SessionEnded {
 		state = SessionRunning
 	}
+	// last_human_at only ever moves FORWARD through an explicit stamp (>0);
+	// a re-registration without one (a hook retrying mid-session) keeps the
+	// stored evidence instead of clearing it.
+	humanAt := existing.LastHumanAt
+	if in.LastHumanAt > 0 {
+		humanAt = in.LastHumanAt
+	}
 	const q = `UPDATE agent_sessions SET agent=?, project_key=?, runner=?, cwd=?, title=?,
-  transcript=?, tmux_pane=?, state=?, last_event=?, last_seen_at=?, ended_at=NULL
+  transcript=?, tmux_pane=?, state=?, last_event=?, last_human_at=?, last_seen_at=?, ended_at=NULL
   WHERE session_id=?`
 	_, err = s.db.Exec(q, pick(in.Agent, existing.Agent), pick(in.ProjectKey, existing.ProjectKey),
 		pick(in.Runner, existing.Runner), pick(in.Cwd, existing.Cwd), pick(in.Title, existing.Title),
 		pick(in.Transcript, existing.Transcript), pick(in.TmuxPane, existing.TmuxPane),
-		state, pick(in.LastEvent, existing.LastEvent), now, sid)
+		state, pick(in.LastEvent, existing.LastEvent), humanAt, now, sid)
 	s.writeMu.Unlock()
 	if err != nil {
 		return AgentSession{}, fmt.Errorf("jobstore: update agent session %q: %w", sid, err)
@@ -158,6 +206,10 @@ type SessionHeartbeat struct {
 	// none, so the stored value stays (a beat must never clear evidence the
 	// human is away, nor invent it).
 	IdleSec *int64
+	// HumanInput marks an event that PROVES a human acted in this session (a
+	// non-injected UserPromptSubmit, or the SessionStart registration): it stamps
+	// last_human_at = now, the anchor of the relay's turn-age fallback.
+	HumanInput bool
 }
 
 // TouchAgentSession applies a hook heartbeat: refreshes last_seen_at and
@@ -198,6 +250,10 @@ func (s *Store) TouchAgentSession(sid string, hb SessionHeartbeat) (AgentSession
 	if hb.IdleSec != nil {
 		sets = append(sets, "idle_sec=?")
 		args = append(args, *hb.IdleSec)
+	}
+	if hb.HumanInput {
+		sets = append(sets, "last_human_at=?")
+		args = append(args, now)
 	}
 	args = append(args, sid)
 	s.writeMu.Lock()
@@ -312,17 +368,22 @@ func (s *Store) ListAgentSessions(opts ListSessionsOpts) ([]AgentSession, error)
 	return out, nil
 }
 
-// SetSessionRelay flips the relay switch. ok is false when the session is unknown.
-func (s *Store) SetSessionRelay(sid string, on bool) (bool, error) {
+// SetSessionRelayMode stores the relay switch (auto | on | off) and keeps the
+// legacy `relay` column mirrored to mode=="on" for binaries built before R1.
+// ok is false when the session is unknown.
+func (s *Store) SetSessionRelayMode(sid, mode string) (bool, error) {
+	if !ValidRelayMode(mode) {
+		return false, fmt.Errorf("jobstore: SetSessionRelayMode: invalid mode %q", mode)
+	}
 	relay := 0
-	if on {
+	if mode == RelayModeOn {
 		relay = 1
 	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	res, err := s.db.Exec(`UPDATE agent_sessions SET relay=? WHERE session_id=?`, relay, sid)
+	res, err := s.db.Exec(`UPDATE agent_sessions SET relay_mode=?, relay=? WHERE session_id=?`, mode, relay, sid)
 	if err != nil {
-		return false, fmt.Errorf("jobstore: set relay %q: %w", sid, err)
+		return false, fmt.Errorf("jobstore: set relay mode %q: %w", sid, err)
 	}
 	n, _ := res.RowsAffected()
 	return n == 1, nil

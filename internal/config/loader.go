@@ -125,6 +125,7 @@ func Load(explicitPath string) (*Config, string, error) {
 
 	ApplyDefaults(cfg)
 	cfg.Projects = ApplyLegacyInteractiveCompat(data, cfg.Projects)
+	cfg.ApplyLegacySessionRelayCompat()
 	if err := validate(cfg); err != nil {
 		return nil, path, fmt.Errorf("invalid config %s: %w", path, err)
 	}

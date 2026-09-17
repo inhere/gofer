@@ -205,14 +205,15 @@ func (r *runner) heartbeat(hb client.SessionHeartbeat) (client.AgentSession, boo
 // beatAndLog is heartbeat plus a one-line trace of the resulting state.
 func (r *runner) beatAndLog(hb client.SessionHeartbeat) {
 	if a, ok := r.heartbeat(hb); ok {
-		r.log("state=%s relay=%v", a.State, a.Relay)
+		r.log("state=%s relay=%s wait=%s", a.State, a.RelayMode, a.WaitReason)
 	}
 }
 
-// stop is the relay main path (design §7): while relay is on — explicitly
-// switched on, or armed by the server's idle rule (SR-A5) — the agent's last
-// message becomes a turn and the hook blocks here until the human answers on
-// the web.
+// stop is the relay main path (design §7): while the server says this session
+// waits — the human's explicit switch, the keyboard idle rule, or (on a
+// terminal that cannot be probed at all) the time since their last input (R2) —
+// the agent's last message becomes a turn and the hook blocks here until the
+// human answers on the web.
 func (r *runner) stop() Result {
 	last := r.lastMessage()
 	a, ok := r.heartbeat(client.SessionHeartbeat{
@@ -221,27 +222,30 @@ func (r *runner) stop() Result {
 	if !ok {
 		return Result{}
 	}
-	// autoArmed marks the wait that exists only because the human is away: it is
-	// released as soon as they are back. An explicit switch is theirs to turn
-	// off (typing in the terminal, or /off on the web) and is never released by
-	// the keyboard probe.
-	autoArmed := !a.Relay && a.AutoArmed
-	if !a.Relay && !a.AutoArmed {
+	reason := a.WaitReason
+	if reason == "" {
 		r.log("relay off, released")
 		return Result{}
 	}
+	// probeArmed marks the wait that exists only because the human is away AND
+	// that the hook itself can end: it re-reads the keyboard every poll and lets
+	// the server release the turn. An explicit switch is the human's to turn off
+	// (typing in the terminal, or /off), and the turn-age fallback has no reading
+	// to re-probe — its release arrives as a human-input event instead (Esc /
+	// typing, handled server-side on UserPromptSubmit / Interrupt).
+	probeArmed := reason == client.WaitIdleProbe
 	turn, err := r.api.OpenSessionTurn(r.p.SessionID, last, int64(r.opts.Wait/time.Second))
 	if err != nil {
 		r.log("open turn failed: %v", err) // 409 = relay flipped off in between
 		return Result{}
 	}
 	pollSec := r.opts.PollSec
-	if autoArmed && pollSec > autoArmPollSec {
+	if probeArmed && pollSec > autoArmPollSec {
 		// The human's return can only be noticed at a poll boundary, so an
-		// auto-armed wait re-reads the keyboard more often than a switched-on one.
+		// idle-armed wait re-reads the keyboard more often than a switched-on one.
 		pollSec = autoArmPollSec
 	}
-	r.log("turn %s open (auto=%v), waiting up to %s", turn.ID, autoArmed, r.opts.Wait)
+	r.log("turn %s open (reason=%s), waiting up to %s", turn.ID, reason, r.opts.Wait)
 	deadline := r.opts.now().Add(r.opts.Wait)
 	failures := 0
 	for {
@@ -283,7 +287,7 @@ func (r *runner) stop() Result {
 			r.log("turn %s, released", st.Outcome)
 			return Result{}
 		}
-		if autoArmed && r.releasedOnUserReturn(turn.ID) {
+		if probeArmed && r.releasedOnUserReturn(turn.ID) {
 			return Result{}
 		}
 	}

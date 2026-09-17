@@ -1316,29 +1316,54 @@ func StatusOf(err error) int {
 // AgentSession mirrors httpapi's sessionView (a terminal agent-CLI session
 // registered through its hooks). Timestamps are unix seconds.
 type AgentSession struct {
-	SessionID   string `json:"session_id"`
-	Agent       string `json:"agent"`
-	ProjectKey  string `json:"project_key,omitempty"`
-	Runner      string `json:"runner,omitempty"`
-	Cwd         string `json:"cwd,omitempty"`
-	Title       string `json:"title,omitempty"`
-	Transcript  string `json:"transcript,omitempty"`
-	TmuxPane    string `json:"tmux_pane,omitempty"`
-	State       string `json:"state"`
+	SessionID  string `json:"session_id"`
+	Agent      string `json:"agent"`
+	ProjectKey string `json:"project_key,omitempty"`
+	Runner     string `json:"runner,omitempty"`
+	Cwd        string `json:"cwd,omitempty"`
+	Title      string `json:"title,omitempty"`
+	Transcript string `json:"transcript,omitempty"`
+	TmuxPane   string `json:"tmux_pane,omitempty"`
+	State      string `json:"state"`
+	// RelayMode is the three-state switch (auto|on|off, R1). Relay is DERIVED by
+	// the server: whether a Stop would wait right now. WaitReason says why
+	// (mode_on / idle_probe / turn_age; empty = it would not wait) — it is what
+	// the Stop hook keys on.
+	RelayMode   string `json:"relay_mode"`
 	Relay       bool   `json:"relay"`
+	WaitReason  string `json:"wait_reason,omitempty"`
 	TurnNo      int64  `json:"turn_no"`
 	LastMessage string `json:"last_message,omitempty"`
 	LastEvent   string `json:"last_event,omitempty"`
 	LastSeenAt  int64  `json:"last_seen_at"`
 	StartedAt   int64  `json:"started_at"`
 	EndedAt     int64  `json:"ended_at,omitempty"`
-	// AutoArmed reports that the server's idle rule alone arms relay for this
-	// session (the human has been away for >= server.session_auto_relay_idle_sec);
-	// the Stop hook blocks on Relay||AutoArmed. IdleSec is the idle reading the
-	// hook reported last, -1 = unknown.
-	AutoArmed bool  `json:"auto_armed"`
-	IdleSec   int64 `json:"idle_sec"`
+	// AutoArmed reports that the server's KEYBOARD IDLE rule alone arms relay for
+	// this session (the human has been away for >= session.auto_relay_idle_sec);
+	// IdleSec is the idle reading the hook reported last, -1 = unknown.
+	// LastHumanAt is when a human last acted here (0 = never), the anchor of the
+	// turn-age fallback.
+	AutoArmed   bool  `json:"auto_armed"`
+	IdleSec     int64 `json:"idle_sec"`
+	LastHumanAt int64 `json:"last_human_at,omitempty"`
 }
+
+// Relay wait reasons reported by the server (see sessionrelay.WaitReason); the
+// Stop hook picks its poll cadence from these.
+const (
+	WaitModeOn    = "mode_on"
+	WaitIdleProbe = "idle_probe"
+	WaitTurnAge   = "turn_age"
+)
+
+// Relay modes the switch can be set to (R1; server-side source of truth is
+// jobstore.RelayMode*): `on` always waits, `off` never does, `auto` lets the
+// server's idle / turn-age rules decide.
+const (
+	RelayModeAuto = "auto"
+	RelayModeOn   = "on"
+	RelayModeOff  = "off"
+)
 
 // SessionRegister is the POST /v1/sessions body.
 type SessionRegister struct {
@@ -1375,10 +1400,13 @@ type SessionDetail struct {
 
 // TurnStatus is GET /v1/sessions/{sid}/turns/{id}: outcome is one of
 // open|answered|expired|relay_off; Decision.Answer holds the reply when answered.
+// WaitReason is why the session still waits (mode_on / idle_probe / turn_age;
+// empty = it stopped waiting), see AgentSession.WaitReason.
 type TurnStatus struct {
-	Outcome  string   `json:"outcome"`
-	Relay    bool     `json:"relay"`
-	Decision Decision `json:"decision"`
+	Outcome    string   `json:"outcome"`
+	Relay      bool     `json:"relay"`
+	WaitReason string   `json:"wait_reason,omitempty"`
+	Decision   Decision `json:"decision"`
 }
 
 // SessionListOpts filters ListSessions.
@@ -1452,7 +1480,18 @@ func (c *Client) GetSession(sid string) (SessionDetail, error) {
 	return d, err
 }
 
-// SetSessionRelay flips the relay switch.
+// SetSessionRelayMode sets the three-state relay switch (auto|on|off, R1).
+func (c *Client) SetSessionRelayMode(sid, mode string) (AgentSession, error) {
+	body, _ := json.Marshal(map[string]string{"mode": mode})
+	var a AgentSession
+	err := c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/relay", bytes.NewReader(body), &a)
+	return a, err
+}
+
+// SetSessionRelay uses the LEGACY boolean form of the relay switch (true → on,
+// false → off). It is what a pre-R1 client sends — and what `/off` means: the
+// human wants this session to stop waiting altogether, not to hand it back to
+// the automatic rules.
 func (c *Client) SetSessionRelay(sid string, on bool) (AgentSession, error) {
 	body, _ := json.Marshal(map[string]bool{"relay": on})
 	var a AgentSession

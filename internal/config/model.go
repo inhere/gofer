@@ -4,8 +4,10 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"math"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/inhere/gofer/internal/tunnel"
@@ -44,6 +46,10 @@ type Config struct {
 	// Schedule tunes the AUTO-02 cron schedule sweeper. All fields are optional;
 	// serve applies conservative defaults when unset.
 	Schedule ScheduleConfig `yaml:"schedule,omitempty"`
+	// Session tunes the terminal session relay (SESS-01): when a stopping agent
+	// session is allowed to wait for a web reply without the human flipping its
+	// switch. See SessionConfig.
+	Session SessionConfig `yaml:"session,omitempty"`
 
 	// injectedAgents records the Agents keys that were MATERIALIZED AT RUNTIME from
 	// the built-in agent templates (agent.Resolve) instead of being authored by the
@@ -329,15 +335,11 @@ type ServerConfig struct {
 	// fails the in-flight jobs at once — the pre-RECOV-01 behaviour). Same
 	// unset≠zero reasoning as WebEnabled. See Config.JobRecoverWindow.
 	JobRecoverWindowSec *int `yaml:"job_recover_window_sec,omitempty"`
-	// SessionAutoRelayIdleSec is the idle auto-arm threshold in seconds for the
-	// terminal session relay (SR-A5): when the hooks report that the machine has
-	// seen no keyboard/mouse input for at least this long, a stopping agent
-	// session blocks for a web reply even though nobody flipped its relay switch
-	// (and the wait is released as soon as the human is back). A POINTER so unset
-	// (nil → DefaultSessionAutoRelayIdleSec, 5 min) is distinguishable from an
-	// explicit `session_auto_relay_idle_sec: 0`, which turns auto-arming OFF —
-	// the explicit per-session switch is then the only gate, exactly as before
-	// this feature. Same unset≠zero reasoning as JobRecoverWindowSec.
+	// SessionAutoRelayIdleSec is the LEGACY location of the idle auto-arm
+	// threshold (SR-A5). It moved to the top-level `session:` block
+	// (SessionConfig.AutoRelayIdleSec) in R2; this key is still READ as an alias
+	// (ApplyLegacySessionRelayCompat copies it over and warns once) and is kept
+	// only for that. New configs must use `session.auto_relay_idle_sec`.
 	SessionAutoRelayIdleSec *int `yaml:"session_auto_relay_idle_sec,omitempty"`
 	// AutoResumeMax counts automatic session continuations, independently of RetryPolicy.
 	// Unset defaults to one; an explicit zero disables automatic resume.
@@ -352,14 +354,81 @@ func (sc *ServerConfig) EffectiveAutoResumeMax() int {
 	return *sc.AutoResumeMax
 }
 
+// SessionConfig tunes the terminal session relay's automatic arming (R2). Both
+// keys are POINTERS so "unset" (nil → the default below) is distinguishable from
+// an explicit `0`, which turns that criterion OFF — the per-session switch is
+// then the only gate for it. Same unset≠zero reasoning as JobRecoverWindowSec.
+type SessionConfig struct {
+	// AutoRelayIdleSec is the keyboard idle threshold in seconds: when the hooks
+	// report the machine has seen no keyboard/mouse input for at least this
+	// long, a stopping session waits for a web reply even though nobody flipped
+	// its switch (and is released as soon as the human is back).
+	AutoRelayIdleSec *int `yaml:"auto_relay_idle_sec,omitempty"`
+	// AutoRelayTurnSec is the fallback threshold in seconds measured from the
+	// session's last HUMAN input: on a terminal whose idle cannot be probed at
+	// all (a container without X11 keeps reporting idle=-1), a session that has
+	// seen no human input for this long waits anyway. It exists because the
+	// keyboard lives on the host while the hook runs in the container.
+	AutoRelayTurnSec *int `yaml:"auto_relay_turn_sec,omitempty"`
+}
+
 // DefaultSessionAutoRelayIdleSec is the idle-detection auto-arm threshold used
-// when server.session_auto_relay_idle_sec is unset: 5 minutes away from the
-// keyboard is long enough to mean "not coming back in a moment".
+// when session.auto_relay_idle_sec is unset: 5 minutes away from the keyboard is
+// long enough to mean "not coming back in a moment".
 const DefaultSessionAutoRelayIdleSec = 300
 
-// EffectiveSessionAutoRelayIdleSec resolves the idle auto-arm threshold
-// (seconds) for the session relay: the configured value when set, else the
-// default. 0 = auto-arming disabled (never falls back to the default).
+// DefaultSessionAutoRelayTurnSec is the last-human-input fallback threshold used
+// when session.auto_relay_turn_sec is unset: 15 minutes of silence from the
+// human in this session.
+const DefaultSessionAutoRelayTurnSec = 900
+
+// EffectiveAutoRelayIdleSec resolves the keyboard idle threshold (seconds): the
+// new `session.auto_relay_idle_sec` when set, else the legacy
+// `server.session_auto_relay_idle_sec` alias when set (pre-R2 configs keep
+// working even if the load-time compat pass never ran, e.g. a Config built by
+// hand), else the default. 0 = that criterion disabled.
+func (c *Config) EffectiveAutoRelayIdleSec() int {
+	if c == nil {
+		return DefaultSessionAutoRelayIdleSec
+	}
+	if c.Session.AutoRelayIdleSec != nil {
+		return *c.Session.AutoRelayIdleSec
+	}
+	if c.Server.SessionAutoRelayIdleSec != nil {
+		return *c.Server.SessionAutoRelayIdleSec
+	}
+	return DefaultSessionAutoRelayIdleSec
+}
+
+// EffectiveAutoRelayTurnSec resolves the last-human-input fallback threshold
+// (seconds); 0 = that criterion disabled.
+func (c *Config) EffectiveAutoRelayTurnSec() int {
+	if c == nil || c.Session.AutoRelayTurnSec == nil {
+		return DefaultSessionAutoRelayTurnSec
+	}
+	return *c.Session.AutoRelayTurnSec
+}
+
+// legacySessionRelayWarn keeps the migration notice to one per process: config
+// reloads (the web console writes and re-loads) must not repeat it.
+var legacySessionRelayWarn sync.Once
+
+// ApplyLegacySessionRelayCompat moves the pre-R2 `server.session_auto_relay_idle_sec`
+// key into the `session` block and warns once that it moved. An explicit new key
+// wins: writing both means the new block is authoritative and nothing is copied.
+func (c *Config) ApplyLegacySessionRelayCompat() {
+	if c == nil || c.Server.SessionAutoRelayIdleSec == nil || c.Session.AutoRelayIdleSec != nil {
+		return
+	}
+	c.Session.AutoRelayIdleSec = c.Server.SessionAutoRelayIdleSec
+	legacySessionRelayWarn.Do(func() {
+		slog.Warn("server.session_auto_relay_idle_sec has moved to session.auto_relay_idle_sec; rewrite the config",
+			"value_sec", *c.Server.SessionAutoRelayIdleSec)
+	})
+}
+
+// EffectiveSessionAutoRelayIdleSec is the pre-R2 accessor, kept for callers that
+// only hold a ServerConfig. New code resolves through Config.
 func (sc *ServerConfig) EffectiveSessionAutoRelayIdleSec() int {
 	if sc == nil || sc.SessionAutoRelayIdleSec == nil {
 		return DefaultSessionAutoRelayIdleSec
