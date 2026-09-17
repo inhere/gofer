@@ -273,6 +273,7 @@ session:                             # 终端会话中继: 自动布防的两条
   # auto_relay_idle_sec: 300         # 键盘空闲 >= 阈值 → 会话停下时在 web 等回复
   # auto_relay_turn_sec: 900         # 探测不到键盘(容器)? 改看距上次人工输入多久
   # inject_commands: [claude, codex, omp, node, gemini, opencode]  # 允许被 web 送话的前台命令白名单
+  # takeover_input_delay_ms: 1500    # 没有 tmux 时: 接管进程首次输出后安静多久再写首条输入(§9.1 B)
 log:
   max_size_mb: 50
   max_age_days: 14
@@ -353,7 +354,7 @@ tool（snake_case，与 HTTP 对齐）：`gofer_list_projects` `gofer_list_agent
 | job | `POST/GET /v1/jobs`、`GET /v1/jobs/{id}`、`/logs/{stdout,stderr}`、`/stream`(SSE)、`/events`、`/diff`、`/artifacts`、`POST …/cancel`、`POST …/resume`、`GET/DELETE …/worktree`、`POST …/attach-ticket`、`GET …/pty/sessions` |
 | 交互 | `POST/GET /v1/jobs/{id}/interactions`、`POST …/{iid}/answer`、`POST …/{iid}/punt`、`GET /v1/interactions` |
 | plan / 决策 | `POST/GET /v1/plans`、`GET /v1/plans/{id}`、`POST …/todos`、`POST …/jobs`、`POST/GET /v1/decisions`、`POST /v1/decisions/{id}/answer` |
-| 会话中继 | `GET/POST /v1/sessions`、`POST /v1/sessions/{sid}/heartbeat`、`…/relay`、`…/say`、`…/deliver`、`…/turns` |
+| 会话中继 | `GET/POST /v1/sessions`、`POST /v1/sessions/{sid}/heartbeat`、`…/relay`、`…/say`、`…/deliver`、`…/release-takeover`、`…/turns` |
 | workflow / schedule | `POST/GET /v1/workflows`、`…/{id}/cancel`、`…/events`、`…/export`；`POST/GET /v1/schedules`、`…/enable`、`…/disable`、`…/run-now` |
 | worker / 隧道 | `GET /v1/workers/connect`（WS）、`/v1/workers/pty-connect`、`POST /v1/workers/{id}/reload`、`GET /v1/tunnels`、`/v1/tunnels/connect`、`/v1/workers/tunnel-connect` |
 

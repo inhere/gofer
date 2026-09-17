@@ -192,6 +192,7 @@ gofer session relay auto          # 回到缺省三态(server 按判据决定; �
 gofer session ls                  # 看哪些会话在等回复(waiting_reply 置顶), RELAY 列显示 on / off / auto
 gofer session say <id> "<回复>"   # web 输入框的 CLI 等价(= 答最新 OPEN turn); 回复 /off = 关掉中继并让会话正常停下
 gofer session say <id> "<回复>" --deliver   # 无 turn 在等也送: 消息直接敲进该会话的 tmux 终端(§9.1 A)
+gofer session say <id> "<回复>" --deliver --takeover   # 没有 tmux 时: 起一个新进程 `--resume` 接管该会话并把这条消息作首条输入(§9.1 B)
 gofer session show <id>           # relay 行显示当前 mode + 判定依据(空闲多久 / 距上次人工输入多久)
 gofer init hooks --remove         # 卸载
 ```
@@ -216,8 +217,13 @@ gofer init hooks --remove         # 卸载
 - **已经空闲的会话也能送话（tmux 注入，阶段 2-A）**：没有 OPEN turn 时，web 会话抽屉的输入框变成「送入终端」，`--deliver` 是它的 CLI 等价。server 会在该会话登记的执行机上起一个内部 exec job，先确认 pane 还在、前台是 agent CLI（白名单默认 `claude|codex|omp|node|gemini|opencode`，`session.inject_commands` 可配），再把 `[gofer web 回复] …` 逐行 `tmux send-keys -l` 敲进去（文本按行拆、单引号转义，上限 8KB）。成功即"已送入终端 ✓"，会话状态回到 running，并记一条带注入 job id 的审计行。
   - **前提**：会话必须跑在 tmux 里（容器/主机入口建议 `tmux new -A -s claude`），且登记了执行机。
   - **容器里跑的会话要能被送话**：容器内必须起一个 gofer worker，并把 `GOFER_HOOK_RUNNER=<worker-id>` 配进该容器的 `.env`（hook 用 `--runner` 的值）；否则会话登记的 runner 为空，server 只能回"未登记执行机"。纯客户端节点（`GOFER_RUN_MODE=client`）不会再假装登记成 `server`。
-  - 送不进去时按原因给话：`no_tmux`（不在 tmux 中 —— pty 接管属阶段 2-B，未做）、`no_runner`（未登记执行机）、`ended`、`inject_failed:pane_missing|pane_busy:<cmd>|runner_error`（pane 没了 / 前台是别的程序如 vim / 执行机出错）。
+  - 送不进去时按原因给话：`no_tmux`（不在 tmux 中 —— 见下条走 B）、`no_runner`（未登记执行机）、`ended`、`inject_failed:pane_missing|pane_busy:<cmd>|runner_error`（pane 没了（会自动改走 B）/ 前台是别的程序如 vim / 执行机出错）。
   - 注入 job 是 exec 类型，因此该 project 需要 `allow_exec: true`（worker 侧还要 `guards.allow_exec` 不收紧），否则会以 `inject_failed:runner_error` 失败。
+- **没有 tmux 时：起新进程接管（`--resume` pty 接管，阶段 2-B）**：会话不在 tmux（典型：Windows 主机的 Windows Terminal，或 pane 已消失）时，web 抽屉会给出「起新进程接管并发送」按钮（点开二次确认："将用 `<agent> --resume` 起一个新进程接管该会话，原终端将不能继续"），CLI 等价面是 `--deliver --takeover`。server 用该会话的 `session_id` 在同一 runner、同一项目相对目录起一个**交互 pty job**（`claude --resume <sid>` / `codex resume <sid>` / `omp --resume <sid>`），把 `[gofer web 回复] <文本>` 作为它的**首条输入**（pty 首次输出后安静 `session.takeover_input_delay_ms`，默认 1500ms，最多等 10s 再写），web 自动跳到该 job 的终端（`?attach=1`）继续聊。
+  - **前提**：agent 有交互 resume 模板（内置 claude / codex / omp）、项目 `allow_interactive: true`、会话 cwd 能换算成执行机上的项目相对路径；否则回 `no_resume_template` / `interactive_not_allowed` / `cwd_outside_project`。接管 job 是 exec 载体但按**源 agent** 过访问门，不需要 `allow_exec`。
+  - **接管后原终端会被停用**：会话置 `handed_off`（web 显示「已接管 → job 链接」），原终端的 Stop 只放行、不再开 turn，hook 会在 stderr 打一行"该会话已于 <时间> 在 web 接管（job <id>）…本终端的中继已停用"。两个进程写同一 CLI 会话会分叉，所以继续请在接管终端里。
+  - **想回原终端**：web 抽屉「解除接管」（`POST /v1/sessions/{sid}/release-takeover`）：先 cancel 接管 job，再把会话置回 `idle`、清空接管标记，原终端恢复中继。
+  - 监控：`gofer job ls --tag relay-takeover` 列出所有接管 job，`gofer job show <id>` 看事件（含 `job.input_injected`：首条输入何时写入、写了多少字节）。
 - 注入的回复带前缀 `[gofer web 回复]`，与终端输入等价处理。
 - 详见 [`references/commands.md`](references/commands.md) 的「session — 终端会话中继」。
 - **想让手机响一下**：配个钉钉/飞书群机器人，事件订阅 `session.waiting`（不在默认集里，必须显式写），消息带直达会话的链接。配置见 gofer 仓库 `docs/runbook/im-notification.md`。

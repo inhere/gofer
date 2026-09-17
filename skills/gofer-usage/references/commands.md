@@ -121,6 +121,7 @@ gofer session show <id>                 # 详情 + 最近 turn(id 可用前 8 �
 gofer session relay auto|on|off [--session <id>]  # 省略 --session: 按当前目录反查(歧义时列出候选); auto = 缺省
 gofer session say <id> "<回复>"         # 答最新 OPEN turn; "/off" = 关中继放行
 gofer session say <id> "<回复>" --deliver   # 选路: 有 OPEN turn 就当作答, 否则敲进该会话的 tmux pane(§9.1 A)
+gofer session say <id> "<回复>" --deliver --takeover   # 没有 tmux 时起新进程 `--resume` 接管该会话, 这条消息作首条输入(§9.1 B)
 gofer session rm <id>                   # 移除登记(turn 保留)
 gofer hook claude|codex [--wait N]      # hook 执行体(由 hooks 配置调用, 人不直接用); 日志 <config-dir>/run/hook.log
 ```
@@ -139,6 +140,12 @@ gofer hook claude|codex [--wait N]      # hook 执行体(由 hooks 配置调用,
 - **无 OPEN turn 时送话（阶段 2-A，tmux 注入）**：`POST /v1/sessions/{sid}/deliver {text}`（CLI 是 `session say --deliver`，web 是抽屉里变成「送入终端」的输入框）先看有没有 OPEN turn —— 有就等价 `say` 作答（`path=turn`）；否则派一个内部 exec job 到该会话的 runner：`tmux display -p -t <pane> '#{pane_current_command}'` 确认 pane 存活且前台是 agent CLI（白名单默认 `claude|codex|omp|node|gemini|opencode`，`session.inject_commands` 可配），再逐行 `tmux send-keys -t <pane> -l -- '<行>'` + `Enter`；文本前缀 `[gofer web 回复] `、上限 8KB、pane 与文本都按 shell 单引号转义。成功：`{path:"tmux", job_id, decision_id}`，会话置 running，审计行 `plan_decisions(kind=relay, detail={"path":"tmux","job_id":…})`。
   - 失败码（HTTP 状态）：`no_runner` / `no_tmux` / `ended` → 409（原因码写在错误信封的 `error` 字段，如 `deliver failed: no_tmux`）；`inject_failed:pane_missing|pane_busy:<cmd>|runner_error` → 502；空文本 / 超 8KB → 400。**worker token 不能送话**（403）。
   - 前置条件：会话跑在 tmux 里 + 登记了执行机（容器里要在容器内起 worker 并配 `GOFER_HOOK_RUNNER=<worker-id>`，纯客户端节点不再假装登记成 `server`）；注入 job 是 exec 类型，project 需 `allow_exec: true`。
+- **无 OPEN turn 且没有 tmux 时送话（阶段 2-B，`--resume` pty 接管）**：`POST /v1/sessions/{sid}/deliver {text, allow_takeover: true}`（CLI `session say --deliver --takeover`，web 是 A 报 `no_tmux` / `pane_missing` 后出现的「起新进程接管并发送」+ 二次确认）。server 在**同一 runner、同一项目相对目录**起一个交互 pty job：argv = agent 的交互 resume 模板（`claude --resume <sid>` / `codex resume <sid>` / `omp --resume <sid>`，经 `PlanTakeover` 由宿主解析），`InitialInput = "[gofer web 回复] <文本>\r"` 由 pty 在**首次输出后安静 `session.takeover_input_delay_ms`（默认 1500ms，最多等 10s）**再写入子进程 stdin 并记 `job.input_injected` 事件（worker 路径经 `wsproto.Dispatch.initial_input`，协议 v7）。成功：`{path:"takeover", job_id, decision_id}`，会话置 `handed_off`（`handed_off_job_id`/`handed_off_at`），审计 `detail={"path":"takeover","job_id":…}`，通知事件 `session.handed_off`（不在默认集）。
+  - `allow_takeover` 缺省 false：不带它时 server 停在 A 的 409 `no_tmux`（接管会把会话从原终端移走，必须显式要）。
+  - 前提与失败码（409）：`no_resume_template`（agent 无交互 resume 模板）、`interactive_not_allowed`（项目未开 `allow_interactive`）、`cwd_outside_project`（cwd 换算不到执行机上的项目相对路径，POLICY roots 映射的已知限制）、`handed_off:<job>`（已被接管）；派发失败 → 502 `inject_failed:runner_error`。接管 job 是 exec 载体但按**源 agent** 过访问门（与 job resume 同一豁免），不需要 `allow_exec`。
+  - 接管后原终端：`wait_reason` 恒空、`OpenTurn` 拒绝（头一次 Stop 起就以 `ErrRelayOff` 放行），心跳响应带 `notice`，hook 在 `UserPromptSubmit` / `Stop` 把它打到 **stderr**（"该会话已于 <时间> 在 web 接管（job <id>）…本终端的中继已停用"）。原终端的 Stop / UserPromptSubmit / Notification / SessionEnd 都不会把会话从 `handed_off` 改回去。
+  - **解除接管**：`POST /v1/sessions/{sid}/release-takeover`（web 抽屉「解除接管」；无 CLI 子命令）→ 先 cancel 接管 job，再置 `idle` 并清空接管标记；cancel 失败返回 502（不会假装成功）。会话未接管时 409。
+  - 监控：`gofer job ls --tag relay-takeover` / `gofer job show <id>`（`job.input_injected` 记录首条输入的字节数与安静窗口）。
 - turn 复用决策通道：铃铛里「会话」标签条目可直接内联作答；`gofer plan decisions --state OPEN` 也能看到（kind=relay；被"人回来"关掉的 turn 是 EXPIRED + `released_by=user_returned`）。
 
 ## schedule（别名 `sch`）— 定时 job

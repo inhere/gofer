@@ -271,8 +271,7 @@ func TestOpenTurnRefusedWhenHandedOff(t *testing.T) {
 	_, err := s.SetRelayMode("sid-taken", jobstore.RelayModeOn)
 	assert.NoErr(t, err)
 
-	a, err := s.store.SetSessionHandedOff("sid-taken", "job-takeover-9")
-	_ = a
+	_, err = s.store.SetSessionHandedOff("sid-taken", "job-takeover-9")
 	assert.NoErr(t, err)
 
 	got, ok, err := s.store.GetAgentSession("sid-taken")
