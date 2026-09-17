@@ -312,8 +312,9 @@ agents:
   # stream-json --verbose` streams JSON events as they happen, so gofer's live log
   # shows real-time progress and a timed-out job still captured partial work. Trade-off:
   # logs are NDJSON events, not prose (the final text is the `result` event). Drop the
-  # two flags for plain-text output — or keep them and add `output_format: ndjson` to
-  # compact the per-token stream events at capture time (see the omp entry below).
+  # two flags for plain-text output — or keep them and add `output_format: ndjson`, which
+  # PROJECTS the stream at capture time: stdout.log ends up holding just the final answer
+  # and the compact events go to stderr.log (see the omp entry below).
   # Adjust the flag to your installed CLI if it differs.
   # `interactive_args: []` below adds the pty mode: a bare `claude` enters the REPL and
   # the pty owns the session (same pair the built-in claude template ships). Drop that
@@ -328,22 +329,43 @@ agents:
       args: [--version]
   # omp: structured (ndjson) capture. `--mode json` streams one JSON event per line,
   # and the per-token incremental events (message_update / tool_execution_update)
-  # make the log 10-30x bigger than it needs to be. `output_format: ndjson` filters
-  # them out AT CAPTURE time: stdout.log keeps only the events worth reading (the
-  # built-in omp whitelist: session, tool_execution_start/end, message_end, turn_end,
-  # agent_end, advisor_cost_changed; the session row is ALWAYS kept — session
-  # capture / resume read it from stdout.log), and the web job detail gains a
-  # 结构化 view over what is left. A text agent is unaffected: no `output_format`
-  # means no filtering.
+  # make the log 10-30x bigger than it needs to be. `output_format: ndjson` PROJECTS
+  # the stream AT CAPTURE time:
+  #   - stdout.log = the agent's FINAL answer only (the last completed assistant
+  #     message), written once when the run ends — plain text, not JSON;
+  #   - stderr.log = the compact events (the built-in omp whitelist: session,
+  #     tool_execution_start/end, message_end, turn_end, agent_end,
+  #     advisor_cost_changed), each line capped at 2KB with over-long fields marked
+  #     `…(truncated)` — same shape codex users expect, and the web job detail's
+  #     结构化 view renders this stream as a timeline.
+  # The `session` row is ALWAYS read (session capture / resume prefer it over the
+  # regex scan). A text agent is unaffected: no `output_format` means no projection.
   #   output_format: text|ndjson   default text.
-  #   ndjson_keep: [<event>, ...]  event whitelist. A bare name matches the JSON
-  #                                top-level `type`; a dotted name reads a nested
-  #                                path (`message.role`). Unset = the built-in list
-  #                                for this agent (omp/claude, by key or command
-  #                                base name); explicitly empty = keep everything.
+  #   ndjson_keep: [<event>, ...]  event whitelist; it gates what reaches the
+  #                                projector. A bare name matches the JSON top-level
+  #                                `type`; a dotted name reads a nested path
+  #                                (`message.role`). Unset = the built-in list for
+  #                                this agent (omp/claude, by key or command base
+  #                                name); explicitly empty = keep everything (every
+  #                                event is then passed through, bounded).
+  #   ndjson_events_to: stderr|stdout  where the compact events go (default stderr;
+  #                                `stdout` restores the old destination).
+  #   ndjson_stdout: final_text|events what stdout.log carries: the final answer
+  #                                (default) or the compact events (`events` = the
+  #                                pre-projection layout, no answer extraction).
+  #   ndjson_stdout_path: <path>   dotted JSON path of the final answer
+  #                                (e.g. result.result), for an agent whose answer
+  #                                the built-in projector cannot find. Overrides the
+  #                                built-in rule.
+  #   ndjson_fields: {<type>: [<path>, ...]}  per-type event content, e.g.
+  #                                {turn_end: [type, usage, model]}: overrides the
+  #                                projector's own fields for that type (a dotted path
+  #                                keeps only its last segment as the key).
   #   ndjson_raw: true             ALSO write every unfiltered line to
   #                                <result_dir>/stdout.raw.log (troubleshooting
   #                                only, off by default).
+  # The job result reports what the projector did: ndjson_kept / ndjson_dropped /
+  # ndjson_truncated (the last one counts the lines the 2KB cap shortened).
   omp:
     type: cli-agent
     command: omp
