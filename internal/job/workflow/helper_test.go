@@ -89,7 +89,7 @@ func newTestEngine(t *testing.T, root string) *Engine {
 			jobs, _ := meta.ListJobs(jobstore.ListQuery{})
 			inFlight := false
 			for _, j := range jobs {
-				if !job.IsTerminal(j.Status) {
+				if !job.IsFinished(j.Status) {
 					inFlight = true
 					_ = svc.Cancel(j.ID) // best-effort: speed up the drain
 				}

@@ -81,7 +81,7 @@ func (s *Server) handlePtyConnect(c *rux.Context) {
 		return
 	}
 	res, ok := s.jobs.Get(binding.JobID)
-	if !ok || !res.Interactive || job.IsTerminal(res.Status) {
+	if !ok || !res.Interactive || job.IsFinished(res.Status) {
 		s.ptyRelays.Close(binding.JobID, "job_not_live")
 		closeWS(ptyCloseNotFound, "job not live")
 		return

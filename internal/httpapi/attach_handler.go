@@ -178,7 +178,7 @@ func (s *Server) handleJobAttach(c *rux.Context) {
 	writeExitAndClose := func() {
 		// relay 关闭与 job 终态跨连接竞态；终态已可见才附 exit code。
 		if s.jobs != nil {
-			if res, ok := s.jobs.Get(binding.JobID); ok && job.IsTerminal(res.Status) {
+			if res, ok := s.jobs.Get(binding.JobID); ok && job.IsFinished(res.Status) {
 				_ = writeControl(map[string]any{"t": "x", "code": res.ExitCode})
 			} else {
 				_ = writeControl(map[string]any{"t": "x"})

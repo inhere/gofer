@@ -201,6 +201,15 @@ func stepToRequest(step StepSpec, wfID string, stepIndex, attempt, fanIndex int,
 			reqID += fmt.Sprintf(":f%d", fanIndex)
 		}
 	}
+	// GATE-01 S3: a step that states review:true|false decides for its own job; an
+	// explicit value is FINAL (ReviewFixed) so it also overrides a project whose
+	// require_review default would otherwise re-apply in Submit (a bool alone cannot
+	// tell "explicitly off" from "unset").
+	review := false
+	reviewFixed := step.Review != nil
+	if reviewFixed {
+		review = *step.Review
+	}
 	return job.JobRequest{
 		ProjectKey: step.ProjectKey,
 		Agent:      step.Agent,
@@ -217,6 +226,9 @@ func stepToRequest(step StepSpec, wfID string, stepIndex, attempt, fanIndex int,
 		Attempt:    attempt,
 		FanIndex:   fanIndex,
 		RequestID:  reqID,
+		// GATE-01 S3: the step's review decision (see above) rides the job request.
+		Review:      review,
+		ReviewFixed: reviewFixed,
 	}
 }
 

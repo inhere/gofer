@@ -150,7 +150,7 @@ func (c *Client) WatchJob(ctx context.Context, id string, from int, h WatchHandl
 					h.OnStatus(jr.Status)
 				}
 			}
-			if job.IsTerminal(jr.Status) {
+			if job.IsFinished(jr.Status) {
 				finalStatus = jr.Status
 			}
 		case "log":

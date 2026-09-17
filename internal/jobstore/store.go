@@ -107,7 +107,11 @@ var schemaStmts = []string{
   worktree_base_sha TEXT,
   worktree_head_sha TEXT,
   commits_ahead    INTEGER,
-  read_only        INTEGER NOT NULL DEFAULT 0
+  read_only        INTEGER NOT NULL DEFAULT 0,
+  require_review   INTEGER NOT NULL DEFAULT 0,
+  reviewed_by      TEXT,
+  reviewed_at      INTEGER,
+  review_note      TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -594,6 +598,21 @@ func (s *Store) migrate() error {
 	// acp 走 session/set_mode）。旧库 ALTER ADD 默认 0，旧行读作"可写"——正是 S2 之前的语义，
 	// 不会把历史 job 伪造成只读。resume 延续该值（同一 job 链内不可升级为可写）。
 	if err := add("read_only", "read_only INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	// GATE-01 S3 人工验收：require_review=该 job 是否要求人验收（--review / 项目
+	// require_review），reviewed_by/at/note=验收决定与理由。旧库 ALTER ADD 全为
+	// 0/空 = "未要求、未验收"——正是 S3 之前的语义，不会把历史 job 伪造成待验收。
+	if err := add("require_review", "require_review INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := add("reviewed_by", "reviewed_by TEXT"); err != nil {
+		return err
+	}
+	if err := add("reviewed_at", "reviewed_at INTEGER"); err != nil {
+		return err
+	}
+	if err := add("review_note", "review_note TEXT"); err != nil {
 		return err
 	}
 	if err := s.migrateWorkflows(); err != nil {

@@ -251,8 +251,9 @@ func StreamJob(ctx context.Context, w io.Writer, flusher http.Flusher, jobs *job
 	// event on an actual change.
 	curStatus := res.Status
 
-	// finish replays any remaining log bytes, emits a terminal `status` and the
-	// closing `end` event.
+	// finish replays any remaining log bytes, emits the final `status` and the
+	// closing `end` event (IsFinished, so a needs_review job — finished but not
+	// terminal — closes its stream too: its process is gone, nothing more is coming).
 	finish := func(final job.JobResult) {
 		_, _ = pumpLogs()
 		_ = pumpInteractions() // push the last answer/cancel before closing
@@ -262,9 +263,9 @@ func StreamJob(ctx context.Context, w io.Writer, flusher http.Flusher, jobs *job
 	}
 
 	// Historical (non-live) jobs are already at a static status: replay the logs
-	// once and close. If the in-memory job is already terminal we likewise finish
+	// once and close. If the in-memory job already FINISHED we likewise finish
 	// immediately without waiting for a tick.
-	if !live || job.IsTerminal(res.Status) {
+	if !live || job.IsFinished(res.Status) {
 		finish(res)
 		return
 	}
@@ -311,7 +312,7 @@ func StreamJob(ctx context.Context, w io.Writer, flusher http.Flusher, jobs *job
 					return
 				}
 			}
-			if job.IsTerminal(cur.Status) {
+			if job.IsFinished(cur.Status) {
 				finish(cur)
 				return
 			}

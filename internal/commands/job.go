@@ -672,7 +672,7 @@ func runJobRun(c *gcli.Command, _ []string) error {
 	}
 	// Print the terminal line for any wait/sync flow (sync that finished
 	// server-side, sync/md that fell back to polling, or --wait).
-	if polled || jobRunOpts.sync || job.IsTerminal(res.Status) {
+	if polled || jobRunOpts.sync || job.IsFinished(res.Status) {
 		c.Printf("job %s finished: status=%s exit_code=%d\n", res.ID, res.Status, res.ExitCode)
 		if shouldPrintJobStderr(res) {
 			if logs, e := cli.GetLogsWindow(res.ID, client.LogOpts{Stream: "stderr", Lines: 20}); e == nil && logs != "" {
@@ -871,8 +871,7 @@ func waitTerminal(cli *client.Client, id string, timeoutSec int) (job.JobResult,
 		if err != nil {
 			return res, err
 		}
-		switch res.Status {
-		case job.StatusDone, job.StatusFailed, job.StatusCancelled, job.StatusTimeout:
+		if job.IsFinished(res.Status) {
 			return res, nil
 		}
 		if !deadline.IsZero() && time.Now().After(deadline) {

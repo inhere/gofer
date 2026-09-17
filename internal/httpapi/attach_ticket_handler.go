@@ -32,8 +32,8 @@ func (s *Server) handleAttachTicket(c *rux.Context) {
 		writeError(c, http.StatusConflict, "job is not interactive", "attach tickets require an interactive job")
 		return
 	}
-	if job.IsTerminal(res.Status) {
-		writeError(c, http.StatusConflict, "job is terminal", "cannot attach to a terminal job")
+	if job.IsFinished(res.Status) {
+		writeError(c, http.StatusConflict, "job is finished", "cannot attach to a job that has finished ("+res.Status+")")
 		return
 	}
 	if s.ptyRelays == nil {
@@ -89,7 +89,7 @@ func (s *Server) callerMayAttach(caller string, job job.JobResult) bool {
 }
 
 func (s *Server) canAttachNow(caller string, res job.JobResult) bool {
-	if !res.Interactive || job.IsTerminal(res.Status) || !s.callerMayAttach(caller, res) {
+	if !res.Interactive || job.IsFinished(res.Status) || !s.callerMayAttach(caller, res) {
 		return false
 	}
 	if s.ptyRelays == nil {

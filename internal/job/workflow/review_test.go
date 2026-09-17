@@ -133,7 +133,8 @@ func TestWorkflowRejectFailsStep(t *testing.T) {
 }
 
 // TestStepReviewOverridesProjectDefault: an explicit step-level review:false beats the
-// project's require_review default — the chain runs straight through.
+// project's require_review default — the step's job finishes done and the chain runs
+// straight through.
 func TestStepReviewOverridesProjectDefault(t *testing.T) {
 	e := newTestEngine(t, t.TempDir())
 	cfg := e.ops.Config()
@@ -143,7 +144,7 @@ func TestStepReviewOverridesProjectDefault(t *testing.T) {
 
 	wf, err := e.SubmitWorkflow(Spec{
 		Title: "override",
-		Steps: []StepSpec{reviewStep("a", false), echoStep("b")},
+		Steps: []StepSpec{reviewStep("a", false)},
 	}, "alice")
 	if err != nil {
 		t.Fatalf("SubmitWorkflow: %v", err)

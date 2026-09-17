@@ -206,6 +206,16 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	if err != nil {
 		entry.result.Error = err.Error()
 	}
+	// GATE-01 S3: a job that asked for人工验收 and finished NORMALLY parks in
+	// needs_review instead of done. Decided here, under the same lock that flips the
+	// status, so no reader can ever observe a transient `done` (which would let a
+	// watcher report the delivery as accepted and skip the review). needsReview==true
+	// also means: no job.terminal event (see below), no workflow advance, no retry and
+	// no auto-resume — none of them apply to work that is not accepted yet.
+	needsReview := status == StatusDone && entry.result.RequireReview
+	if needsReview {
+		entry.result.Status = StatusNeedsReview
+	}
 	snap := entry.result
 	// 终态对账（E25, 复审 #4）：把残留 pending interaction 翻为 cancelled。否则一个
 	// 在 pending_interaction 上结束/被取消的 job 会在 DB 留下僵尸 pending 行
@@ -261,6 +271,20 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// (near-zero, given Store.writeMu) count of jobs whose terminal write failed,
 	// not by history — C1's invariant still holds.
 	persistErr := s.persist(snap)
+	// GATE-01 S3: the needs_review branch REPLACES the terminal one — the job is
+	// FINISHED (its process is gone: evict it, close its SSE/log teardown) but not
+	// terminal, and the only event is job.needs_review. No workflow advance, no
+	// job-level retry, no automatic continuation happen here: they all wait for a
+	// human's accept/reject (review.go).
+	if needsReview {
+		s.recordEvent(jobID, EventJobNeedsReview, map[string]any{"job_id": jobID, "exit_code": exitCode})
+		if persistErr == nil && isFinished(snap.Status) {
+			s.mu.Lock()
+			delete(s.jobs, jobID)
+			s.mu.Unlock()
+		}
+		return
+	}
 	autoResumed := false
 	if persistErr == nil && status == StatusFailed {
 		autoResumed = s.tryAutoResume(snap)
@@ -268,7 +292,7 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	if !autoResumed {
 		s.recordEvent(jobID, EventJobTerminal, map[string]any{"status": status, "exit_code": exitCode, "error": errStr})
 	}
-	if persistErr == nil && isTerminal(status) {
+	if persistErr == nil && isFinished(status) {
 		s.mu.Lock()
 		delete(s.jobs, jobID)
 		s.mu.Unlock()

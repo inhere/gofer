@@ -47,6 +47,10 @@ func newReviewService(t *testing.T, root string, opts reviewServiceOpts) *Servic
 			Command:       bin,
 			Args:          []string{"stderr-exit", strconv.Itoa(code), opts.stderrText, "{{prompt}}"},
 			SessionResume: []string{"stderr-exit", "0", "resumed {{prompt}}"},
+			// The built-in transient table is keyed by codex/claude/omp, so state the
+			// bait explicitly: it makes the automatic continuation LIVE for both agents
+			// (the reviewed one must ignore it; the flaky control must use it).
+			TransientErrorPatterns: []string{"at capacity"},
 		}
 	}
 	cfg := &config.Config{

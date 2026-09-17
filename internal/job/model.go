@@ -49,8 +49,21 @@ type JobRequest struct {
 	// persisted (jobs.read_only) and inherited by a resume — a continuation cannot be
 	// upgraded to writable, only a new job can.
 	ReadOnly bool `json:"read_only,omitempty" yaml:"read_only,omitempty"`
-	Cols     int  `json:"cols,omitempty" yaml:"cols,omitempty"`
-	Rows     int  `json:"rows,omitempty" yaml:"rows,omitempty"`
+	// Review (GATE-01 S3) asks for人工验收: when the agent finishes NORMALLY (done),
+	// the job parks in `needs_review` instead of done until a HUMAN accepts (→done)
+	// or rejects (→rejected) it — an agent never signs off its own work. Set by
+	// `job run --review` / the HTTP body's review field, or resolved from the
+	// project's require_review default at submit (see ReviewFixed). A failure
+	// (failed/cancelled/timeout) never enters review.
+	Review bool `json:"review,omitempty" yaml:"review,omitempty"`
+	// ReviewFixed marks Review as FINAL: it was set by an explicit workflow-step
+	// override (StepSpec.Review), which must beat the project's require_review default
+	// for a `review: false` step too — a plain bool cannot tell "explicitly off" from
+	// "unset". Internal: json/yaml "-" keeps it off the wire and out of request_json,
+	// mirroring WorkflowID/StepIndex.
+	ReviewFixed bool `json:"-" yaml:"-"`
+	Cols        int  `json:"cols,omitempty" yaml:"cols,omitempty"`
+	Rows        int  `json:"rows,omitempty" yaml:"rows,omitempty"`
 	// RecordPty requests asciinema recording for this interactive pty session.
 	// It is a per-job opt-in layered under the serve-wide storage.cast.enabled
 	// capability; false means "track session metadata only, do not write pty.cast".
@@ -208,6 +221,18 @@ type JobResult struct {
 	// h-aii-0ql3): whether THIS job ran under a read-only sandbox, inheritable by a
 	// resume and visible in `job show` / the web console after the fact.
 	ReadOnly bool `json:"read_only,omitempty"`
+	// RequireReview / ReviewedBy / ReviewedAt / ReviewNote are the人工验收 (GATE-01
+	// S3) audit fields. RequireReview mirrors JobRequest.Review (resolved: --review or
+	// the project's require_review) and stays true after a review, so a finished job
+	// still answers "was this delivery gated on a human?". ReviewedBy/At/Note record
+	// the DECISION (who accepted/rejected, when, why) and are empty until one is made;
+	// ReviewedBy is the caller id ("anonymous" for an empty/allow_empty_token caller,
+	// "mcp:<agent>" for the MCP tool). Persisted to jobs.require_review/reviewed_by/
+	// reviewed_at/review_note.
+	RequireReview bool   `json:"require_review,omitempty"`
+	ReviewedBy    string `json:"reviewed_by,omitempty"`
+	ReviewedAt    int64  `json:"reviewed_at,omitempty"`
+	ReviewNote    string `json:"review_note,omitempty"`
 	// TimeoutSec is the EFFECTIVE job deadline in seconds AFTER the configured
 	// ceiling clamp (bd h-aii-s9ck), persisted to jobs.timeout_sec so a post-mortem
 	// answers "why did my 2h request die at 1h?" without replaying config history.
@@ -374,6 +399,21 @@ const (
 	// job keeps its timeout running: a job that hangs in recovering still ends by
 	// timeout. Appended to the END of the enum so existing values never shift.
 	StatusRecovering = "recovering"
+	// StatusNeedsReview (GATE-01 S3) is the人工验收 holding state: the agent finished
+	// NORMALLY (a `done` run of a job that asked for review) but the delivery is not
+	// accepted yet. It is NON-terminal (IsTerminal false): retention must not evict
+	// the job a human still has to rule on, and `job resume` demands accept/reject
+	// first. The PROCESS is over, though, so the finished-vs-live question is answered
+	// by IsFinished (true here) — that is what closes the log stream/SSE, evicts the
+	// in-memory entry and keeps crash recovery from treating it as a running job.
+	StatusNeedsReview = "needs_review"
+	// StatusRejected (GATE-01 S3) is the terminal outcome of a human REJECTING a
+	// needs_review job: the work was delivered but not accepted. It is terminal
+	// (retention collects it; a workflow step aggregates it as a failure, like failed)
+	// — but it never triggers a job-level retry or an automatic continuation, because
+	// only a human's `reject --resume` decides whether the work is continued.
+	// Appended to the END of the enum so existing values never shift.
+	StatusRejected = "rejected"
 )
 
 // Job lifecycle event types (E13, design §5.2). Each is recorded append-only via
@@ -392,6 +432,15 @@ const (
 	// (ACP-01 S0): {tool_call_id,title,kind,status}. Recorded by the acp runner
 	// through runner.Request.OnJobEvent; content-only refreshes are not events.
 	EventJobToolCall = "job.tool_call"
+	// EventJobNeedsReview is a reviewed job finishing NORMALLY and parking for人工
+	// 验收 (GATE-01 S3): {job_id, exit_code}. It REPLACES job.terminal for that
+	// transition (the job is not终态 yet), and it is a notification DEFAULT trigger
+	// (it is a "a human must act" signal, exactly like interaction.created).
+	EventJobNeedsReview = "job.needs_review"
+	// EventJobReviewed is a human's accept/reject decision on a needs_review job:
+	// {verdict, by, note, resume_job_id?}. It is followed by the job.terminal event of
+	// the state the decision produced (done / rejected).
+	EventJobReviewed = "job.reviewed"
 )
 
 // Workflow lifecycle event types (P1, design §5.4). Recorded append-only via

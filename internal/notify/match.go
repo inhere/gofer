@@ -7,9 +7,14 @@ import (
 )
 
 // DefaultTriggerEvents is the trigger set a webhook subscribes to when its
-// `events` list is omitted (design §5.5/D5): the terminal event and a new
-// interaction — the two states most needing a human/system to step in.
-var DefaultTriggerEvents = []string{"job.terminal", "interaction.created"}
+// `events` list is omitted (design §5.5/D5): the terminal event, a new
+// interaction, and — since GATE-01 S3 — a job parking for人工验收. All three are
+// "a human/system must step in" signals; job.needs_review can only happen for a job
+// that explicitly asked for review (--review / require_review), so a project that
+// never uses the gate never sees it. The follow-up decision (job.reviewed) is NOT a
+// default trigger — it closes a loop the subscriber already opened — but a webhook
+// can subscribe to it explicitly.
+var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review"}
 
 // MatchWebhooks returns the webhooks in cfg that subscribe to eventType for
 // projectKey (design §5.6 enqueue match): a webhook matches when

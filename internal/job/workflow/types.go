@@ -63,6 +63,12 @@ type StepSpec struct {
 	// crosses the wire to the server (the server only ever sees the expanded fields), and
 	// is absent from a v1 spec (D23). Resolved relative to the workflow file's directory.
 	File string `json:"-" yaml:"file,omitempty"`
+	// Review overrides the project's require_review default for THIS step
+	// (GATE-01 S3): true parks the step's job in needs_review until a human accepts
+	// (the chain advances then) or rejects (the step counts as failed, so on_failure
+	// applies). It is a pointer so an explicit `review: false` overrides a project
+	// that requires review for everything, while nil inherits the project default.
+	Review *bool `json:"review,omitempty" yaml:"review,omitempty"`
 }
 
 // onFailure* are the known StepSpec.OnFailure values. "" is treated as

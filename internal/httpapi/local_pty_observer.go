@@ -45,7 +45,7 @@ func (s *Server) runLocalPtyRelay(jobID string, source ptyrelay.PtySource, done 
 		return
 	}
 	res, ok := s.jobs.Get(jobID)
-	if !ok || !res.Interactive || job.IsTerminal(res.Status) {
+	if !ok || !res.Interactive || job.IsFinished(res.Status) {
 		return
 	}
 	cols, rows := ptySizeFromRequestJSON(res.RequestJSON)

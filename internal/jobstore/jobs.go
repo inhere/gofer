@@ -40,7 +40,15 @@ type JobRecord struct {
 	// (cli-agent read_only_args / acp-agent session/set_mode). Persisted so a finished
 	// job still answers "was this run allowed to write?".
 	ReadOnly bool
-	WorkerID string // reserved for ws-worker; empty for local/peer jobs
+	// RequireReview / ReviewedBy / ReviewedAt / ReviewNote are the人工验收 (GATE-01
+	// S3) audit fields: whether the job was gated on a human's accept/reject, and —
+	// once that decision exists — who made it, when, and why. They are persisted so a
+	// reviewed job still explains itself long after its process ended.
+	RequireReview bool
+	ReviewedBy    string
+	ReviewedAt    int64
+	ReviewNote    string
+	WorkerID      string // reserved for ws-worker; empty for local/peer jobs
 	// WorkerInstanceID is the process nonce (wsproto.Register.InstanceID) of the
 	// worker connection the job was dispatched to (RECOV-01 R4). Together with
 	// WorkerID it proves WHICH worker process owns the job, so a hub starting after a
@@ -221,7 +229,8 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,
   COALESCE(timeout_sec,0), COALESCE(requested_timeout_sec,0), COALESCE(timeout_clamped,0),
   COALESCE(recovering_since,0),
   COALESCE(worktree_path,''), COALESCE(worktree_branch,''), COALESCE(worktree_base_sha,''),
-  COALESCE(worktree_head_sha,''), COALESCE(commits_ahead,0), COALESCE(read_only,0) FROM jobs`
+  COALESCE(worktree_head_sha,''), COALESCE(commits_ahead,0), COALESCE(read_only,0),
+  COALESCE(require_review,0), COALESCE(reviewed_by,''), COALESCE(reviewed_at,0), COALESCE(review_note,'') FROM jobs`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -231,7 +240,7 @@ type rowScanner interface {
 // scanJob reads one row (in selectCols order) into a JobRecord.
 func scanJob(sc rowScanner) (JobRecord, error) {
 	var r JobRecord
-	var interactive, timeoutClamped, readOnly int
+	var interactive, timeoutClamped, readOnly, requireReview int
 	err := sc.Scan(
 		&r.ID, &r.ProjectKey, &r.Agent, &r.Runner, &interactive, &r.WorkerID,
 		&r.WorkerInstanceID,
@@ -248,10 +257,12 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.RecoveringSince,
 		&r.WorktreePath, &r.WorktreeBranch, &r.WorktreeBaseSHA,
 		&r.WorktreeHeadSHA, &r.CommitsAhead, &readOnly,
+		&requireReview, &r.ReviewedBy, &r.ReviewedAt, &r.ReviewNote,
 	)
 	r.Interactive = interactive != 0
 	r.TimeoutClamped = timeoutClamped != 0
 	r.ReadOnly = readOnly != 0
+	r.RequireReview = requireReview != 0
 	return r, err
 }
 
@@ -274,8 +285,9 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 	    workflow_id, step_index, attempt, fan_index, session_id, stop_reason, resumed_from, auto_resume_attempt, auto_resumed_by, channel, client,
 	    origin_agent, escalate_to, role, plan_id, source_job_id,
 	    timeout_sec, requested_timeout_sec, timeout_clamped, recovering_since,
-	    worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead, read_only)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	    worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead, read_only,
+	    require_review, reviewed_by, reviewed_at, review_note)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -328,7 +340,11 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     worktree_base_sha=excluded.worktree_base_sha,
     worktree_head_sha=excluded.worktree_head_sha,
     commits_ahead=excluded.commits_ahead,
-    read_only=excluded.read_only`
+    read_only=excluded.read_only,
+    require_review=excluded.require_review,
+    reviewed_by=excluded.reviewed_by,
+    reviewed_at=excluded.reviewed_at,
+    review_note=excluded.review_note`
 	// Serialise writes in-process (see Store.writeMu) so SQLite never sees two
 	// concurrent writers and cannot return SQLITE_BUSY under burst.
 	s.writeMu.Lock()
@@ -349,6 +365,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.RecoveringSince,
 		rec.WorktreePath, rec.WorktreeBranch, rec.WorktreeBaseSHA,
 		rec.WorktreeHeadSHA, rec.CommitsAhead, rec.ReadOnly,
+		rec.RequireReview, rec.ReviewedBy, rec.ReviewedAt, rec.ReviewNote,
 	)
 	if err != nil {
 		// A competing INSERT with the same non-empty request_id (different id)

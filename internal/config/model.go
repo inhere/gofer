@@ -870,6 +870,12 @@ type ProjectConfig struct {
 	// (a per-job --worktree is then redundant). The resolved decision rides the
 	// request, so a worker executes exactly what the submitter decided.
 	WorktreeDefault bool `yaml:"worktree_default,omitempty"`
+	// RequireReview (GATE-01 S3) turns人工验收 ON for every job of this project: a job
+	// whose agent finishes normally parks in `needs_review` until a human accepts or
+	// rejects it. A per-job --review is then redundant, and a workflow step may still
+	// override it explicitly in either direction (StepSpec.Review). Default off, so
+	// upgrading never strands a project's jobs on a human.
+	RequireReview bool `yaml:"require_review,omitempty"`
 	// Approval is the project's run-time approval gate (GATE-01 §1): how an
 	// acp-agent's session/request_permission is answered. Nil means the defaults,
 	// and the default mode is off (= the pre-GATE behaviour: the agent's own

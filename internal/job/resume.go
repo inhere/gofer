@@ -58,6 +58,12 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		return JobResult{}, fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
 	}
 	if !IsTerminal(src.Status) {
+		// GATE-01 S3: a job parked in needs_review is intentionally not terminal, so
+		// resume refuses it — but the caller's actual next step is accept/reject, so
+		// say that instead of leaving them with the bare state name.
+		if src.Status == StatusNeedsReview {
+			return JobResult{}, fmt.Errorf("%w: %q is %s (accept or reject it first)", ErrJobNotTerminal, jobID, src.Status)
+		}
 		return JobResult{}, fmt.Errorf("%w: %q is %s", ErrJobNotTerminal, jobID, src.Status)
 	}
 	if src.SessionID == "" {
@@ -109,7 +115,13 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 			ResumeSourceAgent: src.Agent,
 			// bd h-aii-0ql3: read-only is a property of the work, so it is inherited —
 			// the executor switches the loaded session back into the read-only mode.
-			ReadOnly:          src.ReadOnly,
+			ReadOnly: src.ReadOnly,
+			// GATE-01 S3: so is人工验收 — the continuation delivers the same work to the
+			// same reviewer, and a reviewed chain never becomes self-accepting halfway.
+			// ReviewFixed pins the SOURCE's resolved decision, so a project default that
+			// has since changed cannot rewrite it.
+			Review:            src.RequireReview,
+			ReviewFixed:       true,
 			Channel:           src.Channel,
 			Client:            src.Client,
 			OriginAgent:       src.OriginAgent,
@@ -183,6 +195,9 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		SessionID: src.SessionID,
 		// bd h-aii-0ql3：只读随链继承（argv 已带沙箱参数，这里同时记录在 job 行上）。
 		ReadOnly: src.ReadOnly,
+		// GATE-01 S3：人工验收同样随链继承（与上面 acp 路径同一规则）。
+		Review:      src.RequireReview,
+		ReviewFixed: true,
 		// 访问门按 SOURCE agent 判定：resume 只是用 exec 载体跑原 agent 的受限续接 argv，
 		// 故豁免 exec/allow_exec 门（2026-06-26 决策）。仅 ResumeJob 设置，不入 request_json、不可伪造。
 		ResumeSourceAgent: src.Agent,

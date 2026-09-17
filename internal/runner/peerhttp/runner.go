@@ -83,6 +83,11 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// bd h-aii-0ql3: read-only reaches the peer with its own admission deciding
 		// whether its agent can honour it (same rule as the worker dispatch).
 		ReadOnly: f.ReadOnly,
+		// GATE-01 S3: 人工验收 belongs to the HUB that owns the job (its own finish
+		// parks the row in needs_review); this forwarded job is a proxy execution, so
+		// the peer's local row must finish normally — a needs_review row here would
+		// never report a terminal status back and the hub would fail the job.
+		ReviewFixed: true,
 	}
 
 	peerRes, err := r.c.SubmitJob(jr)

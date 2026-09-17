@@ -81,6 +81,12 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// decision (a worker then never has to re-derive a default from its own config).
 	req.Worktree = worktreeRequested(cfg, &req)
 
+	// GATE-01 S3: resolve the人工验收 request NOW (--review / the project's
+	// require_review default / a workflow step's explicit override), so the Forward,
+	// request_json and the persisted result all carry one decided value — the
+	// executing side never has to re-derive a default from its own config.
+	req.Review = reviewRequested(cfg, &req)
+
 	// C5 idempotency: if this request carries an idempotency key already claimed
 	// by an earlier job, reuse it (no new job/dir). The concurrent-submit race
 	// (two submits both miss this lookup) is caught below by the unique-index
@@ -330,6 +336,9 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			Interactive: req.Interactive,
 			// bd h-aii-0ql3：只读是 job 的持久属性（jobs.read_only），resume 继承、show/web 可见。
 			ReadOnly: req.ReadOnly,
+			// GATE-01 S3：人工验收同样是 job 的持久属性（jobs.require_review），决定
+			// finish 是落 done 还是 needs_review，resume 继承、show/web 可见。
+			RequireReview: req.Review,
 			// bd h-aii-s9ck: the deadline this job actually runs under, plus the
 			// clamp report (requested > ceiling) so it is never a silent truncation.
 			TimeoutSec:          timeoutSec,

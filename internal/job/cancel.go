@@ -66,20 +66,31 @@ func (s *Service) SetSessionID(id, sessionID string) {
 func (s *Service) Cancel(id string) error {
 	entry := s.entry(id)
 	if entry == nil {
-		if _, ok, _ := s.meta.GetJob(id); ok {
-			// Known but evicted => terminal; cancelling a terminal job is a no-op.
-			return nil
+		rec, ok, _ := s.meta.GetJob(id)
+		if !ok {
+			return fmt.Errorf("unknown job %q", id)
 		}
-		return fmt.Errorf("unknown job %q", id)
+		// GATE-01 S3: a needs_review job's process is over — there is nothing to
+		// cancel, and silently returning nil would look like success. Say what the
+		// caller actually wants (reject) instead.
+		if rec.Status == StatusNeedsReview {
+			return fmt.Errorf("%w: job %q is awaiting review (%s) — use `job reject %s --note ...` to refuse it", ErrJobNotRunning, id, StatusNeedsReview, id)
+		}
+		// Known but evicted => terminal; cancelling a terminal job is a no-op.
+		return nil
 	}
 
 	entry.mu.Lock()
-	terminal := isTerminal(entry.result.Status)
+	status := entry.result.Status
+	terminal := isTerminal(status)
 	cancel := entry.cancel
 	entry.mu.Unlock()
 
+	if status == StatusNeedsReview {
+		return fmt.Errorf("%w: job %q is awaiting review (%s) — use `job reject %q --note ...` to refuse it", ErrJobNotRunning, id, StatusNeedsReview, id)
+	}
 	if terminal {
-		// Already done/failed/cancelled/timeout: no-op, deterministic.
+		// Already done/failed/cancelled/timeout/rejected: no-op, deterministic.
 		return nil
 	}
 	if cancel != nil {
@@ -156,7 +167,10 @@ func (s *Service) entry(id string) *jobEntry {
 // isTerminal reports whether a status is a final state.
 func isTerminal(status string) bool {
 	switch status {
-	case StatusDone, StatusFailed, StatusCancelled, StatusTimeout:
+	// StatusRejected is a terminal outcome too (GATE-01 S3): a human refused the
+	// delivery, so the job is over for retention/workflow purposes — it simply never
+	// retries or auto-continues on its own.
+	case StatusDone, StatusFailed, StatusCancelled, StatusTimeout, StatusRejected:
 		return true
 	default:
 		return false
@@ -167,3 +181,17 @@ func isTerminal(status string) bool {
 // counterpart of isTerminal, used by callers outside the package (e.g. the SSE
 // stream handler) to decide when to stop polling.
 func IsTerminal(status string) bool { return isTerminal(status) }
+
+// IsFinished reports whether a job's PROCESS has ended — the question every
+// "is there anything left to watch/attach to?" decision asks. It is IsTerminal OR
+// needs_review (GATE-01 S3): a needs_review job is deliberately NOT terminal (it
+// awaits a human, so retention keeps it and `job resume` refuses it) but its agent
+// process is gone, so the log tail/SSE stream must close, the in-memory entry must
+// be evicted, an attach must be refused, and crash recovery must not treat it as a
+// running job to recover.
+func IsFinished(status string) bool { return isFinished(status) }
+
+// isFinished is the unexported counterpart of IsFinished, used in-package.
+func isFinished(status string) bool {
+	return isTerminal(status) || status == StatusNeedsReview
+}

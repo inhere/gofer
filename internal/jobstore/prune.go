@@ -11,7 +11,7 @@ import (
 // would lose an in-flight job's metadata that the job service falls back to. The
 // values mirror internal/job's status constants but are kept as literals here to
 // avoid a job -> jobstore -> job import cycle (see package doc).
-var terminalStatuses = []string{"done", "failed", "cancelled", "timeout"}
+var terminalStatuses = []string{"done", "failed", "cancelled", "timeout", "rejected"}
 
 // terminalPlaceholders / terminalArgs render terminalStatuses into a reusable
 // "status IN (?,?,...)" fragment and its bind args.

@@ -94,6 +94,13 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// ITS agent config, so a worker whose agent has no read-only mode fails the job
 		// with an error the hub can show instead of running it writable.
 		ReadOnly: d.ReadOnly,
+		// GATE-01 S3: 人工验收 is decided by the HUB (the design's "验收判定只在 hub
+		// 做"), so a dispatched job's LOCAL row must finish normally — its status is
+		// what the Result frame reports and what the log-tail loop waits on, and a
+		// local needs_review row would stall the dispatch (no terminal Result ever
+		// reaches the hub). ReviewFixed makes the worker's own project
+		// require_review default inapplicable to work it merely executes.
+		ReviewFixed: true,
 	})
 	if err != nil {
 		slog.Warn("worker.job_rejected", "event", "worker.job_rejected", "component", "worker", "worker_id", cl.workerID, "job_id", d.JobID, "reason", err.Error())

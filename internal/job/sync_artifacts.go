@@ -38,7 +38,7 @@ func (s *Service) SubmitSync(req JobRequest, sync bool) (out JobResult, async bo
 
 	// Synchronous submit: block until terminal (capped). An already-terminal
 	// result (e.g. an idempotent hit on a finished job) returns immediately.
-	if sync && !IsTerminal(res.Status) {
+	if sync && !IsFinished(res.Status) {
 		if final, ok := s.WaitFor(res.ID, clampWait(req.WaitTimeoutSec)); ok {
 			return final, false, nil
 		}

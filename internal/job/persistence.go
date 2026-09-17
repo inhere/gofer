@@ -21,12 +21,17 @@ func (s *Service) persist(snap JobResult) error {
 // ws-worker jobs (jobs.worker_id already exists from C1; no migration).
 func toRecord(r JobResult) jobstore.JobRecord {
 	return jobstore.JobRecord{
-		ID:               r.ID,
-		ProjectKey:       r.ProjectKey,
-		Agent:            r.Agent,
-		Runner:           r.Runner,
-		Interactive:      r.Interactive,
-		ReadOnly:         r.ReadOnly,
+		ID:          r.ID,
+		ProjectKey:  r.ProjectKey,
+		Agent:       r.Agent,
+		Runner:      r.Runner,
+		Interactive: r.Interactive,
+		ReadOnly:    r.ReadOnly,
+		// 人工验收（GATE-01 S3）：是否要求验收 + 验收决定审计。
+		RequireReview:    r.RequireReview,
+		ReviewedBy:       r.ReviewedBy,
+		ReviewedAt:       r.ReviewedAt,
+		ReviewNote:       r.ReviewNote,
 		WorkerID:         r.WorkerID,
 		WorkerInstanceID: r.WorkerInstanceID,
 		Status:           r.Status,
@@ -121,7 +126,12 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		Title:       TitleFromRequestJSON(rec.RequestJSON),
 		Interactive: rec.Interactive,
 		ReadOnly:    rec.ReadOnly,
-		WorkerID:    rec.WorkerID,
+		// 人工验收（GATE-01 S3）：旧行全为 0/空 = "未要求、未验收"。
+		RequireReview: rec.RequireReview,
+		ReviewedBy:    rec.ReviewedBy,
+		ReviewedAt:    rec.ReviewedAt,
+		ReviewNote:    rec.ReviewNote,
+		WorkerID:      rec.WorkerID,
 		// RECOV-01 R4：dispatch 时记录的 worker 进程 nonce（旧行 ""＝无法被收养）。
 		WorkerInstanceID: rec.WorkerInstanceID,
 		Status:           rec.Status,
