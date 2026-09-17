@@ -204,6 +204,25 @@ export interface Stats {
     online: number
     supervisors: number
   }
+  // Server DB：元数据库文件/页几何 + 各表行数（表名以实际 schema 为准，缺失的表不出现）。
+  db: {
+    path: string
+    size_bytes: number
+    wal_size_bytes: number
+    page_size: number
+    page_count: number
+    tables: Record<string, number>
+    // partial=true = 行数查询超预算被截断（已得部分照常返回，文件/页字段始终完整）。
+    partial: boolean
+  }
+  // Sessions：agent 会话数（按状态/中继三态分布）、待回复的 relay turn 数、近 1h 活跃数。
+  sessions: {
+    total: number
+    by_state: Partial<Record<AgentSessionState, number>>
+    by_relay_mode: Record<AgentSessionRelayMode, number>
+    waiting_turns: number
+    seen_within_1h: number
+  }
   escalations_pending: number
   projects: number
   server_time: number

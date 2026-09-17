@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getStats, statusColor } from '../api/client'
-import type { JobStatus, Stats } from '../api/types'
+import type { AgentSessionRelayMode, AgentSessionState, JobStatus, Stats } from '../api/types'
 
 const POLL_MS = 5000
 
@@ -69,8 +69,67 @@ function jobCount(status: JobStatus): number {
   return stats.value?.jobs.by_status[status] ?? 0
 }
 
+// pending_interaction 芯片显示缩写 pending（列宽限制），完整状态放 title。
 function shortStatus(status: JobStatus): string {
-  return status === 'pending_interaction' ? 'pending_i' : status
+  return status === 'pending_interaction' ? 'pending' : status
+}
+
+// chipTitle 只给被缩写的芯片挂 tooltip；其余状态名本身就是全称，无需悬停提示。
+function chipTitle(status: JobStatus): string | undefined {
+  const short = shortStatus(status)
+  return short === status ? undefined : status
+}
+
+const SESSION_STATES: AgentSessionState[] = [
+  'running',
+  'waiting_reply',
+  'needs_attention',
+  'idle',
+  'ended',
+]
+
+const SESSION_STATE_LABELS: Record<AgentSessionState, string> = {
+  running: '执行中',
+  waiting_reply: '等待回复',
+  needs_attention: '需注意',
+  idle: '空闲',
+  ended: '已结束',
+}
+
+const RELAY_MODES: AgentSessionRelayMode[] = ['auto', 'on', 'off']
+
+function sessionCount(state: AgentSessionState): number {
+  return stats.value?.sessions.by_state[state] ?? 0
+}
+
+// dbTables 是 DB 卡片展示的行数前 8 项：按行数降序、同数按表名，顺序稳定可预期。
+const dbTables = computed(() => {
+  const tables = stats.value?.db.tables ?? {}
+  return Object.entries(tables)
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 8)
+})
+
+// dbTail 只显示 db 路径的末段（完整路径放 title）。
+const dbTail = computed(() => {
+  const p = stats.value?.db.path ?? ''
+  return p.split(/[\\/]/).filter(Boolean).pop() ?? p
+})
+
+const dbTotalSize = computed(() => (stats.value?.db.size_bytes ?? 0) + (stats.value?.db.wal_size_bytes ?? 0))
+
+function fmtBytes(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) {
+    return '0 B'
+  }
+  const units = ['B', 'KB', 'MB', 'GB', 'TB']
+  let v = n
+  let i = 0
+  while (v >= 1024 && i < units.length - 1) {
+    v /= 1024
+    i++
+  }
+  return `${v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
 }
 
 const serviceVersion = computed(() => stats.value?.version || 'unknown')
@@ -177,7 +236,7 @@ onUnmounted(() => {
             <span class="n mono" :style="{ color: statusColor(status) }">
               {{ jobCount(status) }}
             </span>
-            <span class="l mono">{{ shortStatus(status) }}</span>
+            <span class="l mono" :title="chipTitle(status)">{{ shortStatus(status) }}</span>
           </div>
         </div>
       </div>
@@ -195,6 +254,49 @@ onUnmounted(() => {
         <div class="big mono">{{ stats?.projects ?? 0 }}</div>
         <div class="unit mono">已登记</div>
       </div>
+
+      <div class="card span2">
+        <h3>Server DB</h3>
+        <div class="big mono">{{ fmtBytes(dbTotalSize) }}</div>
+        <div class="unit mono" :title="stats?.db.path ?? ''">
+          {{ dbTail }} · wal {{ fmtBytes(stats?.db.wal_size_bytes ?? 0) }}
+        </div>
+        <div class="unit mono">
+          page {{ stats?.db.page_size ?? 0 }} × {{ stats?.db.page_count ?? 0 }}
+          <span v-if="stats?.db.partial" class="partial">行数超预算，仅部分</span>
+        </div>
+        <div class="dbtables">
+          <div v-for="[name, rows] in dbTables" :key="name" class="dbtable">
+            <span class="dt-n mono">{{ rows }}</span>
+            <span class="dt-k mono">{{ name }}</span>
+          </div>
+        </div>
+      </div>
+
+      <RouterLink to="/sessions" class="card span2 card--link">
+        <h3>Sessions</h3>
+        <div class="big mono">{{ stats?.sessions.total ?? 0 }}</div>
+        <div class="unit mono">
+          等待回复 <b>{{ stats?.sessions.waiting_turns ?? 0 }}</b> · 近 1h 活跃
+          {{ stats?.sessions.seen_within_1h ?? 0 }}
+        </div>
+        <div class="states">
+          <span
+            v-for="state in SESSION_STATES"
+            :key="state"
+            class="state mono"
+            :class="`state--${state}`"
+          >
+            {{ SESSION_STATE_LABELS[state] }} {{ sessionCount(state) }}
+          </span>
+        </div>
+        <div class="unit mono relay">
+          relay
+          <span v-for="mode in RELAY_MODES" :key="mode" class="relay-mode">
+            {{ mode }} <b>{{ stats?.sessions.by_relay_mode[mode] ?? 0 }}</b>
+          </span>
+        </div>
+      </RouterLink>
     </div>
 
     <div v-if="!loading && !error && !hasStats" class="empty mono">暂无 stats 数据</div>
@@ -364,6 +466,89 @@ onUnmounted(() => {
   font-size: 13px;
   padding: 28px 14px;
   text-align: center;
+}
+
+/* Server DB 卡：各表行数（前 8 项）两列排布 + 超预算标记 */
+.partial {
+  color: var(--fail);
+  font-size: 11px;
+  margin-left: 6px;
+}
+.dbtables {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 2px 12px;
+  margin-top: 10px;
+}
+.dbtable {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-size: 12px;
+  overflow: hidden;
+}
+.dt-n {
+  color: var(--paper);
+  font-weight: 700;
+  text-align: right;
+  min-width: 42px;
+}
+.dt-k {
+  color: var(--queue);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Sessions 卡：整卡跳 /sessions */
+.card--link {
+  display: block;
+  color: inherit;
+}
+.card--link:hover {
+  border-color: var(--phosphor);
+  text-decoration: none;
+}
+.card--link:focus-visible {
+  outline: 1px solid var(--phosphor);
+  outline-offset: 2px;
+}
+.card--link h3 {
+  margin-bottom: 10px;
+}
+.states {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+.state {
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--queue);
+  font-size: 11px;
+  padding: 1px 7px;
+  white-space: nowrap;
+}
+.state--running {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
+}
+.state--waiting_reply {
+  color: var(--run);
+  border-color: var(--run);
+}
+.state--needs_attention {
+  color: var(--fail);
+  border-color: var(--fail);
+}
+.relay {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.relay-mode {
+  color: var(--paper);
 }
 
 @media (max-width: 980px) {

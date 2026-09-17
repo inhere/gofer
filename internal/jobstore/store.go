@@ -48,7 +48,11 @@ const (
 // contention entirely while leaving reads (GetJob/ListJobs) free to run on the
 // pool concurrently.
 type Store struct {
-	db      *sql.DB
+	db *sql.DB
+	// path is the db file Open was given, kept for the DBStats file picture
+	// (size / -wal) the dashboard reports; SQLite itself has no "current file"
+	// pragma.
+	path    string
 	writeMu sync.Mutex
 }
 
@@ -393,7 +397,7 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("jobstore: ping %q: %w", path, err)
 	}
 
-	s := &Store{db: db}
+	s := &Store{db: db, path: path}
 	if err := s.applySchema(); err != nil {
 		_ = db.Close()
 		return nil, err
