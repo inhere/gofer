@@ -58,6 +58,28 @@ func TestBuiltinTemplatesTable(t *testing.T) {
 			Interactive: true,
 			NoRawCmd:    true,
 		},
+		// ACP-01 §一.1: the four ACP server adapters. Their args are the SERVER's
+		// launch argv (no {{prompt}}: the prompt travels over the protocol).
+		"claude-acp": {
+			Type:    TypeACPAgent,
+			Command: "npx",
+			Args:    []string{"-y", "@zed-industries/claude-code-acp"},
+			Detect:  config.DetectConfig{Command: "npx", Args: []string{"-y", "@zed-industries/claude-code-acp", "--version"}},
+		},
+		"codex-acp": {
+			Type:    TypeACPAgent,
+			Command: "codex-acp",
+		},
+		"gemini-acp": {
+			Type:    TypeACPAgent,
+			Command: "gemini",
+			Args:    []string{"--acp"},
+		},
+		"omp-acp": {
+			Type:    TypeACPAgent,
+			Command: "omp",
+			Args:    []string{"acp"},
+		},
 	}
 	if !reflect.DeepEqual(builtinTemplates, want) {
 		t.Fatalf("builtinTemplates drifted:\n got=%+v\nwant=%+v", builtinTemplates, want)

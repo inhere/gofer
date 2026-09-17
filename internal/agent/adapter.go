@@ -76,6 +76,19 @@ func BuildFrom(cfg *config.Config, agentKey, prompt string, cmd []string, vars V
 			Env:     copyEnv(ac.Env),
 		}, nil
 
+	case TypeACPAgent:
+		// An acp-agent's args are the ACP server's launch argv (rendered for
+		// {{cwd}}/{{job_id}}/… like a cli-agent's, but never the prompt — it travels
+		// over the protocol), so an empty prompt is legal here.
+		if ac.Command == "" {
+			return Resolved{}, fmt.Errorf("agent %q (acp-agent) has no command configured", agentKey)
+		}
+		return Resolved{
+			Command: ac.Command,
+			Args:    append(append([]string{}, Render(ac.Args, vars)...), opts.AgentArgs...),
+			Env:     copyEnv(ac.Env),
+		}, nil
+
 	case TypeCLIAgent:
 		if prompt == "" && !opts.AllowEmptyPrompt {
 			return Resolved{}, fmt.Errorf("agent %q (cli-agent) requires a non-empty prompt", agentKey)

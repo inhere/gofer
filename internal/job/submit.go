@@ -164,7 +164,6 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			run = pr
 		}
 	}
-
 	// sessionID is the底层 agent CLI 会话标识 bound to this job (session-capture).
 	// For a local cli-agent with a SessionInject template (claude) it is generated
 	// here and injected into argv so gofer knows it immediately (模式①注入). An
@@ -228,6 +227,19 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		ac, acOK := agent.ResolveAgent(cfg, req.Agent)
 		runReq.Command = resolved.Command
 		runReq.Args = resolved.Args
+		// ACP-01: an acp-agent's local execution is the ACP client runner, not a
+		// plain child process — the prompt travels over the protocol, so the local
+		// runner would exec an agent that never receives it. The runner is selected
+		// by key (like the pty runner) but is REQUIRED: silently falling back to the
+		// local runner would run a promptless agent process.
+		if acOK && ac.Type == agent.TypeACPAgent {
+			ar := s.runners[builtinACPRunner]
+			if ar == nil {
+				return JobResult{}, fmt.Errorf("%w: agent %q (acp-agent) requires the acp runner", ErrInvalidRequest, req.Agent)
+			}
+			run = ar
+			runReq.ACP = acpRequest(ac, req.Prompt, resultDir)
+		}
 		// 模式①注入(session-capture §5.1): the resolved agent has a SessionInject
 		// template (claude --session-id) → generate a uuid now and append the rendered
 		// inject args to argv, so gofer knows the session id without parsing output.
@@ -421,6 +433,27 @@ const titleMaxRunes = 32
 func isCLIAgent(cfg *config.Config, name string) bool {
 	a, ok := cfg.Agents[name]
 	return ok && a.Type == "cli-agent"
+}
+
+// acpRequest builds the acp runner payload (ACP-01) from an acp-agent's config:
+// the prompt, the result dir the runner writes acp.jsonl under, the permission
+// policy and the MCP servers it advertises in session/new. A nil acp sub-block
+// yields the defaults (auto-allow permissions, no MCP servers).
+func acpRequest(ac config.AgentConfig, prompt, resultDir string) *runner.ACPRequest {
+	r := &runner.ACPRequest{Prompt: prompt, ResultDir: resultDir}
+	if ac.ACP == nil {
+		return r
+	}
+	r.PermissionPolicy = ac.ACP.PermissionPolicy
+	for _, s := range ac.ACP.MCPServers {
+		r.MCPServers = append(r.MCPServers, runner.ACPMCPServer{
+			Name:    s.Name,
+			Command: s.Command,
+			Args:    s.Args,
+			Env:     s.Env,
+		})
+	}
+	return r
 }
 
 func defaultJobTitle(req JobRequest) string {

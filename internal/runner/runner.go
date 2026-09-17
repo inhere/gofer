@@ -86,6 +86,49 @@ type Request struct {
 	// owns the job. Only the same instance may later ADOPT the job after a serve
 	// restart. Local runs leave it nil.
 	OnDispatchedWorker func(workerID, instanceID string)
+
+	// ACP carries the inputs of an acp-agent job (prompt, event-stream directory,
+	// MCP servers, permission policy). It is set by the job service when the
+	// resolved agent is type acp-agent, and the acp runner is the only runner that
+	// reads it. Nil for every other job.
+	ACP *ACPRequest
+
+	// OnJobEvent (nil-safe) lets a runner record a job lifecycle event (e.g.
+	// job.tool_call from an acp-agent's tool-call status change) on the job. The job
+	// service wires it to its event log; the runner never touches the store itself.
+	OnJobEvent func(eventType string, detail map[string]any)
+}
+
+// ACPRequest is the acp-agent payload of a runner.Request: everything the acp
+// runner needs beyond the process argv (Command/Args/WorkDir/Env) and the log
+// writers.
+type ACPRequest struct {
+	// Prompt is the turn's prompt text (sent as one text content block).
+	Prompt string
+	// ResultDir is the job's result directory; the runner writes its structured
+	// event stream to <ResultDir>/artifacts/acp.jsonl.
+	ResultDir string
+	// PermissionPolicy is the agent's configured policy. S0 supports only
+	// ACPPermissionAutoAllow (the default); the runner refuses anything else rather
+	// than silently auto-approving a stricter policy (ask/strict land in S1).
+	PermissionPolicy string
+	// MCPServers are advertised to the agent in session/new.
+	MCPServers []ACPMCPServer
+}
+
+// ACP permission policies (config agents.<key>.acp.permission_policy).
+const (
+	// ACPPermissionAutoAllow approves every permission request automatically,
+	// preferring an allow_once option (see the design's S0 scope).
+	ACPPermissionAutoAllow = "auto_allow"
+)
+
+// ACPMCPServer is one MCP server advertised to an acp-agent through session/new.
+type ACPMCPServer struct {
+	Name    string
+	Command string
+	Args    []string
+	Env     map[string]string
 }
 
 // RemoteInteractionOption mirrors a peer interaction option without importing the
@@ -166,6 +209,14 @@ type Result struct {
 	// Outcome, when non-nil, carries产出 captured on a remote execution machine
 	// (worker / peer). Nil for local jobs. See Outcome doc.
 	Outcome *Outcome
+	// SessionID is a session identifier an execution-local runner learned out of
+	// band from the process it ran — today the acp runner's sessionId, which the job
+	// row records so `job resume` has a uniform entry point. Empty when the runner
+	// has none (local, remote: a remote's session id travels in Outcome).
+	SessionID string
+	// StopReason is the acp runner's session/prompt stopReason. It is empty for
+	// runners with no such notion; the job row records it when set.
+	StopReason string
 }
 
 // Outcome is the产出与审计 payload a REMOTE runner回传 from the execution machine

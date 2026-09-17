@@ -41,8 +41,8 @@ func newACPService(t *testing.T, root string, o acptest.Options) *Service {
 	projReg := project.NewRegistry(cfg, "")
 	agentReg := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{
-		localrunner.Name:  localrunner.New(),
-		acprunner.Name:    acprunner.New(),
+		localrunner.Name: localrunner.New(),
+		acprunner.Name:   acprunner.New(),
 	}
 	meta, err := jobstore.Open(jobstoreDBPath(root))
 	if err != nil {

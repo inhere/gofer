@@ -317,7 +317,12 @@ type JobResult struct {
 	FanIndex int `json:"fan_index,omitempty"`
 	// SessionID 底层 agent CLI 会话标识(claude/codex)。注入(提交时 gofer 生成)或捕获(终态从输出)。
 	// 空=无/未捕获。持久化 jobs.session_id，供 show/list/resume。
-	SessionID         string `json:"session_id,omitempty"`
+	SessionID string `json:"session_id,omitempty"`
+	// StopReason 是 acp-agent job 的 session/prompt stopReason（ACP-01 S0）：
+	// end_turn / max_tokens / max_turn_requests / refusal / cancelled。其余 agent 类型恒为空
+	// （omitempty 不出现在响应里）。它解释"agent 为何停下"——尤其是 max_tokens/max_turn_requests
+	// 这类 status 仍为 done 的提前结束。持久化 jobs.stop_reason。
+	StopReason        string `json:"stop_reason,omitempty"`
 	ResumedFrom       string `json:"resumed_from,omitempty"`
 	AutoResumeAttempt int    `json:"auto_resume_attempt,omitempty"`
 	AutoResumedBy     string `json:"auto_resumed_by,omitempty"`
@@ -370,6 +375,10 @@ const (
 	EventInteractionCreated  = "interaction.created"  // {interaction_id,type,prompt}
 	EventInteractionAnswered = "interaction.answered" // {interaction_id,answer}
 	EventInteractionPunted   = "interaction.punted"   // {interaction_id,caller_id}
+	// EventJobToolCall is an acp-agent's tool call reaching a new status
+	// (ACP-01 S0): {tool_call_id,title,kind,status}. Recorded by the acp runner
+	// through runner.Request.OnJobEvent; content-only refreshes are not events.
+	EventJobToolCall = "job.tool_call"
 )
 
 // Workflow lifecycle event types (P1, design §5.4). Recorded append-only via

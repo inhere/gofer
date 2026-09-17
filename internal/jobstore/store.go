@@ -85,6 +85,7 @@ var schemaStmts = []string{
   workflow_id      TEXT,
   step_index       INTEGER,
   session_id       TEXT,
+  stop_reason      TEXT,
   channel          TEXT,
   client           TEXT,
   origin_agent     TEXT,
@@ -467,6 +468,9 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := add("tags_json", "tags_json TEXT"); err != nil { // E5 job 标签（JSON 数组）
+		return err
+	}
+	if err := add("stop_reason", "stop_reason TEXT"); err != nil { // ACP-01 acp-agent 的 stopReason
 		return err
 	}
 	// 工作流(job 链)：step-job 反向关联其所属 workflow + 1-based 步序号，additive 加入，

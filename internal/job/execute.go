@@ -123,7 +123,29 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 	req.OnDispatchedWorker = func(workerID, instanceID string) {
 		s.setDispatchedWorker(entry, req.JobID, workerID, instanceID)
 	}
+	// ACP-01: a runner may report job events it observes (the acp runner's
+	// job.tool_call on a tool-call status change). Detail stays bounded by
+	// recordEvent's own cap. A no-op for runners that never call it.
+	req.OnJobEvent = func(eventType string, detail map[string]any) {
+		s.recordEvent(req.JobID, eventType, detail)
+	}
 	res := run.Run(ctx, req)
+
+	// ACP-01: a runner may learn facts about the session it just drove beyond the
+	// exit code — the acp runner returns the agent's sessionId (the uniform resume
+	// entry point) and its session/prompt stopReason. Applied BEFORE
+	// captureOutcomes so the terminal capture sees them (a non-empty SessionID also
+	// suppresses regex session capture, which is for cli-agents).
+	if res.SessionID != "" || res.StopReason != "" {
+		entry.mu.Lock()
+		if res.SessionID != "" && entry.result.SessionID == "" {
+			entry.result.SessionID = res.SessionID
+		}
+		if res.StopReason != "" {
+			entry.result.StopReason = res.StopReason
+		}
+		entry.mu.Unlock()
+	}
 
 	// Close the per-job log streams NOW, before finish() makes the terminal
 	// state observable (persist + eviction + workflow advance). Observers key

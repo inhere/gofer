@@ -943,6 +943,33 @@ type AgentConfig struct {
 	// gofer MCP 自注册 role=supervisor。约定默认 `gofer`（agent.McpServerNameDefault），
 	// 仅当 codex config 改了块名时才需配置此项。
 	McpServerName string `yaml:"mcp_server_name,omitempty"`
+	// ACP is the type=acp-agent sub-block (protocol-level settings). Ignored by
+	// every other agent type.
+	ACP *ACPConfig `yaml:"acp,omitempty"`
+}
+
+// ACPConfig is the acp-agent's protocol-level configuration
+// (docs/design/2026-09-17-acp-agent-and-approval-gate-design.md §一.1).
+type ACPConfig struct {
+	// Modes maps a gofer-level mode to the agent's own mode id, e.g.
+	// `read_only: "ask"`. It is PARSED in S0 and driven (session/set_mode) in S2.
+	Modes map[string]string `yaml:"modes,omitempty"`
+	// PermissionPolicy selects how session/request_permission is answered.
+	// Unset/`auto_allow` (S0) approves automatically, preferring an allow_once
+	// option; `ask`/`strict` belong to the S1 approval gate, and the runner refuses
+	// them rather than silently auto-approving.
+	PermissionPolicy string `yaml:"permission_policy,omitempty"`
+	// MCPServers are advertised to the agent in session/new (stdio transport). S0
+	// passes them through verbatim; empty means the agent gets none.
+	MCPServers []ACPMCPServerConfig `yaml:"mcp_servers,omitempty"`
+}
+
+// ACPMCPServerConfig is one MCP server handed to an acp-agent at session/new.
+type ACPMCPServerConfig struct {
+	Name    string            `yaml:"name"`
+	Command string            `yaml:"command"`
+	Args    []string          `yaml:"args,omitempty"`
+	Env     map[string]string `yaml:"env,omitempty"`
 }
 
 // Agent stdout capture formats (AgentConfig.OutputFormat).

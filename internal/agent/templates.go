@@ -52,6 +52,35 @@ var builtinTemplates = map[string]config.AgentConfig{
 		Args:            []string{"exec", "{{prompt}}"},
 		InteractiveArgs: []string{},
 	},
+	// —— acp-agent adapters (ACP-01 §一.1) ——
+	//
+	// The four known ACP servers. Args are the ACP SERVER's launch argv: the prompt
+	// travels over the protocol, so no template carries {{prompt}} and
+	// ValidateConfig rejects one that does.
+	//
+	// Only claude-acp needs an explicit detect block: it runs through npx, whose own
+	// --version reports Node, not the adapter. The other three are probed by the
+	// default `<command> --version` (design: detect 用各自 --version).
+	"claude-acp": {
+		Type:    TypeACPAgent,
+		Command: "npx",
+		Args:    []string{"-y", "@zed-industries/claude-code-acp"},
+		Detect:  config.DetectConfig{Command: "npx", Args: []string{"-y", "@zed-industries/claude-code-acp", "--version"}},
+	},
+	"codex-acp": {
+		Type:    TypeACPAgent,
+		Command: "codex-acp",
+	},
+	"gemini-acp": {
+		Type:    TypeACPAgent,
+		Command: "gemini",
+		Args:    []string{"--acp"},
+	},
+	"omp-acp": {
+		Type:    TypeACPAgent,
+		Command: "omp",
+		Args:    []string{"acp"},
+	},
 	// opencode: non-interactive run via the `run <prompt>` subcommand.
 	"opencode": {
 		Type:    TypeCLIAgent,

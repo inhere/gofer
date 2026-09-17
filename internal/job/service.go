@@ -47,6 +47,13 @@ const builtinLocalRunner = "local"
 // selects it by key (submit.go) so it never imports the pty runner package.
 const builtinPtyRunner = "pty"
 
+// builtinACPRunner is the runner key an acp-agent job is routed to (ACP-01 S0).
+// core always registers it (internal/runner/acp); the job service selects it by key
+// for the same reason as the pty runner, and refuses the job when it is absent
+// (running the ACP server's argv through the plain local runner would exec an agent
+// that never receives its prompt).
+const builtinACPRunner = "acp"
+
 // Submit validation sentinels. They let the HTTP layer (internal/httpapi) map a
 // rejected Submit to the right status code without string-matching: an unknown
 // project is a 404, everything else (agent not allowed / exec gate / runner not

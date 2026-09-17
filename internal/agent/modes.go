@@ -17,7 +17,10 @@ import (
 // Interactive is `interactive_args` (an empty list means a bare TUI launch) or
 // the legacy flag, whose args ARE the interactive argv.
 func Modes(ac config.AgentConfig) (batch, interactive bool) {
-	if ac.Type == TypeExec {
+	if ac.Type == TypeExec || ac.Type == TypeACPAgent {
+		// exec has no argv template to render; an acp-agent's session is driven over
+		// the protocol (one process = one prompt turn), so an interactive/pty session
+		// stays the cli-agent type's business.
 		return true, false
 	}
 	return !ac.Interactive, ac.InteractiveArgs != nil || ac.Interactive
@@ -37,6 +40,9 @@ func ValidateConfig(cfg *config.Config) error {
 		}
 		if ac.Type == TypeExec && ac.InteractiveArgs != nil {
 			return fmt.Errorf("agent %q: type exec cannot set interactive_args", key)
+		}
+		if ac.Type == TypeACPAgent && hasPrompt(ac.Args) {
+			return fmt.Errorf("agent %q: acp-agent args must not contain {{prompt}}; the prompt is sent over the ACP protocol", key)
 		}
 	}
 	return nil

@@ -55,6 +55,7 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		FanIndex:   r.FanIndex, // P2: fan-out 并行序号
 		// session 捕获：底层 agent CLI 会话标识（注入/捕获）。
 		SessionID:         r.SessionID,
+		StopReason:        r.StopReason,
 		ResumedFrom:       r.ResumedFrom,
 		AutoResumeAttempt: r.AutoResumeAttempt,
 		AutoResumedBy:     r.AutoResumedBy,
@@ -147,6 +148,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		FanIndex:   rec.FanIndex, // P2: fan-out 并行序号
 		// session 捕获：底层 agent CLI 会话标识（注入/捕获）。
 		SessionID:         rec.SessionID,
+		StopReason:        rec.StopReason,
 		ResumedFrom:       rec.ResumedFrom,
 		AutoResumeAttempt: rec.AutoResumeAttempt,
 		AutoResumedBy:     rec.AutoResumedBy,

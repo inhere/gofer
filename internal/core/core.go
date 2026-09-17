@@ -18,6 +18,7 @@ import (
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/ptyrelay"
 	"github.com/inhere/gofer/internal/runner"
+	acprunner "github.com/inhere/gofer/internal/runner/acp"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
 	peerhttprunner "github.com/inhere/gofer/internal/runner/peerhttp"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
@@ -193,6 +194,10 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 		}))
 	agents := agent.NewRegistryWith(cfg, detected)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
+	// ACP-01: the acp-agent runner is always available (no host backend needed — it
+	// spawns the configured ACP server itself). Its key is the capability signal the
+	// job service routes acp-agent jobs by (submit.go).
+	runners[acprunner.Name] = acprunner.New()
 	// WEB-03: register the pty runner variant ONLY when a pty backend is available
 	// on this build/host. Its presence under key "pty" is the capability signal the
 	// job service keys on to route interactive jobs (submit.go) — so job never

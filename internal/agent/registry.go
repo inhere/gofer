@@ -18,6 +18,11 @@ const (
 	TypeCLIAgent = "cli-agent"
 	// TypeExec runs a request-supplied argv verbatim (no prompt/template).
 	TypeExec = "exec"
+	// TypeACPAgent launches an Agent Client Protocol server (Command + Args are its
+	// launch argv) and drives one prompt turn over its stdio. The prompt travels
+	// over the protocol, so Args never carry {{prompt}}. See internal/acp and
+	// internal/runner/acp.
+	TypeACPAgent = "acp-agent"
 )
 
 // ExecAgentKey is the reserved key of the built-in exec agent. It is always
