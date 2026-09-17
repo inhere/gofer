@@ -37,9 +37,21 @@ func newACPService(t *testing.T, root string, o acptest.Options) *Service {
 // acp.permission_policy tightening ("" = not set).
 func newACPServiceWith(t *testing.T, root string, o acptest.Options, ap *config.ApprovalConfig, agentPolicy string) *Service {
 	t.Helper()
+	return newACPServiceAgent(t, root, o, ap, func(ac *config.AgentConfig) {
+		if agentPolicy != "" {
+			ac.ACP = &config.ACPConfig{PermissionPolicy: agentPolicy}
+		}
+	})
+}
+
+// newACPServiceAgent is newACPServiceWith with a hook over the acp agent's config:
+// mutate fills in whatever a test needs beyond the default fake-server agent (the
+// acp sub-block, transient patterns, …). nil leaves the default agent untouched.
+func newACPServiceAgent(t *testing.T, root string, o acptest.Options, ap *config.ApprovalConfig, mutate func(*config.AgentConfig)) *Service {
+	t.Helper()
 	agentCfg := config.AgentConfig{Type: agent.TypeACPAgent, Command: testcmd.Path(t), Args: acptest.CmdArgs(o)}
-	if agentPolicy != "" {
-		agentCfg.ACP = &config.ACPConfig{PermissionPolicy: agentPolicy}
+	if mutate != nil {
+		mutate(&agentCfg)
 	}
 	cfg := &config.Config{
 		Storage: config.StorageConfig{Root: root},

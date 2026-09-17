@@ -31,6 +31,12 @@ func CmdArgs(o Options) []string {
 	if o.PermissionRepeats > 0 {
 		args = append(args, "--perm-repeats", strconv.Itoa(o.PermissionRepeats))
 	}
+	if o.StderrLine != "" {
+		args = append(args, "--stderr-line", o.StderrLine)
+	}
+	if o.PromptError != "" {
+		args = append(args, "--prompt-error", o.PromptError)
+	}
 	return args
 }
 

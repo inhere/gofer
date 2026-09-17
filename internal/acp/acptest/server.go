@@ -64,6 +64,15 @@ type Options struct {
 	// ask repeats the SAME tool call and options, so an approval policy can be watched
 	// across consecutive asks (e.g. allow_always remembering a kind).
 	PermissionRepeats int
+	// StderrLine, when set, is written to the agent's stderr as soon as the process
+	// starts — before the handshake. It scripts the agent-side error text a transient
+	// pattern matches (automatic resume keys on stderr.log).
+	StderrLine string
+	// PromptError makes the scripted turn FAIL: session/prompt answers with a JSON-RPC
+	// error (-32603) carrying this message, and the message is echoed to stderr. It is
+	// the shape a real adapter shows when the provider stream drops ("stream
+	// disconnected before completion").
+	PromptError string
 }
 
 // Main runs the fake server over stdin/stdout. It returns the process exit code.
@@ -72,6 +81,9 @@ func Main(args []string) int {
 	if err != nil {
 		fmt.Fprintln(os.Stderr, "acptest:", err)
 		return 2
+	}
+	if opts.StderrLine != "" {
+		fmt.Fprintln(os.Stderr, opts.StderrLine)
 	}
 	s := newServer(opts, os.Stdin, os.Stdout, os.Stderr)
 	s.serve()
@@ -130,6 +142,18 @@ func parseArgs(args []string) (Options, error) {
 				return o, fmt.Errorf("--perm-repeats: want a non-negative integer, got %q", args[i])
 			}
 			o.PermissionRepeats = n
+		case "--stderr-line":
+			if i+1 >= len(args) {
+				return o, fmt.Errorf("--stderr-line needs a value")
+			}
+			i++
+			o.StderrLine = args[i]
+		case "--prompt-error":
+			if i+1 >= len(args) {
+				return o, fmt.Errorf("--prompt-error needs a value")
+			}
+			i++
+			o.PromptError = args[i]
 		default:
 			return o, fmt.Errorf("unknown flag %q", args[i])
 		}
@@ -252,6 +276,14 @@ func (s *server) handleRequest(msg *rpcMsg) {
 			s.replyError(msg.ID, -32601, "method not found: session/load")
 			return
 		}
+		var p struct {
+			SessionID string `json:"sessionId"`
+			Cwd       string `json:"cwd"`
+		}
+		_ = json.Unmarshal(msg.Params, &p)
+		// The line a test keys on to prove the turn RESUMED an existing session
+		// instead of opening a new one (session/new prints its own line).
+		fmt.Fprintf(s.errOut, "acptest: session/load sid=%s cwd=%s\n", p.SessionID, p.Cwd)
 		s.reply(msg.ID, map[string]any{"sessionId": SessionID})
 	case "session/set_mode":
 		var p struct {
@@ -317,6 +349,12 @@ func (s *server) stopTurn() {
 // three statuses, a permission round trip, fs/terminal requests we expect the
 // client to refuse, a plan, a mode update, and finally the prompt response.
 func (s *server) runTurn(msg *rpcMsg, stop chan struct{}) {
+	fmt.Fprintln(s.errOut, "acptest: session/prompt start")
+	if s.opts.PromptError != "" {
+		fmt.Fprintf(s.errOut, "acptest: session/prompt failed: %s\n", s.opts.PromptError)
+		s.replyError(msg.ID, -32603, s.opts.PromptError)
+		return
+	}
 	s.update(map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": TextHello}})
 	s.update(map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": TextWorld}})
 	s.update(map[string]any{"sessionUpdate": "agent_thought_chunk", "content": map[string]any{"type": "text", "text": TextThink}})
