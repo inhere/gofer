@@ -623,3 +623,78 @@ func TestCountActiveJobsByCaller(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, 0, n)
 }
+
+// TestJobTodoAndCommitsRoundTrip: the SUP-01 C columns — the todo a job was
+// submitted for, the commit it started from and the commit list it produced —
+// survive a write/read cycle (and an update of the same row), so `job show`, the
+// plan view and the terminal todo note can all read them back.
+func TestJobTodoAndCommitsRoundTrip(t *testing.T) {
+	s := openTest(t)
+	commits := `[{"sha":"a1b2c3d","subject":"fix the thing"},{"sha":"e4f5a6b","subject":"add a test"}]`
+	rec := sampleJob("job-todo", "proj", 100)
+	rec.TodoID, rec.BaseSHA, rec.CommitsJSON = "todo-1", "base1234", commits
+	assert.NoErr(t, s.UpsertJob(rec))
+
+	got, ok, err := s.GetJob("job-todo")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "todo-1", got.TodoID)
+	assert.Eq(t, "base1234", got.BaseSHA)
+	assert.Eq(t, commits, got.CommitsJSON)
+
+	// An update of the same row (the terminal snapshot) keeps them.
+	got.Status, got.CommitsJSON = "done", `[{"sha":"c9","subject":"later"}]`
+	assert.NoErr(t, s.UpsertJob(got))
+	again, _, err := s.GetJob("job-todo")
+	assert.NoErr(t, err)
+	assert.Eq(t, "todo-1", again.TodoID)
+	assert.Eq(t, "base1234", again.BaseSHA)
+	assert.Eq(t, `[{"sha":"c9","subject":"later"}]`, again.CommitsJSON)
+
+	// A job without them reads back as empty, never as another job's values.
+	plain := sampleJob("job-plain", "proj", 100)
+	assert.NoErr(t, s.UpsertJob(plain))
+	p, _, err := s.GetJob("job-plain")
+	assert.NoErr(t, err)
+	assert.Eq(t, "", p.TodoID)
+	assert.Eq(t, "", p.BaseSHA)
+	assert.Eq(t, "", p.CommitsJSON)
+}
+
+// TestListJobsByTodo: the jobs attached to one todo, newest first, bounded by the
+// caller's limit — what `plan show` / GET /v1/plans/{id} list under a todo, and
+// what makes "which run carries this item, and what did it do" answerable.
+func TestListJobsByTodo(t *testing.T) {
+	s := openTest(t)
+	mk := func(id, todo string, startedAt int64) JobRecord {
+		j := sampleJob(id, "proj", startedAt)
+		j.TodoID = todo
+		return j
+	}
+	for _, j := range []JobRecord{
+		mk("j-old", "todo-1", 100),
+		mk("j-mid", "todo-1", 200),
+		mk("j-new", "todo-1", 300),
+		mk("j-other", "todo-2", 400),
+		mk("j-plain", "", 500),
+	} {
+		assert.NoErr(t, s.UpsertJob(j))
+	}
+
+	list, err := s.ListJobsByTodo("todo-1", 10)
+	assert.NoErr(t, err)
+	assert.Eq(t, 3, len(list))
+	assert.Eq(t, "j-new", list[0].ID) // newest first
+	assert.Eq(t, "j-mid", list[1].ID)
+	assert.Eq(t, "j-old", list[2].ID)
+
+	// The limit bounds the list (the view shows only the most recent runs).
+	list, err = s.ListJobsByTodo("todo-1", 2)
+	assert.NoErr(t, err)
+	assert.Eq(t, 2, len(list))
+	assert.Eq(t, "j-new", list[0].ID)
+
+	list, err = s.ListJobsByTodo("todo-nope", 10)
+	assert.NoErr(t, err)
+	assert.Eq(t, 0, len(list))
+}

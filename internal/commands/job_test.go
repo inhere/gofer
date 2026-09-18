@@ -158,6 +158,38 @@ func TestJobRunPlanFlagBuildsRequest(t *testing.T) {
 	}
 }
 
+// TestJobRunTodoFlag: `job run --todo <id>` binds the flag onto the submitted
+// request (SUP-01 C: the linkage the hub resolves into a plan and a checklist
+// update), and leaving it out submits a plain job.
+func TestJobRunTodoFlag(t *testing.T) {
+	jobRunOpts = jobRunFlags{}
+
+	app := NewApp("test")
+	var got job.JobRequest
+	runCmd := app.GetCommand("job").GetCommand("run")
+	runCmd.Func = func(c *gcli.Command, _ []string) error {
+		req, err := buildJobRunRequest(c, nil)
+		if err != nil {
+			return err
+		}
+		got = req
+		return nil
+	}
+	if code := app.Run([]string{"job", "run", "-p", "self", "-a", "exec", "--todo", "todo-cli", "--", "go", "version"}); code != 0 {
+		t.Fatalf("app.Run exit code=%d", code)
+	}
+	if got.TodoID != "todo-cli" {
+		t.Fatalf("JobRequest.TodoID = %q, want todo-cli", got.TodoID)
+	}
+
+	if code := app.Run([]string{"job", "run", "-p", "self", "-a", "exec", "--", "go", "version"}); code != 0 {
+		t.Fatalf("app.Run exit code=%d", code)
+	}
+	if got.TodoID != "" {
+		t.Fatalf("JobRequest.TodoID = %q, want empty without --todo", got.TodoID)
+	}
+}
+
 func TestJobRunInteractiveFlagsBuildRequest(t *testing.T) {
 	jobRunOpts = jobRunFlags{}
 

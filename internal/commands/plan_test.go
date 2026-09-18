@@ -1,13 +1,63 @@
 package commands
 
 import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/gookit/gcli/v3"
 
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/config"
 )
+
+// TestPlanSetTodoAppendNote: `plan set-todo <id> --append-note "<line>"` PATCHes
+// the todo with the appended line and NO status (appending must not flip a todo's
+// state — it is how a job's outcome is recorded on the checklist, SUP-01 C), and
+// --note with --append-note is refused before any request is sent.
+func TestPlanSetTodoAppendNote(t *testing.T) {
+	isolateConfigEnv(t)
+	config.InputCfgFile = ""
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	jobConnOpts.server, jobConnOpts.token = "", ""
+
+	var gotPath, gotMethod string
+	var gotBody map[string]any
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotMethod, gotPath = r.Method, r.URL.Path
+		if err := json.NewDecoder(r.Body).Decode(&gotBody); err != nil {
+			t.Fatalf("decode todo body: %v", err)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(client.Todo{TodoID: "todo-1", Status: "doing"})
+	}))
+	defer ts.Close()
+
+	app := NewApp("test")
+	if code := app.Run([]string{"plan", "set-todo", "--server", ts.URL, "todo-1", "--append-note", "job-1 ✓ no commits"}); code != 0 {
+		t.Fatalf("app.Run exit code=%d", code)
+	}
+	if gotMethod != http.MethodPatch || gotPath != "/v1/todos/todo-1" {
+		t.Fatalf("unexpected request: %s %s", gotMethod, gotPath)
+	}
+	if gotBody["append_note"] != "job-1 ✓ no commits" {
+		t.Fatalf("append_note = %v, want the line", gotBody["append_note"])
+	}
+	if status, ok := gotBody["status"]; ok && status != "" {
+		t.Fatalf("append must not carry a status, got %v", status)
+	}
+
+	// The two note forms are mutually exclusive: refuse without a request.
+	gotPath, gotBody = "", nil
+	if code := app.Run([]string{"plan", "set-todo", "--server", ts.URL, "todo-1", "--note", "x", "--append-note", "y"}); code == 0 {
+		t.Fatal("--note with --append-note must fail")
+	}
+	if gotPath != "" {
+		t.Fatalf("a rejected update must not reach the server: %s", gotPath)
+	}
+}
 
 func TestPlanSubcommandsRegistered(t *testing.T) {
 	app := NewApp("test")

@@ -372,6 +372,72 @@ func TestPlanTodoAPI(t *testing.T) {
 	}
 }
 
+// TestPlanShowListsTodoJobs: GET /v1/plans/{id} lists, under each todo, the jobs
+// attached to it (jobs.todo_id) — newest first with status and duration — so the
+// plan view can show which run carries an item without a second query per todo.
+func TestPlanShowListsTodoJobs(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-tj"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("create plan status=%d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	resp = do(t, s, http.MethodPost, "/v1/plans/plan-tj/todos", testToken, map[string]any{"title": "carried"})
+	var added struct {
+		TodoID string `json:"todo_id"`
+	}
+	decode(t, resp, &added)
+
+	// Two runs of the same item, plus one job attached to nothing.
+	for _, tc := range []struct {
+		id, todo string
+	}{
+		{"job-tj-1", added.TodoID},
+		{"job-tj-2", added.TodoID},
+		{"job-tj-other", ""},
+	} {
+		rec := jobstore.JobRecord{
+			ID: tc.id, ProjectKey: "self", Agent: "exec", Runner: "local", Status: job.StatusDone,
+			ResultDir: s.projects.Config().Projects["self"].HostPath, StartedAt: 100, EndedAt: 130,
+			UpdatedAt: 130, TodoID: tc.todo,
+		}
+		if err := s.jobs.Meta().UpsertJob(rec); err != nil {
+			t.Fatalf("seed job %s: %v", tc.id, err)
+		}
+	}
+
+	resp = do(t, s, http.MethodGet, "/v1/plans/plan-tj", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get plan status=%d, want 200", resp.StatusCode)
+	}
+	var detail struct {
+		Todos []struct {
+			TodoID string `json:"todo_id"`
+			Jobs   []struct {
+				ID          string `json:"id"`
+				Status      string `json:"status"`
+				Agent       string `json:"agent"`
+				DurationSec int64  `json:"duration_sec"`
+			} `json:"jobs"`
+		} `json:"todos"`
+	}
+	decode(t, resp, &detail)
+	if len(detail.Todos) != 1 {
+		t.Fatalf("todos = %+v, want the one added", detail.Todos)
+	}
+	jobs := detail.Todos[0].Jobs
+	if len(jobs) != 2 {
+		t.Fatalf("todo jobs = %+v, want the 2 jobs bound to it", jobs)
+	}
+	if jobs[0].ID != "job-tj-2" {
+		t.Fatalf("todo jobs must be newest first: %+v", jobs)
+	}
+	if jobs[0].Status != job.StatusDone || jobs[0].Agent != "exec" || jobs[0].DurationSec != 30 {
+		t.Fatalf("todo job view mismatch: %+v", jobs[0])
+	}
+}
+
 func TestGetPlanCountsUseFullAggregateNotVisibleJobsLimit(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-many"})
