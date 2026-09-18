@@ -96,16 +96,16 @@ func FormatUsage(u *Usage) string {
 	}
 	parts := make([]string, 0, 5)
 	if u.InputTokens > 0 {
-		parts = append(parts, "in "+formatTokens(u.InputTokens))
+		parts = append(parts, "in "+FormatTokens(u.InputTokens))
 	}
 	if u.OutputTokens > 0 {
-		parts = append(parts, "out "+formatTokens(u.OutputTokens))
+		parts = append(parts, "out "+FormatTokens(u.OutputTokens))
 	}
 	if cache := u.CacheReadTokens + u.CacheWriteTokens; cache > 0 {
-		parts = append(parts, "cache "+formatTokens(cache))
+		parts = append(parts, "cache "+FormatTokens(cache))
 	}
 	if u.TotalTokens > 0 {
-		parts = append(parts, "total "+formatTokens(u.TotalTokens))
+		parts = append(parts, "total "+FormatTokens(u.TotalTokens))
 	}
 	if u.CostUSD > 0 {
 		parts = append(parts, "$"+strconv.FormatFloat(u.CostUSD, 'f', 4, 64))
@@ -119,10 +119,11 @@ func FormatUsage(u *Usage) string {
 	return strings.Join(parts, " / ")
 }
 
-// formatTokens renders a token count at a glance: three significant digits behind a
+// FormatTokens renders a token count at a glance: three significant digits behind a
 // k/M suffix once it is large enough to need one (12.3k, 305k, 1.2M), the exact
-// number below a thousand.
-func formatTokens(n int64) string {
+// number below a thousand. It is what `job show` prints inside the usage line and
+// what `agent status` prints in its 24h column, so both read the same way.
+func FormatTokens(n int64) string {
 	switch {
 	case n < 1000:
 		return strconv.FormatInt(n, 10)

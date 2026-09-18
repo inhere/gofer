@@ -145,6 +145,41 @@ function fmtBytes(n: number): string {
 const serviceVersion = computed(() => stats.value?.version || 'unknown')
 const serviceUptime = computed(() => formatUptime(stats.value?.uptime_sec))
 
+// 用量卡（SUP-01 E）：服务端只算这两个窗口（httpapi.statsUsageWindows），缺某个窗口 =
+// 该窗口没算（partial 说明预算耗尽），这时显示"未统计"而不是 0。
+const USAGE_WINDOWS = ['24h', '7d'] as const
+type UsageWindowKey = (typeof USAGE_WINDOWS)[number]
+const usageWindow = ref<UsageWindowKey>('24h')
+
+const usageTotal = computed(() => stats.value?.usage.windows[usageWindow.value]?.total ?? null)
+
+// usageRows 按 total_tokens 降序（同数按 agent 名），顺序稳定可预期。
+const usageRows = computed(() => {
+  const byAgent = stats.value?.usage.windows[usageWindow.value]?.by_agent ?? {}
+  return Object.entries(byAgent).sort(
+    (a, b) => b[1].total_tokens - a[1].total_tokens || a[0].localeCompare(b[0]),
+  )
+})
+
+// fmtTokens 与后端 job.FormatTokens 同规则：<1000 原样，其余带 k/M 且保留 3 位有效数字。
+function fmtTokens(n: number): string {
+  if (!Number.isFinite(n) || n <= 0) {
+    return '0'
+  }
+  if (n < 1000) {
+    return String(n)
+  }
+  if (n < 1_000_000) {
+    return `${Number((n / 1000).toPrecision(3))}k`
+  }
+  return `${Number((n / 1_000_000).toPrecision(3))}M`
+}
+
+// fmtCost 与 CLI/详情页同款：4 位小数（成本常常小到 0.0032 这一档）。
+function fmtCost(v: number): string {
+  return `$${(v || 0).toFixed(4)}`
+}
+
 function formatUptime(sec?: number): string {
   if (sec == null || !Number.isFinite(sec) || sec < 0) {
     return '-'
@@ -281,6 +316,36 @@ onUnmounted(() => {
             <span class="dt-k mono">{{ name }}</span>
           </div>
         </div>
+      </div>
+
+      <div class="card span2">
+        <h3>
+          Agent 用量
+          <span class="usage-tabs">
+            <button
+              v-for="w in USAGE_WINDOWS"
+              :key="w"
+              type="button"
+              class="usage-tab mono"
+              :class="{ 'usage-tab--on': w === usageWindow }"
+              @click="usageWindow = w"
+            >
+              {{ w }}
+            </button>
+          </span>
+        </h3>
+        <div class="big mono">{{ fmtTokens(usageTotal?.total_tokens ?? 0) }}<span class="unit"> tokens</span></div>
+        <div class="unit mono">
+          {{ usageTotal?.jobs ?? 0 }} job · {{ fmtCost(usageTotal?.cost_usd ?? 0) }}
+          <span v-if="stats?.usage.partial" class="partial">预算耗尽，仅部分窗口</span>
+        </div>
+        <div class="dbtables">
+          <div v-for="[agent, u] in usageRows" :key="agent" class="dbtable">
+            <span class="dt-n mono">{{ fmtTokens(u.total_tokens) }}</span>
+            <span class="dt-k mono">{{ agent }} · {{ u.jobs }} job · {{ fmtCost(u.cost_usd) }}</span>
+          </div>
+        </div>
+        <div v-if="usageRows.length === 0" class="unit mono">该窗口内没有采集到用量</div>
       </div>
 
       <RouterLink to="/sessions" class="card span2 card--link">
@@ -483,6 +548,25 @@ onUnmounted(() => {
   color: var(--fail);
   font-size: 11px;
   margin-left: 6px;
+}
+/* Agent 用量卡（SUP-01 E）：24h/7d 切换——两个小按钮，选中的那个用主题绿。 */
+.usage-tabs {
+  display: inline-flex;
+  gap: 4px;
+  margin-left: 8px;
+}
+.usage-tab {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--queue);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 1px 7px;
+}
+.usage-tab--on {
+  border-color: var(--phosphor);
+  color: var(--phosphor);
 }
 .dbtables {
   display: grid;

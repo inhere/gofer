@@ -510,6 +510,41 @@ func (c *Client) ListAgents() ([]AgentMeta, error) {
 	return out, nil
 }
 
+// StatsUsage is the usage block of GET /v1/stats (SUP-01 E): what each agent burned
+// per window, keyed by the window's label ("24h", "7d"). A window missing from
+// Windows was not computed (see Partial) — a caller must not read it as zero usage.
+type StatsUsage struct {
+	Windows map[string]UsageWindow `json:"windows"`
+	Partial bool                   `json:"partial"`
+}
+
+// UsageWindow is one window of the aggregate: per-agent tallies plus their sum.
+type UsageWindow struct {
+	ByAgent map[string]UsageAgent `json:"by_agent"`
+	Total   UsageAgent            `json:"total"`
+}
+
+// UsageAgent is one agent's tally in a window: Jobs counts every job it ran, the sums
+// only the jobs that reported usage.
+type UsageAgent struct {
+	Jobs         int     `json:"jobs"`
+	TotalTokens  int64   `json:"total_tokens"`
+	InputTokens  int64   `json:"input_tokens"`
+	OutputTokens int64   `json:"output_tokens"`
+	CostUSD      float64 `json:"cost_usd"`
+}
+
+// GetUsageStats fetches the token/cost aggregate behind /v1/stats (SUP-01 E). It
+// decodes that endpoint and keeps only the usage block — which is what `agent status`
+// prints — so the dashboard can grow new blocks without touching this caller.
+func (c *Client) GetUsageStats() (StatsUsage, error) {
+	var resp struct {
+		Usage StatsUsage `json:"usage"`
+	}
+	err := c.doJSON(http.MethodGet, "/v1/stats", nil, &resp)
+	return resp.Usage, err
+}
+
 // AgentProbe is the outcome of a probe (POST /v1/agents/{key}/probe, SUP-01 P3): the
 // ordinary job that carried it, its terminal status, and the first line the agent
 // produced.

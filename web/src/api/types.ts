@@ -97,6 +97,9 @@ export interface Job {
   // 结果。failed/timeout 正是该 job 失败的原因；skipped=agent 没正常结束，故没跑。
   // 列表页对失败的 job 打 verify 小徽标，详情页有独立块。
   verify?: JobVerify
+  // 用量/成本（SUP-01 E，后端 omitempty）：agent 自报的 token/成本结算（远端 job 由执行机
+  // 采集后随 Outcome 回传）。没采集到就没有该字段，详情页不显示用量块。
+  usage?: JobUsage
 }
 
 // 一次验证步骤的结果（SUP-01 P2）。command=提交时的 argv（未经 shell），
@@ -107,6 +110,19 @@ export interface JobVerify {
   exit_code: number
   duration_ms: number
   reason?: string
+}
+
+// 一次运行的 token/成本结算（SUP-01 E）。缺省的计数器 = agent 没报这一项（不是 0），
+// 渲染时省略；后端在总数缺失时按四项求和。source 标明这串数字从哪来：
+// ndjson:omp / ndjson:claude / codex:stderr / acp:usage_update。
+export interface JobUsage {
+  input_tokens?: number
+  output_tokens?: number
+  cache_read_tokens?: number
+  cache_write_tokens?: number
+  total_tokens?: number
+  cost_usd?: number
+  source?: string
 }
 
 // 该 job 产出的一个提交（SUP-01 C）。
@@ -290,11 +306,34 @@ export interface Stats {
     waiting_turns: number
     seen_within_1h: number
   }
+  // 用量/成本（SUP-01 E）：按 24h/7d 窗口给出各 agent 的 job 数、token 与成本。
+  // windows 里缺某个窗口 = 该窗口没算（partial=true 表示预算耗尽），不能当 0 用量读。
+  usage: {
+    windows: Record<string, UsageWindow>
+    partial: boolean
+  }
   escalations_pending: number
   projects: number
   server_time: number
   version?: string
   uptime_sec?: number
+}
+
+// 一个用量窗口（SUP-01 E）：by_agent 按 agent 键给出各自结算，total 是它们的和。
+// by_agent 里没有某个 agent = 该窗口内它没有结算（跑了但没采集到），不是 0 用量。
+export interface UsageWindow {
+  by_agent: Record<string, UsageAgent>
+  total: UsageAgent
+}
+
+// 一个 agent 在一个窗口内的用量：jobs 计它在窗口内跑过的每个 job，token/成本只累加
+// 真报了数的那些。
+export interface UsageAgent {
+  jobs: number
+  total_tokens: number
+  input_tokens: number
+  output_tokens: number
+  cost_usd: number
 }
 
 export interface ProjectsResp {

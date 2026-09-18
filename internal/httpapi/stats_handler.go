@@ -17,6 +17,7 @@ type statsResp struct {
 	Drivers            statsDrivers   `json:"drivers"`
 	DB                 statsDB        `json:"db"`
 	Sessions           statsSessions  `json:"sessions"`
+	Usage              statsUsage     `json:"usage"`
 	EscalationsPending int            `json:"escalations_pending"`
 	Projects           int            `json:"projects"`
 	ServerTime         int64          `json:"server_time"`
@@ -80,6 +81,38 @@ type statsSessions struct {
 	SeenWithin1h int            `json:"seen_within_1h"`
 }
 
+// statsUsage is the usage block (SUP-01 E): what each agent burned, per window. A
+// window missing from the map was NOT computed (the budget ran out — see Partial);
+// callers must not read a missing window as "zero usage".
+type statsUsage struct {
+	Windows map[string]statsUsageWindow `json:"windows"`
+	Partial bool                        `json:"partial"`
+}
+
+// statsUsageWindow is one window: the per-agent tallies keyed by agent, plus their sum.
+type statsUsageWindow struct {
+	ByAgent map[string]statsUsageAgent `json:"by_agent"`
+	Total   statsUsageAgent            `json:"total"`
+}
+
+// statsUsageAgent is one agent's tally in a window: Jobs counts every job it ran,
+// the sums only the jobs that reported usage.
+type statsUsageAgent struct {
+	Jobs         int     `json:"jobs"`
+	TotalTokens  int64   `json:"total_tokens"`
+	InputTokens  int64   `json:"input_tokens"`
+	OutputTokens int64   `json:"output_tokens"`
+	CostUSD      float64 `json:"cost_usd"`
+}
+
+// statsUsageWindows are the windows /v1/stats reports usage for — the dashboard's
+// 24h/7d toggle and `agent status` read exactly these keys.
+var statsUsageWindows = []time.Duration{24 * time.Hour, 7 * 24 * time.Hour}
+
+// statsUsageBudget caps the usage pass, mirroring statsDBBudget: the two blocks are
+// independent reads, so pinning one in a test does not degrade the other.
+var statsUsageBudget = 200 * time.Millisecond
+
 func (s *Server) handleStats(c *rux.Context) {
 	byStatus, err := s.jobs.Meta().CountJobsByStatus()
 	if err != nil {
@@ -131,6 +164,11 @@ func (s *Server) handleStats(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "read session stats failed", err.Error())
 		return
 	}
+	usageStats, err := s.jobs.Meta().UsageStats(time.UnixMilli(nowMillis()).Unix(), statsUsageWindows, statsUsageBudget)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "read usage stats failed", err.Error())
+		return
+	}
 
 	c.JSON(http.StatusOK, statsResp{
 		Jobs: statsJobs{
@@ -144,6 +182,7 @@ func (s *Server) handleStats(c *rux.Context) {
 		Drivers:            drivers,
 		DB:                 statsDBFromStore(dbStats),
 		Sessions:           statsSessionsFromStore(sessStats),
+		Usage:              statsUsageFromStore(usageStats),
 		EscalationsPending: escalationsPending,
 		Projects:           len(s.projects.List()),
 		ServerTime:         nowMillis(),
@@ -167,6 +206,33 @@ func statsDBFromStore(st jobstore.DBStats) statsDB {
 		PageCount:    st.PageCount,
 		Tables:       tables,
 		Partial:      st.Partial,
+	}
+}
+
+// statsUsageFromStore maps the store's usage aggregate onto the wire shape. A
+// window the store did not compute stays absent (Partial says why) and an agent with
+// no entry in a window is simply absent from by_agent — the card renders both as
+// "no data" rather than as zeros.
+func statsUsageFromStore(st jobstore.UsageStats) statsUsage {
+	windows := make(map[string]statsUsageWindow, len(st.Windows))
+	for label, w := range st.Windows {
+		byAgent := make(map[string]statsUsageAgent, len(w.ByAgent))
+		for agent, a := range w.ByAgent {
+			byAgent[agent] = usageAgentToWire(a)
+		}
+		windows[label] = statsUsageWindow{ByAgent: byAgent, Total: usageAgentToWire(w.Total)}
+	}
+	return statsUsage{Windows: windows, Partial: st.Partial}
+}
+
+// usageAgentToWire flattens one agent's tally onto the wire struct.
+func usageAgentToWire(a jobstore.UsageAgent) statsUsageAgent {
+	return statsUsageAgent{
+		Jobs:         a.Jobs,
+		TotalTokens:  a.TotalTokens,
+		InputTokens:  a.InputTokens,
+		OutputTokens: a.OutputTokens,
+		CostUSD:      a.CostUSD,
 	}
 }
 

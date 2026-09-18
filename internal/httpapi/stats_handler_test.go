@@ -135,7 +135,9 @@ func TestStatsIncludesUsage(t *testing.T) {
 		started int64
 	}{
 		{"u-omp-1", "omp", `{"input_tokens":100,"output_tokens":200,"total_tokens":1000,"cost_usd":0.01,"source":"ndjson:omp"}`, now - day/2},
-		{"u-omp-2", "omp", `{"total_tokens":500,"source":"ndjson:omp"}`, now - 3600},
+		{"u-omp-2", "omp", `{"total_tokens":500,"cost_usd":0.005,"source":"ndjson:omp"}`, now - 3600},
+		// 窗口内跑了但没采集到用量：计入 job 数、不计 token。
+		{"u-omp-none", "omp", "", now - 600},
 		{"u-omp-old", "omp", `{"total_tokens":100,"source":"ndjson:omp"}`, now - 3*day}, // 24h 之外、7d 之内
 		{"u-codex-1", "codex", `{"total_tokens":2000,"cost_usd":0.02,"source":"codex:stderr"}`, now - 7200},
 	} {
@@ -160,17 +162,21 @@ func TestStatsIncludesUsage(t *testing.T) {
 		t.Fatalf("usage.windows=%v, want 24h and 7d", body.Usage.Windows)
 	}
 	d := body.Usage.Windows["24h"]
-	if omp := d.ByAgent["omp"]; omp.Jobs != 3 || omp.TotalTokens != 1600 || omp.InputTokens != 100 || omp.OutputTokens != 200 {
-		t.Fatalf("24h omp = %+v, want 3 jobs / 1600 tokens / 100 in / 200 out", omp)
+	if omp := d.ByAgent["omp"]; omp.Jobs != 3 || omp.TotalTokens != 1500 || omp.InputTokens != 100 || omp.OutputTokens != 200 {
+		t.Fatalf("24h omp = %+v, want 3 jobs (the one without usage included) / 1500 tokens / 100 in / 200 out", omp)
 	}
 	if math.Abs(d.ByAgent["codex"].CostUSD-0.02) > 1e-9 {
 		t.Fatalf("24h codex cost = %v, want 0.02", d.ByAgent["codex"].CostUSD)
 	}
-	if d.Total.Jobs != 4 || d.Total.TotalTokens != 3600 {
-		t.Fatalf("24h total = %+v, want 4 jobs / 3600 tokens", d.Total)
+	if d.Total.Jobs != 4 || d.Total.TotalTokens != 3500 {
+		t.Fatalf("24h total = %+v, want 4 jobs / 3500 tokens", d.Total)
 	}
-	if got := body.Usage.Windows["7d"].Total.TotalTokens; got != 3600 {
-		t.Fatalf("7d total tokens = %d, want the same four jobs (all inside 7d)", got)
+	w := body.Usage.Windows["7d"]
+	if got := w.ByAgent["omp"]; got.Jobs != 4 || got.TotalTokens != 1600 {
+		t.Fatalf("7d omp = %+v, want the 3-day-old job included (4 jobs / 1600 tokens)", got)
+	}
+	if w.Total.Jobs != 5 || w.Total.TotalTokens != 3600 {
+		t.Fatalf("7d total = %+v, want 5 jobs / 3600 tokens", w.Total)
 	}
 }
 

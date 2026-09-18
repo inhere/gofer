@@ -271,10 +271,15 @@ func runAgentShow(c *gcli.Command, _ []string) error {
 	return nil
 }
 
-// runAgentStatus prints every agent with its availability and its recent-job health
-// (SUP-01 P3). Availability comes from the SERVER's detect cache — health lives in the
-// server's jobs table, so this is a server-side read even when a local config exists
-// (an agent's provider is only "down" as observed by the box that runs its jobs).
+// usageWindow24h is the window `agent status` reports usage for: the server's
+// /v1/stats spells its windows "24h"/"7d" (httpapi.statsUsageWindows).
+const usageWindow24h = "24h"
+
+// runAgentStatus prints every agent with its availability, its recent-job health and
+// its 24h usage (SUP-01 P3/P4). Availability comes from the SERVER's detect cache,
+// health and usage from the server's jobs table, so this is a server-side read even
+// when a local config exists (an agent's provider is only "down" as observed by the
+// box that runs its jobs).
 func runAgentStatus(c *gcli.Command, _ []string) error {
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
@@ -284,9 +289,16 @@ func runAgentStatus(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
+	usage, err := cli.GetUsageStats()
+	if err != nil {
+		return err
+	}
+	win24h := usage.Windows[usageWindow24h]
+
 	only := argKey(c)
 	printed := 0
-	c.Printf("%-14s %-12s %-9s %-9s %5s %4s %6s  %s\n", "KEY", "TYPE", "AVAILABLE", "HEALTH", "JOBS", "OK", "FAILED", "LAST_TRANSIENT")
+	c.Printf("%-14s %-12s %-9s %-9s %5s %4s %6s  %-19s %10s %9s\n",
+		"KEY", "TYPE", "AVAILABLE", "HEALTH", "JOBS", "OK", "FAILED", "LAST_TRANSIENT", "24H_TOKENS", "24H_COST")
 	for _, a := range agents {
 		if only != "" && a.Name != only {
 			continue
@@ -296,13 +308,25 @@ func runAgentStatus(c *gcli.Command, _ []string) error {
 		if a.Available {
 			available = "yes"
 		}
+		// 24h 用量（SUP-01 E）：窗口内没采集到用量 → `-`（没报 ≠ 0 用量），窗口根本没算
+		// （预算耗尽）同理——不拿 0 冒充。
+		tokens, cost := "-", "-"
+		if ua, ok := win24h.ByAgent[a.Name]; ok {
+			if ua.TotalTokens > 0 {
+				tokens = job.FormatTokens(ua.TotalTokens)
+			}
+			if ua.CostUSD > 0 {
+				cost = fmt.Sprintf("$%.4f", ua.CostUSD)
+			}
+		}
 		h := a.Health
 		if h == nil {
-			c.Printf("%-14s %-12s %-9s %-9s %5s %4s %6s  %s\n", a.Name, a.Type, available, "-", "-", "-", "-", "-")
+			c.Printf("%-14s %-12s %-9s %-9s %5s %4s %6s  %-19s %10s %9s\n",
+				a.Name, a.Type, available, "-", "-", "-", "-", "-", tokens, cost)
 			continue
 		}
-		c.Printf("%-14s %-12s %-9s %-9s %5d %4d %6d  %s\n",
-			a.Name, a.Type, available, h.State, h.Jobs, h.OK, h.TransientFail, probeTime(h.LastTransientAt))
+		c.Printf("%-14s %-12s %-9s %-9s %5d %4d %6d  %-19s %10s %9s\n",
+			a.Name, a.Type, available, h.State, h.Jobs, h.OK, h.TransientFail, probeTime(h.LastTransientAt), tokens, cost)
 	}
 	if only != "" && printed == 0 {
 		return fmt.Errorf("unknown agent %q", only)
