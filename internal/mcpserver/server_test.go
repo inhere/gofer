@@ -134,6 +134,8 @@ func TestListToolsAllPresent(t *testing.T) {
 		"gofer_update_todo": false,
 		// Decision channel (Part C §C3).
 		"gofer_ask_human": false,
+		// SUP-01 P5 task-book templates (1 read-only tool).
+		"gofer_list_templates": false,
 	}
 	for _, tl := range res.Tools {
 		if _, ok := want[tl.Name]; ok {
