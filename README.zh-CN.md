@@ -231,7 +231,7 @@ gofer tunnel ls
 - **运行中交互**：agent 经 `POST /v1/jobs/{id}/interactions` 提问 → job 置 `pending_interaction` → 人 `POST …/answer` → 续跑；MCP 对应 `gofer_get_interactions` / `gofer_answer_interaction`；web 与 IM 通知（钉钉/飞书 webhook，`server.notification`）。
 - **审批门（acp-agent）**：项目 `approval` 段决定 ACP agent 能无人值守做到哪一步——`mode: off`（默认）照旧自动放行，`ask` 放行 `auto_allow_kinds`（read/search/think/fetch）之外的求批，`strict` 全部求批。待批请求落成 `type=permission` 的交互（被求批的工具调用 + agent 自己的 ACP 选项 + `timeout_sec` 倒计时），在 web job 页点按钮、`gofer job answer <id> <interaction-id> <optionId>` 或 MCP `gofer_answer_interaction` 作答；无人作答则按 `on_timeout` 兜底（默认 `reject`，可配 `allow`）。agent 侧只能经 `agents.<key>.acp.permission_policy` **收紧**项目策略；IM 只发通知（`job.permission_requested`，带 web 链接），不支持在 IM 里作答。每次决定都进 job 事件（`job.permission_requested|answered|timed_out`）与 `<result_dir>/artifacts/acp.jsonl` 审计。
 - **plan 进度看板**：`gofer plan create/add-todo/set-todo`，job 用 `--plan <id>` 挂上；web Plan 页（手机可开）就是实时进度页。**决策点问人**：MCP `gofer_ask_human` 阻塞提问，人在 web 作答后答案流回 agent（超时按预案继续）。
-- **终端会话中继**：`gofer init hooks` 装 Stop/UserPromptSubmit 等 hook 后，Claude Code / Codex 会话停下时最后一条消息可发到 web「会话」页等回复，回复注入**同一个**会话继续（`gofer session relay auto|on|off`、`gofer session say`）。开关**三态**：`on` 每次停下都等，`off` 从不等，`auto`（缺省）交给 server 判——离开键盘超过 `session.auto_relay_idle_sec`（默认 300，`0` 关）自动布防，人一碰键盘即放行；**容器里探测不到键盘**（无 X11，`xprintidle` 不可用）时改看 `session.auto_relay_turn_sec`（默认 900，`0` 关）——距本会话人最后一次输入多久，人下次输入或按 Esc 即放行。会话只是**空闲**（没有 turn 在等）时，会话抽屉的输入框变成「送入终端」（CLI 是 `gofer session say --deliver`）：server 起一个内部 exec job 把文本敲进该会话的 **tmux** pane，于是已经停下的会话也能从 web 接着聊——前提是会话跑在 tmux 里、且登记了执行机（容器会话要在容器内起 gofer worker 并把 `GOFER_HOOK_RUNNER` 指向它）。
+- **终端会话中继**：`gofer init hooks` 装 Stop/UserPromptSubmit 等 hook 后，Claude Code / Codex 会话停下时最后一条消息可发到 web「会话」页等回复，回复注入**同一个**会话继续（`gofer session relay auto|on|off`、`gofer session say`；会话归**注册它的 caller** 所有，且该 caller 名下还有在跑的 job 时 `auto` **刻意不布防**——否则 job 完成通知会堵在你自己的 Stop 后面，`session.auto_relay_skip_when_supervising`）。开关**三态**：`on` 每次停下都等，`off` 从不等，`auto`（缺省）交给 server 判——离开键盘超过 `session.auto_relay_idle_sec`（默认 300，`0` 关）自动布防，人一碰键盘即放行；**容器里探测不到键盘**（无 X11，`xprintidle` 不可用）时改看 `session.auto_relay_turn_sec`（默认 900，`0` 关）——距本会话人最后一次输入多久，人下次输入或按 Esc 即放行。会话只是**空闲**（没有 turn 在等）时，会话抽屉的输入框变成「送入终端」（CLI 是 `gofer session say --deliver`）：server 起一个内部 exec job 把文本敲进该会话的 **tmux** pane，于是已经停下的会话也能从 web 接着聊——前提是会话跑在 tmux 里、且登记了执行机（容器会话要在容器内起 gofer worker 并把 `GOFER_HOOK_RUNNER` 指向它）。
 
 ## 日志与观测
 
@@ -272,6 +272,8 @@ server:
 session:                             # 终端会话中继: 自动布防的两条判据(0 = 关闭该判据)
   # auto_relay_idle_sec: 300         # 键盘空闲 >= 阈值 → 会话停下时在 web 等回复
   # auto_relay_turn_sec: 900         # 探测不到键盘(容器)? 改看距上次人工输入多久
+  # auto_relay_skip_when_supervising: true   # 该会话的 caller 还有在跑的 job 时不自动布防(SUP-01 D)
+  # supervising_window_sec: 7200     # 上面这条判据回看多久内提交的 job
   # inject_commands: [claude, codex, omp, node, gemini, opencode]  # 允许被 web 送话的前台命令白名单
   # takeover_input_delay_ms: 1500    # 没有 tmux 时: 接管进程首次输出后安静多久再写首条输入(§9.1 B)
 log:

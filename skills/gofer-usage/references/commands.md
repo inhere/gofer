@@ -28,11 +28,13 @@ gofer workflow export <id>              # 导出 spec(去密钥)可再 import, �
 gofer plan create --title "<标题>" [--desc "<说明>"] [--plan-id <id>]
 gofer plan attach <plan-id> <job-id>    # 把已有 job 挂到 plan（注意顺序：先 plan 后 job）
 gofer plan list / show <id> / archive <id>
+    # show 在每个 todo 下列出挂接的 job(id/状态/agent/用时, 新→旧最多 10 条)
 gofer plan add-todo <id> "<待办>" [--note "<备注>"]       # 加 todo(别名 todo-add)
 gofer plan set-todo <todo-id> [--status doing|done|skipped|pending] [--note "<结果>"] [--append-note "<追加一行>"]
     # 生命周期推进：--status doing 自动记开始时间, done/skipped 记完结时间;
     # 裸调用=done, --undone=pending(旧用法兼容); --note 单独用只改备注;
-    # --append-note 追加一行到现有备注(与 --note 互斥, 服务端原子追加)
+    # --append-note 追加一行到现有备注(与 --note 互斥, 服务端原子追加; 只追加不改状态;
+    # job 的终态就是这么自动记账的: 见下「todo 联动」)
 gofer plan set-status <id> <status>
 ```
 
@@ -54,7 +56,7 @@ gofer plan set-todo <todo-id> --status done --note "迁移完成, 单测绿"
 gofer plan set-todo <todo-id> --status skipped --note "原因..."
 ```
 
-要点：note 写**结果/验收一句话**（不是过程流水，过程在 job logs）；跑长命令的步骤尽量用 `gofer job run` 执行并 `--plan <id>` 或 `plan attach` 挂进来，进度页可直接点进日志。
+要点：note 写**结果/验收一句话**（不是过程流水，过程在 job logs）；跑长命令的步骤尽量用 `gofer job run` 执行并 `--plan <id>` 或 `plan attach` 挂进来，进度页可直接点进日志。**更好的是直接 `job run --todo <todo-id>`**：状态与"交付了哪些提交"由 job 终态自动写回，不用手工 `plan set-todo`（见「todo 联动」）。
 
 ### 范式：决策点问人（gofer_ask_human）
 
@@ -88,12 +90,16 @@ gofer job list --status needs_review                     # 谁在等人验收
 gofer job worktree ls [-p <project>]                     # 列 --worktree job 留下的 worktree: 分支/领先提交/是否脏/是否已合并
 gofer job worktree rm <job-id> [--force] [--delete-branch]   # 移除 worktree(脏且无 --force 拒绝); 分支默认保留
 gofer job run … --worktree [--worktree-base <ref>]       # 在 <顶层>/tmp/gofer/wt/<job-id> 的 worktree 里跑, 分支 gofer/<job-id>
+gofer job run … --todo <todo-id>                         # 为某个 plan todo 跑这个 job(见下「todo 联动」)
+gofer job show <id>                                      # 打印 todo / base_sha / commits(这次交付了哪些提交)
 ```
 
 - `resume` vs `rerun`：`rerun` 是同一请求重提（新会话）；`resume` 是让 codex/claude 用 `exec resume <sid>` / `--resume <sid>` 接着上次会话跑，prompt 只说"从哪继续"。**acp-agent 的 resume 走协议 `session/load`，不需要 `session_resume` 模板**（也不需要注入/捕获模板）；agent 没声明 `loadSession`（或配了 `acp.load_session: false`）时 resume 直接报不支持，不会偷偷开新会话。
 - **只读 job**：`job run --read-only`（审查/分析类任务，agent 不能写文件）——cli-agent 追加 `read_only_args`（内置 codex `-s read-only`、claude `--permission-mode plan`），acp-agent 用 `acp.modes.read_only` 映射到 agent 的 mode id（prompt 前 `session/set_mode`）；exec agent 与没配只读模式的 agent 提交即被拒。resume 继承只读（同一 job 链内不能升级为可写）。
 - **人工验收（`needs_review`）**：`job run --review`（或项目 `require_review: true`，或 workflow 步骤 `review:`）的 job，agent **正常完成**后停在非终态 `needs_review`，等人 `job accept`（→done）或 `job reject --note …`（→终态 `rejected`，workflow 按失败聚合、不会被自动重试/续投）。**只有人能 accept**：worker token 打 HTTP `POST /v1/jobs/{id}/accept|reject` 一律 403；MCP 只有 `gofer_reject_job`，没有 accept 工具。`job cancel` 对 `needs_review` 返回 409（改用 reject），`job resume` 也要求先把验收做完。
 - 断线恢复：worker 断线时 job 进 `recovering`（`job list --status recovering`），窗口内同进程重连即恢复；serve 重启也一样。**recovering 不要重派。**
+- **todo 联动（`--todo`，SUP-01 C）**：`job run --todo <todo-id>` 把"跑一次活"和 checklist 上的那一项绑起来——`plan_id` 缺省从 todo 反查（显式 `--plan` 与 todo 所属 plan 不一致直接 400），提交成功后该项转 `doing` 并指向这个 job；终态时自动写回：`done` → 该项 `done` 且备注追加一行 `<job-id> ✓ N commits: <sha> <subject>; …`（最多 8 条，超出 `+N`；无提交写 `no commits`）、`needs_review` → 追加 `<job-id> 待验收`（accept 后再补 done 行）、失败/超时/取消/拒绝 → 状态不动、追加 `<job-id> ✗ <status>: <原因前 120 字>`。**失败只影响备注，不影响 job 本身**；`reject --resume` / 自动续投的新 job 继承 `todo_id`，整条链的每一轮都追加到同一项上。
+- **提交采集**：job 开跑时在执行机记 `base_sha`（cwd 不是 git 仓则空；worktree job 用其基线），终态时 `git log base..HEAD`（上限 50，新→旧）写进 `commits`——`job show` 列出、web 详情页「提交」块可一键复制 sha、worker 上跑的 job 经 Outcome 回传后 host 行同样有。它独立于 `capture_diff` 开关，采集失败留空、不影响 job。
 
 ## tunnel（别名 `tun`）— 经 worker 的 TCP/UDP 端口转发
 

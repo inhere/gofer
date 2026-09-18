@@ -159,3 +159,24 @@ projects:
 3. C 的 note 用**追加**而不是覆盖；`plan set-todo --note` 语义不变。
 4. D 默认开启（`auto_relay_skip_when_supervising: true`），只影响 `auto`，不影响显式 `on`。
 5. F 只做本地文件模板，不做远程/版本化。
+
+## P1 实测记录（2026-09-18）
+
+D（`caller_id` + 监督不布防 + owner 校验）与 C（`--todo` 联动、`base_sha`/`commits` 采集、`plan show` 挂接）已落地并全绿。落地要点与偏差：
+
+- **D 判定入口**：`sessionrelay.WaitDecision(a) (reason, detail)` 是单次查询的入口（`WaitReason` 保留为其 reason-only 包装）——设计里提的 `WaitReasonDetail(a)` 会二次查库（会话列表逐行渲染 = 每行两次 COUNT），故合并为一个方法；`wait_reason_detail` 落在 `sessionView`（heartbeat/register/list/detail 同一投影）与 turn 长轮询响应上。**OpenTurn 的 HTTP 响应是 decision view**，而监督中的会话在 `OpenTurn` 前就已被 `WaitReason == ""` 挡成 409（不会开出 turn），所以 detail 由 hook 必经的 heartbeat 携带、hook 只打日志。
+- **监督窗口的列**：`jobs` 表没有 `created_at`，用的是提交时即写入的 `started_at`（`submit.go` 建行时 = now），语义与设计的 `created_at` 一致。
+- **C 的 worker 侧**：`Dispatch`/`Forward` 增 `todo_id` 仅为**显示**；worker 的本地 `Submit` 用 `JobRequest.TodoForeign`（`json:"-"`，客户端不可伪造）跳过 todo 解析与联动——plan todo 归 hub 管理，worker 库里没有它。内部续投（`resume`/auto-resume）在未知 todo 时同样按 foreign 处理（`fromRecord` 无法保留该标记，避免"worker 本地续投被 ErrInvalidRequest 拒"）。
+- **C 的 note 行**：失败行在 job 无 error 字符串时只写 `<job-id> ✗ <status>`（无 `: <原因>`），不伪造空原因。
+- **C 的开关**：提交采集与 `capture_diff` 无关、永远尝试、失败留空（按设计，未新增开关）。
+
+**G032 处理清单**（P1 触碰到的既有兼容路径）：
+
+| 位置 | 处理 |
+|---|---|
+| `agent_sessions.relay` bool 镜像列（`store.go` DDL + `sessions.go` `AgentSession.Relay` + `SetSessionRelayMode` 写入） | 仍被 pre-R1 客户端/回滚的二进制读取 → 打 `// DEPRECATED(v0.45): remove in v0.48` |
+| `sessionView.Relay` / `sessionRelayReq.Relay`（HTTP 旧布尔面） | 同上，打 `DEPRECATED(v0.45)` |
+| `server.session_auto_relay_idle_sec` + `ApplyLegacySessionRelayCompat` warn | 旧配置仍可能带该键 → 打 `DEPRECATED(v0.45): remove in v0.48` |
+| 未处理的候选（`interactive_allowed_agents` 一次性读取、旧 worker 协议容忍分支） | P1 未触碰，留 P2/P3 处理 |
+
+删除项：无（P1 没有剔除任何兼容路径——三条候选都仍在被现役二进制/配置使用）。

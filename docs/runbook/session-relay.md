@@ -31,6 +31,15 @@ Codex 额外条件：`config.toml` 里 `[features] hooks = true`（旧版本键�
 1. **键盘空闲**（`session.auto_relay_idle_sec`，默认 300s）：hook 上报的键鼠空闲 ≥ 阈值 ⇒ 布防；人一碰键鼠 ⇒ 放行。
 2. **距上次人工输入**（`session.auto_relay_turn_sec`，默认 900s，R2）：**探测不到键盘时**（容器 / 无 X11，空闲值恒为 -1）改用本会话的 `last_human_at`（SessionStart 与非注入的 UserPromptSubmit 会刷新）⇒ 布防；放行靠人的动作：按 Esc，或直接在终端输入一条（`UserPromptSubmit`/`Interrupt` 事件到达即把 turn 关成 `EXPIRED` + `released_by=user_returned`）。
 
+**监督中不布防（SUP-01 D，`session.auto_relay_skip_when_supervising`，默认开）**：你（或一个监督用的 Claude 会话）一边等 job 一边开着 `auto` 时，键盘空闲/距上次人工输入的判据会把你**锁在 web 回复框上**——而你要等的是 job 完成通知，通知就在被阻塞的那个回合后面（bd h-aii-s2v4）。所以 `auto` 在这个条件下**根本不布防**：
+
+- 该会话的 `caller_id`（注册时的认证身份）名下还有**在跑的 job**（状态 queued/running/pending_interaction/recovering，且在 `session.supervising_window_sec`（默认 7200s）之内）⇒ `wait_reason` 为空，hook 立即放行；web 会话页在自动开关旁显示原因（`未布防：supervising N jobs`）。
+- job 一进终态，自动判据立刻恢复（`needs_review` 不算监督中：那是等人的验收，不是等人离开键盘）。
+- 只影响 `auto`：显式 `on` 照旧每次停下都等（那是你明确要求的）。`caller_id` 为空的会话（老会话 / 未配 token）不套用——无从判定是谁的 job。
+- 关掉：`session.auto_relay_skip_when_supervising: false`。
+
+顺带：会话的 `caller_id` 同时也是**作答权**——`say` / `deliver` / `relay set-mode` 只允许该会话 owner 的 caller（governance `require_answer_capability` 开启时 `can_answer` 也可；`caller_id` 为空的老会话放行），worker token 一律 403（h-aii-esus）。
+
 | 时机 | 做法 |
 |---|---|
 | 要离开 | 对 agent 说"打开中继"，或自己敲 `gofer session relay on`（同目录多个会话时按提示加 `--session`） |
@@ -38,6 +47,7 @@ Codex 额外条件：`config.toml` 里 `[features] hooks = true`（旧版本键�
 | 让它停下 | web 回复 `/off`：关掉中继（mode=off），agent 正常结束回合 |
 | 回到电脑 | 终端里任意输入一条（`on` → 降回 `auto`，`auto` 的等待直接释放）；或 `gofer session relay off` / `auto` |
 | 忘了开 | `auto` 模式两条判据会自动布防（容器靠判据二）；要显式开就在 web 会话列表点 `on`，**下一次回合结束**生效；会话已空闲则见「无 turn 时送话」 |
+| 监督 job 时不想被挡 | `auto` 已自动让路（见上面「监督中不布防」）：不用手工 `/off`，也不会把 job 完成通知挡在回合后面 |
 | 会话已空闲 | web 会话抽屉的输入框（没有 OPEN turn 时变成「送入终端」）直接送话；CLI `gofer session say <id> "<回复>" --deliver`。前提：会话在 tmux 里 + 登记了执行机（见下表） |
 
 **无 turn 时送话（阶段 2-A，tmux 注入）**：`POST /v1/sessions/{sid}/deliver {text}`。有 OPEN turn 就等价 `say`（作答）；否则 server 在该会话的 runner 上起一个内部 exec job，确认 pane 存活、前台是 agent CLI（白名单 `session.inject_commands`，默认 `claude|codex|omp|node|gemini|opencode`），再逐行 `tmux send-keys -t <pane> -l -- '<行>'` + `Enter`（文本前缀 `[gofer web 回复] `，上限 8KB，单引号转义）。成功后会话置 `running`，审计行 `plan_decisions(kind=relay, detail={"path":"tmux","job_id":…})`。
