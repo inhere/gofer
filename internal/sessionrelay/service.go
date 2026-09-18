@@ -15,6 +15,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -105,6 +106,18 @@ type Service struct {
 	// session that has seen no HUMAN input for this long waits anyway. 0 = this
 	// criterion disabled. Set once at construction from config.
 	AutoArmTurnSec int
+	// SkipWhenSupervising is the SUP-01 D gate
+	// (session.auto_relay_skip_when_supervising): while the session's caller has
+	// jobs in flight, `auto` does not arm the relay at all — the person behind
+	// that caller is watching the job, and an armed Stop would block the hook (and
+	// the job's completion notice) until they came back. False (the zero value)
+	// keeps the pre-D behaviour; config turns it ON by default. `on`/`off` are
+	// never affected. Set once at construction from config.
+	SkipWhenSupervising bool
+	// SupervisingWindowSec is how far back the gate looks for the caller's live
+	// jobs (session.supervising_window_sec); 0 = no window. Set with
+	// SkipWhenSupervising.
+	SupervisingWindowSec int
 	// pollInterval is how often WaitTurn re-reads the decision while blocking.
 	pollInterval time.Duration
 	nowFn        func() time.Time
@@ -144,38 +157,86 @@ func (s *Service) SetPollInterval(d time.Duration) {
 //
 //   - `on`: the human's explicit switch, authoritative over every rule below.
 //   - `off`: never.
-//   - `auto`: the idle probe when it WORKED (idle >= 0) — a machine where the
-//     human is demonstrably at the keyboard or away is not second-guessed by the
-//     turn-age clock — else, on a terminal that cannot be probed at all
-//     (containers without X11 keep reporting -1), the time since the last HUMAN
-//     input in this session: last_human_at == 0 means no human was ever seen and
-//     is not evidence of absence.
+//   - `auto`: nothing at all while the caller still has live jobs (SUP-01 D, see
+//     SkipWhenSupervising); else the idle probe when it WORKED (idle >= 0) — a
+//     machine where the human is demonstrably at the keyboard or away is not
+//     second-guessed by the turn-age clock — else, on a terminal that cannot be
+//     probed at all (containers without X11 keep reporting -1), the time since
+//     the last HUMAN input in this session: last_human_at == 0 means no human was
+//     ever seen and is not evidence of absence.
 func (s *Service) WaitReason(a jobstore.AgentSession) string {
+	reason, _ := s.waitDecision(a)
+	return reason
+}
+
+// WaitDecision is WaitReason plus the one-line explanation of a NON-waiting
+// session ("supervising 2 jobs"): the web shows it next to the relay switch, and
+// the hook logs it, so "why did my Stop not wait" is answerable without reading
+// the store. One lookup, so a caller that needs both does not count jobs twice.
+func (s *Service) WaitDecision(a jobstore.AgentSession) (reason, detail string) {
+	return s.waitDecision(a)
+}
+
+func (s *Service) waitDecision(a jobstore.AgentSession) (reason, detail string) {
 	// A handed-off session belongs to the takeover process (design §9.1 B): the
 	// original terminal's relay is over — no switch, no idle rule, no turn-age
 	// fallback may arm a Stop there again, or two processes would write one CLI
 	// session.
 	if a.State == jobstore.SessionHandedOff {
-		return ""
+		return "", ""
 	}
 	switch a.RelayMode {
 	case jobstore.RelayModeOn:
-		return WaitModeOn
+		return WaitModeOn, ""
 	case jobstore.RelayModeOff:
-		return ""
+		return "", ""
+	}
+	if d, ok := s.supervisingDetail(a); ok {
+		return "", d
 	}
 	if s.AutoArmIdleSec > 0 && a.IdleSec >= 0 {
 		if a.IdleSec >= int64(s.AutoArmIdleSec) {
-			return WaitIdleProbe
+			return WaitIdleProbe, ""
 		}
-		return ""
+		return "", ""
 	}
 	if s.AutoArmTurnSec > 0 && a.LastHumanAt > 0 {
 		if s.nowFn().Unix()-a.LastHumanAt >= int64(s.AutoArmTurnSec) {
-			return WaitTurnAge
+			return WaitTurnAge, ""
 		}
 	}
-	return ""
+	return "", ""
+}
+
+// supervisingDetail applies the SUP-01 D gate (bd h-aii-s2v4): the caller behind
+// this session still has jobs in flight, so the person (or supervisor agent)
+// driving it is watching that work — an armed Stop would park the hook until they
+// come back, and the job's completion notice would never reach them. ok=false
+// means the gate does not apply (knob off, no caller to judge by, or nothing
+// live), and the ordinary auto rules decide.
+//
+// A store failure is deliberately read as "not supervising": the gate exists to
+// save the human a manual unblock, never to change what a Stop does on its own,
+// so a broken lookup must fall back to the previous behaviour (logged, not
+// silently swallowed).
+func (s *Service) supervisingDetail(a jobstore.AgentSession) (string, bool) {
+	if !s.SkipWhenSupervising || a.CallerID == "" {
+		return "", false
+	}
+	since := int64(0)
+	if s.SupervisingWindowSec > 0 {
+		since = s.nowFn().Unix() - int64(s.SupervisingWindowSec)
+	}
+	n, err := s.store.CountActiveJobsByCaller(a.CallerID, since)
+	if err != nil {
+		slog.Warn("sessionrelay: count supervising jobs failed", "session_id", a.SessionID,
+			"caller_id", a.CallerID, "err", err)
+		return "", false
+	}
+	if n == 0 {
+		return "", false
+	}
+	return fmt.Sprintf("supervising %d jobs", n), true
 }
 
 // AutoArmed reports whether the KEYBOARD IDLE rule alone arms this session (the
@@ -196,6 +257,11 @@ type RegisterInput struct {
 	Transcript string
 	TmuxPane   string
 	Event      string
+	// CallerID is the authenticated caller the entry layer stamped on this
+	// request (SUP-01 D / bd h-aii-esus): the session's owner. "" when the server
+	// has no token configured. It is recorded on first contact and never
+	// overwritten by a later registration or beat.
+	CallerID string
 }
 
 // Register upserts a session (see jobstore.UpsertAgentSession for the merge
@@ -219,7 +285,7 @@ func (s *Service) Register(in RegisterInput) (jobstore.AgentSession, error) {
 	return s.store.UpsertAgentSession(jobstore.AgentSession{
 		SessionID: in.SessionID, Agent: agent, ProjectKey: in.ProjectKey, Runner: in.Runner,
 		Cwd: in.Cwd, Title: in.Title, Transcript: in.Transcript, TmuxPane: in.TmuxPane,
-		LastEvent: in.Event, LastHumanAt: humanAt,
+		LastEvent: in.Event, LastHumanAt: humanAt, CallerID: in.CallerID,
 	})
 }
 
@@ -237,6 +303,11 @@ type HeartbeatInput struct {
 	// IdleSec is the hook's system input idle reading (SR-A5, -1 = unknown). nil
 	// = this event carried none, so the stored reading stays.
 	IdleSec *int64
+	// CallerID is the authenticated caller of this beat. It FILLS an owner-less
+	// session (registered by a hook that predates the column, or before a token
+	// was configured) on the same write; a session that already has an owner keeps
+	// it — ownership is decided at first contact, never taken over by a later beat.
+	CallerID string
 }
 
 // DefaultState maps a hook event to the session state it implies when the
@@ -292,7 +363,7 @@ func (s *Service) Heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 	}
 	a, ok, err := s.store.TouchAgentSession(sid, jobstore.SessionHeartbeat{
 		Event: in.Event, State: state, LastMessage: in.LastMessage, Title: in.Title,
-		IdleSec: in.IdleSec, HumanInput: human,
+		IdleSec: in.IdleSec, HumanInput: human, CallerID: in.CallerID,
 	})
 	if err != nil {
 		return jobstore.AgentSession{}, err
@@ -479,9 +550,11 @@ type TurnStatus struct {
 	Outcome string
 	// Relay reports that the session currently waits for a reply (see WaitReason
 	// for the vocabulary); Reason is WHY — it is how the hook picks its poll
-	// cadence and what it logs.
+	// cadence and what it logs. Detail explains a NON-waiting session (SUP-01 D:
+	// "supervising 2 jobs"), so a hook released by the supervision gate can say so.
 	Relay    bool
 	Reason   string
+	Detail   string
 	Decision jobstore.PlanDecision
 }
 
@@ -521,8 +594,8 @@ func (s *Service) readTurn(sid, decisionID string) (TurnStatus, error) {
 	if !ok {
 		return TurnStatus{}, ErrUnknownSession
 	}
-	reason := s.WaitReason(a)
-	st := TurnStatus{Relay: reason != "", Reason: reason, Decision: d}
+	reason, detail := s.WaitDecision(a)
+	st := TurnStatus{Relay: reason != "", Reason: reason, Detail: detail, Decision: d}
 	switch {
 	case d.State == jobstore.DecisionAnswered:
 		st.Outcome = TurnAnswered
@@ -654,6 +727,21 @@ func (s *Service) Get(sid string, turnLimit int) (Detail, error) {
 		return Detail{}, err
 	}
 	return Detail{Session: a, Turns: turns}, nil
+}
+
+// Session returns one session row without its turns. The entry layer needs it
+// before dispatching to Say/Deliver/SetRelayMode: the owner check (SUP-01 D) is
+// about WHO is calling, which only the entry layer knows, while the row itself
+// is the domain service's to fetch.
+func (s *Service) Session(sid string) (jobstore.AgentSession, error) {
+	a, ok, err := s.store.GetAgentSession(sid)
+	if err != nil {
+		return jobstore.AgentSession{}, err
+	}
+	if !ok {
+		return jobstore.AgentSession{}, ErrUnknownSession
+	}
+	return a, nil
 }
 
 // List lists sessions (see jobstore.ListSessionsOpts).

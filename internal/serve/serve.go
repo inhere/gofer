@@ -231,8 +231,10 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	srv := httpapi.New(&cfg.Server, token, allowEmpty, cr.Jobs, cr.Workflow(), cr.Projects, cr.Agents, cr.Hub, cfg.Runners, proberOrNil(prober), workers)
 	// SESS-01 R2: the session-relay auto-arm thresholds live in the top-level
 	// `session:` block (legacy `server.session_auto_relay_idle_sec` is read as an
-	// alias), and only the whole config can resolve them.
-	srv.SetSessionRelayPolicy(cfg.EffectiveAutoRelayIdleSec(), cfg.EffectiveAutoRelayTurnSec())
+	// alias), and only the whole config can resolve them. SUP-01 D's supervision
+	// gate rides along: it too is a `session:` preference.
+	srv.SetSessionRelayPolicy(cfg.EffectiveAutoRelayIdleSec(), cfg.EffectiveAutoRelayTurnSec(),
+		cfg.EffectiveAutoRelaySkipWhenSupervising(), cfg.EffectiveSessionSupervisingWindowSec())
 	// §9.1 A: the commands a relay reply may be typed into (default list in the relay).
 	srv.SetSessionInjectCommands(cfg.Session.InjectCommands)
 	srv.SetBuildInfo(opts.Build)

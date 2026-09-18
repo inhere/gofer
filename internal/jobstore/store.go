@@ -344,7 +344,9 @@ var schemaStmts = []string{
 	// agent_sessions is the terminal agent-CLI session registry (session relay,
 	// SESS-01 §5): registered by the CLI's hooks, observed on the web, and the
 	// owner of the per-session relay switch — relay_mode (auto|on|off, R1) with
-	// `relay` kept mirrored to mode=='on' for pre-R1 binaries. session_id is the
+	// `relay` kept mirrored to mode=='on' for pre-R1 binaries (DEPRECATED(v0.45):
+	// remove in v0.48, G032). caller_id is the authenticated caller that
+	// registered the session — its owner (SUP-01 D). session_id is the
 	// CLI's own id. Relay turns live in plan_decisions (kind='relay', session_id
 	// set — the additive columns are added by migratePlanDecisions for
 	// pre-existing dbs); the R1/R2 columns are added by migrateAgentSessions.
@@ -357,6 +359,7 @@ var schemaStmts = []string{
   title        TEXT,
   transcript   TEXT,
   tmux_pane    TEXT,
+  caller_id    TEXT,
   state        TEXT NOT NULL DEFAULT 'running',
   relay_mode   TEXT NOT NULL DEFAULT 'auto',
   relay        INTEGER NOT NULL DEFAULT 0,
@@ -894,6 +897,16 @@ func (s *Store) migrateAgentSessions() error {
 	if _, ok := cols["handed_off_at"]; !ok {
 		if _, e := s.db.Exec("ALTER TABLE agent_sessions ADD COLUMN handed_off_at INTEGER"); e != nil {
 			return fmt.Errorf("jobstore: migrate agent_sessions add handed_off_at: %w", e)
+		}
+	}
+	// caller_id (SUP-01 D / bd h-aii-esus): the authenticated caller that
+	// registered the session — its owner. A pre-column row reads back as ""
+	// (COALESCE in the select), which the owner check deliberately treats as
+	// "nobody to compare against" rather than locking the human out of a session
+	// they registered before the column existed.
+	if _, ok := cols["caller_id"]; !ok {
+		if _, e := s.db.Exec("ALTER TABLE agent_sessions ADD COLUMN caller_id TEXT"); e != nil {
+			return fmt.Errorf("jobstore: migrate agent_sessions add caller_id: %w", e)
 		}
 	}
 	return nil

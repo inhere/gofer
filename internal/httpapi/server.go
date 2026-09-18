@@ -262,18 +262,21 @@ func (s *Server) SetCastRecorder(rec *castrec.Recorder) { s.castRecorder = rec }
 func (s *Server) SetPtySessionStore(store PtySessionStore) { s.ptySessions = store }
 
 // SetSessionRelayPolicy injects the effective session-relay auto-arm policy
-// (SESS-01 R2): the keyboard idle threshold and the last-human-input fallback
-// threshold, in seconds (see config.SessionConfig; 0 disables that criterion).
-// serve calls it with the whole config's effective values — the `session:` block
-// with its legacy server alias — while a Server built from a bare ServerConfig
-// keeps New's ServerConfig-visible default. No-op without a relay service
-// (a server with no job store).
-func (s *Server) SetSessionRelayPolicy(idleSec, turnSec int) {
+// (SESS-01 R2 + SUP-01 D): the keyboard idle threshold and the last-human-input
+// fallback threshold, the supervision gate and its look-back window, all in
+// seconds (see config.SessionConfig; 0 disables that criterion). serve calls it
+// with the whole config's effective values — the `session:` block with its legacy
+// server alias — while a Server built from a bare ServerConfig keeps New's
+// ServerConfig-visible default. No-op without a relay service (a server with no
+// job store).
+func (s *Server) SetSessionRelayPolicy(idleSec, turnSec int, skipWhenSupervising bool, supervisingWindowSec int) {
 	if s.relay == nil {
 		return
 	}
 	s.relay.AutoArmIdleSec = idleSec
 	s.relay.AutoArmTurnSec = turnSec
+	s.relay.SkipWhenSupervising = skipWhenSupervising
+	s.relay.SupervisingWindowSec = supervisingWindowSec
 }
 
 // SetSessionInjectCommands injects the tmux-injection whitelist (SESS-01 §9.1 A,
@@ -332,6 +335,12 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		// overrides both thresholds from the `session:` block through
 		// SetSessionRelayPolicy (R2).
 		s.relay.AutoArmIdleSec = serverCfg.EffectiveSessionAutoRelayIdleSec()
+		// The supervision gate (SUP-01 D) has no ServerConfig-visible key — the
+		// `session:` block lives on the whole config — so a bare-ServerConfig
+		// server takes the documented defaults (skip ON, 2h window) and serve
+		// overrides both through SetSessionRelayPolicy.
+		s.relay.SkipWhenSupervising = true
+		s.relay.SupervisingWindowSec = config.DefaultSessionSupervisingWindowSec
 		// job.Service is the outbound notifier (webhook queue + IM adapters).
 		s.relay.SetNotifier(jobs)
 		// job.Service also runs path A's internal injection jobs (§9.1 A) and path

@@ -213,7 +213,7 @@ func (r *runner) beatAndLog(hb client.SessionHeartbeat) client.AgentSession {
 	if !ok {
 		return client.AgentSession{}
 	}
-	r.log("state=%s relay=%s wait=%s", a.State, a.RelayMode, a.WaitReason)
+	r.log("state=%s relay=%s wait=%s wait_detail=%s", a.State, a.RelayMode, a.WaitReason, a.WaitReasonDetail)
 	return a
 }
 
@@ -249,7 +249,9 @@ func (r *runner) stop() Result {
 	}
 	reason := a.WaitReason
 	if reason == "" {
-		r.log("relay off, released")
+		// SUP-01 D: a session whose caller is supervising live jobs is released on
+		// purpose ("supervising 2 jobs"), not because the relay was switched off.
+		r.log("relay off, released (%s)", a.WaitReasonDetail)
 		return Result{}
 	}
 	// probeArmed marks the wait that exists only because the human is away AND

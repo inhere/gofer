@@ -143,6 +143,12 @@ export interface AgentSession {
   // wait_reason 是当前判定依据：mode_on（显式开关）/ idle_probe（键盘空闲）/
   // turn_age（探测不到键盘，距上次人工输入够久）；空 = 不等。
   wait_reason?: 'mode_on' | 'idle_probe' | 'turn_age' | ''
+  // wait_reason_detail 解释【当前不等】的原因（SUP-01 D）：caller 还有在跑的 job 时
+  // 不自动布防，例如 "supervising 2 jobs"。wait_reason 非空时必为空。
+  wait_reason_detail?: string
+  // caller_id 是注册该会话的认证 caller（会话的 owner）：谁能作答，以及按谁的在跑
+  // job 判定"监督中不布防"。空 = 老会话（无 owner）或未配置 token。
+  caller_id?: string
   // 空闲自动布防（SR-A5）：仅键盘空闲判据成立（wait_reason = idle_probe），
   // idle_sec 是 hook 最近上报的系统输入空闲秒数，-1 = 未知。
   auto_armed: boolean

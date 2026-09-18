@@ -341,6 +341,10 @@ type ServerConfig struct {
 	// (SessionConfig.AutoRelayIdleSec) in R2; this key is still READ as an alias
 	// (ApplyLegacySessionRelayCompat copies it over and warns once) and is kept
 	// only for that. New configs must use `session.auto_relay_idle_sec`.
+	//
+	// DEPRECATED(v0.45): remove in v0.48 — the alias (and
+	// ApplyLegacySessionRelayCompat with it) goes once pre-R2 configs are gone
+	// (G032).
 	SessionAutoRelayIdleSec *int `yaml:"session_auto_relay_idle_sec,omitempty"`
 	// AutoResumeMax counts automatic session continuations, independently of RetryPolicy.
 	// Unset defaults to one; an explicit zero disables automatic resume.
@@ -383,6 +387,17 @@ type SessionConfig struct {
 	// new output for this long — before the web reply is typed into it. Unset
 	// keeps the default; 0 types the reply as soon as the TUI has drawn anything.
 	TakeoverInputDelayMs *int `yaml:"takeover_input_delay_ms,omitempty"`
+	// AutoRelaySkipWhenSupervising (SUP-01 D, bd h-aii-s2v4) keeps the auto rules
+	// from arming a session while its caller still has jobs in flight: whoever
+	// drives that caller is watching a job, not away, and an armed Stop would
+	// block the hook (and the job's completion notice) until they came back.
+	// Pointer so unset means ON and an explicit false opts out; it only ever
+	// applies to `auto` — `on` stays the human's explicit "wait for me".
+	AutoRelaySkipWhenSupervising *bool `yaml:"auto_relay_skip_when_supervising,omitempty"`
+	// SupervisingWindowSec is how far back that gate looks for the caller's live
+	// jobs (default DefaultSessionSupervisingWindowSec; 0 = no window, every live
+	// job counts). It bounds a stale job no human is actually watching any more.
+	SupervisingWindowSec *int `yaml:"supervising_window_sec,omitempty"`
 }
 
 // DefaultSessionAutoRelayIdleSec is the idle-detection auto-arm threshold used
@@ -420,6 +435,30 @@ func (c *Config) EffectiveAutoRelayTurnSec() int {
 		return DefaultSessionAutoRelayTurnSec
 	}
 	return *c.Session.AutoRelayTurnSec
+}
+
+// DefaultSessionSupervisingWindowSec is how far back the supervision gate looks
+// for the caller's live jobs when session.supervising_window_sec is unset: two
+// hours is longer than any job a human watches in one sitting, and short enough
+// that a forgotten job does not keep their sessions unarmed forever.
+const DefaultSessionSupervisingWindowSec = 7200
+
+// EffectiveAutoRelaySkipWhenSupervising resolves the SUP-01 D gate: true (the
+// default) keeps the auto rules from arming a session whose caller has live jobs.
+func (c *Config) EffectiveAutoRelaySkipWhenSupervising() bool {
+	if c == nil || c.Session.AutoRelaySkipWhenSupervising == nil {
+		return true
+	}
+	return *c.Session.AutoRelaySkipWhenSupervising
+}
+
+// EffectiveSessionSupervisingWindowSec resolves the gate's look-back window in
+// seconds; 0 = no window (every live job of the caller counts).
+func (c *Config) EffectiveSessionSupervisingWindowSec() int {
+	if c == nil || c.Session.SupervisingWindowSec == nil {
+		return DefaultSessionSupervisingWindowSec
+	}
+	return *c.Session.SupervisingWindowSec
 }
 
 // DefaultSessionTakeoverInputDelayMs is path B's priming delay when

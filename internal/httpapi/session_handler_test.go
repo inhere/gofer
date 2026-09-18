@@ -366,7 +366,7 @@ func TestSessionAutoRelayDisabledByZero(t *testing.T) {
 // prompt they typed releases it.
 func TestSetSessionRelayModeAndLegacyBool(t *testing.T) {
 	s := sessionAutoArmServer(t, 300)
-	s.SetSessionRelayPolicy(300, 900)
+	s.SetSessionRelayPolicy(300, 900, false, 0)
 	sid := "sid-mode"
 	registerIdleSession(t, s, sid)
 
@@ -524,9 +524,10 @@ func TestSessionRegisterStampsCaller(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("anonymous register status=%d, want 200", resp.StatusCode)
 	}
-	decode(t, resp, &sv)
-	if sv.CallerID != "" {
-		t.Fatalf("anonymous caller_id=%q, want empty", sv.CallerID)
+	var anonView sessionView
+	decode(t, resp, &anonView)
+	if anonView.CallerID != "" {
+		t.Fatalf("anonymous caller_id=%q, want empty", anonView.CallerID)
 	}
 }
 

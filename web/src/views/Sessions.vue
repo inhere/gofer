@@ -82,10 +82,14 @@ function humanSilence(s: AgentSession): number {
 }
 
 // relayEvidence 是 auto 判定的依据文字（R2）：键盘探得到就读空闲秒数，探不到的
-// 终端读“距上次人工输入多久”。不等待时不显示。
+// 终端读“距上次人工输入多久”。不等待时显示原因（SUP-01 D：caller 监督在跑的 job
+// 时刻意不布防），两者都没有则留空。
 function relayEvidence(s: AgentSession): string {
-  if (s.relay_mode !== 'auto' || !s.wait_reason) {
+  if (s.relay_mode !== 'auto') {
     return ''
+  }
+  if (!s.wait_reason) {
+    return s.wait_reason_detail ? `未布防：${s.wait_reason_detail}` : ''
   }
   if (s.wait_reason === 'idle_probe') {
     return `auto (idle ${idleText(s.idle_sec)})`
@@ -108,7 +112,9 @@ function relayTitle(s: AgentSession): string {
         ? `键盘空闲 ${idleText(s.idle_sec)} ≥ session.auto_relay_idle_sec，本次停下会在 web 等回复`
         : s.wait_reason === 'turn_age'
           ? `探测不到键盘，距上次人工输入 ${idleText(humanSilence(s))} ≥ session.auto_relay_turn_sec，本次停下会在 web 等回复`
-          : '当前不等：没有判据成立，下一次停下直接放行'
+          : s.wait_reason_detail
+            ? `${s.wait_reason_detail}：你在监督在跑的 job，本次不停下等回复（session.auto_relay_skip_when_supervising；job 结束即恢复自动判定）`
+            : '当前不等：没有判据成立，下一次停下直接放行'
   switch (s.relay_mode) {
     case 'on':
       return `中继 on（显式开关）：${reason}；终端输入或 web /off 才会关掉`

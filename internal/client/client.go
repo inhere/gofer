@@ -1362,9 +1362,15 @@ type AgentSession struct {
 	// the server: whether a Stop would wait right now. WaitReason says why
 	// (mode_on / idle_probe / turn_age; empty = it would not wait) — it is what
 	// the Stop hook keys on.
-	RelayMode   string `json:"relay_mode"`
-	Relay       bool   `json:"relay"`
-	WaitReason  string `json:"wait_reason,omitempty"`
+	RelayMode  string `json:"relay_mode"`
+	Relay      bool   `json:"relay"`
+	WaitReason string `json:"wait_reason,omitempty"`
+	// WaitReasonDetail explains a session that does NOT wait right now (SUP-01 D):
+	// "supervising N jobs". The hook only logs it.
+	WaitReasonDetail string `json:"wait_reason_detail,omitempty"`
+	// CallerID is the authenticated caller that registered the session (its
+	// owner): who may answer it, and whose live jobs keep it from auto-arming.
+	CallerID    string `json:"caller_id,omitempty"`
 	TurnNo      int64  `json:"turn_no"`
 	LastMessage string `json:"last_message,omitempty"`
 	LastEvent   string `json:"last_event,omitempty"`
@@ -1442,10 +1448,13 @@ type SessionDetail struct {
 // WaitReason is why the session still waits (mode_on / idle_probe / turn_age;
 // empty = it stopped waiting), see AgentSession.WaitReason.
 type TurnStatus struct {
-	Outcome    string   `json:"outcome"`
-	Relay      bool     `json:"relay"`
-	WaitReason string   `json:"wait_reason,omitempty"`
-	Decision   Decision `json:"decision"`
+	Outcome    string `json:"outcome"`
+	Relay      bool   `json:"relay"`
+	WaitReason string `json:"wait_reason,omitempty"`
+	// WaitReasonDetail says why a wait that ISN'T arming (SUP-01 D): the caller is
+	// supervising live jobs. Logged by the hook, never acted on.
+	WaitReasonDetail string   `json:"wait_reason_detail,omitempty"`
+	Decision         Decision `json:"decision"`
 }
 
 // SessionListOpts filters ListSessions.

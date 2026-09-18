@@ -32,9 +32,20 @@ type sessionView struct {
 	// whether a Stop would wait right now (mode `on`, or an auto rule holding);
 	// it is what pre-R1 clients read. WaitReason says WHY (mode_on / idle_probe /
 	// turn_age, empty = does not wait).
-	RelayMode   string `json:"relay_mode"`
-	Relay       bool   `json:"relay"`
-	WaitReason  string `json:"wait_reason,omitempty"`
+	RelayMode string `json:"relay_mode"`
+	// DEPRECATED(v0.45): remove in v0.48 — the boolean mirror of pre-R1 clients
+	// (G032).
+	Relay      bool   `json:"relay"`
+	WaitReason string `json:"wait_reason,omitempty"`
+	// WaitReasonDetail explains a session that does NOT wait right now (SUP-01 D):
+	// "supervising 2 jobs" — the caller behind this session has live work, so the
+	// auto rules deliberately stay out of the way. Empty whenever WaitReason is set.
+	WaitReasonDetail string `json:"wait_reason_detail,omitempty"`
+	// CallerID is the authenticated caller that registered the session (its
+	// owner, SUP-01 D / bd h-aii-esus): who may answer it, and whose live jobs
+	// keep it from auto-arming. Empty for a session registered before the column
+	// existed or on a server with no token configured.
+	CallerID    string `json:"caller_id,omitempty"`
 	TurnNo      int64  `json:"turn_no"`
 	LastMessage string `json:"last_message,omitempty"`
 	LastEvent   string `json:"last_event,omitempty"`
@@ -66,14 +77,15 @@ type sessionView struct {
 // derived from the relay service's single policy (the store only keeps the raw
 // mode and readings).
 func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
-	reason := ""
+	reason, detail := "", ""
 	if s.relay != nil {
-		reason = s.relay.WaitReason(a)
+		reason, detail = s.relay.WaitDecision(a)
 	}
 	return sessionView{
 		SessionID: a.SessionID, Agent: a.Agent, ProjectKey: a.ProjectKey, Runner: a.Runner,
 		Cwd: a.Cwd, Title: a.Title, Transcript: a.Transcript, TmuxPane: a.TmuxPane,
 		State: a.State, RelayMode: a.RelayMode, Relay: reason != "", WaitReason: reason,
+		WaitReasonDetail: detail, CallerID: a.CallerID,
 		TurnNo: a.TurnNo, LastMessage: a.LastMessage,
 		LastEvent: a.LastEvent, LastSeenAt: a.LastSeenAt, StartedAt: a.StartedAt, EndedAt: a.EndedAt,
 		AutoArmed: reason == sessionrelay.WaitIdleProbe, IdleSec: a.IdleSec, LastHumanAt: a.LastHumanAt,
@@ -189,7 +201,7 @@ func (s *Server) handleRegisterSession(c *rux.Context) {
 	a, err := s.relay.Register(sessionrelay.RegisterInput{
 		SessionID: body.SessionID, Agent: body.Agent, ProjectKey: projectKey, Runner: body.Runner,
 		Cwd: body.Cwd, Title: body.Title, Transcript: body.Transcript, TmuxPane: body.TmuxPane,
-		Event: body.Event,
+		Event: body.Event, CallerID: callerFromCtx(c),
 	})
 	if err != nil {
 		writeError(c, relayStatus(err), "register session failed", err.Error())
@@ -293,7 +305,7 @@ func (s *Server) handleSessionHeartbeat(c *rux.Context) {
 	}
 	a, err := s.relay.Heartbeat(c.Param("sid"), sessionrelay.HeartbeatInput{
 		Event: body.Event, State: body.State, LastMessage: body.LastMessage, Title: body.Title,
-		Injected: body.Injected, IdleSec: body.IdleSec,
+		Injected: body.Injected, IdleSec: body.IdleSec, CallerID: callerFromCtx(c),
 	})
 	if err != nil {
 		writeError(c, relayStatus(err), "session heartbeat failed", err.Error())
@@ -309,6 +321,7 @@ func (s *Server) handleSessionHeartbeat(c *rux.Context) {
 type sessionRelayReq struct {
 	Mode string `json:"mode,omitempty"`
 	// Relay is the LEGACY boolean switch (true → on, false → off).
+	// DEPRECATED(v0.45): remove in v0.48 — the pre-R1 request shape (G032).
 	Relay *bool `json:"relay,omitempty"`
 }
 
@@ -340,6 +353,9 @@ func (s *Server) handleSetSessionRelay(c *rux.Context) {
 	if mode == "" {
 		writeError(c, http.StatusBadRequest, "relay mode required",
 			`send {"mode":"auto|on|off"} (or the legacy {"relay":true|false})`)
+		return
+	}
+	if !s.sessionMayAnswer(c, c.Param("sid"), "set relay") {
 		return
 	}
 	a, err := s.relay.SetRelayMode(c.Param("sid"), mode)
@@ -401,7 +417,10 @@ func (s *Server) handleWaitTurn(c *rux.Context) {
 		"outcome":     st.Outcome,
 		"relay":       st.Relay,
 		"wait_reason": st.Reason,
-		"decision":    toDecisionView(st.Decision),
+		// wait_reason_detail explains a NON-waiting session (SUP-01 D): the wait
+		// ended because the caller is supervising live jobs.
+		"wait_reason_detail": st.Detail,
+		"decision":           toDecisionView(st.Decision),
 	})
 }
 
@@ -435,10 +454,50 @@ type sessionSayReq struct {
 	Answer string `json:"answer"`
 }
 
+// sessionMayAnswer gates the session-mutating endpoints — say / deliver / relay
+// set-mode — on the caller that OWNS the terminal (SUP-01 D, bd h-aii-esus). A
+// worker token is refused outright: a worker runs jobs, it does not answer for a
+// person. A user caller must be the session's owner (the caller stamped at
+// registration), or hold can_answer while governance.require_answer_capability is
+// on (the same "speaks for the human" capability that lets it answer an
+// interaction), or the session has NO owner at all — registered before caller_id
+// existed, or through a hook on an empty-token server — where there is nobody to
+// compare against and refusing would lock the human out of their own session.
+//
+// It lives here rather than in the relay because it is about WHO is calling,
+// which is an entry-layer fact the domain must not learn (G021). It writes the
+// response and returns ok=false when the caller may not proceed; an unknown
+// session is answered as the relay would (404).
+func (s *Server) sessionMayAnswer(c *rux.Context, sid, action string) bool {
+	if callerKindFromCtx(c) == callerKindWorker {
+		writeError(c, http.StatusForbidden, action+" not permitted for this caller",
+			"worker tokens cannot drive a terminal session: only a human answers for a person")
+		return false
+	}
+	a, err := s.relay.Session(sid)
+	if err != nil {
+		writeError(c, relayStatus(err), action+" failed", err.Error())
+		return false
+	}
+	by := callerFromCtx(c)
+	if a.CallerID == "" || a.CallerID == by {
+		return true
+	}
+	if s.cfg != nil && s.cfg.Governance.RequireAnswerCapability && s.cfg.CallerCanAnswer(by) {
+		return true
+	}
+	writeError(c, http.StatusForbidden, action+" not permitted for this caller",
+		"the session belongs to caller "+a.CallerID+": answer it as that caller, or hold can_answer")
+	return false
+}
+
 // handleSessionSay answers the session's newest OPEN turn
 // (POST /v1/sessions/{sid}/say). 409 when nothing is waiting.
 func (s *Server) handleSessionSay(c *rux.Context) {
 	if !s.relayReady(c) {
+		return
+	}
+	if !s.sessionMayAnswer(c, c.Param("sid"), "say") {
 		return
 	}
 	var body sessionSayReq
@@ -494,9 +553,7 @@ func (s *Server) handleSessionDeliver(c *rux.Context) {
 	if !s.relayReady(c) {
 		return
 	}
-	if callerKindFromCtx(c) == callerKindWorker {
-		writeError(c, http.StatusForbidden, "deliver not permitted for this caller",
-			"worker tokens cannot deliver: only a human drives a terminal session")
+	if !s.sessionMayAnswer(c, c.Param("sid"), "deliver") {
 		return
 	}
 	var body sessionDeliverReq

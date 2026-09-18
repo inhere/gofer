@@ -457,6 +457,37 @@ func (s *Store) CountActiveJobsByRole(role string) (int, error) {
 	return n, nil
 }
 
+// supervisedJobStatuses are the states that mean "this caller has work in
+// flight": every live state (activeJobStatuses) plus `recovering`, a worker job
+// held while its worker reconnects — the work is not finished, only paused. A
+// job parked in `needs_review` is deliberately EXCLUDED: the agent is done, the
+// human is reviewing a delivery, not supervising a run (SUP-01 D).
+var supervisedJobStatuses = []string{"queued", "running", "pending_interaction", "recovering"}
+
+// CountActiveJobsByCaller counts the caller's jobs that are still in flight and
+// were submitted at or after `since` (unix seconds; 0 = no lower bound). It is
+// the SUP-01 D supervision signal: the relay refuses to auto-arm a session whose
+// caller is demonstrably watching live work, because an armed Stop would block
+// the hook (and the job's completion notice) until the human came back. An empty
+// callerID counts nothing — there is no one to attribute the work to.
+func (s *Store) CountActiveJobsByCaller(callerID string, since int64) (int, error) {
+	if callerID == "" {
+		return 0, nil
+	}
+	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(supervisedJobStatuses)), ",")
+	q := `SELECT COUNT(*) FROM jobs WHERE caller_id = ? AND started_at >= ? AND status IN (` + placeholders + `)`
+	args := make([]any, 0, len(supervisedJobStatuses)+2)
+	args = append(args, callerID, since)
+	for _, st := range supervisedJobStatuses {
+		args = append(args, st)
+	}
+	var n int
+	if err := s.db.QueryRow(q, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("jobstore: count active jobs by caller: %w", err)
+	}
+	return n, nil
+}
+
 // CountJobsByStatus returns a status->count map over all jobs.
 func (s *Store) CountJobsByStatus() (map[string]int, error) {
 	rows, err := s.db.Query(`SELECT status, COUNT(*) FROM jobs GROUP BY status`)
