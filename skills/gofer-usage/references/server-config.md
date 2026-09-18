@@ -22,6 +22,9 @@ projects:
     container_path: /work/projects/my-project1 # 容器执行视角(server path_view=container 时用)
     default_agent: codex
     allowed_agents: [codex, claude, exec]      # 准入白名单(空=放行全部)
+    # agent_fallbacks: {codex: [omp, claude]}  # ★ 该项目的故障转移候选(SUP-01 P3): 按"挂掉的 agent"给有序候选,
+                                               #   覆盖 agent 级 fallback_agents(整份替换, 不合并); 空列表 = 该 agent 不转移
+
     allowed_runners: [local, builder]          # ★ 见下 —— 决定派给谁
     allow_exec: true
     allow_interactive: true                    # pty/交互 job 的项目级开关(默认 false); 项目侧唯一的交互闸
@@ -106,6 +109,9 @@ agents:
     args: [exec, "{{prompt}}"]          # 批处理 argv(job run); 模板: {{prompt}} {{cwd}} {{job_id}} {{result_dir}}
     interactive_args: []                # pty argv(job run --interactive); [] = 裸 TUI; 有此字段 = 支持交互
     detect: { command: codex, args: [--version] }   # 探测本机是否装了
+    # fallback_agents: [omp]            # ★ 供应商错误时改派的候选(SUP-01 P3): 有序, 逐个尝试
+    # transient_error_patterns: [...]   # 覆盖内置的"瞬时错误"正则(不区分大小写); 内置含 at capacity|rate limit|
+                                        #   429|503|stream disconnected|windows sandbox failed|connecting runner pipe 等
   exec:
     type: exec                          # 内置; 跑请求给的 argv, 不用模板
 ```
@@ -125,6 +131,13 @@ server:
   # governance: {...}                  # 限流全局兜底
   # max_job_timeout_sec: 3600          # job --timeout 上限(默认 1h); 超出被 clamp 且 CLI/API 明示; 项目 max_timeout_sec 可覆盖
   # job_recover_window_sec: 120        # worker 断线后 in-flight job 停在 recovering 等重连的窗口; 0 = 关(断线即 failed)
+  # agent_fallback:                    # ★ 故障转移开关(SUP-01 P3)
+  #   on_failure: true                 #   失败后转移(默认 true; 配了 fallback_agents/agent_fallbacks 才生效)
+  #   pre_dispatch: false              #   提交时主 agent degraded 就改派(默认 false: 不悄悄换掉你指定的 agent)
+  # agent_health:                      # 健康度统计窗口/阈值(SUP-01 P3)
+  #   window_sec: 3600                 #   统计窗口(秒)
+  #   degraded_after: 3                #   窗口内供应商错误 >= N → degraded
+  #   recover_after_ok: 1              #   最近一次供应商错误之后成功 >= N → 恢复
   # session_auto_relay_idle_sec: 300   # 【已迁移】顶层 session.auto_relay_idle_sec 的别名
 session:                               # 终端会话中继(SESS-01 R1/R2)的自动布防判据; 0 = 关该判据
   # auto_relay_idle_sec: 300           # 键盘空闲 >= 阈值 → 会话停下时在 web 等回复
@@ -140,6 +153,29 @@ storage:
   # root: /var/lib/gofer               # 设了则结果落 <root>/<project>/<job>
   # retention: {...}                   # 终态 job 保留上限(prune)
 ```
+
+## 7. agent 故障转移与健康度（SUP-01 P3）
+
+codex 一天挂三次（at capacity / stream disconnected / 本地 sandbox 管道超时）时，人不用再手工把同一份任务书改派 omp：
+
+```yaml
+agents:
+  codex:
+    fallback_agents: [omp]              # 全局默认候选(有序); 也可以写在 projects.<key>.agent_fallbacks 里按项目覆盖
+server:
+  agent_fallback:
+    on_failure: true                    # 默认 true(只有配了候选才生效)
+    pre_dispatch: false                 # 默认 false
+  agent_health: {window_sec: 3600, degraded_after: 3, recover_after_ok: 1}
+```
+
+规则与边界（详见 `docs/design/2026-09-18-supervision-loop-and-agent-reliability-design.md` §一）：
+
+- **候选**必须是在 `agents` 里声明过的、非 exec、且能跑批处理的 agent（交互-only 的 `interactive: true` agent 不行）；**加载期**就校验，写错启动即报。**提交期**还会按项目 `allowed_agents` 过滤（不在白名单的候选跳过并 warn，一个都不剩就等于没有候选），并把**解析结果冻结**进 job（`fallback_json`）——运行中改配置不会让链条漂移。单个 job 用 `job run --fallback omp,claude` 覆盖、`--no-fallback` 关掉。
+- **触发**：job `failed` 且命中该 agent 的瞬时错误模式、且自己也没法续（或已经续过一次又挂）。**验证步骤失败不算**（那是活的问题，不是供应商的问题）。
+- **动作**：以一个**普通 job** 重提链根那次的请求——新会话、同一 cwd（源在 worktree 里就继续用那个 worktree）、prompt 加前缀说明"上一次由 X 执行、只做剩余部分"、标题加 `(→omp)`，并继承 plan/tags/timeout/read_only/review/verify/todo/caller。链长 = 候选数。
+- **健康度**（`GET /v1/agents` 的 `health` 块、`gofer agent status`、web 徽标）：窗口内没有 job = `unknown`（不是"健康"）；`transient_fail ≥ degraded_after` 且最近一次供应商错误后成功数 `< recover_after_ok` → `degraded`。`failure_class`（transient|other）在每个 failed job 上无条件记录。
+- **探针**：`gofer agent probe <key>`（web Agents 页也有按钮）提交一个 `--sync` 探针 job（固定 prompt、`tags: [probe]`），它走的就是普通提交路径，所以结果天然计入健康度。
 
 ## 校验 / 生效
 

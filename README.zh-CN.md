@@ -26,6 +26,7 @@
 - **续跑**：`job resume` 让 codex/claude 带着自己的会话上下文接着上次中断的地方继续。
 - **隧道**：`gofer tunnel` 经 worker 做受白名单约束的 TCP/UDP 端口转发（如容器 → 车间 PLC/HMI），三端日志用同一 `tunnel_id` 关联并带分段时延。
 - **人机协作**：运行中提问（`pending_interaction`）、`plan` + todo 进度看板、`ask_human` 阻塞决策、终端会话中继（人离开电脑时自动布防，web/手机回复注入原会话）。
+- **codex 挂了自动转 omp**：agent 因**供应商错误**（`at capacity` / `stream disconnected` / sandbox 没起来…）挂掉、且它自己也没法续时，server 把**同一份活**交给下一个候选 agent（一个普通 job）：agent 上写 `fallback_agents: [omp]`，或项目上按 agent 覆盖 `agent_fallbacks: {codex: [omp]}`；单个 job 可用 `job run --fallback omp` 覆盖、`--no-fallback` 关掉。接管的 job 继承 worktree、plan/todo、verify、caller，prompt 会说明"上一次由谁执行、只做剩余部分、别重做已提交的工作"；源 job 记 `job.fell_back` 并留下 `fell_back_to`（不再报一条马上被接管的终态失败）。健康度按 agent 聚合（每个 failed job 都记 `failure_class`）：`gofer agent status` 看谁 degraded、`gofer agent probe <key>` 提交一个真的"只回一行 OK"的 job 立刻验活，web 的 Agents 页有徽标和探针按钮；`server.agent_fallback.pre_dispatch: true`（默认关）还会在**提交时**就把 degraded 的 agent 换成候选。
 - **验收不靠 agent 自述**：agent 汇报≠验收——`job run --verify 'go test ./...'`（或项目 `verify:` 默认值）让验收命令在**干活那台机器**上、紧跟 agent 之后、用同一个 cwd/env 跑；非 0 退出即 job `failed`（开着 review 则停 `needs_review`），输出带横幅落进该 job 的 stderr 日志；worker 上跑的 job 由执行机验、结果经 Outcome 回传，审批与验证事件也会镜像到 hub，通知与审计同样看得到。
 - **定时与编排**：`schedule` 定时 job，`workflow` 多步依赖链（fan-out / join / 重试）。
 - **可观测 / 可审计**：JSONL 文件日志（轮转、脱敏）、`/v1/runners` 健康名册、SSE 实时流、`caller_id`/`worker_id` 入库、retention 周期清理；SQLite（纯 Go）存元数据。
@@ -88,7 +89,7 @@ gofer job list         # 填好地址与 token 即可
 
 ## 核心概念
 
-- **project**：一个可执行任务的真实目录。字段：`host_path`（主机路径）/ `container_path`（容器路径）/ `default_agent` / `allowed_agents` / `allowed_runners` / `allow_exec` / `allow_interactive`（pty/交互 job 的项目级开关，默认关，是项目侧**唯一**的交互闸）/ `max_concurrent_jobs` / `max_timeout_sec` / `worktree_default` / `verify` + `verify_timeout_sec`（项目默认验证步骤及其独立超时）。
+- **project**：一个可执行任务的真实目录。字段：`host_path`（主机路径）/ `container_path`（容器路径）/ `default_agent` / `allowed_agents` / `agent_fallbacks`（项目级故障转移候选，按挂掉的 agent 给有序列表）/ `allowed_runners` / `allow_exec` / `allow_interactive`（pty/交互 job 的项目级开关，默认关，是项目侧**唯一**的交互闸）/ `max_concurrent_jobs` / `max_timeout_sec` / `worktree_default` / `verify` + `verify_timeout_sec`（项目默认验证步骤及其独立超时）。
 - **agent**：怎么执行。`cli-agent` 用 `command` + `args` 模板渲染（占位符 `{{prompt}}` `{{cwd}}` `{{job_id}}` `{{result_dir}}`，逐元素替换、不过 shell）；再写 `interactive_args` 即**一个 key 同时支持批处理与 pty**（`[]` = 裸 TUI 启动；不得含 `{{prompt}}`）。`exec` 原样跑请求里的 `cmd` argv（需项目 `allow_exec`）。
 - **runner**：在哪执行。`local`（本进程子进程）/ `peer-http`（转发到另一台 gofer）/ `worker`（WS 连入的远端执行机）。
 - **job 生命周期**：`queued → running → done | failed | cancelled | timeout`；运行中提问 `running → pending_interaction → running`；执行它的 worker 断线 `running → recovering → running | failed`。

@@ -208,3 +208,32 @@ B（`--verify` 本地 + worker + peer + CLI/HTTP/MCP/web）与 G（`job_event` �
 | P1 遗留候选（`interactive_allowed_agents` 一次性读取） | P2 未触碰（该兼容在 config 加载期且已被 `allow_interactive` 取代，留 P3/P5 评估） |
 
 删除项：上表两处 warn-only 分支（P2 唯一删除的兼容路径，代码与注释一并删除）。
+
+## P3 实测记录（2026-09-18）
+
+A（`fallback_agents` / 失败后转移 / `pre_dispatch` / `failure_class` / 健康度 / `gofer agent status|probe` / web 徽标与探针）已落地并全绿。落地要点与偏差：
+
+- **判定拆分**：`transientHit`（纯模式匹配：stderr 尾部 8KB + `snap.Error`，含 P2 的"verify 失败不算瞬时"闸）与 `autoResumeEligible`（session/次数/可续）从 `autoResumeHit` 拆出，`finish()` 用同一个 `failureDecision` 同时决定 `failure_class`、续投与转移——三者在同一决策点，事件与落库不会互相矛盾；`autoResumeHit` 这个只剩组合作用的包装已删除。
+- **续投载体的模式归属**：`resume`/自动续投的载体是内置 exec job（argv里才是真正的 CLI），`transientHit` 因此对"`ResumedFrom != ""` 且自身 agent 无瞬时模式"的 job **沿 `ResumedFrom` 取源 agent 的模式**（`transientPatternsFor`）——否则"同一 agent 续投也挂了"永远判不成瞬时，设计的转移规则会失效。
+- **转移的基底请求**：设计写"以源 job 的 `request_json` 构造新请求"。对**续投载体**，其 `request_json` 是 exec argv（agent=exec、prompt 为空），照它重提会在新 agent 上"prompt 为空"提交失败；因此 `fallbackBase` 沿 `ResumedFrom` 上溯（上限 8 跳）取**链根那次**的请求——它才是记着 agent 与 prompt 的那一份——再套设计给的改写（Agent=下一候选、清 SessionID、Cwd=resumeCwd、前缀说明）。这也是验收项"假 agent 连挂两次自动改派备用"能成立的前提。
+- **`exec`/`Cmd` 类请求**：按设计不加 prompt 前缀、原样重跑（`execShaped` 在替换 Agent **之前**判定）。候选按加载期校验必为**非 exec** 的批处理 agent，所以"exec 源 + cli 候选"这一组合只可能来自显式 `--fallback`，此时源 argv 原样带过去、prompt 仍为空。
+- **`jobs.fallback_json` 的形状**：`{"candidates":[…],"depth":N}`（`FallbackState`），`Depth = 已用过的链接数`，下一个候选是 `Candidates[Depth]`；`Depth >= len(Candidates)` 即链条用尽。设计里 `JobRequest.FallbackDepth int json:"-"` 没有单独设字段——深度就装在同一个 `FallbackState` 里随请求传递，避免两处记同一个事实。字段名 `JobRequest.Fallback` 与 `JobResult.Fallback` 同名不同物（前者内部携带、后者持久化投影）。
+- **续投继承转移计划**：`resumeJob`（含 ACP 分支）把源 job 的 `Fallback` 原样传下去（深度不变——载体占的还是同一个 agent 的位置），这样"续投也挂了"才有一份**冻结**的候选表可用，而不必重读可能已变的配置。
+- **`requested_agent`**：提交期改派（pre_dispatch）与转移 job 都写它（链根调用方原本要的 agent），普通 job 留空；`dispatcher` 与 `finish` 都从快照继承，客户端无法伪造（`JobRequest.RequestedAgent` 是 `json:"-"`）。
+- **pre_dispatch 的插入点**：在 `validate` 之后、`normalizeTimeout`/`selectTargetWorker` 之前——deadline 按**实际要跑的 agent** 判定，标签选 worker 也按改派后的 agent 查能力。改派后链深度置为该候选的下标+1，因此后续失败只剩它之后的候选。
+- **健康度口径（澄清）**：`ok` 计 `done` **与 `needs_review`**（活已交付、供应商没出问题；把 needs_review 排除会让开了 `require_review` 的项目在三次供应商错误后**永远** degraded）。窗口内无 job = `unknown`（不是 healthy）；恢复计数按"最近一次瞬时失败**之后**的成功数"算（`jobs` 表按 `ended_at` 比较，在一条 SQL 里用 LEFT JOIN 冻结每个 agent 的最近瞬时失败时间）。数据源是 `jobs` 表 + `idx_jobs_agent_started`，没有新表、没有后台任务。
+- **健康度的位置**：`jobstore.AgentHealth/AgentHealthAll`（聚合）+ `agent.HealthState`（纯分类）。A1 的 pre_dispatch 就必须读它，所以聚合与分类随 A1 落地；A2 只做暴露面（HTTP/CLI/web）与对应测试。
+- **探针的 runner**：设计没说探针跑在哪个 runner，实现取项目 `allowed_runners` 的第一项（空表 → 内置 `local`）——worker-only 项目因此由**真正会跑它活的那台机**来验；exec agent 的探针跑 `cmd /c echo OK`（Windows）/`echo OK`。
+- **探针的 channel**：`POST /v1/agents/{key}/probe` 的 body 只有 `project`/`timeout_sec`，没有 provenance 字段，故探针 job 的 `channel` 为空（`caller_id`/`client` 由服务端照常盖章）。
+- **web**：Agents 页每行加 health 徽标（healthy 绿 / degraded 琥珀 `--run`——本主题唯一的橙位，与同行 error 的红区分 / unknown 灰，title 写明窗口内几次供应商错误）+「探针」按钮，结果复用现成的 `InteractionToast`（title/text/to），点它跳 `/jobs/<id>`；探针跑完顺带刷新一次列表，新的健康度立即回显。`vue-tsc --noEmit` 与 `vite build` 均通过（无 web 测试框架，按设计的验收口径到此为止）。
+- **worker 路径**：转移的重提与自动续投走**同一形态**（都是普通 `Submit`）——host 侧的转移 job 继承 `Runner/WorkerID` 会重新派发到同一台 worker；worker 本地那份 job 也按它**自己的**配置走它的 `finish`。这一点与既有自动续投完全一致（P3 未改变 worker 侧语义）。
+
+**G032 处理清单**（P3 触碰到的既有兼容路径）：
+
+| 位置 | 处理 |
+|---|---|
+| `config.ApplyLegacyInteractiveCompat` + `legacyInteractiveYAML`（`interactive_allowed_agents` 一次性读取） | 仍在被现役配置/测试读取（AGT-02 0.3 人工决策保留），本轮**补打** `// DEPRECATED(v0.45): remove in v0.48` 标记（原先只有说明性注释、无标记） |
+| `agent_sessions.relay` bool 镜像列、`sessionView.Relay`、`server.session_auto_relay_idle_sec` 别名 | P3 未触碰，P1 已打 DEPRECATED 标记，保持 |
+| 旧 worker 协议容忍分支 | P2 已删除，P3 未新增 |
+
+删除项：无（P3 触碰到的兼容路径都仍在被现役二进制/配置使用；`autoResumeHit` 属重构后无用的内部函数，非兼容层，随特性一并删除）。
