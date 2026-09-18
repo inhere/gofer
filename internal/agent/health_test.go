@@ -79,7 +79,13 @@ func TestHealthStateThresholdsAndRecovery(t *testing.T) {
 
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got := HealthState(tc.h, tc.cfg)
+			// An unset case config means "the configured defaults" (cfg above), which is
+			// also what a config file without an agent_health block resolves to.
+			hc := tc.cfg
+			if hc == (config.AgentHealthConfig{}) {
+				hc = cfg
+			}
+			got := HealthState(tc.h, hc)
 			if got != tc.want {
 				t.Fatalf("HealthState(%+v, %+v) = %q, want %q", tc.h, tc.cfg, got, tc.want)
 			}

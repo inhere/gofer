@@ -55,7 +55,10 @@ func TestAgentHealthAggregates(t *testing.T) {
 	if len(all) != 3 {
 		t.Fatalf("agents in the window = %d (%v), want codex/claude/omp", len(all), all)
 	}
-	if got := all["claude"]; got.OK != 1 || got.OtherFail != 1 || got.TransientFail != 0 || got.OKSinceTransient != 1 {
+	// claude never hit a provider error, so there is no outage to recover from:
+	// ok_since_transient is 0 by definition (it counts successes AFTER the last
+	// transient failure, and there is none) — HealthState never needs it in that case.
+	if got := all["claude"]; got.OK != 1 || got.OtherFail != 1 || got.TransientFail != 0 || got.OKSinceTransient != 0 {
 		t.Fatalf("claude = %+v, want 1 ok (needs_review counts) / 1 other / 0 transient", got)
 	}
 	if got := all["omp"]; got.Jobs != 1 || got.OK != 0 {
