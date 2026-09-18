@@ -257,7 +257,19 @@ type JobRequest struct {
 	// therefore (correctly) gated as a plain exec job — re-resume via the `resume`
 	// command instead.
 	ResumeSourceAgent string `json:"-" yaml:"-"`
-	ResumedFrom       string `json:"-" yaml:"-"`
+	// ResumedFrom is the CONTINUATION marker: the source job id whose agent session
+	// this job continues, stamped by ResumeJob and by nobody else (an empty value
+	// means a plain job). Together with SessionID it is what makes an acp-agent
+	// runner LOAD the source session (submit.resumeLoadSessionID) instead of opening
+	// a fresh one (ACP-01 S2).
+	//
+	// It IS a wire field (json/yaml round-trip, and it rides a peer/worker forward):
+	// the one thing it can do is ask an agent to session/load ITS OWN session id,
+	// which an agent that does not know that session refuses on its own — so it is
+	// not an access-control marker, unlike ResumeSourceAgent / ReviewFixed /
+	// TodoForeign below, which stay json:"-". It also makes `job rerun` of a
+	// continuation re-continue the same session (decided 2026-09-18, SUP-02 R1).
+	ResumedFrom       string `json:"resumed_from,omitempty" yaml:"resumed_from,omitempty"`
 	AutoResumeAttempt int    `json:"-" yaml:"-"`
 	// FallbackAgents is the per-JOB candidate list (SUP-01 P3, `job run --fallback`):
 	// it wins over the project's agent_fallbacks and over the agent's own

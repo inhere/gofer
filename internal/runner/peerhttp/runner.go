@@ -92,6 +92,13 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// the peer's local row must finish normally — a needs_review row here would
 		// never report a terminal status back and the hub would fail the job.
 		ReviewFixed: true,
+		// ACP-01 S2 / SUP-02 R1: a CONTINUATION travels with its session id and its
+		// lineage, so the peer's acp runner LOADS that session over the protocol
+		// instead of opening a new one. Both are part of the request JSON (unlike the
+		// internal markers above), so a hop cannot silently turn a resume into a fresh
+		// run — the peer's own admission and agent policy still decide the rest.
+		SessionID:   f.SessionID,
+		ResumedFrom: f.ResumedFrom,
 	}
 
 	peerRes, err := r.c.SubmitJob(jr)
