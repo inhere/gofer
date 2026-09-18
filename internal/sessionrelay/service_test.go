@@ -29,6 +29,7 @@ type fakeNotifier struct {
 	waiting   []string
 	attention []string
 	handedOff []string
+	released  []string
 }
 
 func (f *fakeNotifier) NotifySessionWaiting(sid, _, _, msg string, _ int64) {
@@ -39,6 +40,9 @@ func (f *fakeNotifier) NotifySessionAttention(sid, _, _, detail string) {
 }
 func (f *fakeNotifier) NotifySessionHandedOff(sid, _, _, jobID string) {
 	f.handedOff = append(f.handedOff, sid+":"+jobID)
+}
+func (f *fakeNotifier) NotifySessionTakeoverReleased(sid, _, _, jobID, reason string) {
+	f.released = append(f.released, sid+":"+jobID+":"+reason)
 }
 
 // TestNotifierHooks covers when the relay pushes to the outbound notifier:

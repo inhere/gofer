@@ -150,3 +150,46 @@ func TestSessionSayDeliverFlag(t *testing.T) {
 		t.Fatalf("output=%q, want the answered turn id", out)
 	}
 }
+
+// TestSessionReleaseTakeoverCommand pins the CLI way back from path B (§9.1 B,
+// SUP-02 R1): `session release-takeover <sid>` calls the existing endpoint and
+// prints the session's NEW state, so the person sitting at the original terminal
+// can take their session back without opening the web — and a full id needs no
+// listing round trip first.
+func TestSessionReleaseTakeoverCommand(t *testing.T) {
+	const sid = "9f2c1e40-1111-2222-3333-444455556666"
+
+	calls := 0
+	var gotMethod, gotPath, gotBody string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		calls++
+		gotMethod, gotPath = r.Method, r.URL.Path
+		b, _ := io.ReadAll(r.Body)
+		gotBody = string(b)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"session_id": sid, "state": "idle", "relay_mode": "auto",
+		})
+	}))
+	defer srv.Close()
+	clientNode(t, srv.URL)
+
+	out := captureOutput(t, func() {
+		c := bindCmd(findSub(t, NewSessionCmd(), "release-takeover"))
+		c.Arg("id").Set(sid)
+		if err := runSessionReleaseTakeover(c, nil); err != nil {
+			t.Fatalf("session release-takeover: %v", err)
+		}
+	})
+	if gotMethod != http.MethodPost || gotPath != "/v1/sessions/"+sid+"/release-takeover" {
+		t.Fatalf("request = %s %s, want POST the release endpoint", gotMethod, gotPath)
+	}
+	if gotBody != "" {
+		t.Fatalf("body=%q, want an empty body (the session id is the whole request)", gotBody)
+	}
+	if calls != 1 {
+		t.Fatalf("calls=%d, want exactly one (a full id needs no lookup)", calls)
+	}
+	if !strings.Contains(out, "state=idle") {
+		t.Fatalf("output=%q, want the session's new state", out)
+	}
+}
