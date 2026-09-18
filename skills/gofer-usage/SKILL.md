@@ -114,6 +114,15 @@ job 状态里的 **`recovering`** 不是失败：执行它的 worker 断线了�
 另外，**agent 的汇报不能当验收依据**：实测出现过"汇报称已按要求修改，代码其实一行没动"。
 关键结论要自己 `grep` 源码、自己跑测试核对；必要时在任务书里要求它贴出指定命令的原始输出。
 
+### 派活后如何验收（`needs_review`）
+
+开着 review 的 job（`job run --review`，或项目 `require_review: true`）agent 正常结束后**不落 `done`**，停在 `needs_review` 等人裁决：
+
+- **Web 验收台**：`/review` 列全部待验收 job（verify 徽标 / commits 数 / usage / 已经等了多久，等最久的在最前），行内 Accept / Reject（拒绝必写理由，可勾「自动续投」）。点行进 job 详情，页首是**验收面板**，五个页签一屏看完：**汇报**（agent 最终文本，markdown）/ **提交**（`base_sha → HEAD`）/ **Diff**（patch 就地渲染、按文件折叠，>5000 行或 >1MB 只渲染前 5000 行并可下载原文）/ **验证**（verify 结果 + stderr 里最后一段 verify 输出）/ **用量**；底部同一组 Accept / Reject。顶栏 Review 上的数字就是待验收计数。
+- **容器里（无浏览器）**：`gofer job review <id>` 打同一份材料（`--tail N` 改汇报行数，`--diff` 追加完整 patch）。
+
+裁决前先自己核验（跑测试、看 diff），面板里的汇报仍是 agent 自己说的。
+
 ## 5. 同步 vs 异步
 
 - **同步** `--sync`：server 阻塞到终态返回（默认上限 ~30s，可 `--wait-timeout <秒>`）。短任务、要立刻拿结果用它。

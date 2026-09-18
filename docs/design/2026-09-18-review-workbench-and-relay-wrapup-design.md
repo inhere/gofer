@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 验收台（REV-01）与中继 / peer 收尾（SUP-02）设计
 
-> 状态：Approved 0.1 / 实施中（2026-09-18 人工确认范围"1+2 做了"；决策见文末）
+> 状态：Approved 0.1 / 已实施（2026-09-18 人工确认范围"1+2 做了"；R1 = §二 + `job review` CLI，R2 = §一 web 验收台；决策见文末）
 
 ## 修订记录
 
@@ -9,6 +9,7 @@
 |---|---|---|---|
 | 0.1 | 2026-09-18 | Claude | 初稿：① 验收台——web「待验收」列表 + job 详情验收面板（汇报 / 提交 / Diff 渲染 / 验证 / 用量一屏）+ CLI `job review`；② 收尾——`session release-takeover` CLI、接管 job 终态自动释放会话、tmux 注入 runner 失败也转 B（h-aii-jvia）、peer-http 的 acp resume 续投标记（h-aii-9qiy） |
 | 0.2 | 2026-09-18 | omp | R1 实施完成（SUP-02 收尾 + `job review` CLI）：实测记录见 §三；`ResumedFrom` rerun 语义与 `RebuildJob` 的"新会话"规则的差异记在 §3.2 |
+| 0.3 | 2026-09-18 | omp | R2 实施完成（web `/review` 列表 + 详情五页签验收面板 + `UnifiedDiff.vue`）：实测记录见 §四；后端零改动（设计允许的两处小改经核实都不需要） |
 
 ## 背景
 
@@ -94,3 +95,40 @@ SUP-01 之后一个 job 的验收材料齐了（`needs_review`、`verify`、`com
 
 - **`job rerun` 一个 acp 续投 job ≠ 再续同一会话**（决策 2 的括注）。`ResumedFrom` 现在确实随 `request_json` 往返（这正是 peer 续投要的），但 `RebuildJob` 按既有规则清空 `SessionID`（"fresh job, NOT a resume — don't rebind the source session"，有测试 `TestRebuildJobEmptyOverridesStampsFreshFields` 钉住）。于是 rerun 出的 acp job 有 `resumed_from` 无 `session_id`，`resumeLoadSessionID` 要求两者同时存在 → **不开 `session/load`，等于新会话**。exec 载体的续投不受影响（argv 自带 session id，rerun 重放 argv 仍是续接），所以设计里"与 exec 载体一致"的说法对 acp 载体不成立。本期按任务要求**保留**该字段、未改 `RebuildJob` 的清理规则；要真做"rerun 再续同一会话"，需要单独决定是否让 rerun 继承 `SessionID`（会与上面那条既有规则/测试冲突）。
 - `session.takeover_released` 的 `reason` 用 `job_<status>`（如 `job_done` / `job_failed`；状态行读不到时 `job_unknown`）。design 未规定 job 行缺失时的取值。
+
+## 四、R2 实测记录（2026-09-18）
+
+web 无测试框架，验收方式 = `vue-tsc --noEmit` + `vite build` 干净 + 桩 `/v1/*` 数据在真实 Chromium 里跑一遍。后端本期**零改动**（理由见 4.3），故无 wire/接口变更。
+
+### 4.1 桩数据与跑法
+
+桩服务（临时文件，不进仓库）serve 构建产物 `web/dist` 并顶掉 `/v1/*`：3 条 `needs_review` —— verify `failed`（2 commits）/ `passed`（12 commits + 3 文件 diff 含 rename 与 binary）/ `skipped`（0 commits + 无 stdout + worktree 两段 diff，原文 7462 行），外加一条已 `rejected` 且**没捕获到** `changes.diff` 的 job 用来打 404 分支。Chromium 里依次走：列表渲染 → 行内 Accept → 行内 Reject（弹层校验 + 自动续投）→ 详情五页签逐个 → diff 折叠与 6000+ 行降级 → 800px 窄屏。
+
+### 4.2 观测（截图核对 + 页内取值）
+
+| 验收项 | 观测 |
+|---|---|
+| 列表列与排序 | 表头 `job·标题/id / project / agent / plan·todo / verify / 提交 / usage / 等待 / 裁决`；三行按等待时长倒序（`1h00m` / `10m02s` / `2m02s`）；verify 徽标 class `verify--bad`/`--ok`/`--skip`，计算色 `rgb(178,58,36)` / `rgb(40,113,64)` / `rgb(79,101,113)`；`plan-review-r2 · t1` 链到 `/plans/plan-review-r2`，无 plan 显示 `—`；usage 单元格 `1.12M tokens · $3.4211`（被夹住时全值在 title）；顶栏 Review 徽标 = `3`，清空后隐藏 |
+| 行内 Accept | 点击后该行 class `trow--leaving`（opacity 过渡中 0.78）→ 移除；副标题 `3 → 2 个待验收 job`，导航徽标 `3 → 2` |
+| 行内 Reject 弹层 | 标题「拒绝验收」+「拒绝理由（必填）」；空串与纯空白都禁用「确认拒绝」，填入理由后启用；勾「自动续投」→ `POST /reject {note, resume:true}` 返回 `resume_job_id`，弹层关闭、行淡出、右下角 toast「已拒绝，并已续投新 job」+ 新 job 链接（8s 自动消失） |
+| 详情验收面板出现时机 | `needs_review` / `rejected` / `done + require_review` 三种都渲染；默认页签「汇报」；底部在 `needs_review` 时是 Accept/Reject，裁决后换成「已验收 · human:you · 09-18 16:19:17 done」（页首徽标同步 `done`），rejected 显示 `reviewed_by/at/note` 与结果徽标 |
+| 汇报页签 | stdout 尾部 64KB 交 MarkdownBlock：h1–h3、列表、代码块、3 行表格、引用块均渲染；无 stdout 的 job 显示「agent 无文本输出」 |
+| 提交页签 | 头部 `基线 0000000000 → HEAD 0000000000` + 12 条（sha + subject，点 sha 复制）；0 条显示「无提交（可能只改了工作树，见 Diff）」 |
+| Diff 页签 | 3 个文件块：`web/src/api/client.ts +3 −2`、`docs/new-notes.md 重命名 +1 −0`（meta 行含 `similarity index` / `rename from|to`）、`web/public/logo.png +0 −0` 只渲染一行「二进制文件 · 不显示内容」；点文件头折叠（`aria-expanded=false`，行数 4980 → 1380 再展开回 4980）；hunk 头 `@@ -1,3000 +1,3002 @@`；`+`/`-` 行背景 `rgba(91,166,110,0.14)` / `rgba(200,85,61,0.14)` |
+| 大文件降级 | worktree 两段各成一组：段标题 `=== committed (1a2b3c4..HEAD) ===` / `=== uncommitted ===`（phosphor + 左侧竖线）；原文 7462 行 / 177.1 KB → 只渲染前 5000 行（4980 条内容行），底部「已截断：仅渲染前 5000 行（全文 7462 行 / 177.1 KB）」+「下载完整 diff」；`new file mode` 的块标「新增」 |
+| 验证页签 | `failed (exit 1, 1.2s)`（红）+ 命令行 `go test ./...` + 从 stderr 尾部 64KB 截最后一段 `===== gofer verify: … =====` 到 `===== gofer verify: exit=1 dur=1234 =====`（含两端横幅，≤200 行）；`skipped` 显示 `skipped (agent 未正常结束)` + 「未跑验证：agent 未正常结束」 |
+| 用量页签 | 逐行 `input_tokens / output_tokens / cache_read_tokens / cache_write_tokens / total_tokens / cost_usd / source`，缺失项 `—`（agent 没报 ≠ 0），底部一行摘要 `total 12k (acp:usage_update)` |
+| diff 缺失（404） | 「no diff - this job captured no full diff」+ 提示行「此 job 没有捕获到 diff（无改动、非 git 仓库，或改动全在提交里）」+「重试」按钮 |
+| 响应式（800px） | `.rp-tabs { overflow-x: auto }` 生效（页签不换行、超宽横向滚）；diff 行 `white-space: pre`、hunk `overflow-x: auto`（不折行） |
+
+### 4.3 后端零改动（设计允许的两处小改都不需要）
+
+- `GET /v1/jobs?status=needs_review` 与其它筛选并用：`jobstore.ListJobs` 把 `project_key = ?` 与 `status = ?` 一起 AND 进 WHERE，web 的 `listJobs` 本就透传 status + project + tag + agent + runner + session + plan + …，因此 `GET /v1/jobs?status=needs_review&limit=100` 直接可用（未加参数）。
+- `GET /v1/stats` 的 `jobs.by_status`：`CountJobsByStatus` 是 `SELECT status, COUNT(*) FROM jobs GROUP BY status`，`needs_review` 天然在列，无需补字段。
+
+### 4.4 与设计文字的偏差（留人工决定）
+
+- **「顶栏计数徽标」落在导航 Review 入口上**（`App.vue`「观察」组；移动抽屉同步）。计数由 `EscalationBell` 那一轮 5s 轮询顺手读 `/v1/stats` 写进共享 `store/reviewCount.ts`——没有第二个定时器，代价是计数只在顶栏挂载时更新（`/access` 页无顶栏，本就不显示）；验收台本地裁决后会按自己的列表长度立刻修正。
+- **详情页信息重复**：设计只要求「`:933` 的 diff 摘要保留在原位置」，本期把「产出与审计」里的 **提交 / 验证 / 用量**三块也原样保留（非 review job 同样要看），于是 review job 的详情页面板与产出区各有一份。取舍：面板负责"一屏裁决"，产出区负责"完整审计（含产物、结构化结果、pty）"；是否合并留待人工决定。
+- **降级条件**取设计原话「> 1MB **或** > 5000 行」二者任一命中；原文整体已在内存里，「下载完整 diff」由前端 Blob 直接存盘（不再打后端）。
+- 列表的 `require_review` 徽标**未渲染**：这个队列里的 job 按定义就是待验收的，该徽标不携带信息（列宽让给标题）。
