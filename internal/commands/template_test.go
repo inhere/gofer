@@ -2,7 +2,6 @@ package commands
 
 import (
 	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -75,22 +74,43 @@ func TestJobRunTemplateFlags(t *testing.T) {
 // The wire is the read-only template endpoint (hand-written JSON here so a field
 // rename on either side fails this test).
 func TestTemplateShowRenders(t *testing.T) {
-	body := `{
+	bodyWithVars := `{
   "name": "impl",
   "source": "project",
   "path": "D:/proj/.gofer/templates/impl.md",
   "desc": "批次实施",
   "meta": {"agent": "omp", "timeout_sec": 600},
   "vars": {"tasks": {"required": true, "desc": "任务正文"}, "base": {"default": "main"}},
-  "body": "实施 {{tasks}}（base={{base}} project={{project}}）"
+  "body": "实施 {{tasks}}（base={{base}}）",
+  "render": {
+    "prompt": "实施 做 A（base=main）",
+    "warnings": ["undeclared {{extra}} kept as-is"]
+  }
 }`
+	// 服务端渲染的预览：CLI 只是把 --var 传过去（这里断言它真的传了），渲染结果与
+	// "缺必填变量"由服务端如实回答 —— stub 照这个契约回话。
+	bodyNoVars := `{
+  "name": "impl",
+  "source": "project",
+  "path": "D:/proj/.gofer/templates/impl.md",
+  "desc": "批次实施",
+  "vars": {"tasks": {"required": true, "desc": "任务正文"}, "base": {"default": "main"}},
+  "body": "实施 {{tasks}}（base={{base}}）",
+  "render": {"prompt": "实施 （base=main）", "missing": ["tasks"]}
+}`
+	var gotVars []string
 	h := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/v1/projects/self/templates/impl" {
 			http.NotFound(w, r)
 			return
 		}
+		gotVars = r.URL.Query()["var"]
+		out := bodyWithVars
+		if len(gotVars) == 0 {
+			out = bodyNoVars
+		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(body))
+		_, _ = w.Write([]byte(out))
 	})
 	stubAgentServer(t, h)
 
@@ -112,11 +132,15 @@ func TestTemplateShowRenders(t *testing.T) {
 		"(required)",
 		"base", // 默认值
 		"main",
-		"实施 做 A（base=main project=self）", // 渲染后的正文预览
+		"实施 做 A（base=main）",    // 服务端渲染后的正文预览
+		"undeclared {{extra}}", // 渲染告警一并显示
 	} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("template show output missing %q:\n%s", want, out)
 		}
+	}
+	if len(gotVars) != 1 || gotVars[0] != "tasks=做 A" {
+		t.Fatalf("template show sent var=%v, want the --var value", gotVars)
 	}
 
 	// 缺必填变量时如实报告，而不是打印一段少了正文的预览。

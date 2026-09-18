@@ -138,6 +138,24 @@ func TestRenderVarsDefaultsRequiredAndBuiltins(t *testing.T) {
 		t.Fatalf("warnings = %q, want one about the undeclared {{nope}}", warns)
 	}
 
+	// 调用方给了值的占位符即使模板没声明也替换（提交者就是在给眼前这份任务书定值），
+	// 没人给值的才原样保留 + warn。
+	got, err = Render(tpl, map[string]string{"tasks": "T", "extra": "E"}, builtins)
+	if err != nil {
+		t.Fatalf("Render (supplied but undeclared): %v", err)
+	}
+	if !strings.HasPrefix(got.Prompt, "base=main tasks=T ") {
+		t.Fatalf("prompt = %q, want the supplied values substituted", got.Prompt)
+	}
+	extra := Template{Vars: nil, Body: "[{{extra}}]"}
+	got, err = Render(extra, map[string]string{"extra": "E"}, nil)
+	if err != nil {
+		t.Fatalf("Render (undeclared only): %v", err)
+	}
+	if got.Prompt != "[E]" || len(got.Warnings) != 0 {
+		t.Fatalf("prompt/warnings = %q/%v, want the supplied value substituted", got.Prompt, got.Warnings)
+	}
+
 	// 一个给了值的变量压过默认值；缺必填只是被"报出来"，其余正文照常渲染。
 	got, err = Render(tpl, map[string]string{"base": "dev"}, builtins)
 	if err != nil {

@@ -8,6 +8,7 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/presence"
+	"github.com/inhere/gofer/internal/template"
 )
 
 // clientBackend is the remote Backend: every method forwards to a central gofer
@@ -30,6 +31,12 @@ func NewClientBackend(cli *client.Client) Backend {
 // snapshot, matching localBackend.RunJob's submit semantics.
 func (b *clientBackend) RunJob(req job.JobRequest) (job.JobResult, error) {
 	return b.cli.SubmitJob(req)
+}
+
+// ListTemplates forwards the read to the central serve: the templates live on the
+// server's disk, not on this process's.
+func (b *clientBackend) ListTemplates(project string) ([]template.Info, error) {
+	return b.cli.ListTemplates(project)
 }
 
 func (b *clientBackend) GetJob(id string) (job.JobResult, error) {

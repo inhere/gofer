@@ -13,6 +13,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -22,6 +23,7 @@ import (
 	"github.com/inhere/gofer/internal/job/workflow"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/presence"
+	"github.com/inhere/gofer/internal/template"
 	"github.com/inhere/gofer/internal/tunnel"
 )
 
@@ -543,6 +545,51 @@ func (c *Client) GetUsageStats() (StatsUsage, error) {
 	}
 	err := c.doJSON(http.MethodGet, "/v1/stats", nil, &resp)
 	return resp.Usage, err
+}
+
+// ListTemplates reads a project's task-book templates (SUP-01 P5): the project's own
+// .gofer/templates first, then the server's global <config-dir>/templates. Templates
+// live on the SERVER's disk, so a client (CLI/console) reads them over HTTP.
+func (c *Client) ListTemplates(projectKey string) ([]template.Info, error) {
+	var resp struct {
+		Templates []template.Info `json:"templates"`
+	}
+	path := "/v1/projects/" + url.PathEscape(projectKey) + "/templates"
+	if err := c.doJSON(http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Templates, nil
+}
+
+// GetTemplate reads ONE template plus the SERVER's render of it (vars are sent as
+// repeated `var=k=v` query params). Rendering server-side is deliberate: it is the
+// only side that can expand {{include: …}} and resolve {{head}} against the project
+// the job would actually run in, so the preview equals the prompt a submit produces.
+func (c *Client) GetTemplate(projectKey, name string, vars map[string]string) (template.Preview, error) {
+	path := "/v1/projects/" + url.PathEscape(projectKey) + "/templates/" + url.PathEscape(name)
+	q := url.Values{}
+	for _, k := range sortedKeys(vars) {
+		q.Add("var", k+"="+vars[k])
+	}
+	if len(q) > 0 {
+		path += "?" + q.Encode()
+	}
+	var out template.Preview
+	if err := c.doJSON(http.MethodGet, path, nil, &out); err != nil {
+		return template.Preview{}, err
+	}
+	return out, nil
+}
+
+// sortedKeys returns a map's keys in a stable order (query params must be
+// deterministic for caching/logging).
+func sortedKeys(m map[string]string) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // AgentProbe is the outcome of a probe (POST /v1/agents/{key}/probe, SUP-01 P3): the

@@ -149,6 +149,9 @@ func (s *Service) fallBack(snap JobResult, hit, nextAgent string) bool {
 	if base.RequestJSON == "" || json.Unmarshal([]byte(base.RequestJSON), &req) != nil {
 		return false
 	}
+	// The base request's prompt is already rendered (SUP-01 P5): a template must not
+	// run a second time over it.
+	dropTemplate(&req)
 	// CallerID / SourceJobID / RequestedAgent are not part of the client-facing JSON
 	// (tag "-"), so the lineage is restored from the snapshot (mirroring
 	// maybeRetryJob). RequestedAgent falls back to the base request's agent: the first

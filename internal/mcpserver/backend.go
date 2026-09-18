@@ -4,6 +4,7 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/presence"
+	"github.com/inhere/gofer/internal/template"
 )
 
 // Backend abstracts the backend operations behind the 10 gofer_* MCP tools so
@@ -41,6 +42,11 @@ type Backend interface {
 	ListPendingInteractions() ([]job.Interaction, error)
 	GetArtifacts(id string) ([]artifactView, error)
 	GetResult(id string) (string, error)
+	// ListTemplates returns the task-book templates a project can be driven with
+	// (SUP-01 P5) — the project's .gofer/templates first, then the server's global
+	// <config-dir>/templates. Read-only; the template NAME travels on RunJob's
+	// request (job.JobRequest.Template), so there is no write side here.
+	ListTemplates(project string) ([]template.Info, error)
 
 	// Plan grouping (plan-orchestration P2). The source shapes differ between
 	// local (jobstore.Plan) and client (client.Plan), so backends return the

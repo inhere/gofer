@@ -29,6 +29,7 @@ import (
 	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/template"
 )
 
 // defaultLogTailBytes caps a tail_log response when the caller passes max_bytes
@@ -142,6 +143,13 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 		Name:        "gofer_get_result",
 		Description: "Get a finished job's structured result.json content (E6), as a raw JSON string.",
 	}, getResultHandler(b))
+
+	// SUP-01 P5: task-book templates — read the templates a project can be driven
+	// with, then submit one with gofer_run_job's template/vars.
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_list_templates",
+		Description: "List the task-book templates a project can be driven with (name/source/path/desc/vars). Submit one with gofer_run_job template=<name> vars={...}.",
+	}, listTemplatesHandler(b, scoped))
 
 	// E36 driver-agent identity/mailbox (4 tools). MCP is one-way (tools only); the
 	// driver agent achieves two-way collaboration by registering then polling its
@@ -554,6 +562,11 @@ type runJobInput struct {
 	VerifyTimeoutSec int `json:"verify_timeout_sec,omitempty"`
 	// NoVerify turns the project's default verify step off for this job.
 	NoVerify bool `json:"no_verify,omitempty"`
+	// Template is a task-book template (SUP-01 P5) the SERVER resolves and renders
+	// into this job's prompt; Vars supplies its {{var}} values. Discover them with
+	// gofer_list_templates.
+	Template string            `json:"template,omitempty"`
+	Vars     map[string]string `json:"vars,omitempty"`
 }
 
 func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[runJobInput, jobView] {
@@ -605,6 +618,9 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 			Verify:           in.Verify,
 			VerifyTimeoutSec: in.VerifyTimeoutSec,
 			NoVerify:         in.NoVerify,
+			// SUP-01 P5：任务书模板（服务端渲染成 prompt；vars 是它的变量值）。
+			Template:     in.Template,
+			TemplateVars: in.Vars,
 		})
 		if err != nil {
 			return nil, jobView{}, err
@@ -992,6 +1008,39 @@ func getResultHandler(b Backend) mcp.ToolHandlerFor[jobIDInput, getResultOutput]
 			return nil, getResultOutput{}, err
 		}
 		return nil, getResultOutput{ResultJSON: s}, nil
+	}
+}
+
+// --- gofer_list_templates --------------------------------------------------
+
+type listTemplatesInput struct {
+	// Project is the project whose templates to list. Under a project-scoped MCP an
+	// omitted value defaults to the scoped project; an operator MCP omitting it gets
+	// the server's GLOBAL templates only.
+	Project string `json:"project,omitempty"`
+}
+
+// templatesView is the listing: which project was asked (after the scope default)
+// plus the entries, project copies shadowing same-named global ones.
+type templatesView struct {
+	Project   string          `json:"project,omitempty"`
+	Templates []template.Info `json:"templates"`
+}
+
+func listTemplatesHandler(b Backend, scoped string) mcp.ToolHandlerFor[listTemplatesInput, templatesView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in listTemplatesInput) (*mcp.CallToolResult, templatesView, error) {
+		project := in.Project
+		if project == "" {
+			project = scoped
+		}
+		list, err := b.ListTemplates(project)
+		if err != nil {
+			return nil, templatesView{}, err
+		}
+		if list == nil {
+			list = []template.Info{}
+		}
+		return nil, templatesView{Project: project, Templates: list}, nil
 	}
 }
 

@@ -57,6 +57,8 @@ type jobRunFlags struct {
 	noVerify     bool
 	fallback     string
 	noFallback   bool
+	template     string
+	templateVars gcli.Strings
 }
 
 // jobRunOpts holds `job run` flags. prompt is supplied via the --prompt flag
@@ -437,6 +439,10 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.StrOpt2(&jobRunOpts.worktreeBase, "worktree-base", "base ref for --worktree (default: the checkout's current HEAD)", jobRunOptCategory("Execution", ""))
 	c.StrOpt2(&jobRunOpts.prompt, "prompt", "prompt text for cli-agent (use -- <argv...> for exec)", jobRunOptCategory("Execution", ""))
 	c.StrOpt2(&jobRunOpts.file, "file,f", "submit a md+yaml task file (frontmatter params + prompt body)", jobRunOptCategory("Execution", ""))
+	// SUP-01 P5：任务书模板——服务端把 <name>.md 渲染成 prompt（frontmatter 可给 agent/
+	// timeout/tags/verify 等默认值），--var 供 {{变量}}，--prompt 是追加在模板正文后的补充。
+	c.StrOpt2(&jobRunOpts.template, "template,t", "render the prompt from a task-book template (see `gofer template ls`)", jobRunOptCategory("Execution", ""))
+	c.VarOpt(&jobRunOpts.templateVars, "var", "", "template variable k=v (repeatable; requires --template/-t)", gflag.WithCategory("Execution"))
 	c.StrOpt2(&jobRunOpts.role, "role", "role preset (E35): fills agent/system_prompt/project/tags when unset", jobRunOptCategory("Execution", ""))
 	c.StrOpt2(&jobRunOpts.systemPrompt, "system-prompt", "resident system prompt injected via the agent (advanced; overrides role's)", jobRunOptCategory("Execution", ""))
 	c.VarOpt(&jobRunOpts.agentArgs, "agent-arg", "", "extra arg appended to cli-agent argv (repeatable)", gflag.WithCategory("Execution"))
@@ -681,6 +687,10 @@ func runJobRun(c *gcli.Command, _ []string) error {
 		return err
 	}
 
+	if err := checkJobRunSources(c); err != nil {
+		return err
+	}
+
 	var sub client.SubmitResult
 	if jobRunOpts.file != "" {
 		sub, err = submitMarkdownFile(c, cli)
@@ -795,15 +805,29 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 	if err := validateJobRunRequired(); err != nil {
 		return job.JobRequest{}, err
 	}
+	if err := checkJobRunSources(c); err != nil {
+		return job.JobRequest{}, err
+	}
 	var cmd []string
 	if a := c.Arg("cmd"); a != nil {
 		cmd = a.Strings()
+	}
+	tplVars, err := jobRunTemplateVars()
+	if err != nil {
+		return job.JobRequest{}, err
 	}
 	channel := jobRunOpts.channel
 	if channel == "" {
 		channel = "cli"
 	}
 	runner := normalizeJobRunner(jobRunOpts.runner)
+	// SUP-01 P5：带 -t 时若调用方没钉 runner，就把它留给模板（模板默认 > 内置 local）。
+	// gcli 无法区分"没给 --runner"与"给了 --runner server"（后者就是默认值），所以默认值
+	// 本身充当哨兵——两种拼写都映射到同一个内置 local runner，唯一的差别正是"模板里写了
+	// 另一个 runner"这一种情况，而那正是本分支存在的理由。
+	if jobRunOpts.template != "" && jobRunOpts.runner == jobRunDefaultRunner {
+		runner = ""
+	}
 	// SUP-01 P2: --verify takes ONE command line and the wire takes an argv, so the
 	// split happens here (never later: gofer runs the argv verbatim). An empty or
 	// unsplittable value is a usage error, not a silently dropped step.
@@ -848,8 +872,11 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		// SUP-01 P3：本 job 的候选列表（覆盖项目/agent 级）+ 关闭开关。
 		FallbackAgents: splitLabels(jobRunOpts.fallback),
 		NoFallback:     jobRunOpts.noFallback,
-		Cols:           jobRunOpts.cols,
-		Rows:           jobRunOpts.rows,
+		// SUP-01 P5：任务书模板 + 它的变量值（服务端渲染；两者随 request_json 存档）。
+		Template:     jobRunOpts.template,
+		TemplateVars: tplVars,
+		Cols:         jobRunOpts.cols,
+		Rows:         jobRunOpts.rows,
 		// 提交来源（provenance）：CLI 渠道(默认 cli，可 --channel 覆盖) + 本机 hostname。
 		// server 端若 client 为空会以 remote IP 兜底盖章。
 		Channel: channel,
@@ -921,6 +948,55 @@ func splitShellWords(s string) ([]string, error) {
 	return out, nil
 }
 
+// jobRunDefaultRunner is the `--runner` flag's default value: the sentinel for
+// "the caller did not pin a runner" (see buildJobRunRequest).
+const jobRunDefaultRunner = "server"
+
+// checkJobRunSources rejects an ambiguous prompt source combination: the markdown
+// task file (-f), a task-book template (-t) and a post-`--` exec argv each define
+// what the job IS, so at most one of them may name the work.
+func checkJobRunSources(c *gcli.Command) error {
+	hasArgv := false
+	if a := c.Arg("cmd"); a != nil {
+		hasArgv = len(a.Strings()) > 0
+	}
+	if jobRunOpts.file != "" && jobRunOpts.template != "" {
+		return fmt.Errorf("--file/-f and --template/-t are mutually exclusive")
+	}
+	if jobRunOpts.template != "" && hasArgv {
+		return fmt.Errorf("--template/-t and a post-`--` argv are mutually exclusive (a template renders a prompt, an exec job carries its own command)")
+	}
+	return nil
+}
+
+// jobRunTemplateVars parses the repeated --var k=v flags into the request's template
+// variables. A --var without --template is a usage error: a value nobody renders
+// would otherwise be dropped in silence.
+func jobRunTemplateVars() (map[string]string, error) {
+	if len(jobRunOpts.templateVars) == 0 {
+		return nil, nil
+	}
+	if jobRunOpts.template == "" {
+		return nil, fmt.Errorf("--var requires --template/-t")
+	}
+	return parseVarFlags(jobRunOpts.templateVars)
+}
+
+// parseVarFlags parses repeated `k=v` flags. The value may contain '=' (only the
+// first one separates), and an empty value is allowed (`--var note=`).
+func parseVarFlags(flags gcli.Strings) (map[string]string, error) {
+	out := make(map[string]string, len(flags))
+	for _, kv := range flags {
+		k, v, ok := strings.Cut(kv, "=")
+		k = strings.TrimSpace(k)
+		if !ok || k == "" {
+			return nil, fmt.Errorf("--var expects k=v, got %q", kv)
+		}
+		out[k] = v
+	}
+	return out, nil
+}
+
 // normalizeJobRunner keeps the public CLI name unambiguous while preserving the
 // server's existing wire identifier. `server` and the legacy `local` alias both
 // mean the server process's built-in local runner; configured runner ids pass
@@ -943,8 +1019,11 @@ func validateJobRunRequired() error {
 	if jobRunOpts.project == "" {
 		return fmt.Errorf("--project/-p is required (or pass --role)")
 	}
-	if jobRunOpts.agent == "" {
-		return fmt.Errorf("--agent/-a is required (or pass --role)")
+	// --template/-t (SUP-01 P5) renders the prompt and may carry the agent in its
+	// frontmatter, so a missing --agent is not a usage error on that path; the server
+	// rejects a template that names no agent either.
+	if jobRunOpts.agent == "" && jobRunOpts.template == "" {
+		return fmt.Errorf("--agent/-a is required (or pass --role/--template)")
 	}
 	return nil
 }

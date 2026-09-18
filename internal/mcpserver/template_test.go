@@ -30,9 +30,9 @@ func writeMCPTemplate(t *testing.T, root, name, src string) {
 
 // TestRunJobTemplateParams: gofer_run_job exposes template/vars (an agent can discover
 // the capability from the schema), the server renders the task book into the job's
-// prompt — the template's agent default filling an omitted agent — and request_json
-// keeps the rendered prompt plus the template/vars it came from. An unknown template
-// fails the tool call instead of submitting an empty-prompt job.
+// prompt and applies its defaults, and request_json keeps the rendered prompt plus the
+// template/vars it came from. An unknown template fails the tool call instead of
+// submitting an empty-prompt job.
 func TestRunJobTemplateParams(t *testing.T) {
 	session, jobs := connect(t)
 	t.Setenv(config.EnvConfigDir, t.TempDir())
@@ -50,6 +50,7 @@ func TestRunJobTemplateParams(t *testing.T) {
 		Name: "gofer_run_job",
 		Arguments: map[string]any{
 			"project_key": "self",
+			"agent":       "exec", // the tool schema requires an agent; the template fills the rest
 			"runner":      "local",
 			"cmd":         testcmd.Cmd(t, "exit", "0"),
 			"cwd":         ".",
@@ -77,8 +78,8 @@ func TestRunJobTemplateParams(t *testing.T) {
 	if req.Prompt != "运行 测试" {
 		t.Fatalf("request prompt = %q, want the rendered body", req.Prompt)
 	}
-	if req.Agent != "exec" {
-		t.Fatalf("request agent = %q, want the template's default", req.Agent)
+	if len(req.Tags) != 1 || req.Tags[0] != "tpl" {
+		t.Fatalf("request tags = %v, want the template's default", req.Tags)
 	}
 	if req.Template != "t1" || req.TemplateVars["what"] != "测试" {
 		t.Fatalf("request template/vars = %q/%v, want them kept", req.Template, req.TemplateVars)

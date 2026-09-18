@@ -14,6 +14,7 @@ import (
 	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/template"
 )
 
 // errPresenceUnavailable guards the presence tools when the local backend was
@@ -99,6 +100,12 @@ func (b *localBackend) ListAgents() ([]agentEntry, error) {
 
 func (b *localBackend) RunJob(req job.JobRequest) (job.JobResult, error) {
 	return b.jobs.Submit(req)
+}
+
+// ListTemplates reads the project's templates through the same job.Service the
+// submit path resolves them with, so `list` and `submit -t` can never disagree.
+func (b *localBackend) ListTemplates(project string) ([]template.Info, error) {
+	return b.jobs.ListTemplates(project)
 }
 
 func (b *localBackend) GetJob(id string) (job.JobResult, error) {

@@ -34,7 +34,7 @@ func TestListProjectTemplates(t *testing.T) {
 	global := t.TempDir()
 	t.Setenv(config.EnvConfigDir, global)
 	root := s.jobs.Config().Projects["self"].HostPath
-	writeTemplateFile(t, root, "impl-batch", "---\ndesc: 批次实施\nagent: exec\nvars:\n  tasks: {required: true}\n---\nbody\n")
+	writeTemplateFile(t, root, "impl-batch", "---\ndesc: 批次实施\nagent: exec\nvars:\n  what: {default: 实现 测试}\n---\n{{what}}\n")
 	if err := os.MkdirAll(filepath.Join(global, "templates"), 0o755); err != nil {
 		t.Fatalf("MkdirAll global templates: %v", err)
 	}
@@ -57,21 +57,32 @@ func TestListProjectTemplates(t *testing.T) {
 	if got, ok := byName["impl-batch"]; !ok || got.Source != template.SourceProject || got.Desc != "批次实施" {
 		t.Fatalf("impl-batch entry = %+v, want the project copy", got)
 	}
-	if !byName["impl-batch"].Vars["tasks"].Required {
-		t.Fatalf("impl-batch vars = %+v, want the declared required var", byName["impl-batch"].Vars)
+	if byName["impl-batch"].Vars["what"].Default != "实现 测试" {
+		t.Fatalf("impl-batch vars = %+v, want the declared var with its default", byName["impl-batch"].Vars)
 	}
 	if got, ok := byName["common"]; !ok || got.Source != template.SourceGlobal {
 		t.Fatalf("common entry = %+v, want the global copy", got)
 	}
 
-	detail := do(t, s, http.MethodGet, "/v1/projects/self/templates/impl-batch", testToken, nil)
+	detail := do(t, s, http.MethodGet, "/v1/projects/self/templates/impl-batch?var=what=%E6%B5%8B%E8%AF%95", testToken, nil)
 	if detail.StatusCode != http.StatusOK {
 		t.Fatalf("detail status=%d, want 200", detail.StatusCode)
 	}
-	var tpl template.Template
-	decode(t, detail, &tpl)
-	if tpl.Meta.Agent != "exec" || !strings.Contains(tpl.Body, "body") {
-		t.Fatalf("detail = %+v, want the template's meta and body", tpl)
+	var preview template.Preview
+	decode(t, detail, &preview)
+	if preview.Meta.Agent != "exec" || !strings.Contains(preview.Body, "{{what}}") {
+		t.Fatalf("detail = %+v, want the template's meta and body", preview.Template)
+	}
+	// 预览由服务端渲染（只有它能把 include/head 展开成提交时真正会发出去的正文），
+	// ?var= 传进来的值就是渲染值；不带 var 时用模板声明的默认值。
+	if preview.Render.Prompt != "测试" {
+		t.Fatalf("detail render prompt = %q, want the value passed by ?var=", preview.Render.Prompt)
+	}
+	noVar := do(t, s, http.MethodGet, "/v1/projects/self/templates/impl-batch", testToken, nil)
+	var def template.Preview
+	decode(t, noVar, &def)
+	if def.Render.Prompt != "实现 测试" {
+		t.Fatalf("detail render prompt without vars = %q, want the declared default", def.Render.Prompt)
 	}
 
 	if resp := do(t, s, http.MethodGet, "/v1/projects/nope/templates", testToken, nil); resp.StatusCode != http.StatusNotFound {

@@ -1,7 +1,6 @@
 package workflow
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -9,6 +8,8 @@ import (
 	"strings"
 
 	yaml "github.com/goccy/go-yaml"
+
+	"github.com/inhere/gofer/internal/template"
 )
 
 // maxStepMarkdownBytes caps a single md-per-step file (frontmatter + body) so a
@@ -112,7 +113,7 @@ func expandStepMarkdown(step *StepSpec, baseDir string, stepNo int) error {
 // params are explicit). The frontmatter binds via the StepSpec yaml tags.
 func parseStepMarkdown(body []byte) (StepSpec, string, error) {
 	var fmStep StepSpec
-	fm, rest, ok := splitWorkflowFrontmatter(body)
+	fm, rest, ok := template.SplitFrontmatter(body)
 	if !ok {
 		return fmStep, "", fmt.Errorf("missing yaml frontmatter (expected leading '---' block)")
 	}
@@ -180,28 +181,4 @@ func mergeStepFromMarkdown(step *StepSpec, fromMD StepSpec, prompt string) {
 	if step.Prompt == "" {
 		step.Prompt = prompt
 	}
-}
-
-// splitWorkflowFrontmatter separates a leading '---' yaml block from the markdown body.
-// It mirrors httpapi.splitFrontmatter (kept local so the job package has no httpapi
-// dependency): tolerant of leading whitespace and \r\n; ok=false when there is no opening
-// '---' or no closing '---' line.
-func splitWorkflowFrontmatter(body []byte) (fm, rest []byte, ok bool) {
-	b := bytes.TrimLeft(body, " \t\r\n")
-	if !bytes.HasPrefix(b, []byte("---")) {
-		return nil, nil, false
-	}
-	b = b[3:]
-	idx := bytes.Index(b, []byte("\n---"))
-	if idx < 0 {
-		return nil, nil, false
-	}
-	fm = b[:idx]
-	rest = b[idx+4:] // skip the "\n---"
-	if i := bytes.IndexByte(rest, '\n'); i >= 0 {
-		rest = rest[i+1:] // drop the rest of the closing '---' line
-	} else {
-		rest = nil
-	}
-	return fm, rest, true
 }

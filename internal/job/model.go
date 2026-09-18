@@ -35,6 +35,17 @@ type JobRequest struct {
 	WorktreeBase string `json:"worktree_base,omitempty" yaml:"worktree_base,omitempty"`
 	TimeoutSec   int    `json:"timeout_sec,omitempty" yaml:"timeout_sec,omitempty"`
 	Title        string `json:"title,omitempty" yaml:"title,omitempty"`
+	// Template is the task-book template this job's prompt is rendered from
+	// (SUP-01 P5, design §六): a <name>.md under <project>/.gofer/templates/ or
+	// <config-dir>/templates/ that the SERVER resolves and renders at submit. Prompt
+	// then holds the RENDERED text — the only thing an executing machine (or a rerun)
+	// ever needs — while Template/TemplateVars ride along in request_json so the
+	// audit trail says which task book (and which variable values) produced it.
+	Template string `json:"template,omitempty" yaml:"template,omitempty"`
+	// TemplateVars are the {{var}} values supplied with Template (`job run --var k=v`,
+	// HTTP/MCP `vars`). A declared var the submitter omits falls back to its default;
+	// a REQUIRED one with neither rejects the submit.
+	TemplateVars map[string]string `json:"vars,omitempty" yaml:"vars,omitempty"`
 	// Interactive requests a pty-attached run (WEB-03, design §5/§8): the job
 	// service routes an interactive job to the pty runner variant (when a pty
 	// backend is registered) instead of req.Runner, so its stdin/stdout is a raw

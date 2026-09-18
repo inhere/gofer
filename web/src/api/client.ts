@@ -47,6 +47,8 @@ import type {
   Stats,
   SubmitJobReq,
   SubmitJobResult,
+  TemplatePreview,
+  TemplatesResp,
   Todo,
   TodoStatus,
   Workflow,
@@ -188,6 +190,29 @@ export function getProjectFile(key: string, path: string): Promise<FileContent> 
   const qs = `?path=${encodeURIComponent(path)}`
   return request<FileContent>(
     `/v1/projects/${encodeURIComponent(key)}/file${qs}`,
+  )
+}
+
+// 任务书模板（SUP-01 P5）：项目 .gofer/templates 优先，随后服务端全局 templates/。
+export function listTemplates(projectKey: string): Promise<TemplatesResp> {
+  return request<TemplatesResp>(
+    `/v1/projects/${encodeURIComponent(projectKey)}/templates`,
+  )
+}
+
+// 模板详情 + 服务端渲染预览：vars 以重复的 ?var=k=v 传出（预览是 GET 且不落库）。
+export function getTemplate(
+  projectKey: string,
+  name: string,
+  vars: Record<string, string> = {},
+): Promise<TemplatePreview> {
+  const params = new URLSearchParams()
+  for (const [k, v] of Object.entries(vars)) {
+    params.append('var', `${k}=${v}`)
+  }
+  const qs = params.toString()
+  return request<TemplatePreview>(
+    `/v1/projects/${encodeURIComponent(projectKey)}/templates/${encodeURIComponent(name)}${qs ? `?${qs}` : ''}`,
   )
 }
 

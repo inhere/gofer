@@ -134,6 +134,9 @@ func (s *Service) RebuildJob(jobID string, ov RebuildOverrides, callerID, client
 		return JobResult{}, err
 	}
 	applyOverrides(&base, ov) // pointer scalars + slices; env_set/env_unset merge
+	// SUP-01 P5: the source's prompt is already the RENDERED text — a rebuild replays it
+	// (edited or not) instead of rendering the task book a second time onto itself.
+	dropTemplate(&base)
 
 	// Server-controlled fields — a rebuild is a FRESH, faithful re-submit:
 	base.RequestID = ""      // else the new submit dedupes onto the source (C5)

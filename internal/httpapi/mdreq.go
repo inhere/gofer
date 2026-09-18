@@ -1,13 +1,13 @@
 package httpapi
 
 import (
-	"bytes"
 	"fmt"
 	"strings"
 
 	"github.com/goccy/go-yaml"
 
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/template"
 )
 
 // maxMarkdownBytes caps the md+yaml submit body (frontmatter + prose) to bound
@@ -25,7 +25,7 @@ func parseMarkdownRequest(body []byte) (job.JobRequest, error) {
 	if len(body) > maxMarkdownBytes {
 		return req, fmt.Errorf("markdown body exceeds %d bytes", maxMarkdownBytes)
 	}
-	fm, rest, ok := splitFrontmatter(body)
+	fm, rest, ok := template.SplitFrontmatter(body)
 	if !ok {
 		return req, fmt.Errorf("missing yaml frontmatter (expected leading '---' block)")
 	}
@@ -73,27 +73,4 @@ func firstMarkdownHeading(s string) string {
 		return text
 	}
 	return ""
-}
-
-// splitFrontmatter separates a leading '---' yaml block from the body. It
-// tolerates leading whitespace and \r\n line endings. ok=false when there is no
-// opening '---' or no closing '---' line.
-func splitFrontmatter(body []byte) (fm, rest []byte, ok bool) {
-	b := bytes.TrimLeft(body, " \t\r\n")
-	if !bytes.HasPrefix(b, []byte("---")) {
-		return nil, nil, false
-	}
-	b = b[3:]
-	idx := bytes.Index(b, []byte("\n---"))
-	if idx < 0 {
-		return nil, nil, false
-	}
-	fm = b[:idx]
-	rest = b[idx+4:] // skip the "\n---"
-	if i := bytes.IndexByte(rest, '\n'); i >= 0 {
-		rest = rest[i+1:] // drop the rest of the closing '---' line
-	} else {
-		rest = nil
-	}
-	return fm, rest, true
 }

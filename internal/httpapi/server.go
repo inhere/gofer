@@ -444,6 +444,10 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/projects/{key}/git", s.handleGetProjectGit)
 		r.GET("/projects/{key}/repos", s.handleListRepos)
 		r.GET("/projects/{key}/file", s.handleGetProjectFile)
+		// SUP-01 P5: 任务书模板（只读）——项目 .gofer/templates 优先，随后全局
+		// <config-dir>/templates。提交面不需要新端点：template/vars 就在 JobRequest 里。
+		r.GET("/projects/{key}/templates", s.handleListProjectTemplates)
+		r.GET("/projects/{key}/templates/{name}", s.handleGetProjectTemplate)
 
 		r.GET("/agents", s.handleListAgents)
 		// SUP-01 P3: 探针——用普通 job 提交路径验活一个 agent（`gofer agent probe`、

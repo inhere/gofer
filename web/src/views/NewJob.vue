@@ -7,8 +7,23 @@
 // 提交成功跳详情；202（仍在后台）提示后仍跳详情（详情页自有 SSE 续看）。
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { getJobRequest, getMeta, rebuildJob, submitJob } from '../api/client'
-import type { MetaAgent, MetaProject, MetaRunner, MetaWorker, RebuildBody } from '../api/types'
+import {
+  getJobRequest,
+  getMeta,
+  getTemplate,
+  listTemplates,
+  rebuildJob,
+  submitJob,
+} from '../api/client'
+import type {
+  MetaAgent,
+  MetaProject,
+  MetaRunner,
+  MetaWorker,
+  RebuildBody,
+  TemplateInfo,
+  TemplatePreview,
+} from '../api/types'
 
 const router = useRouter()
 const route = useRoute()
@@ -48,15 +63,82 @@ const rebuildFrom = computed(() => (typeof route.query.from === 'string' ? route
 const isRebuild = computed(() => rebuildFrom.value !== '')
 const rebuildRedacted = ref(false)
 const planId = ref('')   // 隐藏：rebuild 继承/可覆盖源 plan_id（若已有则复用）
-const promptLabel = computed(() => (interactive.value ? 'PROMPT（可选）' : 'PROMPT（可贴 markdown）'))
+const promptLabel = computed(() => {
+  if (interactive.value) {
+    return 'PROMPT（可选）'
+  }
+  return templateName.value !== '' ? 'PROMPT（追加在模板正文之后，可选）' : 'PROMPT（可贴 markdown）'
+})
 const promptPlaceholder = computed(() =>
   interactive.value
     ? '可留空；填写后会作为系统提示打开会话'
-    : '描述任务，正文即 prompt...',
+    : templateName.value !== ''
+      ? '可留空；这里的内容会接在模板渲染出的正文之后'
+      : '描述任务，正文即 prompt...',
 )
 const timeoutPlaceholder = computed(() =>
   interactive.value ? '不填则无超时' : '不填则默认 300s（agent 1200s）',
 )
+
+// 任务书模板（SUP-01 P5）：选中后在服务端渲染正文预览 —— include/head 只有服务端
+// 能展开（它才知道 job 会在哪个 checkout 里跑），所以预览由 GET .../templates/{name}?var=
+// 返回，前端只负责把变量值送过去并显示。提交只发 template + vars 两个字段。
+const templates = ref<TemplateInfo[]>([])
+const templateName = ref('')
+const templateVars = ref<Record<string, string>>({})
+const templatePreview = ref<TemplatePreview | null>(null)
+const templateError = ref('')
+
+const selectedTemplate = computed<TemplateInfo | undefined>(() =>
+  templates.value.find((t) => t.name === templateName.value),
+)
+// 变量输入按模板声明的 vars 生成（顺序稳定：按名字排序，表单不会每次重排）。
+const templateVarsList = computed<Array<[string, NonNullable<TemplateInfo['vars']>[string]]>>(() => {
+  const vars = selectedTemplate.value?.vars ?? {}
+  return Object.entries(vars).sort((a, b) => a[0].localeCompare(b[0]))
+})
+const templateWarnings = computed(() => templatePreview.value?.render.warnings ?? [])
+const templateMissing = computed(() => templatePreview.value?.render.missing ?? [])
+const templatePrompt = computed(() => templatePreview.value?.render.prompt ?? '')
+
+async function loadTemplates(): Promise<void> {
+  templateName.value = ''
+  templateVars.value = {}
+  templatePreview.value = null
+  templateError.value = ''
+  templates.value = []
+  if (!projectKey.value) {
+    return
+  }
+  try {
+    // 解析失败的文件也列出来（带 error），否则"我的模板去哪了"无从回答。
+    const r = await listTemplates(projectKey.value)
+    templates.value = r.templates ?? []
+  } catch (e) {
+    templateError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+async function loadTemplatePreview(): Promise<void> {
+  templatePreview.value = null
+  if (!projectKey.value || !templateName.value) {
+    return
+  }
+  try {
+    templatePreview.value = await getTemplate(projectKey.value, templateName.value, templateVars.value)
+    templateError.value = ''
+  } catch (e) {
+    templateError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+// 换模板 = 换一批变量：清空旧值，再按新模板的默认值拉一次预览。
+watch(templateName, () => {
+  templateVars.value = {}
+  void loadTemplatePreview()
+})
+watch(templateVars, () => void loadTemplatePreview(), { deep: true })
+watch(projectKey, () => void loadTemplates())
 
 // runner=worker 高级项
 const advancedOpen = ref(false)
@@ -486,8 +568,11 @@ const validationError = computed<string>(() => {
   if (!agentKey.value) {
     return agentEmptyReason.value !== '' ? agentEmptyReason.value : '请选择 agent'
   }
-  if (isCliAgent.value && !interactive.value && prompt.value.trim() === '') {
-    return 'cli-agent 需填写 prompt'
+  if (isCliAgent.value && !interactive.value && prompt.value.trim() === '' && templateName.value === '') {
+    return 'cli-agent 需填写 prompt（或选一个任务书模板）'
+  }
+  if (templateMissing.value.length > 0) {
+    return `模板缺必填变量：${templateMissing.value.join(', ')}`
   }
   if (isExec.value && command.value.trim() === '') {
     return 'exec 需填写 command'
@@ -559,6 +644,18 @@ async function onSubmit() {
     }
     if (isExec.value) {
       req.cmd = parseCmd(command.value)
+    }
+    if (templateName.value !== '') {
+      req.template = templateName.value
+      const tv: Record<string, string> = {}
+      for (const [k, v] of Object.entries(templateVars.value)) {
+        if (v !== '') {
+          tv[k] = v
+        }
+      }
+      if (Object.keys(tv).length > 0) {
+        req.vars = tv
+      }
     }
     if (title.value.trim() !== '') {
       req.title = title.value.trim()
@@ -863,6 +960,61 @@ watch(interactive, (on) => {
           </option>
         </select>
         <p v-if="agentEmptyReason" class="field-hint field-hint--warn mono">{{ agentEmptyReason }}</p>
+      </div>
+
+      <!-- 任务书模板（SUP-01 P5）：选中后由服务端渲染正文预览（include/head 只有服务端
+           展开得了），变量输入按模板声明的 vars 生成；提交只发 template + vars，
+           prompt 栏此时是"追加正文"。 -->
+      <div class="field">
+        <label class="label mono" for="nj-template">TEMPLATE（任务书模板，可选）</label>
+        <select id="nj-template" v-model="templateName" class="control mono">
+          <option value="">不使用模板</option>
+          <option
+            v-for="t in templates"
+            :key="t.name"
+            :value="t.name"
+            :disabled="!!t.error"
+          >
+            {{ t.name }} · {{ t.source }}{{ t.desc ? ` · ${t.desc}` : ''
+            }}{{ t.error ? '（解析失败）' : '' }}
+          </option>
+        </select>
+        <p v-if="templateError" class="field-hint field-hint--warn mono">{{ templateError }}</p>
+        <p v-else-if="selectedTemplate?.error" class="field-hint field-hint--warn mono">
+          {{ selectedTemplate.error }}
+        </p>
+        <p v-else-if="selectedTemplate" class="field-hint mono">{{ selectedTemplate.path }}</p>
+
+        <div v-if="templateVarsList.length > 0" class="tmpl-vars">
+          <div v-for="[vn, spec] in templateVarsList" :key="vn" class="tmpl-var">
+            <label class="label mono" :for="`nj-tvar-${vn}`">
+              {{ vn }}{{ spec.required ? ' *' : '' }}
+            </label>
+            <input
+              :id="`nj-tvar-${vn}`"
+              v-model="templateVars[vn]"
+              class="control mono"
+              spellcheck="false"
+              :placeholder="spec.default ?? ''"
+            />
+            <p v-if="spec.desc" class="field-hint mono">{{ spec.desc }}</p>
+          </div>
+        </div>
+
+        <template v-if="templateName !== '' && !templateError">
+          <p v-if="templateMissing.length > 0" class="field-hint field-hint--warn mono">
+            缺必填变量：{{ templateMissing.join(', ') }}
+          </p>
+          <p
+            v-for="(w, i) in templateWarnings"
+            :key="i"
+            class="field-hint field-hint--warn mono"
+          >
+            {{ w }}
+          </p>
+          <p class="field-hint mono">正文预览（服务端渲染，与提交时一致）：</p>
+          <pre class="tmpl-preview mono">{{ templatePrompt }}</pre>
+        </template>
       </div>
 
       <!-- cli-agent: prompt 文本域 -->
@@ -1307,6 +1459,35 @@ select.control {
 .submit:disabled {
   opacity: 0.55;
   cursor: default;
+}
+
+.tmpl-vars {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.tmpl-var {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+/* 模板正文预览：与提交时服务端渲染出的 prompt 逐字一致，长文本自己滚，不撑破表单。 */
+.tmpl-preview {
+  margin: 4px 0 0;
+  padding: 8px;
+  max-height: 220px;
+  overflow: auto;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-size: 12px;
+  line-height: 1.5;
+  background: var(--term-bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--paper);
 }
 
 @media (max-width: 560px) {

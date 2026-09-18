@@ -965,6 +965,46 @@ export interface SubmitJobReq {
   tags?: string[]
   // 提交渠道（provenance）：web 控制台提交固定 "web"；client(来源 IP)由 server 盖章。
   channel?: string
+  // 任务书模板（SUP-01 P5）：服务端把 <name>.md 渲染成 prompt，vars 供 {{变量}}；
+  // template 与 vars 随 request_json 存档（audit/rerun）。清单见 listTemplates()。
+  template?: string
+  vars?: Record<string, string>
+}
+
+// 任务书模板（SUP-01 P5，GET /v1/projects/{key}/templates）。
+// vars 是模板声明的变量表；source 为 project|global（同名时项目副本遮蔽全局副本）；
+// error 非空表示该文件存在但解析失败（列表如实报出，不隐藏）。
+export interface TemplateVar {
+  default?: string
+  required?: boolean
+  desc?: string
+}
+
+export interface TemplateInfo {
+  name: string
+  source: string
+  path: string
+  desc?: string
+  vars?: Record<string, TemplateVar>
+  error?: string
+}
+
+export interface TemplatesResp {
+  templates: TemplateInfo[]
+}
+
+// 模板详情 + 服务端渲染预览（GET /v1/projects/{key}/templates/{name}?var=k=v）。
+// 渲染在服务端做：只有它能展开 {{include: …}}、并按将要执行的那个项目解析 {{head}}，
+// 所以这里的 prompt 就是提交时真正会发出去的正文。缺必填变量在 missing 里如实列出。
+export interface TemplateRender {
+  prompt: string
+  missing?: string[]
+  warnings?: string[]
+}
+
+export interface TemplatePreview extends TemplateInfo {
+  body?: string
+  render: TemplateRender
 }
 
 // 提交结果：Job 快照 + async 标记（202 命中服务端等待上限退回异步）。

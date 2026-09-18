@@ -36,6 +36,15 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		return JobResult{}, err
 	}
 
+	// SUP-01 P5: render a task-book template into the request. It runs AFTER
+	// resolveRole (a role may supply the project key the template is looked up in)
+	// and BEFORE resolveVerify / validate, so a template default is itself validated
+	// and the executed command, the Forward, request_json and the persisted row all
+	// carry one decided prompt.
+	if err := s.applyTemplate(cfg, &req); err != nil {
+		return JobResult{}, err
+	}
+
 	// SUP-01 P2: resolve the verify step (argv + deadline) from the SAME cfg snapshot
 	// BEFORE validate, so the admission gates, the Forward, request_json and the
 	// persisted row all carry one decided pair — an executing machine (or a rerun)

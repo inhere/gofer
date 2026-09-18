@@ -185,3 +185,37 @@ func TestSubmitTemplateAppendsPrompt(t *testing.T) {
 		t.Fatalf("the agent did not receive both parts:\n%s", out)
 	}
 }
+
+// TestRebuildTemplateJobDoesNotReRender: request_json keeps the template name and the
+// vars beside the RENDERED prompt (design §六: 可审计、可 rerun)，so every REPLAY —
+// rebuild / rerun / failover — must replay that prompt as-is. Rendering again would
+// append the task book to itself.
+func TestRebuildTemplateJobDoesNotReRender(t *testing.T) {
+	s, root := newTemplateService(t)
+	writeTemplate(t, root, "impl", "---\nagent: fake\n---\n模板正文\n")
+	first := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Cwd: ".", TimeoutSec: 30, Template: "impl",
+	})
+	if req := templateRequest(t, first); req.Template != "impl" || req.Prompt != "模板正文" {
+		t.Fatalf("source request = template %q prompt %q", req.Template, req.Prompt)
+	}
+
+	rebuilt, err := s.RebuildJob(first.ID, RebuildOverrides{}, "tester", "127.0.0.1")
+	if err != nil {
+		t.Fatalf("RebuildJob: %v", err)
+	}
+	final, ok := s.Wait(rebuilt.ID)
+	if !ok {
+		t.Fatalf("Wait: job %s not found", rebuilt.ID)
+	}
+	if final.Status != StatusDone {
+		t.Fatalf("status = %s (err=%s), want done", final.Status, final.Error)
+	}
+	req := templateRequest(t, final)
+	if req.Prompt != "模板正文" {
+		t.Fatalf("rebuilt prompt = %q, want the source's rendered prompt, not a re-render", req.Prompt)
+	}
+	if req.Template != "" || len(req.TemplateVars) != 0 {
+		t.Fatalf("rebuilt request still carries the template (%q/%v): a replay must not re-render", req.Template, req.TemplateVars)
+	}
+}
