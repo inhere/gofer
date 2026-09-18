@@ -95,7 +95,7 @@ gofer job run … --verify 'go test ./...' [--verify-timeout 900]   # agent 正�
 gofer job run … --no-verify                              # 关掉项目默认的 verify(见下「验证步骤」)
 gofer job run … --fallback omp,claude                    # 本 job 的故障转移候选(覆盖项目/agent 级; 见下「故障转移」)
 gofer job run … --no-fallback                            # 本 job 不做故障转移(覆盖一切配置)
-gofer job show <id>                                      # 打印 todo / base_sha / commits(这次交付了哪些提交) / verify(验收结果)
+gofer job show <id>                                      # 打印 todo / base_sha / commits(这次交付了哪些提交) / verify(验收结果) / usage(用量与成本)
 ```
 
 - `resume` vs `rerun`：`rerun` 是同一请求重提（新会话）；`resume` 是让 codex/claude 用 `exec resume <sid>` / `--resume <sid>` 接着上次会话跑，prompt 只说"从哪继续"。**acp-agent 的 resume 走协议 `session/load`，不需要 `session_resume` 模板**（也不需要注入/捕获模板）；agent 没声明 `loadSession`（或配了 `acp.load_session: false`）时 resume 直接报不支持，不会偷偷开新会话。
@@ -107,6 +107,7 @@ gofer job show <id>                                      # 打印 todo / base_sh
 - **验证步骤（`--verify`，SUP-01 P2）**：agent 汇报不当验收——`job run --verify '<argv>'`（shell-words 拆成 argv，**不经 shell**；要 shell 就写 `bash -lc '…'`）在 agent **正常结束（exit 0）**后于**同一台执行机、同一 cwd/env**跑这条命令，独立超时 `--verify-timeout`（缺省项目 `verify_timeout_sec`，再缺省 600s）。结果：`passed` → job 按原逻辑；`failed`/`timeout` → job `failed`（exit_code 取验证退出码，timeout 为 -1）且**不是** transient（不触发自动续投/故障转移）；开了 `--review` 则停 `needs_review` 留人裁决；agent 自己失败/取消/超时 → `skipped`（不跑）。stdout+stderr 合并写进本 job 的 stderr 日志并夹两条横幅，web 详情页「验证」块可点击跳到输出，`job show` 打印 `verify: failed (exit 1, 12.3s)`。**需要项目 `allow_exec`**（argv 来自提交者，与 exec 同一信任面）；不想跑项目默认值就 `--no-verify`。**worker/peer 上跑的 job 由执行机跑验证**，结果经 Outcome 回传（不会在 server 上重跑）；协议 < v8 的 worker 会被**直接拒绝**（提示升级，不再静默忽略）。
 - **故障转移（`--fallback` / `--no-fallback`，SUP-01 P3）**：agent 因**供应商错误**（`transient_error_patterns`，含内置 `at capacity|rate limit|429|stream disconnected|windows sandbox failed|connecting runner pipe` 等）挂掉、且它**自己也没法续**（无会话 / 续投额度用尽 / 已续过一次又挂）时，server 用一个**普通 job** 把这份活交给下一个候选 agent：以**链根那次的请求**重提（新会话、同一 cwd——源 job 在 worktree 里就继续在那个 worktree、不新建），prompt 前面加一段"上一次由 X 执行，因供应商错误（…）中断；先 git status / git log 看进度，只做剩余部分，不要重做已提交的工作"（exec 类请求不加前缀、原样重跑），标题追加 `(→omp)`，`plan_id`/`tags`/`timeout`/`read_only`/`review`/`verify`/`todo_id`/caller 全部继承。源 job 记 `job.fell_back {to_job, agent, reason}`（**不**记 `job.terminal`，IM 不该收到一条马上被接管的失败），源行 `fell_back_to` 指向新 job、新 job `fell_back_from` 指回源、`requested_agent` 记调用方原本要的 agent；链长 = 候选数，用尽即正常 `job.terminal`。候选来源：`--fallback` > 项目 `agent_fallbacks` > agent `fallback_agents`；**提交时解析并冻结**（`fallback_json`），运行中改配置不会让链条漂移；不在项目 `allowed_agents` 内的候选被跳过并 warn。失败归类 `failure_class`（transient|other）无条件写入（与是否开启转移无关，健康度按它统计）。
 - **worker 侧事件镜像（SUP-01 G）**：worker 上跑的 job 的审批（`job.permission_requested|answered|timed_out`）与验证（`job.verify_started|finished`）事件现在会**镜像到 hub 的 job 事件表**（detail 带 `origin: worker:<id>`），所以 `job watch`/webhook 订阅这些事件对远端 job 同样生效。重复帧在 hub 侧按 `(job_id, type, ts, interaction_id)` 去重。
+- **用量/成本（SUP-01 E）**：agent 自己报的 token/成本会落在 job 上（`usage`，入库 `jobs.usage_json`），`job show` 打一行 `usage: in 12.3k / out 3.8k / cache 289k / total 305k / $0.0032 (ndjson:omp)`，web 详情页有「用量」块，`GET /v1/stats` 的 `usage.windows` 与 Home「Agent 用量」卡按 agent 汇总 24h/7d。四路来源：`output_format: ndjson` 的 omp（最后一条 assistant 消息的 `message.usage`）/ claude（`result` 行的 `usage` + `total_cost_usd`）、codex `exec`（stderr 尾部的 `tokens used`，无成本）、acp-agent（`usage_update` 事件）。**采集全是 best-effort**：agent 不报或解析不出来就没有一行（不是 0），`usage.source` 说明这串数字从哪来；远端 job 由执行机采集后随 Outcome 回传。usage 行只列 agent 真报了的项（缺项省略，`total` 缺省时后端按四项求和）；`agent status` 表的 `24H_TOKENS` / `24H_COST` 两列取同一份 `/v1/stats` 24h 窗口，窗口内没采集到就是 `-`。
 
 ## tunnel（别名 `tun`）— 经 worker 的 TCP/UDP 端口转发
 
@@ -177,7 +178,7 @@ gofer schedule rm <id>
 gofer agent list                                  # 列配置/内置 agent(client 模式默认读 server)
 gofer agent detect                                # 跑 detect 命令报告可用性(缺 CLI 不算失败)
 gofer agent show <key>                            # 看某个 agent 的配置
-gofer agent status [key]                          # 可用性 + 健康度: health/1h job 数/成功/供应商错误/上次供应商错误时间
+gofer agent status [key]                          # 可用性 + 健康度 + 24h 用量: health/1h job 数/成功/供应商错误/上次供应商错误时间/24h tokens/24h $
 gofer agent probe <key> [-p <project>] [--timeout 120]   # 提交一个探针 job 验活: 只回复一行 OK, 打印结果, 退出码 0/1
 ```
 

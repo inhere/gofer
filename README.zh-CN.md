@@ -242,6 +242,7 @@ gofer tunnel ls
 - **Agent 输出**：结构化输出的 agent（`omp --mode json`、`claude --output-format stream-json`）逐行输出 JSON 事件；配 `output_format: ndjson` 后 gofer 在**采集时**把这条流**投影**成两路——`stdout.log` 只放 agent 的最终答复（omp 取最后一条 assistant 消息、claude 取 `result` 文本），`stderr.log` 放紧凑事件（一行一个、单行上限 2KB，超长字段标 `…(truncated)`）并丢掉逐 token 增量——体积小 10~30 倍、形同 codex，web 详情按时间线渲染事件流（`ndjson_keep` 决定哪些事件进投影器，`ndjson_events_to` / `ndjson_stdout` / `ndjson_stdout_path` / `ndjson_fields` 调落点与字段，`ndjson_raw` 另存未投影的 `stdout.raw.log`；计数落在 `ndjson_kept` / `ndjson_dropped` / `ndjson_truncated`）。
 - **API**：`GET /v1/runners` 健康名册；`GET /v1/jobs` 过滤、`/v1/jobs/{id}/stream` SSE 实时日志 + 状态 + 交互、`/logs/{stdout,stderr}` 尾部 256KB、`/diff`、`/artifacts`、`/events`；`GET /v1/metrics`。
 - **审计**：`caller_id`（谁提交，由 token 解析、服务端覆盖防伪）+ `worker_id` / `worker_instance_id`（在哪执行）随 job 入库；`storage.retention` 周期清理超期/超量的终态 job。
+- **用量与成本**：agent 自报的运行结算（in/out/缓存 token，agent 带成本报价的连成本一起）从四路采集——`output_format: ndjson` 的 omp/claude 流、codex 的 stderr 尾部 `tokens used`、acp-agent 的 `usage_update` 事件——落在 `jobs.usage_json`，由 `job show` 打一行（`usage: in 12.3k / out 3.8k / cache 289k / total 305k / $0.0032 (ndjson:omp)`）、web job 详情页「用量」块与 Home「Agent 用量」卡（按 agent 汇总 24h/7d，数据源 `GET /v1/stats` 的 `usage`）展示；`gofer agent status` 增 24h tokens/$ 两列。采集全是 best-effort：agent 不报就没有用量（不写 0 冒充），`source` 标明数字从哪来，远端 job 的用量由执行机采集后随 Outcome 回传。
 
 ## 配置参考
 

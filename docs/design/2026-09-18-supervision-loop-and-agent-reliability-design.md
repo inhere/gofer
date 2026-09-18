@@ -237,3 +237,38 @@ A（`fallback_agents` / 失败后转移 / `pre_dispatch` / `failure_class` / 健
 | 旧 worker 协议容忍分支 | P2 已删除，P3 未新增 |
 
 删除项：无（P3 触碰到的兼容路径都仍在被现役二进制/配置使用；`autoResumeHit` 属重构后无用的内部函数，非兼容层，随特性一并删除）。
+
+## P4 实测记录（2026-09-18）
+
+E（四路用量采集 + `jobs.usage_json` + `job show`/web 详情 + `stats.usage` + Home 卡）已落地并全绿。落地要点与偏差：
+
+- **模型只有一份**：`runner.Usage` 是唯一类型定义，`job.Usage` 是它的别名（与 `VerifyResult` 同一手法）。理由与设计一致：acp runner 与 ndjson 投影器都要**产出**它，而 runner 不能 import job（G022）。
+- **一个解析器喂四路**：`runner.UsageFromObject(obj, source)` 把「agent 自己的 JSON 对象」读成 `Usage`。ACP 的 payload 形状由各家 agent 自定、omp 与 claude 的 ndjson 拼写也不同，所以每个计数器接受多种拼写（`inputTokens|input_tokens|input`、`cacheReadTokens|cache_read_tokens|cacheReadInputTokens|cache_read_input_tokens|cacheRead|cache_read`、缓存写入同理含 claude 的 `cache_creation_*`），数字接受 number / `json.Number` / 数字字符串；**认不出来返回 nil**（宁可不报，也不编造）。`TotalTokens` 缺省 = 四项之和（claude 的 usage 块没有 total 字段）。
+- **各来源实测字段映射**：
+
+| `source` | 采集点 | 字段 |
+|---|---|---|
+| `ndjson:omp` | 投影器读到**最后一个** `message_end`（`message.role=assistant`） | `message.usage.{inputTokens,outputTokens,cacheReadTokens,cacheWriteTokens,totalTokens}` + `cost.total`（snake_case / `total_cost_usd` 也认） |
+| `ndjson:claude` | `result` 行 | `usage.{input_tokens,output_tokens,cache_read_input_tokens,cache_creation_input_tokens}` + **行级** `total_cost_usd`（claude 把成本放在 usage 旁边，故先折叠进一份副本再解析——不改动被投影的事件对象本身） |
+| `codex:stderr` | 终态 `captureOutcomes` 扫 `<result_dir>/stderr.log` 尾部 8KB | `(?m)^tokens used\s*\n\s*([\d,]+)\s*$` → `TotalTokens`（剥掉千分位逗号）；无成本 |
+| `acp:usage_update` | `handler.SessionUpdate` 的 `case acp.UpdateUsage` | 每个 update 取可识别子集并**合并**进累计值 |
+| generic 投影器 | — | 不解析（留 nil）：同一条 `result` 行在 generic 下不产生用量 |
+
+- **`codex:stderr` 的门**：只对 agent key 或 command 基名为 codex 的 job 尝试（`codex.exe` 去掉扩展名后比较）——其它命令打出同样两行是**内容**，把它当 token 数就是编数字。测试同时钉住这条门（同一个假 agent 换个 key 就不产生用量）。
+- **ACP 的「累计取最后一次」**：实现为 **overlay 合并**（每次 update 只覆盖它真报了的计数器）而不是整体赋值——agent 常分多次上报（先 token、后成本），整体赋值会把先到的 token 抹掉；update 原文照旧进 `acp.jsonl`（行为不变，只多了一个 case）。
+- **远端路径**：执行机的 `job.Service` 在终态采集（本地分支）→ 本地 `JobResult.Usage` → `Outcome.Usage`（wsproto 自己声明 `Usage`，与 `Commit`/`VerifyResult` 同址）→ host `applyOutcome` 落库。协议仍 v8：`Outcome` 的字段是**可选**增量（P2 已把协议升到 v8，设计「横切」正是把 `Outcome` 增 `Verify/Commits/Usage` 归在同一次升级里），不发这些字段的 worker 只是没有用量，host 行保持空。
+- **`jobs.usage_json`** additive 迁移；读回空串 = 「没有用量」（不伪造成 0 用量）。`job show` 的 usage 行由 `job.FormatUsage`（internal/job）渲染，web 详情页与 Home 卡各自渲染同一格式（跨语言无法共用，两边注释互相指认规则）。
+- **`total` 的求和口径**：agent 自己给了 total 就用它，没给才四项相加——不做替换式归一，避免把 agent 的口径改写成我们的口径。
+- **`/v1/stats` 的用量块**：`jobstore.UsageStats(now, windows []time.Duration, budget)`（签名照设计）每个窗口一条 `GROUP BY agent` 聚合；`json_valid` 守卫包裹 `json_extract`（SQLite 的 json 函数遇到非 JSON 会**报错**，一行写坏不能让整张卡变空）；预算耗尽 → 未算的窗口**不出现在 map 里** + `partial=true`（web/CLI 都按「没算」显示 `-`，绝不显示 0）。窗口标签由 `windowLabel` 从 duration 渲染（≥48h 且整天 → `Nd`，否则 `Nh`），正好给出 `24h` / `7d`。
+- **`job show` 的对齐**：沿用既有 12 列（`usage:` + 6 空格），行内容与设计给的示例逐字一致（`in 12.3k / out 3.8k / cache 289k / total 305k / $0.0032 (ndjson:omp)`）；token 显示 = 3 位有效数字 + k/M（`job.FormatTokens`，CLI 侧唯一定义，`agent status` 的 24h 列共用），成本 4 位小数。
+- **`agent status` 的两列取数**：设计只说「附带 24h 用量」，实现取 `/v1/stats` 的 `usage.windows["24h"]`（client 新增 `GetUsageStats`，只解 usage 块：stats 的其他块变化不影响 CLI）。窗口内没有该 agent 的结算 → 两列都是 `-`。
+- **web**：Home 新增「Agent 用量」卡（24h/7d 小按钮切换、按 total_tokens 降序、复用 DB 卡的行样式），JobDetail 新增「用量」块；`vue-tsc --noEmit` 通过（无 web 测试框架，按设计的验收口径到此为止）。
+- **测试夹具**：`internal/worker` 的 e2e worker 侧配置新增一个 codex 键的假 agent（真的往 stderr 打 `tokens used\n19,802`），host 侧 project 的 `allowed_agents` 相应放开——这是 `TestOutcomeCarriesUsage` 能跑通整条 worker 路径的前提，其余 e2e 不受影响（新增项对未提及 codex 的 job 为惰性）。
+
+**G032 处理清单**（P4 触碰到的既有兼容路径）：
+
+| 位置 | 处理 |
+|---|---|
+| （无）P4 未触碰到任何既有兼容分支：新增的列/wire 字段/类型都是 additive，未新增无标记兼容层 | — |
+
+删除项：无。
