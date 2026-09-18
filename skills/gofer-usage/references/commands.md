@@ -91,7 +91,9 @@ gofer job worktree ls [-p <project>]                     # 列 --worktree job �
 gofer job worktree rm <job-id> [--force] [--delete-branch]   # 移除 worktree(脏且无 --force 拒绝); 分支默认保留
 gofer job run … --worktree [--worktree-base <ref>]       # 在 <顶层>/tmp/gofer/wt/<job-id> 的 worktree 里跑, 分支 gofer/<job-id>
 gofer job run … --todo <todo-id>                         # 为某个 plan todo 跑这个 job(见下「todo 联动」)
-gofer job show <id>                                      # 打印 todo / base_sha / commits(这次交付了哪些提交)
+gofer job run … --verify 'go test ./...' [--verify-timeout 900]   # agent 正常结束后在同一个 cwd/env 跑这条验收命令; 非 0 退出 → job failed
+gofer job run … --no-verify                              # 关掉项目默认的 verify(见下「验证步骤」)
+gofer job show <id>                                      # 打印 todo / base_sha / commits(这次交付了哪些提交) / verify(验收结果)
 ```
 
 - `resume` vs `rerun`：`rerun` 是同一请求重提（新会话）；`resume` 是让 codex/claude 用 `exec resume <sid>` / `--resume <sid>` 接着上次会话跑，prompt 只说"从哪继续"。**acp-agent 的 resume 走协议 `session/load`，不需要 `session_resume` 模板**（也不需要注入/捕获模板）；agent 没声明 `loadSession`（或配了 `acp.load_session: false`）时 resume 直接报不支持，不会偷偷开新会话。
@@ -100,6 +102,8 @@ gofer job show <id>                                      # 打印 todo / base_sh
 - 断线恢复：worker 断线时 job 进 `recovering`（`job list --status recovering`），窗口内同进程重连即恢复；serve 重启也一样。**recovering 不要重派。**
 - **todo 联动（`--todo`，SUP-01 C）**：`job run --todo <todo-id>` 把"跑一次活"和 checklist 上的那一项绑起来——`plan_id` 缺省从 todo 反查（显式 `--plan` 与 todo 所属 plan 不一致直接 400），提交成功后该项转 `doing` 并指向这个 job；终态时自动写回：`done` → 该项 `done` 且备注追加一行 `<job-id> ✓ N commits: <sha> <subject>; …`（最多 8 条，超出 `+N`；无提交写 `no commits`）、`needs_review` → 追加 `<job-id> 待验收`（accept 后再补 done 行）、失败/超时/取消/拒绝 → 状态不动、追加 `<job-id> ✗ <status>: <原因前 120 字>`。**失败只影响备注，不影响 job 本身**；`reject --resume` / 自动续投的新 job 继承 `todo_id`，整条链的每一轮都追加到同一项上。
 - **提交采集**：job 开跑时在执行机记 `base_sha`（cwd 不是 git 仓则空；worktree job 用其基线），终态时 `git log base..HEAD`（上限 50，新→旧）写进 `commits`——`job show` 列出、web 详情页「提交」块可一键复制 sha、worker 上跑的 job 经 Outcome 回传后 host 行同样有。它独立于 `capture_diff` 开关，采集失败留空、不影响 job。
+- **验证步骤（`--verify`，SUP-01 P2）**：agent 汇报不当验收——`job run --verify '<argv>'`（shell-words 拆成 argv，**不经 shell**；要 shell 就写 `bash -lc '…'`）在 agent **正常结束（exit 0）**后于**同一台执行机、同一 cwd/env**跑这条命令，独立超时 `--verify-timeout`（缺省项目 `verify_timeout_sec`，再缺省 600s）。结果：`passed` → job 按原逻辑；`failed`/`timeout` → job `failed`（exit_code 取验证退出码，timeout 为 -1）且**不是** transient（不触发自动续投/故障转移）；开了 `--review` 则停 `needs_review` 留人裁决；agent 自己失败/取消/超时 → `skipped`（不跑）。stdout+stderr 合并写进本 job 的 stderr 日志并夹两条横幅，web 详情页「验证」块可点击跳到输出，`job show` 打印 `verify: failed (exit 1, 12.3s)`。**需要项目 `allow_exec`**（argv 来自提交者，与 exec 同一信任面）；不想跑项目默认值就 `--no-verify`。**worker/peer 上跑的 job 由执行机跑验证**，结果经 Outcome 回传（不会在 server 上重跑）；协议 < v8 的 worker 会被**直接拒绝**（提示升级，不再静默忽略）。
+- **worker 侧事件镜像（SUP-01 G）**：worker 上跑的 job 的审批（`job.permission_requested|answered|timed_out`）与验证（`job.verify_started|finished`）事件现在会**镜像到 hub 的 job 事件表**（detail 带 `origin: worker:<id>`），所以 `job watch`/webhook 订阅这些事件对远端 job 同样生效。重复帧在 hub 侧按 `(job_id, type, ts, interaction_id)` 去重。
 
 ## tunnel（别名 `tun`）— 经 worker 的 TCP/UDP 端口转发
 

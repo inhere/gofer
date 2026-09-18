@@ -180,3 +180,31 @@ D（`caller_id` + 监督不布防 + owner 校验）与 C（`--todo` 联动、`ba
 | 未处理的候选（`interactive_allowed_agents` 一次性读取、旧 worker 协议容忍分支） | P1 未触碰，留 P2/P3 处理 |
 
 删除项：无（P1 没有剔除任何兼容路径——三条候选都仍在被现役二进制/配置使用）。
+
+## P2 实测记录（2026-09-18）
+
+B（`--verify` 本地 + worker + peer + CLI/HTTP/MCP/web）与 G（`job_event` 帧镜像审批/验证事件）已落地并全绿；协议 v8。
+
+- **B 的执行位置判定**：`execute()` 用 `req.Forward == nil` 区分"本机执行"与"远端执行"——本地 job 在本机跑验证步骤，远端 job 的步骤由执行机跑（结果经 `Outcome.Verify` 回来），host 绝不重跑（否则校验的是 host 自己那棵树）。`runner.Request` 另加了 `Verify/VerifyTimeoutSec`（本地用的已解析值），`Forward` 带同一对给远端。
+- **B 的准入位置**：`--verify` 需要 `allow_exec` 的检查放在 exec 闸**之前**（更具体的那条先说），且与 exec 闸同域——只在**执行侧**判定（`!remote`）：worker job 由 worker 用它自己的 project 配置放行，与 exec 的既有边界一致（worker-only project 在 host 是占位 project，若在 host 判 allow_exec 会误拒）。
+- **B 的 `--verify`/`--no-verify` 互斥**：在 `resolveVerify` 里、`--no-verify` 清空 argv **之前**判定，否则显式命令会被静默丢掉。
+- **B 的 timeout 错误文案**：设计只写了 `err="verify failed: exit N"`；超时（exit -1）若照抄会是 `verify failed: exit -1`，读起来误导，故超时用 `verify timeout: <原因>`（状态/退出码仍按设计：`timeout` / `-1`）。失败仍逐字用 `verify failed: exit N`。
+- **B 的 review 映射**：`finish()` 的 needsReview 判定扩成 `RequireReview && (status == done || verifyBlocked(pre.Verify))`——verify 失败时 `execute` 给的是 `failed`（带退出码与 error），由 finish 翻成 `needs_review`，事件仍是 `job.needs_review`（无 `job.terminal`）。
+- **B 的 skipped**：agent 未正常结束时只记 `job.verify_finished{status:skipped, reason}`（**不**记 `verify_started`、不写横幅）——日志不能声称跑过一次没跑的步骤。
+- **B 的 remote 能力协商**：`runner/worker` 在 dispatch 前按字段查能力表（`unsupportedDispatchFields`），**删除**了 <v6/<v7 的 warn-only 容忍分支（见下表）；不满足时 job 立即 failed，error 形如 `worker "w1" protocol v7 lacks verify; upgrade the worker`。注意：错误里**不含** `ErrInvalidRequest` 包装（runner 包不能 import job，且这是派发期拒绝而非提交期 400）；HTTP 层看到的是一个失败的 job，不是 400。
+- **B 的 MCP/HTTP**：HTTP 无需改 handler（body 直绑 `JobRequest`），MCP `runJobInput`/`jobView` 各加字段。
+- **G 的去重位置**：hub 侧 `workerConn.jobEventSeen`（有界 FIFO，键 `(job_id, type, ts, interaction_id)`，cap 256，**内存 LRU 方案**）。放在 hub 而不是 sink，是因为"重放"是连接级现象（重连后 worker 可能重发），且这样 `wshub` 的测试能直接覆盖它。
+- **G 的 worker 侧**：`job.Service.SetEventObserver` + 白名单（审批 3 种 + verify 2 种），`worker.Client` 装观察者并把事件推进**有界队列**（cap 64，满则丢 + 计数 warn，绝不阻塞 job），由 `jobEventLoop` 在 socket 上尽力发出（失败只记 debug，不重放）。事件用**本地 job id** 触发，经新增的反向映射（local→hub）改写为 hub job id。
+- **G 的 permission 事件字面量**：搬到 `internal/runner`（`EventPermission*`，与 `EventInputInjected` 同址），acp runner 改用它，`job.EventJobPermission*` 别名——镜像白名单因此与发射点共用一份定义，不会漂移。
+- **G 的 adopted job**：`core/adoptSink` + `job.AdoptedJob.OnJobEvent` 同样转发（RECOV-01 R4 收养的 job 仍在 worker 上跑，审批/验证事件必须继续落到 host 行）。
+
+**G032 处理清单**（P2 触碰到的既有兼容路径）：
+
+| 位置 | 处理 |
+|---|---|
+| `runner/worker` 对 <v6 worker 的 warn-only 分支（session_id/resumed_from/read_only） | **删除**，改为 dispatch 前拒绝（`lacks session_id, read_only`） |
+| `runner/worker` 对 <v7 worker 的 warn-only 分支（initial_input） | **删除**，改为 dispatch 前拒绝（`lacks initial_input`） |
+| `wsproto.SessionLoadMinProtocolVersion` / `InitialInputMinProtocolVersion` 常量 | 保留（能力表仍需要它们做下限），文档改写为"拒绝而非容忍" |
+| P1 遗留候选（`interactive_allowed_agents` 一次性读取） | P2 未触碰（该兼容在 config 加载期且已被 `allow_interactive` 取代，留 P3/P5 评估） |
+
+删除项：上表两处 warn-only 分支（P2 唯一删除的兼容路径，代码与注释一并删除）。
