@@ -142,8 +142,8 @@ func TestRegisteredOldServerProtocolVersionZero(t *testing.T) {
 // nil-ness (MEDIUM-1). Both wire forms must decode to an empty (len 0) slice.
 func TestPolicyProjectAllowedAgentsNullEqualsEmpty(t *testing.T) {
 	forms := map[string][]byte{
-		"null":  []byte(`{"key":"k","host_path":"/p","allowed_agents":null,"interactive_allowed_agents":null,"allow_exec":true}`),
-		"empty": []byte(`{"key":"k","host_path":"/p","allowed_agents":[],"interactive_allowed_agents":[],"allow_exec":true}`),
+		"null":  []byte(`{"key":"k","host_path":"/p","allowed_agents":null,"allow_exec":true}`),
+		"empty": []byte(`{"key":"k","host_path":"/p","allowed_agents":[],"allow_exec":true}`),
 	}
 	for name, wire := range forms {
 		env := Envelope{Type: TypePolicy, Payload: json.RawMessage(wire)}
@@ -153,9 +153,6 @@ func TestPolicyProjectAllowedAgentsNullEqualsEmpty(t *testing.T) {
 		}
 		if len(got.AllowedAgents) != 0 {
 			t.Fatalf("%s: len(AllowedAgents) = %d, want 0", name, len(got.AllowedAgents))
-		}
-		if len(got.InteractiveAllowedAgents) != 0 {
-			t.Fatalf("%s: len(InteractiveAllowedAgents) = %d, want 0", name, len(got.InteractiveAllowedAgents))
 		}
 	}
 }

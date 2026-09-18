@@ -149,13 +149,10 @@ projects:
 | `internal/config/model.go`（`server.session_auto_relay_idle_sec` 别名） | v0.45（P1） | v0.48 | 旧配置键 |
 | `internal/config/loader.go`（`ApplyLegacySessionRelayCompat`） | v0.45（P1） | v0.48 | 旧键的一次性读取 |
 | `internal/config/loader.go`（`ApplyLegacyInteractiveCompat` + `legacyInteractiveYAML`） | v0.45（P3 补打） | v0.48 | `interactive_allowed_agents` 一次性读取（AGT-02 0.3 人工决策保留） |
-| `internal/wsproto/frames.go`（`PolicyProject.InteractiveAllowedAgents`） | v0.45（P5 补打） | v0.48 | pre-AGT-02 server 仍会发；worker 只当开关读，不再据此收窄 |
-| `internal/commands/worker.go`（`policyAllowsInteractive` 的回落） | v0.45（P5 补打） | v0.48 | 同上，读取端 |
 
 **已删除的兼容路径**：`runner/worker` 对 <v6/<v7 worker 的 warn-only 容忍分支（P2 删除，改为 dispatch 前按能力表拒绝）。
+**v0.47 删除**（2026-09-18 人工确认「新 worker 连老 server」不再部署）：`wsproto.PolicyProject.InteractiveAllowedAgents` 字段与 `commands.policyAllowsInteractive` 的 pre-AGT-02 回落——absent `allow_interactive` 现直接读作拒绝。
 
-**待人工决策**：上表最后两行只服务"新 worker 连老 server"这一组合。若确认该组合不再部署，可整对删除
-（Go 的 json 解码忽略未知字段，删除对 wire 是安全的）——G032 的另一半正是"没人用就直接剔除"。
 
 
 - **协议**：v8 = Dispatch 增 `verify/verify_timeout_sec/todo_id`，新增 `job_event` 帧；`Outcome` 增 `Verify/Commits/Usage`。

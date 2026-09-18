@@ -616,20 +616,11 @@ func approvalFromPolicy(ap *wsproto.ApprovalPolicy) *config.ApprovalConfig {
 }
 
 // policyAllowsInteractive reports whether the POLICY's project asks for interactive
-// jobs, ignoring the worker guard: the server's resolved allow_interactive when it
-// sent one, else the legacy reading of the DEPRECATED wire narrowing list (a pre-AGT-02
-// server sends no switch, and there a non-empty list WAS "interactive allowed"). AGT-02
-// 0.3 removed the list from the config/API, so this pre-AGT-02 fallback is the ONLY
-// place the wire field still carries meaning; it is read as an on/off bit, never as a
-// narrowing (the worker's own admission has only the switch left).
-//
-// DEPRECATED(v0.45): remove in v0.48 — the pre-AGT-02 pairing it exists for is not a
-// deployment anyone runs; the field goes with it (see wsproto.PolicyProject).
+// jobs, ignoring the worker guard: the server's resolved allow_interactive, absent
+// meaning denied. (The pre-AGT-02 fallback that read the wire narrowing list was
+// removed in v0.47 — G032.)
 func policyAllowsInteractive(pp wsproto.PolicyProject) bool {
-	if pp.AllowInteractive != nil {
-		return *pp.AllowInteractive
-	}
-	return len(pp.InteractiveAllowedAgents) > 0
+	return pp.AllowInteractive != nil && *pp.AllowInteractive
 }
 
 // policyAllowInteractive resolves the worker-side project switch: the server's ask

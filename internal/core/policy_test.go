@@ -138,11 +138,6 @@ func TestComputePolicyWhitelistNonNilNoIntersection(t *testing.T) {
 	if !reflect.DeepEqual(setAg.AllowedAgents, []string{"claude", "tty-codex"}) {
 		t.Errorf("ag-set AllowedAgents = %v, want verbatim [claude tty-codex] (no intersection)", setAg.AllowedAgents)
 	}
-	// Deprecated wire key: kept for READING what a pre-AGT-02 server sends, never sent
-	// by this one.
-	if len(setAg.InteractiveAllowedAgents) != 0 {
-		t.Errorf("ag-set InteractiveAllowedAgents = %v, want empty (this server no longer sends the removed narrowing list)", setAg.InteractiveAllowedAgents)
-	}
 
 	// Wire assertion: an empty whitelist marshals to [] (not null) so a downstream that
 	// parses JSON never sees null for a project computePolicy produced.

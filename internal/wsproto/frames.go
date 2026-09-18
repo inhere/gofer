@@ -575,23 +575,12 @@ type PolicyProject struct {
 	// omitempty), so a DOWNSTREAM consumer must treat null and [] as equivalent — judge
 	// by len, never by nil-ness (MEDIUM-1).
 	AllowedAgents []string `json:"allowed_agents"`
-	// InteractiveAllowedAgents is DEPRECATED (AGT-02 0.3 removed the narrowing list) and
-	// is kept ONLY to READ what a pre-AGT-02 server still sends: this server never sets
-	// it, so it now marshals to null/[] and carries no authority. A worker reads a
-	// non-empty value as the old rule "the project allows interactive jobs" when
-	// AllowInteractive is absent (see commands.policyAllowsInteractive); it must never
-	// narrow with it again.
-	//
-	// DEPRECATED(v0.45): remove in v0.48 — goes with the pre-AGT-02 fallback in
-	// commands.policyAllowsInteractive once that server/worker pairing is gone.
-	InteractiveAllowedAgents []string `json:"interactive_allowed_agents"`
-	// AllowInteractive is the project's interactive-job switch (AGT-02 §2). It is a
-	// pointer for the same "unset ≠ explicit false" reason as CaptureDiff below: a
-	// pre-AGT-02 server does not send it at all, and the worker must then fall back
-	// to the legacy reading of InteractiveAllowedAgents (non-empty = allowed) instead
-	// of treating the absent field as a denial. A server that does send it sends the
-	// RESOLVED value (ProjectConfig.IsInteractiveAllowed), so a plain false here is
-	// an explicit "no interactive jobs" even with a leftover allowlist.
+	// AllowInteractive is the project's interactive-job switch (AGT-02 §2), sent as
+	// the RESOLVED value (ProjectConfig.IsInteractiveAllowed). It stays a pointer only
+	// for wire symmetry with CaptureDiff below: an absent field is read as "no
+	// interactive jobs" — the pre-AGT-02 narrowing list that used to fill that gap
+	// (interactive_allowed_agents) was removed in v0.47 (G032: that server/worker
+	// pairing is no longer deployed).
 	AllowInteractive *bool `json:"allow_interactive,omitempty"`
 	AllowExec        bool  `json:"allow_exec"`
 	// MaxConcurrentJobs uses omitempty (H2): "not sent" == 0 == unlimited concurrency.

@@ -193,15 +193,14 @@ func TestProjectPolicyH2Fields(t *testing.T) {
 
 // TestProjectPolicyGuardsOnlyTighten (verification 11): a worker guard set to false
 // overrides a policy's allow_exec: true, and the interactive guard denies the project's
-// interactive jobs even when the pushed policy (an old server, here) asked for them. The
+// interactive jobs even when the pushed policy asked for them. The
 // exec-gated project is flagged in Degraded (diagnostic).
 func TestProjectPolicyGuardsOnlyTighten(t *testing.T) {
 	wc := policyWC("/host", config.WorkerGuards{AllowExec: boolPtr(false), AllowInteractive: boolPtr(false)})
 	p := wsproto.Policy{Rev: 1, Projects: []wsproto.PolicyProject{{
 		Key: "svc", HostPath: "/srv/svc",
-		AllowExec:                true,
-		AllowInteractive:         boolPtr(true),
-		InteractiveAllowedAgents: []string{"tty-claude"}, // deprecated pre-AGT-02 wire field
+		AllowExec:        true,
+		AllowInteractive: boolPtr(true),
 	}}}
 	cfg, _ := projectPolicy(wc, p)
 	pc := cfg.Projects["svc"]
@@ -235,17 +234,12 @@ func TestProjectPolicyAllowInteractiveSwitch(t *testing.T) {
 			want:   true,
 		},
 		{
-			name:   "explicit false beats a leftover narrowing list",
-			policy: wsproto.PolicyProject{Key: "svc", HostPath: "/srv/svc", AllowInteractive: boolPtr(false), InteractiveAllowedAgents: []string{"tty-claude"}},
+			name:   "explicit false from the server",
+			policy: wsproto.PolicyProject{Key: "svc", HostPath: "/srv/svc", AllowInteractive: boolPtr(false)},
 			want:   false,
 		},
 		{
-			name:   "pre-AGT-02 server: non-empty legacy list means allowed",
-			policy: wsproto.PolicyProject{Key: "svc", HostPath: "/srv/svc", InteractiveAllowedAgents: []string{"tty-claude"}},
-			want:   true,
-		},
-		{
-			name:   "pre-AGT-02 server: empty legacy list means denied",
+			name:   "absent switch means denied",
 			policy: wsproto.PolicyProject{Key: "svc", HostPath: "/srv/svc"},
 			want:   false,
 		},
