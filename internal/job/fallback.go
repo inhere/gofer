@@ -160,18 +160,20 @@ func (s *Service) fallBack(snap JobResult, hit, nextAgent string) bool {
 		requestedAgent = base.Agent
 	}
 	req.RequestedAgent = requestedAgent
+	// The checklist item follows the chain, and a worker-local row only DISPLAYS the
+	// hub's todo (TodoForeign) — exactly as the continuation base does.
+	req.TodoForeign = base.TodoForeign
 	// The SHAPE of the work decides whether a prompt exists to prefix — read before
 	// the agent is replaced (an exec request's argv is the command, there is no prompt).
 	execShaped := base.Agent == agent.ExecAgentKey || len(req.Cmd) > 0
 	req.Agent = nextAgent
 	req.FellBackFrom = snap.ID
-	switch {
-	case req.Fallback != nil:
-		// inherited plan: same candidates, one link deeper
-		req.Fallback = &FallbackState{Candidates: req.Fallback.Candidates, Depth: req.Fallback.Depth + 1}
-	case snap.Fallback != nil:
+	// The plan is the one the DECISION read (the failing job's frozen list), carried
+	// one link deeper; len(Candidates) is the chain limit, so this is what makes the
+	// resubmission terminate.
+	if snap.Fallback != nil {
 		req.Fallback = &FallbackState{Candidates: snap.Fallback.Candidates, Depth: snap.Fallback.Depth + 1}
-	default:
+	} else {
 		req.Fallback = nil
 	}
 	// The work continues where it stopped: inside the source's worktree when it had
