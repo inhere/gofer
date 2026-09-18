@@ -254,6 +254,12 @@ func TestPeerRunnerCapturesOutcome(t *testing.T) {
 	if final.DiffSummary == "" || !strings.Contains(final.DiffSummary, "tracked.txt") {
 		t.Fatalf("diff_summary = %q, want it to mention tracked.txt", final.DiffSummary)
 	}
+	// SUP-01 C: the peer captured its checkout's HEAD when the job started (the demo
+	// project IS a git repo here), so the host row carries a real base_sha — the same
+	// channel the commits travel on.
+	if final.BaseSHA == "" {
+		t.Fatalf("host job lost the peer's base_sha: %+v", final)
+	}
 
 	// The artifacts清单回传 + is visible via the host's OWN list endpoint (reads the
 	// persisted ArtifactsJSON — the host has no local artifacts dir for a peer job).

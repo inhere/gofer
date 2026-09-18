@@ -152,11 +152,29 @@ func (r *Runner) captureRemoteOutcome(peerID string, final job.JobResult) *runne
 		WorktreeBaseSHA: final.WorktreeBaseSHA,
 		WorktreeHeadSHA: final.WorktreeHeadSHA,
 		CommitsAhead:    final.CommitsAhead,
+		// SUP-01 C: the peer captured base_sha/commits on ITS checkout — same channel
+		// as the worktree state above, so a runner=peer job's host row reports the
+		// same "what did it deliver" as a local or worker one.
+		BaseSHA: final.BaseSHA,
+		Commits: commitsFromJob(final.Commits),
 	}
 	if manifest, err := r.c.ListArtifacts(peerID); err == nil && len(manifest) > 0 {
 		o.Artifacts = manifest
 	}
 	return o
+}
+
+// commitsFromJob copies the peer's captured commit list onto the runner's own
+// type (runner stays a leaf and defines its own Commit).
+func commitsFromJob(in []job.Commit) []runner.Commit {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]runner.Commit, 0, len(in))
+	for _, c := range in {
+		out = append(out, runner.Commit{SHA: c.SHA, Subject: c.Subject})
+	}
+	return out
 }
 
 // mirrorStream consumes the peer SSE stream and writes each `log` frame's text
