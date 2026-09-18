@@ -25,6 +25,7 @@ func parseRun(t *testing.T, in []string) (project, agent, runner, cwd, prompt, p
 	// Reset shared state so tests don't leak into each other.
 	jobRunOpts.project, jobRunOpts.agent, jobRunOpts.runner = "", "", ""
 	jobRunOpts.cwd, jobRunOpts.prompt, jobRunOpts.plan = "", "", ""
+	jobRunOpts.todo = ""
 	jobRunOpts.agentArgs = nil
 	jobRunOpts.interactive, jobRunOpts.cols, jobRunOpts.rows = false, 0, 0
 	jobRunOpts.worktree, jobRunOpts.worktreeBase = false, ""
@@ -182,6 +183,7 @@ func TestJobRunTodoFlag(t *testing.T) {
 		t.Fatalf("JobRequest.TodoID = %q, want todo-cli", got.TodoID)
 	}
 
+	jobRunOpts = jobRunFlags{} // gcli does not clear an unset flag: start clean
 	if code := app.Run([]string{"job", "run", "-p", "self", "-a", "exec", "--", "go", "version"}); code != 0 {
 		t.Fatalf("app.Run exit code=%d", code)
 	}

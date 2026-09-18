@@ -316,6 +316,9 @@ type jobView struct {
 	ReviewedBy    string `json:"reviewed_by,omitempty"`
 	ReviewedAt    int64  `json:"reviewed_at,omitempty"`
 	ReviewNote    string `json:"review_note,omitempty"`
+	// TodoID is the plan todo this job runs for (SUP-01 C), so a caller that
+	// submitted with todo_id can read the linkage back.
+	TodoID string `json:"todo_id,omitempty"`
 }
 
 // toJobView projects a job.JobResult onto the snake_case jobView. It is the
@@ -343,6 +346,7 @@ func toJobView(r job.JobResult) jobView {
 		// GATE-01 S3 人工验收：是否要求验收 + 已做出的裁决（谁/何时/为什么）。needs_review
 		// 时后者为空，正说明还没人裁。
 		RequireReview: r.RequireReview,
+		TodoID:        r.TodoID,
 		ReviewedBy:    r.ReviewedBy,
 		ReviewedAt:    r.ReviewedAt,
 		ReviewNote:    r.ReviewNote,
@@ -516,6 +520,10 @@ type runJobInput struct {
 	// PlanID groups this job under a plan header. It is forwarded to
 	// job.JobRequest.PlanID so submit-time grouping works without a later attach.
 	PlanID string `json:"plan_id,omitempty"`
+	// TodoID (SUP-01 C) runs this job for a plan todo: submit resolves the plan from
+	// the todo, marks the item doing and writes the outcome (and the commits it
+	// produced) back into the todo's note.
+	TodoID string `json:"todo_id,omitempty"`
 	// Role is an optional E35 role preset (fills agent/system_prompt/project/tags
 	// when unset); SystemPrompt overrides the role's resident system prompt.
 	Role         string `json:"role,omitempty"`
@@ -566,6 +574,7 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 			TimeoutSec: in.TimeoutSec,
 			Title:      in.Title,
 			PlanID:     in.PlanID,
+			TodoID:     in.TodoID,
 			// E35 role preset + optional system prompt override (resolved server-side).
 			Role:         in.Role,
 			SystemPrompt: in.SystemPrompt,
@@ -658,6 +667,10 @@ type updateTodoToolInput struct {
 	Status string  `json:"status,omitempty"`
 	Note   *string `json:"note,omitempty"`
 	Done   *bool   `json:"done,omitempty"`
+	// AppendNote (SUP-01 C) adds ONE line to the note (newline-joined) instead of
+	// replacing it — how a job's outcome is recorded on the checklist. Mutually
+	// exclusive with note.
+	AppendNote string `json:"append_note,omitempty"`
 }
 
 func updateTodoHandler(b Backend) mcp.ToolHandlerFor[updateTodoToolInput, todoView] {
@@ -669,7 +682,7 @@ func updateTodoHandler(b Backend) mcp.ToolHandlerFor[updateTodoToolInput, todoVi
 				status = "done"
 			}
 		}
-		tv, err := b.UpdateTodo(in.TodoID, status, in.Note)
+		tv, err := b.UpdateTodo(in.TodoID, status, in.Note, in.AppendNote)
 		if err != nil {
 			return nil, todoView{}, err
 		}

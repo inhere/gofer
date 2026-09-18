@@ -39,6 +39,7 @@ import type {
   Delivery,
   Interaction,
   Job,
+  JobCommit,
   JobEvent,
   JobStatus,
   LogStream,
@@ -664,6 +665,11 @@ function shortId(id: string): string {
   return id.length > 8 ? id.slice(-8) : id
 }
 
+// shortSha 只是显示的短 sha；完整值仍在 title/复制按钮里。
+function shortSha(sha: string): string {
+  return sha.length > 10 ? sha.slice(0, 10) : sha
+}
+
 // ── 浏览器终端 attach（WEB-03 P4）──────────────────────────────────
 const terminalOpen = ref(false)
 const termMode = ref<'write' | 'read'>('write')
@@ -984,8 +990,18 @@ const hasOutcomes = computed<boolean>(
   () =>
     resultJsonPretty.value !== '' ||
     artifacts.value.length > 0 ||
-    diffSummary.value !== '',
+    diffSummary.value !== '' ||
+    commits.value.length > 0,
 )
+
+// 提交列表（SUP-01 C）：本 job 从 base_sha 到 HEAD 产出的提交，新→旧。
+const commits = computed<JobCommit[]>(() => job.value?.commits ?? [])
+
+function copyCommit(sha: string): void {
+  void navigator.clipboard.writeText(sha).catch(() => {
+    // 剪贴板不可用（非安全上下文）时静默：sha 仍可手动选中复制。
+  })
+}
 
 const copied = ref(false)
 async function copyCommand(): Promise<void> {
@@ -1458,6 +1474,23 @@ onUnmounted(() => {
         </ul>
         <p v-if="artifactError" class="artifact-err mono">{{ artifactError }}</p>
         <p v-if="previewError" class="artifact-err mono">{{ previewError }}</p>
+      </div>
+
+      <!-- 提交列表（SUP-01 C）：本 job 产出的提交（base..HEAD，新→旧）。worktree job
+           的交付物就在这些提交里；点 sha 复制，便于合回主干或核对。 -->
+      <div v-if="commits.length > 0" class="outcome-block">
+        <div class="outcome-head">
+          <span class="outcome-k mono">提交（{{ commits.length }}）</span>
+          <span v-if="job?.base_sha" class="diff-note mono" :title="job.base_sha">基线 {{ shortSha(job.base_sha) }}</span>
+        </div>
+        <ul class="artifact-list">
+          <li v-for="c in commits" :key="c.sha" class="artifact-row">
+            <button class="artifact-dl mono" type="button" :title="`复制 ${c.sha}`" @click="copyCommit(c.sha)">
+              {{ c.sha }}
+            </button>
+            <span class="artifact-name" :title="c.subject">{{ c.subject }}</span>
+          </li>
+        </ul>
       </div>
 
       <!-- diff 快照(E12)：git diff --stat 摘要（未提交改动）+ 查看完整 diff。 -->

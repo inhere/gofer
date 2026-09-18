@@ -132,6 +132,16 @@ type JobRequest struct {
 	// WorkflowID/StepIndex, it is not engine-private: clients may attach a job to a
 	// plan at submit time via JSON, YAML, CLI, or future MCP inputs.
 	PlanID string `json:"plan_id,omitempty" yaml:"plan_id,omitempty"`
+	// TodoID is the client-settable checklist key (SUP-01 C): the plan todo this job
+	// is run for. Submit resolves the plan FROM the todo when PlanID is empty (and
+	// refuses a contradiction), marks the todo `doing`, and the terminal hooks write
+	// the outcome back into its note. Empty == not attached to a checklist item.
+	TodoID string `json:"todo_id,omitempty" yaml:"todo_id,omitempty"`
+	// TodoForeign marks a todo that belongs to the FORWARDING hub rather than this
+	// process's store (set only by the worker's dispatch re-entry): plan todos are
+	// hub-managed, so this side displays the id and links nothing — the hub applies
+	// the outcome to its own row.
+	TodoForeign bool `json:"-" yaml:"-"`
 	// SourceJobID is the lineage key set ONLY by ResumeJob / RebuildJob (P5): it points
 	// the new job back to its SOURCE job id. Like ResumeSourceAgent (model.go:163) it is
 	// json/yaml "-": it is NEVER written from a client body (c.BindJSON can't set it) nor
@@ -389,6 +399,30 @@ type JobResult struct {
 	WorktreeBaseSHA string `json:"worktree_base_sha,omitempty"`
 	WorktreeHeadSHA string `json:"worktree_head_sha,omitempty"`
 	CommitsAhead    int    `json:"commits_ahead,omitempty"`
+	// TodoID is the plan todo this job was submitted for (SUP-01 C); the terminal
+	// hooks write the outcome back into that todo. Empty = not a checklist job.
+	TodoID string `json:"todo_id,omitempty"`
+	// TodoForeign mirrors JobRequest.TodoForeign for a continuation: the todo belongs
+	// to the store that submitted the job, not to this one (a worker's local copy),
+	// so the continuation must not try to resolve or link it either.
+	TodoForeign bool `json:"-"`
+	// BaseSHA / Commits are the提交采集 (SUP-01 C): BaseSHA is the commit the job
+	// STARTED from — captured on the executing machine when it turns `running`, and
+	// for a worktree job simply its baseline — and Commits lists what it produced
+	// between that base and HEAD at its terminal, newest first (capped). Both stay
+	// empty outside a git checkout / when git is unavailable. Persisted as
+	// jobs.base_sha / jobs.commits_json; `job show`, the web detail and the todo
+	// note read them.
+	BaseSHA string   `json:"base_sha,omitempty"`
+	Commits []Commit `json:"commits,omitempty"`
+}
+
+// Commit is one commit a job produced (SUP-01 C): the abbreviated sha git prints
+// and its subject line. It is what the todo note quotes and the JobDetail block
+// lists.
+type Commit struct {
+	SHA     string `json:"sha"`
+	Subject string `json:"subject"`
 }
 
 // Job status values (plan §6.2).

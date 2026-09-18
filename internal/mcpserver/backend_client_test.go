@@ -482,7 +482,7 @@ func TestClientBackendPlanMethods(t *testing.T) {
 	if !sawAddTodo || added.TodoID != "todo-1" || added.JobID != "job-1" || added.Done {
 		t.Fatalf("AddTodo mismatch: saw=%v todo=%+v", sawAddTodo, added)
 	}
-	updated, err := b.UpdateTodo("todo-1", "done", nil)
+	updated, err := b.UpdateTodo("todo-1", "done", nil, "")
 	if err != nil {
 		t.Fatalf("UpdateTodo: %v", err)
 	}

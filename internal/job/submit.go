@@ -46,6 +46,12 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	if err != nil {
 		return JobResult{}, err
 	}
+	// SUP-01 C: a todo-attached submit resolves its plan from the todo (and refuses a
+	// contradiction) BEFORE anything is persisted, so a bad linkage is a rejected
+	// submit rather than a job that silently links nothing.
+	if err := s.todoPlanForSubmit(&req); err != nil {
+		return JobResult{}, err
+	}
 	// bd h-aii-s9ck: resolve the job's deadline ONCE, from the SAME cfg snapshot as
 	// validation (project ceiling > server ceiling > 1h default), BEFORE the entry /
 	// forward are built. The running job (execute's ctx), the persisted row, the API
@@ -387,6 +393,10 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// 供监督路由器识别"sup 自身产生的 interaction"，对其永不自动答/回投 sup。
 			Role:   req.Role,
 			PlanID: req.PlanID,
+			// SUP-01 C：该 job 挂接的 checklist 项（空=不挂）。落 jobs.todo_id，终态由
+			// linkTodoOutcome 把结果写回该 todo。
+			TodoID:      req.TodoID,
+			TodoForeign: req.TodoForeign,
 			// 血缘（P5）：ResumeJob/RebuildJob 内部盖在 req 上（源 job id）；普通 job 为空。
 			// json:"-" 不影响此 Go 赋值——落 jobs.source_job_id（血缘的真源，不进 request_json）。
 			SourceJobID:       req.SourceJobID,
@@ -436,6 +446,11 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		"caller_id": req.CallerID,
 		"tags":      req.Tags,
 	})
+	// SUP-01 C: the job is a fact, so its checklist item can follow it (best-effort —
+	// a job must never fail to start because the todo could not be updated).
+	if req.TodoID != "" && !req.TodoForeign {
+		s.linkTodoSubmit(req.TodoID, jobID)
+	}
 	// E13: a remote runner (peer-http / ws-worker) forwards the job to a remote
 	// executor — record the dispatch with the resolved target.
 	if remote {

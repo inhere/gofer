@@ -575,6 +575,15 @@ func printPlanTodos(c *gcli.Command, todos []client.Todo) {
 			bind = "  (job=" + t.JobID + ")"
 		}
 		c.Printf("  %s %-26s %s%s\n", box, t.TodoID, t.Title, bind)
+		// SUP-01 C：挂接在该 todo 上的 job（新→旧，最多 10 条，服务端已限流）——
+		// "这一项被谁跑过、结果如何、跑了多久"。完整历史用 `job list --todo`。
+		if len(t.Jobs) > 0 {
+			parts := make([]string, 0, len(t.Jobs))
+			for _, j := range t.Jobs {
+				parts = append(parts, fmt.Sprintf("%s %s %s %ds", j.ID, j.Status, j.Agent, j.DurationSec))
+			}
+			c.Printf("      jobs: %s\n", strings.Join(parts, " · "))
+		}
 		if t.Note != "" {
 			for i, line := range strings.Split(t.Note, "\n") {
 				if i == 0 {

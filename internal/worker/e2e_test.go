@@ -129,8 +129,13 @@ type workerSideOpts struct {
 	InitialBackoff time.Duration
 	MaxBackoff     time.Duration
 	// Rng pins the reconnect jitter source, so a test can decide deterministically how
-	// long the worker stays off-line after a blip (see pinSlowReconnect).
+	// long the worker stays off-line after a blip (pinSlowReconnect).
 	Rng *mathrand.Rand
+	// PrepareHost, when set, runs after the fixture's project checkout exists and
+	// before the worker starts, with that checkout's path. A test that needs the
+	// EXECUTING checkout to be something specific (SUP-01 C: a real git repository,
+	// so base_sha/commits are captured against real state) prepares it here.
+	PrepareHost func(host string)
 }
 
 // buildWorkerSideJobsOpts is buildWorkerSideJobs with an explicit client wiring.
@@ -146,6 +151,9 @@ func buildWorkerSideURLs(t *testing.T, hubURLs []string, opts workerSideOpts) (*
 	t.Helper()
 	host := t.TempDir()
 	root := t.TempDir()
+	if opts.PrepareHost != nil {
+		opts.PrepareHost(host)
+	}
 	cfg := &config.Config{
 		Storage: config.StorageConfig{Root: root},
 		Projects: map[string]config.ProjectConfig{

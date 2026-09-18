@@ -306,6 +306,11 @@ type Dispatch struct {
 	// its pty-connect hello so the serve endpoint can strong-check it against the
 	// binding (httpapi/pty_connect_handler; D-P2-4). Empty on non-interactive.
 	PtySessionID string `json:"pty_session_id,omitempty"`
+	// TodoID (SUP-01 C) is the hub's checklist item for this job, carried so the
+	// worker's own job row can DISPLAY it. The todo lives in the hub's store, so the
+	// worker neither resolves nor links it (JobRequest.TodoForeign). Empty on a plain
+	// dispatch and on a hub that predates the field.
+	TodoID string `json:"todo_id,omitempty"`
 }
 
 // Log (w→s, P1): an incremental log frame. Seq is monotonic per job (the same
@@ -357,6 +362,20 @@ type Outcome struct {
 	WorktreeBaseSHA string `json:"worktree_base_sha,omitempty"`
 	WorktreeHeadSHA string `json:"worktree_head_sha,omitempty"`
 	CommitsAhead    int    `json:"commits_ahead,omitempty"`
+	// BaseSHA / Commits are the SUP-01 C提交采集 captured on the worker (the host has
+	// no checkout there): the commit the job started from and what it produced,
+	// newest first. An old worker never sends them → the host row stays empty (the
+	// capture is not faked).
+	BaseSHA string   `json:"base_sha,omitempty"`
+	Commits []Commit `json:"commits,omitempty"`
+}
+
+// Commit is one commit captured for a job (SUP-01 C): the abbreviated sha and the
+// subject line. Declared here (like Outcome.Artifacts) so wsproto stays a leaf
+// that does not import job.
+type Commit struct {
+	SHA     string `json:"sha"`
+	Subject string `json:"subject"`
 }
 
 // --- P2/P3 placeholders: declared so the protocol is complete (review #6); the

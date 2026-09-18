@@ -186,8 +186,18 @@ func (b *clientBackend) AddTodo(planID, title, jobID, note string) (todoView, er
 	return clientTodoToView(t), nil
 }
 
-func (b *clientBackend) UpdateTodo(todoID, status string, note *string) (todoView, error) {
-	t, err := b.cli.UpdateTodoStatus(todoID, status, note)
+func (b *clientBackend) UpdateTodo(todoID, status string, note *string, appendNote string) (todoView, error) {
+	var (
+		t   client.Todo
+		err error
+	)
+	if appendNote != "" {
+		// One PATCH carrying both (the server treats them as one update), so a
+		// failure never leaves a half-applied change.
+		t, err = b.cli.UpdateTodoStatusAppend(todoID, status, appendNote)
+	} else {
+		t, err = b.cli.UpdateTodoStatus(todoID, status, note)
+	}
 	if err != nil {
 		return todoView{}, err
 	}

@@ -67,6 +67,12 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 	entry.mu.Lock()
 	entry.result.Status = StatusRunning
 	entry.result.RenderedCommand = renderedCommandJSON(req)
+	// SUP-01 C: the commit the job starts from, captured HERE (the executing machine,
+	// before the agent runs — a worker re-enters this very function, so its row gets
+	// its own checkout's HEAD and the outcome carries it back). A worktree job already
+	// knows its baseline; outside a git checkout the capture yields "" rather than an
+	// error, and the job runs exactly as before.
+	entry.result.BaseSHA = captureBaseSHA(entry.result.WorktreeBaseSHA, entry.result.Cwd)
 	snap := entry.result
 	entry.mu.Unlock()
 
@@ -293,6 +299,12 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// (near-zero, given Store.writeMu) count of jobs whose terminal write failed,
 	// not by history — C1's invariant still holds.
 	persistErr := s.persist(snap)
+	// SUP-01 C: the checklist item this job carries follows its outcome — before the
+	// needs_review return below, so both a delivered-but-unreviewed job and a terminal
+	// one are recorded on the todo. Best-effort: a todo write must never affect a job.
+	if persistErr == nil {
+		s.linkTodoOutcome(snap)
+	}
 	// GATE-01 S3: the needs_review branch REPLACES the terminal one — the job is
 	// FINISHED (its process is gone: evict it, close its SSE/log teardown) but not
 	// terminal, and the only event is job.needs_review. No workflow advance, no

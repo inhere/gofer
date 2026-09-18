@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"log/slog"
 	"net/http"
 	"regexp"
 	"strings"
@@ -62,7 +63,66 @@ type todoView struct {
 	Sort      int    `json:"sort,omitempty"`
 	CreatedAt int64  `json:"created_at"`
 	UpdatedAt int64  `json:"updated_at"`
+	// Jobs are the runs attached to this todo (jobs.todo_id, SUP-01 C), newest
+	// first — the plan view shows them under the item instead of asking the client
+	// for one jobs query per todo. Empty for an item nobody has run.
+	Jobs []todoJobView `json:"jobs,omitempty"`
 }
+
+// todoJobView is one job attached to a todo: enough to link to it and see how it
+// went at a glance (id/status/agent/duration).
+type todoJobView struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+	Agent  string `json:"agent,omitempty"`
+	// StartedAt/EndedAt are unix seconds (EndedAt 0 while the run is live) and
+	// DurationSec is how long it took (or has been running) — the "用时" the plan
+	// view shows.
+	StartedAt   int64 `json:"started_at,omitempty"`
+	EndedAt     int64 `json:"ended_at,omitempty"`
+	DurationSec int64 `json:"duration_sec,omitempty"`
+}
+
+func toTodoJobView(rec jobstore.JobRecord, now int64) todoJobView {
+	end := rec.EndedAt
+	if end == 0 {
+		end = now
+	}
+	dur := end - rec.StartedAt
+	if dur < 0 {
+		dur = 0
+	}
+	return todoJobView{
+		ID: rec.ID, Status: rec.Status, Agent: rec.Agent,
+		StartedAt: rec.StartedAt, EndedAt: rec.EndedAt, DurationSec: dur,
+	}
+}
+
+// todoJobsByTodo loads the jobs attached to each of a plan's todos (one query per
+// todo, bounded — a plan has tens of items, not thousands). A failure leaves that
+// item's list empty rather than failing the whole plan view: the checklist itself
+// is what the page is for.
+func (s *Server) todoJobsByTodo(todos []jobstore.PlanTodo) map[string][]todoJobView {
+	now := time.Now().Unix()
+	out := make(map[string][]todoJobView, len(todos))
+	for _, t := range todos {
+		recs, err := s.jobs.Meta().ListJobsByTodo(t.TodoID, todoJobsLimit)
+		if err != nil {
+			slog.Warn("plan view: list todo jobs", "todo_id", t.TodoID, "err", err)
+			continue
+		}
+		views := make([]todoJobView, 0, len(recs))
+		for _, rec := range recs {
+			views = append(views, toTodoJobView(rec, now))
+		}
+		out[t.TodoID] = views
+	}
+	return out
+}
+
+// todoJobsLimit bounds the runs listed per todo (the newest ones are the ones a
+// reader acts on; the full history is `job list`).
+const todoJobsLimit = 10
 
 func toTodoView(t jobstore.PlanTodo) todoView {
 	return todoView{
@@ -197,8 +257,11 @@ func (s *Server) handleGetPlan(c *rux.Context) {
 		return
 	}
 	todoViews := make([]todoView, 0, len(todos))
+	jobsByTodo := s.todoJobsByTodo(todos)
 	for _, t := range todos {
-		todoViews = append(todoViews, toTodoView(t))
+		tv := toTodoView(t)
+		tv.Jobs = jobsByTodo[t.TodoID]
+		todoViews = append(todoViews, tv)
 	}
 	jc, tc := jobstore.RollupPlanCounts(raw), jobstore.CountTodos(todos)
 	// Additive: inline the plan's decisions so PlanDetail gets everything in one

@@ -1,4 +1,4 @@
-package worker
+package worker_test
 
 import (
 	"context"
@@ -66,7 +66,7 @@ func TestOutcomeCarriesCommits(t *testing.T) {
 	if got.Commits[0].Subject != "payload two" || got.Commits[1].Subject != "payload one" {
 		t.Fatalf("host commits must be newest first: %+v", got.Commits)
 	}
-	if got.Commits[0].SHA != gitRevParse(t, hostRepo, "HEAD") {
+	if !strings.HasPrefix(gitRevParse(t, hostRepo, "HEAD"), got.Commits[0].SHA) {
 		t.Fatalf("host commits[0] = %+v, want the worker checkout's HEAD", got.Commits[0])
 	}
 

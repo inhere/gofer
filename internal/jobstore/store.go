@@ -95,8 +95,11 @@ var schemaStmts = []string{
   client           TEXT,
   origin_agent     TEXT,
   escalate_to      TEXT,
-  role             TEXT,
-  plan_id          TEXT,
+  role         TEXT,
+  plan_id      TEXT,
+  todo_id      TEXT,
+  base_sha     TEXT,
+  commits_json TEXT,
   source_job_id    TEXT,
   timeout_sec      INTEGER,
   requested_timeout_sec INTEGER,
@@ -543,6 +546,19 @@ func (s *Store) migrate() error {
 	if err := add("plan_id", "plan_id TEXT"); err != nil {
 		return err
 	}
+	// plan todo 联动（SUP-01 C）：todo_id=该 job 挂接的 checklist 项（空=不挂）；终态由 hub
+	// 把结果写回 todo。base_sha / commits_json=提交采集（执行机开跑时的 HEAD 与终态 base..HEAD
+	// 的提交列表）。旧库 ALTER ADD，旧行 COALESCE→""，读作"未挂 todo / 未采集"，不会把历史
+	// job 伪造成有提交。
+	if err := add("todo_id", "todo_id TEXT"); err != nil {
+		return err
+	}
+	if err := add("base_sha", "base_sha TEXT"); err != nil {
+		return err
+	}
+	if err := add("commits_json", "commits_json TEXT"); err != nil {
+		return err
+	}
 	// plan 编排 P5：血缘键——resume/rebuild 出的 job 指回源 job（服务端盖章 source_job_id=源 id）。
 	// 旧库 ALTER ADD，旧行 COALESCE→""。区别引擎私有 workflow_id；区别 source 列（执行位置）。
 	if err := add("source_job_id", "source_job_id TEXT"); err != nil {
@@ -660,6 +676,12 @@ func (s *Store) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_jobs_source_job_id ON jobs(source_job_id)`,
 	); err != nil {
 		return fmt.Errorf("jobstore: migrate source_job_id index: %w", err)
+	}
+	// todo_id 反查索引（ListJobsByTodo / plan show 的 todo→jobs 挂接）。
+	if _, err := s.db.Exec(
+		`CREATE INDEX IF NOT EXISTS idx_jobs_todo_id ON jobs(todo_id)`,
+	); err != nil {
+		return fmt.Errorf("jobstore: migrate todo_id index: %w", err)
 	}
 	return nil
 }

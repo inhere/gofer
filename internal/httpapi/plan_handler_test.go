@@ -377,13 +377,13 @@ func TestPlanTodoAPI(t *testing.T) {
 // plan view can show which run carries an item without a second query per todo.
 func TestPlanShowListsTodoJobs(t *testing.T) {
 	s := newTestServer(t, testToken, false)
-	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-tj"})
+	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-todo-jobs"})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("create plan status=%d, want 200", resp.StatusCode)
 	}
 	resp.Body.Close()
 
-	resp = do(t, s, http.MethodPost, "/v1/plans/plan-tj/todos", testToken, map[string]any{"title": "carried"})
+	resp = do(t, s, http.MethodPost, "/v1/plans/plan-todo-jobs/todos", testToken, map[string]any{"title": "carried"})
 	var added struct {
 		TodoID string `json:"todo_id"`
 	}
@@ -407,7 +407,7 @@ func TestPlanShowListsTodoJobs(t *testing.T) {
 		}
 	}
 
-	resp = do(t, s, http.MethodGet, "/v1/plans/plan-tj", testToken, nil)
+	resp = do(t, s, http.MethodGet, "/v1/plans/plan-todo-jobs", testToken, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("get plan status=%d, want 200", resp.StatusCode)
 	}

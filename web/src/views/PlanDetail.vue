@@ -231,6 +231,20 @@ function shortId(id: string): string {
   return id.length > 14 ? id.slice(-14) : id
 }
 
+// todoJobRef 是该待办最近一次 job 的 id（SUP-01 C）：挂接列表（服务端新→旧）的第一条
+// 优先，手工绑定的 job_id 兜底——纯待办两者都为空。
+function todoJobRef(t: Todo): string {
+  const latest = t.jobs && t.jobs.length > 0 ? t.jobs[0] : undefined
+  return latest ? latest.id : t.job_id || ''
+}
+
+// todoJobsTitle 是待办行的悬浮明细：每一次挂接 job 的 id/状态/agent/用时。
+function todoJobsTitle(t: Todo): string {
+  return (t.jobs ?? [])
+    .map((j) => `${j.id} ${j.status} ${j.agent || '-'} ${j.duration_sec ?? 0}s`)
+    .join('\n')
+}
+
 function rowDuration(j: Job): string {
   return fmtDuration(jobDurationSec(j))
 }
@@ -472,14 +486,21 @@ onUnmounted(() => {
             <span v-if="todoDuration(t)" class="todo-duration mono" :title="t.done_at ? `完结 ${new Date(t.done_at * 1000).toLocaleString()}` : '进行中'">
               {{ todoDuration(t) }}
             </span>
+            <span
+              v-if="t.jobs && t.jobs.length > 1"
+              class="todo-job-count mono"
+              :title="todoJobsTitle(t)"
+            >
+              {{ t.jobs.length }} jobs
+            </span>
             <button
-              v-if="t.job_id"
+              v-if="todoJobRef(t)"
               class="todo-job mono"
               type="button"
-              :title="t.job_id"
-              @click.prevent="openJob(t.job_id)"
+              :title="todoJobRef(t)"
+              @click.prevent="openJob(todoJobRef(t))"
             >
-              job {{ shortId(t.job_id) }} &rarr;
+              job {{ shortId(todoJobRef(t)) }} &rarr;
             </button>
           </label>
           <p v-if="t.note" class="todo-note mono">{{ t.note }}</p>

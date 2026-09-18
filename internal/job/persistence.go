@@ -76,6 +76,10 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		Role:        r.Role,
 		PlanID:      r.PlanID,
 		SourceJobID: r.SourceJobID,
+		// plan todo 联动 + 提交采集（SUP-01 C）。
+		TodoID:      r.TodoID,
+		BaseSHA:     r.BaseSHA,
+		CommitsJSON: marshalCommits(r.Commits),
 		// job 超时上限可配（bd h-aii-s9ck）：生效 deadline + 请求值 + 截断标记三元组。
 		TimeoutSec:          r.TimeoutSec,
 		RequestedTimeoutSec: r.RequestedTimeoutSec,
@@ -113,6 +117,32 @@ func unmarshalTags(s string) []string {
 		return nil
 	}
 	return t
+}
+
+// marshalCommits serialises the captured commit list (SUP-01 C) into
+// jobs.commits_json. Empty / failed → "" (the column then reads back as none).
+func marshalCommits(commits []Commit) string {
+	if len(commits) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(commits)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// unmarshalCommits rebuilds the commit list from jobs.commits_json. A malformed
+// blob yields no commits rather than failing the read of the whole job row.
+func unmarshalCommits(s string) []Commit {
+	if s == "" {
+		return nil
+	}
+	var c []Commit
+	if json.Unmarshal([]byte(s), &c) != nil {
+		return nil
+	}
+	return c
 }
 
 // fromRecord rebuilds a JobResult from a persisted jobstore.JobRecord. It is the
@@ -176,6 +206,10 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		Role:        rec.Role,
 		PlanID:      rec.PlanID,
 		SourceJobID: rec.SourceJobID,
+		// plan todo 联动 + 提交采集（SUP-01 C）：旧行空 = 未挂 todo / 未采集。
+		TodoID:  rec.TodoID,
+		BaseSHA: rec.BaseSHA,
+		Commits: unmarshalCommits(rec.CommitsJSON),
 		// job 超时上限可配（bd h-aii-s9ck）：生效 deadline + 请求值 + 截断标记。旧行全为
 		// 0/false = "未记录"（旧 job 早于该列），不会伪装成"被截断"。
 		TimeoutSec:          rec.TimeoutSec,

@@ -281,20 +281,50 @@ func (b *localBackend) AddTodo(planID, title, jobID, note string) (todoView, err
 	return toTodoView(t), nil
 }
 
-func (b *localBackend) UpdateTodo(todoID, status string, note *string) (todoView, error) {
+func (b *localBackend) UpdateTodo(todoID, status string, note *string, appendNote string) (todoView, error) {
 	st := b.jobs.Meta()
 	if status != "" && !jobstore.ValidTodoStatus(status) {
 		return todoView{}, fmt.Errorf("invalid status %q (want pending|doing|done|skipped)", status)
 	}
-	if status == "" && note == nil {
+	if note != nil && appendNote != "" {
+		return todoView{}, fmt.Errorf("note and append_note are mutually exclusive")
+	}
+	if status == "" && note == nil && appendNote == "" {
 		return todoView{}, fmt.Errorf("provide status and/or note")
 	}
-	ok, err := st.UpdateTodoStatus(todoID, status, note)
-	if err != nil {
-		return todoView{}, err
-	}
-	if !ok {
-		return todoView{}, fmt.Errorf("unknown todo %q", todoID)
+	if note != nil {
+		ok, err := st.UpdateTodoStatus(todoID, status, note)
+		if err != nil {
+			return todoView{}, err
+		}
+		if !ok {
+			return todoView{}, fmt.Errorf("unknown todo %q", todoID)
+		}
+	} else if appendNote != "" {
+		// SUP-01 C: the status (if any) and the appended line are one update — the
+		// append itself is a single conditional statement, then the status moves.
+		ok, err := st.AppendTodoNote(todoID, appendNote)
+		if err != nil {
+			return todoView{}, err
+		}
+		if !ok {
+			return todoView{}, fmt.Errorf("unknown todo %q", todoID)
+		}
+		if status != "" {
+			if ok, err := st.UpdateTodoStatus(todoID, status, nil); err != nil {
+				return todoView{}, err
+			} else if !ok {
+				return todoView{}, fmt.Errorf("unknown todo %q", todoID)
+			}
+		}
+	} else {
+		ok, err := st.UpdateTodoStatus(todoID, status, nil)
+		if err != nil {
+			return todoView{}, err
+		}
+		if !ok {
+			return todoView{}, fmt.Errorf("unknown todo %q", todoID)
+		}
 	}
 	t, _, err := st.GetTodo(todoID)
 	if err != nil {

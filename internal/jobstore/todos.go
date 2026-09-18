@@ -225,6 +225,22 @@ func (s *Store) AppendTodoNote(todoID, note string) (bool, error) {
 	return n == 1, nil
 }
 
+// SetTodoJob binds a todo to the job that most recently carried it (SUP-01 C).
+// The todo keeps a pointer to ONE job — the latest run — so the checklist can
+// link to "what is doing this" without scanning the jobs table. ok is false when
+// the todo is unknown.
+func (s *Store) SetTodoJob(todoID, jobID string) (bool, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(`UPDATE plan_todos SET job_id=?, updated_at=? WHERE todo_id=?`,
+		jobID, s.unixNow(), todoID)
+	if err != nil {
+		return false, fmt.Errorf("jobstore: set todo %q job: %w", todoID, err)
+	}
+	n, _ := res.RowsAffected()
+	return n == 1, nil
+}
+
 // DeleteTodo removes a todo. P3 keeps this as store-only CRUD; no HTTP/MCP/CLI
 // delete surface is exposed.
 func (s *Store) DeleteTodo(todoID string) (bool, error) {

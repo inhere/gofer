@@ -248,6 +248,9 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// and the quiet window the hub resolved travel with the dispatch.
 		InitialInput:        f.InitialInput,
 		InitialInputQuietMs: f.InitialInputQuietMs,
+		// SUP-01 C: display-only on the worker — the todo itself is the hub's, so the
+		// worker shows the id and links nothing (see JobRequest.TodoForeign).
+		TodoID: f.TodoID,
 	}
 	// ACP-01 S2: a continuation carries its session + lineage so the worker's local
 	// job resolves the same session/load. Set ONLY for a resume — a plain job's
@@ -388,7 +391,24 @@ func OutcomeFrom(o *wsproto.Outcome, workerID string) *runner.Outcome {
 		WorktreeBaseSHA: o.WorktreeBaseSHA,
 		WorktreeHeadSHA: o.WorktreeHeadSHA,
 		CommitsAhead:    o.CommitsAhead,
+		// SUP-01 C: the worker captured the commits on ITS checkout, so they travel
+		// with the outcome like the worktree state does.
+		BaseSHA: o.BaseSHA,
+		Commits: commitsFromFrame(o.Commits),
 	}
+}
+
+// commitsFromFrame copies the frame's commit list onto the runner's own Commit
+// type (wsproto stays a leaf and defines its own, like Outcome.Artifacts).
+func commitsFromFrame(in []wsproto.Commit) []runner.Commit {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]runner.Commit, 0, len(in))
+	for _, c := range in {
+		out = append(out, runner.Commit{SHA: c.SHA, Subject: c.Subject})
+	}
+	return out
 }
 
 // ResultErr maps a worker terminal result to a runner error (mirrors

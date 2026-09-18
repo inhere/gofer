@@ -1,6 +1,7 @@
 package job
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/inhere/gofer/internal/jobstore"
@@ -37,7 +38,7 @@ func TestCommitsCapturedFromBaseSHA(t *testing.T) {
 	if final.Commits[0].Subject != "payload two.txt" || final.Commits[1].Subject != "payload one.txt" {
 		t.Fatalf("commits must be newest first: %+v", final.Commits)
 	}
-	if final.Commits[0].SHA != gitOutIn(t, repo, "rev-parse", "HEAD") {
+	if !strings.HasPrefix(gitOutIn(t, repo, "rev-parse", "HEAD"), final.Commits[0].SHA) {
 		t.Fatalf("the first entry must be HEAD: %+v", final.Commits[0])
 	}
 	// Each sha is a real abbreviated commit id (what the note copies).

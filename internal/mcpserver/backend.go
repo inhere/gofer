@@ -50,8 +50,10 @@ type Backend interface {
 	GetPlan(planID string) (planView, error)
 	AddTodo(planID, title, jobID, note string) (todoView, error)
 	// UpdateTodo moves a todo along its lifecycle (status ""=keep) and/or
-	// updates its note (nil=keep). See jobstore.UpdateTodoStatus.
-	UpdateTodo(todoID, status string, note *string) (todoView, error)
+	// updates its note (nil=keep) or APPENDS a line to it (appendNote != "").
+	// Exactly one of note / appendNote is meaningful; see jobstore.UpdateTodoStatus
+	// and jobstore.AppendTodoNote for the semantics each carries.
+	UpdateTodo(todoID, status string, note *string, appendNote string) (todoView, error)
 
 	// Decision channel (Part C §C3, gofer_ask_human). Exactly two methods —
 	// there is NO active ExpireDecision (plan H1): expiry is lazy inside the

@@ -844,6 +844,19 @@ type Todo struct {
 	Sort      int    `json:"sort,omitempty"`
 	CreatedAt int64  `json:"created_at"`
 	UpdatedAt int64  `json:"updated_at"`
+	// Jobs are the runs attached to this todo (SUP-01 C), newest first — `plan show`
+	// lists them under the item. Empty for an item nobody has run.
+	Jobs []TodoJob `json:"jobs,omitempty"`
+}
+
+// TodoJob is one job attached to a todo: id/status/agent plus how long it took.
+type TodoJob struct {
+	ID          string `json:"id"`
+	Status      string `json:"status"`
+	Agent       string `json:"agent,omitempty"`
+	StartedAt   int64  `json:"started_at,omitempty"`
+	EndedAt     int64  `json:"ended_at,omitempty"`
+	DurationSec int64  `json:"duration_sec,omitempty"`
 }
 
 // CreatePlan POSTs /v1/plans and returns the created header.

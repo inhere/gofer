@@ -110,9 +110,11 @@ func TestTodoNoteOnFailure(t *testing.T) {
 	s := newTestService(t, t.TempDir())
 	seedPlanTodo(t, s, "plan-f", "todo-f")
 
+	// A command that cannot even start: the job fails with an ERROR string (a plain
+	// non-zero exit records only an exit code), which is what the note must quote.
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
-		Cmd: []string{"go", "definitely-not-a-command"}, Cwd: ".", TimeoutSec: 30, TodoID: "todo-f",
+		Cmd: []string{"gofer-definitely-not-a-binary"}, Cwd: ".", TimeoutSec: 30, TodoID: "todo-f",
 	})
 	if final.Status != StatusFailed {
 		t.Fatalf("status = %s (err=%s), want failed", final.Status, final.Error)
@@ -127,6 +129,9 @@ func TestTodoNoteOnFailure(t *testing.T) {
 	}
 	if final.Error == "" || !strings.Contains(td.Note, strings.SplitN(final.Error, "\n", 2)[0]) {
 		t.Fatalf("todo note = %q, want the job's error in it (err=%q)", td.Note, final.Error)
+	}
+	if len([]rune(td.Note)) > maxTodoNoteErrorRunes+64 {
+		t.Fatalf("the failure line must stay short, got %d runes: %q", len([]rune(td.Note)), td.Note)
 	}
 }
 

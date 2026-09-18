@@ -87,6 +87,18 @@ export interface Job {
   worktree_base_sha?: string
   worktree_head_sha?: string
   commits_ahead?: number
+  // plan todo 联动 + 提交采集（SUP-01 C，后端 omitempty）：todo_id=该 job 挂接的
+  // checklist 项；base_sha=开跑时的 HEAD；commits=它产出的提交（新→旧，git log
+  // --oneline 的 sha+subject）。详情页「提交」块与 plan 视图据此渲染。
+  todo_id?: string
+  base_sha?: string
+  commits?: JobCommit[]
+}
+
+// 该 job 产出的一个提交（SUP-01 C）。
+export interface JobCommit {
+  sha: string
+  subject: string
 }
 
 export interface PtySession {
@@ -1032,6 +1044,9 @@ export interface Todo {
   title: string
   done: boolean
   status: TodoStatus
+  // 挂接在该 todo 上的 job（SUP-01 C，服务端最多 10 条，新→旧）：plan 详情在待办行下
+  // 显示数量与最近一次 job 的链接。老服务端不发时为 undefined。
+  jobs?: TodoJob[]
   // Unix 秒；后端 omitempty（未开始/未完结为缺省）
   started_at?: number
   done_at?: number
@@ -1041,6 +1056,17 @@ export interface Todo {
   // Unix 秒
   created_at: number
   updated_at: number
+}
+
+// 挂在某个 todo 上的一次 job 执行（SUP-01 C）。
+export interface TodoJob {
+  id: string
+  status: string
+  // 后端 omitempty
+  agent?: string
+  started_at?: number
+  ended_at?: number
+  duration_sec?: number
 }
 
 // plan 头部（list/create/attach 返回）。counts 在 detail 恒有、list 经 T10 内联（故 optional）。

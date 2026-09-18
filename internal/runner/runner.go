@@ -324,6 +324,11 @@ type Forward struct {
 	// Empty for peer-http forwards and for worker jobs that rely on the runner's
 	// configured default worker (D4 fallback).
 	WorkerID string
+	// TodoID (SUP-01 C) is the hub's checklist item for this job, carried so the
+	// execution machine's job row can DISPLAY it. The todo itself lives in the
+	// hub's store, so the linkage is the hub's alone (JobRequest.TodoForeign) — a
+	// peer re-submits without it and links its own nothing.
+	TodoID string
 }
 
 // Result is the outcome of a single Run. ExitCode is the process exit status
@@ -387,4 +392,16 @@ type Outcome struct {
 	WorktreeBaseSHA string `json:"worktree_base_sha,omitempty"`
 	WorktreeHeadSHA string `json:"worktree_head_sha,omitempty"`
 	CommitsAhead    int    `json:"commits_ahead,omitempty"`
+	// BaseSHA / Commits are the SUP-01 C提交采集: the commit the job started from
+	// and the commits it produced (newest first), captured on the execution machine
+	// — the host has no checkout there, so both travel with the outcome.
+	BaseSHA string   `json:"base_sha,omitempty"`
+	Commits []Commit `json:"commits,omitempty"`
+}
+
+// Commit is one commit the execution machine captured for a job (SUP-01 C):
+// abbreviated sha + subject line, as `git log --oneline` prints them.
+type Commit struct {
+	SHA     string `json:"sha"`
+	Subject string `json:"subject"`
 }

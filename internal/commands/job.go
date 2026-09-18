@@ -40,6 +40,7 @@ type jobRunFlags struct {
 	workerLabels string
 	tags         string
 	plan         string
+	todo         string
 	channel      string
 	role         string
 	systemPrompt string
@@ -444,6 +445,7 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.StrOpt2(&jobRunOpts.title, "title", "optional job title", jobRunOptCategory("Submission", ""))
 	c.StrOpt2(&jobRunOpts.tags, "tags", "comma-separated free-form tags for the job (E5 search dimension, e.g. --tags ci,nightly)", jobRunOptCategory("Submission", ""))
 	c.StrOpt2(&jobRunOpts.plan, "plan", "attach the job to a plan (grouping key)", jobRunOptCategory("Submission", ""))
+	c.StrOpt2(&jobRunOpts.todo, "todo", "run this job for a plan todo: the plan is resolved from the todo, the item turns doing and its outcome/commits are written back to its note", jobRunOptCategory("Submission", ""))
 	c.StrOpt2(&jobRunOpts.channel, "channel", "submission channel recorded as provenance (cli/web/mcp/...)", jobRunOptCategory("Submission", "cli"))
 
 	// Wait: synchronous submission and client-side polling controls.
@@ -806,6 +808,7 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		WorkerLabels:   splitLabels(jobRunOpts.workerLabels),
 		Tags:           splitLabels(jobRunOpts.tags), // comma-separated, same parsing as worker-labels
 		PlanID:         jobRunOpts.plan,
+		TodoID:         jobRunOpts.todo,
 		Interactive:    jobRunOpts.interactive,
 		ReadOnly:       jobRunOpts.readOnly,
 		// GATE-01 S3：人工验收（正常完成 → needs_review，等人 accept/reject）。
@@ -982,6 +985,20 @@ func runJobShow(c *gcli.Command, _ []string) error {
 		}
 		if res.WorktreeHeadSHA != "" {
 			c.Printf("wt_head:    %s (%d commit(s) ahead)\n", res.WorktreeHeadSHA, res.CommitsAhead)
+		}
+	}
+	// SUP-01 C：checklist 挂接 + 提交列表——"这个 job 为哪个 todo 跑、从哪个提交开始、
+	// 交付了哪些提交"。
+	if res.TodoID != "" {
+		c.Printf("todo:       %s\n", res.TodoID)
+	}
+	if res.BaseSHA != "" {
+		c.Printf("base_sha:   %s\n", res.BaseSHA)
+	}
+	if len(res.Commits) > 0 {
+		c.Printf("commits:    %d\n", len(res.Commits))
+		for _, cm := range res.Commits {
+			c.Printf("            %s %s\n", cm.SHA, cm.Subject)
 		}
 	}
 	if res.Error != "" {

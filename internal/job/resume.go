@@ -120,13 +120,17 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 			// same reviewer, and a reviewed chain never becomes self-accepting halfway.
 			// ReviewFixed pins the SOURCE's resolved decision, so a project default that
 			// has since changed cannot rewrite it.
-			Review:            src.RequireReview,
-			ReviewFixed:       true,
-			Channel:           src.Channel,
-			Client:            src.Client,
-			OriginAgent:       src.OriginAgent,
-			EscalateTo:        src.EscalateTo,
-			PlanID:            src.PlanID,
+			Review:      src.RequireReview,
+			ReviewFixed: true,
+			Channel:     src.Channel,
+			Client:      src.Client,
+			OriginAgent: src.OriginAgent,
+			EscalateTo:  src.EscalateTo,
+			PlanID:      src.PlanID,
+			// SUP-01 C：续投继承 checklist 挂接（TodoForeign 一并继承：worker 上的本地行
+			// 同样只显示不联动），整条链的 round 自然串在同一个 todo 的 note 上。
+			TodoID:            src.TodoID,
+			TodoForeign:       src.TodoForeign,
 			SourceJobID:       jobID,
 			ResumedFrom:       jobID,
 			AutoResumeAttempt: autoAttempt,
@@ -212,6 +216,9 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		// 使"一次会话里多轮续接"天然归入同一 plan 血缘（源 job 未归组时为空）。plan_id 是
 		// 客户端可设的归组键（区别引擎私有 workflow_id），这里由后端从源 job 继承而非客户端声明。
 		PlanID: src.PlanID,
+		// SUP-01 C：续投继承 checklist 挂接（含 TodoForeign，见 acp 分支同一规则）。
+		TodoID:      src.TodoID,
+		TodoForeign: src.TodoForeign,
 		// 血缘（P5，本次追加）：续投 job 指回源 job。resume 语义 = source_job_id=源 id 且
 		// SessionID 与源相同（上面 :84 已带 SessionID=src.SessionID）——据此区分"续会话"
 		// （rebuild 则 session 空/新）。

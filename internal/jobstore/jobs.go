@@ -131,6 +131,15 @@ type JobRecord struct {
 	// PlanID 是客户端可设的归组键，把此 job 归入某个 plan。区别于引擎私有
 	// WorkflowID；空表示不属任何 plan（旧库经 selectCols COALESCE 成 ""）。
 	PlanID string
+	// TodoID 是客户端可设的 checklist 键（SUP-01 C）：把此 job 挂到某个 plan todo 上，
+	// 终态时由 hub 把结果写回该 todo 的 note/status。空表示不挂 todo（旧库 COALESCE→""）。
+	// 与 job.JobResult.TodoID 互转；反查 ListJobsByTodo。
+	TodoID string
+	// BaseSHA / CommitsJSON 是提交采集（SUP-01 C）：BaseSHA=执行机在 job 开跑时的 HEAD
+	// （worktree job 即其基线），CommitsJSON=终态时 base..HEAD 的提交列表（JSON 数组，
+	// 新→旧）。非 git 仓/采集失败留空（旧库 COALESCE→""）；与 job.JobResult 互转。
+	BaseSHA     string
+	CommitsJSON string
 	// SourceJobID 是血缘键（P5）：resume/rebuild 出的 job 指回源 job id（服务端盖章）。空=非
 	// 派生（旧库 COALESCE→""）。与 job.JobResult.SourceJobID 互转；反查 ?source_job=。
 	// 注意区别既有 Source 列（执行位置 worker:/peer:）。
@@ -226,6 +235,7 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,
 	COALESCE(session_id,''), COALESCE(stop_reason,''), COALESCE(resumed_from,''), COALESCE(auto_resume_attempt,0), COALESCE(auto_resumed_by,''), COALESCE(channel,''), COALESCE(client,''),
 	COALESCE(origin_agent,''), COALESCE(escalate_to,''),
   COALESCE(role,''), COALESCE(plan_id,''), COALESCE(source_job_id,''),
+  COALESCE(todo_id,''), COALESCE(base_sha,''), COALESCE(commits_json,''),
   COALESCE(timeout_sec,0), COALESCE(requested_timeout_sec,0), COALESCE(timeout_clamped,0),
   COALESCE(recovering_since,0),
   COALESCE(worktree_path,''), COALESCE(worktree_branch,''), COALESCE(worktree_base_sha,''),
@@ -253,6 +263,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.WorkflowID, &r.StepIndex, &r.Attempt, &r.FanIndex,
 		&r.SessionID, &r.StopReason, &r.ResumedFrom, &r.AutoResumeAttempt, &r.AutoResumedBy, &r.Channel, &r.Client,
 		&r.OriginAgent, &r.EscalateTo, &r.Role, &r.PlanID, &r.SourceJobID,
+		&r.TodoID, &r.BaseSHA, &r.CommitsJSON,
 		&r.TimeoutSec, &r.RequestedTimeoutSec, &timeoutClamped,
 		&r.RecoveringSince,
 		&r.WorktreePath, &r.WorktreeBranch, &r.WorktreeBaseSHA,
@@ -284,10 +295,11 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 	    rendered_command, result_json, artifacts_json, diff_summary, ndjson_kept, ndjson_dropped, ndjson_truncated, source, tags_json,
 	    workflow_id, step_index, attempt, fan_index, session_id, stop_reason, resumed_from, auto_resume_attempt, auto_resumed_by, channel, client,
 	    origin_agent, escalate_to, role, plan_id, source_job_id,
+	    todo_id, base_sha, commits_json,
 	    timeout_sec, requested_timeout_sec, timeout_clamped, recovering_since,
 	    worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead, read_only,
 	    require_review, reviewed_by, reviewed_at, review_note)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -331,6 +343,9 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 	    role=excluded.role,
     plan_id=excluded.plan_id,
     source_job_id=excluded.source_job_id,
+    todo_id=excluded.todo_id,
+    base_sha=excluded.base_sha,
+    commits_json=excluded.commits_json,
     timeout_sec=excluded.timeout_sec,
     requested_timeout_sec=excluded.requested_timeout_sec,
     timeout_clamped=excluded.timeout_clamped,
@@ -361,6 +376,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.WorkflowID, rec.StepIndex, rec.Attempt, rec.FanIndex,
 		rec.SessionID, rec.StopReason, rec.ResumedFrom, rec.AutoResumeAttempt, rec.AutoResumedBy, rec.Channel, rec.Client,
 		rec.OriginAgent, rec.EscalateTo, rec.Role, rec.PlanID, rec.SourceJobID,
+		rec.TodoID, rec.BaseSHA, rec.CommitsJSON,
 		rec.TimeoutSec, rec.RequestedTimeoutSec, rec.TimeoutClamped,
 		rec.RecoveringSince,
 		rec.WorktreePath, rec.WorktreeBranch, rec.WorktreeBaseSHA,
@@ -486,6 +502,34 @@ func (s *Store) CountActiveJobsByCaller(callerID string, since int64) (int, erro
 		return 0, fmt.Errorf("jobstore: count active jobs by caller: %w", err)
 	}
 	return n, nil
+}
+
+// ListJobsByTodo returns the jobs attached to one plan todo (jobs.todo_id),
+// newest first, capped at limit (<= 0 means DefaultListLimit). It is what
+// `plan show` / GET /v1/plans/{id} list under a todo: a todo can be carried by
+// several runs (retries, re-runs, continuations), and the most recent one is the
+// interesting one.
+func (s *Store) ListJobsByTodo(todoID string, limit int) ([]JobRecord, error) {
+	if limit <= 0 {
+		limit = DefaultListLimit
+	}
+	rows, err := s.db.Query(selectCols+` WHERE todo_id = ? ORDER BY started_at DESC, id DESC LIMIT ?`, todoID, limit)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: list jobs by todo: %w", err)
+	}
+	defer rows.Close()
+	out := make([]JobRecord, 0)
+	for rows.Next() {
+		rec, scanErr := scanJob(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("jobstore: scan job by todo: %w", scanErr)
+		}
+		out = append(out, rec)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("jobstore: list jobs by todo rows: %w", err)
+	}
+	return out, nil
 }
 
 // CountJobsByStatus returns a status->count map over all jobs.

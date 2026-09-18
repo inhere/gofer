@@ -99,6 +99,12 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// ITS agent config, so a worker whose agent has no read-only mode fails the job
 		// with an error the hub can show instead of running it writable.
 		ReadOnly: d.ReadOnly,
+		// SUP-01 C: the todo belongs to the HUB (plan todos are hub-managed), so the
+		// worker's row only displays it — TodoForeign keeps Submit from resolving it
+		// against this store, where it does not exist, or linking an outcome it does
+		// not own.
+		TodoID:      d.TodoID,
+		TodoForeign: d.TodoID != "",
 		// GATE-01 S3: 人工验收 is decided by the HUB (the design's "验收判定只在 hub
 		// 做"), so a dispatched job's LOCAL row must finish normally — its status is
 		// what the Result frame reports and what the log-tail loop waits on, and a
@@ -221,13 +227,29 @@ func outcomeFrame(remoteJobID string, final job.JobResult) (wsproto.Outcome, boo
 		WorktreeBaseSHA: final.WorktreeBaseSHA,
 		WorktreeHeadSHA: final.WorktreeHeadSHA,
 		CommitsAhead:    final.CommitsAhead,
+		// SUP-01 C：提交采集在 worker 的 checkout 上做的（host 没有那棵树），随产出回传。
+		BaseSHA: final.BaseSHA,
+		Commits: commitsToFrame(final.Commits),
 	}
 	if final.ArtifactsJSON != "" {
 		o.Artifacts = json.RawMessage(final.ArtifactsJSON)
 	}
 	send := o.RenderedCommand != "" || o.ResultJSON != "" || o.DiffSummary != "" || len(o.Artifacts) > 0 ||
-		o.SessionID != "" || o.WorktreePath != ""
+		o.SessionID != "" || o.WorktreePath != "" || o.BaseSHA != "" || len(o.Commits) > 0
 	return o, send
+}
+
+// commitsToFrame copies the local job's captured commit list onto the wire type
+// (wsproto stays a leaf and defines its own Commit).
+func commitsToFrame(in []job.Commit) []wsproto.Commit {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]wsproto.Commit, 0, len(in))
+	for _, c := range in {
+		out = append(out, wsproto.Commit{SHA: c.SHA, Subject: c.Subject})
+	}
+	return out
 }
 
 // reportRenderedCommandEarly sends a rendered-command-only Outcome frame as soon as

@@ -59,6 +59,7 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 	resultDir := entry.result.ResultDir
 	cwd := entry.result.Cwd
 	projectKey := entry.result.ProjectKey
+	baseSHA := entry.result.BaseSHA
 	wt := entry.wt
 	entry.mu.Unlock()
 
@@ -89,6 +90,14 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 		headSHA, commitsAhead, _ = wt.worktreeState(wctx)
 		wcancel()
 	}
+	// SUP-01 C: what the job actually delivered, base..HEAD. Like the worktree state
+	// above it is captured regardless of the diff toggle (it is reporting, not a diff),
+	// and an empty base / non-repository cwd yields no commits rather than an error.
+	commitDir := cwd
+	if wt != nil {
+		commitDir = wt.Path
+	}
+	commits := captureCommits(commitDir, baseSHA)
 
 	entry.mu.Lock()
 	if rendered != "" {
@@ -110,6 +119,9 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 	if wt != nil {
 		entry.result.WorktreeHeadSHA = headSHA
 		entry.result.CommitsAhead = commitsAhead
+	}
+	if len(commits) > 0 {
+		entry.result.Commits = commits
 	}
 	entry.mu.Unlock()
 
@@ -265,6 +277,24 @@ func (s *Service) applyOutcome(entry *jobEntry, o *runner.Outcome) {
 	if o.CommitsAhead > 0 {
 		entry.result.CommitsAhead = o.CommitsAhead
 	}
+	// SUP-01 C：执行机在它那棵 checkout 上采到的提交（host 没有那棵树）——这是"这个 job
+	// 到底交付了什么"的唯一真实记录，随 Outcome 回传落库。旧 worker 不发 → 保持空。
+	if o.BaseSHA != "" {
+		entry.result.BaseSHA = o.BaseSHA
+	}
+	if len(o.Commits) > 0 {
+		entry.result.Commits = commitsFromRunner(o.Commits)
+	}
+}
+
+// commitsFromRunner copies a remote outcome's commit list onto the job's own type
+// (runner stays a leaf and defines its own Commit).
+func commitsFromRunner(in []runner.Commit) []Commit {
+	out := make([]Commit, 0, len(in))
+	for _, c := range in {
+		out = append(out, Commit{SHA: c.SHA, Subject: c.Subject})
+	}
+	return out
 }
 
 // shouldCaptureDiff reports whether E12 git-diff capture is enabled for the job's
