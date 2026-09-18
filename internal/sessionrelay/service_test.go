@@ -400,3 +400,127 @@ func TestLastHumanAtUpdatedOnlyByHumanPrompt(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, human.LastHumanAt, again.LastHumanAt)
 }
+
+// seedCallerJob inserts a job row submitted by caller, so the supervision window
+// has something to count (the store is the relay's only view of jobs).
+func seedCallerJob(t *testing.T, s *Service, id, caller, status string, startedAt int64) {
+	t.Helper()
+	assert.NoErr(t, s.store.UpsertJob(jobstore.JobRecord{
+		ID: id, ProjectKey: "self", Agent: "claude", Runner: "local", Status: status,
+		ResultDir: "/tmp/" + id, StartedAt: startedAt, UpdatedAt: startedAt, CallerID: caller,
+	}))
+}
+
+// finishJob moves a seeded job to a terminal state (the edge that must lift the
+// supervision gate).
+func finishJob(t *testing.T, s *Service, id, status string) {
+	t.Helper()
+	rec, ok, err := s.store.GetJob(id)
+	if err != nil || !ok {
+		t.Fatalf("seed job %s: ok=%v err=%v", id, ok, err)
+	}
+	rec.Status = status
+	assert.NoErr(t, s.store.UpsertJob(rec))
+}
+
+// TestWaitReasonSkipsWhileSupervising pins D (bd h-aii-s2v4): a caller whose own
+// jobs are still running IS supervising them, so their session must not auto-arm
+// — otherwise the Stop hook blocks for hours and the job's completion notice never
+// reaches them. The gate lifts by itself when the jobs end, and the reason is
+// reported so the web can say WHY it is not arming.
+func TestWaitReasonSkipsWhileSupervising(t *testing.T) {
+	s := newSvc(t)
+	s.AutoArmIdleSec, s.AutoArmTurnSec = 300, 900
+	s.SkipWhenSupervising, s.SupervisingWindowSec = true, 7200
+	now := time.Now()
+	s.nowFn = func() time.Time { return now }
+	a := jobstore.AgentSession{
+		SessionID: "sid-sup", RelayMode: jobstore.RelayModeAuto, CallerID: "claude-sup", IdleSec: 600,
+	}
+
+	// Nothing of theirs is live: the ordinary idle rule arms the session.
+	reason, detail := s.WaitDecision(a)
+	assert.Eq(t, WaitIdleProbe, reason)
+	assert.Eq(t, "", detail)
+
+	seedCallerJob(t, s, "job-sup-1", "claude-sup", "running", now.Unix()-60)
+	seedCallerJob(t, s, "job-sup-2", "claude-sup", "queued", now.Unix()-10)
+	reason, detail = s.WaitDecision(a)
+	assert.Eq(t, "", reason, "a supervising caller's Stop must not wait")
+	assert.Eq(t, "supervising 2 jobs", detail)
+	assert.False(t, s.AutoArmed(a))
+	// WaitReason is the same verdict without the detail (the hook keys on it).
+	assert.Eq(t, "", s.WaitReason(a))
+
+	// Their jobs reached a terminal state: the idle rule is back, detail cleared.
+	finishJob(t, s, "job-sup-1", "done")
+	finishJob(t, s, "job-sup-2", "failed")
+	reason, detail = s.WaitDecision(a)
+	assert.Eq(t, WaitIdleProbe, reason)
+	assert.Eq(t, "", detail)
+
+	// A job that started before the window is over — the human is not supervising
+	// it any more, so it must not keep the gate shut.
+	seedCallerJob(t, s, "job-sup-old", "claude-sup", "running", now.Unix()-7201)
+	reason, _ = s.WaitDecision(a)
+	assert.Eq(t, WaitIdleProbe, reason)
+}
+
+// TestWaitReasonSupervisingIgnoresModeOn: the supervision gate only ever speaks
+// for `auto`. An explicit `on` is the human saying "wait for me" — it wins.
+func TestWaitReasonSupervisingIgnoresModeOn(t *testing.T) {
+	s := newSvc(t)
+	s.AutoArmIdleSec, s.SkipWhenSupervising, s.SupervisingWindowSec = 300, true, 7200
+	now := time.Now()
+	s.nowFn = func() time.Time { return now }
+	seedCallerJob(t, s, "job-on", "claude-sup", "running", now.Unix()-5)
+
+	a := jobstore.AgentSession{
+		SessionID: "sid-on", RelayMode: jobstore.RelayModeOn, CallerID: "claude-sup", IdleSec: 600,
+	}
+	reason, detail := s.WaitDecision(a)
+	assert.Eq(t, WaitModeOn, reason)
+	assert.Eq(t, "", detail)
+}
+
+// TestWaitReasonSupervisingDisabledByConfig: the gate is opt-out —
+// `session.auto_relay_skip_when_supervising: false` restores the old behaviour of
+// arming whenever the keyboard is idle.
+func TestWaitReasonSupervisingDisabledByConfig(t *testing.T) {
+	s := newSvc(t)
+	s.AutoArmIdleSec, s.SupervisingWindowSec = 300, 7200
+	s.SkipWhenSupervising = false
+	now := time.Now()
+	s.nowFn = func() time.Time { return now }
+	seedCallerJob(t, s, "job-cfg", "claude-sup", "running", now.Unix()-5)
+
+	a := jobstore.AgentSession{
+		SessionID: "sid-cfg", RelayMode: jobstore.RelayModeAuto, CallerID: "claude-sup", IdleSec: 600,
+	}
+	reason, detail := s.WaitDecision(a)
+	assert.Eq(t, WaitIdleProbe, reason)
+	assert.Eq(t, "", detail)
+}
+
+// TestWaitReasonSupervisingNeedsCallerID: without a caller the relay cannot know
+// whose jobs those are, so the gate stays open — the pre-caller_id session (and
+// the empty-token server) keeps its previous behaviour.
+func TestWaitReasonSupervisingNeedsCallerID(t *testing.T) {
+	s := newSvc(t)
+	s.AutoArmIdleSec, s.AutoArmTurnSec = 300, 900
+	s.SkipWhenSupervising, s.SupervisingWindowSec = true, 7200
+	now := time.Now()
+	s.nowFn = func() time.Time { return now }
+	seedCallerJob(t, s, "job-anon", "claude-sup", "running", now.Unix()-5)
+
+	a := jobstore.AgentSession{SessionID: "sid-anon", RelayMode: jobstore.RelayModeAuto, IdleSec: 600}
+	reason, detail := s.WaitDecision(a)
+	assert.Eq(t, WaitIdleProbe, reason)
+	assert.Eq(t, "", detail)
+
+	// And a job with no caller recorded counts for nobody.
+	seedCallerJob(t, s, "job-nocall", "", "running", now.Unix()-5)
+	a.CallerID = ""
+	reason, _ = s.WaitDecision(a)
+	assert.Eq(t, WaitIdleProbe, reason)
+}

@@ -576,3 +576,50 @@ func TestCountActiveJobsByRole(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, 0, n)
 }
+
+// TestCountActiveJobsByCaller: the supervision window (SUP-01 D) counts only the
+// caller's LIVE jobs — queued/running/pending_interaction/recovering — started
+// inside the window. A terminal job, a delivered job parked in needs_review (the
+// work is over; the human is reviewing, not supervising), another caller's job,
+// an anonymous one, and a job that fell out of the window all do not count.
+func TestCountActiveJobsByCaller(t *testing.T) {
+	s := openTest(t)
+	const now = int64(1_700_000_000)
+	mk := func(id, caller, status string, startedAt int64) JobRecord {
+		j := sampleJob(id, "proj", startedAt)
+		j.CallerID, j.Status = caller, status
+		return j
+	}
+	for _, j := range []JobRecord{
+		mk("a-queued", "alice", "queued", now-30),
+		mk("a-running", "alice", "running", now-30),
+		mk("a-pending", "alice", "pending_interaction", now-30),
+		mk("a-recovering", "alice", "recovering", now-30),
+		mk("a-done", "alice", "done", now-30),           // terminal
+		mk("a-review", "alice", "needs_review", now-30), // delivered, awaiting a human
+		mk("a-old", "alice", "running", now-9000),       // before the window
+		mk("b-running", "bob", "running", now-30),       // another caller
+		mk("anon-running", "", "running", now-30),       // no caller recorded
+	} {
+		assert.NoErr(t, s.UpsertJob(j))
+	}
+
+	n, err := s.CountActiveJobsByCaller("alice", now-7200)
+	assert.NoErr(t, err)
+	assert.Eq(t, 4, n) // queued + running + pending_interaction + recovering
+
+	// A window of 0 (or anything at/before the row) reaches every live job.
+	n, err = s.CountActiveJobsByCaller("alice", 0)
+	assert.NoErr(t, err)
+	assert.Eq(t, 5, n)
+
+	n, err = s.CountActiveJobsByCaller("bob", now-7200)
+	assert.NoErr(t, err)
+	assert.Eq(t, 1, n)
+
+	// No caller to attribute the work to: never "supervising", and the anonymous
+	// job must not be counted for an empty id either.
+	n, err = s.CountActiveJobsByCaller("", now-7200)
+	assert.NoErr(t, err)
+	assert.Eq(t, 0, n)
+}

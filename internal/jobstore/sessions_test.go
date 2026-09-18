@@ -1,6 +1,8 @@
 package jobstore
 
 import (
+	"database/sql"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -319,4 +321,81 @@ func TestMigrateAgentSessionsAddsIdleSec(t *testing.T) {
 	if _, err := s.SetSessionHandedOff("sid-missing", "job-1"); err == nil {
 		t.Fatal("handing off an unknown session must be an error, not a silent no-op")
 	}
+}
+
+// TestAgentSessionCallerIDRoundTrip: the AUTHENTICATED caller of a registration
+// (bd h-aii-esus: the relay needs an owner to compare a reply against) is stored
+// and read back on every session path — get, list and a later heartbeat. A
+// re-registration without one keeps the stored value (a hook retrying mid-session
+// must not blank the owner), and a session registered where no caller exists
+// reads back as "" — the "old session" the owner check deliberately lets through.
+func TestAgentSessionCallerIDRoundTrip(t *testing.T) {
+	s := openTest(t)
+
+	a, err := s.UpsertAgentSession(AgentSession{SessionID: "sid-c", Agent: "claude", CallerID: "alice"})
+	assert.NoErr(t, err)
+	assert.Eq(t, "alice", a.CallerID)
+
+	got, ok, err := s.GetAgentSession("sid-c")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "alice", got.CallerID)
+
+	a2, err := s.UpsertAgentSession(AgentSession{SessionID: "sid-c", Agent: "claude", Title: "repo: x"})
+	assert.NoErr(t, err)
+	assert.Eq(t, "alice", a2.CallerID)
+
+	a3, ok, err := s.TouchAgentSession("sid-c", SessionHeartbeat{Event: "Stop", State: SessionIdle})
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "alice", a3.CallerID)
+
+	// A session registered with no caller keeps "" — the migration-era row shape.
+	_, err = s.UpsertAgentSession(AgentSession{SessionID: "sid-anon", Agent: "codex"})
+	assert.NoErr(t, err)
+	anon, _, err := s.GetAgentSession("sid-anon")
+	assert.NoErr(t, err)
+	assert.Eq(t, "", anon.CallerID)
+
+	list, err := s.ListAgentSessions(ListSessionsOpts{})
+	assert.NoErr(t, err)
+	byID := map[string]AgentSession{}
+	for _, x := range list {
+		byID[x.SessionID] = x
+	}
+	assert.Eq(t, "alice", byID["sid-c"].CallerID)
+	assert.Eq(t, "", byID["sid-anon"].CallerID)
+}
+
+// TestAgentSessionCallerIDMigration opens a database written before the column
+// existed and checks the additive migration: the row survives, reads back with an
+// empty caller (the pre-column truth), and the column is writable afterwards.
+func TestAgentSessionCallerIDMigration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "legacy-caller.db")
+	db, err := sql.Open("sqlite", path)
+	assert.NoErr(t, err)
+	_, err = db.Exec(`CREATE TABLE agent_sessions (
+  session_id TEXT PRIMARY KEY, agent TEXT NOT NULL, project_key TEXT, runner TEXT, cwd TEXT,
+  title TEXT, transcript TEXT, tmux_pane TEXT, state TEXT NOT NULL DEFAULT 'running',
+  relay_mode TEXT NOT NULL DEFAULT 'auto', relay INTEGER NOT NULL DEFAULT 0, idle_sec INTEGER,
+  last_human_at INTEGER NOT NULL DEFAULT 0, turn_no INTEGER NOT NULL DEFAULT 0,
+  last_message TEXT, last_event TEXT, last_seen_at INTEGER NOT NULL, started_at INTEGER NOT NULL,
+  ended_at INTEGER)`)
+	assert.NoErr(t, err)
+	_, err = db.Exec(`INSERT INTO agent_sessions (session_id, agent, last_seen_at, started_at)
+  VALUES ('sid-pre','claude',1,1)`)
+	assert.NoErr(t, err)
+	assert.NoErr(t, db.Close())
+
+	st, err := Open(path)
+	assert.NoErr(t, err)
+	t.Cleanup(func() { _ = st.Close() })
+	got, ok, err := st.GetAgentSession("sid-pre")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, "", got.CallerID)
+
+	stamped, err := st.UpsertAgentSession(AgentSession{SessionID: "sid-pre", CallerID: "bob"})
+	assert.NoErr(t, err)
+	assert.Eq(t, "bob", stamped.CallerID)
 }

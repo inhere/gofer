@@ -453,3 +453,180 @@ func TestSetSessionRelayModeAndLegacyBool(t *testing.T) {
 		t.Fatalf("state after the release=%s, want running", detail.Session.State)
 	}
 }
+
+// registerOwnedSession registers a session, switches its relay on and opens a turn,
+// returning the caller the session belongs to. Helper for the owner-check tests.
+func registerOwnedSession(t *testing.T, s *Server, token, sid string) {
+	t.Helper()
+	for _, step := range []struct {
+		path string
+		body any
+	}{
+		{"/v1/sessions", map[string]any{"session_id": sid, "agent": "claude"}},
+		{"/v1/sessions/" + sid + "/relay", map[string]any{"mode": "on"}},
+		{"/v1/sessions/" + sid + "/turns", map[string]any{"body": "A or B?", "timeout_sec": 120}},
+	} {
+		resp := do(t, s, http.MethodPost, step.path, token, step.body)
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("POST %s status=%d, want 200", step.path, resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+}
+
+// TestSessionRegisterStampsCaller: the session records the AUTHENTICATED caller of
+// its registration (bd h-aii-esus) — stamped from the bearer token, never from the
+// body — and every session projection carries it, so the relay can later refuse a
+// reply from somebody else. A server with no tokens registers with an empty caller
+// instead of failing: there is nothing to stamp.
+func TestSessionRegisterStampsCaller(t *testing.T) {
+	s := newTestServerCfg(t, config.ServerConfig{
+		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
+	})
+	resp := do(t, s, http.MethodPost, "/v1/sessions", "tok-alice", map[string]any{
+		"session_id": "sid-owner", "agent": "claude", "caller_id": "mallory",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("register status=%d, want 200", resp.StatusCode)
+	}
+	var sv sessionView
+	decode(t, resp, &sv)
+	if sv.CallerID != "alice" {
+		t.Fatalf("registered caller_id=%q, want alice (the token, not the body)", sv.CallerID)
+	}
+
+	// A later hook beat does not have to re-send it: the registration's owner stays.
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-owner/heartbeat", "tok-alice", map[string]any{"event": "Stop"})
+	decode(t, resp, &sv)
+	if sv.CallerID != "alice" {
+		t.Fatalf("heartbeat caller_id=%q, want alice", sv.CallerID)
+	}
+	resp = do(t, s, http.MethodGet, "/v1/sessions", "tok-alice", nil)
+	var list struct {
+		Sessions []sessionView `json:"sessions"`
+	}
+	decode(t, resp, &list)
+	if len(list.Sessions) != 1 || list.Sessions[0].CallerID != "alice" {
+		t.Fatalf("list caller_id mismatch: %+v", list.Sessions)
+	}
+	resp = do(t, s, http.MethodGet, "/v1/sessions/sid-owner", "tok-alice", nil)
+	var detail struct {
+		Session sessionView `json:"session"`
+	}
+	decode(t, resp, &detail)
+	if detail.Session.CallerID != "alice" {
+		t.Fatalf("detail caller_id=%q, want alice", detail.Session.CallerID)
+	}
+
+	// Empty-token server (a local dev box): the hook registers with an empty caller.
+	anon := newTestServer(t, "", true)
+	resp = do(t, anon, http.MethodPost, "/v1/sessions", "", map[string]any{"session_id": "sid-anon", "agent": "claude"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("anonymous register status=%d, want 200", resp.StatusCode)
+	}
+	decode(t, resp, &sv)
+	if sv.CallerID != "" {
+		t.Fatalf("anonymous caller_id=%q, want empty", sv.CallerID)
+	}
+}
+
+// TestSessionSayRequiresOwnerOrCanAnswer: answering a session's turn speaks for the
+// person who owns that terminal, so it takes the session owner's token
+// (bd h-aii-esus) — or can_answer under governance, or a session registered before
+// caller_id existed (empty owner), which has nobody to compare against. A worker
+// token is refused outright.
+func TestSessionSayRequiresOwnerOrCanAnswer(t *testing.T) {
+	s := newTestServerCfg(t, config.ServerConfig{
+		Callers: []config.CallerConfig{
+			{ID: "alice", Token: "tok-alice"},
+			{ID: "bob", Token: "tok-bob"},
+		},
+	})
+	registerOwnedSession(t, s, "tok-alice", "sid-own")
+
+	// Somebody else's token cannot speak for alice's session.
+	resp := do(t, s, http.MethodPost, "/v1/sessions/sid-own/say", "tok-bob", map[string]string{"answer": "B"})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("other caller say status=%d, want 403", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// The owner can.
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-own/say", "tok-alice", map[string]string{"answer": "B"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("owner say status=%d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+	// ... and bob still cannot on the next turn.
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-own/turns", "tok-alice", map[string]any{"body": "and now?", "timeout_sec": 120})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("re-open turn status=%d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-own/relay", "tok-bob", map[string]any{"mode": "off"})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("other caller relay status=%d, want 403", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// An OLD session — one registered before caller_id existed — has no owner to
+	// compare against, so any authenticated human may answer it (the compat branch
+	// the migration leaves behind).
+	if _, err := s.jobs.Meta().UpsertAgentSession(jobstore.AgentSession{SessionID: "sid-legacy", Agent: "claude"}); err != nil {
+		t.Fatalf("seed legacy session: %v", err)
+	}
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-legacy/relay", "tok-alice", map[string]any{"mode": "on"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("legacy relay status=%d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-legacy/turns", "tok-alice", map[string]any{"body": "anyone?", "timeout_sec": 120})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("legacy open turn status=%d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-legacy/say", "tok-bob", map[string]string{"answer": "yes"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("legacy session say status=%d, want 200 (no owner to compare)", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// With governance on, can_answer is the escape hatch: the helper may answer,
+	// a plain caller may not.
+	sg := newTestServerCfg(t, config.ServerConfig{
+		Governance: config.GovernanceConfig{RequireAnswerCapability: true},
+		Callers: []config.CallerConfig{
+			{ID: "alice", Token: "tok-alice"},
+			{ID: "bob", Token: "tok-bob"},
+			{ID: "helper", Token: "tok-helper", CanAnswer: true},
+		},
+	})
+	registerOwnedSession(t, sg, "tok-alice", "sid-gov")
+	resp = do(t, sg, http.MethodPost, "/v1/sessions/sid-gov/say", "tok-bob", map[string]string{"answer": "B"})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("governed non-owner say status=%d, want 403", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = do(t, sg, http.MethodPost, "/v1/sessions/sid-gov/say", "tok-helper", map[string]string{"answer": "A"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("can_answer say status=%d, want 200", resp.StatusCode)
+	}
+	resp.Body.Close()
+
+	// A worker token is never allowed to answer for a person.
+	sw := newTestServerCfg(t, config.ServerConfig{
+		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
+		Workers: map[string]config.WorkerAuthConfig{"worker-1": {Token: "tok-worker"}},
+	})
+	registerOwnedSession(t, sw, "tok-alice", "sid-w")
+	resp = do(t, sw, http.MethodPost, "/v1/sessions/sid-w/say", "tok-worker", map[string]string{"answer": "B"})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("worker say status=%d, want 403", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = do(t, sw, http.MethodPost, "/v1/sessions/sid-w/deliver", "tok-worker", map[string]string{"text": "B"})
+	if resp.StatusCode != http.StatusForbidden {
+		t.Fatalf("worker deliver status=%d, want 403", resp.StatusCode)
+	}
+	resp.Body.Close()
+}

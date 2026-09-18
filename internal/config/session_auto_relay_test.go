@@ -152,3 +152,55 @@ session:
 		t.Fatalf("both keys written: idle = %d, want the new block's 120", got)
 	}
 }
+
+// TestSessionSupervisingDefaults pins the supervision gate's configuration
+// (SUP-01 D): skipping the auto-arm while the caller has live jobs is ON unless
+// the operator turns it off (a config that predates the key gets the fix), the
+// window defaults to two hours, and an explicit `0` window is a valid "no window"
+// rather than "unset".
+func TestSessionSupervisingDefaults(t *testing.T) {
+	projects := `
+projects:
+  demo:
+    host_path: /tmp/demo
+`
+	load := func(t *testing.T, body string) *Config {
+		t.Helper()
+		dir := t.TempDir()
+		p := filepath.Join(dir, "cfg.yaml")
+		write(t, p, body)
+		cfg, _, err := Load(p)
+		if err != nil {
+			t.Fatalf("Load: %v", err)
+		}
+		return cfg
+	}
+
+	cfg := load(t, projects)
+	if !cfg.EffectiveAutoRelaySkipWhenSupervising() {
+		t.Fatal("skip-while-supervising must default to ON")
+	}
+	if got := cfg.EffectiveSessionSupervisingWindowSec(); got != DefaultSessionSupervisingWindowSec {
+		t.Fatalf("window default = %d, want %d", got, DefaultSessionSupervisingWindowSec)
+	}
+
+	cfg = load(t, `
+session:
+  auto_relay_skip_when_supervising: false
+  supervising_window_sec: 600
+`+projects)
+	if cfg.EffectiveAutoRelaySkipWhenSupervising() {
+		t.Fatal("explicit false must disable the gate")
+	}
+	if got := cfg.EffectiveSessionSupervisingWindowSec(); got != 600 {
+		t.Fatalf("window = %d, want 600", got)
+	}
+
+	cfg = load(t, `
+session:
+  supervising_window_sec: 0
+`+projects)
+	if got := cfg.EffectiveSessionSupervisingWindowSec(); got != 0 {
+		t.Fatalf("explicit 0 window = %d, want 0 (every live job counts)", got)
+	}
+}
