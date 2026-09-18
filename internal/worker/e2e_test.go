@@ -70,8 +70,9 @@ func buildHubSideAt(t *testing.T, host, root string) *hubSide {
 				HostPath: host,
 				// wrapper is allowed for the WP2 interaction e2e (the hub validates the
 				// agent allowlist before dispatch; the worker resolves/executes it);
-				// acpbot for the GATE-01 permission-interaction e2e (same rule).
-				AllowedAgents:  []string{"exec", "wrapper", "acpbot"},
+				// acpbot for the GATE-01 permission-interaction e2e (same rule); codex
+				// for the SUP-01 E usage e2e (the worker's codex stand-in).
+				AllowedAgents:  []string{"exec", "wrapper", "acpbot", "codex"},
 				AllowedRunners: []string{"remote-w1"},
 				AllowExec:      true,
 			},
@@ -159,10 +160,17 @@ func buildWorkerSideURLs(t *testing.T, hubURLs []string, opts workerSideOpts) (*
 		Projects: map[string]config.ProjectConfig{
 			"alpha": {
 				HostPath:       host,
-				AllowedAgents:  []string{"exec"},
+				AllowedAgents:  []string{"exec", "codex"},
 				AllowedRunners: []string{"local"},
 				AllowExec:      true,
 			},
+		},
+		// The SUP-01 E usage capture reads codex's stderr tail (`tokens used\n<n>`),
+		// so the e2e worker carries a codex-keyed stand-in that really prints it: the
+		// sniff gates on the agent being codex, and this is the agent a usage e2e can
+		// dispatch end to end without a real provider.
+		Agents: map[string]config.AgentConfig{
+			"codex": {Type: agent.TypeCLIAgent, Command: testcmd.Path(t), Args: []string{"stderr-exit", "0", "tokens used\n19,802"}},
 		},
 	}
 	config.ApplyDefaults(cfg)
@@ -185,7 +193,7 @@ func buildWorkerSideURLs(t *testing.T, hubURLs []string, opts workerSideOpts) (*
 		URLs:           urls,
 		Token:          e2eToken,
 		Projects:       []string{"alpha"},
-		Agents:         []string{"exec"},
+		Agents:         []string{"exec", "codex"},
 		InitialBackoff: opts.InitialBackoff,
 		MaxBackoff:     opts.MaxBackoff,
 		Rng:            opts.Rng,

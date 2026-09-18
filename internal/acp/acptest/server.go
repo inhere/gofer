@@ -73,6 +73,11 @@ type Options struct {
 	// the shape a real adapter shows when the provider stream drops ("stream
 	// disconnected before completion").
 	PromptError string
+	// UsageUpdate lists the raw payloads of the `usage_update` session/updates the
+	// turn emits, in order (SUP-01 E). Each entry is the update OBJECT's body — the
+	// fake server adds the `sessionUpdate` discriminator — so a test writes exactly
+	// the agent's own accounting, e.g. `{"used":1234,"cost":{"total":0.01}}`.
+	UsageUpdate []string
 }
 
 // Main runs the fake server over stdin/stdout. It returns the process exit code.
@@ -154,6 +159,16 @@ func parseArgs(args []string) (Options, error) {
 			}
 			i++
 			o.PromptError = args[i]
+		case "--usage-update":
+			if i+1 >= len(args) {
+				return o, fmt.Errorf("--usage-update needs a value")
+			}
+			i++
+			var obj map[string]any
+			if err := json.Unmarshal([]byte(args[i]), &obj); err != nil || obj == nil {
+				return o, fmt.Errorf("--usage-update: want a JSON object, got %q", args[i])
+			}
+			o.UsageUpdate = append(o.UsageUpdate, args[i])
 		default:
 			return o, fmt.Errorf("unknown flag %q", args[i])
 		}
@@ -371,6 +386,16 @@ func (s *server) runTurn(msg *rpcMsg, stop chan struct{}) {
 		fmt.Fprintf(s.errOut, "acptest: permission rejected (%s), stopping\n", outcome.optionKind)
 		s.reply(msg.ID, map[string]any{"stopReason": "refusal"})
 		return
+	}
+
+	// SUP-01 E: the agent's running token/cost tally, reported as the turn proceeds.
+	for _, raw := range s.opts.UsageUpdate {
+		var u map[string]any
+		if err := json.Unmarshal([]byte(raw), &u); err != nil {
+			continue
+		}
+		u["sessionUpdate"] = "usage_update"
+		s.update(u)
 	}
 
 	s.update(map[string]any{"sessionUpdate": "plan", "entries": []any{

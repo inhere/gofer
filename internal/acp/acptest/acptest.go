@@ -37,6 +37,9 @@ func CmdArgs(o Options) []string {
 	if o.PromptError != "" {
 		args = append(args, "--prompt-error", o.PromptError)
 	}
+	for _, u := range o.UsageUpdate {
+		args = append(args, "--usage-update", u)
+	}
 	return args
 }
 
