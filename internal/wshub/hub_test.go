@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -54,6 +55,12 @@ func (s *fakeSink) OnInteraction(action string, _ json.RawMessage) {
 func (s *fakeSink) OnOutcome(o wsproto.Outcome) {
 	s.mu.Lock()
 	s.events = append(s.events, "outcome:"+o.ResultJSON)
+	s.mu.Unlock()
+}
+
+func (s *fakeSink) OnJobEvent(ev wsproto.JobEvent) {
+	s.mu.Lock()
+	s.events = append(s.events, "event:"+ev.Type+":"+strconv.FormatInt(ev.TS, 10)+":"+ev.InteractionID)
 	s.mu.Unlock()
 }
 

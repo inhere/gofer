@@ -141,6 +141,12 @@ type Service struct {
 	// fail the enqueue and prove it is best-effort.
 	deliveries deliverySink
 
+	// eventObserver, when set, receives the whitelisted events a REMOTE executor must
+	// mirror to the machine that submitted the job (SUP-01 G). Set only by the worker
+	// client (SetEventObserver); nil everywhere else, where it is a no-op on the
+	// event path.
+	eventObserver atomic.Pointer[JobEventObserver]
+
 	// workers supplies connected-worker candidates for label-based auto-selection
 	// (P2 / D3). Injected by commands.buildCore (hub-backed); may be nil — Submit
 	// only consults it on the runner=worker + worker_labels path, so every other

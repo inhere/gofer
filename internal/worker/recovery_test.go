@@ -293,6 +293,10 @@ func (j *runningJobs) AnswerInteraction(string, string, string) (job.Interaction
 	return job.Interaction{}, nil
 }
 
+// SetEventObserver accepts (and ignores) the SUP-01 G mirror hook: this fake raises
+// no job events.
+func (j *runningJobs) SetEventObserver(job.JobEventObserver) {}
+
 // finish drives the local job terminal and releases Wait.
 func (j *runningJobs) finish(res job.JobResult) {
 	j.mu.Lock()

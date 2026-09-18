@@ -271,7 +271,15 @@ func (a *AdoptedJob) Offsets() (stdoutOff, stderrOff int64) {
 	return a.stdoutOff, a.stderrOff
 }
 
-// OnOutcome stashes the worker-captured产出 (P4) so the terminal path applies it,
+// OnJobEvent records one worker-mirrored job event (SUP-01 G) on the adopted job:
+// the worker keeps running it, so its approval gate and verify step keep producing
+// events the host row must record (detail already carries the worker origin).
+func (a *AdoptedJob) OnJobEvent(eventType string, detail map[string]any) {
+	a.s.recordEvent(a.jobID, eventType, detail)
+}
+
+// OnOutcome stashes the worker-captured产出 (P4) so the terminal path applies it
+// before finishing the job (nil when the worker sent no outcome frame),
 // latest-wins, and mirrors the dispatched path's G1 behaviour: the first frame
 // carrying a rendered command is pushed onto the running job at once.
 func (a *AdoptedJob) OnOutcome(o runner.Outcome) {

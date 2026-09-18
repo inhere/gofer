@@ -40,6 +40,10 @@ func (p *pumpJobs) GetInteractions(string) ([]job.Interaction, error) { return n
 func (p *pumpJobs) AnswerInteraction(string, string, string) (job.Interaction, error) {
 	return job.Interaction{}, nil
 }
+
+// SetEventObserver accepts (and ignores) the SUP-01 G mirror hook: this fake raises
+// no job events.
+func (p *pumpJobs) SetEventObserver(job.JobEventObserver) {}
 func (p *pumpJobs) cancelledIDs() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()

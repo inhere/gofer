@@ -518,6 +518,25 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 			if sk := wc.sink(env.JobID); sk != nil {
 				sk.Finish(rf)
 			}
+		case wsproto.TypeJobEvent:
+			// SUP-01 G: a job life-cycle event the worker raised while executing a
+			// dispatched job (its approval gate / its verify step), mirrored onto the
+			// host job. Demux by job id like every other worker frame; a frame for a job
+			// this hub does not know is dropped (there is nowhere to record it). The hub
+			// dedups on the event's identity first: a replayed frame must not become a
+			// second row on the host job.
+			ev, derr := wsproto.As[wsproto.JobEvent](env)
+			if derr != nil {
+				continue
+			}
+			if wc.jobEventSeen(ev) {
+				slog.Debug("worker.job_event_duplicate", "event", "worker.job_event_duplicate", "component", "server",
+					"worker_id", wc.workerID, "job_id", env.JobID, "type", ev.Type)
+				continue
+			}
+			if sk := wc.sink(env.JobID); sk != nil {
+				sk.OnJobEvent(ev)
+			}
 		case wsproto.TypeInteraction:
 			// P2: a worker-raised running-job interaction. Demux to the job's sink
 			// IN ORDER on this single read loop (review #2) so the open can never be

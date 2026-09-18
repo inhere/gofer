@@ -29,6 +29,59 @@ type eventSink interface {
 	InsertJobEvent(e jobstore.JobEvent) (int64, error)
 }
 
+// JobEventObserver receives the events a REMOTE executor mirrors to the machine that
+// submitted the job (SUP-01 G). The worker client installs one (see
+// worker.Client) so the events its local job service records for a DISPATCHED job
+// ride the hub connection back to the host job, which would otherwise never see
+// them. It must never block the job: an implementation is a bounded queue that
+// drops on overflow.
+type JobEventObserver func(jobID, eventType string, detail map[string]any)
+
+// mirroredEventTypes is the WHITELIST of event types a worker mirrors up (SUP-01 G):
+// exactly the ones raised on the EXECUTING machine that the host cannot observe or
+// reconstruct — the approval gate's request/answer/timeout and the verify step's
+// start/finish. The job's own lifecycle (submitted/running/terminal/cancelled) is
+// deliberately absent: the HUB records those for the host job itself, so mirroring
+// them would double every row and every notification.
+var mirroredEventTypes = map[string]bool{
+	EventJobPermissionRequested: true,
+	EventJobPermissionAnswered:  true,
+	EventJobPermissionTimedOut:  true,
+	EventJobVerifyStarted:       true,
+	EventJobVerifyFinished:      true,
+}
+
+// SetEventObserver installs (or with nil, clears) the mirror observer. It is called
+// once by the worker client before it starts running jobs; recordEvent reads it on
+// every event, so the two are ordered by the atomic swap rather than by a lock the
+// event path would have to take.
+func (s *Service) SetEventObserver(fn JobEventObserver) {
+	if fn == nil {
+		s.eventObserver.Store(nil)
+		return
+	}
+	s.eventObserver.Store(&fn)
+}
+
+// notifyEventObserver hands one just-recorded, whitelisted event to the observer
+// (best-effort: no observer, or a panicking one, never affects the job).
+func (s *Service) notifyEventObserver(jobID, eventType, detailJSON string) {
+	if !mirroredEventTypes[eventType] {
+		return
+	}
+	fn := s.eventObserver.Load()
+	if fn == nil {
+		return
+	}
+	var detail map[string]any
+	if detailJSON != "" {
+		if json.Unmarshal([]byte(detailJSON), &detail) != nil {
+			detail = nil
+		}
+	}
+	(*fn)(jobID, eventType, detail)
+}
+
 // recordEvent appends one append-only lifecycle event for a job (E13, design
 // §5.2). It is BEST-EFFORT: a marshal failure, an oversized detail or a write
 // error only logs a warning — it MUST NOT panic and MUST NOT influence the job's
@@ -63,6 +116,9 @@ func (s *Service) recordEvent(jobID, eventType string, detail any) {
 	// delivery for each subscribed target (best-effort — an enqueue failure only
 	// warns and never affects the job's terminal state, same iron rule as above).
 	s.enqueueDeliveries(seq, jobID, eventType, dj, at)
+	// SUP-01 G: a mirrorable event also goes to the observer (the worker client's
+	// connection pump) so the hub that dispatched this job learns about it too.
+	s.notifyEventObserver(jobID, eventType, dj)
 }
 
 // enqueueDeliveries inserts one pending webhook delivery per subscribed target

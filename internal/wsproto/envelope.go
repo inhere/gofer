@@ -27,6 +27,14 @@ const (
 	// the host applies the worker-captured产出 before finishing the job. Optional —
 	// an old worker never sends it (the read loop ignores an unknown opcode anyway).
 	TypeOutcome FrameType = "outcome" // w→s
+	// TypeJobEvent (w→s, SUP-01 G, protocol v8) mirrors a JOB life-cycle event the
+	// worker raised while executing a dispatched job (its approval gate; its verify
+	// step) onto the host job, which otherwise never sees them: the events live in
+	// the EXECUTING machine's store. Only the whitelisted types are mirrored (the hub
+	// records its own submitted/running/terminal events), and an old peer never sends
+	// the frame — the host job then simply has no mirrored events, which is exactly
+	// the pre-P2 behaviour.
+	TypeJobEvent FrameType = "job_event" // w→s
 
 	// P2 frames (declared as placeholders; behaviour implemented in P2).
 	TypeCancel      FrameType = "cancel"      // s→w

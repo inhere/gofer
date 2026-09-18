@@ -36,6 +36,10 @@ func (r *rendezvousJobs) AnswerInteraction(string, string, string) (job.Interact
 	return job.Interaction{}, nil
 }
 
+// SetEventObserver accepts (and ignores) the SUP-01 G mirror hook: this fake raises
+// no job events.
+func (r *rendezvousJobs) SetEventObserver(job.JobEventObserver) {}
+
 // newRendezvousClient builds a Client whose local Wait blocks on a per-test chan
 // (closed in cleanup so the waitSession goroutine never leaks).
 func newRendezvousClient(t *testing.T) *Client {

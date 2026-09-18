@@ -333,6 +333,31 @@ type Dispatch struct {
 	VerifyTimeoutSec int      `json:"verify_timeout_sec,omitempty"`
 }
 
+// JobEvent (w→s, SUP-01 G, protocol v8): one job life-cycle event the WORKER raised
+// for a job the hub dispatched to it. It is a MIRROR, not a new source of truth: the
+// event is already recorded in the worker's own store (that is where it happened);
+// the hub records the same type/detail against the HOST job so its event log,
+// notifications and audit trail answer "what did this job do on the worker".
+//
+// Detail stays raw JSON: wsproto is a leaf (the job package owns the event
+// vocabulary) and the hub needs the payload only to forward it.
+type JobEvent struct {
+	JobID string `json:"job_id"`
+	// Type is the job-package event type ("job.permission_requested",
+	// "job.verify_finished", …); the hub keeps its own whitelist of what it accepts.
+	Type string `json:"type"`
+	// Detail is the event's detail map as the worker recorded it (nil = none).
+	Detail json.RawMessage `json:"detail,omitempty"`
+	// TS is when the worker raised it (unix seconds) — part of the event's identity
+	// for de-duplication, since a replayed frame carries the same TS and a genuinely
+	// new event of the same type carries a later one.
+	TS int64 `json:"ts"`
+	// InteractionID is the interaction the event is about, when it has one (the
+	// approval-gate events do; the verify events do not). It is lifted out of the
+	// detail so de-duplication does not have to parse it.
+	InteractionID string `json:"interaction_id,omitempty"`
+}
+
 // Log (w→s, P1): an incremental log frame. Seq is monotonic per job (the same
 // notion as the C4 SSE seq), giving the hub an ordering baseline.
 type Log struct {

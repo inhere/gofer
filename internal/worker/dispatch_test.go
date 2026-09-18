@@ -85,6 +85,11 @@ func (s *stubJobs) AnswerInteraction(jobID, iid, answer string) (job.Interaction
 	return job.Interaction{ID: iid, Status: job.InteractionAnswered, Answer: answer}, nil
 }
 
+// SetEventObserver accepts (and ignores) the SUP-01 G mirror hook: the stub raises no
+// events of its own, and the client's installation is covered by the real-service
+// e2e tests.
+func (s *stubJobs) SetEventObserver(job.JobEventObserver) {}
+
 func (s *stubJobs) cancelled() string {
 	s.mu.Lock()
 	defer s.mu.Unlock()

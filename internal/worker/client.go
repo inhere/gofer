@@ -16,6 +16,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -84,6 +85,11 @@ type Jobs interface {
 	// AnswerInteraction delivers the hub's answer to the local job so it resumes
 	// (P2 answer frame).
 	AnswerInteraction(jobID, interactionID, answer string) (job.Interaction, error)
+	// SetEventObserver installs the callback that receives the whitelisted job events
+	// this service records for a DISPATCHED job (SUP-01 G); nil clears it. The
+	// service decides which types are mirrorable (job.mirroredEventTypes) — the
+	// client only transports them.
+	SetEventObserver(job.JobEventObserver)
 }
 
 // Client connects one worker to the hub. It is constructed with the resolved hub
@@ -177,9 +183,20 @@ type Client struct {
 	// jobMap maps the hub-side job_id (the wire id) to the worker's LOCAL job id,
 	// so an inbound cancel/answer frame (keyed by the hub id) targets the right
 	// local job. handleDispatch registers the entry once the local job is submitted
-	// and removes it when the dispatch finishes.
-	jobMu  sync.Mutex
-	jobMap map[string]string
+	// and removes it when the dispatch finishes. localMap is the REVERSE direction
+	// (local id → hub id), which the SUP-01 G event mirror needs: a job's events are
+	// raised with its LOCAL id and must be addressed to the hub's.
+	jobMu    sync.Mutex
+	jobMap   map[string]string
+	localMap map[string]string
+
+	// jobEvents is the BOUNDED queue of mirrored job events (SUP-01 G) waiting to be
+	// written to the hub. A full queue drops the event and counts it
+	// (jobEventDropped) — a mirror is informational, and the JOB must never block on
+	// a slow socket. jobEventLoop drains it; both live for the process's lifetime
+	// (started by Run).
+	jobEvents       chan wsproto.JobEvent
+	jobEventDropped atomic.Int64
 
 	// inflMu guards inflight: the RECOV-01 recovery table of the jobs this PROCESS
 	// still owns on behalf of the hub (remote job_id → inflightJob). It is visible to
@@ -303,6 +320,8 @@ func New(cfg Config, jobs Jobs) *Client {
 		readDeadline:  read,
 		jobs:          jobs,
 		jobMap:        map[string]string{},
+		localMap:      map[string]string{},
+		jobEvents:     make(chan wsproto.JobEvent, jobEventQueueCap),
 		inflight:      map[string]*inflightJob{},
 		sessReady:     map[string]*ptyrunner.PtySession{},
 		sessWaiters:   map[string]chan *ptyrunner.PtySession{},
@@ -323,13 +342,77 @@ func New(cfg Config, jobs Jobs) *Client {
 		return WritePolicyCacheFile(path, wid, p, seq)
 	}
 	cl.pumpPtyFn = cl.pumpPty // real pump by default; tests override for join assertions
+	// SUP-01 G: mirror the whitelisted events the local job service raises for a
+	// DISPATCHED job back to the hub that asked for it. Installing the observer here
+	// (once per client) keeps the job service's event path free of hub knowledge. A
+	// nil service (a client built only to exercise the connection, as some tests do)
+	// simply has nothing to mirror.
+	if jobs != nil {
+		jobs.SetEventObserver(cl.observeJobEvent)
+	}
 	return cl
+}
+
+// jobEventQueueCap bounds the mirrored-event queue (SUP-01 G). Events are rare, so
+// the cap only ever matters when the hub connection is stalled; overflowing drops and
+// counts rather than delaying the job.
+const jobEventQueueCap = 64
+
+// observeJobEvent is the job service's event observer (SUP-01 G): it turns a
+// whitelisted local event into a wire frame and ENQUEUES it (never blocks the job).
+// A local job this worker runs on its own account has no hub id, so it is skipped —
+// there is nobody to mirror it to.
+func (cl *Client) observeJobEvent(localID, eventType string, detail map[string]any) {
+	remoteID := cl.remoteJobID(localID)
+	if remoteID == "" {
+		return
+	}
+	ev := wsproto.JobEvent{JobID: remoteID, Type: eventType, TS: time.Now().Unix()}
+	if len(detail) > 0 {
+		if b, err := json.Marshal(detail); err == nil {
+			ev.Detail = b
+		}
+		if id, ok := detail["interaction_id"].(string); ok {
+			ev.InteractionID = id
+		}
+	}
+	select {
+	case cl.jobEvents <- ev:
+	default:
+		// The queue is full: drop and account for it. A mirror is informational (the
+		// event is already durably recorded on this side) and must never push back on
+		// the job that raised it.
+		if n := cl.jobEventDropped.Add(1); n == 1 || n%100 == 0 {
+			slog.Warn("worker.job_event_dropped", "event", "worker.job_event_dropped", "component", "worker",
+				"worker_id", cl.workerID, "job_id", remoteID, "type", eventType, "dropped", n)
+		}
+	}
+}
+
+// jobEventLoop drains the mirrored-event queue onto the hub connection until the
+// worker shuts down (SUP-01 G). Writes are best-effort: a frame that cannot go out
+// (disconnected, or the run ctx ended) is dropped with a debug line — the worker's
+// local record is authoritative, and the next reconnect has nothing to replay (the
+// hub only ever ADDS these to the host job's event log).
+func (cl *Client) jobEventLoop(ctx context.Context) {
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev := <-cl.jobEvents:
+			if err := cl.writeFrame(ctx, wsproto.TypeJobEvent, ev.JobID, ev); err != nil {
+				slog.Debug("worker.job_event_not_sent", "worker_id", cl.workerID,
+					"job_id", ev.JobID, "type", ev.Type, "err", err)
+			}
+		}
+	}
 }
 
 // putJobMapping records the hub job_id → local job id mapping (handleDispatch).
 func (cl *Client) putJobMapping(remoteID, localID string) {
 	cl.jobMu.Lock()
 	cl.jobMap[remoteID] = localID
+	cl.localMap[localID] = remoteID
 	cl.jobMu.Unlock()
 }
 
@@ -341,9 +424,18 @@ func (cl *Client) localJobID(remoteID string) string {
 	return cl.jobMap[remoteID]
 }
 
+// remoteJobID resolves the worker's local job id back to the hub job_id (empty for a
+// job this worker runs on its own account, e.g. a locally submitted one).
+func (cl *Client) remoteJobID(localID string) string {
+	cl.jobMu.Lock()
+	defer cl.jobMu.Unlock()
+	return cl.localMap[localID]
+}
+
 // dropJobMapping removes the mapping once a dispatch finishes.
 func (cl *Client) dropJobMapping(remoteID string) {
 	cl.jobMu.Lock()
+	delete(cl.localMap, cl.jobMap[remoteID])
 	delete(cl.jobMap, remoteID)
 	cl.jobMu.Unlock()
 }
@@ -743,6 +835,10 @@ func (cl *Client) Run(ctx context.Context) error {
 	// Best-effort last-known-good cache retry (POLICY mode with a cache path); a no-op
 	// otherwise. Also lives across reconnects and exits with ctx.
 	go cl.cacheRetryLoop(ctx)
+	// SUP-01 G: the mirrored-event pump. Like the reload executor it lives across
+	// reconnects (a job outlives the connection it was dispatched on) and exits with
+	// ctx; a frame written while disconnected is dropped, not queued for replay.
+	go cl.jobEventLoop(ctx)
 	idx := 0
 	attempt := 0
 	for {

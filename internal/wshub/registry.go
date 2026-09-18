@@ -2,6 +2,7 @@ package wshub
 
 import (
 	"context"
+	"strconv"
 	"sync"
 	"sync/atomic"
 
@@ -85,6 +86,46 @@ type workerConn struct {
 	policyPending  bool
 	policyRejected []wsproto.AppliedRejection
 	policyDegraded []wsproto.AppliedDegrade
+
+	// evMu guards the job-event de-duplication window below (SUP-01 G). It is a leaf
+	// lock: it is never held across a sink call or a frame write.
+	evMu sync.Mutex
+	// evSeen + evOrder implement a bounded FIFO set of the job events this connection
+	// has already delivered, keyed by the event's IDENTITY (job_id, type, ts,
+	// interaction_id). A worker that re-sends an event (a reconnect replay) must not
+	// produce a second row on the host job; the cap keeps the window bounded so a
+	// long-lived connection cannot grow it without limit.
+	evSeen  map[string]struct{}
+	evOrder []string
+}
+
+// jobEventDedupCap bounds the per-connection job-event de-duplication window. Events
+// are rare (an approval gate, a verify step) and a replay arrives within the
+// reconnect window, so a few hundred identities is far more than enough while
+// keeping the map's memory bounded.
+const jobEventDedupCap = 256
+
+// jobEventSeen reports whether this connection already delivered the SAME event
+// (identity: job_id, type, ts, interaction_id) and records it otherwise. Only the
+// event's identity is compared — the detail is deliberately not part of the key, so
+// a replayed frame with a re-marshalled detail still dedups.
+func (wc *workerConn) jobEventSeen(ev wsproto.JobEvent) bool {
+	key := ev.JobID + "\x00" + ev.Type + "\x00" + strconv.FormatInt(ev.TS, 10) + "\x00" + ev.InteractionID
+	wc.evMu.Lock()
+	defer wc.evMu.Unlock()
+	if wc.evSeen == nil {
+		wc.evSeen = map[string]struct{}{}
+	}
+	if _, dup := wc.evSeen[key]; dup {
+		return true
+	}
+	wc.evSeen[key] = struct{}{}
+	wc.evOrder = append(wc.evOrder, key)
+	for len(wc.evOrder) > jobEventDedupCap {
+		delete(wc.evSeen, wc.evOrder[0])
+		wc.evOrder = wc.evOrder[1:]
+	}
+	return false
 }
 
 // newWorkerConn builds a workerConn with its maps and done channel initialised.

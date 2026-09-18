@@ -233,6 +233,14 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	// proves it still runs it (Resume). Both are nil for a local job.
 	sink.onSuspend = req.OnSuspend
 	sink.onResume = req.OnResume
+	// SUP-01 G: the worker's own job events (its approval gate, its verify step) land
+	// on the host job, tagged with the worker that raised them — the host otherwise
+	// has no way to learn that they happened. Nil-safe on both sides.
+	if req.OnJobEvent != nil {
+		sink.onJobEvent = func(eventType string, detail map[string]any) {
+			req.OnJobEvent(eventType, withWorkerOrigin(detail, workerID))
+		}
+	}
 	// Wire the interaction bridge: an inbound interaction{open} is injected onto
 	// the host job (via req.Interactions, the same remoteInteractionSink peer-http
 	// uses) and the host-side answer is sent back over WS (hub.Answer). Mirrors
@@ -428,6 +436,41 @@ func OutcomeFrom(o *wsproto.Outcome, workerID string) *runner.Outcome {
 	}
 }
 
+// JobEventDetail decodes one mirrored job event's raw detail into the map the host
+// job records, with the worker origin stamped (SUP-01 G). Exported so the adoption
+// path (internal/core) applies exactly the same projection as the dispatched one —
+// one mapping, two entry points (like OutcomeFrom).
+func JobEventDetail(ev wsproto.JobEvent, workerID string) map[string]any {
+	return withWorkerOrigin(decodeJobEventDetail(ev), workerID)
+}
+
+// decodeJobEventDetail unmarshals a mirrored event's detail; a body-less or
+// unparsable detail yields nil (the event is still recorded by type).
+func decodeJobEventDetail(ev wsproto.JobEvent) map[string]any {
+	if len(ev.Detail) == 0 {
+		return nil
+	}
+	var detail map[string]any
+	if json.Unmarshal(ev.Detail, &detail) != nil {
+		return nil
+	}
+	return detail
+}
+
+// withWorkerOrigin returns a copy of a mirrored event's detail with the
+// provenance field added (SUP-01 G): the host job records that this event was
+// RAISED ON A WORKER, not on the machine that owns the row, so a reader can tell
+// "the worker's approval gate asked" from a local gate. The input map is never
+// mutated (it may be shared with the worker-side event record).
+func withWorkerOrigin(detail map[string]any, workerID string) map[string]any {
+	out := make(map[string]any, len(detail)+1)
+	for k, v := range detail {
+		out[k] = v
+	}
+	out["origin"] = "worker:" + workerID
+	return out
+}
+
 // verifyFromFrame copies the frame's verify result onto the runner's own type
 // (wsproto stays a leaf and defines its own, like Outcome.Commits).
 func verifyFromFrame(v *wsproto.VerifyResult) *runner.VerifyResult {
@@ -501,6 +544,9 @@ type boundedSink struct {
 	// job is being held, Resume when the same worker process proved it still runs it.
 	onSuspend func(reason string)
 	onResume  func()
+	// onJobEvent (nil-safe) records a worker-raised job event (SUP-01 G) on the HOST
+	// job, tagged with the origin the runner stamps. Set from req.OnJobEvent.
+	onJobEvent func(eventType string, detail map[string]any)
 
 	mu              sync.Mutex
 	truncated       bool
@@ -602,6 +648,18 @@ func (s *boundedSink) Resume() {
 	if s.onResume != nil {
 		s.onResume()
 	}
+}
+
+// OnJobEvent implements wshub.JobSink: it records one worker-raised job event on the
+// HOST job (SUP-01 G), stamped with the worker that raised it — the durable record of
+// an approval request or a verify step that happened on the execution machine. The
+// hub has already dropped duplicates. Nil-safe: a host job with no event sink simply
+// ignores it.
+func (s *boundedSink) OnJobEvent(ev wsproto.JobEvent) {
+	if s.onJobEvent == nil {
+		return
+	}
+	s.onJobEvent(ev.Type, decodeJobEventDetail(ev))
 }
 
 // OnInteraction implements wshub.JobSink: it forwards one worker interaction frame

@@ -38,6 +38,13 @@ type JobSink interface {
 	// before the result frame), enforced by the single in-order read loop. It must
 	// be non-blocking (the hub's read loop).
 	OnOutcome(o wsproto.Outcome)
+	// OnJobEvent bridges one worker-raised job life-cycle event (SUP-01 G): the
+	// approval gate / verify step events the worker recorded while executing this
+	// job, which the host records on ITS row (tagged with the worker that raised
+	// them). Duplicates are dropped by the hub before this is called. It runs on the
+	// hub's single read loop, so it must not block for long (the host's own event
+	// write is a local insert).
+	OnJobEvent(ev wsproto.JobEvent)
 	// Finish delivers the authoritative terminal result, unblocking the
 	// workerRunner.Run wait. It must be non-blocking (drop a duplicate result).
 	Finish(res wsproto.Result)

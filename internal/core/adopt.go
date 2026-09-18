@@ -86,6 +86,13 @@ func (s *adoptSink) OnInteraction(action string, interaction json.RawMessage) {
 	s.aj.OnInteraction(action, interaction)
 }
 
+// OnJobEvent records a worker-raised job event on the adopted job (SUP-01 G) — an
+// adopted job keeps running on the worker after a serve restart, so its approval gate
+// and verify step must keep reaching the host row through this sink too.
+func (s *adoptSink) OnJobEvent(ev wsproto.JobEvent) {
+	s.aj.OnJobEvent(ev.Type, workerrunner.JobEventDetail(ev, s.workerID))
+}
+
 // OnOutcome always routes the frame through OutcomeFrom (even a nil projection — a
 // frame with no产出 at all) so an adopted job's outcome bookkeeping matches a
 // dispatched one's, including the G1 early rendered-command push.
