@@ -1,6 +1,8 @@
 package peerhttp_test
 
 import (
+	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -522,4 +524,69 @@ func readHostStdout(t *testing.T, host *bridge, id string) string {
 		t.Fatalf("read host stdout: %v", err)
 	}
 	return string(b)
+}
+
+// TestPeerRunnerSendsResumedFrom pins the WIRE of a continuation (SUP-02 R1 /
+// h-aii-9qiy): the forwarded request carries the source session_id AND the
+// resumed_from lineage marker. That pair is what makes the PEER's acp runner LOAD
+// the source session (session/load) rather than open a fresh one — the host's
+// "continue this session" has to survive the hop. A plain job must not grow either
+// field, so nothing about the pre-resume wire changes.
+func TestPeerRunnerSendsResumedFrom(t *testing.T) {
+	var bodies []map[string]any
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/jobs":
+			var body map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Errorf("decode forwarded request: %v", err)
+			}
+			bodies = append(bodies, body)
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "peer-job-1", "status": "running"})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/jobs/peer-job-1":
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{"id": "peer-job-1", "status": "done", "exit_code": 0})
+		default:
+			// No stream / artifacts for this stub: both are best-effort on the host.
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	r := peerhttp.New("stub-peer", srv.URL, "")
+	run := func(f runner.Forward) runner.Result {
+		t.Helper()
+		return r.Run(context.Background(), runner.Request{Forward: &f})
+	}
+
+	// A continuation of a session that ran on the peer.
+	if res := run(runner.Forward{
+		ProjectKey: "demo", Agent: "acpbot", Cmd: []string{"acpbot"}, Cwd: ".",
+		SessionID: "sess-acp-9", ResumedFrom: "job-src-9",
+	}); res.ExitCode != 0 || res.Err != nil {
+		t.Fatalf("continuation run: exit=%d err=%v", res.ExitCode, res.Err)
+	}
+	if len(bodies) != 1 {
+		t.Fatalf("peer received %d submits, want 1", len(bodies))
+	}
+	if got := bodies[0]["resumed_from"]; got != "job-src-9" {
+		t.Fatalf("forwarded resumed_from = %v, want job-src-9", got)
+	}
+	if got := bodies[0]["session_id"]; got != "sess-acp-9" {
+		t.Fatalf("forwarded session_id = %v, want sess-acp-9", got)
+	}
+
+	// A plain job (no lineage): the fields stay absent, so the peer opens a session.
+	if res := run(runner.Forward{ProjectKey: "demo", Agent: "exec", Cmd: []string{"true"}, Cwd: "."}); res.ExitCode != 0 || res.Err != nil {
+		t.Fatalf("plain run: exit=%d err=%v", res.ExitCode, res.Err)
+	}
+	if len(bodies) != 2 {
+		t.Fatalf("peer received %d submits, want 2", len(bodies))
+	}
+	for _, field := range []string{"resumed_from", "session_id"} {
+		if _, ok := bodies[1][field]; ok {
+			t.Fatalf("a plain job must not forward %s: %v", field, bodies[1])
+		}
+	}
 }
