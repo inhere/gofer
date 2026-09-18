@@ -581,6 +581,9 @@ type PolicyProject struct {
 	// non-empty value as the old rule "the project allows interactive jobs" when
 	// AllowInteractive is absent (see commands.policyAllowsInteractive); it must never
 	// narrow with it again.
+	//
+	// DEPRECATED(v0.45): remove in v0.48 — goes with the pre-AGT-02 fallback in
+	// commands.policyAllowsInteractive once that server/worker pairing is gone.
 	InteractiveAllowedAgents []string `json:"interactive_allowed_agents"`
 	// AllowInteractive is the project's interactive-job switch (AGT-02 §2). It is a
 	// pointer for the same "unset ≠ explicit false" reason as CaptureDiff below: a

@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 监督闭环与 agent 可靠性设计（SUP-01：故障转移 / 验证步骤 / todo 联动 / 用量 / 模板 / 事件镜像）
 
-> 状态：Approved 0.2 / 实施中（2026-09-18 人工批准；决策 1–5 照初稿）
+> 状态：Approved 0.2 / 已实施（P1–P5）（2026-09-18 人工批准；决策 1–5 照初稿）
 
 ## 修订记录
 
@@ -135,6 +135,28 @@ projects:
 ## 横切
 
 - **兼容策略（G032）**：gofer 仍在 1.0 前。本设计新增的协议字段/列全部可选（additive），但**不为已不部署的组合写容忍分支**：P2 起 hub 只对协议 ≥8 的 worker 下发 verify/todo/job_event，对更低版本直接在 dispatch 前拒绝该 job（`ErrInvalidRequest: worker <id> protocol v<n> < 8, upgrade worker`），不做"静默 skipped"；实施中碰到的既有兼容分支按 G032 处理：仍需要的打 `// DEPRECATED(v0.45): remove in v0.48`，无人使用的直接删（候选：`agent_sessions.relay` bool 镜像列、`server.session_auto_relay_idle_sec` 别名、`interactive_allowed_agents` 一次性读取、`runner: local` 旧别名之外的历史别名、Dispatch 对 <v6/<v7 worker 的 warn-only 容忍）。删除项在汇报里逐条列出。
+
+### DEPRECATED 清单（G032，截至 P5）
+
+本批次触碰到的既有兼容路径全部登记在此：**已打标记、仍在被现役二进制/配置读取**的按 G032 要求带
+移除版本；无人使用的直接删除（见下方"已删除"）。标记统一写作 `// DEPRECATED(v<标记版本>): remove in v<+3>`。
+
+| 位置 | 标记版本 | 计划移除 | 说明 |
+|---|---|---|---|
+| `internal/jobstore/store.go`（`agent_sessions.relay` 列 DDL） | v0.45（P1） | v0.48 | pre-R1 二进制仍读这个 bool 镜像列 |
+| `internal/jobstore/sessions.go`（`AgentSession.Relay`、`SetSessionRelayMode` 写入） | v0.45（P1） | v0.48 | 同上，写入端 |
+| `internal/httpapi/session_handler.go`（`sessionView.Relay`、`sessionRelayReq.Relay`） | v0.45（P1） | v0.48 | 旧布尔面（旧 console/客户端） |
+| `internal/config/model.go`（`server.session_auto_relay_idle_sec` 别名） | v0.45（P1） | v0.48 | 旧配置键 |
+| `internal/config/loader.go`（`ApplyLegacySessionRelayCompat`） | v0.45（P1） | v0.48 | 旧键的一次性读取 |
+| `internal/config/loader.go`（`ApplyLegacyInteractiveCompat` + `legacyInteractiveYAML`） | v0.45（P3 补打） | v0.48 | `interactive_allowed_agents` 一次性读取（AGT-02 0.3 人工决策保留） |
+| `internal/wsproto/frames.go`（`PolicyProject.InteractiveAllowedAgents`） | v0.45（P5 补打） | v0.48 | pre-AGT-02 server 仍会发；worker 只当开关读，不再据此收窄 |
+| `internal/commands/worker.go`（`policyAllowsInteractive` 的回落） | v0.45（P5 补打） | v0.48 | 同上，读取端 |
+
+**已删除的兼容路径**：`runner/worker` 对 <v6/<v7 worker 的 warn-only 容忍分支（P2 删除，改为 dispatch 前按能力表拒绝）。
+
+**待人工决策**：上表最后两行只服务"新 worker 连老 server"这一组合。若确认该组合不再部署，可整对删除
+（Go 的 json 解码忽略未知字段，删除对 wire 是安全的）——G032 的另一半正是"没人用就直接剔除"。
+
 
 - **协议**：v8 = Dispatch 增 `verify/verify_timeout_sec/todo_id`，新增 `job_event` 帧；`Outcome` 增 `Verify/Commits/Usage`。
 - **schema（全 additive 迁移）**：`jobs` 增 `failure_class, fell_back_from, fell_back_to, requested_agent, verify_json, todo_id, base_sha, commits_json, usage_json`；`agent_sessions` 增 `caller_id`。
@@ -272,3 +294,33 @@ E（四路用量采集 + `jobs.usage_json` + `job show`/web 详情 + `stats.usag
 | （无）P4 未触碰到任何既有兼容分支：新增的列/wire 字段/类型都是 additive，未新增无标记兼容层 | — |
 
 删除项：无。
+
+## P5 实测记录（2026-09-18）
+
+F（模板解析/渲染 + `-t/--var` + CLI/HTTP/MCP/web + 仓库示例模板）与全批次 docs/skill/README 收口已落地并全绿。落地要点与偏差：
+
+- **`Render` 的返回值**：设计写的是 `(prompt, missing, err)`，实现是 `Rendered{Prompt, Missing, Warnings}`。"缺必填变量"（提交必须 400）与"未声明的占位符原样保留 + warn"（必须放行）是两回事，一个列表装不下：前者让 `Submit` 拒绝并列出缺项，后者只记一条 `job.template_render` warn 并回显给 `template show` 的读者。
+- **调用方给过值的占位符即使模板没声明也替换**：设计只说"未声明的 `{{x}}` 原样保留"。实现把"提交者本轮传进来的 `vars`"算作已解析——只有**没人给值**的占位符才原样保留 + warn（占位符写成 `{{nope}}` 而没人给值，正是"打错了"的样子）。
+- **`List` 用 `Info.Err` 报出解析失败的文件**（设计只给了 Name/Source/Path/Desc/Vars）：一份存在但坏掉的模板正是 submit 失败时读者要找的那一行，静默隐藏它比多一个字段更糟（`template ls` 与 web 下拉都把它显示出来并禁用）。
+- **模板的 `runner` 默认值**：CLI 的 `--runner` 默认值（`server` ⇒ 内置 local）充当"没有钉 runner"的哨兵——带 `-t` 时不再下发该默认值，把它留给模板；模板也没写时由服务端回落到内置 `local`（**非模板请求仍然必须显式给 runner**，validate 未改）。gcli 分不清"没给 `--runner`"与"写了 `--runner server`"，故"显式 `--runner server` + 模板另写 runner"这一种组合以模板为准（已在 flag 说明里注明，这是唯一的差别）。
+- **模板默认只填零值**：bool 只能"打开"、不能"关闭"（false 与未设无从区分）；`--no-verify` 是显式 opt-out，压过模板的 verify 默认值（不让两者同时落到请求上——那样 validate 会直接拒）。role 预设仍在模板**之前**解析（`--role` 是显式旗标），所以 role 填过的字段模板不再覆盖。
+- **预览在服务端渲染（对设计的一处 additive 扩展）**：`GET /v1/projects/{key}/templates/{name}` 除模板本身外返回 `render{prompt,missing,warnings}`，变量用重复的 `?var=k=v` 传入。设计把这个端点定为"只读"，但**只有服务端能展开 `{{include: …}}`、也只有它知道 job 将在哪个 checkout 里解析 `{{head}}`**——客户端自渲染会与提交时真正发出去的正文不一致（仓库示例 `impl-batch.md` 就用了 include）。纯读、无副作用、不落库，故按 read-only 预览实现，CLI `template show` 与 web 提交表单共用同一个入口。
+- **frontmatter 白名单**：除设计列的 job 默认键外，另允许 `desc`（`List`/`show` 要用）与 `vars`；其余键（`plan_id`/`caller_id`/`cmd`…）一律解析报错（goccy `yaml.Strict()`）。正文没有 frontmatter 时整篇都是正文（include 片段就是这样）。
+- **frontmatter 切分器统一**：`SplitFrontmatter` 落在 `internal/template`；`httpapi.parseMarkdownRequest` 与 `job/workflow.parse` 的私有副本一并删除（函数体逐字搬迁，G023）——同一份"任务文档"不该有三种切法。
+- **重放不再渲染**：`request_json` 里既有渲染后的 prompt、也留着 `template/vars`（设计要求"可审计、可 rerun"）。因此**重放路径必须丢掉模板字段**，否则会把任务书再拼一遍到 prompt 尾部：`RebuildJob` 与 `fallBack` 各调一次 `dropTemplate`（`resume` 本来就新建请求、不带模板）。设计只说"rerun 不再重渲染"，这条是它的落地前提，也是 `TestRebuildTemplateJobDoesNotReRender` 钉住的行为。
+- **`{{head}}`**：仅当项目目录（`ExecPath`，server 本机可读）是 git 仓时解析（`git rev-parse --short HEAD`，5s 上限 + `GIT_OPTIONAL_LOCKS=0`）；解析不出来就渲染空 + warn，不编造 sha。
+- **项目目录本机不可读**（worker-only 项目在 host 是占位）时只查全局目录——这正是全局目录存在的理由（设计 §六）。
+- **CLI 用法边界**：`-t` 与 `-f`、`-t` 与 post-`--` argv 互斥（三者都在定义"这个 job 是什么"）；`--var` 缺 `-t` 是用法错误（不静默丢弃）；`-t --prompt '…'` 合法 = 追加正文；带 `-t` 时 `--agent` 不再必填（服务端仍会拒"模板与旗标都没给 agent"）。
+- **MCP**：`gofer_run_job` 只加 `template`/`vars` 两个入参（schema 里 `agent` 仍必填——SDK 会按 schema 校验入参，"模板填 agent"这条只在 CLI/HTTP 上成立）；新增只读工具 `gofer_list_templates {project}`（项目作用域下省略 project 即取作用域项目）。
+- **web**：提交表单新增模板下拉（坏模板列出但禁用并显示其错误）+ 按 `vars` 声明生成的变量输入 + 正文预览（服务端渲染的同一份正文），选中模板后 prompt 文本域变成"追加正文"。`vue-tsc --noEmit` 与 `vite build` 均通过（无 web 测试框架，按既有验收口径到此为止）。
+- **仓库示例模板**：`docs/examples/templates/{common.md,impl-batch.md}` 按**全局目录的布局**摆放（`templates/<name>.md`），`gofer init` 不自动安装——文档里给一条 `cp` 即可。实测：`Resolve→Render` 渲染两份示例，include 展开一层、零告警、变量默认值生效。
+- **验收对照**：`-t` 渲染与缺变量报错（`TestSubmitWithTemplateRendersPromptAndDefaults` / `TestSubmitTemplateMissingVarRejected` / `TestTemplateShowRenders`）；include 一层（`TestRenderIncludeOneLevelSameDirOnly`）；request_json 存渲染后 prompt（上面两条 job 测试 + `TestSubmitJobWithTemplate` / `TestRunJobTemplateParams`）；项目目录优先于全局（`TestResolveProjectBeforeGlobal`）；白名单（`TestParseFrontmatterWhitelist`）。
+
+**G032 处理清单**（P5 触碰到的既有兼容路径）：
+
+| 位置 | 处理 |
+|---|---|
+| `internal/wsproto/frames.go` `PolicyProject.InteractiveAllowedAgents` | 原先只有说明性注释 → P5 **补打** `// DEPRECATED(v0.45): remove in v0.48` |
+| `internal/commands/worker.go` `policyAllowsInteractive` 的 pre-AGT-02 回落 | 同上**补打**标记（老 server 不发 `allow_interactive` 时的唯一读法） |
+
+删除项：无（这两条仍在被现役组合读取，登记在上方「DEPRECATED 清单」；其余 P1–P4 的标记保持原样）。

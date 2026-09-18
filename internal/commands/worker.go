@@ -622,6 +622,9 @@ func approvalFromPolicy(ap *wsproto.ApprovalPolicy) *config.ApprovalConfig {
 // 0.3 removed the list from the config/API, so this pre-AGT-02 fallback is the ONLY
 // place the wire field still carries meaning; it is read as an on/off bit, never as a
 // narrowing (the worker's own admission has only the switch left).
+//
+// DEPRECATED(v0.45): remove in v0.48 — the pre-AGT-02 pairing it exists for is not a
+// deployment anyone runs; the field goes with it (see wsproto.PolicyProject).
 func policyAllowsInteractive(pp wsproto.PolicyProject) bool {
 	if pp.AllowInteractive != nil {
 		return *pp.AllowInteractive

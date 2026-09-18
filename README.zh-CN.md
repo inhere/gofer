@@ -17,7 +17,7 @@
 
 ## 能力总览
 
-- **多入口控制面**：CLI（`gofer job …`）/ HTTP（`/v1/*`）/ MCP（stdio，22 个 `gofer_*` tool）/ Web 控制台（看板、详情、实时日志、Runners、Plans、会话、新建 job），同一套 `job.Service`。
+- **多入口控制面**：CLI（`gofer job …`）/ HTTP（`/v1/*`）/ MCP（stdio，23 个 `gofer_*` tool）/ Web 控制台（看板、详情、实时日志、Runners、Plans、会话、新建 job），同一套 `job.Service`。
 - **多 agent，一个 key 两种模式**：`type: cli-agent` 用模板渲染（`args` = 批处理 argv，`interactive_args` = pty argv），`type: exec` 原样跑 argv。未安装的 agent 只标 `unavailable`。
 - **多项目、按项目治理**：`host_path`/`container_path`、允许的 agent/runner、`allow_exec`、`allow_interactive`、并发上限、超时上限、默认 worktree。
 - **三种执行位置（runner）**：`local`（本进程）/ `peer-http`（转发给另一台 gofer）/ `worker`（WS 远端执行机，标签调度）；远端的日志、状态、交互经"镜像"透明回传。
@@ -27,8 +27,13 @@
 - **隧道**：`gofer tunnel` 经 worker 做受白名单约束的 TCP/UDP 端口转发（如容器 → 车间 PLC/HMI），三端日志用同一 `tunnel_id` 关联并带分段时延。
 - **人机协作**：运行中提问（`pending_interaction`）、`plan` + todo 进度看板、`ask_human` 阻塞决策、终端会话中继（人离开电脑时自动布防，web/手机回复注入原会话）。
 - **codex 挂了自动转 omp**：agent 因**供应商错误**（`at capacity` / `stream disconnected` / sandbox 没起来…）挂掉、且它自己也没法续时，server 把**同一份活**交给下一个候选 agent（一个普通 job）：agent 上写 `fallback_agents: [omp]`，或项目上按 agent 覆盖 `agent_fallbacks: {codex: [omp]}`；单个 job 可用 `job run --fallback omp` 覆盖、`--no-fallback` 关掉。接管的 job 继承 worktree、plan/todo、verify、caller，prompt 会说明"上一次由谁执行、只做剩余部分、别重做已提交的工作"；源 job 记 `job.fell_back` 并留下 `fell_back_to`（不再报一条马上被接管的终态失败）。健康度按 agent 聚合（每个 failed job 都记 `failure_class`）：`gofer agent status` 看谁 degraded、`gofer agent probe <key>` 提交一个真的"只回一行 OK"的 job 立刻验活，web 的 Agents 页有徽标和探针按钮；`server.agent_fallback.pre_dispatch: true`（默认关）还会在**提交时**就把 degraded 的 agent 换成候选。
+- **任务书模板**：每批都要复制的"通用约束"写进一份由**服务端**渲染的文件——`<项目>/.gofer/templates/<name>.md` 或全局 `<config-dir>/templates/<name>.md`（YAML frontmatter 给 job 默认值 + 声明变量，正文即 prompt，支持 `{{变量}}`、`{{include: 同目录片段.md}}`、`{{project}}`/`{{cwd}}`/`{{date}}`/`{{head}}`）。提交用 `job run -t <name> --var k=v …`，用 `gofer template ls|show` 看清单与预览，web 新建页也能选（带变量输入与渲染预览）。显式旗标 > 模板默认 > 项目默认；`request_json` 存**渲染后的 prompt** + 模板名/变量，所以重跑不会再渲染一遍。见下文「任务书模板」。
+- **checklist 联动**：`job run --todo <todo-id>` 让那一项转 `doing`，job 结束后把结果写回备注——状态 + 这次交付的提交（`<job-id> ✓ 3 commits: …`）或失败原因；提交本身也每个 job 都采集（`base_sha` → `git log base..HEAD`），`job show` 与详情页都能看。
+- **监督期间不自动布防**：会话的认证 caller 正在跑 job 时，终端会话中继不再按"人离开了"自动布防（只有 `relay_mode: auto` 受影响；`agent_sessions.caller_id` 让这件事可判定）。
 - **验收不靠 agent 自述**：agent 汇报≠验收——`job run --verify 'go test ./...'`（或项目 `verify:` 默认值）让验收命令在**干活那台机器**上、紧跟 agent 之后、用同一个 cwd/env 跑；非 0 退出即 job `failed`（开着 review 则停 `needs_review`），输出带横幅落进该 job 的 stderr 日志；worker 上跑的 job 由执行机验、结果经 Outcome 回传，审批与验证事件也会镜像到 hub，通知与审计同样看得到。
 - **定时与编排**：`schedule` 定时 job，`workflow` 多步依赖链（fan-out / join / 重试）。
+- **用量与成本**：agent 自己报的 token/成本落到 job 上（`jobs.usage_json`：`in/out/cache/total` + `cost_usd` + 来源解析器），四路来源 omp/claude 的 ndjson、codex `exec` 的 stderr、acp 的 `usage_update`。`job show` 一行 `usage:`、详情页有「用量」块、`/v1/stats` 与 Home「Agent 用量」卡按 agent 汇总 24h/7d。按设计是 best-effort：没报就是 `-`（不是 0）。
+- **worker 事件回到 hub**：worker 上跑的 job 的审批（`job.permission_requested|answered|timed_out`）与验证（`job.verify_started|finished`）事件镜像进 hub 的 job 事件表（按 `(job_id,type,ts,interaction_id)` 去重），通知与审计对远端 job 同样生效。
 - **可观测 / 可审计**：JSONL 文件日志（轮转、脱敏）、`/v1/runners` 健康名册、SSE 实时流、`caller_id`/`worker_id` 入库、retention 周期清理；SQLite（纯 Go）存元数据。
 - **Windows 友好**：nssm 服务化脚本（`scripts/start.ps1`，含一键 `upgrade`）、ConPTY 交互会话。
 
@@ -103,6 +108,8 @@ gofer job list         # 填好地址与 token 即可
 gofer job run -p workspace -a codex --prompt "审查改动并给风险点"
 gofer job run -p workspace -a exec  --sync -- mvn -q test     # --sync：服务端等终态
 gofer job run -f task.md                                      # md+yaml 文件：frontmatter 定参数，正文即 prompt
+gofer job run -p workspace -t impl-batch --var tasks="加一个 foo 子命令" \
+                                             --prompt "补充：不要动 web/"      # -t：服务端渲染的任务书
 gofer job run -p workspace -a codex --review --prompt "重构解析器"  # 交付物需人验收
 gofer job accept <job-id> [--note "看着不错"]                  # needs_review → done
 gofer job reject <job-id> --note "拒绝理由" [--resume]          # → rejected；--resume 以理由为 prompt 续投
@@ -120,11 +127,52 @@ worktree: true
 在 scripts/ 下生成批处理脚本，读取 config.yaml 的任务列表……（正文即 prompt）
 ```
 
+- **模板**：`job run -t <name> [--var k=v …]` 让服务端把任务书渲染成 prompt（`--prompt` 追加在正文后）；`gofer template ls|show` 看清单与预览（预览就是服务端渲染的那份，include 已展开）。
 - **HTTP**：`POST /v1/jobs`（JSON 或 `text/markdown`）。`"sync": true` 或 `?wait=1` 走同步（终态 `200` + 完整结果；超服务端上限 `202` + `X-Gofer-Async: 1` + id）。
 - **MCP**：`gofer_run_job` 等（见 [MCP](#mcp-接入)）。
 - **Web**：顶栏「+ 新建 job」。
 - **同步 / 异步**：默认异步（立即返 `id`，`job watch <id>` 跟随）；`--sync` 服务端等到终态（默认上限 30s，`--wait-timeout` 可调，超时退回异步）。
 - **超时上限**：`--timeout` 超过 `server.max_job_timeout_sec`（默认 3600）或项目 `max_timeout_sec` 会被 **clamp**，且**不会静默**：CLI 打 `warning: --timeout <请求>s exceeds the project ceiling (<上限>s)…`，响应带 `requested_timeout_sec` / `timeout_clamped`。
+
+### 任务书模板
+
+每批活都要复制的那段"通用约束"（不要 push、LF、每个任务单独提交、贴 `go test` 原始行）写一次就够：
+
+```bash
+gofer template ls [-p workspace]                       # 项目 .gofer/templates 优先，随后 <config-dir>/templates
+gofer template show impl-batch --var tasks="加一个 foo 子命令"   # 来源路径 + 变量表 + 渲染后的正文预览
+gofer job run -p workspace -t impl-batch --var tasks="加一个 foo 子命令" --var base=main
+```
+
+```markdown
+<!-- <项目>/.gofer/templates/impl-batch.md -->
+---
+desc: 一个实施批次
+agent: omp
+timeout_sec: 3600
+verify: [go, test, ./...]
+vars:
+  tasks: {required: true, desc: 批次正文}
+  base: {default: main}
+---
+# 批次
+
+{{include: common.md}}          <!-- 只一层，且只能同目录 -->
+
+## 任务
+
+{{tasks}}
+```
+
+- **优先级**：显式旗标 > 模板默认 > 项目默认——frontmatter 可预设 `agent`、`runner`、`timeout_sec`、
+  `tags`、`verify`、`verify_timeout_sec`、`review`、`read_only`、`worktree`、`fallback_agents`，且**只填**
+  请求里没给的那些；缺必填变量 → 400 并点名缺哪个。
+- **放哪**：`<项目 host_path>/.gofer/templates/<name>.md`（同名时赢）或 server 的
+  `<config-dir>/templates/<name>.md`。模板由**服务端**读，所以远端 CLI/控制台看到的是同一份；
+  worker-only 项目用全局目录。
+- **审计**：`request_json` 存**渲染后的 prompt** 及 `template`/`vars`，重跑（rerun/重建/故障转移）照那份
+  prompt 跑，不会把任务书再渲染一次。
+- 仓库自带示例：`docs/examples/templates/`（`cp docs/examples/templates/*.md ~/.config/gofer/templates/`）。
 
 ### 并行 job：用 `--worktree`
 
@@ -323,6 +371,7 @@ gofer config   info | show <project> | validate [server|worker] | edit
 gofer project  list [--remote] | show <k> | add <k> … | remove <k> | validate <k>
 gofer agent    list [--local] | detect | show <k>
 gofer job      run … | list … | show <id> | watch <id> | logs <id> --stream … | cancel <id> | rerun <id> | resume <id> --prompt … | worktree ls|rm
+gofer template ls [-p <project>] | show <name> [-p <project>] [--var k=v …]
 gofer plan     create | list | show <id> | add-todo | set-todo | set-status | attach | ask | decisions | answer
 gofer workflow run <file.yaml> [-w] | list | show <id> | events <id> | cancel <id> | export <id>
 gofer schedule add … | list | show | enable | disable | run <id> | rm <id>
@@ -331,7 +380,7 @@ gofer tunnel   forward | check | ls | save | saved | forget
 gofer mcp      [--standalone]                        # stdio MCP server
 ```
 
-`job run` 关键参数：`-p/--project`、`-a/--agent`、`--runner`（默认 `server`；`local` 兼容别名；worker/peer 填 runner 名）、`--cwd`（相对项目根）、`--prompt` / `-- argv` / `-f task.md`、`--sync` + `--wait-timeout`、`--wait`、`--worker-id` / `--worker-labels`、`--interactive` + `--cols`/`--rows`（需项目 `allow_interactive` 且 agent 有 `interactive_args`）、`--worktree` + `--worktree-base`、`--plan`、`--tags`、`--timeout`、`--title`、`-s/--server`、`--token`。
+`job run` 关键参数：`-p/--project`、`-a/--agent`、`--runner`（默认 `server`；`local` 兼容别名；worker/peer 填 runner 名）、`--cwd`（相对项目根）、`--prompt` / `-- argv` / `-f task.md` / `-t <模板> [--var k=v …]`（服务端渲染的任务书；`--prompt` 追加在正文后）、`--sync` + `--wait-timeout`、`--wait`、`--worker-id` / `--worker-labels`、`--interactive` + `--cols`/`--rows`（需项目 `allow_interactive` 且 agent 有 `interactive_args`）、`--worktree` + `--worktree-base`、`--plan`、`--tags`、`--timeout`、`--title`、`-s/--server`、`--token`。
 
 > 工作流跨机传值：`${steps.N.result_dir}` 是执行机上的绝对路径，只在同一文件系统内可直接读；跨 worker/peer 用 `${steps.N.result}`（inline result.json ≤32KB）/ `${steps.N.stdout}` 或共享盘。
 
@@ -343,7 +392,7 @@ gofer mcp      [--standalone]                        # stdio MCP server
 { "mcpServers": { "gofer": { "command": "/abs/path/to/gofer", "args": ["mcp"], "env": { "GOFER_CONFIG_DIR": "/abs/config/dir" } } } }
 ```
 
-tool（snake_case，与 HTTP 对齐）：`gofer_list_projects` `gofer_list_agents` `gofer_run_job` `gofer_get_job` `gofer_tail_log` `gofer_get_result` `gofer_get_artifacts` `gofer_cancel_job` `gofer_attach_job` `gofer_get_interactions` `gofer_list_pending_interactions` `gofer_answer_interaction` `gofer_punt_interaction` `gofer_create_plan` `gofer_get_plan` `gofer_add_todo` `gofer_update_todo` `gofer_ask_human` `gofer_register` `gofer_list_presence` `gofer_post_message` `gofer_poll_inbox`。
+tool（snake_case，与 HTTP 对齐）：`gofer_list_projects` `gofer_list_agents` `gofer_run_job` `gofer_get_job` `gofer_tail_log` `gofer_get_result` `gofer_get_artifacts` `gofer_cancel_job` `gofer_attach_job` `gofer_get_interactions` `gofer_list_pending_interactions` `gofer_answer_interaction` `gofer_punt_interaction` `gofer_create_plan` `gofer_get_plan` `gofer_add_todo` `gofer_update_todo` `gofer_ask_human` `gofer_list_templates` `gofer_register` `gofer_list_presence` `gofer_post_message` `gofer_poll_inbox`。
 
 ## Web 控制台
 
@@ -355,6 +404,7 @@ tool（snake_case，与 HTTP 对齐）：`gofer_list_projects` `gofer_list_agent
 
 | 组 | 主要端点 |
 |---|---|
+| 模板 | `GET /v1/projects/{key}/templates`、`GET /v1/projects/{key}/templates/{name}?var=k=v`（只读；详情端点返回服务端渲染的正文预览） |
 | 项目 / agent / 名册 | `GET/POST /v1/projects`、`GET/PUT/DELETE /v1/projects/{key}`、`GET /v1/agents`、`GET /v1/runners`、`GET /v1/meta`、`GET /v1/metrics` |
 | job | `POST/GET /v1/jobs`、`GET /v1/jobs/{id}`、`/logs/{stdout,stderr}`、`/stream`(SSE)、`/events`、`/diff`、`/artifacts`、`POST …/cancel`、`POST …/resume`、`GET/DELETE …/worktree`、`POST …/attach-ticket`、`GET …/pty/sessions` |
 | 交互 | `POST/GET /v1/jobs/{id}/interactions`、`POST …/{iid}/answer`、`POST …/{iid}/punt`、`GET /v1/interactions` |
@@ -363,7 +413,7 @@ tool（snake_case，与 HTTP 对齐）：`gofer_list_projects` `gofer_list_agent
 | workflow / schedule | `POST/GET /v1/workflows`、`…/{id}/cancel`、`…/events`、`…/export`；`POST/GET /v1/schedules`、`…/enable`、`…/disable`、`…/run-now` |
 | worker / 隧道 | `GET /v1/workers/connect`（WS）、`/v1/workers/pty-connect`、`POST /v1/workers/{id}/reload`、`GET /v1/tunnels`、`/v1/tunnels/connect`、`/v1/workers/tunnel-connect` |
 
-`POST /v1/jobs` body（snake_case）：`project_key`、`agent`、`runner`、`prompt` / `cmd`、`cwd`、`timeout_sec`、`title`、`worker_id` / `worker_labels`、`interactive`、`worktree` / `worktree_base`、`plan_id`、`tags`、`sync` / `wait_timeout_sec`、`request_id`（幂等键）。
+`POST /v1/jobs` body（snake_case）：`project_key`、`agent`、`runner`、`prompt` / `cmd`、`cwd`、`timeout_sec`、`title`、`worker_id` / `worker_labels`、`interactive`、`worktree` / `worktree_base`、`plan_id`、`tags`、`sync` / `wait_timeout_sec`、`request_id`（幂等键）、`template` / `vars`（服务端渲染的任务书）。
 
 ## 部署
 

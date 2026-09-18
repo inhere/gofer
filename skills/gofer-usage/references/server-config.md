@@ -177,6 +177,24 @@ server:
 - **健康度**（`GET /v1/agents` 的 `health` 块、`gofer agent status`、web 徽标）：窗口内没有 job = `unknown`（不是"健康"）；`transient_fail ≥ degraded_after` 且最近一次供应商错误后成功数 `< recover_after_ok` → `degraded`。`failure_class`（transient|other）在每个 failed job 上无条件记录。
 - **探针**：`gofer agent probe <key>`（web Agents 页也有按钮）提交一个 `--sync` 探针 job（固定 prompt、`tags: [probe]`），它走的就是普通提交路径，所以结果天然计入健康度。
 
+## 8. 任务书模板目录（`<config-dir>/templates/`，SUP-01 P5）
+
+模板**不是**配置项：它们是 server 上的一批 md 文件，提交时 `job run -t <name>` 让 server 渲染成 prompt。
+查找顺序是「项目目录优先、全局目录兜底」：
+
+| 位置 | 路径 | 用途 |
+|---|---|---|
+| 项目模板 | `<projects.<key>.host_path>/.gofer/templates/<name>.md` | 这个项目专属的任务书（跟随仓库走，可提交进 git） |
+| 全局模板 | `<config-dir>/templates/<name>.md` | 所有项目共用（`GOFER_CONFIG_DIR`，默认 `~/.config/gofer/`） |
+
+- 同名时**项目副本赢**；项目目录在 server 上不可读（worker-only 项目）时只查全局目录——这正是全局目录存在的理由。
+- 文件格式：`---` frontmatter（YAML，白名单键：`desc`/`agent`/`runner`/`timeout_sec`/`tags`/`verify`/`verify_timeout_sec`/`review`/`read_only`/`worktree`/`fallback_agents`/`vars`）+ 正文（prompt 模板，`{{变量}}`、`{{include: 同目录.md}}`）。
+- 改文件**即时生效**（每次提交都重新读取），不需要 SIGHUP，也没有"安装"步骤；`gofer template ls` 看当前能被项目用到的清单。
+- 仓库自带两份示例（`docs/examples/templates/`），按全局目录的布局摆放：
+  `mkdir -p ~/.config/gofer/templates && cp docs/examples/templates/*.md ~/.config/gofer/templates/`。
+- 写模板的纪律：frontmatter **只**放 job 默认值与变量声明——`plan_id`/`caller_id`/`cmd` 这类在提交面才该出现的字段会被解析报错拒掉。
+- worker：模板由 **server** 渲染，所以 worker 上不需要放模板文件；worker-only 项目用全局目录。
+
 ## 校验 / 生效
 
 ```bash

@@ -79,6 +79,8 @@ job 在哪台机器执行，路径就按那台机器的项目根解析：同一 
 | `gofer job resume <id> --prompt "…"` | **续跑同一个 agent 会话**（codex `exec resume` / claude `--resume`）：job 中途失败/超时后让它带着自己的上下文继续，见 §5b |
 | `gofer job worktree ls [-p] / rm <id> [--force] [--delete-branch]` | 列出/清理 `--worktree` job 留下的 git worktree（见 §5c） |
 | `gofer job run --read-only …` | **只读 job**：审查/分析类任务，agent 不能写文件（cli-agent 追加 `read_only_args` 沙箱参数、acp-agent `session/set_mode`）；exec agent 与没配只读模式的 agent 提交即被拒（见 §5e） |
+| `gofer job run -t <模板> --var k=v …` | **用任务书模板派活**：把重复的那段约束/流程写成服务端模板，提交时只给变量（见 §5f） |
+| `gofer template ls / show <name>` | 列出 / 预览模板（预览是服务端渲染好的正文，与提交时一致） |
 
 `--timeout <秒>` 有上限：`server.max_job_timeout_sec`（默认 3600）或项目 `max_timeout_sec`；超出会被 **clamp** 并在提交后打一行 `warning: --timeout … exceeds the project ceiling`，`job show` 显示生效的 `timeout:`。超 1 小时的任务：让管理员提高上限，或把任务拆成多个 job。
 
@@ -152,6 +154,34 @@ gofer job run -p <project> -a codex --read-only --prompt "只做审查：列出�
 - **acp-agent**：`acp.modes.read_only` 映射到 agent 的 mode id，在 prompt 前 `session/set_mode`；agent 的 `availableModes` 不含该 id 就**失败**（不会在可写模式下跑完还自称只读）。
 - **exec agent 一律拒绝**（argv 由调用方写死，gofer 无法约束）；没配只读模式的 agent 提交即 400，错误会点名要配哪个键。
 - 只读随 job 落库（`job show` 打 `read_only: true`、list 打 `[ro]`、web 列表/详情有徽章），**resume 继承只读**——想把只读改成可写只能新开 job。
+
+### 5f. 任务书模板（`-t` / `--var`，SUP-01 P5）
+
+每天都复制同一段"通用约束 + 交付要求"时，把它写成**模板**：模板是 server 上的一份 md 文件
+（YAML frontmatter 给 job 默认值 + 正文即 prompt），提交时只传模板名和变量值。
+
+```bash
+gofer template ls [-p <project>]                 # 这份 project 能用哪些模板(项目目录优先, 再是全局目录)
+gofer template show <name> [-p <project>] --var tasks="…"   # 预览: 来源路径 + 变量表 + 服务端渲染后的正文
+gofer job run -p <project> -t impl-batch --var tasks="1. 加 foo 子命令" --var base=main   --prompt "补充：不要动 web/"                     # --prompt 会追加在模板正文之后
+```
+
+- **模板放哪**：项目的 `<host_path>/.gofer/templates/<name>.md` 优先，其次是 **server** 的
+  `<config-dir>/templates/<name>.md`（`GOFER_CONFIG_DIR`，默认 `~/.config/gofer/templates/`）。
+  同名时项目副本赢；项目目录在 server 上不可读（worker-only 项目）时只有全局目录可用。
+  **模板文件在 server 那台机器上**，`gofer template show` 因此是去问 server（不是读你本地磁盘）。
+- **frontmatter 能写什么**（白名单，别的键解析即报错）：`agent`、`runner`、`timeout_sec`、
+  `tags`、`verify`、`verify_timeout_sec`、`review`、`read_only`、`worktree`、`fallback_agents`、
+  `desc`，以及变量声明 `vars: {name: {default, required, desc}}`。**显式旗标 > 模板默认 > 项目默认**：
+  模板只填你没给的那些（`--timeout 60` 压过模板的 `timeout_sec`）。
+- **正文变量**：`{{name}}` 用 `--var` 的值（没给就用 `default`；`required: true` 又没给值 → 提交报
+  400 并列出缺哪个）。内置 `{{project}}`/`{{cwd}}`/`{{date}}`/`{{head}}`（`head` 是该项目的
+  `git rev-parse --short HEAD`，不是 git 仓就空 + 告警）。`{{include: common.md}}` 从**同一目录**
+  拼一份片段（只一层：被 include 的文件不再展开 include）。没声明的 `{{x}}` 若没人给值就原样保留并告警。
+- **示例**：仓库 `docs/examples/templates/{common.md,impl-batch.md}` 就是一对（后者 include 前者）；
+  拷到 `<config-dir>/templates/` 即可用：`cp docs/examples/templates/*.md ~/.config/gofer/templates/`。
+- **审计**：job 的 `request_json` 存的是**渲染后的 prompt**，同时留着模板名与变量值——重跑（`job rerun`/
+  重建）照那份 prompt 跑，**不会**再渲染一次。
 
 ## 6. worker 配置模式：LEGACY vs POLICY（P3 起）
 一台 worker 有两种模式，决定它能跑哪些 project——排障（§7）前先分清它是哪种：

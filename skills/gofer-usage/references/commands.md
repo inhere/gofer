@@ -95,6 +95,7 @@ gofer job run … --verify 'go test ./...' [--verify-timeout 900]   # agent 正�
 gofer job run … --no-verify                              # 关掉项目默认的 verify(见下「验证步骤」)
 gofer job run … --fallback omp,claude                    # 本 job 的故障转移候选(覆盖项目/agent 级; 见下「故障转移」)
 gofer job run … --no-fallback                            # 本 job 不做故障转移(覆盖一切配置)
+gofer job run … -t <模板> [--var k=v …] [--prompt "追加正文"]   # 用任务书模板派活(服务端渲染 prompt; 见下「任务书模板」)
 gofer job show <id>                                      # 打印 todo / base_sha / commits(这次交付了哪些提交) / verify(验收结果) / usage(用量与成本)
 ```
 
@@ -106,6 +107,7 @@ gofer job show <id>                                      # 打印 todo / base_sh
 - **提交采集**：job 开跑时在执行机记 `base_sha`（cwd 不是 git 仓则空；worktree job 用其基线），终态时 `git log base..HEAD`（上限 50，新→旧）写进 `commits`——`job show` 列出、web 详情页「提交」块可一键复制 sha、worker 上跑的 job 经 Outcome 回传后 host 行同样有。它独立于 `capture_diff` 开关，采集失败留空、不影响 job。
 - **验证步骤（`--verify`，SUP-01 P2）**：agent 汇报不当验收——`job run --verify '<argv>'`（shell-words 拆成 argv，**不经 shell**；要 shell 就写 `bash -lc '…'`）在 agent **正常结束（exit 0）**后于**同一台执行机、同一 cwd/env**跑这条命令，独立超时 `--verify-timeout`（缺省项目 `verify_timeout_sec`，再缺省 600s）。结果：`passed` → job 按原逻辑；`failed`/`timeout` → job `failed`（exit_code 取验证退出码，timeout 为 -1）且**不是** transient（不触发自动续投/故障转移）；开了 `--review` 则停 `needs_review` 留人裁决；agent 自己失败/取消/超时 → `skipped`（不跑）。stdout+stderr 合并写进本 job 的 stderr 日志并夹两条横幅，web 详情页「验证」块可点击跳到输出，`job show` 打印 `verify: failed (exit 1, 12.3s)`。**需要项目 `allow_exec`**（argv 来自提交者，与 exec 同一信任面）；不想跑项目默认值就 `--no-verify`。**worker/peer 上跑的 job 由执行机跑验证**，结果经 Outcome 回传（不会在 server 上重跑）；协议 < v8 的 worker 会被**直接拒绝**（提示升级，不再静默忽略）。
 - **故障转移（`--fallback` / `--no-fallback`，SUP-01 P3）**：agent 因**供应商错误**（`transient_error_patterns`，含内置 `at capacity|rate limit|429|stream disconnected|windows sandbox failed|connecting runner pipe` 等）挂掉、且它**自己也没法续**（无会话 / 续投额度用尽 / 已续过一次又挂）时，server 用一个**普通 job** 把这份活交给下一个候选 agent：以**链根那次的请求**重提（新会话、同一 cwd——源 job 在 worktree 里就继续在那个 worktree、不新建），prompt 前面加一段"上一次由 X 执行，因供应商错误（…）中断；先 git status / git log 看进度，只做剩余部分，不要重做已提交的工作"（exec 类请求不加前缀、原样重跑），标题追加 `(→omp)`，`plan_id`/`tags`/`timeout`/`read_only`/`review`/`verify`/`todo_id`/caller 全部继承。源 job 记 `job.fell_back {to_job, agent, reason}`（**不**记 `job.terminal`，IM 不该收到一条马上被接管的失败），源行 `fell_back_to` 指向新 job、新 job `fell_back_from` 指回源、`requested_agent` 记调用方原本要的 agent；链长 = 候选数，用尽即正常 `job.terminal`。候选来源：`--fallback` > 项目 `agent_fallbacks` > agent `fallback_agents`；**提交时解析并冻结**（`fallback_json`），运行中改配置不会让链条漂移；不在项目 `allowed_agents` 内的候选被跳过并 warn。失败归类 `failure_class`（transient|other）无条件写入（与是否开启转移无关，健康度按它统计）。
+- **任务书模板（`-t/--var`，SUP-01 P5）**：`job run -t <name> --var k=v …` 让**服务端**把一份任务书渲染成 prompt。模板放在项目的 `<host_path>/.gofer/templates/<name>.md`（优先）或 server 的 `<config-dir>/templates/<name>.md`；frontmatter 可给 `agent/runner/timeout_sec/tags/verify/verify_timeout_sec/review/read_only/worktree/fallback_agents` 这些默认值（**显式旗标 > 模板默认 > 项目默认**，只填你没给的），变量声明写在 `vars:`。正文支持 `{{变量}}`、内置 `{{project}}/{{cwd}}/{{date}}/{{head}}` 与一层 `{{include: 同目录文件.md}}`。缺必填变量 → 400 并列出缺项；`request_json` 存**渲染后的 prompt** + 模板名/变量（重跑不再渲染）。`-t` 与 `-f`、与 post-`--` argv 互斥；`--prompt` 是**追加正文**。`gofer template ls|show` 看清单与预览（预览由服务端渲染，include/head 都已展开）。示例见仓库 `docs/examples/templates/`。
 - **worker 侧事件镜像（SUP-01 G）**：worker 上跑的 job 的审批（`job.permission_requested|answered|timed_out`）与验证（`job.verify_started|finished`）事件现在会**镜像到 hub 的 job 事件表**（detail 带 `origin: worker:<id>`），所以 `job watch`/webhook 订阅这些事件对远端 job 同样生效。重复帧在 hub 侧按 `(job_id, type, ts, interaction_id)` 去重。
 - **用量/成本（SUP-01 E）**：agent 自己报的 token/成本会落在 job 上（`usage`，入库 `jobs.usage_json`），`job show` 打一行 `usage: in 12.3k / out 3.8k / cache 289k / total 305k / $0.0032 (ndjson:omp)`，web 详情页有「用量」块，`GET /v1/stats` 的 `usage.windows` 与 Home「Agent 用量」卡按 agent 汇总 24h/7d。四路来源：`output_format: ndjson` 的 omp（最后一条 assistant 消息的 `message.usage`）/ claude（`result` 行的 `usage` + `total_cost_usd`）、codex `exec`（stderr 尾部的 `tokens used`，无成本）、acp-agent（`usage_update` 事件）。**采集全是 best-effort**：agent 不报或解析不出来就没有一行（不是 0），`usage.source` 说明这串数字从哪来；远端 job 由执行机采集后随 Outcome 回传。usage 行只列 agent 真报了的项（缺项省略，`total` 缺省时后端按四项求和）；`agent status` 表的 `24H_TOKENS` / `24H_COST` 两列取同一份 `/v1/stats` 24h 窗口，窗口内没采集到就是 `-`。
 
@@ -185,6 +187,21 @@ gofer agent probe <key> [-p <project>] [--timeout 120]   # 提交一个探针 jo
 - **健康度**：按 `jobs` 表聚合（窗口 `server.agent_health.window_sec` 默认 3600s）：窗口内**没有样本 = `unknown`**（不是"健康"）；`transient_fail >= degraded_after`（默认 3）且最近一次供应商错误之后的成功数 `< recover_after_ok`（默认 1）→ `degraded`；否则 `healthy`。`needs_review` 计入成功（活是交付了的）。web「Agents」页每行有徽标（绿/橙/灰，橙的 title 写明窗口内几次供应商错误），旁边「探针」按钮调 `POST /v1/agents/{key}/probe`。
 - **探针**是个**普通 job**：固定 prompt、`tags: [probe]`、`title: probe <key>`、超时默认 120s，`--sync` 等它跑完并返回 `{job_id, status, exit_code, duration_ms, first_line}`；因此它天然计入健康度，也能从 web 跳到那个 job。`-p/--project` 缺省取**第一个允许该 agent 的项目**（按 key 排序，稳定）；没有项目允许它 → 400，未知 agent → 404。exec agent 的探针跑一句 `echo OK`（exec 请求自带 argv，没有 CLI 可问）。
 - **提交即改派**（`server.agent_fallback.pre_dispatch: true`，默认关）：提交时主 agent 处于 `degraded` 且候选里有非 degraded 的 → 直接改用第一个这样的候选，记事件 `job.agent_substituted {from, to, reason: degraded}`，行里 `requested_agent` 保留你原本指定的 agent。默认关是为了不出现"我明明指定了 codex 却跑了 omp"这种意外。
+
+## template — 任务书模板（SUP-01 P5）
+
+```bash
+gofer template ls [-p <project>]                       # 列模板: name / source(project|global) / desc(解析失败会标 INVALID)
+gofer template show <name> [-p <project>] [--var k=v …] # 看来源路径 + 变量表(必填标 *) + 服务端渲染后的正文预览
+```
+
+- 模板是 **server 上**的文件：`<project host_path>/.gofer/templates/<name>.md` 优先，其次
+  `<config-dir>/templates/<name>.md`（`GOFER_CONFIG_DIR`）。同名项目副本赢；没有 `-p`（且当前目录
+  探测不到项目）时只列全局目录。
+- `show` 打印的正文就是**提交时会发出去的那份**：渲染在服务端做（`include` 展开、`{{head}}` 按将要
+  执行的项目解析），`--var` 以 `?var=k=v` 传给 `GET /v1/projects/{key}/templates/{name}`。
+- 变量表里 `*` = `required: true`（没给值就提交不了）；`default=` 是缺省值。预览里的 `warning:` 行说明
+  哪些占位符没解析（未声明的变量、非 git 仓里的 `{{head}}`、被 include 的文件里的二层 include）。
 
 ## project（别名 `p` / `proj`）
 

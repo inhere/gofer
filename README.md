@@ -17,7 +17,7 @@ gofer bridges configurable **CLI agents** (`codex` / `claude` / `omp` / `opencod
 
 ## Features
 
-- **One control plane, four entry points**: CLI (`gofer job …`), HTTP (`/v1/*`), MCP (stdio, 22 `gofer_*` tools) and a Web console (board, job detail, live logs, runners, plans, sessions, new-job form) — all on the same `job.Service`.
+- **One control plane, four entry points**: CLI (`gofer job …`), HTTP (`/v1/*`), MCP (stdio, 23 `gofer_*` tools) and a Web console (board, job detail, live logs, runners, plans, sessions, new-job form) — all on the same `job.Service`.
 - **Many agents, one key for two modes**: `type: cli-agent` renders an argv template (`args` for batch runs, `interactive_args` for pty sessions); `type: exec` runs argv verbatim. Agents that are not installed are merely marked `unavailable`.
 - **Per-project governance**: `host_path` / `container_path`, allowed agents and runners, `allow_exec`, `allow_interactive`, concurrency cap, timeout ceiling, default worktree.
 - **Three execution places (runners)**: `local` (in-process), `peer-http` (forward to another gofer), `worker` (remote executor over WebSocket, label-based scheduling). Remote logs, status and interactions are mirrored back transparently.
@@ -29,8 +29,13 @@ gofer bridges configurable **CLI agents** (`codex` / `claude` / `omp` / `opencod
 - **Tunnels**: `gofer tunnel` forwards TCP/UDP ports through a worker under an allowlist (e.g. container → shop-floor PLC/HMI); all three ends log the same `tunnel_id` with per-stage latencies.
 - **Human in the loop**: mid-run questions (`pending_interaction`), `plan` + todo progress boards, blocking `ask_human` decisions, and a terminal session relay that arms itself when you walk away and injects your web/phone reply into the very same session.
 - **Failover to another agent**: when codex dies of a provider error (`at capacity` / `stream disconnected` / a sandbox that never started) and cannot continue the job itself, the server hands the SAME work to the next candidate as an ordinary job — `fallback_agents: [omp]` on the agent or `agent_fallbacks: {codex: [omp]}` per project (one job can override with `job run --fallback omp` / `--no-fallback`). The takeover keeps the worktree, plan/todo, verify step and caller, gets a prompt that says what happened and to finish only the remaining work, and the source row records the link (`fell_back_to`) plus `job.fell_back` instead of a terminal failure. Health is aggregated per agent (`failure_class` on every failed job): `gofer agent status` shows who is degraded, `gofer agent probe <key>` submits a real one-line OK job to check NOW, and the web Agents page badges it (with `server.agent_fallback.pre_dispatch: true` a degraded agent is even replaced before dispatch — off by default).
+- **Task-book templates**: the constraints you paste into every task book live in a file the SERVER renders — `<project>/.gofer/templates/<name>.md` or the global `<config-dir>/templates/<name>.md` (YAML frontmatter = job defaults + variable declarations, body = prompt with `{{var}}`, `{{include: sibling.md}}`, `{{project}}`/`{{cwd}}`/`{{date}}`/`{{head}}`). Submit with `job run -t <name> --var k=v …`, inspect with `gofer template ls|show`, or pick one in the web form (variables + rendered preview included). A flag beats the template default beats the project default; `request_json` keeps the RENDERED prompt beside the template/vars, so a rerun never re-renders. See *Task-book templates* below.
+- **Checklist linkage**: `job run --todo <todo-id>` turns that plan item `doing` and writes the outcome back into its note when the job ends — status plus the commits it produced (`<job-id> ✓ 3 commits: …`), or the failure reason. The commits themselves are captured on every job (`base_sha` → `git log base..HEAD`) and shown by `job show` / the job detail page.
+- **Supervision-aware relay**: a session whose authenticated caller currently has jobs in flight no longer arms the automatic session relay ("you walked away" while you are actually watching jobs). `agent_sessions.caller_id` makes that decidable; only `relay_mode: auto` is affected.
 - **Verification, not vibes**: an agent's report is not acceptance — add `job run --verify 'go test ./...'` (or a project `verify:` default) and the check runs on the machine that did the work, right after the agent, in the job's own cwd/env. A non-zero exit fails the job (or parks it in `needs_review`), the output lands in the job's stderr log with its banners, and a worker-side step reports its result back through the same outcome channel. Remote jobs also mirror their approval-gate and verify events up to the hub, so notifications and audit see them.
 - **Scheduling and orchestration**: `schedule` for cron jobs, `workflow` for dependent multi-step chains (fan-out / join / retries).
+- **Usage and cost**: agents that report their own tokens land on the job (`jobs.usage_json`: `in/out/cache/total` + `cost_usd` + which parser produced it) — read from omp/claude ndjson, codex `exec` stderr and acp `usage_update`. `job show` prints one `usage:` line, the job detail page has a block, and `/v1/stats` + the Home card aggregate 24h/7d per agent. Best-effort by design: an agent that reports nothing shows `-`, never `0`.
+- **Worker events reach the hub**: approval-gate and verify events of jobs running on a worker (`job.permission_requested|answered|timed_out`, `job.verify_started|finished`) are mirrored into the hub's job events (deduplicated), so notifications and audits see remote jobs too.
 - **Observable and auditable**: JSONL file logs (rotation, redaction), `/v1/runners` health roster, SSE live streams, `caller_id` / `worker_id` persisted, retention pruning; SQLite (pure Go) for metadata.
 - **Windows friendly**: nssm service script (`scripts/start.ps1`, including one-shot `upgrade`), ConPTY-backed interactive sessions.
 
@@ -105,6 +110,8 @@ One `JobRequest`, four entry points, two timings:
 gofer job run -p workspace -a codex --prompt "Review the changes and list the risks"
 gofer job run -p workspace -a exec  --sync -- mvn -q test     # --sync: server waits for the terminal state
 gofer job run -f task.md                                      # md+yaml: frontmatter = parameters, body = prompt
+gofer job run -p workspace -t impl-batch --var tasks="add a foo subcommand" \
+                                             --prompt "extra: do not touch web/"   # -t: server-rendered task book
 gofer job run -p workspace -a codex --read-only --prompt "Review only: list the risks, change nothing"
                                                               # --read-only: the agent cannot write (cli sandbox
                                                               # args / acp-agent session/set_mode; inherited by resume)
@@ -125,11 +132,54 @@ worktree: true
 Generate batch scripts under scripts/ that read the task list from config.yaml … (the body is the prompt)
 ```
 
+- **Templates**: `job run -t <name> [--var k=v …]` renders a server-side task book into the prompt (`--prompt` is appended); `gofer template ls|show` lists and previews them (the preview is the server's own render, includes expanded).
 - **HTTP**: `POST /v1/jobs` (JSON or `text/markdown`). `"sync": true` or `?wait=1` waits (terminal state → `200` with the full result; past the server cap → `202` + `X-Gofer-Async: 1` + id).
 - **MCP**: `gofer_run_job` and friends (see [MCP](#mcp)).
 - **Web**: the "+ New job" form.
 - **Sync vs async**: async by default (returns the `id` immediately; follow with `job watch <id>`); `--sync` waits server-side (30s cap by default, `--wait-timeout` adjusts it, then falls back to async).
 - **Timeout ceiling**: a `--timeout` above `server.max_job_timeout_sec` (default 3600) or the project's `max_timeout_sec` is **clamped, never silently**: the CLI prints `warning: --timeout <requested>s exceeds the project ceiling (<max>s)…` and the response carries `requested_timeout_sec` / `timeout_clamped`.
+
+### Task-book templates
+
+Every batch of work repeats the same preamble ("no push, LF only, one commit per task, paste the raw
+`go test` lines"). Put it in a template once and submit with variables:
+
+```bash
+gofer template ls [-p workspace]                       # project .gofer/templates first, then <config-dir>/templates
+gofer template show impl-batch --var tasks="add a foo subcommand"   # source path + variables + rendered preview
+gofer job run -p workspace -t impl-batch --var tasks="add a foo subcommand" --var base=main
+```
+
+```markdown
+<!-- <project>/.gofer/templates/impl-batch.md -->
+---
+desc: one implementation batch
+agent: omp
+timeout_sec: 3600
+verify: [go, test, ./...]
+vars:
+  tasks: {required: true, desc: the batch body}
+  base: {default: main}
+---
+# Batch
+
+{{include: common.md}}          <!-- one level, same directory only -->
+
+## Tasks
+
+{{tasks}}
+```
+
+- **Precedence** is explicit flag > template default > project default: the frontmatter may preset
+  `agent`, `runner`, `timeout_sec`, `tags`, `verify`, `verify_timeout_sec`, `review`, `read_only`,
+  `worktree`, `fallback_agents` — and only fills what the request left unset. A missing required
+  variable is a 400 naming it.
+- **Where they live**: `<project host_path>/.gofer/templates/<name>.md` (wins on a name clash) or the
+  server's `<config-dir>/templates/<name>.md`. Templates are read by the server, so a remote console or
+  CLI still sees the same list; a worker-only project uses the global directory.
+- **Audit**: `request_json` stores the RENDERED prompt next to `template`/`vars`, and replays (rerun /
+  rebuild / failover) replay that prompt instead of rendering the task book a second time.
+- Ready-made examples: `docs/examples/templates/` (`cp docs/examples/templates/*.md ~/.config/gofer/templates/`).
 
 ### Parallel jobs: `--worktree`
 
@@ -328,6 +378,7 @@ gofer config   info | show <project> | validate [server|worker] | edit
 gofer project  list [--remote] | show <k> | add <k> … | remove <k> | validate <k>
 gofer agent    list [--local] | detect | show <k>
 gofer job      run … | list … | show <id> | watch <id> | logs <id> --stream … | cancel <id> | rerun <id> | resume <id> --prompt … | worktree ls|rm
+gofer template ls [-p <project>] | show <name> [-p <project>] [--var k=v …]
 gofer plan     create | list | show <id> | add-todo | set-todo | set-status | attach | ask | decisions | answer
 gofer workflow run <file.yaml> [-w] | list | show <id> | events <id> | cancel <id> | export <id>
 gofer schedule add … | list | show | enable | disable | run <id> | rm <id>
@@ -336,7 +387,7 @@ gofer tunnel   forward | check | ls | save | saved | forget
 gofer mcp      [--standalone]                        # stdio MCP server
 ```
 
-Key `job run` flags: `-p/--project`, `-a/--agent`, `--runner` (default `server`; `local` is a compatibility alias; give the runner name for workers/peers), `--cwd` (relative to the project root), `--prompt` / `-- argv` / `-f task.md`, `--sync` + `--wait-timeout`, `--wait`, `--worker-id` / `--worker-labels`, `--interactive` + `--cols`/`--rows` (needs the project's `allow_interactive` and an agent with `interactive_args`), `--read-only` (the agent cannot write: cli-agent `read_only_args` — built-in `codex -s read-only` / `claude --permission-mode plan` — or acp-agent `acp.modes.read_only` → `session/set_mode`; exec agents and agents without a read-only mode are refused), `--worktree` + `--worktree-base`, `--review` (a normal completion parks in `needs_review` until a human accepts or rejects it), `--plan`, `--tags`, `--timeout`, `--title`, `-s/--server`, `--token`.
+Key `job run` flags: `-p/--project`, `-a/--agent`, `--runner` (default `server`; `local` is a compatibility alias; give the runner name for workers/peers), `--cwd` (relative to the project root), `--prompt` / `-- argv` / `-f task.md` / `-t <template> [--var k=v …]` (a server-rendered task book; `--prompt` is appended to it), `--sync` + `--wait-timeout`, `--wait`, `--worker-id` / `--worker-labels`, `--interactive` + `--cols`/`--rows` (needs the project's `allow_interactive` and an agent with `interactive_args`), `--read-only` (the agent cannot write: cli-agent `read_only_args` — built-in `codex -s read-only` / `claude --permission-mode plan` — or acp-agent `acp.modes.read_only` → `session/set_mode`; exec agents and agents without a read-only mode are refused), `--worktree` + `--worktree-base`, `--review` (a normal completion parks in `needs_review` until a human accepts or rejects it), `--plan`, `--tags`, `--timeout`, `--title`, `-s/--server`, `--token`.
 
 > Passing values across workflow steps: `${steps.N.result_dir}` is an absolute path on the executing machine and is only readable within the same filesystem; across workers/peers use `${steps.N.result}` (inline result.json ≤ 32KB) / `${steps.N.stdout}` or a shared drive.
 
@@ -348,7 +399,7 @@ Key `job run` flags: `-p/--project`, `-a/--agent`, `--runner` (default `server`;
 { "mcpServers": { "gofer": { "command": "/abs/path/to/gofer", "args": ["mcp"], "env": { "GOFER_CONFIG_DIR": "/abs/config/dir" } } } }
 ```
 
-Tools (snake_case, aligned with HTTP): `gofer_list_projects` `gofer_list_agents` `gofer_run_job` `gofer_get_job` `gofer_tail_log` `gofer_get_result` `gofer_get_artifacts` `gofer_cancel_job` `gofer_attach_job` `gofer_get_interactions` `gofer_list_pending_interactions` `gofer_answer_interaction` `gofer_punt_interaction` `gofer_create_plan` `gofer_get_plan` `gofer_add_todo` `gofer_update_todo` `gofer_ask_human` `gofer_register` `gofer_list_presence` `gofer_post_message` `gofer_poll_inbox`.
+Tools (snake_case, aligned with HTTP): `gofer_list_projects` `gofer_list_agents` `gofer_run_job` `gofer_get_job` `gofer_tail_log` `gofer_get_result` `gofer_get_artifacts` `gofer_cancel_job` `gofer_attach_job` `gofer_get_interactions` `gofer_list_pending_interactions` `gofer_answer_interaction` `gofer_punt_interaction` `gofer_create_plan` `gofer_get_plan` `gofer_add_todo` `gofer_update_todo` `gofer_ask_human` `gofer_list_templates` `gofer_register` `gofer_list_presence` `gofer_post_message` `gofer_poll_inbox`.
 
 ## Web console
 
@@ -361,6 +412,7 @@ Tools (snake_case, aligned with HTTP): `gofer_list_projects` `gofer_list_agents`
 | group | main endpoints |
 |---|---|
 | projects / agents / roster | `GET/POST /v1/projects`, `GET/PUT/DELETE /v1/projects/{key}`, `GET /v1/agents`, `GET /v1/runners`, `GET /v1/meta`, `GET /v1/metrics` |
+| templates | `GET /v1/projects/{key}/templates`, `GET /v1/projects/{key}/templates/{name}?var=k=v` (read-only; the detail endpoint returns the server's render of it) |
 | jobs | `POST/GET /v1/jobs`, `GET /v1/jobs/{id}`, `/logs/{stdout,stderr}`, `/stream` (SSE), `/events`, `/diff`, `/artifacts`, `POST …/cancel`, `POST …/resume`, `GET/DELETE …/worktree`, `POST …/attach-ticket`, `GET …/pty/sessions` |
 | interactions | `POST/GET /v1/jobs/{id}/interactions`, `POST …/{iid}/answer`, `POST …/{iid}/punt`, `GET /v1/interactions` |
 | plans / decisions | `POST/GET /v1/plans`, `GET /v1/plans/{id}`, `POST …/todos`, `POST …/jobs`, `POST/GET /v1/decisions`, `POST /v1/decisions/{id}/answer` |
@@ -368,7 +420,7 @@ Tools (snake_case, aligned with HTTP): `gofer_list_projects` `gofer_list_agents`
 | workflows / schedules | `POST/GET /v1/workflows`, `…/{id}/cancel`, `…/events`, `…/export`; `POST/GET /v1/schedules`, `…/enable`, `…/disable`, `…/run-now` |
 | workers / tunnels | `GET /v1/workers/connect` (WS), `/v1/workers/pty-connect`, `POST /v1/workers/{id}/reload`, `GET /v1/tunnels`, `/v1/tunnels/connect`, `/v1/workers/tunnel-connect` |
 
-`POST /v1/jobs` body (snake_case): `project_key`, `agent`, `runner`, `prompt` / `cmd`, `cwd`, `timeout_sec`, `title`, `worker_id` / `worker_labels`, `interactive`, `worktree` / `worktree_base`, `plan_id`, `tags`, `sync` / `wait_timeout_sec`, `request_id` (idempotency key).
+`POST /v1/jobs` body (snake_case): `project_key`, `agent`, `runner`, `prompt` / `cmd`, `cwd`, `timeout_sec`, `title`, `worker_id` / `worker_labels`, `interactive`, `worktree` / `worktree_base`, `plan_id`, `tags`, `sync` / `wait_timeout_sec`, `request_id` (idempotency key), `template` / `vars` (a server-rendered task book).
 
 ## Deployment
 
