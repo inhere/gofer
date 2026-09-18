@@ -61,6 +61,33 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	if err := s.todoPlanForSubmit(&req); err != nil {
 		return JobResult{}, err
 	}
+	// SUP-01 P3: resolve the failover plan from the SAME cfg snapshot (request >
+	// project > agent) and freeze it on the request, so every link of the chain runs
+	// the ONE list the root resolved. A job that IS a takeover inherits the plan it
+	// was handed (json:"-" internal field) instead of re-reading a config that may
+	// have changed while the chain was running.
+	fallback := &FallbackState{Candidates: resolveFallbackCandidates(cfg, req.ProjectKey, req.Agent, req.FallbackAgents)}
+	if req.Fallback != nil {
+		fallback = req.Fallback
+	}
+	if len(fallback.Candidates) == 0 {
+		fallback = nil
+	}
+	// SUP-01 P3 (pre_dispatch): with server.agent_fallback.pre_dispatch on, an agent
+	// that is currently degraded hands the job to the first candidate that is not,
+	// BEFORE anything is dispatched. The row keeps the agent the caller asked for
+	// (requested_agent) and an event says why.
+	substitutedFrom := ""
+	if cfg.AgentFallbackPreDispatch() {
+		if to, depth := s.substituteDegradedAgent(fallback, req.RequestedAgent); to != "" {
+			substitutedFrom = req.Agent
+			req.Agent = to
+			req.Fallback = &FallbackState{Candidates: fallback.Candidates, Depth: depth}
+			fallback = req.Fallback
+		}
+	}
+	req.Fallback = fallback
+
 	// bd h-aii-s9ck: resolve the job's deadline ONCE, from the SAME cfg snapshot as
 	// validation (project ceiling > server ceiling > 1h default), BEFORE the entry /
 	// forward are built. The running job (execute's ctx), the persisted row, the API
@@ -362,6 +389,14 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	if wt != nil {
 		wtPath, wtBranch, wtBase = wt.Path, wt.Branch, wt.BaseSHA
 	}
+	// SUP-01 P3: whether the row should carry a requested_agent — the caller's own
+	// agent when this submit substituted it, or the chain root's when this job is a
+	// takeover. A plain job keeps it empty ("ran exactly what was asked").
+	requestedAgent := req.RequestedAgent
+	if substitutedFrom != "" {
+		requestedAgent = substitutedFrom
+	}
+
 	now := s.nowFn().Unix()
 	entry := &jobEntry{
 		store: st,
@@ -418,7 +453,13 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			TodoForeign: req.TodoForeign,
 			// 血缘（P5）：ResumeJob/RebuildJob 内部盖在 req 上（源 job id）；普通 job 为空。
 			// json:"-" 不影响此 Go 赋值——落 jobs.source_job_id（血缘的真源，不进 request_json）。
-			SourceJobID:       req.SourceJobID,
+			SourceJobID: req.SourceJobID,
+			// agent 故障转移（SUP-01 P3）：调用方原本要求的 agent（提交期改派才有值，并沿
+			// 转移链继承）、本条 job 从哪条 job 接管（FellBackFrom）、已冻结的候选计划。
+			// fell_back_to 在提交接管 job 成功后由 fallBack 回填。
+			RequestedAgent:    requestedAgent,
+			FellBackFrom:      req.FellBackFrom,
+			Fallback:          fallback,
 			ResumedFrom:       req.ResumedFrom,
 			AutoResumeAttempt: req.AutoResumeAttempt,
 			// WT-01：受管 worktree 的交付物位置与基线（终态时 captureOutcomes 再补
@@ -455,6 +496,13 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		return JobResult{}, persistErr
 	}
 
+	// SUP-01 P3: the submit-time substitution is recorded once the job is a fact, and
+	// the row's requested_agent keeps the caller's original choice visible.
+	if substitutedFrom != "" {
+		s.recordEvent(jobID, EventJobAgentSubstituted, map[string]any{
+			"from": substitutedFrom, "to": req.Agent, "reason": "degraded",
+		})
+	}
 	// E13: the queued snapshot is durably persisted (or best-effort for the
 	// no-request_id case) — record the lifecycle event now that submission is a
 	// fact. Detail carries the identity/routing fields (no secrets, SR403).

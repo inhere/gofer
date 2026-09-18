@@ -386,6 +386,32 @@ func ApplyLegacyInteractiveCompat(raw []byte, projects map[string]ProjectConfig)
 	return projects
 }
 
+// checkFallbackCandidate rejects a fallback candidate the framework cannot hand a
+// job to (SUP-01 P3): an undeclared key, the built-in exec agent (its argv belongs to
+// the caller — there is no agent CLI to transfer work between) or an interactive-only
+// agent (its only argv is a TUI launch, so it could never run the batch work a
+// transfer carries). owner names the offending position, so the operator sees which
+// list to fix.
+func checkFallbackCandidate(cfg *Config, owner, cand string) error {
+	if cand == "" {
+		return fmt.Errorf("%s: empty fallback candidate", owner)
+	}
+	if cand == "exec" {
+		return fmt.Errorf("%s: fallback candidate %q is the exec agent (exec argv belongs to the caller)", owner, cand)
+	}
+	ac, ok := cfg.Agents[cand]
+	if !ok {
+		return fmt.Errorf("%s: fallback candidate %q is not a declared agent", owner, cand)
+	}
+	if ac.Type == "exec" {
+		return fmt.Errorf("%s: fallback candidate %q is an exec agent (exec argv belongs to the caller)", owner, cand)
+	}
+	if ac.Interactive {
+		return fmt.Errorf("%s: fallback candidate %q is interactive-only (no batch argv to take work over)", owner, cand)
+	}
+	return nil
+}
+
 // validateApproval checks a project's approval block against the ACP vocabulary
 // (GATE-01 §1). Every field is an enum or a kind list, so a typo is caught here
 // rather than silently widening the gate: an unknown kind in auto_allow_kinds would
@@ -475,6 +501,15 @@ func validate(cfg *Config) error {
 					key, ac.ACP.PermissionPolicy, ApprovalAutoAllow, ApprovalAsk, ApprovalStrict)
 			}
 		}
+		// SUP-01 P3: a fallback candidate is only useful if it can actually run the
+		// work — reject an undeclared/exec/interactive-only one HERE, at load, rather
+		// than discovering it on the failure path, where the job it was meant to rescue
+		// is exactly the one that cannot afford a surprise.
+		for i, cand := range ac.FallbackAgents {
+			if err := checkFallbackCandidate(cfg, fmt.Sprintf("agent %q fallback_agents[%d]", key, i), cand); err != nil {
+				return err
+			}
+		}
 	}
 	for key, p := range cfg.Projects {
 		if p.HostPath == "" {
@@ -491,10 +526,33 @@ func validate(cfg *Config) error {
 				return err
 			}
 		}
+		// SUP-01 P3: a project may override an agent's candidate list; its entries are
+		// held to the same bar as the agent-level ones.
+		for _, agentKey := range slices.Sorted(maps.Keys(p.AgentFallbacks)) {
+			for i, cand := range p.AgentFallbacks[agentKey] {
+				owner := fmt.Sprintf("project %q agent_fallbacks[%q][%d]", key, agentKey, i)
+				if err := checkFallbackCandidate(cfg, owner, cand); err != nil {
+					return err
+				}
+			}
+		}
 	}
 	// bd h-aii-s9ck: same for the server-wide ceiling (0 = DefaultMaxJobTimeoutSec).
 	if cfg.Server.MaxJobTimeoutSec < 0 {
 		return fmt.Errorf("server.max_job_timeout_sec must be >= 0")
+	}
+	// SUP-01 P3: the health window/thresholds are counts and seconds; a negative one
+	// has no meaning (0 = the documented default), so reject it here instead of
+	// resolving it to something surprising on the read path.
+	if h := cfg.Server.AgentHealth; h != nil {
+		switch {
+		case h.WindowSec < 0:
+			return fmt.Errorf("server.agent_health.window_sec must be >= 0")
+		case h.DegradedAfter < 0:
+			return fmt.Errorf("server.agent_health.degraded_after must be >= 0")
+		case h.RecoverAfterOK < 0:
+			return fmt.Errorf("server.agent_health.recover_after_ok must be >= 0")
+		}
 	}
 	// RECOV-01: a negative recovery window has no meaning (nil = default 120s,
 	// 0 = recovery disabled); reject it at load rather than silently treating it as

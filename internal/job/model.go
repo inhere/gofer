@@ -248,7 +248,59 @@ type JobRequest struct {
 	ResumeSourceAgent string `json:"-" yaml:"-"`
 	ResumedFrom       string `json:"-" yaml:"-"`
 	AutoResumeAttempt int    `json:"-" yaml:"-"`
+	// FallbackAgents is the per-JOB candidate list (SUP-01 P3, `job run --fallback`):
+	// it wins over the project's agent_fallbacks and over the agent's own
+	// fallback_agents. Submit resolves the effective list from it and persists the
+	// RESULT (jobs.fallback_json), so a config change while the job runs cannot make
+	// the chain drift.
+	FallbackAgents []string `json:"fallback_agents,omitempty" yaml:"fallback_agents,omitempty"`
+	// NoFallback turns the transfer off for THIS job whatever the config says
+	// (SUP-01 P3, `job run --no-fallback`).
+	NoFallback bool `json:"no_fallback,omitempty" yaml:"no_fallback,omitempty"`
+	// FellBackFrom is the INTERNAL marker of a transfer (SUP-01 P3): the id of the
+	// job this one took over from. json/yaml "-" like ResumedFrom — a client cannot
+	// claim lineage, and it does not round-trip through request_json.
+	FellBackFrom string `json:"-" yaml:"-"`
+	// Fallback is the transfer plan this job INHERITS (SUP-01 P3): the candidate list
+	// resolved for the chain's root plus how many links are already used, carried
+	// verbatim so the whole chain follows ONE frozen plan. Internal (json:"-"); a
+	// plain submit has it resolved by Submit from the config.
+	Fallback *FallbackState `json:"-" yaml:"-"`
+	// RequestedAgent is the agent the CALLER asked for, kept when pre-dispatch
+	// substituted a degraded one (SUP-01 P3). Internal: the server stamps it from the
+	// request it received, so a client body cannot claim one.
+	RequestedAgent string `json:"-" yaml:"-"`
 }
+
+// FallbackState is a job's resolved failover plan (SUP-01 P3), persisted as
+// jobs.fallback_json at submit time: the ordered candidate agents and how many links
+// of the chain are already used. The NEXT candidate is Candidates[Depth]; a Depth of
+// len(Candidates) means the chain is exhausted and the failure is simply terminal.
+type FallbackState struct {
+	Candidates []string `json:"candidates,omitempty"`
+	Depth      int      `json:"depth,omitempty"`
+}
+
+// next returns the agent that should take the job over, or "" when the chain is
+// exhausted (or no candidate was resolved at all).
+func (f *FallbackState) next() string {
+	if f == nil || f.Depth < 0 || f.Depth >= len(f.Candidates) {
+		return ""
+	}
+	return f.Candidates[f.Depth]
+}
+
+// Failure classes (SUP-01 P3). Every FAILED job is classified from the same pattern
+// match that decides continuation/transfer, INDEPENDENTLY of whether either is
+// enabled — health must reflect the provider, not the job's policy.
+const (
+	// FailureClassTransient marks a provider-side error (see the agent's
+	// transient_error_patterns): a retry in a fresh process may well succeed.
+	FailureClassTransient = "transient"
+	// FailureClassOther marks every other failure — a real bug, a bad command, a
+	// verify step that did not pass. Another agent would not fix it.
+	FailureClassOther = "other"
+)
 
 // JobResult is the persisted/queryable job state (plan §6.2).
 type JobResult struct {
@@ -438,6 +490,25 @@ type JobResult struct {
 	// result also travels on the remote Outcome channel, and one definition keeps the
 	// two in step.
 	Verify *VerifyResult `json:"verify,omitempty"`
+	// FailureClass is why a FAILED job is classified the way it is (SUP-01 P3):
+	// "transient" (a provider error — the health aggregation counts it) or "other".
+	// Empty for anything that is not a failure. Persisted as jobs.failure_class.
+	FailureClass string `json:"failure_class,omitempty"`
+	// FellBackFrom / FellBackTo are the two ends of a failover link (SUP-01 P3):
+	// FellBackFrom names the job this one took over from, FellBackTo the job that took
+	// THIS one over after it failed. Both empty outside a transfer chain (a resubmitted
+	// job never invents one). Persisted as jobs.fell_back_from / fell_back_to.
+	FellBackFrom string `json:"fell_back_from,omitempty"`
+	FellBackTo   string `json:"fell_back_to,omitempty"`
+	// RequestedAgent is the agent the CALLER asked for, kept when Submit substituted a
+	// degraded one (SUP-01 P3) and inherited by every takeover on the chain. Empty
+	// when the job ran exactly the agent it was submitted with. Persisted as
+	// jobs.requested_agent.
+	RequestedAgent string `json:"requested_agent,omitempty"`
+	// Fallback is the frozen failover plan (candidates + used depth) this job runs
+	// under (SUP-01 P3), resolved once at submit and carried by every takeover.
+	// Persisted as jobs.fallback_json; nil for a job with no candidates.
+	Fallback *FallbackState `json:"fallback,omitempty"`
 }
 
 // VerifyResult / the verify statuses are the runner package's types, aliased here:
@@ -546,6 +617,18 @@ const (
 	EventJobPermissionRequested = runner.EventPermissionRequested
 	EventJobPermissionAnswered  = runner.EventPermissionAnswered
 	EventJobPermissionTimedOut  = runner.EventPermissionTimedOut
+	// EventJobFellBack is a transient failure taken over by the next candidate agent
+	// (SUP-01 P3): {to_job, agent, reason} where reason is the matched provider-error
+	// text. It REPLACES job.terminal for that transition (the failure is about to be
+	// continued by another agent, so an IM subscriber must not be told it is over) —
+	// exactly like job.auto_resumed; when the takeover cannot be submitted, the
+	// job.terminal event is recorded late instead.
+	EventJobFellBack = "job.fell_back"
+	// EventJobAgentSubstituted is a degraded agent replaced BEFORE dispatch
+	// (SUP-01 P3, server.agent_fallback.pre_dispatch): {from, to, reason}. The job row
+	// keeps the requested agent in requested_agent, so "why did this run on another
+	// agent?" is answered from the job itself.
+	EventJobAgentSubstituted = "job.agent_substituted"
 )
 
 // Workflow lifecycle event types (P1, design §5.4). Recorded append-only via

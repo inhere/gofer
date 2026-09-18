@@ -46,15 +46,19 @@ func fallbackCfg(t *testing.T, root, codexStderr string) *config.Config {
 				SessionResume:  []string{"stderr-exit", "1", codexStderr, "{{prompt}}"},
 				FallbackAgents: []string{"omp"},
 			},
+			// The candidates render the prompt into their own argv (testcmd's `argv`
+			// echoes what the child actually received) so a test can assert what the
+			// takeover was asked to do; `printf` is the minimal successful mode for the
+			// cases that only care that the new agent ran.
 			"omp": {
 				Type:    agent.TypeCLIAgent,
 				Command: bin,
-				Args:    []string{"stdout-lines", "OK", "1"},
+				Args:    []string{"argv", "{{prompt}}"},
 			},
 			"claude": {
 				Type:    agent.TypeCLIAgent,
 				Command: bin,
-				Args:    []string{"stdout-lines", "OK", "1"},
+				Args:    []string{"printf", "OK"},
 			},
 		},
 	}
@@ -270,14 +274,24 @@ func TestFallbackChainExhaustedRecordsTerminal(t *testing.T) {
 	root := t.TempDir()
 	cfg := fallbackCfg(t, root, "at capacity")
 	ac := cfg.Agents["codex"]
-	ac.FallbackAgents = []string{"omp", "claude"}
+	ac.FallbackAgents = []string{"omp", "helper"}
 	cfg.Agents["codex"] = ac
-	// Both candidates die the same way, so the chain has to run to its end.
-	for _, key := range []string{"omp", "claude"} {
-		bad := cfg.Agents[key]
-		bad.Args = []string{"stderr-exit", "1", "at capacity", "{{prompt}}"}
-		cfg.Agents[key] = bad
+	// Both candidates die the same way, so the chain has to run to its end. `helper`
+	// carries explicit patterns and no session support on purpose: a session-capable
+	// candidate would be continued once by its OWN automatic resume instead of
+	// terminating, which is a different (already covered) path.
+	bad := cfg.Agents["omp"]
+	bad.Args = []string{"stderr-exit", "1", "at capacity", "{{prompt}}"}
+	cfg.Agents["omp"] = bad
+	cfg.Agents["helper"] = config.AgentConfig{
+		Type:                   agent.TypeCLIAgent,
+		Command:                testcmd.Path(t),
+		Args:                   []string{"stderr-exit", "1", "at capacity", "{{prompt}}"},
+		TransientErrorPatterns: []string{"at capacity"},
 	}
+	proj := cfg.Projects["self"]
+	proj.AllowedAgents = []string{"codex", "omp", "helper", "exec"}
+	cfg.Projects["self"] = proj
 	s := newServiceFromCfg(t, root, cfg)
 
 	src := submitAndWait(t, s, JobRequest{
@@ -291,8 +305,8 @@ func TestFallbackChainExhaustedRecordsTerminal(t *testing.T) {
 	}
 	second = waitFellBack(t, s, second.ID)
 	third, _ := s.Get(second.FellBackTo)
-	if third.Agent != "claude" || third.Fallback == nil || third.Fallback.Depth != 2 {
-		t.Fatalf("second hop = agent %q state %+v, want claude at depth 2", third.Agent, third.Fallback)
+	if third.Agent != "helper" || third.Fallback == nil || third.Fallback.Depth != 2 {
+		t.Fatalf("second hop = agent %q state %+v, want helper at depth 2", third.Agent, third.Fallback)
 	}
 	final, _ := s.Wait(third.ID)
 	if final.Status != StatusFailed {

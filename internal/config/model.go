@@ -349,6 +349,16 @@ type ServerConfig struct {
 	// AutoResumeMax counts automatic session continuations, independently of RetryPolicy.
 	// Unset defaults to one; an explicit zero disables automatic resume.
 	AutoResumeMax *int `yaml:"auto_resume_max,omitempty"`
+	// AgentFallback is the SUP-01 P3 failover policy (design §一). A pointer so an
+	// absent block means the defaults (transfer after a failure ON, submit-time
+	// substitution OFF) without any behaviour change for a config that never
+	// mentions it — and so the transfer only ever applies to a job that actually
+	// resolved a candidate list.
+	AgentFallback *AgentFallbackConfig `yaml:"agent_fallback,omitempty"`
+	// AgentHealth is the SUP-01 P3 health window/thresholds (design §一). A pointer;
+	// an absent block resolves to the documented defaults. It only classifies
+	// reported health — nothing in the job path consults it unless pre_dispatch is on.
+	AgentHealth *AgentHealthConfig `yaml:"agent_health,omitempty"`
 }
 
 // EffectiveAutoResumeMax preserves the distinction between omitted and explicit zero.
@@ -357,6 +367,96 @@ func (sc *ServerConfig) EffectiveAutoResumeMax() int {
 		return 1
 	}
 	return *sc.AutoResumeMax
+}
+
+// AgentFallbackConfig is the server.agent_fallback block (SUP-01 P3): the two
+// switches of the failover machinery. Both default to the value an operator would
+// expect from the design's decision 1 — the transfer runs, the substitution does not.
+type AgentFallbackConfig struct {
+	// OnFailure moves a job to the next candidate agent after a TRANSIENT failure
+	// the same agent cannot continue (SUP-01 P3). Unset means ON: configuring
+	// fallback_agents is the opt-in, and the transfer then needs no second switch. A
+	// pointer so an explicit false (e.g. an incident where every自动转移 must be off)
+	// is distinguishable from "not configured".
+	OnFailure *bool `yaml:"on_failure,omitempty"`
+	// PreDispatch substitutes a DEGRADED agent at submit time instead of waiting for
+	// it to fail (SUP-01 P3). Default OFF: silently running "not the agent I asked
+	// for" is a surprising thing to do by default.
+	PreDispatch bool `yaml:"pre_dispatch,omitempty"`
+}
+
+// AgentHealthConfig is the server.agent_health block (SUP-01 P3): the window and
+// thresholds `degraded` is computed from. Zero/unset fields take the defaults below.
+type AgentHealthConfig struct {
+	// WindowSec bounds the aggregation (0/unset => DefaultAgentHealthWindowSec).
+	WindowSec int `yaml:"window_sec,omitempty"`
+	// DegradedAfter is how many transient failures inside the window make an agent
+	// degraded (0/unset => DefaultAgentDegradedAfter).
+	DegradedAfter int `yaml:"degraded_after,omitempty"`
+	// RecoverAfterOK is how many successes after the last transient failure restore
+	// the agent (0/unset => DefaultAgentRecoverAfterOK).
+	RecoverAfterOK int `yaml:"recover_after_ok,omitempty"`
+}
+
+// Agent health defaults (SUP-01 P3): an hour is long enough to see "the provider is
+// down right now" and short enough that yesterday's outage does not colour today.
+const (
+	DefaultAgentHealthWindowSec = 3600
+	DefaultAgentDegradedAfter   = 3
+	DefaultAgentRecoverAfterOK  = 1
+)
+
+// AgentFallbackOnFailure resolves whether a transient failure is transferred to the
+// next candidate agent. Default ON (design decision 1): a candidate list is the
+// opt-in, and an operator who wrote one wants it used.
+func (c *Config) AgentFallbackOnFailure() bool {
+	if c == nil || c.Server.AgentFallback == nil || c.Server.AgentFallback.OnFailure == nil {
+		return true
+	}
+	return *c.Server.AgentFallback.OnFailure
+}
+
+// AgentFallbackPreDispatch resolves whether Submit substitutes a degraded agent
+// before dispatching. Default OFF (design decision 1).
+func (c *Config) AgentFallbackPreDispatch() bool {
+	return c != nil && c.Server.AgentFallback != nil && c.Server.AgentFallback.PreDispatch
+}
+
+// EffectiveAgentHealth resolves the health window/thresholds, filling unset fields
+// with the defaults. A non-positive value reads as unset (there is no meaningful
+// "zero-length window" or "zero failures means degraded").
+func (c *Config) EffectiveAgentHealth() AgentHealthConfig {
+	h := AgentHealthConfig{WindowSec: DefaultAgentHealthWindowSec, DegradedAfter: DefaultAgentDegradedAfter, RecoverAfterOK: DefaultAgentRecoverAfterOK}
+	if c == nil || c.Server.AgentHealth == nil {
+		return h
+	}
+	if c.Server.AgentHealth.WindowSec > 0 {
+		h.WindowSec = c.Server.AgentHealth.WindowSec
+	}
+	if c.Server.AgentHealth.DegradedAfter > 0 {
+		h.DegradedAfter = c.Server.AgentHealth.DegradedAfter
+	}
+	if c.Server.AgentHealth.RecoverAfterOK > 0 {
+		h.RecoverAfterOK = c.Server.AgentHealth.RecoverAfterOK
+	}
+	return h
+}
+
+// AgentFallbacksFor resolves the ordered candidate list for an agent in a project:
+// the project's agent_fallbacks override when it names that agent, else the agent's
+// own fallback_agents. It reads configuration only — whether a candidate is
+// ADMITTED (project allowed_agents) is decided at submit time, where the project and
+// the request are both known.
+func (c *Config) AgentFallbacksFor(projectKey, agentKey string) []string {
+	if c == nil {
+		return nil
+	}
+	if p, ok := c.Projects[projectKey]; ok {
+		if list, ok := p.AgentFallbacks[agentKey]; ok {
+			return list
+		}
+	}
+	return c.Agents[agentKey].FallbackAgents
 }
 
 // SessionConfig tunes the terminal session relay's automatic arming (R2). Both
@@ -904,6 +1004,11 @@ type ProjectConfig struct {
 	ResultSubdir   string   `yaml:"result_subdir,omitempty"`
 	DefaultAgent   string   `yaml:"default_agent,omitempty"`
 	AllowedAgents  []string `yaml:"allowed_agents,omitempty"`
+	// AgentFallbacks overrides an agent's fallback_agents list for THIS project
+	// (SUP-01 P3): keyed by the failing agent, the value is the ordered candidate
+	// list. A key present here REPLACES the agent-level list (it does not merge), so
+	// a project can narrow, reorder or disable (empty list) a transfer per agent.
+	AgentFallbacks map[string][]string `yaml:"agent_fallbacks,omitempty"`
 	// AllowInteractive is the project's interactive-job switch (AGT-02 §2) and the
 	// ONLY project-level gate: the removed legacy narrowing list has no successor, and a
 	// project that wants to exclude an agent simply gives it no interactive mode. It is a
@@ -1186,6 +1291,13 @@ type AgentConfig struct {
 	// TransientErrorPatterns override the complete built-in list, including when empty.
 	// Matching is case insensitive; nil selects the command's built-in defaults.
 	TransientErrorPatterns []string `yaml:"transient_error_patterns,omitempty"`
+	// FallbackAgents is this agent's ordered candidate list for a TRANSIENT failure
+	// that its own session cannot continue (SUP-01 P3): the first candidate that the
+	// project admits takes the work over. Empty = no transfer (the default, so an
+	// existing config is unaffected). A project may override the list per agent with
+	// agent_fallbacks; `job run --fallback` overrides both for one job. Candidates
+	// must be declared agents that can run in batch mode (validated at load).
+	FallbackAgents []string `yaml:"fallback_agents,omitempty"`
 	// ReadOnlyArgs is the argv a `job run --read-only` appends to a cli-agent's argv
 	// (both the batch and the interactive shape, at the end like AgentArgs) so the
 	// sandbox is the CLI's own. Unset means "use the built-in table for this agent"

@@ -236,20 +236,32 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// parks in needs_review exactly like a normal finish does (the failing Verify
 	// stays on the result for the human, and there is no job.terminal yet).
 	needsReview := pre.RequireReview && (status == StatusDone || verifyBlocked(pre.Verify))
-	autoResumeHit, willAutoResume := "", false
+	// SUP-01 P3: a failure is classified and (possibly) taken over from ONE decision —
+	// the pattern match, whether this agent can still continue the work, and whether
+	// the candidate chain has a link left. It is pure (it submits nothing), so it runs
+	// here, before the failure becomes observable.
+	dec := failureDecision{}
 	if status == StatusFailed {
-		autoResumeHit, willAutoResume = s.autoResumeHit(pre)
+		dec = s.failureDecision(pre)
 	}
 	switch {
 	case needsReview:
 		s.recordEvent(jobID, EventJobNeedsReview, map[string]any{"job_id": jobID, "exit_code": exitCode})
-	case !willAutoResume:
+	case dec.AutoResume || dec.Fallback != "":
+		// A takeover is about to be submitted (the same agent's continuation, or the
+		// next candidate): its own event is recorded once the submission succeeds, and
+		// job.terminal is recorded late instead when it does not.
+	default:
 		s.recordEvent(jobID, EventJobTerminal, map[string]any{"status": status, "exit_code": exitCode, "error": errStr})
 	}
 	entry.mu.Lock()
 	entry.result.Status = status
 	entry.result.ExitCode = exitCode
 	entry.result.EndedAt = s.nowFn().Unix()
+	// SUP-01 P3: the classification rides the terminal row, unconditionally — health
+	// must describe what the provider did, not which policies this job happened to
+	// have enabled.
+	entry.result.FailureClass = dec.Class
 	if err != nil {
 		entry.result.Error = err.Error()
 	}
@@ -333,13 +345,16 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 		}
 		return
 	}
-	autoResumed := false
-	if persistErr == nil && willAutoResume {
-		autoResumed = s.autoResume(snap, autoResumeHit)
+	autoResumed, fellBack := false, false
+	if persistErr == nil && dec.AutoResume {
+		autoResumed = s.autoResume(snap, dec.Hit)
 	}
-	if willAutoResume && !autoResumed {
-		// The continuation could not be submitted (or the row never landed): the
-		// failure IS terminal after all — record it now, late but never missing.
+	if persistErr == nil && dec.Fallback != "" {
+		fellBack = s.fallBack(snap, dec.Hit, dec.Fallback)
+	}
+	if (dec.AutoResume && !autoResumed) || (dec.Fallback != "" && !fellBack) {
+		// The takeover could not be submitted (or the row never landed): the failure
+		// IS terminal after all — record it now, late but never missing.
 		s.recordEvent(jobID, EventJobTerminal, map[string]any{"status": status, "exit_code": exitCode, "error": errStr})
 	}
 	if persistErr == nil && isFinished(status) {
@@ -363,16 +378,18 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	s.maybeRetryJob(snap)
 }
 
-// autoResumeHit is the PURE half of automatic continuation (v0.42): it reports
-// whether a failed job is eligible — auto-resume enabled and budget left, a session
-// to continue, an agent that can resume it, and a transient-error pattern in the
-// tail of its stderr — and returns the matched text. It submits nothing, so finish
-// can consult it before the failure becomes observable and pick the right event.
-func (s *Service) autoResumeHit(snap JobResult) (string, bool) {
-	cfg := s.config()
-	if cfg == nil || cfg.Server.EffectiveAutoResumeMax() <= 0 || snap.SessionID == "" || snap.AutoResumeAttempt >= cfg.Server.EffectiveAutoResumeMax() {
-		return "", false
-	}
+// transientHit is the PATTERN-MATCHING half of the failure classification (SUP-01 P3):
+// it reports whether a failed job's output carries one of its agent's transient
+// (provider-error) patterns, and returns the matched text. It is PURE with respect to
+// policy: it never looks at whether a continuation or a transfer is enabled, so the
+// persisted failure_class reflects what actually happened to the provider. The
+// evidence is the tail of stderr (8KB) plus the job's own error string — a provider
+// error that ends the process without printing anything still lands in Error when the
+// runner reported one.
+//
+// The agent's configured transient_error_patterns are the authority (built-in
+// defaults per agent name, see agent.applySessionDefaults).
+func (s *Service) transientHit(snap JobResult) (string, bool) {
 	// SUP-01 P2: a failed verify step is evidence about the WORK, not a provider
 	// glitch — re-running the same agent prompt would not repair it, and the
 	// continuation would report success over a still-red build. The step's own status
@@ -381,37 +398,81 @@ func (s *Service) autoResumeHit(snap JobResult) (string, bool) {
 	if verifyBlocked(snap.Verify) {
 		return "", false
 	}
-	ac, ok := s.agents.Get(snap.Agent)
-	if !ok || !resumable(ac) {
+	patterns := s.transientPatternsFor(snap)
+	if len(patterns) == 0 {
 		return "", false
 	}
-	b, err := os.ReadFile(filepath.Join(snap.ResultDir, "stderr.log"))
-	if err != nil {
+	var sb strings.Builder
+	if b, err := os.ReadFile(filepath.Join(snap.ResultDir, "stderr.log")); err == nil {
+		if len(b) > 8192 {
+			b = b[len(b)-8192:]
+		}
+		sb.Write(b)
+	}
+	if snap.Error != "" {
+		sb.WriteString("\n")
+		sb.WriteString(snap.Error)
+	}
+	text := sb.String()
+	if text == "" {
 		return "", false
 	}
-	if len(b) > 8192 {
-		b = b[len(b)-8192:]
-	}
-	var hit string
-	for _, p := range ac.TransientErrorPatterns {
-		if re, e := regexp.Compile("(?i)" + p); e == nil {
-			if m := re.FindString(string(b)); m != "" {
-				hit = m
-				break
+	for _, p := range patterns {
+		re, e := regexp.Compile("(?i)" + p)
+		if e != nil {
+			continue
+		}
+		if m := re.FindString(text); m != "" {
+			if len(m) > 120 {
+				m = m[:120]
 			}
+			return m, true
 		}
 	}
-	if hit == "" {
-		return "", false
-	}
-	if len(hit) > 120 {
-		hit = hit[:120]
-	}
-	return hit, true
+	return "", false
 }
 
-// autoResume submits the continuation autoResumeHit qualified: a resume of the
-// failed job with a prompt naming the transient error, one attempt deeper. The
+// transientPatternsFor resolves the transient-error patterns that apply to a failed
+// job. They are normally the job's own agent's; a CONTINUATION CARRIER is the
+// exception — a resume runs the SOURCE agent's CLI out of a built-in exec job, so its
+// patterns are the source agent's. Without that hop a codex continuation dying of a
+// provider error would be classified as an unrelated failure: it would never be handed
+// to the next candidate, and the provider outage would be invisible to health.
+func (s *Service) transientPatternsFor(snap JobResult) []string {
+	if ac, ok := s.agents.Get(snap.Agent); ok && len(ac.TransientErrorPatterns) > 0 {
+		return ac.TransientErrorPatterns
+	}
+	if snap.ResumedFrom == "" {
+		return nil
+	}
+	src, ok := s.Get(snap.ResumedFrom)
+	if !ok {
+		return nil
+	}
+	ac, ok := s.agents.Get(src.Agent)
+	if !ok {
+		return nil
+	}
+	return ac.TransientErrorPatterns
+}
+
+// autoResumeEligible is the ELIGIBILITY half of automatic continuation (v0.42, split
+// out in SUP-01 P3): auto-resume enabled with budget left, a session to continue, and
+// an agent that can resume it. It answers only "may the SAME agent be asked to carry
+// on?" — the transient pattern match is transientHit's business, so the two can be
+// consulted independently (the failure class needs one, the takeover decision needs
+// both).
+func (s *Service) autoResumeEligible(snap JobResult) bool {
+	cfg := s.config()
+	if cfg == nil || cfg.Server.EffectiveAutoResumeMax() <= 0 || snap.SessionID == "" || snap.AutoResumeAttempt >= cfg.Server.EffectiveAutoResumeMax() {
+		return false
+	}
+	ac, ok := s.agents.Get(snap.Agent)
+	return ok && resumable(ac)
+}
+
+// autoResume submits an automatic continuation decided by failureDecision: a resume
+// of the failed job with a prompt naming the transient error, one attempt deeper. The
 // source row records the continuation (AutoResumedBy) and job.auto_resumed; the
 // caller records job.terminal instead when this returns false.
 func (s *Service) autoResume(snap JobResult, hit string) bool {

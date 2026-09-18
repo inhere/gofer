@@ -82,6 +82,13 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		CommitsJSON: marshalCommits(r.Commits),
 		// verify 步骤（SUP-01 P2）：无步骤 → ""（读回即"未跑验证"）。
 		VerifyJSON: marshalVerify(r.Verify),
+		// agent 故障转移（SUP-01 P3）：失败归类 + 转移链两端 + 调用方原请求的 agent +
+		// 提交时冻结的候选计划。无候选 → ""（读回即"这条链没有候选"，不会伪造成转移过）。
+		FailureClass:   r.FailureClass,
+		FellBackFrom:   r.FellBackFrom,
+		FellBackTo:     r.FellBackTo,
+		RequestedAgent: r.RequestedAgent,
+		FallbackJSON:   marshalFallback(r.Fallback),
 		// job 超时上限可配（bd h-aii-s9ck）：生效 deadline + 请求值 + 截断标记三元组。
 		TimeoutSec:          r.TimeoutSec,
 		RequestedTimeoutSec: r.RequestedTimeoutSec,
@@ -174,6 +181,34 @@ func unmarshalVerify(s string) *VerifyResult {
 	return &v
 }
 
+// marshalFallback serialises a job's failover plan (SUP-01 P3) into
+// jobs.fallback_json. A job with no candidates (or a marshal failure) stores "" —
+// the column then reads back as "no chain", which is exactly the meaning for a job
+// that never had one.
+func marshalFallback(f *FallbackState) string {
+	if f == nil || len(f.Candidates) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(f)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// unmarshalFallback rebuilds the failover plan from jobs.fallback_json. A malformed
+// blob yields none rather than failing the read of the whole job row.
+func unmarshalFallback(s string) *FallbackState {
+	if s == "" {
+		return nil
+	}
+	var f FallbackState
+	if json.Unmarshal([]byte(s), &f) != nil || len(f.Candidates) == 0 {
+		return nil
+	}
+	return &f
+}
+
 // fromRecord rebuilds a JobResult from a persisted jobstore.JobRecord. It is the
 // read path for ListJobs/Get when a job is not (or no longer) in memory.
 func fromRecord(rec jobstore.JobRecord) JobResult {
@@ -241,6 +276,12 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		Commits: unmarshalCommits(rec.CommitsJSON),
 		// verify 步骤（SUP-01 P2）：旧行 "" = 无步骤（nil），不伪造成"已验证"。
 		Verify: unmarshalVerify(rec.VerifyJSON),
+		// agent 故障转移（SUP-01 P3）：旧行 "" = 未分类 / 不在这条链上，不伪造成转移过的 job。
+		FailureClass:   rec.FailureClass,
+		FellBackFrom:   rec.FellBackFrom,
+		FellBackTo:     rec.FellBackTo,
+		RequestedAgent: rec.RequestedAgent,
+		Fallback:       unmarshalFallback(rec.FallbackJSON),
 		// job 超时上限可配（bd h-aii-s9ck）：生效 deadline + 请求值 + 截断标记。旧行全为
 		// 0/false = "未记录"（旧 job 早于该列），不会伪装成"被截断"。
 		TimeoutSec:          rec.TimeoutSec,

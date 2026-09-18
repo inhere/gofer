@@ -55,6 +55,8 @@ type jobRunFlags struct {
 	verify       string
 	verifyTime   int
 	noVerify     bool
+	fallback     string
+	noFallback   bool
 }
 
 // jobRunOpts holds `job run` flags. prompt is supplied via the --prompt flag
@@ -449,6 +451,9 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.StrOpt2(&jobRunOpts.verify, "verify", "command to run after the agent finishes (shell-words, no shell); a non-zero exit fails the job", jobRunOptCategory("Execution", ""))
 	c.IntOpt2(&jobRunOpts.verifyTime, "verify-timeout", "timeout for the --verify step in seconds (0 = project default, 600s)", jobRunOptCategory("Execution", 0))
 	c.BoolOpt2(&jobRunOpts.noVerify, "no-verify", "do not run the project's default verify step for this job", gflag.WithCategory("Execution"))
+	// SUP-01 P3：故障转移——agent 因供应商错误挂掉时改派下一个候选（覆盖项目/agent 级配置）。
+	c.StrOpt2(&jobRunOpts.fallback, "fallback", "comma-separated fallback agents for a transient failure (e.g. omp,claude); overrides the project/agent lists", jobRunOptCategory("Execution", ""))
+	c.BoolOpt2(&jobRunOpts.noFallback, "no-fallback", "do not hand this job to a fallback agent (overrides every configured list)", gflag.WithCategory("Execution"))
 
 	// Submission: provenance and grouping metadata.
 	c.StrOpt2(&jobRunOpts.title, "title", "optional job title", jobRunOptCategory("Submission", ""))
@@ -840,8 +845,11 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		Verify:           verify,
 		VerifyTimeoutSec: jobRunOpts.verifyTime,
 		NoVerify:         jobRunOpts.noVerify,
-		Cols:             jobRunOpts.cols,
-		Rows:             jobRunOpts.rows,
+		// SUP-01 P3：本 job 的候选列表（覆盖项目/agent 级）+ 关闭开关。
+		FallbackAgents: splitLabels(jobRunOpts.fallback),
+		NoFallback:     jobRunOpts.noFallback,
+		Cols:           jobRunOpts.cols,
+		Rows:           jobRunOpts.rows,
 		// 提交来源（provenance）：CLI 渠道(默认 cli，可 --channel 覆盖) + 本机 hostname。
 		// server 端若 client 为空会以 remote IP 兜底盖章。
 		Channel: channel,

@@ -115,10 +115,19 @@ var schemaStmts = []string{
   reviewed_by      TEXT,
   reviewed_at      INTEGER,
   review_note      TEXT,
-  verify_json      TEXT
+  verify_json      TEXT,
+  failure_class    TEXT,
+  fell_back_from   TEXT,
+  fell_back_to     TEXT,
+  requested_agent  TEXT,
+  fallback_json    TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
+	// idx_jobs_agent_started serves the SUP-01 P3 per-agent health aggregation
+	// (jobs of one agent inside a time window) — the read behind `gofer agent status`,
+	// the web badge and the pre-dispatch decision.
+	`CREATE INDEX IF NOT EXISTS idx_jobs_agent_started ON jobs(agent, started_at)`,
 	`CREATE TABLE IF NOT EXISTS interactions (
   id           TEXT NOT NULL,
   job_id       TEXT NOT NULL,
@@ -569,6 +578,26 @@ func (s *Store) migrate() error {
 	// plan 编排 P5：血缘键——resume/rebuild 出的 job 指回源 job（服务端盖章 source_job_id=源 id）。
 	// 旧库 ALTER ADD，旧行 COALESCE→""。区别引擎私有 workflow_id；区别 source 列（执行位置）。
 	if err := add("source_job_id", "source_job_id TEXT"); err != nil {
+		return err
+	}
+	// agent 故障转移（SUP-01 P3）：failure_class=失败归类（transient|other|""，健康度按它聚合）；
+	// fell_back_from/fell_back_to=转移链的两端（源行指新 job，新 job 指回源）；requested_agent=
+	// 调用方原本要求的 agent（提交期改派/转移后仍可追溯）；fallback_json=提交时解析并冻结的候选
+	// 列表 + 已用深度（避免运行中改配置导致链条漂移）。旧库 ALTER ADD，旧行 COALESCE→""，
+	// 读作"未分类 / 不在这条链上"，不会把历史 job 伪造成转移过的 job。
+	if err := add("failure_class", "failure_class TEXT"); err != nil {
+		return err
+	}
+	if err := add("fell_back_from", "fell_back_from TEXT"); err != nil {
+		return err
+	}
+	if err := add("fell_back_to", "fell_back_to TEXT"); err != nil {
+		return err
+	}
+	if err := add("requested_agent", "requested_agent TEXT"); err != nil {
+		return err
+	}
+	if err := add("fallback_json", "fallback_json TEXT"); err != nil {
 		return err
 	}
 	if err := add("resumed_from", "resumed_from TEXT"); err != nil {

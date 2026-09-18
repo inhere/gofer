@@ -129,8 +129,12 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 			PlanID:      src.PlanID,
 			// SUP-01 C：续投继承 checklist 挂接（TodoForeign 一并继承：worker 上的本地行
 			// 同样只显示不联动），整条链的 round 自然串在同一个 todo 的 note 上。
-			TodoID:            src.TodoID,
-			TodoForeign:       src.TodoForeign,
+			TodoID:      src.TodoID,
+			TodoForeign: src.TodoForeign,
+			// SUP-01 P3：续投继承源 job 的转移计划（候选列表 + 已用深度不变——载体占用的仍是
+			// 同一个 agent 的位置）。它让"同一 agent 续投也挂了"能按同一份冻结计划转移到下一个
+			// 候选，而不必重新读一份可能已经变了的配置。
+			Fallback:          src.Fallback,
 			SourceJobID:       jobID,
 			ResumedFrom:       jobID,
 			AutoResumeAttempt: autoAttempt,
@@ -219,6 +223,8 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		// SUP-01 C：续投继承 checklist 挂接（含 TodoForeign，见 acp 分支同一规则）。
 		TodoID:      src.TodoID,
 		TodoForeign: src.TodoForeign,
+		// SUP-01 P3：续投继承源 job 的转移计划（见 acp 分支同一规则）。
+		Fallback: src.Fallback,
 		// 血缘（P5，本次追加）：续投 job 指回源 job。resume 语义 = source_job_id=源 id 且
 		// SessionID 与源相同（上面 :84 已带 SessionID=src.SessionID）——据此区分"续会话"
 		// （rebuild 则 session 空/新）。

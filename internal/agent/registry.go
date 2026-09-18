@@ -189,7 +189,12 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 	},
 }
 
-var builtinTransientPatterns = []string{`(?i)at capacity|rate limit|overloaded|too many requests|\b429\b|\b503\b|ECONNRESET|connection reset|stream disconnected|temporarily unavailable`}
+// SUP-01 P3 adds the two Windows-side failures an agent CLI dies of without ever
+// reaching the provider: a sandbox that could not start and a runner pipe that could
+// not be connected. Both are retryable-in-another-process conditions, so they are
+// classified (and therefore eligible for continuation/transfer) exactly like the
+// provider errors above.
+var builtinTransientPatterns = []string{`(?i)at capacity|rate limit|overloaded|too many requests|\b429\b|\b503\b|ECONNRESET|connection reset|stream disconnected|temporarily unavailable|windows sandbox failed|connecting runner pipe`}
 
 // builtinNDJSON holds the实测内置 ndjson 配置（bd h-aii-rpky / bd h-aii-525u），按
 // agent 名兜底（再退回 command 基名，与 builtinSessionDefaults 同机制）：
