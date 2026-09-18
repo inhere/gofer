@@ -11,12 +11,11 @@ import Signal from '../components/Signal.vue'
 import LogTape from '../components/LogTape.vue'
 import InteractionCard from '../components/InteractionCard.vue'
 import FilePreview from '../components/FilePreview.vue'
+import ReviewPanel from '../components/ReviewPanel.vue'
 import AttachTerminal from '../components/AttachTerminal.vue'
 import {
   answerInteraction,
   cancelJob,
-  acceptJob,
-  rejectJob,
   downloadArtifact,
   downloadPtyRecording,
   fetchArtifactBlob,
@@ -34,6 +33,7 @@ import {
 } from '../api/client'
 import { appendCapped, streamJob } from '../api/sse'
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
+import { shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
 import type {
   Artifact,
   Delivery,
@@ -524,44 +524,23 @@ async function loadSessionJobs(): Promise<void> {
   }
 }
 
-// 人工验收（GATE-01 S3）：needs_review 的 job 由人裁决。accept 直接通过（可留备注）；
-// reject 必须写理由，可选"拒绝后自动续投"——后端以该理由为 prompt 续投新 job，前端跳过去继续看。
-const showReviewCard = computed(() => status.value === 'needs_review')
-const reviewing = ref(false)
-const reviewError = ref('')
-const rejectOpen = ref(false)
-const rejectNote = ref('')
-const rejectResume = ref(false)
-
-async function doAccept(): Promise<void> {
-  if (reviewing.value) return
-  reviewing.value = true
-  reviewError.value = ''
-  try {
-    applyStatus(await acceptJob(props.id))
-  } catch (e) {
-    reviewError.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    reviewing.value = false
+// 人工验收（GATE-01 S3 + REV-01）：验收面板是一个独立组件（五个页签 + 底部裁决条），
+// 出现时机 = 待裁决（needs_review）、已拒绝（rejected）或按要求验收且已完成（done +
+// require_review，此时面板只读地回显 reviewed_by/at/note）。裁决与跳转由面板回传。
+const showReviewPanel = computed<boolean>(() => {
+  const j = job.value
+  if (!j) {
+    return false
   }
-}
-
-async function doReject(): Promise<void> {
-  if (reviewing.value || !rejectNote.value.trim()) return
-  reviewing.value = true
-  reviewError.value = ''
-  try {
-    const res = await rejectJob(props.id, rejectNote.value.trim(), rejectResume.value)
-    // 源 job 的裁决已落库（rejected）；续投成功则跳转新 job 继续盯。
-    applyStatus(res)
-    if (res.resume_job_id) {
-      void router.push(`/jobs/${encodeURIComponent(res.resume_job_id)}`)
-    }
-  } catch (e) {
-    reviewError.value = e instanceof Error ? e.message : String(e)
-  } finally {
-    reviewing.value = false
+  if (j.status === 'needs_review' || j.status === 'rejected') {
+    return true
   }
+  return j.status === 'done' && !!j.require_review
+})
+
+// reject 勾了「自动续投」时后端另起一个 job：跳过去继续盯（与旧验收卡同行为）。
+function onReviewResumed(jobId: string): void {
+  void router.push(`/jobs/${encodeURIComponent(jobId)}`)
 }
 
 async function doCancel(): Promise<void> {
@@ -665,11 +644,6 @@ function fmtTime(v: string | number | undefined): string {
 
 function shortId(id: string): string {
   return id.length > 8 ? id.slice(-8) : id
-}
-
-// shortSha 只是显示的短 sha；完整值仍在 title/复制按钮里。
-function shortSha(sha: string): string {
-  return sha.length > 10 ? sha.slice(0, 10) : sha
 }
 
 // ── 浏览器终端 attach（WEB-03 P4）──────────────────────────────────
@@ -997,7 +971,7 @@ const hasOutcomes = computed<boolean>(
     // SUP-01 P2：验证步骤是"到底验没验、过没过"的结论，即使 job 没有其他产出也要展示。
     verify.value !== null ||
     // SUP-01 E：用量/成本是这个 job 花了多少的唯一记录，同样独立于其他产出。
-    usageLine.value !== '',
+    usageText.value !== '',
 )
 
 // 提交列表（SUP-01 C）：本 job 从 base_sha 到 HEAD 产出的提交，新→旧。
@@ -1005,77 +979,16 @@ const commits = computed<JobCommit[]>(() => job.value?.commits ?? [])
 
 // 验证步骤（SUP-01 P2）：agent 结束后本机跑的验收命令。块只在后端有结果时出现（无步骤=无块），
 // 颜色随 status（passed 绿 / failed、timeout 红 / skipped 灰），命令与耗时直接可读。
+// 文案与配色口径与验收台共用（utils/jobOutcome）。
 const verify = computed<JobVerify | null>(() => job.value?.verify ?? null)
 const verifyCommand = computed<string>(() => (verify.value?.command ?? []).join(' '))
-const verifyLabel = computed<string>(() => {
-  const v = verify.value
-  if (!v) {
-    return ''
-  }
-  if (v.status === 'skipped') {
-    return v.reason ? `${v.status} (${v.reason})` : v.status
-  }
-  const dur = `${(v.duration_ms / 1000).toFixed(1)}s`
-  if (v.status === 'passed') {
-    return `${v.status} (${dur})`
-  }
-  return `${v.status} (exit ${v.exit_code}, ${dur})`
-})
-const verifyClass = computed<string>(() => {
-  switch (verify.value?.status) {
-    case 'passed':
-      return 'verify--ok'
-    case 'failed':
-    case 'timeout':
-      return 'verify--bad'
-    default:
-      return 'verify--skip'
-  }
-})
+const verifyText = computed<string>(() => verifyLabel(verify.value))
+const verifyTone = computed<string>(() => verifyClass(verify.value))
 
 // 用量/成本（SUP-01 E）：agent 自报的 token 与成本。缺项省略（agent 没报 ≠ 0），行尾括号
-// 是来源——和后端 `job show` / job.FormatUsage 同一行格式（两边各自渲染，格式对齐）。
+// 是来源——与后端 `job show` / job.FormatUsage 同一行格式（口径见 utils/jobOutcome）。
 const usage = computed<JobUsage | null>(() => job.value?.usage ?? null)
-
-// formatTokens 与后端 job.formatTokens 同规则：<1000 原样，其余带 k/M 且保留 3 位有效数字。
-function formatTokens(n: number): string {
-  if (n < 1000) {
-    return String(n)
-  }
-  if (n < 1_000_000) {
-    return `${Number((n / 1000).toPrecision(3))}k`
-  }
-  return `${Number((n / 1_000_000).toPrecision(3))}M`
-}
-
-const usageLine = computed<string>(() => {
-  const u = usage.value
-  if (!u) {
-    return ''
-  }
-  const parts: string[] = []
-  if ((u.input_tokens ?? 0) > 0) {
-    parts.push(`in ${formatTokens(u.input_tokens as number)}`)
-  }
-  if ((u.output_tokens ?? 0) > 0) {
-    parts.push(`out ${formatTokens(u.output_tokens as number)}`)
-  }
-  const cache = (u.cache_read_tokens ?? 0) + (u.cache_write_tokens ?? 0)
-  if (cache > 0) {
-    parts.push(`cache ${formatTokens(cache)}`)
-  }
-  if ((u.total_tokens ?? 0) > 0) {
-    parts.push(`total ${formatTokens(u.total_tokens as number)}`)
-  }
-  if ((u.cost_usd ?? 0) > 0) {
-    parts.push(`$${(u.cost_usd as number).toFixed(4)}`)
-  }
-  if (parts.length === 0) {
-    return ''
-  }
-  const line = parts.join(' / ')
-  return u.source ? `${line} (${u.source})` : line
-})
+const usageText = computed<string>(() => usageLine(usage.value))
 
 // scrollToVerifyOutput：把读者带到验证输出（stderr 末尾）。
 const logTape = ref<InstanceType<typeof LogTape> | null>(null)
@@ -1314,48 +1227,14 @@ onUnmounted(() => {
       <button class="reconnect" type="button" @click="manualReconnect">点击重连</button>
     </p>
 
-    <!-- 验收卡（GATE-01 S3）：needs_review 时 agent 已停、交付物等人定论。 -->
-    <section v-if="job && showReviewCard" class="review-card">
-      <div class="outcome-block">
-        <div class="outcome-head">
-          <span class="outcome-k mono">人工验收</span>
-          <span class="outcome-actions">
-            <button class="resume-go mono" type="button" :disabled="reviewing" @click="doAccept">
-              {{ reviewing ? '处理中…' : '验收通过' }}
-            </button>
-            <button class="resume-btn mono" type="button" @click="rejectOpen = !rejectOpen">
-              {{ rejectOpen ? '收起' : '拒绝…' }}
-            </button>
-          </span>
-        </div>
-        <p class="review-hint mono">
-          agent 已完成，但交付物还没人定论：通过即标记 done；拒绝必须写明理由。
-        </p>
-        <div v-if="rejectOpen" class="resume-form">
-          <textarea
-            v-model="rejectNote"
-            class="resume-input mono"
-            rows="3"
-            placeholder="拒绝理由（必填；勾选自动续投时它会作为续投指令）"
-          ></textarea>
-          <label class="review-check mono">
-            <input v-model="rejectResume" type="checkbox" />
-            <span>拒绝后自动续投（以理由为 prompt 起一个新 job）</span>
-          </label>
-          <div class="resume-actions">
-            <button
-              class="resume-go mono"
-              type="button"
-              :disabled="reviewing || !rejectNote.trim()"
-              @click="doReject"
-            >
-              {{ reviewing ? '处理中…' : '确认拒绝' }}
-            </button>
-          </div>
-        </div>
-        <span v-if="reviewError" class="resume-err mono">{{ reviewError }}</span>
-      </div>
-    </section>
+    <!-- 验收面板（REV-01）：汇报 / 提交 / Diff / 验证 / 用量五页签 + 底部 Accept/Reject
+         （已验收则回显 reviewed_by/at/note）。裁决与跳转经事件回传本页。 -->
+    <ReviewPanel
+      v-if="job && showReviewPanel"
+      :job="job"
+      @updated="applyStatus"
+      @resumed="onReviewResumed"
+    />
 
     <!-- 渲染命令：独立于「产出与审计」，running 态只要后端给出 rendered_command 即展示。 -->
     <section v-if="renderedCommand" class="rendered-command">
@@ -1581,10 +1460,10 @@ onUnmounted(() => {
 
       <!-- 验证步骤（SUP-01 P2）：agent 正常结束后在执行机同 cwd/env 跑的验收命令。
            failed/timeout 就是该 job 失败的原因；点「查看输出」跳到 stderr 末尾看命令的原始输出。 -->
-      <div v-if="verify" class="outcome-block" :class="verifyClass">
+      <div v-if="verify" class="outcome-block" :class="verifyTone">
         <div class="outcome-head">
           <span class="outcome-k mono">验证</span>
-          <span class="verify-status mono" :class="verifyClass">{{ verifyLabel }}</span>
+          <span class="verify-status mono" :class="verifyTone">{{ verifyText }}</span>
           <button class="copy-btn mono" type="button" @click="scrollToVerifyOutput">
             查看输出
           </button>
@@ -1594,11 +1473,11 @@ onUnmounted(() => {
 
       <!-- 用量/成本（SUP-01 E）：agent 自报的 token/成本结算。缺项不显示（没报 ≠ 0），
            行尾括号是来源；远端 job 的数字由执行机采集后随 Outcome 回传。 -->
-      <div v-if="usageLine" class="outcome-block">
+      <div v-if="usageText" class="outcome-block">
         <div class="outcome-head">
           <span class="outcome-k mono">用量</span>
         </div>
-        <pre class="outcome-pre verify-cmd mono">{{ usageLine }}</pre>
+        <pre class="outcome-pre verify-cmd mono">{{ usageText }}</pre>
       </div>
 
       <!-- diff 快照(E12)：git diff --stat 摘要（未提交改动）+ 查看完整 diff。 -->
@@ -1870,26 +1749,7 @@ onUnmounted(() => {
   background: var(--phosphor);
   color: var(--ink);
 }
-/* 验收卡（GATE-01 S3）：沿用 resume 系列的输入/按钮样式，只补卡片与复选行。 */
-.review-card {
-  margin-top: 12px;
-}
-.review-hint {
-  margin: 0 0 8px;
-  font-size: 12px;
-  color: var(--queue);
-}
-.review-check {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  font-size: 12px;
-  color: var(--paper);
-  cursor: pointer;
-}
-.review-check input {
-  accent-color: var(--phosphor);
-}
+/* 验收面板（REV-01）自带样式；这里只留 resume 系列输入框给 resume 表单复用。 */
 .resume-form {
   grid-column: 1 / -1;
   display: flex;

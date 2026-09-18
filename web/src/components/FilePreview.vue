@@ -1,16 +1,14 @@
 <script setup lang="ts">
 // 产物 / 关键文件 inline 预览（E19a + P3 关键文件共用）。
 // 按 name 后缀 + blob 大小判类型（design D5）：
-//  - .md       → marked 渲染 + DOMPurify.sanitize 后 v-html 注入（XSS 安全核心：
-//                产物是 agent 生成的不可信内容，绝不裸注入未 sanitize 的 HTML）。
+//  - .md       → MarkdownBlock（marked 渲染 + DOMPurify.sanitize，XSS 安全见该组件）。
 //  - 图片      → <img src=blob>（svg 也走 img，不内联 DOM，杜绝内嵌脚本执行）。
 //  - .json     → JSON.parse 后 pretty-print 入 <pre>。
 //  - 其他文本  → <pre> 起步（不做语法高亮）。
 //  - 超阈值/二进制 → 不渲染，提示并回退下载（emit download）。
 // 卸载/blob 变更时 revokeObjectURL，避免 blob URL 泄漏。
 import { onMounted, onUnmounted, ref, watch } from 'vue'
-import { marked } from 'marked'
-import DOMPurify from 'dompurify'
+import MarkdownBlock from './MarkdownBlock.vue'
 
 const props = defineProps<{ name: string; blob: Blob }>()
 const emit = defineEmits<{ (e: 'download'): void }>()
@@ -21,7 +19,7 @@ const MAX_PREVIEW_BYTES = 2 * 1024 * 1024
 type PreviewKind = 'markdown' | 'image' | 'json' | 'text' | 'fallback'
 
 const kind = ref<PreviewKind>('text')
-const html = ref('') // markdown：DOMPurify sanitize 后的 HTML（仅注入 sanitized 内容）
+const mdText = ref('') // markdown：原文交给 MarkdownBlock 渲染
 const textBody = ref('') // json 格式化 / 纯文本
 const imageUrl = ref('') // 图片 object URL
 const fallbackReason = ref('') // 回退原因：文件过大 / 二进制文件 / 无法预览
@@ -54,7 +52,7 @@ function looksBinary(text: string): boolean {
 async function process(): Promise<void> {
   loading.value = true
   error.value = ''
-  html.value = ''
+  mdText.value = ''
   textBody.value = ''
   imageUrl.value = ''
   fallbackReason.value = ''
@@ -78,9 +76,8 @@ async function process(): Promise<void> {
       imageUrl.value = objectUrl
       kind.value = 'image'
     } else if (ext === 'md' || ext === 'markdown') {
-      const text = await blob.text()
-      // XSS 安全核心：marked 渲染后必经 DOMPurify.sanitize 才注入。
-      html.value = DOMPurify.sanitize(marked.parse(text, { async: false }))
+      // 原文交给 MarkdownBlock（它做 marked + DOMPurify sanitize 后注入）。
+      mdText.value = await blob.text()
       kind.value = 'markdown'
     } else if (ext === 'json') {
       const text = await blob.text()
@@ -128,9 +125,10 @@ onUnmounted(revoke)
     <p v-if="loading" class="fp-loading mono">加载中…</p>
     <p v-else-if="error" class="fp-error mono">{{ error }}</p>
     <template v-else>
-      <!-- markdown：仅注入 DOMPurify sanitize 后的 HTML（绝不裸注入不可信内容）。 -->
-      <!-- eslint-disable-next-line vue/no-v-html -->
-      <div v-if="kind === 'markdown'" class="fp-md" v-html="html"></div>
+      <!-- markdown：MarkdownBlock 内部走 marked + DOMPurify sanitize（绝不裸注入不可信内容）。 -->
+      <div v-if="kind === 'markdown'" class="fp-md">
+        <MarkdownBlock :text="mdText" />
+      </div>
       <!-- 图片（svg 也走 img，不内联 DOM）。 -->
       <img v-else-if="kind === 'image'" class="fp-img" :src="imageUrl" :alt="name" />
       <!-- json：格式化 pre。 -->
@@ -207,81 +205,9 @@ onUnmounted(revoke)
   color: var(--ink);
 }
 
-/* markdown 渲染内容（v-html 注入的是 DOMPurify sanitize 后的 HTML）。
-   scoped 不穿透动态 HTML，故用 :deep() 给常见元素补排版。 */
+/* markdown：仅作滚动容器；元素排版在 MarkdownBlock（scoped 样式穿不透 v-html）。 */
 .fp-md {
-  font-size: 13px;
-  line-height: 1.6;
-  color: var(--paper);
   overflow: auto;
   max-height: 70vh;
-  word-break: break-word;
-}
-.fp-md :deep(h1),
-.fp-md :deep(h2),
-.fp-md :deep(h3),
-.fp-md :deep(h4) {
-  color: var(--paper);
-  margin: 1em 0 0.5em;
-  line-height: 1.3;
-}
-.fp-md :deep(h1) {
-  font-size: 1.5em;
-}
-.fp-md :deep(h2) {
-  font-size: 1.3em;
-}
-.fp-md :deep(h3) {
-  font-size: 1.15em;
-}
-.fp-md :deep(a) {
-  color: var(--phosphor);
-}
-.fp-md :deep(p),
-.fp-md :deep(ul),
-.fp-md :deep(ol) {
-  margin: 0.5em 0;
-}
-.fp-md :deep(code) {
-  font-family: var(--font-mono, monospace);
-  font-size: 0.92em;
-  background: var(--term-bg);
-  padding: 1px 5px;
-  border-radius: 3px;
-}
-.fp-md :deep(pre) {
-  background: var(--term-bg);
-  border: 1px solid var(--line);
-  border-radius: var(--radius);
-  padding: 10px 12px;
-  overflow: auto;
-}
-.fp-md :deep(pre code) {
-  background: none;
-  padding: 0;
-}
-.fp-md :deep(blockquote) {
-  margin: 0.5em 0;
-  padding-left: 12px;
-  border-left: 2px solid var(--line);
-  color: var(--queue);
-}
-.fp-md :deep(table) {
-  border-collapse: collapse;
-  margin: 0.5em 0;
-}
-.fp-md :deep(th),
-.fp-md :deep(td) {
-  border: 1px solid var(--line);
-  padding: 4px 10px;
-  text-align: left;
-}
-.fp-md :deep(img) {
-  max-width: 100%;
-}
-.fp-md :deep(hr) {
-  border: none;
-  border-top: 1px solid var(--line);
-  margin: 1em 0;
 }
 </style>
