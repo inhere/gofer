@@ -474,9 +474,11 @@ export function deleteAgentSession(sid: string): Promise<{ deleted: boolean }> {
   })
 }
 
-export function logsTail(id: string, stream: LogStream): Promise<string> {
+// 日志尾部字节：默认 256KB（详情页整屏日志）；验收面板取汇报/verify 输出时按需收窄
+// （REV-01 用 64KB，够装一份 agent 汇报）。
+export function logsTail(id: string, stream: LogStream, bytes = 262144): Promise<string> {
   return requestText(
-    `/v1/jobs/${encodeURIComponent(id)}/logs/${stream}?bytes=262144`,
+    `/v1/jobs/${encodeURIComponent(id)}/logs/${stream}?bytes=${encodeURIComponent(String(bytes))}`,
   )
 }
 

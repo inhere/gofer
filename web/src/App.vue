@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { clearToken, hasToken } from './store/auth'
 import EscalationBell from './components/EscalationBell.vue'
 import TopbarMenu from './components/TopbarMenu.vue'
+import { needsReviewCount } from './store/reviewCount'
 
 const router = useRouter()
 const route = useRoute()
@@ -36,11 +37,21 @@ watch(
 
 const homeNav = { to: '/dashboard', label: 'Home' }
 const settingsNav = { to: '/config', label: '⚙ 设置' }
-const navGroups = [
+
+interface NavItem {
+  to: string
+  label: string
+  // badge 指明该入口要挂哪个计数（REV-01：Review 挂待验收数）。
+  badge?: 'needs_review'
+}
+
+const navGroups: Array<{ label: string; items: NavItem[] }> = [
   {
     label: '观察',
     items: [
       { to: '/board', label: 'Board' },
+      // REV-01 验收台：待验收 job 就在 Board 之后，徽标数来自 EscalationBell 的轮询。
+      { to: '/review', label: 'Review', badge: 'needs_review' },
       { to: '/plans', label: 'Plans' },
       { to: '/sessions', label: 'Sessions' },
       { to: '/workflows', label: 'Workflows' },
@@ -104,6 +115,11 @@ function closeDrawer() {
             active-class="nav-link--active"
           >
             {{ item.label }}
+            <span
+              v-if="item.badge === 'needs_review' && needsReviewCount > 0"
+              class="nav-badge"
+              :title="`${needsReviewCount} 个 job 待验收`"
+            >{{ needsReviewCount }}</span>
           </RouterLink>
         </span>
         <RouterLink
@@ -154,6 +170,10 @@ function closeDrawer() {
               @click="closeDrawer"
             >
               {{ item.label }}
+              <span
+                v-if="item.badge === 'needs_review' && needsReviewCount > 0"
+                class="nav-badge"
+              >{{ needsReviewCount }}</span>
             </RouterLink>
           </section>
 
@@ -277,6 +297,18 @@ function closeDrawer() {
   border-left: 1px solid var(--line);
   padding-left: 14px;
   margin-left: 2px;
+}
+/* 入口计数徽标（REV-01 待验收数）：小圆角块，悬停给 title 明细。 */
+.nav-badge {
+  display: inline-block;
+  margin-left: 5px;
+  padding: 0 5px;
+  border-radius: 8px;
+  background: var(--run);
+  color: var(--ink);
+  font-size: 10px;
+  line-height: 14px;
+  vertical-align: middle;
 }
 
 .topbar-right {

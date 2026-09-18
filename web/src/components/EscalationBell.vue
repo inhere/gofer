@@ -4,11 +4,13 @@ import { useRouter } from 'vue-router'
 import {
   answerDecision,
   answerInteraction,
+  getStats,
   listOpenDecisions,
   listPendingInteractions,
   puntInteraction,
 } from '../api/client'
 import type { Decision, Interaction } from '../api/types'
+import { needsReviewCount } from '../store/reviewCount'
 import InteractionToast from './InteractionToast.vue'
 
 const POLL_MS = 5000
@@ -110,10 +112,23 @@ function truncLine(s: string, max: number): string {
   return first.length > max ? `${first.slice(0, max)}...` : first
 }
 
+// 待验收计数（REV-01）：复用铃铛这一轮轮询去读 /v1/stats，把 needs_review 数写进
+// 共享 store 给顶栏 Review 入口的徽标用——不另起定时器。计数是提示性信息，拉不到
+// 就保留上一次的值（不打断铃铛本体）。
+async function refreshReviewCount(): Promise<void> {
+  try {
+    const s = await getStats()
+    needsReviewCount.value = s.jobs?.by_status?.needs_review ?? 0
+  } catch {
+    // 保持上一次的值
+  }
+}
+
 async function fetchPending(): Promise<void> {
   if (document.hidden) {
     return
   }
+  void refreshReviewCount()
   const [iresp, dresp] = await Promise.all([
     listPendingInteractions(),
     listOpenDecisions(),
