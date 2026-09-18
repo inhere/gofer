@@ -114,7 +114,8 @@ var schemaStmts = []string{
   require_review   INTEGER NOT NULL DEFAULT 0,
   reviewed_by      TEXT,
   reviewed_at      INTEGER,
-  review_note      TEXT
+  review_note      TEXT,
+  verify_json      TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -557,6 +558,12 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := add("commits_json", "commits_json TEXT"); err != nil {
+		return err
+	}
+	// verify 步骤（SUP-01 P2）：该 job 的验证步骤结果（argv/status/exit/duration 的 JSON），
+	// 空=没有验证步骤。旧库 ALTER ADD，旧行 COALESCE→""，读作"未跑验证"，不会把历史 job
+	// 伪造成已验证或验证失败。
+	if err := add("verify_json", "verify_json TEXT"); err != nil {
 		return err
 	}
 	// plan 编排 P5：血缘键——resume/rebuild 出的 job 指回源 job（服务端盖章 source_job_id=源 id）。

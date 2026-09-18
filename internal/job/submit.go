@@ -36,6 +36,15 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		return JobResult{}, err
 	}
 
+	// SUP-01 P2: resolve the verify step (argv + deadline) from the SAME cfg snapshot
+	// BEFORE validate, so the admission gates, the Forward, request_json and the
+	// persisted row all carry one decided pair — an executing machine (or a rerun)
+	// never re-derives the project default. A verify/no_verify contradiction is
+	// rejected here, while both are still visible.
+	if err := resolveVerify(cfg, &req); err != nil {
+		return JobResult{}, err
+	}
+
 	// A remote runner (peer-http OR ws-worker) forwards the original request to a
 	// remote executor that resolves agent/cwd/command with its OWN config. The host
 	// therefore skips local agent/cwd resolution for remote jobs (it still validates
@@ -191,6 +200,11 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	runReq.Interactive = req.Interactive
 	runReq.Cols = req.Cols
 	runReq.Rows = req.Rows
+	// SUP-01 P2: the resolved verify step rides the request the job service executes
+	// with, so the step runs on this machine in the job's own WorkDir/Env; a remote
+	// job's copy of the same pair rides the Forward instead (see Forward.Verify).
+	runReq.Verify = req.Verify
+	runReq.VerifyTimeoutSec = req.VerifyTimeoutSec
 	// Path B priming (session relay §9.1 B): the takeover job's first message is
 	// typed into the pty once its terminal settles. The quiet window is resolved
 	// HERE, from the same config snapshot as every other admitted value, so a
@@ -240,6 +254,11 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// in selectTargetWorker). Empty for peer-http and for worker jobs relying
 			// on the runner's configured default (D4).
 			WorkerID: req.WorkerID,
+			// SUP-01 P2: the resolved verify step (argv + its own deadline) rides to
+			// the executor, which owns the checkout being verified. The hub refuses a
+			// dispatch to a worker that cannot honour it (protocol < 8).
+			Verify:           req.Verify,
+			VerifyTimeoutSec: req.VerifyTimeoutSec,
 		}
 		// Bridge the peer's running-job interactions (P9) onto this host job.
 		runReq.Interactions = remoteInteractionSink{s: s, jobID: jobID}

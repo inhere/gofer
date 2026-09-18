@@ -19,8 +19,10 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -47,6 +49,35 @@ var hostCancelGrace = 10 * time.Second
 // sinkTruncateMark is appended once when a job's mirrored output is truncated by
 // back-pressure, so the reader sees that bytes were dropped (review #3).
 const sinkTruncateMark = "\n[gofer: log frame truncated by worker back-pressure]\n"
+
+// unsupportedDispatchFields lists the dispatch fields this job NEEDS that a worker
+// at protocol version proto cannot carry (SUP-01 P2, G032). It is the single place
+// that maps a request field to the capability floor it depends on, so a newly added
+// optional field cannot be shipped without deciding what an older peer does with it.
+//
+// An absent field is never a reason to refuse (the second half of the rule): a v5
+// worker can still run an ordinary job.
+func unsupportedDispatchFields(proto int, f *runner.Forward) []string {
+	var lacks []string
+	if len(f.Verify) > 0 && !wsproto.SupportsVerify(proto) {
+		lacks = append(lacks, "verify")
+	}
+	if f.TodoID != "" && !wsproto.SupportsVerify(proto) {
+		lacks = append(lacks, "todo_id")
+	}
+	if !wsproto.SupportsSessionLoad(proto) {
+		if f.ResumedFrom != "" {
+			lacks = append(lacks, "session_id")
+		}
+		if f.ReadOnly {
+			lacks = append(lacks, "read_only")
+		}
+	}
+	if f.InitialInput != "" && !wsproto.SupportsInitialInput(proto) {
+		lacks = append(lacks, "initial_input")
+	}
+	return lacks
+}
 
 // dispatcher is the subset of *wshub.Hub the runner uses. It is an interface so
 // the runner's sink-lifecycle can be unit-tested with a fake (the production
@@ -142,6 +173,19 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	}
 	if workerID == "" {
 		return runner.Result{ExitCode: -1, Err: errors.New("worker runner: no target worker_id")}
+	}
+	// Capability gate (SUP-01 P2, G032): every field below is ADDITIVE on the wire, so
+	// a peer that predates it would decode the frame and silently ignore the field —
+	// the job would run without its verify step / continuation / priming and be
+	// reported as if it had. Refuse the dispatch instead, naming exactly what the
+	// worker is missing, so the operator upgrades THAT worker (a v<n> worker stays
+	// fully usable for every job that does not need the newer capabilities).
+	if proto, ok := r.hub.WorkerProtocol(workerID); ok {
+		if lacks := unsupportedDispatchFields(proto, f); len(lacks) > 0 {
+			return runner.Result{ExitCode: -1, Err: fmt.Errorf(
+				"worker %q protocol v%d lacks %s; upgrade the worker",
+				workerID, proto, strings.Join(lacks, ", "))}
+		}
 	}
 
 	var relayPrepared bool
@@ -251,6 +295,10 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// SUP-01 C: display-only on the worker — the todo itself is the hub's, so the
 		// worker shows the id and links nothing (see JobRequest.TodoForeign).
 		TodoID: f.TodoID,
+		// SUP-01 P2: the verify step's argv + deadline travel together; the worker runs
+		// the step against ITS checkout and reports the result back on the outcome.
+		Verify:           f.Verify,
+		VerifyTimeoutSec: f.VerifyTimeoutSec,
 	}
 	// ACP-01 S2: a continuation carries its session + lineage so the worker's local
 	// job resolves the same session/load. Set ONLY for a resume — a plain job's
@@ -258,27 +306,6 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	if f.ResumedFrom != "" {
 		d.SessionID = f.SessionID
 		d.ResumedFrom = f.ResumedFrom
-	}
-	// The dispatch fields above are additive, so a worker built before
-	// wsproto.SessionLoadMinProtocolVersion IGNORES them: it opens a fresh session for
-	// a resume and runs a read-only job writable. The hub cannot fix that — the
-	// worker's own code decides — so it records what will actually happen instead of
-	// failing a job whose only defect is the peer's vintage.
-	if f.ResumedFrom != "" || f.ReadOnly {
-		if proto, ok := r.hub.WorkerProtocol(workerID); ok && !wsproto.SupportsSessionLoad(proto) {
-			slog.Warn("worker runner: target worker predates the resume/read-only dispatch fields; it will open a new session / run writable",
-				"worker_id", workerID, "worker_proto", proto, "job_id", req.JobID,
-				"resume", f.ResumedFrom != "", "read_only", f.ReadOnly)
-		}
-	}
-	// Same negotiation for path B's priming: a worker below v7 silently drops the
-	// fields, so the takeover's first message never reaches the resumed TUI. Say so
-	// per dispatch — failing the job would not make the worker type anything.
-	if f.InitialInput != "" {
-		if proto, ok := r.hub.WorkerProtocol(workerID); ok && !wsproto.SupportsInitialInput(proto) {
-			slog.Warn("worker runner: target worker predates the initial-input dispatch fields; the takeover message will not be typed into the session",
-				"worker_id", workerID, "worker_proto", proto, "job_id", req.JobID)
-		}
 	}
 	if err := r.hub.Dispatch(workerID, d); err != nil {
 		relayCloseReason = "dispatch_failed"
@@ -395,6 +422,24 @@ func OutcomeFrom(o *wsproto.Outcome, workerID string) *runner.Outcome {
 		// with the outcome like the worktree state does.
 		BaseSHA: o.BaseSHA,
 		Commits: commitsFromFrame(o.Commits),
+		// SUP-01 P2: the worker ran the verify step against ITS checkout, so its verdict
+		// travels with the outcome and the host applies it to the job row.
+		Verify: verifyFromFrame(o.Verify),
+	}
+}
+
+// verifyFromFrame copies the frame's verify result onto the runner's own type
+// (wsproto stays a leaf and defines its own, like Outcome.Commits).
+func verifyFromFrame(v *wsproto.VerifyResult) *runner.VerifyResult {
+	if v == nil {
+		return nil
+	}
+	return &runner.VerifyResult{
+		Command:    v.Command,
+		Status:     v.Status,
+		ExitCode:   v.ExitCode,
+		DurationMs: v.DurationMs,
+		Reason:     v.Reason,
 	}
 }
 

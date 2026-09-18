@@ -227,6 +227,14 @@ function loadAll(): void {
   emit('load-all', activeStream.value)
 }
 
+// focusStderr 切到 stderr 页签并滚到它的末尾。job 详情页的「验证」块用它把读者直接带到
+// 验证输出（验收命令的横幅与 stdout/stderr 都写在这条流上）。与点页签同一路径，所以
+// "用户手动选过流"的标记一并置位（自动跟随不再抢回）。
+function focusStderr(): void {
+  selectStream('stderr')
+}
+defineExpose({ focusStderr })
+
 function toggleStdoutMarkdown(): void {
   stdoutMarkdownMode.value = !stdoutMarkdownMode.value
 }

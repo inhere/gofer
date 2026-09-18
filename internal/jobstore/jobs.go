@@ -140,6 +140,10 @@ type JobRecord struct {
 	// 新→旧）。非 git 仓/采集失败留空（旧库 COALESCE→""）；与 job.JobResult 互转。
 	BaseSHA     string
 	CommitsJSON string
+	// VerifyJSON is the verify step's result (SUP-01 P2) as the marshalled
+	// job.VerifyResult, or "" when the job had no step. Persisted so a finished job
+	// still answers "what did we check, and did it pass?" long after its logs rotated.
+	VerifyJSON string
 	// SourceJobID 是血缘键（P5）：resume/rebuild 出的 job 指回源 job id（服务端盖章）。空=非
 	// 派生（旧库 COALESCE→""）。与 job.JobResult.SourceJobID 互转；反查 ?source_job=。
 	// 注意区别既有 Source 列（执行位置 worker:/peer:）。
@@ -240,7 +244,8 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,
   COALESCE(recovering_since,0),
   COALESCE(worktree_path,''), COALESCE(worktree_branch,''), COALESCE(worktree_base_sha,''),
   COALESCE(worktree_head_sha,''), COALESCE(commits_ahead,0), COALESCE(read_only,0),
-  COALESCE(require_review,0), COALESCE(reviewed_by,''), COALESCE(reviewed_at,0), COALESCE(review_note,'') FROM jobs`
+  COALESCE(require_review,0), COALESCE(reviewed_by,''), COALESCE(reviewed_at,0), COALESCE(review_note,''),
+  COALESCE(verify_json,'') FROM jobs`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -269,6 +274,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.WorktreePath, &r.WorktreeBranch, &r.WorktreeBaseSHA,
 		&r.WorktreeHeadSHA, &r.CommitsAhead, &readOnly,
 		&requireReview, &r.ReviewedBy, &r.ReviewedAt, &r.ReviewNote,
+		&r.VerifyJSON,
 	)
 	r.Interactive = interactive != 0
 	r.TimeoutClamped = timeoutClamped != 0
@@ -298,8 +304,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 	    todo_id, base_sha, commits_json,
 	    timeout_sec, requested_timeout_sec, timeout_clamped, recovering_since,
 	    worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead, read_only,
-	    require_review, reviewed_by, reviewed_at, review_note)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	    require_review, reviewed_by, reviewed_at, review_note, verify_json)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -359,7 +365,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     require_review=excluded.require_review,
     reviewed_by=excluded.reviewed_by,
     reviewed_at=excluded.reviewed_at,
-    review_note=excluded.review_note`
+    review_note=excluded.review_note,
+    verify_json=excluded.verify_json`
 	// Serialise writes in-process (see Store.writeMu) so SQLite never sees two
 	// concurrent writers and cannot return SQLITE_BUSY under burst.
 	s.writeMu.Lock()
@@ -382,6 +389,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.WorktreePath, rec.WorktreeBranch, rec.WorktreeBaseSHA,
 		rec.WorktreeHeadSHA, rec.CommitsAhead, rec.ReadOnly,
 		rec.RequireReview, rec.ReviewedBy, rec.ReviewedAt, rec.ReviewNote,
+		rec.VerifyJSON,
 	)
 	if err != nil {
 		// A competing INSERT with the same non-empty request_id (different id)

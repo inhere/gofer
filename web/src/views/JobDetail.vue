@@ -42,6 +42,7 @@ import type {
   JobCommit,
   JobEvent,
   JobStatus,
+  JobVerify,
   LogStream,
   PtySession,
   SSEEvent,
@@ -991,11 +992,49 @@ const hasOutcomes = computed<boolean>(
     resultJsonPretty.value !== '' ||
     artifacts.value.length > 0 ||
     diffSummary.value !== '' ||
-    commits.value.length > 0,
+    commits.value.length > 0 ||
+    // SUP-01 P2：验证步骤是"到底验没验、过没过"的结论，即使 job 没有其他产出也要展示。
+    verify.value !== null,
 )
 
 // 提交列表（SUP-01 C）：本 job 从 base_sha 到 HEAD 产出的提交，新→旧。
 const commits = computed<JobCommit[]>(() => job.value?.commits ?? [])
+
+// 验证步骤（SUP-01 P2）：agent 结束后本机跑的验收命令。块只在后端有结果时出现（无步骤=无块），
+// 颜色随 status（passed 绿 / failed、timeout 红 / skipped 灰），命令与耗时直接可读。
+const verify = computed<JobVerify | null>(() => job.value?.verify ?? null)
+const verifyCommand = computed<string>(() => (verify.value?.command ?? []).join(' '))
+const verifyLabel = computed<string>(() => {
+  const v = verify.value
+  if (!v) {
+    return ''
+  }
+  if (v.status === 'skipped') {
+    return v.reason ? `${v.status} (${v.reason})` : v.status
+  }
+  const dur = `${(v.duration_ms / 1000).toFixed(1)}s`
+  if (v.status === 'passed') {
+    return `${v.status} (${dur})`
+  }
+  return `${v.status} (exit ${v.exit_code}, ${dur})`
+})
+const verifyClass = computed<string>(() => {
+  switch (verify.value?.status) {
+    case 'passed':
+      return 'verify--ok'
+    case 'failed':
+    case 'timeout':
+      return 'verify--bad'
+    default:
+      return 'verify--skip'
+  }
+})
+
+// scrollToVerifyOutput：把读者带到验证输出（stderr 末尾）。
+const logTape = ref<InstanceType<typeof LogTape> | null>(null)
+function scrollToVerifyOutput(): void {
+  logTape.value?.focusStderr()
+}
 
 function copyCommit(sha: string): void {
   void navigator.clipboard.writeText(sha).catch(() => {
@@ -1493,6 +1532,19 @@ onUnmounted(() => {
         </ul>
       </div>
 
+      <!-- 验证步骤（SUP-01 P2）：agent 正常结束后在执行机同 cwd/env 跑的验收命令。
+           failed/timeout 就是该 job 失败的原因；点「查看输出」跳到 stderr 末尾看命令的原始输出。 -->
+      <div v-if="verify" class="outcome-block" :class="verifyClass">
+        <div class="outcome-head">
+          <span class="outcome-k mono">验证</span>
+          <span class="verify-status mono" :class="verifyClass">{{ verifyLabel }}</span>
+          <button class="copy-btn mono" type="button" @click="scrollToVerifyOutput">
+            查看输出
+          </button>
+        </div>
+        <pre class="outcome-pre verify-cmd mono">{{ verifyCommand }}</pre>
+      </div>
+
       <!-- diff 快照(E12)：git diff --stat 摘要（未提交改动）+ 查看完整 diff。 -->
       <div v-if="diffSummary" class="outcome-block">
         <div class="outcome-head">
@@ -1513,6 +1565,7 @@ onUnmounted(() => {
     </section>
 
     <LogTape
+      ref="logTape"
       :stdout="stdout"
       :stderr="stderr"
       :live="live"
@@ -2238,6 +2291,31 @@ onUnmounted(() => {
 .outcome-pre .cmd-bin {
   color: var(--phosphor);
   font-weight: 600;
+}
+/* 验证步骤（SUP-01 P2）：块边框随结论变色，右上角状态文字同色——一眼看出"验收过没过"。 */
+.outcome-block.verify--ok {
+  border-color: var(--done);
+}
+.outcome-block.verify--bad {
+  border-color: var(--fail);
+}
+.verify-status {
+  font-size: 12px;
+}
+.verify-status.verify--ok {
+  color: var(--done);
+}
+.verify-status.verify--bad {
+  color: var(--fail);
+}
+.verify-status.verify--skip {
+  color: var(--queue);
+  opacity: 0.85;
+}
+.verify-cmd {
+  max-height: 160px;
+  overflow: auto;
+  color: var(--phosphor);
 }
 .outcome-md {
   white-space: normal;

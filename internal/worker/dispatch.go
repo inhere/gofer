@@ -105,6 +105,11 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// not own.
 		TodoID:      d.TodoID,
 		TodoForeign: d.TodoID != "",
+		// SUP-01 P2: the verify step runs HERE, in this machine's checkout (the hub has
+		// none), and its structured result goes back on the Outcome frame. The worker's
+		// own admission re-checks allow_exec with ITS project config.
+		Verify:           d.Verify,
+		VerifyTimeoutSec: d.VerifyTimeoutSec,
 		// GATE-01 S3: 人工验收 is decided by the HUB (the design's "验收判定只在 hub
 		// 做"), so a dispatched job's LOCAL row must finish normally — its status is
 		// what the Result frame reports and what the log-tail loop waits on, and a
@@ -230,13 +235,31 @@ func outcomeFrame(remoteJobID string, final job.JobResult) (wsproto.Outcome, boo
 		// SUP-01 C：提交采集在 worker 的 checkout 上做的（host 没有那棵树），随产出回传。
 		BaseSHA: final.BaseSHA,
 		Commits: commitsToFrame(final.Commits),
+		// SUP-01 P2：验证步骤在 worker 本机跑（校验的是它那棵树），结构化结果随产出回传
+		// host —— host 不会重跑（那会校验一棵 job 从未碰过的树）。
+		Verify: verifyToFrame(final.Verify),
 	}
 	if final.ArtifactsJSON != "" {
 		o.Artifacts = json.RawMessage(final.ArtifactsJSON)
 	}
 	send := o.RenderedCommand != "" || o.ResultJSON != "" || o.DiffSummary != "" || len(o.Artifacts) > 0 ||
-		o.SessionID != "" || o.WorktreePath != "" || o.BaseSHA != "" || len(o.Commits) > 0
+		o.SessionID != "" || o.WorktreePath != "" || o.BaseSHA != "" || len(o.Commits) > 0 || o.Verify != nil
 	return o, send
+}
+
+// verifyToFrame copies the local job's verify result onto the wire type (wsproto
+// stays a leaf and defines its own VerifyResult).
+func verifyToFrame(v *job.VerifyResult) *wsproto.VerifyResult {
+	if v == nil {
+		return nil
+	}
+	return &wsproto.VerifyResult{
+		Command:    v.Command,
+		Status:     v.Status,
+		ExitCode:   v.ExitCode,
+		DurationMs: v.DurationMs,
+		Reason:     v.Reason,
+	}
 }
 
 // commitsToFrame copies the local job's captured commit list onto the wire type

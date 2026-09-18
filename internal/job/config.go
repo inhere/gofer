@@ -131,6 +131,16 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 		}
 	}
 
+	// SUP-01 P2: the verify argv is supplied by the SUBMITTER and executed verbatim —
+	// the same trust surface as an exec job's argv — so it needs the project's
+	// allow_exec. Checked BEFORE the exec-agent gate below (it is the more specific
+	// statement about THIS request) and on the EXECUTING side, like that gate: a
+	// worker job's step is admitted by the machine that runs it, against ITS config.
+	if len(req.Verify) > 0 && !remote && !proj.AllowExec {
+		return config.ProjectConfig{}, fmt.Errorf(
+			"%w: verify requires allow_exec (project %q has allow_exec=false)", ErrInvalidRequest, req.ProjectKey)
+	}
+
 	if !remote {
 		// exec security gate: the agent must be type exec AND the project must opt
 		// in. Skipped for remote jobs — the peer enforces its own exec gate. For a

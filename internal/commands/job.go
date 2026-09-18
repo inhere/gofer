@@ -52,6 +52,9 @@ type jobRunFlags struct {
 	worktreeBase string
 	review       bool
 	readOnly     bool
+	verify       string
+	verifyTime   int
+	noVerify     bool
 }
 
 // jobRunOpts holds `job run` flags. prompt is supplied via the --prompt flag
@@ -440,6 +443,12 @@ func bindJobRunFlags(c *gcli.Command) {
 	// GATE-01 S3：人工验收——agent 正常完成后停在 needs_review，等人 accept/reject。
 	c.BoolOpt2(&jobRunOpts.review, "review", "require human review: on a normal completion the job parks in needs_review until someone accepts or rejects it", gflag.WithCategory("Execution"))
 	c.IntOpt2(&jobRunOpts.timeout, "timeout", "job timeout in seconds (0 = server default)", jobRunOptCategory("Execution", 0))
+	// SUP-01 P2：验证步骤——agent 正常结束（exit 0）后在同一个 cwd/env 里跑的验收命令；
+	// 失败即 job failed。CLI 收一整条命令行（shell-words 拆 argv；gofer 不经过 shell，
+	// 需要 shell 就写成 --verify 'bash -lc "…"'）。
+	c.StrOpt2(&jobRunOpts.verify, "verify", "command to run after the agent finishes (shell-words, no shell); a non-zero exit fails the job", jobRunOptCategory("Execution", ""))
+	c.IntOpt2(&jobRunOpts.verifyTime, "verify-timeout", "timeout for the --verify step in seconds (0 = project default, 600s)", jobRunOptCategory("Execution", 0))
+	c.BoolOpt2(&jobRunOpts.noVerify, "no-verify", "do not run the project's default verify step for this job", gflag.WithCategory("Execution"))
 
 	// Submission: provenance and grouping metadata.
 	c.StrOpt2(&jobRunOpts.title, "title", "optional job title", jobRunOptCategory("Submission", ""))
@@ -790,6 +799,20 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		channel = "cli"
 	}
 	runner := normalizeJobRunner(jobRunOpts.runner)
+	// SUP-01 P2: --verify takes ONE command line and the wire takes an argv, so the
+	// split happens here (never later: gofer runs the argv verbatim). An empty or
+	// unsplittable value is a usage error, not a silently dropped step.
+	var verify []string
+	if strings.TrimSpace(jobRunOpts.verify) != "" {
+		words, verr := splitShellWords(jobRunOpts.verify)
+		if verr != nil {
+			return job.JobRequest{}, verr
+		}
+		if len(words) == 0 {
+			return job.JobRequest{}, fmt.Errorf("--verify is empty")
+		}
+		verify = words
+	}
 	req := job.JobRequest{
 		ProjectKey:     jobRunOpts.project,
 		Agent:          jobRunOpts.agent,
@@ -813,8 +836,12 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		ReadOnly:       jobRunOpts.readOnly,
 		// GATE-01 S3：人工验收（正常完成 → needs_review，等人 accept/reject）。
 		Review: jobRunOpts.review,
-		Cols:   jobRunOpts.cols,
-		Rows:   jobRunOpts.rows,
+		// SUP-01 P2：验证步骤（argv 已在此拆好）+ 它的独立超时 + 关闭项目默认的开关。
+		Verify:           verify,
+		VerifyTimeoutSec: jobRunOpts.verifyTime,
+		NoVerify:         jobRunOpts.noVerify,
+		Cols:             jobRunOpts.cols,
+		Rows:             jobRunOpts.rows,
 		// 提交来源（provenance）：CLI 渠道(默认 cli，可 --channel 覆盖) + 本机 hostname。
 		// server 端若 client 为空会以 remote IP 兜底盖章。
 		Channel: channel,
@@ -824,6 +851,66 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		SystemPrompt: jobRunOpts.systemPrompt,
 	}
 	return req, nil
+}
+
+// splitShellWords splits ONE command line into an argv the way a POSIX shell would
+// do it for QUOTING only — no expansion, no globbing, no operators. It exists because
+// `--verify` takes a command as a human writes it while the wire format (and the
+// execution) is an argv: gofer never runs a shell, so the operator's intent has to be
+// captured here rather than re-interpreted later.
+//
+// Rules: whitespace separates words; single quotes are literal; inside double quotes
+// `\"` and `\\` escape; outside quotes a backslash escapes the next character; `”`
+// and `""` produce an empty word. An unbalanced quote or a trailing backslash is an
+// error — the CLI must refuse to guess an argv, not run something nobody wrote.
+func splitShellWords(s string) ([]string, error) {
+	var (
+		out     []string
+		cur     strings.Builder
+		quote   rune
+		started bool
+		escaped bool
+	)
+	flush := func() {
+		if started {
+			out = append(out, cur.String())
+			cur.Reset()
+			started = false
+		}
+	}
+	for _, r := range s {
+		switch {
+		case escaped:
+			cur.WriteRune(r)
+			escaped = false
+		case r == '\\' && quote != '\'':
+			escaped = true
+			started = true
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			} else {
+				cur.WriteRune(r)
+			}
+			started = true
+		case r == '\'' || r == '"':
+			quote = r
+			started = true
+		case r == ' ' || r == '\t' || r == '\n' || r == '\r':
+			flush()
+		default:
+			cur.WriteRune(r)
+			started = true
+		}
+	}
+	if escaped {
+		return nil, fmt.Errorf("--verify ends with a backslash: %q", s)
+	}
+	if quote != 0 {
+		return nil, fmt.Errorf("--verify has an unbalanced %c quote: %q", quote, s)
+	}
+	flush()
+	return out, nil
 }
 
 // normalizeJobRunner keeps the public CLI name unambiguous while preserving the
@@ -1000,6 +1087,11 @@ func runJobShow(c *gcli.Command, _ []string) error {
 		for _, cm := range res.Commits {
 			c.Printf("            %s %s\n", cm.SHA, cm.Subject)
 		}
+	}
+	// SUP-01 P2：验证步骤的结果——"验收跑了什么、过没通过、为什么"。skipped 说明 agent 没
+	// 正常结束（reason 写明是 agent 失败/取消/超时），failed/timeout 就是 job 失败的原因。
+	if v := res.Verify; v != nil {
+		c.Printf("verify:     %s\n", formatVerify(v))
 	}
 	if res.Error != "" {
 		c.Printf("error:      %s\n", res.Error)
@@ -1178,6 +1270,25 @@ func runJobList(c *gcli.Command, _ []string) error {
 	}
 	c.Print(tb.Render())
 	return nil
+}
+
+// formatVerify renders a job's verify step for `job show`: the status plus the
+// detail a reader acts on — the exit code for a failed/timed-out step, the duration
+// for one that ran, and the reason for a skipped step (which is WHY there is no
+// duration: the agent never finished). SUP-01 P2.
+func formatVerify(v *job.VerifyResult) string {
+	dur := fmt.Sprintf("%.1fs", float64(v.DurationMs)/1000)
+	switch v.Status {
+	case job.VerifySkipped:
+		if v.Reason != "" {
+			return fmt.Sprintf("%s (%s)", v.Status, v.Reason)
+		}
+		return v.Status
+	case job.VerifyPassed:
+		return fmt.Sprintf("%s (%s)", v.Status, dur)
+	default:
+		return fmt.Sprintf("%s (exit %d, %s)", v.Status, v.ExitCode, dur)
+	}
 }
 
 // formatStarted renders a unix-seconds started_at as a local timestamp; 0 (never

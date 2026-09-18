@@ -19,6 +19,18 @@ import (
 // has exactly one definition.
 const EventInputInjected = "job.input_injected"
 
+// The approval-gate job events (GATE-01 §1): recorded by the acp runner when a
+// session/request_permission is raised, answered (by a human or automatically) or
+// timed out. They live here for the same reason as EventInputInjected — the acp
+// runner cannot import job — and, since SUP-01 G, also because the job package's
+// worker→hub mirror whitelist must name them without a second literal that could
+// drift. job.EventJobPermission* alias these.
+const (
+	EventPermissionRequested = "job.permission_requested"
+	EventPermissionAnswered  = "job.permission_answered"
+	EventPermissionTimedOut  = "job.permission_timed_out"
+)
+
 // Runner executes one resolved command and reports how it ended.
 type Runner interface {
 	// Name returns the runner's stable identifier (e.g. "local").
@@ -72,6 +84,15 @@ type Request struct {
 	// Forward carries the original (pre-resolution) request a remote runner
 	// re-submits to a peer bridge. Nil for local jobs.
 	Forward *Forward
+
+	// Verify / VerifyTimeoutSec are the job's验证步骤 (SUP-01 B), already resolved by
+	// the job service (project default + --no-verify). The LOCAL runner does not read
+	// them: the job service runs the step itself right after Run returns, on this
+	// machine and in this WorkDir/Env — which is why they are on the request the job
+	// service built rather than on the Forward (a remote job's step runs on the
+	// EXECUTING machine and travels in Forward).
+	Verify           []string
+	VerifyTimeoutSec int
 
 	// Interactions bridges a peer's running-job interactions onto the host job.
 	// Nil for local jobs; set by the job service for remote runners so a peer's
@@ -329,6 +350,14 @@ type Forward struct {
 	// hub's store, so the linkage is the hub's alone (JobRequest.TodoForeign) — a
 	// peer re-submits without it and links its own nothing.
 	TodoID string
+	// Verify / VerifyTimeoutSec are the job's验证步骤 (SUP-01 B): the argv to run
+	// AFTER the agent finishes normally, and its own deadline in seconds. The
+	// EXECUTING machine runs it in its checkout with the job's env, because that is
+	// where the work happened — the hub has no checkout to verify. Empty = no step
+	// (an old hub never sets them, and an old worker ignores them; the hub refuses
+	// the dispatch instead, see wsproto.VerifyMinProtocolVersion).
+	Verify           []string
+	VerifyTimeoutSec int
 }
 
 // Result is the outcome of a single Run. ExitCode is the process exit status
@@ -397,7 +426,45 @@ type Outcome struct {
 	// — the host has no checkout there, so both travel with the outcome.
 	BaseSHA string   `json:"base_sha,omitempty"`
 	Commits []Commit `json:"commits,omitempty"`
+	// Verify is the job's验证步骤 result (SUP-01 B). The step runs on the EXECUTION
+	// machine (it owns the checkout being verified), so its structured result travels
+	// back here; nil = the job had no verify step (or the worker predates it — the
+	// hub refuses such a dispatch rather than running a step it can no longer trust).
+	Verify *VerifyResult `json:"verify,omitempty"`
 }
+
+// VerifyResult is the outcome of one job's verify step (SUP-01 B): the argv that
+// ran, how it ended and how long it took. It lives in the runner package — not in
+// job — because it is carried across the wire by Outcome (job imports runner, so the
+// job package aliases this type: job.VerifyResult).
+type VerifyResult struct {
+	// Command is the argv as submitted (element-wise, never a shell join).
+	Command []string `json:"command,omitempty"`
+	// Status is passed|failed|timeout|skipped.
+	Status string `json:"status"`
+	// ExitCode is the step's exit status (-1 when it did not end on its own: a
+	// timeout, or a job cancelled while the step ran). 0 for skipped/passed.
+	ExitCode int `json:"exit_code"`
+	// DurationMs is how long the step ran, in milliseconds (0 for skipped).
+	DurationMs int64 `json:"duration_ms"`
+	// Reason explains a non-obvious status, e.g. why the step was skipped
+	// ("agent failed") or why it timed out.
+	Reason string `json:"reason,omitempty"`
+}
+
+// Verify step statuses (VerifyResult.Status).
+const (
+	// VerifyPassed: the step ran and exited 0 — the job keeps its status.
+	VerifyPassed = "passed"
+	// VerifyFailed: the step ran and exited non-zero — the job fails (or parks in
+	// needs_review when a human is asked to rule on the delivery).
+	VerifyFailed = "failed"
+	// VerifyTimeout: the step exceeded its own deadline and was killed.
+	VerifyTimeout = "timeout"
+	// VerifySkipped: the step never ran because the agent did not finish normally
+	// (failed / cancelled / timed out) — the agent's outcome is the job's outcome.
+	VerifySkipped = "skipped"
+)
 
 // Commit is one commit the execution machine captured for a job (SUP-01 C):
 // abbreviated sha + subject line, as `git log --oneline` prints them.

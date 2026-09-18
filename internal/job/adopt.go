@@ -410,5 +410,6 @@ func (a *AdoptedJob) finishTerminal(exitCode int, err error) {
 	res := runner.Result{ExitCode: exitCode, Err: err, Outcome: a.takeOutcome()}
 	a.s.captureOutcomes(a.entry, runner.Request{JobID: a.jobID}, res)
 	status, code, runErr := classify(a.ctx, res)
+	status, code, runErr = a.s.foldVerify(a.entry, status, code, runErr)
 	a.s.finish(a.entry, a.jobID, status, code, runErr)
 }

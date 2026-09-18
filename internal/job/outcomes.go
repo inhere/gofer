@@ -286,6 +286,13 @@ func (s *Service) applyOutcome(entry *jobEntry, o *runner.Outcome) {
 	if len(o.Commits) > 0 {
 		entry.result.Commits = commitsFromRunner(o.Commits)
 	}
+	// SUP-01 P2: the execution machine ran the job's verify step (it owns the
+	// checkout), so its verdict lands here — the host wrote it to the job row and
+	// never ran the argv itself.
+	if o.Verify != nil {
+		v := *o.Verify
+		entry.result.Verify = &v
+	}
 }
 
 // commitsFromRunner copies a remote outcome's commit list onto the job's own type

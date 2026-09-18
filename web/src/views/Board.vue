@@ -507,7 +507,12 @@ onUnmounted(() => {
           <span v-if="job.tags && job.tags.length" class="job-tags">
             <span v-for="t in job.tags" :key="t" class="tag-chip mono" :title="t">{{ t }}</span>
           </span>
-          <span v-if="job.role || job.channel || job.read_only" class="job-badges">
+          <span v-if="job.role || job.channel || job.read_only || job.verify?.status === 'failed'" class="job-badges">
+            <span
+              v-if="job.verify?.status === 'failed'"
+              class="job-badge job-badge--verify mono"
+              :title="`验证步骤失败：${(job.verify.command ?? []).join(' ')} (exit ${job.verify.exit_code})`"
+            >verify</span>
             <span
               v-if="job.read_only"
               class="job-badge job-badge--ro mono"
@@ -839,6 +844,11 @@ onUnmounted(() => {
 .job-badge--ro {
   color: var(--warn, var(--phosphor));
   border-color: var(--warn, var(--phosphor));
+}
+/* 验证失败徽标（SUP-01 P2）：一行 failed 里最容易被忽略的失败原因——agent 干完了但验收没过。 */
+.job-badge--verify {
+  color: var(--fail);
+  border-color: var(--fail);
 }
 .col-proj {
   color: var(--paper);

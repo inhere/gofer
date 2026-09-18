@@ -948,6 +948,17 @@ type ProjectConfig struct {
 	// permission handling decides, gofer auto-allows) so upgrading cannot strand
 	// existing jobs on a human. See ApprovalPolicy.
 	Approval *ApprovalConfig `yaml:"approval,omitempty"`
+	// Verify is the project's DEFAULT verify step (SUP-01 B): an argv run after the
+	// agent finishes normally, on the executing machine, in the job's cwd/env — the
+	// machine-checkable acceptance an agent's own report cannot provide. It applies
+	// to every job of the project unless the caller passes --no-verify, and it needs
+	// allow_exec (the argv comes from the submitter, the same trust surface as an
+	// exec job's). Empty = no default. See JobRequest.Verify.
+	Verify []string `yaml:"verify,omitempty"`
+	// VerifyTimeoutSec bounds that step (SUP-01 B): 0/unset => DefaultVerifyTimeoutSec.
+	// It is independent of the job's own timeout — a hung test suite must not be able
+	// to eat the agent's whole budget — and a step that exceeds it fails the job.
+	VerifyTimeoutSec int `yaml:"verify_timeout_sec,omitempty"`
 }
 
 // ApprovalConfig is a project's approval gate for ACP permission requests
@@ -1472,6 +1483,23 @@ func (c *Config) ProjectAllowedAgents(projectKey string) ([]string, bool) {
 // value the clamp was hard-coded to before it became configurable (bd h-aii-s9ck),
 // so an existing config keeps its exact previous behaviour.
 const DefaultMaxJobTimeoutSec = 3600
+
+// DefaultVerifyTimeoutSec bounds a job's verify step when neither the request nor
+// the project sets one (SUP-01 B). 10 minutes: a full test suite of a medium project
+// fits, while a hung suite still ends the job well before an agent-sized budget
+// would.
+const DefaultVerifyTimeoutSec = 600
+
+// EffectiveVerifyTimeoutSec resolves the deadline of a job's verify step for a
+// project: the project's verify_timeout_sec, else the default. A key the config does
+// not define (a worker-only project) resolves the default too — the step never ends
+// instantly for lack of a row.
+func (c *Config) EffectiveVerifyTimeoutSec(projectKey string) int {
+	if p, ok := c.Projects[projectKey]; ok && p.VerifyTimeoutSec > 0 {
+		return p.VerifyTimeoutSec
+	}
+	return DefaultVerifyTimeoutSec
+}
 
 // DefaultJobRecoverWindowSec is the RECOV-01 window applied when
 // server.job_recover_window_sec is UNSET: how long a worker's in-flight jobs are

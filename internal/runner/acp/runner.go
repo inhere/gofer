@@ -422,7 +422,7 @@ func (h *handler) answerAutomatically(p acp.RequestPermissionParams, kind, reaso
 	optionKind := kindOfOption(p.Options, chosen)
 	h.recordPermission(p, kind, "selected", chosen, optionKind, true, reason)
 	if h.onJobEvent != nil {
-		h.onJobEvent("job.permission_answered", map[string]any{
+		h.onJobEvent(runner.EventPermissionAnswered, map[string]any{
 			"option_id": chosen, "kind": optionKind, "by": "", "auto": true,
 		})
 	}
@@ -468,7 +468,7 @@ func (h *handler) askApprover(p acp.RequestPermissionParams, kind string) acp.Pe
 			if h.onJobEvent == nil {
 				return
 			}
-			h.onJobEvent("job.permission_requested", map[string]any{
+			h.onJobEvent(runner.EventPermissionRequested, map[string]any{
 				"interaction_id": id,
 				"tool_call_id":   toolCallID(p.ToolCall),
 				"kind":           kind,
@@ -498,7 +498,7 @@ func (h *handler) askApprover(p acp.RequestPermissionParams, kind string) acp.Pe
 		}
 		h.recordPermission(p, kind, "selected", out.Answer, optionKind, false, out.By)
 		if h.onJobEvent != nil {
-			h.onJobEvent("job.permission_answered", map[string]any{
+			h.onJobEvent(runner.EventPermissionAnswered, map[string]any{
 				"option_id": out.Answer, "kind": optionKind, "by": out.By, "auto": false,
 			})
 		}
@@ -544,16 +544,16 @@ func (h *handler) answerOnTimeout(p acp.RequestPermissionParams, kind, hint, int
 	if chosen == "" {
 		h.recordPermission(p, kind, "cancelled", "", "", false, "timeout_no_option")
 		if h.onJobEvent != nil {
-			h.onJobEvent("job.permission_timed_out", detail)
+			h.onJobEvent(runner.EventPermissionTimedOut, detail)
 		}
 		return acp.PermissionCancelled()
 	}
 	h.recordPermission(p, kind, "selected", chosen, optionKind, true, "timeout")
 	if h.onJobEvent != nil {
-		h.onJobEvent("job.permission_answered", map[string]any{
+		h.onJobEvent(runner.EventPermissionAnswered, map[string]any{
 			"option_id": chosen, "kind": optionKind, "by": "", "auto": true,
 		})
-		h.onJobEvent("job.permission_timed_out", detail)
+		h.onJobEvent(runner.EventPermissionTimedOut, detail)
 	}
 	return acp.PermissionSelected(chosen)
 }

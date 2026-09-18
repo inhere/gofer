@@ -319,6 +319,10 @@ type jobView struct {
 	// TodoID is the plan todo this job runs for (SUP-01 C), so a caller that
 	// submitted with todo_id can read the linkage back.
 	TodoID string `json:"todo_id,omitempty"`
+	// Verify is the job's verification step result (SUP-01 B), nil/absent when the
+	// job had none. A caller that submitted verify/verify_timeout_sec reads the
+	// verdict here instead of re-running the check itself.
+	Verify *job.VerifyResult `json:"verify,omitempty"`
 }
 
 // toJobView projects a job.JobResult onto the snake_case jobView. It is the
@@ -350,6 +354,8 @@ func toJobView(r job.JobResult) jobView {
 		ReviewedBy:    r.ReviewedBy,
 		ReviewedAt:    r.ReviewedAt,
 		ReviewNote:    r.ReviewNote,
+		// SUP-01 P2：验证步骤结果（无步骤时为 nil，omitempty 不出现在响应里）。
+		Verify: r.Verify,
 	}
 }
 
@@ -539,6 +545,15 @@ type runJobInput struct {
 	// (cli-agent read_only_args / acp-agent acp.modes.read_only); otherwise the submit
 	// is refused.
 	ReadOnly bool `json:"read_only,omitempty"`
+	// Verify is the job's verification step (SUP-01 B): an argv run AFTER the agent
+	// finishes normally, on the executing machine and in the job's cwd/env. A
+	// non-zero exit fails the job — it is the acceptance an agent's own report cannot
+	// give. It needs the project's allow_exec (same trust surface as an exec job).
+	Verify []string `json:"verify,omitempty"`
+	// VerifyTimeoutSec bounds that step (0 = the project default, 600s).
+	VerifyTimeoutSec int `json:"verify_timeout_sec,omitempty"`
+	// NoVerify turns the project's default verify step off for this job.
+	NoVerify bool `json:"no_verify,omitempty"`
 }
 
 func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[runJobInput, jobView] {
@@ -586,6 +601,10 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 			OriginAgent: origin,
 			EscalateTo:  in.EscalateTo,
 			ReadOnly:    in.ReadOnly,
+			// SUP-01 P2：验证步骤（argv + 独立超时）+ 关闭项目默认的开关。
+			Verify:           in.Verify,
+			VerifyTimeoutSec: in.VerifyTimeoutSec,
+			NoVerify:         in.NoVerify,
 		})
 		if err != nil {
 			return nil, jobView{}, err

@@ -154,6 +154,14 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 		entry.mu.Unlock()
 	}
 
+	// SUP-01 P2: the verify step runs on the machine that did the work. For a LOCAL
+	// job that is right here (req.Forward is nil); a remote job's step runs on the
+	// worker, whose result comes back on the outcome — running it again against the
+	// host's checkout would verify a tree the job never touched.
+	if req.Forward == nil {
+		s.runVerify(ctx, entry, req, res)
+	}
+
 	// Close the per-job log streams NOW, before finish() makes the terminal
 	// state observable (persist + eviction + workflow advance). Observers key
 	// teardown off the terminal DB row / Get() — not entry.done — and on
@@ -176,6 +184,10 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 	s.captureOutcomes(entry, req, res)
 
 	status, code, runErr := classify(ctx, res)
+	// SUP-01 P2: a verify step that did not pass decides the job's status (the
+	// result is already recorded locally or, for a remote job, applied by
+	// captureOutcomes above).
+	status, code, runErr = s.foldVerify(entry, status, code, runErr)
 	s.finish(entry, req.JobID, status, code, runErr)
 }
 
@@ -220,7 +232,10 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	entry.mu.Lock()
 	pre := entry.result
 	entry.mu.Unlock()
-	needsReview := status == StatusDone && pre.RequireReview
+	// SUP-01 P2: a failed verify step is a delivery a reviewer must rule on, so it
+	// parks in needs_review exactly like a normal finish does (the failing Verify
+	// stays on the result for the human, and there is no job.terminal yet).
+	needsReview := pre.RequireReview && (status == StatusDone || verifyBlocked(pre.Verify))
 	autoResumeHit, willAutoResume := "", false
 	if status == StatusFailed {
 		autoResumeHit, willAutoResume = s.autoResumeHit(pre)
@@ -356,6 +371,14 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 func (s *Service) autoResumeHit(snap JobResult) (string, bool) {
 	cfg := s.config()
 	if cfg == nil || cfg.Server.EffectiveAutoResumeMax() <= 0 || snap.SessionID == "" || snap.AutoResumeAttempt >= cfg.Server.EffectiveAutoResumeMax() {
+		return "", false
+	}
+	// SUP-01 P2: a failed verify step is evidence about the WORK, not a provider
+	// glitch — re-running the same agent prompt would not repair it, and the
+	// continuation would report success over a still-red build. The step's own status
+	// is the authority (never its error text), so a step that passed or was skipped
+	// leaves the ordinary transient machinery untouched.
+	if verifyBlocked(snap.Verify) {
 		return "", false
 	}
 	ac, ok := s.agents.Get(snap.Agent)

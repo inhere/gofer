@@ -64,8 +64,24 @@ type JobRequest struct {
 	// "unset". Internal: json/yaml "-" keeps it off the wire and out of request_json,
 	// mirroring WorkflowID/StepIndex.
 	ReviewFixed bool `json:"-" yaml:"-"`
-	Cols        int  `json:"cols,omitempty" yaml:"cols,omitempty"`
-	Rows        int  `json:"rows,omitempty" yaml:"rows,omitempty"`
+	// Verify is the job's验证步骤 (SUP-01 B): an argv run AFTER the agent finishes
+	// normally (exit 0), on the same machine, in the job's cwd/env — the check that
+	// turns "the agent says it worked" into evidence. It is resolved at submit from
+	// --verify or the project's `verify` default, so the Forward, request_json and
+	// the persisted row all carry ONE decided value (an empty slice = no step, which
+	// is what --no-verify leaves behind). The argv is executed verbatim, never through
+	// a shell (write `bash -lc '…'` if you need one, exactly like an exec job), and
+	// its exit status decides the job's when it fails.
+	Verify []string `json:"verify,omitempty" yaml:"verify,omitempty"`
+	// VerifyTimeoutSec bounds that step, independently of the job's own deadline
+	// (0 = resolved at submit: the project's verify_timeout_sec, else 600s).
+	VerifyTimeoutSec int `json:"verify_timeout_sec,omitempty" yaml:"verify_timeout_sec,omitempty"`
+	// NoVerify turns the PROJECT's verify default off for this job (SUP-01 B).
+	// It only means something when the project declares one; combined with an
+	// explicit Verify it is a contradiction and the submit is rejected.
+	NoVerify bool `json:"no_verify,omitempty" yaml:"no_verify,omitempty"`
+	Cols     int  `json:"cols,omitempty" yaml:"cols,omitempty"`
+	Rows     int  `json:"rows,omitempty" yaml:"rows,omitempty"`
 	// InitialInput is text the pty runner types into an INTERACTIVE job's stdin
 	// once its terminal has settled (session relay §9.1 B: the first message of a
 	// `--resume` takeover). Internal: json/yaml "-" keeps it off the wire and out
@@ -415,7 +431,27 @@ type JobResult struct {
 	// note read them.
 	BaseSHA string   `json:"base_sha,omitempty"`
 	Commits []Commit `json:"commits,omitempty"`
+	// Verify is the outcome of the job's verification step (SUP-01 B), nil when the
+	// job had none. A failed/timed-out step is why such a job is failed (or parked in
+	// needs_review when a human reviews it), so this is the field that explains the
+	// status; it is persisted as jobs.verify_json. The type is runner's — the step's
+	// result also travels on the remote Outcome channel, and one definition keeps the
+	// two in step.
+	Verify *VerifyResult `json:"verify,omitempty"`
 }
+
+// VerifyResult / the verify statuses are the runner package's types, aliased here:
+// the same value describes a local run and a worker's回传 result, and job already
+// imports runner. See runner.VerifyResult for the field meanings.
+type VerifyResult = runner.VerifyResult
+
+// Verify step statuses (mirrored from runner so callers spell job.VerifyPassed).
+const (
+	VerifyPassed  = runner.VerifyPassed
+	VerifyFailed  = runner.VerifyFailed
+	VerifyTimeout = runner.VerifyTimeout
+	VerifySkipped = runner.VerifySkipped
+)
 
 // Commit is one commit a job produced (SUP-01 C): the abbreviated sha git prints
 // and its subject line. It is what the todo note quotes and the JobDetail block
@@ -495,6 +531,21 @@ const (
 	// (which emits it and cannot import this one — G022); it is aliased here so the
 	// job event vocabulary has ONE definition and a caller may read it by name.
 	EventJobInputInjected = runner.EventInputInjected
+	// EventJobVerifyStarted is the verify step starting on the executing machine:
+	// {command} (the argv, space-joined for reading). Recorded just before the child
+	// is spawned, so a step that hangs is visible as a started-without-finished pair.
+	EventJobVerifyStarted = "job.verify_started"
+	// EventJobVerifyFinished is that step ending: {status, exit_code, duration_ms}
+	// (status is passed|failed|timeout|skipped) — the evidence behind the job's own
+	// terminal status, and the event a notification subscriber watches for a red build.
+	EventJobVerifyFinished = "job.verify_finished"
+	// The permission events are emitted by the acp runner (internal/runner/acp), whose
+	// gated calls cannot reach this package (G022). Their literals live in the runner
+	// package — the same single-definition rule as EventJobInputInjected — and are
+	// aliased here for the mirror whitelist and for callers that read them by name.
+	EventJobPermissionRequested = runner.EventPermissionRequested
+	EventJobPermissionAnswered  = runner.EventPermissionAnswered
+	EventJobPermissionTimedOut  = runner.EventPermissionTimedOut
 )
 
 // Workflow lifecycle event types (P1, design §5.4). Recorded append-only via

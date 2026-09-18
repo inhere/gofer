@@ -80,6 +80,10 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		Worktree:     f.Worktree,
 		WorktreeBase: f.WorktreeBase,
 		TimeoutSec:   f.TimeoutSec,
+		// SUP-01 P2: the peer runs the verify step against ITS checkout (it owns the
+		// work), and the structured result comes back on its job snapshot below.
+		Verify:           f.Verify,
+		VerifyTimeoutSec: f.VerifyTimeoutSec,
 		// bd h-aii-0ql3: read-only reaches the peer with its own admission deciding
 		// whether its agent can honour it (same rule as the worker dispatch).
 		ReadOnly: f.ReadOnly,
@@ -157,6 +161,9 @@ func (r *Runner) captureRemoteOutcome(peerID string, final job.JobResult) *runne
 		// same "what did it deliver" as a local or worker one.
 		BaseSHA: final.BaseSHA,
 		Commits: commitsFromJob(final.Commits),
+		// SUP-01 P2: the peer's verify result (it ran the step in its own checkout) —
+		// the host applies the verdict but never re-runs the argv.
+		Verify: final.Verify,
 	}
 	if manifest, err := r.c.ListArtifacts(peerID); err == nil && len(manifest) > 0 {
 		o.Artifacts = manifest

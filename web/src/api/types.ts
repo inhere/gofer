@@ -93,6 +93,20 @@ export interface Job {
   todo_id?: string
   base_sha?: string
   commits?: JobCommit[]
+  // 验证步骤（SUP-01 P2，后端 omitempty）：agent 正常结束后在执行机同 cwd/env 跑的验收命令
+  // 结果。failed/timeout 正是该 job 失败的原因；skipped=agent 没正常结束，故没跑。
+  // 列表页对失败的 job 打 verify 小徽标，详情页有独立块。
+  verify?: JobVerify
+}
+
+// 一次验证步骤的结果（SUP-01 P2）。command=提交时的 argv（未经 shell），
+// status=passed|failed|timeout|skipped，duration_ms=实际耗时，reason=跳过/超时的原因。
+export interface JobVerify {
+  command?: string[]
+  status: 'passed' | 'failed' | 'timeout' | 'skipped'
+  exit_code: number
+  duration_ms: number
+  reason?: string
 }
 
 // 该 job 产出的一个提交（SUP-01 C）。

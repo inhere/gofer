@@ -22,7 +22,7 @@ func verifyStderr(t *testing.T, root, projectKey, jobID string) string {
 	if err != nil {
 		t.Fatalf("read stderr log of %s: %v", jobID, err)
 	}
-	return out
+	return string(out)
 }
 
 // verifyBanner is the opening banner the verify step writes before the command.

@@ -80,6 +80,8 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		TodoID:      r.TodoID,
 		BaseSHA:     r.BaseSHA,
 		CommitsJSON: marshalCommits(r.Commits),
+		// verify 步骤（SUP-01 P2）：无步骤 → ""（读回即"未跑验证"）。
+		VerifyJSON: marshalVerify(r.Verify),
 		// job 超时上限可配（bd h-aii-s9ck）：生效 deadline + 请求值 + 截断标记三元组。
 		TimeoutSec:          r.TimeoutSec,
 		RequestedTimeoutSec: r.RequestedTimeoutSec,
@@ -143,6 +145,33 @@ func unmarshalCommits(s string) []Commit {
 		return nil
 	}
 	return c
+}
+
+// marshalVerify serialises the verify step's result (SUP-01 P2) into
+// jobs.verify_json. A job without a step (or a marshal failure) stores "" — the
+// column then reads back as "no verify step", which is exactly the pre-P2 meaning.
+func marshalVerify(v *VerifyResult) string {
+	if v == nil {
+		return ""
+	}
+	b, err := json.Marshal(v)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// unmarshalVerify rebuilds the verify result from jobs.verify_json. A malformed blob
+// yields none rather than failing the read of the whole job row.
+func unmarshalVerify(s string) *VerifyResult {
+	if s == "" {
+		return nil
+	}
+	var v VerifyResult
+	if json.Unmarshal([]byte(s), &v) != nil {
+		return nil
+	}
+	return &v
 }
 
 // fromRecord rebuilds a JobResult from a persisted jobstore.JobRecord. It is the
@@ -210,6 +239,8 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		TodoID:  rec.TodoID,
 		BaseSHA: rec.BaseSHA,
 		Commits: unmarshalCommits(rec.CommitsJSON),
+		// verify 步骤（SUP-01 P2）：旧行 "" = 无步骤（nil），不伪造成"已验证"。
+		Verify: unmarshalVerify(rec.VerifyJSON),
 		// job 超时上限可配（bd h-aii-s9ck）：生效 deadline + 请求值 + 截断标记。旧行全为
 		// 0/false = "未记录"（旧 job 早于该列），不会伪装成"被截断"。
 		TimeoutSec:          rec.TimeoutSec,

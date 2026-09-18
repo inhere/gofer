@@ -32,8 +32,10 @@ const (
 	// v5 adds the TCP tunnel frames; v6 adds the resume/read-only dispatch fields
 	// (session_id/resumed_from/read_only — see SessionLoadMinProtocolVersion); v7 adds
 	// the priming dispatch fields (initial_input/initial_input_quiet_ms — see
-	// InitialInputMinProtocolVersion).
-	CurrentProtocolVersion = 7
+	// InitialInputMinProtocolVersion); v8 adds the verify dispatch fields
+	// (verify/verify_timeout_sec — see VerifyMinProtocolVersion) and the job_event
+	// frame.
+	CurrentProtocolVersion = 8
 )
 
 // ReloadMinProtocolVersion is the first protocol version that carries the config
@@ -62,12 +64,14 @@ const TunnelMinProtocolVersion = 5
 func SupportsTunnel(proto int) bool { return proto >= TunnelMinProtocolVersion }
 
 // SessionLoadMinProtocolVersion is the first protocol version whose Dispatch carries
-// session_id/resumed_from (an acp-agent continuation) and read_only. Same negotiation
-// rule as the other capability constants: a worker below it stays fully usable — it
-// just ignores the additive fields, which costs it exactly the S2 semantics (a resume
+// session_id/resumed_from (an acp-agent continuation) and read_only. Since P2 the hub
+// does NOT tolerate a peer below it for a job that needs those fields: the additive
+// fields would be silently ignored, which costs exactly the S2 semantics (a resume
 // opens a NEW session instead of loading the source one; a read-only job runs
-// writable). The hub therefore cannot fix it from its side and says so per dispatch
-// instead of failing the job.
+// writable) — a job that quietly does the wrong thing. The dispatch is REFUSED
+// instead (see runner/worker's capability gate), with the missing capability named so
+// the operator upgrades that worker. G032: this replaced the earlier warn-only
+// tolerance, which no longer exists.
 const SessionLoadMinProtocolVersion = 6
 
 // SupportsSessionLoad reports whether a peer that registered with protocol version
@@ -76,17 +80,27 @@ func SupportsSessionLoad(proto int) bool { return proto >= SessionLoadMinProtoco
 
 // InitialInputMinProtocolVersion is the first protocol version whose Dispatch carries
 // initial_input/initial_input_quiet_ms — path B's priming text and quiet window
-// (session relay §9.1 B). Same negotiation rule as the other capability constants: a
-// worker below it stays fully usable, it just ignores the additive fields, which costs
-// it exactly the priming (the resumed TUI opens with the message missing, and the
-// human's next input arrives by hand). The hub cannot type it from its side — the pty
-// is the worker's — so a dispatch that needs priming to a peer below this version is
-// reported per dispatch (a warning), never failed.
+// (session relay §9.1 B). Same refusal rule as SessionLoadMinProtocolVersion: a peer
+// below it would silently ignore the fields, so a dispatch that needs priming is
+// refused with the missing capability named instead of handing a human a takeover
+// session whose first message never arrives.
 const InitialInputMinProtocolVersion = 7
 
 // SupportsInitialInput reports whether a peer that registered with protocol version
 // proto understands the priming dispatch fields.
 func SupportsInitialInput(proto int) bool { return proto >= InitialInputMinProtocolVersion }
+
+// VerifyMinProtocolVersion is the first protocol version whose Dispatch carries
+// verify/verify_timeout_sec (SUP-01 B) and which can send the job_event frame
+// (SUP-01 G). It is the version where a worker can be TRUSTED to run a job's verify
+// step: a peer below it would ignore the argv and report a job as done with no
+// verification performed, so the hub refuses such a dispatch up front (G032: no
+// silent degradation) rather than shipping a step that will not run.
+const VerifyMinProtocolVersion = 8
+
+// SupportsVerify reports whether a peer that registered with protocol version proto
+// understands the verify dispatch fields and sends job_event frames.
+func SupportsVerify(proto int) bool { return proto >= VerifyMinProtocolVersion }
 
 // TunnelOpen requests a worker to open a TCP tunnel (protocol v5).
 type TunnelOpen struct {
@@ -311,6 +325,12 @@ type Dispatch struct {
 	// worker neither resolves nor links it (JobRequest.TodoForeign). Empty on a plain
 	// dispatch and on a hub that predates the field.
 	TodoID string `json:"todo_id,omitempty"`
+	// Verify / VerifyTimeoutSec are the job's验证步骤 (SUP-01 B): the argv run after
+	// the agent finishes normally, and its own deadline in seconds. A hub that
+	// predates them omits the keys; a worker that predates them never receives them,
+	// because the hub refuses the dispatch instead (VerifyMinProtocolVersion).
+	Verify           []string `json:"verify,omitempty"`
+	VerifyTimeoutSec int      `json:"verify_timeout_sec,omitempty"`
 }
 
 // Log (w→s, P1): an incremental log frame. Seq is monotonic per job (the same
@@ -368,6 +388,26 @@ type Outcome struct {
 	// capture is not faked).
 	BaseSHA string   `json:"base_sha,omitempty"`
 	Commits []Commit `json:"commits,omitempty"`
+	// Verify (SUP-01 B) is the verification step's result: the worker ran it in ITS
+	// checkout, so its structured outcome travels here. Nil = the job had no step
+	// (the hub refuses a verify dispatch to a worker that cannot run it, so a nil
+	// here never means "the step was dropped").
+	Verify *VerifyResult `json:"verify,omitempty"`
+}
+
+// VerifyResult is the wire form of one job's verify step outcome (SUP-01 B). It is
+// declared here (like Commit) so wsproto stays a leaf that does not import job.
+type VerifyResult struct {
+	// Command is the argv as submitted (element-wise).
+	Command []string `json:"command,omitempty"`
+	// Status is passed|failed|timeout|skipped.
+	Status string `json:"status"`
+	// ExitCode is the step's exit status (-1 when it did not end on its own).
+	ExitCode int `json:"exit_code"`
+	// DurationMs is how long the step ran, in milliseconds.
+	DurationMs int64 `json:"duration_ms"`
+	// Reason explains a non-obvious status (why it was skipped / timed out).
+	Reason string `json:"reason,omitempty"`
 }
 
 // Commit is one commit captured for a job (SUP-01 C): the abbreviated sha and the
