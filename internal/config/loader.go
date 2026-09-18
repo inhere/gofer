@@ -333,6 +333,9 @@ func ApplyDefaults(cfg *Config) {
 // strict-field handling) keeps the compat read independent of the typed decode —
 // goccy/go-yaml ignores unknown keys, so detection has to be explicit either way, and
 // the shadow struct states the exact shape it looks for.
+//
+// DEPRECATED(v0.45): remove in v0.48 — goes with ApplyLegacyInteractiveCompat once
+// pre-AGT-02 configs are gone (G032).
 type legacyInteractiveYAML struct {
 	Projects map[string]struct {
 		InteractiveAllowedAgents []string `yaml:"interactive_allowed_agents"`
@@ -353,6 +356,10 @@ type legacyInteractiveYAML struct {
 // undecodable document — the typed decode has already failed by then) is a no-op.
 // Callers: config.Load (config.yaml) and the worker's own worker.yaml decode, so both
 // existing operator files keep working unchanged.
+//
+// DEPRECATED(v0.45): remove in v0.48 — the one-shot read (and legacyInteractiveYAML
+// with it) goes once pre-AGT-02 configs are gone (G032). The switch is
+// allow_interactive; this key must be rewritten by then.
 func ApplyLegacyInteractiveCompat(raw []byte, projects map[string]ProjectConfig) map[string]ProjectConfig {
 	if len(projects) == 0 {
 		return projects

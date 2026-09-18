@@ -541,12 +541,35 @@ export interface FileContent {
   truncated: boolean
 }
 
+// Agent 近期健康度（SUP-01 P3，/v1/agents 的 health）：状态 + 判定依据。
+// unknown = 窗口内没有样本（不是"健康"）；degraded = 窗口内供应商错误已达
+// 阈值且尚无足够成功恢复。
+export interface AgentHealth {
+  state: 'healthy' | 'degraded' | 'unknown' | string
+  window_sec: number
+  jobs: number
+  ok: number
+  transient_fail: number
+  last_transient_at?: number
+  last_ok_at?: number
+}
+
 export interface AgentInfo {
   key: string
   type: string
   available: boolean
   version?: string
   error?: string
+  health?: AgentHealth
+}
+
+// 探针结果（POST /v1/agents/{key}/probe）：承载它的普通 job 及其结果。
+export interface AgentProbe {
+  job_id: string
+  status: string
+  exit_code: number
+  duration_ms: number
+  first_line?: string
 }
 
 export interface AgentsResp {

@@ -457,6 +457,21 @@ type AgentMeta struct {
 	Type      string `json:"type"`
 	Available bool   `json:"available"`
 	Detail    string `json:"detail,omitempty"`
+	// Health is the agent's recent-job health (SUP-01 P3), nil when the server
+	// reported none (older server, or the aggregate could not be read).
+	Health *AgentHealth `json:"health,omitempty"`
+}
+
+// AgentHealth is one agent's recent-job health as GET /v1/agents reports it
+// (SUP-01 P3): the classified state plus the evidence behind it.
+type AgentHealth struct {
+	State           string `json:"state"`
+	WindowSec       int    `json:"window_sec"`
+	Jobs            int    `json:"jobs"`
+	OK              int    `json:"ok"`
+	TransientFail   int    `json:"transient_fail"`
+	LastTransientAt int64  `json:"last_transient_at,omitempty"`
+	LastOKAt        int64  `json:"last_ok_at,omitempty"`
 }
 
 // ListAgents fetches the server's agents (GET /v1/agents) and returns them in
@@ -467,11 +482,12 @@ type AgentMeta struct {
 func (c *Client) ListAgents() ([]AgentMeta, error) {
 	var resp struct {
 		Agents []struct {
-			Key       string `json:"key"`
-			Type      string `json:"type"`
-			Available bool   `json:"available"`
-			Version   string `json:"version"`
-			Error     string `json:"error"`
+			Key       string       `json:"key"`
+			Type      string       `json:"type"`
+			Available bool         `json:"available"`
+			Version   string       `json:"version"`
+			Error     string       `json:"error"`
+			Health    *AgentHealth `json:"health"`
 		} `json:"agents"`
 	}
 	if err := c.doJSON(http.MethodGet, "/v1/agents", nil, &resp); err != nil {
@@ -488,9 +504,42 @@ func (c *Client) ListAgents() ([]AgentMeta, error) {
 			Type:      a.Type,
 			Available: a.Available,
 			Detail:    detail,
+			Health:    a.Health,
 		})
 	}
 	return out, nil
+}
+
+// AgentProbe is the outcome of a probe (POST /v1/agents/{key}/probe, SUP-01 P3): the
+// ordinary job that carried it, its terminal status, and the first line the agent
+// produced.
+type AgentProbe struct {
+	JobID      string `json:"job_id"`
+	Status     string `json:"status"`
+	ExitCode   int    `json:"exit_code"`
+	DurationMs int64  `json:"duration_ms"`
+	FirstLine  string `json:"first_line,omitempty"`
+}
+
+// ProbeAgent submits a probe job for one agent on the server (SUP-01 P3): a
+// synchronous, tagged job whose result is the agent's liveness. project names the
+// project to run it in ("" = the server's first project admitting the agent);
+// timeoutSec bounds it (0 = the server default).
+func (c *Client) ProbeAgent(key, project string, timeoutSec int) (AgentProbe, error) {
+	body := map[string]any{}
+	if project != "" {
+		body["project"] = project
+	}
+	if timeoutSec > 0 {
+		body["timeout_sec"] = timeoutSec
+	}
+	raw, err := json.Marshal(body)
+	if err != nil {
+		return AgentProbe{}, err
+	}
+	var out AgentProbe
+	err = c.doJSON(http.MethodPost, "/v1/agents/"+url.PathEscape(key)+"/probe", bytes.NewReader(raw), &out)
+	return out, err
 }
 
 // WorkerCaps is a worker's capability snapshot as reported by a successful reload.

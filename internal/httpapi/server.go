@@ -446,6 +446,10 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/projects/{key}/file", s.handleGetProjectFile)
 
 		r.GET("/agents", s.handleListAgents)
+		// SUP-01 P3: 探针——用普通 job 提交路径验活一个 agent（`gofer agent probe`、
+		// web Agents 页的按钮都走这里）。段名用 {id}（而非 {key}）：rux 的 radix 树要求
+		// 同一位置只有一个参数名，presence 路由的 /agents/{id}/... 已经占了它。
+		r.POST("/agents/{id}/probe", s.handleProbeAgent)
 
 		// C6/P4: remote-node observability — status of every configured runner
 		// (local / peer-http probe / worker heartbeat). Normal authed JSON endpoint

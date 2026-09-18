@@ -4,17 +4,27 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/gookit/gcli/v3"
+	"github.com/gookit/goutil/errorx"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/job"
 )
 
 var agentListOpts struct {
 	runner string
 	local  bool
+}
+
+// agentProbeOpts holds `agent probe` flags: which project to probe in (default: the
+// server picks the first one admitting the agent) and the probe's deadline.
+var agentProbeOpts struct {
+	project string
+	timeout int
 }
 
 // NewAgentCmd builds the `agent` command group (list/detect/show). P3 logic.
@@ -53,6 +63,28 @@ func NewAgentCmd() *gcli.Command {
 					c.AddArg("key", "agent key", true)
 				},
 				Func: runAgentShow,
+			},
+			{
+				Name: "status",
+				Desc: "Show agents with availability and recent-job health (provider failures)",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("key", "only this agent key", false)
+				},
+				Func: runAgentStatus,
+			},
+			{
+				Name: "probe",
+				Desc: "Run a probe job on an agent: one line of output, exit 0/1",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("key", "agent key", true)
+					c.StrOpt(&agentProbeOpts.project, "project", "p", "", "project to run the probe in (default: the first one admitting the agent)")
+					c.IntOpt(&agentProbeOpts.timeout, "timeout", "", 0, "probe timeout in seconds (0 = server default 120)")
+				},
+				Func: runAgentProbe,
 			},
 		},
 	}
@@ -237,4 +269,92 @@ func runAgentShow(c *gcli.Command, _ []string) error {
 	}
 	c.Printf("detect:        command=%s args=%v\n", ac.Detect.Command, ac.Detect.Args)
 	return nil
+}
+
+// runAgentStatus prints every agent with its availability and its recent-job health
+// (SUP-01 P3). Availability comes from the SERVER's detect cache — health lives in the
+// server's jobs table, so this is a server-side read even when a local config exists
+// (an agent's provider is only "down" as observed by the box that runs its jobs).
+func runAgentStatus(c *gcli.Command, _ []string) error {
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	agents, err := cli.ListAgents()
+	if err != nil {
+		return err
+	}
+	only := argKey(c)
+	printed := 0
+	c.Printf("%-14s %-12s %-9s %-9s %5s %4s %6s  %s\n", "KEY", "TYPE", "AVAILABLE", "HEALTH", "JOBS", "OK", "FAILED", "LAST_TRANSIENT")
+	for _, a := range agents {
+		if only != "" && a.Name != only {
+			continue
+		}
+		printed++
+		available := "no"
+		if a.Available {
+			available = "yes"
+		}
+		h := a.Health
+		if h == nil {
+			c.Printf("%-14s %-12s %-9s %-9s %5s %4s %6s  %s\n", a.Name, a.Type, available, "-", "-", "-", "-", "-")
+			continue
+		}
+		c.Printf("%-14s %-12s %-9s %-9s %5d %4d %6d  %s\n",
+			a.Name, a.Type, available, h.State, h.Jobs, h.OK, h.TransientFail, probeTime(h.LastTransientAt))
+	}
+	if only != "" && printed == 0 {
+		return fmt.Errorf("unknown agent %q", only)
+	}
+	return nil
+}
+
+// probeTime renders a probe/health timestamp, or "-" when there is none: an agent
+// that never failed must not read as "failed at 1970-01-01".
+func probeTime(sec int64) string {
+	if sec <= 0 {
+		return "-"
+	}
+	return time.Unix(sec, 0).Format("2006-01-02 15:04:05")
+}
+
+// runAgentProbe submits a probe job (SUP-01 P3) and reports its outcome. The exit code
+// follows the probe: a probe that did not come back `done` is a failing check, so this
+// command is usable as a liveness gate in a script or a cron.
+func runAgentProbe(c *gcli.Command, _ []string) error {
+	key := argKey(c)
+	if key == "" {
+		return fmt.Errorf("agent probe requires a <key> argument")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	res, err := cli.ProbeAgent(key, agentProbeOpts.project, agentProbeOpts.timeout)
+	if err != nil {
+		return err
+	}
+	c.Printf("job:      %s\n", res.JobID)
+	c.Printf("status:   %s (exit %d, %s)\n", res.Status, res.ExitCode, formatProbeDuration(res.DurationMs))
+	if res.FirstLine != "" {
+		c.Printf("output:   %s\n", res.FirstLine)
+	}
+	if res.Status != job.StatusDone {
+		return errorx.Failf(probeExitErr, "probe of %s did not succeed: status=%s exit=%d", key, res.Status, res.ExitCode)
+	}
+	return nil
+}
+
+// probeExitErr is the process exit code of a failed probe: 1, so `agent probe` reads
+// as a plain boolean check.
+const probeExitErr = 1
+
+// formatProbeDuration renders a probe's wall time in a form a terminal reads at a
+// glance (milliseconds below a second, seconds above).
+func formatProbeDuration(ms int64) string {
+	if ms < 1000 {
+		return fmt.Sprintf("%dms", ms)
+	}
+	return fmt.Sprintf("%.1fs", float64(ms)/1000)
 }

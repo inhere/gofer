@@ -2,8 +2,9 @@
 // Agents：listAgents 展示 detect 状态，getConfig 展开只读 agent 关键配置。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { getConfig, listAgents, listPresence } from '../api/client'
+import { getConfig, listAgents, listPresence, probeAgent } from '../api/client'
 import { fmtDateTime } from '../api/time'
+import InteractionToast from '../components/InteractionToast.vue'
 import type { AgentInfo, ConfigAgentView, Presence } from '../api/types'
 
 const router = useRouter()
@@ -17,6 +18,9 @@ const presenceAgents = ref<Presence[]>([])
 const presenceLoading = ref(false)
 const roleFilter = ref('')
 const projectFilter = ref('')
+// 探针（SUP-01 P3）：正在探测的 agent key + 结果提示条（可跳承载它的 job）。
+const probing = ref('')
+const probeToast = ref<{ title: string; text: string; to?: string } | null>(null)
 
 const PRESENCE_POLL_MS = 3000
 const ONLINE_TTL_SEC = 30
@@ -125,6 +129,55 @@ function toggleExpand(key: string): void {
   expanded.value = next
 }
 
+// healthState / healthTitle 渲染 /v1/agents 的 health 块（SUP-01 P3）：unknown 是
+// "窗口内没有样本"，不是"健康"——一个从没跑过 job 的 agent 不该显示绿点。
+function healthState(a: AgentInfo): string {
+  return a.health?.state || 'unknown'
+}
+
+function windowLabel(sec: number): string {
+  if (!sec || sec <= 0) {
+    return '窗口'
+  }
+  return sec % 3600 === 0 ? `${sec / 3600}h` : `${Math.round(sec / 60)}m`
+}
+
+function healthTitle(a: AgentInfo): string {
+  const h = a.health
+  if (!h || h.state === 'unknown') {
+    return `最近 ${h ? windowLabel(h.window_sec) : '窗口'}内没有该 agent 的 job，无法判断`
+  }
+  const base = `最近 ${windowLabel(h.window_sec)} ${h.transient_fail} 次供应商错误（job ${h.jobs} / 成功 ${h.ok}）`
+  return h.state === 'degraded' ? base : `正常：${base}`
+}
+
+// runProbe 提交一次探针 job：结果提示条给出状态/耗时/首行，并可跳到那个 job；
+// 探测本身就是一次 job，所以随后刷新一次列表把新的健康度带回来。
+async function runProbe(key: string): Promise<void> {
+  if (probing.value) {
+    return
+  }
+  probing.value = key
+  try {
+    const res = await probeAgent(key)
+    const secs = (res.duration_ms / 1000).toFixed(1)
+    const line = res.first_line ? ` · ${res.first_line}` : ''
+    probeToast.value = {
+      title: `探针 ${key}`,
+      text: `${res.status} · exit ${res.exit_code} · ${secs}s${line}`,
+      to: `/jobs/${encodeURIComponent(res.job_id)}`,
+    }
+    await load()
+  } catch (e) {
+    probeToast.value = {
+      title: `探针 ${key} 失败`,
+      text: e instanceof Error ? e.message : String(e),
+    }
+  } finally {
+    probing.value = ''
+  }
+}
+
 function detailFor(key: string): ConfigAgentView | undefined {
   return configByKey.value.get(key)
 }
@@ -161,6 +214,7 @@ function listValue(v?: string[]): string {
         <span class="col-detect">detect</span>
         <span class="col-key">key</span>
         <span class="col-type">type</span>
+        <span class="col-health">health</span>
         <span class="col-info">version / error</span>
       </div>
 
@@ -190,6 +244,20 @@ function listValue(v?: string[]): string {
             </button>
           </span>
           <span class="col-type mono">{{ a.type }}</span>
+          <span class="col-health mono">
+            <span class="health-badge" :class="`health-badge--${healthState(a)}`" :title="healthTitle(a)">
+              {{ healthState(a) }}
+            </span>
+            <button
+              class="probe-btn mono"
+              type="button"
+              :disabled="probing !== ''"
+              title="提交一次探针 job（只回复一行 OK）"
+              @click="runProbe(a.key)"
+            >
+              {{ probing === a.key ? '探测中…' : '探针' }}
+            </button>
+          </span>
           <span class="col-info mono">
             <span v-if="a.available" class="version">{{ a.version || '—' }}</span>
             <span v-else class="err-msg">{{ a.error || 'unavailable' }}</span>
@@ -262,6 +330,15 @@ function listValue(v?: string[]): string {
         <div v-if="presenceAgents.length === 0" class="empty mono">暂无在线 driver</div>
       </div>
     </section>
+
+    <InteractionToast
+      v-if="probeToast"
+      :title="probeToast.title"
+      :text="probeToast.text"
+      :to="probeToast.to"
+      @close="probeToast = null"
+      @goto="probeToast = null"
+    />
   </div>
 </template>
 
@@ -317,7 +394,7 @@ function listValue(v?: string[]): string {
 .thead,
 .trow {
   display: grid;
-  grid-template-columns: 150px 160px 120px 1fr;
+  grid-template-columns: 150px 160px 120px 210px 1fr;
   align-items: center;
   gap: 12px;
   padding: 9px 14px;
@@ -409,6 +486,49 @@ function listValue(v?: string[]): string {
 .col-info {
   overflow: hidden;
   text-overflow: ellipsis;
+}
+/* 健康度徽标（SUP-01 P3）：绿=近期正常、橙=窗口内供应商错误达阈值、灰=无样本。 */
+.col-health {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.health-badge {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1px 7px;
+  color: var(--queue);
+}
+.health-badge--healthy {
+  color: var(--done);
+  border-color: var(--done);
+}
+/* degraded 用琥珀色：--run 是本主题唯一的橙位，且与同一行的 error 红（--fail）区分开，
+   这样"供应商在挂"和"这个 CLI 没装/配置有错"不会读成同一种红。 */
+.health-badge--degraded {
+  color: var(--run);
+  border-color: var(--run);
+}
+.health-badge--unknown {
+  color: var(--queue);
+}
+.probe-btn {
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--phosphor);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+.probe-btn:hover:not(:disabled) {
+  border-color: var(--phosphor);
+}
+.probe-btn:disabled {
+  color: var(--queue);
+  cursor: default;
 }
 .version {
   color: var(--queue);
@@ -612,6 +732,7 @@ function listValue(v?: string[]): string {
     gap: 4px 10px;
   }
   .col-type,
+  .col-health,
   .col-info {
     grid-column: 1 / -1;
   }

@@ -4,6 +4,7 @@
 import { getToken, triggerUnauthorized } from '../store/auth'
 import { streamJob } from './sse'
 import type {
+  AgentProbe,
   AgentsResp,
   ArtifactsResp,
   ConfigView,
@@ -192,6 +193,27 @@ export function getProjectFile(key: string, path: string): Promise<FileContent> 
 
 export function listAgents(): Promise<AgentsResp> {
   return request<AgentsResp>('/v1/agents')
+}
+
+// 探针（SUP-01 P3）：提交一个 --sync 探针 job 验活 agent，返回承载它的 job 与结果。
+// project 缺省由服务端取第一个允许该 agent 的项目；timeoutSec 0 = 服务端默认 120s。
+export function probeAgent(
+  key: string,
+  project?: string,
+  timeoutSec?: number,
+): Promise<AgentProbe> {
+  const body: Record<string, unknown> = {}
+  if (project) {
+    body.project = project
+  }
+  if (timeoutSec && timeoutSec > 0) {
+    body.timeout_sec = timeoutSec
+  }
+  return request<AgentProbe>(`/v1/agents/${encodeURIComponent(key)}/probe`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
 }
 
 export function getStats(): Promise<Stats> {
