@@ -1,13 +1,14 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 监督闭环与 agent 可靠性设计（SUP-01：故障转移 / 验证步骤 / todo 联动 / 用量 / 模板 / 事件镜像）
 
-> 状态：Draft 0.1 / 待人工批准
+> 状态：Approved 0.2 / 实施中（2026-09-18 人工批准；决策 1–5 照初稿）
 
 ## 修订记录
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
 | 0.1 | 2026-09-18 | Claude | 初稿：A agent 故障转移 + 健康度 + 探针；B job 验证步骤 `--verify`；C plan todo 自动联动 + 提交列表采集；D 监督期间不自动布防（顺带补会话 `caller_id`，关 h-aii-esus）；E 用量/成本记录；F 任务书模板；G worker 侧审批事件镜像到 hub（h-aii-msm2） |
+| 0.2 | 2026-09-18 | Claude | 人工批准（决策 1–5 照初稿）。新增横切约束：按 AGENTS.md G032 兼容策略执行——本设计涉及的旧路径（`relay` bool 镜像列、`server.session_auto_relay_idle_sec` 别名、`interactive_allowed_agents` 一次性读取、旧 worker 协议容忍分支等）遇到即打 `DEPRECATED` 标记或直接剔除，不再新增无标记兼容层 |
 
 ## 背景与目标
 
@@ -83,7 +84,7 @@ projects:
 - 时机：agent 进程**正常结束（exit 0）**之后、`finish()` 之前，在**同一台执行机、同一 cwd（worktree job 就在 worktree 内）**、同一 env 下执行；agent 失败/取消/超时 → `verify.status = skipped`。
 - 输出：stdout+stderr 合并追加到本 job 的 `stderr.log`，前后各一行横幅 `===== gofer verify: <argv> =====` / `===== gofer verify: exit=<n> dur=<ms> =====`（worker 路径经既有 stderr 镜像即可回到 hub，不新开文件通道）；结构化结果 `JobResult.Verify {command, status: passed|failed|timeout|skipped, exit_code, duration_ms}` 持久化 `jobs.verify_json`；事件 `job.verify_started` / `job.verify_finished {status, exit_code}`。
 - 状态映射：passed → 按原逻辑（done 或 needs_review）；failed/timeout → job **`failed`**，`exit_code` = 验证退出码（timeout 为 -1），`error = "verify failed: exit N"`；若 job 开了 review（`--review`/项目 `require_review`）→ 进 **`needs_review`** 并在 `Verify` 里标 failed（人来定是拒是收）。验证失败**不是** transient（不触发自动续投/故障转移）；受 E24 重试策略约束时按普通失败处理。
-- worker/peer：`wsproto.Dispatch` 增 `verify []string` / `verify_timeout_sec`（协议 v8），worker 本地 `job.Service` 同一实现；`runner.Outcome.Verify` 回传结构化结果。旧 worker 忽略 → hub 侧 `verify.status = skipped`，`reason = "worker protocol < 8"`，记 warn。
+- worker/peer：`wsproto.Dispatch` 增 `verify []string` / `verify_timeout_sec`（协议 v8），worker 本地 `job.Service` 同一实现；`runner.Outcome.Verify` 回传结构化结果。协议 <8 的 worker 不接受带 verify/todo 的 job（dispatch 前拒绝，提示升级 worker），不做静默降级（G032）。
 - web：JobDetail 顶部状态条旁加 Verify 块（passed/failed + 命令 + 耗时，点击跳 stderr 尾部）；CLI `job show` 打印 `verify: failed (exit 1, 12.3s)`。
 - 安全：verify 命令来自提交者（同 exec 的信任面），受项目 `allow_exec` 约束——项目未开 exec 时 `--verify` 被拒（`ErrInvalidRequest: verify requires allow_exec`），与"内部 job 不开后门"的既有取向一致。
 
@@ -129,9 +130,11 @@ projects:
 
 - worker → hub 新帧 `job_event {job_id, type, detail, ts}`（协议 v8，与 B 同次升级），**只转发白名单** `job.permission_requested | job.permission_answered | job.permission_timed_out | job.verify_started | job.verify_finished`；hub `applyJobEvent` 记到 host job 行事件表（detail 加 `origin: worker:<id>`），去重键 `(job_id, type, ts, interaction_id)`。
 - hub 侧 notify 由此能命中 `job.permission_requested`（显式订阅时）；`interaction.created` 的既有镜像路径不变，不重复发。
-- 旧 worker 不发帧、旧 hub 忽略未知帧，各自零变化。
+- 旧 worker 不发帧即无镜像（不做补偿）；hub 对未知帧照常忽略。
 
 ## 横切
+
+- **兼容策略（G032）**：gofer 仍在 1.0 前。本设计新增的协议字段/列全部可选（additive），但**不为已不部署的组合写容忍分支**：P2 起 hub 只对协议 ≥8 的 worker 下发 verify/todo/job_event，对更低版本直接在 dispatch 前拒绝该 job（`ErrInvalidRequest: worker <id> protocol v<n> < 8, upgrade worker`），不做"静默 skipped"；实施中碰到的既有兼容分支按 G032 处理：仍需要的打 `// DEPRECATED(v0.45): remove in v0.48`，无人使用的直接删（候选：`agent_sessions.relay` bool 镜像列、`server.session_auto_relay_idle_sec` 别名、`interactive_allowed_agents` 一次性读取、`runner: local` 旧别名之外的历史别名、Dispatch 对 <v6/<v7 worker 的 warn-only 容忍）。删除项在汇报里逐条列出。
 
 - **协议**：v8 = Dispatch 增 `verify/verify_timeout_sec/todo_id`，新增 `job_event` 帧；`Outcome` 增 `Verify/Commits/Usage`。
 - **schema（全 additive 迁移）**：`jobs` 增 `failure_class, fell_back_from, fell_back_to, requested_agent, verify_json, todo_id, base_sha, commits_json, usage_json`；`agent_sessions` 增 `caller_id`。
