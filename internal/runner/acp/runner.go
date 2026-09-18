@@ -174,6 +174,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	res := runner.Result{SessionID: sess.SessionID}
 	pr, perr := client.Prompt(ctx, sess.SessionID, req.ACP.Prompt, h)
 	res.StopReason = pr.StopReason
+	res.Usage = h.usageSnapshot()
 	events.write(map[string]any{"t": "stop", "stop_reason": pr.StopReason})
 
 	// A context-driven exit wins the classification: the job service maps the ctx
@@ -315,6 +316,9 @@ type handler struct {
 
 	mu         sync.Mutex
 	toolStatus map[string]string
+	// usage is the token/cost tally the agent reported through usage_update events
+	// (SUP-01 E), merged as they arrive; nil when it reported none. Guarded by mu.
+	usage *runner.Usage
 	// remembered marks the tool kinds a human answered allow_always for in THIS job
 	// (remember_allow_always): the same kind stops re-asking. Guarded by mu.
 	remembered map[string]bool
@@ -349,11 +353,30 @@ func (h *handler) SessionUpdate(_ string, u acp.Update) {
 		h.events.write(map[string]any{"t": "plan", "entries": entries})
 	case acp.UpdateCurrentMode:
 		h.events.write(map[string]any{"t": "mode", "mode_id": u.CurrentModeID})
+	case acp.UpdateUsage:
+		// SUP-01 E: the agent's token/cost accounting. It stays in the event stream as
+		// it always did, and the runner keeps the running tally so the job row can
+		// record what the run cost.
+		h.events.write(map[string]any{"t": u.Kind, "raw": truncate(string(u.Raw))})
+		if got := usageFromUpdate(u.Raw); got != nil {
+			h.mu.Lock()
+			h.usage = overlayUsage(h.usage, got)
+			h.mu.Unlock()
+		}
 	default:
 		// A variant S0 does not model: keep the raw payload so the stream stays a
 		// complete record of the turn.
 		h.events.write(map[string]any{"t": u.Kind, "raw": truncate(string(u.Raw))})
 	}
+}
+
+// usageSnapshot returns the tally the agent reported through usage_update events
+// (SUP-01 E), or nil when it reported none. Called once the turn is over, so the
+// value it returns is the run's final accounting.
+func (h *handler) usageSnapshot() *runner.Usage {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	return h.usage
 }
 
 // emitToolCallJobEvent emits a job.tool_call event when a tool call's status

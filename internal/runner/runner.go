@@ -385,6 +385,11 @@ type Result struct {
 	// StopReason is the acp runner's session/prompt stopReason. It is empty for
 	// runners with no such notion; the job row records it when set.
 	StopReason string
+	// Usage is the token/cost accounting an execution-local runner learned from the
+	// process it ran — today the acp runner's accumulated usage_update tally
+	// (SUP-01 E). Nil when the runner has none (local exec, and the ndjson/codex
+	// captures, which run inside the job service rather than in a runner).
+	Usage *Usage
 }
 
 // Outcome is the产出与审计 payload a REMOTE runner回传 from the execution machine
@@ -431,6 +436,11 @@ type Outcome struct {
 	// back here; nil = the job had no verify step (or the worker predates it — the
 	// hub refuses such a dispatch rather than running a step it can no longer trust).
 	Verify *VerifyResult `json:"verify,omitempty"`
+	// Usage is the token/cost accounting the EXECUTION machine captured for this job
+	// (SUP-01 E): an agent's own numbers live in the log stream / stderr tail over
+	// there, so they travel with the outcome like the commits and the verify verdict.
+	// Nil = that machine captured none.
+	Usage *Usage `json:"usage,omitempty"`
 }
 
 // VerifyResult is the outcome of one job's verify step (SUP-01 B): the argv that

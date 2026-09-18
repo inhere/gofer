@@ -433,6 +433,9 @@ func OutcomeFrom(o *wsproto.Outcome, workerID string) *runner.Outcome {
 		// SUP-01 P2: the worker ran the verify step against ITS checkout, so its verdict
 		// travels with the outcome and the host applies it to the job row.
 		Verify: verifyFromFrame(o.Verify),
+		// SUP-01 E: the worker captured the usage on its own machine (the agent's log
+		// stream / stderr tail are there), so it travels with the outcome like the rest.
+		Usage: usageFromFrame(o.Usage),
 	}
 }
 
@@ -483,6 +486,23 @@ func verifyFromFrame(v *wsproto.VerifyResult) *runner.VerifyResult {
 		ExitCode:   v.ExitCode,
 		DurationMs: v.DurationMs,
 		Reason:     v.Reason,
+	}
+}
+
+// usageFromFrame copies the frame's usage onto the runner's own Usage type (wsproto
+// stays a leaf and defines its own, like Outcome.Commits).
+func usageFromFrame(u *wsproto.Usage) *runner.Usage {
+	if u == nil {
+		return nil
+	}
+	return &runner.Usage{
+		InputTokens:      u.InputTokens,
+		OutputTokens:     u.OutputTokens,
+		CacheReadTokens:  u.CacheReadTokens,
+		CacheWriteTokens: u.CacheWriteTokens,
+		TotalTokens:      u.TotalTokens,
+		CostUSD:          u.CostUSD,
+		Source:           u.Source,
 	}
 }
 

@@ -509,12 +509,24 @@ type JobResult struct {
 	// under (SUP-01 P3), resolved once at submit and carried by every takeover.
 	// Persisted as jobs.fallback_json; nil for a job with no candidates.
 	Fallback *FallbackState `json:"fallback,omitempty"`
+	// Usage is what the agent reported about the work's cost (SUP-01 E): tokens in /
+	// out / cached and, where the agent prices its run, the cost. It is captured
+	// best-effort from the source that carries it — the projected ndjson stream, the
+	// agent's stderr tail (codex), or the acp runner — or回传 by the execution machine
+	// for a remote job. Nil = nothing was captured (never an invented zero tally).
+	// Persisted as jobs.usage_json; the Source field says where the numbers came from.
+	Usage *Usage `json:"usage,omitempty"`
 }
 
 // VerifyResult / the verify statuses are the runner package's types, aliased here:
 // the same value describes a local run and a worker's回传 result, and job already
 // imports runner. See runner.VerifyResult for the field meanings.
 type VerifyResult = runner.VerifyResult
+
+// Usage is the runner package's token/cost accounting (SUP-01 E), aliased for the
+// same reason as VerifyResult: one definition describes a local capture and a remote
+// machine's回传 value. See runner.Usage for the field meanings.
+type Usage = runner.Usage
 
 // Verify step statuses (mirrored from runner so callers spell job.VerifyPassed).
 const (

@@ -164,11 +164,31 @@ func (r *Runner) captureRemoteOutcome(peerID string, final job.JobResult) *runne
 		// SUP-01 P2: the peer's verify result (it ran the step in its own checkout) —
 		// the host applies the verdict but never re-runs the argv.
 		Verify: final.Verify,
+		// SUP-01 E: the peer captured the agent's usage on its side, so it rides the
+		// same channel as the rest of the outcome.
+		Usage: usageFromJob(final.Usage),
 	}
 	if manifest, err := r.c.ListArtifacts(peerID); err == nil && len(manifest) > 0 {
 		o.Artifacts = manifest
 	}
 	return o
+}
+
+// usageFromJob copies the peer's captured usage onto the runner's own type (runner
+// stays a leaf and defines its own Usage).
+func usageFromJob(u *job.Usage) *runner.Usage {
+	if u == nil {
+		return nil
+	}
+	return &runner.Usage{
+		InputTokens:      u.InputTokens,
+		OutputTokens:     u.OutputTokens,
+		CacheReadTokens:  u.CacheReadTokens,
+		CacheWriteTokens: u.CacheWriteTokens,
+		TotalTokens:      u.TotalTokens,
+		CostUSD:          u.CostUSD,
+		Source:           u.Source,
+	}
 }
 
 // commitsFromJob copies the peer's captured commit list onto the runner's own

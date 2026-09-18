@@ -120,7 +120,8 @@ var schemaStmts = []string{
   fell_back_from   TEXT,
   fell_back_to     TEXT,
   requested_agent  TEXT,
-  fallback_json    TEXT
+  fallback_json    TEXT,
+  usage_json       TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -598,6 +599,12 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := add("fallback_json", "fallback_json TEXT"); err != nil {
+		return err
+	}
+	// 用量/成本记录（SUP-01 E）：usage_json=该 job 的 token/成本结算（job.Usage 的 JSON），
+	// 空=未采集到（采集失败/agent 没报），读作"没有用量"，不会把历史 job 伪造成 0 用量。
+	// /v1/stats 的 24h/7d 聚合直接对它做 json_extract。
+	if err := add("usage_json", "usage_json TEXT"); err != nil {
 		return err
 	}
 	if err := add("resumed_from", "resumed_from TEXT"); err != nil {

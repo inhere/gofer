@@ -37,6 +37,10 @@ const (
 	UpdatePlan              = "plan"
 	UpdateAvailableCommands = "available_commands_update"
 	UpdateCurrentMode       = "current_mode_update"
+	// UpdateUsage is the token/cost accounting update an agent reports as it runs
+	// (SUP-01 E). The spec leaves its payload to the agent (no typed fields here):
+	// the raw object is what the runner reads its recognisable subset from.
+	UpdateUsage = "usage_update"
 )
 
 // toolCall.kind values — the ACP ToolKind vocabulary. A gofer policy that names

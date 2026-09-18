@@ -89,6 +89,8 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		FellBackTo:     r.FellBackTo,
 		RequestedAgent: r.RequestedAgent,
 		FallbackJSON:   marshalFallback(r.Fallback),
+		// 用量/成本（SUP-01 E）：未采集到 → ""（读回即"没有用量"）。
+		UsageJSON: marshalUsage(r.Usage),
 		// job 超时上限可配（bd h-aii-s9ck）：生效 deadline + 请求值 + 截断标记三元组。
 		TimeoutSec:          r.TimeoutSec,
 		RequestedTimeoutSec: r.RequestedTimeoutSec,
@@ -209,6 +211,33 @@ func unmarshalFallback(s string) *FallbackState {
 	return &f
 }
 
+// marshalUsage serialises a job's token/cost accounting (SUP-01 E) into
+// jobs.usage_json. A job that captured none (or a marshal failure) stores "" — the
+// column then reads back as "no usage", never as a zero tally.
+func marshalUsage(u *Usage) string {
+	if u == nil {
+		return ""
+	}
+	b, err := json.Marshal(u)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// unmarshalUsage rebuilds the usage from jobs.usage_json. A malformed blob yields
+// none rather than failing the read of the whole job row.
+func unmarshalUsage(s string) *Usage {
+	if s == "" {
+		return nil
+	}
+	var u Usage
+	if json.Unmarshal([]byte(s), &u) != nil {
+		return nil
+	}
+	return &u
+}
+
 // fromRecord rebuilds a JobResult from a persisted jobstore.JobRecord. It is the
 // read path for ListJobs/Get when a job is not (or no longer) in memory.
 func fromRecord(rec jobstore.JobRecord) JobResult {
@@ -282,6 +311,8 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		FellBackTo:     rec.FellBackTo,
 		RequestedAgent: rec.RequestedAgent,
 		Fallback:       unmarshalFallback(rec.FallbackJSON),
+		// 用量/成本（SUP-01 E）：旧行 "" = 未采集，不伪造成 0 用量。
+		Usage: unmarshalUsage(rec.UsageJSON),
 		// job 超时上限可配（bd h-aii-s9ck）：生效 deadline + 请求值 + 截断标记。旧行全为
 		// 0/false = "未记录"（旧 job 早于该列），不会伪装成"被截断"。
 		TimeoutSec:          rec.TimeoutSec,

@@ -44,6 +44,8 @@ import (
 	"encoding/json"
 	"io"
 	"strings"
+
+	"github.com/inhere/gofer/internal/runner"
 )
 
 // DefaultMaxLineBytes is the parse cap: a longer line is not worth parsing (and
@@ -120,6 +122,9 @@ type Filter struct {
 
 	sessionID string
 	finalSent bool
+	// usage is the LAST usage the projected stream carried (SUP-01 E): an agent
+	// reports a running tally, so the last one is the run's final accounting.
+	usage *runner.Usage
 
 	kept      int
 	dropped   int
@@ -266,6 +271,9 @@ func (f *Filter) writeLine(line []byte) error {
 	}
 	if em.Session != "" && f.sessionID == "" {
 		f.sessionID = em.Session
+	}
+	if em.Usage != nil {
+		f.usage = em.Usage
 	}
 	if em.Text != "" {
 		if err := f.emitText(em.Text); err != nil {
@@ -439,3 +447,9 @@ func (f *Filter) Counts() (kept, dropped int) { return f.kept, f.dropped }
 
 // Truncated returns how many event-stream lines the MaxEventBytes cap shortened.
 func (f *Filter) Truncated() int { return f.truncated }
+
+// Usage returns the token/cost accounting the projected stream carried (SUP-01 E):
+// the LAST usage an agent reported, or nil when the stream carried none. Like
+// SessionID it is the capture's own answer — the projector knows which row of the
+// agent's stream holds the run's final tally, a log scan does not.
+func (f *Filter) Usage() *runner.Usage { return f.usage }

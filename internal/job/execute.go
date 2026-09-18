@@ -142,14 +142,19 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 	// exit code — the acp runner returns the agent's sessionId (the uniform resume
 	// entry point) and its session/prompt stopReason. Applied BEFORE
 	// captureOutcomes so the terminal capture sees them (a non-empty SessionID also
-	// suppresses regex session capture, which is for cli-agents).
-	if res.SessionID != "" || res.StopReason != "" {
+	// suppresses regex session capture, which is for cli-agents). SUP-01 E: the same
+	// runner reports the agent's token/cost tally through Usage.
+	if res.SessionID != "" || res.StopReason != "" || res.Usage != nil {
 		entry.mu.Lock()
 		if res.SessionID != "" && entry.result.SessionID == "" {
 			entry.result.SessionID = res.SessionID
 		}
 		if res.StopReason != "" {
 			entry.result.StopReason = res.StopReason
+		}
+		if res.Usage != nil {
+			u := *res.Usage
+			entry.result.Usage = &u
 		}
 		entry.mu.Unlock()
 	}

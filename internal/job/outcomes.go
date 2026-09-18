@@ -132,6 +132,11 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 	// stderr.log；再不行读 <result_dir>/session_id 文件兜底(选项C)。整段 best-effort，
 	// 在 captureOutcomes 的 recover 总闸内、绝不影响 job 终态。
 	s.captureSession(entry, resultDir)
+
+	// SUP-01 E: codex reports its token count on stderr and no structured stream
+	// carries it, so the terminal capture reads it from the log tail — for the codex
+	// agent only. best-effort, inside captureOutcomes' recover guard.
+	s.captureCodexUsage(entry, resultDir)
 }
 
 // captureSession 在本地终态尝试为未注入会话的 job 捕获 session_id（模式②）。它读
@@ -292,6 +297,13 @@ func (s *Service) applyOutcome(entry *jobEntry, o *runner.Outcome) {
 	if o.Verify != nil {
 		v := *o.Verify
 		entry.result.Verify = &v
+	}
+	// SUP-01 E: the execution machine captured the agent's usage (its log stream and
+	// stderr tail are over there), so it travels with the rest of the outcome. The
+	// value is copied out of the frame's type into the job's own.
+	if o.Usage != nil {
+		u := *o.Usage
+		entry.result.Usage = &u
 	}
 }
 

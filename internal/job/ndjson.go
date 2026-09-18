@@ -98,12 +98,20 @@ func (s *Service) recordNDJSONCapture(entry *jobEntry, jobID string, w io.WriteC
 	kept, dropped := c.filter.Counts()
 	truncated := c.filter.Truncated()
 	sessionID := c.filter.SessionID()
+	usage := c.filter.Usage()
 	entry.mu.Lock()
 	entry.result.NDJSONKept = kept
 	entry.result.NDJSONDropped = dropped
 	entry.result.NDJSONTruncated = truncated
 	if sessionID != "" && entry.result.SessionID == "" {
 		entry.result.SessionID = sessionID
+	}
+	// SUP-01 E: the projector knows which row of the agent's stream carries the run's
+	// final token/cost tally, so the usage it kept is the job's own accounting. The
+	// value is copied: the filter's copy stays the filter's.
+	if usage != nil {
+		u := *usage
+		entry.result.Usage = &u
 	}
 	agentKey := entry.result.Agent
 	entry.mu.Unlock()

@@ -42,6 +42,7 @@ import type {
   JobCommit,
   JobEvent,
   JobStatus,
+  JobUsage,
   JobVerify,
   LogStream,
   PtySession,
@@ -994,7 +995,9 @@ const hasOutcomes = computed<boolean>(
     diffSummary.value !== '' ||
     commits.value.length > 0 ||
     // SUP-01 P2：验证步骤是"到底验没验、过没过"的结论，即使 job 没有其他产出也要展示。
-    verify.value !== null,
+    verify.value !== null ||
+    // SUP-01 E：用量/成本是这个 job 花了多少的唯一记录，同样独立于其他产出。
+    usageLine.value !== '',
 )
 
 // 提交列表（SUP-01 C）：本 job 从 base_sha 到 HEAD 产出的提交，新→旧。
@@ -1028,6 +1031,50 @@ const verifyClass = computed<string>(() => {
     default:
       return 'verify--skip'
   }
+})
+
+// 用量/成本（SUP-01 E）：agent 自报的 token 与成本。缺项省略（agent 没报 ≠ 0），行尾括号
+// 是来源——和后端 `job show` / job.FormatUsage 同一行格式（两边各自渲染，格式对齐）。
+const usage = computed<JobUsage | null>(() => job.value?.usage ?? null)
+
+// formatTokens 与后端 job.formatTokens 同规则：<1000 原样，其余带 k/M 且保留 3 位有效数字。
+function formatTokens(n: number): string {
+  if (n < 1000) {
+    return String(n)
+  }
+  if (n < 1_000_000) {
+    return `${Number((n / 1000).toPrecision(3))}k`
+  }
+  return `${Number((n / 1_000_000).toPrecision(3))}M`
+}
+
+const usageLine = computed<string>(() => {
+  const u = usage.value
+  if (!u) {
+    return ''
+  }
+  const parts: string[] = []
+  if ((u.input_tokens ?? 0) > 0) {
+    parts.push(`in ${formatTokens(u.input_tokens as number)}`)
+  }
+  if ((u.output_tokens ?? 0) > 0) {
+    parts.push(`out ${formatTokens(u.output_tokens as number)}`)
+  }
+  const cache = (u.cache_read_tokens ?? 0) + (u.cache_write_tokens ?? 0)
+  if (cache > 0) {
+    parts.push(`cache ${formatTokens(cache)}`)
+  }
+  if ((u.total_tokens ?? 0) > 0) {
+    parts.push(`total ${formatTokens(u.total_tokens as number)}`)
+  }
+  if ((u.cost_usd ?? 0) > 0) {
+    parts.push(`$${(u.cost_usd as number).toFixed(4)}`)
+  }
+  if (parts.length === 0) {
+    return ''
+  }
+  const line = parts.join(' / ')
+  return u.source ? `${line} (${u.source})` : line
 })
 
 // scrollToVerifyOutput：把读者带到验证输出（stderr 末尾）。
@@ -1543,6 +1590,15 @@ onUnmounted(() => {
           </button>
         </div>
         <pre class="outcome-pre verify-cmd mono">{{ verifyCommand }}</pre>
+      </div>
+
+      <!-- 用量/成本（SUP-01 E）：agent 自报的 token/成本结算。缺项不显示（没报 ≠ 0），
+           行尾括号是来源；远端 job 的数字由执行机采集后随 Outcome 回传。 -->
+      <div v-if="usageLine" class="outcome-block">
+        <div class="outcome-head">
+          <span class="outcome-k mono">用量</span>
+        </div>
+        <pre class="outcome-pre verify-cmd mono">{{ usageLine }}</pre>
       </div>
 
       <!-- diff 快照(E12)：git diff --stat 摘要（未提交改动）+ 查看完整 diff。 -->

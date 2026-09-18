@@ -6,6 +6,8 @@ import (
 	"sort"
 	"strings"
 	"unicode/utf8"
+
+	"github.com/inhere/gofer/internal/runner"
 )
 
 // Built-in projector kinds (Options.Projector). A projector turns ONE decoded
@@ -67,6 +69,10 @@ type emission struct {
 	Text string
 	// Session is the session id this line carries ("" = none).
 	Session string
+	// Usage is the token/cost accounting this line carries (SUP-01 E; nil = none).
+	// The capture keeps the LAST one it sees, which is what an agent's running tally
+	// means at the end of a run.
+	Usage *runner.Usage
 	// Kept marks a line whose information was retained although it produced no
 	// output of its own (omp's message_end feeds the final answer).
 	Kept bool
@@ -75,7 +81,7 @@ type emission struct {
 // keeps reports whether the emission retained any information; the complement is
 // what the capture counts as a dropped line.
 func (em emission) keeps() bool {
-	return em.Kept || em.Events != nil || len(em.Verbatim) > 0 || em.Text != "" || em.Session != ""
+	return em.Kept || em.Events != nil || len(em.Verbatim) > 0 || em.Text != "" || em.Session != "" || em.Usage != nil
 }
 
 // projector is the per-agent event projection policy.
@@ -336,12 +342,15 @@ func (p *ompProjector) project(ev event) emission {
 		}
 	case "message_end":
 		// A completed assistant message: remember its text (the LAST one is the
-		// run's answer), write nothing — stdout gets the answer once, at the end.
+		// run's answer) and its usage counters (the LAST message carries the run's
+		// final tally), write nothing — stdout gets the answer once, at the end.
 		if pathString(ev.obj, "message", "role") == "assistant" {
+			em := emission{Usage: usageAt(ev.obj, runner.UsageSourceNDJSONOMP, "message", "usage")}
 			if t := assistantText(ev.obj); t != "" {
 				p.finalText = t
-				return emission{Kept: true}
+				em.Kept = true
 			}
+			return em
 		}
 		return emission{}
 	case "turn_end":
@@ -409,13 +418,15 @@ func (p *claudeProjector) project(ev event) emission {
 		if s := stringField(ev.obj, "result"); s != "" {
 			p.finalText = s
 		}
-		return emission{Events: newEventLine(ev.typ).
-			add("subtype", ev.obj["subtype"]).
-			add("is_error", ev.obj["is_error"]).
-			add("usage", ev.obj["usage"]).
-			add("total_cost_usd", ev.obj["total_cost_usd"]).
-			add("duration_ms", ev.obj["duration_ms"]).
-			add("num_turns", ev.obj["num_turns"])}
+		return emission{
+			Usage: claudeUsage(ev.obj),
+			Events: newEventLine(ev.typ).
+				add("subtype", ev.obj["subtype"]).
+				add("is_error", ev.obj["is_error"]).
+				add("usage", ev.obj["usage"]).
+				add("total_cost_usd", ev.obj["total_cost_usd"]).
+				add("duration_ms", ev.obj["duration_ms"]).
+				add("num_turns", ev.obj["num_turns"])}
 	case "stream_event":
 		// Per-token stream deltas: the whole point of the capture filter.
 		return emission{}

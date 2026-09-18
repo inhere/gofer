@@ -418,6 +418,11 @@ type Outcome struct {
 	// (the hub refuses a verify dispatch to a worker that cannot run it, so a nil
 	// here never means "the step was dropped").
 	Verify *VerifyResult `json:"verify,omitempty"`
+	// Usage (SUP-01 E) is the token/cost accounting the worker captured for the job:
+	// the agent's numbers live in the log stream / stderr tail on THAT machine, so
+	// they travel with the outcome like the commits and the verify verdict. Nil = the
+	// worker captured none.
+	Usage *Usage `json:"usage,omitempty"`
 }
 
 // VerifyResult is the wire form of one job's verify step outcome (SUP-01 B). It is
@@ -441,6 +446,19 @@ type VerifyResult struct {
 type Commit struct {
 	SHA     string `json:"sha"`
 	Subject string `json:"subject"`
+}
+
+// Usage is the wire form of a job's token/cost accounting (SUP-01 E). It is declared
+// here (like Commit and VerifyResult) so wsproto stays a leaf that does not import
+// runner/job.
+type Usage struct {
+	InputTokens      int64   `json:"input_tokens,omitempty"`
+	OutputTokens     int64   `json:"output_tokens,omitempty"`
+	CacheReadTokens  int64   `json:"cache_read_tokens,omitempty"`
+	CacheWriteTokens int64   `json:"cache_write_tokens,omitempty"`
+	TotalTokens      int64   `json:"total_tokens,omitempty"`
+	CostUSD          float64 `json:"cost_usd,omitempty"`
+	Source           string  `json:"source,omitempty"`
 }
 
 // --- P2/P3 placeholders: declared so the protocol is complete (review #6); the

@@ -106,7 +106,7 @@ func TestCodexStderrTokensParsed(t *testing.T) {
 		t.Fatalf("status = %s (err=%s), want done", final.Status, final.Error)
 	}
 	if final.Usage == nil {
-		t.Fatalf("no usage captured from the codex stderr tail (stderr.log = %q)", readJobLog(t, root, final, "stderr"))
+		t.Fatalf("no usage captured from the codex stderr tail (stderr.log = %q)", readJobLog(t, final, "stderr.log"))
 	}
 	if final.Usage.TotalTokens != 19802 || final.Usage.Source != runner.UsageSourceCodexStderr {
 		t.Fatalf("usage = %+v, want total_tokens 19802 from %s", *final.Usage, runner.UsageSourceCodexStderr)
@@ -126,16 +126,6 @@ func TestCodexStderrTokensParsed(t *testing.T) {
 	if other.Usage != nil {
 		t.Fatalf("usage = %+v, want none: the codex sniff must not read another agent's log", *other.Usage)
 	}
-}
-
-// readJobLog returns one of a job's captured log streams.
-func readJobLog(t *testing.T, root string, res JobResult, stream string) string {
-	t.Helper()
-	b, err := os.ReadFile(filepath.Join(res.ResultDir, stream+".log"))
-	if err != nil {
-		t.Fatalf("read %s.log: %v", stream, err)
-	}
-	return string(b)
 }
 
 // TestACPUsageUpdateRecorded: an acp agent reports its usage as a session/update

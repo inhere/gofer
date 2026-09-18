@@ -238,12 +238,16 @@ func outcomeFrame(remoteJobID string, final job.JobResult) (wsproto.Outcome, boo
 		// SUP-01 P2：验证步骤在 worker 本机跑（校验的是它那棵树），结构化结果随产出回传
 		// host —— host 不会重跑（那会校验一棵 job 从未碰过的树）。
 		Verify: verifyToFrame(final.Verify),
+		// SUP-01 E：用量/成本由 worker 本机采集（agent 的账在那台机的日志流/stderr 尾部），
+		// 随产出回传 host，host 行与 host 侧 stats 才有远端 job 的用量。
+		Usage: usageToFrame(final.Usage),
 	}
 	if final.ArtifactsJSON != "" {
 		o.Artifacts = json.RawMessage(final.ArtifactsJSON)
 	}
 	send := o.RenderedCommand != "" || o.ResultJSON != "" || o.DiffSummary != "" || len(o.Artifacts) > 0 ||
-		o.SessionID != "" || o.WorktreePath != "" || o.BaseSHA != "" || len(o.Commits) > 0 || o.Verify != nil
+		o.SessionID != "" || o.WorktreePath != "" || o.BaseSHA != "" || len(o.Commits) > 0 || o.Verify != nil ||
+		o.Usage != nil
 	return o, send
 }
 
@@ -273,6 +277,23 @@ func commitsToFrame(in []job.Commit) []wsproto.Commit {
 		out = append(out, wsproto.Commit{SHA: c.SHA, Subject: c.Subject})
 	}
 	return out
+}
+
+// usageToFrame copies the local job's captured usage onto the wire type (wsproto
+// stays a leaf and defines its own Usage).
+func usageToFrame(u *job.Usage) *wsproto.Usage {
+	if u == nil {
+		return nil
+	}
+	return &wsproto.Usage{
+		InputTokens:      u.InputTokens,
+		OutputTokens:     u.OutputTokens,
+		CacheReadTokens:  u.CacheReadTokens,
+		CacheWriteTokens: u.CacheWriteTokens,
+		TotalTokens:      u.TotalTokens,
+		CostUSD:          u.CostUSD,
+		Source:           u.Source,
+	}
 }
 
 // reportRenderedCommandEarly sends a rendered-command-only Outcome frame as soon as
