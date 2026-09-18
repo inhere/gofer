@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"math"
 	"net/http"
 	"path/filepath"
 	"strings"
@@ -111,6 +112,65 @@ func statsScheduleRecord(id string, enabled int) jobstore.ScheduleRecord {
 		ProjectKey:  "self",
 		CreatedAt:   1,
 		UpdatedAt:   1,
+	}
+}
+
+// TestStatsIncludesUsage: /v1/stats 的 usage 块是 Home「Agent 用量」卡与 `gofer agent
+// status` 的数据源——按 24h/7d 两个窗口给出各 agent 的 job 数、token 与成本。
+func TestStatsIncludesUsage(t *testing.T) {
+	const nowMs = int64(1_751_500_000_000)
+	orig := nowMillis
+	nowMillis = func() int64 { return nowMs }
+	defer func() { nowMillis = orig }()
+	const now = nowMs / 1000 // jobs 表的时间是 unix 秒
+	const day = int64(86400)
+
+	s := newTestServer(t, testToken, false)
+	meta := s.jobs.Meta()
+	// 每个 job 的 agent、用量与起始时间（statsJobRecord 默认 exec/无用量）。
+	for _, rec := range []struct {
+		id      string
+		agent   string
+		usage   string
+		started int64
+	}{
+		{"u-omp-1", "omp", `{"input_tokens":100,"output_tokens":200,"total_tokens":1000,"cost_usd":0.01,"source":"ndjson:omp"}`, now - day/2},
+		{"u-omp-2", "omp", `{"total_tokens":500,"source":"ndjson:omp"}`, now - 3600},
+		{"u-omp-old", "omp", `{"total_tokens":100,"source":"ndjson:omp"}`, now - 3*day}, // 24h 之外、7d 之内
+		{"u-codex-1", "codex", `{"total_tokens":2000,"cost_usd":0.02,"source":"codex:stderr"}`, now - 7200},
+	} {
+		row := statsJobRecord(rec.id, job.StatusDone, rec.started)
+		row.Agent, row.UsageJSON = rec.agent, rec.usage
+		if err := meta.UpsertJob(row); err != nil {
+			t.Fatalf("upsert %s: %v", rec.id, err)
+		}
+	}
+
+	resp := do(t, s, http.MethodGet, "/v1/stats", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("stats status=%d, want 200", resp.StatusCode)
+	}
+	var body statsResp
+	decode(t, resp, &body)
+
+	if body.Usage.Partial {
+		t.Fatalf("usage.partial=true: %+v", body.Usage)
+	}
+	if len(body.Usage.Windows) != 2 {
+		t.Fatalf("usage.windows=%v, want 24h and 7d", body.Usage.Windows)
+	}
+	d := body.Usage.Windows["24h"]
+	if omp := d.ByAgent["omp"]; omp.Jobs != 3 || omp.TotalTokens != 1600 || omp.InputTokens != 100 || omp.OutputTokens != 200 {
+		t.Fatalf("24h omp = %+v, want 3 jobs / 1600 tokens / 100 in / 200 out", omp)
+	}
+	if math.Abs(d.ByAgent["codex"].CostUSD-0.02) > 1e-9 {
+		t.Fatalf("24h codex cost = %v, want 0.02", d.ByAgent["codex"].CostUSD)
+	}
+	if d.Total.Jobs != 4 || d.Total.TotalTokens != 3600 {
+		t.Fatalf("24h total = %+v, want 4 jobs / 3600 tokens", d.Total)
+	}
+	if got := body.Usage.Windows["7d"].Total.TotalTokens; got != 3600 {
+		t.Fatalf("7d total tokens = %d, want the same four jobs (all inside 7d)", got)
 	}
 }
 

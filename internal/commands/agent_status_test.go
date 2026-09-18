@@ -37,6 +37,18 @@ func (a *agentHealthStub) handler() http.Handler {
 				"job_id": "20260918-120000-abcd1234", "status": a.probeStatus, "exit_code": a.probeExit,
 				"duration_ms": 1234, "first_line": "OK",
 			})
+		case r.Method == http.MethodGet && r.URL.Path == "/v1/stats":
+			// 用量块（SUP-01 E）：codex 在 24h 窗口里有结算，omp 没有（两列应为 `-`）。
+			codexUsage := map[string]any{
+				"jobs": 4, "total_tokens": 305145, "input_tokens": 12345, "output_tokens": 3800, "cost_usd": 0.0032,
+			}
+			_ = json.NewEncoder(w).Encode(map[string]any{"usage": map[string]any{
+				"windows": map[string]any{
+					"24h": map[string]any{"by_agent": map[string]any{"codex": codexUsage}, "total": codexUsage},
+					"7d":  map[string]any{"by_agent": map[string]any{"codex": codexUsage}, "total": codexUsage},
+				},
+				"partial": false,
+			}})
 		default:
 			http.NotFound(w, r)
 		}
@@ -73,6 +85,40 @@ func TestAgentStatusPrintsHealth(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("agent status output missing %q:\n%s", want, out)
 		}
+	}
+}
+
+// TestAgentStatusPrintsUsage: the table carries each agent's 24h token/cost total
+// (SUP-01 E) beside its health — one read answers both "is this agent healthy?" and
+// "what did it burn today?". An agent with no usage in the window shows `-`, not 0.
+func TestAgentStatusPrintsUsage(t *testing.T) {
+	stub := &agentHealthStub{}
+	stubAgentServer(t, stub.handler())
+
+	c := bindCmd(findSub(t, NewAgentCmd(), "status"))
+	out := captureOutput(t, func() {
+		if err := runAgentStatus(c, nil); err != nil {
+			t.Fatalf("agent status: %v", err)
+		}
+	})
+
+	for _, want := range []string{"24H_TOKENS", "24H_COST", "305k", "$0.0032"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("agent status output missing %q:\n%s", want, out)
+		}
+	}
+	// omp 在窗口内没有用量 → 两列都是 `-`（不是 0：没报 ≠ 0）。
+	ompLine := ""
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(line, "omp ") {
+			ompLine = line
+		}
+	}
+	if ompLine == "" {
+		t.Fatalf("agent status printed no omp row:\n%s", out)
+	}
+	if !strings.Contains(ompLine, "-") || strings.Contains(ompLine, "$") {
+		t.Fatalf("omp row = %q, want `-` for an agent with no usage in the window", ompLine)
 	}
 }
 
