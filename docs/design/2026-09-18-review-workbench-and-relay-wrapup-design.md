@@ -8,6 +8,7 @@
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
 | 0.1 | 2026-09-18 | Claude | 初稿：① 验收台——web「待验收」列表 + job 详情验收面板（汇报 / 提交 / Diff 渲染 / 验证 / 用量一屏）+ CLI `job review`；② 收尾——`session release-takeover` CLI、接管 job 终态自动释放会话、tmux 注入 runner 失败也转 B（h-aii-jvia）、peer-http 的 acp resume 续投标记（h-aii-9qiy） |
+| 0.2 | 2026-09-18 | omp | R1 实施完成（SUP-02 收尾 + `job review` CLI）：实测记录见 §三；`ResumedFrom` rerun 语义与 `RebuildJob` 的"新会话"规则的差异记在 §3.2 |
 
 ## 背景
 
@@ -71,3 +72,25 @@ SUP-01 之后一个 job 的验收材料齐了（`needs_review`、`verify`、`com
 1. Diff 渲染自写轻量组件，不引入第三方 diff 库；上限 1MB / 5000 行。
 2. `ResumedFrom` 公开到 HTTP 契约（非安全字段），`rerun` 续投 job 语义 = 再续同一会话。
 3. 接管 job 终态自动释放默认开启，无开关（人可随时手动 release，行为可逆）。
+
+## 三、R1 实测记录（2026-09-18）
+
+全部在 Windows 本机、`go test`（`t.TempDir()`，未碰真实配置目录/真实 serve）下验证；`go build ./...` 与 `go vet ./...` 干净，`gofmt -l` 对改过的文件为空。
+
+### 3.1 逐项证据
+
+| 验收项（§实施分期 R1） | 证据（测试 / 原始输出） |
+|---|---|
+| `session release-takeover` CLI 可用 | `internal/commands` `TestSessionReleaseTakeoverCommand`：`POST /v1/sessions/<sid>/release-takeover`（空 body，全 id 不再查列表），输出含 `state=idle` |
+| 接管 job done 后会话自动 idle | `internal/sessionrelay` `TestReleaseTakeoverForJobReleasesHandedOffSession` / `…IgnoresOtherJobs`（不 cancel 已终态 job、只匹配 holder、幂等重放不再发事件）+ `internal/httpapi` `TestTakeoverJobEndReleasesSession`（组装层 e2e：假接管 job 终态 → 会话 idle、事件 `sid:job:job_done` 到达 notifier 缝） |
+| `inject_failed:runner_error` 转 B | `internal/sessionrelay` `TestTakeoverFallbackOnRunnerError`（dispatch 报错与脚本非 pane 退出码两种形态都转 B；`pane_busy:vim` 仍不转） |
+| peer e2e：acp resume 经 peer 走 `session/load` | `internal/httpapi` `TestPeerACPResumeLoadsSession`：hub 提交 acp job（runner=peer）→ 源 job `session_id=sess-acptest-1` → `ResumeJob` → 对端 job 行 `resumed_from=<hub 源 job id>`，对端 stderr 出现 `acptest: session/load sid=sess-acptest-1`、**无** `acptest: session/new`（acp runner 日志 `loaded=false` → `loaded=true`） |
+| `job review` 输出含五块 | `internal/commands` `TestJobReviewPrintsSections`：status/review/verify/commits/usage/`diff --stat`/汇报尾部全出现，`--diff` 才追加 patch（且 `logs/stdout?bytes=65536`） |
+| h-aii-pq8a | `internal/job` `TestSubmitExecNoSessionInjection` 两个失败分支带 `Submit` 错误全文 + `goroutines=` + `active_jobs=`（只加上下文，断言未变） |
+
+附带落地：`job.Service.OnTerminal`（异步、每钩子独立 goroutine、panic recover 只 warn）覆盖 `finish`（done/failed/cancelled/timeout）与 accept/reject 两条终态路径——`internal/job` `TestOnTerminalHooksRunAfterFinish`（done/failed 各一次、panic 钩子不影响其它钩子与 job）与 `TestOnTerminalHooksRunOnAcceptReject`（needs_review 期间不触发，accept→done / reject→rejected 各一次）。
+
+### 3.2 与设计文字的偏差 / 待人工决策
+
+- **`job rerun` 一个 acp 续投 job ≠ 再续同一会话**（决策 2 的括注）。`ResumedFrom` 现在确实随 `request_json` 往返（这正是 peer 续投要的），但 `RebuildJob` 按既有规则清空 `SessionID`（"fresh job, NOT a resume — don't rebind the source session"，有测试 `TestRebuildJobEmptyOverridesStampsFreshFields` 钉住）。于是 rerun 出的 acp job 有 `resumed_from` 无 `session_id`，`resumeLoadSessionID` 要求两者同时存在 → **不开 `session/load`，等于新会话**。exec 载体的续投不受影响（argv 自带 session id，rerun 重放 argv 仍是续接），所以设计里"与 exec 载体一致"的说法对 acp 载体不成立。本期按任务要求**保留**该字段、未改 `RebuildJob` 的清理规则；要真做"rerun 再续同一会话"，需要单独决定是否让 rerun 继承 `SessionID`（会与上面那条既有规则/测试冲突）。
+- `session.takeover_released` 的 `reason` 用 `job_<status>`（如 `job_done` / `job_failed`；状态行读不到时 `job_unknown`）。design 未规定 job 行缺失时的取值。

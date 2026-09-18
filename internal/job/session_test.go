@@ -2,9 +2,11 @@ package job
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"testing"
 
 	"github.com/inhere/gofer/internal/agent"
@@ -138,6 +140,18 @@ func TestSubmitExplicitSessionIDWins(t *testing.T) {
 	}
 }
 
+// submitDebugContext adds the context both failure branches of
+// TestSubmitExecNoSessionInjection print (bd h-aii-pq8a): the full Submit error,
+// how many goroutines were alive and how many jobs the service still tracks. The
+// assertions themselves are unchanged — this only makes a flake (h-aii-3cdc)
+// diagnosable from the test log alone.
+func submitDebugContext(s *Service) string {
+	s.mu.Lock()
+	active := len(s.jobs)
+	s.mu.Unlock()
+	return fmt.Sprintf("goroutines=%d active_jobs=%d", runtime.NumGoroutine(), active)
+}
+
 // TestSubmitExecNoSessionInjection proves a plain exec job (no SessionInject)
 // carries no session_id at submit time (codex/exec are capture or none).
 func TestSubmitExecNoSessionInjection(t *testing.T) {
@@ -149,10 +163,10 @@ func TestSubmitExecNoSessionInjection(t *testing.T) {
 		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
 	})
 	if err != nil {
-		t.Fatalf("Submit: %v", err)
+		t.Fatalf("Submit: %v (%s)", err, submitDebugContext(s))
 	}
 	if res.SessionID != "" {
-		t.Fatalf("exec job should not inject a session_id, got %q", res.SessionID)
+		t.Fatalf("exec job should not inject a session_id, got %q (%s)", res.SessionID, submitDebugContext(s))
 	}
 }
 

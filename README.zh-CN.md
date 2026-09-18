@@ -207,6 +207,7 @@ gofer job accept <job-id> [--note "合格"]                    # → done（记 
 gofer job reject <job-id> --note "测试还是红的"               # → rejected（终态；理由必填）
 gofer job reject <job-id> --note "测试还是红的" --resume       # 同时以该理由为 prompt 续投一个新 job
 gofer job list --status needs_review                         # 还有哪些等人验收
+gofer job review <job-id> [--tail 60] [--diff]               # 验收材料一屏看完：status / review / verify / commits / usage / diff --stat + 汇报尾部（--diff 追加完整 patch）
 ```
 
 - 失败（`failed`/`cancelled`/`timeout`）**不**进验收，只有正常完成才进。`rejected` 是终态：workflow 步骤按失败聚合，**不会**被自动重试/自动续投——只有人的 `--resume` 才继续这份工作。
@@ -281,7 +282,7 @@ gofer tunnel ls
 - **运行中交互**：agent 经 `POST /v1/jobs/{id}/interactions` 提问 → job 置 `pending_interaction` → 人 `POST …/answer` → 续跑；MCP 对应 `gofer_get_interactions` / `gofer_answer_interaction`；web 与 IM 通知（钉钉/飞书 webhook，`server.notification`）。
 - **审批门（acp-agent）**：项目 `approval` 段决定 ACP agent 能无人值守做到哪一步——`mode: off`（默认）照旧自动放行，`ask` 放行 `auto_allow_kinds`（read/search/think/fetch）之外的求批，`strict` 全部求批。待批请求落成 `type=permission` 的交互（被求批的工具调用 + agent 自己的 ACP 选项 + `timeout_sec` 倒计时），在 web job 页点按钮、`gofer job answer <id> <interaction-id> <optionId>` 或 MCP `gofer_answer_interaction` 作答；无人作答则按 `on_timeout` 兜底（默认 `reject`，可配 `allow`）。agent 侧只能经 `agents.<key>.acp.permission_policy` **收紧**项目策略；IM 只发通知（`job.permission_requested`，带 web 链接），不支持在 IM 里作答。每次决定都进 job 事件（`job.permission_requested|answered|timed_out`）与 `<result_dir>/artifacts/acp.jsonl` 审计。
 - **plan 进度看板**：`gofer plan create/add-todo/set-todo`，job 用 `--plan <id>` 挂上；web Plan 页（手机可开）就是实时进度页。**决策点问人**：MCP `gofer_ask_human` 阻塞提问，人在 web 作答后答案流回 agent（超时按预案继续）。
-- **终端会话中继**：`gofer init hooks` 装 Stop/UserPromptSubmit 等 hook 后，Claude Code / Codex 会话停下时最后一条消息可发到 web「会话」页等回复，回复注入**同一个**会话继续（`gofer session relay auto|on|off`、`gofer session say`；会话归**注册它的 caller** 所有，且该 caller 名下还有在跑的 job 时 `auto` **刻意不布防**——否则 job 完成通知会堵在你自己的 Stop 后面，`session.auto_relay_skip_when_supervising`）。开关**三态**：`on` 每次停下都等，`off` 从不等，`auto`（缺省）交给 server 判——离开键盘超过 `session.auto_relay_idle_sec`（默认 300，`0` 关）自动布防，人一碰键盘即放行；**容器里探测不到键盘**（无 X11，`xprintidle` 不可用）时改看 `session.auto_relay_turn_sec`（默认 900，`0` 关）——距本会话人最后一次输入多久，人下次输入或按 Esc 即放行。会话只是**空闲**（没有 turn 在等）时，会话抽屉的输入框变成「送入终端」（CLI 是 `gofer session say --deliver`）：server 起一个内部 exec job 把文本敲进该会话的 **tmux** pane，于是已经停下的会话也能从 web 接着聊——前提是会话跑在 tmux 里、且登记了执行机（容器会话要在容器内起 gofer worker 并把 `GOFER_HOOK_RUNNER` 指向它）。
+- **终端会话中继**：`gofer init hooks` 装 Stop/UserPromptSubmit 等 hook 后，Claude Code / Codex 会话停下时最后一条消息可发到 web「会话」页等回复，回复注入**同一个**会话继续（`gofer session relay auto|on|off`、`gofer session say`；会话归**注册它的 caller** 所有，且该 caller 名下还有在跑的 job 时 `auto` **刻意不布防**——否则 job 完成通知会堵在你自己的 Stop 后面，`session.auto_relay_skip_when_supervising`）。开关**三态**：`on` 每次停下都等，`off` 从不等，`auto`（缺省）交给 server 判——离开键盘超过 `session.auto_relay_idle_sec`（默认 300，`0` 关）自动布防，人一碰键盘即放行；**容器里探测不到键盘**（无 X11，`xprintidle` 不可用）时改看 `session.auto_relay_turn_sec`（默认 900，`0` 关）——距本会话人最后一次输入多久，人下次输入或按 Esc 即放行。会话只是**空闲**（没有 turn 在等）时，会话抽屉的输入框变成「送入终端」（CLI 是 `gofer session say --deliver`）：server 起一个内部 exec job 把文本敲进该会话的 **tmux** pane，于是已经停下的会话也能从 web 接着聊——前提是会话跑在 tmux 里、且登记了执行机（容器会话要在容器内起 gofer worker 并把 `GOFER_HOOK_RUNNER` 指向它）。接管 job **结束时会自动把会话放回 idle**（手动形式是 `gofer session release-takeover <id>`；注入 job 根本没跑起来（`inject_failed:runner_error`）现在也会改走接管）；验收材料可以用 `gofer job review <id> [--diff]` 一屏看完。
 
 ## 日志与观测
 

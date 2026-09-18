@@ -52,10 +52,11 @@ Codex 额外条件：`config.toml` 里 `[features] hooks = true`（旧版本键�
 
 **无 turn 时送话（阶段 2-A，tmux 注入）**：`POST /v1/sessions/{sid}/deliver {text}`。有 OPEN turn 就等价 `say`（作答）；否则 server 在该会话的 runner 上起一个内部 exec job，确认 pane 存活、前台是 agent CLI（白名单 `session.inject_commands`，默认 `claude|codex|omp|node|gemini|opencode`），再逐行 `tmux send-keys -t <pane> -l -- '<行>'` + `Enter`（文本前缀 `[gofer web 回复] `，上限 8KB，单引号转义）。成功后会话置 `running`，审计行 `plan_decisions(kind=relay, detail={"path":"tmux","job_id":…})`。
 
-**无 turn 时送话（阶段 2-B，`--resume` pty 接管）**：会话没有可用 tmux pane（`no_tmux` / `inject_failed:pane_missing`）时，带 `allow_takeover: true` 再发一次即可让 server **起一个新进程接管**：`POST /v1/sessions/{sid}/deliver {text, allow_takeover: true}`（`allow_takeover` 缺省 false —— 接管会把会话从原终端移走，必须显式要）。server 用该会话的 `session_id` 在**同一 runner、同一项目相对目录**起一个交互 pty job（`claude --resume <sid>` / `codex resume <sid>` / `omp --resume <sid>`，argv 来自 agent 的 `SessionResumeInteractive` 模板），把 `[gofer web 回复] <文本>\r` 作为该终端的**首条输入**（pty 首次输出后安静 `session.takeover_input_delay_ms`（默认 1500ms）再写，最多等 10s；多行原样写入），会话随即置 `handed_off`（记 `handed_off_job_id`/`handed_off_at`，审计 `detail={"path":"takeover","job_id":…}`），web 跳到 `/jobs/<id>?attach=1`。前提：agent 有交互 resume 模板（内置 claude/codex/omp）、项目 `allow_interactive: true`、会话 cwd 能换算成执行机上的项目相对路径。
+**无 turn 时送话（阶段 2-B，`--resume` pty 接管）**：会话没有可用 tmux pane（`no_tmux` / `inject_failed:pane_missing`）或**注入 job 根本没跑起来**（`inject_failed:runner_error`：runner 不可达 / 脚本自己挂了 —— 这两类 A 都没机会看 pane）时，带 `allow_takeover: true` 再发一次即可让 server **起一个新进程接管**：`POST /v1/sessions/{sid}/deliver {text, allow_takeover: true}`（`allow_takeover` 缺省 false —— 接管会把会话从原终端移走，必须显式要）。server 用该会话的 `session_id` 在**同一 runner、同一项目相对目录**起一个交互 pty job（`claude --resume <sid>` / `codex resume <sid>` / `omp --resume <sid>`，argv 来自 agent 的 `SessionResumeInteractive` 模板），把 `[gofer web 回复] <文本>\r` 作为该终端的**首条输入**（pty 首次输出后安静 `session.takeover_input_delay_ms`（默认 1500ms）再写，最多等 10s；多行原样写入），会话随即置 `handed_off`（记 `handed_off_job_id`/`handed_off_at`，审计 `detail={"path":"takeover","job_id":…}`），web 跳到 `/jobs/<id>?attach=1`。前提：agent 有交互 resume 模板（内置 claude/codex/omp）、项目 `allow_interactive: true`、会话 cwd 能换算成执行机上的项目相对路径。
 
 - **原终端会发生什么**：它的中继**停用**（`wait_reason` 恒空、`OpenTurn` 拒绝），下一次 hook 事件（Stop / 你敲字）在 stderr 打一行 `该会话已于 <时间> 在 web 接管（job <id>），继续请在 web 终端或 --resume；本终端的中继已停用`。原进程仍在跑，但两个进程写同一 CLI 会话会分叉 —— 要继续就在 web 的接管终端里说。
-- **解除接管**：web 会话抽屉「解除接管」→ `POST /v1/sessions/{sid}/release-takeover`：先 cancel 接管 job，再把会话置回 `idle` 并清空 `handed_off_*`，原终端恢复中继（cancel 失败会报 502，不假装成功）。CLI 无对应子命令，用 web 或 HTTP。
+- **解除接管**：`gofer session release-takeover <sid>`（web 会话抽屉「解除接管」；HTTP `POST /v1/sessions/{sid}/release-takeover`）：先 cancel 接管 job，再把会话置回 `idle` 并清空 `handed_off_*`，原终端恢复中继（cancel 失败会报 502，不假装成功）。会话未接管 → 409（陈旧请求值得知道，不吞掉）。
+- **接管 job 结束时自动释放**：pty job 一到终态，server 就把会话放回 `idle` 并清空 `handed_off_*` —— 那时已经没有进程握着这个 CLI 会话，留着它只会得到一个既不能收新 turn、也没有终端可去的中继。释放不动那个已终态的 job（无可 cancel），事件 `session.takeover_released {session_id, job_id, reason: job_<status>}`（如 `job_done` / `job_failed`；不在默认通知集，要订阅就显式写进 webhook `events`）。所以「接管进程跑完了，会话却一直显示已接管」不会发生；人在 job 还在跑时手动解除仍走上面的 cancel 路径。
 - **CLI 等价面**：`gofer session say <id> "<文本>" --deliver --takeover`（`--takeover` 必须与 `--deliver` 同时用）。
 
 失败原因（看 server 返回的 `error` 字段 / web 提示）：
@@ -67,13 +68,13 @@ Codex 额外条件：`config.toml` 里 `[features] hooks = true`（旧版本键�
 | `ended` | 会话已结束 |
 | `inject_failed:pane_missing` | pane 没了（tmux 会话被关 / 换了 window）；带 `allow_takeover` 时 server 自动改走 B |
 | `inject_failed:pane_busy:<cmd>` | pane 前台不是 agent CLI（例如 vim / shell），拒绝敲字；也不会改走 B（你在用那个终端） |
-| `inject_failed:runner_error` | 执行机侧失败（runner 不可用、job 超时、project 未开 `allow_exec`、B 的接管 job 提交被拒等）；`gofer job ls --tag relay-inject` / `--tag relay-takeover` 找到那个 job 看日志 |
+| `inject_failed:runner_error` | 执行机侧失败（runner 不可用、job 超时、project 未开 `allow_exec`、B 的接管 job 提交被拒等）；`gofer job ls --tag relay-inject` / `--tag relay-takeover` 找到那个 job 看日志。带 `allow_takeover` 时这类失败**也会**改走 B（A 没能看到 pane，起个新进程是剩下的办法）；B 自己也提交失败才会把该原因返回给调用方 |
 | `no_resume_template` | B 前提不满足：该 agent 没有交互 resume 模板（内置 claude / codex / omp 有） |
 | `interactive_not_allowed` | B 前提不满足：项目未开 `allow_interactive` |
 | `cwd_outside_project` | B 前提不满足：会话 cwd 换算不到执行机上的项目相对路径（POLICY roots 映射后两台机路径不同，见 `docs/design/2026-09-06-agent-session-relay-design.md` §9.1 限制） |
 | `handed_off:<job>` | 该会话已被 job `<job>` 接管：到那个终端继续，或先解除接管 |
 
-CLI 等价面：`gofer session ls / show <id> / say <id> "<回复>" [--deliver [--takeover]] / rm <id>`（id 可用前 8 位）；`ls` 的 RELAY 列显示 `on` / `off` / `auto`，auto 且当前在等时显示 `auto·wait(i)`（键盘空闲）或 `auto·wait(t)`（距上次人工输入）；`show` 额外打印 mode 与判定依据。
+CLI 等价面：`gofer session ls / show <id> / say <id> "<回复>" [--deliver [--takeover]] / release-takeover <id> / rm <id>`（id 可用前 8 位）；`ls` 的 RELAY 列显示 `on` / `off` / `auto`，auto 且当前在等时显示 `auto·wait(i)`（键盘空闲）或 `auto·wait(t)`（距上次人工输入）；`show` 额外打印 mode 与判定依据。
 
 ## 3. 运行机制速览
 
@@ -89,7 +90,7 @@ Stop hook → gofer hook <agent>
 ```
 
 - 会话表 `agent_sessions`：开关是 `relay_mode`（auto|on|off；`relay` 列保留为 `relay_mode=='on'` 的镜像，给旧二进制读），加上 `idle_sec`（键盘空闲读数）、`last_human_at`（判据二的锚点）与 `handed_off_job_id`/`handed_off_at`（阶段 2-B 的接管 job）。turn 复用 `plan_decisions`（additive 列 `session_id`, `kind`, `detail`）。
-- 状态：`running → idle`(Stop, 不等) / `waiting_reply`(Stop, 等) / `needs_attention`(Claude Notification) / `handed_off`(web 起了 `--resume` pty job 接管，原终端不再中继) / `ended`(SessionEnd)。`handed_off` 只由 `release-takeover` 解除 —— 原终端的任何事件都不会把它改回去。
+- 状态：`running → idle`(Stop, 不等) / `waiting_reply`(Stop, 等) / `needs_attention`(Claude Notification) / `handed_off`(web 起了 `--resume` pty job 接管，原终端不再中继) / `ended`(SessionEnd)。`handed_off` 只由 `release-takeover`（`gofer session release-takeover <id>` / web）或**接管 job 自己到达终态时的自动释放**解除 —— 原终端的任何事件都不会把它改回去。
 - `on` → 人在终端输入（UserPromptSubmit）即降回 `auto`；`auto` 的等待在人回来时直接释放（探得到就探，探不到就靠事件）。harness 产生的同名事件（注入回复带 `[gofer web 回复]` 前缀、后台任务通知 `<task-notification>`、系统提醒）hook 会上报 `injected`：不动开关、也不当作"人回来了"；`hook.log` 里能看到 `human prompt` / `harness prompt` 的判定。
 - 日志：`<config-dir>/run/hook.log`（>5MB 自动清空）；每个事件一行，含 state / relay mode / wait reason。
 
@@ -112,7 +113,7 @@ Stop hook → gofer hook <agent>
 | 终端一直"hook 运行中" | 正常：这就是等待 | 想直接输入按 Esc 取消；或 web 回复 `/off` |
 | Stop 后终端立刻恢复但没走中继 | `hook.log` 有 `heartbeat failed` | server 不可达，hook 按设计直接放行 |
 | 忘开开关且会话已空闲 | — | 走「无 turn 时送话」：web 抽屉「送入终端」/ `session say --deliver`（需 tmux + 已登记执行机）；没有 tmux 就用「起新进程接管并发送」/ `--deliver --takeover`；否则在终端输入一次 |
-| 会话显示「已接管」但我要回原终端 | `gofer session show <id>` 看 `handed_off_job_id` | web 抽屉「解除接管」（cancel 接管 job 后会话回 idle）；或在接管终端里继续 |
+| 会话显示「已接管」但我要回原终端 | `gofer session show <id>` 看 `handed_off_job_id` | `gofer session release-takeover <id>`（或 web 抽屉「解除接管」；cancel 接管 job 后会话回 idle）；接管 job 自己结束时 server 也会自动释放；或在接管终端里继续 |
 | 接管后原终端敲字没反应 | 设计如此 | 原终端的 hook 会打一行 `该会话已于 … 在 web 接管`；两个进程写同一会话会分叉，继续请在接管终端 |
 | 接管报 `cwd_outside_project` | `gofer session show <id>` 的 cwd 与该项目在执行机上的根 | 容器与主机路径不一致（POLICY roots 映射），让两侧同名路径（bind mount）后再试；A 路径不受影响 |
 

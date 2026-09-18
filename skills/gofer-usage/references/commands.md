@@ -97,6 +97,7 @@ gofer job run … --fallback omp,claude                    # 本 job 的故障�
 gofer job run … --no-fallback                            # 本 job 不做故障转移(覆盖一切配置)
 gofer job run … -t <模板> [--var k=v …] [--prompt "追加正文"]   # 用任务书模板派活(服务端渲染 prompt; 见下「任务书模板」)
 gofer job show <id>                                      # 打印 todo / base_sha / commits(这次交付了哪些提交) / verify(验收结果) / usage(用量与成本)
+gofer job review <id> [--tail 60] [--diff]                # 验收一屏: status/review/verify/commits(≤20)/usage/diff --stat + 汇报尾部(默认 60 行, 取 stdout 末 64KB); --diff 追加完整 diff; 只看不改, 退出码 0
 ```
 
 - `resume` vs `rerun`：`rerun` 是同一请求重提（新会话）；`resume` 是让 codex/claude 用 `exec resume <sid>` / `--resume <sid>` 接着上次会话跑，prompt 只说"从哪继续"。**acp-agent 的 resume 走协议 `session/load`，不需要 `session_resume` 模板**（也不需要注入/捕获模板）；agent 没声明 `loadSession`（或配了 `acp.load_session: false`）时 resume 直接报不支持，不会偷偷开新会话。
@@ -138,6 +139,7 @@ gofer session relay auto|on|off [--session <id>]  # 省略 --session: 按当前�
 gofer session say <id> "<回复>"         # 答最新 OPEN turn; "/off" = 关中继放行
 gofer session say <id> "<回复>" --deliver   # 选路: 有 OPEN turn 就当作答, 否则敲进该会话的 tmux pane(§9.1 A)
 gofer session say <id> "<回复>" --deliver --takeover   # 没有 tmux 时起新进程 `--resume` 接管该会话, 这条消息作首条输入(§9.1 B)
+gofer session release-takeover <id>     # 解除接管: cancel 接管 job → 会话回 idle, 原终端恢复中继(未接管 → 409)
 gofer session rm <id>                   # 移除登记(turn 保留)
 gofer hook claude|codex [--wait N]      # hook 执行体(由 hooks 配置调用, 人不直接用); 日志 <config-dir>/run/hook.log
 ```
@@ -158,9 +160,10 @@ gofer hook claude|codex [--wait N]      # hook 执行体(由 hooks 配置调用,
   - 前置条件：会话跑在 tmux 里 + 登记了执行机（容器里要在容器内起 worker 并配 `GOFER_HOOK_RUNNER=<worker-id>`，纯客户端节点不再假装登记成 `server`）；注入 job 是 exec 类型，project 需 `allow_exec: true`。
 - **无 OPEN turn 且没有 tmux 时送话（阶段 2-B，`--resume` pty 接管）**：`POST /v1/sessions/{sid}/deliver {text, allow_takeover: true}`（CLI `session say --deliver --takeover`，web 是 A 报 `no_tmux` / `pane_missing` 后出现的「起新进程接管并发送」+ 二次确认）。server 在**同一 runner、同一项目相对目录**起一个交互 pty job：argv = agent 的交互 resume 模板（`claude --resume <sid>` / `codex resume <sid>` / `omp --resume <sid>`，经 `PlanTakeover` 由宿主解析），`InitialInput = "[gofer web 回复] <文本>\r"` 由 pty 在**首次输出后安静 `session.takeover_input_delay_ms`（默认 1500ms，最多等 10s）**再写入子进程 stdin 并记 `job.input_injected` 事件（worker 路径经 `wsproto.Dispatch.initial_input`，协议 v7）。成功：`{path:"takeover", job_id, decision_id}`，会话置 `handed_off`（`handed_off_job_id`/`handed_off_at`），审计 `detail={"path":"takeover","job_id":…}`，通知事件 `session.handed_off`（不在默认集）。
   - `allow_takeover` 缺省 false：不带它时 server 停在 A 的 409 `no_tmux`（接管会把会话从原终端移走，必须显式要）。
+  - A 的三类"救不回来"失败会自动改走 B（仍需显式 `allow_takeover`）：`no_tmux`（没有 pane）、`inject_failed:pane_missing`（pane 没了）、`inject_failed:runner_error`（注入 job 根本没跑起来 —— runner 不可达/脚本自己挂了）。**`pane_busy:<cmd>` 不改走 B**：那个终端正在被人用。
   - 前提与失败码（409）：`no_resume_template`（agent 无交互 resume 模板）、`interactive_not_allowed`（项目未开 `allow_interactive`）、`cwd_outside_project`（cwd 换算不到执行机上的项目相对路径，POLICY roots 映射的已知限制）、`handed_off:<job>`（已被接管）；派发失败 → 502 `inject_failed:runner_error`。接管 job 是 exec 载体但按**源 agent** 过访问门（与 job resume 同一豁免），不需要 `allow_exec`。
   - 接管后原终端：`wait_reason` 恒空、`OpenTurn` 拒绝（头一次 Stop 起就以 `ErrRelayOff` 放行），心跳响应带 `notice`，hook 在 `UserPromptSubmit` / `Stop` 把它打到 **stderr**（"该会话已于 <时间> 在 web 接管（job <id>）…本终端的中继已停用"）。原终端的 Stop / UserPromptSubmit / Notification / SessionEnd 都不会把会话从 `handed_off` 改回去。
-  - **解除接管**：`POST /v1/sessions/{sid}/release-takeover`（web 抽屉「解除接管」；无 CLI 子命令）→ 先 cancel 接管 job，再置 `idle` 并清空接管标记；cancel 失败返回 502（不会假装成功）。会话未接管时 409。
+  - **解除接管**：`POST /v1/sessions/{sid}/release-takeover`（CLI `gofer session release-takeover <sid>`；web 抽屉「解除接管」）→ 先 cancel 接管 job，再置 `idle` 并清空接管标记；cancel 失败返回 502（不会假装成功）。会话未接管时 409。**接管 job 自己结束时 server 会自动释放**（终态钩子：置 idle、清 `handed_off_*`、事件 `session.takeover_released {job_id, reason: job_<status>}`，可订阅），所以"跑完就卡在已接管"不会发生；人在 job 还在跑时点解除仍走上面的 cancel 路径。
   - 监控：`gofer job ls --tag relay-takeover` / `gofer job show <id>`（`job.input_injected` 记录首条输入的字节数与安静窗口）。
 - turn 复用决策通道：铃铛里「会话」标签条目可直接内联作答；`gofer plan decisions --state OPEN` 也能看到（kind=relay；被"人回来"关掉的 turn 是 EXPIRED + `released_by=user_returned`）。
 

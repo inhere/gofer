@@ -765,6 +765,53 @@ type LogOpts struct {
 	Head   bool
 }
 
+// GetLogsTail reads the last maxBytes of a job log stream
+// (GET /v1/jobs/{id}/logs/{stream}?bytes=n). It is the byte-window counterpart of
+// GetLogsWindow: callers that want a bounded tail of a report (the review screen)
+// pick the window themselves instead of taking the 256KB default.
+func (c *Client) GetLogsTail(id, stream string, maxBytes int) (string, error) {
+	if stream != "stdout" && stream != "stderr" {
+		return "", fmt.Errorf("invalid log stream %q (want stdout|stderr)", stream)
+	}
+	if maxBytes <= 0 {
+		maxBytes = 256 * 1024
+	}
+	resp, err := c.do(http.MethodGet, "/v1/jobs/"+url.PathEscape(id)+"/logs/"+stream+"?bytes="+strconv.Itoa(maxBytes), nil)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read log response: %w", err)
+	}
+	if err := errorFor(resp.StatusCode, data); err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// GetJobDiffFull fetches a job's captured diff as text
+// (GET /v1/jobs/{id}/diff?full=1). The summary form lives on the job row
+// (JobResult.DiffSummary); this is the PATCH, and a job that captured none is a 404
+// (an error here), because "the diff is missing" is worth saying rather than
+// printing an empty screen.
+func (c *Client) GetJobDiffFull(id string) (string, error) {
+	resp, err := c.do(http.MethodGet, "/v1/jobs/"+url.PathEscape(id)+"/diff?full=1", nil)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("read diff response: %w", err)
+	}
+	if err := errorFor(resp.StatusCode, data); err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
 // GetLogsWindow reads a log using a line window, or the legacy byte tail when Lines is zero.
 func (c *Client) GetLogsWindow(id string, opts LogOpts) (string, error) {
 	if opts.Stream != "stdout" && opts.Stream != "stderr" {

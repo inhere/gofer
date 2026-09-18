@@ -214,6 +214,18 @@ func NewJobCmd() *gcli.Command {
 				Func: runJobReject,
 			},
 			{
+				Name: "review",
+				Desc: "Print a job's acceptance材料 in one screen (status / review / verify / commits / usage / diff summary + report tail); --diff adds the full diff",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.IntOpt(&jobReviewOpts.tail, "tail", "", defaultReviewTailLines, "how many lines of the agent's final report (stdout tail) to print")
+					c.BoolOpt(&jobReviewOpts.diff, "diff", "", false, "also print the full diff (the captured changes.diff)")
+					c.AddArg("id", "job id", true)
+				},
+				Func: runJobReview,
+			},
+			{
 				Name:    "list",
 				Desc:    "List jobs with optional filters (tag/agent/runner/since/...)",
 				Aliases: []string{"ls"},
@@ -1268,6 +1280,146 @@ var (
 		resume bool
 	}
 )
+
+// jobReviewOpts holds `job review` flags (REV-01 §1.3): how much of the agent's
+// final report to print, and whether to append the full diff.
+var jobReviewOpts = struct {
+	tail int
+	diff bool
+}{}
+
+// defaultReviewTailLines is how much of the agent's report `job review` shows
+// without --tail: a summary plus its closing lines, still on one screen next to the
+// other four blocks.
+const defaultReviewTailLines = 60
+
+// reviewLogBytes is the stdout window `job review` fetches before trimming to lines
+// (design §1.3: one bounded read, then take the last N lines client-side — the
+// server's line-window endpoint would be a second contract to keep in step).
+const reviewLogBytes = 64 * 1024
+
+// runJobReview prints a job's验收材料 on one screen (REV-01 §1.3): what the job
+// became (status/review), what it proved (verify), what it delivered (commits/diff
+// stat), what it cost (usage) and what the agent REPORTED (the tail of stdout).
+// Nothing here is new information — it is the same five surfaces `job show`, `job
+// logs`, `job diff` and the web panel read, assembled for the person doing the
+// accepting inside the container. Viewing only: the exit code stays 0 whatever the
+// job's status (accept/reject remain separate commands).
+func runJobReview(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("job review requires an <id> argument")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	res, err := cli.GetJob(id)
+	if err != nil {
+		return err
+	}
+
+	c.Printf("id:         %s\n", res.ID)
+	if res.Title != "" {
+		c.Printf("title:      %s\n", res.Title)
+	}
+	c.Printf("project:    %s\nagent:      %s\nrunner:     %s\n", res.ProjectKey, res.Agent, res.Runner)
+	c.Printf("status:     %s\n", res.Status)
+	c.Printf("exit_code:  %d\n", res.ExitCode)
+	// 验收裁决 (GATE-01 S3)：谁/何时/为什么。缺省（还没人裁）只说等待，不伪造一行空字段。
+	if res.RequireReview {
+		c.Printf("require_review: true\n")
+	}
+	if res.ReviewedBy != "" {
+		c.Printf("reviewed_by: %s\nreviewed_at: %s\n", res.ReviewedBy, formatStarted(res.ReviewedAt))
+		if res.ReviewNote != "" {
+			c.Printf("review_note: %s\n", res.ReviewNote)
+		}
+	} else if res.Status == job.StatusNeedsReview {
+		c.Printf("review:     (awaiting a human: `job accept %s` or `job reject %s --note …`)\n", res.ID, res.ID)
+	}
+	// 提交 / checklist 挂接：交付物落在哪个基线上、为哪个 todo 跑。
+	if res.TodoID != "" {
+		c.Printf("todo:       %s\n", res.TodoID)
+	}
+	if res.BaseSHA != "" {
+		c.Printf("base_sha:   %s\n", res.BaseSHA)
+	}
+	if len(res.Commits) > 0 {
+		commits := res.Commits
+		c.Printf("commits:    %d\n", len(commits))
+		if len(commits) > reviewMaxCommits {
+			commits = commits[:reviewMaxCommits]
+		}
+		for _, cm := range commits {
+			c.Printf("            %s %s\n", cm.SHA, cm.Subject)
+		}
+		if len(res.Commits) > reviewMaxCommits {
+			c.Printf("            … %d more\n", len(res.Commits)-reviewMaxCommits)
+		}
+	}
+	if v := res.Verify; v != nil {
+		c.Printf("verify:     %s\n", formatVerify(v))
+	}
+	if line := job.FormatUsage(res.Usage); line != "" {
+		c.Printf("usage:      %s\n", line)
+	}
+	if res.Error != "" {
+		c.Printf("error:      %s\n", res.Error)
+	}
+	// diff 摘要：job 行上的 --stat；没采集到（非 git 仓 / 采集失败）就说明一句，
+	// 而不是留一块空白让人以为"没有改动"。
+	if strings.TrimSpace(res.DiffSummary) == "" {
+		c.Printf("diff --stat: (this job captured no diff)\n")
+	} else {
+		c.Printf("diff --stat:\n%s\n", strings.TrimRight(res.DiffSummary, "\n"))
+	}
+
+	tail := jobReviewOpts.tail
+	if tail < 0 {
+		tail = 0
+	}
+	if tail > 0 {
+		report, err := cli.GetLogsTail(id, "stdout", reviewLogBytes)
+		if err != nil {
+			// 日志缺失不是验收材料缺失：其他块照常打印，只说明这一块为什么是空的。
+			c.Printf("\nreport (stdout): unavailable (%v)\n", err)
+		} else {
+			c.Printf("\nreport (stdout, last %d lines):\n%s\n", tail, lastLines(report, tail))
+		}
+	}
+
+	if jobReviewOpts.diff {
+		diff, err := cli.GetJobDiffFull(id)
+		if err != nil {
+			// Same rule as the report block above: a job that captured no diff (many
+			// have nothing uncommitted) is not a failed review — say why the block is
+			// empty and keep the exit code 0 the screen contract promises.
+			c.Printf("\n--- full diff ---\n(the job captured no diff: %v)\n", err)
+		} else {
+			c.Printf("\n--- full diff ---\n%s\n", strings.TrimRight(diff, "\n"))
+		}
+	}
+	return nil
+}
+
+// reviewMaxCommits caps the commit list `job review` prints: the review screen is a
+// summary, and a job that delivered hundreds of commits still answers "what did it
+// base on / did it commit at all" in the first twenty.
+const reviewMaxCommits = 20
+
+// lastLines returns the last n lines of s, with the trailing newline dropped.
+func lastLines(s string, n int) string {
+	s = strings.TrimRight(s, "\n")
+	if s == "" {
+		return ""
+	}
+	lines := strings.Split(s, "\n")
+	if len(lines) > n {
+		lines = lines[len(lines)-n:]
+	}
+	return strings.Join(lines, "\n")
+}
 
 // runJobAccept records a human's acceptance of a job awaiting review. The server
 // stamps the reviewer from the token, so the CLI never sends an identity.
