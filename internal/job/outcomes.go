@@ -14,6 +14,7 @@ import (
 	"github.com/inhere/gofer/internal/store"
 
 	"github.com/inhere/gofer/internal/runner"
+	"strconv"
 )
 
 // maxResultJSONBytes caps how large a <result_dir>/result.json may be before it
@@ -295,6 +296,60 @@ func commitsFromRunner(in []runner.Commit) []Commit {
 		out = append(out, Commit{SHA: c.SHA, Subject: c.Subject})
 	}
 	return out
+}
+
+// captureBaseSHA resolves the commit a job starts from (SUP-01 C): a worktree
+// job's baseline when it has one, else `git rev-parse HEAD` in the directory the
+// job will run in. A non-repository cwd (or a missing git binary) yields "" — the
+// capture is evidence, never a precondition, so it can never fail a job.
+func captureBaseSHA(worktreeBase, cwd string) string {
+	if worktreeBase != "" {
+		return worktreeBase
+	}
+	if cwd == "" {
+		// A remote (worker/peer) host row has no local working directory: the commit
+		// base lives on the execution machine, which reports it through the Outcome.
+		// Capture nothing here rather than resolving the SERVER's own checkout, which
+		// would record a base this job never ran against.
+		return ""
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), diffTimeout)
+	defer cancel()
+	out, err := gitOut(ctx, cwd, "rev-parse", "HEAD")
+	if err != nil {
+		return ""
+	}
+	return out
+}
+
+// maxCapturedCommits caps the terminal commit list (SUP-01 C): the newest 50 are
+// what a reader can act on, and the todo note quotes far fewer.
+const maxCapturedCommits = 50
+
+// captureCommits lists the commits a job produced — `base..HEAD`, newest first,
+// abbreviated sha + subject as `git log --oneline` prints them. Empty base, no
+// repository, or a git failure yields no commits (best-effort: this is reporting,
+// not execution).
+func captureCommits(dir, base string) []Commit {
+	if base == "" || dir == "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), diffTimeout)
+	defer cancel()
+	out, err := gitOut(ctx, dir, "log", "--oneline", "--no-decorate", "-n", strconv.Itoa(maxCapturedCommits), base+"..HEAD")
+	if err != nil || out == "" {
+		return nil
+	}
+	commits := make([]Commit, 0, 8)
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		sha, subject, _ := strings.Cut(line, " ")
+		commits = append(commits, Commit{SHA: sha, Subject: strings.TrimSpace(subject)})
+	}
+	return commits
 }
 
 // shouldCaptureDiff reports whether E12 git-diff capture is enabled for the job's

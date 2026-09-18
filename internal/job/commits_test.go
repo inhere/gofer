@@ -16,6 +16,7 @@ import (
 func TestCommitsCapturedFromBaseSHA(t *testing.T) {
 	repo, base := gitRepo(t)
 	s := newWorktreeService(t, repo, t.TempDir())
+	seedPlanTodo(t, s, "plan-commits", "todo-commits")
 
 	// Two payload commits on side branches, applied by the job itself: one argv
 	// (`git cherry-pick <sha1> <sha2>`) produces two real commits in the repo.
@@ -25,6 +26,7 @@ func TestCommitsCapturedFromBaseSHA(t *testing.T) {
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "repo", Agent: "exec", Runner: "local",
 		Cmd: []string{"git", "cherry-pick", sha1, sha2}, Cwd: ".", TimeoutSec: 60,
+		TodoID: "todo-commits",
 	})
 	if final.Status != StatusDone {
 		t.Fatalf("status = %s (err=%s), want done", final.Status, final.Error)
@@ -46,6 +48,17 @@ func TestCommitsCapturedFromBaseSHA(t *testing.T) {
 		if len(c.SHA) < 7 || c.SHA[0] == ' ' {
 			t.Fatalf("commit sha looks wrong: %+v", c)
 		}
+	}
+
+	// The checklist item the job carried ends up QUOTING them: that note is where a
+	// human reads "what did this run deliver" without opening the job (P1 acceptance).
+	todo := getTodo(t, s, "todo-commits")
+	if todo.Status != jobstore.TodoDone {
+		t.Fatalf("todo status = %q, want done", todo.Status)
+	}
+	want := final.ID + " ✓ 2 commits: " + final.Commits[0].SHA + " payload two.txt; " + final.Commits[1].SHA + " payload one.txt"
+	if !strings.Contains(todo.Note, want) {
+		t.Fatalf("todo note = %q, want it to quote the commits as %q", todo.Note, want)
 	}
 
 	// A job in a directory that is not a repository attempts the capture and
