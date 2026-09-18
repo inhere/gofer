@@ -32,6 +32,13 @@ func captureBaseSHA(worktreeBase, cwd string) string {
 	if worktreeBase != "" {
 		return worktreeBase
 	}
+	if cwd == "" {
+		// A remote (worker/peer) host row has no local working directory: the commit
+		// base lives on the execution machine, which reports it through the Outcome.
+		// Capture nothing here rather than resolving the SERVER's own checkout, which
+		// would record a base this job never ran against.
+		return ""
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), diffTimeout)
 	defer cancel()
 	out, err := gitOut(ctx, cwd, "rev-parse", "HEAD")
