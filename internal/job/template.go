@@ -144,7 +144,7 @@ func (s *Service) PreviewTemplate(projectKey, name string, vars map[string]strin
 	}
 	rendered, err := template.Render(tpl, vars, template.Builtins(projectKey, "", projectDir, s.Now()))
 	if err != nil {
-		return template.Preview{}, fmt.Errorf("%s", err.Error())
+		return template.Preview{}, err
 	}
 	return template.Preview{Template: tpl, Render: rendered}, nil
 }
