@@ -80,6 +80,15 @@ type Options struct {
 	// StdoutEvents puts the compact events on stdout and disables final-text
 	// extraction entirely (the pre-525u behaviour of the capture).
 	StdoutEvents bool
+	// AllAssistantText makes stdout carry EVERY non-empty assistant message the
+	// stream completed, in order and blank-line separated (the agent's narration
+	// plus its final answer), instead of only the last one. It exists because the
+	// "last assistant message" is not always the answer: a harness that injects a
+	// trailing notification (a todo reminder, a background-task notice) makes the
+	// agent reply once more with a one-liner, and the real report before it was
+	// lost (bd h-aii-lvo9). The intermediate texts are short (tens of chars each,
+	// a few KB per run), so this stays far from the raw stream it replaces.
+	AllAssistantText bool
 	// StdoutPath is a dotted JSON path (e.g. "result.result") whose value is the
 	// agent's final answer. Set it for an agent whose final text the built-in
 	// projectors do not know how to find; it overrides their final-text rules and
@@ -135,7 +144,7 @@ type Filter struct {
 // compact event lines; Options.EventsToStdout / Options.StdoutEvents may route
 // the events back onto stdout.
 func New(stdout, events io.Writer, opt Options) *Filter {
-	f := &Filter{raw: opt.Raw, proj: newProjector(opt.Projector), fields: opt.Fields, maxLine: opt.MaxLineBytes, maxEvent: opt.MaxEventBytes}
+	f := &Filter{raw: opt.Raw, proj: newProjector(opt.Projector, opt.AllAssistantText), fields: opt.Fields, maxLine: opt.MaxLineBytes, maxEvent: opt.MaxEventBytes}
 	if f.maxLine <= 0 {
 		f.maxLine = DefaultMaxLineBytes
 	}

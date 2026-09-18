@@ -493,9 +493,9 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("agent %q: unknown ndjson_events_to %q (want %s|%s)", key, ac.NDJSONEventsTo, NDJSONEventsStderr, NDJSONEventsStdout)
 		}
 		switch ac.NDJSONStdout {
-		case "", NDJSONStdoutFinalText, NDJSONStdoutEvents:
+		case "", NDJSONStdoutFinalText, NDJSONStdoutAssistantText, NDJSONStdoutEvents:
 		default:
-			return fmt.Errorf("agent %q: unknown ndjson_stdout %q (want %s|%s)", key, ac.NDJSONStdout, NDJSONStdoutFinalText, NDJSONStdoutEvents)
+			return fmt.Errorf("agent %q: unknown ndjson_stdout %q (want %s|%s|%s)", key, ac.NDJSONStdout, NDJSONStdoutAssistantText, NDJSONStdoutFinalText, NDJSONStdoutEvents)
 		}
 		// GATE-01: the agent-level approval knob only tightens the project policy, so
 		// an unknown value would silently do nothing (a typo'd `strict` would leave the

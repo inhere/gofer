@@ -386,9 +386,12 @@ agents:
   #                                event is then passed through, bounded).
   #   ndjson_events_to: stderr|stdout  where the compact events go (default stderr;
   #                                `stdout` restores the old destination).
-  #   ndjson_stdout: final_text|events what stdout.log carries: the final answer
-  #                                (default) or the compact events (`events` = the
-  #                                pre-projection layout, no answer extraction).
+  #   ndjson_stdout: assistant_text|final_text|events
+  #                                what stdout.log carries: every non-empty
+  #                                assistant message (omp default — the last one
+  #                                is not always the report), only the final
+  #                                answer (claude default), or the compact events
+  #                                (`events` = pre-projection layout, no extraction).
   #   ndjson_stdout_path: <path>   dotted JSON path of the final answer
   #                                (e.g. result.result), for an agent whose answer
   #                                the built-in projector cannot find. Overrides the

@@ -64,12 +64,13 @@ func (s *Service) captureNDJSON(entry *jobEntry, jobID, runnerName string, stdou
 	}
 
 	opt := ndjsonfilter.Options{
-		Keep:           ac.NDJSONKeep,
-		Projector:      agent.NDJSONProjectorFor(agentKey, ac),
-		EventsToStdout: ac.NDJSONEventsTo == config.NDJSONEventsStdout,
-		StdoutEvents:   ac.NDJSONStdout == config.NDJSONStdoutEvents,
-		StdoutPath:     ac.NDJSONStdoutPath,
-		Fields:         ac.NDJSONFields,
+		Keep:             ac.NDJSONKeep,
+		Projector:        agent.NDJSONProjectorFor(agentKey, ac),
+		EventsToStdout:   ac.NDJSONEventsTo == config.NDJSONEventsStdout,
+		StdoutEvents:     ac.NDJSONStdout == config.NDJSONStdoutEvents,
+		AllAssistantText: ac.NDJSONStdout == config.NDJSONStdoutAssistantText,
+		StdoutPath:       ac.NDJSONStdoutPath,
+		Fields:           ac.NDJSONFields,
 	}
 	var raw *os.File
 	if ac.NDJSONRaw && resultDir != "" {

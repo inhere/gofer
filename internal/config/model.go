@@ -1328,9 +1328,11 @@ type AgentConfig struct {
 	// "stderr"（默认）像 codex 那样把过程事件写进 stderr、stdout 只留最终答复；
 	// "stdout" 保持一期落点（事件写到 stdout，答复追加其后）。
 	NDJSONEventsTo string `yaml:"ndjson_events_to,omitempty"`
-	// NDJSONStdout 决定 stdout 承载什么（仅 ndjson 时有意义）："final_text"（默认）只写
-	// agent 的最终答复（omp 取最后一条 assistant 消息，claude 取 result.result）；
-	// "events" = 一期行为：stdout 即紧凑事件流，不提取答复。
+	// NDJSONStdout 决定 stdout 承载什么（仅 ndjson 时有意义）："assistant_text"（omp 默认）
+	// 写全部非空 assistant 消息（过程叙述 + 最终答复，空行分隔）；"final_text"（claude 默认）
+	// 只写最终答复（omp 取最后一条 assistant 消息，claude 取 result.result）——注意 omp 的
+	// "最后一条"在收尾多一回合（todo 提醒、后台任务通知）时会丢掉真正的汇报（bd h-aii-lvo9），
+	// 所以 omp 不再默认它；"events" = 一期行为：stdout 即紧凑事件流，不提取答复。
 	NDJSONStdout string `yaml:"ndjson_stdout,omitempty"`
 	// NDJSONStdoutPath 是最终答复所在的 JSON 路径（点号分隔，如 result.result），给内置
 	// 投影器认不出的 agent 用；显式配置覆盖内置的答复提取规则。
@@ -1410,6 +1412,11 @@ const (
 	NDJSONEventsStdout = "stdout"
 	// NDJSONStdoutFinalText writes only the agent's final answer to stdout.log.
 	NDJSONStdoutFinalText = "final_text"
+	// NDJSONStdoutAssistantText writes every non-empty assistant message (narration
+	// and final answer, blank-line separated) — the omp default since v0.47, because
+	// a harness-injected trailing turn otherwise hides the real report behind a
+	// one-line reply (bd h-aii-lvo9).
+	NDJSONStdoutAssistantText = "assistant_text"
 	// NDJSONStdoutEvents writes the compact event stream to stdout.log and skips
 	// answer extraction: the pre-525u capture, byte for byte.
 	NDJSONStdoutEvents = "events"

@@ -95,12 +95,12 @@ type projector interface {
 
 // newProjector resolves a projector kind; unknown kinds fall back to generic so a
 // config typo can never swallow output.
-func newProjector(kind string) projector {
+func newProjector(kind string, allAssistant bool) projector {
 	switch kind {
 	case ProjectorOMP:
-		return &ompProjector{}
+		return &ompProjector{all: allAssistant}
 	case ProjectorClaude:
-		return &claudeProjector{}
+		return &claudeProjector{all: allAssistant}
 	default:
 		return genericProjector{}
 	}
@@ -329,7 +329,9 @@ func fieldLine(typ string, obj map[string]any, fields []string) *eventLine {
 // answer — is the LAST completed assistant message, written to stdout once when
 // the run ends (bd h-aii-525u).
 type ompProjector struct {
-	finalText string // text of the most recent completed assistant message
+	all       bool     // Options.AllAssistantText: stdout = every assistant text, not just the last
+	texts     []string // every non-empty completed assistant text, in order (all mode)
+	finalText string   // text of the most recent completed assistant message
 }
 
 func (p *ompProjector) project(ev event) emission {
@@ -348,6 +350,9 @@ func (p *ompProjector) project(ev event) emission {
 			em := emission{Usage: usageAt(ev.obj, runner.UsageSourceNDJSONOMP, "message", "usage")}
 			if t := assistantText(ev.obj); t != "" {
 				p.finalText = t
+				if p.all {
+					p.texts = append(p.texts, t)
+				}
 				em.Kept = true
 			}
 			return em
@@ -378,15 +383,39 @@ func (p *ompProjector) project(ev event) emission {
 	return emission{Verbatim: ev.raw}
 }
 
-func (p *ompProjector) final() string { return p.finalText }
+func (p *ompProjector) final() string {
+	if p.all {
+		return joinTexts(p.texts)
+	}
+	return p.finalText
+}
+
+// joinTexts renders the all-assistant-text stdout: each message once, trimmed of
+// trailing newlines, blank-line separated, ending in a newline like a plain answer.
+func joinTexts(texts []string) string {
+	var b strings.Builder
+	for _, t := range texts {
+		t = strings.TrimRight(t, "\r\n")
+		if t == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteString("\n\n")
+		}
+		b.WriteString(t)
+	}
+	return b.String()
+}
 
 // claudeProjector projects a `claude --output-format stream-json` stream. The
 // final answer is the `result` line's `result` text; assistant/user lines are
 // compacted to what a reader needs (which tool ran with what, how much text) and
 // `stream_event` (per-token) is dropped.
 type claudeProjector struct {
-	finalText string // result.result
-	lastText  string // last assistant message text: fallback when the run dies first
+	all       bool     // Options.AllAssistantText: stdout = every assistant text (+ result when it adds something)
+	texts     []string // every non-empty assistant text, in order (all mode)
+	finalText string   // result.result
+	lastText  string   // last assistant message text: fallback when the run dies first
 }
 
 func (p *claudeProjector) project(ev event) emission {
@@ -407,6 +436,9 @@ func (p *claudeProjector) project(ev event) emission {
 		text := textFromBlocks(blocks)
 		if text != "" {
 			p.lastText = text
+			if p.all {
+				p.texts = append(p.texts, text)
+			}
 		}
 		return emission{Events: newEventLine(ev.typ).
 			add("tools", toolUseSummaries(blocks)).
@@ -438,6 +470,15 @@ func (p *claudeProjector) project(ev event) emission {
 // a run killed by a timeout/job ceiling never emits `result`, and half an answer
 // on stdout beats an empty one.
 func (p *claudeProjector) final() string {
+	if p.all {
+		// result.result repeats the last assistant text; append it only when the
+		// run's summary says something the messages did not.
+		texts := p.texts
+		if p.finalText != "" && (len(texts) == 0 || strings.TrimSpace(texts[len(texts)-1]) != strings.TrimSpace(p.finalText)) {
+			texts = append(append([]string(nil), texts...), p.finalText)
+		}
+		return joinTexts(texts)
+	}
 	if p.finalText != "" {
 		return p.finalText
 	}

@@ -221,6 +221,7 @@ var builtinNDJSON = map[string]builtinNDJSONDef{
 			"advisor_cost_changed",
 		},
 		projector: ndjsonfilter.ProjectorOMP,
+		stdout:    config.NDJSONStdoutAssistantText,
 	},
 	"claude": {
 		keep: []string{
@@ -256,11 +257,18 @@ func NDJSONProjectorFor(key string, a config.AgentConfig) string {
 // nothing is written back into the loaded config (a later save must not freeze a
 // built-in into gofer.yaml).
 func applyOutputDefaults(key string, a config.AgentConfig) config.AgentConfig {
-	if !a.NDJSONOutput() || a.NDJSONKeep != nil {
+	if !a.NDJSONOutput() {
 		return a
 	}
-	if def, ok := builtinNDJSONFor(key, a); ok {
+	def, ok := builtinNDJSONFor(key, a)
+	if !ok {
+		return a
+	}
+	if a.NDJSONKeep == nil {
 		a.NDJSONKeep = append([]string(nil), def.keep...)
+	}
+	if a.NDJSONStdout == "" && def.stdout != "" {
+		a.NDJSONStdout = def.stdout
 	}
 	return a
 }
@@ -270,6 +278,10 @@ func applyOutputDefaults(key string, a config.AgentConfig) config.AgentConfig {
 type builtinNDJSONDef struct {
 	keep      []string
 	projector string
+	// stdout is the default ndjson_stdout mode when the config leaves it unset:
+	// omp wants every assistant text (its "last message" is not always the answer,
+	// bd h-aii-lvo9), claude's result.result is authoritative so final_text stays.
+	stdout string
 }
 
 // builtinNDJSONFor looks a built-in ndjson config up by agent key, then by the
