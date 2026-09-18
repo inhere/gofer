@@ -368,6 +368,13 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 		s.mu.Unlock()
 	}
 
+	// SUP-02 R1: the job is finished, durable and evicted — the moment the hub gets
+	// to react (a terminal path-B takeover job hands its session back). Dispatched
+	// BEFORE the workflow/retry branches below, because those return early and the
+	// outcome is already final: neither of them un-terminals THIS job (a retry runs
+	// as a new one).
+	s.notifyTerminalHooks(snap)
+
 	// 工作流推进 (E7)：若此 job 属于某工作流，其终态可能解锁下一步。异步推进，绝不阻塞
 	// finish/不改 entry.done 时序(execute 的 defer close(entry.done) 仍照常触发)。
 	// advanceWorkflow 幂等(条件 UPDATE 抢推进权)，与 sweeper 叠加安全；persist 已先落终态

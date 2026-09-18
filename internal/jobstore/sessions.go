@@ -327,6 +327,26 @@ func (s *Store) GetAgentSession(sid string) (AgentSession, bool, error) {
 	return a, true, nil
 }
 
+// GetSessionByHandedOffJob finds the session path B's takeover job HOLDS (SUP-02
+// R1): the job continues that CLI conversation, so a job id names at most one
+// session and only while it is actually handed off. A job that is not a takeover
+// (or one whose session a human already released) answers ok=false — the caller
+// then does nothing, which is the common case for every other finished job.
+func (s *Store) GetSessionByHandedOffJob(jobID string) (AgentSession, bool, error) {
+	if strings.TrimSpace(jobID) == "" {
+		return AgentSession{}, false, nil
+	}
+	a, err := scanSession(s.db.QueryRow(
+		selectSessionCols+" WHERE handed_off_job_id = ? AND state = ?", jobID, SessionHandedOff))
+	if errors.Is(err, sql.ErrNoRows) {
+		return AgentSession{}, false, nil
+	}
+	if err != nil {
+		return AgentSession{}, false, fmt.Errorf("jobstore: get session held by job %q: %w", jobID, err)
+	}
+	return a, true, nil
+}
+
 func (s *Store) getSession(sid string) (AgentSession, error) {
 	a, ok, err := s.GetAgentSession(sid)
 	if err != nil {

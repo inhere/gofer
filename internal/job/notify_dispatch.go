@@ -27,6 +27,11 @@ const (
 	// job's terminal, so the notification carries the link to it. Like the other two
 	// session events it is NOT a default trigger — a webhook subscribes explicitly.
 	EventSessionHandedOff = "session.handed_off"
+	// EventSessionTakeoverReleased fires when the takeover job ends and the session
+	// goes back to its ORIGINAL terminal (SUP-02 R1) — the dual of the event above:
+	// whoever was told the conversation had moved learns it moved back. reason names
+	// why the job ended ("job_done" / "job_failed" / …).
+	EventSessionTakeoverReleased = "session.takeover_released"
 )
 
 // NotifyEvent enqueues a pre-rendered notification for every webhook subscribed
@@ -135,6 +140,25 @@ func (s *Service) NotifySessionHandedOff(sessionID, projectKey, title, jobID str
 		Text:      "已用 `--resume` 起新进程接管该会话，请在该终端继续对话。",
 		Link:      s.webURL("/jobs/" + jobID + "?attach=1"),
 		LinkLabel: "打开接管终端",
+	})
+}
+
+// NotifySessionTakeoverReleased is the DUAL of NotifySessionHandedOff (SUP-02 R1):
+// the pty job that held the session ended, so the conversation is back with the
+// terminal that registered it — the web can answer it again and a human who was
+// told to move to the job's terminal can come back. reason is why the job ended
+// ("job_done" / "job_failed" / …), which the message states so an operator can tell
+// "the work finished" from "the takeover crashed".
+func (s *Service) NotifySessionTakeoverReleased(sessionID, projectKey, title, jobID, reason string) {
+	label := strings.TrimSpace(title)
+	if label == "" {
+		label = shortID(sessionID)
+	}
+	s.NotifyEvent(EventSessionTakeoverReleased, projectKey, notify.Message{
+		Title:     "会话已释放接管 · " + label,
+		Text:      "接管该会话的 job " + shortID(jobID) + " 已结束（" + reason + "），会话回到原终端，可继续中继。",
+		Link:      s.webURL("/sessions?sid=" + sessionID),
+		LinkLabel: "查看会话",
 	})
 }
 

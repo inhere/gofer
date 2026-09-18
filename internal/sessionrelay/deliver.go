@@ -342,10 +342,12 @@ func (s *Service) Deliver(ctx context.Context, sid, text, by string, allowTakeov
 	if err == nil {
 		return res, nil
 	}
-	// Path B is the fallback for the ONE failure A cannot fix: the session has no
-	// usable tmux pane. Anything else (an ended or already handed-off session, no
-	// execution machine, a broken runner) would fail on B too, and reporting the
-	// real reason is more useful than a second attempt.
+	// Path B is the fallback for the failures A cannot fix: the session has no
+	// usable tmux pane, or the INJECTION ITSELF could not run (the runner refused
+	// the job / the script died before it could look at a pane). Anything else (an
+	// ended or already handed-off session, no execution machine, a pane the human
+	// is using) would fail on B too, and reporting the real reason is more useful
+	// than a second attempt.
 	if !allowTakeover || !takeoverFallback(DeliverReason(err)) {
 		return DeliverResult{}, err
 	}
@@ -353,11 +355,19 @@ func (s *Service) Deliver(ctx context.Context, sid, text, by string, allowTakeov
 }
 
 // takeoverFallback reports whether a failed path-A delivery is worth retrying as
-// path B: the session simply has no usable tmux pane (none was ever registered, or
-// the pane is gone since it was). Every other failure means the takeover would not
-// help, and the caller is better served by A's own reason.
+// path B: the session has no usable tmux pane (none was ever registered, or the
+// pane is gone since it was), or the injection job never got far enough to judge
+// one (a runner-side failure: the dispatch errored, or the script exited with a
+// code that is not the pane check's own). In both cases A learned nothing about
+// the pane, and a new process is the only way left to speak to the session.
+//
+// A pane held by ANOTHER program is deliberately not in this set: that terminal
+// belongs to a human who is using it, and answering "the pane is busy" with "then
+// move your conversation to a new process" would take it away from them.
 func takeoverFallback(reason string) bool {
-	return reason == ReasonNoTmux || reason == InjectFailedPrefix+injectPaneMissing
+	return reason == ReasonNoTmux ||
+		reason == InjectFailedPrefix+injectPaneMissing ||
+		reason == InjectFailedPrefix+injectRunnerError
 }
 
 // deliverTmux is path A: dispatch the internal job that types the reply into the

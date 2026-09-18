@@ -83,6 +83,11 @@ type Notifier interface {
 	// by a pty job, so the conversation continues there — the human who was about
 	// to answer on their phone needs the new address, not another reply box.
 	NotifySessionHandedOff(sessionID, projectKey, title, jobID string)
+	// NotifySessionTakeoverReleased is its DUAL (SUP-02 R1): the takeover job
+	// reached a terminal state and the session is back with its original terminal.
+	// reason says why the job ended ("job_done" / "job_failed" / …), so a human
+	// who was told the conversation had moved learns it can come back.
+	NotifySessionTakeoverReleased(sessionID, projectKey, title, jobID, reason string)
 }
 
 // Service owns the relay rules on top of the store.
@@ -791,24 +796,74 @@ func (s *Service) ReleaseTakeover(ctx context.Context, sid string) (jobstore.Age
 	if a.State != jobstore.SessionHandedOff {
 		return jobstore.AgentSession{}, fmt.Errorf("%w: session %s is %s", ErrNotHandedOff, sid, a.State)
 	}
-	if s.takeoverer != nil && a.HandedOffJobID != "" {
+	return s.releaseTakeover(ctx, a, true)
+}
+
+// ReleaseTakeoverForJob is the AUTOMATIC release (SUP-02 R1): the pty job that
+// holds a session reached a terminal state, so the session no longer has an owner
+// and goes back to idle — the alternative is a session nobody can speak to, since
+// new turns are refused while it is handed off and the process that held it is
+// gone.
+//
+// Unlike the manual release this does NOT cancel the job (there is nothing left to
+// stop — its row only supplies the reason code) and it is a silent no-op for every
+// job that is not a takeover (false). Callers run it from the job service's
+// terminal hook, where a failure is logged rather than surfaced: released reports
+// whether a session was actually handed back.
+func (s *Service) ReleaseTakeoverForJob(ctx context.Context, jobID string) (bool, error) {
+	a, ok, err := s.store.GetSessionByHandedOffJob(jobID)
+	if err != nil {
+		return false, err
+	}
+	if !ok {
+		return false, nil
+	}
+	released, err := s.releaseTakeover(ctx, a, false)
+	if err != nil {
+		return false, err
+	}
+	// Announced only after the release is durable: a notification claiming the
+	// terminal can relay again must never precede the state that makes it true.
+	if s.notifier != nil {
+		s.notifier.NotifySessionTakeoverReleased(released.SessionID, released.ProjectKey,
+			released.Title, jobID, "job_"+s.jobStatus(jobID))
+	}
+	return true, nil
+}
+
+// releaseTakeover is the shared body of both releases: cancel the takeover job
+// (only when the caller is a LIVE release) and then clear the handoff.
+func (s *Service) releaseTakeover(ctx context.Context, a jobstore.AgentSession, cancel bool) (jobstore.AgentSession, error) {
+	if cancel && s.takeoverer != nil && a.HandedOffJobID != "" {
 		if err := s.takeoverer.CancelTakeover(ctx, a.HandedOffJobID); err != nil {
 			return jobstore.AgentSession{}, fmt.Errorf("cancel takeover job %s: %w", a.HandedOffJobID, err)
 		}
 	}
-	released, err := s.store.ReleaseSessionHandedOff(sid)
+	released, err := s.store.ReleaseSessionHandedOff(a.SessionID)
 	if err != nil {
 		return jobstore.AgentSession{}, err
 	}
 	if !released {
 		return jobstore.AgentSession{}, ErrUnknownSession
 	}
-	a, ok, err = s.store.GetAgentSession(sid)
+	after, ok, err := s.store.GetAgentSession(a.SessionID)
 	if err != nil {
 		return jobstore.AgentSession{}, err
 	}
 	if !ok {
 		return jobstore.AgentSession{}, ErrUnknownSession
 	}
-	return a, nil
+	return after, nil
+}
+
+// jobStatus reads the terminal status of the takeover job a release is reporting
+// on ("job_done" / "job_failed" / …). The row is the authority, and it is already
+// durable by the time the terminal hook runs; an unreadable one is reported as
+// "unknown" rather than as an empty reason nobody can act on.
+func (s *Service) jobStatus(jobID string) string {
+	rec, ok, err := s.store.GetJob(jobID)
+	if err != nil || !ok || strings.TrimSpace(rec.Status) == "" {
+		return "unknown"
+	}
+	return rec.Status
 }

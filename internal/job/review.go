@@ -142,6 +142,10 @@ func (s *Service) reviewJob(jobID, by, note, verdict string, resume bool) (Revie
 	// accepted item is done (the note gets its commit line now), a rejected one
 	// appends the rejection. Best-effort, like every other todo write.
 	s.linkTodoOutcome(snap)
+	// SUP-02 R1: the verdict is this job's terminal state, so the terminal hooks run
+	// here exactly as they do at the end of finish (a takeover job that was gated on
+	// review is only finished once a human ruled on it).
+	s.notifyTerminalHooks(snap)
 	// Post-finish hook (finish's tail): a reviewed step-job unblocks/advances its
 	// workflow now — an accepted step is a done step, a rejected one is a failed step.
 	// Never blocking, and a no-op for a non-workflow job.

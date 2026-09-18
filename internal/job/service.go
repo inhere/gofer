@@ -200,6 +200,14 @@ type Service struct {
 	// wired (unit tests / pure deployments) → AnswerInteractionBy is ungated. Injected by
 	// core.Build via SetAnswerGuard; job never imports answerguard/presence/supervisor (G022).
 	answerGuard AnswerGuard
+
+	// terminalMu guards terminalHooks, the OUTBOUND seam of a terminal job (SUP-02
+	// R1; see OnTerminal). The hooks are assembled once at startup and copied under
+	// this mutex before each dispatch, so registering one never races a finish. The
+	// job package defines the hook type, so it stays unaware of what the hub does
+	// with an outcome it cannot see (a takeover job handing its session back).
+	terminalMu    sync.Mutex
+	terminalHooks []JobTerminalHook
 }
 
 // AnswerGuard is the job→answer-gate seam (监督分层升级路由 P3.1, design §8.5, dependency

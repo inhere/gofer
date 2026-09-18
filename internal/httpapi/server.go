@@ -348,9 +348,34 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		// "submit an internal job on the session's own runner".
 		s.relay.SetInjector(sessionInjector{jobs: jobs, projects: projects, agents: agents})
 		s.relay.SetTakeoverer(sessionInjector{jobs: jobs, projects: projects, agents: agents})
+		// SUP-02 R1: a terminal path-B takeover job hands its session back. The relay
+		// service and the job service are siblings, so the ASSEMBLY wires the two: the
+		// job's terminal hook is filtered by the takeover tag (the cheap, positive
+		// signal that this job could hold a session) and the release itself is a no-op
+		// for every other job. Best-effort by design — a failed release is a session a
+		// human can still free with `session release-takeover`, never a job failure.
+		jobs.OnTerminal(func(r job.JobResult) {
+			if !hasTag(r.Tags, sessionrelay.TagRelayTakeover) {
+				return
+			}
+			if _, err := s.relay.ReleaseTakeoverForJob(context.Background(), r.ID); err != nil {
+				slog.Warn("release session takeover on job end", "job_id", r.ID, "err", err)
+			}
+		})
 	}
 	s.router = s.buildRouter()
 	return s
+}
+
+// hasTag reports whether a job carries a tag — the terminal hook's filter below.
+// Tags are a small free-form list, so a linear scan IS the whole implementation.
+func hasTag(tags []string, tag string) bool {
+	for _, t := range tags {
+		if t == tag {
+			return true
+		}
+	}
+	return false
 }
 
 // SetBuildInfo injects linker build metadata for runtime status endpoints.

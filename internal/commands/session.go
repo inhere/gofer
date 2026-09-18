@@ -101,6 +101,16 @@ func NewSessionCmd() *gcli.Command {
 				},
 				Func: runSessionRemove,
 			},
+			{
+				Name: "release-takeover",
+				Desc: "Give a session taken over by a `--resume` pty job back to its original terminal (cancels that job, session returns to idle)",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("id", "session id (prefix ok when unique)", true)
+				},
+				Func: runSessionReleaseTakeover,
+			},
 		},
 	}
 }
@@ -396,6 +406,30 @@ func runSessionRemove(c *gcli.Command, _ []string) error {
 		return err
 	}
 	c.Printf("session %s removed\n", shortSID(sid))
+	return nil
+}
+
+// runSessionReleaseTakeover is `session release-takeover <id>`: the way back from
+// path B (§9.1 B, SUP-02 R1) for the person at the ORIGINAL terminal — the server
+// cancels the pty job that holds the session and returns it to idle, so this
+// terminal relays again. The server refuses a session that is not taken over
+// rather than pretending to have released it, and that message is passed through
+// verbatim (a stale request is worth knowing about, not swallowing).
+func runSessionReleaseTakeover(c *gcli.Command, _ []string) error {
+	cli, err := sessionClient()
+	if err != nil {
+		return err
+	}
+	sid, err := resolveSessionID(cli, argID(c))
+	if err != nil {
+		return err
+	}
+	a, err := cli.ReleaseSessionTakeover(sid)
+	if err != nil {
+		return err
+	}
+	c.Printf("released takeover of session %s (%s): state=%s\n", shortSID(a.SessionID), sessionTitle(a), a.State)
+	c.Println("  the terminal that registered this session relays again; start a new takeover by sending a web reply again")
 	return nil
 }
 
