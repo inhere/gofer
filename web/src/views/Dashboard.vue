@@ -336,13 +336,16 @@ onUnmounted(() => {
         </h3>
         <div class="big mono">{{ fmtTokens(usageTotal?.total_tokens ?? 0) }}<span class="unit"> tokens</span></div>
         <div class="unit mono">
-          {{ usageTotal?.jobs ?? 0 }} job · {{ fmtCost(usageTotal?.cost_usd ?? 0) }}
+          {{ usageTotal?.jobs ?? 0 }} job
+          <template v-if="(usageTotal?.cost_usd ?? 0) > 0"> · {{ fmtCost(usageTotal?.cost_usd ?? 0) }}</template>
           <span v-if="stats?.usage.partial" class="partial">预算耗尽，仅部分窗口</span>
         </div>
         <div class="dbtables">
           <div v-for="[agent, u] in usageRows" :key="agent" class="dbtable">
             <span class="dt-n mono">{{ fmtTokens(u.total_tokens) }}</span>
-            <span class="dt-k mono">{{ agent }} · {{ u.jobs }} job · {{ fmtCost(u.cost_usd) }}</span>
+            <span class="dt-k mono">
+              {{ agent }} · {{ u.jobs }} job<template v-if="u.cost_usd > 0"> · {{ fmtCost(u.cost_usd) }}</template>
+            </span>
           </div>
         </div>
         <div v-if="usageRows.length === 0" class="unit mono">该窗口内没有采集到用量</div>
