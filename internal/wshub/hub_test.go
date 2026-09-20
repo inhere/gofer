@@ -132,6 +132,23 @@ func dialAndRegister(t *testing.T, ctx context.Context, wsURL, workerID string) 
 	return dialAndRegisterInstance(t, ctx, wsURL, workerID, "")
 }
 
+// registerSink registers a job sink, retrying while the hub reports the worker as
+// offline. The register ACK is written BEFORE the connection enters the registry
+// (the B3 / §7-N1 ordering note in hub.go: a broadcast must not be able to write a
+// frame ahead of the ack), so a test that registers a sink immediately after
+// dialing can race that insertion and fail with ErrWorkerOffline.
+func registerSink(t *testing.T, hub *Hub, workerID, jobID string, sink JobSink) error {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		err := hub.RegisterSink(workerID, jobID, sink)
+		if err == nil || err != ErrWorkerOffline || time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
 // dialAndRegisterInstance is dialAndRegister with an explicit instance_id, so a test
 // can model a worker restart (new instance under the same worker_id) vs a transient
 // reconnect (same instance) — the supersede-vs-fail decision (z8ow).
@@ -279,6 +296,8 @@ func TestDispatchOfflineWorker(t *testing.T) {
 	if err := hub.Dispatch("w1", wsproto.Dispatch{JobID: "j1"}); err != ErrWorkerOffline {
 		t.Fatalf("expected ErrWorkerOffline, got %v", err)
 	}
+	// Direct call: this is the offline case the retrying helper exists to avoid, so
+	// it must observe the error immediately rather than wait for a worker to appear.
 	if err := hub.RegisterSink("w1", "j1", newFakeSink()); err != ErrWorkerOffline {
 		t.Fatalf("RegisterSink offline expected ErrWorkerOffline, got %v", err)
 	}
@@ -301,7 +320,7 @@ func TestReadLoopOrdering(t *testing.T) {
 
 	sink := newFakeSink()
 	// Register the sink BEFORE the worker pushes anything (sink-before-dispatch).
-	if err := hub.RegisterSink("w1", "j1", sink); err != nil {
+	if err := registerSink(t, hub, "w1", "j1", sink); err != nil {
 		t.Fatalf("RegisterSink: %v", err)
 	}
 
@@ -349,7 +368,7 @@ func TestReadLoopOutcomeBeforeResult(t *testing.T) {
 	}
 
 	sink := newFakeSink()
-	if err := hub.RegisterSink("w1", "j1", sink); err != nil {
+	if err := registerSink(t, hub, "w1", "j1", sink); err != nil {
 		t.Fatalf("RegisterSink: %v", err)
 	}
 	push := func(ty wsproto.FrameType, payload any) {
@@ -394,7 +413,7 @@ func TestReadLoopUnknownFrameIgnored(t *testing.T) {
 		t.Fatal("register rejected")
 	}
 	sink := newFakeSink()
-	if err := hub.RegisterSink("w1", "j1", sink); err != nil {
+	if err := registerSink(t, hub, "w1", "j1", sink); err != nil {
 		t.Fatalf("RegisterSink: %v", err)
 	}
 	// An entirely unknown opcode must be tolerated (forward compat, review #6).
@@ -443,7 +462,7 @@ func TestSinkNotRegisteredDropsFrame(t *testing.T) {
 
 	// Now register a real sink and finish it; the hub must still be reading.
 	sink := newFakeSink()
-	if err := hub.RegisterSink("w1", "j1", sink); err != nil {
+	if err := registerSink(t, hub, "w1", "j1", sink); err != nil {
 		t.Fatalf("RegisterSink: %v", err)
 	}
 	if err := wsjson.Write(ctx, conn, wsproto.Envelope{
@@ -476,10 +495,10 @@ func TestBackPressureChattyJob(t *testing.T) {
 
 	chatty := newFakeSink()
 	quiet := newFakeSink()
-	if err := hub.RegisterSink("w1", "chatty", chatty); err != nil {
+	if err := registerSink(t, hub, "w1", "chatty", chatty); err != nil {
 		t.Fatal(err)
 	}
-	if err := hub.RegisterSink("w1", "quiet", quiet); err != nil {
+	if err := registerSink(t, hub, "w1", "quiet", quiet); err != nil {
 		t.Fatal(err)
 	}
 

@@ -59,7 +59,7 @@ func TestHalfOpenDetection(t *testing.T) {
 
 	// Register a sink and reserve an in-flight job (mirrors what Dispatch does).
 	sink := newFakeSink()
-	if err := hub.RegisterSink("w1", "j1", sink); err != nil {
+	if err := registerSink(t, hub, "w1", "j1", sink); err != nil {
 		t.Fatalf("RegisterSink: %v", err)
 	}
 	if err := hub.Dispatch("w1", wsproto.Dispatch{JobID: "j1"}); err != nil {
@@ -99,7 +99,7 @@ func TestRecoverWindowZeroKeepsOldBehaviour(t *testing.T) {
 	waitFor(t, func() bool { _, ok := hub.reg.Get("w1"); return ok })
 
 	sink := newFakeSink()
-	if err := hub.RegisterSink("w1", "j1", sink); err != nil {
+	if err := registerSink(t, hub, "w1", "j1", sink); err != nil {
 		t.Fatalf("RegisterSink: %v", err)
 	}
 	if err := hub.Dispatch("w1", wsproto.Dispatch{JobID: "j1"}); err != nil {
@@ -220,7 +220,7 @@ func TestSupersededReplacementDoesNotFailJobs(t *testing.T) {
 	}
 	waitFor(t, func() bool { _, ok := hub.reg.Get("w1"); return ok })
 	sink := newFakeSink()
-	if err := hub.RegisterSink("w1", "j1", sink); err != nil {
+	if err := registerSink(t, hub, "w1", "j1", sink); err != nil {
 		t.Fatalf("RegisterSink: %v", err)
 	}
 	if err := hub.Dispatch("w1", wsproto.Dispatch{JobID: "j1"}); err != nil {
@@ -264,7 +264,7 @@ func TestRestartReplacementFailsInFlightJob(t *testing.T) {
 	}
 	waitFor(t, func() bool { _, ok := hub.reg.Get("w1"); return ok })
 	sink := newFakeSink()
-	if err := hub.RegisterSink("w1", "j1", sink); err != nil {
+	if err := registerSink(t, hub, "w1", "j1", sink); err != nil {
 		t.Fatalf("RegisterSink: %v", err)
 	}
 	if err := hub.Dispatch("w1", wsproto.Dispatch{JobID: "j1"}); err != nil {

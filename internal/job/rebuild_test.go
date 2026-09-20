@@ -55,6 +55,9 @@ func TestRebuildJobEmptyOverridesStampsFreshFields(t *testing.T) {
 	if req.PlanID != "plan-x" {
 		t.Fatalf("plan_id = %q, want plan-x", req.PlanID)
 	}
+	// The rebuilt job runs asynchronously: let it finish before the test returns, or
+	// it is still writing into the TempDir when the framework removes it.
+	drainJobs(t, s)
 }
 
 func TestRebuildJobEnvOverridesMergeAndUnsetWins(t *testing.T) {
@@ -94,6 +97,7 @@ func TestRebuildJobEnvOverridesMergeAndUnsetWins(t *testing.T) {
 	if req.Env["B"] != "2" || req.Env["KEEP"] != "3" {
 		t.Fatalf("unmentioned env keys should be preserved, got %#v", req.Env)
 	}
+	drainJobs(t, s)
 }
 
 func TestRebuildJobRejectsPlaceholdersAndUnknownSource(t *testing.T) {

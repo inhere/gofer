@@ -90,7 +90,7 @@ func TestOpenTunnelDoesNotConsumeJobSlot(t *testing.T) {
 		t.Fatal(err)
 	}
 	sink := newFakeSink()
-	if err := h.RegisterSink("w1", "job1", sink); err != nil {
+	if err := registerSink(t, h, "w1", "job1", sink); err != nil {
 		t.Fatal(err)
 	}
 	if err := h.Dispatch("w1", wsproto.Dispatch{JobID: "job1"}); err != nil {

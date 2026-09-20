@@ -29,7 +29,7 @@ func TestHubDedupsJobEvent(t *testing.T) {
 	}
 
 	sink := newFakeSink()
-	if err := hub.RegisterSink("w1", "j1", sink); err != nil {
+	if err := registerSink(t, hub, "w1", "j1", sink); err != nil {
 		t.Fatalf("RegisterSink: %v", err)
 	}
 	push := func(ev wsproto.JobEvent) {

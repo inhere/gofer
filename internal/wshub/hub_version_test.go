@@ -139,7 +139,7 @@ func TestRollingUpgradeMatrix(t *testing.T) {
 			// vintages: a v2 worker is not a degraded worker, it is a full worker minus
 			// the newest optional frames.
 			sink := newFakeSink()
-			if err := hub.RegisterSink("w1", "j1", sink); err != nil {
+			if err := registerSink(t, hub, "w1", "j1", sink); err != nil {
 				t.Fatalf("RegisterSink: %v", err)
 			}
 			if err := hub.Dispatch("w1", wsproto.Dispatch{JobID: "j1", Agent: "shell", Runner: "local"}); err != nil {

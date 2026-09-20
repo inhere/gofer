@@ -51,7 +51,34 @@ func testCore(t *testing.T) (*job.Service, *project.Registry, *agent.Registry, *
 	t.Cleanup(func() { _ = meta.Close() })
 	jobs := job.NewService(cfg, projects, agents, runners, meta, nil)
 	pres := presence.NewService(meta)
+	// Nothing may still be writing into the temp dir when the framework removes it: a
+	// test that only asserts on a tool response (run_job, job resume, ...) leaves its
+	// job running, and RemoveAll then fails with "directory not empty" (or "file in
+	// use" on Windows).
+	t.Cleanup(func() { drainJobs(t, jobs) })
 	return jobs, projects, agents, pres
+}
+
+// drainJobs waits (best effort, bounded) until the service has nothing in flight.
+func drainJobs(t *testing.T, jobs *job.Service) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		list, err := jobs.ListJobs(job.ListOpts{Limit: 200})
+		if err == nil {
+			inFlight := false
+			for _, j := range list {
+				if !job.IsTerminal(j.Status) {
+					inFlight = true
+					break
+				}
+			}
+			if !inFlight {
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // connect wires an in-memory client<->server session over the mcpserver. The

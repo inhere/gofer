@@ -58,7 +58,7 @@ func dispatchAndDrop(t *testing.T, ctx context.Context, hub *Hub, wsURL, instanc
 
 	sink := newFakeSink()
 	sink.stdoutOff, sink.stderrOff = stdoutOff, stderrOff
-	if err := hub.RegisterSink("w1", jobID, sink); err != nil {
+	if err := registerSink(t, hub, "w1", jobID, sink); err != nil {
 		t.Fatalf("RegisterSink: %v", err)
 	}
 	if err := hub.Dispatch("w1", wsproto.Dispatch{JobID: jobID}); err != nil {
