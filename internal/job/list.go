@@ -52,6 +52,12 @@ type ListOpts struct {
 // under s.mu and snapshots them after unlocking to avoid taking entry.mu while
 // holding s.mu.
 func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
+	// The runner filter is a caller-supplied spelling like any other input: a filter
+	// for the alias must match the canonical value the rows are STORED under, or
+	// `job ls --runner server` would report "no jobs" for jobs that plainly ran on it
+	// (see normalizeRunner).
+	opts.Runner = normalizeRunner(s.config(), opts.Runner)
+
 	// 1. An explicit project that is not registered yields an empty (non-nil)
 	// result, matching the pre-DB behaviour (the list is scoped to known projects).
 	if opts.Project != "" {

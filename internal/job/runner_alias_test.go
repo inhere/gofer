@@ -113,6 +113,37 @@ func TestDeclaredServerRunnerBeatsAlias(t *testing.T) {
 	}
 }
 
+// TestListJobsAcceptsBuiltinRunnerAlias: the `--runner` FILTER is an input spelling
+// too, and it must match the canonical value rows are stored under — otherwise
+// `job ls --runner server` answers "no jobs" for the very jobs that ran on it.
+func TestListJobsAcceptsBuiltinRunnerAlias(t *testing.T) {
+	s, _ := newAliasService(t, []string{"local"})
+
+	submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: config.BuiltinLocalRunnerAlias,
+		Cmd: testcmd.Cmd(t, "exit", "0"), Cwd: ".", TimeoutSec: 30,
+	})
+
+	for _, filter := range []string{config.BuiltinLocalRunnerAlias, config.BuiltinLocalRunner} {
+		list, err := s.ListJobs(ListOpts{Runner: filter, Limit: 20})
+		if err != nil {
+			t.Fatalf("ListJobs(%q): %v", filter, err)
+		}
+		if len(list) != 1 {
+			t.Fatalf("filter %q matched %d jobs, want the 1 that ran on it", filter, len(list))
+		}
+	}
+	// A different runner key still filters it out (the normalization must not turn
+	// every filter into "match everything").
+	list, err := s.ListJobs(ListOpts{Runner: "builder", Limit: 20})
+	if err != nil {
+		t.Fatalf("ListJobs(builder): %v", err)
+	}
+	if len(list) != 0 {
+		t.Fatalf("filter builder matched %d jobs, want 0", len(list))
+	}
+}
+
 // TestApplyTemplateRunnerIsHonoured: a task-book template's `runner:` field is the
 // case the CLI's "no --runner" sentinel exists for (SUP-01 P5), so it must actually
 // be applied — and normalized, because it comes from a file like any other field.
