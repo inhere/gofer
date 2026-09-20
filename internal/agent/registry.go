@@ -119,6 +119,19 @@ func (r *Registry) Get(key string) (config.AgentConfig, bool) {
 	return ResolveAgent(r.config(), key)
 }
 
+// Injected reports which agent keys of the current snapshot were materialized from
+// a BUILT-IN template rather than declared by the operator (see
+// config.MarkInjectedAgents / agent.Resolve). The read paths that LIST agents
+// surface it so a console can say why an agent the operator never wrote is there —
+// /v1/agents otherwise shows built-in and declared agents as one undifferentiated
+// set. nil means none (a config assembled without the template pass, e.g. tests).
+func (r *Registry) Injected() map[string]bool {
+	if cfg := r.config(); cfg != nil {
+		return cfg.InjectedAgents()
+	}
+	return nil
+}
+
 // config returns the config of the current snapshot (nil-safe).
 func (r *Registry) config() *config.Config {
 	if s := r.snap.Load(); s != nil {

@@ -23,6 +23,12 @@ type agentView struct {
 	Version   string           `json:"version,omitempty"`
 	Error     string           `json:"error,omitempty"`
 	Health    *agentHealthView `json:"health,omitempty"`
+	// Injected marks an agent the operator did NOT declare: it was materialized at
+	// runtime from a BUILT-IN template because its CLI is on this host (see
+	// internal/agent/templates.go). Without the flag the console cannot explain why
+	// an agent that appears in no config.yaml is listed here; it is display-only and
+	// never gates execution (a template agent is an ordinary agent once injected).
+	Injected bool `json:"injected,omitempty"`
 }
 
 // agentHealthView is an agent's health (SUP-01 P3) as a reader consumes it: the
@@ -40,7 +46,9 @@ type agentHealthView struct {
 }
 
 // handleListAgents lists every configured/built-in agent with its detect status and
-// its recent-job health.
+// its recent-job health. A key the operator did not declare carries injected=true,
+// so the console can say it came from a built-in template (agent.Resolve's
+// detect-gated injection) instead of leaving an unexplained entry in the list.
 //
 // Availability is READ FROM THE CACHE (agent.Registry.Availability): the detect pass
 // ran once when the config was resolved (core.Build / core.ReloadWith) and turns over
@@ -69,6 +77,7 @@ func (s *Server) handleListAgents(c *rux.Context) {
 	}
 
 	views := make([]agentView, 0, len(keys))
+	injected := s.agents.Injected()
 	for _, k := range keys {
 		ac := list[k]
 		det := avail[k]
@@ -79,6 +88,7 @@ func (s *Server) handleListAgents(c *rux.Context) {
 			Version:   det.Version,
 			Error:     det.Error,
 			Health:    healthView(agg[k], hc),
+			Injected:  injected[k],
 		})
 	}
 	c.JSON(http.StatusOK, rux.M{"agents": views})

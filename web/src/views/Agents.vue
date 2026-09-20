@@ -203,7 +203,8 @@ function listValue(v?: string[]): string {
     </div>
 
     <p class="scope-note mono">
-      以下为 <b>serve 主机</b>配置的 agents 及其可用性；worker 节点各自的 agents 见
+      以下为 <b>serve 主机</b>的 agents 及其可用性（含内置模板自动注入的，标 <b>内置</b>：
+      config.yaml 未声明，但本机装了对应 CLI）；worker 节点各自的 agents 见
       <RouterLink to="/runners">Runners</RouterLink>。
     </p>
 
@@ -242,6 +243,14 @@ function listValue(v?: string[]): string {
               <span class="chev" aria-hidden="true">{{ expanded.has(a.key) ? '▾' : '▸' }}</span>
               <span class="key-text">{{ a.key }}</span>
             </button>
+            <!-- 内置模板注入的 agent（config.yaml 里没有它，是本机 PATH 上装了 CLI 后
+                 由 agent.Resolve 注入的）。徽标让"我没配过它，它从哪来的"一眼可答。 -->
+            <span
+              v-if="a.injected"
+              class="builtin-badge mono"
+              title="内置模板注入：config.yaml 未声明，本机检测到它的 CLI 后自动加入（展开可见其命令行）"
+              >内置</span
+            >
           </span>
           <span class="col-type mono">{{ a.type }}</span>
           <span class="col-health mono">
@@ -479,6 +488,17 @@ function listValue(v?: string[]): string {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+/* 内置模板徽标：比 key 更弱一档的颜色，说明"这条不是配置里写的"。 */
+.builtin-badge {
+  flex: none;
+  margin-left: 6px;
+  font-size: 10px;
+  letter-spacing: 0.06em;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 0 5px;
+  color: var(--queue);
 }
 .col-type {
   color: var(--paper);

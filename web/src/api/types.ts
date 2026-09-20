@@ -600,6 +600,9 @@ export interface AgentInfo {
   version?: string
   error?: string
   health?: AgentHealth
+  // 运行时由内置模板注入（config.yaml 里没有写，但本机 PATH 上有它的 CLI）。
+  // 展示用：让 Agents 页能说明"这个 agent 从哪来的"；不参与任何准入判断。
+  injected?: boolean
 }
 
 // 探针结果（POST /v1/agents/{key}/probe）：承载它的普通 job 及其结果。

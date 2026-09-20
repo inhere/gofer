@@ -242,6 +242,8 @@ projects:
     default_agent: codex
     allowed_agents: [codex, claude, exec]
     # allowed_runners 列的是 runner 的【名字】(runners: 下的 key),不是 type。
+    # 内置(本机)runner 有两个拼写: canonical 的 local 与 CLI 别名 server(=`--runner` 默认值),
+    # 写哪个都算放行(同一台 runner, 存库/接口一律记为 local)。
     # 要把 job 派给 worker, 在这里加上那个 worker-runner 的名字(如下例 builder):
     #   allowed_runners: [local, builder]
     # 注意 worker 是【两段配置】:
@@ -311,6 +313,13 @@ projects:
     allowed_agents: [exec]
 
 agents:
+  # 本段可以整个不写: 内置模板(claude/codex/opencode/claude-acp/codex-acp/gemini-acp/
+  # omp-acp/tty-claude/tty-codex + 永远存在的 exec)会在 serve 启动时按【本机是否装了对应
+  # CLI】自动注入 —— 所以 Web 的 Agents 页/`gofer agent ls` 里出现你没在这里写过的 agent
+  # 是正常的, 它们带 `injected` 标记(Web 显示「内置」徽标), 展开可看命令行。
+  # 你在本段显式声明同名 key = 整条覆盖模板(escape hatch), 从此不再被探测结果影响;
+  # 模板注入项不会被写回本文件。
+  #
   # Template placeholders supported in `args`: {{prompt}} {{cwd}} {{job_id}}
   # {{result_dir}}. Each arg element is substituted independently and the argv
   # array is preserved — {{prompt}} stays ONE argv element, so a prompt with
