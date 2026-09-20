@@ -46,6 +46,9 @@ func TestRebuildEndpointEmptyOverrides(t *testing.T) {
 	if req.RequestID != "" || req.SessionID != "" {
 		t.Fatalf("rebuild should clear request/session id, got %q/%q", req.RequestID, req.SessionID)
 	}
+	// The rebuilt job runs asynchronously: let it finish so nothing is still
+	// writing into the job's result dir when t.TempDir tears the tree down.
+	waitDone(t, s, rebuilt.ID)
 }
 
 func TestRebuildEndpointEnvSet(t *testing.T) {
@@ -74,6 +77,7 @@ func TestRebuildEndpointEnvSet(t *testing.T) {
 	if req.Env["A"] != "9" || req.Env["B"] != "3" || req.Env["KEEP"] != "2" {
 		t.Fatalf("env_set merge wrong: %#v", req.Env)
 	}
+	waitDone(t, s, rebuilt.ID)
 }
 
 func TestRebuildEndpointRejectsPlaceholderAndUnknown(t *testing.T) {
