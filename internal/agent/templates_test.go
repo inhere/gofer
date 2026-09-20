@@ -80,6 +80,11 @@ func TestBuiltinTemplatesTable(t *testing.T) {
 			Command: "omp",
 			Args:    []string{"acp"},
 		},
+		"jcode-acp": {
+			Type:    TypeACPAgent,
+			Command: "jcode",
+			Args:    []string{"acp"},
+		},
 	}
 	if !reflect.DeepEqual(builtinTemplates, want) {
 		t.Fatalf("builtinTemplates drifted:\n got=%+v\nwant=%+v", builtinTemplates, want)

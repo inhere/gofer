@@ -38,7 +38,7 @@ func TestACPAgentModes(t *testing.T) {
 	}
 }
 
-// TestACPAgentTemplatesAreBuiltIn pins the four built-in adapters (design §一.1):
+// TestACPAgentTemplatesAreBuiltIn pins the built-in adapters (design §一.1):
 // the CLI adapters are detect-gated like every other template, so an operator who
 // declares the same key keeps their own entry.
 func TestACPAgentTemplatesAreBuiltIn(t *testing.T) {
@@ -50,6 +50,7 @@ func TestACPAgentTemplatesAreBuiltIn(t *testing.T) {
 		"codex-acp":  {command: "codex-acp"},
 		"gemini-acp": {command: "gemini", args: []string{"--acp"}},
 		"omp-acp":    {command: "omp", args: []string{"acp"}},
+		"jcode-acp":  {command: "jcode", args: []string{"acp"}},
 	}
 	for key, w := range want {
 		tpl, ok := builtinTemplates[key]
@@ -67,8 +68,13 @@ func TestACPAgentTemplatesAreBuiltIn(t *testing.T) {
 		}
 	}
 	// claude-acp runs through npx, whose own --version says nothing about the
-	// adapter, so it is the one template that needs an explicit version probe.
+	// adapter, so it is the one template that needs an explicit version probe: the
+	// default `<command> --version` is right for every other adapter, jcode-acp
+	// included (`jcode --version` prints "jcode v0.85.0 (<hash>)").
 	if got := builtinTemplates["claude-acp"].Detect; got.Command != "npx" || len(got.Args) == 0 {
 		t.Fatalf("claude-acp detect = %+v, want the adapter's version probe", got)
+	}
+	if got := builtinTemplates["jcode-acp"].Detect; got.Command != "" {
+		t.Fatalf("jcode-acp detect = %+v, want the default `<command> --version` probe", got)
 	}
 }

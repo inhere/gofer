@@ -81,6 +81,21 @@ var builtinTemplates = map[string]config.AgentConfig{
 		Command: "omp",
 		Args:    []string{"acp"},
 	},
+	// jcode-acp: the Jcode CLI's own ACP adapter (`jcode acp`, backed by the Jcode
+	// daemon). Verified against jcode 0.85.0 over stdio: initialize answers
+	// protocolVersion 1 with loadSession + sessionCapabilities{close,resume},
+	// session/new returns a session id plus a model configOptions block, and a
+	// session/prompt streams agent_message_chunk and ends with stopReason=end_turn.
+	//
+	// No detect block (the rule above): the default `<command> --version` probe
+	// already yields a clean "jcode v0.85.0 (<hash>)". Note `jcode version` — the
+	// subcommand — is NOT a substitute: its first line is "version\tv0.85.0 (<hash>)",
+	// noisier for no gain.
+	"jcode-acp": {
+		Type:    TypeACPAgent,
+		Command: "jcode",
+		Args:    []string{"acp"},
+	},
 	// opencode: non-interactive run via the `run <prompt>` subcommand.
 	"opencode": {
 		Type:    TypeCLIAgent,
