@@ -32,6 +32,7 @@ func registerTunnelWorker(t *testing.T, proto, max int) (context.CancelFunc, *we
 		cancel()
 		t.Fatal(err)
 	}
+	waitWorkerOnline(t, h, "w1") // the ack precedes the registry insertion
 	return cancel, conn, h
 }
 

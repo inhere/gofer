@@ -179,13 +179,13 @@ func TestDispatchAtCapacity(t *testing.T) {
 	waitFor(t, func() bool { _, ok := hub.reg.Get("w1"); return ok })
 
 	for _, id := range []string{"j1", "j2"} {
-		_ = hub.RegisterSink("w1", id, newFakeSink())
+		_ = registerSink(t, hub, "w1", id, newFakeSink())
 		if err := hub.Dispatch("w1", wsproto.Dispatch{JobID: id}); err != nil {
 			t.Fatalf("Dispatch %s: %v", id, err)
 		}
 	}
 	// Third dispatch must be rejected at capacity.
-	_ = hub.RegisterSink("w1", "j3", newFakeSink())
+	_ = registerSink(t, hub, "w1", "j3", newFakeSink())
 	if err := hub.Dispatch("w1", wsproto.Dispatch{JobID: "j3"}); err != ErrWorkerAtCapacity {
 		t.Fatalf("3rd dispatch err = %v, want ErrWorkerAtCapacity", err)
 	}

@@ -132,21 +132,28 @@ func dialAndRegister(t *testing.T, ctx context.Context, wsURL, workerID string) 
 	return dialAndRegisterInstance(t, ctx, wsURL, workerID, "")
 }
 
-// registerSink registers a job sink, retrying while the hub reports the worker as
-// offline. The register ACK is written BEFORE the connection enters the registry
-// (the B3 / §7-N1 ordering note in hub.go: a broadcast must not be able to write a
-// frame ahead of the ack), so a test that registers a sink immediately after
-// dialing can race that insertion and fail with ErrWorkerOffline.
+// registerSink waits for the hub to know the worker, then registers a job sink.
 func registerSink(t *testing.T, hub *Hub, workerID, jobID string, sink JobSink) error {
 	t.Helper()
+	waitWorkerOnline(t, hub, workerID)
+	return hub.RegisterSink(workerID, jobID, sink)
+}
+
+// waitWorkerOnline blocks until the worker is in the hub's registry. The register
+// ACK is written BEFORE the connection enters the registry (the B3 / §7-N1 ordering
+// note in hub.go: a broadcast must not be able to write a frame ahead of the ack),
+// so a test that dials and then immediately calls into the hub — Dispatch,
+// OpenTunnel, RegisterSink — races that insertion and fails with ErrWorkerOffline.
+func waitWorkerOnline(t *testing.T, hub *Hub, workerID string) {
+	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
-	for {
-		err := hub.RegisterSink(workerID, jobID, sink)
-		if err == nil || err != ErrWorkerOffline || time.Now().After(deadline) {
-			return err
+	for time.Now().Before(deadline) {
+		if _, ok := hub.reg.Get(workerID); ok {
+			return
 		}
-		time.Sleep(5 * time.Millisecond)
+		time.Sleep(2 * time.Millisecond)
 	}
+	t.Fatalf("worker %s never entered the hub registry", workerID)
 }
 
 // dialAndRegisterInstance is dialAndRegister with an explicit instance_id, so a test

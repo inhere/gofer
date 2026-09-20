@@ -55,7 +55,11 @@ func reviewCore(t *testing.T) (*job.Service, *project.Registry, *agent.Registry,
 		t.Fatalf("open jobstore: %v", err)
 	}
 	t.Cleanup(func() { _ = meta.Close() })
-	return job.NewService(cfg, projects, agents, runners, meta, nil), projects, agents, presence.NewService(meta)
+	jobs := job.NewService(cfg, projects, agents, runners, meta, nil)
+	// Nothing may still be writing into the temp dir when the framework removes it: a
+	// rejected job with resume=true spawns a continuation that outlives the call.
+	t.Cleanup(func() { drainJobs(t, jobs) })
+	return jobs, projects, agents, presence.NewService(meta)
 }
 
 // submitReviewedJob submits a reviewed job through the service and waits for it to park
