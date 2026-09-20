@@ -25,3 +25,8 @@
 - **G022 依赖单向、防环**：入口 → 编排(core/serve/streaming) → job → 数据层(jobstore/project/agent/runner/store/config…)；底层/业务层**绝不**反向 import 入口/编排层。新增包后以 `go build`/`go vet`/`go list -deps` 验环。详见 `docs/design/2026-06-25-code-layering-refactor-design.md`。
 - **G023 重构铁律**：搬迁/拆分代码**零行为变化**（函数体逐字，仅改包/导出性/import），每步全量 `go test ./...` 绿背书；专属测试随逻辑迁移、覆盖不降。
 - **G024 子域升包判据 + 依赖倒置**：拆文件改善阅读、**升包改善边界**；一个子域满足「域自洽 + 反向 seam 够窄 + 正向可接口化 + 收益>代价」(D-B8) 才升为子包，否则留包内按文件聚合。已落地：`internal/job/workflow`（链编排引擎，design §13）——`job` 经 `WorkflowAdvancer` 接口反向回调（job 不 import workflow），`workflow.Engine` 经 `JobOps` 接口取宿主能力；共享类型（`RetryPolicy` 等 `JobRequest` 字段类型）留 `job`。新子域抽取沿用此「双接口依赖倒置」模式。
+
+### 公共 util（CodeQL 基线，2026-09-20）
+
+- **G041 分配容量提示走 `allocx`**：`make([]T, 0, n)` / `make(map[K]V, n)` 的容量提示一律经 `internal/allocx`（`Sum(len(a), len(b))`、`Mul(len(m), 2)`），**不要**在 `make` 里写 `len(a)+len(b)`、`len(m)*2` 这类算式——GitHub CodeQL `go/allocation-size-overflow` 会报「分配大小计算可能溢出」（回绕成负数后 `make` 直接 panic）。allocx 先把每个入参 clamp 到 `MaxHint`(1<<20) 再在 int64 上运算，任何入参（含 `math.MaxInt`）都不可能回绕；容量只是提示，clamp 最多多一次扩容、不改变可观察行为。
+- **G042 env 合并走 `envx`**：进程 env 与 job env 的合并一律用 `internal/envx`——`Environ(extra)`（`cmd.Env` / pty `Spec.Env`；extra 覆盖继承值）、`Merge(base, extra)`（extra 覆盖 base，空 extra 返回 base 不拷贝）、`With(base, overrides)`（总是新 map，gofer 自有 key 压过调用方 key）。**不要**再各自写 `mergedEnv` / `mergeEnv` 副本（曾有三份 mergedEnv + 两个 map 合并 helper，口径已漂移）。
