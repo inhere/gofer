@@ -58,10 +58,52 @@ func newServer(t *testing.T, token string, allowEmpty bool) *httptest.Server {
 	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
 	jobsEng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(jobsEng)
+	t.Cleanup(func() { drainJobs(t, jobs) })
 	srv := httpapi.New(&cfg.Server, token, allowEmpty, jobs, jobsEng, projects, agents, nil, nil, nil, nil)
 	ts := httptest.NewServer(srv.Handler())
 	t.Cleanup(ts.Close)
 	return ts
+}
+
+// drainBudget bounds how long drainJobs waits for cancelled jobs to unwind. A job that
+// ignores cancellation (a parked interactive/pty session, say) must not stall the whole
+// suite: the wait only has to cover jobs that end promptly once cancelled.
+const drainBudget = 2 * time.Second
+
+// drainJobs ends the jobs a test left in flight and waits (bounded) for them to reach
+// a terminal state. A test that only inspects a response would otherwise return while
+// its job — or a resume / rebuild / workflow continuation it spawned — is still writing
+// into the test's TempDir, and the framework's RemoveAll then fails with "directory not
+// empty" (or "file in use" on Windows). Cancelling is safe here: the test is over and
+// its own cleanup, if any, already ran (cleanups are LIFO).
+func drainJobs(t *testing.T, jobs *job.Service) {
+	t.Helper()
+	list, err := jobs.ListJobs(job.ListOpts{Limit: 500})
+	if err != nil {
+		return
+	}
+	var live []string
+	for _, j := range list {
+		if !job.IsTerminal(j.Status) {
+			live = append(live, j.ID)
+		}
+	}
+	for _, id := range live {
+		_ = jobs.Cancel(id)
+	}
+	deadline := time.Now().Add(drainBudget)
+	for time.Now().Before(deadline) {
+		pending := 0
+		for _, id := range live {
+			if snap, ok := jobs.Get(id); ok && !job.IsTerminal(snap.Status) {
+				pending++
+			}
+		}
+		if pending == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // waitDone polls the client until the job reaches a terminal state.
