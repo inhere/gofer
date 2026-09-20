@@ -88,6 +88,21 @@ jobs:
         # out" instead of a real failure.
         run: go test -timeout 20m ./...
 
+      # TEMPORARY diagnostic (remove once the windows slowness is explained):
+      # run the heaviest package ALONE and list its slowest tests, so the per-test
+      # cost on this runner can be compared with the parallel `go test ./...` run
+      # above and with ubuntu.
+      - name: "Diagnostic: internal/job alone (temporary)"
+        if: ${{ matrix.go_version == '1.25' }}
+        shell: bash
+        run: |
+          go test -count=1 -timeout 20m -v ./internal/job/ > job-alone.log 2>&1 || true
+          echo "--- wall clock: $(grep -c '^=== RUN' job-alone.log) tests"
+          grep -E '^--- (PASS|FAIL)' job-alone.log \
+            | sed -E 's/^--- (PASS|FAIL): ([^ ]+) \(([0-9.]+)s\)/\3 \2/' \
+            | sort -rn | head -25
+          grep -E '^(ok|FAIL)\s' job-alone.log | tail -2
+
       - name: Run unit tests with coverage
         if: ${{ matrix.os != 'windows-latest' }}
         run: go test -timeout 20m -cover ./...
