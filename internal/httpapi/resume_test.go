@@ -133,6 +133,11 @@ func TestResumeClaudeJobReturnsLinkedJob(t *testing.T) {
 	if newJob.Agent != agent.ExecAgentKey {
 		t.Fatalf("resumed agent = %q, want exec", newJob.Agent)
 	}
+	// The resumed job runs asynchronously: let it reach a terminal state before the
+	// test returns, so no goroutine is still writing into the job's result dir when
+	// t.TempDir removes the tree (a lingering writer makes RemoveAll fail with
+	// "directory not empty").
+	waitDone(t, s, newJob.ID)
 }
 
 // TestResumeCrossRunnerRejected: an explicit runner differing from the source is

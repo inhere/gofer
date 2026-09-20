@@ -85,9 +85,9 @@ func (r *recorder) snapshot() ([]acp.Update, []acp.RequestPermissionParams) {
 
 // startFake launches the in-repo fake ACP agent and returns a started client plus
 // its captured stderr (the agent's own log channel).
-func startFake(t *testing.T, o acptest.Options) (*acp.Client, *bytes.Buffer) {
+func startFake(t *testing.T, o acptest.Options) (*acp.Client, *syncBuffer) {
 	t.Helper()
-	var stderr bytes.Buffer
+	var stderr syncBuffer
 	c, err := acp.Start(context.Background(), acp.Options{
 		Command: testcmd.Path(t),
 		Args:    acptest.CmdArgs(o),
@@ -99,6 +99,46 @@ func startFake(t *testing.T, o acptest.Options) (*acp.Client, *bytes.Buffer) {
 	}
 	t.Cleanup(func() { _ = c.Close() })
 	return c, &stderr
+}
+
+// syncBuffer is a bytes.Buffer that is safe to read while the fake agent process
+// is still writing to it. os/exec copies the child's stderr on its own goroutine,
+// so a plain bytes.Buffer is a data race (-race reports it) and a reader can also
+// observe a PREFIX that trails the stdout reply which ended the prompt.
+type syncBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *syncBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *syncBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
+}
+
+// waitFor returns the captured stderr once it contains want, failing the test
+// after a timeout. The child's stderr travels through a pipe + copy goroutine, so
+// a line the agent printed before replying can still be in flight when the prompt
+// returns; polling removes that race instead of sleeping on it.
+func (b *syncBuffer) waitFor(t *testing.T, want string) string {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		got := b.String()
+		if strings.Contains(got, want) {
+			return got
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("agent stderr never contained %q:\n%s", want, got)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 }
 
 // handshake initializes the client and opens one session, returning the session id.
@@ -141,8 +181,8 @@ func TestACPClientHandshakeAndPrompt(t *testing.T) {
 	sid := handshake(t, c, ctx)
 	// clientInfo must be complete: the claude-code-acp adapter rejects an initialize
 	// whose clientInfo carries no version (-32602), so the client always sends one.
-	if !strings.Contains(stderr.String(), "acptest: initialize client=gofer/") ||
-		strings.Contains(stderr.String(), "client=gofer/\n") {
+	stderr.waitFor(t, "acptest: initialize client=gofer/")
+	if strings.Contains(stderr.String(), "client=gofer/\n") {
 		t.Fatalf("initialize did not advertise a client name/version:\n%s", stderr.String())
 	}
 	h := newRecorder()
@@ -226,9 +266,7 @@ func TestACPClientPermissionRoundTrip(t *testing.T) {
 	}
 	// The recorder's default answer is the allow_once option; the fake agent echoes
 	// the outcome it received onto stderr.
-	if !strings.Contains(stderr.String(), "permission outcome=selected option="+acptest.AllowOnceOptionID+" kind=allow_once") {
-		t.Fatalf("fake agent did not receive the selected option:\n%s", stderr.String())
-	}
+	stderr.waitFor(t, "permission outcome=selected option="+acptest.AllowOnceOptionID+" kind=allow_once")
 }
 
 // TestACPClientCancelYieldsCancelled proves the cancel contract: a cancelled ctx
@@ -271,9 +309,7 @@ func TestACPClientCancelYieldsCancelled(t *testing.T) {
 	case <-time.After(20 * time.Second):
 		t.Fatal("Prompt did not return after ctx cancellation")
 	}
-	if !strings.Contains(stderr.String(), "session/cancel received") {
-		t.Fatalf("fake agent never saw session/cancel:\n%s", stderr.String())
-	}
+	stderr.waitFor(t, "session/cancel received")
 }
 
 // TestACPClientRejectsFsAndTerminal proves the S0 capability boundary: an agent's
@@ -289,9 +325,7 @@ func TestACPClientRejectsFsAndTerminal(t *testing.T) {
 		t.Fatalf("Prompt: %v", err)
 	}
 	for _, method := range []string{"fs/read_text_file", "terminal/create"} {
-		if !strings.Contains(stderr.String(), "acptest: "+method+" rejected code=-32601") {
-			t.Fatalf("%s was not rejected with -32601 by the client:\n%s", method, stderr.String())
-		}
+		stderr.waitFor(t, "acptest: "+method+" rejected code=-32601")
 	}
 }
 

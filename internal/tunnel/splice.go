@@ -14,7 +14,12 @@ import (
 type SpliceOptions struct {
 	PingInterval, PingTimeout time.Duration
 	OnProgress                func(up, down int64)
-	OnFirstUp, OnFirstDown    func()
+	// OnFirstUp fires when the first client->worker bytes are READ (before they are
+	// forwarded); OnFirstDown when the first worker->client bytes arrive. Reading
+	// the up marker early keeps the two events in causal order — nothing can come
+	// back down before something went up — so a log reader never sees a "response"
+	// logged ahead of the "request" it answers.
+	OnFirstUp, OnFirstDown func()
 }
 
 // SpliceResult reports forwarded byte counts and teardown reason.
@@ -58,16 +63,24 @@ func Splice(ctx context.Context, client, worker *websocket.Conn, opt SpliceOptio
 			}
 			buf, e := io.ReadAll(io.LimitReader(rd, ReadLimit))
 			if e == nil {
+				if src == client {
+					// Report the up direction as soon as the client's first bytes are
+					// READ, i.e. before they are forwarded: nothing can come back down
+					// before something went up, so this makes the documented
+					// first_up -> first_down order deterministic. Emitting it after
+					// the write instead would let the down goroutine win the race and
+					// log a "response" before the "request" it answers.
+					firstUp.Do(func() {
+						if opt.OnFirstUp != nil {
+							opt.OnFirstUp()
+						}
+					})
+				}
 				e = dst.Write(ctx, websocket.MessageBinary, buf)
 				if e == nil { // only bytes actually delivered count
 					progMu.Lock()
 					if src == client {
 						atomic.AddInt64(&up, int64(len(buf)))
-						firstUp.Do(func() {
-							if opt.OnFirstUp != nil {
-								opt.OnFirstUp()
-							}
-						})
 					} else {
 						atomic.AddInt64(&down, int64(len(buf)))
 						firstDown.Do(func() {
