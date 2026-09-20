@@ -27,6 +27,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/inhere/gofer/internal/allocx"
 	"github.com/inhere/gofer/internal/ptyrelay"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/wshub"
@@ -466,7 +467,7 @@ func decodeJobEventDetail(ev wsproto.JobEvent) map[string]any {
 // "the worker's approval gate asked" from a local gate. The input map is never
 // mutated (it may be shared with the worker-side event record).
 func withWorkerOrigin(detail map[string]any, workerID string) map[string]any {
-	out := make(map[string]any, len(detail)+1)
+	out := make(map[string]any, allocx.Sum(len(detail), 1))
 	for k, v := range detail {
 		out[k] = v
 	}

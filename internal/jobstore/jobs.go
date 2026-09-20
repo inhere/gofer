@@ -7,6 +7,8 @@ import (
 	"strings"
 
 	sqlite "modernc.org/sqlite"
+
+	"github.com/inhere/gofer/internal/allocx"
 )
 
 // ErrRequestIDConflict is returned by UpsertJob when an INSERT of a NEW job id
@@ -501,7 +503,7 @@ var activeJobStatuses = []string{"queued", "running", "pending_interaction"}
 func (s *Store) CountActiveJobsByRole(role string) (int, error) {
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(activeJobStatuses)), ",")
 	q := `SELECT COUNT(*) FROM jobs WHERE role = ? AND status IN (` + placeholders + `)`
-	args := make([]any, 0, len(activeJobStatuses)+1)
+	args := make([]any, 0, allocx.Sum(len(activeJobStatuses), 1))
 	args = append(args, role)
 	for _, st := range activeJobStatuses {
 		args = append(args, st)
@@ -532,7 +534,7 @@ func (s *Store) CountActiveJobsByCaller(callerID string, since int64) (int, erro
 	}
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(supervisedJobStatuses)), ",")
 	q := `SELECT COUNT(*) FROM jobs WHERE caller_id = ? AND started_at >= ? AND status IN (` + placeholders + `)`
-	args := make([]any, 0, len(supervisedJobStatuses)+2)
+	args := make([]any, 0, allocx.Sum(len(supervisedJobStatuses), 2))
 	args = append(args, callerID, since)
 	for _, st := range supervisedJobStatuses {
 		args = append(args, st)
@@ -634,7 +636,7 @@ func (s *Store) ReconcileOrphanJobs(ts int64, reason string, workerRunners []str
 	// degrades to exactly the column test.
 	heldPlaceholders := strings.TrimSuffix(strings.Repeat("?,", len(orphanWorkerJobStatuses)), ",")
 	workerPred := "worker_id <> ''"
-	heldArgs := make([]any, 0, len(orphanWorkerJobStatuses)+len(workerRunners)+3)
+	heldArgs := make([]any, 0, allocx.Sum(len(orphanWorkerJobStatuses), len(workerRunners), 3))
 	heldArgs = append(heldArgs, ts, "recovering: "+reason+" — awaiting worker ", ts)
 	heldArgs = append(heldArgs, workerRunnersToAny(workerRunners)...)
 	if len(workerRunners) > 0 {
@@ -662,7 +664,7 @@ func (s *Store) ReconcileOrphanJobs(ts int64, reason string, workerRunners []str
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(nonTerminalJobStatuses)), ",")
 	q := `UPDATE jobs SET status = 'failed', error = ?, ended_at = ?, updated_at = ?
   WHERE status IN (` + placeholders + `)`
-	args := make([]any, 0, len(nonTerminalJobStatuses)+3)
+	args := make([]any, 0, allocx.Sum(len(nonTerminalJobStatuses), 3))
 	args = append(args, reason, ts, ts)
 	for _, st := range nonTerminalJobStatuses {
 		args = append(args, st)

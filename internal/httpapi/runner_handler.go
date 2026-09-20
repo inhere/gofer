@@ -7,6 +7,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/allocx"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/runner"
 )
@@ -169,7 +170,7 @@ type workerView struct {
 // for a stable response (local first). The handler only reads cached state (probe
 // snapshot + registry snapshot) so it never blocks on a live probe.
 func (s *Server) handleListRunners(c *rux.Context) {
-	out := make([]runnerView, 0, len(s.runners)+1)
+	out := make([]runnerView, 0, allocx.Sum(len(s.runners), 1))
 
 	// The implicit local runner is always present and always up (in-process). Its
 	// capabilities are synthesized from the server's own config so the web can

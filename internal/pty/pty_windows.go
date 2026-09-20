@@ -6,6 +6,7 @@ import (
 	"context"
 	"strings"
 
+	"github.com/inhere/gofer/internal/allocx"
 	"github.com/inhere/gofer/internal/pty/conpty"
 	"golang.org/x/sys/windows"
 )
@@ -53,7 +54,7 @@ func (p *winPty) Wait(ctx context.Context) (int, error) {
 // quoting each token per the CommandLineToArgvW rules (windows.EscapeArg) so a
 // space/quote in an arg cannot inject an extra token.
 func buildCommandLine(command string, args []string) string {
-	parts := make([]string, 0, len(args)+1)
+	parts := make([]string, 0, allocx.Sum(len(args), 1))
 	parts = append(parts, windows.EscapeArg(command))
 	for _, a := range args {
 		parts = append(parts, windows.EscapeArg(a))

@@ -3,8 +3,9 @@
 // <project>/.gofer/templates/ or <config-dir>/templates/, that a submit renders
 // into a job prompt.
 //
-// It is a data-layer package — it imports the standard library only — so the job
-// service (which renders) and the CLI (which previews) can both use it without an
+// It is a data-layer package — it imports the standard library plus the
+// dependency-free leaf util allocx, nothing else — so the job service (which
+// renders) and the CLI (which previews) can both use it without an
 // import cycle (G022). Rendering is stdlib-only by design: a template is untrusted
 // input from a file tree the operator owns, so a placeholder is either a declared
 // variable, a builtin the caller resolved, or it stays verbatim.
@@ -24,6 +25,8 @@ import (
 	"time"
 
 	"github.com/goccy/go-yaml"
+
+	"github.com/inhere/gofer/internal/allocx"
 )
 
 // Sources of a resolved template (Template.Source / Info.Source).
@@ -402,7 +405,7 @@ func Head(dir string) string {
 // them. A placeholder nobody resolved stays verbatim with a warning: an undeclared
 // {{x}} is a typo, not an instruction to erase the text.
 func Render(tpl Template, vars, builtins map[string]string) (Rendered, error) {
-	values := make(map[string]string, len(tpl.Vars)+len(vars))
+	values := make(map[string]string, allocx.Sum(len(tpl.Vars), len(vars)))
 	var out Rendered
 	for name, v := range vars {
 		values[name] = v
