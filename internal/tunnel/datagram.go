@@ -99,16 +99,20 @@ func DatagramBridgeWithOptions(ctx context.Context, ws *websocket.Conn, pc net.P
 			}
 			b, release, e := readDatagramMessage(r)
 			if e == nil && len(b) <= ReadLimit {
+				// Record the up direction when the datagram is in hand, before it is
+				// handed to the device: a reply cannot precede it, so first_up stays
+				// ordered before first_down even though the two directions are
+				// served by concurrent goroutines.
+				firstUp.Do(func() {
+					if opt.OnFirstUp != nil {
+						opt.OnFirstUp()
+					}
+				})
 				_, e = pc.WriteTo(b, target)
 				release()
 				if e == nil {
 					n += int64(len(b))
 					pkts++
-					firstUp.Do(func() {
-						if opt.OnFirstUp != nil {
-							opt.OnFirstUp()
-						}
-					})
 				}
 			} else if e == nil {
 				release()

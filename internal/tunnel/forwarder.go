@@ -314,13 +314,18 @@ func (f *Forwarder) runUDP(ctx context.Context) error {
 				mu.Unlock()
 			}
 		}
+		// Record the up direction as soon as the client's datagram is in hand, i.e.
+		// before it is forwarded: nothing can come back down before something went
+		// up, so the documented first_up -> first_down order stays deterministic
+		// instead of racing the reply goroutine for the log (the same rule as
+		// Splice and the datagram bridge).
+		s.firstUp.Do(func() {
+			f.emit("tunnel.first_up", "session_id", key, "tunnel_id", s.tunnelID, "first_byte_ms", time.Since(s.started).Milliseconds())
+		})
 		if err := s.ws.Write(ctx, websocket.MessageBinary, buf[:n]); err != nil {
 			drop(key, ReasonWriteFailed)
 			continue
 		}
-		s.firstUp.Do(func() {
-			f.emit("tunnel.first_up", "session_id", key, "tunnel_id", s.tunnelID, "first_byte_ms", time.Since(s.started).Milliseconds())
-		})
 		now := time.Now()
 		s.mu.Lock()
 		s.up += int64(n)

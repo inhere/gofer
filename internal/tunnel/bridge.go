@@ -69,14 +69,19 @@ func BridgeWithOptions(ctx context.Context, ws *websocket.Conn, c net.Conn, opt 
 			}
 			b, e := io.ReadAll(io.LimitReader(r, ReadLimit))
 			if e == nil {
+				// Record the up direction (ws -> conn) when the frame is in hand,
+				// before it is written to the socket: the reply travels the other
+				// way and cannot precede it, so first_up stays ordered before
+				// first_down even though concurrent goroutines serve the two
+				// directions (the same rule as Splice and the datagram bridge).
+				firstUp.Do(func() {
+					if opt.OnFirstUp != nil {
+						opt.OnFirstUp()
+					}
+				})
 				_, e = c.Write(b)
 				if e == nil {
 					n += int64(len(b))
-					firstUp.Do(func() {
-						if opt.OnFirstUp != nil {
-							opt.OnFirstUp()
-						}
-					})
 				}
 			}
 			if e != nil {
