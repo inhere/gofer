@@ -18,6 +18,10 @@ jobs:
     name: Test on go ${{ matrix.go_version }} and ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     strategy:
+      # One failing OS must not cancel the others: the first failure otherwise
+      # hides the real results of the remaining platforms (a cancelled job reports
+      # the package as FAIL with no test names, which reads like a mystery failure).
+      fail-fast: false
       matrix:
         go_version: [1.25, stable]
         os: [ubuntu-latest, windows-latest, macos-latest]
