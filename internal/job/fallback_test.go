@@ -9,6 +9,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // newFallbackService builds a service whose "codex" agent dies with codexStderr and
@@ -423,7 +424,10 @@ func TestFallbackInheritsWorktreeTodoVerify(t *testing.T) {
 	if next.WorktreePath != "" {
 		t.Fatalf("a fallback continues in the source worktree, it must not create another one (got %q)", next.WorktreePath)
 	}
-	if !strings.HasPrefix(next.Cwd, src.WorktreePath) {
+	// Same-directory, possibly different spelling: the worktree path is git's
+	// RESOLVED form, the continuation's cwd is resolved against the configured
+	// project root (macOS /var vs /private/var).
+	if !strings.HasPrefix(util.RealPath(next.Cwd), util.RealPath(src.WorktreePath)) {
 		t.Fatalf("fallback cwd = %q, want it inside the source worktree %q", next.Cwd, src.WorktreePath)
 	}
 	final, _ := s.Wait(next.ID)

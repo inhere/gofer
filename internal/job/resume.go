@@ -9,6 +9,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // Resume-path sentinels (session-capture P2, design §5.2 / §8). They wrap the
@@ -270,7 +271,13 @@ func (s *Service) resumeCwd(src JobResult) string {
 	if !ok {
 		return orig
 	}
-	rel, err := filepath.Rel(cfg.ExecPath(proj), src.Cwd)
+	// Compare through symlinks (and, on Windows, through 8.3 short names): the
+	// worktree path comes from `git rev-parse --show-toplevel`, which reports the
+	// RESOLVED path, while the project root is whatever the operator configured
+	// (macOS /var vs /private/var, Windows RUNNER~1 vs runneradmin). A raw Rel
+	// would see the worktree as outside the project and silently continue in the
+	// main checkout instead of the source's worktree.
+	rel, err := filepath.Rel(util.RealPath(cfg.ExecPath(proj)), util.RealPath(src.Cwd))
 	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
 		return orig
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
 	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // WT-01 受管 worktree 的测试。全部用 t.TempDir() 里 `git init` 出的**临时仓库**：绝不
@@ -172,7 +173,7 @@ func TestWorktreeNestedRepoUsesNearestToplevel(t *testing.T) {
 	if final.Status != StatusDone {
 		t.Fatalf("status = %s (err=%s)", final.Status, final.Error)
 	}
-	wantPrefix := filepath.Join(nested, filepath.FromSlash(worktreeSubdir))
+	wantPrefix := util.RealPath(filepath.Join(nested, filepath.FromSlash(worktreeSubdir)))
 	if !strings.HasPrefix(final.WorktreePath, wantPrefix+string(filepath.Separator)) {
 		t.Fatalf("worktree path = %q, want it under the NESTED toplevel %q", final.WorktreePath, wantPrefix)
 	}
@@ -203,10 +204,7 @@ func TestWorktreeSymlinkedProjectRoot(t *testing.T) {
 	if final.Status != StatusDone {
 		t.Fatalf("status = %s (err=%s)", final.Status, final.Error)
 	}
-	resolved, err := filepath.EvalSymlinks(real)
-	if err != nil {
-		t.Fatal(err)
-	}
+	resolved := util.RealPath(real)
 	wantPrefix := filepath.Join(resolved, filepath.FromSlash(worktreeSubdir))
 	if !strings.HasPrefix(final.WorktreePath, wantPrefix+string(filepath.Separator)) {
 		t.Fatalf("worktree path = %q, want it under the resolved toplevel %q", final.WorktreePath, wantPrefix)
@@ -239,7 +237,10 @@ func TestWorktreeMapsCwdSubpath(t *testing.T) {
 		t.Fatalf("status = %s (err=%s)", final.Status, final.Error)
 	}
 
-	wantWt := filepath.Join(repo, filepath.FromSlash(worktreeSubdir), final.ID)
+	// The worktree path is built from `git rev-parse --show-toplevel`, i.e. the
+	// symlink-RESOLVED spelling (macOS /var -> /private/var), so resolve the
+	// expectation built from the temp dir the same way.
+	wantWt := util.RealPath(filepath.Join(repo, filepath.FromSlash(worktreeSubdir), final.ID))
 	if filepath.Clean(final.WorktreePath) != filepath.Clean(wantWt) {
 		t.Fatalf("worktree path = %q, want %q", final.WorktreePath, wantWt)
 	}

@@ -8,6 +8,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // newAutoResumeService builds a service whose "codex" agent is a test binary
@@ -202,7 +203,10 @@ func TestAutoResumeInheritsPlanAndWorktree(t *testing.T) {
 		t.Fatalf("continuation plan/lineage = %q/%q", cont.PlanID, cont.ResumedFrom)
 	}
 	// The continuation runs INSIDE the source's worktree, not in the main checkout.
-	if !strings.HasPrefix(cont.Cwd, src.WorktreePath) {
+	// Compare through symlinks: the worktree path is git's RESOLVED spelling while
+	// the continuation's cwd is resolved against the project root as configured
+	// (macOS /var vs /private/var), and both name the same directory.
+	if !strings.HasPrefix(util.RealPath(cont.Cwd), util.RealPath(src.WorktreePath)) {
 		t.Fatalf("continuation cwd = %q, want under the source worktree %q", cont.Cwd, src.WorktreePath)
 	}
 }
