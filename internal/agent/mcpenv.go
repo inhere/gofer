@@ -3,6 +3,7 @@ package agent
 import (
 	"sort"
 
+	"github.com/inhere/gofer/internal/allocx"
 	"github.com/inhere/gofer/internal/config"
 )
 
@@ -62,7 +63,8 @@ func McpEnvInjectArgs(ac config.AgentConfig, env map[string]string) []string {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	out := make([]string, 0, len(env)*2)
+	// two argv elements per env key ("-c", "key=value").
+	out := make([]string, 0, allocx.Mul(len(env), 2))
 	for _, k := range keys {
 		out = append(out, "-c", "mcp_servers."+name+".env."+k+"="+env[k])
 	}

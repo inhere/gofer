@@ -3,10 +3,10 @@ package ptyrunner
 import (
 	"context"
 	"io"
-	"os"
 	"sync"
 	"time"
 
+	"github.com/inhere/gofer/internal/envx"
 	"github.com/inhere/gofer/internal/pty"
 	"github.com/inhere/gofer/internal/runner"
 )
@@ -160,7 +160,7 @@ func (r *PtyRunner) start(req runner.Request) (*PtySession, error) {
 	p, err := pty.Start(pty.Spec{
 		Command: req.Command,
 		Args:    req.Args,
-		Env:     mergedEnv(req.Env),
+		Env:     envx.Environ(req.Env),
 		Dir:     req.WorkDir,
 		Cols:    cols,
 		Rows:    rows,
@@ -169,22 +169,6 @@ func (r *PtyRunner) start(req runner.Request) (*PtySession, error) {
 		return nil, err
 	}
 	return newSession(req.JobID, p), nil
-}
-
-// mergedEnv returns os.Environ() with extra layered on top (parity with
-// local.Runner: agent/job env overrides inherited vars). Empty extra => nil so
-// the pty backend inherits os.Environ directly.
-func mergedEnv(extra map[string]string) []string {
-	if len(extra) == 0 {
-		return nil
-	}
-	base := os.Environ()
-	out := make([]string, 0, len(base)+len(extra))
-	out = append(out, base...)
-	for k, v := range extra {
-		out = append(out, k+"="+v)
-	}
-	return out
 }
 
 // registry maps a job id to its live PtySession. It is the session-registry seam

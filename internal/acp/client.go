@@ -8,13 +8,14 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
 	"os/exec"
 	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/inhere/gofer/internal/envx"
 )
 
 // cancelGrace bounds how long Prompt waits for the agent's stopReason cancelled
@@ -118,7 +119,7 @@ func Start(_ context.Context, opts Options) (*Client, error) {
 	}
 	cmd := exec.Command(opts.Command, opts.Args...)
 	cmd.Dir = opts.Dir
-	cmd.Env = mergedEnv(opts.Env)
+	cmd.Env = envx.Environ(opts.Env)
 	if opts.Stderr != nil {
 		cmd.Stderr = opts.Stderr
 	}
@@ -155,20 +156,6 @@ func Start(_ context.Context, opts Options) (*Client, error) {
 	}
 	go c.readLoop()
 	return c, nil
-}
-
-// mergedEnv returns os.Environ() with extra layered on top.
-func mergedEnv(extra map[string]string) []string {
-	base := os.Environ()
-	if len(extra) == 0 {
-		return base
-	}
-	out := make([]string, 0, len(base)+len(extra))
-	out = append(out, base...)
-	for k, v := range extra {
-		out = append(out, k+"="+v)
-	}
-	return out
 }
 
 // Initialize performs the ACP handshake. This client declares no fs/terminal

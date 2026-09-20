@@ -41,7 +41,7 @@ func newRoleEnvService(t *testing.T, root string) *Service {
 
 // TestResolveRoleMergesEnv: role.Env fills env DEFAULTS while an explicit per-job
 // key wins (same precedence as the other role fields). The role's own map is not
-// mutated (mergeEnv returns a fresh map).
+// mutated (envx.Merge returns a fresh map).
 func TestResolveRoleMergesEnv(t *testing.T) {
 	cfg := &config.Config{
 		Roles: map[string]config.RoleConfig{
@@ -64,7 +64,7 @@ func TestResolveRoleMergesEnv(t *testing.T) {
 	if req.Env["EXTRA"] != "x" {
 		t.Fatalf("explicit job env key dropped: %v", req.Env)
 	}
-	// The role's source map must be untouched (mergeEnv copies).
+	// The role's source map must be untouched (envx.Merge copies).
 	if cfg.Roles["supervisor"].Env["SHARED"] != "from-role" {
 		t.Fatalf("role.Env was mutated: %v", cfg.Roles["supervisor"].Env)
 	}

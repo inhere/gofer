@@ -8,13 +8,13 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 
-	"github.com/inhere/gofer/internal/store"
-
+	"github.com/inhere/gofer/internal/envx"
 	"github.com/inhere/gofer/internal/runner"
-	"strconv"
+	"github.com/inhere/gofer/internal/store"
 )
 
 // maxResultJSONBytes caps how large a <result_dir>/result.json may be before it
@@ -393,16 +393,13 @@ func (s *Service) shouldCaptureDiff(projectKey string) bool {
 // 这些是 exec 类 job 定位自身 result_dir 的唯一通道（exec argv 逐字执行、不做
 // {{result_dir}} 模板替换），从而让「写 <result_dir>/result.json（E6）/ artifacts/
 // （E1）」的产出约定对 exec/wrapper 也可用；cli-agent 仍可继续用 {{result_dir}}。
-// 注入值优先于继承的进程 env（mergedEnv 中 req.Env 覆盖 os.Environ）。
+// 注入值优先于继承的进程 env（envx.Environ 中 req.Env 覆盖 os.Environ）。
 func goferJobEnv(base map[string]string, jobID, cwd, resultDir string) map[string]string {
-	env := make(map[string]string, len(base)+3)
-	for k, v := range base {
-		env[k] = v
-	}
-	env["GOFER_JOB_ID"] = jobID
-	env["GOFER_CWD"] = cwd
-	env["GOFER_RESULT_DIR"] = resultDir
-	return env
+	return envx.With(base, map[string]string{
+		"GOFER_JOB_ID":     jobID,
+		"GOFER_CWD":        cwd,
+		"GOFER_RESULT_DIR": resultDir,
+	})
 }
 
 // renderedCommandJSON 把本次实际执行的命令序列化为审计 JSON：

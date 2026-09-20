@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/envx"
 )
 
 // WT-01 受管 worktree：`job run --worktree` 把整个 job 放进该仓库的一个独立 git
@@ -120,14 +121,11 @@ func (w *worktreeRef) mapCwd(cwd string) (string, error) {
 // GOFER_WORKTREE / GOFER_WORKTREE_BRANCH / GOFER_WORKTREE_BASE=base sha），返回新 map
 // （不改入参），与 goferJobEnv 同口径：注入值优先于继承的进程 env。
 func (w *worktreeRef) worktreeEnv(base map[string]string) map[string]string {
-	env := make(map[string]string, len(base)+3)
-	for k, v := range base {
-		env[k] = v
-	}
-	env[envWorktree] = w.Path
-	env[envWorktreeBranch] = w.Branch
-	env[envWorktreeBase] = w.BaseSHA
-	return env
+	return envx.With(base, map[string]string{
+		envWorktree:       w.Path,
+		envWorktreeBranch: w.Branch,
+		envWorktreeBase:   w.BaseSHA,
+	})
 }
 
 // worktreeState 探测 worktree 当前的分支状态：HEAD sha、相对 base 的提交数、是否有

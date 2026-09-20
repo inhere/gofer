@@ -7,6 +7,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/inhere/gofer/internal/allocx"
 	"github.com/inhere/gofer/internal/runner"
 )
 
@@ -267,7 +268,7 @@ func truncateText(b []byte, max int) []byte {
 	for len(head) > 0 && !utf8.Valid(head) {
 		head = head[:len(head)-1]
 	}
-	out := make([]byte, 0, len(head)+len(truncationMarker))
+	out := make([]byte, 0, allocx.Sum(len(head), len(truncationMarker)))
 	out = append(out, head...)
 	return append(out, truncationMarker...)
 }

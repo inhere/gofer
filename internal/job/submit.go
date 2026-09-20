@@ -13,6 +13,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/envx"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
@@ -376,7 +377,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		// channel an exec wrapper has to find <result_dir> for writing E1 artifacts
 		// / E6 result.json. Set on the worker/peer side too (they run this same
 		// local branch), so remote exec jobs get the executor-local paths.
-		runReq.Env = goferJobEnv(mergeEnv(mergeEnv(secretMap, resolved.Env), req.Env), jobID, workDir, resultDir)
+		runReq.Env = goferJobEnv(envx.Merge(envx.Merge(secretMap, resolved.Env), req.Env), jobID, workDir, resultDir)
 		// WT-01: the job also learns WHERE its worktree/branch/base are. Applied after
 		// goferJobEnv so a user-supplied Env key can never shadow them (same rule as
 		// the gofer metadata vars).
@@ -682,26 +683,9 @@ func resolveRole(cfg *config.Config, req *JobRequest) error {
 	// role.Env fills env DEFAULTS; an explicit per-job key wins (same precedence as
 	// the other role fields above). Merged into the job process env at Submit.
 	if len(rc.Env) > 0 {
-		req.Env = mergeEnv(rc.Env, req.Env)
+		req.Env = envx.Merge(rc.Env, req.Env)
 	}
 	return nil
-}
-
-// mergeEnv returns base with override layered on top (override wins on key
-// collision). nil-safe; returns a fresh map (inputs unchanged). When override is
-// empty it returns base unchanged (no needless copy).
-func mergeEnv(base, override map[string]string) map[string]string {
-	if len(override) == 0 {
-		return base
-	}
-	out := make(map[string]string, len(base)+len(override))
-	for k, v := range base {
-		out[k] = v
-	}
-	for k, v := range override {
-		out[k] = v
-	}
-	return out
 }
 
 // RandomSuffix returns 8 lowercase hex chars from crypto/rand, falling back to a

@@ -7,10 +7,10 @@ package local
 import (
 	"context"
 	"errors"
-	"os"
 	"os/exec"
 	"time"
 
+	"github.com/inhere/gofer/internal/envx"
 	"github.com/inhere/gofer/internal/runner"
 )
 
@@ -52,7 +52,7 @@ func (r *Runner) Name() string { return Name }
 func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	cmd := exec.CommandContext(ctx, req.Command, req.Args...)
 	cmd.Dir = req.WorkDir
-	cmd.Env = mergedEnv(req.Env)
+	cmd.Env = envx.Environ(req.Env)
 	cmd.Stdout = req.Stdout
 	cmd.Stderr = req.Stderr
 	// Bound the post-exit wait on pipe copy goroutines so an orphaned descendant
@@ -84,19 +84,4 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 
 	// Could not start (command not found, bad cwd, etc.).
 	return runner.Result{ExitCode: -1, Err: err}
-}
-
-// mergedEnv returns os.Environ() with extra layered on top. extra entries
-// override inherited ones with the same key.
-func mergedEnv(extra map[string]string) []string {
-	base := os.Environ()
-	if len(extra) == 0 {
-		return base
-	}
-	out := make([]string, 0, len(base)+len(extra))
-	out = append(out, base...)
-	for k, v := range extra {
-		out = append(out, k+"="+v)
-	}
-	return out
 }
