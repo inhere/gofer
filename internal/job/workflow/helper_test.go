@@ -84,21 +84,57 @@ func newTestEngine(t *testing.T, root string) *Engine {
 	// blocks t.TempDir's RemoveAll on Windows. Registered after the meta.Close
 	// cleanup so it runs first (cleanups are LIFO).
 	t.Cleanup(func() {
-		deadline := time.Now().Add(15 * time.Second)
-		for {
+		// Stop the CHAINS first. A step reaching terminal fires Advance, which starts
+		// the NEXT step: a job that can appear right after the drain below has seen
+		// "nothing in flight", and then writes into the test's TempDir (observed on
+		// macos-latest as `TempDir RemoveAll cleanup: ... directory not empty` in
+		// TestSubmitWorkflowStartsFirstStep). CancelWorkflow marks the header
+		// cancelled, and Advance's running-status guard then starts nothing further,
+		// so from here the job set can only shrink.
+		if wfs, err := meta.ListWorkflows(jobstore.WorkflowRunning, drainWorkflowScanLimit); err == nil {
+			for _, wf := range wfs {
+				_ = eng.CancelWorkflow(wf.ID)
+			}
+		}
+		// Then drain the jobs, requiring a QUIET WINDOW rather than a single-shot
+		// "nothing in flight" read: a job submitted concurrently with the previous
+		// observation (a racing Advance, a fallback/auto-resume continuation) must be
+		// seen and cancelled, not slip past the check that then returns.
+		deadline := time.Now().Add(drainBudget)
+		seen := map[string]bool{}
+		quiet := 0
+		for time.Now().Before(deadline) {
 			jobs, _ := meta.ListJobs(jobstore.ListQuery{})
-			inFlight := false
+			moved, inFlight := false, 0
 			for _, j := range jobs {
+				if !seen[j.ID] {
+					seen[j.ID] = true
+					moved = true
+				}
 				if !job.IsFinished(j.Status) {
-					inFlight = true
+					inFlight++
 					_ = svc.Cancel(j.ID) // best-effort: speed up the drain
 				}
 			}
-			if !inFlight || time.Now().After(deadline) {
-				return
+			if inFlight == 0 && !moved {
+				if quiet++; quiet >= drainQuietRounds {
+					return
+				}
+			} else {
+				quiet = 0
 			}
-			time.Sleep(20 * time.Millisecond)
+			time.Sleep(drainRoundSleep)
 		}
 	})
 	return eng
 }
+
+// Teardown-drain tuning: the budget bounds the whole wait (a job that ignores
+// cancellation must not stall the suite), the quiet window is how many consecutive
+// observations of "nothing in flight and no new job id" end the drain early.
+const (
+	drainBudget            = 15 * time.Second
+	drainQuietRounds       = 3
+	drainRoundSleep        = 10 * time.Millisecond
+	drainWorkflowScanLimit = 500
+)

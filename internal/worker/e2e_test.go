@@ -435,7 +435,7 @@ func TestE2EWorkerDisconnectMidJobFailsJob(t *testing.T) {
 	// Worker runs with a tiny reconnect backoff; we cancel its ctx mid-job to drop
 	// the connection (a clean going-away close = a disconnect from the hub's view).
 	workerCtx, workerCancel := context.WithCancel(ctx)
-	cl := buildWorkerSide(t, hub.ts.URL)
+	cl, localJobs := buildWorkerSideJobs(t, hub.ts.URL)
 	go func() { _ = cl.Run(workerCtx) }()
 	waitWorkerOnline(t, hub.hub)
 
@@ -449,11 +449,14 @@ func TestE2EWorkerDisconnectMidJobFailsJob(t *testing.T) {
 	}
 
 	// Wait until the hub-side job is running, then let the dispatch reach the worker
-	// and its local `sleep` actually start (the runner registers the sink + sends
-	// the dispatch synchronously once execute flips the job to running; a short
-	// settle ensures we drop the worker AFTER the job is genuinely in flight, not in
-	// the queued→dispatch window where RegisterSink would see the worker already
-	// offline).
+	// and its local `sleep` actually start. The signal is the WORKER'S OWN local job
+	// appearing — not a fixed settle: the runner registers the hub-side sink and then
+	// sends the dispatch, both once execute flips the job to running, so a local job
+	// means the sink exists and a drop is observed as an in-flight disconnect. A
+	// fixed settle was not enough on a loaded runner: dropping inside the
+	// queued→dispatch window made RegisterSink see the worker already offline and the
+	// job failed with "worker offline" instead of the "worker disconnected" this test
+	// is about (observed on windows-latest).
 	deadline := time.Now().Add(8 * time.Second)
 	for time.Now().Before(deadline) {
 		if r, ok := hub.jobs.Get(created.ID); ok && r.Status == job.StatusRunning {
@@ -461,7 +464,7 @@ func TestE2EWorkerDisconnectMidJobFailsJob(t *testing.T) {
 		}
 		time.Sleep(50 * time.Millisecond)
 	}
-	time.Sleep(500 * time.Millisecond)
+	waitWorkerLocalResultDir(t, localJobs)
 
 	// Drop the worker connection mid-job.
 	workerCancel()
