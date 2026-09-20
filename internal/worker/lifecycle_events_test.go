@@ -30,7 +30,12 @@ func TestRunSessionLifecycleEvents(t *testing.T) {
 		_ = wsjson.Write(r.Context(), c, wsproto.Envelope{Type: wsproto.TypeRegistered, Payload: payload})
 	}))
 	defer srv.Close()
-	cl := New(Config{WorkerID: "w1", URLs: []string{"ws" + srv.URL[4:]}, ReadDeadline: 100 * time.Millisecond, PingInterval: time.Second}, nil)
+	// A worker id of its own: slog is process-global, so a session leaked by
+	// another test in this package keeps logging into our buffer, and its
+	// worker.disconnected would otherwise land before our worker.registered and
+	// fail the ordering assertion for the wrong reason.
+	const workerID = "w-lifecycle"
+	cl := New(Config{WorkerID: workerID, URLs: []string{"ws" + srv.URL[4:]}, ReadDeadline: 100 * time.Millisecond, PingInterval: time.Second}, nil)
 	var buf bytes.Buffer
 	old := slog.Default()
 	slog.SetDefault(slog.New(slog.NewJSONHandler(&buf, nil)))
@@ -46,6 +51,9 @@ func TestRunSessionLifecycleEvents(t *testing.T) {
 		var row map[string]any
 		if json.Unmarshal(line, &row) == nil {
 			if e, ok := row["event"].(string); ok {
+				if id, _ := row["worker_id"].(string); id != workerID {
+					continue // another session's log line
+				}
 				events = append(events, e)
 			}
 		}
