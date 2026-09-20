@@ -3,8 +3,8 @@ package agent
 import (
 	"sort"
 
-	"github.com/inhere/gofer/internal/allocx"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // McpServerNameDefault is the codex config block name of the gofer MCP server
@@ -64,7 +64,7 @@ func McpEnvInjectArgs(ac config.AgentConfig, env map[string]string) []string {
 	}
 	sort.Strings(keys)
 	// two argv elements per env key ("-c", "key=value").
-	out := make([]string, 0, allocx.Mul(len(env), 2))
+	out := make([]string, 0, util.CapMul(len(env), 2))
 	for _, k := range keys {
 		out = append(out, "-c", "mcp_servers."+name+".env."+k+"="+env[k])
 	}

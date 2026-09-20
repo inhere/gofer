@@ -1,8 +1,8 @@
 package ndjsonfilter
 
 import (
-	"github.com/inhere/gofer/internal/allocx"
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // usageAt reads the usage object a line carries at a dotted path and converts it with
@@ -26,7 +26,7 @@ func usageAt(obj map[string]any, source string, path ...string) *runner.Usage {
 // stream may still project it (ndjson_fields).
 func claudeUsage(obj map[string]any) *runner.Usage {
 	block, _ := obj["usage"].(map[string]any)
-	folded := make(map[string]any, allocx.Sum(len(block), 1))
+	folded := make(map[string]any, util.CapSum(len(block), 1))
 	for k, v := range block {
 		folded[k] = v
 	}

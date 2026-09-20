@@ -7,8 +7,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/inhere/gofer/internal/allocx"
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // Built-in projector kinds (Options.Projector). A projector turns ONE decoded
@@ -268,7 +268,7 @@ func truncateText(b []byte, max int) []byte {
 	for len(head) > 0 && !utf8.Valid(head) {
 		head = head[:len(head)-1]
 	}
-	out := make([]byte, 0, allocx.Sum(len(head), len(truncationMarker)))
+	out := make([]byte, 0, util.CapSum(len(head), len(truncationMarker)))
 	out = append(out, head...)
 	return append(out, truncationMarker...)
 }

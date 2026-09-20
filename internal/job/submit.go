@@ -13,11 +13,11 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
-	"github.com/inhere/gofer/internal/envx"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // Submit validates the request, creates the result dir, persists the request and
@@ -377,7 +377,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		// channel an exec wrapper has to find <result_dir> for writing E1 artifacts
 		// / E6 result.json. Set on the worker/peer side too (they run this same
 		// local branch), so remote exec jobs get the executor-local paths.
-		runReq.Env = goferJobEnv(envx.Merge(envx.Merge(secretMap, resolved.Env), req.Env), jobID, workDir, resultDir)
+		runReq.Env = goferJobEnv(util.MergeEnv(util.MergeEnv(secretMap, resolved.Env), req.Env), jobID, workDir, resultDir)
 		// WT-01: the job also learns WHERE its worktree/branch/base are. Applied after
 		// goferJobEnv so a user-supplied Env key can never shadow them (same rule as
 		// the gofer metadata vars).
@@ -683,7 +683,7 @@ func resolveRole(cfg *config.Config, req *JobRequest) error {
 	// role.Env fills env DEFAULTS; an explicit per-job key wins (same precedence as
 	// the other role fields above). Merged into the job process env at Submit.
 	if len(rc.Env) > 0 {
-		req.Env = envx.Merge(rc.Env, req.Env)
+		req.Env = util.MergeEnv(rc.Env, req.Env)
 	}
 	return nil
 }

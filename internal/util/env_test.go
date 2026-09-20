@@ -1,4 +1,4 @@
-package envx
+package util
 
 import (
 	"os"
@@ -50,13 +50,13 @@ func TestEnvironEmptyExtra(t *testing.T) {
 	}
 }
 
-func TestMergeOverrideWinsAndInputsUntouched(t *testing.T) {
+func TestMergeEnvOverrideWinsAndInputsUntouched(t *testing.T) {
 	base := map[string]string{"A": "1", "B": "2"}
 	extra := map[string]string{"B": "override", "C": "3"}
 
-	got := Merge(base, extra)
+	got := MergeEnv(base, extra)
 	if len(got) != 3 || got["A"] != "1" || got["B"] != "override" || got["C"] != "3" {
-		t.Fatalf("Merge = %v, want A=1 B=override C=3", got)
+		t.Fatalf("MergeEnv = %v, want A=1 B=override C=3", got)
 	}
 	if len(base) != 2 || base["B"] != "2" {
 		t.Fatalf("base mutated: %v", base)
@@ -67,32 +67,32 @@ func TestMergeOverrideWinsAndInputsUntouched(t *testing.T) {
 	// The result is a fresh map (role env must never alias the request env).
 	got["A"] = "mutated"
 	if base["A"] != "1" {
-		t.Fatalf("Merge aliased base: %v", base)
+		t.Fatalf("MergeEnv aliased base: %v", base)
 	}
 }
 
-// TestMergeEmptyExtraReturnsBase pins the no-copy contract the job pipeline
+// TestMergeEnvEmptyExtraReturnsBase pins the no-copy contract the job pipeline
 // relies on (an envless job must not pay for a copy it does not need).
-func TestMergeEmptyExtraReturnsBase(t *testing.T) {
+func TestMergeEnvEmptyExtraReturnsBase(t *testing.T) {
 	base := map[string]string{"A": "1"}
-	if got := Merge(base, nil); got["A"] != "1" {
-		t.Fatalf("Merge(base, nil) = %v", got)
+	if got := MergeEnv(base, nil); got["A"] != "1" {
+		t.Fatalf("MergeEnv(base, nil) = %v", got)
 	}
-	got := Merge(base, nil)
+	got := MergeEnv(base, nil)
 	got["A"] = "mutated"
 	if base["A"] != "mutated" {
-		t.Fatalf("Merge(base, nil) copied instead of returning base: %v", base)
+		t.Fatalf("MergeEnv(base, nil) copied instead of returning base: %v", base)
 	}
-	if got := Merge(nil, nil); got != nil {
-		t.Fatalf("Merge(nil, nil) = %v, want nil", got)
+	if got := MergeEnv(nil, nil); got != nil {
+		t.Fatalf("MergeEnv(nil, nil) = %v, want nil", got)
 	}
 }
 
-// TestWithAlwaysCopies: gofer-owned keys win over a caller-supplied key of the
+// TestEnvWithAlwaysCopies: gofer-owned keys win over a caller-supplied key of the
 // same name, and the caller's map stays untouched (the job metadata env seam).
-func TestWithAlwaysCopies(t *testing.T) {
+func TestEnvWithAlwaysCopies(t *testing.T) {
 	base := map[string]string{"GOFER_JOB_ID": "caller-supplied", "A": "1"}
-	got := With(base, map[string]string{"GOFER_JOB_ID": "job-1"})
+	got := EnvWith(base, map[string]string{"GOFER_JOB_ID": "job-1"})
 
 	if got["GOFER_JOB_ID"] != "job-1" {
 		t.Fatalf("gofer-owned key did not win: %v", got)
@@ -105,13 +105,13 @@ func TestWithAlwaysCopies(t *testing.T) {
 	}
 	got["A"] = "mutated"
 	if base["A"] != "1" {
-		t.Fatalf("With aliased base: %v", base)
+		t.Fatalf("EnvWith aliased base: %v", base)
 	}
 }
 
-func TestWithNilBase(t *testing.T) {
-	got := With(nil, map[string]string{"GOFER_CWD": "/work"})
+func TestEnvWithNilBase(t *testing.T) {
+	got := EnvWith(nil, map[string]string{"GOFER_CWD": "/work"})
 	if len(got) != 1 || got["GOFER_CWD"] != "/work" {
-		t.Fatalf("With(nil, ...) = %v", got)
+		t.Fatalf("EnvWith(nil, ...) = %v", got)
 	}
 }

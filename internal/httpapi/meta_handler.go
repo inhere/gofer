@@ -7,8 +7,8 @@ import (
 	"github.com/gookit/rux/v2"
 
 	"github.com/inhere/gofer/internal/agent"
-	"github.com/inhere/gofer/internal/allocx"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // metaResp is the read-only form-options aggregate for the web console submit
@@ -198,7 +198,7 @@ func (s *Server) metaAgents() []metaAgent {
 // metaRunners lists the implicit local runner plus every configured runner
 // (name+type), local first then by name — mirroring /v1/runners' ordering.
 func (s *Server) metaRunners() []metaRunner {
-	out := make([]metaRunner, 0, allocx.Sum(len(s.runners), 1))
+	out := make([]metaRunner, 0, util.CapSum(len(s.runners), 1))
 	out = append(out, metaRunner{Name: runnerTypeLocal, Type: runnerTypeLocal})
 	for name, rc := range s.runners {
 		if rc.Type == runnerTypeLocal || name == runnerTypeLocal {

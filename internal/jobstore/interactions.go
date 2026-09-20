@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/inhere/gofer/internal/allocx"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // InteractionRecord is the SQLite-persisted projection of one running-job
@@ -251,7 +251,7 @@ func (s *Store) CountSupPendingDemand(ownerTimeoutSec, now int64) (int, error) {
     AND COALESCE(j.role,'') <> 'supervisor'
     AND ( COALESCE(j.origin_agent,'') = ''
           OR (COALESCE(i.escalated_at,0) > 0 AND (? - COALESCE(i.escalated_at,0)) > ?) )`
-	args := make([]any, 0, allocx.Sum(len(pendingInteractionTerminalJobStatuses), 2))
+	args := make([]any, 0, util.CapSum(len(pendingInteractionTerminalJobStatuses), 2))
 	for _, st := range pendingInteractionTerminalJobStatuses {
 		args = append(args, st)
 	}
@@ -273,7 +273,7 @@ func (s *Store) ReconcileOrphanInteractions(ts int64) (int, error) {
 	q := `UPDATE interactions SET status = 'cancelled', answered_at = ?
   WHERE status = 'pending'
     AND job_id IN (SELECT id FROM jobs WHERE status IN (` + placeholders + `))`
-	args := make([]any, 0, allocx.Sum(len(pendingInteractionTerminalJobStatuses), 1))
+	args := make([]any, 0, util.CapSum(len(pendingInteractionTerminalJobStatuses), 1))
 	args = append(args, ts)
 	for _, st := range pendingInteractionTerminalJobStatuses {
 		args = append(args, st)

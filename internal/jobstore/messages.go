@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/inhere/gofer/internal/allocx"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // Message statuses (E36, design §9). Kept as literals so this package stays
@@ -139,7 +139,7 @@ func (s *Store) MarkRead(ids []string, ts int64) error {
 	}
 	placeholders := strings.TrimSuffix(strings.Repeat("?,", len(ids)), ",")
 	q := fmt.Sprintf("UPDATE messages SET status = ?, read_at = ? WHERE id IN (%s)", placeholders)
-	args := make([]any, 0, allocx.Sum(len(ids), 2))
+	args := make([]any, 0, util.CapSum(len(ids), 2))
 	args = append(args, MessageRead, ts)
 	for _, id := range ids {
 		args = append(args, id)

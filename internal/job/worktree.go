@@ -14,7 +14,7 @@ import (
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
-	"github.com/inhere/gofer/internal/envx"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // WT-01 受管 worktree：`job run --worktree` 把整个 job 放进该仓库的一个独立 git
@@ -121,7 +121,7 @@ func (w *worktreeRef) mapCwd(cwd string) (string, error) {
 // GOFER_WORKTREE / GOFER_WORKTREE_BRANCH / GOFER_WORKTREE_BASE=base sha），返回新 map
 // （不改入参），与 goferJobEnv 同口径：注入值优先于继承的进程 env。
 func (w *worktreeRef) worktreeEnv(base map[string]string) map[string]string {
-	return envx.With(base, map[string]string{
+	return util.EnvWith(base, map[string]string{
 		envWorktree:       w.Path,
 		envWorktreeBranch: w.Branch,
 		envWorktreeBase:   w.BaseSHA,

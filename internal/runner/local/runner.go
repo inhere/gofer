@@ -10,8 +10,8 @@ import (
 	"os/exec"
 	"time"
 
-	"github.com/inhere/gofer/internal/envx"
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // Name is the runner identifier ("local").
@@ -52,7 +52,7 @@ func (r *Runner) Name() string { return Name }
 func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	cmd := exec.CommandContext(ctx, req.Command, req.Args...)
 	cmd.Dir = req.WorkDir
-	cmd.Env = envx.Environ(req.Env)
+	cmd.Env = util.Environ(req.Env)
 	cmd.Stdout = req.Stdout
 	cmd.Stderr = req.Stderr
 	// Bound the post-exit wait on pipe copy goroutines so an orphaned descendant

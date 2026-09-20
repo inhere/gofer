@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/inhere/gofer/internal/envx"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // cancelGrace bounds how long Prompt waits for the agent's stopReason cancelled
@@ -119,7 +119,7 @@ func Start(_ context.Context, opts Options) (*Client, error) {
 	}
 	cmd := exec.Command(opts.Command, opts.Args...)
 	cmd.Dir = opts.Dir
-	cmd.Env = envx.Environ(opts.Env)
+	cmd.Env = util.Environ(opts.Env)
 	if opts.Stderr != nil {
 		cmd.Stderr = opts.Stderr
 	}

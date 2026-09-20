@@ -28,5 +28,5 @@
 
 ### 公共 util（CodeQL 基线，2026-09-20）
 
-- **G041 分配容量提示走 `allocx`**：`make([]T, 0, n)` / `make(map[K]V, n)` 的容量提示一律经 `internal/allocx`（`Sum(len(a), len(b))`、`Mul(len(m), 2)`），**不要**在 `make` 里写 `len(a)+len(b)`、`len(m)*2` 这类算式——GitHub CodeQL `go/allocation-size-overflow` 会报「分配大小计算可能溢出」（回绕成负数后 `make` 直接 panic）。allocx 先把每个入参 clamp 到 `MaxHint`(1<<20) 再在 int64 上运算，任何入参（含 `math.MaxInt`）都不可能回绕；容量只是提示，clamp 最多多一次扩容、不改变可观察行为。
-- **G042 env 合并走 `envx`**：进程 env 与 job env 的合并一律用 `internal/envx`——`Environ(extra)`（`cmd.Env` / pty `Spec.Env`；extra 覆盖继承值）、`Merge(base, extra)`（extra 覆盖 base，空 extra 返回 base 不拷贝）、`With(base, overrides)`（总是新 map，gofer 自有 key 压过调用方 key）。**不要**再各自写 `mergedEnv` / `mergeEnv` 副本（曾有三份 mergedEnv + 两个 map 合并 helper，口径已漂移）。
+- **G041 分配容量提示走 `util.CapSum/CapMul`**：`make([]T, 0, n)` / `make(map[K]V, n)` 的容量提示一律经 `internal/util`（`CapSum(len(a), len(b))`、`CapMul(len(m), 2)`），**不要**在 `make` 里写 `len(a)+len(b)`、`len(m)*2` 这类算式——GitHub CodeQL `go/allocation-size-overflow` 会报「分配大小计算可能溢出」（回绕成负数后 `make` 直接 panic）。CapSum/CapMul 先把每个入参 clamp 到 `MaxHint`(1<<20) 再在 int64 上运算，任何入参（含 `math.MaxInt`）都不可能回绕；容量只是提示，clamp 最多多一次扩容、不改变可观察行为。
+- **G042 env 合并走 `util.Environ/MergeEnv/EnvWith`**：进程 env 与 job env 的合并一律用 `internal/util`——`Environ(extra)`（`cmd.Env` / pty `Spec.Env`；extra 覆盖继承值）、`MergeEnv(base, extra)`（extra 覆盖 base，空 extra 返回 base 不拷贝）、`EnvWith(base, overrides)`（总是新 map，gofer 自有 key 压过调用方 key）。**不要**再各自写 `mergedEnv` / `mergeEnv` 副本（曾有三份 mergedEnv + 两个 map 合并 helper，口径已漂移）。

@@ -6,9 +6,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/inhere/gofer/internal/envx"
 	"github.com/inhere/gofer/internal/pty"
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // Name is the runner identifier the job service routes interactive jobs to. It
@@ -160,7 +160,7 @@ func (r *PtyRunner) start(req runner.Request) (*PtySession, error) {
 	p, err := pty.Start(pty.Spec{
 		Command: req.Command,
 		Args:    req.Args,
-		Env:     envx.Environ(req.Env),
+		Env:     util.Environ(req.Env),
 		Dir:     req.WorkDir,
 		Cols:    cols,
 		Rows:    rows,

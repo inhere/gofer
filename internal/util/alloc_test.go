@@ -1,11 +1,11 @@
-package allocx
+package util
 
 import (
 	"math"
 	"testing"
 )
 
-func TestSum(t *testing.T) {
+func TestCapSum(t *testing.T) {
 	cases := []struct {
 		name  string
 		parts []int
@@ -22,14 +22,14 @@ func TestSum(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := Sum(tc.parts...); got != tc.want {
-				t.Fatalf("Sum(%v) = %d, want %d", tc.parts, got, tc.want)
+			if got := CapSum(tc.parts...); got != tc.want {
+				t.Fatalf("CapSum(%v) = %d, want %d", tc.parts, got, tc.want)
 			}
 		})
 	}
 }
 
-func TestMul(t *testing.T) {
+func TestCapMul(t *testing.T) {
 	cases := []struct {
 		name string
 		n, k int
@@ -45,24 +45,24 @@ func TestMul(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := Mul(tc.n, tc.k); got != tc.want {
-				t.Fatalf("Mul(%d, %d) = %d, want %d", tc.n, tc.k, got, tc.want)
+			if got := CapMul(tc.n, tc.k); got != tc.want {
+				t.Fatalf("CapMul(%d, %d) = %d, want %d", tc.n, tc.k, got, tc.want)
 			}
 		})
 	}
 }
 
-// TestHintsAreAlwaysLegalCapacities is the contract that matters: whatever the
+// TestCapHintsAreAlwaysLegalCapacities is the contract that matters: whatever the
 // caller feeds in (including values that would overflow an unguarded
 // len(a)+len(b) or len(m)*2), the hint is a capacity make() accepts. A wrapped
 // hint would otherwise panic with "makeslice: cap out of range".
-func TestHintsAreAlwaysLegalCapacities(t *testing.T) {
+func TestCapHintsAreAlwaysLegalCapacities(t *testing.T) {
 	hints := []int{
-		Sum(math.MaxInt, math.MaxInt, math.MaxInt),
-		Sum(math.MinInt, math.MinInt),
-		Mul(math.MaxInt, math.MaxInt),
-		Mul(math.MinInt, math.MinInt),
-		Sum(), Mul(0, 0),
+		CapSum(math.MaxInt, math.MaxInt, math.MaxInt),
+		CapSum(math.MinInt, math.MinInt),
+		CapMul(math.MaxInt, math.MaxInt),
+		CapMul(math.MinInt, math.MinInt),
+		CapSum(), CapMul(0, 0),
 	}
 	for _, n := range hints {
 		if n < 0 || n > MaxHint {

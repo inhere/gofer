@@ -3,8 +3,8 @@ package agent
 import (
 	"context"
 
-	"github.com/inhere/gofer/internal/allocx"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // Detector probes which agent CLIs are actually installed on THIS host. It is the
@@ -66,7 +66,7 @@ func Resolve(cfg *config.Config, d Detector) (*config.Config, map[string]DetectR
 	// Probe the operator's agents AND the injectable templates in one call. The
 	// escape hatches are probed for their availability report only — they are never
 	// gated on the outcome.
-	candidates := make(map[string]config.AgentConfig, allocx.Sum(len(cfg.Agents), len(builtinTemplates), 1))
+	candidates := make(map[string]config.AgentConfig, util.CapSum(len(cfg.Agents), len(builtinTemplates), 1))
 	for key, ac := range cfg.Agents {
 		candidates[key] = ac
 	}
