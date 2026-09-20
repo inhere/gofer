@@ -50,11 +50,16 @@ jobs:
 
       - name: Run unit tests
         if: ${{ matrix.os == 'windows-latest' }}
-        run: go test ./...
+        # -timeout: the 10m default is per test BINARY, and the windows runner
+        # (slow process spawn + defender scanning every git/testcmd child) needs
+        # more than that for the two heaviest packages (internal/job,
+        # internal/httpapi), which are otherwise reported as "panic: test timed
+        # out" instead of a real failure.
+        run: go test -timeout 20m ./...
 
       - name: Run unit tests with coverage
         if: ${{ matrix.os != 'windows-latest' }}
-        run: go test -cover ./...
+        run: go test -timeout 20m -cover ./...
 
       # Race detector is slow (~5-10x) and only supported on linux/amd64, so run
       # it on a single recent-Go + ubuntu job instead of the whole matrix.

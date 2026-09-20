@@ -304,15 +304,21 @@ func stopWorkerClient(t *testing.T, cl *worker.Client, cancel context.CancelFunc
 	cancel()
 	select {
 	case <-clientErr:
-	case <-time.After(3 * time.Second):
+	case <-time.After(stopBudget):
 		t.Fatal("worker client did not exit promptly after cancel")
 	}
-	idleCtx, idleCancel := context.WithTimeout(context.Background(), 3*time.Second)
+	idleCtx, idleCancel := context.WithTimeout(context.Background(), stopBudget)
 	defer idleCancel()
 	if !cl.WaitIdle(idleCtx) {
 		t.Fatal("worker dispatch did not exit promptly after client cancel")
 	}
 }
+
+// stopBudget bounds how long a cancelled worker client (and the in-flight dispatch
+// it owns) may take to unwind. It is deliberately generous: the assertion is that
+// nothing LINGERS after a cancel, and on a loaded Windows CI runner process
+// teardown (kill + sqlite write + log close) routinely takes seconds.
+const stopBudget = 10 * time.Second
 
 func waitOnlyLocalJobID(t *testing.T, jobs *job.Service) string {
 	t.Helper()

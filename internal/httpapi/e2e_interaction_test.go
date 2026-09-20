@@ -6,9 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"os"
-	"os/exec"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -20,47 +17,22 @@ import (
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
+	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
-// wrapperScript is a real cli-agent wrapper: it raises a question interaction
-// over the bridge HTTP API, polls until an answer appears, then echoes the
-// answer and exits 0. sed parses the single-interaction JSON reliably.
-const wrapperScript = `#!/bin/sh
-set -e
-JOB_ID="$1"
-# 1) raise a question interaction
-curl -s -X POST -H "Authorization: Bearer $BRIDGE_TOKEN" -H "Content-Type: application/json" \
-  -d '{"type":"question","prompt":"need input"}' \
-  "$BRIDGE_BASE/v1/jobs/$JOB_ID/interactions" >/dev/null
-# 2) poll until answered, then echo the answer and finish
-i=0
-while [ "$i" -lt 100 ]; do
-  body=$(curl -s -H "Authorization: Bearer $BRIDGE_TOKEN" "$BRIDGE_BASE/v1/jobs/$JOB_ID/interactions")
-  ans=$(printf '%s' "$body" | sed -n 's/.*"answer":"\([^"]*\)".*/\1/p')
-  if [ -n "$ans" ]; then echo "ANSWER=$ans"; exit 0; fi
-  i=$((i+1)); sleep 0.1
-done
-echo "no-answer"; exit 1
-`
-
-// TestE2EInteractionWrapper drives a real child-process cli-agent wrapper (sh +
-// curl) through the full interaction loop over HTTP: wrapper raises a question
-// -> user (test) sees a pending interaction via GET -> user answers via POST ->
-// wrapper reads the answer and completes the job. This exercises the P9 contract
-// against actual subprocess + HTTP, not an in-Go simulation.
+// TestE2EInteractionWrapper drives a real child-process cli-agent wrapper through
+// the full interaction loop over HTTP: wrapper raises a question -> user (test)
+// sees a pending interaction via GET -> user answers via POST -> wrapper reads the
+// answer and completes the job. This exercises the P9 contract against an actual
+// subprocess + HTTP, not an in-Go simulation.
+//
+// The wrapper is the shared `testcmd interaction-wrapper` helper rather than the
+// sh+curl+sed script this test used to embed: that script needed a POSIX shell, so
+// on Windows it silently did nothing and the job "succeeded" without ever raising
+// an interaction. A native helper behaves the same on every runner (and matches
+// internal/worker's e2e test, which already uses it).
 func TestE2EInteractionWrapper(t *testing.T) {
-	if _, err := exec.LookPath("curl"); err != nil {
-		t.Skip("curl not available")
-	}
-	if _, err := exec.LookPath("sh"); err != nil {
-		t.Skip("sh not available")
-	}
-
 	root := t.TempDir()
-	scriptPath := filepath.Join(root, "wrapper.sh")
-	if err := os.WriteFile(scriptPath, []byte(wrapperScript), 0o755); err != nil {
-		t.Fatalf("write wrapper script: %v", err)
-	}
 
 	// storageRoot isolates job results from the project host path so the wrapper
 	// script file isn't mistaken for a result artifact.
@@ -79,9 +51,9 @@ func TestE2EInteractionWrapper(t *testing.T) {
 		Agents: map[string]config.AgentConfig{
 			"wrapper": {
 				Type:    agent.TypeCLIAgent,
-				Command: "sh",
+				Command: testcmd.Path(t),
 				// {{job_id}} is rendered to the real job id by agent.Render.
-				Args: []string{scriptPath, "{{job_id}}"},
+				Args: []string{"interaction-wrapper", "{{job_id}}"},
 			},
 		},
 	}
