@@ -57,7 +57,7 @@ func newTestServiceWithDB(t *testing.T, root, dbPath string) *Service {
 		t.Fatalf("open jobstore: %v", err)
 	}
 	t.Cleanup(func() { _ = meta.Close() })
-	return NewService(cfg, projReg, agentReg, runners, meta, nil)
+	return drainOnClose(t, NewService(cfg, projReg, agentReg, runners, meta, nil))
 }
 
 func submitAndWait(t *testing.T, s *Service, req JobRequest) JobResult {
@@ -411,7 +411,7 @@ func TestSubmitCLIAgentArgsFlowToRenderedCommand(t *testing.T) {
 		t.Fatalf("open jobstore: %v", err)
 	}
 	t.Cleanup(func() { _ = meta.Close() })
-	s := NewService(cfg, projReg, agentReg, runners, meta, nil)
+	s := drainOnClose(t, NewService(cfg, projReg, agentReg, runners, meta, nil))
 
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "codex", Runner: "local",
@@ -704,6 +704,21 @@ func waitForStatus(t *testing.T, s *Service, id, want string, timeout time.Durat
 	t.Fatalf("job %s did not reach %q in time (status=%s)", id, want, r.Status)
 }
 
+// drainOnClose registers the teardown drain for a service a test just built and
+// returns it, so a constructor reads `return drainOnClose(t, NewService(...))`.
+//
+// Every test constructor should use it: a test that only asserts on submission-time
+// state leaves its job — or a fallback / auto-resume / verify continuation it
+// spawned — still writing into the test's TempDir, and the framework's RemoveAll
+// then fails with "directory not empty" (or "file in use" on Windows). Register it
+// where the store's own Close cleanup is registered: cleanups are LIFO, so the drain
+// runs BEFORE the store closes and before the TempDir is removed.
+func drainOnClose(t *testing.T, s *Service) *Service {
+	t.Helper()
+	t.Cleanup(func() { drainJobs(t, s) })
+	return s
+}
+
 // drainJobs ends the jobs a test left in flight and waits (bounded) for them to reach
 // a terminal state. A test that only inspects the Submit result (or a subtest that
 // asserts on a snapshot) would otherwise return while its job — or a fallback /
@@ -711,37 +726,47 @@ func waitForStatus(t *testing.T, s *Service, id, want string, timeout time.Durat
 // TempDir, and the framework's RemoveAll then fails with "directory not empty" (or
 // "file in use" on Windows). Cancelling is safe here: the test is over and its own
 // cleanup, if any, already ran (cleanups are LIFO).
-// drainBudget bounds how long drainJobs waits for cancelled jobs to unwind. A job that
-// ignores cancellation (a parked interactive/pty session, say) must not stall the whole
-// suite: the wait only has to cover jobs that end promptly once cancelled.
-const drainBudget = 2 * time.Second
+//
+// It requires a QUIET WINDOW rather than a single-shot "nothing in flight" read: a
+// job submitted concurrently with the previous observation (a racing finish-hook
+// continuation, a fallback chain's next link) must be seen and cancelled, not slip
+// past the check that then returns. drainBudget bounds the whole wait: a job that
+// ignores cancellation (a parked interactive/pty session, say) must not stall the
+// whole suite — the wait only has to cover jobs that end promptly once cancelled.
+const (
+	drainBudget      = 2 * time.Second
+	drainQuietRounds = 3
+	drainRoundSleep  = 10 * time.Millisecond
+)
 
 func drainJobs(t *testing.T, s *Service) {
 	t.Helper()
-	list, err := s.ListJobs(ListOpts{Limit: 500})
-	if err != nil {
-		return
-	}
-	var live []string
-	for _, j := range list {
-		if !isTerminal(j.Status) {
-			live = append(live, j.ID)
-		}
-	}
-	for _, id := range live {
-		_ = s.Cancel(id)
-	}
 	deadline := time.Now().Add(drainBudget)
+	seen := map[string]bool{}
+	quiet := 0
 	for time.Now().Before(deadline) {
-		pending := 0
-		for _, id := range live {
-			if snap, ok := s.Get(id); ok && !isTerminal(snap.Status) {
-				pending++
-			}
-		}
-		if pending == 0 {
+		list, err := s.ListJobs(ListOpts{Limit: 500})
+		if err != nil {
 			return
 		}
-		time.Sleep(10 * time.Millisecond)
+		moved, inFlight := false, 0
+		for _, j := range list {
+			if !seen[j.ID] {
+				seen[j.ID] = true
+				moved = true
+			}
+			if !isTerminal(j.Status) {
+				inFlight++
+				_ = s.Cancel(j.ID)
+			}
+		}
+		if inFlight == 0 && !moved {
+			if quiet++; quiet >= drainQuietRounds {
+				return
+			}
+		} else {
+			quiet = 0
+		}
+		time.Sleep(drainRoundSleep)
 	}
 }

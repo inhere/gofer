@@ -390,10 +390,17 @@ func TestJobAttachSecondWriteViewerDowngradesToReadOnly(t *testing.T) {
 	openAttachRelay(t, relays, "job-1", src)
 
 	first := mustDialAttach(t, base, "job-1", issueAttachTicket(t, s, "job-1", "write", origin, time.Minute), origin)
-	second := mustDialAttach(t, base, "job-1", issueAttachTicket(t, s, "job-1", "write", origin, time.Minute), origin)
+	// Read the FIRST viewer's hello BEFORE dialing the second. The write lease goes to
+	// whichever attach handler reaches AddViewer first, and the WS handshake returns to
+	// the client before the handler body runs — so dial order does NOT order the two
+	// AddViewer calls. Waiting here pins the order: the first viewer provably holds the
+	// lease before the second attaches. Without it the second can win the lease and the
+	// "first is the writer" expectation fails on a loaded runner (observed on
+	// macos-latest: first hello = {write:false}).
 	if hello := readAttachControl(t, first); hello["write"] != true {
 		t.Fatalf("first hello = %#v, want write true", hello)
 	}
+	second := mustDialAttach(t, base, "job-1", issueAttachTicket(t, s, "job-1", "write", origin, time.Minute), origin)
 	if hello := readAttachControl(t, second); hello["write"] != false {
 		t.Fatalf("second hello = %#v, want write false", hello)
 	}

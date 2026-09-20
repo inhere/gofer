@@ -571,7 +571,7 @@ func newServiceFromCfg(t *testing.T, root string, cfg *config.Config) *Service {
 		t.Fatalf("open jobstore: %v", err)
 	}
 	t.Cleanup(func() { _ = meta.Close() })
-	return NewService(cfg, projReg, agentReg, runners, meta, nil)
+	return drainOnClose(t, NewService(cfg, projReg, agentReg, runners, meta, nil))
 }
 
 // jobstoreDBPath returns the test jobstore path under root.

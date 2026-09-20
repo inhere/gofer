@@ -103,7 +103,7 @@ func newWorktreeService(t *testing.T, repo, state string) *Service {
 		t.Fatalf("open jobstore: %v", err)
 	}
 	t.Cleanup(func() { _ = meta.Close() })
-	return NewService(cfg, projReg, agentReg, runners, meta, nil)
+	return drainOnClose(t, NewService(cfg, projReg, agentReg, runners, meta, nil))
 }
 
 // repoLog reads a job's stdout log (the "repo" project's FileStore under state).

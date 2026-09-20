@@ -46,7 +46,7 @@ func newClaudeInjectService(t *testing.T, root string) *Service {
 		t.Fatalf("open jobstore: %v", err)
 	}
 	t.Cleanup(func() { _ = meta.Close() })
-	return NewService(cfg, projReg, agentReg, runners, meta, nil)
+	return drainOnClose(t, NewService(cfg, projReg, agentReg, runners, meta, nil))
 }
 
 // uuidV4Re matches a canonical RFC 4122 version-4 UUID (version nibble 4, variant
@@ -254,7 +254,7 @@ func newCodexCaptureService(t *testing.T, root, sessionID string) *Service {
 		t.Fatalf("open jobstore: %v", err)
 	}
 	t.Cleanup(func() { _ = meta.Close() })
-	return NewService(cfg, projReg, agentReg, runners, meta, nil)
+	return drainOnClose(t, NewService(cfg, projReg, agentReg, runners, meta, nil))
 }
 
 // TestCaptureCodexSessionIDAtTerminal proves a codex job (no inject) has its
@@ -320,7 +320,7 @@ func TestCaptureMissDoesNotAffectTerminal(t *testing.T) {
 		t.Fatalf("open jobstore: %v", err)
 	}
 	t.Cleanup(func() { _ = meta.Close() })
-	s := NewService(cfg, projReg, agentReg, runners, meta, nil)
+	s := drainOnClose(t, NewService(cfg, projReg, agentReg, runners, meta, nil))
 
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "codex", Runner: "local",

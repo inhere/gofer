@@ -97,7 +97,7 @@ func newWorkerTestServiceSel(t *testing.T, root string, stub runner.Runner, work
 		t.Fatalf("open jobstore: %v", err)
 	}
 	t.Cleanup(func() { _ = meta.Close() })
-	return NewService(cfg, projReg, agentReg, runners, meta, sel)
+	return drainOnClose(t, NewService(cfg, projReg, agentReg, runners, meta, sel))
 }
 
 // fakeSelector is a job.WorkerSelector returning a fixed candidate list.

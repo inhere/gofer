@@ -76,7 +76,7 @@ func newACPServiceAgent(t *testing.T, root string, o acptest.Options, ap *config
 		t.Fatalf("open jobstore: %v", err)
 	}
 	t.Cleanup(func() { _ = meta.Close() })
-	return NewService(cfg, projReg, agentReg, runners, meta, nil)
+	return drainOnClose(t, NewService(cfg, projReg, agentReg, runners, meta, nil))
 }
 
 // acpSubmit runs one acp-agent prompt job and returns the terminal result.

@@ -531,5 +531,5 @@ func newRootlessWorkerService(t *testing.T, stub runner.Runner, sel WorkerSelect
 		localrunner.Name: localrunner.New(),
 		"remote-w1":      stub,
 	}
-	return NewService(cfg, projReg, agentReg, runners, meta, sel)
+	return drainOnClose(t, NewService(cfg, projReg, agentReg, runners, meta, sel))
 }

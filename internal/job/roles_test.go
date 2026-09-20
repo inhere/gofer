@@ -50,7 +50,7 @@ func newRoleService(t *testing.T, root string) *Service {
 		t.Fatalf("open jobstore: %v", err)
 	}
 	t.Cleanup(func() { _ = meta.Close() })
-	return NewService(cfg, projReg, agentReg, runners, meta, nil)
+	return drainOnClose(t, NewService(cfg, projReg, agentReg, runners, meta, nil))
 }
 
 // renderedArgs unmarshals a finished job's RenderedCommand JSON into its argv.
