@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/jobstore"
 )
@@ -206,4 +207,8 @@ func TestResumeInheritsTodo(t *testing.T) {
 	if td.Status != jobstore.TodoDone {
 		t.Fatalf("a continuation of a closed item must not reopen it: %+v", td)
 	}
+	// The continuation runs asynchronously: let it reach a terminal state before the
+	// test returns, or it is still writing into the TempDir when the test framework
+	// removes it ("directory not empty" / "file in use" on Windows).
+	waitForStatus(t, s, cont.ID, StatusDone, 10*time.Second)
 }
