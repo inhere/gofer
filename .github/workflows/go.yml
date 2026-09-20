@@ -36,12 +36,12 @@ jobs:
         with:
           go-version: ${{ matrix.go_version }}
 
-      # Why the windows job is much slower than ubuntu on the same commit: the
-      # job/httpapi suites spawn a child process per test (testcmd/git) and create
-      # a temp dir + sqlite per test, and this runner has Defender real-time
-      # protection on, which scans every new process image and every file written.
-      # These two steps record the runner profile before/after the exclusion below
-      # so the effect is measurable from the log instead of guessed.
+      # Runner fingerprint, so the windows numbers in this log can be read against
+      # something: CPUs and the cost of one child-process creation. Measured on this
+      # runner: 4 cpus, RealTimeProtectionEnabled=False, ~7.5 ms per child. That is
+      # why no Defender exclusion is configured here — it was measured neutral
+      # (7.54 -> 7.57 ms/child, package times unchanged). If the flag ever reports
+      # True, add `Add-MpPreference -ExclusionPath $env:GITHUB_WORKSPACE` and friends.
       - name: Windows runner profile (before)
         if: ${{ matrix.os == 'windows-latest' }}
         shell: pwsh
@@ -52,20 +52,7 @@ jobs:
           $sw = [Diagnostics.Stopwatch]::StartNew()
           for ($i = 0; $i -lt $n; $i++) { $p = [Diagnostics.Process]::Start('cmd.exe', '/c exit'); $p.WaitForExit() }
           $sw.Stop()
-          "spawn before: {0:N2} ms/child" -f ($sw.Elapsed.TotalMilliseconds / $n)
-
-      - name: "Windows runner: exclude workspace from Defender"
-        if: ${{ matrix.os == 'windows-latest' }}
-        shell: pwsh
-        run: |
-          $paths = @($env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, (go env GOCACHE), (go env GOMODCACHE), (go env GOROOT))
-          foreach ($p in $paths) {
-            if ($p -and (Test-Path $p)) {
-              Add-MpPreference -ExclusionPath $p -ErrorAction SilentlyContinue
-              Write-Host "excluded: $p"
-            }
-          }
-          "exclusions now: " + ((Get-MpPreference).ExclusionPath -join '; ')
+          "spawn cost: {0:N2} ms/child" -f ($sw.Elapsed.TotalMilliseconds / $n)
 
       - name: Tidy go mod
         run: go mod tidy
@@ -81,41 +68,21 @@ jobs:
 
       - name: Run unit tests
         if: ${{ matrix.os == 'windows-latest' }}
-        # -timeout: the 10m default is per test BINARY, and the windows runner
-        # (slow process spawn + defender scanning every git/testcmd child) needs
-        # more than that for the two heaviest packages (internal/job,
-        # internal/httpapi), which are otherwise reported as "panic: test timed
-        # out" instead of a real failure.
-        run: go test -timeout 20m ./...
-
-      # TEMPORARY diagnostic (remove once the windows slowness is explained):
-      # run the heaviest package ALONE and list its slowest tests, so the per-test
-      # cost on this runner can be compared with the parallel `go test ./...` run
-      # above and with ubuntu.
-      - name: "Diagnostic: internal/job alone (temporary)"
-        if: ${{ matrix.go_version == '1.25' }}
-        shell: bash
-        run: |
-          go test -count=1 -timeout 20m -v ./internal/job/ > job-alone.log 2>&1 || true
-          echo "--- wall clock: $(grep -c '^=== RUN' job-alone.log) tests"
-          grep -E '^--- (PASS|FAIL)' job-alone.log \
-            | sed -E 's/^--- (PASS|FAIL): ([^ ]+) \(([0-9.]+)s\)/\3 \2/' \
-            | sort -rn | head -25
-          grep -E '^(ok|FAIL)\s' job-alone.log | tail -2
+        # Two measured settings:
+        #   -p 2     : the same commit runs internal/job in 488s under the default
+        #              -p (4 packages at once on 4 vCPUs) but in 178s when that
+        #              package runs alone — the heavy packages (job, httpapi, core,
+        #              mcpserver) are dominated by contention, not by their own work,
+        #              so overlapping fewer of them is cheaper overall.
+        #   -timeout : 10m is the default PER TEST BINARY; internal/job alone already
+        #              needs 178s here, and the timeout only exists so a hung test is
+        #              reported as a hang rather than as a mystery package failure.
+        run: go test -timeout 20m -p 2 ./...
 
       - name: Run unit tests with coverage
         if: ${{ matrix.os != 'windows-latest' }}
         run: go test -timeout 20m -cover ./...
 
-      - name: Windows runner profile (after)
-        if: ${{ always() && matrix.os == 'windows-latest' }}
-        shell: pwsh
-        run: |
-          $n = 100
-          $sw = [Diagnostics.Stopwatch]::StartNew()
-          for ($i = 0; $i -lt $n; $i++) { $p = [Diagnostics.Process]::Start('cmd.exe', '/c exit'); $p.WaitForExit() }
-          $sw.Stop()
-          "spawn after: {0:N2} ms/child" -f ($sw.Elapsed.TotalMilliseconds / $n)
 
       # Race detector is slow (~5-10x) and only supported on linux/amd64, so run
       # it on a single recent-Go + ubuntu job instead of the whole matrix.
