@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
+	"github.com/inhere/gofer/internal/util"
 )
 
 func rootsOf(pairs ...[2]string) *WorkerConfig {
@@ -147,7 +149,7 @@ func TestMapRootSymlinkEscape(t *testing.T) {
 	if err != nil {
 		t.Fatalf("evalsymlinks to: %v", err)
 	}
-	if escapesDir(realTo, realPathBestEffort(host)) {
+	if escapesDir(realTo, util.RealPath(host)) {
 		t.Fatalf("mapped host %q escaped real To %q", host, realTo)
 	}
 }

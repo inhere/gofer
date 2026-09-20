@@ -181,6 +181,41 @@ func TestWorktreeNestedRepoUsesNearestToplevel(t *testing.T) {
 	}
 }
 
+// TestWorktreeSymlinkedProjectRoot covers the same mapping when the project root is
+// reached through a SYMLINK: `git rev-parse --show-toplevel` answers with the
+// resolved path while the project keeps the operator's spelling, so the two names
+// differ without being different directories. macOS makes this the default case
+// (t.TempDir() hands out /var/... and git answers /private/var/...), which is why
+// the whole worktree suite failed there while passing on Linux/Windows.
+func TestWorktreeSymlinkedProjectRoot(t *testing.T) {
+	real, _ := gitRepo(t)
+	link := filepath.Join(t.TempDir(), "repo-link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skipf("symlinks unavailable on this host: %v", err)
+	}
+
+	state := t.TempDir()
+	s := newWorktreeService(t, link, state) // project root: the symlink spelling
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "repo", Agent: "exec", Runner: "local",
+		Cmd: []string{"git", "rev-parse", "--show-toplevel"}, Cwd: ".", TimeoutSec: 60, Worktree: true,
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("status = %s (err=%s)", final.Status, final.Error)
+	}
+	resolved, err := filepath.EvalSymlinks(real)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantPrefix := filepath.Join(resolved, filepath.FromSlash(worktreeSubdir))
+	if !strings.HasPrefix(final.WorktreePath, wantPrefix+string(filepath.Separator)) {
+		t.Fatalf("worktree path = %q, want it under the resolved toplevel %q", final.WorktreePath, wantPrefix)
+	}
+	if got := filepath.ToSlash(strings.TrimSpace(repoLog(t, state, final.ID))); got != filepath.ToSlash(final.WorktreePath) {
+		t.Fatalf("job ran in %q, want the worktree %q", got, final.WorktreePath)
+	}
+}
+
 // TestWorktreeMapsCwdSubpath proves --cwd is mapped into the worktree by the same
 // relative sub-path: the job's process really starts in <worktree>/sub, not in the
 // worktree root and not in the parent checkout.

@@ -103,7 +103,11 @@ func prepareJobWorktree(ctx context.Context, cwd, jobID, base string) (*worktree
 // （父 checkout 里只作为未跟踪目录存在、因而不在任何提交里的 cwd，在新的 worktree 里
 // 本来就不存在）。
 func (w *worktreeRef) mapCwd(cwd string) (string, error) {
-	rel, err := filepath.Rel(w.Top, cwd)
+	// Compare through symlinks: `git rev-parse --show-toplevel` reports the
+	// RESOLVED toplevel, while the caller's cwd is whatever path they typed (on
+	// macOS /var/... vs git's /private/var/...). A raw Rel would call a legitimate
+	// cwd "outside the checkout" and reject the job.
+	rel, err := filepath.Rel(util.RealPath(w.Top), util.RealPath(cwd))
 	if err != nil {
 		return "", fmt.Errorf("worktree: map cwd %s: %w", cwd, err)
 	}

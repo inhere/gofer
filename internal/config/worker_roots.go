@@ -4,6 +4,8 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+
+	"github.com/inhere/gofer/internal/util"
 )
 
 // MapRoot resolves a server-side logical path to this worker's host path using
@@ -80,7 +82,7 @@ func (wc *WorkerConfig) MapRoot(logical string) (host string, ok bool) {
 		return "", false
 	}
 	// 3b. host side symlink containment: real host must sit under real To.
-	if escapesDir(realPathBestEffort(cleanTo), realPathBestEffort(cleanHost)) {
+	if escapesDir(util.RealPath(cleanTo), util.RealPath(cleanHost)) {
 		return "", false
 	}
 
@@ -147,19 +149,4 @@ func hasDotDotSegment(p string) bool {
 		}
 	}
 	return false
-}
-
-// realPathBestEffort resolves symlinks on the existing prefix of p and
-// re-appends the non-existent tail. When nothing resolves it falls back to the
-// lexical clean, so pure-logical (non-existent) paths map to themselves.
-func realPathBestEffort(p string) string {
-	p = filepath.Clean(p)
-	if resolved, err := filepath.EvalSymlinks(p); err == nil {
-		return resolved
-	}
-	parent := filepath.Dir(p)
-	if parent == p { // reached root; nothing left to resolve.
-		return p
-	}
-	return filepath.Join(realPathBestEffort(parent), filepath.Base(p))
 }
