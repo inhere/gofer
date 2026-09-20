@@ -97,14 +97,22 @@ func BridgeWithOptions(ctx context.Context, ws *websocket.Conn, c net.Conn, opt 
 		for {
 			nr, e := c.Read(b)
 			if nr > 0 {
+				// Record the device->tunnel direction as soon as the device's bytes are
+				// in hand, BEFORE they are handed to the tunnel: whatever comes back the
+				// other way cannot exist until this write happens, so first_up stays
+				// ordered before first_down instead of racing the reply goroutine for
+				// the log (the same rule as Splice, the datagram bridge and the
+				// forwarder's UDP loop — this path used to record after ws.Write, which
+				// lost that race on a loaded runner: macos-latest saw
+				// tunnel.first_down emitted before tunnel.first_up).
+				firstDown.Do(func() {
+					if opt.OnFirstDown != nil {
+						opt.OnFirstDown()
+					}
+				})
 				e2 := ws.Write(ctx, websocket.MessageBinary, b[:nr])
 				if e2 == nil {
 					n += int64(nr)
-					firstDown.Do(func() {
-						if opt.OnFirstDown != nil {
-							opt.OnFirstDown()
-						}
-					})
 				}
 				if e2 != nil {
 					e = e2
