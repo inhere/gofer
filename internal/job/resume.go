@@ -77,7 +77,10 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 	}
 
 	// 同 runner 约束 (design §8): an explicit, differing runner is rejected; an
-	// empty runner defaults to the source runner (the common case).
+	// empty runner defaults to the source runner (the common case). The spelling is
+	// normalized first so `--runner server` on a job that ran on the canonical
+	// "local" is the SAME runner (an alias, not a cross-runner request).
+	runner = normalizeRunner(s.config(), runner)
 	if runner != "" && runner != src.Runner {
 		return JobResult{}, fmt.Errorf("%w: session bound to runner %q, not %q", ErrCrossRunner, src.Runner, runner)
 	}

@@ -37,6 +37,30 @@ func IsRemoteRunner(cfg *config.Config, name string) bool {
 	return isPeerRunner(cfg, name) || isWorkerRunner(cfg, name)
 }
 
+// normalizeRunner maps the runner key a CALLER spelled onto the canonical key
+// this service routes and stores with (the two spellings of the built-in runner
+// are documented on config.BuiltinLocalRunner).
+//
+// Declare-wins: an operator who declares a runner literally named "server" in
+// `runners:` gets THAT runner — the alias only applies when no such runner
+// exists. The escape hatch mirrors the agent-template rule (a declaration always
+// beats a built-in), and it is what keeps the alias from silently re-routing a
+// purpose-built runner.
+//
+// Every input boundary goes through here (Submit, Validate, resumeJob, the
+// task-book template's own runner default) so HTTP/SDK/MCP callers, a `-f` task
+// file's frontmatter and the CLI are treated alike: the CLI used to be the ONLY
+// caller that translated "server", so every other caller hit
+// `runner "server" is not allowed in project`.
+func normalizeRunner(cfg *config.Config, name string) string {
+	if cfg != nil {
+		if _, declared := cfg.Runners[name]; declared {
+			return name
+		}
+	}
+	return config.NormalizeRunnerName(name)
+}
+
 // validate enforces the project/agent/runner/exec allowlists (plan §11) and
 // returns the resolved project config.
 //
@@ -481,10 +505,13 @@ func (s *Service) checkInteractiveWorkerPty(workerID string, interactive bool) e
 }
 
 // checkRunnerAllowed verifies req.Runner is in the project allowlist. The
-// built-in "local" runner is accepted when the allowlist is empty or lists it.
+// built-in "local" runner is accepted when the allowlist is empty or lists it —
+// and, because `allowed_runners: [server]` is what the CLI's own documented name
+// leads an operator to write, the alias spelling counts as listing it too
+// (runnerKey itself is already canonical here; see normalizeRunner).
 func checkRunnerAllowed(proj config.ProjectConfig, runnerKey string) error {
 	for _, r := range proj.AllowedRunners {
-		if r == runnerKey {
+		if r == runnerKey || (runnerKey == builtinLocalRunner && config.IsBuiltinLocalRunnerName(r)) {
 			return nil
 		}
 	}

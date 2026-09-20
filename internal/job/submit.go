@@ -30,6 +30,11 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// validation, result base dir all read the same snapshot).
 	cfg := s.config()
 
+	// Runner spelling first: everything below (remote classification, validate's
+	// allowlist check, the runner registry lookup, the persisted row) keys on the
+	// canonical name. See normalizeRunner.
+	req.Runner = normalizeRunner(cfg, req.Runner)
+
 	// E35: resolve a role preset BEFORE validate so the role-filled agent/project
 	// are still allowlist-checked (and an empty agent does not fail validation
 	// first). Explicit request fields always win over the preset's defaults.

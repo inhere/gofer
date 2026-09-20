@@ -1454,6 +1454,49 @@ type RunnerConfig struct {
 	WorkerID string `yaml:"worker_id,omitempty"`
 }
 
+// The built-in in-process runner needs no `runners:` declaration and has TWO
+// accepted spellings on any INPUT surface:
+//
+//   - "local"  — the canonical key: what the wire, /v1/runners, the jobs.runner
+//     column and the web console carry, and what a project's
+//     allowed_runners lists.
+//   - "server" — the human-facing spelling the CLI advertises (`--runner`'s
+//     default: "server = server-local"), picked because on a WORKER
+//     host "local" means that worker's own runner.
+//
+// They are one runner, so an input boundary that receives the alias must
+// translate it (NormalizeRunnerName) rather than reject a caller who used the
+// documented spelling; allowlist checks accept either spelling.
+const (
+	// BuiltinLocalRunner is the canonical key of the in-process runner.
+	BuiltinLocalRunner = "local"
+	// BuiltinLocalRunnerAlias is the CLI/public spelling of that same runner.
+	BuiltinLocalRunnerAlias = "server"
+)
+
+// IsBuiltinLocalRunnerName reports whether name spells the built-in in-process
+// runner (either the canonical key or the CLI alias).
+func IsBuiltinLocalRunnerName(name string) bool {
+	name = strings.TrimSpace(name)
+	return name == BuiltinLocalRunner || name == BuiltinLocalRunnerAlias
+}
+
+// NormalizeRunnerName maps a caller-supplied runner key onto the canonical key
+// for that runner: the alias "server" becomes "local". Every other value (a
+// configured runner key, or the empty string) is returned unchanged — an empty
+// runner stays empty so "runner is required" is still reported for it.
+//
+// It is deliberately spelling-only: the declare-wins rule for a config that
+// declares a runner literally named "server" lives with the caller that holds
+// the config snapshot (see job.normalizeRunner).
+func NormalizeRunnerName(name string) string {
+	name = strings.TrimSpace(name)
+	if name == BuiltinLocalRunnerAlias {
+		return BuiltinLocalRunner
+	}
+	return name
+}
+
 // WorkerConfig is the top-level config for `gofer worker --config worker.yaml`
 // (ws-worker §6). The worker runs jobs locally with its own project/agent/runner
 // config and bridges log/status/result back over a single WebSocket to the hub.

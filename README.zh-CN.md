@@ -381,7 +381,7 @@ gofer tunnel   forward | check | ls | save | saved | forget
 gofer mcp      [--standalone]                        # stdio MCP server
 ```
 
-`job run` 关键参数：`-p/--project`、`-a/--agent`、`--runner`（默认 `server`；`local` 兼容别名；worker/peer 填 runner 名）、`--cwd`（相对项目根）、`--prompt` / `-- argv` / `-f task.md` / `-t <模板> [--var k=v …]`（服务端渲染的任务书；`--prompt` 追加在正文后）、`--sync` + `--wait-timeout`、`--wait`、`--worker-id` / `--worker-labels`、`--interactive` + `--cols`/`--rows`（需项目 `allow_interactive` 且 agent 有 `interactive_args`）、`--worktree` + `--worktree-base`、`--plan`、`--tags`、`--timeout`、`--title`、`-s/--server`、`--token`。
+`job run` 关键参数：`-p/--project`、`-a/--agent`、`--runner`（默认 `server`；`local` 是 canonical key、`server` 是别名，**两者在所有入口都可用**——CLI、HTTP API、`-f` 任务文件、任务书模板，`allowed_runners` 写哪个都算；worker/peer 填 runner 名）、`--cwd`（相对项目根）、`--prompt` / `-- argv` / `-f task.md` / `-t <模板> [--var k=v …]`（服务端渲染的任务书；`--prompt` 追加在正文后）、`--sync` + `--wait-timeout`、`--wait`、`--worker-id` / `--worker-labels`、`--interactive` + `--cols`/`--rows`（需项目 `allow_interactive` 且 agent 有 `interactive_args`）、`--worktree` + `--worktree-base`、`--plan`、`--tags`、`--timeout`、`--title`、`-s/--server`、`--token`。
 
 > 工作流跨机传值：`${steps.N.result_dir}` 是执行机上的绝对路径，只在同一文件系统内可直接读；跨 worker/peer 用 `${steps.N.result}`（inline result.json ≤32KB）/ `${steps.N.stdout}` 或共享盘。
 

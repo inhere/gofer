@@ -1013,13 +1013,16 @@ func parseVarFlags(flags gcli.Strings) (map[string]string, error) {
 // server's existing wire identifier. `server` and the legacy `local` alias both
 // mean the server process's built-in local runner; configured runner ids pass
 // through unchanged.
+//
+// The alias vocabulary itself lives in config (config.NormalizeRunnerName) so the
+// CLI and the server cannot drift apart; the CLI-only part is mapping its own
+// flag DEFAULT (an empty value) to local, because for the CLI "no --runner" means
+// the sentinel that buildJobRunRequest resolves against a task template.
 func normalizeJobRunner(value string) string {
-	switch strings.TrimSpace(value) {
-	case "", "server", "local":
-		return "local"
-	default:
-		return value
+	if strings.TrimSpace(value) == "" {
+		return config.BuiltinLocalRunner
 	}
+	return config.NormalizeRunnerName(value)
 }
 
 func validateJobRunRequired() error {

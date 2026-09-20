@@ -96,6 +96,15 @@ func (s *Service) applyTemplate(cfg *config.Config, req *JobRequest) error {
 	// A template submit that names no runner anywhere still runs on the built-in
 	// local runner — the default the CLI has always sent for a request without -t.
 	// validate keeps requiring an explicit runner for every other request.
+	//
+	// A template that DOES name one is the case the CLI's sentinel exists for
+	// (design SUP-01 P5: the CLI drops its own default when -t is given, so the
+	// template's runner decides). The spelling is normalized here, not at
+	// admission: the value comes from a file, exactly like a caller's field.
+	if req.Runner == "" {
+		req.Runner = m.Runner
+	}
+	req.Runner = normalizeRunner(cfg, req.Runner)
 	if req.Runner == "" {
 		req.Runner = builtinLocalRunner
 	}

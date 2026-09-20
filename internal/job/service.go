@@ -39,8 +39,10 @@ const JobIDLayout = "20060102-150405"
 const jobIDCreateRetries = 5
 
 // builtinLocalRunner is the runner key that needs no config declaration,
-// mirroring the built-in exec agent.
-const builtinLocalRunner = "local"
+// mirroring the built-in exec agent. It is the CANONICAL key: a caller may also
+// spell it "server" (config.BuiltinLocalRunnerAlias), and normalizeRunner
+// translates that onto this key at every input boundary.
+const builtinLocalRunner = config.BuiltinLocalRunner
 
 // builtinPtyRunner is the runner key an interactive job is routed to (WEB-03).
 // It is registered by core ONLY when a pty backend is available; the job service
@@ -248,8 +250,12 @@ func (s *Service) Metrics() MetricsSink   { return s.metrics }
 
 // Validate exposes the single-job admission check (project/agent/runner allowlist +
 // exec gate) so the workflow engine validates every step through the SAME gate
-// (安全要点). It wraps the private validate unchanged.
+// (安全要点). It wraps the private validate unchanged, after normalizing the
+// runner spelling exactly as Submit does — a workflow step (or the schedule
+// validator at internal/httpapi/schedule_handler.go) may name the built-in runner
+// with either spelling, and it must not be admitted any differently.
 func (s *Service) Validate(cfg *config.Config, req JobRequest, remote bool) (config.ProjectConfig, error) {
+	req.Runner = normalizeRunner(cfg, req.Runner)
 	return s.validate(cfg, req, remote)
 }
 

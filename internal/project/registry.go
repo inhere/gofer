@@ -259,8 +259,11 @@ func (r *Registry) Validate(key string) ([]CheckResult, bool, error) {
 		}
 	}
 	for _, rn := range proj.AllowedRunners {
-		// "local" is a built-in runner and need not be declared in config.Runners.
-		if rn == "local" {
+		// "local" (and its CLI alias "server") is a built-in runner and need not be
+		// declared in config.Runners. A DECLARATION of that name wins: an operator who
+		// declares a runner literally called "server" gets that runner validated as a
+		// configured one, not silently folded into the built-in.
+		if _, declared := cfg.Runners[rn]; !declared && config.IsBuiltinLocalRunnerName(rn) {
 			add("allowed_runner:"+rn, true, "builtin")
 			continue
 		}
@@ -275,12 +278,19 @@ func (r *Registry) Validate(key string) ([]CheckResult, bool, error) {
 }
 
 // AllowsLocalRunner reports whether the allowlist permits the built-in local
-// runner: an empty allowlist defaults to local, otherwise it must be listed.
+// runner: an empty allowlist defaults to local, otherwise it must be listed —
+// under either of its accepted spellings ("local" canonical, "server" the CLI
+// alias; see config.BuiltinLocalRunner), because the two name one runner.
 func AllowsLocalRunner(allowed []string) bool {
 	if len(allowed) == 0 {
 		return true
 	}
-	return slices.Contains(allowed, "local")
+	for _, name := range allowed {
+		if config.IsBuiltinLocalRunnerName(name) {
+			return true
+		}
+	}
+	return false
 }
 
 // builtinAgents are agent keys that are always valid without a config entry.

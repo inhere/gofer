@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/sessionrelay"
@@ -81,13 +82,15 @@ func (x sessionInjector) InjectSession(_ context.Context, req sessionrelay.Injec
 // key: the server's own label ("server", or empty on an old registration) means
 // its built-in local runner; a configured runner id (a worker's key) passes
 // through, and the job service resolves/rejects it like any other submit.
+//
+// The label vocabulary is shared with the rest of the system (config alias
+// helpers), so a session registered as "server" and a job submitted as "local"
+// land on the same runner by construction rather than by two copies of a switch.
 func runnerKeyForSession(runner string) string {
-	switch strings.TrimSpace(runner) {
-	case "", "server":
-		return "local"
-	default:
-		return runner
+	if strings.TrimSpace(runner) == "" {
+		return config.BuiltinLocalRunner
 	}
+	return config.NormalizeRunnerName(runner)
 }
 
 // PlanTakeover answers what continuing this session would take (design §9.1 B):
@@ -127,7 +130,7 @@ func (x sessionInjector) PlanTakeover(agentKey, projectKey, runner, sessionID st
 }
 
 // runnerLocalKey is the built-in local runner's key (see runnerKeyForSession).
-const runnerLocalKey = "local"
+const runnerLocalKey = config.BuiltinLocalRunner
 
 // TakeoverSession starts path B's interactive job (design §9.1 B): an ordinary
 // pty-attached job on the session's own runner carrying the resume argv, primed
