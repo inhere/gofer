@@ -36,6 +36,37 @@ jobs:
         with:
           go-version: ${{ matrix.go_version }}
 
+      # Why the windows job is much slower than ubuntu on the same commit: the
+      # job/httpapi suites spawn a child process per test (testcmd/git) and create
+      # a temp dir + sqlite per test, and this runner has Defender real-time
+      # protection on, which scans every new process image and every file written.
+      # These two steps record the runner profile before/after the exclusion below
+      # so the effect is measurable from the log instead of guessed.
+      - name: Windows runner profile (before)
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          Get-MpComputerStatus | Select-Object RealTimeProtectionEnabled, AntivirusEnabled | Format-List
+          "cpus: $env:NUMBER_OF_PROCESSORS"
+          $n = 100
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          for ($i = 0; $i -lt $n; $i++) { $p = [Diagnostics.Process]::Start('cmd.exe', '/c exit'); $p.WaitForExit() }
+          $sw.Stop()
+          "spawn before: {0:N2} ms/child" -f ($sw.Elapsed.TotalMilliseconds / $n)
+
+      - name: "Windows runner: exclude workspace from Defender"
+        if: ${{ matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          $paths = @($env:GITHUB_WORKSPACE, $env:RUNNER_TEMP, (go env GOCACHE), (go env GOMODCACHE), (go env GOROOT))
+          foreach ($p in $paths) {
+            if ($p -and (Test-Path $p)) {
+              Add-MpPreference -ExclusionPath $p -ErrorAction SilentlyContinue
+              Write-Host "excluded: $p"
+            }
+          }
+          "exclusions now: " + ((Get-MpPreference).ExclusionPath -join '; ')
+
       - name: Tidy go mod
         run: go mod tidy
 
@@ -60,6 +91,16 @@ jobs:
       - name: Run unit tests with coverage
         if: ${{ matrix.os != 'windows-latest' }}
         run: go test -timeout 20m -cover ./...
+
+      - name: Windows runner profile (after)
+        if: ${{ always() && matrix.os == 'windows-latest' }}
+        shell: pwsh
+        run: |
+          $n = 100
+          $sw = [Diagnostics.Stopwatch]::StartNew()
+          for ($i = 0; $i -lt $n; $i++) { $p = [Diagnostics.Process]::Start('cmd.exe', '/c exit'); $p.WaitForExit() }
+          $sw.Stop()
+          "spawn after: {0:N2} ms/child" -f ($sw.Elapsed.TotalMilliseconds / $n)
 
       # Race detector is slow (~5-10x) and only supported on linux/amd64, so run
       # it on a single recent-Go + ubuntu job instead of the whole matrix.
