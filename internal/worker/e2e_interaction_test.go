@@ -204,7 +204,7 @@ func TestE2ECancelOverWS(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
-	cl := buildWorkerSide(t, hub.ts.URL)
+	cl, localJobs := buildWorkerSideJobs(t, hub.ts.URL)
 	clientErr := make(chan error, 1)
 	go func() { clientErr <- cl.Run(ctx) }()
 	waitWorkerOnline(t, hub.hub)
@@ -221,6 +221,7 @@ func TestE2ECancelOverWS(t *testing.T) {
 	// Wait until the hub job is actually running (the worker accepted + started it)
 	// so the cancel hits an in-flight job, not a queued one.
 	waitHubStatus(t, hub, created.ID, job.StatusRunning, 10*time.Second)
+	localID := waitOnlyLocalJobID(t, localJobs)
 
 	// Cancel from the hub → cancel frame over WS → worker cancels its local job.
 	cancelHubJob(t, hub.ts, created.ID, http.StatusOK)
@@ -232,6 +233,13 @@ func TestE2ECancelOverWS(t *testing.T) {
 	if final.Status != job.StatusCancelled {
 		t.Fatalf("hub job status = %s (err=%s), want cancelled", final.Status, final.Error)
 	}
+	// The hub records the cancel on ITS side; the worker only learns about it from
+	// the cancel FRAME. Assert on the worker's own job reaching terminal — that is
+	// what proves the frame arrived and the local `sleep` was killed — before the
+	// client is shut down below: a dispatch deliberately outlives its connection
+	// (see the TypeDispatch note in client.go), so cancelling the client would not
+	// stop it and the check would race the frame (this is where macOS CI flaked).
+	waitLocalJobStatus(t, localJobs, localID, job.StatusCancelled, 15*time.Second)
 
 	// Cancelling an already-terminal worker job is a stable no-op (200, status
 	// unchanged).
@@ -345,6 +353,21 @@ func waitLocalJobDone(t *testing.T, done <-chan job.JobResult, id string) {
 	case <-time.After(5 * time.Second):
 		t.Fatalf("local job %s did not reach terminal", id)
 	}
+}
+
+// waitLocalJobStatus polls the worker's own job service until the local job reaches
+// want (or fails after d).
+func waitLocalJobStatus(t *testing.T, jobs *job.Service, id, want string, d time.Duration) {
+	t.Helper()
+	deadline := time.Now().Add(d)
+	for time.Now().Before(deadline) {
+		if snap, ok := jobs.Get(id); ok && snap.Status == want {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	snap, _ := jobs.Get(id)
+	t.Fatalf("local job %s did not reach %q in time (status=%s)", id, want, snap.Status)
 }
 
 // waitHubStatus polls until the hub job reaches want (or fails after d).
