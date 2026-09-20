@@ -53,6 +53,20 @@ func registerWorker(t *testing.T, workerID string, reg wsproto.Register) *wshub.
 	if !got.Accepted {
 		t.Fatalf("register rejected: %s", got.Reason)
 	}
+	// Reading the ack is not yet "the hub knows this worker": the hub writes the ack
+	// BEFORE publishing the connection (B3 / §7-N1 in wshub/hub.go — a broadcast must
+	// not be able to write a frame ahead of the ack). Wait for registry visibility, so
+	// the selector sees the capabilities this test is about.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if hub.IsOnline(workerID) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("worker %s never became visible to the hub", workerID)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 	return hub
 }
 

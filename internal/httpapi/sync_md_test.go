@@ -41,7 +41,7 @@ func newCLIAgentServer(t *testing.T, token string) *Server {
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, filepath.Join(root, "db")), nil)
+	jobs := drainOnCleanup(t, job.NewService(cfg, projects, agents, runners, openTestStore(t, filepath.Join(root, "db")), nil))
 	jobsEng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(jobsEng)
 	return New(&cfg.Server, token, false, jobs, jobsEng, projects, agents, nil, nil, nil, nil)

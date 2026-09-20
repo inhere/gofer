@@ -58,7 +58,7 @@ func TestListAgentsServesCachedAvailability(t *testing.T) {
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistryWith(cfg, detected)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
+	jobs := drainOnCleanup(t, job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil))
 	s := New(&cfg.Server, testToken, false, jobs, workflow.NewEngine(jobs), projects, agents, nil, nil, nil, nil)
 
 	for i := range 3 {

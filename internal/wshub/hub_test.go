@@ -148,7 +148,7 @@ func waitWorkerOnline(t *testing.T, hub *Hub, workerID string) {
 	t.Helper()
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
-		if _, ok := hub.reg.Get(workerID); ok {
+		if hub.IsOnline(workerID) {
 			return
 		}
 		time.Sleep(2 * time.Millisecond)

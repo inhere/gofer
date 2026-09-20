@@ -33,7 +33,7 @@ func newAgentTestServer(t *testing.T, agents map[string]config.AgentConfig, proj
 	agentReg := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
 	st := openTestStore(t, root)
-	jobs := job.NewService(cfg, projReg, agentReg, runners, st, nil)
+	jobs := drainOnCleanup(t, job.NewService(cfg, projReg, agentReg, runners, st, nil))
 	eng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(eng)
 	return New(&cfg.Server, testToken, false, jobs, eng, projReg, agentReg, nil, nil, nil, nil), st

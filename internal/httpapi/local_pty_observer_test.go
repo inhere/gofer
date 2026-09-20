@@ -176,7 +176,7 @@ func TestLocalPtyObserverCapturesSessionIDFromPtyOutput(t *testing.T) {
 		t.Fatalf("open jobstore: %v", err)
 	}
 	t.Cleanup(func() { _ = meta.Close() })
-	jobs := job.NewService(cfg, projects, agents, runners, meta, nil)
+	jobs := drainOnCleanup(t, job.NewService(cfg, projects, agents, runners, meta, nil))
 	eng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(eng)
 	s := New(&cfg.Server, "", false, jobs, eng, projects, agents, nil, nil, nil, nil)

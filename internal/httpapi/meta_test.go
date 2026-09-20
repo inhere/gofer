@@ -57,7 +57,7 @@ func wireMetaServer(t *testing.T, cfg *config.Config, workers workerRegistry) *S
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, cfg.Storage.Root), nil)
+	jobs := drainOnCleanup(t, job.NewService(cfg, projects, agents, runners, openTestStore(t, cfg.Storage.Root), nil))
 	jobsEng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(jobsEng)
 	return New(&cfg.Server, testToken, false, jobs, jobsEng, projects, agents, nil, cfg.Runners, nil, workers)

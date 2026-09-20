@@ -55,7 +55,7 @@ func newACPPeerBridge(t *testing.T) *acpBridge {
 		localrunner.Name: localrunner.New(),
 		acprunner.Name:   acprunner.New(),
 	}
-	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
+	jobs := drainOnCleanup(t, job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil))
 	eng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(eng)
 	s := New(&cfg.Server, "", true, jobs, eng, projects, agents, nil, nil, nil, nil)
@@ -92,7 +92,7 @@ func newACPHostBridge(t *testing.T, peerURL string) *acpBridge {
 		localrunner.Name: localrunner.New(),
 		"peer-stub":      peerhttp.New("peer-stub", peerURL, ""),
 	}
-	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
+	jobs := drainOnCleanup(t, job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil))
 	eng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(eng)
 	s := New(&cfg.Server, "", true, jobs, eng, projects, agents, nil, nil, nil, nil)

@@ -60,7 +60,7 @@ func TestE2EInteractionWrapper(t *testing.T) {
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, storageRoot), nil)
+	jobs := drainOnCleanup(t, job.NewService(cfg, projects, agents, runners, openTestStore(t, storageRoot), nil))
 	jobsEng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(jobsEng)
 	srv := New(&cfg.Server, testToken, false, jobs, jobsEng, projects, agents, nil, nil, nil, nil)

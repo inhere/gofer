@@ -704,29 +704,43 @@ func waitForStatus(t *testing.T, s *Service, id, want string, timeout time.Durat
 	t.Fatalf("job %s did not reach %q in time (status=%s)", id, want, r.Status)
 }
 
-// drainJobs waits until the service has nothing left in flight. A test that only
-// inspects the Submit result (or a subtests that asserts on a snapshot) would
-// otherwise return while its job — or a fallback / auto-resume / verify
-// continuation it spawned — is still writing into the test's TempDir, and the
-// framework's RemoveAll then fails with "directory not empty" (or "file in use" on
-// Windows). Best-effort with a deadline: a job that legitimately stays running
-// keeps the previous behaviour instead of hanging the suite.
+// drainJobs ends the jobs a test left in flight and waits (bounded) for them to reach
+// a terminal state. A test that only inspects the Submit result (or a subtest that
+// asserts on a snapshot) would otherwise return while its job — or a fallback /
+// auto-resume / verify continuation it spawned — is still writing into the test's
+// TempDir, and the framework's RemoveAll then fails with "directory not empty" (or
+// "file in use" on Windows). Cancelling is safe here: the test is over and its own
+// cleanup, if any, already ran (cleanups are LIFO).
+// drainBudget bounds how long drainJobs waits for cancelled jobs to unwind. A job that
+// ignores cancellation (a parked interactive/pty session, say) must not stall the whole
+// suite: the wait only has to cover jobs that end promptly once cancelled.
+const drainBudget = 2 * time.Second
+
 func drainJobs(t *testing.T, s *Service) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	list, err := s.ListJobs(ListOpts{Limit: 500})
+	if err != nil {
+		return
+	}
+	var live []string
+	for _, j := range list {
+		if !isTerminal(j.Status) {
+			live = append(live, j.ID)
+		}
+	}
+	for _, id := range live {
+		_ = s.Cancel(id)
+	}
+	deadline := time.Now().Add(drainBudget)
 	for time.Now().Before(deadline) {
-		list, err := s.ListJobs(ListOpts{Limit: 200})
-		if err == nil {
-			inFlight := false
-			for _, j := range list {
-				if !isTerminal(j.Status) {
-					inFlight = true
-					break
-				}
+		pending := 0
+		for _, id := range live {
+			if snap, ok := s.Get(id); ok && !isTerminal(snap.Status) {
+				pending++
 			}
-			if !inFlight {
-				return
-			}
+		}
+		if pending == 0 {
+			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}

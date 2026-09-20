@@ -44,6 +44,19 @@ func newPtyConnectTestServer(t *testing.T) (*Server, *ptyrelay.NonceStore, *ptyr
 	t.Cleanup(ts.Close)
 	base := "ws" + strings.TrimPrefix(ts.URL, "http")
 	hubConn := registerPtyTestWorker(t, base)
+	// Reading the registered ack is not yet "the hub knows this worker": the hub writes
+	// the ack BEFORE publishing the connection (B3 / §7-N1 in wshub/hub.go), so a
+	// connect that looks the worker up immediately can see it as offline.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		if hub.IsOnline(ptyTestWorkerID) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("worker %s never became visible to the hub", ptyTestWorkerID)
+		}
+		time.Sleep(2 * time.Millisecond)
+	}
 	return s, nonces, relays, base, hubConn
 }
 

@@ -45,7 +45,7 @@ func newRateLimitedServer(t *testing.T, rps float64, burst int) *Server {
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
+	jobs := drainOnCleanup(t, job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil))
 	jobsEng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(jobsEng)
 	return New(&cfg.Server, testToken, false, jobs, jobsEng, projects, agents, nil, nil, nil, nil)
@@ -156,7 +156,7 @@ func TestRateLimitMiddlewareSeesCallerID(t *testing.T) {
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
+	jobs := drainOnCleanup(t, job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil))
 	// token "" + the callers slice gives caller id "ci" on the ci token. allowEmpty
 	// false (callers present), so New uses the callers set.
 	jobsEng := workflow.NewEngine(jobs)

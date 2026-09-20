@@ -38,7 +38,7 @@ func newConfigViewTestServer(t *testing.T, cfg *config.Config) *Server {
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
 	st := openTestStore(t, root)
-	jobs := job.NewService(cfg, projects, agents, runners, st, nil)
+	jobs := drainOnCleanup(t, job.NewService(cfg, projects, agents, runners, st, nil))
 	eng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(eng)
 	return New(&cfg.Server, cfg.Server.Token, cfg.Server.AllowEmptyToken, jobs, eng, projects, agents, nil, cfg.Runners, nil, nil)

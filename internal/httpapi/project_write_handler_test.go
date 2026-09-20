@@ -39,7 +39,7 @@ func newProjectWriteTestServer(t *testing.T, cfg *config.Config) *Server {
 	projects := project.NewRegistry(cfg, registryPath)
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
+	jobs := drainOnCleanup(t, job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil))
 	eng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(eng)
 	return New(&cfg.Server, cfg.Server.Token, cfg.Server.AllowEmptyToken, jobs, eng, projects, agents, nil, cfg.Runners, nil, nil)

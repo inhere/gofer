@@ -50,7 +50,7 @@ func newReviewServer(t *testing.T, sc config.ServerConfig) *Server {
 		t.Fatalf("open jobstore: %v", err)
 	}
 	t.Cleanup(func() { _ = st.Close() })
-	jobs := job.NewService(cfg, projects, agents, runners, st, nil)
+	jobs := drainOnCleanup(t, job.NewService(cfg, projects, agents, runners, st, nil))
 	eng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(eng)
 	return New(&cfg.Server, sc.Token, sc.AllowEmptyToken, jobs, eng, projects, agents, nil, nil, nil, nil)

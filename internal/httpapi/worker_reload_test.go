@@ -59,7 +59,7 @@ func newReloadServer(t *testing.T, hub workerHub) (*Server, *fakeReloader) {
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
+	jobs := drainOnCleanup(t, job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil))
 	eng := workflow.NewEngine(jobs)
 	s := New(&cfg.Server, testToken, false, jobs, eng, projects, agents, hub, nil, nil, nil)
 	fr := &fakeReloader{}

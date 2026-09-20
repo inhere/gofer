@@ -59,23 +59,42 @@ func testCore(t *testing.T) (*job.Service, *project.Registry, *agent.Registry, *
 	return jobs, projects, agents, pres
 }
 
-// drainJobs waits (best effort, bounded) until the service has nothing in flight.
+// drainJobs ends the jobs a test left in flight and waits (bounded) for them to
+// reach a terminal state. A test that only asserts on a response leaves its job — or
+// a resume / rebuild / workflow continuation it spawned — still writing into the
+// test's TempDir, and the framework's RemoveAll then fails with "directory not empty"
+// (or "file in use" on Windows). Cancelling is safe here: the test is over and its
+// own cleanup, if any, already ran (cleanups are LIFO).
+// drainBudget bounds how long drainJobs waits for cancelled jobs to unwind. A job that
+// ignores cancellation (a parked interactive/pty session, say) must not stall the whole
+// suite: the wait only has to cover jobs that end promptly once cancelled.
+const drainBudget = 2 * time.Second
+
 func drainJobs(t *testing.T, jobs *job.Service) {
 	t.Helper()
-	deadline := time.Now().Add(10 * time.Second)
+	list, err := jobs.ListJobs(job.ListOpts{Limit: 500})
+	if err != nil {
+		return
+	}
+	var live []string
+	for _, j := range list {
+		if !job.IsTerminal(j.Status) {
+			live = append(live, j.ID)
+		}
+	}
+	for _, id := range live {
+		_ = jobs.Cancel(id)
+	}
+	deadline := time.Now().Add(drainBudget)
 	for time.Now().Before(deadline) {
-		list, err := jobs.ListJobs(job.ListOpts{Limit: 200})
-		if err == nil {
-			inFlight := false
-			for _, j := range list {
-				if !job.IsTerminal(j.Status) {
-					inFlight = true
-					break
-				}
+		pending := 0
+		for _, id := range live {
+			if snap, ok := jobs.Get(id); ok && !job.IsTerminal(snap.Status) {
+				pending++
 			}
-			if !inFlight {
-				return
-			}
+		}
+		if pending == 0 {
+			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}

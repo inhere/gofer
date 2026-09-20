@@ -61,10 +61,59 @@ func newTestServer(t *testing.T, token string, allowEmpty bool) *Server {
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
 	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
-	jobs := job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil)
+	jobs := drainOnCleanup(t, job.NewService(cfg, projects, agents, runners, openTestStore(t, root), nil))
 	eng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(eng) // finish→Advance hook so multi-step workflows progress in tests
 	return New(&cfg.Server, token, allowEmpty, jobs, eng, projects, agents, nil, nil, nil, nil)
+}
+
+// drainOnCleanup registers the "wait for in-flight jobs" cleanup on t and returns the
+// service unchanged, so a construction site stays a one-liner.
+func drainOnCleanup(t *testing.T, jobs *job.Service) *job.Service {
+	t.Helper()
+	t.Cleanup(func() { drainJobs(t, jobs) })
+	return jobs
+}
+
+// drainJobs ends the jobs a test left in flight and waits (bounded) for them to
+// reach a terminal state. A test that only asserts on a response leaves its job — or
+// a resume / rebuild / workflow continuation it spawned — still writing into the
+// test's TempDir, and the framework's RemoveAll then fails with "directory not empty"
+// (or "file in use" on Windows). Cancelling is safe here: the test is over and its
+// own cleanup, if any, already ran (cleanups are LIFO).
+// drainBudget bounds how long drainJobs waits for cancelled jobs to unwind. A job that
+// ignores cancellation (a parked interactive/pty session, say) must not stall the whole
+// suite: the wait only has to cover jobs that end promptly once cancelled.
+const drainBudget = 2 * time.Second
+
+func drainJobs(t *testing.T, jobs *job.Service) {
+	t.Helper()
+	list, err := jobs.ListJobs(job.ListOpts{Limit: 500})
+	if err != nil {
+		return
+	}
+	var live []string
+	for _, j := range list {
+		if !job.IsTerminal(j.Status) {
+			live = append(live, j.ID)
+		}
+	}
+	for _, id := range live {
+		_ = jobs.Cancel(id)
+	}
+	deadline := time.Now().Add(drainBudget)
+	for time.Now().Before(deadline) {
+		pending := 0
+		for _, id := range live {
+			if snap, ok := jobs.Get(id); ok && !job.IsTerminal(snap.Status) {
+				pending++
+			}
+		}
+		if pending == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 // do performs an in-process request against the server's handler.
