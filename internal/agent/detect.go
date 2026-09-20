@@ -2,6 +2,7 @@ package agent
 
 import (
 	"context"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -116,7 +117,16 @@ func probeVersion(ctx context.Context, ac config.AgentConfig) string {
 	ctx, cancel := context.WithTimeout(ctx, detectTimeout)
 	defer cancel()
 
-	out, err := exec.CommandContext(ctx, cmd, args...).Output()
+	probe := exec.CommandContext(ctx, cmd, args...)
+	// Run the probe from a scratch directory rather than inheriting the caller's
+	// cwd. On Windows a timed-out probe can leave a GRANDCHILD alive (npx.cmd is
+	// killed, the node.exe it spawned is not), and a live process pins its working
+	// directory: with an inherited cwd, `gofer project add` in a directory could
+	// block that directory from being removed or moved until the stray CLI exits
+	// (observed as a flaky test TempDir cleanup on the windows runner). A version
+	// probe is cwd-agnostic, so the scratch dir costs nothing.
+	probe.Dir = os.TempDir()
+	out, err := probe.Output()
 	if err != nil {
 		return ""
 	}
