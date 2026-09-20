@@ -138,6 +138,7 @@ func TestSubmitExplicitSessionIDWins(t *testing.T) {
 	if res.SessionID != sid {
 		t.Fatalf("explicit SessionID not honoured: got %q want %q", res.SessionID, sid)
 	}
+	drainJobs(t, s)
 }
 
 // submitDebugContext adds the context both failure branches of
@@ -168,6 +169,7 @@ func TestSubmitExecNoSessionInjection(t *testing.T) {
 	if res.SessionID != "" {
 		t.Fatalf("exec job should not inject a session_id, got %q (%s)", res.SessionID, submitDebugContext(s))
 	}
+	drainJobs(t, s)
 }
 
 // TestCaptureSessionIDFromFile covers the pure extractor: a hit returns the first

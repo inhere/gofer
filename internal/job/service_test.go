@@ -237,6 +237,7 @@ func TestSubmitReportsTimeoutClamp(t *testing.T) {
 		t.Errorf("under-ceiling submit = (timeout %d, clamped %v), want (60, false)",
 			res.TimeoutSec, res.TimeoutClamped)
 	}
+	drainJobs(t, s)
 }
 
 // TestSubmitRunsWithConfiguredCeiling: the reported deadline is the one the job
@@ -701,4 +702,32 @@ func waitForStatus(t *testing.T, s *Service, id, want string, timeout time.Durat
 	}
 	r, _ := s.Get(id)
 	t.Fatalf("job %s did not reach %q in time (status=%s)", id, want, r.Status)
+}
+
+// drainJobs waits until the service has nothing left in flight. A test that only
+// inspects the Submit result (or a subtests that asserts on a snapshot) would
+// otherwise return while its job — or a fallback / auto-resume / verify
+// continuation it spawned — is still writing into the test's TempDir, and the
+// framework's RemoveAll then fails with "directory not empty" (or "file in use" on
+// Windows). Best-effort with a deadline: a job that legitimately stays running
+// keeps the previous behaviour instead of hanging the suite.
+func drainJobs(t *testing.T, s *Service) {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		list, err := s.ListJobs(ListOpts{Limit: 200})
+		if err == nil {
+			inFlight := false
+			for _, j := range list {
+				if !isTerminal(j.Status) {
+					inFlight = true
+					break
+				}
+			}
+			if !inFlight {
+				return
+			}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }

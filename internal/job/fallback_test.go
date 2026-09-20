@@ -574,6 +574,9 @@ func TestPreDispatchSubstitutesDegradedAgent(t *testing.T) {
 		if res.Agent != "claude" {
 			t.Fatalf("substituted agent = %q, want claude (the first candidate that is not degraded)", res.Agent)
 		}
+		// The job keeps running after the assertion: wait it out so the TempDir is not
+		// removed under it (and under any fallback continuation it spawns).
+		drainJobs(t, s)
 	})
 
 	t.Run("all candidates degraded means no substitution", func(t *testing.T) {
@@ -595,5 +598,8 @@ func TestPreDispatchSubstitutesDegradedAgent(t *testing.T) {
 		if hasSubsequence(eventTypes(t, s, res.ID), []string{EventJobAgentSubstituted}) {
 			t.Fatal("nothing was substituted, so no substitution event is expected")
 		}
+		// The requested agent still runs (and may chain into a fallback): wait it out
+		// so the TempDir is not removed under a running job.
+		drainJobs(t, s)
 	})
 }
