@@ -1282,6 +1282,20 @@ func (p ProjectConfig) IsInteractiveAllowed() bool {
 	return p.AllowInteractive != nil && *p.AllowInteractive
 }
 
+// ArgList is an argv template list that distinguishes UNSET (nil) from SET BUT
+// EMPTY (`[]`). AgentConfig.InteractiveArgs needs the distinction because the empty
+// list is a value, not an absence: AGT-02 defines `args` + `interactive_args: []` as
+// the dual-mode agent whose interactive launch is the CLI's bare TUI, and the
+// length-based `omitempty` a plain []string gets would silently drop the key on
+// every write-back — turning a dual-mode agent into a batch-only one (bd h-aii-kd57).
+//
+// goccy/go-yaml consults IsZeroer for `omitempty`, so only nil is "unset" here.
+type ArgList []string
+
+// IsZero implements goccy/go-yaml's IsZeroer: nil is unset (`omitempty` drops the
+// key), an allocated empty list is a written value (encoded as `[]`).
+func (a ArgList) IsZero() bool { return a == nil }
+
 // AgentConfig describes a configurable CLI agent. Detect is refined in P3; P2
 // only needs it to decode cleanly.
 type AgentConfig struct {
@@ -1289,7 +1303,7 @@ type AgentConfig struct {
 	Command string   `yaml:"command,omitempty"`
 	Args    []string `yaml:"args,omitempty"`
 	// InteractiveArgs defines argv for interactive mode. Four combinations: args with {{prompt}} only=batch; InteractiveArgs non-nil only=interactive; both=dual-mode; neither=mode-less (except exec, which is batch by definition).
-	InteractiveArgs []string          `yaml:"interactive_args,omitempty"`
+	InteractiveArgs ArgList           `yaml:"interactive_args,omitempty"`
 	Env             map[string]string `yaml:"env,omitempty"`
 	AllowRawCmd     bool              `yaml:"allow_raw_cmd,omitempty"`
 	// Interactive 兼容别名：仅交互、args 即交互 argv。

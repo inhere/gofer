@@ -116,10 +116,7 @@ func TestSaveOnlyRewritesChangedTopLevelKeys(t *testing.T) {
 	}
 
 	// Now the mirrored case: editing the agents block must leave projects alone.
-	reloaded.Agents["omp"] = AgentConfig{
-		Type: "acp-agent", Command: "omp", Args: []string{"acp"},
-		InteractiveArgs: ArgList{}, Interactive: false,
-	}
+	reloaded.Agents["other"] = AgentConfig{Type: "cli-agent", Command: "other", Args: []string{"{{prompt}}"}}
 	if err := Save(p, reloaded); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
