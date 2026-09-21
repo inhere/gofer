@@ -223,6 +223,38 @@ func (b *clientBackend) DispatchTodo(todoID string) (todoDispatchView, error) {
 	return out, nil
 }
 
+// CreateWakeup registers a JOB-09 wakeup through the central server
+// (POST /v1/jobs/{id}/wakeups) — the MCP twin of `job wakeup create`.
+func (b *clientBackend) CreateWakeup(jobID string, spec job.WakeupSpec) (wakeupView, error) {
+	w, err := b.cli.CreateWakeup(jobID, spec)
+	if err != nil {
+		return wakeupView{}, err
+	}
+	return wakeupView(w), nil
+}
+
+// ListWakeups reads a job's wakeups through the central server.
+func (b *clientBackend) ListWakeups(jobID string) ([]wakeupView, error) {
+	ws, err := b.cli.ListWakeups(jobID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]wakeupView, 0, len(ws))
+	for _, w := range ws {
+		out = append(out, wakeupView(w))
+	}
+	return out, nil
+}
+
+// SetWakeupEnabled flips a wakeup's switch through the central server.
+func (b *clientBackend) SetWakeupEnabled(wakeupID string, enabled bool) (wakeupView, error) {
+	w, err := b.cli.SetWakeupEnabled(wakeupID, enabled)
+	if err != nil {
+		return wakeupView{}, err
+	}
+	return wakeupView(w), nil
+}
+
 func clientPlanToView(p client.Plan) planView {
 	pv := planView{
 		PlanID:      p.PlanID,

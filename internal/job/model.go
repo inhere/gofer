@@ -757,6 +757,21 @@ const (
 	// signal (design §四.2).
 	EventPlanTodoDispatched     = "plan.todo_dispatched"
 	EventPlanTodoDispatchFailed = "plan.todo_dispatch_failed"
+	// JOB-09 wakeup lifecycle events, all recorded on the wakeup's TARGET job (the
+	// one a fire resumes), so the job's own timeline answers "why did this job run
+	// again" and the web 唤醒 block reads its trigger history from them:
+	//   - job.wakeup_fired     {wakeup_id, kind, reason, continuation_job}
+	//   - job.wakeup_coalesced {wakeup_id, reason}   (a trigger that found the single
+	//     continuation slot busy — counted, not dispatched)
+	//   - job.wakeup_expired   {wakeup_id, kind}     (TTL passed; disabled)
+	//   - job.wakeup_failed    {wakeup_id, kind, reason, error} (the continuation
+	//     could not be started; not part of the design's list, but a wakeup that
+	//     silently never resumes is indistinguishable from a healthy idle one)
+	// None is in the default notification set.
+	EventJobWakeupFired     = "job.wakeup_fired"
+	EventJobWakeupCoalesced = "job.wakeup_coalesced"
+	EventJobWakeupExpired   = "job.wakeup_expired"
+	EventJobWakeupFailed    = "job.wakeup_failed"
 )
 
 // Workflow lifecycle event types (P1, design §5.4). Recorded append-only via

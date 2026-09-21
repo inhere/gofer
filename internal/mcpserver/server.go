@@ -215,6 +215,24 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 		Description: "Dispatch a todo's assigned agent NOW, regardless of the item's status (the explicit fallback to \"ready + assigned\"): starts a job for it and returns {todo, job, dispatched, reason}. Needs an assignee and no live job — when nothing is started, reason says why.",
 	}, dispatchTodoHandler(b))
 
+	// JOB-09 wakeups: end the run and be woken when the condition arrives. An agent
+	// running inside a job passes ITS OWN id (job_id = the value of GOFER_JOB_ID) to
+	// be resumed later, which is the whole point: nothing stays resident waiting.
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_wakeup_create",
+		Description: "Register a wakeup on a job: an event subscription or timer that RESUMES that job when it fires. kind=at (at, unix seconds), every (every_sec >= 60), cron (cron + optional timezone) or event (event_types from job.terminal|job.verify_finished|job.needs_review|job.reviewed|job.fell_back|job.stalled|interaction.answered|session.takeover_released; optional filter_job_id + filter_status). instruction is the prompt the continuation receives; mode once (default) or continuous. From inside a job, pass that job's own id to be woken after it ends.",
+	}, wakeupCreateHandler(b))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_wakeup_list",
+		Description: "List a job's wakeups with their state (enabled, next_run_at, fired_count, coalesced_count, continuation_job_id).",
+	}, wakeupListHandler(b))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_wakeup_disable",
+		Description: "Disable a wakeup by id so it stops firing (it stays listed; enabling again re-arms a timer from now).",
+	}, wakeupDisableHandler(b))
+
 	// Decision channel (Part C §C3). Registered UNCONDITIONALLY (plan M4, same
 	// precedent as add_todo/update_todo): a project-scoped MCP keeps it too.
 	mcp.AddTool(s, &mcp.Tool{
@@ -436,6 +454,60 @@ func toTodoView(t jobstore.PlanTodo) todoView {
 		Assignee: t.Assignee, Project: t.ProjectKey, Template: t.Template,
 		Vars: t.Vars, Verify: t.Verify, Review: t.Review, Runner: t.Runner,
 		Cwd: t.Cwd, TimeoutSec: t.TimeoutSec, DispatchError: t.DispatchError,
+	}
+}
+
+// wakeupView is the gofer_wakeup_* output: one JOB-09 wakeup (design §五.1). Its
+// fields (and their order) match internal/client's Wakeup exactly, so the client
+// backend can convert a decoded response with a plain conversion instead of a
+// hand-written field-by-field copy. Timestamps are unix SECONDS.
+type wakeupView struct {
+	ID                string   `json:"id"`
+	JobID             string   `json:"job_id"`
+	Kind              string   `json:"kind"`
+	At                int64    `json:"at,omitempty"`
+	EverySec          int64    `json:"every_sec,omitempty"`
+	Cron              string   `json:"cron,omitempty"`
+	Timezone          string   `json:"timezone,omitempty"`
+	EventTypes        []string `json:"event_types,omitempty"`
+	FilterJobID       string   `json:"filter_job_id,omitempty"`
+	FilterStatus      []string `json:"filter_status,omitempty"`
+	Mode              string   `json:"mode"`
+	Instruction       string   `json:"instruction,omitempty"`
+	Enabled           bool     `json:"enabled"`
+	Revision          int64    `json:"revision"`
+	NextRunAt         int64    `json:"next_run_at,omitempty"`
+	LastFiredAt       int64    `json:"last_fired_at,omitempty"`
+	FiredCount        int64    `json:"fired_count"`
+	CoalescedCount    int64    `json:"coalesced_count"`
+	ContinuationJobID string   `json:"continuation_job_id,omitempty"`
+	CreatedBy         string   `json:"created_by,omitempty"`
+	CreatedAt         int64    `json:"created_at"`
+	ExpiresAt         int64    `json:"expires_at,omitempty"`
+}
+
+// wakeupsView is the gofer_wakeup_list envelope.
+type wakeupsView struct {
+	Wakeups []wakeupView `json:"wakeups"`
+}
+
+// toWakeupView projects a stored wakeup (the local backend's shape).
+func toWakeupView(w jobstore.WakeupRecord) wakeupView {
+	cont := w.ContinuationJobID
+	if w.IsContinuationPending() {
+		cont = "" // an in-flight fire claim, not a job id
+	}
+	return wakeupView{
+		ID: w.ID, JobID: w.JobID, Kind: w.Kind, At: w.At, EverySec: w.EverySec,
+		Cron: w.CronExpr, Timezone: w.Timezone,
+		EventTypes:   jobstore.DecodeStringList(w.EventTypesJSON),
+		FilterJobID:  w.FilterJobID,
+		FilterStatus: jobstore.DecodeStringList(w.FilterStatusJSON),
+		Mode:         w.Mode, Instruction: w.Instruction, Enabled: w.Enabled == 1,
+		Revision: w.Revision, NextRunAt: w.NextRunAt, LastFiredAt: w.LastFiredAt,
+		FiredCount: w.FiredCount, CoalescedCount: w.CoalescedCount,
+		ContinuationJobID: cont, CreatedBy: w.CreatedBy, CreatedAt: w.CreatedAt,
+		ExpiresAt: w.ExpiresAt,
 	}
 }
 
@@ -843,6 +915,80 @@ func dispatchTodoHandler(b Backend) mcp.ToolHandlerFor[dispatchTodoToolInput, to
 		out, err := b.DispatchTodo(in.TodoID)
 		if err != nil {
 			return nil, todoDispatchView{}, err
+		}
+		return nil, out, nil
+	}
+}
+
+// --- gofer_wakeup_create / list / disable (JOB-09) -------------------------
+
+// wakeupCreateToolInput is gofer_wakeup_create's input: the job to wake plus the
+// subscription or timer that wakes it. It carries every kind's fields (only the
+// ones the kind uses are read) so ONE tool covers all four, exactly like the CLI's
+// single `job wakeup create`.
+type wakeupCreateToolInput struct {
+	JobID string `json:"job_id"`
+	Kind  string `json:"kind"`
+	// At is the absolute fire instant (unix seconds) for kind=at.
+	At int64 `json:"at,omitempty"`
+	// EverySec is the repeat interval for kind=every (>= 60).
+	EverySec int64  `json:"every_sec,omitempty"`
+	Cron     string `json:"cron,omitempty"`
+	Timezone string `json:"timezone,omitempty"`
+	// EventTypes are the subscribed types for kind=event (see the tool description
+	// for the catalog).
+	EventTypes []string `json:"event_types,omitempty"`
+	// FilterJobID is the job whose events are watched; empty = the job the wakeup
+	// is registered on.
+	FilterJobID string `json:"filter_job_id,omitempty"`
+	// FilterStatus narrows kind=event + job.terminal (done/failed/cancelled/rejected/timeout).
+	FilterStatus []string `json:"filter_status,omitempty"`
+	Mode         string   `json:"mode,omitempty"`
+	Instruction  string   `json:"instruction,omitempty"`
+}
+
+type wakeupIDInput struct {
+	WakeupID string `json:"wakeup_id"`
+}
+
+// wakeupJobInput is gofer_wakeup_list's input: the job whose wakeups to read. It
+// spells the id `job_id` (like wakeupCreateToolInput) rather than the gofer_get_job
+// family's `id`, so the two wakeup tools agree on one name.
+type wakeupJobInput struct {
+	JobID string `json:"job_id"`
+}
+
+func wakeupCreateHandler(b Backend) mcp.ToolHandlerFor[wakeupCreateToolInput, wakeupView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in wakeupCreateToolInput) (*mcp.CallToolResult, wakeupView, error) {
+		spec := job.WakeupSpec{
+			Kind: in.Kind, At: in.At, EverySec: in.EverySec,
+			Cron: in.Cron, Timezone: in.Timezone, EventTypes: in.EventTypes,
+			FilterJobID: in.FilterJobID, FilterStatus: in.FilterStatus,
+			Mode: in.Mode, Instruction: in.Instruction,
+		}
+		out, err := b.CreateWakeup(in.JobID, spec)
+		if err != nil {
+			return nil, wakeupView{}, err
+		}
+		return nil, out, nil
+	}
+}
+
+func wakeupListHandler(b Backend) mcp.ToolHandlerFor[wakeupJobInput, wakeupsView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in wakeupJobInput) (*mcp.CallToolResult, wakeupsView, error) {
+		out, err := b.ListWakeups(in.JobID)
+		if err != nil {
+			return nil, wakeupsView{}, err
+		}
+		return nil, wakeupsView{Wakeups: out}, nil
+	}
+}
+
+func wakeupDisableHandler(b Backend) mcp.ToolHandlerFor[wakeupIDInput, wakeupView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in wakeupIDInput) (*mcp.CallToolResult, wakeupView, error) {
+		out, err := b.SetWakeupEnabled(in.WakeupID, false)
+		if err != nil {
+			return nil, wakeupView{}, err
 		}
 		return nil, out, nil
 	}

@@ -747,6 +747,56 @@ func sweepSchedules(now int64, due []jobstore.ScheduleRecord, missGrace int64,
 	}
 }
 
+// sweepDueWakeups handles one JOB-09 pass over the timer wakeups (design §五.2).
+// It mirrors sweepSchedules: every due row is FIRST advanced with a compare-and-swap
+// (so a concurrent tick or a disable can only ever fire one of them), then fired.
+//
+// Two kinds of row arrive here (see Store.DueWakeups): a timer that came due, and a
+// wakeup whose TTL has passed. The expired ones are disabled instead of fired —
+// expire before due, because a wakeup past its expiry has no business starting work.
+//
+// An `at` timer never repeats (next = 0) and a once-mode wakeup is consumed after its
+// fire, so both are disabled; every/cron advance to their next instant and stay
+// armed. A missed tick is never replayed: nextOf counts from `now`.
+func sweepDueWakeups(now int64, due []jobstore.WakeupRecord,
+	nextOf func(w jobstore.WakeupRecord, after int64) (int64, error),
+	advance func(id string, oldNext, newNext int64) (bool, error),
+	fire func(w jobstore.WakeupRecord, reason string),
+	disable func(id string),
+	expire func(id string),
+	logf, errf func(string, ...any)) {
+	for _, w := range due {
+		if w.ExpiresAt > 0 && w.ExpiresAt <= now {
+			expire(w.ID)
+			continue
+		}
+		next := int64(0)
+		if w.Kind != jobstore.WakeupKindAt {
+			n, err := nextOf(w, now)
+			if err != nil {
+				errf("gofer: wakeup %s next run failed: %v\n", w.ID, err)
+				continue
+			}
+			next = n
+		}
+		oldNext := w.NextRunAt
+		ok, err := advance(w.ID, oldNext, next)
+		if err != nil {
+			errf("gofer: wakeup %s advance failed: %v\n", w.ID, err)
+			continue
+		}
+		if !ok {
+			continue // another tick (or a disable) already took this fire
+		}
+		fire(w, w.Kind)
+		if w.Kind == jobstore.WakeupKindAt || w.Mode == jobstore.WakeupModeOnce {
+			disable(w.ID)
+			continue
+		}
+		logf("gofer: wakeup %s fired, next run at %d\n", w.ID, next)
+	}
+}
+
 // startScheduleLoop launches the AUTO-02 cron schedule sweeper. It mirrors the
 // other serve loops: sweep once at startup for crash recovery, then on every
 // configured tick, and exit when stop closes.
@@ -799,6 +849,34 @@ func startScheduleLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
 						c.Errorf("gofer: schedule %s set enabled failed: %v\n", id, err)
 					}
 				},
+				func(f string, a ...any) { c.Printf(f, a...) },
+				func(f string, a ...any) { c.Errorf(f, a...) },
+			)
+			// JOB-09: the wakeup timers ride the SAME tick as the schedules — one
+			// sweeper, one cadence (design §五.2). The pass advances each due timer
+			// with a compare-and-swap before firing it, so two overlapping ticks (or a
+			// tick and a disable) can never double-fire.
+			due2, werr := cr.Store.DueWakeups(now)
+			if werr != nil {
+				c.Errorf("gofer: wakeup due query failed: %v\n", werr)
+				return
+			}
+			sweepDueWakeups(now, due2,
+				func(w jobstore.WakeupRecord, after int64) (int64, error) {
+					return job.WakeupNextRun(w, after)
+				},
+				func(id string, oldNext, newNext int64) (bool, error) {
+					return cr.Store.AdvanceWakeup(id, oldNext, newNext, now)
+				},
+				func(w jobstore.WakeupRecord, reason string) {
+					cr.Jobs.FireWakeup(w.ID, reason)
+				},
+				func(id string) {
+					if err := cr.Store.SetWakeupEnabled(id, 0); err != nil {
+						c.Errorf("gofer: wakeup %s disable failed: %v\n", id, err)
+					}
+				},
+				func(id string) { cr.Jobs.ExpireWakeup(id) },
 				func(f string, a ...any) { c.Printf(f, a...) },
 				func(f string, a ...any) { c.Errorf(f, a...) },
 			)

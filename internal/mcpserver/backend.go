@@ -69,6 +69,13 @@ type Backend interface {
 	// item's status but not its assignee / a live job.
 	DispatchTodo(todoID string) (todoDispatchView, error)
 
+	// JOB-09 wakeups (gofer_wakeup_create|list|disable). CreateWakeup registers an
+	// event subscription or timer on a job; ListWakeups reads a job's registrations;
+	// SetWakeupEnabled flips the switch (enabling a timer re-arms it from now).
+	CreateWakeup(jobID string, spec job.WakeupSpec) (wakeupView, error)
+	ListWakeups(jobID string) ([]wakeupView, error)
+	SetWakeupEnabled(wakeupID string, enabled bool) (wakeupView, error)
+
 	// Decision channel (Part C §C3, gofer_ask_human). Exactly two methods —
 	// there is NO active ExpireDecision (plan H1): expiry is lazy inside the
 	// store's read/answer paths. AskDecision raises an OPEN decision and

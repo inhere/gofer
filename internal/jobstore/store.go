@@ -435,6 +435,40 @@ var schemaStmts = []string{
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_xfers_expiry ON xfers(state, expires_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_xfers_created ON xfers(created_at DESC)`,
+	// job_wakeups is the JOB-09 wakeup registry (design §五.1). One row per wakeup
+	// registered on a job: a timer (at/every/cron) or an event subscription, either
+	// of which starts a CONTINUATION of that job when it fires. event_types_json and
+	// filter_status_json hold JSON arrays of strings (opaque here, like
+	// schedules.request_json); the fire path alone writes continuation_job_id /
+	// fired_count / coalesced_count. idx_wakeups_due serves the sweeper's
+	// DueWakeups, idx_wakeups_job the job-detail listing. IF NOT EXISTS like every
+	// table here (idempotent Open).
+	`CREATE TABLE IF NOT EXISTS job_wakeups (
+  id                  TEXT PRIMARY KEY,
+  job_id              TEXT NOT NULL,
+  kind                TEXT NOT NULL,
+  at                  INTEGER,
+  every_sec           INTEGER,
+  cron_expr           TEXT,
+  timezone            TEXT,
+  event_types_json    TEXT,
+  filter_job_id       TEXT,
+  filter_status_json  TEXT,
+  mode                TEXT NOT NULL DEFAULT 'once',
+  instruction         TEXT,
+  enabled             INTEGER NOT NULL DEFAULT 1,
+  revision            INTEGER NOT NULL DEFAULT 1,
+  next_run_at         INTEGER,
+  last_fired_at       INTEGER,
+  fired_count         INTEGER NOT NULL DEFAULT 0,
+  coalesced_count     INTEGER NOT NULL DEFAULT 0,
+  continuation_job_id TEXT,
+  created_by          TEXT,
+  created_at          INTEGER NOT NULL,
+  expires_at          INTEGER
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_wakeups_due ON job_wakeups(enabled, next_run_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_wakeups_job ON job_wakeups(job_id)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema

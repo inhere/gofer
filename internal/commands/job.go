@@ -309,8 +309,360 @@ func NewJobCmd() *gcli.Command {
 				Func: runJobAnswer,
 			},
 			newJobWorktreeCmd(),
+			newJobWakeupCmd(),
 		},
 	}
+}
+
+// jobWakeupOpts holds `job wakeup` flags (JOB-09). `--after`/`--at`/`--every` are
+// DURATION / RFC3339 strings on the command line and become absolute unix seconds in
+// the request, so the server never has to guess a client's clock offset.
+var jobWakeupOpts = struct {
+	kind        string
+	after       string
+	at          string
+	every       string
+	cron        string
+	tz          string
+	event       string
+	filterJob   string
+	status      string
+	mode        string
+	instruction string
+	file        string
+}{}
+
+// newJobWakeupCmd builds the `job wakeup` group (JOB-09): register an event
+// subscription or timer on a job so gofer CONTINUES it when the condition arrives.
+// An agent can register one for itself from inside a job (`$GOFER_JOB_ID`), which is
+// the point of the feature: the job ends instead of polling, and gofer starts the
+// next turn when there is something to react to.
+func newJobWakeupCmd() *gcli.Command {
+	return &gcli.Command{
+		Name:    "wakeup",
+		Desc:    "Register an event subscription or timer that resumes a job when it fires (JOB-09)",
+		Aliases: []string{"wk"},
+		Subs: []*gcli.Command{
+			{
+				Name:    "create",
+				Desc:    "Register a wakeup on a job (--kind at|every|cron|event; -m/-f carries the instruction)",
+				Aliases: []string{"add"},
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.StrOpt(&jobWakeupOpts.kind, "kind", "k", "", "at | every | cron | event")
+					c.StrOpt(&jobWakeupOpts.after, "after", "", "", "kind=at: fire after this duration (e.g. 10m, 2h)")
+					c.StrOpt(&jobWakeupOpts.at, "at", "", "", "kind=at: fire at this RFC3339 instant")
+					c.StrOpt(&jobWakeupOpts.every, "every", "", "", "kind=every: repeat interval (>= 60s, e.g. 1h)")
+					c.StrOpt(&jobWakeupOpts.cron, "cron", "", "", "kind=cron: five-field cron expression")
+					c.StrOpt(&jobWakeupOpts.tz, "tz", "", "", "kind=cron: IANA timezone (default: server local time)")
+					c.StrOpt(&jobWakeupOpts.event, "event", "", "", "kind=event: event type(s), comma-separated (e.g. job.terminal)")
+					c.StrOpt(&jobWakeupOpts.filterJob, "job-id", "", "", "kind=event: watch THIS job's events (default: the job the wakeup is on)")
+					c.StrOpt(&jobWakeupOpts.status, "status", "", "", "kind=event + job.terminal: only these terminal statuses, comma-separated")
+					c.StrOpt(&jobWakeupOpts.mode, "mode", "", "", "once | continuous (default: once, or continuous for every/cron)")
+					c.StrOpt(&jobWakeupOpts.instruction, "message", "m", "", "instruction the continuation receives")
+					c.StrOpt2(&jobWakeupOpts.file, "file,f", "read the instruction from a file", jobRunOptCategory("Execution", ""))
+					c.AddArg("id", "job id the wakeup is registered on", true)
+				},
+				Func: runJobWakeupCreate,
+			},
+			{
+				Name:    "list",
+				Desc:    "List a job's wakeups",
+				Aliases: []string{"ls"},
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("id", "job id", true)
+				},
+				Func: runJobWakeupList,
+			},
+			{
+				Name: "show",
+				Desc: "Show one wakeup",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("wakeup-id", "wakeup id", true)
+				},
+				Func: runJobWakeupShow,
+			},
+			{
+				Name: "enable",
+				Desc: "Enable a wakeup (a timer is re-armed from now; missed ticks are not replayed)",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("wakeup-id", "wakeup id", true)
+				},
+				Func: func(c *gcli.Command, _ []string) error { return runJobWakeupToggle(c, true) },
+			},
+			{
+				Name: "disable",
+				Desc: "Disable a wakeup without removing it",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("wakeup-id", "wakeup id", true)
+				},
+				Func: func(c *gcli.Command, _ []string) error { return runJobWakeupToggle(c, false) },
+			},
+			{
+				Name:    "rm",
+				Desc:    "Remove a wakeup",
+				Aliases: []string{"remove", "delete"},
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("wakeup-id", "wakeup id", true)
+				},
+				Func: runJobWakeupRemove,
+			},
+		},
+	}
+}
+
+// runJobWakeupCreate builds the WakeupSpec from the flags and registers it. The
+// duration/instant flags are parsed HERE (client-side), so the request carries
+// absolute unix seconds.
+func runJobWakeupCreate(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("job wakeup create requires a <job> argument")
+	}
+	spec, err := wakeupSpecFromFlags(jobWakeupOpts, time.Now())
+	if err != nil {
+		return err
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	w, err := cli.CreateWakeup(id, spec)
+	if err != nil {
+		return err
+	}
+	c.Printf("wakeup %s created on job %s: %s\n", w.ID, w.JobID, formatWakeupTrigger(w))
+	return nil
+}
+
+// wakeupSpecFromFlags turns the flag set into a request. It is a pure function
+// (now is passed in) so the four kinds' request bodies are table-testable.
+func wakeupSpecFromFlags(o struct {
+	kind        string
+	after       string
+	at          string
+	every       string
+	cron        string
+	tz          string
+	event       string
+	filterJob   string
+	status      string
+	mode        string
+	instruction string
+	file        string
+}, now time.Time) (job.WakeupSpec, error) {
+	spec := job.WakeupSpec{
+		Kind:         strings.TrimSpace(o.kind),
+		Cron:         strings.TrimSpace(o.cron),
+		Timezone:     strings.TrimSpace(o.tz),
+		FilterJobID:  strings.TrimSpace(o.filterJob),
+		Mode:         strings.TrimSpace(o.mode),
+		Instruction:  strings.TrimSpace(o.instruction),
+		EventTypes:   splitCSV(o.event),
+		FilterStatus: splitCSV(o.status),
+	}
+	if spec.Kind == "" {
+		return job.WakeupSpec{}, fmt.Errorf("--kind is required (at|every|cron|event)")
+	}
+	switch {
+	case strings.TrimSpace(o.after) != "" && strings.TrimSpace(o.at) != "":
+		return job.WakeupSpec{}, fmt.Errorf("--after and --at are mutually exclusive")
+	case strings.TrimSpace(o.after) != "":
+		d, err := time.ParseDuration(strings.TrimSpace(o.after))
+		if err != nil {
+			return job.WakeupSpec{}, fmt.Errorf("--after: %w", err)
+		}
+		spec.At = now.Add(d).Unix()
+	case strings.TrimSpace(o.at) != "":
+		ts, err := time.Parse(time.RFC3339, strings.TrimSpace(o.at))
+		if err != nil {
+			return job.WakeupSpec{}, fmt.Errorf("--at must be RFC3339 (e.g. 2026-09-21T09:00:00+08:00): %w", err)
+		}
+		spec.At = ts.Unix()
+	}
+	if s := strings.TrimSpace(o.every); s != "" {
+		d, err := time.ParseDuration(s)
+		if err != nil {
+			return job.WakeupSpec{}, fmt.Errorf("--every: %w", err)
+		}
+		spec.EverySec = int64(d / time.Second)
+	}
+	if o.file != "" {
+		if spec.Instruction != "" {
+			return job.WakeupSpec{}, fmt.Errorf("--file/-f and -m/--message are mutually exclusive")
+		}
+		body, err := os.ReadFile(o.file)
+		if err != nil {
+			return job.WakeupSpec{}, fmt.Errorf("read instruction file: %w", err)
+		}
+		spec.Instruction = strings.TrimSpace(string(body))
+	}
+	return spec, nil
+}
+
+func runJobWakeupList(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("job wakeup list requires a <job> argument")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	ws, err := cli.ListWakeups(id)
+	if err != nil {
+		return err
+	}
+	if len(ws) == 0 {
+		c.Printf("job %s has no wakeups\n", id)
+		return nil
+	}
+	for _, w := range ws {
+		c.Printf("%s  %-8s %s  %s  fired=%d coalesced=%d\n",
+			w.ID, wakeupState(w), formatWakeupTrigger(w), shortInstruction(w.Instruction), w.FiredCount, w.CoalescedCount)
+	}
+	return nil
+}
+
+func runJobWakeupShow(c *gcli.Command, _ []string) error {
+	id := argValue(c, "wakeup-id")
+	if id == "" {
+		return fmt.Errorf("job wakeup show requires a <wakeup-id>")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	w, err := cli.GetWakeup(id)
+	if err != nil {
+		return err
+	}
+	c.Printf("id:          %s\n", w.ID)
+	c.Printf("job:         %s\n", w.JobID)
+	c.Printf("kind:        %s\n", w.Kind)
+	c.Printf("mode:        %s\n", w.Mode)
+	c.Printf("enabled:     %t\n", w.Enabled)
+	c.Printf("trigger:     %s\n", formatWakeupTrigger(w))
+	if w.Kind == "event" {
+		c.Printf("watches:     %s\n", w.FilterJobID)
+	}
+	if w.NextRunAt > 0 {
+		c.Printf("next_run_at: %s\n", formatStarted(w.NextRunAt))
+	}
+	if w.LastFiredAt > 0 {
+		c.Printf("last_fired:  %s\n", formatStarted(w.LastFiredAt))
+	}
+	c.Printf("fired:       %d (coalesced %d)\n", w.FiredCount, w.CoalescedCount)
+	if w.ContinuationJobID != "" {
+		c.Printf("continuation: %s\n", w.ContinuationJobID)
+	}
+	if w.CreatedBy != "" {
+		c.Printf("created_by:  %s\n", w.CreatedBy)
+	}
+	if w.ExpiresAt > 0 {
+		c.Printf("expires_at:  %s\n", formatStarted(w.ExpiresAt))
+	}
+	if w.Instruction != "" {
+		c.Printf("instruction: %s\n", w.Instruction)
+	}
+	return nil
+}
+
+// runJobWakeupToggle backs `job wakeup enable|disable`.
+func runJobWakeupToggle(c *gcli.Command, enabled bool) error {
+	id := argValue(c, "wakeup-id")
+	if id == "" {
+		return fmt.Errorf("job wakeup %s requires a <wakeup-id>", wakeupToggleWord(enabled))
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	w, err := cli.SetWakeupEnabled(id, enabled)
+	if err != nil {
+		return err
+	}
+	c.Printf("wakeup %s %sd (%s)\n", w.ID, wakeupToggleWord(enabled), formatWakeupTrigger(w))
+	return nil
+}
+
+func runJobWakeupRemove(c *gcli.Command, _ []string) error {
+	id := argValue(c, "wakeup-id")
+	if id == "" {
+		return fmt.Errorf("job wakeup rm requires a <wakeup-id>")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	if err := cli.DeleteWakeup(id); err != nil {
+		return err
+	}
+	c.Printf("wakeup %s removed\n", id)
+	return nil
+}
+
+func wakeupToggleWord(enabled bool) string {
+	if enabled {
+		return "enable"
+	}
+	return "disable"
+}
+
+// wakeupState is the CLI's short status word for a wakeup line.
+func wakeupState(w client.Wakeup) string {
+	if !w.Enabled {
+		return "disabled"
+	}
+	return "enabled"
+}
+
+// formatWakeupTrigger renders what a wakeup waits for: a timer's next instant, or
+// the event types (with the status filter) it subscribes to.
+func formatWakeupTrigger(w client.Wakeup) string {
+	switch w.Kind {
+	case "event":
+		types := strings.Join(w.EventTypes, ",")
+		if len(w.FilterStatus) > 0 {
+			types += "[" + strings.Join(w.FilterStatus, ",") + "]"
+		}
+		return "on " + types
+	case "every":
+		return fmt.Sprintf("every %ds", w.EverySec)
+	case "cron":
+		if w.Timezone != "" {
+			return fmt.Sprintf("cron %q (%s)", w.Cron, w.Timezone)
+		}
+		return fmt.Sprintf("cron %q", w.Cron)
+	default:
+		if w.NextRunAt > 0 {
+			return "at " + formatStarted(w.NextRunAt)
+		}
+		return "at " + formatStarted(w.At)
+	}
+}
+
+// shortInstruction truncates an instruction for a one-line list.
+func shortInstruction(s string) string {
+	s = strings.ReplaceAll(strings.TrimSpace(s), "\n", " ")
+	if len(s) > 60 {
+		return s[:57] + "..."
+	}
+	if s == "" {
+		return "(no instruction)"
+	}
+	return s
 }
 
 // jobWorktreeOpts holds `job worktree ls/rm` flags (WT-01).
@@ -1342,10 +1694,45 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	if line := formatXfer(res.Xfer); line != "" {
 		c.Printf("xfer:       %s\n", line)
 	}
+	// JOB-09：唤醒——这个 job 登记了几条、其中几条还在等（kind 分布），回答"它会不会自己
+	// 再跑一次"。列表是另一次读请求，失败就不打印（job 本身的状态才是这个命令的重点）。
+	if ws, werr := cli.ListWakeups(res.ID); werr == nil {
+		if line := formatWakeups(ws); line != "" {
+			c.Printf("wakeups:    %s\n", line)
+		}
+	}
 	if res.Error != "" {
 		c.Printf("error:      %s\n", res.Error)
 	}
 	return nil
+}
+
+// formatWakeups summarizes a job's wakeups for `job show`: how many are still armed
+// and of which kinds, in a stable kind order. No wakeups at all prints nothing (the
+// same rule as the xfer/verify lines: an absent feature gets no empty line).
+func formatWakeups(ws []client.Wakeup) string {
+	if len(ws) == 0 {
+		return ""
+	}
+	enabled := 0
+	counts := map[string]int{}
+	for _, w := range ws {
+		if !w.Enabled {
+			continue
+		}
+		enabled++
+		counts[w.Kind]++
+	}
+	if enabled == 0 {
+		return fmt.Sprintf("0 enabled (%d disabled)", len(ws))
+	}
+	kinds := make([]string, 0, len(counts))
+	for _, k := range []string{"at", "every", "cron", "event"} {
+		if n := counts[k]; n > 0 {
+			kinds = append(kinds, fmt.Sprintf("%d %s", n, k))
+		}
+	}
+	return fmt.Sprintf("%d enabled (%s)", enabled, strings.Join(kinds, ", "))
 }
 
 // defaultLogWindowLines is the line count `job logs --head/--tail` uses without -n.

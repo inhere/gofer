@@ -149,6 +149,13 @@ type Service struct {
 	// event path.
 	eventObserver atomic.Pointer[JobEventObserver]
 
+	// observersMu guards observers, the ADDITIONAL in-process subscribers that see
+	// EVERY recorded event (JOB-09; see AddEventObserver). The wakeup event matcher
+	// is registered here in NewService. The slice is copied under the lock before
+	// dispatch, so recording never holds it while a subscriber runs.
+	observersMu sync.RWMutex
+	observers   []JobEventObserver
+
 	// workers supplies connected-worker candidates for label-based auto-selection
 	// (P2 / D3). Injected by commands.buildCore (hub-backed); may be nil — Submit
 	// only consults it on the runner=worker + worker_labels path, so every other
@@ -372,6 +379,10 @@ func NewService(cfg *config.Config, projects *project.Registry, agents *agent.Re
 		nowFn:      time.Now,
 	}
 	s.cfg.Store(cfg)
+	// JOB-09: the wakeup event matcher is an in-process subscriber of every recorded
+	// event (it fires the wakeups whose event filter matches). Registered here, so
+	// every Service — hub, worker, test — gets it without extra wiring.
+	s.AddEventObserver(s.onWakeupEvent)
 	return s
 }
 

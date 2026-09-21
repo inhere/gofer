@@ -160,6 +160,13 @@ func (s *Service) NotifySessionTakeoverReleased(sessionID, projectKey, title, jo
 		Link:      s.webURL("/sessions?sid=" + sessionID),
 		LinkLabel: "查看会话",
 	})
+	// JOB-09: this event is part of the wakeup EVENT catalog (design §五.1), so it
+	// must be in the job's durable event stream too — the matcher, the timeline and
+	// GET /events all read that, while NotifyEvent above only reaches IM/webhooks.
+	s.recordEvent(jobID, EventSessionTakeoverReleased, map[string]any{
+		"session_id": sessionID,
+		"reason":     reason,
+	})
 }
 
 func shortID(id string) string {

@@ -84,6 +84,41 @@ func (s *Service) notifyEventObserver(jobID, eventType, detailJSON string) {
 	(*fn)(jobID, eventType, detail)
 }
 
+// AddEventObserver registers an ADDITIONAL in-process observer that sees EVERY
+// recorded event (JOB-09). SetEventObserver keeps its original single-slot,
+// whitelist-filtered meaning for the worker mirror; this is the multi-subscriber
+// seam the wakeup matcher hangs on, because a wakeup subscribes to event types the
+// mirror deliberately never carries (job.terminal, interaction.answered, …). The
+// slice is copied under observersMu, so registering one never races a recording.
+func (s *Service) AddEventObserver(fn JobEventObserver) {
+	if fn == nil {
+		return
+	}
+	s.observersMu.Lock()
+	s.observers = append(s.observers, fn)
+	s.observersMu.Unlock()
+}
+
+// notifyEventObservers hands one just-recorded event to every registered observer
+// (best-effort, like notifyEventObserver: a subscriber must never affect the job).
+func (s *Service) notifyEventObservers(jobID, eventType, detailJSON string) {
+	s.observersMu.RLock()
+	obs := s.observers
+	s.observersMu.RUnlock()
+	if len(obs) == 0 {
+		return
+	}
+	var detail map[string]any
+	if detailJSON != "" {
+		if json.Unmarshal([]byte(detailJSON), &detail) != nil {
+			detail = nil
+		}
+	}
+	for _, fn := range obs {
+		fn(jobID, eventType, detail)
+	}
+}
+
 // recordEvent appends one append-only lifecycle event for a job (E13, design
 // §5.2). It is BEST-EFFORT: a marshal failure, an oversized detail or a write
 // error only logs a warning — it MUST NOT panic and MUST NOT influence the job's
@@ -121,6 +156,8 @@ func (s *Service) recordEvent(jobID, eventType string, detail any) {
 	// SUP-01 G: a mirrorable event also goes to the observer (the worker client's
 	// connection pump) so the hub that dispatched this job learns about it too.
 	s.notifyEventObserver(jobID, eventType, dj)
+	// JOB-09: the in-process subscribers (the wakeup event matcher) see every event.
+	s.notifyEventObservers(jobID, eventType, dj)
 }
 
 // RecordScopedEvent appends one event on behalf of a NON-JOB scope (XFER-01 X2):
@@ -157,6 +194,7 @@ func (s *Service) RecordScopedEvent(scope, eventType, projectKey string, detail 
 	}
 	s.enqueueScopedDeliveries(seq, scope, projectKey, eventType, dj, at)
 	s.notifyEventObserver(scope, eventType, dj)
+	s.notifyEventObservers(scope, eventType, dj)
 }
 
 // enqueueDeliveries inserts one pending webhook delivery per subscribed target

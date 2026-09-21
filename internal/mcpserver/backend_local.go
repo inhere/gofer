@@ -373,8 +373,42 @@ func (b *localBackend) DispatchTodo(todoID string) (todoDispatchView, error) {
 	return out, nil
 }
 
-// --- decision channel (local 直驱 jobstore via Meta) -------------------------
+// CreateWakeup registers a JOB-09 wakeup over the in-process service: the MCP twin
+// of POST /v1/jobs/{id}/wakeups. The caller is empty (a standalone MCP has no
+// authenticated caller), so the service's permission check treats it as the
+// un-attributed local operator.
+func (b *localBackend) CreateWakeup(jobID string, spec job.WakeupSpec) (wakeupView, error) {
+	spec.JobID = jobID
+	w, err := b.jobs.CreateWakeup(spec, "")
+	if err != nil {
+		return wakeupView{}, err
+	}
+	return toWakeupView(w), nil
+}
 
+// ListWakeups reads a job's wakeups over the in-process service.
+func (b *localBackend) ListWakeups(jobID string) ([]wakeupView, error) {
+	rows, err := b.jobs.ListWakeups(jobID)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]wakeupView, 0, len(rows))
+	for _, w := range rows {
+		out = append(out, toWakeupView(w))
+	}
+	return out, nil
+}
+
+// SetWakeupEnabled flips a wakeup's switch over the in-process service.
+func (b *localBackend) SetWakeupEnabled(wakeupID string, enabled bool) (wakeupView, error) {
+	w, err := b.jobs.SetWakeupEnabled(wakeupID, "", enabled)
+	if err != nil {
+		return wakeupView{}, err
+	}
+	return toWakeupView(w), nil
+}
+
+// --- decision channel (local 直驱 jobstore via Meta) -------------------------
 // AskDecision raises an OPEN decision in-process. The store insert owns id
 // generation / timeout clamp / options normalisation (single收口, plan HIGH-2) —
 // standalone MCP never touches httpapi, so nothing is re-done here.

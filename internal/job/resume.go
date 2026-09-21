@@ -50,10 +50,13 @@ var (
 // target runner: when empty the source runner is used; when non-empty it must
 // equal the source runner (同 runner 约束) — a mismatch is ErrCrossRunner.
 func (s *Service) ResumeJob(jobID, prompt, runner, callerID string) (JobResult, error) {
-	return s.resumeJob(jobID, prompt, runner, callerID, 0)
+	return s.resumeJob(jobID, prompt, runner, callerID, 0, nil)
 }
 
-func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt int) (JobResult, error) {
+// extraTags are added to the source job's tags on the continuation. Only the wakeup
+// path (JOB-09) uses it — a continuation must be findable by reason
+// (`wakeup:<id>`) without losing its original tags.
+func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt int, extraTags []string) (JobResult, error) {
 	src, ok := s.Get(jobID)
 	if !ok {
 		return JobResult{}, fmt.Errorf("%w: %q", ErrUnknownJob, jobID)
@@ -108,7 +111,7 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 			WorkerID:   src.WorkerID,
 			Prompt:     prompt,
 			TimeoutSec: src.TimeoutSec,
-			Tags:       src.Tags,
+			Tags:       wakeupTagList(src.Tags, extraTags),
 			Title:      resumedTitle(src.Title),
 			Cwd:        s.resumeCwd(src),
 			CallerID:   callerID,
@@ -196,7 +199,7 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		// the source's effective timeout, tags and title so the continuation is
 		// governed like the run it continues.
 		TimeoutSec: src.TimeoutSec,
-		Tags:       src.Tags,
+		Tags:       wakeupTagList(src.Tags, extraTags),
 		Title:      resumedTitle(src.Title),
 		// 交互源续接为交互 job：走 pty runner，命令用交互模板（上面已选）。前端跳转后
 		// ?attach=1 自动接入终端（P7 选 A）。非交互源 Interactive 为 false，行为不变。

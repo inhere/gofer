@@ -744,6 +744,11 @@ func validate(cfg *Config) error {
 	if cfg.Presence.TTLSec < 0 || cfg.Presence.MessageTTLSec < 0 || cfg.Presence.PruneIntervalSec < 0 {
 		return fmt.Errorf("presence ttl_sec/message_ttl_sec/prune_interval_sec must be >= 0")
 	}
+	// JOB-09: the wakeup TTL is the same kind of optional override (0 = the 7-day
+	// default); a negative value would expire every wakeup the moment it is created.
+	if cfg.Wakeup.TTLSec < 0 {
+		return fmt.Errorf("wakeup.ttl_sec must be >= 0")
+	}
 	return nil
 }
 

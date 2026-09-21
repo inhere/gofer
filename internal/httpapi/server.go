@@ -577,6 +577,17 @@ func (s *Server) buildRouter() *rux.Router {
 		// rerun = empty-body rebuild. 校验失败 4xx/404(rebuildStatus)。
 		r.POST("/jobs/{id}/rebuild", s.handleRebuildJob)
 
+		// JOB-09 wakeups: register an event subscription / timer on a job that starts a
+		// CONTINUATION of it (resume, or a rebuild with the instruction appended) when
+		// it fires. POST {kind,at|every_sec|cron|event_types|…} is a user-caller
+		// surface (worker 403, like resume's other human-only siblings); the per-wakeup
+		// routes manage an already registered one. 校验失败 4xx/404(wakeupStatus)。
+		r.POST("/jobs/{id}/wakeups", s.handleCreateWakeup)
+		r.GET("/jobs/{id}/wakeups", s.handleListWakeups)
+		r.GET("/wakeups/{wid}", s.handleGetWakeup)
+		r.PATCH("/wakeups/{wid}", s.handleUpdateWakeup)
+		r.DELETE("/wakeups/{wid}", s.handleDeleteWakeup)
+
 		// 工作流(job 链)：提交/列表/详情(含 step 链)/取消。详情附每步 {step_index,
 		// name,job_id,status}，列表 ?status= 过滤；提交校验失败复用 submitStatus(404/400)。
 		r.POST("/workflows", s.handleCreateWorkflow)

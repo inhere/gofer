@@ -430,6 +430,82 @@ func (c *Client) DeleteSchedule(id string) error {
 	return c.doJSON(http.MethodDelete, "/v1/schedules/"+url.PathEscape(id), nil, nil)
 }
 
+// Wakeup is the client-side view of one JOB-09 wakeup (design §五.1): an event
+// subscription or timer registered on a job that starts a continuation of it when
+// it fires. Timestamps are unix SECONDS; Enabled is the switch the web toggles.
+type Wakeup struct {
+	ID                string   `json:"id"`
+	JobID             string   `json:"job_id"`
+	Kind              string   `json:"kind"`
+	At                int64    `json:"at,omitempty"`
+	EverySec          int64    `json:"every_sec,omitempty"`
+	Cron              string   `json:"cron,omitempty"`
+	Timezone          string   `json:"timezone,omitempty"`
+	EventTypes        []string `json:"event_types,omitempty"`
+	FilterJobID       string   `json:"filter_job_id,omitempty"`
+	FilterStatus      []string `json:"filter_status,omitempty"`
+	Mode              string   `json:"mode"`
+	Instruction       string   `json:"instruction,omitempty"`
+	Enabled           bool     `json:"enabled"`
+	Revision          int64    `json:"revision"`
+	NextRunAt         int64    `json:"next_run_at,omitempty"`
+	LastFiredAt       int64    `json:"last_fired_at,omitempty"`
+	FiredCount        int64    `json:"fired_count"`
+	CoalescedCount    int64    `json:"coalesced_count"`
+	ContinuationJobID string   `json:"continuation_job_id,omitempty"`
+	CreatedBy         string   `json:"created_by,omitempty"`
+	CreatedAt         int64    `json:"created_at"`
+	ExpiresAt         int64    `json:"expires_at,omitempty"`
+}
+
+// WakeupsResp is the `{wakeups: [...]}` envelope of the list endpoint.
+type WakeupsResp struct {
+	Wakeups []Wakeup `json:"wakeups"`
+}
+
+// CreateWakeup registers a wakeup on a job (POST /v1/jobs/{id}/wakeups). spec.JobID is
+// taken from the path, so a body value is ignored.
+func (c *Client) CreateWakeup(jobID string, spec job.WakeupSpec) (Wakeup, error) {
+	body, err := json.Marshal(spec)
+	if err != nil {
+		return Wakeup{}, fmt.Errorf("encode wakeup request: %w", err)
+	}
+	var out Wakeup
+	err = c.doJSON(http.MethodPost, "/v1/jobs/"+url.PathEscape(jobID)+"/wakeups", bytes.NewReader(body), &out)
+	return out, err
+}
+
+// ListWakeups returns a job's wakeups, oldest first.
+func (c *Client) ListWakeups(jobID string) ([]Wakeup, error) {
+	var out WakeupsResp
+	err := c.doJSON(http.MethodGet, "/v1/jobs/"+url.PathEscape(jobID)+"/wakeups", nil, &out)
+	return out.Wakeups, err
+}
+
+// GetWakeup returns one wakeup by id.
+func (c *Client) GetWakeup(id string) (Wakeup, error) {
+	var out Wakeup
+	err := c.doJSON(http.MethodGet, "/v1/wakeups/"+url.PathEscape(id), nil, &out)
+	return out, err
+}
+
+// SetWakeupEnabled flips a wakeup's switch (PATCH /v1/wakeups/{id}). Enabling a timer
+// re-arms it from now — the ticks it missed while off are not replayed.
+func (c *Client) SetWakeupEnabled(id string, enabled bool) (Wakeup, error) {
+	body, err := json.Marshal(map[string]bool{"enabled": enabled})
+	if err != nil {
+		return Wakeup{}, fmt.Errorf("encode wakeup patch: %w", err)
+	}
+	var out Wakeup
+	err = c.doJSON(http.MethodPatch, "/v1/wakeups/"+url.PathEscape(id), bytes.NewReader(body), &out)
+	return out, err
+}
+
+// DeleteWakeup removes a wakeup (DELETE /v1/wakeups/{id}).
+func (c *Client) DeleteWakeup(id string) error {
+	return c.doJSON(http.MethodDelete, "/v1/wakeups/"+url.PathEscape(id), nil, nil)
+}
+
 // SetScheduleEnabled toggles a schedule through /enable or /disable.
 func (c *Client) SetScheduleEnabled(id string, enable bool) (Schedule, error) {
 	action := "disable"

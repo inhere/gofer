@@ -47,6 +47,10 @@ type Config struct {
 	// Schedule tunes the AUTO-02 cron schedule sweeper. All fields are optional;
 	// serve applies conservative defaults when unset.
 	Schedule ScheduleConfig `yaml:"schedule,omitempty"`
+	// Wakeup tunes the JOB-09 wakeups (event subscriptions / timers that resume a
+	// finished job). An absent block keeps the documented default (7 days), so the
+	// feature is always on and there is no enable switch to get wrong.
+	Wakeup WakeupConfig `yaml:"wakeup,omitempty"`
 	// Session tunes the terminal session relay (SESS-01): when a stopping agent
 	// session is allowed to wait for a web reply without the human flipping its
 	// switch. See SessionConfig.
@@ -177,6 +181,29 @@ func (c *Config) Clone() *Config {
 type ScheduleConfig struct {
 	SweepIntervalSec int `yaml:"sweep_interval_sec,omitempty"`
 	MissGraceSec     int `yaml:"miss_grace_sec,omitempty"`
+}
+
+// WakeupConfig is the top-level `wakeup:` block (JOB-09, design §五.1). Only the
+// TTL lives here: a wakeup's shape is per-registration, and the sweeper rides the
+// existing `schedule:` cadence rather than owning a second interval.
+type WakeupConfig struct {
+	// TTLSec is how long a wakeup stays armed before the sweeper disables it
+	// (0/unset => DefaultWakeupTTLSec, 7 days). A wakeup nobody consumed is a leak
+	// in the sweeper's query set, so it expires on its own.
+	TTLSec int `yaml:"ttl_sec,omitempty"`
+}
+
+// DefaultWakeupTTLSec is the 7-day wakeup lifetime used when `wakeup.ttl_sec` is
+// unset (design §五 决策 6).
+const DefaultWakeupTTLSec = 7 * 24 * 3600
+
+// WakeupTTL resolves the configured wakeup lifetime; a non-positive value (absent
+// block, or an explicit 0 that validate would reject anyway) yields the default.
+func (c *Config) WakeupTTL() time.Duration {
+	if c == nil || c.Wakeup.TTLSec <= 0 {
+		return DefaultWakeupTTLSec * time.Second
+	}
+	return time.Duration(c.Wakeup.TTLSec) * time.Second
 }
 
 // PresenceConfig tunes the E36 presence/mailbox runtime (design §9 / §12 收尾). Every

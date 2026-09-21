@@ -98,6 +98,13 @@ func (s *Store) PruneJobs(policy RetentionPolicy, now int64) (deleted int, prune
 			_ = tx.Rollback()
 			return 0, nil, fmt.Errorf("jobstore: prune pty sessions %q: %w", id, err)
 		}
+		// JOB-09: a wakeup is owned by the job it resumes — a pruned job leaves
+		// nothing to continue, so its wakeups go in the same tx (design §五.1
+		// 目标 job 被 retention 清理时级联删).
+		if _, err := tx.Exec("DELETE FROM job_wakeups WHERE job_id = ?", id); err != nil {
+			_ = tx.Rollback()
+			return 0, nil, fmt.Errorf("jobstore: prune wakeups %q: %w", id, err)
+		}
 		if _, err := tx.Exec("DELETE FROM jobs WHERE id = ?", id); err != nil {
 			_ = tx.Rollback()
 			return 0, nil, fmt.Errorf("jobstore: prune job %q: %w", id, err)
@@ -224,6 +231,8 @@ func (s *Store) PruneWorkflows(policy WorkflowRetentionPolicy, now int64) (delet
 				"DELETE FROM event_deliveries WHERE job_id = ?",
 				// WEB-03 P3 (D-P3-6): drop each step-job's pty_sessions in the same tx.
 				"DELETE FROM pty_sessions WHERE job_id = ?",
+				// JOB-09: and its wakeups — same连带删 set as PruneJobs.
+				"DELETE FROM job_wakeups WHERE job_id = ?",
 				"DELETE FROM jobs WHERE id = ?",
 			} {
 				if _, derr := tx.Exec(stmt, jid); derr != nil {
