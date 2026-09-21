@@ -318,6 +318,13 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 // queued for no reason) and records job.waiting_dir. Like the semaphore waits, the
 // job is NOT running yet: no execution slot, no process — the state is queuing.
 func (s *Service) enterWaitingDir(entry *jobEntry, jobID, holder, dir string) {
+	// E13 ordering, same as finish(): the event that explains the state lands
+	// BEFORE the state is observable, so a reader that sees waiting_dir (Get /
+	// SSE / the web timeline) always finds the job.waiting_dir row naming the
+	// holder — recording it after the flip let TestDirLockSerializesWritableAgentJobs
+	// observe the status with no event yet under load.
+	s.recordEvent(jobID, EventJobWaitingDir, map[string]any{"holder_job": holder, "dir": dir})
+
 	entry.mu.Lock()
 	entry.result.Status = StatusWaitingDir
 	entry.result.WaitingOnJob = holder
@@ -327,7 +334,6 @@ func (s *Service) enterWaitingDir(entry *jobEntry, jobID, holder, dir string) {
 	if err := s.persist(snap); err != nil {
 		slog.Warn("persist waiting_dir snapshot", "job_id", jobID, "err", err)
 	}
-	s.recordEvent(jobID, EventJobWaitingDir, map[string]any{"holder_job": holder, "dir": dir})
 }
 
 // finish records the terminal state for a job: it updates the in-memory snapshot,
