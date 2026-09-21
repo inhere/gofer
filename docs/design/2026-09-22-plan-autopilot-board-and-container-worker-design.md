@@ -212,7 +212,7 @@ SMOKE OK (html 4867 bytes)
 - **`--json` 的 stdout 纯净性**：gcli 把返回的错误渲染到 **stdout**（`defaultErrHandler` → `color.Error.Tips`），会在 JSON 文档后面追加一行 `ERROR: …`，让 `| jq` 直接解析失败。JSON 模式 + FAIL 时改为打印完文档后 `os.Exit(1)`（判据已在文档的 `failures` 字段里，退出码照旧），与 `job run` 用 `os.Exit(code)` 传递退出码是同一手法；表格模式仍走 `errorx.Failf(1, …)`。
 - **真机验证（主机侧）**：临时 config + 随机端口起 `gofer serve`（temp `server.workers` 绑定），`worker doctor` 三种情形逐条对：
   - 正确 token + 已绑定 worker_id → `connect PASS accepted=true protocol=9`，`result: OK — 0 failed, 1 warning(s)`（guards 未声明），退出码 0；`--json` 一份可 `json.load` 的文档。
-  - 错 token → upgrade 401，`connect FAIL … got 401`；server 日志 `worker auth rejected at hub upgrade`。
+  - 错 token → upgrade 401，`connect FAIL … got 401（token 被 hub 拒绝 — 核对 server_link.token_env 与 server.workers.<worker_id>.token）`；server 日志 `worker auth rejected at hub upgrade`。
   - 未绑定的 worker_id → `connect FAIL 注册被拒: worker_id not bound to this token`（服务端原因原样）。
   - hub 侧日志显示每次探测就是一对 `worker.registered` → `worker.disconnected`，无 job 受影响。
 - **测试**（先写先提交 `b49063b`，实现 `dcc1819`）：`TestWorkerDoctorReportsMissingConfig` / `TestWorkerDoctorFlagsUnresolvableHost` / `TestWorkerDoctorRootsAndToken` / `TestWorkerDoctorConnectsToTestHub`（真 `wshub` 进程内 hub：accept 与 `worker_id not bound to this token` 两分支）+ 两个补充：`TestWorkerDoctorSkipsRegisterProbeWhileWorkerRuns`（pidfile 在 → 跳过且 hub 侧计数为 0）、`TestWorkerDoctorJSONIsMachineReadable`。`--worker-config` 路径断言靠"bind 先写默认值、后设 fixture"的次序，测试里由 `doctorCmdAndOpts` 固定（曾踩过一次：先设 opts 再 bind 会被 clobber 成默认路径，测试"通过"得毫无意义）。

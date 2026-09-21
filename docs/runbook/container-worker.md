@@ -155,7 +155,7 @@ gofer plan run <plan>             # 根节点要人起；之后由依赖自动�
 | `worker doctor` 的 `url` 行 FAIL：`host "host.docker.internal" 解析失败` | Linux 容器解析不了 Docker Desktop 的宿主名 | `server_link.urls` 改宿主 IP（Docker Desktop 通常 `192.168.65.254`），`gofer worker doctor` 复验 |
 | 启动后一直 `worker.reconnecting`，server 无记录 | 端口没通（serve 只监听 `127.0.0.1`）/ 宿主防火墙 | serve 监听 `0.0.0.0:<port>`；容器里 `nc -vz 192.168.65.254 8767` |
 | 注册被拒 `worker_id not bound to this token` | `server.workers` 缺该 key，或 token 不一致 | §2.3 三处对齐；改完 server 侧 reload/重启 |
-| `401`（upgrade 就被拒） | `GOFER_WORKER_TOKEN` 没导出到 worker 进程 | 确认 `.env` 与 worker 同目录、变量名与 `token_env` 一致（`worker doctor` 的 `token` 行会指出） |
+| `401`（websocket upgrade 就被拒） | bearer token 不是 server 认识的那个：`GOFER_WORKER_TOKEN` 没导出到 worker 进程，或与 `server.workers.<id>.token` 不一致 | `worker doctor` 的 `connect` 行会把 401 直接解释成 token 不匹配；`token` 行指出变量从哪读、是否为空 |
 | `worker doctor` 的 `roots[i]` FAIL：`to 目录不存在` | 容器里没挂到那个路径，或路径写成了宿主风格 | bind mount 挂上，或改 `to`（`gofer config validate worker` 同样会报） |
 | `connect` FAIL：`worker 协议版本过旧(vN)` | 容器里的 gofer 二进制比 server 老 | 容器内换新二进制（`gofer -V` 与 server 对照） |
 | 送话报 `no_runner` | 会话登记时没有 `GOFER_HOOK_RUNNER`（或改完 `.env` 没重开会话） | §4；`gofer session show <sid>` 看 runner 字段 |
