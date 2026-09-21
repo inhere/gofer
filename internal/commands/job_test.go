@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gookit/gcli/v3"
 
@@ -601,5 +602,62 @@ func TestJobShowOmitsRecoveringSinceWhenUnset(t *testing.T) {
 	})
 	if strings.Contains(out, "recovering_since") {
 		t.Fatalf("a running job must not show recovering_since:\n%s", out)
+	}
+}
+
+// TestFmtServerTimeUsesServerOffset is the h-aii-tnua regression: a stamp is
+// rendered in the SERVER's zone with its UTC offset, not in whatever zone the CLI
+// process happens to run in. The offset is pinned through the resolution seam, so
+// the assertion is independent of the test host's own timezone.
+func TestFmtServerTimeUsesServerOffset(t *testing.T) {
+	t.Cleanup(func() { setServerTZ(0, false) })
+
+	// +08:00 (the deployment's zone): 2026-09-22 20:13:20 +08:00.
+	setServerTZ(8*3600, true)
+	got := fmtServerTime(1789997000)
+	if !strings.Contains(got, "+08:00") {
+		t.Fatalf("fmtServerTime = %q, want a +08:00 suffix", got)
+	}
+	if want := time.Unix(1789997000, 0).In(time.FixedZone("", 8*3600)).Format("2006-01-02 15:04:05"); !strings.HasPrefix(got, want) {
+		t.Fatalf("fmtServerTime = %q, want it to start with %q", got, want)
+	}
+
+	// A negative offset renders as -05:30 (not "+-5:30").
+	setServerTZ(-5*3600-1800, true)
+	if got := fmtServerTime(1789997000); !strings.Contains(got, "-05:30") {
+		t.Fatalf("fmtServerTime = %q, want a -05:30 suffix", got)
+	}
+
+	// No offset available (offline / older server): fall back to local AND say so.
+	setServerTZ(0, false)
+	got = fmtServerTime(1789997000)
+	if !strings.HasSuffix(got, " (local)") {
+		t.Fatalf("fmtServerTime fallback = %q, want a (local) marker", got)
+	}
+	// 0 / unset stays "-" (the CLI's "never happened" convention).
+	if got := fmtServerTime(0); got != "-" {
+		t.Fatalf("fmtServerTime(0) = %q, want -", got)
+	}
+
+	// formatStarted / probeTime / formatScheduleTime all funnel through it.
+	setServerTZ(8*3600, true)
+	if got := formatStarted(1789997000); !strings.Contains(got, "+08:00") {
+		t.Fatalf("formatStarted = %q, want the server offset", got)
+	}
+	if got := probeTime(1789997000); !strings.Contains(got, "+08:00") {
+		t.Fatalf("probeTime = %q, want the server offset", got)
+	}
+	if got := formatScheduleTime(1789997000); !strings.Contains(got, "+08:00") {
+		t.Fatalf("formatScheduleTime = %q, want the server offset", got)
+	}
+	// A run within a day collapses to the clock (still the server's clock); a
+	// further one keeps the full stamp WITH the offset.
+	near := time.Now().Unix() + 3600
+	if got, want := formatScheduleListTime(near), time.Unix(near, 0).In(time.FixedZone("", 8*3600)).Format("15:04:05"); got != want {
+		t.Fatalf("formatScheduleListTime(near) = %q, want the server clock %q", got, want)
+	}
+	far := time.Now().Unix() + 30*24*3600
+	if got := formatScheduleListTime(far); !strings.HasSuffix(got, "+08:00") {
+		t.Fatalf("formatScheduleListTime(far) = %q, want the server offset", got)
 	}
 }

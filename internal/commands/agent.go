@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/goutil/errorx"
@@ -334,13 +333,11 @@ func runAgentStatus(c *gcli.Command, _ []string) error {
 	return nil
 }
 
-// probeTime renders a probe/health timestamp, or "-" when there is none: an agent
-// that never failed must not read as "failed at 1970-01-01".
+// probeTime renders a probe/health timestamp in the server's zone (bd
+// h-aii-tnua), or "-" when there is none: an agent that never failed must not read
+// as "failed at 1970-01-01".
 func probeTime(sec int64) string {
-	if sec <= 0 {
-		return "-"
-	}
-	return time.Unix(sec, 0).Format("2006-01-02 15:04:05")
+	return fmtServerTime(sec)
 }
 
 // runAgentProbe submits a probe job (SUP-01 P3) and reports its outcome. The exit code

@@ -410,6 +410,8 @@ export interface Stats {
   escalations_pending: number
   projects: number
   server_time: number
+  // 服务端本地时区偏移（秒，bd h-aii-tnua）：时间渲染用它（见 api/time.ts）。
+  server_tz_offset_sec?: number
   version?: string
   uptime_sec?: number
 }

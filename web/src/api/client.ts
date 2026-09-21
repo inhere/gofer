@@ -2,6 +2,7 @@
 // 非 2xx 解析 {error, detail} 抛出可读错误；text 端点返回字符串。
 
 import { getToken, triggerUnauthorized } from '../store/auth'
+import { setServerTZOffset } from './time'
 import { streamJob } from './sse'
 import type {
   AgentProbe,
@@ -247,8 +248,12 @@ export function probeAgent(
   })
 }
 
-export function getStats(): Promise<Stats> {
-  return request<Stats>('/v1/stats')
+export async function getStats(): Promise<Stats> {
+  const stats = await request<Stats>('/v1/stats')
+  // 服务端时区（bd h-aii-tnua）：/v1/stats 是页面上唯一稳定拉到的位置，时间渲染统一
+  // 用它（见 api/time.ts）。
+  setServerTZOffset(stats.server_tz_offset_sec)
+  return stats
 }
 
 export function listPresence(

@@ -22,8 +22,12 @@ type statsResp struct {
 	EscalationsPending int            `json:"escalations_pending"`
 	Projects           int            `json:"projects"`
 	ServerTime         int64          `json:"server_time"`
-	Version            string         `json:"version,omitempty"`
-	UptimeSec          int64          `json:"uptime_sec"`
+	// ServerTZOffsetSec is the server's local UTC offset in seconds (bd
+	// h-aii-tnua): the CLI renders schedule/wakeup times with it, so a stamp means
+	// the same clock the server acted on. Times stay unix seconds on the wire.
+	ServerTZOffsetSec int    `json:"server_tz_offset_sec"`
+	Version           string `json:"version,omitempty"`
+	UptimeSec         int64  `json:"uptime_sec"`
 }
 
 // statsDBBudget caps the row-count pass of the db block (see jobstore.DBStats): a
@@ -193,9 +197,19 @@ func (s *Server) handleStats(c *rux.Context) {
 		EscalationsPending: escalationsPending,
 		Projects:           len(s.projects.List()),
 		ServerTime:         nowMillis(),
+		ServerTZOffsetSec:  serverTZOffsetSec(),
 		Version:            s.build.DisplayVersion(),
 		UptimeSec:          s.uptimeSec(),
 	})
+}
+
+// serverTZOffsetSec is the server's current local UTC offset in seconds. It is
+// computed per request (a DST switch changes it without a restart) and is what the
+// CLI/web render timestamps with (bd h-aii-tnua) — the wire times themselves stay
+// unix seconds.
+func serverTZOffsetSec() int {
+	_, off := time.Now().Zone()
+	return off
 }
 
 // statsDBFromStore maps the store's db picture onto the wire shape (jobstore stays

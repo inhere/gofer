@@ -2097,13 +2097,11 @@ func formatXfer(x *job.XferSummary) string {
 	return strings.Join(parts, " · ")
 }
 
-// formatStarted renders a unix-seconds started_at as a local timestamp; 0 (never
-// started) renders as "-".
+// formatStarted renders a unix-seconds started_at in the SERVER's zone with its
+// UTC offset (bd h-aii-tnua); 0 (never started) renders as "-". See fmtServerTime
+// for the one place the server's offset is resolved.
 func formatStarted(sec int64) string {
-	if sec <= 0 {
-		return "-"
-	}
-	return time.Unix(sec, 0).Format("2006-01-02 15:04:05")
+	return fmtServerTime(sec)
 }
 
 // runJobWatch streams a job's SSE (status + incremental logs) until it reaches a

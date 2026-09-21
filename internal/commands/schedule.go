@@ -317,22 +317,22 @@ func runScheduleDelete(c *gcli.Command, _ []string) error {
 	return nil
 }
 
+// formatScheduleListTime renders a schedule's next/last run: the time of day when it
+// is within a day, the full stamp otherwise — both in the SERVER's zone (bd
+// h-aii-tnua), which is the clock the schedule actually fires on.
 func formatScheduleListTime(sec int64) string {
 	if sec <= 0 {
 		return "-"
 	}
 	t := time.Unix(sec, 0)
 	if time.Since(t) < 24*time.Hour && time.Until(t) < 24*time.Hour {
-		return t.Format("15:04:05")
+		return fmtServerClock(sec)
 	}
-	return t.Format("2006-01-02 15:04")
+	return fmtServerTime(sec)
 }
 
 func formatScheduleTime(sec int64) string {
-	if sec <= 0 {
-		return "-"
-	}
-	return time.Unix(sec, 0).Format("2006-01-02 15:04:05")
+	return fmtServerTime(sec)
 }
 
 func enabledText(v int) string {

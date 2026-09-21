@@ -313,3 +313,26 @@ func TestStatsDBRowCountsPartialOnBudget(t *testing.T) {
 		t.Fatalf("db.tables[jobs]=%d, want 1: %+v", body.DB.Tables["jobs"], body.DB.Tables)
 	}
 }
+
+// TestStatsIncludesServerTZ is the h-aii-tnua server half: /v1/stats reports the
+// server's local UTC offset so the CLI/web render schedule and wakeup times on the
+// clock the server actually acts on. The wire times themselves stay unix seconds.
+func TestStatsIncludesServerTZ(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	resp := do(t, s, http.MethodGet, "/v1/stats", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d, want 200", resp.StatusCode)
+	}
+	var body struct {
+		ServerTime        int64 `json:"server_time"`
+		ServerTZOffsetSec *int  `json:"server_tz_offset_sec"`
+	}
+	decode(t, resp, &body)
+	if body.ServerTZOffsetSec == nil {
+		t.Fatal("server_tz_offset_sec missing from /v1/stats")
+	}
+	_, want := time.Now().Zone()
+	if *body.ServerTZOffsetSec != want {
+		t.Fatalf("server_tz_offset_sec = %d, want the process's local offset %d", *body.ServerTZOffsetSec, want)
+	}
+}
