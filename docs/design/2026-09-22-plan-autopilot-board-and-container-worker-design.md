@@ -104,6 +104,16 @@ v0.48.1 之后"派活 → verify → 验收"的每一步都有了，但**链条�
 | Q3 | WEB-10 看板 | 桩数据下五列/拖拽/派发/blocked 横幅；`vue-tsc`/build |
 | Q4 | CFG-09：`worker doctor` + runbook + 容器实际上线（监督者在容器操作）| 容器 worker connected；web 送话到容器会话；链末 Linux 复核 todo 自动跑 |
 
+## Q1 实测记录（2026-09-22 实施）
+
+- **PTY-01 与代码事实的一处出入**：`internal/job/submit.go` 的 `SessionInject` 追加**本来就无条件**（只判 `ac.SessionInject` 非空），交互 job 一直会注入 `--session-id`——设计 §四「只在非批处理路径追加」的表述与代码不符。据此**没有再加分支**，而是补 `TestInteractiveBuildInjectsSessionID`（`tty-claude` 形状：`interactive_args` + `no_raw_cmd`）把这条路径钉住。`no_raw_cmd` 在代码里只出现在 `config.AgentConfig` 字段与内置模板中，**没有任何校验读取它**（`git grep -n NoRawCmd` 仅见模型/模板），所以 gofer 自身注入 argv 不存在被它拒绝的问题。
+- **转录与环形上限**：`internal/ptyrelay/transcript.go` 的 `Transcript` 是 append-only 写盘 + 环形尾部保留：文件超过上限（默认 4MB）时按 `max/4` 的节流做一次重写压缩（文件峰值 ≤ 1.25×上限，重写放大 ≤ 4×）；`\r\n`→`\n`、孤立 `\r`→`\n`、CSI/OSC/charset/两字节序列剥离，**状态跨 Write 保留**（4KB pty 读会切开转义序列）。首次 flush 不早于构造后 2s / 64KB，静默会话不留空 `pty.txt`。
+- **会话 id 捕获**：`httpapi.ptySessionCapture` 去 ANSI 后维护头 64KB + 尾 64KB 窗口，逐 chunk 扫；relay `WithCloseHook` 在 recorder 停止后（尾部已完整）再扫一次；终态 `captureSession` 对 `Interactive` job 兜底扫 `pty.txt`（非交互 job 不读转录）。
+- **codex TUI 退出文案：未采样**。主机 codex-cli 0.155.1 在 pty 里可启动，但 TUI 先弹「Do you trust the contents of this directory?」信任确认才建会话，非交互环境下拿不到真实退出横幅（探针见提交说明，探针文件已删）。因此按设计 §四列出的两种形态实现：`session id: <uuid>` 与 `… codex resume <uuid>`，正则共用**单个捕获组**（`CaptureSessionIDBytes` 只取第 1 组）并收紧为 UUID 形态，避免把噪声行吞成 id。真机采样后若文案不同，只需改 `builtinSessionDefaults["codex"].SessionCapture` 一处。
+- **XFER-02 id 形态**：`NewID()` → `xf-<8hex>`；`Manager.stage()` 对 `Store.Create`/`InsertXfer` 的碰撞重试 3 次。**没有任何地方解析 id 形态**（`git grep -n "0-9a-f]{32}"` 全仓无命中），所以「旧 32 位 hex 行照常可读」是无条件成立的，未加兼容分支。
+- **h-aii-gnm3 的真实缺口**：multipart 早已要求 `meta` 先于 `file` 且在读 file 前校验路径/大小，但**不检查 worker 是否在线**——注册了却掉线的 worker 会收下整包再在 dispatch 阶段失败（真机「传到 34% 才 400」）。现在 `validateXferTarget` 增加「在线 + 协议 ≥ `wsproto.FileXferMinProtocolVersion`(9)」（离线 409 / 协议旧 409），`POST /v1/xfer/precheck` 复用同一个 `validateXferMeta`，CLI 在**哈希之前**预检。
+- **h-aii-tnua**：`GET /v1/stats` 增 `server_tz_offset_sec`（每次请求现算，DST 变更无需重启）；CLI 一个 `fmtServerTime`/`fmtServerClock`（`internal/commands/timefmt.go`）被 `formatStarted`/`probeTime`/`formatScheduleTime`/`formatScheduleListTime` 共用，偏移每进程解析一次（拿不到→本地 + ` (local)`）；web 在 `api/time.ts` 一处按同偏移渲染（`getStats()` 顺带写入偏移）。线上时间字段仍是 Unix 秒。
+
 ## 决策（已批准 2026-09-22）
 
 1. `plan.blocked` 进通知默认集（其余新事件不进）。

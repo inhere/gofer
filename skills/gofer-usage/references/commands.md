@@ -118,6 +118,14 @@ gofer job list --status needs_review                     # 谁在等人验收
 gofer job worktree ls [-p <project>]                     # 列 --worktree job 留下的 worktree: 分支/领先提交/是否脏/是否已合并
 gofer job worktree rm <job-id> [--force] [--delete-branch]   # 移除 worktree(脏且无 --force 拒绝); 分支默认保留
 
+### 交互 pty job 的文本转录与会话续接（PTY-01）
+
+交互 job（`--interactive`）的 pty 输出**不进 stdout.log**——它只走 cast 录制与 attach 流。gofer 现在同时在结果目录写一份**去 ANSI 的文本转录** `<result_dir>/pty.txt`（默认保留尾部 4MB，`pty.transcript_max_bytes` 可调），所以：
+
+- `gofer job logs <id>` 对交互 job 自动回落到 `pty.txt`（stdout 页签同样；`GET /v1/jobs/{id}/logs/stdout` 也是），不再是一个空面板。
+- **session_id 在退出时捕获**：观察器改为「头 64KB + 尾 64KB 环」并对**去 ANSI 后**的文本跑 `session_capture`，relay 关闭时再扫一次尾部；终态还会兜底扫 `pty.txt`（claude 的 TUI 在退出横幅打印 id，codex 打印 `codex resume <uuid>`）。**TUI 每帧都夹着 ANSI**、id 又在最后几毫秒才打印，这是以前交互 job 拿不到 `session_id` 的原因。
+- **注入对交互同样生效**：带 `session_inject` 的 agent（claude `--session-id <uuid>`）在交互 argv 上也追加，提交时就知道 id。于是 `gofer job resume <id>` 能续上交互会话（codex 无注入模板，靠上面的退出捕获）。
+
 ## job wakeup — 登记等待，条件到达时自动续投（JOB-09）
 
 agent 在一个 job 上登记**事件订阅**或**定时器**，job 正常结束；条件到达时 gofer 自动起一次**续投**（有 session → 续同一会话；无 session → 原请求 + 指令重跑），把登记时的 `instruction` 当提示词。没有常驻进程。agent 在 job 内用 `$GOFER_JOB_ID` 指自己。
@@ -130,6 +138,8 @@ agent 在一个 job 上登记**事件订阅**或**定时器**，job 正常结束
 | `gofer job wakeup create <job> --kind event --event job.terminal[,…] [--job-id <源>] [--status done,failed]` | 订阅事件；`--job-id` 缺省 = 自己；`--status` 只对 `job.terminal` 有效 |
 | `--mode once \| continuous` | 触发一次即消费（at/event 默认）/ 保持生效（every/cron 默认） |
 | `gofer job wakeup list <job>` | 列出一个 job 的唤醒（形态 / 在等什么 / 触发与合并次数） |
+
+时间渲染（h-aii-tnua）：job / 唤醒 / schedule 的绝对时刻统一按**服务端本地时区**渲染并带偏移后缀（如 `2026-09-22 20:13:20 +08:00`），偏移来自 `GET /v1/stats` 的 `server_tz_offset_sec`（web 同）；拿不到时回落进程本地时区并在末尾标 ` (local)`。线上时间字段仍是 Unix 秒。
 | `gofer job wakeup show <wid>` | 单条详情（含 next_run_at / last_fired / 最近续投 job / 到期时刻 / 指令全文） |
 | `gofer job wakeup enable <wid>` | 启用（定时器**从现在重新起算**，不补发关闭期间的触发） |
 | `gofer job wakeup disable <wid>` | 停用（保留记录） |
@@ -201,6 +211,8 @@ gofer tunnel ls                                                   # 活动隧道
 | `gofer tool xfer show <id>` | 单条详情：op / runner / project:path / size / sha256 / state / error / 时间 |
 | `gofer tool xfer rm <id>` | 立即删掉该条（暂存文件 + 记录） |
 
+传输 id 自 XFER-02 起是 **`xf-<8hex>`**（11 位，与唤醒 `wk-` 同风格）；旧行仍是 32 位 hex，照常可读——没有任何地方解析 id 形态。
+
 ```bash
 gofer tool cp ./firmware.bin w-plc:shop-floor/tmp/in/firmware.bin   # 推到 worker 项目目录
 gofer tool cp w-plc:shop-floor/tmp/out/report.csv ./report.csv      # 从 worker 拉回
@@ -211,6 +223,7 @@ gofer tool cp ./x.tar server:build/tmp/x.tar                        # 目标是 
 
 - 路径按**执行机**的项目根解析（`SafeJoin`，POLICY worker 经 roots 映射），**只允许项目根内**，与 `job run --cwd` 同一边界；目标目录不存在会自动创建；目标已存在必须 `--force`。
 - **v1 单文件、无断点续传**：目录先 `tar czf` / `Compress-Archive` 打包；大小上限 `server.xfer.max_bytes`（默认 256MB），worker 侧单次传输超时 `xfer_timeout_sec`（默认 600s）。
+- **推送前先预检**：`POST /v1/xfer/precheck`（同 meta JSON）先校验 runner 在线/协议、项目、路径与大小上限，**通过才读文件**——逃逸路径、离线 worker、超限大小在上传前就报错，不会传到一半才 400。服务端 multipart 也要求 `meta` part 先于 `file`、且在读 file 前完成同一套校验。
 - **推送**：本地算 sha256 → multipart 上传到 server 暂存（打印进度）→ 轮询到 `done`/`failed`；**拉取**：先建 get 记录 → worker 读文件回传到暂存 → `GET /v1/xfer/{id}/content` 落本地（临时名 + rename，校验 sha256）。
 - 退出码：成功 0；失败 1 并**原样**打印 `error`（`exists`、`path escapes project`、`worker offline`、`too large` …）。
 - worker 离线不会排队：直接 failed（`worker offline`），重跑命令即可。
