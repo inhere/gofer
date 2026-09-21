@@ -215,15 +215,22 @@ func (s *Store) Sweep(now time.Time, ttl time.Duration) ([]string, error) {
 	return removed, nil
 }
 
-// NewID mints a transfer id (128-bit random hex). It is unguessable on purpose:
-// the id is the only thing an executing worker needs to fetch a payload, so it
-// must not be enumerable.
+// NewID mints a transfer id: `xf-` + 8 random hex chars (XFER-02 decision 5 —
+// every new short id is `<2 letters>-<8hex>`, like the wakeups' `wk-`).
+//
+// The old form was 32 hex chars; the short form is what a human reads in
+// `tool xfer ls` / an event scope. 2^-32 per row is not a security boundary on
+// its own and is not meant to be one: fetching a transfer's content is gated by
+// the CALLER (a worker may only fetch its own put, and only a user caller sees a
+// get's result), so a guessed id buys nothing. Collisions are absorbed by the
+// unique id column plus the staging retry (see Manager.stage), and rows written
+// with the old 32-hex ids stay readable — nothing parses an id's shape.
 func NewID() string {
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		// crypto/rand never fails in practice; a time-based fallback keeps the
-		// process alive rather than panicking on a theoretical syscall error.
-		return fmt.Sprintf("x%016x", time.Now().UnixNano())
+	var b [4]byte
+	if _, err := rand.Read(b[:]); err == nil {
+		return "xf-" + hex.EncodeToString(b[:])
 	}
-	return hex.EncodeToString(b[:])
+	// crypto/rand never fails in practice; a time-based fallback keeps the
+	// process alive rather than panicking on a theoretical syscall error.
+	return fmt.Sprintf("xf-%08x", uint32(time.Now().UnixNano()))
 }

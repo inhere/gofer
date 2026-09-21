@@ -46,6 +46,8 @@ func TestJobRunUploadStagesBeforeSubmit(t *testing.T) {
 	)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/xfer/precheck":
+			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/xfer":
 			mr, err := r.MultipartReader()
 			if err != nil {

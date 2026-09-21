@@ -17,6 +17,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
+	"github.com/inhere/gofer/internal/wsproto"
 	"github.com/inhere/gofer/internal/xfer"
 )
 
@@ -180,14 +181,11 @@ func (s *Server) xferCreatePush(c *rux.Context, caller string) {
 				writeError(c, http.StatusBadRequest, "unsupported op", "a multipart body must carry op=\"put\"")
 				return
 			}
-			if status, msg, detail := s.validateXferTarget(meta.Runner, meta.Project, meta.Path); status != 0 {
+			// Every meta check happens HERE, before the file part is read: a bad
+			// target must fail while the payload is still untouched (h-aii-gnm3 —
+			// the precheck endpoint runs the same validator).
+			if status, msg, detail := s.validateXferMeta(meta); status != 0 {
 				writeError(c, status, msg, detail)
-				return
-			}
-			if meta.Size > s.xfer.Limits().MaxBytes {
-				writeError(c, http.StatusRequestEntityTooLarge, "too large",
-					"transfer is "+strconv.FormatInt(meta.Size, 10)+" bytes; the limit is "+
-						strconv.FormatInt(s.xfer.Limits().MaxBytes, 10))
 				return
 			}
 		case "file":
@@ -268,6 +266,57 @@ func (s *Server) xferAcceptFile(c *rux.Context, caller string, meta xferMeta, bo
 		s.xfer.Dispatch(xferDispatchContext(c), rec.ID)
 	}
 	c.JSON(http.StatusOK, map[string]any{"id": rec.ID, "state": string(xfer.StateStaged)})
+}
+
+// handleXferPrecheck serves POST /v1/xfer/precheck: the same meta object a push
+// would send, validated and NOTHING staged (bd h-aii-gnm3). The CLI calls it
+// before it hashes or streams a byte, so an escaping path, an unknown project, a
+// too-large file or an offline runner fails while the file is still untouched —
+// instead of after a partial upload.
+//
+// It reports the same statuses/errors validateXferTarget gives the real create
+// (400 path escapes, 404 unknown project/runner, 409 runner offline/too old,
+// 413 too large), so a caller can treat "precheck ok" as "the create will be
+// admitted".
+func (s *Server) handleXferPrecheck(c *rux.Context) {
+	if s.xferUnavailable(c) {
+		return
+	}
+	if callerKindFromCtx(c) != callerKindUser {
+		writeError(c, http.StatusForbidden, "user caller required", "only a user caller may create a transfer")
+		return
+	}
+	body, err := io.ReadAll(io.LimitReader(c.Req.Body, 64<<10))
+	if err != nil {
+		writeError(c, http.StatusBadRequest, "invalid body", err.Error())
+		return
+	}
+	var meta xferMeta
+	if err := json.Unmarshal(body, &meta); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid json", err.Error())
+		return
+	}
+	if status, msg, detail := s.validateXferMeta(meta); status != 0 {
+		writeError(c, status, msg, detail)
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"ok": true})
+}
+
+// validateXferMeta runs every check a create performs on its meta object, in one
+// place so the push path and the precheck cannot drift: the target (runner
+// registered+online+capable, project, path) and the declared size against the
+// transfer cap. It returns 0 when the meta is admissible.
+func (s *Server) validateXferMeta(meta xferMeta) (int, string, string) {
+	if status, msg, detail := s.validateXferTarget(meta.Runner, meta.Project, meta.Path); status != 0 {
+		return status, msg, detail
+	}
+	if meta.Size > s.xfer.Limits().MaxBytes {
+		return http.StatusRequestEntityTooLarge, "too large",
+			"transfer is " + strconv.FormatInt(meta.Size, 10) + " bytes; the limit is " +
+				strconv.FormatInt(s.xfer.Limits().MaxBytes, 10)
+	}
+	return 0, "", ""
 }
 
 // handleXferList serves GET /v1/xfer?state=&runner=&limit=.
@@ -499,6 +548,21 @@ func (s *Server) validateXferTarget(runner, projectKey, path string) (int, strin
 		}
 		if _, ok := s.cfg.Workers[name]; !ok {
 			return http.StatusNotFound, "unknown runner", "no worker " + name + " is registered on this server"
+		}
+		// The worker must be ONLINE and able to speak the file-transfer frames: a
+		// registered-but-disconnected worker would otherwise accept the payload and
+		// fail only at dispatch time — after the whole upload (bd h-aii-gnm3).
+		proto, online := 0, false
+		if s.hub != nil {
+			proto, online = s.hub.WorkerProtocol(name)
+		}
+		if !online {
+			return http.StatusConflict, "runner offline", "worker " + name + " is not connected to this server"
+		}
+		if proto < wsproto.FileXferMinProtocolVersion {
+			return http.StatusConflict, "runner too old",
+				"worker " + name + " speaks protocol " + strconv.Itoa(proto) + "; file transfers need " +
+					strconv.Itoa(wsproto.FileXferMinProtocolVersion)
 		}
 	}
 	if strings.TrimSpace(path) == "" {

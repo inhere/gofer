@@ -137,6 +137,9 @@ func TestToolCpPushFlow(t *testing.T) {
 	)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/xfer/precheck":
+			// The client prechecks before it hashes/streams anything (h-aii-gnm3).
+			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/xfer":
 			mr, err := r.MultipartReader()
 			if err != nil {
@@ -232,6 +235,8 @@ func xferPullStub(t *testing.T, payload []byte, shaHeader string) (*httptest.Ser
 	sum := sha256.Sum256(payload)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/xfer/precheck":
+			w.WriteHeader(http.StatusOK)
 		case r.Method == http.MethodPost && r.URL.Path == "/v1/xfer":
 			var meta map[string]any
 			if err := json.NewDecoder(r.Body).Decode(&meta); err != nil {
@@ -509,4 +514,64 @@ func TestToolCpReportsTheReason(t *testing.T) {
 		}
 		assertToolExit(t, runErr)
 	})
+}
+
+// TestToolCpPrechecksBeforeUpload proves `tool cp` asks the server to validate the
+// target BEFORE it uploads (bd h-aii-gnm3): when the precheck refuses, the push
+// must never open a multipart body — no hashing, no bytes on the wire, no partial
+// transfer. The stub fails the test if the multipart route is reached at all.
+func TestToolCpPrechecksBeforeUpload(t *testing.T) {
+	dir := t.TempDir()
+	local := filepath.Join(dir, "big.bin")
+	if err := os.WriteFile(local, bytes.Repeat([]byte("payload-"), 1024), 0o644); err != nil {
+		t.Fatalf("write local file: %v", err)
+	}
+
+	var prechecks, uploads int32
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/xfer/precheck":
+			atomic.AddInt32(&prechecks, 1)
+			var meta map[string]any
+			if err := json.NewDecoder(r.Body).Decode(&meta); err != nil {
+				t.Errorf("precheck meta: %v", err)
+			}
+			if meta["runner"] != "w-1" || meta["project"] != "proj" || meta["path"] != "tmp/a.bin" {
+				t.Errorf("precheck meta = %v; want the target the upload would use", meta)
+			}
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": "path escapes project", "detail": "../tmp/a.bin"})
+		case r.Method == http.MethodPost && r.URL.Path == "/v1/xfer":
+			atomic.AddInt32(&uploads, 1)
+			t.Errorf("the multipart upload was sent despite a refusing precheck")
+			http.Error(w, "unexpected", http.StatusInternalServerError)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	cli := client.New(srv.URL, "test-token")
+	cmd := bindCmd(findSub(t, NewToolCmd(), "cp"))
+	plan, err := parseCpPair(local, "w-1:proj/tmp/a.bin")
+	if err != nil {
+		t.Fatalf("parseCpPair: %v", err)
+	}
+
+	var runErr error
+	_ = captureOutput(t, func() {
+		runErr = runCpTransfer(context.Background(), cmd, cli, plan, true)
+	})
+	if runErr == nil {
+		t.Fatal("push succeeded despite a refusing precheck")
+	}
+	if !strings.Contains(runErr.Error(), "path escapes project") {
+		t.Fatalf("push error = %q; want the server's precheck message", runErr)
+	}
+	if got := atomic.LoadInt32(&prechecks); got != 1 {
+		t.Errorf("precheck calls = %d, want exactly 1 before any upload", got)
+	}
+	if got := atomic.LoadInt32(&uploads); got != 0 {
+		t.Errorf("multipart uploads = %d, want 0", got)
+	}
 }

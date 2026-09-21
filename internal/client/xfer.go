@@ -141,6 +141,27 @@ func doXferJSON(req *http.Request, out any) error {
 	return nil
 }
 
+// XferPrecheck asks the server to validate a transfer target and size WITHOUT
+// staging anything or sending a payload (bd h-aii-gnm3). xferPut calls it after
+// the stat and BEFORE the digest pass, so an escaping path, an unknown project,
+// an offline runner or an over-cap file fails while the file is still untouched —
+// the alternative (found on a real machine) was a 400 after 34% of the bytes had
+// been uploaded.
+//
+// It carries the same meta object the multipart create sends, so the two can
+// never validate different things.
+func (c *Client) XferPrecheck(ctx context.Context, runner, project, path string, size int64, force bool) error {
+	raw, err := json.Marshal(xferMeta{Op: XferOpPut, Runner: runner, Project: project, Path: path, Size: size, Force: force})
+	if err != nil {
+		return fmt.Errorf("encode meta: %w", err)
+	}
+	req, err := c.xferRequest(ctx, http.MethodPost, "/v1/xfer/precheck", bytes.NewReader(raw), "application/json")
+	if err != nil {
+		return err
+	}
+	return doXferJSON(req, nil)
+}
+
 // XferPut pushes a local file to runner:project/path (POST /v1/xfer,
 // multipart/form-data). The file is stat'ed and hashed first — the server
 // verifies the DECLARED digest against the streamed one, so the meta field has to
@@ -179,6 +200,13 @@ func (c *Client) xferPut(ctx context.Context, runner, project, path, localPath s
 	}
 	if st.IsDir() {
 		return XferRecord{}, fmt.Errorf("%s is a directory: v1 transfers one file (pack it with tar / Compress-Archive first)", localPath)
+	}
+
+	// Precheck (bd h-aii-gnm3) BEFORE the digest pass: hashing a large file is
+	// wasted work if the server will refuse the target anyway, and the meta is
+	// already complete at this point (size from the stat).
+	if err := c.XferPrecheck(ctx, runner, project, path, st.Size(), force); err != nil {
+		return XferRecord{}, err
 	}
 
 	// Pass 1: the digest must be known before the meta field is written.

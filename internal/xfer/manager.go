@@ -162,7 +162,6 @@ func (m *Manager) StagePut(caller, runner, projectKey, path string, size int64, 
 		return jobstore.XferRecord{}, fmt.Errorf("%w: %d bytes exceeds %d", ErrTooLarge, size, m.limits.MaxBytes)
 	}
 	rec := jobstore.XferRecord{
-		ID:         NewID(),
 		Op:         string(OpPut),
 		Runner:     config.NormalizeRunnerName(runner),
 		ProjectKey: projectKey,
@@ -177,14 +176,31 @@ func (m *Manager) StagePut(caller, runner, projectKey, path string, size int64, 
 	if force {
 		rec.Force = 1
 	}
-	if err := m.store.Create(rec.ID); err != nil {
-		return jobstore.XferRecord{}, err
+	return m.stage(rec)
+}
+
+// stage mints an id for rec, creates its staging directory and records the row,
+// retrying on a short-id collision (XFER-02: `xf-<8hex>` is a 32-bit space, so a
+// clash is possible in principle and must cost a retry, never a lost or
+// overwritten transfer — the journal's id is a unique key and Create fails on an
+// existing directory). The last error is returned when every attempt collides.
+func (m *Manager) stage(rec jobstore.XferRecord) (jobstore.XferRecord, error) {
+	const attempts = 3
+	var lastErr error
+	for range attempts {
+		rec.ID = NewID()
+		if err := m.store.Create(rec.ID); err != nil {
+			lastErr = err
+			continue
+		}
+		if err := m.repo.InsertXfer(rec); err != nil {
+			_ = m.store.Remove(rec.ID)
+			lastErr = err
+			continue
+		}
+		return rec, nil
 	}
-	if err := m.repo.InsertXfer(rec); err != nil {
-		_ = m.store.Remove(rec.ID)
-		return jobstore.XferRecord{}, err
-	}
-	return rec, nil
+	return jobstore.XferRecord{}, lastErr
 }
 
 // StageGet records a transfer that fetches <runner>:<project>/<path> back to the
@@ -200,7 +216,6 @@ func (m *Manager) StageGet(caller, runner, projectKey, path string) (jobstore.Xf
 // that names the job rather than a human.
 func (m *Manager) stageGet(caller, jobID, runner, projectKey, path string) (jobstore.XferRecord, error) {
 	rec := jobstore.XferRecord{
-		ID:         NewID(),
 		Op:         string(OpGet),
 		Runner:     config.NormalizeRunnerName(runner),
 		ProjectKey: projectKey,
@@ -211,14 +226,7 @@ func (m *Manager) stageGet(caller, jobID, runner, projectKey, path string) (jobs
 		CreatedAt:  m.nowFn().Unix(),
 		ExpiresAt:  m.nowFn().Add(m.limits.TTL).Unix(),
 	}
-	if err := m.store.Create(rec.ID); err != nil {
-		return jobstore.XferRecord{}, err
-	}
-	if err := m.repo.InsertXfer(rec); err != nil {
-		_ = m.store.Remove(rec.ID)
-		return jobstore.XferRecord{}, err
-	}
-	return rec, nil
+	return m.stage(rec)
 }
 
 // Release drops a SETTLED transfer's staged payload without touching its journal

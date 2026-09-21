@@ -623,6 +623,22 @@ func (c *Client) GetUsageStats() (StatsUsage, error) {
 	return resp.Usage, err
 }
 
+// GetServerTZOffset reads the server's local UTC offset in seconds (bd
+// h-aii-tnua) from GET /v1/stats. ok=false means the server did not report it (an
+// older build), which is what lets the CLI mark a fallback timestamp "(local)".
+func (c *Client) GetServerTZOffset() (offset int, ok bool, err error) {
+	var resp struct {
+		ServerTZOffsetSec *int `json:"server_tz_offset_sec"`
+	}
+	if err := c.doJSON(http.MethodGet, "/v1/stats", nil, &resp); err != nil {
+		return 0, false, err
+	}
+	if resp.ServerTZOffsetSec == nil {
+		return 0, false, nil
+	}
+	return *resp.ServerTZOffsetSec, true, nil
+}
+
 // ListTemplates reads a project's task-book templates (SUP-01 P5): the project's own
 // .gofer/templates first, then the server's global <config-dir>/templates. Templates
 // live on the SERVER's disk, so a client (CLI/console) reads them over HTTP.

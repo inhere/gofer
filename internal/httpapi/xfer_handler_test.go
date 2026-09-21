@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"testing"
 	"time"
 
@@ -437,5 +438,207 @@ func TestXferOversizeRejected(t *testing.T) {
 	}
 	if _, err := os.Stat(mgr.Store().Path(rows[0].ID)); !os.IsNotExist(err) {
 		t.Fatalf("rejected oversize upload left a payload behind (err=%v)", err)
+	}
+}
+
+// infinitePushBody streams a multipart push whose file part NEVER ends, so a
+// server that reads the payload before it validates the meta cannot answer at all
+// (the old h-aii-gnm3 behaviour: the real machine reported a 400 after 34% of the
+// bytes). Closing the returned reader unblocks the writer goroutine.
+func infinitePushBody(t *testing.T, meta map[string]any) (*io.PipeReader, string) {
+	t.Helper()
+	pr, pw := io.Pipe()
+	mw := multipart.NewWriter(pw)
+	go func() {
+		raw, err := json.Marshal(meta)
+		if err != nil {
+			_ = pw.CloseWithError(err)
+			return
+		}
+		if err := mw.WriteField("meta", string(raw)); err != nil {
+			_ = pw.CloseWithError(err)
+			return
+		}
+		fw, err := mw.CreateFormFile("file", "huge.bin")
+		if err != nil {
+			_ = pw.CloseWithError(err)
+			return
+		}
+		block := bytes.Repeat([]byte("x"), 32*1024)
+		for {
+			if _, err := fw.Write(block); err != nil {
+				return // the server stopped reading / the test closed the pipe
+			}
+		}
+	}()
+	return pr, mw.FormDataContentType()
+}
+
+// TestXferRejectsBeforeReadingFile: a push whose meta is already refusable (the
+// path escapes the project) is answered 400 while its file stream is still being
+// produced — the payload is never consumed (bd h-aii-gnm3).
+func TestXferRejectsBeforeReadingFile(t *testing.T) {
+	s, mgr, _ := newXferServer(t, config.ServerConfig{Token: testToken}, xfer.Limits{})
+	body, ctype := infinitePushBody(t, pushMeta("../escape.bin", []byte("x"), "", true))
+	defer body.Close()
+
+	req := httptest.NewRequest(http.MethodPost, "/v1/xfer", body)
+	req.Header.Set("Content-Type", ctype)
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	rec := httptest.NewRecorder()
+
+	start := time.Now()
+	done := make(chan struct{})
+	go func() {
+		s.Handler().ServeHTTP(rec, req)
+		close(done)
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("no answer while the file part was still streaming: the server read the payload before validating the meta")
+	}
+	elapsed := time.Since(start)
+	resp := rec.Result()
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("status=%d body=%s, want 400", resp.StatusCode, raw)
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("400 took %s; the meta must be judged before any payload is read", elapsed)
+	}
+	// Nothing was staged: no journal row exists for this attempt.
+	rows, err := mgr.List(jobstore.XferFilter{})
+	if err != nil {
+		t.Fatalf("list xfers: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("a refused push left %d transfer row(s): %+v", len(rows), rows)
+	}
+}
+
+// TestXferPrecheckEndpoint: POST /v1/xfer/precheck validates exactly what a create
+// validates — target, project, path and size — and stages NOTHING, so the CLI can
+// fail before it hashes or streams a byte (bd h-aii-gnm3).
+func TestXferPrecheckEndpoint(t *testing.T) {
+	s, mgr, _ := newXferServer(t, config.ServerConfig{
+		Token:   testToken,
+		Workers: map[string]config.WorkerAuthConfig{"w-off": {}},
+	}, xfer.Limits{MaxBytes: 1024})
+
+	post := func(t *testing.T, meta map[string]any) (int, map[string]any) {
+		t.Helper()
+		raw, err := json.Marshal(meta)
+		if err != nil {
+			t.Fatal(err)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/v1/xfer/precheck", bytes.NewReader(raw))
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+testToken)
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, req)
+		resp := rec.Result()
+		defer resp.Body.Close()
+		var body map[string]any
+		_ = json.NewDecoder(resp.Body).Decode(&body)
+		return resp.StatusCode, body
+	}
+
+	// The same meta a push would send: accepted.
+	if status, body := post(t, pushMeta("tmp/ok.bin", []byte("1234"), "", false)); status != http.StatusOK {
+		t.Fatalf("valid precheck status=%d body=%v, want 200", status, body)
+	}
+	if status, body := post(t, pushMeta("../escape.bin", []byte("1234"), "", false)); status != http.StatusBadRequest {
+		t.Fatalf("escaping path precheck status=%d body=%v, want 400", status, body)
+	}
+	if status, body := post(t, map[string]any{"op": "put", "runner": "server", "project": "nope", "path": "a.bin"}); status != http.StatusNotFound {
+		t.Fatalf("unknown project precheck status=%d body=%v, want 404", status, body)
+	}
+	if status, body := post(t, map[string]any{"op": "put", "runner": "ghost", "project": "demo", "path": "a.bin"}); status != http.StatusNotFound {
+		t.Fatalf("unknown runner precheck status=%d body=%v, want 404", status, body)
+	}
+	// A registered worker that is NOT connected must be refused up front: the old
+	// flow accepted the payload and failed later, at dispatch.
+	if status, body := post(t, map[string]any{"op": "put", "runner": "w-off", "project": "demo", "path": "a.bin"}); status != http.StatusConflict {
+		t.Fatalf("offline runner precheck status=%d body=%v, want 409", status, body)
+	}
+	// Over the cap (Limits.MaxBytes = 1024 above).
+	if status, body := post(t, map[string]any{"op": "put", "runner": "server", "project": "demo", "path": "a.bin", "size": 4096}); status != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized precheck status=%d body=%v, want 413", status, body)
+	}
+	// Precheck is a pure check: no row, no staging directory.
+	rows, err := mgr.List(jobstore.XferFilter{})
+	if err != nil {
+		t.Fatalf("list xfers: %v", err)
+	}
+	if len(rows) != 0 {
+		t.Fatalf("precheck staged %d transfer(s): %+v", len(rows), rows)
+	}
+}
+
+// TestXferPrecheckEndpointRefusesWorkerCaller: like the create, the precheck is a
+// user-only surface (a worker must not be able to probe the server's transfer
+// targets).
+func TestXferPrecheckEndpointRefusesWorkerCaller(t *testing.T) {
+	s, _, _ := newXferServer(t, config.ServerConfig{
+		Token:   testToken,
+		Workers: map[string]config.WorkerAuthConfig{"w1": {Token: "worker-token"}},
+	}, xfer.Limits{})
+
+	raw, _ := json.Marshal(map[string]any{"op": "put", "runner": "server", "project": "demo", "path": "a.bin"})
+	req := httptest.NewRequest(http.MethodPost, "/v1/xfer/precheck", bytes.NewReader(raw))
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer worker-token")
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("worker precheck status=%d, want 403", rec.Code)
+	}
+}
+
+// TestXferAcceptsLegacyLongID: transfer rows written before XFER-02 keep their
+// 32-hex ids and stay readable — nothing parses an id's shape, so the short form
+// is a write-side change only.
+func TestXferAcceptsLegacyLongID(t *testing.T) {
+	s, _, _ := newXferServer(t, config.ServerConfig{Token: testToken}, xfer.Limits{})
+	legacy := "0123456789abcdef0123456789abcdef"
+	if err := s.jobs.Meta().InsertXfer(jobstore.XferRecord{
+		ID: legacy, Op: "put", Runner: "local", ProjectKey: "demo", Path: "tmp/old.bin",
+		Size: 3, State: "done", CallerID: "alice", CreatedAt: time.Now().Unix(),
+	}); err != nil {
+		t.Fatalf("insert legacy row: %v", err)
+	}
+	req := httptest.NewRequest(http.MethodGet, "/v1/xfer/"+legacy, nil)
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	resp := rec.Result()
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		raw, _ := io.ReadAll(resp.Body)
+		t.Fatalf("legacy id status=%d body=%s, want 200", resp.StatusCode, raw)
+	}
+	var body map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if body["id"] != legacy {
+		t.Fatalf("body id = %v, want the legacy %s", body["id"], legacy)
+	}
+}
+
+// TestXferCreateMintsShortID: a real create now mints `xf-<8hex>` (XFER-02), and
+// the row it answers with is the one the journal holds.
+func TestXferCreateMintsShortID(t *testing.T) {
+	s, _, _ := newXferServer(t, config.ServerConfig{Token: testToken}, xfer.Limits{})
+	data := []byte("short id payload")
+	resp, body := xferPush(t, s, testToken, pushMeta("tmp/short.bin", data, "", true), "short.bin", data)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%v, want 200", resp.StatusCode, body)
+	}
+	id, _ := body["id"].(string)
+	if !regexp.MustCompile(`^xf-[0-9a-f]{8}$`).MatchString(id) {
+		t.Fatalf("created id = %q, want xf-<8 hex>", id)
 	}
 }
