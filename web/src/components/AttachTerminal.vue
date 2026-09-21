@@ -5,6 +5,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { requestAttachTicket } from '../api/client'
 import { buildAttachWsUrl, encodeInput, parseServerFrame } from '../api/attach'
+import { isTextEntry, terminalOwnsEvent } from '../utils/terminalFocus'
 import { FIT_DEBOUNCE_MS, resizeFramePayload, sizeAction } from '../utils/terminalSize'
 
 type AttachMode = 'write' | 'read'
@@ -350,15 +351,7 @@ function isEscapeKey(ev: KeyboardEvent): boolean {
 }
 
 function isTerminalActive(target: EventTarget | null): boolean {
-  const host = hostEl.value
-  if (!host) {
-    return false
-  }
-  if (target instanceof Node && host.contains(target)) {
-    return true
-  }
-  const active = document.activeElement
-  return (active instanceof Node && host.contains(active)) || terminalActive.value
+  return terminalOwnsEvent(target, document.activeElement, hostEl.value, terminalActive.value)
 }
 
 function consumeShortcut(ev: KeyboardEvent): boolean {
@@ -414,10 +407,18 @@ function onDocumentPointerDown(ev: PointerEvent): void {
   if (!(target instanceof Node)) {
     return
   }
-  const inRoot = !!rootEl.value?.contains(target)
-  terminalActive.value = inRoot
-  if (inRoot && !hostEl.value?.contains(target)) {
+  // 只有点进 xterm 宿主才算"终端活跃"（h-aii-vwux）：以前用整个组件根判断，
+  // 于是点下方发送框后 terminalActive 仍为真、粘贴继续被终端截走。
+  const inHost = !!hostEl.value?.contains(target)
+  terminalActive.value = inHost
+  if (inHost) {
     term?.focus()
+    return
+  }
+  // 点到宿主之外（发送框、终端栏按钮、页面其它输入框）：终端让出焦点，粘贴与
+  // Ctrl+C/V 交回浏览器默认行为。
+  if (isTextEntry(target) || !rootEl.value?.contains(target)) {
+    term?.blur()
   }
 }
 
@@ -429,6 +430,13 @@ function onDocumentPaste(ev: ClipboardEvent): void {
   ev.stopPropagation()
   ev.stopImmediatePropagation()
   pasteText(ev.clipboardData?.getData('text/plain') ?? '')
+}
+
+// 发送框获得焦点时主动 blur 终端（h-aii-vwux）：xterm 的隐藏 textarea 会持续持有
+// 焦点，不主动交还时浏览器仍把键盘事件路由给终端。
+function onChatFocus(): void {
+  terminalActive.value = false
+  term?.blur()
 }
 
 function sendKeyAction(action: KeyAction): void {
@@ -736,6 +744,7 @@ onUnmounted(() => {
           :disabled="!writeGranted"
           :placeholder="writeGranted ? '长文本在这里编辑，Ctrl+Enter 发送；终端里也可直接敲键盘' : '只读跟随中，无法输入'"
           @keydown="onChatKeydown"
+          @focus="onChatFocus"
         ></textarea>
         <div class="chat-actions">
           <label class="chat-submit-toggle mono">
