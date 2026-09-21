@@ -184,6 +184,10 @@ func TestListToolsAllPresent(t *testing.T) {
 		"gofer_ask_human": false,
 		// SUP-01 P5 task-book templates (1 read-only tool).
 		"gofer_list_templates": false,
+		// JOB-09 wakeups: end the run and be woken when the condition arrives.
+		"gofer_wakeup_create":  false,
+		"gofer_wakeup_list":    false,
+		"gofer_wakeup_disable": false,
 	}
 	for _, tl := range res.Tools {
 		if _, ok := want[tl.Name]; ok {

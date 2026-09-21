@@ -541,6 +541,12 @@ func TestJobShowPrintsRecoveringSince(t *testing.T) {
 
 	const since = int64(1_700_000_000)
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// `job show` also reads the job's wakeups (JOB-09); an empty list is the
+		// normal answer here and prints no line.
+		if r.URL.Path == "/v1/jobs/job-rec/wakeups" {
+			_, _ = w.Write([]byte(`{"wakeups":[]}`))
+			return
+		}
 		if r.Method != http.MethodGet || r.URL.Path != "/v1/jobs/job-rec" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}

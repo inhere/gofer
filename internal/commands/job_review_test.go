@@ -109,6 +109,12 @@ func TestJobShowPrintsReview(t *testing.T) {
 	t.Cleanup(func() { jobAcceptOpts.note, jobRejectOpts.note, jobRejectOpts.resume = "", "", false })
 
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// `job show` also reads the job's wakeups (JOB-09); an empty list is the
+		// normal answer here and prints no line.
+		if r.URL.Path == "/v1/jobs/job-rv/wakeups" {
+			_, _ = w.Write([]byte(`{"wakeups":[]}`))
+			return
+		}
 		if r.Method != http.MethodGet || r.URL.Path != "/v1/jobs/job-rv" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}
