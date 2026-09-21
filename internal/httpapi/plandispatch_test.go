@@ -3,7 +3,6 @@ package httpapi
 import (
 	"net/http"
 	"testing"
-	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -58,21 +57,20 @@ func planJobsOf(t *testing.T, s *Server, planID string) []job.JobResult {
 	return list
 }
 
-// waitDispatchedDone waits for a dispatched job's terminal snapshot with a budget a
-// whole-repo `go test ./...` cannot exhaust: these jobs are real child processes, and
-// under the parallel load of the full suite the shared 10s waitDone budget is tight.
+// waitDispatchedDone waits for a dispatched job to FINISH — not merely to look terminal.
+// Service.Wait blocks until the job's goroutine is done, which is what makes the todo
+// linkage (SUP-01 C: the item's status and note are written after the terminal row) an
+// observable fact by the time it returns; polling the snapshot would race that write.
 func waitDispatchedDone(t *testing.T, s *Server, id string) job.JobResult {
 	t.Helper()
-	deadline := time.Now().Add(60 * time.Second)
-	for time.Now().Before(deadline) {
-		res, ok := s.jobs.Get(id)
-		if ok && job.IsTerminal(res.Status) {
-			return res
-		}
-		time.Sleep(20 * time.Millisecond)
+	res, ok := s.jobs.Wait(id)
+	if !ok {
+		t.Fatalf("job %s not found", id)
 	}
-	t.Fatalf("job %s did not reach terminal state in time", id)
-	return job.JobResult{}
+	if !job.IsTerminal(res.Status) {
+		t.Fatalf("job %s status = %s, want a terminal one", id, res.Status)
+	}
+	return res
 }
 
 // TestUpdateTodoReadyDispatches (PLAN-02 P2): the two write paths that make a todo

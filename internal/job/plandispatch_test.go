@@ -325,16 +325,21 @@ func TestTodoDispatchSkipsWhileActiveJob(t *testing.T) {
 	}
 
 	// The gate is about the ACTIVE job, not about any job: once the run is over the
-	// same todo dispatches again.
+	// same todo dispatches again. Wait (not a status poll) because the gate reads the
+	// STORE: the job's row — and its todo linkage — are written before its goroutine ends.
 	_ = s.Cancel(first.Job.ID)
-	waitForStatus(t, s, first.Job.ID, StatusCancelled, 10*time.Second)
+	if final, ok := s.Wait(first.Job.ID); !ok || final.Status != StatusCancelled {
+		t.Fatalf("cancelled job = %+v ok=%v, want cancelled", final, ok)
+	}
 	setTodoStatus(t, s, "todo-s", jobstore.TodoReady)
 	second, err := s.MaybeDispatchTodo("todo-s", "alice")
 	if err != nil || second.Job == nil {
 		t.Fatalf("redispatch after a terminal job: %+v err=%v", second, err)
 	}
 	_ = s.Cancel(second.Job.ID)
-	waitForStatus(t, s, second.Job.ID, StatusCancelled, 10*time.Second)
+	if final, ok := s.Wait(second.Job.ID); !ok || final.Status != StatusCancelled {
+		t.Fatalf("cancelled job = %+v ok=%v, want cancelled", final, ok)
+	}
 }
 
 // TestTodoDispatchDefaultPromptContainsPlanAndTodo: with no task book the dispatched
