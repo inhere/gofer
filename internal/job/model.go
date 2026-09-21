@@ -803,6 +803,15 @@ const (
 	// run-now, so the event is what says WHY that job exists — the job's own timeline
 	// answers "nobody typed this".
 	EventScheduleTriggered = "schedule.triggered"
+	// Agent health transitions (design §六), recorded on the AGENT's own scope
+	// (`agent:<key>`, see AgentEventScope) because they belong to no job:
+	//   - agent.degraded  {agent, transient_fail, window_sec, last_error}
+	//   - agent.recovered {agent, window_sec}
+	// Both are subscribable but NOT in the notification default set: a flaky provider
+	// is worth telling an on-call channel about, but it must not page everyone who
+	// asked for job terminals.
+	EventAgentDegraded  = "agent.degraded"
+	EventAgentRecovered = "agent.recovered"
 )
 
 // Workflow lifecycle event types (P1, design §5.4). Recorded append-only via

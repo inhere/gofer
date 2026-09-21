@@ -487,6 +487,12 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// one are recorded on the todo. Best-effort: a todo write must never affect a job.
 	if persistErr == nil {
 		s.linkTodoOutcome(snap)
+		// SUP-01 P3 / design §六: the provider's verdict for THIS agent may have just
+		// changed — announce the transition (best-effort, and a no-op unless it moved).
+		// It runs before the needs_review return below on purpose: a delivery parked for
+		// review IS a provider success, so it can be the job that shows an agent
+		// recovered.
+		s.noteAgentHealth(snap)
 	}
 	// GATE-01 S3: the needs_review branch REPLACES the terminal one — the job is
 	// FINISHED (its process is gone: evict it, close its SSE/log teardown) but not

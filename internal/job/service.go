@@ -192,6 +192,13 @@ type Service struct {
 	// observed in test time.
 	stallTick time.Duration
 
+	// agentHealthMu guards agentHealthState: the last health VERDICT announced per
+	// agent key (SUP-01 P3 / design §六). The aggregate lives in SQLite; this only
+	// remembers what was already announced, so a transition is recorded once (see
+	// agenthealth.go).
+	agentHealthMu    sync.Mutex
+	agentHealthState map[string]string
+
 	// postFn is the webhook POST used by the E14 delivery sweeper (deliverOne). It
 	// defaults to notify.PostWebhook (validated + signed real HTTP POST) and is
 	// overridable in tests so the claim→post→mark state machine can be driven
