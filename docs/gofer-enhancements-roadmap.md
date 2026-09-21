@@ -48,6 +48,10 @@
 | AUTO-05 | 输出停滞检测：`stall_timeout`（server/agent/job 三级，默认 900s，exec 关）→ 按 transient 续投/转移 | 0.48 | 同上 §三 |
 | PLAN-02 | todo 指派即派发：plan `project_key`，todo `assignee/template/vars/verify/review/runner/cwd`，状态 `ready` 自动 `job run`；`plan dispatch`；plan 级用量 | 0.48 | 同上 §四 |
 | JOB-09 | job wakeups：`job wakeup create <job> --kind at|every|cron|event …` → 到点/事件命中时续投（无 session 退化重跑+指令），coalesce、TTL；HTTP/MCP/web | 0.48 | 同上 §五 |
+| PTY-01 | 交互 pty job：去 ANSI 转录 `pty.txt`、会话 id 头/尾/关闭时捕获、终态扫描；`job resume` 可续接 | 0.49 | design §四 |
+| PLAN-03 | todo 依赖 `--after prev`、自动推进、`plan run|pause|resume`、`blocked`（进通知默认集）、exec todo `--cmd`、`plan.completed` | 0.49 | [design](design/2026-09-22-plan-autopilot-board-and-container-worker-design.md) |
+| WEB-10 | 计划看板：五列拖拽，拖到 ready 即派发，blocked 横幅重派/跳过，run/pause | 0.49 | 同上 §二 |
+| XFER-02 | 传输 id `xf-<8hex>`、上传前预检、时间按服务端时区渲染 | 0.49 | design §五/六 |
 | G032 | 兼容策略：DEPRECATED 标记 + 到期删除；v0.48 已删 6 处 v0.45 标记 | 0.46–0.48 | `AGENTS.md` G032 · SUP-01「横切」 |
 
 ## 二、待做 / 候选（下一批从这里选）
@@ -72,7 +76,7 @@
 
 ## 三、建议下一批
 
-上一批（XFER-01 / JOB-11 / AUTO-05 / PLAN-02 / JOB-09）已于 v0.47.2–v0.48.1 落地。候选：JOB-10 skills 绑定、AUTO-02b schedule webhook、CFG-09 容器 worker（解锁 tmux 送话 / verify 真机 e2e）、MCP-05 leader 路由、真机验收（tool cp 跨机、todo 派发、wakeup 到点）。
+v0.49.0 已落地 PLAN-03 / WEB-10 / CFG-09 / PTY-01 / XFER-02 / AUTO-02b。候选：JOB-10 skills 绑定、WEB-04③ 配置写层 V1.1（agents/server 在 web 编辑）、MCP-05 leader 路由、ACP-02 真机验收、AUTO-03 可靠重试。
 
 ## 四、维护约定
 
