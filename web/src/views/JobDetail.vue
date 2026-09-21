@@ -28,8 +28,12 @@ import {
   listEvents,
   listJobs,
   listPtySessions,
+  listWakeups,
   puntInteraction,
   resumeJob,
+  createWakeup,
+  deleteWakeup,
+  setWakeupEnabled,
 } from '../api/client'
 import { appendCapped, streamJob } from '../api/sse'
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
@@ -55,6 +59,8 @@ import type {
   SSEJobEventData,
   SSELogData,
   SSELogRotatedData,
+  Wakeup,
+  WakeupKind,
 } from '../api/types'
 
 const props = defineProps<{ id: string }>()
@@ -620,6 +626,11 @@ async function loadCurrentJob(): Promise<void> {
   ptySessions.value = []
   ptySessionError.value = ''
   downloadingRecordingIds.value = new Set()
+  wakeups.value = []
+  wakeupError.value = ''
+  wakeupBusy.value = new Set()
+  wakeupFormOpen.value = false
+  wakeupFormError.value = ''
   preview.value = null
   previewingNames.value = new Set()
   previewError.value = ''
@@ -650,6 +661,8 @@ async function loadCurrentJob(): Promise<void> {
   void loadDeliveries()
   // pty 会话元数据：只读辅助面板，失败不阻断详情主流程。
   void loadPtySessions()
+  // 唤醒（JOB-09）：登记在 job 上的订阅/定时器，失败只在本块显示。
+  void loadWakeups()
   if (isTerminal(job.value?.status)) {
     // 终态 job 不再走 SSE 全量回放：按行分页加载，避免 2MiB 前端窗口丢历史。
     void loadTerminalLogs()
@@ -865,6 +878,237 @@ async function onDownloadRecording(sessionID: string): Promise<void> {
     next.delete(sessionID)
     downloadingRecordingIds.value = next
   }
+}
+
+// ── 唤醒（JOB-09）─────────────────────────────────────────────────
+// 登记在 job 上的事件订阅/定时器：条件到达时 gofer 自动续投这个 job。列表是只读快照
+// （开关/新建后重拉），触发历史直接用事件时间线里的 job.wakeup_* 事件，不再单独请求。
+const wakeups = ref<Wakeup[]>([])
+const wakeupError = ref('')
+const wakeupBusy = ref<Set<string>>(new Set())
+const wakeupFormOpen = ref(false)
+const wakeupSubmitting = ref(false)
+const wakeupFormError = ref('')
+const wakeupForm = ref<{
+  kind: WakeupKind
+  after: string
+  every: string
+  cron: string
+  timezone: string
+  event: string
+  filterJob: string
+  status: string
+  mode: string
+  instruction: string
+}>({
+  kind: 'at',
+  after: '10m',
+  every: '1h',
+  cron: '',
+  timezone: '',
+  event: 'job.terminal',
+  filterJob: '',
+  status: '',
+  mode: '',
+  instruction: '',
+})
+
+// 事件目录（与后端 job.WakeupEventTypes 同序）：下拉/提示共用一份。
+const WAKEUP_EVENT_TYPES = [
+  'job.terminal',
+  'job.verify_finished',
+  'job.needs_review',
+  'job.reviewed',
+  'job.fell_back',
+  'job.stalled',
+  'interaction.answered',
+  'session.takeover_released',
+]
+
+async function loadWakeups(): Promise<void> {
+  try {
+    const resp = await listWakeups(props.id)
+    wakeups.value = resp.wakeups ?? []
+    wakeupError.value = ''
+  } catch (e) {
+    wakeupError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+// wakeupSummary 是头部一行摘要：还有几条在等、分别是什么形态。
+const wakeupSummary = computed<string>(() => {
+  const on = wakeups.value.filter((w) => w.enabled)
+  if (wakeups.value.length === 0) {
+    return ''
+  }
+  if (on.length === 0) {
+    return `0 条生效（${wakeups.value.length} 条已停用）`
+  }
+  const counts = new Map<string, number>()
+  for (const w of on) {
+    counts.set(w.kind, (counts.get(w.kind) ?? 0) + 1)
+  }
+  const parts = ['at', 'every', 'cron', 'event']
+    .filter((k) => counts.has(k))
+    .map((k) => `${counts.get(k)} ${k}`)
+  return `${on.length} 条生效（${parts.join('、')}）`
+})
+
+// wakeupTrigger 是「它在等什么」：定时器的下次时刻，或订阅的事件（含状态过滤）。
+function wakeupTrigger(w: Wakeup): string {
+  switch (w.kind) {
+    case 'event': {
+      const types = (w.event_types ?? []).join(', ')
+      const st = (w.filter_status ?? []).length > 0 ? `[${(w.filter_status ?? []).join(',')}]` : ''
+      return `监听 ${types}${st}`
+    }
+    case 'every':
+      return `每 ${fmtDuration(w.every_sec ?? 0)}`
+    case 'cron':
+      return `cron ${w.cron ?? ''}${w.timezone ? `（${w.timezone}）` : ''}`
+    default:
+      return `到点 ${fmtTime(w.next_run_at || w.at)}`
+  }
+}
+
+// wakeupTarget 说明这条唤醒是谁在等谁：事件订阅可指向另一个 job（--job-id）。
+function wakeupTarget(w: Wakeup): string {
+  if (w.kind !== 'event') {
+    return w.job_id === props.id ? '本 job' : shortId(w.job_id)
+  }
+  const src = w.filter_job_id ?? ''
+  if (!src || src === props.id) {
+    return '本 job 的事件'
+  }
+  return `job ${shortId(src)} 的事件`
+}
+
+function wakeupBusyOn(id: string): boolean {
+  return wakeupBusy.value.has(id)
+}
+
+function setWakeupBusy(id: string, busy: boolean): void {
+  const next = new Set(wakeupBusy.value)
+  if (busy) {
+    next.add(id)
+  } else {
+    next.delete(id)
+  }
+  wakeupBusy.value = next
+}
+
+async function onToggleWakeup(w: Wakeup): Promise<void> {
+  setWakeupBusy(w.id, true)
+  wakeupError.value = ''
+  try {
+    await setWakeupEnabled(w.id, !w.enabled)
+    await loadWakeups()
+  } catch (e) {
+    wakeupError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    setWakeupBusy(w.id, false)
+  }
+}
+
+async function onDeleteWakeup(w: Wakeup): Promise<void> {
+  setWakeupBusy(w.id, true)
+  wakeupError.value = ''
+  try {
+    await deleteWakeup(w.id)
+    await loadWakeups()
+  } catch (e) {
+    wakeupError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    setWakeupBusy(w.id, false)
+  }
+}
+
+// parseDuration 只认 <数字><单位> 的简单写法（s/m/h），够用且不会把 10m 误读成别的。
+function parseDuration(text: string): number | null {
+  const m = /^(\d+)([smh])$/.exec(text.trim())
+  if (!m) {
+    return null
+  }
+  const n = Number(m[1])
+  return m[2] === 's' ? n : m[2] === 'm' ? n * 60 : n * 3600
+}
+
+// onCreateWakeup 把表单折成四种 kind 各自的最小请求体（其余字段后端有默认值）。
+async function onCreateWakeup(): Promise<void> {
+  const f = wakeupForm.value
+  const spec: Record<string, unknown> = { kind: f.kind }
+  if (f.instruction.trim()) {
+    spec.instruction = f.instruction.trim()
+  }
+  if (f.mode) {
+    spec.mode = f.mode
+  }
+  switch (f.kind) {
+    case 'at': {
+      const sec = parseDuration(f.after)
+      if (sec == null) {
+        wakeupFormError.value = '--after 需要 <数字><s|m|h>，例如 10m / 2h'
+        return
+      }
+      spec.at = Math.floor(Date.now() / 1000) + sec
+      break
+    }
+    case 'every': {
+      const sec = parseDuration(f.every)
+      if (sec == null || sec < 60) {
+        wakeupFormError.value = '--every 需要 <数字><s|m|h> 且不小于 60s，例如 1h'
+        return
+      }
+      spec.every_sec = sec
+      break
+    }
+    case 'cron': {
+      if (!f.cron.trim()) {
+        wakeupFormError.value = 'cron 表达式不能为空'
+        return
+      }
+      spec.cron = f.cron.trim()
+      if (f.timezone.trim()) {
+        spec.timezone = f.timezone.trim()
+      }
+      break
+    }
+    default: {
+      const types = f.event.split(',').map((x) => x.trim()).filter(Boolean)
+      if (types.length === 0) {
+        wakeupFormError.value = '事件类型不能为空'
+        return
+      }
+      spec.event_types = types
+      if (f.filterJob.trim()) {
+        spec.filter_job_id = f.filterJob.trim()
+      }
+      const st = f.status.split(',').map((x) => x.trim()).filter(Boolean)
+      if (st.length > 0) {
+        spec.filter_status = st
+      }
+    }
+  }
+  wakeupSubmitting.value = true
+  wakeupFormError.value = ''
+  try {
+    await createWakeup(props.id, spec as never)
+    wakeupFormOpen.value = false
+    await loadWakeups()
+  } catch (e) {
+    wakeupFormError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    wakeupSubmitting.value = false
+  }
+}
+
+// wakeupHistory 是触发历史：直接筛事件时间线里的 job.wakeup_* 行（倒序，最近的在前）。
+const wakeupHistory = computed<JobEvent[]>(() =>
+  timelineEvents.value.filter((ev) => ev.type.startsWith('job.wakeup')).slice().reverse(),
+)
+
+function wakeupHistoryText(ev: JobEvent): string {
+  return eventDetailText(ev) || eventLabel(ev.type)
 }
 
 // 投递 status -> 中文标签（pending 区分「重试中」：attempts>0 已失败过）。
@@ -1458,6 +1702,121 @@ onUnmounted(() => {
         </li>
       </ul>
       <p v-if="ptySessionError" class="artifact-err mono">{{ ptySessionError }}</p>
+    </section>
+
+    <!-- 唤醒（JOB-09）：登记在 job 上的事件订阅/定时器 —— 条件到达时 gofer 自动续投
+         这个 job。列表 + 开关 + 新建表单 + 触发历史（来自 job.wakeup_* 事件）。 -->
+    <section v-if="wakeups.length > 0 || wakeupFormOpen" class="wakeups">
+      <h2 class="wakeups-title mono">
+        唤醒
+        <span v-if="wakeupSummary" class="wakeups-sum mono">{{ wakeupSummary }}</span>
+        <button class="wakeups-add mono" type="button" @click="wakeupFormOpen = !wakeupFormOpen">
+          {{ wakeupFormOpen ? '收起' : '新建' }}
+        </button>
+      </h2>
+
+      <ul v-if="wakeups.length > 0" class="wakeups-list">
+        <li v-for="w in wakeups" :key="w.id" class="wakeup-row" :class="{ 'wakeup-row--off': !w.enabled }">
+          <span class="wakeup-kind mono">{{ w.kind }}</span>
+          <span class="wakeup-target mono">{{ wakeupTarget(w) }}</span>
+          <span class="wakeup-trigger mono" :title="wakeupTrigger(w)">{{ wakeupTrigger(w) }}</span>
+          <span class="wakeup-instruction mono" :title="w.instruction || ''">{{ w.instruction || '（无指令）' }}</span>
+          <span class="wakeup-count mono" :title="`coalesced ${w.coalesced_count}`">
+            触发 {{ w.fired_count }}<template v-if="w.coalesced_count > 0"> · 合并 {{ w.coalesced_count }}</template>
+          </span>
+          <RouterLink
+            v-if="w.continuation_job_id"
+            class="wakeup-cont mono"
+            :to="`/jobs/${w.continuation_job_id}`"
+          >最近续投 {{ shortId(w.continuation_job_id) }}</RouterLink>
+          <button
+            class="wakeup-btn mono"
+            type="button"
+            :disabled="wakeupBusyOn(w.id)"
+            @click="onToggleWakeup(w)"
+          >{{ w.enabled ? '停用' : '启用' }}</button>
+          <button
+            class="wakeup-btn mono"
+            type="button"
+            :disabled="wakeupBusyOn(w.id)"
+            @click="onDeleteWakeup(w)"
+          >删除</button>
+        </li>
+      </ul>
+
+      <form v-if="wakeupFormOpen" class="wakeup-form" @submit.prevent="onCreateWakeup">
+        <label class="wakeup-field mono">
+          类型
+          <select v-model="wakeupForm.kind" class="mono">
+            <option value="at">at（到点一次）</option>
+            <option value="every">every（每隔一段）</option>
+            <option value="cron">cron（按表达式）</option>
+            <option value="event">event（订阅事件）</option>
+          </select>
+        </label>
+        <label v-if="wakeupForm.kind === 'at'" class="wakeup-field mono">
+          多久之后
+          <input v-model="wakeupForm.after" class="mono" placeholder="10m" />
+        </label>
+        <label v-if="wakeupForm.kind === 'every'" class="wakeup-field mono">
+          间隔
+          <input v-model="wakeupForm.every" class="mono" placeholder="1h" />
+        </label>
+        <template v-if="wakeupForm.kind === 'cron'">
+          <label class="wakeup-field mono">
+            表达式
+            <input v-model="wakeupForm.cron" class="mono" placeholder="0 9 * * 1-5" />
+          </label>
+          <label class="wakeup-field mono">
+            时区
+            <input v-model="wakeupForm.timezone" class="mono" placeholder="Asia/Shanghai（留空=服务器本地）" />
+          </label>
+        </template>
+        <template v-if="wakeupForm.kind === 'event'">
+          <label class="wakeup-field mono">
+            事件
+            <input v-model="wakeupForm.event" class="mono" :placeholder="WAKEUP_EVENT_TYPES.join(',')" />
+          </label>
+          <label class="wakeup-field mono">
+            监听哪个 job
+            <input v-model="wakeupForm.filterJob" class="mono" placeholder="留空 = 本 job" />
+          </label>
+          <label class="wakeup-field mono">
+            状态过滤
+            <input v-model="wakeupForm.status" class="mono" placeholder="done,failed（仅 job.terminal）" />
+          </label>
+        </template>
+        <label class="wakeup-field mono">
+          模式
+          <select v-model="wakeupForm.mode" class="mono">
+            <option value="">默认（at/event=once，every/cron=continuous）</option>
+            <option value="once">once</option>
+            <option value="continuous">continuous</option>
+          </select>
+        </label>
+        <label class="wakeup-field wakeup-field--wide mono">
+          指令（续投时的提示词）
+          <input v-model="wakeupForm.instruction" class="mono" placeholder="检查 CI 结果并汇报" />
+        </label>
+        <button class="wakeup-btn wakeup-btn--primary mono" type="submit" :disabled="wakeupSubmitting">
+          {{ wakeupSubmitting ? '提交中…' : '创建' }}
+        </button>
+        <p v-if="wakeupFormError" class="artifact-err mono">{{ wakeupFormError }}</p>
+      </form>
+
+      <div v-if="wakeupHistory.length > 0" class="wakeup-history">
+        <p class="diff-note mono">触发历史（{{ wakeupHistory.length }}）</p>
+        <ul class="timeline-list">
+          <li v-for="ev in wakeupHistory" :key="ev.seq" class="timeline-row">
+            <span class="ev-icon mono">{{ eventIcon(ev.type) }}</span>
+            <span class="ev-label mono">{{ eventLabel(ev.type) }}</span>
+            <span class="ev-detail mono" :title="wakeupHistoryText(ev)">{{ wakeupHistoryText(ev) }}</span>
+            <span class="ev-time mono">{{ fmtTime(ev.at) }}</span>
+          </li>
+        </ul>
+      </div>
+
+      <p v-if="wakeupError" class="artifact-err mono">{{ wakeupError }}</p>
     </section>
 
     <!-- 产出与审计：结构化结果(E6) + 产物 + diff。仅在有内容时展示。 -->
@@ -2722,5 +3081,110 @@ onUnmounted(() => {
   to {
     transform: translateX(0);
   }
+}
+/* 唤醒（JOB-09）：列表一行一条，形态/目标/等什么/指令/次数 + 开关。 */
+.wakeups {
+  margin: 0 0 14px;
+}
+.wakeups-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 13px;
+}
+.wakeups-sum {
+  color: #8a94a6;
+  font-weight: 400;
+}
+.wakeups-add {
+  margin-left: auto;
+  padding: 2px 8px;
+  border: 1px solid #3a4354;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.wakeups-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.wakeup-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 3px 0;
+  border-bottom: 1px solid #222833;
+}
+.wakeup-row--off {
+  opacity: 0.55;
+}
+.wakeup-kind {
+  min-width: 48px;
+  color: #8a94a6;
+}
+.wakeup-target {
+  min-width: 110px;
+}
+.wakeup-trigger {
+  min-width: 170px;
+}
+.wakeup-instruction {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #8a94a6;
+}
+.wakeup-count {
+  color: #8a94a6;
+}
+.wakeup-cont {
+  color: #6ea8fe;
+}
+.wakeup-btn {
+  padding: 1px 8px;
+  border: 1px solid #3a4354;
+  border-radius: 4px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.wakeup-btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.wakeup-btn--primary {
+  border-color: #6ea8fe;
+}
+.wakeup-form {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+  margin-top: 8px;
+}
+.wakeup-field {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  color: #8a94a6;
+}
+.wakeup-field--wide {
+  flex: 1;
+  min-width: 240px;
+}
+.wakeup-field input,
+.wakeup-field select {
+  padding: 2px 6px;
+  border: 1px solid #3a4354;
+  border-radius: 4px;
+  background: #171b22;
+  color: inherit;
+}
+.wakeup-history {
+  margin-top: 8px;
 }
 </style>

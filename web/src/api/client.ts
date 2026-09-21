@@ -57,6 +57,9 @@ import type {
   WorkflowSpec,
   WorkflowsResp,
   WorkflowStatus,
+  Wakeup,
+  WakeupSpec,
+  WakeupsResp,
   XferPutMeta,
   XferStaged,
 } from './types'
@@ -405,6 +408,34 @@ export function listPtySessions(id: string): Promise<PtySessionsResp> {
   return request<PtySessionsResp>(
     `/v1/jobs/${encodeURIComponent(id)}/pty/sessions`,
   )
+}
+
+// JOB-09 唤醒：登记在 job 上的事件订阅/定时器，条件到达时自动续投该 job。
+export function listWakeups(id: string): Promise<WakeupsResp> {
+  return request<WakeupsResp>(`/v1/jobs/${encodeURIComponent(id)}/wakeups`)
+}
+
+export function createWakeup(id: string, spec: WakeupSpec): Promise<Wakeup> {
+  return request<Wakeup>(`/v1/jobs/${encodeURIComponent(id)}/wakeups`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(spec),
+  })
+}
+
+// 开关唤醒（PATCH）。重新启用定时器是"从现在起算"，不补发关闭期间的触发。
+export function setWakeupEnabled(wid: string, enabled: boolean): Promise<Wakeup> {
+  return request<Wakeup>(`/v1/wakeups/${encodeURIComponent(wid)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ enabled }),
+  })
+}
+
+export function deleteWakeup(wid: string): Promise<{ status: string }> {
+  return request<{ status: string }>(`/v1/wakeups/${encodeURIComponent(wid)}`, {
+    method: 'DELETE',
+  })
 }
 
 export function listRecentPtySessions(limit?: number): Promise<PtySessionsResp> {

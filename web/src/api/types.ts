@@ -196,6 +196,57 @@ export interface PtySessionsResp {
   sessions: PtySession[]
 }
 
+// JOB-09 唤醒（wakeup）：登记在 job 上的事件订阅或定时器，条件到达时自动续投该 job
+// （有 session 就续同一会话，无 session 就用原请求 + 指令重跑）。时间戳都是 Unix 秒。
+// kind: at | every | cron | event；mode: once（触发一次即消费）/ continuous。
+// 后端 continuation_job_id 在触发派发过程中会短暂为空（那是内部的占用标记，不是 job id）。
+export type WakeupKind = 'at' | 'every' | 'cron' | 'event'
+export type WakeupMode = 'once' | 'continuous'
+
+export interface Wakeup {
+  id: string
+  job_id: string
+  kind: WakeupKind | string
+  at?: number
+  every_sec?: number
+  cron?: string
+  timezone?: string
+  event_types?: string[]
+  filter_job_id?: string
+  filter_status?: string[]
+  mode: WakeupMode | string
+  instruction?: string
+  enabled: boolean
+  revision: number
+  next_run_at?: number
+  last_fired_at?: number
+  fired_count: number
+  coalesced_count: number
+  continuation_job_id?: string
+  created_by?: string
+  created_at: number
+  expires_at?: number
+}
+
+export interface WakeupsResp {
+  wakeups: Wakeup[]
+}
+
+// 新建唤醒的请求体（POST /v1/jobs/{id}/wakeups）。只有当前 kind 用到的字段需要给：
+// at 是绝对 Unix 秒；every_sec >= 60；event 走 event_types（可选 filter_job_id/filter_status）。
+export interface WakeupSpec {
+  kind: WakeupKind
+  at?: number
+  every_sec?: number
+  cron?: string
+  timezone?: string
+  event_types?: string[]
+  filter_job_id?: string
+  filter_status?: string[]
+  mode?: WakeupMode
+  instruction?: string
+}
+
 // 会话中继（SESS-01）：hook 登记的 agent 会话（claude/codex 等），与 pty 会话无关。
 // state：running 执行中 / idle 已停且未开中继 / waiting_reply 开中继且等人回复 /
 // needs_attention 需人工注意（如 hook 报错）/ handed_off 已被 web 用 --resume 起的新进程
