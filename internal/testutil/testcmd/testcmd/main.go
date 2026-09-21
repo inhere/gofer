@@ -159,6 +159,41 @@ func main() {
 		if string(b) != arg(3) {
 			os.Exit(1)
 		}
+	case "excl-guard":
+		// excl-guard <path> [hold]: create <path> EXCLUSIVELY (O_EXCL), hold it for the
+		// duration, then remove it. It is the job-side witness of MUTUAL EXCLUSION: a
+		// second process that finds the marker already there exits 3, so a test can prove
+		// two jobs never overlapped the same working directory.
+		path := arg(2)
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
+		if err != nil {
+			fmt.Fprintln(os.Stderr, "directory already held: "+path)
+			os.Exit(3)
+		}
+		_, _ = f.WriteString("held\n")
+		_ = f.Close()
+		time.Sleep(durationArg(3))
+		must(os.Remove(path))
+	case "rendezvous":
+		// rendezvous <dir> <id> [wait]: drop <dir>/<id>, then wait until a SECOND file
+		// appears in <dir> (or the window elapses). It is the complementary witness — that
+		// two jobs DID overlap: run the same dir with different ids from two jobs and each
+		// exits 0 only if both were alive at once, while a serialized pair times out (4).
+		dir := arg(2)
+		id := arg(3)
+		must(os.MkdirAll(dir, 0o755))
+		must(os.WriteFile(filepath.Join(dir, id), []byte(id), 0o644))
+		deadline := time.Now().Add(durationArg(4))
+		for time.Now().Before(deadline) {
+			ents, err := os.ReadDir(dir)
+			must(err)
+			if len(ents) >= 2 {
+				return
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+		fmt.Fprintf(os.Stderr, "rendezvous timed out: no peer job arrived in %s\n", dir)
+		os.Exit(4)
 	case "interaction-wrapper":
 		interactionWrapper(arg(2))
 	case "acp-fake":
@@ -178,6 +213,19 @@ func arg(i int) string {
 		os.Exit(2)
 	}
 	return os.Args[i]
+}
+
+// durationArg parses os.Args[i] as a Go duration, or 0 when the argument is absent
+// (an optional trailing "how long" for the witness modes).
+func durationArg(i int) time.Duration {
+	if len(os.Args) <= i {
+		return 0
+	}
+	d, err := time.ParseDuration(os.Args[i])
+	if err != nil {
+		fatal(err)
+	}
+	return d
 }
 
 func mustEnv(key string) string {
