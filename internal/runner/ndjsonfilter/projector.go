@@ -123,6 +123,29 @@ type field struct {
 
 func newEventLine(typ string) *eventLine { return &eventLine{typ: typ} }
 
+// CompactEvent builds one compact event line in the capture's own shape
+// (`{"type":…,…}`), for a caller that produces structured details of its own and wants
+// them read by the same renderers as a captured agent stream. The acp runner is the
+// one such caller (bd h-aii-rnxk): its tool calls/thoughts/permissions go to the job's
+// stderr as these lines, so the web's NdjsonTimeline and `job logs stderr` show an
+// acp-agent's work exactly like an omp/claude event stream.
+type CompactEvent struct{ line *eventLine }
+
+// NewCompactEvent starts a line whose first field is `type`.
+func NewCompactEvent(typ string) *CompactEvent { return &CompactEvent{line: newEventLine(typ)} }
+
+// Add appends a field, dropping empty values (the capture's rule everywhere).
+func (c *CompactEvent) Add(key string, val any) *CompactEvent {
+	c.line.add(key, val)
+	return c
+}
+
+// Line renders the event within DefaultMaxEventBytes, without a trailing newline.
+func (c *CompactEvent) Line() []byte {
+	b, _ := c.line.trimmed(DefaultMaxEventBytes)
+	return b
+}
+
 // add appends a field. Empty values are skipped (a `"provider":""` is noise in a
 // log line) — but never a meaningful false/0, which stay.
 func (e *eventLine) add(key string, val any) *eventLine {

@@ -638,10 +638,13 @@ const (
 	EventInteractionCreated  = "interaction.created"  // {interaction_id,type,prompt}
 	EventInteractionAnswered = "interaction.answered" // {interaction_id,answer}
 	EventInteractionPunted   = "interaction.punted"   // {interaction_id,caller_id}
-	// EventJobToolCall is an acp-agent's tool call reaching a new status
-	// (ACP-01 S0): {tool_call_id,title,kind,status}. Recorded by the acp runner
-	// through runner.Request.OnJobEvent; content-only refreshes are not events.
-	EventJobToolCall = "job.tool_call"
+	// EventJobACPSummary is the ONE row an acp-agent turn contributes to the timeline
+	// (bd h-aii-rnxk): {tool_calls,thoughts,permissions,stop_reason}, recorded when the
+	// prompt turn ends. The per-tool-call detail it replaces now goes to the job's
+	// stderr as compact events (bd h-aii-7kja), where NdjsonTimeline renders it. The
+	// literal lives in the runner package (which emits it and cannot import this one —
+	// G022) and is aliased here so the job event vocabulary has ONE definition.
+	EventJobACPSummary = runner.EventACPSummary
 	// EventJobNeedsReview is a reviewed job finishing NORMALLY and parking for人工
 	// 验收 (GATE-01 S3): {job_id, exit_code}. It REPLACES job.terminal for that
 	// transition (the job is not终态 yet), and it is a notification DEFAULT trigger

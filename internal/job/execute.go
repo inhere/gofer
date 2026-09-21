@@ -130,9 +130,9 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 	req.OnDispatchedWorker = func(workerID, instanceID string) {
 		s.setDispatchedWorker(entry, req.JobID, workerID, instanceID)
 	}
-	// ACP-01: a runner may report job events it observes (the acp runner's
-	// job.tool_call on a tool-call status change). Detail stays bounded by
-	// recordEvent's own cap. A no-op for runners that never call it.
+	// ACP-01: a runner may report the job events it observes (the acp runner's
+	// job.permission_* rows and its one job.acp_summary per turn). Detail stays bounded
+	// by recordEvent's own cap. A no-op for runners that never call it.
 	req.OnJobEvent = func(eventType string, detail map[string]any) {
 		s.recordEvent(req.JobID, eventType, detail)
 	}

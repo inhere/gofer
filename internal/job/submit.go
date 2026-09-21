@@ -597,14 +597,16 @@ func isCLIAgent(cfg *config.Config, name string) bool {
 // the request being submitted: the prompt, the result dir the runner writes
 // acp.jsonl under, the RESOLVED approval policy of this job (GATE-01: the project's
 // approval block tightened by the agent's acp.permission_policy), the MCP servers it
-// advertises in session/new, and — for a continuation — the session to LOAD. A nil
-// acp sub-block yields the defaults (auto-allow permissions, no MCP servers).
+// advertises in session/new, whether the agent's thinking goes to the logs
+// (acp.log_thoughts), and — for a continuation — the session to LOAD. A nil acp
+// sub-block yields the defaults (auto-allow permissions, no MCP servers, thoughts kept).
 func acpRequest(cfg *config.Config, ac config.AgentConfig, req JobRequest, resultDir string) *runner.ACPRequest {
 	r := &runner.ACPRequest{
 		Prompt:        req.Prompt,
 		ResultDir:     resultDir,
 		Approval:      cfg.EffectiveApproval(req.ProjectKey, req.Agent),
 		LoadSessionID: resumeLoadSessionID(req),
+		LogThoughts:   ac.ACP.LogsThoughts(),
 	}
 	if ac.ACP == nil {
 		return r

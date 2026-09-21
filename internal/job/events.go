@@ -39,14 +39,16 @@ type JobEventObserver func(jobID, eventType string, detail map[string]any)
 
 // mirroredEventTypes is the WHITELIST of event types a worker mirrors up (SUP-01 G):
 // exactly the ones raised on the EXECUTING machine that the host cannot observe or
-// reconstruct — the approval gate's request/answer/timeout and the verify step's
-// start/finish. The job's own lifecycle (submitted/running/terminal/cancelled) is
-// deliberately absent: the HUB records those for the host job itself, so mirroring
+// reconstruct — the approval gate's request/answer/timeout, the verify step's
+// start/finish, and the acp runner's turn summary (the host never sees the agent's
+// session/update stream). The job's own lifecycle (submitted/running/terminal/cancelled)
+// is deliberately absent: the HUB records those for the host job itself, so mirroring
 // them would double every row and every notification.
 var mirroredEventTypes = map[string]bool{
 	EventJobPermissionRequested: true,
 	EventJobPermissionAnswered:  true,
 	EventJobPermissionTimedOut:  true,
+	EventJobACPSummary:          true,
 	EventJobVerifyStarted:       true,
 	EventJobVerifyFinished:      true,
 }

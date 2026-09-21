@@ -161,8 +161,9 @@ const EVENT_META: Record<string, { icon: string; label: string }> = {
   'job.cancelled': { icon: '✕', label: '请求取消' },
   'interaction.created': { icon: '?', label: '发起交互' },
   'interaction.answered': { icon: '✎', label: '交互已答' },
-  // 审批门（GATE-01 S1）
-  'job.tool_call': { icon: '⚙', label: '工具调用' },
+  // 审批门（GATE-01 S1）+ acp 回合汇总（bd h-aii-rnxk：时间线只留生命周期，
+  // 工具调用等执行细节走 stderr 的紧凑事件行，由 NdjsonTimeline 渲染）
+  'job.acp_summary': { icon: '⚙', label: 'ACP 回合' },
   'job.permission_requested': { icon: '⚠', label: '求批' },
   'job.permission_answered': { icon: '✎', label: '审批已答' },
   'job.permission_timed_out': { icon: '⏱', label: '审批超时' },
@@ -208,9 +209,19 @@ function eventDetailText(ev: JobEvent): string {
       return String(d.prompt ?? '')
     case 'interaction.answered':
       return String(d.answer ?? '')
-    // 审批门（GATE-01 S1）：求批/作答/超时都带工具调用与选项，时间线据此可读。
-    case 'job.tool_call':
-      return [d.kind, d.title, d.status].filter(Boolean).join(' · ')
+    // 审批门（GATE-01 S1）：求批/作答/超时都带工具调用与选项，时间线据此可读；
+    // acp 回合汇总（bd h-aii-rnxk）给的是本回合的执行计数。
+    case 'job.acp_summary': {
+      const parts = [
+        `${d.tool_calls ?? 0} 次工具调用`,
+        `${d.thoughts ?? 0} 段思考`,
+        `${d.permissions ?? 0} 次求批`,
+      ]
+      if (d.stop_reason) {
+        parts.push(String(d.stop_reason))
+      }
+      return parts.join(' · ')
+    }
     case 'job.permission_requested':
       return [d.kind, d.title, d.policy_hint].filter(Boolean).join(' · ')
     case 'job.permission_answered': {

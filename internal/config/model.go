@@ -1408,6 +1408,18 @@ type ACPConfig struct {
 	// MCPServers are advertised to the agent in session/new (stdio transport). S0
 	// passes them through verbatim; empty means the agent gets none.
 	MCPServers []ACPMCPServerConfig `yaml:"mcp_servers,omitempty"`
+	// LogThoughts keeps the agent's thinking (agent_thought_chunk) in the job's logs:
+	// the runner coalesces a thought stream into ONE compact line on stderr plus ONE
+	// acp.jsonl line (bd h-aii-7kja ②). unset/true = keep them, explicit false = drop
+	// them entirely, for an operator whose logs are dominated by the agent thinking
+	// out loud.
+	LogThoughts *bool `yaml:"log_thoughts,omitempty"`
+}
+
+// LogsThoughts reports whether this agent's thinking is kept in the job's logs: unset
+// means yes (the coalesced line is small), an explicit false means never.
+func (a *ACPConfig) LogsThoughts() bool {
+	return a == nil || a.LogThoughts == nil || *a.LogThoughts
 }
 
 // AllowsLoadSession reports whether a resume may try session/load on this agent:

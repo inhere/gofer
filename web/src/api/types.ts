@@ -797,9 +797,11 @@ export type JobEventType =
   | 'job.running'
   | 'job.terminal'
   | 'job.cancelled'
-  | 'job.tool_call'
   | 'interaction.created'
   | 'interaction.answered'
+  // acp 回合汇总（bd h-aii-rnxk）：一个 acp-agent 回合在时间线上只留这一条生命周期行；
+  // 工具调用/思考/求批等执行细节改走 stderr 的紧凑事件行（NdjsonTimeline 渲染）。
+  | 'job.acp_summary'
   // 审批门（GATE-01 S1）：acp-agent 的一次 session/request_permission 被求批 /
   // 被作答（含自动放行与超时兜底）/ 超时兜底
   | 'job.permission_requested'

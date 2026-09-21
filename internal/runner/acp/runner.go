@@ -1,8 +1,18 @@
 // Package acp runs an `acp-agent` job: it starts the agent's ACP server over stdio,
-// drives exactly one prompt turn (initialize → session/new → session/prompt) and
-// maps the protocol's events onto the job's outputs — pure agent text to
-// stdout.log, the structured event stream to <result_dir>/artifacts/acp.jsonl, and
-// tool-call status changes to job events.
+// drives exactly one prompt turn (initialize → session/new → session/prompt) and maps
+// the protocol's events onto the job's outputs.
+//
+// Where each thing goes (bd h-aii-rnxk / h-aii-7kja):
+//
+//   - stdout.log  — the agent's own text, one block per message (a tool call ends a
+//     block, and the block after it starts on a fresh line).
+//   - stderr.log  — the execution DETAILS as compact `{"type":…}` event lines in the
+//     ndjson capture's shape, so the web's NdjsonTimeline and `job logs stderr` read
+//     them: tool_call (per status change), thought (coalesced), permission, plan, stop.
+//   - acp.jsonl   — the full structured stream for debugging (raw payloads truncated),
+//     thoughts coalesced the same way.
+//   - job events  — lifecycle only: the approval gate's permission_* rows and ONE
+//     job.acp_summary at the end of the turn.
 //
 // See docs/design/2026-09-17-acp-agent-and-approval-gate-design.md §一 (S0). The
 // protocol client itself lives in internal/acp; this package is the mapping layer.
@@ -25,6 +35,7 @@ import (
 	"github.com/inhere/gofer/internal/acp"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/runner/ndjsonfilter"
 )
 
 // Name is the runner identifier ("acp"). It is NOT a configurable runner key: the
@@ -43,6 +54,11 @@ const maxEventLineBytes = 4096
 
 // maxRawBytes caps an embedded rawInput/rawOutput blob in acp.jsonl.
 const maxRawBytes = 512
+
+// maxThoughtBytes caps the COALESCED thought text (bd h-aii-7kja ②). A thought is the
+// agent talking to itself: the line is for orientation, not for reading the reasoning,
+// and an unbounded accumulator would hand a runaway agent the job's memory.
+const maxThoughtBytes = 2048
 
 // Runner executes acp-agent jobs.
 type Runner struct{}
@@ -82,14 +98,16 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	}()
 
 	h := &handler{
-		ctx:        ctx,
-		stdout:     req.Stdout,
-		events:     events,
-		onJobEvent: req.OnJobEvent,
-		policy:     policy,
-		approvals:  req.Approvals,
-		jobID:      req.JobID,
-		toolStatus: map[string]string{},
+		ctx:         ctx,
+		stdout:      req.Stdout,
+		stderr:      req.Stderr,
+		events:      events,
+		onJobEvent:  req.OnJobEvent,
+		policy:      policy,
+		approvals:   req.Approvals,
+		jobID:       req.JobID,
+		logThoughts: req.ACP.LogThoughts,
+		toolStatus:  map[string]string{},
 	}
 	client, err := acp.Start(ctx, acp.Options{
 		Command: req.Command,
@@ -176,6 +194,11 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	res.StopReason = pr.StopReason
 	res.Usage = h.usageSnapshot()
 	events.write(map[string]any{"t": "stop", "stop_reason": pr.StopReason})
+	// The turn is over: close the stdout block, flush the last thought, and record the
+	// turn's one lifecycle row (bd h-aii-rnxk). This happens for a cancelled/failed turn
+	// too — what did run is still worth summarising.
+	h.endTurn()
+	h.emitSummary(pr.StopReason)
 
 	// A context-driven exit wins the classification: the job service maps the ctx
 	// reason to cancelled/timeout, and the agent's cancelled stopReason is already
@@ -296,14 +319,16 @@ func mcpServers(in []runner.ACPMCPServer) []acp.MCPServer {
 	return out
 }
 
-// handler implements acp.Handler for one job: agent text to stdout, everything
-// structured to the event stream, tool-call status changes to job events, and the
-// approval gate (GATE-01 §1) on permission requests.
+// handler implements acp.Handler for one job: agent text to stdout, the execution
+// details to stderr as compact event lines, everything structured to acp.jsonl, and the
+// approval gate (GATE-01 §1) on permission requests. The job event timeline gets no
+// per-tool-call rows — one job.acp_summary is all it records about the turn.
 type handler struct {
 	// ctx is the JOB's context: the approval wait is bounded by it, and a cancelled
 	// job must unwind a pending approval instead of hanging the runner.
 	ctx        context.Context
 	stdout     io.Writer
+	stderr     io.Writer
 	events     *eventWriter
 	onJobEvent func(string, map[string]any)
 	// policy is the RESOLVED approval policy of this job.
@@ -313,9 +338,28 @@ type handler struct {
 	// never approved).
 	approvals runner.ApprovalSink
 	jobID     string
+	// logThoughts keeps the coalesced thought line in the logs (acp.log_thoughts).
+	logThoughts bool
 
+	// mu guards the whole mutable state below AND the stdout/stderr writes: the ACP
+	// client delivers session updates on its reader goroutine while the turn's end
+	// (a trailing newline, the summary) is written by the runner's own goroutine.
 	mu         sync.Mutex
 	toolStatus map[string]string
+	// toolCalls/thoughts/permissions are the turn's tallies for job.acp_summary.
+	toolCalls   int
+	thoughts    int
+	permissions int
+	// thought coalesces the agent's per-token thought stream into ONE line (bd
+	// h-aii-7kja ②), flushed at the next boundary. Guarded by mu.
+	thought strings.Builder
+	// stdoutWrote reports whether the agent has written text; stdoutSep reports that a
+	// detail (tool call / permission) ended the previous message block, so the next
+	// text starts on a fresh block (bd h-aii-7kja ①). stdoutLast is the last byte
+	// written, so a block can be closed with exactly one newline. Guarded by mu.
+	stdoutWrote bool
+	stdoutSep   bool
+	stdoutLast  byte
 	// usage is the token/cost tally the agent reported through usage_update events
 	// (SUP-01 E), merged as they arrive; nil when it reported none. Guarded by mu.
 	usage *runner.Usage
@@ -328,20 +372,20 @@ type handler struct {
 func (h *handler) SessionUpdate(_ string, u acp.Update) {
 	switch u.Kind {
 	case acp.UpdateAgentMessageChunk:
-		// The job's product: agent text merges straight into stdout.log.
-		if u.MessageChunk != nil && u.MessageChunk.Text != "" {
-			if _, err := io.WriteString(h.stdout, u.MessageChunk.Text); err != nil {
-				slog.Debug("acp runner: write stdout", "err", err)
-			}
-		}
+		// The job's product: agent text merges into stdout.log. A thought stream ends
+		// here (the agent moved on to speaking) and the message block is separated from
+		// the code before it.
+		h.flushThought()
+		h.writeStdout(chunkText(u.MessageChunk))
 	case acp.UpdateAgentThoughtChunk:
-		h.events.write(map[string]any{"t": "thought", "text": chunkText(u.MessageChunk)})
+		h.addThought(chunkText(u.MessageChunk))
 	case acp.UpdateToolCall, acp.UpdateToolCallUpdate:
 		if u.ToolCall == nil {
 			return
 		}
+		h.flushThought()
 		h.events.write(toolCallEvent(u.ToolCall))
-		h.emitToolCallJobEvent(u.ToolCall)
+		h.recordToolCall(u.ToolCall)
 	case acp.UpdatePlan:
 		if u.Plan == nil {
 			return
@@ -351,6 +395,7 @@ func (h *handler) SessionUpdate(_ string, u acp.Update) {
 			entries = append(entries, map[string]any{"content": e.Content, "priority": e.Priority, "status": e.Status})
 		}
 		h.events.write(map[string]any{"t": "plan", "entries": entries})
+		h.writeStderr(compactLine("plan", func(e *ndjsonfilter.CompactEvent) { e.Add("entries", entries) }))
 	case acp.UpdateCurrentMode:
 		h.events.write(map[string]any{"t": "mode", "mode_id": u.CurrentModeID})
 	case acp.UpdateUsage:
@@ -370,6 +415,165 @@ func (h *handler) SessionUpdate(_ string, u acp.Update) {
 	}
 }
 
+// writeStdout appends an agent message block to stdout.log, opening a new block when a
+// detail (a tool call or a permission round trip) came since the last text — bd
+// h-aii-7kja ①: "Hello world.Done." as one unbroken line is not readable.
+func (h *handler) writeStdout(text string) {
+	if text == "" {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.stdout == nil {
+		return
+	}
+	if h.stdoutSep && h.stdoutWrote {
+		h.stdoutWrite("\n")
+	}
+	h.stdoutSep = false
+	h.stdoutWrite(text)
+	h.stdoutWrote = true
+	h.stdoutLast = text[len(text)-1]
+}
+
+// stdoutWrite writes to stdout.log under h.mu and records the last byte.
+func (h *handler) stdoutWrite(s string) {
+	if _, err := io.WriteString(h.stdout, s); err != nil {
+		slog.Debug("acp runner: write stdout", "err", err)
+	}
+	h.stdoutLast = s[len(s)-1]
+}
+
+// detailBoundary marks the end of the current stdout message block: the tool call or
+// permission that just happened is not part of the agent's prose, so the text after it
+// starts a new block, and the block before it is closed with a newline.
+func (h *handler) detailBoundary() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.detailBoundaryLocked()
+}
+
+func (h *handler) detailBoundaryLocked() {
+	if !h.stdoutWrote {
+		return
+	}
+	if h.stdoutLast != '\n' {
+		h.stdoutWrite("\n")
+	}
+	h.stdoutSep = true
+}
+
+// endTurn closes the turn's stdout block and flushes whatever is left in the thought
+// buffer. Called once the prompt turn is over (also on a failed/cancelled turn: the
+// text that did arrive must end its own block).
+func (h *handler) endTurn() {
+	h.flushThought()
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.stdoutWrote && h.stdoutLast != '\n' && h.stdout != nil {
+		h.stdoutWrite("\n")
+	}
+}
+
+// addThought accumulates one thought shard (bd h-aii-7kja ②). Nothing is written until
+// the next boundary, which is what turns a per-token stream into one line.
+func (h *handler) addThought(text string) {
+	if text == "" {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.thoughts++
+	if !h.logThoughts || h.thought.Len() >= maxThoughtBytes {
+		return
+	}
+	if room := maxThoughtBytes - h.thought.Len(); len(text) > room {
+		text = text[:room]
+	}
+	h.thought.WriteString(text)
+}
+
+// flushThought writes the coalesced thought — one acp.jsonl line and one compact stderr
+// event — and resets the buffer.
+func (h *handler) flushThought() {
+	h.mu.Lock()
+	text := h.thought.String()
+	h.thought.Reset()
+	h.mu.Unlock()
+	if text == "" {
+		return
+	}
+	h.events.write(map[string]any{"t": "thought", "text": text})
+	h.writeStderr(compactLine("thought", func(e *ndjsonfilter.CompactEvent) { e.Add("text", text) }))
+}
+
+// recordToolCall projects a tool-call update onto the job's own surfaces: the compact
+// stderr line (per STATUS CHANGE — the content-only refreshes between statuses belong to
+// acp.jsonl alone) and the turn's tally. The job timeline gets nothing: its one row
+// about the turn is job.acp_summary.
+func (h *handler) recordToolCall(tc *acp.ToolCall) {
+	if tc.Status == "" {
+		return
+	}
+	h.mu.Lock()
+	prev, seen := h.toolStatus[tc.ToolCallID]
+	h.toolStatus[tc.ToolCallID] = tc.Status
+	if !seen {
+		h.toolCalls++
+	}
+	h.mu.Unlock()
+
+	h.detailBoundary()
+	if seen && prev == tc.Status {
+		return
+	}
+	h.writeStderr(compactLine("tool_call", func(e *ndjsonfilter.CompactEvent) {
+		e.Add("id", tc.ToolCallID).Add("title", tc.Title).Add("kind", tc.Kind).Add("status", tc.Status)
+	}))
+}
+
+// writeStderr appends one compact event line (newline-terminated) to the job's stderr.
+// A nil writer — a runner-only unit test — drops it.
+func (h *handler) writeStderr(line []byte) {
+	if h.stderr == nil || len(line) == 0 {
+		return
+	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if _, err := h.stderr.Write(append(line, '\n')); err != nil {
+		slog.Debug("acp runner: write stderr", "err", err)
+	}
+}
+
+// compactLine renders one compact event line in the ndjson capture's shape
+// ({"type":…}), which is what NdjsonTimeline and `job logs stderr` render, capped at
+// ndjsonfilter.DefaultMaxEventBytes.
+func compactLine(typ string, fill func(*ndjsonfilter.CompactEvent)) []byte {
+	e := ndjsonfilter.NewCompactEvent(typ)
+	fill(e)
+	return e.Line()
+}
+
+// emitSummary records the turn's ONE lifecycle row on the job (bd h-aii-rnxk) plus the
+// matching compact `stop` event on stderr.
+func (h *handler) emitSummary(stopReason string) {
+	h.writeStderr(compactLine("stop", func(e *ndjsonfilter.CompactEvent) { e.Add("reason", stopReason) }))
+	if h.onJobEvent == nil {
+		return
+	}
+	h.mu.Lock()
+	detail := map[string]any{
+		"tool_calls":  h.toolCalls,
+		"thoughts":    h.thoughts,
+		"permissions": h.permissions,
+	}
+	h.mu.Unlock()
+	if stopReason != "" {
+		detail["stop_reason"] = stopReason
+	}
+	h.onJobEvent(runner.EventACPSummary, detail)
+}
+
 // usageSnapshot returns the tally the agent reported through usage_update events
 // (SUP-01 E), or nil when it reported none. Called once the turn is over, so the
 // value it returns is the run's final accounting.
@@ -377,31 +581,6 @@ func (h *handler) usageSnapshot() *runner.Usage {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.usage
-}
-
-// emitToolCallJobEvent emits a job.tool_call event when a tool call's status
-// CHANGES: the content-only refreshes an agent sends between statuses belong to the
-// event stream, not to the job's lifecycle log.
-func (h *handler) emitToolCallJobEvent(tc *acp.ToolCall) {
-	if tc.Status == "" {
-		return
-	}
-	h.mu.Lock()
-	prev, seen := h.toolStatus[tc.ToolCallID]
-	h.toolStatus[tc.ToolCallID] = tc.Status
-	h.mu.Unlock()
-	if seen && prev == tc.Status {
-		return
-	}
-	if h.onJobEvent == nil {
-		return
-	}
-	h.onJobEvent("job.tool_call", map[string]any{
-		"tool_call_id": tc.ToolCallID,
-		"title":        tc.Title,
-		"kind":         tc.Kind,
-		"status":       tc.Status,
-	})
 }
 
 // RequestPermission implements acp.Handler with the job's approval policy (GATE-01
@@ -488,6 +667,12 @@ func (h *handler) askApprover(p acp.RequestPermissionParams, kind string) acp.Pe
 		// after the answer.
 		OnRaised: func(id string) {
 			interactionID = id
+			h.writeStderr(compactLine("permission", func(e *ndjsonfilter.CompactEvent) {
+				e.Add("state", "requested").
+					Add("id", toolCallID(p.ToolCall)).
+					Add("kind", kind).
+					Add("title", toolCallTitle(p.ToolCall))
+			}))
 			if h.onJobEvent == nil {
 				return
 			}
@@ -582,7 +767,8 @@ func (h *handler) answerOnTimeout(p acp.RequestPermissionParams, kind, hint, int
 }
 
 // recordPermission appends the approval decision to acp.jsonl (the job's audit trail:
-// every permission request the agent made and what gofer answered, with why).
+// every permission request the agent made and what gofer answered, with why) and writes
+// the compact stderr event for it; it also counts toward the turn's job.acp_summary.
 func (h *handler) recordPermission(p acp.RequestPermissionParams, kind, outcome, optionID, optionKind string, auto bool, why string) {
 	options := make([]map[string]string, 0, len(p.Options))
 	for _, o := range p.Options {
@@ -609,6 +795,19 @@ func (h *handler) recordPermission(p acp.RequestPermissionParams, kind, outcome,
 		ev["raw_input"] = truncate(string(p.ToolCall.RawInput))
 	}
 	h.events.write(ev)
+
+	h.mu.Lock()
+	h.permissions++
+	h.mu.Unlock()
+	h.writeStderr(compactLine("permission", func(e *ndjsonfilter.CompactEvent) {
+		e.Add("state", outcome).
+			Add("id", toolCallID(p.ToolCall)).
+			Add("kind", kind).
+			Add("title", toolCallTitle(p.ToolCall)).
+			Add("option_id", optionID).
+			Add("auto", auto).
+			Add("reason", why)
+	}))
 }
 
 // rememberedAllowAlways reports whether a human already chose allow_always for this

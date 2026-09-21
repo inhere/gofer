@@ -31,6 +31,13 @@ const (
 	EventPermissionTimedOut  = "job.permission_timed_out"
 )
 
+// EventACPSummary is the ONE lifecycle row an acp turn contributes to the job timeline
+// (bd h-aii-rnxk): {tool_calls,thoughts,permissions,stop_reason}, recorded when the
+// prompt turn ends. The per-tool-call detail it replaces lives on the job's stderr as
+// compact events (bd h-aii-7kja). It lives in this package for the same reason as the
+// permission events; job.EventJobACPSummary aliases it.
+const EventACPSummary = "job.acp_summary"
+
 // Runner executes one resolved command and reports how it ended.
 type Runner interface {
 	// Name returns the runner's stable identifier (e.g. "local").
@@ -149,9 +156,9 @@ type Request struct {
 	// reads it. Nil for every other job.
 	ACP *ACPRequest
 
-	// OnJobEvent (nil-safe) lets a runner record a job lifecycle event (e.g.
-	// job.tool_call from an acp-agent's tool-call status change) on the job. The job
-	// service wires it to its event log; the runner never touches the store itself.
+	// OnJobEvent (nil-safe) lets a runner record a job lifecycle event (e.g. the acp
+	// runner's job.permission_* / job.acp_summary rows) on the job. The job service
+	// wires it to its event log; the runner never touches the store itself.
 	OnJobEvent func(eventType string, detail map[string]any)
 }
 
@@ -186,6 +193,11 @@ type ACPRequest struct {
 	// agent maps none. When the session reports availableModes and this id is not
 	// among them, the run fails instead of prompting in a writable mode.
 	ReadOnlyModeID string
+	// LogThoughts keeps the agent's thinking in the job's logs (bd h-aii-7kja ②):
+	// true (the default) writes the coalesced thought line to stderr and acp.jsonl,
+	// false keeps the run's logs free of it. config.ACPConfig.LogsThoughts is the
+	// reader of the operator's `agents.<k>.acp.log_thoughts`.
+	LogThoughts bool
 }
 
 // ACPMCPServer is one MCP server advertised to an acp-agent through session/new.
