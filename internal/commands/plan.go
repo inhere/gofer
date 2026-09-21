@@ -2,6 +2,8 @@ package commands
 
 import (
 	"fmt"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,9 +29,10 @@ func validPlanID(id string) bool {
 }
 
 var planCreateOpts = struct {
-	planID string
-	title  string
-	desc   string
+	planID  string
+	title   string
+	desc    string
+	project string
 }{}
 
 var planListOpts = struct {
@@ -39,6 +42,7 @@ var planListOpts = struct {
 var planAddTodoOpts = struct {
 	job  string
 	note string
+	todoDispatchFlags
 }{}
 
 var planSetTodoOpts = struct {
@@ -46,7 +50,84 @@ var planSetTodoOpts = struct {
 	status     string
 	note       optionalString
 	appendNote string
+	todoDispatchFlags
 }{}
+
+// todoDispatchFlags are the PLAN-02 P2 dispatch flags, shared by `plan add-todo` and
+// `plan set-todo` so the two commands describe an item the same way (and so a caller can
+// move from "describe" to "run" with one command). An empty value means the flag was not
+// given: patch() leaves that field alone.
+type todoDispatchFlags struct {
+	assign   string
+	project  string
+	template string
+	vars     gcli.Strings // repeatable: --var k=v
+	verify   string
+	review   bool
+	runner   string
+	cwd      string
+	timeout  int
+}
+
+func (f *todoDispatchFlags) bind(c *gcli.Command) {
+	c.StrOpt(&f.assign, "assign", "", "", "agent key that runs this item; a ready item with an assignee is dispatched at once")
+	c.StrOpt(&f.project, "project", "", "", "project this item runs in (default: the plan's project)")
+	c.StrOpt(&f.template, "template", "", "", "task-book template to render this item's prompt from (default: the plan/todo prompt)")
+	c.VarOpt(&f.vars, "var", "", "template variable k=v (repeatable; requires --template)")
+	c.StrOpt(&f.verify, "verify", "", "", "command run after the agent finishes (shell-words, no shell); a non-zero exit fails the job")
+	c.BoolOpt(&f.review, "review", "", false, "require human review: on a normal completion the run parks in needs_review until someone accepts or rejects it")
+	c.StrOpt(&f.runner, "runner", "", "", "runner key for the job (default: the server's built-in local runner)")
+	c.StrOpt(&f.cwd, "cwd", "", "", "working dir within the project (default: the project root)")
+	c.IntOpt(&f.timeout, "timeout", "", 0, "job timeout in seconds (0 = the server default)")
+}
+
+// patch builds the update/create patch from the flags that were given. --var without
+// --template is refused: it would be a value nobody renders.
+func (f *todoDispatchFlags) patch() (jobstore.TodoPatch, error) {
+	var p jobstore.TodoPatch
+	if f.assign != "" {
+		p.Assignee = &f.assign
+	}
+	if f.project != "" {
+		p.ProjectKey = &f.project
+	}
+	if f.template != "" {
+		p.Template = &f.template
+	}
+	if len(f.vars) > 0 {
+		if f.template == "" {
+			return jobstore.TodoPatch{}, fmt.Errorf("--var requires --template")
+		}
+		vars, err := parseVarFlags(f.vars)
+		if err != nil {
+			return jobstore.TodoPatch{}, err
+		}
+		p.Vars = vars
+	}
+	if strings.TrimSpace(f.verify) != "" {
+		words, err := splitShellWords(f.verify)
+		if err != nil {
+			return jobstore.TodoPatch{}, err
+		}
+		if len(words) == 0 {
+			return jobstore.TodoPatch{}, fmt.Errorf("--verify is empty")
+		}
+		p.Verify = words
+	}
+	if f.review {
+		p.Review = &f.review
+	}
+	if f.runner != "" {
+		p.Runner = &f.runner
+	}
+	if f.cwd != "" {
+		p.Cwd = &f.cwd
+	}
+	if f.timeout > 0 {
+		p.TimeoutSec = &f.timeout
+	}
+	return p, nil
+}
 
 var planAskOpts = struct {
 	plan     string
@@ -80,6 +161,7 @@ func NewPlanCmd() *gcli.Command {
 					c.StrOpt(&planCreateOpts.planID, "plan-id", "", "", "plan id (optional; server generates when empty)")
 					c.StrOpt(&planCreateOpts.title, "title", "", "", "plan title")
 					c.StrOpt(&planCreateOpts.desc, "desc", "", "", "plan description")
+					c.StrOpt(&planCreateOpts.project, "project", "", "", "project the plan's items run in (PLAN-02: an item may still override it)")
 				},
 				Func: runPlanCreate,
 			},
@@ -139,7 +221,7 @@ func NewPlanCmd() *gcli.Command {
 			{
 				Name:    "add-todo",
 				Aliases: []string{"todo-add"},
-				Desc:    "Add a todo to a plan",
+				Desc:    "Add a todo to a plan (the item is created pending; --assign describes who runs it once it is ready)",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
@@ -147,23 +229,35 @@ func NewPlanCmd() *gcli.Command {
 					c.AddArg("title", "todo title", true)
 					c.StrOpt(&planAddTodoOpts.job, "job", "", "", "bind the todo to a job id (optional)")
 					c.StrOpt(&planAddTodoOpts.note, "note", "", "", "short remark for the todo (optional); append later with gofer plan set-todo <todo-id> --append-note \"...\"")
+					planAddTodoOpts.todoDispatchFlags.bind(c)
 				},
 				Func: runPlanAddTodo,
 			},
 			{
 				Name:    "set-todo",
 				Aliases: []string{"todo-done"},
-				Desc:    "Update a todo: --status pending|doing|done|skipped and/or --note; bare = done, --undone = pending",
+				Desc:    "Update a todo: --status pending|ready|doing|done|skipped and/or --note, and/or its dispatch fields; bare = done, --undone = pending. A ready item with an assignee is dispatched at once",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.AddArg("todo-id", "todo id", true)
 					c.BoolOpt(&planSetTodoOpts.undone, "undone", "", false, "mark the todo not done (= --status pending)")
-					c.StrOpt(&planSetTodoOpts.status, "status", "", "", "lifecycle status: pending|doing|done|skipped (wins over --undone)")
+					c.StrOpt(&planSetTodoOpts.status, "status", "", "", "lifecycle status: pending|ready|doing|done|skipped (wins over --undone)")
 					c.VarOpt(&planSetTodoOpts.note, "note", "", "set the todo note; --note \"\" clears it (kept unchanged when omitted)")
 					c.StrOpt(&planSetTodoOpts.appendNote, "append-note", "", "", "append a line to the todo note (mutually exclusive with --note)")
+					planSetTodoOpts.todoDispatchFlags.bind(c)
 				},
 				Func: runPlanSetTodo,
+			},
+			{
+				Name: "dispatch",
+				Desc: "Dispatch a todo's assigned agent now, whatever its status (the explicit fallback to \"ready + assigned\")",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("todo-id", "todo id", true)
+				},
+				Func: runPlanDispatch,
 			},
 			{
 				Name: "ask",
@@ -213,7 +307,7 @@ func runPlanCreate(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	p, err := cli.CreatePlan(planCreateOpts.planID, planCreateOpts.title, planCreateOpts.desc)
+	p, err := cli.CreatePlan(planCreateOpts.planID, planCreateOpts.title, planCreateOpts.desc, planCreateOpts.project)
 	if err != nil {
 		return err
 	}
@@ -306,15 +400,45 @@ func runPlanAddTodo(c *gcli.Command, _ []string) error {
 	if planID == "" || title == "" {
 		return fmt.Errorf("plan add-todo requires <plan-id> and <title>")
 	}
+	patch, err := planAddTodoOpts.todoDispatchFlags.patch()
+	if err != nil {
+		return err
+	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
 		return err
 	}
-	t, err := cli.AddTodo(planID, title, planAddTodoOpts.job, planAddTodoOpts.note)
+	t, err := cli.AddTodo(planID, title, planAddTodoOpts.job, planAddTodoOpts.note, patch)
 	if err != nil {
 		return err
 	}
 	c.Printf("todo %s added to plan %s\n", t.TodoID, planID)
+	return nil
+}
+
+// runPlanDispatch is the explicit fallback (PLAN-02 P2): it dispatches the item's
+// assignee regardless of the item's status, and reports BOTH outcomes — the job it
+// started, or why nothing was started (the item already has a live job is not an error:
+// the caller asked, and the answer is "it is already running").
+func runPlanDispatch(c *gcli.Command, _ []string) error {
+	todoID := argValue(c, "todo-id")
+	if todoID == "" {
+		return fmt.Errorf("plan dispatch requires a <todo-id>")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	d, err := cli.DispatchTodo(todoID)
+	if err != nil {
+		return err
+	}
+	if d.Job == nil {
+		c.Printf("todo %s not dispatched: %s\n", d.Todo.TodoID, d.Reason)
+		return nil
+	}
+	c.Printf("todo %s dispatched: job %s (agent=%s, project=%s)\n",
+		d.Todo.TodoID, d.Job.ID, d.Job.Agent, d.Job.ProjectKey)
 	return nil
 }
 
@@ -335,30 +459,24 @@ func (o *optionalString) Set(s string) error {
 // String implements flag.Value.
 func (o *optionalString) String() string { return o.val }
 
-// todoUpdate is the single request `plan set-todo` sends: Status "" leaves the
-// status alone, Note nil leaves the note alone, AppendNote "" appends nothing.
-type todoUpdate struct {
-	Status     string
-	Note       *string
-	AppendNote string
-}
-
 // resolveTodoUpdate maps the set-todo flags onto one update. --status wins; a
 // bare call keeps the legacy meaning (done, or pending with --undone); --note or
-// --append-note alone leaves the status untouched.
-func resolveTodoUpdate(status string, undone bool, note optionalString, appendNote string) (todoUpdate, error) {
+// --append-note or a dispatch field alone leaves the status untouched.
+func resolveTodoUpdate(status string, undone bool, note optionalString, appendNote string, patch jobstore.TodoPatch) (client.TodoUpdate, error) {
 	if note.set && appendNote != "" {
-		return todoUpdate{}, fmt.Errorf("plan set-todo: --note and --append-note are mutually exclusive")
+		return client.TodoUpdate{}, fmt.Errorf("plan set-todo: --note and --append-note are mutually exclusive")
 	}
 	if status == "" {
 		switch {
 		case undone:
 			status = "pending"
-		case !note.set && appendNote == "":
+		// The legacy bare form means "done" — but only when the caller asked for nothing
+		// else: `--assign omp` on its own must not also complete the item.
+		case !note.set && appendNote == "" && patch.Empty():
 			status = "done"
 		}
 	}
-	u := todoUpdate{Status: status, AppendNote: appendNote}
+	u := client.TodoUpdate{Status: status, AppendNote: appendNote, TodoPatch: patch}
 	if note.set {
 		v := note.val
 		u.Note = &v
@@ -375,23 +493,29 @@ func runPlanSetTodo(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	upd, err := resolveTodoUpdate(planSetTodoOpts.status, planSetTodoOpts.undone,
-		planSetTodoOpts.note, planSetTodoOpts.appendNote)
+	patch, err := planSetTodoOpts.todoDispatchFlags.patch()
 	if err != nil {
 		return err
 	}
-	var t client.Todo
-	if upd.AppendNote != "" {
-		// status (if any) and the appended line travel in ONE request, so a
-		// failure never leaves a half-applied update.
-		t, err = cli.UpdateTodoStatusAppend(todoID, upd.Status, upd.AppendNote)
-	} else {
-		t, err = cli.UpdateTodoStatus(todoID, upd.Status, upd.Note)
+	upd, err := resolveTodoUpdate(planSetTodoOpts.status, planSetTodoOpts.undone,
+		planSetTodoOpts.note, planSetTodoOpts.appendNote, patch)
+	if err != nil {
+		return err
 	}
+	// ONE request carries the lifecycle fields, the appended line and the dispatch
+	// fields, so a failure never leaves a half-applied update.
+	t, err := cli.PatchTodo(todoID, upd)
 	if err != nil {
 		return err
 	}
 	c.Printf("todo %s status=%s\n", t.TodoID, t.Status)
+	if t.DispatchError != "" {
+		// A dispatch the update triggered was refused: say so here rather than leaving
+		// the caller to discover it on the plan page.
+		c.Printf("  dispatch_error: %s\n", t.DispatchError)
+	} else if t.JobID != "" && t.Status == "doing" {
+		c.Printf("  dispatched: job %s (agent=%s)\n", t.JobID, t.Assignee)
+	}
 	return nil
 }
 
@@ -481,13 +605,67 @@ func printPlan(c *gcli.Command, p client.Plan) {
 		c.Printf("description: %s\n", p.Description)
 	}
 	c.Printf("status:      %s\n", p.Status)
+	if p.Project != "" {
+		c.Printf("project:     %s\n", p.Project)
+	}
 	if p.Owner != "" {
 		c.Printf("owner:       %s\n", p.Owner)
 	}
 	if s := formatCompletion(p); s != "" {
 		c.Printf("progress:    %s\n", s)
 	}
+	// PLAN-02 P2: what the plan has burned so far, by agent — the question a reader
+	// asks before adding more work to it.
+	if s := formatPlanUsage(p.Usage); s != "" {
+		c.Printf("usage:       %s\n", s)
+	}
 	c.Println("jobs:")
+}
+
+// formatPlanUsage renders a plan's roll-up as `total 1.2M tokens / $3.45 (omp 5 jobs,
+// codex 2 jobs)`. Agents are listed by job count (most first, ties by key) — the
+// interesting fact is who is doing the work, not the map's order. "" when the plan has
+// no jobs at all (an older server sends no usage either).
+func formatPlanUsage(u *client.PlanUsage) string {
+	if u == nil || u.Jobs == 0 {
+		return ""
+	}
+	s := fmt.Sprintf("total %s tokens / $%.2f", formatTokenCount(u.TotalTokens), u.CostUSD)
+	keys := make([]string, 0, len(u.ByAgent))
+	for k := range u.ByAgent {
+		keys = append(keys, k)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		a, b := u.ByAgent[keys[i]], u.ByAgent[keys[j]]
+		if a.Jobs != b.Jobs {
+			return a.Jobs > b.Jobs
+		}
+		return keys[i] < keys[j]
+	})
+	parts := make([]string, 0, len(keys))
+	for _, k := range keys {
+		name := k
+		if name == "" {
+			name = "(unknown)"
+		}
+		parts = append(parts, fmt.Sprintf("%s %d jobs", name, u.ByAgent[k].Jobs))
+	}
+	if len(parts) > 0 {
+		s += " (" + strings.Join(parts, ", ") + ")"
+	}
+	return s
+}
+
+// formatTokenCount shortens a token count for a one-line summary: 1234 → "1.2k",
+// 1234567 → "1.2M" (the exact numbers stay in `job show`/the web).
+func formatTokenCount(n int64) string {
+	switch {
+	case n >= 1_000_000:
+		return fmt.Sprintf("%.1fM", float64(n)/1_000_000)
+	case n >= 1_000:
+		return fmt.Sprintf("%.1fk", float64(n)/1_000)
+	}
+	return strconv.FormatInt(n, 10)
 }
 
 // formatCompletion renders a plan's progress for `plan show`: the server's
@@ -569,12 +747,28 @@ func printPlanTodos(c *gcli.Command, todos []client.Todo) {
 			box = "[~]"
 		case "skipped":
 			box = "[-]"
+		case "ready":
+			// PLAN-02 P2: queued for dispatch (assigned → it runs immediately, so a
+			// ready item on screen means it is waiting for an assignee or for its
+			// previous job to end).
+			box = "[>]"
+		}
+		// PLAN-02 P2: who runs this item — the one fact a reader needs to see the
+		// assignment at a glance.
+		assign := ""
+		if t.Assignee != "" {
+			assign = "  (assignee=" + t.Assignee + ")"
 		}
 		bind := ""
 		if t.JobID != "" {
 			bind = "  (job=" + t.JobID + ")"
 		}
-		c.Printf("  %s %-26s %s%s\n", box, t.TodoID, t.Title, bind)
+		c.Printf("  %s %-26s %s%s%s\n", box, t.TodoID, t.Title, assign, bind)
+		// A dispatch that was refused: the item says WHY here rather than leaving the
+		// failure to be discovered as "it never ran".
+		if t.DispatchError != "" {
+			c.Printf("      dispatch_error: %s\n", t.DispatchError)
+		}
 		// SUP-01 C：挂接在该 todo 上的 job（新→旧，最多 10 条，服务端已限流）——
 		// "这一项被谁跑过、结果如何、跑了多久"。完整历史用 `job list --todo`。
 		if len(t.Jobs) > 0 {

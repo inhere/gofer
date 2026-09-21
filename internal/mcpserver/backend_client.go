@@ -162,7 +162,10 @@ func (b *clientBackend) GetArtifacts(id string) ([]artifactView, error) {
 // --- plan grouping (client 转发中央 serve) -----------------------------------
 
 func (b *clientBackend) CreatePlan(title, description string) (planView, error) {
-	p, err := b.cli.CreatePlan("", title, description)
+	// The MCP tool takes no project: an MCP-created plan's items name their own
+	// project (gofer_add_todo / gofer_update_todo `project`). The CLI is where
+	// `plan create --project` belongs.
+	p, err := b.cli.CreatePlan("", title, description, "")
 	if err != nil {
 		return planView{}, err
 	}
@@ -185,30 +188,39 @@ func (b *clientBackend) GetPlan(planID string) (planView, error) {
 	return clientPlanToView(p), nil
 }
 
-func (b *clientBackend) AddTodo(planID, title, jobID, note string) (todoView, error) {
-	t, err := b.cli.AddTodo(planID, title, jobID, note)
+func (b *clientBackend) AddTodo(planID, title, jobID, note string, patch jobstore.TodoPatch) (todoView, error) {
+	t, err := b.cli.AddTodo(planID, title, jobID, note, patch)
 	if err != nil {
 		return todoView{}, err
 	}
 	return clientTodoToView(t), nil
 }
 
-func (b *clientBackend) UpdateTodo(todoID, status string, note *string, appendNote string) (todoView, error) {
-	var (
-		t   client.Todo
-		err error
-	)
-	if appendNote != "" {
-		// One PATCH carrying both (the server treats them as one update), so a
-		// failure never leaves a half-applied change.
-		t, err = b.cli.UpdateTodoStatusAppend(todoID, status, appendNote)
-	} else {
-		t, err = b.cli.UpdateTodoStatus(todoID, status, note)
-	}
+func (b *clientBackend) UpdateTodo(todoID, status string, note *string, appendNote string, patch jobstore.TodoPatch) (todoView, error) {
+	// ONE PATCH carries the lifecycle fields and the dispatch patch — the server applies
+	// them as one update, so a failure never leaves a half-applied change, and a write
+	// that makes the item dispatchable also runs the planner there.
+	t, err := b.cli.PatchTodo(todoID, client.TodoUpdate{
+		Status: status, Note: note, AppendNote: appendNote, TodoPatch: patch,
+	})
 	if err != nil {
 		return todoView{}, err
 	}
 	return clientTodoToView(t), nil
+}
+
+func (b *clientBackend) DispatchTodo(todoID string) (todoDispatchView, error) {
+	d, err := b.cli.DispatchTodo(todoID)
+	if err != nil {
+		return todoDispatchView{}, err
+	}
+	out := todoDispatchView{Todo: clientTodoToView(d.Todo), Dispatched: d.Dispatched}
+	if d.Job != nil {
+		v := toJobView(*d.Job)
+		out.Job = &v
+	}
+	out.Reason = d.Reason
+	return out, nil
 }
 
 func clientPlanToView(p client.Plan) planView {
@@ -219,6 +231,7 @@ func clientPlanToView(p client.Plan) planView {
 		Status:      p.Status,
 		Owner:       p.Owner,
 		Progress:    p.Progress,
+		Project:     p.Project,
 		CreatedAt:   p.CreatedAt,
 		UpdatedAt:   p.UpdatedAt,
 		Jobs:        make([]jobView, 0, len(p.Jobs)),
@@ -241,6 +254,9 @@ func clientTodoToView(t client.Todo) todoView {
 		TodoID: t.TodoID, PlanID: t.PlanID, JobID: t.JobID, Title: t.Title,
 		Done: t.Done, Status: t.Status, StartedAt: t.StartedAt, DoneAt: t.DoneAt,
 		Note: t.Note, Sort: t.Sort, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
+		Assignee: t.Assignee, Project: t.Project, Template: t.Template,
+		Vars: t.Vars, Verify: t.Verify, Review: t.Review, Runner: t.Runner,
+		Cwd: t.Cwd, TimeoutSec: t.TimeoutSec, DispatchError: t.DispatchError,
 	}
 }
 

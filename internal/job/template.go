@@ -40,7 +40,14 @@ func (s *Service) applyTemplate(cfg *config.Config, req *JobRequest) error {
 	if err != nil {
 		return fmt.Errorf("%w: %s", ErrInvalidRequest, err.Error())
 	}
-	rendered, err := template.Render(tpl, req.TemplateVars, template.Builtins(req.ProjectKey, req.Cwd, projectDir, s.Now()))
+	builtins := template.Builtins(req.ProjectKey, req.Cwd, projectDir, s.Now())
+	// PLAN-02 P2: a task book of a todo-attached submit can address the item it runs
+	// for ({{plan_title}}, {{todo_title}}, …) — that is what lets ONE template serve
+	// every item of a plan.
+	for k, v := range s.todoTemplateBuiltins(req.TodoID, req.TodoForeign) {
+		builtins[k] = v
+	}
+	rendered, err := template.Render(tpl, req.TemplateVars, builtins)
 	if err != nil {
 		return fmt.Errorf("%w: template %q: %s", ErrInvalidRequest, name, err.Error())
 	}
@@ -109,6 +116,35 @@ func (s *Service) applyTemplate(cfg *config.Config, req *JobRequest) error {
 		req.Runner = builtinLocalRunner
 	}
 	return nil
+}
+
+// todoTemplateBuiltins resolves the plan/todo placeholders a todo-attached submit
+// contributes to its task book (PLAN-02 P2): {{plan_title}} {{plan_description}}
+// {{todo_title}} {{todo_note}} {{todo_id}}. They are looked up in THIS process's store
+// rather than carried on the request: the machine that renders the task book is the one
+// that owns the checklist (the hub renders before a dispatch, and a replayed or
+// forwarded request never re-renders — see dropTemplate), so a stale copy can never be
+// rendered onto a job. A request with no todo, or one whose todo this store does not own
+// (a worker holding the hub's item), contributes nothing; the placeholders then render
+// empty with a warning, exactly like an unresolvable {{head}}.
+func (s *Service) todoTemplateBuiltins(todoID string, foreign bool) map[string]string {
+	if todoID == "" || foreign || s.meta == nil {
+		return nil
+	}
+	todo, ok, err := s.meta.GetTodo(todoID)
+	if err != nil || !ok {
+		return nil
+	}
+	out := map[string]string{
+		"todo_id":    todo.TodoID,
+		"todo_title": todo.Title,
+		"todo_note":  todo.Note,
+	}
+	if plan, ok, err := s.meta.GetPlan(todo.PlanID); err == nil && ok {
+		out["plan_title"] = plan.Title
+		out["plan_description"] = plan.Description
+	}
+	return out
 }
 
 // dropTemplate clears the template fields of a REPLAYED request (a rebuild, a

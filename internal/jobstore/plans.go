@@ -26,17 +26,23 @@ type Plan struct {
 	Status      string
 	Owner       string
 	Progress    int
-	CreatedAt   int64
-	UpdatedAt   int64
+	// ProjectKey is the project this plan's todos are dispatched INTO (PLAN-02 P2,
+	// `plan create --project`). It is what makes "指派即派发" a one-liner: a todo
+	// without its own project_key runs in the plan's. Empty = the plan names none, so
+	// every todo must carry its own (and a dispatch without one is refused).
+	ProjectKey string
+	CreatedAt  int64
+	UpdatedAt  int64
 }
 
 const selectPlanCols = `SELECT plan_id, COALESCE(title,''), COALESCE(description,''),
-  status, COALESCE(owner,''), COALESCE(progress,0), created_at, updated_at FROM plans`
+  status, COALESCE(owner,''), COALESCE(progress,0), COALESCE(project_key,''),
+  created_at, updated_at FROM plans`
 
 func scanPlan(sc rowScanner) (Plan, error) {
 	var p Plan
 	err := sc.Scan(&p.PlanID, &p.Title, &p.Description, &p.Status, &p.Owner,
-		&p.Progress, &p.CreatedAt, &p.UpdatedAt)
+		&p.Progress, &p.ProjectKey, &p.CreatedAt, &p.UpdatedAt)
 	return p, err
 }
 
@@ -50,12 +56,12 @@ func (s *Store) InsertPlan(p Plan) error {
 		p.Status = PlanOpen
 	}
 	const q = `INSERT INTO plans
-  (plan_id, title, description, status, owner, progress, created_at, updated_at)
-  VALUES (?,?,?,?,?,?,?,?)`
+  (plan_id, title, description, status, owner, progress, project_key, created_at, updated_at)
+  VALUES (?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q, p.PlanID, p.Title, p.Description, p.Status, p.Owner,
-		p.Progress, p.CreatedAt, p.UpdatedAt); err != nil {
+		p.Progress, p.ProjectKey, p.CreatedAt, p.UpdatedAt); err != nil {
 		return fmt.Errorf("jobstore: insert plan %q: %w", p.PlanID, err)
 	}
 	return nil
@@ -167,7 +173,9 @@ type PlanTodoCounts struct {
 	Skipped int `json:"skipped"`
 }
 
-// add counts n todos of status st (an unknown/legacy status counts as pending).
+// add counts n todos of status st (an unknown/legacy status counts as pending, and so
+// does `ready` — a queued item is unfinished, and the P2 status adds no bucket the
+// plan card would have to learn).
 func (c *PlanTodoCounts) add(st string, n int) {
 	c.Total += n
 	switch st {
@@ -321,4 +329,55 @@ func RollupPlanCounts(raw map[string]int) PlanCounts {
 		}
 	}
 	return c
+}
+
+// PlanUsage is a plan's token/cost roll-up (PLAN-02 P2): what the jobs attached to it
+// reported, in total and per agent. Jobs counts EVERY attached job — one that captured
+// no usage still ran — while the sums only see the rows that reported numbers, exactly
+// like UsageWindow (see usageStatsQuery for why the extraction is json_valid-guarded).
+type PlanUsage struct {
+	Jobs        int
+	TotalTokens int64
+	CostUSD     float64
+	// ByAgent is keyed by agent key; a job with an empty agent is keyed by "".
+	ByAgent map[string]UsageAgent
+}
+
+// planUsageQuery is usageStatsQuery scoped to ONE plan: the same columns, the same
+// guards, so the plan card and the dashboard can never disagree about a job.
+const planUsageQuery = `SELECT agent, COUNT(*),
+  COALESCE(SUM(CASE WHEN json_valid(usage_json) THEN json_extract(usage_json,'$.total_tokens') END),0),
+  COALESCE(SUM(CASE WHEN json_valid(usage_json) THEN json_extract(usage_json,'$.input_tokens') END),0),
+  COALESCE(SUM(CASE WHEN json_valid(usage_json) THEN json_extract(usage_json,'$.output_tokens') END),0),
+  COALESCE(SUM(CASE WHEN json_valid(usage_json) THEN json_extract(usage_json,'$.cost_usd') END),0)
+FROM jobs WHERE plan_id = ? GROUP BY agent`
+
+// PlanUsage aggregates the usage its attached jobs reported, per agent and in total.
+// A plan with no jobs (or none that reported usage) is the zero value — ByAgent is
+// always non-nil so a caller can index it without a nil check.
+func (s *Store) PlanUsage(planID string) (PlanUsage, error) {
+	rows, err := s.db.Query(planUsageQuery, planID)
+	if err != nil {
+		return PlanUsage{}, fmt.Errorf("jobstore: plan usage %q: %w", planID, err)
+	}
+	defer func() { _ = rows.Close() }()
+
+	out := PlanUsage{ByAgent: map[string]UsageAgent{}}
+	for rows.Next() {
+		var (
+			agent string
+			a     UsageAgent
+		)
+		if err := rows.Scan(&agent, &a.Jobs, &a.TotalTokens, &a.InputTokens, &a.OutputTokens, &a.CostUSD); err != nil {
+			return PlanUsage{}, fmt.Errorf("jobstore: scan plan usage row: %w", err)
+		}
+		out.ByAgent[agent] = a
+		out.Jobs += a.Jobs
+		out.TotalTokens += a.TotalTokens
+		out.CostUSD += a.CostUSD
+	}
+	if err := rows.Err(); err != nil {
+		return PlanUsage{}, fmt.Errorf("jobstore: plan usage rows %q: %w", planID, err)
+	}
+	return out, nil
 }

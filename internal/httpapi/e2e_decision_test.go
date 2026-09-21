@@ -18,7 +18,7 @@ func TestE2EDecisionAskAnswer(t *testing.T) {
 	t.Cleanup(ts.Close)
 	c := client.New(ts.URL, testToken)
 
-	if _, err := c.CreatePlan("plan-e2e-dec", "e2e", ""); err != nil {
+	if _, err := c.CreatePlan("plan-e2e-dec", "e2e", "", ""); err != nil {
 		t.Fatalf("CreatePlan: %v", err)
 	}
 

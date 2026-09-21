@@ -992,20 +992,33 @@ func (c *Client) CancelWorkflow(id string) (Workflow, error) {
 // Plan is the client-side view of a plan header. GetPlan inlines its jobs,
 // todos and decisions.
 type Plan struct {
-	PlanID      string                   `json:"plan_id"`
-	Title       string                   `json:"title,omitempty"`
-	Description string                   `json:"description,omitempty"`
-	Status      string                   `json:"status"`
-	Owner       string                   `json:"owner,omitempty"`
-	Progress    int                      `json:"progress,omitempty"`
-	CreatedAt   int64                    `json:"created_at"`
-	UpdatedAt   int64                    `json:"updated_at"`
-	Counts      *jobstore.PlanCounts     `json:"counts,omitempty"`
-	TodoCounts  *jobstore.PlanTodoCounts `json:"todo_counts,omitempty"`
-	Completion  *jobstore.PlanCompletion `json:"completion,omitempty"`
-	Jobs        []job.JobResult          `json:"jobs,omitempty"`
-	Todos       []Todo                   `json:"todos,omitempty"`
-	Decisions   []Decision               `json:"decisions,omitempty"`
+	PlanID      string `json:"plan_id"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	Status      string `json:"status"`
+	Owner       string `json:"owner,omitempty"`
+	Progress    int    `json:"progress,omitempty"`
+	// Project is the project this plan's todos are dispatched into (PLAN-02 P2).
+	Project    string                   `json:"project,omitempty"`
+	CreatedAt  int64                    `json:"created_at"`
+	UpdatedAt  int64                    `json:"updated_at"`
+	Counts     *jobstore.PlanCounts     `json:"counts,omitempty"`
+	TodoCounts *jobstore.PlanTodoCounts `json:"todo_counts,omitempty"`
+	Completion *jobstore.PlanCompletion `json:"completion,omitempty"`
+	Usage      *PlanUsage               `json:"usage,omitempty"`
+	Jobs       []job.JobResult          `json:"jobs,omitempty"`
+	Todos      []Todo                   `json:"todos,omitempty"`
+	Decisions  []Decision               `json:"decisions,omitempty"`
+}
+
+// PlanUsage is the plan's token/cost roll-up (PLAN-02 P2): every attached job counts in
+// Jobs; only the ones that reported numbers move the sums. ByAgent is keyed by agent
+// and reuses UsageAgent — the same tally the dashboard's usage card shows.
+type PlanUsage struct {
+	Jobs        int                   `json:"jobs"`
+	TotalTokens int64                 `json:"total_tokens"`
+	CostUSD     float64               `json:"cost_usd"`
+	ByAgent     map[string]UsageAgent `json:"by_agent"`
 }
 
 // Todo is the client-side view of a plan todo item. JobID "" is a plain todo.
@@ -1022,6 +1035,17 @@ type Todo struct {
 	Sort      int    `json:"sort,omitempty"`
 	CreatedAt int64  `json:"created_at"`
 	UpdatedAt int64  `json:"updated_at"`
+	// PLAN-02 P2 dispatch fields (assignee … dispatch_error).
+	Assignee      string            `json:"assignee,omitempty"`
+	Project       string            `json:"project,omitempty"`
+	Template      string            `json:"template,omitempty"`
+	Vars          map[string]string `json:"vars,omitempty"`
+	Verify        []string          `json:"verify,omitempty"`
+	Review        bool              `json:"review,omitempty"`
+	Runner        string            `json:"runner,omitempty"`
+	Cwd           string            `json:"cwd,omitempty"`
+	TimeoutSec    int               `json:"timeout_sec,omitempty"`
+	DispatchError string            `json:"dispatch_error,omitempty"`
 	// Jobs are the runs attached to this todo (SUP-01 C), newest first — `plan show`
 	// lists them under the item. Empty for an item nobody has run.
 	Jobs []TodoJob `json:"jobs,omitempty"`
@@ -1037,10 +1061,11 @@ type TodoJob struct {
 	DurationSec int64  `json:"duration_sec,omitempty"`
 }
 
-// CreatePlan POSTs /v1/plans and returns the created header.
-func (c *Client) CreatePlan(planID, title, description string) (Plan, error) {
+// CreatePlan POSTs /v1/plans and returns the created header. project is the project its
+// todos are dispatched into (PLAN-02 P2); "" names none.
+func (c *Client) CreatePlan(planID, title, description, project string) (Plan, error) {
 	body, err := json.Marshal(map[string]string{
-		"plan_id": planID, "title": title, "description": description,
+		"plan_id": planID, "title": title, "description": description, "project": project,
 	})
 	if err != nil {
 		return Plan{}, fmt.Errorf("encode create plan: %w", err)
@@ -1100,9 +1125,15 @@ func (c *Client) AttachJob(planID, jobID string) (Plan, error) {
 }
 
 // AddTodo creates a plan todo. jobID may be empty for a plain checklist item;
-// note is an optional short remark.
-func (c *Client) AddTodo(planID, title, jobID, note string) (Todo, error) {
-	body, err := json.Marshal(map[string]any{"title": title, "job_id": jobID, "note": note})
+// note is an optional short remark. patch carries the PLAN-02 dispatch fields; the
+// item is created `pending`, so nothing is dispatched until it is set ready.
+func (c *Client) AddTodo(planID, title, jobID, note string, patch jobstore.TodoPatch) (Todo, error) {
+	body, err := json.Marshal(struct {
+		Title string `json:"title"`
+		JobID string `json:"job_id"`
+		Note  string `json:"note"`
+		jobstore.TodoPatch
+	}{Title: title, JobID: jobID, Note: note, TodoPatch: patch})
 	if err != nil {
 		return Todo{}, fmt.Errorf("encode add todo: %w", err)
 	}
@@ -1111,26 +1142,37 @@ func (c *Client) AddTodo(planID, title, jobID, note string) (Todo, error) {
 	return t, err
 }
 
-// UpdateTodo sets a todo's manual done flag (legacy二态 wrapper).
+// UpdateTodo sets a todo's manual done flag (legacy二态 wrapper over PatchTodo).
 func (c *Client) UpdateTodo(todoID string, done bool) (Todo, error) {
 	status := "pending"
 	if done {
 		status = "done"
 	}
-	return c.UpdateTodoStatus(todoID, status, nil)
+	return c.PatchTodo(todoID, TodoUpdate{Status: status})
 }
 
-// UpdateTodoStatus moves a todo along its lifecycle and/or updates its note
-// (Part C §C2). status "" = keep current (note-only); note nil = keep current.
-func (c *Client) UpdateTodoStatus(todoID, status string, note *string) (Todo, error) {
-	payload := map[string]any{}
-	if status != "" {
-		payload["status"] = status
-	}
-	if note != nil {
-		payload["note"] = *note
-	}
-	body, err := json.Marshal(payload)
+// TodoUpdate is one PATCH /v1/todos/{id} body (PLAN-02 P2): the lifecycle fields plus
+// the dispatch fields. A zero value keeps the current one — status "" (note-only or
+// patch-only update), a nil note (keep), an empty append_note (nothing appended), and
+// the patch's nil entries (see jobstore.TodoPatch).
+type TodoUpdate struct {
+	Status     string
+	Note       *string
+	AppendNote string
+	jobstore.TodoPatch
+}
+
+// PatchTodo applies one todo update and returns the stored item. status "" keeps the
+// lifecycle, note nil keeps the note, and the patch only touches the fields it names.
+// The dispatch fields flatten into the same body (todoPatch's json tags are the wire
+// names), so one request carries both.
+func (c *Client) PatchTodo(todoID string, u TodoUpdate) (Todo, error) {
+	body, err := json.Marshal(struct {
+		Status     string  `json:"status,omitempty"`
+		Note       *string `json:"note,omitempty"`
+		AppendNote string  `json:"append_note,omitempty"`
+		jobstore.TodoPatch
+	}{Status: u.Status, Note: u.Note, AppendNote: u.AppendNote, TodoPatch: u.TodoPatch})
 	if err != nil {
 		return Todo{}, fmt.Errorf("encode update todo: %w", err)
 	}
@@ -1139,28 +1181,23 @@ func (c *Client) UpdateTodoStatus(todoID, status string, note *string) (Todo, er
 	return t, err
 }
 
-// UpdateTodoStatusAppend updates status and appends a note in one PATCH request.
-func (c *Client) UpdateTodoStatusAppend(todoID, status, note string) (Todo, error) {
-	body, err := json.Marshal(map[string]any{"status": status, "append_note": note})
-	if err != nil {
-		return Todo{}, fmt.Errorf("encode update todo: %w", err)
-	}
-	var t Todo
-	err = c.doJSON(http.MethodPatch, "/v1/todos/"+url.PathEscape(todoID), bytes.NewReader(body), &t)
-	return t, err
+// TodoDispatch is the outcome of an explicit dispatch (PLAN-02 P2):
+// POST /v1/todos/{id}/dispatch. Job is nil when nothing was dispatched and Reason says
+// why (the item has no assignee is refused as an error instead; a live job is reported).
+type TodoDispatch struct {
+	Todo       Todo           `json:"todo"`
+	Job        *job.JobResult `json:"job,omitempty"`
+	Dispatched bool           `json:"dispatched"`
+	Reason     string         `json:"reason,omitempty"`
 }
 
-// AppendTodoNote appends a line to the todo's note (server-side atomic append,
-// newline-separated). Mutually exclusive with UpdateTodoStatus's note
-// (overwrite) — the server rejects a body carrying both.
-func (c *Client) AppendTodoNote(todoID, note string) (Todo, error) {
-	body, err := json.Marshal(map[string]any{"append_note": note})
-	if err != nil {
-		return Todo{}, fmt.Errorf("encode append todo note: %w", err)
-	}
-	var t Todo
-	err = c.doJSON(http.MethodPatch, "/v1/todos/"+url.PathEscape(todoID), bytes.NewReader(body), &t)
-	return t, err
+// DispatchTodo explicitly dispatches a todo's assignee (PLAN-02 P2), ignoring the
+// item's status: the caller asked for it, so a `pending` or `done` item is a legitimate
+// target. The server still requires an assignee and no live job.
+func (c *Client) DispatchTodo(todoID string) (TodoDispatch, error) {
+	var out TodoDispatch
+	err := c.doJSON(http.MethodPost, "/v1/todos/"+url.PathEscape(todoID)+"/dispatch", nil, &out)
+	return out, err
 }
 
 // Decision is the client-side view of a plan_decisions row (decision channel,

@@ -54,12 +54,20 @@ type Backend interface {
 	CreatePlan(title, description string) (planView, error)
 	AttachJob(planID, jobID string) (planView, error)
 	GetPlan(planID string) (planView, error)
-	AddTodo(planID, title, jobID, note string) (todoView, error)
+	AddTodo(planID, title, jobID, note string, patch jobstore.TodoPatch) (todoView, error)
 	// UpdateTodo moves a todo along its lifecycle (status ""=keep) and/or
-	// updates its note (nil=keep) or APPENDS a line to it (appendNote != "").
-	// Exactly one of note / appendNote is meaningful; see jobstore.UpdateTodoStatus
-	// and jobstore.AppendTodoNote for the semantics each carries.
-	UpdateTodo(todoID, status string, note *string, appendNote string) (todoView, error)
+	// updates its note (nil=keep) or APPENDS a line to it (appendNote != ""),
+	// and/or applies a dispatch-field patch (PLAN-02 P2). Note and appendNote are
+	// mutually exclusive; see jobstore.UpdateTodoStatus and jobstore.AppendTodoNote
+	// for the semantics each carries.
+	//
+	// A write that makes the item dispatchable (status ready, or an assignee) also runs
+	// the PLAN-02 dispatcher, exactly like the HTTP/CLI paths — "指派即派发" belongs to the
+	// todo write, not to one interface.
+	UpdateTodo(todoID, status string, note *string, appendNote string, patch jobstore.TodoPatch) (todoView, error)
+	// DispatchTodo explicitly dispatches a todo's assignee (PLAN-02 P2), ignoring the
+	// item's status but not its assignee / a live job.
+	DispatchTodo(todoID string) (todoDispatchView, error)
 
 	// Decision channel (Part C §C3, gofer_ask_human). Exactly two methods —
 	// there is NO active ExpireDecision (plan H1): expiry is lazy inside the

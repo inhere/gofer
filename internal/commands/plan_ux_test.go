@@ -7,6 +7,7 @@ import (
 	"github.com/gookit/gcli/v3"
 
 	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 func TestPlanIDValidation(t *testing.T) {
@@ -39,27 +40,33 @@ func TestPlanTodoNoteOptionalString(t *testing.T) {
 
 func TestPlanTodoNoteResolve(t *testing.T) {
 	str := func(s string) *string { return &s }
+	assignee := "omp"
 	cases := []struct {
 		name       string
 		status     string
 		undone     bool
 		note       optionalString
 		appendNote string
-		want       todoUpdate
+		patch      jobstore.TodoPatch
+		want       client.TodoUpdate
 		wantErr    bool
 	}{
-		{"bare means done", "", false, optionalString{}, "", todoUpdate{Status: "done"}, false},
-		{"--undone means pending", "", true, optionalString{}, "", todoUpdate{Status: "pending"}, false},
-		{"--status wins", "doing", true, optionalString{}, "", todoUpdate{Status: "doing"}, false},
-		{"--note alone keeps status", "", false, optionalString{val: "x", set: true}, "", todoUpdate{Note: str("x")}, false},
-		{"--note \"\" clears", "", false, optionalString{set: true}, "", todoUpdate{Note: str("")}, false},
-		{"--append-note alone keeps status", "", false, optionalString{}, "more", todoUpdate{AppendNote: "more"}, false},
-		{"--status + --append-note in one update", "done", false, optionalString{}, "more", todoUpdate{Status: "done", AppendNote: "more"}, false},
-		{"--note + --append-note conflict", "", false, optionalString{val: "x", set: true}, "more", todoUpdate{}, true},
+		{"bare means done", "", false, optionalString{}, "", jobstore.TodoPatch{}, client.TodoUpdate{Status: "done"}, false},
+		{"--undone means pending", "", true, optionalString{}, "", jobstore.TodoPatch{}, client.TodoUpdate{Status: "pending"}, false},
+		{"--status wins", "doing", true, optionalString{}, "", jobstore.TodoPatch{}, client.TodoUpdate{Status: "doing"}, false},
+		{"--note alone keeps status", "", false, optionalString{val: "x", set: true}, "", jobstore.TodoPatch{}, client.TodoUpdate{Note: str("x")}, false},
+		{"--note \"\" clears", "", false, optionalString{set: true}, "", jobstore.TodoPatch{}, client.TodoUpdate{Note: str("")}, false},
+		{"--append-note alone keeps status", "", false, optionalString{}, "more", jobstore.TodoPatch{}, client.TodoUpdate{AppendNote: "more"}, false},
+		{"--status + --append-note in one update", "done", false, optionalString{}, "more", jobstore.TodoPatch{}, client.TodoUpdate{Status: "done", AppendNote: "more"}, false},
+		{"--note + --append-note conflict", "", false, optionalString{val: "x", set: true}, "more", jobstore.TodoPatch{}, client.TodoUpdate{}, true},
+		// PLAN-02 P2: a dispatch field alone must NOT be read as the legacy bare
+		// "done" — describing an item is not completing it.
+		{"--assign alone keeps status", "", false, optionalString{}, "", jobstore.TodoPatch{Assignee: &assignee},
+			client.TodoUpdate{TodoPatch: jobstore.TodoPatch{Assignee: &assignee}}, false},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			got, err := resolveTodoUpdate(tc.status, tc.undone, tc.note, tc.appendNote)
+			got, err := resolveTodoUpdate(tc.status, tc.undone, tc.note, tc.appendNote, tc.patch)
 			if (err != nil) != tc.wantErr {
 				t.Fatalf("err=%v wantErr=%v", err, tc.wantErr)
 			}
@@ -71,6 +78,9 @@ func TestPlanTodoNoteResolve(t *testing.T) {
 			}
 			if (got.Note == nil) != (tc.want.Note == nil) || (got.Note != nil && *got.Note != *tc.want.Note) {
 				t.Fatalf("note got %v, want %v", got.Note, tc.want.Note)
+			}
+			if (got.Assignee == nil) != (tc.want.Assignee == nil) {
+				t.Fatalf("assignee got %v, want %v", got.Assignee, tc.want.Assignee)
 			}
 		})
 	}

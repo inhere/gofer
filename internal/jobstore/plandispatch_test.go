@@ -110,7 +110,8 @@ func TestTodoDispatchPatchAndError(t *testing.T) {
 	assert.Eq(t, "impl-batch", got.Template)
 	assert.Eq(t, "shop-floor", got.ProjectKey)
 	assert.Eq(t, "2", got.Vars["b"])
-	assert.Eq(t, 2, len(got.Verify))
+	assert.Eq(t, 3, len(got.Verify))
+	assert.Eq(t, "./...", got.Verify[2])
 	// Fields the patch did not mention keep their value.
 	assert.Eq(t, "local", got.Runner)
 	assert.True(t, got.Review)

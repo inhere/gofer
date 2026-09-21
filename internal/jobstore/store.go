@@ -317,21 +317,35 @@ var schemaStmts = []string{
   status       TEXT NOT NULL,
   owner        TEXT,
   progress     INTEGER NOT NULL DEFAULT 0,
+  project_key  TEXT,
   created_at   INTEGER NOT NULL,
   updated_at   INTEGER NOT NULL
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_plans_status ON plans(status)`,
 	// plan_todos is the plan-orchestration checklist table. job_id NULL means a
 	// plain todo; a non-empty job_id binds the item to one job run as metadata.
+	// The PLAN-02 columns (assignee … dispatch_error) make a todo DISPATCHABLE: they
+	// are the request `Submit` is called with once the item turns `ready` with an
+	// assignee.
 	`CREATE TABLE IF NOT EXISTS plan_todos (
-  todo_id      TEXT PRIMARY KEY,
-  plan_id      TEXT NOT NULL,
-  job_id       TEXT,
-  title        TEXT,
-  done         INTEGER NOT NULL DEFAULT 0,
-  sort         INTEGER NOT NULL DEFAULT 0,
-  created_at   INTEGER NOT NULL,
-  updated_at   INTEGER NOT NULL
+  todo_id        TEXT PRIMARY KEY,
+  plan_id        TEXT NOT NULL,
+  job_id         TEXT,
+  title          TEXT,
+  done           INTEGER NOT NULL DEFAULT 0,
+  sort           INTEGER NOT NULL DEFAULT 0,
+  assignee       TEXT,
+  project_key    TEXT,
+  template       TEXT,
+  vars_json      TEXT,
+  verify_json    TEXT,
+  review         INTEGER,
+  runner         TEXT,
+  cwd            TEXT,
+  timeout_sec    INTEGER,
+  dispatch_error TEXT,
+  created_at     INTEGER NOT NULL,
+  updated_at     INTEGER NOT NULL
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_plan_todos_plan ON plan_todos(plan_id)`,
 	// plan_decisions is the决策通道 (decision-channel, Part C §C3) table: an agent
@@ -734,6 +748,9 @@ func (s *Store) migrate() error {
 	if err := s.migratePlanTodos(); err != nil {
 		return err
 	}
+	if err := s.migratePlans(); err != nil {
+		return err
+	}
 	if err := s.migratePlanDecisions(); err != nil {
 		return err
 	}
@@ -871,6 +888,10 @@ func (s *Store) migrateSchedules() error {
 // started_at / done_at / note. Additive + idempotent; when the status column is
 // first added, existing rows are backfilled from the legacy done flag so old
 // checklists render correctly under the richer lifecycle.
+//
+// PLAN-02 P2 extends it with the DISPATCH columns (assignee … dispatch_error): a todo
+// that predates them reads back as "nobody assigned, nothing to dispatch", which is
+// exactly the pre-P2 semantics. `ready` needs no migration — a status value.
 func (s *Store) migratePlanTodos() error {
 	cols, err := s.tableColumns("plan_todos")
 	if err != nil {
@@ -901,12 +922,60 @@ func (s *Store) migratePlanTodos() error {
 	if err := add("note", "note TEXT"); err != nil {
 		return err
 	}
+	// PLAN-02 P2: the dispatch request a todo carries.
+	if err := add("assignee", "assignee TEXT"); err != nil {
+		return err
+	}
+	if err := add("project_key", "project_key TEXT"); err != nil {
+		return err
+	}
+	if err := add("template", "template TEXT"); err != nil {
+		return err
+	}
+	if err := add("vars_json", "vars_json TEXT"); err != nil {
+		return err
+	}
+	if err := add("verify_json", "verify_json TEXT"); err != nil {
+		return err
+	}
+	if err := add("review", "review INTEGER"); err != nil {
+		return err
+	}
+	if err := add("runner", "runner TEXT"); err != nil {
+		return err
+	}
+	if err := add("cwd", "cwd TEXT"); err != nil {
+		return err
+	}
+	if err := add("timeout_sec", "timeout_sec INTEGER"); err != nil {
+		return err
+	}
+	if err := add("dispatch_error", "dispatch_error TEXT"); err != nil {
+		return err
+	}
 	if backfill {
 		if _, err := s.db.Exec(
 			`UPDATE plan_todos SET status = CASE WHEN done=1 THEN 'done' ELSE 'pending' END
 			 WHERE status IS NULL OR status = ''`); err != nil {
 			return fmt.Errorf("jobstore: backfill plan_todos.status: %w", err)
 		}
+	}
+	return nil
+}
+
+// migratePlans adds the PLAN-02 project_key a plan's todos are dispatched into.
+// Additive + idempotent: an old plan reads back as "" (no project), so its todos need
+// their own `--project` — the pre-P2 state, not a fabricated target.
+func (s *Store) migratePlans() error {
+	cols, err := s.tableColumns("plans")
+	if err != nil {
+		return err
+	}
+	if _, ok := cols["project_key"]; ok {
+		return nil
+	}
+	if _, e := s.db.Exec("ALTER TABLE plans ADD COLUMN project_key TEXT"); e != nil {
+		return fmt.Errorf("jobstore: migrate plans add project_key: %w", e)
 	}
 	return nil
 }

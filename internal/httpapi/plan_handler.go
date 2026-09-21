@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"errors"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -26,8 +27,10 @@ type planView struct {
 	Status      string `json:"status"`
 	Owner       string `json:"owner,omitempty"`
 	Progress    int    `json:"progress,omitempty"`
-	CreatedAt   int64  `json:"created_at"`
-	UpdatedAt   int64  `json:"updated_at"`
+	// Project is the project this plan's todos are dispatched into (PLAN-02 P2).
+	Project   string `json:"project,omitempty"`
+	CreatedAt int64  `json:"created_at"`
+	UpdatedAt int64  `json:"updated_at"`
 }
 
 // planListItem 是 list 响应项：header + 进度汇总（列表进度条数据源，P4/T10）。
@@ -44,6 +47,7 @@ func toPlanView(p jobstore.Plan) planView {
 	return planView{
 		PlanID: p.PlanID, Title: p.Title, Description: p.Description,
 		Status: p.Status, Owner: p.Owner, Progress: p.Progress,
+		Project:   p.ProjectKey,
 		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
 }
@@ -54,7 +58,7 @@ type todoView struct {
 	JobID  string `json:"job_id,omitempty"`
 	Title  string `json:"title"`
 	Done   bool   `json:"done"`
-	// Lifecycle fields (Part C §C2): status pending|doing|done|skipped with
+	// Lifecycle fields (Part C §C2): status pending|ready|doing|done|skipped with
 	// auto-stamped transition times and a short outcome note.
 	Status    string `json:"status"`
 	StartedAt int64  `json:"started_at,omitempty"`
@@ -63,6 +67,20 @@ type todoView struct {
 	Sort      int    `json:"sort,omitempty"`
 	CreatedAt int64  `json:"created_at"`
 	UpdatedAt int64  `json:"updated_at"`
+	// PLAN-02 P2 dispatch fields: the agent this item is assigned to, the project it
+	// runs in (overriding the plan's), the task book + vars, its verify step, review
+	// gate, runner, cwd and timeout — and dispatch_error, the reason the last dispatch
+	// attempt started nothing.
+	Assignee      string            `json:"assignee,omitempty"`
+	Project       string            `json:"project,omitempty"`
+	Template      string            `json:"template,omitempty"`
+	Vars          map[string]string `json:"vars,omitempty"`
+	Verify        []string          `json:"verify,omitempty"`
+	Review        bool              `json:"review,omitempty"`
+	Runner        string            `json:"runner,omitempty"`
+	Cwd           string            `json:"cwd,omitempty"`
+	TimeoutSec    int               `json:"timeout_sec,omitempty"`
+	DispatchError string            `json:"dispatch_error,omitempty"`
 	// Jobs are the runs attached to this todo (jobs.todo_id, SUP-01 C), newest
 	// first — the plan view shows them under the item instead of asking the client
 	// for one jobs query per todo. Empty for an item nobody has run.
@@ -129,6 +147,9 @@ func toTodoView(t jobstore.PlanTodo) todoView {
 		TodoID: t.TodoID, PlanID: t.PlanID, JobID: t.JobID, Title: t.Title,
 		Done: t.Done, Status: t.Status, StartedAt: t.StartedAt, DoneAt: t.DoneAt,
 		Note: t.Note, Sort: t.Sort, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
+		Assignee: t.Assignee, Project: t.ProjectKey, Template: t.Template,
+		Vars: t.Vars, Verify: t.Verify, Review: t.Review, Runner: t.Runner,
+		Cwd: t.Cwd, TimeoutSec: t.TimeoutSec, DispatchError: t.DispatchError,
 	}
 }
 
@@ -136,6 +157,9 @@ type createPlanReq struct {
 	PlanID      string `json:"plan_id,omitempty"`
 	Title       string `json:"title,omitempty"`
 	Description string `json:"description,omitempty"`
+	// Project is the project this plan's todos are dispatched into (PLAN-02 P2); a
+	// todo may still override it. Empty = the plan names none.
+	Project string `json:"project,omitempty"`
 }
 
 // updatePlanReq is the PATCH /v1/plans/{id} body (P6): move a plan along its
@@ -173,7 +197,8 @@ func (s *Server) handleCreatePlan(c *rux.Context) {
 	p := jobstore.Plan{
 		PlanID: planID, Title: body.Title, Description: body.Description,
 		Status: jobstore.PlanOpen, Owner: callerFromCtx(c),
-		CreatedAt: now, UpdatedAt: now,
+		ProjectKey: strings.TrimSpace(body.Project),
+		CreatedAt:  now, UpdatedAt: now,
 	}
 	if _, ok, _ := s.jobs.Meta().GetPlan(planID); ok {
 		writeError(c, http.StatusConflict, "plan already exists", "plan already exists")
@@ -220,11 +245,41 @@ func (s *Server) handleListPlans(c *rux.Context) {
 	c.JSON(http.StatusOK, map[string]any{"plans": out})
 }
 
+// planUsageView is the plan's token/cost roll-up on the wire (PLAN-02 P2): what the
+// plan's jobs reported, in total and per agent. jobs counts every attached job (one
+// that reported no usage still ran); the sums only see the rows that carried numbers.
+type planUsageView struct {
+	Jobs        int                       `json:"jobs"`
+	TotalTokens int64                     `json:"total_tokens"`
+	CostUSD     float64                   `json:"cost_usd"`
+	ByAgent     map[string]planUsageAgent `json:"by_agent"`
+}
+
+type planUsageAgent struct {
+	Jobs         int     `json:"jobs"`
+	TotalTokens  int64   `json:"total_tokens"`
+	InputTokens  int64   `json:"input_tokens"`
+	OutputTokens int64   `json:"output_tokens"`
+	CostUSD      float64 `json:"cost_usd"`
+}
+
+func toPlanUsageView(u jobstore.PlanUsage) planUsageView {
+	byAgent := make(map[string]planUsageAgent, len(u.ByAgent))
+	for key, a := range u.ByAgent {
+		byAgent[key] = planUsageAgent{
+			Jobs: a.Jobs, TotalTokens: a.TotalTokens, InputTokens: a.InputTokens,
+			OutputTokens: a.OutputTokens, CostUSD: a.CostUSD,
+		}
+	}
+	return planUsageView{Jobs: u.Jobs, TotalTokens: u.TotalTokens, CostUSD: u.CostUSD, ByAgent: byAgent}
+}
+
 type planDetail struct {
 	planView
 	Counts     jobstore.PlanCounts     `json:"counts"`
 	TodoCounts jobstore.PlanTodoCounts `json:"todo_counts"`
 	Completion jobstore.PlanCompletion `json:"completion"`
+	Usage      planUsageView           `json:"usage"`
 	Jobs       []job.JobResult         `json:"jobs"`
 	Todos      []todoView              `json:"todos"`
 	Decisions  []decisionView          `json:"decisions"`
@@ -275,11 +330,19 @@ func (s *Server) handleGetPlan(c *rux.Context) {
 	for _, d := range decisions {
 		decisionViews = append(decisionViews, toDecisionView(*d))
 	}
+	// PLAN-02 P2: the plan's own usage roll-up, so the plan page answers "what has this
+	// cost so far" without opening every job of it.
+	usage, err := s.jobs.Meta().PlanUsage(id)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "plan usage failed", err.Error())
+		return
+	}
 	c.JSON(http.StatusOK, planDetail{
 		planView:   toPlanView(p),
 		Counts:     jc,
 		TodoCounts: tc,
 		Completion: jobstore.RollupPlanCompletion(jc, tc),
+		Usage:      toPlanUsageView(usage),
 		Jobs:       jobs,
 		Todos:      todoViews,
 		Decisions:  decisionViews,
@@ -361,11 +424,15 @@ func (s *Server) handleAttachPlanJob(c *rux.Context) {
 	c.JSON(http.StatusOK, toPlanView(p))
 }
 
+// addTodoReq is POST /v1/plans/{id}/todos. The PLAN-02 P2 dispatch fields may be set at
+// creation too, but the item is created `pending`: creating an item is planning, and
+// only `ready` (or an explicit dispatch) starts work.
 type addTodoReq struct {
 	Title string `json:"title"`
 	JobID string `json:"job_id,omitempty"`
 	Note  string `json:"note,omitempty"`
 	Sort  int    `json:"sort,omitempty"`
+	jobstore.TodoPatch
 }
 
 func (s *Server) handleAddPlanTodo(c *rux.Context) {
@@ -398,6 +465,7 @@ func (s *Server) handleAddPlanTodo(c *rux.Context) {
 		CreatedAt: now.Unix(),
 		UpdatedAt: now.Unix(),
 	}
+	t.ApplyTodoPatch(body.TodoPatch)
 	if err := s.jobs.Meta().InsertTodo(t); err != nil {
 		writeError(c, http.StatusInternalServerError, "add todo failed", err.Error())
 		return
@@ -407,16 +475,21 @@ func (s *Server) handleAddPlanTodo(c *rux.Context) {
 }
 
 // updateTodoReq moves a todo along its lifecycle and/or updates its note.
-// status (pending|doing|done|skipped) wins over the legacy done flag; done is a
+// status (pending|ready|doing|done|skipped) wins over the legacy done flag; done is a
 // *bool so an old client's {"done":...} body keeps working while a status-only
 // or note-only body doesn't accidentally reset done=false. append_note appends
 // a line to the current note (atomically, newline-separated) and is mutually
 // exclusive with note (overwrite).
+//
+// The PLAN-02 P2 dispatch fields (assignee/project/template/vars/verify/review/runner/
+// cwd/timeout_sec) travel in the same body — one update describes the item AND the
+// request it dispatches with.
 type updateTodoReq struct {
 	Done       *bool   `json:"done,omitempty"`
 	Status     string  `json:"status,omitempty"`
 	Note       *string `json:"note,omitempty"`
 	AppendNote string  `json:"append_note,omitempty"`
+	jobstore.TodoPatch
 }
 
 func (s *Server) handleUpdateTodo(c *rux.Context) {
@@ -436,7 +509,7 @@ func (s *Server) handleUpdateTodo(c *rux.Context) {
 	}
 	if status != "" && !jobstore.ValidTodoStatus(status) {
 		writeError(c, http.StatusBadRequest, "invalid status",
-			"status must be one of pending|doing|done|skipped")
+			"status must be one of pending|ready|doing|done|skipped")
 		return
 	}
 	if body.Note != nil && body.AppendNote != "" {
@@ -444,10 +517,21 @@ func (s *Server) handleUpdateTodo(c *rux.Context) {
 			"note (overwrite) and append_note are mutually exclusive")
 		return
 	}
-	if status == "" && body.Note == nil && body.AppendNote == "" {
+	if status == "" && body.Note == nil && body.AppendNote == "" && body.TodoPatch.Empty() {
 		writeError(c, http.StatusBadRequest, "empty update",
-			"provide status, done, note or append_note")
+			"provide status, done, note, append_note or a dispatch field")
 		return
+	}
+	if !body.TodoPatch.Empty() {
+		ok, err := s.jobs.Meta().UpdateTodoPatch(tid, body.TodoPatch)
+		if err != nil {
+			writeError(c, http.StatusInternalServerError, "update todo failed", err.Error())
+			return
+		}
+		if !ok {
+			writeError(c, http.StatusNotFound, "unknown todo", "no todo with id "+tid)
+			return
+		}
 	}
 	if status != "" || body.Note != nil {
 		ok, err := s.jobs.Meta().UpdateTodoStatus(tid, status, body.Note)
@@ -471,10 +555,62 @@ func (s *Server) handleUpdateTodo(c *rux.Context) {
 			return
 		}
 	}
+	// PLAN-02 P2: the two conditions may arrive in either order, so a write that moved
+	// the item to `ready` OR set its assignee is a dispatch trigger (the dispatcher
+	// itself re-checks both, and stays silent when the item is not ready yet).
+	// Re-read after the write: the response must show what the dispatch did to the item.
+	if status == jobstore.TodoReady || body.Assignee != nil {
+		s.dispatchTodoNow(c, tid)
+	}
 	t, _, err := s.jobs.Meta().GetTodo(tid)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "get todo failed", err.Error())
 		return
 	}
 	c.JSON(http.StatusOK, toTodoView(t))
+}
+
+// dispatchTodoNow runs the PLAN-02 dispatcher for a just-written todo and never fails
+// the write: the caller's update IS stored, and a refused dispatch is reported on the
+// item itself (dispatch_error) plus the event stream — that is what the design asks
+// for, and a 500 here would tell a client its update failed when it did not.
+func (s *Server) dispatchTodoNow(c *rux.Context, todoID string) {
+	if _, err := s.jobs.MaybeDispatchTodo(todoID, callerFromCtx(c)); err != nil {
+		slog.Warn("todo dispatch", "todo_id", todoID, "err", err)
+	}
+}
+
+// todoDispatchView is the dispatch response (POST /v1/todos/{id}/dispatch): the item
+// as it stands now, the job the call started (absent when none was) and the reason.
+type todoDispatchView struct {
+	Todo       todoView       `json:"todo"`
+	Job        *job.JobResult `json:"job,omitempty"`
+	Dispatched bool           `json:"dispatched"`
+	Reason     string         `json:"reason,omitempty"`
+}
+
+// handleDispatchTodo is the EXPLICIT dispatch (PLAN-02 P2): `plan dispatch <todo>` and
+// gofer_dispatch_todo. It ignores the item's status — re-running a done item or kicking
+// a pending one is exactly what a human reaches for — but still needs an assignee and no
+// live job, and it answers with what happened instead of failing the request.
+func (s *Server) handleDispatchTodo(c *rux.Context) {
+	tid := c.Param("todo_id")
+	d, err := s.jobs.DispatchTodo(tid, callerFromCtx(c))
+	if err != nil {
+		status := http.StatusInternalServerError
+		if errors.Is(err, job.ErrInvalidRequest) {
+			// Unknown todo, or no assignee to run: both are the caller's to fix.
+			status = http.StatusBadRequest
+			if _, ok, gerr := s.jobs.Meta().GetTodo(tid); gerr == nil && !ok {
+				status = http.StatusNotFound
+			}
+		}
+		writeError(c, status, "dispatch todo failed", err.Error())
+		return
+	}
+	out := todoDispatchView{Todo: toTodoView(d.Todo), Job: d.Job, Dispatched: d.Job != nil}
+	if d.Job == nil {
+		out.Reason = d.Reason
+	}
+	c.JSON(http.StatusOK, out)
 }

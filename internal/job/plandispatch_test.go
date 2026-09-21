@@ -30,6 +30,9 @@ func newDispatchService(t *testing.T, root string) *Service {
 				HostPath:       root,
 				AllowedAgents:  []string{"omp", "other", "slow"},
 				AllowedRunners: []string{"local"},
+				// A todo may carry a verify argv (PLAN-02 P2), and verify is an exec
+				// surface: the project has to allow it.
+				AllowExec: true,
 			},
 			"elsewhere": {
 				HostPath:       root,

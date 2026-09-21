@@ -20,9 +20,22 @@ func isolateTodoCLI(t *testing.T, handler http.HandlerFunc) *httptest.Server {
 	config.InputCfgFile = ""
 	t.Cleanup(func() { config.InputCfgFile = "" })
 	jobConnOpts.server, jobConnOpts.token = "", ""
+	resetPlanFlagGlobals()
 	ts := httptest.NewServer(handler)
 	t.Cleanup(ts.Close)
 	return ts
+}
+
+// resetPlanFlagGlobals zeroes the package-global plan flag structs: gcli binds flag
+// values straight into them, so whatever an earlier command in the same process left
+// behind (a --note, an --assign) would otherwise be re-applied to this test's command.
+func resetPlanFlagGlobals() {
+	planCreateOpts.planID, planCreateOpts.title, planCreateOpts.desc, planCreateOpts.project = "", "", "", ""
+	planAddTodoOpts.job, planAddTodoOpts.note = "", ""
+	planAddTodoOpts.todoDispatchFlags = todoDispatchFlags{}
+	planSetTodoOpts.undone, planSetTodoOpts.status, planSetTodoOpts.appendNote = false, "", ""
+	planSetTodoOpts.note = optionalString{}
+	planSetTodoOpts.todoDispatchFlags = todoDispatchFlags{}
 }
 
 // TestPlanSetTodoAssignFlags (PLAN-02 P2): `plan set-todo` carries the whole dispatch

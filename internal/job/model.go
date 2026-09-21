@@ -747,6 +747,16 @@ const (
 	// before its deadline; the failure itself lands in the job's error as
 	// "stalled: no output for <N>s" (a transient failure — the chain continues).
 	EventJobStalled = "job.stalled"
+	// PLAN-02 P2 plan-todo dispatch. plan.todo_dispatched is recorded ON THE JOB a
+	// ready+assigned todo started ({todo_id, job_id, agent}), so the item's history
+	// says who started what; plan.todo_dispatch_failed is recorded on the PLAN's own
+	// scope (`plan:<id>`, see PlanEventScope) when the submit was REFUSED
+	// ({todo_id, reason}) — there is no job to hang that one on, and a plan-level
+	// subscriber is exactly who wants to hear that nothing started. Neither is in the
+	// default notification set: a plan item starting is not an "a human must act"
+	// signal (design §四.2).
+	EventPlanTodoDispatched     = "plan.todo_dispatched"
+	EventPlanTodoDispatchFailed = "plan.todo_dispatch_failed"
 )
 
 // Workflow lifecycle event types (P1, design §5.4). Recorded append-only via

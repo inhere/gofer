@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -260,7 +261,7 @@ func (b *localBackend) GetPlan(planID string) (planView, error) {
 	return pv, nil
 }
 
-func (b *localBackend) AddTodo(planID, title, jobID, note string) (todoView, error) {
+func (b *localBackend) AddTodo(planID, title, jobID, note string, patch jobstore.TodoPatch) (todoView, error) {
 	if strings.TrimSpace(title) == "" {
 		return todoView{}, fmt.Errorf("title required")
 	}
@@ -281,6 +282,7 @@ func (b *localBackend) AddTodo(planID, title, jobID, note string) (todoView, err
 		CreatedAt: now.Unix(),
 		UpdatedAt: now.Unix(),
 	}
+	t.ApplyTodoPatch(patch)
 	if err := st.InsertTodo(t); err != nil {
 		return todoView{}, err
 	}
@@ -288,26 +290,34 @@ func (b *localBackend) AddTodo(planID, title, jobID, note string) (todoView, err
 	return toTodoView(t), nil
 }
 
-func (b *localBackend) UpdateTodo(todoID, status string, note *string, appendNote string) (todoView, error) {
+func (b *localBackend) UpdateTodo(todoID, status string, note *string, appendNote string, patch jobstore.TodoPatch) (todoView, error) {
 	st := b.jobs.Meta()
 	if status != "" && !jobstore.ValidTodoStatus(status) {
-		return todoView{}, fmt.Errorf("invalid status %q (want pending|doing|done|skipped)", status)
+		return todoView{}, fmt.Errorf("invalid status %q (want pending|ready|doing|done|skipped)", status)
 	}
 	if note != nil && appendNote != "" {
 		return todoView{}, fmt.Errorf("note and append_note are mutually exclusive")
 	}
-	if status == "" && note == nil && appendNote == "" {
-		return todoView{}, fmt.Errorf("provide status and/or note")
+	if status == "" && note == nil && appendNote == "" && patch.Empty() {
+		return todoView{}, fmt.Errorf("provide status, note or a dispatch field")
 	}
-	if note != nil {
-		ok, err := st.UpdateTodoStatus(todoID, status, note)
+	if !patch.Empty() {
+		ok, err := st.UpdateTodoPatch(todoID, patch)
 		if err != nil {
 			return todoView{}, err
 		}
 		if !ok {
 			return todoView{}, fmt.Errorf("unknown todo %q", todoID)
 		}
-	} else if appendNote != "" {
+	}
+	switch {
+	case note != nil:
+		if ok, err := st.UpdateTodoStatus(todoID, status, note); err != nil {
+			return todoView{}, err
+		} else if !ok {
+			return todoView{}, fmt.Errorf("unknown todo %q", todoID)
+		}
+	case appendNote != "":
 		// SUP-01 C: the status (if any) and the appended line are one update — the
 		// append itself is a single conditional statement, then the status moves.
 		ok, err := st.AppendTodoNote(todoID, appendNote)
@@ -324,13 +334,19 @@ func (b *localBackend) UpdateTodo(todoID, status string, note *string, appendNot
 				return todoView{}, fmt.Errorf("unknown todo %q", todoID)
 			}
 		}
-	} else {
-		ok, err := st.UpdateTodoStatus(todoID, status, nil)
-		if err != nil {
+	case status != "":
+		if ok, err := st.UpdateTodoStatus(todoID, status, nil); err != nil {
 			return todoView{}, err
-		}
-		if !ok {
+		} else if !ok {
 			return todoView{}, fmt.Errorf("unknown todo %q", todoID)
+		}
+	}
+	// PLAN-02 P2: the same dispatch trigger the HTTP/CLI paths run — a write that made
+	// the item ready or named its assignee is a request to run it. Best-effort: the
+	// caller's update IS stored, and a refused dispatch is reported on the item.
+	if status == jobstore.TodoReady || patch.Assignee != nil {
+		if _, err := b.jobs.MaybeDispatchTodo(todoID, ""); err != nil {
+			slog.Warn("todo dispatch", "todo_id", todoID, "err", err)
 		}
 	}
 	t, _, err := st.GetTodo(todoID)
@@ -338,6 +354,23 @@ func (b *localBackend) UpdateTodo(todoID, status string, note *string, appendNot
 		return todoView{}, err
 	}
 	return toTodoView(t), nil
+}
+
+// DispatchTodo is the explicit dispatch over the in-process service (PLAN-02 P2): the
+// MCP twin of `plan dispatch` / POST /v1/todos/{id}/dispatch.
+func (b *localBackend) DispatchTodo(todoID string) (todoDispatchView, error) {
+	d, err := b.jobs.DispatchTodo(todoID, "")
+	if err != nil {
+		return todoDispatchView{}, err
+	}
+	out := todoDispatchView{Todo: toTodoView(d.Todo), Dispatched: d.Job != nil}
+	if d.Job != nil {
+		v := toJobView(*d.Job)
+		out.Job = &v
+	} else {
+		out.Reason = d.Reason
+	}
+	return out, nil
 }
 
 // --- decision channel (local 直驱 jobstore via Meta) -------------------------

@@ -596,6 +596,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/plans/{id}/jobs", s.handleAttachPlanJob)
 		r.POST("/plans/{id}/todos", s.handleAddPlanTodo)
 		r.PATCH("/todos/{todo_id}", s.handleUpdateTodo)
+		// PLAN-02 P2: explicit dispatch of an assigned item (ignores its status).
+		r.POST("/todos/{todo_id}/dispatch", s.handleDispatchTodo)
 
 		// 决策通道 (decision channel, Part C §C3): agent raises a blocking question
 		// (MCP gofer_ask_human), a human answers here. D1: single ask entry with

@@ -495,7 +495,7 @@ func TestPlanClientRoundTrip(t *testing.T) {
 	ts := newServer(t, testToken, false)
 	c := New(ts.URL, testToken)
 
-	p, err := c.CreatePlan("plan-client", "client plan", "desc")
+	p, err := c.CreatePlan("plan-client", "client plan", "desc", "")
 	if err != nil {
 		t.Fatalf("CreatePlan: %v", err)
 	}
@@ -540,7 +540,7 @@ func TestPlanClientRoundTrip(t *testing.T) {
 		t.Fatalf("GetPlan Counts mismatch: %+v", detail.Counts)
 	}
 
-	todo, err := c.AddTodo("plan-client", "client todo", jobOut.ID, "")
+	todo, err := c.AddTodo("plan-client", "client todo", jobOut.ID, "", jobstore.TodoPatch{})
 	if err != nil {
 		t.Fatalf("AddTodo: %v", err)
 	}

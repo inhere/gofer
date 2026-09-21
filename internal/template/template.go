@@ -357,7 +357,15 @@ func listDir(dir, source string) []Info {
 // BuiltinNames are the placeholders the SERVER resolves itself; a builtin the
 // caller could not resolve ({{head}} outside a git checkout) renders empty with a
 // warning instead of leaking the braces into the prompt.
-var BuiltinNames = []string{"project", "cwd", "date", "head"}
+//
+// The plan/todo names (PLAN-02 P2) are resolved by the JOB layer, which owns the
+// checklist: a task book rendered for a todo-attached submit gets them filled, and one
+// rendered without a todo (a plain `job run -t`, a preview) reports them as unavailable
+// rather than printing the braces.
+var BuiltinNames = []string{
+	"project", "cwd", "date", "head",
+	"plan_title", "plan_description", "todo_title", "todo_note", "todo_id",
+}
 
 // Builtins returns the standard placeholder values for one render: project / cwd /
 // date always, head only when dir is inside a git checkout (so an unresolvable

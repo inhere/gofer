@@ -157,12 +157,12 @@ func TestDispatchTodoTool(t *testing.T) {
 	}
 
 	// The tool's input schema declares todo_id.
-	res, err = session.ListTools(context.Background(), nil)
+	tools, err := session.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatalf("ListTools: %v", err)
 	}
 	found := false
-	for _, tool := range res.Tools {
+	for _, tool := range tools.Tools {
 		if tool.Name != "gofer_dispatch_todo" {
 			continue
 		}

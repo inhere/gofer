@@ -202,13 +202,18 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_add_todo",
-		Description: "Add a todo to a plan. Omit job_id for a plain checklist item, or set it to bind the todo to a job run.",
+		Description: "Add a todo to a plan. Omit job_id for a plain checklist item, or set it to bind the todo to a job run. The dispatch fields (assignee/project/template/vars/verify/review/runner/cwd/timeout_sec) describe how the item runs once it turns ready; the item is created pending.",
 	}, addTodoHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_update_todo",
-		Description: "Update a todo by todo_id: move it along its lifecycle (status: pending|doing|done|skipped — doing stamps started_at, done/skipped stamp done_at) and/or set a short outcome note. Returns the updated todo.",
+		Description: "Update a todo by todo_id: move it along its lifecycle (status: pending|ready|doing|done|skipped — doing stamps started_at, done/skipped stamp done_at) and/or set a short outcome note, and/or set the dispatch fields (assignee/project/template/vars/verify/review/runner/cwd/timeout_sec). A write that makes the item ready AND assigned dispatches it immediately (a job starts; the item turns doing). Returns the updated todo.",
 	}, updateTodoHandler(b))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_dispatch_todo",
+		Description: "Dispatch a todo's assigned agent NOW, regardless of the item's status (the explicit fallback to \"ready + assigned\"): starts a job for it and returns {todo, job, dispatched, reason}. Needs an assignee and no live job — when nothing is started, reason says why.",
+	}, dispatchTodoHandler(b))
 
 	// Decision channel (Part C §C3). Registered UNCONDITIONALLY (plan M4, same
 	// precedent as add_todo/update_todo): a project-scoped MCP keeps it too.
@@ -376,6 +381,7 @@ type planView struct {
 	Status      string              `json:"status"`
 	Owner       string              `json:"owner,omitempty"`
 	Progress    int                 `json:"progress,omitempty"`
+	Project     string              `json:"project,omitempty"`
 	CreatedAt   int64               `json:"created_at"`
 	UpdatedAt   int64               `json:"updated_at"`
 	Counts      jobstore.PlanCounts `json:"counts"`
@@ -398,6 +404,28 @@ type todoView struct {
 	Sort      int    `json:"sort,omitempty"`
 	CreatedAt int64  `json:"created_at"`
 	UpdatedAt int64  `json:"updated_at"`
+	// PLAN-02 P2 dispatch fields: the agent this item is assigned to and the request it
+	// dispatches with (project/task book/vars/verify/review/runner/cwd/timeout), plus
+	// dispatch_error — why the last attempt started nothing.
+	Assignee      string            `json:"assignee,omitempty"`
+	Project       string            `json:"project,omitempty"`
+	Template      string            `json:"template,omitempty"`
+	Vars          map[string]string `json:"vars,omitempty"`
+	Verify        []string          `json:"verify,omitempty"`
+	Review        bool              `json:"review,omitempty"`
+	Runner        string            `json:"runner,omitempty"`
+	Cwd           string            `json:"cwd,omitempty"`
+	TimeoutSec    int               `json:"timeout_sec,omitempty"`
+	DispatchError string            `json:"dispatch_error,omitempty"`
+}
+
+// todoDispatchView is the gofer_dispatch_todo output (PLAN-02 P2): the item as it
+// stands after the attempt, the job it started (absent when none was) and why.
+type todoDispatchView struct {
+	Todo       todoView `json:"todo"`
+	Job        *jobView `json:"job,omitempty"`
+	Dispatched bool     `json:"dispatched"`
+	Reason     string   `json:"reason,omitempty"`
 }
 
 func toTodoView(t jobstore.PlanTodo) todoView {
@@ -405,6 +433,9 @@ func toTodoView(t jobstore.PlanTodo) todoView {
 		TodoID: t.TodoID, PlanID: t.PlanID, JobID: t.JobID, Title: t.Title,
 		Done: t.Done, Status: t.Status, StartedAt: t.StartedAt, DoneAt: t.DoneAt,
 		Note: t.Note, Sort: t.Sort, CreatedAt: t.CreatedAt, UpdatedAt: t.UpdatedAt,
+		Assignee: t.Assignee, Project: t.ProjectKey, Template: t.Template,
+		Vars: t.Vars, Verify: t.Verify, Review: t.Review, Runner: t.Runner,
+		Cwd: t.Cwd, TimeoutSec: t.TimeoutSec, DispatchError: t.DispatchError,
 	}
 }
 
@@ -419,6 +450,7 @@ func planHeaderView(p jobstore.Plan) planView {
 		Status:      p.Status,
 		Owner:       p.Owner,
 		Progress:    p.Progress,
+		Project:     p.ProjectKey,
 		CreatedAt:   p.CreatedAt,
 		UpdatedAt:   p.UpdatedAt,
 		Jobs:        make([]jobView, 0),
@@ -707,18 +739,42 @@ func getPlanHandler(b Backend) mcp.ToolHandlerFor[getPlanToolInput, planView] {
 	}
 }
 
-// --- gofer_add_todo / gofer_update_todo -----------------------------------
+// --- gofer_add_todo / gofer_update_todo / gofer_dispatch_todo --------------
 
+// todoDispatchFields are the PLAN-02 P2 dispatch fields of a todo. They appear in BOTH
+// todo tool inputs, written out rather than embedded: the SDK derives each tool's JSON
+// schema from its own Go struct, and only explicitly declared fields are guaranteed to
+// show up flat in it. A nil entry means "keep" (the same contract as the HTTP body's
+// jobstore.TodoPatch), so `assignee: ""` clears an assignment.
 type addTodoToolInput struct {
 	PlanID string `json:"plan_id"`
 	Title  string `json:"title"`
 	JobID  string `json:"job_id,omitempty"`
 	Note   string `json:"note,omitempty"`
+	// Assignee is the agent that runs this item.
+	Assignee *string `json:"assignee,omitempty"`
+	// Project overrides the plan's project for this item.
+	Project    *string           `json:"project,omitempty"`
+	Template   *string           `json:"template,omitempty"`
+	Vars       map[string]string `json:"vars,omitempty"`
+	Verify     []string          `json:"verify,omitempty"`
+	Review     *bool             `json:"review,omitempty"`
+	Runner     *string           `json:"runner,omitempty"`
+	Cwd        *string           `json:"cwd,omitempty"`
+	TimeoutSec *int              `json:"timeout_sec,omitempty"`
+}
+
+func (in addTodoToolInput) todoPatch() jobstore.TodoPatch {
+	return jobstore.TodoPatch{
+		Assignee: in.Assignee, ProjectKey: in.Project, Template: in.Template,
+		Vars: in.Vars, Verify: in.Verify, Review: in.Review, Runner: in.Runner,
+		Cwd: in.Cwd, TimeoutSec: in.TimeoutSec,
+	}
 }
 
 func addTodoHandler(b Backend) mcp.ToolHandlerFor[addTodoToolInput, todoView] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in addTodoToolInput) (*mcp.CallToolResult, todoView, error) {
-		tv, err := b.AddTodo(in.PlanID, in.Title, in.JobID, in.Note)
+		tv, err := b.AddTodo(in.PlanID, in.Title, in.JobID, in.Note, in.todoPatch())
 		if err != nil {
 			return nil, todoView{}, err
 		}
@@ -728,8 +784,8 @@ func addTodoHandler(b Backend) mcp.ToolHandlerFor[addTodoToolInput, todoView] {
 
 type updateTodoToolInput struct {
 	TodoID string `json:"todo_id"`
-	// Status moves the todo along its lifecycle (pending|doing|done|skipped);
-	// it wins over the legacy done flag. Note updates the remark (omitted =
+	// Status moves the todo along its lifecycle; `ready` + an assignee dispatches it.
+	// It wins over the legacy done flag. Note updates the remark (omitted =
 	// unchanged). Done stays for old callers: true→done, false→pending.
 	Status string  `json:"status,omitempty"`
 	Note   *string `json:"note,omitempty"`
@@ -738,6 +794,24 @@ type updateTodoToolInput struct {
 	// replacing it — how a job's outcome is recorded on the checklist. Mutually
 	// exclusive with note.
 	AppendNote string `json:"append_note,omitempty"`
+	// PLAN-02 P2 dispatch fields; see addTodoToolInput.
+	Assignee   *string           `json:"assignee,omitempty"`
+	Project    *string           `json:"project,omitempty"`
+	Template   *string           `json:"template,omitempty"`
+	Vars       map[string]string `json:"vars,omitempty"`
+	Verify     []string          `json:"verify,omitempty"`
+	Review     *bool             `json:"review,omitempty"`
+	Runner     *string           `json:"runner,omitempty"`
+	Cwd        *string           `json:"cwd,omitempty"`
+	TimeoutSec *int              `json:"timeout_sec,omitempty"`
+}
+
+func (in updateTodoToolInput) todoPatch() jobstore.TodoPatch {
+	return addTodoToolInput{
+		Assignee: in.Assignee, Project: in.Project, Template: in.Template,
+		Vars: in.Vars, Verify: in.Verify, Review: in.Review, Runner: in.Runner,
+		Cwd: in.Cwd, TimeoutSec: in.TimeoutSec,
+	}.todoPatch()
 }
 
 func updateTodoHandler(b Backend) mcp.ToolHandlerFor[updateTodoToolInput, todoView] {
@@ -749,11 +823,28 @@ func updateTodoHandler(b Backend) mcp.ToolHandlerFor[updateTodoToolInput, todoVi
 				status = "done"
 			}
 		}
-		tv, err := b.UpdateTodo(in.TodoID, status, in.Note, in.AppendNote)
+		tv, err := b.UpdateTodo(in.TodoID, status, in.Note, in.AppendNote, in.todoPatch())
 		if err != nil {
 			return nil, todoView{}, err
 		}
 		return nil, tv, nil
+	}
+}
+
+// dispatchTodoToolInput is gofer_dispatch_todo's input: the todo whose assignee must be
+// started now. It is its own type (rather than jobIDInput) because the tool names a TODO,
+// and the derived schema is what an MCP client reads.
+type dispatchTodoToolInput struct {
+	TodoID string `json:"todo_id"`
+}
+
+func dispatchTodoHandler(b Backend) mcp.ToolHandlerFor[dispatchTodoToolInput, todoDispatchView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in dispatchTodoToolInput) (*mcp.CallToolResult, todoDispatchView, error) {
+		out, err := b.DispatchTodo(in.TodoID)
+		if err != nil {
+			return nil, todoDispatchView{}, err
+		}
+		return nil, out, nil
 	}
 }
 
