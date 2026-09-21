@@ -91,6 +91,16 @@ server:
   #   interval_seconds: 30
   #   timeout_seconds: 5
 
+  # xfer: 文件传输(XFER-01, `gofer tool cp`)的限额。payload 走 HTTP 暂存到
+  # <storage.root 或配置目录>/xfer/<id>, 全程 sha256 校验; WS 只传指令。
+  #   max_bytes: 单个文件字节上限, 默认 268435456(256MB). 超过在暂存前就被拒(HTTP 413).
+  #   ttl_sec:   暂存区保留秒数, 默认 86400(24h). 到期由独立的清理循环(每 10 分钟)
+  #              标记 expired 并删除暂存目录(不依赖 storage.retention 开关);
+  #              `gofer tool xfer rm <id>` 可立即删.
+  # xfer:
+  #   max_bytes: 268435456
+  #   ttl_sec: 86400
+
   # metrics: E16 Prometheus /metrics scrape endpoint (design §6.2). Mounted as a
   # sibling of /health, OUTSIDE the /v1 auth group: scrapers rarely carry a Bearer
   # token, so internal access control is the primary guard (SR202). The whole block

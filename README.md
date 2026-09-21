@@ -284,6 +284,19 @@ gofer tunnel ls
 
 Forwarder, server and worker log the same `tunnel_id`, with `dial_ms`, `first_byte_ms`, `bytes_up|down`, `packets_up|down` (UDP) and `close_reason`; `GOFER_TUNNEL_TRACE=1` logs every datagram. How to tell a slow relay from a slow device or a chatty protocol is in [`docs/runbook/tcp-tunnel.md`](docs/runbook/tcp-tunnel.md).
 
+## File transfer: `gofer tool cp`
+
+Move a single file between this machine and a worker (or the server's own machine) — no more base64 in a job log:
+
+```bash
+gofer tool cp ./firmware.bin w-plc:shop-floor/tmp/in/firmware.bin    # push to a worker
+gofer tool cp w-plc:shop-floor/tmp/out/report.csv ./report.csv       # pull from a worker
+gofer tool cp ./x.tar server:build/tmp/x.tar                         # the server host (`local` is the same)
+gofer tool xfer ls [--state staged] | show <id> | rm <id>            # staging area
+```
+
+The remote side is `<runner>:<project>/<relative path>`, resolved on the **executing** machine inside that project's root — the same boundary a job's `--cwd` obeys; an existing destination needs `--force`. The payload rides HTTP (staged on the server, sha256 verified end to end, 256MB per file by default via `server.xfer`), while the WebSocket carries only the instruction, so a transfer that cannot run fails immediately with its reason (`exists`, `worker offline`, `path escapes project`, `too large`) instead of hanging. v1 moves single files and does not resume: tar / `Compress-Archive` a directory first.
+
 ## Human in the loop: interactions, plans, session relay
 
 - **Mid-run interactions**: an agent asks via `POST /v1/jobs/{id}/interactions` → the job becomes `pending_interaction` → a human answers via `POST …/answer` → the job continues. MCP: `gofer_get_interactions` / `gofer_answer_interaction`; web and IM notifications (DingTalk / Feishu webhooks under `server.notification`).
@@ -385,6 +398,7 @@ gofer workflow run <file.yaml> [-w] | list | show <id> | events <id> | cancel <i
 gofer schedule add … | list | show | enable | disable | run <id> | rm <id>
 gofer session  ls | show <id> | relay auto|on|off | say <id> "…" | rm <id>
 gofer tunnel   forward | check | ls | save | saved | forget
+gofer tool     cp <src> <dst> [--force] [--timeout 600] | xfer ls | show <id> | rm <id>
 gofer mcp      [--standalone]                        # stdio MCP server
 ```
 

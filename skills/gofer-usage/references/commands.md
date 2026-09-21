@@ -125,6 +125,32 @@ gofer tunnel ls                                                   # 活动隧道
 - forward 的日志：默认 `<config-dir>/run/tunnels/forward-<时间>-<pid>.log`（`--log-file`/`--log-dir` 改；`--quiet` 只静默终端）；事件带 `tunnel_id`（与 server/worker 日志同一个）、`session_id`（UDP=本地来源地址）、`dial_ms`、`first_byte_ms`、`bytes_up/down`、`packets_up/down`（UDP）、`close_reason`。`GOFER_TUNNEL_TRACE=1` 逐报文记 `tunnel.datagram`（`dir/len/gap_ms`）。
 - 目标必须在 worker 的 `tunnels.allow` 白名单内；判读"慢在哪"见仓库 `docs/runbook/tcp-tunnel.md`。
 
+## tool — 小工具（XFER-01 文件传输）
+
+小工具类命令统一挂在 `gofer tool` 组下（G033），目前是文件传输：
+
+| 命令 | 作用 |
+|---|---|
+| `gofer tool cp <src> <dst> [--force] [--timeout 600]` | 单文件对拷，**恰一端是远端**：远端写法 `<runner>:<project>/<相对路径>`（runner = worker id 或 `server`／`local`）；恰一端是本地路径 |
+| `gofer tool xfer ls [--state staged\|dispatched\|done\|failed\|expired] [--runner <id>]` | 列暂存区（新→旧） |
+| `gofer tool xfer show <id>` | 单条详情：op / runner / project:path / size / sha256 / state / error / 时间 |
+| `gofer tool xfer rm <id>` | 立即删掉该条（暂存文件 + 记录） |
+
+```bash
+gofer tool cp ./firmware.bin w-plc:shop-floor/tmp/in/firmware.bin   # 推到 worker 项目目录
+gofer tool cp w-plc:shop-floor/tmp/out/report.csv ./report.csv      # 从 worker 拉回
+gofer tool cp ./x.tar server:build/tmp/x.tar                        # 目标是 server 本机
+```
+
+要点：
+
+- 路径按**执行机**的项目根解析（`SafeJoin`，POLICY worker 经 roots 映射），**只允许项目根内**，与 `job run --cwd` 同一边界；目标目录不存在会自动创建；目标已存在必须 `--force`。
+- **v1 单文件、无断点续传**：目录先 `tar czf` / `Compress-Archive` 打包；大小上限 `server.xfer.max_bytes`（默认 256MB），worker 侧单次传输超时 `xfer_timeout_sec`（默认 600s）。
+- **推送**：本地算 sha256 → multipart 上传到 server 暂存（打印进度）→ 轮询到 `done`/`failed`；**拉取**：先建 get 记录 → worker 读文件回传到暂存 → `GET /v1/xfer/{id}/content` 落本地（临时名 + rename，校验 sha256）。
+- 退出码：成功 0；失败 1 并**原样**打印 `error`（`exists`、`path escapes project`、`worker offline`、`too large` …）。
+- worker 离线不会排队：直接 failed（`worker offline`），重跑命令即可。
+- 不做内容审查：别传 `.env`/私钥/token。
+
 ## session（别名 `sess`）— 终端会话中继（web ↔ 终端）
 
 终端里的 Claude Code / Codex 会话经 hooks 登记到 server；会话的 **relay 开关**打开时，Stop hook 把 agent 最后一条消息发成一个 turn 并阻塞等待，人在 web「会话」页 / 铃铛 / CLI 作答，答案经 `decision: block` 注入同一会话继续（设计 SESS-01）。

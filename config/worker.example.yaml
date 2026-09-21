@@ -126,3 +126,8 @@ log:
 storage:
   default_exchange_subdir: tmp
   default_result_subdir: gofer
+
+# xfer_timeout_sec: 单个文件传输(收/发)的超时秒数, 默认 600(10 分钟)。server 派发的
+# file_xfer 指令到达后, 本 worker 用它拉取/上传 payload; 超时则该次传输记 failed(不可
+# 断点续传, 重传即重跑整份)。同时最多 2 个传输在跑(超出的等前面的完成)。
+# xfer_timeout_sec: 600

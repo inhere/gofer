@@ -267,6 +267,29 @@ gofer init hooks --remove         # 卸载
 - 详见 [`references/commands.md`](references/commands.md) 的「session — 终端会话中继」。
 - **想让手机响一下**：配个钉钉/飞书群机器人，事件订阅 `session.waiting`（不在默认集里，必须显式写），消息带直达会话的链接。配置见 gofer 仓库 `docs/runbook/im-notification.md`。
 
+## 9. 传文件：`gofer tool cp`（不要再 base64 塞进日志）
+
+要把一个文件搬到 worker 所在机器（或 server 本机）时，**不要**再 `base64` 进 job 日志再解出来——慢、有大小上限、还污染日志。用：
+
+```bash
+gofer tool cp ./firmware.bin w-plc:shop-floor/tmp/in/firmware.bin   # 推到 worker 项目目录
+gofer tool cp w-plc:shop-floor/tmp/out/report.csv ./report.csv      # 从 worker 拉回
+gofer tool cp ./x.tar server:build/tmp/x.tar                        # 目标是 server 本机（local 同义）
+gofer tool cp ./x ./y --force                                       # 目标已存在必须 --force
+gofer tool xfer ls [--state staged]        # 暂存区：在传/传过什么
+gofer tool xfer show <id>                  # 单条详情（含失败原因）
+gofer tool xfer rm <id>                    # 立即删掉暂存文件 + 记录
+```
+
+约定（踩坑点）：
+
+- 远端写法就是 `<runner>:<project>/<项目内相对路径>`，`runner` 填 worker id 或 `server`（`local` 等价）。**路径按执行机解析、必须在项目根内**（与 `job run --cwd` 同一边界）；目标目录不存在会自动创建（项目根内）。
+- **v1 只传单文件、不续传**。传目录先打包：`tar czf x.tgz dir/` 或 Windows `Compress-Archive -Path dir -DestinationPath x.zip`，传过去再解。
+- 单文件上限 `server.xfer.max_bytes`（默认 256MB，超了报 `too large`）；**推送**本地算 sha256 并打印进度，**拉取**落本地前先写临时名再 rename，两端都校验 sha256。
+- 失败原因**原样**打印、退出码 1：`exists`（加 `--force`）、`path escapes project`、`worker offline`（不排队，重跑即可）、`too large`；worker 侧单次传输超时默认 600s（`xfer_timeout_sec`）。
+- **别传 `.env` / 私钥 / token**：gofer 不做内容审查，判断在人。
+- 更懒的替代：文件就在某个 worker 的项目目录里、且 job 的输出够小时，与其传文件，不如让 job 把内容 `cat` 进 stdout（≤ 32KB 的 `result.json` 会随结果回传）。
+
 ## 备注
 
 - 本 skill 是**通用机制**说明；本工作空间的具体 project key / 可用 agent 以该工作空间 `CLAUDE.md` 为准。

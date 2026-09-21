@@ -277,6 +277,19 @@ gofer tunnel ls
 
 三端（forwarder / server / worker）日志用同一 `tunnel_id` 关联，带 `dial_ms`、`first_byte_ms`、`bytes_up|down`、`packets_up|down`（UDP）、`close_reason`；`GOFER_TUNNEL_TRACE=1` 逐报文记录。怎么判断"慢在 relay、设备还是往返次数"见 [`docs/runbook/tcp-tunnel.md`](docs/runbook/tcp-tunnel.md)。
 
+## 传文件：`gofer tool cp`
+
+在本机与 worker（或 server 本机）之间搬一个文件——不用再 base64 塞进 job 日志：
+
+```bash
+gofer tool cp ./firmware.bin w-plc:shop-floor/tmp/in/firmware.bin    # 推到 worker
+gofer tool cp w-plc:shop-floor/tmp/out/report.csv ./report.csv       # 从 worker 拉回
+gofer tool cp ./x.tar server:build/tmp/x.tar                         # 目标是 server 本机（`local` 等价）
+gofer tool xfer ls [--state staged] | show <id> | rm <id>            # 暂存区管理
+```
+
+远端写法 `<runner>:<project>/<相对路径>`，按**执行机**的项目根解析，边界与 job 的 `--cwd` 一致；目标已存在需 `--force`。文件本体走 HTTP（暂存在 server 侧，全程 sha256 校验，单文件默认 256MB，见 `server.xfer`），WS 只传指令——所以跑不了的传输立刻带原因失败（`exists`、`worker offline`、`path escapes project`、`too large`），不会挂着。v1 只传单文件、不支持断点续传：目录先打包（tar / `Compress-Archive`）。
+
 ## 人机协作：交互、plan、会话中继
 
 - **运行中交互**：agent 经 `POST /v1/jobs/{id}/interactions` 提问 → job 置 `pending_interaction` → 人 `POST …/answer` → 续跑；MCP 对应 `gofer_get_interactions` / `gofer_answer_interaction`；web 与 IM 通知（钉钉/飞书 webhook，`server.notification`）。
@@ -378,6 +391,7 @@ gofer workflow run <file.yaml> [-w] | list | show <id> | events <id> | cancel <i
 gofer schedule add … | list | show | enable | disable | run <id> | rm <id>
 gofer session  ls | show <id> | relay auto|on|off | say <id> "…" | rm <id>
 gofer tunnel   forward | check | ls | save | saved | forget
+gofer tool     cp <src> <dst> [--force] [--timeout 600] | xfer ls | show <id> | rm <id>
 gofer mcp      [--standalone]                        # stdio MCP server
 ```
 

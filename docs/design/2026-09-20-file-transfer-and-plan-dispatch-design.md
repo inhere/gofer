@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 文件传输与「计划即派发」设计（XFER-01 / JOB-11 / AUTO-05 / PLAN-02 / JOB-09）
 
-> 状态：Approved 0.2 / 实施中（2026-09-20 人工批准，决策 1–6 按默认）
+> 状态：Approved 0.2 / 实施中（2026-09-20 人工批准，决策 1–6 按默认；X1 已落地）
 
 ## 修订记录
 
@@ -9,6 +9,7 @@
 |---|---|---|---|
 | 0.1 | 2026-09-20 | Claude | 初稿：XFER-01 客户端↔server↔worker 文件传输（`gofer tool cp`、`job run --upload/--collect`）；JOB-11 同 cwd 串行锁 + per-agent 并发；AUTO-05 输出停滞检测；PLAN-02 todo 指派即派发 + plan 级用量；JOB-09 job wakeups（事件/定时 → 续投）。新增 CLI 约定：小工具命令进 `gofer tool` 组 |
 | 0.2 | 2026-09-20 | Claude | 人工批准（决策 1–6 按默认）；分期 X1 → X2 → P1 → P2 → P3，全部 omp，测试先提交 |
+| 0.3 | 2026-09-21 | omp | **X1 已落地**（XFER-01 核心：`xfers` 表 + 暂存区 + HTTP 上传/下载 + `file_xfer`/协议 v9 + worker 执行端 + `runner=server` 直落 + `gofer tool cp`/`tool xfer` + 独立 TTL 清理 + G033）；实测记录见 §「X1 实测记录」（stub/e2e 部分；真机验收待监督者在容器执行） |
 
 ## 背景与目标
 
@@ -166,3 +167,42 @@ gofer job wakeup list|show|disable|enable <…>
 4. AUTO-05 默认 900s，只对 agent job 生效；停滞按 transient 处理（会续投/转移）。
 5. PLAN-02 新增 todo 状态 `ready`；`pending` 不触发；server 重启不自动补派。
 6. JOB-09 同一 wakeup 同时只允许一个未终态续投（coalesce）；默认 7 天过期；无 session 时退化为重跑 + 追加指令。
+
+## X1 实测记录（2026-09-21，stub / e2e 部分）
+
+X1 已落地（X2 未做）：`xfers` 表 + 暂存区 + HTTP 上传/下载 + `file_xfer`（协议 v9）+ worker 执行端 + `runner=server` 直落 + `gofer tool cp` / `tool xfer` + 审计 + 独立 TTL 清理 + G033。落地要点与偏差：
+
+- **事件落表**：`job_events` 无外键约束，故按其"复用 job_events"方案记在**同一张表**、`job_id = "xfer:<id>"`（`xfer.EventJobID`），seq 与 job 事件共用游标。注意边界：`xfer.put|get` 只进这张表——E14 webhook 入队与 SUP-01 P2 事件观察者都长在 `job.Service.recordEvent` 内部，而 transfer 不属于任何 job，故本批**不**触发 IM 通知（设计说"进事件流与 IM 可订阅"，X1 只做到前者；要 IM 订阅需 X2 决定 xfer 事件的订阅口径）。
+- **暂存根**：`storage.root` 非空时用它，否则 `config.ConfigDir()`，末级固定 `xfer/<id>`（`core.xferRoot`）；三者都不可用时退 `os.TempDir()` 并 warn。
+- **清理**：`startXferPruneLoop` **无条件**每 10 分钟跑（不挂在 retention 开关上）：先 `Manager.Expire`（过期行 → `expired` + 删目录），再 `Store.Sweep` 扫 TTL 以上的孤儿目录（`Create` 与 `InsertXfer` 之间崩溃留下的）。`server.xfer.ttl_sec` 在装配期冻结（与其它暂存策略一致，改它需重启）。
+- **HTTP 面**：`POST /v1/xfer` 一种入口两种 body——multipart（`meta` 字段在前、`file` 在后，边收边算 sha256）用于 put，JSON 用于 get；`GET|PUT /v1/xfer/{id}/content` 对 user 与 worker 是两套语义（user 下载 get 结果且要求 `done`；worker 只能动 `runner == 自己` 的 id，且 put 只能 GET 源、get 只能 PUT 结果）。**worker PUT 成功即结算 done**（内容已校验落盘），随后 worker 的 `file_xfer_result` 是幂等空操作——避免"帧丢了导致文件已到却记 failed"。
+- **派发上下文（真机发现，已修）**：最初两处 `Dispatch(c.Req.Context())` —— net/http 在 handler 返回时取消该 ctx，于是**每次**传输在 200 后 ~1ms 变成 `failed: context canceled`，文件根本没动（worker 路径更快：`SendFileXfer` 直接 `ctx.Canceled`）。改为 `context.WithoutCancel`，由传输自身超时兜底；`TestXferPushDispatchesAfterResponse` 用**真** `httptest.NewServer` 复现（进程内 recorder 的 ctx 不会被取消，看不见这个 bug），修复前失败、修复后通过。
+- **hub 侧**：`Hub.SendFileXfer(ctx, workerID, req)` 在 workerConn 上挂一个按 xfer_id 的 1-buffer waiter，写帧后等 result；结果帧无人等待时走 `SetFileXferResultHandler` 回调（装配指向 `Manager.OnWorkerResult`，只结算仍 `dispatched` 的记录）。`onDisconnect` 立刻 `revokeFileXfers`，否则断线后要等 10 分钟超时才报"worker offline"。协议 <9 的 worker 立即返回 `ErrFileXferUnsupported`（不排队、不降级）。
+- **worker 侧**：项目根从 worker **自己的** config 取（`jobs.Config()` → `cfg.ExecPath(proj)`），路径过 `project.SafeJoin`；put 先落**目标同目录**的 `.gofer-tmp-<xfer_id>`（同文件系统才能原子 rename），校验 size+sha256 后才 rename，目标已存在且无 force 时**先拒后不下载**；get 先本地算 sha256 再 PUT（服务端边收边校验）。并发上限 2（超出等待，等的是同一个传输 deadline），单次超时 `worker.xfer_timeout_sec`（默认 600s）。HTTP base 由本连接的 ws URL 换 scheme 得到——一个 origin，不需要第二处地址配置。
+- **CLI**：`gofer tool cp` / `tool xfer ls|show|rm`（G033，app.go 新增 `Utilities` 分组）。远端写法 `<runner>:<project>/<path>`：解析器是纯函数（表驱动测试），runner 走 `config.NormalizeRunnerName`（G043）；Windows 盘符/反斜杠/带冒号的本地路径不会被误判成远端。拉取落 `<DST>.gofer-part`，**两个摘要都对**才 rename。失败按记录里的 `error` **原样**打印并退出码 1。
+- **未做（属 X2）**：`Dispatch.uploads/collect`、`jobs.xfer_json`、artifacts 并入、web「文件」块、`server.xfer.collect_max_bytes`、MCP 工具。`xfers.job_id` 列已建好留用。
+- **测试实现细节**：worker 的 `file_xfer` e2e 用**真实 `core.Build`**（manager/Router/hub adapter 就是生产接线），只在测试内自带两个 content 端点（worker 从 ws session URL 推 HTTP base，所以端点必须与 hub 同 origin）；httpapi 侧另有 `TestXferGetContentWorkerScope` 覆盖真实的 worker 越权/方向校验。
+
+实测证据（`go test -count=1` 原始行）：
+
+```
+--- PASS: TestStoreWriteFinalizeReadRemove / TestStoreSweepExpires / TestManagerRejectsOversize
+           / TestManagerDeliverSettlesAndExpires          (internal/xfer)
+--- PASS: TestXferRoundTripAndList                        (internal/jobstore)
+--- PASS: TestXferPutStagesAndVerifiesSha / TestXferGetContentWorkerScope
+           / TestXferPushDispatchesAfterResponse / TestXferPathEscapeRejected
+           / TestXferOversizeRejected                     (internal/httpapi)
+--- PASS: TestFileXferRoundTripAndSupports                 (internal/wsproto)
+--- PASS: TestFileXferWorkerBelowProtocolRejected / TestFileXferResultResolvesWaiterAndRejectsOldPeer
+                                                          (internal/wshub)
+--- PASS: TestFileXferServerRunnerDirect / TestLocalRunnerReadsConfigPerCall
+                                                          (internal/xfer, runner=local)
+--- PASS: TestFileXferPutToWorker / TestFileXferGetFromWorker / TestFileXferRejectsEscapeOnWorker
+           / TestFileXferForceOverwrite / TestFileXferUnknownProjectFails
+           / TestFileXferWorkerOfflineFails               (internal/worker, 含 5MB 随机文件 sha256 比对)
+--- PASS: TestToolCpParsesRemoteSpec / TestToolCpPushFlow / TestToolCpPullFlow
+           / TestToolXferListShowRm / TestToolCpReportsTheReason   (internal/commands)
+```
+
+**待真机（由监督者在容器执行，本 job 未做）**：容器 `gofer tool cp` 一个 5MB 文件到 `w-kzl-desktop:<project>/tmp/` 往返 + sha256 一致、>max 拒绝、路径逃逸拒绝、worker 离线 → failed。上面 e2e 已覆盖同一批断言在进程内 hub+worker 下的等价路径，但"真实 worker 进程 + 真实 HTTP + 不同机器文件系统"这一层需真机确认。
+
