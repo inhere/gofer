@@ -178,6 +178,8 @@ func TestListToolsAllPresent(t *testing.T) {
 		"gofer_get_plan":    false,
 		"gofer_add_todo":    false,
 		"gofer_update_todo": false,
+		// PLAN-02 P2: dispatch a todo's assigned agent explicitly.
+		"gofer_dispatch_todo": false,
 		// Decision channel (Part C §C3).
 		"gofer_ask_human": false,
 		// SUP-01 P5 task-book templates (1 read-only tool).
