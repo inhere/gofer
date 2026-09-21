@@ -78,6 +78,10 @@ type Options struct {
 	// fake server adds the `sessionUpdate` discriminator — so a test writes exactly
 	// the agent's own accounting, e.g. `{"used":1234,"cost":{"total":0.01}}`.
 	UsageUpdate []string
+	// ThoughtChunks is how many agent_thought_chunk updates the turn emits, each
+	// carrying TextThink (0/1 => one). A real adapter streams a thought token by
+	// token, which is what the runner has to coalesce (bd h-aii-7kja ②).
+	ThoughtChunks int
 }
 
 // Main runs the fake server over stdin/stdout. It returns the process exit code.
@@ -169,6 +173,16 @@ func parseArgs(args []string) (Options, error) {
 				return o, fmt.Errorf("--usage-update: want a JSON object, got %q", args[i])
 			}
 			o.UsageUpdate = append(o.UsageUpdate, args[i])
+		case "--thought-chunks":
+			if i+1 >= len(args) {
+				return o, fmt.Errorf("--thought-chunks needs a value")
+			}
+			i++
+			n, err := strconv.Atoi(args[i])
+			if err != nil || n < 0 {
+				return o, fmt.Errorf("--thought-chunks: want a non-negative integer, got %q", args[i])
+			}
+			o.ThoughtChunks = n
 		default:
 			return o, fmt.Errorf("unknown flag %q", args[i])
 		}
@@ -372,7 +386,10 @@ func (s *server) runTurn(msg *rpcMsg, stop chan struct{}) {
 	}
 	s.update(map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": TextHello}})
 	s.update(map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": TextWorld}})
-	s.update(map[string]any{"sessionUpdate": "agent_thought_chunk", "content": map[string]any{"type": "text", "text": TextThink}})
+	thoughts := max(s.opts.ThoughtChunks, 1)
+	for range thoughts {
+		s.update(map[string]any{"sessionUpdate": "agent_thought_chunk", "content": map[string]any{"type": "text", "text": TextThink}})
+	}
 
 	// The client declared no fs/terminal capability: both must come back -32601.
 	s.expectRefusal("fs/read_text_file", map[string]any{"sessionId": SessionID, "path": "main.go"})

@@ -108,9 +108,10 @@ func readACPJSONL(t *testing.T, resultDir string) []map[string]any {
 }
 
 // TestACPAgentJobWritesStdoutAndEvents is the end-to-end S0 proof: an acp-agent job
-// against the fake ACP server lands pure agent text on stdout.log, the structured
-// events in acp.jsonl (tool call through its three statuses + plan + thought), the
-// session id on the job row, and job.tool_call events in the job event log.
+// against the fake ACP server lands pure agent text on stdout.log (one block per
+// message), the structured events in acp.jsonl (tool call through its three statuses +
+// plan + thought), and the session id on the job row. The job event timeline holds the
+// lifecycle only — the details live on stderr (see acp_output_test.go).
 func TestACPAgentJobWritesStdoutAndEvents(t *testing.T) {
 	root := t.TempDir()
 	s := newACPService(t, root, acptest.Options{})
@@ -131,7 +132,7 @@ func TestACPAgentJobWritesStdoutAndEvents(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read stdout.log: %v", err)
 	}
-	if got, want := string(out), acptest.TextHello+acptest.TextWorld+acptest.TextDone; got != want {
+	if got, want := string(out), acptest.TextHello+acptest.TextWorld+"\n\n"+acptest.TextDone+"\n"; got != want {
 		t.Fatalf("stdout.log = %q, want the merged agent text %q", got, want)
 	}
 	if strings.Contains(string(out), "sessionUpdate") || strings.Contains(string(out), "jsonrpc") {
@@ -169,25 +170,6 @@ func TestACPAgentJobWritesStdoutAndEvents(t *testing.T) {
 	manifest, ok := s.GetArtifactManifest(final.ID)
 	if !ok || !strings.Contains(manifestJSON(t, manifest), "acp.jsonl") {
 		t.Fatalf("GetArtifactManifest does not list acp.jsonl: %s", manifestJSON(t, manifest))
-	}
-	// Status changes surface as job events (job.tool_call), one per change.
-	events, err := s.ListJobEvents(final.ID, 0)
-	if err != nil {
-		t.Fatalf("ListJobEvents: %v", err)
-	}
-	var transitions []string
-	for _, e := range events {
-		if e.Type != EventJobToolCall {
-			continue
-		}
-		var d struct {
-			Status string `json:"status"`
-		}
-		_ = json.Unmarshal([]byte(e.Detail), &d)
-		transitions = append(transitions, d.Status)
-	}
-	if got, want := strings.Join(transitions, ","), "pending,in_progress,completed"; got != want {
-		t.Fatalf("job.tool_call statuses = %q, want %q (events=%v)", got, want, events)
 	}
 }
 

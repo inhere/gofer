@@ -40,6 +40,9 @@ func CmdArgs(o Options) []string {
 	for _, u := range o.UsageUpdate {
 		args = append(args, "--usage-update", u)
 	}
+	if o.ThoughtChunks > 0 {
+		args = append(args, "--thought-chunks", strconv.Itoa(o.ThoughtChunks))
+	}
 	return args
 }
 
