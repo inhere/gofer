@@ -390,6 +390,35 @@ var schemaStmts = []string{
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_seen ON agent_sessions(state, last_seen_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_project ON agent_sessions(project_key)`,
+	// xfers is the XFER-01 file-transfer journal (design §一.2). One row per
+	// transfer: op put|get, the runner that executes it (worker id or `local`),
+	// the project-relative destination/source path, the byte size + sha256 and the
+	// state machine staged|dispatched|done|failed|expired. The payload itself lives
+	// on disk in the staging area (<storage root or config dir>/xfer/<id>), NEVER in
+	// this table. caller_id is who asked (audit); job_id is RESERVED for X2's
+	// `job run --upload/--collect` (a transfer owned by a job) and stays empty in X1.
+	// expires_at (unix seconds) drives the xfer prune loop. idx_xfers_expiry serves
+	// that sweep, idx_xfers_created the management listing. IF NOT EXISTS like every
+	// table here (idempotent Open).
+	`CREATE TABLE IF NOT EXISTS xfers (
+  id           TEXT PRIMARY KEY,
+  op           TEXT NOT NULL,
+  runner       TEXT NOT NULL,
+  project_key  TEXT NOT NULL,
+  path         TEXT NOT NULL,
+  size         INTEGER NOT NULL DEFAULT 0,
+  sha256       TEXT,
+  state        TEXT NOT NULL,
+  error        TEXT,
+  caller_id    TEXT,
+  force        INTEGER NOT NULL DEFAULT 0,
+  job_id       TEXT,
+  created_at   INTEGER NOT NULL,
+  finished_at  INTEGER,
+  expires_at   INTEGER
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_xfers_expiry ON xfers(state, expires_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_xfers_created ON xfers(created_at DESC)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema

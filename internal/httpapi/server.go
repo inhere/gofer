@@ -37,6 +37,7 @@ import (
 	"github.com/inhere/gofer/internal/sessionrelay"
 	"github.com/inhere/gofer/internal/tunnel"
 	"github.com/inhere/gofer/internal/webui"
+	"github.com/inhere/gofer/internal/xfer"
 )
 
 // ctxCallerID is the rux context key under which authMiddleware stores the
@@ -195,6 +196,12 @@ type Server struct {
 	metricsEnabled bool
 	metricsToken   string
 
+	// xfer is the XFER-01 transfer manager behind /v1/xfer*. Injected
+	// post-construction by SetXfer (serve), like SetPresence. The routes are
+	// ALWAYS mounted (they answer 503 while it is nil), so this seam needs no
+	// router rebuild; mcp/tests simply leave it nil.
+	xfer *xfer.Manager
+
 	// presence is the E36 driver-agent identity/mailbox service backing the
 	// /v1/agents/* + /v1/messages endpoints. Injected post-construction by
 	// SetPresence (serve), mirroring SetMetrics so the wide positional New stays
@@ -260,6 +267,12 @@ func (s *Server) SetCastRecorder(rec *castrec.Recorder) { s.castRecorder = rec }
 // passes the *jobstore.Store (which satisfies PtySessionStore); a nil store leaves
 // pty session persistence off (mcp/tests). It mounts no routes → no router rebuild.
 func (s *Server) SetPtySessionStore(store PtySessionStore) { s.ptySessions = store }
+
+// SetXfer injects the XFER-01 transfer manager (serve passes core's). Unlike
+// SetPresence it needs no router rebuild: the /v1/xfer routes are always mounted
+// and answer 503 while no manager is wired, so a server without transfers (mcp,
+// most tests) keeps the identical router.
+func (s *Server) SetXfer(m *xfer.Manager) { s.xfer = m }
 
 // SetSessionRelayPolicy injects the effective session-relay auto-arm policy
 // (SESS-01 R2 + SUP-01 D): the keyboard idle threshold and the last-human-input
@@ -485,6 +498,18 @@ func (s *Server) buildRouter() *rux.Router {
 		// (NOT the bare-401 WS path), list-style shape mirroring /v1/jobs.
 		r.GET("/runners", s.handleListRunners)
 		r.GET("/tunnels", s.handleListTunnels)
+
+		// XFER-01 file transfer (design §一.2). The payload always rides HTTP; the
+		// WS carries only the instruction. `POST /v1/xfer` is the user surface
+		// (multipart push / JSON pull), `GET|PUT .../content` is shared with the
+		// executing worker (whose token may only touch transfers assigned to it).
+		// Always mounted; 503 until serve injects the manager.
+		r.POST("/xfer", s.handleXferCreate)
+		r.GET("/xfer", s.handleXferList)
+		r.GET("/xfer/{id}", s.handleXferStatus)
+		r.DELETE("/xfer/{id}", s.handleXferDelete)
+		r.GET("/xfer/{id}/content", s.handleXferContentGet)
+		r.PUT("/xfer/{id}/content", s.handleXferContentPut)
 
 		// Worker config reload (authed JSON, unlike the bare-401 WS routes above):
 		// ask one worker to re-read its own config and WAIT for its receipt, so a
