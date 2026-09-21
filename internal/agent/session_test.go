@@ -88,7 +88,7 @@ func TestBuiltinSessionDefaultsCodex(t *testing.T) {
 	if len(ac.SessionInject) != 0 {
 		t.Errorf("codex SessionInject = %#v, want empty (codex uses capture)", ac.SessionInject)
 	}
-	if ac.SessionCapture != `session id:\s*([0-9a-f-]+)` {
+	if ac.SessionCapture != builtinSessionDefaults["codex"].SessionCapture {
 		t.Errorf("codex SessionCapture = %q, want the built-in regex", ac.SessionCapture)
 	}
 	if len(ac.SessionResume) != 4 || ac.SessionResume[0] != "exec" || ac.SessionResume[1] != "resume" {
