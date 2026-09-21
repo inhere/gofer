@@ -4,7 +4,7 @@
 > 本文**只列功能点、状态、一句话与去哪看细节**；构想、权衡、落地过程一律在链接的 design / plan / runbook 里，不写在这里。
 > 2026-09-18 之前的详细版（含 v1.0–v1.30 修订记录与旧 `E` 编号映射）已归档到 [`roadmap-history.md`](roadmap-history.md)。
 >
-> 状态：✅ 已落地 · 🚧 部分落地 · ⏳ 待做 · ❄ 暂缓（明确不做或等条件）。编号按主题前缀：`JOB / PLAN / WF / AGT / ACP / GATE / SESS / TUN / OBS / WEB / CFG / AUTO / MCP / AI`，新条目在主题内续号。
+> 状态：✅ 已落地 · 🚧 部分落地 · 📝 设计中 · ⏳ 待做 · ❄ 暂缓（明确不做或等条件）。编号按主题前缀：`JOB / PLAN / WF / AGT / ACP / GATE / SESS / TUN / OBS / WEB / CFG / AUTO / MCP / AI`，新条目在主题内续号。
 >
 > 参考项目吸收记录（WebCodex、Multica）：[`refer/reference-projects.md`](refer/reference-projects.md)。
 
@@ -49,11 +49,11 @@
 
 | 编号 | 功能 | 价值 | 大小 | 状态 | 来源 / 细节 |
 |---|---|---|---|---|---|
-| **JOB-11** | **同 cwd 串行锁**：目标同一项目目录（非 worktree）的 job 排队（新状态 `waiting_dir`），避免两个 agent 踩同一 checkout；顺带 `agents.<k>.max_concurrent` | 高 | 小 | ⏳ | Multica `waiting_local_directory`，[refer](refer/reference-projects.md) |
-| **JOB-09** | **job wakeups**：agent（或人）在 job 上登记 事件订阅 / 定时器，job 结束后输入到达时自动 `job resume` 续投（等 verify、等人回复、每小时巡检），不占会话/hook | 高 | 中 | ⏳ | Multica wakeups；建立在 resume + schedules + 事件流上 |
-| **PLAN-02** | **todo 指派即派发**：todo 增 `assignee`(agent)/`template`/`verify`/`review`，状态到 `todo` 自动 `job run -t … --todo`；同一 todo 可多次 run / 换 agent；plan 级用量汇总 | 高 | 中 | ⏳ | Multica "assign an issue"；依赖 JOB-02/PLAN-01 |
-| **XFER-01** | **文件传输**：客户端 ↔ server ↔ worker 双向传文件（scp 式 `gofer cp ./x.bin w-hw-windows11:<project>/tmp/x.bin` / 反向拉回），worker 经既有 WS 收指令、经 HTTP + worker token 上传/下载；限项目根内（POLICY roots 映射）、大小上限、sha256、审计事件；`job run --upload local:dest` / `--collect <path>` 让 job 前置输入与产物随 job 传；`--runner local` 时直接落 server 主机 | 高 | 中 | ⏳ | 用户 2026-09-20：现在靠 base64 塞进 job 日志传文件；artifacts 清单只带元数据不带文件 |
-| **AUTO-05** | **输出停滞检测**：运行中 N 分钟无 stdout/stderr 增长 → 判 hung，kill 后按 transient 走续投/转移 | 中 | 小 | ⏳ | Multica "codex stalled output" |
+| **JOB-11** | **同 cwd 串行锁**：目标同一项目目录（非 worktree）的 job 排队（新状态 `waiting_dir`），避免两个 agent 踩同一 checkout；顺带 `agents.<k>.max_concurrent` | 高 | 小 | 📝 设计中 | [design](design/2026-09-20-file-transfer-and-plan-dispatch-design.md) · Multica `waiting_local_directory`，[refer](refer/reference-projects.md) |
+| **JOB-09** | **job wakeups**：agent（或人）在 job 上登记 事件订阅 / 定时器，job 结束后输入到达时自动 `job resume` 续投（等 verify、等人回复、每小时巡检），不占会话/hook | 高 | 中 | 📝 设计中 | [design](design/2026-09-20-file-transfer-and-plan-dispatch-design.md) · Multica wakeups；建立在 resume + schedules + 事件流上 |
+| **PLAN-02** | **todo 指派即派发**：todo 增 `assignee`(agent)/`template`/`verify`/`review`，状态到 `todo` 自动 `job run -t … --todo`；同一 todo 可多次 run / 换 agent；plan 级用量汇总 | 高 | 中 | 📝 设计中 | [design](design/2026-09-20-file-transfer-and-plan-dispatch-design.md) · Multica "assign an issue"；依赖 JOB-02/PLAN-01 |
+| **XFER-01** | **文件传输**：客户端 ↔ server ↔ worker 双向传文件（scp 式 `gofer tool cp ./x.bin w-hw-windows11:<project>/tmp/x.bin` / 反向拉回），worker 经既有 WS 收指令、经 HTTP + worker token 上传/下载；限项目根内（POLICY roots 映射）、大小上限、sha256、审计事件；`job run --upload local:dest` / `--collect <path>` 让 job 前置输入与产物随 job 传；`--runner local` 时直接落 server 主机 | 高 | 中 | 📝 设计中 | [design](design/2026-09-20-file-transfer-and-plan-dispatch-design.md)；用户 2026-09-20：现在靠 base64 塞进 job 日志传文件 |
+| **AUTO-05** | **输出停滞检测**：运行中 N 分钟无 stdout/stderr 增长 → 判 hung，kill 后按 transient 走续投/转移 | 中 | 小 | 📝 设计中 | [design](design/2026-09-20-file-transfer-and-plan-dispatch-design.md) · Multica "codex stalled output" |
 | JOB-10 | skills 绑定：项目/agent 级 skill 目录，派发时挂载（`.claude/skills` / AGENTS.md 引用）或注入，`gofer skill import <dir|zip|url>` | 中 | 中 | ⏳ | Multica skills；接 roles/模板 |
 | AUTO-02b | schedule 增 webhook 触发（`POST /v1/schedules/{id}/trigger` + 签名） | 中 | 小 | ⏳ | Multica autopilots |
 | MCP-05 | leader 路由：plan/job 评论 `@agent` 触发 job；leader 回合决定下一步/升级/转验收 | 中 | 中-大 | ⏳ | Multica squads；依赖 PLAN-02 + 评论触发 |
