@@ -76,6 +76,13 @@ func (f *fakePtySource) Writes() [][]byte {
 	return f.writes
 }
 
+// Resizes returns the captured resize calls in order.
+func (f *fakePtySource) Resizes() [][2]int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([][2]int(nil), f.resizes...)
+}
+
 func waitFor(t *testing.T, d time.Duration, cond func() bool) {
 	t.Helper()
 	deadline := time.Now().Add(d)
@@ -626,4 +633,44 @@ func TestResizeBroadcastAndSizeTruth(t *testing.T) {
 		t.Fatal("reader must not inherit the lease on writer detach")
 	}
 	_ = r.Close()
+}
+
+// TestResizeUnchangedIsNotForwarded (h-aii-rx9a hypothesis a): a resize frame that
+// repeats the pty's CURRENT size must not reach the source. Every forwarded resize
+// is a ConPTY ResizePseudoConsole call, which makes a full-screen TUI repaint the
+// whole screen (measured on omp: ~11 KB + 135 line clears per resize), so a chatty
+// client echoing its own size back would repaint the TUI for nothing.
+func TestResizeUnchangedIsNotForwarded(t *testing.T) {
+	src := newFakeSource()
+	r := New(src)
+	r.Start()
+	defer r.Close()
+
+	// First resize is a real change (the pty starts at "never known"), so it goes
+	// through and becomes the recorded size.
+	if err := r.Resize(100, 30); err != nil {
+		t.Fatalf("Resize: %v", err)
+	}
+	if got := len(src.Resizes()); got != 1 {
+		t.Fatalf("first resize forwarded %d times, want 1", got)
+	}
+	if cols, rows := r.Size(); cols != 100 || rows != 30 {
+		t.Fatalf("size = %dx%d, want 100x30", cols, rows)
+	}
+	// Repeats of that same size must be swallowed: no source call, no broadcast.
+	for range 3 {
+		if err := r.Resize(100, 30); err != nil {
+			t.Fatalf("Resize (unchanged): %v", err)
+		}
+	}
+	if got := len(src.Resizes()); got != 1 {
+		t.Fatalf("unchanged resizes forwarded %d times total, want 1", got)
+	}
+	// A genuine change still goes through.
+	if err := r.Resize(120, 40); err != nil {
+		t.Fatalf("Resize: %v", err)
+	}
+	if got := len(src.Resizes()); got != 2 {
+		t.Fatalf("changed resize forwarded %d times total, want 2", got)
+	}
 }
