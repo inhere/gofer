@@ -333,3 +333,123 @@ func TestCaptureMissDoesNotAffectTerminal(t *testing.T) {
 		t.Fatalf("expected empty SessionID on capture miss, got %q", final.SessionID)
 	}
 }
+
+// newInteractiveClaudeInjectService builds a Service with an INTERACTIVE
+// cli-agent ("tty-claude" shape: interactive_args, no_raw_cmd, session_inject) so
+// the T1.3 question — does the inject path also cover the TUI argv? — is answered
+// against the real configuration shape. The command is the harmless `echo`, so the
+// job completes without a real claude CLI.
+func newInteractiveClaudeInjectService(t *testing.T, root string) *Service {
+	t.Helper()
+	cfg := &config.Config{
+		Storage: config.StorageConfig{Root: root},
+		Projects: map[string]config.ProjectConfig{
+			"self": {
+				HostPath:         root,
+				AllowedAgents:    []string{"tty-claude"},
+				AllowedRunners:   []string{"local"},
+				AllowInteractive: boolPtr(true),
+			},
+		},
+		Agents: map[string]config.AgentConfig{
+			"tty-claude": {
+				Type: agent.TypeCLIAgent, Command: "echo", Args: []string{"{{prompt}}"},
+				Interactive: true, InteractiveArgs: []string{}, NoRawCmd: true,
+				SessionInject: []string{"--session-id", "{{session_id}}"},
+			},
+		},
+	}
+	projReg := project.NewRegistry(cfg, "")
+	agentReg := agent.NewRegistry(cfg)
+	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
+	meta, err := jobstore.Open(filepath.Join(root, "gofer.db"))
+	if err != nil {
+		t.Fatalf("open jobstore: %v", err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	return drainOnClose(t, NewService(cfg, projReg, agentReg, runners, meta, nil))
+}
+
+// TestInteractiveBuildInjectsSessionID proves an INTERACTIVE job gets the agent's
+// session_inject appended to its TUI argv (claude's `--session-id <uuid>` works in
+// TUI mode too) and the id bound at submit time — which is what makes
+// `job resume` able to continue an interactive session (PTY-01 §四). The
+// agent's no_raw_cmd flag does NOT refuse it: that flag guards CALLER-supplied
+// argv, not gofer's own injection.
+func TestInteractiveBuildInjectsSessionID(t *testing.T) {
+	root := t.TempDir()
+	s := newInteractiveClaudeInjectService(t, root)
+
+	res, err := s.Submit(JobRequest{
+		ProjectKey: "self", Agent: "tty-claude", Runner: "local",
+		Interactive: true, Cwd: ".", TimeoutSec: 30,
+	})
+	if err != nil {
+		t.Fatalf("Submit interactive: %v", err)
+	}
+	if !uuidV4Re.MatchString(res.SessionID) {
+		t.Fatalf("interactive SessionID = %q, want an injected v4 UUID", res.SessionID)
+	}
+
+	final, _ := s.Wait(res.ID)
+	if final.SessionID != res.SessionID {
+		t.Fatalf("SessionID changed after run: %q != %q", final.SessionID, res.SessionID)
+	}
+	var rc struct {
+		Args []string `json:"args"`
+	}
+	if err := json.Unmarshal([]byte(final.RenderedCommand), &rc); err != nil {
+		t.Fatalf("RenderedCommand not valid JSON: %v (%q)", err, final.RenderedCommand)
+	}
+	var sawFlag, sawID bool
+	for _, a := range rc.Args {
+		if a == "--session-id" {
+			sawFlag = true
+		}
+		if a == res.SessionID {
+			sawID = true
+		}
+	}
+	if !sawFlag || !sawID {
+		t.Fatalf("interactive argv missing injected --session-id %q: %#v", res.SessionID, rc.Args)
+	}
+}
+
+// TestCaptureOutcomesScansPtyTranscript proves the终态 fallback (PTY-01 §四): an
+// interactive job's pty output never enters stdout/stderr, so a session id that
+// only exists in the de-ANSI'd pty.txt (codex's TUI exit banner) is still bound to
+// the job. A non-interactive job must NOT read the transcript.
+func TestCaptureOutcomesScansPtyTranscript(t *testing.T) {
+	root := t.TempDir()
+	const sid = "0199f2c1-7a44-7b1e-9f10-2b6c9d0a1e33"
+	s := newCodexCaptureService(t, root, "unused-nothing-line")
+
+	resultDir := t.TempDir()
+	if err := os.WriteFile(filepath.Join(resultDir, store.StdoutFile), []byte("no session line here\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// The TUI exit banner form, already de-ANSI'd by the relay's transcript.
+	transcript := "╭─ codex ─╮\nbye\nTo continue this session, run codex resume " + sid + "\n"
+	if err := os.WriteFile(filepath.Join(resultDir, store.PtyTranscriptFile), []byte(transcript), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	entry := &jobEntry{result: JobResult{Agent: "codex", Interactive: true}}
+	s.captureSession(entry, resultDir)
+	entry.mu.Lock()
+	got := entry.result.SessionID
+	entry.mu.Unlock()
+	if got != sid {
+		t.Fatalf("interactive capture from pty.txt = %q, want %q", got, sid)
+	}
+
+	// Batch job: the transcript is not a source for a non-interactive run.
+	batch := &jobEntry{result: JobResult{Agent: "codex"}}
+	s.captureSession(batch, resultDir)
+	batch.mu.Lock()
+	gotBatch := batch.result.SessionID
+	batch.mu.Unlock()
+	if gotBatch != "" {
+		t.Fatalf("non-interactive capture read pty.txt = %q, want empty", gotBatch)
+	}
+}

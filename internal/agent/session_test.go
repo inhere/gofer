@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"regexp"
 	"testing"
 
 	"github.com/inhere/gofer/internal/config"
@@ -112,7 +113,7 @@ func TestInteractiveAliasSessionDefaultsFromCommand(t *testing.T) {
 	}
 
 	codex, _ := ResolveAgent(cfg, "tty-codex")
-	if codex.SessionCapture != `session id:\s*([0-9a-f-]+)` {
+	if codex.SessionCapture != builtinSessionDefaults["codex"].SessionCapture {
 		t.Fatalf("tty-codex SessionCapture = %q, want codex capture default", codex.SessionCapture)
 	}
 	if len(codex.SessionResume) != 4 || codex.SessionResume[0] != "exec" {
@@ -221,4 +222,44 @@ func equalStringSlices(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// TestCodexTUIExitSessionCapture pins the two session-id shapes codex emits that
+// the built-in session_capture must extract with ONE capture group (PTY-01 §四):
+// the batch header `session id: <uuid>` and the TUI exit banner
+// `… codex resume <uuid>`. The TUI form is what makes an interactive codex job
+// resumable at all — its id never appears in stdout.log.
+//
+// NOT sampled on a live codex TUI (0.155.1 refuses to start in a non-interactive
+// terminal without a trust prompt answered): the two forms below are the
+// documented ones (design §四), and the ANSI decoration is stripped before the
+// regex runs (see ptyrelay.Transcript / httpapi.ptySessionCapture).
+func TestCodexTUIExitSessionCapture(t *testing.T) {
+	reSrc := builtinSessionDefaults["codex"].SessionCapture
+	re, err := regexp.Compile(reSrc)
+	if err != nil {
+		t.Fatalf("compile %q: %v", reSrc, err)
+	}
+	const sid = "0199f2c1-7a44-7b1e-9f10-2b6c9d0a1e33"
+	samples := map[string]string{
+		"batch header":   "codex exec\nsession id: " + sid + "\nworking…\n",
+		"tui exit short": "bye\ncodex resume " + sid + "\n",
+		"tui exit long":  "To continue this session, run codex resume " + sid + "\n",
+		"tui exit caps":  "Resume this session with: codex resume " + sid + "\n",
+	}
+	for name, sample := range samples {
+		m := re.FindStringSubmatch(sample)
+		if len(m) < 2 || m[1] != sid {
+			t.Fatalf("%s: regex did not extract the session id from %q (got %#v)", name, sample, m)
+		}
+	}
+	for _, miss := range []string{
+		"session id: not-a-uuid",
+		"codex resume\n",
+		"no session line at all\n",
+	} {
+		if got := re.FindStringSubmatch(miss); got != nil {
+			t.Fatalf("regex matched a non-session line %q: %#v", miss, got)
+		}
+	}
 }
