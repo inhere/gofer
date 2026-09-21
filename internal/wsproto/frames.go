@@ -34,8 +34,9 @@ const (
 	// the priming dispatch fields (initial_input/initial_input_quiet_ms — see
 	// InitialInputMinProtocolVersion); v8 adds the verify dispatch fields
 	// (verify/verify_timeout_sec — see VerifyMinProtocolVersion) and the job_event
-	// frame.
-	CurrentProtocolVersion = 8
+	// frame; v9 adds the file-transfer frames (file_xfer/file_xfer_result — see
+	// FileXferMinProtocolVersion).
+	CurrentProtocolVersion = 9
 )
 
 // ReloadMinProtocolVersion is the first protocol version that carries the config
@@ -102,12 +103,60 @@ const VerifyMinProtocolVersion = 8
 // understands the verify dispatch fields and sends job_event frames.
 func SupportsVerify(proto int) bool { return proto >= VerifyMinProtocolVersion }
 
+// FileXferMinProtocolVersion is the first protocol version carrying the
+// file-transfer instruction pair (file_xfer / file_xfer_result, XFER-01). Same
+// refusal rule as the other floors (G032): a worker below it has no frame to answer
+// with, so the hub REFUSES the transfer up front with the missing capability named.
+// There is no honest downgrade to fall back on — the payload would simply never reach
+// (or leave) the executing machine — and the operator would learn about it only as a
+// transfer that sat there until its timeout.
+const FileXferMinProtocolVersion = 9
+
+// SupportsFileXfer reports whether a peer that registered with protocol version proto
+// implements the file-transfer frames.
+func SupportsFileXfer(proto int) bool { return proto >= FileXferMinProtocolVersion }
+
 // TunnelOpen requests a worker to open a TCP tunnel (protocol v5).
 type TunnelOpen struct {
 	TunnelID   string `json:"tunnel_id"`
 	Target     string `json:"target"`
 	RelayNonce string `json:"relay_nonce"`
 	Network    string `json:"network,omitempty"`
+}
+
+// FileXfer (s→w, XFER-01, protocol v9) is ONE transfer instruction: the worker
+// fetches (op=put) or uploads (op=get) the payload over HTTP itself, using the same
+// hub origin and bearer token it registered with. URLPath is that payload's
+// server-relative content URL; Size and SHA256 are what the worker must end up with,
+// so the EXECUTING machine verifies the bytes it wrote or read instead of trusting
+// the transfer. Force allows overwriting an existing destination (a put).
+type FileXfer struct {
+	XferID     string `json:"xfer_id"`
+	Op         string `json:"op"` // put | get
+	ProjectKey string `json:"project_key"`
+	// Path is the project-RELATIVE path on the executing machine; the worker resolves
+	// it under its own project root and refuses anything that escapes it.
+	Path    string `json:"path"`
+	Size    int64  `json:"size"`
+	SHA256  string `json:"sha256"`
+	Force   bool   `json:"force"`
+	URLPath string `json:"url_path"`
+}
+
+// FileXferResult (w→s, XFER-01, protocol v9) is the worker's report for exactly one
+// FileXfer, correlated by XferID. It is ALWAYS sent, failures included — Error
+// carries the reason verbatim (the literal "exists" is the one the caller matches on
+// to distinguish a force-needed refusal from a real fault) — because the dispatch is
+// parked on this frame: a report that never arrives would strand the transfer until
+// its timeout. DurationMS is the worker's own wall time for the transfer (diagnostics;
+// the hub adds nothing).
+type FileXferResult struct {
+	XferID     string `json:"xfer_id"`
+	OK         bool   `json:"ok"`
+	Size       int64  `json:"size"`
+	SHA256     string `json:"sha256"`
+	Error      string `json:"error"`
+	DurationMS int64  `json:"duration_ms"`
 }
 
 // SupportsPolicy reports whether a peer that registered with protocol version proto

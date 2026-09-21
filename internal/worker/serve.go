@@ -16,8 +16,16 @@ import (
 // serve's graceful-shutdown style: a signal cancels the worker ctx, which makes
 // Client.Run exit its reconnect/recv/heartbeat loops and close the connection
 // (going-away); signal.Stop on return so the signal goroutine never leaks
-// (ws-worker §5.6). wc is used only for the structured startup log.
+// (ws-worker §5.6). wc supplies the process-level settings the client needs from the
+// worker's own config (the structured startup log, the XFER-01 transfer deadline).
 func Serve(cl *Client, wc *config.WorkerConfig) error {
+	// XFER-01: the single-transfer deadline comes from the worker's OWN config
+	// (worker.xfer_timeout_sec, default 10m) — the hub cannot know this machine's
+	// budget. Resolved here, before Run accepts any frame; like the rest of the
+	// process-level wiring it is not re-read on reload (a changed timeout therefore
+	// needs a worker restart, which the docs state alongside the key).
+	cl.SetXferTimeout(wc.EffectiveXferTimeout())
+
 	// Graceful shutdown: SIGINT/SIGTERM cancels the worker ctx, which makes
 	// Run exit its reconnect/recv/heartbeat loops and close the connection
 	// (going-away). signal.Stop on return so the signal goroutine never leaks

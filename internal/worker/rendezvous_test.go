@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 )
@@ -39,6 +40,9 @@ func (r *rendezvousJobs) AnswerInteraction(string, string, string) (job.Interact
 // SetEventObserver accepts (and ignores) the SUP-01 G mirror hook: this fake raises
 // no job events.
 func (r *rendezvousJobs) SetEventObserver(job.JobEventObserver) {}
+
+// Config is unused by the rendezvous unit tests.
+func (r *rendezvousJobs) Config() *config.Config { return nil }
 
 // newRendezvousClient builds a Client whose local Wait blocks on a per-test chan
 // (closed in cleanup so the waitSession goroutine never leaks).

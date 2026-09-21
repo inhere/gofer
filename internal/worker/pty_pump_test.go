@@ -14,6 +14,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 )
@@ -44,6 +45,9 @@ func (p *pumpJobs) AnswerInteraction(string, string, string) (job.Interaction, e
 // SetEventObserver accepts (and ignores) the SUP-01 G mirror hook: this fake raises
 // no job events.
 func (p *pumpJobs) SetEventObserver(job.JobEventObserver) {}
+
+// Config is unused by the pump unit tests.
+func (p *pumpJobs) Config() *config.Config { return nil }
 func (p *pumpJobs) cancelledIDs() []string {
 	p.mu.Lock()
 	defer p.mu.Unlock()

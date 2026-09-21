@@ -90,6 +90,12 @@ type Jobs interface {
 	// service decides which types are mirrorable (job.mirroredEventTypes) — the
 	// client only transports them.
 	SetEventObserver(job.JobEventObserver)
+	// Config returns the worker's CURRENT runtime config. The client needs it for the
+	// work that must be resolved on THIS machine rather than by the hub: a file
+	// transfer's project root (XFER-01 re-validates the dispatch's project/path against
+	// the worker's own config, exactly like a locally submitted job's --cwd). It is a
+	// live accessor, not a snapshot, so a reloaded config is honoured.
+	Config() *config.Config
 }
 
 // Client connects one worker to the hub. It is constructed with the resolved hub
@@ -239,6 +245,14 @@ type Client struct {
 	// onSession, when set, is called after a session ends (for test
 	// synchronisation: connect / register / disconnect observation). nil in prod.
 	onSession func(event string)
+
+	// xferSem bounds CONCURRENT file transfers (XFER-01): a transfer is a stream
+	// through this process, so the cap keeps a burst from taking the worker's disk
+	// and sockets away from its jobs. Sized once in New.
+	xferSem chan struct{}
+	// xferTimeout is this worker's single-transfer deadline, resolved from its own
+	// config by worker.Serve (worker.xfer_timeout_sec). 0 = the default (10m).
+	xferTimeout time.Duration
 }
 
 // Config is the resolved worker-client wiring (the command resolves env/URLs).
@@ -324,6 +338,7 @@ func New(cfg Config, jobs Jobs) *Client {
 		jobEvents:     make(chan wsproto.JobEvent, jobEventQueueCap),
 		inflight:      map[string]*inflightJob{},
 		sessReady:     map[string]*ptyrunner.PtySession{},
+		xferSem:       make(chan struct{}, xferMaxConcurrent),
 		sessWaiters:   map[string]chan *ptyrunner.PtySession{},
 		pendingCancel: map[string]struct{}{},
 		pollInterval:  200 * time.Millisecond,
@@ -1095,6 +1110,17 @@ func (cl *Client) recvLoop(ctx context.Context, url string, gen uint64) error {
 			t, derr := wsproto.As[wsproto.TunnelOpen](env)
 			if derr == nil {
 				go cl.handleTunnelOpen(ctx, url, t)
+			}
+		case wsproto.TypeFileXfer:
+			// XFER-01: a transfer instruction for THIS worker. Handled in its own
+			// goroutine for the same reason a dispatch is — a 256MB transfer would
+			// otherwise stall every pong, cancel and dispatch on this connection. It is
+			// bounded by its own deadline inside handleFileXfer, and it always answers
+			// with a file_xfer_result frame (that frame, not the goroutine, is the
+			// completion signal the hub waits on).
+			fxf, derr := wsproto.As[wsproto.FileXfer](env)
+			if derr == nil {
+				go cl.handleFileXfer(ctx, url, fxf)
 			}
 		case wsproto.TypePing:
 			// P3: the hub pings us; reply pong{ts} (symmetric, §5.1). Reading the

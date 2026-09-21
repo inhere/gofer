@@ -60,6 +60,14 @@ const (
 	TypePolicy     FrameType = "policy"      // s→w
 	TypeApplied    FrameType = "applied"     // w→s
 	TypeTunnelOpen FrameType = "tunnel_open" // s→w
+
+	// File-transfer frames (XFER-01, protocol v9, see FileXferMinProtocolVersion).
+	// file_xfer is the INSTRUCTION (the worker fetches/uploads the payload itself,
+	// over its own authenticated HTTP session — the bytes never ride this
+	// connection, so the single-reader demux discipline and the frame-size budget are
+	// untouched), file_xfer_result is the worker's report for exactly one of them.
+	TypeFileXfer       FrameType = "file_xfer"        // s→w
+	TypeFileXferResult FrameType = "file_xfer_result" // w→s
 )
 
 // Envelope is the single-connection multiplexed message. Payload carries the

@@ -24,6 +24,7 @@ import (
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	workerrunner "github.com/inhere/gofer/internal/runner/worker"
 	"github.com/inhere/gofer/internal/wshub"
+	"github.com/inhere/gofer/internal/xfer"
 )
 
 // Core bundles the runtime objects assembled from a loaded config: the
@@ -84,6 +85,10 @@ type Core struct {
 	// worker dispatch, worker pty-connect (T5) and browser attach (T7).
 	RelayNonces *ptyrelay.NonceStore
 	PtyRelays   *ptyrelay.Registry
+	// xferMgr is the XFER-01 transfer manager (staging area + journal + executors),
+	// wired to the Hub's wire-level transfer call and the same metadata Store the jobs
+	// use. Always non-nil after Build; read through Xfer().
+	xferMgr *xfer.Manager
 	// detector is the agent.Detector this Core resolved its config with. It is kept
 	// so ReloadWith re-gates the built-in agent templates through the SAME seam the
 	// process started with (a test's fake detector must not silently become the real
@@ -276,6 +281,16 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	c.Hub = hub
 	c.RelayNonces = relayNonces
 	c.PtyRelays = ptyRelays
+	// XFER-01: the transfer manager over the same metadata store, with both executors
+	// wired (this process for `local`, the hub for a worker). Built AFTER c.Hub is set
+	// because its local runner reads the config snapshot and its worker sender writes
+	// through the hub; the runner is only ever invoked at runtime, long after the
+	// snapshot is seeded below.
+	xferMgr, err := buildXferManager(c, cfg, hub, store)
+	if err != nil {
+		return nil, fmt.Errorf("build xfer manager: %w", err)
+	}
+	c.xferMgr = xferMgr
 	// Seed generation 1 (verification 5: Build=Rev 1, every write +1). This is the
 	// only snap.Store outside reloadLocked; it never re-resolves (the registries above
 	// were already built from this resolved cfg).

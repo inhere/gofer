@@ -73,6 +73,13 @@ type workerConn struct {
 	// nothing and is dropped. See reload.go.
 	pending map[string]chan wsproto.ReloadResult
 
+	// pendingXfer maps a transfer xfer_id → the 1-buffered channel the dispatch is
+	// parked on (XFER-01). Same discipline as `pending`: the read loop resolves it when
+	// the worker's file_xfer_result arrives, the caller always removes its own entry,
+	// and onDisconnect revokes whatever is left so a dead connection cannot park a
+	// dispatch until its timeout. See xfer.go.
+	pendingXfer map[string]chan wsproto.FileXferResult
+
 	// Policy-push diagnostic state (P3 T4), all guarded by wc.mu (the lock
 	// WorkerSnapshot reads them under). policyRev is the HIGHEST rev the hub has
 	// pushed to THIS connection (ack / catch-up / broadcast, max-monotonic);
@@ -141,6 +148,7 @@ func newWorkerConn(workerID, callerID string, conn *websocket.Conn, meta wsproto
 		sinks:         map[string]JobSink{},
 		inflight:      map[string]struct{}{},
 		pending:       map[string]chan wsproto.ReloadResult{},
+		pendingXfer:   map[string]chan wsproto.FileXferResult{},
 	}
 	return wc
 }
@@ -163,6 +171,16 @@ func (wc *workerConn) protocolVersion() int { return wc.meta.ProtocolVersion }
 // must say so explicitly rather than send a frame the peer will silently drop.
 func (wc *workerConn) supportsReload() bool {
 	return wsproto.SupportsReload(wc.protocolVersion())
+}
+
+// supportsFileXfer reports whether THIS connection's worker implements the
+// file-transfer frames (XFER-01). Same single-source rule as supportsReload: the
+// version that gained the capability lives in wsproto, and a caller asks this instead
+// of comparing protocol numbers. A worker below the floor is registered and fully
+// usable for jobs — it just cannot be sent a transfer, which the caller must report as
+// "upgrade this worker" rather than silently queueing.
+func (wc *workerConn) supportsFileXfer() bool {
+	return wsproto.SupportsFileXfer(wc.protocolVersion())
 }
 
 // closeDone closes the per-connection done channel exactly once (stops the

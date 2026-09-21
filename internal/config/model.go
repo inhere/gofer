@@ -359,6 +359,22 @@ type ServerConfig struct {
 	// an absent block resolves to the documented defaults. It only classifies
 	// reported health — nothing in the job path consults it unless pre_dispatch is on.
 	AgentHealth *AgentHealthConfig `yaml:"agent_health,omitempty"`
+	// Xfer is the XFER-01 transfer policy (design §一.1): the per-transfer byte
+	// ceiling and how long a staged/finished transfer survives in the staging area.
+	// An absent block (all zero) keeps the documented defaults (256MB / 24h) — the
+	// capability is always on, so there is no enable switch to get wrong.
+	Xfer XferConfig `yaml:"xfer,omitempty"`
+}
+
+// XferConfig is the server.xfer block (XFER-01, design §一.1/§一.2). Every field is
+// optional and resolved at ASSEMBLY time (core.Build), not here: internal/xfer owns
+// the defaults and depends on this package, so this one must not import it back.
+type XferConfig struct {
+	// MaxBytes caps ONE transfer's payload (0 => 256MB).
+	MaxBytes int64 `yaml:"max_bytes,omitempty"`
+	// TTLSec is how long a staged/finished transfer is kept before the prune sweep
+	// expires it and drops its staging directory (0 => 24h).
+	TTLSec int `yaml:"ttl_sec,omitempty"`
 }
 
 // EffectiveAutoResumeMax preserves the distinction between omitted and explicit zero.
@@ -1518,6 +1534,27 @@ type WorkerConfig struct {
 	// Guards are opt-in per-worker capability gates (P3 T2-D). See WorkerGuards.
 	Guards WorkerGuards       `yaml:"guards,omitempty"`
 	Tunnel WorkerTunnelConfig `yaml:"tunnel,omitempty"`
+	// XferTimeoutSec bounds ONE inbound file transfer on this worker (XFER-01
+	// protocol v9). 0/unset => DefaultWorkerXferTimeoutSec (10m). It is a
+	// PROCESS-level setting like the rest of this block: it is read when the worker
+	// starts serving, not on hot reload (the hub cannot know this worker's budget, so
+	// the executing machine is the only place it can live).
+	XferTimeoutSec int `yaml:"xfer_timeout_sec,omitempty"`
+}
+
+// DefaultWorkerXferTimeoutSec is a worker's default single-transfer deadline (10
+// minutes). A transfer is not resumable, so a stalled one must be FAILED at its
+// deadline rather than held open.
+const DefaultWorkerXferTimeoutSec = 600
+
+// EffectiveXferTimeout resolves worker.xfer_timeout_sec, defaulting to
+// DefaultWorkerXferTimeoutSec.
+func (w WorkerConfig) EffectiveXferTimeout() time.Duration {
+	sec := w.XferTimeoutSec
+	if sec <= 0 {
+		sec = DefaultWorkerXferTimeoutSec
+	}
+	return time.Duration(sec) * time.Second
 }
 
 // WorkerTunnelConfig controls outbound TCP tunnels.

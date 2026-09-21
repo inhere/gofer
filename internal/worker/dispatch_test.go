@@ -14,6 +14,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/wsproto"
@@ -89,6 +90,9 @@ func (s *stubJobs) AnswerInteraction(jobID, iid, answer string) (job.Interaction
 // events of its own, and the client's installation is covered by the real-service
 // e2e tests.
 func (s *stubJobs) SetEventObserver(job.JobEventObserver) {}
+
+// Config is unused by the dispatch unit tests (nothing there resolves host paths).
+func (s *stubJobs) Config() *config.Config { return nil }
 
 func (s *stubJobs) cancelled() string {
 	s.mu.Lock()

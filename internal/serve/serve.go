@@ -242,6 +242,17 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// translates the hub's error taxonomy so httpapi keeps its no-wshub boundary.
 	srv.SetWorkerReloader(hubWorkerReloader{hub: cr.Hub})
 
+	// XFER-01: mount the transfer surface. The manager is always present (core builds
+	// it unconditionally), so the routes are mounted whenever the server runs — a
+	// deployment with no worker still transfers to `server:` targets.
+	srv.SetXfer(cr.Xfer())
+	// Staging-area TTL sweep. UNCONDITIONAL (unlike retention, which is opt-in): a
+	// transfer's staging directory is transient by construction, so an expired one left
+	// behind is leaked disk, not a policy choice. stop closes when serve returns.
+	stopXfer := make(chan struct{})
+	defer close(stopXfer)
+	startXferPruneLoop(c, cr, stopXfer)
+
 	// E16 Prometheus metrics: build the registry, inject the lifecycle-counter sink
 	// into the job service, register the scrape-time GaugeFuncs (in-flight/queued/
 	// running + workers connected/in-flight), then mount the /metrics endpoint +
@@ -293,6 +304,45 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	}
 	slog.Info("server.shutdown", "event", "server.shutdown", "component", "server")
 	return nil
+}
+
+// xferPruneInterval is the XFER-01 staging sweep cadence. It is independent of
+// storage.retention (which is opt-in for JOBS): a transfer's staging directory is
+// transient by construction, so its TTL sweep always runs. Ten minutes is frequent
+// enough to keep an abandoned 256MB payload from sitting for a day, and cheap enough
+// (one indexed SELECT + one directory walk) to be irrelevant to the process.
+const xferPruneInterval = 10 * time.Minute
+
+// startXferPruneLoop launches the transfer staging-area sweeper: it expires the
+// journal rows past their TTL, drops their staging directories and sweeps the orphan
+// directories the journal never knew about (a crash between Create and Insert). It runs
+// once at startup (clear a backlog left by a previous serve) and then on every tick,
+// exiting when stop closes — the same lifecycle as the other serve loops.
+//
+// The manager's TTL is frozen at assembly (server.xfer.ttl_sec is a restart-level
+// setting, like every other staged-directory policy); the loop itself is unconditional.
+func startXferPruneLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
+	mgr := cr.Xfer()
+	go func() {
+		prune := func() {
+			if n, err := mgr.Expire(time.Now()); err != nil {
+				c.Errorf("gofer: xfer prune failed: %v\n", err)
+			} else if n > 0 {
+				c.Printf("gofer: expired %d transfer(s)\n", n)
+			}
+		}
+		prune()
+		ticker := time.NewTicker(xferPruneInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				prune()
+			}
+		}
+	}()
 }
 
 // startPruneLoop launches the periodic retention prune goroutine when retention

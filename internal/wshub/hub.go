@@ -126,6 +126,16 @@ type Hub struct {
 	// disables adoption — the store rows then live out the one-shot startup window and
 	// are failed, exactly as before R4. Immutable after assemble.
 	adopter Adopter
+
+	// xferResFn is the XFER-01 fallback for a file_xfer_result no dispatch is waiting
+	// for (the waiter timed out, the worker reconnected mid-transfer, the record was
+	// settled elsewhere). The assembly points it at the transfer manager, which
+	// settles a still-dispatched record and ignores a terminal one. Guarded by
+	// xferResMu: it is installed at assemble time and read from a connection's read
+	// loop, so a plain field would be a data race in the race detector's eyes even
+	// though the ordering is real.
+	xferResMu sync.Mutex
+	xferResFn func(wsproto.FileXferResult)
 }
 
 // PolicySource is the seam through which the hub obtains the Policy for one
@@ -587,6 +597,26 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 				h.reg.UpdateCaps(wc, *a.Caps)
 			}
 			h.reg.MarkPolicyApplied(wc, a.Rev, a.Rejected, a.Degraded)
+		case wsproto.TypeFileXferResult:
+			// XFER-01: the worker's report for ONE transfer instruction. Demux by
+			// xfer id (the frame carries no job id) to the waiter the dispatch is
+			// parked on. A report with no waiter is NOT an error and never fatal:
+			// it is routed to the fallback handler (the transfer manager settles a
+			// record that is still dispatched) and otherwise dropped — a duplicate or
+			// late report must not be able to disturb any other frame on this
+			// connection.
+			res, derr := wsproto.As[wsproto.FileXferResult](env)
+			if derr != nil {
+				continue
+			}
+			if wc.resolveFileXfer(res) {
+				continue
+			}
+			slog.Debug("worker.file_xfer_result_orphan", "event", "worker.file_xfer_result_orphan", "component", "server",
+				"worker_id", wc.workerID, "xfer_id", res.XferID, "ok", res.OK)
+			if fn := h.fileXferResultHandler(); fn != nil {
+				fn(res)
+			}
 		case wsproto.TypePing:
 			// P3: the worker may send its own ping; reply pong{ts} (symmetric, §5.1).
 			pf, _ := wsproto.As[wsproto.Ping](env)
@@ -620,6 +650,11 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 // StatusFailed), and it is the sink that knows how to hold a job in `recovering`.
 func (h *Hub) onDisconnect(wc *workerConn) {
 	wc.closeDone() // stop the heartbeat sender
+	// XFER-01: wake every parked transfer waiter NOW (they select on wc.done, which
+	// the line above just closed) and drop their entries — without this a dispatch
+	// would sit on a dead connection until its own timeout, reporting the outcome ten
+	// minutes late as a timeout instead of the truth, "worker offline".
+	wc.revokeFileXfers()
 	h.reg.Remove(wc.workerID, wc)
 
 	if wc.superseded.Load() {

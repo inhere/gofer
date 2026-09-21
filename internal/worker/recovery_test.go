@@ -16,6 +16,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/wsproto"
@@ -296,6 +297,9 @@ func (j *runningJobs) AnswerInteraction(string, string, string) (job.Interaction
 // SetEventObserver accepts (and ignores) the SUP-01 G mirror hook: this fake raises
 // no job events.
 func (j *runningJobs) SetEventObserver(job.JobEventObserver) {}
+
+// Config is unused by the recovery unit tests.
+func (j *runningJobs) Config() *config.Config { return nil }
 
 // finish drives the local job terminal and releases Wait.
 func (j *runningJobs) finish(res job.JobResult) {
