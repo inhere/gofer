@@ -221,3 +221,54 @@ func topBlock(t *testing.T, text, key string) string {
 	}
 	return strings.Join(lines[start:end], "\n")
 }
+
+// TestSaveHealsDuplicateTopLevelBlocks: the pre-F1 writer could leave a config with
+// the same managed key twice (the user saw duplicated `log:` / `session:` blocks after
+// a web save, after which every gofer command failed to load the file). Loading the
+// damaged text is impossible, but a save from an in-memory config must not carry the
+// duplicate forward: the first block wins, the copy is dropped, and the result loads.
+func TestSaveHealsDuplicateTopLevelBlocks(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "config.yaml")
+	damaged := acpAgentYAML + `
+log: # file logging
+  dir: logs
+
+session:
+  auto_relay_idle_sec: 300
+
+log:
+  dir: logs
+session: # duplicated by an old save
+  auto_relay_idle_sec: 300
+`
+	write(t, p, damaged)
+	cfg, _, err := Load(acpFixturePath(t, dir))
+	if err != nil {
+		t.Fatalf("Load fixture: %v", err)
+	}
+	cfg.Log.Dir = "logs"
+	idle := 300
+	cfg.Session.AutoRelayIdleSec = &idle
+	if err := Save(p, cfg); err != nil {
+		t.Fatalf("Save over damaged file: %v", err)
+	}
+	out := read(t, p)
+	for _, key := range []string{"log:", "session:"} {
+		if n := strings.Count(out, "\n"+key); n != 1 {
+			t.Fatalf("top-level %q appears %d times after save, want 1:\n%s", key, n, out)
+		}
+	}
+	if _, _, err := Load(p); err != nil {
+		t.Fatalf("healed file must load: %v\n%s", err, out)
+	}
+}
+
+// acpFixturePath writes the clean fixture next to the damaged file so the in-memory
+// config comes from a loadable document (the damaged one cannot be loaded).
+func acpFixturePath(t *testing.T, dir string) string {
+	t.Helper()
+	p := filepath.Join(dir, "clean.yaml")
+	write(t, p, acpAgentYAML)
+	return p
+}

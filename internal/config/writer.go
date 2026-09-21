@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -155,6 +156,14 @@ func mergeTopKeys(orig, oldBytes, newBytes []byte) ([]byte, error) {
 	lines := make([]string, 0, util.CapSum(len(blocks), len(newMap.Values)))
 	kept := make(map[string]bool, len(blocks))
 	for _, b := range blocks {
+		// A file damaged by the pre-F1 writer can carry the same managed key twice
+		// (`log:` / `session:` with a trailing comment were appended as "unknown"
+		// and re-emitted from the struct). The loader rejects such a file, so the
+		// save must heal it: the first occurrence wins, later copies are dropped.
+		if kept[b.key] {
+			slog.Warn("config save: dropping duplicate top-level block", "key", b.key)
+			continue
+		}
 		kept[b.key] = true
 		if !managedTopKeys[b.key] {
 			lines = append(lines, b.lines...) // not ours: verbatim
