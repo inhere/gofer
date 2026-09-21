@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -116,8 +117,19 @@ func (s *Server) xferCreatePull(c *rux.Context, caller string) {
 		writeError(c, http.StatusInternalServerError, "stage get failed", err.Error())
 		return
 	}
-	s.xfer.Dispatch(c.Req.Context(), rec.ID)
+	s.xfer.Dispatch(xferDispatchContext(c), rec.ID)
 	c.JSON(http.StatusOK, map[string]any{"id": rec.ID, "state": rec.State})
+}
+
+// xferDispatchContext returns a context for the BACKGROUND delivery a transfer
+// starts. It must NOT be the request's: net/http cancels that the moment the
+// handler returns, which is immediately after the record is staged — every
+// transfer would then settle `failed: context canceled` without the payload ever
+// being touched. WithoutCancel keeps the request's values (tracing) but drops its
+// cancellation, exactly because the dispatch is designed to outlive the response
+// (design §一.2); the transfer's own timeout bounds it instead.
+func xferDispatchContext(c *rux.Context) context.Context {
+	return context.WithoutCancel(c.Req.Context())
 }
 
 // xferCreatePush handles the multipart form: the `meta` field (first) then the
@@ -244,7 +256,7 @@ func (s *Server) xferAcceptFile(c *rux.Context, caller string, meta xferMeta, bo
 		writeError(c, http.StatusInternalServerError, "commit failed", err.Error())
 		return
 	}
-	s.xfer.Dispatch(c.Req.Context(), rec.ID)
+	s.xfer.Dispatch(xferDispatchContext(c), rec.ID)
 	c.JSON(http.StatusOK, map[string]any{"id": rec.ID, "state": string(xfer.StateStaged)})
 }
 

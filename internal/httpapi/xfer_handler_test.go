@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -263,6 +264,98 @@ func TestXferGetContentWorkerScope(t *testing.T) {
 	resp.Body.Close()
 	if !bytes.Equal(got, data) {
 		t.Fatalf("downloaded payload = %q, want %q", got, data)
+	}
+}
+
+// TestXferPushDispatchesAfterResponse: a staged push is executed by the background
+// dispatch that the create REQUEST started, i.e. after the response was written —
+// the delivery must not inherit the request's cancellation (regression: passing
+// c.Req.Context() made every transfer settle `failed: context canceled` within a
+// millisecond of a 200, because net/http cancels that context on handler return).
+//
+// This one drives a REAL http.Server on purpose: httptest.NewRequest hands the
+// handler a context nobody cancels, so the bug is invisible through the
+// in-process recorder — only a served request reproduces it.
+func TestXferPushDispatchesAfterResponse(t *testing.T) {
+	s, mgr, projRoot := newXferServer(t, config.ServerConfig{Token: testToken}, xfer.Limits{})
+	mgr.SetRunner(&xfer.Router{
+		Local: &xfer.LocalRunner{
+			Config:       func() *config.Config { return s.projects.Config() },
+			Store:        mgr.Store(),
+			OnGetContent: mgr.CommitGet,
+		},
+	})
+	srv := httptest.NewServer(s.Handler())
+	defer srv.Close()
+
+	data := []byte("server-direct payload")
+	sum := sha256.Sum256(data)
+	meta, err := json.Marshal(pushMeta("tmp/out/a.bin", data, hex.EncodeToString(sum[:]), true))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var body bytes.Buffer
+	mw := multipart.NewWriter(&body)
+	if err := mw.WriteField("meta", string(meta)); err != nil {
+		t.Fatal(err)
+	}
+	fw, err := mw.CreateFormFile("file", "a.bin")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := fw.Write(data); err != nil {
+		t.Fatal(err)
+	}
+	if err := mw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	req, err := http.NewRequest(http.MethodPost, srv.URL+"/v1/xfer", &body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Content-Type", mw.FormDataContentType())
+	req.Header.Set("Authorization", "Bearer "+testToken)
+	resp, err := srv.Client().Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var created map[string]any
+	if err := json.NewDecoder(resp.Body).Decode(&created); err != nil {
+		t.Fatalf("decode create response: %v", err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d body=%v, want 200", resp.StatusCode, created)
+	}
+	id, _ := created["id"].(string)
+	if id == "" {
+		t.Fatalf("body=%v, want an id", created)
+	}
+
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		rec, ok, err := mgr.Get(id)
+		if err != nil || !ok {
+			t.Fatalf("get record: ok=%v err=%v", ok, err)
+		}
+		if rec.State == string(xfer.StateFailed) {
+			t.Fatalf("transfer failed: %s", rec.Error)
+		}
+		if rec.State == string(xfer.StateDone) {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("transfer stuck in state %s", rec.State)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	got, err := os.ReadFile(filepath.Join(projRoot, "tmp", "out", "a.bin"))
+	if err != nil {
+		t.Fatalf("read the delivered file: %v", err)
+	}
+	if !bytes.Equal(got, data) {
+		t.Fatalf("delivered payload = %q, want %q", got, data)
 	}
 }
 
