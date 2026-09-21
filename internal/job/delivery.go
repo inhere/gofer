@@ -174,6 +174,12 @@ func (s *Service) buildDeliveryBody(d jobstore.Delivery) (body []byte, eventType
 				LinkLabel: "查看 job",
 				At:        ev.At,
 			}
+			// XFER-01 X2: a transfer event has no job behind it (`xfer:<id>` names a
+			// file move), so it gets the transfer's own short shape — who moved what,
+			// where, how big — instead of an empty job line.
+			if tmsg, ok := notify.TransferMessage(ev.Type, ev.Detail, ev.At); ok {
+				msg = tmsg
+			}
 			rendered, rErr := notify.RenderMessage(kind, msg)
 			if rErr != nil {
 				slog.Warn("DeliverDue: render im body", "seq", d.EventSeq, "kind", kind, "err", rErr)

@@ -121,6 +121,42 @@ func (s *Service) recordEvent(jobID, eventType string, detail any) {
 	s.notifyEventObserver(jobID, eventType, dj)
 }
 
+// RecordScopedEvent appends one event on behalf of a NON-JOB scope (XFER-01 X2):
+// a transfer's audit event is recorded under the synthetic id `xfer:<id>` and then
+// runs through the SAME pipeline a job event does — the durable log, the E14 webhook
+// enqueue (matched by projectKey, which a scope id cannot resolve back to a project
+// on its own) and the mirror observer. It is the seam internal/xfer's EventSink is
+// wired to at assembly, so a transfer subscriber sees xfer.put|xfer.get without the
+// xfer package knowing anything about notifications or jobs.
+//
+// Best-effort exactly like recordEvent: a failed audit/notification write must never
+// affect the transfer.
+func (s *Service) RecordScopedEvent(scope, eventType, projectKey string, detail map[string]any) {
+	var dj string
+	if detail != nil {
+		if b, err := json.Marshal(detail); err == nil && len(b) <= MaxEventDetailBytes {
+			dj = string(b)
+		}
+	}
+	sink := s.events
+	if sink == nil {
+		sink = s.meta
+	}
+	at := s.nowFn().Unix()
+	seq, err := sink.InsertJobEvent(jobstore.JobEvent{
+		JobID:  scope,
+		Type:   eventType,
+		Detail: dj,
+		At:     at,
+	})
+	if err != nil {
+		slog.Warn("RecordScopedEvent: insert job event", "scope", scope, "type", eventType, "err", err)
+		return
+	}
+	s.enqueueScopedDeliveries(seq, scope, projectKey, eventType, dj, at)
+	s.notifyEventObserver(scope, eventType, dj)
+}
+
 // enqueueDeliveries inserts one pending webhook delivery per subscribed target
 // for a just-recorded event (E14, design §5.6). It is BEST-EFFORT: every failure
 // (no config, unknown job, enqueue write error) only warns and never affects the
@@ -143,8 +179,23 @@ func (s *Service) enqueueDeliveries(seq int64, jobID, eventType, detailJSON stri
 	if proj, ok := cfg.Projects[jr.ProjectKey]; ok && !proj.IsNotifyEnabled() {
 		return // project opted out of notification
 	}
+	s.enqueueScopedDeliveries(seq, jobID, jr.ProjectKey, eventType, detailJSON, at)
+}
 
-	targets := notify.MatchWebhooks(cfg.Server.Notification, eventType, jr.ProjectKey)
+// enqueueScopedDeliveries is the project-keyed half of enqueueDeliveries: one pending
+// webhook delivery per subscribed target for a just-recorded event. It serves both a
+// job event (the project resolved from the job row) and a NON-JOB scope such as a
+// transfer (XFER-01 X2), whose id cannot be resolved by the job store at all. Every
+// failure only warns — an enqueue must never affect what it reports on.
+func (s *Service) enqueueScopedDeliveries(seq int64, jobID, projectKey, eventType, detailJSON string, at int64) {
+	cfg := s.config()
+	if cfg == nil || cfg.Server.Notification == nil || len(cfg.Server.Notification.Webhooks) == 0 {
+		return // no notification configured — nothing to enqueue (zero behaviour change)
+	}
+	if proj, ok := cfg.Projects[projectKey]; ok && !proj.IsNotifyEnabled() {
+		return // project opted out of notification
+	}
+	targets := notify.MatchWebhooks(cfg.Server.Notification, eventType, projectKey)
 	if len(targets) == 0 {
 		return
 	}

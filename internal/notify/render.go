@@ -69,6 +69,70 @@ func RenderMessage(kind string, m Message) ([]byte, error) {
 	}
 }
 
+// TransferMessage renders a file-transfer event (xfer.put|xfer.get) as the short
+// message an IM bot shows: WHO moved WHAT, from/to which machine and project, how
+// big. ok=false for any other event type, so a caller falls back to the job shape
+// (a transfer has no job, no status and no console page to link to).
+//
+// detailJSON is the transfer's audit detail as recorded (the xfer event's own
+// fields); an unparseable one still yields a message naming the event type, never an
+// error — this is a notification, not a contract.
+func TransferMessage(eventType, detailJSON string, at int64) (Message, bool) {
+	if !strings.HasPrefix(eventType, "xfer.") {
+		return Message{}, false
+	}
+	var d struct {
+		Op      string `json:"op"`
+		Runner  string `json:"runner"`
+		Project string `json:"project"`
+		Path    string `json:"path"`
+		Size    int64  `json:"size"`
+		By      string `json:"by"`
+	}
+	if detailJSON != "" {
+		_ = json.Unmarshal([]byte(detailJSON), &d)
+	}
+	parts := make([]string, 0, 5)
+	if d.By != "" {
+		parts = append(parts, "by "+d.By)
+	}
+	if d.Runner != "" {
+		parts = append(parts, "runner "+d.Runner)
+	}
+	if d.Project != "" {
+		parts = append(parts, "project "+d.Project)
+	}
+	if d.Path != "" {
+		parts = append(parts, "path "+d.Path)
+	}
+	if d.Size > 0 {
+		parts = append(parts, humanSize(d.Size))
+	}
+	title := eventType
+	switch d.Op {
+	case "put":
+		title = "file pushed"
+	case "get":
+		title = "file pulled"
+	}
+	return Message{EventType: eventType, Title: title, Text: strings.Join(parts, " · "), At: at}, true
+}
+
+// humanSize renders a byte count for a message: IM notifications are read on a phone,
+// where two significant digits are all that fits.
+func humanSize(n int64) string {
+	switch {
+	case n < 1024:
+		return strconv.FormatInt(n, 10) + "B"
+	case n < 1024*1024:
+		return strconv.FormatFloat(float64(n)/1024, 'f', 1, 64) + "KB"
+	case n < 1024*1024*1024:
+		return strconv.FormatFloat(float64(n)/(1024*1024), 'f', 1, 64) + "MB"
+	default:
+		return strconv.FormatFloat(float64(n)/(1024*1024*1024), 'f', 2, 64) + "GB"
+	}
+}
+
 func clampText(s string) string {
 	rs := []rune(strings.TrimSpace(s))
 	if len(rs) <= maxTextRunes {

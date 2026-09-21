@@ -27,13 +27,39 @@ type Repo interface {
 	ExpiredXfers(now int64) ([]jobstore.XferRecord, error)
 }
 
-// EventSink is the audit seam onto the append-only event log, satisfied by
-// *jobstore.Store. A transfer is not a job, so its events are recorded under the
-// synthetic job id `xfer:<id>`: the durable log, the SSE/poll cursor and the
-// audit trail are shared with job events, while the id keeps them out of every
-// real job's stream.
+// EventSink records one transfer audit event. A transfer is not a job, so its events
+// are recorded under the synthetic scope id `xfer:<id>` (EventJobID): the durable log,
+// the SSE/poll cursor and the audit trail are shared with job events, while the id
+// keeps them out of every real job's stream.
+//
+// The production sink is *job.Service (RecordScopedEvent): it persists the event AND
+// runs it through the notification pipeline (E14 webhook enqueue), so an operator can
+// subscribe to xfer.put|xfer.get like any other event. StoreSink is the bare
+// audit-only sink for a deployment or test with no job service wired.
 type EventSink interface {
-	InsertJobEvent(jobstore.JobEvent) (int64, error)
+	RecordScopedEvent(scope, eventType, projectKey string, detail map[string]any)
+}
+
+// StoreSink adapts the metadata store into an audit-only EventSink: the event lands in
+// the shared log and nothing is notified. It is what a transfer manager built without
+// a job service (a focused test, a standalone tool) gets.
+func StoreSink(st *jobstore.Store) EventSink { return storeSink{st: st} }
+
+type storeSink struct{ st *jobstore.Store }
+
+// RecordScopedEvent implements EventSink by inserting the event directly. It is
+// best-effort like the full pipeline: an audit write must never fail a transfer.
+func (s storeSink) RecordScopedEvent(scope, eventType, projectKey string, detail map[string]any) {
+	b, err := json.Marshal(detail)
+	if err != nil {
+		return
+	}
+	if _, err := s.st.InsertJobEvent(jobstore.JobEvent{
+		JobID: scope, Type: eventType, Detail: string(b), At: time.Now().Unix(),
+	}); err != nil {
+		slog.Warn("xfer.event_failed", "event", "xfer.event_failed", "component", "server",
+			"scope", scope, "err", err)
+	}
 }
 
 // EventJobID is the synthetic event-log owner id of one transfer.
@@ -308,13 +334,15 @@ func (m *Manager) Expire(now time.Time) (int, error) {
 	return len(rows), nil
 }
 
-// recordEvent appends one transfer audit event (best-effort: an audit failure
-// must never fail the transfer).
+// recordEvent hands one transfer event to the sink (best-effort: an audit failure
+// must never fail the transfer). The sink owns persistence AND notification — the
+// event's project travels with it, because the scope id names a transfer rather than
+// a job and so cannot be resolved back to a project from the job store.
 func (m *Manager) recordEvent(rec jobstore.XferRecord, eventType string) {
 	if m.events == nil {
 		return
 	}
-	detail := map[string]any{
+	m.events.RecordScopedEvent(EventJobID(rec.ID), eventType, rec.ProjectKey, map[string]any{
 		"xfer_id": rec.ID,
 		"op":      rec.Op,
 		"runner":  rec.Runner,
@@ -323,17 +351,5 @@ func (m *Manager) recordEvent(rec jobstore.XferRecord, eventType string) {
 		"size":    rec.Size,
 		"sha256":  rec.SHA256,
 		"by":      rec.CallerID,
-	}
-	b, err := json.Marshal(detail)
-	if err != nil {
-		return
-	}
-	if _, err := m.events.InsertJobEvent(jobstore.JobEvent{
-		JobID:  EventJobID(rec.ID),
-		Type:   eventType,
-		Detail: string(b),
-		At:     m.nowFn().Unix(),
-	}); err != nil {
-		slog.Warn("xfer.event_failed", "event", "xfer.event_failed", "component", "server", "xfer_id", rec.ID, "err", err)
-	}
+	})
 }

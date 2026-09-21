@@ -30,7 +30,12 @@ func buildXferManager(c *Core, cfg *config.Config, hub *wshub.Hub, st *jobstore.
 		Root:   xferRoot(cfg),
 		Limits: xferLimits(cfg.Server.Xfer),
 		Repo:   st,
-		Events: st,
+		// The job service is the event sink (XFER-01 X2): a transfer's xfer.put|xfer.get
+		// lands in the shared event log AND runs through the notification pipeline the
+		// job events do (webhook enqueue by the transfer's project) — a transfer is not
+		// a job, but it is the same audit/notify surface. The store alone cannot do the
+		// second half, which is why the assembly hands over the service.
+		Events: c.Jobs,
 	})
 	if err != nil {
 		return nil, err
