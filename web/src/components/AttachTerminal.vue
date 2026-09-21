@@ -5,6 +5,7 @@ import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
 import { requestAttachTicket } from '../api/client'
 import { buildAttachWsUrl, encodeInput, parseServerFrame } from '../api/attach'
+import { FIT_DEBOUNCE_MS, resizeFramePayload, sizeAction } from '../utils/terminalSize'
 
 type AttachMode = 'write' | 'read'
 type ConnectionState =
@@ -61,6 +62,14 @@ let firstConnectAt = Date.now()
 let resizeTimer: number | null = null
 let reconnectTimer: number | null = null
 let attachMode: AttachMode = props.mode
+// 容器尺寸观察（h-aii-rx9a）：窗口 resize 只在这里被合并成一次 fit，不再直接驱动。
+let sizeObserver: ResizeObserver | null = null
+// 已发往 serve 的写者网格（判等用：重复尺寸不发帧，见 utils/terminalSize）。
+let sentCols = 0
+let sentRows = 0
+// 是否已经 attach 过一次：重连前先 term.reset()，避免第二次收到 ring 回放时把整段
+// 历史叠加在旧画面上（h-aii-rx9a：表现为重复刷屏）。
+let attachedOnce = false
 
 interface KeyAction {
   label: string
@@ -161,6 +170,10 @@ function buildTerminal(): Terminal {
     convertEol: false,
     cursorBlink: true,
     disableStdin: true,
+    // 平滑滚动关掉（h-aii-rx9a）：TUI 整屏重绘时平滑滚动会把重绘渲染成滚动动画，
+    // 视觉上就是"闪"。同步输出（CSI ?2026h/l）由 xterm 6 原生处理（已核对
+    // node_modules/@xterm/xterm 的 DECSET 2026 实现），无需额外开关。
+    smoothScrollDuration: 0,
     fontFamily: token('--font-mono', 'monospace'),
     fontSize: 13,
     theme: {
@@ -201,20 +214,32 @@ function setWriteGranted(granted: boolean): void {
 //  - 写者：本地 FitAddon 主导（fit → onResize → 发 r → serve 广播），font 恢复默认；
 //  - 只读端：**绝不 fit**（手机弹软键盘触发 window resize 会把本地 xterm 改小、与
 //    pty 脱钩），改为按容器宽度自适应字号后 resize 到服务端尺寸，放不下横向滚动。
+// h-aii-rx9a：收到 serve 尺寸后先判等（utils/terminalSize.sizeAction）——写者收到
+// 自己 resize 的回声、只读端已一致时都不做任何本地 resize，切断"回声 → fit →
+// 又发帧"的回路（每次 resize 都会让 TUI 整屏重绘）。
 function applyServerSize(): void {
   if (!term) {
-    return
-  }
-  if (writeGranted.value) {
-    if (term.options.fontSize !== BASE_FONT_SIZE) {
-      term.options.fontSize = BASE_FONT_SIZE
-    }
-    fit?.fit()
     return
   }
   const cols = serverCols.value
   const rows = serverRows.value
   if (!cols || !rows) {
+    return
+  }
+  const action = sizeAction({
+    write: writeGranted.value,
+    term: { cols: term.cols, rows: term.rows },
+    server: { cols, rows },
+    lastSent: sentCols ? { cols: sentCols, rows: sentRows } : null,
+  })
+  if (action === 'none') {
+    return
+  }
+  if (action === 'fit') {
+    if (term.options.fontSize !== BASE_FONT_SIZE) {
+      term.options.fontSize = BASE_FONT_SIZE
+    }
+    fit?.fit()
     return
   }
   const width = hostEl.value?.clientWidth ?? 0
@@ -225,9 +250,7 @@ function applyServerSize(): void {
       term.options.fontSize = size
     }
   }
-  if (term.cols !== cols || term.rows !== rows) {
-    term.resize(cols, rows)
-  }
+  term.resize(cols, rows)
 }
 
 function sendFrame(frame: object): void {
@@ -453,6 +476,14 @@ async function connect(): Promise<void> {
     return
   }
 
+  // 每次 attach，serve 都会回放 ring 快照（K6）。重连（同一次会话的第二个
+  // WebSocket）必须先 reset 再收，否则整段历史会叠加在旧画面上——用户看到的就是
+  // 大片重复刷屏（h-aii-rx9a）。
+  if (attachedOnce && term) {
+    term.reset()
+  }
+  attachedOnce = true
+
   const socket = new WebSocket(buildAttachWsUrl(props.jobId, ticket))
   socket.binaryType = 'arraybuffer'
   ws = socket
@@ -551,7 +582,10 @@ async function reconnect(mode: AttachMode = attachMode): Promise<void> {
   reconnectAttempts.value = 0
   firstConnectAt = Date.now()
   showManualReconnect.value = false
-  term?.clear()
+  if (term) {
+    // 画面交给 connect() 的重连 reset（attach 回放前清屏），这里只结束当前会话。
+    term.options.disableStdin = true
+  }
   try {
     await connect()
   } catch (e) {
@@ -561,7 +595,11 @@ async function reconnect(mode: AttachMode = attachMode): Promise<void> {
   }
 }
 
-function onWindowResize(): void {
+// 容器尺寸变化（含窗口 resize、发送框折叠、布局切换）合并成一次尺寸同步：
+// h-aii-rx9a 之前是 window resize 直接触发，且 fit() 与 echo 形成回路；现在由
+// ResizeObserver(border-box) 驱动 150ms 去抖 —— border-box 不含滚动条，
+// 终端自己的滚动条不会反过来触发它。
+function onViewportResize(): void {
   if (resizeTimer != null) {
     window.clearTimeout(resizeTimer)
   }
@@ -569,7 +607,7 @@ function onWindowResize(): void {
     resizeTimer = null
     // 只有写者的视口变化才允许改本地布局并传导给 pty；只读端跟随服务端尺寸。
     applyServerSize()
-  }, 120)
+  }, FIT_DEBOUNCE_MS)
 }
 
 onMounted(async () => {
@@ -586,9 +624,22 @@ onMounted(async () => {
     sendInput(s)
   })
   term.onResize(({ cols, rows }) => {
+    // 判等：尺寸没变就不发 r 帧（服务端同样会吞掉重复尺寸，见 ptyrelay.Resize）。
+    const payload = resizeFramePayload(
+      sentCols ? { cols: sentCols, rows: sentRows } : null,
+      { cols, rows },
+    )
+    if (!payload) {
+      return
+    }
+    sentCols = cols
+    sentRows = rows
     sendFrame({ t: 'r', cols, rows })
   })
-  window.addEventListener('resize', onWindowResize)
+  if (hostEl.value && typeof ResizeObserver !== 'undefined') {
+    sizeObserver = new ResizeObserver(onViewportResize)
+    sizeObserver.observe(hostEl.value, { box: 'border-box' })
+  }
   document.addEventListener('keydown', onDocumentKeydown, true)
   document.addEventListener('pointerdown', onDocumentPointerDown, true)
   document.addEventListener('paste', onDocumentPaste, true)
@@ -605,7 +656,8 @@ onMounted(async () => {
 onUnmounted(() => {
   userClosed = true
   closeSocket()
-  window.removeEventListener('resize', onWindowResize)
+  sizeObserver?.disconnect()
+  sizeObserver = null
   document.removeEventListener('keydown', onDocumentKeydown, true)
   document.removeEventListener('pointerdown', onDocumentPointerDown, true)
   document.removeEventListener('paste', onDocumentPaste, true)

@@ -148,8 +148,11 @@ func (s *Server) handleJobAttach(c *rux.Context) {
 		_ = writeControl(map[string]any{"t": "r", "cols": cols, "rows": rows})
 	})
 
-	if scroll := relay.Scrollback(); len(scroll) > 0 {
-		if err := writeBinary(scroll); err != nil {
+	// Pre-attach scrollback (K6), captured when the viewer was registered: writing
+	// the relay's ring here instead would re-send every byte the recorder appended
+	// between registration and the snapshot (h-aii-rx9a).
+	if replay := viewer.Replay(); len(replay) > 0 {
+		if err := writeBinary(replay); err != nil {
 			return
 		}
 	}

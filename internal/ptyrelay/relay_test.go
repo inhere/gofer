@@ -115,7 +115,7 @@ func TestPreAttachScrollback(t *testing.T) {
 	}
 	defer v.Close()
 
-	scroll := r.Scrollback()
+	scroll := v.Replay()
 	if !bytes.Contains(scroll, pre) {
 		t.Fatalf("scrollback missing pre-attach output: got %q", scroll)
 	}

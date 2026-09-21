@@ -45,12 +45,17 @@ func TestRingReplayedOncePerViewer(t *testing.T) {
 	if !bytes.Contains(replay, hist) {
 		t.Fatalf("replay missing pre-attach history: got %q", replay)
 	}
+	// The in-flight chunk was recorded AFTER registration, so it belongs to the
+	// viewer's stream alone; replaying it too is the h-aii-rx9a duplication.
+	if bytes.Contains(replay, inflight) {
+		t.Fatalf("replay contains output recorded after registration: %q", replay)
+	}
 
 	live := []byte("LIVE-AFTER-ATTACH-0003:")
 	src.Emit(live)
-	got := readViewer(t, v, len(live), time.Second)
-	if !bytes.Contains(got, live) {
-		t.Fatalf("viewer missing live output: got %q", got)
+	got := readViewer(t, v, len(inflight)+len(live), time.Second)
+	if !bytes.Contains(got, inflight) || !bytes.Contains(got, live) {
+		t.Fatalf("viewer missing streamed output: got %q", got)
 	}
 
 	delivered := append(append([]byte{}, replay...), got...)
@@ -104,7 +109,7 @@ func TestReconnectDoesNotDuplicateRing(t *testing.T) {
 	replay2 := v2.Replay()
 	for _, marker := range [][]byte{first, watched, unwatched} {
 		if n := bytes.Count(replay2, marker); n != 1 {
-			t.Fatalf("replay after reattach contains %q %d times, want exactly 1: %q", marker, n)
+			t.Fatalf("replay after reattach contains %q %d times, want exactly 1", marker, n)
 		}
 	}
 	if len(replay2) != r.RecordedLen() {

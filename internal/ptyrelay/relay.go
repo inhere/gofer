@@ -199,10 +199,6 @@ func (r *Relay) fanout(chunk []byte) {
 	}
 }
 
-// Scrollback returns a copy of the ring's currently retained bytes (the
-// pre-attach tail a first viewer replays, K6).
-func (r *Relay) Scrollback() []byte { return r.ring.Snapshot() }
-
 // RecordedLen reports how many bytes the recorder has taken from the source (for
 // tests to observe main-path progress deterministically).
 func (r *Relay) RecordedLen() int { return r.ring.WrittenTotal() }
@@ -237,6 +233,13 @@ func (r *Relay) AddViewerWithQueue(write bool, queue int) (*Viewer, error) {
 		relay: r,
 		write: write,
 		out:   make(chan []byte, queue),
+		// Snapshot the ring HERE, under the same lock that publishes the viewer
+		// (h-aii-rx9a): chunks the recorder appends after this point are fanned out
+		// to the viewer's queue, so a caller that later snapshots the ring itself
+		// would hand the viewer those same bytes twice. Lock order is
+		// relay.mu → ring.mu; the recorder never holds both (ring.Write, then
+		// fanout), so this cannot deadlock.
+		replay: r.ring.Snapshot(),
 	}
 	if write {
 		r.leaseHolder = v.id
@@ -289,9 +292,18 @@ func (r *Relay) Size() (cols, rows int) {
 func (r *Relay) Resize(cols, rows int) error {
 	r.mu.Lock()
 	closed := r.closed
+	unchanged := cols > 0 && rows > 0 && r.cols == cols && r.rows == rows
 	r.mu.Unlock()
 	if closed {
 		return ErrClosed
+	}
+	// A repeat of the current size is a no-op (h-aii-rx9a hypothesis a): every
+	// forwarded resize is a pty/ConPTY resize, which makes a full-screen TUI
+	// repaint the whole screen (measured on omp: ~11 KB and 135 line clears per
+	// resize). Swallowing it also drops the echo that would make the sender re-fit
+	// on its own frame.
+	if unchanged {
+		return nil
 	}
 	if err := r.src.Resize(cols, rows); err != nil {
 		return err
@@ -401,6 +413,11 @@ type Viewer struct {
 	relay *Relay
 	write bool
 	out   chan []byte
+	// replay is the pre-attach scrollback captured under the SAME lock that
+	// registered this viewer (h-aii-rx9a): a chunk recorded after registration is
+	// then delivered exactly once, on out, instead of also appearing in a later
+	// ring snapshot. See Replay.
+	replay []byte
 
 	mu       sync.Mutex
 	lagged   bool
@@ -408,9 +425,18 @@ type Viewer struct {
 	sizeFn   func(cols, rows int) // optional size-change listener (tools-3xy)
 }
 
-// Out is the viewer's bounded output stream. It is closed when the viewer is
-// removed or the relay closes.
+// Out is the viewer's bounded output stream (LIVE output only — the pre-attach
+// scrollback is a separate, non-droppable buffer: see Replay). It is closed when
+// the viewer is removed or the relay closes.
 func (v *Viewer) Out() <-chan []byte { return v.out }
+
+// Replay returns the pre-attach scrollback this viewer must render before its
+// Out() stream (K6): the ring's tail as of the moment the viewer was registered.
+// The transport writes it once, then pumps Out(); because the snapshot and the
+// registration share one lock, no byte can be both replayed and streamed — the
+// duplication that made an attached TUI redraw the lines it was already showing
+// (h-aii-rx9a).
+func (v *Viewer) Replay() []byte { return v.replay }
 
 // SendInput forwards raw stdin bytes to the source. Only the write-lease holder
 // may write; a read-only follower is refused (K3).
