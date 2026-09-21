@@ -484,7 +484,7 @@ func doctorConnectRow(wc *config.WorkerConfig, cfg *config.Config, detected map[
 		ack, err := worker.Probe(ctx, raw, resolveWorkerToken(wc.ServerLink), reg)
 		cancel()
 		if err != nil {
-			failures = append(failures, fmt.Sprintf("%s: %v", raw, err))
+			failures = append(failures, fmt.Sprintf("%s: %v%s", raw, err, dialFailureHint(err)))
 			continue
 		}
 		if !ack.Accepted {
@@ -499,6 +499,17 @@ func doctorConnectRow(wc *config.WorkerConfig, cfg *config.Config, detected map[
 	row.Status = doctorFail
 	row.Detail = "所有 hub 地址都试连失败: " + strings.Join(failures, "; ")
 	return row
+}
+
+// dialFailureHint turns the one transport failure an operator cannot read off the
+// error alone into something actionable: the hub rejects an unknown bearer token at
+// the UPGRADE, so the websocket error only carries the status code (no body) and
+// looks like a generic handshake failure.
+func dialFailureHint(err error) string {
+	if err != nil && strings.Contains(err.Error(), "401") {
+		return "（401：token 被 hub 拒绝 — 核对 server_link.token_env 解析出的值与 server.workers.<worker_id>.token 是否一致）"
+	}
+	return ""
 }
 
 // localWorkerPID reports the pid of a running `gofer worker -d` for this

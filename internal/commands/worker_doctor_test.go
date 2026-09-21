@@ -80,6 +80,20 @@ func doctorHubServer(t *testing.T, bindings map[string]string, callerID string, 
 	return "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/workers/connect"
 }
 
+// doctorHubServerRejectingAuth stands up an httptest server whose worker-connect
+// route answers 401 — what the hub does when the bearer token is unknown, before
+// any websocket upgrade happens.
+func doctorHubServerRejectingAuth(t *testing.T) string {
+	t.Helper()
+	r := rux.New()
+	r.GET("/v1/workers/connect", func(c *rux.Context) {
+		c.Resp.WriteHeader(http.StatusUnauthorized)
+	})
+	srv := httptest.NewServer(r)
+	t.Cleanup(srv.Close)
+	return "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/workers/connect"
+}
+
 // TestWorkerDoctorReportsMissingConfig: an unreadable worker.yaml is the FIRST
 // check and the only FAIL — the doctor must say which file it could not read and
 // exit non-zero instead of panicking on a nil config.
@@ -245,6 +259,36 @@ roots:
 		}
 		if !strings.Contains(row.Detail, "worker_id not bound to this token") {
 			t.Fatalf("connect row must carry the server's reason verbatim, got %q", row.Detail)
+		}
+	})
+
+	t.Run("auth_rejected", func(t *testing.T) {
+		dir := t.TempDir()
+		t.Setenv(config.EnvConfigDir, dir)
+		t.Setenv("GOFER_WORKER_TOKEN", "wrong-token")
+		// The hub answers 401 at the websocket UPGRADE when the bearer token is
+		// unknown, so the doctor must turn the bare status code into the token hint.
+		wsURL := doctorHubServerRejectingAuth(t)
+		path := writeWorkerDoctorConfig(t, dir, fmt.Sprintf(`worker_id: w-doctor
+server_link:
+  urls: [%s]
+  token_env: GOFER_WORKER_TOKEN
+roots:
+  - from: D:/work/demo
+    to: %s
+`, wsURL, slashPath(t.TempDir())))
+		cmd := doctorCmdAndOpts(t, path)
+
+		rep, err := runWorkerDoctor(cmd, buildinfo.Info{})
+		if err == nil {
+			t.Fatal("a 401 must exit non-zero")
+		}
+		row := doctorRow(t, rep, "connect")
+		if row.Status != doctorFail {
+			t.Fatalf("connect row = %+v, want FAIL", row)
+		}
+		if !strings.Contains(row.Detail, "401") || !strings.Contains(row.Detail, "token") {
+			t.Fatalf("a 401 must be explained as a token mismatch, got %q", row.Detail)
 		}
 	})
 }
