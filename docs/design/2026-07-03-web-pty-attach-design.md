@@ -14,6 +14,7 @@
 | **v0.6** | 2026-07-03 | Claude | **codex 二轮后大改**（5 新阻断 + 5 新高）：① 执行模型**不再旁路 Submit**，改 runner 层 `PtyRunner` + `PtySession` 注册表（复用 Submit 全部 admission/SafeJoin/env/session/result-dir，解阻断1）；② 浏览器 attach 改**短 TTL 一次性 attach ticket**（浏览器 WS 不能设 Authorization header，解阻断2）；③ pty ws **eager 起即拨**（serve 从首字节录制 + ring buffer，解阻断3 懒建矛盾）；④ dispatch 帧带 **relay nonce**（绑 worker_id+instance_id+job_id+session_id+expiry，pty ws 端点原子消费，解阻断4）；⑤ interactive **独立取消协议**（host `cancelling`→等 worker ack/grace→finish，解阻断5）；⑥ serve 侧 **relay 状态机 + 统一 CAS 关闭**；⑦ 背压**拆两层**（recorder 主链路 / viewer fan-out）；⑧ pty metadata **一等表** + retention 顺序；⑨ capability **入调度**（Submit 预解析 worker 校验）；⑩ framing 精确（binary bytes / text JSON control）。 |
 | **v0.7** | 2026-07-03 | Claude | **pty 后端跨平台化**（用户输入）：`internal/pty` 抽平台无关接口，unix=`creack/pty` **升 v1.1.24（最新）**，windows=**vendored `UserExistsError/conpty` 单文件**（`conpty.go` ~350L，MIT，仅依赖 `golang.org/x/sys/windows`（已有）+ stdlib，API 全备：`IsConPtyAvailable`/`Start(cmdline,opts)`/`Resize`/`Wait(ctx)→exit`/`io.ReadWriteCloser`/`Pid`）→ **解除 v0.6「Windows serve 只能纯中继」限制**：`localPtySource` 变**跨平台 drop-in**（unix+windows），pty capability 不再 OS-gated（=构建含 pty 后端即可）。V1 仍 worker-first、serve-local 仍 drop-in（现跨平台）。注意 windows 侧 `conpty.Start` 收 commandLine 字符串（vs creack 收 `*exec.Cmd`）→ 接口内做 (command,args)→安全引用 的平台适配。 |
 | **v0.8** | 2026-07-04 | Claude | **P0 spike 完成（commit `7226251`，容器 Linux，3 证明点全成立，`build/vet/test`+`-race`+`GOOS=windows build` 全绿）**，回填 6 发现：① **验证**：`PtySession`↔`jobEntry`/`finish` 解耦干净（session 注册表在 `PtyRunner` 内、`jobEntry` 不持 pty 句柄、`finish` 只经 `run.Run` 返回值观察终态、`job` 不 import 任何 pty 包）；cancel 有序 teardown 可落地（Run 阻塞穿过 wait-child 才返回，证伪「发信号即返回」）；ring/两层背压/lease 成立；conpty vendored 无编译坑。② **P1 必补**（spike gap）：`runner.Request` **加 `Interactive/Cols/Rows`**（现无该字段→初始尺寸硬编码 80×24 送不到 PtyRunner）。③ `Pty` 接口若要**分级 kill**（SIGHUP 宽限→SIGKILL）需补显式 `Signal/Kill`（当前 unix `Close()` 是 ptmx.Close+Process.Kill 原子一步）。④ `Pty.Wait(ctx)` 的 ctx 在 unix 侧近 vestigial（靠 Close→kill 让 cmd.Wait 返回），P1 复用需收窄/注意。⑤ viewer 队列深度应 **per-viewer 可配**（写租户深/只读跟随浅），非全局单值（spike 加了 `AddViewerWithQueue` 佐证）。⑥ 跨进程「host cancelling→等 worker ack/grace」仍需 P1 在 worker↔serve 帧层落地（进程内有序 close+bounded grace 已证）。 |
+| **v0.9** | 2026-09-21 | omp | **P4 后修复批**：h-aii-vwux（终端只在 xterm 宿主有焦点时接管粘贴/快捷键）+ h-aii-rx9a（attach 回放原子化、尺寸两处判等、fit 改 ResizeObserver 去抖 150ms）。取证 = 临时 pty 原始字节；详见文末节。 |
 
 ## 1. 概览
 
@@ -202,3 +203,32 @@ Web 里对交互式 REPL/CLI agent（claude/codex 交互模式）开真终端：
 **e2e 矩阵**（P4）：cancel 时 child/ptmx 退出、worker disconnect、browser disconnect/reconnect(5min)、slow browser、chatty pty 不饿死 quiet、resize fuzz、五闸各拒绝路径、ticket 过期/重放、nonce 重放、录制下载 gate、cast 加密/无 key fail-fast。
 
 > plan 前 knob 全拍板（§4 K1-K6 + D1-D4）；§12 为 plan 内细化，不阻断。
+
+## 2026-09-21 焦点与闪烁修复（h-aii-vwux / h-aii-rx9a）
+
+P4 之后 web 终端的两处实测缺陷修复；两条都在容器/主机上用**原始字节取证**定位，不靠猜测。代码：`web/src/components/AttachTerminal.vue` + `web/src/utils/terminal{Focus,Size}.ts`、`internal/ptyrelay`（`Viewer.Replay`）、`internal/httpapi/attach_handler.go`。
+
+### 1. 焦点归属（h-aii-vwux：粘贴只进终端）
+
+- **根因**：document 级 `pointerdown` 用**组件根**（含下方发送框 `<textarea>`）判定"终端活跃"，且在"根内但不是 xterm 宿主"时**把焦点交给终端**。于是点发送框 → `terminalActive=true` 且焦点在 xterm → 捕获阶段的 `paste` 一律 `preventDefault` 写进 pty。
+- **修法**：抽纯函数 `terminalOwnsEvent(target, activeElement, host, terminalActive)`（`web/src/utils/terminalFocus.ts`）——只有事件目标或当前焦点在 **xterm 宿主 `hostEl`** 内才归终端；宿主之外的输入控件（INPUT/TEXTAREA/contenteditable，含组件自己的发送框）一律让位。xterm 自己的隐藏 textarea 在宿主内，故"宿主判定"先于"输入框让位判定"。`pointerdown` 改为 `terminalActive = hostEl.contains(target)`；点宿主外一律 `term.blur()`；发送框 `focus` 时也 `blur()` 终端。Ctrl+C/V、Esc 走同一判定。
+- 手测用例见该文件头注释（终端内粘贴 / 发送框粘贴 / 页面其它输入框粘贴 / 终端 Ctrl+V 按钮 / 只读端）。
+
+### 2. 闪烁与重复刷（h-aii-rx9a）
+
+取证（临时 80×24 pty 抓原始字节；`tmp/` 下一次性探针，未入库）：
+
+| 观察 | 数据 | 结论 |
+|---|---|---|
+| omp TUI 空闲是否自重绘 | 10s 抓取 46 KB，末 7s **0 字节**；无 `?1049h`，主缓冲 + 逐行 `ESC[K` | (c) 不成立：omp 不空闲自刷 |
+| 一次 resize 的代价 | `Resize(100,30)` 后 3s 内 **11.8 KB / 135 次行清除**（`2J`+`K`） | 每次真 resize = TUI **整屏重绘** |
+| 重复尺寸是否下传 | `relay.Resize(100,30)` ×3 → `source.Resize` 调用 **3** 次 | (a) 成立：重复尺寸也触发 ConPTY 重绘 |
+| attach 时 ring 回放 | 注册 viewer **后**才取 ring 快照：交付 1122 B ≠ 录制 816 B，**超发 306 B**（在途 3 个 chunk 各出现 2 次） | (b) 成立：attach 窗口内的字节被**回放 + 流式**双份 |
+
+修法：
+
+- **(b) ring 回放原子化**：`Viewer.Replay()` 在**注册 viewer 的同一把锁内**取 ring 快照（`Relay.Scrollback()` 删除，避免旧调用顺序回归）；`attach_handler` 写 `viewer.Replay()` 而非重新快照。修后同一探针 **超发 0 B**。前端重连先 `term.reset()` 再收，避免第二次回放叠加在旧画面上。
+- **(a) 尺寸判等两处收口**：`ptyrelay.Resize` 对"与当前尺寸相同"的帧直接返回（不下传、不广播）；前端 `utils/terminalSize.ts` 的 `resizeFramePayload`（本地网格没变不发 `r` 帧）与 `sizeAction`（写者收到自己 resize 的回声、只读端已一致 → 不做任何本地 `fit/resize`，切断"回声→fit→再发帧"回路）。`fit()` 改由 `ResizeObserver(hostEl, {box:'border-box'})` 驱动并去抖 **150ms**（border-box 不含滚动条，终端自身滚动条不会反过来触发它）；原先的 `window.resize` 直接触发已移除。
+- **(c) 前端侧缓解**：`smoothScrollDuration=0`（关掉把重绘渲染成滚动动画的观感）；同步输出 `CSI ?2026h/l` 由 **xterm 6.0.0 原生处理**（已在 `node_modules/@xterm/xterm` 的 DECSET 2026 实现核对，无需升级）。**gofer 无法消除的部分**：应用在真实 resize/输入后自己做的整屏重绘，以及 ConPTY 自身的 prologue（`?9001h`/`?1004h`/逐行 `ESC[K`）。
+- 回归测试：`internal/ptyrelay` 的 `TestRingReplayedOncePerViewer`、`TestReconnectDoesNotDuplicateRing`、`TestResizeUnchangedIsNotForwarded`（测试先行提交 `2271643`，实现在 `c97e0a0`）。
+- **待真机**：浏览器实测（本机 `web/node_modules` 是 Linux 安装，vite dev server 起不来；只过了 `vue-tsc --noEmit` + node 断言）——按 §1 的 5 条手测用例 + 观察 attach/重连不再重复刷屏、拖动窗口不再整屏闪烁。
