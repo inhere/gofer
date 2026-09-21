@@ -125,6 +125,82 @@ v0.48.1 之后"派活 → verify → 验收"的每一步都有了，但**链条�
 - **`plan.blocked` 的 IM 渲染**：plan 作用域事件没有 job，`buildDeliveryBody` 里 job 摘要会退化成一个假 job；因此新增 `notify.PlanMessage`，IM 渠道对 `plan.*` 事件渲染「todo · job · reason」并把链接指到 `/plans/{id}`（scope `plan:<id>` 解析出 id）。
 - **webhook 限速**：10s/计划的窗口是**进程内** map（`Server.scheduleTriggerAt`），重启只丢窗口、不会漏跑；限速在 token 校验**之后**判定，无凭据的探测拿 401 而不是 429。
 
+## Q3 实测记录（2026-09-22 实施）
+
+- **分层**：规则在 `web/src/utils/planBoard.ts`（**不 import 任何模块**，故 node 可直接跑），组件 `web/src/components/PlanBoard.vue` 只表达「拖拽意图」（`emit('move'|'drag-active')`），PATCH、乐观更新与回滚留在 `web/src/views/PlanDetail.vue`（它持有 plan 详情这一份数据）。看板与列表**同一份 `plan.todos`、同一轮询**（2.5s），切换只换渲染；拖拽或写入进行中 `fetchPlan` 直接跳过写回（重渲染会打断拖拽、也会把乐观更新打回旧值）。
+- **拖拽规则表**（`allowedMove(from, to, todo)`；`doing`/`needs_review` 恒不可拖入，`done` 列不可拖出）：
+
+| from \ to | pending | ready | doing | needs_review | done | skipped |
+|---|---|---|---|---|---|---|
+| pending | — | ✅ 派发（无 assignee 先选 agent） | ❌ | ❌ | ✅ 确认 | ✅ 确认 |
+| ready | ✅ 撤回（要求无活跃 job） | — | ❌ | ❌ | ✅ 确认 | ✅ 确认 |
+| doing | ❌ | ❌ | — | ❌ | ✅ 确认 | ✅ 确认 |
+| needs_review | ❌ | ❌ | ❌ | — | ✅ 确认 | ✅ 确认 |
+| done | ❌ | ❌ | ❌ | ❌ | — | ❌ |
+
+  `done` 与 `skipped` 是**两个落点**（done 列在拖拽时出现两个虚线块），因为它们对应两次不同的 PATCH；`doing`/`needs_review` 与规则不允许的目标列在拖动时压暗（`.col--disabled`）。
+- **卡片字段来源（无 Go 改动的兜底）**：`todo.jobs`（`todoJobView`）只有 id/status/agent/时间，故卡片的用量与 verify 徽标按「最近一次 job id」到 `plan.jobs`（完整 `Job`）里查一次；依赖是否满足在**前端**算（`after` 每项 done/skipped；指向本 plan 里不存在的 id 按未满足）。这一层没有缺字段，**未改 Go**。
+- **omitempty 的坑（实测踩到）**：`paused`/`blocked_todo` 是 omitempty，`{...plan, ...planView}` 直接合并会在「解除挂起 / 解除阻塞」后留着旧值（横幅不消失）；`onPlanAction` 显式补 `paused: head.paused ?? false` / `blocked_todo: head.blocked_todo ?? ''`。`Todo.auto` 无 omitempty（恒发），但老服务端不发时按服务端默认 `auto=1` 处理——故「手动」标签判 `auto === false` 而不是 falsy。
+- **纯逻辑断言**（`node` 直跑 `web/src/utils/planBoard.ts`；脚本临时、已删）：
+
+```
+--- columnOf（6 例）---
+PASS pending → pending: "pending"
+PASS ready → ready: "ready"
+PASS doing（最近 job running）→ doing: "doing"
+PASS doing + 最近 job needs_review → needs_review: "needs_review"
+PASS skipped → done: "done"
+PASS done → done: "done"
+--- allowedMove（8 例）---
+PASS pending → ready 允许: true
+PASS pending → doing 拒绝（doing 不可拖入）: false
+PASS ready → pending 允许（无活跃 job）: true
+PASS ready → pending 拒绝（有活跃 job）: false
+PASS doing → done 允许: true
+PASS needs_review → skipped 允许: true
+PASS done → ready 拒绝（done 列不可拖出）: false
+PASS pending → needs_review 拒绝（needs_review 不可拖入）: false
+--- 进度（2 例）---
+PASS done+skipped / total = 2/4 → 50%: {"done":2,"total":4,"percent":50}
+PASS 空 plan → percent null: {"done":0,"total":0,"percent":null}
+--- 附：列/落点/列内次序/依赖 ---
+PASS 列顺序: ["pending","ready","doing","needs_review","done"]
+PASS doing 列无落点: []
+PASS needs_review 列无落点: []
+PASS done 列两个落点: ["done","skipped"]
+PASS pending 列落点 = 自身: ["pending"]
+PASS done 列内 skipped 排到列尾: ["b","a"]
+PASS 依赖全 done → 满足: true
+PASS 依赖 doing → 未满足: false
+PASS 根节点（无 after）→ 满足: true
+PASS 依赖 id 不存在 → 未满足: false
+
+OK 26 assertions
+```
+
+- **组件冒烟**（主机 `web/node_modules` 是 Linux 安装：rollup/esbuild 原生二进制是 linux-x64，`vite dev|build` 起不来——与 §验证一致。故用 `vue/compiler-sfc` + `vue/server-renderer` 把 `PlanBoard.vue` 编成 ESM 后 **SSR 渲染桩数据**；脚本临时、已删）：
+
+```
+列头计数: pending=3 ready=1 doing=1 needs_review=1 done=2
+PASS 五列顺序与计数
+PASS needs_review 卡片带状态徽标
+PASS ready 卡片 assignee 徽标
+PASS 未指派灰标签
+PASS 依赖角标：未满足灰 / 满足绿
+PASS 手动标签（auto=false）
+PASS 派发失败红字
+PASS 去验收链接
+PASS 用量（tokens/$）
+PASS verify 徽标（failed/passed + 颜色类）
+PASS job 芯片（按钮 + 短 id）
+PASS done 列 skipped 在尾（skipped 卡片带 card--skipped）
+
+SMOKE OK (html 4867 bytes)
+```
+
+- **未做（由监督者在容器做）**：浏览器实测——拖拽手感、`≤940px` 横向滚动断点、弹层与 toast 的实际观感。主机侧证据到此为止：`vue-tsc --noEmit` exit 0（含模板类型检查）+ 上面的纯逻辑断言与 SSR 冒烟。
+- **接口核对**：`PATCH /v1/todos/{id}`、`POST /v1/plans/{id}/run|pause|resume`、`GET /v1/plans/{id}`（`paused`/`blocked_todo`/`todo.after|auto|cmd`/`jobs[]`）Q2 已齐，web 只补了三个薄封装（`planRun`/`planPause`/`planResume`）与类型（`Plan.paused|blocked_todo`、`Todo.after|auto|cmd`、`TodoPatch.after|auto|cmd`、`TodoJob.status: JobStatus`、`PlanStatus` 增 `blocked`）。
+
 ## 决策（已批准 2026-09-22）
 
 1. `plan.blocked` 进通知默认集（其余新事件不进）。
