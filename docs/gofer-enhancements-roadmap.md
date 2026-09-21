@@ -43,17 +43,17 @@
 | CFG-01/02/04/06 | CLI 补全 · 引导/校验 · 全局单 server + 项目瘦配置 · 节点易用性 | 0.2x | [config simplification](design/2026-06-22-config-simplification-design.md) |
 | CFG-07 | `GOFER_RUN_MODE=client`（只需 .env），`gofer init client` | 0.41 | skill `references/client-config.md` |
 | CFG-08 | `start.ps1 -Action upgrade`（Windows 服务原地升级） | 0.40 | [selfupdate runbook](runbook/2026-07-11-windows-server-selfupdate-runbook.md) |
-| G032 | 兼容策略：DEPRECATED 标记 + 到期删除（清单见 SUP-01「横切」） | 0.46 | `AGENTS.md` G032 |
+| XFER-01 | 文件传输：`gofer tool cp <本地> <runner>:<project>/<path>`（双向，HTTP 传本体、WS 传指令，协议 v9）、`tool xfer ls|show|rm`；`job run --upload/--collect`（起跑前放文件、结束后收回并入 artifacts）；xfer 事件进通知 | 0.47.2 | [design](design/2026-09-20-file-transfer-and-plan-dispatch-design.md) |
+| JOB-11 | 同目录串行：可写 agent job 独占 cwd（`waiting_dir`，祖先/后代互斥），exec/read-only 共享，`--exclusive-dir/--shared-dir`；`agents.<k>.max_concurrent` | 0.48 | 同上 §二 |
+| AUTO-05 | 输出停滞检测：`stall_timeout`（server/agent/job 三级，默认 900s，exec 关）→ 按 transient 续投/转移 | 0.48 | 同上 §三 |
+| PLAN-02 | todo 指派即派发：plan `project_key`，todo `assignee/template/vars/verify/review/runner/cwd`，状态 `ready` 自动 `job run`；`plan dispatch`；plan 级用量 | 0.48 | 同上 §四 |
+| JOB-09 | job wakeups：`job wakeup create <job> --kind at|every|cron|event …` → 到点/事件命中时续投（无 session 退化重跑+指令），coalesce、TTL；HTTP/MCP/web | 0.48 | 同上 §五 |
+| G032 | 兼容策略：DEPRECATED 标记 + 到期删除；v0.48 已删 6 处 v0.45 标记 | 0.46–0.48 | `AGENTS.md` G032 · SUP-01「横切」 |
 
 ## 二、待做 / 候选（下一批从这里选）
 
 | 编号 | 功能 | 价值 | 大小 | 状态 | 来源 / 细节 |
 |---|---|---|---|---|---|
-| **JOB-11** | **同 cwd 串行锁**：目标同一项目目录（非 worktree）的 job 排队（新状态 `waiting_dir`），避免两个 agent 踩同一 checkout；顺带 `agents.<k>.max_concurrent` | 高 | 小 | 📝 设计中 | [design](design/2026-09-20-file-transfer-and-plan-dispatch-design.md) · Multica `waiting_local_directory`，[refer](refer/reference-projects.md) |
-| **JOB-09** | **job wakeups**：agent（或人）在 job 上登记 事件订阅 / 定时器，job 结束后输入到达时自动 `job resume` 续投（等 verify、等人回复、每小时巡检），不占会话/hook | 高 | 中 | 📝 设计中 | [design](design/2026-09-20-file-transfer-and-plan-dispatch-design.md) · Multica wakeups；建立在 resume + schedules + 事件流上 |
-| **PLAN-02** | **todo 指派即派发**：todo 增 `assignee`(agent)/`template`/`verify`/`review`，状态到 `todo` 自动 `job run -t … --todo`；同一 todo 可多次 run / 换 agent；plan 级用量汇总 | 高 | 中 | 📝 设计中 | [design](design/2026-09-20-file-transfer-and-plan-dispatch-design.md) · Multica "assign an issue"；依赖 JOB-02/PLAN-01 |
-| **XFER-01** | **文件传输**：客户端 ↔ server ↔ worker 双向传文件（scp 式 `gofer tool cp ./x.bin w-hw-windows11:<project>/tmp/x.bin` / 反向拉回），worker 经既有 WS 收指令、经 HTTP + worker token 上传/下载；限项目根内（POLICY roots 映射）、大小上限、sha256、审计事件；`job run --upload local:dest` / `--collect <path>` 让 job 前置输入与产物随 job 传；`--runner local` 时直接落 server 主机 | 高 | 中 | 📝 设计中 | [design](design/2026-09-20-file-transfer-and-plan-dispatch-design.md)；用户 2026-09-20：现在靠 base64 塞进 job 日志传文件 |
-| **AUTO-05** | **输出停滞检测**：运行中 N 分钟无 stdout/stderr 增长 → 判 hung，kill 后按 transient 走续投/转移 | 中 | 小 | 📝 设计中 | [design](design/2026-09-20-file-transfer-and-plan-dispatch-design.md) · Multica "codex stalled output" |
 | JOB-10 | skills 绑定：项目/agent 级 skill 目录，派发时挂载（`.claude/skills` / AGENTS.md 引用）或注入，`gofer skill import <dir|zip|url>` | 中 | 中 | ⏳ | Multica skills；接 roles/模板 |
 | AUTO-02b | schedule 增 webhook 触发（`POST /v1/schedules/{id}/trigger` + 签名） | 中 | 小 | ⏳ | Multica autopilots |
 | MCP-05 | leader 路由：plan/job 评论 `@agent` 触发 job；leader 回合决定下一步/升级/转验收 | 中 | 中-大 | ⏳ | Multica squads；依赖 PLAN-02 + 评论触发 |
@@ -72,7 +72,7 @@
 
 ## 三、建议下一批
 
-**「文件传输 + 计划即派发」批（XFER-01 + JOB-11 + AUTO-05 + PLAN-02 + JOB-09）**：XFER-01 是当前最直接的痛点（worker 节点机上传/拿回文件现在靠 base64 走日志），先做；再把并发安全（同 cwd 串行、停滞检测）补上，再让 plan 的 todo 直接指派给 agent 自动派发、job 能登记 wakeup 等条件到达后续投——这四项合起来就是 Multica 的核心工作模型，且全部建立在已有的 plan/todo、模板、verify、resume、schedules 之上。JOB-10 skills 与 AUTO-02b 视余量并入。
+上一批（XFER-01 / JOB-11 / AUTO-05 / PLAN-02 / JOB-09）已于 v0.47.2–v0.48.1 落地。候选：JOB-10 skills 绑定、AUTO-02b schedule webhook、CFG-09 容器 worker（解锁 tmux 送话 / verify 真机 e2e）、MCP-05 leader 路由、真机验收（tool cp 跨机、todo 派发、wakeup 到点）。
 
 ## 四、维护约定
 
