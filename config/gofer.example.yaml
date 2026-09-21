@@ -45,9 +45,6 @@ server:
   #                         # 到期仍无人认领才 failed. 注意: 这是 server 侧开关, 改它需
   #                         # 重启 serve(SIGHUP 只换阈值类配置, 不重挂该窗口).
   #
-  # session_auto_relay_idle_sec: 300  # 【已迁移(R2)】改为顶层的 session.auto_relay_idle_sec;
-  #                         # 这里仍可读(别名), 但会 slog.Warn 一次提醒改写.
-  #
   # dir_lock: true         # JOB-11 同 cwd 串行锁. 默认 true: 可写 agent job(cli-agent/
   #                         # acp-agent, 非 --read-only、非交互) 独占它的工作目录, 同一目录
   #                         # (含祖先/子目录, 软链与 Windows 8.3 短名同一化)上的另一个独占 job
@@ -300,8 +297,8 @@ projects:
     # 本项目放行的 codex/claude 都有交互模式(见下 agents 段), 所以这里真的打开.
     # 这是项目侧【唯一】的交互闸: 曾有 interactive_allowed_agents 这份"按 agent 收窄"的名单,
     # 已移除(想只放行一部分 agent, 就定义一个不带 interactive_args 的 agent 变体即可).
-    # 兼容: 旧 yaml 里非空的 interactive_allowed_agents 且未写本开关时, 加载期会当作
-    # allow_interactive: true 并 warn 一次(写了本开关则忽略旧字段), 请把本开关显式写出来.
+    # 注意: 旧键已于 v0.48 彻底删除 —— 配置里再出现 interactive_allowed_agents 会直接
+    # 加载报错 (unknown project field interactive_allowed_agents; use allow_interactive).
     allow_interactive: true
     max_concurrent_jobs: 4
     # max_timeout_sec: 项目级 job 超时上限(秒), 覆盖 server.max_job_timeout_sec —— 是【覆盖】不是

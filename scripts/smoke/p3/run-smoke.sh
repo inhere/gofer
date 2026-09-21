@@ -118,25 +118,25 @@ projects:
   proj-a:
     host_path: $PROJ/x/proj-a
     allowed_agents: [exec, ttyfix]
-    interactive_allowed_agents: [ttyfix]
+    allow_interactive: true
     allowed_runners: [$WRUN]
     allow_exec: true
   proj-b:
     host_path: $PROJ/x/proj-b
     allowed_agents: [exec, ttyfix]
-    interactive_allowed_agents: [ttyfix]
+    allow_interactive: true
     allowed_runners: [$WRUN]
     allow_exec: true
   proj-c:
     host_path: $PROJ/x/proj-c
     allowed_agents: [exec, ttyfix]
-    interactive_allowed_agents: [ttyfix]
+    allow_interactive: true
     allowed_runners: [$WRUN]
     allow_exec: true
   proj-d:
     host_path: $PROJ/x/proj-d
     allowed_agents: [exec, ttyfix]
-    interactive_allowed_agents: [ttyfix]
+    allow_interactive: true
     allowed_runners: [$WRUN]
     allow_exec: true
   proj-v2:
@@ -176,7 +176,7 @@ extra_policy_base() { cat <<EOF
   proj-codex:
     host_path: $PROJ/x/proj-codex
     allowed_agents: [exec, tty-codex]
-    interactive_allowed_agents: [tty-codex]
+    allow_interactive: true
     allowed_runners: [$WRUN]
     allow_exec: true
   proj-mc:
@@ -219,7 +219,7 @@ projects:
     host_path: $PROJ/x/proj-a
     default_agent: exec
     allowed_agents: [exec, ttyfix]
-    interactive_allowed_agents: [ttyfix]
+    allow_interactive: true
     allowed_runners: [local]
     allow_exec: true
   proj-b:

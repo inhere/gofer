@@ -278,10 +278,9 @@ func (s *Server) SetXfer(m *xfer.Manager) { s.xfer = m }
 // (SESS-01 R2 + SUP-01 D): the keyboard idle threshold and the last-human-input
 // fallback threshold, the supervision gate and its look-back window, all in
 // seconds (see config.SessionConfig; 0 disables that criterion). serve calls it
-// with the whole config's effective values — the `session:` block with its legacy
-// server alias — while a Server built from a bare ServerConfig keeps New's
-// ServerConfig-visible default. No-op without a relay service (a server with no
-// job store).
+// with the whole config's effective values — the `session:` block — while a Server
+// built from a bare ServerConfig keeps New's shipped default. No-op without a relay
+// service (a server with no job store).
 func (s *Server) SetSessionRelayPolicy(idleSec, turnSec int, skipWhenSupervising bool, supervisingWindowSec int) {
 	if s.relay == nil {
 		return
@@ -342,12 +341,11 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 	}
 	if jobs != nil && jobs.Meta() != nil {
 		s.relay = sessionrelay.NewService(jobs.Meta())
-		// Session-relay auto-arm thresholds: a Server built from a bare
-		// ServerConfig can only see the LEGACY server.session_auto_relay_idle_sec
-		// alias (or the 5-minute default); serve, which holds the whole config,
-		// overrides both thresholds from the `session:` block through
+		// Session-relay auto-arm thresholds. A Server built from a bare ServerConfig
+		// has no `session:` block in hand, so it takes the shipped idle default;
+		// serve, which holds the whole config, overrides both thresholds through
 		// SetSessionRelayPolicy (R2).
-		s.relay.AutoArmIdleSec = serverCfg.EffectiveSessionAutoRelayIdleSec()
+		s.relay.AutoArmIdleSec = config.DefaultSessionAutoRelayIdleSec
 		// The supervision gate (SUP-01 D) has no ServerConfig-visible key — the
 		// `session:` block lives on the whole config — so a bare-ServerConfig
 		// server takes the documented defaults (skip ON, 2h window) and serve

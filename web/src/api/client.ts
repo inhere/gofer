@@ -469,8 +469,7 @@ export function getAgentSession(sid: string, turns = 50): Promise<SessionDetailR
   )
 }
 
-// 中继开关（POST /v1/sessions/{sid}/relay，body {relay}）：返回更新后的会话。
-// setSessionRelay 设置会话中继开关（R1 三态 auto|on|off；POST /v1/sessions/{sid}/relay）。
+// setSessionRelay 设置会话中继开关（R1 三态 auto|on|off；POST /v1/sessions/{sid}/relay，body {mode}）。
 export function setSessionRelay(sid: string, mode: AgentSessionRelayMode): Promise<AgentSession> {
   return request<AgentSession>(`/v1/sessions/${encodeURIComponent(sid)}/relay`, {
     method: 'POST',

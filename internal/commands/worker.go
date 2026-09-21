@@ -697,10 +697,13 @@ func loadWorkerConfig(path string) (*config.WorkerConfig, error) {
 	if err := yaml.Unmarshal(data, &wc); err != nil {
 		return nil, fmt.Errorf("decode worker config %s: %w", path, err)
 	}
-	// Same one-shot AGT-02 read as config.Load: this file is a second yaml surface for
-	// projects, and a LEGACY-mode worker's own `projects:` must not lose its interactive
-	// switch just because the old key was removed from the type.
-	wc.Projects = config.ApplyLegacyInteractiveCompat(data, wc.Projects)
+	// Projects are a second yaml surface for the same fields as config.yaml (this file
+	// is what a LEGACY-mode worker reads), so the removed-key rejection runs here too:
+	// a worker.yaml still carrying interactive_allowed_agents must fail loudly rather
+	// than silently lose its interactive switch.
+	if err := config.RejectRemovedKeys(data); err != nil {
+		return nil, fmt.Errorf("invalid worker config %s: %w", path, err)
+	}
 	if wc.Log.MaxSizeMB <= 0 {
 		wc.Log.MaxSizeMB = 50
 	}

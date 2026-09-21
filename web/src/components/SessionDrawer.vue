@@ -200,8 +200,8 @@ function relaySummary(s: AgentSession | null): string {
   if (!s) {
     return '—'
   }
-  const mode = s.relay_mode || (s.relay ? 'on' : 'auto')
-  if (!s.relay) {
+  const mode = s.relay_mode
+  if (!s.wait_reason) {
     // SUP-01 D: not waiting because the caller is supervising live jobs — say so
     // instead of leaving the human guessing why nothing armed.
     return s.wait_reason_detail ? `${mode}：当前不等（${s.wait_reason_detail}）` : `${mode}：当前不等`

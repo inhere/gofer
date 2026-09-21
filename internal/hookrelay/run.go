@@ -20,7 +20,7 @@ type API interface {
 	OpenSessionTurn(sid, msg string, timeoutSec int64) (client.Decision, error)
 	WaitSessionTurn(sid, decisionID string, waitSec int) (client.TurnStatus, error)
 	ReleaseSessionTurn(sid, decisionID string, idleSec int64) (bool, error)
-	SetSessionRelay(sid string, on bool) (client.AgentSession, error)
+	SetSessionRelayMode(sid, mode string) (client.AgentSession, error)
 }
 
 // Options tunes one hook invocation. Zero values pick the defaults below.
@@ -302,7 +302,9 @@ func (r *runner) stop() Result {
 		case "answered":
 			reply := strings.TrimSpace(st.Decision.Answer)
 			if strings.EqualFold(reply, OffCommand) {
-				if _, err := r.api.SetSessionRelay(r.p.SessionID, false); err != nil {
+				// /off means "stop waiting altogether", i.e. the explicit off mode (not
+				// the automatic rules) — the legacy boolean form said the same thing.
+				if _, err := r.api.SetSessionRelayMode(r.p.SessionID, client.RelayModeOff); err != nil {
 					r.log("relay off failed: %v", err)
 				}
 				r.log("answered /off, released")

@@ -1662,12 +1662,10 @@ type AgentSession struct {
 	Transcript string `json:"transcript,omitempty"`
 	TmuxPane   string `json:"tmux_pane,omitempty"`
 	State      string `json:"state"`
-	// RelayMode is the three-state switch (auto|on|off, R1). Relay is DERIVED by
-	// the server: whether a Stop would wait right now. WaitReason says why
-	// (mode_on / idle_probe / turn_age; empty = it would not wait) — it is what
-	// the Stop hook keys on.
+	// RelayMode is the three-state switch (auto|on|off, R1). WaitReason reports
+	// whether a Stop would wait right now and why (mode_on / idle_probe /
+	// turn_age; empty = it would not wait) — it is what the Stop hook keys on.
 	RelayMode  string `json:"relay_mode"`
-	Relay      bool   `json:"relay"`
 	WaitReason string `json:"wait_reason,omitempty"`
 	// WaitReasonDetail explains a session that does NOT wait right now (SUP-01 D):
 	// "supervising N jobs". The hook only logs it.
@@ -1835,17 +1833,6 @@ func (c *Client) GetSession(sid string) (SessionDetail, error) {
 // SetSessionRelayMode sets the three-state relay switch (auto|on|off, R1).
 func (c *Client) SetSessionRelayMode(sid, mode string) (AgentSession, error) {
 	body, _ := json.Marshal(map[string]string{"mode": mode})
-	var a AgentSession
-	err := c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/relay", bytes.NewReader(body), &a)
-	return a, err
-}
-
-// SetSessionRelay uses the LEGACY boolean form of the relay switch (true → on,
-// false → off). It is what a pre-R1 client sends — and what `/off` means: the
-// human wants this session to stop waiting altogether, not to hand it back to
-// the automatic rules.
-func (c *Client) SetSessionRelay(sid string, on bool) (AgentSession, error) {
-	body, _ := json.Marshal(map[string]bool{"relay": on})
 	var a AgentSession
 	err := c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/relay", bytes.NewReader(body), &a)
 	return a, err

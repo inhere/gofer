@@ -85,14 +85,7 @@ type AgentSession struct {
 	State    string
 	// RelayMode is the switch itself (auto | on | off) and the source of truth
 	// for the relay rules (see RelayModeAuto).
-	RelayMode string
-	// Relay mirrors RelayMode=="on": the pre-three-state explicit switch, kept
-	// readable for binaries built before R1 (a rolled-back server reads the same
-	// row). Derived, read-only — write it through SetSessionRelayMode only.
-	//
-	// DEPRECATED(v0.45): remove in v0.48 — the mirror column (and this field) goes
-	// with the pre-R1 client surface (G032).
-	Relay       bool
+	RelayMode   string
 	TurnNo      int64
 	LastMessage string
 	LastEvent   string
@@ -117,7 +110,7 @@ type AgentSession struct {
 
 const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(project_key,''),
   COALESCE(runner,''), COALESCE(cwd,''), COALESCE(title,''), COALESCE(transcript,''),
-  COALESCE(tmux_pane,''), COALESCE(caller_id,''), state, COALESCE(relay_mode,'auto'), relay,
+  COALESCE(tmux_pane,''), COALESCE(caller_id,''), state, COALESCE(relay_mode,'auto'),
   COALESCE(idle_sec,-1), COALESCE(last_human_at,0), turn_no,
   COALESCE(last_message,''),
   COALESCE(last_event,''), last_seen_at, started_at, COALESCE(ended_at,0),
@@ -126,13 +119,11 @@ const selectSessionCols = `SELECT session_id, COALESCE(agent,''), COALESCE(proje
 
 func scanSession(sc rowScanner) (AgentSession, error) {
 	var a AgentSession
-	var relay int64
 	err := sc.Scan(&a.SessionID, &a.Agent, &a.ProjectKey, &a.Runner, &a.Cwd, &a.Title,
-		&a.Transcript, &a.TmuxPane, &a.CallerID, &a.State, &a.RelayMode, &relay,
+		&a.Transcript, &a.TmuxPane, &a.CallerID, &a.State, &a.RelayMode,
 		&a.IdleSec, &a.LastHumanAt, &a.TurnNo, &a.LastMessage,
 		&a.LastEvent, &a.LastSeenAt, &a.StartedAt, &a.EndedAt,
 		&a.HandedOffJobID, &a.HandedOffAt)
-	a.Relay = relay == 1
 	return a, err
 }
 
@@ -173,8 +164,8 @@ func (s *Store) UpsertAgentSession(in AgentSession) (AgentSession, error) {
 		}
 		const q = `INSERT INTO agent_sessions
   (session_id, agent, project_key, runner, cwd, title, transcript, tmux_pane, caller_id, state,
-   relay_mode, relay, turn_no, last_message, last_event, last_seen_at, started_at, last_human_at, ended_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,0,0,NULL,?,?,?,?,NULL)`
+   relay_mode, turn_no, last_message, last_event, last_seen_at, started_at, last_human_at, ended_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,0,NULL,?,?,?,?,NULL)`
 		_, err = s.db.Exec(q, sid, in.Agent, in.ProjectKey, in.Runner, in.Cwd, in.Title,
 			in.Transcript, in.TmuxPane, in.CallerID, state, relayMode, in.LastEvent, now, now, in.LastHumanAt)
 		s.writeMu.Unlock()
@@ -434,23 +425,15 @@ func (s *Store) ListAgentSessions(opts ListSessionsOpts) ([]AgentSession, error)
 	return out, nil
 }
 
-// SetSessionRelayMode stores the relay switch (auto | on | off) and keeps the
-// legacy `relay` column mirrored to mode=="on" for binaries built before R1.
-// ok is false when the session is unknown.
-//
-// DEPRECATED(v0.45): remove in v0.48 — the mirror write goes with the column
-// (G032).
+// SetSessionRelayMode stores the relay switch (auto | on | off). ok is false when
+// the session is unknown.
 func (s *Store) SetSessionRelayMode(sid, mode string) (bool, error) {
 	if !ValidRelayMode(mode) {
 		return false, fmt.Errorf("jobstore: SetSessionRelayMode: invalid mode %q", mode)
 	}
-	relay := 0
-	if mode == RelayModeOn {
-		relay = 1
-	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	res, err := s.db.Exec(`UPDATE agent_sessions SET relay_mode=?, relay=? WHERE session_id=?`, mode, relay, sid)
+	res, err := s.db.Exec(`UPDATE agent_sessions SET relay_mode=? WHERE session_id=?`, mode, sid)
 	if err != nil {
 		return false, fmt.Errorf("jobstore: set relay mode %q: %w", sid, err)
 	}

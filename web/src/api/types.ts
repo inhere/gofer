@@ -277,8 +277,6 @@ export interface AgentSession {
   // 键盘空闲 / 距上次人工输入的时长判定（session.auto_relay_idle_sec /
   // auto_relay_turn_sec）。新会话默认 auto。
   relay_mode: AgentSessionRelayMode
-  // relay 是 server 派生值：本次 Stop 会不会等（on，或 auto 的判据成立）。旧客户端读它。
-  relay: boolean
   // wait_reason 是当前判定依据：mode_on（显式开关）/ idle_probe（键盘空闲）/
   // turn_age（探测不到键盘，距上次人工输入够久）；空 = 不等。
   wait_reason?: 'mode_on' | 'idle_probe' | 'turn_age' | ''

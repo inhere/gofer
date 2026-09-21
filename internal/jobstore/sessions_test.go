@@ -18,13 +18,13 @@ func TestAgentSessionUpsertTouchList(t *testing.T) {
 	})
 	assert.NoErr(t, err)
 	assert.Eq(t, SessionRunning, a.State)
-	assert.False(t, a.Relay)
+	assert.Eq(t, RelayModeAuto, a.RelayMode)
 	assert.Eq(t, int64(0), a.TurnNo)
 	assert.True(t, a.StartedAt > 0)
 	assert.Eq(t, a.StartedAt, a.LastSeenAt)
 
 	// Re-register: non-empty fields overwrite, empty ones keep the stored value,
-	// relay/turn untouched.
+	// the relay switch / turn stay untouched.
 	ok, err := s.SetSessionRelayMode("sid-1", RelayModeOn)
 	assert.NoErr(t, err)
 	assert.True(t, ok)
@@ -33,7 +33,7 @@ func TestAgentSessionUpsertTouchList(t *testing.T) {
 	assert.Eq(t, "p1", a2.ProjectKey)
 	assert.Eq(t, "/work/repo", a2.Cwd)
 	assert.Eq(t, "repo: fix bug", a2.Title)
-	assert.True(t, a2.Relay)
+	assert.Eq(t, RelayModeOn, a2.RelayMode)
 
 	// Heartbeat: state + last_message; a non-empty title (sent only on a human prompt) replaces the old one.
 	a3, ok, err := s.TouchAgentSession("sid-1", SessionHeartbeat{
@@ -283,6 +283,9 @@ func TestMigrateAgentSessionsAddsIdleSec(t *testing.T) {
   turn_no INTEGER NOT NULL DEFAULT 0, last_message TEXT, last_event TEXT,
   last_seen_at INTEGER NOT NULL, started_at INTEGER NOT NULL, ended_at INTEGER)`,
 		`INSERT INTO agent_sessions (session_id, agent, last_seen_at, started_at) VALUES ('sid-old','claude',1,1)`,
+		// A row the pre-R1 binary left with the switch flipped on: the backfill must
+		// read the historic `relay` column (kept in the DDL, unread everywhere else).
+		`INSERT INTO agent_sessions (session_id, agent, relay, last_seen_at, started_at) VALUES ('sid-flipped','claude',1,1,1)`,
 	} {
 		_, err := s.db.Exec(q)
 		assert.NoErr(t, err)
@@ -293,8 +296,11 @@ func TestMigrateAgentSessionsAddsIdleSec(t *testing.T) {
 	assert.True(t, ok)
 	assert.Eq(t, int64(-1), a.IdleSec)
 	assert.Eq(t, RelayModeAuto, a.RelayMode)
-	assert.False(t, a.Relay)
 	assert.Eq(t, int64(0), a.LastHumanAt)
+	flipped, ok, err := s.GetAgentSession("sid-flipped")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, RelayModeOn, flipped.RelayMode)
 	// P2-2: the takeover columns land with the same migration and a pre-column row
 	// reads as "never taken over" — not as a session held by an empty job.
 	assert.Eq(t, "", a.HandedOffJobID)

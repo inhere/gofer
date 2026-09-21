@@ -28,14 +28,10 @@ type sessionView struct {
 	TmuxPane   string `json:"tmux_pane,omitempty"`
 	State      string `json:"state"`
 	// RelayMode is the three-state switch (auto|on|off, R1) — what the CLI/web
-	// toggle writes. Relay is DERIVED from the relay service's rules and reports
-	// whether a Stop would wait right now (mode `on`, or an auto rule holding);
-	// it is what pre-R1 clients read. WaitReason says WHY (mode_on / idle_probe /
-	// turn_age, empty = does not wait).
-	RelayMode string `json:"relay_mode"`
-	// DEPRECATED(v0.45): remove in v0.48 — the boolean mirror of pre-R1 clients
-	// (G032).
-	Relay      bool   `json:"relay"`
+	// toggle writes. WaitReason says whether a Stop would wait right now and WHY
+	// (mode_on / idle_probe / turn_age, empty = does not wait); it is what the
+	// hook keys on and what the pre-R1 `relay` boolean used to summarise.
+	RelayMode  string `json:"relay_mode"`
 	WaitReason string `json:"wait_reason,omitempty"`
 	// WaitReasonDetail explains a session that does NOT wait right now (SUP-01 D):
 	// "supervising 2 jobs" — the caller behind this session has live work, so the
@@ -84,7 +80,7 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 	return sessionView{
 		SessionID: a.SessionID, Agent: a.Agent, ProjectKey: a.ProjectKey, Runner: a.Runner,
 		Cwd: a.Cwd, Title: a.Title, Transcript: a.Transcript, TmuxPane: a.TmuxPane,
-		State: a.State, RelayMode: a.RelayMode, Relay: reason != "", WaitReason: reason,
+		State: a.State, RelayMode: a.RelayMode, WaitReason: reason,
 		WaitReasonDetail: detail, CallerID: a.CallerID,
 		TurnNo: a.TurnNo, LastMessage: a.LastMessage,
 		LastEvent: a.LastEvent, LastSeenAt: a.LastSeenAt, StartedAt: a.StartedAt, EndedAt: a.EndedAt,
@@ -315,28 +311,14 @@ func (s *Server) handleSessionHeartbeat(c *rux.Context) {
 }
 
 // sessionRelayReq is the POST /v1/sessions/{sid}/relay body: the three-state
-// switch (R1). Pre-R1 clients send the boolean form, which maps to on/off —
-// exactly what those clients meant; `auto` (the default for everyone else) is
-// only reachable through the new form.
+// switch (R1). `auto` (the default) is only reachable through this form.
 type sessionRelayReq struct {
 	Mode string `json:"mode,omitempty"`
-	// Relay is the LEGACY boolean switch (true → on, false → off).
-	// DEPRECATED(v0.45): remove in v0.48 — the pre-R1 request shape (G032).
-	Relay *bool `json:"relay,omitempty"`
 }
 
-// mode resolves the request into one relay mode ("" = malformed: neither field).
+// mode resolves the request into one relay mode ("" = malformed: no mode given).
 func (b sessionRelayReq) mode() string {
-	if strings.TrimSpace(b.Mode) != "" {
-		return strings.ToLower(strings.TrimSpace(b.Mode))
-	}
-	if b.Relay != nil {
-		if *b.Relay {
-			return jobstore.RelayModeOn
-		}
-		return jobstore.RelayModeOff
-	}
-	return ""
+	return strings.ToLower(strings.TrimSpace(b.Mode))
 }
 
 // handleSetSessionRelay sets the relay switch (POST /v1/sessions/{sid}/relay).
@@ -352,7 +334,7 @@ func (s *Server) handleSetSessionRelay(c *rux.Context) {
 	mode := body.mode()
 	if mode == "" {
 		writeError(c, http.StatusBadRequest, "relay mode required",
-			`send {"mode":"auto|on|off"} (or the legacy {"relay":true|false})`)
+			`send {"mode":"auto|on|off"}`)
 		return
 	}
 	if !s.sessionMayAnswer(c, c.Param("sid"), "set relay") {

@@ -92,20 +92,20 @@ func TestRelayHappyPath(t *testing.T) {
 	a, err := s.Register(RegisterInput{SessionID: "sid-a", Agent: "Claude", Cwd: "/w/repo", Event: EventSessionStart})
 	assert.NoErr(t, err)
 	assert.Eq(t, "claude", a.Agent)
-	assert.False(t, a.Relay)
+	assert.Eq(t, jobstore.RelayModeAuto, a.RelayMode)
 
 	// Relay off: Stop heartbeat → idle, no turn possible.
 	hb, err := s.Heartbeat("sid-a", HeartbeatInput{Event: EventStop, LastMessage: "first stop"})
 	assert.NoErr(t, err)
 	assert.Eq(t, jobstore.SessionIdle, hb.State)
-	assert.False(t, hb.Relay)
+	assert.Eq(t, jobstore.RelayModeAuto, hb.RelayMode)
 	_, err = s.OpenTurn("sid-a", "x", 60)
 	assert.True(t, errors.Is(err, ErrRelayOff))
 
 	// Switch on, open a turn, wait → answered via Say.
 	on, err := s.SetRelayMode("sid-a", jobstore.RelayModeOn)
 	assert.NoErr(t, err)
-	assert.True(t, on.Relay)
+	assert.Eq(t, jobstore.RelayModeOn, on.RelayMode)
 	d, err := s.OpenTurn("sid-a", "need a decision", 60)
 	assert.NoErr(t, err)
 	assert.Eq(t, jobstore.DecisionKindRelay, d.Kind)
@@ -166,7 +166,6 @@ func TestRelayOffReleasesWaitAndAutoOff(t *testing.T) {
 	assert.NoErr(t, err)
 	hb, err := s.Heartbeat("sid-b", HeartbeatInput{Event: EventUserPromptSubmit, Title: "repo: task"})
 	assert.NoErr(t, err)
-	assert.False(t, hb.Relay)
 	assert.Eq(t, jobstore.RelayModeAuto, hb.RelayMode)
 	assert.Eq(t, jobstore.SessionRunning, hb.State)
 	assert.Eq(t, "repo: task", hb.Title)
@@ -174,11 +173,11 @@ func TestRelayOffReleasesWaitAndAutoOff(t *testing.T) {
 	// An injected continuation (the relay's own reply) never auto-offs.
 	_, _ = s.SetRelayMode("sid-b", jobstore.RelayModeOn)
 	hb, _ = s.Heartbeat("sid-b", HeartbeatInput{Event: EventUserPromptSubmit, Injected: true})
-	assert.True(t, hb.Relay)
+	assert.Eq(t, jobstore.RelayModeOn, hb.RelayMode)
 
 	s.AutoOffOnPrompt = false
 	hb, _ = s.Heartbeat("sid-b", HeartbeatInput{Event: EventUserPromptSubmit})
-	assert.True(t, hb.Relay)
+	assert.Eq(t, jobstore.RelayModeOn, hb.RelayMode)
 }
 
 func TestRelayExpiryAndErrors(t *testing.T) {
@@ -195,7 +194,7 @@ func TestRelayExpiryAndErrors(t *testing.T) {
 	assert.Eq(t, TurnExpired, st.Outcome)
 	idle, _ := s.Get("sid-c", 1)
 	assert.Eq(t, jobstore.SessionIdle, idle.Session.State) // expired turn → idle, relay stays on
-	assert.True(t, idle.Session.Relay)
+	assert.Eq(t, jobstore.RelayModeOn, idle.Session.RelayMode)
 
 	// A new turn expires the stale one and is the only answerable turn.
 	d2, err := s.OpenTurn("sid-c", "again", 60)
@@ -316,13 +315,11 @@ func TestRelayModeMigrationFromBool(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.True(t, ok)
 	assert.Eq(t, jobstore.RelayModeOn, switched.RelayMode)
-	assert.True(t, switched.Relay)
 	assert.Eq(t, int64(0), switched.LastHumanAt)
 	idle, ok, err := st.GetAgentSession("sid-auto")
 	assert.NoErr(t, err)
 	assert.True(t, ok)
 	assert.Eq(t, jobstore.RelayModeAuto, idle.RelayMode)
-	assert.False(t, idle.Relay)
 
 	// Re-opening (the migration runs on every Open) changes nothing.
 	st2, err := jobstore.Open(path)

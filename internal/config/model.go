@@ -4,10 +4,8 @@ package config
 
 import (
 	"fmt"
-	"log/slog"
 	"math"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/inhere/gofer/internal/acp"
@@ -363,16 +361,6 @@ type ServerConfig struct {
 	// fails the in-flight jobs at once — the pre-RECOV-01 behaviour). Same
 	// unset≠zero reasoning as WebEnabled. See Config.JobRecoverWindow.
 	JobRecoverWindowSec *int `yaml:"job_recover_window_sec,omitempty"`
-	// SessionAutoRelayIdleSec is the LEGACY location of the idle auto-arm
-	// threshold (SR-A5). It moved to the top-level `session:` block
-	// (SessionConfig.AutoRelayIdleSec) in R2; this key is still READ as an alias
-	// (ApplyLegacySessionRelayCompat copies it over and warns once) and is kept
-	// only for that. New configs must use `session.auto_relay_idle_sec`.
-	//
-	// DEPRECATED(v0.45): remove in v0.48 — the alias (and
-	// ApplyLegacySessionRelayCompat with it) goes once pre-R2 configs are gone
-	// (G032).
-	SessionAutoRelayIdleSec *int `yaml:"session_auto_relay_idle_sec,omitempty"`
 	// AutoResumeMax counts automatic session continuations, independently of RetryPolicy.
 	// Unset defaults to one; an explicit zero disables automatic resume.
 	AutoResumeMax *int `yaml:"auto_resume_max,omitempty"`
@@ -622,22 +610,15 @@ const DefaultSessionAutoRelayIdleSec = 300
 // human in this session.
 const DefaultSessionAutoRelayTurnSec = 900
 
-// EffectiveAutoRelayIdleSec resolves the keyboard idle threshold (seconds): the
-// new `session.auto_relay_idle_sec` when set, else the legacy
-// `server.session_auto_relay_idle_sec` alias when set (pre-R2 configs keep
-// working even if the load-time compat pass never ran, e.g. a Config built by
-// hand), else the default. 0 = that criterion disabled.
+// EffectiveAutoRelayIdleSec resolves the keyboard idle threshold (seconds) from
+// the top-level `session.auto_relay_idle_sec` (the only spelling since v0.48;
+// the pre-R2 `server.session_auto_relay_idle_sec` alias is now a load error, see
+// RejectRemovedKeys). Unset keeps the default; 0 = that criterion disabled.
 func (c *Config) EffectiveAutoRelayIdleSec() int {
-	if c == nil {
+	if c == nil || c.Session.AutoRelayIdleSec == nil {
 		return DefaultSessionAutoRelayIdleSec
 	}
-	if c.Session.AutoRelayIdleSec != nil {
-		return *c.Session.AutoRelayIdleSec
-	}
-	if c.Server.SessionAutoRelayIdleSec != nil {
-		return *c.Server.SessionAutoRelayIdleSec
-	}
-	return DefaultSessionAutoRelayIdleSec
+	return *c.Session.AutoRelayIdleSec
 }
 
 // EffectiveAutoRelayTurnSec resolves the last-human-input fallback threshold
@@ -686,33 +667,6 @@ func (c *Config) EffectiveSessionTakeoverInputDelayMs() int {
 		return DefaultSessionTakeoverInputDelayMs
 	}
 	return *c.Session.TakeoverInputDelayMs
-}
-
-// legacySessionRelayWarn keeps the migration notice to one per process: config
-// reloads (the web console writes and re-loads) must not repeat it.
-var legacySessionRelayWarn sync.Once
-
-// ApplyLegacySessionRelayCompat moves the pre-R2 `server.session_auto_relay_idle_sec`
-// key into the `session` block and warns once that it moved. An explicit new key
-// wins: writing both means the new block is authoritative and nothing is copied.
-func (c *Config) ApplyLegacySessionRelayCompat() {
-	if c == nil || c.Server.SessionAutoRelayIdleSec == nil || c.Session.AutoRelayIdleSec != nil {
-		return
-	}
-	c.Session.AutoRelayIdleSec = c.Server.SessionAutoRelayIdleSec
-	legacySessionRelayWarn.Do(func() {
-		slog.Warn("server.session_auto_relay_idle_sec has moved to session.auto_relay_idle_sec; rewrite the config",
-			"value_sec", *c.Server.SessionAutoRelayIdleSec)
-	})
-}
-
-// EffectiveSessionAutoRelayIdleSec is the pre-R2 accessor, kept for callers that
-// only hold a ServerConfig. New code resolves through Config.
-func (sc *ServerConfig) EffectiveSessionAutoRelayIdleSec() int {
-	if sc == nil || sc.SessionAutoRelayIdleSec == nil {
-		return DefaultSessionAutoRelayIdleSec
-	}
-	return *sc.SessionAutoRelayIdleSec
 }
 
 // GovernanceConfig is the E17 global fallback for per-caller quotas (design
@@ -1364,9 +1318,9 @@ func (p ProjectConfig) IsNotifyEnabled() bool { return p.NotifyEnabled == nil ||
 // IsInteractiveAllowed reports whether the project permits interactive (pty) jobs.
 // allow_interactive is the ONLY source: unset (nil) means "no interactive jobs", so
 // the default is closed and a project built in code with no switch set can never open
-// interactive submission by accident. The removed legacy narrowing list is
-// read ONCE at load time (ApplyLegacyInteractiveCompat), which turns a legacy non-empty
-// list into an explicit switch — nothing downstream ever sees the old key. It is the
+// interactive submission by accident. The legacy narrowing list (AGT-02) is gone: a
+// yaml still carrying interactive_allowed_agents fails the load (config.RejectRemovedKeys)
+// rather than being half-read into this switch. It is the
 // shared derivation of server admission (job.validate) and the POLICY push
 // (core.projectToPolicy), which is why it lives on the type, not in a loader.
 func (p ProjectConfig) IsInteractiveAllowed() bool {

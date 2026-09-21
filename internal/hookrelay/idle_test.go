@@ -109,7 +109,7 @@ func TestStopReleasesWhenUserReturns(t *testing.T) {
 // keyboard shows activity — only the human ends that wait (typing, or /off).
 func TestStopIgnoresIdleWhenRelayExplicit(t *testing.T) {
 	f := newFake()
-	f.sessions["s1"] = client.AgentSession{SessionID: "s1", RelayMode: client.RelayModeOn, Relay: true, WaitReason: client.WaitModeOn, IdleSec: 600}
+	f.sessions["s1"] = client.AgentSession{SessionID: "s1", RelayMode: client.RelayModeOn, WaitReason: client.WaitModeOn, IdleSec: 600}
 	f.answerAfter, f.answer = 2, "go on"
 	injectIdleProbe(t, 0) // the probe would release an auto-armed wait
 	var log strings.Builder

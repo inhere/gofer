@@ -24,7 +24,7 @@ func TestHookPrintsHandedOffNotice(t *testing.T) {
 	newHandedOff := func() *fakeAPI {
 		f := newFake()
 		f.sessions["s1"] = client.AgentSession{
-			SessionID: "s1", State: "handed_off", RelayMode: client.RelayModeOn, Relay: true,
+			SessionID: "s1", State: "handed_off", RelayMode: client.RelayModeOn,
 			Notice: handedOffNotice,
 		}
 		return f

@@ -437,8 +437,7 @@ projects:
     host_path: /tmp/demo
     allowed_agents:
       - exec
-    interactive_allowed_agents:
-      - term
+    allow_interactive: true
 agents:
   term:
     type: cli
@@ -453,10 +452,10 @@ agents:
 	if !cfg.Agents["term"].Interactive || !cfg.Agents["term"].NoRawCmd {
 		t.Fatalf("agent term = %+v, want interactive/no_raw_cmd true", cfg.Agents["term"])
 	}
-	// AGT-02 0.3: the removed interactive_allowed_agents key is read once at load — a
-	// non-empty legacy list is carried over as an explicit allow_interactive: true.
+	// AGT-02 0.3: allow_interactive is the ONE project-level interactive switch (the
+	// narrowing interactive_allowed_agents list is gone since v0.48).
 	if !cfg.Projects["demo"].IsInteractiveAllowed() {
-		t.Fatalf("demo = %+v, want the legacy interactive_allowed_agents list read as allow_interactive:true", cfg.Projects["demo"])
+		t.Fatalf("demo = %+v, want allow_interactive:true", cfg.Projects["demo"])
 	}
 	if cfg.Storage.Cast.RetentionTTLHours != 24 || cfg.Storage.Cast.Encryption.KeyEnv != "GOFER_CAST_KEY" {
 		t.Fatalf("cast config = %+v, want ttl/key_env set", cfg.Storage.Cast)

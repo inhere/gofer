@@ -373,13 +373,12 @@ var schemaStmts = []string{
 	`CREATE INDEX IF NOT EXISTS idx_plan_decisions_state ON plan_decisions(state)`,
 	// agent_sessions is the terminal agent-CLI session registry (session relay,
 	// SESS-01 §5): registered by the CLI's hooks, observed on the web, and the
-	// owner of the per-session relay switch — relay_mode (auto|on|off, R1) with
-	// `relay` kept mirrored to mode=='on' for pre-R1 binaries (DEPRECATED(v0.45):
-	// remove in v0.48, G032). caller_id is the authenticated caller that
-	// registered the session — its owner (SUP-01 D). session_id is the
-	// CLI's own id. Relay turns live in plan_decisions (kind='relay', session_id
-	// set — the additive columns are added by migratePlanDecisions for
-	// pre-existing dbs); the R1/R2 columns are added by migrateAgentSessions.
+	// owner of the per-session relay switch — relay_mode (auto|on|off, R1).
+	// caller_id is the authenticated caller that registered the session — its
+	// owner (SUP-01 D). session_id is the CLI's own id. Relay turns live in
+	// plan_decisions (kind='relay', session_id set — the additive columns are
+	// added by migratePlanDecisions for pre-existing dbs); the R1/R2 columns are
+	// added by migrateAgentSessions.
 	`CREATE TABLE IF NOT EXISTS agent_sessions (
   session_id   TEXT PRIMARY KEY,
   agent        TEXT NOT NULL,
@@ -392,6 +391,10 @@ var schemaStmts = []string{
   caller_id    TEXT,
   state        TEXT NOT NULL DEFAULT 'running',
   relay_mode   TEXT NOT NULL DEFAULT 'auto',
+  -- historic column: pre-R1 binaries wrote mode=='on' here; nothing reads or
+  -- writes it since v0.48 (kept because dropping a SQLite column is a table
+  -- rebuild, and the one-time relay_mode backfill in migrateAgentSessions reads
+  -- it on a pre-R1 db).
   relay        INTEGER NOT NULL DEFAULT 0,
   idle_sec     INTEGER,
   last_human_at INTEGER NOT NULL DEFAULT 0,

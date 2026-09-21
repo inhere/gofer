@@ -2,13 +2,14 @@ package config
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
-// TestSessionAutoRelayIdleSecUnsetDefaults verifies the SR-A5 threshold defaults
-// to 5 minutes when the key is absent — auto-arming ships ON, so an existing
-// config gets it without edits.
-func TestSessionAutoRelayIdleSecUnsetDefaults(t *testing.T) {
+// TestAutoRelayIdleSecUnsetDefaults verifies the SR-A5 threshold defaults to 5
+// minutes when the key is absent — auto-arming ships ON, so an existing config
+// gets it without edits.
+func TestAutoRelayIdleSecUnsetDefaults(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "cfg.yaml")
 	write(t, p, `
@@ -20,39 +21,20 @@ projects:
 	if err != nil {
 		t.Fatalf("Load: %v", err)
 	}
-	if got := cfg.Server.EffectiveSessionAutoRelayIdleSec(); got != DefaultSessionAutoRelayIdleSec {
+	if got := cfg.EffectiveAutoRelayIdleSec(); got != DefaultSessionAutoRelayIdleSec {
 		t.Fatalf("unset threshold = %d, want the %d default", got, DefaultSessionAutoRelayIdleSec)
 	}
-	zero := ServerConfig{}
-	if zero.EffectiveSessionAutoRelayIdleSec() != DefaultSessionAutoRelayIdleSec {
-		t.Fatal("zero-value ServerConfig should report the default threshold")
+	var zero *Config
+	if zero.EffectiveAutoRelayIdleSec() != DefaultSessionAutoRelayIdleSec {
+		t.Fatal("a nil config should report the default threshold")
 	}
 }
 
-// TestSessionAutoRelayIdleSecExplicitZeroDisables verifies `0` is an OFF switch,
-// not "use the default": the whole point of the pointer is that unset and zero
-// differ, and an operator disabling auto-arming must not get it back.
-func TestSessionAutoRelayIdleSecExplicitZeroDisables(t *testing.T) {
-	dir := t.TempDir()
-	p := filepath.Join(dir, "cfg.yaml")
-	write(t, p, `
-server:
-  session_auto_relay_idle_sec: 0
-projects:
-  demo:
-    host_path: /tmp/demo
-`)
-	cfg, _, err := Load(p)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
-	}
-	if got := cfg.Server.EffectiveSessionAutoRelayIdleSec(); got != 0 {
-		t.Fatalf("explicit 0 = %d, want 0 (disabled)", got)
-	}
-}
-
-// TestSessionAutoRelayIdleSecExplicitValue verifies a configured threshold wins.
-func TestSessionAutoRelayIdleSecExplicitValue(t *testing.T) {
+// TestLoadRejectsSessionAutoRelayIdleSecAlias: the pre-R2
+// `server.session_auto_relay_idle_sec` alias is GONE (v0.48 / G032). A config that
+// still writes it must fail the load — naming the key to rewrite — instead of
+// silently dropping the threshold back to the 5-minute default.
+func TestLoadRejectsSessionAutoRelayIdleSecAlias(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "cfg.yaml")
 	write(t, p, `
@@ -62,20 +44,19 @@ projects:
   demo:
     host_path: /tmp/demo
 `)
-	cfg, _, err := Load(p)
-	if err != nil {
-		t.Fatalf("Load: %v", err)
+	_, _, err := Load(p)
+	if err == nil {
+		t.Fatal("Load accepted the removed server.session_auto_relay_idle_sec alias")
 	}
-	if got := cfg.Server.EffectiveSessionAutoRelayIdleSec(); got != 90 {
-		t.Fatalf("threshold = %d, want 90", got)
+	if !strings.Contains(err.Error(), "session_auto_relay_idle_sec has been removed; use session.auto_relay_idle_sec") {
+		t.Fatalf("error = %v, want it to name the removed key and its replacement", err)
 	}
 }
 
-// TestSessionConfigBlockAndLegacyAlias pins the R2 config move: the two
-// thresholds live in the top-level `session:` block (defaults 300 / 900), the
-// pre-R2 `server.session_auto_relay_idle_sec` key is still READ as an alias for
-// the idle one, and when both are written the new block wins.
-func TestSessionConfigBlockAndLegacyAlias(t *testing.T) {
+// TestSessionConfigBlock pins the session block itself (R2): the two thresholds
+// live there (defaults 300 / 900) and an explicit `0` is an OFF switch for that
+// criterion, never "use the default".
+func TestSessionConfigBlock(t *testing.T) {
 	load := func(t *testing.T, body string) *Config {
 		t.Helper()
 		dir := t.TempDir()
@@ -125,31 +106,17 @@ session:
 		t.Fatalf("zeros = %d/%d, want 0/0", cfg.EffectiveAutoRelayIdleSec(), cfg.EffectiveAutoRelayTurnSec())
 	}
 
-	// The pre-R2 key keeps working: read as the alias, and carried into the new
-	// block by the load-time compat pass.
+	// One key written, the other unset → the written one wins and the other keeps
+	// its default (the two criteria are independent).
 	cfg = load(t, `
-server:
-  session_auto_relay_idle_sec: 90
+session:
+  auto_relay_idle_sec: 90
 `+projects)
 	if got := cfg.EffectiveAutoRelayIdleSec(); got != 90 {
-		t.Fatalf("legacy alias = %d, want 90", got)
-	}
-	if cfg.Session.AutoRelayIdleSec == nil || *cfg.Session.AutoRelayIdleSec != 90 {
-		t.Fatalf("legacy key was not carried into the session block: %+v", cfg.Session)
+		t.Fatalf("idle = %d, want 90", got)
 	}
 	if got := cfg.EffectiveAutoRelayTurnSec(); got != DefaultSessionAutoRelayTurnSec {
-		t.Fatalf("legacy config must keep the turn default, got %d", got)
-	}
-
-	// Both keys written → the new block is authoritative.
-	cfg = load(t, `
-server:
-  session_auto_relay_idle_sec: 90
-session:
-  auto_relay_idle_sec: 120
-`+projects)
-	if got := cfg.EffectiveAutoRelayIdleSec(); got != 120 {
-		t.Fatalf("both keys written: idle = %d, want the new block's 120", got)
+		t.Fatalf("turn must keep its default when only idle is written, got %d", got)
 	}
 }
 

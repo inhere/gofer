@@ -180,7 +180,7 @@ func runSessionList(c *gcli.Command, _ []string) error {
 // for an `auto` session that is waiting right now — the reason it is waiting, so
 // "auto" next to a waiting_reply row is explained instead of puzzling.
 func relayCell(a client.AgentSession) string {
-	if a.RelayMode == "auto" && a.Relay {
+	if a.RelayMode == "auto" && a.WaitReason != "" {
 		switch a.WaitReason {
 		case client.WaitIdleProbe:
 			return "auto·wait(i)"
@@ -191,20 +191,7 @@ func relayCell(a client.AgentSession) string {
 		}
 		return "auto·waiting"
 	}
-	return modeLabel(a)
-}
-
-// modeLabel is the stored switch; a pre-R1 server reports only the derived
-// boolean, which reads as `on` when it waits and `auto` otherwise (the old
-// server's boolean was exactly the explicit switch plus its own idle rule).
-func modeLabel(a client.AgentSession) string {
-	if a.RelayMode != "" {
-		return a.RelayMode
-	}
-	if a.Relay {
-		return "on"
-	}
-	return "auto"
+	return a.RelayMode
 }
 
 // relayDetail is the `session show` relay line: mode, whether it is waiting
@@ -261,7 +248,7 @@ func runSessionShow(c *gcli.Command, _ []string) error {
 	a := d.Session
 	c.Printf("session:  %s\nagent:    %s\nproject:  %s\nrunner:   %s\ncwd:      %s\ntitle:    %s\nstate:    %s\nrelay:    %s\nmode:     %s\nturns:    %d\nseen:     %s ago\ntranscript: %s\n",
 		a.SessionID, a.Agent, a.ProjectKey, a.Runner, a.Cwd, a.Title, a.State, relayDetail(a),
-		modeLabel(a), a.TurnNo, ago(a.LastSeenAt), a.Transcript)
+		a.RelayMode, a.TurnNo, ago(a.LastSeenAt), a.Transcript)
 	if a.LastMessage != "" {
 		c.Printf("\nlast message:\n  %s\n", strings.ReplaceAll(strings.TrimSpace(a.LastMessage), "\n", "\n  "))
 	}

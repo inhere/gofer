@@ -16,7 +16,7 @@ import (
 func TestStopWaitsOnModeOn(t *testing.T) {
 	f := newFake()
 	f.sessions["s1"] = client.AgentSession{
-		SessionID: "s1", RelayMode: client.RelayModeOn, Relay: true,
+		SessionID: "s1", RelayMode: client.RelayModeOn,
 		WaitReason: client.WaitModeOn, IdleSec: 0,
 	}
 	f.answerAfter, f.answer = 2, "keep going"

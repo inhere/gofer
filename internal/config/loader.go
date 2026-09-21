@@ -3,8 +3,8 @@ package config
 import (
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 	"fmt"
-	"log/slog"
 	"maps"
 	"os"
 	"path"
@@ -124,10 +124,11 @@ func Load(explicitPath string) (*Config, string, error) {
 	if err := yaml.Unmarshal(data, cfg); err != nil {
 		return nil, path, fmt.Errorf("decode config %s: %w", path, err)
 	}
+	if err := RejectRemovedKeys(data); err != nil {
+		return nil, path, fmt.Errorf("invalid config %s: %w", path, err)
+	}
 
 	ApplyDefaults(cfg)
-	cfg.Projects = ApplyLegacyInteractiveCompat(data, cfg.Projects)
-	cfg.ApplyLegacySessionRelayCompat()
 	if err := validate(cfg); err != nil {
 		return nil, path, fmt.Errorf("invalid config %s: %w", path, err)
 	}
@@ -327,70 +328,48 @@ func ApplyDefaults(cfg *Config) {
 	}
 }
 
-// legacyInteractiveYAML mirrors the REMOVED AGT-02 project key. ProjectConfig no
-// longer carries interactive_allowed_agents, so the key has to be probed off the raw
-// document: a second decode into this shadow struct (rather than a yaml.Node walk or
-// strict-field handling) keeps the compat read independent of the typed decode —
-// goccy/go-yaml ignores unknown keys, so detection has to be explicit either way, and
-// the shadow struct states the exact shape it looks for.
+// RejectRemovedKeys fails the load when an operator yaml still carries a config key
+// that has been REMOVED (G032 / v0.48): server.session_auto_relay_idle_sec (R2 alias
+// of session.auto_relay_idle_sec) and projects.<key>.interactive_allowed_agents
+// (replaced by allow_interactive, AGT-02 0.3). Both used to be read as one-shot
+// compat aliases; the deadline arrived, and the typed decode is non-strict (goccy
+// ignores unknown keys so an operator's stray key never bricks a running server), so
+// a silently-ignored removed key would be exactly the unmarked compatibility layer
+// G032 forbids — say which key to rewrite instead.
 //
-// DEPRECATED(v0.45): remove in v0.48 — goes with ApplyLegacyInteractiveCompat once
-// pre-AGT-02 configs are gone (G032).
-type legacyInteractiveYAML struct {
-	Projects map[string]struct {
-		InteractiveAllowedAgents []string `yaml:"interactive_allowed_agents"`
-	} `yaml:"projects"`
-}
-
-// ApplyLegacyInteractiveCompat is the ONE-SHOT read of the REMOVED AGT-02 key
-// interactive_allowed_agents (design §2). It projects the raw document's project
-// blocks onto the config and, for every project whose legacy list is NON-EMPTY:
-//
-//   - allow_interactive unwritten → set it to true (the pre-AGT-02 reading of a
-//     non-empty list: "this project wants interactive jobs") and warn to rewrite;
-//   - allow_interactive written (either value) → keep it verbatim, warn that the
-//     legacy list is ignored.
-//
-// A present-but-empty list changes nothing and does not warn: empty never meant
-// "allowed", so there is nothing to carry over. Everything else (no such key, an
-// undecodable document — the typed decode has already failed by then) is a no-op.
-// Callers: config.Load (config.yaml) and the worker's own worker.yaml decode, so both
-// existing operator files keep working unchanged.
-//
-// DEPRECATED(v0.45): remove in v0.48 — the one-shot read (and legacyInteractiveYAML
-// with it) goes once pre-AGT-02 configs are gone (G032). The switch is
-// allow_interactive; this key must be rewritten by then.
-func ApplyLegacyInteractiveCompat(raw []byte, projects map[string]ProjectConfig) map[string]ProjectConfig {
-	if len(projects) == 0 {
-		return projects
+// The probe is a second decode of the raw document into plain maps: values are never
+// interpreted, only the presence of the key is (any value, including "" / [] / null).
+// A document the typed decode already rejected (or one that is not a mapping) is a
+// no-op here — the caller has the real error. Callers: config.Load (config.yaml) and
+// the worker's own worker.yaml decode, so both yaml surfaces for projects agree.
+func RejectRemovedKeys(raw []byte) error {
+	var doc map[string]any
+	if err := yaml.Unmarshal(raw, &doc); err != nil {
+		return nil
 	}
-	var legacy legacyInteractiveYAML
-	if err := yaml.Unmarshal(raw, &legacy); err != nil {
-		return projects // the typed decode already reported the real error
-	}
-	if len(legacy.Projects) == 0 {
-		return projects
-	}
-	for _, key := range slices.Sorted(maps.Keys(legacy.Projects)) {
-		if len(legacy.Projects[key].InteractiveAllowedAgents) == 0 {
-			continue
+	var problems []string
+	if srv, ok := doc["server"].(map[string]any); ok {
+		if _, found := srv["session_auto_relay_idle_sec"]; found {
+			problems = append(problems,
+				"server.session_auto_relay_idle_sec has been removed; use session.auto_relay_idle_sec")
 		}
-		p, ok := projects[key]
-		if !ok {
-			continue
-		}
-		if p.AllowInteractive != nil {
-			slog.Warn("interactive_allowed_agents has been removed and is ignored; delete it from the config",
-				"project", key)
-			continue
-		}
-		allow := true
-		p.AllowInteractive = &allow
-		projects[key] = p
-		slog.Warn("interactive_allowed_agents has been removed; treating it as allow_interactive: true — rewrite the config",
-			"project", key)
 	}
-	return projects
+	if projects, ok := doc["projects"].(map[string]any); ok {
+		for _, key := range slices.Sorted(maps.Keys(projects)) {
+			p, ok := projects[key].(map[string]any)
+			if !ok {
+				continue
+			}
+			if _, found := p["interactive_allowed_agents"]; found {
+				problems = append(problems, fmt.Sprintf(
+					"project %q: unknown project field interactive_allowed_agents; use allow_interactive", key))
+			}
+		}
+	}
+	if len(problems) == 0 {
+		return nil
+	}
+	return errors.New(strings.Join(problems, "; "))
 }
 
 // checkFallbackCandidate rejects a fallback candidate the framework cannot hand a
