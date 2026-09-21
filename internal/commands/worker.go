@@ -75,7 +75,7 @@ func NewWorkerCmd(info buildinfo.Info) *gcli.Command {
 			c.StrOpt(&workerOpts.config, "worker-config", "", "", "path to the worker config file (default: <config-dir>/worker.yaml)")
 			c.BoolOpt(&workerOpts.daemon, "daemon", "d", false, "run in background (detached); logs to <config-dir>/run/worker-<id>.log")
 		},
-		Subs: []*gcli.Command{NewWorkerListCmd(), NewWorkerStopCmd(), NewWorkerReloadCmd()},
+		Subs: []*gcli.Command{NewWorkerListCmd(), NewWorkerDoctorCmd(info), NewWorkerStopCmd(), NewWorkerReloadCmd()},
 		Func: func(c *gcli.Command, args []string) error {
 			return runWorker(c, args, info)
 		},

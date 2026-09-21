@@ -19,20 +19,21 @@ import (
 	"github.com/inhere/gofer/internal/wshub"
 )
 
-// doctorCmd builds the `worker doctor` command with its options bound, the same
-// way the CLI does (bindCmd lives in config_test.go).
-func doctorCmd() *gcli.Command { return bindCmd(NewWorkerDoctorCmd(buildinfo.Info{})) }
-
-// saveWorkerDoctorOpts points the doctor's flag struct at a fixture config for
-// one test and restores the previous values afterwards.
-func saveWorkerDoctorOpts(t *testing.T, path string) {
+// doctorCmdAndOpts binds the `worker doctor` command the way the CLI does
+// (bindCmd lives in config_test.go) and THEN points its flag struct at a fixture
+// config, restoring the previous values afterwards. The order matters: binding
+// writes the flag DEFAULTS into workerDoctorOpts, so setting a field before the
+// bind would be clobbered.
+func doctorCmdAndOpts(t *testing.T, path string) *gcli.Command {
 	t.Helper()
+	c := bindCmd(NewWorkerDoctorCmd(buildinfo.Info{}))
 	old := workerDoctorOpts
+	t.Cleanup(func() { workerDoctorOpts = old })
 	workerDoctorOpts.config = path
 	workerDoctorOpts.timeout = "10s"
 	workerDoctorOpts.connect = true
 	workerDoctorOpts.json = false
-	t.Cleanup(func() { workerDoctorOpts = old })
+	return c
 }
 
 // writeWorkerDoctorConfig writes a worker.yaml fixture into dir and returns its path.
@@ -86,9 +87,9 @@ func TestWorkerDoctorReportsMissingConfig(t *testing.T) {
 	t.Setenv(config.EnvConfigDir, t.TempDir())
 	t.Setenv("GOFER_WORKER_TOKEN", "tok-doctor")
 	missing := filepath.Join(t.TempDir(), "nope.yaml")
-	saveWorkerDoctorOpts(t, missing)
+	cmd := doctorCmdAndOpts(t, missing)
 
-	rep, err := runWorkerDoctor(doctorCmd(), buildinfo.Info{})
+	rep, err := runWorkerDoctor(cmd, buildinfo.Info{})
 	if err == nil {
 		t.Fatal("a missing worker config must fail the doctor (non-zero exit)")
 	}
@@ -99,8 +100,8 @@ func TestWorkerDoctorReportsMissingConfig(t *testing.T) {
 	if !strings.Contains(row.Detail, "nope.yaml") {
 		t.Fatalf("config row must name the unreadable file, got %q", row.Detail)
 	}
-	if n := rep.failures(); n != 1 {
-		t.Fatalf("failures() = %d, want 1 (the doctor stops at an unreadable config)", n)
+	if n := rep.Failures; n != 1 {
+		t.Fatalf("Failures = %d, want 1 (the doctor stops at an unreadable config)", n)
 	}
 }
 
@@ -119,9 +120,9 @@ roots:
   - from: D:/work/demo
     to: %s
 `, slashPath(t.TempDir())))
-	saveWorkerDoctorOpts(t, path)
+	cmd := doctorCmdAndOpts(t, path)
 
-	rep, err := runWorkerDoctor(doctorCmd(), buildinfo.Info{})
+	rep, err := runWorkerDoctor(cmd, buildinfo.Info{})
 	if err == nil {
 		t.Fatal("an unresolvable hub host must exit non-zero")
 	}
@@ -159,9 +160,9 @@ roots:
   - from: D:/work/other
     to: %s
 `, slashPath(root), slashPath(root), slashPath(filepath.Join(root, "missing"))))
-	saveWorkerDoctorOpts(t, path)
+	cmd := doctorCmdAndOpts(t, path)
 
-	rep, err := runWorkerDoctor(doctorCmd(), buildinfo.Info{})
+	rep, err := runWorkerDoctor(cmd, buildinfo.Info{})
 	if err == nil {
 		t.Fatal("a missing root and a duplicate from must exit non-zero")
 	}
@@ -203,9 +204,9 @@ roots:
   - from: D:/work/demo
     to: %s
 `, wsURL, slashPath(t.TempDir())))
-		saveWorkerDoctorOpts(t, path)
+		cmd := doctorCmdAndOpts(t, path)
 
-		rep, err := runWorkerDoctor(doctorCmd(), buildinfo.Info{})
+		rep, err := runWorkerDoctor(cmd, buildinfo.Info{})
 		if err != nil {
 			t.Fatalf("doctor should pass against a live hub, got %v (rows %+v)", err, rep.Rows)
 		}
@@ -232,9 +233,9 @@ roots:
   - from: D:/work/demo
     to: %s
 `, wsURL, slashPath(t.TempDir())))
-		saveWorkerDoctorOpts(t, path)
+		cmd := doctorCmdAndOpts(t, path)
 
-		rep, err := runWorkerDoctor(doctorCmd(), buildinfo.Info{})
+		rep, err := runWorkerDoctor(cmd, buildinfo.Info{})
 		if err == nil {
 			t.Fatal("a rejected registration must exit non-zero")
 		}
@@ -274,9 +275,9 @@ roots:
   - from: D:/work/demo
     to: %s
 `, wsURL, slashPath(t.TempDir())))
-	saveWorkerDoctorOpts(t, path)
+	cmd := doctorCmdAndOpts(t, path)
 
-	rep, err := runWorkerDoctor(doctorCmd(), buildinfo.Info{})
+	rep, err := runWorkerDoctor(cmd, buildinfo.Info{})
 	if err != nil {
 		t.Fatalf("a skipped probe is a WARN, not a failure: %v (rows %+v)", err, rep.Rows)
 	}
@@ -298,21 +299,26 @@ func TestWorkerDoctorJSONIsMachineReadable(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv(config.EnvConfigDir, dir)
 	t.Setenv("GOFER_WORKER_TOKEN", "tok-doctor")
+	// A listener so the url row's TCP check has something to reach (connect=false
+	// keeps the doctor from registering on it).
+	srv := httptest.NewServer(http.NotFoundHandler())
+	t.Cleanup(srv.Close)
+	wsURL := "ws" + strings.TrimPrefix(srv.URL, "http") + "/v1/workers/connect"
 	path := writeWorkerDoctorConfig(t, dir, fmt.Sprintf(`worker_id: w-doctor
 server_link:
-  urls: [ws://127.0.0.1:1/v1/workers/connect]
+  urls: [%s]
   token_env: GOFER_WORKER_TOKEN
 roots:
   - from: D:/work/demo
     to: %s
-`, slashPath(t.TempDir())))
-	saveWorkerDoctorOpts(t, path)
+`, wsURL, slashPath(t.TempDir())))
+	cmd := doctorCmdAndOpts(t, path)
 	workerDoctorOpts.connect = false
 	workerDoctorOpts.json = true
 
-	rep, err := runWorkerDoctor(doctorCmd(), buildinfo.Info{})
+	rep, err := runWorkerDoctor(cmd, buildinfo.Info{})
 	if err != nil {
-		t.Fatalf("doctor run: %v", err)
+		t.Fatalf("doctor run: %v (rows %+v)", err, rep.Rows)
 	}
 	out, err := renderWorkerDoctor(rep, true)
 	if err != nil {
