@@ -52,6 +52,7 @@
 | **JOB-11** | **同 cwd 串行锁**：目标同一项目目录（非 worktree）的 job 排队（新状态 `waiting_dir`），避免两个 agent 踩同一 checkout；顺带 `agents.<k>.max_concurrent` | 高 | 小 | ⏳ | Multica `waiting_local_directory`，[refer](refer/reference-projects.md) |
 | **JOB-09** | **job wakeups**：agent（或人）在 job 上登记 事件订阅 / 定时器，job 结束后输入到达时自动 `job resume` 续投（等 verify、等人回复、每小时巡检），不占会话/hook | 高 | 中 | ⏳ | Multica wakeups；建立在 resume + schedules + 事件流上 |
 | **PLAN-02** | **todo 指派即派发**：todo 增 `assignee`(agent)/`template`/`verify`/`review`，状态到 `todo` 自动 `job run -t … --todo`；同一 todo 可多次 run / 换 agent；plan 级用量汇总 | 高 | 中 | ⏳ | Multica "assign an issue"；依赖 JOB-02/PLAN-01 |
+| **XFER-01** | **文件传输**：客户端 ↔ server ↔ worker 双向传文件（scp 式 `gofer cp ./x.bin w-hw-windows11:<project>/tmp/x.bin` / 反向拉回），worker 经既有 WS 收指令、经 HTTP + worker token 上传/下载；限项目根内（POLICY roots 映射）、大小上限、sha256、审计事件；`job run --upload local:dest` / `--collect <path>` 让 job 前置输入与产物随 job 传；`--runner local` 时直接落 server 主机 | 高 | 中 | ⏳ | 用户 2026-09-20：现在靠 base64 塞进 job 日志传文件；artifacts 清单只带元数据不带文件 |
 | **AUTO-05** | **输出停滞检测**：运行中 N 分钟无 stdout/stderr 增长 → 判 hung，kill 后按 transient 走续投/转移 | 中 | 小 | ⏳ | Multica "codex stalled output" |
 | JOB-10 | skills 绑定：项目/agent 级 skill 目录，派发时挂载（`.claude/skills` / AGENTS.md 引用）或注入，`gofer skill import <dir|zip|url>` | 中 | 中 | ⏳ | Multica skills；接 roles/模板 |
 | AUTO-02b | schedule 增 webhook 触发（`POST /v1/schedules/{id}/trigger` + 签名） | 中 | 小 | ⏳ | Multica autopilots |
@@ -71,7 +72,7 @@
 
 ## 三、建议下一批
 
-**「计划即派发」批（JOB-11 + AUTO-05 + PLAN-02 + JOB-09）**：先把并发安全（同 cwd 串行、停滞检测）补上，再让 plan 的 todo 直接指派给 agent 自动派发、job 能登记 wakeup 等条件到达后续投——这四项合起来就是 Multica 的核心工作模型，且全部建立在已有的 plan/todo、模板、verify、resume、schedules 之上。JOB-10 skills 与 AUTO-02b 视余量并入。
+**「文件传输 + 计划即派发」批（XFER-01 + JOB-11 + AUTO-05 + PLAN-02 + JOB-09）**：XFER-01 是当前最直接的痛点（worker 节点机上传/拿回文件现在靠 base64 走日志），先做；再把并发安全（同 cwd 串行、停滞检测）补上，再让 plan 的 todo 直接指派给 agent 自动派发、job 能登记 wakeup 等条件到达后续投——这四项合起来就是 Multica 的核心工作模型，且全部建立在已有的 plan/todo、模板、verify、resume、schedules 之上。JOB-10 skills 与 AUTO-02b 视余量并入。
 
 ## 四、维护约定
 
