@@ -118,6 +118,24 @@ agents:
 
 🔴 **一个 key 两种模式**：`args` = 批处理，`interactive_args` = pty；两者都写就是双模（内置模板的 claude/codex 已默认双模，但**自定义同名 agent 是整体覆盖**，要自己写 `interactive_args`）。旧写法 `interactive: true` = "仅交互、args 即 pty argv"（tty-claude 之类），这种 agent 普通 `job run` 会被拒 `has no batch mode`；`interactive: true` 配 `{{prompt}}` 是配置错误，serve **启动即拒**。四种组合与校验规则见 `config/gofer.example.yaml` 的 agents 注释。
 
+✅ **写回安全**（bd h-aii-kd57）：`config.Save` 现在按顶级键做**外科写回** —— 未改动的块（`agents:` 等）连注释、键序、`interactive_args: []` 的空列表拼写一起原样保留，只重写真正改动的块（块内注释会丢）。所以「web 改项目设置 / `project add|update` 把 `interactive_args: []` 抹掉、agent 变成不可交互」这个问题不会再出现；`log`/`session` 也不会再被重复写出。
+
+**acp-agent**（`type: acp-agent`，如内置 `claude-acp`/`omp-acp`）：`args: [acp]` 即协议入口，`{{prompt}}` 走协议不进程 argv。可选项：
+
+```yaml
+  omp-acp:
+    type: acp-agent
+    command: omp
+    args: [acp]
+    acp:
+      # modes: { read_only: plan }        # `job run --read-only` 映射到 agent 的 mode id
+      # permission_policy: ask|strict     # 只能比项目 approval 更严; 默认沿用项目策略
+      # load_session: false               # false = resume 直接报不支持, 不尝试 session/load
+      # log_thoughts: false               # 默认 true: 思考合并成一行落 stderr + acp.jsonl; false 完全不落
+```
+
+acp-agent 的日志分工：`stdout.log` 是 agent 文本（一条消息一块、块间空行），`stderr.log` 是紧凑事件行（`tool_call`/`thought`/`permission`/`plan`/`stop`，web 时间线直接渲染），`artifacts/acp.jsonl` 是完整结构化流；job 事件时间线只留生命周期（`job.permission_*` + 每回合一条 `job.acp_summary`）。
+
 ## 6. server / storage（常用项）
 
 ```yaml

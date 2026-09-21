@@ -118,3 +118,21 @@ httpapi handler ── callerMayAdmin(caller) 闸 ──▶ project.Registry.Add
 ## 13. 结论
 
 V1 以「projects CRUD（Registry live）+ 全量脱敏只读」交付 WEB-04③ 的可用子集，**刻意避开** server 字段热重载盲区与 secret 明文编辑两大风险面，复用 `project.Registry` + `config.Save` 现成原语，新增面小、可测、live 生效。server/secret 编辑作为 V1.1+ 独立推进（需先解热重载与 secret 写策略）。待确认 4 项拍板后出实施 plan。
+
+## 14. 外科写回（2026-09-21，bd h-aii-kd57）
+
+`Registry.save → config.Save`（`internal/config/writer.go`）不再整篇重排，改为按**顶级键**做外科手术：
+
+1. 原文用**同一 decoder** 解析成 `Config`（刻意**不跑 `ApplyDefaults`**：问的是"这次保存是否改动了文件写下的东西"，而不是"内存里的配置是否已补全默认值"——否则每次保存都会顺手重写 server/storage 等只为内存补默认的块），再 `yaml.Marshal` 得到每个托管键的规范化渲染；
+2. 新配置同样渲染，**逐键比较渲染字节**：
+   - 相等 → 该键从**原文文本**原样切出（注释、键序、空列表情写全保留，连内联注释前的空格都不动；改自 AST 重排会在这一步把 `args: [acp]      # note` 规范化掉）；
+   - 不等 → 用新渲染整块替换（**块内**注释会丢，块头的注释保留）；
+   - 新配置没有的键 → 整块删除；原文没有的托管键 → 追加到文件末尾；
+3. 非托管顶级键（`custom_top` 之类）一律原样保留。托管键集合由 `Config` 的 yaml tag 反射推出，不再靠手写表（此前 `log`/`session` 漏登记 → 同一个键既被结构体写出、又被当未知键追加，文件里出现重复块）。
+
+同一批修掉的两处同源缺陷：
+
+- **`interactive_args: []` 每次写回消失**（AGT-02：空列表 = "支持交互、裸启动"）。`AgentConfig.InteractiveArgs` 由 `[]string` 改为 `config.ArgList`（实现 goccy 的 `IsZeroer`，只有 `nil` 算零值），于是 `[]` 显式写回、不写则键消失。读它的地方（`agent.Modes`/`agent.Build`/`config.validate`）语义不变 —— 空列表本来就是"启用交互"。
+- **带内联注释的键被当作未知键**：`agents: # 注释` 的 `Key.String()` 含注释，`managedTopKeys` 查不中 → 该块被整块追加。判键改用 key token 的值。
+
+web 侧无需改动：项目设置保存与 `project add/update` 都走 `Registry.save`，因此"改项目"不再触碰 agents 块。测试：`internal/config` 的 `TestSaveKeepsEmptyInteractiveArgs` / `TestSaveOnlyRewritesChangedTopLevelKeys` / `TestSaveNewTopLevelKeyAppended` / `TestInteractiveArgsEmptyRoundTrip`，`internal/project` 的 `TestRegistrySaveDoesNotTouchAgents`。

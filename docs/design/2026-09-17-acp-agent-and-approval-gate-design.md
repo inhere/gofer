@@ -85,7 +85,7 @@ sequenceDiagram
 |---|---|
 | `agent_message_chunk` | 追加到 `stdout.log`（纯文本，合并 chunk），同时作为实时流 |
 | `agent_thought_chunk` | 不入 stdout；`acp.jsonl` 记 `thought`（可配置丢弃） |
-| `tool_call` / `tool_call_update` | `acp.jsonl` 一行一事件（`toolCallId, title, kind, status, locations, rawInput 摘要`）；job 事件 `job.tool_call`（status 变化才记，不记每次 content 更新）；web 时间线 |
+| `tool_call` / `tool_call_update` | `acp.jsonl` 一行一事件（`toolCallId, title, kind, status, locations, rawInput 摘要`）；job 事件 `job.tool_call`（status 变化才记，不记每次 content 更新）；web 时间线 —— **2026-09-21 起作废，见文末「输出整理」**（细节改走 stderr 紧凑事件，时间线只留生命周期） |
 | `plan` | `acp.jsonl`；web 侧显示为任务清单；可选同步为 plan todo（阶段 2） |
 | `session/request_permission` | 交互 `kind=permission`（见 GATE-01） |
 | `stopReason` | `end_turn`→done；`max_tokens`/`max_turn_requests`→done + `stop_reason` 字段 + warn；`refusal`→failed(`error_code=refusal`)；`cancelled`→cancelled/timeout |
@@ -430,3 +430,18 @@ peer 的 `errFromStatus` 把非终态当失败）。因此 `worker/dispatch.go` 
 `go vet ./...`、`go test ./...` 全绿，`vue-tsc --noEmit` 通过。
 未覆盖：IM 侧 accept/reject 双向操作（本设计已明确不做，IM 只发链接）；`reject --resume` 在 peer-http 解析（与既有 resume
 相同的 peer 限制：`ResumedFrom` 不跨公开 HTTP 契约）；web 的人工点击（无 e2e 框架，改动止于 vue-tsc 与代码审查）。
+
+## 输出整理（2026-09-21，bd h-aii-rnxk / h-aii-7kja）
+
+§一.3 的"job 事件 `job.tool_call`"一栏作废：执行细节离开 job 时间线，改走 stderr 的紧凑事件行。四路各司其职：
+
+| 输出 | 承载 |
+|---|---|
+| `stdout.log` | agent 文本（合并 chunk）。**一条消息一块**：tool_call / 权限往返之后的第一段文本前补空行，块结束补换行，回合收尾补尾换行 —— 实测形状 `"A\n\nB\n"`，不再是 `"AB"` |
+| `stderr.log` | 执行细节的**紧凑事件行**，与 ndjson 采集**同形状**（`ndjsonfilter.CompactEvent`，`{"type":…}`、单行 ≤2KB、超长字段标 `…(truncated)`）：`tool_call`（按 status 变化记）、`thought`（分片合并成一行）、`permission`（`state=requested|selected|cancelled`）、`plan`、`stop`。web 的 `NdjsonTimeline` 与 `job logs stderr` 直接可读；agent 进程自己的 stderr 行照旧混在其中 |
+| `artifacts/acp.jsonl` | 完整结构化流（调试产物；rawInput/rawOutput 截断、每行 ≤4KB）。`thought` 同样按消息合并成一行；`agents.<k>.acp.log_thoughts: false` 时思考**完全不落**（stderr 与 acp.jsonl 都没有） |
+| job 事件 | 只留生命周期：审批门的 `job.permission_requested|answered|timed_out`，加上回合结束时**一条** `job.acp_summary {tool_calls,thoughts,permissions,stop_reason}`（`tool_calls` = 本回合的不同 toolCallId 数，`thoughts` = 收到的分片数，`permissions` = 本回合裁决的求批数）。在 worker 上跑时 `job.acp_summary` 与 permission 事件一样镜像回 host（`job.mirroredEventTypes`） |
+
+- 动机（实测）：一个 job 的 `acp.jsonl` 6 万行、其中 96% 是逐 token 的 thought；tool_call 每次状态变化都记 job 事件，详情页时间线被拉到几千条 —— 两者都不是给人看的。
+- 顺带删除：`job.EventJobToolCall` 常量、web 时间线的 `job.tool_call` 渲染分支（G032：无人用即删）；新增 `job.EventJobACPSummary`（字面量在 `internal/runner`，与 permission 事件同一套"单一定义"）。
+- 测试：`internal/job` 的 `TestACPStdoutSeparatesMessages` / `TestACPThoughtsCoalescedToStderr` / `TestACPToolCallsToStderrNotTimeline` / `TestACPLogThoughtsOff`；`internal/runner/acp` 的 `TestStderrEventLineShapeMatchesNdjson`。假 server（`internal/acp/acptest`）新增 `--thought-chunks` 以脚本化多段 thought 分片。
