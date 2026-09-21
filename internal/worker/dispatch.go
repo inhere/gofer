@@ -116,6 +116,13 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// the hub owns the result dir and pulls the bytes back itself.
 		Uploads: xferUploadsFromWire(d.Uploads),
 		Collect: d.Collect,
+		// JOB-11 / AUTO-05: the hub decided whether this job holds the exclusive lock of
+		// its (worker-local) working directory and after how long silence kills it, so
+		// apply that decision here — the worker's own server.dir_lock / stall defaults
+		// must not override what the submitting side already resolved. nil (an old hub)
+		// leaves the worker to resolve them from ITS config, which is the pre-P1 reading.
+		ExclusiveDir:    d.ExclusiveDir,
+		StallTimeoutSec: d.StallTimeoutSec,
 		// GATE-01 S3: 人工验收 is decided by the HUB (the design's "验收判定只在 hub
 		// 做"), so a dispatched job's LOCAL row must finish normally — its status is
 		// what the Result frame reports and what the log-tail loop waits on, and a

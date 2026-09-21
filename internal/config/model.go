@@ -364,6 +364,12 @@ type ServerConfig struct {
 	// An absent block (all zero) keeps the documented defaults (256MB / 24h) — the
 	// capability is always on, so there is no enable switch to get wrong.
 	Xfer XferConfig `yaml:"xfer,omitempty"`
+	// DirLock is the JOB-11 same-directory serialization switch. A POINTER so an
+	// explicit `dir_lock: false` (every job shares its working directory — the
+	// pre-JOB-11 behaviour) is distinguishable from "unset", which defaults to ON
+	// (see EffectiveDirLock). Turning it off is the operator's escape hatch for a
+	// deployment where the jobs are known not to touch one tree.
+	DirLock *bool `yaml:"dir_lock,omitempty"`
 }
 
 // XferConfig is the server.xfer block (XFER-01, design §一.1/§一.2). Every field is
@@ -441,6 +447,17 @@ func (c *Config) AgentFallbackOnFailure() bool {
 // before dispatching. Default OFF (design decision 1).
 func (c *Config) AgentFallbackPreDispatch() bool {
 	return c != nil && c.Server.AgentFallback != nil && c.Server.AgentFallback.PreDispatch
+}
+
+// EffectiveDirLock resolves the JOB-11 same-directory serialization switch: an
+// explicit `server.dir_lock` wins, an unset one means ON (a deployment that never
+// mentioned it gets the safe behaviour — adjacent writable agent jobs queue instead
+// of editing one tree at once). Turning it off makes every job shared.
+func (c *Config) EffectiveDirLock() bool {
+	if c == nil || c.Server.DirLock == nil {
+		return true
+	}
+	return *c.Server.DirLock
 }
 
 // EffectiveAgentHealth resolves the health window/thresholds, filling unset fields
@@ -1386,6 +1403,11 @@ type AgentConfig struct {
 	// ACP is the type=acp-agent sub-block (protocol-level settings). Ignored by
 	// every other agent type.
 	ACP *ACPConfig `yaml:"acp,omitempty"`
+	// MaxConcurrent caps how many jobs of THIS agent may run at once (JOB-11).
+	// 0/unset = unlimited, i.e. exactly the pre-JOB-11 behaviour. Like the project
+	// and caller caps it QUEUES the excess (the job stays `queued`), it never
+	// rejects: a saturated agent is a throughput limit, not an admission error.
+	MaxConcurrent int `yaml:"max_concurrent,omitempty"`
 }
 
 // ACPConfig is the acp-agent's protocol-level configuration

@@ -97,6 +97,11 @@ func unsupportedDispatchFields(proto int, f *runner.Forward) []string {
 	if (len(f.Uploads) > 0 || len(f.Collect) > 0) && !wsproto.SupportsFileXfer(proto) {
 		lacks = append(lacks, "uploads/collect")
 	}
+	// JOB-11 / AUTO-05 (exclusive_dir / stall_timeout_sec) are deliberately NOT in this
+	// list: an older worker ignores them and runs the job exactly as it does today
+	// (sharing the directory, never stalling it) — the protections simply do not apply
+	// there, and nothing the caller asked for is silently lost. That is the difference
+	// from uploads/collect, whose absence would run the job without its input files.
 	return lacks
 }
 
@@ -332,6 +337,11 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// they act on) — the staged upload ids and the collect globs ride the dispatch.
 		Uploads: xferUploadsToWire(f.Uploads),
 		Collect: f.Collect,
+		// JOB-11 / AUTO-05: the hub resolved the directory lock and the stall window
+		// against ITS config (this machine validated the request), so the worker applies
+		// them as decided instead of re-deriving its own (see Dispatch's field docs).
+		ExclusiveDir:    f.ExclusiveDir,
+		StallTimeoutSec: f.StallTimeoutSec,
 	}
 	// ACP-01 S2: a continuation carries its session + lineage so the worker's local
 	// job resolves the same session/load. Set ONLY for a resume — a plain job's

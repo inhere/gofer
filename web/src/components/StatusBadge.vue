@@ -4,7 +4,7 @@ import { computed } from 'vue'
 import { statusColor } from '../api/client'
 import type { JobStatus } from '../api/types'
 
-const props = defineProps<{ status: JobStatus }>()
+const props = defineProps<{ status: JobStatus; holder?: string }>()
 
 const dotColor = computed(() => statusColor(props.status))
 // queued/cancelled 共用 --queue，cancelled 视觉上压暗以区分（rejected 也压暗：
@@ -16,14 +16,20 @@ const dim = computed(() => props.status === 'cancelled' || props.status === 'rej
 const LABELS: Partial<Record<JobStatus, string>> = {
   pending_interaction: '⚠ 待应答',
   needs_review: '⚠ 待验收',
+  // JOB-11：等在同一个目录锁上（非终态，等同 queued）。
+  waiting_dir: '⏳ 等目录',
 }
 const label = computed(() => LABELS[props.status] ?? props.status)
 // needs_review 同样脉冲：agent 干完了，现在轮到人。
 const attention = computed(() => props.status === 'pending_interaction' || props.status === 'needs_review')
+// waiting_dir 的悬停提示点名持有目录锁的 job：芯片只有两三个字，说不清"在等谁"。
+const title = computed(() =>
+  props.status === 'waiting_dir' && props.holder ? `等待目录锁，持有者 ${props.holder}` : undefined,
+)
 </script>
 
 <template>
-  <span class="badge mono" :class="{ 'badge--dim': dim, 'badge--attn': attention }">
+  <span class="badge mono" :class="{ 'badge--dim': dim, 'badge--attn': attention }" :title="title">
     <span class="badge-dot" :style="{ background: dotColor }"></span>
     <span class="badge-text" :style="{ color: dotColor }">{{ label }}</span>
   </span>

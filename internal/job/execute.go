@@ -16,11 +16,24 @@ import (
 	"github.com/inhere/gofer/internal/store"
 )
 
+// execGates are the gates a job's execute() passes before it runs (JOB-11): the
+// project / caller / agent concurrency semaphores (nil = ungated, the job runs at
+// once) plus the RESOLVED exclusive-directory flag. They are bundled because Submit
+// resolves them all from ONE config snapshot and hands them over together — a struct
+// keeps that hand-off readable instead of a five-argument tail.
+type execGates struct {
+	project   chan struct{}
+	caller    chan struct{}
+	agent     chan struct{}
+	exclusive bool // hold the same-directory lock for this job's WorkDir
+}
+
 // execute runs the job: it acquires the project concurrency slot, opens the log
 // files, runs the command under a timeout context and persists the terminal
-// status to the metadata store. While the job waits for a slot it stays in
-// `queued`.
-func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem chan struct{}, req runner.Request, timeout time.Duration) {
+// status to the metadata store. While the job waits for a slot (or for the
+// exclusive directory lock) it stays in a non-running holding state (`queued` /
+// `waiting_dir`).
+func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, req runner.Request, timeout time.Duration) {
 	defer close(entry.done)
 
 	// Establish the cancellable context first so a cancel issued while the job is
@@ -36,10 +49,10 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 
 	// Wait for a project concurrency slot (if limited), but abort if cancelled
 	// while queued.
-	if sem != nil {
+	if gates.project != nil {
 		select {
-		case sem <- struct{}{}:
-			defer func() { <-sem }()
+		case gates.project <- struct{}{}:
+			defer func() { <-gates.project }()
 		case <-ctx.Done():
 			status, code, runErr := classify(ctx, runner.Result{ExitCode: -1})
 			s.finish(entry, req.JobID, status, code, runErr)
@@ -53,10 +66,10 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 	// deferred releases unwind caller-then-project (reverse LIFO order), and a job
 	// holding a project slot never blocks indefinitely on a caller slot another
 	// project-slot holder is waiting to release.
-	if callerSem != nil {
+	if gates.caller != nil {
 		select {
-		case callerSem <- struct{}{}:
-			defer func() { <-callerSem }()
+		case gates.caller <- struct{}{}:
+			defer func() { <-gates.caller }()
 		case <-ctx.Done():
 			status, code, runErr := classify(ctx, runner.Result{ExitCode: -1})
 			s.finish(entry, req.JobID, status, code, runErr)
@@ -64,7 +77,57 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 		}
 	}
 
+	// JOB-11: the per-agent slot (agents.<key>.max_concurrent), last of the three
+	// semaphores so a job releases them in reverse order and a saturated agent never
+	// holds a project slot another project is waiting for. Same queuing semantics.
+	if gates.agent != nil {
+		select {
+		case gates.agent <- struct{}{}:
+			defer func() { <-gates.agent }()
+		case <-ctx.Done():
+			status, code, runErr := classify(ctx, runner.Result{ExitCode: -1})
+			s.finish(entry, req.JobID, status, code, runErr)
+			return
+		}
+	}
+
+	// JOB-11: serialize the jobs that must not share a working directory. Acquired
+	// AFTER every concurrency slot (a job parked on a directory must not hold a slot
+	// the directories do not need) and BEFORE the status flips to running, so the
+	// whole wait is visible as `waiting_dir`. A managed-worktree job is skipped: its
+	// directory is created for IT alone (<repo>/tmp/gofer/wt/<job-id>), so there is
+	// nothing to serialize — and taking the ancestor lock of the enclosing checkout
+	// would make every worktree job queue behind the main one, which is exactly the
+	// parallelism WT-01 exists to provide.
+	//
+	// releaseDir is a no-op until a lock is taken, and Idempotent afterwards: every
+	// finish below calls it FIRST, so the directory is free before the terminal row is
+	// observable (a workflow step advancing out of finish() may want this very
+	// directory), while the deferred call still covers a panic.
+	releaseDir := func() {}
+	if gates.exclusive && entry.wt == nil {
+		release, holder, waited, derr := s.dirLock.Acquire(ctx, req.WorkDir, req.JobID, func(blocker string) {
+			s.enterWaitingDir(entry, req.JobID, blocker, req.WorkDir)
+		})
+		if derr != nil {
+			// Cancelled while queued (or the wait raced with a cancel): the job ends
+			// through the same path as a cancelled semaphore wait.
+			status, code, runErr := classify(ctx, runner.Result{ExitCode: -1})
+			s.finish(entry, req.JobID, status, code, runErr)
+			return
+		}
+		releaseDir = release
+		defer func() { releaseDir() }()
+		if waited {
+			slog.Info("job.dir_wait", "job_id", req.JobID, "holder", holder, "dir", req.WorkDir)
+		}
+	}
+
 	entry.mu.Lock()
+	// The holder is no longer interesting once this job is the holder: it is cleared
+	// in the same critical section that flips the status, so no reader can see a
+	// running job that still claims to be waiting.
+	entry.result.WaitingOnJob = ""
 	entry.result.Status = StatusRunning
 	entry.result.RenderedCommand = renderedCommandJSON(req)
 	// SUP-01 C: the commit the job starts from, captured HERE (the executing machine,
@@ -86,6 +149,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 
 	stdout, errOut := entry.store.LogWriter(req.JobID, store.StreamStdout)
 	if errOut != nil {
+		releaseDir()
 		s.finish(entry, req.JobID, StatusFailed, -1, fmt.Errorf("open stdout log: %w", errOut))
 		return
 	}
@@ -94,6 +158,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 	defer func() { _ = stdout.Close() }()
 	stderr, errErr := entry.store.LogWriter(req.JobID, store.StreamStderr)
 	if errErr != nil {
+		releaseDir()
 		s.finish(entry, req.JobID, StatusFailed, -1, fmt.Errorf("open stderr log: %w", errErr))
 		return
 	}
@@ -148,6 +213,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 			// files still open; on Windows that alone can block the dir's deletion).
 			_ = stdout.Close()
 			_ = stderr.Close()
+			releaseDir()
 			s.finish(entry, req.JobID, StatusFailed, -1, err)
 			return
 		}
@@ -214,7 +280,26 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 	// result is already recorded locally or, for a remote job, applied by
 	// captureOutcomes above).
 	status, code, runErr = s.foldVerify(entry, status, code, runErr)
+	releaseDir()
 	s.finish(entry, req.JobID, status, code, runErr)
+}
+
+// enterWaitingDir parks a job on the same-directory lock (JOB-11): it flips the
+// status to `waiting_dir` with the holder that blocked it, persists that holding
+// snapshot (so a crash leaves an inspectable row rather than a job that looks
+// queued for no reason) and records job.waiting_dir. Like the semaphore waits, the
+// job is NOT running yet: no execution slot, no process — the state is queuing.
+func (s *Service) enterWaitingDir(entry *jobEntry, jobID, holder, dir string) {
+	entry.mu.Lock()
+	entry.result.Status = StatusWaitingDir
+	entry.result.WaitingOnJob = holder
+	snap := entry.result
+	entry.mu.Unlock()
+
+	if err := s.persist(snap); err != nil {
+		slog.Warn("persist waiting_dir snapshot", "job_id", jobID, "err", err)
+	}
+	s.recordEvent(jobID, EventJobWaitingDir, map[string]any{"holder_job": holder, "dir": dir})
 }
 
 // finish records the terminal state for a job: it updates the in-memory snapshot,

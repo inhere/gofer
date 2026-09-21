@@ -116,6 +116,14 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	}
 	req.Fallback = fallback
 
+	// JOB-11: resolve the same-directory lock decision ONCE, from the SAME cfg snapshot
+	// that validated the request and AFTER any submit-time agent substitution (the
+	// substituted agent's TYPE is what the default rule reads). Stamping it back onto
+	// the request keeps one decided value on every surface: request_json, the persisted
+	// row, the peer/worker forward and the executing machine.
+	dirExclusive := resolveDirExclusive(cfg, &req)
+	req.ExclusiveDir = &dirExclusive
+
 	// bd h-aii-s9ck: resolve the job's deadline ONCE, from the SAME cfg snapshot as
 	// validation (project ceiling > server ceiling > 1h default), BEFORE the entry /
 	// forward are built. The running job (execute's ctx), the persisted row, the API
@@ -325,6 +333,10 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// pre-X2 forward.
 			Uploads: xferUploadsToRunner(req.Uploads),
 			Collect: req.Collect,
+			// JOB-11: the resolved same-directory lock decision travels to the machine
+			// that owns the checkout — its job.Service is the one that can actually hold
+			// the lock (this process only knows a relative cwd for a remote job).
+			ExclusiveDir: req.ExclusiveDir,
 		}
 		// Bridge the peer's running-job interactions (P9) onto this host job.
 		runReq.Interactions = remoteInteractionSink{s: s, jobID: jobID}
@@ -449,6 +461,9 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			Interactive: req.Interactive,
 			// bd h-aii-0ql3：只读是 job 的持久属性（jobs.read_only），resume 继承、show/web 可见。
 			ReadOnly: req.ReadOnly,
+			// JOB-11：同 cwd 独占决策（jobs.dir_exclusive）——提交期定死，show/web 与
+			// 事后排查据此回答"这次运行当初是否（被允许）独占这棵工作树"。
+			DirExclusive: dirExclusive,
 			// GATE-01 S3：人工验收同样是 job 的持久属性（jobs.require_review），决定
 			// finish 是落 done 还是 needs_review，resume 继承、show/web 可见。
 			RequireReview: req.Review,
@@ -577,9 +592,44 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// snapshot (caller override > governance default > unlimited). nil when the
 	// caller has no cap or no id — then execute does not gate on it.
 	callerSem := s.callerSemaphore(req.CallerID, cfg.Server.CallerConcurrencyLimit(req.CallerID))
-	go s.execute(entry, run, sem, callerSem, runReq, timeout)
+	// JOB-11: per-agent concurrency slot (agents.<key>.max_concurrent). Resolved from
+	// the SAME snapshot as the request that was validated, and keyed on the RESOLVED
+	// agent (a role/template may have filled it above).
+	agentSem := s.agentSemaphore(req.Agent, cfg.Agents[req.Agent].MaxConcurrent)
+	go s.execute(entry, run, execGates{
+		project:   sem,
+		caller:    callerSem,
+		agent:     agentSem,
+		exclusive: req.ExclusiveDir != nil && *req.ExclusiveDir,
+	}, runReq, timeout)
 
 	return entry.snapshot(), nil
+}
+
+// resolveDirExclusive decides whether a job takes the exclusive same-directory lock
+// (JOB-11, design §二 + decision 3) and STAMPS the decision onto the request, so
+// request_json, the persisted row, the peer/worker forward and the executing machine
+// all carry ONE value instead of each re-deriving one from its own config:
+//
+//   - server.dir_lock off → every job shares (the operator's escape hatch);
+//   - an explicit --exclusive-dir / --shared-dir wins either way;
+//   - otherwise a WRITABLE agent job is exclusive: a cli-agent/acp-agent that is not
+//     read-only and not interactive. exec jobs are shared by default (git log, go
+//     test, a巡检 must not queue behind an agent), and so are read-only ones;
+//   - an agent this server cannot resolve (peer-only) is NOT assumed exclusive: the
+//     decision then belongs to the machine that runs it, which can resolve it.
+func resolveDirExclusive(cfg *config.Config, req *JobRequest) bool {
+	switch {
+	case !cfg.EffectiveDirLock():
+		return false
+	case req.ExclusiveDir != nil:
+		return *req.ExclusiveDir
+	}
+	ac, ok := agent.ResolveAgent(cfg, req.Agent)
+	if !ok {
+		return false
+	}
+	return ac.Type != agent.TypeExec && !req.ReadOnly && !req.Interactive
 }
 
 // titleMaxRunes caps an auto-extracted job title (defaultJobTitle).

@@ -105,8 +105,26 @@ type JobRequest struct {
 	// `GET /v1/jobs/{id}/artifacts/collected/...` and the web preview serve it. A file
 	// over the transfer's byte cap is skipped and listed rather than dropped silently.
 	Collect []string `json:"collect,omitempty" yaml:"collect,omitempty"`
-	Cols    int      `json:"cols,omitempty" yaml:"cols,omitempty"`
-	Rows    int      `json:"rows,omitempty" yaml:"rows,omitempty"`
+	// ExclusiveDir overrides the same-directory lock rule for this job (JOB-11): nil
+	// (the default) applies the rule — a WRITABLE agent job (cli/acp, not read-only,
+	// not interactive) takes the exclusive lock of its working directory, while exec
+	// and read-only jobs share it. `--exclusive-dir` forces the lock (an exec job
+	// included), `--shared-dir` gives it up. Submit resolves it ONCE and persists the
+	// decided value (request_json + jobs.dir_exclusive), so a reload cannot change
+	// what an already-submitted job does — and a remote executor applies the hub's
+	// decision instead of re-deriving one from its own config.
+	ExclusiveDir *bool `json:"exclusive_dir,omitempty" yaml:"exclusive_dir,omitempty"`
+	// StallTimeoutSec is the AUTO-05 output-stall window in seconds for THIS job: a
+	// non-interactive job that produces no stdout/stderr (and no acp update) for that
+	// long is killed and failed as stalled. nil = resolve the default (agent override
+	// > server.stall_timeout_sec > 900s for an agent job, 0 = OFF for an exec job —
+	// builds and test suites are silent for long stretches by nature). 0 = explicitly
+	// off. `job run --stall-timeout <sec>` sets it; an interactive job is never
+	// watched. Resolved at submit and carried to the execution machine, which applies
+	// the decision instead of re-deriving one from its own config.
+	StallTimeoutSec *int `json:"stall_timeout_sec,omitempty" yaml:"stall_timeout_sec,omitempty"`
+	Cols            int  `json:"cols,omitempty" yaml:"cols,omitempty"`
+	Rows            int  `json:"rows,omitempty" yaml:"rows,omitempty"`
 	// InitialInput is text the pty runner types into an INTERACTIVE job's stdin
 	// once its terminal has settled (session relay §9.1 B: the first message of a
 	// `--resume` takeover). Internal: json/yaml "-" keeps it off the wire and out
@@ -362,6 +380,18 @@ type JobResult struct {
 	ReviewedBy    string `json:"reviewed_by,omitempty"`
 	ReviewedAt    int64  `json:"reviewed_at,omitempty"`
 	ReviewNote    string `json:"review_note,omitempty"`
+	// DirExclusive is the job's RESOLVED same-directory lock policy (JOB-11),
+	// persisted to jobs.dir_exclusive: true means this job holds (or would hold) the
+	// exclusive lock of its working directory, so no other exclusive job runs in that
+	// directory, an ancestor or a descendant of it at the same time. It explains why
+	// a job waited, and after the fact it answers "was this run allowed to share the
+	// tree?" for a finished row.
+	DirExclusive bool `json:"dir_exclusive,omitempty"`
+	// WaitingOnJob is the job currently HOLDING the directory lock this one waits
+	// for (JOB-11): set only while Status is StatusWaitingDir and cleared the moment
+	// the lock is taken. It is live-only state (no column): a job that is not waiting
+	// has no holder to report, and the terminal row must not keep claiming one.
+	WaitingOnJob string `json:"waiting_on_job,omitempty"`
 	// TimeoutSec is the EFFECTIVE job deadline in seconds AFTER the configured
 	// ceiling clamp (bd h-aii-s9ck), persisted to jobs.timeout_sec so a post-mortem
 	// answers "why did my 2h request die at 1h?" without replaying config history.
@@ -624,6 +654,14 @@ const (
 	// only a human's `reject --resume` decides whether the work is continued.
 	// Appended to the END of the enum so existing values never shift.
 	StatusRejected = "rejected"
+	// StatusWaitingDir (JOB-11) is the NON-terminal state of an exclusive job that is
+	// parked on the same-directory lock: another job holds it for a directory that is
+	// this one's cwd, an ancestor or a descendant of it. Like the concurrency gates it
+	// replaces, waiting is QUEUING, not failure — the job keeps `IsFinished` false, is
+	// counted with `queued` everywhere (statistics, in-flight gauge), is cancellable,
+	// and leaves as soon as the holder releases the directory. Appended to the END of
+	// the enum so existing values never shift.
+	StatusWaitingDir = "waiting_dir"
 )
 
 // Job lifecycle event types (E13, design §5.2). Each is recorded append-only via
@@ -697,6 +735,12 @@ const (
 	// keeps the requested agent in requested_agent, so "why did this run on another
 	// agent?" is answered from the job itself.
 	EventJobAgentSubstituted = "job.agent_substituted"
+	// EventJobWaitingDir is an exclusive job parking on the same-directory lock
+	// (JOB-11): {holder_job, dir} — WHO holds the directory this job needs and which
+	// directory that is. It is recorded once, as the job enters `waiting_dir`; the
+	// job's own job.running event later says it got in. A subscriber sees the queue
+	// without polling the row.
+	EventJobWaitingDir = "job.waiting_dir"
 )
 
 // Workflow lifecycle event types (P1, design §5.4). Recorded append-only via

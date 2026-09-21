@@ -971,6 +971,9 @@ const STATUS_COLOR: Record<JobStatus, string> = {
   // 活信号）；rejected = 终态失败族（人明确拒绝，用它自己的红）。
   needs_review: 'var(--phosphor)',
   rejected: 'var(--fail)',
+  // JOB-11 waiting_dir：等在同一个目录锁上——"排队中"的灰蓝，与 queued 同族（它就是
+  // queued 的一种），不新增 token：徽标文案与 title 里的持有者已经把它讲清楚了。
+  waiting_dir: 'var(--queue)',
 }
 
 export function statusColor(status: JobStatus): string {

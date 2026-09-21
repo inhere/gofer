@@ -120,6 +120,10 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 			// bd h-aii-0ql3: read-only is a property of the work, so it is inherited —
 			// the executor switches the loaded session back into the read-only mode.
 			ReadOnly: src.ReadOnly,
+			// JOB-11: the continuation works in the SAME directory as the run it
+			// continues, so it inherits that run's lock decision instead of re-deriving
+			// one from its own carrier shape. Same reasoning as ReadOnly above.
+			ExclusiveDir: &src.DirExclusive,
 			// GATE-01 S3: so is人工验收 — the continuation delivers the same work to the
 			// same reviewer, and a reviewed chain never becomes self-accepting halfway.
 			// ReviewFixed pins the SOURCE's resolved decision, so a project default that
@@ -207,6 +211,9 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		SessionID: src.SessionID,
 		// bd h-aii-0ql3：只读随链继承（argv 已带沙箱参数，这里同时记录在 job 行上）。
 		ReadOnly: src.ReadOnly,
+		// JOB-11：同 cwd 独占决策也随链继承——续接的 argv 由 exec 载体执行，若按载体
+		// 类型重新推导就会把"可写 agent job"悄悄降级成共享目录，续接就可能和别的 job 抢同一棵树。
+		ExclusiveDir: &src.DirExclusive,
 		// GATE-01 S3：人工验收同样随链继承（与上面 acp 路径同一规则）。
 		Review:      src.RequireReview,
 		ReviewFixed: true,

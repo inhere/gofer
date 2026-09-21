@@ -168,6 +168,14 @@ type Service struct {
 	// changing a caller's MaxConcurrentJobs does NOT resize an already-built sem —
 	// the NEW value takes effect when the caller next has no live sem / on restart.
 	callerSems map[string]chan struct{}
+	// agentSems holds per-agent concurrency semaphores (JOB-11,
+	// agents.<key>.max_concurrent). Same lazy-create + fixed-capacity model as sems
+	// (guarded by s.mu); an agent with no limit (<= 0) gets nil (no gating).
+	agentSems map[string]chan struct{}
+	// dirLock serializes the exclusive jobs that share a working directory (JOB-11).
+	// It is process-scoped: the machine that RUNS a job is the one that locks its
+	// directory (a dispatched remote job is locked by the worker's own Service).
+	dirLock *dirLocks
 
 	// nowFn yields the current time; overridable in tests.
 	nowFn func() time.Time
@@ -284,6 +292,12 @@ func (s *Service) Stats() ServiceStats {
 		switch e.result.Status {
 		case StatusQueued:
 			st.Queued++
+		case StatusWaitingDir:
+			// JOB-11: a job parked on a directory lock is QUEUED for occupancy
+			// purposes (it holds no execution slot yet), exactly like the jobs waiting
+			// on the project/caller/agent semaphores — the in-flight gauge must keep
+			// counting it, and the queue must not look empty behind a busy directory.
+			st.Queued++
 		case StatusRunning:
 			st.Running++
 		case StatusRecovering:
@@ -339,6 +353,8 @@ func NewService(cfg *config.Config, projects *project.Registry, agents *agent.Re
 		jobs:       map[string]*jobEntry{},
 		sems:       map[string]chan struct{}{},
 		callerSems: map[string]chan struct{}{},
+		agentSems:  map[string]chan struct{}{},
+		dirLock:    newDirLocks(),
 		adoptWake:  make(chan struct{}, 1),
 		nowFn:      time.Now,
 	}

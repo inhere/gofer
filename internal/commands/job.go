@@ -52,6 +52,8 @@ type jobRunFlags struct {
 	worktreeBase string
 	review       bool
 	readOnly     bool
+	exclusiveDir bool
+	sharedDir    bool
 	verify       string
 	verifyTime   int
 	noVerify     bool
@@ -462,6 +464,10 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.VarOpt(&jobRunOpts.agentArgs, "agent-arg", "", "extra arg appended to cli-agent argv (repeatable)", gflag.WithCategory("Execution"))
 	// bd h-aii-0ql3：只读 job（cli-agent 追加沙箱参数 / acp-agent session/set_mode）。
 	c.BoolOpt2(&jobRunOpts.readOnly, "read-only", "run read-only: audit/analysis only, the agent cannot write (cli-agent read_only_args / acp-agent acp.modes.read_only)", gflag.WithCategory("Execution"))
+	// JOB-11：同 cwd 串行锁的两个反转开关。默认规则 = 可写 agent job 独占其工作目录、
+	// exec/只读 job 共享；两者都不给 = 交给 server 按默认规则判定（三态）。
+	c.BoolOpt2(&jobRunOpts.exclusiveDir, "exclusive-dir", "force the exclusive same-directory lock for this job (an exec job included): no other exclusive job runs in this directory, its ancestors or its subdirectories", gflag.WithCategory("Execution"))
+	c.BoolOpt2(&jobRunOpts.sharedDir, "shared-dir", "give up the exclusive same-directory lock for this job (share the tree with other jobs, at your own risk)", gflag.WithCategory("Execution"))
 	// GATE-01 S3：人工验收——agent 正常完成后停在 needs_review，等人 accept/reject。
 	c.BoolOpt2(&jobRunOpts.review, "review", "require human review: on a normal completion the job parks in needs_review until someone accepts or rejects it", gflag.WithCategory("Execution"))
 	c.IntOpt2(&jobRunOpts.timeout, "timeout", "job timeout in seconds (0 = server default)", jobRunOptCategory("Execution", 0))
@@ -929,6 +935,18 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		}
 		verify = words
 	}
+	// JOB-11：同 cwd 独占的三态——两个都不给 = nil（server 按默认规则判定）。
+	var exclusive *bool
+	switch {
+	case jobRunOpts.exclusiveDir && jobRunOpts.sharedDir:
+		return job.JobRequest{}, fmt.Errorf("--exclusive-dir and --shared-dir are mutually exclusive")
+	case jobRunOpts.exclusiveDir:
+		v := true
+		exclusive = &v
+	case jobRunOpts.sharedDir:
+		v := false
+		exclusive = &v
+	}
 	req := job.JobRequest{
 		ProjectKey:     jobRunOpts.project,
 		Agent:          jobRunOpts.agent,
@@ -950,6 +968,8 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		TodoID:         jobRunOpts.todo,
 		Interactive:    jobRunOpts.interactive,
 		ReadOnly:       jobRunOpts.readOnly,
+		// JOB-11：同 cwd 独占决策（nil = 交给 server 的默认规则）。
+		ExclusiveDir: exclusive,
 		// GATE-01 S3：人工验收（正常完成 → needs_review，等人 accept/reject）。
 		Review: jobRunOpts.review,
 		// SUP-01 P2：验证步骤（argv 已在此拆好）+ 它的独立超时 + 关闭项目默认的开关。
@@ -1162,6 +1182,16 @@ func waitDeadline(now time.Time, timeoutSec int) time.Time {
 	return now.Add(time.Duration(timeoutSec)*time.Second + waitGrace)
 }
 
+// dirLockLabel renders a job's resolved same-directory lock policy (JOB-11) for
+// `job show`: "exclusive" when the job holds (or would hold) the lock of its working
+// directory, "shared" when it runs alongside whoever else is there.
+func dirLockLabel(exclusive bool) string {
+	if exclusive {
+		return "exclusive"
+	}
+	return "shared"
+}
+
 func waitTerminal(cli *client.Client, id string, timeoutSec int) (job.JobResult, error) {
 	deadline := waitDeadline(time.Now(), timeoutSec)
 	for {
@@ -1227,6 +1257,11 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	// bd h-aii-0ql3：只读 job（沙箱）——回答"这次运行是否被允许写文件"。
 	if res.ReadOnly {
 		c.Printf("read_only:  true\n")
+	}
+	// JOB-11：同 cwd 独占/共享 + 等在目录锁上时的持有者——回答"为什么我的 job 还没跑"。
+	c.Printf("dir:        %s\n", dirLockLabel(res.DirExclusive))
+	if res.Status == job.StatusWaitingDir {
+		c.Printf("waiting_dir: holder=%s\n", res.WaitingOnJob)
 	}
 	// GATE-01 S3：人工验收——是否要求人验收，以及已经做出的裁决（谁/何时/为什么）。
 	// needs_review 时 reviewed_* 为空，正说明"还没人裁"。

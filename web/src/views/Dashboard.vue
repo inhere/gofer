@@ -18,6 +18,8 @@ const jobStatuses: JobStatus[] = [
   // 在首页看起来像"什么都没发生"。
   'needs_review',
   'queued',
+  // JOB-11 waiting_dir（等目录锁）不单列：/v1/stats 已把它并进 queued（见 stats_handler），
+  // 这里再列一行会永远显示 0。
   'done',
   'failed',
   'cancelled',

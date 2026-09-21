@@ -6,6 +6,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -118,6 +119,12 @@ func (s *Server) handleStats(c *rux.Context) {
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "count jobs failed", err.Error())
 		return
+	}
+	// JOB-11: `waiting_dir`（等在同一个目录锁上）对订阅者是"排队中"，与 queued 同组计数——
+	// by_status 只报这个桶，不新增一个没人认识的键（详情/列表仍按真实状态过滤）。
+	if waiting := byStatus[job.StatusWaitingDir]; waiting > 0 {
+		byStatus[job.StatusQueued] += waiting
+		delete(byStatus, job.StatusWaitingDir)
 	}
 	jobTotal := 0
 	for _, n := range byStatus {

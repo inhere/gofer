@@ -99,6 +99,9 @@ func TestMigrateAddsColumnsToOldDB(t *testing.T) {
 	assert.True(t, tableHasColumn(t, s, "jobs", "reviewed_by"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "reviewed_at"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "review_note"))
+	// JOB-11 同 cwd 串行锁：旧库经 migrate 必须补全 dir_exclusive 列（历史行读回 false =
+	// 共享，正是 JOB-11 之前的语义）。
+	assert.True(t, tableHasColumn(t, s, "jobs", "dir_exclusive"))
 
 	// The migrated DB is usable: a job with a request_id round-trips.
 	rec := sampleJob("j1", "proj", 100)
@@ -157,6 +160,8 @@ func TestFreshOpenHasNewColumnsAndIndex(t *testing.T) {
 	assert.True(t, tableHasColumn(t, s, "jobs", "reviewed_by"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "reviewed_at"))
 	assert.True(t, tableHasColumn(t, s, "jobs", "review_note"))
+	// JOB-11：新库一次建全 dir_exclusive 列。
+	assert.True(t, tableHasColumn(t, s, "jobs", "dir_exclusive"))
 	assert.True(t, tableHasColumn(t, s, "interactions", "escalated_at"))
 	// 派生作答审计区分（supervisor-routing P3.2）：新库一次建全 answered_by 列。
 	assert.True(t, tableHasColumn(t, s, "interactions", "answered_by"))

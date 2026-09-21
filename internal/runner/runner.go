@@ -387,6 +387,17 @@ type Forward struct {
 	// wsproto.FileXferMinProtocolVersion).
 	Uploads []XferUpload
 	Collect []string
+	// ExclusiveDir / StallTimeoutSec are the JOB-11 / AUTO-05 execution policies the
+	// submitting hub RESOLVED (server.dir_lock + the agent's max_concurrent/stall
+	// knobs): the executing machine applies them instead of re-deriving its own from
+	// its own config, exactly like TimeoutSec/Verify above. Pointers because "0 /
+	// false" is a DECISION (no lock, no watchdog) that must not be confused with
+	// "unresolved" — an old hub omits both keys and the executor falls back to its own
+	// config. Additive/optional: a peer that predates them ignores the fields, which
+	// only means these protections do not apply on that machine (nothing is corrupted
+	// by running as before), so no protocol floor refuses the dispatch.
+	ExclusiveDir    *bool
+	StallTimeoutSec *int
 }
 
 // XferUpload is one staged file a job takes with it (XFER-01 X2): the id of a

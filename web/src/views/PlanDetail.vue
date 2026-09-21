@@ -439,7 +439,7 @@ onUnmounted(() => {
           type="button"
           @click="openJob(j.id)"
         >
-          <span class="job-status"><StatusBadge :status="j.status" /></span>
+          <span class="job-status"><StatusBadge :status="j.status" :holder="j.waiting_on_job" /></span>
           <span class="job-main" :class="{ 'job-main--titled': j.title }">
             <span v-if="j.title" class="job-title" :title="j.title">{{ j.title }}</span>
             <span class="job-id mono" :title="j.id">{{ shortId(j.id) }}</span>

@@ -16,6 +16,10 @@ export type JobStatus =
   // rejected = 人拒绝（终态），与 failed 一样算失败但不会被自动重试/续投。
   | 'needs_review'
   | 'rejected'
+  // JOB-11：同 cwd 串行锁——可写 agent job 独占其工作目录时，排在后面的 job 停在这个
+  // 非终态（等同 queued：不占执行位、可取消），拿到锁才转 running。统计数据把它并入
+  // queued（见 /v1/stats）。与后端 job.StatusWaitingDir 对齐。
+  | 'waiting_dir'
 
 export interface Job {
   id: string
@@ -30,6 +34,11 @@ export interface Job {
   // 只读 job（bd h-aii-0ql3，后端 omitempty）：cli-agent 走 read_only_args 沙箱参数、
   // acp-agent 走 session/set_mode；列表打 [只读] 徽章、详情展示一行。
   read_only?: boolean
+  // JOB-11（后端 omitempty）：dir_exclusive=该 job 提交期定下的同 cwd 独占决策（可写
+  // agent job 默认独占）；waiting_on_job 只在 status=waiting_dir 时有值，指向持有目录锁的
+  // job id（详情/日程表据此说明"在等谁"）。
+  dir_exclusive?: boolean
+  waiting_on_job?: string
   // 人工验收（GATE-01 S3，后端 omitempty）：require_review=该 job 要人验收（正常完成
   // 落在 needs_review）；reviewed_by/at/note=已经做出的裁决（谁/何时/为什么）。needs_review
   // 时后者为空，正说明还没人裁。

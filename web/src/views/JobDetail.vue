@@ -1101,7 +1101,7 @@ onUnmounted(() => {
     <div class="detail-head">
       <RouterLink to="/board" class="back mono">← board</RouterLink>
       <div class="head-right">
-        <StatusBadge v-if="job" :status="status" />
+        <StatusBadge v-if="job" :status="status" :holder="job.waiting_on_job" />
         <Signal v-if="job" :status="status" :rate="logRate" :duration-sec="durationSec" />
         <RouterLink
           v-if="job && isTerminalView"
@@ -1228,6 +1228,15 @@ onUnmounted(() => {
       <div v-if="job.read_only" class="meta-item">
         <span class="meta-k mono">read_only</span>
         <span class="meta-v mono">只读（agent 不能写文件）</span>
+      </div>
+      <!-- 同 cwd 串行锁（JOB-11）：独占=这个 job 不接受别的独占 job 与它共用工作目录（祖先/
+           子目录也算同一棵）；等待时点名持有者，回答"为什么还没跑"。 -->
+      <div v-if="job.dir_exclusive || job.waiting_on_job" class="meta-item">
+        <span class="meta-k mono">dir</span>
+        <span class="meta-v mono">
+          {{ job.dir_exclusive ? '独占（同目录串行）' : '共享' }}
+          <template v-if="job.waiting_on_job">· 等待目录锁，持有者 {{ job.waiting_on_job }}</template>
+        </span>
       </div>
       <!-- 人工验收（GATE-01 S3）：是否要求人验收 + 已经做出的裁决（谁/何时/为什么）。
            needs_review 时 reviewed_* 为空，正说明还没人裁。 -->

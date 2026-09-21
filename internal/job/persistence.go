@@ -27,6 +27,8 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		Runner:      r.Runner,
 		Interactive: r.Interactive,
 		ReadOnly:    r.ReadOnly,
+		// JOB-11：同 cwd 独占决策（提交期定死，见 resolveDirExclusive）。
+		DirExclusive: r.DirExclusive,
 		// 人工验收（GATE-01 S3）：是否要求验收 + 验收决定审计。
 		RequireReview:    r.RequireReview,
 		ReviewedBy:       r.ReviewedBy,
@@ -252,6 +254,8 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		Title:       TitleFromRequestJSON(rec.RequestJSON),
 		Interactive: rec.Interactive,
 		ReadOnly:    rec.ReadOnly,
+		// JOB-11：旧行 COALESCE 成 0 = "共享"，正是 JOB-11 之前的语义。
+		DirExclusive: rec.DirExclusive,
 		// 人工验收（GATE-01 S3）：旧行全为 0/空 = "未要求、未验收"。
 		RequireReview: rec.RequireReview,
 		ReviewedBy:    rec.ReviewedBy,

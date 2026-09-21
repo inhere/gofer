@@ -36,6 +36,8 @@ const statusOptions: Array<{ value: '' | JobStatus; label: string }> = [
   { value: '', label: '全部' },
   { value: 'queued', label: 'queued' },
   { value: 'running', label: 'running' },
+  // JOB-11：等在同一个目录锁上（非终态、等同 queued；芯片灰蓝 + 悬停显示持有者）。
+  { value: 'waiting_dir', label: '⏳ 等目录' },
   // RECOV-01：worker 断线 held 中（非终态），等同一进程重连
   { value: 'recovering', label: 'recovering' },
   { value: 'pending_interaction', label: '⚠ 待应答' },
@@ -87,10 +89,15 @@ const statusCounts = computed<Record<JobStatus, number>>(() => {
     cancelled: 0,
     timeout: 0,
     rejected: 0,
+    // JOB-11：等目录锁的非终态（表头单独一栏可过滤，计数并入 queued）。
+    waiting_dir: 0,
   }
   for (const job of countJobsLoaded.value ? countJobs.value : jobs.value) {
     base[job.status] += 1
   }
+  // JOB-11：waiting_dir 是 queued 的一种（不占执行位、等锁而已），计数并入 queued 组——
+  // 与 /v1/stats 的 by_status 同一口径，否则"等锁"在表头看着像什么都没发生。
+  base.queued += base.waiting_dir
   return base
 })
 
@@ -491,7 +498,7 @@ onUnmounted(() => {
         :key="job.id"
         class="trow"
       >
-        <span class="col-status"><StatusBadge :status="job.status" /></span>
+        <span class="col-status"><StatusBadge :status="job.status" :holder="job.waiting_on_job" /></span>
         <span
           class="col-job"
           :class="{ 'col-job--titled': job.title }"

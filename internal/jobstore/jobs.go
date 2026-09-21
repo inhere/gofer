@@ -42,6 +42,11 @@ type JobRecord struct {
 	// (cli-agent read_only_args / acp-agent session/set_mode). Persisted so a finished
 	// job still answers "was this run allowed to write?".
 	ReadOnly bool
+	// DirExclusive records the job's RESOLVED same-directory lock policy (JOB-11):
+	// true means it held (or would hold) the exclusive lock of its working directory.
+	// Persisted so a finished job still answers "was this run allowed to share the
+	// tree, and why did it queue?".
+	DirExclusive bool
 	// RequireReview / ReviewedBy / ReviewedAt / ReviewNote are the人工验收 (GATE-01
 	// S3) audit fields: whether the job was gated on a human's accept/reject, and —
 	// once that decision exists — who made it, when, and why. They are persisted so a
@@ -274,7 +279,7 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,
   COALESCE(verify_json,''),
   COALESCE(failure_class,''), COALESCE(fell_back_from,''), COALESCE(fell_back_to,''),
   COALESCE(requested_agent,''), COALESCE(fallback_json,''), COALESCE(usage_json,''),
-  COALESCE(xfer_json,'') FROM jobs`
+  COALESCE(xfer_json,''), COALESCE(dir_exclusive,0) FROM jobs`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -284,7 +289,7 @@ type rowScanner interface {
 // scanJob reads one row (in selectCols order) into a JobRecord.
 func scanJob(sc rowScanner) (JobRecord, error) {
 	var r JobRecord
-	var interactive, timeoutClamped, readOnly, requireReview int
+	var interactive, timeoutClamped, readOnly, requireReview, dirExclusive int
 	err := sc.Scan(
 		&r.ID, &r.ProjectKey, &r.Agent, &r.Runner, &interactive, &r.WorkerID,
 		&r.WorkerInstanceID,
@@ -305,11 +310,12 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&requireReview, &r.ReviewedBy, &r.ReviewedAt, &r.ReviewNote,
 		&r.VerifyJSON,
 		&r.FailureClass, &r.FellBackFrom, &r.FellBackTo, &r.RequestedAgent, &r.FallbackJSON,
-		&r.UsageJSON, &r.XferJSON,
+		&r.UsageJSON, &r.XferJSON, &dirExclusive,
 	)
 	r.Interactive = interactive != 0
 	r.TimeoutClamped = timeoutClamped != 0
 	r.ReadOnly = readOnly != 0
+	r.DirExclusive = dirExclusive != 0
 	r.RequireReview = requireReview != 0
 	return r, err
 }
@@ -336,8 +342,9 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 	    timeout_sec, requested_timeout_sec, timeout_clamped, recovering_since,
 	    worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead, read_only,
 	    require_review, reviewed_by, reviewed_at, review_note, verify_json,
-	    failure_class, fell_back_from, fell_back_to, requested_agent, fallback_json, usage_json, xfer_json)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	    failure_class, fell_back_from, fell_back_to, requested_agent, fallback_json, usage_json, xfer_json,
+	    dir_exclusive)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -405,7 +412,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     requested_agent=excluded.requested_agent,
     fallback_json=excluded.fallback_json,
     usage_json=excluded.usage_json,
-    xfer_json=excluded.xfer_json`
+    xfer_json=excluded.xfer_json,
+    dir_exclusive=excluded.dir_exclusive`
 	// Serialise writes in-process (see Store.writeMu) so SQLite never sees two
 	// concurrent writers and cannot return SQLITE_BUSY under burst.
 	s.writeMu.Lock()
@@ -432,6 +440,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.FailureClass, rec.FellBackFrom, rec.FellBackTo, rec.RequestedAgent, rec.FallbackJSON,
 		rec.UsageJSON,
 		rec.XferJSON,
+		rec.DirExclusive,
 	)
 	if err != nil {
 		// A competing INSERT with the same non-empty request_id (different id)
@@ -494,13 +503,15 @@ func (s *Store) GetJobByRequestID(reqID string) (JobRecord, bool, error) {
 // deliberately excludes `recovering`: only a WORKER job ever enters that state, and
 // such jobs are held (not failed) via orphanWorkerJobStatuses instead. Kept local so
 // jobstore never imports job.
-var nonTerminalJobStatuses = []string{"queued", "running"}
+var nonTerminalJobStatuses = []string{"queued", "running", "waiting_dir"}
 
 // activeJobStatuses are the states a daemon-style job passes through while alive.
 // Broader than nonTerminalJobStatuses (adds pending_interaction) because the P4b
 // supervisor reconciler counts a sup momentarily blocked on its own interaction as
-// still "present" so it is not double-spawned.
-var activeJobStatuses = []string{"queued", "running", "pending_interaction"}
+// still "present" so it is not double-spawned. `waiting_dir` (JOB-11) belongs here
+// for the same reason: a job queued behind a directory lock is still a live job the
+// reconciler must not treat as gone.
+var activeJobStatuses = []string{"queued", "running", "pending_interaction", "waiting_dir"}
 
 // CountActiveJobsByRole returns how many jobs of the given role are currently active
 // (status in activeJobStatuses). The P4b supervisor reconciler (supervisor-routing

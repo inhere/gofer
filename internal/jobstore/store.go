@@ -122,7 +122,8 @@ var schemaStmts = []string{
   requested_agent  TEXT,
   fallback_json    TEXT,
   usage_json       TEXT,
-  xfer_json        TEXT
+  xfer_json        TEXT,
+  dir_exclusive    INTEGER NOT NULL DEFAULT 0
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -714,6 +715,11 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := add("review_note", "review_note TEXT"); err != nil {
+		return err
+	}
+	// JOB-11 同 cwd 串行锁：dir_exclusive=该 job 提交期定下的独占决策。旧库 ALTER ADD 默认
+	// 0 = "共享"——正是 JOB-11 之前的语义（谁都不取锁），不会把历史 job 伪造成独占过。
+	if err := add("dir_exclusive", "dir_exclusive INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
 	if err := s.migrateWorkflows(); err != nil {

@@ -388,6 +388,17 @@ type Dispatch struct {
 	// (FileXferMinProtocolVersion, the same v9 floor as the transfer frames).
 	Uploads []XferUpload `json:"uploads,omitempty"`
 	Collect []string     `json:"collect,omitempty"`
+	// ExclusiveDir / StallTimeoutSec are the JOB-11 / AUTO-05 policies the hub
+	// RESOLVED for this job: whether the worker must take the exclusive lock of the
+	// job's working directory, and after how many silent seconds it must kill it.
+	// Pointers, so an explicit false/0 (a DECISION) is distinguishable from "the hub
+	// did not resolve one" (nil) — only then does the worker fall back to its own
+	// config. Both are additive and optional: a worker that predates them ignores the
+	// keys and runs the job exactly as before (no lock, no watchdog), which is why no
+	// protocol floor refuses such a dispatch (unlike uploads/collect, whose absence
+	// would silently run the job WITHOUT the caller's files).
+	ExclusiveDir    *bool `json:"exclusive_dir,omitempty"`
+	StallTimeoutSec *int  `json:"stall_timeout_sec,omitempty"`
 }
 
 // XferUpload is one staged file a job takes with it (XFER-01 X2): the transfer id

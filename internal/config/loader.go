@@ -517,6 +517,11 @@ func validate(cfg *Config) error {
 				return err
 			}
 		}
+		// JOB-11: a negative cap has no meaning (0 = unlimited) and would silently
+		// read as "unlimited" through the <= 0 test every gate uses — say so at load.
+		if ac.MaxConcurrent < 0 {
+			return fmt.Errorf("agent %q: max_concurrent must be >= 0", key)
+		}
 	}
 	for key, p := range cfg.Projects {
 		if p.HostPath == "" {

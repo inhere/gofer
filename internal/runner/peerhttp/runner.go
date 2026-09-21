@@ -99,6 +99,11 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// run — the peer's own admission and agent policy still decide the rest.
 		SessionID:   f.SessionID,
 		ResumedFrom: f.ResumedFrom,
+		// JOB-11 / AUTO-05: the hub resolved the directory lock decision and the stall
+		// window against its own config; the peer applies them to ITS checkout instead
+		// of re-resolving a default (nil = a hub that predates them, peer resolves its own).
+		ExclusiveDir:    f.ExclusiveDir,
+		StallTimeoutSec: f.StallTimeoutSec,
 	}
 
 	peerRes, err := r.c.SubmitJob(jr)
