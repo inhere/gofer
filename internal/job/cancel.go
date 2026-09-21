@@ -84,6 +84,12 @@ func (s *Service) Cancel(id string) error {
 	status := entry.result.Status
 	terminal := isTerminal(status)
 	cancel := entry.cancel
+	if !terminal && status != StatusNeedsReview && cancel == nil {
+		// F3: the job is live but its execute goroutine has not installed the
+		// cancellable context yet. Record the intent; execute honours it as soon as the
+		// context exists, so the cancel is never dropped.
+		entry.cancelRequested = true
+	}
 	entry.mu.Unlock()
 
 	if status == StatusNeedsReview {
@@ -93,11 +99,11 @@ func (s *Service) Cancel(id string) error {
 		// Already done/failed/cancelled/timeout/rejected: no-op, deterministic.
 		return nil
 	}
+	// E13: a real cancellation is being issued on a live job. The subsequent
+	// finish() records the job.terminal(cancelled) event; this marks the user
+	// intent. was_terminal is false here (the terminal job path returned above).
+	s.recordEvent(id, EventJobCancelled, map[string]any{"was_terminal": false})
 	if cancel != nil {
-		// E13: a real cancellation is being issued on a live job. The subsequent
-		// finish() records the job.terminal(cancelled) event; this marks the user
-		// intent. was_terminal is false here (the terminal job path returned above).
-		s.recordEvent(id, EventJobCancelled, map[string]any{"was_terminal": false})
 		cancel()
 	}
 	return nil

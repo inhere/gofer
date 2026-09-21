@@ -692,6 +692,13 @@ const (
 	// {verdict, by, note, resume_job_id?}. It is followed by the job.terminal event of
 	// the state the decision produced (done / rejected).
 	EventJobReviewed = "job.reviewed"
+	// EventJobCancelRequested is a cancel frame for a worker-run job that could not be
+	// DELIVERED to that worker (F3, bd h-aii-tcpm): {delivered:false, worker_id, error}.
+	// The host job is finished as cancelled regardless, so this is the only row that
+	// says the worker may still be running it. The literal lives in the runner package
+	// (which emits it and cannot import this one — G022); it is aliased here so the job
+	// event vocabulary has ONE definition.
+	EventJobCancelRequested = runner.EventCancelRequested
 	// EventJobInputInjected is the pty runner writing priming text into an
 	// interactive child's stdin once its terminal settled (session relay §9.1 B):
 	// {bytes, written, quiet_ms, error?}. The literal lives in the runner package

@@ -329,8 +329,16 @@ type jobEntry struct {
 	mu     sync.Mutex
 	result JobResult
 	cancel context.CancelFunc
-	store  store.Store
-	done   chan struct{} // closed when the job reaches a terminal state
+	// cancelRequested records a cancel that arrived while the job was LIVE but had no
+	// cancellable context installed yet (F3, bd h-aii-tcpm): Submit publishes the entry
+	// — and therefore makes the job cancellable from every surface — before it launches
+	// execute, and execute installs entry.cancel as its first act. A cancel landing in
+	// that window used to be dropped silently (Cancel had nothing to call), leaving a
+	// job its caller had already recorded as cancelled running to its own timeout.
+	// execute honours the intent the moment the context exists. Guarded by mu.
+	cancelRequested bool
+	store           store.Store
+	done            chan struct{} // closed when the job reaches a terminal state
 	// interactions holds this process's authoritative interaction state for the
 	// job, in creation order. Guarded by mu (shared with result, so a status
 	// flip and an interaction edit never race). P9.

@@ -38,6 +38,15 @@ const (
 // permission events; job.EventJobACPSummary aliases it.
 const EventACPSummary = "job.acp_summary"
 
+// EventCancelRequested is the job event a runner records when the cancel frame for a
+// worker-run job could not be DELIVERED (F3, bd h-aii-tcpm): {delivered:false,
+// worker_id}. The host has already finished the job as cancelled, so this is what
+// makes "the worker may still be running it" visible on the job's own timeline
+// instead of only in a server log. It lives in this package for the same reason as
+// the events above (the runner cannot import job, G022); job.EventJobCancelRequested
+// aliases it.
+const EventCancelRequested = "job.cancel_requested"
+
 // Runner executes one resolved command and reports how it ended.
 type Runner interface {
 	// Name returns the runner's stable identifier (e.g. "local").

@@ -400,7 +400,14 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// P2: a host cancel/timeout forwards a cancel frame to the worker (best-effort,
 		// same as peerhttp's r.c.CancelJob) so its local job tears down its child
 		// process; the job service still classifies timeout vs cancelled from ctx.
-		_ = r.hub.Cancel(workerID, req.JobID)
+		// F3 (bd h-aii-tcpm): the host job is finished as cancelled either way, so a
+		// frame that did NOT go out would leave the worker running a job the host
+		// considers over, with nothing on the job's own timeline saying so. Record it.
+		if err := r.hub.Cancel(workerID, req.JobID); err != nil && req.OnJobEvent != nil {
+			req.OnJobEvent(runner.EventCancelRequested, map[string]any{
+				"delivered": false, "worker_id": workerID, "error": err.Error(),
+			})
+		}
 		// D-P2-6 (interactive only): three-way wait so the browser sees the pty tail
 		// the worker emits while tearing down (e.g. a cancel-triggered sentinel).
 		// Resolve on whichever comes first: the relay drained (Done), the worker

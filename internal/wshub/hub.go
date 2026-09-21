@@ -119,6 +119,13 @@ type Hub struct {
 	// block the hub's recovery decisions for other workers.
 	recMu sync.Mutex
 	recov map[string]*recoverySet
+	// parkedCancels holds, per worker, the cancels whose frame could not be WRITTEN
+	// (F3, bd h-aii-tcpm): the connection was breaking but the hub had not seen it drop
+	// yet, so the job was neither failed nor `recovering` and the offline path (which
+	// needs the recovery set) could not record it. suspendOnDisconnect hands them to
+	// the recovery set it is publishing, and the resume path delivers them exactly like
+	// a cancel recorded during the outage. Guarded by recMu.
+	parkedCancels map[string]map[string]struct{}
 
 	// adopter is the RECOV-01 R4 adoption seam (SetAdopter): the store-backed
 	// reconciler that hands the hub a sink for a `recovering` job a PREVIOUS serve
@@ -160,11 +167,12 @@ func New(bindings map[string]string) *Hub {
 		bindings = map[string]string{}
 	}
 	return &Hub{
-		reg:      newRegistry(),
-		bindings: bindings,
-		nowFn:    time.Now,
-		hb:       HeartbeatConfig{}.withDefaults(),
-		recov:    map[string]*recoverySet{},
+		reg:           newRegistry(),
+		bindings:      bindings,
+		nowFn:         time.Now,
+		hb:            HeartbeatConfig{}.withDefaults(),
+		recov:         map[string]*recoverySet{},
+		parkedCancels: map[string]map[string]struct{}{},
 	}
 }
 
@@ -795,16 +803,28 @@ func (h *Hub) Answer(workerID, jobID, interactionID, answer string) error {
 // for it, the intent is RECORDED and delivered as soon as that job is resumed —
 // otherwise a cancel issued during the outage would be lost and the worker would
 // keep running a job the host has already finished as cancelled.
+//
+// F3 (bd h-aii-tcpm): the same goes for a frame that cannot be WRITTEN, and for the
+// window in which the connection is already out of the registry but its jobs are not
+// yet `recovering` — parkCancel covers both, so a cancel is never silently dropped
+// between the host's decision and the worker's teardown.
 func (h *Hub) Cancel(workerID, jobID string) error {
 	wc, ok := h.reg.Get(workerID)
 	if !ok {
-		if h.recordPendingCancel(workerID, jobID) {
+		if h.parkCancel(workerID, jobID) {
 			slog.Info("worker.cancel_deferred", "event", "worker.cancel_deferred", "component", "server",
-				"worker_id", workerID, "job_id", jobID, "reason", "worker recovering")
+				"worker_id", workerID, "job_id", jobID, "reason", "worker offline")
 		}
 		return ErrWorkerOffline
 	}
-	return wc.writeFrame(context.Background(), wsproto.TypeCancel, jobID, wsproto.Cancel{JobID: jobID})
+	if err := wc.writeFrame(context.Background(), wsproto.TypeCancel, jobID, wsproto.Cancel{JobID: jobID}); err != nil {
+		if h.parkCancel(workerID, jobID) {
+			slog.Info("worker.cancel_deferred", "event", "worker.cancel_deferred", "component", "server",
+				"worker_id", workerID, "job_id", jobID, "reason", "cancel frame write failed", "err", err)
+		}
+		return err
+	}
+	return nil
 }
 
 // readEnvelope reads one JSON message and decodes it into a wsproto.Envelope.

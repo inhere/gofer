@@ -36,6 +36,9 @@ type fakeHub struct {
 	instanceID        string
 	liveInstanceCalls int
 	cancelCalls       int // count of Cancel(workerID, jobID) calls
+	// cancelErr, when set, is what Cancel returns — the "the frame could not be
+	// written" case (F3, bd h-aii-tcpm).
+	cancelErr error
 	// workerProto is the protocol version WorkerProtocol reports (the fake always
 	// answers ok=true; tests that care about the version check set it).
 	workerProto int
@@ -100,7 +103,7 @@ func (h *fakeHub) Cancel(_, _ string) error {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.cancelCalls++
-	return nil
+	return h.cancelErr
 }
 
 func (h *fakeHub) snapshotCalls() []string {
@@ -729,6 +732,57 @@ func TestRunCtxCancel(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("Run did not return on ctx cancel")
+	}
+}
+
+// TestRunCtxCancelRecordsUndeliveredCancel (F3, bd h-aii-tcpm): the host finishes a
+// cancelled job from its own ctx whatever the worker does, so a cancel frame the hub
+// could NOT deliver has to be visible on the job's own timeline — otherwise an
+// operator sees `cancelled` while the worker keeps running the job. A delivered
+// cancel records nothing (the frame is the record).
+func TestRunCtxCancelRecordsUndeliveredCancel(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		cancelErr error
+		want      int
+	}{
+		{"write failed", errors.New("use of closed network connection"), 1},
+		{"delivered", nil, 0},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := &fakeHub{cancelErr: tc.cancelErr}
+			r := newRunnerWithHub(h)
+			ctx, cancel := context.WithCancel(context.Background())
+			var events []string
+			done := make(chan runner.Result, 1)
+			go func() {
+				done <- r.Run(ctx, runner.Request{
+					JobID: "j1", Forward: &runner.Forward{},
+					OnJobEvent: func(eventType string, detail map[string]any) {
+						if detail["delivered"] != false {
+							t.Errorf("event %s detail = %+v, want delivered:false", eventType, detail)
+						}
+						events = append(events, eventType)
+					},
+				})
+			}()
+			deadline := time.Now().Add(2 * time.Second)
+			for time.Now().Before(deadline) && h.getSink() == nil {
+				time.Sleep(5 * time.Millisecond)
+			}
+			cancel()
+			select {
+			case <-done:
+			case <-time.After(2 * time.Second):
+				t.Fatal("Run did not return on ctx cancel")
+			}
+			if len(events) != tc.want {
+				t.Fatalf("recorded events = %v, want %d", events, tc.want)
+			}
+			if tc.want == 1 && events[0] != runner.EventCancelRequested {
+				t.Fatalf("event = %q, want %q", events[0], runner.EventCancelRequested)
+			}
+		})
 	}
 }
 

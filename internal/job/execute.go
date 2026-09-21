@@ -46,7 +46,13 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	defer cancel()
 	entry.mu.Lock()
 	entry.cancel = cancel
+	// F3: a cancel that landed between Submit publishing this entry and this line is
+	// honoured now — that recorded intent is the only trace it left (see jobEntry).
+	cancelledEarly := entry.cancelRequested
 	entry.mu.Unlock()
+	if cancelledEarly {
+		cancel()
+	}
 
 	// Wait for a project concurrency slot (if limited), but abort if cancelled
 	// while queued.

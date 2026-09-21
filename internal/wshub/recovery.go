@@ -149,6 +149,10 @@ func (h *Hub) suspendOnDisconnect(wc *workerConn, jobIDs []string) {
 	for i := range heldJobs {
 		rs.jobs[heldJobs[i].id] = &recoveringJob{sink: heldJobs[i].sk}
 	}
+	// F3: a cancel whose frame could not be written just before this disconnect is
+	// handed to the set now, so the resume path delivers it like any cancel recorded
+	// while the worker was offline.
+	h.mergeParkedCancelsLocked(rs)
 	h.recMu.Unlock()
 
 	for i := range heldJobs {
@@ -284,9 +288,16 @@ func (h *Hub) planRecovery(reg wsproto.Register) pendingRecovery {
 		if rs != nil {
 			h.dropRecoveryLocked(reg.WorkerID, rs)
 		}
+		// F3: nothing is recovering for this worker, so a parked cancel has nobody to
+		// be delivered to (its job is not held) — drop it rather than keep it forever.
+		delete(h.parkedCancels, reg.WorkerID)
 		h.recMu.Unlock()
 		return plan
 	}
+	// F3: a cancel whose frame could not be written may have been parked AFTER this
+	// worker's disconnect already handed its set over — merge it here so the plan
+	// below carries it exactly like a cancel recorded during the outage.
+	h.mergeParkedCancelsLocked(rs)
 	if rs.instanceID != reg.InstanceID {
 		// A new process took over this worker_id: the old process and the jobs it was
 		// running are gone. Fail them now — waiting would only delay a foregone
@@ -389,10 +400,15 @@ func (h *Hub) applyRecovery(wc *workerConn, plan pendingRecovery) {
 // deliverCancel sends a Cancel frame for a job the host cancelled while the worker
 // was offline. Best-effort: the host job is already terminal on its own account, so a
 // write error is only logged (the worker's own timeout remains as the backstop).
+//
+// F3 (bd h-aii-tcpm): a write error here means the FRESH connection is dying too, so
+// the intent is parked again — the suspend that follows hands it back to the recovery
+// set for the next resume, instead of the cancel dying with this write.
 func (h *Hub) deliverCancel(wc *workerConn, jobID string) {
 	if err := wc.writeFrame(context.Background(), wsproto.TypeCancel, jobID, wsproto.Cancel{JobID: jobID}); err != nil {
 		slog.Warn("hub could not deliver a cancel recorded during recovery",
 			"worker_id", wc.workerID, "job_id", jobID, "err", err)
+		h.parkCancel(wc.workerID, jobID)
 		return
 	}
 	slog.Info("worker.job_cancel_delivered", "event", "worker.job_cancel_delivered", "component", "server",
@@ -476,23 +492,54 @@ func (h *Hub) markLive(wc *workerConn, jobID string) {
 	}
 }
 
-// recordPendingCancel notes that a cancel for jobID arrived while the worker was
-// offline. It only records when the job IS recovering for that worker (otherwise
-// there is nobody to deliver it to, and the map must not grow for arbitrary ids).
-// Returns true when it recorded.
-func (h *Hub) recordPendingCancel(workerID, jobID string) bool {
+// parkCancel records a cancel the hub could not deliver NOW, so the RECOV-01 recovery
+// path can deliver it when the job is next resumed (F3, bd h-aii-tcpm). There are two
+// ways to get here, and both used to lose the intent:
+//
+//   - the worker is offline (no live connection to write to);
+//   - the frame could not be WRITTEN (the connection is breaking, but the hub has not
+//     processed the disconnect yet, so the job is neither failed nor `recovering`).
+//
+// A job already held in the recovery set is recorded there directly; otherwise the
+// intent is parked per worker and consumed by the very next suspend/register plan for
+// that worker, which is what hands it to the recovery set. The park is unconditional
+// (every caller cancels a job it dispatched to THIS worker) because both callers race
+// the disconnect: the registry entry may already be gone, or the in-flight set may
+// already be drained, before the job is published as `recovering` — testing either
+// would drop the intent in exactly the window that matters.
+//
+// Returns true when the intent was recorded (it always is, for a non-empty job id).
+func (h *Hub) parkCancel(workerID, jobID string) bool {
 	if jobID == "" {
 		return false
 	}
 	h.recMu.Lock()
 	defer h.recMu.Unlock()
-	rs := h.recov[workerID]
-	if rs == nil {
-		return false
+	if rs := h.recov[workerID]; rs != nil {
+		if _, held := rs.jobs[jobID]; held {
+			addRecoveryCancel(rs, jobID)
+			return true
+		}
 	}
-	if _, ok := rs.jobs[jobID]; !ok {
-		return false
+	parked := h.parkedCancels[workerID]
+	if parked == nil {
+		parked = map[string]struct{}{}
+		h.parkedCancels[workerID] = parked
 	}
+	if len(parked) >= pendingCancelCap {
+		for id := range parked {
+			delete(parked, id)
+			break
+		}
+	}
+	parked[jobID] = struct{}{}
+	return true
+}
+
+// addRecoveryCancel records jobID as a cancel to deliver when its job resumes,
+// evicting the oldest entry at the cap (in practice the map only ever holds jobs that
+// ARE in the recovery set). Callers hold recMu.
+func addRecoveryCancel(rs *recoverySet, jobID string) {
 	if len(rs.cancels) >= pendingCancelCap {
 		for id := range rs.cancels {
 			delete(rs.cancels, id)
@@ -500,7 +547,24 @@ func (h *Hub) recordPendingCancel(workerID, jobID string) bool {
 		}
 	}
 	rs.cancels[jobID] = struct{}{}
-	return true
+}
+
+// mergeParkedCancelsLocked hands the parked cancels of the worker whose connection is
+// being suspended to its recovery set (F3), so the resume path delivers them. The park
+// is consumed either way: a parked job that did not enter the set is one this
+// connection no longer owes (its result already landed, or the host gave up on it).
+// Callers hold recMu.
+func (h *Hub) mergeParkedCancelsLocked(rs *recoverySet) {
+	parked := h.parkedCancels[rs.workerID]
+	if len(parked) == 0 {
+		return
+	}
+	delete(h.parkedCancels, rs.workerID)
+	for jobID := range parked {
+		if _, held := rs.jobs[jobID]; held {
+			addRecoveryCancel(rs, jobID)
+		}
+	}
 }
 
 // isTerminalWireStatus reports whether a worker-reported job status is terminal. It
