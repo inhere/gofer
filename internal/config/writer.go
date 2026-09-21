@@ -236,6 +236,12 @@ func topBlocks(orig []byte) ([]block, error) {
 		if i+1 < len(starts) {
 			end = starts[i+1]
 		}
+		// A block runs from its own start to the next block's start. `end <= keyLine`
+		// cannot happen for a document the parser accepted, but the splice below must
+		// never be fed inverted bounds: give up and let render fall back instead.
+		if end <= keyLine {
+			return nil, fmt.Errorf("overlapping top-level block for key %q", keys[i])
+		}
 		// The block body ends at its last non-blank line; the blank lines after it
 		// separate it from the next block and are re-emitted after a replacement.
 		bodyEnd := keyLine
