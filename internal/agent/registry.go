@@ -177,7 +177,11 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 		SystemInject: []string{"--append-system-prompt", "{{system_prompt}}"},
 	},
 	"codex": {
-		SessionCapture:           `session id:\s*([0-9a-f-]+)`,
+		// 批处理(exec/ndjson)头部 `session id: <uuid>`，加交互 TUI 退出时打印的
+		// `codex resume <uuid>`（PTY-01 §四：TUI 的 id 只在退出横幅里出现，且夹在
+		// ANSI 里 → 由 relay 的去 ANSI 观察者/pty.txt 兜底）。单个捕获组是硬约束：
+		// CaptureSessionIDBytes 只取第 1 组，两种形态必须共用它。
+		SessionCapture:           `(?i)(?:session id:|codex resume)\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`,
 		SessionResume:            []string{"exec", "resume", "{{session_id}}", "{{prompt}}"},
 		SessionResumeInteractive: []string{"resume", "{{session_id}}"}, // ⚠️ 实测确认 codex 交互 resume 命令
 		// E35 (实测定稿 2026-06-29, codex-cli 0.142): codex has NO --append-system-prompt

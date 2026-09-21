@@ -319,6 +319,8 @@ func logFileName(stream Stream) (string, error) {
 		return StdoutFile, nil
 	case StreamStderr:
 		return StderrFile, nil
+	case StreamPty:
+		return PtyTranscriptFile, nil
 	default:
 		return "", fmt.Errorf("unknown log stream %q", stream)
 	}

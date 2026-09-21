@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -250,12 +251,20 @@ func (s *Server) handleJobLogsStderr(c *rux.Context) { s.serveLog(c, store.Strea
 // serveLog reads the requested log window for the job and writes it as
 // text/plain. It locates the job's result dir from its JobResult (ResultDir ==
 // <base>/<job_id>), so the FileStore base is its parent dir.
+//
+// An interactive job's pty output never reaches stdout.log (the pty runner owns
+// that stream), so a stdout request falls back to the de-ANSI'd pty.txt
+// transcript (PTY-01 §四) — `job logs` and the web log page then show the same
+// text the TUI printed instead of an empty pane.
 func (s *Server) serveLog(c *rux.Context, stream store.Stream) {
 	id := c.Param("id")
 	res, ok := s.jobs.Get(id)
 	if !ok {
 		writeError(c, http.StatusNotFound, "unknown job", "no job with id "+id)
 		return
+	}
+	if stream == store.StreamStdout && res.Interactive && !hasStdoutLog(res.ResultDir) {
+		stream = store.StreamPty
 	}
 
 	base := filepath.Dir(res.ResultDir)
@@ -301,6 +310,14 @@ func (s *Server) serveLog(c *rux.Context, stream store.Stream) {
 	c.SetHeader("X-Log-Offset", strconv.Itoa(offset))
 	c.SetHeader("X-Log-Lines", strconv.Itoa(countResponseLines(data)))
 	c.Text(http.StatusOK, string(data))
+}
+
+// hasStdoutLog reports whether the job left a non-empty stdout.log: an
+// interactive job has none (or an empty placeholder), and only then is the pty
+// transcript the right thing to serve.
+func hasStdoutLog(resultDir string) bool {
+	fi, err := os.Stat(filepath.Join(resultDir, store.StdoutFile))
+	return err == nil && fi.Size() > 0
 }
 
 func parseLogBytes(raw string) int64 {

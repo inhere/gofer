@@ -66,6 +66,13 @@ type Relay struct {
 	src  PtySource
 	cast CastSink // optional cast sink; nil = no recording
 	obs  OutputObserver
+	// tr is the de-ANSI'd text transcript (PTY-01 §四); nil = no transcript. It
+	// rides the recorder MAIN path (like cast) so no viewer can starve it.
+	tr *Transcript
+	// closeHooks run once on finish(), AFTER the recorder has stopped: the pty
+	// output tail is complete by then, so a hook is where "scan the tail one last
+	// time" belongs (the session-id capture does exactly that).
+	closeHooks []func()
 
 	mu          sync.Mutex
 	ring        *ring
@@ -115,6 +122,22 @@ type OutputObserver func([]byte)
 
 // WithOutputObserver wires a non-owning observer for pty output chunks.
 func WithOutputObserver(fn OutputObserver) Option { return func(r *Relay) { r.obs = fn } }
+
+// WithTranscript wires the recorder's de-ANSI'd text transcript (PTY-01 §四).
+// The relay writes every chunk to it on the main path and closes it in finish().
+func WithTranscript(t *Transcript) Option { return func(r *Relay) { r.tr = t } }
+
+// WithCloseHook registers fn to run once the recorder has stopped and its output
+// tail is complete (right before the cast sink is sealed and Done fires). It is
+// the seam for a consumer that must look at the FINAL output — the session-id
+// capture re-scans the tail here, because a TUI prints its session id on exit.
+func WithCloseHook(fn func()) Option {
+	return func(r *Relay) {
+		if fn != nil {
+			r.closeHooks = append(r.closeHooks, fn)
+		}
+	}
+}
 
 // New builds a Relay over src. Call Start once to begin recording.
 func New(src PtySource, opts ...Option) *Relay {
@@ -166,6 +189,9 @@ func (r *Relay) recordLoop() {
 			r.ring.Write(chunk)
 			if r.cast != nil {
 				_, _ = r.cast.Write(chunk)
+			}
+			if r.tr != nil {
+				_, _ = r.tr.Write(chunk)
 			}
 			if r.obs != nil {
 				r.obs(chunk)
@@ -362,8 +388,18 @@ func (r *Relay) Close() error {
 // cast (bounded) then done, exactly once. It runs from the recordLoop's defer
 // (started relays) or from Close (never-started relays) — never concurrently with
 // a cast.Write, so the recording tail is intact.
+//
+// The close hooks run FIRST (the output tail is complete) and the transcript is
+// sealed right after them: a hook that captures a session id from the tail must
+// see the same bytes the transcript holds (PTY-01 §四).
 func (r *Relay) finish() {
 	r.finishOnce.Do(func() {
+		for _, fn := range r.closeHooks {
+			fn()
+		}
+		if r.tr != nil {
+			_ = r.tr.Close()
+		}
 		if r.cast != nil {
 			r.boundedCastClose()
 		}

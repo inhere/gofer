@@ -13,6 +13,7 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/ptyrelay"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
+	"github.com/inhere/gofer/internal/store"
 )
 
 type localPtySource struct {
@@ -79,8 +80,13 @@ func (s *Server) runLocalPtyRelay(jobID string, source ptyrelay.PtySource, done 
 	if sink != nil {
 		opts = append(opts, ptyrelay.WithCast(sink))
 	}
-	if obs := s.sessionIDObserver(res); obs != nil {
-		opts = append(opts, ptyrelay.WithOutputObserver(obs))
+	// PTY-01 §四: the de-ANSI'd transcript is always written (decision 3) — an
+	// interactive job's pty output never reaches stdout.log, so pty.txt is the only
+	// text record it leaves.
+	tr := ptyrelay.NewTranscript(filepath.Join(res.ResultDir, store.PtyTranscriptFile), s.ptyTranscriptMaxBytes())
+	opts = append(opts, ptyrelay.WithTranscript(tr))
+	if cap := s.newPtySessionCapture(res); cap != nil {
+		opts = append(opts, ptyrelay.WithOutputObserver(cap.observe), ptyrelay.WithCloseHook(cap.close))
 	}
 	entry, err := s.ptyRelays.Open(nonce, source, opts...)
 	if err != nil {
@@ -128,35 +134,6 @@ func (s *Server) runLocalPtyRelay(jobID string, source ptyrelay.PtySource, done 
 		StartedAt:    startedAt,
 		EndedAt:      time.Now().Unix(),
 	})
-}
-
-func (s *Server) sessionIDObserver(res job.JobResult) ptyrelay.OutputObserver {
-	if s == nil || s.jobs == nil || s.agents == nil || res.SessionID != "" {
-		return nil
-	}
-	ac, ok := s.agents.Get(res.Agent)
-	if !ok || ac.SessionCapture == "" {
-		return nil
-	}
-	var buf []byte
-	var done bool
-	const maxObserve = 64 * 1024
-	return func(chunk []byte) {
-		if done || len(chunk) == 0 {
-			return
-		}
-		if len(buf) < maxObserve {
-			remain := maxObserve - len(buf)
-			if len(chunk) > remain {
-				chunk = chunk[:remain]
-			}
-			buf = append(buf, chunk...)
-		}
-		if sid := job.CaptureSessionIDBytes(buf, ac.SessionCapture); sid != "" {
-			done = true
-			s.jobs.SetSessionID(res.ID, sid)
-		}
-	}
 }
 
 func ptySizeFromRequestJSON(s string) (int, int) {

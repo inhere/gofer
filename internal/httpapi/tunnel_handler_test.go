@@ -9,6 +9,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/tunnel"
+	"github.com/inhere/gofer/internal/wsproto"
 )
 
 type tunnelTestHub struct {
@@ -19,6 +20,9 @@ type tunnelTestHub struct {
 func (h *tunnelTestHub) Accept(http.ResponseWriter, *http.Request, string)       {}
 func (h *tunnelTestHub) LiveInstance(string) (string, bool)                      { return "inst-1", h.live }
 func (h *tunnelTestHub) OpenTunnel(string, string, string, string, string) error { return h.openErr }
+func (h *tunnelTestHub) WorkerProtocol(string) (int, bool) {
+	return wsproto.CurrentProtocolVersion, h.live
+}
 
 func TestTunnelHandlerAuthAndValidation(t *testing.T) {
 	cases := []struct {

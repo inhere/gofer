@@ -18,6 +18,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/tunnel"
+	"github.com/inhere/gofer/internal/wsproto"
 )
 
 // lockedBuffer makes a bytes.Buffer safe for the handler goroutines that log
@@ -310,6 +311,9 @@ type callingBackHub struct {
 
 func (h *callingBackHub) Accept(http.ResponseWriter, *http.Request, string) {}
 func (h *callingBackHub) LiveInstance(string) (string, bool)                { return "inst-1", true }
+func (h *callingBackHub) WorkerProtocol(string) (int, bool) {
+	return wsproto.CurrentProtocolVersion, true
+}
 func (h *callingBackHub) OpenTunnel(_ string, id, _ string, _ string, nonce string) error {
 	h.opened <- id
 	if h.nonce != "" {

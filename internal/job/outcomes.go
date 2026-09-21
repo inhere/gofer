@@ -155,6 +155,7 @@ func (s *Service) captureSession(entry *jobEntry, resultDir string) {
 	entry.mu.Lock()
 	sid := entry.result.SessionID
 	agentKey := entry.result.Agent
+	interactive := entry.result.Interactive
 	entry.mu.Unlock()
 	if sid != "" {
 		return // 注入式/显式已知，不捕获。
@@ -165,6 +166,13 @@ func (s *Service) captureSession(entry *jobEntry, resultDir string) {
 		captured = captureSessionID(filepath.Join(resultDir, store.StdoutFile), ac.SessionCapture)
 		if captured == "" {
 			captured = captureSessionID(filepath.Join(resultDir, store.StderrFile), ac.SessionCapture)
+		}
+		// PTY-01 §四: an interactive job's pty output never enters stdout/stderr
+		// (it only lives in the cast/attach stream), so the de-ANSI'd transcript is
+		// the one place its session id can still be found at终态 — the TUI prints it
+		// on the way out, and the live capture may have missed the very last chunk.
+		if captured == "" && interactive {
+			captured = captureSessionID(filepath.Join(resultDir, store.PtyTranscriptFile), ac.SessionCapture)
 		}
 	}
 	if captured == "" && resultDir != "" { // 选项C 兜底：任务自写的 session_id 文件。

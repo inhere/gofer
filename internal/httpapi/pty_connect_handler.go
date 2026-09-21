@@ -14,6 +14,7 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/ptyrelay"
+	"github.com/inhere/gofer/internal/store"
 )
 
 const (
@@ -120,8 +121,13 @@ func (s *Server) handlePtyConnect(c *rux.Context) {
 	if sink != nil {
 		opts = append(opts, ptyrelay.WithCast(sink))
 	}
-	if obs := s.sessionIDObserver(res); obs != nil {
-		opts = append(opts, ptyrelay.WithOutputObserver(obs))
+	// PTY-01 §四: the worker's pty rides the hub's relay (pump), so the transcript
+	// and the session-id capture are written HERE — same code path as a local pty,
+	// no protocol change.
+	tr := ptyrelay.NewTranscript(filepath.Join(res.ResultDir, store.PtyTranscriptFile), s.ptyTranscriptMaxBytes())
+	opts = append(opts, ptyrelay.WithTranscript(tr))
+	if cap := s.newPtySessionCapture(res); cap != nil {
+		opts = append(opts, ptyrelay.WithOutputObserver(cap.observe), ptyrelay.WithCloseHook(cap.close))
 	}
 	entry, err := s.ptyRelays.Open(hello.RelayNonce, source, opts...)
 	if err != nil {

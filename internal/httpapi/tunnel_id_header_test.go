@@ -12,6 +12,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/tunnel"
+	"github.com/inhere/gofer/internal/wsproto"
 )
 
 // deliveringHub answers OpenTunnel the way a live worker would, minus the
@@ -28,6 +29,9 @@ type deliveringHub struct {
 
 func (h *deliveringHub) Accept(http.ResponseWriter, *http.Request, string) {}
 func (h *deliveringHub) LiveInstance(string) (string, bool)                { return "inst-1", true }
+func (h *deliveringHub) WorkerProtocol(string) (int, bool) {
+	return wsproto.CurrentProtocolVersion, true
+}
 func (h *deliveringHub) OpenTunnel(_ string, id, _ string, _ string, nonce string) error {
 	h.opened <- id
 	go func() {

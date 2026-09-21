@@ -278,6 +278,9 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// mount no routes, so they do not rebuild the router.
 	srv.SetCastRecorder(castRecorder)
 	srv.SetPtySessionStore(cr.Store)
+	// PTY-01 §四: the transcript tail cap (pty.transcript_max_bytes) is resolved
+	// from the same config snapshot as everything else here.
+	srv.SetPtyTranscriptMaxBytes(cfg.EffectivePtyTranscriptMaxBytes())
 	if pr, ok := cr.Runners[ptyrunner.Name].(*ptyrunner.PtyRunner); ok {
 		pr.SetObserver(srv)
 	}

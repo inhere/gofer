@@ -26,6 +26,10 @@ const (
 	// (bd h-aii-rpky). It is never read by gofer — nothing in the read paths knows
 	// it — and it is as large as the raw stream, so it is off by default.
 	StdoutRawFile = "stdout.raw.log"
+	// PtyTranscriptFile is an interactive pty job's de-ANSI'd text transcript
+	// (PTY-01): its pty output never reaches StdoutFile, so this is what
+	// `job logs`/the web log page fall back to.
+	PtyTranscriptFile = "pty.txt"
 )
 
 // Stream identifies which log file to open/read.
@@ -34,6 +38,11 @@ type Stream string
 const (
 	StreamStdout Stream = "stdout"
 	StreamStderr Stream = "stderr"
+	// StreamPty reads the interactive job's de-ANSI'd pty transcript
+	// (PtyTranscriptFile). It is NOT an HTTP stream: serveLog selects it when a
+	// stdout request targets an interactive job, whose pty output never reaches
+	// stdout.log (PTY-01 §四).
+	StreamPty Stream = "pty"
 )
 
 // Store abstracts per-job log persistence. FileStore is the only implementation;

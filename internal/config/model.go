@@ -53,6 +53,10 @@ type Config struct {
 	// session is allowed to wait for a web reply without the human flipping its
 	// switch. See SessionConfig.
 	Session SessionConfig `yaml:"session,omitempty"`
+	// Pty tunes the WEB-03 pty relay's text transcript (PTY-01 §四). An absent
+	// block keeps the documented 4MB tail cap, so the transcript is always on and
+	// there is no enable switch to get wrong.
+	Pty PtyConfig `yaml:"pty,omitempty"`
 
 	// injectedAgents records the Agents keys that were MATERIALIZED AT RUNTIME from
 	// the built-in agent templates (agent.Resolve) instead of being authored by the
@@ -557,6 +561,27 @@ func (c *Config) AgentFallbacksFor(projectKey, agentKey string) []string {
 		}
 	}
 	return c.Agents[agentKey].FallbackAgents
+}
+
+// PtyConfig is the pty relay's transcript block (PTY-01 §四).
+type PtyConfig struct {
+	// TranscriptMaxBytes caps the de-ANSI'd text transcript kept for one
+	// interactive pty session (<result_dir>/pty.txt). It bounds the FILE too, not
+	// just memory: the sink keeps the tail. 0 / unset => the documented 4MB.
+	TranscriptMaxBytes int64 `yaml:"transcript_max_bytes,omitempty"`
+}
+
+// DefaultPtyTranscriptMaxBytes is the transcript tail cap when
+// pty.transcript_max_bytes is unset (PTY-01 decision 3: the transcript is on by
+// default, so the cap is the only knob).
+const DefaultPtyTranscriptMaxBytes = 4 << 20
+
+// EffectivePtyTranscriptMaxBytes resolves the transcript cap in bytes.
+func (c *Config) EffectivePtyTranscriptMaxBytes() int64 {
+	if c == nil || c.Pty.TranscriptMaxBytes <= 0 {
+		return DefaultPtyTranscriptMaxBytes
+	}
+	return c.Pty.TranscriptMaxBytes
 }
 
 // SessionConfig tunes the terminal session relay's automatic arming (R2). Both

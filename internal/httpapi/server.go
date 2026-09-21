@@ -112,6 +112,11 @@ type workerHub interface {
 	// LiveInstance reports the current connection instance of a worker, ok=false
 	// when it is offline.
 	LiveInstance(workerID string) (string, bool)
+	// WorkerProtocol reports the wire protocol version of a worker's LIVE
+	// connection, ok=false when it is offline. The transfer paths use it to refuse
+	// a runner that cannot speak the file-transfer frames BEFORE a payload is
+	// streamed to it (bd h-aii-gnm3).
+	WorkerProtocol(workerID string) (int, bool)
 	OpenTunnel(workerID, tunnelID, network, target, relayNonce string) error
 }
 
@@ -167,6 +172,10 @@ type Server struct {
 	// (T5) mints a per-session sink from it; the recording download gate (T6)
 	// stream-decrypts encrypted casts through it.
 	castRecorder *castrec.Recorder
+	// ptyTranscriptMax is the pty text transcript tail cap (PTY-01 §四);
+	// 0 = ptyrelay.DefaultTranscriptMaxBytes. Set by serve from pty.transcript_max_bytes.
+	ptyTranscriptMax int
+
 	// ptySessions persists pty relay session metadata (WEB-03 P3). It is the narrow
 	// store seam the pty handlers write/read (D-P3, review 高1: the Server holds no
 	// raw jobstore handle). nil-safe: nil means no persistence (mcp/tests) and the
@@ -262,6 +271,23 @@ func (s *Server) SetPtyRelay(nonces *ptyrelay.NonceStore, relays *ptyrelay.Regis
 // after resolving storage.cast and its encryption key. It mounts no routes, so —
 // unlike SetMetrics/SetPresence/SetPtyRelay — it does NOT rebuild the router.
 func (s *Server) SetCastRecorder(rec *castrec.Recorder) { s.castRecorder = rec }
+
+// SetPtyTranscriptMaxBytes sets the pty text transcript's tail cap (PTY-01 §四,
+// config key pty.transcript_max_bytes). serve injects ptyrelay.DefaultTranscript…
+// resolved value at startup; hub-less callers (mcp/tests) leave it unset and get
+// the default. <= 0 restores the default.
+func (s *Server) SetPtyTranscriptMaxBytes(n int64) {
+	if n > 0 {
+		s.ptyTranscriptMax = int(n)
+	}
+}
+
+func (s *Server) ptyTranscriptMaxBytes() int {
+	if s == nil || s.ptyTranscriptMax <= 0 {
+		return ptyrelay.DefaultTranscriptMaxBytes
+	}
+	return s.ptyTranscriptMax
+}
 
 // SetPtySessionStore injects the pty-session persistence seam (WEB-03 P3). serve
 // passes the *jobstore.Store (which satisfies PtySessionStore); a nil store leaves
@@ -503,6 +529,9 @@ func (s *Server) buildRouter() *rux.Router {
 		// executing worker (whose token may only touch transfers assigned to it).
 		// Always mounted; 503 until serve injects the manager.
 		r.POST("/xfer", s.handleXferCreate)
+		// The precheck is a POST on a distinct path, so it never collides with the
+		// {id} routes below (bd h-aii-gnm3).
+		r.POST("/xfer/precheck", s.handleXferPrecheck)
 		r.GET("/xfer", s.handleXferList)
 		r.GET("/xfer/{id}", s.handleXferStatus)
 		r.DELETE("/xfer/{id}", s.handleXferDelete)
