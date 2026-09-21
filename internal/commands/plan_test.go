@@ -59,6 +59,67 @@ func TestPlanSetTodoAppendNote(t *testing.T) {
 	}
 }
 
+// TestPlanShowTodoDispatchFields (PLAN-02 P2): `plan show` is where a human reads a
+// plan item's state, so the two facts the dispatch added — WHO runs it and WHY the last
+// attempt started nothing — must be on that screen, along with the ready box.
+func TestPlanShowTodoDispatchFields(t *testing.T) {
+	out := captureOutput(t, func() {
+		printPlanTodos(gcli.NewCommand("show", "", nil), []client.Todo{
+			{
+				TodoID: "todo-ready", Title: "queued for an agent", Status: "ready",
+				Assignee: "omp", Note: "waiting",
+			},
+			{
+				TodoID: "todo-failed", Title: "refused", Status: "ready", Assignee: "ghost",
+				DispatchError: "invalid request: unknown agent \"ghost\"",
+			},
+		})
+	})
+	for _, want := range []string{
+		"[>]", "todo-ready", "(assignee=omp)",
+		"todo-failed", "dispatch_error: invalid request: unknown agent",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("plan show output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+// TestPlanShowUsageLine (PLAN-02 P2): the plan header keeps the usage roll-up on one
+// line — totals plus who did the work. An older server (or a plan with no jobs) sends
+// nothing, and the line must then simply not appear.
+func TestPlanShowUsageLine(t *testing.T) {
+	if got := formatPlanUsage(nil); got != "" {
+		t.Fatalf("no usage should render nothing, got %q", got)
+	}
+	if got := formatPlanUsage(&client.PlanUsage{}); got != "" {
+		t.Fatalf("a job-less plan should render nothing, got %q", got)
+	}
+	u := &client.PlanUsage{
+		Jobs: 7, TotalTokens: 1_234_567, CostUSD: 3.45,
+		ByAgent: map[string]client.UsageAgent{
+			"omp":   {Jobs: 5, TotalTokens: 1_200_000, CostUSD: 3.4},
+			"codex": {Jobs: 2, TotalTokens: 34_567, CostUSD: 0.05},
+		},
+	}
+	got := formatPlanUsage(u)
+	for _, want := range []string{"total 1.2M tokens", "$3.45", "omp 5 jobs", "codex 2 jobs"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("usage line %q missing %q", got, want)
+		}
+	}
+	// Most jobs first: the reader wants to see who is carrying the plan.
+	if strings.Index(got, "omp 5 jobs") > strings.Index(got, "codex 2 jobs") {
+		t.Fatalf("usage line %q should list the busier agent first", got)
+	}
+	// A plan whose jobs reported no numbers still states that it ran them.
+	if got := formatPlanUsage(&client.PlanUsage{Jobs: 2, ByAgent: map[string]client.UsageAgent{"omp": {Jobs: 2}}}); !strings.Contains(got, "omp 2 jobs") {
+		t.Fatalf("usage line %q must still name the agents", got)
+	}
+}
+
+// TestPlanSubcommandsRegistered: the plan group keeps its subcommands (plus the PLAN-02
+// `dispatch`), and the legacy aliases still resolve.
 func TestPlanSubcommandsRegistered(t *testing.T) {
 	app := NewApp("test")
 
@@ -66,7 +127,7 @@ func TestPlanSubcommandsRegistered(t *testing.T) {
 	if planCmd == nil {
 		t.Fatal("plan command not registered")
 	}
-	for _, sub := range []string{"create", "list", "show", "attach", "set-status", "archive", "add-todo", "set-todo", "ask", "decisions", "answer"} {
+	for _, sub := range []string{"create", "list", "show", "attach", "set-status", "archive", "add-todo", "set-todo", "dispatch", "ask", "decisions", "answer"} {
 		if planCmd.GetCommand(sub) == nil {
 			t.Fatalf("plan subcommand %q not registered", sub)
 		}
