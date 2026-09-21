@@ -10,7 +10,12 @@ import (
 )
 
 // xfer_job.go is XFER-01 X2's worker side of the job file seam. A worker executes a
-// dispatched job locally, so it carries out that job's file steps in ITS cwd:
+// dispatched job locally, so it carries out that job's file steps in ITS cwd.
+//
+// It is the ONE place in this package that links internal/xfer in, and only for the two
+// definitions that must not drift: the content endpoint's path (ContentPath) and the
+// limit shape the caller resolves from this worker's own config. The wire-level
+// transfer code in xfer.go keeps its own literals on purpose (see errXferExists).
 //
 //   - FetchUpload downloads a staged upload from the hub's content endpoint with this
 //     worker's own token (the hub only serves an id assigned to the caller, which is

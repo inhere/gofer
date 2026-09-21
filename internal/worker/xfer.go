@@ -29,10 +29,11 @@ import (
 // bounded by the transfer's own deadline, so a queued transfer can never outlive it.
 const xferMaxConcurrent = 2
 
-// errXferExists is the refusal to overwrite an existing destination without force. Its
-// TEXT is the contract (the hub records the literal error string and settles the
-// transfer with it), not a shared sentinel: internal/xfer is the server's staging area
-// and this package must not link it in.
+// errXferExists is the refusal to overwrite an existing destination without force. Only
+// its TEXT is the contract: the hub records the literal error string and settles the
+// transfer with it. It is spelled here rather than shared with internal/xfer because the
+// two sides are different processes exchanging a message — an error VALUE would not
+// survive the wire anyway.
 var errXferExists = errors.New("exists")
 
 // errXferSourceNotFound is reported for a get whose source is not on this machine; the
