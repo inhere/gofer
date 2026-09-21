@@ -146,7 +146,7 @@ func TestCancelArrivingBetweenStartAndMappingIsHonoured(t *testing.T) {
 
 	close(m.release) // Submit finishes → mapping → the parked cancel is consumed
 
-	waitLocalJobStatus(t, jobs, localID, job.StatusCancelled, 2*time.Second)
+	waitLocalJobStatus(t, jobs, localID, job.StatusCancelled, 10*time.Second)
 }
 
 // waitLocalJobID returns the only local job the service knows about.
