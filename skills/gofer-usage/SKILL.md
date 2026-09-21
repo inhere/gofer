@@ -12,7 +12,7 @@ gofer = 一套「主机 server + 多台 worker」的任务执行网。你在 doc
 
 > 本 skill 详讲最常用的 `gofer job`。**其余命令**（`workflow`/`plan`/`schedule`/`session`/`tunnel`/`project`/`config`/`init`）见 [`references/commands.md`](references/commands.md)；**配置 gofer** 按节点角色看：纯客户端节点（容器里最常见）→ [`references/client-config.md`](references/client-config.md)；server → [`references/server-config.md`](references/server-config.md)；worker（含 LEGACY/POLICY 与 roots）→ [`references/worker-config.md`](references/worker-config.md)；加 project / 建 worker / 迁 POLICY 的分步 → [`references/setup-recipes.md`](references/setup-recipes.md)。需要时再读。
 >
-> 💡 执行**多步骤长任务**时，建议用 `gofer plan` + todo 做进度看板（每步 `--status doing/done --note`，web/手机实时可看）——范式见 [`references/commands.md`](references/commands.md) 的「长任务进度跟进」。**遇到需要人拍板的决策点**，用 MCP 工具 `gofer_ask_human` 阻塞提问、人在 web 作答后答案流回（超时按预案继续，不无限阻塞）——见同文「决策点问人」。
+> 💡 执行**多步骤长任务**时，建议用 `gofer plan` + todo 做进度看板，并**给每一步指派 agent**：`status=ready` + `assignee` 的 todo 会**立刻变成 job**，跑完自动写回状态与交付的提交（PLAN-02，`gofer plan set-todo <id> --assign omp --status ready`；web/手机实时可看）——范式见 [`references/commands.md`](references/commands.md) 的「todo 指派 agent 即派发」。**遇到需要人拍板的决策点**，用 MCP 工具 `gofer_ask_human` 阻塞提问、人在 web 作答后答案流回（超时按预案继续，不无限阻塞）——见同文「决策点问人」。
 
 ## 0. 先判断能不能用（30 秒自检）
 
@@ -185,10 +185,15 @@ gofer job run -p <project> -t impl-batch --var tasks="1. 加 foo 子命令" --va
   模板只填你没给的那些（`--timeout 60` 压过模板的 `timeout_sec`）。
 - **正文变量**：`{{name}}` 用 `--var` 的值（没给就用 `default`；`required: true` 又没给值 → 提交报
   400 并列出缺哪个）。内置 `{{project}}`/`{{cwd}}`/`{{date}}`/`{{head}}`（`head` 是该项目的
-  `git rev-parse --short HEAD`，不是 git 仓就空 + 告警）。`{{include: common.md}}` 从**同一目录**
+  `git rev-parse --short HEAD`，不是 git 仓就空 + 告警），以及**只对挂 todo 的提交可解析**的
+  `{{plan_title}}`/`{{plan_description}}`/`{{todo_title}}`/`{{todo_note}}`/`{{todo_id}}`（PLAN-02）。
+  `{{include: common.md}}` 从**同一目录**
   拼一份片段（只一层：被 include 的文件不再展开 include）。没声明的 `{{x}}` 若没人给值就原样保留并告警。
-- **示例**：仓库 `docs/examples/templates/{common.md,impl-batch.md}` 就是一对（后者 include 前者）；
+- **示例**：仓库 `docs/examples/templates/{common.md,impl-batch.md}` 就是一对（后者 include 前者），
   拷到 `<config-dir>/templates/` 即可用：`cp docs/examples/templates/*.md ~/.config/gofer/templates/`。
+  示例正文用 `{{plan_title}}/{{todo_title}}/{{todo_note}}`，即**给 plan todo 派发用**的任务书
+  （`plan set-todo <id> --status ready --template impl-batch`）；直接 `job run -t impl-batch --var tasks="…"`
+  时这几个内置变量渲染成空 + 告警，任务正文由 `--var tasks` 给。
 - **审计**：job 的 `request_json` 存的是**渲染后的 prompt**，同时留着模板名与变量值——重跑（`job rerun`/
   重建）照那份 prompt 跑，**不会**再渲染一次。
 

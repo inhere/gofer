@@ -12,6 +12,7 @@
 | 0.3 | 2026-09-21 | omp | **X1 已落地**（XFER-01 核心：`xfers` 表 + 暂存区 + HTTP 上传/下载 + `file_xfer`/协议 v9 + worker 执行端 + `runner=server` 直落 + `gofer tool cp`/`tool xfer` + 独立 TTL 清理 + G033）；实测记录见 §「X1 实测记录」（stub/e2e 部分；真机验收待监督者在容器执行） |
 | 0.4 | 2026-09-21 | omp | **X2 已落地**（XFER-01 job 集成：`job run --upload/--collect` + `jobs.xfer_json` + artifacts 并入 + Dispatch `uploads/collect`（v9）+ xfer 事件进通知/webhook + web「文件」块 + docs）；实测记录见 §「X2 实测记录」（stub/e2e 部分；真机验收待监督者在容器执行） |
 | 0.5 | 2026-09-21 | omp | **P1 已落地**（JOB-11 同 cwd 串行锁 + `waiting_dir` + per-agent 并发；AUTO-05 输出停滞检测 → transient）；实测记录见 §「P1 实测记录」（含 4 处与设计的偏差说明） |
+| 0.6 | 2026-09-21 | omp | **P2 已落地**（PLAN-02：plan/todo 的 project、todo 派发字段 + `ready`、派发器与三处触发点、`plan dispatch`/`gofer_dispatch_todo`、plan 用量汇总、web 派发控件）；实测记录见 §「P2 实测记录」 |
 
 ## 背景与目标
 
@@ -276,3 +277,47 @@ P1 已落地：JOB-11（同 cwd 串行锁 + 非终态 `waiting_dir` + per-agent 
 两个 job **有没有重叠**不靠时钟判定：`testcmd` 新增 `excl-guard`（独占拿住 marker，发现已被占即 exit 3）与 `rendezvous`（等同伴落第二个 marker，超时 exit 4）两个见证模式，于是"两个都 done"= 真的串行、"两个都 done 且互相会合"= 真的并发，都是确定性答案。
 
 **待真机（由监督者在容器执行，本 job 未做）**：真机 worker 上同 cwd 连派两个可写 agent job，第二个出现 `waiting_dir`（`job show` 打 `waiting_dir: holder=<第一个>`）并在第一个结束后接力；`--runner server` 的 exec job 不被挡；一个故意静默的 agent job 在 `stall_timeout_sec` 后 `failed: stalled: no output for Ns` 且触发自动续投。上面 job 级测试已在临时目录 + 真实子进程下覆盖同一批断言，但「真实 worker 进程 + 跨机器目录」这一层需真机确认。
+
+
+## P2 实测记录（2026-09-21）
+
+P2 已落地：`plans.project_key` + `plan_todos` 的 10 个派发列 + `ready` 状态、`job.MaybeDispatchTodo`/`DispatchTodo`（`internal/job/plandispatch.go`）、三处写入触发点（HTTP PATCH `/v1/todos/{id}`、MCP `gofer_update_todo`、CLI `plan set-todo`）、显式派发（HTTP `POST /v1/todos/{id}/dispatch`、CLI `plan dispatch <todo>`、MCP `gofer_dispatch_todo`）、`plan show` 的 assignee/dispatch_error + 用量行、plan 级用量汇总（`jobstore.PlanUsage` → `GET /v1/plans/{id}` 的 `usage`）、web PlanDetail 的派发/编辑控件与 Plans 列表的 project 列。落地要点与**与设计的偏差/取舍**（8 处）：
+
+- **`ready` 的时间戳规则补了一条**：设计只写了「`ready` 不动 started_at」；实现同时**清掉 `done_at`/`done` 标志**（`UpdateTodoStatus` 的 SQL 把 `ready` 与 `doing`/`pending` 同列）。理由：`done → ready` 是「重做」，留着完成时间会让看板把一个重新排队的项显示成已完成，而 `done=false` + `done_at>0` 本身自相矛盾。
+- **缺省 runner = 内置 local**：设计给的派发请求直接带 `todo.runner`，但 `validate` 要求 runner 非空。todo 没写 runner 时取内置 local（`job run` 的天然默认）——否则验收里那句 `plan set-todo --assign omp --status ready` 会因「runner is required」派不出去；要上 worker 的项显式 `--runner <key>`。
+- **模板的 plan/todo 内置变量从 STORE 现查，不随请求传递**：`{{plan_title}}/{{plan_description}}/{{todo_title}}/{{todo_note}}/{{todo_id}}` 由渲染端（hub 的 `applyTemplate`）按 `req.TodoID` 现查 plan_todos/plans，而不是把文本塞进 `JobRequest`。三个好处：一份任务书服务整个 plan 的每一项；重放/转发（worker 收到的是渲染后的 prompt、`Template` 已被 `dropTemplate` 清掉）不可能渲染出过期文本；`job run -t <book> --todo <id>` 也顺带拿到这些变量。代价：这 5 个名字进了 `template.BuiltinNames`，不挂 todo 的渲染（预览、纯 `-t`）里它们渲染成空 + 告警而不是原样打印花括号——与 `{{head}}` 同一处理。
+- **`plan add-todo` 不触发派发**：设计的三处触发点是「置 `ready` / 设 assignee / 显式 dispatch」，建项不在其中；`add-todo` 建出来恒为 `pending`（建项 = 规划），即便带了 `--assign` 也不出 job（要出就补一句 `set-todo --status ready` 或 `plan dispatch`）。字段仍可在建项时一次给全。
+- **显式派发把两种 no-op 分开**：「没有 assignee」「未知 todo」是**硬错误**（400/404，调用方要修），「已有活跃 job」是 **200 + `reason`**（你要的这件事已经在做）。设计只写了「忽略状态判定、仍要求 assignee 与无活跃 job」，这样分法让脚本能区分「要改东西」与「已经在跑」。
+- **字段名 `dispatch_error`**：设计 §四.1 写 `dispatch_note`、§四.2/本期任务书写 `dispatch_error`；按语义（失败原因，成功即清空）与任务书落成 **`dispatch_error`**。一个写入者（`Store.SetTodoDispatchError`）：失败写入、成功清空、跳过（条件不满足）不写。
+- **事件落法**：`plan.todo_dispatched {todo_id, job_id, agent}` 记在**新 job** 上（复用 `recordEvent`，于是 webhook 的 project 能解析出来）；`plan.todo_dispatch_failed {todo_id, reason}` 记在 **`plan:<id>` 作用域**（复用 X2 的非 job 事件入口 `RecordScopedEvent`，project 随事件传）。**默认通知集不变**（两个事件都需要显式订阅）。
+- **MCP 不给 `gofer_create_plan` 加 project**：设计把 `--project` 给了 CLI（`plan create --project`），MCP 侧每一项 todo 自己带 `project`（`gofer_add_todo`/`gofer_update_todo` 都有该字段）即可，故 `create_plan` 的参数表不变；`planView` 仍会读回 project。同理 `gofer_run_job` 的参数未动——派发字段只长在 todo 上。
+
+实现细节（供后续排查）：
+
+- **`TodoPatch` 是唯一的写入形状**：`jobstore.TodoPatch`（9 个 nil=保持、空值=清空字段）同时充当 HTTP PATCH body 的内嵌结构、CLI/MCP 的输入与 store 的 apply 参数；HTTP/MCP/CLI 三面因此不可能漂移。插入路径共用 `PlanTodo.ApplyTodoPatch`（建项时设置字段与更新走同一份折叠逻辑）。
+- **派发器的门（`dispatchTodo`）**：`status != ready`（非显式）→ 跳过并给出 reason；`assignee == ""` → 显式时 400、非显式时跳过；**有活跃 job** → 跳过，reason 里点名那个 job（`jobs.todo_id` 反查，非终态算活跃，`needs_review` 自然也含在内——它的裁决还没出，前一次工作不算完）；project 取 `todo.project_key || plan.project_key`，都空 → `dispatch_error="no project"` + 失败事件。派发成功顺手**清空** `dispatch_error`。
+- **`MaybeDispatchTodo` 每写入路径一次、幂等**：写完就调，它自己重新读 todo/jobs 做判定。**没有 sweeper**：server 重启不补派（设计决策 5），`serve` 里没有这一段代码——所以「重启后 plan 里躺着的 ready 项」不会自己跑起来。
+- **派发 = 普通 Submit**：`Channel="plan"`、`CallerID=触发者`、`Title=todo.title`、`TodoID`/`PlanID` 带上，SUP-01 C 的联动随即把它 `doing` →（done 或 note）。默认 prompt 只拼非空段（空 description/note 不留空标题）。
+- **plan 用量**：`planUsageQuery` 就是 `usageStatsQuery` 加 `WHERE plan_id = ?`（同一套 `json_valid` 守卫），所以「plan 卡」和「dashboard 卡」对同一个 job 不可能给出不同数字；`jobs` 计全部挂接 job（没报用量也算跑了），token/成本只累加报了数字的行。
+- **web**：PlanDetail 头部加 project/用量两行；todo 行加 assignee 徽标 + 「派发」「编辑」按钮 + `dispatch_error` 红字 + 活跃 job 高亮；「派发」= 一次 `PATCH {status:'ready'}`（无 assignee 时先选 agent 再一起发）；编辑抽屉一次 PATCH 发 assignee/project/template/runner/cwd（空串=显式清空）+ review + verify（有内容才发，空格分词成 argv）+ timeout_sec；Plans 列表加 project 列。`vue-tsc --noEmit` 通过。
+
+实测证据（`go test -count=1` 原始行）：
+
+```
+--- PASS: TestPlanProjectKeyAndTodoDispatchFieldsRoundTrip / TestTodoDispatchPatchAndError
+           / TestTodoReadyStatusLifecycle / TestPlanUsageAggregates          (internal/jobstore)
+--- PASS: TestTodoDispatchOnReadyWithAssignee / TestTodoDispatchOnAssignWhenAlreadyReady
+           / TestTodoDispatchNeedsProject / TestTodoDispatchSkipsWhileActiveJob
+           / TestTodoDispatchDefaultPromptContainsPlanAndTodo / TestTodoDispatchWithTemplateVars
+           / TestTodoRedispatchAfterTerminal / TestTodoDispatchInheritsVerifyReviewRunner
+                                                                             (internal/job)
+--- PASS: TestUpdateTodoReadyDispatches / TestPlanDispatchEndpoint / TestPlanShowIncludesUsage
+                                                                             (internal/httpapi)
+--- PASS: TestPlanSetTodoAssignFlags / TestPlanDispatchCommand / TestPlanCreateProjectFlag
+                                                                             (internal/commands)
+--- PASS: TestUpdateTodoAssigneeDispatches / TestDispatchTodoTool            (internal/mcpserver)
+```
+
+**测试期发现的真问题（已修在测试里，值得记一笔）**：用「轮询 job 快照看到终态就断言 todo 已完成」会偶发假红——job 的**行**先变终态，todo 联动（`linkTodoOutcome`）写在它之后。正确等法是 `Service.Wait`（等的是 job 协程结束，`execute` 的 `defer close(entry.done)` 在 finish 与终态钩子之后才触发），P2 的这两个测试与 P1 的 job 级测试都用它。
+
+**待真机/待人工（本 job 未做）**：web 派发控件只过了 `vue-tsc --noEmit`，**没有浏览器实测**（本机 `web/node_modules` 是按 Linux 装的，缺 `@rollup/rollup-win32-x64-msvc` / `@esbuild/win32-x64`，vite dev server 起不来；未跑 `pnpm build`）。真机验收建议：一个真实项目上 `gofer plan create --project <p>` → `plan add-todo … --assign <真 agent>` → `plan set-todo <id> --status ready`，确认出 job 并联动到 done；web Plan 页点「派发」看 job 链接出现；故意写一个不允许的 agent 看 `dispatch_error` 红字。

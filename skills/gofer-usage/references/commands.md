@@ -25,38 +25,66 @@ gofer workflow export <id>              # 导出 spec(去密钥)可再 import, �
 把相关 job 归到一个 plan 下、附带 todo 清单跟踪进度（**不**决定执行顺序，只做归类/看板）：
 
 ```bash
-gofer plan create --title "<标题>" [--desc "<说明>"] [--plan-id <id>]
+gofer plan create --title "<标题>" [--desc "<说明>"] [--plan-id <id>] [--project <项目>]
+    # --project = 这个 plan 的 todo 默认在哪个项目里跑(PLAN-02)
 gofer plan attach <plan-id> <job-id>    # 把已有 job 挂到 plan（注意顺序：先 plan 后 job）
 gofer plan list / show <id> / archive <id>
-    # show 在每个 todo 下列出挂接的 job(id/状态/agent/用时, 新→旧最多 10 条)
-gofer plan add-todo <id> "<待办>" [--note "<备注>"]       # 加 todo(别名 todo-add)
-gofer plan set-todo <todo-id> [--status doing|done|skipped|pending] [--note "<结果>"] [--append-note "<追加一行>"]
+    # show 在每个 todo 下列出挂接的 job(id/状态/agent/用时, 新→旧最多 10 条),
+    # 并显示 assignee 与 dispatch_error；头部一行 usage 汇总(tokens/$，来自挂接 job)
+gofer plan add-todo <id> "<待办>" [--note "<备注>"] [派发字段...]   # 加 todo(别名 todo-add)，建出来是 pending
+gofer plan set-todo <todo-id> [--status pending|ready|doing|done|skipped] [--note "<结果>"] [--append-note "<追加一行>"] [派发字段...]
     # 生命周期推进：--status doing 自动记开始时间, done/skipped 记完结时间;
     # 裸调用=done, --undone=pending(旧用法兼容); --note 单独用只改备注;
     # --append-note 追加一行到现有备注(与 --note 互斥, 服务端原子追加; 只追加不改状态;
     # job 的终态就是这么自动记账的: 见下「todo 联动」)
+gofer plan dispatch <todo-id>           # 显式派发(PLAN-02): 不看状态, 只要 assignee + 无活跃 job
 gofer plan set-status <id> <status>
 ```
 
-- **workflow vs plan**：workflow = **执行**依赖链（server 按链跑）；plan = **组织** view（把散 job + todo 归一起看）。
-
-### 范式：长任务进度跟进（人不在电脑前也能看）
-
-在任何 AI 会话里执行**多步骤长任务**（大改造 / 迁移 / 分阶段实施）时，把 plan 当进度看板用——每步经 CLI 或 gofer MCP 工具（`gofer_create_plan` / `gofer_add_todo` / `gofer_update_todo`）汇报，web 控制台 Plan 详情页（手机可开）就是实时进度页：
+**派发字段（PLAN-02，`add-todo` / `set-todo` 共用）**：
 
 ```bash
-# 开工: 建计划, 每个步骤一个 todo
-gofer plan create --title "xxx 改造实施"
-gofer plan add-todo <plan-id> "步骤1: 数据模型迁移"
-gofer plan add-todo <plan-id> "步骤2: API 扩展"
-# 每步开始 / 完成时:
-gofer plan set-todo <todo-id> --status doing
-gofer plan set-todo <todo-id> --status done --note "迁移完成, 单测绿"
-# 某步决定不做:
-gofer plan set-todo <todo-id> --status skipped --note "原因..."
+--assign <agent>       # 谁跑这一项；**ready + 有 assignee = 立刻出 job**（见下「todo 指派即派发」）
+--project <项目>       # 覆盖 plan 的 project
+--template <名> --var k=v   # 用任务书模板渲染这一项的 prompt（内置变量含 {{plan_title}} {{plan_description}} {{todo_title}} {{todo_note}} {{todo_id}}）
+--verify '<命令>'      # agent 正常结束后在同一 cwd 跑的验收命令（非 0 退出 → job failed；需项目 allow_exec）
+--review               # 这一项正常完成后停在 needs_review，等人验收
+--runner <key>         # 执行 runner（缺省 = 内置 local）
+--cwd <相对路径>       # 工作目录（缺省项目根）
+--timeout <秒>         # job 超时（缺省 server 默认）
 ```
 
-要点：note 写**结果/验收一句话**（不是过程流水，过程在 job logs）；跑长命令的步骤尽量用 `gofer job run` 执行并 `--plan <id>` 或 `plan attach` 挂进来，进度页可直接点进日志。**更好的是直接 `job run --todo <todo-id>`**：状态与"交付了哪些提交"由 job 终态自动写回，不用手工 `plan set-todo`（见「todo 联动」）。
+- **workflow vs plan**：workflow = **执行**依赖链（server 按链跑）；plan = **组织** view（把散 job + todo 归一起看）。
+- **todo 状态机**：`pending`（backlog，永不自动派发）→ `ready`（可派发）→ `doing`（job 在跑）→ `done`/`skipped`；**server 重启不补派** ready 的项（派发只发生在写入路径上）。
+
+### 范式：todo 指派 agent 即派发（PLAN-02，长任务不再靠人敲命令）
+
+多步骤长任务（大改造 / 迁移 / 分阶段实施）的推荐姿势：**一边规划、一边把每一步指派给一个 agent**——`status=ready` 且有 `assignee` 的 todo 会**立刻变成 job**，跑完由 job 终态自动写回（状态 + 交付的提交），web 控制台 Plan 详情页（手机可开）就是实时进度页，人不必一条条敲"开始/结束"。
+
+```bash
+# 开工：建计划（--project 让后续每一项不必重复写项目） + 每一步一个 todo
+gofer plan create --title "xxx 改造实施" --project <项目>
+# 规划 + 派发一步到位（两个条件哪个后到都触发）：
+gofer plan add-todo <plan-id> "步骤1: 数据模型迁移" --assign omp --note "先跑 migration，再补索引"
+gofer plan set-todo <todo-id> --status ready          # 该步立刻出 job → todo 转 doing
+# 想连"怎么跑"一起定下来（模板/验收/验收人/执行机）：
+gofer plan set-todo <todo-id> --assign omp --status ready --template impl-batch \
+    --var tasks="只做 index 重建" --verify 'go test ./...' --review --runner local --cwd . --timeout 1800
+# 兜底：显式派发（不看状态；只要求 assignee 且当前没有活跃 job）
+gofer plan dispatch <todo-id>
+# 某步决定不做 / 手工推进：
+gofer plan set-todo <todo-id> --status skipped --note "原因..."
+gofer plan set-todo <todo-id> --status done --note "手工收尾完成"
+```
+
+要点：
+
+- **触发点只有写入路径**：`--status ready`、设置/修改 `assignee`、显式 `plan dispatch`（MCP 侧 `gofer_update_todo` / `gofer_dispatch_todo` 同）。**server 重启不补派**——parking 一项是有意为之，开机自动跑工作不是。
+- **无模板时的默认 prompt** = `# <plan.title>` + `<plan.description>` + `## 本任务` + `<todo.title>` + `<todo.note>`；有模板时用模板，内置变量多 `{{plan_title}} {{plan_description}} {{todo_title}} {{todo_note}} {{todo_id}}`（**一份模板服务整个 plan 的每一项**）。
+- **再跑 / 换人**：处于 `doing`/`done` 的项再置 `ready` = 重跑一次（前一个 job 必须已终态或 needs_review 已裁决）；`--assign` 另一个 agent + `--status ready` = 换人。改派/重跑都不会插队到正在跑的那一次。
+- **失败不自动重派**：job 失败 → todo 保持 `doing` + note 写原因；要不要再跑由人或 wakeup 决定。派发本身失败（无项目 / agent 不允许 / 项目不在 worker 上）→ todo **保持 ready** 并把原因写进 `dispatch_error`（`plan show` 与 web 都显示红字），事件 `plan.todo_dispatch_failed` 记在 plan 作用域；成功派发记 `plan.todo_dispatched`（事件默认通知集不变）。
+- **派发出去的还是普通 job**：verify / review / runner / cwd / timeout / worktree 等照常生效，`job list --plan <id>` 能看到，进度页可点进日志。
+- note 写**结果/验收一句话**（不是过程流水，过程在 job logs）。
 
 ### 范式：决策点问人（gofer_ask_human）
 
@@ -110,7 +138,7 @@ gofer job review <id> [--tail 60] [--diff]                # 验收一屏: status
 - **只读 job**：`job run --read-only`（审查/分析类任务，agent 不能写文件）——cli-agent 追加 `read_only_args`（内置 codex `-s read-only`、claude `--permission-mode plan`），acp-agent 用 `acp.modes.read_only` 映射到 agent 的 mode id（prompt 前 `session/set_mode`）；exec agent 与没配只读模式的 agent 提交即被拒。resume 继承只读（同一 job 链内不能升级为可写）。
 - **人工验收（`needs_review`）**：`job run --review`（或项目 `require_review: true`，或 workflow 步骤 `review:`）的 job，agent **正常完成**后停在非终态 `needs_review`，等人 `job accept`（→done）或 `job reject --note …`（→终态 `rejected`，workflow 按失败聚合、不会被自动重试/续投）。**只有人能 accept**：worker token 打 HTTP `POST /v1/jobs/{id}/accept|reject` 一律 403；MCP 只有 `gofer_reject_job`，没有 accept 工具。`job cancel` 对 `needs_review` 返回 409（改用 reject），`job resume` 也要求先把验收做完。
 - 断线恢复：worker 断线时 job 进 `recovering`（`job list --status recovering`），窗口内同进程重连即恢复；serve 重启也一样。**recovering 不要重派。**
-- **todo 联动（`--todo`，SUP-01 C）**：`job run --todo <todo-id>` 把"跑一次活"和 checklist 上的那一项绑起来——`plan_id` 缺省从 todo 反查（显式 `--plan` 与 todo 所属 plan 不一致直接 400），提交成功后该项转 `doing` 并指向这个 job；终态时自动写回：`done` → 该项 `done` 且备注追加一行 `<job-id> ✓ N commits: <sha> <subject>; …`（最多 8 条，超出 `+N`；无提交写 `no commits`）、`needs_review` → 追加 `<job-id> 待验收`（accept 后再补 done 行）、失败/超时/取消/拒绝 → 状态不动、追加 `<job-id> ✗ <status>: <原因前 120 字>`。**失败只影响备注，不影响 job 本身**；`reject --resume` / 自动续投的新 job 继承 `todo_id`，整条链的每一轮都追加到同一项上。
+- **todo 联动（`--todo`，SUP-01 C / PLAN-02）**：`job run --todo <todo-id>` 把"跑一次活"和 checklist 上的那一项绑起来——`plan_id` 缺省从 todo 反查（显式 `--plan` 与 todo 所属 plan 不一致直接 400），提交成功后该项转 `doing` 并指向这个 job；终态时自动写回：`done` → 该项 `done` 且备注追加一行 `<job-id> ✓ N commits: <sha> <subject>; …`（最多 8 条，超出 `+N`；无提交写 `no commits`）、`needs_review` → 追加 `<job-id> 待验收`（accept 后再补 done 行）、失败/超时/取消/拒绝 → 状态不动、追加 `<job-id> ✗ <status>: <原因前 120 字>`。**失败只影响备注，不影响 job 本身**；`reject --resume` / 自动续投的新 job 继承 `todo_id`，整条链的每一轮都追加到同一项上。**PLAN-02 起这条联动不用人敲 `job run`**：todo 自己带派发字段（assignee + 模板/verify/review/runner/cwd/timeout/project），`ready` + 有 assignee 即出 job（见上「todo 指派 agent 即派发」）——job 行 `channel=plan`、`todo_id`/`plan_id` 都指向那一项。
 - **提交采集**：job 开跑时在执行机记 `base_sha`（cwd 不是 git 仓则空；worktree job 用其基线），终态时 `git log base..HEAD`（上限 50，新→旧）写进 `commits`——`job show` 列出、web 详情页「提交」块可一键复制 sha、worker 上跑的 job 经 Outcome 回传后 host 行同样有。它独立于 `capture_diff` 开关，采集失败留空、不影响 job。
 - **验证步骤（`--verify`，SUP-01 P2）**：agent 汇报不当验收——`job run --verify '<argv>'`（shell-words 拆成 argv，**不经 shell**；要 shell 就写 `bash -lc '…'`）在 agent **正常结束（exit 0）**后于**同一台执行机、同一 cwd/env**跑这条命令，独立超时 `--verify-timeout`（缺省项目 `verify_timeout_sec`，再缺省 600s）。结果：`passed` → job 按原逻辑；`failed`/`timeout` → job `failed`（exit_code 取验证退出码，timeout 为 -1）且**不是** transient（不触发自动续投/故障转移）；开了 `--review` 则停 `needs_review` 留人裁决；agent 自己失败/取消/超时 → `skipped`（不跑）。stdout+stderr 合并写进本 job 的 stderr 日志并夹两条横幅，web 详情页「验证」块可点击跳到输出，`job show` 打印 `verify: failed (exit 1, 12.3s)`。**需要项目 `allow_exec`**（argv 来自提交者，与 exec 同一信任面）；不想跑项目默认值就 `--no-verify`。**worker/peer 上跑的 job 由执行机跑验证**，结果经 Outcome 回传（不会在 server 上重跑）；协议 < v8 的 worker 会被**直接拒绝**（提示升级，不再静默忽略）。
 - **故障转移（`--fallback` / `--no-fallback`，SUP-01 P3）**：agent 因**供应商错误**（`transient_error_patterns`，含内置 `at capacity|rate limit|429|stream disconnected|windows sandbox failed|connecting runner pipe` 等）挂掉、且它**自己也没法续**（无会话 / 续投额度用尽 / 已续过一次又挂）时，server 用一个**普通 job** 把这份活交给下一个候选 agent：以**链根那次的请求**重提（新会话、同一 cwd——源 job 在 worktree 里就继续在那个 worktree、不新建），prompt 前面加一段"上一次由 X 执行，因供应商错误（…）中断；先 git status / git log 看进度，只做剩余部分，不要重做已提交的工作"（exec 类请求不加前缀、原样重跑），标题追加 `(→omp)`，`plan_id`/`tags`/`timeout`/`read_only`/`review`/`verify`/`todo_id`/caller 全部继承。源 job 记 `job.fell_back {to_job, agent, reason}`（**不**记 `job.terminal`，IM 不该收到一条马上被接管的失败），源行 `fell_back_to` 指向新 job、新 job `fell_back_from` 指回源、`requested_agent` 记调用方原本要的 agent；链长 = 候选数，用尽即正常 `job.terminal`。候选来源：`--fallback` > 项目 `agent_fallbacks` > agent `fallback_agents`；**提交时解析并冻结**（`fallback_json`），运行中改配置不会让链条漂移；不在项目 `allowed_agents` 内的候选被跳过并 warn。失败归类 `failure_class`（transient|other）无条件写入（与是否开启转移无关，健康度按它统计）。
