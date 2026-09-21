@@ -1,13 +1,14 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 文件传输与「计划即派发」设计（XFER-01 / JOB-11 / AUTO-05 / PLAN-02 / JOB-09）
 
-> 状态：Draft 0.1 / 待人工批准
+> 状态：Approved 0.2 / 实施中（2026-09-20 人工批准，决策 1–6 按默认）
 
 ## 修订记录
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
 | 0.1 | 2026-09-20 | Claude | 初稿：XFER-01 客户端↔server↔worker 文件传输（`gofer tool cp`、`job run --upload/--collect`）；JOB-11 同 cwd 串行锁 + per-agent 并发；AUTO-05 输出停滞检测；PLAN-02 todo 指派即派发 + plan 级用量；JOB-09 job wakeups（事件/定时 → 续投）。新增 CLI 约定：小工具命令进 `gofer tool` 组 |
+| 0.2 | 2026-09-20 | Claude | 人工批准（决策 1–6 按默认）；分期 X1 → X2 → P1 → P2 → P3，全部 omp，测试先提交 |
 
 ## 背景与目标
 
@@ -157,7 +158,7 @@ gofer job wakeup list|show|disable|enable <…>
 | P2 | PLAN-02（plan project、todo 字段、`ready`、派发器、`plan dispatch`、web、MCP、plan 用量） | `set-todo --assign omp --status ready` 自动出 job 并联动到 done；无模板默认 prompt 含 plan/todo 文本 |
 | P3 | JOB-09（表、定时并入 sweeper、事件匹配、续投/重跑、CLI/HTTP/MCP/web、docs） | `--kind at --after 1m` 到点续投；`--kind event --event job.terminal --job-id B` 在 B 结束后续投 A；coalesce 生效 |
 
-## 决策（待批准）
+## 决策（已批准 2026-09-20）
 
 1. `gofer tool cp` 的远端写法 `<runner>:<project>/<相对路径>`，只允许项目根内；v1 单文件、无断点续传。
 2. 文件本体走 HTTP + worker token，WS 只传指令；协议 v9，老 worker 直接拒绝。
