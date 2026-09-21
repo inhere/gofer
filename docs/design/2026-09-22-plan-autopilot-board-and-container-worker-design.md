@@ -1,13 +1,14 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 计划自驱与看板、容器 worker、pty 会话续接与短 id 设计（PLAN-03 / WEB-10 / CFG-09 / PTY-01 / XFER-02 / 小项）
 
-> 状态：Draft 0.1 / 待人工批准
+> 状态：Approved 0.2 / 实施中（2026-09-22 人工批准，决策 1–6 照初稿）
 
 ## 修订记录
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
 | 0.1 | 2026-09-22 | Claude | 初稿：PLAN-03 todo 依赖 + 自动推进 + plan run/pause/blocked；WEB-10 计划看板；CFG-09 容器 worker 上线（含 hook runner、Linux 复核 todo）；PTY-01 交互 pty job 的会话 id 捕获与文本转录（现在 stdout 为空、无 session id、无法续接）；XFER-02 传输记录短 id；小项 AUTO-02b schedule webhook、`agent.degraded` 通知、xfer 上传前校验（h-aii-gnm3）、wakeup 时区（h-aii-tnua） |
+| 0.2 | 2026-09-22 | Claude | 人工批准；分期 Q1 → Q2 → Q3 → Q4，全部 omp，测试先提交 |
 
 ## 背景与目标
 
@@ -103,7 +104,7 @@ v0.48.1 之后"派活 → verify → 验收"的每一步都有了，但**链条�
 | Q3 | WEB-10 看板 | 桩数据下五列/拖拽/派发/blocked 横幅；`vue-tsc`/build |
 | Q4 | CFG-09：`worker doctor` + runbook + 容器实际上线（监督者在容器操作）| 容器 worker connected；web 送话到容器会话；链末 Linux 复核 todo 自动跑 |
 
-## 决策（待批准）
+## 决策（已批准 2026-09-22）
 
 1. `plan.blocked` 进通知默认集（其余新事件不进）。
 2. 看板用原生 DnD，不引入拖拽库；`doing` 列不可拖入。
