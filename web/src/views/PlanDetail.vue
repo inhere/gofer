@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Plan 详情：getPlan 填头部 + counts 进度 + jobs 表 + decisions 决策卡 + todos 清单；
+// Plan 详情：getPlan 填头部 + counts 进度 + jobs 表 + decisions 决策卡 + todos 清单/看板；
 // 有未终态 job 或 OPEN decision 时轮询（2.5s，H4：规划期提问也要刷新）。
 //  - jobs 链入 /jobs/{id}（仿 WorkflowDetail 的 step→job）。
 //  - decisions：投影成 Interaction 复用 InteractionCard（OPEN→choice/question、
@@ -7,20 +7,24 @@
 //  - todos：勾选(updateTodo) / 新增(addTodo，可绑 job) / 展示绑定 job / 派发(patchTodo 置
 //    ready) / 编辑派发字段(assignee、template、verify、review、runner、cwd、timeout、project)。
 //  - attach：把已有 job id 补挂到本 plan（attachJob）。
+//  - WEB-10 看板（PlanBoard）：同一份详情数据派生五列，拖拽落点走 patchTodo（乐观更新 +
+//    失败回滚），链操作走 planRun/planPause/planResume；视图选择记 localStorage。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import PlanStatusBadge from '../components/PlanStatusBadge.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import InteractionCard from '../components/InteractionCard.vue'
+import PlanBoard from '../components/PlanBoard.vue'
 import {
-  addTodo, answerDecision, attachJob, getPlan, listAgents, patchTodo, updatePlan,
-  updateTodo, updateTodoStatus,
+  addTodo, answerDecision, attachJob, getPlan, listAgents, patchTodo, planPause, planResume,
+  planRun, updatePlan, updateTodo, updateTodoStatus,
 } from '../api/client'
 import { fmtDateTime, fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
 import type {
   AgentInfo, Decision, Interaction, Job, PlanDetail, PlanStatus, Todo, TodoPatch, TodoStatus,
 } from '../api/types'
 import { formatTokens } from '../utils/jobOutcome'
+import { boardProgress } from '../utils/planBoard'
 import { progressDetail, progressSegments, progressText } from '../utils/planProgress'
 
 const props = defineProps<{ id: string }>()
@@ -322,6 +326,177 @@ async function saveTodoEdit(t: Todo): Promise<void> {
   }
 }
 
+// —— WEB-10 看板 ——
+
+// 视图选择（默认看板）：列表/看板同一份数据，只换渲染方式；选择记 localStorage。
+const VIEW_KEY = 'gofer.plans.view'
+const view = ref<'board' | 'list'>(readView())
+function readView(): 'board' | 'list' {
+  try {
+    return localStorage.getItem(VIEW_KEY) === 'list' ? 'list' : 'board'
+  } catch {
+    return 'board'
+  }
+}
+function setView(next: 'board' | 'list'): void {
+  view.value = next
+  try {
+    localStorage.setItem(VIEW_KEY, next)
+  } catch {
+    /* ignore storage failures */
+  }
+  if (next === 'board') void loadAgents() // 看板拖到 ready 时要用 agent 列表
+}
+
+// 头部进度条（done + skipped / total）：与看板列头同源，planProgress 的 job 口径不动。
+const boardPct = computed(() => boardProgress(plan.value?.todos ?? []))
+
+// 拖拽/写入进行中：暂停轮询写回（重渲染会打断拖拽，也会把乐观更新打回旧值）。
+const boardDragging = ref(false)
+const moving = ref<Set<string>>(new Set())
+const boardBusy = computed(() => boardDragging.value || moving.value.size > 0)
+
+function setMoving(id: string, on: boolean): void {
+  const next = new Set(moving.value)
+  if (on) next.add(id)
+  else next.delete(id)
+  moving.value = next
+}
+
+// 乐观更新：先就地改本地条目，PATCH 失败再把整条旧对象换回去（回滚 + toast）。
+function patchTodoLocal(todoId: string, patch: Partial<Todo>): Todo | null {
+  const prev = plan.value?.todos.find((x) => x.todo_id === todoId) ?? null
+  if (plan.value && prev) {
+    plan.value.todos = plan.value.todos.map((x) =>
+      x.todo_id === todoId ? { ...x, ...patch } : x,
+    )
+  }
+  return prev
+}
+
+const MOVE_TOAST: Record<TodoStatus, string> = {
+  pending: '已撤回到待办',
+  ready: '已派发',
+  doing: '已置为进行中',
+  done: '已标记完成',
+  skipped: '已跳过',
+}
+
+// 看板落点：PATCH /v1/todos/{id}，status 就是落点；ready + assignee 由服务端当场起 job。
+async function onBoardMove(payload: {
+  todo: Todo
+  status: TodoStatus
+  assignee?: string
+}): Promise<void> {
+  const t = payload.todo
+  if (moving.value.has(t.todo_id)) {
+    return
+  }
+  const prev = patchTodoLocal(t.todo_id, {
+    status: payload.status,
+    ...(payload.assignee ? { assignee: payload.assignee } : {}),
+  })
+  setMoving(t.todo_id, true)
+  opError.value = ''
+  const patch: TodoPatch = { status: payload.status }
+  if (payload.assignee) {
+    patch.assignee = payload.assignee
+  }
+  try {
+    await patchTodo(t.todo_id, patch)
+    setMoving(t.todo_id, false)
+    await fetchPlan() // 服务端真相：ready 可能当场起 job（条目转 doing 并挂上 job_id）
+    const head = payload.assignee
+      ? `${MOVE_TOAST[payload.status]}（${payload.assignee}）`
+      : MOVE_TOAST[payload.status]
+    setToast(`${head}：${t.title}`)
+  } catch (e) {
+    if (plan.value && prev) {
+      plan.value.todos = plan.value.todos.map((x) => (x.todo_id === prev.todo_id ? prev : x))
+    }
+    setMoving(t.todo_id, false)
+    setToast(`操作失败，已回滚：${e instanceof Error ? e.message : String(e)}`)
+  }
+}
+
+function onBoardDrag(active: boolean): void {
+  boardDragging.value = active
+}
+
+// plan 链操作（PLAN-03）：run=启动链（先解除 pause/block，把依赖已满足、已指派的 pending
+// 条目置 ready 并派发）、pause=挂起自动推进（已在跑的 job 不取消）、resume=解除 pause/block
+// 并继续推进。三者都返回 plan 头部快照，故就地合并再整刷一次拿条目/job。
+const acting = ref('')
+const confirmRun = ref(false)
+async function onPlanAction(kind: 'run' | 'pause' | 'resume'): Promise<void> {
+  if (acting.value) {
+    return
+  }
+  acting.value = kind
+  confirmRun.value = false
+  opError.value = ''
+  try {
+    const fn = kind === 'run' ? planRun : kind === 'pause' ? planPause : planResume
+    const head = await fn(props.id)
+    // paused/blocked_todo 是 omitempty：服务端在 false/空 时根本不发这个键，直接 spread
+    // 会留着旧值（解除挂起后横幅还在），故显式补默认。
+    plan.value = {
+      ...plan.value!,
+      ...head,
+      paused: head.paused ?? false,
+      blocked_todo: head.blocked_todo ?? '',
+    }
+    await fetchPlan()
+    setToast(kind === 'run' ? '已启动链' : kind === 'pause' ? '已挂起自动推进' : '已继续推进')
+  } catch (e) {
+    opError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    acting.value = ''
+  }
+}
+
+// blocked 横幅的两个出口（PLAN-03）：重派 = 该条目回 ready、跳过 = 该条目 skipped——服务端
+// 在这两种写入里都会解除 block 并继续推进链（httpapi 的 PlanTodoChanged）。
+async function onReleaseBlocked(status: 'ready' | 'skipped'): Promise<void> {
+  const id = plan.value?.blocked_todo
+  if (!id || acting.value) {
+    return
+  }
+  acting.value = `blocked:${status}`
+  opError.value = ''
+  try {
+    await patchTodo(id, { status })
+    await fetchPlan()
+    setToast(status === 'ready' ? '已重派被阻塞的条目' : '已跳过被阻塞的条目')
+  } catch (e) {
+    opError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    acting.value = ''
+  }
+}
+
+const blockedTitle = computed(() => {
+  const id = plan.value?.blocked_todo
+  if (!id) {
+    return ''
+  }
+  return plan.value?.todos.find((t) => t.todo_id === id)?.title ?? id
+})
+
+// 操作结果浮层（同 ReviewQueue 的口径）：点一下关掉，8s 自动消失。
+const toast = ref('')
+let toastTimer: number | null = null
+function setToast(text: string): void {
+  toast.value = text
+  if (toastTimer != null) {
+    window.clearTimeout(toastTimer)
+  }
+  toastTimer = window.setTimeout(() => {
+    toast.value = ''
+    toastTimer = null
+  }, 8000)
+}
+
 const canFinish = computed(() => {
   const c = plan.value?.counts
   // 「可以收尾」= 没有 queued/running 的 job，且待办为空或全部 done/skipped。仅作提示，不自动改状态（C2）。
@@ -331,6 +506,10 @@ const canFinish = computed(() => {
 })
 
 async function fetchPlan(): Promise<void> {
+  // 看板拖拽/写入进行中不写回：一次重渲染会把正在拖的卡片换掉，也会把乐观更新打回旧值。
+  if (boardBusy.value) {
+    return
+  }
   try {
     plan.value = await getPlan(props.id)
     error.value = ''
@@ -484,16 +663,19 @@ onMounted(() => {
   void fetchPlan().then(() => {
     if (isActive.value) startPolling()
   })
+  // 看板是默认视图：拖到 ready 要先选 agent，故进页面就备好候选列表（一次 GET /v1/agents）。
+  if (view.value === 'board') void loadAgents()
   document.addEventListener('visibilitychange', onVisibility)
 })
 onUnmounted(() => {
   stopPolling()
+  if (toastTimer != null) window.clearTimeout(toastTimer)
   document.removeEventListener('visibilitychange', onVisibility)
 })
 </script>
 
 <template>
-  <div class="detail">
+  <div class="detail" :class="{ 'detail--board': view === 'board' }">
     <div class="detail-head">
       <button class="back mono" type="button" @click="router.push('/plans')">
         &larr; plans
@@ -567,11 +749,6 @@ onUnmounted(() => {
           <dt>progress</dt>
           <dd>{{ plan.progress }}</dd>
         </div>
-        <!-- PLAN-02 P2：plan 级用量汇总（挂接 job 的 token/成本 + 各 agent 的 job 数）。 -->
-        <div v-if="planUsageText" class="meta-row">
-          <dt>用量</dt>
-          <dd>{{ planUsageText }}</dd>
-        </div>
         <div class="meta-row">
           <dt>created</dt>
           <dd>{{ fmtDateTime(plan.created_at) }}</dd>
@@ -581,6 +758,97 @@ onUnmounted(() => {
           <dd>{{ fmtDateTime(plan.updated_at) }}</dd>
         </div>
       </dl>
+    </div>
+
+    <!-- WEB-10 头部操作条：进度（done+skipped/total）+ 用量汇总 + 链操作（PLAN-03）。 -->
+    <div v-if="plan" class="ops mono">
+      <div class="ops-progress" :title="`完成（含跳过）${boardPct.done}/${boardPct.total}`">
+        <span class="cbar" aria-hidden="true">
+          <span class="seg seg--done" :style="{ width: `${boardPct.percent ?? 0}%` }"></span>
+        </span>
+        <span class="ops-frac">
+          {{ boardPct.total === 0 ? '—' : `${boardPct.done}/${boardPct.total}` }}
+        </span>
+      </div>
+      <!-- PLAN-02 P2：plan 级用量汇总（挂接 job 的 token/成本 + 各 agent 的 job 数）。 -->
+      <span v-if="planUsageText" class="ops-usage">{{ planUsageText }}</span>
+      <span class="ops-actions">
+        <!-- run：启动链（先解除 pause/block），会当场把依赖已满足、已指派的条目置 ready → 二次确认。 -->
+        <template v-if="confirmRun">
+          <span class="ops-hint">启动链？</span>
+          <button
+            class="status-action"
+            type="button"
+            :disabled="!!acting"
+            @click="onPlanAction('run')"
+          >
+            确认启动
+          </button>
+          <button class="status-action" type="button" @click="confirmRun = false">取消</button>
+        </template>
+        <button
+          v-else-if="plan.status !== 'archived'"
+          class="status-action"
+          type="button"
+          :disabled="!!acting"
+          @click="confirmRun = true"
+        >
+          启动链
+        </button>
+        <!-- pause/resume：paused 时给「继续」；blocked 时同样给「继续」（resume 一并解除 block）。 -->
+        <button
+          v-if="plan.paused"
+          class="status-action"
+          type="button"
+          :disabled="!!acting"
+          @click="onPlanAction('resume')"
+        >
+          {{ acting === 'resume' ? '继续中…' : '继续' }}
+        </button>
+        <button
+          v-else-if="plan.status === 'blocked'"
+          class="status-action"
+          type="button"
+          :disabled="!!acting"
+          @click="onPlanAction('resume')"
+        >
+          {{ acting === 'resume' ? '解除中…' : '解除阻塞' }}
+        </button>
+        <button
+          v-else-if="plan.status !== 'done' && plan.status !== 'archived'"
+          class="status-action"
+          type="button"
+          :disabled="!!acting"
+          @click="onPlanAction('pause')"
+        >
+          {{ acting === 'pause' ? '挂起中…' : '挂起' }}
+        </button>
+      </span>
+    </div>
+
+    <!-- PLAN-03 blocked 横幅：链失败停在哪个条目 + 两个出口（重派 / 跳过都会解除 block 并继续）。 -->
+    <div v-if="plan && plan.blocked_todo" class="blocked mono">
+      <span class="blocked-text">
+        链停在「{{ blockedTitle }}」（{{ plan.blocked_todo }}）——重派它继续跑，跳过它则往后走
+      </span>
+      <span class="ops-actions">
+        <button
+          class="status-action"
+          type="button"
+          :disabled="!!acting"
+          @click="onReleaseBlocked('ready')"
+        >
+          重派
+        </button>
+        <button
+          class="status-action"
+          type="button"
+          :disabled="!!acting"
+          @click="onReleaseBlocked('skipped')"
+        >
+          跳过
+        </button>
+      </span>
     </div>
 
     <section v-if="plan" class="section">
@@ -662,8 +930,37 @@ onUnmounted(() => {
     <section v-if="plan" class="section">
       <div class="section-head">
         <h2 class="section-title mono">TODOS ({{ todoSummary }})</h2>
+        <!-- WEB-10 视图切换：列表/看板同一份数据；选择记 localStorage，默认看板。 -->
+        <div class="view-switch mono">
+          <button
+            class="view-btn"
+            :class="{ 'view-btn--on': view === 'board' }"
+            type="button"
+            @click="setView('board')"
+          >
+            看板
+          </button>
+          <button
+            class="view-btn"
+            :class="{ 'view-btn--on': view === 'list' }"
+            type="button"
+            @click="setView('list')"
+          >
+            列表
+          </button>
+        </div>
       </div>
-      <div class="todos">
+      <!-- 看板：拖到 ready 即派发（无 assignee 先选 agent）；done/skipped 落点先确认。 -->
+      <PlanBoard
+        v-if="view === 'board'"
+        :todos="plan.todos"
+        :jobs="plan.jobs"
+        :agents="agents"
+        :busy-ids="moving"
+        @move="onBoardMove"
+        @drag-active="onBoardDrag"
+      />
+      <div v-else class="todos">
         <div v-for="t in plan.todos" :key="t.todo_id" class="todo-item">
           <label class="todo-row">
             <input type="checkbox" :checked="t.done" @change="onToggleTodo(t)" />
@@ -829,6 +1126,11 @@ onUnmounted(() => {
     </section>
 
     <p v-else-if="!error" class="loading mono">加载中…</p>
+
+    <!-- 看板拖拽/链操作的结果：右下角浮层，点一下关掉，8s 自动消失。 -->
+    <div v-if="toast" class="pd-toast mono" role="status" @click="toast = ''">
+      {{ toast }}
+    </div>
   </div>
 </template>
 
@@ -836,6 +1138,10 @@ onUnmounted(() => {
 .detail {
   max-width: 980px;
   margin: 0 auto;
+}
+/* 看板视图放宽容器：五列 × 220px 起，980px 放不下会横向滚动（见 PlanBoard 的 .board）。 */
+.detail--board {
+  max-width: 1400px;
 }
 .detail-head {
   display: flex;
@@ -947,6 +1253,94 @@ onUnmounted(() => {
 
 .section {
   margin-top: 18px;
+}
+/* WEB-10 头部操作条：进度条 + 用量 + 链操作按钮，一行放不下就折行。 */
+.ops {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.ops-progress {
+  display: grid;
+  grid-template-columns: minmax(120px, 220px) 56px;
+  align-items: center;
+  gap: 10px;
+}
+.ops-frac {
+  color: var(--paper);
+  font-size: 12px;
+  text-align: right;
+}
+.ops-usage {
+  color: var(--queue);
+  font-size: 12px;
+  word-break: break-word;
+}
+.ops-actions {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+.ops-hint {
+  color: var(--run);
+  font-size: 12px;
+}
+/* blocked 横幅（PLAN-03）：链失败停在某条目——比状态徽标更该被看见，故整条描红。 */
+.blocked {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--fail);
+  border-radius: var(--radius);
+  font-size: 12px;
+}
+.blocked-text {
+  color: var(--fail);
+  word-break: break-word;
+}
+/* 列表/看板切换：两个小按钮，选中态描 phosphor。 */
+.view-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.view-btn {
+  background: transparent;
+  color: var(--queue);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 3px 10px;
+  font-size: 12px;
+}
+.view-btn:hover,
+.view-btn--on {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
+}
+/* 操作结果浮层：右下角，点一下关掉，8s 自动消失（与验收台同形）。 */
+.pd-toast {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  z-index: 50;
+  max-width: 460px;
+  padding: 8px 12px;
+  background: var(--panel);
+  border: 1px solid var(--phosphor);
+  border-radius: var(--radius);
+  color: var(--paper);
+  font-size: 12px;
+  cursor: pointer;
+  word-break: break-word;
 }
 .section-head {
   display: flex;

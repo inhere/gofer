@@ -40,6 +40,10 @@ const dim = computed(() => props.status === 'archived')
 .badge-dot--done {
   background: var(--done);
 }
+/* blocked：链失败等人处理——与 failed 同色（它是"需要人"的信号，不是终态）。 */
+.badge-dot--blocked {
+  background: var(--fail);
+}
 .badge-dot--archived {
   background: var(--queue);
 }

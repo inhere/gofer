@@ -1256,7 +1256,9 @@ export interface WorkflowsResp {
 // plan 编排（plan-orchestration，design §5/§10）。归组容器：把陆续产生的独立 job
 // 归到一个计划 + 跟进 todo。与 workflow（静态串行引擎）正交。字段严格对齐
 // internal/httpapi/plan_handler.go 的 planView/todoView/planDetail 及 jobstore.PlanCounts。
-export type PlanStatus = 'open' | 'active' | 'done' | 'archived'
+// PLAN-03 增 blocked：链上某条 job 失败把 plan 停在某个 todo 上（非终态——人重派/跳过
+// 该条目或 plan resume 后回 open 并继续推进）。
+export type PlanStatus = 'open' | 'active' | 'done' | 'archived' | 'blocked'
 
 // plan 下 jobs 的实时状态聚合（查询期算，detail 恒有；list 经 T10 内联）。
 export interface PlanCounts {
@@ -1323,6 +1325,12 @@ export interface Todo {
   cwd?: string
   timeout_sec?: number
   dispatch_error?: string
+  // PLAN-03 链字段：after=本条目等待的同 plan todo id（空=根节点，链不会自动启动它）；
+  // auto=false 表示链不许自动推进它（服务端 json 无 omitempty，恒发；老服务端不发时按
+  // 服务端默认 auto=1 处理，故判「手动」要用 === false）；cmd=exec 条目的 argv。
+  after?: string[]
+  auto?: boolean
+  cmd?: string[]
   // Unix 秒
   created_at: number
   updated_at: number
@@ -1344,12 +1352,19 @@ export interface TodoPatch {
   runner?: string
   cwd?: string
   timeout_sec?: number
+  // PLAN-03 链字段（与后端 jobstore.TodoPatch 同名）：after 显式空数组=清空依赖，
+  // auto 是自动推进开关，cmd 是 exec 条目的 argv。
+  after?: string[]
+  auto?: boolean
+  cmd?: string[]
 }
 
 // 挂在某个 todo 上的一次 job 执行（SUP-01 C）。
 export interface TodoJob {
   id: string
-  status: string
+  // 服务端投影的是 job 状态本身（queued/running/…/needs_review），故用 JobStatus：
+  // 看板按它着色、判「有没有活跃 job」。
+  status: JobStatus
   // 后端 omitempty
   agent?: string
   started_at?: number
@@ -1369,6 +1384,10 @@ export interface Plan {
   // PLAN-02 P2：该 plan 的待办派发进哪个 project（待办可用自己的 project 覆盖）；空 =
   // 未指定，此时派发要求待办自带一个。
   project?: string
+  // PLAN-03：paused 挂起链的自动推进（已在跑的 job 不取消）；blocked_todo 是链失败停在
+  // 哪个条目上（此时 status=blocked，二者由服务端保持同步）。两者 omitempty。
+  paused?: boolean
+  blocked_todo?: string
   // Unix 秒
   created_at: number
   updated_at: number

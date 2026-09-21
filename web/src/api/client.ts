@@ -783,6 +783,22 @@ export function updatePlan(id: string, status: PlanStatus, progress?: number): P
   })
 }
 
+// PLAN-03 链操作（POST /v1/plans/{id}/run|pause|resume）：返回 plan 头部快照（与 PATCH
+// 同形），故调用方拿到的是这次操作产生的 status/paused/blocked。run=启动链（把无未完成
+// 依赖、有 assignee 的 pending 条目置 ready，并先解除 pause/block）；pause=挂起自动推进
+// （已在跑的 job 不取消）；resume=解除 pause/block 并继续推进。
+export function planRun(id: string): Promise<Plan> {
+  return request<Plan>(`/v1/plans/${encodeURIComponent(id)}/run`, { method: 'POST' })
+}
+
+export function planPause(id: string): Promise<Plan> {
+  return request<Plan>(`/v1/plans/${encodeURIComponent(id)}/pause`, { method: 'POST' })
+}
+
+export function planResume(id: string): Promise<Plan> {
+  return request<Plan>(`/v1/plans/${encodeURIComponent(id)}/resume`, { method: 'POST' })
+}
+
 // 建计划（plan_id 缺省服务端生成；owner 由服务端盖 caller）。
 export function createPlan(req: {
   title?: string
