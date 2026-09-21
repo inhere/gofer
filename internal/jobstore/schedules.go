@@ -24,13 +24,19 @@ type ScheduleRecord struct {
 	LastJobID    string
 	CatchUp      int
 	ProjectKey   string
+	// TriggerToken is the schedule's OWN webhook secret (AUTO-02b): the token
+	// `POST /v1/schedules/{id}/trigger` accepts. Empty = the webhook endpoint is not
+	// enabled for this schedule. It is NOT the caller bearer and never authenticates
+	// anything else.
+	TriggerToken string
 	CreatedAt    int64
 	UpdatedAt    int64
 }
 
 const selectScheduleCols = `SELECT id, name, COALESCE(NULLIF(schedule_type,''),'cron'), cron_expr, request_json, enabled,
   next_run_at, COALESCE(last_run_at,0), COALESCE(last_job_id,''),
-  COALESCE(catch_up,0), COALESCE(project_key,''), created_at, updated_at
+  COALESCE(catch_up,0), COALESCE(project_key,''), COALESCE(trigger_token,''),
+  created_at, updated_at
   FROM schedules`
 
 func scanSchedule(sc rowScanner) (ScheduleRecord, error) {
@@ -38,7 +44,7 @@ func scanSchedule(sc rowScanner) (ScheduleRecord, error) {
 	err := sc.Scan(
 		&r.ID, &r.Name, &r.ScheduleType, &r.CronExpr, &r.RequestJSON, &r.Enabled,
 		&r.NextRunAt, &r.LastRunAt, &r.LastJobID,
-		&r.CatchUp, &r.ProjectKey, &r.CreatedAt, &r.UpdatedAt,
+		&r.CatchUp, &r.ProjectKey, &r.TriggerToken, &r.CreatedAt, &r.UpdatedAt,
 	)
 	return r, err
 }
@@ -52,13 +58,13 @@ func (s *Store) InsertSchedule(r ScheduleRecord) error {
 	}
 	const q = `INSERT INTO schedules
   (id, name, schedule_type, cron_expr, request_json, enabled, next_run_at, last_run_at,
-   last_job_id, catch_up, project_key, created_at, updated_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
+   last_job_id, catch_up, project_key, trigger_token, created_at, updated_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q,
 		r.ID, r.Name, r.ScheduleType, r.CronExpr, r.RequestJSON, r.Enabled, r.NextRunAt, r.LastRunAt,
-		r.LastJobID, r.CatchUp, r.ProjectKey, r.CreatedAt, r.UpdatedAt,
+		r.LastJobID, r.CatchUp, r.ProjectKey, r.TriggerToken, r.CreatedAt, r.UpdatedAt,
 	); err != nil {
 		return fmt.Errorf("jobstore: insert schedule %q: %w", r.ID, err)
 	}
@@ -114,6 +120,21 @@ func (s *Store) SetScheduleEnabled(id string, enabled int) error {
 		enabled, now, id,
 	); err != nil {
 		return fmt.Errorf("jobstore: set schedule %q enabled: %w", id, err)
+	}
+	return nil
+}
+
+// SetScheduleTriggerToken replaces a schedule's webhook token (AUTO-02b). An empty
+// token DISABLES the endpoint for that schedule; the rotation and the enable/disable
+// paths are the only writers.
+func (s *Store) SetScheduleTriggerToken(id, token string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(
+		`UPDATE schedules SET trigger_token = ?, updated_at = ? WHERE id = ?`,
+		token, time.Now().Unix(), id,
+	); err != nil {
+		return fmt.Errorf("jobstore: set schedule %q trigger token: %w", id, err)
 	}
 	return nil
 }

@@ -21,6 +21,7 @@ var scheduleOpts = struct {
 	at      string
 	catchUp bool
 	project string
+	webhook bool
 }{}
 
 // NewScheduleCmd builds the `schedule` command group. It talks to the running
@@ -93,6 +94,16 @@ func NewScheduleCmd() *gcli.Command {
 				Func: runScheduleRun,
 			},
 			{
+				Name: "rotate-token",
+				Desc: "Mint a fresh webhook trigger token for a schedule (also enables the webhook on one created without --webhook)",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("id", "schedule id", true)
+				},
+				Func: runScheduleRotateToken,
+			},
+			{
 				Name: "rm",
 				Desc: "Delete a schedule",
 				Config: func(c *gcli.Command) {
@@ -112,6 +123,7 @@ func bindScheduleAddFlags(c *gcli.Command) {
 	c.StrOpt(&scheduleOpts.delay, "delay", "", "", "create a one-shot schedule after a duration, e.g. 30s/5m")
 	c.StrOpt(&scheduleOpts.at, "at", "", "", "create a one-shot schedule at RFC3339 or unix seconds")
 	c.BoolOpt(&scheduleOpts.catchUp, "catch-up", "", true, "run once after a missed tick within the server grace window")
+	c.BoolOpt(&scheduleOpts.webhook, "webhook", "", false, "enable the external trigger endpoint: the server mints a trigger_token for POST /v1/schedules/{id}/trigger")
 	c.StrOpt(&jobRunOpts.project, "project", "p", "", "project key (required)")
 	c.StrOpt(&jobRunOpts.agent, "agent", "a", "", "agent key (required)")
 	c.StrOpt(&jobRunOpts.runner, "runner", "", "local", "runner key")
@@ -145,6 +157,10 @@ func runScheduleAdd(c *gcli.Command, _ []string) error {
 	}
 	c.Printf("schedule %s created: name=%s type=%s cron=%q next_run=%s enabled=%s\n",
 		out.ID, out.Name, scheduleTypeText(out.Type), out.Cron, formatScheduleTime(out.NextRunAt), enabledText(out.Enabled))
+	if out.TriggerToken != "" {
+		c.Printf("webhook token: %s\n  trigger with: curl -X POST '<server>/v1/schedules/%s/trigger?token=%s'\n",
+			out.TriggerToken, out.ID, out.TriggerToken)
+	}
 	return nil
 }
 
@@ -174,6 +190,7 @@ func buildScheduleCreateRequest(c *gcli.Command, cli *client.Client) (client.Cre
 		Cron:    cronExpr,
 		Request: req,
 		CatchUp: &scheduleOpts.catchUp,
+		Webhook: scheduleOpts.webhook,
 	}
 	if delayRaw != "" {
 		d, err := time.ParseDuration(delayRaw)
@@ -258,6 +275,7 @@ func runScheduleShow(c *gcli.Command, _ []string) error {
 	c.Printf("next_run:    %s\n", formatScheduleTime(s.NextRunAt))
 	c.Printf("last_run:    %s\n", formatScheduleTime(s.LastRunAt))
 	c.Printf("last_job:    %s\n", emptyDash(s.LastJobID))
+	c.Printf("webhook:     %s\n", webhookText(s))
 	c.Println("request:")
 	body, err := json.MarshalIndent(s.Request, "  ", "  ")
 	if err != nil {
@@ -265,6 +283,36 @@ func runScheduleShow(c *gcli.Command, _ []string) error {
 	}
 	c.Println("  " + strings.ReplaceAll(string(body), "\n", "\n  "))
 	return nil
+}
+
+// runScheduleRotateToken mints a fresh webhook secret (AUTO-02b). The token is printed
+// once here — that is the point of the command — and stays readable on `schedule show`
+// for an authenticated caller.
+func runScheduleRotateToken(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("schedule rotate-token requires an <id> argument")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	s, err := cli.RotateScheduleToken(id)
+	if err != nil {
+		return err
+	}
+	c.Printf("schedule %s webhook token rotated\n", s.ID)
+	c.Printf("webhook token: %s\n", s.TriggerToken)
+	return nil
+}
+
+// webhookText renders a schedule's webhook state: the token when enabled, an explicit
+// "disabled" otherwise (an empty line would read as "not shown").
+func webhookText(s client.Schedule) string {
+	if s.TriggerToken == "" {
+		return "disabled (enable with --webhook or `schedule rotate-token`)"
+	}
+	return s.TriggerToken + "  (POST /v1/schedules/" + s.ID + "/trigger)"
 }
 
 func runScheduleSetEnabled(c *gcli.Command, enabled bool) error {

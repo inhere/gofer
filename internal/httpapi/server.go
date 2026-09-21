@@ -176,6 +176,12 @@ type Server struct {
 	// 0 = ptyrelay.DefaultTranscriptMaxBytes. Set by serve from pty.transcript_max_bytes.
 	ptyTranscriptMax int
 
+	// scheduleTriggerMu guards scheduleTriggerAt: the per-schedule last-webhook-trigger
+	// times of the AUTO-02b rate limit. In-memory and per-process on purpose (see
+	// allowScheduleTrigger) — a restart only ever costs one extra run.
+	scheduleTriggerMu sync.Mutex
+	scheduleTriggerAt map[string]time.Time
+
 	// ptySessions persists pty relay session metadata (WEB-03 P3). It is the narrow
 	// store seam the pty handlers write/read (D-P3, review 高1: the Server holds no
 	// raw jobstore handle). nil-safe: nil means no persistence (mcp/tests) and the
@@ -492,6 +498,11 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/v1/workers/pty-connect", s.handlePtyConnect)
 	}
 	r.GET("/v1/jobs/{id}/attach", s.handleJobAttach)
+	// AUTO-02b schedule webhook: an EXTERNAL caller (some other system's automation)
+	// has no gofer bearer, so the schedule's own trigger_token is the credential and
+	// this route is registered OUTSIDE the /v1 auth group — exactly like the WS and
+	// attach paths above. The handler does its own constant-time token check.
+	r.POST("/v1/schedules/{id}/trigger", s.handleScheduleTrigger)
 
 	r.Group("/v1", func() {
 		r.GET("/config", s.handleGetConfig)
@@ -687,6 +698,9 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/schedules/{id}/enable", s.handleEnableSchedule)
 		r.POST("/schedules/{id}/disable", s.handleDisableSchedule)
 		r.POST("/schedules/{id}/run-now", s.handleRunSchedule)
+		// AUTO-02b: rotate the webhook secret (authenticated; enabling a schedule's
+		// webhook for the first time is the same call).
+		r.POST("/schedules/{id}/rotate-token", s.handleRotateScheduleToken)
 
 		// E36 driver-agent identity/mailbox (design §10). Mounted only when the
 		// presence service is wired (SetPresence, serve); nil for presence-less

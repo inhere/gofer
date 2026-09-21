@@ -277,6 +277,9 @@ var schemaStmts = []string{
   last_job_id  TEXT,
   catch_up     INTEGER,
   project_key  TEXT,
+  -- AUTO-02b: trigger_token is the schedule's own webhook secret (empty = the webhook
+  -- endpoint is not enabled for it). Added by migrateSchedules on a pre-existing db.
+  trigger_token TEXT,
   created_at   INTEGER NOT NULL,
   updated_at   INTEGER NOT NULL,
   PRIMARY KEY (id)
@@ -924,12 +927,21 @@ func (s *Store) migrateSchedules() error {
 	if err != nil {
 		return err
 	}
-	if _, ok := cols["schedule_type"]; !ok {
-		if _, err := s.db.Exec("ALTER TABLE schedules ADD COLUMN schedule_type TEXT NOT NULL DEFAULT 'cron'"); err != nil {
-			return fmt.Errorf("jobstore: migrate schedules add schedule_type: %w", err)
+	add := func(col, ddl string) error {
+		if _, ok := cols[col]; ok {
+			return nil
 		}
+		if _, e := s.db.Exec("ALTER TABLE schedules ADD COLUMN " + ddl); e != nil {
+			return fmt.Errorf("jobstore: migrate schedules add %s: %w", col, e)
+		}
+		return nil
 	}
-	return nil
+	if err := add("schedule_type", "schedule_type TEXT NOT NULL DEFAULT 'cron'"); err != nil {
+		return err
+	}
+	// AUTO-02b: an old schedule reads back with no token, i.e. its webhook endpoint is
+	// off until someone enables it (`schedule create --webhook` / rotate-token).
+	return add("trigger_token", "trigger_token TEXT")
 }
 
 // migratePlanTodos adds the todo lifecycle columns (Part C §C2): status /

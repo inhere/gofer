@@ -798,6 +798,11 @@ const (
 	EventJobWakeupCoalesced = "job.wakeup_coalesced"
 	EventJobWakeupExpired   = "job.wakeup_expired"
 	EventJobWakeupFailed    = "job.wakeup_failed"
+	// EventScheduleTriggered is recorded ON THE JOB an external webhook started
+	// (AUTO-02b): {source:"webhook"}. The submission itself is the schedule's
+	// run-now, so the event is what says WHY that job exists — the job's own timeline
+	// answers "nobody typed this".
+	EventScheduleTriggered = "schedule.triggered"
 )
 
 // Workflow lifecycle event types (P1, design §5.4). Recorded append-only via

@@ -1,6 +1,9 @@
 package httpapi
 
 import (
+	"crypto/rand"
+	"crypto/subtle"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -24,6 +27,10 @@ type createScheduleReq struct {
 	Request  job.JobRequest `json:"request"`
 	Enabled  *bool          `json:"enabled,omitempty"`
 	CatchUp  *bool          `json:"catch_up,omitempty"`
+	// Webhook enables the schedule's own external trigger endpoint (AUTO-02b): the
+	// server mints a trigger_token, and POST /v1/schedules/{id}/trigger runs the
+	// schedule for anyone presenting it.
+	Webhook bool `json:"webhook,omitempty"`
 }
 
 type scheduleView struct {
@@ -38,6 +45,10 @@ type scheduleView struct {
 	LastJobID  string         `json:"last_job_id"`
 	ProjectKey string         `json:"project_key"`
 	Request    job.JobRequest `json:"request"`
+	// TriggerToken is the schedule's webhook secret (AUTO-02b); empty = the trigger
+	// endpoint is not enabled for it. It is shown to authenticated callers only (every
+	// /v1 schedule read is authenticated).
+	TriggerToken string `json:"trigger_token,omitempty"`
 }
 
 func (s *Server) handleCreateSchedule(c *rux.Context) {
@@ -95,6 +106,17 @@ func (s *Server) handleCreateSchedule(c *rux.Context) {
 		ProjectKey:   req.Request.ProjectKey,
 		CreatedAt:    ts,
 		UpdatedAt:    ts,
+	}
+	if req.Webhook {
+		// AUTO-02b: the token is minted here and returned ONCE in the create response
+		// (and on every authenticated read of the schedule, since the endpoint is for a
+		// trusted operator's own automation).
+		token, err := newTriggerToken()
+		if err != nil {
+			writeError(c, http.StatusInternalServerError, "generate trigger token failed", err.Error())
+			return
+		}
+		rec.TriggerToken = token
 	}
 	if err := s.jobs.Meta().InsertSchedule(rec); err != nil {
 		writeError(c, scheduleStatus(err), "create schedule failed", err.Error())
@@ -203,6 +225,128 @@ func (s *Server) handleRunSchedule(c *rux.Context) {
 	c.JSON(http.StatusOK, res)
 }
 
+// newTriggerToken mints a schedule's webhook secret (AUTO-02b): 24 random bytes in
+// base64url (32 chars, no padding) — long enough that guessing is hopeless and safe to
+// put in a URL or a header. A crypto/rand failure is reported, never silently replaced
+// by something predictable.
+func newTriggerToken() (string, error) {
+	buf := make([]byte, 24)
+	if _, err := rand.Read(buf); err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+// handleRotateScheduleToken is POST /v1/schedules/{id}/rotate-token (AUTO-02b,
+// authenticated): it mints a fresh secret, which also ENABLES the webhook for a schedule
+// created without --webhook. The old token stops working immediately.
+func (s *Server) handleRotateScheduleToken(c *rux.Context) {
+	id := c.Param("id")
+	if _, ok, err := s.jobs.Meta().GetSchedule(id); err != nil {
+		writeError(c, scheduleStatus(err), "get schedule failed", err.Error())
+		return
+	} else if !ok {
+		writeError(c, http.StatusNotFound, "unknown schedule", "no schedule with id "+id)
+		return
+	}
+	token, err := newTriggerToken()
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "generate trigger token failed", err.Error())
+		return
+	}
+	if err := s.jobs.Meta().SetScheduleTriggerToken(id, token); err != nil {
+		writeError(c, scheduleStatus(err), "rotate trigger token failed", err.Error())
+		return
+	}
+	rec, _, err := s.jobs.Meta().GetSchedule(id)
+	if err != nil {
+		writeError(c, scheduleStatus(err), "get schedule failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, scheduleToView(rec))
+}
+
+// handleScheduleTrigger is POST /v1/schedules/{id}/trigger (AUTO-02b): the EXTERNAL
+// webhook entry. It is registered OUTSIDE the /v1 auth group on purpose — the caller is
+// some other system's automation, which has no gofer bearer — so the schedule's own
+// trigger_token is the whole credential, compared in constant time.
+//
+// The run is exactly the run-now semantics (submit the stored request, channel
+// "webhook"), plus an event ON THE NEW JOB saying a webhook caused it. Failures are
+// distinguished: an unknown schedule is 404, a missing/wrong token (or a schedule whose
+// webhook is off) is 401, and a repeat within triggerRateWindow is 429 — a webhook that
+// fires in a storm must not queue a hundred identical jobs.
+func (s *Server) handleScheduleTrigger(c *rux.Context) {
+	id := c.Param("id")
+	rec, ok, err := s.jobs.Meta().GetSchedule(id)
+	if err != nil {
+		writeError(c, scheduleStatus(err), "get schedule failed", err.Error())
+		return
+	}
+	if !ok {
+		writeError(c, http.StatusNotFound, "unknown schedule", "no schedule with id "+id)
+		return
+	}
+	presented := c.Query("token")
+	if presented == "" {
+		presented = c.Header("X-Gofer-Trigger-Token")
+	}
+	if rec.TriggerToken == "" || subtle.ConstantTimeCompare([]byte(presented), []byte(rec.TriggerToken)) != 1 {
+		writeError(c, http.StatusUnauthorized, "invalid trigger token",
+			"a valid ?token= (or X-Gofer-Trigger-Token header) is required")
+		return
+	}
+	if !s.allowScheduleTrigger(id, time.Now()) {
+		writeError(c, http.StatusTooManyRequests, "schedule triggered too recently",
+			"the same schedule may be triggered once every 10s")
+		return
+	}
+
+	var req job.JobRequest
+	if err := json.Unmarshal([]byte(rec.RequestJSON), &req); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid schedule request", err.Error())
+		return
+	}
+	req.Channel = channelWebhook
+	// An external caller has no gofer identity; the schedule's own record is the
+	// provenance, and CallerID stays empty rather than being invented.
+	req.CallerID = ""
+	res, err := s.jobs.Submit(req)
+	if err != nil {
+		writeError(c, scheduleStatus(err), "trigger schedule failed", err.Error())
+		return
+	}
+	s.jobs.RecordJobEvent(res.ID, job.EventScheduleTriggered, map[string]any{
+		"source": "webhook", "schedule_id": id,
+	})
+	c.JSON(http.StatusOK, res)
+}
+
+// channelWebhook is the JobRequest.Channel of a job a schedule's external webhook
+// started (AUTO-02b), next to cli / web / mcp / cron.
+const channelWebhook = "webhook"
+
+// triggerRateWindow is the per-schedule minimum spacing between webhook triggers
+// (AUTO-02b). It is deliberately in-memory and per-process: the endpoint's job is to
+// blunt a retry storm, not to meter a billing-grade quota, and losing the state on a
+// restart only means one extra run.
+const triggerRateWindow = 10 * time.Second
+
+// allowScheduleTrigger reports whether a schedule may be triggered now, recording the
+// moment when it may. A schedule's first trigger is always allowed.
+func (s *Server) allowScheduleTrigger(id string, now time.Time) bool {
+	s.scheduleTriggerMu.Lock()
+	defer s.scheduleTriggerMu.Unlock()
+	if s.scheduleTriggerAt == nil {
+		s.scheduleTriggerAt = make(map[string]time.Time)
+	}
+	if last, ok := s.scheduleTriggerAt[id]; ok && now.Sub(last) < triggerRateWindow {
+		return false
+	}
+	s.scheduleTriggerAt[id] = now
+	return true
+}
+
 func (s *Server) validateScheduleRequest(req job.JobRequest) error {
 	cfg := s.jobs.Config()
 	remote := job.IsRemoteRunner(cfg, req.Runner)
@@ -225,6 +369,9 @@ func scheduleToView(rec jobstore.ScheduleRecord) scheduleView {
 		LastJobID:  rec.LastJobID,
 		ProjectKey: rec.ProjectKey,
 		Request:    req,
+		// AUTO-02b: the webhook secret is part of the schedule an operator manages, and
+		// every read of it is authenticated — so it travels on the view.
+		TriggerToken: rec.TriggerToken,
 	}
 }
 

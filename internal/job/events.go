@@ -127,6 +127,14 @@ func (s *Service) notifyEventObservers(jobID, eventType, detailJSON string) {
 //
 // detail is marshalled to JSON; a nil detail or a payload exceeding
 // MaxEventDetailBytes records an empty detail rather than failing.
+// RecordJobEvent records an event on a JOB's timeline from a write path that is not the
+// job's own execution (the schedule webhook, AUTO-02b): the same table row and the same
+// webhook fan-out as the internal recordEvent, exposed because the HTTP layer knows
+// something the job does not.
+func (s *Service) RecordJobEvent(jobID, eventType string, detail map[string]any) {
+	s.recordEvent(jobID, eventType, detail)
+}
+
 func (s *Service) recordEvent(jobID, eventType string, detail any) {
 	var dj string
 	if detail != nil {

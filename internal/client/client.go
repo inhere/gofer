@@ -376,6 +376,9 @@ type Schedule struct {
 	LastJobID  string         `json:"last_job_id"`
 	ProjectKey string         `json:"project_key"`
 	Request    job.JobRequest `json:"request"`
+	// TriggerToken is the schedule's webhook secret (AUTO-02b); empty = the external
+	// trigger endpoint is not enabled for it.
+	TriggerToken string `json:"trigger_token,omitempty"`
 }
 
 // CreateScheduleRequest is POST /v1/schedules. Enabled/CatchUp are pointers so
@@ -389,6 +392,9 @@ type CreateScheduleRequest struct {
 	Request  job.JobRequest `json:"request"`
 	Enabled  *bool          `json:"enabled,omitempty"`
 	CatchUp  *bool          `json:"catch_up,omitempty"`
+	// Webhook enables the schedule's external trigger endpoint (AUTO-02b): the server
+	// mints a trigger_token, shown on the schedule from then on.
+	Webhook bool `json:"webhook,omitempty"`
 }
 
 // CreateSchedule creates a cron schedule via POST /v1/schedules.
@@ -514,6 +520,15 @@ func (c *Client) SetScheduleEnabled(id string, enable bool) (Schedule, error) {
 	}
 	var out Schedule
 	err := c.doJSON(http.MethodPost, "/v1/schedules/"+url.PathEscape(id)+"/"+action, nil, &out)
+	return out, err
+}
+
+// RotateScheduleToken mints a fresh webhook secret for a schedule (AUTO-02b,
+// POST /v1/schedules/{id}/rotate-token). It also ENABLES the webhook for a schedule that
+// was created without one; the previous token stops working at once.
+func (c *Client) RotateScheduleToken(id string) (Schedule, error) {
+	var out Schedule
+	err := c.doJSON(http.MethodPost, "/v1/schedules/"+url.PathEscape(id)+"/rotate-token", nil, &out)
 	return out, err
 }
 
