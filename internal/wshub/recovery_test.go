@@ -341,3 +341,72 @@ func TestCancelDuringRecoveringDelivered(t *testing.T) {
 	}
 	t.Fatal("cancel recorded during the outage was never delivered after the reconnect")
 }
+
+// TestCancelFrameRetriedWhenWriteFails (F3, bd h-aii-tcpm): a cancel whose frame
+// cannot be WRITTEN — the worker's connection is breaking, but the registry may still
+// hold it, so the hub does not yet see an offline worker — must not be lost either.
+// The host job is already finished as cancelled; without a retry the worker keeps
+// running it to its own timeout. The cancel has to be delivered when that job is
+// resumed on the same-instance reconnect, whichever of the two racing paths it takes
+// (parked on the dying connection and merged when the disconnect suspends the job, or
+// recorded directly once the job is already in the recovery set).
+func TestCancelFrameRetriedWhenWriteFails(t *testing.T) {
+	hub := recoverHub(5 * time.Second)
+	_, wsURL := hubServer(t, hub, "w1")
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	conn, _ := dialRegisterRaw(t, ctx, wsURL, wsproto.Register{
+		WorkerID: "w1", InstanceID: "inst-1", ProtocolVersion: wsproto.CurrentProtocolVersion,
+	})
+	defer conn.Close(websocket.StatusNormalClosure, "done")
+	sink := newFakeSink()
+	if err := registerSink(t, hub, "w1", "j1", sink); err != nil {
+		t.Fatalf("RegisterSink: %v", err)
+	}
+	if err := hub.Dispatch("w1", wsproto.Dispatch{JobID: "j1"}); err != nil {
+		t.Fatalf("Dispatch: %v", err)
+	}
+
+	// Break the connection from the HUB's side: every later write on it fails, while
+	// the hub's read loop notices only a moment later — so the cancel below races the
+	// teardown and must survive both orders.
+	wc, ok := hub.reg.Get("w1")
+	if !ok {
+		t.Fatal("worker connection vanished before the cancel")
+	}
+	wc.conn.CloseNow()
+
+	if err := hub.Cancel("w1", "j1"); err == nil {
+		t.Fatal("Cancel over a broken connection reported success")
+	}
+	waitFor(t, func() bool { return len(sink.snapshot()) > 0 })
+
+	// The same worker PROCESS comes back with the job still running: the cancel the
+	// host issued while the connection was breaking must reach it now.
+	conn2, ack := dialRegisterRaw(t, ctx, wsURL, wsproto.Register{
+		WorkerID: "w1", InstanceID: "inst-1", ProtocolVersion: wsproto.CurrentProtocolVersion,
+		Inflight: []wsproto.InflightJob{{JobID: "j1", Status: "running"}},
+	})
+	defer conn2.Close(websocket.StatusNormalClosure, "done")
+	if len(ack.Resume) != 1 || ack.Resume[0].JobID != "j1" {
+		t.Fatalf("ack.Resume = %+v, want [j1]", ack.Resume)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) {
+		rctx, rcancel := context.WithTimeout(ctx, 2*time.Second)
+		env, err := readEnvelope(rctx, conn2)
+		rcancel()
+		if err != nil {
+			t.Fatalf("read frame: %v", err)
+		}
+		if env.Type != wsproto.TypeCancel {
+			continue
+		}
+		if cf, _ := wsproto.As[wsproto.Cancel](env); cf.JobID != "j1" {
+			t.Fatalf("cancel job_id = %q, want j1", cf.JobID)
+		}
+		return
+	}
+	t.Fatal("a cancel whose frame could not be written was never retried after the reconnect")
+}

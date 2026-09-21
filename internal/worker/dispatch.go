@@ -141,6 +141,12 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 
 	localID := res.ID
 	cl.inflightSetLocal(d.JobID, localID)
+	// Test seam (nil in production): the window between "the local job exists" and
+	// "the hub id resolves to it" is exactly where an inbound cancel frame has no
+	// mapping to follow (F3, bd h-aii-tcpm).
+	if cl.beforeMapFn != nil {
+		cl.beforeMapFn(d.JobID, localID)
+	}
 	// Register the hub→local id mapping so an inbound cancel/answer frame (keyed by
 	// the hub id d.JobID) reaches this local job; drop it when the dispatch ends.
 	cl.putJobMapping(d.JobID, localID)

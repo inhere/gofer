@@ -251,6 +251,12 @@ type Client struct {
 	// synchronisation: connect / register / disconnect observation). nil in prod.
 	onSession func(event string)
 
+	// beforeMapFn, when set, is called by handleDispatch once the local job exists and
+	// immediately BEFORE the hub→local mapping is registered (nil in production). It
+	// exists so a test can hold that window open and prove a cancel frame landing in it
+	// still cancels the local job (F3, bd h-aii-tcpm).
+	beforeMapFn func(remoteJobID, localID string)
+
 	// xferSem bounds CONCURRENT file transfers (XFER-01): a transfer is a stream
 	// through this process, so the cap keeps a burst from taking the worker's disk
 	// and sockets away from its jobs. Sized once in New.
