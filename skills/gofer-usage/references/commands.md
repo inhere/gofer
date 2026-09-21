@@ -93,10 +93,12 @@ gofer job run … --worktree [--worktree-base <ref>]       # 在 <顶层>/tmp/go
 gofer job run … --todo <todo-id>                         # 为某个 plan todo 跑这个 job(见下「todo 联动」)
 gofer job run … --verify 'go test ./...' [--verify-timeout 900]   # agent 正常结束后在同一个 cwd/env 跑这条验收命令; 非 0 退出 → job failed
 gofer job run … --no-verify                              # 关掉项目默认的 verify(见下「验证步骤」)
+gofer job run … --upload ./a.bin:tmp/in/a.bin            # 提交前把本地文件暂存到 server, 执行机在 agent 开跑前放好(目标按 job 的 cwd 解析, 须在项目根内); 放不下就 job failed、agent 不启动; 可重复
+gofer job run … --collect 'tmp/out/*.csv'                # job 结束后(失败也收、verify 之后)按 glob 在 job 的 cwd 收集, 传回落进本 job 的 artifacts/collected/<项目根内相对路径>(web 详情页与 artifacts 下载直接可用); 可重复
 gofer job run … --fallback omp,claude                    # 本 job 的故障转移候选(覆盖项目/agent 级; 见下「故障转移」)
 gofer job run … --no-fallback                            # 本 job 不做故障转移(覆盖一切配置)
 gofer job run … -t <模板> [--var k=v …] [--prompt "追加正文"]   # 用任务书模板派活(服务端渲染 prompt; 见下「任务书模板」)
-gofer job show <id>                                      # 打印 todo / base_sha / commits(这次交付了哪些提交) / verify(验收结果) / usage(用量与成本)
+gofer job show <id>                                      # 打印 todo / base_sha / commits(这次交付了哪些提交) / verify(验收结果) / usage(用量与成本) / xfer(upload/collect/skipped 计数)
 gofer job review <id> [--tail 60] [--diff]                # 验收一屏: status/review/verify/commits(≤20)/usage/diff --stat + 汇报尾部(默认 60 行, 取 stdout 末 64KB); --diff 追加完整 diff; 只看不改, 退出码 0
 ```
 

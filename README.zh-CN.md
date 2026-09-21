@@ -288,7 +288,7 @@ gofer tool cp ./x.tar server:build/tmp/x.tar                         # 目标是
 gofer tool xfer ls [--state staged] | show <id> | rm <id>            # 暂存区管理
 ```
 
-远端写法 `<runner>:<project>/<相对路径>`，按**执行机**的项目根解析，边界与 job 的 `--cwd` 一致；目标已存在需 `--force`。文件本体走 HTTP（暂存在 server 侧，全程 sha256 校验，单文件默认 256MB，见 `server.xfer`），WS 只传指令——所以跑不了的传输立刻带原因失败（`exists`、`worker offline`、`path escapes project`、`too large`），不会挂着。v1 只传单文件、不支持断点续传：目录先打包（tar / `Compress-Archive`）。
+远端写法 `<runner>:<project>/<相对路径>`，按**执行机**的项目根解析，边界与 job 的 `--cwd` 一致；目标已存在需 `--force`。文件本体走 HTTP（暂存在 server 侧，全程 sha256 校验，单文件默认 256MB，见 `server.xfer`），WS 只传指令——所以跑不了的传输立刻带原因失败（`exists`、`worker offline`、`path escapes project`、`too large`），不会挂着。v1 只传单文件、不支持断点续传：目录先打包（tar / `Compress-Archive`）。job 也能自己带着文件跑：`gofer job run --upload <本地文件>:<目标路径>` 在 agent 开跑前把文件放到执行机，`--collect '<glob>'` 把 job 结束时 cwd 里的产出收进该 job 的 artifacts（`collected/<路径>`），web job 页与 artifacts 下载直接可用。
 
 ## 人机协作：交互、plan、会话中继
 

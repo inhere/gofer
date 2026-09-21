@@ -281,6 +281,12 @@ gofer tool xfer show <id>                  # 单条详情（含失败原因）
 gofer tool xfer rm <id>                    # 立即删掉暂存文件 + 记录
 ```
 
+更省事的是让 **job 自己带着文件跑**（不用先 `cp` 到执行机）：
+
+- `gofer job run … --upload ./a.bin:tmp/in/a.bin`（可重复）：提交前把本地文件暂存到 server，执行机在 agent **开跑前**放到 `<dest>`（按 job 的 cwd 解析）；这一步失败即 job `failed`，agent 不启动。
+- `gofer job run … --collect 'tmp/out/*.csv'`（可重复）：job **结束后**（失败也收、verify 之后）按 glob 在 job 的 cwd 里收集，回传落进该 job 的 artifacts `collected/<项目根内相对路径>`，web 详情页与 `GET /v1/jobs/{id}/artifacts/collected/...` 直接可看可下。
+- 限额：单文件 ≤ `server.xfer.max_bytes`（默认 256MB），单个 job 收集总量 ≤ `server.xfer.collect_max_bytes`（默认 1GB）；超出的文件跳过并列进该 job 的 `xfer.skipped`。
+
 约定（踩坑点）：
 
 - 远端写法就是 `<runner>:<project>/<项目内相对路径>`，`runner` 填 worker id 或 `server`（`local` 等价）。**路径按执行机解析、必须在项目根内**（与 `job run --cwd` 同一边界）；目标目录不存在会自动创建（项目根内）。

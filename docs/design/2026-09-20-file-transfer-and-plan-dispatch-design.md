@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 文件传输与「计划即派发」设计（XFER-01 / JOB-11 / AUTO-05 / PLAN-02 / JOB-09）
 
-> 状态：Approved 0.2 / 实施中（2026-09-20 人工批准，决策 1–6 按默认；X1 已落地）
+> 状态：Approved 0.2 / 实施中（2026-09-20 人工批准，决策 1–6 按默认；X1、X2 已落地，下一期 P1）
 
 ## 修订记录
 
@@ -10,6 +10,7 @@
 | 0.1 | 2026-09-20 | Claude | 初稿：XFER-01 客户端↔server↔worker 文件传输（`gofer tool cp`、`job run --upload/--collect`）；JOB-11 同 cwd 串行锁 + per-agent 并发；AUTO-05 输出停滞检测；PLAN-02 todo 指派即派发 + plan 级用量；JOB-09 job wakeups（事件/定时 → 续投）。新增 CLI 约定：小工具命令进 `gofer tool` 组 |
 | 0.2 | 2026-09-20 | Claude | 人工批准（决策 1–6 按默认）；分期 X1 → X2 → P1 → P2 → P3，全部 omp，测试先提交 |
 | 0.3 | 2026-09-21 | omp | **X1 已落地**（XFER-01 核心：`xfers` 表 + 暂存区 + HTTP 上传/下载 + `file_xfer`/协议 v9 + worker 执行端 + `runner=server` 直落 + `gofer tool cp`/`tool xfer` + 独立 TTL 清理 + G033）；实测记录见 §「X1 实测记录」（stub/e2e 部分；真机验收待监督者在容器执行） |
+| 0.4 | 2026-09-21 | omp | **X2 已落地**（XFER-01 job 集成：`job run --upload/--collect` + `jobs.xfer_json` + artifacts 并入 + Dispatch `uploads/collect`（v9）+ xfer 事件进通知/webhook + web「文件」块 + docs）；实测记录见 §「X2 实测记录」（stub/e2e 部分；真机验收待监督者在容器执行） |
 
 ## 背景与目标
 
@@ -206,3 +207,33 @@ X1 已落地（X2 未做）：`xfers` 表 + 暂存区 + HTTP 上传/下载 + `fi
 
 **待真机（由监督者在容器执行，本 job 未做）**：容器 `gofer tool cp` 一个 5MB 文件到 `w-kzl-desktop:<project>/tmp/` 往返 + sha256 一致、>max 拒绝、路径逃逸拒绝、worker 离线 → failed。上面 e2e 已覆盖同一批断言在进程内 hub+worker 下的等价路径，但"真实 worker 进程 + 真实 HTTP + 不同机器文件系统"这一层需真机确认。
 
+## X2 实测记录（2026-09-21，stub / e2e 部分）
+
+X2 已落地：`job run --upload/--collect` + `jobs.xfer_json` + 收集文件并入 artifacts + Dispatch `uploads/collect` + xfer 事件进通知管道 + web「文件」块 + docs/skill/示例配置。落地要点与偏差：
+
+- **谁搬字节**：设计写「执行机（hub 本地 / worker 本地 `job.Service` 同一实现）」，实现把它落成一个 seam `job.XferBridge`（`internal/job/xfer.go`），两个实现分别坐在两台机器上：
+  - **hub**（`core.hubJobXfer`）：上传从本机暂存区直接复制进 cwd；**收集由 hub 主动拉**——`xfer.Manager.StageGetForJob`（新方法，把 `job_id` 列填上）→ `Deliver` → worker 走既有 `PUT /v1/xfer/{id}/content` 上传 → hub 把 payload 复制进 `<result_dir>/artifacts/collected/<name>` 再 `Release` 暂存副本。这就是设计里「worker 经 `StageGet`+`PUT content` 的既有路径」的落地形态：**没有新增任何 HTTP 端点**。
+  - **worker**（`worker.jobXfer`）：上传用 `GET /v1/xfer/{id}/content`（自己 token，仅自己的 transfer）；收集**只上报**（`OwnsArtifacts()==false`），字节由 hub 拉。
+  - pull 时机在 `captureOutcomes` 的远端分支（`applyOutcome` 之后、`finish` 之前），因此 job 行可见时 artifacts 清单里已经有收集到的文件。远端摘要随 `wsproto.Outcome.Xfer`（raw JSON）回传，`runner.Outcome.Xfer` 透传。
+- **CLI 暂存必须 stage_only**：`job run --upload` 先 `POST /v1/xfer` multipart（`meta.stage_only=true`），server 只暂存**不派发**——否则文件会在提交时落到「项目根 + dest」而不是 job cwd，且 job 起跑时的放置会撞上 `exists`。`gofer tool cp` 不带该标志（它就是要立即派发）。`--upload` 的 runner = `--worker`（给了就用）否则 `--runner` 归一化后的值；worker job 必须让记录归到那个 worker 名下（content 端点只服务「runner == 调用者」的 id）。
+- **`--collect` 的边界与限额**：匹配在**执行机的 job cwd**里做，记录名统一成**项目根相对路径**（`rootRelative`，逃出项目根的命中直接进 `Skipped`，`SafeJoin` 同样的边界）；目录/符号链接静默跳过；单文件超 `server.xfer.max_bytes` → `Skipped{reason:"too large"}`；单个 job 总量超新增的 `server.xfer.collect_max_bytes`（默认 1GB）→ `Skipped{reason:"collect total exceeds the limit"}`。限额经 seam 的 `CollectLimits()` 取（hub 取 hub 的 `server.xfer`，worker 取 worker 自己的），所以 `server.xfer` 在两台机器上不一致时以「谁执行谁过滤 + hub 拉取时再被自己的上限拒绝」两层收口。
+- **HTTP 面只校验已暂存 id**：`POST /v1/jobs` 的 `uploads[].xfer_id` 必须是本 server 上、**同项目**、仍在 `staged` 的 put（`validateJobUploads`），本地路径直接 400；job 侧 `hubJobXfer.FetchUpload` 再校验一次（状态可能在提交后变化）。MCP `gofer_run_job` 同字段透传。
+- **事件进通知**：`xfer.recordEvent` 改为经 `xfer.EventSink.RecordScopedEvent(scope, eventType, projectKey, detail)`——生产实现是 `*job.Service`（X2 新增的**非 job 事件入口**，复用同一张事件表 + 同一套 E14 webhook 入队 + SUP-01 P2 观察者）。scope id `xfer:<id>` 换不回 project，所以 project 随事件一起传；这正是 job 事件能从行里解析、transfer 不能的区别。`xfer.StoreSink` 是只要审计、不要通知的适配器（测试/独立部署）。IM 渲染新增 `notify.TransferMessage`（谁 / runner / project / path / size），其他事件仍走 job 形状。**默认通知集不变**（`xfer.*` 需显式订阅）。
+- **协议 v9 复用**：`Dispatch.uploads/collect` 与 `file_xfer` 帧同一个能力位（`wsproto.SupportsFileXfer`）——`unsupportedDispatchFields` 在带文件的 job 上对 <v9 worker 直接拒绝（G032，不静默降级）。
+- **schema（additive）**：`jobs.xfer_json`（+ migrate），`jobs` 行经 `selectCols COALESCE` 读回 → 旧行空 = 「这个 job 没带文件」，不伪造空摘要。
+- **未做（不在 X2 范围）**：`job rerun` 不会重放 `--upload`（暂存区有 TTL；重跑要重新暂存）；peer-http runner 的 job 不能传文件（无 worker id → 收集项进 `Skipped{reason:"the executing machine cannot transfer files"}`）；web 端上传的 `path` 用 dest 原样（仅审计/边界校验用，实际落点按 cwd 解析）。
+
+实测证据（`go test -count=1 -run 'Upload|Collect|Xfer'` 原始行）：
+
+```
+--- PASS: TestUploadPlacesFileBeforeAgent / TestUploadFailureFailsJobWithoutRunningAgent
+           / TestCollectGlobIntoArtifacts / TestCollectRunsAfterVerifyAndOnFailure   (internal/job)
+--- PASS: TestWorkerUploadAndCollectRoundTrip            (internal/worker, hub+worker e2e)
+--- PASS: TestJobRunUploadStagesBeforeSubmit / TestJobRunCollectFlag                 (internal/commands)
+--- PASS: TestSubmitJobUploadsRequireStagedID / TestXferEventDeliveredToWebhook      (internal/httpapi)
+--- PASS: TestRunJobCollectParam                          (internal/mcpserver)
+--- PASS: TestDispatchRoundTripsUploadsCollect / TestSupportsFileXferCoversJobXfer   (internal/wsproto)
+--- PASS: TestXferEventNotInDefaultTriggerSet / TestTransferMessageShortShape        (internal/notify)
+```
+
+**待真机（由监督者在容器执行，本 job 未做）**：真机 worker 上 `job run --upload <5MB>:tmp/in/x --collect 'tmp/out/*'`：起跑前文件已在 worker cwd、结束后收集文件出现在 hub 的 `artifacts/collected/`、`job show`/web 能看到 `xfer` 摘要；>max 的单文件被跳过并列出。上面 e2e 已在进程内 hub+worker（真 `core.Build` 接线 + 真 HTTP 内容端点）覆盖同一批断言，但「真实 worker 进程 + 跨机器文件系统」这一层需真机确认。

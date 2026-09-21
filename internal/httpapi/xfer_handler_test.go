@@ -56,7 +56,7 @@ func newXferServer(t *testing.T, sc config.ServerConfig, lim xfer.Limits) (*Serv
 	eng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(eng)
 	s := New(&cfg.Server, sc.Token, sc.AllowEmptyToken, jobs, eng, projects, agents, nil, nil, nil, nil)
-		// Events is the job service, exactly as core.Build wires it: a transfer's audit
+	// Events is the job service, exactly as core.Build wires it: a transfer's audit
 	// event then travels the notification pipeline too (XFER-01 X2).
 	mgr, err := xfer.NewManager(xfer.Options{Root: root, Limits: lim, Repo: st, Events: jobs})
 	if err != nil {

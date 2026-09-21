@@ -97,9 +97,13 @@ server:
   #   ttl_sec:   暂存区保留秒数, 默认 86400(24h). 到期由独立的清理循环(每 10 分钟)
   #              标记 expired 并删除暂存目录(不依赖 storage.retention 开关);
   #              `gofer tool xfer rm <id>` 可立即删.
+  #   collect_max_bytes: 单个 job 用 --collect 收集的总字节上限, 默认 1073741824(1GB);
+  #                      超过后剩余文件跳过并记进该 job 的 xfer.skipped(XFER-01 X2),
+  #                      单文件仍各自受 max_bytes 限制.
   # xfer:
   #   max_bytes: 268435456
   #   ttl_sec: 86400
+  #   collect_max_bytes: 1073741824
 
   # metrics: E16 Prometheus /metrics scrape endpoint (design §6.2). Mounted as a
   # sibling of /health, OUTSIDE the /v1 auth group: scrapers rarely carry a Bearer
