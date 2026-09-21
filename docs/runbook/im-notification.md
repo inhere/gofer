@@ -73,11 +73,27 @@ export GOFER_DINGTALK_SECRET='SECxxxxxx'
 | `interaction.created` | 产生新的待人工交互 | — |
 | `job.needs_review` | 带 `--review`/`require_review` 的 job 正常完成、停在 `needs_review` 等人验收（GATE-01 S3） | ✅ 点链接进 web job 页的验收卡 accept/reject |
 | `job.reviewed` | 验收裁决已做出（accept/reject）；**非**默认事件，需显式订阅 | — |
+| `plan.blocked` | 链式 plan（todo 带 `--after` 依赖）里某项 job `failed`/`timeout`/`cancelled`/`rejected`，整条链停在那一项（PLAN-03） | ✅ 点链接进 web `/plans/{id}`，或 `plan set-todo <todo> --status ready\|skipped` / `plan resume` |
+| `plan.completed` | 链式 plan 的每一项都 done/skipped；**非**默认事件 | — |
+| `agent.degraded` | 某 agent 的健康度从 healthy/unknown 变为 degraded（窗口内供应商错误达到阈值）；**非**默认事件（PLAN-03 §六） | — |
+| `agent.recovered` | 该 agent 恢复到 healthy；**非**默认事件 | — |
 
 两个会话事件都**只在该会话的中继开关打开时**才推：关着说明人就在键盘前，终端里能直接看到。
 `session.attention` 会按内容去重——同一个提示反复弹不会重复推，换了个不同的提示才会再推一条。
 
-**注意**：省略 `events` 时用的是默认集（`job.terminal` + `interaction.created` + `job.needs_review`），**不含** `session.waiting`。想收会话提醒必须显式写进 `events`，这样既有配置不会平白多出流量。`job.needs_review` 只在**开了验收**的 job 上发生（`--review` / 项目 `require_review`），没开验收的项目不会因此多出通知。
+**注意**：省略 `events` 时用的是默认集（`job.terminal` + `interaction.created` + `job.needs_review` + `plan.blocked`），**不含** `session.waiting`。想收会话提醒必须显式写进 `events`，这样既有配置不会平白多出流量。`job.needs_review` 只在**开了验收**的 job 上发生（`--review` / 项目 `require_review`），没开验收的项目不会因此多出通知。`plan.blocked` 只在**用了 `--after` 依赖的链式 plan** 上发生（平铺清单不会 block），且它是唯一进默认集的 plan 事件——链停住意味着"没人会再往前推"，和 `job.needs_review` 同属"必须有人动手"。
+
+**想让"某个 agent 开始抽风"也上 IM**（PLAN-03 §六）：`agent.degraded` / `agent.recovered` 记在 agent 作用域（`agent:<key>`），可订阅但不进默认集，显式加一行即可：
+
+```yaml
+server:
+  notification:
+    webhooks:
+      - url: https://oapi.dingtalk.com/robot/send?access_token=xxx
+        kind: dingtalk
+        events: [agent.degraded, agent.recovered, job.terminal, job.needs_review, plan.blocked]
+```
+
 
 ## 6. 消息长什么样
 

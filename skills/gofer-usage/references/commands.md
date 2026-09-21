@@ -38,6 +38,9 @@ gofer plan set-todo <todo-id> [--status pending|ready|doing|done|skipped] [--not
     # --append-note 追加一行到现有备注(与 --note 互斥, 服务端原子追加; 只追加不改状态;
     # job 的终态就是这么自动记账的: 见下「todo 联动」)
 gofer plan dispatch <todo-id>           # 显式派发(PLAN-02): 不看状态, 只要 assignee + 无活跃 job
+gofer plan run <plan-id>                # PLAN-03: 开工/续跑——把所有"依赖已满足 + 有 assignee"的 pending 项置 ready
+gofer plan pause <plan-id>              # PLAN-03: 暂停自动推进(正在跑的 job 不取消)
+gofer plan resume <plan-id>             # PLAN-03: 解除暂停/阻塞, 并推进一次
 gofer plan set-status <id> <status>
 ```
 
@@ -52,10 +55,14 @@ gofer plan set-status <id> <status>
 --runner <key>         # 执行 runner（缺省 = 内置 local）
 --cwd <相对路径>       # 工作目录（缺省项目根）
 --timeout <秒>         # job 超时（缺省 server 默认）
+--after <ids|prev>     # PLAN-03: 这一项等哪些 todo（逗号分隔的 todo id；`prev` = 上一条，建链最常用）
+--auto / --no-auto     # PLAN-03: 允许/禁止链自动启动这一项（缺省 auto=1）
+--cmd '<argv>'         # PLAN-03: `--assign exec` 时这一项要跑的 argv（如 --cmd 'go test ./...'）；exec 项没 --cmd 会被拒绝
 ```
 
 - **workflow vs plan**：workflow = **执行**依赖链（server 按链跑）；plan = **组织** view（把散 job + todo 归一起看）。
 - **todo 状态机**：`pending`（backlog，永不自动派发）→ `ready`（可派发）→ `doing`（job 在跑）→ `done`/`skipped`；**server 重启不补派** ready 的项（派发只发生在写入路径上）。
+- **plan 状态**：`open`（在跑）/ `active` / `blocked`（链停在某一项，等人处理；**非终态**）/ `done`（全部 done|skipped 时自动置）/ `archived`；另有 `paused` 开关（暂停自动推进，不影响 status）。
 
 ### 范式：todo 指派 agent 即派发（PLAN-02，长任务不再靠人敲命令）
 
@@ -85,6 +92,47 @@ gofer plan set-todo <todo-id> --status done --note "手工收尾完成"
 - **失败不自动重派**：job 失败 → todo 保持 `doing` + note 写原因；要不要再跑由人或 wakeup 决定。派发本身失败（无项目 / agent 不允许 / 项目不在 worker 上）→ todo **保持 ready** 并把原因写进 `dispatch_error`（`plan show` 与 web 都显示红字），事件 `plan.todo_dispatch_failed` 记在 plan 作用域；成功派发记 `plan.todo_dispatched`（事件默认通知集不变）。
 - **派发出去的还是普通 job**：verify / review / runner / cwd / timeout / worktree 等照常生效，`job list --plan <id>` 能看到，进度页可点进日志。
 - note 写**结果/验收一句话**（不是过程流水，过程在 job logs）。
+
+### 范式：todo 依赖链 + plan run（PLAN-03，建好链只管验收）
+
+**推荐姿势**（取代「一条条 set-todo --status ready」）：把步骤建成**有依赖的链**，`--after prev` 让每一项等上一条，然后 `plan run` 一次开工——之后每一环由前一环的终态自动启动，人只在失败/验收处介入。
+
+```bash
+# 1) 建计划（--project 让后续每一项不必重复写项目）
+gofer plan create --title "xxx 改造实施" --project <项目>
+
+# 2) 建链：4 项，最后一项是容器/本机的构建+测试复核（exec，不调 agent）
+gofer plan add-todo <plan-id> "步骤1: 数据模型迁移"   --assign omp --note "先跑 migration，再补索引"
+gofer plan add-todo <plan-id> "步骤2: 服务层改造"     --after prev --assign omp --verify 'go test ./internal/...'
+gofer plan add-todo <plan-id> "步骤3: CLI/文档同步"   --after prev --assign omp
+gofer plan add-todo <plan-id> "步骤4: 全量复核"       --after prev --assign exec \
+    --cmd 'bash -lc "go build ./... && go vet ./... && go test ./..."' --cwd .
+
+# 3) 开工：把"无未完成依赖 + 有 assignee"的项置 ready（这里只有步骤1），随后自动一环接一环
+gofer plan run <plan-id>
+
+# 4) 盯着看（web Plan 页也可）：todo 状态、当前 job、plan 是否 blocked
+gofer plan show <plan-id>
+
+# 5) 中途失败会停在那一项（plan status=blocked，plan.blocked 是默认通知事件）：
+gofer plan set-todo <todo-id> --status ready     # 重派这一项（改 --assign 换人后再置 ready 也可）
+gofer plan set-todo <todo-id> --status skipped   # 或者跳过它，让后续继续
+gofer plan resume <plan-id>                      # 或：解除暂停/阻塞后继续
+
+# 6) 想临时挂住整条链（正在跑的 job 不受影响）
+gofer plan pause <plan-id>
+```
+
+要点（PLAN-03）：
+
+- **根节点不自动启动**：`after` 为空的项**只有** `plan run` 或人工 `--status ready` 才会起（加一条 todo 不会自己跑）。
+- **一环接一环**：某项 done（含验收 accept）或 skipped → 扫同 plan 的 pending 项，依赖全满足且 `assignee` 非空且 `auto=1` → 置 ready 并立即派发（PLAN-02 的"ready + assignee = 出 job"照旧生效）。
+- **没人指派的到点项**：只记事件 `plan.todo_unassigned`（人来补 `--assign` 再 `plan run`/置 ready），不会静默卡死。
+- **失败 = 停链**：链上某项 job `failed|timeout|cancelled|rejected`（且不是被自动续投/转移接手的）→ plan `status=blocked` + `blocked_todo` + 事件 `plan.blocked {todo_id, job, reason}`（**进通知默认集**，IM 会带 `/plans/{id}` 链接）。注意 `needs_review` **不算失败**：它让后序继续等，直到人 accept（accept 后继续推进）或 reject（按失败停链）。
+- **平铺清单不受影响**：plan 里没有任何 `after` 时，失败不会 block——还是 PLAN-02 的行为。
+- **`plan run` 不理会 `--no-auto`**：`--no-auto` 是给**链**用的（自动推进时跳过这一项），人工 `plan run` 是显式开工。
+- **事件**：`plan.todo_advanced {todo_id, after}` / `plan.todo_unassigned {todo_id}` / `plan.blocked {todo_id, job, reason}` / `plan.completed` / `plan.advance_paused`，都记在 plan 作用域（`plan:<id>`），可订阅；只有 `plan.blocked` 在默认通知集里。
+- MCP 侧对应：`gofer_add_todo` / `gofer_update_todo` 的 `after` / `auto` / `cmd` 字段，以及 `gofer_plan_run`。
 
 ### 范式：决策点问人（gofer_ask_human）
 
@@ -275,11 +323,24 @@ gofer hook claude|codex [--wait N]      # hook 执行体(由 hooks 配置调用,
 
 ```bash
 gofer schedule add <...job请求...>      # 从一个 job 请求建定时计划
+    # --cron '*/5 * * * *' | --delay 30m | --at <RFC3339|unix秒> 三选一
 gofer schedule list / show <id>
 gofer schedule enable <id> / disable <id>
 gofer schedule run <id>                 # 立即跑一次(不等下次触发)
+gofer schedule add ... --webhook        # AUTO-02b: 额外开一个"外部 webhook 触发"入口, 服务端发一个 token
+gofer schedule rotate-token <id>        # 换一个 token(旧 token 立即失效); 没开 webhook 的计划也可用它开启
 gofer schedule rm <id>
 ```
+
+- **webhook 触发**（AUTO-02b）：`--webhook` 建的 schedule 带自己的 `trigger_token`（24 字节 base64url，`schedule show` 可再看到），外部系统无需 gofer bearer 即可触发：
+
+  ```bash
+  curl -X POST 'http://<server>/v1/schedules/<id>/trigger?token=<token>'
+  curl -X POST -H 'X-Gofer-Trigger-Token: <token>' 'http://<server>/v1/schedules/<id>/trigger'
+  ```
+
+  语义 = `schedule run`（立即跑一次，不改 `next_run_at`），并在新 job 上记事件 `schedule.triggered {source: "webhook"}`。token 错/缺 → 401，计划不存在 → 404，同一计划 10s 内重复触发 → 429（防重试风暴）。
+- **事件**（plan/agent 侧的新事件同理可订阅）：`agent.degraded {agent, transient_fail, window_sec, last_error}` 与 `agent.recovered {agent, window_sec}` 记在 agent 作用域（`agent:<key>`），用于"某个 agent 开始/停止抽风"的告警；不在通知默认集，需要显式写进 webhook 的 `events`。
 
 ## agent — 看 agent、验活 agent（SUP-01 P3）
 

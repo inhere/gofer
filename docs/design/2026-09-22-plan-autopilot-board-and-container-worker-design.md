@@ -114,6 +114,17 @@ v0.48.1 之后"派活 → verify → 验收"的每一步都有了，但**链条�
 - **h-aii-gnm3 的真实缺口**：multipart 早已要求 `meta` 先于 `file` 且在读 file 前校验路径/大小，但**不检查 worker 是否在线**——注册了却掉线的 worker 会收下整包再在 dispatch 阶段失败（真机「传到 34% 才 400」）。现在 `validateXferTarget` 增加「在线 + 协议 ≥ `wsproto.FileXferMinProtocolVersion`(9)」（离线 409 / 协议旧 409），`POST /v1/xfer/precheck` 复用同一个 `validateXferMeta`，CLI 在**哈希之前**预检。
 - **h-aii-tnua**：`GET /v1/stats` 增 `server_tz_offset_sec`（每次请求现算，DST 变更无需重启）；CLI 一个 `fmtServerTime`/`fmtServerClock`（`internal/commands/timefmt.go`）被 `formatStarted`/`probeTime`/`formatScheduleTime`/`formatScheduleListTime` 共用，偏移每进程解析一次（拿不到→本地 + ` (local)`）；web 在 `api/time.ts` 一处按同偏移渲染（`getStats()` 顺带写入偏移）。线上时间字段仍是 Unix 秒。
 
+## Q2 实测记录（2026-09-22 实施）
+
+- **`plan run` 不理会 `auto`**：设计 §一.1 说 `plan run` 把「无未完成依赖、有 assignee、状态 pending」的 todo 置 ready，没提 `auto`。实现按字面走——`--no-auto` 是给**链**用的（链自动推进时跳过这一项），人工 `plan run` 是显式要求开工，所以根节点照样起。`advancePlan` 则**只**碰 `after` 非空的项（根节点永远不会被链自己启动），空 `after` = 根 = 必须 `plan run` 或人工置 ready，这正是「加一条 todo 不会自己跑」的落点。
+- **`plan.todo_unassigned` 不要求 `auto`**：设计 §一.2 把「无 assignee 到点记事件」与「auto=1 才置 ready」分开写。实现按此：依赖满足但没人指派 → 记事件（无论 auto），因为「这一项到点了但没人干」是给人看的信号，而 auto=0 的项本来也不会被链启动。
+- **blocked 的判定位置**：设计说「该 job 没有 `auto_resumed_by`/`fell_back_to`」，但 `finish()` 里 `linkTodoOutcome` 跑在续投/转移**之前**，那时标记还没写。所以 block 判定拆成独立的 `maybeBlockPlan(snap)`，在 `finish()` 的接管尝试**之后**（读 DB 行拿标记）、以及验收裁决路径（reject 之后）各调一次；`linkTodoOutcome` 只负责 note 与 done→advance。接管尝试失败而回落到迟到的 `job.terminal` 时也会 block（那时标记确实为空）。
+- **exec todo**：`assignee=exec` 时派发用 `todo.Cmd` 且**不**设默认 prompt；无 `--cmd` 直接拒绝（`dispatch_error: exec todo needs --cmd`），不起一个空 argv 的 job。
+- **`agent.degraded` 的 last_error**：`classify()` 对「非 0 退出且无 error」的失败返回 `Error == ""`，所以 `last_error` 在 `snap.Error` 为空时退化成状态词（`failed`），不会出现空字段。
+- **健康度恢复的时间粒度**：`ok_since_transient` 只数 `ended_at` **严格大于**最后一次 transient 失败的 `ended_at` 的成功（都是 Unix 秒）。同一秒内「失败 → 成功」不会立刻算恢复，要等下一次成功。这是 SUP-01 P3 聚合本来的性质（本次未改），真机表现为恢复通知晚一条 job；测试里用一个 1.1s 的等待跨过秒边界。
+- **`plan.blocked` 的 IM 渲染**：plan 作用域事件没有 job，`buildDeliveryBody` 里 job 摘要会退化成一个假 job；因此新增 `notify.PlanMessage`，IM 渠道对 `plan.*` 事件渲染「todo · job · reason」并把链接指到 `/plans/{id}`（scope `plan:<id>` 解析出 id）。
+- **webhook 限速**：10s/计划的窗口是**进程内** map（`Server.scheduleTriggerAt`），重启只丢窗口、不会漏跑；限速在 token 校验**之后**判定，无凭据的探测拿 401 而不是 429。
+
 ## 决策（已批准 2026-09-22）
 
 1. `plan.blocked` 进通知默认集（其余新事件不进）。
