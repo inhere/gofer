@@ -19,12 +19,9 @@ type stubXfer struct {
 	// payload is what FetchUpload writes at dst (ignored when fetchErr is set).
 	payload  []byte
 	fetchErr error
-	// pulls records the PullCollected calls (the hub's side of a worker's collect).
-	pulls   []CollectedPull
-	pullErr error
-	limits  CollectLimits
-	owns    bool
-	fetches []fetchCall
+	limits   CollectLimits
+	owns     bool
+	fetches  []fetchCall
 }
 
 // fetchCall is one FetchUpload request as the stub recorded it.
@@ -45,11 +42,10 @@ func (x *stubXfer) FetchUpload(_ context.Context, xferID, projectKey, dst string
 	return os.WriteFile(dst, x.payload, 0o644)
 }
 
-func (x *stubXfer) PullCollected(_ context.Context, p CollectedPull) (int64, error) {
-	x.pulls = append(x.pulls, p)
-	if x.pullErr != nil {
-		return 0, x.pullErr
-	}
+// PullCollected is never reached from these tests: a job's own machine publishes what it
+// collected (OwnsArtifacts) and the remote pull is covered end to end by the worker
+// round trip, which stubs nothing.
+func (x *stubXfer) PullCollected(context.Context, CollectedPull) (int64, error) {
 	return 0, nil
 }
 
