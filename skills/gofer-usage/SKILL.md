@@ -301,6 +301,33 @@ gofer tool xfer rm <id>                    # 立即删掉暂存文件 + 记录
 - **别传 `.env` / 私钥 / token**：gofer 不做内容审查，判断在人。
 - 更懒的替代：文件就在某个 worker 的项目目录里、且 job 的输出够小时，与其传文件，不如让 job 把内容 `cat` 进 stdout（≤ 32KB 的 `result.json` 会随结果回传）。
 
+## 10. 让 agent 自己登记等待：`gofer job wakeup create $GOFER_JOB_ID …`
+
+"等 verify 出结果 / 等人回复 / 每小时看一眼"不必让 job 常驻轮询。**登记一条唤醒（wakeup）再结束**：条件到达时 gofer 自动起一次**续投**（有 session 就续同一会话，没有就用原请求 + 指令重跑），把登记时写好的 `instruction` 当作提示词。没有常驻进程——"事情办完没有"由续投的 agent 自己读当前状态判断。
+
+```bash
+# agent 在自己的 job 里（GOFER_JOB_ID 就是自己），到点再叫醒我
+gofer job wakeup create "$GOFER_JOB_ID" --kind at --after 10m -m "检查 CI 结果并汇报"
+gofer job wakeup create "$GOFER_JOB_ID" --kind every --every 1h -m "巡检一次 tmp 下的新失败 job"
+gofer job wakeup create "$GOFER_JOB_ID" --kind cron --cron '0 9 * * 1-5' --tz Asia/Shanghai -f instr.md
+gofer job wakeup create "$GOFER_JOB_ID" --kind event --event job.terminal --job-id "$OTHER" --status done -m "对方结束了，合并结果"
+gofer job wakeup create "$GOFER_JOB_ID" --kind event --event interaction.answered -m "人回复了，按答复继续"
+
+gofer job wakeup list "$GOFER_JOB_ID"        # 还有几条在等、触发了几次
+gofer job wakeup show|disable|enable|rm <wid>
+```
+
+要点（都是设计取舍，别绕）：
+
+- **`--event` 缺省监听自己**（`--job-id` 指定别的 job）。事件目录只有这 8 个：`job.terminal`（可 `--status done,failed,…` 过滤）、`job.verify_finished`、`job.needs_review`、`job.reviewed`、`job.fell_back`、`job.stalled`、`interaction.answered`、`session.takeover_released`；写错类型直接 400。
+- **同一 wakeup 同一时刻只允许一个未终态续投**：期间再触发只累加 `coalesced_count`（`job show` 一行 `wakeups:` 与 web「唤醒」块都看得到），避免每小时叠一堆。前一个续投结束（终态）后，下一次触发才会再起一个。
+- **`--mode once`（at/event 默认）触发一次即消费**；`every/cron` 默认 `continuous`。定时器**从创建/启用时起算、不补发**错过的周期（server 停机期间漏掉的 tick 合并成一次）。
+- **默认 7 天过期**（`wakeup.ttl_sec`），到期自动停用并记 `job.wakeup_expired`；目标 job 被 retention 清理时唤醒级联删除。
+- 无 session 的 job（exec、agent 没有 resume 模板）走**重跑**：原 argv/请求重放，`instruction` 追加到 prompt 末尾（exec job 只进事件）。
+- 权限同 `job resume`：只能给**自己提交的 job**（或持有 `can_answer` 的 caller）登记；worker token 调 HTTP 一律 403。
+- 事件 `job.wakeup_fired {wakeup_id, kind, reason, continuation_job}` 记在**目标 job** 上（另有 `job.wakeup_coalesced` / `job.wakeup_expired` / `job.wakeup_failed`）；续投 job 带 tag `wakeup:<wid>`。默认通知集**不变**，要 IM 提醒就显式订阅这几个事件。
+- MCP 里同样可用：`gofer_wakeup_create` / `gofer_wakeup_list` / `gofer_wakeup_disable`（`job_id` 填自己的 `$GOFER_JOB_ID`）。web job 详情页的「唤醒」块可看列表 / 开关 / 触发历史 / 直接新建。
+
 ## 备注
 
 - 本 skill 是**通用机制**说明；本工作空间的具体 project key / 可用 agent 以该工作空间 `CLAUDE.md` 为准。

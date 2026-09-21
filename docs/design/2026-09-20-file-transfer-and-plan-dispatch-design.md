@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 文件传输与「计划即派发」设计（XFER-01 / JOB-11 / AUTO-05 / PLAN-02 / JOB-09）
 
-> 状态：Approved 0.2 / 实施中（2026-09-20 人工批准，决策 1–6 按默认；X1、X2 已落地，下一期 P1）
+> 状态：Approved 0.2 / 已实施完（2026-09-20 人工批准，决策 1–6 按默认；X1、X2、P1、P2、P3 均已落地）
 
 ## 修订记录
 
@@ -13,6 +13,7 @@
 | 0.4 | 2026-09-21 | omp | **X2 已落地**（XFER-01 job 集成：`job run --upload/--collect` + `jobs.xfer_json` + artifacts 并入 + Dispatch `uploads/collect`（v9）+ xfer 事件进通知/webhook + web「文件」块 + docs）；实测记录见 §「X2 实测记录」（stub/e2e 部分；真机验收待监督者在容器执行） |
 | 0.5 | 2026-09-21 | omp | **P1 已落地**（JOB-11 同 cwd 串行锁 + `waiting_dir` + per-agent 并发；AUTO-05 输出停滞检测 → transient）；实测记录见 §「P1 实测记录」（含 4 处与设计的偏差说明） |
 | 0.6 | 2026-09-21 | omp | **P2 已落地**（PLAN-02：plan/todo 的 project、todo 派发字段 + `ready`、派发器与三处触发点、`plan dispatch`/`gofer_dispatch_todo`、plan 用量汇总、web 派发控件）；实测记录见 §「P2 实测记录」 |
+| 0.7 | 2026-09-21 | omp | **P3 已落地**（JOB-09：`job_wakeups` 表、多播事件观察者、定时并入 schedule tick、续投/重跑、CLI/HTTP/MCP/web、docs）；实测记录见 §「P3 实测记录」 |
 
 ## 背景与目标
 
@@ -160,7 +161,7 @@ gofer job wakeup list|show|disable|enable <…>
 | X2 | XFER-01 job 集成：`--upload` / `--collect` + `xfer_json` + artifacts 并入 + web「文件」块 + docs/skill | worker job 起跑前文件就位；结束后 `collect` 的文件可从 web 下载 |
 | P1 | JOB-11（dir lock + `waiting_dir` + per-agent 并发）+ AUTO-05（停滞检测 → transient） | 同 cwd 两个 agent job 第二个 `waiting_dir` 后接力；exec 不被挡；停滞 job 在 N 秒后 failed 且触发续投 | **已落地 2026-09-21**（见 §「P1 实测记录」；两个 job 是否重叠由 job 自己作证——`excl-guard`/`rendezvous` 见证，不靠时钟） |
 | P2 | PLAN-02（plan project、todo 字段、`ready`、派发器、`plan dispatch`、web、MCP、plan 用量） | `set-todo --assign omp --status ready` 自动出 job 并联动到 done；无模板默认 prompt 含 plan/todo 文本 |
-| P3 | JOB-09（表、定时并入 sweeper、事件匹配、续投/重跑、CLI/HTTP/MCP/web、docs） | `--kind at --after 1m` 到点续投；`--kind event --event job.terminal --job-id B` 在 B 结束后续投 A；coalesce 生效 |
+| P3 | JOB-09（表、定时并入 sweeper、事件匹配、续投/重跑、CLI/HTTP/MCP/web、docs） | `--kind at --after 1m` 到点续投；`--kind event --event job.terminal --job-id B` 在 B 结束后续投 A；coalesce 生效 | **已落地 2026-09-21**（见 §「P3 实测记录」）
 
 ## 决策（已批准 2026-09-20）
 
@@ -321,3 +322,46 @@ P2 已落地：`plans.project_key` + `plan_todos` 的 10 个派发列 + `ready` 
 **测试期发现的真问题（已修在测试里，值得记一笔）**：用「轮询 job 快照看到终态就断言 todo 已完成」会偶发假红——job 的**行**先变终态，todo 联动（`linkTodoOutcome`）写在它之后。正确等法是 `Service.Wait`（等的是 job 协程结束，`execute` 的 `defer close(entry.done)` 在 finish 与终态钩子之后才触发），P2 的这两个测试与 P1 的 job 级测试都用它。
 
 **待真机/待人工（本 job 未做）**：web 派发控件只过了 `vue-tsc --noEmit`，**没有浏览器实测**（本机 `web/node_modules` 是按 Linux 装的，缺 `@rollup/rollup-win32-x64-msvc` / `@esbuild/win32-x64`，vite dev server 起不来；未跑 `pnpm build`）。真机验收建议：一个真实项目上 `gofer plan create --project <p>` → `plan add-todo … --assign <真 agent>` → `plan set-todo <id> --status ready`，确认出 job 并联动到 done；web Plan 页点「派发」看 job 链接出现；故意写一个不允许的 agent 看 `dispatch_error` 红字。
+
+## P3 实测记录（2026-09-21）
+
+P3 已落地：`job_wakeups` 表 + 服务层（`internal/job/wakeup.go`）、多播事件观察者、定时并入 `startScheduleLoop` 同一 tick、续投/重跑、CLI/HTTP/MCP/web 四面 + docs。落地要点与**与设计的偏差/取舍**（11 处）：
+
+- **到期并入同一个查询**：设计把"定时"与"到期"写成两件事（`DueWakeups` + 顺手 disable）。实现让 `DueWakeups(now)` 一次返回**两类**行：定时器到点（`next_run_at <= now`）或 TTL 已过（`expires_at <= now`），由 `sweepDueWakeups` 分流（过期的走 expire，其余 advance→fire）。理由：一次扫描不可能"看到 due 却漏掉同时过期的行"，也不会在 tick 之间把过期行留在查询集里。
+- **claim 用 `pending` 哨兵、先占位再提交**：设计的 `ClaimWakeupFire(id, continuationJobID)` 语义是"抢占唯一续投位"。实现把它写成 **CAS**（`enabled=1 AND continuation_job_id=''`），而 Fire 先写哨兵 `jobstore.WakeupClaimPending`（`"pending"`）**再**提交续投——因为 `Submit` 会**同步**记 `job.submitted` 事件，而事件正是唤醒匹配器的输入；先提交后占位会让一次 fire 在提交过程中被自己的事件再触发一次。配套新增 `SetWakeupContinuation`（CAS 替换哨兵）与 `ReleaseWakeupClaim(id, expect)`（只在值相符时清位，提交失败/上次续投已终态时用）。HTTP/MCP 投影把 `pending` 显示成空（它是内部占位，不是 job id）。
+- **事件路径的 fire 会推迟到目标 job 真正终态**：`finish()` 有一条 E13 不变式——`job.terminal` **先记事件、后翻状态**（否则按终态判定的读者会先看到 done 再读到事件日志）。于是"监听自己的 `job.terminal`"这条最常用的用法，若同步 resume 会被 `ErrJobNotTerminal` 拒掉。实现让匹配器在目标 job 还没终态时把 fire 交给一个 goroutine（`WaitFor(job, 30s)` 后再 fire；`needs_review` 永远不终态，等满就由 `job.wakeup_failed` 说明原因）。
+- **观察者扩成多播**：`SetEventObserver` 保持原语义（单槽 + `mirroredEventTypes` 白名单，worker 镜像用），新增 `AddEventObserver` 看**全部**事件——唤醒目录里的 `job.terminal`/`interaction.answered` 等不在镜像白名单内，挂在原观察者上会收不到。匹配器在 `NewService` 注册，hub/worker/测试三种装配都自动带上。
+- **`session.takeover_released` 现在也落 job 事件流**：设计的事件目录把它列为可订阅类型，但该事件原先只走 `NotifyEvent`（IM/webhook），**从不进 `job_events`**——照原样实现会得到一个永远不触发的订阅。实现让 `NotifySessionTakeoverReleased` 顺带 `recordEvent`（additive，默认通知集不变）。
+- **新增 `job.wakeup_failed`**：设计只列了 fired/coalesced/expired。但续投失败（源 job 非终态、无 request_json、Submit 被拒）若只写日志，一条永远不续投的唤醒与"健康但空闲"在外部完全一样，故补一个事件（同样不进默认通知集）。
+- **`UpdateWakeup` 的真实用途 = 启用时重新起算**：设计的 CRUD 列了它但没给写入者。实现把它用在 `SetWakeupEnabled(enable=true)`：定时器**从现在重新起算**（设计 §五.1「every 从创建/启用时起算」），`at` 保留原时刻（已过去则下次扫描即触发——操作员确实又要求了一次）。它只写"作者字段"+`enabled`+`next_run_at`，**不碰**触发计数（那是 claim/continuation 的写入面），并 bump `revision`。
+- **定时扫描落在 serve 的自由函数里**（`sweepDueWakeups`，与 `sweepSchedules` 同形：行 + 回调），`startScheduleLoop` 的**同一个 tick** 里先扫 schedule 再扫 wakeup；fire/disable/expire 三个回调指向 `job.Service.FireWakeup/SetWakeupEnabled/ExpireWakeup`。`WakeupNextRun` 由 job 包导出给 serve 用（`every` = 现在 + 间隔、`cron` 在唤醒自己的时区里求下一次，`at` 不再重复）。
+- **`resumeJob` 多一个 `extraTags` 形参**：续投要带 tag `wakeup:<id>`，而 tag 是 `Submit` 时从源 job 继承的——加一个（仅唤醒路径非空的）形参比在 resume 之后回写 `tags_json` 干净。
+- **`job show` 多一次 GET**：`wakeups:` 一行来自 `GET /v1/jobs/{id}/wakeups`（列表失败就不打印，job 本身的状态才是这个命令的重点）。三个原先断言"job show 只发一个请求"的测试 handler 因此放宽为同时服务该子路径（它们钉的不是契约）。
+- **MCP 只有 disable**：按设计给 `gofer_wakeup_disable`（无 enable 工具）；启用走 CLI/HTTP（`PATCH /v1/wakeups/{wid} {enabled}`）。Backend 侧方法是通用的 `SetWakeupEnabled(id, enabled)`，所以补一个 enable 工具是加一行的事。
+- **权限落在 job 包**（`canWakeJob`）：设计说"复用现有判定函数"，但现有判定在 httpapi（`humanReviewer`/`callerMayAttach`），而 `CreateWakeup` 的权限检查必须与编排同层（G021/G022 不允许 job 反向 import httpapi）。实现按同一口径在 job 包重写：**本 job 的 caller**，或 governance 开启 `require_answer_capability` 时持有 `can_answer`；HTTP 侧另加 worker 403（与 `humanReviewer`/xfer 同一先例）。
+
+实测证据（`go test -count=1` 原始行）：
+
+```
+--- PASS: TestWakeupRoundTripDueAndAdvance / TestClaimWakeupFireIsExclusive
+           / TestMatchingEventWakeups                                    (internal/jobstore)
+--- PASS: TestWakeupAtFiresResume / TestWakeupEventOnOtherJobTerminal
+           / TestWakeupDefaultsToOwnJobEvents / TestWakeupCoalescesWhileContinuationActive
+           / TestWakeupFallsBackToRebuildWithoutSession
+           / TestWakeupEveryDoesNotReplayMissedTicks / TestWakeupExpires
+           / TestWakeupContinuationDoesNotRetrigger
+           / TestWakeupCreateRequiresResumePermission
+           / TestWakeupCreateRejectsBadSpecs                            (internal/job)
+--- PASS: TestScheduleLoopFiresDueWakeups                               (internal/serve)
+--- PASS: TestWakeupEndpoints / TestWakeupEndpointsRejectWorkerCaller   (internal/httpapi)
+--- PASS: TestJobWakeupCreateFlags / TestJobShowPrintsWakeups
+           / TestFormatWakeupsOmitsTheLineWhenEmpty                     (internal/commands)
+--- PASS: TestWakeupTools / TestWakeupCreateToolRefusesBadSpec          (internal/mcpserver)
+```
+
+**测试期发现/踩到的两个真问题**：
+
+- 事件路径的 fire **必须**异步（见上「事件路径的 fire 会推迟」）——同步版会让"监听自己的 job.terminal"永远 `job.wakeup_failed`，而单测里若只在 fire 之后断言（不先等目标 job 终态）反而看不出问题；`TestWakeupEventOnOtherJobTerminal` 因此用**轮询 wakeup 行**（`fired_count` + 已解析的 continuation id）而不是等某个固定时刻。
+- `every` 的"不补发"必须由**扫描时刻**起算：第一版写成"上次计划时刻 + 间隔"会让停机 10 小时的 server 连发 10 次；`TestWakeupEveryDoesNotReplayMissedTicks` 断言的是 `next = now + every`（而不是 `missed + every`）。
+
+**待真机/待人工（本 job 未做）**：web「唤醒」块只过了 `vue-tsc --noEmit` + `@vue/compiler-sfc` 编译（script + render 都编译通过），**没有浏览器实测**——本机 `web/node_modules` 是按 Linux 装的（缺 `@rollup/rollup-win32-x64-msvc`），`vite build`/dev server 起不来（`vue-tsc` 与 SFC 编译都用 `node` 直接跑通）。真机验收建议：真机一个 `--kind at --after 1m` 的唤醒到点续投、`--kind event --event job.terminal --job-id <别的 job>` 在对方结束后续投、连续触发看 `coalesced_count` 增长；web 上开关/新建一遍。

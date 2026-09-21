@@ -218,6 +218,13 @@ session:
   # 未写 = 1500; 显式 0 = 一有输出就写. 无论多吵, 最多等 10 秒就写.
   # takeover_input_delay_ms: 1500
 
+# 唤醒 (JOB-09): job 上登记的"事件订阅 / 定时器"触发时自动续投该 job. 只有 TTL 是全局
+# 配置 —— 一条唤醒的形态是逐条登记的, 扫描跟随 schedule 的节奏 (不另开循环).
+wakeup:
+  # 一条唤醒最长活多久(秒), 到期由 sweeper 自动停用并记 job.wakeup_expired.
+  # 未写 = 604800(7 天). 目标 job 被 retention 清理时, 它的唤醒一并级联删除.
+  # ttl_sec: 604800
+
 # Logging: server/worker default to JSONL files under <config-dir>/run.
 # file and dir are mutually exclusive; setting either makes failures fatal.
 log:

@@ -117,6 +117,35 @@ gofer job run … --review                                 # 让这个 job 正�
 gofer job list --status needs_review                     # 谁在等人验收
 gofer job worktree ls [-p <project>]                     # 列 --worktree job 留下的 worktree: 分支/领先提交/是否脏/是否已合并
 gofer job worktree rm <job-id> [--force] [--delete-branch]   # 移除 worktree(脏且无 --force 拒绝); 分支默认保留
+
+## job wakeup — 登记等待，条件到达时自动续投（JOB-09）
+
+agent 在一个 job 上登记**事件订阅**或**定时器**，job 正常结束；条件到达时 gofer 自动起一次**续投**（有 session → 续同一会话；无 session → 原请求 + 指令重跑），把登记时的 `instruction` 当提示词。没有常驻进程。agent 在 job 内用 `$GOFER_JOB_ID` 指自己。
+
+| 命令 | 说明 |
+|---|---|
+| `gofer job wakeup create <job> --kind at --after 10m \| --at <RFC3339> -m "…"` | 到点触发一次（`--after`/`--at` 互斥，客户端换算成绝对时刻） |
+| `gofer job wakeup create <job> --kind every --every 1h -m "…"` | 每隔一段（≥ 60s；下一次 = 现在 + 间隔，不补发漏掉的 tick） |
+| `gofer job wakeup create <job> --kind cron --cron '0 9 * * 1-5' [--tz Asia/Shanghai] -f instr.md` | cron 表达式（时区缺省 = 服务器本地时间）；`-f` 从文件读指令（与 `-m` 互斥） |
+| `gofer job wakeup create <job> --kind event --event job.terminal[,…] [--job-id <源>] [--status done,failed]` | 订阅事件；`--job-id` 缺省 = 自己；`--status` 只对 `job.terminal` 有效 |
+| `--mode once \| continuous` | 触发一次即消费（at/event 默认）/ 保持生效（every/cron 默认） |
+| `gofer job wakeup list <job>` | 列出一个 job 的唤醒（形态 / 在等什么 / 触发与合并次数） |
+| `gofer job wakeup show <wid>` | 单条详情（含 next_run_at / last_fired / 最近续投 job / 到期时刻 / 指令全文） |
+| `gofer job wakeup enable <wid>` | 启用（定时器**从现在重新起算**，不补发关闭期间的触发） |
+| `gofer job wakeup disable <wid>` | 停用（保留记录） |
+| `gofer job wakeup rm <wid>` | 删除 |
+| `gofer job show <job>` | 一行摘要：`wakeups: 2 enabled (1 every, 1 event)` |
+
+事件目录（v1，写别的类型 400）：`job.terminal`、`job.verify_finished`、`job.needs_review`、`job.reviewed`、`job.fell_back`、`job.stalled`、`interaction.answered`、`session.takeover_released`。
+
+语义与边界：
+
+- **同一 wakeup 同一时刻只允许一个未终态续投**：期间再触发只 `coalesced_count++`（事件 `job.wakeup_coalesced`），不叠 job。前一个续投到终态后，下一次触发才再起一个。
+- 续投 job 带 tag `wakeup:<wid>`；目标 job 上记 `job.wakeup_fired {wakeup_id, kind, reason, continuation_job}`。失败（无法续投也无法重跑）记 `job.wakeup_failed {…, error}` —— 不会静默。
+- **默认 7 天过期**（`wakeup.ttl_sec`）：到期自动停用 + `job.wakeup_expired`；目标 job 被 retention 清理时唤醒级联删除。
+- 权限同 `job resume`：只能给自己提交的 job（或持有 `can_answer` 的 caller）登记 / 开关 / 删除；worker token 写 HTTP 一律 403。
+- HTTP：`POST|GET /v1/jobs/{id}/wakeups`、`GET|PATCH|DELETE /v1/wakeups/{wid}`（PATCH body `{enabled}`）。MCP：`gofer_wakeup_create` / `gofer_wakeup_list` / `gofer_wakeup_disable`。
+- 默认通知集**不变**：要 IM 提醒就显式订阅 `job.wakeup_*`。web job 详情页有「唤醒」块（列表 / 开关 / 新建 / 触发历史）。
 gofer job run … --worktree [--worktree-base <ref>]       # 在 <顶层>/tmp/gofer/wt/<job-id> 的 worktree 里跑, 分支 gofer/<job-id>
 gofer job run … --todo <todo-id>                         # 为某个 plan todo 跑这个 job(见下「todo 联动」)
 gofer job run … --verify 'go test ./...' [--verify-timeout 900]   # agent 正常结束后在同一个 cwd/env 跑这条验收命令; 非 0 退出 → job failed
