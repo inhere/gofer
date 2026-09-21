@@ -261,6 +261,7 @@ guards: { allow_exec: true, allow_interactive: true }   # local tightening only
 - **Routing**: explicit `{"runner":"w-gpu"}` / `--worker-id`, or `{"runner":"worker","worker_labels":["gpu"]}` picks among connected workers whose labels contain all requested ones, by `in_flight↑ → heartbeat freshness↑`; no candidate → `503`. The chosen `worker_id` is recorded on the result.
 - **Three places must agree**: the `server.workers.<id>` key, `runners.<name>.worker_id` and the worker's own `worker_id` are the same string; the worker's token equals `server.workers.<id>`'s.
 - **LEGACY vs POLICY**: a worker.yaml with `roots` is POLICY (the project set comes from the server; adding a project touches nothing on the worker); one with only `projects` is LEGACY. Self-check with `gofer config validate worker` / `gofer project list`.
+- **Pre-flight self-check**: `gofer worker doctor` prints one `PASS|WARN|FAIL` table for the config, hub URLs (host resolution + TCP reachability), token, roots, installed agents, and a real register handshake against the hub (`--json` for scripts, exit 1 on any FAIL); a container worker (Docker on the same host) is covered step by step in [`docs/runbook/container-worker.md`](docs/runbook/container-worker.md).
 - Workers reconnect to multiple hub URLs with full-jitter backoff; `POST /v1/workers/{id}/reload` makes a worker re-read its config.
 
 ### Reconnect recovery (`recovering`)

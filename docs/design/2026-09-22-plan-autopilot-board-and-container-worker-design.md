@@ -201,6 +201,23 @@ SMOKE OK (html 4867 bytes)
 - **未做（由监督者在容器做）**：浏览器实测——拖拽手感、`≤940px` 横向滚动断点、弹层与 toast 的实际观感。主机侧证据到此为止：`vue-tsc --noEmit` exit 0（含模板类型检查）+ 上面的纯逻辑断言与 SSR 冒烟。
 - **接口核对**：`PATCH /v1/todos/{id}`、`POST /v1/plans/{id}/run|pause|resume`、`GET /v1/plans/{id}`（`paused`/`blocked_todo`/`todo.after|auto|cmd`/`jobs[]`）Q2 已齐，web 只补了三个薄封装（`planRun`/`planPause`/`planResume`）与类型（`Plan.paused|blocked_todo`、`Todo.after|auto|cmd`、`TodoPatch.after|auto|cmd`、`TodoJob.status: JobStatus`、`PlanStatus` 增 `blocked`）。
 
+## Q4 实测记录（2026-09-22 实施）
+
+- **`gofer worker doctor` 落点**：新文件 `internal/commands/worker_doctor.go`（`worker` 组内子命令，G033），注册握手走新导出的 `internal/worker.Probe`（`probe.go`）：同 `runSession` 一样的 bearer 头 + register 帧 + 断言首帧是 `registered`，但**不发布连接、不开 session/政策会话、不跑 recvLoop**——`runSession` 那套状态是一次性检查不能碰的。行状态固定 `PASS|WARN|FAIL`，任一 FAIL → 退出码 1，只 WARN → 0。
+- **设计与 wire 的一处出入**：§三.1 要求 connect 报告 `accepted / protocol / server_version`，但 `wsproto.Registered` **没有** server_version 字段（只有 `server_time`/`protocol_version`/`policy`/`resume`），`/health` 也不带版本。加了字段就是改 wire 语义、超出本设计授权，故 connect 行报 `accepted=true protocol=N server_time=...`（排查版本门槛够用，兼容性判据就是协议版本）。未改任何 wire 字段/版本。
+- **`--timeout` 取代硬编码 3s**：§三.1 写"TCP 可达（拨 host:port，超时 3s）"，实现把 TCP 拨号与注册握手都交给 `--timeout`（默认 `10s`，`time.ParseDuration` 形态，与 `plan ask --timeout` 同一手法），一个旋钮管全部步骤。
+- **注册探测的安全联锁（实现新增，设计未写）**：往 hub 注册同一个 `worker_id` 会**顶掉**它正在用的连接（`wshub.registry.Put` + `gracefulClose`；跨 instance 时旧连接的 in-flight job 按 z8ow 判失败）。诊断工具不该杀在跑的活，所以 doctor 先看本机 `<config-dir>/run/worker-<id>.pid`：有活的 `worker -d` 就**跳过注册探测**并给一行 WARN（带 pid + 日志路径 + `worker stop` 提示），其余检查照做；`--connect=false` 显式关。`localWorkerPID` 在 Windows 上退化为"pidfile 存在即视为在跑"（`daemon.PIDAlive` 在 windows 恒 false，`daemon_windows.go:19`）——误判只损失一次探测，反方向误判会顶掉真在跑的 worker，所以宁可保守。**残余风险如实记录**：worker 跑在**另一台机器**上时本机探测不到，在 A 机诊断 B 机的 worker 仍会顶掉 B 的连接——runbook 明确要求"到 worker 所在那台机器上跑 doctor"。
+- **`worker register` 帧的 Inflight 恒为 nil**（而不是空数组）：nil 对 hub 意味着"这个进程无法证明它持有什么"，恢复窗口里的 job 继续按窗口计时器走；空数组是明确声明"我一个都不持有"，会让 hub 立刻失败那些 recovering job——一次探测不该产生这种后果。
+- **声明了却没装的 agent = FAIL**（设计未给判据）：`AgentBrief.Available` 是展示字段、**不参与路由过滤**，worker 侧派发时才二次校验，所以"声明了 codex 但容器没装"意味着凡是被路由到它的 job 都死在启动——正是起飞前该拦的。`guards` 未显式声明、`max_concurrent` 未设给 WARN（与 `config validate worker` 的既有口径一致）；`mode=EMPTY`（无 roots 也无 projects）给 FAIL。
+- **`--json` 的 stdout 纯净性**：gcli 把返回的错误渲染到 **stdout**（`defaultErrHandler` → `color.Error.Tips`），会在 JSON 文档后面追加一行 `ERROR: …`，让 `| jq` 直接解析失败。JSON 模式 + FAIL 时改为打印完文档后 `os.Exit(1)`（判据已在文档的 `failures` 字段里，退出码照旧），与 `job run` 用 `os.Exit(code)` 传递退出码是同一手法；表格模式仍走 `errorx.Failf(1, …)`。
+- **真机验证（主机侧）**：临时 config + 随机端口起 `gofer serve`（temp `server.workers` 绑定），`worker doctor` 三种情形逐条对：
+  - 正确 token + 已绑定 worker_id → `connect PASS accepted=true protocol=9`，`result: OK — 0 failed, 1 warning(s)`（guards 未声明），退出码 0；`--json` 一份可 `json.load` 的文档。
+  - 错 token → upgrade 401，`connect FAIL … got 401`；server 日志 `worker auth rejected at hub upgrade`。
+  - 未绑定的 worker_id → `connect FAIL 注册被拒: worker_id not bound to this token`（服务端原因原样）。
+  - hub 侧日志显示每次探测就是一对 `worker.registered` → `worker.disconnected`，无 job 受影响。
+- **测试**（先写先提交 `b49063b`，实现 `dcc1819`）：`TestWorkerDoctorReportsMissingConfig` / `TestWorkerDoctorFlagsUnresolvableHost` / `TestWorkerDoctorRootsAndToken` / `TestWorkerDoctorConnectsToTestHub`（真 `wshub` 进程内 hub：accept 与 `worker_id not bound to this token` 两分支）+ 两个补充：`TestWorkerDoctorSkipsRegisterProbeWhileWorkerRuns`（pidfile 在 → 跳过且 hub 侧计数为 0）、`TestWorkerDoctorJSONIsMachineReadable`。`--worker-config` 路径断言靠"bind 先写默认值、后设 fixture"的次序，测试里由 `doctorCmdAndOpts` 固定（曾踩过一次：先设 opts 再 bind 会被 clobber 成默认路径，测试"通过"得毫无意义）。
+- **未做（由监督者在容器完成）**：容器内 `gofer worker -d` 实际上线、web 送话到容器会话、链末 Linux 复核 todo 实跑——本 job 只交付代码 + runbook（`docs/runbook/container-worker.md`）+ skill/README 指引。`start-worker.sh`（nohup 旧式）未改：它属于容器侧配置（只读参考），runbook §3 已写明改用 `gofer worker -d` 与 `worker stop`。
+
 ## 决策（已批准 2026-09-22）
 
 1. `plan.blocked` 进通知默认集（其余新事件不进）。

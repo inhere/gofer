@@ -254,6 +254,7 @@ guards: { allow_exec: true, allow_interactive: true }   # 本机只减不增
 - **路由**：显式 `{"runner":"w-gpu"}` / `--worker-id`，或 `{"runner":"worker","worker_labels":["gpu"]}` 在已连接且标签全包含的 worker 里按 `in_flight↑ → 心跳新鲜↑` 选机；无候选 `503`。落机的 `worker_id` 记入结果。
 - **三处对齐**：`server.workers.<id>` 的 key、`runners.<name>.worker_id`、worker 端 `worker_id` 必须是同一个；worker 的 token 必须等于 `server.workers.<id>` 的 token。
 - **LEGACY vs POLICY**：worker.yaml 有 `roots` 即 POLICY（project 集合由 server 下发，加项目零改动 worker）；只有 `projects` 则 LEGACY（本机自己定义）。`gofer config validate worker` / `gofer project list` 自检。
+- **起飞前自检**：`gofer worker doctor` 一张 `PASS|WARN|FAIL` 表查配置、hub 地址（主机解析 + TCP 可达）、token、roots、本机装没装声明的 agent，并向 hub 走一次真实注册握手（`--json` 给脚本，任一 FAIL 退出码 1）；容器 worker（同机 Docker）逐步手册见 [`docs/runbook/container-worker.md`](docs/runbook/container-worker.md)。
 - worker 多 hub 地址 + 全抖动退避重连；`POST /v1/workers/{id}/reload` 让 worker 热重读配置。
 
 ### 断线恢复（recovering）

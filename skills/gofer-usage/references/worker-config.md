@@ -8,7 +8,7 @@
 ```yaml
 worker_id: builder-1                      # ★ 必须与 server 对齐(见 §5)
 server_link:
-  urls: [ws://<server-host>:8765/v1/workers/connect]   # 连哪个 server(容器常用 host.docker.internal)
+  urls: [ws://<server-host>:8765/v1/workers/connect]   # 连哪个 server(容器里写宿主 IP, 见 §8b)
   token_env: GOFER_WORKER_TOKEN           # token 从 env 读, 不写进文件
 labels: [linux, gpu]                      # 展示/调度提示
 max_concurrent: 4                         # 本机同时在跑上限
@@ -150,6 +150,21 @@ storage:
   default_result_subdir: gofer      # 结果子目录(默认 gofer, 落项目 <cwd>/tmp/gofer)
   # root: <某挂载路径>              # 设了则结果落 <root>/<project>/<job>, 容器只能经 HTTP 取回
 ```
+
+## 8b. 容器 worker（Docker / Linux）
+
+容器里跑 worker（Linux 复核、容器会话送话）的三处与主机不同：
+
+```yaml
+server_link:
+  urls: [ws://192.168.65.254:8767/v1/workers/connect]   # ★ 宿主 IP；Linux 容器解析不了 host.docker.internal
+roots:
+  - { from: D:/work/x, to: /d/work/x }                  # bind mount 的整段前缀映射；to 必须存在且可读
+```
+
+- `.env`（与 worker.yaml 同目录）：`GOFER_WORKER_TOKEN`（worker 连 hub）、`GOFER_SERVER_ADDR`（容器里 CLI/hook 连 hub）、`GOFER_HOOK_RUNNER=<worker_id>`（会话登记到本 worker，web 才能送话到容器 tmux pane；缺了报 `no_runner`）。会话要在 `tmux new -A -s claude` 里起才有 `TMUX_PANE`。
+- 自检：`gofer worker doctor`（表格；`--json` / `--timeout 5s` / `--connect=false`）；它比 `config validate worker` 多查**主机解析 + TCP 可达 + agent 是否真装了 + 注册握手**，本机有该 worker 在跑时会跳过注册探测（探测会顶掉在跑的连接）。
+- 完整操作手册（一次性配置 → 启停/自检 → 送话 → 验收 → 排障）：[`../../../docs/runbook/container-worker.md`](../../../docs/runbook/container-worker.md)。
 
 ## 9. 常见坑
 
