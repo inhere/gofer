@@ -291,6 +291,11 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 		return nil, fmt.Errorf("build xfer manager: %w", err)
 	}
 	c.xferMgr = xferMgr
+	// XFER-01 X2: the job file seam over that manager — a local job's uploads are
+	// placed from the staging area and a worker job's collected files are pulled back.
+	// Wired here (after both pieces exist, before any job can run) exactly like the
+	// transfer manager itself; job never imports xfer and xfer never imports job.
+	jobs.SetXferBridge(hubJobXferFor(xferMgr))
 	// Seed generation 1 (verification 5: Build=Rev 1, every write +1). This is the
 	// only snap.Store outside reloadLocked; it never re-resolves (the registries above
 	// were already built from this resolved cfg).

@@ -51,6 +51,19 @@ var hostCancelGrace = 10 * time.Second
 // back-pressure, so the reader sees that bytes were dropped (review #3).
 const sinkTruncateMark = "\n[gofer: log frame truncated by worker back-pressure]\n"
 
+// xferUploadsToWire projects the runner's upload specs onto the wire type (wsproto
+// stays a leaf and defines its own, like Outcome.Commits).
+func xferUploadsToWire(in []runner.XferUpload) []wsproto.XferUpload {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]wsproto.XferUpload, 0, len(in))
+	for _, u := range in {
+		out = append(out, wsproto.XferUpload{XferID: u.XferID, Dest: u.Dest})
+	}
+	return out
+}
+
 // unsupportedDispatchFields lists the dispatch fields this job NEEDS that a worker
 // at protocol version proto cannot carry (SUP-01 P2, G032). It is the single place
 // that maps a request field to the capability floor it depends on, so a newly added
@@ -76,6 +89,13 @@ func unsupportedDispatchFields(proto int, f *runner.Forward) []string {
 	}
 	if f.InitialInput != "" && !wsproto.SupportsInitialInput(proto) {
 		lacks = append(lacks, "initial_input")
+	}
+	// XFER-01 X2: a job that carries files needs the transfer capability AND the
+	// dispatch fields that name them (both enter at v9). A peer below it would run the
+	// job with the uploads never placed and the globs never matched, and report it as
+	// an ordinary success — refuse instead.
+	if (len(f.Uploads) > 0 || len(f.Collect) > 0) && !wsproto.SupportsFileXfer(proto) {
+		lacks = append(lacks, "uploads/collect")
 	}
 	return lacks
 }
@@ -308,6 +328,10 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// the step against ITS checkout and reports the result back on the outcome.
 		Verify:           f.Verify,
 		VerifyTimeoutSec: f.VerifyTimeoutSec,
+		// XFER-01 X2: the file steps are the worker's to carry out (its cwd is the one
+		// they act on) — the staged upload ids and the collect globs ride the dispatch.
+		Uploads: xferUploadsToWire(f.Uploads),
+		Collect: f.Collect,
 	}
 	// ACP-01 S2: a continuation carries its session + lineage so the worker's local
 	// job resolves the same session/load. Set ONLY for a resume — a plain job's
@@ -437,6 +461,10 @@ func OutcomeFrom(o *wsproto.Outcome, workerID string) *runner.Outcome {
 		// SUP-01 E: the worker captured the usage on its own machine (the agent's log
 		// stream / stderr tail are there), so it travels with the outcome like the rest.
 		Usage: usageFromFrame(o.Usage),
+		// XFER-01 X2: the worker matched the collect globs in ITS cwd and placed the
+		// uploads there, so its summary is the record of what the job's file steps did.
+		// The hub applies it and pulls the collected bytes (job.pullCollected).
+		Xfer: o.Xfer,
 	}
 }
 

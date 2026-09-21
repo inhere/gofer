@@ -567,6 +567,35 @@ type runJobInput struct {
 	// gofer_list_templates.
 	Template string            `json:"template,omitempty"`
 	Vars     map[string]string `json:"vars,omitempty"`
+	// Uploads / Collect are the job's file steps (XFER-01 X2), the same fields the HTTP
+	// body carries: Uploads names transfers ALREADY staged on the server (stage a local
+	// file with POST /v1/xfer or `gofer job run --upload`) and the destination on the
+	// executing machine, relative to the job's cwd; Collect are globs matched in that
+	// cwd after the job ends, whose matches land in the job's artifacts as
+	// collected/<path>. The bytes never ride this call.
+	Uploads []xferUploadInput `json:"uploads,omitempty"`
+	Collect []string          `json:"collect,omitempty"`
+}
+
+// xferUploadInput is one staged upload of gofer_run_job (XFER-01 X2).
+type xferUploadInput struct {
+	// XferID is the id POST /v1/xfer returned for a staged put.
+	XferID string `json:"xfer_id"`
+	// Dest is where the executing machine must place the file, relative to the job's cwd.
+	Dest string `json:"dest"`
+}
+
+// xferUploadsFromMCP projects the tool's upload inputs onto the job request's own type
+// (the MCP surface and the HTTP body carry the same fields, XFER-01 X2).
+func xferUploadsFromMCP(in []xferUploadInput) []job.UploadSpec {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]job.UploadSpec, 0, len(in))
+	for _, u := range in {
+		out = append(out, job.UploadSpec{XferID: u.XferID, Dest: u.Dest})
+	}
+	return out
 }
 
 func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[runJobInput, jobView] {
@@ -621,6 +650,9 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 			// SUP-01 P5：任务书模板（服务端渲染成 prompt；vars 是它的变量值）。
 			Template:     in.Template,
 			TemplateVars: in.Vars,
+			// XFER-01 X2：随 job 传的文件（上传的暂存 id + 收集 glob）；与 HTTP body 同字段。
+			Uploads: xferUploadsFromMCP(in.Uploads),
+			Collect: in.Collect,
 		})
 		if err != nil {
 			return nil, jobView{}, err

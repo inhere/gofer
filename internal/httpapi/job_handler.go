@@ -13,6 +13,7 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/xfer"
 )
 
 // maxLogTailBytes caps the legacy ?bytes= log endpoint: only the last 256KB of
@@ -63,6 +64,15 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 		req.Client = clientIP(c)
 	}
 
+	// XFER-01 X2: a job's uploads must name transfers ALREADY staged on this server.
+	// A client-side path is not accepted (the server never reads the submitter's
+	// filesystem), and neither is another project's transfer: the request carries ids
+	// whose payloads are already here and already verified.
+	if status, msg, detail := s.validateJobUploads(req); status != 0 {
+		writeError(c, status, msg, detail)
+		return
+	}
+
 	// The wantSync decision (?wait=1 / ?wait=true query param) is an HTTP-transport
 	// concern; the submit + sync-wait + clamp + async-fallback policy lives in
 	// job.Service.SubmitSync. The handler only maps the outcome to HTTP表现.
@@ -79,6 +89,44 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, res)
+}
+
+// validateJobUploads checks a submit's uploads before anything is admitted: every
+// entry names a transfer staged on THIS server, in the job's own project, still
+// staged, and a put (XFER-01 X2). It returns a zero status when the request may
+// proceed. The same conditions are re-checked when the bytes are actually placed
+// (the job's bridge), because a transfer's state can change between the two — one is
+// the API's contract, the other is the transfer's reality.
+func (s *Server) validateJobUploads(req job.JobRequest) (int, string, string) {
+	for _, up := range req.Uploads {
+		if strings.TrimSpace(up.XferID) == "" || strings.TrimSpace(up.Dest) == "" {
+			return http.StatusBadRequest, "invalid upload", "each upload needs an xfer_id (staged with POST /v1/xfer) and a dest"
+		}
+		if s.xfer == nil {
+			return http.StatusServiceUnavailable, "xfer unavailable", "this server has no transfer manager wired"
+		}
+		rec, ok, err := s.xfer.Get(up.XferID)
+		if err != nil {
+			return http.StatusInternalServerError, "upload lookup failed", err.Error()
+		}
+		if !ok {
+			return http.StatusBadRequest, "unknown upload",
+				"no transfer with id " + up.XferID + "; stage it with POST /v1/xfer and pass the returned id"
+		}
+		if rec.Op != string(xfer.OpPut) {
+			return http.StatusBadRequest, "wrong transfer direction",
+				"transfer " + up.XferID + " is a get; a job upload must be a staged put"
+		}
+		if req.ProjectKey != "" && rec.ProjectKey != req.ProjectKey {
+			return http.StatusBadRequest, "cross-project upload",
+				"transfer " + up.XferID + " belongs to project " + rec.ProjectKey
+		}
+		if xfer.State(rec.State) != xfer.StateStaged {
+			return http.StatusBadRequest, "upload not staged",
+				"transfer " + up.XferID + " is " + rec.State
+		}
+	}
+	return 0, "", ""
 }
 
 // wantSync reports whether the request asked for synchronous submit, via the

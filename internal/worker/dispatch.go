@@ -110,6 +110,12 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// own admission re-checks allow_exec with ITS project config.
 		Verify:           d.Verify,
 		VerifyTimeoutSec: d.VerifyTimeoutSec,
+		// XFER-01 X2: the file steps are this machine's to carry out (its cwd is the one
+		// they act on). The uploads are placed before the agent starts; the collect globs
+		// are matched after the job — and this machine REPORTS what it matched, because
+		// the hub owns the result dir and pulls the bytes back itself.
+		Uploads: xferUploadsFromWire(d.Uploads),
+		Collect: d.Collect,
 		// GATE-01 S3: 人工验收 is decided by the HUB (the design's "验收判定只在 hub
 		// 做"), so a dispatched job's LOCAL row must finish normally — its status is
 		// what the Result frame reports and what the log-tail loop waits on, and a
@@ -241,14 +247,43 @@ func outcomeFrame(remoteJobID string, final job.JobResult) (wsproto.Outcome, boo
 		// SUP-01 E：用量/成本由 worker 本机采集（agent 的账在那台机的日志流/stderr 尾部），
 		// 随产出回传 host，host 行与 host 侧 stats 才有远端 job 的用量。
 		Usage: usageToFrame(final.Usage),
+		// XFER-01 X2：文件步骤在这台机器上跑（上传落它的 cwd、collect 匹配它的 cwd），
+		// 摘要随产出回传 host；host 据此落 xfer_json 并把 collect 到的文件拉回去。
+		Xfer: xferToFrame(final.Xfer),
 	}
 	if final.ArtifactsJSON != "" {
 		o.Artifacts = json.RawMessage(final.ArtifactsJSON)
 	}
 	send := o.RenderedCommand != "" || o.ResultJSON != "" || o.DiffSummary != "" || len(o.Artifacts) > 0 ||
 		o.SessionID != "" || o.WorktreePath != "" || o.BaseSHA != "" || len(o.Commits) > 0 || o.Verify != nil ||
-		o.Usage != nil
+		o.Usage != nil || len(o.Xfer) > 0
 	return o, send
+}
+
+// xferToFrame marshals the worker's file-transfer summary for the wire. Nil (the job
+// carried no files) yields nil, so the frame never grows an empty summary.
+func xferToFrame(x *job.XferSummary) json.RawMessage {
+	if x == nil {
+		return nil
+	}
+	b, err := json.Marshal(x)
+	if err != nil {
+		return nil
+	}
+	return b
+}
+
+// xferUploadsFromWire projects the wire upload specs onto the job request's own type
+// (wsproto stays a leaf; the worker's local job service owns the request).
+func xferUploadsFromWire(in []wsproto.XferUpload) []job.UploadSpec {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]job.UploadSpec, 0, len(in))
+	for _, u := range in {
+		out = append(out, job.UploadSpec{XferID: u.XferID, Dest: u.Dest})
+	}
+	return out
 }
 
 // verifyToFrame copies the local job's verify result onto the wire type (wsproto

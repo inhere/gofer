@@ -57,6 +57,12 @@ type xferMeta struct {
 	SHA256  string `json:"sha256"`
 	Size    int64  `json:"size"`
 	Force   bool   `json:"force"`
+	// StageOnly asks the server to stage the payload and STOP: no executor is
+	// dispatched to it. It is what `job run --upload` sends (XFER-01 X2) — the file
+	// is placed by the job's executing machine when the job starts, at the job's own
+	// cwd, so dispatching it here would put it at the wrong path (or refuse to
+	// overwrite the copy the job upload creates milliseconds later).
+	StageOnly bool `json:"stage_only,omitempty"`
 }
 
 // xferUnavailable answers 503 when no transfer manager is wired (mcp / tests):
@@ -256,7 +262,11 @@ func (s *Server) xferAcceptFile(c *rux.Context, caller string, meta xferMeta, bo
 		writeError(c, http.StatusInternalServerError, "commit failed", err.Error())
 		return
 	}
-	s.xfer.Dispatch(xferDispatchContext(c), rec.ID)
+	// A stage_only push is not dispatched anywhere: its consumer is a job's executing
+	// machine, which fetches the payload by id when that job starts (XFER-01 X2).
+	if !meta.StageOnly {
+		s.xfer.Dispatch(xferDispatchContext(c), rec.ID)
+	}
 	c.JSON(http.StatusOK, map[string]any{"id": rec.ID, "state": string(xfer.StateStaged)})
 }
 

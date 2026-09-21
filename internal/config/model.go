@@ -375,6 +375,11 @@ type XferConfig struct {
 	// TTLSec is how long a staged/finished transfer is kept before the prune sweep
 	// expires it and drops its staging directory (0 => 24h).
 	TTLSec int `yaml:"ttl_sec,omitempty"`
+	// CollectMaxBytes caps what ONE JOB's `--collect` brings back in total
+	// (0 => 1GB). Each collected file is still bounded by MaxBytes: this is the sum,
+	// so a job cannot fill the server's disk with a hundred just-under-the-cap files.
+	// Files beyond it are skipped and listed in the job's xfer.skipped.
+	CollectMaxBytes int64 `yaml:"collect_max_bytes,omitempty"`
 }
 
 // EffectiveAutoResumeMax preserves the distinction between omitted and explicit zero.

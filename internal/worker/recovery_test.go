@@ -298,6 +298,10 @@ func (j *runningJobs) AnswerInteraction(string, string, string) (job.Interaction
 // no job events.
 func (j *runningJobs) SetEventObserver(job.JobEventObserver) {}
 
+// SetXferBridge accepts (and ignores) the XFER-01 X2 file seam: this fake runs no
+// job that carries files.
+func (j *runningJobs) SetXferBridge(job.XferBridge) {}
+
 // Config is unused by the recovery unit tests.
 func (j *runningJobs) Config() *config.Config { return nil }
 

@@ -53,6 +53,14 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 	// 远端：执行机已 capture 并经 res.Outcome 回传 → 直接落，不再扫盘（P4）。
 	if res.Outcome != nil {
 		s.applyOutcome(entry, res.Outcome)
+		// XFER-01 X2: the executing machine matched the collect globs in ITS cwd and
+		// reported them on the outcome; the bytes come back through the transfer
+		// manager's pull path. Doing it HERE (still inside execute, before finish)
+		// means the job's artifact manifest already lists them when the terminal row
+		// becomes visible. The context is a fresh one — not the job's, which is
+		// already cancelled by a timeout/cancel — and the transfer manager bounds each
+		// transfer itself (its own worker deadline).
+		s.pullCollected(context.Background(), entry, res.Outcome)
 		return
 	}
 

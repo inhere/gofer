@@ -353,12 +353,18 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 		// Config hot-reload (SIGHUP / hub request) + policy apply: the command owns "how
 		// to read worker.yaml / how to project a policy", the worker package owns
 		// when/how a reload or policy is applied (G021).
-		Reload:         newWorkerReloadFn(cr, det, workerOpts.config, wc.WorkerID),
-		PolicyMode:     mode == modePolicy,
-		CachePath:      policyCachePath,
-		InitialPolicy:  initialPolicy,
-		GoferVersion:   info.DisplayVersion(),
-		MaxConc:        caps.MaxConc,
+		Reload:        newWorkerReloadFn(cr, det, workerOpts.config, wc.WorkerID),
+		PolicyMode:    mode == modePolicy,
+		CachePath:     policyCachePath,
+		InitialPolicy: initialPolicy,
+		GoferVersion:  info.DisplayVersion(),
+		MaxConc:       caps.MaxConc,
+		// XFER-01 X2: this worker's file-transfer caps (its OWN config's server.xfer,
+		// resolved by the same core.Build that built its transfer manager). worker.New
+		// wires them into the job file seam — a staged upload is fetched from the hub
+		// over HTTP with this worker's token, a collected file is reported for the hub
+		// to pull back.
+		XferLimits:     cr.Xfer().Limits(),
 		Tunnel:         wc.Tunnel,
 		InitialBackoff: msToDuration(rc.InitialBackoffMS),
 		MaxBackoff:     msToDuration(rc.MaxBackoffMS),

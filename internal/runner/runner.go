@@ -85,6 +85,15 @@ type Request struct {
 	// re-submits to a peer bridge. Nil for local jobs.
 	Forward *Forward
 
+	// Uploads / Collect are the job's file-transfer steps (XFER-01 X2), already
+	// resolved by the job service. The EXECUTING machine carries them out (its cwd is
+	// the only one that matters): it places each staged upload in the job's cwd BEFORE
+	// the agent starts, and matches the collect globs there AFTER the job ends. A
+	// remote job's copies ride the Forward instead (a worker's own job service runs
+	// them on its machine).
+	Uploads []XferUpload
+	Collect []string
+
 	// Verify / VerifyTimeoutSec are the job's验证步骤 (SUP-01 B), already resolved by
 	// the job service (project default + --no-verify). The LOCAL runner does not read
 	// them: the job service runs the step itself right after Run returns, on this
@@ -358,6 +367,24 @@ type Forward struct {
 	// the dispatch instead, see wsproto.VerifyMinProtocolVersion).
 	Verify           []string
 	VerifyTimeoutSec int
+	// Uploads / Collect are the job's file-transfer steps (XFER-01 X2). The executor
+	// owns the cwd they act on, so both travel to it: the uploads' staged ids (the
+	// bytes are fetched over HTTP, this frame carries only the instruction) and the
+	// collect globs. Empty on a job that carries no files, and absent entirely from a
+	// pre-v9 hub's frame — such a hub never dispatches a job that needs them (see
+	// wsproto.FileXferMinProtocolVersion).
+	Uploads []XferUpload
+	Collect []string
+}
+
+// XferUpload is one staged file a job takes with it (XFER-01 X2): the id of a
+// transfer already staged on the hub and the path it must be placed at on the
+// EXECUTING machine, relative to the job's cwd.
+type XferUpload struct {
+	// XferID is the staging-area id (the payload itself rides HTTP).
+	XferID string `json:"xfer_id"`
+	// Dest is the destination path on the executing machine, relative to the job's cwd.
+	Dest string `json:"dest"`
 }
 
 // Result is the outcome of a single Run. ExitCode is the process exit status
@@ -441,6 +468,16 @@ type Outcome struct {
 	// there, so they travel with the outcome like the commits and the verify verdict.
 	// Nil = that machine captured none.
 	Usage *Usage `json:"usage,omitempty"`
+	// Xfer is the job's file-transfer summary as the EXECUTION machine computed it
+	// (XFER-01 X2): which uploads it placed and which files its collect globs matched.
+	// It travels with the rest of the outcome because the host has no cwd there — and
+	// it is what the host's row shows (`xfer_json`) and what tells the hub which
+	// collected files to PULL. Nil = the job carried no files.
+	//
+	// Raw JSON for the same reason as Artifacts: the job package owns the summary
+	// type, and runner stays a cycle-free leaf. The job service unmarshals it into
+	// job.XferSummary.
+	Xfer json.RawMessage `json:"xfer,omitempty"`
 }
 
 // VerifyResult is the outcome of one job's verify step (SUP-01 B): the argv that

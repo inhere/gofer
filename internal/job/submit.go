@@ -20,6 +20,19 @@ import (
 	"github.com/inhere/gofer/internal/util"
 )
 
+// xferUploadsToRunner projects the request's upload specs onto the runner package's
+// type (runner is a leaf and owns no job types).
+func xferUploadsToRunner(in []UploadSpec) []runner.XferUpload {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]runner.XferUpload, 0, len(in))
+	for _, u := range in {
+		out = append(out, runner.XferUpload{XferID: u.XferID, Dest: u.Dest})
+	}
+	return out
+}
+
 // Submit validates the request, creates the result dir, persists the request and
 // starts the job asynchronously. It returns the initial JobResult (status
 // running) once the goroutine is launched. Validation/setup failures return an
@@ -239,6 +252,11 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// and leave Command/Args/WorkDir unset; local jobs resolve the executable form
 	// (exec uses req.Cmd; cli-agent renders the prompt with cwd/job_id/result_dir).
 	runReq := runner.Request{JobID: jobID, WorkDir: workDir}
+	// XFER-01 X2: the file steps run where the job runs. For a LOCAL job that is this
+	// machine (it places the uploads in workDir before the agent and matches the
+	// collect globs there); a remote job's copies ride the Forward below instead.
+	runReq.Uploads = xferUploadsToRunner(req.Uploads)
+	runReq.Collect = req.Collect
 	runReq.Interactive = req.Interactive
 	runReq.Cols = req.Cols
 	runReq.Rows = req.Rows
@@ -301,6 +319,12 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// dispatch to a worker that cannot honour it (protocol < 8).
 			Verify:           req.Verify,
 			VerifyTimeoutSec: req.VerifyTimeoutSec,
+			// XFER-01 X2: the file steps run on the EXECUTING machine (it owns the cwd
+			// they act on), so the staged upload ids and the collect globs travel with
+			// the dispatch. Empty for a job that carries no files — byte-identical to a
+			// pre-X2 forward.
+			Uploads: xferUploadsToRunner(req.Uploads),
+			Collect: req.Collect,
 		}
 		// Bridge the peer's running-job interactions (P9) onto this host job.
 		runReq.Interactions = remoteInteractionSink{s: s, jobID: jobID}

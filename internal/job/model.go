@@ -91,8 +91,22 @@ type JobRequest struct {
 	// It only means something when the project declares one; combined with an
 	// explicit Verify it is a contradiction and the submit is rejected.
 	NoVerify bool `json:"no_verify,omitempty" yaml:"no_verify,omitempty"`
-	Cols     int  `json:"cols,omitempty" yaml:"cols,omitempty"`
-	Rows     int  `json:"rows,omitempty" yaml:"rows,omitempty"`
+	// Uploads are files that travel WITH this job (XFER-01 X2): each names a transfer
+	// already staged in the server's transfer area and the path the EXECUTING machine
+	// must place it at, relative to the job's cwd. They are materialized BEFORE the
+	// agent starts; a failed upload fails the job (the agent never runs on a cwd the
+	// caller did not describe). `job run --upload ./a.bin:tmp/in/a.bin` stages the
+	// file and fills this in; the HTTP/MCP surfaces accept only staged transfer ids —
+	// never a client-side path.
+	Uploads []UploadSpec `json:"uploads,omitempty" yaml:"uploads,omitempty"`
+	// Collect are globs matched against the job's cwd AFTER it ends (on failure too,
+	// and after the verify step): every match is uploaded to the server and lands in
+	// this job's artifacts as collected/<project-root-relative path>, so
+	// `GET /v1/jobs/{id}/artifacts/collected/...` and the web preview serve it. A file
+	// over the transfer's byte cap is skipped and listed rather than dropped silently.
+	Collect []string `json:"collect,omitempty" yaml:"collect,omitempty"`
+	Cols    int      `json:"cols,omitempty" yaml:"cols,omitempty"`
+	Rows    int      `json:"rows,omitempty" yaml:"rows,omitempty"`
 	// InitialInput is text the pty runner types into an INTERACTIVE job's stdin
 	// once its terminal has settled (session relay §9.1 B: the first message of a
 	// `--resume` takeover). Internal: json/yaml "-" keeps it off the wire and out
@@ -539,6 +553,12 @@ type JobResult struct {
 	// for a remote job. Nil = nothing was captured (never an invented zero tally).
 	// Persisted as jobs.usage_json; the Source field says where the numbers came from.
 	Usage *Usage `json:"usage,omitempty"`
+	// Xfer is the job's file-transfer summary (XFER-01 X2): what `--upload` placed on
+	// the executing machine before the agent started and what `--collect` matched when
+	// the job ended. Nil for a job that carried no files (never an empty shell for a
+	// job that never asked for one). Persisted as jobs.xfer_json; the collected files
+	// themselves live under the job's result dir as artifacts/collected/...
+	Xfer *XferSummary `json:"xfer,omitempty"`
 }
 
 // VerifyResult / the verify statuses are the runner package's types, aliased here:
@@ -645,6 +665,16 @@ const (
 	// (status is passed|failed|timeout|skipped) — the evidence behind the job's own
 	// terminal status, and the event a notification subscriber watches for a red build.
 	EventJobVerifyFinished = "job.verify_finished"
+	// EventJobUploadFailed is a job's upload step failing (XFER-01 X2):
+	// {dest, xfer_id, error}. It is recorded BEFORE the agent would have started, so a
+	// subscriber sees the failure as its own event rather than only as the job's error.
+	// The job then fails with "upload <dest>: <reason>" and no agent process is spawned.
+	EventJobUploadFailed = "job.upload_failed"
+	// EventJobFilesCollected is the collect step's result (XFER-01 X2):
+	// {count, bytes, skipped}. It is recorded on the EXECUTING machine after the job's
+	// (and verify's) outcome, so a subscriber learns what the job delivered without
+	// fetching the summary.
+	EventJobFilesCollected = "job.files_collected"
 	// The permission events are emitted by the acp runner (internal/runner/acp), whose
 	// gated calls cannot reach this package (G022). Their literals live in the runner
 	// package — the same single-definition rule as EventJobInputInjected — and are

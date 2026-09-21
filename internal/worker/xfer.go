@@ -213,9 +213,17 @@ func (cl *Client) xferFetch(ctx context.Context, contentURL string, fr wsproto.F
 		_ = os.Remove(tmp)
 		return 0, "", fmt.Errorf("size mismatch: received %d bytes, expected %d", n, fr.Size)
 	}
-	if fr.SHA256 != "" && !strings.EqualFold(fr.SHA256, sum) {
+	// A payload's digest is what proves the bytes arrived intact. The requester only
+	// knows it when it staged the transfer itself; otherwise the SERVER announces it
+	// on the response (its staging area settled the payload with that digest), and an
+	// announced digest is always enforced.
+	want := fr.SHA256
+	if want == "" {
+		want = resp.Header.Get("X-Gofer-Sha256")
+	}
+	if want != "" && !strings.EqualFold(want, sum) {
 		_ = os.Remove(tmp)
-		return 0, "", fmt.Errorf("sha256 mismatch: received %s, expected %s", sum, fr.SHA256)
+		return 0, "", fmt.Errorf("sha256 mismatch: received %s, expected %s", sum, want)
 	}
 	if err := os.Rename(tmp, dst); err != nil {
 		_ = os.Remove(tmp)

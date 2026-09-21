@@ -37,6 +37,7 @@ import (
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/wsproto"
+	"github.com/inhere/gofer/internal/xfer"
 )
 
 // newInstanceID mints a per-process nonce sent in the register frame so the hub can
@@ -90,6 +91,10 @@ type Jobs interface {
 	// service decides which types are mirrorable (job.mirroredEventTypes) — the
 	// client only transports them.
 	SetEventObserver(job.JobEventObserver)
+	// SetXferBridge installs the job file seam (XFER-01 X2): the service uses it to
+	// place a dispatched job's staged uploads in this machine's cwd and to filter what
+	// its collect globs report. The client supplies one (see New).
+	SetXferBridge(job.XferBridge)
 	// Config returns the worker's CURRENT runtime config. The client needs it for the
 	// work that must be resolved on THIS machine rather than by the hub: a file
 	// transfer's project root (XFER-01 re-validates the dispatch's project/path against
@@ -253,6 +258,18 @@ type Client struct {
 	// xferTimeout is this worker's single-transfer deadline, resolved from its own
 	// config by worker.Serve (worker.xfer_timeout_sec). 0 = the default (10m).
 	xferTimeout time.Duration
+
+	// xferLimits are this worker's file-transfer caps (its own server.xfer), resolved
+	// by the caller: the job file seam filters what it reports with them, and the
+	// deadline for a fetch comes from xferTimeout.
+	xferLimits xfer.Limits
+
+	// baseMu guards hubBaseURL: the HTTP base of the hub the CURRENT session is
+	// connected to, derived from that session's ws URL (one origin, no second address
+	// to configure or to get wrong). It is where the job file seam (XFER-01 X2)
+	// fetches a staged upload from; "" while no session is up.
+	baseMu     sync.RWMutex
+	hubBaseURL string
 }
 
 // Config is the resolved worker-client wiring (the command resolves env/URLs).
@@ -272,6 +289,11 @@ type Config struct {
 	// GoferVersion is the worker binary's display version (buildinfo).
 	GoferVersion string
 	MaxConc      int
+	// XferLimits are this worker's file-transfer caps (its own config's server.xfer),
+	// used by the job file seam (XFER-01 X2): the collect step filters what it reports
+	// with them, and OwnsArtifacts stays false — the hub owns the job row, so it pulls
+	// a collected file back itself.
+	XferLimits xfer.Limits
 	// Reload re-reads and applies the worker's config, returning the capabilities of
 	// the config it applied (see ReloadFunc). Injected by the command; nil disables
 	// config reload (a reload request is then answered with an error, never silently
@@ -364,6 +386,11 @@ func New(cfg Config, jobs Jobs) *Client {
 	// simply has nothing to mirror.
 	if jobs != nil {
 		jobs.SetEventObserver(cl.observeJobEvent)
+		// XFER-01 X2: the job file seam for jobs this worker executes. Same place and
+		// same reason as the observer above — the job service must not know about the
+		// hub, and the wiring belongs to the one thing that owns both. The caps are the
+		// worker's OWN server.xfer, resolved by the caller from its own config.
+		jobs.SetXferBridge(JobXferBridge(cl, cfg.XferLimits))
 	}
 	return cl
 }
@@ -907,6 +934,13 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 		return false, fmt.Errorf("dial hub %s: %w", url, derr)
 	}
 	conn.SetReadLimit(maxWSReadBytes)
+	// XFER-01 X2: the job file seam fetches a staged upload from the hub's HTTP
+	// origin, which is this session's ws URL with the scheme swapped — recorded per
+	// session so a failover to another address can never leave a stale base behind.
+	if base, berr := xferHTTPBase(url); berr == nil {
+		cl.setHubBase(base)
+		defer cl.setHubBase("")
+	}
 	// going-away (1001) on a clean shutdown; the deferred close also covers the
 	// drop/error paths so the fd is always released (no leak, §5.6).
 	defer conn.Close(websocket.StatusGoingAway, "worker session end")

@@ -136,6 +136,22 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 	req.OnJobEvent = func(eventType string, detail map[string]any) {
 		s.recordEvent(req.JobID, eventType, detail)
 	}
+	// XFER-01 X2: the job's staged uploads are placed in its cwd BEFORE the agent
+	// starts. A job that cannot be given its files must not run at all — the agent
+	// would work on a cwd the caller did not describe, and its output would look like
+	// a success. A remote job's uploads are placed by the EXECUTING machine
+	// (req.Forward != nil here: this machine has no cwd of that job).
+	if req.Forward == nil {
+		if err := s.materializeUploads(ctx, entry, req, req.WorkDir, snap.ProjectKey); err != nil {
+			// Close the logs before the terminal state becomes observable, exactly as
+			// the normal path does (an observer must never see "terminal" with the
+			// files still open; on Windows that alone can block the dir's deletion).
+			_ = stdout.Close()
+			_ = stderr.Close()
+			s.finish(entry, req.JobID, StatusFailed, -1, err)
+			return
+		}
+	}
 	res := run.Run(ctx, req)
 
 	// ACP-01: a runner may learn facts about the session it just drove beyond the
@@ -165,6 +181,11 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, sem, callerSem cha
 	// host's checkout would verify a tree the job never touched.
 	if req.Forward == nil {
 		s.runVerify(ctx, entry, req, res)
+		// XFER-01 X2: collect runs LAST on that same machine — after the verify step,
+		// and whatever the job's status is (a failed run's partial output is exactly
+		// what the caller wants back). A remote job's files are collected by the
+		// worker and pulled back by the hub once its outcome arrives (captureOutcomes).
+		s.collectFiles(ctx, entry, req, req.WorkDir)
 	}
 
 	// Close the per-job log streams NOW, before finish() makes the terminal

@@ -91,6 +91,9 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		FallbackJSON:   marshalFallback(r.Fallback),
 		// 用量/成本（SUP-01 E）：未采集到 → ""（读回即"没有用量"）。
 		UsageJSON: marshalUsage(r.Usage),
+		// 文件传输（XFER-01 X2）：该 job 的 upload/collect 摘要；没带文件 → ""（读回即
+		// "这个 job 没有传输"，不会伪造成一份空摘要）。
+		XferJSON: marshalXfer(r.Xfer),
 		// job 超时上限可配（bd h-aii-s9ck）：生效 deadline + 请求值 + 截断标记三元组。
 		TimeoutSec:          r.TimeoutSec,
 		RequestedTimeoutSec: r.RequestedTimeoutSec,
@@ -313,6 +316,8 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		Fallback:       unmarshalFallback(rec.FallbackJSON),
 		// 用量/成本（SUP-01 E）：旧行 "" = 未采集，不伪造成 0 用量。
 		Usage: unmarshalUsage(rec.UsageJSON),
+		// 文件传输（XFER-01 X2）：旧行 "" = 该 job 没带文件（nil），不伪造空摘要。
+		Xfer: unmarshalXfer(rec.XferJSON),
 		// job 超时上限可配（bd h-aii-s9ck）：生效 deadline + 请求值 + 截断标记。旧行全为
 		// 0/false = "未记录"（旧 job 早于该列），不会伪装成"被截断"。
 		TimeoutSec:          rec.TimeoutSec,

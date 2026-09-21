@@ -210,6 +210,13 @@ type Service struct {
 	// with an outcome it cannot see (a takeover job handing its session back).
 	terminalMu    sync.Mutex
 	terminalHooks []JobTerminalHook
+
+	// xfer is the XFER-01 X2 file-transfer seam (see XferBridge): uploads placed
+	// before the agent starts and collected files published after the job. Injected
+	// at assemble time (core.Build on a hub, the worker command on a worker); nil
+	// means this deployment has no transfer wiring, and a job that asked for files
+	// fails (uploads) or records without moving bytes (collect).
+	xfer XferBridge
 }
 
 // AnswerGuard is the job→answer-gate seam (监督分层升级路由 P3.1, design §8.5, dependency

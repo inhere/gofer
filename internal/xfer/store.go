@@ -67,16 +67,21 @@ var (
 )
 
 // Limits are the operator-tunable caps (server.xfer): the per-transfer byte
-// ceiling and how long a staged/finished transfer survives in the staging area.
+// ceiling, how long a staged/finished transfer survives in the staging area, and
+// how much one JOB's `--collect` may bring back in total (XFER-01 X2).
 type Limits struct {
 	MaxBytes int64
 	TTL      time.Duration
+	// CollectMaxBytes caps the sum of one job's collected files. Per-file is still
+	// MaxBytes; this is what stops a job from filling the disk with many files that
+	// are each under the cap.
+	CollectMaxBytes int64
 }
 
-// DefaultLimits are the documented XFER-01 defaults (design §一.1): 256MB per
-// transfer, 24h in the staging area.
+// DefaultLimits are the documented XFER-01 defaults (design §一.1/§一.3): 256MB per
+// transfer, 24h in the staging area, 1GB per job's collect.
 func DefaultLimits() Limits {
-	return Limits{MaxBytes: 256 << 20, TTL: 24 * time.Hour}
+	return Limits{MaxBytes: 256 << 20, TTL: 24 * time.Hour, CollectMaxBytes: 1 << 30}
 }
 
 // Store owns the staging area: one directory per transfer id under root,

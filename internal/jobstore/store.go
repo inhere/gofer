@@ -121,7 +121,8 @@ var schemaStmts = []string{
   fell_back_to     TEXT,
   requested_agent  TEXT,
   fallback_json    TEXT,
-  usage_json       TEXT
+  usage_json       TEXT,
+  xfer_json        TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -634,6 +635,12 @@ func (s *Store) migrate() error {
 	// 空=未采集到（采集失败/agent 没报），读作"没有用量"，不会把历史 job 伪造成 0 用量。
 	// /v1/stats 的 24h/7d 聚合直接对它做 json_extract。
 	if err := add("usage_json", "usage_json TEXT"); err != nil {
+		return err
+	}
+	// 文件传输摘要（XFER-01 X2）：xfer_json=该 job 的 upload/collect 摘要
+	// （job.XferSummary 的 JSON），空=这个 job 没带文件（读作"没有传输"），不会把历史 job
+	// 伪造成一份空摘要。收集到的文件本体在 <result_dir>/artifacts/collected/ 下。
+	if err := add("xfer_json", "xfer_json TEXT"); err != nil {
 		return err
 	}
 	if err := add("resumed_from", "resumed_from TEXT"); err != nil {

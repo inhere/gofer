@@ -93,8 +93,9 @@ func xferRoot(cfg *config.Config) string {
 	return dir
 }
 
-// xferLimits resolves server.xfer over the package defaults (256MB / 24h): a zero or
-// unset field keeps the documented default rather than meaning "no transfers".
+// xferLimits resolves server.xfer over the package defaults (256MB / 24h / 1GB
+// collect): a zero or unset field keeps the documented default rather than meaning
+// "no transfers".
 func xferLimits(xc config.XferConfig) xfer.Limits {
 	lim := xfer.DefaultLimits()
 	if xc.MaxBytes > 0 {
@@ -102,6 +103,9 @@ func xferLimits(xc config.XferConfig) xfer.Limits {
 	}
 	if xc.TTLSec > 0 {
 		lim.TTL = time.Duration(xc.TTLSec) * time.Second
+	}
+	if xc.CollectMaxBytes > 0 {
+		lim.CollectMaxBytes = xc.CollectMaxBytes
 	}
 	return lim
 }

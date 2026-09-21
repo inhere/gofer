@@ -91,6 +91,9 @@ func NewManager(opts Options) (*Manager, error) {
 	if lim.TTL <= 0 {
 		lim.TTL = def.TTL
 	}
+	if lim.CollectMaxBytes <= 0 {
+		lim.CollectMaxBytes = def.CollectMaxBytes
+	}
 	now := opts.Now
 	if now == nil {
 		now = time.Now
@@ -162,6 +165,14 @@ func (m *Manager) StagePut(caller, runner, projectKey, path string, size int64, 
 // server. The staging directory is created up front so the executing worker can
 // upload the result into it.
 func (m *Manager) StageGet(caller, runner, projectKey, path string) (jobstore.XferRecord, error) {
+	return m.stageGet(caller, "", runner, projectKey, path)
+}
+
+// stageGet is the shared builder: jobID, when non-empty, records which JOB the
+// transfer serves (XFER-01 X2 collect), so the journal answers "which job did this
+// transfer belong to" — and the caller id doubles as that job id for an audit trail
+// that names the job rather than a human.
+func (m *Manager) stageGet(caller, jobID, runner, projectKey, path string) (jobstore.XferRecord, error) {
 	rec := jobstore.XferRecord{
 		ID:         NewID(),
 		Op:         string(OpGet),
@@ -170,6 +181,7 @@ func (m *Manager) StageGet(caller, runner, projectKey, path string) (jobstore.Xf
 		Path:       path,
 		State:      string(StateStaged),
 		CallerID:   caller,
+		JobID:      jobID,
 		CreatedAt:  m.nowFn().Unix(),
 		ExpiresAt:  m.nowFn().Add(m.limits.TTL).Unix(),
 	}
@@ -181,6 +193,14 @@ func (m *Manager) StageGet(caller, runner, projectKey, path string) (jobstore.Xf
 		return jobstore.XferRecord{}, err
 	}
 	return rec, nil
+}
+
+// Release drops a SETTLED transfer's staged payload without touching its journal
+// row: the bytes were copied where they belong (XFER-01 X2 hands a collected file to
+// the job's artifact directory), so keeping a second copy would only spend disk. The
+// row stays for audit and is expired by the TTL sweep like any other.
+func (m *Manager) Release(id string) error {
+	return m.store.Remove(id)
 }
 
 // CommitPut makes a verified upload visible: the temporary payload is renamed

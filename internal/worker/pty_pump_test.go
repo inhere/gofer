@@ -46,6 +46,10 @@ func (p *pumpJobs) AnswerInteraction(string, string, string) (job.Interaction, e
 // no job events.
 func (p *pumpJobs) SetEventObserver(job.JobEventObserver) {}
 
+// SetXferBridge accepts (and ignores) the XFER-01 X2 file seam: this fake runs no
+// job that carries files.
+func (p *pumpJobs) SetXferBridge(job.XferBridge) {}
+
 // Config is unused by the pump unit tests.
 func (p *pumpJobs) Config() *config.Config { return nil }
 func (p *pumpJobs) cancelledIDs() []string {

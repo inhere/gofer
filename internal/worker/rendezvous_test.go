@@ -41,6 +41,10 @@ func (r *rendezvousJobs) AnswerInteraction(string, string, string) (job.Interact
 // no job events.
 func (r *rendezvousJobs) SetEventObserver(job.JobEventObserver) {}
 
+// SetXferBridge accepts (and ignores) the XFER-01 X2 file seam: this fake runs no
+// job that carries files.
+func (r *rendezvousJobs) SetXferBridge(job.XferBridge) {}
+
 // Config is unused by the rendezvous unit tests.
 func (r *rendezvousJobs) Config() *config.Config { return nil }
 

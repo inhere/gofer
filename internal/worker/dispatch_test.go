@@ -73,6 +73,8 @@ func (s *stubJobs) Cancel(id string) error {
 	return nil
 }
 
+func (s *stubJobs) SetXferBridge(job.XferBridge) {}
+
 func (s *stubJobs) GetInteractions(string) ([]job.Interaction, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

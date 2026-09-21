@@ -29,6 +29,7 @@ import (
 	"github.com/inhere/gofer/internal/testutil/testcmd"
 	"github.com/inhere/gofer/internal/worker"
 	"github.com/inhere/gofer/internal/wshub"
+	"github.com/inhere/gofer/internal/xfer"
 )
 
 const (
@@ -197,8 +198,27 @@ func buildWorkerSideURLs(t *testing.T, hubURLs []string, opts workerSideOpts) (*
 		InitialBackoff: opts.InitialBackoff,
 		MaxBackoff:     opts.MaxBackoff,
 		Rng:            opts.Rng,
+		// The worker's own file-transfer caps, exactly as the command passes its
+		// config's server.xfer (XFER-01 X2).
+		XferLimits: xferLimitsForTest(cfg),
 	}, localJobs)
 	return cl, localJobs
+}
+
+// xferLimitsForTest resolves the fixture config's server.xfer over the package
+// defaults, the same shape core.Build hands the production worker.
+func xferLimitsForTest(cfg *config.Config) xfer.Limits {
+	lim := xfer.DefaultLimits()
+	if cfg.Server.Xfer.MaxBytes > 0 {
+		lim.MaxBytes = cfg.Server.Xfer.MaxBytes
+	}
+	if cfg.Server.Xfer.TTLSec > 0 {
+		lim.TTL = time.Duration(cfg.Server.Xfer.TTLSec) * time.Second
+	}
+	if cfg.Server.Xfer.CollectMaxBytes > 0 {
+		lim.CollectMaxBytes = cfg.Server.Xfer.CollectMaxBytes
+	}
+	return lim
 }
 
 // pinSlowReconnect returns a seeded jitter source whose FIRST backoff draw is a long

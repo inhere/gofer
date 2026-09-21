@@ -56,6 +56,10 @@ type xferMeta struct {
 	SHA256  string `json:"sha256,omitempty"`
 	Size    int64  `json:"size,omitempty"`
 	Force   bool   `json:"force,omitempty"`
+	// StageOnly asks the server to stage the payload WITHOUT dispatching it
+	// (XFER-01 X2): the consumer is a job's executing machine, which fetches it by id
+	// when the job starts.
+	StageOnly bool `json:"stage_only,omitempty"`
 }
 
 // xferCreateResp is the create answer: the server only tells us the id and the
@@ -150,6 +154,20 @@ func doXferJSON(req *http.Request, out any) error {
 // The returned record is the meta we sent plus the created id and state: the
 // create answer carries nothing else.
 func (c *Client) XferPut(ctx context.Context, runner, project, path, localPath string, force bool, progress func(sent, total int64)) (XferRecord, error) {
+	return c.xferPut(ctx, runner, project, path, localPath, force, false, progress)
+}
+
+// XferStage pushes a local file into the staging area and STOPS there (no executor is
+// dispatched): it is the `job run --upload` half of XFER-01 X2, where the file is
+// placed by the job's executing machine — at the job's own cwd — once the job starts.
+// The returned id goes into the request's uploads.
+func (c *Client) XferStage(ctx context.Context, runner, project, path, localPath string) (XferRecord, error) {
+	return c.xferPut(ctx, runner, project, path, localPath, false, true, nil)
+}
+
+// xferPut is the shared multipart push behind XferPut (dispatched) and XferStage
+// (staged only).
+func (c *Client) xferPut(ctx context.Context, runner, project, path, localPath string, force, stageOnly bool, progress func(sent, total int64)) (XferRecord, error) {
 	f, err := os.Open(localPath)
 	if err != nil {
 		return XferRecord{}, err
@@ -173,7 +191,7 @@ func (c *Client) XferPut(ctx context.Context, runner, project, path, localPath s
 		return XferRecord{}, fmt.Errorf("rewind %s: %w", localPath, err)
 	}
 
-	meta := xferMeta{Op: XferOpPut, Runner: runner, Project: project, Path: path, SHA256: digest, Size: st.Size(), Force: force}
+	meta := xferMeta{Op: XferOpPut, Runner: runner, Project: project, Path: path, SHA256: digest, Size: st.Size(), Force: force, StageOnly: stageOnly}
 	rec := XferRecord{
 		Op: XferOpPut, Runner: runner, Project: project, Path: path,
 		Size: st.Size(), SHA256: digest, State: XferStateStaged,

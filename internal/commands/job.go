@@ -59,6 +59,8 @@ type jobRunFlags struct {
 	noFallback   bool
 	template     string
 	templateVars gcli.Strings
+	upload       gcli.Strings
+	collect      gcli.Strings
 }
 
 // jobRunOpts holds `job run` flags. prompt is supplied via the --prompt flag
@@ -472,6 +474,11 @@ func bindJobRunFlags(c *gcli.Command) {
 	// SUP-01 P3：故障转移——agent 因供应商错误挂掉时改派下一个候选（覆盖项目/agent 级配置）。
 	c.StrOpt2(&jobRunOpts.fallback, "fallback", "comma-separated fallback agents for a transient failure (e.g. omp,claude); overrides the project/agent lists", jobRunOptCategory("Execution", ""))
 	c.BoolOpt2(&jobRunOpts.noFallback, "no-fallback", "do not hand this job to a fallback agent (overrides every configured list)", gflag.WithCategory("Execution"))
+	// XFER-01 X2：随 job 传文件——--upload 在提交前把本地文件暂存到 server，执行机在 agent
+	// 开跑前放到 job 的 cwd 里（放不下即 job failed、agent 不启动）；--collect 在 job 结束
+	// 后按 glob 在同一个 cwd 收文件，回传落进该 job 的 artifacts/collected/。
+	c.VarOpt(&jobRunOpts.upload, "upload", "", "local file to place on the executing machine: <local path>:<dest relative to the job cwd> (repeatable)", gflag.WithCategory("Execution"))
+	c.VarOpt(&jobRunOpts.collect, "collect", "", "glob collected from the job's cwd into its artifacts after the job ends (repeatable, e.g. 'tmp/out/*.csv')", gflag.WithCategory("Execution"))
 
 	// Submission: provenance and grouping metadata.
 	c.StrOpt2(&jobRunOpts.title, "title", "optional job title", jobRunOptCategory("Submission", ""))
@@ -793,6 +800,12 @@ func submitMarkdownFile(c *gcli.Command, cli *client.Client) (client.SubmitResul
 	if a := c.Arg("cmd"); a != nil && len(a.Strings()) > 0 {
 		return client.SubmitResult{}, fmt.Errorf("--file/-f and a post-`--` argv are mutually exclusive")
 	}
+	// XFER-01 X2: the file steps are flags of this command (`--upload` stages through
+	// the client, which the md path does not run); a task file carries them in its
+	// frontmatter instead, where they are a static part of the request.
+	if len(jobRunOpts.upload) > 0 || len(jobRunOpts.collect) > 0 {
+		return client.SubmitResult{}, fmt.Errorf("--upload/--collect are not available with --file/-f: put them in the task file's frontmatter")
+	}
 	body, err := os.ReadFile(jobRunOpts.file)
 	if err != nil {
 		return client.SubmitResult{}, fmt.Errorf("read task file: %w", err)
@@ -807,7 +820,69 @@ func submitJSONJob(c *gcli.Command, cli *client.Client) (client.SubmitResult, er
 	if err != nil {
 		return client.SubmitResult{}, err
 	}
+	if err := stageJobUploads(c, cli, &req); err != nil {
+		return client.SubmitResult{}, err
+	}
 	return cli.SubmitJobSync(req)
+}
+
+// stageJobUploads turns every --upload spec into a staged transfer and fills the
+// request's uploads with the returned ids (XFER-01 X2). The push is stage_only: the
+// job's EXECUTING machine places the file — at the job's own cwd — when the job
+// starts, so dispatching it from here would put it at the wrong path.
+//
+// A staging failure aborts the submit: a job whose files could not be staged must not
+// be created (the server would reject it anyway, and a silently dropped upload would
+// run the agent against a cwd the caller did not describe).
+func stageJobUploads(c *gcli.Command, cli *client.Client, req *job.JobRequest) error {
+	if len(jobRunOpts.upload) == 0 {
+		return nil
+	}
+	if req.ProjectKey == "" {
+		return fmt.Errorf("--upload needs --project: the transfer is staged against a project")
+	}
+	runner := uploadRunner(req)
+	for _, spec := range jobRunOpts.upload {
+		local, dest, err := parseUploadSpec(spec)
+		if err != nil {
+			return err
+		}
+		rec, err := cli.XferStage(context.Background(), runner, req.ProjectKey, dest, local)
+		if err != nil {
+			return fmt.Errorf("stage %s: %w", local, err)
+		}
+		req.Uploads = append(req.Uploads, job.UploadSpec{XferID: rec.ID, Dest: dest})
+		c.Printf("staged %s -> %s (%s)\n", local, dest, rec.ID)
+	}
+	return nil
+}
+
+// uploadRunner is the transfer runner an upload is staged against: the WORKER that
+// will execute the job (a worker only serves transfers assigned to itself), else the
+// server's own machine. --worker pins the worker id; without it the runner name IS the
+// worker id for a worker runner — the same convention `gofer tool cp` uses — and the
+// built-in local/server aliases normalize onto each other.
+func uploadRunner(req *job.JobRequest) string {
+	if id := strings.TrimSpace(jobRunOpts.workerID); id != "" {
+		return id
+	}
+	return config.NormalizeRunnerName(req.Runner)
+}
+
+// parseUploadSpec splits an --upload value into `<local path>:<destination>`. The LAST
+// colon is the separator: a Windows local path carries a drive letter
+// (`D:\in\a.bin:tmp/a.bin`) that must stay part of the file, while a destination is a
+// project-relative path and never contains one.
+func parseUploadSpec(spec string) (local, dest string, err error) {
+	i := strings.LastIndexByte(spec, ':')
+	if i <= 0 || i == len(spec)-1 {
+		return "", "", fmt.Errorf("--upload %q: want <local path>:<dest relative to the job cwd>", spec)
+	}
+	local, dest = strings.TrimSpace(spec[:i]), strings.TrimSpace(spec[i+1:])
+	if local == "" || dest == "" {
+		return "", "", fmt.Errorf("--upload %q: want <local path>:<dest relative to the job cwd>", spec)
+	}
+	return local, dest, nil
 }
 
 // buildJobRunRequest maps the `job run` flag state and post-`--` argv into the
@@ -887,8 +962,11 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		// SUP-01 P5：任务书模板 + 它的变量值（服务端渲染；两者随 request_json 存档）。
 		Template:     jobRunOpts.template,
 		TemplateVars: tplVars,
-		Cols:         jobRunOpts.cols,
-		Rows:         jobRunOpts.rows,
+		// XFER-01 X2：collect glob 原样上报（执行机在 job 的 cwd 里匹配）；uploads 由
+		// stageJobUploads 在提交前暂存后填进来（它要 client，拿得到 xfer id）。
+		Collect: []string(jobRunOpts.collect),
+		Cols:    jobRunOpts.cols,
+		Rows:    jobRunOpts.rows,
 		// 提交来源（provenance）：CLI 渠道(默认 cli，可 --channel 覆盖) + 本机 hostname。
 		// server 端若 client 为空会以 remote IP 兜底盖章。
 		Channel: channel,
@@ -1199,6 +1277,11 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	// 采集失败）就不打印——不伪造 0 用量。
 	if line := job.FormatUsage(res.Usage); line != "" {
 		c.Printf("usage:      %s\n", line)
+	}
+	// XFER-01 X2：随 job 传的文件——上传放在哪、收回了多少、跳过了什么。没带文件的 job
+	// 不打印（不伪造一行空的传输）。
+	if line := formatXfer(res.Xfer); line != "" {
+		c.Printf("xfer:       %s\n", line)
 	}
 	if res.Error != "" {
 		c.Printf("error:      %s\n", res.Error)
@@ -1536,6 +1619,36 @@ func formatVerify(v *job.VerifyResult) string {
 	default:
 		return fmt.Sprintf("%s (exit %d, %s)", v.Status, v.ExitCode, dur)
 	}
+}
+
+// formatXfer renders a job's file-transfer summary as one line for `job show`: what
+// was uploaded (and whether every upload landed), what was collected and how big it
+// was, and how many files were skipped. "" for a job that carried no files.
+func formatXfer(x *job.XferSummary) string {
+	if x == nil {
+		return ""
+	}
+	var parts []string
+	if len(x.Uploads) > 0 {
+		ok := 0
+		for _, u := range x.Uploads {
+			if u.OK {
+				ok++
+			}
+		}
+		parts = append(parts, fmt.Sprintf("uploads %d/%d ok", ok, len(x.Uploads)))
+	}
+	if len(x.Collected) > 0 {
+		var bytes int64
+		for _, f := range x.Collected {
+			bytes += f.Size
+		}
+		parts = append(parts, fmt.Sprintf("collected %d (%s)", len(x.Collected), humanBytes(bytes)))
+	}
+	if len(x.Skipped) > 0 {
+		parts = append(parts, fmt.Sprintf("skipped %d", len(x.Skipped)))
+	}
+	return strings.Join(parts, " · ")
 }
 
 // formatStarted renders a unix-seconds started_at as a local timestamp; 0 (never

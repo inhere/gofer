@@ -380,6 +380,22 @@ type Dispatch struct {
 	// because the hub refuses the dispatch instead (VerifyMinProtocolVersion).
 	Verify           []string `json:"verify,omitempty"`
 	VerifyTimeoutSec int      `json:"verify_timeout_sec,omitempty"`
+	// Uploads / Collect are the job's file-transfer steps (XFER-01 X2): the staged
+	// uploads the worker must place in ITS cwd before the agent starts, and the globs
+	// it must match there after the job ends. Only the instruction travels here — the
+	// bytes ride HTTP (§一.2). A hub that predates them omits the keys; a worker that
+	// predates them never receives them, because the hub refuses the dispatch instead
+	// (FileXferMinProtocolVersion, the same v9 floor as the transfer frames).
+	Uploads []XferUpload `json:"uploads,omitempty"`
+	Collect []string     `json:"collect,omitempty"`
+}
+
+// XferUpload is one staged file a job takes with it (XFER-01 X2): the transfer id
+// the worker fetches the payload with (GET /v1/xfer/{id}/content, its own token) and
+// the destination, relative to the job's cwd on THAT machine.
+type XferUpload struct {
+	XferID string `json:"xfer_id"`
+	Dest   string `json:"dest"`
 }
 
 // JobEvent (w→s, SUP-01 G, protocol v8): one job life-cycle event the WORKER raised
@@ -472,6 +488,12 @@ type Outcome struct {
 	// they travel with the outcome like the commits and the verify verdict. Nil = the
 	// worker captured none.
 	Usage *Usage `json:"usage,omitempty"`
+	// Xfer is the job's file-transfer summary as the WORKER computed it (XFER-01 X2):
+	// the uploads it placed before the agent ran and the files its collect globs
+	// matched afterwards. Raw JSON so wsproto stays a leaf (job owns the summary type)
+	// and so the hub forwards it verbatim into jobs.xfer_json. Nil = the job carried no
+	// files (and an old worker never sends it at all).
+	Xfer json.RawMessage `json:"xfer,omitempty"`
 }
 
 // VerifyResult is the wire form of one job's verify step outcome (SUP-01 B). It is
