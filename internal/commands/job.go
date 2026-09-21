@@ -54,6 +54,8 @@ type jobRunFlags struct {
 	readOnly     bool
 	exclusiveDir bool
 	sharedDir    bool
+	stallTimeout int
+	noStall      bool
 	verify       string
 	verifyTime   int
 	noVerify     bool
@@ -468,6 +470,11 @@ func bindJobRunFlags(c *gcli.Command) {
 	// exec/只读 job 共享；两者都不给 = 交给 server 按默认规则判定（三态）。
 	c.BoolOpt2(&jobRunOpts.exclusiveDir, "exclusive-dir", "force the exclusive same-directory lock for this job (an exec job included): no other exclusive job runs in this directory, its ancestors or its subdirectories", gflag.WithCategory("Execution"))
 	c.BoolOpt2(&jobRunOpts.sharedDir, "shared-dir", "give up the exclusive same-directory lock for this job (share the tree with other jobs, at your own risk)", gflag.WithCategory("Execution"))
+	// AUTO-05：输出停滞窗口。默认 = agent 配置 > server.stall_timeout_sec（900s）；exec job
+	// 默认关（构建/测试本来就会长时间没输出），交互 job 恒关。gcli 无法区分"没给"与"给了 0"，
+	// 所以"关掉"由 --no-stall 表达（与 --verify/--no-verify、--fallback/--no-fallback 同一手法）。
+	c.IntOpt2(&jobRunOpts.stallTimeout, "stall-timeout", "kill the job after this many seconds without any output (default: the agent's setting, then the server's)", jobRunOptCategory("Execution", 0))
+	c.BoolOpt2(&jobRunOpts.noStall, "no-stall", "never kill this job for silence (overrides --stall-timeout, the agent's and the server's settings)", gflag.WithCategory("Execution"))
 	// GATE-01 S3：人工验收——agent 正常完成后停在 needs_review，等人 accept/reject。
 	c.BoolOpt2(&jobRunOpts.review, "review", "require human review: on a normal completion the job parks in needs_review until someone accepts or rejects it", gflag.WithCategory("Execution"))
 	c.IntOpt2(&jobRunOpts.timeout, "timeout", "job timeout in seconds (0 = server default)", jobRunOptCategory("Execution", 0))
@@ -947,6 +954,17 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		v := false
 		exclusive = &v
 	}
+	// AUTO-05：停滞窗口的三态——都不给 = nil（server 按 request > agent > server 解析）；
+	// --no-stall = 显式 0（关）；--stall-timeout N = 显式窗口。
+	var stall *int
+	switch {
+	case jobRunOpts.noStall && jobRunOpts.stallTimeout > 0:
+		return job.JobRequest{}, fmt.Errorf("--no-stall and --stall-timeout are mutually exclusive")
+	case jobRunOpts.noStall:
+		stall = intPtr(0)
+	case jobRunOpts.stallTimeout > 0:
+		stall = &jobRunOpts.stallTimeout
+	}
 	req := job.JobRequest{
 		ProjectKey:     jobRunOpts.project,
 		Agent:          jobRunOpts.agent,
@@ -970,6 +988,8 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		ReadOnly:       jobRunOpts.readOnly,
 		// JOB-11：同 cwd 独占决策（nil = 交给 server 的默认规则）。
 		ExclusiveDir: exclusive,
+		// AUTO-05：停滞窗口（nil = 交给 server 按 request > agent > server 解析）。
+		StallTimeoutSec: stall,
 		// GATE-01 S3：人工验收（正常完成 → needs_review，等人 accept/reject）。
 		Review: jobRunOpts.review,
 		// SUP-01 P2：验证步骤（argv 已在此拆好）+ 它的独立超时 + 关闭项目默认的开关。
@@ -1191,6 +1211,10 @@ func dirLockLabel(exclusive bool) string {
 	}
 	return "shared"
 }
+
+// intPtr returns a pointer to n, for the request fields whose tri-state needs to
+// distinguish "unset" (nil) from an explicit zero.
+func intPtr(n int) *int { return &n }
 
 func waitTerminal(cli *client.Client, id string, timeoutSec int) (job.JobResult, error) {
 	deadline := waitDeadline(time.Now(), timeoutSec)

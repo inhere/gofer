@@ -57,5 +57,3 @@ func TestStallTimeoutResolutionOrder(t *testing.T) {
 		t.Errorf("nil config stall = %d, want %d", got, DefaultStallTimeoutSec)
 	}
 }
-
-func intPtr(n int) *int { return &n }

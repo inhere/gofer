@@ -26,6 +26,7 @@ type execGates struct {
 	caller    chan struct{}
 	agent     chan struct{}
 	exclusive bool // hold the same-directory lock for this job's WorkDir
+	stall     int  // AUTO-05: kill a job silent for this many seconds (0 = off)
 }
 
 // execute runs the job: it acquires the project concurrency slot, opens the log
@@ -171,8 +172,14 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// 把已投影的流投影第二遍，并把 raw 旁路记成误导性内容。文本 agent 原样返回。
 	stdout = s.captureNDJSON(entry, req.JobID, run.Name(), stdout, stderr)
 
-	req.Stdout = stdout
-	req.Stderr = stderr
+	// AUTO-05: the stall watchdog measures SILENCE, so every non-empty write from the
+	// agent (either stream — including the acp runner's own update lines on stderr) has
+	// to count as activity. The wrapper is the RUNNER's view of both streams (outermost:
+	// a line the ndjson projector drops still proves the agent is alive); the close /
+	// accounting path below keeps using stdout/stderr themselves.
+	mark := func() { s.markOutput(entry) }
+	req.Stdout = activityWriter{w: stdout, mark: mark}
+	req.Stderr = activityWriter{w: stderr, mark: mark}
 	// G1: a remote runner (worker/peer) reports its rendered command out-of-band as
 	// soon as it starts — the host can't render a remote agent's argv (line 65 above
 	// yields "" for those). Apply it to the running entry at once so job show/web
@@ -218,6 +225,14 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 			return
 		}
 	}
+	// AUTO-05: arm the output-stall watchdog right before the agent starts. Only a
+	// LOCAL job: a remote job's process lives on the worker, whose own job.Service
+	// runs this very code with the window the hub resolved and sent with the dispatch —
+	// watching this machine's log MIRROR instead would kill the job in the wrong place.
+	if req.Forward == nil {
+		stopWatchdog := s.startStallWatchdog(ctx, entry, req.JobID, gates.stall)
+		defer stopWatchdog()
+	}
 	res := run.Run(ctx, req)
 
 	// ACP-01: a runner may learn facts about the session it just drove beyond the
@@ -246,7 +261,12 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// worker, whose result comes back on the outcome — running it again against the
 	// host's checkout would verify a tree the job never touched.
 	if req.Forward == nil {
+		// AUTO-05: the verify step has its own deadline and may legitimately print
+		// nothing for minutes, so the stall clock is suspended for its duration and
+		// restarted fresh afterwards (that silence was not the agent's).
+		s.pauseStall(entry)
 		s.runVerify(ctx, entry, req, res)
+		s.resumeStall(entry)
 		// XFER-01 X2: collect runs LAST on that same machine — after the verify step,
 		// and whatever the job's status is (a failed run's partial output is exactly
 		// what the caller wants back). A remote job's files are collected by the
@@ -280,6 +300,14 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// result is already recorded locally or, for a remote job, applied by
 	// captureOutcomes above).
 	status, code, runErr = s.foldVerify(entry, status, code, runErr)
+	// AUTO-05: a stall the watchdog killed IS the job's outcome — it replaces whatever
+	// the killed runner reported (a cancel would otherwise classify as `cancelled`,
+	// which is neither a failure nor retried). The message starts with `stalled:`,
+	// which the built-in transient patterns match, so the auto-resume / failover chain
+	// takes over from a hung provider instead of burning the job's whole deadline.
+	if stallErr := entry.takeStall(); stallErr != nil {
+		status, code, runErr = StatusFailed, -1, stallErr
+	}
 	releaseDir()
 	s.finish(entry, req.JobID, status, code, runErr)
 }
@@ -341,6 +369,13 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	//     here; the continuation itself is submitted after the row is persisted, and
 	//     a submit that fails then falls back to the late job.terminal below.
 	entry.mu.Lock()
+	// The failure's REASON is part of the state the takeover decision reads — the
+	// transient pattern match looks at snap.Error, and a stall (AUTO-05) IS only
+	// described there (the child printed nothing) — so it is recorded here, before the
+	// decision below is taken. This is where the terminal row's error comes from.
+	if err != nil {
+		entry.result.Error = err.Error()
+	}
 	pre := entry.result
 	entry.mu.Unlock()
 	// SUP-01 P2: a failed verify step is a delivery a reviewer must rule on, so it
@@ -373,9 +408,7 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// must describe what the provider did, not which policies this job happened to
 	// have enabled.
 	entry.result.FailureClass = dec.Class
-	if err != nil {
-		entry.result.Error = err.Error()
-	}
+	// entry.result.Error was already set from `err` above (the decision reads it).
 	// needs_review is set under the same lock that flips the status, so no reader
 	// can ever observe a transient `done` (which would let a watcher report the
 	// delivery as accepted and skip the review).

@@ -211,6 +211,9 @@ func (s *Service) CreateInteraction(jobID string, in InteractionInput) (Interact
 	// the UI/poller can prompt the user. The terminal guard above plus the lock
 	// shared with finish() guarantee we never override a terminal status here.
 	entry.result.Status = StatusPendingInteraction
+	// AUTO-05: an agent waiting for a human is not stalled — suspend the silence clock
+	// before the waiter can be observed (same critical section as the status flip).
+	s.pauseStall(entry)
 	snap := entry.result
 	out := rec.data
 	entry.mu.Unlock()
@@ -574,6 +577,9 @@ func (s *Service) answerInteraction(jobID, interactionID, answer, answeredBy str
 	var resumeSnap *JobResult
 	if !hasPendingInteraction(entry.interactions) && entry.result.Status == StatusPendingInteraction {
 		entry.result.Status = StatusRunning
+		// AUTO-05: the agent is expected to work again — restart the silence clock with
+		// a fresh window (the time spent waiting for the answer does not count).
+		s.resumeStall(entry)
 		snap := entry.result
 		resumeSnap = &snap
 	}
@@ -670,6 +676,9 @@ func (s *Service) cancelInteraction(jobID, interactionID string) error {
 	if !IsTerminal(entry.result.Status) && !hasPendingInteraction(entry.interactions) &&
 		entry.result.Status == StatusPendingInteraction {
 		entry.result.Status = StatusRunning
+		// AUTO-05: same as an answer — the waiter is gone and the agent is expected to
+		// run again, with a fresh silence window.
+		s.resumeStall(entry)
 		snap := entry.result
 		resumeSnap = &snap
 	}

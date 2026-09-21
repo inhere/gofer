@@ -163,11 +163,13 @@ func TestStallDisabledForExecByDefault(t *testing.T) {
 }
 
 // TestStallPausedDuringPendingInteraction: 等人作答期间不计时——一个静默超过窗口的 job
-// 只要还停在一个待答交互上就不该被杀；答完继续跑，并正常结束。
+// 只要还停在一个待答交互上就不该被杀（否则它会带着一个永不被消费的 pending 行死掉），
+// 答完之后计时从头开始（等答案的那段时间不算在 agent 头上）。
 func TestStallPausedDuringPendingInteraction(t *testing.T) {
 	root := t.TempDir()
-	// stdout-lines tick 2 3s：t0 打印一行，静默 3s，再打印一行后退出。
-	s := stallService(t, root, []string{"stdout-lines", "tick", "2", "3s"}, intPtr(1), nil, nil)
+	// stdout-sleep started 5s：t0 打印一行、此后一直静默——足够长的静默期让"暂停/不暂停"
+	// 两种行为都落在测试窗口里。
+	s := stallService(t, root, []string{"stdout-sleep", "started", "5s"}, intPtr(1), nil, nil)
 
 	res := mustSubmit(t, s, JobRequest{
 		ProjectKey: "self", Agent: "codex", Runner: "local",
@@ -180,22 +182,32 @@ func TestStallPausedDuringPendingInteraction(t *testing.T) {
 	}
 	waitForStatus(t, s, res.ID, StatusPendingInteraction, 10*time.Second)
 
-	// 静默早就超过 1s 窗口了：如果暂停没生效，这里已经是 failed。
-	time.Sleep(2500 * time.Millisecond)
-	if cur, _ := s.Get(res.ID); cur.Status != StatusPendingInteraction {
+	// 静默早已超过 1s 窗口：暂停没生效的话，这个 job 现在已经是 failed 了。
+	time.Sleep(1500 * time.Millisecond)
+	cur, _ := s.Get(res.ID)
+	if cur.Status != StatusPendingInteraction {
 		t.Fatalf("status = %s (%s), want the job parked in %s while a human thinks",
 			cur.Status, cur.Error, StatusPendingInteraction)
 	}
+	if evs := stallEvents(t, s, res.ID); len(evs) != 0 {
+		t.Fatalf("job.stalled events = %v, want none while an interaction is pending", evs)
+	}
 
+	// 答得上就证明 job 还活着（一个已被判停滞并杀掉的 job 会拒绝作答），而且计时从此刻
+	// 重新开始：之后再静默超过窗口才该被杀——silent_sec 只能是窗口级的，不可能回溯到 t0。
 	if _, err := s.AnswerInteraction(res.ID, it.ID, "prod"); err != nil {
 		t.Fatalf("AnswerInteraction: %v", err)
 	}
-	final := waitStatus(t, s, res.ID, 20*time.Second, StatusDone)
-	if final.Status != StatusDone {
-		t.Fatalf("status = %s (%s), want done", final.Status, final.Error)
+	final := waitStatus(t, s, res.ID, 20*time.Second, StatusFailed)
+	if !strings.HasPrefix(final.Error, "stalled: no output for ") {
+		t.Fatalf("error after the answer = %q, want the watchdog to judge the silence that followed it", final.Error)
 	}
-	if evs := stallEvents(t, s, final.ID); len(evs) != 0 {
-		t.Fatalf("job.stalled events = %v, want none (the clock was paused on the interaction)", evs)
+	evs := stallEvents(t, s, final.ID)
+	if len(evs) != 1 {
+		t.Fatalf("job.stalled events = %d, want exactly 1", len(evs))
+	}
+	if silent, _ := evs[0]["silent_sec"].(float64); silent > 2 {
+		t.Fatalf("job.stalled silent_sec = %v, want the clock restarted at the answer (<= 2s)", evs[0]["silent_sec"])
 	}
 }
 

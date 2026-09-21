@@ -522,6 +522,10 @@ func validate(cfg *Config) error {
 		if ac.MaxConcurrent < 0 {
 			return fmt.Errorf("agent %q: max_concurrent must be >= 0", key)
 		}
+		// AUTO-05: same for the stall window (0 = never watch this agent).
+		if ac.StallTimeoutSec != nil && *ac.StallTimeoutSec < 0 {
+			return fmt.Errorf("agent %q: stall_timeout_sec must be >= 0", key)
+		}
 	}
 	for key, p := range cfg.Projects {
 		if p.HostPath == "" {
@@ -571,6 +575,10 @@ func validate(cfg *Config) error {
 	// "disabled" or clamping it to something surprising at disconnect time.
 	if w := cfg.Server.JobRecoverWindowSec; w != nil && *w < 0 {
 		return fmt.Errorf("server.job_recover_window_sec must be >= 0")
+	}
+	// AUTO-05: same for the stall window (nil = DefaultStallTimeoutSec, 0 = off).
+	if v := cfg.Server.StallTimeoutSec; v != nil && *v < 0 {
+		return fmt.Errorf("server.stall_timeout_sec must be >= 0")
 	}
 	// OBS-07a: an unknown webhook kind must fail at load, not silently fall back to
 	// the generic body (an IM bot would then reject every delivery at post time).

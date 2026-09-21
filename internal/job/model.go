@@ -741,6 +741,12 @@ const (
 	// job's own job.running event later says it got in. A subscriber sees the queue
 	// without polling the row.
 	EventJobWaitingDir = "job.waiting_dir"
+	// EventJobStalled is the AUTO-05 watchdog killing a job that produced no output for
+	// its whole stall window: {silent_sec, stall_timeout_sec}. It is recorded just
+	// before the runner's context is cancelled, so the timeline shows WHY the job ended
+	// before its deadline; the failure itself lands in the job's error as
+	// "stalled: no output for <N>s" (a transient failure — the chain continues).
+	EventJobStalled = "job.stalled"
 )
 
 // Workflow lifecycle event types (P1, design §5.4). Recorded append-only via

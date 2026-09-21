@@ -370,6 +370,13 @@ type ServerConfig struct {
 	// (see EffectiveDirLock). Turning it off is the operator's escape hatch for a
 	// deployment where the jobs are known not to touch one tree.
 	DirLock *bool `yaml:"dir_lock,omitempty"`
+	// StallTimeoutSec is the AUTO-05 output-stall window in seconds: a running
+	// non-interactive agent job that produces no output for that long is killed and
+	// failed as stalled. A POINTER so "unset" (→ DefaultStallTimeoutSec, 900s) is
+	// distinguishable from an explicit 0, which turns the watchdog off everywhere.
+	// See EffectiveStallTimeoutSec for the full resolution (request > agent > server;
+	// exec jobs are off unless someone asks for a window).
+	StallTimeoutSec *int `yaml:"stall_timeout_sec,omitempty"`
 }
 
 // XferConfig is the server.xfer block (XFER-01, design §一.1/§一.2). Every field is
@@ -458,6 +465,46 @@ func (c *Config) EffectiveDirLock() bool {
 		return true
 	}
 	return *c.Server.DirLock
+}
+
+// DefaultStallTimeoutSec is the AUTO-05 output-stall window an unset configuration
+// gets: 15 minutes of total silence from a running agent job means the provider
+// stream hung (or the CLI is waiting for an interaction nobody will ever send), and
+// waiting for the job's own deadline (default 1h) wastes the whole slot.
+const DefaultStallTimeoutSec = 900
+
+// EffectiveStallTimeoutSec resolves the AUTO-05 output-stall window in seconds for a
+// job, or 0 for "do not watch it":
+//
+//	interactive job                     → 0 (a human drives it; silence is normal)
+//	request (--stall-timeout)           → its value, 0 turning the watchdog off
+//	agents.<key>.stall_timeout_sec      → its value, 0 turning the watchdog off
+//	agentType == "exec"                 → 0 (builds and test suites are silent by nature)
+//	server.stall_timeout_sec            → its value, 0 turning the watchdog off
+//	otherwise                           → DefaultStallTimeoutSec
+//
+// agentType comes from agent.ResolveAgent at the call site (this package cannot
+// import internal/agent without a cycle), and agentKey is the RESOLVED agent of the
+// job so a role/template-filled agent is resolved on the agent that actually runs.
+func (c *Config) EffectiveStallTimeoutSec(agentKey, agentType string, requested *int, interactive bool) int {
+	if interactive {
+		return 0
+	}
+	if requested != nil {
+		return *requested
+	}
+	if c != nil {
+		if a, ok := c.Agents[agentKey]; ok && a.StallTimeoutSec != nil {
+			return *a.StallTimeoutSec
+		}
+	}
+	if agentType == "exec" {
+		return 0
+	}
+	if c != nil && c.Server.StallTimeoutSec != nil {
+		return *c.Server.StallTimeoutSec
+	}
+	return DefaultStallTimeoutSec
 }
 
 // EffectiveAgentHealth resolves the health window/thresholds, filling unset fields
@@ -1408,6 +1455,11 @@ type AgentConfig struct {
 	// and caller caps it QUEUES the excess (the job stays `queued`), it never
 	// rejects: a saturated agent is a throughput limit, not an admission error.
 	MaxConcurrent int `yaml:"max_concurrent,omitempty"`
+	// StallTimeoutSec overrides the AUTO-05 output-stall window for THIS agent
+	// (AUTO-05): nil = inherit server.stall_timeout_sec, 0 = never watch this agent's
+	// jobs, N = kill a job of this agent after N silent seconds. A pointer because
+	// "off" and "unset" are different decisions.
+	StallTimeoutSec *int `yaml:"stall_timeout_sec,omitempty"`
 }
 
 // ACPConfig is the acp-agent's protocol-level configuration

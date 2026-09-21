@@ -180,6 +180,11 @@ type Service struct {
 	// nowFn yields the current time; overridable in tests.
 	nowFn func() time.Time
 
+	// stallTick is how often the AUTO-05 stall watchdog samples a running job's last
+	// output (default defaultStallTick). Overridable in tests so a 1s window can be
+	// observed in test time.
+	stallTick time.Duration
+
 	// postFn is the webhook POST used by the E14 delivery sweeper (deliverOne). It
 	// defaults to notify.PostWebhook (validated + signed real HTTP POST) and is
 	// overridable in tests so the claim→post→mark state machine can be driven
@@ -334,6 +339,14 @@ type jobEntry struct {
 	// commits ahead / two-section diff) probes. A job never created in this process
 	// (adopted / read back from the store) has no entry at all.
 	wt *worktreeRef
+	// lastOutputAt is the unix-nano time of the job's last non-empty stdout/stderr
+	// write (AUTO-05). Atomic: the runner's output pumps write it while the stall
+	// watchdog goroutine reads it. stallPaused suspends the clock (a pending
+	// interaction / the verify step) and stallErr carries the watchdog's verdict to
+	// the classify step that turns it into the job's failure.
+	lastOutputAt atomic.Int64
+	stallPaused  atomic.Bool
+	stallErr     atomic.Pointer[string]
 }
 
 // NewService builds a job service. runners is the set of usable runners keyed by

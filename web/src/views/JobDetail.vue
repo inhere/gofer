@@ -167,6 +167,9 @@ const EVENT_META: Record<string, { icon: string; label: string }> = {
   'job.permission_requested': { icon: '⚠', label: '求批' },
   'job.permission_answered': { icon: '✎', label: '审批已答' },
   'job.permission_timed_out': { icon: '⏱', label: '审批超时' },
+  // JOB-11 / AUTO-05：等目录锁（非终态，等同 queued）与输出停滞（job 已被看门狗杀掉）。
+  'job.waiting_dir': { icon: '⏳', label: '等目录锁' },
+  'job.stalled': { icon: '⚠', label: '输出停滞（已杀）' },
 }
 
 function eventIcon(type: string): string {
@@ -235,6 +238,12 @@ function eventDetailText(ev: JobEvent): string {
     }
     case 'job.permission_timed_out':
       return [d.kind, d.title, `on_timeout=${d.on_timeout ?? 'reject'}`].filter(Boolean).join(' · ')
+    // JOB-11：谁在占着目录（芯片/详情只给结论，时间线说清"等的是谁"）。
+    case 'job.waiting_dir':
+      return [`holder=${d.holder_job ?? '?'}`, d.dir].filter(Boolean).join(' · ')
+    // AUTO-05：静默了多久、窗口多长——解释 job 为什么被判为停滞。
+    case 'job.stalled':
+      return [`静默 ${d.silent_sec ?? '?'}s`, `窗口 ${d.stall_timeout_sec ?? '?'}s`].join(' · ')
     default:
       return ''
   }

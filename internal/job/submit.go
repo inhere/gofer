@@ -124,6 +124,17 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	dirExclusive := resolveDirExclusive(cfg, &req)
 	req.ExclusiveDir = &dirExclusive
 
+	// AUTO-05: same for the output-stall window — resolved from the SAME snapshot
+	// (request > agent > server, exec jobs off unless asked) and stamped, so the
+	// executing machine watches with the window this server decided instead of
+	// re-deriving one from its own config.
+	stallAgentType := ""
+	if ac, ok := agent.ResolveAgent(cfg, req.Agent); ok {
+		stallAgentType = ac.Type
+	}
+	stallSec := cfg.EffectiveStallTimeoutSec(req.Agent, stallAgentType, req.StallTimeoutSec, req.Interactive)
+	req.StallTimeoutSec = &stallSec
+
 	// bd h-aii-s9ck: resolve the job's deadline ONCE, from the SAME cfg snapshot as
 	// validation (project ceiling > server ceiling > 1h default), BEFORE the entry /
 	// forward are built. The running job (execute's ctx), the persisted row, the API
@@ -337,6 +348,9 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// that owns the checkout — its job.Service is the one that can actually hold
 			// the lock (this process only knows a relative cwd for a remote job).
 			ExclusiveDir: req.ExclusiveDir,
+			// AUTO-05: so does the output-stall window: the executor owns the process
+			// whose silence is being watched.
+			StallTimeoutSec: req.StallTimeoutSec,
 		}
 		// Bridge the peer's running-job interactions (P9) onto this host job.
 		runReq.Interactions = remoteInteractionSink{s: s, jobID: jobID}
@@ -601,6 +615,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		caller:    callerSem,
 		agent:     agentSem,
 		exclusive: req.ExclusiveDir != nil && *req.ExclusiveDir,
+		stall:     stallSec,
 	}, runReq, timeout)
 
 	return entry.snapshot(), nil

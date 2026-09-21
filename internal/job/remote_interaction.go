@@ -87,6 +87,8 @@ func (s *Service) injectInteraction(jobID string, it Interaction) error {
 		answered: make(chan struct{}),
 	})
 	entry.result.Status = StatusPendingInteraction
+	// AUTO-05: a job waiting on a (possibly far-away) human is not stalled.
+	s.pauseStall(entry)
 	snap := entry.result
 	entry.mu.Unlock()
 

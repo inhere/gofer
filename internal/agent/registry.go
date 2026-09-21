@@ -207,7 +207,14 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 // not be connected. Both are retryable-in-another-process conditions, so they are
 // classified (and therefore eligible for continuation/transfer) exactly like the
 // provider errors above.
-var builtinTransientPatterns = []string{`(?i)at capacity|rate limit|overloaded|too many requests|\b429\b|\b503\b|ECONNRESET|connection reset|stream disconnected|temporarily unavailable|windows sandbox failed|connecting runner pipe`}
+//
+// AUTO-05 adds the stall message ("stalled: no output for <N>s", the failure job.execute
+// writes after its watchdog kills a silent job). A hang IS a provider-side condition —
+// the stream stopped without ending the process — so a fresh process may well finish
+// the work. It is matched without an anchor on purpose: transientHit matches against a
+// blob of the stderr tail plus the error text, where `^` would only ever see the first
+// line (and the stall message normally follows output the job DID print).
+var builtinTransientPatterns = []string{`(?i)at capacity|rate limit|overloaded|too many requests|\b429\b|\b503\b|ECONNRESET|connection reset|stream disconnected|temporarily unavailable|windows sandbox failed|connecting runner pipe|stalled: no output`}
 
 // builtinNDJSON holds the实测内置 ndjson 配置（bd h-aii-rpky / bd h-aii-525u），按
 // agent 名兜底（再退回 command 基名，与 builtinSessionDefaults 同机制）：
