@@ -131,7 +131,8 @@ projects:
   my-project:
     host_path: /host/projects/my-project   # 本机执行目录(worker 视角)
     allowed_agents: [exec, claude]
-    interactive_allowed_agents: [tty-claude]  # pty 白名单(worker 第二道 validate)
+    allow_interactive: true                   # pty/交互 job 的项目开关(Legacy 模式 worker 自证;
+                                              # 旧 interactive_allowed_agents 已于 v0.48 移除, 出现即报错)
     allowed_runners: [local]                  # worker 内部用 local 真执行
     allow_exec: true
     default_agent: exec

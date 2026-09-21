@@ -28,8 +28,8 @@ projects:
     allowed_runners: [local, builder]          # ★ 见下 —— 决定派给谁
     allow_exec: true
     allow_interactive: true                    # pty/交互 job 的项目级开关(默认 false); 项目侧唯一的交互闸
-                                               # (旧字段 interactive_allowed_agents 已移除: 旧 yaml 里非空列表
-                                               #  且未写本开关 → 加载期当作 true 并 warn, 请改写)
+                                               # (旧字段 interactive_allowed_agents 已于 v0.48 移除: 配置里再出现
+                                               #  该键 → 加载直接报错, 请改用本开关)
     max_concurrent_jobs: 4                      # 该 project 并发上限(0/不写=无限)
     # max_timeout_sec: 7200                     # 该项目 job 超时上限(秒), 覆盖 server.max_job_timeout_sec(可高可低)
     # worktree_default: true                    # 该项目 job 默认在受管 git worktree 里跑(= 每个 job 都 --worktree)
@@ -162,7 +162,6 @@ server:
   #   window_sec: 3600                 #   统计窗口(秒)
   #   degraded_after: 3                #   窗口内供应商错误 >= N → degraded
   #   recover_after_ok: 1              #   最近一次供应商错误之后成功 >= N → 恢复
-  # session_auto_relay_idle_sec: 300   # 【已迁移】顶层 session.auto_relay_idle_sec 的别名
 session:                               # 终端会话中继(SESS-01 R1/R2)的自动布防判据; 0 = 关该判据
   # auto_relay_idle_sec: 300           # 键盘空闲 >= 阈值 → 会话停下时在 web 等回复
   # auto_relay_turn_sec: 900           # 探测不到键盘(容器)时改看距上次人工输入的秒数

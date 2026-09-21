@@ -89,7 +89,7 @@ Stop hook → gofer hook <agent>
       · turn_age 的等待: 不探测; 人回来时的事件(UserPromptSubmit/Interrupt)由 server 直接关 turn
 ```
 
-- 会话表 `agent_sessions`：开关是 `relay_mode`（auto|on|off；`relay` 列保留为 `relay_mode=='on'` 的镜像，给旧二进制读），加上 `idle_sec`（键盘空闲读数）、`last_human_at`（判据二的锚点）与 `handed_off_job_id`/`handed_off_at`（阶段 2-B 的接管 job）。turn 复用 `plan_decisions`（additive 列 `session_id`, `kind`, `detail`）。
+- 会话表 `agent_sessions`：开关是 `relay_mode`（auto|on|off；`relay` 列是 pre-R1 的历史列，自 v0.48 起不读不写，仅 `migrateAgentSessions` 的一次性回填还用），加上 `idle_sec`（键盘空闲读数）、`last_human_at`（判据二的锚点）与 `handed_off_job_id`/`handed_off_at`（阶段 2-B 的接管 job）。turn 复用 `plan_decisions`（additive 列 `session_id`, `kind`, `detail`）。
 - 状态：`running → idle`(Stop, 不等) / `waiting_reply`(Stop, 等) / `needs_attention`(Claude Notification) / `handed_off`(web 起了 `--resume` pty job 接管，原终端不再中继) / `ended`(SessionEnd)。`handed_off` 只由 `release-takeover`（`gofer session release-takeover <id>` / web）或**接管 job 自己到达终态时的自动释放**解除 —— 原终端的任何事件都不会把它改回去。
 - `on` → 人在终端输入（UserPromptSubmit）即降回 `auto`；`auto` 的等待在人回来时直接释放（探得到就探，探不到就靠事件）。harness 产生的同名事件（注入回复带 `[gofer web 回复]` 前缀、后台任务通知 `<task-notification>`、系统提醒）hook 会上报 `injected`：不动开关、也不当作"人回来了"；`hook.log` 里能看到 `human prompt` / `harness prompt` 的判定。
 - 日志：`<config-dir>/run/hook.log`（>5MB 自动清空）；每个事件一行，含 state / relay mode / wait reason。

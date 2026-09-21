@@ -333,7 +333,6 @@ server:
   allow_empty_token: false
   # max_job_timeout_sec: 3600   # job --timeout 上限；项目 max_timeout_sec 可覆盖
   # job_recover_window_sec: 120 # 断线恢复窗口；0 = 关
-  # session_auto_relay_idle_sec: 300   # 【已迁移】session.auto_relay_idle_sec 的别名
   # workers: { w-gpu: { token_env: WTOK_GPU, labels: [gpu] } }
   # callers: [ { id: docker, token_env: DOCKER_CALLER_TOKEN } ]
 session:                             # 终端会话中继: 自动布防的两条判据(0 = 关闭该判据)

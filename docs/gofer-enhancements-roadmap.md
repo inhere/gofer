@@ -68,7 +68,7 @@
 | OBS-07(b)(c) | IM 入站提交 / 交互应答 | 中 | 大 | ❄ 用户暂不做 | [im-notification](runbook/im-notification.md) |
 | CFG-03 | 主机侧动作（编辑器打开等） | 低 | 低 | ⏳ | roadmap-history CFG-03 |
 | AI-01/02 | 内置 AI 助手 / usage skill 完善 | 低 | 大/低 | ⏳ | roadmap-history AI-01 |
-| G032-v0.48 | 到期删除 6 处 DEPRECATED(v0.45)（relay 镜像列、HTTP relay bool、旧配置键别名、interactive_allowed_agents 一次性读取） | — | 小 | ⏳ v0.48 | SUP-01「横切」清单 |
+| G032-v0.48 | 到期删除 6 处 DEPRECATED(v0.45)（relay 镜像列、HTTP relay bool、旧配置键别名、interactive_allowed_agents 一次性读取） | — | 小 | ✅ v0.48 | SUP-01「横切」清单；删除记录见设计「v0.48 到期删除记录」 |
 
 ## 三、建议下一批
 

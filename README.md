@@ -340,7 +340,6 @@ server:
   allow_empty_token: false
   # max_job_timeout_sec: 3600   # --timeout ceiling; a project's max_timeout_sec overrides it
   # job_recover_window_sec: 120 # reconnect recovery window; 0 = off
-  # session_auto_relay_idle_sec: 300   # LEGACY alias of session.auto_relay_idle_sec
   # workers: { w-gpu: { token_env: WTOK_GPU, labels: [gpu] } }
   # callers: [ { id: docker, token_env: DOCKER_CALLER_TOKEN } ]
 session:                             # terminal session relay: auto-arm thresholds (0 = that rule off)

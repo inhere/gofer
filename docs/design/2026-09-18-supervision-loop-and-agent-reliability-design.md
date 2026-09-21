@@ -134,7 +134,7 @@ projects:
 
 ## 横切
 
-- **兼容策略（G032）**：gofer 仍在 1.0 前。本设计新增的协议字段/列全部可选（additive），但**不为已不部署的组合写容忍分支**：P2 起 hub 只对协议 ≥8 的 worker 下发 verify/todo/job_event，对更低版本直接在 dispatch 前拒绝该 job（`ErrInvalidRequest: worker <id> protocol v<n> < 8, upgrade worker`），不做"静默 skipped"；实施中碰到的既有兼容分支按 G032 处理：仍需要的打 `// DEPRECATED(v0.45): remove in v0.48`，无人使用的直接删（候选：`agent_sessions.relay` bool 镜像列、`server.session_auto_relay_idle_sec` 别名、`interactive_allowed_agents` 一次性读取、`runner: local` 旧别名之外的历史别名、Dispatch 对 <v6/<v7 worker 的 warn-only 容忍）。删除项在汇报里逐条列出。
+- **兼容策略（G032）**：gofer 仍在 1.0 前。本设计新增的协议字段/列全部可选（additive），但**不为已不部署的组合写容忍分支**：P2 起 hub 只对协议 ≥8 的 worker 下发 verify/todo/job_event，对更低版本直接在 dispatch 前拒绝该 job（`ErrInvalidRequest: worker <id> protocol v<n> < 8, upgrade worker`），不做"静默 skipped"；实施中碰到的既有兼容分支按 G032 处理：仍需要的打 `// DEPRECATED(v0.45): remove in v0.48`，无人使用的直接删（候选：`agent_sessions.relay` bool 镜像列、`server.session_auto_relay_idle_sec` 别名、`interactive_allowed_agents` 一次性读取、`runner: local` 旧别名之外的历史别名、Dispatch 对 <v6/<v7 worker 的 warn-only 容忍）。删除项在汇报里逐条列出；**v0.48 已到期删除**（2026-09-21）见下表「v0.48 到期删除记录」。
 
 ### DEPRECATED 清单（G032，截至 P5）
 
@@ -152,6 +152,22 @@ projects:
 
 **已删除的兼容路径**：`runner/worker` 对 <v6/<v7 worker 的 warn-only 容忍分支（P2 删除，改为 dispatch 前按能力表拒绝）。
 **v0.47 删除**（2026-09-18 人工确认「新 worker 连老 server」不再部署）：`wsproto.PolicyProject.InteractiveAllowedAgents` 字段与 `commands.policyAllowsInteractive` 的 pre-AGT-02 回落——absent `allow_interactive` 现直接读作拒绝。
+**v0.48 删除**（2026-09-21，G032-v0.48）：上表 6 处标记**全部到期删除**，`grep -rn "DEPRECATED(v0.45)" internal web` 已为空（逐条见下）。
+
+#### v0.48 到期删除记录（2026-09-21）
+
+| 位置 | 处理 |
+|---|---|
+| `AgentSession.Relay` 字段 + `selectSessionCols` / `scanSession` 的读取 | 删除；`agent_sessions.relay` 列**保留不删**（SQLite 删列要重建表，且 additive），DDL 注释改为"历史列，未使用"——只有 `migrateAgentSessions` 的 pre-R1 回填（`relay=1 → on`）仍读它 |
+| `SetSessionRelayMode` 的镜像写入、INSERT 的 `relay` 列 | 删除；只写 `relay_mode`（列默认值兜住 0） |
+| `sessionView.Relay` 输出字段 | 删除；"这次 Stop 等不等"由 `wait_reason` 表达（旧字段本就是 `reason != ""` 的派生值） |
+| `sessionRelayReq.Relay`（`{"relay":true\|false}` 旧请求体） | 删除；只认 `{"mode":"auto\|on\|off"}`，旧布尔体现在 400 |
+| `server.session_auto_relay_idle_sec`（`ServerConfig` 字段 + `ApplyLegacySessionRelayCompat` + warn） | 删除；加载期再出现该键 → 报错 `server.session_auto_relay_idle_sec has been removed; use session.auto_relay_idle_sec` |
+| `ApplyLegacyInteractiveCompat` + `legacyInteractiveYAML`（一次性读取） | 删除；加载期再出现该键 → 报错 `project "<k>": unknown project field interactive_allowed_agents; use allow_interactive` |
+
+新入口是 `config.RejectRemovedKeys(raw)`（`internal/config/loader.go`）：typed decode 非严格（goccy 忽略未知键），所以被删键必须显式探测，否则就成了 G032 禁止的无标记兼容层。`config.Load`（config.yaml）与 `commands.loadWorkerConfig`（worker.yaml）**共用同一入口**，两个 yaml 面上口径一致。
+
+调用侧随之收口：`client.SetSessionRelay`（旧布尔 POST）删除，hook 的 `/off` 改调 `SetSessionRelayMode(sid, client.RelayModeOff)`；CLI `session ls/show`、web `AgentSession` 类型与 `SessionDrawer` 不再读 `relay`（派生结论读 `wait_reason`）；`httpapi` 裸 `ServerConfig` 的 relay 阈值改用 `config.DefaultSessionAutoRelayIdleSec`（`session:` 块仍由 `serve` 经 `SetSessionRelayPolicy` 注入）。测试侧补 `TestLoadRejectsSessionAutoRelayIdleSecAlias` / `TestLoadRejectsInteractiveAllowedAgents` / `TestSessionViewHasNoRelayBool` 三个"旧面已死"的钉子。
 
 
 
