@@ -67,6 +67,12 @@ type todoDispatchFlags struct {
 	runner   string
 	cwd      string
 	timeout  int
+	// PLAN-03 chain flags: the items this one waits for (or `prev`), the auto-advance
+	// switch (--auto / --no-auto) and an exec item's argv.
+	after  string
+	auto   bool
+	noAuto bool
+	cmd    string
 }
 
 func (f *todoDispatchFlags) bind(c *gcli.Command) {
@@ -79,6 +85,10 @@ func (f *todoDispatchFlags) bind(c *gcli.Command) {
 	c.StrOpt(&f.runner, "runner", "", "", "runner key for the job (default: the server's built-in local runner)")
 	c.StrOpt(&f.cwd, "cwd", "", "", "working dir within the project (default: the project root)")
 	c.IntOpt(&f.timeout, "timeout", "", 0, "job timeout in seconds (0 = the server default)")
+	c.StrOpt(&f.after, "after", "", "", "PLAN-03: comma-separated todo ids this item waits for; `prev` = the plan's previous item (the last one by sort)")
+	c.BoolOpt(&f.auto, "auto", "", false, "PLAN-03: let the chain start this item once its dependencies are done (default)")
+	c.BoolOpt(&f.noAuto, "no-auto", "", false, "PLAN-03: park this item — only a human (or `plan run`) starts it")
+	c.StrOpt(&f.cmd, "cmd", "", "", "PLAN-03: argv an exec item runs, e.g. --cmd 'go test ./...' (required when --assign exec)")
 }
 
 // patch builds the update/create patch from the flags that were given. --var without
@@ -126,6 +136,63 @@ func (f *todoDispatchFlags) patch() (jobstore.TodoPatch, error) {
 	if f.timeout > 0 {
 		p.TimeoutSec = &f.timeout
 	}
+	if f.auto && f.noAuto {
+		return jobstore.TodoPatch{}, fmt.Errorf("--auto and --no-auto are mutually exclusive")
+	}
+	if f.auto {
+		v := true
+		p.Auto = &v
+	}
+	if f.noAuto {
+		v := false
+		p.Auto = &v
+	}
+	if strings.TrimSpace(f.cmd) != "" {
+		words, err := splitShellWords(f.cmd)
+		if err != nil {
+			return jobstore.TodoPatch{}, err
+		}
+		if len(words) == 0 {
+			return jobstore.TodoPatch{}, fmt.Errorf("--cmd is empty")
+		}
+		p.Cmd = &words
+	}
+	return p, nil
+}
+
+// chainPatch resolves the PLAN-03 flags that need the plan's own items — currently
+// `--after prev`, which means "the item I added before this one" and is therefore only
+// answerable with the plan in hand. planID "" (a `set-todo`, where the item already
+// exists) refuses `prev` rather than guessing: the caller names the ids it means.
+func (f *todoDispatchFlags) chainPatch(cli *client.Client, planID string) (jobstore.TodoPatch, error) {
+	p, err := f.patch()
+	if err != nil {
+		return jobstore.TodoPatch{}, err
+	}
+	raw := strings.TrimSpace(f.after)
+	if raw == "" {
+		return p, nil
+	}
+	if strings.EqualFold(raw, "prev") {
+		if planID == "" {
+			return jobstore.TodoPatch{}, fmt.Errorf("--after prev is only meaningful when ADDING an item; name the todo ids instead")
+		}
+		plan, err := cli.GetPlan(planID)
+		if err != nil {
+			return jobstore.TodoPatch{}, err
+		}
+		if len(plan.Todos) == 0 {
+			return jobstore.TodoPatch{}, fmt.Errorf("--after prev: plan %s has no items yet", planID)
+		}
+		last := plan.Todos[len(plan.Todos)-1]
+		p.After = &[]string{last.TodoID}
+		return p, nil
+	}
+	ids := splitCSV(raw)
+	if len(ids) == 0 {
+		return jobstore.TodoPatch{}, fmt.Errorf("--after is empty")
+	}
+	p.After = &ids
 	return p, nil
 }
 
@@ -258,6 +325,36 @@ func NewPlanCmd() *gcli.Command {
 					c.AddArg("todo-id", "todo id", true)
 				},
 				Func: runPlanDispatch,
+			},
+			{
+				Name: "run",
+				Desc: "Start a plan's chain: queue every pending item whose dependencies are done and that has an assignee (roots included), and release a pause/block",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("plan-id", "plan id", true)
+				},
+				Func: runPlanRun,
+			},
+			{
+				Name: "pause",
+				Desc: "Hold a plan's automatic chain advance (running items are not cancelled)",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("plan-id", "plan id", true)
+				},
+				Func: runPlanPause,
+			},
+			{
+				Name: "resume",
+				Desc: "Release a plan's pause and block, then advance the chain",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("plan-id", "plan id", true)
+				},
+				Func: runPlanResume,
 			},
 			{
 				Name: "ask",
@@ -400,11 +497,13 @@ func runPlanAddTodo(c *gcli.Command, _ []string) error {
 	if planID == "" || title == "" {
 		return fmt.Errorf("plan add-todo requires <plan-id> and <title>")
 	}
-	patch, err := planAddTodoOpts.todoDispatchFlags.patch()
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
 		return err
 	}
-	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	// --after prev resolves against the plan's CURRENT items, so it needs the client
+	// and the plan id (see chainPatch).
+	patch, err := planAddTodoOpts.todoDispatchFlags.chainPatch(cli, planID)
 	if err != nil {
 		return err
 	}
@@ -413,6 +512,48 @@ func runPlanAddTodo(c *gcli.Command, _ []string) error {
 		return err
 	}
 	c.Printf("todo %s added to plan %s\n", t.TodoID, planID)
+	return nil
+}
+
+// runPlanRun / runPlanPause / runPlanResume drive the PLAN-03 chain controls. All three
+// answer with the plan header, so one printer shows the resulting status/paused/blocked.
+func runPlanRun(c *gcli.Command, _ []string) error {
+	return planAction(c, "run")
+}
+
+func runPlanPause(c *gcli.Command, _ []string) error {
+	return planAction(c, "pause")
+}
+
+func runPlanResume(c *gcli.Command, _ []string) error {
+	return planAction(c, "resume")
+}
+
+func planAction(c *gcli.Command, action string) error {
+	planID := argValue(c, "plan-id")
+	if planID == "" {
+		return fmt.Errorf("plan %s requires a <plan-id>", action)
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	var p client.Plan
+	switch action {
+	case "run":
+		p, err = cli.RunPlan(planID)
+	case "pause":
+		p, err = cli.PausePlan(planID)
+	default:
+		p, err = cli.ResumePlan(planID)
+	}
+	if err != nil {
+		return err
+	}
+	c.Printf("plan %s %s: status=%s paused=%v\n", p.PlanID, action, p.Status, p.Paused)
+	if p.BlockedTodo != "" {
+		c.Printf("  blocked on %s — release it with `plan set-todo %s --status ready|skipped`\n", p.BlockedTodo, p.BlockedTodo)
+	}
 	return nil
 }
 
@@ -493,7 +634,7 @@ func runPlanSetTodo(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	patch, err := planSetTodoOpts.todoDispatchFlags.patch()
+	patch, err := planSetTodoOpts.todoDispatchFlags.chainPatch(cli, "")
 	if err != nil {
 		return err
 	}
@@ -605,6 +746,15 @@ func printPlan(c *gcli.Command, p client.Plan) {
 		c.Printf("description: %s\n", p.Description)
 	}
 	c.Printf("status:      %s\n", p.Status)
+	// PLAN-03: a held or parked chain is the first thing a reader must see — the
+	// status alone (`open` while paused, `blocked` while parked) does not say what to
+	// do about it.
+	if p.Paused {
+		c.Printf("paused:      true (the chain will not advance; `plan resume %s` to continue)\n", p.PlanID)
+	}
+	if p.BlockedTodo != "" {
+		c.Printf("blocked on:  %s (release with `plan set-todo %s --status ready|skipped`)\n", p.BlockedTodo, p.BlockedTodo)
+	}
 	if p.Project != "" {
 		c.Printf("project:     %s\n", p.Project)
 	}
@@ -763,7 +913,17 @@ func printPlanTodos(c *gcli.Command, todos []client.Todo) {
 		if t.JobID != "" {
 			bind = "  (job=" + t.JobID + ")"
 		}
-		c.Printf("  %s %-26s %s%s%s\n", box, t.TodoID, t.Title, assign, bind)
+		// PLAN-03: the chain facts — what this item waits for and whether the chain may
+		// start it — belong on the same line as the assignee, because together they
+		// answer "why has this not run".
+		chain := ""
+		if len(t.After) > 0 {
+			chain += "  after=" + strings.Join(t.After, ",")
+		}
+		if !t.Auto {
+			chain += "  (no-auto)"
+		}
+		c.Printf("  %s %-26s %s%s%s%s\n", box, t.TodoID, t.Title, assign, chain, bind)
 		// A dispatch that was refused: the item says WHY here rather than leaving the
 		// failure to be discovered as "it never ran".
 		if t.DispatchError != "" {

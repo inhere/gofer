@@ -209,6 +209,16 @@ func (b *clientBackend) UpdateTodo(todoID, status string, note *string, appendNo
 	return clientTodoToView(t), nil
 }
 
+// RunPlan starts a plan's dependency chain through the central server
+// (POST /v1/plans/{id}/run, PLAN-03) — the MCP twin of `plan run`.
+func (b *clientBackend) RunPlan(planID string) (planView, error) {
+	p, err := b.cli.RunPlan(planID)
+	if err != nil {
+		return planView{}, err
+	}
+	return clientPlanToView(p), nil
+}
+
 func (b *clientBackend) DispatchTodo(todoID string) (todoDispatchView, error) {
 	d, err := b.cli.DispatchTodo(todoID)
 	if err != nil {
@@ -264,6 +274,8 @@ func clientPlanToView(p client.Plan) planView {
 		Owner:       p.Owner,
 		Progress:    p.Progress,
 		Project:     p.Project,
+		Paused:      p.Paused,
+		BlockedTodo: p.BlockedTodo,
 		CreatedAt:   p.CreatedAt,
 		UpdatedAt:   p.UpdatedAt,
 		Jobs:        make([]jobView, 0, len(p.Jobs)),
@@ -289,6 +301,7 @@ func clientTodoToView(t client.Todo) todoView {
 		Assignee: t.Assignee, Project: t.Project, Template: t.Template,
 		Vars: t.Vars, Verify: t.Verify, Review: t.Review, Runner: t.Runner,
 		Cwd: t.Cwd, TimeoutSec: t.TimeoutSec, DispatchError: t.DispatchError,
+		After: t.After, Auto: t.Auto, Cmd: t.Cmd,
 	}
 }
 

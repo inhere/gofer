@@ -526,6 +526,15 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// as a new one).
 	s.notifyTerminalHooks(snap)
 
+	// PLAN-03: a chain job that really ENDED in failure parks its plan. This runs here
+	// — after the takeover attempts above — because the persisted auto_resumed_by /
+	// fell_back_to markers are what say the failure is being continued, and only the
+	// row has them by now (a failure whose takeover could not be submitted fell through
+	// to the late job.terminal and blocks, which is the correct reading of "it is over").
+	if persistErr == nil {
+		s.maybeBlockPlan(snap)
+	}
+
 	// 工作流推进 (E7)：若此 job 属于某工作流，其终态可能解锁下一步。异步推进，绝不阻塞
 	// finish/不改 entry.done 时序(execute 的 defer close(entry.done) 仍照常触发)。
 	// advanceWorkflow 幂等(条件 UPDATE 抢推进权)，与 sweeper 叠加安全；persist 已先落终态

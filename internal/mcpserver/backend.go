@@ -68,6 +68,10 @@ type Backend interface {
 	// DispatchTodo explicitly dispatches a todo's assignee (PLAN-02 P2), ignoring the
 	// item's status but not its assignee / a live job.
 	DispatchTodo(todoID string) (todoDispatchView, error)
+	// RunPlan starts a plan's dependency chain (PLAN-03): it releases a pause and a
+	// block, queues every pending item whose dependencies are satisfied and that has an
+	// assignee, and answers with the plan header as it stands.
+	RunPlan(planID string) (planView, error)
 
 	// JOB-09 wakeups (gofer_wakeup_create|list|disable). CreateWakeup registers an
 	// event subscription or timer on a job; ListWakeups reads a job's registrations;

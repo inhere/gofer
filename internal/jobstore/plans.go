@@ -8,13 +8,18 @@ import (
 )
 
 // Plan status values. A plan is a lightweight grouping header; it does not
-// advance jobs itself.
+// advance jobs itself — except through the PLAN-03 chain advance, which only ever
+// moves it to PlanDone (all items finished) or PlanBlocked (a chain job failed).
 const (
 	PlanIDMinLength = 9
 	PlanOpen        = "open"
 	PlanActive      = "active"
 	PlanDone        = "done"
 	PlanArchived    = "archived"
+	// PlanBlocked is NOT terminal: a failed chain job parked the plan, and a human
+	// releasing the item (set it ready/skipped) or `plan run|resume` puts it back to
+	// PlanOpen and continues the chain.
+	PlanBlocked = "blocked"
 )
 
 // Plan is the SQLite-persisted plan grouping header. It is neutral (no
@@ -31,18 +36,29 @@ type Plan struct {
 	// without its own project_key runs in the plan's. Empty = the plan names none, so
 	// every todo must carry its own (and a dispatch without one is refused).
 	ProjectKey string
-	CreatedAt  int64
-	UpdatedAt  int64
+	// Paused holds the automatic chain advance (PLAN-03): a todo that finishes while
+	// the plan is paused does NOT start its dependents.
+	Paused bool
+	// BlockedTodo is the item a FAILED chain job parked the plan on ("" = not
+	// blocked). Status is PlanBlocked while it is set.
+	BlockedTodo string
+	CreatedAt   int64
+	UpdatedAt   int64
 }
 
 const selectPlanCols = `SELECT plan_id, COALESCE(title,''), COALESCE(description,''),
   status, COALESCE(owner,''), COALESCE(progress,0), COALESCE(project_key,''),
+  COALESCE(paused,0), COALESCE(blocked_todo,''),
   created_at, updated_at FROM plans`
 
 func scanPlan(sc rowScanner) (Plan, error) {
-	var p Plan
+	var (
+		p      Plan
+		paused int
+	)
 	err := sc.Scan(&p.PlanID, &p.Title, &p.Description, &p.Status, &p.Owner,
-		&p.Progress, &p.ProjectKey, &p.CreatedAt, &p.UpdatedAt)
+		&p.Progress, &p.ProjectKey, &paused, &p.BlockedTodo, &p.CreatedAt, &p.UpdatedAt)
+	p.Paused = paused != 0
 	return p, err
 }
 
@@ -55,13 +71,17 @@ func (s *Store) InsertPlan(p Plan) error {
 	if p.Status == "" {
 		p.Status = PlanOpen
 	}
+	paused := 0
+	if p.Paused {
+		paused = 1
+	}
 	const q = `INSERT INTO plans
-  (plan_id, title, description, status, owner, progress, project_key, created_at, updated_at)
-  VALUES (?,?,?,?,?,?,?,?,?)`
+  (plan_id, title, description, status, owner, progress, project_key, paused, blocked_todo, created_at, updated_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q, p.PlanID, p.Title, p.Description, p.Status, p.Owner,
-		p.Progress, p.ProjectKey, p.CreatedAt, p.UpdatedAt); err != nil {
+		p.Progress, p.ProjectKey, paused, p.BlockedTodo, p.CreatedAt, p.UpdatedAt); err != nil {
 		return fmt.Errorf("jobstore: insert plan %q: %w", p.PlanID, err)
 	}
 	return nil
@@ -128,6 +148,56 @@ func (s *Store) SetPlanStatus(id, status string, progress int) error {
 	}
 	if err != nil {
 		return fmt.Errorf("jobstore: set plan %q status %s: %w", id, status, err)
+	}
+	return nil
+}
+
+// SetPlanPaused holds or releases a plan's automatic chain advance (PLAN-03).
+// progress is untouched.
+func (s *Store) SetPlanPaused(id string, paused bool) error {
+	v := 0
+	if paused {
+		v = 1
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(`UPDATE plans SET paused=?, updated_at=? WHERE plan_id=?`,
+		v, s.unixNow(), id); err != nil {
+		return fmt.Errorf("jobstore: set plan %q paused: %w", id, err)
+	}
+	return nil
+}
+
+// SetPlanBlocked parks a plan on the item a failed chain job belongs to (PLAN-03):
+// blocked_todo records WHICH item, and the status becomes PlanBlocked so the plan
+// list and the web banner show it. The two move in ONE statement — a plan whose
+// status says blocked but names no item would be unactionable.
+func (s *Store) SetPlanBlocked(id, todoID string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(
+		`UPDATE plans SET status=?, blocked_todo=?, updated_at=? WHERE plan_id=?`,
+		PlanBlocked, todoID, s.unixNow(), id,
+	); err != nil {
+		return fmt.Errorf("jobstore: set plan %q blocked on %q: %w", id, todoID, err)
+	}
+	return nil
+}
+
+// ClearPlanBlocked releases a plan from a block: blocked_todo is emptied and a
+// PlanBlocked status returns to PlanOpen. Any OTHER status (active, done, archived —
+// a human's own choice) is left alone, and a plan that is not blocked is unchanged
+// apart from updated_at. Idempotent: the unblock paths all call it unconditionally.
+func (s *Store) ClearPlanBlocked(id string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(
+		`UPDATE plans SET blocked_todo='',
+		   status=CASE WHEN status=? THEN ? ELSE status END, updated_at=?
+		 WHERE plan_id=?`,
+		PlanBlocked, PlanOpen, s.unixNow(), id,
+	); err != nil {
+		return fmt.Errorf("jobstore: clear plan %q blocked: %w", id, err)
 	}
 	return nil
 }

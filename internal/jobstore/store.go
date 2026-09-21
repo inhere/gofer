@@ -318,6 +318,11 @@ var schemaStmts = []string{
   owner        TEXT,
   progress     INTEGER NOT NULL DEFAULT 0,
   project_key  TEXT,
+  -- PLAN-03: paused stops the automatic chain advance (the plan holds where it is);
+  -- blocked_todo names the item a FAILED job parked the chain on (status='blocked'
+  -- while set). Both are added by migratePlans on a pre-existing db.
+  paused       INTEGER NOT NULL DEFAULT 0,
+  blocked_todo TEXT,
   created_at   INTEGER NOT NULL,
   updated_at   INTEGER NOT NULL
 )`,
@@ -344,6 +349,12 @@ var schemaStmts = []string{
   cwd            TEXT,
   timeout_sec    INTEGER,
   dispatch_error TEXT,
+  -- PLAN-03 chain columns: after_json is the list of plan-todo ids this item waits
+  -- for, auto (default 1) allows the chain to start it automatically, cmd_json is the
+  -- argv an exec item runs. Added by migratePlanTodos on a pre-existing db.
+  after_json     TEXT,
+  auto           INTEGER NOT NULL DEFAULT 1,
+  cmd_json       TEXT,
   created_at     INTEGER NOT NULL,
   updated_at     INTEGER NOT NULL
 )`,
@@ -990,6 +1001,18 @@ func (s *Store) migratePlanTodos() error {
 	if err := add("dispatch_error", "dispatch_error TEXT"); err != nil {
 		return err
 	}
+	// PLAN-03: the chain columns — the dependencies this item waits for, the
+	// auto-advance switch and an exec item's argv. An old row reads back as "no
+	// dependencies, auto on, no argv", i.e. a plain standalone item.
+	if err := add("after_json", "after_json TEXT"); err != nil {
+		return err
+	}
+	if err := add("auto", "auto INTEGER NOT NULL DEFAULT 1"); err != nil {
+		return err
+	}
+	if err := add("cmd_json", "cmd_json TEXT"); err != nil {
+		return err
+	}
 	if backfill {
 		if _, err := s.db.Exec(
 			`UPDATE plan_todos SET status = CASE WHEN done=1 THEN 'done' ELSE 'pending' END
@@ -1008,11 +1031,26 @@ func (s *Store) migratePlans() error {
 	if err != nil {
 		return err
 	}
-	if _, ok := cols["project_key"]; ok {
+	add := func(col, ddl string) error {
+		if _, ok := cols[col]; ok {
+			return nil
+		}
+		if _, e := s.db.Exec("ALTER TABLE plans ADD COLUMN " + ddl); e != nil {
+			return fmt.Errorf("jobstore: migrate plans add %s: %w", col, e)
+		}
 		return nil
 	}
-	if _, e := s.db.Exec("ALTER TABLE plans ADD COLUMN project_key TEXT"); e != nil {
-		return fmt.Errorf("jobstore: migrate plans add project_key: %w", e)
+	if err := add("project_key", "project_key TEXT"); err != nil {
+		return err
+	}
+	// PLAN-03: paused (chain held by a human) and blocked_todo (the item a failed job
+	// parked the chain on). An old row reads as "running, not blocked" — exactly the
+	// pre-PLAN-03 semantics, and `blocked` needs no migration (a status value).
+	if err := add("paused", "paused INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return err
+	}
+	if err := add("blocked_todo", "blocked_todo TEXT"); err != nil {
+		return err
 	}
 	return nil
 }

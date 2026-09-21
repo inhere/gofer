@@ -69,6 +69,46 @@ func RenderMessage(kind string, m Message) ([]byte, error) {
 	}
 }
 
+// PlanMessage renders a plan-scope event (scope `plan:<id>`) as the short message an IM
+// bot shows (PLAN-03). plan.blocked is the one in the default trigger set: a chain job
+// failed and the plan parked on its item, so the message names the ITEM, the JOB and the
+// reason — the three things the person who has to unblock it needs. Every other plan
+// event (a queued item, a completed chain) renders as its own type with whatever ids its
+// detail carries; ok=false for a non-plan event, so a caller falls back to the job shape.
+func PlanMessage(eventType, detailJSON string, at int64) (Message, bool) {
+	if !strings.HasPrefix(eventType, "plan.") {
+		return Message{}, false
+	}
+	var d struct {
+		PlanID string   `json:"plan_id"`
+		TodoID string   `json:"todo_id"`
+		Job    string   `json:"job"`
+		Reason string   `json:"reason"`
+		After  []string `json:"after"`
+	}
+	if detailJSON != "" {
+		_ = json.Unmarshal([]byte(detailJSON), &d)
+	}
+	parts := make([]string, 0, 3)
+	if d.TodoID != "" {
+		parts = append(parts, "todo "+d.TodoID)
+	}
+	if d.Job != "" {
+		parts = append(parts, "job "+d.Job)
+	}
+	if len(d.After) > 0 {
+		parts = append(parts, "after "+strings.Join(d.After, ","))
+	}
+	if d.Reason != "" {
+		parts = append(parts, d.Reason)
+	}
+	title := eventType
+	if eventType == "plan.blocked" {
+		title = "plan blocked"
+	}
+	return Message{EventType: eventType, Title: title, Text: strings.Join(parts, " · "), At: at}, true
+}
+
 // TransferMessage renders a file-transfer event (xfer.put|xfer.get) as the short
 // message an IM bot shows: WHO moved WHAT, from/to which machine and project, how
 // big. ok=false for any other event type, so a caller falls back to the job shape

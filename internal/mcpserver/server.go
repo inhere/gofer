@@ -215,6 +215,11 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 		Description: "Dispatch a todo's assigned agent NOW, regardless of the item's status (the explicit fallback to \"ready + assigned\"): starts a job for it and returns {todo, job, dispatched, reason}. Needs an assignee and no live job — when nothing is started, reason says why.",
 	}, dispatchTodoHandler(b))
 
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_plan_run",
+		Description: "Start a plan's dependency chain: queue every pending item whose `after` dependencies are done or skipped and that has an assignee (root items included), release a pause/block, and return the plan header {plan_id, status, paused, blocked_todo, ...}. Items then run one after another as each finishes; a failed chain item parks the plan (status=blocked, blocked_todo names it).",
+	}, planRunHandler(b))
+
 	// JOB-09 wakeups: end the run and be woken when the condition arrives. An agent
 	// running inside a job passes ITS OWN id (job_id = the value of GOFER_JOB_ID) to
 	// be resumed later, which is the whole point: nothing stays resident waiting.
@@ -393,13 +398,17 @@ func toJobView(r job.JobResult) jobView {
 // planView is the snake_case projection returned by the plan tools. It mirrors
 // the HTTP plan detail shape: header + counts + jobs + todos.
 type planView struct {
-	PlanID      string              `json:"plan_id"`
-	Title       string              `json:"title,omitempty"`
-	Description string              `json:"description,omitempty"`
-	Status      string              `json:"status"`
-	Owner       string              `json:"owner,omitempty"`
-	Progress    int                 `json:"progress,omitempty"`
-	Project     string              `json:"project,omitempty"`
+	PlanID      string `json:"plan_id"`
+	Title       string `json:"title,omitempty"`
+	Description string `json:"description,omitempty"`
+	Status      string `json:"status"`
+	Owner       string `json:"owner,omitempty"`
+	Progress    int    `json:"progress,omitempty"`
+	Project     string `json:"project,omitempty"`
+	// Paused holds the chain advance (PLAN-03); BlockedTodo is the item a failed chain
+	// job parked the plan on.
+	Paused      bool                `json:"paused,omitempty"`
+	BlockedTodo string              `json:"blocked_todo,omitempty"`
 	CreatedAt   int64               `json:"created_at"`
 	UpdatedAt   int64               `json:"updated_at"`
 	Counts      jobstore.PlanCounts `json:"counts"`
@@ -435,6 +444,11 @@ type todoView struct {
 	Cwd           string            `json:"cwd,omitempty"`
 	TimeoutSec    int               `json:"timeout_sec,omitempty"`
 	DispatchError string            `json:"dispatch_error,omitempty"`
+	// PLAN-03 chain fields: After lists the items this one waits for, Auto whether the
+	// chain may start it, Cmd the argv of an exec item.
+	After []string `json:"after,omitempty"`
+	Auto  bool     `json:"auto"`
+	Cmd   []string `json:"cmd,omitempty"`
 }
 
 // todoDispatchView is the gofer_dispatch_todo output (PLAN-02 P2): the item as it
@@ -454,6 +468,7 @@ func toTodoView(t jobstore.PlanTodo) todoView {
 		Assignee: t.Assignee, Project: t.ProjectKey, Template: t.Template,
 		Vars: t.Vars, Verify: t.Verify, Review: t.Review, Runner: t.Runner,
 		Cwd: t.Cwd, TimeoutSec: t.TimeoutSec, DispatchError: t.DispatchError,
+		After: t.After, Auto: t.Auto, Cmd: t.Cmd,
 	}
 }
 
@@ -523,6 +538,8 @@ func planHeaderView(p jobstore.Plan) planView {
 		Owner:       p.Owner,
 		Progress:    p.Progress,
 		Project:     p.ProjectKey,
+		Paused:      p.Paused,
+		BlockedTodo: p.BlockedTodo,
 		CreatedAt:   p.CreatedAt,
 		UpdatedAt:   p.UpdatedAt,
 		Jobs:        make([]jobView, 0),
@@ -834,6 +851,11 @@ type addTodoToolInput struct {
 	Runner     *string           `json:"runner,omitempty"`
 	Cwd        *string           `json:"cwd,omitempty"`
 	TimeoutSec *int              `json:"timeout_sec,omitempty"`
+	// PLAN-03 chain fields: After are the plan-todo ids this item waits for, Auto lets
+	// the chain start it once they are done, Cmd is the argv an exec item runs.
+	After *[]string `json:"after,omitempty"`
+	Auto  *bool     `json:"auto,omitempty"`
+	Cmd   *[]string `json:"cmd,omitempty"`
 }
 
 func (in addTodoToolInput) todoPatch() jobstore.TodoPatch {
@@ -841,6 +863,7 @@ func (in addTodoToolInput) todoPatch() jobstore.TodoPatch {
 		Assignee: in.Assignee, ProjectKey: in.Project, Template: in.Template,
 		Vars: in.Vars, Verify: in.Verify, Review: in.Review, Runner: in.Runner,
 		Cwd: in.Cwd, TimeoutSec: in.TimeoutSec,
+		After: in.After, Auto: in.Auto, Cmd: in.Cmd,
 	}
 }
 
@@ -876,6 +899,10 @@ type updateTodoToolInput struct {
 	Runner     *string           `json:"runner,omitempty"`
 	Cwd        *string           `json:"cwd,omitempty"`
 	TimeoutSec *int              `json:"timeout_sec,omitempty"`
+	// PLAN-03 chain fields; see addTodoToolInput.
+	After *[]string `json:"after,omitempty"`
+	Auto  *bool     `json:"auto,omitempty"`
+	Cmd   *[]string `json:"cmd,omitempty"`
 }
 
 func (in updateTodoToolInput) todoPatch() jobstore.TodoPatch {
@@ -883,6 +910,7 @@ func (in updateTodoToolInput) todoPatch() jobstore.TodoPatch {
 		Assignee: in.Assignee, Project: in.Project, Template: in.Template,
 		Vars: in.Vars, Verify: in.Verify, Review: in.Review, Runner: in.Runner,
 		Cwd: in.Cwd, TimeoutSec: in.TimeoutSec,
+		After: in.After, Auto: in.Auto, Cmd: in.Cmd,
 	}.todoPatch()
 }
 
@@ -917,6 +945,23 @@ func dispatchTodoHandler(b Backend) mcp.ToolHandlerFor[dispatchTodoToolInput, to
 			return nil, todoDispatchView{}, err
 		}
 		return nil, out, nil
+	}
+}
+
+// planRunToolInput is gofer_plan_run's input: the plan whose chain to start.
+type planRunToolInput struct {
+	PlanID string `json:"plan_id"`
+}
+
+// planRunHandler starts a plan's chain (PLAN-03) and answers with the plan header, so
+// the caller reads the status/paused/blocked its call produced.
+func planRunHandler(b Backend) mcp.ToolHandlerFor[planRunToolInput, planView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in planRunToolInput) (*mcp.CallToolResult, planView, error) {
+		pv, err := b.RunPlan(in.PlanID)
+		if err != nil {
+			return nil, planView{}, err
+		}
+		return nil, pv, nil
 	}
 }
 

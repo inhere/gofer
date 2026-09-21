@@ -102,7 +102,8 @@ func (s *Service) linkTodoOutcome(snap JobResult) {
 		return
 	}
 	// The worker's own copy of a hub-owned todo: display only, nothing to link.
-	if _, ok, err := s.meta.GetTodo(snap.TodoID); err != nil || !ok {
+	todo, ok, err := s.meta.GetTodo(snap.TodoID)
+	if err != nil || !ok {
 		slog.Debug("link todo on finish: unknown todo", "todo_id", snap.TodoID, "job_id", snap.ID)
 		return
 	}
@@ -116,6 +117,14 @@ func (s *Service) linkTodoOutcome(snap JobResult) {
 		s.appendTodoNote(snap, snap.ID+" 待验收")
 	default: // failed / timeout / cancelled / rejected
 		s.appendTodoNote(snap, todoFailureLine(snap))
+	}
+	// PLAN-03: a finished item unblocks whatever waited for it. A `needs_review`
+	// delivery is NOT finished as far as the chain is concerned (the item stays doing,
+	// and its dependents keep waiting for the human's verdict) — and a failure parks
+	// the plan instead, in maybeBlockPlan, which runs once the takeover decision is
+	// final (see finish).
+	if snap.Status == StatusDone {
+		s.advancePlan(todo.PlanID, "")
 	}
 }
 

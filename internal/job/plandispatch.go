@@ -21,6 +21,7 @@ import (
 	"log/slog"
 	"strings"
 
+	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -127,7 +128,18 @@ func (s *Service) dispatchTodo(todoID, by string, explicit bool) (TodoDispatch, 
 		// machine runs on the server. A todo that wants a worker says so.
 		req.Runner = builtinLocalRunner
 	}
-	if todo.Template == "" {
+	// PLAN-03: an `exec` item IS its argv — the chain's last step is typically a
+	// build/test command rather than an agent turn, so the dispatcher hands the item's
+	// --cmd to the exec agent and refuses an exec item that names none (an exec job
+	// without a command has nothing to run, and the refusal is what tells the human
+	// which item to fix instead of a job that fails on an empty argv).
+	if todo.Assignee == agent.ExecAgentKey {
+		if len(todo.Cmd) == 0 {
+			return s.todoDispatchFailed(todo, projectKey, "exec todo needs --cmd"), nil
+		}
+		req.Cmd = todo.Cmd
+		req.Prompt = ""
+	} else if todo.Template == "" {
 		req.Prompt = defaultTodoPrompt(plan, todo)
 	}
 
@@ -192,7 +204,7 @@ func (s *Service) todoActiveJob(todoID string) (string, bool) {
 // PlanEventScope is the synthetic event-scope id of a plan (`plan:<id>`), mirroring
 // xfer.EventJobID: an event that belongs to no job is still recorded in the shared
 // event log, and its scope is what a reader filters on.
-func PlanEventScope(planID string) string { return "plan:" + planID }
+func PlanEventScope(planID string) string { return planScopePrefix + planID }
 
 // defaultTodoPrompt is the prompt of a dispatched item that names no task book: the
 // plan says WHAT the work is and why, the item says which piece of it this run owns.

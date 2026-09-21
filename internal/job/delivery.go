@@ -180,6 +180,14 @@ func (s *Service) buildDeliveryBody(d jobstore.Delivery) (body []byte, eventType
 			if tmsg, ok := notify.TransferMessage(ev.Type, ev.Detail, ev.At); ok {
 				msg = tmsg
 			}
+			// PLAN-03: a plan-scope event (`plan:<id>`) has no job either, and the page
+			// a reader must open is the plan's — plan.blocked is in the default trigger
+			// set, so this is the common case for a chain subscriber.
+			if pmsg, ok := notify.PlanMessage(ev.Type, ev.Detail, ev.At); ok {
+				msg = pmsg
+				msg.Link = s.webURL("/plans/" + strings.TrimPrefix(d.JobID, planScopePrefix))
+				msg.LinkLabel = "查看 plan"
+			}
 			rendered, rErr := notify.RenderMessage(kind, msg)
 			if rErr != nil {
 				slog.Warn("DeliverDue: render im body", "seq", d.EventSeq, "kind", kind, "err", rErr)

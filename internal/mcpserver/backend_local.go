@@ -273,12 +273,15 @@ func (b *localBackend) AddTodo(planID, title, jobID, note string, patch jobstore
 	}
 	now := time.Now()
 	t := jobstore.PlanTodo{
-		TodoID:    newTodoID(),
-		PlanID:    planID,
-		JobID:     strings.TrimSpace(jobID),
-		Title:     title,
-		Status:    jobstore.TodoPending,
-		Note:      note,
+		TodoID: newTodoID(),
+		PlanID: planID,
+		JobID:  strings.TrimSpace(jobID),
+		Title:  title,
+		Status: jobstore.TodoPending,
+		Note:   note,
+		// PLAN-03: a new item joins the chain by default (the patch may still say
+		// auto=false).
+		Auto:      true,
 		CreatedAt: now.Unix(),
 		UpdatedAt: now.Unix(),
 	}
@@ -349,11 +352,26 @@ func (b *localBackend) UpdateTodo(todoID, status string, note *string, appendNot
 			slog.Warn("todo dispatch", "todo_id", todoID, "err", err)
 		}
 	}
+	// PLAN-03: a status write releases a plan block and advances its chain, exactly as
+	// it does over HTTP (the MCP local backend writes the store directly).
+	if status != "" {
+		b.jobs.PlanTodoChanged(todoID, status, "")
+	}
 	t, _, err := st.GetTodo(todoID)
 	if err != nil {
 		return todoView{}, err
 	}
 	return toTodoView(t), nil
+}
+
+// RunPlan starts a plan's dependency chain over the in-process service (PLAN-03): the
+// MCP twin of `plan run` / POST /v1/plans/{id}/run.
+func (b *localBackend) RunPlan(planID string) (planView, error) {
+	p, err := b.jobs.RunPlan(planID, "")
+	if err != nil {
+		return planView{}, err
+	}
+	return planHeaderView(p), nil
 }
 
 // DispatchTodo is the explicit dispatch over the in-process service (PLAN-02 P2): the

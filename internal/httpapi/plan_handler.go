@@ -28,9 +28,14 @@ type planView struct {
 	Owner       string `json:"owner,omitempty"`
 	Progress    int    `json:"progress,omitempty"`
 	// Project is the project this plan's todos are dispatched into (PLAN-02 P2).
-	Project   string `json:"project,omitempty"`
-	CreatedAt int64  `json:"created_at"`
-	UpdatedAt int64  `json:"updated_at"`
+	Project string `json:"project,omitempty"`
+	// Paused holds the chain advance (PLAN-03); BlockedTodo names the item a failed
+	// chain job parked the plan on ("" = not blocked, and status is then never
+	// `blocked`).
+	Paused      bool   `json:"paused,omitempty"`
+	BlockedTodo string `json:"blocked_todo,omitempty"`
+	CreatedAt   int64  `json:"created_at"`
+	UpdatedAt   int64  `json:"updated_at"`
 }
 
 // planListItem 是 list 响应项：header + 进度汇总（列表进度条数据源，P4/T10）。
@@ -47,8 +52,10 @@ func toPlanView(p jobstore.Plan) planView {
 	return planView{
 		PlanID: p.PlanID, Title: p.Title, Description: p.Description,
 		Status: p.Status, Owner: p.Owner, Progress: p.Progress,
-		Project:   p.ProjectKey,
-		CreatedAt: p.CreatedAt, UpdatedAt: p.UpdatedAt,
+		Project:     p.ProjectKey,
+		Paused:      p.Paused,
+		BlockedTodo: p.BlockedTodo,
+		CreatedAt:   p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
 }
 
@@ -81,6 +88,11 @@ type todoView struct {
 	Cwd           string            `json:"cwd,omitempty"`
 	TimeoutSec    int               `json:"timeout_sec,omitempty"`
 	DispatchError string            `json:"dispatch_error,omitempty"`
+	// PLAN-03 chain fields: After lists the items this one waits for, Auto whether the
+	// chain may start it, Cmd the argv of an exec item.
+	After []string `json:"after,omitempty"`
+	Auto  bool     `json:"auto"`
+	Cmd   []string `json:"cmd,omitempty"`
 	// Jobs are the runs attached to this todo (jobs.todo_id, SUP-01 C), newest
 	// first — the plan view shows them under the item instead of asking the client
 	// for one jobs query per todo. Empty for an item nobody has run.
@@ -150,6 +162,7 @@ func toTodoView(t jobstore.PlanTodo) todoView {
 		Assignee: t.Assignee, Project: t.ProjectKey, Template: t.Template,
 		Vars: t.Vars, Verify: t.Verify, Review: t.Review, Runner: t.Runner,
 		Cwd: t.Cwd, TimeoutSec: t.TimeoutSec, DispatchError: t.DispatchError,
+		After: t.After, Auto: t.Auto, Cmd: t.Cmd,
 	}
 }
 
@@ -171,9 +184,11 @@ type updatePlanReq struct {
 }
 
 // validPlanStatus 白名单：jobstore.SetPlanStatus 不校验取值，必须在入口挡住。
+// `blocked` 也在列：它是 PLAN-03 的链停状态，由推进逻辑写入，也允许人工把 plan
+// 直接标成 blocked（与 open 一样是"等人处理"的显式表达）。
 func validPlanStatus(s string) bool {
 	switch s {
-	case jobstore.PlanOpen, jobstore.PlanActive, jobstore.PlanDone, jobstore.PlanArchived:
+	case jobstore.PlanOpen, jobstore.PlanActive, jobstore.PlanDone, jobstore.PlanArchived, jobstore.PlanBlocked:
 		return true
 	}
 	return false
@@ -379,6 +394,15 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "update plan failed", err.Error())
 		return
 	}
+	// PLAN-03: keep "status=blocked ⟺ blocked_todo is set" true — a human moving the
+	// plan off `blocked` by hand also clears the item it parked on (the reverse, an
+	// explicit status=blocked with no item, is a plan-level note and leaves it empty).
+	if status != jobstore.PlanBlocked {
+		if err := s.jobs.Meta().ClearPlanBlocked(id); err != nil {
+			writeError(c, http.StatusInternalServerError, "update plan failed", err.Error())
+			return
+		}
+	}
 	p, ok, err := s.jobs.Meta().GetPlan(id)
 	if err != nil || !ok {
 		writeError(c, http.StatusInternalServerError, "reload plan failed", "")
@@ -389,6 +413,52 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 
 type attachJobReq struct {
 	JobID string `json:"job_id"`
+}
+
+// handleRunPlan is POST /v1/plans/{id}/run (PLAN-03): start the chain — queue every
+// pending item whose dependencies are satisfied and that has an assignee, release a
+// pause/block first, and return the plan as it stands. The response is the plan header
+// (the same shape PATCH returns), so a caller sees the status/paused/blocked it just
+// produced; the items and their jobs are on GET /v1/plans/{id}.
+func (s *Server) handleRunPlan(c *rux.Context) {
+	p, err := s.jobs.RunPlan(c.Param("id"), callerFromCtx(c))
+	if err != nil {
+		writeError(c, planActionStatus(err), "run plan failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, toPlanView(p))
+}
+
+// handlePausePlan is POST /v1/plans/{id}/pause (PLAN-03): hold the automatic chain
+// advance. Items already running are NOT cancelled — the pause is about what starts
+// next.
+func (s *Server) handlePausePlan(c *rux.Context) {
+	p, err := s.jobs.PausePlan(c.Param("id"))
+	if err != nil {
+		writeError(c, planActionStatus(err), "pause plan failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, toPlanView(p))
+}
+
+// handleResumePlan is POST /v1/plans/{id}/resume (PLAN-03): release a pause and a
+// block, then advance the chain from wherever it stands.
+func (s *Server) handleResumePlan(c *rux.Context) {
+	p, err := s.jobs.ResumePlan(c.Param("id"), callerFromCtx(c))
+	if err != nil {
+		writeError(c, planActionStatus(err), "resume plan failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, toPlanView(p))
+}
+
+// planActionStatus maps the plan actions' errors: an unknown plan is a 404, anything
+// else the service refused is the caller's to fix (400).
+func planActionStatus(err error) int {
+	if errors.Is(err, job.ErrInvalidRequest) {
+		return http.StatusNotFound
+	}
+	return http.StatusInternalServerError
 }
 
 func (s *Server) handleAttachPlanJob(c *rux.Context) {
@@ -455,13 +525,16 @@ func (s *Server) handleAddPlanTodo(c *rux.Context) {
 	}
 	now := time.Now()
 	t := jobstore.PlanTodo{
-		TodoID:    "todo-" + now.Format(job.JobIDLayout) + "-" + job.RandomSuffix(),
-		PlanID:    id,
-		JobID:     strings.TrimSpace(body.JobID),
-		Title:     body.Title,
-		Status:    jobstore.TodoPending,
-		Note:      body.Note,
-		Sort:      body.Sort,
+		TodoID: "todo-" + now.Format(job.JobIDLayout) + "-" + job.RandomSuffix(),
+		PlanID: id,
+		JobID:  strings.TrimSpace(body.JobID),
+		Title:  body.Title,
+		Status: jobstore.TodoPending,
+		Note:   body.Note,
+		Sort:   body.Sort,
+		// PLAN-03: a new item joins the chain by default (the body may still say
+		// auto=false through the patch below).
+		Auto:      true,
 		CreatedAt: now.Unix(),
 		UpdatedAt: now.Unix(),
 	}
@@ -558,9 +631,14 @@ func (s *Server) handleUpdateTodo(c *rux.Context) {
 	// PLAN-02 P2: the two conditions may arrive in either order, so a write that moved
 	// the item to `ready` OR set its assignee is a dispatch trigger (the dispatcher
 	// itself re-checks both, and stays silent when the item is not ready yet).
+	// PLAN-03: a status write ALSO releases a block and advances the plan's chain (a
+	// human marking an item done/skipped moves the plan exactly like a finished job).
 	// Re-read after the write: the response must show what the dispatch did to the item.
 	if status == jobstore.TodoReady || body.Assignee != nil {
 		s.dispatchTodoNow(c, tid)
+	}
+	if status != "" {
+		s.jobs.PlanTodoChanged(tid, status, callerFromCtx(c))
 	}
 	t, _, err := s.jobs.Meta().GetTodo(tid)
 	if err != nil {

@@ -1091,16 +1091,20 @@ type Plan struct {
 	Owner       string `json:"owner,omitempty"`
 	Progress    int    `json:"progress,omitempty"`
 	// Project is the project this plan's todos are dispatched into (PLAN-02 P2).
-	Project    string                   `json:"project,omitempty"`
-	CreatedAt  int64                    `json:"created_at"`
-	UpdatedAt  int64                    `json:"updated_at"`
-	Counts     *jobstore.PlanCounts     `json:"counts,omitempty"`
-	TodoCounts *jobstore.PlanTodoCounts `json:"todo_counts,omitempty"`
-	Completion *jobstore.PlanCompletion `json:"completion,omitempty"`
-	Usage      *PlanUsage               `json:"usage,omitempty"`
-	Jobs       []job.JobResult          `json:"jobs,omitempty"`
-	Todos      []Todo                   `json:"todos,omitempty"`
-	Decisions  []Decision               `json:"decisions,omitempty"`
+	Project string `json:"project,omitempty"`
+	// Paused holds the chain advance (PLAN-03); BlockedTodo is the item a failed chain
+	// job parked the plan on.
+	Paused      bool                     `json:"paused,omitempty"`
+	BlockedTodo string                   `json:"blocked_todo,omitempty"`
+	CreatedAt   int64                    `json:"created_at"`
+	UpdatedAt   int64                    `json:"updated_at"`
+	Counts      *jobstore.PlanCounts     `json:"counts,omitempty"`
+	TodoCounts  *jobstore.PlanTodoCounts `json:"todo_counts,omitempty"`
+	Completion  *jobstore.PlanCompletion `json:"completion,omitempty"`
+	Usage       *PlanUsage               `json:"usage,omitempty"`
+	Jobs        []job.JobResult          `json:"jobs,omitempty"`
+	Todos       []Todo                   `json:"todos,omitempty"`
+	Decisions   []Decision               `json:"decisions,omitempty"`
 }
 
 // PlanUsage is the plan's token/cost roll-up (PLAN-02 P2): every attached job counts in
@@ -1138,6 +1142,11 @@ type Todo struct {
 	Cwd           string            `json:"cwd,omitempty"`
 	TimeoutSec    int               `json:"timeout_sec,omitempty"`
 	DispatchError string            `json:"dispatch_error,omitempty"`
+	// PLAN-03 chain fields: After lists the items this one waits for, Auto whether the
+	// chain may start it, Cmd the argv of an exec item.
+	After []string `json:"after,omitempty"`
+	Auto  bool     `json:"auto"`
+	Cmd   []string `json:"cmd,omitempty"`
 	// Jobs are the runs attached to this todo (SUP-01 C), newest first — `plan show`
 	// lists them under the item. Empty for an item nobody has run.
 	Jobs []TodoJob `json:"jobs,omitempty"`
@@ -1202,6 +1211,32 @@ func (c *Client) UpdatePlan(planID, status string, progress *int) (Plan, error) 
 	}
 	var p Plan
 	err = c.doJSON(http.MethodPatch, "/v1/plans/"+url.PathEscape(planID), bytes.NewReader(body), &p)
+	return p, err
+}
+
+// RunPlan starts a plan's chain (POST /v1/plans/{id}/run, PLAN-03): it releases a pause
+// and a block, queues every pending item whose dependencies are satisfied and that has
+// an assignee, and returns the plan header as it stands.
+func (c *Client) RunPlan(planID string) (Plan, error) {
+	return c.planAction(planID, "run")
+}
+
+// PausePlan holds a plan's automatic chain advance (POST /v1/plans/{id}/pause).
+func (c *Client) PausePlan(planID string) (Plan, error) {
+	return c.planAction(planID, "pause")
+}
+
+// ResumePlan releases a plan's pause and block and advances the chain
+// (POST /v1/plans/{id}/resume).
+func (c *Client) ResumePlan(planID string) (Plan, error) {
+	return c.planAction(planID, "resume")
+}
+
+// planAction POSTs one of the PLAN-03 plan actions; all three answer with the plan
+// header, so the caller reads the new status/paused/blocked from one shape.
+func (c *Client) planAction(planID, action string) (Plan, error) {
+	var p Plan
+	err := c.doJSON(http.MethodPost, "/v1/plans/"+url.PathEscape(planID)+"/"+action, nil, &p)
 	return p, err
 }
 

@@ -764,6 +764,25 @@ const (
 	// signal (design §四.2).
 	EventPlanTodoDispatched     = "plan.todo_dispatched"
 	EventPlanTodoDispatchFailed = "plan.todo_dispatch_failed"
+	// PLAN-03 chain events, all recorded on the PLAN's own scope (`plan:<id>`, see
+	// PlanEventScope) because none of them belongs to a job that ran:
+	//   - plan.todo_advanced  {todo_id, after}  a pending item whose dependencies are
+	//     satisfied was queued (and, right after, dispatched);
+	//   - plan.todo_unassigned{todo_id}         an item came due but nobody is
+	//     assigned to run it — the human's cue, and the reason a chain can stall
+	//     silently otherwise;
+	//   - plan.blocked        {todo_id, job, reason}  a chain job FAILED and parked
+	//     the plan on its item. The ONLY plan event in the notification default set
+	//     (design §六, decision 1): like job.needs_review it is a "a human must act"
+	//     signal, and it can only happen on a plan that uses dependencies;
+	//   - plan.completed      {plan_id}         every item is done or skipped;
+	//   - plan.advance_paused {plan_id}         a chain move was due while the plan is
+	//     paused (the item stays where it is — the event says why nothing started).
+	EventPlanTodoAdvanced   = "plan.todo_advanced"
+	EventPlanTodoUnassigned = "plan.todo_unassigned"
+	EventPlanBlocked        = "plan.blocked"
+	EventPlanCompleted      = "plan.completed"
+	EventPlanAdvancePaused  = "plan.advance_paused"
 	// JOB-09 wakeup lifecycle events, all recorded on the wakeup's TARGET job (the
 	// one a fire resumes), so the job's own timeline answers "why did this job run
 	// again" and the web 唤醒 block reads its trigger history from them:

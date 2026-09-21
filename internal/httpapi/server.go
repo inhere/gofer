@@ -633,6 +633,11 @@ func (s *Server) buildRouter() *rux.Router {
 		r.PATCH("/plans/{id}", s.handleUpdatePlan)
 		r.POST("/plans/{id}/jobs", s.handleAttachPlanJob)
 		r.POST("/plans/{id}/todos", s.handleAddPlanTodo)
+		// PLAN-03 chain control: run starts the ready work (and releases pause/block),
+		// pause holds the automatic advance, resume releases both and advances.
+		r.POST("/plans/{id}/run", s.handleRunPlan)
+		r.POST("/plans/{id}/pause", s.handlePausePlan)
+		r.POST("/plans/{id}/resume", s.handleResumePlan)
 		r.PATCH("/todos/{todo_id}", s.handleUpdateTodo)
 		// PLAN-02 P2: explicit dispatch of an assigned item (ignores its status).
 		r.POST("/todos/{todo_id}/dispatch", s.handleDispatchTodo)
