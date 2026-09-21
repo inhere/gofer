@@ -31,6 +31,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/inhere/gofer/internal/acp"
 	"github.com/inhere/gofer/internal/config"
@@ -488,7 +489,12 @@ func (h *handler) addThought(text string) {
 		return
 	}
 	if room := maxThoughtBytes - h.thought.Len(); len(text) > room {
+		// Cut to the byte budget on a RUNE boundary: an agent thinking in Chinese would
+		// otherwise leave half a character at the cap (JSON-encodable, but garbage).
 		text = text[:room]
+		for len(text) > 0 && !utf8.ValidString(text) {
+			text = text[:len(text)-1]
+		}
 	}
 	h.thought.WriteString(text)
 }
