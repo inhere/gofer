@@ -56,6 +56,8 @@ import type {
   WorkflowSpec,
   WorkflowsResp,
   WorkflowStatus,
+  XferPutMeta,
+  XferStaged,
 } from './types'
 import type { StreamJobOpts } from './sse'
 
@@ -296,6 +298,22 @@ export async function submitJob(req: SubmitJobReq): Promise<SubmitJobResult> {
   }
   const job = (await res.json()) as Job
   return { job, async: res.status === 202 }
+}
+
+// 暂存一个待上传文件（XFER-01 X2，POST /v1/xfer multipart）：part `meta`(JSON) 必须在
+// part `file`(原始字节) 之前 —— server 边读 part 边校验，顺序反了直接 400。因此这里
+// 按序 append 到 FormData，并**不**设 Content-Type（交给浏览器带上 boundary）。
+// meta.stage_only=true 时 server 只暂存、不派发，文件由 job 的执行机起跑前取走
+// （`gofer tool cp` 是立即派发，不用 stage_only）。
+export function stageXfer(
+  meta: XferPutMeta,
+  file: Blob,
+  filename: string,
+): Promise<XferStaged> {
+  const form = new FormData()
+  form.append('meta', JSON.stringify(meta))
+  form.append('file', file, filename)
+  return request<XferStaged>('/v1/xfer', { method: 'POST', body: form })
 }
 
 export function listJobs(opts?: ListJobsOpts): Promise<JobsResp> {

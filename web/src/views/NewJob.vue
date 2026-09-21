@@ -13,9 +13,11 @@ import {
   getTemplate,
   listTemplates,
   rebuildJob,
+  stageXfer,
   submitJob,
 } from '../api/client'
 import type {
+  JobUpload,
   MetaAgent,
   MetaProject,
   MetaRunner,
@@ -23,6 +25,7 @@ import type {
   RebuildBody,
   TemplateInfo,
   TemplatePreview,
+  XferPutMeta,
 } from '../api/types'
 
 const router = useRouter()
@@ -542,6 +545,84 @@ watch(pinnedWorkerId, (pin) => {
   }
 })
 
+// ── 文件传输（XFER-01 X2）──────────────────────────────────────────
+// 上传：选好文件 + 目标路径（job cwd 相对），提交前先逐个暂存（POST /v1/xfer，stage_only）
+// 拿到 xfer_id，随请求的 uploads[] 发出去 —— 执行机在 agent 起跑前把文件放到 dest（放不下
+// 就 job failed，agent 不起）。收集：job 结束后按 cwd 匹配的 glob，命中项落到该 job 产物的
+// collected/ 下（web 详情页可直接预览/下载）。
+// 只在本表单提交时生效：rebuild 走另一条通道（只发改动字段），故那边不显示这两栏。
+interface UploadRow {
+  file: File
+  dest: string
+}
+
+const uploadRows = ref<UploadRow[]>([])
+const collectText = ref('')
+
+// 收集 glob：每行一个（与 AGENT ARGS 的逐行风格一致），去空行。
+function parseCollect(raw: string): string[] {
+  return raw
+    .split('\n')
+    .map((s) => s.trim())
+    .filter((s) => s !== '')
+}
+
+// 暂存目标机器（xfer 的 runner 字段）：worker runner 必须给具体 worker id —— 暂存的文件
+// 只会被那台机器取走；local（server/local 是同一个）。按标签自动时落点由服务端提交时决定，
+// 预先定不了机器，故 uploads 会被 validationError 拦下（宁可说清楚，也不发一个必失败的 job）。
+const xferRunner = computed<string>(() =>
+  isWorkerRunner.value ? effectiveWorkerId.value : runnerName.value,
+)
+
+// 浏览器端算 sha256（server 只拿它做校验；空串 = 不校验内容、只比 size）。crypto.subtle
+// 只在安全上下文（https / localhost）存在，取不到就交空串，不让它挡住提交。
+async function sha256Hex(file: File): Promise<string> {
+  if (!globalThis.crypto?.subtle) {
+    return ''
+  }
+  const digest = await crypto.subtle.digest('SHA-256', await file.arrayBuffer())
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('')
+}
+
+// 逐个暂存选中的文件：任何一步失败就抛错中止提交 —— 半套上传的 job 起跑必挂，不如在这里
+// 把「哪个文件、去哪里、为什么」说清楚。
+async function stageUploads(): Promise<JobUpload[]> {
+  const out: JobUpload[] = []
+  for (const row of uploadRows.value) {
+    const dest = row.dest.trim()
+    const meta: XferPutMeta = {
+      op: 'put',
+      runner: xferRunner.value,
+      project: projectKey.value,
+      path: dest,
+      size: row.file.size,
+      sha256: await sha256Hex(row.file),
+      force: false,
+      // 只暂存、不派发：文件由这个 job 的执行机在起跑前取走。
+      stage_only: true,
+    }
+    try {
+      const staged = await stageXfer(meta, row.file, row.file.name)
+      out.push({ xfer_id: staged.id, dest })
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e)
+      throw new Error(`暂存「${row.file.name} → ${dest}」失败：${msg}`)
+    }
+  }
+  return out
+}
+
+function onFilesPicked(e: Event): void {
+  const input = e.target as HTMLInputElement
+  for (const f of Array.from(input.files ?? [])) {
+    uploadRows.value.push({ file: f, dest: '' })
+  }
+  // 清空 input：同一个文件删掉后还能再选一次（否则 change 不再触发）。
+  input.value = ''
+}
+
 // 校验 + 组装请求
 const validationError = computed<string>(() => {
   if (!projectKey.value) {
@@ -576,6 +657,15 @@ const validationError = computed<string>(() => {
   }
   if (isExec.value && command.value.trim() === '') {
     return 'exec 需填写 command'
+  }
+  // 文件上传：暂存需要一台确定的执行机（暂存的文件只会被它取走），且每个文件都要有目标路径。
+  if (uploadRows.value.length > 0) {
+    if (xferRunner.value === '') {
+      return '上传文件需要先指定 worker（按标签自动时落点由服务端决定，无法预先暂存）'
+    }
+    if (uploadRows.value.some((r) => r.dest.trim() === '')) {
+      return '请为每个上传文件填写目标路径（执行机 cwd 相对，如 tmp/in/a.bin）'
+    }
   }
   return ''
 })
@@ -681,6 +771,15 @@ async function onSubmit() {
       if (rows.value > 0) {
         req.rows = rows.value
       }
+    }
+    // 文件传输（XFER-01 X2）：先把选中的文件逐个暂存（stage_only）拿到 xfer_id，再随
+    // uploads[] 提交 —— 任何一步暂存失败都会抛错，整单不提交（见 stageUploads）。
+    if (uploadRows.value.length > 0) {
+      req.uploads = await stageUploads()
+    }
+    const collect = parseCollect(collectText.value)
+    if (collect.length > 0) {
+      req.collect = collect
     }
     // pin 型 runner：一个字段都不发——worker_id/worker_labels 都是"改派"，后端一律拒。
     if (isWorkerRunner.value && pinnedWorkerId.value === '') {
@@ -1159,6 +1258,55 @@ watch(interactive, (on) => {
         <p class="field-hint mono">自由标签，提交后可按 tag 检索 / 行内徽标展示</p>
       </div>
 
+      <!-- 文件传输（XFER-01 X2）：上传 = 提交前先暂存（stage_only），执行机在 agent 起跑前
+           把文件放到目标路径；收集 = job 结束后按 cwd 匹配的 glob，命中项进本 job 产物的
+           collected/（详情页可直接预览/下载）。rebuild 走只发改动字段的通道，故不显示。 -->
+      <template v-if="!isRebuild">
+        <div class="field">
+          <label class="label mono" for="nj-upload">UPLOAD（上传文件，可选）</label>
+          <input
+            id="nj-upload"
+            class="control mono file-input"
+            type="file"
+            multiple
+            @change="onFilesPicked"
+          />
+          <div v-for="(row, i) in uploadRows" :key="`up-${i}`" class="upload-row">
+            <span class="upload-name mono" :title="row.file.name">{{ row.file.name }}</span>
+            <input
+              v-model="row.dest"
+              class="control mono upload-dest"
+              spellcheck="false"
+              autocomplete="off"
+              placeholder="目标路径（cwd 相对），如 tmp/in/a.bin"
+            />
+            <button type="button" class="env-btn" @click="uploadRows.splice(i, 1)">移除</button>
+          </div>
+          <p v-if="uploadRows.length > 0 && xferRunner !== ''" class="field-hint mono">
+            提交前会先暂存到 {{ xferRunner }}，由执行机在 agent 起跑前放到目标路径
+          </p>
+          <p v-else-if="uploadRows.length > 0" class="field-hint field-hint--warn mono">
+            需先指定 worker：暂存要落到一台具体的执行机（按标签自动时落点由服务端定）
+          </p>
+          <p v-else class="field-hint mono">可多选；每个文件需填一个目标路径（执行机 cwd 相对）</p>
+        </div>
+
+        <div class="field">
+          <label class="label mono" for="nj-collect">COLLECT（每行一个 glob，可选）</label>
+          <textarea
+            id="nj-collect"
+            v-model="collectText"
+            class="control mono area area--short"
+            rows="2"
+            spellcheck="false"
+            placeholder="tmp/out/*.csv"
+          ></textarea>
+          <p class="field-hint mono">
+            job 结束后按 cwd 匹配（失败也会收集），命中项落到本 job 产物的 collected/ 下，可在详情页预览/下载
+          </p>
+        </div>
+      </template>
+
       <div v-if="isRebuild" class="field">
         <label class="label mono">ENV（源 job 继承；值保留在服务端）</label>
         <div v-if="envRows.length === 0 && envAdds.length === 0" class="field-hint mono">
@@ -1317,6 +1465,47 @@ select.control {
 }
 .field-hint--warn {
   color: var(--run);
+}
+
+/* 文件上传（XFER-01 X2）：一个文件一行（名字 · 目标路径 · 移除），与 env-row 同款网格。 */
+.file-input {
+  padding: 7px 10px;
+  font-size: 12px;
+}
+.file-input::file-selector-button {
+  background: transparent;
+  color: var(--phosphor);
+  border: 1px solid var(--phosphor);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  font-size: 12px;
+  margin-right: 10px;
+  cursor: pointer;
+}
+.upload-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 0.7fr) minmax(180px, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  background: var(--ink);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 8px;
+  margin-top: 8px;
+}
+.upload-name {
+  color: var(--paper);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upload-dest {
+  padding: 6px 8px;
+}
+/* 收集 glob 输入比 prompt 矮：通常是两三个 pattern。 */
+.area--short {
+  min-height: 54px;
 }
 
 .redacted-banner {
@@ -1496,6 +1685,9 @@ select.control {
     gap: 16px;
   }
   .env-row {
+    grid-template-columns: 1fr;
+  }
+  .upload-row {
     grid-template-columns: 1fr;
   }
 }

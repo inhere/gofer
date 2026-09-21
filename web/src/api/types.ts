@@ -100,6 +100,43 @@ export interface Job {
   // 用量/成本（SUP-01 E，后端 omitempty）：agent 自报的 token/成本结算（远端 job 由执行机
   // 采集后随 Outcome 回传）。没采集到就没有该字段，详情页不显示用量块。
   usage?: JobUsage
+  // 文件传输（XFER-01 X2，后端 omitempty）：仅当该 job 真用过 --upload / --collect 才有
+  // （没用过 = 缺省），详情页据此渲染「文件」块。收集到的文件本体落在
+  // <result_dir>/artifacts/collected/<name>，故下载/预览走既有产物通道。
+  xfer?: JobXfer
+}
+
+// 一次上传（XFER-01 X2）。dest 是提交时给的【job cwd 相对】目标路径（执行机按 cwd
+// 解析后落盘）；ok=false 时 error 说明失败原因 —— 此时 agent 根本没起跑，job 已 failed。
+// 后端 size/error 都带 omitempty：size 缺省 = 0 字节（没落盘），error 缺省 = 没有原因。
+export interface JobXferUpload {
+  dest: string
+  size?: number
+  ok: boolean
+  error?: string
+}
+
+// 收集到的一个文件（XFER-01 X2）：name 是【项目根相对路径】，本体在
+// <result_dir>/artifacts/collected/<name>，故 URL 里的产物名就是 `collected/<name>`。
+// 后端 size 带 omitempty：缺省 = 0 字节。
+export interface JobXferCollected {
+  name: string
+  size?: number
+}
+
+// 被跳过的收集项（XFER-01 X2）：pattern 是提交时的 glob（后端 omitempty），name 是命中的
+// 具体文件（omitempty），reason 是短文本（"too large" / "not a regular file" …）。
+export interface JobXferSkipped {
+  pattern?: string
+  name?: string
+  reason: string
+}
+
+// job 的文件传输汇总（GET /v1/jobs/{id} 的 xfer）。三段都可能缺省（没有就是空清单）。
+export interface JobXfer {
+  uploads?: JobXferUpload[]
+  collected?: JobXferCollected[]
+  skipped?: JobXferSkipped[]
 }
 
 // 一次验证步骤的结果（SUP-01 P2）。command=提交时的 argv（未经 shell），
@@ -972,6 +1009,41 @@ export interface SubmitJobReq {
   // template 与 vars 随 request_json 存档（audit/rerun）。清单见 listTemplates()。
   template?: string
   vars?: Record<string, string>
+  // 文件传输（XFER-01 X2）：uploads = 已暂存的传输（见 stageXfer）+ job cwd 相对目标路径，
+  // 执行机在 agent 起跑前把文件放好（放不下就 job failed，agent 不起）；collect = job 结束
+  // 后（无论成败、verify 之后）按 cwd 匹配的 glob，命中项落到本 job 产物的 collected/ 下。
+  uploads?: JobUpload[]
+  collect?: string[]
+}
+
+// job 的一次上传（XFER-01 X2，POST /v1/jobs 的 uploads[]）：xfer_id 是先前 POST /v1/xfer
+// 暂存（stage_only）拿到的 id，dest 是【job cwd 相对】的目标路径。
+export interface JobUpload {
+  xfer_id: string
+  dest: string
+}
+
+// 暂存一个待上传文件（XFER-01 X2，POST /v1/xfer multipart）：part `meta`(本 JSON) 必须
+// 在 part `file`(原始字节) 之前 —— server 边读 part 边校验，顺序反了直接 400。
+// stage_only=true：server 只把它放进暂存区、不派发任何地方，等 job 的执行机起跑前来取
+// （`gofer tool cp` 不用它，那里是要立即派发）。
+export interface XferPutMeta {
+  op: 'put'
+  // 取文件的机器：worker id，或本地（server / local 别名）
+  runner: string
+  project: string
+  path: string
+  size: number
+  // 十六进制摘要；空串 = 不校验内容，server 只按 size 校验
+  sha256: string
+  force: boolean
+  stage_only: boolean
+}
+
+// 暂存结果：id 填进 uploads[].xfer_id；state=staged 表示已在暂存区（尚未派发）。
+export interface XferStaged {
+  id: string
+  state: string
 }
 
 // 任务书模板（SUP-01 P5，GET /v1/projects/{key}/templates）。

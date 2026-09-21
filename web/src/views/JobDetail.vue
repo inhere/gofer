@@ -44,6 +44,10 @@ import type {
   JobStatus,
   JobUsage,
   JobVerify,
+  JobXfer,
+  JobXferCollected,
+  JobXferSkipped,
+  JobXferUpload,
   LogStream,
   PtySession,
   SSEEvent,
@@ -599,6 +603,7 @@ async function loadCurrentJob(): Promise<void> {
   preview.value = null
   previewingNames.value = new Set()
   previewError.value = ''
+  xferFileError.value = ''
   diffError.value = ''
   diffLoading.value = false
   diffOpen.value = false
@@ -747,6 +752,26 @@ const artifacts = ref<Artifact[]>([])
 const downloadingNames = ref<Set<string>>(new Set())
 const artifactError = ref('')
 
+// 文件传输（XFER-01 X2）：后端只在 job 真用过 --upload/--collect 时发 xfer（没用过 =
+// 缺省 → 整个「文件」块不渲染）。收集到的文件就列在产物清单的 collected/ 下，故它复用
+// 下面同一套预览/下载（只是错误提示就近落在自己的块里，见 ArtifactScope）。
+const xfer = computed<JobXfer | null>(() => job.value?.xfer ?? null)
+const xferUploads = computed<JobXferUpload[]>(() => xfer.value?.uploads ?? [])
+const xferCollected = computed<JobXferCollected[]>(() => xfer.value?.collected ?? [])
+const xferSkipped = computed<JobXferSkipped[]>(() => xfer.value?.skipped ?? [])
+// 三段全空（如提交了 collect 但一个都没匹配上）等同没有内容，不摆一个空盒子。
+const hasXferDetail = computed<boolean>(
+  () =>
+    xferUploads.value.length > 0 ||
+    xferCollected.value.length > 0 ||
+    xferSkipped.value.length > 0,
+)
+// 收集到的文件在产物里的固定前缀（后端落盘位置）：name 是项目根相对路径，产物名再加这层。
+const COLLECTED_PREFIX = 'collected/'
+function collectedName(name: string): string {
+  return COLLECTED_PREFIX + name
+}
+
 async function loadArtifacts(): Promise<void> {
   try {
     const resp = await listArtifacts(props.id)
@@ -836,7 +861,21 @@ function deliveryLabel(d: Delivery): string {
   }
 }
 
-async function onDownload(name: string): Promise<void> {
+// 产物（含文件传输收集到的 collected/*）的下载/预览走同一套 helper + 同一条 URL
+// （client 里逐段编码路径）。区别只在失败提示落哪一块：产物块与「文件」块各自行文，
+// 谁触发的就写在谁那里 —— 否则点收集行失败时，错误可能落在没渲染的产物块里看不见。
+type ArtifactScope = 'artifact' | 'xfer'
+const xferFileError = ref('')
+
+function scopeError(scope: ArtifactScope, message: string): void {
+  if (scope === 'xfer') {
+    xferFileError.value = message
+  } else {
+    artifactError.value = message
+  }
+}
+
+async function onDownload(name: string, scope: ArtifactScope = 'artifact'): Promise<void> {
   if (downloadingNames.value.has(name)) {
     return
   }
@@ -846,7 +885,7 @@ async function onDownload(name: string): Promise<void> {
   try {
     await downloadArtifact(props.id, name)
   } catch (e) {
-    artifactError.value = e instanceof Error ? e.message : String(e)
+    scopeError(scope, e instanceof Error ? e.message : String(e))
   } finally {
     const after = new Set(downloadingNames.value)
     after.delete(name)
@@ -857,23 +896,24 @@ async function onDownload(name: string): Promise<void> {
 // ── 产物 inline 预览（E19a）──────────────────────────────────────────
 // 点「预览」→ 取 blob（带鉴权）→ 弹层挂 FilePreview（md/图/json/文本，按 D5）。
 // previewingNames 标记取数中（防重复点击）；preview 为当前弹层文件（null=未打开）。
-const preview = ref<{ name: string; blob: Blob } | null>(null)
+// scope 随弹层记住，弹层里的「下载」沿用同一条错误落点。
+const preview = ref<{ name: string; blob: Blob; scope: ArtifactScope } | null>(null)
 const previewingNames = ref<Set<string>>(new Set())
 const previewError = ref('')
 
-async function onPreview(name: string): Promise<void> {
+async function onPreview(name: string, scope: ArtifactScope = 'artifact'): Promise<void> {
   if (previewingNames.value.has(name)) {
     return
   }
-  previewError.value = ''
+  scopeError(scope, '')
   const next = new Set(previewingNames.value)
   next.add(name)
   previewingNames.value = next
   try {
     const blob = await fetchArtifactBlob(props.id, name)
-    preview.value = { name, blob }
+    preview.value = { name, blob, scope }
   } catch (e) {
-    previewError.value = e instanceof Error ? e.message : String(e)
+    scopeError(scope, e instanceof Error ? e.message : String(e))
   } finally {
     const after = new Set(previewingNames.value)
     after.delete(name)
@@ -888,19 +928,20 @@ function closePreview(): void {
 // FilePreview 在「过大/二进制」回退时 emit download，或弹层「下载」按钮 → 复用 onDownload。
 function onPreviewDownload(): void {
   if (preview.value) {
-    void onDownload(preview.value.name)
+    void onDownload(preview.value.name, preview.value.scope)
   }
 }
 
-// 人类可读文件大小（B/KB/MB），mono 列展示。
-function fmtSize(bytes: number): string {
-  if (bytes < 1024) {
-    return `${bytes} B`
+// 人类可读文件大小（B/KB/MB），mono 列展示。缺省（后端 omitempty 省略 0 字节）按 0 计。
+function fmtSize(bytes: number | undefined): string {
+  const n = bytes ?? 0
+  if (n < 1024) {
+    return `${n} B`
   }
-  if (bytes < 1024 * 1024) {
-    return `${(bytes / 1024).toFixed(1)} KB`
+  if (n < 1024 * 1024) {
+    return `${(n / 1024).toFixed(1)} KB`
   }
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
 }
 
 // diff 快照(E12)：后端 diff_summary 是 `git diff --stat` 摘要文本（未提交改动，
@@ -971,7 +1012,9 @@ const hasOutcomes = computed<boolean>(
     // SUP-01 P2：验证步骤是"到底验没验、过没过"的结论，即使 job 没有其他产出也要展示。
     verify.value !== null ||
     // SUP-01 E：用量/成本是这个 job 花了多少的唯一记录，同样独立于其他产出。
-    usageText.value !== '',
+    usageText.value !== '' ||
+    // XFER-01 X2：传了文件（上传/收集）就是实打实的产出，没别的产出时面板也要出现。
+    hasXferDetail.value,
 )
 
 // 提交列表（SUP-01 C）：本 job 从 base_sha 到 HEAD 产出的提交，新→旧。
@@ -1439,6 +1482,72 @@ onUnmounted(() => {
         </ul>
         <p v-if="artifactError" class="artifact-err mono">{{ artifactError }}</p>
         <p v-if="previewError" class="artifact-err mono">{{ previewError }}</p>
+      </div>
+
+      <!-- 文件传输（XFER-01 X2）：--upload / --collect 的落地结果。后端只在真用过时发
+           xfer；三段全空也不摆空盒子。收集到的文件本体就在产物的 collected/ 下（且即使
+           远端执行也已在 hub 上），故点击直接复用产物预览/下载通道。 -->
+      <div v-if="xfer && hasXferDetail" class="outcome-block">
+        <div class="outcome-head">
+          <span class="outcome-k mono">文件</span>
+        </div>
+
+        <!-- 上传：执行机在 agent 起跑前放进 dest（cwd 相对）的文件；失败的会说明原因
+             （此时 agent 没跑、job 已 failed）。 -->
+        <div v-if="xferUploads.length > 0" class="xfer-part">
+          <p class="diff-note mono">上传（{{ xferUploads.length }}）· 起跑前放进执行机</p>
+          <ul class="artifact-list">
+            <li v-for="(u, i) in xferUploads" :key="`up-${i}-${u.dest}`" class="artifact-row">
+              <span class="artifact-name mono" :title="u.dest">{{ u.dest }}</span>
+              <span class="artifact-size mono">{{ fmtSize(u.size) }}</span>
+              <span class="xfer-chip mono" :class="u.ok ? 'xfer-chip--ok' : 'xfer-chip--bad'">
+                {{ u.ok ? '已就位' : '失败' }}
+              </span>
+              <span v-if="!u.ok && u.error" class="xfer-note mono" :title="u.error">{{ u.error }}</span>
+            </li>
+          </ul>
+        </div>
+
+        <!-- 收集：job 结束后按 cwd 匹配到的文件，本体落在本 job 产物的 collected/ 下。 -->
+        <div v-if="xferCollected.length > 0" class="xfer-part">
+          <p class="diff-note mono">收集（{{ xferCollected.length }}）· 点名字预览</p>
+          <ul class="artifact-list">
+            <li v-for="c in xferCollected" :key="`col-${c.name}`" class="artifact-row">
+              <button
+                class="artifact-name xfer-name-btn mono"
+                type="button"
+                :title="`预览 ${collectedName(c.name)}`"
+                :disabled="previewingNames.has(collectedName(c.name))"
+                @click="onPreview(collectedName(c.name), 'xfer')"
+              >
+                {{ c.name }}
+              </button>
+              <span class="artifact-size mono">{{ fmtSize(c.size) }}</span>
+              <button
+                class="artifact-dl mono"
+                type="button"
+                :disabled="downloadingNames.has(collectedName(c.name))"
+                @click="onDownload(collectedName(c.name), 'xfer')"
+              >
+                {{ downloadingNames.has(collectedName(c.name)) ? '下载中…' : '下载' }}
+              </button>
+            </li>
+          </ul>
+        </div>
+
+        <!-- 跳过：匹配到但没传回的文件（超单文件/总量上限等），连同原因列出。 -->
+        <div v-if="xferSkipped.length > 0" class="xfer-part">
+          <p class="diff-note mono">跳过（{{ xferSkipped.length }}）· 匹配到但没传回</p>
+          <ul class="artifact-list">
+            <li v-for="(sk, i) in xferSkipped" :key="`skip-${i}-${sk.name || sk.pattern || ''}`" class="artifact-row">
+              <span class="artifact-name mono" :title="sk.name || sk.pattern || ''">{{ sk.name || sk.pattern || '（未命名）' }}</span>
+              <span v-if="sk.pattern && sk.name" class="artifact-size mono" :title="`pattern ${sk.pattern}`">{{ sk.pattern }}</span>
+              <span class="xfer-note mono" :title="sk.reason">{{ sk.reason }}</span>
+            </li>
+          </ul>
+        </div>
+
+        <p v-if="xferFileError" class="artifact-err mono">{{ xferFileError }}</p>
       </div>
 
       <!-- 提交列表（SUP-01 C）：本 job 产出的提交（base..HEAD，新→旧）。worktree job
@@ -2367,6 +2476,58 @@ onUnmounted(() => {
   color: var(--fail);
   font-size: 11px;
   margin: 6px 0 0;
+}
+
+/* 文件传输（XFER-01 X2）：一块里三段（上传/收集/跳过），段间留白，段内复用产物行样式。 */
+.xfer-part + .xfer-part {
+  margin-top: 10px;
+}
+/* 收集行的文件名是个按钮（点击预览）：去掉按钮外观，保留 artifact-name 的排版。 */
+.xfer-name-btn {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 0;
+  background: transparent;
+  border: none;
+  text-align: left;
+  font: inherit;
+  color: var(--paper);
+  cursor: pointer;
+}
+.xfer-name-btn:hover:not(:disabled) {
+  color: var(--phosphor);
+  text-decoration: underline;
+}
+.xfer-name-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+/* 状态芯片：上传成功/失败一眼可辨（失败时紧随其后的 .xfer-note 给原因）。 */
+.xfer-chip {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1px 7px;
+  font-size: 11px;
+  color: var(--queue);
+}
+.xfer-chip--ok {
+  color: var(--done);
+  border-color: var(--done);
+}
+.xfer-chip--bad {
+  color: var(--fail);
+  border-color: var(--fail);
+}
+/* 失败原因 / 跳过原因：行内一等公民但可截断，悬停看全文。 */
+.xfer-note {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--fail);
+  font-size: 11px;
 }
 
 /* 产物预览弹层（E19a）：居中模态，遮罩点击关闭；内容交给 FilePreview。 */
