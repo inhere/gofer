@@ -18,6 +18,7 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/core"
+	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/wshub"
 	"github.com/inhere/gofer/internal/xfer"
@@ -32,6 +33,10 @@ type xferHubSide struct {
 	hub   *wshub.Hub
 	mgr   *xfer.Manager
 	store *jobstore.Store
+	// jobs is the hub's own job service (from the same core.Build as the transfer
+	// manager), so an X2 test can submit a job whose uploads/collect travel the real
+	// wiring instead of a hand-built path.
+	jobs *job.Service
 }
 
 // buildXferHubSide stands up a serve side whose httptest server serves BOTH the
@@ -49,7 +54,17 @@ func buildXferHubSide(t *testing.T) *xferHubSide {
 		Storage: config.StorageConfig{Root: t.TempDir()},
 		// The hub-side project entry exists for the transfer journal (the executing
 		// machine resolves the path against ITS OWN root, which the worker fixture owns).
-		Projects: map[string]config.ProjectConfig{"alpha": {HostPath: t.TempDir()}},
+		// exec + remote-w1 are what the X2 job round trip needs: a job the hub dispatches
+		// to the worker, whose uploads/collect travel the same transfer manager.
+		Projects: map[string]config.ProjectConfig{"alpha": {
+			HostPath:       t.TempDir(),
+			AllowedAgents:  []string{"exec"},
+			AllowedRunners: []string{"remote-w1"},
+			AllowExec:      true,
+		}},
+		Runners: map[string]config.RunnerConfig{
+			"remote-w1": {Type: "worker", WorkerID: e2eWorkerID},
+		},
 	}
 	config.ApplyDefaults(cfg)
 	cr, err := core.Build(cfg, core.WithAgentDetector(agent.NoopDetector{}))
@@ -65,7 +80,7 @@ func buildXferHubSide(t *testing.T) *xferHubSide {
 	mux.Handle("/v1/xfer/", xferContentHandler(t, cr.Xfer()))
 	ts := httptest.NewServer(mux)
 	t.Cleanup(ts.Close)
-	return &xferHubSide{ts: ts, hub: cr.Hub, mgr: cr.Xfer(), store: cr.Store}
+	return &xferHubSide{ts: ts, hub: cr.Hub, mgr: cr.Xfer(), store: cr.Store, jobs: cr.Jobs}
 }
 
 // xferContentHandler is the two content endpoints the worker calls, served straight off

@@ -123,6 +123,29 @@ func main() {
 		name := arg(2)
 		content := arg(3)
 		must(os.WriteFile(filepath.Join(mustEnv("GOFER_RESULT_DIR"), name), []byte(content), 0o644))
+	case "write-files":
+		// write-files <path> <content> [<path> <content> ...]: create each file
+		// (parents included) relative to the process cwd — the job-side fixture for
+		// the XFER-01 X2 collect tests, where a job's output is what a glob matches.
+		for i := 2; i+1 < len(os.Args); i += 2 {
+			p := os.Args[i]
+			if dir := filepath.Dir(p); dir != "." {
+				must(os.MkdirAll(dir, 0o755))
+			}
+			must(os.WriteFile(p, []byte(os.Args[i+1]), 0o644))
+		}
+	case "copy-file":
+		// copy-file <src> <dst>: copy a file (parents included) relative to the
+		// process cwd. A collect test uses it to prove a --upload landed BEFORE the
+		// agent ran: the bytes it reads are the bytes the collected file carries.
+		src := arg(2)
+		dst := arg(3)
+		b, err := os.ReadFile(src)
+		must(err)
+		if dir := filepath.Dir(dst); dir != "." {
+			must(os.MkdirAll(dir, 0o755))
+		}
+		must(os.WriteFile(dst, b, 0o644))
 	case "append-file-sleep":
 		mustAppend(arg(2), arg(3))
 		d, err := time.ParseDuration(arg(4))
