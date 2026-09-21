@@ -4,16 +4,23 @@
 //  - jobs 链入 /jobs/{id}（仿 WorkflowDetail 的 step→job）。
 //  - decisions：投影成 Interaction 复用 InteractionCard（OPEN→choice/question、
 //    ANSWERED→answered 回显、EXPIRED→expired 只读），作答走 answerDecision 后整刷。
-//  - todos：勾选(updateTodo) / 新增(addTodo，可绑 job) / 展示绑定 job。
+//  - todos：勾选(updateTodo) / 新增(addTodo，可绑 job) / 展示绑定 job / 派发(patchTodo 置
+//    ready) / 编辑派发字段(assignee、template、verify、review、runner、cwd、timeout、project)。
 //  - attach：把已有 job id 补挂到本 plan（attachJob）。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import PlanStatusBadge from '../components/PlanStatusBadge.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import InteractionCard from '../components/InteractionCard.vue'
-import { addTodo, answerDecision, attachJob, getPlan, updatePlan, updateTodo, updateTodoStatus } from '../api/client'
+import {
+  addTodo, answerDecision, attachJob, getPlan, listAgents, patchTodo, updatePlan,
+  updateTodo, updateTodoStatus,
+} from '../api/client'
 import { fmtDateTime, fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
-import type { Decision, Interaction, Job, PlanDetail, PlanStatus, Todo, TodoStatus } from '../api/types'
+import type {
+  AgentInfo, Decision, Interaction, Job, PlanDetail, PlanStatus, Todo, TodoPatch, TodoStatus,
+} from '../api/types'
+import { formatTokens } from '../utils/jobOutcome'
 import { progressDetail, progressSegments, progressText } from '../utils/planProgress'
 
 const props = defineProps<{ id: string }>()
@@ -100,6 +107,29 @@ async function onAnswerDecision(d: Decision, value: string): Promise<void> {
   }
 }
 
+// plan 头部用量汇总（PLAN-02 P2）：token/成本只累加报了数字的 job，括号里是各 agent 的
+// job 数（jobs 计全部挂接的 job，没报用量也算跑了）——故「—（omp 2 jobs）」= 跑过但没采
+// 集到数字。没有任何 job 时返回 ""，头部整行不渲染。
+const planUsageText = computed<string>(() => {
+  const u = plan.value?.usage
+  if (!u || u.jobs === 0) {
+    return ''
+  }
+  const parts: string[] = []
+  if (u.total_tokens > 0) {
+    parts.push(`${formatTokens(u.total_tokens)} tokens`)
+  }
+  if (u.cost_usd > 0) {
+    parts.push(`$${u.cost_usd.toFixed(4)}`)
+  }
+  // 多 agent 时按 job 数降序（谁在干活一眼可见），同数按 key 稳定排序。
+  const byAgent = Object.entries(u.by_agent ?? {})
+    .sort((a, b) => b[1].jobs - a[1].jobs || a[0].localeCompare(b[0]))
+    .map(([agent, a]) => `${agent} ${a.jobs} jobs`)
+  const head = parts.length > 0 ? parts.join(' / ') : '—'
+  return byAgent.length > 0 ? `${head}（${byAgent.join('、')}）` : head
+})
+
 const todoSummary = computed(() => {
   const todos = plan.value?.todos ?? []
   const doing = todos.filter((t) => t.status === 'doing').length
@@ -110,13 +140,21 @@ const todoSummary = computed(() => {
 })
 
 // 生命周期状态推进（Part C §C2）：下拉即改，doing/done 时间戳由服务端自动打。
-const TODO_STATUSES: TodoStatus[] = ['pending', 'doing', 'done', 'skipped']
+// PLAN-02 P2：ready 是「可派发」——条目此时有 assignee 且无活跃 job，服务端立刻起 job
+// （与行内「派发」按钮同一条路，故两者都在这里列全）。
+const TODO_STATUSES: TodoStatus[] = ['pending', 'ready', 'doing', 'done', 'skipped']
 
 async function onTodoStatus(t: Todo, status: TodoStatus): Promise<void> {
   if (status === t.status) return
   opError.value = ''
   try {
     const updated = await updateTodoStatus(t.todo_id, status)
+    // ready 可能当场派发出 job（PLAN-02 P2）：job 链接与 jobs 列表只有整刷才拿得到；
+    // 其余状态就地回填即可。
+    if (status === 'ready') {
+      await fetchPlan()
+      return
+    }
     if (plan.value) {
       plan.value.todos = plan.value.todos.map((x) =>
         x.todo_id === updated.todo_id ? updated : x,
@@ -136,6 +174,152 @@ function todoDuration(t: Todo): string {
   if (s < 60) return `${s}s`
   if (s < 3600) return `${Math.floor(s / 60)}m${String(s % 60).padStart(2, '0')}s`
   return `${Math.floor(s / 3600)}h${String(Math.floor((s % 3600) / 60)).padStart(2, '0')}m`
+}
+
+// —— PLAN-02 P2：todo 派发 + 派发字段编辑 ——
+
+// agents 是「给没 assignee 的条目选 agent」的候选（GET /v1/agents）。页面本没有 agent
+// 列表，故按需加载一次；拉不到就退回手填 key（能填的输入框 > 一个空下拉）。
+const agents = ref<AgentInfo[]>([])
+let agentsLoaded = false
+async function loadAgents(): Promise<void> {
+  if (agentsLoaded) return
+  agentsLoaded = true
+  try {
+    agents.value = (await listAgents()).agents ?? []
+  } catch {
+    agents.value = []
+  }
+}
+
+// dispatching=正在 PATCH 的 todo id；dispatchFor=正在问 agent 的 todo id。
+const dispatching = ref('')
+const dispatchFor = ref('')
+const dispatchAgent = ref('')
+
+// todoLiveJob：该待办最近一次 job 还在跑（非终态）——行内链接据此高亮，回答「派发出去了吗」。
+const LIVE_JOB_STATUSES = new Set([
+  'queued', 'running', 'pending_interaction', 'recovering', 'waiting_dir', 'needs_review',
+])
+function todoLiveJob(t: Todo): boolean {
+  const latest = t.jobs && t.jobs.length > 0 ? t.jobs[0] : undefined
+  return latest ? LIVE_JOB_STATUSES.has(latest.status) : false
+}
+
+function onDispatch(t: Todo): void {
+  if (dispatching.value) return
+  if (!t.assignee) {
+    // 没人认领的条目：先问 agent，再和 ready 一起发。
+    dispatchFor.value = dispatchFor.value === t.todo_id ? '' : t.todo_id
+    dispatchAgent.value = ''
+    if (dispatchFor.value) void loadAgents()
+    return
+  }
+  void dispatchTodo(t, '')
+}
+
+function onConfirmDispatch(t: Todo): void {
+  const agent = dispatchAgent.value.trim()
+  if (!agent) return
+  void dispatchTodo(t, agent)
+}
+
+// dispatchTodo 走 PATCH /v1/todos/{id}（PLAN-02 P2）：status=ready（+ assignee）就是派发。
+// 服务端在这次写入里起 job（条目转 doing 并拿到 job_id），故随后整刷详情——job 链接与
+// counts 都从服务端取，不在前端拼。
+async function dispatchTodo(t: Todo, agent: string): Promise<void> {
+  if (dispatching.value) return
+  dispatching.value = t.todo_id
+  opError.value = ''
+  try {
+    const patch: TodoPatch = { status: 'ready' }
+    if (agent) patch.assignee = agent
+    await patchTodo(t.todo_id, patch)
+    dispatchFor.value = ''
+    await fetchPlan()
+  } catch (e) {
+    opError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    dispatching.value = ''
+  }
+}
+
+// 派发字段编辑面板（PLAN-02 P2）：一次 PATCH 描述「这个条目派发时用什么」。
+// 空串是【显式清空】（assignee 解除指派、cwd 回默认），而 verify/timeout 留空 = 不改
+// —— 与后端 nil=保持、空值=清空同一约定（见 TodoPatch）。
+interface TodoEditForm {
+  assignee: string
+  project: string
+  template: string
+  verify: string
+  review: boolean
+  runner: string
+  cwd: string
+  timeoutSec: string
+}
+
+const editFor = ref('')
+const savingEdit = ref(false)
+const editForm = ref<TodoEditForm>(emptyEditForm())
+
+function emptyEditForm(): TodoEditForm {
+  return {
+    assignee: '', project: '', template: '', verify: '',
+    review: false, runner: '', cwd: '', timeoutSec: '',
+  }
+}
+
+function toggleTodoEdit(t: Todo): void {
+  if (editFor.value === t.todo_id) {
+    editFor.value = ''
+    return
+  }
+  editFor.value = t.todo_id
+  editForm.value = {
+    assignee: t.assignee ?? '',
+    project: t.project ?? '',
+    template: t.template ?? '',
+    // verify 是 argv，编辑时按空格拼成一行（与 CLI --verify 的输入方式一致）。
+    verify: (t.verify ?? []).join(' '),
+    review: t.review === true,
+    runner: t.runner ?? '',
+    cwd: t.cwd ?? '',
+    timeoutSec: t.timeout_sec ? String(t.timeout_sec) : '',
+  }
+}
+
+async function saveTodoEdit(t: Todo): Promise<void> {
+  if (savingEdit.value) return
+  const f = editForm.value
+  const patch: TodoPatch = {
+    // 这五个字符串总是发：空串即「清空」，不发就再也改不回去。
+    assignee: f.assignee.trim(),
+    project: f.project.trim(),
+    template: f.template.trim(),
+    runner: f.runner.trim(),
+    cwd: f.cwd.trim(),
+    review: f.review,
+  }
+  // verify 一行命令 → argv（空格分词）；留空 = 不改（去掉验收步骤走 CLI/MCP 的 verify:[]）。
+  const verify = f.verify.trim().split(/\s+/).filter(Boolean)
+  if (verify.length > 0) {
+    patch.verify = verify
+  }
+  const sec = Number(f.timeoutSec.trim())
+  if (f.timeoutSec.trim() !== '' && Number.isFinite(sec) && sec > 0) {
+    patch.timeout_sec = sec
+  }
+  savingEdit.value = true
+  opError.value = ''
+  try {
+    await patchTodo(t.todo_id, patch)
+    editFor.value = ''
+    await fetchPlan() // 整刷：assignee 徽标 / dispatch_error 都可能因这次写入变
+  } catch (e) {
+    opError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    savingEdit.value = false
+  }
 }
 
 const canFinish = computed(() => {
@@ -370,6 +554,11 @@ onUnmounted(() => {
           <dt>owner</dt>
           <dd>{{ plan.owner }}</dd>
         </div>
+        <!-- PLAN-02 P2：该 plan 的待办派发进哪个 project（待办可自带 project 覆盖）。 -->
+        <div v-if="plan.project" class="meta-row">
+          <dt>project</dt>
+          <dd>{{ plan.project }}</dd>
+        </div>
         <div v-if="plan.description" class="meta-row">
           <dt>description</dt>
           <dd>{{ plan.description }}</dd>
@@ -377,6 +566,11 @@ onUnmounted(() => {
         <div v-if="plan.progress != null" class="meta-row">
           <dt>progress</dt>
           <dd>{{ plan.progress }}</dd>
+        </div>
+        <!-- PLAN-02 P2：plan 级用量汇总（挂接 job 的 token/成本 + 各 agent 的 job 数）。 -->
+        <div v-if="planUsageText" class="meta-row">
+          <dt>用量</dt>
+          <dd>{{ planUsageText }}</dd>
         </div>
         <div class="meta-row">
           <dt>created</dt>
@@ -473,7 +667,37 @@ onUnmounted(() => {
         <div v-for="t in plan.todos" :key="t.todo_id" class="todo-item">
           <label class="todo-row">
             <input type="checkbox" :checked="t.done" @change="onToggleTodo(t)" />
-            <span class="todo-title" :class="{ 'todo-title--done': t.done }">{{ t.title }}</span>
+            <span class="todo-main">
+              <span class="todo-title" :class="{ 'todo-title--done': t.done }">{{ t.title }}</span>
+              <!-- PLAN-02 P2：认领这个条目的 agent（空 = 没人认领，故派发要先选 agent）。 -->
+              <span v-if="t.assignee" class="todo-assignee mono" :title="`assignee: ${t.assignee}`">
+                {{ t.assignee }}
+              </span>
+              <span class="todo-actions">
+                <button
+                  class="todo-dispatch mono"
+                  type="button"
+                  :disabled="dispatching === t.todo_id"
+                  :title="
+                    t.assignee
+                      ? `派发：置 ready，服务端立刻用 ${t.assignee} 起一个 job`
+                      : '派发：先选 agent（assignee），再置 ready'
+                  "
+                  @click.prevent="onDispatch(t)"
+                >
+                  {{ dispatching === t.todo_id ? '派发中…' : '派发' }}
+                </button>
+                <button
+                  class="todo-edit-btn mono"
+                  :class="{ 'todo-edit-btn--on': editFor === t.todo_id }"
+                  type="button"
+                  title="编辑派发字段（assignee/template/verify/review/runner/cwd/timeout/project）"
+                  @click.prevent="toggleTodoEdit(t)"
+                >
+                  {{ editFor === t.todo_id ? '收起' : '编辑' }}
+                </button>
+              </span>
+            </span>
             <select
               class="todo-status mono"
               :class="`todo-status--${t.status}`"
@@ -496,6 +720,7 @@ onUnmounted(() => {
             <button
               v-if="todoJobRef(t)"
               class="todo-job mono"
+              :class="{ 'todo-job--live': todoLiveJob(t) }"
               type="button"
               :title="todoJobRef(t)"
               @click.prevent="openJob(todoJobRef(t))"
@@ -503,7 +728,84 @@ onUnmounted(() => {
               job {{ shortId(todoJobRef(t)) }} &rarr;
             </button>
           </label>
+          <!-- 没人认领的条目：先选 agent，再和 status=ready 一起发（同一次 PATCH）。 -->
+          <div v-if="dispatchFor === t.todo_id" class="todo-dispatch-form mono">
+            <span class="dispatch-label">agent</span>
+            <select v-if="agents.length > 0" v-model="dispatchAgent" class="op-input mono">
+              <option v-for="a in agents" :key="a.key" :value="a.key">{{ a.key }} · {{ a.type }}</option>
+            </select>
+            <input
+              v-else
+              v-model="dispatchAgent"
+              class="op-input mono"
+              placeholder="agent key（如 omp）"
+            />
+            <button
+              class="op-btn mono"
+              type="button"
+              :disabled="!dispatchAgent.trim() || dispatching === t.todo_id"
+              @click.prevent="onConfirmDispatch(t)"
+            >
+              确认派发
+            </button>
+            <button class="op-btn mono" type="button" @click.prevent="dispatchFor = ''">取消</button>
+          </div>
+          <!-- PLAN-02 P2：最近一次派发没起 job 的原因（服务端写在条目上，成功后清空）。 -->
+          <p v-if="t.dispatch_error" class="todo-dispatch-error mono">
+            派发失败：{{ t.dispatch_error }}
+          </p>
           <p v-if="t.note" class="todo-note mono">{{ t.note }}</p>
+          <!-- 派发字段编辑面板：prefill 自该条目，保存走同一条 PATCH（见 saveTodoEdit）。 -->
+          <div v-if="editFor === t.todo_id" class="todo-edit mono">
+            <label class="edit-field">
+              <span>assignee</span>
+              <input v-model="editForm.assignee" class="op-input mono" placeholder="agent key" />
+            </label>
+            <label class="edit-field">
+              <span>project</span>
+              <input v-model="editForm.project" class="op-input mono" placeholder="覆盖 plan 的 project" />
+            </label>
+            <label class="edit-field">
+              <span>template</span>
+              <input v-model="editForm.template" class="op-input mono" placeholder="任务书模板（空=默认 prompt）" />
+            </label>
+            <label class="edit-field">
+              <span>verify</span>
+              <input v-model="editForm.verify" class="op-input mono" placeholder="验收命令（空格分词为 argv）" />
+            </label>
+            <label class="edit-field">
+              <span>runner</span>
+              <input v-model="editForm.runner" class="op-input mono" placeholder="local / worker:&lt;id&gt;" />
+            </label>
+            <label class="edit-field">
+              <span>cwd</span>
+              <input v-model="editForm.cwd" class="op-input mono" placeholder="项目内相对路径" />
+            </label>
+            <label class="edit-field">
+              <span>timeout_sec</span>
+              <input
+                v-model="editForm.timeoutSec"
+                class="op-input mono"
+                inputmode="numeric"
+                placeholder="秒（空=默认）"
+              />
+            </label>
+            <label class="edit-check">
+              <input v-model="editForm.review" type="checkbox" />
+              <span>review（完成后要人验收）</span>
+            </label>
+            <div class="edit-actions">
+              <button
+                class="op-btn mono"
+                type="button"
+                :disabled="savingEdit"
+                @click.prevent="saveTodoEdit(t)"
+              >
+                {{ savingEdit ? '保存中…' : '保存' }}
+              </button>
+              <button class="op-btn mono" type="button" @click.prevent="editFor = ''">取消</button>
+            </div>
+          </div>
         </div>
         <div v-if="plan.todos.length === 0" class="empty mono">暂无待办</div>
       </div>
@@ -793,11 +1095,105 @@ onUnmounted(() => {
 }
 .todo-row {
   display: grid;
-  grid-template-columns: 22px minmax(160px, 1fr) auto auto auto;
+  grid-template-columns: 22px minmax(160px, 1fr) auto auto auto auto;
   align-items: center;
   gap: 10px;
   padding: 9px 14px;
   font-size: 13px;
+}
+/* 标题列：标题 + assignee 徽标 + 行内动作（派发/编辑），动作右贴该列末尾。 */
+.todo-main {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+.todo-assignee {
+  flex: none;
+  color: var(--phosphor);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 1px 6px;
+  font-size: 11px;
+}
+.todo-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  flex: none;
+}
+.todo-dispatch,
+.todo-edit-btn {
+  background: transparent;
+  color: var(--queue);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 3px 8px;
+  font-size: 12px;
+}
+.todo-dispatch:hover:not(:disabled),
+.todo-edit-btn:hover,
+.todo-edit-btn--on {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
+}
+.todo-dispatch:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+/* 派发前选 agent（没 assignee 的条目）：与 note 同缩进，贴在行下。 */
+.todo-dispatch-form {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 0 14px 9px 46px;
+}
+.todo-dispatch-form .op-input {
+  flex: 0 1 220px;
+}
+.dispatch-label {
+  color: var(--queue);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.todo-dispatch-error {
+  margin: 0;
+  padding: 0 14px 9px 46px;
+  color: var(--fail);
+  font-size: 12px;
+  word-break: break-word;
+}
+/* 派发字段编辑面板：字段自动折行，保存/取消在末行。 */
+.todo-edit {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+  gap: 8px 12px;
+  padding: 0 14px 12px 46px;
+}
+.edit-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  color: var(--queue);
+  font-size: 11px;
+  letter-spacing: 0.04em;
+}
+.edit-check {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--queue);
+  font-size: 12px;
+}
+.edit-check input {
+  accent-color: var(--phosphor);
+}
+.edit-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 }
 /* 状态下拉：安静的行内控件，按态着色（doing=run/done=done/skipped=queue） */
 .todo-status {
@@ -811,6 +1207,11 @@ onUnmounted(() => {
 .todo-status--doing {
   color: var(--run);
   border-color: var(--run);
+}
+/* ready = 已布防（有 assignee，等一次派发）：与 pending 的静默区分开。 */
+.todo-status--ready {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
 }
 .todo-status--done {
   color: var(--done);
@@ -851,6 +1252,26 @@ onUnmounted(() => {
 }
 .todo-job:hover {
   border-color: var(--phosphor);
+}
+/* 最近一次 job 还在跑（非终态）：链接带脉冲，行内一眼看到「派出去了、还在跑」。 */
+.todo-job--live {
+  color: var(--run);
+  border-color: var(--run);
+  animation: todo-job-live 1.6s ease-in-out infinite;
+}
+@keyframes todo-job-live {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.55;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .todo-job--live {
+    animation: none;
+  }
 }
 .op-form {
   display: flex;
@@ -929,12 +1350,21 @@ onUnmounted(() => {
   }
   .todo-status,
   .todo-duration,
+  .todo-job-count,
   .todo-job {
     grid-column: 2 / -1;
     justify-self: start;
   }
-  .todo-note {
+  .todo-note,
+  .todo-dispatch-form,
+  .todo-dispatch-error,
+  .todo-edit {
     padding-left: 14px;
+  }
+  .todo-dispatch-form,
+  .edit-actions {
+    align-items: flex-start;
+    flex-direction: column;
   }
 }
 </style>

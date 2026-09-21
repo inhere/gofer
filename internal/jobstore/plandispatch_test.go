@@ -156,6 +156,68 @@ func TestTodoDispatchPatchAndError(t *testing.T) {
 	assert.False(t, ok)
 }
 
+// TestPlanUsageAggregates (PLAN-02 P2): a plan's roll-up covers exactly the jobs
+// attached to it — every one of them counts in jobs, only the rows that reported numbers
+// move the token/cost sums — and a plan nobody ran is the zero value, never a nil map.
+func TestPlanUsageAggregates(t *testing.T) {
+	s := openTest(t)
+	assert.NoErr(t, s.InsertPlan(Plan{PlanID: "plan-usage", Status: PlanOpen, CreatedAt: 1, UpdatedAt: 1}))
+
+	jobs := []JobRecord{
+		{
+			ID: "usage-omp-1", ProjectKey: "proj", Agent: "omp", Runner: "local",
+			Status: "done", ResultDir: "/tmp/results/usage-omp-1", PlanID: "plan-usage",
+			UsageJSON: `{"total_tokens":1000,"input_tokens":600,"output_tokens":400,"cost_usd":0.5}`,
+			StartedAt: 1,
+		},
+		{
+			ID: "usage-omp-2", ProjectKey: "proj", Agent: "omp", Runner: "local",
+			Status: "failed", ResultDir: "/tmp/results/usage-omp-2", PlanID: "plan-usage",
+			UsageJSON: `{"total_tokens":500,"input_tokens":200,"output_tokens":300,"cost_usd":0.25}`,
+			StartedAt: 2,
+		},
+		{
+			// Captured no usage: it still RAN, so it counts as a job and nothing else.
+			ID: "usage-silent", ProjectKey: "proj", Agent: "codex", Runner: "local",
+			Status: "done", ResultDir: "/tmp/results/usage-silent", PlanID: "plan-usage",
+			StartedAt: 3,
+		},
+		{
+			// A corrupt blob must be skipped, not blank the whole roll-up.
+			ID: "usage-corrupt", ProjectKey: "proj", Agent: "codex", Runner: "local",
+			Status: "done", ResultDir: "/tmp/results/usage-corrupt", PlanID: "plan-usage",
+			UsageJSON: "not json", StartedAt: 4,
+		},
+		{
+			// Another plan's job: it must not leak into this plan's numbers.
+			ID: "usage-other-plan", ProjectKey: "proj", Agent: "omp", Runner: "local",
+			Status: "done", ResultDir: "/tmp/results/usage-other-plan", PlanID: "plan-other",
+			UsageJSON: `{"total_tokens":9999,"cost_usd":9.99}`, StartedAt: 5,
+		},
+	}
+	for _, rec := range jobs {
+		assert.NoErr(t, s.UpsertJob(rec))
+	}
+
+	usage, err := s.PlanUsage("plan-usage")
+	assert.NoErr(t, err)
+	assert.Eq(t, 4, usage.Jobs)
+	assert.Eq(t, int64(1500), usage.TotalTokens)
+	assert.Eq(t, 0.75, usage.CostUSD)
+	assert.Eq(t, 2, usage.ByAgent["omp"].Jobs)
+	assert.Eq(t, int64(1500), usage.ByAgent["omp"].TotalTokens)
+	assert.Eq(t, int64(800), usage.ByAgent["omp"].InputTokens)
+	assert.Eq(t, 2, usage.ByAgent["codex"].Jobs)
+	assert.Eq(t, int64(0), usage.ByAgent["codex"].TotalTokens)
+
+	// A plan with no jobs (or an unknown one) is the zero value with a usable map.
+	empty, err := s.PlanUsage("plan-empty")
+	assert.NoErr(t, err)
+	assert.Eq(t, 0, empty.Jobs)
+	assert.Eq(t, int64(0), empty.TotalTokens)
+	assert.Len(t, empty.ByAgent, 0)
+}
+
 // TestTodoReadyStatusLifecycle (PLAN-02 P2, decision 5): `ready` sits between
 // `pending` (backlog, never dispatched) and `doing` (a job is running). Entering it
 // changes nothing but the queue position — it is not a start, so started_at stays

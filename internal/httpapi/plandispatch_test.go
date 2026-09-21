@@ -3,6 +3,7 @@ package httpapi
 import (
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -55,6 +56,23 @@ func planJobsOf(t *testing.T, s *Server, planID string) []job.JobResult {
 		t.Fatalf("list plan jobs: %v", err)
 	}
 	return list
+}
+
+// waitDispatchedDone waits for a dispatched job's terminal snapshot with a budget a
+// whole-repo `go test ./...` cannot exhaust: these jobs are real child processes, and
+// under the parallel load of the full suite the shared 10s waitDone budget is tight.
+func waitDispatchedDone(t *testing.T, s *Server, id string) job.JobResult {
+	t.Helper()
+	deadline := time.Now().Add(60 * time.Second)
+	for time.Now().Before(deadline) {
+		res, ok := s.jobs.Get(id)
+		if ok && job.IsTerminal(res.Status) {
+			return res
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("job %s did not reach terminal state in time", id)
+	return job.JobResult{}
 }
 
 // TestUpdateTodoReadyDispatches (PLAN-02 P2): the two write paths that make a todo
@@ -150,7 +168,7 @@ func TestUpdateTodoReadyDispatches(t *testing.T) {
 		if j.Agent != "reader" || j.ProjectKey != "self" || j.PlanID != wantID {
 			t.Fatalf("dispatched job = %+v, want the todo's agent/project/plan", j)
 		}
-		final := waitDone(t, s, j.ID)
+		final := waitDispatchedDone(t, s, j.ID)
 		if final.Status != job.StatusDone {
 			t.Fatalf("job %s status = %s (err=%s), want done", j.ID, final.Status, final.Error)
 		}
@@ -222,7 +240,7 @@ func TestPlanDispatchEndpoint(t *testing.T) {
 	if out.Todo.Status != jobstore.TodoDoing {
 		t.Fatalf("dispatch response todo status = %q, want doing", out.Todo.Status)
 	}
-	final := waitDone(t, s, out.Job.ID)
+	final := waitDispatchedDone(t, s, out.Job.ID)
 	if final.Status != job.StatusDone {
 		t.Fatalf("job status = %s (err=%s), want done", final.Status, final.Error)
 	}
@@ -241,7 +259,7 @@ func TestPlanDispatchEndpoint(t *testing.T) {
 	if !second.Dispatched || second.Job == nil || second.Job.ID == out.Job.ID {
 		t.Fatalf("redispatch response = %+v, want a new job", second)
 	}
-	waitDone(t, s, second.Job.ID)
+	waitDispatchedDone(t, s, second.Job.ID)
 
 	resp = do(t, s, http.MethodPost, "/v1/plans/plan-http-now/todos", testToken, map[string]any{
 		"title": "unassigned",

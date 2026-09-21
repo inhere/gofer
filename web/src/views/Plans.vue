@@ -158,6 +158,7 @@ onUnmounted(() => {
       <div class="thead mono">
         <span class="col-status">状态</span>
         <span class="col-plan">plan · title / id</span>
+        <span class="col-project">project</span>
         <span class="col-counts">进度</span>
         <span class="col-updated">更新</span>
       </div>
@@ -175,6 +176,10 @@ onUnmounted(() => {
         <span class="col-plan" :class="{ 'col-plan--titled': p.title }">
           <span v-if="p.title" class="plan-title" :title="p.title">{{ p.title }}</span>
           <span class="plan-id mono" :title="p.plan_id">{{ shortId(p.plan_id) }}</span>
+        </span>
+        <!-- PLAN-02 P2：该 plan 的待办派发进哪个 project（空 = 未指定，派发时要求待办自带）。 -->
+        <span class="col-project mono" :title="p.project || '未指定 project'">
+          {{ p.project || '—' }}
         </span>
         <span class="col-counts mono">
           <span class="count-line">
@@ -322,7 +327,7 @@ onUnmounted(() => {
 .thead,
 .trow {
   display: grid;
-  grid-template-columns: 124px minmax(200px, 1fr) minmax(260px, 360px) 90px;
+  grid-template-columns: 124px minmax(200px, 1fr) 120px minmax(260px, 360px) 90px;
   align-items: center;
   gap: 12px;
   padding: 9px 14px;
@@ -374,12 +379,20 @@ onUnmounted(() => {
 .col-plan:not(.col-plan--titled) .plan-id {
   font-size: 13px;
 }
+/* project 列（PLAN-02 P2）：plan 的待办派发进哪个 project；空渲染 —。 */
+.col-project {
+  color: var(--queue);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 .col-counts {
   display: flex;
   flex-direction: column;
   gap: 3px;
   min-width: 0;
 }
+
 .count-line {
   display: grid;
   grid-template-columns: minmax(120px, 1fr) 48px;

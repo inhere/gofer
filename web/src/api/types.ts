@@ -1236,7 +1236,9 @@ export interface PlanCompletion {
 
 // plan 待办项（P3）。job_id 为空=纯待办；非空=绑某次 job 执行（元数据，done 纯手动）。
 // todo 生命周期状态（Part C §C2）：doing 自动记 started_at，done/skipped 记 done_at。
-export type TodoStatus = 'pending' | 'doing' | 'done' | 'skipped'
+// PLAN-02 P2 增 ready：pending=backlog 不触发，ready=可派发（它一有 assignee 且没有活跃
+// job，服务端就立即派发并转 doing），故顺序是 pending → ready → doing → done|skipped。
+export type TodoStatus = 'pending' | 'ready' | 'doing' | 'done' | 'skipped'
 
 export interface Todo {
   todo_id: string
@@ -1255,9 +1257,42 @@ export interface Todo {
   note?: string
   // 后端 omitempty
   sort?: number
+  // PLAN-02 P2 派发字段（后端 omitempty）：assignee=跑这个条目的 agent key（空=没人认领，
+  // 故它即使 ready 也不派发）；project=覆盖 plan 自己的 project；template/vars=任务书与
+  // 变量；verify=agent 结束后在同一 cwd/env 跑的验收 argv；review=要不要人验收；
+  // runner/cwd/timeout_sec=这次执行的开关；dispatch_error=最近一次派发没起 job 的原因
+  // （成功后服务端清空）。
+  assignee?: string
+  project?: string
+  template?: string
+  vars?: Record<string, string>
+  verify?: string[]
+  review?: boolean
+  runner?: string
+  cwd?: string
+  timeout_sec?: number
+  dispatch_error?: string
   // Unix 秒
   created_at: number
   updated_at: number
+}
+
+// PATCH /v1/todos/{id} 的 body（PLAN-02 P2，派发字段与后端 jobstore.TodoPatch 同一约定）：
+// 缺省的键 = 保持原值，显式空值 = 清空（assignee '' 解除指派、verify [] 去掉验收步骤）。
+// status/note 是同一个 body 的既有字段——服务端在 body 带 status=ready 或 assignee 时
+// 顺手跑一次派发判定，故「置 ready」和「指派」都经这里。
+export interface TodoPatch {
+  status?: TodoStatus
+  note?: string
+  assignee?: string
+  project?: string
+  template?: string
+  vars?: Record<string, string>
+  verify?: string[]
+  review?: boolean
+  runner?: string
+  cwd?: string
+  timeout_sec?: number
 }
 
 // 挂在某个 todo 上的一次 job 执行（SUP-01 C）。
@@ -1280,6 +1315,9 @@ export interface Plan {
   status: PlanStatus
   owner?: string
   progress?: number
+  // PLAN-02 P2：该 plan 的待办派发进哪个 project（待办可用自己的 project 覆盖）；空 =
+  // 未指定，此时派发要求待办自带一个。
+  project?: string
   // Unix 秒
   created_at: number
   updated_at: number
@@ -1296,6 +1334,27 @@ export interface PlanDetail extends Plan {
   todos: Todo[]
   // 决策通道（T4）：该 plan 下的全部 decision（含 OPEN/ANSWERED/EXPIRED）
   decisions?: Decision[]
+  // PLAN-02 P2：该 plan 的用量汇总。新服务端恒发；老服务端不发时为 undefined。
+  usage?: PlanUsage
+}
+
+// plan 级用量汇总（PLAN-02 P2）：jobs 计每一个挂接的 job（没报用量的也算跑了），
+// token/成本只累加报了数字的那些 —— 所以 jobs>0 而总量为 0 是"跑过但没采集到"，
+// 不是"没跑过"。by_agent 按 agent key 给同一套数字。
+export interface PlanUsage {
+  jobs: number
+  total_tokens: number
+  cost_usd: number
+  by_agent: Record<string, PlanUsageAgent>
+}
+
+// 一个 agent 在 plan 里的用量（PLAN-02 P2）。
+export interface PlanUsageAgent {
+  jobs: number
+  total_tokens: number
+  input_tokens: number
+  output_tokens: number
+  cost_usd: number
 }
 
 export interface PlansResp {

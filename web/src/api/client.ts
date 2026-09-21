@@ -50,6 +50,7 @@ import type {
   TemplatePreview,
   TemplatesResp,
   Todo,
+  TodoPatch,
   TodoStatus,
   Workflow,
   WorkflowEventsResp,
@@ -805,6 +806,19 @@ export function updateTodoStatus(
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(body),
+  })
+}
+
+// todo 派发字段更新（PLAN-02 P2）：assignee/project/template/vars/verify/review/runner/
+// cwd/timeout_sec 与 status 同一个 PATCH body —— 一次写入既描述"这个条目"，也描述"它派发
+// 时用的请求"。键缺省=保持原值，显式空值=清空（assignee '' 解除指派、verify [] 去验收）。
+// 服务端在 body 带 status=ready 或 assignee 时顺手跑一次派发判定：条目 ready 且有 assignee
+// 且无活跃 job，这一次 PATCH 就直接起 job（todo 转 doing 并拿到 job_id）。
+export function patchTodo(todoId: string, patch: TodoPatch): Promise<Todo> {
+  return request<Todo>(`/v1/todos/${encodeURIComponent(todoId)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
   })
 }
 
