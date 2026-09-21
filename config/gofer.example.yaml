@@ -47,6 +47,25 @@ server:
   #
   # session_auto_relay_idle_sec: 300  # 【已迁移(R2)】改为顶层的 session.auto_relay_idle_sec;
   #                         # 这里仍可读(别名), 但会 slog.Warn 一次提醒改写.
+  #
+  # dir_lock: true         # JOB-11 同 cwd 串行锁. 默认 true: 可写 agent job(cli-agent/
+  #                         # acp-agent, 非 --read-only、非交互) 独占它的工作目录, 同一目录
+  #                         # (含祖先/子目录, 软链与 Windows 8.3 短名同一化)上的另一个独占 job
+  #                         # 停在非终态 `waiting_dir` 排队等, 事件 job.waiting_dir 点名持有者.
+  #                         # exec 与只读 job 默认共享(巡检类不该排队); 单个 job 用
+  #                         # `job run --exclusive-dir` / `--shared-dir` 反转; --worktree job
+  #                         # 目录独立、不取锁. false = 所有 job 共享(退回 JOB-11 之前的语义).
+  #
+  # stall_timeout_sec: 900  # AUTO-05 输出停滞窗口(秒), 默认 900(15min). 跑着的非交互 job
+  #                         # 若这么久 stdout/stderr 都没有新字节(acp 的 session/update 走
+  #                         # stderr 同样计入), 即判停滞: 事件 job.stalled、杀进程、job failed
+  #                         # 且 error=`stalled: no output for Ns`; 该 error 命中内置 transient
+  #                         # 模式, 所以自动续投/故障转移照常接管(这正是它存在的理由).
+  #                         # 解析顺序: job run --stall-timeout > agents.<key>.stall_timeout_sec
+  #                         # > 本项 > 默认 900; exec job 默认【关】(构建/测试本来就长时间没
+  #                         # 输出, 要就显式 --stall-timeout); 交互 job 恒关; 等人作答
+  #                         # (pending_interaction) 与 verify 阶段不计时. 0 = 全局关;
+  #                         # `job run --no-stall` 单个关.
 
   # callers: multi-caller auth (C2). Each entry maps a bearer token to a caller
   # id stamped onto submitted jobs (audit / per-caller filtering). The legacy
@@ -363,6 +382,8 @@ agents:
     command: codex
     args: [exec, "{{prompt}}"]        # batch: job run
     interactive_args: []              # pty: job run --interactive (bare TUI)
+    # max_concurrent: 2               # JOB-11: 该 agent 同时在跑的 job 上限(超出的排队, 不拒绝); 0/不写=不限
+    # stall_timeout_sec: 300          # AUTO-05: 该 agent 的停滞窗口覆盖(0=这个 agent 的 job 永不被判停滞); 不写=用 server.stall_timeout_sec
     detect:
       command: codex
       args: [--version]

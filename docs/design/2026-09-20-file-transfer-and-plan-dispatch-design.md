@@ -11,6 +11,7 @@
 | 0.2 | 2026-09-20 | Claude | 人工批准（决策 1–6 按默认）；分期 X1 → X2 → P1 → P2 → P3，全部 omp，测试先提交 |
 | 0.3 | 2026-09-21 | omp | **X1 已落地**（XFER-01 核心：`xfers` 表 + 暂存区 + HTTP 上传/下载 + `file_xfer`/协议 v9 + worker 执行端 + `runner=server` 直落 + `gofer tool cp`/`tool xfer` + 独立 TTL 清理 + G033）；实测记录见 §「X1 实测记录」（stub/e2e 部分；真机验收待监督者在容器执行） |
 | 0.4 | 2026-09-21 | omp | **X2 已落地**（XFER-01 job 集成：`job run --upload/--collect` + `jobs.xfer_json` + artifacts 并入 + Dispatch `uploads/collect`（v9）+ xfer 事件进通知/webhook + web「文件」块 + docs）；实测记录见 §「X2 实测记录」（stub/e2e 部分；真机验收待监督者在容器执行） |
+| 0.5 | 2026-09-21 | omp | **P1 已落地**（JOB-11 同 cwd 串行锁 + `waiting_dir` + per-agent 并发；AUTO-05 输出停滞检测 → transient）；实测记录见 §「P1 实测记录」（含 4 处与设计的偏差说明） |
 
 ## 背景与目标
 
@@ -156,7 +157,7 @@ gofer job wakeup list|show|disable|enable <…>
 |---|---|---|
 | X1 | XFER-01 核心：`xfers` 表 + 暂存区 + HTTP 上传/下载 + `file_xfer` 帧（v9）+ worker 执行端 + `runner=server` 路径 + `gofer tool cp` / `tool xfer` + 审计 + retention + G033 | 真机：容器 `tool cp` 一个 5MB 文件到 `w-kzl-desktop:<project>/tmp/`，sha256 一致；反向拉回一致；>max 被拒；路径逃逸被拒；worker 离线 → failed |
 | X2 | XFER-01 job 集成：`--upload` / `--collect` + `xfer_json` + artifacts 并入 + web「文件」块 + docs/skill | worker job 起跑前文件就位；结束后 `collect` 的文件可从 web 下载 |
-| P1 | JOB-11（dir lock + `waiting_dir` + per-agent 并发）+ AUTO-05（停滞检测 → transient） | 同 cwd 两个 agent job 第二个 `waiting_dir` 后接力；exec 不被挡；停滞 job 在 N 秒后 failed 且触发续投 |
+| P1 | JOB-11（dir lock + `waiting_dir` + per-agent 并发）+ AUTO-05（停滞检测 → transient） | 同 cwd 两个 agent job 第二个 `waiting_dir` 后接力；exec 不被挡；停滞 job 在 N 秒后 failed 且触发续投 | **已落地 2026-09-21**（见 §「P1 实测记录」；两个 job 是否重叠由 job 自己作证——`excl-guard`/`rendezvous` 见证，不靠时钟） |
 | P2 | PLAN-02（plan project、todo 字段、`ready`、派发器、`plan dispatch`、web、MCP、plan 用量） | `set-todo --assign omp --status ready` 自动出 job 并联动到 done；无模板默认 prompt 含 plan/todo 文本 |
 | P3 | JOB-09（表、定时并入 sweeper、事件匹配、续投/重跑、CLI/HTTP/MCP/web、docs） | `--kind at --after 1m` 到点续投；`--kind event --event job.terminal --job-id B` 在 B 结束后续投 A；coalesce 生效 |
 
@@ -237,3 +238,41 @@ X2 已落地：`job run --upload/--collect` + `jobs.xfer_json` + 收集文件并
 ```
 
 **待真机（由监督者在容器执行，本 job 未做）**：真机 worker 上 `job run --upload <5MB>:tmp/in/x --collect 'tmp/out/*'`：起跑前文件已在 worker cwd、结束后收集文件出现在 hub 的 `artifacts/collected/`、`job show`/web 能看到 `xfer` 摘要；>max 的单文件被跳过并列出。上面 e2e 已在进程内 hub+worker（真 `core.Build` 接线 + 真 HTTP 内容端点）覆盖同一批断言，但「真实 worker 进程 + 跨机器文件系统」这一层需真机确认。
+
+
+## P1 实测记录（2026-09-21）
+
+P1 已落地：JOB-11（同 cwd 串行锁 + 非终态 `waiting_dir` + per-agent 并发）与 AUTO-05（输出停滞检测 → 杀 → transient → 续投/转移）。落地要点与**与设计的偏差**（4 处，均按"最小且更安全"取舍）：
+
+- **`dirLocks.Acquire` 多一个 `onWait func(holder string)` 回调**（设计给的是 `Acquire(ctx, dir, jobID) (release, holder, waited, err)`）：`waiting_dir` 必须在**等待期间**就能被观测到，而只靠返回值的签名在拿到锁之后才返回——状态永远晚一步。回调在入队、即将阻塞的那一刻触发（调用方据此置状态 + 记事件），`release/holder/waited/err` 语义不变。
+- **`job.stalled` 的 transient 模式没有用设计写的 `^` 锚点**：`transientHit` 匹配的是一个"stderr 尾部 + `\n` + `snap.Error`"的**整块**文本，`^`（无 `(?m)`）只在整块开头匹配，而停滞的 job 往往在静默前**已经打印过东西**，于是永远匹配不上。改为裸模式 `stalled: no output`（对 stderr 与 error 都生效）。同时把 `finish()` 里"把失败原因写进 `entry.result.Error`"提到**计算失败归类之前**——否则归类看不到 `snap.Error`（设计假设它已可见，实际代码里 `pre` 快照先于赋值）。
+- **worktree job 不取目录锁**（设计 §二 括号里写"worktree job 的目录独立，天然不冲突"，但同段的祖先规则会让 `<root>/tmp/gofer/wt/<id>` 与 `<root>` 上的 job 互斥）：受管 worktree 的目录是**这个 job 独占**的，取锁只会让每个 worktree job 排在主 checkout 后面，正好废掉 WT-01 存在的理由。故 `--worktree`（`entry.wt != nil`）跳过加锁，`dir_exclusive` 仍记 true（策略上它就是独占的）。
+- **CLI 的"关掉停滞"是 `--no-stall`，不是 `--stall-timeout 0`**：gcli 无法区分"没给这个 int 旗标"与"给了 0"，用 0 当关闭哨兵会让**每个** job 默认关闭。三态改由 `--stall-timeout N`（>0）/ `--no-stall`（显式 0）/ 都不给（nil，交给 server 解析）表达，与既有 `--verify`/`--no-verify`、`--fallback`/`--no-fallback` 同一手法。配置与 wire 侧仍是设计写的三态指针（`request > agent > server`，0 = 关）。
+
+实现要点：
+
+- **决策只解析一次**：`Submit` 在**同一个 config 快照**上解析 `dir_exclusive` 与 `stall_timeout_sec` 并**回写 request**，于是 `request_json`、DB 行（新增 `jobs.dir_exclusive`）、`Forward`/`Dispatch`（新增 `exclusive_dir`/`stall_timeout_sec`）与执行机看到的是同一个值——远端（worker/peer）执行的是 hub 的决定，不会拿执行机自己的配置再推导一遍。两个字段都是**可选 additive**，老 worker 忽略它们只是"这两个保护不生效"，不会有数据被写坏，所以不加协议 floor 拒绝（与 `uploads/collect` 不同：那种缺失会跑出一个没有输入文件的 job）。
+- **冲突判定 = 目录重叠**：`filepath.Rel` + `util.RealPath`（软链、Windows 8.3 短名同一化；Rel 在 Windows 上按大小写不敏感比较），FIFO 队列；队列里的等待者也算冲突（新来者不许插到队首的人前面），取消即出队；"先取消、后授予"的竞态会把已拿到的锁**当场还回去**（不泄漏目录）。
+- **`waiting_dir` 的统计口径**：`job.Service.Stats()` 计入 queued、`/v1/stats` 的 `by_status` 把它合并进 `queued`（不新增没人认识的键）、Board 表头同样并入、崩溃对账（`nonTerminalJobStatuses`/`activeJobStatuses`）把它当活状态处理（serve 重启后 failed，与 queued/running 一致）。
+- **停滞计时**：`execute` 用一层 `activityWriter` 包住交给 runner 的两路 writer（在 ndjson 投影器**外层**——被投影器丢掉的行同样证明 agent 活着）；`pending_interaction`（含 peer 注入的交互）与 verify 阶段暂停计时，作答/恢复时把时钟重置到 now；`job.stalled` 在杀之前记，`failed: stalled: no output for Ns` 在 `classify` 之后覆盖状态写入（否则会被归成 `cancelled`）。
+- **看门狗只在本地 job 上跑**（`req.Forward == nil`）：远端 job 的进程在 worker 上，worker 自己的 `job.Service` 跑同一段代码、用 hub 随 dispatch 送来的窗口；hub 盯着自己的日志镜像反而会杀错地方。
+
+实测证据（`go test -count=1` 原始行）：
+
+```
+--- PASS: TestDirLockSerializesWritableAgentJobs / TestDirLockAncestorDescendantConflict
+           / TestExclusiveDirFlagForcesLockOnExec / TestSharedDirFlagBypassesLock
+           / TestWorktreeJobsDoNotConflict / TestCancelWhileWaitingDir
+           / TestDirLockDisabledByConfig / TestAgentMaxConcurrentQueues        (internal/job)
+--- PASS: TestAgentMaxConcurrentParsed / TestStallTimeoutResolutionOrder        (internal/config)
+--- PASS: TestJobsCountWaitingDirAsQueued                                       (internal/httpapi)
+--- PASS: TestDispatchRoundTripsExclusiveDirAndStallTimeout                     (internal/wsproto)
+--- PASS: TestStallKillsSilentAgentJob / TestStallResetsOnOutput
+           / TestStallDisabledForExecByDefault / TestStallPausedDuringPendingInteraction
+           / TestStallTriggersAutoResume                                        (internal/job)
+--- PASS: TestJobRunDirLockFlags / TestJobRunStallFlags                         (internal/commands)
+```
+
+两个 job **有没有重叠**不靠时钟判定：`testcmd` 新增 `excl-guard`（独占拿住 marker，发现已被占即 exit 3）与 `rendezvous`（等同伴落第二个 marker，超时 exit 4）两个见证模式，于是"两个都 done"= 真的串行、"两个都 done 且互相会合"= 真的并发，都是确定性答案。
+
+**待真机（由监督者在容器执行，本 job 未做）**：真机 worker 上同 cwd 连派两个可写 agent job，第二个出现 `waiting_dir`（`job show` 打 `waiting_dir: holder=<第一个>`）并在第一个结束后接力；`--runner server` 的 exec job 不被挡；一个故意静默的 agent job 在 `stall_timeout_sec` 后 `failed: stalled: no output for Ns` 且触发自动续投。上面 job 级测试已在临时目录 + 真实子进程下覆盖同一批断言，但「真实 worker 进程 + 跨机器目录」这一层需真机确认。

@@ -23,6 +23,7 @@
 - **三种执行位置（runner）**：`local`（本进程）/ `peer-http`（转发给另一台 gofer）/ `worker`（WS 远端执行机，标签调度）；远端的日志、状态、交互经"镜像"透明回传。
 - **断线恢复**：worker 连接抖动或 serve 重启时，在飞 job 进入 `recovering`，同一 worker 进程在窗口内重连即续传日志、补发结果，不再一断就 failed。
 - **受管 worktree**：`--worktree` 让每个 job 在自己的 git worktree 里跑，并行 agent 互不干扰。
+- **同目录串行 + 输出停滞**：两个**可写 agent job** 不会同时改同一个工作目录——后来者停在非终态 `waiting_dir`（等同排队：可取消、统计并入 queued，`job.waiting_dir {holder_job}` 点名在等谁），前一个结束即接手；exec 与只读 job 默认共享，`--exclusive-dir` / `--shared-dir` / `server.dir_lock: false` 可反转，`agents.<k>.max_concurrent` 给单个 agent 限并发。跑着的 job 若 `server.stall_timeout_sec`（默认 900s，exec 默认关、可按 agent 覆盖、单 job `--stall-timeout`/`--no-stall`）内**一个字都没输出**，即被杀为 `failed: stalled: no output for Ns` 并按 **transient** 归类——于是自动续投/故障转移接管，而不是白等到 deadline。
 - **续跑**：`job resume` 让 codex/claude 带着自己的会话上下文接着上次中断的地方继续。
 - **隧道**：`gofer tunnel` 经 worker 做受白名单约束的 TCP/UDP 端口转发（如容器 → 车间 PLC/HMI），三端日志用同一 `tunnel_id` 关联并带分段时延。
 - **人机协作**：运行中提问（`pending_interaction`）、`plan` + todo 进度看板、`ask_human` 阻塞决策、终端会话中继（人离开电脑时自动布防，web/手机回复注入原会话）。
@@ -97,7 +98,7 @@ gofer job list         # 填好地址与 token 即可
 - **project**：一个可执行任务的真实目录。字段：`host_path`（主机路径）/ `container_path`（容器路径）/ `default_agent` / `allowed_agents` / `agent_fallbacks`（项目级故障转移候选，按挂掉的 agent 给有序列表）/ `allowed_runners` / `allow_exec` / `allow_interactive`（pty/交互 job 的项目级开关，默认关，是项目侧**唯一**的交互闸）/ `max_concurrent_jobs` / `max_timeout_sec` / `worktree_default` / `verify` + `verify_timeout_sec`（项目默认验证步骤及其独立超时）。
 - **agent**：怎么执行。`cli-agent` 用 `command` + `args` 模板渲染（占位符 `{{prompt}}` `{{cwd}}` `{{job_id}}` `{{result_dir}}`，逐元素替换、不过 shell）；再写 `interactive_args` 即**一个 key 同时支持批处理与 pty**（`[]` = 裸 TUI 启动；不得含 `{{prompt}}`）。`exec` 原样跑请求里的 `cmd` argv（需项目 `allow_exec`）。
 - **runner**：在哪执行。`local`（本进程子进程）/ `peer-http`（转发到另一台 gofer）/ `worker`（WS 连入的远端执行机）。
-- **job 生命周期**：`queued → running → done | failed | cancelled | timeout`；运行中提问 `running → pending_interaction → running`；执行它的 worker 断线 `running → recovering → running | failed`。
+- **job 生命周期**：`queued → running → done | failed | cancelled | timeout`；等同一个目录锁时 `queued → waiting_dir → running`；运行中提问 `running → pending_interaction → running`；执行它的 worker 断线 `running → recovering → running | failed`。
 
 ## 提交 job
 

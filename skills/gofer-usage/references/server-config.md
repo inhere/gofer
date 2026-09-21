@@ -110,8 +110,10 @@ agents:
     interactive_args: []                # pty argv(job run --interactive); [] = 裸 TUI; 有此字段 = 支持交互
     detect: { command: codex, args: [--version] }   # 探测本机是否装了
     # fallback_agents: [omp]            # ★ 供应商错误时改派的候选(SUP-01 P3): 有序, 逐个尝试
+    # max_concurrent: 2                 # ★ 该 agent 同时在跑的 job 上限(JOB-11): 超出的排队(queued), 不拒绝; 0/不写=不限
+    # stall_timeout_sec: 300            # ★ 输出停滞窗口覆盖(AUTO-05): 0 = 这个 agent 的 job 永不被判停滞; 不写=用 server 的值
     # transient_error_patterns: [...]   # 覆盖内置的"瞬时错误"正则(不区分大小写); 内置含 at capacity|rate limit|
-                                        #   429|503|stream disconnected|windows sandbox failed|connecting runner pipe 等
+                                        #   429|503|stream disconnected|windows sandbox failed|connecting runner pipe|stalled: no output 等
   exec:
     type: exec                          # 内置; 跑请求给的 argv, 不用模板
 ```
@@ -149,6 +151,10 @@ server:
   # governance: {...}                  # 限流全局兜底
   # max_job_timeout_sec: 3600          # job --timeout 上限(默认 1h); 超出被 clamp 且 CLI/API 明示; 项目 max_timeout_sec 可覆盖
   # job_recover_window_sec: 120        # worker 断线后 in-flight job 停在 recovering 等重连的窗口; 0 = 关(断线即 failed)
+  # dir_lock: true                     # ★ 同 cwd 串行锁(JOB-11): 可写 agent job 独占其工作目录(祖先/子目录同锁), 后者排队等
+  #                                    #   false = 所有 job 共享目录(退回 JOB-11 之前的语义); 单个 job 用 --exclusive-dir/--shared-dir 反转
+  # stall_timeout_sec: 900             # ★ 输出停滞窗口(AUTO-05): 非交互 job 静默超过 N 秒即杀(failed: stalled: ...)并按 transient 续投/转移
+  #                                    #   0 = 全局关; exec job 默认不吃这个值(要显式给); 交互 job 恒关
   # agent_fallback:                    # ★ 故障转移开关(SUP-01 P3)
   #   on_failure: true                 #   失败后转移(默认 true; 配了 fallback_agents/agent_fallbacks 才生效)
   #   pre_dispatch: false              #   提交时主 agent degraded 就改派(默认 false: 不悄悄换掉你指定的 agent)
@@ -212,6 +218,24 @@ server:
   `mkdir -p ~/.config/gofer/templates && cp docs/examples/templates/*.md ~/.config/gofer/templates/`。
 - 写模板的纪律：frontmatter **只**放 job 默认值与变量声明——`plan_id`/`caller_id`/`cmd` 这类在提交面才该出现的字段会被解析报错拒掉。
 - worker：模板由 **server** 渲染，所以 worker 上不需要放模板文件；worker-only 项目用全局目录。
+
+## 9. 同目录串行锁与输出停滞（JOB-11 / AUTO-05）
+
+两个"别让一个 job 白占资源"的开关，都是**默认开**、都可以按 job 反转：
+
+```yaml
+server:
+  dir_lock: true                       # 同目录串行锁: 可写 agent job 独占其工作目录
+  stall_timeout_sec: 900               # 输出停滞窗口(秒); 0 = 关
+agents:
+  omp:
+    max_concurrent: 3                  # 这个 agent 的并发上限; 0/不写 = 不限
+    stall_timeout_sec: 300             # 覆盖 server 的窗口; 0 = 这个 agent 永不被判停滞
+```
+
+**同目录串行锁**（`server.dir_lock`，JOB-11）：两个**可写 agent job**（cli-agent/acp-agent、非 `--read-only`、非交互）不允许同时跑在同一个工作目录上——后来的那个停在非终态 `waiting_dir`（统计上等同 `queued`、可取消），事件 `job.waiting_dir {holder_job, dir}` 说明在等谁。**目录重叠就算同一把锁**（`proj/` 与 `proj/sub/` 互斥），路径经 `util.RealPath` 归一化（软链、Windows 8.3 短名同一化），FIFO 排队。exec 与只读 job 默认**共享**（巡检类 job 不该排队）；`job run --exclusive-dir` / `--shared-dir` 单个反转；`--worktree` job 天然独立、不取锁。`agents.<key>.max_concurrent` 是同一信号量机制的 per-agent 版本（超出停在 `queued`）。
+
+**输出停滞**（`server.stall_timeout_sec`，AUTO-05）：跑着的非交互 job **N 秒没有任何输出**（stdout/stderr 有没有新字节；acp 的 `session/update` 走 stderr 所以同样计入）即判停滞：`job.stalled` 事件 + 杀进程 + `failed: stalled: no output for Ns`，且按 **transient** 归类，于是自动续投 / 故障转移照常接管（否则一个挂死的供应商流只能等 job 自己的 deadline）。解析顺序 `job run --stall-timeout` > `agents.<key>.stall_timeout_sec` > `server.stall_timeout_sec`（默认 900s）；**exec job 默认关**（构建/测试本来就会长时间没输出，要就显式给 `--stall-timeout`）；交互 job 恒关；等人作答（`pending_interaction`）与 verify 阶段不计时。`job run --no-stall` 单个关掉。
 
 ## 校验 / 生效
 
