@@ -714,6 +714,25 @@ onUnmounted(() => {
         <button class="board-btn mono" type="button" @click="viewInBoard">
           在 Board 查看
         </button>
+        <!-- WEB-10 视图切换（页面顶部）：列表/看板同一份数据；选择记 localStorage，默认看板。 -->
+        <div class="view-switch mono">
+          <button
+            class="view-btn"
+            :class="{ 'view-btn--on': view === 'board' }"
+            type="button"
+            @click="setView('board')"
+          >
+            看板
+          </button>
+          <button
+            class="view-btn"
+            :class="{ 'view-btn--on': view === 'list' }"
+            type="button"
+            @click="setView('list')"
+          >
+            列表
+          </button>
+        </div>
       </div>
     </div>
 
@@ -930,25 +949,6 @@ onUnmounted(() => {
     <section v-if="plan" class="section">
       <div class="section-head">
         <h2 class="section-title mono">TODOS ({{ todoSummary }})</h2>
-        <!-- WEB-10 视图切换：列表/看板同一份数据；选择记 localStorage，默认看板。 -->
-        <div class="view-switch mono">
-          <button
-            class="view-btn"
-            :class="{ 'view-btn--on': view === 'board' }"
-            type="button"
-            @click="setView('board')"
-          >
-            看板
-          </button>
-          <button
-            class="view-btn"
-            :class="{ 'view-btn--on': view === 'list' }"
-            type="button"
-            @click="setView('list')"
-          >
-            列表
-          </button>
-        </div>
       </div>
       <!-- 看板：拖到 ready 即派发（无 assignee 先选 agent）；done/skipped 落点先确认。 -->
       <PlanBoard
