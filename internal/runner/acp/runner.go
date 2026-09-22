@@ -347,10 +347,14 @@ type handler struct {
 	// (a trailing newline, the summary) is written by the runner's own goroutine.
 	mu         sync.Mutex
 	toolStatus map[string]string
-	// toolCalls/thoughts/permissions are the turn's tallies for job.acp_summary.
-	toolCalls   int
-	thoughts    int
-	permissions int
+	// toolCalls/thoughts/permissions/permissionsAuto are the turn's tallies for
+	// job.acp_summary. permissions counts every request the agent made; permissionsAuto
+	// the ones gofer answered without a human (off / auto_allow_kind / remembered /
+	// timeout) — those have no timeline row of their own (F4).
+	toolCalls       int
+	thoughts        int
+	permissions     int
+	permissionsAuto int
 	// thought coalesces the agent's per-token thought stream into ONE line (bd
 	// h-aii-7kja ②), flushed at the next boundary. Guarded by mu.
 	thought strings.Builder
@@ -569,9 +573,10 @@ func (h *handler) emitSummary(stopReason string) {
 	}
 	h.mu.Lock()
 	detail := map[string]any{
-		"tool_calls":  h.toolCalls,
-		"thoughts":    h.thoughts,
-		"permissions": h.permissions,
+		"tool_calls":       h.toolCalls,
+		"thoughts":         h.thoughts,
+		"permissions":      h.permissions,
+		"permissions_auto": h.permissionsAuto,
 	}
 	h.mu.Unlock()
 	if stopReason != "" {
@@ -614,6 +619,11 @@ func (h *handler) RequestPermission(p acp.RequestPermissionParams) acp.Permissio
 // allow_always — except in the remembered case, where the human's allow_always answer
 // is what the agent is told again. An option the agent never offered is never invented;
 // with neither offered the request is cancelled (never run an unapproved tool call).
+//
+// An automatic answer is NOT a timeline event (F4): one row per tool call made an
+// `approval: off` job unreadable, while the same decision is already in acp.jsonl (the
+// audit trail), on stderr as a compact event, and counted by job.acp_summary.
+// job.permission_answered therefore means "a HUMAN answered" — do not emit it here.
 func (h *handler) answerAutomatically(p acp.RequestPermissionParams, kind, reason string) acp.PermissionOutcome {
 	preferred, fallback := acp.OptionAllowOnce, acp.OptionAllowAlways
 	if reason == "remembered_allow_always" {
@@ -629,11 +639,6 @@ func (h *handler) answerAutomatically(p acp.RequestPermissionParams, kind, reaso
 	}
 	optionKind := kindOfOption(p.Options, chosen)
 	h.recordPermission(p, kind, "selected", chosen, optionKind, true, reason)
-	if h.onJobEvent != nil {
-		h.onJobEvent(runner.EventPermissionAnswered, map[string]any{
-			"option_id": chosen, "kind": optionKind, "by": "", "auto": true,
-		})
-	}
 	return acp.PermissionSelected(chosen)
 }
 
@@ -763,10 +768,12 @@ func (h *handler) answerOnTimeout(p acp.RequestPermissionParams, kind, hint, int
 		return acp.PermissionCancelled()
 	}
 	h.recordPermission(p, kind, "selected", chosen, optionKind, true, "timeout")
+	// The chosen option rides on the timeout row: the answer was automatic (see
+	// answerAutomatically — no job.permission_answered here), so this is the only
+	// timeline row that says what the agent was actually told.
+	detail["option_id"] = chosen
+	detail["option_kind"] = optionKind
 	if h.onJobEvent != nil {
-		h.onJobEvent(runner.EventPermissionAnswered, map[string]any{
-			"option_id": chosen, "kind": optionKind, "by": "", "auto": true,
-		})
 		h.onJobEvent(runner.EventPermissionTimedOut, detail)
 	}
 	return acp.PermissionSelected(chosen)
@@ -804,6 +811,9 @@ func (h *handler) recordPermission(p acp.RequestPermissionParams, kind, outcome,
 
 	h.mu.Lock()
 	h.permissions++
+	if auto {
+		h.permissionsAuto++
+	}
 	h.mu.Unlock()
 	h.writeStderr(compactLine("permission", func(e *ndjsonfilter.CompactEvent) {
 		e.Add("state", outcome).

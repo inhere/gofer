@@ -221,10 +221,15 @@ function eventDetailText(ev: JobEvent): string {
     // 审批门（GATE-01 S1）：求批/作答/超时都带工具调用与选项，时间线据此可读；
     // acp 回合汇总（bd h-aii-rnxk）给的是本回合的执行计数。
     case 'job.acp_summary': {
+      // permissions_auto (F4) = 本回合 gofer 自动裁决的求批数（off / auto_allow_kind /
+      // remembered / timeout）。自动裁决不再各占一条 job.permission_answered，所以
+      // 时间线上只有这里能看到它们。
+      const auto = Number(d.permissions_auto ?? 0)
+      const permissions = `${d.permissions ?? 0} 次求批`
       const parts = [
         `${d.tool_calls ?? 0} 次工具调用`,
         `${d.thoughts ?? 0} 段思考`,
-        `${d.permissions ?? 0} 次求批`,
+        auto > 0 ? `${permissions}（自动 ${auto}）` : permissions,
       ]
       if (d.stop_reason) {
         parts.push(String(d.stop_reason))
