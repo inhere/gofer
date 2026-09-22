@@ -226,3 +226,9 @@ SMOKE OK (html 4867 bytes)
 4. 交互 claude 注入 `--session-id`（与批处理一致）；codex 靠退出输出捕获。
 5. 传输 id `xf-<8hex>`；wakeup/webhook 等后续新 id 一律 `<2字母>-<8hex>`。
 6. webhook 触发用 schedule 自己的 `trigger_token`，不复用 caller bearer。
+
+## 真机验收记录（2026-09-22，主机 v0.50.0）
+
+- **PLAN-03 链自动推进**：plan `plan-20260922-153837-795cc94c`（项目 `hyy-ai-inspect`）四条 todo：A `--assign omp --cwd docs`（只读命令）→ B `--after prev --assign exec --runner w-docker-claude --cmd 'bash -lc "go version"'` → C 同 B 但 `exit 3` → D `echo chain-done`。`plan run` 后 A 立即派发（omp 16s 完成）→ B **自动**派到容器 worker（`go version go1.25.10 linux/amd64`）→ C 失败 → plan `status=blocked`、`plan show` 打印释放命令 → `plan set-todo C --status skipped` → D 自动派发并完成 → plan `status=done`。全程无人工派 job。
+- CFG-09 容器 worker 作为链上一环（B/C/D 都跑在 `w-docker-claude`）真机通过。
+- PTY-01（`tty-claude` 会话续接、omp TUI 退出文案采样）另记。
