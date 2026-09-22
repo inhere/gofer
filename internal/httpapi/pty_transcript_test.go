@@ -31,16 +31,29 @@ import (
 // has something to look for.
 func newPtyCaptureServer(t *testing.T) *Server {
 	t.Helper()
+	return newPtyCaptureServerWithAgents(t, map[string]config.AgentConfig{
+		"codex": {Type: agent.TypeCLIAgent, Command: "codex", Args: []string{"{{prompt}}"}},
+	})
+}
+
+// newPtyCaptureServerWithAgents is newPtyCaptureServer with a caller-chosen agent
+// set — every key is allowed in the "self" project — so a capture can also be
+// exercised on an agent whose session_capture regex is not codex's.
+func newPtyCaptureServerWithAgents(t *testing.T, declared map[string]config.AgentConfig) *Server {
+	t.Helper()
 	root := t.TempDir()
+	allowed := make([]string, 0, len(declared)+1)
+	for k := range declared {
+		allowed = append(allowed, k)
+	}
+	allowed = append(allowed, "exec")
 	cfg := &config.Config{
 		Server:  config.ServerConfig{Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice", CanAttach: true}}},
 		Storage: config.StorageConfig{Root: root},
 		Projects: map[string]config.ProjectConfig{
-			"self": {HostPath: root, AllowedAgents: []string{"codex", "exec"}, AllowedRunners: []string{"local"}},
+			"self": {HostPath: root, AllowedAgents: allowed, AllowedRunners: []string{"local"}},
 		},
-		Agents: map[string]config.AgentConfig{
-			"codex": {Type: agent.TypeCLIAgent, Command: "codex", Args: []string{"{{prompt}}"}},
-		},
+		Agents: declared,
 	}
 	projects := project.NewRegistry(cfg, "")
 	agents := agent.NewRegistry(cfg)
@@ -107,6 +120,45 @@ func TestPtySessionIDCapturedFromTail(t *testing.T) {
 	})
 	src.EOF()
 	close(done)
+}
+
+// TestFallbackPtyCaptureReadsOnlyTheTailWindow is the AGT-04 live-capture rule: for
+// the GENERIC fallback regex only the rolling TAIL window is read, never the frozen
+// head one. A fallback banner is an exit banner — it is always at the end — while a
+// `--resume <id>` the TUI printed early (echoing a command, explaining its usage)
+// sits in the head. The head is checked first, so reading it would record the wrong
+// id; ONE observation carries both windows here, which is the only way the two can
+// disagree within a single scan.
+func TestFallbackPtyCaptureReadsOnlyTheTailWindow(t *testing.T) {
+	const sid = "session_hamster_1790079148520_bc5cb0d44153fe56"
+	s := newPtyCaptureServerWithAgents(t, map[string]config.AgentConfig{
+		"jcode": {Type: agent.TypeCLIAgent, Command: "jcode", InteractiveArgs: []string{}},
+	})
+	upsertPtyJob(t, s, "job-fb-tail", "jcode")
+	ac, _ := s.agents.Get("jcode")
+
+	cap := &ptySessionCapture{srv: s, jobID: "job-fb-tail", agent: "jcode", reSrc: ac.SessionCapture}
+	cap.observe([]byte("jcode --resume deadbeefdeadbeef\n" + // decoy: head window
+		strings.Repeat("redrawing the screen line\n", 200*1024/26) +
+		"jcode --resume " + sid + "\n")) // the real banner: tail window
+
+	got, ok := s.jobs.Get("job-fb-tail")
+	if !ok || got.SessionID != sid {
+		t.Fatalf("session_id = %q (found=%v), want %q — the fallback must read the tail, not the head", got.SessionID, ok, sid)
+	}
+	evs, err := s.jobs.ListJobEvents("job-fb-tail", 0)
+	if err != nil {
+		t.Fatalf("ListJobEvents: %v", err)
+	}
+	for _, e := range evs {
+		if e.Type == job.EventJobSessionCaptured {
+			if !strings.Contains(e.Detail, `"by":"fallback"`) || !strings.Contains(e.Detail, `"source":"pty"`) {
+				t.Fatalf("event detail = %s, want fallback/pty", e.Detail)
+			}
+			return
+		}
+	}
+	t.Fatalf("no %s event recorded for the live capture", job.EventJobSessionCaptured)
 }
 
 // TestPtyTranscriptWrittenForLocalAndWorkerPty proves the transcript is written at

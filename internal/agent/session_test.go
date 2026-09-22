@@ -363,3 +363,143 @@ func TestClaudeTUIExitSessionCapture(t *testing.T) {
 		}
 	}
 }
+
+// newFallbackAgent resolves a cli-agent that is NOT in the built-in table (key
+// "jcode", no session_* config) and therefore gets the generic AGT-04 fallback.
+func newFallbackAgent(t *testing.T) config.AgentConfig {
+	t.Helper()
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"jcode": {Type: TypeCLIAgent, Command: "jcode", InteractiveArgs: []string{}},
+	}}
+	ac, ok := ResolveAgent(cfg, "jcode")
+	if !ok {
+		t.Fatal(`ResolveAgent("jcode") = not found`)
+	}
+	if !IsFallbackCapture(ac.SessionCapture) {
+		t.Fatalf("jcode SessionCapture = %q, want the generic fallback", ac.SessionCapture)
+	}
+	return ac
+}
+
+// TestFallbackCaptureAcceptsNonUUIDToken is the AGT-04 acceptance case: a cli-agent
+// the built-in table has never heard of (jcode, OpenCode Go 系) must still capture
+// its session id with NO session_capture configured. The id is not a uuid, so all
+// three built-in regexes miss it. Sample is the real exit banner as it reaches the
+// capture (job 20260922-201228-becdd0e9), de-ANSI'd by ptyrelay but with the
+// `[<u` / `[>4;0m` residue still in place.
+func TestFallbackCaptureAcceptsNonUUIDToken(t *testing.T) {
+	ac := newFallbackAgent(t)
+	re, err := regexp.Compile(ac.SessionCapture)
+	if err != nil {
+		t.Fatalf("compile %q: %v", ac.SessionCapture, err)
+	}
+	const sid = "session_hamster_1790079148520_bc5cb0d44153fe56"
+	sample := "[<u[>4;0mSession hamster - to resume:\n  jcode --resume " + sid + "[>4;0m\n"
+	if got := firstNonEmptyGroup(re.FindStringSubmatch(sample)); got != sid {
+		t.Fatalf("capture = %q, want %q (sample %q)", got, sid, sample)
+	}
+}
+
+// TestFallbackCaptureAcceptsUUIDAndPrefixedIDs pins the three other id shapes the
+// fallback exists to cover: a plain uuid (claude-like), a prefixed ULID, and the
+// `--flag=value` spelling.
+func TestFallbackCaptureAcceptsUUIDAndPrefixedIDs(t *testing.T) {
+	ac := newFallbackAgent(t)
+	re, err := regexp.Compile(ac.SessionCapture)
+	if err != nil {
+		t.Fatalf("compile %q: %v", ac.SessionCapture, err)
+	}
+	for _, tc := range []struct{ name, line, want string }{
+		{"uuid", "foo --resume 7c4418ff-0928-4e33-8347-c24241d919c0", "7c4418ff-0928-4e33-8347-c24241d919c0"},
+		{"prefixed ulid", "bar --resume ses_01H9XK2M3N4P5Q6R7S8T9V0W1X", "ses_01H9XK2M3N4P5Q6R7S8T9V0W1X"},
+		{"equals form", "baz --session-id=abc12345", "abc12345"},
+	} {
+		if got := firstNonEmptyGroup(re.FindStringSubmatch(tc.line)); got != tc.want {
+			t.Errorf("%s: capture = %q, want %q", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestBuiltinKeyBeatsFallback: an agent the built-in table DOES know keeps exactly
+// its built-in regex — the fallback must never widen what claude/codex/omp capture
+// (their ids are pinned by PTY-01 and a looser pattern could grab an unrelated
+// token instead).
+func TestBuiltinKeyBeatsFallback(t *testing.T) {
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"claude": {Type: TypeCLIAgent, Command: "claude"},
+		"codex":  {Type: TypeCLIAgent, Command: "codex"},
+		"omp":    {Type: TypeCLIAgent, Command: "omp", InteractiveArgs: []string{}},
+	}}
+	for _, key := range []string{"claude", "codex", "omp"} {
+		ac, ok := ResolveAgent(cfg, key)
+		if !ok {
+			t.Fatalf("%s not found", key)
+		}
+		if want := builtinSessionDefaults[key].SessionCapture; ac.SessionCapture != want {
+			t.Errorf("%s SessionCapture = %q, want the built-in %q", key, ac.SessionCapture, want)
+		}
+		if IsFallbackCapture(ac.SessionCapture) {
+			t.Errorf("%s resolved to the generic fallback, want the built-in regex", key)
+		}
+	}
+}
+
+// TestExplicitCaptureBeatsFallback: an operator-written session_capture wins, and
+// must not be reported as the fallback (the event detail and the tail-only window
+// rule both key off that distinction).
+func TestExplicitCaptureBeatsFallback(t *testing.T) {
+	const mine = `mybanner:\s*(\S+)`
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"jcode": {Type: TypeCLIAgent, Command: "jcode", InteractiveArgs: []string{}, SessionCapture: mine},
+	}}
+	ac, _ := ResolveAgent(cfg, "jcode")
+	if ac.SessionCapture != mine {
+		t.Fatalf("explicit session_capture overwritten: %q", ac.SessionCapture)
+	}
+	if IsFallbackCapture(ac.SessionCapture) {
+		t.Fatal("an explicit capture must not be reported as the fallback")
+	}
+}
+
+// TestFallbackResumeTemplateApplied: capturing an id is only half of it — a
+// cli-agent with no session_resume must also be able to `job resume`. Both
+// templates are the shape claude/omp/jcode share; an explicit one still wins.
+func TestFallbackResumeTemplateApplied(t *testing.T) {
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"jcode": {Type: TypeCLIAgent, Command: "jcode"},
+		"mine":  {Type: TypeCLIAgent, Command: "mine", SessionResume: []string{"-r", "{{session_id}}"}},
+	}}
+	jcode, _ := ResolveAgent(cfg, "jcode")
+	wantBatch := []string{"--resume", "{{session_id}}", "-p", "{{prompt}}"}
+	if !equalStringSlices(jcode.SessionResume, wantBatch) {
+		t.Errorf("SessionResume = %#v, want %#v", jcode.SessionResume, wantBatch)
+	}
+	wantTUI := []string{"--resume", "{{session_id}}"}
+	if !equalStringSlices(jcode.SessionResumeInteractive, wantTUI) {
+		t.Errorf("SessionResumeInteractive = %#v, want %#v", jcode.SessionResumeInteractive, wantTUI)
+	}
+
+	mine, _ := ResolveAgent(cfg, "mine")
+	if !equalStringSlices(mine.SessionResume, []string{"-r", "{{session_id}}"}) {
+		t.Errorf("explicit SessionResume overwritten: %#v", mine.SessionResume)
+	}
+}
+
+// TestFallbackSkipsExecAndACP: the fallback is a cli-agent concept only. An exec
+// agent's argv belongs to the caller and an acp-agent's session travels over the
+// protocol, so neither gets a session_capture to scan for or a resume argv.
+func TestFallbackSkipsExecAndACP(t *testing.T) {
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"exec":      {Type: TypeExec},
+		"jcode-acp": {Type: TypeACPAgent, Command: "jcode", Args: []string{"acp"}},
+	}}
+	for _, key := range []string{"exec", "jcode-acp"} {
+		ac, ok := ResolveAgent(cfg, key)
+		if !ok {
+			t.Fatalf("%s not found", key)
+		}
+		if ac.SessionCapture != "" || len(ac.SessionResume) != 0 || len(ac.SessionResumeInteractive) != 0 || len(ac.SessionInject) != 0 {
+			t.Errorf("%s gained session_* fallback: %#v", key, ac)
+		}
+	}
+}
