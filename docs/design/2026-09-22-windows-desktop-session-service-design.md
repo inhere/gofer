@@ -451,3 +451,10 @@ $ go vet ./...                       # OK
 - 禁止 breakaway 的宿主上的重试分支：同 W1，未复现。
 - `pnpm typecheck`：本机 pnpm shim 自身损坏（`the global target of the pnpm shim points back at the shim`），改为直接跑脚本等价的 `node node_modules/vue-tsc/bin/vue-tsc.js --noEmit`（先用一个故意的类型错误确认它真的在报错，再确认干净 → 0 诊断）。
 
+## F5 记录（2026-09-22，主机 Windows 11 26100 / PowerShell 7.6.6；正式切换之后）
+
+范围 = 切换后的小修：`start.ps1` 的 `-ConfigDir` 不再每次都要（从已注册任务里找回）。**只改脚本与文档，无 Go 改动。** 提交：`T1`（start.ps1 `Resolve-ConfigDir`）→ `T2`（win-tasktest.ps1）→ `T3`（runbook §7 / scripts/README.md / `.NOTES` / 本记录）。
+
+- 来源顺序 ① `-ConfigDir` → ② `$env:GOFER_CONFIG_DIR` → ③ **已注册任务动作的 `-EnvExtra GOFER_CONFIG_DIR=…`**（首次 `up` 之后的事实源：`stop/restart/status/logs/upgrade` 与重跑的 `up` 都不再需要参数）→ ④ gofer 默认 `~\.config\gofer`（仅当其中真有 `config.yaml`）。`status` 打印 `config dir: <dir> (from param|env|task|default)`；四路全空时 `up`/`status`/`logs`/`restart`/`upgrade` 报错并打印两种一次性做法（`-ConfigDir <dir>`，或用户级 `[Environment]::SetEnvironmentVariable('GOFER_CONFIG_DIR','<dir>','User')` —— 新窗口与登录任务都继承，gofer CLI 也自动找到配置）；**`stop` 例外**：照样落 `gofer.stop` 标记并退回硬停，只 Warning。写进任务动作的 `-EnvExtra` 值改为**恒加引号**（`"GOFER_CONFIG_DIR=<dir>"`，路径含空格安全），读取兼容旧的无引号形式（③ 的正则两种都解析）。
+- 验收（隔离实例：随机任务名 + 临时 config dir + 9098/9097；live 的 `gofer-serve` 任务与真实配置目录未动）：`win-tasktest.ps1` **pass=31 fail=0**（新增：`up` 输出 `config dir: … (from param)`、`stop/restart/upgrade/status/logs` 与重跑 `up` 全程不带 `-ConfigDir` 且 `status` 打印 `… (from task)`、任务不存在 + env 未设 + 无参数时 `status` 打印两种做法并 exit=1；`-AllowServiceConflict` 已不再需要，live 已无名为 `gofer` 的服务），`win-selftest.ps1` **pass=13 fail=0**（自更新链未破）。真机场景复核：live 任务上直接 `-Action status`（未设 env）→ `config dir: <真实配置目录> (from task)`、任务 Running、`/health` 200。
+

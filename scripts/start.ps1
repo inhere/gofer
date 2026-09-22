@@ -34,13 +34,23 @@
 
 .NOTES
   * `up` PREREQUISITES: no Windows service named `gofer` (it would fight this task
-    for the same port -- the script refuses and prints the migration commands), an
-    existing -ConfigDir, and gofer.exe in -ExeDir.
-  * -ConfigDir (or $env:GOFER_CONFIG_DIR) is required for up/upgrade/stop/restart/
-    status. It travels into the task as GOFER_CONFIG_DIR via the supervisor's
-    -EnvExtra, because the task inherits the user's REGISTRY environment, not your
-    shell's. The token is expected in <ConfigDir>\.env (`GOFER_TOKEN=...`) or via
-    the config's token_env; no token is written into the task definition.
+    for the same port -- the script refuses and prints the migration commands), a
+    config dir (see below) and gofer.exe in -ExeDir.
+  * -ConfigDir is only needed the FIRST time (or to change it). Resolution order:
+    -ConfigDir -> $env:GOFER_CONFIG_DIR -> the registered TASK's action
+    (`-EnvExtra GOFER_CONFIG_DIR=…`; after the first `up` that IS the source of
+    truth, so stop/restart/status/logs/upgrade -- and a re-run of `up` -- need no
+    -ConfigDir) -> gofer's default ~\.config\gofer, but only when that holds a
+    config.yaml. `status` prints "config dir: <dir> (from param|env|task|default)".
+    It travels into the task as GOFER_CONFIG_DIR via the supervisor's -EnvExtra,
+    because the task inherits the user's REGISTRY environment, not your shell's.
+    With none of the four available, `up` prints two one-time remedies: pass
+    -ConfigDir once, or set the user-level env with
+    [Environment]::SetEnvironmentVariable('GOFER_CONFIG_DIR','<dir>','User') --
+    new shells AND the logon task inherit that, and the gofer CLI finds the config
+    on its own. `stop` never needs one (stop marker + hard-stop fallback).
+    The token is expected in <ConfigDir>\.env (`GOFER_TOKEN=...`) or via the
+    config's token_env; no token is written into the task definition.
   * No admin needed: the task belongs to the current user (LogonType Interactive).
     Exception: -Elevated (RunLevel Highest) requires an elevated shell.
   * Power loss / reboot: a logon task needs a LOGON. Enable auto-logon

@@ -75,7 +75,7 @@ pwsh -NoProfile -File scripts/win-tasktest.ps1      # 登录计划任务：期�
 ```
 
 - `win-selftest.ps1` 覆盖：崩溃自愈 / rename-replace 换新 exe / 看门狗回滚 / F2 守卫拒绝非 gofer 父进程。
-- `win-tasktest.ps1` 覆盖 §7 的任务模式：`up` 后 `/health` 200 且 gofer 的 `SessionId` == 控制台会话、`server.ready` 的 `interactive` 字段、`stop` 后优雅退出且看门狗不拉起、`restart`、崩溃后被看门狗拉起、`serve -d` 的分离存活与 `serve stop`、`remove` 注销任务。它注册的是**随机任务名**（`gofer-tasktest-<4位>`）+ 独立 `-ExeDir`/`-ConfigDir`/端口（默认 9098/9097），`finally` 里无条件注销任务、杀掉 TestRoot 下的进程、删目录。
+- `win-tasktest.ps1` 覆盖 §7 的任务模式：`up` 后 `/health` 200 且 gofer 的 `SessionId` == 控制台会话、`server.ready` 的 `interactive` 字段、`stop` 后优雅退出且看门狗不拉起、`restart`、崩溃后被看门狗拉起、`serve -d` 的分离存活与 `serve stop`、`remove` 注销任务；以及**不带 `-ConfigDir`** 的 `status/stop/restart/upgrade/logs`（config dir 从任务动作找回，`status` 断言 `config dir: … (from task)`）、重跑 `up` 沿用任务里记的 config dir、四路来源全空时 `status` 打印两种一次性做法并以非 0 退出。它注册的是**随机任务名**（`gofer-tasktest-<4位>`）+ 独立 `-ExeDir`/`-ConfigDir`/端口（默认 9098/9097），`finally` 里无条件注销任务、杀掉 TestRoot 下的进程、删目录。
 
 ## 6. 排障
 
@@ -105,9 +105,26 @@ pwsh -NoProfile -File scripts/win-tasktest.ps1      # 登录计划任务：期�
 ### 7.1 前置
 
 - gofer.exe 在 `<repo>\serve-run\gofer.exe`（`go build -o serve-run\gofer.exe .\cmd\gofer`）；`dist\gofer.exe` 是 `-Action upgrade` 用的构建产物。
-- 一个 gofer **配置目录**（`config.yaml` + `.env`）。`-ConfigDir` 必给（或用 `$env:GOFER_CONFIG_DIR`）：它经任务动作的 `-EnvExtra GOFER_CONFIG_DIR=…` 传进任务（任务继承的是**用户注册表**环境，不是你 shell 的），gofer 据此找到 `config.yaml` 并加载该目录 `.env` 里的 `GOFER_TOKEN`。缺了 → `refusing to start without a token`。任务定义里**不写** token。
+- 一个 gofer **配置目录**（`config.yaml` + `.env`）。`-ConfigDir` **只需首次 `up` 给一次**（或改用用户级 `$env:GOFER_CONFIG_DIR`）；之后所有动作自己从已注册的任务里找回 —— 见下。它经任务动作的 `-EnvExtra GOFER_CONFIG_DIR=…` 传进任务（任务继承的是**用户注册表**环境，不是你 shell 的），gofer 据此找到 `config.yaml` 并加载该目录 `.env` 里的 `GOFER_TOKEN`。缺了 → `refusing to start without a token`。任务定义里**不写** token。
 - **普通窗口即可**（任务归当前用户）。只有 `-Elevated`（RunLevel Highest）注册时需要提权。
 - 机器上若还装著名为 `gofer` 的服务（旧 nssm），`up` 会**拒绝**并打印迁移命令（两者抢同一端口）→ 见 §7.5。
+
+**`-ConfigDir` 从哪来**（按序取第一个命中的）：
+
+| # | 来源 | 说明 |
+|---|---|---|
+| ① | `-ConfigDir <dir>` | 显式参数，永远最优先（换配置目录就用它） |
+| ② | `$env:GOFER_CONFIG_DIR` | 当前 shell 的环境变量 |
+| ③ | 已注册任务的动作里的 `-EnvExtra GOFER_CONFIG_DIR=…` | **首次 `up` 之后的事实源**：`status/stop/restart/logs/upgrade` 不再需要 `-ConfigDir`，重跑 `up` 也沿用 |
+| ④ | `~\.config\gofer` | 仅当其中真有 `config.yaml`（= gofer CLI 自己的默认目录） |
+
+四路全空 → `up`（以及 `status/logs/restart/upgrade`）报错并打印两种一次性做法：`-ConfigDir <dir>`，或设一次用户级环境变量 —— 之后**新开的窗口与登录任务都会继承**，gofer CLI 也就自动找到配置：
+
+```powershell
+[Environment]::SetEnvironmentVariable('GOFER_CONFIG_DIR','<dir>','User')
+```
+
+`stop` 是例外：找不到 config dir 时照样落 `gofer.stop` 标记并退回硬停，只 Warning（停机不能被配置问题卡住）。
 
 ### 7.2 各 Action（`pwsh -File scripts\start.ps1 -Action …`）
 
@@ -118,26 +135,33 @@ pwsh -NoProfile -File scripts/win-tasktest.ps1      # 登录计划任务：期�
 | `stop` | 先落 `gofer.stop` 标记（看门狗不再拉起）→ `gofer serve stop`（pidfile + 命名事件优雅停）→ 等 ≤15s（任务离开 Running 且进程消失）；超时才 `Stop-ScheduledTask` 硬停并 Warning |
 | `restart` | `stop` → 删标记 → 启动 → 等 `/health` |
 | `remove` | `stop` + `Unregister-ScheduledTask`（exe / 日志保留） |
-| `status` | 任务 State、`Get-ScheduledTaskInfo`（LastRunTime / LastTaskResult / NextRunTime）、Action 的 Execute+Argument、gofer 进程 pid/SessionId/StartTime、`/health`、标记是否存在 |
+| `status` | 任务 State、`Get-ScheduledTaskInfo`（LastRunTime / LastTaskResult / NextRunTime）、Action 的 Execute+Argument、gofer 进程 pid/SessionId/StartTime、`/health`、标记是否存在；开头打印 config dir 的来源 `config dir: <dir> (from param/env/task/default)` |
 | `logs` | tail `serve-run\win-supervisor.log` 与 `<ConfigDir>\run\serve.log`（`serve -d` 另有 `serve.out.log`） |
 
-常用参数：`-ConfigDir <dir>`（必需）、`-Addr 0.0.0.0:<port>`（覆盖 config `server.addr`，同时作为健康探测地址；`0.0.0.0` 会换成 `127.0.0.1` 访问）、`-NoWeb`（`--no-web`，否则默认 `--web-dir ./web/dist`）、`-Config <file>`、`-TaskName`、`-ExeDir`（默认 `<repo>\serve-run`）、`-User`（默认当前控制台用户）、`-Elevated`。
+常用参数：`-ConfigDir <dir>`（**首次 `up` 必需**，之后从任务动作找回，见 §7.1）、`-Addr 0.0.0.0:<port>`（覆盖 config `server.addr`，同时作为健康探测地址；`0.0.0.0` 会换成 `127.0.0.1` 访问）、`-NoWeb`（`--no-web`，否则默认 `--web-dir ./web/dist`）、`-Config <file>`、`-TaskName`、`-ExeDir`（默认 `<repo>\serve-run`）、`-User`（默认当前控制台用户）、`-Elevated`。
 
 ```powershell
-# 常驻起 + 看状态 + 看日志（普通窗口）
-pwsh -File scripts\start.ps1 -Action up     -ConfigDir '<ConfigDir>'
-pwsh -File scripts\start.ps1 -Action status -ConfigDir '<ConfigDir>'
-pwsh -File scripts\start.ps1 -Action logs   -ConfigDir '<ConfigDir>'
-# 原地升级（不需要管理员）
-pwsh -File scripts\start.ps1 -Action upgrade -ConfigDir '<ConfigDir>'        # 仅 Go
-pwsh -File scripts\start.ps1 -Action upgrade -ConfigDir '<ConfigDir>' -Web   # 连 web 控制台
+# 首次：注册任务（唯一需要 -ConfigDir 的一次；普通窗口）
+pwsh -File scripts\start.ps1 -Action up -ConfigDir '<ConfigDir>'
+
+# 之后：config dir 从任务动作里的 -EnvExtra 找回，都不用再传 -ConfigDir
+pwsh -File scripts\start.ps1 -Action status
+pwsh -File scripts\start.ps1 -Action logs
+pwsh -File scripts\start.ps1 -Action restart
+pwsh -File scripts\start.ps1 -Action stop
+pwsh -File scripts\start.ps1 -Action upgrade                 # 原地升级（不需要管理员），仅 Go
+pwsh -File scripts\start.ps1 -Action upgrade -Web            # 同上，连 web 控制台
+pwsh -File scripts\start.ps1 -Action up                      # 重跑 up：沿用任务里记的 config dir
 ```
+
+> 想彻底不再依赖任务找回，就设一次用户级变量（新窗口与登录任务都继承）：`[Environment]::SetEnvironmentVariable('GOFER_CONFIG_DIR','<ConfigDir>','User')`。
 
 ### 7.3 确认它真的在桌面会话里
 
 ```powershell
 # ① 任务状态 + gofer 进程 SessionId（应非 0；与 explorer.exe 的 SessionId 相同 = 同一个桌面）
-pwsh -File scripts\start.ps1 -Action status -ConfigDir '<ConfigDir>'
+#    首行还会打印 config dir 的来源，如 config dir: <dir> (from task)
+pwsh -File scripts\start.ps1 -Action status
 
 # ② server 自证的判据：ready 行里的 session / interactive / console
 Get-Content '<ConfigDir>\run\serve.log' | Select-String 'server.ready'
@@ -161,7 +185,8 @@ Get-Content '<ConfigDir>\run\serve.log' | Select-String 'server.ready'
 | 以管理员打开的 DTools/CODESYS 点不动 | UIPI：进程完整性级别不一致。gofer 也 `-Elevated` 注册（需管理员），或让目标程序以普通权限开 —— **两边必须一致** |
 | 锁屏 / RDP 断开后 GUI 自动化失败、截图黑屏 | Windows 桌面语义：锁屏后活动桌面是 Winlogon，RDP 断开后会话 disconnected。属桌面策略，本仓不解决 |
 | 重启后 server 不在 | 登录计划任务**依赖登录**。无人值守需开自动登录（`netplwiz` / Autologon）+ 放宽锁屏 —— 运维决定 |
-| gofer 找不到 config / `refusing to start without a token` | 任务环境里没有 `GOFER_CONFIG_DIR`：靠 `-ConfigDir` 经看门狗 `-EnvExtra` 注入，别指望用户 shell 的环境变量 |
+| gofer 找不到 config / `refusing to start without a token` | 任务环境里没有 `GOFER_CONFIG_DIR`：靠 `-ConfigDir` 经看门狗 `-EnvExtra` 注入，别指望用户 shell 的环境变量。核对：`-Action status` 首行 `config dir: <dir> (from task)` |
+| 脚本报 `no gofer config dir found` | 四路来源全空（§7.1）：任务没注册 / 动作里没有 `GOFER_CONFIG_DIR`、`$env:GOFER_CONFIG_DIR` 没设、`~\.config\gofer` 也没有 `config.yaml`。按提示的两种一次性做法之一处理（`-ConfigDir`，或用户级 `SetEnvironmentVariable`）。`stop` 不受影响：照样落标记并退回硬停 |
 | 登录时闪一下黑窗 | 系统无 `conhost.exe --headless`（< Windows 10 1809）：脚本自动退回 `pwsh -WindowStyle Hidden` 并 Warning |
 | 自更新报 `guard(F4)` | 任务模式下 gofer 的父进程仍是 `win-supervisor.ps1`，§2 的默认 `-SupervisorMarker` 即可过 |
 
@@ -173,8 +198,8 @@ cd <repo>\serve-run; .\nssm.exe stop gofer; .\nssm.exe remove gofer confirm
 #    sc.exe stop gofer; sc.exe delete gofer
 # 2) 普通窗口：注册登录计划任务（自动清掉残留的 gofer.stop）
 pwsh -File scripts\start.ps1 -Action up -ConfigDir '<ConfigDir>'
-# 3) 验证：任务 Running + SessionId 非 0 + /health 200
-pwsh -File scripts\start.ps1 -Action status -ConfigDir '<ConfigDir>'
+# 3) 验证：任务 Running + SessionId 非 0 + /health 200（首行显示 config dir 来源）
+pwsh -File scripts\start.ps1 -Action status
 ```
 
 > 切到计划任务后自更新**不再需要** `-SupervisorMarker 'nssm'`：gofer 的父进程回到 `win-supervisor.ps1`，§2 的调用即最终形态。
