@@ -369,24 +369,40 @@ ok  	github.com/inhere/gofer/internal/daemon	0.107s
 本机仍是「`console 1 Conn / rdp-tcp#0 KZL 2 Active`」（§W2.2），登录任务的 serve 与 explorer 同在 session 2。W2 时 ready 行报 `interactive:false`，本次改判据后：
 
 ```
-$ pwsh -NoProfile -File scripts\win-tasktest.ps1 -LiveExe <repo>\dist\gofer.exe
+$ pwsh -NoProfile -File scripts\win-tasktest.ps1 -LiveExe <repo>\dist\gofer.exe     # exit=0
+setup: task=gofer-tasktest-4065 TestRoot=...\tmp\win-tasktest port=9098 dport=9097 liveExe=...\dist\gofer.exe
+console session = 2 (from explorer.exe)
+
+[1] setup
+  PASS: prepared bin/cfg/cfg2
+
 [2] start.ps1 -Action up (task mode, interactive session)
-action : C:\Windows\System32\conhost.exe --headless "C:\Program Files\PowerShell\7\pwsh.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ...\scripts\win-supervisor.ps1 -ExeDir ...\tmp\win-tasktest\bin -WorkDir <repo> -ServeArgs serve,--no-web,--addr,127.0.0.1:9098 -EnvExtra GOFER_CONFIG_DIR=...\tmp\win-tasktest\cfg
-task 'gofer-tasktest-8867' started (state='Running')
+  PASS: up refuses while service 'gofer' exists (exit=3 + nssm migration commands)
+警告: a Windows service named 'gofer' exists; -AllowServiceConflict given -> continuing (isolated instance only).
+task 'gofer-tasktest-4065' registered (user=KZL logon=Interactive runlevel=Limited)
+  action: C:\Windows\System32\conhost.exe --headless "C:\Program Files\PowerShell\7\pwsh.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ...\scripts\win-supervisor.ps1 -ExeDir ...\tmp\win-tasktest\bin -WorkDir <repo> -ServeArgs serve,--no-web,--addr,127.0.0.1:9098 -EnvExtra GOFER_CONFIG_DIR=...\tmp\win-tasktest\cfg
+task 'gofer-tasktest-4065' started (state='Running')
 up: /health OK
 health : 200 http://127.0.0.1:9098/health
-gofer : pid=25476 session=2 started=09/22/2026 13:12:54
-version: Version: 0.49.0-16-gd0e49b1 (d0e49b1)
+gofer : pid=42360 session=2 started=09/22/2026 13:15:52
+version: Version: 0.49.0-16-gd0e49b1-dirty (d0e49b1)
   PASS: /health 200 on :9098 after up
-  PASS: test gofer running pid=25476 SessionId=2
+  PASS: test gofer running pid=42360 SessionId=2
   PASS: SessionId matches the console session (2) -> running ON the desktop
-  server.ready: {"time":"2026-09-22T13:12:55.378","level":"INFO","msg":"server.ready",...,"addr":"127.0.0.1:9098","session":2,"interactive":true,"console":false}
+  server.ready: {"time":"2026-09-22T13:15:54.253","level":"INFO","msg":"server.ready",...,"addr":"127.0.0.1:9098","session":2,"interactive":true,"console":false}
   INFO: server.ready interactive=true console=false (console=false is normal on an RDP-only host)
   PASS: server.ready has interactive=true -> the task runs in a USER session (on the desktop)
   PASS: server.ready carries the console field (false)
 ...
+[7] start.ps1 -Action upgrade / status / logs
+swapped: Version: 0.49.0-16-gd0e49b1-dirty (d0e49b1)  ->  Version: 0.49.0-18-g277e94d (277e94d)
+
+---- cleanup (only TestRoot-scoped task/procs) ----
+
 ==== RESULT: pass=27 fail=0 ====
 ```
+
+（第二次跑，`exit=0`，`tmp/win-tasktest-f4.log` 全文 100 行；`[7]` 的换 exe 说明该轮后半程跑的正是本次 HEAD `277e94d` 构建出来的二进制。）
 
 `interactive=true, console=false` 正是新的两个判据该有的读数（RDP 主机：在用户会话、不在物理控制台）——这一行在 W2 是 `interactive=false`，也就是「能碰桌面」被误报为否的那一例。脚本的 `interactive` 断言也从"如实打印"改成了 PASS/FAIL（`console` 一并打印）。
 
