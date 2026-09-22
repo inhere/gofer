@@ -27,6 +27,15 @@ func TestJobLevelRetryPreservesSourceJobID(t *testing.T) {
 		t.Fatalf("first source_job_id = %q, want job-src-retry", first.SourceJobID)
 	}
 
+	// R2/AUTO-03: the retry is DURABLE — finish writes the row and the sweeper
+	// submits it (serve's retry loop). Drive one sweep pass, as that loop does.
+	if rows := retryRows(t, s, first.ID); len(rows) != 1 {
+		t.Fatalf("retry rows = %+v, want the pending row the sweeper needs", rows)
+	}
+	if _, _, err := s.SweepDueRetries(time.Now().Unix(), 10, 60); err != nil {
+		t.Fatalf("SweepDueRetries: %v", err)
+	}
+
 	retried := waitForRetryRecord(t, s, 2)
 	if retried.Status != StatusDone {
 		t.Fatalf("retried attempt = %s, want done", retried.Status)

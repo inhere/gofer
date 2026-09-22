@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
@@ -59,6 +60,23 @@ func eventDetail(t *testing.T, s *Service, jobID, eventType string) string {
 		}
 	}
 	return detail
+}
+
+// waitEvent polls (bounded) until a job's timeline carries eventType and returns its
+// detail. The retry events are recorded from the FINISH path, after the terminal row
+// is already persisted, so a test that waited for the status could legitimately read
+// the job before its exhausted event exists.
+func waitEvent(t *testing.T, s *Service, jobID, eventType string) string {
+	t.Helper()
+	deadline := time.Now().Add(10 * time.Second)
+	for time.Now().Before(deadline) {
+		if d := eventDetail(t, s, jobID, eventType); d != "" {
+			return d
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	t.Fatalf("job %s never recorded %s", jobID, eventType)
+	return ""
 }
 
 // TestRetryRowWrittenOnFailure: a failed job with a retry budget leaves exactly one
@@ -335,10 +353,55 @@ func TestRetryExhaustedEvent(t *testing.T) {
 	}
 	second := waitStatus(t, s, rows[0].NewJobID, 10*time.Second, StatusFailed)
 
-	if detail := eventDetail(t, s, second.ID, EventJobRetryExhausted); !strings.Contains(detail, `"attempts":2`) {
+	if detail := waitEvent(t, s, second.ID, EventJobRetryExhausted); !strings.Contains(detail, `"attempts":2`) {
 		t.Fatalf("job.retry_exhausted detail = %q, want attempts=2", detail)
 	}
 	if extra := retryRows(t, s, second.ID); len(extra) != 0 {
 		t.Fatalf("the exhausted attempt must not schedule another retry: %+v", extra)
+	}
+}
+
+// TestRetryFromConfigLevel: the policy does not have to come from the request — a
+// server/agent/project level `retry` schedules the retry too (the point of the R2
+// 触发面扩大: nobody was using a policy only a caller could pass), and the row then
+// carries the RESOLVED policy, so the chain explains itself (`attempt 2/2`) and keeps
+// the policy it was scheduled under.
+func TestRetryFromConfigLevel(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		Server:  config.ServerConfig{Retry: &config.RetryPolicy{MaxAttempts: 2, BackoffSec: []int{0}}},
+		Storage: config.StorageConfig{Root: root},
+		Projects: map[string]config.ProjectConfig{
+			"self": {
+				HostPath:       root,
+				AllowedAgents:  []string{"exec"},
+				AllowedRunners: []string{"local"},
+				AllowExec:      true,
+			},
+		},
+	}
+	s := newServiceFromCfg(t, root, cfg)
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"sh", "-c", "exit 7"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if final.Status != StatusFailed {
+		t.Fatalf("setup: status = %s, want failed", final.Status)
+	}
+	rows := retryRows(t, s, final.ID)
+	if len(rows) != 1 || rows[0].Attempt != 2 {
+		t.Fatalf("rows = %+v, want one row for attempt 2 (from server.retry)", rows)
+	}
+	if got := RetryMaxAttempts(rows[0]); got != 2 {
+		t.Fatalf("row ceiling = %d, want 2 (the resolved server-level policy rides the row)", got)
+	}
+
+	if _, _, err := s.SweepDueRetries(time.Now().Unix(), 10, 60); err != nil {
+		t.Fatalf("SweepDueRetries: %v", err)
+	}
+	rows = retryRows(t, s, final.ID)
+	second := waitStatus(t, s, rows[0].NewJobID, 10*time.Second, StatusFailed)
+	if detail := waitEvent(t, s, second.ID, EventJobRetryExhausted); !strings.Contains(detail, `"attempts":2`) {
+		t.Fatalf("job.retry_exhausted detail = %q, want attempts=2", detail)
 	}
 }

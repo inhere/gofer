@@ -188,6 +188,14 @@ func (s *Service) buildDeliveryBody(d jobstore.Delivery) (body []byte, eventType
 				msg.Link = s.webURL("/plans/" + strings.TrimPrefix(d.JobID, planScopePrefix))
 				msg.LinkLabel = "查看 plan"
 			}
+			// R2/AUTO-03: a retry that ran out of budget is a default trigger, so its
+			// message names the attempts and the last exit code instead of the plain
+			// job line — the numbers the person taking over needs.
+			if rmsg, ok := notify.RetryMessage(ev.Type, ev.Detail, summary, ev.At); ok {
+				rmsg.Link = s.webURL("/jobs/" + summary.ID)
+				rmsg.LinkLabel = "查看 job"
+				msg = rmsg
+			}
 			rendered, rErr := notify.RenderMessage(kind, msg)
 			if rErr != nil {
 				slog.Warn("DeliverDue: render im body", "seq", d.EventSeq, "kind", kind, "err", rErr)

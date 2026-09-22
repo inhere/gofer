@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/store"
 )
@@ -665,54 +666,97 @@ func (s *Service) autoResume(snap JobResult, hit string) bool {
 	return true
 }
 
-// maybeRetryJob implements the E24 unified job-level retry (P1 最小版, design §6.2)
-// for a non-workflow job. It re-runs a failed job (attempt+1) when its JobRequest
-// carries a Retry policy, the attempt budget is not exhausted, and the exit code is
-// retryable — sharing the SAME RetryPolicy / backoffFor / retryableExit as the
-// step-level retry (one semantics). The retry is scheduled with an in-process
-// time.AfterFunc after the policy's backoff; a process restart loses a pending
-// retry (the可靠版 sweeper-driven path is left for后续, see JobRequest.Retry doc).
+// maybeRetryJob SCHEDULES the next attempt of a failed job as a durable row
+// (R2/AUTO-03, design §二.1/§二.2). It no longer submits anything: the serve
+// retry sweeper owns submission (Service.SweepDueRetries), which is what makes a
+// pending retry survive a process restart — the in-process time.AfterFunc it
+// replaces lost one on every restart.
 //
-// It is a no-op when: the job succeeded, the status is not a failure (cancelled /
-// timeout are NOT retried — a cancel is intentional, and a timeout means the work
-// itself overran), the request carries no Retry, the budget is spent, or the exit
-// code is not in OnExitCodes. A nil/parse-failed request is also a no-op.
+// The policy comes from the four config layers (request > project > agent >
+// server, config.EffectiveRetryPolicy); an absent policy — or an explicit
+// MaxAttempts <= 1 — means retry is OFF and nothing at all is written, so a config
+// that never mentioned retry keeps the pre-R2 behaviour.
+//
+// It is a no-op when:
+//   - the status is not a plain failure (cancelled / timeout are terminal-by-intent,
+//     and a needs_review job never reaches here — finish returns before this);
+//   - the failure is TRANSIENT (FailureClassTransient): the auto-resume / AUTO-05
+//     stall / fallback machinery owns those, and retrying on top of a takeover would
+//     run the same work twice (design §二.2 边界);
+//   - the policy is absent/off, the exit code is not in OnExitCodes, or the request
+//     could not be parsed.
+//
+// The ONE thing it records besides the row: when the attempt budget is already
+// spent, job.retry_exhausted — the signal that gofer has given up (it is in the
+// notification default set).
 func (s *Service) maybeRetryJob(snap JobResult) {
 	if snap.Status != StatusFailed {
 		return // only a plain failure is retried (cancel/timeout are terminal-by-intent)
+	}
+	if snap.FailureClass == FailureClassTransient {
+		return // the takeover family (auto-resume / stall / fallback) owns transient failures
 	}
 	var req JobRequest
 	if snap.RequestJSON == "" || json.Unmarshal([]byte(snap.RequestJSON), &req) != nil {
 		return
 	}
-	// CallerID / WorkflowID / Attempt are not part of the client-facing JSON (tag
-	// "-"), so restore them from the persisted snapshot for the re-submit.
-	req.CallerID = snap.CallerID
-	// P5: SourceJobID 亦 json:"-"（不入 request_json），从快照恢复，使派生 job 的重试保留血缘。
-	req.SourceJobID = snap.SourceJobID
-	if req.Retry == nil {
-		return
+	policy := s.config().EffectiveRetryPolicy(snap.ProjectKey, snap.Agent, req.Retry)
+	if policy == nil || MaxAttemptsPolicy(policy) <= 1 {
+		return // retry is off at every layer (or explicitly off at the nearest one)
+	}
+	if !RetryableExitPolicy(policy, snap.ExitCode) {
+		return // this exit code is not retryable under the resolved policy
 	}
 	attempt := snap.Attempt
 	if attempt < 1 {
 		attempt = 1
 	}
-	if attempt >= MaxAttemptsPolicy(req.Retry) || !RetryableExitPolicy(req.Retry, snap.ExitCode) {
-		return // budget spent or this exit code is not retryable
+	if attempt >= MaxAttemptsPolicy(policy) {
+		// The budget is spent and this failure is the last word. Nothing is retried
+		// again — a human has to look (the event is a default notification trigger).
+		s.recordEvent(snap.ID, EventJobRetryExhausted, map[string]any{"attempts": attempt})
+		return
 	}
-	backoff := BackoffForPolicy(req.Retry, attempt)
-	next := req // copy: a fresh job for attempt+1
+	// The row carries the re-submittable request plus the fields that cannot ride in
+	// it: Attempt / CallerID / SourceJobID are json:"-" on JobRequest (they are not
+	// client-settable), so Attempt lives in the row's own column and the lineage is
+	// restored from the source job when the sweeper submits (see SweepDueRetries).
+	next := req
 	next.Attempt = attempt + 1
-	next.RequestID = "" // job-level retry: each attempt is a distinct NEW job (no C5 dedupe)
+	next.RequestID = "" // each attempt is a distinct NEW job (no C5 dedupe)
 	next.Sync = false   // a re-run is always async (the original caller already returned)
-	time.AfterFunc(time.Duration(backoff)*time.Second, func() {
-		if _, err := s.Submit(next); err != nil {
-			// best-effort: a failed re-submit is logged, never panics. The original
-			// terminal state stands.
-			s.recordEvent(snap.ID, EventJobTerminal, map[string]any{
-				"retry_resubmit_error": err.Error(), "attempt": next.Attempt,
-			})
-		}
+	// Stamp the RESOLVED policy onto the re-submitted request. The row then explains
+	// itself (its own attempt ceiling, backoff table and exit-code filter travel with
+	// it: the sweeper's retry-of-a-failed-submit backoff and the `attempt N/M` a human
+	// reads are answered by the row alone), and a chain keeps the policy it was
+	// scheduled under even if the config layer it came from changes mid-chain.
+	next.Retry = policy
+	body, err := json.Marshal(next)
+	if err != nil {
+		slog.Warn("retry: marshal request", "job_id", snap.ID, "err", err)
+		return
+	}
+	now := s.nowFn().Unix()
+	rec := jobstore.RetryRecord{
+		ID:          jobstore.NewRetryID(),
+		SourceJobID: snap.ID,
+		Attempt:     next.Attempt,
+		RequestJSON: string(body),
+		Reason:      fmt.Sprintf("exit_code=%d", snap.ExitCode),
+		NextRunAt:   now + int64(BackoffForPolicy(policy, attempt)),
+		CreatedAt:   now,
+	}
+	if err := s.meta.InsertRetry(rec); err != nil {
+		// The failure itself is already terminal and durable; a retry we could not
+		// record must be visible, never silent (mirrors the old resubmit-error event).
+		slog.Warn("retry: insert row", "job_id", snap.ID, "err", err)
+		s.recordEvent(snap.ID, EventJobTerminal, map[string]any{
+			"retry_schedule_error": err.Error(), "attempt": next.Attempt,
+		})
+		return
+	}
+	s.recordEvent(snap.ID, EventJobRetryScheduled, map[string]any{
+		"retry_id": rec.ID, "attempt": rec.Attempt, "next_run_at": rec.NextRunAt, "reason": rec.Reason,
 	})
 }
 

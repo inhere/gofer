@@ -368,6 +368,14 @@ type ServerConfig struct {
 	// AutoResumeMax counts automatic session continuations, independently of RetryPolicy.
 	// Unset defaults to one; an explicit zero disables automatic resume.
 	AutoResumeMax *int `yaml:"auto_resume_max,omitempty"`
+	// Retry is the deployment-wide default job retry policy (R2/AUTO-03, design
+	// §二.2): a failed job is re-run by the serve sweeper after this policy's
+	// backoff, at most MaxAttempts times. A pointer so an absent block means OFF —
+	// upgrading gofer never starts re-running anybody's failures (the pre-R2
+	// behaviour). The nearer layers (projects.<k>.retry, agents.<k>.retry,
+	// JobRequest.Retry / `job run --retry`) each replace it wholesale; see
+	// Config.EffectiveRetryPolicy.
+	Retry *RetryPolicy `yaml:"retry,omitempty"`
 	// AgentFallback is the SUP-01 P3 failover policy (design §一). A pointer so an
 	// absent block means the defaults (transfer after a failure ON, submit-time
 	// substitution OFF) without any behaviour change for a config that never
@@ -1155,6 +1163,13 @@ type ProjectConfig struct {
 	// It is independent of the job's own timeout — a hung test suite must not be able
 	// to eat the agent's whole budget — and a step that exceeds it fails the job.
 	VerifyTimeoutSec int `yaml:"verify_timeout_sec,omitempty"`
+	// Retry is this project's default job retry policy (R2/AUTO-03, design §二.2): it
+	// applies to every job of the project, overriding agents.<k>.retry and
+	// server.retry (a nearer layer still wins: JobRequest.Retry / `job run --retry`).
+	// Nil = the project says nothing. An explicit `max_attempts: 1` here switches
+	// retry OFF for the project even when the server default enables it. See
+	// Config.EffectiveRetryPolicy.
+	Retry *RetryPolicy `yaml:"retry,omitempty"`
 }
 
 // ApprovalConfig is a project's approval gate for ACP permission requests
@@ -1467,6 +1482,11 @@ type AgentConfig struct {
 	// jobs, N = kill a job of this agent after N silent seconds. A pointer because
 	// "off" and "unset" are different decisions.
 	StallTimeoutSec *int `yaml:"stall_timeout_sec,omitempty"`
+	// Retry is this agent's default job retry policy (R2/AUTO-03, design §二.2): it
+	// applies to jobs that run THIS agent, overriding server.retry and being
+	// overridden by projects.<k>.retry / JobRequest.Retry. Nil = this agent says
+	// nothing (the layer below answers). See Config.EffectiveRetryPolicy.
+	Retry *RetryPolicy `yaml:"retry,omitempty"`
 }
 
 // ACPConfig is the acp-agent's protocol-level configuration

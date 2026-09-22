@@ -49,6 +49,16 @@ func submitAndWait(t *testing.T, e *Engine, req job.JobRequest) job.JobResult {
 // the engine's JobOps (e.ops) and the workflow state through e.meta.
 func newTestEngine(t *testing.T, root string) *Engine {
 	t.Helper()
+	eng, _ := newTestEngineWithService(t, root)
+	return eng
+}
+
+// newTestEngineWithService is newTestEngine plus the host *job.Service, for the tests
+// that must drive a HOST-side sweeper directly — R2/AUTO-03 submits a job-level retry
+// from serve's retry loop, which these tests stand in for (the step-level retry needs
+// no sweeper: the engine advances it).
+func newTestEngineWithService(t *testing.T, root string) (*Engine, *job.Service) {
+	t.Helper()
 	cfg := &config.Config{
 		Storage: config.StorageConfig{Root: root},
 		Projects: map[string]config.ProjectConfig{
@@ -126,7 +136,7 @@ func newTestEngine(t *testing.T, root string) *Engine {
 			time.Sleep(drainRoundSleep)
 		}
 	})
-	return eng
+	return eng, svc
 }
 
 // Teardown-drain tuning: the budget bounds the whole wait (a job that ignores

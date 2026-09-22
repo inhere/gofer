@@ -19,7 +19,13 @@ import (
 // the whole plan, and nobody else will move it — exactly the "a human must act" shape.
 // It can only happen on a plan that USES dependencies, so a project with flat
 // checklists never sees it.
-var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review", "plan.blocked"}
+//
+// job.retry_exhausted (R2/AUTO-03, design §二.3) joins them for the same reason: the
+// retry budget is spent, so nobody will run this work again — and it can only happen
+// on a job whose retry policy was turned ON deliberately. Its two siblings
+// (job.retry_scheduled / job.retry_started) are NOT defaults: a retry that is still
+// coming is not a call to action, and a subscriber can list them explicitly.
+var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review", "plan.blocked", "job.retry_exhausted"}
 
 // MatchWebhooks returns the webhooks in cfg that subscribe to eventType for
 // projectKey (design §5.6 enqueue match): a webhook matches when

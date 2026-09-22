@@ -1,20 +1,19 @@
 package job
 
-// RetryPolicy bounds per-step (and per-job, E24) retry on failure (P1, design
-// §5.1, D16). MaxAttempts counts the FIRST run as attempt 1, so MaxAttempts==3
-// means up to 2 retries. BackoffSec is the退避表 indexed by the just-failed
-// attempt (defaults to the SR606 table when empty). OnExitCodes, when non-empty,
-// restricts retry to those exit codes (empty == retry on any non-zero exit /
-// timeout / failure, see RetryableExitPolicy).
+import "github.com/inhere/gofer/internal/config"
+
+// RetryPolicy is the retry policy shared by single-job retry (execute.go +
+// retry_sweep.go), workflow step retry (internal/job/workflow) and the config
+// layers (R2/AUTO-03: server.retry / agents.<k>.retry / projects.<k>.retry —
+// config.EffectiveRetryPolicy). The STRUCT lives in internal/config so the config
+// file, the wire (JobRequest.Retry) and the four layers decode from one definition;
+// this alias keeps the job-model name every call site already uses.
 //
-// It is a job-model type (JobRequest.Retry) shared by single-job retry (execute.go)
-// and workflow step retry (internal/job/workflow), so it stays in package job and
-// the workflow sub-package references it as job.RetryPolicy (layering design §13.4).
-type RetryPolicy struct {
-	MaxAttempts int   `json:"max_attempts" yaml:"max_attempts"`                       // >=1 (includes the first run)
-	BackoffSec  []int `json:"backoff_sec,omitempty" yaml:"backoff_sec,omitempty"`     // 默认接 SR606 [30,120,300,900,3600]
-	OnExitCodes []int `json:"on_exit_codes,omitempty" yaml:"on_exit_codes,omitempty"` // 空=任意非0退出重试
-}
+// It is a job-model type (JobRequest.Retry), so the workflow sub-package references
+// it as job.RetryPolicy (layering design §13.4). The SEMANTICS — the attempt
+// ceiling, the退避表 and the exit-code filter — stay here as the three pure
+// functions below, which every retry path shares.
+type RetryPolicy = config.RetryPolicy
 
 // defaultBackoffSec is the SR606退避表 used when a RetryPolicy gives no explicit
 // BackoffSec: 30s → 2min → 5min → 15min → 60min, the last entry reused past the

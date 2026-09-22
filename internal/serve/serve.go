@@ -143,6 +143,14 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	defer close(stopSchedule)
 	startScheduleLoop(c, cr, stopSchedule)
 
+	// R2/AUTO-03 durable job retry: submit the retry rows a failed job's finish path
+	// wrote — including the ones a PREVIOUS process left behind, which is the point of
+	// persisting them. Always started (an idle tick is one cheap claim query). stop
+	// closes when serve returns like every other sweeper.
+	stopRetry := make(chan struct{})
+	defer close(stopRetry)
+	startRetryLoop(c, cr, stopRetry)
+
 	// E36 presence prune sweeper: GC offline driver-agent rows (last_seen past the
 	// TTL window) + read/expired inbox messages. Always started (low cost: empty
 	// registry = a cheap delete touching nothing). stop closes when serve returns.
@@ -693,6 +701,54 @@ func startDeliveryLoop(c *gcli.Command, jobs *job.Service, nconf *config.Notific
 				return
 			case <-ticker.C:
 				jobs.DeliverDue(ctx)
+			}
+		}
+	}()
+}
+
+// retrySweepInterval is the R2/AUTO-03 durable-retry sweep cadence. A short tick
+// keeps a due retry (next_run_at = now + the policy's backoff) prompt without
+// busy-waiting; the policy's own backoff table spaces the real attempts far wider
+// than this.
+const retrySweepInterval = 15 * time.Second
+
+// retrySweepBatch / retrySweepLease bound one retry pass: at most 20 rows per tick,
+// each leased for 60s — long enough that a slow Submit cannot have its row claimed
+// by the next tick, short enough that a crash between claim and submit costs at most
+// a minute (the lease lapses and the row is claimed again).
+const (
+	retrySweepBatch = 20
+	retrySweepLease = 60
+)
+
+// startRetryLoop launches the durable job-retry sweeper (R2/AUTO-03, design §二.1).
+// It submits the pending retry rows a failed job's finish path wrote — INCLUDING the
+// ones a previous process left behind, which is what "the retry survives a restart"
+// means. It sweeps once at startup (a retry that came due while serve was down runs
+// immediately) and then on every tick; the claim is lease-based, so a crash between
+// claim and submit delays a retry by one lease instead of losing it. The goroutine
+// exits when stop closes (serve shutdown).
+func startRetryLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
+	go func() {
+		sweep := func() {
+			started, failed, err := cr.Jobs.SweepDueRetries(time.Now().Unix(), retrySweepBatch, retrySweepLease)
+			if err != nil {
+				c.Errorf("gofer: retry sweep failed: %v\n", err)
+				return
+			}
+			if started > 0 || failed > 0 {
+				c.Printf("gofer: retry sweep submitted %d retry(ies), %d failed\n", started, failed)
+			}
+		}
+		sweep() // startup: pick up the retries a prior serve (or a crash) left due
+		ticker := time.NewTicker(retrySweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				sweep()
 			}
 		}
 	}()

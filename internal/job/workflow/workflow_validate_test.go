@@ -129,9 +129,13 @@ func TestWorkflowRejectInteractiveStepRequest(t *testing.T) {
 // with a Retry policy (immediate backoff) that fails is re-run attempt+1. Using a
 // flaky marker (fail once, succeed after) the FIRST job fails and a SECOND job
 // (attempt 2) is auto-submitted and succeeds.
+//
+// R2/AUTO-03 made the retry DURABLE: finish writes a pending row and serve's retry
+// loop submits it (the in-process time.AfterFunc is gone), so this test drives one
+// sweep pass in that loop's place.
 func TestJobLevelRetry(t *testing.T) {
 	root := t.TempDir()
-	e := newTestEngine(t, root)
+	e, svc := newTestEngineWithService(t, root)
 	marker := filepath.ToSlash(filepath.Join(root, "joblevel.marker"))
 	script := fmt.Sprintf("test -f %q || { touch %q; exit 7; }", marker, marker)
 
@@ -146,9 +150,15 @@ func TestJobLevelRetry(t *testing.T) {
 	if first.Attempt != 1 {
 		t.Fatalf("first attempt number = %d, want 1", first.Attempt)
 	}
+	if rows, err := svc.Meta().ListRetriesByJob(first.ID); err != nil || len(rows) != 1 {
+		t.Fatalf("retry rows = %+v (err=%v), want the pending row the sweeper needs", rows, err)
+	}
+	if _, _, err := svc.SweepDueRetries(time.Now().Unix(), 10, 60); err != nil {
+		t.Fatalf("SweepDueRetries: %v", err)
+	}
 
-	// The retry is scheduled via time.AfterFunc(0). Poll the DB for an attempt-2 job
-	// (a NEW job id, distinct from the first) that reaches done.
+	// Poll the DB for an attempt-2 job (a NEW job id, distinct from the first) that
+	// reaches done.
 	retried := waitForRetryJob(t, e, 2)
 	if retried.Status != job.StatusDone {
 		t.Fatalf("retried attempt = %s, want done (marker now exists)", retried.Status)

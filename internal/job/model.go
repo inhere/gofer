@@ -750,6 +750,20 @@ const (
 	// job's own job.running event later says it got in. A subscriber sees the queue
 	// without polling the row.
 	EventJobWaitingDir = "job.waiting_dir"
+	// R2/AUTO-03 durable job retry, recorded on the SOURCE job (the one that failed)
+	// for the first two and on the retried job for the third:
+	//   - job.retry_scheduled {retry_id, attempt, next_run_at, reason}  a retry ROW was
+	//     written; the re-run happens when the serve sweeper picks it up, so this is
+	//     the row's own "I will run again" statement (and it survives a restart);
+	//   - job.retry_started   {retry_id, new_job_id}  the sweeper submitted it — the
+	//     attempt is now a real job;
+	//   - job.retry_exhausted {attempts}  the LAST attempt failed: the budget is spent
+	//     and nothing more will be tried. This one IS in the notification default set
+	//     (design §二.3): retries running out is exactly the "a human must act" signal
+	//     plan.blocked and job.needs_review are.
+	EventJobRetryScheduled = "job.retry_scheduled"
+	EventJobRetryStarted   = "job.retry_started"
+	EventJobRetryExhausted = "job.retry_exhausted"
 	// EventJobStalled is the AUTO-05 watchdog killing a job that produced no output for
 	// its whole stall window: {silent_sec, stall_timeout_sec}. It is recorded just
 	// before the runner's context is cancelled, so the timeline shows WHY the job ended

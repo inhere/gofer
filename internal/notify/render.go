@@ -158,6 +158,47 @@ func TransferMessage(eventType, detailJSON string, at int64) (Message, bool) {
 	return Message{EventType: eventType, Title: title, Text: strings.Join(parts, " · "), At: at}, true
 }
 
+// RetryMessage renders job.retry_exhausted (R2/AUTO-03, design §二.3) as the short
+// message an IM bot shows: WHICH job gave up, how many attempts were made and the
+// last exit code — the three facts the person who now has to take the work over
+// needs. It is a default trigger, so this is the one shape that reaches a channel
+// nobody configured.
+//
+// ok=false for every other event type, so the caller falls back to the generic job
+// line (job.retry_scheduled / job.retry_started are readable as-is: what matters
+// about them is the job, not a number).
+func RetryMessage(eventType, detailJSON string, job JobSummary, at int64) (Message, bool) {
+	if eventType != "job.retry_exhausted" {
+		return Message{}, false
+	}
+	var d struct {
+		Attempts int `json:"attempts"`
+	}
+	if detailJSON != "" {
+		_ = json.Unmarshal([]byte(detailJSON), &d)
+	}
+	parts := make([]string, 0, 4)
+	if job.ID != "" {
+		parts = append(parts, "job "+job.ID)
+	}
+	if job.Project != "" {
+		parts = append(parts, "project "+job.Project)
+	}
+	if job.Agent != "" {
+		parts = append(parts, "agent "+job.Agent)
+	}
+	if d.Attempts > 0 {
+		parts = append(parts, strconv.Itoa(d.Attempts)+" attempts")
+	}
+	parts = append(parts, "exit "+strconv.Itoa(job.ExitCode))
+	return Message{
+		EventType: eventType,
+		Title:     "job retry exhausted",
+		Text:      strings.Join(parts, " · "),
+		At:        at,
+	}, true
+}
+
 // humanSize renders a byte count for a message: IM notifications are read on a phone,
 // where two significant digits are all that fits.
 func humanSize(n int64) string {
