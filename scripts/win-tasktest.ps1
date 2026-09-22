@@ -42,7 +42,18 @@ function TestGofer { Get-CimInstance Win32_Process -Filter "Name='gofer.exe'" -E
 function WaitHealth([string]$url, [int]$sec = 20) { for ($i = 0; $i -lt $sec; $i++) { try { if ((Invoke-WebRequest -UseBasicParsing $url -TimeoutSec 2).StatusCode -eq 200) { return $true } } catch { }; Start-Sleep 1 }; return $false }
 function WaitDown([string]$url, [int]$sec = 15) { for ($i = 0; $i -lt $sec; $i++) { try { Invoke-WebRequest -UseBasicParsing $url -TimeoutSec 2 | Out-Null } catch { return $true }; Start-Sleep 1 }; return $false }
 function TryHealth([string]$url) { try { (Invoke-WebRequest -UseBasicParsing $url -TimeoutSec 3).StatusCode } catch { 0 } }
-function Stop-Test { & $start -Action stop -TaskName $task -ExeDir $bin -ConfigDir $cfg -Addr "127.0.0.1:$Port" 2>&1 | Out-Null }
+# Run scripts\start.ps1 with $env:GOFER_CONFIG_DIR scrubbed (a plain shell that never
+# set the user-level env): the config dir must then come out of the REGISTERED TASK,
+# which is what lets these actions run without -ConfigDir. Env restored afterwards.
+function Invoke-StartAction([string[]]$startArgs) {
+    $saved = $env:GOFER_CONFIG_DIR
+    Remove-Item Env:GOFER_CONFIG_DIR -ErrorAction SilentlyContinue
+    try {
+        $text = & pwsh -NoProfile -File $start @startArgs 2>&1 | Out-String
+        return [pscustomobject]@{ Exit = $LASTEXITCODE; Text = $text }
+    } finally { if ($saved) { $env:GOFER_CONFIG_DIR = $saved } }
+}
+function Stop-Test { Invoke-StartAction @('-Action', 'stop', '-TaskName', $task, '-ExeDir', $bin, '-Addr', "127.0.0.1:$Port") | Out-Null }
 # Run a gofer subcommand in its own pwsh with an explicit config dir and capture all
 # output as text (byte-level redirect keeps gofer's UTF-8 intact).
 # NOTE: deliberately NEVER `Start-Process -Wait` -- since PowerShell 7.4 it also waits
@@ -114,7 +125,9 @@ server:
     } else {
         Info "no service named 'gofer' on this host -> the up guard was not exercised"
     }
-    $up = & pwsh -NoProfile -File $start -Action up -TaskName $task -ExeDir $bin -ConfigDir $cfg -NoWeb -Addr "127.0.0.1:$Port" -AllowServiceConflict 2>&1 | Out-String
+    # No -AllowServiceConflict: live is already in task mode (no service named
+    # 'gofer'), so the isolated instance is not fighting anyone for a port.
+    $up = & pwsh -NoProfile -File $start -Action up -TaskName $task -ExeDir $bin -ConfigDir $cfg -NoWeb -Addr "127.0.0.1:$Port" 2>&1 | Out-String
     Write-Host $up.Trim()
     if (WaitHealth $health 20) { Ok "/health 200 on :$Port after up" } else {
         No "no /health after up"
@@ -143,8 +156,10 @@ server:
     } else { No "no server.ready line in $cfg\run\serve.log" }
 
     # ---- 3) stop ----
-    Write-Host "`n[3] start.ps1 -Action stop"
-    Stop-Test
+    Write-Host "`n[3] start.ps1 -Action stop (no -ConfigDir: recovered from the task)"
+    $sp = Invoke-StartAction @('-Action', 'stop', '-TaskName', $task, '-ExeDir', $bin, '-Addr', "127.0.0.1:$Port")
+    Write-Host (($sp.Text.Trim() -split "`n" | ForEach-Object { "    $_" }) -join "`n")
+    if ($sp.Exit -eq 0 -and $sp.Text -match 'stopped \(task state=') { Ok "stop without -ConfigDir succeeded (exit=0)" } else { No "stop without -ConfigDir failed (exit=$($sp.Exit)): $($sp.Text.Trim())" }
     if (WaitDown $health 15) { Ok "/health unreachable after stop" } else { No "/health still up after stop" }
     Show-Log (Join-Path $cfg 'run\serve.log') 'server.shutdown' 'server.shutdown'
     if (Select-String -Path (Join-Path $cfg 'run\serve.log') -Pattern 'server.shutdown' -Quiet -ErrorAction SilentlyContinue) { Ok "log has server.shutdown (graceful)" } else { No "no server.shutdown line" }
@@ -156,10 +171,20 @@ server:
     if (@(TestGofer).Count -eq 0) { Ok "still no gofer 5s later (watchdog obeyed the marker)" } else { No "watchdog relaunched gofer after stop" }
 
     # ---- 4) restart ----
-    Write-Host "`n[4] start.ps1 -Action restart"
-    & pwsh -NoProfile -File $start -Action restart -TaskName $task -ExeDir $bin -ConfigDir $cfg -Addr "127.0.0.1:$Port" 2>&1 | ForEach-Object { Write-Host "    $_" }
+    Write-Host "`n[4] start.ps1 -Action restart (no -ConfigDir)"
+    $rs = Invoke-StartAction @('-Action', 'restart', '-TaskName', $task, '-ExeDir', $bin, '-Addr', "127.0.0.1:$Port")
+    Write-Host (($rs.Text.Trim() -split "`n" | ForEach-Object { "    $_" }) -join "`n")
+    if ($rs.Exit -eq 0 -and $rs.Text -match 'up: /health OK') { Ok "restart without -ConfigDir succeeded (exit=0)" } else { No "restart without -ConfigDir failed (exit=$($rs.Exit)): $($rs.Text.Trim())" }
     if (WaitHealth $health 20) { Ok "/health 200 after restart" } else { No "no /health after restart" }
     if (-not (Test-Path (Join-Path $bin 'gofer.stop'))) { Ok "stop marker cleared by restart" } else { No "stop marker still present after restart" }
+
+    # ---- 4b) re-up: -ConfigDir is a first-time-only argument ----
+    Write-Host "`n[4b] start.ps1 -Action up with no -ConfigDir (reuses the task's config dir)"
+    $up2 = Invoke-StartAction @('-Action', 'up', '-TaskName', $task, '-ExeDir', $bin, '-NoWeb', '-Addr', "127.0.0.1:$Port")
+    Write-Host (($up2.Text.Trim() -split "`n" | Select-Object -First 4 | ForEach-Object { "    $_" }) -join "`n")
+    if ($up2.Exit -eq 0 -and $up2.Text -match [regex]::Escape("config dir: $cfg (from task)") -and $up2.Text -match 'up: /health OK') {
+        Ok "re-up without -ConfigDir reused the task's config dir (from task) + healthy"
+    } else { No "re-up without -ConfigDir failed (exit=$($up2.Exit)): $($up2.Text.Trim())" }
 
     # ---- 5) crash -> watchdog ----
     Write-Host "`n[5] kill gofer -> the supervisor must bring it back"
@@ -188,22 +213,40 @@ server:
     if (Select-String -Path (Join-Path $cfg2 'run\serve.log') -Pattern 'server.shutdown' -Quiet -ErrorAction SilentlyContinue) { Ok "detached serve logged server.shutdown" } else { No "detached serve has no server.shutdown line" }
 
     # ---- 7) upgrade (in-place swap) + status/logs ----
-    Write-Host "`n[7] start.ps1 -Action upgrade / status / logs"
-    $upg = & pwsh -NoProfile -File $start -Action upgrade -TaskName $task -ExeDir $bin -ConfigDir $cfg -Addr "127.0.0.1:$Port" 2>&1 | Out-String
-    Write-Host (($upg.Trim() -split "`n" | Select-Object -Last 10) -join "`n")
-    if ($upg -match 'swapped:') { Ok "upgrade built + swapped the exe" } else { No "upgrade did not report a swap" }
+    Write-Host "`n[7] start.ps1 -Action upgrade / status / logs (no -ConfigDir)"
+    $upg = Invoke-StartAction @('-Action', 'upgrade', '-TaskName', $task, '-ExeDir', $bin, '-Addr', "127.0.0.1:$Port")
+    Write-Host (($upg.Text.Trim() -split "`n" | Select-Object -Last 10) -join "`n")
+    if ($upg.Exit -eq 0 -and $upg.Text -match 'swapped:') { Ok "upgrade built + swapped the exe" } else { No "upgrade did not report a swap (exit=$($upg.Exit)): $($upg.Text.Trim())" }
     if (Test-Path (Join-Path $bin 'gofer.exe.prev')) { Ok "previous exe kept as gofer.exe.prev" } else { No "no gofer.exe.prev rollback point" }
     if (WaitHealth $health 25) { Ok "/health 200 after upgrade" } else { No "no /health after upgrade" }
-    $st = & pwsh -NoProfile -File $start -Action status -TaskName $task -ExeDir $bin -ConfigDir $cfg -Addr "127.0.0.1:$Port" 2>&1 | Out-String
-    Write-Host (($st.Trim() -split "`n" | Select-Object -First 6) -join "`n")
-    if ($st -match 'state=' -and $st -match 'gofer : pid=' -and $st -match 'marker :') { Ok "status prints task state + gofer pid + marker" } else { No "status output incomplete: $($st.Trim())" }
-    $lg = & pwsh -NoProfile -File $start -Action logs -TaskName $task -ExeDir $bin -ConfigDir $cfg 2>&1 | Out-String
-    if ($lg -match 'win-supervisor.log' -and $lg -match 'serve\.log') { Ok "logs tails the supervisor + serve logs" } else { No "logs output incomplete: $($lg.Trim())" }
+    $st = Invoke-StartAction @('-Action', 'status', '-TaskName', $task, '-ExeDir', $bin, '-Addr', "127.0.0.1:$Port")
+    Write-Host (($st.Text.Trim() -split "`n" | Select-Object -First 6 | ForEach-Object { "    $_" }) -join "`n")
+    if ($st.Text -match 'state=' -and $st.Text -match 'gofer : pid=' -and $st.Text -match 'marker :') { Ok "status prints task state + gofer pid + marker" } else { No "status output incomplete: $($st.Text.Trim())" }
+    if ($st.Text -match [regex]::Escape("config dir: $cfg (from task)")) { Ok "status recovered the config dir from the task (no -ConfigDir)" } else { No "status did not print 'config dir: $cfg (from task)': $($st.Text.Trim())" }
+    $lg = Invoke-StartAction @('-Action', 'logs', '-TaskName', $task, '-ExeDir', $bin)
+    if ($lg.Exit -eq 0 -and $lg.Text -match 'win-supervisor\.log' -and $lg.Text -match 'serve\.log' -and $lg.Text -match [regex]::Escape($cfg)) {
+        Ok "logs tailed the supervisor + serve logs of the task's config dir"
+    } else { No "logs output incomplete (exit=$($lg.Exit)): $($lg.Text.Trim())" }
 
     # ---- 8) remove ----
     Write-Host "`n[8] start.ps1 -Action remove"
     & pwsh -NoProfile -File $start -Action remove -TaskName $task -ExeDir $bin -ConfigDir $cfg -Addr "127.0.0.1:$Port" 2>&1 | ForEach-Object { Write-Host "    $_" }
     if (-not (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue)) { Ok "task unregistered" } else { No "task '$task' still registered" }
+
+    # ---- 9) nothing to recover from -> the hint with the two one-time remedies ----
+    Write-Host "`n[9] no config dir anywhere: status must hint the two one-time remedies"
+    $dfltCfg = Join-Path $HOME '.config\gofer\config.yaml'
+    if (Test-Path $dfltCfg) {
+        # The 4th source (gofer's own default) resolves here, so the hint cannot fire.
+        Info "$dfltCfg exists -> source 4 resolves, this check is not meaningful on this host"
+    } else {
+        # Task unregistered (step 8) + $env:GOFER_CONFIG_DIR scrubbed by the helper.
+        $hh = Invoke-StartAction @('-Action', 'status', '-TaskName', $task, '-ExeDir', $bin)
+        Write-Host (($hh.Text.Trim() -split "`n" | ForEach-Object { "    $_" }) -join "`n")
+        if ($hh.Exit -ne 0 -and $hh.Text -match "SetEnvironmentVariable\('GOFER_CONFIG_DIR','<dir>','User'\)" -and $hh.Text -match '-ConfigDir') {
+            Ok "status hints both one-time remedies and exits non-zero (exit=$($hh.Exit))"
+        } else { No "no config-dir hint (exit=$($hh.Exit)): $($hh.Text.Trim())" }
+    }
 }
 catch {
     No "unexpected error: $($_.Exception.Message)"
