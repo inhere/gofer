@@ -13,6 +13,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
+	"github.com/inhere/gofer/internal/ptyrelay"
 	"github.com/inhere/gofer/internal/runner"
 	localrunner "github.com/inhere/gofer/internal/runner/local"
 	"github.com/inhere/gofer/internal/store"
@@ -262,6 +263,60 @@ func TestCaptureSessionIDFirstNonEmptyGroup(t *testing.T) {
 	// A union regex whose groups are ALL empty -> "" (no false positive from a match).
 	if got := CaptureSessionIDBytes([]byte("nothing here"), `(x)?(y)?`); got != "" {
 		t.Fatalf("all-empty-groups capture = %q, want empty", got)
+	}
+}
+
+// TestCaptureSessionIDFromPaddedTranscript composes both F6 fixes over the real chain
+// (pty bytes -> the relay's de-ANSI filter -> the capture regex): the TUI prints its
+// exit banner through the same renderer that pads columns with CUF, so the regexes only
+// see the id once the padding has become whitespace. Pre-fix the line read
+// `claude--resume<uuid>` / `omp--resume<uuid>` and nothing could match it.
+func TestCaptureSessionIDFromPaddedTranscript(t *testing.T) {
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"omp":    {Type: agent.TypeCLIAgent, Command: "omp"},
+		"claude": {Type: agent.TypeCLIAgent, Command: "claude"},
+	}}
+	reg := agent.NewRegistry(cfg)
+
+	const claudeSID = "7c4418ff-0928-4e33-8347-c24241d919c0"
+	const ompSID = "01a0c84d-d444-72ca-ad7c-edadbae32034"
+	cases := []struct {
+		agentKey string
+		raw      string
+		wantText string
+		wantID   string
+	}{
+		{
+			agentKey: "claude",
+			raw: "New\x1b[1CMCP\x1b[3Cserver\x1b[1Cfound\r\n" +
+				"Resume\x1b[1Cthis\x1b[1Csession\x1b[1Cwith:\r\n" +
+				"claude\x1b[1C--resume\x1b[1C" + claudeSID + "\r\n",
+			wantText: "New MCP   server found\n" +
+				"Resume this session with:\n" +
+				"claude --resume " + claudeSID + "\n",
+			wantID: claudeSID,
+		},
+		{
+			agentKey: "omp",
+			raw: "\x1b[<u\x1b[>4;0mResume\x1b[1Cthis\x1b[1Csession\x1b[1Cwith\x1b[1Comp" +
+				"\x1b[1C--resume\x1b[1C" + ompSID + "\x1b[0m\r\n",
+			wantText: "Resume this session with omp --resume " + ompSID + "\n",
+			wantID:   ompSID,
+		},
+	}
+	for _, tc := range cases {
+		ac, ok := reg.Get(tc.agentKey)
+		if !ok || ac.SessionCapture == "" {
+			t.Fatalf("%s: no session capture in the resolved agent (ok=%v)", tc.agentKey, ok)
+		}
+		var s ptyrelay.Stripper
+		text := string(s.Write([]byte(tc.raw)))
+		if text != tc.wantText {
+			t.Fatalf("%s: transcript = %q, want %q", tc.agentKey, text, tc.wantText)
+		}
+		if got := CaptureSessionIDBytes([]byte(text), ac.SessionCapture); got != tc.wantID {
+			t.Fatalf("%s: captured session id = %q, want %q", tc.agentKey, got, tc.wantID)
+		}
 	}
 }
 
