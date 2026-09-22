@@ -756,6 +756,16 @@ const (
 	// before its deadline; the failure itself lands in the job's error as
 	// "stalled: no output for <N>s" (a transient failure — the chain continues).
 	EventJobStalled = "job.stalled"
+	// EventJobSessionCaptured is a session id captured AFTER the fact (AGT-04):
+	// {agent, by, source}, where `by` is "agent_config" when the agent's own
+	// session_capture regex produced it (built-in or explicitly configured) and
+	// "fallback" when gofer's generic fallback did, and `source` is where it was read
+	// from (stdout | stderr | pty | file). It is recorded on both capture paths — the
+	// terminal scan of the logs and the live pty observer — and it is NOT in the
+	// notification default set: a captured id is a fact about the job, not a "a human
+	// must act" signal. Its real use is discovery: `by: "fallback"` says the agent has
+	// no session_capture of its own yet.
+	EventJobSessionCaptured = "job.session_captured"
 	// PLAN-02 P2 plan-todo dispatch. plan.todo_dispatched is recorded ON THE JOB a
 	// ready+assigned todo started ({todo_id, job_id, agent}), so the item's history
 	// says who started what; plan.todo_dispatch_failed is recorded on the PLAN's own

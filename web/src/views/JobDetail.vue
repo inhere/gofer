@@ -176,6 +176,8 @@ const EVENT_META: Record<string, { icon: string; label: string }> = {
   // JOB-11 / AUTO-05：等目录锁（非终态，等同 queued）与输出停滞（job 已被看门狗杀掉）。
   'job.waiting_dir': { icon: '⏳', label: '等目录锁' },
   'job.stalled': { icon: '⚠', label: '输出停滞（已杀）' },
+  // AGT-04：事后捕获到 session_id（by=fallback 说明该 agent 还没写自己的正则）。
+  'job.session_captured': { icon: '⚿', label: '捕获会话' },
 }
 
 function eventIcon(type: string): string {
@@ -255,6 +257,12 @@ function eventDetailText(ev: JobEvent): string {
     // AUTO-05：静默了多久、窗口多长——解释 job 为什么被判为停滞。
     case 'job.stalled':
       return [`静默 ${d.silent_sec ?? '?'}s`, `窗口 ${d.stall_timeout_sec ?? '?'}s`].join(' · ')
+    // AGT-04：哪个 agent、从哪读到、是内置/显式正则还是通用兜底——by=fallback
+    // 就是「该给这个 agent 写条 session_capture」的信号。
+    case 'job.session_captured':
+      return [`agent=${d.agent ?? '?'}`, d.source, d.by === 'fallback' ? '兜底' : 'agent 配置']
+        .filter(Boolean)
+        .join(' · ')
     default:
       return ''
   }

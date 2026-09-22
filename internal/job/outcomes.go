@@ -3,6 +3,7 @@ package job
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -11,7 +12,9 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"unicode"
 
+	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/store"
 	"github.com/inhere/gofer/internal/util"
@@ -151,6 +154,10 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 // entry.result 的 SessionID/Agent，仅当 SessionID 为空才动作：先按该 agent 的
 // SessionCapture 正则扫 <result_dir>/stdout.log，再扫 stderr.log，命中即填；否则读
 // <result_dir>/session_id 文件兜底（选项C）。任何失败静默返回（不改终态）。
+//
+// 命中后记一条 job.session_captured {agent, by, source}（AGT-04）：by 区分"这个 id 来自
+// agent 自己的正则"还是"来自 gofer 的通用兜底"——后者是"该给这个 agent 写条 session_capture
+// 了"的信号；source 指出它是从哪个文件读到的。
 func (s *Service) captureSession(entry *jobEntry, resultDir string) {
 	entry.mu.Lock()
 	sid := entry.result.SessionID
@@ -161,23 +168,30 @@ func (s *Service) captureSession(entry *jobEntry, resultDir string) {
 		return // 注入式/显式已知，不捕获。
 	}
 
-	var captured string
+	var captured, source, by string
 	if ac, ok := s.agents.Get(agentKey); ok && ac.SessionCapture != "" {
-		captured = captureSessionID(filepath.Join(resultDir, store.StdoutFile), ac.SessionCapture)
-		if captured == "" {
-			captured = captureSessionID(filepath.Join(resultDir, store.StderrFile), ac.SessionCapture)
+		if captured = captureSessionID(filepath.Join(resultDir, store.StdoutFile), ac.SessionCapture); captured != "" {
+			source = "stdout"
+		} else if captured = captureSessionID(filepath.Join(resultDir, store.StderrFile), ac.SessionCapture); captured != "" {
+			source = "stderr"
+		} else if interactive {
+			// PTY-01 §四: an interactive job's pty output never enters stdout/stderr
+			// (it only lives in the cast/attach stream), so the de-ANSI'd transcript is
+			// the one place its session id can still be found at终态 — the TUI prints it
+			// on the way out, and the live capture may have missed the very last chunk.
+			if captured = captureSessionID(filepath.Join(resultDir, store.PtyTranscriptFile), ac.SessionCapture); captured != "" {
+				source = "pty"
+			}
 		}
-		// PTY-01 §四: an interactive job's pty output never enters stdout/stderr
-		// (it only lives in the cast/attach stream), so the de-ANSI'd transcript is
-		// the one place its session id can still be found at终态 — the TUI prints it
-		// on the way out, and the live capture may have missed the very last chunk.
-		if captured == "" && interactive {
-			captured = captureSessionID(filepath.Join(resultDir, store.PtyTranscriptFile), ac.SessionCapture)
+		if captured != "" {
+			by = SessionCaptureBy(ac.SessionCapture)
 		}
 	}
 	if captured == "" && resultDir != "" { // 选项C 兜底：任务自写的 session_id 文件。
 		if b, err := os.ReadFile(filepath.Join(resultDir, "session_id")); err == nil {
-			captured = strings.TrimSpace(string(b))
+			if v := acceptableSessionID(string(b)); v != "" {
+				captured, source, by = v, "file", "fallback"
+			}
 		}
 	}
 	if captured == "" {
@@ -186,6 +200,22 @@ func (s *Service) captureSession(entry *jobEntry, resultDir string) {
 	entry.mu.Lock()
 	entry.result.SessionID = captured
 	entry.mu.Unlock()
+	s.recordEvent(entry.result.ID, EventJobSessionCaptured, map[string]any{
+		"agent": agentKey, "by": by, "source": source,
+	})
+}
+
+// SessionCaptureBy names WHERE a captured session id came from, for the
+// job.session_captured detail: "agent_config" when the agent's own session_capture
+// produced it (built-in default or explicit config), "fallback" when gofer's generic
+// AGT-04 path did — the generic regex, or the <result_dir>/session_id file. The live
+// pty capture (internal/httpapi) records the same event, so both paths must agree on
+// the literal.
+func SessionCaptureBy(reSrc string) string {
+	if !agent.IsFallbackCapture(reSrc) {
+		return "agent_config"
+	}
+	return "fallback"
 }
 
 // sessionReCache 缓存编译后的 SessionCapture 正则（同一 agent 的正则在每个 job 终态
@@ -194,8 +224,12 @@ var sessionReCache sync.Map // map[string]*regexp.Regexp
 
 // captureSessionID 从 path 文件内容用正则 reSrc 提取 session_id（第一个**非空**捕获组）。
 // 任何失败（正则非法、文件读不到、无匹配、无捕获组）都返回 ""——纯 best-effort，调用方
-// 据空判定回退。文件读取受 maxResultJSONBytes 量级约束（stdout 可能很大，仅取必要前缀
-// 仍可靠：会话 id 在 codex 输出头部）。
+// 据空判定回退。
+//
+// 扫描范围按正则来源分流（AGT-04）：内置/显式正则整读（codex 的会话 id 在输出**头部**
+// 的 `session id:` 行，前缀不足会漏），通用兜底正则只读**尾部 4KB**（兜底认的是退出横幅，
+// 正文里偶然出现的 `--resume xxx` 基本都在中部，靠窗口排除）。返回值还要过一遍
+// acceptableSessionID（两种正则同等生效）。
 func captureSessionID(path, reSrc string) string {
 	if path == "" || reSrc == "" {
 		return ""
@@ -204,17 +238,29 @@ func captureSessionID(path, reSrc string) string {
 	if re == nil {
 		return ""
 	}
-	b, err := os.ReadFile(path)
+	var (
+		b   []byte
+		err error
+	)
+	if agent.IsFallbackCapture(reSrc) {
+		b, err = readTail(path, fallbackCaptureTailBytes)
+	} else {
+		b, err = os.ReadFile(path)
+	}
 	if err != nil {
 		return ""
 	}
-	return firstNonEmptyGroup(re.FindSubmatch(b))
+	return acceptableSessionID(firstNonEmptyGroup(re.FindSubmatch(b)))
 }
 
 // CaptureSessionIDBytes extracts the session id from b using the same cached regex
 // path as terminal log capture (the first NON-EMPTY capture group). It is exported
 // for PTY relay output observation, where interactive agent output does not enter
 // stdout/stderr logs.
+//
+// b is scanned AS GIVEN — the caller owns the window (the pty observer hands over
+// its tail window; that is where AGT-04's "fallback reads only the tail" rule is
+// enforced for a live stream). The placeholder guard still applies.
 func CaptureSessionIDBytes(b []byte, reSrc string) string {
 	if len(b) == 0 || reSrc == "" {
 		return ""
@@ -223,7 +269,70 @@ func CaptureSessionIDBytes(b []byte, reSrc string) string {
 	if re == nil {
 		return ""
 	}
-	return firstNonEmptyGroup(re.FindSubmatch(b))
+	return acceptableSessionID(firstNonEmptyGroup(re.FindSubmatch(b)))
+}
+
+// acceptableSessionID reports whether a captured token is usable as a session id
+// (AGT-04 误抓防护). A regex cannot express "not a placeholder", so the filter lives
+// here, and it applies to EVERY capture — built-in and explicit regexes should never
+// have produced one of these in the first place, so rejecting them changes nothing
+// observable while closing the hole the wide fallback token class opens.
+//
+// Rejected: empty, longer than 128 bytes, containing whitespace (the regex cannot
+// cross a space, but the session_id file can hold anything), and the placeholders an
+// agent CLI prints in its own help/usage text — `<session_id>`, `SESSION_ID`,
+// `session-id`, `your-session-id`, `uuid`, `id`, `xxx`, `...`, `-`, `none`, `null`
+// (compared case-insensitively, after stripping `<>` and quotes).
+func acceptableSessionID(s string) string {
+	s = strings.TrimSpace(s)
+	if s == "" || len(s) > 128 {
+		return ""
+	}
+	for _, r := range s {
+		if unicode.IsSpace(r) {
+			return ""
+		}
+	}
+	if placeholderSessionIDs[strings.ToLower(strings.Trim(s, `<>"'`))] {
+		return ""
+	}
+	return s
+}
+
+// placeholderSessionIDs is the拒绝 list acceptableSessionID consults — the token
+// shapes a CLI prints when it is explaining `--resume <id>` rather than printing a
+// real id. Keys are lower-case and quote/bracket-free.
+var placeholderSessionIDs = map[string]bool{
+	"session_id": true, "sessionid": true, "session-id": true,
+	"your-session-id": true, "uuid": true, "id": true, "xxx": true,
+	"...": true, "-": true, "none": true, "null": true,
+}
+
+// fallbackCaptureTailBytes bounds how much of a log the generic fallback regex may
+// read (AGT-04 误抓防护): only the last 4KB, because a real session banner is an
+// EXIT banner. A built-in or explicitly configured regex still reads the whole file
+// (codex prints its id in the first lines).
+const fallbackCaptureTailBytes = 4 << 10
+
+// readTail returns at most max trailing bytes of path (the whole file when it is
+// shorter). It is how the generic fallback looks at a log that may be hundreds of
+// megabytes: Seek(-max, io.SeekEnd) reads one window instead of the whole file.
+func readTail(path string, max int64) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	st, err := f.Stat()
+	if err != nil {
+		return nil, err
+	}
+	if st.Size() > max {
+		if _, err := f.Seek(-max, io.SeekEnd); err != nil {
+			return nil, err
+		}
+	}
+	return io.ReadAll(f)
 }
 
 // firstNonEmptyGroup returns the first capture group carrying text (m[0] is the whole
