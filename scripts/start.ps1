@@ -444,7 +444,9 @@ switch ($Action) {
             $info = Get-ScheduledTaskInfo -TaskName $TaskName
             Write-Host ("info   : lastRun={0} lastResult=0x{1:X8} nextRun={2}" -f $info.LastRunTime, $info.LastTaskResult, $info.NextRunTime)
             foreach ($a in (Get-ScheduledTask -TaskName $TaskName).Actions) {
-                Write-Host "action : $($a.Execute) $($a.Argument)"
+                # the CIM property is `Arguments` (plural); `Argument` is only the
+                # New-ScheduledTaskAction parameter name and reads as empty here.
+                Write-Host "action : $($a.Execute) $($a.Arguments)"
                 Write-Host "workdir: $($a.WorkingDirectory)"
             }
             $pr = (Get-ScheduledTask -TaskName $TaskName).Principal
