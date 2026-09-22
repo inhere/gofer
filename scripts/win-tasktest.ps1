@@ -183,8 +183,21 @@ server:
     Show-Log (Join-Path $cfg2 'run\serve.log') 'server.shutdown' 'serve -d server.shutdown'
     if (Select-String -Path (Join-Path $cfg2 'run\serve.log') -Pattern 'server.shutdown' -Quiet -ErrorAction SilentlyContinue) { Ok "detached serve logged server.shutdown" } else { No "detached serve has no server.shutdown line" }
 
-    # ---- 7) remove ----
-    Write-Host "`n[7] start.ps1 -Action remove"
+    # ---- 7) upgrade (in-place swap) + status/logs ----
+    Write-Host "`n[7] start.ps1 -Action upgrade / status / logs"
+    $upg = & pwsh -NoProfile -File $start -Action upgrade -TaskName $task -ExeDir $bin -ConfigDir $cfg -Addr "127.0.0.1:$Port" 2>&1 | Out-String
+    Write-Host (($upg.Trim() -split "`n" | Select-Object -Last 10) -join "`n")
+    if ($upg -match 'swapped:') { Ok "upgrade built + swapped the exe" } else { No "upgrade did not report a swap" }
+    if (Test-Path (Join-Path $bin 'gofer.exe.prev')) { Ok "previous exe kept as gofer.exe.prev" } else { No "no gofer.exe.prev rollback point" }
+    if (WaitHealth $health 25) { Ok "/health 200 after upgrade" } else { No "no /health after upgrade" }
+    $st = & pwsh -NoProfile -File $start -Action status -TaskName $task -ExeDir $bin -ConfigDir $cfg -Addr "127.0.0.1:$Port" 2>&1 | Out-String
+    Write-Host (($st.Trim() -split "`n" | Select-Object -First 6) -join "`n")
+    if ($st -match 'state=' -and $st -match 'gofer : pid=' -and $st -match 'marker :') { Ok "status prints task state + gofer pid + marker" } else { No "status output incomplete: $($st.Trim())" }
+    $lg = & pwsh -NoProfile -File $start -Action logs -TaskName $task -ExeDir $bin -ConfigDir $cfg 2>&1 | Out-String
+    if ($lg -match 'win-supervisor.log' -and $lg -match 'serve\.log') { Ok "logs tails the supervisor + serve logs" } else { No "logs output incomplete: $($lg.Trim())" }
+
+    # ---- 8) remove ----
+    Write-Host "`n[8] start.ps1 -Action remove"
     & pwsh -NoProfile -File $start -Action remove -TaskName $task -ExeDir $bin -ConfigDir $cfg -Addr "127.0.0.1:$Port" 2>&1 | ForEach-Object { Write-Host "    $_" }
     if (-not (Get-ScheduledTask -TaskName $task -ErrorAction SilentlyContinue)) { Ok "task unregistered" } else { No "task '$task' still registered" }
 }
