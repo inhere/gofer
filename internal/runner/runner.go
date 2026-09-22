@@ -32,10 +32,12 @@ const (
 )
 
 // EventACPSummary is the ONE lifecycle row an acp turn contributes to the job timeline
-// (bd h-aii-rnxk): {tool_calls,thoughts,permissions,stop_reason}, recorded when the
-// prompt turn ends. The per-tool-call detail it replaces lives on the job's stderr as
-// compact events (bd h-aii-7kja). It lives in this package for the same reason as the
-// permission events; job.EventJobACPSummary aliases it.
+// (bd h-aii-rnxk): {tool_calls,thoughts,permissions,permissions_auto,stop_reason},
+// recorded when the prompt turn ends. The per-tool-call detail it replaces lives on the
+// job's stderr as compact events (bd h-aii-7kja), and the AUTO-answered requests it
+// counts live only here + on stderr + in acp.jsonl — they are no job events (F4). It
+// lives in this package for the same reason as the permission events; job.EventJobACPSummary
+// aliases it.
 const EventACPSummary = "job.acp_summary"
 
 // EventCancelRequested is the job event a runner records when the cancel frame for a
