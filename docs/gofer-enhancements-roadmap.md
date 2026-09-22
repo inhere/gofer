@@ -39,7 +39,7 @@
 | OBS-10 | NDJSON 采集投影：stdout=assistant 文本、stderr=裁剪事件，`ndjson_*` 开关 | 0.43–0.46 | README「Agent 输出」 |
 | OBS-11 | 结构化文件日志（serve/worker/tunnel/daemon sidecar，lumberjack） | 0.39–0.40 | [logging design](design/2026-09-15-tunnel-file-logging-and-udp-latency-design.md) |
 | WEB-01–09 | 控制台 v2/v3：产物预览、git/子仓、pty attach、拓扑、Dashboard、交互应答、导航（Plans 前置、Drivers 并入 Agents）、Server DB/Sessions 卡 | 0.2x–0.44 | [web v3](design/2026-07-02-web-console-v3-design.md) |
-| WEB-04 🚧 | 配置管理：拓扑/节点只读 + 项目 CRUD 写层 V1（server/callers/agents 编辑待） | 0.3x | [config write](design/2026-07-03-web-config-write-design.md) |
+| WEB-04 ✅ | 配置管理：拓扑/节点只读 + 项目 CRUD 写层 V1 + **agents/server 写层 V1.1**（字段策略表、secret 只引用、干跑校验、显式 reload） | 0.3x–0.5x | [config write](design/2026-07-03-web-config-write-design.md) / [V1.1](design/2026-09-22-config-write-v11-reliable-retry-and-session-fallback-design.md) §一（R3 已落地；callers/roles/runners/notification 写层留 V1.2） |
 | CFG-01/02/04/06 | CLI 补全 · 引导/校验 · 全局单 server + 项目瘦配置 · 节点易用性 | 0.2x | [config simplification](design/2026-06-22-config-simplification-design.md) |
 | CFG-07 | `GOFER_RUN_MODE=client`（只需 .env），`gofer init client` | 0.41 | skill `references/client-config.md` |
 | CFG-08 | `start.ps1 -Action upgrade`（Windows 常驻实例原地升级） | 0.40 | [selfupdate runbook](runbook/2026-07-11-windows-server-selfupdate-runbook.md) |
@@ -61,9 +61,9 @@
 
 | 编号 | 功能 | 价值 | 大小 | 状态 | 来源 / 细节 |
 |---|---|---|---|---|---|
-| WEB-04③ | 配置写层 V1.1：agents/server 在 web 编辑（字段可编辑/需重启标记、secret 只引用、干跑校验、显式 reload） | 高 | 中 | 📝 设计 0.1 待批准 | [design](design/2026-09-22-config-write-v11-reliable-retry-and-session-fallback-design.md) §一 |
-| AUTO-03 | job 重试可靠版：`job_retries` 落库 + 租约 sweeper（重启不丢）、server/agent/project/job 四级策略、`--retry`、`retry_exhausted` 进默认通知 | 高 | 中 | 📝 设计 0.1 待批准 | 同上 §二 |
-| AGT-04 | 会话捕获兜底：未配 `session_capture` 的 cli-agent 用通用正则（非 uuid id 也认）+ resume 模板兜底，新增 agent 免配即可续接 | 中 | 小 | 📝 设计 0.1 待批准 | 同上 §三（jcode 实测） |
+| WEB-04③ | 配置写层 V1.1：agents/server 在 web 编辑（字段可编辑/需重启标记、secret 只引用、干跑校验、显式 reload） | 高 | 中 | ✅ 0.5x（R3 落地） | [design](design/2026-09-22-config-write-v11-reliable-retry-and-session-fallback-design.md) §一 + R3 实测记录 |
+| AUTO-03 | job 重试可靠版：`job_retries` 落库 + 租约 sweeper（重启不丢）、server/agent/project/job 四级策略、`--retry`、`retry_exhausted` 进默认通知 | 高 | 中 | ✅ 0.5x（R2 落地） | 同上 §二 |
+| AGT-04 | 会话捕获兜底：未配 `session_capture` 的 cli-agent 用通用正则（非 uuid id 也认）+ resume 模板兜底，新增 agent 免配即可续接 | 中 | 小 | ✅ 0.5x（R1 落地） | 同上 §三（jcode 实测） |
 | JOB-10 | skills 绑定：项目/agent 级 skill 目录，派发时挂载（`.claude/skills` / AGENTS.md 引用）或注入，`gofer skill import <dir|zip|url>` | 中 | 中 | ⏳ | Multica skills；接 roles/模板 |
 | MCP-05 | leader 路由：plan/job 评论 `@agent` 触发 job；leader 回合决定下一步/升级/转验收 | 中 | 中-大 | ⏳ | Multica squads；依赖 PLAN-02 + 评论触发 |
 | CFG-05 | worker 配置向导 `gofer worker init`（拉 server projects → roots 映射） | 中 | 中 | ⏳ | 容器 worker 已手工上线（CFG-09），向导仍缺 |
