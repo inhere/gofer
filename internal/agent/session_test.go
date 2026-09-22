@@ -126,13 +126,21 @@ func TestInteractiveAliasSessionDefaultsFromCommand(t *testing.T) {
 	}
 }
 
-func TestNonInteractiveAliasDoesNotGainSessionDefaults(t *testing.T) {
+// TestNonInteractiveAliasDoesNotGainBuiltinSessionDefaults: the built-in table is
+// consulted by COMMAND base name only for an INTERACTIVE agent, so a non-interactive
+// `claude-sup` never silently inherits claude's inject (`--session-id`, which this
+// alias's argv shape was never checked against). AGT-04 still hands it the generic
+// fallback, which injects nothing.
+func TestNonInteractiveAliasDoesNotGainBuiltinSessionDefaults(t *testing.T) {
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{
 		"claude-sup": {Type: TypeCLIAgent, Command: "claude"},
 	}}
 	ac, _ := ResolveAgent(cfg, "claude-sup")
-	if len(ac.SessionInject) != 0 || ac.SessionCapture != "" || len(ac.SessionResume) != 0 || len(ac.SessionResumeInteractive) != 0 {
-		t.Fatalf("non-interactive claude alias gained session defaults: %#v", ac)
+	if len(ac.SessionInject) != 0 {
+		t.Fatalf("non-interactive claude alias gained claude's inject: %#v", ac.SessionInject)
+	}
+	if !IsFallbackCapture(ac.SessionCapture) {
+		t.Fatalf("SessionCapture = %q, want the generic fallback", ac.SessionCapture)
 	}
 }
 
@@ -202,15 +210,18 @@ func TestExplicitSessionResumeInteractiveWins(t *testing.T) {
 	}
 }
 
-// TestNonSessionAgentUnchanged: an agent with no built-in default keeps all
-// session fields empty.
-func TestNonSessionAgentUnchanged(t *testing.T) {
+// TestFallbackSessionDefaultsForUnknownAgent (was TestNonSessionAgentUnchanged): a
+// cli-agent the built-in table does not know is no longer left with empty session
+// fields — AGT-04 fills the generic capture + resume templates — but gofer still
+// injects nothing, because it cannot invent an id for a CLI whose `--session-id`
+// semantics it has never seen (an injected unknown flag would break the argv).
+func TestFallbackSessionDefaultsForUnknownAgent(t *testing.T) {
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{
 		"other": {Type: TypeCLIAgent, Command: "other", Args: []string{"{{prompt}}"}},
 	}}
 	ac, _ := ResolveAgent(cfg, "other")
-	if len(ac.SessionInject) != 0 || ac.SessionCapture != "" || len(ac.SessionResume) != 0 || len(ac.SessionResumeInteractive) != 0 {
-		t.Errorf("non-session agent gained session fields: %#v", ac)
+	if len(ac.SessionInject) != 0 || !IsFallbackCapture(ac.SessionCapture) {
+		t.Errorf("unknown cli-agent session defaults = %#v, want the generic capture and no inject", ac)
 	}
 }
 

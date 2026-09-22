@@ -162,6 +162,44 @@ func ResolveAgent(cfg *config.Config, key string) (config.AgentConfig, bool) {
 	return config.AgentConfig{}, false
 }
 
+// FallbackSessionCapture is the GENERIC session_capture a cli-agent gets when
+// neither the built-in table nor the operator's config says otherwise (AGT-04): the
+// id is whatever follows a `--resume` / `--session-id` spelling, so a brand-new
+// cli-agent is续接-able the day it is declared instead of the day someone writes a
+// regex for it. jcode's exit banner is the case that motivated it (真机采样
+// 2026-09-22, job 20260922-201228-becdd0e9):
+//
+//	Session hamster - to resume:
+//	  jcode --resume session_hamster_1790079148520_bc5cb0d44153fe56
+//
+// — a non-uuid id, which all three built-in regexes miss.
+//
+// The token class is deliberately wide (`[A-Za-z0-9][A-Za-z0-9._-]{7,127}`) to cover
+// a uuid, a `ses_01H9…` ULID-style id and a `session_<host>_<ts>_<rand>` id. Two
+// guards keep it off prose, and neither can be expressed in the pattern itself:
+//   - the capture only reads the LAST 4KB of log/stream output (internal/job), since
+//     a real banner is an exit banner;
+//   - a captured placeholder (`<session_id>`, `SESSION_ID`, `your-session-id`, …) is
+//     dropped by internal/job.acceptableSessionID.
+const FallbackSessionCapture = `(?i)(?:^|[\s"'])(?:--resume|resume|--session[-_]?id)[=\s]+["']?([A-Za-z0-9][A-Za-z0-9._-]{7,127})["']?`
+
+// FallbackSessionResume / FallbackSessionResumeInteractive are the resume argv a
+// cli-agent with no session_resume gets (AGT-04): capturing an id is only half of
+// `job resume`, and `--resume <id>` (+ `-p <prompt>` for a batch run) is the shape
+// claude/omp/jcode share. An agent whose syntax differs either has a built-in entry
+// (codex's `exec resume`) or writes one line of config.
+var (
+	FallbackSessionResume            = []string{"--resume", "{{session_id}}", "-p", "{{prompt}}"}
+	FallbackSessionResumeInteractive = []string{"--resume", "{{session_id}}"}
+)
+
+// IsFallbackCapture reports whether reSrc is the generic AGT-04 fallback rather than
+// an agent's own (built-in or configured) session_capture. Two behaviours key off
+// it: the fallback reads only the TAIL of a log/stream (internal/job, the live pty
+// capture), and a capture it produced is reported as `by: "fallback"` in the
+// job.session_captured event.
+func IsFallbackCapture(reSrc string) bool { return reSrc == FallbackSessionCapture }
+
 // builtinSessionDefaults holds the实测内置 session 配置（session-capture §6.4），
 // 按 agent 名兜底。仅当某 agent 的对应 session 字段未显式配置时才填充（显式配置覆盖
 // 内置）。claude 用注入模式（gofer 生成 uuid → --session-id），codex 用捕获模式
@@ -329,11 +367,12 @@ func builtinNDJSONFor(key string, a config.AgentConfig) (builtinNDJSONDef, bool)
 }
 
 // applySessionDefaults fills an agent's unset session fields from the built-in
-// defaults for that agent name (session-capture §6.4). Each of the three session
-// fields is filled INDEPENDENTLY and ONLY when empty, so an explicit config value
-// always wins (no overwrite). Agents without a built-in default are returned
-// unchanged. The input is a copy (value receiver upstream), so this never mutates
-// the loaded config.
+// defaults for that agent name (session-capture §6.4), falling back to the generic
+// AGT-04 defaults for any cli-agent the built-in table does not know. Each session
+// field is filled INDEPENDENTLY and ONLY when empty, so an explicit config value
+// always wins (no overwrite). An exec or acp-agent has no session defaults at all
+// and is returned unchanged. The input is a copy (value receiver upstream), so this
+// never mutates the loaded config.
 func applySessionDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	if a.TransientErrorPatterns == nil {
 		a.TransientErrorPatterns = builtinTransientPatternsFor(key, a)
@@ -390,20 +429,39 @@ func builtinTransientPatternsFor(key string, a config.AgentConfig) []string {
 	return nil
 }
 
+// builtinSessionDefaultFor resolves an agent's session defaults: first its entry in
+// the built-in table (by key), then — for an INTERACTIVE agent only — the entry for
+// the base name of its Command (so `tty-claude` running claude inherits claude's),
+// and finally the generic AGT-04 fallback for any cli-agent. An exec agent's argv
+// belongs to the caller and an acp-agent's session travels over the protocol, so
+// neither gets a fallback (they return false and keep every session field empty).
 func builtinSessionDefaultFor(key string, a config.AgentConfig) (config.AgentConfig, bool) {
 	if def, ok := builtinSessionDefaults[key]; ok {
 		return def, true
 	}
-	_, interactive := Modes(a)
-	if !interactive {
+	if _, interactive := Modes(a); interactive {
+		command := strings.TrimSuffix(strings.ToLower(commandBase(a.Command)), ".exe")
+		if def, ok := builtinSessionDefaults[command]; ok {
+			return def, true
+		}
+	}
+	if a.Type == TypeExec || a.Type == TypeACPAgent {
 		return config.AgentConfig{}, false
 	}
-	command := strings.ToLower(commandBase(a.Command))
-	if strings.HasSuffix(command, ".exe") {
-		command = strings.TrimSuffix(command, ".exe")
+	return fallbackSessionDefault(), true
+}
+
+// fallbackSessionDefault is what an unknown cli-agent is filled with: the generic
+// capture regex and the shared resume templates, and NO SessionInject — gofer cannot
+// invent an id for a CLI whose `--session-id` semantics it has never seen, so the
+// capture path is the only one that applies. The slices are copied per call so a
+// caller mutating its resolved config cannot corrupt the package-level templates.
+func fallbackSessionDefault() config.AgentConfig {
+	return config.AgentConfig{
+		SessionCapture:           FallbackSessionCapture,
+		SessionResume:            append([]string(nil), FallbackSessionResume...),
+		SessionResumeInteractive: append([]string(nil), FallbackSessionResumeInteractive...),
 	}
-	def, ok := builtinSessionDefaults[command]
-	return def, ok
 }
 
 func commandBase(command string) string {

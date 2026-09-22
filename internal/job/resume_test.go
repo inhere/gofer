@@ -96,10 +96,10 @@ func TestResumeJobNoSession(t *testing.T) {
 	}
 }
 
-// TestResumeJobResumeUnsupported: a job whose agent has no SessionResume template
-// is rejected with ErrResumeUnsupported (→400). We build an agent with an
-// explicit session_inject but an empty session_resume so the job HAS a captured
-// session_id yet cannot resume.
+// TestResumeJobResumeUnsupported: a job that HAS a session id but whose agent has no
+// resume template is rejected with ErrResumeUnsupported (→400). AGT-04 now fills the
+// generic `--resume` template into every cli-agent, so the only carrier left without
+// one is exec — its argv is the caller's, so gofer has nothing to render.
 func TestResumeJobResumeUnsupported(t *testing.T) {
 	root := t.TempDir()
 	cfg := &config.Config{
@@ -107,29 +107,21 @@ func TestResumeJobResumeUnsupported(t *testing.T) {
 		Projects: map[string]config.ProjectConfig{
 			"self": {
 				HostPath:       root,
-				AllowedAgents:  []string{"noresume", "exec"},
+				AllowedAgents:  []string{"exec"},
 				AllowedRunners: []string{"local"},
 				AllowExec:      true,
-			},
-		},
-		Agents: map[string]config.AgentConfig{
-			// inject yields a session_id at submit, but no resume template → cannot续接.
-			"noresume": {
-				Type:          agent.TypeCLIAgent,
-				Command:       "echo",
-				Args:          []string{"{{prompt}}"},
-				SessionInject: []string{"--sid", "{{session_id}}"},
 			},
 		},
 	}
 	s := newServiceFromCfg(t, root, cfg)
 
 	src := submitAndWait(t, s, JobRequest{
-		ProjectKey: "self", Agent: "noresume", Runner: "local",
-		Prompt: "hi", Cwd: ".", TimeoutSec: 30,
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+		SessionID: "sess-explicit-1",
 	})
 	if src.SessionID == "" {
-		t.Fatalf("setup: inject agent should have a session_id")
+		t.Fatalf("setup: an explicit session_id should be kept")
 	}
 	_, err := s.ResumeJob(src.ID, "again", "", "caller-1")
 	if !errors.Is(err, ErrResumeUnsupported) {
