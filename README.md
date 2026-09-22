@@ -204,7 +204,7 @@ When a provider capacity error, a network blip or a timeout kills a job halfway,
 gofer job resume <source job-id> --prompt "The previous run was interrupted by <reason>. Check git status/log to see how far you got, finish only the remaining items, do not redo committed work."
 ```
 
-Requirements: the source job is terminal, it captured a `session_id` (visible in `job show`; codex/omp via output capture — the ndjson session row or the TUI exit banner — and claude via `--session-id` injection), the agent has a resume template (built in for claude/codex/omp; others via `session_capture` / `session_resume`), same runner. `rerun`, by contrast, resubmits the same request as a fresh session.
+Requirements: the source job is terminal, it captured a `session_id` (visible in `job show`; codex/omp via output capture — the ndjson session row or the TUI exit banner — and claude via `--session-id` injection), the agent has a resume template (built in for claude/codex/omp; **every other cli-agent gets the generic fallback** — a `--resume`-style capture regex and `--resume {{session_id}}` argv — so a newly declared agent is resumable without any `session_*` config; override with `session_capture` / `session_resume` when its syntax differs), same runner. `rerun`, by contrast, resubmits the same request as a fresh session. See `docs/runbook/2026-09-22-cli-agent-onboarding-runbook.md`.
 
 ### Human review: `needs_review`, `job accept` / `job reject`
 

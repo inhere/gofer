@@ -195,3 +195,63 @@ CREATE INDEX IF NOT EXISTS idx_job_retries_due ON job_retries(state, next_run_at
 3. 重试落库 + 租约 sweeper，**删掉**进程内 `time.AfterFunc` 路径；默认仍然关闭。
 4. `auto_resume` / stall 优先于 retry；`cancelled/timeout/needs_review` 永不重试。
 5. AGT-04 兜底只在**尾部 4KB**、只给 `cli-agent`、命中记事件；显式与内置配置永远优先。
+
+## R1 实测记录（2026-09-22，omp job）
+
+**落地范围**：§三 AGT-04 全部 —— 兜底正则（`agent.FallbackSessionCapture` / `IsFallbackCapture`）、
+resume 模板兜底（`FallbackSessionResume[Interactive]`）、尾部 4KB 窗口、占位符过滤
+（`acceptableSessionID`）、`job.session_captured {agent,by,source}` 事件（终态捕获 + 实时 pty
+捕获两条路径）、web 时间线图标/标签/详情、runbook 新增《新增一个 cli-agent 需要配什么》。
+提交：`452cc10`（测试）→ `1d5a4d6`（agent）→ `42cef87`（job/web）。
+
+**与设计的偏差（3 处，均为实现细节，语义不变）**
+
+1. 兜底正则的起始分支按任务书写成 `(?:^|[\s"'])`（设计 §1 只写了 `(?:^|\s)`）：让 `"…--resume x"` 这种
+   被引号包住的横幅也能命中。
+2. `TestFallbackCaptureRejectsPlaceholders` 落在 `internal/job`（不是 `internal/agent`）：占位符过滤按
+   §三.2 明确"不写进正则"，只存在于 `internal/job.acceptableSessionID`，在 agent 包内无法测到该行为。
+3. 实时 pty 捕获（`internal/httpapi`）也记同一条事件：交互 job 的 id 通常**在流里就被抓到**，终态扫描
+   随即跳过；不在这里记，"兜底命中可发现"这条设计意图在最典型的场景（交互 TUI）里就失效了。
+
+**单测（`go test ./internal/agent/... ./internal/job/... ./internal/httpapi/... -run 'Fallback|SessionCapture|CaptureSessionID|PtySessionID|Transcript' -v`，exit 0，30 PASS / 0 FAIL）**
+
+```
+--- PASS: TestFallbackCaptureAcceptsNonUUIDToken (0.00s)      # jcode 真机原文（非 uuid）
+--- PASS: TestFallbackCaptureAcceptsUUIDAndPrefixedIDs (0.00s)
+--- PASS: TestBuiltinKeyBeatsFallback (0.00s)
+--- PASS: TestExplicitCaptureBeatsFallback (0.00s)
+--- PASS: TestFallbackResumeTemplateApplied (0.00s)
+--- PASS: TestFallbackSkipsExecAndACP (0.00s)
+--- PASS: TestFallbackCaptureOnlyScansTail (0.01s)
+--- PASS: TestFallbackCaptureRejectsPlaceholders (0.01s)
+--- PASS: TestFallbackCaptureRecordsEvent (0.74s)
+--- PASS: TestFallbackPtyCaptureReadsOnlyTheTailWindow (2.22s)
+ok  	github.com/inhere/gofer/internal/agent	(cached)
+ok  	github.com/inhere/gofer/internal/job	4.067s
+ok  	github.com/inhere/gofer/internal/httpapi	(cached)
+```
+
+**真机 jcode 验收：未做（主机侧无法驱动 TUI）**
+
+主机上 `jcode` 确实在（`D:\env\bin\jcode.exe`，`jcode v0.86.0`），但本机没有"提交交互 job 并驱动它的
+TUI"的通道：`gofer job run --interactive` 只是**请求** pty job，交互本身要靠 attach 客户端
+（web 的 xterm 或 pty ws + relay nonce），CLI 侧没有 `job attach`；唯一能往 pty stdin 写字面的
+`JobRequest.InitialInput` 是 `json:"-"` 的内部字段（只由 session-takeover 流程填写），HTTP/CLI 都传不进去。
+按本 job 的硬约束（不得指向真实配置、临时 server 必须随机端口、不得 reload 正在跑本 job 的 server），
+没有在主机上拼 attach 客户端。**请在容器侧用 attach 驱动补验**：
+
+```bash
+gofer job run -a jcode -p <proj> --interactive --prompt "..."
+#   TUI 里 /quit（不是 /exit）退出
+gofer job show <job-id>     # 期望 session_id = session_hamster_…（不写任何 agents.jcode.session_* 配置）
+gofer job resume <job-id> --prompt "继续"   # 期望进入上一轮 TUI
+```
+
+**顺带修掉的既有测试**（AGT-04 改变了它们钉的契约，不是重钉文案）
+
+- `internal/agent`：`TestNonSessionAgentUnchanged` → `TestFallbackSessionDefaultsForUnknownAgent`；
+  `TestNonInteractiveAliasDoesNotGainSessionDefaults` → `…GainBuiltinSessionDefaults`。两者原来断言
+  "未知/非交互 cli-agent 的 session 字段全空"，现在断言"拿到通用兜底、且**不被注入** `--session-id`"。
+- `internal/job`：`TestResumeJobResumeUnsupported` 原来用"配了 inject 但没 resume 模板的 cli-agent"，
+  该形状已被兜底填满；改用唯一还剩的载体 —— 显式带 `session_id` 的 **exec** job（argv 是调用方的，
+  gofer 无从渲染模板）。
