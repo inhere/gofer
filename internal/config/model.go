@@ -1383,8 +1383,9 @@ type AgentConfig struct {
 	// SessionInject 注入模式 argv 模板（模式①，首选）。非空 => 提交时 gofer 生成 uuid
 	// 渲染追加到 argv，立即知 id、无需解析输出。{{session_id}} 占位（session-capture §6.4）。
 	SessionInject []string `yaml:"session_inject,omitempty"`
-	// SessionCapture 捕获模式正则（模式②，兜底），第 1 个捕获组 = session_id。仅当
-	// SessionInject 为空时使用（注入优先于捕获）。
+	// SessionCapture 捕获模式正则（模式②，兜底），第一个**非空**捕获组 = session_id
+	// （可写多分支，各分支各占一个捕获组，只有命中的那个非空：如 omp 的 ndjson 会话行
+	// 与 TUI 退出横幅）。仅当 SessionInject 为空时使用（注入优先于捕获）。
 	SessionCapture string `yaml:"session_capture,omitempty"`
 	// SessionResume resume 的整条 agent argv 模板（非追加 flag），{{session_id}}/{{prompt}}
 	// 占位。供 `gofer job resume`（P2）拼接续接命令。
