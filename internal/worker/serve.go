@@ -8,6 +8,7 @@ import (
 	"syscall"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/daemon"
 )
 
 // Serve runs a built worker Client until SIGINT/SIGTERM, owning the signal/ctx
@@ -35,6 +36,9 @@ func Serve(cl *Client, wc *config.WorkerConfig) error {
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(sig)
+	// Windows: a detached worker has no console and therefore no Ctrl+C, so this
+	// makes it reachable by `worker stop` (the named stop event). No-op on unix.
+	daemon.NotifyStop(sig)
 	go func() {
 		select {
 		case <-ctx.Done():

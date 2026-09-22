@@ -122,14 +122,15 @@ func runWorkerList(c *gcli.Command, _ []string) error {
 	return nil
 }
 
-// NewWorkerStopCmd builds `gofer worker stop [<id>]`: stop the backgrounded (-d)
-// worker via its id-namespaced pidfile (counterpart to `worker -d`). When <id> is
-// omitted and exactly one worker is running it is auto-detected, so the common
-// single-worker host can just run `gofer worker stop` (resolveDefaultWorkerID).
+// NewWorkerStopCmd builds `gofer worker stop [<id>]`: stop the running worker
+// through its id-namespaced pidfile (the -d child, or a foreground instance). When
+// <id> is omitted and exactly one worker is running it is auto-detected, so the
+// common single-worker host can just run `gofer worker stop`
+// (resolveDefaultWorkerID).
 func NewWorkerStopCmd() *gcli.Command {
 	return &gcli.Command{
 		Name: "stop",
-		Desc: "Stop the backgrounded (-d) worker via its pidfile (id auto-detected when only one is running)",
+		Desc: "Stop the running worker via its pidfile (id auto-detected when only one is running)",
 		Config: func(c *gcli.Command) {
 			c.StrOpt(&workerStopOpts.config, "worker-config", "", "", "worker config to resolve the default worker_id when none is running (default: <config-dir>/worker.yaml)")
 			c.AddArg("id", "worker id (optional; auto-detected when a single worker is running)", false)
@@ -284,9 +285,9 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 
 	// -d/--daemon: the parent re-execs itself detached, prints the child pid and
 	// returns; the detached child re-enters runWorker with daemon.Daemonized()==true
-	// and runs the dispatch loop below. worker.Serve already does SIGINT/SIGTERM
-	// graceful shutdown, so the child only needs to clean up its pidfile on exit
-	// (c44). The pidfile is namespaced by worker id (multiple workers per host).
+	// and runs the dispatch loop below. The pidfile is namespaced by worker id
+	// (multiple workers per host) and claimed by the real process, foreground or
+	// child (c44/SVC-01).
 	if workerOpts.daemon && !daemon.Daemonized() {
 		pid, err := daemon.Spawn(daemon.Options{
 			Name:    "worker-" + wc.WorkerID,
@@ -299,8 +300,13 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 		c.Printf("gofer worker(%s) 已后台启动 pid=%d log=%s\n", wc.WorkerID, pid, workerLogFile(wc.WorkerID))
 		return nil
 	}
-	if daemon.Daemonized() {
-		defer daemon.RemovePIDFile(workerPIDFile(wc.WorkerID))
+	// The real worker process (foreground or the -d child) records itself in the
+	// pidfile so `worker stop` / runningWorkerIDs see it either way; a pidfile
+	// another live worker holds is left alone (never refuse startup over it).
+	release, owned := daemon.Claim(workerPIDFile(wc.WorkerID))
+	defer release()
+	if !owned {
+		slog.Warn("daemon.pidfile_busy", "component", "worker", "worker_id", wc.WorkerID, "pidfile", workerPIDFile(wc.WorkerID))
 	}
 	logPath := wc.Log.File
 	if logPath == "" {

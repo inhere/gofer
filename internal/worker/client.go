@@ -33,6 +33,7 @@ import (
 	"github.com/coder/websocket/wsjson"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/job"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/store"
@@ -1012,8 +1013,10 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 		return false, fmt.Errorf("register rejected: %s", reg.Reason)
 	}
 	cl.notify("registered")
+	sess := daemon.SessionInfo()
 	slog.Info("worker.registered", "event", "worker.registered", "component", "worker",
-		"worker_id", cl.workerID, "url", url, "labels", caps.Labels, "max_concurrent", caps.MaxConc)
+		"worker_id", cl.workerID, "url", url, "labels", caps.Labels, "max_concurrent", caps.MaxConc,
+		"session", sess.ID, "interactive", sess.Interactive)
 
 	// RECOV-01: the hub's resume ack is the FIRST thing applied to the new session —
 	// still on the raw connection, so no frame can carry a pre-rewind offset — and

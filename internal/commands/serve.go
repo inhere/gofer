@@ -1,9 +1,11 @@
 package commands
 
 import (
+	"log/slog"
+	"path/filepath"
+
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/goutil/errorx"
-	"path/filepath"
 
 	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/config"
@@ -56,13 +58,13 @@ func NewServeCmd(infos ...buildinfo.Info) *gcli.Command {
 	}
 }
 
-// NewServeStopCmd builds `gofer serve stop`: stop the backgrounded (-d) serve via
-// its pidfile (counterpart to `serve -d`). See stopDaemon for the SIGTERM + wait
-// semantics.
+// NewServeStopCmd builds `gofer serve stop`: stop the running serve through its
+// pidfile (the -d child, or a foreground instance a supervisor started). See
+// stopDaemon for the platform-specific stop + wait semantics.
 func NewServeStopCmd() *gcli.Command {
 	return &gcli.Command{
 		Name: "stop",
-		Desc: "Stop the backgrounded (-d) serve via its pidfile",
+		Desc: "Stop the running serve via its pidfile",
 		Func: runServeStop,
 	}
 }
@@ -93,15 +95,20 @@ func runServe(c *gcli.Command, _ []string, info buildinfo.Info) error {
 		c.Printf("gofer serve 已后台启动 pid=%d log=%s\n", pid, serveLogFile())
 		return nil
 	}
-	// Detached child: remove the pidfile when serve.Start returns (graceful
-	// shutdown), so a stale pidfile never lingers after a clean stop.
-	if daemon.Daemonized() {
-		defer daemon.RemovePIDFile(servePIDFile())
-	}
-
+	// Detached child (Daemonized), or a foreground start: the real process runs
+	// below and claims the pidfile itself.
 	cfg, cfgPath, err := config.Load(config.InputCfgFile)
 	if err != nil {
 		return errorx.Failf(serve.ExitErr, "%v", err)
+	}
+	// Record this process in the pidfile whether we were started with -d or in the
+	// foreground (a supervisor / a terminal), so `serve stop` finds us either way.
+	// A pidfile another live process holds is left alone — never refuse startup
+	// over it (a real second instance fails on the port bind).
+	release, owned := daemon.Claim(servePIDFile())
+	defer release()
+	if !owned {
+		slog.Warn("daemon.pidfile_busy", "component", "serve", "pidfile", servePIDFile())
 	}
 	logPath := cfg.Log.File
 	if logPath == "" {

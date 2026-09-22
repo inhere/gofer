@@ -22,6 +22,7 @@ import (
 	"github.com/inhere/gofer/internal/castrec"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/core"
+	"github.com/inhere/gofer/internal/daemon"
 	"github.com/inhere/gofer/internal/httpapi"
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/job/workflow"
@@ -290,15 +291,29 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	} else {
 		c.Printf("gofer: starting on %s (token auth enabled)\n", addr)
 	}
-	slog.Info("server.ready", "event", "server.ready", "component", "server", "addr", addr)
-	// SIGINT/SIGTERM trigger a graceful shutdown: the http.Server stops accepting
-	// new connections and drains in-flight ones, RunCtx returns nil, then every
-	// deferred cleanup above (store close, stop-channel closes for the sweeper /
-	// reload / hub loops) runs — unlike a default signal kill, which skips defers.
-	// `serve stop` / daemon teardown send SIGTERM here (c44). SIGHUP reload is a
-	// separate loop and unaffected.
-	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
-	defer stop()
+	sess := daemon.SessionInfo()
+	slog.Info("server.ready", "event", "server.ready", "component", "server", "addr", addr,
+		"session", sess.ID, "interactive", sess.Interactive)
+	// SIGINT/SIGTERM (and on Windows the named stop event, see daemon.NotifyStop)
+	// trigger a graceful shutdown: the http.Server stops accepting new connections
+	// and drains in-flight ones, RunCtx returns nil, then every deferred cleanup
+	// above (store close, stop-channel closes for the sweeper / reload / hub loops)
+	// runs — unlike a default signal kill, which skips defers. `serve stop` /
+	// daemon teardown reach us that way (c44). SIGHUP reload is a separate loop and
+	// unaffected.
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sig)
+	daemon.NotifyStop(sig)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	go func() {
+		select {
+		case <-sig:
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 	// RunCtx blocks until the server stops (signal-driven shutdown or bind
 	// failure). The token is never printed (plan §11).
 	if err := srv.RunCtx(ctx, addr); err != nil {
