@@ -39,6 +39,25 @@ func managedTopKeySet() map[string]bool {
 	return out
 }
 
+// RenderYAML renders v the way the config writer writes it, for a surface that shows
+// a candidate BEFORE it is saved (the console's dry-run preview, WEB-04③ V1.1). It
+// uses the same encoder as Save, so a preview and the file it previews cannot
+// disagree about formatting.
+//
+// It renders only what it is given: callers must pass a block whose secret-bearing
+// fields have been masked (SR403) — config.Save's own redaction rules live in
+// withoutInjectedAgents and do not apply here.
+func RenderYAML(v any) (string, error) {
+	if v == nil {
+		return "", nil
+	}
+	b, err := yaml.Marshal(v)
+	if err != nil {
+		return "", fmt.Errorf("render yaml: %w", err)
+	}
+	return string(b), nil
+}
+
 // Save writes cfg back to path as YAML.
 //
 // Critical (§12): when the target file already exists, the human's own text must

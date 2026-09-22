@@ -86,6 +86,19 @@ func (s *Server) callerMayAdmin(caller string) bool {
 	return s.cfg.CallerCanAdmin(caller)
 }
 
+// ConfigWriter is the narrow write-transaction seam (D2/G022) for the WEB-04③ V1.1
+// config write endpoints: the only two things this entry layer asks of the config
+// owner are "run this mutation as one transaction" (clone → apply → validate → save
+// → reload) and "re-read the file by hand". *core.Core satisfies it; serve injects
+// the singleton via SetConfigWriter.
+//
+// A nil seam (mcp, most tests) leaves the routes mounted but answering 503 — the same
+// degradation /v1/xfer uses — so the router never has to be rebuilt for it.
+type ConfigWriter interface {
+	Update(mut func(*config.Config) error) error
+	ReloadConfig() error
+}
+
 // PtySessionStore is the narrow persistence seam the WEB-03 P3 pty handlers use to
 // record/read pty relay session metadata (design review 高1). It is defined here —
 // rather than the Server holding a raw *jobstore.Store — so the entry layer keeps a
@@ -132,6 +145,13 @@ type Server struct {
 	router    *rux.Router
 	build     buildinfo.Info
 	startedAt time.Time
+
+	// core is the config write transaction behind the WEB-04③ V1.1 routes (/v1/config
+	// writes). Injected post-construction by SetConfigWriter so New's wide positional
+	// signature and its many call sites stay untouched; nil (mcp/tests) makes those
+	// routes answer 503. The type is the narrow ConfigWriter interface (G022), so this
+	// entry layer never imports internal/core.
+	core ConfigWriter
 
 	// token is the effective bearer token (already resolved from config/env/flag
 	// by the caller). When empty, auth is only permitted if allowEmptyToken is
@@ -299,6 +319,12 @@ func (s *Server) ptyTranscriptMaxBytes() int {
 // passes the *jobstore.Store (which satisfies PtySessionStore); a nil store leaves
 // pty session persistence off (mcp/tests). It mounts no routes → no router rebuild.
 func (s *Server) SetPtySessionStore(store PtySessionStore) { s.ptySessions = store }
+
+// SetConfigWriter injects the config write transaction (WEB-04③ V1.1) behind the
+// /v1/config write routes. serve passes the *core.Core singleton (which satisfies the
+// narrow interface); a nil writer leaves the routes mounted and answering 503, so —
+// like SetXfer — it mounts nothing and needs no router rebuild.
+func (s *Server) SetConfigWriter(cw ConfigWriter) { s.core = cw }
 
 // SetXfer injects the XFER-01 transfer manager (serve passes core's). Unlike
 // SetPresence it needs no router rebuild: the /v1/xfer routes are always mounted
@@ -506,6 +532,18 @@ func (s *Server) buildRouter() *rux.Router {
 
 	r.Group("/v1", func() {
 		r.GET("/config", s.handleGetConfig)
+		// WEB-04③ V1.1: the config WRITE surface (agents + a whitelisted server slice).
+		// Always mounted, can_admin-gated per handler; answer 503 without SetConfigWriter.
+		// The field policy table (config.FieldPolicyFor) is the whitelist: a field it
+		// does not call editable is refused with `field not editable: <path>`.
+		r.PUT("/config/agents/{key}", s.handlePutConfigAgent)
+		r.DELETE("/config/agents/{key}", s.handleDeleteConfigAgent)
+		r.PUT("/config/server", s.handlePutConfigServer)
+		// Dry run: the same classify→apply→validate chain, on a clone, without saving.
+		r.POST("/config/validate", s.handleValidateConfig)
+		// Manual reload (Windows has no SIGHUP): re-read the config file this server
+		// owns, for edits made in a host editor.
+		r.POST("/config/reload", s.handleReloadConfig)
 		r.GET("/projects", s.handleListProjects)
 		r.POST("/projects", s.handleCreateProject)
 		r.GET("/projects/{key}", s.handleGetProject)

@@ -200,6 +200,25 @@ var (
 // job.session_captured event.
 func IsFallbackCapture(reSrc string) bool { return reSrc == FallbackSessionCapture }
 
+// HasBuiltinTemplate reports whether key names a definition gofer ships — one of the
+// built-in agent templates, or the reserved `exec` agent that needs no `agents:`
+// entry at all.
+//
+// A console needs it to tell the two meanings of "delete this agent" apart (WEB-04③
+// V1.1): deleting an operator's OVERRIDE of a built-in key does not remove a
+// capability, it restores the built-in definition (the key comes back on the next
+// resolve), while deleting a purely custom key removes it. The flag is deliberately
+// about the TEMPLATE TABLE and not about whether the entry is currently injected:
+// an operator override is a normal declared agent, and the fallback is exactly what
+// happens to it.
+func HasBuiltinTemplate(key string) bool {
+	if key == ExecAgentKey {
+		return true
+	}
+	_, ok := builtinTemplates[key]
+	return ok
+}
+
 // builtinSessionDefaults holds the实测内置 session 配置（session-capture §6.4），
 // 按 agent 名兜底。仅当某 agent 的对应 session 字段未显式配置时才填充（显式配置覆盖
 // 内置）。claude 用注入模式（gofer 生成 uuid → --session-id），codex 用捕获模式

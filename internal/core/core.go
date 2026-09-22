@@ -490,6 +490,31 @@ func (c *Core) Reload(path string) error {
 	return err
 }
 
+// ReloadConfig re-reads the config file this Core OWNS — the same path its write
+// transaction saves to (WithConfigPath, or the lazily resolved user-level config when
+// none was configured) — and hot-swaps it in. It is the manual reload behind
+// POST /v1/config/reload (WEB-04③ V1.1): Windows has no SIGHUP, so an operator who
+// edited the file by hand has no other way to apply it short of a restart.
+//
+// The path resolution is deliberately the SAME code path as saveConfig, so "the file
+// the console writes" and "the file a reload re-reads" can never be two different
+// files (serve passes -c; a mismatch would make an edit vanish on the next reload).
+func (c *Core) ReloadConfig() error {
+	c.updateMu.Lock()
+	if c.cfgPath == "" {
+		p, err := config.UserConfigPath()
+		if err != nil {
+			c.updateMu.Unlock()
+			return fmt.Errorf("resolve user config path: %w", err)
+		}
+		c.cfgPath = p
+	}
+	path := c.cfgPath
+	// Reload takes updateMu itself (and reads the file INSIDE it) — release first.
+	c.updateMu.Unlock()
+	return c.Reload(path)
+}
+
 func (c *Core) reloadFromPathLocked(path string) error {
 	c.updateMu.Lock()
 	defer c.updateMu.Unlock()

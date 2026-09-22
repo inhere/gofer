@@ -208,6 +208,45 @@ func contains(items []string, want string) bool {
 	return false
 }
 
+// runtimeAgentInteractive reads the EFFECTIVE interactive mode from the RUNNING agent
+// registry (agent.Modes: interactive_args present, or the legacy flag) — the same
+// resolution the job path uses, so a true here proves the write transaction's reload
+// landed in the process rather than only on disk.
+func runtimeAgentInteractive(t *testing.T, s *Server, key string) bool {
+	t.Helper()
+	ac, ok := s.agents.Get(key)
+	if !ok {
+		t.Fatalf("agent %q is not in the running registry", key)
+	}
+	_, interactive := agent.Modes(ac)
+	return interactive
+}
+
+// TestEveryEditableAgentFieldIsWritable is the drift guard between the policy table
+// (config.EditableAgentFields — what the console builds its form from) and the write
+// path's field switch. The replace semantics CLEAR every editable field an agent body
+// omits, so a table entry the switch cannot write would turn every agent edit into a
+// 500 — the failure would show up only in production, on a field nobody had tried yet.
+func TestEveryEditableAgentFieldIsWritable(t *testing.T) {
+	fields := config.EditableAgentFields()
+	if len(fields) == 0 {
+		t.Fatal("no editable agent fields")
+	}
+	for _, name := range fields {
+		var ac config.AgentConfig
+		if err := applyAgentField(&ac, clearedAgentField("x", name)); err != nil {
+			t.Errorf("applyAgentField(%q, null) = %v: the policy table and the write switch disagree", name, err)
+		}
+	}
+	// And the other direction: a field the table does NOT call editable must be
+	// refused rather than silently written by a forgotten case.
+	if err := applyAgentField(&config.AgentConfig{}, configBodyField{
+		name: "env", path: "agents.x.env", raw: json.RawMessage(`{"A":"b"}`),
+	}); err == nil {
+		t.Error("applyAgentField wrote `env`, which the policy table keeps read-only")
+	}
+}
+
 // TestConfigWriteRequiresAdmin pins the can_admin gate on every WEB-04③ write route
 // (design §一.1) with the SAME 403 body the project routes answer, so a console can
 // treat "no permission" as one condition across the product.
@@ -277,8 +316,14 @@ func TestAgentPutCreatesAndReloads(t *testing.T) {
 	if got.Command != "jcode" || got.Type != "cli-agent" || got.MaxConcurrent != 2 {
 		t.Fatalf("agent view=%+v", got)
 	}
-	if !got.Interactive {
-		t.Fatal("interactive_args: [] must mark the agent interactive (AGT-02)")
+	// `interactive_args: []` (present but empty) is the AGT-02 shape for "interactive
+	// mode, no extra argv" — the view must NOT flatten it to null (that would read as
+	// batch-only), and the runtime must see an interactive mode.
+	if got.InteractiveArgs == nil || len(got.InteractiveArgs) != 0 {
+		t.Fatalf("interactive_args=%v, want a non-nil empty list", got.InteractiveArgs)
+	}
+	if !runtimeAgentInteractive(t, s, "jcode") {
+		t.Fatal("the running server does not see jcode as interactive: the reload did not apply the definition")
 	}
 
 	disk := string(readFile(t, cfgPath))
@@ -296,8 +341,8 @@ func TestAgentPutCreatesAndReloads(t *testing.T) {
 // the editable field set. A field the body does not carry is CLEARED — an edit form
 // must therefore always send the complete set (see the console's buildAgentWrite).
 func TestAgentPutUpdatesExisting(t *testing.T) {
-	yamlText, _, cfgPath := configWriteFixture(t)
-	s, _, _ := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
+	yamlText, _, _ := configWriteFixture(t)
+	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 
 	before := agentFromConfig(t, getConfigView(t, s, adminToken), "mytool")
 	if before.SessionCapture == "" {
@@ -320,8 +365,11 @@ func TestAgentPutUpdatesExisting(t *testing.T) {
 	if got.SessionCapture != "" {
 		t.Fatalf("session_capture=%q, want cleared: an omitted editable field is replaced, not merged", got.SessionCapture)
 	}
-	if got.Interactive {
-		t.Fatal("interactive_args was omitted from the body, so the agent must no longer be interactive")
+	if got.InteractiveArgs != nil {
+		t.Fatalf("interactive_args=%v, want null: the fixture's [] was not in the body, so the agent is batch-only now", got.InteractiveArgs)
+	}
+	if disk := string(readFile(t, cfgPath)); strings.Contains(disk, "session_id=([A-Za-z0-9._-]+)") {
+		t.Fatalf("the cleared field is still on disk:\n%s", disk)
 	}
 }
 
@@ -332,8 +380,8 @@ func TestAgentPutUpdatesExisting(t *testing.T) {
 // about" bug bd h-aii-3scy fixed for projects — and a console could never put the
 // value back.
 func TestAgentPutKeepsFieldsOutsideTheEditableSet(t *testing.T) {
-	yamlText, _, cfgPath := configWriteFixture(t)
-	s, _, _ := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
+	yamlText, _, _ := configWriteFixture(t)
+	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 
 	// Seed the non-editable fields through the file (they are not writable by API).
 	seed := strings.Replace(yamlText,
@@ -377,8 +425,8 @@ func TestAgentPutKeepsFieldsOutsideTheEditableSet(t *testing.T) {
 // template definition comes back — and the caller is told so explicitly. A purely
 // custom key simply disappears.
 func TestAgentDeleteFallsBackToBuiltin(t *testing.T) {
-	yamlText, _, cfgPath := configWriteFixture(t)
-	s, _, _ := newConfigWriteTestServer(t, yamlText, fixedDetector{"claude": true})
+	yamlText, _, _ := configWriteFixture(t)
+	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, fixedDetector{"claude": true})
 
 	resp := do(t, s, http.MethodDelete, "/v1/config/agents/claude", adminToken, nil)
 	if resp.StatusCode != http.StatusOK {
@@ -419,8 +467,8 @@ func TestAgentDeleteFallsBackToBuiltin(t *testing.T) {
 // name and pointed at the env-var reference instead. A `*_env` NAME carries no value
 // and so never trips that check.
 func TestAgentPutRejectsSecretLiteral(t *testing.T) {
-	yamlText, _, cfgPath := configWriteFixture(t)
-	s, _, _ := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
+	yamlText, _, _ := configWriteFixture(t)
+	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 	before := readFile(t, cfgPath)
 
 	resp := do(t, s, http.MethodPut, "/v1/config/agents/bad", adminToken, map[string]any{
@@ -463,8 +511,8 @@ func TestAgentPutRejectsSecretLiteral(t *testing.T) {
 // exactly which field it refused, and nothing is written — a half-applied server
 // block would make the running process disagree with the file.
 func TestServerPutRejectsRestartOnlyField(t *testing.T) {
-	yamlText, _, cfgPath := configWriteFixture(t)
-	s, _, _ := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
+	yamlText, _, _ := configWriteFixture(t)
+	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 	before := readFile(t, cfgPath)
 
 	resp := do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
@@ -491,8 +539,8 @@ func TestServerPutRejectsRestartOnlyField(t *testing.T) {
 // TestServerPutAppliesEditableField is the server half of the goal: the everyday
 // knobs are editable from the console and take effect immediately.
 func TestServerPutAppliesEditableField(t *testing.T) {
-	yamlText, _, cfgPath := configWriteFixture(t)
-	s, _, _ := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
+	yamlText, _, _ := configWriteFixture(t)
+	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 
 	resp := do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
 		"max_job_timeout_sec": 120,
@@ -506,8 +554,11 @@ func TestServerPutAppliesEditableField(t *testing.T) {
 	if written.Section != "server" || !written.Reloaded {
 		t.Fatalf("resp=%+v", written)
 	}
-	if len(written.RestartRequired) != 0 {
-		t.Fatalf("restart_required=%v, want none: both fields are hot", written.RestartRequired)
+	if !contains(written.RestartRequired, "server.addr") {
+		t.Fatalf("restart_required=%v, want the restart-only surface named (server.addr)", written.RestartRequired)
+	}
+	if contains(written.RestartRequired, "server.max_job_timeout_sec") {
+		t.Fatal("a hot-editable field must not be reported as needing a restart")
 	}
 
 	v := getConfigView(t, s, adminToken)
@@ -536,8 +587,8 @@ func TestServerPutAppliesEditableField(t *testing.T) {
 // the write endpoints, the full validation, the impact list — and, above all, NO
 // write and NO reload (the file is compared byte for byte).
 func TestConfigValidateDryRunDoesNotWrite(t *testing.T) {
-	yamlText, _, cfgPath := configWriteFixture(t)
-	s, _, _ := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
+	yamlText, _, _ := configWriteFixture(t)
+	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 	before := readFile(t, cfgPath)
 
 	// (1) An illegal candidate: type exec cannot carry interactive_args. The answer
@@ -594,8 +645,11 @@ func TestConfigValidateDryRunDoesNotWrite(t *testing.T) {
 		t.Fatalf("server candidate status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
 	}
 	decode(t, resp, &valid)
-	if !contains(valid.RestartRequired, "server.addr") || !contains(valid.RestartRequired, "server.storage") {
+	if !contains(valid.RestartRequired, "server.addr") || !contains(valid.RestartRequired, "server.token_env") {
 		t.Fatalf("restart_required=%v, want the restart-only server fields", valid.RestartRequired)
+	}
+	if contains(valid.RestartRequired, "server.max_job_timeout_sec") {
+		t.Fatal("a hot-editable field must not be reported as needing a restart")
 	}
 
 	if !bytes.Equal(before, readFile(t, cfgPath)) {
@@ -612,8 +666,8 @@ func TestConfigValidateDryRunDoesNotWrite(t *testing.T) {
 // AGT-02 `interactive_args: []` shape in the agents block) would be comment-stripped
 // by a console edit that never touched them.
 func TestSurgicalSaveKeepsOtherBlockComments(t *testing.T) {
-	yamlText, _, cfgPath := configWriteFixture(t)
-	s, _, _ := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
+	yamlText, _, _ := configWriteFixture(t)
+	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 
 	projectsBefore := topBlockText(t, string(readFile(t, cfgPath)), "projects")
 

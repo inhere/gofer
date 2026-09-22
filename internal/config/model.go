@@ -5,6 +5,7 @@ package config
 import (
 	"fmt"
 	"math"
+	"slices"
 	"strings"
 	"time"
 
@@ -129,6 +130,24 @@ func (c *Config) IsInjectedAgent(key string) bool {
 	return c.injectedAgents[key]
 }
 
+// UnmarkInjectedAgent clears the runtime-injected mark of ONE key, so a definition the
+// operator has just written for that key is treated as configuration and survives the
+// save (config.writer's withoutInjectedAgents strips every marked key).
+//
+// It is the "declare it explicitly" half of the template escape hatch: editing
+// `claude` from the console must produce a `claude:` block in the file, not a write
+// that looks successful and is stripped again. Only the config write API calls it, on
+// the CLONE it owns.
+func (c *Config) UnmarkInjectedAgent(key string) {
+	if c == nil || c.injectedAgents == nil || !c.injectedAgents[key] {
+		return
+	}
+	delete(c.injectedAgents, key)
+	if len(c.injectedAgents) == 0 {
+		c.injectedAgents = nil
+	}
+}
+
 // Clone returns a copy safe for the P3 copy-on-write write transaction
 // (core.Core.Update / reloadLocked): the struct is shallow-copied, then the
 // Projects, Agents and injectedAgents maps are deep-copied ONE level so a
@@ -144,17 +163,22 @@ func (c *Config) IsInjectedAgent(key string) bool {
 // agent.Resolve on the clone, which delete()s the previously-injected keys — on a
 // shallow-shared map that would tear a running Submit's snapshot.
 //
-// Deliberately NOT deep-copied (D-MED-7): Server (Workers/Callers), Storage,
-// Runners, Roles, Supervisor, Presence, Schedule. No P3 runtime write path
-// mutates them, so sharing them with the source is safe. Extending the write
-// transaction to any of them REQUIRES widening this Clone first — today it makes
-// a structural guarantee for "project whole-value add/remove" (plus the agent
-// re-resolve that rides every reload) only, not for arbitrary mutation.
+// Deliberately NOT deep-copied (D-MED-7): Storage, Runners, Roles, Supervisor,
+// Presence, Schedule. No P3 runtime write path mutates them, so sharing them with
+// the source is safe. Extending the write transaction to any of them REQUIRES
+// widening this Clone first — today it makes a structural guarantee for "project
+// whole-value add/remove" (plus the agent re-resolve that rides every reload) only,
+// not for arbitrary mutation.
+//
+// The Server block IS deep-copied (one level, same rule) since WEB-04③ V1.1: the
+// console can edit it through Core.Update, so its pointers/slices/maps must be
+// private to the clone like Projects/Agents are — see cloneServer.
 func (c *Config) Clone() *Config {
 	if c == nil {
 		return nil
 	}
 	clone := *c
+	clone.Server = cloneServer(c.Server)
 	if c.Projects != nil {
 		p := make(map[string]ProjectConfig, len(c.Projects))
 		for k, v := range c.Projects {
@@ -177,6 +201,69 @@ func (c *Config) Clone() *Config {
 		clone.injectedAgents = m
 	}
 	return &clone
+}
+
+// cloneServer copies the Server block one level deep: every pointer, slice and map
+// a writer could mutate THROUGH (as opposed to replacing wholesale) gets its own
+// allocation, so a mutation on a clone can never be observed by a concurrent reader
+// holding the previous generation.
+//
+// The scalar-only sub-blocks (runner_probe, governance, xfer) need nothing beyond
+// the struct copy. Callers must not "optimize" this by dropping the pointer copies:
+// `next.Server.Retry.MaxAttempts = 3` on a shared pointer would silently edit the
+// live config that in-flight Submit calls are reading.
+func cloneServer(sc ServerConfig) ServerConfig {
+	out := sc
+	out.Callers = slices.Clone(sc.Callers)
+	if sc.Workers != nil {
+		out.Workers = make(map[string]WorkerAuthConfig, len(sc.Workers))
+		for k, w := range sc.Workers {
+			w.Labels = slices.Clone(w.Labels)
+			out.Workers[k] = w
+		}
+	}
+	out.WebEnabled = clonePtr(sc.WebEnabled)
+	out.JobRecoverWindowSec = clonePtr(sc.JobRecoverWindowSec)
+	out.AutoResumeMax = clonePtr(sc.AutoResumeMax)
+	out.DirLock = clonePtr(sc.DirLock)
+	out.StallTimeoutSec = clonePtr(sc.StallTimeoutSec)
+	out.Metrics.Enabled = clonePtr(sc.Metrics.Enabled)
+	if sc.Notification != nil {
+		n := *sc.Notification
+		n.AllowHosts = slices.Clone(sc.Notification.AllowHosts)
+		n.Webhooks = make([]WebhookConfig, len(sc.Notification.Webhooks))
+		for i, w := range sc.Notification.Webhooks {
+			w.Events = slices.Clone(w.Events)
+			w.Projects = slices.Clone(w.Projects)
+			n.Webhooks[i] = w
+		}
+		out.Notification = &n
+	}
+	if sc.Retry != nil {
+		r := *sc.Retry
+		r.BackoffSec = slices.Clone(sc.Retry.BackoffSec)
+		r.OnExitCodes = slices.Clone(sc.Retry.OnExitCodes)
+		out.Retry = &r
+	}
+	if sc.AgentFallback != nil {
+		f := *sc.AgentFallback
+		f.OnFailure = clonePtr(sc.AgentFallback.OnFailure)
+		out.AgentFallback = &f
+	}
+	if sc.AgentHealth != nil {
+		h := *sc.AgentHealth
+		out.AgentHealth = &h
+	}
+	return out
+}
+
+// clonePtr allocates a fresh pointee (nil in, nil out) for cloneServer.
+func clonePtr[T any](p *T) *T {
+	if p == nil {
+		return nil
+	}
+	v := *p
+	return &v
 }
 
 // ScheduleConfig controls the AUTO-02 cron sweeper cadence and missed-run policy.

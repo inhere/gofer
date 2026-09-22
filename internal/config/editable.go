@@ -134,6 +134,30 @@ func FieldPolicyFor(path string) (FieldPolicy, bool) {
 	return FieldPolicy{}, false
 }
 
+// SectionPolicies returns one section's field policies keyed by the FIELD NAME a
+// write body carries — `server` → "addr", "max_job_timeout_sec", …; `agents` → every
+// agent field. That is exactly the vocabulary PUT accepts and the console builds its
+// form from, so the view and the endpoint cannot offer different fields. An unknown
+// section returns an empty map.
+func SectionPolicies(section string) map[string]FieldPolicy {
+	var prefix string
+	switch section {
+	case "server":
+		prefix = "server."
+	case "agents":
+		prefix = "agents.*."
+	default:
+		return map[string]FieldPolicy{}
+	}
+	out := make(map[string]FieldPolicy, len(fieldPolicies))
+	for path, fp := range fieldPolicies {
+		if name, ok := strings.CutPrefix(path, prefix); ok {
+			out[name] = fp
+		}
+	}
+	return out
+}
+
 // EditableAgentFields returns the agent field names PUT accepts, sorted. It is the
 // whitelist the write endpoint enforces and the field list the console builds its
 // form from — one source for both, so a form can never offer an input the server

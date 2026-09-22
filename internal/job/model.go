@@ -780,6 +780,21 @@ const (
 	// must act" signal. Its real use is discovery: `by: "fallback"` says the agent has
 	// no session_capture of its own yet.
 	EventJobSessionCaptured = "job.session_captured"
+	// EventConfigUpdated is a successful write through the config write API
+	// (WEB-04③ V1.1 R3): {section, key, by, fields} — WHAT was written, by WHICH
+	// caller, and which FIELD NAMES changed. It carries no values on purpose: config
+	// values are host paths and host names (SR403), and the audit question is "who
+	// changed what", not "what is it now" (the row is immutable, the value is in the
+	// file). For a delete, fields is ["*"] — the whole definition went away.
+	//
+	// It is NOT in the notification default set (notify.DefaultTriggerEvents): an
+	// operator editing config is not an "a human must act" signal for whoever watches
+	// job.terminal. A subscriber that wants it lists it explicitly.
+	EventConfigUpdated = "config.updated"
+	// ConfigEventScope is the synthetic event-scope id config writes are recorded on
+	// (config.updated belongs to no job, exactly like xfer:<id> belongs to no job), so
+	// the whole config audit trail is one readable stream: ListJobEvents(ConfigEventScope).
+	ConfigEventScope = "config"
 	// PLAN-02 P2 plan-todo dispatch. plan.todo_dispatched is recorded ON THE JOB a
 	// ready+assigned todo started ({todo_id, job_id, agent}), so the item's history
 	// says who started what; plan.todo_dispatch_failed is recorded on the PLAN's own

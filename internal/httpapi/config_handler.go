@@ -19,6 +19,20 @@ type configView struct {
 	Supervisor *supervisorView    `json:"supervisor,omitempty"`
 	Presence   presenceConfigView `json:"presence"`
 	Schedule   scheduleConfigView `json:"schedule"`
+	// ServerPolicy / AgentPolicy publish the field policy table (WEB-04③ V1.1) keyed
+	// by the FIELD NAME a write body carries. The console builds its edit forms from
+	// them, so an input it offers is one the write endpoint accepts — the table is
+	// consumed here and enforced there, never re-stated in the frontend.
+	ServerPolicy map[string]fieldPolicyView `json:"server_policy"`
+	AgentPolicy  map[string]fieldPolicyView `json:"agent_policy"`
+}
+
+// fieldPolicyView is one field's write contract as the console reads it (see
+// config.FieldPolicy).
+type fieldPolicyView struct {
+	Editable        bool `json:"editable"`
+	RestartRequired bool `json:"restart_required"`
+	SecretRef       bool `json:"secret_ref,omitempty"`
 }
 
 type serverConfigView struct {
@@ -33,6 +47,14 @@ type serverConfigView struct {
 	RunnerProbe     runnerProbeView    `json:"runner_probe"`
 	Notification    *notificationView  `json:"notification,omitempty"`
 	Metrics         metricsConfigView  `json:"metrics"`
+	// The edited-by-console knobs (WEB-04③ V1.1). Pointer fields are emitted as null
+	// when unset, which is a DIFFERENT decision from 0 (inherit vs off) and is exactly
+	// what the edit form has to send back.
+	MaxJobTimeoutSec    int                 `json:"max_job_timeout_sec"`
+	AutoResumeMax       *int                `json:"auto_resume_max"`
+	StallTimeoutSec     *int                `json:"stall_timeout_sec"`
+	JobRecoverWindowSec *int                `json:"job_recover_window_sec"`
+	Retry               *config.RetryPolicy `json:"retry,omitempty"`
 }
 
 type governanceView struct {
@@ -123,6 +145,35 @@ type configAgentView struct {
 	SessionResume  []string         `json:"session_resume"`
 	SystemInject   []string         `json:"system_inject"`
 	McpServerName  string           `json:"mcp_server_name,omitempty"`
+	// The rest of the editable field set (WEB-04③ V1.1), so the console's edit form can
+	// prefill every input it is allowed to send. InteractiveArgs is deliberately NOT
+	// omitempty and NOT nonNil()-ed: JSON `null` = batch-only, `[]` = interactive with
+	// no extra argv (AGT-02), and the form must reproduce that distinction exactly.
+	InteractiveArgs          []string            `json:"interactive_args"`
+	ReadOnlyArgs             []string            `json:"read_only_args"`
+	SessionResumeInteractive []string            `json:"session_resume_interactive"`
+	TransientErrorPatterns   []string            `json:"transient_error_patterns"`
+	FallbackAgents           []string            `json:"fallback_agents"`
+	MaxConcurrent            int                 `json:"max_concurrent"`
+	StallTimeoutSec          *int                `json:"stall_timeout_sec"`
+	Retry                    *config.RetryPolicy `json:"retry,omitempty"`
+	OutputFormat             string              `json:"output_format"`
+	NDJSONKeep               []string            `json:"ndjson_keep"`
+	NDJSONRaw                bool                `json:"ndjson_raw"`
+	NDJSONEventsTo           string              `json:"ndjson_events_to"`
+	NDJSONStdout             string              `json:"ndjson_stdout"`
+	NDJSONStdoutPath         string              `json:"ndjson_stdout_path"`
+	NDJSONFields             map[string][]string `json:"ndjson_fields"`
+	ACP                      *acpConfigView      `json:"acp,omitempty"`
+	Injected                 bool                `json:"injected,omitempty"`
+}
+
+// acpConfigView is the acp-agent sub-block as the console edits it. It carries the two
+// protocol settings a web form has any business changing (modes / permission_policy) —
+// never anything secret (there is nothing secret in it).
+type acpConfigView struct {
+	Modes            map[string]string `json:"modes,omitempty"`
+	PermissionPolicy string            `json:"permission_policy,omitempty"`
 }
 
 type detectConfigView struct {
@@ -183,22 +234,31 @@ func (s *Server) handleGetConfig(c *rux.Context) {
 }
 
 func buildConfigView(cfg *config.Config) configView {
+	policies := func() (map[string]fieldPolicyView, map[string]fieldPolicyView) {
+		return policyViews("server"), policyViews("agents")
+	}
 	if cfg == nil {
+		sp, ap := policies()
 		return configView{
-			Projects: []projectView{},
-			Agents:   []configAgentView{},
-			Runners:  []configRunnerView{},
-			Roles:    []configRoleView{},
+			Projects:     []projectView{},
+			Agents:       []configAgentView{},
+			Runners:      []configRunnerView{},
+			Roles:        []configRoleView{},
+			ServerPolicy: sp,
+			AgentPolicy:  ap,
 		}
 	}
+	sp, ap := policies()
 	return configView{
-		Server:     buildServerConfigView(cfg.Server),
-		Storage:    buildStorageConfigView(cfg.Storage),
-		Projects:   buildProjectViews(cfg.Projects),
-		Agents:     buildAgentViews(cfg.Agents),
-		Runners:    buildRunnerViews(cfg.Runners),
-		Roles:      buildRoleViews(cfg.Roles),
-		Supervisor: buildSupervisorView(cfg.Supervisor),
+		Server:       buildServerConfigView(cfg.Server),
+		Storage:      buildStorageConfigView(cfg.Storage),
+		Projects:     buildProjectViews(cfg.Projects),
+		Agents:       buildAgentViews(cfg.Agents, cfg.InjectedAgents()),
+		Runners:      buildRunnerViews(cfg.Runners),
+		Roles:        buildRoleViews(cfg.Roles),
+		Supervisor:   buildSupervisorView(cfg.Supervisor),
+		ServerPolicy: sp,
+		AgentPolicy:  ap,
 		Presence: presenceConfigView{
 			TTLSec:           cfg.Presence.TTLSec,
 			MessageTTLSec:    cfg.Presence.MessageTTLSec,
@@ -209,6 +269,17 @@ func buildConfigView(cfg *config.Config) configView {
 			MissGraceSec:     cfg.Schedule.MissGraceSec,
 		},
 	}
+}
+
+// policyViews renders one section's field policies for the console, keyed by the
+// field name a write body carries (see the configView comment).
+func policyViews(section string) map[string]fieldPolicyView {
+	policies := config.SectionPolicies(section)
+	out := make(map[string]fieldPolicyView, len(policies))
+	for name, fp := range policies {
+		out[name] = fieldPolicyView{Editable: fp.Editable, RestartRequired: fp.RestartRequired, SecretRef: fp.SecretRef}
+	}
+	return out
 }
 
 func buildServerConfigView(sc config.ServerConfig) serverConfigView {
@@ -237,6 +308,11 @@ func buildServerConfigView(sc config.ServerConfig) serverConfigView {
 			Enabled:  sc.Metrics.IsEnabled(),
 			TokenSet: sc.Metrics.Token != "",
 		},
+		MaxJobTimeoutSec:    sc.MaxJobTimeoutSec,
+		AutoResumeMax:       sc.AutoResumeMax,
+		StallTimeoutSec:     sc.StallTimeoutSec,
+		JobRecoverWindowSec: sc.JobRecoverWindowSec,
+		Retry:               sc.Retry,
 	}
 }
 
@@ -320,11 +396,15 @@ func buildProjectViews(projects map[string]config.ProjectConfig) []projectView {
 	return out
 }
 
-func buildAgentViews(agents map[string]config.AgentConfig) []configAgentView {
+func buildAgentViews(agents map[string]config.AgentConfig, injected map[string]bool) []configAgentView {
 	keys := sortedMapKeys(agents)
 	out := make([]configAgentView, 0, len(keys))
 	for _, k := range keys {
 		ac := agents[k]
+		var acp *acpConfigView
+		if ac.ACP != nil {
+			acp = &acpConfigView{Modes: ac.ACP.Modes, PermissionPolicy: ac.ACP.PermissionPolicy}
+		}
 		out = append(out, configAgentView{
 			Key:            k,
 			Type:           ac.Type,
@@ -339,6 +419,25 @@ func buildAgentViews(agents map[string]config.AgentConfig) []configAgentView {
 			SessionResume:  nonNil(ac.SessionResume),
 			SystemInject:   nonNil(ac.SystemInject),
 			McpServerName:  ac.McpServerName,
+
+			// nil stays null: it is what says "batch-only" (see the struct comment).
+			InteractiveArgs:          ac.InteractiveArgs,
+			ReadOnlyArgs:             nonNil(ac.ReadOnlyArgs),
+			SessionResumeInteractive: nonNil(ac.SessionResumeInteractive),
+			TransientErrorPatterns:   nonNil(ac.TransientErrorPatterns),
+			FallbackAgents:           nonNil(ac.FallbackAgents),
+			MaxConcurrent:            ac.MaxConcurrent,
+			StallTimeoutSec:          ac.StallTimeoutSec,
+			Retry:                    ac.Retry,
+			OutputFormat:             ac.OutputFormat,
+			NDJSONKeep:               nonNil(ac.NDJSONKeep),
+			NDJSONRaw:                ac.NDJSONRaw,
+			NDJSONEventsTo:           ac.NDJSONEventsTo,
+			NDJSONStdout:             ac.NDJSONStdout,
+			NDJSONStdoutPath:         ac.NDJSONStdoutPath,
+			NDJSONFields:             ac.NDJSONFields,
+			ACP:                      acp,
+			Injected:                 injected[k],
 		})
 	}
 	return out

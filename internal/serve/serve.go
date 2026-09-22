@@ -238,6 +238,11 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	var workers = hubWorkerRegistry{hub: cr.Hub}
 
 	srv := httpapi.New(&cfg.Server, token, allowEmpty, cr.Jobs, cr.Workflow(), cr.Projects, cr.Agents, cr.Hub, cfg.Runners, proberOrNil(prober), workers)
+	// WEB-04③ V1.1: the /v1/config write endpoints (agents + whitelisted server
+	// fields) run through the core's serial write transaction — the same
+	// clone→mutate→save→reload path the console's project writes use, so a config
+	// edit is atomic w.r.t. every reader and cannot be half-applied.
+	srv.SetConfigWriter(cr)
 	// SESS-01 R2: the session-relay auto-arm thresholds live in the top-level
 	// `session:` block (legacy `server.session_auto_relay_idle_sec` is read as an
 	// alias), and only the whole config can resolve them. SUP-01 D's supervision
