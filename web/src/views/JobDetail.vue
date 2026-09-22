@@ -39,6 +39,7 @@ import {
 import { appendCapped, streamJob } from '../api/sse'
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
 import { shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
+import { createPoller } from '../utils/poller'
 import type {
   Artifact,
   Delivery,
@@ -345,7 +346,11 @@ const stderrCanLoadEarlier = computed(() => canLoadEarlier('stderr'))
 
 // 实时秒级时钟（驱动 running 耗时刷新）
 const nowSec = ref(Math.floor(Date.now() / 1000))
-let clockTimer: number | null = null
+// F8：时钟也走 createPoller——后台标签页/失焦窗口里停表（不发请求，只是显示），
+// 回到页面立刻校准一次。SSE 流本身的生命周期不动（设计明确）。
+const clock = createPoller(() => {
+  nowSec.value = Math.floor(Date.now() / 1000)
+}, 1000)
 
 const durationSec = computed(() => {
   if (!job.value) {
@@ -598,12 +603,6 @@ async function doCancel(): Promise<void> {
     cancelling.value = false
     streamError.value = e instanceof Error ? e.message : String(e)
   }
-}
-
-function startClock(): void {
-  clockTimer = window.setInterval(() => {
-    nowSec.value = Math.floor(Date.now() / 1000)
-  }, 1000)
 }
 
 async function loadCurrentJob(): Promise<void> {
@@ -1388,7 +1387,7 @@ watch(
 )
 
 onMounted(() => {
-  startClock()
+  clock.start()
   void loadCurrentJob()
 })
 
@@ -1396,10 +1395,7 @@ onUnmounted(() => {
   if (abortCtrl) {
     abortCtrl.abort()
   }
-  if (clockTimer != null) {
-    window.clearInterval(clockTimer)
-    clockTimer = null
-  }
+  clock.stop()
 })
 </script>
 
