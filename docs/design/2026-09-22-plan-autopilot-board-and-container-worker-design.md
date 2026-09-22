@@ -235,3 +235,8 @@ SMOKE OK (html 4867 bytes)
   - **`tty-claude` 续接通过**：交互 job `20260922-163846-31abe0ab` 退出后 `job show` 有 `session_id=7c4418ff-0928-4e33-8347-c24241d919c0`（PTY-01 的 `--session-id` 注入在 TUI argv 上生效），`pty.txt` 尾部含 `Resume this session with:`；`job resume` 起了交互续接 job `20260922-164816-7a746436`（`claude --resume` 直接进 TUI，同 session id 链回）。
   - **omp 退出文案采样 + 缺陷**：omp 交互 job `20260922-164858-a7256a59` 退出时最后一行是 `Resume this session with omp --resume 01a0c84d-d444-72ca-ad7c-edadbae32034`；纯文本 TUI 不打 ndjson 的 `"type":"session"` 行，而内置 `SessionCapture` 只认那一行 → **修前 `session_id` 为空、`job resume` 不可用**。F6 T1 给 omp 补第二条分支（并把 `CaptureSessionIDBytes` 改成取第一个非空捕获组），修后可捕获。claude 的两行退出横幅（`Resume this session with:` / `claude --resume <uuid>`）同批补进 claude 的 `session_capture`（注入是主路径，这条只是捕获兜底）。
   - **转录丢空格**：claude TUI（ink）用 `ESC[nC`（光标右移 n 列）代替空格排版，`pty.txt` 出现 `NewMCPserverfoundinthisproject:aliyun-slsMCPserversmayexecutecode…`、`Entertoconfirm·Esctocancel`，既不可读、也让正则匹配不到带空格的文案。F6 T2 让 `C` 输出 n 个空格、`G`/`H`/`f` 至多补一个空格（`K`/`J` 与私有序列仍不可见）。
+
+### F6 真机复核（2026-09-22，主机 v0.50.3）
+
+`gofer job run -a omp --runner local --interactive --cwd docs` → 用 attach 套接字驱动一轮问答后 `/exit`：`job show` 的 `session_id=01a0c8eb-c632-71a9-9723-3f8cffe56004`（来自退出行 `Resume this session with omp --resume <uuid>`，修前为空）；`pty.txt` 里 `ESC[nC` 已还原成空格（`Reply only one word pong`、退出行均可读）。`gofer job resume <job>` 起交互续接 job（`omp --resume <uuid>`），TUI 内可见上一轮 `请只回复一个词：pong` / `pong` 的历史，会话确实被加载。
+
