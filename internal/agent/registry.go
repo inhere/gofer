@@ -172,6 +172,10 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 		SessionInject:            []string{"--session-id", "{{session_id}}"},
 		SessionResume:            []string{"--resume", "{{session_id}}", "-p", "{{prompt}}"},
 		SessionResumeInteractive: []string{"--resume", "{{session_id}}"}, // 交互:进 TUI，无 -p
+		// 捕获是注入的兜底（claude 的 id 由 session_inject 给出，TUI argv 同样注入），
+		// 认的是 TUI 退出横幅最后两行 `Resume this session with:` /
+		// `claude --resume <uuid>`（PTY-01 真机 2026-09-22 采样，job 20260922-163846-31abe0ab）。
+		SessionCapture: `(?i)claude --resume ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`,
 		// E35: claude injects a resident system prompt via --append-system-prompt
 		// (kept its own argv element so a multi-word prompt is never re-tokenised).
 		SystemInject: []string{"--append-system-prompt", "{{system_prompt}}"},
@@ -179,8 +183,9 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 	"codex": {
 		// 批处理(exec/ndjson)头部 `session id: <uuid>`，加交互 TUI 退出时打印的
 		// `codex resume <uuid>`（PTY-01 §四：TUI 的 id 只在退出横幅里出现，且夹在
-		// ANSI 里 → 由 relay 的去 ANSI 观察者/pty.txt 兜底）。单个捕获组是硬约束：
-		// CaptureSessionIDBytes 只取第 1 组，两种形态必须共用它。
+		// ANSI 里 → 由 relay 的去 ANSI 观察者/pty.txt 兜底）。每个分支各占一个捕获组，
+		// 一次匹配只有命中的那个非空——CaptureSessionIDBytes 取第一个非空组，所以两种
+		// 形态各写一个分支即可。
 		SessionCapture:           `(?i)(?:session id:|codex resume)\s*([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`,
 		SessionResume:            []string{"exec", "resume", "{{session_id}}", "{{prompt}}"},
 		SessionResumeInteractive: []string{"resume", "{{session_id}}"}, // ⚠️ 实测确认 codex 交互 resume 命令
@@ -199,8 +204,11 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 		SystemInject: []string{"-c", "developer_instructions={{system_prompt}}"},
 	},
 	"omp": {
-		// OMP emits the session row only with --mode json; text mode has no session line.
-		SessionCapture:           `"type"\s*:\s*"session".*"id"\s*:\s*"([0-9a-f-]+)"`,
+		// --mode json 下 omp 打 `"type":"session"` 行；**交互 TUI（纯文本）不打**，它的
+		// id 只在退出横幅里出现：`Resume this session with omp --resume <uuid>`（PTY-01
+		// 真机 2026-09-22 采样，job 20260922-164858-a7256a59）。两个分支各一个捕获组，
+		// 只有命中的那个非空——由 CaptureSessionIDBytes 取第一个非空组。
+		SessionCapture:           `"type"\s*:\s*"session".*"id"\s*:\s*"([0-9a-f-]+)"|omp --resume ([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`,
 		SessionResume:            []string{"--resume", "{{session_id}}", "-p", "{{prompt}}"},
 		SessionResumeInteractive: []string{"--resume", "{{session_id}}"},
 	},

@@ -11,8 +11,10 @@ import (
 
 func TestBuiltinSessionDefaultsOmp(t *testing.T) {
 	def := builtinSessionDefaults["omp"]
+	// Two branches, one group each (ndjson session row, then the TUI exit banner):
+	// the ndjson row fires branch 1, so group 1 holds the id and group 2 is empty.
 	m := regexp.MustCompile(def.SessionCapture).FindStringSubmatch(`{"type":"session","id":"123e4567-e89b-12d3-a456-426614174000"}`)
-	if len(m) != 2 || m[1] != "123e4567-e89b-12d3-a456-426614174000" {
+	if len(m) != 3 || m[1] != "123e4567-e89b-12d3-a456-426614174000" || m[2] != "" {
 		t.Fatalf("omp session capture = %v", m)
 	}
 	if got, want := def.SessionResume, []string{"--resume", "{{session_id}}", "-p", "{{prompt}}"}; !reflect.DeepEqual(got, want) {

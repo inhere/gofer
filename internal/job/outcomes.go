@@ -192,7 +192,7 @@ func (s *Service) captureSession(entry *jobEntry, resultDir string) {
 // 都会用到），避免重复编译。键是正则源串。
 var sessionReCache sync.Map // map[string]*regexp.Regexp
 
-// captureSessionID 从 path 文件内容用正则 reSrc 提取 session_id（第 1 个捕获组）。
+// captureSessionID 从 path 文件内容用正则 reSrc 提取 session_id（第一个**非空**捕获组）。
 // 任何失败（正则非法、文件读不到、无匹配、无捕获组）都返回 ""——纯 best-effort，调用方
 // 据空判定回退。文件读取受 maxResultJSONBytes 量级约束（stdout 可能很大，仅取必要前缀
 // 仍可靠：会话 id 在 codex 输出头部）。
@@ -208,16 +208,13 @@ func captureSessionID(path, reSrc string) string {
 	if err != nil {
 		return ""
 	}
-	m := re.FindSubmatch(b)
-	if len(m) < 2 { // 需要至少 1 个捕获组。
-		return ""
-	}
-	return strings.TrimSpace(string(m[1]))
+	return firstNonEmptyGroup(re.FindSubmatch(b))
 }
 
-// CaptureSessionIDBytes extracts the first capture group from b using the same
-// cached regex path as terminal log capture. It is exported for PTY relay output
-// observation, where interactive agent output does not enter stdout/stderr logs.
+// CaptureSessionIDBytes extracts the session id from b using the same cached regex
+// path as terminal log capture (the first NON-EMPTY capture group). It is exported
+// for PTY relay output observation, where interactive agent output does not enter
+// stdout/stderr logs.
 func CaptureSessionIDBytes(b []byte, reSrc string) string {
 	if len(b) == 0 || reSrc == "" {
 		return ""
@@ -226,11 +223,26 @@ func CaptureSessionIDBytes(b []byte, reSrc string) string {
 	if re == nil {
 		return ""
 	}
-	m := re.FindSubmatch(b)
-	if len(m) < 2 {
+	return firstNonEmptyGroup(re.FindSubmatch(b))
+}
+
+// firstNonEmptyGroup returns the first capture group carrying text (m[0] is the whole
+// match, so it is skipped), trimmed; "" when there is none.
+//
+// A SessionCapture regex may offer several alternative shapes, and each alternative gets
+// its own group — only one of them can fire per match. Reading group 1 blindly left an
+// interactive omp job with an empty session_id: its id comes from the exit-banner branch
+// while group 1 (the ndjson session row) stays empty (PTY-01 F6).
+func firstNonEmptyGroup(m [][]byte) string {
+	if len(m) < 2 { // 需要至少 1 个捕获组。
 		return ""
 	}
-	return strings.TrimSpace(string(m[1]))
+	for _, g := range m[1:] {
+		if s := strings.TrimSpace(string(g)); s != "" {
+			return s
+		}
+	}
+	return ""
 }
 
 // compileSessionRe 返回 reSrc 编译后的正则（带缓存）；非法正则返回 nil（记一次 warning）。

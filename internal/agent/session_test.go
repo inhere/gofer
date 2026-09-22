@@ -56,7 +56,8 @@ func TestExplicitSystemInjectWins(t *testing.T) {
 }
 
 // TestBuiltinSessionDefaultsClaude: a declared claude agent with no session
-// fields gets the built-in inject + resume defaults; capture stays empty.
+// fields gets the built-in inject + resume defaults, plus the TUI exit-banner
+// capture regex that backs the inject up (F6).
 func TestBuiltinSessionDefaultsClaude(t *testing.T) {
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{
 		"claude": {Type: TypeCLIAgent, Command: "claude", Args: []string{"-p", "{{prompt}}"}},
@@ -68,8 +69,8 @@ func TestBuiltinSessionDefaultsClaude(t *testing.T) {
 	if len(ac.SessionInject) != 2 || ac.SessionInject[0] != "--session-id" || ac.SessionInject[1] != "{{session_id}}" {
 		t.Errorf("SessionInject = %#v, want [--session-id {{session_id}}]", ac.SessionInject)
 	}
-	if ac.SessionCapture != "" {
-		t.Errorf("claude SessionCapture = %q, want empty (claude uses inject)", ac.SessionCapture)
+	if ac.SessionCapture != builtinSessionDefaults["claude"].SessionCapture {
+		t.Errorf("claude SessionCapture = %q, want the built-in exit-banner regex", ac.SessionCapture)
 	}
 	if len(ac.SessionResume) != 4 || ac.SessionResume[0] != "--resume" {
 		t.Errorf("SessionResume = %#v, want claude resume template", ac.SessionResume)
