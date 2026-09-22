@@ -436,6 +436,16 @@ func validateApprovalKinds(project, field string, kinds []string) error {
 	return nil
 }
 
+// Validate runs the same structural checks config.Load applies to a freshly decoded
+// file. It is exported for the config write API (WEB-04③ V1.1 R3), which builds a
+// CANDIDATE config in memory and must hold it to exactly the bar a written file is
+// held to: anything weaker would let the API persist a config the next Reload
+// refuses — a process that cannot come back from its own edit.
+//
+// The candidate must already be defaulted (it is a Clone of the live config, which
+// went through Load → ApplyDefaults); Validate itself never mutates cfg.
+func Validate(cfg *Config) error { return validate(cfg) }
+
 // validate runs lightweight structural checks that do not touch the filesystem;
 // path/agent existence checks live in internal/project Registry.Validate.
 func validate(cfg *Config) error {
