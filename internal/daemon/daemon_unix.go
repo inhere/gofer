@@ -3,6 +3,7 @@
 package daemon
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"syscall"
@@ -56,3 +57,17 @@ func PIDAlive(pid int) bool {
 func Terminate(pid int) error {
 	return syscall.Kill(pid, syscall.SIGTERM)
 }
+
+// NotifyStop is a no-op on unix: the stop signal IS a real SIGTERM, which the
+// caller already receives through its own signal.Notify, so there is no second
+// delivery mechanism to install here (Windows needs one because a detached
+// process there has no console and therefore no signal to receive).
+func NotifyStop(chan<- os.Signal) {}
+
+// KillHint is the manual command an operator can run when a graceful stop timed
+// out (printed by stopDaemon).
+func KillHint(pid int) string { return fmt.Sprintf("kill -9 %d", pid) }
+
+// SessionInfo has no unix equivalent: a unix process runs in whatever environment
+// its parent gave it, so the zero value (Interactive=false) is the honest answer.
+func SessionInfo() Session { return Session{} }

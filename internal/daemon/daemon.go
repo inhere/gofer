@@ -11,6 +11,7 @@ package daemon
 import (
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -33,6 +34,18 @@ type Options struct {
 	PIDPath string // pidfile absolute path
 	LogPath string // child stdout/stderr sidecar output target (for example *.out.log)
 }
+
+// Session reports which OS session a process runs in and whether that is the
+// interactive one. On Windows it answers "is this gofer sitting on the user's
+// desktop?" (session 0 = a service, so GUI automation cannot reach the desktop);
+// on unix it is the zero value, there being no equivalent concept.
+type Session struct {
+	ID          uint32
+	Interactive bool
+}
+
+// SessionInfo returns the session of the CURRENT process. It is implemented per
+// platform (daemon_unix.go / daemon_windows.go).
 
 // Daemonized reports whether the current process is the detached child (the
 // env sentinel is set). The command layer calls this to decide whether to
@@ -68,6 +81,39 @@ func Spawn(o Options) (int, error) {
 		return pid, fmt.Errorf("child started (pid=%d) but writing pidfile failed: %w", pid, err)
 	}
 	return pid, nil
+}
+
+// Claim records the current process in pidPath so `serve stop` / `worker stop`
+// and the worker scan (runningWorkerIDs) can find it, whether it was started
+// detached (-d) or in the foreground (a supervisor / a terminal).
+//
+// A pidfile already held by ANOTHER live process is left untouched: owned is
+// false and the returned release is a no-op, so a second instance (a different
+// config dir, or a stale-looking pidfile) never steals or deletes the record.
+// The caller only warns in that case — a pidfile clash must not refuse startup
+// (a real conflict shows up as a bind error).
+//
+// release re-reads the file and removes it only while it still holds our pid, so
+// a successor that already claimed the pidfile is not deleted by our shutdown.
+func Claim(pidPath string) (release func(), owned bool) {
+	noop := func() {}
+	if pid, err := ReadPIDFile(pidPath); err == nil && pid != os.Getpid() && PIDAlive(pid) {
+		return noop, false
+	}
+	if err := os.MkdirAll(filepath.Dir(pidPath), 0o755); err != nil {
+		slog.Warn("daemon.pidfile_claim_failed", "pidfile", pidPath, "error", err)
+		return noop, false
+	}
+	if err := WritePIDFile(pidPath, os.Getpid()); err != nil {
+		slog.Warn("daemon.pidfile_claim_failed", "pidfile", pidPath, "error", err)
+		return noop, false
+	}
+	self := os.Getpid()
+	return func() {
+		if pid, err := ReadPIDFile(pidPath); err == nil && pid == self {
+			RemovePIDFile(pidPath)
+		}
+	}, true
 }
 
 // WritePIDFile writes pid to path atomically (write temp + rename) so a reader
