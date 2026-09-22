@@ -42,6 +42,7 @@ import type {
   RebuildBody,
   RedactedRequest,
   ReposResp,
+  RetriesResp,
   RunnersResp,
   Schedule,
   SchedulesResp,
@@ -418,6 +419,11 @@ export function listPtySessions(id: string): Promise<PtySessionsResp> {
 // JOB-09 唤醒：登记在 job 上的事件订阅/定时器，条件到达时自动续投该 job。
 export function listWakeups(id: string): Promise<WakeupsResp> {
   return request<WakeupsResp>(`/v1/jobs/${encodeURIComponent(id)}/wakeups`)
+}
+
+// AUTO-03 可靠重试：这个 job 作为源产生的重试链（只读快照，后端按 attempt 升序）。
+export function listRetries(id: string): Promise<RetriesResp> {
+  return request<RetriesResp>(`/v1/jobs/${encodeURIComponent(id)}/retries`)
 }
 
 export function createWakeup(id: string, spec: WakeupSpec): Promise<Wakeup> {

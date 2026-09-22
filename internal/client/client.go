@@ -512,6 +512,48 @@ func (c *Client) DeleteWakeup(id string) error {
 	return c.doJSON(http.MethodDelete, "/v1/wakeups/"+url.PathEscape(id), nil, nil)
 }
 
+// Retry is the client-side view of one AUTO-03 durable retry row (design §二.3): the
+// scheduled re-run of a FAILED job, which a hub-side sweeper submits when NextRunAt
+// arrives (so it survives a server restart). Timestamps are unix SECONDS.
+//
+// State is one of pending|claimed|done|cancelled: claimed means a sweeper holds the
+// row right now (LeaseUntil is its lease), done means it was submitted as NewJobID.
+// MaxAttempts is the attempt ceiling the row itself was scheduled under — 0 when the
+// row carries no policy, and then the attempt has no `/M`.
+type Retry struct {
+	ID          string `json:"id"`
+	SourceJobID string `json:"source_job_id"`
+	Attempt     int    `json:"attempt"`
+	MaxAttempts int    `json:"max_attempts,omitempty"`
+	Reason      string `json:"reason"`
+	NextRunAt   int64  `json:"next_run_at"`
+	LeaseUntil  int64  `json:"lease_until,omitempty"`
+	State       string `json:"state"`
+	NewJobID    string `json:"new_job_id,omitempty"`
+	CreatedAt   int64  `json:"created_at"`
+}
+
+// RetriesResp is the `{job_id, retries: [...]}` envelope of the list endpoint.
+type RetriesResp struct {
+	JobID   string  `json:"job_id"`
+	Retries []Retry `json:"retries"`
+}
+
+// ListRetries returns a job's durable retry chain, oldest attempt first. An unknown
+// job is an error (the server 404s rather than reporting an empty chain).
+func (c *Client) ListRetries(jobID string) ([]Retry, error) {
+	var out RetriesResp
+	err := c.doJSON(http.MethodGet, "/v1/jobs/"+url.PathEscape(jobID)+"/retries", nil, &out)
+	return out.Retries, err
+}
+
+// CancelRetry drops one retry that has not run yet (pending, or claimed) so the
+// sweeper will not submit it. A retry that already ran or was already cancelled is
+// terminal: the server answers 404 and this returns that error.
+func (c *Client) CancelRetry(id string) error {
+	return c.doJSON(http.MethodDelete, "/v1/retries/"+url.PathEscape(id), nil, nil)
+}
+
 // SetScheduleEnabled toggles a schedule through /enable or /disable.
 func (c *Client) SetScheduleEnabled(id string, enable bool) (Schedule, error) {
 	action := "disable"

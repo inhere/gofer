@@ -626,6 +626,12 @@ func (s *Server) buildRouter() *rux.Router {
 		r.PATCH("/wakeups/{wid}", s.handleUpdateWakeup)
 		r.DELETE("/wakeups/{wid}", s.handleDeleteWakeup)
 
+		// AUTO-03 可靠重试：失败 job 的耐久重试链（读，未重试的 job 返回空列表）+ 取消
+		// 一条还没跑的重试（`gofer job retry cancel <retry-id>`）。重试由 hub 侧 sweeper
+		// 提交，所以取消只对 pending/claimed 有意义；未知 job 404，取消失败 404（服务端原文）。
+		r.GET("/jobs/{id}/retries", s.handleListRetries)
+		r.DELETE("/retries/{rid}", s.handleCancelRetry)
+
 		// 工作流(job 链)：提交/列表/详情(含 step 链)/取消。详情附每步 {step_index,
 		// name,job_id,status}，列表 ?status= 过滤；提交校验失败复用 submitStatus(404/400)。
 		r.POST("/workflows", s.handleCreateWorkflow)

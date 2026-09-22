@@ -232,6 +232,31 @@ export interface WakeupsResp {
   wakeups: Wakeup[]
 }
 
+// AUTO-03 可靠重试：源 job 失败后，服务端为它排的一次重试（GET /v1/jobs/{id}/retries）。
+// attempt 从 2 起（1 是原 job 本身）；max_attempts 为 0/缺失表示这一行没带策略上限，
+// 前端就别显示分母。时间戳都是 Unix 秒：next_run_at 到点才派发，lease_until 0 = 未被
+// 调度器认领（认领中会短暂非 0）。
+// state：pending 待发 / claimed 已被调度器认领（正在起新 job）/ done 已派发 / cancelled 已取消。
+export type RetryState = 'pending' | 'claimed' | 'done' | 'cancelled'
+
+export interface Retry {
+  id: string
+  source_job_id: string
+  attempt: number
+  max_attempts?: number
+  reason: string
+  next_run_at: number
+  lease_until?: number
+  state: RetryState | string
+  new_job_id?: string
+  created_at: number
+}
+
+export interface RetriesResp {
+  job_id: string
+  retries: Retry[]
+}
+
 // 新建唤醒的请求体（POST /v1/jobs/{id}/wakeups）。只有当前 kind 用到的字段需要给：
 // at 是绝对 Unix 秒；every_sec >= 60；event 走 event_types（可选 filter_job_id/filter_status）。
 export interface WakeupSpec {

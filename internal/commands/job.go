@@ -17,6 +17,7 @@ import (
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
 )
 
@@ -61,6 +62,9 @@ type jobRunFlags struct {
 	noVerify     bool
 	fallback     string
 	noFallback   bool
+	retry        string
+	retryOn      string
+	noRetry      bool
 	template     string
 	templateVars gcli.Strings
 	upload       gcli.Strings
@@ -310,6 +314,7 @@ func NewJobCmd() *gcli.Command {
 			},
 			newJobWorktreeCmd(),
 			newJobWakeupCmd(),
+			newJobRetryCmd(),
 		},
 	}
 }
@@ -417,6 +422,41 @@ func newJobWakeupCmd() *gcli.Command {
 					c.AddArg("wakeup-id", "wakeup id", true)
 				},
 				Func: runJobWakeupRemove,
+			},
+		},
+	}
+}
+
+// newJobRetryCmd builds the `job retry` group (R2/AUTO-03): the human surface over a
+// failed job's durable retry chain. It is deliberately read+cancel only — scheduling a
+// retry is the job's OWN failure path (or `job run --retry`), never a standalone
+// command, so "re-run this now" stays `job rerun` and no second path can create a row.
+func newJobRetryCmd() *gcli.Command {
+	return &gcli.Command{
+		Name:    "retry",
+		Desc:    "Inspect or cancel the durable retries of a failed job (AUTO-03)",
+		Aliases: []string{"rt"},
+		Subs: []*gcli.Command{
+			{
+				Name:    "ls",
+				Desc:    "List a job's retry chain (attempt/state/reason/next run)",
+				Aliases: []string{"list"},
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("id", "job id", true)
+				},
+				Func: runJobRetryList,
+			},
+			{
+				Name: "cancel",
+				Desc: "Cancel one pending retry so the sweeper will not submit it",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("retry-id", "retry id (see `job retry ls <job>`)", true)
+				},
+				Func: runJobRetryCancel,
 			},
 		},
 	}
@@ -665,6 +705,190 @@ func shortInstruction(s string) string {
 	return s
 }
 
+// runJobRetryList prints a job's retry chain, oldest attempt first. A job with no
+// retries says so explicitly: an empty output would read as "the command did nothing".
+func runJobRetryList(c *gcli.Command, _ []string) error {
+	id := argID(c)
+	if id == "" {
+		return fmt.Errorf("job retry ls requires a <job> argument")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	rs, err := cli.ListRetries(id)
+	if err != nil {
+		return err
+	}
+	if len(rs) == 0 {
+		c.Printf("job %s has no retries\n", id)
+		return nil
+	}
+	for _, r := range rs {
+		c.Println(formatRetryLine(r))
+	}
+	return nil
+}
+
+// runJobRetryCancel drops one retry that has not run yet. A retry that already ran or
+// was already cancelled is terminal and the server answers 404 — the error is passed
+// through rather than printed as a success.
+func runJobRetryCancel(c *gcli.Command, _ []string) error {
+	id := argValue(c, "retry-id")
+	if id == "" {
+		return fmt.Errorf("job retry cancel requires a <retry-id>")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	if err := cli.CancelRetry(id); err != nil {
+		return err
+	}
+	c.Printf("retry %s cancelled\n", id)
+	return nil
+}
+
+// formatRetryAttempt renders a retry row's `attempt N/M`. When the row carries no
+// policy (MaxAttempts 0 — a hand-written row) it prints the bare attempt: the ceiling
+// is unknown there, and a made-up "/M" would be worse than printing none.
+func formatRetryAttempt(r client.Retry) string {
+	if r.MaxAttempts > 0 {
+		return fmt.Sprintf("%d/%d", r.Attempt, r.MaxAttempts)
+	}
+	return strconv.Itoa(r.Attempt)
+}
+
+// formatRetryLine renders one `job retry ls` row: id, attempt, state, why it was
+// scheduled and when it runs. A done row prints the job it became instead of a "next"
+// instant — its next_run_at is the moment it WAS due, and calling that "next" would
+// read as "still scheduled".
+func formatRetryLine(r client.Retry) string {
+	line := fmt.Sprintf("%s  attempt %s  %-9s %s", r.ID, formatRetryAttempt(r), r.State, r.Reason)
+	if r.State == jobstore.RetryDone {
+		return line + "  submitted as " + r.NewJobID
+	}
+	line += "  next " + fmtServerTime(r.NextRunAt)
+	if r.NewJobID != "" {
+		line += "  -> " + r.NewJobID
+	}
+	return line
+}
+
+// formatRetries summarizes what a job is still WAITING on, for the `job show` retry
+// line: the lowest attempt still pending/claimed, plus how many more are queued behind
+// it. Rows that already ran or were cancelled are history, not "still coming", so a job
+// whose chain ended prints nothing at all (the same rule as the wakeups/verify lines:
+// an absent thing gets no empty line).
+func formatRetries(rs []client.Retry) string {
+	best, waiting := -1, 0
+	for i, r := range rs {
+		if r.State != jobstore.RetryPending && r.State != jobstore.RetryClaimed {
+			continue
+		}
+		waiting++
+		if best < 0 || r.Attempt < rs[best].Attempt {
+			best = i
+		}
+	}
+	if best < 0 {
+		return ""
+	}
+	line := fmt.Sprintf("attempt %s, next at %s", formatRetryAttempt(rs[best]), fmtServerTime(rs[best].NextRunAt))
+	if waiting > 1 {
+		line += fmt.Sprintf(" (+%d more)", waiting-1)
+	}
+	return line
+}
+
+// retryPolicyFromFlags maps the --retry/--retry-on/--no-retry trio onto the request's
+// retry policy. Three states, like --stall-timeout/--no-stall: nothing given = nil
+// (the server resolves request > project > agent > server), --no-retry = an explicit
+// max_attempts:1 (how a caller switches retry OFF over a config layer that turned it
+// on), --retry = this job's own policy. Contradictory flags are refused instead of
+// letting whichever gcli bound last win silently.
+func retryPolicyFromFlags() (*job.RetryPolicy, error) {
+	retryFlag := strings.TrimSpace(jobRunOpts.retry)
+	retryOn := strings.TrimSpace(jobRunOpts.retryOn)
+	switch {
+	case jobRunOpts.noRetry && retryFlag != "":
+		return nil, fmt.Errorf("--no-retry and --retry are mutually exclusive")
+	case jobRunOpts.noRetry:
+		return &job.RetryPolicy{MaxAttempts: 1}, nil
+	case retryFlag == "":
+		// --retry-on alone says nothing about how many attempts to allow, and a
+		// request-level policy REPLACES the config layers wholesale — so it would have
+		// nothing to narrow. Refuse rather than drop the flag on the floor.
+		if retryOn != "" {
+			return nil, fmt.Errorf("--retry-on requires --retry")
+		}
+		return nil, nil
+	}
+	policy, err := parseRetryFlag(retryFlag)
+	if err != nil {
+		return nil, err
+	}
+	if retryOn != "" {
+		codes, cerr := parseRetryExitCodes(retryOn)
+		if cerr != nil {
+			return nil, cerr
+		}
+		policy.OnExitCodes = codes
+	}
+	return policy, nil
+}
+
+// parseRetryFlag parses the --retry value: `<n>` = n total attempts (the first run
+// counted as 1) with the built-in backoff table, or `<n>:<b1,b2,...>` = the same with
+// an explicit backoff table in seconds. It is pure so the grammar is testable without
+// an app run or a server.
+func parseRetryFlag(s string) (*job.RetryPolicy, error) {
+	head, tail, hasTable := strings.Cut(strings.TrimSpace(s), ":")
+	n, err := strconv.Atoi(strings.TrimSpace(head))
+	if err != nil {
+		return nil, fmt.Errorf("--retry: want <n> or <n>:<b1,b2,...> (got %q)", s)
+	}
+	if n < 1 {
+		return nil, fmt.Errorf("--retry: attempts must be >= 1 (got %q)", s)
+	}
+	policy := &job.RetryPolicy{MaxAttempts: n}
+	if !hasTable {
+		return policy, nil // no colon = the built-in backoff table (empty BackoffSec)
+	}
+	// `3:` / `3: ` is a typo, NOT "use the default table" — leaving the colon off is
+	// how a caller asks for the default, so an empty table here must not be guessed at.
+	parts := strings.Split(tail, ",")
+	backoff := make([]int, 0, len(parts))
+	for _, part := range parts {
+		sec, serr := strconv.Atoi(strings.TrimSpace(part))
+		if serr != nil {
+			return nil, fmt.Errorf("--retry: backoff wants seconds, e.g. 3:60,300 (got %q)", s)
+		}
+		if sec < 0 {
+			return nil, fmt.Errorf("--retry: backoff must be >= 0 seconds (got %q)", s)
+		}
+		backoff = append(backoff, sec)
+	}
+	policy.BackoffSec = backoff
+	return policy, nil
+}
+
+// parseRetryExitCodes parses --retry-on's comma-separated exit codes. Only a malformed
+// token is an error: the retry path compares codes for equality, and a signal-killed
+// job reports a negative one, so the value space is not narrowed here.
+func parseRetryExitCodes(s string) ([]int, error) {
+	parts := strings.Split(s, ",")
+	out := make([]int, 0, len(parts))
+	for _, part := range parts {
+		code, err := strconv.Atoi(strings.TrimSpace(part))
+		if err != nil {
+			return nil, fmt.Errorf("--retry-on: want a comma-separated list of exit codes (got %q)", s)
+		}
+		out = append(out, code)
+	}
+	return out, nil
+}
+
 // jobWorktreeOpts holds `job worktree ls/rm` flags (WT-01).
 var jobWorktreeOpts = struct {
 	project      string
@@ -839,6 +1063,12 @@ func bindJobRunFlags(c *gcli.Command) {
 	// SUP-01 P3：故障转移——agent 因供应商错误挂掉时改派下一个候选（覆盖项目/agent 级配置）。
 	c.StrOpt2(&jobRunOpts.fallback, "fallback", "comma-separated fallback agents for a transient failure (e.g. omp,claude); overrides the project/agent lists", jobRunOptCategory("Execution", ""))
 	c.BoolOpt2(&jobRunOpts.noFallback, "no-fallback", "do not hand this job to a fallback agent (overrides every configured list)", gflag.WithCategory("Execution"))
+	// R2/AUTO-03：失败重试。本 job 的策略压过 server/agent/project 配置层（request >
+	// project > agent > server）。gcli 分不清"没给"与"给了空"，所以"关掉"由 --no-retry
+	// 表达（显式 max_attempts:1，与 --no-fallback/--no-stall 同一手法）。
+	c.StrOpt2(&jobRunOpts.retry, "retry", "re-run this job after a failure: <n>[:<b1,b2,...>] (n = total attempts including the first; the backoff table defaults to 30,120,300,900,3600)", jobRunOptCategory("Execution", ""))
+	c.StrOpt2(&jobRunOpts.retryOn, "retry-on", "with --retry: only re-run on these exit codes, comma-separated (default: any non-zero exit)", jobRunOptCategory("Execution", ""))
+	c.BoolOpt2(&jobRunOpts.noRetry, "no-retry", "never re-run this job after a failure (overrides every configured policy)", gflag.WithCategory("Execution"))
 	// XFER-01 X2：随 job 传文件——--upload 在提交前把本地文件暂存到 server，执行机在 agent
 	// 开跑前放到 job 的 cwd 里（放不下即 job failed、agent 不启动）；--collect 在 job 结束
 	// 后按 glob 在同一个 cwd 收文件，回传落进该 job 的 artifacts/collected/。
@@ -1317,6 +1547,13 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 	case jobRunOpts.stallTimeout > 0:
 		stall = &jobRunOpts.stallTimeout
 	}
+	// R2/AUTO-03：重试策略的三态——都不给 = nil（server 按 request > project > agent >
+	// server 解析）；--no-retry = 显式 max_attempts:1（关）；--retry[,--retry-on] = 本 job
+	// 的策略。解析在提交前完成，参数写错就不发请求。
+	retryPolicy, retryErr := retryPolicyFromFlags()
+	if retryErr != nil {
+		return job.JobRequest{}, retryErr
+	}
 	req := job.JobRequest{
 		ProjectKey:     jobRunOpts.project,
 		Agent:          jobRunOpts.agent,
@@ -1351,6 +1588,8 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		// SUP-01 P3：本 job 的候选列表（覆盖项目/agent 级）+ 关闭开关。
 		FallbackAgents: splitLabels(jobRunOpts.fallback),
 		NoFallback:     jobRunOpts.noFallback,
+		// R2/AUTO-03：本 job 的重试策略（nil = 交给配置层；max_attempts:1 = 显式关）。
+		Retry: retryPolicy,
 		// SUP-01 P5：任务书模板 + 它的变量值（服务端渲染；两者随 request_json 存档）。
 		Template:     jobRunOpts.template,
 		TemplateVars: tplVars,
@@ -1699,6 +1938,13 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	if ws, werr := cli.ListWakeups(res.ID); werr == nil {
 		if line := formatWakeups(ws); line != "" {
 			c.Printf("wakeups:    %s\n", line)
+		}
+	}
+	// R2/AUTO-03：重试——失败后还剩几条待发的重试，回答"它还会自己再跑一次吗、什么时候"。
+	// 列表同样是一次额外的读请求，失败就不打印（job 状态本身才是这个命令的重点）。
+	if rs, rerr := cli.ListRetries(res.ID); rerr == nil {
+		if line := formatRetries(rs); line != "" {
+			c.Printf("retry:      %s\n", line)
 		}
 	}
 	if res.Error != "" {

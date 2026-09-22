@@ -548,6 +548,12 @@ func TestJobShowPrintsRecoveringSince(t *testing.T) {
 			_, _ = w.Write([]byte(`{"wakeups":[]}`))
 			return
 		}
+		// ...and its retry chain (AUTO-03), which prints no line when nothing is
+		// waiting either.
+		if r.URL.Path == "/v1/jobs/job-rec/retries" {
+			_, _ = w.Write([]byte(`{"job_id":"job-rec","retries":[]}`))
+			return
+		}
 		if r.Method != http.MethodGet || r.URL.Path != "/v1/jobs/job-rec" {
 			t.Fatalf("unexpected request: %s %s", r.Method, r.URL.Path)
 		}

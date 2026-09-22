@@ -28,6 +28,7 @@ import {
   listEvents,
   listJobs,
   listPtySessions,
+  listRetries,
   listWakeups,
   puntInteraction,
   resumeJob,
@@ -54,6 +55,7 @@ import type {
   JobXferUpload,
   LogStream,
   PtySession,
+  Retry,
   SSEEvent,
   SSEInteractionData,
   SSEJobEventData,
@@ -676,6 +678,8 @@ async function loadCurrentJob(): Promise<void> {
   void loadPtySessions()
   // 唤醒（JOB-09）：登记在 job 上的订阅/定时器，失败只在本块显示。
   void loadWakeups()
+  // 可靠重试（AUTO-03）：源 job 失败后服务端排的重试，失败静默忽略（头部提示用）。
+  void loadRetries()
   if (isTerminal(job.value?.status)) {
     // 终态 job 不再走 SSE 全量回放：按行分页加载，避免 2MiB 前端窗口丢历史。
     void loadTerminalLogs()
@@ -1124,6 +1128,43 @@ function wakeupHistoryText(ev: JobEvent): string {
   return eventDetailText(ev) || eventLabel(ev.type)
 }
 
+// ── 可靠重试（AUTO-03）─────────────────────────────────────────────
+// 这个 job 作为源的重试链：只在还有待发（pending）或已被调度器认领（claimed）的重试时，
+// 头部才显示一行提示——回答"它还会不会再跑一次、什么时候"。失败静默忽略：这是辅助信息，
+// 不该把详情主流程带崩（与 wakeups 不同，这里不渲染错误块，没有空态 UI）。
+const retries = ref<Retry[]>([])
+
+async function loadRetries(): Promise<void> {
+  try {
+    const resp = await listRetries(props.id)
+    retries.value = resp.retries ?? []
+  } catch {
+    retries.value = []
+  }
+}
+
+// 重试提示只到分钟（HH:MM），不显示日期：notice 要挤在头部一行内，日期让 meta.v 变宽。
+// 与 time.ts 的 fmtDateTime 不同，这里不套服务端时区——只需要一个粗略的相对时刻。
+function fmtRetryClock(sec: number): string {
+  const d = new Date(sec * 1000)
+  const p = (x: number): string => String(x).padStart(2, '0')
+  return `${p(d.getHours())}:${p(d.getMinutes())}`
+}
+
+// retryHint 取"最先要跑的那条"：ListRetries 已按 attempt 升序，多条待发时取第一条，
+// 用 (+N) 说明后面还排着几条。没有待发/认领中的重试就整条不显示。
+const retryHint = computed<{ text: string; rest: number } | null>(() => {
+  const pending = retries.value.filter((r) => r.state === 'pending' || r.state === 'claimed')
+  if (pending.length === 0) {
+    return null
+  }
+  const first = pending[0]
+  // max_attempts 为 0/缺失 = 这一行没带策略上限，只报"第几次"，别编造分母。
+  const head = `重试 ${first.attempt}${first.max_attempts ? `/${first.max_attempts}` : ''}`
+  const text = first.next_run_at > 0 ? `${head} · 下次 ${fmtRetryClock(first.next_run_at)}` : head
+  return { text, rest: pending.length - 1 }
+})
+
 // 投递 status -> 中文标签（pending 区分「重试中」：attempts>0 已失败过）。
 function deliveryLabel(d: Delivery): string {
   switch (d.status) {
@@ -1503,6 +1544,14 @@ onUnmounted(() => {
           {{ job.dir_exclusive ? '独占（同目录串行）' : '共享' }}
           <template v-if="job.waiting_on_job">· 等待目录锁，持有者 {{ job.waiting_on_job }}</template>
         </span>
+      </div>
+      <!-- 可靠重试（AUTO-03）：这个 job 失败后服务端还排着重试，点出第几次/上限与下次时刻；
+           多条待发只报最先那条，(+N) 表示后面还排着几条。没有待发重试则整条不渲染。 -->
+      <div v-if="retryHint" class="meta-item">
+        <span class="meta-k mono">retry</span>
+        <span class="meta-v mono"
+          >{{ retryHint.text }}<template v-if="retryHint.rest > 0"> (+{{ retryHint.rest }})</template></span
+        >
       </div>
       <!-- 人工验收（GATE-01 S3）：是否要求人验收 + 已经做出的裁决（谁/何时/为什么）。
            needs_review 时 reviewed_* 为空，正说明还没人裁。 -->
