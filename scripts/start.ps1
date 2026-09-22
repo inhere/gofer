@@ -64,7 +64,10 @@ param(
     [string]$TaskName = 'gofer-serve',
     # gofer config DIRECTORY, injected into the task env as GOFER_CONFIG_DIR (which
     # is how gofer finds config.yaml + loads that dir's .env with GOFER_TOKEN).
-    # Defaults to $env:GOFER_CONFIG_DIR. Example:
+    # Resolution order: -ConfigDir -> $env:GOFER_CONFIG_DIR -> the registered task's
+    # -EnvExtra GOFER_CONFIG_DIR (the task is the source of truth after the first
+    # `up`, so re-runs need no -ConfigDir) -> gofer's default ~\.config\gofer (only
+    # when that holds a config.yaml). Example:
     #   -ConfigDir 'D:/work/inhere/config/win-env/gofer'
     [string]$ConfigDir = '',
     # Listen address as --addr (overrides config server.addr). Empty = let the
@@ -107,11 +110,8 @@ $Sup    = Join-Path $PSScriptRoot 'win-supervisor.ps1'
 $StopMarker = Join-Path $ExeDir 'gofer.stop'
 $SupLog = Join-Path $ExeDir 'win-supervisor.log'
 
-if (-not $ConfigDir) { $ConfigDir = $env:GOFER_CONFIG_DIR }
-if ($ConfigDir) { $ConfigDir = [System.IO.Path]::GetFullPath($ConfigDir) }
-
-$ServeLog = if ($ConfigDir) { Join-Path $ConfigDir 'run\serve.log' } else { '' }
-$ServeOut = if ($ConfigDir) { Join-Path $ConfigDir 'run\serve.out.log' } else { '' }
+# $ConfigDir / $ServeLog / $ServeOut are resolved further down (Resolve-ConfigDir):
+# the registered task is one of the sources, so resolution needs the helpers below.
 
 # ---------------------------------------------------------------- helpers
 
@@ -136,7 +136,8 @@ function Get-TaskState {
 
 function Assert-ConfigDir([string]$why) {
     if (-not $ConfigDir) {
-        throw "no -ConfigDir and GOFER_CONFIG_DIR is not set; '$why' needs the gofer config directory (config.yaml + .env)."
+        Write-Host (Get-ConfigDirHint)
+        throw "'$why' needs the gofer config directory (how to give it once: see the hint above)."
     }
     if (-not (Test-Path $ConfigDir)) { throw "config dir not found: $ConfigDir" }
 }
@@ -221,7 +222,10 @@ function Get-TaskCommand {
         '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', (Quote-Arg $Sup),
         '-ExeDir', (Quote-Arg $ExeDir), '-WorkDir', (Quote-Arg $Repo),
         '-ServeArgs', ((Get-ServeArgs) -join ','),
-        '-EnvExtra', (Quote-Arg "GOFER_CONFIG_DIR=$ConfigDir")
+        # The value is ALWAYS quoted so a config dir containing spaces stays one argv
+        # element (and Resolve-ConfigDir reads the quoted form back; tasks registered
+        # by older runs carry the unquoted form, which it parses too).
+        '-EnvExtra', ('"GOFER_CONFIG_DIR=' + $ConfigDir + '"')
     ) -join ' '
     if (Test-ConhostHeadless) {
         # conhost --headless: the child gets a console (so Ctrl+C semantics stay
@@ -359,11 +363,91 @@ function Invoke-StartTask {
     Show-Instance
 }
 
+# ---------------------------------------------------------------- config dir
+#
+# The config dir comes from, in order:
+#   ① -ConfigDir
+#   ② $env:GOFER_CONFIG_DIR
+#   ③ the REGISTERED TASK's action (`-EnvExtra GOFER_CONFIG_DIR=…`) -- after the
+#     first `up` the task is the source of truth, so stop/restart/status/logs/
+#     upgrade no longer need -ConfigDir
+#   ④ gofer's own default ~\.config\gofer, only when that actually holds a
+#     config.yaml (same dir the gofer CLI would fall back to)
+# Resolve-ConfigDir sets $ConfigDir + $ConfigDirFrom (param/env/task/default/'').
+
+# GOFER_CONFIG_DIR out of the task actions' command lines, e.g.
+#   -EnvExtra "GOFER_CONFIG_DIR=D:\cfg"    quoted   (what this script writes)
+#   -EnvExtra GOFER_CONFIG_DIR=D:\cfg      unquoted (tasks of older runs)
+# The value runs to the closing quote (quoted) or to the first whitespace (unquoted).
+function Get-TaskConfigDir {
+    $t = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if (-not $t) { return '' }
+    foreach ($a in $t.Actions) {
+        $argline = [string]$a.Arguments
+        if (-not $argline) { continue }
+        foreach ($m in [regex]::Matches($argline, '-EnvExtra\s+(?:"(?<q>[^"]*)"|(?<u>\S+))')) {
+            $item = if ($m.Groups['q'].Success) { $m.Groups['q'].Value } else { $m.Groups['u'].Value }
+            if ($item -like 'GOFER_CONFIG_DIR=*') { return $item.Substring('GOFER_CONFIG_DIR='.Length) }
+        }
+    }
+    return ''
+}
+
+function Resolve-ConfigDir {
+    $script:ConfigDirFrom = ''
+    if ($ConfigDir) {
+        $script:ConfigDirFrom = 'param'
+    } elseif ($env:GOFER_CONFIG_DIR) {
+        $script:ConfigDir = $env:GOFER_CONFIG_DIR
+        $script:ConfigDirFrom = 'env'
+    } else {
+        $fromTask = Get-TaskConfigDir
+        if ($fromTask) {
+            $script:ConfigDir = $fromTask
+            $script:ConfigDirFrom = 'task'
+        } else {
+            $dflt = if ($HOME) { Join-Path $HOME '.config\gofer' } else { '' }
+            if ($dflt -and (Test-Path (Join-Path $dflt 'config.yaml'))) {
+                $script:ConfigDir = $dflt
+                $script:ConfigDirFrom = 'default'
+            }
+        }
+    }
+    if ($script:ConfigDir) { $script:ConfigDir = [System.IO.Path]::GetFullPath($script:ConfigDir) }
+}
+
+function Write-ConfigDirInfo {
+    if ($ConfigDir) { Write-Host "config dir: $ConfigDir (from $ConfigDirFrom)" }
+}
+
+# The two one-time remedies when no config dir can be found anywhere. Printed (not
+# thrown) so the commands stay copy-pasteable: PowerShell's error rendering re-wraps
+# a long message.
+function Get-ConfigDirHint {
+    $dflt = if ($HOME) { Join-Path $HOME '.config\gofer' } else { "`$HOME\.config\gofer" }
+    $taskState = if (Get-TaskState) { "no GOFER_CONFIG_DIR in its action" } else { 'not registered' }
+    @(
+        'no gofer config dir found. Checked:',
+        "  -ConfigDir                     (not given)",
+        "  `$env:GOFER_CONFIG_DIR          (not set)",
+        "  task '$TaskName'   ($taskState)",
+        "  $dflt   (no config.yaml)",
+        "Give it once:      pwsh -File scripts\start.ps1 -Action $Action -ConfigDir '<dir>'",
+        "Or set it once for this user -- new shells AND the logon task inherit it, and the gofer CLI then finds the config on its own:",
+        "  [Environment]::SetEnvironmentVariable('GOFER_CONFIG_DIR','<dir>','User')"
+    ) -join "`n"
+}
+
+Resolve-ConfigDir
+$ServeLog = if ($ConfigDir) { Join-Path $ConfigDir 'run\serve.log' } else { '' }
+$ServeOut = if ($ConfigDir) { Join-Path $ConfigDir 'run\serve.out.log' } else { '' }
+
 # ---------------------------------------------------------------- actions
 
 switch ($Action) {
     'up' {
         Assert-ConfigDir 'up'
+        Write-ConfigDirInfo
         if (Get-Service -Name 'gofer' -ErrorAction SilentlyContinue) {
             if ($AllowServiceConflict) {
                 Write-Warning "a Windows service named 'gofer' exists; -AllowServiceConflict given -> continuing (isolated instance only)."
@@ -420,7 +504,8 @@ switch ($Action) {
         Write-Host "Roll back if needed:  Copy-Item '$Exe.prev' '$Exe' -Force; pwsh -File scripts\start.ps1 -Action restart"
     }
     'stop' {
-        Assert-ConfigDir 'stop'
+        # No Assert-ConfigDir: stop must still work without one (stop marker + hard
+        # stop); Invoke-StopTask warns about the degraded path.
         Invoke-StopTask
     }
     'restart' {
@@ -439,6 +524,7 @@ switch ($Action) {
     }
     'status' {
         Assert-ConfigDir 'status'
+        Write-ConfigDirInfo
         if (Get-TaskState) {
             Write-Host "task   : $TaskName  state=$(Get-TaskState)"
             $info = Get-ScheduledTaskInfo -TaskName $TaskName
@@ -458,6 +544,7 @@ switch ($Action) {
         Write-Host "marker : $(if (Test-Path $StopMarker) { "present ($StopMarker)" } else { 'absent' })"
     }
     'logs' {
+        Assert-ConfigDir 'logs'
         foreach ($f in @($SupLog, $ServeLog, $ServeOut)) {
             if ($f -and (Test-Path $f)) { Write-Host "== $f (tail 30) =="; Get-Content $f -Tail 30 }
         }
