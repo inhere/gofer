@@ -93,7 +93,9 @@ func Claim(pidPath string) (release func(), owned bool)
 
 ### 5. 会话信息 `daemon.SessionInfo()`
 
-Windows：`ProcessIdToSessionId(GetCurrentProcessId)` + `WTSGetActiveConsoleSessionId()` → `{Session uint32, Interactive bool}`（Interactive = 二者相等）；Unix：零值 + `Interactive=false`（不适用）。serve 的 `server.ready` 与 worker 的就绪日志各加 `session`/`interactive` 字段（Windows 才有值）。runbook 里"确认跑在桌面会话"就看这一行。
+Windows：`ProcessIdToSessionId(GetCurrentProcessId)` + `WTSGetActiveConsoleSessionId()` → `{Session uint32, Interactive bool, Console bool}`；Unix：零值 + `Interactive=false`（不适用）。serve 的 `server.ready` 与 worker 的就绪日志各加 `session`/`interactive`/`console` 字段（Windows 才有值）。runbook 里"确认跑在桌面会话"就看这一行。
+
+> F4 修订（2026-09-22）：`Interactive` 判据放宽为**非 session 0**（"在用户会话里"，RDP 也算），新加 `Console`（= 物理控制台会话）承载原来那个更窄的判据——W2 实测证明原判据在只用 RDP 登录的主机上会误报 `interactive=false`。见文末「实施中的补充决策」③。
 
 ### 6. 测试（先写先提交，固定名）
 
@@ -189,6 +191,15 @@ W1 派 `omp-acp`（用户要看 ACP 通道改造后的效果），W2 派 omp；�
 3. Windows 的 `stop` 只走命名事件，事件不存在即报错给人处置，**永不 `TerminateProcess`**。
 4. **nssm 方式废弃**（用户 2026-09-22）：`start.ps1` 只有计划任务模式，nssm 参数/动作/文档删除；`up` 检测到名为 `gofer` 的服务时拒绝并打印迁移命令。
 5. 事件命名空间 `Global\`（同用户跨会话可停）；跨用户不支持。
+
+## 实施中的补充决策（2026-09-22）
+
+以下 4 条是 W1/W2 实施过程中暴露、经复核后采纳的补充决定（F4），不改变本设计的任何目标与语义，只补齐设计文字没写到的边界。
+
+1. **`stopDaemon` 的有界重试（3s）采纳**：`serve -d` 的 pidfile 由父进程在 `Spawn` 时写，停止事件却由子进程在 `serve.Start` 末尾（Core 组装之后，~1s）创建 → 存在"pidfile 可见但还不可停"的启动窗口，此时 `stop` 会拿到 `stop event not found`（W1 实测，见下「W1 实测记录」§4）。处理 = 目标仍存活时把停止请求重试至多 3s（200ms 间隔），窗口过后才报原文案。unix 首次即成功、不进重试；"事件不存在即报错、永不 `TerminateProcess`"（决策 3）不变，只是晚 3s 出现。
+2. **`start.ps1 -AllowServiceConflict` 与看门狗 `-ServeArgs` 逗号拆分采纳**：前者只给**隔离实例**（自己的 TaskName/ExeDir/端口）跳过"存在名为 `gofer` 的服务"守卫用，正式 `up` 仍必须报错 + 打印迁移命令；后者是 W2 实测的机制缺口——`pwsh -File x.ps1 -ServeArgs a,b,c` 到达时是**单个字符串**，所以任务动作里的逗号列表改由看门狗自己拆（单项参数因此不得含逗号）。
+3. **`interactive` 判据放宽为"非 session 0"，新增 `console`（§二.5 已同步）**：原判据「本进程会话 == `WTSGetActiveConsoleSessionId()`」问的是"在不在物理控制台会话"，比"在不在用户桌面"窄——只用 RDP 登录的主机上 serve 与用户同在 session 2、控制台会话却是空着的 session 1，于是日志报 `interactive=false`。现在：`interactive` = 本进程会话非 0（任何用户会话，RDP 算，"能碰桌面"）；`console` = 就是物理控制台那一个；`Console ⇒ Interactive` 由构造保证。`win-tasktest` 的 `interactive=true` 断言随之从"如实打印"改为 PASS/FAIL。
+4. **ACP 自动审批不进时间线，计入 `job.acp_summary.permissions_auto`**：自动裁决（`approval: off` / `auto_allow_kind` / remembered allow_always / timeout 自动选项）不再各发一条 `job.permission_answered`——同一决定已在 `acp.jsonl`（`auto:true`）、stderr 紧凑事件里，且 `approval: off` 的 job 时间线会被每次工具调用刷满。`job.permission_answered` 从此只表示**人工**作答；超时路径仍发 `job.permission_timed_out`（detail 里补上被选中的 `option_id`/`option_kind`，因为自动作答不再有独立的 answered 行）。`permissions` 语义不变（全部求批数），`permissions_auto` 为其中自动的条数。
 
 ## W1 实测记录（2026-09-22，主机 Windows 11 26100 / go1.25.10 windows-amd64）
 
@@ -312,4 +323,115 @@ PASS: task unregistered
 - **正式切换**：桌面管理员窗口 `nssm stop gofer; nssm remove gofer confirm` → 普通窗口 `start.ps1 -Action up -ConfigDir <真实配置>` → `-Action status`；随后从容器派 local job 验证 SessionId 非 0 与 GUI 动作。本次全程只碰隔离实例（临时 config dir + 9097/9098 + 随机任务名），live 的 `gofer` 服务与真实配置目录未动。
 - `-Elevated`（RunLevel Highest / UIPI 场景）未实测：注册需管理员。
 - 掉电重启后的"需登录才回来"、锁屏/RDP 断开下的 GUI 可用性：属运维/桌面策略。
+
+## F4 实测记录（2026-09-22，主机 Windows 11 26100 / go1.25.10 windows-amd64；容器 go1.25 linux）
+
+范围 = 上面「实施中的补充决策」4 条，以及 W1/W2 复核时定位的三处小修（daemon 僵尸与 `interactive` 判据、ACP 自动审批不进时间线、本记录）。提交：`4e070e6`（回归测试，red，注明）→ `e3fe8da`（T1：回收子进程 + `Session.Console` + 脚本/runbook）→ `d0e49b1`（T2：自动审批出时间线 + `permissions_auto`）。全程只碰隔离实例（临时 config dir + 9097/9098 + 随机任务名），live 的 `gofer` 服务与真实配置目录未动。
+
+### 1. `TestSpawnDetachedRoundTrip` 的 Linux 僵尸（T1）
+
+**现象（容器实测）**：`detached child pid=… still alive 5s after Terminate`。父进程不 `Wait`，而测试进程在子进程退出后仍活着 → 子进程成僵尸，`kill(pid,0)` 对僵尸仍成功 → `PIDAlive` 恒 true。生产没暴露是因为 `serve -d` 的父进程写完 pidfile 就退，子进程被 init 收养。**修法**：`Spawn` 成功后 `go func() { _ = cmd.Wait() }()` 回收；父进程退出时 goroutine 随之消失，对 `serve -d` 无影响（`cmd` 的 stdout/stderr 是文件句柄，`Wait` 不关它们）。
+
+```
+$ go test ./internal/daemon/... -run 'Spawn|Session|Claim|Terminate|PIDAlive' -v      # 主机 Windows
+=== RUN   TestPIDAlive
+--- PASS: TestPIDAlive (0.03s)
+=== RUN   TestClaimOwnsAndReleasesOnlyOwnPID
+--- PASS: TestClaimOwnsAndReleasesOnlyOwnPID (0.01s)
+=== RUN   TestTerminateDeliversToSelf
+--- PASS: TestTerminateDeliversToSelf (0.00s)
+=== RUN   TestSpawnDetachedRoundTrip
+--- PASS: TestSpawnDetachedRoundTrip (0.10s)
+=== RUN   TestSessionInfoInteractiveIsAnyUserSession
+--- PASS: TestSessionInfoInteractiveIsAnyUserSession (0.00s)
+=== RUN   TestTerminateMissingTargetReportsHint
+--- PASS: TestTerminateMissingTargetReportsHint (0.02s)
+ok  	github.com/inhere/gofer/internal/daemon	0.168s
+```
+
+```
+$ docker run --rm -v <repo>:/src -w /src golang:1.25 \
+      go test ./internal/daemon/... -run 'Spawn|Session|Claim|Terminate|PIDAlive' -v   # 容器 Linux
+=== RUN   TestPIDAlive
+--- PASS: TestPIDAlive (0.00s)
+=== RUN   TestClaimOwnsAndReleasesOnlyOwnPID
+--- PASS: TestClaimOwnsAndReleasesOnlyOwnPID (0.00s)
+=== RUN   TestTerminateDeliversToSelf
+--- PASS: TestTerminateDeliversToSelf (0.00s)
+=== RUN   TestSpawnDetachedRoundTrip
+--- PASS: TestSpawnDetachedRoundTrip (0.10s)
+PASS
+ok  	github.com/inhere/gofer/internal/daemon	0.107s
+```
+
+### 2. `interactive` / `console`（T1）：同一台 RDP 主机上的前后对比
+
+本机仍是「`console 1 Conn / rdp-tcp#0 KZL 2 Active`」（§W2.2），登录任务的 serve 与 explorer 同在 session 2。W2 时 ready 行报 `interactive:false`，本次改判据后：
+
+```
+$ pwsh -NoProfile -File scripts\win-tasktest.ps1 -LiveExe <repo>\dist\gofer.exe
+[2] start.ps1 -Action up (task mode, interactive session)
+action : C:\Windows\System32\conhost.exe --headless "C:\Program Files\PowerShell\7\pwsh.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ...\scripts\win-supervisor.ps1 -ExeDir ...\tmp\win-tasktest\bin -WorkDir <repo> -ServeArgs serve,--no-web,--addr,127.0.0.1:9098 -EnvExtra GOFER_CONFIG_DIR=...\tmp\win-tasktest\cfg
+task 'gofer-tasktest-8867' started (state='Running')
+up: /health OK
+health : 200 http://127.0.0.1:9098/health
+gofer : pid=25476 session=2 started=09/22/2026 13:12:54
+version: Version: 0.49.0-16-gd0e49b1 (d0e49b1)
+  PASS: /health 200 on :9098 after up
+  PASS: test gofer running pid=25476 SessionId=2
+  PASS: SessionId matches the console session (2) -> running ON the desktop
+  server.ready: {"time":"2026-09-22T13:12:55.378","level":"INFO","msg":"server.ready",...,"addr":"127.0.0.1:9098","session":2,"interactive":true,"console":false}
+  INFO: server.ready interactive=true console=false (console=false is normal on an RDP-only host)
+  PASS: server.ready has interactive=true -> the task runs in a USER session (on the desktop)
+  PASS: server.ready carries the console field (false)
+...
+==== RESULT: pass=27 fail=0 ====
+```
+
+`interactive=true, console=false` 正是新的两个判据该有的读数（RDP 主机：在用户会话、不在物理控制台）——这一行在 W2 是 `interactive=false`，也就是「能碰桌面」被误报为否的那一例。脚本的 `interactive` 断言也从"如实打印"改成了 PASS/FAIL（`console` 一并打印）。
+
+### 3. ACP 自动审批（T2）
+
+`approval: off` 的 job 不再每次工具调用往时间线塞一条 `job.permission_answered`；自动条数由 `job.acp_summary.permissions_auto` 承担（`acp.jsonl` 与 stderr 紧凑事件不变）。回归测试（`internal/job`）：
+
+```
+$ go test ./internal/job/... -run 'Permission|AutoAnswers' -v
+--- PASS: TestPermissionOffAutoAllows (0.19s)
+--- PASS: TestPermissionAskAutoAllowsReadKinds (0.18s)
+--- PASS: TestPermissionAskCreatesInteractionAndBlocks (0.20s)
+--- PASS: TestPermissionRejectStopsToolCall (0.19s)
+--- PASS: TestPermissionTimeoutRejects (1.20s)
+--- PASS: TestPermissionTimeoutAllowWhenConfigured (1.27s)
+--- PASS: TestPermissionAllowAlwaysRemembered (0.23s)
+--- PASS: TestAutoAnswersNotInTimelineButInSummary (0.22s)
+--- PASS: TestPermissionStrictAsksForReads (0.25s)
+--- PASS: TestPermissionAgentPolicyTightensProject (0.27s)
+--- PASS: TestPermissionInteractionSurvivesJobCancel (0.23s)
+--- PASS: TestPermissionWaitAnswerIntegration (0.25s)
+ok  	github.com/inhere/gofer/internal/job	4.914s
+```
+
+`TestAutoAnswersNotInTimelineButInSummary` = 3 次自动求批 → 0 条 `job.permission_answered`、`permissions=3 & permissions_auto=3`、3 条 `acp.jsonl` permission 记录（`auto:true`）。超时自动作答的 `option_id` 现在挂在 `job.permission_timed_out` 的 detail 上（`TestPermissionTimeoutAllowWhenConfigured` 断言）；`job.permission_timed_out` 与人工 answered 行都不进 `permissions_auto`。
+
+### 4. 其余包测试与静态检查
+
+```
+$ go test ./internal/runner/acp/... ./internal/serve/... ./internal/worker/... ./internal/commands/... -count=1
+ok  	github.com/inhere/gofer/internal/runner/acp	0.012s
+ok  	github.com/inhere/gofer/internal/serve	1.362s
+ok  	github.com/inhere/gofer/internal/worker	27.659s
+ok  	github.com/inhere/gofer/internal/commands	34.460s
+
+$ gofmt -l <本次改过的 .go 文件>     # 空
+$ go build ./...                     # OK（含 GOOS=windows 交叉构建）
+$ go vet ./...                       # OK
+```
+
+`internal/worker` 的 `TestPolicyCacheRoundTrip`（0600 断言）是**容器/Linux 基线失败**，在本机不触发（Windows 无 POSIX 权限位语义），本次未改它。
+
+### 5. 未在本次验证
+
+- `-Elevated` / UIPI、正式切换（nssm 卸载）：同 W2，不在本次。
+- 禁止 breakaway 的宿主上的重试分支：同 W1，未复现。
+- `pnpm typecheck`：本机 pnpm shim 自身损坏（`the global target of the pnpm shim points back at the shim`），改为直接跑脚本等价的 `node node_modules/vue-tsc/bin/vue-tsc.js --noEmit`（先用一个故意的类型错误确认它真的在报错，再确认干净 → 0 诊断）。
 
