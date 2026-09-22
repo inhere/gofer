@@ -170,15 +170,26 @@ func Terminate(pid int) error {
 // failed or was refused.
 func KillHint(pid int) string { return fmt.Sprintf("taskkill /PID %d /F", pid) }
 
-// SessionInfo reports the Windows session of the current process, so startup logs
-// say whether this gofer can reach the user's desktop: Interactive is true only
-// when we run in the session attached to the console (session 0 = a service, which
-// by design cannot touch the desktop).
+// SessionInfo reports the Windows session of the current process, so startup logs say
+// whether this gofer can reach a user desktop.
+//
+// Interactive is "session is not 0": session 0 is the service session (nssm / sc),
+// which by design cannot touch a desktop, while EVERY other session is a user session
+// a desktop belongs to — RDP included. Comparing against the console session instead
+// (the W1/W2 criterion) under-reported on RDP-only hosts, where the user's session is
+// e.g. 2 while WTSGetActiveConsoleSessionId() is the idle session 1, so a serve that
+// WAS on the user's desktop logged interactive=false. Console keeps that narrower fact
+// (this process is the one sitting on the physical console) for whoever needs it:
+// Console implies Interactive by construction.
 func SessionInfo() Session {
 	var id uint32
 	if err := windows.ProcessIdToSessionId(windows.GetCurrentProcessId(), &id); err != nil {
 		return Session{}
 	}
 	console := windows.WTSGetActiveConsoleSessionId()
-	return Session{ID: id, Interactive: id == console && console != noConsoleSession}
+	return Session{
+		ID:          id,
+		Interactive: id != 0,
+		Console:     id != 0 && console != noConsoleSession && id == console,
+	}
 }

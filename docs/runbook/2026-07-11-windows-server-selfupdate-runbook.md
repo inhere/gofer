@@ -136,24 +136,28 @@ pwsh -File scripts\start.ps1 -Action upgrade -ConfigDir '<ConfigDir>' -Web   # �
 ### 7.3 确认它真的在桌面会话里
 
 ```powershell
-# ① 任务状态 + gofer 进程 SessionId（应等于控制台会话，不是 0）
+# ① 任务状态 + gofer 进程 SessionId（应非 0；与 explorer.exe 的 SessionId 相同 = 同一个桌面）
 pwsh -File scripts\start.ps1 -Action status -ConfigDir '<ConfigDir>'
 
-# ② server 自证的判据：ready 行里的 interactive
+# ② server 自证的判据：ready 行里的 session / interactive / console
 Get-Content '<ConfigDir>\run\serve.log' | Select-String 'server.ready'
-#   {"event":"server.ready",...,"session":1,"interactive":true}   ← true = 与活动控制台会话同一会话
+#   {"event":"server.ready",...,"session":2,"interactive":true,"console":false}
 ```
 
-最硬的验证：从容器派一个 local job，`gofer job run -a exec --runner local -- pwsh -c "(Get-Process -Id $PID).SessionId"` 应返回非 0 会话号。
+`interactive` 与 `console` 问的是两件事：
 
-> ⚠️ `interactive` 的判据是「本进程会话 == `WTSGetActiveConsoleSessionId()`（**控制台**会话）」。**只用 RDP 登录**的主机上，控制台会话是那个空着的 session 1，而你和 serve 在 RDP 会话（如 session 2）→ `session` 与 explorer 一致但 `interactive=false`。此时以 **SessionId 对比**为准（`query session` 看会话列表与 Active 标记，`-Action status` 打印 serve 的 SessionId 与 explorer 的会话号对比）。
+- **`interactive`** = 「本进程**不在 session 0**」，即跑在某个用户会话里（RDP 会话也算）。这就是"能不能碰桌面"的判据：`false` 只可能是 session 0（服务），GUI 自动化（DTools/CODESYS/截图）必然失败。
+- **`console`** = 「本进程就在**物理控制台**那个会话」（`WTSGetActiveConsoleSessionId()`），比 `interactive` 窄。**只用 RDP 登录**的主机上，控制台会话是那个空着的 session 1，而你和 serve 在 RDP 会话（如 session 2）→ `interactive=true, console=false`，**这是正常的**（serve 就在你的桌面上）。
+- `session` 与 `explorer.exe` 的 SessionId 一致，是"在同一个桌面"的直接证据（`query session` 看会话列表与 Active 标记，`-Action status` 打印 serve 的 SessionId 与 explorer 的会话号对比）。
+
+最硬的验证：从容器派一个 local job，`gofer job run -a exec --runner local -- pwsh -c "(Get-Process -Id $PID).SessionId"` 应返回非 0 会话号。
 
 ### 7.4 常见坑
 
 | 现象 | 原因 / 处理 |
 |---|---|
 | `up` 报 `a Windows service named 'gofer' exists` 并退出 3 | 旧 nssm 服务还在（抢端口）。管理员窗口先卸，见 §7.5；**隔离实例**（自己的 TaskName/ExeDir/端口）可加 `-AllowServiceConflict` 跳过该检查 |
-| local job 碰不到桌面 / `BitBlt Access denied` | serve 不在用户会话：`-Action status` 看 SessionId（0 = session 0；对不上 explorer 的会话号就是不在桌面）。注意 `serve.log` 的 `interactive` 在 RDP 会话下会是 false，见 §7.3 |
+| local job 碰不到桌面 / `BitBlt Access denied` | serve 不在用户会话：`-Action status` 看 SessionId（0 = session 0；对不上 explorer 的会话号就是不在同一个桌面）。`serve.log` 的 `interactive=false` 就表示跑在 session 0（服务），必须处理；`console=false` 只说明不是物理控制台（RDP 登录下正常），见 §7.3 |
 | 以管理员打开的 DTools/CODESYS 点不动 | UIPI：进程完整性级别不一致。gofer 也 `-Elevated` 注册（需管理员），或让目标程序以普通权限开 —— **两边必须一致** |
 | 锁屏 / RDP 断开后 GUI 自动化失败、截图黑屏 | Windows 桌面语义：锁屏后活动桌面是 Winlogon，RDP 断开后会话 disconnected。属桌面策略，本仓不解决 |
 | 重启后 server 不在 | 登录计划任务**依赖登录**。无人值守需开自动登录（`netplwiz` / Autologon）+ 放宽锁屏 —— 运维决定 |

@@ -35,13 +35,19 @@ type Options struct {
 	LogPath string // child stdout/stderr sidecar output target (for example *.out.log)
 }
 
-// Session reports which OS session a process runs in and whether that is the
-// interactive one. On Windows it answers "is this gofer sitting on the user's
-// desktop?" (session 0 = a service, so GUI automation cannot reach the desktop);
-// on unix it is the zero value, there being no equivalent concept.
+// Session reports which OS session a process runs in and whether that is a session a
+// user can reach. On Windows two separate questions are answered, because they are
+// NOT the same one (W2 measured it on an RDP-only host): Interactive means "this
+// process sits on a user desktop" — any session but the service session 0, RDP
+// sessions included, which is what decides whether GUI automation can work at all;
+// Console narrows that to the session attached to the PHYSICAL console, which an RDP
+// login does not use (there interactive=true, console=false is normal, because the
+// console session is the idle one). On unix it is the zero value, there being no
+// equivalent concept.
 type Session struct {
 	ID          uint32
 	Interactive bool
+	Console     bool
 }
 
 // SessionInfo returns the session of the CURRENT process. It is implemented per
@@ -75,6 +81,13 @@ func Spawn(o Options) (int, error) {
 		return 0, err
 	}
 	pid := cmd.Process.Pid
+	// Reap the child when it eventually exits. A caller that outlives it (a test,
+	// a long-lived invocation) would otherwise keep an unreaped child: on unix that
+	// child is a zombie — kill(pid,0) still succeeds, so PIDAlive would keep claiming
+	// the daemon is running long after it stopped. The goroutine dies with the parent
+	// (which for `serve -d` exits immediately; the child is then adopted by init),
+	// so this only ever matters for callers that stay alive.
+	go func() { _ = cmd.Wait() }()
 	if err := WritePIDFile(o.PIDPath, pid); err != nil {
 		// The child is already detached and running; surface the pidfile failure
 		// but do not kill it — losing the pidfile only breaks `stop`, not the run.

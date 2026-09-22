@@ -293,7 +293,7 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	}
 	sess := daemon.SessionInfo()
 	slog.Info("server.ready", "event", "server.ready", "component", "server", "addr", addr,
-		"session", sess.ID, "interactive", sess.Interactive)
+		"session", sess.ID, "interactive", sess.Interactive, "console", sess.Console)
 	// SIGINT/SIGTERM (and on Windows the named stop event, see daemon.NotifyStop)
 	// trigger a graceful shutdown: the http.Server stops accepting new connections
 	// and drains in-flight ones, RunCtx returns nil, then every deferred cleanup

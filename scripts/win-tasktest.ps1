@@ -133,8 +133,12 @@ server:
     if (Select-String -Path (Join-Path $cfg 'run\serve.log') -Pattern 'server.ready' -Quiet -ErrorAction SilentlyContinue) {
         $ready = (Select-String -Path (Join-Path $cfg 'run\serve.log') -Pattern 'server.ready' | Select-Object -Last 1).Line
         if ($ready -match '"interactive":(true|false)') {
-            Info "interactive=$($Matches[1]) (expected true; false is reported as-is for a session-0 launcher, human call)"
-            Ok "server.ready carries the interactive field"
+            $interactive = $Matches[1]
+            $console = if ($ready -match '"console":(true|false)') { $Matches[1] } else { 'missing' }
+            Info "server.ready interactive=$interactive console=$console (console=false is normal on an RDP-only host)"
+            if ($interactive -eq 'true') { Ok "server.ready has interactive=true -> the task runs in a USER session (on the desktop)" }
+            else { No "server.ready has interactive=false -> not a user session (session 0?): $ready" }
+            if ($console -in 'true', 'false') { Ok "server.ready carries the console field ($console)" } else { No "server.ready has no console field: $ready" }
         } else { No "server.ready has no interactive field: $ready" }
     } else { No "no server.ready line in $cfg\run\serve.log" }
 

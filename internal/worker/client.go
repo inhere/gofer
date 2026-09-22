@@ -1016,7 +1016,7 @@ func (cl *Client) runSession(ctx context.Context, url string) (registered bool, 
 	sess := daemon.SessionInfo()
 	slog.Info("worker.registered", "event", "worker.registered", "component", "worker",
 		"worker_id", cl.workerID, "url", url, "labels", caps.Labels, "max_concurrent", caps.MaxConc,
-		"session", sess.ID, "interactive", sess.Interactive)
+		"session", sess.ID, "interactive", sess.Interactive, "console", sess.Console)
 
 	// RECOV-01: the hub's resume ack is the FIRST thing applied to the new session —
 	// still on the raw connection, so no frame can carry a pre-rewind offset — and
