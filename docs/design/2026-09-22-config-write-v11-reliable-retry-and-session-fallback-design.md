@@ -402,3 +402,152 @@ $ gofer job show 20260922-230807-320424c9 | grep -c '^retry:'
 同一个 Store 后新 Service 的 sweeper 照常投出；真机 smoke 覆盖的是排程→投出→耗尽全链）。web 提示条
 只做了 `pnpm typecheck`，未在浏览器里目视（本 job 硬约束禁止对真实 server 建 job，临时 server 的 web
 页面需另起浏览器会话）。
+
+## R3 实测记录（2026-09-23，omp job）
+
+**落地范围**：§一 WEB-04③ 全部 —— `internal/config/editable.go` 字段策略表（+`config.Validate` 导出、
+`Config.Clone` 扩 Server 块、`RenderYAML`、`UnmarkInjectedAgent`）、五个端点
+（`PUT/DELETE /v1/config/agents/{key}`、`PUT /v1/config/server`、`POST /v1/config/validate`、
+`POST /v1/config/reload`，全部 `can_admin` 闸 + `Core.Update` 事务）、`Core.ReloadConfig()`、
+`agent.HasBuiltinTemplate`、`job.config.updated`（scope `config`）、`GET /v1/config` 的
+`server_policy`/`agent_policy` + 可编辑字段视图、web 控制台「系统配置」页的编辑弹窗。
+提交：`4ec015e`（测试）→ `ec8c85a`（config 策略表）→ `16cd471`（core/httpapi/agent/job/serve）→
+`151806a`（web）→ 本文档。
+
+**与设计的偏差（9 处，均为实现细节，语义不变）**
+
+1. **agent PUT 的"整体替换"只作用于可编辑字段集**（白名单外的 `env` / `detect` / `mcp_server_name` /
+   `allow_raw_cmd` / `no_raw_cmd` 原样保留）。§一.2 称这些字段"只读"，而"写一次就清掉"不是只读语义；
+   并且这正是 bd h-aii-3scy 给 projects 定的规矩（表单不该清掉它没有的字段）。测试双面钉住：
+   `TestAgentPutUpdatesExisting`（body 里没有的**可编辑**字段被清空）+ `TestAgentPutKeepsFieldsOutsideTheEditableSet`
+   （白名单外字段连磁盘都原样保留）。
+2. **`acp` 是唯一"补丁式"复合字段**（其余复合块整块替换，如 `retry` / `ndjson_fields`）。原因具体：
+   `acp.mcp_servers[].env` 的**值**没有任何读路径会回显（SR403），整块替换会在控制台保存一个无关字段时
+   静默清掉 acp 子进程的 env。`TestAgentPutPatchesACPBlock` 钉住；未知成员 400 而不是丢弃。
+3. **server 白名单按 §一.3 的字面列表**：`max_job_timeout_sec` / `auto_resume_max` / `stall_timeout_sec` /
+   `notification` / `runner_probe` / `retry`。§一.3 还提到 `approval` 与 `session.*`，但代码里没有
+   `ServerConfig.Approval`，`session` 是顶层块——本期不落（V1.2）。其余 server 字段一律
+   `RestartRequired:true`（保守方向：宁可在控制台说"要重启"，也不说"能热改"然后静默不生效）；
+   其中 `dir_lock` / `xfer` / `agent_health` 实际是每次读取的，属保守分类，要放行改表一行即可。
+4. **`agents.*.retry` 也进了 agent 白名单**：该字段是本文档 §二.2 引入的（§一.2 成文在前），无 secret、
+   热生效，不加它控制台就改不了"这个 agent 的重试策略"。§一.2 里的 `health.*` 在 AgentConfig 上无对应
+   字段（是 `server.agent_health`），未落。
+5. **视图扩了字段**：`configAgentView` 补全可编辑字段集（`interactive_args` 用 `null`/`[]` 区分批处理/
+   交互，AGT-02；`injected` 标记内置来源）、`serverConfigView` 补 4 个可热改标量 + `retry`，顶层新增
+   `server_policy` / `agent_policy` 两张策略表。
+6. **新增 `Core.ReloadConfig()`**：`POST /v1/config/reload` 必须重读"本进程正在用的那个文件"；
+   `config.Resolve("")` 在 `-c <其它路径>` 的部署下会读错文件。它与 `saveConfig` 用同一套路径解析。
+7. **`Config.Clone()` 为 Server 块加了一层深拷贝**（含 `TestCloneIndependentsServerBlock`）：D-MED-7
+   的注记要求"把写路径扩到某个块之前先扩 Clone"。另加 `UnmarkInjectedAgent`——没有它，控制台给
+   `claude` 写的定义会被 `withoutInjectedAgents` 在落盘时再抹掉（写成功但文件没变）。
+8. **`restart_required` 语义统一为"该区块里 API 承载不了、要改文件 + 重启的字段路径"**（PUT 响应与干跑
+   返回同一份），`configPath("server","*",name)` 形式。T1 初稿里两处断言（`len==0` / `server.storage`）
+   因此改成 `server.addr` / `server.token_env`。
+9. **运维事实（既有行为，非本次引入）**：`serve` 启动后内存里带默认值的块（`server` / `storage` / `log`）
+   会在**第一次** web 保存时被规范化重写一次（补上 `web_enabled` / 默认子目录 / `log:` 块）。外科写回
+   的保证是"**未改动**的顶层块与未受管顶层键逐字保留"；被编辑块**内部**的注释会丢（`writer.go` 已声明）。
+   runbook 里已写明建议（长注释写在块外）。
+
+**单测（exit 0）**
+
+```
+$ go test ./internal/config/... -run 'Config|Agent|Server|Policy|Surgical' -count=1
+ok  	github.com/inhere/gofer/internal/config	0.074s
+
+$ go test ./internal/httpapi/... ./internal/core/... -run 'Config|Agent|Server|Policy|Surgical' -count=1 -v
+--- PASS: TestEveryServerFieldHasPolicy (0.00s)          # 反射遍历 ServerConfig，缺策略即失败
+--- PASS: TestFieldPolicyLookupByPath (0.00s)
+--- PASS: TestEditableAgentFieldsWhitelist (0.00s)
+--- PASS: TestCloneIndependentsServerBlock (0.00s)
+--- PASS: TestConfigWriteRequiresAdmin (0.22s)           # 5 个写端点对无 can_admin 全 403
+--- PASS: TestAgentPutCreatesAndReloads (0.21s)          # 写盘 + GET /v1/config + GET /v1/agents（真重载）
+--- PASS: TestAgentPutUpdatesExisting (0.22s)
+--- PASS: TestAgentPutKeepsFieldsOutsideTheEditableSet (0.26s)
+--- PASS: TestAgentDeleteFallsBackToBuiltin (0.28s)
+--- PASS: TestAgentPutRejectsSecretLiteral (0.23s)
+--- PASS: TestAgentPutPatchesACPBlock (0.21s)
+--- PASS: TestEveryEditableAgentFieldIsWritable (0.00s)  # 策略表 ↔ 写 switch 的漂移防线
+--- PASS: TestServerPutRejectsRestartOnlyField (0.20s)
+--- PASS: TestServerPutAppliesEditableField (0.30s)
+--- PASS: TestConfigValidateDryRunDoesNotWrite (0.27s)
+--- PASS: TestSurgicalSaveKeepsOtherBlockComments (0.22s)
+--- PASS: TestConfigUpdatedEventRecorded (0.15s)
+ok  	github.com/inhere/gofer/internal/httpapi	7.837s
+ok  	github.com/inhere/gofer/internal/core	14.430s
+
+$ cd web && pnpm typecheck   # vue-tsc --noEmit，clean；pnpm build（含 typecheck + vite build）也过了
+```
+
+**真机 smoke（2026-09-23，主机，临时 server：`127.0.0.1:18997` + 临时 `GOFER_CONFIG_DIR`/config.yaml/
+storage/项目，全程 unset `GOFER_SERVER_ADDR`/`GOFER_SERVER_TOKEN`/`GOFER_TOKEN`，未碰真实配置目录）**
+
+```
+$ curl -X PUT .../v1/config/agents/jcode -d '{"type":"cli-agent","command":"jcode","args":["run","{{prompt}}"],
+    "interactive_args":[],"session_capture":"(?i)^\\s*jcode --resume (\\S+)$"}'
+{"status":"ok","section":"agents","key":"jcode","created":true,"reloaded":true,
+ "fields":["args","command","interactive_args","session_capture","type"],"restart_required":[]}
+
+# GET /v1/config → jcode 带 command/args/interactive_args:[]/session_capture；
+# server_policy.addr={'editable':False,'restart_required':True}、agent_policy.command={'editable':True,...}
+# GET /v1/agents → ['claude','claude-acp','codex','exec','jcode','jcode-acp','mytool','omp-acp',
+#                   'opencode','tty-claude','tty-codex']（真机 detector 注入的内置模板）
+
+$ diff -u before.yaml cfg/config.yaml         # 只动了 agents 块；projects 块与注释逐字保留
+ agents:
++  jcode:
++    type: cli-agent
++    command: jcode
++    args:
++    - run
++    - "{{prompt}}"
++    interactive_args: []
++    session_capture: "(?i)^\\s*jcode --resume (\\S+)$"
+   mytool:  ...（原样）
++log: {max_size_mb: 50, max_age_days: 14, max_backups: 10}   # 首次保存的默认块规范化（见偏差 9）
+
+$ curl -X DELETE .../v1/config/agents/claude       # 内置注入的 key
+{"status":"ok","key":"claude","fell_back_to_builtin":true,"reloaded":true}
+$ curl -X DELETE .../v1/config/agents/jcode        # 自定义 key
+{"status":"ok","key":"jcode","fell_back_to_builtin":false,"reloaded":true}
+# 删除后 GET /v1/agents：claude 仍在（内置定义回落），jcode 消失
+
+$ curl -X PUT .../v1/config/server -d '{"addr":"127.0.0.1:1"}'
+{"error":"field not editable","detail":"field not editable: server.addr"}
+$ curl -X PUT .../v1/config/server -d '{"max_job_timeout_sec":120}'
+{"status":"ok","section":"server","created":false,"reloaded":true,"fields":["max_job_timeout_sec"],
+ "restart_required":["server.addr","server.agent_fallback",... 17 项 ...]}
+$ curl .../v1/config → server.max_job_timeout_sec=120（立即生效）
+
+$ curl -X POST .../v1/config/validate -d '{"section":"agents","key":"bad","value":{"type":"exec","interactive_args":[]}}'
+{"ok":false,"detail":"agent \"bad\": type exec cannot set interactive_args",
+ "error_fields":["agents.bad.interactive_args"],"applied":[],"restart_required":[]}
+$ curl -X POST .../v1/config/validate -d '{"section":"agents","key":"preview-demo","value":{...}}'
+{"ok":true,...,"preview":"type: cli-agent\ncommand: jcode\nargs:\n- run\n- \"{{prompt}}\"\n..."}
+$ curl -X PUT .../v1/config/agents/leaky -d '{"command":"x","token":"sk-live"}'
+{"error":"secret value not accepted","detail":"secret value not accepted: agents.leaky.token;
+ edit the environment-variable name (*_env) instead"}
+$ curl -X POST .../v1/config/reload
+{"reloaded":true,"status":"ok"}
+
+# 审计（store/gofer.db → job_events where job_id='config'）
+(1,'config','config.updated','{"by":"default","fields":["args","command","interactive_args","session_capture","type"],"key":"jcode","section":"agents"}')
+(2,'config','config.updated','{"by":"default","fields":["*"],"key":"claude","section":"agents"}')
+(4,'config','config.updated','{"by":"default","fields":["max_job_timeout_sec"],"key":"","section":"server"}')
+```
+
+**web 端目视（同一个临时 server + `--web-dir web/dist`，headless 浏览器）**
+
+```
+/config → h1「系统配置」（已去掉「（只读）」）；Agents 卡片每行「编辑 / 删除」+ 顶部「新增 agent」；
+          Server 卡片「编辑」；内置 agent 带「内置」徽标。
+点 mytool 行「编辑」→ 弹窗标题「编辑 agent · mytool」，表单 15 个字段，右侧 YAML 预览来自
+          POST /v1/config/validate（`type: cli-agent / command: mytool / interactive_args: [] / ...`），
+          底部「保存后立即生效（写事务内含热重载）”。
+把 max_concurrent 填 -5 → 干跑 400：错误行 `agent "mytool": max_concurrent must be >= 0`，
+          对应输入框拿到 .input--bad（高亮）；改成 3 保存 →
+          toast「agent mytool 已保存（更新）· 已重载」，磁盘 config.yaml 出现 `max_concurrent: 3`。
+```
+
+**未在真机做的**：交互式"新增 agent → 试跑 → 调参数"的完整闭环（需要用户在 web 上点，且本 job 硬约束
+不得对真实 server 建 job）；`notification` 块的可编辑路径只有 API 覆盖（控制台表单不承载它——整块替换会
+要求回填 webhook 的 `secret_env` 名，V1.2 再考虑只改 `max_attempts` 这类局部字段）。
