@@ -145,6 +145,17 @@ func jobEventDetails(t *testing.T, s *Service, jobID, eventType string) []map[st
 	return out
 }
 
+// acpSummary returns the detail of the turn's ONE job.acp_summary row (the counters
+// the timeline carries), failing when it is missing or duplicated.
+func acpSummary(t *testing.T, s *Service, jobID string) map[string]any {
+	t.Helper()
+	sums := jobEventDetails(t, s, jobID, "job.acp_summary")
+	if len(sums) != 1 {
+		t.Fatalf("job.acp_summary rows = %d, want exactly 1: %+v", len(sums), sums)
+	}
+	return sums[0]
+}
+
 // acpPermissionRecords returns the acp.jsonl lines with type "permission".
 func acpPermissionRecords(t *testing.T, resultDir string) []map[string]any {
 	t.Helper()
@@ -182,6 +193,15 @@ func TestPermissionOffAutoAllows(t *testing.T) {
 	if evs := jobEventDetails(t, s, final.ID, "job.permission_requested"); len(evs) != 0 {
 		t.Fatalf("mode=off recorded %d job.permission_requested events, want none", len(evs))
 	}
+	// An auto answer is not a lifecycle fact: the timeline stays empty and the summary
+	// counts it instead (the audit trail is acp.jsonl's permission record).
+	if evs := jobEventDetails(t, s, final.ID, "job.permission_answered"); len(evs) != 0 {
+		t.Fatalf("mode=off recorded %d job.permission_answered events, want none: %+v", len(evs), evs)
+	}
+	sum := acpSummary(t, s, final.ID)
+	if sum["permissions"] != float64(1) || sum["permissions_auto"] != float64(1) {
+		t.Fatalf("summary = %+v, want permissions=1 permissions_auto=1", sum)
+	}
 }
 
 // TestPermissionAskAutoAllowsReadKinds: under mode=ask a read-kind tool call is in
@@ -202,6 +222,13 @@ func TestPermissionAskAutoAllowsReadKinds(t *testing.T) {
 	}
 	if list, _ := s.GetInteractions(final.ID); len(list) != 0 {
 		t.Fatalf("an auto-allowed read raised %d interactions, want none: %+v", len(list), list)
+	}
+	if evs := jobEventDetails(t, s, final.ID, "job.permission_answered"); len(evs) != 0 {
+		t.Fatalf("an auto-allowed read recorded %d job.permission_answered events, want none: %+v", len(evs), evs)
+	}
+	sum := acpSummary(t, s, final.ID)
+	if sum["permissions"] != float64(1) || sum["permissions_auto"] != float64(1) {
+		t.Fatalf("summary = %+v, want permissions=1 permissions_auto=1", sum)
 	}
 }
 
@@ -375,8 +402,18 @@ func TestPermissionTimeoutAllowWhenConfigured(t *testing.T) {
 	if len(asks) != 1 || asks[0].option != acptest.AllowOnceOptionID || asks[0].outcome != "selected" {
 		t.Fatalf("agent saw %+v, want selected %s", asks, acptest.AllowOnceOptionID)
 	}
-	if len(jobEventDetails(t, s, jobID, "job.permission_timed_out")) != 1 {
-		t.Fatalf("no job.permission_timed_out event for the timed-out approval")
+	// The timeout answer is auto, so it is NOT on the timeline; the timed-out row is
+	// the one lifecycle row for it and must carry which option was chosen instead.
+	timeouts := jobEventDetails(t, s, jobID, "job.permission_timed_out")
+	if len(timeouts) != 1 || timeouts[0]["option_id"] != acptest.AllowOnceOptionID {
+		t.Fatalf("job.permission_timed_out = %+v, want one row with option_id=%s", timeouts, acptest.AllowOnceOptionID)
+	}
+	if evs := jobEventDetails(t, s, jobID, "job.permission_answered"); len(evs) != 0 {
+		t.Fatalf("a timed-out auto answer recorded %d job.permission_answered events, want none: %+v", len(evs), evs)
+	}
+	sum := acpSummary(t, s, jobID)
+	if sum["permissions"] != float64(1) || sum["permissions_auto"] != float64(1) {
+		t.Fatalf("summary = %+v, want permissions=1 permissions_auto=1", sum)
 	}
 }
 
@@ -411,14 +448,54 @@ func TestPermissionAllowAlwaysRemembered(t *testing.T) {
 		t.Fatalf("interactions = %d, want exactly one (the second ask is remembered): %+v", len(list), list)
 	}
 	answered := jobEventDetails(t, s, jobID, "job.permission_answered")
-	if len(answered) != 2 {
-		t.Fatalf("job.permission_answered = %+v, want 2 (human + remembered)", answered)
+	if len(answered) != 1 {
+		t.Fatalf("job.permission_answered = %+v, want 1 (the human answer only: the remembered ask is auto)", answered)
 	}
-	if answered[1]["auto"] != true || answered[1]["option_id"] != acptest.AllowAlwaysOptionID {
-		t.Fatalf("second answer = %+v, want auto=true option_id=%s", answered[1], acptest.AllowAlwaysOptionID)
+	if answered[0]["auto"] != false || answered[0]["option_id"] != acptest.AllowAlwaysOptionID {
+		t.Fatalf("the single answer = %+v, want auto=false option_id=%s", answered[0], acptest.AllowAlwaysOptionID)
 	}
 	if reqs := jobEventDetails(t, s, jobID, "job.permission_requested"); len(reqs) != 1 {
 		t.Fatalf("job.permission_requested = %d, want 1 (the remembered ask raised no card)", len(reqs))
+	}
+	// Both asks are counted, but only the remembered one is auto.
+	sum := acpSummary(t, s, jobID)
+	if sum["permissions"] != float64(2) || sum["permissions_auto"] != float64(1) {
+		t.Fatalf("summary = %+v, want permissions=2 permissions_auto=1", sum)
+	}
+}
+
+// TestAutoAnswersNotInTimelineButInSummary: three auto-answered requests (mode=off)
+// leave the job timeline free of permission_answered rows — an offline `approval: off`
+// job used to get one row per tool call — while the turn summary still counts them
+// (permissions = all requests, permissions_auto = the auto-answered ones) and the
+// audit trail keeps one acp.jsonl record per request.
+func TestAutoAnswersNotInTimelineButInSummary(t *testing.T) {
+	root := t.TempDir()
+	s := newACPServiceWith(t, root, acptest.Options{PermissionRepeats: 3},
+		&config.ApprovalConfig{Mode: config.ApprovalOff}, "")
+
+	final := acpSubmit(t, s, 30)
+	if final.Status != StatusDone {
+		t.Fatalf("status = %s (err=%s), want done", final.Status, final.Error)
+	}
+	if asks := readPermAsks(t, s, root, final.ID); len(asks) != 3 {
+		t.Fatalf("agent made %d asks, want 3: %+v", len(asks), asks)
+	}
+	if evs := jobEventDetails(t, s, final.ID, "job.permission_answered"); len(evs) != 0 {
+		t.Fatalf("job.permission_answered = %+v, want none (auto answers stay out of the timeline)", evs)
+	}
+	sum := acpSummary(t, s, final.ID)
+	if sum["permissions"] != float64(3) || sum["permissions_auto"] != float64(3) {
+		t.Fatalf("summary = %+v, want permissions=3 permissions_auto=3", sum)
+	}
+	recs := acpPermissionRecords(t, final.ResultDir)
+	if len(recs) != 3 {
+		t.Fatalf("acp.jsonl permission records = %d, want 3: %+v", len(recs), recs)
+	}
+	for i, r := range recs {
+		if r["auto"] != true || r["outcome"] != "selected" || r["option_id"] != acptest.AllowOnceOptionID {
+			t.Fatalf("acp.jsonl permission record %d = %+v, want auto=true selected %s", i, r, acptest.AllowOnceOptionID)
+		}
 	}
 }
 
