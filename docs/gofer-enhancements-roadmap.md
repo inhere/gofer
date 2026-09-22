@@ -42,7 +42,7 @@
 | WEB-04 🚧 | 配置管理：拓扑/节点只读 + 项目 CRUD 写层 V1（server/callers/agents 编辑待） | 0.3x | [config write](design/2026-07-03-web-config-write-design.md) |
 | CFG-01/02/04/06 | CLI 补全 · 引导/校验 · 全局单 server + 项目瘦配置 · 节点易用性 | 0.2x | [config simplification](design/2026-06-22-config-simplification-design.md) |
 | CFG-07 | `GOFER_RUN_MODE=client`（只需 .env），`gofer init client` | 0.41 | skill `references/client-config.md` |
-| CFG-08 | `start.ps1 -Action upgrade`（Windows 服务原地升级） | 0.40 | [selfupdate runbook](runbook/2026-07-11-windows-server-selfupdate-runbook.md) |
+| CFG-08 | `start.ps1 -Action upgrade`（Windows 常驻实例原地升级） | 0.40 | [selfupdate runbook](runbook/2026-07-11-windows-server-selfupdate-runbook.md) |
 | XFER-01 | 文件传输：`gofer tool cp <本地> <runner>:<project>/<path>`（双向，HTTP 传本体、WS 传指令，协议 v9）、`tool xfer ls|show|rm`；`job run --upload/--collect`（起跑前放文件、结束后收回并入 artifacts）；xfer 事件进通知 | 0.47.2 | [design](design/2026-09-20-file-transfer-and-plan-dispatch-design.md) |
 | JOB-11 | 同目录串行：可写 agent job 独占 cwd（`waiting_dir`，祖先/后代互斥），exec/read-only 共享，`--exclusive-dir/--shared-dir`；`agents.<k>.max_concurrent` | 0.48 | 同上 §二 |
 | AUTO-05 | 输出停滞检测：`stall_timeout`（server/agent/job 三级，默认 900s，exec 关）→ 按 transient 续投/转移 | 0.48 | 同上 §三 |
@@ -54,13 +54,13 @@
 | XFER-02 | 传输 id `xf-<8hex>`、上传前预检、时间按服务端时区渲染 | 0.49 | design §五/六 |
 | CFG-09 | 容器内 worker（`w-docker-claude`）+ `GOFER_HOOK_RUNNER`、`gofer worker doctor`、容器 worker runbook | 0.49 | [design §三](design/2026-09-22-plan-autopilot-board-and-container-worker-design.md) · [runbook](runbook/container-worker.md) |
 | AUTO-02b | schedule webhook 触发（`trigger_token`）；`agent.degraded/recovered` 事件 | 0.49 | 同上 §六 |
+| SVC-01 | Windows 桌面会话常驻：`serve -d`/`worker -d`/`stop` 的 Windows 实现（分离进程 + 命名事件优雅停 + 前台也记 pidfile）+ `start.ps1` 登录计划任务跑在交互会话（`--runner local` 可操作 GUI），nssm 废弃 | 0.50 | [design](design/2026-09-22-windows-desktop-session-service-design.md) · [runbook §7](runbook/2026-07-11-windows-server-selfupdate-runbook.md) |
 | G032 | 兼容策略：DEPRECATED 标记 + 到期删除；v0.48 已删 6 处 v0.45 标记 | 0.46–0.48 | `AGENTS.md` G032 · SUP-01「横切」 |
 
 ## 二、待做 / 候选（下一批从这里选）
 
 | 编号 | 功能 | 价值 | 大小 | 状态 | 来源 / 细节 |
 |---|---|---|---|---|---|
-| SVC-01 | Windows 桌面会话常驻：`serve -d`/`worker -d`/`stop` 的 Windows 实现（分离进程 + 命名事件优雅停 + 前台也记 pidfile）；`start.ps1 -Mode task` 登录计划任务跑在交互会话（`--runner local` 可操作 GUI），nssm 模式保留 | 高 | 小-中 | 🚧 设计 0.1 待批准 | [design](design/2026-09-22-windows-desktop-session-service-design.md) |
 | JOB-10 | skills 绑定：项目/agent 级 skill 目录，派发时挂载（`.claude/skills` / AGENTS.md 引用）或注入，`gofer skill import <dir|zip|url>` | 中 | 中 | ⏳ | Multica skills；接 roles/模板 |
 | MCP-05 | leader 路由：plan/job 评论 `@agent` 触发 job；leader 回合决定下一步/升级/转验收 | 中 | 中-大 | ⏳ | Multica squads；依赖 PLAN-02 + 评论触发 |
 | AUTO-03 | job 级重试可靠版：持久化退避、退出码白名单、opt-in 幂等 | 中 | 中 | 🚧 | [roadmap-history](roadmap-history.md) AUTO-03 |
@@ -77,7 +77,7 @@
 
 ## 三、建议下一批
 
-v0.49.0 已落地 PLAN-03 / WEB-10 / CFG-09 / PTY-01 / XFER-02 / AUTO-02b。进行中：SVC-01（Windows 桌面会话常驻，设计待批准）。其后候选：JOB-10 skills 绑定、WEB-04③ 配置写层 V1.1（agents/server 在 web 编辑）、MCP-05 leader 路由、ACP-02 真机验收、AUTO-03 可靠重试。
+v0.49.0 已落地 PLAN-03 / WEB-10 / CFG-09 / PTY-01 / XFER-02 / AUTO-02b；SVC-01（Windows 桌面会话常驻，含 `start.ps1` 登录计划任务）已在 v0.50 落地（正式切换 = 桌面管理员窗口卸旧 nssm 服务）。其后候选：JOB-10 skills 绑定、WEB-04③ 配置写层 V1.1（agents/server 在 web 编辑）、MCP-05 leader 路由、ACP-02 真机验收、AUTO-03 可靠重试。
 
 ## 四、维护约定
 

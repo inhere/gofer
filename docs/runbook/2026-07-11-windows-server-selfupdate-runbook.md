@@ -13,6 +13,8 @@
 
 ## 1. 起服务：用监督循环替代裸跑 `gofer serve`
 
+> 常驻/开机自启请直接用 §7 的 `scripts/start.ps1`（登录计划任务）；本节只用于**调试**（前台盯着看日志、临时换参数）。
+
 在原来手动跑 `gofer serve` 的终端，改为**直接**启动监督脚本（`pwsh -File` 直启，使其命令行含 `win-supervisor` —— 自更新的 F4 守卫据此识别祖父进程）：
 
 ```powershell
@@ -65,66 +67,111 @@ Test-Path '<ExeDir>\gofer.old.exe'                               # 旧版留底(
 
 ## 5. 验收自测（隔离，不碰 live server）
 
-在独立端口 + 独立配置目录起第二实例，验证 supervisor+selfupdate 全流程，自清理：
+在独立端口 + 独立配置目录起第二实例，自清理：
 
 ```powershell
-pwsh -NoProfile -File scripts/win-selftest.ps1        # 期望 RESULT: pass=13 fail=0
+pwsh -NoProfile -File scripts/win-selftest.ps1      # 监督+自更新：期望 RESULT: pass=13 fail=0
+pwsh -NoProfile -File scripts/win-tasktest.ps1      # 登录计划任务：期望 RESULT: pass=N fail=0
 ```
 
-覆盖：崩溃自愈 / rename-replace 换新 exe / 看门狗回滚 / F2 守卫拒绝非 gofer 父进程。
+- `win-selftest.ps1` 覆盖：崩溃自愈 / rename-replace 换新 exe / 看门狗回滚 / F2 守卫拒绝非 gofer 父进程。
+- `win-tasktest.ps1` 覆盖 §7 的任务模式：`up` 后 `/health` 200 且 gofer 的 `SessionId` == 控制台会话、`server.ready` 的 `interactive` 字段、`stop` 后优雅退出且看门狗不拉起、`restart`、崩溃后被看门狗拉起、`serve -d` 的分离存活与 `serve stop`、`remove` 注销任务。它注册的是**随机任务名**（`gofer-tasktest-<4位>`）+ 独立 `-ExeDir`/`-ConfigDir`/端口（默认 9098/9097），`finally` 里无条件注销任务、杀掉 TestRoot 下的进程、删目录。
 
 ## 6. 排障
 
 | 现象 | 原因 / 处理 |
 |---|---|
 | `guard(F2): parent is '...'` | 自更新没作为 gofer 直接子进程跑 → 用 `-a exec`，勿经 codex/shell |
-| `guard(F4): ... not the supervisor` | server 是裸跑（无监督器）→ 先按 §1 用监督循环起，或用 `-SupervisorMarker` 对齐 |
+| `guard(F4): ... not the supervisor` | server 是裸跑（无监督器）→ 先按 §1 用监督循环起，或按 §7 用 `start.ps1 -Action up` 起常驻实例；只有监护进程非 `win-supervisor` 时才需 `-SupervisorMarker` |
 | 重启后 `--web-dir` 等相对参数失效 | `-WorkDir` 未对齐原启动 cwd → 传正确 `<WorkDir>` 或改用绝对路径参数 |
 | 监督器不断重启坏 exe | 达阈值会自动回滚；若无 `gofer.old.exe`，手动放回一份可用 exe |
 | 主机同时跑 gofer worker | 自更新按**父 pid**精确杀，不按进程名，不会误伤 worker |
 
-## 7. 常驻 / 开机自启：nssm 服务（推荐，替代 §1 的 pwsh 循环）
+## 7. 常驻 / 开机自启：登录计划任务（桌面会话，推荐）
 
-§1 的 pwsh 监督循环跑在登录用户终端里，**关终端 / 登出不自启**。生产/常驻用 **nssm** 把 gofer 跑成 Windows 服务——nssm 本身即进程外监督者（`AppExit=Restart` = 崩溃/被杀自愈 = 自更新需要的重启器），**替代**本 pwsh 循环，rename-replace 更新逻辑不变。配套脚本 `scripts/start.ps1`（已封装 install/up/stop/restart/remove/status/logs）。
+常驻实例由 `scripts/start.ps1` 注册成一个**登录计划任务**（默认任务名 `gofer-serve`），任务动作 = `conhost.exe --headless pwsh -File scripts\win-supervisor.ps1`（即 §1 的看门狗循环），所以崩溃自愈、坏 exe 回滚、rename-replace 自更新**全部照旧**。
 
-### 7.1 准备
+**为什么不是 Windows 服务（nssm / sc）**：服务一律跑在 **session 0**，与登录用户的桌面（session 1+）隔离。`--runner local` 的 job 继承 serve 所在会话，所以 DTools / CODESYS 自动化、`capture click`、窗口截图这类**需要桌面**的动作全部失败。登录计划任务跑在你的**交互会话**里，local job 直接拥有桌面。
 
-- 下载 nssm（`win64/nssm.exe`，https://nssm.cc）放 `<repo>\serve-run\`（与 gofer.exe 同目录）；二者均被 `.gitignore`（`*.exe` + `/serve-run/`）。
-- gofer.exe 构建到 `<repo>\serve-run\gofer.exe`（`go build -o serve-run\gofer.exe .\cmd\gofer`）。
+选型（设计 `docs/design/2026-09-22-windows-desktop-session-service-design.md` §一）：
 
-### 7.2 装并启动（**管理员** PowerShell）
+| 方式 | 进程所在会话 | 依赖登录 | 崩溃重启 | GUI | 结论 |
+|---|---|---|---|---|---|
+| nssm / sc 服务 | session 0 | 否 | nssm | ✗ | **已废弃**：`up` 检测到名为 `gofer` 的服务会拒绝（两条迁移命令见 §7.5） |
+| 登录计划任务 + 看门狗 | 用户交互会话 | 是 | 看门狗 + 任务失败重启 | ✓ | **本仓唯一受管方式** |
+| 终端里 `gofer serve -d` / `worker -d` | 当前会话 | 是 | 无 | ✓ | 临时 / 开发；worker 后台化 |
+| 服务内 `CreateProcessAsUser` 投放 | 投放到活动会话 | 否 | — | ✓ | 不做（复杂度 = 再写一个 worker） |
 
-```powershell
-pwsh -File scripts\start.ps1 `
-  -ConfigDir 'D:/work/inhere/config/win-env/gofer' `
-  -Account '.\<user>'          # 强烈建议：以你的账号跑（见下）
-```
+### 7.1 前置
 
-- **`-ConfigDir` 必给**（或设 `$env:GOFER_CONFIG_DIR`）：服务**看不到你 shell 的 env**，靠它注入 `GOFER_CONFIG_DIR`，让 gofer 找到 `<dir>\config.yaml` + 加载该目录 `.env`（`GOFER_TOKEN`）。缺了 → gofer 报 `refusing to start without a token`。
-- **`-Account '.\<user>'` 强烈建议**：默认 **LocalSystem** → `--runner local` 的 job 以 **SYSTEM** 跑，破坏 git 属主 / 你的凭据 / 用户 PATH。传 `-Account` 让服务以**你**运行（安全提示密码，走 nssm `ObjectName`）→ local job 恢复成你（`whoami`=你的账号）。`-Account` 只需设一次；后续 `up` 不带它会保留。
-- `-Auto` 开机自启；端口默认走 `config.server.addr`（`-Addr` 可覆盖）。
-- 验证：`-Action status`（Running）/ `-Action logs`（tail stdout/stderr）。
+- gofer.exe 在 `<repo>\serve-run\gofer.exe`（`go build -o serve-run\gofer.exe .\cmd\gofer`）；`dist\gofer.exe` 是 `-Action upgrade` 用的构建产物。
+- 一个 gofer **配置目录**（`config.yaml` + `.env`）。`-ConfigDir` 必给（或用 `$env:GOFER_CONFIG_DIR`）：它经任务动作的 `-EnvExtra GOFER_CONFIG_DIR=…` 传进任务（任务继承的是**用户注册表**环境，不是你 shell 的），gofer 据此找到 `config.yaml` 并加载该目录 `.env` 里的 `GOFER_TOKEN`。缺了 → `refusing to start without a token`。任务定义里**不写** token。
+- **普通窗口即可**（任务归当前用户）。只有 `-Elevated`（RunLevel Highest）注册时需要提权。
+- 机器上若还装著名为 `gofer` 的服务（旧 nssm），`up` 会**拒绝**并打印迁移命令（两者抢同一端口）→ 见 §7.5。
 
-### 7.3 常见坑（本次落地实测）
+### 7.2 各 Action（`pwsh -File scripts\start.ps1 -Action …`）
 
-| 现象 | 处理 |
+| Action | 做什么 |
 |---|---|
-| `Unexpected status SERVICE_PAUSED in response to START` | gofer 启动即退 → nssm 节流。看 `-Action logs`，多半缺 config/token → 补 `-ConfigDir` |
-| `refusing to start without a token` | 服务没找到配置 → `-ConfigDir` 指到含 `config.yaml`+`.env` 的目录 |
-| local job 里 git `dubious ownership` / push 无凭据 | 服务在以 SYSTEM 跑 → `-Account` 切成你的账号 |
-| 服务起不来 **错误 1069**（登录失败） | `secpol.msc` → 用户权限分配 → 「作为服务登录」加上该账号，再 `-Action restart` |
-| SSH+ssh-agent 的 push 在服务内失败 | agent 只在交互会话 → 该类 push 仍在你自己终端做（HTTPS+凭据管理器则服务内可用） |
+| `up`（默认） | 注册/更新任务（`AtLogOn -User <当前控制台用户>`、`LogonType Interactive`、默认 `Limited`），清 `gofer.stop` 标记，启动任务，等 `/health` ≤20s，打印版本 / gofer pid / SessionId |
+| `upgrade` | 先 `make build`（服务照跑；构建失败**不动**二进制；`-Web` 同时 `make web`）→ `stop` → 旧 exe 存成 `gofer.exe.prev`、`dist\gofer.exe` 覆盖过去 → 启动 → 等 `/health` → 打印新旧版本与回滚命令。**不需要管理员** |
+| `stop` | 先落 `gofer.stop` 标记（看门狗不再拉起）→ `gofer serve stop`（pidfile + 命名事件优雅停）→ 等 ≤15s（任务离开 Running 且进程消失）；超时才 `Stop-ScheduledTask` 硬停并 Warning |
+| `restart` | `stop` → 删标记 → 启动 → 等 `/health` |
+| `remove` | `stop` + `Unregister-ScheduledTask`（exe / 日志保留） |
+| `status` | 任务 State、`Get-ScheduledTaskInfo`（LastRunTime / LastTaskResult / NextRunTime）、Action 的 Execute+Argument、gofer 进程 pid/SessionId/StartTime、`/health`、标记是否存在 |
+| `logs` | tail `serve-run\win-supervisor.log` 与 `<ConfigDir>\run\serve.log`（`serve -d` 另有 `serve.out.log`） |
 
-### 7.4 nssm 下的自更新（**与 §2 的差异**）
-
-换 nssm 后 **gofer 的父进程 = `nssm.exe`**（不再是 `win-supervisor.ps1`），故 §2 自更新必须带 `-SupervisorMarker 'nssm'`（否则 F4 守卫拒）：
+常用参数：`-ConfigDir <dir>`（必需）、`-Addr 0.0.0.0:<port>`（覆盖 config `server.addr`，同时作为健康探测地址；`0.0.0.0` 会换成 `127.0.0.1` 访问）、`-NoWeb`（`--no-web`，否则默认 `--web-dir ./web/dist`）、`-Config <file>`、`-TaskName`、`-ExeDir`（默认 `<repo>\serve-run`）、`-User`（默认当前控制台用户）、`-Elevated`。
 
 ```powershell
-gofer job run -a exec --runner local -- `
-  pwsh -NoProfile -File scripts\win-selfupdate.ps1 `
-    -RepoDir '<RepoDir>' -ExeDir '<repo>\serve-run' -SupervisorMarker 'nssm'
+# 常驻起 + 看状态 + 看日志（普通窗口）
+pwsh -File scripts\start.ps1 -Action up     -ConfigDir '<ConfigDir>'
+pwsh -File scripts\start.ps1 -Action status -ConfigDir '<ConfigDir>'
+pwsh -File scripts\start.ps1 -Action logs   -ConfigDir '<ConfigDir>'
+# 原地升级（不需要管理员）
+pwsh -File scripts\start.ps1 -Action upgrade -ConfigDir '<ConfigDir>'        # 仅 Go
+pwsh -File scripts\start.ps1 -Action upgrade -ConfigDir '<ConfigDir>' -Web   # 连 web 控制台
 ```
 
-rename-replace 逻辑不变：换二进制 → 按 pid 杀 gofer → nssm `AppExit=Restart` ~2s 拉起新 exe。
+### 7.3 确认它真的在桌面会话里
 
-> ⚠️ **nssm 无 §4 的 fast-fail 自动回滚看门狗**（那是 win-supervisor.ps1 的逻辑）：若新 exe 能 build+`-V` 通过但**运行时**启动即崩，nssm 只会节流重启、**不会自动回滚**。stage-1（build+`-V`）已挡住构建失败；运行时失败需**手动回滚**：`Copy-Item serve-run\gofer.old.exe serve-run\gofer.exe -Force; serve-run\nssm.exe restart gofer`。
+```powershell
+# ① 任务状态 + gofer 进程 SessionId（应等于控制台会话，不是 0）
+pwsh -File scripts\start.ps1 -Action status -ConfigDir '<ConfigDir>'
+
+# ② server 自证的判据：ready 行里的 interactive
+Get-Content '<ConfigDir>\run\serve.log' | Select-String 'server.ready'
+#   {"event":"server.ready",...,"session":1,"interactive":true}   ← true = 与活动控制台会话同一会话
+```
+
+最硬的验证：从容器派一个 local job，`gofer job run -a exec --runner local -- pwsh -c "(Get-Process -Id $PID).SessionId"` 应返回非 0 会话号。
+
+> ⚠️ `interactive` 的判据是「本进程会话 == `WTSGetActiveConsoleSessionId()`（**控制台**会话）」。**只用 RDP 登录**的主机上，控制台会话是那个空着的 session 1，而你和 serve 在 RDP 会话（如 session 2）→ `session` 与 explorer 一致但 `interactive=false`。此时以 **SessionId 对比**为准（`query session` 看会话列表与 Active 标记，`-Action status` 打印 serve 的 SessionId 与 explorer 的会话号对比）。
+
+### 7.4 常见坑
+
+| 现象 | 原因 / 处理 |
+|---|---|
+| `up` 报 `a Windows service named 'gofer' exists` 并退出 3 | 旧 nssm 服务还在（抢端口）。管理员窗口先卸，见 §7.5；**隔离实例**（自己的 TaskName/ExeDir/端口）可加 `-AllowServiceConflict` 跳过该检查 |
+| local job 碰不到桌面 / `BitBlt Access denied` | serve 不在用户会话：`-Action status` 看 SessionId（0 = session 0；对不上 explorer 的会话号就是不在桌面）。注意 `serve.log` 的 `interactive` 在 RDP 会话下会是 false，见 §7.3 |
+| 以管理员打开的 DTools/CODESYS 点不动 | UIPI：进程完整性级别不一致。gofer 也 `-Elevated` 注册（需管理员），或让目标程序以普通权限开 —— **两边必须一致** |
+| 锁屏 / RDP 断开后 GUI 自动化失败、截图黑屏 | Windows 桌面语义：锁屏后活动桌面是 Winlogon，RDP 断开后会话 disconnected。属桌面策略，本仓不解决 |
+| 重启后 server 不在 | 登录计划任务**依赖登录**。无人值守需开自动登录（`netplwiz` / Autologon）+ 放宽锁屏 —— 运维决定 |
+| gofer 找不到 config / `refusing to start without a token` | 任务环境里没有 `GOFER_CONFIG_DIR`：靠 `-ConfigDir` 经看门狗 `-EnvExtra` 注入，别指望用户 shell 的环境变量 |
+| 登录时闪一下黑窗 | 系统无 `conhost.exe --headless`（< Windows 10 1809）：脚本自动退回 `pwsh -WindowStyle Hidden` 并 Warning |
+| 自更新报 `guard(F4)` | 任务模式下 gofer 的父进程仍是 `win-supervisor.ps1`，§2 的默认 `-SupervisorMarker` 即可过 |
+
+### 7.5 从 nssm 迁移（一次性，需管理员）
+
+```powershell
+# 1) 管理员窗口：卸掉旧服务（nssm.exe 在 <repo>\serve-run\；没有就用 sc）
+cd <repo>\serve-run; .\nssm.exe stop gofer; .\nssm.exe remove gofer confirm
+#    sc.exe stop gofer; sc.exe delete gofer
+# 2) 普通窗口：注册登录计划任务（自动清掉残留的 gofer.stop）
+pwsh -File scripts\start.ps1 -Action up -ConfigDir '<ConfigDir>'
+# 3) 验证：任务 Running + SessionId 非 0 + /health 200
+pwsh -File scripts\start.ps1 -Action status -ConfigDir '<ConfigDir>'
+```
+
+> 切到计划任务后自更新**不再需要** `-SupervisorMarker 'nssm'`：gofer 的父进程回到 `win-supervisor.ps1`，§2 的调用即最终形态。
+> 切换后 `w-kzl-desktop` 这类"桌面前台 worker"可以关掉：local job 已经在桌面上跑了。

@@ -19,49 +19,36 @@ gofer job run -a exec --runner local -- `
     -RepoDir '<RepoDir>' -ExeDir '<ExeDir>'
 ```
 
-## 使用 nssm
+## 常驻:`start.ps1`(登录计划任务,桌面会话)
 
-### 用法(在项目目录、管理员 PowerShell 里)
+常驻实例注册成**登录计划任务**(默认名 `gofer-serve`,动作 = `conhost --headless pwsh -File scripts\win-supervisor.ps1`),跑在你的**交互会话**里 —— 所以 `--runner local` 的 job 能操作桌面(DTools/CODESYS 自动化、截图)。Windows 服务(nssm/sc)一律在 **session 0**,做不到这点,已废弃(设计 `docs/design/2026-09-22-windows-desktop-session-service-design.md`)。**普通窗口即可**(仅 `-Elevated` 需管理员)。
 
-```bash
-# 装并启动服务(默认 manual 启动，端口走 config 的 server.addr)
-pwsh -File scripts\start.ps1
-# 以当前用户运行
-pwsh -File scripts\start.ps1 `
-  -ConfigDir 'D:/work/inhere/config/win-env/gofer' `
-  -Account '.\KZL'
-  
-# 常用变体
-pwsh -File scripts\start.ps1 -Auto                 # 开机自启
-pwsh -File scripts\start.ps1 -Addr 0.0.0.0:LIVE-PORT    # 显式指定端口(覆盖 config)
-pwsh -File scripts\start.ps1 -Config .\.gofer.yaml # 指定配置
-pwsh -File scripts\start.ps1 -Action status        # 看状态/生效参数
-pwsh -File scripts\start.ps1 -Action logs          # tail stdout/stderr
-pwsh -File scripts\start.ps1 -Action restart       # 重启
-pwsh -File scripts\start.ps1 -Action upgrade       # 升级: 先 make build(服务不停) -> stop -> 换 serve-run\gofer.exe -> start; 旧 exe 留作 gofer.exe.prev
-pwsh -File scripts\start.ps1 -Action upgrade -Web  # 同上, 但先 make web 重打 web 控制台
-pwsh -File scripts\start.ps1 -Action remove        # 停 + 卸载服务(exe/日志保留)
+```powershell
+pwsh -File scripts\start.ps1 -Action up      -ConfigDir '<ConfigDir>'        # 注册/更新任务 -> 启动 -> 等 /health
+pwsh -File scripts\start.ps1 -Action status  -ConfigDir '<ConfigDir>'        # 任务状态/上次结果/Action 命令行/gofer pid+SessionId/健康
+pwsh -File scripts\start.ps1 -Action logs    -ConfigDir '<ConfigDir>'        # tail win-supervisor.log + <ConfigDir>\run\serve.log
+pwsh -File scripts\start.ps1 -Action restart -ConfigDir '<ConfigDir>'        # 优雅停 -> 起
+pwsh -File scripts\start.ps1 -Action upgrade -ConfigDir '<ConfigDir>'        # 原地升级: 服务不停的 make build -> stop -> 换 exe -> start; 旧 exe 留 gofer.exe.prev
+pwsh -File scripts\start.ps1 -Action upgrade -ConfigDir '<ConfigDir>' -Web   # 同上, 但先 make web 重打 web 控制台
+pwsh -File scripts\start.ps1 -Action stop    -ConfigDir '<ConfigDir>'        # 落 gofer.stop 标记 + gofer serve stop(看门狗不再拉起)
+pwsh -File scripts\start.ps1 -Action remove  -ConfigDir '<ConfigDir>'        # 停 + 注销任务(exe/日志保留)
 ```
 
 关键点:
 
-- 路径全从脚本位置推导:ExeDir=<repo>\serve-run、nssm=serve-run\nssm.exe、AppDirectory=<repo>(所以 --web-dir ./web/dist 用相对路径,规避 PowerShell→nssm 引号地狱,repo 路径含空格也安全)
-- 日志 → serve-run\gofer.out.log / gofer.err.log
-- AppExit=Restart + 2s 延迟(崩溃/被杀后自动拉起,正是自更新需要的重启器)
-- token:-Token 或 $env:GOFER_TOKEN → 注入服务环境(注:存进服务注册表,管理员可读)
-- 服务操作需管理员;脚本会检测并给明确提示
+- `-ConfigDir` 必给(或 `$env:GOFER_CONFIG_DIR`):任务继承的是**用户注册表**环境,拿不到你 shell 的 env,靠任务动作的 `-EnvExtra GOFER_CONFIG_DIR=…` 注入。token 放 `<ConfigDir>\.env`(`GOFER_TOKEN=…`)或配置的 `token_env`;任务定义里**不写** token。
+- 端口/前端:`-Addr 0.0.0.0:8765` 覆盖 config 的 `server.addr`(也是健康探测地址);`-NoWeb` 用 `--no-web`,否则默认 `--web-dir ./web/dist`(相对 `<repo>`,即任务动作的 WorkingDirectory)。
+- 路径从脚本位置推导:`ExeDir=<repo>\serve-run`(运行中的 exe + `gofer.stop` + `win-supervisor.log`)、`dist\gofer.exe`(`upgrade` 的构建产物)。
+- 停机 = **标记 + 优雅停**:`gofer.stop` 让看门狗退出不再拉起,`gofer serve stop` 走 pidfile + 命名事件(不硬杀)。
+- 机器上还有名为 `gofer` 的服务时 `up` 会拒绝(两者抢端口)并打印迁移命令;隔离实例可加 `-AllowServiceConflict` 跳过。
+- 自更新链不变:gofer 的父进程仍是 `win-supervisor.ps1`,F4 守卫用默认 marker(无需 `-SupervisorMarker`)。
 
-⚠️ 自更新在 nssm 下的改动(重要)
+### 隔离验收
 
-换 nssm 后 gofer 的父进程变成 nssm.exe(不再是 win-supervisor.ps1),所以自更新的 F4 守卫要用 -SupervisorMarker 'nssm',否则会被拒:
-
-```bssh
-gofer job run -a exec --runner local -- `
-  pwsh -NoProfile -File scripts\win-selfupdate.ps1 `
-    -RepoDir '<RepoDir>' -ExeDir '<repo>\serve-run' -SupervisorMarker 'nssm'
+```powershell
+pwsh -NoProfile -File scripts\win-selftest.ps1    # 监督 + 自更新(独立 config dir + 端口 9099)
+pwsh -NoProfile -File scripts\win-tasktest.ps1    # 任务模式(随机任务名 + 端口 9098/9097)
 ```
-
-rename-replace 逻辑不变:换二进制文件 → 按 pid 杀 gofer → nssm 的 AppExit=Restart ~2s 拉起新 exe。(这条我已写进 start.ps1 的头部注释。)
 ## TCP 隧道冒烟
 
 隔离 serve、worker 与 echo 的 11 项回归检查：[`smoke/tunnel/run-smoke.sh`](smoke/tunnel/run-smoke.sh)。

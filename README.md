@@ -38,7 +38,7 @@ gofer bridges configurable **CLI agents** (`codex` / `claude` / `omp` / `opencod
 - **Usage and cost**: agents that report their own tokens land on the job (`jobs.usage_json`: `in/out/cache/total` + `cost_usd` + which parser produced it) — read from omp/claude ndjson, codex `exec` stderr and acp `usage_update`. `job show` prints one `usage:` line, the job detail page has a block, and `/v1/stats` + the Home card aggregate 24h/7d per agent. Best-effort by design: an agent that reports nothing shows `-`, never `0`.
 - **Worker events reach the hub**: approval-gate and verify events of jobs running on a worker (`job.permission_requested|answered|timed_out`, `job.verify_started|finished`) are mirrored into the hub's job events (deduplicated), so notifications and audits see remote jobs too.
 - **Observable and auditable**: JSONL file logs (rotation, redaction), `/v1/runners` health roster, SSE live streams, `caller_id` / `worker_id` persisted, retention pruning; SQLite (pure Go) for metadata.
-- **Windows friendly**: nssm service script (`scripts/start.ps1`, including one-shot `upgrade`), ConPTY-backed interactive sessions.
+- **Windows friendly**: `scripts/start.ps1` runs the server as a logon scheduled task inside the desktop session (crash-restarting watchdog, one-shot `upgrade`), ConPTY-backed interactive sessions.
 
 ## Architecture
 
@@ -451,13 +451,15 @@ gofer project add demo-api --host-path /abs/demo-api --container-path /work/demo
 gofer serve -d                                     # daemon; log at <config-dir>/run/serve.log
 ```
 
-**Windows service (nssm)** — `scripts/start.ps1` from an elevated pwsh:
+**Windows: logon scheduled task in the desktop session** — `scripts/start.ps1` (ordinary window; `-Elevated` needs admin):
 
 ```powershell
-pwsh -File scripts\start.ps1 -ConfigDir 'D:/path/to/gofer' -Account '.\you'   # install + start as your account (jobs get your PATH / git identity)
-pwsh -File scripts\start.ps1 -Action upgrade [-Web]   # make build first (service keeps running) → stop → swap serve-run\gofer.exe → start; previous exe kept as .prev
+pwsh -File scripts\start.ps1 -Action up -ConfigDir 'D:/path/to/gofer'   # register + start a logon task; local jobs run on YOUR desktop, as you
+pwsh -File scripts\start.ps1 -Action upgrade [-Web]                    # make build first (server keeps running) → stop → swap serve-run\gofer.exe → start; previous exe kept as .prev
 pwsh -File scripts\start.ps1 -Action status|logs|restart|stop|remove
 ```
+
+Runs as a scheduled task rather than a service on purpose: a service lives in session 0 and cannot drive the desktop, so `--runner local` GUI jobs (DTools / CODESYS / screenshots) fail there. Migrating off an old nssm service: [runbook §7](docs/runbook/2026-07-11-windows-server-selfupdate-runbook.md).
 
 **Container ↔ host**: the container is a pure client (`gofer init client`, `GOFER_SERVER_ADDR=http://host.docker.internal:8765`), the host runs the server (and/or a worker); a job's `--cwd` resolves against the executing machine's project root, so never hard-code container paths in commands.
 

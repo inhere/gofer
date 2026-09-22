@@ -2,7 +2,7 @@
 # P3 policy-push e2e smoke on a FULLY ISOLATED in-container stack (plan T7).
 #
 # Everything runs against 127.0.0.1:18899 (+ a v3 matrix server on :18900). It
-# NEVER touches the live host server (nssm), the live in-container worker,
+# NEVER touches the live host server, the live in-container worker,
 # nor any process it did not start. It SIGTERMs only the PIDs it captured (trap).
 #
 # Usage:

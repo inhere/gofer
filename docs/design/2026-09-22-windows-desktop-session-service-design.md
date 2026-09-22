@@ -266,3 +266,50 @@ ERROR: stop serve (pid=41620): stop event not found for pid=41620: not a gofer s
 - `interactive=true`（登录会话里跑 serve）、任务模式看门狗、`start.ps1` 重写、nssm 卸载迁移：属 §四/§五。
 - 禁止 breakaway 的宿主上的重试分支；跨用户 stop（应报 `taskkill` 提示）。
 
+## W2 实测记录（2026-09-22，主机 Windows 11 26100 / PowerShell 7.6.6）
+
+范围 = §四 + §五。提交：`781d97b`（看门狗 `-StopMarker`/`-EnvExtra`）→ `1d0e578`（`start.ps1` 重写为计划任务模式 + `-ServeArgs` 归一化）→ `96daeb0`（`win-tasktest.ps1`）。**未改 Go 代码**；正式切换（桌面管理员卸 nssm）不在本次。
+
+### 1. 两个验收脚本（主机真跑，隔离实例）
+
+```
+==== RESULT: pass=13 fail=0 ====      # win-selftest.ps1（监督 + 自更新，未被本次改动破坏）
+==== RESULT: pass=26 fail=0 ====      # win-tasktest.ps1（任务模式），tasktest exit=0
+```
+
+任务模式的关键行（`win-tasktest.ps1` 原文摘录）：
+
+```
+console session = 2 (from explorer.exe)
+action : C:\Windows\System32\conhost.exe --headless "C:\Program Files\PowerShell\7\pwsh.exe" -NoProfile -NonInteractive -ExecutionPolicy Bypass -File ...\win-supervisor.ps1 -ExeDir ...\tmp\win-tasktest\bin -WorkDir <repo> -ServeArgs serve,--no-web,--addr,127.0.0.1:9098 -EnvExtra GOFER_CONFIG_DIR=...\cfg
+PASS: up refuses while service 'gofer' exists (exit=3 + nssm migration commands)
+PASS: test gofer running pid=21948 SessionId=2
+PASS: SessionId matches the console session (2) -> running ON the desktop
+server.ready: {"time":"...","level":"INFO","msg":"server.ready",...,"addr":"127.0.0.1:9098","session":2,"interactive":false}
+PASS: /health unreachable after stop（+ server.shutdown / pidfile 已删 / gofer.stop 存在 / task Ready / 5s 后仍无进程）
+PASS: health recovered 1s after the kill (watchdog relaunch)
+serve -d #1 exit=0: gofer serve 已后台启动 pid=8636 log=...\cfg2\run\serve.log
+PASS: detached serve answers /health on :9097 (launcher gone)
+serve -d #2 exit=1: ERROR: serve: already running (pid=8636, pidfile=...)
+serve stop exit=0: gofer: 已向 serve(pid=8636) 发送停止信号，等待退出... / gofer: serve 已停止
+swapped: Version: 0.49.0-10-... -> Version: 0.49.0-10-...      # upgrade：make build -> stop -> gofer.exe.prev -> 换 exe -> start
+PASS: task unregistered
+```
+
+`conhost --headless` 在本机（build 26100）**可用**：任务动作即上面的 `--headless` 形式，全程没有窗口闪现，也没有控制台窗口残留。登录任务确实把 serve 放在**用户的会话**（session 2 == explorer 的会话），不再是 session 0。
+
+### 2. `session:2, interactive:false` 的解释（代码按设计工作）
+
+本机 `query session`：`services 0 Disc / console 1 Conn / rdp-tcp#0 KZL 2 Active` —— 用户只通过 **RDP** 登录，`WTSGetActiveConsoleSessionId()` 仍是那个空的控制台会话 1。于是「本进程会话(2) == 控制台会话(1)」为假 → `interactive=false`，尽管 serve 就在用户的桌面上。**结论：`interactive` 是"是否在控制台会话"，比"是否在用户桌面"更窄**；RDP 主机上应以 **SessionId 对比**为准（runbook §7.3 已写明）。如需更准的判据（如 `WTSQuerySessionInformation` 判用户活动会话），属后续小改，本次不改语义。
+
+### 3. 实测暴露的两处机制缺口（已修，属 §四 的必要组成）
+
+1. **任务动作里的 `-ServeArgs` 逗号列表在 `-File` 下不成立**：`pwsh -File x.ps1 -ServeArgs serve,--no-web,...` 的原生命令行**无法**绑定 PowerShell 数组，到达时是**单个**字符串 `"serve,--no-web,..."` → gofer 收到一个畸形参数立刻 exit 2 → 看门狗快速失败空转（实测 ~18 次/分钟，日志 5KB）。§四 描述的动作形式保留，改由**看门狗自己按 `,` 拆分**（`win-supervisor.ps1`；单项参数因此不得含逗号）；进程内调用（`win-selftest.ps1`、runbook §1 的 `@(...)`）不受影响，`win-selftest.ps1` 仍 13/0。
+2. **验证脚本不能 `Start-Process -Wait` 等 `serve -d`**：PowerShell 7.4 起 `-Wait` 会等**整棵进程树**，分离子进程会让它永远等下去（另有一层：分离子进程继承启动者的 stdout **管道**，`-RedirectStandardOutput` 等的是那个 EOF）。`win-tasktest.ps1` 改为 `-PassThru` + `WaitForExit(60s)`，分离场景再用 cmd 级**文件**重定向。测试脚本实现细节，不影响产品语义。
+
+### 4. 未在本机验证（人工 / 正式切换）
+
+- **正式切换**：桌面管理员窗口 `nssm stop gofer; nssm remove gofer confirm` → 普通窗口 `start.ps1 -Action up -ConfigDir <真实配置>` → `-Action status`；随后从容器派 local job 验证 SessionId 非 0 与 GUI 动作。本次全程只碰隔离实例（临时 config dir + 9097/9098 + 随机任务名），live 的 `gofer` 服务与真实配置目录未动。
+- `-Elevated`（RunLevel Highest / UIPI 场景）未实测：注册需管理员。
+- 掉电重启后的"需登录才回来"、锁屏/RDP 断开下的 GUI 可用性：属运维/桌面策略。
+
