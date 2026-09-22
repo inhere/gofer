@@ -30,8 +30,13 @@ all: build
 ## web: build the web console (pnpm) and embed into internal/webui/dist (then `make build` to bake into the binary)
 web:
 	@command -v pnpm >/dev/null 2>&1 || corepack enable pnpm
+# Every pnpm line keeps a shell operator (`||`, `&&`) ON PURPOSE: GNU make runs a
+# "simple" recipe line WITHOUT a shell (direct spawn), and on Windows that resolves
+# `pnpm` to the %PNPM_HOME%\bin shim instead of the npm wrapper the shell finds —
+# a stale shim then dies with "the global target of the pnpm shim points back at
+# the shim". Going through the shell keeps the resolution identical to a terminal.
 	pnpm -C web install --frozen-lockfile || pnpm -C web install
-	pnpm -C web build
+	cd web && pnpm build
 	@echo "📁 Embedding web/dist -> $(WEBUI_DIST)"
 	@find $(WEBUI_DIST) -mindepth 1 ! -name placeholder.html ! -name .gitignore -delete
 	@cp -r web/dist/. $(WEBUI_DIST)/
