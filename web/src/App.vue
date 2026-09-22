@@ -5,6 +5,7 @@ import { clearToken, hasToken } from './store/auth'
 import EscalationBell from './components/EscalationBell.vue'
 import TopbarMenu from './components/TopbarMenu.vue'
 import { needsReviewCount } from './store/reviewCount'
+import { staleBuild } from './store/staleBuild'
 
 const router = useRouter()
 const route = useRoute()
@@ -78,6 +79,11 @@ function logout() {
 function closeDrawer() {
   drawerOpen.value = false
 }
+
+// F8：服务端换过版本（或 chunk 重载被冷却抑制）时的提示条入口——重载即拿到新构建。
+function reloadPage() {
+  window.location.reload()
+}
 </script>
 
 <template>
@@ -131,6 +137,15 @@ function closeDrawer() {
         </RouterLink>
       </nav>
       <div class="topbar-right mono">
+        <button
+          v-if="staleBuild"
+          class="stale-build"
+          type="button"
+          title="服务端已更新，当前页面加载的是旧版本前端资源"
+          @click="reloadPage"
+        >
+          有新版本，点击刷新
+        </button>
         <RouterLink to="/new" class="new-job" active-class="new-job--active">
           <span aria-hidden="true">+</span>
           <span class="new-job-label"><span class="new-job-verb">新建 </span>job</span>
@@ -337,6 +352,21 @@ function closeDrawer() {
 }
 .new-job--active {
   opacity: 0.85;
+}
+
+/* F8：服务端已更新，当前页面是旧构建——提示条可点，点了重载。 */
+.stale-build {
+  background: var(--run);
+  color: var(--ink);
+  border: 1px solid var(--run);
+  border-radius: var(--radius);
+  padding: 4px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  font-family: var(--font-mono);
+}
+.stale-build:hover {
+  opacity: 0.9;
 }
 
 .conn {
