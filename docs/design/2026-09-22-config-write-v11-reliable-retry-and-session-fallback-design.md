@@ -1,12 +1,13 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 配置写层 V1.1、可靠重试与会话捕获兜底设计（WEB-04③ / AUTO-03 / AGT-04）
 
-> 状态：Draft 0.1 / 待批准
+> 状态：Approved 0.2 / 实施中（2026-09-22 人工批准，决策 1–5 照初稿；分期 R1 → R2 → R3，全部 omp）
 
 ## 修订记录
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
+| 0.2 | 2026-09-22 | Claude | 人工批准，决策 1–5 不变；R1（AGT-04）开工 |
 | 0.1 | 2026-09-22 | Claude | 初稿：WEB-04③ agents/server 在 web 编辑（外科写回 + 热重载盲区显式化 + secret 只引用不落盘）；AUTO-03 重试可靠版（落库 + sweeper + 租约，进程重启不丢）；AGT-04 会话捕获兜底（新增 agent 免配即可续接，jcode 实测驱动） |
 
 ## 背景与目标
@@ -187,7 +188,7 @@ CREATE INDEX IF NOT EXISTS idx_job_retries_due ON job_retries(state, next_run_at
 - **配置写与手工编辑并发**：`updateMu` 只保护进程内；用户同时在主机编辑器里改 yaml 仍可能覆盖。缓解：`mutateConfig` 保存前比对文件 mtime，变了就 409 让前端刷新后重试（与 artifact 的冲突处理同思路）。
 - **restart_required 字段表要人维护**：新增字段时漏标就会出现"web 改了没生效"。缓解：R3 加一个测试 `TestEveryServerFieldHasPolicy`，反射遍历 `ServerConfig` 字段，缺策略即失败。
 
-## 决策（待批准）
+## 决策（已批准 2026-09-22）
 
 1. 配置写层这一期只做 **agents + server 白名单**；callers/roles/runners/notification 目标留到 V1.2（notification 的 secret 面更复杂）。
 2. secret **只编辑 env 名**，字面值字段在 web 上只读。
