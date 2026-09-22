@@ -29,8 +29,9 @@ const (
 
 // Stripper removes ANSI escape sequences (PTY-01 §四): CSI, OSC, the two-byte
 // sequences and the charset/intermediate introducers, and folds CR into LF. It is
-// a LEAF-level text filter with no screen model — a TUI's cursor addressing is
-// simply dropped, so the transcript reads as the plain lines the TUI printed.
+// a LEAF-level text filter with no screen model: the cursor motion a TUI uses to
+// PLACE text is turned back into whitespace (see csiFinal) so the words it drew stay
+// apart, and every other decoration is simply dropped.
 //
 // State is carried ACROSS Write calls: a read chunk may split an escape sequence
 // (a 4KB pty read routinely cuts an OSC title or a colour run in half), and a
@@ -38,11 +39,32 @@ const (
 // also held back until the next byte, so CRLF folds to ONE newline and a final
 // lone CR is emitted by Flush.
 type Stripper struct {
-	st ansiState
-	cr bool
+	st   ansiState
+	cr   bool
+	csi  []byte // parameter/intermediate bytes of the CSI sequence in flight
+	last byte   // last text byte emitted (0 = nothing emitted yet)
 }
 
-// Write returns p with escape sequences removed and CR folded to LF.
+// csiParamBytesMax bounds the parameter bytes kept for the sequence in flight, and
+// csiParamMax the CUF spacing a single sequence may produce: a TUI's padding is a
+// handful of columns, while a corrupt or hostile stream must not be able to blow the
+// transcript up.
+const (
+	csiParamBytesMax = 32
+	csiParamMax      = 200
+)
+
+// emit appends one text byte and remembers it as the last byte out — what decides
+// whether a following cursor move still has to separate words.
+func (s *Stripper) emit(out []byte, b byte) []byte {
+	s.last = b
+	return append(out, b)
+}
+
+// Write returns p with escape sequences removed and CR folded to LF. Cursor motion
+// that stood in for spacing comes back as whitespace (see csiFinal): a TUI draws text
+// by MOVING the cursor rather than printing padding, so a plain drop ran words
+// together.
 func (s *Stripper) Write(p []byte) []byte {
 	out := make([]byte, 0, len(p))
 	for _, b := range p {
@@ -55,18 +77,19 @@ func (s *Stripper) Write(p []byte) []byte {
 				s.cr = true // held: CRLF must fold to a single newline
 			case '\n':
 				s.cr = false
-				out = append(out, '\n')
+				out = s.emit(out, '\n')
 			default:
 				if s.cr {
 					s.cr = false
-					out = append(out, '\n')
+					out = s.emit(out, '\n')
 				}
-				out = append(out, b)
+				out = s.emit(out, b)
 			}
 		case stEsc:
 			switch b {
 			case '[':
 				s.st = stCSI
+				s.csi = s.csi[:0] // a fresh sequence: the previous params are done with
 			case ']':
 				s.st = stOSC
 			case '(', ')', '*', '+', '-', '.', '/', '#', '$', '%', '&', '"', ' ', '!':
@@ -75,9 +98,17 @@ func (s *Stripper) Write(p []byte) []byte {
 				s.st = stGround // two-byte sequence (ESC =, ESC >, ESC M, …)
 			}
 		case stCSI:
-			if b >= 0x40 && b <= 0x7e { // parameter/intermediate bytes stay in CSI
+			switch {
+			case b >= 0x40 && b <= 0x7e: // final byte: the sequence ends here
+				out = s.csiFinal(out, b)
 				s.st = stGround
+			case b >= 0x20 && b <= 0x3f: // parameter / intermediate bytes
+				if len(s.csi) < csiParamBytesMax {
+					s.csi = append(s.csi, b)
+				}
 			}
+			// Any other byte (a C0 control inside the sequence) stays swallowed: the
+			// transcript must never leak a half-parsed escape.
 		case stOSC:
 			switch b {
 			case 0x07: // BEL terminator
@@ -98,6 +129,75 @@ func (s *Stripper) Write(p []byte) []byte {
 	return out
 }
 
+// csiFinal handles the final byte of a CSI sequence. Layout-carrying sequences become
+// whitespace instead of vanishing (F6): claude's ink TUI pads columns with `ESC[nC`
+// (CUF, cursor forward), so a transcript that dropped it read
+// `NewMCPserverfoundinthisproject…`. CUF emits n spaces (parameter default 1, clamped
+// by csiParamMax); an absolute move (`ESC[nG` CHA, `ESC[r;cH` CUP) emits AT MOST one
+// space — without a screen model the only thing worth keeping is that two words were
+// drawn apart; erase (`ESC[K`/`ESC[J`) and every other sequence print nothing.
+func (s *Stripper) csiFinal(out []byte, final byte) []byte {
+	switch final {
+	case 'C', 'G', 'H', 'f':
+		if s.cr { // a held CR still owes its newline: it goes before any padding
+			s.cr = false
+			out = s.emit(out, '\n')
+		}
+	}
+	switch final {
+	case 'C':
+		for n := s.csiParam(1); n > 0; n-- {
+			out = s.emit(out, ' ')
+		}
+	case 'G', 'H', 'f':
+		if s.last != 0 && !isTextSpace(s.last) {
+			out = s.emit(out, ' ')
+		}
+	case 'K', 'J':
+		// Erase in line / display: invisible, and it must not insert a blank either.
+	}
+	s.csi = s.csi[:0]
+	return out
+}
+
+// csiParam returns the first parameter of the sequence in flight, or def when it is
+// absent or unreadable — `ESC[C` means one column, and so does a private-mode form
+// (`ESC[?25C`) because a `?` prefix is not a parameter this filter interprets. The
+// value is clamped to csiParamMax.
+func (s *Stripper) csiParam(def int) int {
+	seg := s.csi
+	for i := range s.csi {
+		if s.csi[i] == ';' {
+			seg = s.csi[:i]
+			break
+		}
+	}
+	n := 0
+	for _, c := range seg {
+		if c < '0' || c > '9' {
+			return def
+		}
+		n = n*10 + int(c-'0')
+		if n > csiParamMax {
+			return csiParamMax
+		}
+	}
+	if n <= 0 {
+		return def // `ESC[0C` moves one column, as ECMA-48 says
+	}
+	return n
+}
+
+// isTextSpace reports whether b is separation in the transcript's own terms — the
+// bytes a TUI lets stand for a gap between words.
+func isTextSpace(b byte) bool {
+	switch b {
+	case ' ', '\t', '\n', '\v', '\f', '\r':
+		return true
+	}
+	return false
+}
+
 // Flush returns the newline a held lone CR owes and clears the pending state. It
 // is what makes a transcript that ended with "\r" still close its last line.
 func (s *Stripper) Flush() []byte {
@@ -105,7 +205,7 @@ func (s *Stripper) Flush() []byte {
 		return nil
 	}
 	s.cr = false
-	return []byte{'\n'}
+	return s.emit(nil, '\n')
 }
 
 // Transcript is the de-ANSI'd text record of one pty session, written to
