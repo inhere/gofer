@@ -2,8 +2,10 @@ package commands
 
 import (
 	"os"
+	"os/signal"
 	"path/filepath"
-	"runtime"
+	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/inhere/gofer/internal/buildinfo"
@@ -86,9 +88,6 @@ func seedWorkerPid(t *testing.T, id string, pid int) string {
 // TestResolveDefaultWorkerSingleRunning: exactly one live worker pidfile → its id
 // is auto-detected (no <id> needed). A stale (dead-pid) pidfile is ignored.
 func TestResolveDefaultWorkerSingleRunning(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("daemon PID liveness is not supported on Windows")
-	}
 	t.Setenv(config.EnvConfigDir, t.TempDir())
 	seedWorkerPid(t, "solo", os.Getpid()) // alive (this test process)
 	seedWorkerPid(t, "ghost", 2147483646) // dead → must be ignored
@@ -107,9 +106,6 @@ func TestResolveDefaultWorkerSingleRunning(t *testing.T) {
 // TestResolveDefaultWorkerMultipleRunning: more than one live worker → ambiguous,
 // must error (the <id> is required).
 func TestResolveDefaultWorkerMultipleRunning(t *testing.T) {
-	if runtime.GOOS == "windows" {
-		t.Skip("daemon PID liveness is not supported on Windows")
-	}
 	t.Setenv(config.EnvConfigDir, t.TempDir())
 	seedWorkerPid(t, "alpha", os.Getpid())
 	seedWorkerPid(t, "beta", os.Getpid())
@@ -140,5 +136,65 @@ func TestWorkerStopStalePidfile(t *testing.T) {
 	}
 	if _, err := os.Stat(pidPath); !os.IsNotExist(err) {
 		t.Fatalf("stale pidfile should be cleaned, stat err=%v", err)
+	}
+}
+
+// TestStopDaemonHintIsPlatformNeutral: the stop path must never tell the operator
+// to run a unix-only command. "SIGTERM" must not appear at all, and the manual
+// hard-kill wording can only come from daemon.KillHint(pid) — taskkill /PID N /F
+// on Windows, kill -9 N on unix.
+func TestStopDaemonHintIsPlatformNeutral(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(config.EnvConfigDir, dir)
+	pidPath := filepath.Join(dir, "run", "serve.pid")
+	if err := os.MkdirAll(filepath.Dir(pidPath), 0o755); err != nil {
+		t.Fatalf("mkdir run: %v", err)
+	}
+	c := bindCmd(NewServeStopCmd())
+	selfHint := daemon.KillHint(os.Getpid())
+	assertNeutral := func(step, text string) {
+		t.Helper()
+		if strings.Contains(text, "SIGTERM") {
+			t.Fatalf("%s: wording must be platform neutral, got: %s", step, text)
+		}
+		if strings.Contains(text, "kill -9") && !strings.Contains(text, selfHint) {
+			t.Fatalf("%s: the only hard-kill wording allowed is daemon.KillHint(pid), got: %s", step, text)
+		}
+	}
+
+	// (a) pidfile pointing at a process that has already exited → not running.
+	if err := daemon.WritePIDFile(pidPath, 2147483646); err != nil {
+		t.Fatalf("seed dead pidfile: %v", err)
+	}
+	out := captureOutput(t, func() {
+		if err := stopDaemon(c, pidPath, "serve"); err != nil {
+			t.Fatalf("stop of a dead-pid serve should be a no-op, got: %v", err)
+		}
+	})
+	assertNeutral("dead pidfile", out)
+	if !strings.Contains(out, "未在运行") {
+		t.Fatalf("a dead pidfile must be reported as not running, got: %s", out)
+	}
+
+	// (b) pidfile pointing at THIS live process. On unix Terminate signals us (the
+	// registered channel swallows it so the test process survives and the graceful
+	// wait times out); on Windows there is no stop event for this pid, so Terminate
+	// fails outright. Both paths must stay platform neutral.
+	if err := daemon.WritePIDFile(pidPath, os.Getpid()); err != nil {
+		t.Fatalf("seed self pidfile: %v", err)
+	}
+	swallow := make(chan os.Signal, 1)
+	signal.Notify(swallow, syscall.SIGTERM)
+	defer signal.Stop(swallow)
+
+	var err error
+	out = captureOutput(t, func() { err = stopDaemon(c, pidPath, "serve") })
+	text := out
+	if err != nil {
+		text += "\n" + err.Error()
+	}
+	assertNeutral("live self pidfile", text)
+	if !strings.Contains(text, selfHint) && !strings.Contains(text, "已停止") {
+		t.Fatalf("a stop that did not report success must point at daemon.KillHint(%d), got: %s", os.Getpid(), text)
 	}
 }
