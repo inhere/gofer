@@ -231,4 +231,7 @@ SMOKE OK (html 4867 bytes)
 
 - **PLAN-03 链自动推进**：plan `plan-20260922-153837-795cc94c`（项目 `hyy-ai-inspect`）四条 todo：A `--assign omp --cwd docs`（只读命令）→ B `--after prev --assign exec --runner w-docker-claude --cmd 'bash -lc "go version"'` → C 同 B 但 `exit 3` → D `echo chain-done`。`plan run` 后 A 立即派发（omp 16s 完成）→ B **自动**派到容器 worker（`go version go1.25.10 linux/amd64`）→ C 失败 → plan `status=blocked`、`plan show` 打印释放命令 → `plan set-todo C --status skipped` → D 自动派发并完成 → plan `status=done`。全程无人工派 job。
 - CFG-09 容器 worker 作为链上一环（B/C/D 都跑在 `w-docker-claude`）真机通过。
-- PTY-01（`tty-claude` 会话续接、omp TUI 退出文案采样）另记。
+- PTY-01 交互会话续接与退出文案采样（交互 pty job 由脚本驱动退出）：
+  - **`tty-claude` 续接通过**：交互 job `20260922-163846-31abe0ab` 退出后 `job show` 有 `session_id=7c4418ff-0928-4e33-8347-c24241d919c0`（PTY-01 的 `--session-id` 注入在 TUI argv 上生效），`pty.txt` 尾部含 `Resume this session with:`；`job resume` 起了交互续接 job `20260922-164816-7a746436`（`claude --resume` 直接进 TUI，同 session id 链回）。
+  - **omp 退出文案采样 + 缺陷**：omp 交互 job `20260922-164858-a7256a59` 退出时最后一行是 `Resume this session with omp --resume 01a0c84d-d444-72ca-ad7c-edadbae32034`；纯文本 TUI 不打 ndjson 的 `"type":"session"` 行，而内置 `SessionCapture` 只认那一行 → **修前 `session_id` 为空、`job resume` 不可用**。F6 T1 给 omp 补第二条分支（并把 `CaptureSessionIDBytes` 改成取第一个非空捕获组），修后可捕获。claude 的两行退出横幅（`Resume this session with:` / `claude --resume <uuid>`）同批补进 claude 的 `session_capture`（注入是主路径，这条只是捕获兜底）。
+  - **转录丢空格**：claude TUI（ink）用 `ESC[nC`（光标右移 n 列）代替空格排版，`pty.txt` 出现 `NewMCPserverfoundinthisproject:aliyun-slsMCPserversmayexecutecode…`、`Entertoconfirm·Esctocancel`，既不可读、也让正则匹配不到带空格的文案。F6 T2 让 `C` 输出 n 个空格、`G`/`H`/`f` 至多补一个空格（`K`/`J` 与私有序列仍不可见）。
