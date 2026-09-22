@@ -492,6 +492,21 @@ export interface ConfigView {
   supervisor?: SupervisorView
   presence: ConfigPresenceView
   schedule: ConfigScheduleView
+  // 字段写策略表（WEB-04③ V1.1）：键 = 写请求体里的字段名（yaml 名）。控制台的编辑
+  // 表单按它渲染/禁用输入，服务端用同一张表拒绝越权字段——一处定义，两处消费。
+  server_policy: Record<string, FieldPolicy>
+  agent_policy: Record<string, FieldPolicy>
+}
+
+// FieldPolicy 是一个配置字段的写契约（internal/config/editable.go）。
+export interface FieldPolicy {
+  // editable=true：PUT 接受该字段。
+  editable: boolean
+  // restart_required=true：进程启动时读取（监听地址、存储根、secret 载体），API 不可编辑，
+  // 改了要改文件 + 重启（控制台显示「需重启」）。
+  restart_required: boolean
+  // secret_ref=true：字段是**环境变量名**（不是值）。
+  secret_ref?: boolean
 }
 
 export interface ServerConfigView {
@@ -506,6 +521,19 @@ export interface ServerConfigView {
   runner_probe: RunnerProbeConfigView
   notification?: NotificationView
   metrics: MetricsConfigView
+  // 控制台可热改的项：*_sec / auto_resume_max 为 null 表示"未设置"（继承默认），与 0
+  // （显式关闭）不同，编辑表单必须原样回发这个区别。
+  max_job_timeout_sec: number
+  auto_resume_max: number | null
+  stall_timeout_sec: number | null
+  job_recover_window_sec: number | null
+  retry?: RetryPolicy
+}
+
+export interface RetryPolicy {
+  max_attempts: number
+  backoff_sec?: number[]
+  on_exit_codes?: number[]
 }
 
 export interface GovernanceView {
@@ -592,6 +620,70 @@ export interface ConfigAgentView {
   session_resume: string[]
   system_inject: string[]
   mcp_server_name?: string
+  // 可编辑字段集（WEB-04③ V1.1）：编辑表单从这些字段预填。interactive_args 允许 null ——
+  // null = 批处理模式，[] = 交互模式且无额外 argv（AGT-02），表单必须原样回发这个区别。
+  interactive_args: string[] | null
+  read_only_args: string[]
+  session_resume_interactive: string[]
+  transient_error_patterns: string[]
+  fallback_agents: string[]
+  max_concurrent: number
+  stall_timeout_sec: number | null
+  retry?: RetryPolicy
+  output_format: string
+  ndjson_keep: string[]
+  ndjson_raw: boolean
+  ndjson_events_to: string
+  ndjson_stdout: string
+  ndjson_stdout_path: string
+  ndjson_fields?: Record<string, string[]>
+  acp?: AcpConfigView
+  // injected=true：该 key 不是操作者在文件里声明的，而是运行时按内置模板注入的（CLI 在本机
+  // 存在才注入）。删除它 = 删除操作者覆盖、回落到内置定义，不是删除能力。
+  injected?: boolean
+}
+
+export interface AcpConfigView {
+  modes?: Record<string, string>
+  permission_policy?: string
+}
+
+// 配置写响应（internal/httpapi/config_write_handler.go）。
+export interface ConfigWriteResp {
+  status: string
+  section: string
+  key?: string
+  created: boolean
+  reloaded: boolean
+  fields: string[]
+  // restart_required 是该 section 中"改了要重启"的字段路径（API 无法承载的项）：
+  // 控制台据此说明"本次改动已即时生效，而这些项仍需改文件 + 重启"。
+  restart_required: string[]
+}
+
+export interface ConfigAgentDeleteResp {
+  status: string
+  key: string
+  fell_back_to_builtin: boolean
+  reloaded: boolean
+}
+
+export interface ConfigValidateReq {
+  section: 'agents' | 'server'
+  key?: string
+  value: Record<string, unknown>
+}
+
+// 干跑结果。失败时 ok=false + error_fields（要高亮的字段路径），HTTP 400 —— 这是正常
+// 结果而非异常（见 client.validateConfig）。
+export interface ConfigValidateResult {
+  ok: boolean
+  detail?: string
+  errors: string[]
+  error_fields?: string[]
+  applied: string[]
+  restart_required: string[]
+  preview?: string
 }
 
 export interface DetectConfigView {

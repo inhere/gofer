@@ -247,6 +247,72 @@ func TestEveryEditableAgentFieldIsWritable(t *testing.T) {
 	}
 }
 
+// TestAgentPutPatchesACPBlock pins the one compound field that PATCHES instead of
+// replacing: `acp.mcp_servers[].env` is never echoed by any read path, so a wholesale
+// replace would silently destroy an acp-agent's MCP child environment the first time
+// the console saved an unrelated field.
+func TestAgentPutPatchesACPBlock(t *testing.T) {
+	yamlText, _, _ := configWriteFixture(t)
+	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
+
+	// Seed an acp-agent with an MCP child that carries an env value (through the file:
+	// env is not writable by the API in either direction).
+	seed := yamlText + `  acpx:
+    type: acp-agent
+    command: acpx
+    acp:
+      permission_policy: auto_allow
+      load_session: true
+      mcp_servers:
+        - name: gofer
+          command: gofer
+          args: ["mcp"]
+          env:
+            GOFER_TOKEN: sk-child-secret
+`
+	if err := os.WriteFile(cfgPath, []byte(seed), 0o600); err != nil {
+		t.Fatalf("reseed: %v", err)
+	}
+	resp := do(t, s, http.MethodPost, "/v1/config/reload", adminToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("reload status=%d: %s", resp.StatusCode, bodyText(t, resp))
+	}
+
+	// A console-shaped write: only the two members the form shows.
+	resp = do(t, s, http.MethodPut, "/v1/config/agents/acpx", adminToken, map[string]any{
+		"type": "acp-agent", "command": "acpx",
+		"acp": map[string]any{"permission_policy": "ask"},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+
+	ac, ok := s.agents.Get("acpx")
+	if !ok || ac.ACP == nil {
+		t.Fatalf("acpx acp block=%v, want it kept", ac.ACP)
+	}
+	if ac.ACP.PermissionPolicy != "ask" {
+		t.Fatalf("permission_policy=%q, want ask", ac.ACP.PermissionPolicy)
+	}
+	if ac.ACP.LoadSession == nil || !*ac.ACP.LoadSession {
+		t.Fatal("load_session (a member the body did not carry) was dropped by the patch")
+	}
+	if len(ac.ACP.MCPServers) != 1 || ac.ACP.MCPServers[0].Env["GOFER_TOKEN"] != "sk-child-secret" {
+		t.Fatalf("mcp_servers=%+v, want the child's env preserved", ac.ACP.MCPServers)
+	}
+	disk := string(readFile(t, cfgPath))
+	if !strings.Contains(disk, "sk-child-secret") {
+		t.Fatalf("the MCP env value was lost from disk:\n%s", disk)
+	}
+	// A member the API does not know is refused rather than dropped.
+	resp = do(t, s, http.MethodPut, "/v1/config/agents/acpx", adminToken, map[string]any{
+		"acp": map[string]any{"nope": 1},
+	})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("unknown acp member status=%d, want 400", resp.StatusCode)
+	}
+}
+
 // TestConfigWriteRequiresAdmin pins the can_admin gate on every WEB-04③ write route
 // (design §一.1) with the SAME 403 body the project routes answer, so a console can
 // treat "no permission" as one condition across the product.

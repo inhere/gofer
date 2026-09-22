@@ -8,7 +8,11 @@ import type {
   AgentProbe,
   AgentsResp,
   ArtifactsResp,
+  ConfigAgentDeleteResp,
+  ConfigValidateReq,
+  ConfigValidateResult,
   ConfigView,
+  ConfigWriteResp,
   CreateScheduleReq,
   Decision,
   DeliveriesResp,
@@ -70,19 +74,24 @@ import type { StreamJobOpts } from './sse'
 interface ErrorBody {
   error?: string
   detail?: string
+  // error_fields：配置写入（WEB-04③ V1.1）在 400 里带回的字段路径，控制台据此把
+  // 校验错误高亮到对应输入框。
+  error_fields?: string[]
 }
 
 export class ApiError extends Error {
   status: number
   detail?: string
   code?: string
+  fields?: string[]
 
-  constructor(status: number, message: string, detail?: string, code?: string) {
+  constructor(status: number, message: string, detail?: string, code?: string, fields?: string[]) {
     super(message)
     this.name = 'ApiError'
     this.status = status
     this.detail = detail
     this.code = code
+    this.fields = fields
   }
 }
 
@@ -99,17 +108,19 @@ async function raiseForStatus(res: Response): Promise<never> {
   let msg = `请求失败：HTTP ${res.status}`
   let detail = ''
   let code = ''
+  let fields: string[] | undefined
   try {
     const body = (await res.json()) as ErrorBody
     detail = body.detail ?? ''
     code = body.error ?? ''
+    fields = body.error_fields
     if (body.error || body.detail) {
       msg = [body.error, body.detail].filter(Boolean).join(' - ')
     }
   } catch {
     // 非 JSON 错误体，沿用默认
   }
-  throw new ApiError(res.status, msg, detail || undefined, code || undefined)
+  throw new ApiError(res.status, msg, detail || undefined, code || undefined, fields)
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
@@ -152,6 +163,58 @@ export function getProject(key: string): Promise<ProjectDetail> {
 
 export function getConfig(): Promise<ConfigView> {
   return request<ConfigView>('/v1/config')
+}
+
+// WEB-04③ V1.1：配置写（agents / server）。全部走服务端的写事务：写入即热重载，
+// 失败不落盘。body 是"可编辑字段名 -> 值"的平表（字段名见 ConfigView 的
+// agent_policy / server_policy）；agent 的 PUT 是**整体替换**语义 —— 控制台必须把整份
+// 可编辑字段集发出去，缺哪个字段服务端就清空哪个（见 buildAgentWrite）。
+
+export function putConfigAgent(key: string, body: Record<string, unknown>): Promise<ConfigWriteResp> {
+  return request<ConfigWriteResp>(`/v1/config/agents/${encodeURIComponent(key)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+export function deleteConfigAgent(key: string): Promise<ConfigAgentDeleteResp> {
+  return request<ConfigAgentDeleteResp>(`/v1/config/agents/${encodeURIComponent(key)}`, {
+    method: 'DELETE',
+  })
+}
+
+export function putConfigServer(body: Record<string, unknown>): Promise<ConfigWriteResp> {
+  return request<ConfigWriteResp>('/v1/config/server', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+// validateConfig 干跑一次写入：不落盘、不重载，返回影响面与候选 YAML 预览（预览由服务端
+// 渲染，控制台不本地拼）。**400 是正常结果**（ok:false + error_fields），所以这里不走
+// request()——它会把非 2xx 当异常抛出，控制台就拿不到错误字段了。
+export async function validateConfig(req: ConfigValidateReq): Promise<ConfigValidateResult> {
+  const res = await fetch('/v1/config/validate', {
+    method: 'POST',
+    headers: authHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(req),
+  })
+  if (res.status === 401) {
+    triggerUnauthorized()
+    throw new Error('未授权（401）：token 无效或已失效')
+  }
+  if (res.status >= 500) {
+    return raiseForStatus(res)
+  }
+  return (await res.json()) as ConfigValidateResult
+}
+
+// reloadConfig 让 server 重新读取配置文件（Windows 无 SIGHUP，这是唯一的手动入口）：
+// 在主机编辑器里手工改过 config.yaml 之后用它生效。
+export function reloadConfig(): Promise<{ status: string; reloaded: boolean }> {
+  return request<{ status: string; reloaded: boolean }>('/v1/config/reload', { method: 'POST' })
 }
 
 export function createProject(req: ProjectWriteReq): Promise<ProjectWriteResp> {

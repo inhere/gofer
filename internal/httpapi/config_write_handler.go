@@ -207,11 +207,7 @@ func parseConfigBody(raw []byte, section, key string) ([]configBodyField, error)
 			}
 		}
 	}
-	names := make([]string, 0, len(body))
-	for name := range body {
-		names = append(names, name)
-	}
-	sort.Strings(names)
+	names := sortedJSONKeys(body)
 
 	out := make([]configBodyField, 0, len(names))
 	for _, name := range names {
@@ -233,6 +229,18 @@ func parseConfigBody(raw []byte, section, key string) ([]configBodyField, error)
 		out = append(out, configBodyField{name: name, path: path, raw: body[name]})
 	}
 	return out, nil
+}
+
+// sortedJSONKeys returns the keys of a decoded object in a stable order, so a
+// response, an audit event and a patch apply the same fields in the same order on
+// every run.
+func sortedJSONKeys(m map[string]json.RawMessage) []string {
+	out := make([]string, 0, len(m))
+	for name := range m {
+		out = append(out, name)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // fieldValue decodes one body value into T. A JSON `null` (or an absent value) clears
@@ -616,13 +624,81 @@ func applyAgentField(ac *config.AgentConfig, f configBodyField) error {
 		}
 		ac.Retry = v
 	case "acp":
-		v, err := fieldValue[*config.ACPConfig](f)
-		if err != nil {
-			return err
-		}
-		ac.ACP = v
+		return patchAgentACP(ac, f)
 	default:
 		return unhandled()
+	}
+	return nil
+}
+
+// patchAgentACP applies an agent body's `acp` sub-block.
+//
+// `acp` is the ONE compound editable field that PATCHES rather than replaces, and the
+// reason is concrete: the view cannot echo `acp.mcp_servers[].env` (an env map may
+// hold secrets, and no read path in this API exposes env VALUES), so a wholesale
+// replace would silently destroy an acp-agent's MCP child environment the first time
+// the console saved an unrelated field. Every other compound block (`retry`,
+// `ndjson_fields`) is fully readable, so it replaces whole like the rest of the set.
+//
+// A JSON `null` still clears the block — that is the ordinary "an omitted editable
+// field is cleared" answer, and an agent with no acp block sends null (or omits it).
+func patchAgentACP(ac *config.AgentConfig, f configBodyField) error {
+	if len(f.raw) == 0 || string(f.raw) == "null" {
+		ac.ACP = nil
+		return nil
+	}
+	members := map[string]json.RawMessage{}
+	if err := json.Unmarshal(f.raw, &members); err != nil {
+		return &configWriteError{
+			status: http.StatusBadRequest,
+			msg:    "invalid field value",
+			detail: fmt.Sprintf("invalid value for %s: %v", f.path, err),
+			fields: []string{f.path},
+		}
+	}
+	if ac.ACP == nil {
+		ac.ACP = &config.ACPConfig{}
+	}
+	for _, name := range sortedJSONKeys(members) {
+		sub := configBodyField{name: name, path: f.path + "." + name, raw: members[name]}
+		switch name {
+		case "modes":
+			v, err := fieldValue[map[string]string](sub)
+			if err != nil {
+				return err
+			}
+			ac.ACP.Modes = v
+		case "permission_policy":
+			v, err := fieldValue[string](sub)
+			if err != nil {
+				return err
+			}
+			ac.ACP.PermissionPolicy = v
+		case "load_session":
+			v, err := fieldValue[*bool](sub)
+			if err != nil {
+				return err
+			}
+			ac.ACP.LoadSession = v
+		case "log_thoughts":
+			v, err := fieldValue[*bool](sub)
+			if err != nil {
+				return err
+			}
+			ac.ACP.LogThoughts = v
+		case "mcp_servers":
+			v, err := fieldValue[[]config.ACPMCPServerConfig](sub)
+			if err != nil {
+				return err
+			}
+			ac.ACP.MCPServers = v
+		default:
+			return &configWriteError{
+				status: http.StatusBadRequest,
+				msg:    "unknown field",
+				detail: "unknown field: " + f.path + "." + name,
+			}
+		}
 	}
 	return nil
 }
@@ -955,15 +1031,32 @@ func previewBlock(section string, next *config.Config, key string, applied []str
 	return serverPreview(next.Server, applied)
 }
 
-// previewAgent returns a copy of ac safe to render: `env` values are masked.
+// previewAgent returns a copy of ac safe to render: `env` values (the agent's own and
+// its acp MCP children's) are masked. GET /v1/config already exposes the KEY NAMES; a
+// preview must never be the surface that turns them into values (SR403).
 func previewAgent(ac config.AgentConfig) config.AgentConfig {
-	if len(ac.Env) == 0 {
-		return ac
-	}
 	out := ac
-	out.Env = make(map[string]string, len(ac.Env))
-	for k := range ac.Env {
-		out.Env[k] = "***"
+	if len(ac.Env) > 0 {
+		out.Env = make(map[string]string, len(ac.Env))
+		for k := range ac.Env {
+			out.Env[k] = "***"
+		}
+	}
+	if ac.ACP != nil && len(ac.ACP.MCPServers) > 0 {
+		acpCopy := *ac.ACP
+		servers := make([]config.ACPMCPServerConfig, len(ac.ACP.MCPServers))
+		for i, srv := range ac.ACP.MCPServers {
+			s := srv
+			if len(srv.Env) > 0 {
+				s.Env = make(map[string]string, len(srv.Env))
+				for k := range srv.Env {
+					s.Env[k] = "***"
+				}
+			}
+			servers[i] = s
+		}
+		acpCopy.MCPServers = servers
+		out.ACP = &acpCopy
 	}
 	return out
 }
