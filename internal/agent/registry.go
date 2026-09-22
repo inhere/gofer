@@ -448,7 +448,8 @@ func builtinSessionDefaultFor(key string, a config.AgentConfig) (config.AgentCon
 	if a.Type == TypeExec || a.Type == TypeACPAgent {
 		return config.AgentConfig{}, false
 	}
-	return fallbackSessionDefault(), true
+	_, interactive := Modes(a)
+	return fallbackSessionDefault(interactive), true
 }
 
 // fallbackSessionDefault is what an unknown cli-agent is filled with: the generic
@@ -456,12 +457,21 @@ func builtinSessionDefaultFor(key string, a config.AgentConfig) (config.AgentCon
 // invent an id for a CLI whose `--session-id` semantics it has never seen, so the
 // capture path is the only one that applies. The slices are copied per call so a
 // caller mutating its resolved config cannot corrupt the package-level templates.
-func fallbackSessionDefault() config.AgentConfig {
-	return config.AgentConfig{
-		SessionCapture:           FallbackSessionCapture,
-		SessionResume:            append([]string(nil), FallbackSessionResume...),
-		SessionResumeInteractive: append([]string(nil), FallbackSessionResumeInteractive...),
+//
+// The INTERACTIVE template is filled only for an agent that actually has an
+// interactive mode. It is what a session takeover runs (sessionInjector.PlanTakeover),
+// and an agent with no interactive mode has no terminal session to take over — handing
+// it a guessed `--resume` argv would plan a job that cannot work, where today the
+// takeover correctly reports that there is nothing to run.
+func fallbackSessionDefault(interactive bool) config.AgentConfig {
+	def := config.AgentConfig{
+		SessionCapture: FallbackSessionCapture,
+		SessionResume:  append([]string(nil), FallbackSessionResume...),
 	}
+	if interactive {
+		def.SessionResumeInteractive = append([]string(nil), FallbackSessionResumeInteractive...)
+	}
+	return def
 }
 
 func commandBase(command string) string {

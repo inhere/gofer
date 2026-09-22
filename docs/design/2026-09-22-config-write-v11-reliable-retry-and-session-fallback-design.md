@@ -255,3 +255,12 @@ gofer job resume <job-id> --prompt "继续"   # 期望进入上一轮 TUI
 - `internal/job`：`TestResumeJobResumeUnsupported` 原来用"配了 inject 但没 resume 模板的 cli-agent"，
   该形状已被兜底填满；改用唯一还剩的载体 —— 显式带 `session_id` 的 **exec** job（argv 是调用方的，
   gofer 无从渲染模板）。
+
+### R1 复核补丁（容器，2026-09-22）
+
+omp 未跑全量（它在 Windows 上 `internal/job` 整包挂住），漏了一处：兜底把 `session_resume_interactive` 填给了**任何** cli-agent，于是 `TestSessionInjectorPlanTakeover`（`internal/httpapi`）红——一个没有交互模式的 agent（`plain`）本应"无可接管"，却被规划出 `plain --resume <sid>`。
+
+修法（我在容器直接改，`internal/agent/registry.go`）：`fallbackSessionDefault(interactive bool)`，**批处理模板照填，交互模板只给有交互模式的 agent**（`Modes(a)` 的 interactive）。理由：会话接管跑的就是这条交互模板，而没有交互模式的 agent 连 pty job 都提交不了（AGT-02 校验会拒），给它猜一条 argv 只会规划出必然失败的 job。R1 的 `TestFallbackResumeTemplateApplied` 里 `jcode` 补上 `InteractiveArgs: []`（真机 jcode 本就是这么注册的），并加了一个 batch-only 用例钉住"只给批处理模板"。
+
+复核结果：gofmt/EOL/控制字符干净；linux + windows 构建、vet 通过；`go test ./... -count=1 -p 4` **43 包 ok**。
+

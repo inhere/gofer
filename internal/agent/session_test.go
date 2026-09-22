@@ -477,8 +477,14 @@ func TestExplicitCaptureBeatsFallback(t *testing.T) {
 // templates are the shape claude/omp/jcode share; an explicit one still wins.
 func TestFallbackResumeTemplateApplied(t *testing.T) {
 	cfg := &config.Config{Agents: map[string]config.AgentConfig{
-		"jcode": {Type: TypeCLIAgent, Command: "jcode"},
+		// interactive_args: [] is how a config says "this agent also runs in a pty"
+		// (AGT-02) — the real jcode is registered that way.
+		"jcode": {Type: TypeCLIAgent, Command: "jcode", InteractiveArgs: []string{}},
 		"mine":  {Type: TypeCLIAgent, Command: "mine", SessionResume: []string{"-r", "{{session_id}}"}},
+		// A batch-only cli-agent: it can still be resumed as a job, but it has no
+		// terminal session, so no interactive template is invented for it (a session
+		// takeover must keep reporting that there is nothing to run).
+		"batchonly": {Type: TypeCLIAgent, Command: "batchonly"},
 	}}
 	jcode, _ := ResolveAgent(cfg, "jcode")
 	wantBatch := []string{"--resume", "{{session_id}}", "-p", "{{prompt}}"}
@@ -493,6 +499,14 @@ func TestFallbackResumeTemplateApplied(t *testing.T) {
 	mine, _ := ResolveAgent(cfg, "mine")
 	if !equalStringSlices(mine.SessionResume, []string{"-r", "{{session_id}}"}) {
 		t.Errorf("explicit SessionResume overwritten: %#v", mine.SessionResume)
+	}
+
+	batch, _ := ResolveAgent(cfg, "batchonly")
+	if !equalStringSlices(batch.SessionResume, wantBatch) {
+		t.Errorf("batch-only SessionResume = %#v, want %#v", batch.SessionResume, wantBatch)
+	}
+	if len(batch.SessionResumeInteractive) != 0 {
+		t.Errorf("batch-only SessionResumeInteractive = %#v, want none", batch.SessionResumeInteractive)
 	}
 }
 
