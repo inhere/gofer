@@ -20,7 +20,7 @@
 | RECOV-01 | worker 断线 → `recovering` → 同实例重连续接；serve 重启认领 | 0.42 | 同上 |
 | JOB-TO | job 超时上限可配（`server.max_job_timeout_sec` / 项目 `max_timeout_sec`） | 0.41 | design 内嵌于 AGT-02 |
 | AUTO-02 | 内置 cron schedules（+run-now） | 0.3x | [cron runbook](runbook/2026-06-30-cron-schedule-runbook.md) |
-| AUTO-03 🚧 | job 级自动重试（进程内最小版）；工作流 step 级 retry 完整 | 0.3x | [workflow v2](design/2026-06-22-workflow-v2-design.md) |
+| AUTO-03 | job 级自动重试可靠版：落库 + 租约 sweeper（重启不丢）、server/agent/project/请求四级策略（默认关闭）、`job run --retry` / `job retry ls|cancel`、`job.retry_exhausted` 默认通知；工作流 step 级 retry 完整 | 0.52 | [design §二](design/2026-09-22-config-write-v11-reliable-retry-and-session-fallback-design.md) · [runbook](runbook/2026-09-22-job-retry-runbook.md) |
 | AUTO-RES | 供应商类错误自动续投（`transient_error_patterns` / `server.auto_resume_max`） | 0.42 | [SUP-01 事实](design/2026-09-18-supervision-loop-and-agent-reliability-design.md) |
 | AGT-02 | agent 双模式（batch `args` + `interactive_args`），项目 `allow_interactive` | 0.40 | [dual-mode](design/2026-09-15-agent-dual-mode-and-project-allow-interactive-design.md) |
 | AGT-03 | agent 故障转移 `fallback_agents` / `--fallback`，健康度 degraded，`agent status|probe` | 0.46 | [SUP-01 §一](design/2026-09-18-supervision-loop-and-agent-reliability-design.md) |

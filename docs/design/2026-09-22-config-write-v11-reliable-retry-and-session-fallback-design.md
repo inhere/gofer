@@ -273,3 +273,132 @@ omp 未跑全量（它在 Windows 上 `internal/job` 整包挂住），漏了一
 
 即「新增一个 cli-agent 不写一行配置也能续接」的验收标准达成。
 
+
+## R2 实测记录（2026-09-22，omp job）
+
+**落地范围**：§二 AUTO-03 全部 —— `job_retries` 表 + 租约领取（`internal/jobstore/retries.go`）、
+四级策略（`config.RetryPolicy` + `Config.EffectiveRetryPolicy`）、`maybeRetryJob` 改落库（删掉进程内
+`time.AfterFunc`）、`job.Service.SweepDueRetries` + serve 的 `startRetryLoop`（15s/20 条/60s 租约）、
+`job.retry_scheduled|started|exhausted` 事件（后者进通知默认集 + IM 一行渲染）、CLI（`--retry`/
+`--retry-on`/`--no-retry`、`job retry ls|cancel`、`job show` 的 retry 行）、`GET /v1/jobs/{id}/retries`
++ `DELETE /v1/retries/{rid}`、web job 详情提示条、runbook《job 重试》。
+提交：`22ff04c`（测试，red）→ `de3394c`（jobstore）→ `4ea1e46`（job/config/serve/notify）→ `b4a7117`（cli/web/httpapi）。
+
+**与设计的偏差（6 处，均为实现细节，语义不变）**
+
+1. **不是字面意义上的"同一事务"**：设计 §二.1 括注要求重试行"同一事务里随终态落库"。实现是
+   `finish` 里**先** `UpsertJob`（终态）**紧接** `InsertRetry`（同一 finish 调用、相邻两条语句），
+   没有合并成一条 SQL 事务——合并需要把 `UpsertJob`（127 行 INSERT ... ON CONFLICT）拆成 tx helper
+   供 `UpsertJobWithRetry` 复用，风险大于收益。取这个**顺序**是为了保证更重要的不变式：**绝不出现
+   "有重试行、源 job 却非终态"**（反过来先写行的话，sweeper 可能给一个还在跑的 job 起重复尝试）。
+   代价：进程恰好崩在这两条相邻写之间时重试仍会丢（微秒级窗口，而非"每次重启都丢"）。若这个窗口
+   也要消除，后续加 `UpsertJobWithRetry(rec, retry)` 即可，`finish` 侧把决策提前到 persist 之前。
+2. **transient 失败一律不进重试**（不只"auto_resume 已接手的不进"）：`maybeRetryJob` 直接按
+   `snap.FailureClass == transient` 退出。这是把 §二.2 的两条边界（auto_resume 优先、AUTO-05 stall
+   按 transient 处理）落成**一条可判定的规则**；副作用是"auto_resume 关掉时 transient 失败也不重试"
+   —— 与设计"stall 同上"的读法一致（stall 只是 transient 的一种），由
+   `TestAutoResumeWinsOverRetry` 的第二个用例钉住。fallback 转移同理（它也只在 transient 上发生）。
+3. **排程时的"已解析策略"盖章到重投请求上**（`next.Retry = policy`）：设计没写这一步。没有它，
+   行本身答不出 `attempt 2/3` 的 3、也答不出"提交失败后该退到哪一档"（配置层来的策略不在
+   `request_json` 里）。盖章后行是自解释的，且链条中途改配置不会改变已入队的重试；读取侧是
+   `job.RetryMaxAttempts(rec)`。
+4. **`job.RetryPolicy` 变成 `config.RetryPolicy` 的别名**：一个结构同时被配置文件、wire
+   （`JobRequest.Retry`）和四级配置解码，避免两份同形结构漂移；三个纯函数（`MaxAttemptsPolicy` /
+   `BackoffForPolicy` / `RetryableExitPolicy`）仍留在 `internal/job`（step 级共用，语义未动）。
+5. **多了一个写端点 `DELETE /v1/retries/{rid}`**：设计 §二.3 只列了 `GET /v1/jobs/{id}/retries`，
+   但 `gofer job retry cancel <retry-id>` 需要一个取消入口（照 `DELETE /v1/wakeups/{wid}` 的形状）。
+6. **迁移了 2 个既有测试 + 3 个 `job show` 假 server**：`internal/job` 的
+   `TestJobLevelRetryPreservesSourceJobID` 与 `internal/job/workflow` 的 `TestJobLevelRetry` 原本断言
+   "失败后 attempt-2 的 job 自动出现"，现在改为**手动跑一轮 sweeper**（提交方从 `finish` 变成
+   serve 的 retry loop，契约不变、属主变了）；`internal/commands` 三个 `job show` 严格假 server 补上
+   `/retries` 分支（与它们早就有的 wakeups 分支同性质）。另有 1 个新增用例
+   `TestRetryFromConfigLevel`（配置层策略端到端，含盖章的 ceiling）。
+
+**单测（exit 0）**
+
+```
+$ go test ./internal/jobstore/... ./internal/commands/... -run 'Retry|Retries' -v -count=1
+--- PASS: TestRetryRowRoundTrip (0.20s)
+--- PASS: TestClaimDueRetriesLease (0.20s)
+--- PASS: TestMarkRetryDoneAndCancel (0.18s)
+--- PASS: TestPruneRemovesRetriesWithJob (0.27s)
+ok  	github.com/inhere/gofer/internal/jobstore	1.055s
+--- PASS: TestParseRetryFlag (0.00s)          # --retry 文法（含 3:60,300 / 非法输入）
+--- PASS: TestRetryPolicyFromFlags (0.00s)
+--- PASS: TestJobRunRetryFlags (0.00s)
+--- PASS: TestFormatRetries (0.00s)
+--- PASS: TestJobShowPrintsRetry (0.00s)
+--- PASS: TestJobRetryListAndCancel (0.00s)
+--- PASS: TestFormatRetryLine (0.00s)
+ok  	github.com/inhere/gofer/internal/commands	0.024s
+
+$ go test ./internal/job/ -run 'Retry|Retries|NoRetry|NeverRetried' -v -count=1
+--- PASS: TestRetryRowWrittenOnFailure (0.29s)
+--- PASS: TestSuccessNoRetryRow (0.33s)
+--- PASS: TestCancelledNeverRetried (0.34s)
+--- PASS: TestTimeoutNeverRetried (1.28s)
+--- PASS: TestNeedsReviewNoRetryRow (2.17s)
+--- PASS: TestAutoResumeWinsOverRetry (1.10s)
+--- PASS: TestRetrySweeperSubmitsDue (0.42s)
+--- PASS: TestRetrySurvivesRestart (0.39s)    # 关掉 Store 再 Open 同一个库，新 Service 仍投出
+--- PASS: TestRetryExhaustedEvent (0.32s)
+--- PASS: TestRetryFromConfigLevel (0.31s)
+--- PASS: TestJobLevelRetryPreservesSourceJobID (0.36s)
+ok  	github.com/inhere/gofer/internal/job	7.556s
+
+$ go test ./internal/httpapi/ -run 'Retr' -v -count=1
+--- PASS: TestListRetriesUnknownJob (0.12s)
+--- PASS: TestListRetriesAfterFailure (0.19s)
+--- PASS: TestCancelRetryUnknown (0.10s)
+ok  	github.com/inhere/gofer/internal/httpapi	0.427s
+
+$ go test ./internal/config/ ./internal/notify/ ./internal/job/workflow/ ./internal/serve/ -count=1
+ok  	github.com/inhere/gofer/internal/config	0.124s
+ok  	github.com/inhere/gofer/internal/notify	0.362s
+ok  	github.com/inhere/gofer/internal/job/workflow	21.471s
+ok  	github.com/inhere/gofer/internal/serve	1.355s
+
+$ cd web && pnpm typecheck     # vue-tsc --noEmit，clean
+```
+
+**真机 smoke（2026-09-22，主机，临时 server：随机端口 18791 + 临时 config/项目/storage，全程 unset
+`GOFER_SERVER_ADDR`/`GOFER_SERVER_TOKEN`，未碰真实配置目录）**
+
+```bash
+$ gofer job run -c <tmp>/config.yaml --server http://127.0.0.1:18791 -p smoke -a exec --runner local \
+    --retry 2:5 -- bash -lc 'exit 7'
+job 20260922-230706-58c7d080 submitted: status=queued
+
+# ~6s 后（sweeper 自动投出 attempt 2），库里：
+RETRY ('rt-2c4c991e', '20260922-230706-58c7d080', 2, 'done', 'exit_code=7', '20260922-230712-35a5c098')
+EVENT ('20260922-230706-58c7d080', 'job.retry_scheduled', '{"attempt":2,"next_run_at":1790089631,"reason":"exit_code=7","retry_id":"rt-2c4c991e"}')
+EVENT ('20260922-230706-58c7d080', 'job.retry_started',   '{"new_job_id":"20260922-230712-35a5c098","retry_id":"rt-2c4c991e"}')
+EVENT ('20260922-230712-35a5c098', 'job.terminal',        '{"error":"","exit_code":7,"status":"failed"}')
+EVENT ('20260922-230712-35a5c098', 'job.retry_exhausted', '{"attempts":2}')
+JOB ('20260922-230712-35a5c098', 'failed', 2, '', '["retry","retry_of:20260922-230706-58c7d080"]')
+```
+
+即「失败 → 自动重投一次 → 第二次仍失败 → `job.retry_exhausted`」全程无人干预。
+
+第二轮（`--retry 2:120`，让重试停在 pending 观察展示与取消）：
+
+```
+$ gofer job show 20260922-230807-320424c9
+status:     failed
+retry:      attempt 2/2, next at 2026-09-22 23:10:07 +08:00
+
+$ gofer job retry ls 20260922-230807-320424c9
+rt-585e8610  attempt 2/2  pending   exit_code=7  next 2026-09-22 23:10:07 +08:00
+
+$ gofer job retry cancel rt-585e8610
+retry rt-585e8610 cancelled
+$ gofer job retry ls 20260922-230807-320424c9
+rt-585e8610  attempt 2/2  cancelled exit_code=7  next 2026-09-22 23:10:07 +08:00
+$ gofer job show 20260922-230807-320424c9 | grep -c '^retry:'
+0                     # 取消后不再显示"还会再跑"
+```
+
+**未在真机做的**：真机"重启 serve 后仍投出"（单测 `TestRetrySurvivesRestart` 已覆盖：关闭并重开
+同一个 Store 后新 Service 的 sweeper 照常投出；真机 smoke 覆盖的是排程→投出→耗尽全链）。web 提示条
+只做了 `pnpm typecheck`，未在浏览器里目视（本 job 硬约束禁止对真实 server 建 job，临时 server 的 web
+页面需另起浏览器会话）。
