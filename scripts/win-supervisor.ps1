@@ -55,6 +55,14 @@ param(
     [string[]]$EnvExtra = @()
 )
 
+# The scheduled action passes the serve args as ONE comma-separated string, because a
+# native command line (`conhost --headless pwsh -File ...`) cannot bind a PowerShell
+# array: `-ServeArgs serve,--no-web,--addr,127.0.0.1:9098` arrives as that single
+# string. In-process callers (win-selftest.ps1, runbook §1) hand over a real array.
+# Normalize both by splitting every element on ',' and dropping empties, so an
+# argument must not itself contain a comma.
+$ServeArgs = @($ServeArgs | ForEach-Object { $_ -split ',' } | Where-Object { $_ -ne '' })
+
 # The loop MUST survive a failed launch: a terminating error here would kill the
 # supervisor itself and defeat both crash-recovery and the watchdog (plan F3).
 $ErrorActionPreference = 'Continue'

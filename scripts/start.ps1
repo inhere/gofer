@@ -1,51 +1,57 @@
 #requires -Version 5.1
 <#
 .SYNOPSIS
-  Run the gofer HTTP server as a Windows service via nssm (out-of-process
-  supervisor: auto-restart on crash, and the restarter the self-update needs).
+  Run the gofer HTTP server as a LOGON SCHEDULED TASK inside the user's interactive
+  desktop session (watchdog: scripts/win-supervisor.ps1).
 
 .DESCRIPTION
-  Quick start from the project dir. gofer.exe is expected under <repo>\serve-run\
-  (build it there first, e.g.  go build -o serve-run\gofer.exe .\cmd\gofer ).
-  nssm.exe sits next to it (serve-run\nssm.exe).
+  Why a scheduled task and NOT a Windows service: a service -- nssm or sc -- always
+  runs in SESSION 0, which is isolated from the logged-on desktop. Jobs submitted
+  with `--runner local` inherit that session, so anything GUI (DTools / CODESYS
+  automation, `capture click`, window screenshots) fails there. A logon task runs in
+  the user's interactive session (session 1+), so local jobs own the desktop.
 
-  nssm.exe launches gofer.exe as its child and restarts it on exit — so it is the
-  "supervisor" for the rename-replace self-update (win-selfupdate.ps1). Because
-  gofer's parent is now nssm (not win-supervisor.ps1), self-update must pass
-  -SupervisorMarker 'nssm' (see NOTES).
+  gofer.exe is expected under <repo>\serve-run\ (build it there first, e.g.
+  `go build -o serve-run\gofer.exe .\cmd\gofer`). The task action starts
+  win-supervisor.ps1 (hidden, normally through `conhost.exe --headless`), which is
+  gofer's PARENT: crash auto-restart, fast-fail rollback to gofer.old.exe and the
+  restart half of the rename-replace self-update all keep working unchanged.
 
   Actions (default = up):
-    up       install-or-update the service, then start/restart it
-    upgrade  rebuild gofer.exe from this checkout and swap it into the running
-             service: `make build` FIRST (service keeps running; a failed build
-             changes nothing), then nssm stop -> copy dist\gofer.exe over
-             serve-run\gofer.exe -> nssm start -> print the new version.
-             Add -Web to also rebuild the web console (`make web`) before it.
-    stop     stop the service
-    restart  restart the service
-    remove   stop + uninstall the service (binary/logs kept)
-    status   show service state + effective nssm config
-    logs     tail the stdout/stderr logs
+    up       register-or-update the task (trigger AtLogOn for -User), clear the stop
+             marker, start it, wait for /health (<=20s), print version / pid / session
+    upgrade  `make build` (add -Web for `make web`) FIRST while the server keeps
+             running -- a failed build changes nothing -- then stop -> keep the old
+             exe as gofer.exe.prev -> swap in dist\gofer.exe -> start -> wait /health
+    stop     drop the stop marker (so the watchdog stays down), ask gofer to stop
+             gracefully via `gofer serve stop` (pidfile + named stop event), wait
+             <=15s for task+process to leave; only then hard-stop and warn
+    restart  stop -> clear the marker -> start -> wait for /health
+    remove   stop + unregister the task (binary / logs kept)
+    status   task state, last run result, action command line, gofer pid/SessionId/
+             StartTime, /health, stop marker
+    logs     tail win-supervisor.log and the server log
 
 .NOTES
-  * Service ops (up/stop/restart/remove) need an ELEVATED (Administrator) shell.
-  * The service sees NONE of your shell env, so point it at your gofer config dir:
-    -ConfigDir 'D:/work/inhere/config/win-env/gofer'  (or set $env:GOFER_CONFIG_DIR).
-    It injects GOFER_CONFIG_DIR so gofer finds config.yaml + loads that dir's .env
-    (GOFER_TOKEN). Without it gofer refuses to start (no token).
-  * By default the service runs as LocalSystem, so `--runner local` jobs run as SYSTEM
-    (breaks git ownership / your credentials / user PATH). Pass -Account '.\<user>' to
-    run as YOU instead — jobs then behave like the old foreground run. Example:
-      pwsh -File scripts\start.ps1 -ConfigDir 'D:/.../gofer' -Account '.\KZL'
-    If the service then fails with error 1069 (logon failure), grant the account the
-    "Log on as a service" right via secpol.msc (User Rights Assignment).
-  * The service runs with AppDirectory = <repo>, so the RELATIVE `--web-dir ./web/dist`
-    (and any relative config lookup) resolves against the repo root — no absolute
-    paths in AppParameters, so a repo path with spaces stays safe.
-  * Self-update under nssm (kill → nssm relaunches the swapped exe):
-      gofer job run -a exec --runner local -- `
-        pwsh -NoProfile -File scripts\win-selfupdate.ps1 `
-          -RepoDir '<RepoDir>' -ExeDir '<repo>\serve-run' -SupervisorMarker 'nssm'
+  * `up` PREREQUISITES: no Windows service named `gofer` (it would fight this task
+    for the same port -- the script refuses and prints the migration commands), an
+    existing -ConfigDir, and gofer.exe in -ExeDir.
+  * -ConfigDir (or $env:GOFER_CONFIG_DIR) is required for up/upgrade/stop/restart/
+    status. It travels into the task as GOFER_CONFIG_DIR via the supervisor's
+    -EnvExtra, because the task inherits the user's REGISTRY environment, not your
+    shell's. The token is expected in <ConfigDir>\.env (`GOFER_TOKEN=...`) or via
+    the config's token_env; no token is written into the task definition.
+  * No admin needed: the task belongs to the current user (LogonType Interactive).
+    Exception: -Elevated (RunLevel Highest) requires an elevated shell.
+  * Power loss / reboot: a logon task needs a LOGON. Enable auto-logon
+    (netplwiz / Autologon) if the box must come back unattended -- an operational
+    decision, out of scope here.
+  * Self-update chain unchanged: gofer's parent is still win-supervisor.ps1, so
+    win-selfupdate.ps1's default -SupervisorMarker 'win-supervisor' matches -- no
+    override needed.
+  * -Elevated and UIPI: a Limited (default) gofer cannot drive windows owned by an
+    elevated process, and an elevated gofer cannot drive Limited ones. Match the
+    integrity level of the apps you automate.
 #>
 param(
     [ValidateSet('up', 'upgrade', 'stop', 'restart', 'remove', 'status', 'logs')]
@@ -54,208 +60,407 @@ param(
     # the swapped binary carries the current web console. Off by default: the web
     # build is slow and most upgrades are Go-only.
     [switch]$Web,
-    # Windows service name.
-    [string]$ServiceName = 'gofer',
-    # Listen address as --addr (overrides config server.addr). Empty = let the
-    # config's server.addr drive the port (don't force one).
-    [string]$Addr = '',
-    # Path to a gofer config file, passed as --config (optional).
-    [string]$Config = '',
-    # gofer config DIRECTORY, injected into the service env as GOFER_CONFIG_DIR.
-    # The service runs as LocalSystem and does NOT see your shell's env, so a
-    # user-level config (config.yaml + .env with GOFER_TOKEN) is invisible unless
-    # pointed at here. Falls back to $env:GOFER_CONFIG_DIR. Example:
+    # Scheduled task name. Change it for a second, isolated instance.
+    [string]$TaskName = 'gofer-serve',
+    # gofer config DIRECTORY, injected into the task env as GOFER_CONFIG_DIR (which
+    # is how gofer finds config.yaml + loads that dir's .env with GOFER_TOKEN).
+    # Defaults to $env:GOFER_CONFIG_DIR. Example:
     #   -ConfigDir 'D:/work/inhere/config/win-env/gofer'
     [string]$ConfigDir = '',
-    # Boot behaviour: -Auto = start at boot (SERVICE_AUTO_START); default = manual.
-    [switch]$Auto,
-    # Bearer token injected into the service env as GOFER_TOKEN (read via token_env).
-    # Falls back to $env:GOFER_TOKEN. Leave empty if the config carries it / token is
-    # disabled. NOTE: stored in the service registry (admin-readable).
-    [string]$Token = '',
-    # Logon account for the service (nssm ObjectName). Empty = LocalSystem (default).
-    # Set to YOUR account (e.g. '.\KZL' or 'PC-NAME\KZL') so `--runner local` jobs run
-    # as YOU — with your PATH, git ownership, and credential store — instead of SYSTEM.
-    # A user account needs a password (prompted securely if -Password omitted) and the
-    # "Log on as a service" right (nssm grants it; else add via secpol.msc).
-    [string]$Account = '',
-    # Password for -Account (SecureString). Omit to be prompted securely at run time.
-    # Built-in accounts (LocalSystem/LocalService/NetworkService) need no password.
-    [securestring]$Password
+    # Listen address as --addr (overrides config server.addr). Empty = let the
+    # config's server.addr drive the port. Also the address used for /health probes.
+    [string]$Addr = '',
+    # Path to a gofer config file, passed as --config (optional). Must not contain
+    # spaces (the task passes serve args as a comma-separated list).
+    [string]$Config = '',
+    # Serve the API without the web console (`--no-web`) instead of the default
+    # `--web-dir ./web/dist` (relative to the repo, the task's working directory).
+    [switch]$NoWeb,
+    # Directory holding the RUNNING gofer.exe (also the gofer.stop marker and
+    # win-supervisor.log). Defaults to <repo>\serve-run. Override for an isolated
+    # test instance.
+    [string]$ExeDir = '',
+    # Account the task runs as, and whose logon triggers it. Default: the console
+    # user (Win32_ComputerSystem.UserName), falling back to `whoami`. NOT
+    # $env:USERNAME -- from a session-0 job that can be SYSTEM.
+    [string]$User = '',
+    # Register the task with RunLevel Highest (= always elevated) instead of
+    # Limited. Requires an elevated shell to register, and UIPI then blocks driving
+    # non-elevated windows.
+    [switch]$Elevated,
+    # Skip the "a Windows service named 'gofer' exists" refusal in `up`. ONLY for an
+    # isolated instance (own -TaskName / -ExeDir / -ConfigDir / addr, e.g. the
+    # acceptance test win-tasktest.ps1): the guard otherwise stops you from starting a
+    # second instance that fights the installed service for the same port.
+    [switch]$AllowServiceConflict
 )
 
 $ErrorActionPreference = 'Stop'
 
 # --- resolve project paths from THIS script's location (cwd-independent) ---
-$Repo   = Split-Path -Parent $PSScriptRoot          # <...>\tools\gofer
-$ExeDir = Join-Path $Repo 'serve-run'
+$Repo = Split-Path -Parent $PSScriptRoot          # <...>\tools\gofer
+if (-not $ExeDir) { $ExeDir = Join-Path $Repo 'serve-run' }
+$ExeDir = [System.IO.Path]::GetFullPath($ExeDir)
 $Exe    = Join-Path $ExeDir 'gofer.exe'
-$Built  = Join-Path $Repo 'dist\gofer.exe'           # `make build` output, swapped in by upgrade
-$Nssm   = Join-Path $ExeDir 'nssm.exe'
-$OutLog = Join-Path $ExeDir 'gofer.out.log'
-$ErrLog = Join-Path $ExeDir 'gofer.err.log'
+$Built  = Join-Path $Repo 'dist\gofer.exe'        # `make build` output, swapped in by upgrade
+$Sup    = Join-Path $PSScriptRoot 'win-supervisor.ps1'
+$StopMarker = Join-Path $ExeDir 'gofer.stop'
+$SupLog = Join-Path $ExeDir 'win-supervisor.log'
+
+if (-not $ConfigDir) { $ConfigDir = $env:GOFER_CONFIG_DIR }
+if ($ConfigDir) { $ConfigDir = [System.IO.Path]::GetFullPath($ConfigDir) }
+
+$ServeLog = if ($ConfigDir) { Join-Path $ConfigDir 'run\serve.log' } else { '' }
+$ServeOut = if ($ConfigDir) { Join-Path $ConfigDir 'run\serve.out.log' } else { '' }
+
+# ---------------------------------------------------------------- helpers
 
 function Test-Admin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
         [Security.Principal.WindowsBuiltinRole]::Administrator)
 }
-function Assert-Admin {
-    if (-not (Test-Admin)) {
-        throw "Action '$Action' modifies a Windows service and needs an elevated shell. " +
-              "Re-open PowerShell as Administrator, then re-run:  pwsh -File scripts\start.ps1 -Action $Action"
+
+function Get-TaskUser {
+    if ($User) { return $User }
+    $u = (Get-CimInstance Win32_ComputerSystem -ErrorAction SilentlyContinue).UserName
+    if (-not $u) { $u = (& whoami) }
+    return $u
+}
+
+function Get-TaskState {
+    $t = Get-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue
+    if ($t) { return [string]$t.State }
+    return ''
+}
+
+function Assert-ConfigDir([string]$why) {
+    if (-not $ConfigDir) {
+        throw "no -ConfigDir and GOFER_CONFIG_DIR is not set; '$why' needs the gofer config directory (config.yaml + .env)."
+    }
+    if (-not (Test-Path $ConfigDir)) { throw "config dir not found: $ConfigDir" }
+}
+
+function Get-GoferProc {
+    Get-CimInstance Win32_Process -Filter "Name='gofer.exe'" -ErrorAction SilentlyContinue |
+        Where-Object { $_.ExecutablePath -eq $Exe }
+}
+
+# server.addr out of <ConfigDir>\config.yaml (scans the `server:` block; handles a
+# `server: {addr: ...}` inline mapping too). Empty when absent/unparsable.
+function Get-ConfigAddr([string]$dir) {
+    if (-not $dir) { return '' }
+    $f = Join-Path $dir 'config.yaml'
+    if (-not (Test-Path $f)) { return '' }
+    $inServer = $false; $serverIndent = -1
+    foreach ($line in (Get-Content $f)) {
+        $t = $line.TrimEnd()
+        if ($t -match '^(\s*)server\s*:\s*(.*)$') {
+            $rest = $Matches[2].Trim()
+            if ($rest.StartsWith('#')) { $rest = '' }
+            if ($rest.StartsWith('{')) {
+                if ($rest -match '\baddr\s*:\s*["'']?([^"''\s,}]+)') { return $Matches[1] }
+                return ''
+            }
+            $inServer = $true; $serverIndent = $Matches[1].Length; continue
+        }
+        if (-not $inServer) { continue }
+        if ($t.Trim() -eq '' -or $t.TrimStart().StartsWith('#')) { continue }
+        $ind = $t.Length - $t.TrimStart().Length
+        if ($ind -le $serverIndent) { $inServer = $false; continue }
+        if ($t -match '^\s*addr\s*:\s*["'']?([^"''#\s]+)') { return $Matches[1] }
+    }
+    return ''
+}
+
+# '' when there is nothing to probe (no -Addr and no server.addr to read) -> the
+# callers then only require the gofer process to be alive.
+function Get-HealthUrl {
+    $a = $Addr
+    if (-not $a) { $a = Get-ConfigAddr $ConfigDir }
+    if (-not $a) { return '' }
+    $a = $a -replace '^\s*0\.0\.0\.0:', '127.0.0.1:'
+    $a = $a -replace '^\s*\[::\]:', '127.0.0.1:'
+    if ($a -notmatch '^[a-zA-Z][a-zA-Z0-9+.-]*://') { $a = "http://$a" }
+    return ($a.TrimEnd('/') + '/health')
+}
+
+function Quote-Arg([string]$s) {
+    if ($s -match '[\s"]') { return '"' + $s + '"' }
+    return $s
+}
+
+# conhost.exe --headless exists on Windows 10 1809 (build 17763) and later; without
+# it the fallback (plain pwsh -WindowStyle Hidden) flashes a window at logon.
+function Test-ConhostHeadless {
+    if (-not (Test-Path (Join-Path $env:SystemRoot 'System32\conhost.exe'))) { return $false }
+    return ([System.Environment]::OSVersion.Version.Build -ge 17763)
+}
+
+function Get-PwshPath {
+    $c = Get-Command pwsh -ErrorAction SilentlyContinue
+    if ($c) { return $c.Source }
+    return (Join-Path $PSHOME 'powershell.exe')
+}
+
+function Get-ServeArgs {
+    $a = @('serve')
+    if ($NoWeb) { $a += '--no-web' } else { $a += @('--web-dir', './web/dist') }
+    if ($Addr) { $a += @('--addr', $Addr) }
+    if ($Config) { $a += @('--config', $Config) }
+    return $a
+}
+
+# The scheduled action: [{Execute, Argument}] launching the supervisor, hidden.
+function Get-TaskCommand {
+    if ($Config -match '\s') {
+        throw "-Config '$Config' contains spaces: the task passes serve args as a comma-separated list, which cannot carry them. Use a space-free path (or drop the file into -ConfigDir as config.yaml)."
+    }
+    $pwsh = Get-PwshPath
+    $supArgs = @(
+        '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', (Quote-Arg $Sup),
+        '-ExeDir', (Quote-Arg $ExeDir), '-WorkDir', (Quote-Arg $Repo),
+        '-ServeArgs', ((Get-ServeArgs) -join ','),
+        '-EnvExtra', (Quote-Arg "GOFER_CONFIG_DIR=$ConfigDir")
+    ) -join ' '
+    if (Test-ConhostHeadless) {
+        # conhost --headless: the child gets a console (so Ctrl+C semantics stay
+        # sane) but no window, and it survives the logon shell.
+        $exe = Join-Path $env:SystemRoot 'System32\conhost.exe'
+        return @{ Execute = $exe; Argument = "--headless $(Quote-Arg $pwsh) $supArgs" }
+    }
+    return @{ Execute = $pwsh; Argument = "-WindowStyle Hidden $supArgs" }
+}
+
+function New-GoferTask {
+    $cmd = Get-TaskCommand
+    $action = New-ScheduledTaskAction -Execute $cmd.Execute -Argument $cmd.Argument -WorkingDirectory $Repo
+    $user = Get-TaskUser
+    $trigger = New-ScheduledTaskTrigger -AtLogOn -User $user
+    $level = if ($Elevated) { 'Highest' } else { 'Limited' }
+    if ($Elevated -and -not (Test-Admin)) {
+        throw "-Elevated (RunLevel Highest) needs an elevated shell to register a task for '$user'."
+    }
+    $principal = New-ScheduledTaskPrincipal -UserId $user -LogonType Interactive -RunLevel $level
+    $settings = New-ScheduledTaskSettingsSet -ExecutionTimeLimit ([TimeSpan]::Zero) `
+        -RestartCount 99 -RestartInterval (New-TimeSpan -Minutes 1) `
+        -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries `
+        -StartWhenAvailable
+    Register-ScheduledTask -TaskName $TaskName -Action $action -Trigger $trigger `
+        -Principal $principal -Settings $settings -Force | Out-Null
+    Write-Host "task '$TaskName' registered (user=$user logon=Interactive runlevel=$level)"
+    Write-Host "  action: $($cmd.Execute) $($cmd.Argument)"
+    if ($cmd.Execute -notlike '*conhost.exe') {
+        Write-Warning "no 'conhost --headless' on this system (OS build $([System.Environment]::OSVersion.Version.Build)): the task uses pwsh -WindowStyle Hidden and may flash a window at logon."
     }
 }
-function Assert-Nssm {
-    if (-not (Test-Path $Nssm)) {
-        throw "nssm.exe not found at $Nssm. Download nssm (https://nssm.cc) and drop win64\nssm.exe there."
+
+# Wait for the instance to answer /health (or just to be alive when there is no
+# address to probe). Returns $true/$false; a missing health URL never fails.
+function Wait-Started([int]$sec = 20) {
+    $url = Get-HealthUrl
+    for ($i = 0; $i -lt $sec; $i++) {
+        if ($url) {
+            try {
+                if ((Invoke-WebRequest -UseBasicParsing $url -TimeoutSec 2).StatusCode -eq 200) { return $true }
+            } catch { }
+        } elseif (@(Get-GoferProc).Count -gt 0) {
+            Start-Sleep 1
+            return $true
+        }
+        Start-Sleep 1
+    }
+    return $false
+}
+
+function Wait-Stopped([int]$sec = 15) {
+    $deadline = (Get-Date).AddSeconds($sec)
+    while ((Get-Date) -lt $deadline) {
+        if (@(Get-GoferProc).Count -eq 0 -and (Get-TaskState) -ne 'Running') { return $true }
+        Start-Sleep -Milliseconds 500
+    }
+    return (@(Get-GoferProc).Count -eq 0 -and (Get-TaskState) -ne 'Running')
+}
+
+function Show-Instance {
+    $url = Get-HealthUrl
+    if ($url) {
+        try {
+            $r = Invoke-WebRequest -UseBasicParsing $url -TimeoutSec 3
+            Write-Host "health : $($r.StatusCode) $url"
+        } catch {
+            Write-Warning "health : unreachable ($url)"
+        }
+    } else {
+        Write-Host "health : skipped (no -Addr and no server.addr in $ConfigDir\config.yaml)"
+    }
+    $procs = @(Get-GoferProc)
+    if ($procs.Count -eq 0) {
+        Write-Warning "gofer : no gofer.exe running from $Exe"
+    } else {
+        foreach ($p in $procs) {
+            Write-Host "gofer : pid=$($p.ProcessId) session=$($p.SessionId) started=$($p.CreationDate)"
+        }
+        if (Test-Path $Exe) {
+            $ver = (& $Exe --version 2>&1 | Select-Object -First 1)
+            Write-Host "version: $ver"
+        }
     }
 }
-function Test-ServiceExists { $null -ne (Get-Service -Name $ServiceName -ErrorAction SilentlyContinue) }
+
+# Stop = marker first (so the watchdog bows out), then the graceful request through
+# the pidfile + named stop event, then wait. Hard stop only on timeout.
+function Invoke-StopTask {
+    if (-not (Test-Path $StopMarker)) {
+        New-Item -ItemType File -Path $StopMarker -Force | Out-Null
+        Write-Host "stop marker set: $StopMarker (watchdog will not relaunch)"
+    } else {
+        Write-Host "stop marker already present: $StopMarker"
+    }
+
+    $procs = @(Get-GoferProc)
+    if ($procs.Count -eq 0) {
+        Write-Host "no gofer.exe running from $Exe"
+    } elseif (-not $ConfigDir) {
+        Write-Warning "no -ConfigDir / GOFER_CONFIG_DIR: cannot run 'gofer serve stop'; falling back to a hard stop."
+    } else {
+        Write-Host "asking gofer to stop (pid=$($procs.ProcessId -join ',')) ..."
+        $saved = $env:GOFER_CONFIG_DIR
+        try {
+            $env:GOFER_CONFIG_DIR = $ConfigDir
+            & $Exe serve stop
+            if ($LASTEXITCODE -ne 0) { Write-Warning "'gofer serve stop' exited $LASTEXITCODE (see above)" }
+        } finally { $env:GOFER_CONFIG_DIR = $saved }
+    }
+
+    if (Wait-Stopped 15) {
+        Write-Host "stopped (task state='$(Get-TaskState)')"
+        return
+    }
+    Write-Warning "still running after 15s -> hard stop"
+    if (Get-TaskState) { Stop-ScheduledTask -TaskName $TaskName -ErrorAction SilentlyContinue }
+    foreach ($p in @(Get-GoferProc)) { Stop-Process -Id $p.ProcessId -Force -ErrorAction SilentlyContinue }
+}
+
+# Start = clear the marker, then (re)start the task and wait for health.
+function Invoke-StartTask {
+    if (Test-Path $StopMarker) {
+        Remove-Item $StopMarker -Force
+        Write-Host "stop marker cleared: $StopMarker"
+    }
+    if (-not (Get-TaskState)) { throw "task '$TaskName' is not registered; run:  pwsh -File scripts\start.ps1 -Action up" }
+    Start-ScheduledTask -TaskName $TaskName
+    Write-Host "task '$TaskName' started (state='$(Get-TaskState)')"
+    if (Wait-Started 20) {
+        Write-Host "up: /health OK"
+    } else {
+        Write-Warning "not healthy within 20s; check:  pwsh -File scripts\start.ps1 -Action logs"
+    }
+    Show-Instance
+}
+
+# ---------------------------------------------------------------- actions
 
 switch ($Action) {
     'up' {
-        Assert-Nssm; Assert-Admin
+        Assert-ConfigDir 'up'
+        if (Get-Service -Name 'gofer' -ErrorAction SilentlyContinue) {
+            if ($AllowServiceConflict) {
+                Write-Warning "a Windows service named 'gofer' exists; -AllowServiceConflict given -> continuing (isolated instance only)."
+            } else {
+                Write-Host "ERROR: a Windows service named 'gofer' exists -- it would fight this task for the same port." -ForegroundColor Red
+                Write-Host "Migrate in an ADMIN window first:"
+                Write-Host "  `"$ExeDir\nssm.exe`" stop gofer; `"$ExeDir\nssm.exe`" remove gofer confirm"
+                Write-Host "  (or:  sc.exe stop gofer; sc.exe delete gofer)"
+                Write-Host "Then re-run:  pwsh -File scripts\start.ps1 -Action up -ConfigDir '$ConfigDir'"
+                Write-Host "(-AllowServiceConflict skips this check for an isolated instance.)"
+                exit 3
+            }
+        }
         if (-not (Test-Path $Exe)) {
             throw "gofer.exe not found at $Exe. Build it first, e.g.:  go build -o serve-run\gofer.exe .\cmd\gofer"
         }
-        # Relative --web-dir resolves against AppDirectory (=$Repo) at runtime, so no
-        # absolute path lands in AppParameters (avoids the PowerShell->nssm quoting trap).
-        $params = 'serve --web-dir ./web/dist'
-        if ($Addr)   { $params += " --addr $Addr" }
-        if ($Config) { $params += " --config $Config" }
-
-        if (-not (Test-ServiceExists)) {
-            Write-Host "installing service '$ServiceName' -> $Exe"
-            & $Nssm install $ServiceName $Exe | Out-Null
-        } else {
-            Write-Host "service '$ServiceName' exists -> updating config"
-            & $Nssm set $ServiceName Application $Exe | Out-Null
-        }
-        # Set config every run so edits (addr / web-dir / token) take effect on restart.
-        & $Nssm set $ServiceName AppDirectory $Repo      | Out-Null   # relative config resolves here
-        & $Nssm set $ServiceName AppParameters $params   | Out-Null
-        & $Nssm set $ServiceName AppStdout $OutLog       | Out-Null
-        & $Nssm set $ServiceName AppStderr $ErrLog       | Out-Null
-        & $Nssm set $ServiceName AppExit Default Restart | Out-Null   # relaunch on any exit (incl. self-update kill)
-        & $Nssm set $ServiceName AppRestartDelay 2000    | Out-Null   # ~2s, mirrors the pwsh supervisor
-        & $Nssm set $ServiceName Start ($(if ($Auto) { 'SERVICE_AUTO_START' } else { 'SERVICE_DEMAND_START' })) | Out-Null
-
-        # Service env (LocalSystem sees none of your shell's env): point at the config
-        # dir (config.yaml + .env → GOFER_TOKEN) and optionally an explicit token.
-        $envEntries = @()
-        $cfgDir = if ($ConfigDir) { $ConfigDir } elseif ($env:GOFER_CONFIG_DIR) { $env:GOFER_CONFIG_DIR } else { '' }
-        if ($cfgDir) { $envEntries += "GOFER_CONFIG_DIR=$cfgDir" }
-        $tok = if ($Token) { $Token } elseif ($env:GOFER_TOKEN) { $env:GOFER_TOKEN } else { '' }
-        if ($tok) { $envEntries += "GOFER_TOKEN=$tok" }
-        if ($envEntries.Count -gt 0) { & $Nssm set $ServiceName AppEnvironmentExtra @envEntries | Out-Null }
-        else { & $Nssm reset $ServiceName AppEnvironmentExtra 2>$null | Out-Null }
-        if (-not $cfgDir) {
-            Write-Warning "no -ConfigDir / GOFER_CONFIG_DIR set: the service may not find a config -> gofer refuses to start without a token."
-        }
-
-        # Logon account (nssm ObjectName): run as YOU so `--runner local` jobs use your
-        # identity / PATH / git ownership / credential store, not SYSTEM. Built-in
-        # service accounts take no password; a user account is prompted for one securely
-        # (kept off the command line / history).
-        if ($Account) {
-            $builtin = @('LocalSystem', 'LocalService', 'NetworkService',
-                         'NT AUTHORITY\LocalService', 'NT AUTHORITY\NetworkService')
-            if ($builtin -contains $Account) {
-                & $Nssm set $ServiceName ObjectName $Account | Out-Null
-            } else {
-                if (-not $Password) { $Password = Read-Host -AsSecureString "Windows password for $Account" }
-                $bstr = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($Password)
-                try {
-                    $plain = [Runtime.InteropServices.Marshal]::PtrToStringAuto($bstr)
-                    & $Nssm set $ServiceName ObjectName $Account $plain | Out-Null
-                } finally {
-                    [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($bstr); $plain = $null
-                }
-            }
-            Write-Host "service logon account: $Account"
-        }
-
-        # (Re)start cleanly (stop covers a paused/throttled state), then verify.
-        & $Nssm stop  $ServiceName 2>$null | Out-Null
-        & $Nssm start $ServiceName 2>$null | Out-Null
-        Start-Sleep -Seconds 2
-        $svc = Get-Service -Name $ServiceName
-        if ($svc.Status -eq 'Running') {
-            Write-Host "service '$ServiceName' RUNNING: gofer.exe $params"
-        } else {
-            Write-Warning "service '$ServiceName' is $($svc.Status), NOT Running — gofer likely failed to start. Check the logs:"
-            Write-Warning "  pwsh -File scripts\start.ps1 -Action logs"
-        }
-        Write-Host "  logs: $OutLog / $ErrLog"
+        if (-not (Test-Path $Sup)) { throw "supervisor script not found at $Sup" }
+        # Make it so: a running task is stopped first, so the settings just written
+        # (addr / web-dir / config dir) actually take effect on the fresh start.
+        if (Get-TaskState -eq 'Running' -or @(Get-GoferProc).Count -gt 0) { Invoke-StopTask }
+        New-GoferTask
+        Invoke-StartTask
     }
     'upgrade' {
-        Assert-Nssm; Assert-Admin
-        if (-not (Test-ServiceExists)) {
-            throw "service '$ServiceName' is not installed; run  pwsh -File scripts\start.ps1  (Action up) first."
+        Assert-ConfigDir 'upgrade'
+        if (-not (Test-Path $Exe)) {
+            throw "gofer.exe not found at $Exe; run  pwsh -File scripts\start.ps1 -Action up  first."
         }
         if (-not (Get-Command make -ErrorAction SilentlyContinue)) {
             throw "make not found on PATH (Git Bash / MSYS make is expected). Build by hand instead:  go build -o serve-run\gofer.exe .\cmd\gofer"
         }
-        # 1) Build while the old service keeps serving. `make build` writes dist\gofer.exe,
-        #    which nothing holds open, so this step never touches the live binary and a
-        #    compile error leaves the service exactly as it was.
+        # 1) Build while the old instance keeps serving. `make build` writes
+        #    dist\gofer.exe, which nothing holds open, so this never touches the live
+        #    binary and a compile error leaves the server exactly as it was.
         $targets = if ($Web) { 'web build' } else { 'build' }
         Write-Host "building ($targets) in $Repo ..."
         Push-Location $Repo
         try {
             & make $targets.Split(' ')
-            if ($LASTEXITCODE -ne 0) { throw "make $targets failed (exit $LASTEXITCODE); service left untouched." }
+            if ($LASTEXITCODE -ne 0) { throw "make $targets failed (exit $LASTEXITCODE); server left untouched." }
         } finally { Pop-Location }
         if (-not (Test-Path $Built)) { throw "build succeeded but $Built is missing; check the Makefile DIST_DIR." }
         $newVer = (& $Built --version 2>&1 | Select-Object -First 1)
         $oldVer = if (Test-Path $Exe) { (& $Exe --version 2>&1 | Select-Object -First 1) } else { '(none)' }
 
-        # 2) Swap: stop (releases the exe lock), copy, start. Keep the previous exe as
-        #    gofer.exe.prev so a bad build can be rolled back by hand.
-        Write-Host "stopping '$ServiceName' ..."
-        & $Nssm stop $ServiceName 2>$null | Out-Null
-        $deadline = (Get-Date).AddSeconds(15)
-        while ((Get-Service -Name $ServiceName).Status -ne 'Stopped' -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 300 }
-        if ((Get-Service -Name $ServiceName).Status -ne 'Stopped') { throw "service did not stop within 15s; not swapping the binary." }
-        if (Test-Path $Exe) { Copy-Item $Exe "$Exe.prev" -Force }
+        # 2) Swap: stop (releases the exe lock), copy, start. The previous exe is kept
+        #    as gofer.exe.prev so a bad build can be rolled back by hand.
+        Invoke-StopTask
+        Copy-Item $Exe "$Exe.prev" -Force
         Copy-Item $Built $Exe -Force
         Write-Host "swapped: $oldVer  ->  $newVer"
-
-        # 3) Start and verify, same as `up`.
-        & $Nssm start $ServiceName 2>$null | Out-Null
-        Start-Sleep -Seconds 2
-        $svc = Get-Service -Name $ServiceName
-        if ($svc.Status -eq 'Running') {
-            Write-Host "service '$ServiceName' RUNNING: $(& $Exe --version 2>&1 | Select-Object -First 1)"
+        Invoke-StartTask
+        Write-Host "version now: $(& $Exe --version 2>&1 | Select-Object -First 1)"
+        Write-Host "Roll back if needed:  Copy-Item '$Exe.prev' '$Exe' -Force; pwsh -File scripts\start.ps1 -Action restart"
+    }
+    'stop' {
+        Assert-ConfigDir 'stop'
+        Invoke-StopTask
+    }
+    'restart' {
+        Assert-ConfigDir 'restart'
+        Invoke-StopTask
+        Invoke-StartTask
+    }
+    'remove' {
+        Invoke-StopTask
+        if (Get-TaskState) {
+            Unregister-ScheduledTask -TaskName $TaskName -Confirm:$false
+            Write-Host "unregistered task '$TaskName' (gofer.exe / logs kept)"
         } else {
-            Write-Warning "service '$ServiceName' is $($svc.Status), NOT Running after the swap. Check the logs:"
-            Write-Warning "  pwsh -File scripts\start.ps1 -Action logs"
-            Write-Warning "Roll back:  Copy-Item '$Exe.prev' '$Exe' -Force; pwsh -File scripts\start.ps1 -Action restart"
+            Write-Host "task '$TaskName' not registered"
         }
-        Write-Host "  logs: $OutLog / $ErrLog"
     }
-    'stop'    { Assert-Nssm; Assert-Admin; & $Nssm stop    $ServiceName; Write-Host "stopped '$ServiceName'" }
-    'restart' { Assert-Nssm; Assert-Admin; & $Nssm restart $ServiceName; Write-Host "restarted '$ServiceName'" }
-    'remove'  {
-        Assert-Nssm; Assert-Admin
-        if (Test-ServiceExists) {
-            & $Nssm stop $ServiceName 2>$null | Out-Null
-            & $Nssm remove $ServiceName confirm | Out-Null
-            Write-Host "removed service '$ServiceName' (gofer.exe / logs kept)"
-        } else { Write-Host "service '$ServiceName' not installed" }
+    'status' {
+        Assert-ConfigDir 'status'
+        if (Get-TaskState) {
+            Write-Host "task   : $TaskName  state=$(Get-TaskState)"
+            $info = Get-ScheduledTaskInfo -TaskName $TaskName
+            Write-Host ("info   : lastRun={0} lastResult=0x{1:X8} nextRun={2}" -f $info.LastRunTime, $info.LastTaskResult, $info.NextRunTime)
+            foreach ($a in (Get-ScheduledTask -TaskName $TaskName).Actions) {
+                Write-Host "action : $($a.Execute) $($a.Argument)"
+                Write-Host "workdir: $($a.WorkingDirectory)"
+            }
+            $pr = (Get-ScheduledTask -TaskName $TaskName).Principal
+            Write-Host "principal: $($pr.UserId) logon=$($pr.LogonType) runlevel=$($pr.RunLevel)"
+        } else {
+            Write-Host "task   : $TaskName NOT registered"
+        }
+        Show-Instance
+        Write-Host "marker : $(if (Test-Path $StopMarker) { "present ($StopMarker)" } else { 'absent' })"
     }
-    'status'  {
-        Assert-Nssm
-        if (Test-ServiceExists) {
-            Get-Service -Name $ServiceName | Format-Table -AutoSize
-            Write-Host "AppParameters: $(& $Nssm get $ServiceName AppParameters)"
-            Write-Host "AppDirectory : $(& $Nssm get $ServiceName AppDirectory)"
-            Write-Host "Start        : $(& $Nssm get $ServiceName Start)"
-        } else { Write-Host "service '$ServiceName' not installed" }
-    }
-    'logs'    {
-        if (Test-Path $OutLog) { Write-Host "== stdout =="; Get-Content $OutLog -Tail 30 }
-        if (Test-Path $ErrLog) { Write-Host "== stderr =="; Get-Content $ErrLog -Tail 30 }
+    'logs' {
+        foreach ($f in @($SupLog, $ServeLog, $ServeOut)) {
+            if ($f -and (Test-Path $f)) { Write-Host "== $f (tail 30) =="; Get-Content $f -Tail 30 }
+        }
+        if (-not (Test-Path $SupLog) -and -not ($ServeLog -and (Test-Path $ServeLog))) {
+            Write-Host "no logs yet ($SupLog / $ServeLog)"
+        }
     }
 }
