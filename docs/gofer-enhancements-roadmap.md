@@ -52,18 +52,19 @@
 | PLAN-03 | todo 依赖 `--after prev`、自动推进、`plan run|pause|resume`、`blocked`（进通知默认集）、exec todo `--cmd`、`plan.completed` | 0.49 | [design](design/2026-09-22-plan-autopilot-board-and-container-worker-design.md) |
 | WEB-10 | 计划看板：五列拖拽，拖到 ready 即派发，blocked 横幅重派/跳过，run/pause | 0.49 | 同上 §二 |
 | XFER-02 | 传输 id `xf-<8hex>`、上传前预检、时间按服务端时区渲染 | 0.49 | design §五/六 |
+| CFG-09 | 容器内 worker（`w-docker-claude`）+ `GOFER_HOOK_RUNNER`、`gofer worker doctor`、容器 worker runbook | 0.49 | [design §三](design/2026-09-22-plan-autopilot-board-and-container-worker-design.md) · [runbook](runbook/container-worker.md) |
+| AUTO-02b | schedule webhook 触发（`trigger_token`）；`agent.degraded/recovered` 事件 | 0.49 | 同上 §六 |
 | G032 | 兼容策略：DEPRECATED 标记 + 到期删除；v0.48 已删 6 处 v0.45 标记 | 0.46–0.48 | `AGENTS.md` G032 · SUP-01「横切」 |
 
 ## 二、待做 / 候选（下一批从这里选）
 
 | 编号 | 功能 | 价值 | 大小 | 状态 | 来源 / 细节 |
 |---|---|---|---|---|---|
+| SVC-01 | Windows 桌面会话常驻：`serve -d`/`worker -d`/`stop` 的 Windows 实现（分离进程 + 命名事件优雅停 + 前台也记 pidfile）；`start.ps1 -Mode task` 登录计划任务跑在交互会话（`--runner local` 可操作 GUI），nssm 模式保留 | 高 | 小-中 | 🚧 设计 0.1 待批准 | [design](design/2026-09-22-windows-desktop-session-service-design.md) |
 | JOB-10 | skills 绑定：项目/agent 级 skill 目录，派发时挂载（`.claude/skills` / AGENTS.md 引用）或注入，`gofer skill import <dir|zip|url>` | 中 | 中 | ⏳ | Multica skills；接 roles/模板 |
-| AUTO-02b | schedule 增 webhook 触发（`POST /v1/schedules/{id}/trigger` + 签名） | 中 | 小 | ⏳ | Multica autopilots |
 | MCP-05 | leader 路由：plan/job 评论 `@agent` 触发 job；leader 回合决定下一步/升级/转验收 | 中 | 中-大 | ⏳ | Multica squads；依赖 PLAN-02 + 评论触发 |
 | AUTO-03 | job 级重试可靠版：持久化退避、退出码白名单、opt-in 幂等 | 中 | 中 | 🚧 | [roadmap-history](roadmap-history.md) AUTO-03 |
-| CFG-05 | worker 配置向导 `gofer worker init`（拉 server projects → roots 映射） | 中 | 中 | ⏳ | 容器 worker 上线前做 |
-| CFG-09 | 容器内 worker + `GOFER_HOOK_RUNNER`：让容器会话可被 web 送话、verify/tmux 真机 e2e | 中 | 中 | ❄ 用户定时机 | [session relay v0.5](design/2026-09-06-agent-session-relay-design.md) |
+| CFG-05 | worker 配置向导 `gofer worker init`（拉 server projects → roots 映射） | 中 | 中 | ⏳ | 容器 worker 已手工上线（CFG-09），向导仍缺 |
 | WEB-04③ | 配置写层 V1.1：server/callers/agents 在 web 编辑（热重载盲区 + secret 策略） | 中 | 中 | 🚧 | [config write](design/2026-07-03-web-config-write-design.md) |
 | ACP-02 | 真 claude-acp / codex-acp 端到端验收（鉴权、供应商稳定后） | 中 | — | ❄ 等条件 | [ACP S0 实测](design/2026-09-17-acp-agent-and-approval-gate-design.md) |
 | JOB-06 | 上下文/secret/规则注入（per-job env 已有；规则文件挂载待） | 中 | 中 | 🚧 | roadmap-history JOB-06 |
@@ -76,7 +77,7 @@
 
 ## 三、建议下一批
 
-v0.49.0 已落地 PLAN-03 / WEB-10 / CFG-09 / PTY-01 / XFER-02 / AUTO-02b。候选：JOB-10 skills 绑定、WEB-04③ 配置写层 V1.1（agents/server 在 web 编辑）、MCP-05 leader 路由、ACP-02 真机验收、AUTO-03 可靠重试。
+v0.49.0 已落地 PLAN-03 / WEB-10 / CFG-09 / PTY-01 / XFER-02 / AUTO-02b。进行中：SVC-01（Windows 桌面会话常驻，设计待批准）。其后候选：JOB-10 skills 绑定、WEB-04③ 配置写层 V1.1（agents/server 在 web 编辑）、MCP-05 leader 路由、ACP-02 真机验收、AUTO-03 可靠重试。
 
 ## 四、维护约定
 

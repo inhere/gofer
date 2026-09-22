@@ -1,0 +1,190 @@
+<!-- template_id: design; template_version: 1.1.1 -->
+# Windows 桌面会话常驻与 `-d` 后台模式设计（SVC-01）
+
+> 状态：Draft 0.1 / 待批准
+
+## 修订记录
+
+| 版本 | 日期 | 作者 | 摘要 |
+|---|---|---|---|
+| 0.1 | 2026-09-22 | Claude | 初稿：nssm 服务跑在 session 0，`--runner local` 的 job 碰不到桌面（DTools/CODESYS/截图）。方案 = ① `internal/daemon` 补 Windows 实现（`serve -d` / `worker -d` / `stop` 优雅停）；② `start.ps1 -Mode task`：登录计划任务在**交互会话**里常驻 serve，复用 `win-supervisor.ps1` 做看门狗；③ runbook 选型表 |
+
+## 背景与目标
+
+主机 gofer server 由 nssm 以 Windows 服务方式常驻（`scripts/start.ps1`）。服务一律运行在 **session 0**（与登录账号无关，`-Account '.\<user>'` 也不例外），与用户桌面（session 1+）隔离：`--runner local` 的 job 无法操作 GUI——DTools/CODESYS 自动化、离线模拟 `capture click`、任何需要窗口/剪贴板/`BitBlt` 的动作都失败（bd 记忆里的 `BitBlt Access denied` 即此）。现在的绕法是在桌面开一个前台窗口跑 `gofer worker`（`w-kzl-desktop`），要一直开着窗。
+
+用户观察到 jcode 在主机上会拉起一个后台 `serve` 进程，退出 jcode 后它仍在——那是 `DETACHED_PROCESS` 方式 spawn 的子进程，gofer 在 Linux 上的 `serve -d` 就是同一机制，但 Windows 侧被 `internal/daemon/daemon_windows.go` 明确拒绝（`daemon mode (-d) not supported on windows; run as a service`）。
+
+目标：
+
+1. **`gofer serve -d` / `gofer worker -d` / `gofer serve stop` / `gofer worker stop` 在 Windows 可用**，行为与 Linux 一致（脱离终端、pidfile、优雅停）。
+2. **server 可以常驻在用户桌面会话里**（登录后自动拉起、无窗口、崩溃自动重启、自更新链不变），使 `--runner local` 直接拥有桌面；nssm 模式仍保留给无人值守/无桌面场景。
+3. 文档给出"nssm 服务 vs 登录任务"选型与切换步骤。
+
+非目标：服务内用 `WTSQueryUserToken + CreateProcessAsUser` 把 job 投放到活动会话（等于重写一个 worker，gofer 已有 worker 抽象）；锁屏/RDP 断开状态下的 GUI 可用性（属 Windows 桌面策略，见「风险与限制」）。
+
+## 已确认事实（代码 / 环境）
+
+- `internal/daemon/daemon.go`：`Spawn` 用 `reexecDetached` 重新执行自身（`os.Args[1:]` + 环境哨兵 `GOFER_DAEMONIZED=1`），父进程写 pidfile 后退出；`daemon_unix.go` 用 `Setsid` + stdout/stderr 落 `run/<name>.out.log`；`PIDAlive` = `kill(pid,0)`；`Terminate` = SIGTERM。`daemon_windows.go` 三个函数全部返回 `errNotSupported`，`PIDAlive` 恒 false。
+- `internal/commands/serve.go:88-100`：`-d` 时父进程 `daemon.Spawn`，子进程 `defer daemon.RemovePIDFile`；**前台运行不写 pidfile**。`worker.go:285-303` 同。`worker.go:244 runningWorkerIDs` 通过扫描 `run/worker-*.pid` + `PIDAlive` 发现本机 worker——前台起的 worker 因此不可见。
+- `internal/commands/stop.go stopDaemon`：读 pidfile → `Terminate` → 轮询 `PIDAlive` 至多 12s；文案硬编码 "SIGTERM" / "kill -9"。
+- 停止信号：serve 在 `internal/serve/serve.go:300` 用 `signal.NotifyContext(ctx, SIGINT, SIGTERM)`；worker 在 `internal/worker/serve.go:36` 用 `signal.Notify(sig, SIGINT, SIGTERM)`。Windows 上 Go 把控制台 Ctrl+C / CTRL_CLOSE 映射为这两个信号，但**无控制台的分离进程收不到任何信号**（`GenerateConsoleCtrlEvent` 需要共享控制台）。
+- `scripts/start.ps1`：只有 nssm 一种模式；`upgrade` = `make build` → `nssm stop` → 覆盖 `serve-run\gofer.exe` → `nssm start`。`scripts/win-supervisor.ps1`：nssm 之前的看门狗循环（前台 `& $exe @ServeArgs`，快速失败 3 次回滚 `gofer.old.exe`），目前无"停止并退出循环"的开关；`win-selfupdate.ps1` 的 F4 守卫检查 gofer 祖父进程命令行含 `-SupervisorMarker`（默认 `win-supervisor`）。
+- `config.ConfigDir()` 只认 `GOFER_CONFIG_DIR` 环境变量（否则 `~/.config/gofer`）；nssm 模式靠 `AppEnvironmentExtra` 注入。计划任务继承的是**用户注册表级**环境，不是某个 shell 的环境。
+- `golang.org/x/sys v0.47.0` 已是依赖（`windows` 子包可用：`CreateEvent/OpenEvent/SetEvent/WaitForSingleObject/OpenProcess/GetExitCodeProcess/ProcessIdToSessionId`）。
+- 主机 CI 是 Windows（h-aii-3cro），本仓的 Windows-only 测试会在那里跑；容器只能跑 Linux 侧。
+
+## 一、问题模型与选型
+
+| 方式 | 进程所在会话 | 依赖登录 | 崩溃重启 | GUI | 结论 |
+|---|---|---|---|---|---|
+| nssm / sc 服务（现状） | session 0 | 否 | nssm | ✗ | 保留：无人值守、无桌面的机器 |
+| 登录计划任务 + 看门狗（**本设计**） | 用户交互会话 | 是（掉电重启需自动登录或手动登一次） | 看门狗脚本 + 任务"失败后重启" | ✓ | **桌面主机推荐** |
+| 终端里 `gofer serve -d`（本设计补齐） | 当前会话 | 是 | 无 | ✓ | 临时 / 开发；也是 worker 后台化的手段 |
+| 服务内 `CreateProcessAsUser` 投放 | 投放到活动会话 | 否 | — | ✓ | 不做（复杂度 = 再写一个 worker） |
+
+决定：**做前两行的能力，选型交给运维（runbook）**。当前主机切到登录任务模式后，`w-kzl-desktop` 前台窗口可以关掉（`local` 已有桌面；若仍要隔离可 `gofer worker -d`）。
+
+## 二、SVC-01a `internal/daemon` 的 Windows 实现
+
+`daemon_windows.go` 改为真实现，`errNotSupported` 整个删除（G032：无人依赖的"不支持"路径不保留）。
+
+### 1. 分离启动 `reexecDetached`
+
+```go
+cmd := exec.Command(self, os.Args[1:]...)
+cmd.Env = append(os.Environ(), EnvSentinel+"=1")
+cmd.Stdin = nil                 // NUL
+cmd.Stdout, cmd.Stderr = lf, lf // run/<name>.out.log，追加
+cmd.SysProcAttr = &syscall.SysProcAttr{
+    CreationFlags: windows.DETACHED_PROCESS | windows.CREATE_NEW_PROCESS_GROUP | windows.CREATE_BREAKAWAY_FROM_JOB,
+}
+```
+
+- `DETACHED_PROCESS`：子进程不继承控制台 → 关终端 / Ctrl+C 不连坐（jcode 的效果）。`CREATE_NO_WINDOW` 与之互斥，不用。
+- `CREATE_BREAKAWAY_FROM_JOB`：部分终端宿主把子进程放进 job object，关窗口会随 job 终止；breakaway 被拒（`ERROR_ACCESS_DENIED`）时**去掉该标志重试一次**。
+- 父进程不 `Wait`，写 pidfile 后返回（与 unix 相同）。
+
+### 2. 存活判定 `PIDAlive`
+
+`OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)`：`ERROR_INVALID_PARAMETER` → 不存在；`ERROR_ACCESS_DENIED` → 存在（他人进程）；成功则 `GetExitCodeProcess == STILL_ACTIVE(259)`。不做映像名核对——pid 复用的误判由「停止」路径兜底（见 3：事件不存在即报错，绝不误杀）。
+
+### 3. 优雅停止：命名事件
+
+无控制台进程收不到 Ctrl+C，用 **命名手动复位事件** `Global\gofer-stop-<pid>` 代替 SIGTERM：
+
+- `daemon.NotifyStop(ch chan<- os.Signal)`（新，跨平台接口）：**被停方**（serve / worker 真实进程）启动时调用。Windows：`CreateEventW(nil, manualReset=true, false, name)` + goroutine `WaitForSingleObject(INFINITE)` → 触发后向 `ch` 发送 `syscall.SIGTERM`；创建失败只 `slog.Warn("daemon.stop_event_unavailable")`，不影响启动。Unix：空实现（真实信号已由 `signal.Notify` 投递）。
+- `Terminate(pid)`（停止方）：Windows = `OpenEventW(EVENT_MODIFY_STATE, name)` + `SetEvent`。事件不存在（`ERROR_FILE_NOT_FOUND`）→ 返回错误：`stop event not found for pid=N: 不是本版本 gofer 起的进程或 pid 已被复用；确认已退出则删除 <pidfile>，仍在跑则 taskkill /PID N /F`。**永不 `TerminateProcess`**——硬杀交给人，避免 pid 复用误杀。
+- 事件放 `Global\` 命名空间，同一用户跨会话可停（session 0 的 job 里 `gofer serve stop` 也能停 session 1 的 serve）；跨用户不支持（默认 DACL），文案里提示 taskkill。
+- `daemon.KillHint(pid) string`（新）：unix `kill -9 N`，windows `taskkill /PID N /F`；`stopDaemon` 的 "SIGTERM"/"kill -9" 文案改为平台中立（"停止信号" + `KillHint`）。
+
+### 4. 前台也记 pidfile：`daemon.Claim`
+
+```go
+// Claim 把当前进程 pid 写入 pidPath；若文件已被另一个存活进程占用则不覆盖（owned=false）。
+// release 只在 owned 且文件内容仍是自己的 pid 时删除文件。
+func Claim(pidPath string) (release func(), owned bool)
+```
+
+- serve / worker 的**真实进程**（无论前台还是 `-d` 子进程）启动即 `Claim`，退出 `release`（替代现在仅子进程的 `defer RemovePIDFile`）。`-d` 父进程仍先写 pidfile（子 pid），子进程 `Claim` 看到的是自己的 pid → owned。
+- 收益：登录任务模式下 serve 是**前台**跑在看门狗里，`gofer serve stop` 仍能找到它；前台起的 worker 出现在 `runningWorkerIDs`（`worker stop` / doctor 可见）。
+- 不 owned（同一 config dir 下已有另一个存活实例，如带 `--addr` 的第二个开发实例）：`slog.Warn("daemon.pidfile_busy", "pid", other)` 继续运行，退出时不动文件。绝不因 Claim 失败拒绝启动（端口冲突自然会拒）。
+
+### 5. 会话信息 `daemon.SessionInfo()`
+
+Windows：`ProcessIdToSessionId(GetCurrentProcessId)` + `WTSGetActiveConsoleSessionId()` → `{Session uint32, Interactive bool}`（Interactive = 二者相等）；Unix：零值 + `Interactive=false`（不适用）。serve 的 `server.ready` 与 worker 的就绪日志各加 `session`/`interactive` 字段（Windows 才有值）。runbook 里"确认跑在桌面会话"就看这一行。
+
+### 6. 测试（先写先提交，固定名）
+
+`internal/daemon`（跨平台，Windows CI 与容器都跑）：
+
+- `TestClaimOwnsAndReleasesOnlyOwnPID`：Claim → 文件内容 = 自己 pid、owned；再次 Claim 仍 owned（幂等）；把文件改写成另一个存活 pid（用 `os.Getppid()`）后 release 不删除。
+- `TestTerminateDeliversToSelf`：`signal.Notify(ch, SIGTERM)`；`NotifyStop(ch)`；`Terminate(os.Getpid())` → 2s 内收到信号（unix 走真实 SIGTERM，windows 走事件）。
+- `TestSpawnDetachedRoundTrip`：helper 模式——测试进程把 `os.Args` 设为 `[self, -test.run=^TestHelperDaemonChild$]` 后 `Spawn`；子进程在 `TestHelperDaemonChild` 里（`Daemonized()==true` 才执行，否则 `t.Skip`）向 out.log 写 `child-ready`，`NotifyStop` + `signal.Notify` 等停止信号后写 `child-stopped` 退出。父进程：pidfile 存在、`PIDAlive` true、out.log 出现 `child-ready` → `Terminate` → 5s 内 `PIDAlive` false、out.log 有 `child-stopped`。
+- `TestTerminateMissingTargetReportsHint`（windows-only 文件 `daemon_windows_test.go`）：对一个已退出的 pid `Terminate` → 错误含 `taskkill`。
+- 现有 `TestPIDAlive` 去掉 windows 的 false 断言，改为对 `os.Getpid()` true、对已退出子进程 false。
+
+`internal/commands`：`TestStopDaemonHintIsPlatformNeutral`——对不存在的 pidfile / 假 pid 走 `stopDaemon`，输出不含 "SIGTERM"、"kill -9"（读 `KillHint`）。
+
+## 三、SVC-01b serve / worker 接入
+
+- `internal/serve/serve.go:300`：`signal.NotifyContext` 改为显式通道：`sig := make(chan os.Signal, 1); signal.Notify(sig, SIGINT, SIGTERM); daemon.NotifyStop(sig)`；`ctx` 在收到任一信号时 cancel（语义不变）。`server.ready` 日志加 `session`/`interactive`。
+- `internal/worker/serve.go:36`：`signal.Notify` 之后加 `daemon.NotifyStop(sig)`；就绪日志同上。
+- `internal/commands/serve.go` / `worker.go`：删除 `if daemon.Daemonized() { defer RemovePIDFile }`，改为 `release, owned := daemon.Claim(pidPath); defer release()`；`-d` 父进程分支不变。`serve -d` 的帮助文案去掉"Linux only"含义（现在没有，保持）。
+- 客户端模式拒绝（`config.IsClientRunMode()`）顺序不变，仍在 Spawn 之前。
+
+## 四、SVC-01c `start.ps1 -Mode task` 与看门狗开关
+
+### 1. `win-supervisor.ps1` 两个新参数
+
+- `-StopMarker <path>`（默认 `<ExeDir>\gofer.stop`）：每次（重）启动 gofer 前检查，**存在则记日志并退出循环（exit 0）**。这是 `stop` 能"优雅停 + 不被拉起"的关键：先落标记，再让 gofer 自己退。
+- `-EnvExtra <string[]>`（`KEY=VALUE`）：循环开始前逐条 `Set-Item Env:`，对应 nssm 的 `AppEnvironmentExtra`——把 `GOFER_CONFIG_DIR`（和可选 `GOFER_TOKEN`）带给 gofer，不依赖用户级环境变量。
+- 快速失败回滚逻辑不变；日志沿用 `win-supervisor.log`。
+
+### 2. `start.ps1` 增加 `-Mode nssm|task`（默认 `nssm`，不改变现有用法）
+
+`-Mode task` 下各 Action 的实现：
+
+| Action | 做什么 |
+|---|---|
+| `up` | 若 nssm 服务 **Running** → 直接报错退出并提示先 `-Mode nssm -Action stop`（两者抢同一端口；不自动停别人的服务）。删除 `gofer.stop` 标记。`Register-ScheduledTask -TaskName gofer-serve`：Action = `conhost.exe --headless pwsh.exe -NoProfile -NonInteractive -File <repo>\scripts\win-supervisor.ps1 -ExeDir <repo>\serve-run -WorkDir <repo> -ServeArgs serve,--web-dir,./web/dist[,--addr,…][,--config,…] -EnvExtra GOFER_CONFIG_DIR=…[,GOFER_TOKEN=…]`（无 `conhost --headless` 的老系统退回 `pwsh -WindowStyle Hidden`，会闪一下窗）；Trigger = `AtLogOn -User <user>`；Principal = `-UserId <user> -LogonType Interactive -RunLevel Limited`（`-Elevated` 开关切 `Highest`，此时注册需管理员）；Settings = `-ExecutionTimeLimit 0 -RestartCount 99 -RestartInterval 1min -MultipleInstances IgnoreNew -AllowStartIfOnBatteries -DontStopIfGoingOnBatteries`。然后 `Start-ScheduledTask`，等 `/health` 200（≤20s），打印 `gofer.exe --version` 与会话号。 |
+| `stop` | 写 `gofer.stop` → `gofer.exe serve stop`（走 pidfile + 事件，优雅）→ 等任务状态离开 `Running`（≤15s）→ 超时才 `Stop-ScheduledTask`（硬）并警告。 |
+| `restart` | `stop` + 删标记 + `Start-ScheduledTask`。 |
+| `upgrade` | `make build`（`-Web` 同现状）→ `stop` → 备份 `gofer.exe.prev`、覆盖 → 删标记 → `Start-ScheduledTask` → 校验版本。**不需要管理员**（任务归当前用户）。 |
+| `remove` | `stop` + `Unregister-ScheduledTask`（二进制/日志保留）。 |
+| `status` | 任务状态、上次运行结果、Action 命令行、gofer 进程 pid/SessionId、`/health`。 |
+| `logs` | `win-supervisor.log` + `serve.log` 尾部（task 模式下 stdout 由 gofer 自己的日志承载，没有 nssm 的 out/err 文件）。 |
+
+- 用户身份：默认 `-User` = `(Get-CimInstance Win32_ComputerSystem).UserName`（当前登录的控制台用户，去掉域前缀后与 `whoami` 比对），不是 `$env:USERNAME`——从 session 0 的 job 里跑脚本时后者可能是 SYSTEM。
+- 自更新链不变：gofer 的父进程仍是 `win-supervisor.ps1`（祖父是 pwsh），`win-selfupdate.ps1` 默认 `-SupervisorMarker win-supervisor` 直接通过；被 kill 后循环 2s 拉起新 exe。`gofer.stop` 不存在时 kill 才会被拉起——`stop` 与自更新互斥由标记保证。
+- Task 模式**不写** `AppExit`/`ObjectName` 等 nssm 概念；`-Auto` 在 task 模式无意义（登录触发即"自启"），传了就警告忽略。
+
+### 3. `scripts/win-tasktest.ps1`（隔离验收，omp 在主机跑）
+
+仿 `win-selftest.ps1`：临时 `TestRoot`、独立 `GOFER_CONFIG_DIR`（含最小 `config.yaml` + `.env`）、端口 9098、任务名 `gofer-tasktest-<rand>`，全程只动自己起的进程，结束 `Unregister` + 清理。断言：
+
+1. `up` 后 `/health` 200；`Get-Process gofer` 中该 exe 的 `SessionId` == 控制台会话（`explorer.exe` 的 SessionId）；serve.log `server.ready` 含 `interactive=true`。
+2. `serve stop`（脚本 `stop`）后：serve.log 有 `server.shutdown`，pidfile 消失，`gofer.stop` 存在，任务状态 `Ready` 且 gofer 进程不再出现（看门狗没拉起）。
+3. `restart` 后再次 200；标记已删。
+4. `taskkill /PID <gofer> /F` 模拟崩溃 → ≤10s 内 `/health` 恢复（看门狗拉起）。
+5. 直接 `gofer.exe serve -d`（临时 config dir、端口 9097）→ 父进程退出后 `/health` 200；关闭起它的 pwsh 进程后仍 200；`gofer.exe serve stop` 优雅退出（日志 `server.shutdown`）。
+
+## 五、文档
+
+- `docs/runbook/2026-07-11-windows-server-selfupdate-runbook.md`：§7 标题去掉"推荐"，新增 **§8 登录计划任务模式（桌面会话）**：选型表（本设计 §一）、切换步骤（`-Mode nssm -Action stop` → `-Mode task -Action up` → 验证 `interactive=true` → 用旧的 `-Mode nssm -Action remove` 或保留但改手动启动）、自动登录提示（掉电重启需 `netplwiz`/Autologon，属运维决定）、常见坑表（端口冲突；`RunLevel` 与被操作程序的完整性级别要一致，否则 UIPI 挡住；锁屏/RDP 断开时 GUI 自动化不可靠；`GOFER_CONFIG_DIR` 由 `-EnvExtra` 带入）。
+- `scripts/README.md`：三种方式并列（supervisor 裸跑 / nssm / task），各一段命令。
+- `start.ps1` 头部 `.SYNOPSIS/.NOTES` 更新；`docs/gofer-enhancements-roadmap.md` 加 SVC-01；`gofer-usage` skill 不改（容器侧用法不变）。
+
+## 横切
+
+- G032：`daemon_windows.go` 的 `errNotSupported` 与相关注释删除；`stopDaemon` 文案不留"SIGTERM/kill -9"。无 DEPRECATED 标记需要新增。
+- 兼容：Linux 行为仅一处变化——前台 `serve`/`worker` 也会在 `<config-dir>/run/` 留 pidfile（优雅退出即删；崩溃残留由 `stop` 的存活检查处理）。`gofer worker -d` 在容器的用法不变。
+- 安全：事件对象只允许同一用户 SetEvent；task 模式下 serve 以登录用户身份跑，与 `-Account` 服务等价，web 暴露面不变。
+- Windows CI：`internal/daemon` 新测试会在主机 CI 跑；`win-tasktest.ps1` 不进 CI（需要交互会话），作为发布前手工/omp 验收。
+
+## 实施分期与验收
+
+全部 omp，测试先写先提交。**omp 的主机 job 本身跑在 nssm 服务之下——任务书必须禁止它停止/移除/重启 live 的 `gofer` 服务或注册名为 `gofer-serve` 的任务；一切真机验证走 `win-tasktest.ps1` 的隔离实例。** 正式切换由用户在桌面手工执行（需要管理员停 nssm）。
+
+| 期 | 内容 | 验收 |
+|---|---|---|
+| W1 | §二 + §三：`daemon_windows.go` 真实现、`Claim`、`NotifyStop`、`KillHint`、`SessionInfo`、serve/worker 接入、平台中立文案；测试 §二.6 | 容器：`go build ./...`（linux + `GOOS=windows`）、`go vet`、`go test ./internal/daemon/... ./internal/commands/... ./internal/serve/... ./internal/worker/...`；主机：`go test ./internal/daemon/...` 原始输出（Windows 真跑 `TestSpawnDetachedRoundTrip`）；主机隔离实例 `gofer.exe serve -d` → 关终端存活 → `serve stop` 日志 `server.shutdown` |
+| W2 | §四 + §五：`win-supervisor.ps1` 开关、`start.ps1 -Mode task`、`win-tasktest.ps1`、runbook/README/roadmap | 主机：`pwsh -File scripts\win-tasktest.ps1` 全部 PASS 的原始输出（含 SessionId 对比行）；`win-selftest.ps1` 仍 PASS（自更新链未破）；脚本 `pwsh -NoProfile -Command "Get-Command -Syntax"` 级别的语法检查 |
+| 切换（用户） | 桌面管理员窗口：`start.ps1 -Mode nssm -Action stop` → 普通窗口 `start.ps1 -Mode task -Action up -ConfigDir …` → 从容器派 `gofer job run -a exec --runner local -- pwsh -c "(Get-Process -Id $PID).SessionId"` 应为非 0，再派一次 `hmicli … capture` 出图 | 通过后 `-Mode nssm -Action remove`（或保留手动启动作为后备） |
+
+## 风险与限制
+
+- **依赖登录**：掉电重启后无人登录则 server 不在。选项：自动登录（Autologon/`netplwiz`）+ 锁屏策略；或 nssm 与 task 并存但只启一个（端口互斥，`up` 已检查）。
+- **锁屏 / RDP**：锁屏后桌面切到 Winlogon，SendInput 类自动化失败、截图可能黑屏；RDP 断开后会话 disconnected 同理。这是 Windows 桌面语义，不在本设计内解决；runbook 记录。
+- **UIPI**：serve 以 `Limited` 跑时操作不了以管理员身份打开的 DTools/CODESYS 窗口；反之亦然。`-Elevated` 开关提供，但默认与用户平时开软件的方式一致（非提权）。
+- **pid 复用**：pidfile 指到无关进程时 `Spawn` 会拒绝"已在运行"，`stop` 会报"事件不存在"并给出处置文案；不自动硬杀。
+- **看门狗与 stop 的竞态**：`stop` 先落标记再发事件；看门狗每次拉起前检查标记，2s 睡眠窗口内也会看到标记（检查在 `Start-Sleep` 之后、启动之前）。
+- **`conhost --headless` 可用性**：Windows 10 1809+ / 11 有；缺失时退回 `pwsh -WindowStyle Hidden`（登录时闪一下窗）。
+
+## 决策（待批准）
+
+1. task 模式的任务动作是**看门狗前台跑 serve**（不是 `serve -d`），以保留崩溃重启与快速失败回滚；`serve -d` 用于终端临时起、worker 后台化。
+2. 前台 serve/worker 也 `Claim` pidfile（跨平台一致；`stop` 与 `runningWorkerIDs` 因此覆盖前台实例）。
+3. Windows 的 `stop` 只走命名事件，事件不存在即报错给人处置，**永不 `TerminateProcess`**。
+4. `start.ps1` 用 `-Mode nssm|task` 双模式，默认仍 `nssm`（用户切换验证稳定后可再翻默认）。
+5. 事件命名空间 `Global\`（同用户跨会话可停）；跨用户不支持。
