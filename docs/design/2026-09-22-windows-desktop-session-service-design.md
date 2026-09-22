@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # Windows 桌面会话常驻与 `-d` 后台模式设计（SVC-01）
 
-> 状态：Approved 0.2 / 实施中（2026-09-22 人工批准；决策 4 改为**废弃 nssm 方式**，`start.ps1` 只保留计划任务模式）
+> 状态：已落地 v0.50.0（2026-09-22；W1 omp-acp、W2/F4 omp，容器全量复核 43 包 ok；正式切换待用户在桌面执行 runbook §7.5）
 
 ## 修订记录
 
