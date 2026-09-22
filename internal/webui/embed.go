@@ -13,6 +13,8 @@ import (
 	"io/fs"
 	"net/http"
 	"os"
+	"path"
+	"strings"
 )
 
 // dist holds the built web console assets. all: includes files whose names
@@ -54,26 +56,58 @@ func handlerFor(fsys fs.FS) (http.Handler, bool) {
 	return placeholderHandler(fsys, "placeholder.html"), false
 }
 
-// spaHandler serves files from fsys; requests whose path has no matching file
-// are rewritten to "/" so the SPA shell (index.html) is returned, letting the
-// client-side router handle the route.
+// spaHandler serves files from fsys. A path with no matching file is rewritten
+// to "/" (serving the SPA shell) only when it looks like a client-side route —
+// an extension-less path such as /jobs/123, which is how the front-end router
+// addresses views. Anything else is a genuinely missing file and gets 404:
+// falling back to index.html for /assets/Plans-DM0PtMfW.js would answer a
+// script request with HTML, which the browser rejects as a module and the
+// dynamic import rejects, leaving navigation dead with only a MIME error in the
+// console. A 404 instead lets the client detect the stale-chunk case and reload.
+//
+// Cache headers: the shell must never be cached (it names the hashed assets, so
+// a cached shell keeps pointing at the previous build's chunk names), while
+// hashed asset names change with their content and are immutable.
 func spaHandler(fsys fs.FS) http.Handler {
 	fileServer := http.FileServer(http.FS(fsys))
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		name := r.URL.Path
 		if name == "" || name == "/" {
-			fileServer.ServeHTTP(w, r)
+			serveShell(w, r, fileServer)
 			return
 		}
 		if _, err := fs.Stat(fsys, name[1:]); err != nil {
-			// Unknown path: fall back to the SPA shell.
-			r2 := r.Clone(r.Context())
-			r2.URL.Path = "/"
-			fileServer.ServeHTTP(w, r2)
+			if !isSPARoute(name) {
+				http.NotFound(w, r)
+				return
+			}
+			serveShell(w, r, fileServer)
 			return
+		}
+		if strings.HasPrefix(name, "/assets/") {
+			w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 		}
 		fileServer.ServeHTTP(w, r)
 	})
+}
+
+// isSPARoute reports whether p looks like a front-end route rather than a file:
+// extension-less (`path.Ext` == "") and not under /assets/ (a vite asset whose
+// name lost its hash is still an asset, never a route).
+func isSPARoute(p string) bool {
+	if strings.HasPrefix(p, "/assets/") {
+		return false
+	}
+	return path.Ext(p) == ""
+}
+
+// serveShell serves index.html for r (as "/") with no-cache, so the browser
+// revalidates the shell on every load and picks up a new build's asset names.
+func serveShell(w http.ResponseWriter, r *http.Request, fileServer http.Handler) {
+	r2 := r.Clone(r.Context())
+	r2.URL.Path = "/"
+	w.Header().Set("Cache-Control", "no-cache")
+	fileServer.ServeHTTP(w, r2)
 }
 
 // placeholderHandler serves the embedded placeholder page (200) for any request;

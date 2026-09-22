@@ -139,3 +139,83 @@ func TestHandlerForDirPlaceholder(t *testing.T) {
 		t.Fatalf("placeholder body missing expected text, got: %q", body)
 	}
 }
+
+// newTestSPAFS is a minimal built SPA: the shell plus one hashed asset, the
+// shape vite emits (`assets/<Name>-<hash>.js`).
+func newTestSPAFS() fstest.MapFS {
+	return fstest.MapFS{
+		"index.html":           {Data: []byte(`<!doctype html><div id="app"></div>`)},
+		"assets/app-abc123.js": {Data: []byte("console.log('app')")},
+	}
+}
+
+// TestMissingAssetIsNotTheShell (F8): a missing asset must 404. Answering with
+// the shell (200 + HTML) is what killed the console after an upgrade — the
+// browser got HTML where it asked for a module, the dynamic import rejected,
+// and the router navigation died with only a MIME error to show for it.
+func TestMissingAssetIsNotTheShell(t *testing.T) {
+	h, ok := handlerFor(newTestSPAFS())
+	if !ok {
+		t.Fatal("expected ok=true (index.html present)")
+	}
+
+	// /assets/... is never a route (even without an extension); any other path
+	// carrying a file extension is a missing file, not a front-end route.
+	for _, p := range []string{"/assets/nope-DEADBEEF.js", "/assets/nameless-chunk", "/favicon.ico"} {
+		resp := get(t, h, p)
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusNotFound {
+			t.Fatalf("GET %s status=%d, want 404 (body: %q)", p, resp.StatusCode, body)
+		}
+		if strings.Contains(string(body), `id="app"`) || strings.Contains(strings.ToLower(string(body)), "<html") {
+			t.Fatalf("GET %s was answered with the SPA shell, want a 404: %q", p, body)
+		}
+	}
+}
+
+// TestUnknownRouteFallsBackToShell (F8): extension-less unknown paths are
+// client-side routes and still get the shell, so deep links keep working.
+func TestUnknownRouteFallsBackToShell(t *testing.T) {
+	h, ok := handlerFor(newTestSPAFS())
+	if !ok {
+		t.Fatal("expected ok=true (index.html present)")
+	}
+
+	for _, p := range []string{"/jobs/123", "/plans/plan-1/todos"} {
+		resp := get(t, h, p)
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("GET %s status=%d, want 200 (SPA fallback)", p, resp.StatusCode)
+		}
+		if !strings.Contains(string(body), `id="app"`) {
+			t.Fatalf("GET %s did not fall back to index.html, got: %q", p, body)
+		}
+	}
+}
+
+// TestShellIsNoCacheAssetsAreImmutable (F8): a cached shell keeps naming the
+// previous build's chunks, so it must revalidate; hashed assets never change
+// content under the same name and are immutable.
+func TestShellIsNoCacheAssetsAreImmutable(t *testing.T) {
+	h, _ := handlerFor(newTestSPAFS())
+
+	// Both the shell itself and a route fallback into it are no-cache.
+	for _, p := range []string{"/", "/jobs/123"} {
+		resp := get(t, h, p)
+		resp.Body.Close()
+		if got := resp.Header.Get("Cache-Control"); got != "no-cache" {
+			t.Fatalf("GET %s Cache-Control=%q, want %q", p, got, "no-cache")
+		}
+	}
+
+	resp := get(t, h, "/assets/app-abc123.js")
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /assets/app-abc123.js status=%d, want 200", resp.StatusCode)
+	}
+	if got, want := resp.Header.Get("Cache-Control"), "public, max-age=31536000, immutable"; got != want {
+		t.Fatalf("GET /assets/app-abc123.js Cache-Control=%q, want %q", got, want)
+	}
+}
