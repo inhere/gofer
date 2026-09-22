@@ -401,6 +401,13 @@ func (s *Server) handlePutConfigAgent(c *rux.Context) {
 		s.writeConfigError(c, err)
 		return
 	}
+	// A body with no editable field says nothing: it would create an empty
+	// definition (or, on an existing agent, silently blank every editable field).
+	// The server PUT refuses the same shape — "remove the agent" is DELETE.
+	if len(fields) == 0 {
+		writeError(c, http.StatusBadRequest, "empty request body", "name at least one agent field")
+		return
+	}
 
 	var applied []string
 	created := false
@@ -966,6 +973,14 @@ func (s *Server) handleValidateConfig(c *rux.Context) {
 	fields, err := parseConfigBody(req.Value, section, key)
 	if err != nil {
 		s.writeValidateFailure(c, err)
+		return
+	}
+	if len(fields) == 0 {
+		s.writeValidateFailure(c, &configWriteError{
+			status: http.StatusBadRequest,
+			msg:    "empty request body",
+			detail: "name at least one field in `value`",
+		})
 		return
 	}
 	next := base.Clone()
