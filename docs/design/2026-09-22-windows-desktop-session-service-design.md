@@ -189,3 +189,80 @@ W1 派 `omp-acp`（用户要看 ACP 通道改造后的效果），W2 派 omp；�
 3. Windows 的 `stop` 只走命名事件，事件不存在即报错给人处置，**永不 `TerminateProcess`**。
 4. **nssm 方式废弃**（用户 2026-09-22）：`start.ps1` 只有计划任务模式，nssm 参数/动作/文档删除；`up` 检测到名为 `gofer` 的服务时拒绝并打印迁移命令。
 5. 事件命名空间 `Global\`（同用户跨会话可停）；跨用户不支持。
+
+## W1 实测记录（2026-09-22，主机 Windows 11 26100 / go1.25.10 windows-amd64）
+
+范围 = §二 + §三。提交：`5ad16ca`（测试，red，注明）→ `b887669`（`internal/daemon` 实现）→ `7f28cfd`（serve/worker 接入 + 平台中立文案）。W2（§四 + §五）与正式切换（nssm 卸载）不在本次记录内。
+
+### 1. 测试（主机真跑，非容器）
+
+```
+=== RUN   TestPIDAlive
+--- PASS: TestPIDAlive (0.02s)
+=== RUN   TestClaimOwnsAndReleasesOnlyOwnPID
+--- PASS: TestClaimOwnsAndReleasesOnlyOwnPID (0.01s)
+=== RUN   TestTerminateDeliversToSelf
+--- PASS: TestTerminateDeliversToSelf (0.00s)
+=== RUN   TestSpawnDetachedRoundTrip
+--- PASS: TestSpawnDetachedRoundTrip (0.10s)
+=== RUN   TestTerminateMissingTargetReportsHint
+--- PASS: TestTerminateMissingTargetReportsHint (0.02s)
+ok  	github.com/inhere/gofer/internal/daemon	0.162s
+--- PASS: TestStopDaemonHintIsPlatformNeutral (3.01s)
+ok  	github.com/inhere/gofer/internal/commands	3.032s
+```
+
+`TestSpawnDetachedRoundTrip` 走的是真 detach，不是 mock：父测试进程把 `os.Args` 改成 `-test.run=^TestHelperDaemonChild$` 后 `Spawn` 自身 → 子进程（`Daemonized()==true`）写 `child-ready` → 父进程 `Terminate(pid)` → 子进程收到停止事件写 `child-stopped` 后退出，pidfile 内容 == 子 pid。`internal/serve`、`internal/worker` 的全量包测试同为 `ok`（含此前因 Windows 无 PIDAlive 而 skip 的 `TestResolveDefaultWorker*`，本次已去掉 skip）。
+
+### 2. 隔离实例 smoke（临时 config dir + 127.0.0.1:19097；未碰真实 server、8767 端口与真实配置目录）
+
+```
+[1] gofer.exe serve -d        # GOFER_CONFIG_DIR=<tmp>/cfg, GOFER_LOG_LEVEL=debug
+gofer serve 已后台启动 pid=40196 log=D:\tmp\gofer-w1-smoke\cfg\run\serve.log   (exit=0)
+    parent stderr = 空（无 daemon.breakaway_denied）
+[2] cfg\run\serve.pid = 40196   # 父进程已退出，子进程仍在（脱离控制台存活）
+[3] curl http://127.0.0.1:19097/health → HTTP=200
+[4] gofer.exe serve -d（第二次）
+ERROR: serve: already running (pid=40196, pidfile=D:\tmp\gofer-w1-smoke\cfg\run\serve.pid)   (exit=2)
+[5] gofer.exe serve stop
+gofer: 已向 serve(pid=40196) 发送停止信号，等待退出...
+gofer: serve 已停止   (exit=0)
+[6] cfg\run\ 只剩 serve.log / serve.out.log（pidfile 已删）
+[7] cfg\run\serve.log:
+"event":"server.ready","component":"server","addr":"127.0.0.1:19097","session":0,"interactive":false}
+"event":"server.shutdown","component":"server"}
+```
+
+- `session:0, interactive:false` 是**正确**读数：本 job 本身跑在 live 的 nssm 服务之下（session 0；同一时刻 `WTSGetActiveConsoleSessionId()`=1）。这正是要暴露的判据——从 session 0 起的 serve 不在桌面上。`interactive=true` 只能在登录会话里起 serve 时验证，属 W2 的 `win-tasktest.ps1` §四.3.1。
+- `serve.out.log` 有内容（子进程 stderr 的文本日志），说明 Windows 的 `-d` 同样保留 sidecar 文件。
+- 关终端存活：`serve -d` 的父进程（bash 调用）结束后子进程仍在并继续应答 `/health`。
+
+### 3. breakaway 是否触发重试：**未触发**（首次带 `CREATE_BREAKAWAY_FROM_JOB` 就成功）
+
+`parent stderr = 空` 只能证明"没有记录到拒绝"，为免推断，临时在成功分支加了一行 `slog.Debug("daemon.breakaway_accepted_TEMP_PROBE")` 复测：
+
+```
+time=2026-09-22T12:37:40.735 level=DEBUG msg=daemon.breakaway_accepted_TEMP_PROBE
+```
+
+即 `GOFER_LOG_LEVEL=debug` 的 stderr 通道确实能打出来（说明上一行为空不是日志被吞），且本次环境（gofer job → nssm 服务）不是禁止 breakaway 的 job object。临时那行已删除（`daemon.breakaway_denied` 保留为真实诊断）。禁止 breakaway 的主机（Windows Terminal / 某些 CI）走的是重试分支，未在本机复现。
+
+### 4. 实测发现的一处设计空白（已修，待复核）
+
+**现象**：`serve -d` 之后**立刻**（约 0.1s）`serve stop` 会失败：
+
+```
+ERROR: stop serve (pid=41620): stop event not found for pid=41620: not a gofer started by this build, or the pid was reused; ...
+```
+
+同一进程等它起来后再 stop 就正常。原因：pidfile 由父进程在 `Spawn` 时写入，而停止事件由子进程在 `serve.Start` 末尾（Core 组装之后，~1s）创建 —— 这中间存在一个"pidfile 可见但还不可停"的启动窗口。unix 没有这个窗口（`kill(SIGTERM)` 对启动中的进程立即生效，默认处理直接终止）。
+
+**处理**：`stopDaemon` 在目标**仍存活**时把停止请求重试一小段窗口（`stopRequestRetry = 3s`，200ms 间隔），窗口过后仍失败才报原来的错误文案；unix 首次即成功、不进重试。`pid 复用`/`非本版本进程`的处置语义不变（错误文本与 `KillHint` 一致，只是晚 3s 出现）。复测：`serve -d` + 立刻 `serve stop` → `已向 serve(pid=40976) 发送停止信号` / `serve 已停止`。
+
+这是对任务书 `stopDaemon` 描述的**超出项**（任务书只要求文案中立），如不认可可只回退该重试循环（`internal/commands/stop.go` 的 `stopRequestRetry` + 请求循环），其余不变。
+
+### 5. 未在本机验证（W2 / 人工）
+
+- `interactive=true`（登录会话里跑 serve）、任务模式看门狗、`start.ps1` 重写、nssm 卸载迁移：属 §四/§五。
+- 禁止 breakaway 的宿主上的重试分支；跨用户 stop（应报 `taskkill` 提示）。
+
