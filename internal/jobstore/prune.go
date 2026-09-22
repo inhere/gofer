@@ -105,6 +105,13 @@ func (s *Store) PruneJobs(policy RetentionPolicy, now int64) (deleted int, prune
 			_ = tx.Rollback()
 			return 0, nil, fmt.Errorf("jobstore: prune wakeups %q: %w", id, err)
 		}
+		// R2/AUTO-03: a retry row exists to re-run THIS job, so a pruned job leaves
+		// a retry nobody wants — and its request_json is the pruned job's own payload.
+		// Drop it in the same tx (the job detail lists the chain by source_job_id).
+		if _, err := tx.Exec("DELETE FROM job_retries WHERE source_job_id = ?", id); err != nil {
+			_ = tx.Rollback()
+			return 0, nil, fmt.Errorf("jobstore: prune retries %q: %w", id, err)
+		}
 		if _, err := tx.Exec("DELETE FROM jobs WHERE id = ?", id); err != nil {
 			_ = tx.Rollback()
 			return 0, nil, fmt.Errorf("jobstore: prune job %q: %w", id, err)

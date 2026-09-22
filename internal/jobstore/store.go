@@ -486,6 +486,28 @@ var schemaStmts = []string{
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_wakeups_due ON job_wakeups(enabled, next_run_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_wakeups_job ON job_wakeups(job_id)`,
+	// job_retries is the durable job-level retry queue (R2/AUTO-03, design §二.1).
+	// One row per retry the finish path SCHEDULED for a failed job (source_job_id),
+	// holding the exact JobRequest to re-submit (opaque here, like
+	// schedules.request_json), the attempt it will run as, why it was scheduled and
+	// when it becomes due. The serve sweeper claims due rows with a lease
+	// (ClaimDueRetries) so a process restart or a crash mid-claim never loses a
+	// retry; idx_job_retries_due serves that claim, and the row rides its source
+	// job's retention (see PruneJobs). IF NOT EXISTS like every table here
+	// (idempotent Open).
+	`CREATE TABLE IF NOT EXISTS job_retries (
+  id            TEXT PRIMARY KEY,
+  source_job_id TEXT NOT NULL,
+  attempt       INTEGER NOT NULL,
+  request_json  TEXT NOT NULL,
+  reason        TEXT NOT NULL,
+  next_run_at   INTEGER NOT NULL,
+  lease_until   INTEGER NOT NULL DEFAULT 0,
+  state         TEXT NOT NULL DEFAULT 'pending',
+  new_job_id    TEXT,
+  created_at    INTEGER NOT NULL
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_job_retries_due ON job_retries(state, next_run_at)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema
