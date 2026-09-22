@@ -180,7 +180,7 @@ Get-Content '<ConfigDir>\run\serve.log' | Select-String 'server.ready'
 
 | 现象 | 原因 / 处理 |
 |---|---|
-| `up` 报 `a Windows service named 'gofer' exists` 并退出 3 | 旧 nssm 服务还在（抢端口）。管理员窗口先卸，见 §7.5；**隔离实例**（自己的 TaskName/ExeDir/端口）可加 `-AllowServiceConflict` 跳过该检查 |
+| `up` 报 `a Windows service named 'gofer' exists` 并退出 3 | 旧 nssm 服务还在（抢端口）。管理员窗口先卸，见 §7.6；**隔离实例**（自己的 TaskName/ExeDir/端口）可加 `-AllowServiceConflict` 跳过该检查 |
 | local job 碰不到桌面 / `BitBlt Access denied` | serve 不在用户会话：`-Action status` 看 SessionId（0 = session 0；对不上 explorer 的会话号就是不在同一个桌面）。`serve.log` 的 `interactive=false` 就表示跑在 session 0（服务），必须处理；`console=false` 只说明不是物理控制台（RDP 登录下正常），见 §7.3 |
 | 以管理员打开的 DTools/CODESYS 点不动 | UIPI：进程完整性级别不一致。gofer 也 `-Elevated` 注册（需管理员），或让目标程序以普通权限开 —— **两边必须一致** |
 | 锁屏 / RDP 断开后 GUI 自动化失败、截图黑屏 | Windows 桌面语义：锁屏后活动桌面是 Winlogon，RDP 断开后会话 disconnected。属桌面策略，本仓不解决 |
@@ -190,7 +190,12 @@ Get-Content '<ConfigDir>\run\serve.log' | Select-String 'server.ready'
 | 登录时闪一下黑窗 | 系统无 `conhost.exe --headless`（< Windows 10 1809）：脚本自动退回 `pwsh -WindowStyle Hidden` 并 Warning |
 | 自更新报 `guard(F4)` | 任务模式下 gofer 的父进程仍是 `win-supervisor.ps1`，§2 的默认 `-SupervisorMarker` 即可过 |
 
-### 7.5 从 nssm 迁移（一次性，需管理员）
+### 7.5 升级后的浏览器行为（web 控制台，F8）
+
+- 升级换了前端构建（chunk 名带内容 hash）：已打开的页面里旧 chunk 会 404，前端此时**自动重载一次**拿到新 shell 与新 chunk（同一构建 60s 内只重载一次，服务端真坏时不会无限刷）；被冷却挡住时控制台 warn 一行，顶栏出现可点的「有新版本，点击刷新」提示条。
+- 顶栏铃铛的轮询节奏：15s 一轮（`/v1/interactions` + `/v1/decisions` 并行），`/v1/stats` 每 4 轮一次（只带 `needs_review` 计数）；**标签页隐藏或窗口失焦即暂停**，回到页面/窗口时立刻拉一次。所以后台标签页不该再看到持续请求。
+
+### 7.6 从 nssm 迁移（一次性，需管理员）
 
 ```powershell
 # 1) 管理员窗口：卸掉旧服务（nssm.exe 在 <repo>\serve-run\；没有就用 sc）
