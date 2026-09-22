@@ -2,6 +2,7 @@ package agent
 
 import (
 	"regexp"
+	"strings"
 	"testing"
 
 	"github.com/inhere/gofer/internal/config"
@@ -260,6 +261,104 @@ func TestCodexTUIExitSessionCapture(t *testing.T) {
 	} {
 		if got := re.FindStringSubmatch(miss); got != nil {
 			t.Fatalf("regex matched a non-session line %q: %#v", miss, got)
+		}
+	}
+}
+
+// firstNonEmptyGroup mirrors the extractor contract internal/job.CaptureSessionIDBytes
+// implements (PTY-01 F6): a multi-branch capture regex gives each alternative its own
+// group and only ONE of them fires per match, so the id is the first NON-EMPTY group —
+// never blindly group 1.
+func firstNonEmptyGroup(m []string) string {
+	if len(m) < 2 {
+		return ""
+	}
+	for _, g := range m[1:] {
+		if s := strings.TrimSpace(g); s != "" {
+			return s
+		}
+	}
+	return ""
+}
+
+// TestOmpTUIExitSessionCapture pins the shape an interactive omp TUI prints on exit
+// (real sample, PTY-01 2026-09-22, job 20260922-164858-a7256a59):
+//
+//	Resume this session with omp --resume 01a0c84d-d444-72ca-ad7c-edadbae32034
+//
+// It is the ONLY session id an interactive omp job ever prints — the ndjson
+// `"type":"session"` row needs `--mode json`, which a TUI job does not use — so the
+// built-in capture regex must recognize BOTH shapes under the first-non-empty-group
+// contract. The ANSI decoration around the line must not matter: the samples carry
+// the raw escapes and the de-ANSI'd `[<u` / `[>4;0m` residue seen in pty.txt.
+func TestOmpTUIExitSessionCapture(t *testing.T) {
+	reSrc := builtinSessionDefaults["omp"].SessionCapture
+	re, err := regexp.Compile(reSrc)
+	if err != nil {
+		t.Fatalf("compile %q: %v", reSrc, err)
+	}
+	const sid = "01a0c84d-d444-72ca-ad7c-edadbae32034"
+	samples := map[string]string{
+		"tui exit":            "Resume this session with omp --resume " + sid + "\n",
+		"tui exit ansi":       "\x1b[<u\x1b[>4;0mResume this session with omp --resume " + sid + "\x1b[0m\r\n",
+		"tui exit ansi noise": "[<u[>4;0mResume this session with omp --resume " + sid + "\n",
+		"ndjson session row":  `{"type":"session","id":"` + sid + `"}`,
+		"ndjson row ansi":     "\x1b[2K{\"type\":\"session\",\"id\":\"" + sid + "\"}\r\n",
+	}
+	for name, sample := range samples {
+		if got := firstNonEmptyGroup(re.FindStringSubmatch(sample)); got != sid {
+			t.Fatalf("%s: capture = %q, want %q (sample %q)", name, got, sid, sample)
+		}
+	}
+	for _, miss := range []string{
+		"Resume this session with omp --resume\n",
+		"omp --resume not-a-uuid\n",
+		`{"type":"session"}`,
+		"no session line at all\n",
+	} {
+		if got := firstNonEmptyGroup(re.FindStringSubmatch(miss)); got != "" {
+			t.Fatalf("regex matched a non-session line %q: %q", miss, got)
+		}
+	}
+}
+
+// TestClaudeTUIExitSessionCapture pins claude's TUI exit banner, the last two lines
+// the TUI prints (real sample, PTY-01 2026-09-22, tty-claude job
+// 20260922-163846-31abe0ab):
+//
+//	Resume this session with:
+//	claude --resume 7c4418ff-0928-4e33-8347-c24241d919c0
+//
+// A claude job normally already carries its id — session_inject --session-id is
+// appended on the TUI argv too — so this capture is the fallback on the agent entry
+// that owns claude's session config; the exit banner is the only place the id would
+// ever show up in the pty transcript.
+func TestClaudeTUIExitSessionCapture(t *testing.T) {
+	reSrc := builtinSessionDefaults["claude"].SessionCapture
+	re, err := regexp.Compile(reSrc)
+	if err != nil {
+		t.Fatalf("compile %q: %v", reSrc, err)
+	}
+	const sid = "7c4418ff-0928-4e33-8347-c24241d919c0"
+	samples := map[string]string{
+		"two lines":       "Resume this session with:\nclaude --resume " + sid + "\n",
+		"two lines ansi":  "\x1b[1mResume this session with:\x1b[0m\r\n\x1b[2mclaude --resume " + sid + "\x1b[0m\r\n",
+		"one line":        "Resume this session with: claude --resume " + sid + "\n",
+		"uppercase flags": "Resume this session with:\nClaude --Resume " + sid + "\n",
+	}
+	for name, sample := range samples {
+		if got := firstNonEmptyGroup(re.FindStringSubmatch(sample)); got != sid {
+			t.Fatalf("%s: capture = %q, want %q (sample %q)", name, got, sid, sample)
+		}
+	}
+	for _, miss := range []string{
+		"Resume this session with:\n",
+		"claude --resume\n",
+		"claude --resume not-a-uuid\n",
+		"codex resume " + sid + "\n", // codex's banner is NOT claude's capture
+	} {
+		if got := firstNonEmptyGroup(re.FindStringSubmatch(miss)); got != "" {
+			t.Fatalf("claude capture matched a non-session line %q: %q", miss, got)
 		}
 	}
 }

@@ -227,6 +227,44 @@ func TestCaptureSessionIDBytes(t *testing.T) {
 	}
 }
 
+// TestCaptureSessionIDFirstNonEmptyGroup pins the extractor contract behind a
+// multi-branch capture regex (PTY-01 F6): each alternative owns a group and only ONE
+// of them fires per match, so the id is the first NON-EMPTY group — which is what an
+// interactive omp job needs, since its id comes from the second branch (the TUI exit
+// banner) and the first branch's group is empty there. Taking group 1 blindly returned
+// "" and left `job resume` unusable.
+//
+// The regex is the omp built-in as the agent registry resolves it (ndjson session row
+// first, TUI exit banner second).
+func TestCaptureSessionIDFirstNonEmptyGroup(t *testing.T) {
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{
+		"omp": {Type: agent.TypeCLIAgent, Command: "omp"},
+	}}
+	ac, ok := agent.NewRegistry(cfg).Get("omp")
+	if !ok || ac.SessionCapture == "" {
+		t.Fatalf("omp built-in session capture missing: ok=%v agent=%#v", ok, ac)
+	}
+	const sid = "01a0c84d-d444-72ca-ad7c-edadbae32034"
+
+	// Branch 1 (ndjson session row) fires -> the id sits in group 1.
+	if got := CaptureSessionIDBytes([]byte(`{"type":"session","id":"`+sid+`"}`), ac.SessionCapture); got != sid {
+		t.Fatalf("ndjson branch capture = %q, want %q", got, sid)
+	}
+	// Branch 2 (TUI exit banner) fires -> group 1 is EMPTY, the id sits in group 2.
+	line := []byte("Resume this session with omp --resume " + sid + "\r\n")
+	if got := CaptureSessionIDBytes(line, ac.SessionCapture); got != sid {
+		t.Fatalf("tui-exit branch capture = %q, want %q (first non-empty group, not group 1)", got, sid)
+	}
+	// Neither branch produced an id -> "" (never the empty group of the other branch).
+	if got := CaptureSessionIDBytes([]byte("Resume this session with omp --resume\n"), ac.SessionCapture); got != "" {
+		t.Fatalf("miss capture = %q, want empty", got)
+	}
+	// A union regex whose groups are ALL empty -> "" (no false positive from a match).
+	if got := CaptureSessionIDBytes([]byte("nothing here"), `(x)?(y)?`); got != "" {
+		t.Fatalf("all-empty-groups capture = %q, want empty", got)
+	}
+}
+
 // newCodexCaptureService builds a Service with a "codex" cli-agent whose command
 // prints a `session id: <uuid>` line then exits, so the codex built-in
 // SessionCapture regex extracts the id at终态 (capture mode T1.4).
