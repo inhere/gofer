@@ -112,16 +112,17 @@ func loadAgentRegistry(explicitPath string) (*agent.Registry, error) {
 }
 
 // runAgentList lists agents. Source precedence: an explicit --runner (server / a
-// configured runner id) wins; then, on a client node (GOFER_RUN_MODE=client, no
-// local config) the SERVER's agents; otherwise the local registry. --local forces
-// the local registry, so a client node can still inspect the built-in templates
-// (what a bare `gofer` binary ships, independent of the server).
+// configured runner id) wins; then the shared dual-mode rule (useServerAPI) — a
+// client node, or any box with no local server config (a worker/container), reads the
+// SERVER's agents; otherwise the local registry. --local forces the local registry, so
+// a client node can still inspect the built-in templates (what a bare `gofer` binary
+// ships, independent of the server).
 func runAgentList(c *gcli.Command, _ []string) error {
 	if source := strings.TrimSpace(agentListOpts.runner); source != "" {
 		return runAgentListRemote(c, source)
 	}
-	if config.IsClientRunMode() && !agentListOpts.local {
-		return runAgentListMeta(c)
+	if ch := useServerAPI(agentListOpts.local); ch.remote {
+		return ch.wrap(runAgentListMeta(c))
 	}
 	reg, err := loadAgentRegistry(config.InputCfgFile)
 	if err != nil {

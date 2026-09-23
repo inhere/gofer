@@ -33,10 +33,11 @@ var agentSkillOpts = struct {
 // newAgentSkillCmd builds the `agent skill` group: ls/show/import/update/rm/export
 // over the JOB-10 library (`<config-dir>/skills/<name>/` + its index).
 //
-// Dual mode, exactly like `agent list`: on a client node (GOFER_RUN_MODE=client)
-// the commands go over HTTP to the server that owns the library, so one box can
-// manage a fleet's skills; --local (or any non-client node) opens the library here
-// instead — server-style: config → jobstore → skill.NewStore(<config-dir>/skills).
+// Dual mode, exactly like `agent list`: a client node — or any box with no local
+// server config of its own, such as the worker/container this sub-group was reported
+// broken on (bd h-aii-uzvc) — goes over HTTP to the server that owns the library, so
+// one box can manage a fleet's skills; --local opens the library here instead —
+// server-style: config → jobstore → skill.NewStore(<config-dir>/skills).
 func newAgentSkillCmd() *gcli.Command {
 	// bindSkillConn binds what every skill subcommand needs: the config path, the
 	// connection flags (client mode), and the --local escape hatch.
@@ -107,11 +108,11 @@ func newAgentSkillCmd() *gcli.Command {
 	}
 }
 
-// agentSkillRemote reports whether the skill commands talk to the server: a pure
-// client node has no local library to manage, and --local is the way to reach the
-// copy on that box anyway (mirrors runAgentList's source choice).
-func agentSkillRemote() bool {
-	return config.IsClientRunMode() && !agentSkillOpts.local
+// agentSkillRemote resolves where the skill commands read from, with the shared
+// dual-mode rule (useServerAPI): a client node, or any node that has no local server
+// config to host a library, goes over HTTP; --local forces the local copy.
+func agentSkillRemote() serverAPIChoice {
+	return useServerAPI(agentSkillOpts.local)
 }
 
 // openLocalSkillStore opens the library the way the server does: the resolved
@@ -122,7 +123,9 @@ func agentSkillRemote() bool {
 // A missing config REFUSES rather than degrading to a fresh empty library: without
 // a config there is no config dir, no index and nothing that could have imported a
 // skill — silently creating a db over one would answer "no skills" to an operator
-// who is actually pointed at the wrong box.
+// who is actually pointed at the wrong box. Since the dual-mode rule (useServerAPI)
+// only reaches the local path when the box has a config or --local asked for it, the
+// text names --local as the reason: that flag is what got us here.
 func openLocalSkillStore() (*skill.Store, func(), error) {
 	cfg, path, err := config.Load(config.InputCfgFile)
 	if err != nil {
@@ -130,8 +133,9 @@ func openLocalSkillStore() (*skill.Store, func(), error) {
 	}
 	if path == "" {
 		return nil, nil, fmt.Errorf(
-			"no local gofer config found: the skill library lives beside the server's config; " +
-				"pass -c/--config, or drop --local to manage the server's library over HTTP")
+			"no local gofer config found: --local reads the skill library beside the server's config, " +
+				"and this box has none; pass -c/--config to point at one, or drop --local to use the " +
+				"server's library over HTTP")
 	}
 	repo, err := jobstore.Open(cfg.ResolveDBPath())
 	if err != nil {
@@ -161,14 +165,14 @@ func openLocalSkillStore() (*skill.Store, func(), error) {
 
 // runAgentSkillList lists the library's entries, one line each.
 func runAgentSkillList(c *gcli.Command, _ []string) error {
-	if agentSkillRemote() {
-		cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if ch := agentSkillRemote(); ch.remote {
+		cli, err := ch.client()
 		if err != nil {
 			return err
 		}
 		list, err := cli.SkillList()
 		if err != nil {
-			return err
+			return ch.wrap(err)
 		}
 		printSkillList(c, list)
 		return nil
@@ -210,14 +214,14 @@ func runAgentSkillShow(c *gcli.Command, args []string) error {
 		return fmt.Errorf("agent skill show requires a <name> argument")
 	}
 	var view client.SkillView
-	if agentSkillRemote() {
-		cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if ch := agentSkillRemote(); ch.remote {
+		cli, err := ch.client()
 		if err != nil {
 			return err
 		}
 		view, err = cli.SkillShow(name)
 		if err != nil {
-			return err
+			return ch.wrap(err)
 		}
 	} else {
 		st, closeStore, err := openLocalSkillStore()
@@ -286,8 +290,8 @@ func runAgentSkillImport(c *gcli.Command, args []string) error {
 	if src == "" {
 		return fmt.Errorf("agent skill import requires a <src> argument")
 	}
-	if agentSkillRemote() {
-		return importSkillRemote(c, src)
+	if ch := agentSkillRemote(); ch.remote {
+		return importSkillRemote(ch, c, src)
 	}
 	st, closeStore, err := openLocalSkillStore()
 	if err != nil {
@@ -305,8 +309,8 @@ func runAgentSkillImport(c *gcli.Command, args []string) error {
 
 // importSkillRemote drives POST /v1/skills/import over HTTP: multipart for a local
 // dir/.zip, JSON {"source":…} for something the server fetches itself.
-func importSkillRemote(c *gcli.Command, src string) error {
-	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+func importSkillRemote(ch serverAPIChoice, c *gcli.Command, src string) error {
+	cli, err := ch.client()
 	if err != nil {
 		return err
 	}
@@ -322,7 +326,7 @@ func importSkillRemote(c *gcli.Command, src string) error {
 		res, err = cli.SkillImportFile(archive)
 	}
 	if err != nil {
-		return err
+		return ch.wrap(err)
 	}
 	note := ""
 	if res.Replaced {
@@ -427,14 +431,14 @@ func runAgentSkillUpdate(c *gcli.Command, args []string) error {
 	if name == "" {
 		return fmt.Errorf("agent skill update requires a <name> argument")
 	}
-	if agentSkillRemote() {
-		cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if ch := agentSkillRemote(); ch.remote {
+		cli, err := ch.client()
 		if err != nil {
 			return err
 		}
 		res, err := cli.SkillUpdate(name)
 		if err != nil {
-			return err
+			return ch.wrap(err)
 		}
 		printSkillChange(c, res.Skill, res.Change)
 		return nil
@@ -483,13 +487,13 @@ func runAgentSkillRemove(c *gcli.Command, args []string) error {
 	if name == "" {
 		return fmt.Errorf("agent skill rm requires a <name> argument")
 	}
-	if agentSkillRemote() {
-		cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if ch := agentSkillRemote(); ch.remote {
+		cli, err := ch.client()
 		if err != nil {
 			return err
 		}
 		if err := cli.SkillRemove(name); err != nil {
-			return err
+			return ch.wrap(err)
 		}
 		c.Printf("removed skill %s\n", name)
 		return nil
@@ -519,13 +523,13 @@ func runAgentSkillExport(c *gcli.Command, args []string) error {
 		out = name + ".zip"
 	}
 
-	if agentSkillRemote() {
-		cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if ch := agentSkillRemote(); ch.remote {
+		cli, err := ch.client()
 		if err != nil {
 			return err
 		}
 		if err := writeFileAtomic(out, func(w io.Writer) error { return cli.SkillExport(name, w) }); err != nil {
-			return err
+			return ch.wrap(err)
 		}
 	} else {
 		st, closeStore, err := openLocalSkillStore()

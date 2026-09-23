@@ -257,16 +257,20 @@ func runProjectListRemote(c *gcli.Command) error {
 	return nil
 }
 
-// clientMeta fetches the server's form-options aggregate for a client node
-// (GOFER_RUN_MODE=client), which has no local config to answer `project show` /
-// `project validate` from. Connection flags/env are the shared jobConnOpts, i.e.
-// exactly what `--remote` uses.
-func clientMeta() (client.Meta, error) {
-	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+// clientMeta fetches the server's form-options aggregate for a box that has no local
+// config to answer `project show` / `project validate` from — a client node, or the
+// dual-mode fallback on a worker/container (useServerAPI). Connection flags/env are
+// the shared jobConnOpts, i.e. exactly what `--remote` uses.
+func clientMeta(ch serverAPIChoice) (client.Meta, error) {
+	cli, err := ch.client()
 	if err != nil {
 		return client.Meta{}, err
 	}
-	return cli.Meta()
+	m, err := cli.Meta()
+	if err != nil {
+		return client.Meta{}, ch.wrap(err)
+	}
+	return m, nil
 }
 
 // findMetaProject picks one project out of the server's list.
@@ -279,12 +283,13 @@ func findMetaProject(projs []client.ProjectMeta, key string) (client.ProjectMeta
 	return client.ProjectMeta{}, false
 }
 
-// runProjectShowRemote renders a project from the SERVER's view (client mode). The
-// path fields of the local view (host_path / container_path / exchange / result
-// subdir) are deliberately absent: they are filesystem paths on the SERVER, and
-// /v1/meta does not expose them — printing placeholders for them would invent data.
-func runProjectShowRemote(c *gcli.Command, key string) error {
-	m, err := clientMeta()
+// runProjectShowRemote renders a project from the SERVER's view (client mode, or the
+// dual-mode fallback). The path fields of the local view (host_path / container_path /
+// exchange / result subdir) are deliberately absent: they are filesystem paths on the
+// SERVER, and /v1/meta does not expose them — printing placeholders for them would
+// invent data.
+func runProjectShowRemote(ch serverAPIChoice, c *gcli.Command, key string) error {
+	m, err := clientMeta(ch)
 	if err != nil {
 		return err
 	}
@@ -299,17 +304,18 @@ func runProjectShowRemote(c *gcli.Command, key string) error {
 	c.Printf("allow_exec:        %v\n", p.AllowExec)
 	c.Printf("allow_interactive: %v\n", p.AllowInteractive)
 	c.Printf("worker_only:       %v\n", p.WorkerOnly)
-	c.Println("source:            server (GET /v1/meta; client mode has no local config)")
+	c.Println("source:            server (GET /v1/meta; this box has no local config)")
 	return nil
 }
 
 // runProjectValidateRemote validates a project against the SERVER's view (client
-// mode): the project exists, every agent it names is defined there, and every
-// runner it allows is one the server offers. The local validate's filesystem checks
-// (host_path / exchange / result dirs) stay out on purpose — a client node cannot
-// see the server's disk, so reporting them as OK/FAIL here would be a lie.
-func runProjectValidateRemote(c *gcli.Command, key string) error {
-	m, err := clientMeta()
+// mode, or the dual-mode fallback): the project exists, every agent it names is
+// defined there, and every runner it allows is one the server offers. The local
+// validate's filesystem checks (host_path / exchange / result dirs) stay out on
+// purpose — a remote box cannot see the server's disk, so reporting them as OK/FAIL
+// here would be a lie.
+func runProjectValidateRemote(ch serverAPIChoice, c *gcli.Command, key string) error {
+	m, err := clientMeta(ch)
 	if err != nil {
 		return err
 	}
@@ -405,8 +411,8 @@ func runProjectShow(c *gcli.Command, _ []string) error {
 	if key == "" {
 		return fmt.Errorf("project show requires a <key> argument")
 	}
-	if config.IsClientRunMode() {
-		return runProjectShowRemote(c, key)
+	if ch := useServerAPI(false); ch.remote {
+		return runProjectShowRemote(ch, c, key)
 	}
 	reg, err := loadRegistry(config.InputCfgFile)
 	if err != nil {
@@ -577,8 +583,8 @@ func runProjectValidate(c *gcli.Command, _ []string) error {
 	if key == "" {
 		return fmt.Errorf("project validate requires a <key> argument")
 	}
-	if config.IsClientRunMode() {
-		return runProjectValidateRemote(c, key)
+	if ch := useServerAPI(false); ch.remote {
+		return runProjectValidateRemote(ch, c, key)
 	}
 	reg, err := loadRegistry(config.InputCfgFile)
 	if err != nil {
