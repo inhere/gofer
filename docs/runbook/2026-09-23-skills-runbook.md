@@ -107,7 +107,7 @@ gofer job show <job>       # skills: house-rules, gofer-repo-conventions
   `job.skills_mounted {names, via:"uploads"}`（**ws-worker job**：文件走 uploads 通道，hub 在派发时记这一条——
   执行机的那条收据在 worker 自己的库里，hub 看不到）、`job.skills_skipped {reason, names, count}`
   （老 worker / peer runner）。
-- web：job 详情显示本次 skills；「技能」页可看列表、SKILL.md 正文、导入/更新/删除/导出；配置页的 agent/server 编辑弹窗能改 `skills` 列表（可热改，不用重启）。
+- web：job 详情显示本次 skills；**Skills** 页（左轨导航名就是 `Skills`）可看列表、SKILL.md 正文、导入/更新/删除/导出；配置页的 agent/server 编辑弹窗能改 `skills` 列表（可热改，不用重启）。
 
 排障：
 

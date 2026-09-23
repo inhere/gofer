@@ -163,3 +163,32 @@
 - **`plan set` 只做 `--leader`**：plan 的 title/description 至今没有 HTTP 写入口，CLI 不先行（不为了一个 flag 造接口）。
 - **`plan events` 没有进 CLI**：本期只要求 HTTP 端点 + web 事件区，CLI 侧用 `curl`/web 即可；需要时再按 G033 加 `gofer plan events`。
 - `maybeWakeLeader` 的判定顺序调整为"先看 plan 开关（off 直接静默返回）再看总闸"，所以 plan 关闭时既不起 job 也不记事件；`enabled:false` 但 plan 开着时记 `plan.leader_skipped{reason:"global_off"}`；窗口内被 `--leader off` 关掉记 `{reason:"plan_off"}`。
+
+## C3 实测记录（2026-09-24，omp）
+
+小项 F-a/F-b/F-c/F-d 落地后实测（**临时 serve**：独立 config 目录 + 端口 18790 + `storage.root` 在 `tmp/c3-smoke/`，启动命令里 `unset GOFER_SERVER_ADDR/GOFER_SERVER_TOKEN/GOFER_TOKEN`，CLI 一律 `--server http://127.0.0.1:18790 --token smoke-tok`；web 用 `serve --web-dir web/dist` + 真实 Chromium）。
+
+| 步骤 | 命令 / 操作 | 实测结果 |
+|---|---|---|
+| F-a worker 回落 | `GOFER_RUN_MODE=worker`（无 `GOFER_CONFIG`、无 config.yaml）+ `GOFER_SERVER_ADDR/TOKEN` → `agent skill ls` | `(no skills)`、exit=0（修前：`ERROR: no local gofer config found … drop --local`） |
+| F-a 远端写 | 同环境 `agent skill import tmp/c3-smoke/skillsrc/demo`（本地目录 → zip → POST） | `imported skill demo-skill (version 333bbf150730, 1 files, 65B)`；再 `agent skill ls` → `demo-skill 333bbf150730 65B smoke skill for C3` |
+| F-a `--local` | 同环境 `agent skill ls --local` | exit=2：`no local gofer config found: --local reads the skill library beside the server's config, and this box has none; …` |
+| F-a 无地址文案 | 同环境但 `GOFER_SERVER_ADDR=` 空 → `agent skill ls` | exit=2：`本机没有 server 配置（运行模式=worker），且连接 server 失败：未找到配置文件，且未通过 -s/--server 指定 server 地址；…` |
+| F-a `agent list` | 同环境 `agent list` | 列出 **server 的** agent（`claude/codex/exec…` 带 batch/interactive 位），不是空本地 registry |
+| F-d CLI 分页 | 建 25 个 plan（`plan-smoke-01..25`，奇数/偶数分属 self/other，后 5 个置 done）→ `plan list --limit 3` | 3 行 + `共 25 条，显示 1–3`；`--all` → 25 行 + `共 25 条，显示 1–25`（服务端每页 100 时一轮拿完） |
+| F-d CLI 过滤 | `plan list --q plan-smoke-0` / `--q alpha` / `--project other --status open --limit 5` | `共 9 条，显示 1–9`（id 前缀）/ `共 10 条，显示 1–10`（标题子串，大小写不敏感）/ `共 10 条，显示 1–5` |
+| F-d HTTP 信封 | `GET /v1/plans?limit=5000&offset=-3` / `?status=open&q=plan-smoke-0&project=self` / `?limit=1&offset=1` | `limit 100 offset 0 total 25 rows 25`（上限裁剪、负 offset 归零）/ `total 5`（三条件叠加）/ `limit 1 offset 1 total 25 ['plan-smoke-24']` |
+| F-d web 列表 | `/plans` 打开 → 翻页 → 过滤 | 首屏 20 行 + `第 1–20 条 / 共 25 条`；点「下一页 →」→ URL `?offset=20`、`第 21–25 条 / 共 25 条`、下一页禁用；选 status=done → URL `?status=done`（offset 被清）、`第 1–5 条 / 共 5 条`；q 输入 `alpha` + 回车 → URL `?status=done&q=alpha`、2 行、两个翻页按钮都禁用 |
+| F-b Board 输入框 | `/board` 点 plan 输入框 | 输入框（placeholder `plan id`），下方提示 `最近：plan-smoke-20 plan-smoke-19 plan-smoke-18 plan-smoke-17 plan-smoke-16`（`GET /v1/plans?status=open&limit=5` 只发一次；在 board 停留 6s 的请求记录里**没有任何 `/v1/plans` 轮询**）；点一个提示 → URL `?plan=plan-smoke-20`、输入框填上、job 列表按该 plan 过滤 |
+| F-c 导航 | 任一页面左轨 | 导航项是 `Skills`（英文，与 Board/Plans/Agents 同风格），页面标题 `SKILLS` |
+
+自动化侧（全部通过）：`TestSkillCmdFallsBackToHTTPWithoutLocalServerConfig`、`TestSkillCmdLocalFlagForcesLocal`、`TestSkillCmdFallbackErrorExplainsWorkerMode`、`TestAgentListSameFallback`（`internal/commands`）、`TestListPlansFilterAndPaging`（`internal/jobstore`）、`TestPlansEndpointPaging`（`internal/httpapi`）、`TestPlanListPagingFlags`（`internal/commands`）；整包 `go test ./internal/jobstore/ ./internal/httpapi/ ./internal/commands/ -count=1` 全绿。
+
+实现中定下的几个细节（超出原稿、不改语义）：
+
+- **双模式判定收敛成一个 helper**：`commands.useServerAPI(localFlag)` 返回 `serverAPIChoice{remote, fallback}` —— client 模式 → 远端；`--local` → 本地；否则本机没有 server 配置（`config.Load` 解析不到 config.yaml）→ 远端（fallback）；有 → 本地。`fallback` 只用来给**传输层**失败加前缀 `本机没有 server 配置（运行模式=X），且连接 server 失败：<err>`（`client.StatusOf(err) != 0` 即服务端答过话，不加——否则 404 会被说成"连接失败"）。已切换的判定点：`agent skill`（6 个子命令）、`agent list`、`project show`、`project validate`。**`project list` 保持原样**：它的本地一侧按角色读 worker.yaml/policy 缓存（不是 server 的 config.yaml），套用同一 helper 会把 worker 节点自己的项目列表换成远端视图，属于行为回退。
+- **"本机有没有 server 配置"以"解析到配置文件"为准**（`path != ""`），不额外要求 `projects` 非空：新建 server 上还没有项目时它仍然是"本机库的主人"，此时要求 projects 非空会把 `agent skill ls` 甩到远端并连不上自己。非 server 角色下（worker/client）配置里没有 projects 才视为连接桩、走远端。
+- **`--all` 是翻页而不是超大 limit**：服务端一页上限 100，`--all` 以 100 为步长按 offset 走完（`plan list --all` 因此是多次请求，测试用"服务端只给 2 行/页"的桩覆盖了这条路）。
+- **plan 列表的 `q` 把 LIKE 元字符当字面量**（`escapeLikePattern` + `ESCAPE '\'`）：搜索框里输入 `%` 不该匹配全部。id 是**前缀**匹配、标题是**子串**匹配（两种语义有意不同），测试各钉了一条。
+- **plan 列表默认页大小改由 jobstore 常量 `PlanListDefaultLimit=20` / `PlanListMaxLimit=100` 表达**（原 `DefaultListLimit=200` 不再用于 plan），HTTP 响应回显**生效后**的 limit/offset，前端据此判断有无下一页。
+
