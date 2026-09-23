@@ -260,6 +260,10 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// it unconditionally), so the routes are mounted whenever the server runs — a
 	// deployment with no worker still transfers to `server:` targets.
 	srv.SetXfer(cr.Xfer())
+	// JOB-10: mount the skill library the CLI/web read from (list / show / import /
+	// update / remove / export). The library core already built for the dispatch path
+	// is the same store, so a skill imported here is the one the next job mounts.
+	srv.SetSkills(cr.Skills())
 	// Staging-area TTL sweep. UNCONDITIONAL (unlike retention, which is opt-in): a
 	// transfer's staging directory is transient by construction, so an expired one left
 	// behind is leaked disk, not a policy choice. stop closes when serve returns.

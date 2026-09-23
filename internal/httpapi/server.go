@@ -35,6 +35,7 @@ import (
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/ptyrelay"
 	"github.com/inhere/gofer/internal/sessionrelay"
+	"github.com/inhere/gofer/internal/skill"
 	"github.com/inhere/gofer/internal/tunnel"
 	"github.com/inhere/gofer/internal/webui"
 	"github.com/inhere/gofer/internal/xfer"
@@ -237,6 +238,14 @@ type Server struct {
 	// router rebuild; mcp/tests simply leave it nil.
 	xfer *xfer.Manager
 
+	// skills is the JOB-10 skill library behind /v1/skills*. Injected
+	// post-construction by SetSkills (serve passes core's store). Exactly like xfer:
+	// the routes are ALWAYS mounted and answer 503 while it is nil, so a server
+	// without a library (mcp, most tests) keeps the identical router. The store owns
+	// the name grammar, the import pipeline and the byte caps; this layer only
+	// resolves params, gates the three writes on can_admin and encodes answers.
+	skills *skill.Store
+
 	// presence is the E36 driver-agent identity/mailbox service backing the
 	// /v1/agents/* + /v1/messages endpoints. Injected post-construction by
 	// SetPresence (serve), mirroring SetMetrics so the wide positional New stays
@@ -331,6 +340,12 @@ func (s *Server) SetConfigWriter(cw ConfigWriter) { s.core = cw }
 // and answer 503 while no manager is wired, so a server without transfers (mcp,
 // most tests) keeps the identical router.
 func (s *Server) SetXfer(m *xfer.Manager) { s.xfer = m }
+
+// SetSkills injects the JOB-10 skill library (serve passes core's store for
+// <config-dir>/skills). Like SetXfer it needs no router rebuild: the /v1/skills
+// routes are always mounted and answer 503 while no library is wired, so a server
+// without one (mcp, most tests) keeps the identical router.
+func (s *Server) SetSkills(st *skill.Store) { s.skills = st }
 
 // SetSessionRelayPolicy injects the effective session-relay auto-arm policy
 // (SESS-01 R2 + SUP-01 D): the keyboard idle threshold and the last-human-input
@@ -565,6 +580,19 @@ func (s *Server) buildRouter() *rux.Router {
 		// web Agents 页的按钮都走这里）。段名用 {id}（而非 {key}）：rux 的 radix 树要求
 		// 同一位置只有一个参数名，presence 路由的 /agents/{id}/... 已经占了它。
 		r.POST("/agents/{id}/probe", s.handleProbeAgent)
+
+		// JOB-10 §一: the skill library (list / read / import / update / remove /
+		// export). Reads are open to any authenticated caller; the three writes are
+		// can_admin-gated per handler, like the project and config writes. Always
+		// mounted; answer 503 until serve injects the store (SetSkills). `import` is a
+		// static segment, and the router tries static children before the param child,
+		// so it is never swallowed by {name}.
+		r.GET("/skills", s.handleListSkills)
+		r.POST("/skills/import", s.handleImportSkill)
+		r.GET("/skills/{name}", s.handleGetSkill)
+		r.POST("/skills/{name}/update", s.handleUpdateSkill)
+		r.DELETE("/skills/{name}", s.handleDeleteSkill)
+		r.GET("/skills/{name}/export", s.handleExportSkill)
 
 		// C6/P4: remote-node observability — status of every configured runner
 		// (local / peer-http probe / worker heartbeat). Normal authed JSON endpoint

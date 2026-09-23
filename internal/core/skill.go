@@ -27,6 +27,21 @@ type hubSkillLibrary struct {
 	mgr   *xfer.Manager
 }
 
+// Skills returns the JOB-10 skill library store (nil when the library was never
+// built). It is the SAME store the job seam above resolves bindings against and the
+// one serve injects into httpapi (SetSkills), so the CLI/HTTP surface and the dispatch
+// path can never disagree about what a skill contains.
+//
+// Nil is a "not wired" answer, not a panic: an HTTP surface without it answers 503
+// (the same degradation /v1/xfer uses), which is what a caller built before Build
+// wired the library must see.
+func (c *Core) Skills() *skill.Store {
+	if c == nil || c.skillLib == nil {
+		return nil
+	}
+	return c.skillLib.store
+}
+
 // buildSkillLibrary opens the library at <config-dir>/skills (the same directory the
 // imports land in, next to the rest of the operator's config) over the metadata
 // store's skills table, with the byte caps from server.skill_limits.

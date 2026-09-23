@@ -89,6 +89,10 @@ type Core struct {
 	// wired to the Hub's wire-level transfer call and the same metadata Store the jobs
 	// use. Always non-nil after Build; read through Xfer().
 	xferMgr *xfer.Manager
+	// skillLib is the JOB-10 skill library: the store the four-level binding resolves
+	// against plus the job seam that mounts/stages its files. Built once in Build and
+	// always non-nil after it; read through Skills().
+	skillLib *hubSkillLibrary
 	// detector is the agent.Detector this Core resolved its config with. It is kept
 	// so ReloadWith re-gates the built-in agent templates through the SAME seam the
 	// process started with (a test's fake detector must not silently become the real
@@ -305,6 +309,9 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 		return nil, fmt.Errorf("build skill library: %w", err)
 	}
 	jobs.SetSkillLibrary(skillLib)
+	// Keep the same library on the Core so the HTTP surface (httpapi.SetSkills) and the
+	// CLI read the one store rather than opening a second one over the same table.
+	c.skillLib = skillLib
 	// Seed generation 1 (verification 5: Build=Rev 1, every write +1). This is the
 	// only snap.Store outside reloadLocked; it never re-resolves (the registries above
 	// were already built from this resolved cfg).
