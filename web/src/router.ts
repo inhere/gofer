@@ -61,6 +61,8 @@ const routes: RouteRecordRaw[] = [
   },
   { path: '/projects', name: 'projects', component: () => import('./views/Projects.vue') },
   { path: '/agents', name: 'agents', component: () => import('./views/Agents.vue') },
+  // JOB-10：server 技能库（列表/详情/导入/更新/删除/导出）。
+  { path: '/skills', name: 'skills', component: () => import('./views/Skills.vue') },
   { path: '/runners', name: 'runners', component: () => import('./views/Runners.vue') },
   { path: '/cluster', redirect: '/runners' },
   { path: '/config', name: 'config', component: () => import('./views/Config.vue') },

@@ -106,6 +106,10 @@ export interface Job {
   // 结果。failed/timeout 正是该 job 失败的原因；skipped=agent 没正常结束，故没跑。
   // 列表页对失败的 job 打 verify 小徽标，详情页有独立块。
   verify?: JobVerify
+  // 绑定的技能（JOB-10，后端 omitempty）：提交时按 server → agent → project → job 四层取并集
+  // 定下，随 job 一起落库（job.JobResult.Skills）。文件物化在 <result_dir>/skills/，prompt 头部
+  // 列路径。没有绑定的 job 不发该字段（"没绑"是缺省，不是空清单），详情页整行不显示。
+  skills?: string[]
   // 用量/成本（SUP-01 E，后端 omitempty）：agent 自报的 token/成本结算（远端 job 由执行机
   // 采集后随 Outcome 回传）。没采集到就没有该字段，详情页不显示用量块。
   usage?: JobUsage
@@ -528,6 +532,9 @@ export interface ServerConfigView {
   stall_timeout_sec: number | null
   job_recover_window_sec: number | null
   retry?: RetryPolicy
+  // JOB-10：全局默认技能绑定（server.skills）。可编辑且 PUT 是"整体替换"语义（body 里
+  // 没有的可编辑字段会被清空），所以表单必须原样回发这份清单。
+  skills: string[]
 }
 
 export interface RetryPolicy {
@@ -638,6 +645,9 @@ export interface ConfigAgentView {
   ndjson_stdout_path: string
   ndjson_fields?: Record<string, string[]>
   acp?: AcpConfigView
+  // JOB-10：该 agent 自己的技能绑定（agents.<key>.skills），与 server/project 的清单取并集。
+  // 同 server：可编辑 + 整体替换语义，表单必须回发。
+  skills: string[]
   // injected=true：该 key 不是操作者在文件里声明的，而是运行时按内置模板注入的（CLI 在本机
   // 存在才注入）。删除它 = 删除操作者覆盖、回落到内置定义，不是删除能力。
   injected?: boolean
@@ -1668,3 +1678,63 @@ export interface RebuildRequest {
 }
 
 export type RebuildBody = RebuildRequest
+
+// ---------------------------------------------------------------- 技能库（JOB-10）
+
+// SkillFile 是技能目录里的一个文件（path 相对技能目录、slash 分隔）。sha256/size 来自
+// 导入时算出的索引，`skill update` 的 diff 就是靠它比对，不必回传字节。
+export interface SkillFile {
+  path: string
+  sha256: string
+  // 后端 omitempty：0 字节文件不发。
+  size?: number
+}
+
+// Skill 是库里的一个技能（internal/skill.Skill）。字节在磁盘上（<config-dir>/skills/<name>/），
+// 这里是索引：列目录、比变更都不必走文件树。
+export interface Skill {
+  name: string
+  description?: string
+  // dir|zip|url|git —— 这份技能当初从哪来。
+  source?: string
+  // Update 原样重取用的 spec（URL + commit/etag）。URL 型（http/git）才有。
+  source_ref?: string
+  // 文件清单的 sha256，随内容变化。
+  version?: string
+  files?: SkillFile[]
+  size?: number
+  // Unix 秒（后端 omitempty）。
+  updated_at?: number
+  updated_by?: string
+}
+
+// GET /v1/skills/{name}：Skill + SKILL.md 正文（详情页的 mono 块）。
+export interface SkillDetail extends Skill {
+  content: string
+}
+
+// Change 是一次 `update` 对技能做了什么（internal/skill.Change），各列表按 path 排序。
+export interface SkillChange {
+  name: string
+  added?: string[]
+  changed?: string[]
+  removed?: string[]
+}
+
+// GET /v1/skills。skills 恒为数组（空库是 []，不是 null）。
+export interface SkillsResp {
+  skills: Skill[]
+}
+
+// POST /v1/skills/import（multipart 的 `file` 或 JSON 的 {"source":"…"}）。
+export interface SkillImportResp {
+  skill: Skill
+  // replaced=true：同名技能已存在，这次导入覆盖了它。
+  replaced: boolean
+}
+
+// POST /v1/skills/{name}/update。
+export interface SkillUpdateResp {
+  skill: Skill
+  change: SkillChange
+}

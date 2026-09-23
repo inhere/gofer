@@ -1454,6 +1454,12 @@ onUnmounted(() => {
       <div class="meta-item">
         <span class="meta-k mono">agent</span><span class="meta-v mono">{{ job.agent }}</span>
       </div>
+      <!-- 绑定的技能（JOB-10）：派发时按 server → agent → project → job 的并集定下，物化在
+           <result_dir>/skills/ 且 prompt 头部列了路径。没绑定的 job 没有该字段，整行不渲染。 -->
+      <div v-if="job.skills && job.skills.length > 0" class="meta-item">
+        <span class="meta-k mono">skills</span>
+        <span class="meta-v mono" :title="job.skills.join(', ')">{{ job.skills.join(', ') }}</span>
+      </div>
       <div class="meta-item">
         <span class="meta-k mono">runner</span>
         <span class="meta-v mono" :class="{ remote: job.runner !== 'local' }">{{ job.runner }}</span>

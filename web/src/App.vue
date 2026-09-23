@@ -65,6 +65,8 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
       { to: '/agents', label: 'Agents' },
       { to: '/runners', label: 'Runners' },
       { to: '/projects', label: 'Projects' },
+      // JOB-10：技能库就挂在 Agents 旁边——它们是同一类"agent 怎么干活"的资产。
+      { to: '/skills', label: '技能' },
     ],
   },
 ]

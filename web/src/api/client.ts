@@ -123,7 +123,9 @@ async function raiseForStatus(res: Response): Promise<never> {
   throw new ApiError(res.status, msg, detail || undefined, code || undefined, fields)
 }
 
-async function request<T>(path: string, init?: RequestInit): Promise<T> {
+// send 是三种响应形状（JSON / 文本 / 无体）共用的前置：统一注入 Authorization、
+// 401 统一走 unauthorized 回调、非 2xx 统一解析 {error, detail} 抛 ApiError。
+async function send(path: string, init?: RequestInit): Promise<Response> {
   const res = await fetch(path, {
     ...init,
     headers: authHeaders(init?.headers as Record<string, string> | undefined),
@@ -135,22 +137,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     return raiseForStatus(res)
   }
-  return (await res.json()) as T
+  return res
+}
+
+// request 是 api 层的公共传输入口：skills.ts 这类按资源拆分的模块与 client.ts 里的
+// 端点函数走同一条路（同一份鉴权、401 与错误解析）。
+export async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await send(path, init)
+  // 204/空体（DELETE 一类）没有 JSON 可解 —— 请求已成功，结果就是「没有结果」，
+  // 不能拿 res.json() 去撞一个空 body。
+  const body = await res.text()
+  return (body === '' ? undefined : JSON.parse(body)) as T
 }
 
 async function requestText(path: string, init?: RequestInit): Promise<string> {
-  const res = await fetch(path, {
-    ...init,
-    headers: authHeaders(init?.headers as Record<string, string> | undefined),
-  })
-  if (res.status === 401) {
-    triggerUnauthorized()
-    throw new Error('未授权（401）：token 无效或已失效')
-  }
-  if (!res.ok) {
-    return raiseForStatus(res)
-  }
-  return res.text()
+  return (await send(path, init)).text()
 }
 
 export function listProjects(): Promise<ProjectsResp> {
@@ -669,48 +670,36 @@ function encodeArtifactPath(name: string): string {
   return name.split('/').map(encodeURIComponent).join('/')
 }
 
-// 下载单个产物（E1，P2）。下载需带鉴权头，故走 fetch+blob，触发浏览器另存。
-// 文件名优先用后端 Content-Disposition；缺失时回退 name 的 basename。
-export async function downloadArtifact(id: string, name: string): Promise<void> {
-  const url = `/v1/jobs/${encodeURIComponent(id)}/artifacts/${encodeArtifactPath(name)}`
-  const res = await fetch(url, { headers: authHeaders() })
-  if (res.status === 401) {
-    triggerUnauthorized()
-    throw new Error('未授权（401）：token 无效或已失效')
-  }
-  if (!res.ok) {
-    return raiseForStatus(res)
-  }
-  const blob = await res.blob()
+// saveBlob 触发浏览器另存一个 blob：临时 URL 用完即 revoke（产物/录制/技能导出共用）。
+function saveBlob(blob: Blob, filename: string): void {
   const objURL = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = objURL
-  a.download = name.split('/').pop() ?? name
+  a.download = filename
   document.body.appendChild(a)
   a.click()
   a.remove()
   URL.revokeObjectURL(objURL)
 }
 
-export async function downloadPtyRecording(id: string): Promise<void> {
-  const url = `/v1/jobs/${encodeURIComponent(id)}/pty/recording`
-  const res = await fetch(url, { headers: authHeaders() })
-  if (res.status === 401) {
-    triggerUnauthorized()
-    throw new Error('未授权（401）：token 无效或已失效')
-  }
-  if (!res.ok) {
-    return raiseForStatus(res)
-  }
-  const blob = await res.blob()
-  const objURL = URL.createObjectURL(blob)
-  const a = document.createElement('a')
-  a.href = objURL
-  a.download = contentDispositionFilename(res) ?? `${id}.cast`
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  URL.revokeObjectURL(objURL)
+// downloadFile 下载任意带鉴权的二进制端点（产物 / 终端录制 / 技能导出）。下载必须带
+// Authorization，故走 fetch+blob 而不是给 <a href> 一个裸 URL；文件名优先用后端
+// Content-Disposition，缺失时回退 fallback。
+export async function downloadFile(url: string, fallbackName: string): Promise<void> {
+  const res = await send(url)
+  saveBlob(await res.blob(), contentDispositionFilename(res) ?? fallbackName)
+}
+
+// 下载单个产物（E1，P2）。
+export function downloadArtifact(id: string, name: string): Promise<void> {
+  return downloadFile(
+    `/v1/jobs/${encodeURIComponent(id)}/artifacts/${encodeArtifactPath(name)}`,
+    name.split('/').pop() ?? name,
+  )
+}
+
+export function downloadPtyRecording(id: string): Promise<void> {
+  return downloadFile(`/v1/jobs/${encodeURIComponent(id)}/pty/recording`, `${id}.cast`)
 }
 
 function contentDispositionFilename(res: Response): string | null {

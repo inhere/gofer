@@ -106,6 +106,7 @@ interface AgentForm {
   retryMaxAttempts: string
   retryBackoffText: string
   acpPermissionPolicy: string
+  skillsText: string
 }
 
 interface ServerForm {
@@ -116,6 +117,7 @@ interface ServerForm {
   probeTimeoutSec: string
   retryMaxAttempts: string
   retryBackoffText: string
+  skillsText: string
 }
 
 const editor = ref<EditorKind | null>(null)
@@ -144,6 +146,7 @@ const agentForm = reactive<AgentForm>({
   retryMaxAttempts: '',
   retryBackoffText: '',
   acpPermissionPolicy: '',
+  skillsText: '',
 })
 
 const serverForm = reactive<ServerForm>({
@@ -154,6 +157,7 @@ const serverForm = reactive<ServerForm>({
   probeTimeoutSec: '',
   retryMaxAttempts: '',
   retryBackoffText: '',
+  skillsText: '',
 })
 
 const agentPolicy = computed<Record<string, FieldPolicy>>(() => config.value?.agent_policy ?? {})
@@ -230,6 +234,7 @@ function openAgentEditor(a: ConfigAgentView | null): void {
     retryMaxAttempts: a?.retry ? String(a.retry.max_attempts) : '',
     retryBackoffText: linesText(a?.retry?.backoff_sec?.map(String) ?? null),
     acpPermissionPolicy: a?.acp?.permission_policy ?? '',
+    skillsText: linesText(a?.skills),
   })
   void refreshPreview()
 }
@@ -253,6 +258,7 @@ function openServerEditor(): void {
     probeTimeoutSec: String(sc.runner_probe.timeout_seconds || ''),
     retryMaxAttempts: sc.retry ? String(sc.retry.max_attempts) : '',
     retryBackoffText: linesText(sc.retry?.backoff_sec?.map(String) ?? null),
+    skillsText: linesText(sc.skills),
   })
   void refreshPreview()
 }
@@ -300,6 +306,9 @@ function buildAgentWrite(): Record<string, unknown> {
   body.fallback_agents = lines(agentForm.fallbackAgentsText)
   body.output_format = agentForm.outputFormat
   body.retry = retry === null ? null : { max_attempts: retry, backoff_sec: lines(agentForm.retryBackoffText).map(Number) }
+  // JOB-10 skills：基底里带的是"上次读到的绑定"，这里用表单值覆盖（清空 = 解绑该 agent
+  // 自己的清单；server/project 的绑定不受影响）。
+  body.skills = lines(agentForm.skillsText)
   if (agentForm.type === 'acp-agent') {
     // acp 服务端是"补丁式"应用（见 handler）：这里带上表单能显示的成员，其余
     // （load_session / mcp_servers）由服务端保留，不会被清掉。
@@ -324,6 +333,8 @@ function buildServerWrite(): Record<string, unknown> {
             max_attempts: optionalInt(serverForm.retryMaxAttempts),
             backoff_sec: lines(serverForm.retryBackoffText).map(Number),
           },
+    // JOB-10：全局默认技能绑定（server.skills），逐行一个名字。
+    skills: lines(serverForm.skillsText),
   }
 }
 
@@ -511,6 +522,7 @@ onUnmounted(() => {
               <dt>max_job_timeout_sec</dt><dd>{{ config.server.max_job_timeout_sec || '-' }}</dd>
               <dt>stall_timeout_sec</dt><dd>{{ config.server.stall_timeout_sec ?? '默认' }}</dd>
               <dt>auto_resume_max</dt><dd>{{ config.server.auto_resume_max ?? '默认' }}</dd>
+              <dt>skills</dt><dd>{{ joinOrDash(config.server.skills) }}</dd>
             </dl>
           </article>
 
@@ -589,6 +601,7 @@ onUnmounted(() => {
                 <span v-if="a.command" class="muted">{{ a.command }}</span>
                 <span v-if="a.injected" class="tag tag--builtin">内置</span>
                 <span v-for="k in a.env_keys" :key="`${a.key}:${k}`" class="tag">{{ k }}</span>
+                <span v-for="s in a.skills" :key="`${a.key}:skill:${s}`" class="tag tag--skill" title="该 agent 的技能绑定">{{ s }}</span>
                 <span class="row-actions">
                   <button class="mini-btn mono" type="button" @click="openAgentEditor(a)">编辑</button>
                   <button class="mini-btn mono" type="button" @click="removeAgent(a)">删除</button>
@@ -737,6 +750,22 @@ onUnmounted(() => {
                 <span class="field-name">acp.permission_policy</span>
                 <input v-model="agentForm.acpPermissionPolicy" class="input" :class="{ 'input--bad': fieldBad('acp') }" placeholder="auto_allow / ask / strict" @change="refreshPreview()" />
               </label>
+              <label class="field">
+                <span class="field-name">skills（每行一个技能名，留空 = 该 agent 不加自己的绑定）</span>
+                <textarea
+                  v-model="agentForm.skillsText"
+                  class="input textarea"
+                  :class="{ 'input--bad': fieldBad('skills') }"
+                  rows="3"
+                  placeholder="windows-apply-patch"
+                  @change="refreshPreview()"
+                ></textarea>
+              </label>
+              <p class="hint mono">
+                技能名来自
+                <RouterLink to="/skills">技能库</RouterLink>；派发时与 server/project 的清单取并集，
+                exec agent 不挂技能（它执行命令，没有"读文档"的概念）。
+              </p>
 
               <p v-if="editing" class="hint mono">
                 不在本表单内的字段由服务端原样保留：env_keys {{ joinOrDash(editing.env_keys) }} ·
@@ -778,6 +807,21 @@ onUnmounted(() => {
                 <span class="field-name">retry.backoff_sec（每行一个秒数）</span>
                 <textarea v-model="serverForm.retryBackoffText" class="input textarea" rows="2" @change="refreshPreview()"></textarea>
               </label>
+              <label class="field">
+                <span class="field-name">skills（每行一个技能名 = 每个 job 都挂的全局默认）</span>
+                <textarea
+                  v-model="serverForm.skillsText"
+                  class="input textarea"
+                  :class="{ 'input--bad': fieldBad('skills') }"
+                  rows="3"
+                  placeholder="house-rules"
+                  @change="refreshPreview()"
+                ></textarea>
+              </label>
+              <p class="hint mono">
+                技能名来自 <RouterLink to="/skills">技能库</RouterLink>；绑定是叠加的
+                （server → agent → project → job 取并集），清空这里只是取消全局默认。
+              </p>
               <div v-if="restartOnly.length > 0" class="field">
                 <span class="field-name">以下字段只在启动时读取，控制台不可编辑（需重启）</span>
                 <div class="badges">
@@ -933,6 +977,10 @@ onUnmounted(() => {
 }
 .tag--builtin {
   color: var(--queue);
+}
+/* 技能绑定与 env_keys 同为"附加到这条定义上的东西"，用 done 色区分来源。 */
+.tag--skill {
+  color: var(--done);
 }
 .block {
   margin-top: 12px;
