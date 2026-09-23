@@ -177,3 +177,37 @@ supervisor:
 3. 评论派活阶段 A **只认 user caller**；agent 评论只记录，除非它是白名单 leader（阶段 B）。
 4. leader **不能 accept/reject**，只能评论 / 置 todo ready|skipped / 建 wakeup / 问人；人一插话即接管当轮。
 5. 小项 S3（`job.session_captured` 镜像）结论是 **不加**，只补注释与文档。
+
+## S1 实测记录（2026-09-23，收尾 S1b）
+
+S1 落地后留了两处缺口，本期按人工决策改掉，并在真机上实测（临时 server + 临时 config + 随机端口，未碰真实配置目录）。
+
+### 决策 1：清单改由**执行机**渲染
+
+- 提交时不再改 prompt：`req.Prompt` 保持用户原文（`request_json`、`job show`、rerun 都用它），解析后的名单只留在 `req.Skills` 与行上。
+- 执行机（本机 = 这台 serve；ws-worker = worker 自己的 `job.Service.Submit`）在挂载/物化之后，把清单 prepend 到**本次运行的 prompt**，路径用本机真实的 `<result_dir>/skills/<name>/SKILL.md`；同时导出 `GOFER_SKILLS_DIR`。
+- `{{skills_dir}}` 占位机制与 `substituteSkillsDir` **整体删除**（无外部依赖，G032 直接删）：不再需要"提交机渲染、执行机替换"这套两段式。
+- 效果：协议 <10 的 worker 既没有文件也没有清单（它根本不认识 skills）；本机与协议 ≥10 worker 都是"挂了才列"。
+- 实现落点：`internal/job/submit.go`（组装 `prompt` 并传给 argv/ACP/Forward）、`internal/job/skills.go`（`skillsPromptPrefix(req, resultDir)`）。
+
+### 决策 2：peer-http runner 明确跳过
+
+- peer 跑在另一台 gofer 上，hub 既没有传输通道也不知道对方路径 → peer job **不挂 skills**、也不列清单，记 `job.skills_skipped {reason:"peer_runner", names, count}`，job 照常跑（不报错）。
+- 与之配套：对协议 <10 的 worker，dispatch 里**名字也一并去掉**（`skillsCarried`）——否则一个能渲染清单的 worker 会为它永远收不到的文件列出路径。
+
+### 实测（真机 smoke，`-a omp`）
+
+- 导入 `marker-skill`（SKILL.md 内含「汇报末尾必须原样写出 SKILL-MARKER-42」）→ `job run -p smoke -a omp --skill marker-skill --prompt '读一下技能清单里那份 SKILL.md，然后严格按它的要求回复'`。
+- 渲染出的 argv 证明清单在执行机渲染、路径为本机真实路径：`{"command":"omp","args":["-p","## 可用技能（gofer 挂载，按需阅读）\n- marker-skill：… → <result_dir>\\skills\\marker-skill\\SKILL.md\n先读与本任务相关的 SKILL.md，再动手。\n\n<用户原文>"]}`，`env_keys` 含 `GOFER_SKILLS_DIR`。
+- omp 汇报末尾出现 `SKILL-MARKER-42`（agent 确实读了挂载副本）；项目 cwd 无任何新增文件。
+- 事件：`job.skills_mounted {names, bytes, dir}`；`job show` 多一行 `skills: marker-skill`。
+
+### 实测中发现并修掉的两个 S1 缺陷
+
+1. **本机挂载目录少一层**：`job` 侧把 `skills/` 根交给 seam，而 `skill.Store.Mount` 是"把 skill 树拷进给定目录"，适配器没有补上 skill 自己的目录名 → 文件落在 `<result_dir>/skills/SKILL.md`（两个 skill 还会互相覆盖），与清单/worker 上传路径（`skills/<name>/…`）不一致。修：`core.hubSkillLibrary.Mount` 补 `name`；回归测试 `TestSkillMountLayoutMatchesManifestPath`（断言挂载路径 == `job.SkillDest`）。
+2. **`jobs.skills_json` 从未写入**：列与 scan 都在，但 `toRecord`/`fromRecord` 没有投影 `JobResult.Skills` → 行上永远读不到绑定（`job show` 不打印 `skills:`、web 详情为空），尽管挂载与事件都对。修：`persistence.go` 两个方向都补上；回归测试 `TestSkillsPersistedOnJobRow`。
+3. 顺带补：`server.skills` / `agents.*.skills` / `server.skill_limits` 在字段策略表里是"可热改"，但 `/v1/config` 的视图与写分支都没实现（于是每次 console 保存 agent 都 500，`TestConfigUpdatedEventRecorded`、`TestConfigValidateDryRunDoesNotWrite` 在干净树上就是红的）——本期补齐视图 + 写分支 + 往返测试。
+
+### 已知不一致（留给人工决策）
+
+- 任务书里的 smoke 示例写的是 `job run -a exec --skill <it> -- bash -lc 'echo $GOFER_SKILLS_DIR; ls -R …'`，但决策 2/§一.3 明确 **`exec` agent 不带 skills**（`config.EffectiveSkills` 对 exec 返回 nil），所以这条命令实测为：`GOFER_SKILLS_DIR` 为空、`ls` 报 `No such file or directory`、job failed(2)，`job show` 也没有 `skills:` 行。这是设计本身的一致结果（exec 执行命令、不读文档），实测改用 cli-agent（`-a probe`/`-a omp`）证明挂载与 env。若确实希望 exec job 也能拿到挂载，需要改决策（去掉 `EffectiveSkills` 的 exec 规则），本期未改。
