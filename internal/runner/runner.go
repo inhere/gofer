@@ -58,6 +58,16 @@ const EventCancelRequested = "job.cancel_requested"
 // job.EventJobSkillsSkipped aliases it.
 const EventSkillsSkipped = "job.skills_skipped"
 
+// EventSkillsMounted is the job event the HOST records for a job whose skill mount
+// travelled to a ws-worker as uploads (JOB-10, S4 2026-09-23): {names, via:"uploads"}.
+// The local mount path records its own receipt (job.mountSkills runs on the machine
+// that places the files — the worker, for a dispatched job, where it is a local job of
+// its own and the host sees nothing); this one is the host's half, raised by the worker
+// runner the moment the dispatch carrying the mount went out. It lives in this package
+// for the same reason as the events above (the runner cannot import job, G022);
+// job.EventJobSkillsMounted aliases it.
+const EventSkillsMounted = "job.skills_mounted"
+
 // Runner executes one resolved command and reports how it ended.
 type Runner interface {
 	// Name returns the runner's stable identifier (e.g. "local").

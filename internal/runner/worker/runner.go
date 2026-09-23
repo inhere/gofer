@@ -426,6 +426,19 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		relayCloseReason = "dispatch_failed"
 		return runner.Result{ExitCode: -1, Err: err}
 	}
+	// JOB-10 (S4, 2026-09-23): the HOST's receipt for a mount that travelled as uploads.
+	// A dispatched job never gets the job.skills_mounted row a local job records in
+	// mountSkills (that runs on the machine that places the files, and this host places
+	// none), so the host records it here — the moment the dispatch that CARRIES the mount
+	// went out, which is strictly after execute() flipped this job's row to `running`.
+	// `via:"uploads"` is the point of the row: the files ride the transfer channel and
+	// land in the job's own result dir on the worker. A mount the peer cannot carry gets
+	// job.skills_skipped instead (below) — the two are mutually exclusive.
+	if carried := skillsCarried(f.Skills, skillsDropped); len(carried) > 0 && req.OnJobEvent != nil {
+		req.OnJobEvent(runner.EventSkillsMounted, map[string]any{
+			"names": carried, "via": "uploads",
+		})
+	}
 	// JOB-10 (design §横切): the peer cannot carry the skill mount, so the job runs
 	// WITHOUT it. The job itself is unaffected (that is the point — an old worker is
 	// never refused over skills), so this event is the only place the omission is

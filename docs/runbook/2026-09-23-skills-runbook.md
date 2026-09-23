@@ -103,7 +103,10 @@ skill 的内容会进 prompt 清单并被 agent 读进上下文（还可能被�
 gofer job show <job>       # skills: house-rules, gofer-repo-conventions
 ```
 
-- 事件（job 时间线）：`job.skills_mounted {names, bytes, dir}`（执行机挂载成功）、`job.skills_skipped {reason, names, count}`（老 worker / peer runner）。
+- 事件（job 时间线）：`job.skills_mounted {names, bytes, dir}`（执行机自己放的文件）、
+  `job.skills_mounted {names, via:"uploads"}`（**ws-worker job**：文件走 uploads 通道，hub 在派发时记这一条——
+  执行机的那条收据在 worker 自己的库里，hub 看不到）、`job.skills_skipped {reason, names, count}`
+  （老 worker / peer runner）。
 - web：job 详情显示本次 skills；「技能」页可看列表、SKILL.md 正文、导入/更新/删除/导出；配置页的 agent/server 编辑弹窗能改 `skills` 列表（可热改，不用重启）。
 
 排障：

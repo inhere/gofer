@@ -757,13 +757,14 @@ const (
 	// (and verify's) outcome, so a subscriber learns what the job delivered without
 	// fetching the summary.
 	EventJobFilesCollected = "job.files_collected"
-	// EventJobSkillsMounted is a job's skills being materialized in its result dir
-	// (JOB-10) on the machine that runs it: {names, bytes, dir}. It is the receipt that
-	// the knowledge the job was promised actually reached it before the agent started.
-	// Recorded by a job whose files THIS machine placed itself (mountSkills); a
-	// DISPATCHED job's files arrive as uploads and are reported by the transfer
-	// summary instead.
-	EventJobSkillsMounted = "job.skills_mounted"
+	// EventJobSkillsMounted is a job's skills being mounted (JOB-10): {names, bytes,
+	// dir} when the machine that RUNS the job placed the files itself (mountSkills),
+	// {names, via:"uploads"} when they travelled to a ws-worker as uploads (raised by
+	// the worker runner on the host row, S4). Either way it is the receipt that the
+	// knowledge the job was promised reached the machine that reads it. The literal
+	// lives in the runner package (which emits the uploads half and cannot import this
+	// one — G022), aliased here so the vocabulary has ONE definition.
+	EventJobSkillsMounted = runner.EventSkillsMounted
 	// EventJobSkillsSkipped is a job that WOULD have carried skills but does not
 	// (JOB-10): {reason, names, count}. "worker_protocol" means the target worker
 	// speaks a protocol below wsproto.SkillsMinProtocolVersion and cannot be trusted

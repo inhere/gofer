@@ -172,3 +172,81 @@ func TestOldWorkerGetsNoManifest(t *testing.T) {
 		t.Fatalf("event detail = %+v, want reason worker_protocol", events[0].detail)
 	}
 }
+
+// TestWorkerJobSkillsMountedRecordedOnRunning (S4, 2026-09-23): the hub timeline of a
+// DISPATCHED job had no job.skills_mounted row at all — mountSkills, which records it,
+// runs on the machine that PLACES the files, and for a worker job that is the worker
+// (the files arrive there as uploads), while the host never scans the worker's store.
+// The host records it when the dispatch carrying the mount goes out: execute() flipped
+// the row to `running` before it called the runner, so the receipt lands right after
+// job.running on the job's own timeline — and the mount is what the dispatch carries.
+func TestWorkerJobSkillsMountedRecordedOnRunning(t *testing.T) {
+	h := &fakeHub{workerProto: 10}
+	r := newRunnerWithHub(h)
+
+	type jobEvent struct {
+		typ    string
+		detail map[string]any
+	}
+	var (
+		mu     sync.Mutex
+		events []jobEvent
+	)
+	done := make(chan runner.Result, 1)
+	go func() {
+		done <- r.Run(context.Background(), runner.Request{
+			JobID: "j1",
+			Forward: &runner.Forward{
+				ProjectKey: "p", Agent: "omp",
+				Prompt: "ORIGINAL-PROMPT",
+				Skills: []string{"house-rules", "windows-apply-patch"},
+				Uploads: []runner.XferUpload{
+					{XferID: "xf-s1", Dest: "skills/house-rules/SKILL.md", Base: "result_dir"},
+					{XferID: "xf-s2", Dest: "skills/windows-apply-patch/SKILL.md", Base: "result_dir"},
+				},
+			},
+			OnJobEvent: func(eventType string, detail map[string]any) {
+				mu.Lock()
+				defer mu.Unlock()
+				events = append(events, jobEvent{eventType, detail})
+			},
+		})
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && h.getSink() == nil {
+		time.Sleep(5 * time.Millisecond)
+	}
+	sink := h.getSink()
+	if sink == nil {
+		t.Fatal("sink never registered")
+	}
+	sink.Finish(wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after Finish")
+	}
+
+	// The negotiation kept the mount: the worker is told which skills to list and gets
+	// both uploads.
+	d := h.dispatchedFrame()
+	if len(d.Skills) != 2 || len(d.Uploads) != 2 {
+		t.Fatalf("dispatch skills=%v uploads=%d, want the mount carried", d.Skills, len(d.Uploads))
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(events) != 1 {
+		t.Fatalf("events = %+v, want exactly the mount receipt", events)
+	}
+	if events[0].typ != runner.EventSkillsMounted {
+		t.Fatalf("event = %q, want %q", events[0].typ, runner.EventSkillsMounted)
+	}
+	if events[0].detail["via"] != "uploads" {
+		t.Fatalf("event detail = %+v, want via=uploads (the files ride the transfer channel)", events[0].detail)
+	}
+	names, _ := events[0].detail["names"].([]string)
+	if len(names) != 2 || names[0] != "house-rules" || names[1] != "windows-apply-patch" {
+		t.Fatalf("event names = %v, want the carried list", names)
+	}
+}
