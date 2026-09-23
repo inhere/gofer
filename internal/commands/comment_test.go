@@ -49,11 +49,18 @@ func newCommentAPIServer(t *testing.T, calls *[]commentCall) *httptest.Server {
 	}))
 }
 
-// TestJobCommentCommands: `gofer job comment <job> <text>` posts to the job's thread and
-// prints the dispatched job, `gofer job comments <job>` lists it — the CLI faces of
-// MCP-05 阶段 A. The in-job identity rule is pinned too: with GOFER_JOB_ID set the CLI
-// sends it as as_job (the comment is that agent's, so it dispatches nothing).
-func TestJobCommentCommands(t *testing.T) {
+// TestJobAndPlanCommentCommands covers the CLI faces of MCP-05 阶段 A: posting and
+// listing a job thread and a plan thread, the --todo variant, and the in-job identity
+// rule (with GOFER_JOB_ID set the CLI sends it as as_job — the comment is that agent's,
+// so it dispatches nothing).
+func TestJobAndPlanCommentCommands(t *testing.T) {
+	t.Run("job", testJobCommentCommands)
+	t.Run("plan", testPlanCommentCommands)
+}
+
+// testJobCommentCommands: `gofer job comment <job> <text>` posts to the job's thread and
+// prints the dispatched job, `gofer job comments <job>` lists it.
+func testJobCommentCommands(t *testing.T) {
 	var calls []commentCall
 	ts := newCommentAPIServer(t, &calls)
 	defer ts.Close()
@@ -119,9 +126,9 @@ func TestJobCommentCommands(t *testing.T) {
 	}
 }
 
-// TestPlanCommentCommands: a plan-level comment, the --todo variant that addresses one
+// testPlanCommentCommands: a plan-level comment, the --todo variant that addresses one
 // checklist item's thread, and the plan listing.
-func TestPlanCommentCommands(t *testing.T) {
+func testPlanCommentCommands(t *testing.T) {
 	var calls []commentCall
 	ts := newCommentAPIServer(t, &calls)
 	defer ts.Close()
