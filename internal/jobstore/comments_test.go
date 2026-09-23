@@ -36,7 +36,7 @@ func TestCommentCRUD(t *testing.T) {
 	assert.Eq(t, "@omp 补上测试", got.Body)
 	assert.Eq(t, `["omp"]`, got.MentionsJSON)
 	assert.Eq(t, CommentAuthorUser, got.AuthorKind)
-	assert.Eq(t, int64(0), got.TriggeredJobID)
+	assert.Eq(t, "", got.TriggeredJobID)
 
 	_, ok, err = s.GetComment("cm-nope")
 	assert.NoErr(t, err)

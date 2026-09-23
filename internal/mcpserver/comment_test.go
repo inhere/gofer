@@ -10,11 +10,6 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
-// commentListView / commentSchemaT are the wire shapes this file decodes.
-type commentListView struct {
-	Comments []commentView `json:"comments"`
-}
-
 // TestMCPCommentToolRecordsAgentAuthor: `gofer_comment` speaks as the agent of the job
 // that is calling (GOFER_JOB_ID), so the row is author_kind=agent with that job's agent
 // key — and, per MCP-05 阶段 A, an AGENT's comment is only recorded: even a mention of

@@ -492,3 +492,37 @@ func (b *localBackend) ListPresence(role, project string) ([]presence.Agent, err
 	}
 	return b.presence.List(role, project)
 }
+
+// Comment records a comment in a job/plan/todo thread (MCP-05 阶段 A). The author kind
+// is DERIVED, never taken from the caller: an in-job caller is the AGENT of asJob (its
+// agent key is the author, and the job service then refuses to dispatch anything), so a
+// tool call can only ever lose dispatch rights, never gain them.
+func (b *localBackend) Comment(scope, id, body, asJob string) (commentView, error) {
+	if asJob == "" {
+		return commentView{}, fmt.Errorf("as_job is required: a comment must say which job's agent wrote it")
+	}
+	res, ok := b.jobs.Get(asJob)
+	if !ok {
+		return commentView{}, fmt.Errorf("unknown job %q", asJob)
+	}
+	if res.Agent == "" {
+		return commentView{}, fmt.Errorf("job %q has no agent to speak as", asJob)
+	}
+	cm, dispatched, err := b.jobs.Comment(scope, id, res.Agent, jobstore.CommentAuthorAgent, body)
+	if err != nil {
+		return commentView{}, err
+	}
+	return toCommentView(cm, dispatched), nil
+}
+
+func (b *localBackend) ListComments(scope, id string) ([]commentView, error) {
+	rows, err := b.jobs.ListComments(scope, id)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]commentView, 0, len(rows))
+	for _, cm := range rows {
+		out = append(out, toCommentView(cm, nil))
+	}
+	return out, nil
+}

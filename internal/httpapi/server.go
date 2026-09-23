@@ -642,6 +642,13 @@ func (s *Server) buildRouter() *rux.Router {
 		// E14: read-only webhook delivery status for a job (delivered/retry/failed).
 		r.GET("/jobs/{id}/deliveries", s.handleListDeliveries)
 
+		// MCP-05 阶段 A: a job's comment thread and the @-mention dispatch a USER's
+		// comment performs (`gofer job comment` / the web thread / gofer_comment).
+		// Reading is open to any authenticated caller; posting is user-only (a worker
+		// token gets 403 — a comment can start work).
+		r.POST("/jobs/{id}/comments", s.handlePostJobComment)
+		r.GET("/jobs/{id}/comments", s.handleListJobComments)
+
 		// E1 产物回取(P2)：清单 + 下载。下载 {name:.+} 是 catch-all（rux 把
 		// {name:.+}/{name:.*} 转成 *name 通配，匹配含 '/' 的子路径，如 sub/b.bin），
 		// name 经 safeJoinUnder 做路径安全校验（拒 ../绝对/软链逃逸）。
@@ -716,6 +723,13 @@ func (s *Server) buildRouter() *rux.Router {
 		r.PATCH("/plans/{id}", s.handleUpdatePlan)
 		r.POST("/plans/{id}/jobs", s.handleAttachPlanJob)
 		r.POST("/plans/{id}/todos", s.handleAddPlanTodo)
+		// MCP-05 阶段 A: plan-level and todo-level comment threads. The nested form
+		// checks that the todo belongs to that plan; the id-only /todos/{todo_id}/comments
+		// form is what a caller holding just a todo id (CLI/MCP) uses.
+		r.POST("/plans/{id}/comments", s.handlePostPlanComment)
+		r.GET("/plans/{id}/comments", s.handleListPlanComments)
+		r.POST("/plans/{id}/todos/{todo_id}/comments", s.handlePostPlanTodoComment)
+		r.GET("/plans/{id}/todos/{todo_id}/comments", s.handleListPlanTodoComments)
 		// PLAN-03 chain control: run starts the ready work (and releases pause/block),
 		// pause holds the automatic advance, resume releases both and advances.
 		r.POST("/plans/{id}/run", s.handleRunPlan)
@@ -724,6 +738,9 @@ func (s *Server) buildRouter() *rux.Router {
 		r.PATCH("/todos/{todo_id}", s.handleUpdateTodo)
 		// PLAN-02 P2: explicit dispatch of an assigned item (ignores its status).
 		r.POST("/todos/{todo_id}/dispatch", s.handleDispatchTodo)
+		// MCP-05 阶段 A: a checklist item's comment thread, addressed by todo id alone.
+		r.POST("/todos/{todo_id}/comments", s.handlePostTodoComment)
+		r.GET("/todos/{todo_id}/comments", s.handleListTodoComments)
 
 		// 决策通道 (decision channel, Part C §C3): agent raises a blocking question
 		// (MCP gofer_ask_human), a human answers here. D1: single ask entry with

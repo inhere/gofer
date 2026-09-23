@@ -15,6 +15,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"hash/crc32"
 	"os"
@@ -237,6 +238,22 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 		Name:        "gofer_wakeup_disable",
 		Description: "Disable a wakeup by id so it stops firing (it stays listed; enabling again re-arms a timer from now).",
 	}, wakeupDisableHandler(b))
+
+	// MCP-05 阶段 A: the comment layer. gofer_comment records a comment in a job/plan/
+	// todo thread AS THE AGENT OF THE JOB THIS PROCESS RUNS IN (GOFER_JOB_ID) — an
+	// agent's comment is recorded and dispatches nothing, because only a human's
+	// @-mention starts work (阶段 B adds the leader whitelist). Registered
+	// unconditionally (same precedent as add_todo/ask_human): a project-scoped MCP
+	// keeps them.
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_comment",
+		Description: "Comment on a job, plan or todo (scope=job|plan|todo, id, body) in its thread. You speak as the agent of the job this process runs in (GOFER_JOB_ID; pass as_job to name it explicitly) — the comment is RECORDED and dispatches nothing: only a human's @mention starts a job. Use it to report progress, answer a human in the thread, or leave the reasoning behind a decision.",
+	}, commentHandler(b))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_list_comments",
+		Description: "Read the comment thread of a job, plan or todo (scope=job|plan|todo, id), oldest first — including the jobs a human's @mentions dispatched.",
+	}, listCommentsHandler(b))
 
 	// Decision channel (Part C §C3). Registered UNCONDITIONALLY (plan M4, same
 	// precedent as add_todo/update_todo): a project-scoped MCP keeps it too.
@@ -1574,4 +1591,156 @@ func pollDecisionOnce(b Backend, id string) (askHumanOutput, bool, error) {
 		return askHumanOutput{State: "expired"}, true, nil
 	}
 	return askHumanOutput{}, false, nil
+}
+
+// --- gofer_comment / gofer_list_comments (MCP-05 阶段 A) ---------------------
+
+// envJobID is the env var the job service injects into every agent process: the id of
+// the job it is running in. `gofer_comment` reads it to speak AS that job's agent, the
+// same identity `gofer_wakeup_create` asks the caller to pass explicitly.
+const envJobID = "GOFER_JOB_ID"
+
+// commentView is one comment on the wire (snake_case, like every other view here).
+type commentView struct {
+	ID         string   `json:"id"`
+	Scope      string   `json:"scope"`
+	ScopeID    string   `json:"scope_id"`
+	Author     string   `json:"author"`
+	AuthorKind string   `json:"author_kind"`
+	Body       string   `json:"body"`
+	Mentions   []string `json:"mentions"`
+	CreatedAt  int64    `json:"created_at"`
+	// TriggeredJobID / Dispatched are the jobs this comment started. An agent's comment
+	// never dispatches in 阶段 A, so they are empty for a comment this tool wrote —
+	// they are here because the same view also serves the thread READ.
+	TriggeredJobID string                `json:"triggered_job_id,omitempty"`
+	Dispatched     []commentDispatchView `json:"dispatched,omitempty"`
+}
+
+// commentDispatchView is one job an @-mention started.
+type commentDispatchView struct {
+	Mention string `json:"mention"`
+	Kind    string `json:"kind"`
+	JobID   string `json:"job_id"`
+}
+
+// commentListView is the read tool's envelope.
+type commentListView struct {
+	Comments []commentView `json:"comments"`
+}
+
+type commentInput struct {
+	Scope string `json:"scope"` // job | plan | todo
+	ID    string `json:"id"`
+	Body  string `json:"body"`
+	// AsJob names the job whose agent is speaking; omit it inside a job (GOFER_JOB_ID
+	// is read instead).
+	AsJob string `json:"as_job,omitempty"`
+}
+
+type commentListInput struct {
+	Scope string `json:"scope"` // job | plan | todo
+	ID    string `json:"id"`
+}
+
+// commentHandler records a comment in a job/plan/todo thread as the calling JOB's
+// agent (MCP-05 阶段 A). An agent's comment is recorded, never dispatched on: the
+// @-mention gate only admits a human's comment, so an agent cannot spend money by
+// commenting (阶段 B adds the leader whitelist). as_job, or GOFER_JOB_ID from the job
+// this process runs in, must name a real job — a comment that cannot say who wrote it
+// is refused rather than guessed.
+func commentHandler(b Backend) mcp.ToolHandlerFor[commentInput, commentView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in commentInput) (*mcp.CallToolResult, commentView, error) {
+		scope, id, body, asJob, err := bindCommentInput(in)
+		if err != nil {
+			return nil, commentView{}, err
+		}
+		v, err := b.Comment(scope, id, body, asJob)
+		if err != nil {
+			return nil, commentView{}, err
+		}
+		return nil, v, nil
+	}
+}
+
+// listCommentsHandler reads one object's comment thread.
+func listCommentsHandler(b Backend) mcp.ToolHandlerFor[commentListInput, commentListView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in commentListInput) (*mcp.CallToolResult, commentListView, error) {
+		scope := strings.TrimSpace(in.Scope)
+		if !validCommentScope(scope) {
+			return nil, commentListView{}, fmt.Errorf("scope must be job, plan or todo (got %q)", in.Scope)
+		}
+		id := strings.TrimSpace(in.ID)
+		if id == "" {
+			return nil, commentListView{}, fmt.Errorf("id is required")
+		}
+		list, err := b.ListComments(scope, id)
+		if err != nil {
+			return nil, commentListView{}, err
+		}
+		if list == nil {
+			list = []commentView{}
+		}
+		return nil, commentListView{Comments: list}, nil
+	}
+}
+
+// bindCommentInput validates the write tool's input and resolves the speaking identity.
+func bindCommentInput(in commentInput) (scope, id, body, asJob string, err error) {
+	scope = strings.TrimSpace(in.Scope)
+	if !validCommentScope(scope) {
+		return "", "", "", "", fmt.Errorf("scope must be job, plan or todo (got %q)", in.Scope)
+	}
+	id = strings.TrimSpace(in.ID)
+	if id == "" {
+		return "", "", "", "", fmt.Errorf("id is required")
+	}
+	body = in.Body
+	if strings.TrimSpace(body) == "" {
+		return "", "", "", "", fmt.Errorf("body is required")
+	}
+	asJob = strings.TrimSpace(in.AsJob)
+	if asJob == "" {
+		asJob = strings.TrimSpace(os.Getenv(envJobID))
+	}
+	if asJob == "" {
+		return "", "", "", "", fmt.Errorf("as_job is required when %s is unset: a comment must say which job's agent wrote it", envJobID)
+	}
+	return scope, id, body, asJob, nil
+}
+
+// validCommentScope reports whether scope names a commentable object kind.
+func validCommentScope(scope string) bool {
+	switch scope {
+	case jobstore.CommentScopeJob, jobstore.CommentScopePlan, jobstore.CommentScopeTodo:
+		return true
+	}
+	return false
+}
+
+// toCommentView projects a stored comment onto the tool's view.
+func toCommentView(cm jobstore.Comment, dispatched []job.CommentDispatch) commentView {
+	v := commentView{
+		ID: cm.ID, Scope: cm.Scope, ScopeID: cm.ScopeID,
+		Author: cm.Author, AuthorKind: cm.AuthorKind, Body: cm.Body,
+		Mentions:       decodeCommentMentions(cm.MentionsJSON),
+		CreatedAt:      cm.CreatedAt,
+		TriggeredJobID: cm.TriggeredJobID,
+	}
+	for _, d := range dispatched {
+		v.Dispatched = append(v.Dispatched, commentDispatchView{Mention: d.Mention, Kind: d.Kind, JobID: d.JobID})
+	}
+	return v
+}
+
+// decodeCommentMentions turns the row's mentions_json into a slice, never nil.
+func decodeCommentMentions(raw string) []string {
+	if raw == "" {
+		return []string{}
+	}
+	var out []string
+	if err := json.Unmarshal([]byte(raw), &out); err != nil || out == nil {
+		return []string{}
+	}
+	return out
 }

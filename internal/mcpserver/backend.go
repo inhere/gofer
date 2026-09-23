@@ -89,6 +89,14 @@ type Backend interface {
 	AskDecision(planID, title, question string, options []string, timeoutSec int64) (jobstore.PlanDecision, error)
 	GetDecision(id string) (jobstore.PlanDecision, bool, error)
 
+	// MCP-05 阶段 A comment threads (gofer_comment / gofer_list_comments). Comment
+	// records one comment on scope (job|plan|todo) + id as the agent of asJob — the
+	// author kind is derived from that job, never from the caller's word — and returns
+	// the stored row plus whatever its @-mentions dispatched (always empty for an agent
+	// author). ListComments reads a thread back, oldest first.
+	Comment(scope, id, body, asJob string) (commentView, error)
+	ListComments(scope, id string) ([]commentView, error)
+
 	// E36 driver-agent identity/mailbox (4 of the 5 gofer_* presence tools;
 	// list_pending_interactions is P3). local 直驱 presence.Service; client 转发
 	// 中央 serve。返回 presence 域类型，handler 投影成 snake_case view。

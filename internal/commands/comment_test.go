@@ -21,9 +21,14 @@ type commentCall struct {
 func newCommentAPIServer(t *testing.T, calls *[]commentCall) *httptest.Server {
 	t.Helper()
 	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if !strings.HasSuffix(r.URL.Path, "/comments") {
+			// newClient probes /v1/stats for the server timezone; not this test's subject.
+			_, _ = w.Write([]byte("{}"))
+			return
+		}
 		b, _ := io.ReadAll(r.Body)
 		*calls = append(*calls, commentCall{method: r.Method, path: r.URL.Path, body: string(b)})
-		w.Header().Set("Content-Type", "application/json")
 		switch {
 		case r.Method == http.MethodPost:
 			_ = json.NewEncoder(w).Encode(map[string]any{
@@ -46,11 +51,14 @@ func newCommentAPIServer(t *testing.T, calls *[]commentCall) *httptest.Server {
 
 // TestJobCommentCommands: `gofer job comment <job> <text>` posts to the job's thread and
 // prints the dispatched job, `gofer job comments <job>` lists it — the CLI faces of
-// MCP-05 阶段 A.
+// MCP-05 阶段 A. The in-job identity rule is pinned too: with GOFER_JOB_ID set the CLI
+// sends it as as_job (the comment is that agent's, so it dispatches nothing).
 func TestJobCommentCommands(t *testing.T) {
 	var calls []commentCall
 	ts := newCommentAPIServer(t, &calls)
 	defer ts.Close()
+	// An interactive terminal: no job identity, so the caller writes as the user.
+	t.Setenv("GOFER_JOB_ID", "")
 
 	app := NewApp("test")
 	out := captureOutput(t, func() {
@@ -84,8 +92,30 @@ func TestJobCommentCommands(t *testing.T) {
 	if body["body"] != "@ok 补上测试" {
 		t.Fatalf("comment body = %q", body["body"])
 	}
+	if _, ok := body["as_job"]; ok {
+		t.Fatalf("an interactive CLI comment carried as_job: %s", calls[0].body)
+	}
 	if calls[1].method != http.MethodGet || calls[1].path != "/v1/jobs/job-1/comments" {
 		t.Fatalf("list call = %+v", calls[1])
+	}
+
+	// Inside a job the CLI speaks as that job's agent (same rule as gofer_comment).
+	calls = nil
+	t.Setenv("GOFER_JOB_ID", "job-inside")
+	captureOutput(t, func() {
+		if code := app.Run([]string{"job", "comment", "job-1", "记录一句", "--server", ts.URL}); code != 0 {
+			t.Fatalf("in-job comment exit code=%d", code)
+		}
+	})
+	if len(calls) != 1 {
+		t.Fatalf("calls = %+v, want one", calls)
+	}
+	body = nil
+	if err := json.Unmarshal([]byte(calls[0].body), &body); err != nil {
+		t.Fatalf("decode comment body: %v", err)
+	}
+	if body["as_job"] != "job-inside" {
+		t.Fatalf("as_job = %q, want job-inside (%s)", body["as_job"], calls[0].body)
 	}
 }
 
@@ -122,7 +152,7 @@ func TestPlanCommentCommands(t *testing.T) {
 	if calls[0].path != "/v1/plans/plan-1/comments" {
 		t.Fatalf("plan comment path = %q", calls[0].path)
 	}
-	if calls[1].path != "/v1/plans/plan-1/todos/todo-1/comments" {
+	if calls[1].path != "/v1/todos/todo-1/comments" {
 		t.Fatalf("todo comment path = %q", calls[1].path)
 	}
 	if calls[2].method != http.MethodGet || calls[2].path != "/v1/plans/plan-1/comments" {

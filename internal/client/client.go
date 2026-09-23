@@ -1384,6 +1384,85 @@ func (c *Client) DispatchTodo(todoID string) (TodoDispatch, error) {
 	return out, err
 }
 
+// Comment is one comment on the wire (MCP-05 阶段 A): a row of a job's, a plan's or a
+// checklist item's thread. Mentions is the parsed @-name list (so a client highlights
+// without re-parsing the body), TriggeredJobID the first job the comment started, and
+// Dispatched the full set when one comment mentioned several agents.
+type Comment struct {
+	ID         string   `json:"id"`
+	Scope      string   `json:"scope"`
+	ScopeID    string   `json:"scope_id"`
+	Author     string   `json:"author"`
+	AuthorKind string   `json:"author_kind"`
+	Body       string   `json:"body"`
+	Mentions   []string `json:"mentions"`
+	CreatedAt  int64    `json:"created_at"`
+	// TriggeredJobID is the job this comment dispatched ("" = none).
+	TriggeredJobID string `json:"triggered_job_id,omitempty"`
+	// Dispatched is the per-mention receipt, present on the POST response.
+	Dispatched []CommentDispatch `json:"dispatched,omitempty"`
+}
+
+// CommentDispatch is one job an @-mention started.
+type CommentDispatch struct {
+	Mention string `json:"mention"`
+	Kind    string `json:"kind"`
+	JobID   string `json:"job_id"`
+}
+
+// commentPath maps a comment scope + object id onto the route that serves it. A todo is
+// addressable by id alone (`/v1/todos/{id}/comments`), so a caller holding just a todo
+// id — the CLI, an MCP tool — never needs to know its plan.
+func commentPath(scope, id string) (string, error) {
+	switch scope {
+	case "job":
+		return "/v1/jobs/" + url.PathEscape(id) + "/comments", nil
+	case "plan":
+		return "/v1/plans/" + url.PathEscape(id) + "/comments", nil
+	case "todo":
+		return "/v1/todos/" + url.PathEscape(id) + "/comments", nil
+	}
+	return "", fmt.Errorf("unknown comment scope %q (want job|plan|todo)", scope)
+}
+
+// PostComment records a comment on scope/id (MCP-05 阶段 A) and returns the stored row
+// plus whatever its @-mentions dispatched. asJob is the MCP in-job identity (the
+// caller's GOFER_JOB_ID) — the server stamps author_kind=agent for it and dispatches
+// nothing; empty means the authenticated caller writes as a user (the dispatching case).
+func (c *Client) PostComment(scope, id, body, asJob string) (Comment, error) {
+	path, err := commentPath(scope, id)
+	if err != nil {
+		return Comment{}, err
+	}
+	payload := struct {
+		Body  string `json:"body"`
+		AsJob string `json:"as_job,omitempty"`
+	}{Body: body, AsJob: asJob}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		return Comment{}, fmt.Errorf("encode comment: %w", err)
+	}
+	var out Comment
+	err = c.doJSON(http.MethodPost, path, bytes.NewReader(raw), &out)
+	return out, err
+}
+
+// ListComments reads one object's thread (oldest first). The {"comments":[...]}
+// envelope is unwrapped; an unknown scope/id surfaces as a 404 error.
+func (c *Client) ListComments(scope, id string) ([]Comment, error) {
+	path, err := commentPath(scope, id)
+	if err != nil {
+		return nil, err
+	}
+	var resp struct {
+		Comments []Comment `json:"comments"`
+	}
+	if err := c.doJSON(http.MethodGet, path, nil, &resp); err != nil {
+		return nil, err
+	}
+	return resp.Comments, nil
+}
+
 // Decision is the client-side view of a plan_decisions row (decision channel,
 // Part C §C3). PlanID "" is a global question; Options empty = free-text
 // answer. State is OPEN|ANSWERED|EXPIRED; timestamps are unix seconds.

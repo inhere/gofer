@@ -112,6 +112,12 @@ func (s *Store) PruneJobs(policy RetentionPolicy, now int64) (deleted int, prune
 			_ = tx.Rollback()
 			return 0, nil, fmt.Errorf("jobstore: prune retries %q: %w", id, err)
 		}
+		// MCP-05: a comment is owned by the object it is written on, so a pruned job
+		// takes its thread with it (same tx, no orphaned comments).
+		if err := deleteCommentsTx(tx, CommentScopeJob, id); err != nil {
+			_ = tx.Rollback()
+			return 0, nil, err
+		}
 		if _, err := tx.Exec("DELETE FROM jobs WHERE id = ?", id); err != nil {
 			_ = tx.Rollback()
 			return 0, nil, fmt.Errorf("jobstore: prune job %q: %w", id, err)
@@ -240,6 +246,8 @@ func (s *Store) PruneWorkflows(policy WorkflowRetentionPolicy, now int64) (delet
 				"DELETE FROM pty_sessions WHERE job_id = ?",
 				// JOB-09: and its wakeups — same连带删 set as PruneJobs.
 				"DELETE FROM job_wakeups WHERE job_id = ?",
+				// MCP-05: and its comment thread — a step-job is a job.
+				"DELETE FROM comments WHERE scope = 'job' AND scope_id = ?",
 				"DELETE FROM jobs WHERE id = ?",
 			} {
 				if _, derr := tx.Exec(stmt, jid); derr != nil {

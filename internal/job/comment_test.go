@@ -219,7 +219,7 @@ func TestCommentMentionSubmitsJob(t *testing.T) {
 	if !hasEvent(types, EventCommentCreated) || !hasEvent(types, EventCommentTriggered) {
 		t.Fatalf("events = %v, want %s + %s", types, EventCommentCreated, EventCommentTriggered)
 	}
-	if d := eventDetailOf(t, s, src.ID, EventCommentTriggered); !strings.Contains(d, newID) {
+	if d := commentEventDetail(t, s, src.ID, EventCommentTriggered); !strings.Contains(d, newID) {
 		t.Fatalf("comment.triggered detail = %q, want the new job id %q", d, newID)
 	}
 }
@@ -342,7 +342,7 @@ func TestMentionThrottled(t *testing.T) {
 		if len(second) != 0 {
 			t.Fatalf("the second comment inside the interval dispatched %+v, want none", second)
 		}
-		detail := eventDetailOf(t, s, src.ID, EventCommentTriggerThrottled)
+		detail := commentEventDetail(t, s, src.ID, EventCommentTriggerThrottled)
 		if !strings.Contains(detail, "min_interval") {
 			t.Fatalf("throttle detail = %q, want reason min_interval", detail)
 		}
@@ -363,7 +363,7 @@ func TestMentionThrottled(t *testing.T) {
 		if _, second, err := s.Comment(jobstore.CommentScopeJob, src.ID, "alice", jobstore.CommentAuthorUser, "@ok 又一件"); err != nil || len(second) != 0 {
 			t.Fatalf("over-cap comment: dispatched=%+v err=%v, want none", second, err)
 		}
-		detail := eventDetailOf(t, s, src.ID, EventCommentTriggerThrottled)
+		detail := commentEventDetail(t, s, src.ID, EventCommentTriggerThrottled)
 		if !strings.Contains(detail, "max_per_scope") {
 			t.Fatalf("throttle detail = %q, want reason max_per_scope", detail)
 		}
@@ -422,14 +422,18 @@ func TestMentionUnknownOrDisallowedAgentExplains(t *testing.T) {
 		if len(rows) != 2 {
 			t.Fatalf("thread = %+v, want the comment + one system explanation", rows)
 		}
-		if rows[1].AuthorKind != jobstore.CommentAuthorSystem {
-			t.Fatalf("explanation author_kind = %q, want system", rows[1].AuthorKind)
+		explanation, ok := systemCommentOf(rows)
+		if !ok {
+			t.Fatalf("thread = %+v, want a system explanation", rows)
 		}
-		if !strings.Contains(rows[1].Body, "nobody") {
-			t.Fatalf("explanation = %q, want it to name the mention", rows[1].Body)
+		if !strings.Contains(explanation.Body, "nobody") {
+			t.Fatalf("explanation = %q, want it to name the mention", explanation.Body)
 		}
-		if rows[0].ID != cm.ID || rows[0].TriggeredJobID != "" {
-			t.Fatalf("comment row = %+v, want it kept and unlinked", rows[0])
+		if rows[0].ID != cm.ID && rows[1].ID != cm.ID {
+			t.Fatalf("the comment itself is missing from the thread: %+v", rows)
+		}
+		if cm.TriggeredJobID != "" {
+			t.Fatalf("comment row = %+v, want it unlinked", cm)
 		}
 	})
 
@@ -452,13 +456,28 @@ func TestMentionUnknownOrDisallowedAgentExplains(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ListComments: %v", err)
 		}
-		if len(rows) != 2 || rows[1].AuthorKind != jobstore.CommentAuthorSystem {
+		if len(rows) != 2 {
+			t.Fatalf("thread = %+v, want the comment + a system explanation", rows)
+		}
+		explanation, ok := systemCommentOf(rows)
+		if !ok {
 			t.Fatalf("thread = %+v, want a system explanation", rows)
 		}
-		if !strings.Contains(rows[1].Body, "allow") {
-			t.Fatalf("explanation = %q, want it to name the allowlist", rows[1].Body)
+		if !strings.Contains(explanation.Body, "allow") {
+			t.Fatalf("explanation = %q, want it to name the allowlist", explanation.Body)
 		}
 	})
+}
+
+// systemCommentOf returns the system explanation in a thread (order-independent: two
+// comments written in the same second are ordered by id, not by who wrote them).
+func systemCommentOf(rows []jobstore.Comment) (jobstore.Comment, bool) {
+	for _, r := range rows {
+		if r.AuthorKind == jobstore.CommentAuthorSystem {
+			return r, true
+		}
+	}
+	return jobstore.Comment{}, false
 }
 
 // testcmdEchoArgs is a tiny cross-platform argv for the exec source jobs in these

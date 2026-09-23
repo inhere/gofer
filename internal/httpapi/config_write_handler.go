@@ -934,6 +934,13 @@ func applyServerField(sc *config.ServerConfig, f configBodyField) error {
 			return err
 		}
 		sc.SkillLimits = v
+	case "comment_trigger":
+		// MCP-05 阶段 A: the @-mention dispatch throttle, read per comment.
+		v, err := fieldValue[config.CommentTriggerConfig](f)
+		if err != nil {
+			return err
+		}
+		sc.CommentTrigger = v
 	default:
 		return &configWriteError{status: http.StatusInternalServerError, msg: "unhandled editable field", detail: "unhandled editable field: " + f.path}
 	}
@@ -1116,6 +1123,11 @@ func serverPreview(sc config.ServerConfig, applied []string) (string, error) {
 			doc[name] = sc.RunnerProbe
 		case "retry":
 			doc[name] = sc.Retry
+		case "comment_trigger":
+			doc[name] = map[string]any{
+				"min_interval_sec": sc.CommentTrigger.MinIntervalSec,
+				"max_per_scope":    sc.CommentTrigger.MaxPerScope,
+			}
 		case "notification":
 			if sc.Notification == nil {
 				doc[name] = nil

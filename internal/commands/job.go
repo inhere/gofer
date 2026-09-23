@@ -238,6 +238,28 @@ func NewJobCmd() *gcli.Command {
 				Func: runJobReview,
 			},
 			{
+				Name: "comment",
+				Desc: "Comment on a job. A mention like @omp or @reviewer in a USER's comment dispatches a job for it (MCP-05); inside a job (GOFER_JOB_ID set) the comment is recorded as that agent's and dispatches nothing",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("id", "job id", true)
+					c.AddArg("text", "comment body; @<agent|role> dispatches a job", true)
+				},
+				Func: runJobComment,
+			},
+			{
+				Name:    "comments",
+				Aliases: []string{"comment-ls"},
+				Desc:    "List a job's comment thread",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("id", "job id", true)
+				},
+				Func: runJobComments,
+			},
+			{
 				Name:    "list",
 				Desc:    "List jobs with optional filters (tag/agent/runner/since/...)",
 				Aliases: []string{"ls"},

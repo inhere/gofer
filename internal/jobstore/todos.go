@@ -606,11 +606,15 @@ func (s *Store) SetTodoJob(todoID, jobID string) (bool, error) {
 	return n == 1, nil
 }
 
-// DeleteTodo removes a todo. P3 keeps this as store-only CRUD; no HTTP/MCP/CLI
-// delete surface is exposed.
+// DeleteTodo removes a todo. P3 keeps this store-only CRUD; no HTTP/MCP/CLI
+// delete surface is exposed. The todo's comment thread (MCP-05) goes with it, so no
+// thread is left pointing at a checklist item that no longer exists.
 func (s *Store) DeleteTodo(todoID string) (bool, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(`DELETE FROM comments WHERE scope = ? AND scope_id = ?`, CommentScopeTodo, todoID); err != nil {
+		return false, fmt.Errorf("jobstore: delete todo %q comments: %w", todoID, err)
+	}
 	res, err := s.db.Exec(`DELETE FROM plan_todos WHERE todo_id=?`, todoID)
 	if err != nil {
 		return false, fmt.Errorf("jobstore: delete todo %q: %w", todoID, err)

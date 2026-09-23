@@ -529,6 +529,26 @@ var schemaStmts = []string{
   updated_at  INTEGER NOT NULL DEFAULT 0,
   updated_by  TEXT
 )`,
+	// comments is the comment thread on a job / plan / plan-todo (MCP-05 阶段 A,
+	// design §二.A.1). One row per comment; scope+scope_id name the object it is
+	// written on, author_kind (user|agent|system) is what the @-mention dispatch gate
+	// keys on, mentions_json is the parsed @-name list (opaque JSON here, like every
+	// other *_json column) and triggered_job_id links the job this comment started
+	// (NULL = it started none). Comments are owned by their object: PruneJobs and
+	// DeleteTodo sweep the matching thread. IF NOT EXISTS like every table here
+	// (idempotent Open).
+	`CREATE TABLE IF NOT EXISTS comments (
+  id               TEXT PRIMARY KEY,
+  scope            TEXT NOT NULL,
+  scope_id         TEXT NOT NULL,
+  author           TEXT NOT NULL,
+  author_kind      TEXT NOT NULL,
+  body             TEXT NOT NULL,
+  mentions_json    TEXT,
+  created_at       INTEGER NOT NULL,
+  triggered_job_id TEXT
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_comments_scope ON comments(scope, scope_id, created_at)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema

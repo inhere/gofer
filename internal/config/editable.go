@@ -59,6 +59,9 @@ var fieldPolicies = map[string]FieldPolicy{
 	"server.notification": {Editable: true},
 	"server.runner_probe": {Editable: true},
 	"server.retry":        {Editable: true},
+	// MCP-05: the @-mention dispatch throttle. Read per comment
+	// (EffectiveCommentTrigger), so a hot edit applies to the NEXT comment.
+	"server.comment_trigger": {Editable: true},
 
 	// --- server: read at startup, or secret material ---------------------------
 	"server.addr":                   {RestartRequired: true},

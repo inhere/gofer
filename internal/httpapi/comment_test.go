@@ -131,21 +131,21 @@ func TestCommentEndpoints(t *testing.T) {
 	}
 
 	// --- plan scope -----------------------------------------------------------
-	resp = do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-cm", "project": "self"})
+	resp = do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-comments", "project": "self"})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("create plan status=%d", resp.StatusCode)
 	}
 	_ = resp.Body.Close()
-	resp = do(t, s, http.MethodPost, "/v1/plans/plan-cm/comments", testToken, map[string]string{"body": "计划怎么看"})
+	resp = do(t, s, http.MethodPost, "/v1/plans/plan-comments/comments", testToken, map[string]string{"body": "计划怎么看"})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("post plan comment status=%d, want 200", resp.StatusCode)
 	}
 	var planCm commentView
 	decode(t, resp, &planCm)
-	if planCm.Scope != jobstore.CommentScopePlan || planCm.ScopeID != "plan-cm" || len(planCm.Dispatched) != 0 {
+	if planCm.Scope != jobstore.CommentScopePlan || planCm.ScopeID != "plan-comments" || len(planCm.Dispatched) != 0 {
 		t.Fatalf("plan comment = %+v", planCm)
 	}
-	resp = do(t, s, http.MethodGet, "/v1/plans/plan-cm/comments", testToken, nil)
+	resp = do(t, s, http.MethodGet, "/v1/plans/plan-comments/comments", testToken, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("list plan comments status=%d, want 200", resp.StatusCode)
 	}
@@ -155,7 +155,7 @@ func TestCommentEndpoints(t *testing.T) {
 	}
 
 	// --- todo scope (nested route) --------------------------------------------
-	resp = do(t, s, http.MethodPost, "/v1/plans/plan-cm/todos", testToken, map[string]string{"title": "补测试"})
+	resp = do(t, s, http.MethodPost, "/v1/plans/plan-comments/todos", testToken, map[string]string{"title": "补测试"})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("add todo status=%d", resp.StatusCode)
 	}
@@ -166,7 +166,7 @@ func TestCommentEndpoints(t *testing.T) {
 	if todo.TodoID == "" {
 		t.Fatal("todo has no id")
 	}
-	resp = do(t, s, http.MethodPost, "/v1/plans/plan-cm/todos/"+todo.TodoID+"/comments", testToken,
+	resp = do(t, s, http.MethodPost, "/v1/plans/plan-comments/todos/"+todo.TodoID+"/comments", testToken,
 		map[string]string{"body": "@reviewer 你来"})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("post todo comment status=%d, want 200", resp.StatusCode)
@@ -213,7 +213,7 @@ func TestCommentEndpoints(t *testing.T) {
 		t.Fatalf("list unknown job status=%d, want 404", resp.StatusCode)
 	}
 	// The nested route refuses a todo id that is not that plan's.
-	resp = do(t, s, http.MethodPost, "/v1/plans/plan-cm/todos/todo-nope/comments", testToken, map[string]string{"body": "hi"})
+	resp = do(t, s, http.MethodPost, "/v1/plans/plan-comments/todos/todo-nope/comments", testToken, map[string]string{"body": "hi"})
 	if resp.StatusCode != http.StatusNotFound {
 		t.Fatalf("unknown todo status=%d, want 404", resp.StatusCode)
 	}

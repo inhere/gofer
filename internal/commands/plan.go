@@ -317,6 +317,28 @@ func NewPlanCmd() *gcli.Command {
 				Func: runPlanSetTodo,
 			},
 			{
+				Name: "comment",
+				Desc: "Comment on a plan (or, with --todo, on one of its checklist items). A mention like @omp or @reviewer in a USER's comment dispatches a job for it (MCP-05)",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("plan-id", "plan id", true)
+					c.AddArg("text", "comment body; @<agent|role> dispatches a job", true)
+					c.StrOpt(&planCommentOpts.todo, "todo", "", "", "comment on this todo's own thread instead of the plan's")
+				},
+				Func: runPlanComment,
+			},
+			{
+				Name: "comments",
+				Desc: "List a plan's comment thread",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("plan-id", "plan id", true)
+				},
+				Func: runPlanComments,
+			},
+			{
 				Name: "dispatch",
 				Desc: "Dispatch a todo's assigned agent now, whatever its status (the explicit fallback to \"ready + assigned\")",
 				Config: func(c *gcli.Command) {

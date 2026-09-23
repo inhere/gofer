@@ -509,6 +509,26 @@ type ServerConfig struct {
 	// store owns enforcement and the defaults (2MiB per file / 10MiB total); this
 	// block only carries an operator's override, so an absent one is not a bug.
 	SkillLimits SkillLimitsConfig `yaml:"skill_limits,omitempty"`
+	// CommentTrigger bounds the @-mention dispatch a COMMENT can start (MCP-05 阶段 A,
+	// design §二.A.4): it is the third gate beside "only a user's comment" and "the
+	// mentioned agent must be allowed in the project". Both knobs are read per comment
+	// (see Config.EffectiveCommentTrigger), so a hot edit applies to the NEXT comment —
+	// nothing derives a cached value from them at startup.
+	CommentTrigger CommentTriggerConfig `yaml:"comment_trigger,omitempty"`
+}
+
+// CommentTriggerConfig is the server.comment_trigger block (MCP-05 阶段 A, design
+// §二.A.4). @-mention dispatch is automatic spending, so it is throttled per scope (the
+// job/plan/todo the comment is written on) and both knobs are POINTERS: unset means the
+// built-in default, while an explicit 0 turns that gate OFF — the same
+// unset-vs-explicit-zero distinction server.stall_timeout_sec makes.
+type CommentTriggerConfig struct {
+	// MinIntervalSec is the minimum spacing between two DISPATCHING comments on one
+	// scope (unset => DefaultCommentTriggerMinIntervalSec). 0 = no interval gate.
+	MinIntervalSec *int `yaml:"min_interval_sec,omitempty"`
+	// MaxPerScope caps how many dispatching comments one scope may ever produce
+	// (unset => DefaultCommentTriggerMaxPerScope). 0 = no cap.
+	MaxPerScope *int `yaml:"max_per_scope,omitempty"`
 }
 
 // SkillLimitsConfig is the server.skill_limits block (JOB-10 §一.2): the import-time
@@ -652,6 +672,37 @@ func (c *Config) EffectiveStallTimeoutSec(agentKey, agentType string, requested 
 		return *c.Server.StallTimeoutSec
 	}
 	return DefaultStallTimeoutSec
+}
+
+// Comment-trigger defaults (MCP-05 阶段 A, design §二.A.4): a comment may start work
+// only so often per scope, because every @-mention spends money. 60s is one dispatching
+// comment per minute and 10 is a job's lifetime budget — generous for a conversation,
+// small enough that a stuck loop is noticed.
+const (
+	// DefaultCommentTriggerMinIntervalSec is the per-scope spacing between two
+	// dispatching comments when server.comment_trigger.min_interval_sec is unset.
+	DefaultCommentTriggerMinIntervalSec = 60
+	// DefaultCommentTriggerMaxPerScope is the per-scope lifetime budget of
+	// dispatching comments when server.comment_trigger.max_per_scope is unset.
+	DefaultCommentTriggerMaxPerScope = 10
+)
+
+// EffectiveCommentTrigger resolves the @-mention throttle (MCP-05 阶段 A): the minimum
+// seconds between two DISPATCHING comments on one scope and the lifetime cap of
+// dispatching comments per scope. Either may be 0, which turns that gate off. A nil
+// config (or unset field) yields the defaults above.
+func (c *Config) EffectiveCommentTrigger() (minIntervalSec, maxPerScope int) {
+	minIntervalSec, maxPerScope = DefaultCommentTriggerMinIntervalSec, DefaultCommentTriggerMaxPerScope
+	if c == nil {
+		return minIntervalSec, maxPerScope
+	}
+	if c.Server.CommentTrigger.MinIntervalSec != nil {
+		minIntervalSec = *c.Server.CommentTrigger.MinIntervalSec
+	}
+	if c.Server.CommentTrigger.MaxPerScope != nil {
+		maxPerScope = *c.Server.CommentTrigger.MaxPerScope
+	}
+	return minIntervalSec, maxPerScope
 }
 
 // EffectiveAgentHealth resolves the health window/thresholds, filling unset fields

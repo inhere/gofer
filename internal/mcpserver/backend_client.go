@@ -365,3 +365,44 @@ func (b *clientBackend) PostMessage(from, to, kind, body, ref string) (int, erro
 func (b *clientBackend) ListPresence(role, project string) ([]presence.Agent, error) {
 	return b.cli.ListPresence(role, project)
 }
+
+// Comment forwards a comment to the central serve (MCP-05 阶段 A). as_job travels on the
+// wire so the SERVER decides the author kind from that job — a client cannot declare
+// itself a human.
+func (b *clientBackend) Comment(scope, id, body, asJob string) (commentView, error) {
+	cm, err := b.cli.PostComment(scope, id, body, asJob)
+	if err != nil {
+		return commentView{}, err
+	}
+	return clientCommentView(cm), nil
+}
+
+func (b *clientBackend) ListComments(scope, id string) ([]commentView, error) {
+	rows, err := b.cli.ListComments(scope, id)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]commentView, 0, len(rows))
+	for _, cm := range rows {
+		out = append(out, clientCommentView(cm))
+	}
+	return out, nil
+}
+
+// clientCommentView projects the client package's wire type onto the tool view.
+func clientCommentView(cm client.Comment) commentView {
+	v := commentView{
+		ID: cm.ID, Scope: cm.Scope, ScopeID: cm.ScopeID,
+		Author: cm.Author, AuthorKind: cm.AuthorKind, Body: cm.Body,
+		Mentions:       cm.Mentions,
+		CreatedAt:      cm.CreatedAt,
+		TriggeredJobID: cm.TriggeredJobID,
+	}
+	if v.Mentions == nil {
+		v.Mentions = []string{}
+	}
+	for _, d := range cm.Dispatched {
+		v.Dispatched = append(v.Dispatched, commentDispatchView{Mention: d.Mention, Kind: d.Kind, JobID: d.JobID})
+	}
+	return v
+}

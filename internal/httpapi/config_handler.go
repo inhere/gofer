@@ -59,6 +59,16 @@ type serverConfigView struct {
 	// editable, so the console needs the value to prefill the input it writes back —
 	// and the clear-on-omit rule means an absent field would read as "no bindings".
 	Skills []string `json:"skills"`
+	// CommentTrigger is the @-mention dispatch throttle (MCP-05 阶段 A). Both members
+	// are pointers on the wire for the same reason they are pointers in the config:
+	// null = the built-in default, 0 = that gate is off.
+	CommentTrigger commentTriggerView `json:"comment_trigger"`
+}
+
+// commentTriggerView is the server.comment_trigger block as the console edits it.
+type commentTriggerView struct {
+	MinIntervalSec *int `json:"min_interval_sec"`
+	MaxPerScope    *int `json:"max_per_scope"`
 }
 
 type governanceView struct {
@@ -321,6 +331,12 @@ func buildServerConfigView(sc config.ServerConfig) serverConfigView {
 		JobRecoverWindowSec: sc.JobRecoverWindowSec,
 		Retry:               sc.Retry,
 		Skills:              nonNil(sc.Skills),
+		// MCP-05: the @-mention throttle, editable — so the console needs the values to
+		// prefill the inputs it writes back (nil = "unset", which is NOT 0 = "off").
+		CommentTrigger: commentTriggerView{
+			MinIntervalSec: sc.CommentTrigger.MinIntervalSec,
+			MaxPerScope:    sc.CommentTrigger.MaxPerScope,
+		},
 	}
 }
 
