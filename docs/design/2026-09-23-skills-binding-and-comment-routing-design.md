@@ -242,3 +242,31 @@ S1 落地后留了两处缺口，本期按人工决策改掉，并在真机上�
 - **plan 删除连带删评论做不到**：全仓没有 `DeletePlan`（plan 只归档不删，见 `docs/plans/2026-07-26-decision-channel-plan.md`）。因此 store 侧提供 `DeleteCommentsForScope(scope, scopeID)` 供将来的删除路径调用，本期真正接上的是 `PruneJobs`、`PruneWorkflows` 的 step-job、以及 `DeleteTodo`（`TestCommentsPrunedWithJob`/`TestDeleteTodoSweepsItsComments` 覆盖）。
 - **web 的 todo 线程未做展开**：plan 页每条待办自己的线程已经可用（`/v1/todos/{id}/comments`，`gofer plan comment --todo`），只是没做行内展开 UI。
 - **时间线未加 comment.* 的中文标签**：事件按默认图标 + 事件名渲染（`EVENT_META` 未加四行）。
+
+## S3 实测记录（2026-09-23，MCP-05 阶段 B 落地）
+
+真机 smoke（临时 server + 临时 config `tmp/leader-smoke/config.yaml` + 端口 18791，**unset 了 `GOFER_SERVER_ADDR`/`GOFER_SERVER_TOKEN`/`GOFER_TOKEN`/`GOFER_JOB_ID`**（`tmp/leader-smoke/cli.sh` 每次调用先 unset 再指向临时地址），未碰真实配置目录；smoke 产物已删）。
+
+- 配置里两个把 prompt 回显的假 cli-agent（`echoer` 成员 / `lead` leader）+ `supervisor.leader {enabled: true, agent: lead, scopes: [plan], max_rounds_per_scope: 6, wake_delay_sec: 2}`；一个 plan + 两个待办（都指派 echoer）。
+- 成员 job（`job run -p smoke -a echoer --plan … --todo … --wait`）done 后：`plan_leader_wakes` 出现 `pending` 行（`round=1`，`due_at = created_at + wake_delay_sec`），sweeper 到点起了 `leader 回合 1：leader-smoke plan`（`channel: leader`、`caller_id: gofer`、`agent: lead`、tags 含 `leader`/`leader_of:<成员 job>`），leader job stdout（= 它拿到的 prompt）含：plan 标题/目标、待办链状态表（`[done] todo-… 第一步：写 X（指派：echoer） — <成员 job> ✓ no commits` / `[pending] … 第二步`）、成员汇报尾部 `member-got: MEMBER-REPORT-77 第一步做完了`、六个可用工具与"不能 accept/reject"清单。
+- 事件（`plan:<id>` scope）：`plan.leader_woken {round:1, job:<成员>, leader_job:…, agent:lead}`。
+- 人插话取消：把 `wake_delay_sec` 改成 30 并重启临时 server，第二个成员 job done 后**立刻**用 CLI 发 user 评论（`plan comment … "这轮我来，先别叫 leader"`）→ 该 plan 的 `pending` 行变 `cancelled`（`cancelled_by=default`），40s 后 `job list --tag leader` 仍只有 1 个 leader job；事件流为 `plan.completed` → `comment.created {author_kind:user}` → `plan.leader_cancelled {by:default, cancelled:1}`。
+- plan 详情 API 带上 leader 块：`GET /v1/plans/{id}` → `{"leader":{"round":1,"max_rounds":6,"last_job_id":"20260923-144427-dad5b9d9"}}`（web plan 页据此显示"leader 回合已用 N/M 轮"+ 最近一次 leader job 链接）。
+
+### 实现中定下、设计未写明或与设计有出入的点
+
+1. **待唤醒记录用新表 `plan_leader_wakes`，不落 `job_wakeups`**：设计给了两个选项。`job_wakeups` 的语义是"唤醒后**继续这个 job**"（续跑同一条 job），而 leader 轮要起的是**另一个 agent 的新 job**，硬塞进去要么在 fire 路径分叉、要么语义说谎；新表还顺手承载了轮次计数（`fired|firing` 行数 = 已用轮次）、人取消（`cancelled_by/at`）与 plan 详情的"最近一次 leader job"。行状态 `pending|firing|fired|cancelled` 持久化，重启不丢（serve 启动时 sweeper 先跑一次，把停机期间到点的轮补上）。
+2. **轮次号在 fire 时定**：两个成员可以在同一个唤醒窗口里各记一条，所以 `round` 在真正起 job 那一刻由 `fired|firing` 行数 +1 决定，并发给 job 的 tag/prompt/事件；arm 时写的 `round` 只是当时的估算。
+3. **`submit_failed` 的轮次作废而不是重试**：提交被拒（leader agent 不在该 project 的 `allowed_agents`、plan 没有 project 等）时记 `plan.leader_skipped{reason:"submit_failed", error}` 并**取消**该轮——否则每 10s 重试一次同样的 refusal，永远刷事件。修好配置后下一个成员终态会有新一轮。
+4. **leader job 固定跑内置 local runner**：身份标记 `LeaderOfPlan` 是 `json:"-"`（客户端不可设、不进 request_json），派到 worker/peer 会丢标记，所以 leader 轮只在本机起 job。
+5. **`on_member_done` 是 `*bool`、缺省视为 true**：`enabled: true` 单独写就应当按成员终态唤醒（设计样例也是 `true`），只有显式 `false` 才关掉触发。
+6. **`supervisor.leader` 只登记进字段策略表、没有控制台写分支**：字段策略表 / `SectionPolicies` 增加了 supervisor 段，`GET /v1/config` 的 supervisor 视图与 plan 详情都能读到；但 `PUT /v1/config/{section}` 的白名单仍是 server|agents（控制台没有 leader 表单）。leader 块每轮重读 config，所以**改文件 + SIGHUP 即对下一轮生效**。
+7. **验收闸门的身份来自 in-job `as_job`**：HTTP `POST /v1/jobs/{id}/accept|reject` 的 body 新增可选 `as_job`（与评论同一约定），CLI 在 `GOFER_JOB_ID` 已设时自动带上（fail-closed，同 S2 第 5 条）；两个 MCP backend 的 `RejectJob` 同样带上。leader job 身份 → 403；MCP 面则干脆不注册 `gofer_reject_job`（leader 工具白名单）。
+8. **leader 的 MCP 工具面由 `GOFER_LEADER_PLAN` 环境变量决定**（job 服务只为 leader job 导出，客户端不可设）：`gofer_comment / gofer_list_comments / gofer_get_plan / gofer_update_todo（仅 ready|skipped）/ gofer_wakeup_create / gofer_ask_human`，其余（`gofer_run_job`、`gofer_add_todo`、`gofer_plan_run`、`gofer_cancel_job`、review、config 等）不注册。`gofer_update_todo` 在 leader 面把 status 收窄到 `ready|skipped`，拒绝时说明允许集。
+9. **plan 已是 `done` 时不特殊处理**：所有待办 done/skipped 后 `advancePlan` 会把 plan 置 done，此时若成员 job 的终态仍是唤醒源，照设计唤醒（leader 仍可评论/升级/问人）。若运行中发现这是纯噪音，可加一条"plan done 不唤醒"的规则。
+
+### 未做 / 留给人工决策
+
+- **`plan_leader_wakes` 没有 prune 路径**：行随 plan 存亡（plan 只归档不删，同 S2 的评论结论），量级是"每个成员终态一行"，暂无清理需要。
+- **web 只在 plan 详情页显示 leader 状态**；job 详情页没有"这条 job 是 leader job / 它属于第几轮"的显式徽标（tags 里能看到 `leader`、`leader_round:<n>`）。
+- **`comment.created` 等 comment.* 时间线中文标签**仍未加（S2 遗留，本期未动）。
