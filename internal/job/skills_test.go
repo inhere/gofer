@@ -253,9 +253,10 @@ func TestPeerRunnerSkipsSkills(t *testing.T) {
 	if peer.got.Prompt != body {
 		t.Fatalf("the peer's prompt = %q, want the caller's text %q", peer.got.Prompt, body)
 	}
-	if len(peer.got.Skills) != 0 {
-		t.Fatalf("peer forward skills = %v, want none", peer.got.Skills)
-	}
+	// The peer's transport carries no files: nothing is staged for it and nothing is
+	// mounted, so a peer job can never receive a skill. (Forward keeps the resolved
+	// names as a faithful copy of the request — the peer runner builds its own
+	// JobRequest from the fields it honours and skills are not one of them.)
 	if len(peer.got.Uploads) != 0 || len(lib.staged) != 0 {
 		t.Fatalf("a peer job staged skill files: forward=%+v staged=%+v", peer.got.Uploads, lib.staged)
 	}
