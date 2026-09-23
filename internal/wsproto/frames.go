@@ -408,11 +408,11 @@ type Dispatch struct {
 	Collect []string     `json:"collect,omitempty"`
 	// Skills (JOB-10) is the RESOLVED skill binding the hub decided for this job —
 	// never re-derived here, because the worker's own config may name a different
-	// library. The files themselves ride Uploads with Base=result_dir, so this list
-	// alone mounts nothing: a peer below SkillsMinProtocolVersion is handed the names
-	// but NONE of those uploads (the hub drops the mount rather than let a base-less
-	// peer write a skill into the shared working tree — see SupportsSkills), and the
-	// hub records job.skills_skipped for it.
+	// library. The files themselves ride Uploads with Base=result_dir, and the WORKER
+	// renders the prompt list from these names after mounting them (决策 1,
+	// 2026-09-23): the submitting hub never writes a skill path into the prompt, so a
+	// peer that is not given the files is not given the names either (the hub drops
+	// both — see SupportsSkills — and records job.skills_skipped for it).
 	Skills []string `json:"skills,omitempty"`
 	// ExclusiveDir / StallTimeoutSec are the JOB-11 / AUTO-05 policies the hub
 	// RESOLVED for this job: whether the worker must take the exclusive lock of the

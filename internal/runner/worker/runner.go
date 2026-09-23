@@ -101,6 +101,18 @@ func splitSkillUploads(in []runner.XferUpload, proto int, known bool) (keep []ru
 	return keep, dropped
 }
 
+// skillsCarried is what the dispatch hands the worker as its skill list: the names
+// the hub resolved, or NOTHING when the mount was dropped (skillsDropped > 0). The
+// two travel together because the names are what the WORKER renders into the running
+// prompt (JOB-10 决策 1): a peer that cannot receive the files must not be told to
+// read them, so the same decision that withholds the uploads withholds the list.
+func skillsCarried(names []string, dropped int) []string {
+	if dropped > 0 {
+		return nil
+	}
+	return names
+}
+
 // unsupportedDispatchFields lists the dispatch fields this job NEEDS that a worker
 // at protocol version proto cannot carry (SUP-01 P2, G032). It is the single place
 // that maps a request field to the capability floor it depends on, so a newly added
@@ -392,9 +404,11 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		Uploads: xferUploadsToWire(uploads),
 		Collect: f.Collect,
 		// JOB-10: the binding the hub resolved (never re-derived on the worker). Its
-		// files are among the uploads above — absent for a peer below v10, which is
-		// why the skip is reported as an event right after the dispatch.
-		Skills: f.Skills,
+		// files are among the uploads above, and the list of names is what the WORKER
+		// renders into the running prompt — so a peer that cannot carry the mount gets
+		// NO names either (skillsCarried): the names alone would make it promise paths
+		// its result dir will never hold. The skip is reported as an event below.
+		Skills: skillsCarried(f.Skills, skillsDropped),
 		// JOB-11 / AUTO-05: the hub resolved the directory lock and the stall window
 		// against ITS config (this machine validated the request), so the worker applies
 		// them as decided instead of re-deriving its own (see Dispatch's field docs).

@@ -120,7 +120,9 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// and the files arrive as the uploads above. SkillsResolved says this list is
 		// FINAL: the worker mounts exactly these and never re-unions ITS config's
 		// bindings, which may name skills this job was never meant to carry. The names
-		// also let the worker render the prompt list's {{skills_dir}} path.
+		// are also what THIS machine renders into the running prompt, with its own
+		// result dir as the path (决策 1, 2026-09-23). Empty for a peer the hub could not
+		// hand the files to — then there is nothing to mount and nothing to list.
 		Skills:         d.Skills,
 		SkillsResolved: true,
 		// JOB-11 / AUTO-05: the hub decided whether this job holds the exclusive lock of

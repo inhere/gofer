@@ -420,9 +420,10 @@ type Forward struct {
 	// Skills (JOB-10) is the RESOLVED skill binding the executing machine mounts —
 	// the union the hub decided, never re-derived there (the peer's own config names
 	// a different library). The files travel as Uploads with Base=result_dir, so the
-	// machine that owns the result dir writes them. It is dropped for a peer below
-	// wsproto.SkillsMinProtocolVersion (the hub dispatches without it and records
-	// job.skills_skipped instead of risking a mount in the shared working tree).
+	// machine that owns the result dir writes them and renders the prompt list from
+	// these names (决策 1). It is dropped for a peer below wsproto.SkillsMinProtocolVersion
+	// (the hub dispatches without it and records job.skills_skipped instead of risking a
+	// mount in the shared working tree).
 	Skills []string
 	// ExclusiveDir / StallTimeoutSec are the JOB-11 / AUTO-05 execution policies the
 	// submitting hub RESOLVED (server.dir_lock + the agent's max_concurrent/stall

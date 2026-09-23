@@ -747,8 +747,11 @@ const (
 	// fetching the summary.
 	EventJobFilesCollected = "job.files_collected"
 	// EventJobSkillsMounted is a job's skills being materialized in its result dir
-	// (JOB-10) on the machine that runs it: {names, bytes}. It is the receipt that the
-	// knowledge the job was promised actually reached it before the agent started.
+	// (JOB-10) on the machine that runs it: {names, bytes, dir}. It is the receipt that
+	// the knowledge the job was promised actually reached it before the agent started.
+	// Recorded by a job whose files THIS machine placed itself (mountSkills); a
+	// DISPATCHED job's files arrive as uploads and are reported by the transfer
+	// summary instead.
 	EventJobSkillsMounted = "job.skills_mounted"
 	// EventJobSkillsSkipped is a job that WOULD have carried skills but does not
 	// (JOB-10): {reason, names, count}. "worker_protocol" means the target worker

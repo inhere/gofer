@@ -223,26 +223,6 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	}
 	resultDir := st.Dir(jobID)
 
-	// JOB-10 (design §一.4): the resolved skills are listed at the TOP of the prompt,
-	// above the caller's own text, with the SKILL.md path as the EXECUTING machine
-	// will see it — the real path here for a local job, the {{skills_dir}} placeholder
-	// for a worker-bound one (its result dir belongs to that machine, which substitutes
-	// it before rendering argv). A job the transfer channel cannot reach (peer-http)
-	// gets no list at all: a path it cannot read is worse than no path.
-	switch {
-	case len(req.Skills) == 0:
-	case req.SkillsResolved:
-		// A dispatched (worker-bound) job: the submitting machine already rendered the
-		// list, path included as the {{skills_dir}} placeholder — only the mount path
-		// itself belongs to THIS machine, so nothing is re-derived and nothing is
-		// prepended twice.
-		req.Prompt = substituteSkillsDir(req.Prompt, resultDir)
-	case !remote:
-		req.Prompt = s.skillsPromptPrefix(&req, resultDir, false) + req.Prompt
-	case isWorkerRunner(cfg, req.Runner):
-		req.Prompt = s.skillsPromptPrefix(&req, resultDir, true) + req.Prompt
-	}
-
 	// WT-01: `--worktree` runs the job in a managed git worktree of this checkout
 	// (<top>/tmp/gofer/wt/<job-id>, branch gofer/<job-id>) so parallel jobs stop
 	// sharing one index. Created HERE — on the EXECUTING machine (serve-local, or the
@@ -275,6 +255,32 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	reqJSON, err := json.Marshal(req)
 	if err != nil {
 		return JobResult{}, fmt.Errorf("marshal request: %w", err)
+	}
+
+	// JOB-10 (决策 1, 2026-09-23): the prompt the job RUNS with — the caller's text
+	// with the mounted-skills list in front of it — is assembled HERE, by the machine
+	// that mounts the files, so every path in the list is one this machine can read.
+	// The old design rendered it at submit with a {{skills_dir}} placeholder for the
+	// executing machine to substitute, which handed a protocol-9 worker a list of
+	// files it was never given (决策 1) and a peer-http job a list of paths no peer
+	// could read (决策 2). request_json was marshalled above and keeps req.Prompt, so
+	// audit/rerun replay the caller's ask rather than one machine's result dir.
+	prompt := req.Prompt
+	switch {
+	case len(req.Skills) == 0:
+	case remote && isWorkerRunner(cfg, req.Runner):
+		// hub → worker: the WORKER renders the list, in its own Submit, after its
+		// result dir exists — this machine only decided the binding and staged the
+		// bytes (they ride the uploads with Base=result_dir).
+	case remote:
+		// peer-http (决策 2): a peer's transport carries no files and this hub knows
+		// nothing about its paths, so a peer job mounts nothing and lists nothing. The
+		// job still runs; the omission goes on its timeline instead of failing it.
+		s.recordEvent(jobID, EventJobSkillsSkipped, map[string]any{
+			"reason": "peer_runner", "names": req.Skills, "count": len(req.Skills),
+		})
+	default:
+		prompt = s.skillsPromptPrefix(&req, resultDir) + prompt
 	}
 
 	run := s.runners[req.Runner]
@@ -333,10 +339,14 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			ProjectKey: req.ProjectKey,
 			Agent:      req.Agent,
 			PeerRunner: builtinLocalRunner,
-			Prompt:     req.Prompt,
-			AgentArgs:  req.AgentArgs,
-			Cmd:        req.Cmd,
-			Cwd:        req.Cwd,
+			// Prompt is what the executing machine RUNS with. It equals req.Prompt for
+			// every remote job (the list is rendered by the executing machine — JOB-10
+			// 决策 1), and prompt is threaded through anyway so a future local forward
+			// cannot silently drop the mount.
+			Prompt:    prompt,
+			AgentArgs: req.AgentArgs,
+			Cmd:       req.Cmd,
+			Cwd:       req.Cwd,
 			// WT-01: the executor creates the worktree (that machine owns the
 			// checkout); the submitting side already resolved worktree_default into
 			// req.Worktree.
@@ -399,7 +409,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		// validate and here produced a job that passed the OLD policy but executed the
 		// NEW agent's command (mixed config state). ac is resolved once and reused by
 		// every argv-injection below for the same reason.
-		resolved, berr := agent.BuildFrom(cfg, req.Agent, req.Prompt, req.Cmd, agent.Vars{
+		resolved, berr := agent.BuildFrom(cfg, req.Agent, prompt, req.Cmd, agent.Vars{
 			Cwd:       workDir,
 			JobID:     jobID,
 			ResultDir: resultDir,
@@ -421,7 +431,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 				return JobResult{}, fmt.Errorf("%w: agent %q (acp-agent) requires the acp runner", ErrInvalidRequest, req.Agent)
 			}
 			run = ar
-			runReq.ACP = acpRequest(cfg, ac, req, resultDir)
+			runReq.ACP = acpRequest(cfg, ac, req, prompt, resultDir)
 			// GATE-01: the approval gate asks THROUGH this job's interaction surface
 			// (the card lands in web/CLI/MCP exactly like any other interaction, and a
 			// worker's local job mirrors it up to the hub).
@@ -715,9 +725,13 @@ func isCLIAgent(cfg *config.Config, name string) bool {
 // advertises in session/new, whether the agent's thinking goes to the logs
 // (acp.log_thoughts), and — for a continuation — the session to LOAD. A nil acp
 // sub-block yields the defaults (auto-allow permissions, no MCP servers, thoughts kept).
-func acpRequest(cfg *config.Config, ac config.AgentConfig, req JobRequest, resultDir string) *runner.ACPRequest {
+//
+// prompt is passed in rather than read off req because an acp agent's turn is the
+// prompt itself: it has to be the RUNNING text (the JOB-10 skills list in front of the
+// caller's own words), not the audit copy request_json keeps.
+func acpRequest(cfg *config.Config, ac config.AgentConfig, req JobRequest, prompt, resultDir string) *runner.ACPRequest {
 	r := &runner.ACPRequest{
-		Prompt:        req.Prompt,
+		Prompt:        prompt,
 		ResultDir:     resultDir,
 		Approval:      cfg.EffectiveApproval(req.ProjectKey, req.Agent),
 		LoadSessionID: resumeLoadSessionID(req),

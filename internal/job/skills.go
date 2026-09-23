@@ -25,8 +25,11 @@ import (
 //     local job's result dir (SkillLibrary.Mount); a WORKER job's files travel as
 //     ordinary staged uploads with Base=result_dir (the same channel XFER-01 uses),
 //     so the machine that owns the directory writes it.
-//   - The prompt gets a LIST (name + description + the SKILL.md path as the
-//     executing machine sees it), not the contents: the agent decides what to read.
+//   - The prompt gets a LIST (name + description + the SKILL.md path), not the
+//     contents: the agent decides what to read. That list is rendered by the machine
+//     that RUNS the job, after it has the files (决策 1, 2026-09-23) — the submitting
+//     hub renders nothing, so a peer that is never given the files is never given a
+//     path either, and request_json keeps the caller's own prompt.
 //
 // The skill library itself lives behind SkillLibrary — this package never imports
 // internal/skill or internal/xfer (G022).
@@ -82,11 +85,6 @@ const (
 	skillsPromptHeader = "## 可用技能（gofer 挂载，按需阅读）"
 	// skillsPromptFooter is the one instruction that makes the list useful.
 	skillsPromptFooter = "先读与本任务相关的 SKILL.md，再动手。"
-	// skillsDirPlaceholder is what a REMOTE job's manifest carries instead of an
-	// absolute path: the submitting hub cannot know the worker's result dir, so the
-	// executing machine substitutes it (see substituteSkillsDir). A local job's
-	// manifest already holds the real path, so the substitution is a no-op there.
-	skillsDirPlaceholder = "{{skills_dir}}"
 	// goferSkillsDirEnv is the env var that lets an agent (or a wrapper script) find
 	// the mount without parsing the prompt.
 	goferSkillsDirEnv = "GOFER_SKILLS_DIR"
@@ -102,16 +100,6 @@ func SkillDest(name, rel string) string {
 
 // skillDestFor is the in-package spelling used by this file and its tests.
 func skillDestFor(name, rel string) string { return SkillDest(name, rel) }
-
-// substituteSkillsDir replaces the placeholder with THIS machine's mount path. It is
-// idempotent and safe to run for every job: a manifest rendered locally already has
-// the real path and contains no placeholder.
-func substituteSkillsDir(prompt, resultDir string) string {
-	if !strings.Contains(prompt, skillsDirPlaceholder) {
-		return prompt
-	}
-	return strings.ReplaceAll(prompt, skillsDirPlaceholder, filepath.Join(resultDir, skillsDirName))
-}
 
 // resolveSkills expands the four binding levels into the job's final skill list,
 // IN PLACE on the request: the union (config.EffectiveSkills), the name check against
@@ -150,8 +138,9 @@ func (s *Service) resolveSkills(cfg *config.Config, req *JobRequest, remote bool
 // stageSkills turns a WORKER-bound job's skills into staged uploads. A local job
 // needs nothing here: its files are copied straight into its result dir at execution
 // time (mountSkills). A peer-http job gets no files (its transport carries none) and
-// no prompt list either — see the manifest step in Submit — because a path the
-// executing machine cannot read is worse than no path at all.
+// no prompt list either (决策 2, 2026-09-23): the executing machine renders the list,
+// and Submit records job.skills_skipped{peer_runner} for it — a path the peer cannot
+// read is worse than no path at all.
 func (s *Service) stageSkills(req *JobRequest, stage bool) error {
 	if len(req.Skills) == 0 {
 		return nil
@@ -204,22 +193,22 @@ func skillsManifest(lib SkillLibrary, names []string, dir string) string {
 	return b.String()
 }
 
-// skillsPromptPrefix is the manifest text prepended to the prompt at submit, or ""
-// when the job carries no skills.
-func (s *Service) skillsPromptPrefix(req *JobRequest, resultDir string, remote bool) string {
+// skillsPromptPrefix is the manifest text the RUNNING prompt opens with, rendered by
+// the machine that will mount the files (决策 1, 2026-09-23) — so every path in it is
+// one that machine can actually read. It is "" when the job carries no skills, and it
+// is never part of request_json: the persisted request keeps the caller's own text.
+func (s *Service) skillsPromptPrefix(req *JobRequest, resultDir string) string {
 	if s.skills == nil || len(req.Skills) == 0 {
 		return ""
 	}
-	dir := filepath.Join(resultDir, skillsDirName)
-	if remote {
-		dir = skillsDirPlaceholder
-	}
-	return skillsManifest(s.skills, req.Skills, dir)
+	return skillsManifest(s.skills, req.Skills, filepath.Join(resultDir, skillsDirName))
 }
 
 // mountSkills places the job's skills in ITS OWN result dir on THIS machine, before
 // the agent starts: the local half of the design's materialization rule. A failure
-// fails the job — an agent told to read a skill that is not there would guess.
+// fails the job — an agent told to read a skill that is not there would guess. The
+// prompt list that points at these files is rendered by the same machine, in Submit
+// (skillsPromptPrefix), so the list and the files can never be decided by two hosts.
 //
 // A dispatched worker job does NOT come here: its files arrive as uploads with
 // Base=result_dir (materializeUploads), and its own library may not hold the skill at
@@ -243,8 +232,11 @@ func (s *Service) mountSkills(entry *jobEntry, req runner.Request) error {
 		mounted = append(mounted, name)
 	}
 	sort.Strings(mounted)
+	// dir is the mount root this machine rendered into the running prompt's list, so
+	// the event answers "which path was the agent told to read?" without re-deriving
+	// the result dir from the job row.
 	s.recordEvent(req.JobID, EventJobSkillsMounted, map[string]any{
-		"names": mounted, "bytes": total,
+		"names": mounted, "bytes": total, "dir": dst,
 	})
 	return nil
 }
