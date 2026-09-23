@@ -82,6 +82,41 @@ func (s *Store) GetEvent(seq int64) (JobEvent, bool, error) {
 	return ev, true, nil
 }
 
+// ListJobEventsDesc returns a scope's events NEWEST first (seq DESC), capped at limit.
+// When before > 0 only events strictly OLDER (a smaller seq) are returned — the cursor a
+// paging UI walks backwards with. It is the plan event area's reader (LEAD-02): the job
+// timeline pages FORWARD from a `since` cursor and must stay untouched, so the two
+// directions get two queries rather than a flag that can be passed wrong.
+func (s *Store) ListJobEventsDesc(scope string, before int64, limit int) ([]JobEvent, error) {
+	q := selectEventCols + " WHERE job_id = ?"
+	args := []any{scope}
+	if before > 0 {
+		q += " AND seq < ?"
+		args = append(args, before)
+	}
+	q += " ORDER BY seq DESC LIMIT ?"
+	args = append(args, limit)
+
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: list job events desc %q: %w", scope, err)
+	}
+	defer rows.Close()
+
+	out := make([]JobEvent, 0)
+	for rows.Next() {
+		ev, scanErr := scanEvent(rows)
+		if scanErr != nil {
+			return nil, fmt.Errorf("jobstore: scan job event row: %w", scanErr)
+		}
+		out = append(out, ev)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("jobstore: list job events desc %q rows: %w", scope, err)
+	}
+	return out, nil
+}
+
 // ListJobEvents returns a job's events in insertion order (seq ASC). When
 // sinceSeq > 0 only events strictly after it are returned (the incremental cursor
 // for SSE/poll). A job with no events yields an empty slice and no error.

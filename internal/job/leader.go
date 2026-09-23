@@ -14,6 +14,9 @@ package job
 //
 //	opt-in        supervisor.leader.enabled — nil/absent means the whole feature is off
 //	scope         the plan scope (the only one implemented)
+//	plan          the PLAN's own witness switch (`plans.leader == on`, LEAD-02): the
+//	              global block only carries the parameters + master switch, so a plan
+//	              nobody opted in is never woken — and logs nothing while it is not
 //	member        a plan-attached job, NOT a leader job, NOT carrying the `leader` tag
 //	state         done / failed / needs_review — the three endings a human would react to
 //	paused        a paused plan is a 一键叫停: nothing is even armed (`plan.leader_skipped`)
@@ -63,6 +66,14 @@ const (
 	leaderChannel   = "leader"
 	leaderCallerID  = "gofer"
 	leaderSkipPause = "paused"
+	// leaderSkipGlobalOff: the plan IS opted in but the master switch
+	// (supervisor.leader.enabled) is off. Recorded (unlike a plan that never opted in,
+	// which stays silent): somebody switched this plan on and must learn why nothing
+	// happened.
+	leaderSkipGlobalOff = "global_off"
+	// leaderSkipPlanOff: the plan's switch was turned back off between arming the round
+	// and firing it.
+	leaderSkipPlanOff = "plan_off"
 	// leaderSkipDone: the plan already reached `done` (every item finished) — the chain
 	// is over, so a round would only spend money on work nobody is doing.
 	leaderSkipDone = "plan_done"
@@ -73,21 +84,47 @@ const (
 // terminal tail of finish() and its needs_review branch — and is best-effort
 // throughout: a job must never fail (or fail to park) because a leader could not be
 // woken, so every error is logged and the job's own state stays authoritative.
+//
+// LEAD-02: the plan must have opted in (`plans.leader == on`) AND the global block must
+// still be enabled. The two gates are not symmetric: a plan nobody opted into is silent
+// (its member terminals are the normal case, and a skip line per terminal on every plan
+// would be noise), while a plan that IS opted in but gated by the master switch, a
+// pause, a completed chain or a spent budget records plan.leader_skipped with the
+// reason — somebody asked for rounds and must be able to read why none happened.
 func (s *Service) maybeWakeLeader(snap JobResult) {
-	cfg := s.config()
-	leader := cfg.LeaderConfig()
-	if leader == nil || !leader.Enabled || !leader.ScopeEnabled(config.LeaderPlanScope) {
-		return
-	}
-	if !leader.MemberDoneWakes() {
-		return
-	}
 	if snap.PlanID == "" || snap.LeaderOfPlan != "" || hasJobTag(snap.Tags, leaderTag) {
 		return
 	}
 	switch snap.Status {
 	case StatusDone, StatusFailed, StatusNeedsReview:
 	default:
+		return
+	}
+	plan, ok, err := s.meta.GetPlan(snap.PlanID)
+	if err != nil || !ok {
+		return
+	}
+	scope := PlanEventScope(plan.PlanID)
+	// LEAD-02: the plan's own switch comes FIRST, and an opted-out plan is SILENT — the
+	// per-plan default would otherwise write one skip line per member terminal on every
+	// plan of the machine (the C2 rule: only "switched on but skipped" is an event).
+	if plan.Leader != jobstore.PlanLeaderOn {
+		slog.Debug("leader wake: plan not opted in", "plan_id", plan.PlanID, "job_id", snap.ID)
+		return
+	}
+	cfg := s.config()
+	leader := cfg.LeaderConfig()
+	if leader == nil || !leader.Enabled || !leader.ScopeEnabled(config.LeaderPlanScope) {
+		// Switched on, but the master switch says no: that is worth a line on the plan.
+		s.RecordScopedEvent(scope, EventPlanLeaderSkipped, plan.ProjectKey, map[string]any{
+			"plan_id": plan.PlanID, "job": snap.ID, "reason": leaderSkipGlobalOff,
+		})
+		return
+	}
+	if !leader.MemberDoneWakes() {
+		// A deliberate operator setting (on_member_done: false), not a skip: the trigger
+		// is simply off, and the plan page shows no rounds because none can arm.
+		slog.Debug("leader wake: on_member_done is off", "plan_id", plan.PlanID, "job_id", snap.ID)
 		return
 	}
 	armed, err := s.meta.LeaderWakeArmedForMember(snap.ID)
@@ -98,11 +135,6 @@ func (s *Service) maybeWakeLeader(snap JobResult) {
 	if armed {
 		return
 	}
-	plan, ok, err := s.meta.GetPlan(snap.PlanID)
-	if err != nil || !ok {
-		return
-	}
-	scope := PlanEventScope(plan.PlanID)
 	if plan.Status == jobstore.PlanDone {
 		// The chain is over: `advancePlan` runs BEFORE this hook (linkTodoOutcome marks
 		// the todo done and completes the plan), so this is exactly the "the member that
@@ -184,6 +216,17 @@ func (s *Service) fireLeaderWake(cfg *config.Config, leader *config.LeaderConfig
 	plan, ok, err := s.meta.GetPlan(w.PlanID)
 	if err != nil || !ok {
 		s.meta.CancelLeaderWake(w.ID, "gofer:no_plan", s.nowFn().Unix())
+		return false
+	}
+	if plan.Leader != jobstore.PlanLeaderOn {
+		// LEAD-02: the switch was turned back off inside the wake window — the same
+		// "the human changed their mind" case a comment cancels, so the round is dropped
+		// rather than held (turning it on again arms a fresh round off the next terminal).
+		if cancelled, cerr := s.meta.CancelLeaderWake(w.ID, "gofer:"+leaderSkipPlanOff, s.nowFn().Unix()); cerr == nil && cancelled {
+			s.RecordScopedEvent(scope, EventPlanLeaderSkipped, plan.ProjectKey, map[string]any{
+				"plan_id": plan.PlanID, "job": w.MemberJobID, "reason": leaderSkipPlanOff,
+			})
+		}
 		return false
 	}
 	if plan.Paused {
@@ -333,16 +376,17 @@ func (s *Service) leaderPrompt(plan jobstore.Plan, member JobResult, w jobstore.
 		b.WriteString(s.commentJobContext(member))
 	}
 
-	b.WriteString("\n## 你可以做的（只有这些 MCP 工具）\n")
-	b.WriteString("- gofer_list_comments：先读 plan / todo / job 的评论区，看看人和成员都说过什么。\n")
-	b.WriteString("- gofer_comment：在评论区说话；正文里写 `@<agent 或 role>` 会**真的派活**（你是本 plan 的 leader，你的 @提及生效）。\n")
-	b.WriteString("- gofer_get_plan：读 plan 与待办现状。\n")
-	b.WriteString("- gofer_update_todo：把某个待办置 `ready`（已指派即派活）或 `skipped`；**只接受 ready|skipped**，其他状态会被拒绝。\n")
-	b.WriteString("- gofer_wakeup_create：给某个 job 建定时/事件 wakeup。\n")
-	b.WriteString("- gofer_ask_human：拿不准就升级给人（会阻塞到有人回答或超时）。\n")
+	b.WriteString("\n## 你可以做的（用 gofer CLI；权限由你的 job 凭证强制，越权会 403）\n")
+	b.WriteString("- `gofer plan comments <plan>`：先读 plan / todo / job 的评论区，看看人和成员都说过什么。\n")
+	b.WriteString("- `gofer plan comment <plan> \"正文\"`：在评论区说话；正文里写 `@<agent 或 role>` 会**真的派活**（你是本 plan 的 leader，你的 @提及生效）。加 `--todo <todo>` 可只评论某个待办。\n")
+	b.WriteString("- `gofer plan show <plan>`：读 plan 与待办现状。\n")
+	b.WriteString("- `gofer plan set-todo <todo> --status ready|skipped`：把某个待办置 `ready`（已指派即派活）或 `skipped`；**只接受 ready|skipped**，其他状态会被服务端拒绝（403）。\n")
+	b.WriteString("- `gofer job wakeup create <job> --kind at --after 10m`（或 `--kind event --event job.terminal`）：给某个 job 建定时/事件 wakeup。\n")
+	b.WriteString("- `gofer plan ask --plan <plan> --title <标题> --question <问题>`：拿不准就升级给人（不阻塞；人回答后用 `gofer plan decisions --plan <plan>` 看答案）。\n")
+	b.WriteString("- 若你的环境里挂了 gofer MCP 工具，也可以用它们做同样的事：底层是同一枚 job 凭证，权限与上面的 CLI 完全相同。\n")
 	b.WriteString("\n## 你不能做的\n")
 	b.WriteString("- **不能** accept/reject：验收永远由人做；也不能把待办直接标 done。\n")
-	b.WriteString("- 不能改配置、不能 push、不能替人做最终决定。\n")
+	b.WriteString("- 不能改配置、不能提交新 job（`gofer job run`）、不能 push、不能替人做最终决定。\n")
 	b.WriteString("\n## 规则\n")
 	fmt.Fprintf(&b, "- 这是第 %d 轮；轮次用尽后 gofer 会停止唤醒并升级给人。\n", w.Round)
 	b.WriteString("- 人一旦在评论区说话，本轮唤醒即被取消，由人接管；不要和人的决定抢时间。\n")

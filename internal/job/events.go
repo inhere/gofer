@@ -297,3 +297,11 @@ func (s *Service) ListDeliveriesByJob(jobID string) ([]jobstore.Delivery, error)
 func (s *Service) ListJobEvents(jobID string, sinceSeq int64) ([]jobstore.JobEvent, error) {
 	return s.meta.ListJobEvents(jobID, sinceSeq)
 }
+
+// ListScopedEventsDesc returns a NON-JOB scope's events newest first (LEAD-02): the
+// plan event area walks the stream backwards from a `before` seq cursor. The scope id is
+// the synthetic one the recorders use (PlanEventScope / AgentEventScope / …), the same
+// id RecordScopedEvent writes under.
+func (s *Service) ListScopedEventsDesc(scope string, before int64, limit int) ([]jobstore.JobEvent, error) {
+	return s.meta.ListJobEventsDesc(scope, before, limit)
+}

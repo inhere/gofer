@@ -495,7 +495,7 @@ func TestPlanClientRoundTrip(t *testing.T) {
 	ts := newServer(t, testToken, false)
 	c := New(ts.URL, testToken)
 
-	p, err := c.CreatePlan("plan-client", "client plan", "desc", "")
+	p, err := c.CreatePlan("plan-client", "client plan", "desc", "", "")
 	if err != nil {
 		t.Fatalf("CreatePlan: %v", err)
 	}

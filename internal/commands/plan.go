@@ -33,6 +33,13 @@ var planCreateOpts = struct {
 	title   string
 	desc    string
 	project string
+	// leader opts the plan into leader rounds at creation (LEAD-02); the global
+	// supervisor.leader block is only the master switch + parameters.
+	leader bool
+}{}
+
+var planSetOpts = struct {
+	leader string
 }{}
 
 var planListOpts = struct {
@@ -229,6 +236,7 @@ func NewPlanCmd() *gcli.Command {
 					c.StrOpt(&planCreateOpts.title, "title", "", "", "plan title")
 					c.StrOpt(&planCreateOpts.desc, "desc", "", "", "plan description")
 					c.StrOpt(&planCreateOpts.project, "project", "", "", "project the plan's items run in (PLAN-02: an item may still override it)")
+					c.BoolOpt(&planCreateOpts.leader, "leader", "", false, "opt this plan into leader rounds (LEAD-02; the global supervisor.leader switch must also be on)")
 				},
 				Func: runPlanCreate,
 			},
@@ -252,6 +260,17 @@ func NewPlanCmd() *gcli.Command {
 					c.AddArg("id", "plan id", true)
 				},
 				Func: runPlanShow,
+			},
+			{
+				Name: "set",
+				Desc: "Set a plan-level field (LEAD-02: --leader on|off turns the plan's leader rounds on or off)",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("plan-id", "plan id", true)
+					c.StrOpt(&planSetOpts.leader, "leader", "", "", "leader rounds for THIS plan: on | off")
+				},
+				Func: runPlanSet,
 			},
 			{
 				Name: "attach",
@@ -426,11 +445,45 @@ func runPlanCreate(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	p, err := cli.CreatePlan(planCreateOpts.planID, planCreateOpts.title, planCreateOpts.desc, planCreateOpts.project)
+	leader := ""
+	if planCreateOpts.leader {
+		leader = jobstore.PlanLeaderOn
+	}
+	p, err := cli.CreatePlan(planCreateOpts.planID, planCreateOpts.title, planCreateOpts.desc, planCreateOpts.project, leader)
 	if err != nil {
 		return err
 	}
-	c.Printf("plan %s created: status=%s\n", p.PlanID, p.Status)
+	c.Printf("plan %s created: status=%s leader=%s\n", p.PlanID, p.Status, p.Leader)
+	return nil
+}
+
+// runPlanSet applies a plan-level field. Today that is only the leader switch: the
+// fields a plan OWNs (title/description) have no HTTP surface yet, and inventing one
+// here would put the CLI ahead of the API.
+func runPlanSet(c *gcli.Command, _ []string) error {
+	planID := argValue(c, "plan-id")
+	if planID == "" {
+		return fmt.Errorf("plan set requires a <plan-id> argument")
+	}
+	leader := strings.TrimSpace(planSetOpts.leader)
+	if leader == "" {
+		return fmt.Errorf("plan set requires --leader on|off")
+	}
+	if !jobstore.ValidPlanLeader(leader) {
+		return fmt.Errorf("invalid --leader %q: must be on or off", leader)
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	p, err := cli.SetPlanLeader(planID, leader)
+	if err != nil {
+		return err
+	}
+	c.Printf("plan %s leader -> %s\n", p.PlanID, p.Leader)
+	for _, w := range p.Warnings {
+		c.Printf("warning: %s\n", w)
+	}
 	return nil
 }
 
@@ -777,6 +830,9 @@ func printPlan(c *gcli.Command, p client.Plan) {
 	if p.BlockedTodo != "" {
 		c.Printf("blocked on:  %s (release with `plan set-todo %s --status ready|skipped`)\n", p.BlockedTodo, p.BlockedTodo)
 	}
+	// LEAD-02: the switch comes before the round state — "on (round 2/6)" is what tells a
+	// reader whether this plan will wake a leader at all, and how close it is to the cap.
+	c.Printf("leader:      %s\n", formatPlanLeader(p))
 	if p.Project != "" {
 		c.Printf("project:     %s\n", p.Project)
 	}
@@ -792,6 +848,24 @@ func printPlan(c *gcli.Command, p client.Plan) {
 		c.Printf("usage:       %s\n", s)
 	}
 	c.Println("jobs:")
+}
+
+// formatPlanLeader renders a plan's leader switch for `plan show`: `off`, `on`, or
+// `on (round N/M)`. A plan reported as on by an older server (no leader_round block)
+// still reads as on — the round line is the part that may be missing.
+func formatPlanLeader(p client.Plan) string {
+	leader := p.Leader
+	if leader == "" {
+		leader = jobstore.PlanLeaderOff
+	}
+	if leader != jobstore.PlanLeaderOn || p.LeaderRound == nil {
+		return leader
+	}
+	s := fmt.Sprintf("%s (round %d/%d", leader, p.LeaderRound.Round, p.LeaderRound.MaxRounds)
+	if !p.LeaderRound.Active {
+		s += ", 总开关未开"
+	}
+	return s + ")"
 }
 
 // formatPlanUsage renders a plan's roll-up as `total 1.2M tokens / $3.45 (omp 5 jobs,

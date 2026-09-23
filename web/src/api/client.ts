@@ -24,6 +24,7 @@ import type {
   InboxResp,
   Interaction,
   Job,
+  JobEvent,
   JobEventsResp,
   JobsResp,
   JobStatus,
@@ -842,6 +843,35 @@ export function updatePlan(id: string, status: PlanStatus, progress?: number): P
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(progress == null ? { status } : { status, progress }),
   })
+}
+
+// leader 开关（LEAD-02 C2）：本 plan 自己的 leader 回合开关，走同一个 PATCH 端点、只发
+// leader（其余字段保持原值）。开启后成员 job 结束会唤醒一个 leader job 决定下一步；但服务端
+// 总开关 supervisor.leader.enabled 关着时即使开了也不会真跑——详情页据 leader_round.active
+// 提示。返回 plan 头部快照，可能带 warnings（例如"还有 2 个在跑的 job，它们结束时才会唤醒
+// leader"），是提醒不是错误，由调用方就地展示。
+export function setPlanLeader(id: string, leader: 'on' | 'off'): Promise<Plan> {
+  return request<Plan>(`/v1/plans/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ leader }),
+  })
+}
+
+// plan 作用域事件流（LEAD-02 C2）：GET /v1/plans/{id}/events，**最新在前**（seq 降序）。
+// before 是翻页游标（只取 seq < before），limit 缺省 50、服务端上限 200。与 job 事件流
+// （listEvents：升序、SSE 增量跟随）方向相反——这里是只读翻页，不跟随。返回解包后的数组。
+export function listPlanEvents(
+  id: string,
+  opts?: { limit?: number; before?: number },
+): Promise<JobEvent[]> {
+  const q: string[] = []
+  if (opts?.limit != null) q.push(`limit=${opts.limit}`)
+  if (opts?.before != null) q.push(`before=${opts.before}`)
+  const qs = q.length > 0 ? `?${q.join('&')}` : ''
+  return request<JobEventsResp>(
+    `/v1/plans/${encodeURIComponent(id)}/events${qs}`,
+  ).then((r) => r.events)
 }
 
 // PLAN-03 链操作（POST /v1/plans/{id}/run|pause|resume）：返回 plan 头部快照（与 PATCH

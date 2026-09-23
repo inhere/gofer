@@ -1155,8 +1155,15 @@ type Plan struct {
 	Project string `json:"project,omitempty"`
 	// Paused holds the chain advance (PLAN-03); BlockedTodo is the item a failed chain
 	// job parked the plan on.
-	Paused      bool                     `json:"paused,omitempty"`
-	BlockedTodo string                   `json:"blocked_todo,omitempty"`
+	Paused      bool   `json:"paused,omitempty"`
+	BlockedTodo string `json:"blocked_todo,omitempty"`
+	// Leader is this plan's leader-round switch (LEAD-02): on|off, `off` by default.
+	Leader string `json:"leader,omitempty"`
+	// Warnings carries what a write could not refuse outright — today the "N running
+	// job(s) will wake the leader when they finish" note a leader-on PATCH returns.
+	Warnings []string `json:"warnings,omitempty"`
+	// LeaderRound is the plan's round state, present while `leader` is on.
+	LeaderRound *PlanLeaderRound         `json:"leader_round,omitempty"`
 	CreatedAt   int64                    `json:"created_at"`
 	UpdatedAt   int64                    `json:"updated_at"`
 	Counts      *jobstore.PlanCounts     `json:"counts,omitempty"`
@@ -1166,6 +1173,16 @@ type Plan struct {
 	Jobs        []job.JobResult          `json:"jobs,omitempty"`
 	Todos       []Todo                   `json:"todos,omitempty"`
 	Decisions   []Decision               `json:"decisions,omitempty"`
+}
+
+// PlanLeaderRound is a plan's leader-round state (LEAD-02): the rounds already spent,
+// the configured cap and the most recent leader job. Active says the GLOBAL master
+// switch is on — a plan can be switched on while no round will actually fire.
+type PlanLeaderRound struct {
+	Round     int    `json:"round"`
+	MaxRounds int    `json:"max_rounds"`
+	LastJobID string `json:"last_job_id,omitempty"`
+	Active    bool   `json:"active"`
 }
 
 // PlanUsage is the plan's token/cost roll-up (PLAN-02 P2): every attached job counts in
@@ -1225,10 +1242,15 @@ type TodoJob struct {
 
 // CreatePlan POSTs /v1/plans and returns the created header. project is the project its
 // todos are dispatched into (PLAN-02 P2); "" names none.
-func (c *Client) CreatePlan(planID, title, description, project string) (Plan, error) {
-	body, err := json.Marshal(map[string]string{
+// leader is "" (off / not asked for), "on" or "off" (LEAD-02).
+func (c *Client) CreatePlan(planID, title, description, project, leader string) (Plan, error) {
+	payload := map[string]string{
 		"plan_id": planID, "title": title, "description": description, "project": project,
-	})
+	}
+	if leader != "" {
+		payload["leader"] = leader
+	}
+	body, err := json.Marshal(payload)
 	if err != nil {
 		return Plan{}, fmt.Errorf("encode create plan: %w", err)
 	}
@@ -1269,6 +1291,19 @@ func (c *Client) UpdatePlan(planID, status string, progress *int) (Plan, error) 
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return Plan{}, fmt.Errorf("encode update plan: %w", err)
+	}
+	var p Plan
+	err = c.doJSON(http.MethodPatch, "/v1/plans/"+url.PathEscape(planID), bytes.NewReader(body), &p)
+	return p, err
+}
+
+// SetPlanLeader flips a plan's leader-round switch (PATCH /v1/plans/{id}, LEAD-02)
+// without touching its status: on|off. The returned plan carries the switch's new value
+// and, when it was just turned on, the warnings about the members still in flight.
+func (c *Client) SetPlanLeader(planID, leader string) (Plan, error) {
+	body, err := json.Marshal(map[string]string{"leader": leader})
+	if err != nil {
+		return Plan{}, fmt.Errorf("encode set plan leader: %w", err)
 	}
 	var p Plan
 	err = c.doJSON(http.MethodPatch, "/v1/plans/"+url.PathEscape(planID), bytes.NewReader(body), &p)

@@ -329,6 +329,9 @@ var schemaStmts = []string{
   -- while set). Both are added by migratePlans on a pre-existing db.
   paused       INTEGER NOT NULL DEFAULT 0,
   blocked_todo TEXT,
+  -- LEAD-02: the per-plan leader-round switch ('off' by default, so an existing plan
+  -- is never woken by an upgrade). Added by migratePlans on a pre-existing db.
+  leader       TEXT NOT NULL DEFAULT 'off',
   created_at   INTEGER NOT NULL,
   updated_at   INTEGER NOT NULL
 )`,
@@ -1185,6 +1188,12 @@ func (s *Store) migratePlans() error {
 		return err
 	}
 	if err := add("blocked_todo", "blocked_todo TEXT"); err != nil {
+		return err
+	}
+	// LEAD-02: the leader switch. The default is `off` — an existing plan must not start
+	// waking leaders because the master switch happens to be on (the pre-LEAD-02 global
+	// behaviour was exactly that, and it is what this column replaces).
+	if err := add("leader", "leader TEXT NOT NULL DEFAULT 'off'"); err != nil {
 		return err
 	}
 	return nil

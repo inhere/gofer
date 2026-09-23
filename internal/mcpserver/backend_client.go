@@ -168,7 +168,7 @@ func (b *clientBackend) CreatePlan(title, description string) (planView, error) 
 	// The MCP tool takes no project: an MCP-created plan's items name their own
 	// project (gofer_add_todo / gofer_update_todo `project`). The CLI is where
 	// `plan create --project` belongs.
-	p, err := b.cli.CreatePlan("", title, description, "")
+	p, err := b.cli.CreatePlan("", title, description, "", "")
 	if err != nil {
 		return planView{}, err
 	}

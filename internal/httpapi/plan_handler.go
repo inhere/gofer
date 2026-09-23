@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"regexp"
@@ -34,8 +35,15 @@ type planView struct {
 	// `blocked`).
 	Paused      bool   `json:"paused,omitempty"`
 	BlockedTodo string `json:"blocked_todo,omitempty"`
-	CreatedAt   int64  `json:"created_at"`
-	UpdatedAt   int64  `json:"updated_at"`
+	// Leader is the plan's own leader-round switch (LEAD-02): on|off, always present
+	// (the default `off` is the fact the plan page's toggle renders).
+	Leader string `json:"leader"`
+	// Warnings carries what the write could not express as an error — today only "turning
+	// the leader on will wake a round when the N member jobs still in flight finish"
+	// (LEAD-02, 0.2 decision ④). Omitted when there is nothing to say.
+	Warnings  []string `json:"warnings,omitempty"`
+	CreatedAt int64    `json:"created_at"`
+	UpdatedAt int64    `json:"updated_at"`
 }
 
 // planListItem 是 list 响应项：header + 进度汇总（列表进度条数据源，P4/T10）。
@@ -48,6 +56,16 @@ type planListItem struct {
 	Completion jobstore.PlanCompletion `json:"completion"`
 }
 
+// effectivePlanLeader normalises the column for the wire: anything that is not `on`
+// (an empty string from a pre-LEAD-02 row, a value an older server wrote) reads as
+// `off`, so a client never has to learn the column's history.
+func effectivePlanLeader(leader string) string {
+	if leader == jobstore.PlanLeaderOn {
+		return jobstore.PlanLeaderOn
+	}
+	return jobstore.PlanLeaderOff
+}
+
 func toPlanView(p jobstore.Plan) planView {
 	return planView{
 		PlanID: p.PlanID, Title: p.Title, Description: p.Description,
@@ -55,6 +73,7 @@ func toPlanView(p jobstore.Plan) planView {
 		Project:     p.ProjectKey,
 		Paused:      p.Paused,
 		BlockedTodo: p.BlockedTodo,
+		Leader:      effectivePlanLeader(p.Leader),
 		CreatedAt:   p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
 }
@@ -173,14 +192,21 @@ type createPlanReq struct {
 	// Project is the project this plan's todos are dispatched into (PLAN-02 P2); a
 	// todo may still override it. Empty = the plan names none.
 	Project string `json:"project,omitempty"`
+	// Leader opts the plan into leader rounds at creation (LEAD-02, `plan create
+	// --leader`). Empty/`off` is the default.
+	Leader string `json:"leader,omitempty"`
 }
 
-// updatePlanReq is the PATCH /v1/plans/{id} body (P6): move a plan along its
-// lifecycle. status is required; progress is optional (nil = keep current).
+// updatePlanReq is the PATCH /v1/plans/{id} body (P6): move a plan along its lifecycle
+// and/or flip its leader switch (LEAD-02). Every field is optional and an absent one
+// keeps the plan's current value; at least one must be present. The order of the two
+// writes is the handler's business (status first, then the switch).
 // 系统不自动推进 plan 状态（C2：plan 是纯归组），全部由调用方显式置。
 type updatePlanReq struct {
-	Status   string `json:"status"`
+	Status   string `json:"status,omitempty"`
 	Progress *int   `json:"progress,omitempty"`
+	// Leader flips the per-plan leader-round switch: on|off. Empty = leave it alone.
+	Leader string `json:"leader,omitempty"`
 }
 
 // validPlanStatus 白名单：jobstore.SetPlanStatus 不校验取值，必须在入口挡住。
@@ -208,11 +234,20 @@ func (s *Server) handleCreatePlan(c *rux.Context) {
 	if planID == "" {
 		planID = "plan-" + time.Now().Format(job.JobIDLayout) + "-" + job.RandomSuffix()
 	}
+	leader := strings.TrimSpace(body.Leader)
+	if leader == "" {
+		leader = jobstore.PlanLeaderOff
+	}
+	if !jobstore.ValidPlanLeader(leader) {
+		writeError(c, http.StatusBadRequest, "invalid leader", "leader must be on or off")
+		return
+	}
 	now := time.Now().Unix()
 	p := jobstore.Plan{
 		PlanID: planID, Title: body.Title, Description: body.Description,
 		Status: jobstore.PlanOpen, Owner: callerFromCtx(c),
 		ProjectKey: strings.TrimSpace(body.Project),
+		Leader:     leader,
 		CreatedAt:  now, UpdatedAt: now,
 	}
 	if _, ok, _ := s.jobs.Meta().GetPlan(planID); ok {
@@ -298,20 +333,23 @@ type planDetail struct {
 	Jobs       []job.JobResult         `json:"jobs"`
 	Todos      []todoView              `json:"todos"`
 	Decisions  []decisionView          `json:"decisions"`
-	// Leader is the plan's leader-round state (MCP-05 阶段 B): the cap, how many rounds
-	// the plan has spent and the last leader job it started — the "leader 第 N/M 轮" line
-	// the plan page shows, plus the link to the round's job. Absent (omitted) for a plan
-	// whose leader round is off, which is the default.
-	Leader *planLeaderView `json:"leader,omitempty"`
+	// LeaderRound is the plan's leader-round state (MCP-05 阶段 B): the cap, how many
+	// rounds the plan has spent and the last leader job it started — the "leader 第 N/M
+	// 轮" line the plan page shows, plus the link to the round's job. LEAD-02: present
+	// only while the plan itself is opted in (`"leader": "on"`), and it no longer shares
+	// the `leader` key with the switch above.
+	LeaderRound *planLeaderRoundView `json:"leader_round,omitempty"`
 }
 
-// planLeaderView is the leader-round state of one plan (MCP-05 阶段 B). Round counts the
-// rounds SPENT (a leader job was started), so "round 0" means the leader has not been
-// woken for this plan yet; MaxRounds is the configured cap.
-type planLeaderView struct {
+// planLeaderRoundView is the leader-round state of one plan (MCP-05 阶段 B). Round counts
+// the rounds SPENT (a leader job was started), so "round 0" means the leader has not been
+// woken for this plan yet; MaxRounds is the configured cap; Active says the GLOBAL master
+// switch is on, i.e. whether a round would actually fire for this plan (LEAD-02).
+type planLeaderRoundView struct {
 	Round     int    `json:"round"`
 	MaxRounds int    `json:"max_rounds"`
 	LastJobID string `json:"last_job_id,omitempty"`
+	Active    bool   `json:"active"`
 }
 
 func (s *Server) handleGetPlan(c *rux.Context) {
@@ -366,20 +404,23 @@ func (s *Server) handleGetPlan(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "plan usage failed", err.Error())
 		return
 	}
-	var leader *planLeaderView
-	if st := s.jobs.LeaderStatus(id); st.Enabled {
-		leader = &planLeaderView{Round: st.Round, MaxRounds: st.MaxRounds, LastJobID: st.LastJobID}
+	var leaderRound *planLeaderRoundView
+	if effectivePlanLeader(p.Leader) == jobstore.PlanLeaderOn {
+		st := s.jobs.LeaderStatus(id)
+		leaderRound = &planLeaderRoundView{
+			Round: st.Round, MaxRounds: st.MaxRounds, LastJobID: st.LastJobID, Active: st.Enabled,
+		}
 	}
 	c.JSON(http.StatusOK, planDetail{
-		planView:   toPlanView(p),
-		Counts:     jc,
-		TodoCounts: tc,
-		Completion: jobstore.RollupPlanCompletion(jc, tc),
-		Usage:      toPlanUsageView(usage),
-		Jobs:       jobs,
-		Todos:      todoViews,
-		Decisions:  decisionViews,
-		Leader:     leader,
+		planView:    toPlanView(p),
+		Counts:      jc,
+		TodoCounts:  tc,
+		Completion:  jobstore.RollupPlanCompletion(jc, tc),
+		Usage:       toPlanUsageView(usage),
+		Jobs:        jobs,
+		Todos:       todoViews,
+		Decisions:   decisionViews,
+		LeaderRound: leaderRound,
 	})
 }
 
@@ -391,14 +432,28 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 		return
 	}
 	status := strings.TrimSpace(body.Status)
-	if !validPlanStatus(status) {
+	if status != "" && !validPlanStatus(status) {
 		writeError(c, http.StatusBadRequest, "invalid status",
 			"status must be one of open/active/done/archived")
 		return
 	}
+	// LEAD-02: the leader switch rides the same PATCH (`plan set <plan> --leader on`), so
+	// every field is optional — but a body that would change nothing is a caller's bug,
+	// not a silent 200.
+	leader := strings.TrimSpace(body.Leader)
+	if leader != "" && !jobstore.ValidPlanLeader(leader) {
+		writeError(c, http.StatusBadRequest, "invalid leader", "leader must be on or off")
+		return
+	}
+	if status == "" && body.Progress == nil && leader == "" {
+		writeError(c, http.StatusBadRequest, "nothing to update",
+			"give at least one of status / progress / leader")
+		return
+	}
 	// SetPlanStatus 用裸 UPDATE、不看 affected rows：不存在的 plan 会「假成功」。
 	// 故先 GetPlan 判存在（同 handleAttachPlanJob 的前置模式）。
-	if _, ok, err := s.jobs.Meta().GetPlan(id); err != nil {
+	prev, ok, err := s.jobs.Meta().GetPlan(id)
+	if err != nil {
 		writeError(c, http.StatusInternalServerError, "get plan failed", err.Error())
 		return
 	} else if !ok {
@@ -409,15 +464,26 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 	if body.Progress != nil {
 		progress = *body.Progress
 	}
-	if err := s.jobs.Meta().SetPlanStatus(id, status, progress); err != nil {
+	next := status
+	if next == "" {
+		next = prev.Status // 省略 status 时保持现状（LEAD-02：允许只改 leader）
+	}
+	if err := s.jobs.Meta().SetPlanStatus(id, next, progress); err != nil {
 		writeError(c, http.StatusInternalServerError, "update plan failed", err.Error())
 		return
 	}
 	// PLAN-03: keep "status=blocked ⟺ blocked_todo is set" true — a human moving the
 	// plan off `blocked` by hand also clears the item it parked on (the reverse, an
 	// explicit status=blocked with no item, is a plan-level note and leaves it empty).
-	if status != jobstore.PlanBlocked {
+	if status != "" && status != jobstore.PlanBlocked {
 		if err := s.jobs.Meta().ClearPlanBlocked(id); err != nil {
+			writeError(c, http.StatusInternalServerError, "update plan failed", err.Error())
+			return
+		}
+	}
+	turningOn := leader == jobstore.PlanLeaderOn && effectivePlanLeader(prev.Leader) != jobstore.PlanLeaderOn
+	if leader != "" {
+		if err := s.jobs.Meta().SetPlanLeader(id, leader); err != nil {
 			writeError(c, http.StatusInternalServerError, "update plan failed", err.Error())
 			return
 		}
@@ -427,7 +493,33 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "reload plan failed", "")
 		return
 	}
-	c.JSON(http.StatusOK, toPlanView(p))
+	view := toPlanView(p)
+	// 0.2 decision ④: the member jobs started BEFORE the switch existed are the ones the
+	// operator cannot see coming, so turning the leader on reports how many will wake it.
+	if turningOn {
+		if n := s.livePlanJobs(id); n > 0 {
+			view.Warnings = []string{fmt.Sprintf("%d running job(s) will wake the leader when they finish", n)}
+		}
+	}
+	c.JSON(http.StatusOK, view)
+}
+
+// livePlanJobs counts the plan's attached jobs that have NOT finished: those are the
+// ones whose terminal state will later fire the leader rules, i.e. what the "turning the
+// leader on" warning is about. A store error reads as 0 — the warning is advisory and
+// must never fail the write it accompanies.
+func (s *Server) livePlanJobs(planID string) int {
+	raw, err := s.jobs.Meta().PlanJobStatusCounts(planID)
+	if err != nil {
+		return 0
+	}
+	n := 0
+	for status, count := range raw {
+		if !job.IsFinished(status) {
+			n += count
+		}
+	}
+	return n
 }
 
 type attachJobReq struct {

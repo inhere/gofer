@@ -79,11 +79,12 @@ func TestPlanLeaderToggleWarnsOnRunningMembers(t *testing.T) {
 	decode(t, resp, &member)
 	waitRunning(t, s, member.ID)
 
-	var updated struct {
+	type leaderResp struct {
 		PlanID   string   `json:"plan_id"`
 		Leader   string   `json:"leader"`
 		Warnings []string `json:"warnings"`
 	}
+	var updated leaderResp
 	resp = do(t, s, http.MethodPatch, "/v1/plans/plan-lead", testToken, map[string]any{"leader": "on"})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("patch leader on status=%d, want 200 (body: %s)", resp.StatusCode, bodyString(t, resp))
@@ -102,9 +103,10 @@ func TestPlanLeaderToggleWarnsOnRunningMembers(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("patch leader off status=%d, want 200", resp.StatusCode)
 	}
-	decode(t, resp, &updated)
-	if updated.Leader != jobstore.PlanLeaderOff || len(updated.Warnings) != 0 {
-		t.Fatalf("leader off response = %+v, want off with no warnings", updated)
+	var off leaderResp // a fresh decode: an omitted `warnings` must not inherit the old one
+	decode(t, resp, &off)
+	if off.Leader != jobstore.PlanLeaderOff || len(off.Warnings) != 0 {
+		t.Fatalf("leader off response = %+v, want off with no warnings", off)
 	}
 
 	// The plan switch is a human's decision: a job credential may not reach the route at
@@ -157,7 +159,7 @@ func TestConfigViewShowsLeader(t *testing.T) {
 // events existed, nothing rendered them).
 func TestPlanEventsEndpoint(t *testing.T) {
 	s := newLeaderPlanServer(t)
-	for _, id := range []string{"plan-ev", "plan-other"} {
+	for _, id := range []string{"plan-events", "plan-other"} {
 		resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]any{"plan_id": id})
 		if resp.StatusCode != http.StatusOK {
 			t.Fatalf("create %s status=%d, want 200", id, resp.StatusCode)
@@ -165,8 +167,8 @@ func TestPlanEventsEndpoint(t *testing.T) {
 	}
 	// Three events on the plan under test, one on a sibling plan (must not appear).
 	for _, reason := range []string{"paused", "plan_done", "global_off"} {
-		s.jobs.RecordScopedEvent(job.PlanEventScope("plan-ev"), job.EventPlanLeaderSkipped, "self",
-			map[string]any{"plan_id": "plan-ev", "reason": reason})
+		s.jobs.RecordScopedEvent(job.PlanEventScope("plan-events"), job.EventPlanLeaderSkipped, "self",
+			map[string]any{"plan_id": "plan-events", "reason": reason})
 	}
 	s.jobs.RecordScopedEvent(job.PlanEventScope("plan-other"), job.EventPlanLeaderSkipped, "self",
 		map[string]any{"plan_id": "plan-other", "reason": "paused"})
@@ -174,7 +176,7 @@ func TestPlanEventsEndpoint(t *testing.T) {
 	var page struct {
 		Events []jobstore.JobEvent `json:"events"`
 	}
-	resp := do(t, s, http.MethodGet, "/v1/plans/plan-ev/events?limit=2", testToken, nil)
+	resp := do(t, s, http.MethodGet, "/v1/plans/plan-events/events?limit=2", testToken, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("list plan events status=%d, want 200 (body: %s)", resp.StatusCode, bodyString(t, resp))
 	}
@@ -190,14 +192,14 @@ func TestPlanEventsEndpoint(t *testing.T) {
 		t.Fatalf("first event reason = %q, want global_off", got)
 	}
 	for _, ev := range page.Events {
-		if ev.JobID != job.PlanEventScope("plan-ev") {
+		if ev.JobID != job.PlanEventScope("plan-events") {
 			t.Fatalf("event %+v leaked from another scope", ev)
 		}
 	}
 
 	// The `before` cursor pages backwards without repeating a row.
 	resp = do(t, s, http.MethodGet,
-		"/v1/plans/plan-ev/events?limit=2&before="+itoa(page.Events[1].Seq), testToken, nil)
+		"/v1/plans/plan-events/events?limit=2&before="+itoa(page.Events[1].Seq), testToken, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("paged plan events status=%d, want 200", resp.StatusCode)
 	}
@@ -214,8 +216,8 @@ func TestPlanEventsEndpoint(t *testing.T) {
 
 	// A job credential may READ the stream (SEC-01: the whole GET surface is open — a
 	// leader must be able to see what happened on its own plan).
-	tok := seedJobToken(t, s, "job-reader", jobstore.JobCredentialLeader, "plan-ev")
-	resp = do(t, s, http.MethodGet, "/v1/plans/plan-ev/events", tok, nil)
+	tok := seedJobToken(t, s, "job-reader", jobstore.JobCredentialLeader, "plan-events")
+	resp = do(t, s, http.MethodGet, "/v1/plans/plan-events/events", tok, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("job caller list plan events status=%d, want 200 (body: %s)", resp.StatusCode, bodyString(t, resp))
 	}

@@ -17,13 +17,15 @@ import InteractionCard from '../components/InteractionCard.vue'
 import PlanBoard from '../components/PlanBoard.vue'
 import CommentThread from '../components/CommentThread.vue'
 import {
-  addTodo, answerDecision, attachJob, getPlan, listAgents, patchTodo, planPause, planResume,
-  planRun, updatePlan, updateTodo, updateTodoStatus,
+  addTodo, answerDecision, attachJob, getPlan, listAgents, listPlanEvents, patchTodo, planPause,
+  planResume, planRun, setPlanLeader, updatePlan, updateTodo, updateTodoStatus,
 } from '../api/client'
 import { fmtDateTime, fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
 import type {
-  AgentInfo, Decision, Interaction, Job, PlanDetail, PlanStatus, Todo, TodoPatch, TodoStatus,
+  AgentInfo, Decision, Interaction, Job, JobEvent, PlanDetail, PlanStatus, Todo, TodoPatch,
+  TodoStatus,
 } from '../api/types'
+import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
 import { formatTokens } from '../utils/jobOutcome'
 import { boardProgress } from '../utils/planBoard'
 import { progressDetail, progressSegments, progressText } from '../utils/planProgress'
@@ -44,6 +46,21 @@ const attaching = ref(false)
 const opError = ref('')
 const updating = ref(false)
 const statusError = ref('')
+
+// leader 开关（LEAD-02 C2）：leaderSaving 期间禁点；warnings 是 PATCH 随响应带回来的提醒
+// （详情端点没有这个字段，故单独存着，点掉即清）；leaderError 是开关写入失败的原因。
+const leaderSaving = ref(false)
+const leaderWarnings = ref<string[]>([])
+const leaderError = ref('')
+
+// plan 作用域事件流（LEAD-02 C2）：默认折叠，展开才拉第一页；「加载更多」用当前最小 seq 作
+// before 往前翻。plan 整刷（含轮询）时若面板是展开的，顺带重取第一页——不另起轮询。
+const EVENT_PAGE = 50
+const eventsOpen = ref(false)
+const planEvents = ref<JobEvent[]>([])
+const eventsLoading = ref(false)
+const eventsError = ref('')
+const eventsHasMore = ref(false)
 
 let timer: number | null = null
 
@@ -515,6 +532,8 @@ async function fetchPlan(): Promise<void> {
     plan.value = await getPlan(props.id)
     error.value = ''
     if (!isActive.value) stopPolling()
+    // 事件面板展开着就顺带重取第一页（复用同一条刷新路径，不再起第二个轮询）。
+    if (eventsOpen.value) void loadEvents(true)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   }
@@ -576,6 +595,62 @@ async function setStatus(next: PlanStatus): Promise<void> {
     statusError.value = e instanceof Error ? e.message : String(e)
   } finally {
     updating.value = false
+  }
+}
+
+// leader 开关（LEAD-02 C2）：切换本 plan 自己的 leader 回合开关。PATCH 只发 leader，返回头部
+// 快照 + 可能的 warnings（例如"还有 2 个在跑的 job，它们结束时才会唤醒 leader"）；leader_round
+// 只在详情里发，故写完再整刷一次详情（走的就是轮询那条 fetchPlan，不另起轮询）。
+async function onToggleLeader(ev: Event): Promise<void> {
+  const input = ev.target as HTMLInputElement
+  if (leaderSaving.value || !plan.value) return
+  leaderSaving.value = true
+  leaderError.value = ''
+  const next: 'on' | 'off' = plan.value.leader === 'on' ? 'off' : 'on'
+  try {
+    const updated = await setPlanLeader(props.id, next)
+    plan.value = { ...plan.value, ...updated }
+    leaderWarnings.value = updated.warnings ?? []
+    await fetchPlan()
+  } catch (err) {
+    leaderError.value = err instanceof Error ? err.message : String(err)
+    // 写入失败：浏览器已经把勾拨过去了，这里拨回 plan 上的真值（:checked 只按 vnode 变化
+    // 打补丁，状态没变就不会自己纠回来）。
+    input.checked = plan.value?.leader === 'on'
+  } finally {
+    leaderSaving.value = false
+  }
+}
+
+// loadEvents(true) 拉第一页（最新在前）；false 用当前最小 seq 作 before 续一页。
+// 满页 = 可能还有更老的，不满页 = 到底了（服务端没有总数可问）。
+async function loadEvents(reset: boolean): Promise<void> {
+  if (eventsLoading.value) return
+  const before = reset ? undefined : planEvents.value[planEvents.value.length - 1]?.seq
+  if (!reset && before == null) return
+  eventsLoading.value = true
+  eventsError.value = ''
+  try {
+    const page = await listPlanEvents(props.id, { limit: EVENT_PAGE, before })
+    planEvents.value = reset ? page : [...planEvents.value, ...page]
+    eventsHasMore.value = page.length === EVENT_PAGE
+  } catch (e) {
+    eventsError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    eventsLoading.value = false
+  }
+}
+
+function loadMoreEvents(): void {
+  void loadEvents(false)
+}
+
+// 折叠面板开关：展开且还没拉过就拉第一页（plan 刷新会顺带重取，故收起再展开不重复拉）。
+function onEventsToggle(e: Event): void {
+  const open = (e.target as HTMLDetailsElement).open
+  eventsOpen.value = open
+  if (open && planEvents.value.length === 0 && !eventsLoading.value) {
+    void loadEvents(true)
   }
 }
 
@@ -654,6 +729,13 @@ watch(
   () => {
     stopPolling()
     plan.value = null
+    // 换 plan：上一条 plan 的提醒与事件流都不适用了（面板收起到默认折叠）。
+    leaderWarnings.value = []
+    leaderError.value = ''
+    eventsOpen.value = false
+    planEvents.value = []
+    eventsError.value = ''
+    eventsHasMore.value = false
     void fetchPlan().then(() => {
       if (isActive.value) startPolling()
     })
@@ -740,6 +822,7 @@ onUnmounted(() => {
     <p v-if="error" class="error mono">{{ error }}</p>
     <p v-if="opError" class="error mono">{{ opError }}</p>
     <p v-if="statusError" class="error mono">{{ statusError }}</p>
+    <p v-if="leaderError" class="error mono">{{ leaderError }}</p>
 
     <div v-if="plan" class="head-card">
       <h1 class="plan-title">{{ plan.title || plan.plan_id }}</h1>
@@ -793,6 +876,24 @@ onUnmounted(() => {
       <!-- PLAN-02 P2：plan 级用量汇总（挂接 job 的 token/成本 + 各 agent 的 job 数）。 -->
       <span v-if="planUsageText" class="ops-usage">{{ planUsageText }}</span>
       <span class="ops-actions">
+        <!-- LEAD-02 C2：本 plan 自己的 leader 回合开关（服务端缺省 off）。开了才会在成员 job
+             结束时唤醒一个 leader job；总开关关着时开了也不跑（见下方 leader_round.active）。 -->
+        <label
+          class="leader-switch mono"
+          :title="
+            plan.leader === 'on'
+              ? 'leader 已开：成员 job 结束会唤醒一个 leader job 决定下一步'
+              : 'leader 已关：成员 job 结束不会唤醒 leader，链靠 PLAN-03 规则推进'
+          "
+        >
+          <input
+            type="checkbox"
+            :checked="plan.leader === 'on'"
+            :disabled="leaderSaving"
+            @change="onToggleLeader"
+          />
+          <span>leader {{ leaderSaving ? '…' : plan.leader === 'on' ? 'on' : 'off' }}</span>
+        </label>
         <!-- run：启动链（先解除 pause/block），会当场把依赖已满足、已指派的条目置 ready → 二次确认。 -->
         <template v-if="confirmRun">
           <span class="ops-hint">启动链？</span>
@@ -846,19 +947,32 @@ onUnmounted(() => {
       </span>
     </div>
 
-    <!-- MCP-05 阶段 B leader 回合：第 N/M 轮 + 最近一次 leader job 链接；服务端只在
-         supervisor.leader 打开时发这个块，故 plan.leader 存在即代表本 plan 有 leader。 -->
-    <div v-if="plan && plan.leader" class="blocked mono">
+    <!-- LEAD-02 C2：开启 leader 时服务端随 PATCH 带回来的提醒（例如还有在跑的成员 job，
+         它们结束时才会唤醒 leader）。是提示不是错误，点「知道了」关掉。 -->
+    <div v-if="leaderWarnings.length > 0" class="leader-warn mono">
+      <span class="leader-warn-text">
+        <span v-for="(w, i) in leaderWarnings" :key="i" class="leader-warn-line">{{ w }}</span>
+      </span>
+      <button class="status-action" type="button" @click="leaderWarnings = []">知道了</button>
+    </div>
+
+    <!-- LEAD-02 C2 leader 回合：第 N/M 轮 + 最近一次 leader job 链接。服务端只在本 plan 自己的
+         leader === 'on' 时发这个块，故 leader_round 存在即代表本 plan 开了 leader；
+         active=false 是总开关（supervisor.leader.enabled）关着——开了也不会真起回合。 -->
+    <div v-if="plan && plan.leader_round" class="blocked mono">
       <span class="blocked-text">
-        leader 回合已用 {{ plan.leader.round }}/{{ plan.leader.max_rounds }} 轮——成员 job 结束时唤醒一个
+        leader 回合已用 {{ plan.leader_round.round }}/{{ plan.leader_round.max_rounds }} 轮——成员 job 结束时唤醒一个
         leader job 决定下一步；人在评论区说话即接管当轮，轮次用尽会升级给人
+      </span>
+      <span v-if="!plan.leader_round.active" class="leader-warn-text">
+        服务端总开关 supervisor.leader.enabled 未打开——本 plan 已开 leader，但不会真起回合
       </span>
       <span class="ops-actions">
         <button
-          v-if="plan.leader.last_job_id"
+          v-if="plan.leader_round.last_job_id"
           class="status-action"
           type="button"
-          @click="openJob(plan.leader.last_job_id)"
+          @click="openJob(plan.leader_round.last_job_id)"
         >
           最近一次 leader job
         </button>
@@ -1152,6 +1266,45 @@ onUnmounted(() => {
       <CommentThread scope="plan" :id="props.id" placeholder="写点什么…  @omp 把这一项补上" />
     </section>
 
+    <!-- plan 作用域事件流（LEAD-02 C2）：leader 回合、评论派活等记在 plan:<id> 作用域的事件，
+         服务端按 seq 倒序发（最新在前）。默认折叠，展开才拉第一页；不额外轮询——plan 刷新
+         时顺带重取第一页（见 fetchPlan）。 -->
+    <section v-if="plan" class="section">
+      <details class="events-fold" :open="eventsOpen" @toggle="onEventsToggle">
+        <summary class="section-title mono">
+          事件（{{ planEvents.length }}{{ eventsHasMore ? '+' : '' }}）
+        </summary>
+        <div class="events-body">
+          <p v-if="eventsError" class="error mono">{{ eventsError }}</p>
+          <ul v-if="planEvents.length > 0" class="timeline-list">
+            <li
+              v-for="ev in planEvents"
+              :key="ev.seq"
+              class="timeline-row"
+              :class="'ev-' + ev.type.replace('.', '-')"
+            >
+              <span class="ev-icon mono">{{ eventIcon(ev.type) }}</span>
+              <span class="ev-label mono">{{ eventLabel(ev.type) }}</span>
+              <span v-if="eventDetailText(ev)" class="ev-detail mono" :title="eventDetailText(ev)">
+                {{ eventDetailText(ev) }}
+              </span>
+              <span class="ev-time mono">{{ fmtDateTime(ev.at) }}</span>
+            </li>
+          </ul>
+          <p v-else-if="!eventsLoading" class="empty mono">暂无事件</p>
+          <button
+            v-if="eventsHasMore"
+            class="op-btn mono"
+            type="button"
+            :disabled="eventsLoading"
+            @click="loadMoreEvents"
+          >
+            {{ eventsLoading ? '加载中…' : '加载更多' }}
+          </button>
+        </div>
+      </details>
+    </section>
+
     <p v-else-if="!error" class="loading mono">加载中…</p>
 
     <!-- 看板拖拽/链操作的结果：右下角浮层，点一下关掉，8s 自动消失。 -->
@@ -1333,6 +1486,105 @@ onUnmounted(() => {
 .blocked-text {
   color: var(--fail);
   word-break: break-word;
+}
+/* leader 开关（LEAD-02 C2）：一个紧凑的 checkbox + 状态文字，跟着链操作按钮走。 */
+.leader-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  color: var(--queue);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  font-size: 12px;
+  cursor: pointer;
+}
+.leader-switch:hover {
+  border-color: var(--phosphor);
+}
+/* 提示框（LEAD-02 C2）：leader 开关的 warnings 与「总开关未开」提示，与 blocked 横幅同形，
+   但用提示色而非错误色——这两句是提醒，不是失败。 */
+.leader-warn {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin-top: 10px;
+  padding: 10px 14px;
+  border: 1px solid var(--run);
+  border-radius: var(--radius);
+  font-size: 12px;
+}
+.leader-warn-text {
+  color: var(--run);
+  word-break: break-word;
+}
+.leader-warn-line {
+  display: block;
+}
+/* 事件折叠面板（LEAD-02 C2）：summary 就是 section 标题，展开后是 job 详情同款时间线。 */
+.events-fold {
+  margin: 0;
+}
+.events-fold > summary {
+  cursor: pointer;
+  list-style: revert;
+}
+.events-fold > summary:hover {
+  color: var(--phosphor);
+}
+.events-body {
+  margin-top: 10px;
+}
+.timeline-list {
+  margin: 0 0 10px;
+  padding: 0;
+  list-style: none;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+}
+.timeline-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 5px 12px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--line);
+}
+.timeline-row:last-child {
+  border-bottom: none;
+}
+.ev-icon {
+  flex: 0 0 auto;
+  width: 14px;
+  text-align: center;
+  color: var(--queue);
+}
+.ev-label {
+  flex: 0 0 auto;
+  color: var(--paper);
+}
+.ev-detail {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--queue);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ev-time {
+  flex: 0 0 auto;
+  color: var(--queue);
+  font-size: 11px;
+}
+/* 关键转换点用 phosphor 凸显图标（同 job 详情的时间线）。 */
+.ev-job-running .ev-icon,
+.ev-job-terminal .ev-icon {
+  color: var(--phosphor);
+}
+.ev-job-cancelled .ev-icon {
+  color: var(--fail);
 }
 /* 列表/看板切换：两个小按钮，选中态描 phosphor。 */
 .view-switch {

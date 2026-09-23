@@ -1523,6 +1523,12 @@ export interface Plan {
   // 哪个条目上（此时 status=blocked，二者由服务端保持同步）。两者 omitempty。
   paused?: boolean
   blocked_todo?: string
+  // LEAD-02 C2：本 plan 自己的 leader 回合开关（'off' 是缺省，恒发）。它只管"这个 plan 要不要
+  // leader"，轮次真会不会跑还要看服务端总开关 supervisor.leader.enabled（见 leader_round.active）。
+  leader?: 'on' | 'off'
+  // LEAD-02 C2：PATCH /v1/plans/{id} 的附带提示（omitempty）。例如"开启 leader 时还有在跑的
+  // 成员 job，它们结束时才会唤醒 leader"——是提醒不是错误，前端就地展示即可。
+  warnings?: string[]
   // Unix 秒
   created_at: number
   updated_at: number
@@ -1533,12 +1539,14 @@ export interface Plan {
 }
 
 // plan 的 leader 回合状态（MCP-05 阶段 B）：round=已用轮次（起过一个 leader job 才算），
-// max_rounds=配置上限，last_job_id=最近一次 leader job（可点进它的详情）。服务端只在
-// supervisor.leader 打开时才发这个块，所以 undefined = 这个 plan 没有 leader 回合。
+// max_rounds=配置上限，last_job_id=最近一次 leader job（可点进它的详情）。
+// active=服务端总开关 supervisor.leader.enabled 是否打开 —— 关着时即使本 plan 的 leader 是
+// 'on' 也不会真的起回合，详情页据此提示"开了但不会跑"。
 export interface PlanLeader {
   round: number
   max_rounds: number
   last_job_id?: string
+  active: boolean
 }
 
 // plan 详情（GET /v1/plans/{id}）：头部 + counts + 其下 jobs + todos + decisions。
@@ -1546,8 +1554,9 @@ export interface PlanDetail extends Plan {
   counts: PlanCounts
   jobs: Job[]
   todos: Todo[]
-  // leader 回合（MCP-05 阶段 B）；未开启时不发。
-  leader?: PlanLeader
+  // leader 回合（LEAD-02 C2）：只在本 plan 自己的 leader === 'on' 时发；'off' 时不发，
+  // 所以 undefined = 这个 plan 没开 leader（或老服务端）。
+  leader_round?: PlanLeader
   // 决策通道（T4）：该 plan 下的全部 decision（含 OPEN/ANSWERED/EXPIRED）
   decisions?: Decision[]
   // PLAN-02 P2：该 plan 的用量汇总。新服务端恒发；老服务端不发时为 undefined。

@@ -728,6 +728,9 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/plans", s.handleListPlans)
 		r.GET("/plans/{id}", s.handleGetPlan)
 		r.PATCH("/plans/{id}", s.handleUpdatePlan)
+		// LEAD-02: the plan's own event stream (plan:<id> scope), newest first with a
+		// `before` cursor — the plan page's event area.
+		r.GET("/plans/{id}/events", s.handleListPlanEvents)
 		r.POST("/plans/{id}/jobs", s.handleAttachPlanJob)
 		r.POST("/plans/{id}/todos", s.handleAddPlanTodo)
 		// MCP-05 阶段 A: plan-level and todo-level comment threads. The nested form

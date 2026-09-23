@@ -22,6 +22,18 @@ const (
 	PlanBlocked = "blocked"
 )
 
+// Plan leader switch values (LEAD-02). `leader` is a STRING on the plan rather than a
+// bool so the zero value (an old row, or a caller that never set it) is the safe
+// default: `off`. The global supervisor.leader block only carries the parameters
+// (agent/delay/rounds) and the master switch, so a plan that wants rounds must opt in.
+const (
+	PlanLeaderOff = "off"
+	PlanLeaderOn  = "on"
+)
+
+// ValidPlanLeader reports whether s is a value the leader switch accepts.
+func ValidPlanLeader(s string) bool { return s == PlanLeaderOff || s == PlanLeaderOn }
+
 // Plan is the SQLite-persisted plan grouping header. It is neutral (no
 // internal/job import) so job/http layers can drive it without an import cycle.
 type Plan struct {
@@ -42,13 +54,18 @@ type Plan struct {
 	// BlockedTodo is the item a FAILED chain job parked the plan on ("" = not
 	// blocked). Status is PlanBlocked while it is set.
 	BlockedTodo string
-	CreatedAt   int64
-	UpdatedAt   int64
+	// Leader is this plan's leader-round switch (LEAD-02): PlanLeaderOn arms a round
+	// when a member job of the plan finishes, PlanLeaderOff (the default) does not.
+	// The global supervisor.leader block stays the master switch; this one decides
+	// WHICH plans the rounds run for.
+	Leader    string
+	CreatedAt int64
+	UpdatedAt int64
 }
 
 const selectPlanCols = `SELECT plan_id, COALESCE(title,''), COALESCE(description,''),
   status, COALESCE(owner,''), COALESCE(progress,0), COALESCE(project_key,''),
-  COALESCE(paused,0), COALESCE(blocked_todo,''),
+  COALESCE(paused,0), COALESCE(blocked_todo,''), COALESCE(leader,'off'),
   created_at, updated_at FROM plans`
 
 func scanPlan(sc rowScanner) (Plan, error) {
@@ -57,7 +74,7 @@ func scanPlan(sc rowScanner) (Plan, error) {
 		paused int
 	)
 	err := sc.Scan(&p.PlanID, &p.Title, &p.Description, &p.Status, &p.Owner,
-		&p.Progress, &p.ProjectKey, &paused, &p.BlockedTodo, &p.CreatedAt, &p.UpdatedAt)
+		&p.Progress, &p.ProjectKey, &paused, &p.BlockedTodo, &p.Leader, &p.CreatedAt, &p.UpdatedAt)
 	p.Paused = paused != 0
 	return p, err
 }
@@ -75,13 +92,18 @@ func (s *Store) InsertPlan(p Plan) error {
 	if p.Paused {
 		paused = 1
 	}
+	// The switch defaults to off on the way in: a caller that never mentions the leader
+	// round must not opt a plan into it by leaving a zero string behind.
+	if !ValidPlanLeader(p.Leader) {
+		p.Leader = PlanLeaderOff
+	}
 	const q = `INSERT INTO plans
-  (plan_id, title, description, status, owner, progress, project_key, paused, blocked_todo, created_at, updated_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?)`
+  (plan_id, title, description, status, owner, progress, project_key, paused, blocked_todo, leader, created_at, updated_at)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q, p.PlanID, p.Title, p.Description, p.Status, p.Owner,
-		p.Progress, p.ProjectKey, paused, p.BlockedTodo, p.CreatedAt, p.UpdatedAt); err != nil {
+		p.Progress, p.ProjectKey, paused, p.BlockedTodo, p.Leader, p.CreatedAt, p.UpdatedAt); err != nil {
 		return fmt.Errorf("jobstore: insert plan %q: %w", p.PlanID, err)
 	}
 	return nil
@@ -164,6 +186,21 @@ func (s *Store) SetPlanPaused(id string, paused bool) error {
 	if _, err := s.db.Exec(`UPDATE plans SET paused=?, updated_at=? WHERE plan_id=?`,
 		v, s.unixNow(), id); err != nil {
 		return fmt.Errorf("jobstore: set plan %q paused: %w", id, err)
+	}
+	return nil
+}
+
+// SetPlanLeader flips a plan's leader-round switch (LEAD-02). It touches nothing else:
+// the switch is a human's decision about a plan, not a status change. The caller
+// validates the value at its own boundary (jobstore stays value-permissive like the
+// other plan setters).
+func (s *Store) SetPlanLeader(id, leader string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec(
+		`UPDATE plans SET leader = ?, updated_at = ? WHERE plan_id = ?`,
+		leader, s.unixNow(), id); err != nil {
+		return fmt.Errorf("jobstore: set plan leader %q: %w", id, err)
 	}
 	return nil
 }

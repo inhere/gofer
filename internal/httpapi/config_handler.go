@@ -264,6 +264,20 @@ type configRoleView struct {
 	EnvKeys      []string `json:"env_keys"`
 }
 
+// supervisorLeaderView is the `supervisor.leader` block (LEAD-02 — the S3 leftover: the
+// block was configurable but unreadable over HTTP, so an operator could not tell from
+// GET /v1/config whether leader rounds were even on). The numbers are the RESOLVED
+// values (the accessors' defaults applied), i.e. what is in effect, while `agent` and
+// `scopes` are as configured.
+type supervisorLeaderView struct {
+	Enabled           bool     `json:"enabled"`
+	Agent             string   `json:"agent,omitempty"`
+	Scopes            []string `json:"scopes"`
+	MaxRoundsPerScope int      `json:"max_rounds_per_scope"`
+	WakeDelaySec      int      `json:"wake_delay_sec"`
+	OnMemberDone      bool     `json:"on_member_done"`
+}
+
 type supervisorView struct {
 	Enabled                bool     `json:"enabled"`
 	IntervalSec            int      `json:"interval_sec"`
@@ -277,6 +291,9 @@ type supervisorView struct {
 	ReconcileIntervalSec   int      `json:"reconcile_interval_sec"`
 	ReconcilePrompt        string   `json:"reconcile_prompt,omitempty"`
 	ReconcileJobTimeoutSec int      `json:"reconcile_job_timeout_sec"`
+	// Leader is the leader-round block, absent when the config has none (the feature is
+	// then off entirely — a plan's own switch cannot turn it on by itself).
+	Leader *supervisorLeaderView `json:"leader,omitempty"`
 }
 
 type presenceConfigView struct {
@@ -592,6 +609,25 @@ func buildSupervisorView(sc *config.SupervisorConfig) *supervisorView {
 		ReconcileIntervalSec:   sc.ReconcileIntervalSec,
 		ReconcilePrompt:        sc.ReconcilePrompt,
 		ReconcileJobTimeoutSec: sc.ReconcileJobTimeoutSec,
+		Leader:                 buildSupervisorLeaderView(sc.Leader),
+	}
+}
+
+func buildSupervisorLeaderView(lc *config.LeaderConfig) *supervisorLeaderView {
+	if lc == nil {
+		return nil
+	}
+	scopes := lc.Scopes
+	if len(scopes) == 0 {
+		scopes = []string{config.LeaderPlanScope} // the default the accessor applies
+	}
+	return &supervisorLeaderView{
+		Enabled:           lc.Enabled,
+		Agent:             lc.Agent,
+		Scopes:            scopes,
+		MaxRoundsPerScope: lc.MaxRounds(),
+		WakeDelaySec:      int(lc.WakeDelay().Seconds()),
+		OnMemberDone:      lc.MemberDoneWakes(),
 	}
 }
 
