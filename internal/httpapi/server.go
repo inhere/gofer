@@ -816,7 +816,7 @@ func (s *Server) buildRouter() *rux.Router {
 	// Mount the embedded web console (static SPA shell, no auth) as the NotFound
 	// fallback. /health and /v1/* are concrete routes and match first; any other
 	// GET falls through to the SPA so client-side routes (e.g. /board) resolve to
-	// index.html. Non-GET unmatched requests return 404 (rux routes method
+	// index.html. Non-GET/HEAD unmatched requests return 404 (rux routes method
 	// mismatches to NotFound too, see plan/T4 notes).
 	if s.webEnabled {
 		var h http.Handler
@@ -828,7 +828,13 @@ func (s *Server) buildRouter() *rux.Router {
 		}
 		_ = ok
 		r.NotFound(func(c *rux.Context) {
-			if c.Req.Method != http.MethodGet {
+			// HEAD rides the GET handler (S1, 2026-09-23): a reverse proxy's
+			// method probe / health check / CDN warm-up must read the same status
+			// and Cache-Control a browser would get — 404ing the HEAD while GET
+			// returns 200 says "this route does not exist". No body is written for
+			// HEAD: net/http drops whatever the handler writes, and http.FileServer
+			// skips the copy itself. Other methods stay 404.
+			if m := c.Req.Method; m != http.MethodGet && m != http.MethodHead {
 				http.NotFound(c.Resp, c.Req)
 				return
 			}
