@@ -162,9 +162,9 @@ func (s *Service) stageSkills(req *JobRequest, stage bool) error {
 	return nil
 }
 
-// skillsManifest renders the prompt list for the resolved skills. dir is the mount
-// root (or skillsDirPlaceholder for a job whose mount path belongs to another
-// machine); each entry names the skill, what it is for, and where its SKILL.md is.
+// skillsManifest renders the prompt list for the resolved skills. dir is THIS
+// machine's mount root (<result_dir>/skills); each entry names the skill, what it is
+// for, and where its SKILL.md is.
 func skillsManifest(lib SkillLibrary, names []string, dir string) string {
 	if len(names) == 0 {
 		return ""
