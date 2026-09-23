@@ -29,7 +29,11 @@ const runnerFilter = ref('')
 const callerFilter = ref('')
 const sinceFilter = ref<'' | '1h' | '24h' | '7d'>('')
 const projectKeys = ref<string[]>([])
-const planKeys = ref<Array<{ id: string; title?: string }>>([])
+// F-b：plan 过滤是输入框（输入 plan id，后端按 q 前缀匹配），不再全量 listPlans 后渲染
+// 下拉——plan 会越来越多。recentPlans 是"最近 5 个 open plan"的轻量提示，只在输入框
+// 首次获焦时取一次，不进轮询。
+const recentPlans = ref<Array<{ id: string; title?: string }>>([])
+const recentPlansLoaded = ref(false)
 const projectLoadError = ref('')
 
 const statusOptions: Array<{ value: '' | JobStatus; label: string }> = [
@@ -162,15 +166,27 @@ const projectSelectValue = computed({
   },
 })
 
-const planSelectValue = computed({
-  get: () => planFilter.value ?? '',
-  set: (value: string) => {
-    const nextQuery = { ...route.query }
-    if (value) nextQuery.plan = value
-    else delete nextQuery.plan
-    void router.push({ path: '/board', query: nextQuery })
-  },
+// plan 输入框：URL 里的 ?plan= 是"已生效"的值，输入框自己只在回车/失焦时把它写回 URL。
+const planInput = ref(planFilter.value ?? '')
+watch(planFilter, (v) => {
+  planInput.value = v ?? ''
 })
+
+function applyPlanInput(): void {
+  const value = planInput.value.trim()
+  if (value === (planFilter.value ?? '')) {
+    return
+  }
+  const nextQuery = { ...route.query }
+  if (value) nextQuery.plan = value
+  else delete nextQuery.plan
+  void router.push({ path: '/board', query: nextQuery })
+}
+
+function pickRecentPlan(id: string): void {
+  planInput.value = id
+  applyPlanInput()
+}
 
 const projectOptions = computed(() => {
   const keys = [...projectKeys.value]
@@ -192,12 +208,18 @@ async function fetchProjects(): Promise<void> {
   }
 }
 
-async function fetchPlans(): Promise<void> {
+// 最近 open plan 提示（F-b）：只在输入框首次获焦时请求一次（limit=5，不进轮询）；
+// 失败静默——它只是提示，board 本身不依赖它。
+async function loadRecentPlans(): Promise<void> {
+  if (recentPlansLoaded.value) {
+    return
+  }
+  recentPlansLoaded.value = true
   try {
-    const resp = await listPlans()
-    planKeys.value = (resp.plans ?? []).map((p) => ({ id: p.plan_id, title: p.title }))
+    const resp = await listPlans({ status: 'open', limit: 5 })
+    recentPlans.value = (resp.plans ?? []).map((p) => ({ id: p.plan_id, title: p.title }))
   } catch {
-    // plan 下拉失败不阻塞 board（静默）
+    recentPlans.value = []
   }
 }
 
@@ -353,7 +375,6 @@ function clearFilters(): void {
 
 onMounted(() => {
   void fetchProjects()
-  void fetchPlans()
   void fetchJobs()
   void fetchStatusCounts()
   startPolling()
@@ -426,12 +447,15 @@ onUnmounted(() => {
         </label>
         <label class="filter">
           <span class="filter-label">plan</span>
-          <select v-model="planSelectValue" class="filter-select mono">
-            <option value="">全部</option>
-            <option v-for="p in planKeys" :key="p.id" :value="p.id">
-              {{ p.title || p.id }}
-            </option>
-          </select>
+          <input
+            v-model="planInput"
+            class="filter-input filter-input--plan mono"
+            placeholder="plan id"
+            spellcheck="false"
+            @focus="loadRecentPlans"
+            @keydown.enter.prevent="applyPlanInput"
+            @blur="applyPlanInput"
+          />
         </label>
         <label class="filter">
           <span class="filter-label">tag</span>
@@ -477,6 +501,21 @@ onUnmounted(() => {
             </option>
           </select>
         </label>
+      </div>
+
+      <!-- F-b：plan 输入框下方的轻量提示（最近 5 个 open plan，点一下填入），不是下拉。 -->
+      <div v-if="recentPlans.length" class="recent-plans mono">
+        <span class="recent-label">最近：</span>
+        <button
+          v-for="p in recentPlans"
+          :key="p.id"
+          type="button"
+          class="recent-plan"
+          :title="p.title ? `${p.title} · ${p.id}` : p.id"
+          @click="pickRecentPlan(p.id)"
+        >
+          {{ p.id }}
+        </button>
       </div>
     </div>
 
@@ -714,6 +753,33 @@ onUnmounted(() => {
 }
 .filter-input::placeholder {
   color: var(--queue);
+}
+/* plan 过滤输入框（F-b）：plan id 比 tag/agent 长得多，给宽一点。 */
+.filter-input--plan {
+  width: 210px;
+}
+/* 输入框下方的"最近 open plan"提示（点一下填入），不是下拉。 */
+.recent-plans {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+}
+.recent-label {
+  color: var(--queue);
+}
+.recent-plan {
+  background: none;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--phosphor);
+  font-family: inherit;
+  font-size: 11px;
+  padding: 1px 6px;
+}
+.recent-plan:hover {
+  border-color: var(--phosphor);
 }
 .poll-hint {
   color: var(--line);
