@@ -1,9 +1,14 @@
 package worker
 
 import (
+	"context"
+	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/wsproto"
 )
 
 // TestSplitSkillUploadsDropsBaseOnOldWorker pins the JOB-10 negotiation: a skills
@@ -89,5 +94,81 @@ func TestUnsupportedDispatchFieldsIgnoresSkillUploads(t *testing.T) {
 	}}
 	if lacks := unsupportedDispatchFields(8, withInput); len(lacks) != 1 || lacks[0] != "uploads/collect" {
 		t.Fatalf("lacks = %v, want [uploads/collect] for a real input file", lacks)
+	}
+}
+
+// TestOldWorkerGetsNoManifest (决策 1, 2026-09-23): the prompt list is rendered by the
+// machine that MOUNTS the files, so a peer that predates the upload base gets neither
+// the mount nor the names — a worker that cannot be given the files must never be told
+// to read them. The job still runs; the omission is job.skills_skipped{worker_protocol}.
+func TestOldWorkerGetsNoManifest(t *testing.T) {
+	h := &fakeHub{workerProto: 9}
+	r := newRunnerWithHub(h)
+
+	type jobEvent struct {
+		typ    string
+		detail map[string]any
+	}
+	var (
+		mu     sync.Mutex
+		events []jobEvent
+	)
+	done := make(chan runner.Result, 1)
+	go func() {
+		done <- r.Run(context.Background(), runner.Request{
+			JobID: "j1",
+			Forward: &runner.Forward{
+				ProjectKey: "p", Agent: "omp",
+				Prompt: "ORIGINAL-PROMPT",
+				Skills: []string{"house-rules"},
+				Uploads: []runner.XferUpload{
+					{XferID: "xf-skill", Dest: "skills/house-rules/SKILL.md", Base: "result_dir"},
+				},
+			},
+			OnJobEvent: func(eventType string, detail map[string]any) {
+				mu.Lock()
+				defer mu.Unlock()
+				events = append(events, jobEvent{eventType, detail})
+			},
+		})
+	}()
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) && h.getSink() == nil {
+		time.Sleep(5 * time.Millisecond)
+	}
+	sink := h.getSink()
+	if sink == nil {
+		t.Fatal("sink never registered")
+	}
+	sink.Finish(wsproto.Result{JobID: "j1", Status: "done", ExitCode: 0})
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Run did not return after Finish")
+	}
+
+	d := h.dispatchedFrame()
+	if strings.Contains(d.Prompt, "可用技能") {
+		t.Fatalf("the dispatch carries a skills list the old worker cannot honour:\n%s", d.Prompt)
+	}
+	if d.Prompt != "ORIGINAL-PROMPT" {
+		t.Fatalf("dispatch prompt = %q, want the caller's text untouched", d.Prompt)
+	}
+	if len(d.Skills) != 0 {
+		t.Fatalf("dispatch skills = %v, want none for a worker that cannot carry the mount", d.Skills)
+	}
+	if len(d.Uploads) != 0 {
+		t.Fatalf("dispatch uploads = %+v, want the mount dropped", d.Uploads)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(events) != 1 {
+		t.Fatalf("events = %+v, want exactly the skip report", events)
+	}
+	if events[0].typ != runner.EventSkillsSkipped {
+		t.Fatalf("event = %q, want %q", events[0].typ, runner.EventSkillsSkipped)
+	}
+	if events[0].detail["reason"] != "worker_protocol" {
+		t.Fatalf("event detail = %+v, want reason worker_protocol", events[0].detail)
 	}
 }

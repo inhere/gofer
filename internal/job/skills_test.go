@@ -10,6 +10,10 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/project"
+	"github.com/inhere/gofer/internal/runner"
+	localrunner "github.com/inhere/gofer/internal/runner/local"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
 
@@ -50,10 +54,34 @@ func (l *stubSkills) Stage(_ context.Context, name, runner, projectKey, caller s
 	return out, nil
 }
 
+// stubPeerRunner stands in for a configured peer-http runner. The skills policy only
+// needs the runner's NAME to be classified (config type "peer-http"), so the test
+// never opens a socket — it records the Forward the job service handed the peer.
+type stubPeerRunner struct {
+	got runner.Forward
+}
+
+func (r *stubPeerRunner) Name() string { return "peer-x" }
+
+func (r *stubPeerRunner) Run(_ context.Context, req runner.Request) runner.Result {
+	if req.Forward != nil {
+		r.got = *req.Forward
+	}
+	return runner.Result{ExitCode: 0}
+}
+
 // newSkillService builds a Service over one cli-agent ("ok", which echoes its argv
 // so the final prompt is readable in stdout) plus the built-in exec, with the named
 // skills present in the stub library. Project "self" allows both.
 func newSkillService(t *testing.T, root string, cfgMut func(*config.Config), names ...string) (*Service, *stubSkills) {
+	t.Helper()
+	return newSkillServiceRunners(t, root, cfgMut, nil, names...)
+}
+
+// newSkillServiceRunners is newSkillService with extra runner instances registered on
+// the service, so a test can drive a remote-runner branch (a peer, a worker) without
+// a socket: the classification reads the CONFIG type, the execution goes to the stub.
+func newSkillServiceRunners(t *testing.T, root string, cfgMut func(*config.Config), extra map[string]runner.Runner, names ...string) (*Service, *stubSkills) {
 	t.Helper()
 	desc := map[string]string{}
 	for _, n := range names {
@@ -84,13 +112,24 @@ func newSkillService(t *testing.T, root string, cfgMut func(*config.Config), nam
 	if cfgMut != nil {
 		cfgMut(cfg)
 	}
-	s := newServiceFromCfg(t, root, cfg)
+	projReg := project.NewRegistry(cfg, "")
+	agentReg := agent.NewRegistry(cfg)
+	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
+	for name, r := range extra {
+		runners[name] = r
+	}
+	meta, err := jobstore.Open(jobstoreDBPath(root))
+	if err != nil {
+		t.Fatalf("open jobstore: %v", err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	s := drainOnClose(t, NewService(cfg, projReg, agentReg, runners, meta, nil))
 	s.SetSkillLibrary(lib)
 	return s, lib
 }
 
-// promptOf reads the prompt the job actually ran with out of request_json (the same
-// text the executing machine renders into argv).
+// promptOf reads the prompt the job's REQUEST carries (request_json) — the caller's
+// own text, which is also what a rerun replays.
 func promptOf(t *testing.T, final JobResult) string {
 	t.Helper()
 	var req JobRequest
@@ -98,6 +137,18 @@ func promptOf(t *testing.T, final JobResult) string {
 		t.Fatalf("unmarshal request_json: %v", err)
 	}
 	return req.Prompt
+}
+
+// executedPromptOf reads the prompt the AGENT actually received from the child's own
+// stdout (the test cli-agent echoes its argv). It is the only place the
+// executing-machine skills list is observable: request_json keeps the caller's text.
+func executedPromptOf(t *testing.T, final JobResult) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join(final.ResultDir, "stdout.log"))
+	if err != nil {
+		t.Fatalf("read stdout.log: %v", err)
+	}
+	return strings.TrimRight(string(b), "\n")
 }
 
 // TestSkillsMountedToResultDirNotCwd: the bound skills land in the job's OWN result
@@ -125,9 +176,12 @@ func TestSkillsMountedToResultDirNotCwd(t *testing.T) {
 	}
 }
 
-// TestSkillPromptListsPaths: the final prompt OPENS with the mounted-skills list
-// (name + description + the SKILL.md path as the EXECUTING machine sees it) and the
-// caller's own prompt follows untouched; the agent also gets GOFER_SKILLS_DIR.
+// TestSkillPromptListsPaths (决策 1, 2026-09-23): the RUNNING prompt OPENS with the
+// mounted-skills list (name + description + the SKILL.md path as the EXECUTING machine
+// sees it) and the caller's own prompt follows untouched; the agent also gets
+// GOFER_SKILLS_DIR. The list is rendered by the machine that mounted the files — the
+// persisted request keeps the caller's text alone, so a rerun/audit replays the ask,
+// not a path that belonged to one machine's result dir.
 func TestSkillPromptListsPaths(t *testing.T) {
 	root := t.TempDir()
 	s, _ := newSkillService(t, root, nil, "house-rules")
@@ -138,22 +192,22 @@ func TestSkillPromptListsPaths(t *testing.T) {
 		Cwd: ".", Prompt: body, TimeoutSec: 30,
 		Skills: []string{"house-rules"},
 	})
-	prompt := promptOf(t, final)
+	prompt := executedPromptOf(t, final)
 	if !strings.HasPrefix(prompt, skillsPromptHeader) {
-		t.Fatalf("prompt does not start with the skills list:\n%s", prompt)
+		t.Fatalf("the executed prompt does not start with the skills list:\n%s", prompt)
 	}
 	wantPath := filepath.Join(final.ResultDir, skillsDirName, "house-rules", "SKILL.md")
 	if !strings.Contains(prompt, wantPath) {
-		t.Fatalf("prompt is missing the executing machine's SKILL.md path %s:\n%s", wantPath, prompt)
+		t.Fatalf("the executed prompt is missing the executing machine's SKILL.md path %s:\n%s", wantPath, prompt)
 	}
 	if !strings.Contains(prompt, "desc of house-rules") {
-		t.Fatalf("prompt is missing the skill description:\n%s", prompt)
+		t.Fatalf("the executed prompt is missing the skill description:\n%s", prompt)
 	}
-	if !strings.Contains(prompt, body) {
-		t.Fatalf("the caller's prompt is gone:\n%s", prompt)
+	if !strings.HasSuffix(prompt, body) {
+		t.Fatalf("the caller's prompt must follow the list untouched:\n%s", prompt)
 	}
-	if strings.Index(prompt, body) < strings.Index(prompt, skillsPromptHeader) {
-		t.Fatal("the skills list must come BEFORE the caller's prompt")
+	if got := promptOf(t, final); got != body {
+		t.Fatalf("request_json prompt = %q, want the caller's own text %q", got, body)
 	}
 	// The agent process can discover the mount without parsing the prompt.
 	var cmd struct {
@@ -164,6 +218,66 @@ func TestSkillPromptListsPaths(t *testing.T) {
 	}
 	if !hasString(cmd.EnvKeys, "GOFER_SKILLS_DIR") {
 		t.Fatalf("env_keys = %v, want GOFER_SKILLS_DIR", cmd.EnvKeys)
+	}
+}
+
+// TestPeerRunnerSkipsSkills (决策 2, 2026-09-23): a peer-http job mounts nothing and
+// lists nothing — the peer's transport carries no files and this hub knows nothing
+// about the peer's paths, so a path the peer cannot read must never be promised. The
+// job still runs and its row keeps the binding it was decided with; the omission is
+// the job.skills_skipped{peer_runner} event.
+func TestPeerRunnerSkipsSkills(t *testing.T) {
+	root := t.TempDir()
+	peer := &stubPeerRunner{}
+	s, lib := newSkillServiceRunners(t, root, func(c *config.Config) {
+		c.Runners = map[string]config.RunnerConfig{
+			"peer-x": {Type: "peer-http", BaseURL: "http://peer.invalid"},
+		}
+		p := c.Projects["self"]
+		p.AllowedRunners = []string{"local", "peer-x"}
+		c.Projects["self"] = p
+	}, map[string]runner.Runner{"peer-x": peer}, "house-rules")
+
+	const body = "PEER-PROMPT-BODY"
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "ok", Runner: "peer-x",
+		Cwd: ".", Prompt: body, TimeoutSec: 30,
+		Skills: []string{"house-rules"},
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("job status = %s (err=%s)", final.Status, final.Error)
+	}
+	if len(final.Skills) != 1 || final.Skills[0] != "house-rules" {
+		t.Fatalf("job skills = %v, want the decided binding on the row", final.Skills)
+	}
+	if peer.got.Prompt != body {
+		t.Fatalf("the peer's prompt = %q, want the caller's text %q", peer.got.Prompt, body)
+	}
+	if len(peer.got.Skills) != 0 {
+		t.Fatalf("peer forward skills = %v, want none", peer.got.Skills)
+	}
+	if len(peer.got.Uploads) != 0 || len(lib.staged) != 0 {
+		t.Fatalf("a peer job staged skill files: forward=%+v staged=%+v", peer.got.Uploads, lib.staged)
+	}
+	if _, err := os.Stat(filepath.Join(final.ResultDir, skillsDirName)); err == nil {
+		t.Fatal("a peer job mounted a skills dir")
+	}
+	events, err := s.ListJobEvents(final.ID, 0)
+	if err != nil {
+		t.Fatalf("ListJobEvents: %v", err)
+	}
+	var found bool
+	for _, e := range events {
+		if e.Type != EventJobSkillsSkipped {
+			continue
+		}
+		found = true
+		if !strings.Contains(e.Detail, "peer_runner") {
+			t.Fatalf("job.skills_skipped detail = %s, want reason peer_runner", e.Detail)
+		}
+	}
+	if !found {
+		t.Fatalf("no %s event among %d events", EventJobSkillsSkipped, len(events))
 	}
 }
 
@@ -185,7 +299,7 @@ func TestNoSkillsDisablesAll(t *testing.T) {
 		if _, err := os.Stat(filepath.Join(final.ResultDir, "skills")); err == nil {
 			t.Fatal("--no-skills still mounted a skills dir")
 		}
-		if strings.HasPrefix(promptOf(t, final), skillsPromptHeader) {
+		if strings.HasPrefix(executedPromptOf(t, final), skillsPromptHeader) {
 			t.Fatal("--no-skills still rendered the skills list")
 		}
 	})
