@@ -123,6 +123,7 @@ var schemaStmts = []string{
   fallback_json    TEXT,
   usage_json       TEXT,
   xfer_json        TEXT,
+  skills_json      TEXT,
   dir_exclusive    INTEGER NOT NULL DEFAULT 0
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
@@ -508,6 +509,25 @@ var schemaStmts = []string{
   created_at    INTEGER NOT NULL
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_job_retries_due ON job_retries(state, next_run_at)`,
+	// skills is the skill library index (JOB-10, design §一.1). One row per skill in
+	// <config-dir>/skills/<name>/; the files themselves stay in that directory (they
+	// ride the config backup) and the row keeps only what `skill ls`, the binding
+	// resolver and the change detection need — where it came from, a version hash and
+	// the per-file sha256 list. files_json is opaque JSON here, exactly like
+	// schedules.request_json, so this package needs no import of internal/skill; the
+	// skill package's JobstoreRepo is the adapter. IF NOT EXISTS like every table
+	// here (idempotent Open).
+	`CREATE TABLE IF NOT EXISTS skills (
+  name        TEXT PRIMARY KEY,
+  description TEXT,
+  source      TEXT,
+  source_ref  TEXT,
+  version     TEXT,
+  files_json  TEXT,
+  size        INTEGER NOT NULL DEFAULT 0,
+  updated_at  INTEGER NOT NULL DEFAULT 0,
+  updated_by  TEXT
+)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema
@@ -729,6 +749,13 @@ func (s *Store) migrate() error {
 	// （job.XferSummary 的 JSON），空=这个 job 没带文件（读作"没有传输"），不会把历史 job
 	// 伪造成一份空摘要。收集到的文件本体在 <result_dir>/artifacts/collected/ 下。
 	if err := add("xfer_json", "xfer_json TEXT"); err != nil {
+		return err
+	}
+	// 技能绑定（JOB-10，设计 §一.5）：skills_json=该 job 绑定的技能清单（JSON），空=这个
+	// job 没带技能（读作"没有绑定"），不会把历史 job 伪造成挂载过技能。旧库 ALTER ADD，旧行
+	// COALESCE→""。技能本体不在库里，它在执行机的 <result_dir>/skills/<name>/ 下（随 job 的
+	// result_dir 一起过期）。
+	if err := add("skills_json", "skills_json TEXT"); err != nil {
 		return err
 	}
 	if err := add("resumed_from", "resumed_from TEXT"); err != nil {

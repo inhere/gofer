@@ -175,6 +175,11 @@ type JobRecord struct {
 	// the web detail and a restarted serve still answer "which files did this job
 	// move?" after the in-memory entry is gone. Old rows COALESCE to "".
 	XferJSON string
+	// SkillsJSON is the job's bound skill list (JOB-10) as JSON, or "" when the job
+	// carried none. Persisted so a finished job still answers "which skills was this
+	// agent told to read?" after its result dir is gone, and so the mounted-set
+	// (`job show`) survives a serve restart. Old rows COALESCE to "".
+	SkillsJSON string
 	// SourceJobID 是血缘键（P5）：resume/rebuild 出的 job 指回源 job id（服务端盖章）。空=非
 	// 派生（旧库 COALESCE→""）。与 job.JobResult.SourceJobID 互转；反查 ?source_job=。
 	// 注意区别既有 Source 列（执行位置 worker:/peer:）。
@@ -279,7 +284,7 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,
   COALESCE(verify_json,''),
   COALESCE(failure_class,''), COALESCE(fell_back_from,''), COALESCE(fell_back_to,''),
   COALESCE(requested_agent,''), COALESCE(fallback_json,''), COALESCE(usage_json,''),
-  COALESCE(xfer_json,''), COALESCE(dir_exclusive,0) FROM jobs`
+  COALESCE(xfer_json,''), COALESCE(skills_json,''), COALESCE(dir_exclusive,0) FROM jobs`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -310,7 +315,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&requireReview, &r.ReviewedBy, &r.ReviewedAt, &r.ReviewNote,
 		&r.VerifyJSON,
 		&r.FailureClass, &r.FellBackFrom, &r.FellBackTo, &r.RequestedAgent, &r.FallbackJSON,
-		&r.UsageJSON, &r.XferJSON, &dirExclusive,
+		&r.UsageJSON, &r.XferJSON, &r.SkillsJSON, &dirExclusive,
 	)
 	r.Interactive = interactive != 0
 	r.TimeoutClamped = timeoutClamped != 0
@@ -343,8 +348,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 	    worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead, read_only,
 	    require_review, reviewed_by, reviewed_at, review_note, verify_json,
 	    failure_class, fell_back_from, fell_back_to, requested_agent, fallback_json, usage_json, xfer_json,
-	    dir_exclusive)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	    skills_json, dir_exclusive)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -413,6 +418,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     fallback_json=excluded.fallback_json,
     usage_json=excluded.usage_json,
     xfer_json=excluded.xfer_json,
+    skills_json=excluded.skills_json,
     dir_exclusive=excluded.dir_exclusive`
 	// Serialise writes in-process (see Store.writeMu) so SQLite never sees two
 	// concurrent writers and cannot return SQLITE_BUSY under burst.
@@ -440,6 +446,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.FailureClass, rec.FellBackFrom, rec.FellBackTo, rec.RequestedAgent, rec.FallbackJSON,
 		rec.UsageJSON,
 		rec.XferJSON,
+		rec.SkillsJSON,
 		rec.DirExclusive,
 	)
 	if err != nil {
