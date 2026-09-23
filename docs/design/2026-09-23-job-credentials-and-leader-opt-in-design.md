@@ -134,3 +134,32 @@
 实测中发现并修正的一点：凭证吊销原本写在 `finish` 的终态**行落库之前**，把"内存已终态、库里仍 running"的既有窗口从微秒级放大到毫秒级，`TestPlanClientRoundTrip`（`GetPlan` 计数来自库）因此稳定失败；吊销改到 `persist(snap)` 之后即恢复（`internal/job/execute.go`）。
 
 范围说明（本期未做）：peer-http（非 ws-worker 的远端 runner）不下发凭证——那套 transport 没有携带字段，`Forward.JobToken` 刻意不可序列化，避免本 hub 的凭证被 POST 到无关的 peer；远端 job 因此没有 `GOFER_JOB_TOKEN`。协议 < 11 的 worker 同理（记 `job.credential_skipped`）。
+
+## C2 实测记录（2026-09-24，omp）
+
+实现落地后按 §二 的验收要点实测（**临时 serve**：独立 config + 端口 18771 + `storage.root` 在 `tmp/`，启动命令里 `unset GOFER_SERVER_ADDR/GOFER_SERVER_TOKEN/GOFER_TOKEN`，CLI 一律 `--server http://127.0.0.1:18771 --token smoke-tok`；配置文件里 agent `member` 属于项目 `self`，`leader` agent 的 argv 是一个 bash 脚本，脚本读 `$GOFER_JOB_TOKEN` 调同一支 gofer CLI 并把每条命令的 `exit=` 写进收据文件）。
+
+| 步骤 | 命令 | 实测结果 |
+|---|---|---|
+| 建 plan | `plan create --plan-id plan-lead-01 --project self --leader` / `plan create --plan-id plan-lead-02 --project self` | `plan plan-lead-01 created: status=open leader=on` / `plan-lead-02 created: status=open leader=off` |
+| 是否逐 plan | 各跑一个假成员 job（`--plan plan-lead-01` / `--plan plan-lead-02`），等 sweeper | P1：多出 `20260924-004049-47ca8d8d | leader 回合 1：P1 开 leader | done | channel=leader | tags=leader,leader_of:…`；P2：只有那一个成员 job，`GET /v1/plans/plan-lead-02/events` = `{"events":[]}`（**没开 leader 的 plan 一条 leader 事件都没有**） |
+| leader 环境 | leader job 内 `env` 收据 | `job_token_set=yes`、`server_token_set=no`、`plain_token_set=no`，`GOFER_LEADER_PLAN=plan-lead-01`、`GOFER_SERVER_ADDR=127.0.0.1:18771` |
+| leader 放行本 plan | `gofer plan set-todo todo-20260924-004046-a724ddc5 --status ready`（P1 的待办） | `todo todo-…-a724ddc5 status=ready`，`exit=0`；`plan show` 里该待办变 `[>]` |
+| leader 越权 | 同一脚本里 `plan set-todo <P2 的待办> --status ready` / `job run …` / `job accept <别的 job>` | 三条全部 `ERROR: server 403: job credential may not …`（分别 `move another plan's item` / `submit a job` / `accept a delivery`），`exit=2` |
+| 轮次 | `plan show plan-lead-01` | `leader: on (round 1/3)`，`最近一次 leader job` 可点 |
+| config 视图 | `GET /v1/config` | supervisor 视图含 `"leader":{"enabled":true,"agent":"leader","scopes":["plan"],"max_rounds_per_scope":3,"wake_delay_sec":1,"on_member_done":true}`（解析后的有效值） |
+| plan 事件流 | `GET /v1/plans/plan-lead-01/events?limit=10` | `{"events":[{"seq":9,"job_id":"plan:plan-lead-01","type":"plan.leader_woken","detail":"{…\"round\":1,\"leader_job\":\"20260924-004049-47ca8d8d\"}","at":…}]}`（**最新在前**） |
+| `plan set` | `plan set plan-lead-02 --leader on` → `plan show` → `--leader off` | `plan plan-lead-02 leader -> on`、`leader: on (round 0/3)`、`leader -> off`；`--leader maybe` 与漏传 `--leader` 都被 CLI 挡下（`invalid --leader` / `requires --leader on|off`） |
+| web plan 页（`serve --web-dir web/dist`，真实 Chromium） | 打开 `/plans/plan-lead-01` | 操作区出现 `leader on` 开关；下方 banner `leader 回合已用 1/3 轮…` + `最近一次 leader job` 按钮；底部折叠面板展开后 `事件（1）` → `◈ leader 回合开始 第 1 轮 · leader · done · 20260924-004049-47ca8d8d`。点开关 → `leader off` 且轮次 banner 消失，再点回 `on` 复原 |
+| warning | 建 `plan-lead-03`（leader off）→ 跑一个在 verify 里 `sleep 40` 的成员 job（running）→ 页面上打开 leader 开关 | 开关变 `leader on` 后出现提示框：`1 running job(s) will wake the leader when they finish`（+`知道了` 关闭）；同一文案由 `PATCH /v1/plans/{id} {"leader":"on"}` 返回 |
+
+自动化侧（全部通过）：`TestLeaderOffByDefaultPerPlan`、`TestLeaderOnlyForOptedInPlan`、`TestLeaderGlobalSwitchStillGates`、`TestLeaderPromptListsCliActions`（`internal/job`）、`TestPlanLeaderToggleWarnsOnRunningMembers`、`TestConfigViewShowsLeader`、`TestPlanEventsEndpoint`（`internal/httpapi`）、`TestPlanLeaderFieldMigration`（`internal/jobstore`）；整包 `go test ./internal/job/ ./internal/httpapi/ ./internal/jobstore/ ./internal/commands/ -count=1` 全绿。
+
+实现中定下的几个细节（超出原稿、但不改语义）：
+
+- **`leader` 与轮次在 wire 上分成两个键**：`plan.leader` 是 `"on"|"off"`（列表/详情/创建/PATCH 都发），详情里的轮次块改叫 **`leader_round`**（原来是 `leader` 对象）。同一嵌入结构里两个 `leader` 键会互相遮蔽（encoding/json 只留浅层那个），而 `leader_round` 只在 plan 自己 `on` 时出现——旧键没有任何外部消费方（只有本仓 web），所以直接改名，不留兼容层（G032）。
+- **`PATCH /v1/plans/{id}` 变成"字段都可选"**：三种字段至少给一个（只给 `leader` 就是开关）；只给 `progress` 或只给 `leader` 时 status 保持原值（`plan set` 需要）。非法 status/leader 仍是 400。
+- **PATCH 的 `warnings` 随响应返回**（不是先问后写）：成员 job 的条数是服务端在写入时算的（`!job.IsFinished(status)` 计数），所以提示只能在写生效之后给；web 页把它渲染成写入后立即出现的可关闭提示框。
+- **`plan set` 只做 `--leader`**：plan 的 title/description 至今没有 HTTP 写入口，CLI 不先行（不为了一个 flag 造接口）。
+- **`plan events` 没有进 CLI**：本期只要求 HTTP 端点 + web 事件区，CLI 侧用 `curl`/web 即可；需要时再按 G033 加 `gofer plan events`。
+- `maybeWakeLeader` 的判定顺序调整为"先看 plan 开关（off 直接静默返回）再看总闸"，所以 plan 关闭时既不起 job 也不记事件；`enabled:false` 但 plan 开着时记 `plan.leader_skipped{reason:"global_off"}`；窗口内被 `--leader off` 关掉记 `{reason:"plan_off"}`。
