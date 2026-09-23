@@ -211,3 +211,34 @@ S1 落地后留了两处缺口，本期按人工决策改掉，并在真机上�
 ### 已知不一致（留给人工决策）
 
 - 任务书里的 smoke 示例写的是 `job run -a exec --skill <it> -- bash -lc 'echo $GOFER_SKILLS_DIR; ls -R …'`，但决策 2/§一.3 明确 **`exec` agent 不带 skills**（`config.EffectiveSkills` 对 exec 返回 nil），所以这条命令实测为：`GOFER_SKILLS_DIR` 为空、`ls` 报 `No such file or directory`、job failed(2)，`job show` 也没有 `skills:` 行。这是设计本身的一致结果（exec 执行命令、不读文档），实测改用 cli-agent（`-a probe`/`-a omp`）证明挂载与 env。若确实希望 exec job 也能拿到挂载，需要改决策（去掉 `EffectiveSkills` 的 exec 规则），本期未改。
+
+## S2 实测记录（2026-09-23，MCP-05 阶段 A 落地）
+
+真机 smoke（临时 server + 临时 config `tmp/comment-smoke/config.yaml` + 随机端口 18765，**unset 了 `GOFER_SERVER_ADDR`/`GOFER_SERVER_TOKEN`/`GOFER_TOKEN`/`GOFER_JOB_ID`**，未碰真实配置目录；smoke 产物已删）。
+
+- 配置里注册了一个把 prompt 原样回显的假 cli-agent：`echoer: {type: cli-agent, command: bash, args: ["-lc", "echo got: \"$0\"", "{{prompt}}"]}`（`$0` = 渲染后的 prompt）。
+- 源 job：`job run -p smoke -a exec --cwd . --title "smoke source" -- bash -lc 'echo SOURCE-REPORT-MARKER-9'` → done，stdout = `SOURCE-REPORT-MARKER-9`。
+- 人在 job 上评论 `@echoer 请接着把这一步做完`：`comment cm-ed704891 … by default/user`、`→ dispatched job 20260923-135139-dc5de74d (@echoer, agent)`；派出的 job `channel: comment`、`caller_id: default`、cwd 同源 job。
+- 派出的 job stdout 证明上下文真的带到了（这正是本期的验收点）：
+  `got: 你在一条评论里被 @ 点名接手工作（gofer 评论派活）。\n\n被评论的 job：20260923-135117-b721eca6 "smoke source"\n状态：done\n最近一次汇报（stdout 末尾 40 行）：\nSOURCE-REPORT-MARKER-9\n\n评论正文：\n@echoer 请接着把这一步做完`
+- 事件（`GET /v1/jobs/{id}/events`）：`comment.created {author:default, author_kind:user, mentions:[echoer]}` → `comment.triggered {job_id:…, mention:echoer, kind:agent}`；同一 scope 一分钟内的第二条评论 → `comment.trigger_throttled {reason:min_interval, count:1}` 且没派。
+- agent 身份：`GOFER_JOB_ID=<源 job> gofer job comment …` → `by exec/agent`，事件只有 `comment.created`（无 `comment.triggered`）。
+- 不可派发的提及：`@nobody` → 线程里追加 `cm-… system @nobody 没有派发：no agent or role named "nobody" is configured`，无派发。
+- web：`pnpm build` + `make web` 的嵌入步骤后，job 详情页底部评论区渲染出全部行（作者/身份/高亮/`→ 已派发 job …` 可点），从 web 发 `@echoer 从 web 评论区派一件` → 新评论 + 派出的 job `20260923-135535-b4da3109`（stdout 同样是上面那份上下文）。
+
+### 实现中定下、设计未写明或与设计有出入的点
+
+1. **派活的 runner 来源**（设计只写了 project/cwd）：job 评论**继承源 job 的 runner**（worker job 派回同一台 worker），todo 评论取该 todo 的 `runner` 派发字段，plan 评论与未设 runner 的 todo 用内置 `local`。`Submit` 不接受空 runner（`invalid request: runner is required`），所以必须有这条默认。
+2. **cwd 取 request_json 里的相对 cwd**：job 行上的 `cwd` 是解析后的绝对路径，`validate` 明确拒绝绝对 cwd，所以继承的是 request 原文里的相对值。
+3. **限流计数口径**：`max_per_scope` 数的是"派过活的评论条数"（一条评论提及多个 agent 记 1 条，因为 `triggered_job_id` 只有一列、回链第一个 job，全部结果在响应与 `comment.triggered` 事件里）。`min_interval` 按**评论**判定（不是按提及），所以一条评论里的多个提及会同时派出——测试 `TestMentionThrottled/per comment interval` 钉住这一点。
+4. **说明评论先于限流判定**：提及解析/allowlist 在限流之前跑，所以一条被限流的评论里的 `@nobody` 仍会在线程里得到解释（"什么也没发生"最需要原因）；限流只挡派活，不挡解释。
+5. **CLI 的 in-job 身份**：`gofer job comment` 在 `GOFER_JOB_ID` 已设时把它作为 `as_job` 发出（与 `gofer_comment` 同一条规则），因此 agent 用 CLI 发的评论也只记录。人要用 CLI 派活需 unset `GOFER_JOB_ID`（或用 web 评论区）。这是**故意 fail-closed**：不这样做，job 里的 agent 用 CLI 就能冒充人派活。
+6. **`triggered_job_id` 单列**：一条评论提及多个 agent 时只回链第一个（设计只给了这一列）；`[]CommentDispatch` 与事件带全量，CLI/web 都按全量渲染。
+7. **新增第 4 个事件 `comment.mention_rejected`**（设计只列了 created/triggered/trigger_throttled）：被拒的提及除了线程里的系统评论，也需要一条可订阅的审计行。都不进通知默认集。
+8. **`server.comment_trigger` 可热改**：按 S1 的教训，字段策略表 + `/v1/config` 视图 + `PUT /v1/config/server` 写分支 + dry-run 预览四处一起补（只改表会让"web 改了没生效"重现）。
+
+### 未做 / 留给人工决策
+
+- **plan 删除连带删评论做不到**：全仓没有 `DeletePlan`（plan 只归档不删，见 `docs/plans/2026-07-26-decision-channel-plan.md`）。因此 store 侧提供 `DeleteCommentsForScope(scope, scopeID)` 供将来的删除路径调用，本期真正接上的是 `PruneJobs`、`PruneWorkflows` 的 step-job、以及 `DeleteTodo`（`TestCommentsPrunedWithJob`/`TestDeleteTodoSweepsItsComments` 覆盖）。
+- **web 的 todo 线程未做展开**：plan 页每条待办自己的线程已经可用（`/v1/todos/{id}/comments`，`gofer plan comment --todo`），只是没做行内展开 UI。
+- **时间线未加 comment.* 的中文标签**：事件按默认图标 + 事件名渲染（`EVENT_META` 未加四行）。

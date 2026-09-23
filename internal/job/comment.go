@@ -314,16 +314,11 @@ func (s *Service) commentTarget(scope, scopeID string) (commentTarget, error) {
 // mention. It returns the dispatches it started (empty when the throttle refused the
 // whole comment).
 func (s *Service) dispatchCommentMentions(cfg *config.Config, target commentTarget, cm *jobstore.Comment, mentions []string) []CommentDispatch {
-	minIntervalSec, maxPerScope := cfg.EffectiveCommentTrigger()
-	if reason, count, lastAt := s.commentThrottleReason(cm, minIntervalSec, maxPerScope); reason != "" {
-		s.recordEvent(target.eventScope, EventCommentTriggerThrottled, map[string]any{
-			"comment_id": cm.ID, "reason": reason, "scope": cm.Scope, "scope_id": cm.ScopeID,
-			"count": count, "last_at": lastAt,
-		})
-		return nil
-	}
-
-	var out []CommentDispatch
+	// Resolve and vet every mention FIRST: a mention that could never dispatch is
+	// explained in the thread regardless of the throttle, because "nothing happened" is
+	// exactly what the person needs the reason for. The throttle then decides whether
+	// the survivors may actually spend anything.
+	var ready []commentMention
 	for _, name := range mentions {
 		kind, agentKey, ok := resolveCommentMention(cfg, name)
 		if !ok {
@@ -335,10 +330,27 @@ func (s *Service) dispatchCommentMentions(cfg *config.Config, target commentTarg
 			s.rejectCommentMention(target, cm, name, "not_allowed", err.Error())
 			continue
 		}
-		req := target.dispatchRequest(cm, name, kind)
+		ready = append(ready, commentMention{name: name, kind: kind})
+	}
+	if len(ready) == 0 {
+		return nil
+	}
+
+	minIntervalSec, maxPerScope := cfg.EffectiveCommentTrigger()
+	if reason, count, lastAt := s.commentThrottleReason(cm, minIntervalSec, maxPerScope); reason != "" {
+		s.recordEvent(target.eventScope, EventCommentTriggerThrottled, map[string]any{
+			"comment_id": cm.ID, "reason": reason, "scope": cm.Scope, "scope_id": cm.ScopeID,
+			"count": count, "last_at": lastAt,
+		})
+		return nil
+	}
+
+	var out []CommentDispatch
+	for _, m := range ready {
+		req := target.dispatchRequest(cm, m.name, m.kind)
 		res, err := s.Submit(req)
 		if err != nil {
-			s.rejectCommentMention(target, cm, name, "submit_failed", err.Error())
+			s.rejectCommentMention(target, cm, m.name, "submit_failed", err.Error())
 			continue
 		}
 		if len(out) == 0 {
@@ -350,11 +362,17 @@ func (s *Service) dispatchCommentMentions(cfg *config.Config, target commentTarg
 			}
 		}
 		s.recordEvent(target.eventScope, EventCommentTriggered, map[string]any{
-			"comment_id": cm.ID, "job_id": res.ID, "mention": name, "kind": kind,
+			"comment_id": cm.ID, "job_id": res.ID, "mention": m.name, "kind": m.kind,
 		})
-		out = append(out, CommentDispatch{Mention: name, Kind: kind, JobID: res.ID})
+		out = append(out, CommentDispatch{Mention: m.name, Kind: m.kind, JobID: res.ID})
 	}
 	return out
+}
+
+// commentMention is one @-name that survived resolution and the allowlist gate.
+type commentMention struct {
+	name string
+	kind string
 }
 
 // commentThrottleReason decides whether this comment may dispatch at all, and says

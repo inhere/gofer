@@ -467,6 +467,41 @@ func TestMentionUnknownOrDisallowedAgentExplains(t *testing.T) {
 			t.Fatalf("explanation = %q, want it to name the allowlist", explanation.Body)
 		}
 	})
+
+	t.Run("explained even while throttled", func(t *testing.T) {
+		// The rate gate closes the DISPATCH, not the explanation: a mention that could
+		// never dispatch still says why in the thread, because "nothing happened" is
+		// what the person needs the reason for most.
+		root := t.TempDir()
+		s := newCommentService(t, root, func(cfg *config.Config) {
+			cfg.Server.CommentTrigger = config.CommentTriggerConfig{
+				MinIntervalSec: commentIntPtr(60), MaxPerScope: commentIntPtr(10),
+			}
+		})
+		src := commentSourceJob(t, s)
+
+		if _, d, err := s.Comment(jobstore.CommentScopeJob, src.ID, "alice", jobstore.CommentAuthorUser, "@ok 一件"); err != nil || len(d) != 1 {
+			t.Fatalf("first comment: dispatched=%+v err=%v", d, err)
+		}
+		_, d, err := s.Comment(jobstore.CommentScopeJob, src.ID, "alice", jobstore.CommentAuthorUser, "@nobody 另一件")
+		if err != nil {
+			t.Fatalf("Comment: %v", err)
+		}
+		if len(d) != 0 {
+			t.Fatalf("dispatched = %+v, want none", d)
+		}
+		rows, err := s.ListComments(jobstore.CommentScopeJob, src.ID)
+		if err != nil {
+			t.Fatalf("ListComments: %v", err)
+		}
+		explanation, ok := systemCommentOf(rows)
+		if !ok {
+			t.Fatalf("thread = %+v, want a system explanation despite the throttle", rows)
+		}
+		if !strings.Contains(explanation.Body, "nobody") {
+			t.Fatalf("explanation = %q", explanation.Body)
+		}
+	})
 }
 
 // systemCommentOf returns the system explanation in a thread (order-independent: two
