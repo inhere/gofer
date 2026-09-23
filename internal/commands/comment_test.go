@@ -50,9 +50,10 @@ func newCommentAPIServer(t *testing.T, calls *[]commentCall) *httptest.Server {
 }
 
 // TestJobAndPlanCommentCommands covers the CLI faces of MCP-05 阶段 A: posting and
-// listing a job thread and a plan thread, the --todo variant, and the in-job identity
-// rule (with GOFER_JOB_ID set the CLI sends it as as_job — the comment is that agent's,
-// so it dispatches nothing).
+// listing a job thread and a plan thread, and the --todo variant. The in-job identity
+// no longer travels as `as_job` (SEC-01 retires that field — a job authenticates with
+// its own GOFER_JOB_TOKEN, see TestCLIUsesJobTokenInsideJob), so the CLI never sends
+// one, inside a job or out.
 func TestJobAndPlanCommentCommands(t *testing.T) {
 	t.Run("job", testJobCommentCommands)
 	t.Run("plan", testPlanCommentCommands)
@@ -106,7 +107,8 @@ func testJobCommentCommands(t *testing.T) {
 		t.Fatalf("list call = %+v", calls[1])
 	}
 
-	// Inside a job the CLI speaks as that job's agent (same rule as gofer_comment).
+	// Inside a job the CLI sends the same body: the identity is the CREDENTIAL the
+	// request authenticates with, so there is nothing for the client to declare.
 	calls = nil
 	t.Setenv("GOFER_JOB_ID", "job-inside")
 	captureOutput(t, func() {
@@ -121,8 +123,11 @@ func testJobCommentCommands(t *testing.T) {
 	if err := json.Unmarshal([]byte(calls[0].body), &body); err != nil {
 		t.Fatalf("decode comment body: %v", err)
 	}
-	if body["as_job"] != "job-inside" {
-		t.Fatalf("as_job = %q, want job-inside (%s)", body["as_job"], calls[0].body)
+	if body["body"] != "记录一句" {
+		t.Fatalf("in-job comment body = %q", body["body"])
+	}
+	if _, ok := body["as_job"]; ok {
+		t.Fatalf("the CLI still sends as_job: %s", calls[0].body)
 	}
 }
 

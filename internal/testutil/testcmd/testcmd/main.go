@@ -41,6 +41,20 @@ func main() {
 		fmt.Println(os.Getenv("DAB_TEST_VAR"))
 		wd, _ := os.Getwd()
 		fmt.Println(wd)
+	case "env-print":
+		// env-print <NAME>...: print NAME=<value> for each requested variable, in the
+		// order asked (an unset one prints NAME= with an empty value). It is what the
+		// SEC-01 tests read to prove which variables a spawned child actually
+		// inherited — the question is about PRESENCE, so the empty form must be
+		// distinguishable from a missing line. env-print-err is the same on stderr,
+		// for a child whose stdout is a protocol channel (acp).
+		for _, name := range os.Args[2:] {
+			fmt.Printf("%s=%s\n", name, os.Getenv(name))
+		}
+	case "env-print-err":
+		for _, name := range os.Args[2:] {
+			fmt.Fprintf(os.Stderr, "%s=%s\n", name, os.Getenv(name))
+		}
 	case "write-result-artifact":
 		resultDir := mustEnv("GOFER_RESULT_DIR")
 		must(os.MkdirAll(filepath.Join(resultDir, "artifacts"), 0o755))
