@@ -385,3 +385,50 @@ func TestListQueryCallerFilter(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Len(t, none, 0)
 }
+
+// TestPlanLeaderFieldMigration (LEAD-02): a pre-existing database whose plans table
+// predates the leader column opens with `leader` added and defaulting to `off`, so an
+// upgrade never wakes a leader for a plan nobody opted in — the whole point of moving
+// the switch from the global supervisor block onto the plan.
+func TestPlanLeaderFieldMigration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old-plans.db")
+
+	// The pre-LEAD-02 plans table: every column the earlier phases had, minus `leader`.
+	raw, err := sql.Open("sqlite", "file:"+path)
+	assert.NoErr(t, err)
+	_, err = raw.Exec(`CREATE TABLE plans (
+	  plan_id      TEXT PRIMARY KEY,
+	  title        TEXT,
+	  description  TEXT,
+	  status       TEXT NOT NULL,
+	  owner        TEXT,
+	  progress     INTEGER NOT NULL DEFAULT 0,
+	  project_key  TEXT,
+	  paused       INTEGER NOT NULL DEFAULT 0,
+	  blocked_todo TEXT,
+	  created_at   INTEGER NOT NULL,
+	  updated_at   INTEGER NOT NULL
+	)`)
+	assert.NoErr(t, err)
+	_, err = raw.Exec(`INSERT INTO plans (plan_id, status, created_at, updated_at) VALUES ('plan-ancient', 'open', 7, 7)`)
+	assert.NoErr(t, err)
+	assert.NoErr(t, raw.Close())
+
+	s, err := Open(path)
+	assert.NoErr(t, err)
+	defer s.Close()
+
+	assert.True(t, tableHasColumn(t, s, "plans", "leader"))
+	old, ok, err := s.GetPlan("plan-ancient")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, PlanLeaderOff, old.Leader)
+
+	// The switch round-trips (and only the switch moves: the row keeps its status).
+	assert.NoErr(t, s.SetPlanLeader("plan-ancient", PlanLeaderOn))
+	got, ok, err := s.GetPlan("plan-ancient")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, PlanLeaderOn, got.Leader)
+	assert.Eq(t, PlanOpen, got.Status)
+}

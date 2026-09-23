@@ -135,6 +135,7 @@ func TestLeaderWokenOnMemberTerminal(t *testing.T) {
 		t.Run(status, func(t *testing.T) {
 			s := newLeaderService(t, t.TempDir(), nil)
 			seedLeaderPlan(t, s, "plan-1", "先做这一步", "再做下一步")
+			optInPlanLeader(t, s, "plan-1")
 			member := leaderMemberJob(t, s, "plan-1", "77", status)
 
 			// 1. the terminal left exactly one PENDING wake, due after wake_delay_sec.
@@ -201,7 +202,7 @@ func TestLeaderWokenOnMemberTerminal(t *testing.T) {
 				"计划 plan-1", "把这件事做完", // plan title + goal
 				"先做这一步", "再做下一步", // the todo chain
 				member.ID, "状态：" + status, // the member and how it ended
-				"gofer_comment", "gofer_update_todo", "gofer_ask_human", // what it may do
+				"gofer plan comment", "gofer plan set-todo", "gofer plan ask", // what it may do (CLI, LEAD-02)
 				"不能", "accept", // and what it may not
 			}
 			if status != StatusFailed {
@@ -223,36 +224,11 @@ func TestLeaderWokenOnMemberTerminal(t *testing.T) {
 	}
 }
 
-// TestLeaderDisabledByDefault: without a supervisor.leader block — and with the block
-// present but disabled — a finished member job wakes nobody and records no leader
-// event. This is the opt-in default the design promises.
-func TestLeaderDisabledByDefault(t *testing.T) {
-	for _, tc := range []struct {
-		name   string
-		mutate func(*config.Config)
-	}{
-		{name: "no block", mutate: func(c *config.Config) { c.Supervisor = nil }},
-		{name: "disabled", mutate: func(c *config.Config) { c.Supervisor.Leader.Enabled = false }},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			s := newLeaderService(t, t.TempDir(), tc.mutate)
-			seedLeaderPlan(t, s, "plan-1", "一步")
-			leaderMemberJob(t, s, "plan-1", "77", StatusDone)
-
-			if wakes := leaderWakes(t, s, "plan-1"); len(wakes) != 0 {
-				t.Fatalf("wakes = %+v, want none when the leader is off", wakes)
-			}
-			if n, _ := s.SweepDueLeaderWakes(time.Now().Unix() + 86400); n != 0 {
-				t.Fatalf("sweep started %d leader jobs with the leader off", n)
-			}
-			for _, ev := range commentEvents(t, s, PlanEventScope("plan-1")) {
-				if strings.HasPrefix(ev, "plan.leader_") {
-					t.Fatalf("event %s recorded with the leader off", ev)
-				}
-			}
-		})
-	}
-}
+// TestLeaderDisabledByDefault was the pre-LEAD-02 "opt-in default" test. The default
+// moved from one global switch to a per-plan one, so its two cases are now pinned by
+// the tests that own each gate: TestLeaderOffByDefaultPerPlan (master switch on, plan
+// off) and TestLeaderGlobalSwitchStillGates (plan on, master switch off). Keeping a
+// third copy here would only re-test whichever gate happened to short-circuit first.
 
 // TestLeaderJobDoesNotWakeLeader: the leader's own job reaching a terminal state must
 // not start another round (防自激), and neither may any job that merely carries the
@@ -262,6 +238,7 @@ func TestLeaderJobDoesNotWakeLeader(t *testing.T) {
 	t.Run("the leader job itself", func(t *testing.T) {
 		s := newLeaderService(t, t.TempDir(), nil)
 		seedLeaderPlan(t, s, "plan-1", "一步")
+		optInPlanLeader(t, s, "plan-1")
 		member := leaderMemberJob(t, s, "plan-1", "77", StatusDone)
 		now := leaderWakes(t, s, "plan-1")[0].DueAt + 1
 		if n, err := s.SweepDueLeaderWakes(now); err != nil || n != 1 {
@@ -285,6 +262,7 @@ func TestLeaderJobDoesNotWakeLeader(t *testing.T) {
 	t.Run("a leader-tagged job", func(t *testing.T) {
 		s := newLeaderService(t, t.TempDir(), nil)
 		seedLeaderPlan(t, s, "plan-1", "一步")
+		optInPlanLeader(t, s, "plan-1")
 		submitAndWait(t, s, JobRequest{
 			ProjectKey: "self", Agent: "ok", Runner: "local", PlanID: "plan-1",
 			Title: "带 leader 标记的普通 job", Tags: []string{leaderTag},
@@ -305,6 +283,7 @@ func TestLeaderRoundsCapped(t *testing.T) {
 		c.Supervisor.Leader.MaxRoundsPerScope = 1
 	})
 	seedLeaderPlan(t, s, "plan-1", "第一步", "第二步")
+	optInPlanLeader(t, s, "plan-1")
 
 	leaderMemberJob(t, s, "plan-1", "1", StatusDone)
 	now := leaderWakes(t, s, "plan-1")[0].DueAt + 1
@@ -352,6 +331,7 @@ func TestLeaderRoundsCapped(t *testing.T) {
 func TestLeaderSkippedWhenPlanPaused(t *testing.T) {
 	s := newLeaderService(t, t.TempDir(), nil)
 	seedLeaderPlan(t, s, "plan-1", "一步")
+	optInPlanLeader(t, s, "plan-1")
 	if err := s.Meta().SetPlanPaused("plan-1", true); err != nil {
 		t.Fatalf("SetPlanPaused: %v", err)
 	}
@@ -375,6 +355,7 @@ func TestLeaderSkippedWhenPlanPaused(t *testing.T) {
 func TestHumanCommentCancelsLeaderWake(t *testing.T) {
 	s := newLeaderService(t, t.TempDir(), nil)
 	seedLeaderPlan(t, s, "plan-1", "一步")
+	optInPlanLeader(t, s, "plan-1")
 	member := leaderMemberJob(t, s, "plan-1", "77", StatusDone)
 	due := leaderWakes(t, s, "plan-1")[0].DueAt
 
@@ -418,6 +399,7 @@ func TestHumanCommentCancelsLeaderWake(t *testing.T) {
 func TestLeaderCommentCanDispatch(t *testing.T) {
 	s := newLeaderService(t, t.TempDir(), nil)
 	seedLeaderPlan(t, s, "plan-1", "一步")
+	optInPlanLeader(t, s, "plan-1")
 	member := leaderMemberJob(t, s, "plan-1", "77", StatusDone)
 	now := leaderWakes(t, s, "plan-1")[0].DueAt + 1
 	if n, err := s.SweepDueLeaderWakes(now); err != nil || n != 1 {
@@ -461,6 +443,7 @@ func TestLeaderCommentCanDispatch(t *testing.T) {
 func TestLeaderSkippedWhenPlanDone(t *testing.T) {
 	s := newLeaderService(t, t.TempDir(), nil)
 	seedLeaderPlan(t, s, "plan-1", "一步")
+	optInPlanLeader(t, s, "plan-1")
 	if err := s.Meta().SetPlanStatus("plan-1", jobstore.PlanDone, 100); err != nil {
 		t.Fatalf("SetPlanStatus: %v", err)
 	}
@@ -483,6 +466,7 @@ func TestLeaderSkippedWhenPlanDone(t *testing.T) {
 	// never summons a round on a chain that is already over.
 	s2 := newLeaderService(t, t.TempDir(), nil)
 	seedLeaderPlan(t, s2, "plan-2", "唯一一步")
+	optInPlanLeader(t, s2, "plan-2")
 	res := submitAndWait(t, s2, JobRequest{
 		ProjectKey: "self", Agent: "ok", Runner: "local",
 		PlanID: "plan-2", TodoID: "plan-2-t唯一一步", Title: "成员 2",
