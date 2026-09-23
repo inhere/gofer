@@ -1584,6 +1584,11 @@ export interface PlanUsageAgent {
 
 export interface PlansResp {
   plans: Plan[]
+  // F-d 分页/过滤：total 是同条件下的总条数（不是本页条数），limit/offset 是服务端实际
+  // 用的那一页（缺省 20、上限 100；请求超限时这里是裁剪后的值）。
+  total: number
+  limit: number
+  offset: number
 }
 
 export interface WorkflowRetryPolicy {

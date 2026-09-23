@@ -1259,19 +1259,58 @@ func (c *Client) CreatePlan(planID, title, description, project, leader string) 
 	return p, err
 }
 
-// ListPlans queries GET /v1/plans, optionally filtered by status.
-func (c *Client) ListPlans(status string) ([]Plan, error) {
+// PlanListOpts are the filter/paging knobs GET /v1/plans accepts (F-d). The zero value
+// asks for the server's default page: every plan, newest first, 20 rows.
+type PlanListOpts struct {
+	Status  string
+	Project string
+	// Q matches a plan id by prefix or a title by substring, case-insensitively.
+	Q      string
+	Limit  int
+	Offset int
+}
+
+// PlanList is one page of plans plus the paging facts around it: Total is how many
+// plans match the filter (not how many came back), Limit/Offset are the page the server
+// actually served (its default when the caller named none, its cap when the caller
+// asked for more).
+type PlanList struct {
+	Plans  []Plan `json:"plans"`
+	Total  int    `json:"total"`
+	Limit  int    `json:"limit"`
+	Offset int    `json:"offset"`
+}
+
+// ListPlans queries GET /v1/plans with the given filter/paging (F-d).
+func (c *Client) ListPlans(opts PlanListOpts) (PlanList, error) {
+	q := url.Values{}
+	if opts.Status != "" {
+		q.Set("status", opts.Status)
+	}
+	if opts.Project != "" {
+		q.Set("project", opts.Project)
+	}
+	if opts.Q != "" {
+		q.Set("q", opts.Q)
+	}
+	if opts.Limit > 0 {
+		q.Set("limit", strconv.Itoa(opts.Limit))
+	}
+	if opts.Offset > 0 {
+		q.Set("offset", strconv.Itoa(opts.Offset))
+	}
 	path := "/v1/plans"
-	if status != "" {
-		path += "?status=" + url.QueryEscape(status)
+	if len(q) > 0 {
+		path += "?" + q.Encode()
 	}
-	var resp struct {
-		Plans []Plan `json:"plans"`
+	var out PlanList
+	if err := c.doJSON(http.MethodGet, path, nil, &out); err != nil {
+		return PlanList{}, err
 	}
-	if err := c.doJSON(http.MethodGet, path, nil, &resp); err != nil {
-		return nil, err
+	if out.Plans == nil {
+		out.Plans = []Plan{}
 	}
-	return resp.Plans, nil
+	return out, nil
 }
 
 // GetPlan fetches a plan header plus jobs by id.

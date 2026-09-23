@@ -827,9 +827,23 @@ export function getWorkflowEvents(
 }
 
 // plan 编排（plan-orchestration）。list 仅头部（+counts，T10）；detail 内联 counts/jobs/todos。
-export function listPlans(status?: PlanStatus): Promise<PlansResp> {
-  const qs = status ? `?status=${encodeURIComponent(status)}` : ''
-  return request<PlansResp>(`/v1/plans${qs}`)
+// F-d：list 支持 status/project/q 过滤与 limit/offset 分页，返回 {plans,total,limit,offset}
+// ——total 是同条件下的总条数，翻页控件据此判断有没有下一页。
+export function listPlans(opts?: {
+  status?: PlanStatus
+  project?: string
+  q?: string
+  limit?: number
+  offset?: number
+}): Promise<PlansResp> {
+  const qs = new URLSearchParams()
+  if (opts?.status) qs.set('status', opts.status)
+  if (opts?.project) qs.set('project', opts.project)
+  if (opts?.q) qs.set('q', opts.q)
+  if (opts?.limit != null && opts.limit > 0) qs.set('limit', String(opts.limit))
+  if (opts?.offset != null && opts.offset > 0) qs.set('offset', String(opts.offset))
+  const suffix = qs.size > 0 ? `?${qs.toString()}` : ''
+  return request<PlansResp>(`/v1/plans${suffix}`)
 }
 
 export function getPlan(id: string): Promise<PlanDetail> {

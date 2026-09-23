@@ -43,7 +43,11 @@ var planSetOpts = struct {
 }{}
 
 var planListOpts = struct {
-	status string
+	status  string
+	project string
+	q       string
+	limit   int
+	all     bool
 }{}
 
 var planAddTodoOpts = struct {
@@ -247,7 +251,11 @@ func NewPlanCmd() *gcli.Command {
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
-					c.StrOpt(&planListOpts.status, "status", "", "", "filter by status (open/active/done/archived)")
+					c.StrOpt(&planListOpts.status, "status", "", "", "filter by status (open/active/done/archived/blocked)")
+					c.StrOpt(&planListOpts.project, "project", "p", "", "filter by project key (exact)")
+					c.StrOpt(&planListOpts.q, "q", "", "", "search: plan id prefix or title substring")
+					c.IntOpt(&planListOpts.limit, "limit", "", jobstore.PlanListDefaultLimit, "page size (server cap 100)")
+					c.BoolOpt(&planListOpts.all, "all", "", false, "list every matching plan (pages through the server cap; overrides --limit)")
 				},
 				Func: runPlanList,
 			},
@@ -492,20 +500,70 @@ func runPlanList(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	plans, err := cli.ListPlans(planListOpts.status)
+	opts := client.PlanListOpts{
+		Status:  planListOpts.status,
+		Project: planListOpts.project,
+		Q:       planListOpts.q,
+		Limit:   planListOpts.limit,
+	}
+	if planListOpts.all {
+		return runPlanListAll(c, cli, opts)
+	}
+	page, err := cli.ListPlans(opts)
 	if err != nil {
 		return err
 	}
-	if len(plans) == 0 {
+	if len(page.Plans) == 0 {
 		c.Println("no plans matched the given filter")
 		return nil
 	}
+	printPlanTable(c, page.Plans)
+	printPlanPageFooter(c, page.Total, page.Offset, len(page.Plans))
+	return nil
+}
+
+// runPlanListAll walks every page of the filter: the server caps one response at
+// PlanListMaxLimit rows, so "--all" means "keep asking until the total is in hand", not
+// "ask for a huge page" (which the server would clamp anyway).
+func runPlanListAll(c *gcli.Command, cli *client.Client, opts client.PlanListOpts) error {
+	opts.Limit = jobstore.PlanListMaxLimit
+	opts.Offset = 0
+	var all []client.Plan
+	total := 0
+	for {
+		page, err := cli.ListPlans(opts)
+		if err != nil {
+			return err
+		}
+		total = page.Total
+		all = append(all, page.Plans...)
+		if len(page.Plans) == 0 || len(all) >= total {
+			break
+		}
+		opts.Offset += len(page.Plans)
+	}
+	if len(all) == 0 {
+		c.Println("no plans matched the given filter")
+		return nil
+	}
+	printPlanTable(c, all)
+	printPlanPageFooter(c, total, 0, len(all))
+	return nil
+}
+
+// printPlanTable renders the plan rows shared by `plan list` and its --all walk.
+func printPlanTable(c *gcli.Command, plans []client.Plan) {
 	c.Printf("%-30s %-10s %-14s %-24s %s\n", "PLAN ID", "STATUS", "PROGRESS", "TITLE", "CREATED")
 	for _, p := range plans {
 		c.Printf("%-30s %-10s %-14s %-24s %s\n",
 			p.PlanID, p.Status, formatCompletionShort(p), truncate(p.Title, 24), formatStarted(p.CreatedAt))
 	}
-	return nil
+}
+
+// printPlanPageFooter states the total and the slice on screen: a page of 20 out of 57
+// must not read as "that is all there is".
+func printPlanPageFooter(c *gcli.Command, total, offset, shown int) {
+	c.Printf("共 %d 条，显示 %d–%d\n", total, offset+1, offset+shown)
 }
 
 func runPlanShow(c *gcli.Command, _ []string) error {

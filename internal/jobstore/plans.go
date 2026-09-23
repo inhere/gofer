@@ -121,20 +121,86 @@ func (s *Store) GetPlan(id string) (Plan, bool, error) {
 	return p, true, nil
 }
 
-// ListPlans returns plans, optionally filtered by status, newest first.
-func (s *Store) ListPlans(status string, limit int) ([]Plan, error) {
-	query := selectPlanCols
+// Plan page sizes (F-d): what a caller that names no limit gets, and the ceiling one
+// page may ask for — a 10k-row request must not make the server build a 10k-row page
+// (and the CLI's --all pages through instead).
+const (
+	PlanListDefaultLimit = 20
+	PlanListMaxLimit     = 100
+)
+
+// NormalizePlanLimit turns a caller-supplied page size into the one the store uses:
+// <=0 becomes PlanListDefaultLimit, anything above PlanListMaxLimit is clamped.
+func NormalizePlanLimit(n int) int {
+	switch {
+	case n <= 0:
+		return PlanListDefaultLimit
+	case n > PlanListMaxLimit:
+		return PlanListMaxLimit
+	}
+	return n
+}
+
+// PlanFilter selects and pages the plan list. The zero value means "every plan, newest
+// first, one default-sized page".
+type PlanFilter struct {
+	// Status restricts to one plan status ("" = any).
+	Status string
+	// ProjectKey restricts to plans created for that project ("" = any), exact match.
+	ProjectKey string
+	// Q matches the plan id by PREFIX or the title by SUBSTRING, case-insensitively
+	// ("" = any). LIKE's own wildcards are literal here: a `%` in the query searches for
+	// a percent sign, it does not match everything.
+	Q string
+	// Limit caps one page (see NormalizePlanLimit). Offset skips rows of the filtered,
+	// newest-first list.
+	Limit  int
+	Offset int
+}
+
+// planWhere renders the filter's WHERE clause and args, shared by ListPlans and
+// CountPlans so a page and its total can never disagree about what "matching" means.
+func (f PlanFilter) planWhere() (string, []any) {
+	var conds []string
 	var args []any
-	if status != "" {
-		query += " WHERE status = ?"
-		args = append(args, status)
+	if f.Status != "" {
+		conds = append(conds, "status = ?")
+		args = append(args, f.Status)
 	}
-	query += " ORDER BY created_at DESC, rowid DESC"
-	if limit <= 0 {
-		limit = DefaultListLimit
+	if f.ProjectKey != "" {
+		conds = append(conds, "project_key = ?")
+		args = append(args, f.ProjectKey)
 	}
-	query += " LIMIT ?"
-	args = append(args, limit)
+	if q := strings.TrimSpace(f.Q); q != "" {
+		// SQLite's LIKE is already ASCII case-insensitive, so LOWER() is only needed to
+		// keep the contract explicit (and true for a future non-SQLite store).
+		esc := escapeLikePattern(strings.ToLower(q))
+		conds = append(conds, `(LOWER(plan_id) LIKE ? ESCAPE '\' OR LOWER(COALESCE(title,'')) LIKE ? ESCAPE '\')`)
+		args = append(args, esc+"%", "%"+esc+"%")
+	}
+	if len(conds) == 0 {
+		return "", nil
+	}
+	return " WHERE " + strings.Join(conds, " AND "), args
+}
+
+// escapeLikePattern escapes the LIKE metacharacters in a user-supplied query so they
+// match literally (paired with `ESCAPE '\'`).
+func escapeLikePattern(s string) string {
+	if !strings.ContainsAny(s, `\%_`) {
+		return s
+	}
+	r := strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
+	return r.Replace(s)
+}
+
+// ListPlans returns one page of plans matching f, newest first. The order is
+// created_at DESC, rowid DESC — a total order, so consecutive pages neither repeat nor
+// skip a row that shares a created_at with its neighbour.
+func (s *Store) ListPlans(f PlanFilter) ([]Plan, error) {
+	where, args := f.planWhere()
+	query := selectPlanCols + where + " ORDER BY created_at DESC, rowid DESC LIMIT ? OFFSET ?"
+	args = append(args, NormalizePlanLimit(f.Limit), max(f.Offset, 0))
 
 	rows, err := s.db.Query(query, args...)
 	if err != nil {
@@ -153,6 +219,17 @@ func (s *Store) ListPlans(status string, limit int) ([]Plan, error) {
 		return nil, fmt.Errorf("jobstore: list plans rows: %w", err)
 	}
 	return out, nil
+}
+
+// CountPlans counts every plan matching f — the same conditions as ListPlans, without
+// paging. It is the `total` a paging UI needs ("showing 1–20 of 57").
+func (s *Store) CountPlans(f PlanFilter) (int, error) {
+	where, args := f.planWhere()
+	var n int
+	if err := s.db.QueryRow("SELECT COUNT(*) FROM plans"+where, args...).Scan(&n); err != nil {
+		return 0, fmt.Errorf("jobstore: count plans: %w", err)
+	}
+	return n, nil
 }
 
 // SetPlanStatus moves a plan to status and optionally updates progress.

@@ -36,7 +36,7 @@ func TestTodoOrderPlansNewestFirst(t *testing.T) {
 	for _, id := range ids {
 		assert.NoErr(t, s.InsertPlan(Plan{PlanID: id, Status: PlanOpen, CreatedAt: 100, UpdatedAt: 100}))
 	}
-	got, err := s.ListPlans("", 0)
+	got, err := s.ListPlans(PlanFilter{})
 	assert.NoErr(t, err)
 	want := []string{"plan-mm-third", "plan-aa-second", "plan-zz-first"}
 	if len(got) != len(want) {

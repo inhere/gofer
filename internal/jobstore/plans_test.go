@@ -35,11 +35,11 @@ func TestPlanInsertGetListStatusAndAttach(t *testing.T) {
 	assert.Eq(t, PlanOpen, got.Status)
 
 	assert.NoErr(t, s.InsertPlan(Plan{PlanID: "plan-2", Status: PlanActive, CreatedAt: 200, UpdatedAt: 200}))
-	open, err := s.ListPlans(PlanOpen, 0)
+	open, err := s.ListPlans(PlanFilter{Status: PlanOpen})
 	assert.NoErr(t, err)
 	assert.Len(t, open, 1)
 	assert.Eq(t, "plan-1", open[0].PlanID)
-	all, err := s.ListPlans("", 0)
+	all, err := s.ListPlans(PlanFilter{})
 	assert.NoErr(t, err)
 	assert.Len(t, all, 2)
 	assert.Eq(t, "plan-2", all[0].PlanID)

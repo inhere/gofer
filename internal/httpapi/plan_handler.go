@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -261,10 +262,29 @@ func (s *Server) handleCreatePlan(c *rux.Context) {
 	c.JSON(http.StatusOK, toPlanView(p))
 }
 
+// handleListPlans returns one page of plans plus the paging facts around it (F-d).
+// Query params: status, project, q (plan-id prefix or title substring), limit, offset —
+// a non-numeric limit/offset falls back to 0 (the default page / no skip), like the job
+// list. The response carries the effective limit and offset, so a caller that named
+// neither (or asked for more than the cap) can still render "showing a–b of total".
 func (s *Server) handleListPlans(c *rux.Context) {
-	list, err := s.jobs.Meta().ListPlans(c.Query("status"), 0)
+	limit, _ := strconv.Atoi(c.Query("limit"))
+	offset, _ := strconv.Atoi(c.Query("offset"))
+	filter := jobstore.PlanFilter{
+		Status:     c.Query("status"),
+		ProjectKey: c.Query("project"),
+		Q:          c.Query("q"),
+		Limit:      limit,
+		Offset:     offset,
+	}
+	list, err := s.jobs.Meta().ListPlans(filter)
 	if err != nil {
 		writeError(c, http.StatusInternalServerError, "list plans failed", err.Error())
+		return
+	}
+	total, err := s.jobs.Meta().CountPlans(filter)
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "count plans failed", err.Error())
 		return
 	}
 	ids := make([]string, len(list))
@@ -292,7 +312,12 @@ func (s *Server) handleListPlans(c *rux.Context) {
 			Completion: jobstore.RollupPlanCompletion(jc, tc),
 		})
 	}
-	c.JSON(http.StatusOK, map[string]any{"plans": out})
+	c.JSON(http.StatusOK, map[string]any{
+		"plans":  out,
+		"total":  total,
+		"limit":  jobstore.NormalizePlanLimit(limit),
+		"offset": max(offset, 0),
+	})
 }
 
 // planUsageView is the plan's token/cost roll-up on the wire (PLAN-02 P2): what the

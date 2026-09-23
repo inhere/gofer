@@ -573,12 +573,12 @@ func TestPlanClientRoundTrip(t *testing.T) {
 	// No status filter: PLAN-03 completes a plan once every one of its todos is done,
 	// so this plan (one todo, marked done above) is `done` by now — the filter would
 	// test the chain, not the list shape this case is about.
-	plans, err := c.ListPlans("")
+	plans, err := c.ListPlans(PlanListOpts{})
 	if err != nil {
 		t.Fatalf("ListPlans: %v", err)
 	}
 	var found bool
-	for _, plan := range plans {
+	for _, plan := range plans.Plans {
 		if plan.PlanID == "plan-client" {
 			found = true
 			// P4/T10：list 现在内联 counts（Plans 列表进度条的数据源，避免前端 N+1
@@ -597,7 +597,7 @@ func TestPlanClientRoundTrip(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Fatalf("plan-client missing from ListPlans: %+v", plans)
+		t.Fatalf("plan-client missing from ListPlans: %+v", plans.Plans)
 	}
 }
 
