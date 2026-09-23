@@ -72,6 +72,11 @@ type serverConfigView struct {
 	// SkillLimits is the skill import size guard (JOB-10 §一.2). Editable as a whole
 	// block, so the console needs the values to prefill the inputs it writes back.
 	SkillLimits skillLimitsView `json:"skill_limits"`
+	// JobEnvDenyList is the SEC-01 extra env denylist (server.job_env_denylist).
+	// Editable, so the console reads it to prefill the input it writes back; it is the
+	// keys ADDED to the built-in credential triple, never the triple itself (that is
+	// not a knob a config file can turn off).
+	JobEnvDenyList []string `json:"job_env_denylist"`
 }
 
 // skillLimitsView is the server.skill_limits block as the console edits it. Zero
@@ -221,6 +226,12 @@ type configAgentView struct {
 	// Skills are this agent's own bindings (JOB-10 §一.3), like the server's list:
 	// editable, so the view carries it for the console's form to prefill.
 	Skills []string `json:"skills"`
+	// CanSubmit / SubmitAgents are the SEC-01 submit gate (design §一.3). Editable,
+	// and the agent write REPLACES the editable set — a body that omits a field clears
+	// it — so a view that did not carry them would let the console's next unrelated
+	// save silently revoke a submit grant (the JOB-10 `skills` incident, verbatim).
+	CanSubmit    bool     `json:"can_submit"`
+	SubmitAgents []string `json:"submit_agents"`
 }
 
 // acpConfigView is the acp-agent sub-block as the console edits it. It carries the two
@@ -381,6 +392,7 @@ func buildServerConfigView(sc config.ServerConfig) serverConfigView {
 			MaxFileBytes:  sc.SkillLimits.MaxFileBytes,
 			MaxTotalBytes: sc.SkillLimits.MaxTotalBytes,
 		},
+		JobEnvDenyList: nonNil(sc.JobEnvDenyList),
 	}
 }
 
@@ -523,6 +535,8 @@ func buildAgentViews(agents map[string]config.AgentConfig, injected map[string]b
 			ACP:                      acp,
 			Injected:                 injected[k],
 			Skills:                   nonNil(ac.Skills),
+			CanSubmit:                ac.CanSubmit,
+			SubmitAgents:             nonNil(ac.SubmitAgents),
 		})
 	}
 	return out

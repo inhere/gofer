@@ -299,6 +299,88 @@ func TestConfigSkillBindingsRoundTrip(t *testing.T) {
 	}
 }
 
+// TestEveryEditableServerFieldIsWritable is the server-side twin of
+// TestEveryEditableAgentFieldIsWritable: the policy table and applyServerField are two
+// hand-maintained halves of one contract, and a field the table calls editable but the
+// switch does not handle answers 500 on a write that should have worked — on the field
+// nobody had tried yet (which is how `server.job_env_denylist` shipped in SEC-01).
+// Unlike the agent half there is no clear-on-omit rule to trip over (a server write
+// applies exactly the fields the body carries), so the guard is the switch itself.
+func TestEveryEditableServerFieldIsWritable(t *testing.T) {
+	policies := config.SectionPolicies("server")
+	if len(policies) == 0 {
+		t.Fatal("no server field policies")
+	}
+	checked := 0
+	for name, fp := range policies {
+		if !fp.Editable {
+			continue
+		}
+		checked++
+		var sc config.ServerConfig
+		if err := applyServerField(&sc, configBodyField{
+			name: name, path: "server." + name, raw: json.RawMessage("null"),
+		}); err != nil {
+			t.Errorf("applyServerField(%q, null) = %v: the policy table and the write switch disagree", name, err)
+		}
+	}
+	if checked < 10 {
+		t.Fatalf("reflection-by-table found only %d editable server fields — the guard is not looking at the table", checked)
+	}
+}
+
+// TestConfigSubmitGateRoundTrip pins the SEC-01 submit gate on both sides of the
+// console's form, for the same reason TestConfigSkillBindingsRoundTrip pins skills: an
+// agent write REPLACES the editable set, so a view that did not publish
+// can_submit/submit_agents would let the console's next unrelated save silently revoke
+// a submit grant — and before the write switch had the two cases, EVERY agent PUT
+// (which clears each omitted editable field) answered 500.
+func TestConfigSubmitGateRoundTrip(t *testing.T) {
+	yamlText, _, _ := configWriteFixture(t)
+	s, _, _ := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
+
+	agentBody := func() map[string]any {
+		return map[string]any{
+			"type": "cli-agent", "command": "mytool", "args": []string{"run", "{{prompt}}"},
+		}
+	}
+	body := agentBody()
+	body["can_submit"] = true
+	body["submit_agents"] = []string{"exec", "omp"}
+	resp := do(t, s, http.MethodPut, "/v1/config/agents/mytool", adminToken, body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT agent can_submit status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	got := agentFromConfig(t, getConfigView(t, s, adminToken), "mytool")
+	if !got.CanSubmit || len(got.SubmitAgents) != 2 || got.SubmitAgents[0] != "exec" || got.SubmitAgents[1] != "omp" {
+		t.Fatalf("view can_submit=%v submit_agents=%v, want true [exec omp]", got.CanSubmit, got.SubmitAgents)
+	}
+
+	// Replace semantics on the agent: a body that omits the two fields clears them back
+	// to the default (closed / [exec]) — exactly why the console always sends the set it
+	// read, and why the view has to publish it.
+	resp = do(t, s, http.MethodPut, "/v1/config/agents/mytool", adminToken, agentBody())
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT agent without the gate status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	if got = agentFromConfig(t, getConfigView(t, s, adminToken), "mytool"); got.CanSubmit || len(got.SubmitAgents) != 0 {
+		t.Fatalf("can_submit=%v submit_agents=%v, want them cleared", got.CanSubmit, got.SubmitAgents)
+	}
+
+	// The server-side denylist is editable for the same reason: the console echoes the
+	// list it read back into the field it writes.
+	resp = do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
+		"job_env_denylist": []string{"MY_SECRET"},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT server job_env_denylist status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	deny := getConfigView(t, s, adminToken).Server.JobEnvDenyList
+	if len(deny) != 1 || deny[0] != "MY_SECRET" {
+		t.Fatalf("view job_env_denylist=%v, want [MY_SECRET]", deny)
+	}
+}
+
 func TestAgentPutPatchesACPBlock(t *testing.T) {
 	yamlText, _, _ := configWriteFixture(t)
 	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})

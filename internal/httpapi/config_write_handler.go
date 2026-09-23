@@ -638,6 +638,24 @@ func applyAgentField(ac *config.AgentConfig, f configBodyField) error {
 			return err
 		}
 		ac.Skills = v
+	case "can_submit":
+		// SEC-01 §一.3: the member-job submit gate. A plain bool — `null` clears it
+		// back to the default (closed), which is exactly the zero value, so the
+		// ordinary "an omitted editable field is cleared" rule needs no special case.
+		v, err := fieldValue[bool](f)
+		if err != nil {
+			return err
+		}
+		ac.CanSubmit = v
+	case "submit_agents":
+		// The allowlist the gate above opens; `null` (or `[]`) clears it back to the
+		// default [exec] through config.EffectiveSubmitAgents — the narrowest useful
+		// answer, never "any agent".
+		v, err := fieldValue[[]string](f)
+		if err != nil {
+			return err
+		}
+		ac.SubmitAgents = v
 	case "acp":
 		return patchAgentACP(ac, f)
 	default:
@@ -970,6 +988,17 @@ func applyServerField(sc *config.ServerConfig, f configBodyField) error {
 			return err
 		}
 		sc.DirLock = v
+	case "job_env_denylist":
+		// SEC-01: the extra keys a job's inherited environment must not carry, ADDED
+		// to the built-in credential triple by effectiveJobEnvDeny at each spawn — so
+		// a hot edit applies to the NEXT job. `null` or `[]` clears it back to the
+		// built-in list alone (the deny list is never empty; the built-in keys are not
+		// this field's business).
+		v, err := fieldValue[[]string](f)
+		if err != nil {
+			return err
+		}
+		sc.JobEnvDenyList = v
 	case "agent_health":
 		// SUP-01 P3: read per health read (EffectiveAgentHealth). null clears the
 		// block back to the documented defaults (1h / 3 / 1) rather than to zeros, so
