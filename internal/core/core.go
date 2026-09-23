@@ -296,6 +296,15 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	// Wired here (after both pieces exist, before any job can run) exactly like the
 	// transfer manager itself; job never imports xfer and xfer never imports job.
 	jobs.SetXferBridge(hubJobXferFor(xferMgr))
+	// JOB-10: the skill library the four-level binding resolves against, plus the
+	// worker-side staging of its files over the transfer manager above. Wired here for
+	// the same reason as the file seam: job never imports skill/xfer, and this is the
+	// only place that knows all three.
+	skillLib, err := buildSkillLibrary(cfg, store, xferMgr)
+	if err != nil {
+		return nil, fmt.Errorf("build skill library: %w", err)
+	}
+	jobs.SetSkillLibrary(skillLib)
 	// Seed generation 1 (verification 5: Build=Rev 1, every write +1). This is the
 	// only snap.Store outside reloadLocked; it never re-resolves (the registries above
 	// were already built from this resolved cfg).

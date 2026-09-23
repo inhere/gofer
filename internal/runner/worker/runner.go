@@ -64,6 +64,11 @@ func xferUploadsToWire(in []runner.XferUpload) []wsproto.XferUpload {
 	return out
 }
 
+// uploadBaseResultDir is the runner.XferUpload.Base value meaning "relative to the
+// job's private result dir" (job.SkillBaseResultDir on the job side). It is spelled
+// here rather than imported because job imports runner, never the reverse (G022).
+const uploadBaseResultDir = "result_dir"
+
 // splitSkillUploads separates the uploads a worker at protocol version proto can
 // actually carry from the ones it cannot, so a job can be dispatched WITHOUT its
 // skills instead of refused over them (JOB-10, design §横切).
@@ -87,7 +92,7 @@ func splitSkillUploads(in []runner.XferUpload, proto int, known bool) (keep []ru
 	}
 	keep = make([]runner.XferUpload, 0, len(in))
 	for _, u := range in {
-		if u.Base == "result_dir" && !carries {
+		if u.Base == uploadBaseResultDir && !carries {
 			dropped++
 			continue
 		}

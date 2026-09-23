@@ -1933,6 +1933,10 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	if line := formatXfer(res.Xfer); line != "" {
 		c.Printf("xfer:       %s\n", line)
 	}
+	// JOB-10：这次运行绑定了哪些技能（四级并集的最终结果）。没绑定就不打印——不摆一行空清单。
+	if len(res.Skills) > 0 {
+		c.Printf("skills:     %s\n", strings.Join(res.Skills, ", "))
+	}
 	// JOB-09：唤醒——这个 job 登记了几条、其中几条还在等（kind 分布），回答"它会不会自己
 	// 再跑一次"。列表是另一次读请求，失败就不打印（job 本身的状态才是这个命令的重点）。
 	if ws, werr := cli.ListWakeups(res.ID); werr == nil {

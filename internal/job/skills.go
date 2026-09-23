@@ -92,11 +92,16 @@ const (
 	goferSkillsDirEnv = "GOFER_SKILLS_DIR"
 )
 
-// skillDestFor is the result-dir-relative destination of one skill file, e.g.
-// skills/house-rules/SKILL.md.
-func skillDestFor(name, rel string) string {
+// SkillDest is the result-dir-relative destination of one skill file, e.g.
+// skills/house-rules/SKILL.md. It is exported because the STAGING side (which lives
+// outside this package, next to the transfer manager) must derive the same path the
+// mounting side uses — one definition, no drift.
+func SkillDest(name, rel string) string {
 	return skillsDirName + "/" + name + "/" + filepath.ToSlash(rel)
 }
+
+// skillDestFor is the in-package spelling used by this file and its tests.
+func skillDestFor(name, rel string) string { return SkillDest(name, rel) }
 
 // substituteSkillsDir replaces the placeholder with THIS machine's mount path. It is
 // idempotent and safe to run for every job: a manifest rendered locally already has

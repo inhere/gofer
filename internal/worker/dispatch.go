@@ -294,7 +294,10 @@ func xferToFrame(x *job.XferSummary) json.RawMessage {
 }
 
 // xferUploadsFromWire projects the wire upload specs onto the job request's own type
-// (wsproto stays a leaf; the worker's local job service owns the request).
+// (wsproto stays a leaf; the worker's local job service owns the request). Base is
+// copied verbatim: it is what tells this machine's materializer that a skill belongs
+// in the job's OWN result dir rather than its cwd (JOB-10). A pre-v10 hub never sends
+// a base-carrying upload, so the zero value keeps the pre-JOB-10 cwd reading.
 func xferUploadsFromWire(in []wsproto.XferUpload) []job.UploadSpec {
 	if len(in) == 0 {
 		return nil

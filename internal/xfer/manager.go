@@ -2,9 +2,13 @@ package xfer
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log/slog"
+	"os"
 	"path/filepath"
 	"sync"
 	"time"
@@ -151,6 +155,61 @@ func (m *Manager) runnerOrNil() Runner {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.runner
+}
+
+// StagePutFromFile stages ONE local file as a put transfer and returns its record:
+// the bytes are copied from srcPath into the staging area in one step, with the size
+// and sha256 computed HERE (the caller cannot under-declare them). It is what lets a
+// caller that already holds the file on this machine — the JOB-10 skills mount —
+// reuse the transfer channel without an HTTP round trip through its own server.
+//
+// A staging failure leaves no journal row: the record is created first (that is where
+// the id comes from) and removed again if the copy or the commit fails, exactly like
+// the HTTP path's cleanup.
+func (m *Manager) StagePutFromFile(caller, runner, projectKey, srcPath, dest string) (jobstore.XferRecord, error) {
+	info, err := os.Stat(srcPath)
+	if err != nil {
+		return jobstore.XferRecord{}, err
+	}
+	if info.IsDir() {
+		return jobstore.XferRecord{}, fmt.Errorf("xfer: %s is a directory, not a file", srcPath)
+	}
+	if info.Size() > m.limits.MaxBytes {
+		return jobstore.XferRecord{}, fmt.Errorf("%w: %d bytes exceeds %d", ErrTooLarge, info.Size(), m.limits.MaxBytes)
+	}
+	src, err := os.Open(srcPath)
+	if err != nil {
+		return jobstore.XferRecord{}, err
+	}
+	defer src.Close()
+
+	rec, err := m.StagePut(caller, runner, projectKey, dest, info.Size(), "", false)
+	if err != nil {
+		return jobstore.XferRecord{}, err
+	}
+	w, err := m.store.Writer(rec.ID)
+	if err != nil {
+		_ = m.Fail(rec.ID, err.Error())
+		return jobstore.XferRecord{}, err
+	}
+	sum := sha256.New()
+	n, cerr := io.Copy(io.MultiWriter(w, sum), src)
+	closeErr := w.Close()
+	if cerr != nil || closeErr != nil {
+		reason := cerr
+		if reason == nil {
+			reason = closeErr
+		}
+		_ = m.Fail(rec.ID, reason.Error())
+		return jobstore.XferRecord{}, reason
+	}
+	sha := hex.EncodeToString(sum.Sum(nil))
+	if err := m.CommitPut(rec.ID, n, sha); err != nil {
+		_ = m.Fail(rec.ID, err.Error())
+		return jobstore.XferRecord{}, err
+	}
+	rec.Size, rec.SHA256 = n, sha
+	return rec, nil
 }
 
 // StagePut records a pending upload of size bytes towards
