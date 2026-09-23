@@ -518,7 +518,11 @@ func runPlanList(c *gcli.Command, _ []string) error {
 		return nil
 	}
 	printPlanTable(c, page.Plans)
-	printPlanPageFooter(c, page.Total, page.Offset, len(page.Plans))
+	total := page.Total
+	if total < page.Offset+len(page.Plans) { // an older server sends no total
+		total = page.Offset + len(page.Plans)
+	}
+	printPlanPageFooter(c, total, page.Offset, len(page.Plans))
 	return nil
 }
 
@@ -537,6 +541,13 @@ func runPlanListAll(c *gcli.Command, cli *client.Client, opts client.PlanListOpt
 		}
 		total = page.Total
 		all = append(all, page.Plans...)
+		// A server older than the paging API ignores limit/offset, returns every row
+		// and no total: take what arrived as the whole result instead of printing
+		// "共 0 条" over a full table, and never loop on a page it will just repeat.
+		if total < len(all) {
+			total = len(all)
+			break
+		}
 		if len(page.Plans) == 0 || len(all) >= total {
 			break
 		}
