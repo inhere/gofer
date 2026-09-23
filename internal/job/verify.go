@@ -5,13 +5,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"strings"
 	"time"
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/runner"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // resolveVerify resolves the job's verify step and its deadline IN PLACE (SUP-01 B)
@@ -102,7 +102,7 @@ func (s *Service) runVerify(ctx context.Context, entry *jobEntry, req runner.Req
 	}
 	cmd := exec.CommandContext(vctx, argv[0], argv[1:]...)
 	cmd.Dir = req.WorkDir
-	cmd.Env = verifyEnv(req.Env)
+	cmd.Env = verifyEnv(req)
 	// stdout+stderr merged into the JOB's stderr log: the agent's own output stays
 	// readable and a remote execution mirrors both streams in one channel (D6).
 	cmd.Stdout = req.Stderr
@@ -171,14 +171,12 @@ func writeVerifyBanner(w io.Writer, line string) {
 }
 
 // verifyEnv layers the job's env (agent config + job env + gofer metadata, already
-// merged by Submit) over this process's env, exactly as the agent's own child gets
-// it. A nil/empty extra map yields the process env unchanged.
-func verifyEnv(extra map[string]string) []string {
-	env := os.Environ()
-	for k, v := range extra {
-		env = append(env, k+"="+v)
-	}
-	return env
+// merged by Submit) over this process's env INHERITED-MINUS-DENY, exactly as the
+// agent's own child gets it (SEC-01: the verify step is a job-spawned process too
+// and must not see the serve process's bearer token either). A nil/empty extra map
+// still gets the filter applied — the point is what the step does NOT inherit.
+func verifyEnv(req runner.Request) []string {
+	return util.EnvironWithout(req.EnvDeny, req.EnvAllow, req.Env)
 }
 
 // setVerify records the step's result on the in-memory job entry; finish persists it

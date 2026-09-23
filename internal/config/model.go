@@ -481,6 +481,32 @@ type RoleConfig struct {
 	// for the same key wins. 勿放 secret：值会随 job.Env 落 request_json（SR403/SR805），
 	// secret 应走 agent.env / K8s secret（不落 request_json）。
 	Env map[string]string `yaml:"env,omitempty"`
+	// CanSubmit / SubmitAgents are the ROLE-level counterparts of the same two
+	// AgentConfig fields (SEC-01): a job run under this role may submit work when
+	// either its role or its agent opens the gate. They exist because the natural unit
+	// for "this role is a supervisor" is the role preset, not the CLI it happens to
+	// run on. See AgentConfig.CanSubmit for the exact rule.
+	CanSubmit    bool     `yaml:"can_submit,omitempty"`
+	SubmitAgents []string `yaml:"submit_agents,omitempty"`
+}
+
+// DefaultSubmitAgents is what an unset submit_agents yields: the exec agent, which
+// runs the argv the submitter passes and nothing else. A job that may start work
+// should be able to start a COMMAND; letting it start an arbitrary agent (with that
+// agent's tools and prompts) is a much larger grant and must be written down.
+//
+// The literal is spelled here rather than via agent.ExecAgentKey because
+// internal/agent imports this package, not the other way round (G022).
+const DefaultSubmitAgents = "exec"
+
+// EffectiveSubmitAgents returns the agents this definition permits, defaulting to
+// [DefaultSubmitAgents] for an empty list. A fresh slice every call — never the
+// caller's to mutate.
+func EffectiveSubmitAgents(list []string) []string {
+	if len(list) == 0 {
+		return []string{DefaultSubmitAgents}
+	}
+	return slices.Clone(list)
 }
 
 // ServerConfig holds HTTP server and auth settings.
@@ -599,6 +625,15 @@ type ServerConfig struct {
 	// See EffectiveStallTimeoutSec for the full resolution (request > agent > server;
 	// exec jobs are off unless someone asks for a window).
 	StallTimeoutSec *int `yaml:"stall_timeout_sec,omitempty"`
+	// JobEnvDenyList adds to the built-in denylist of environment variables a job
+	// process does NOT inherit from this gofer process (SEC-01). The built-in three
+	// (GOFER_TOKEN, GOFER_SERVER_TOKEN, GOFER_WORKER_TOKEN) are always stripped; this
+	// is for a deployment whose credentials live under other names. A project's
+	// `job_env_allow` re-admits any of them deliberately, and each job that keeps one
+	// records `job.env_allowed` so the detail view shows it.
+	//
+	// It is read per job spawn, so a reload applies to the NEXT job (nothing caches it).
+	JobEnvDenyList []string `yaml:"job_env_denylist,omitempty"`
 	// Skills is the deployment-wide default skill set (JOB-10, design §一.3): the
 	// skills every job this server dispatches mounts into its own
 	// `<result_dir>/skills/` before the agent starts, whatever project or agent it
@@ -1417,7 +1452,16 @@ type ProjectConfig struct {
 	AllowInteractive  *bool    `yaml:"allow_interactive,omitempty"`
 	AllowedRunners    []string `yaml:"allowed_runners,omitempty"`
 	AllowExec         bool     `yaml:"allow_exec,omitempty"`
-	MaxConcurrentJobs int      `yaml:"max_concurrent_jobs,omitempty"`
+	// JobEnvAllow names environment variables this project's jobs DO inherit, even
+	// though the server's denylist (SEC-01, server.job_env_denylist + the built-in
+	// credential keys) would strip them. It is the one deliberate way to keep the old
+	// "jobs see the process environment" behaviour for a project — a script that needs
+	// its own credential must be given one explicitly rather than inheriting the
+	// server's. Every job that actually keeps such a key records `job.env_allowed`,
+	// so the allowance is visible on the job rather than only in the config file.
+	JobEnvAllow []string `yaml:"job_env_allow,omitempty"`
+	// MaxConcurrentJobs caps this project's simultaneously RUNNING jobs (0 = no cap).
+	MaxConcurrentJobs int `yaml:"max_concurrent_jobs,omitempty"`
 	// MaxTimeoutSec overrides the job-timeout ceiling for THIS project (bd
 	// h-aii-s9ck). 0/unset => inherit server.max_job_timeout_sec (or its default);
 	// a non-zero value REPLACES it in EITHER direction — raising it above the
@@ -1788,6 +1832,17 @@ type AgentConfig struct {
 	// jobs, N = kill a job of this agent after N silent seconds. A pointer because
 	// "off" and "unset" are different decisions.
 	StallTimeoutSec *int `yaml:"stall_timeout_sec,omitempty"`
+	// CanSubmit opens the SUBMIT gate for this agent's jobs (SEC-01 §一.3): a member
+	// job running this agent may submit further jobs in its OWN project — it is the
+	// "a job that dispatches work" case, and it stays closed until an operator says
+	// otherwise. What it may start is SubmitAgents below, and the new job is tagged
+	// `submitted_by_job:<id>` so the provenance is on the job, not only in a log.
+	CanSubmit bool `yaml:"can_submit,omitempty"`
+	// SubmitAgents is the allowlist of agents such a job may submit (the agent/role of
+	// the job ASKING, not the one being asked for). Unset means
+	// EffectiveSubmitAgents' default of ["exec"] — the narrowest useful answer (start a
+	// command), never "any agent".
+	SubmitAgents []string `yaml:"submit_agents,omitempty"`
 	// Retry is this agent's default job retry policy (R2/AUTO-03, design §二.2): it
 	// applies to jobs that run THIS agent, overriding server.retry and being
 	// overridden by projects.<k>.retry / JobRequest.Retry. Nil = this agent says

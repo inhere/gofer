@@ -119,6 +119,11 @@ func (s *Server) handleCreateWakeup(c *rux.Context) {
 		return
 	}
 	spec.JobID = c.Param("id")
+	// SEC-01: a job credential may register a wakeup on ITSELF and nothing else — the
+	// "continue me when this fires" case an agent inside a job asks for.
+	if !s.jobMayWakeJob(c, spec.JobID) {
+		return
+	}
 	w, err := s.jobs.CreateWakeup(spec, callerFromCtx(c))
 	if err != nil {
 		writeError(c, wakeupStatus(err), "wakeup rejected", err.Error())

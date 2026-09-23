@@ -111,11 +111,13 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		toolStatus:  map[string]string{},
 	}
 	client, err := acp.Start(ctx, acp.Options{
-		Command: req.Command,
-		Args:    req.Args,
-		Dir:     req.WorkDir,
-		Env:     req.Env,
-		Stderr:  req.Stderr,
+		Command:  req.Command,
+		Args:     req.Args,
+		Dir:      req.WorkDir,
+		Env:      req.Env,
+		EnvDeny:  req.EnvDeny,
+		EnvAllow: req.EnvAllow,
+		Stderr:   req.Stderr,
 	})
 	if err != nil {
 		return runner.Result{ExitCode: -1, Err: err}

@@ -3,8 +3,6 @@ package mcpserver
 import (
 	"encoding/json"
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/job"
@@ -50,12 +48,12 @@ func (b *clientBackend) CancelJob(id string) (job.JobResult, error) {
 }
 
 // RejectJob forwards the refusal to the central serve, whose own auth stamps the
-// reviewer (by here is only used by the in-process backend). The in-job identity rides
-// along as as_job (GOFER_JOB_ID), so the central serve can refuse a verdict asked for by
-// a LEADER job — an agent must not look like the human whose token it inherits
-// (MCP-05 阶段 B).
+// reviewer (by here is only used by the in-process backend). Nothing about the caller's
+// identity rides along: the central serve reads it from the CREDENTIAL the request
+// authenticated with, and since SEC-01 that refuses accept/reject for a job caller
+// before the body is even read.
 func (b *clientBackend) RejectJob(id, note string, resume bool, _ string) (job.ReviewOutcome, error) {
-	return b.cli.RejectJob(id, note, strings.TrimSpace(os.Getenv(envJobID)), resume)
+	return b.cli.RejectJob(id, note, resume)
 }
 
 // GetResult returns the job's result.json content (the get_job snapshot's
@@ -371,11 +369,12 @@ func (b *clientBackend) ListPresence(role, project string) ([]presence.Agent, er
 	return b.cli.ListPresence(role, project)
 }
 
-// Comment forwards a comment to the central serve (MCP-05 阶段 A). as_job travels on the
-// wire so the SERVER decides the author kind from that job — a client cannot declare
-// itself a human.
-func (b *clientBackend) Comment(scope, id, body, asJob string) (commentView, error) {
-	cm, err := b.cli.PostComment(scope, id, body, asJob)
+// Comment forwards a comment to the central serve (MCP-05 阶段 A). The author is the
+// SERVER's decision, taken from the credential this client authenticated with — a
+// client cannot declare itself a human, and since SEC-01 it need not (and cannot)
+// declare itself a job either.
+func (b *clientBackend) Comment(scope, id, body, _ string) (commentView, error) {
+	cm, err := b.cli.PostComment(scope, id, body)
 	if err != nil {
 		return commentView{}, err
 	}

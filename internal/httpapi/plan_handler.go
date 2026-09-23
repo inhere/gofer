@@ -604,6 +604,12 @@ func (s *Server) handleUpdateTodo(c *rux.Context) {
 			"status must be one of pending|ready|doing|done|skipped")
 		return
 	}
+	// SEC-01: a job credential may move a checklist item only under its own narrow
+	// rule (a leader job, its own plan, ready|skipped). Checked BEFORE any write, so a
+	// refused call leaves the item exactly as it was.
+	if status != "" && !s.jobMaySetTodo(c, tid, status) {
+		return
+	}
 	if body.Note != nil && body.AppendNote != "" {
 		writeError(c, http.StatusBadRequest, "conflicting note fields",
 			"note (overwrite) and append_note are mutually exclusive")

@@ -52,7 +52,7 @@ func (r *Runner) Name() string { return Name }
 func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	cmd := exec.CommandContext(ctx, req.Command, req.Args...)
 	cmd.Dir = req.WorkDir
-	cmd.Env = util.Environ(req.Env)
+	cmd.Env = util.EnvironWithout(req.EnvDeny, req.EnvAllow, req.Env)
 	cmd.Stdout = req.Stdout
 	cmd.Stderr = req.Stderr
 	// Bound the post-exit wait on pipe copy goroutines so an orphaned descendant

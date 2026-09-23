@@ -578,6 +578,25 @@ var schemaStmts = []string{
 	`CREATE INDEX IF NOT EXISTS idx_leader_wakes_due ON plan_leader_wakes(state, due_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_leader_wakes_plan ON plan_leader_wakes(plan_id, state)`,
 	`CREATE INDEX IF NOT EXISTS idx_leader_wakes_member ON plan_leader_wakes(member_job_id)`,
+	// job_tokens is SEC-01's job-scoped credential registry: one row per job the hub
+	// minted a credential for, holding only the sha256 of the token (the secret lives
+	// in the job process's environment and, for a dispatched job, on the wire — never
+	// here). job_id is the PRIMARY KEY because a job has at most one live credential
+	// and a re-submitted id supersedes the old one. expires_at is the fallback deadline
+	// that covers a job whose terminal path never ran (a crashed hub). IF NOT EXISTS
+	// like every table here (idempotent Open).
+	`CREATE TABLE IF NOT EXISTS job_tokens (
+  job_id     TEXT PRIMARY KEY,
+  token_hash TEXT NOT NULL,
+  kind       TEXT NOT NULL,
+  plan_id    TEXT NOT NULL DEFAULT '',
+  expires_at INTEGER NOT NULL,
+  revoked_at INTEGER,
+  created_at INTEGER NOT NULL
+)`,
+	// The credential lookup is BY HASH (the presented token is hashed and matched), so
+	// this index is the hot path of every job-authenticated request.
+	`CREATE UNIQUE INDEX IF NOT EXISTS idx_job_tokens_hash ON job_tokens(token_hash)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema

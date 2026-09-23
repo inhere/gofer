@@ -1003,28 +1003,27 @@ func (c *Client) CancelJob(id string) (job.JobResult, error) {
 // needs_review job (GATE-01 S3): the job becomes done and the reviewer/note are kept
 // as its audit trail. note is optional.
 //
-// asJob is the IN-JOB identity (the CLI's GOFER_JOB_ID, sent exactly like a comment's
-// as_job): the server refuses a verdict asked for by a LEADER job (MCP-05 阶段 B), so an
-// agent must not be able to look like the human whose token it inherits.
-func (c *Client) AcceptJob(id, note, asJob string) (job.ReviewOutcome, error) {
-	return c.reviewJob(id, "accept", note, asJob, false)
+// There is no in-job identity to declare: since SEC-01 a job authenticates with its
+// OWN credential (GOFER_JOB_TOKEN), and the server refuses accept/reject for every job
+// caller from that credential — not from anything the body claims.
+func (c *Client) AcceptJob(id, note string) (job.ReviewOutcome, error) {
+	return c.reviewJob(id, "accept", note, false)
 }
 
 // RejectJob POSTs to /v1/jobs/{id}/reject, recording a human's REFUSAL of a
 // needs_review job: the job becomes rejected (terminal) and the note — required — is
 // kept as the reason. resume continues the work: a new job is started with the note as
 // its prompt and its id comes back in the outcome.
-func (c *Client) RejectJob(id, note, asJob string, resume bool) (job.ReviewOutcome, error) {
-	return c.reviewJob(id, "reject", note, asJob, resume)
+func (c *Client) RejectJob(id, note string, resume bool) (job.ReviewOutcome, error) {
+	return c.reviewJob(id, "reject", note, resume)
 }
 
 // reviewJob is the shared accept/reject request (POST /v1/jobs/{id}/<verdict>).
-func (c *Client) reviewJob(id, verdict, note, asJob string, resume bool) (job.ReviewOutcome, error) {
+func (c *Client) reviewJob(id, verdict, note string, resume bool) (job.ReviewOutcome, error) {
 	body, err := json.Marshal(struct {
 		Note   string `json:"note,omitempty"`
 		Resume bool   `json:"resume,omitempty"`
-		AsJob  string `json:"as_job,omitempty"`
-	}{Note: note, Resume: resume, AsJob: asJob})
+	}{Note: note, Resume: resume})
 	if err != nil {
 		return job.ReviewOutcome{}, fmt.Errorf("encode %s request: %w", verdict, err)
 	}
@@ -1431,18 +1430,18 @@ func commentPath(scope, id string) (string, error) {
 }
 
 // PostComment records a comment on scope/id (MCP-05 阶段 A) and returns the stored row
-// plus whatever its @-mentions dispatched. asJob is the MCP in-job identity (the
-// caller's GOFER_JOB_ID) — the server stamps author_kind=agent for it and dispatches
-// nothing; empty means the authenticated caller writes as a user (the dispatching case).
-func (c *Client) PostComment(scope, id, body, asJob string) (Comment, error) {
+// plus whatever its @-mentions dispatched. WHO wrote it is the server's decision, taken
+// from the credential the request authenticated with (SEC-01): a caller presenting a
+// job's GOFER_JOB_TOKEN comments as that job's agent (recorded, dispatching only for a
+// leader inside its own plan), anyone else comments as themselves.
+func (c *Client) PostComment(scope, id, body string) (Comment, error) {
 	path, err := commentPath(scope, id)
 	if err != nil {
 		return Comment{}, err
 	}
 	payload := struct {
-		Body  string `json:"body"`
-		AsJob string `json:"as_job,omitempty"`
-	}{Body: body, AsJob: asJob}
+		Body string `json:"body"`
+	}{Body: body}
 	raw, err := json.Marshal(payload)
 	if err != nil {
 		return Comment{}, fmt.Errorf("encode comment: %w", err)

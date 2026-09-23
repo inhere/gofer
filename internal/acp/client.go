@@ -37,6 +37,12 @@ type Options struct {
 	Dir string
 	// Env is layered over the process environment, like the local runner does.
 	Env map[string]string
+	// EnvDeny / EnvAllow filter the INHERITED process environment before Env is
+	// layered on (SEC-01, util.EnvironWithout): an ACP agent is a job process too, so
+	// it must not start holding the serve process's bearer token. See
+	// runner.Request.EnvDeny.
+	EnvDeny  []string
+	EnvAllow []string
 	// Stderr receives the agent's own diagnostics verbatim (the protocol channel is
 	// stdin/stdout only). Nil discards them.
 	Stderr io.Writer
@@ -119,7 +125,7 @@ func Start(_ context.Context, opts Options) (*Client, error) {
 	}
 	cmd := exec.Command(opts.Command, opts.Args...)
 	cmd.Dir = opts.Dir
-	cmd.Env = util.Environ(opts.Env)
+	cmd.Env = util.EnvironWithout(opts.EnvDeny, opts.EnvAllow, opts.Env)
 	if opts.Stderr != nil {
 		cmd.Stderr = opts.Stderr
 	}

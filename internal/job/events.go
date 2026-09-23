@@ -51,6 +51,11 @@ var mirroredEventTypes = map[string]bool{
 	EventJobACPSummary:          true,
 	EventJobVerifyStarted:       true,
 	EventJobVerifyFinished:      true,
+	// SEC-01: the allowance is resolved on the machine that SPAWNS the child, which for
+	// a dispatched job is the worker — the host would otherwise never learn that this
+	// job ran with a variable its denylist would have stripped, which is exactly the
+	// fact the job detail exists to show.
+	EventJobEnvAllowed: true,
 }
 
 // NOT on the list, by decision (S3, 2026-09-23): job.session_captured. The host

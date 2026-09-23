@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -402,6 +403,22 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		}
 		// Bridge the peer's running-job interactions (P9) onto this host job.
 		runReq.Interactions = remoteInteractionSink{s: s, jobID: jobID}
+		// SEC-01: mint the credential the EXECUTING worker will inject as
+		// GOFER_JOB_TOKEN. It travels on the Forward (which the ws-worker runner projects
+		// onto the dispatch frame); a worker below the credential protocol never receives
+		// it, runs the job without one and gets job.credential_skipped recorded against
+		// this host job. Minted only for the ws-worker transport — peer-http posts the
+		// Forward to another gofer, and a credential minted here must not leave this hub
+		// (Forward.JobToken is deliberately not serialisable), so a peer job simply runs
+		// without one.
+		if isWorkerRunner(cfg, req.Runner) {
+			kind, planID := jobCredentialIdentity(req)
+			if tok, terr := s.issueJobToken(jobID, kind, planID, timeout); terr != nil {
+				slog.Warn("job credential: issue for dispatch", "job_id", jobID, "err", terr)
+			} else {
+				runReq.Forward.JobToken = tok
+			}
+		}
 	} else {
 		// Resolve the agent from the SAME cfg snapshot the request was validated
 		// against (BuildFrom/ResolveAgent, not the agent registry): going through the
@@ -481,6 +498,20 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		// / E6 result.json. Set on the worker/peer side too (they run this same
 		// local branch), so remote exec jobs get the executor-local paths.
 		runReq.Env = goferJobEnv(util.MergeEnv(util.MergeEnv(secretMap, resolved.Env), req.Env), jobID, workDir, resultDir)
+		// SEC-01: this job's environment-privacy decision. The denylist strips inherited
+		// credentials from the child's environment (each runner applies it through
+		// util.EnvironWithout) and the PROJECT's allow list re-admits the ones an operator
+		// deliberately keeps. Resolved here, from the same config snapshot as the rest of
+		// admission, and carried on the request so the machine that actually spawns the
+		// child (a worker's own job.Service) applies exactly this decision.
+		runReq.EnvDeny = effectiveJobEnvDeny(cfg)
+		runReq.EnvAllow = proj.JobEnvAllow
+		s.recordEnvAllowedEvents(jobID, runReq.EnvAllow, runReq.EnvDeny)
+		// SEC-01: and the job's OWN credential, injected so the job can still reach this
+		// hub now that the inherited server token is gone. A hub-local job is minted one
+		// here — before execute starts — while a dispatched job already carries the hub's
+		// token and must not mint a second, unrevokable one (CredentialExternal).
+		runReq.Env = util.EnvWith(runReq.Env, s.jobCredentialEnv(cfg, jobID, req, timeout))
 		// MCP-05 阶段 B: a LEADER job tells its agent process (and the gofer MCP child
 		// that process spawns) which plan it leads, so the MCP surface can narrow itself
 		// to the leader tool whitelist. Server-set from the request's marker (which is

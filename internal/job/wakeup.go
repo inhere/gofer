@@ -234,6 +234,13 @@ var terminalStatuses = []string{
 // deployment that never turned that gate on is not suddenly locked out of its own
 // jobs.
 func (s *Service) canWakeJob(res JobResult, callerID string) bool {
+	// SEC-01: a job may wake ITSELF. A job credential reaches only its own job (the HTTP
+	// layer enforces that) and "continue me when this fires" is exactly the wakeup an
+	// agent registers from inside its own run — the case the CLI expresses by
+	// registering on $GOFER_JOB_ID. The caller id IS the job id for such a caller.
+	if callerID != "" && callerID == res.ID {
+		return true
+	}
 	if res.CallerID != "" && callerID == res.CallerID {
 		return true
 	}

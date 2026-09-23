@@ -128,6 +128,22 @@ type JobRequest struct {
 	// wire and out of request_json, exactly like ReviewFixed/WorkflowID, so no caller
 	// can promote itself to leader.
 	LeaderOfPlan string `json:"-" yaml:"-"`
+	// JobToken is the job-scoped credential (SEC-01) the executing process injects as
+	// GOFER_JOB_TOKEN. It is server-set on both paths and never a client input:
+	//   - a hub-local job is minted one by Submit itself (issueJobToken);
+	//   - a dispatched job receives the hub's token on the dispatch frame, and the
+	//     worker's Submit injects that one (CredentialExternal below).
+	// json/yaml "-" keeps it off the wire (the dispatch frame has its own field) and,
+	// critically, OUT of request_json: the credential must never be persisted or
+	// echoed back by `job show --request`.
+	JobToken string `json:"-" yaml:"-"`
+	// CredentialExternal marks a Submit that is RE-ENTERING from another machine — the
+	// worker's dispatch handler. The credential was minted by the HUB and arrived in
+	// JobToken above, so this process must not mint one of its own: it has no authority
+	// over a job id that lives in someone else's store, and a second credential for the
+	// same job would be one nobody can revoke. Empty JobToken + this flag is the
+	// pre-v11 worker case: the job simply runs without a credential.
+	CredentialExternal bool `json:"-" yaml:"-"`
 	// ExclusiveDir overrides the same-directory lock rule for this job (JOB-11): nil
 	// (the default) applies the rule — a WRITABLE agent job (cli/acp, not read-only,
 	// not interactive) takes the exclusive lock of its working directory, while exec
@@ -798,6 +814,25 @@ const (
 	// job's own job.running event later says it got in. A subscriber sees the queue
 	// without polling the row.
 	EventJobWaitingDir = "job.waiting_dir"
+	// SEC-01 job-scoped credentials, recorded on the job they describe:
+	//   - job.env_allowed  {keys:[...]}  a project's job_env_allow re-admitted
+	//     inherited variables the denylist would otherwise strip. It is recorded per
+	//     job that ACTUALLY inherited one (a key the process environment does not
+	//     carry is not an allowance in force), so the job detail answers "what did
+	//     this run get to see that it normally would not" without reading config.
+	//   - job.credential_skipped {reason:"worker_protocol"}  the job was dispatched to
+	//     a worker that predates the credential frame, so it runs WITHOUT a job token
+	//     (it can read nothing back). The literal lives in the runner package, which
+	//     emits it and cannot import this one (G022); aliased here like the skills
+	//     skip above.
+	//   - job.credential_revoked {job_id}  the terminal path killed the credential.
+	//     The audit trail a leaked token needs: "it was live from X until this job
+	//     ended".
+	// None is in the notification default set — they are facts about a run, not an
+	// "a human must act" signal.
+	EventJobEnvAllowed        = "job.env_allowed"
+	EventJobCredentialSkipped = runner.EventCredentialSkipped
+	EventJobCredentialRevoked = "job.credential_revoked"
 	// R2/AUTO-03 durable job retry, recorded on the SOURCE job (the one that failed)
 	// for the first two and on the retried job for the third:
 	//   - job.retry_scheduled {retry_id, attempt, next_run_at, reason}  a retry ROW was

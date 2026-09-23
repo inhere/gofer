@@ -12,6 +12,7 @@ package util
 
 import (
 	"os"
+	"strings"
 )
 
 // Environ returns os.Environ() with extra layered on top, ready for exec.Cmd.Env
@@ -28,6 +29,83 @@ func Environ(extra map[string]string) []string {
 	out = append(out, base...)
 	for k, v := range extra {
 		out = append(out, k+"="+v)
+	}
+	return out
+}
+
+// EnvironWithout is Environ with a DENY list applied to the inherited
+// environment (SEC-01): every os.Environ() entry whose key is named in deny is
+// dropped before extra is layered on, unless the same key is named in allow.
+//
+// The filter exists because gofer's own credentials live in the process
+// environment — `server.token_env: GOFER_TOKEN` for a serve started from the
+// deployment's .env, GOFER_SERVER_TOKEN / GOFER_WORKER_TOKEN for the CLI and the
+// worker — and a job process that inherits them is handed the operator's bearer
+// token. That is not theoretical: a v0.57 leader job without gofer MCP fell back
+// to the inherited server token and reviewed work as the human (design §背景).
+//
+// Only the INHERITED environment is filtered. `extra` is the caller's own,
+// written-down decision (agent/role/job config, gofer metadata) and passes
+// through verbatim: those keys are configured deliberately, not inherited by
+// accident.
+//
+// Key matching is case-insensitive, because Windows environment variable names
+// are (and os.Environ preserves whatever case it was set with).
+func EnvironWithout(deny, allow []string, extra map[string]string) []string {
+	base := os.Environ()
+	if len(deny) == 0 {
+		return Environ(extra)
+	}
+	out := make([]string, 0, CapSum(len(base), len(extra)))
+	for _, kv := range base {
+		key, _, _ := strings.Cut(kv, "=")
+		if EnvironKeyDenied(key, deny, allow) {
+			continue
+		}
+		out = append(out, kv)
+	}
+	for k, v := range extra {
+		out = append(out, k+"="+v)
+	}
+	return out
+}
+
+// EnvironKeyDenied reports whether key is denied by the deny list and not re-admitted
+// by the allow list. Exported because the job pipeline needs the same decision to
+// report WHICH allowances actually took effect (job.env_allowed) — a second spelling
+// of the rule would let the event disagree with the environment.
+func EnvironKeyDenied(key string, deny, allow []string) bool {
+	denied := false
+	for _, d := range deny {
+		if strings.EqualFold(key, d) {
+			denied = true
+			break
+		}
+	}
+	if !denied {
+		return false
+	}
+	for _, a := range allow {
+		if strings.EqualFold(key, a) {
+			return false
+		}
+	}
+	return true
+}
+
+// EnvironKeysPresent returns the subset of names that the CURRENT process
+// environment actually carries a value for, preserving the input order. It is the
+// "which of these keys does the allow list really hand to a child" question the
+// SEC-01 job.env_allowed event answers, without copying values around.
+func EnvironKeysPresent(names []string) []string {
+	if len(names) == 0 {
+		return nil
+	}
+	var out []string
+	for _, name := range names {
+		if _, ok := os.LookupEnv(name); ok {
+			out = append(out, name)
+		}
 	}
 	return out
 }

@@ -44,6 +44,15 @@ func (s *Server) authMiddleware(c *rux.Context) {
 		caller, matched = s.lookupCallerEntry(got)
 	}
 	if !matched {
+		// SEC-01: a job's own credential. It is looked up only when the token is
+		// shaped like one (gjt_) — the user/worker path above stays a single
+		// constant-time scan, and a job token can never be mistaken for a configured
+		// caller's. An unknown, revoked or expired credential is the same 401 as an
+		// unknown bearer token: a job must not be able to probe which tokens exist.
+		if s.authenticateJobToken(c, got) {
+			c.Next()
+			return
+		}
 		writeError(c, http.StatusUnauthorized, "unauthorized", "missing or invalid bearer token")
 		c.Abort()
 		return
@@ -51,6 +60,29 @@ func (s *Server) authMiddleware(c *rux.Context) {
 	c.Set(ctxCallerID, caller.id)
 	c.Set(ctxCallerKind, caller.kind)
 	c.Next()
+}
+
+// authenticateJobToken resolves a presented job credential (SEC-01) and stamps the
+// job identity onto the request context. It reports whether the token authenticated;
+// the caller turns a false into the ordinary 401.
+//
+// The caller id is the JOB ID: every read path that names its caller (an event's
+// actor, a log line) then says "job <id>" rather than the operator's name, which is
+// the truth — the credential was the job's.
+func (s *Server) authenticateJobToken(c *rux.Context, token string) bool {
+	if token == "" || s.jobs == nil {
+		return false
+	}
+	lookup, ok := s.jobs.LookupJobToken(token)
+	if !ok {
+		return false
+	}
+	c.Set(ctxCallerID, lookup.JobID)
+	c.Set(ctxCallerKind, callerKindJob)
+	c.Set(ctxJobID, lookup.JobID)
+	c.Set(ctxJobKind, lookup.Kind)
+	c.Set(ctxPlanID, lookup.PlanID)
+	return true
 }
 
 // lookupCaller constant-time compares the presented bearer token against every

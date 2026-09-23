@@ -2,7 +2,6 @@ package commands
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
 	"github.com/gookit/gcli/v3"
@@ -35,7 +34,7 @@ func runJobComment(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	cm, err := cli.PostComment("job", id, text, os.Getenv("GOFER_JOB_ID"))
+	cm, err := cli.PostComment("job", id, text)
 	if err != nil {
 		return err
 	}
@@ -80,7 +79,7 @@ func runPlanComment(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	cm, err := cli.PostComment(scope, scopeID, text, os.Getenv("GOFER_JOB_ID"))
+	cm, err := cli.PostComment(scope, scopeID, text)
 	if err != nil {
 		return err
 	}

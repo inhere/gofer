@@ -18,14 +18,17 @@ import (
 // keyed on the author kind — so an unidentified caller is named, not left blank.
 const commentAnonymousAuthor = "anonymous"
 
-// commentReq is the POST body of every comment route. as_job is the in-job MCP
-// identity: the job whose AGENT is speaking (the value of GOFER_JOB_ID on the caller's
-// side). The server resolves it to the job's agent key and stamps author_kind=agent,
-// which is also what disables dispatch (MCP-05 阶段 A: only a person's comment starts
-// work). A caller can therefore only ever DOWNGRADE its own comment, never gain
-// dispatch rights by naming a job.
+// commentReq is the POST body of every comment route.
 type commentReq struct {
-	Body  string `json:"body"`
+	Body string `json:"body"`
+	// AsJob is the retired in-job identity field (MCP-05 阶段 A: the caller declared
+	// which job's agent was speaking, and the server resolved it to that job's agent
+	// key). Identity now comes from the CREDENTIAL — a job authenticates with its own
+	// GOFER_JOB_TOKEN (SEC-01), so there is nothing to declare — and the field is
+	// accepted but IGNORED for every caller. It stays in the struct only so an old
+	// client that still sends it does not get a 400.
+	//
+	// DEPRECATED(v0.58): remove in v0.61
 	AsJob string `json:"as_job,omitempty"`
 }
 
@@ -96,34 +99,28 @@ func commentStatus(err error) int {
 	return http.StatusInternalServerError
 }
 
-// commentAuthor resolves who is writing: an explicit as_job (the MCP in-job identity)
-// makes the comment agent-authored by that job's agent; otherwise the authenticated
-// caller writes as a user.
-func (s *Server) commentAuthor(c *rux.Context, asJob string) (author, kind string, status int, detail string) {
-	if asJob == "" {
-		if author = callerFromCtx(c); author == "" {
-			author = commentAnonymousAuthor
-		}
-		return author, jobstore.CommentAuthorUser, 0, ""
+// commentAuthor resolves who is writing for a NON-job caller: the authenticated
+// caller id, as a user. A job's comment never comes through here — its author is
+// derived from the credential (postComment), which is the whole point of SEC-01.
+func (s *Server) commentAuthor(c *rux.Context) (author, kind string) {
+	author = callerFromCtx(c)
+	if author == "" {
+		author = commentAnonymousAuthor
 	}
-	res, ok := s.jobs.Get(asJob)
-	if !ok {
-		return "", "", http.StatusNotFound, "no job with id " + asJob
-	}
-	if res.Agent == "" {
-		return "", "", http.StatusConflict, "job " + asJob + " has no agent to speak as"
-	}
-	return res.Agent, jobstore.CommentAuthorAgent, 0, ""
+	return author, jobstore.CommentAuthorUser
 }
 
 // postComment is the shared body of the three POST routes: gate the caller, bind the
 // body, resolve the author, record the comment and report what it dispatched.
 func (s *Server) postComment(c *rux.Context, scope, scopeID string) {
-	// A comment can start work, and only a person starts work — an executing machine
-	// (a worker token) may read a thread but never speak in one (MCP-05 阶段 A).
+	// A comment can start work, and an executing MACHINE (a worker token, which is a
+	// transport credential rather than an identity) may read a thread but never speak
+	// in one (MCP-05 阶段 A). A JOB caller is a different thing and is allowed: the
+	// design's whole point is that a job's agent reports progress through its own
+	// credential (SEC-01 §一.3).
 	if callerKindFromCtx(c) == callerKindWorker {
 		writeError(c, http.StatusForbidden, "comment not permitted for this caller",
-			"worker tokens cannot comment: a comment can dispatch work, and only a user caller starts work")
+			"worker tokens cannot comment: a comment can dispatch work, and a worker token is not an identity")
 		return
 	}
 	var body commentReq
@@ -135,20 +132,18 @@ func (s *Server) postComment(c *rux.Context, scope, scopeID string) {
 		writeError(c, http.StatusBadRequest, "body required", "a comment requires a body")
 		return
 	}
-	author, kind, status, detail := s.commentAuthor(c, strings.TrimSpace(body.AsJob))
-	if status != 0 {
-		writeError(c, status, "comment author unresolved", detail)
-		return
-	}
-	// A comment written BY a job's agent goes through CommentAsJob: the job id is what
-	// the 阶段 B leader gate needs (a leader job of this plan may dispatch; every other
-	// agent comment is recorded), so the entry layer must not flatten the identity away.
+	// The author is the CREDENTIAL's identity, never the body's (SEC-01): a job caller
+	// speaks as that job's agent through CommentAsJob (which also feeds the 阶段 B
+	// leader gate the job id it needs — a leader's mention may dispatch inside its own
+	// plan, a member's is recorded), and every other caller speaks as itself.
+	// body.AsJob is deliberately NOT read; see the field's DEPRECATED note.
 	var cm jobstore.Comment
 	var dispatched []job.CommentDispatch
 	var err error
-	if asJob := strings.TrimSpace(body.AsJob); asJob != "" {
-		cm, dispatched, err = s.jobs.CommentAsJob(scope, scopeID, asJob, body.Body)
+	if jc, ok := jobCallerFromCtx(c); ok {
+		cm, dispatched, err = s.jobs.CommentAsJob(scope, scopeID, jc.JobID, body.Body)
 	} else {
+		author, kind := s.commentAuthor(c)
 		cm, dispatched, err = s.jobs.Comment(scope, scopeID, author, kind, body.Body)
 	}
 	if err != nil {

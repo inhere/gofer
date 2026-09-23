@@ -139,6 +139,17 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// reaches the hub). ReviewFixed makes the worker's own project
 		// require_review default inapplicable to work it merely executes.
 		ReviewFixed: true,
+		// SEC-01: the job's own credential, minted by the HUB and carried on the dispatch
+		// frame. CredentialExternal says "do not mint one here": this process has no
+		// authority over a job id that lives in the hub's store, and a second credential
+		// for the same job would be one nobody can revoke. A pre-v11 hub sends no token,
+		// so both fields are empty and the job simply runs without one.
+		JobToken:           d.JobToken,
+		CredentialExternal: true,
+		// SEC-01: which hub to call back on. The dispatch arrived on this connection, so
+		// its URL is the only address guaranteed to be reachable from here; the worker's
+		// own config server.addr would point at itself.
+		Env: map[string]string{job.EnvServerAddr: sessionURL},
 	})
 	if err != nil {
 		slog.Warn("worker.job_rejected", "event", "worker.job_rejected", "component", "worker", "worker_id", cl.workerID, "job_id", d.JobID, "reason", err.Error())

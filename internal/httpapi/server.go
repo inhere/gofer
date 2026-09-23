@@ -50,6 +50,13 @@ const ctxCallerKind = "caller_kind"
 const (
 	callerKindUser   = "user"
 	callerKindWorker = "worker"
+	// callerKindJob is a request authenticated with a JOB's own credential (SEC-01):
+	// the narrow token gofer mints for a job and injects as GOFER_JOB_TOKEN. It is
+	// deliberately a separate kind rather than a user: the permission table in
+	// jobcredential.go is keyed on it and denies by default, which is what stops a job
+	// (or an agent inside it) from acting as the operator whose token it used to
+	// inherit.
+	callerKindJob = "job"
 )
 
 // callerEntry pairs a known bearer token with the caller id stamped onto jobs
@@ -808,10 +815,12 @@ func (s *Server) buildRouter() *rux.Router {
 		//      a 401-rejected OR 429-rate-limited request is counted in
 		//      gofer_http_requests_total (E16). It does not read the caller id.
 		//   2. authMiddleware — sets caller_id in the rux ctx (or aborts 401).
-		//   3. rateLimitMiddleware (E17) — MUST run AFTER auth because it keys the
+		//   3. jobCredentialMiddleware (SEC-01) — for a `job` caller only, applies the
+		//      deny-by-default permission table of jobcredential.go (or 403).
+		//   4. rateLimitMiddleware (E17) — MUST run AFTER auth because it keys the
 		//      token-bucket on the auth-set caller_id (callerFromCtx). Only writes
 		//      POST /v1/jobs|/workflows are gated (isSubmitPath); over-rate → 429.
-	}, s.metricsMiddleware, s.authMiddleware, s.rateLimitMiddleware)
+	}, s.metricsMiddleware, s.authMiddleware, s.jobCredentialMiddleware, s.rateLimitMiddleware)
 
 	// Mount the embedded web console (static SPA shell, no auth) as the NotFound
 	// fallback. /health and /v1/* are concrete routes and match first; any other

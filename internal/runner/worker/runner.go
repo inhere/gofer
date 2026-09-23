@@ -113,6 +113,21 @@ func skillsCarried(names []string, dropped int) []string {
 	return names
 }
 
+// jobTokenFor is the credential that goes on the dispatch frame: the hub's token when
+// the peer is KNOWN to speak wsproto.JobCredentialMinProtocolVersion, and "" for
+// anyone else (including an unknown version — see splitSkillUploads for why "unknown"
+// reads as "cannot carry"). Pure, so the negotiation is unit-testable on its own.
+//
+// There is no refusal branch here on purpose: a job that cannot be given a credential
+// still runs (it simply cannot call back), which is why this capability sits with
+// skills rather than with the floors that refuse a dispatch.
+func jobTokenFor(proto int, known bool, token string) string {
+	if token == "" || !known || !wsproto.SupportsJobCredential(proto) {
+		return ""
+	}
+	return token
+}
+
 // unsupportedDispatchFields lists the dispatch fields this job NEEDS that a worker
 // at protocol version proto cannot carry (SUP-01 P2, G032). It is the single place
 // that maps a request field to the capability floor it depends on, so a newly added
@@ -414,6 +429,13 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// them as decided instead of re-deriving its own (see Dispatch's field docs).
 		ExclusiveDir:    f.ExclusiveDir,
 		StallTimeoutSec: f.StallTimeoutSec,
+		// SEC-01: the job's own credential. Only a peer at
+		// wsproto.JobCredentialMinProtocolVersion or above understands the field, so it
+		// is left OFF for anyone else — an old worker would ignore the key and run the
+		// job without a credential anyway, but sending it blind would also mean the
+		// secret travelled to a peer whose code cannot be trusted to keep it out of the
+		// job's environment. The omission is reported below.
+		JobToken: jobTokenFor(proto, protoKnown, f.JobToken),
 	}
 	// ACP-01 S2: a continuation carries its session + lineage so the worker's local
 	// job resolves the same session/load. Set ONLY for a resume — a plain job's
@@ -447,6 +469,14 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		req.OnJobEvent(runner.EventSkillsSkipped, map[string]any{
 			"reason": "worker_protocol", "count": skillsDropped, "names": f.Skills,
 		})
+	}
+	// SEC-01: the peer cannot receive the job's credential, so the job runs WITHOUT
+	// one — it can read nothing back from the hub (every `gofer` call inside it gets a
+	// 401). Nothing is corrupted by that: the job does its work and reports its result
+	// over the connection the hub already holds. So this is not a refusal, it is an
+	// omission that must be visible on the job's own timeline.
+	if f.JobToken != "" && jobTokenFor(proto, protoKnown, f.JobToken) == "" && req.OnJobEvent != nil {
+		req.OnJobEvent(runner.EventCredentialSkipped, map[string]any{"reason": "worker_protocol"})
 	}
 
 	// (c)(d) wait for the worker's authoritative terminal result, a worker-lost

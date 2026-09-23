@@ -1170,13 +1170,24 @@ func newClient(configPath, serverFlag, tokenFlag string) (*client.Client, error)
 }
 
 // resolveClientToken resolves the bearer token for client-side calls.
-// Precedence (highest first): explicit --token flag > GOFER_SERVER_TOKEN env >
-// server.token_env > server.token. The GOFER_SERVER_TOKEN env fallback used to be
-// carried via the --token flag's ${ENV} default, but gcli interpolates that into
-// --help and leaks the token (xu64.1); it is resolved here at runtime instead.
+// Precedence (highest first): explicit --token flag > GOFER_JOB_TOKEN >
+// GOFER_SERVER_TOKEN env > server.token_env > server.token.
+//
+// GOFER_JOB_TOKEN (SEC-01) sits directly under the explicit flag because it is set by
+// gofer itself, for the job this process is running inside: a `gofer job comment`
+// typed by an agent must authenticate as that job, not as the server token that is no
+// longer in the environment at all. An explicit --token still wins, so a human (or a
+// script that must act as a user) can override it deliberately.
+//
+// The GOFER_SERVER_TOKEN env fallback used to be carried via the --token flag's
+// ${ENV} default, but gcli interpolates that into --help and leaks the token
+// (xu64.1); it is resolved here at runtime instead.
 func resolveClientToken(sc *config.ServerConfig, flagToken string) string {
 	if flagToken != "" {
 		return flagToken
+	}
+	if v := os.Getenv(job.EnvJobToken); v != "" {
+		return v
 	}
 	if v := os.Getenv("GOFER_SERVER_TOKEN"); v != "" {
 		return v
@@ -2254,7 +2265,7 @@ func runJobAccept(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	res, err := cli.AcceptJob(id, jobAcceptOpts.note, os.Getenv("GOFER_JOB_ID"))
+	res, err := cli.AcceptJob(id, jobAcceptOpts.note)
 	if err != nil {
 		return err
 	}
@@ -2277,7 +2288,7 @@ func runJobReject(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	res, err := cli.RejectJob(id, jobRejectOpts.note, os.Getenv("GOFER_JOB_ID"), jobRejectOpts.resume)
+	res, err := cli.RejectJob(id, jobRejectOpts.note, jobRejectOpts.resume)
 	if err != nil {
 		return err
 	}

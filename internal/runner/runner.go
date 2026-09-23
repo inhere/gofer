@@ -68,6 +68,15 @@ const EventSkillsSkipped = "job.skills_skipped"
 // job.EventJobSkillsMounted aliases it.
 const EventSkillsMounted = "job.skills_mounted"
 
+// EventCredentialSkipped is the job event a worker runner records when it dispatched
+// a job to a peer whose protocol predates the job-credential frame (SEC-01):
+// {reason:"worker_protocol"}. The job runs — it just has no credential of its own, so
+// it cannot call the hub back — and this event is the only place that omission is
+// visible, exactly like EventSkillsSkipped above (which it mirrors). It lives in this
+// package for the same reason (the runner cannot import job, G022);
+// job.EventJobCredentialSkipped aliases it.
+const EventCredentialSkipped = "job.credential_skipped"
+
 // Runner executes one resolved command and reports how it ended.
 type Runner interface {
 	// Name returns the runner's stable identifier (e.g. "local").
@@ -117,6 +126,16 @@ type Request struct {
 	// InitialInputQuietMs is that quiet window in milliseconds (0 = the runner's
 	// default, resolved from session.takeover_input_delay_ms by the job service).
 	InitialInputQuietMs int
+
+	// EnvDeny / EnvAllow are SEC-01's env-privacy decision for this job, resolved by
+	// the job service from the process's own config (server.job_env_denylist) and the
+	// project's (projects.<k>.job_env_allow). Every runner that spawns a child filters
+	// the INHERITED environment through them (util.EnvironWithout), so a job never
+	// starts with the serve process's bearer token in its environment unless an
+	// operator deliberately allowed that key for the project. Env is not filtered: it
+	// is the caller's own written-down config.
+	EnvDeny  []string
+	EnvAllow []string
 
 	// Forward carries the original (pre-resolution) request a remote runner
 	// re-submits to a peer bridge. Nil for local jobs.
@@ -446,6 +465,15 @@ type Forward struct {
 	// by running as before), so no protocol floor refuses the dispatch.
 	ExclusiveDir    *bool
 	StallTimeoutSec *int
+	// JobToken (SEC-01) is the job-scoped credential the HUB minted for this job. The
+	// ws-worker runner puts it on the dispatch frame (protocol ≥ 11) and the worker's
+	// own job service injects it as GOFER_JOB_TOKEN, which is what lets a job talk to
+	// the hub after the inherited server token is gone. It is deliberately NOT
+	// serialisable: peer-http posts this whole struct to another gofer
+	// (`POST /v1/jobs`), and a credential minted by this hub must never travel to an
+	// unrelated peer. A peer-http job therefore runs with no job credential — that
+	// transport has no field to carry one.
+	JobToken string `json:"-"`
 }
 
 // XferUpload is one staged file a job takes with it (XFER-01 X2): the id of a

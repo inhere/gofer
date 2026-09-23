@@ -493,6 +493,15 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// (near-zero, given Store.writeMu) count of jobs whose terminal write failed,
 	// not by history — C1's invariant still holds.
 	persistErr := s.persist(snap)
+	// SEC-01: revoke the job's credential — every branch below means the job has stopped
+	// EXECUTING (a needs_review delivery included: its process is gone, it is merely not
+	// accepted yet). Done AFTER the terminal row is durable on purpose: the credential
+	// write must not sit between the in-memory status flip and persist, which would widen
+	// the (pre-existing) window in which a reader sees "done" while the DB still says
+	// "running" — a window callers legitimately bridge by polling. A job whose terminal
+	// path never runs (a crashed hub, a killed process) is covered by the row's fallback
+	// deadline instead.
+	s.revokeJobToken(jobID)
 	// SUP-01 C: the checklist item this job carries follows its outcome — before the
 	// needs_review return below, so both a delivered-but-unreviewed job and a terminal
 	// one are recorded on the todo. Best-effort: a todo write must never affect a job.

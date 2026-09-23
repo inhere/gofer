@@ -160,7 +160,7 @@ func (r *PtyRunner) start(req runner.Request) (*PtySession, error) {
 	p, err := pty.Start(pty.Spec{
 		Command: req.Command,
 		Args:    req.Args,
-		Env:     util.Environ(req.Env),
+		Env:     util.EnvironWithout(req.EnvDeny, req.EnvAllow, req.Env),
 		Dir:     req.WorkDir,
 		Cols:    cols,
 		Rows:    rows,

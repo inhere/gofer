@@ -50,6 +50,10 @@ type projectView struct {
 	AllowInteractive  bool     `json:"allow_interactive"`
 	AllowExec         bool     `json:"allow_exec"`
 	MaxConcurrentJobs int      `json:"max_concurrent_jobs,omitempty"`
+	// JobEnvAllow is the SEC-01 env allow list, published so an operator can SEE which
+	// inherited variables this project's jobs keep (the same list each job reports
+	// through job.env_allowed for the ones actually in force).
+	JobEnvAllow []string `json:"job_env_allow,omitempty"`
 }
 
 // removedNarrowingFieldMsg is the answer to a write that still carries the AGT-02
@@ -80,6 +84,10 @@ type projectWriteReq struct {
 	InteractiveAllowedAgents *[]string `json:"interactive_allowed_agents,omitempty"`
 	AllowExec                *bool     `json:"allow_exec,omitempty"`
 	MaxConcurrentJobs        *int      `json:"max_concurrent_jobs,omitempty"`
+	// JobEnvAllow is the SEC-01 per-project env allow list. A pointer so an omitted
+	// field keeps the stored list and an explicit [] clears it (the same
+	// present-and-empty contract as every other list here).
+	JobEnvAllow *[]string `json:"job_env_allow,omitempty"`
 }
 
 // rejectRemovedNarrowingField fails a write body that still carries the AGT-02-removed
@@ -229,6 +237,9 @@ func mergeProjectWrite(base config.ProjectConfig, req projectWriteReq) config.Pr
 	if req.MaxConcurrentJobs != nil {
 		base.MaxConcurrentJobs = *req.MaxConcurrentJobs
 	}
+	if req.JobEnvAllow != nil {
+		base.JobEnvAllow = *req.JobEnvAllow
+	}
 	return base
 }
 
@@ -280,6 +291,7 @@ func projectViewOf(key string, proj config.ProjectConfig) projectView {
 		AllowInteractive:  proj.IsInteractiveAllowed(),
 		AllowExec:         proj.AllowExec,
 		MaxConcurrentJobs: proj.MaxConcurrentJobs,
+		JobEnvAllow:       proj.JobEnvAllow,
 	}
 }
 

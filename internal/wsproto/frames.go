@@ -36,8 +36,9 @@ const (
 	// (verify/verify_timeout_sec — see VerifyMinProtocolVersion) and the job_event
 	// frame; v9 adds the file-transfer frames (file_xfer/file_xfer_result — see
 	// FileXferMinProtocolVersion); v10 adds the skills-mount upload base field
-	// (XferUpload.base — see SkillsMinProtocolVersion).
-	CurrentProtocolVersion = 10
+	// (XferUpload.base — see SkillsMinProtocolVersion); v11 adds the job-credential
+	// dispatch field (dispatch.job_token — see JobCredentialMinProtocolVersion).
+	CurrentProtocolVersion = 11
 )
 
 // ReloadMinProtocolVersion is the first protocol version that carries the config
@@ -133,6 +134,21 @@ const SkillsMinProtocolVersion = 10
 // SupportsSkills reports whether a peer that registered with protocol version proto
 // understands the upload base field (and can therefore be handed a skills mount).
 func SupportsSkills(proto int) bool { return proto >= SkillsMinProtocolVersion }
+
+// JobCredentialMinProtocolVersion is the first protocol version whose Dispatch
+// carries the job's own credential (job_token, SEC-01). It follows the skills floor's
+// rule rather than the refusal rule: nothing is REFUSED over it. A peer below it
+// cannot receive the credential, so the scheduled job runs without one — which is
+// exactly the pre-SEC-01 state for that job (it inherits nothing it could authenticate
+// with either, because the denylist applies everywhere) and is reported as
+// job.credential_skipped rather than silently. Refusing the dispatch would break every
+// already-deployed worker the moment a hub upgraded, for a capability that only ADDS
+// a credential to the job.
+const JobCredentialMinProtocolVersion = 11
+
+// SupportsJobCredential reports whether a peer that registered with protocol version
+// proto can receive a job's credential on its dispatch frame.
+func SupportsJobCredential(proto int) bool { return proto >= JobCredentialMinProtocolVersion }
 
 // TunnelOpen requests a worker to open a TCP tunnel (protocol v5).
 type TunnelOpen struct {
@@ -425,6 +441,13 @@ type Dispatch struct {
 	// would silently run the job WITHOUT the caller's files).
 	ExclusiveDir    *bool `json:"exclusive_dir,omitempty"`
 	StallTimeoutSec *int  `json:"stall_timeout_sec,omitempty"`
+	// JobToken (SEC-01) is the job-scoped credential the hub minted for this job. The
+	// worker injects it as GOFER_JOB_TOKEN, which is what lets the job reach the hub
+	// after the inherited server token stopped travelling with it. An OLD worker
+	// ignores the unknown key (its job runs without a credential — the hub does not
+	// refuse the dispatch over it, it records job.credential_skipped), and a hub below
+	// JobCredentialMinProtocolVersion never sets it.
+	JobToken string `json:"job_token,omitempty"`
 }
 
 // XferUpload is one staged file a job takes with it (XFER-01 X2): the transfer id

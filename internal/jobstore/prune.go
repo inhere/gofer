@@ -118,6 +118,12 @@ func (s *Store) PruneJobs(policy RetentionPolicy, now int64) (deleted int, prune
 			_ = tx.Rollback()
 			return 0, nil, err
 		}
+		// SEC-01: a job's credential is meaningless without the job (and the row holds
+		// only a hash), so it goes in the same tx — a pruned job leaves no live token.
+		if _, err := tx.Exec("DELETE FROM job_tokens WHERE job_id = ?", id); err != nil {
+			_ = tx.Rollback()
+			return 0, nil, fmt.Errorf("jobstore: prune job token %q: %w", id, err)
+		}
 		if _, err := tx.Exec("DELETE FROM jobs WHERE id = ?", id); err != nil {
 			_ = tx.Rollback()
 			return 0, nil, fmt.Errorf("jobstore: prune job %q: %w", id, err)

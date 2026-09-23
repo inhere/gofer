@@ -70,6 +70,9 @@ var fieldPolicies = map[string]FieldPolicy{
 	// edit applies to the next job / the next health read.
 	"server.dir_lock":     {Editable: true},
 	"server.agent_health": {Editable: true},
+	// SEC-01: the extra env denylist. Read per job spawn (effectiveJobEnvDeny), so a
+	// hot edit applies to the NEXT job — nothing copies it at startup.
+	"server.job_env_denylist": {Editable: true},
 
 	// --- supervisor: read where they are used ----------------------------------
 	// MCP-05 阶段 B: the leader block is resolved per wake (config.LeaderConfig, i.e.
@@ -127,6 +130,11 @@ var fieldPolicies = map[string]FieldPolicy{
 	"agents.*.ndjson_stdout":              {Editable: true},
 	"agents.*.ndjson_stdout_path":         {Editable: true},
 	"agents.*.ndjson_fields":              {Editable: true},
+	// SEC-01: who may submit. Both are read where the decision is taken (the submit
+	// permission check reads the asking job's agent/role definition from the live
+	// config), so a hot edit applies to the next submit.
+	"agents.*.can_submit":    {Editable: true},
+	"agents.*.submit_agents": {Editable: true},
 
 	// Read-only by decision (design §一.2), NOT by omission: `env` may carry a
 	// plaintext secret and lands in request_json, `detect` probes the host, and
