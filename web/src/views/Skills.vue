@@ -239,8 +239,7 @@ onMounted(() => {
 <template>
   <div class="skills">
     <div class="head">
-      <span class="eyebrow mono">SKILLS</span>
-      <h1 class="title mono">技能库</h1>
+      <h1 class="title mono">SKILLS</h1>
       <button class="mini-btn mono" type="button" :disabled="loading" @click="load()">
         {{ loading ? '刷新中…' : '刷新' }}
       </button>
@@ -420,11 +419,6 @@ onMounted(() => {
   align-items: center;
   gap: 12px;
   margin-bottom: 14px;
-}
-.eyebrow {
-  color: var(--queue);
-  font-size: 11px;
-  letter-spacing: 0.14em;
 }
 .title {
   font-size: 16px;
