@@ -52,7 +52,7 @@ prompt（`leader 回合 N：<plan 标题>`）：
 ## 规则               第 N/M 轮、人插话即接管、不要自己实现活
 ```
 
-tags：`leader`、`leader_of:<成员 job id>`、`leader_round:<N>`；`channel: leader`；`caller_id: gofer`。它就是个**普通 job**：有 usage、有超时、失败走 AUTO-03 重试链。
+tags：`leader`、`leader_of:<成员 job id>`、`leader_round:<N>`；`channel: leader`；`caller_id: gofer`。它就是个**普通 job**：有 usage、有超时、失败走 AUTO-03 重试链。唯一被强制的是**不进验收队列**（`review: false` 且不可被项目 `require_review` 覆盖）——leader 轮的产出是"决定"，不是待人验收的交付物。
 
 ## 闸门与边界
 

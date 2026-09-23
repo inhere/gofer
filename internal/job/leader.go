@@ -257,6 +257,12 @@ func (s *Service) leaderJobRequest(cfg *config.Config, leader *config.LeaderConf
 		},
 		Channel:  leaderChannel,
 		CallerID: leaderCallerID,
+		// A leader round is not a delivery to sign off: a project whose require_review
+		// default is on would otherwise park EVERY round in the review queue, and a
+		// parked round is a leader that never decides anything. ReviewFixed makes this
+		// explicit `false` final (the same mechanism a workflow step uses).
+		Review:      false,
+		ReviewFixed: true,
 		// The marker: server-set, persisted on the row, and what makes this job's
 		// comments dispatchable while barring it from reviewing.
 		LeaderOfPlan: plan.PlanID,

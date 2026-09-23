@@ -263,7 +263,8 @@ S1 落地后留了两处缺口，本期按人工决策改掉，并在真机上�
 6. **`supervisor.leader` 只登记进字段策略表、没有控制台写分支**：字段策略表 / `SectionPolicies` 增加了 supervisor 段，`GET /v1/config` 的 supervisor 视图与 plan 详情都能读到；但 `PUT /v1/config/{section}` 的白名单仍是 server|agents（控制台没有 leader 表单）。leader 块每轮重读 config，所以**改文件 + SIGHUP 即对下一轮生效**。
 7. **验收闸门的身份来自 in-job `as_job`**：HTTP `POST /v1/jobs/{id}/accept|reject` 的 body 新增可选 `as_job`（与评论同一约定），CLI 在 `GOFER_JOB_ID` 已设时自动带上（fail-closed，同 S2 第 5 条）；两个 MCP backend 的 `RejectJob` 同样带上。leader job 身份 → 403；MCP 面则干脆不注册 `gofer_reject_job`（leader 工具白名单）。
 8. **leader 的 MCP 工具面由 `GOFER_LEADER_PLAN` 环境变量决定**（job 服务只为 leader job 导出，客户端不可设）：`gofer_comment / gofer_list_comments / gofer_get_plan / gofer_update_todo（仅 ready|skipped）/ gofer_wakeup_create / gofer_ask_human`，其余（`gofer_run_job`、`gofer_add_todo`、`gofer_plan_run`、`gofer_cancel_job`、review、config 等）不注册。`gofer_update_todo` 在 leader 面把 status 收窄到 `ready|skipped`，拒绝时说明允许集。
-9. **plan 已是 `done` 时不特殊处理**：所有待办 done/skipped 后 `advancePlan` 会把 plan 置 done，此时若成员 job 的终态仍是唤醒源，照设计唤醒（leader 仍可评论/升级/问人）。若运行中发现这是纯噪音，可加一条"plan done 不唤醒"的规则。
+9. **leader job 强制 `Review: false` + `ReviewFixed: true`**：项目的 `require_review` 默认不该把每一轮 leader 都塞进验收队列（被park的轮次什么决定都做不了）；leader 轮的产出是"决定"，本身不是待人验收的交付物。
+10. **plan 已是 `done` 时不特殊处理**：所有待办 done/skipped 后 `advancePlan` 会把 plan 置 done，此时若成员 job 的终态仍是唤醒源，照设计唤醒（leader 仍可评论/升级/问人）。若运行中发现这是纯噪音，可加一条"plan done 不唤醒"的规则。
 
 ### 未做 / 留给人工决策
 
