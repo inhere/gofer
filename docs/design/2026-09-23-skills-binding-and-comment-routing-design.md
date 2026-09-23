@@ -302,3 +302,12 @@ S1 落地后留了两处缺口，本期按人工决策改掉，并在真机上�
 - `go test ./internal/httpapi/... ./internal/config/... ./internal/job/... ./internal/runner/... -run 'Head|HotEditable|Notification|Leader|SkillsMounted' -v`：全绿（`TestHeadServesShellAndAssets` / `TestDirLockFieldsAreHotEditable` / `TestCompoundServerBlocksDecodeSnakeCase` / `TestNotificationPatchKeepsSecretEnv` / `TestNotificationAddRemoveWebhook` / `TestNotificationEnabledPausesDelivery` / `TestLeaderSkippedWhenPlanDone` / `TestWorkerJobSkillsMountedRecordedOnRunning`，以及既有的 leader/notification/skills 用例）。
 - `cd web && pnpm typecheck`：exit 0。
 - **未做的真机项**（本期只做到自动化验证，如实记录）：① 没有起临时 server 用 `curl -I` 打 HEAD 与反代行为（只覆盖到 handler 层）；② 通知编辑区没有在浏览器里点过（`pnpm typecheck` + 服务端契约测试通过，UI 未目视确认）；③ `enabled: false` 的"已入队投递仍发完"只按代码路径判定，没有真机投递观察。
+
+## 真机验收（2026-09-23，主机 v0.57.0）
+
+- **JOB-10 skills**：`gofer agent skill import` 一个演示 skill（SKILL.md 要求"汇报最后一行写 `SKILL-MARKER-42`"）→ `job run -a omp --cwd docs --skill accept-demo --prompt '只读任务：列出当前目录前 3 个 markdown 文件名'`（job `20260923-195614-136ff5aa`）：`job show` 有 `skills: accept-demo`；事件 `job.skills_mounted {names:[accept-demo], bytes:197, dir:<result_dir>\skills}`；汇报最后一行正是 `SKILL-MARKER-42`；项目 `docs/` 下 `git status` 无新文件（挂载只落 result_dir）。验收后 `agent skill rm` 清理。
+- **MCP-05 阶段 A 评论 @派活**：`gofer job comment 20260923-195614-136ff5aa "@omp 只读任务：告诉我上一个 job 列出了哪几个文件…"` → 评论 `cm-452ad954` 立刻派出 job `20260923-195931-a209c600`（cwd 同源 job 的 `docs`），它的回答与源 job 列出的三个文件完全一致——说明上下文摘要（源 job 汇报尾部）确实带进了 prompt。
+- **S4**：`HEAD /` → 200。
+- **未做**：leader 回合（默认关闭，是否开启、开在哪个 plan 由用户决定）；web 评论区与技能页的目视操作。
+- **发现**：worker 模式节点（`GOFER_RUN_MODE=worker`）上 `gofer agent skill …` 默认走本地库而报错，错误文案还提示"drop --local"（实际没传），绕法 `GOFER_RUN_MODE=client`；已记 bd。
+
