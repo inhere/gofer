@@ -151,3 +151,93 @@ func TestMigrateAddsPlanSupportToOldDB(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Len(t, jobs, 1)
 }
+
+// TestListPlansFilterAndPaging pins the plan list's filter/paging contract (F-d):
+// status, project and q (plan-id PREFIX or title substring, case-insensitive) combine,
+// limit/offset walk one stable newest-first order, and CountPlans answers the total
+// under exactly the same conditions — never the page size.
+func TestListPlansFilterAndPaging(t *testing.T) {
+	s := openTest(t)
+	for _, p := range []Plan{
+		{PlanID: "plan-a1", Title: "Alpha rollout", Status: PlanOpen, ProjectKey: "self", CreatedAt: 100},
+		{PlanID: "plan-a2", Title: "beta cleanup", Status: PlanOpen, ProjectKey: "other", CreatedAt: 200},
+		{PlanID: "plan-b1", Title: "ALPHA follow-up", Status: PlanDone, ProjectKey: "self", CreatedAt: 300},
+		{PlanID: "plan-b2", Title: "gamma 50% done", Status: PlanOpen, ProjectKey: "self", CreatedAt: 400},
+		{PlanID: "plan-c1", Title: "delta", Status: PlanArchived, ProjectKey: "self", CreatedAt: 500},
+	} {
+		p.UpdatedAt = p.CreatedAt
+		assert.NoErr(t, s.InsertPlan(p))
+	}
+
+	// Newest first, no filter.
+	all, err := s.ListPlans(PlanFilter{})
+	assert.NoErr(t, err)
+	assert.Len(t, all, 5)
+	assert.Eq(t, "plan-c1", all[0].PlanID)
+	assert.Eq(t, "plan-a1", all[4].PlanID)
+
+	// status and project combine (AND).
+	open, err := s.ListPlans(PlanFilter{Status: PlanOpen})
+	assert.NoErr(t, err)
+	assert.Len(t, open, 3)
+	self, err := s.ListPlans(PlanFilter{Status: PlanOpen, ProjectKey: "self"})
+	assert.NoErr(t, err)
+	assert.Len(t, self, 2)
+	assert.Eq(t, "plan-b2", self[0].PlanID)
+
+	// q matches a plan-id PREFIX or a title substring, case-insensitively.
+	byPrefix, err := s.ListPlans(PlanFilter{Q: "plan-a"})
+	assert.NoErr(t, err)
+	assert.Len(t, byPrefix, 2)
+	byTitle, err := s.ListPlans(PlanFilter{Q: "alpha"})
+	assert.NoErr(t, err)
+	assert.Len(t, byTitle, 2) // "Alpha rollout" + "ALPHA follow-up"
+	assert.Eq(t, "plan-b1", byTitle[0].PlanID)
+	// An id fragment that is not a prefix matches nothing (it is not a substring search
+	// on ids) — the two kinds of match are deliberately different.
+	mid, err := s.ListPlans(PlanFilter{Q: "a1"})
+	assert.NoErr(t, err)
+	assert.Len(t, mid, 0)
+	// LIKE wildcards in the query are literals: "%" must not match every plan.
+	pct, err := s.ListPlans(PlanFilter{Q: "50%"})
+	assert.NoErr(t, err)
+	assert.Len(t, pct, 1)
+	assert.Eq(t, "plan-b2", pct[0].PlanID)
+
+	// Paging: one stable order across pages, offset past the end is an empty page.
+	page1, err := s.ListPlans(PlanFilter{Status: PlanOpen, Limit: 2})
+	assert.NoErr(t, err)
+	assert.Len(t, page1, 2)
+	assert.Eq(t, "plan-b2", page1[0].PlanID)
+	assert.Eq(t, "plan-a2", page1[1].PlanID)
+	page2, err := s.ListPlans(PlanFilter{Status: PlanOpen, Limit: 2, Offset: 2})
+	assert.NoErr(t, err)
+	assert.Len(t, page2, 1)
+	assert.Eq(t, "plan-a1", page2[0].PlanID)
+	empty, err := s.ListPlans(PlanFilter{Status: PlanOpen, Offset: 99})
+	assert.NoErr(t, err)
+	assert.Len(t, empty, 0)
+
+	// total counts the FILTER, not the page.
+	total, err := s.CountPlans(PlanFilter{Status: PlanOpen})
+	assert.NoErr(t, err)
+	assert.Eq(t, 3, total)
+	total, err = s.CountPlans(PlanFilter{Status: PlanOpen, ProjectKey: "self", Q: "plan-b"})
+	assert.NoErr(t, err)
+	assert.Eq(t, 1, total)
+
+	// Two plans sharing created_at keep a deterministic (insertion-newest-first) order.
+	assert.NoErr(t, s.InsertPlan(Plan{PlanID: "plan-t1", Status: PlanOpen, CreatedAt: 900, UpdatedAt: 900}))
+	assert.NoErr(t, s.InsertPlan(Plan{PlanID: "plan-t2", Status: PlanOpen, CreatedAt: 900, UpdatedAt: 900}))
+	tie, err := s.ListPlans(PlanFilter{Status: PlanOpen, Limit: 2})
+	assert.NoErr(t, err)
+	assert.Eq(t, "plan-t2", tie[0].PlanID)
+	assert.Eq(t, "plan-t1", tie[1].PlanID)
+
+	// The page size is the caller's, within [default, cap].
+	assert.Eq(t, 20, NormalizePlanLimit(0))
+	assert.Eq(t, 20, NormalizePlanLimit(-5))
+	assert.Eq(t, 7, NormalizePlanLimit(7))
+	assert.Eq(t, 100, NormalizePlanLimit(100))
+	assert.Eq(t, 100, NormalizePlanLimit(5000))
+}

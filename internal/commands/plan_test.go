@@ -2,8 +2,11 @@ package commands
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -154,5 +157,109 @@ func TestPrintPlanTodos(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Fatalf("printPlanTodos output missing %q:\n%s", want, out)
 		}
+	}
+}
+
+// TestPlanListPagingFlags pins `plan list`'s paging surface (F-d): --limit/--project/--q
+// travel as query params (limit defaulting to 20), the footer names how many plans
+// matched and which slice is shown, and --all pages through the server's page cap
+// instead of silently truncating the list.
+func TestPlanListPagingFlags(t *testing.T) {
+	isolateConfigEnv(t)
+	config.InputCfgFile = ""
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	jobConnOpts.server, jobConnOpts.token = "", ""
+	resetPlanListOpts := func() {
+		planListOpts.status, planListOpts.project, planListOpts.q = "", "", ""
+		planListOpts.limit, planListOpts.all = 0, false
+	}
+	resetPlanListOpts()
+	t.Cleanup(resetPlanListOpts)
+
+	// The stub holds 3 plans but serves at most 2 rows per response — a server whose cap
+	// is lower than the client's page request, which is what --all has to walk.
+	var queries []url.Values
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		queries = append(queries, q)
+		offset, _ := strconv.Atoi(q.Get("offset"))
+		limit, _ := strconv.Atoi(q.Get("limit"))
+		if limit <= 0 {
+			limit = 20
+		}
+		if limit > 2 {
+			limit = 2
+		}
+		plans := []map[string]any{}
+		for i := offset; i < 3 && len(plans) < limit; i++ {
+			plans = append(plans, map[string]any{
+				"plan_id": fmt.Sprintf("plan-%d", i+1), "status": "open", "title": "t",
+			})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"plans": plans, "total": 3, "limit": limit, "offset": offset,
+		})
+	}))
+	defer ts.Close()
+
+	run := func(args ...string) string {
+		t.Helper()
+		resetPlanListOpts()
+		var code int
+		out := captureOutput(t, func() {
+			code = NewApp("test").Run(append([]string{"plan", "list", "--server", ts.URL}, args...))
+		})
+		if code != 0 {
+			t.Fatalf("plan list %v exit code=%d, out=%s", args, code, out)
+		}
+		return out
+	}
+
+	out := run("--limit", "1", "--project", "self", "--q", "plan-1")
+	if len(queries) != 1 {
+		t.Fatalf("plan list --limit 1 sent %d requests, want 1", len(queries))
+	}
+	got := queries[0]
+	for _, want := range [][2]string{{"limit", "1"}, {"project", "self"}, {"q", "plan-1"}} {
+		if got.Get(want[0]) != want[1] {
+			t.Fatalf("query %s = %q, want %q (query=%v)", want[0], got.Get(want[0]), want[1], got)
+		}
+	}
+	// An unset offset is simply absent (the server reads it as 0).
+	if off := got.Get("offset"); off != "" && off != "0" {
+		t.Fatalf("query offset = %q, want 0 or absent (query=%v)", off, got)
+	}
+	if !strings.Contains(out, "共 3 条，显示 1–1") {
+		t.Fatalf("footer must state the total and the shown slice, got:\n%s", out)
+	}
+
+	// No --limit: the CLI's own default page size (20), not the server's.
+	queries = nil
+	run()
+	if len(queries) != 1 || queries[0].Get("limit") != "20" {
+		t.Fatalf("default page size = %v, want limit=20", queries)
+	}
+
+	// --all walks every page of the same filter.
+	queries = nil
+	out = run("--all")
+	if len(queries) != 2 {
+		t.Fatalf("--all sent %d requests, want 2 (3 plans, 2-row pages): %v", len(queries), queries)
+	}
+	first, second := queries[0].Get("offset"), queries[1].Get("offset")
+	if first != "" && first != "0" {
+		t.Fatalf("--all first offset = %q, want 0", first)
+	}
+	if second != "2" {
+		t.Fatalf("--all second offset = %q, want 2 (page 1 held 2 rows)", second)
+	}
+	for _, p := range []string{"plan-1", "plan-2", "plan-3"} {
+		if !strings.Contains(out, p) {
+			t.Fatalf("--all must print every plan, %s missing:\n%s", p, out)
+		}
+	}
+	if !strings.Contains(out, "共 3 条，显示 1–3") {
+		t.Fatalf("--all footer = %s", out)
 	}
 }

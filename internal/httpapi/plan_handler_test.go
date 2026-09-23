@@ -572,3 +572,83 @@ func TestPlanTodoAppendNoteAPI(t *testing.T) {
 	}
 	decode(t, resp, &struct{}{})
 }
+
+// planPage mirrors the GET /v1/plans envelope: the page plus the paging facts a UI
+// needs (F-d).
+type planPage struct {
+	Plans []struct {
+		PlanID string `json:"plan_id"`
+	} `json:"plans"`
+	Total  int `json:"total"`
+	Limit  int `json:"limit"`
+	Offset int `json:"offset"`
+}
+
+// listPlanPage issues one GET /v1/plans with the given query and decodes the envelope.
+func listPlanPage(t *testing.T, s *Server, query string) planPage {
+	t.Helper()
+	resp := do(t, s, http.MethodGet, "/v1/plans"+query, testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("GET /v1/plans%s status=%d, want 200", query, resp.StatusCode)
+	}
+	var page planPage
+	decode(t, resp, &page)
+	return page
+}
+
+// TestPlansEndpointPaging pins the list endpoint's filter/paging passthrough (F-d):
+// status/project/q reach the store, total is the count under the same filter, limit and
+// offset are echoed (default 20, clamped to 100), and offset pages the same order.
+func TestPlansEndpointPaging(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	for _, spec := range []struct{ id, title, project, status string }{
+		{"plan-pg-1", "alpha one", "self", "open"},
+		{"plan-pg-2", "beta", "other", "open"},
+		{"plan-pg-3", "alpha two", "self", "done"},
+	} {
+		resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{
+			"plan_id": spec.id, "title": spec.title, "project": spec.project,
+		})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("create %s status=%d, want 200", spec.id, resp.StatusCode)
+		}
+		decode(t, resp, &struct{}{})
+		if spec.status != "open" {
+			resp = do(t, s, http.MethodPatch, "/v1/plans/"+spec.id, testToken, map[string]string{"status": spec.status})
+			if resp.StatusCode != http.StatusOK {
+				t.Fatalf("patch %s status=%d, want 200", spec.id, resp.StatusCode)
+			}
+			decode(t, resp, &struct{}{})
+		}
+	}
+
+	// status + project + q (id prefix) + limit + offset all travel together.
+	page := listPlanPage(t, s, "?status=open&project=self&q=plan-pg&limit=1&offset=0")
+	if page.Total != 1 || len(page.Plans) != 1 || page.Plans[0].PlanID != "plan-pg-1" {
+		t.Fatalf("filtered page = %+v, want just plan-pg-1", page)
+	}
+	if page.Limit != 1 || page.Offset != 0 {
+		t.Fatalf("page envelope = limit %d offset %d, want 1/0", page.Limit, page.Offset)
+	}
+
+	// q also matches a title substring, case-insensitively; total counts the filter.
+	page = listPlanPage(t, s, "?q=ALPHA")
+	if page.Total != 2 || len(page.Plans) != 2 {
+		t.Fatalf("q=ALPHA total=%d len=%d, want 2/2", page.Total, len(page.Plans))
+	}
+
+	// offset walks the same newest-first order (both were created in this same second,
+	// so the tie-break is insertion order — newest row first).
+	page = listPlanPage(t, s, "?status=open&limit=1&offset=1")
+	if page.Total != 2 || len(page.Plans) != 1 || page.Plans[0].PlanID != "plan-pg-1" {
+		t.Fatalf("offset page = %+v, want the second open plan", page)
+	}
+
+	// An absent limit is the default 20; a huge one is clamped to the cap.
+	if page := listPlanPage(t, s, ""); page.Limit != 20 || page.Total != 3 {
+		t.Fatalf("default page = limit %d total %d, want 20/3", page.Limit, page.Total)
+	}
+	if page := listPlanPage(t, s, "?limit=5000&offset=-3"); page.Limit != 100 || page.Offset != 0 {
+		t.Fatalf("clamped page = limit %d offset %d, want 100/0", page.Limit, page.Offset)
+	}
+}
