@@ -6,11 +6,11 @@ import "testing"
 // survive EncodeFrame → DecodeEnvelope → As unchanged (so the two sides cannot drift
 // on a json tag), the capability floor is v9 (a v8 peer must NOT be offered the frame —
 // the hub refuses the transfer instead, G032), and this build reports the current
-// version (v10 since JOB-10, which is still ABOVE the v9 floor — the floor is what
-// gates the capability, never the current version).
+// version (v11 since the job-credential dispatch field, which is still ABOVE the v9
+// floor — the floor is what gates the capability, never the current version).
 func TestFileXferRoundTripAndSupports(t *testing.T) {
-	if CurrentProtocolVersion != 10 {
-		t.Fatalf("CurrentProtocolVersion = %d, want 10 (JOB-10 added the upload base field)", CurrentProtocolVersion)
+	if CurrentProtocolVersion != 11 {
+		t.Fatalf("CurrentProtocolVersion = %d, want 11 (JOB-10 added the upload base field, v11 the job credential)", CurrentProtocolVersion)
 	}
 	if FileXferMinProtocolVersion != 9 {
 		t.Fatalf("FileXferMinProtocolVersion = %d, want 9", FileXferMinProtocolVersion)
@@ -21,8 +21,8 @@ func TestFileXferRoundTripAndSupports(t *testing.T) {
 	if SupportsFileXfer(8) {
 		t.Fatal("SupportsFileXfer(8) = true, want false: a v8 worker has no file_xfer frame")
 	}
-	if !SupportsFileXfer(9) || !SupportsFileXfer(10) {
-		t.Fatal("SupportsFileXfer(9/10) = false, want true")
+	if !SupportsFileXfer(9) || !SupportsFileXfer(10) || !SupportsFileXfer(11) {
+		t.Fatal("SupportsFileXfer(9/10/11) = false, want true")
 	}
 
 	req := FileXfer{
