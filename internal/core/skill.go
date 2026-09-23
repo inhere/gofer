@@ -79,9 +79,14 @@ func (h hubSkillLibrary) Get(name string) (job.SkillInfo, bool) {
 	return info, true
 }
 
-// Mount implements job.SkillLibrary for a local job.
+// Mount implements job.SkillLibrary for a local job. dstDir is the job's `skills/`
+// ROOT (the seam's contract), while skill.Store.Mount copies a skill's tree into the
+// directory it is given — so the skill's own directory is added HERE. That is the
+// layout the job side renders into the prompt manifest and the worker side derives
+// its upload destinations from (job.SkillDest), and it is the reason two skills
+// mounted into one job cannot overwrite each other.
 func (h hubSkillLibrary) Mount(name, dstDir string) (int64, error) {
-	return h.store.Mount(name, dstDir)
+	return h.store.Mount(name, filepath.Join(dstDir, name))
 }
 
 // Stage implements job.SkillLibrary for a worker-bound job: one staged put per file,
