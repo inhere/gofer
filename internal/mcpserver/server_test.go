@@ -190,6 +190,9 @@ func TestListToolsAllPresent(t *testing.T) {
 		"gofer_wakeup_create":  false,
 		"gofer_wakeup_list":    false,
 		"gofer_wakeup_disable": false,
+		// MCP-05 阶段 A comment threads (1 write + 1 read).
+		"gofer_comment":       false,
+		"gofer_list_comments": false,
 	}
 	for _, tl := range res.Tools {
 		if _, ok := want[tl.Name]; ok {
