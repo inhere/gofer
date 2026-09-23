@@ -96,6 +96,10 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		// 文件传输（XFER-01 X2）：该 job 的 upload/collect 摘要；没带文件 → ""（读回即
 		// "这个 job 没有传输"，不会伪造成一份空摘要）。
 		XferJSON: marshalXfer(r.Xfer),
+		// 技能绑定（JOB-10）：该 job 实际绑定的技能清单；没绑定 → ""（读回即"没绑技能"，
+		// 不会伪造成挂载过）。清单由执行机渲染进 prompt，这一列是"这次运行带了哪些规矩"
+		// 的事后答案（job show / web job 详情读它）。
+		SkillsJSON: marshalSkills(r.Skills),
 		// job 超时上限可配（bd h-aii-s9ck）：生效 deadline + 请求值 + 截断标记三元组。
 		TimeoutSec:          r.TimeoutSec,
 		RequestedTimeoutSec: r.RequestedTimeoutSec,
@@ -133,6 +137,31 @@ func unmarshalTags(s string) []string {
 		return nil
 	}
 	return t
+}
+
+// marshalSkills 把该 job 绑定的技能清单（JOB-10）序列化为 jobs.skills_json 原文。
+// best-effort：空/失败存 ""（读回即"没绑技能"）。
+func marshalSkills(skills []string) string {
+	if len(skills) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(skills)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// unmarshalSkills 读回 jobs.skills_json。空/损坏 → nil（"没绑技能"），不伪造清单。
+func unmarshalSkills(s string) []string {
+	if s == "" {
+		return nil
+	}
+	var out []string
+	if json.Unmarshal([]byte(s), &out) != nil {
+		return nil
+	}
+	return out
 }
 
 // marshalCommits serialises the captured commit list (SUP-01 C) into
@@ -322,6 +351,8 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		Usage: unmarshalUsage(rec.UsageJSON),
 		// 文件传输（XFER-01 X2）：旧行 "" = 该 job 没带文件（nil），不伪造空摘要。
 		Xfer: unmarshalXfer(rec.XferJSON),
+		// 技能绑定（JOB-10）：旧行 "" = 没绑技能（nil），不伪造成挂载过。
+		Skills: unmarshalSkills(rec.SkillsJSON),
 		// job 超时上限可配（bd h-aii-s9ck）：生效 deadline + 请求值 + 截断标记。旧行全为
 		// 0/false = "未记录"（旧 job 早于该列），不会伪装成"被截断"。
 		TimeoutSec:          rec.TimeoutSec,
