@@ -825,14 +825,14 @@ const (
 	//     (it can read nothing back). The literal lives in the runner package, which
 	//     emits it and cannot import this one (G022); aliased here like the skills
 	//     skip above.
-	//   - job.credential_revoked {job_id}  the terminal path killed the credential.
-	//     The audit trail a leaked token needs: "it was live from X until this job
-	//     ended".
+	// A revocation records NO event (F9): it is implied by the terminal state the job
+	// just reached, and a row after `job.terminal` would break the "the terminal event
+	// is the last one" invariant the stream, the review console and `job watch` all
+	// rely on. Its trace is the credential row's own revoked_at.
 	// None is in the notification default set — they are facts about a run, not an
 	// "a human must act" signal.
 	EventJobEnvAllowed        = "job.env_allowed"
 	EventJobCredentialSkipped = runner.EventCredentialSkipped
-	EventJobCredentialRevoked = "job.credential_revoked"
 	// R2/AUTO-03 durable job retry, recorded on the SOURCE job (the one that failed)
 	// for the first two and on the retried job for the third:
 	//   - job.retry_scheduled {retry_id, attempt, next_run_at, reason}  a retry ROW was

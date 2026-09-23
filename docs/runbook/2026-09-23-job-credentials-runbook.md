@@ -87,12 +87,13 @@ agents:
 |---|---|---|
 | `job.env_allowed` | 项目的 `job_env_allow` 真的放行了某个继承变量 | `{keys:[...]}` |
 | `job.credential_skipped` | 目标 worker 协议 < 11，拿不到凭证，job 照跑 | `{reason:"worker_protocol"}` |
-| `job.credential_revoked` | job 结束时凭证被吊销 | `{job_id}` |
+
+**吊销不记事件**：凭证随 job 终态失效是终态的必然推论，记一行只会把 `job.terminal`/`job.needs_review` 从"最后一条事件"的位置挤掉（SSE、验收台、`job watch` 都依赖这点）。要查吊销时间就查凭证行自己的 `revoked_at`（`created_at` → `revoked_at` 即它的存活区间）。
 
 ## 排查
 
 ```bash
-gofer job events <job-id>            # env_allowed / credential_skipped / credential_revoked
+gofer job events <job-id>            # env_allowed / credential_skipped
 gofer job show <job-id>              # request_json 里没有 token（凭证不进审计体）
 ```
 

@@ -142,6 +142,16 @@ func (s *Service) issueJobToken(jobID, kind, planID string, timeout time.Duratio
 // best-effort and idempotent: a job that never had one (an old worker's dispatch, a
 // submit that failed before issuance) is a silent no-op, and a second call after the
 // terminal race is too.
+//
+// It records NO job event: the revocation is a necessary consequence of the terminal
+// state the job just reached, so an event for it would be pure noise on every job —
+// and, worse, it would break the invariant the whole event stream rests on, that
+// `job.terminal` / `job.needs_review` is a job's LAST event (SSE subscribers, the
+// review console and `job watch` all stop reading at it; v0.44's 8e03d6e fixed the
+// order once). The audit trace a leaked token needs is the `revoked_at` column on the
+// row that already carries the credential's lifetime — "it was live from created_at
+// until revoked_at" — which is durable, queryable and off the event stream. The
+// debug line is for the operator watching a live serve, not for the record.
 func (s *Service) revokeJobToken(jobID string) {
 	if jobID == "" {
 		return
@@ -152,7 +162,7 @@ func (s *Service) revokeJobToken(jobID string) {
 		return
 	}
 	if ok {
-		s.recordEvent(jobID, EventJobCredentialRevoked, map[string]any{"job_id": jobID})
+		slog.Debug("job credential revoked", "job_id", jobID)
 	}
 }
 
