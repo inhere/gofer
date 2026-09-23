@@ -1,12 +1,13 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # Skills 绑定与评论 / leader 路由设计（JOB-10 / MCP-05 / 小项）
 
-> 状态：Draft 0.1 / 待批准
+> 状态：Approved 0.2 / 实施中（2026-09-23 人工批准，决策 1–5 照初稿；批准时修正两处：CLI 落 `gofer agent skill …`、协议升 v10）
 
 ## 修订记录
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
+| 0.2 | 2026-09-23 | Claude | 人工批准。两处修正：① skill 管理命令放 `gofer agent skill …`，不新增顶级命令（用户长期偏好：顶级命令列表保持精简；0.1 写的“`gofer skill` 组不算新增顶级命令”是自相矛盾的）；② `UploadSpec.Base` 走现有“按特性最低协议版本”范式：`CurrentProtocolVersion` 9→10、新增 `SkillsMinProtocolVersion = 10`，hub 对 <10 的 worker 不挂 skills 并记事件（0.1 写的“协议不升”与“对老 worker 降级”互相矛盾——不升版本 hub 无从判断） |
 | 0.1 | 2026-09-23 | Claude | 初稿：JOB-10 skills 绑定（server 侧 skill 库 + 派发时物化到 job 私有目录 + 提示词引用，不污染仓库工作树）；MCP-05 评论与 @提及派活（阶段 A 评论 + 触发，阶段 B leader 回合）；小项 S1–S4（SPA 支持 HEAD、三个 server 字段放行热改、`job.session_captured` 镜像、web 里编辑通知块） |
 
 ## 背景与目标
@@ -48,12 +49,12 @@
 - 元数据存库（新表 `skills`：`name/title/description/source/source_ref/version/files_json/size/updated_at/updated_by`），**文件存盘**（配置目录下，跟着配置一起备份）。库只存索引与校验值（每个文件的 sha256），便于 `skill ls` 与变更检测。
 - `applies_to`（可选）：`agents: [claude, omp]` / `projects: [...]`，仅作**提示**（列出时标注），不做硬拦截——绑定关系由下面的三级配置决定。
 
-### 2. 导入：`gofer skill import <src>`（G033：进 `gofer skill` 组，不新增顶级命令）
+### 2. 导入：`gofer agent skill import <src>`（放在已有的 `agent` 组下，不新增顶级命令）
 
 - `<src>` 支持：本地目录、`.zip`、`http(s)://…/xxx.zip`、`git+https://…#subdir`（后两者**只在 server 侧拉取**，不经浏览器）。
-- 导入即**解包到 `<config-dir>/skills/<name>/`**，写库，记 `source`/`source_ref`（URL + commit/etag），支持 `gofer skill update <name>` 按 source 重新拉取并 diff。
+- 导入即**解包到 `<config-dir>/skills/<name>/`**，写库，记 `source`/`source_ref`（URL + commit/etag），支持 `gofer agent skill update <name>` 按 source 重新拉取并 diff。
 - 安全：解包做路径逃逸校验（复用 xfer 的 `SafeJoin`）、单文件与总大小上限（默认 2MB/10MB，可配）、只接受文本与常见附件类型，**拒绝可执行位**（`chmod -x`，skill 是知识不是程序；要跑脚本由 agent 自己 `bash <path>`）。
-- 其它子命令：`skill ls`、`skill show <name>`、`skill rm <name>`、`skill export <name> [--out x.zip]`。
+- 其它子命令：`agent skill ls`、`agent skill show <name>`、`agent skill rm <name>`、`agent skill export <name> [--out x.zip]`。
 
 ### 3. 绑定：三级 + 单 job 覆盖
 
@@ -148,7 +149,7 @@ supervisor:
 ## 横切
 
 - **G032**：`UploadSpec` 增 `Base` 字段是 additive（空 = `cwd`，与今天一致）；`comments`/`skills` 是新表；leader 是 opt-in 开关，默认关闭。无新增兼容分支，无 DEPRECATED 标记。
-- **协议**：worker 侧只需认识 `UploadSpec.Base`（一个可选字段），协议版本 **不升**（可选字段，老 worker 忽略 → 落 cwd；因此 server 在把 skills 发往协议 < 当前版本的 worker 时**降级为不挂 skills 并记事件**，绝不误写 cwd）。
+- **协议**：`UploadSpec.Base`（wire 上 `XferUpload.base`）是新字段，老 worker 会忽略它而把文件落到 cwd——所以按现有范式**升版本**：`CurrentProtocolVersion` 9→10，新增 `SkillsMinProtocolVersion = 10`；hub 给 <10 的 worker 派 job 时**不挂 skills**、记事件 `job.skills_skipped {reason:"worker_protocol"}`，绝不误写 cwd。
 - **安全**：skill 导入做逃逸/大小/可执行位校验；评论派活只认 user caller（阶段 A）；leader 权限白名单化、轮次封顶、人可随时接管；skills 内容会进 prompt（可能被 agent 复述），**不得放 secret**——文档明写。
 - **存储**：skills 文件随配置目录备份；`result_dir/skills` 跟 job 一起过期清理；comments 随 job/plan prune 一并删。
 
@@ -156,7 +157,7 @@ supervisor:
 
 | 期 | 内容 | 验收要点 |
 |---|---|---|
-| **S1** | JOB-10 全部：`skills` 表 + `<config-dir>/skills/` + `gofer skill import/ls/show/rm/update/export` + 三级绑定 + `--skill/--no-skills` + 物化（本机直写 / worker 走 uploads，新增 `UploadSpec.Base`）+ prompt 清单 + `GOFER_SKILLS_DIR` + 事件 | 单测：`TestSkillImportRejectsEscape`、`TestSkillImportStripsExecBit`、`TestSkillsUnionAcrossLevels`、`TestNoSkillsDisablesAll`、`TestSkillsMountedToResultDirNotCwd`、`TestSkillPromptListsPathsForExecMachine`、`TestOldWorkerWithoutBaseSkipsSkills`；真机：带 `--skill` 的 omp job 在汇报里引用 skill 内容 |
+| **S1** | JOB-10 全部：`skills` 表 + `<config-dir>/skills/` + `gofer agent skill import/ls/show/rm/update/export` + 三级绑定 + `--skill/--no-skills` + 物化（本机直写 / worker 走 uploads，新增 `UploadSpec.Base`）+ prompt 清单 + `GOFER_SKILLS_DIR` + 事件 | 单测：`TestSkillImportRejectsEscape`、`TestSkillImportStripsExecBit`、`TestSkillsUnionAcrossLevels`、`TestNoSkillsDisablesAll`、`TestSkillsMountedToResultDirNotCwd`、`TestSkillPromptListsPathsForExecMachine`、`TestOldWorkerWithoutBaseSkipsSkills`；真机：带 `--skill` 的 omp job 在汇报里引用 skill 内容 |
 | **S2** | MCP-05 阶段 A：`comments` 表 + HTTP/CLI/web 评论区 + @提及派活 + 闸门与限流 + 事件 | 单测：`TestCommentMentionSubmitsJob`、`TestAgentCommentDoesNotTrigger`、`TestMentionThrottled`、`TestMentionUnknownAgentExplains`、`TestCommentsPrunedWithJob`；真机：在 web 的 job 评论区 `@omp 帮我把 X 补上` → 新 job 起来并回链 |
 | **S3** | MCP-05 阶段 B：leader 配置 + 成员终态唤醒 + 轮次封顶 + 人插话取消 + leader 可用工具白名单 | 单测：`TestLeaderWokenOnMemberTerminal`、`TestLeaderCannotAccept`、`TestLeaderRoundsCapped`、`TestHumanCommentCancelsLeaderWake`、`TestLeaderJobDoesNotWakeLeader`；真机：一个三步 plan 全程由 leader 推进，我只在最后 accept |
 | **S4** | 小项 S1/S2/S4（S3 只写文档） | `TestHeadServesShellAndAssets`、`TestDirLockFieldsAreHotEditable`、`TestNotificationPatchKeepsSecretEnv` |
@@ -169,7 +170,7 @@ supervisor:
 - **leader 可能空转**（反复评论不推进）：轮次封顶 + 每轮都是普通 job（有 usage 可见）+ `plan pause` 随时叫停；超限升级给人。
 - **老 worker**：`UploadSpec.Base` 不认识就会落到 cwd——所以 server 对老 worker **不挂 skills**（记事件说明），而不是冒险写进工作树。
 
-## 决策（待批准）
+## 决策（已批准 2026-09-23）
 
 1. skills 物化到 **job 私有 result_dir** + prompt 清单 + `GOFER_SKILLS_DIR`，**不写项目 `.claude/skills`**。
 2. skills 三级绑定取**并集**（与 retry 的就近覆盖不同），`exec` agent 不带。
