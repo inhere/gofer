@@ -630,6 +630,14 @@ func applyAgentField(ac *config.AgentConfig, f configBodyField) error {
 			return err
 		}
 		ac.Retry = v
+	case "skills":
+		// JOB-10 §一.3: the agent's own binding list. `[]` and `null` both mean "this
+		// agent adds nothing" (the levels UNION, so there is no per-agent off switch).
+		v, err := fieldValue[[]string](f)
+		if err != nil {
+			return err
+		}
+		ac.Skills = v
 	case "acp":
 		return patchAgentACP(ac, f)
 	default:
@@ -910,6 +918,22 @@ func applyServerField(sc *config.ServerConfig, f configBodyField) error {
 			return err
 		}
 		sc.Notification = v
+	case "skills":
+		// JOB-10 §一.3: the deployment's default bindings. A hot edit applies to the
+		// NEXT dispatch (EffectiveSkills reads the live config), not to jobs already
+		// submitted.
+		v, err := fieldValue[[]string](f)
+		if err != nil {
+			return err
+		}
+		sc.Skills = v
+	case "skill_limits":
+		// JOB-10 §一.2: the import-size guards, read by the store at import time.
+		v, err := fieldValue[config.SkillLimitsConfig](f)
+		if err != nil {
+			return err
+		}
+		sc.SkillLimits = v
 	default:
 		return &configWriteError{status: http.StatusInternalServerError, msg: "unhandled editable field", detail: "unhandled editable field: " + f.path}
 	}

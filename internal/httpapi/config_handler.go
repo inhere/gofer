@@ -55,6 +55,10 @@ type serverConfigView struct {
 	StallTimeoutSec     *int                `json:"stall_timeout_sec"`
 	JobRecoverWindowSec *int                `json:"job_recover_window_sec"`
 	Retry               *config.RetryPolicy `json:"retry,omitempty"`
+	// Skills is the deployment-wide default skill binding list (JOB-10 §一.3). It is
+	// editable, so the console needs the value to prefill the input it writes back —
+	// and the clear-on-omit rule means an absent field would read as "no bindings".
+	Skills []string `json:"skills"`
 }
 
 type governanceView struct {
@@ -166,6 +170,9 @@ type configAgentView struct {
 	NDJSONFields             map[string][]string `json:"ndjson_fields"`
 	ACP                      *acpConfigView      `json:"acp,omitempty"`
 	Injected                 bool                `json:"injected,omitempty"`
+	// Skills are this agent's own bindings (JOB-10 §一.3), like the server's list:
+	// editable, so the view carries it for the console's form to prefill.
+	Skills []string `json:"skills"`
 }
 
 // acpConfigView is the acp-agent sub-block as the console edits it. It carries the two
@@ -313,6 +320,7 @@ func buildServerConfigView(sc config.ServerConfig) serverConfigView {
 		StallTimeoutSec:     sc.StallTimeoutSec,
 		JobRecoverWindowSec: sc.JobRecoverWindowSec,
 		Retry:               sc.Retry,
+		Skills:              nonNil(sc.Skills),
 	}
 }
 
@@ -438,6 +446,7 @@ func buildAgentViews(agents map[string]config.AgentConfig, injected map[string]b
 			NDJSONFields:             ac.NDJSONFields,
 			ACP:                      acp,
 			Injected:                 injected[k],
+			Skills:                   nonNil(ac.Skills),
 		})
 	}
 	return out
