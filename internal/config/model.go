@@ -208,13 +208,18 @@ func (c *Config) Clone() *Config {
 // allocation, so a mutation on a clone can never be observed by a concurrent reader
 // holding the previous generation.
 //
-// The scalar-only sub-blocks (runner_probe, governance, xfer) need nothing beyond
-// the struct copy. Callers must not "optimize" this by dropping the pointer copies:
+// The scalar-only sub-blocks (runner_probe, governance, xfer, skill_limits) need
+// nothing beyond the struct copy. Callers must not "optimize" this by dropping the
+// pointer copies:
 // `next.Server.Retry.MaxAttempts = 3` on a shared pointer would silently edit the
 // live config that in-flight Submit calls are reading.
 func cloneServer(sc ServerConfig) ServerConfig {
 	out := sc
 	out.Callers = slices.Clone(sc.Callers)
+	// Skills is a name list the console edits (policy: editable), same reasoning as
+	// Callers: the clone must not share a backing array with the generation an
+	// in-flight Submit is reading the skills from.
+	out.Skills = slices.Clone(sc.Skills)
 	if sc.Workers != nil {
 		out.Workers = make(map[string]WorkerAuthConfig, len(sc.Workers))
 		for k, w := range sc.Workers {
@@ -491,6 +496,34 @@ type ServerConfig struct {
 	// See EffectiveStallTimeoutSec for the full resolution (request > agent > server;
 	// exec jobs are off unless someone asks for a window).
 	StallTimeoutSec *int `yaml:"stall_timeout_sec,omitempty"`
+	// Skills is the deployment-wide default skill set (JOB-10, design §一.3): the
+	// skills every job this server dispatches mounts into its own
+	// `<result_dir>/skills/` before the agent starts, whatever project or agent it
+	// belongs to. It is one LEVEL of a union rather than an override —
+	// agents.<key>.skills and projects.<key>.skills add to it and `job run --skill`
+	// adds one more — because a skill is knowledge, not a mutually exclusive policy
+	// (contrast server.retry / fallback_agents, which the nearest layer REPLACES).
+	// See Config.EffectiveSkills for the order and the --no-skills / exec rules.
+	Skills []string `yaml:"skills,omitempty"`
+	// SkillLimits bounds what ONE imported skill may contain (JOB-10 §一.2). The
+	// store owns enforcement and the defaults (2MiB per file / 10MiB total); this
+	// block only carries an operator's override, so an absent one is not a bug.
+	SkillLimits SkillLimitsConfig `yaml:"skill_limits,omitempty"`
+}
+
+// SkillLimitsConfig is the server.skill_limits block (JOB-10 §一.2): the import-time
+// size guards that stop one `agent skill import` from filling the config directory.
+// Both fields resolve to internal/skill's defaults when zero, and the resolution
+// lives THERE, not here — internal/skill depends on this package, so this one must
+// not import it back (the same split as server.xfer).
+type SkillLimitsConfig struct {
+	// MaxFileBytes caps ONE file inside a skill (0 => skill.DefaultLimits). An
+	// entry over it fails the whole import with the offending path named — a
+	// silently truncated skill would be worse than a refused one.
+	MaxFileBytes int64 `yaml:"max_file_bytes,omitempty"`
+	// MaxTotalBytes caps a skill's payload as a whole (0 => skill.DefaultLimits):
+	// the per-file cap alone would still allow a thousand just-under-the-cap files.
+	MaxTotalBytes int64 `yaml:"max_total_bytes,omitempty"`
 }
 
 // XferConfig is the server.xfer block (XFER-01, design §一.1/§一.2). Every field is
@@ -1190,6 +1223,13 @@ type ProjectConfig struct {
 	ResultSubdir   string   `yaml:"result_subdir,omitempty"`
 	DefaultAgent   string   `yaml:"default_agent,omitempty"`
 	AllowedAgents  []string `yaml:"allowed_agents,omitempty"`
+	// Skills are the skills every job of THIS project mounts (JOB-10 §一.3), unioned
+	// with server.skills, the agent's own list and the job's `--skill` names. This is
+	// the level that binds a repository's own conventions ("how to edit files in this
+	// tree") without every caller repeating them, and it is additive like the other
+	// levels: a project never REMOVES a server-wide skill (`--no-skills` on the job is
+	// the only off switch). See Config.EffectiveSkills.
+	Skills []string `yaml:"skills,omitempty"`
 	// AgentFallbacks overrides an agent's fallback_agents list for THIS project
 	// (SUP-01 P3): keyed by the failing agent, the value is the ordered candidate
 	// list. A key present here REPLACES the agent-level list (it does not merge), so
@@ -1506,6 +1546,13 @@ type AgentConfig struct {
 	// agent_fallbacks; `job run --fallback` overrides both for one job. Candidates
 	// must be declared agents that can run in batch mode (validated at load).
 	FallbackAgents []string `yaml:"fallback_agents,omitempty"`
+	// Skills are this agent's own bindings (JOB-10 §一.3): the CLI quirks knowledge
+	// that only applies when THIS agent runs (e.g. "how to apply a patch on Windows"
+	// for the one agent whose tooling needs it). They are unioned with server.skills
+	// and the project's list rather than replacing them — skills accumulate across
+	// the levels — and an exec agent carries none at all (it runs a command, it does
+	// not read docs). See Config.EffectiveSkills.
+	Skills []string `yaml:"skills,omitempty"`
 	// ReadOnlyArgs is the argv a `job run --read-only` appends to a cli-agent's argv
 	// (both the batch and the interactive shape, at the end like AgentArgs) so the
 	// sandbox is the CLI's own. Unset means "use the built-in table for this agent"

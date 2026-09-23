@@ -47,6 +47,12 @@ var fieldPolicies = map[string]FieldPolicy{
 	"server.max_job_timeout_sec": {Editable: true},
 	"server.auto_resume_max":     {Editable: true},
 	"server.stall_timeout_sec":   {Editable: true},
+	// JOB-10 skills: the deployment's default binding list and the import size caps.
+	// Both are read where they are used (EffectiveSkills runs per dispatch, the store
+	// reads its limits at import), so a hot edit applies to the NEXT job/import —
+	// nothing derives a cached value from them at startup.
+	"server.skills":       {Editable: true},
+	"server.skill_limits": {Editable: true},
 	// Compound blocks are editable as a WHOLE (the request carries the block; a
 	// partial block would silently drop the members it does not mention). None of
 	// them carries a secret VALUE — a webhook holds a secret_env NAME.
@@ -87,6 +93,7 @@ var fieldPolicies = map[string]FieldPolicy{
 	"agents.*.system_inject":              {Editable: true},
 	"agents.*.transient_error_patterns":   {Editable: true},
 	"agents.*.fallback_agents":            {Editable: true},
+	"agents.*.skills":                     {Editable: true},
 	"agents.*.max_concurrent":             {Editable: true},
 	"agents.*.stall_timeout_sec":          {Editable: true},
 	"agents.*.retry":                      {Editable: true},

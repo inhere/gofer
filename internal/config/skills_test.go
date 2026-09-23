@@ -39,3 +39,29 @@ func TestSkillsUnionAcrossLevels(t *testing.T) {
 		t.Fatalf("unknown keys = %v, want the server level [a]", got)
 	}
 }
+
+// TestEffectiveSkillsEmptyIsNilAndAllocationFree pins the other half of the
+// contract: "nothing bound" is nil, not an allocated empty list — one shape for
+// callers and for the JSON/yaml encoders — and resolving it allocates nothing.
+// EffectiveSkills runs on every submit and the overwhelmingly common answer is
+// "this deployment configured no skills", so the empty path must not touch the
+// heap (an eager accumulator would make every Submit pay for it).
+func TestEffectiveSkillsEmptyIsNilAndAllocationFree(t *testing.T) {
+	cfg := &Config{
+		Agents:   map[string]AgentConfig{"omp": {}},
+		Projects: map[string]ProjectConfig{"hyy": {}},
+	}
+	if got := cfg.EffectiveSkills("hyy", "omp", nil, false, "cli-agent"); got != nil {
+		t.Fatalf("nothing bound = %v, want nil", got)
+	}
+	// Blank and whitespace-only names are not skills: they must be dropped rather
+	// than turning an empty binding into a one-element list of an unusable name.
+	if got := cfg.EffectiveSkills("hyy", "omp", []string{"", "  "}, false, "cli-agent"); got != nil {
+		t.Fatalf("blank names = %v, want nil", got)
+	}
+	if n := testing.AllocsPerRun(100, func() {
+		_ = cfg.EffectiveSkills("hyy", "omp", nil, false, "cli-agent")
+	}); n != 0 {
+		t.Fatalf("EffectiveSkills allocated %v times with nothing bound, want 0", n)
+	}
+}
