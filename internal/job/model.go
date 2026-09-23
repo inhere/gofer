@@ -751,11 +751,13 @@ const (
 	// knowledge the job was promised actually reached it before the agent started.
 	EventJobSkillsMounted = "job.skills_mounted"
 	// EventJobSkillsSkipped is a job that WOULD have carried skills but does not
-	// (JOB-10): {reason, names}. "worker_protocol" means the target worker speaks a
-	// protocol below wsproto.SkillsMinProtocolVersion and cannot be trusted with the
-	// upload base — the hub drops the mount rather than let an old worker write the
-	// files into the working tree, and the job still runs (design §横切).
-	EventJobSkillsSkipped = "job.skills_skipped"
+	// (JOB-10): {reason, names, count}. "worker_protocol" means the target worker
+	// speaks a protocol below wsproto.SkillsMinProtocolVersion and cannot be trusted
+	// with the upload base — the hub drops the mount rather than let an old worker
+	// write the files into the working tree, and the job still runs (design §横切).
+	// The literal lives in the runner package (which emits it and cannot import this
+	// one — G022); it is aliased here so the job event vocabulary has ONE definition.
+	EventJobSkillsSkipped = runner.EventSkillsSkipped
 	// The permission events are emitted by the acp runner (internal/runner/acp), whose
 	// gated calls cannot reach this package (G022). Their literals live in the runner
 	// package — the same single-definition rule as EventJobInputInjected — and are
