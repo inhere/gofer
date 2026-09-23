@@ -271,3 +271,34 @@ S1 落地后留了两处缺口，本期按人工决策改掉，并在真机上�
 - **`plan_leader_wakes` 没有 prune 路径**：行随 plan 存亡（plan 只归档不删，同 S2 的评论结论），量级是"每个成员终态一行"，暂无清理需要。
 - **web 只在 plan 详情页显示 leader 状态**；job 详情页没有"这条 job 是 leader job / 它属于第几轮"的显式徽标（tags 里能看到 `leader`、`leader_round:<n>`）。
 - **`comment.created` 等 comment.* 时间线中文标签**仍未加（S2 遗留，本期未动）。
+
+## S4 实测记录（2026-09-23，小项 S1–S4 + 前几期遗留收尾）
+
+本期把 §三 的四个小项做完，并清掉 S1–S3 实测记录里挂着的几处遗留。**每个小项都有单测背书**（命令与输出见下），真机侧只做了 `pnpm typecheck` 与既有 server 上不写数据的部分——**没有**重启任何 server/worker，也**没有**碰真实配置目录。
+
+### 逐项
+
+| 项 | 落地 | 测试 |
+|---|---|---|
+| **A. SPA 支持 HEAD**（§三 S1） | `httpapi` 的 NotFound 回落放宽为 `GET`/`HEAD`：HEAD 走同一个 handler，`http.FileServer` 自己就不写 body；其他方法仍 404 | `TestHeadServesShellAndAssets`（HEAD `/` = 200 + `no-cache`、HEAD 真实 asset = 200 + `immutable`、HEAD 缺失 asset = 404、POST `/` = 404） |
+| **B. `server.dir_lock` / `server.agent_health` 放行热改**（§三 S2） | 字段策略表改 `Editable: true`，并**同步**补了 `PUT /v1/config/server` 的写分支、`GET /v1/config` 的视图与干跑预览（S1/S2 的教训：只改表会让"web 改了没生效"重现） | `TestDirLockFieldsAreHotEditable`（PUT 后**立即可见**于派发/健康读到的那个 config generation + 视图 + 策略视图 + 落盘） |
+| **C. `job.session_captured` 不进镜像**（§三 S3） | 只改注释与文档：`internal/job/events.go` 的镜像白名单旁写明"为什么不加"，runbook 补一段 | 无代码行为变化（无测试） |
+| **D. web 补丁式编辑 `notification`**（§三 S4） | `PUT /v1/config/server` 的 `notification` 从"整块替换"改为**补丁**：成员省略即保留、webhook 列表整体替换（增删可用）、`secret_env` 省略即按 URL（同长度时退回同下标）继承原值；web 配置页新增通知编辑区 | `TestNotificationPatchKeepsSecretEnv`、`TestNotificationAddRemoveWebhook`、`TestNotificationEnabledPausesDelivery` |
+
+### 实现中定下、设计未写明或与设计有出入的点
+
+1. **`server.xfer` 保持 `restart_required`（设计说"三块都放行"，实际只放了 2/3）**：`core.Build` 在装配时把 `server.xfer` 的三个上限**一次性**解析进 `xfer.Manager`（`xfer.Limits` 是 manager 的不可变字段），而 config reload **不重建** transfer manager —— 放行它会得到"写成功但什么都不变"。策略表旁写了原因。
+2. **顺带修掉一个真 bug：复合 server 块的 snake_case body 解不出来**。`runner_probe` / `skill_limits` / `comment_trigger` / `agent_health`（以及 `notification`）在 config 里**只有 yaml tag**，而写入口用 `encoding/json` 直接解进 config 结构体 —— `interval_seconds` 这类键匹配不到 `IntervalSeconds`，于是**静默写出一个空块**（写成功、设置丢失）。修法：一律经 httpapi 的**视图类型**解码（视图本来就有 json tag），并补上 `skill_limits` 的视图（S1 记录说"视图已补齐"，实际没有）。回归：`TestCompoundServerBlocksDecodeSnakeCase`。
+3. **`enabled` 是本期新增的 additive 字段**。设计 S4 把 `notification.enabled` 与 `webhooks[].enabled` 列为可编辑，但 config 里从来没有这两个字段（`*NotificationConfig` 为 nil 就是"没有通知"，删除条目才是"停用"——两者都会丢配置）。本期加 `NotificationConfig.Enabled` / `WebhookConfig.Enabled`（`*bool`，nil = 开），并在 **enqueue 时**（`notify.MatchWebhooks`）生效：暂停只停止新投递，**已入队的投递照旧发完**（暂停不该把行挂在 pending 上）。G032：additive、默认行为不变。
+4. **`secret_env` 的继承规则**（设计只说"缺省时保留原值"）：按 **URL** 匹配优先（删中间一条也不会串秘密），列表长度相同时再退回**同下标**（"原地改 url"的形状）；一个来源只会被认领一次，所以一个秘密不可能落到两个目标上。读侧**不回显** env 名（沿用 `token_env` / cast key 的先例），视图只给 `secret_set`，控制台因此靠"留空 = 保留"。
+5. **leader 不唤醒已完成的 plan**（§三 E2，S3 记录里"留给人工决策"的那条）：成员终态时若 plan 已 `done`（`advancePlan` 在这条 hook 之前就把 plan 收尾，所以"最后一项完成"正好命中）→ 不记唤醒行，记 `plan.leader_skipped{reason:"plan_done"}`。测试同时钉住**真实完成路径**（绑定 todo 的成员 job done → todo done → plan done → 不唤醒）。
+6. **worker job 的 `job.skills_mounted` 回执**（§三 E5）落在**派发成功那一刻**（`internal/runner/worker`），不是"worker 进入 running"。原因：worker 的本地 job 是**先翻 running、再 `mountSkills`/物化 uploads**（`execute` 的顺序），所以"进入 running"并不证明 uploads 已物化；而 hub 侧唯一能确定"这批 skills 真的以 uploads 形式带过去了"的位置，就是协商（`splitSkillUploads`）之后、dispatch 帧成功发出的那一行。事件写成 `{names, via:"uploads"}`，与老 worker/peer 的 `job.skills_skipped` 互斥。
+7. **时间线中文标签**（§三 E1）：`JobDetail.vue` 的 `EVENT_META` 补了 `comment.*`（4 个）、`job.skills_mounted/skills_skipped`、`plan.leader_*`（4 个），并给它们补了 detail 行；`PlanDetail.vue` **没有**同类词表（plan 页不渲染事件流），所以无可同步——另注意 `plan.leader_*` 记在 `plan:<id>` 作用域上，web 目前没有渲染该作用域的页面，这四行只在按 plan 作用域查事件时用得到。
+8. **job 详情页的 leader 徽标**（§三 E3）：数据取自 tags（`leader` / `leader_round:<n>`）+ `plan_id`，没加接口。`leader` 标签是"这条 job 是 leader 轮"的唯一权威标记（`LeaderOfPlan` 是 server 侧标记，不进 request_json）。
+
+### 真机/自动化验证
+
+- `gofmt -l`（改过的文件）：空；`go build ./...` + `GOOS=linux go build ./...`：OK；`go vet ./...`：OK。
+- `go test ./internal/httpapi/... ./internal/config/... ./internal/job/... ./internal/runner/... -run 'Head|HotEditable|Notification|Leader|SkillsMounted' -v`：全绿（`TestHeadServesShellAndAssets` / `TestDirLockFieldsAreHotEditable` / `TestCompoundServerBlocksDecodeSnakeCase` / `TestNotificationPatchKeepsSecretEnv` / `TestNotificationAddRemoveWebhook` / `TestNotificationEnabledPausesDelivery` / `TestLeaderSkippedWhenPlanDone` / `TestWorkerJobSkillsMountedRecordedOnRunning`，以及既有的 leader/notification/skills 用例）。
+- `cd web && pnpm typecheck`：exit 0。
+- **未做的真机项**（本期只做到自动化验证，如实记录）：① 没有起临时 server 用 `curl -I` 打 HEAD 与反代行为（只覆盖到 handler 层）；② 通知编辑区没有在浏览器里点过（`pnpm typecheck` + 服务端契约测试通过，UI 未目视确认）；③ `enabled: false` 的"已入队投递仍发完"只按代码路径判定，没有真机投递观察。
