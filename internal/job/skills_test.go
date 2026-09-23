@@ -221,6 +221,33 @@ func TestSkillPromptListsPaths(t *testing.T) {
 	}
 }
 
+// TestSkillsPersistedOnJobRow: the bound skills survive the ROW, not just the
+// in-memory entry — `job show` and the web detail read them back out of
+// jobs.skills_json (after a restart, or once the entry was evicted), so a job that
+// mounted its skills must not answer "no skills" from the database. Found on a real
+// server: the column existed and was scanned, but nothing projected the result's
+// Skills into it, so the row (and the CLI line built from it) was empty while the
+// mount and the event were correct.
+func TestSkillsPersistedOnJobRow(t *testing.T) {
+	root := t.TempDir()
+	s, _ := newSkillService(t, root, nil, "house-rules")
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "ok", Runner: "local", Cwd: ".", Prompt: "x", TimeoutSec: 30,
+		Skills: []string{"house-rules"},
+	})
+	rec, ok, err := s.meta.GetJob(final.ID)
+	if err != nil || !ok {
+		t.Fatalf("GetJob(%s): ok=%v err=%v", final.ID, ok, err)
+	}
+	if got := fromRecord(rec).Skills; len(got) != 1 || got[0] != "house-rules" {
+		t.Fatalf("row skills = %v, want [house-rules]", got)
+	}
+	// A job with no binding must not read back as one that had skills.
+	if got := fromRecord(jobstore.JobRecord{}).Skills; len(got) != 0 {
+		t.Fatalf("empty row skills = %v, want none", got)
+	}
+}
+
 // TestPeerRunnerSkipsSkills (决策 2, 2026-09-23): a peer-http job mounts nothing and
 // lists nothing — the peer's transport carries no files and this hub knows nothing
 // about the peer's paths, so a path the peer cannot read must never be promised. The
