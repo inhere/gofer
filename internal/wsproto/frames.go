@@ -35,8 +35,9 @@ const (
 	// InitialInputMinProtocolVersion); v8 adds the verify dispatch fields
 	// (verify/verify_timeout_sec — see VerifyMinProtocolVersion) and the job_event
 	// frame; v9 adds the file-transfer frames (file_xfer/file_xfer_result — see
-	// FileXferMinProtocolVersion).
-	CurrentProtocolVersion = 9
+	// FileXferMinProtocolVersion); v10 adds the skills-mount upload base field
+	// (XferUpload.base — see SkillsMinProtocolVersion).
+	CurrentProtocolVersion = 10
 )
 
 // ReloadMinProtocolVersion is the first protocol version that carries the config
@@ -115,6 +116,23 @@ const FileXferMinProtocolVersion = 9
 // SupportsFileXfer reports whether a peer that registered with protocol version proto
 // implements the file-transfer frames.
 func SupportsFileXfer(proto int) bool { return proto >= FileXferMinProtocolVersion }
+
+// SkillsMinProtocolVersion is the first protocol version whose XferUpload carries
+// Base (the skills mount, JOB-10). It is a floor of a different kind from the ones
+// above: nothing is REFUSED over it. A skill travels as an ordinary staged upload,
+// but to a destination OUTSIDE the job's cwd (the job's result dir), and a worker
+// that predates Base silently drops the field and would place the skill in the
+// WORKING TREE — the one place the design forbids (a shared checkout git watches).
+// So the hub does not send the mount at all to such a worker: it dispatches the job
+// WITHOUT its skills and records job.skills_skipped, rather than gamble on a
+// destination the peer cannot see. Hence the capability is negotiated per peer via
+// SupportsSkills instead of gating the dispatch (G032: no silent degradation — the
+// job still runs, and the omission is on the job's own timeline).
+const SkillsMinProtocolVersion = 10
+
+// SupportsSkills reports whether a peer that registered with protocol version proto
+// understands the upload base field (and can therefore be handed a skills mount).
+func SupportsSkills(proto int) bool { return proto >= SkillsMinProtocolVersion }
 
 // TunnelOpen requests a worker to open a TCP tunnel (protocol v5).
 type TunnelOpen struct {
@@ -388,6 +406,14 @@ type Dispatch struct {
 	// (FileXferMinProtocolVersion, the same v9 floor as the transfer frames).
 	Uploads []XferUpload `json:"uploads,omitempty"`
 	Collect []string     `json:"collect,omitempty"`
+	// Skills (JOB-10) is the RESOLVED skill binding the hub decided for this job —
+	// never re-derived here, because the worker's own config may name a different
+	// library. The files themselves ride Uploads with Base=result_dir, so this list
+	// alone mounts nothing: a peer below SkillsMinProtocolVersion is handed the names
+	// but NONE of those uploads (the hub drops the mount rather than let a base-less
+	// peer write a skill into the shared working tree — see SupportsSkills), and the
+	// hub records job.skills_skipped for it.
+	Skills []string `json:"skills,omitempty"`
 	// ExclusiveDir / StallTimeoutSec are the JOB-11 / AUTO-05 policies the hub
 	// RESOLVED for this job: whether the worker must take the exclusive lock of the
 	// job's working directory, and after how many silent seconds it must kill it.
@@ -403,10 +429,17 @@ type Dispatch struct {
 
 // XferUpload is one staged file a job takes with it (XFER-01 X2): the transfer id
 // the worker fetches the payload with (GET /v1/xfer/{id}/content, its own token) and
-// the destination, relative to the job's cwd on THAT machine.
+// the destination, relative to Base on THAT machine.
 type XferUpload struct {
 	XferID string `json:"xfer_id"`
 	Dest   string `json:"dest"`
+	// Base is the directory Dest is relative to: "" (or "cwd") is the job's working
+	// directory — the pre-v10 reading, so an old peer that drops the key behaves
+	// exactly as before — and "result_dir" is the job's own result directory (JOB-10
+	// mounts a skill there, never in the shared checkout). Additive: only a peer at
+	// SkillsMinProtocolVersion or above understands it, which is why the hub sends no
+	// base-carrying upload to anyone below (SupportsSkills).
+	Base string `json:"base,omitempty"`
 }
 
 // JobEvent (w→s, SUP-01 G, protocol v8): one job life-cycle event the WORKER raised

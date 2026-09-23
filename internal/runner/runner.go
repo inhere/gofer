@@ -49,6 +49,15 @@ const EventACPSummary = "job.acp_summary"
 // aliases it.
 const EventCancelRequested = "job.cancel_requested"
 
+// EventSkillsSkipped is the job event a worker runner records when it dispatched a
+// job to a peer that cannot carry the job's skill mount (JOB-10, design §横切):
+// {reason:"worker_protocol", count, names}. The job runs — the skills are dropped
+// rather than risk a pre-v10 worker writing them into the shared working tree — so
+// this event is the only place that omission is visible. It lives in this package
+// for the same reason as the events above (the runner cannot import job, G022);
+// job.EventJobSkillsSkipped aliases it.
+const EventSkillsSkipped = "job.skills_skipped"
+
 // Runner executes one resolved command and reports how it ended.
 type Runner interface {
 	// Name returns the runner's stable identifier (e.g. "local").
@@ -111,6 +120,16 @@ type Request struct {
 	// them on its machine).
 	Uploads []XferUpload
 	Collect []string
+
+	// Skills / SkillsResolved are JOB-10's resolved skill binding for THIS request.
+	// Skills is the decided list (config.EffectiveSkills); SkillsResolved is the
+	// dispatch-side marker: true means the submitting machine already resolved it, so
+	// the executing machine must NOT re-union the binding against its own config (a
+	// worker's library may hold a different set, and re-deriving would mount skills
+	// the hub never chose). False on a local job that has not been through resolution
+	// yet, which is the pre-JOB-10 reading.
+	Skills         []string
+	SkillsResolved bool
 
 	// Verify / VerifyTimeoutSec are the job's验证步骤 (SUP-01 B), already resolved by
 	// the job service (project default + --no-verify). The LOCAL runner does not read
@@ -398,6 +417,13 @@ type Forward struct {
 	// wsproto.FileXferMinProtocolVersion).
 	Uploads []XferUpload
 	Collect []string
+	// Skills (JOB-10) is the RESOLVED skill binding the executing machine mounts —
+	// the union the hub decided, never re-derived there (the peer's own config names
+	// a different library). The files travel as Uploads with Base=result_dir, so the
+	// machine that owns the result dir writes them. It is dropped for a peer below
+	// wsproto.SkillsMinProtocolVersion (the hub dispatches without it and records
+	// job.skills_skipped instead of risking a mount in the shared working tree).
+	Skills []string
 	// ExclusiveDir / StallTimeoutSec are the JOB-11 / AUTO-05 execution policies the
 	// submitting hub RESOLVED (server.dir_lock + the agent's max_concurrent/stall
 	// knobs): the executing machine applies them instead of re-deriving its own from
@@ -413,12 +439,18 @@ type Forward struct {
 
 // XferUpload is one staged file a job takes with it (XFER-01 X2): the id of a
 // transfer already staged on the hub and the path it must be placed at on the
-// EXECUTING machine, relative to the job's cwd.
+// EXECUTING machine, relative to Base.
 type XferUpload struct {
 	// XferID is the staging-area id (the payload itself rides HTTP).
 	XferID string `json:"xfer_id"`
-	// Dest is the destination path on the executing machine, relative to the job's cwd.
+	// Dest is the destination path on the executing machine, relative to Base.
 	Dest string `json:"dest"`
+	// Base is the directory Dest is relative to: "" / "cwd" is the job's working
+	// directory (the pre-JOB-10 reading, and what every ordinary --upload uses), and
+	// "result_dir" is the job's own result directory (a skills mount, which must
+	// never land in the shared checkout). It only reaches a peer at
+	// wsproto.SkillsMinProtocolVersion or above — see splitSkillUploads.
+	Base string `json:"base,omitempty"`
 }
 
 // Result is the outcome of a single Run. ExitCode is the process exit status

@@ -59,9 +59,41 @@ func xferUploadsToWire(in []runner.XferUpload) []wsproto.XferUpload {
 	}
 	out := make([]wsproto.XferUpload, 0, len(in))
 	for _, u := range in {
-		out = append(out, wsproto.XferUpload{XferID: u.XferID, Dest: u.Dest})
+		out = append(out, wsproto.XferUpload{XferID: u.XferID, Dest: u.Dest, Base: u.Base})
 	}
 	return out
+}
+
+// splitSkillUploads separates the uploads a worker at protocol version proto can
+// actually carry from the ones it cannot, so a job can be dispatched WITHOUT its
+// skills instead of refused over them (JOB-10, design §横切).
+//
+// A skill rides the ordinary upload channel but to Base "result_dir" — a destination
+// outside the job's cwd — and Base is a v10 field: a peer that predates it silently
+// drops the key and would write the skill into the WORKING TREE, the one place the
+// design forbids. So an upload whose Base is "result_dir" is dropped (and counted)
+// unless the peer is KNOWN and at SkillsMinProtocolVersion or above. Every other
+// upload (Base "" / "cwd") is kept: it means what it always meant, and an old peer
+// that drops the key places it exactly as before.
+//
+// known=false means the worker's protocol version could not be determined (offline
+// or a legacy connection with no recorded version) — treated as "cannot carry",
+// because the cost of guessing wrong is a skill in the shared checkout. It is pure:
+// no logging, no side effects, so the negotiation is unit-testable on its own.
+func splitSkillUploads(in []runner.XferUpload, proto int, known bool) (keep []runner.XferUpload, dropped int) {
+	carries := known && wsproto.SupportsSkills(proto)
+	if len(in) == 0 {
+		return nil, 0
+	}
+	keep = make([]runner.XferUpload, 0, len(in))
+	for _, u := range in {
+		if u.Base == "result_dir" && !carries {
+			dropped++
+			continue
+		}
+		keep = append(keep, u)
+	}
+	return keep, dropped
 }
 
 // unsupportedDispatchFields lists the dispatch fields this job NEEDS that a worker
@@ -93,8 +125,12 @@ func unsupportedDispatchFields(proto int, f *runner.Forward) []string {
 	// XFER-01 X2: a job that carries files needs the transfer capability AND the
 	// dispatch fields that name them (both enter at v9). A peer below it would run the
 	// job with the uploads never placed and the globs never matched, and report it as
-	// an ordinary success — refuse instead.
-	if (len(f.Uploads) > 0 || len(f.Collect) > 0) && !wsproto.SupportsFileXfer(proto) {
+	// an ordinary success — refuse instead. The floor is judged on the uploads the peer
+	// would actually RECEIVE: a skill upload (Base "result_dir") is dropped for any
+	// worker that cannot carry skills (JOB-10 — splitSkillUploads), so a job whose only
+	// uploads are skills is NOT refused over them; it is dispatched without the mount.
+	carried, _ := splitSkillUploads(f.Uploads, proto, true)
+	if (len(carried) > 0 || len(f.Collect) > 0) && !wsproto.SupportsFileXfer(proto) {
 		lacks = append(lacks, "uploads/collect")
 	}
 	// JOB-11 / AUTO-05 (exclusive_dir / stall_timeout_sec) are deliberately NOT in this
@@ -206,7 +242,13 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	// reported as if it had. Refuse the dispatch instead, naming exactly what the
 	// worker is missing, so the operator upgrades THAT worker (a v<n> worker stays
 	// fully usable for every job that does not need the newer capabilities).
-	if proto, ok := r.hub.WorkerProtocol(workerID); ok {
+	//
+	// protoKnown is kept for the skills negotiation below: an unknown version (an
+	// offline worker, or a legacy connection with none recorded) is treated as "cannot
+	// carry the mount", because guessing wrong would write a skill into the shared
+	// checkout. JOB-10 does NOT gate the dispatch on skills — see splitSkillUploads.
+	proto, protoKnown := r.hub.WorkerProtocol(workerID)
+	if protoKnown {
 		if lacks := unsupportedDispatchFields(proto, f); len(lacks) > 0 {
 			return runner.Result{ExitCode: -1, Err: fmt.Errorf(
 				"worker %q protocol v%d lacks %s; upgrade the worker",
@@ -300,6 +342,11 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	}
 
 	// (b) dispatch (runner is always local on the worker side).
+	//
+	// JOB-10: the skill mount is withheld from a peer that cannot carry it (see
+	// splitSkillUploads) — the job is dispatched WITHOUT its skills rather than
+	// refused over them, and the omission is reported below.
+	uploads, skillsDropped := splitSkillUploads(f.Uploads, proto, protoKnown)
 	d := wsproto.Dispatch{
 		JobID:             req.JobID,
 		ProjectKey:        f.ProjectKey,
@@ -335,8 +382,14 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		VerifyTimeoutSec: f.VerifyTimeoutSec,
 		// XFER-01 X2: the file steps are the worker's to carry out (its cwd is the one
 		// they act on) — the staged upload ids and the collect globs ride the dispatch.
-		Uploads: xferUploadsToWire(f.Uploads),
+		// JOB-10: a skills upload (Base "result_dir") is already gone from `uploads`
+		// when this peer cannot carry it.
+		Uploads: xferUploadsToWire(uploads),
 		Collect: f.Collect,
+		// JOB-10: the binding the hub resolved (never re-derived on the worker). Its
+		// files are among the uploads above — absent for a peer below v10, which is
+		// why the skip is reported as an event right after the dispatch.
+		Skills: f.Skills,
 		// JOB-11 / AUTO-05: the hub resolved the directory lock and the stall window
 		// against ITS config (this machine validated the request), so the worker applies
 		// them as decided instead of re-deriving its own (see Dispatch's field docs).
@@ -353,6 +406,15 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	if err := r.hub.Dispatch(workerID, d); err != nil {
 		relayCloseReason = "dispatch_failed"
 		return runner.Result{ExitCode: -1, Err: err}
+	}
+	// JOB-10 (design §横切): the peer cannot carry the skill mount, so the job runs
+	// WITHOUT it. The job itself is unaffected (that is the point — an old worker is
+	// never refused over skills), so this event is the only place the omission is
+	// visible on the job's own timeline. Nil-safe: a job with no event sink ignores it.
+	if skillsDropped > 0 && req.OnJobEvent != nil {
+		req.OnJobEvent(runner.EventSkillsSkipped, map[string]any{
+			"reason": "worker_protocol", "count": skillsDropped, "names": f.Skills,
+		})
 	}
 
 	// (c)(d) wait for the worker's authoritative terminal result, a worker-lost

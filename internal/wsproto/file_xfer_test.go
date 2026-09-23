@@ -5,13 +5,18 @@ import "testing"
 // TestFileXferRoundTripAndSupports pins the XFER-01 wire contract: both new frames
 // survive EncodeFrame → DecodeEnvelope → As unchanged (so the two sides cannot drift
 // on a json tag), the capability floor is v9 (a v8 peer must NOT be offered the frame —
-// the hub refuses the transfer instead, G032), and this build still reports v9.
+// the hub refuses the transfer instead, G032), and this build reports the current
+// version (v10 since JOB-10, which is still ABOVE the v9 floor — the floor is what
+// gates the capability, never the current version).
 func TestFileXferRoundTripAndSupports(t *testing.T) {
-	if CurrentProtocolVersion != 9 {
-		t.Fatalf("CurrentProtocolVersion = %d, want 9 (the version that carries file_xfer)", CurrentProtocolVersion)
+	if CurrentProtocolVersion != 10 {
+		t.Fatalf("CurrentProtocolVersion = %d, want 10 (JOB-10 added the upload base field)", CurrentProtocolVersion)
 	}
 	if FileXferMinProtocolVersion != 9 {
 		t.Fatalf("FileXferMinProtocolVersion = %d, want 9", FileXferMinProtocolVersion)
+	}
+	if !SupportsFileXfer(CurrentProtocolVersion) {
+		t.Fatalf("SupportsFileXfer(%d) = false: raising the protocol must not drop a floor", CurrentProtocolVersion)
 	}
 	if SupportsFileXfer(8) {
 		t.Fatal("SupportsFileXfer(8) = true, want false: a v8 worker has no file_xfer frame")
