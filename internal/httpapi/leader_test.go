@@ -4,9 +4,11 @@ import (
 	"io"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 // bodyString reads a response body for a failure message (the error shape is what says
@@ -20,11 +22,12 @@ func bodyString(t *testing.T, resp *http.Response) string {
 	return string(b)
 }
 
-// TestLeaderCannotAccept (MCP-05 阶段 B): the leader job's identity may comment, move
-// todos, wake and ask — but never ACCEPT or REJECT a delivery (GATE-01 §3: an agent
-// never signs off, and a leader is an agent). The in-job identity arrives as the
-// review body's as_job (exactly like a comment's), so the server can tell a leader job
-// from the human it is running beside — a caller token alone cannot.
+// TestLeaderCannotAccept (MCP-05 阶段 B, re-pinned on SEC-01 credentials): the leader
+// job's identity may comment, move todos, wake and ask — but never ACCEPT or REJECT a
+// delivery (GATE-01 §3: an agent never signs off, and a leader is an agent). Since
+// SEC-01 the identity is the leader job's own CREDENTIAL (the retired `as_job` field
+// decides nothing), which is the only way the server can tell a leader job from the
+// human sitting next to it.
 func TestLeaderCannotAccept(t *testing.T) {
 	s := newReviewServer(t, config.ServerConfig{Token: testToken})
 
@@ -56,15 +59,23 @@ func TestLeaderCannotAccept(t *testing.T) {
 	if !s.jobs.IsLeaderJob(leader.ID) {
 		t.Fatalf("job %s is not recognised as a leader job", leader.ID)
 	}
+	// The credential is seeded for the leader job AFTER it has run: a live job's own
+	// terminal path revokes the row its id holds (SEC-01), so a seeded credential has to
+	// outlive the run — the same order the member tests use (submit, wait, then seed).
+	waitJobTerminal(t, s.jobs, leader.ID, 15*time.Second)
+	leaderTok := seedJobToken(t, s, leader.ID, jobstore.JobCredentialLeader, "plan-1")
 
 	delivery := submitReviewJob(t, s, testToken)
 
-	// 1. accept, spoken by the leader: refused, and the job stays where it was.
-	rej := do(t, s, http.MethodPost, "/v1/jobs/"+delivery.ID+"/accept", testToken,
-		map[string]any{"note": "looks good", "as_job": leader.ID})
+	// 1. accept, spoken by the leader's credential: refused, and the job stays where it
+	// was. The route is not on the SEC-01 allowlist at all, so the middleware answers
+	// before the handler — the 403 body names the action and the credential kind.
+	rej := do(t, s, http.MethodPost, "/v1/jobs/"+delivery.ID+"/accept", leaderTok,
+		map[string]any{"note": "looks good"})
 	if rej.StatusCode != http.StatusForbidden {
 		t.Fatalf("leader accept status=%d, want 403 (body: %s)", rej.StatusCode, bodyString(t, rej))
 	}
+	assertJobCredentialRefusal(t, rej)
 	got := do(t, s, http.MethodGet, "/v1/jobs/"+delivery.ID, testToken, nil)
 	var after job.JobResult
 	decode(t, got, &after)
@@ -72,17 +83,18 @@ func TestLeaderCannotAccept(t *testing.T) {
 		t.Fatalf("job status = %s after a refused leader accept, want needs_review", after.Status)
 	}
 
-	// 2. reject, spoken by the leader: refused too (a leader must not hand work back on
-	// its own either — that is the human's call).
-	rej = do(t, s, http.MethodPost, "/v1/jobs/"+delivery.ID+"/reject", testToken,
-		map[string]any{"note": "not good enough", "as_job": leader.ID})
+	// 2. reject, spoken by the leader's credential: refused too (a leader must not hand
+	// work back on its own either — that is the human's call).
+	rej = do(t, s, http.MethodPost, "/v1/jobs/"+delivery.ID+"/reject", leaderTok,
+		map[string]any{"note": "not good enough"})
 	if rej.StatusCode != http.StatusForbidden {
 		t.Fatalf("leader reject status=%d, want 403 (body: %s)", rej.StatusCode, bodyString(t, rej))
 	}
-
-	// 3. the same request from the HUMAN (no as_job) is the normal path: the gate is
-	// the identity, not the route.
-	ok := do(t, s, http.MethodPost, "/v1/jobs/"+delivery.ID+"/accept", testToken, map[string]any{"note": "looks good"})
+	assertJobCredentialRefusal(t, rej)
+	// Even a body that still names a job cannot hand the leader a verdict: `as_job` is
+	// ignored for a user caller (SEC-01), so this stays the human's accept.
+	ok := do(t, s, http.MethodPost, "/v1/jobs/"+delivery.ID+"/accept", testToken,
+		map[string]any{"note": "looks good", "as_job": leader.ID})
 	if ok.StatusCode != http.StatusOK {
 		t.Fatalf("human accept status=%d, want 200 (body: %s)", ok.StatusCode, bodyString(t, ok))
 	}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -109,26 +110,44 @@ func TestCommentEndpoints(t *testing.T) {
 		t.Fatalf("comments = %+v, want the posted one", listed.Comments)
 	}
 
-	// --- agent author: an in-job MCP caller's identity is stamped, never forged ---
-	resp = do(t, s, http.MethodPost, "/v1/jobs/"+src+"/comments", testToken,
+	// --- agent author: the CREDENTIAL is the identity, never the body (SEC-01) -----
+	// A member job comments through its own job token and is authored as THAT JOB's
+	// agent; the retired `as_job` field is read by nobody, so naming another job in the
+	// body cannot change the author. src must be TERMINAL before the credential is
+	// seeded: its own terminal path revokes whatever row the job id holds, so seeding
+	// under a running job would race the revoke.
+	waitJobTerminal(t, s.jobs, src, 15*time.Second)
+	memberTok := seedJobToken(t, s, src, jobstore.JobCredentialMember, "")
+	resp = do(t, s, http.MethodPost, "/v1/jobs/"+src+"/comments", memberTok,
 		map[string]string{"body": "@ok 我又说话了", "as_job": src})
 	if resp.StatusCode != http.StatusOK {
-		t.Fatalf("post as_job comment status=%d, want 200", resp.StatusCode)
+		t.Fatalf("post member-job comment status=%d, want 200", resp.StatusCode)
 	}
 	var asAgent commentView
 	decode(t, resp, &asAgent)
 	if asAgent.AuthorKind != jobstore.CommentAuthorAgent || asAgent.Author != "ok" {
-		t.Fatalf("as_job author = %s/%s, want ok/agent", asAgent.Author, asAgent.AuthorKind)
+		t.Fatalf("member job comment author = %s/%s, want ok/agent", asAgent.Author, asAgent.AuthorKind)
 	}
 	if len(asAgent.Dispatched) != 0 || asAgent.TriggeredJobID != "" {
-		t.Fatalf("an agent comment dispatched: %+v", asAgent)
+		t.Fatalf("a member job's mention dispatched: %+v", asAgent)
 	}
-	// An unknown as_job is a 404, not a silently anonymous user comment.
-	resp = do(t, s, http.MethodPost, "/v1/jobs/"+src+"/comments", testToken,
-		map[string]string{"body": "@ok hi", "as_job": "job-nope"})
-	if resp.StatusCode != http.StatusNotFound {
-		t.Fatalf("unknown as_job status=%d, want 404", resp.StatusCode)
-	}
+	// The other half of the same contract: a USER caller that still sends `as_job` stays
+	// the user — the body's claim is ignored, the authenticated caller is the author.
+	// (Whether that mention dispatches is not asserted here: the @-mention throttle is
+	// per scope, and the first comment on this job already spent the interval — that
+	// path is covered above.)
+	t.Run("user caller keeps its own identity despite as_job", func(t *testing.T) {
+		resp := do(t, s, http.MethodPost, "/v1/jobs/"+src+"/comments", testToken,
+			map[string]string{"body": "@ok hi", "as_job": src})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("user comment with as_job status=%d, want 200", resp.StatusCode)
+		}
+		var cv commentView
+		decode(t, resp, &cv)
+		if cv.AuthorKind != jobstore.CommentAuthorUser || cv.Author != "default" {
+			t.Fatalf("author = %s/%s, want default/user (as_job must be ignored)", cv.Author, cv.AuthorKind)
+		}
+	})
 
 	// --- plan scope -----------------------------------------------------------
 	resp = do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-comments", "project": "self"})
