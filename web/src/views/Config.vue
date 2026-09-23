@@ -12,7 +12,7 @@ import {
   reloadConfig,
   validateConfig,
 } from '../api/client'
-import type { ConfigAgentView, ConfigView, ConfigValidateResult, FieldPolicy } from '../api/types'
+import type { ConfigAgentView, ConfigView, ConfigValidateResult, FieldPolicy, WebhookView } from '../api/types'
 
 const POLL_MS = 5000
 
@@ -109,6 +109,27 @@ interface AgentForm {
   skillsText: string
 }
 
+// WebhookForm 是一行 webhook 的表单态。secretEnv 是"要写入的新名字"，留空即保留服务端
+// 已配置的那个（视图只给 secret_set，读不到名字，S4 的补丁式写入正是为此）。
+interface WebhookForm {
+  url: string
+  kind: string
+  enabled: boolean
+  eventsText: string
+  projectsText: string
+  secretEnv: string
+  secretSet: boolean
+  clearSecret: boolean
+}
+
+interface NotificationForm {
+  enabled: boolean
+  allowHTTP: boolean
+  maxAttempts: string
+  allowHostsText: string
+  webhooks: WebhookForm[]
+}
+
 interface ServerForm {
   maxJobTimeoutSec: string
   stallTimeoutSec: string
@@ -118,6 +139,7 @@ interface ServerForm {
   retryMaxAttempts: string
   retryBackoffText: string
   skillsText: string
+  notification: NotificationForm
 }
 
 const editor = ref<EditorKind | null>(null)
@@ -158,7 +180,45 @@ const serverForm = reactive<ServerForm>({
   retryMaxAttempts: '',
   retryBackoffText: '',
   skillsText: '',
+  notification: emptyNotificationForm(),
 })
+
+function emptyNotificationForm(): NotificationForm {
+  return { enabled: true, allowHTTP: false, maxAttempts: '', allowHostsText: '', webhooks: [] }
+}
+
+// webhookFormFrom 把视图里的一条 webhook 变成表单行（secretEnv 永远从空开始：名字读不到）。
+function webhookFormFrom(w: WebhookView): WebhookForm {
+  return {
+    url: w.url,
+    kind: w.kind ?? '',
+    enabled: w.enabled ?? true,
+    eventsText: linesText(w.events),
+    projectsText: linesText(w.projects),
+    secretEnv: '',
+    secretSet: w.secret_set,
+    clearSecret: false,
+  }
+}
+
+function addWebhook(): void {
+  serverForm.notification.webhooks.push({
+    url: '',
+    kind: '',
+    enabled: true,
+    eventsText: '',
+    projectsText: '',
+    secretEnv: '',
+    secretSet: false,
+    clearSecret: false,
+  })
+  void refreshPreview()
+}
+
+function removeWebhook(index: number): void {
+  serverForm.notification.webhooks.splice(index, 1)
+  void refreshPreview()
+}
 
 const agentPolicy = computed<Record<string, FieldPolicy>>(() => config.value?.agent_policy ?? {})
 const serverPolicy = computed<Record<string, FieldPolicy>>(() => config.value?.server_policy ?? {})
@@ -250,6 +310,7 @@ function openServerEditor(): void {
   badFields.value = new Set()
   editing.value = null
   editor.value = 'server'
+  const n = sc.notification
   Object.assign(serverForm, {
     maxJobTimeoutSec: sc.max_job_timeout_sec > 0 ? String(sc.max_job_timeout_sec) : '',
     stallTimeoutSec: sc.stall_timeout_sec != null ? String(sc.stall_timeout_sec) : '',
@@ -259,6 +320,13 @@ function openServerEditor(): void {
     retryMaxAttempts: sc.retry ? String(sc.retry.max_attempts) : '',
     retryBackoffText: linesText(sc.retry?.backoff_sec?.map(String) ?? null),
     skillsText: linesText(sc.skills),
+    notification: {
+      enabled: n?.enabled ?? true,
+      allowHTTP: n?.allow_http ?? false,
+      maxAttempts: n && n.max_attempts > 0 ? String(n.max_attempts) : '',
+      allowHostsText: linesText(n?.allow_hosts ?? null),
+      webhooks: (n?.webhooks ?? []).map(webhookFormFrom),
+    },
   })
   void refreshPreview()
 }
@@ -335,6 +403,31 @@ function buildServerWrite(): Record<string, unknown> {
           },
     // JOB-10：全局默认技能绑定（server.skills），逐行一个名字。
     skills: lines(serverForm.skillsText),
+    // S4：notification 是补丁式写入 —— 表单里没有的成员保留原值；webhook 行的 secret_env
+    // 留空即"保留服务端已配置的名字"（视图只给 secret_set，读不到名字），显式勾选"清除"
+    // 才发空串。整份列表照发，所以新增/删除条目都能表达。
+    notification: {
+      enabled: serverForm.notification.enabled,
+      allow_http: serverForm.notification.allowHTTP,
+      max_attempts: optionalInt(serverForm.notification.maxAttempts) ?? 0,
+      allow_hosts: lines(serverForm.notification.allowHostsText),
+      webhooks: serverForm.notification.webhooks.map((w) => {
+        const row: Record<string, unknown> = {
+          url: w.url.trim(),
+          kind: w.kind,
+          enabled: w.enabled,
+          events: lines(w.eventsText),
+          projects: lines(w.projectsText),
+        }
+        const name = w.secretEnv.trim()
+        if (name !== '') {
+          row.secret_env = name
+        } else if (w.clearSecret) {
+          row.secret_env = ''
+        }
+        return row
+      }),
+    },
   }
 }
 
@@ -822,6 +915,86 @@ onUnmounted(() => {
                 技能名来自 <RouterLink to="/skills">技能库</RouterLink>；绑定是叠加的
                 （server → agent → project → job 取并集），清空这里只是取消全局默认。
               </p>
+              <div class="field">
+                <span class="field-name">notification（出站通知：webhook 目标 + 限速）</span>
+                <label class="field field--check">
+                  <input v-model="serverForm.notification.enabled" type="checkbox" @change="refreshPreview()" />
+                  <span class="field-name">开启出站通知（关掉只停止入队新投递，已入队的仍会发完）</span>
+                </label>
+                <label class="field field--check">
+                  <input v-model="serverForm.notification.allowHTTP" type="checkbox" @change="refreshPreview()" />
+                  <span class="field-name">允许 http（仅本地测试用；默认只发 https）</span>
+                </label>
+                <label class="field">
+                  <span class="field-name">max_attempts（留空 = 默认 6）</span>
+                  <input v-model="serverForm.notification.maxAttempts" class="input" @change="refreshPreview()" />
+                </label>
+                <label class="field">
+                  <span class="field-name">allow_hosts（每行一个 host；webhook 的 host 必须在这里）</span>
+                  <textarea
+                    v-model="serverForm.notification.allowHostsText"
+                    class="input textarea"
+                    rows="2"
+                    @change="refreshPreview()"
+                  ></textarea>
+                </label>
+              </div>
+              <div v-for="(w, i) in serverForm.notification.webhooks" :key="i" class="hook-row">
+                <div class="hook-row__head">
+                  <span class="field-name mono">webhook #{{ i + 1 }}</span>
+                  <button class="mini-btn mono" type="button" @click="removeWebhook(i)">删除</button>
+                </div>
+                <label class="field">
+                  <span class="field-name">url</span>
+                  <input
+                    v-model="w.url"
+                    class="input"
+                    placeholder="https://hooks.example.com/gofer"
+                    @change="refreshPreview()"
+                  />
+                </label>
+                <label class="field">
+                  <span class="field-name">kind（出站适配器）</span>
+                  <select v-model="w.kind" class="input" @change="refreshPreview()">
+                    <option value="">generic（{event, job} JSON）</option>
+                    <option value="dingtalk">dingtalk（钉钉机器人）</option>
+                    <option value="feishu">feishu（飞书机器人）</option>
+                  </select>
+                </label>
+                <label class="field">
+                  <span class="field-name">events（每行一个；留空 = 默认集）</span>
+                  <textarea v-model="w.eventsText" class="input textarea" rows="2" @change="refreshPreview()"></textarea>
+                </label>
+                <label class="field">
+                  <span class="field-name">projects（每行一个项目键；留空 = 全部项目）</span>
+                  <textarea v-model="w.projectsText" class="input textarea" rows="2" @change="refreshPreview()"></textarea>
+                </label>
+                <label class="field">
+                  <span class="field-name">
+                    secret_env（密钥的 env 名，不是密钥本身；留空 =
+                    {{ w.secretSet ? '保留已配置的名字' : '不设置' }}）
+                  </span>
+                  <input
+                    v-model="w.secretEnv"
+                    class="input"
+                    placeholder="GOFER_WEBHOOK_SECRET"
+                    @change="refreshPreview()"
+                  />
+                </label>
+                <label v-if="w.secretSet" class="field field--check">
+                  <input v-model="w.clearSecret" type="checkbox" @change="refreshPreview()" />
+                  <span class="field-name">清除已配置的 secret_env</span>
+                </label>
+                <label class="field field--check">
+                  <input v-model="w.enabled" type="checkbox" @change="refreshPreview()" />
+                  <span class="field-name">启用这个目标（暂停不会删除配置）</span>
+                </label>
+              </div>
+              <button class="mini-btn mono" type="button" @click="addWebhook">+ 添加 webhook</button>
+              <p class="hint mono">
+                保存是**补丁式**：表单没提到的成员保留原值；secret_env 留空即保留服务端已有的名字
+                （控制台只读得到「已设置」，读不到名字——它可能指向一个密钥）。
+              </p>
               <div v-if="restartOnly.length > 0" class="field">
                 <span class="field-name">以下字段只在启动时读取，控制台不可编辑（需重启）</span>
                 <div class="badges">
@@ -1140,6 +1313,19 @@ onUnmounted(() => {
   color: var(--queue);
   margin: 2px 0 0;
   line-height: 1.6;
+}
+.hook-row {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 10px;
+}
+.hook-row__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 .badges {
   display: flex;

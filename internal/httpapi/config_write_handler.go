@@ -922,11 +922,13 @@ func applyServerField(sc *config.ServerConfig, f configBodyField) error {
 		}
 		sc.Retry = v
 	case "notification":
-		v, err := fieldValue[*config.NotificationConfig](f)
+		// S4 (2026-09-23): a PATCH, not a whole-block replace — see patchNotification
+		// for the two members a reader cannot round-trip.
+		v, err := fieldValue[*notificationPatch](f)
 		if err != nil {
 			return err
 		}
-		sc.Notification = v
+		patchNotification(sc, v)
 	case "skills":
 		// JOB-10 §一.3: the deployment's default bindings. A hot edit applies to the
 		// NEXT dispatch (EffectiveSkills reads the live config), not to jobs already
@@ -990,6 +992,144 @@ func applyServerField(sc *config.ServerConfig, f configBodyField) error {
 		return &configWriteError{status: http.StatusInternalServerError, msg: "unhandled editable field", detail: "unhandled editable field: " + f.path}
 	}
 	return nil
+}
+
+// notificationPatch is the request body of a `notification` write (S4, 2026-09-23).
+// Unlike the other compound server blocks (which replace whole because every member is
+// readable), this one is a PATCH: an omitted member keeps the configured value.
+// See patchNotification for why that is not merely convenient.
+type notificationPatch struct {
+	Enabled     *bool           `json:"enabled"`
+	AllowHosts  []string        `json:"allow_hosts"`
+	AllowHTTP   *bool           `json:"allow_http"`
+	MaxAttempts *int            `json:"max_attempts"`
+	Webhooks    *[]webhookPatch `json:"webhooks"`
+}
+
+// webhookPatch is one entry of a notification patch. The list it belongs to REPLACES
+// the configured list (so adding and removing targets both work); what makes it a
+// patch is secret_env, the ONE member a read path cannot round-trip.
+type webhookPatch struct {
+	URL      string   `json:"url"`
+	Kind     *string  `json:"kind"`
+	Events   []string `json:"events"`
+	Projects []string `json:"projects"`
+	Enabled  *bool    `json:"enabled"`
+	// SecretEnv names the env var holding the secret — a NAME, never a value (SR403).
+	// Omitted (absent or null) INHERITS the matching configured entry's name; an
+	// explicit "" clears it.
+	SecretEnv *string `json:"secret_env"`
+}
+
+// patchNotification applies a server.notification patch onto sc (S4, 2026-09-23).
+//
+// It is a PATCH rather than a whole-block replace for one concrete reason: the read
+// path deliberately does not echo a webhook's `secret_env` NAME (SR403 — GET
+// /v1/config reports only `secret_set`), so a console that re-sent the block it read
+// would clear the HMAC key's env reference on every save without ever being able to
+// show the operator what it destroyed. So:
+//
+//   - an omitted top-level member keeps its configured value (allow_hosts /
+//     allow_http / max_attempts / enabled);
+//   - a webhook entry that omits `secret_env` inherits the name of the entry it
+//     replaces; an explicit "" clears it; a new name is taken verbatim.
+//
+// The webhook LIST itself is replaced by the body's list — that is what makes adding
+// and removing targets expressible. Inheritance is by URL first (a target's identity,
+// and the only key that survives removing a middle entry, where positional identity
+// would copy the WRONG secret), falling back to the same index ONLY when the body's
+// list has the same length (the "edited in place, url changed too" shape). A source
+// entry is claimed at most once, so one secret can never land on two targets.
+//
+// `notification: null` clears the whole block (there is then no notification config
+// at all); `webhooks: null` (or absent) keeps the configured list.
+func patchNotification(sc *config.ServerConfig, p *notificationPatch) {
+	if p == nil {
+		sc.Notification = nil
+		return
+	}
+	// Start from the configured block: every member the body does not mention keeps
+	// its value. (The write transaction hands this function a CLONE, so sharing the
+	// untouched members with the previous generation is safe.)
+	next := config.NotificationConfig{}
+	var cur *config.NotificationConfig
+	if sc.Notification != nil {
+		next = *sc.Notification
+		cur = sc.Notification
+	}
+	if p.Enabled != nil {
+		next.Enabled = p.Enabled
+	}
+	if p.AllowHosts != nil {
+		next.AllowHosts = p.AllowHosts
+	}
+	if p.AllowHTTP != nil {
+		next.AllowHTTP = *p.AllowHTTP
+	}
+	if p.MaxAttempts != nil {
+		next.MaxAttempts = *p.MaxAttempts
+	}
+	if p.Webhooks != nil {
+		next.Webhooks = patchWebhooks(*p.Webhooks, cur)
+	}
+	sc.Notification = &next
+}
+
+// patchWebhooks rebuilds the webhook list from a patch body, marking each configured
+// entry that an incoming entry inherited its secret_env NAME from so the name is
+// handed out at most once.
+func patchWebhooks(in []webhookPatch, cur *config.NotificationConfig) []config.WebhookConfig {
+	var prev []config.WebhookConfig
+	if cur != nil {
+		prev = cur.Webhooks
+	}
+	claimed := make([]bool, len(prev))
+	out := make([]config.WebhookConfig, 0, len(in))
+	for i, w := range in {
+		out = append(out, buildWebhookPatch(w, i, len(in), prev, claimed))
+	}
+	return out
+}
+
+// buildWebhookPatch turns one body entry into a config entry, resolving the one
+// member the body may legitimately omit.
+func buildWebhookPatch(w webhookPatch, idx, total int, prev []config.WebhookConfig, claimed []bool) config.WebhookConfig {
+	out := config.WebhookConfig{
+		URL:      w.URL,
+		Events:   w.Events,
+		Projects: w.Projects,
+		Enabled:  w.Enabled,
+	}
+	if w.Kind != nil {
+		out.Kind = *w.Kind
+	}
+	if w.SecretEnv != nil {
+		out.SecretEnv = *w.SecretEnv
+		return out
+	}
+	if src := claimSecretSource(w.URL, idx, total, prev, claimed); src >= 0 {
+		claimed[src] = true
+		out.SecretEnv = prev[src].SecretEnv
+	}
+	return out
+}
+
+// claimSecretSource resolves which configured entry an incoming entry inherits its
+// secret_env NAME from: the first UNCLAIMED entry with the same URL, else — only when
+// the two lists have the same length, i.e. the in-place-edit shape — the unclaimed
+// entry at the same index. -1 means "nothing to inherit" (a genuinely new target).
+func claimSecretSource(url string, idx, total int, prev []config.WebhookConfig, claimed []bool) int {
+	if url != "" {
+		for i := range prev {
+			if !claimed[i] && prev[i].URL == url {
+				return i
+			}
+		}
+	}
+	if total == len(prev) && idx < len(prev) && !claimed[idx] {
+		return idx
+	}
+	return -1
 }
 
 // serverErrorFields names the applied server fields the validator complained about.
@@ -1200,13 +1340,14 @@ func serverPreview(sc config.ServerConfig, applied []string) (string, error) {
 			}
 			hooks := make([]map[string]any, 0, len(sc.Notification.Webhooks))
 			for _, w := range sc.Notification.Webhooks {
-				h := map[string]any{"url": w.URL, "events": w.Events, "projects": w.Projects, "kind": w.Kind}
+				h := map[string]any{"url": w.URL, "events": w.Events, "projects": w.Projects, "kind": w.Kind, "enabled": w.Enabled}
 				if w.SecretEnv != "" {
 					h["secret_env"] = "***"
 				}
 				hooks = append(hooks, h)
 			}
 			doc[name] = map[string]any{
+				"enabled":      sc.Notification.Enabled,
 				"webhooks":     hooks,
 				"allow_hosts":  sc.Notification.AllowHosts,
 				"allow_http":   sc.Notification.AllowHTTP,

@@ -14,6 +14,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/notify"
 )
 
 const (
@@ -992,5 +993,225 @@ func TestCompoundServerBlocksDecodeSnakeCase(t *testing.T) {
 	}
 	if cr.Jobs.Config().Server.AgentHealth != nil {
 		t.Fatalf("agent_health=%+v after null, want nil", cr.Jobs.Config().Server.AgentHealth)
+	}
+}
+
+// notificationFixtureYAML is configWriteFixture with a notification block whose one
+// webhook carries a secret_env NAME — the member GET /v1/config deliberately never
+// echoes (SR403), and therefore the one a whole-block replace would destroy silently.
+func notificationFixtureYAML(t *testing.T) string {
+	t.Helper()
+	yamlText, _, _ := configWriteFixture(t)
+	const block = `  notification:
+    allow_hosts:
+      - hooks.example.com
+      - hooks2.example.com
+    webhooks:
+      - url: https://hooks.example.com/gofer
+        events:
+          - job.terminal
+        secret_env: GOFER_WEBHOOK_SECRET
+        projects:
+          - seed
+`
+	yamlText = strings.Replace(yamlText, "server:\n", "server:\n"+block, 1)
+	if !strings.Contains(yamlText, "secret_env: GOFER_WEBHOOK_SECRET") {
+		t.Fatalf("fixture injection failed:\n%s", yamlText)
+	}
+	return yamlText
+}
+
+// TestNotificationPatchKeepsSecretEnv (S4, 2026-09-23): the console cannot read a
+// webhook's secret_env NAME (GET /v1/config reports only secret_set), so a write that
+// re-stated the webhook would clear the HMAC key's env reference on every save. The
+// patch therefore keeps it when the body omits it — which is exactly the body a console
+// produces from what it read — while an explicit "" is how a caller clears it.
+func TestNotificationPatchKeepsSecretEnv(t *testing.T) {
+	s, cr, cfgPath := newConfigWriteTestServer(t, notificationFixtureYAML(t), agent.NoopDetector{})
+
+	// Read side: the console learns THAT a secret is set, never its name.
+	v := getConfigView(t, s, adminToken)
+	if v.Server.Notification == nil || len(v.Server.Notification.Webhooks) != 1 {
+		t.Fatalf("notification view=%+v, want one webhook", v.Server.Notification)
+	}
+	if !v.Server.Notification.Webhooks[0].SecretSet {
+		t.Fatal("view secret_set=false, want true")
+	}
+	if !v.Server.Notification.Enabled {
+		t.Fatal("view enabled=false, want true (an unset block is on)")
+	}
+
+	// A patch that edits the entry but says nothing about secret_env.
+	resp := do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
+		"notification": map[string]any{
+			"webhooks": []map[string]any{{
+				"url":    "https://hooks.example.com/gofer",
+				"kind":   "dingtalk",
+				"events": []string{"job.terminal", "job.needs_review"},
+			}},
+		},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT notification status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+
+	got := cr.Jobs.Config().Server.Notification
+	if got == nil || len(got.Webhooks) != 1 {
+		t.Fatalf("live notification=%+v, want one webhook", got)
+	}
+	if got.Webhooks[0].SecretEnv != "GOFER_WEBHOOK_SECRET" {
+		t.Fatalf("secret_env=%q, want GOFER_WEBHOOK_SECRET (an omitted name must survive)", got.Webhooks[0].SecretEnv)
+	}
+	if got.Webhooks[0].Kind != "dingtalk" || len(got.Webhooks[0].Events) != 2 {
+		t.Fatalf("webhook=%+v, want the edited kind/events", got.Webhooks[0])
+	}
+	// A member the body did not mention keeps its configured value (that is the
+	// difference from the other compound blocks, which replace whole).
+	if len(got.AllowHosts) != 2 || got.AllowHosts[0] != "hooks.example.com" {
+		t.Fatalf("allow_hosts=%v, want the configured list (the patch mentioned none)", got.AllowHosts)
+	}
+	if disk := string(readFile(t, cfgPath)); !strings.Contains(disk, "secret_env: GOFER_WEBHOOK_SECRET") {
+		t.Fatalf("the file lost the env name:\n%s", disk)
+	}
+
+	// The in-place-edit shape: same list length, a DIFFERENT url for the same slot.
+	// There is no url to match on, so the same-index fallback keeps the secret (and a
+	// different-length list never falls back — that is the add/remove shape).
+	resp = do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
+		"notification": map[string]any{
+			"webhooks": []map[string]any{{
+				"url":    "https://hooks2.example.com/gofer",
+				"events": []string{"job.terminal"},
+			}},
+		},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT notification (url edit) status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	got = cr.Jobs.Config().Server.Notification
+	if got == nil || len(got.Webhooks) != 1 || got.Webhooks[0].URL != "https://hooks2.example.com/gofer" {
+		t.Fatalf("live notification=%+v, want the edited url", got)
+	}
+	if got.Webhooks[0].SecretEnv != "GOFER_WEBHOOK_SECRET" {
+		t.Fatalf("secret_env=%q after an in-place url edit, want the same-index inheritance", got.Webhooks[0].SecretEnv)
+	}
+
+	// An explicit empty name is the way to CLEAR it (the console's 清除 path).
+	resp = do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
+		"notification": map[string]any{
+			"webhooks": []map[string]any{{
+				"url":        "https://hooks2.example.com/gofer",
+				"events":     []string{"job.terminal"},
+				"secret_env": "",
+			}},
+		},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT notification (clear) status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	if got = cr.Jobs.Config().Server.Notification; got.Webhooks[0].SecretEnv != "" {
+		t.Fatalf("secret_env=%q, want cleared by the explicit empty name", got.Webhooks[0].SecretEnv)
+	}
+}
+
+// TestNotificationAddRemoveWebhook (S4, 2026-09-23): the webhook LIST is replaced by
+// the body's list — that is what makes adding and removing a target expressible — while
+// each entry's secret_env NAME follows the entry it replaces (matched by URL). The
+// inheritance must not leak across entries: a removed target's secret stays removed, and
+// a new target inherits nothing.
+func TestNotificationAddRemoveWebhook(t *testing.T) {
+	s, cr, _ := newConfigWriteTestServer(t, notificationFixtureYAML(t), agent.NoopDetector{})
+
+	// ADD: keep the configured target (url match) and add a new one.
+	resp := do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
+		"notification": map[string]any{
+			"webhooks": []map[string]any{
+				{"url": "https://hooks.example.com/gofer", "events": []string{"job.terminal"}},
+				{"url": "https://hooks2.example.com/gofer", "kind": "feishu", "events": []string{"job.needs_review"}},
+			},
+		},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT notification (add) status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	got := cr.Jobs.Config().Server.Notification
+	if got == nil || len(got.Webhooks) != 2 {
+		t.Fatalf("live notification=%+v, want two webhooks", got)
+	}
+	if got.Webhooks[0].SecretEnv != "GOFER_WEBHOOK_SECRET" {
+		t.Fatalf("kept entry secret_env=%q, want the inherited name", got.Webhooks[0].SecretEnv)
+	}
+	if got.Webhooks[1].SecretEnv != "" || got.Webhooks[1].Kind != "feishu" {
+		t.Fatalf("new entry=%+v, want no inherited secret and its own kind", got.Webhooks[1])
+	}
+
+	// REMOVE: a shorter list drops the tail entry, and the run of remaining entries
+	// keeps their own secrets.
+	resp = do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
+		"notification": map[string]any{
+			"webhooks": []map[string]any{
+				{"url": "https://hooks.example.com/gofer", "events": []string{"job.terminal"}},
+			},
+		},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT notification (remove) status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	got = cr.Jobs.Config().Server.Notification
+	if got == nil || len(got.Webhooks) != 1 || got.Webhooks[0].URL != "https://hooks.example.com/gofer" {
+		t.Fatalf("live notification=%+v, want the first target only", got)
+	}
+	if got.Webhooks[0].SecretEnv != "GOFER_WEBHOOK_SECRET" {
+		t.Fatalf("secret_env=%q after the removal, want the kept entry's own name", got.Webhooks[0].SecretEnv)
+	}
+}
+
+// TestNotificationEnabledPausesDelivery (S4, 2026-09-23): the two `enabled` switches
+// the console edits must actually gate delivery — at MATCH time, so a paused target
+// creates no delivery row, while the configuration itself survives the pause (that is
+// the difference from deleting the entry).
+func TestNotificationEnabledPausesDelivery(t *testing.T) {
+	s, cr, _ := newConfigWriteTestServer(t, notificationFixtureYAML(t), agent.NoopDetector{})
+
+	resp := do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
+		"notification": map[string]any{
+			"enabled": false,
+			"webhooks": []map[string]any{{
+				"url": "https://hooks.example.com/gofer", "events": []string{"job.terminal"},
+			}},
+		},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT notification status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	nc := cr.Jobs.Config().Server.Notification
+	if nc == nil || nc.IsEnabled() {
+		t.Fatalf("live notification=%+v, want the master switch off", nc)
+	}
+	if len(nc.Webhooks) != 1 || nc.Webhooks[0].SecretEnv != "GOFER_WEBHOOK_SECRET" {
+		t.Fatalf("webhooks=%+v, want the list kept (a pause is not a delete)", nc.Webhooks)
+	}
+	if matched := notify.MatchWebhooks(nc, "job.terminal", "seed"); len(matched) != 0 {
+		t.Fatalf("a paused notification still matched %v", matched)
+	}
+
+	// A paused entry keeps the block on but stops only that target.
+	resp = do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
+		"notification": map[string]any{
+			"enabled": true,
+			"webhooks": []map[string]any{{
+				"url": "https://hooks.example.com/gofer", "events": []string{"job.terminal"}, "enabled": false,
+			}},
+		},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT notification (per-target pause) status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	nc = cr.Jobs.Config().Server.Notification
+	if !nc.IsEnabled() || len(nc.Webhooks) != 1 || nc.Webhooks[0].IsEnabled() {
+		t.Fatalf("live notification=%+v, want the block on and the target paused", nc)
+	}
+	if matched := notify.MatchWebhooks(nc, "job.terminal", "seed"); len(matched) != 0 {
+		t.Fatalf("a paused webhook still matched %v", matched)
 	}
 }

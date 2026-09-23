@@ -34,6 +34,8 @@ var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.
 
 // MatchWebhooks returns the webhooks in cfg that subscribe to eventType for
 // projectKey (design §5.6 enqueue match): a webhook matches when
+//   - the notification block itself is not paused (Enabled, S4), AND
+//   - the webhook itself is not paused (Enabled, S4), AND
 //   - its project filter is empty OR contains projectKey, AND
 //   - its event filter contains eventType (or, when its event filter is empty,
 //     eventType is in DefaultTriggerEvents).
@@ -42,13 +44,21 @@ var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.
 // caller (the job service has the ProjectConfig) so this stays a pure function of
 // the notification config. The returned slice is the subset to enqueue one
 // delivery each for.
+//
+// The two pause switches are applied HERE, at ENQUEUE time, and deliberately not in
+// the delivery sweeper: pausing stops NEW notifications, while a delivery already
+// queued still drains (a pause must not strand a pending row, and nobody paused it
+// asking for a half-sent webhook).
 func MatchWebhooks(cfg *config.NotificationConfig, eventType, projectKey string) []config.WebhookConfig {
-	if cfg == nil || len(cfg.Webhooks) == 0 {
+	if cfg == nil || !cfg.IsEnabled() || len(cfg.Webhooks) == 0 {
 		return nil
 	}
 	var out []config.WebhookConfig
 	for _, w := range cfg.Webhooks {
 		if w.URL == "" {
+			continue
+		}
+		if !w.IsEnabled() {
 			continue
 		}
 		if !projectMatches(w.Projects, projectKey) {

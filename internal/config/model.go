@@ -236,10 +236,15 @@ func cloneServer(sc ServerConfig) ServerConfig {
 	if sc.Notification != nil {
 		n := *sc.Notification
 		n.AllowHosts = slices.Clone(sc.Notification.AllowHosts)
+		// The two enable switches are POINTERS (nil = on), so a shallow copy would let a
+		// write through one config generation flip the other's — the same aliasing the
+		// DirLock/AgentHealth clones above avoid.
+		n.Enabled = clonePtr(sc.Notification.Enabled)
 		n.Webhooks = make([]WebhookConfig, len(sc.Notification.Webhooks))
 		for i, w := range sc.Notification.Webhooks {
 			w.Events = slices.Clone(w.Events)
 			w.Projects = slices.Clone(w.Projects)
+			w.Enabled = clonePtr(w.Enabled)
 			n.Webhooks[i] = w
 		}
 		out.Notification = &n
@@ -1027,7 +1032,17 @@ type NotificationConfig struct {
 	AllowHosts  []string        `yaml:"allow_hosts,omitempty"`  // outbound host allowlist (SR904)
 	AllowHTTP   bool            `yaml:"allow_http,omitempty"`   // default false => https-only
 	MaxAttempts int             `yaml:"max_attempts,omitempty"` // <= 0 => DefaultMaxAttempts
+	// Enabled is the master switch for ALL outbound notification (S4, 2026-09-23).
+	// A POINTER, nil = on: an operator pausing notification keeps the whole webhook
+	// list in the file (turning it back on restores it), which deleting the list would
+	// lose. false suppresses ENQUEUE only — deliveries already queued still drain, so
+	// pausing cannot strand a row in `pending`.
+	Enabled *bool `yaml:"enabled,omitempty"`
 }
+
+// IsEnabled reports whether E14 webhook delivery is on for this notification block
+// (nil/absent = on, matching the pointer's meaning).
+func (n *NotificationConfig) IsEnabled() bool { return n == nil || n.Enabled == nil || *n.Enabled }
 
 // WebhookConfig is one E14 outbound webhook target (design §5.5). Events is the
 // subscribed trigger set (omit => the default set job.terminal + interaction.created);
@@ -1064,7 +1079,15 @@ type WebhookConfig struct {
 	// `{event, job}` JSON contract; dingtalk / feishu render the provider's own bot
 	// message so a group robot shows a readable card.
 	Kind string `yaml:"kind,omitempty"`
+	// Enabled pauses ONE target without deleting it (S4, 2026-09-23). A pointer,
+	// nil = on: pausing a noisy robot keeps its url / secret_env / events, which
+	// deleting the entry would lose. A paused webhook is skipped at MATCH time
+	// (notify.MatchWebhooks), so no delivery row is created for it.
+	Enabled *bool `yaml:"enabled,omitempty"`
 }
+
+// IsEnabled reports whether this webhook target is active (nil/absent = on).
+func (w WebhookConfig) IsEnabled() bool { return w.Enabled == nil || *w.Enabled }
 
 // DefaultMaxAttempts is the delivery retry cap used when NotificationConfig
 // .MaxAttempts is unset (<= 0): the backoff table has 5 steps, so 6 attempts

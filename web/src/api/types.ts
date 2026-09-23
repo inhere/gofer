@@ -582,13 +582,21 @@ export interface NotificationView {
   allow_hosts: string[]
   allow_http: boolean
   max_attempts: number
+  // S4：出站通知总开关（nil = 开）。关掉只停止入队新投递，已入队的仍会发完。
+  enabled: boolean
 }
 
 export interface WebhookView {
   url: string
+  // OBS-07a：出站适配器（'' / generic / dingtalk / feishu）。
+  kind: string
   events: string[]
-  secret_set: boolean
   projects: string[]
+  // S4：单个目标的暂停开关（nil = 开）。暂停保留 url/secret_env/events（删除会丢）。
+  enabled: boolean
+  // secret_set 只说明"配了 secret_env 名"，名字本身不回声（SR403）——所以保存时留空 =
+  // 保留服务端已配置的名字。
+  secret_set: boolean
 }
 
 export interface StorageConfigView {

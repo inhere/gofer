@@ -137,13 +137,25 @@ type notificationView struct {
 	AllowHosts  []string      `json:"allow_hosts"`
 	AllowHTTP   bool          `json:"allow_http"`
 	MaxAttempts int           `json:"max_attempts"`
+	// Enabled is the master pause switch (S4). It is emitted as a plain bool (the
+	// console edits it as a checkbox) while the WRITE side keeps it optional: an
+	// omitted `enabled` in a patch leaves the configured value alone.
+	Enabled bool `json:"enabled"`
 }
 
 type webhookView struct {
-	URL       string   `json:"url"`
-	Events    []string `json:"events"`
-	SecretSet bool     `json:"secret_set"`
-	Projects  []string `json:"projects"`
+	URL    string   `json:"url"`
+	Kind   string   `json:"kind"`
+	Events []string `json:"events"`
+	// Projects restricts the target to those project keys (empty = all).
+	Projects []string `json:"projects"`
+	// Enabled pauses this target without deleting it (S4).
+	Enabled bool `json:"enabled"`
+	// SecretSet reports whether a secret_env NAME is configured. The NAME itself is
+	// deliberately never echoed (SR403 precedent: no read path in this API exposes an
+	// env name), which is why a patch that omits secret_env INHERITS the current name
+	// — see patchNotification.
+	SecretSet bool `json:"secret_set"`
 }
 
 type storageConfigView struct {
@@ -424,13 +436,16 @@ func buildNotificationView(n *config.NotificationConfig) *notificationView {
 		AllowHosts:  nonNil(n.AllowHosts),
 		AllowHTTP:   n.AllowHTTP,
 		MaxAttempts: n.MaxAttempts,
+		Enabled:     n.IsEnabled(),
 	}
 	for _, wh := range n.Webhooks {
 		out.Webhooks = append(out.Webhooks, webhookView{
 			URL:       wh.URL,
+			Kind:      wh.Kind,
 			Events:    nonNil(wh.Events),
-			SecretSet: wh.SecretEnv != "",
 			Projects:  nonNil(wh.Projects),
+			Enabled:   wh.IsEnabled(),
+			SecretSet: wh.SecretEnv != "",
 		})
 	}
 	return out
