@@ -57,6 +57,9 @@
 | SVC-01 | Windows 桌面会话常驻：`serve -d`/`worker -d`/`stop` 的 Windows 实现（分离进程 + 命名事件优雅停 + 前台也记 pidfile）+ `start.ps1` 登录计划任务跑在交互会话（`--runner local` 可操作 GUI），nssm 废弃 | 0.50 | [design](design/2026-09-22-windows-desktop-session-service-design.md) · [runbook §7](runbook/2026-07-11-windows-server-selfupdate-runbook.md) |
 | G032 | 兼容策略：DEPRECATED 标记 + 到期删除；v0.48 已删 6 处 v0.45 标记 | 0.46–0.48 | `AGENTS.md` G032 · SUP-01「横切」 |
 | F8 | 升级后前端自愈与轮询收敛：缺失 asset 404（不再回落 shell）、shell `no-cache`/asset `immutable`、旧 chunk 自动重载一次（60s 冷却）+ 顶栏「有新版本，点击刷新」、顶栏铃铛 15s/失焦暂停（`utils/poller.ts`） | 0.53.1 | [runbook §7.5](runbook/2026-07-11-windows-server-selfupdate-runbook.md) · 本文「已落地」 |
+| JOB-10 | skills 绑定：`<config-dir>/skills/` 库 + `agent skill import/ls/show/rm/update/export` + server/agent/project/job 四级**并集**绑定 + `--skill/--no-skills`；派发时物化到 job 私有 `result_dir/skills/`（本机直写 / worker 走 uploads `Base=result_dir`）并在 prompt 头部列清单，**不写项目工作树**；`job.skills_mounted/skills_skipped` | 0.56 | [design](design/2026-09-23-skills-binding-and-comment-routing-design.md) §一 · [runbook](runbook/2026-09-23-skills-runbook.md) |
+| MCP-05 | 评论层 + leader 路由：job/plan/todo 评论与 `@agent` 提及即派活（阶段 A，只认 user caller + 限流 + allowlist）；leader 回合（阶段 B，opt-in：成员终态唤醒、轮次封顶、人插话接管、不能 accept/reject） | 0.56 | 同上 §二 · [评论 runbook](runbook/2026-09-23-comments-runbook.md) · [leader runbook](runbook/2026-09-23-leader-round-runbook.md) |
+| S1–S4 | 小项：SPA 回落支持 HEAD；`server.dir_lock`/`server.agent_health` 放行热改（`xfer` 仍需重启）；`job.session_captured` 不进事件镜像（只补注释/文档）；web 配置页补丁式编辑 `notification`（`secret_env` 只给名字、可暂停单个目标） | 0.56 | 同上 §三 + §S4 实测记录 |
 
 ## 二、待做 / 候选（下一批从这里选）
 
@@ -65,9 +68,7 @@
 | WEB-04③ | 配置写层 V1.1：agents/server 在 web 编辑（字段可编辑/需重启标记、secret 只引用、干跑校验、显式 reload） | 高 | 中 | ✅ 0.5x（R3 落地） | [design](design/2026-09-22-config-write-v11-reliable-retry-and-session-fallback-design.md) §一 + R3 实测记录 |
 | AUTO-03 | job 重试可靠版：`job_retries` 落库 + 租约 sweeper（重启不丢）、server/agent/project/job 四级策略、`--retry`、`retry_exhausted` 进默认通知 | 高 | 中 | ✅ 0.5x（R2 落地） | 同上 §二 |
 | AGT-04 | 会话捕获兜底：未配 `session_capture` 的 cli-agent 用通用正则（非 uuid id 也认）+ resume 模板兜底，新增 agent 免配即可续接 | 中 | 小 | ✅ 0.5x（R1 落地） | 同上 §三（jcode 实测） |
-| JOB-10 | skills 绑定：server 侧 skill 库（`gofer skill import/ls/update`）+ server/agent/project/job 四级并集绑定，派发时物化到 job 私有目录并在 prompt 里列清单（不写项目工作树） | 高 | 中 | 📝 设计 0.1 待批准 | [design](design/2026-09-23-skills-binding-and-comment-routing-design.md) §一 |
-| MCP-05 | 评论层与 leader 路由：job/plan 评论 + `@agent` 提及即派活（阶段 A）；leader 回合在成员终态后决定下一步（阶段 B，opt-in） | 中 | 中-大 | 📝 设计 0.1 待批准 | 同上 §二 |
-| S1–S4 | 小项：SPA 支持 HEAD、三个 server 块放行热改、`session_captured` 不进镜像（只补文档）、web 编辑 notification 局部字段 | 中 | 小 | 📝 设计 0.1 待批准 | 同上 §三 |
+| SEC-01 | job 作用域凭证：给 leader（及将来其他受控 job）发**只能做允许动作**的 token，并把 server bearer token 从 job 环境里去掉 —— 否则"leader 不能 accept/reject"只是调用方自报身份（`as_job`），带 server token 的 agent 直接 curl 仍能 accept（见 [leader runbook](runbook/2026-09-23-leader-round-runbook.md)「局限」） | 高 | 中 | ⏳ | MCP-05 阶段 B 遗留（S4 记录） |
 | CFG-05 | worker 配置向导 `gofer worker init`（拉 server projects → roots 映射） | 中 | 中 | ⏳ | 容器 worker 已手工上线（CFG-09），向导仍缺 |
 | ACP-02 | 真 claude-acp / codex-acp 端到端验收（鉴权、供应商稳定后） | 中 | — | ❄ 等条件 | [ACP S0 实测](design/2026-09-17-acp-agent-and-approval-gate-design.md) |
 | JOB-06 | 上下文/secret/规则注入（per-job env 已有；规则文件挂载待） | 中 | 中 | 🚧 | roadmap-history JOB-06 |
@@ -80,7 +81,7 @@
 
 ## 三、建议下一批
 
-v0.49.0 已落地 PLAN-03 / WEB-10 / CFG-09 / PTY-01 / XFER-02 / AUTO-02b；SVC-01（Windows 桌面会话常驻，含 `start.ps1` 登录计划任务）已在 v0.50 落地（正式切换 = 桌面管理员窗口卸旧 nssm 服务）。下一批已出设计（待批准）：WEB-04③ 配置写层 V1.1 + AUTO-03 可靠重试 + AGT-04 会话捕获兜底。WEB-04③/AUTO-03/AGT-04 已于 v0.51–v0.53 落地（另见 v0.53.1 的 web 修复）。下一批已出设计（待批准）：JOB-10 skills 绑定 + MCP-05 评论/leader 路由 + 小项 S1–S4。其后候选：ACP-02 真机验收、CFG-05 worker init 向导、JOB-06 规则文件挂载。
+v0.49.0 已落地 PLAN-03 / WEB-10 / CFG-09 / PTY-01 / XFER-02 / AUTO-02b；SVC-01（Windows 桌面会话常驻，含 `start.ps1` 登录计划任务）已在 v0.50 落地（正式切换 = 桌面管理员窗口卸旧 nssm 服务）。下一批已出设计（待批准）：WEB-04③ 配置写层 V1.1 + AUTO-03 可靠重试 + AGT-04 会话捕获兜底。WEB-04③/AUTO-03/AGT-04 已于 v0.51–v0.53 落地（另见 v0.53.1 的 web 修复）。JOB-10 skills 绑定 + MCP-05 评论/leader 路由 + 小项 S1–S4 已于 v0.56 落地（含 S4 收尾：SPA HEAD、`dir_lock`/`agent_health` 热改、notification 补丁式编辑、leader 不唤醒已完成的 plan、worker job 的 `job.skills_mounted` 回执）。下一批候选：SEC-01 job 作用域凭证、ACP-02 真机验收、CFG-05 worker init 向导、JOB-06 规则文件挂载。
 
 ## 四、维护约定
 

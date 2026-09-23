@@ -62,6 +62,7 @@ tags：`leader`、`leader_of:<成员 job id>`、`leader_round:<N>`；`channel: l
 | 只认成员终态 | `plan_id` 非空、**非** leader job（行上 `leader_of_plan` 为空）、tags 里**没有** `leader`、状态 ∈ {done, failed, needs_review}；`cancelled`/`timeout` 等人为终止不唤醒 |
 | 一轮一条 | 同一个成员 job 只会留一条未取消的唤醒记录（重复走进终态不重复记） |
 | plan 暂停 | `plan pause` 之后：唤醒时直接跳过（记 `plan.leader_skipped{reason:"paused"}`）；若在窗口内被暂停，到点那一刻取消该轮并记同一个事件 |
+| plan 已完成 | 成员终态时 plan 已是 `done`（所有待办 done/skipped —— `advancePlan` 在这条 hook 之前就已经把 plan 收尾）→ 不记唤醒行，记 `plan.leader_skipped{reason:"plan_done"}`。链都完了，一轮 leader 没有可决定的事 |
 | 轮次封顶 | `max_rounds_per_scope` 数的是**真的起过 leader job 的轮数**；用满即不再唤醒，改记 `plan.leader_exhausted` + 在 plan 上开一条 **decision**（web plan 页 / 待办式"待人处理"项），人接手 |
 | 防自激 | leader job 自己的终态不唤醒下一个 leader |
 | 人优先 | 人在该 plan 的评论区说话（`scope=plan`，或该 plan 的 todo/job）→ 取消该 plan **所有未开始的**待唤醒轮，记 `plan.leader_cancelled{by}`；已经在跑的 leader job 不受影响（它就是"当轮"，下一轮才归人） |
@@ -79,11 +80,20 @@ tags：`leader`、`leader_of:<成员 job id>`、`leader_round:<N>`；`channel: l
 | 事件 | 何时 | 详情 |
 |---|---|---|
 | `plan.leader_woken` | leader job 起来了 | `{plan_id, round, job(成员), member_status, leader_job, agent}` |
-| `plan.leader_skipped` | 记了唤醒但没起 job | `{plan_id, job, reason}`，`reason` = `paused` \| `submit_failed`（提交被拒，该轮直接作废：修好配置后下一个成员终态会有新一轮，不每 10s 重试） |
+| `plan.leader_skipped` | 记了唤醒但没起 job | `{plan_id, job, reason}`，`reason` = `paused` \| `plan_done` \| `submit_failed`（`submit_failed` = 提交被拒，该轮直接作废：修好配置后下一个成员终态会有新一轮，不每 10s 重试） |
 | `plan.leader_cancelled` | 人插话取消了待唤醒轮 | `{plan_id, by, cancelled}` |
 | `plan.leader_exhausted` | 轮次用尽 | `{plan_id, job, rounds}` |
 
 `plan.leader_exhausted` **在通知默认集里**（同 `plan.blocked`：没人接手就不会再有人推进这条链），另外三个不在——订阅要在 webhook `events:` 里写明。
+
+## 局限：验收闸门不是安全边界（SEC-01，2026-09-23）
+
+leader 唯一的硬约束是**它不能 accept/reject**。这条约束的实现方式是：`POST /v1/jobs/{id}/accept|reject` 收一个可选的 `as_job`（CLI 与 MCP 在两个 backend 里都会带上 `GOFER_JOB_ID`），server 看到"这个 job 是某 plan 的 leader"就 403。**身份是调用方自报的**，所以：
+
+- 它挡住的是**误操作**——leader 顺手调 `gofer_reject_job`、或按自己的直觉 accept；这类"顺着工具面走"的路径全部被堵死（leader 的 MCP 工具面里根本没注册 review 工具）。
+- 它**挡不住**一个能跑 `curl` 的 agent：job 进程继承 serve 进程的环境，若其中带着 server 的 bearer token，agent 直接 `curl -X POST …/accept`（不带 `as_job`，即以"人"的身份）照样成功。**这不是安全边界**，只是一道防呆闸门。
+
+后续方向（**本期未实现**）：给 leader job 发一个 **job 作用域**的凭证（只能评论 / 置 todo ready|skipped / 建 wakeup / 问人），并且**不把 server token 注入 leader job 的环境**——那时"不能 accept"才是真的强制。已记在 roadmap 的 `SEC-01`。
 
 ## 排查
 
