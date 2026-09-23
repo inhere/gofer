@@ -62,6 +62,14 @@ var fieldPolicies = map[string]FieldPolicy{
 	// MCP-05: the @-mention dispatch throttle. Read per comment
 	// (EffectiveCommentTrigger), so a hot edit applies to the NEXT comment.
 	"server.comment_trigger": {Editable: true},
+	// JOB-11 / SUP-01 P3 (S2, 2026-09-23): both are read where they are USED, from
+	// the config generation the reader holds — dir_lock once per submit
+	// (resolveDirExclusive) and agent_health once per health read
+	// (EffectiveAgentHealth: the /v1/agents view, the pre-dispatch check and the
+	// fallback decision). Neither is copied into a component at startup, so a hot
+	// edit applies to the next job / the next health read.
+	"server.dir_lock":     {Editable: true},
+	"server.agent_health": {Editable: true},
 
 	// --- supervisor: read where they are used ----------------------------------
 	// MCP-05 阶段 B: the leader block is resolved per wake (config.LeaderConfig, i.e.
@@ -87,9 +95,11 @@ var fieldPolicies = map[string]FieldPolicy{
 	"server.web_base_url":           {RestartRequired: true},
 	"server.job_recover_window_sec": {RestartRequired: true},
 	"server.agent_fallback":         {RestartRequired: true},
-	"server.agent_health":           {RestartRequired: true},
-	"server.xfer":                   {RestartRequired: true},
-	"server.dir_lock":               {RestartRequired: true},
+	// server.xfer stays restart-only (S2 verified 2026-09-23): core.Build resolves
+	// its three caps ONCE into the transfer manager, which keeps them in an immutable
+	// field (xfer.Manager.limits) and is NOT rebuilt by a config reload — accepting a
+	// write here would report success and change nothing until the process restarts.
+	"server.xfer": {RestartRequired: true},
 
 	// --- agents: everything a definition needs, minus the secret-bearing `env` --
 	"agents.*.type":                       {Editable: true},

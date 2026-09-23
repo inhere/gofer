@@ -864,3 +864,133 @@ func bodyText(t *testing.T, resp *http.Response) string {
 	}
 	return b.String()
 }
+
+// TestDirLockFieldsAreHotEditable (S2, 2026-09-23): dir_lock and agent_health were
+// classified restart-required while both are in fact read where they are USED —
+// dir_lock once per submit (resolveDirExclusive) and agent_health per health read
+// (EffectiveAgentHealth: the /v1/agents view, the pre-dispatch check, the fallback
+// decision). A console write must therefore be accepted AND be visible to exactly
+// those readers without a restart, which is what this test asserts on — the live
+// config generation the dispatcher/health path holds, not just the file or the view.
+func TestDirLockFieldsAreHotEditable(t *testing.T) {
+	yamlText, _, _ := configWriteFixture(t)
+	s, cr, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
+
+	// Both start unset: the documented defaults apply (dir_lock ON).
+	if !cr.Jobs.Config().EffectiveDirLock() {
+		t.Fatal("dir_lock should default to ON before any write")
+	}
+
+	resp := do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
+		"dir_lock": false,
+		"agent_health": map[string]any{
+			"window_sec": 120, "degraded_after": 5, "recover_after_ok": 2,
+		},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT server dir_lock/agent_health status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	var written configWriteResp
+	decode(t, resp, &written)
+	if contains(written.RestartRequired, "server.dir_lock") || contains(written.RestartRequired, "server.agent_health") {
+		t.Fatalf("restart_required=%v, want neither dir_lock nor agent_health (both are hot)", written.RestartRequired)
+	}
+
+	// End to end through the readers: the config generation the JOB path resolves
+	// against flips at once...
+	if cr.Jobs.Config().EffectiveDirLock() {
+		t.Fatal("dir_lock=false did not reach the generation resolveDirExclusive reads")
+	}
+	// ...and so does the one the health classification reads.
+	if got := cr.Jobs.Config().EffectiveAgentHealth(); got.WindowSec != 120 || got.DegradedAfter != 5 || got.RecoverAfterOK != 2 {
+		t.Fatalf("EffectiveAgentHealth=%+v, want 120/5/2", got)
+	}
+
+	// The console reads both back (a pointer, so "unset" stays distinguishable).
+	v := getConfigView(t, s, adminToken)
+	if v.Server.DirLock == nil || *v.Server.DirLock {
+		t.Fatalf("view dir_lock=%v, want false", v.Server.DirLock)
+	}
+	if v.Server.AgentHealth == nil || v.Server.AgentHealth.WindowSec != 120 {
+		t.Fatalf("view agent_health=%+v, want window_sec 120", v.Server.AgentHealth)
+	}
+	// The policy view must stop badging them as needing a restart — the console
+	// builds its form and its badges from this, not from the table directly.
+	if p := v.ServerPolicy["dir_lock"]; !p.Editable || p.RestartRequired {
+		t.Fatalf("policy dir_lock=%+v, want editable and not restart-required", p)
+	}
+	if p := v.ServerPolicy["agent_health"]; !p.Editable || p.RestartRequired {
+		t.Fatalf("policy agent_health=%+v, want editable and not restart-required", p)
+	}
+	// And the write transaction saved before reloading.
+	if disk := string(readFile(t, cfgPath)); !strings.Contains(disk, "dir_lock: false") {
+		t.Fatalf("config file has no dir_lock: false:\n%s", disk)
+	}
+}
+
+// TestCompoundServerBlocksDecodeSnakeCase pins the decoder the four snake_case
+// compound server blocks go through (S2, 2026-09-23): the write body speaks
+// `interval_seconds` / `max_file_bytes` / `min_interval_sec` / `window_sec`, while the
+// config structs carry only yaml tags — encoding/json matches neither, so decoding
+// straight into them silently produced an EMPTY block: the write reported success and
+// the setting was gone. It was found while making agent_health hot-editable (its
+// sibling in the same switch). The round trip through the live config AND the file is
+// what proves the values survive a save+reload.
+func TestCompoundServerBlocksDecodeSnakeCase(t *testing.T) {
+	yamlText, _, _ := configWriteFixture(t)
+	s, cr, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
+
+	resp := do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
+		"runner_probe":    map[string]any{"interval_seconds": 45, "timeout_seconds": 7},
+		"skill_limits":    map[string]any{"max_file_bytes": 1048576, "max_total_bytes": 8388608},
+		"comment_trigger": map[string]any{"min_interval_sec": 30, "max_per_scope": 5},
+		"agent_health":    map[string]any{"window_sec": 900, "degraded_after": 4, "recover_after_ok": 2},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+
+	live := cr.Jobs.Config().Server
+	if live.RunnerProbe.IntervalSeconds != 45 || live.RunnerProbe.TimeoutSeconds != 7 {
+		t.Fatalf("runner_probe=%+v, want 45/7", live.RunnerProbe)
+	}
+	if live.SkillLimits.MaxFileBytes != 1048576 || live.SkillLimits.MaxTotalBytes != 8388608 {
+		t.Fatalf("skill_limits=%+v, want 1MiB/8MiB", live.SkillLimits)
+	}
+	if live.CommentTrigger.MinIntervalSec == nil || *live.CommentTrigger.MinIntervalSec != 30 ||
+		live.CommentTrigger.MaxPerScope == nil || *live.CommentTrigger.MaxPerScope != 5 {
+		t.Fatalf("comment_trigger=%+v, want 30/5", live.CommentTrigger)
+	}
+	if live.AgentHealth == nil || live.AgentHealth.WindowSec != 900 ||
+		live.AgentHealth.DegradedAfter != 4 || live.AgentHealth.RecoverAfterOK != 2 {
+		t.Fatalf("agent_health=%+v, want 900/4/2", live.AgentHealth)
+	}
+
+	// The console reads them back from the view it builds its form from.
+	v := getConfigView(t, s, adminToken)
+	if v.Server.RunnerProbe.IntervalSeconds != 45 || v.Server.SkillLimits.MaxTotalBytes != 8388608 {
+		t.Fatalf("view runner_probe=%+v skill_limits=%+v", v.Server.RunnerProbe, v.Server.SkillLimits)
+	}
+	if v.Server.CommentTrigger.MinIntervalSec == nil || *v.Server.CommentTrigger.MinIntervalSec != 30 {
+		t.Fatalf("view comment_trigger=%+v, want 30", v.Server.CommentTrigger)
+	}
+
+	// And they reached the file: a save that dropped them would come back as defaults
+	// on the next reload — the very failure this test exists for.
+	disk := string(readFile(t, cfgPath))
+	for _, want := range []string{"interval_seconds: 45", "max_file_bytes: 1048576", "min_interval_sec: 30", "window_sec: 900"} {
+		if !strings.Contains(disk, want) {
+			t.Fatalf("config file is missing %q:\n%s", want, disk)
+		}
+	}
+
+	// `agent_health: null` clears the block (unset = the documented defaults), which
+	// is a different decision from a block of zeros.
+	resp = do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{"agent_health": nil})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT agent_health=null status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	if cr.Jobs.Config().Server.AgentHealth != nil {
+		t.Fatalf("agent_health=%+v after null, want nil", cr.Jobs.Config().Server.AgentHealth)
+	}
+}

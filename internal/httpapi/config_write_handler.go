@@ -901,11 +901,20 @@ func applyServerField(sc *config.ServerConfig, f configBodyField) error {
 		}
 		sc.StallTimeoutSec = v
 	case "runner_probe":
-		v, err := fieldValue[config.RunnerProbeConfig](f)
+		// Decoded through the VIEW type, not config.RunnerProbeConfig: the wire body
+		// speaks snake_case (`interval_seconds`) while the config struct carries only
+		// yaml tags, and encoding/json cannot match an underscored key to a Go field
+		// name — decoding straight into the config type silently produced a ZERO block
+		// (S2 fix, 2026-09-23; the same applied to skill_limits / comment_trigger /
+		// agent_health). The view type is the single place the JSON spelling lives.
+		v, err := fieldValue[runnerProbeView](f)
 		if err != nil {
 			return err
 		}
-		sc.RunnerProbe = v
+		sc.RunnerProbe = config.RunnerProbeConfig{
+			IntervalSeconds: v.IntervalSeconds,
+			TimeoutSeconds:  v.TimeoutSeconds,
+		}
 	case "retry":
 		v, err := fieldValue[*config.RetryPolicy](f)
 		if err != nil {
@@ -929,18 +938,54 @@ func applyServerField(sc *config.ServerConfig, f configBodyField) error {
 		sc.Skills = v
 	case "skill_limits":
 		// JOB-10 §一.2: the import-size guards, read by the store at import time.
-		v, err := fieldValue[config.SkillLimitsConfig](f)
+		// Decoded through the view type — see runner_probe for why.
+		v, err := fieldValue[skillLimitsView](f)
 		if err != nil {
 			return err
 		}
-		sc.SkillLimits = v
+		sc.SkillLimits = config.SkillLimitsConfig{
+			MaxFileBytes:  v.MaxFileBytes,
+			MaxTotalBytes: v.MaxTotalBytes,
+		}
 	case "comment_trigger":
-		// MCP-05 阶段 A: the @-mention dispatch throttle, read per comment.
-		v, err := fieldValue[config.CommentTriggerConfig](f)
+		// MCP-05 阶段 A: the @-mention dispatch throttle, read per comment. The two
+		// members stay pointers (null = the built-in default, 0 = the gate is off);
+		// decoded through the view type — see runner_probe for why.
+		v, err := fieldValue[commentTriggerView](f)
 		if err != nil {
 			return err
 		}
-		sc.CommentTrigger = v
+		sc.CommentTrigger = config.CommentTriggerConfig{
+			MinIntervalSec: v.MinIntervalSec,
+			MaxPerScope:    v.MaxPerScope,
+		}
+	case "dir_lock":
+		// JOB-11: read once per submit (resolveDirExclusive), so this applies to the
+		// NEXT job. A pointer: null = unset = the documented default (on), which is a
+		// different decision from an explicit `false`.
+		v, err := fieldValue[*bool](f)
+		if err != nil {
+			return err
+		}
+		sc.DirLock = v
+	case "agent_health":
+		// SUP-01 P3: read per health read (EffectiveAgentHealth). null clears the
+		// block back to the documented defaults (1h / 3 / 1) rather than to zeros, so
+		// the pointer is preserved; decoded through the view type — see runner_probe
+		// for why a straight config decode came out empty.
+		v, err := fieldValue[*serverAgentHealthView](f)
+		if err != nil {
+			return err
+		}
+		if v == nil {
+			sc.AgentHealth = nil
+			break
+		}
+		sc.AgentHealth = &config.AgentHealthConfig{
+			WindowSec:      v.WindowSec,
+			DegradedAfter:  v.DegradedAfter,
+			RecoverAfterOK: v.RecoverAfterOK,
+		}
 	default:
 		return &configWriteError{status: http.StatusInternalServerError, msg: "unhandled editable field", detail: "unhandled editable field: " + f.path}
 	}
@@ -1120,13 +1165,33 @@ func serverPreview(sc config.ServerConfig, applied []string) (string, error) {
 		case "stall_timeout_sec":
 			doc[name] = sc.StallTimeoutSec
 		case "runner_probe":
-			doc[name] = sc.RunnerProbe
+			doc[name] = map[string]any{
+				"interval_seconds": sc.RunnerProbe.IntervalSeconds,
+				"timeout_seconds":  sc.RunnerProbe.TimeoutSeconds,
+			}
+		case "skill_limits":
+			doc[name] = map[string]any{
+				"max_file_bytes":  sc.SkillLimits.MaxFileBytes,
+				"max_total_bytes": sc.SkillLimits.MaxTotalBytes,
+			}
 		case "retry":
 			doc[name] = sc.Retry
 		case "comment_trigger":
 			doc[name] = map[string]any{
 				"min_interval_sec": sc.CommentTrigger.MinIntervalSec,
 				"max_per_scope":    sc.CommentTrigger.MaxPerScope,
+			}
+		case "dir_lock":
+			doc[name] = sc.DirLock
+		case "agent_health":
+			if sc.AgentHealth == nil {
+				doc[name] = nil
+				break
+			}
+			doc[name] = map[string]any{
+				"window_sec":       sc.AgentHealth.WindowSec,
+				"degraded_after":   sc.AgentHealth.DegradedAfter,
+				"recover_after_ok": sc.AgentHealth.RecoverAfterOK,
 			}
 		case "notification":
 			if sc.Notification == nil {

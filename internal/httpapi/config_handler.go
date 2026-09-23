@@ -63,6 +63,32 @@ type serverConfigView struct {
 	// are pointers on the wire for the same reason they are pointers in the config:
 	// null = the built-in default, 0 = that gate is off.
 	CommentTrigger commentTriggerView `json:"comment_trigger"`
+	// DirLock / AgentHealth are hot-editable (S2, 2026-09-23) and read per use, so the
+	// console needs the raw values to prefill the inputs it writes back. Null means
+	// "unset": for dir_lock the documented default is ON, for agent_health the
+	// defaults are 1h/3/1 — neither is the same decision as an explicit zero block.
+	DirLock     *bool                  `json:"dir_lock"`
+	AgentHealth *serverAgentHealthView `json:"agent_health,omitempty"`
+	// SkillLimits is the skill import size guard (JOB-10 §一.2). Editable as a whole
+	// block, so the console needs the values to prefill the inputs it writes back.
+	SkillLimits skillLimitsView `json:"skill_limits"`
+}
+
+// skillLimitsView is the server.skill_limits block as the console edits it. Zero
+// means "the store's documented default" (2MiB per file / 10MiB total) rather than
+// "no files", so the values are echoed raw.
+type skillLimitsView struct {
+	MaxFileBytes  int64 `json:"max_file_bytes"`
+	MaxTotalBytes int64 `json:"max_total_bytes"`
+}
+
+// serverAgentHealthView is the server.agent_health block as the console edits it
+// (SUP-01 P3). It is not agentHealthView: that one is one AGENT's classified health,
+// this one is the window/threshold policy every classification is computed from.
+type serverAgentHealthView struct {
+	WindowSec      int `json:"window_sec"`
+	DegradedAfter  int `json:"degraded_after"`
+	RecoverAfterOK int `json:"recover_after_ok"`
 }
 
 // commentTriggerView is the server.comment_trigger block as the console edits it.
@@ -337,6 +363,25 @@ func buildServerConfigView(sc config.ServerConfig) serverConfigView {
 			MinIntervalSec: sc.CommentTrigger.MinIntervalSec,
 			MaxPerScope:    sc.CommentTrigger.MaxPerScope,
 		},
+		DirLock:     sc.DirLock,
+		AgentHealth: buildAgentHealthView(sc.AgentHealth),
+		SkillLimits: skillLimitsView{
+			MaxFileBytes:  sc.SkillLimits.MaxFileBytes,
+			MaxTotalBytes: sc.SkillLimits.MaxTotalBytes,
+		},
+	}
+}
+
+// buildAgentHealthView renders the agent-health block (nil = the block is unset and
+// the defaults apply, which must stay distinguishable from a zeroed block).
+func buildAgentHealthView(h *config.AgentHealthConfig) *serverAgentHealthView {
+	if h == nil {
+		return nil
+	}
+	return &serverAgentHealthView{
+		WindowSec:      h.WindowSec,
+		DegradedAfter:  h.DegradedAfter,
+		RecoverAfterOK: h.RecoverAfterOK,
 	}
 }
 
