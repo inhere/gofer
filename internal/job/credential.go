@@ -27,8 +27,8 @@ import (
 //
 // The fix is two-sided:
 //
-//   - the job environment no longer inherits the server's token (util.EnvironWithout
-//     + the deny list below, applied by every runner), and
+//   - the job environment no longer inherits the server's token — util.EnvironWithout
+//     plus the deny list below, applied by every runner — and
 //   - the job gets a credential of its own, narrow in both TIME and SCOPE: minted
 //     when the job starts executing, dead the moment it reaches a terminal state (or
 //     at a fallback deadline), and accepted by the API only for the actions the

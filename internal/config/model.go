@@ -1449,9 +1449,9 @@ type ProjectConfig struct {
 	// allow_interactive:false must keep interactive jobs rejected, and nil (the zero
 	// value of a project built in code, e.g. by the worker
 	// policy projection) reads as false, never as "inherit". See IsInteractiveAllowed.
-	AllowInteractive  *bool    `yaml:"allow_interactive,omitempty"`
-	AllowedRunners    []string `yaml:"allowed_runners,omitempty"`
-	AllowExec         bool     `yaml:"allow_exec,omitempty"`
+	AllowInteractive *bool    `yaml:"allow_interactive,omitempty"`
+	AllowedRunners   []string `yaml:"allowed_runners,omitempty"`
+	AllowExec        bool     `yaml:"allow_exec,omitempty"`
 	// JobEnvAllow names environment variables this project's jobs DO inherit, even
 	// though the server's denylist (SEC-01, server.job_env_denylist + the built-in
 	// credential keys) would strip them. It is the one deliberate way to keep the old
