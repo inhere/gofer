@@ -15,6 +15,7 @@ import PlanStatusBadge from '../components/PlanStatusBadge.vue'
 import StatusBadge from '../components/StatusBadge.vue'
 import InteractionCard from '../components/InteractionCard.vue'
 import PlanBoard from '../components/PlanBoard.vue'
+import CommentThread from '../components/CommentThread.vue'
 import {
   addTodo, answerDecision, attachJob, getPlan, listAgents, patchTodo, planPause, planResume,
   planRun, updatePlan, updateTodo, updateTodoStatus,
@@ -1123,6 +1124,13 @@ onUnmounted(() => {
           {{ attaching ? '挂载中…' : '挂到本计划' }}
         </button>
       </form>
+    </section>
+
+    <!-- 评论区（MCP-05 阶段 A）：plan 级线程。user 作者的评论里 @agent/@role 会派一个
+         job；每条待办自己的线程在 /v1/todos/{id}/comments 上（本期 web 只做 plan 级）。 -->
+    <section v-if="plan" class="section">
+      <h2 class="section-title mono">COMMENTS</h2>
+      <CommentThread scope="plan" :id="props.id" placeholder="写点什么…  @omp 把这一项补上" />
     </section>
 
     <p v-else-if="!error" class="loading mono">加载中…</p>

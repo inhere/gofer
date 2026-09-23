@@ -13,6 +13,9 @@ import type {
   ConfigValidateResult,
   ConfigView,
   ConfigWriteResp,
+  Comment,
+  CommentScope,
+  CommentsResp,
   CreateScheduleReq,
   Decision,
   DeliveriesResp,
@@ -1101,4 +1104,29 @@ const STATUS_COLOR: Record<JobStatus, string> = {
 
 export function statusColor(status: JobStatus): string {
   return STATUS_COLOR[status] ?? 'var(--queue)'
+}
+
+// --- 评论（MCP-05 阶段 A） ------------------------------------------------------
+
+// commentPath 把 scope+id 映射到服务端路由：todo 只用 todo id 就能定位线程，
+// 调用方不需要知道它属于哪个 plan。
+function commentPath(scope: CommentScope, id: string): string {
+  const base = scope === 'job' ? 'jobs' : scope === 'plan' ? 'plans' : 'todos'
+  return `/v1/${base}/${encodeURIComponent(id)}/comments`
+}
+
+// listComments 读一条线程（旧→新）。未知对象是 404（ApiError）。
+export async function listComments(scope: CommentScope, id: string): Promise<Comment[]> {
+  const res = await request<CommentsResp>(commentPath(scope, id))
+  return res.comments ?? []
+}
+
+// postComment 发一条评论并返回落库后的行（含 dispatched：这次提及派出去的 job）。
+// 服务端按 caller 决定作者身份；agent 作者的评论不会派活。
+export function postComment(scope: CommentScope, id: string, body: string): Promise<Comment> {
+  return request<Comment>(commentPath(scope, id), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ body }),
+  })
 }

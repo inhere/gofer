@@ -1738,3 +1738,38 @@ export interface SkillUpdateResp {
   skill: Skill
   change: SkillChange
 }
+
+// --- 评论（MCP-05 阶段 A） ------------------------------------------------------
+// 评论可挂在 job / plan / todo 上；user 作者的评论里的 @agent/@role 会派活，
+// agent/system 作者的评论只记录（阶段 A）。
+export type CommentScope = 'job' | 'plan' | 'todo'
+export type CommentAuthorKind = 'user' | 'agent' | 'system'
+
+// CommentDispatch 是一条提及派出去的 job（POST 响应里带全量；GET 只有回链）。
+export interface CommentDispatch {
+  mention: string
+  // kind: agent（提及的是 agent）| role（提及的是 role，agent 由提交时解析）。
+  kind: string
+  job_id: string
+}
+
+export interface Comment {
+  id: string
+  scope: CommentScope
+  scope_id: string
+  author: string
+  author_kind: CommentAuthorKind
+  body: string
+  // mentions 是已解析的 @名字列表（服务端解析，前端直接高亮，不重复解析正文）。
+  mentions: string[]
+  created_at: number
+  // triggered_job_id 是这条评论派出去的第一个 job（""/缺省 = 没派）。
+  triggered_job_id?: string
+  // dispatched 只在 POST 响应里有：一次提及多个 agent 时的全部结果。
+  dispatched?: CommentDispatch[]
+}
+
+// GET …/comments。comments 恒为数组（空线程是 []，不是 null）。
+export interface CommentsResp {
+  comments: Comment[]
+}

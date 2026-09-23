@@ -10,6 +10,7 @@ import StatusBadge from '../components/StatusBadge.vue'
 import Signal from '../components/Signal.vue'
 import LogTape from '../components/LogTape.vue'
 import InteractionCard from '../components/InteractionCard.vue'
+import CommentThread from '../components/CommentThread.vue'
 import FilePreview from '../components/FilePreview.vue'
 import ReviewPanel from '../components/ReviewPanel.vue'
 import AttachTerminal from '../components/AttachTerminal.vue'
@@ -1715,6 +1716,13 @@ onUnmounted(() => {
       </ul>
     </section>
 
+    <!-- 评论区（MCP-05 阶段 A）：job 上的评论线程。user 作者的评论里 @agent/@role
+         会经服务端同一个 Submit 入口派一个 job，行上显示回链。 -->
+    <section class="comments">
+      <h2 class="comments-title mono">评论</h2>
+      <CommentThread scope="job" :id="props.id" placeholder="写点什么…  @omp 补上测试" />
+    </section>
+
     <!-- webhook 投递（E14）：只读，每条投递一行（状态徽标 + 目标 + 关键信息）。
          无通知配置时 deliveries 为空，整节不展示。 -->
     <section v-if="deliveries.length > 0" class="deliveries">
@@ -3250,5 +3258,15 @@ onUnmounted(() => {
 }
 .wakeup-history {
   margin-top: 8px;
+}
+.comments {
+  margin: 0 0 14px;
+}
+.comments-title {
+  font-size: 12px;
+  letter-spacing: 0.06em;
+  color: var(--phosphor);
+  text-transform: uppercase;
+  margin: 0 0 10px;
 }
 </style>
