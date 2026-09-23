@@ -98,7 +98,7 @@ func TestSkillCRUDRoundTrip(t *testing.T) {
 	assert.Len(t, empty.Files, 0)
 	assert.Eq(t, int64(0), empty.Size)
 
-	assert.Err(t, s.InsertSkill(sampleSkill("zeta"))) // duplicate name is not an upsert
+	assert.Err(t, s.InsertSkill(sampleSkill("zeta")))  // duplicate name is not an upsert
 	assert.Err(t, s.UpdateSkill(sampleSkill("ghost"))) // drifted index
 	assert.Err(t, s.DeleteSkill("ghost"))
 	assert.NoErr(t, s.DeleteSkill("alpha"))

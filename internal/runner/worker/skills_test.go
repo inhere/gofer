@@ -69,3 +69,25 @@ func TestXferUploadsToWireCarriesBase(t *testing.T) {
 		t.Fatal("nil in must stay nil (no allocation for a job with no uploads)")
 	}
 }
+
+// TestUnsupportedDispatchFieldsIgnoresSkillUploads: the capability gate must not
+// start refusing jobs over skills. A job whose ONLY uploads are the skill mount is
+// dispatched (minus the mount) even to a worker below the file-transfer floor,
+// because dropping a skill costs the job nothing it needs; an ordinary input upload
+// on the same worker is still refused, because losing THAT would run the job without
+// the files the caller supplied.
+func TestUnsupportedDispatchFieldsIgnoresSkillUploads(t *testing.T) {
+	skillOnly := &runner.Forward{Uploads: []runner.XferUpload{
+		{XferID: "xf-1", Dest: "skills/a/SKILL.md", Base: "result_dir"},
+	}}
+	if lacks := unsupportedDispatchFields(8, skillOnly); len(lacks) != 0 {
+		t.Fatalf("lacks = %v, want none: a skill mount is dropped, not refused", lacks)
+	}
+
+	withInput := &runner.Forward{Uploads: []runner.XferUpload{
+		{XferID: "xf-2", Dest: "in.txt"},
+	}}
+	if lacks := unsupportedDispatchFields(8, withInput); len(lacks) != 1 || lacks[0] != "uploads/collect" {
+		t.Fatalf("lacks = %v, want [uploads/collect] for a real input file", lacks)
+	}
+}

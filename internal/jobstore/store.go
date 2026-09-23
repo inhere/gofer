@@ -9,10 +9,11 @@
 // metadata/index (and, from SP4, interactions) live here.
 //
 // The package uses modernc.org/sqlite (pure Go, no cgo) so the binary still
-// builds in the gcc-less container. It depends on no other internal package — in
-// particular NOT internal/job — so that the job service can adopt it (SP2/SP3)
-// without forming a job -> jobstore -> job import cycle; JobRecord is therefore a
-// neutral struct rather than job.JobResult.
+// builds in the gcc-less container. It depends on no other internal package but
+// internal/util (leaf helpers) and internal/skill (whose Repo interface the skills
+// table implements) — in particular NOT internal/job — so that the job service can
+// adopt it (SP2/SP3) without forming a job -> jobstore -> job import cycle;
+// JobRecord is therefore a neutral struct rather than job.JobResult.
 package jobstore
 
 import (
