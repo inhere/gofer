@@ -247,10 +247,57 @@ func TestEveryEditableAgentFieldIsWritable(t *testing.T) {
 	}
 }
 
-// TestAgentPutPatchesACPBlock pins the one compound field that PATCHES instead of
-// replacing: `acp.mcp_servers[].env` is never echoed by any read path, so a wholesale
-// replace would silently destroy an acp-agent's MCP child environment the first time
-// the console saved an unrelated field.
+// TestConfigSkillBindingsRoundTrip pins the JOB-10 binding lists on both sides of the
+// console's form: GET /v1/config must publish `skills` (the form prefills the input it
+// writes back) and the write path must accept it — for the server block and per agent.
+// The two halves are one contract: an omitted editable field is CLEARED, so a view
+// that did not carry `skills` was not a cosmetic gap — the console's next save erased
+// the bindings (and, before the switch had a `skills` case, answered 500 instead).
+func TestConfigSkillBindingsRoundTrip(t *testing.T) {
+	yamlText, _, _ := configWriteFixture(t)
+	s, _, _ := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
+
+	resp := do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{
+		"skills": []string{"house-rules"},
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT server skills status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	if got := getConfigView(t, s, adminToken).Server.Skills; len(got) != 1 || got[0] != "house-rules" {
+		t.Fatalf("server skills=%v, want [house-rules]", got)
+	}
+
+	agentBody := func() map[string]any {
+		return map[string]any{
+			"type": "cli-agent", "command": "mytool", "args": []string{"run", "{{prompt}}"},
+		}
+	}
+	body := agentBody()
+	body["skills"] = []string{"windows-apply-patch", "house-rules"}
+	resp = do(t, s, http.MethodPut, "/v1/config/agents/mytool", adminToken, body)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT agent skills status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	got := agentFromConfig(t, getConfigView(t, s, adminToken), "mytool")
+	if len(got.Skills) != 2 || got.Skills[0] != "windows-apply-patch" || got.Skills[1] != "house-rules" {
+		t.Fatalf("agent skills=%v, want [windows-apply-patch house-rules]", got.Skills)
+	}
+	// The levels are independent: an agents write must not touch the server's list.
+	if v := getConfigView(t, s, adminToken).Server.Skills; len(v) != 1 || v[0] != "house-rules" {
+		t.Fatalf("server skills=%v after an agents write, want [house-rules]", v)
+	}
+
+	// Replace semantics on the agent: a body that omits `skills` clears that agent's
+	// own list (which is exactly why the console always sends the list it read).
+	resp = do(t, s, http.MethodPut, "/v1/config/agents/mytool", adminToken, agentBody())
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("PUT agent without skills status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
+	}
+	if got = agentFromConfig(t, getConfigView(t, s, adminToken), "mytool"); len(got.Skills) != 0 {
+		t.Fatalf("agent skills=%v, want them cleared", got.Skills)
+	}
+}
+
 func TestAgentPutPatchesACPBlock(t *testing.T) {
 	yamlText, _, _ := configWriteFixture(t)
 	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
