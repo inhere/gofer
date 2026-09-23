@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -28,7 +29,7 @@ func xferUploadsToRunner(in []UploadSpec) []runner.XferUpload {
 	}
 	out := make([]runner.XferUpload, 0, len(in))
 	for _, u := range in {
-		out = append(out, runner.XferUpload{XferID: u.XferID, Dest: u.Dest})
+		out = append(out, runner.XferUpload{XferID: u.XferID, Dest: u.Dest, Base: u.Base})
 	}
 	return out
 }
@@ -78,6 +79,15 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// therefore skips local agent/cwd resolution for remote jobs (it still validates
 	// the project, the agent allowlist and the runner allowlist).
 	remote := IsRemoteRunner(cfg, req.Runner)
+
+	// JOB-10: expand the four binding levels (server → agent → project → this
+	// request) into the job's final skill list from the SAME cfg snapshot, check every
+	// name against the library, and stage the files for a worker-bound job. It runs
+	// BEFORE validate and before the result dir exists, so an unknown skill name is a
+	// rejected submit that creates nothing.
+	if err := s.resolveSkills(cfg, &req, remote); err != nil {
+		return JobResult{}, err
+	}
 
 	proj, err := s.validate(cfg, req, remote)
 	if err != nil {
@@ -213,6 +223,26 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	}
 	resultDir := st.Dir(jobID)
 
+	// JOB-10 (design §一.4): the resolved skills are listed at the TOP of the prompt,
+	// above the caller's own text, with the SKILL.md path as the EXECUTING machine
+	// will see it — the real path here for a local job, the {{skills_dir}} placeholder
+	// for a worker-bound one (its result dir belongs to that machine, which substitutes
+	// it before rendering argv). A job the transfer channel cannot reach (peer-http)
+	// gets no list at all: a path it cannot read is worse than no path.
+	switch {
+	case len(req.Skills) == 0:
+	case req.SkillsResolved:
+		// A dispatched (worker-bound) job: the submitting machine already rendered the
+		// list, path included as the {{skills_dir}} placeholder — only the mount path
+		// itself belongs to THIS machine, so nothing is re-derived and nothing is
+		// prepended twice.
+		req.Prompt = substituteSkillsDir(req.Prompt, resultDir)
+	case !remote:
+		req.Prompt = s.skillsPromptPrefix(&req, resultDir, false) + req.Prompt
+	case isWorkerRunner(cfg, req.Runner):
+		req.Prompt = s.skillsPromptPrefix(&req, resultDir, true) + req.Prompt
+	}
+
 	// WT-01: `--worktree` runs the job in a managed git worktree of this checkout
 	// (<top>/tmp/gofer/wt/<job-id>, branch gofer/<job-id>) so parallel jobs stop
 	// sharing one index. Created HERE — on the EXECUTING machine (serve-local, or the
@@ -276,6 +306,10 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// collect globs there); a remote job's copies ride the Forward below instead.
 	runReq.Uploads = xferUploadsToRunner(req.Uploads)
 	runReq.Collect = req.Collect
+	// JOB-10: the skills the executing machine must mount, and whether they are
+	// already FINAL (a dispatched job must not re-union its own config's bindings).
+	runReq.Skills = req.Skills
+	runReq.SkillsResolved = req.SkillsResolved
 	runReq.Interactive = req.Interactive
 	runReq.Cols = req.Cols
 	runReq.Rows = req.Rows
@@ -344,6 +378,10 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// pre-X2 forward.
 			Uploads: xferUploadsToRunner(req.Uploads),
 			Collect: req.Collect,
+			// JOB-10: the resolved skills travel with the dispatch so the worker mounts
+			// exactly what this machine decided (the files themselves ride the uploads
+			// above, with Base=result_dir).
+			Skills: req.Skills,
 			// JOB-11: the resolved same-directory lock decision travels to the machine
 			// that owns the checkout — its job.Service is the one that can actually hold
 			// the lock (this process only knows a relative cwd for a remote job).
@@ -433,6 +471,14 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		// / E6 result.json. Set on the worker/peer side too (they run this same
 		// local branch), so remote exec jobs get the executor-local paths.
 		runReq.Env = goferJobEnv(util.MergeEnv(util.MergeEnv(secretMap, resolved.Env), req.Env), jobID, workDir, resultDir)
+		// JOB-10: the mount root, so an agent (or a wrapper script) can find the
+		// skills without parsing the prompt list. Set only when something is mounted —
+		// an always-present var would point at a directory that does not exist.
+		if len(req.Skills) > 0 {
+			runReq.Env = util.EnvWith(runReq.Env, map[string]string{
+				goferSkillsDirEnv: filepath.Join(resultDir, skillsDirName),
+			})
+		}
 		// WT-01: the job also learns WHERE its worktree/branch/base are. Applied after
 		// goferJobEnv so a user-supplied Env key can never shadow them (same rule as
 		// the gofer metadata vars).
@@ -475,6 +521,10 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			Interactive: req.Interactive,
 			// bd h-aii-0ql3：只读是 job 的持久属性（jobs.read_only），resume 继承、show/web 可见。
 			ReadOnly: req.ReadOnly,
+			// JOB-10: the decided skill bindings (jobs.skills_json) — the row answers
+			// "which rules did this run have" without re-reading a config that may have
+			// changed since.
+			Skills: req.Skills,
 			// JOB-11：同 cwd 独占决策（jobs.dir_exclusive）——提交期定死，show/web 与
 			// 事后排查据此回答"这次运行当初是否（被允许）独占这棵工作树"。
 			DirExclusive: dirExclusive,

@@ -87,6 +87,11 @@ func (s *Service) SetXferBridge(b XferBridge) { s.xfer = b }
 type UploadSpec struct {
 	XferID string `json:"xfer_id" yaml:"xfer_id"`
 	Dest   string `json:"dest" yaml:"dest"`
+	// Base picks the directory on the EXECUTING machine that Dest is relative to:
+	// "" / "cwd" = the job's working directory (the pre-JOB-10 reading, unchanged),
+	// SkillBaseResultDir = the job's private result dir (the skills mount). The wire
+	// and yaml tags mirror each other so the md+yaml task-file path can carry one too.
+	Base string `json:"base,omitempty" yaml:"base,omitempty"`
 }
 
 // XferSummary is what a job's file steps did (XFER-01 X2), persisted as
@@ -138,6 +143,12 @@ const (
 	reasonTotalExceeded = "collect total exceeds the limit"
 	reasonOutsideRoot   = "outside the project root"
 	reasonVanish        = "file disappeared before it could be read"
+	// reasonSkillsMount is why a `--collect` glob that reached into the result dir
+	// never brings the mounted skills back (JOB-10): a skill is INPUT, not output, so
+	// re-collecting it would fill the artifact list with a copy of the server's own
+	// library. The layout puts <result_dir> under the project root whenever
+	// storage.root is unset, so a broad pattern can genuinely reach it.
+	reasonSkillsMount = "the job's own skills mount is not an output"
 )
 
 // materializeUploads places every staged upload of this job on THIS machine, before
@@ -145,10 +156,15 @@ const (
 // into the terminal state) — the first failure stops the list, because the job is
 // about to fail anyway and a half-placed set must not be reported as complete.
 //
+// workDir is the job's cwd and resultDir its private result directory on THIS
+// machine: an upload's Base picks which of the two its Dest is relative to (JOB-10 —
+// a skills mount lands in the result dir, never in the shared working tree; every
+// upload without a Base keeps the pre-JOB-10 cwd reading).
+//
 // Best-effort exactly like the rest of the outcome capture: whatever happened is
 // recorded on the job (entry.result.Xfer) and as an event, so a failed upload is
 // inspectable even though the job never ran.
-func (s *Service) materializeUploads(ctx context.Context, entry *jobEntry, req runner.Request, workDir, projectKey string) error {
+func (s *Service) materializeUploads(ctx context.Context, entry *jobEntry, req runner.Request, workDir, projectKey, resultDir string) error {
 	if len(req.Uploads) == 0 {
 		return nil
 	}
@@ -156,11 +172,15 @@ func (s *Service) materializeUploads(ctx context.Context, entry *jobEntry, req r
 	var firstErr error
 	for _, up := range req.Uploads {
 		res := XferUploadResult{Dest: up.Dest}
+		root := workDir
+		if up.Base == SkillBaseResultDir {
+			root = resultDir
+		}
 		switch {
 		case s.xfer == nil:
 			res.Error = "file transfers are not available on this machine"
 		default:
-			dst, err := project.SafeJoin(workDir, up.Dest)
+			dst, err := project.SafeJoin(root, up.Dest)
 			if err != nil {
 				res.Error = err.Error()
 				break
@@ -228,6 +248,10 @@ func (s *Service) collectFiles(ctx context.Context, entry *jobEntry, req runner.
 			name := rootRelative(root, match)
 			if name == "" {
 				summary.Skipped = append(summary.Skipped, XferSkipped{Pattern: pattern, Name: match, Reason: reasonOutsideRoot})
+				continue
+			}
+			if resultDir != "" && withinDir(filepath.Join(resultDir, skillsDirName), match) {
+				summary.Skipped = append(summary.Skipped, XferSkipped{Pattern: pattern, Name: name, Reason: reasonSkillsMount})
 				continue
 			}
 			if limits.MaxFile > 0 && info.Size() > limits.MaxFile {
@@ -361,6 +385,17 @@ func (s *Service) projectRoot(key string) string {
 		return ""
 	}
 	return cfg.ExecPath(proj)
+}
+
+// withinDir reports whether p is dir itself or lies beneath it. Both paths come from
+// the same origin (the caller resolved them on this machine), so a plain Rel is the
+// right test — it also handles the "." case, where dir IS the match.
+func withinDir(dir, p string) bool {
+	rel, err := filepath.Rel(dir, p)
+	if err != nil {
+		return false
+	}
+	return rel == "." || (rel != ".." && !strings.HasPrefix(rel, ".."+string(filepath.Separator)))
 }
 
 // rootRelative returns abs as a slash-separated path relative to root, or "" when it

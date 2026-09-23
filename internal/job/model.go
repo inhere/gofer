@@ -105,6 +105,22 @@ type JobRequest struct {
 	// `GET /v1/jobs/{id}/artifacts/collected/...` and the web preview serve it. A file
 	// over the transfer's byte cap is skipped and listed rather than dropped silently.
 	Collect []string `json:"collect,omitempty" yaml:"collect,omitempty"`
+	// Skills are the working-method documents this job carries (JOB-10). Submit
+	// resolves them from the four binding levels — server.skills, the agent's skills,
+	// the project's skills and this request's own `--skill` — as a UNION (decision 2:
+	// skills stack, unlike the retry policy's nearest-level override) and writes the
+	// result back here, so request_json, the persisted row, the Forward and the
+	// executing machine all carry ONE decided list and a rerun repeats it.
+	Skills []string `json:"skills,omitempty" yaml:"skills,omitempty"`
+	// NoSkills turns every binding off for this job (`--no-skills`, decision 2): an
+	// empty result is a decision, not an omission.
+	NoSkills bool `json:"no_skills,omitempty" yaml:"no_skills,omitempty"`
+	// SkillsResolved marks Skills as FINAL: the SUBMITTING machine already resolved
+	// the union, so the machine that runs the job must mount exactly this list and
+	// never re-derive one from its own config (which may name a different library).
+	// The worker dispatch path sets it; internal, so it stays off the wire, out of
+	// request_json and out of a client-supplied body.
+	SkillsResolved bool `json:"-" yaml:"-"`
 	// ExclusiveDir overrides the same-directory lock rule for this job (JOB-11): nil
 	// (the default) applies the rule — a WRITABLE agent job (cli/acp, not read-only,
 	// not interactive) takes the exclusive lock of its working directory, while exec
@@ -589,6 +605,11 @@ type JobResult struct {
 	// job that never asked for one). Persisted as jobs.xfer_json; the collected files
 	// themselves live under the job's result dir as artifacts/collected/...
 	Xfer *XferSummary `json:"xfer,omitempty"`
+	// Skills are the working-method documents this job ran with (JOB-10), decided at
+	// submit by the four-level union. Persisted as jobs.skills_json so `job show`, the
+	// web detail and a post-mortem answer "which rules did this run actually have?"
+	// without re-reading a config that may have changed since.
+	Skills []string `json:"skills,omitempty"`
 }
 
 // VerifyResult / the verify statuses are the runner package's types, aliased here:
@@ -725,6 +746,16 @@ const (
 	// (and verify's) outcome, so a subscriber learns what the job delivered without
 	// fetching the summary.
 	EventJobFilesCollected = "job.files_collected"
+	// EventJobSkillsMounted is a job's skills being materialized in its result dir
+	// (JOB-10) on the machine that runs it: {names, bytes}. It is the receipt that the
+	// knowledge the job was promised actually reached it before the agent started.
+	EventJobSkillsMounted = "job.skills_mounted"
+	// EventJobSkillsSkipped is a job that WOULD have carried skills but does not
+	// (JOB-10): {reason, names}. "worker_protocol" means the target worker speaks a
+	// protocol below wsproto.SkillsMinProtocolVersion and cannot be trusted with the
+	// upload base — the hub drops the mount rather than let an old worker write the
+	// files into the working tree, and the job still runs (design §横切).
+	EventJobSkillsSkipped = "job.skills_skipped"
 	// The permission events are emitted by the acp runner (internal/runner/acp), whose
 	// gated calls cannot reach this package (G022). Their literals live in the runner
 	// package — the same single-definition rule as EventJobInputInjected — and are

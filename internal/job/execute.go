@@ -221,7 +221,17 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// a success. A remote job's uploads are placed by the EXECUTING machine
 	// (req.Forward != nil here: this machine has no cwd of that job).
 	if req.Forward == nil {
-		if err := s.materializeUploads(ctx, entry, req, req.WorkDir, snap.ProjectKey); err != nil {
+		// JOB-10: the job's skills are materialized in its OWN result dir before the
+		// agent starts (not in the cwd — see skills.go). A job whose rules cannot be
+		// placed must not run: an agent told to read a missing SKILL.md would guess.
+		if err := s.mountSkills(entry, req); err != nil {
+			_ = stdout.Close()
+			_ = stderr.Close()
+			releaseDir()
+			s.finish(entry, req.JobID, StatusFailed, -1, err)
+			return
+		}
+		if err := s.materializeUploads(ctx, entry, req, req.WorkDir, snap.ProjectKey, snap.ResultDir); err != nil {
 			// Close the logs before the terminal state becomes observable, exactly as
 			// the normal path does (an observer must never see "terminal" with the
 			// files still open; on Windows that alone can block the dir's deletion).

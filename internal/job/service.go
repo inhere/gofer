@@ -244,6 +244,12 @@ type Service struct {
 	// means this deployment has no transfer wiring, and a job that asked for files
 	// fails (uploads) or records without moving bytes (collect).
 	xfer XferBridge
+
+	// skills is the JOB-10 skill-library seam (see SkillLibrary): the working-method
+	// documents a job's bindings resolve to. Injected at assemble time; nil means the
+	// deployment has no skill library, and a job that binds one is rejected rather
+	// than run without it.
+	skills SkillLibrary
 }
 
 // AnswerGuard is the job→answer-gate seam (监督分层升级路由 P3.1, design §8.5, dependency

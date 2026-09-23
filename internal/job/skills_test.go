@@ -60,11 +60,18 @@ func newSkillService(t *testing.T, root string, cfgMut func(*config.Config), nam
 		desc[n] = "desc of " + n
 	}
 	lib := &stubSkills{desc: desc}
+	// The project's checkout is a SUBDIR of the test root: storage.root, the result
+	// dirs and the metadata db all live in the root itself, so a "the working tree did
+	// not change" assertion has one directory to watch.
+	projDir := filepath.Join(root, "work")
+	if err := os.MkdirAll(projDir, 0o755); err != nil {
+		t.Fatalf("mkdir project: %v", err)
+	}
 	cfg := &config.Config{
-		Storage: config.StorageConfig{Root: root},
+		Storage: config.StorageConfig{Root: filepath.Join(root, "data")},
 		Projects: map[string]config.ProjectConfig{
 			"self": {
-				HostPath:       root,
+				HostPath:       projDir,
 				AllowedAgents:  []string{"ok", agent.ExecAgentKey},
 				AllowedRunners: []string{"local"},
 				AllowExec:      true,
@@ -99,7 +106,8 @@ func TestSkillsMountedToResultDirNotCwd(t *testing.T) {
 	root := t.TempDir()
 	s, _ := newSkillService(t, root, nil, "house-rules")
 
-	before := listFiles(t, root)
+	projDir := filepath.Join(root, "work")
+	before := listFiles(t, projDir)
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "ok", Runner: "local",
 		Cwd: ".", Prompt: "do the thing", TimeoutSec: 30,
@@ -112,7 +120,7 @@ func TestSkillsMountedToResultDirNotCwd(t *testing.T) {
 	if _, err := os.Stat(got); err != nil {
 		t.Fatalf("mounted SKILL.md at %s: %v", got, err)
 	}
-	if after := listFiles(t, root); strings.Join(after, ",") != strings.Join(before, ",") {
+	if after := listFiles(t, projDir); strings.Join(after, ",") != strings.Join(before, ",") {
 		t.Fatalf("the project working tree changed:\nbefore=%v\nafter=%v", before, after)
 	}
 }
@@ -154,7 +162,7 @@ func TestSkillPromptListsPaths(t *testing.T) {
 	if err := json.Unmarshal([]byte(final.RenderedCommand), &cmd); err != nil {
 		t.Fatalf("unmarshal rendered_command: %v", err)
 	}
-	if !contains(cmd.EnvKeys, "GOFER_SKILLS_DIR") {
+	if !hasString(cmd.EnvKeys, "GOFER_SKILLS_DIR") {
 		t.Fatalf("env_keys = %v, want GOFER_SKILLS_DIR", cmd.EnvKeys)
 	}
 }
@@ -218,23 +226,33 @@ func TestNoSkillsDisablesAll(t *testing.T) {
 func TestCollectExcludesSkillsDir(t *testing.T) {
 	root := t.TempDir()
 	s, _ := newSkillService(t, root, func(c *config.Config) {
-		// Put the result base INSIDE the project root so a collect glob can reach it
-		// (the default layout is <root>/<project>/<date>/<job>/).
-		c.Storage.Root = filepath.Join(root, "logs")
+		// Put the result base INSIDE the project checkout: that is the layout that
+		// makes a `--collect` glob genuinely able to reach the mounted skills
+		// (<cwd>/logs/<project>/<date>/<job>/skills/<name>/SKILL.md).
+		c.Storage.Root = filepath.Join(root, "work", "logs")
 	}, "house-rules")
 
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "ok", Runner: "local", Cwd: ".", Prompt: "x", TimeoutSec: 30,
 		Skills:  []string{"house-rules"},
-		Collect: []string{"logs/*/*/*/skills/*/SKILL.md", "logs/*/*/*/request.json"},
+		Collect: []string{"logs/self/*/*/skills/*/SKILL.md"},
 	})
 	if final.Xfer == nil {
-		t.Fatal("no xfer summary recorded")
+		t.Fatal("the glob never reached the mount, so this test proved nothing")
 	}
+	var skipped int
 	for _, c := range final.Xfer.Collected {
 		if strings.Contains(c.Name, "/skills/") {
 			t.Fatalf("collect brought a mounted skill back: %s", c.Name)
 		}
+	}
+	for _, s := range final.Xfer.Skipped {
+		if strings.Contains(s.Reason, "skills") {
+			skipped++
+		}
+	}
+	if skipped == 0 {
+		t.Fatalf("the matched skill file was neither collected nor explained: %+v", final.Xfer)
 	}
 }
 
@@ -290,7 +308,7 @@ func listFiles(t *testing.T, root string) []string {
 	return out
 }
 
-func contains(list []string, want string) bool {
+func hasString(list []string, want string) bool {
 	for _, s := range list {
 		if s == want {
 			return true
