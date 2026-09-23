@@ -453,3 +453,55 @@ func TestLeaderCommentCanDispatch(t *testing.T) {
 	}
 	_ = member
 }
+
+// TestLeaderSkippedWhenPlanDone (S4, 2026-09-23): a plan whose items are ALL finished
+// is `done`, and a leader round on it would have nothing to decide (its brief is built
+// from the checklist). The round is not armed, and the plan's stream says why — the S3
+// record had deliberately left this case open ("若运行中发现这是纯噪音").
+func TestLeaderSkippedWhenPlanDone(t *testing.T) {
+	s := newLeaderService(t, t.TempDir(), nil)
+	seedLeaderPlan(t, s, "plan-1", "一步")
+	if err := s.Meta().SetPlanStatus("plan-1", jobstore.PlanDone, 100); err != nil {
+		t.Fatalf("SetPlanStatus: %v", err)
+	}
+	leaderMemberJob(t, s, "plan-1", "88", StatusDone)
+
+	if wakes := leaderWakes(t, s, "plan-1"); len(wakes) != 0 {
+		t.Fatalf("a done plan woke a leader: %+v", wakes)
+	}
+	detail := commentEventDetail(t, s, PlanEventScope("plan-1"), EventPlanLeaderSkipped)
+	if !strings.Contains(detail, `"reason":"plan_done"`) {
+		t.Fatalf("plan.leader_skipped detail = %q, want reason=plan_done", detail)
+	}
+	if n, _ := s.SweepDueLeaderWakes(time.Now().Unix() + 86400); n != 0 {
+		t.Fatalf("sweep started %d leader jobs on a done plan", n)
+	}
+
+	// The REAL completion path, not just a hand-set status: a member job bound to the
+	// plan's last todo finishing makes linkTodoOutcome mark the todo done and advancePlan
+	// complete the plan BEFORE the wake hook reads it — so the last member of a chain
+	// never summons a round on a chain that is already over.
+	s2 := newLeaderService(t, t.TempDir(), nil)
+	seedLeaderPlan(t, s2, "plan-2", "唯一一步")
+	res := submitAndWait(t, s2, JobRequest{
+		ProjectKey: "self", Agent: "ok", Runner: "local",
+		PlanID: "plan-2", TodoID: "plan-2-t唯一一步", Title: "成员 2",
+		Prompt: "MEMBER-REPORT-2", TimeoutSec: 30,
+	})
+	if res.Status != StatusDone {
+		t.Fatalf("member job status = %s, want done", res.Status)
+	}
+	plan, ok, err := s2.Meta().GetPlan("plan-2")
+	if err != nil || !ok {
+		t.Fatalf("GetPlan(plan-2): %v ok=%t", err, ok)
+	}
+	if plan.Status != jobstore.PlanDone {
+		t.Fatalf("plan-2 status = %s, want done once its only todo finished", plan.Status)
+	}
+	if wakes := leaderWakes(t, s2, "plan-2"); len(wakes) != 0 {
+		t.Fatalf("completing the chain woke a leader: %+v", wakes)
+	}
+	if detail := commentEventDetail(t, s2, PlanEventScope("plan-2"), EventPlanLeaderSkipped); !strings.Contains(detail, `"reason":"plan_done"`) {
+		t.Fatalf("plan.leader_skipped detail = %q, want reason=plan_done", detail)
+	}
+}

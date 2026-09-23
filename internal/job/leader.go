@@ -63,6 +63,9 @@ const (
 	leaderChannel   = "leader"
 	leaderCallerID  = "gofer"
 	leaderSkipPause = "paused"
+	// leaderSkipDone: the plan already reached `done` (every item finished) — the chain
+	// is over, so a round would only spend money on work nobody is doing.
+	leaderSkipDone = "plan_done"
 )
 
 // maybeWakeLeader arms a leader round for a job that just reached a FINISHED state
@@ -100,6 +103,18 @@ func (s *Service) maybeWakeLeader(snap JobResult) {
 		return
 	}
 	scope := PlanEventScope(plan.PlanID)
+	if plan.Status == jobstore.PlanDone {
+		// The chain is over: `advancePlan` runs BEFORE this hook (linkTodoOutcome marks
+		// the todo done and completes the plan), so this is exactly the "the member that
+		// finished was the last one" case. A round here would only spend money on work
+		// nobody is doing, and its brief would say "nothing left to decide". Recorded so
+		// the omission is visible on the plan's stream, then nothing is armed (S4,
+		// 2026-09-23; the S3 record had left this deliberately open).
+		s.RecordScopedEvent(scope, EventPlanLeaderSkipped, plan.ProjectKey, map[string]any{
+			"plan_id": plan.PlanID, "job": snap.ID, "reason": leaderSkipDone,
+		})
+		return
+	}
 	if plan.Paused {
 		// The one-click stop: a plan held by a human does not summon a leader.
 		s.RecordScopedEvent(scope, EventPlanLeaderSkipped, plan.ProjectKey, map[string]any{
