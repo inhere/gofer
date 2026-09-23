@@ -32,7 +32,7 @@ var agentProbeOpts struct {
 func NewAgentCmd() *gcli.Command {
 	return &gcli.Command{
 		Name: "agent",
-		Desc: "Inspect configured agents",
+		Desc: "Inspect configured agents and manage the skill library",
 		Subs: []*gcli.Command{
 			{
 				Name:    "list",
@@ -85,6 +85,10 @@ func NewAgentCmd() *gcli.Command {
 				},
 				Func: runAgentProbe,
 			},
+			// JOB-10: the skill library lives under the `agent` group so the top-level
+			// command list stays short (design decision 1) — a skill is what an agent
+			// knows, so it is managed where the agents are.
+			newAgentSkillCmd(),
 		},
 	}
 }

@@ -69,6 +69,8 @@ type jobRunFlags struct {
 	templateVars gcli.Strings
 	upload       gcli.Strings
 	collect      gcli.Strings
+	skill        gcli.Strings
+	noSkills     bool
 }
 
 // jobRunOpts holds `job run` flags. prompt is supplied via the --prompt flag
@@ -1074,6 +1076,10 @@ func bindJobRunFlags(c *gcli.Command) {
 	// 后按 glob 在同一个 cwd 收文件，回传落进该 job 的 artifacts/collected/。
 	c.VarOpt(&jobRunOpts.upload, "upload", "", "local file to place on the executing machine: <local path>:<dest relative to the job cwd> (repeatable)", gflag.WithCategory("Execution"))
 	c.VarOpt(&jobRunOpts.collect, "collect", "", "glob collected from the job's cwd into its artifacts after the job ends (repeatable, e.g. 'tmp/out/*.csv')", gflag.WithCategory("Execution"))
+	// JOB-10：技能绑定——--skill 追加到 server/agent/project 三级并集（可重复）；--no-skills
+	// 关掉本次的所有绑定。物化到 job 私有 result_dir、不写项目工作树；exec agent 不带 skills。
+	c.VarOpt(&jobRunOpts.skill, "skill", "", "skill to mount into this job's private dir (repeatable; adds to the server/agent/project bindings)", gflag.WithCategory("Execution"))
+	c.BoolOpt2(&jobRunOpts.noSkills, "no-skills", "mount no skills for this job (overrides every configured binding)", gflag.WithCategory("Execution"))
 
 	// Submission: provenance and grouping metadata.
 	c.StrOpt2(&jobRunOpts.title, "title", "optional job title", jobRunOptCategory("Submission", ""))
@@ -1401,6 +1407,11 @@ func submitMarkdownFile(c *gcli.Command, cli *client.Client) (client.SubmitResul
 	if len(jobRunOpts.upload) > 0 || len(jobRunOpts.collect) > 0 {
 		return client.SubmitResult{}, fmt.Errorf("--upload/--collect are not available with --file/-f: put them in the task file's frontmatter")
 	}
+	// JOB-10: same reason — the md path submits the file verbatim, so a --skill here
+	// would be dropped in silence; the frontmatter's own skills:/no_skills: carry it.
+	if len(jobRunOpts.skill) > 0 || jobRunOpts.noSkills {
+		return client.SubmitResult{}, fmt.Errorf("--skill/--no-skills are not available with --file/-f: put them in the task file's frontmatter")
+	}
 	body, err := os.ReadFile(jobRunOpts.file)
 	if err != nil {
 		return client.SubmitResult{}, fmt.Errorf("read task file: %w", err)
@@ -1598,6 +1609,10 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		Collect: []string(jobRunOpts.collect),
 		Cols:    jobRunOpts.cols,
 		Rows:    jobRunOpts.rows,
+		// JOB-10：--skill 追加绑定、--no-skills 全部关闭（两者同时给时各自如实上报，由
+		// server 按"no_skills 优先"解释——CLI 不替它猜）。
+		Skills:   []string(jobRunOpts.skill),
+		NoSkills: jobRunOpts.noSkills,
 		// 提交来源（provenance）：CLI 渠道(默认 cli，可 --channel 覆盖) + 本机 hostname。
 		// server 端若 client 为空会以 remote IP 兜底盖章。
 		Channel: channel,
