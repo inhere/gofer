@@ -81,6 +81,17 @@ func New(b Backend) *mcp.Server {
 func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 	s := mcp.NewServer(&mcp.Implementation{Name: "gofer", Version: "v1"}, nil)
 
+	// MCP-05 阶段 B: a LEADER job's MCP (GOFER_LEADER_PLAN is exported by the job service
+	// for that job only) is narrowed to the leader whitelist — it may talk in the thread,
+	// read the plan, move an item to ready|skipped, arm a wakeup and ask a human, and it
+	// gets nothing else (no run_job, no plan authoring, no review, no cancel, no config).
+	// The surface is built from the environment the SERVER set, so an agent cannot widen
+	// it by asking.
+	if strings.TrimSpace(os.Getenv(envLeaderPlan)) != "" {
+		registerLeaderTools(s, b)
+		return s
+	}
+
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_list_projects",
 		Description: "List the registered projects and their agent/runner allowlists.",
@@ -1591,6 +1602,77 @@ func pollDecisionOnce(b Backend, id string) (askHumanOutput, bool, error) {
 		return askHumanOutput{State: "expired"}, true, nil
 	}
 	return askHumanOutput{}, false, nil
+}
+
+// --- leader tool surface (MCP-05 阶段 B) -------------------------------------
+
+// envLeaderPlan names the plan a LEADER job leads; the job service exports it into the
+// leader job's process env (GOFER_LEADER_PLAN), and this MCP narrows its tool surface
+// when it is present. It is server-set and never a caller-supplied value, like envJobID.
+const envLeaderPlan = "GOFER_LEADER_PLAN"
+
+// registerLeaderTools builds the narrowed surface a leader job's gofer MCP exposes
+// (MCP-05 阶段 B, design §二.B): exactly the six tools the leader round is allowed to
+// use. Anything absent here is absent on purpose — the leader does not run jobs, does
+// not author plans, never reviews a delivery (no gofer_reject_job either: a leader must
+// not hand work back on its own) and cannot touch configuration.
+func registerLeaderTools(s *mcp.Server, b Backend) {
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_comment",
+		Description: "Comment on a job, plan or todo (scope=job|plan|todo, id, body) as the agent of THIS job (GOFER_JOB_ID). You are the plan's leader, so an `@<agent 或 role>` in your comment really dispatches work (subject to the server's throttle + the project's allowlist) — that is how you hand the next step to a member.",
+	}, commentHandler(b))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_list_comments",
+		Description: "Read the comment thread of a job, plan or todo (scope=job|plan|todo, id), oldest first — including the jobs that were dispatched from it.",
+	}, listCommentsHandler(b))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_get_plan",
+		Description: "Get a plan with its todos and jobs and a live status roll-up {total,queued,running,done,failed}: the state you decide on.",
+	}, getPlanHandler(b))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_update_todo",
+		Description: "Move a todo of your plan to `ready` (an item that has an assignee is dispatched immediately) or `skipped` (drop it, with a note). Those two statuses are the ONLY ones a leader may set: marking work done or accepted is a human's call.",
+	}, leaderUpdateTodoHandler(b))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_wakeup_create",
+		Description: "Register a wakeup on a job (kind=at|every|cron|event, see the ordinary tool) so that job is resumed later — the way to come back to a member's follow-up without staying resident.",
+	}, wakeupCreateHandler(b))
+
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_ask_human",
+		Description: "Block and ask a HUMAN when the plan needs a decision you should not make alone (gate approval, product choice, spending money). Returns {state:\"answered\", answer} or {state:\"expired\"}; never block forever.",
+	}, askHumanHandler(b))
+}
+
+// leaderTodoStatuses are the only statuses a leader may write: queue the next piece of
+// work, or drop it. Everything else (doing/done/pending) is either the dispatcher's
+// business or a human's verdict.
+var leaderTodoStatuses = map[string]bool{"ready": true, "skipped": true}
+
+// leaderUpdateTodoHandler is gofer_update_todo as a leader sees it: the same backend
+// write, with the status set narrowed to ready|skipped BEFORE anything is written. The
+// refusal names the allowed pair, so a leader that tried `done` learns why instead of
+// guessing (the design's "leader 不能 accept/reject" boundary, expressed as a tool that
+// cannot express it).
+func leaderUpdateTodoHandler(b Backend) mcp.ToolHandlerFor[updateTodoToolInput, todoView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in updateTodoToolInput) (*mcp.CallToolResult, todoView, error) {
+		status := strings.TrimSpace(in.Status)
+		if in.Done != nil && status == "" {
+			return nil, todoView{}, fmt.Errorf("a leader may only set status ready|skipped (done is a human's verdict)")
+		}
+		if !leaderTodoStatuses[status] {
+			return nil, todoView{}, fmt.Errorf("status %q is not allowed for a leader: only ready or skipped (accepting or closing work is a human's call)", in.Status)
+		}
+		tv, err := b.UpdateTodo(in.TodoID, status, in.Note, in.AppendNote, in.todoPatch())
+		if err != nil {
+			return nil, todoView{}, err
+		}
+		return nil, tv, nil
+	}
 }
 
 // --- gofer_comment / gofer_list_comments (MCP-05 阶段 A) ---------------------

@@ -125,7 +125,8 @@ var schemaStmts = []string{
   usage_json       TEXT,
   xfer_json        TEXT,
   skills_json      TEXT,
-  dir_exclusive    INTEGER NOT NULL DEFAULT 0
+  dir_exclusive    INTEGER NOT NULL DEFAULT 0,
+  leader_of_plan   TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -549,6 +550,34 @@ var schemaStmts = []string{
   triggered_job_id TEXT
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_comments_scope ON comments(scope, scope_id, created_at)`,
+	// plan_leader_wakes is the durable "wake the leader" queue (MCP-05 阶段 B, design
+	// §二.B): one row per member job whose FINISHED state armed a leader round. It is a
+	// table of its own rather than a job_wakeups row because a leader wake starts a NEW
+	// job (a different agent, its own prompt) instead of continuing the member job the
+	// wakeup table is built around — and because a restart must lose neither the pending
+	// round nor the plan's round count, both of which live here.
+	//
+	// state: pending (armed, waiting for due_at) | firing (a sweep claimed it; a submit
+	// is in flight) | fired (leader_job_id holds the job it started) | cancelled (a human
+	// spoke, or the plan was paused before it fired). round is the 1-based leader round
+	// this wake belongs to; the plan's spent budget is the count of firing|fired rows.
+	// IF NOT EXISTS like every table here (idempotent Open).
+	`CREATE TABLE IF NOT EXISTS plan_leader_wakes (
+  id            TEXT PRIMARY KEY,
+  plan_id       TEXT NOT NULL,
+  member_job_id TEXT NOT NULL,
+  member_status TEXT NOT NULL,
+  due_at        INTEGER NOT NULL,
+  state         TEXT NOT NULL DEFAULT 'pending',
+  round         INTEGER NOT NULL DEFAULT 1,
+  leader_job_id TEXT,
+  created_at    INTEGER NOT NULL,
+  cancelled_by  TEXT,
+  cancelled_at  INTEGER
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_leader_wakes_due ON plan_leader_wakes(state, due_at)`,
+	`CREATE INDEX IF NOT EXISTS idx_leader_wakes_plan ON plan_leader_wakes(plan_id, state)`,
+	`CREATE INDEX IF NOT EXISTS idx_leader_wakes_member ON plan_leader_wakes(member_job_id)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema
@@ -854,6 +883,11 @@ func (s *Store) migrate() error {
 	}
 	// JOB-11 同 cwd 串行锁：dir_exclusive=该 job 提交期定下的独占决策。旧库 ALTER ADD 默认
 	// 0 = "共享"——正是 JOB-11 之前的语义（谁都不取锁），不会把历史 job 伪造成独占过。
+	// MCP-05 阶段 B: the server-set plan marker of a leader job. Additive/optional
+	// (NULL = an ordinary job), so a pre-existing db reads every job as a member.
+	if err := add("leader_of_plan", "leader_of_plan TEXT"); err != nil {
+		return err
+	}
 	if err := add("dir_exclusive", "dir_exclusive INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}

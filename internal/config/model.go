@@ -359,6 +359,104 @@ type SupervisorConfig struct {
 	// max_timeout_sec, else 1h), so raising the ceiling also lifts this cap. Lower it only to
 	// recycle a wedged sup sooner.
 	ReconcileJobTimeoutSec int `yaml:"reconcile_job_timeout_sec,omitempty"`
+	// Leader is the MCP-05 阶段 B "leader round" (design §二.B): when enabled, a member
+	// job of a plan reaching a FINISHED state wakes a LEADER job that reads the report
+	// and decides the next step. Nil (or enabled:false) is the default and means the
+	// whole feature is off — no wake rows, no leader jobs, nothing recorded.
+	Leader *LeaderConfig `yaml:"leader,omitempty"`
+}
+
+// LeaderConfig is the `supervisor.leader` block (MCP-05 阶段 B, design §二.B). The
+// leader is a normal job (usage, timeout, AUTO-03 all apply) that may only act through
+// its (whitelisted) MCP tools: comment / move a todo to ready|skipped / arm a wakeup /
+// ask a human. It can never accept or reject — 人工验收 stays a human's call.
+//
+// The zero value is inert: enabled=false. Every other field has a documented default
+// resolved by the accessors below (so an operator can write just `enabled: true` +
+// `agent:`).
+type LeaderConfig struct {
+	Enabled bool `yaml:"enabled,omitempty"`
+	// Agent is the agent (or role) a leader job runs as. Required when enabled.
+	Agent string `yaml:"agent,omitempty"`
+	// Scopes lists the comment/plan scopes the leader round runs on. Only "plan" is
+	// implemented in this phase; an empty list means ["plan"].
+	Scopes []string `yaml:"scopes,omitempty"`
+	// OnMemberDone arms the wake on a member job's FINISHED state. It is a POINTER so
+	// "unset" can default to true: `enabled: true` alone must wake on reports, and an
+	// explicit `on_member_done: false` is what turns the trigger off.
+	OnMemberDone *bool `yaml:"on_member_done,omitempty"`
+	// WakeDelaySec is the window between a member's terminal state and the leader job
+	// starting: the time a human gets to step in (a user comment inside it cancels the
+	// round). Unset/<=0 => DefaultLeaderWakeDelaySec (30s).
+	WakeDelaySec int `yaml:"wake_delay_sec,omitempty"`
+	// MaxRoundsPerScope caps how many leader jobs one plan may start. Reaching it stops
+	// the waking and escalates to a human (`plan.leader_exhausted` + a plan decision).
+	// Unset/<=0 => DefaultLeaderMaxRounds.
+	MaxRoundsPerScope int `yaml:"max_rounds_per_scope,omitempty"`
+}
+
+// Leader-round defaults (MCP-05 阶段 B). The delay is the human's window to take over
+// a round; the cap is small on purpose — a leader that cannot finish a plan in six
+// rounds is not going to finish it in twelve, and every round costs money.
+const (
+	// DefaultLeaderWakeDelaySec is the wake delay when wake_delay_sec is unset.
+	DefaultLeaderWakeDelaySec = 30
+	// DefaultLeaderMaxRounds is the per-plan round budget when max_rounds_per_scope is unset.
+	DefaultLeaderMaxRounds = 6
+)
+
+// LeaderPlanScope is the only scope the leader round implements in this phase.
+const LeaderPlanScope = "plan"
+
+// LeaderConfig returns the leader block, or nil when the supervisor (or the block) is
+// absent — the single nil-safe accessor every reader uses.
+func (c *Config) LeaderConfig() *LeaderConfig {
+	if c == nil || c.Supervisor == nil {
+		return nil
+	}
+	return c.Supervisor.Leader
+}
+
+// LeaderEnabled reports whether the leader round is switched on.
+func (c *Config) LeaderEnabled() bool {
+	l := c.LeaderConfig()
+	return l != nil && l.Enabled
+}
+
+// MemberDoneWakes reports whether a member job's finished state arms a wake (the
+// on_member_done trigger; unset means yes).
+func (l *LeaderConfig) MemberDoneWakes() bool {
+	return l != nil && (l.OnMemberDone == nil || *l.OnMemberDone)
+}
+
+// WakeDelay resolves wake_delay_sec (<=0/absent => the 30s default).
+func (l *LeaderConfig) WakeDelay() time.Duration {
+	if l == nil || l.WakeDelaySec <= 0 {
+		return DefaultLeaderWakeDelaySec * time.Second
+	}
+	return time.Duration(l.WakeDelaySec) * time.Second
+}
+
+// MaxRounds resolves max_rounds_per_scope (<=0/absent => the 6 default).
+func (l *LeaderConfig) MaxRounds() int {
+	if l == nil || l.MaxRoundsPerScope <= 0 {
+		return DefaultLeaderMaxRounds
+	}
+	return l.MaxRoundsPerScope
+}
+
+// ScopeEnabled reports whether this scope runs leader rounds (an empty scopes list
+// means "plan only", the one scope implemented so far).
+func (l *LeaderConfig) ScopeEnabled(scope string) bool {
+	if l == nil || len(l.Scopes) == 0 {
+		return scope == LeaderPlanScope
+	}
+	for _, s := range l.Scopes {
+		if s == scope {
+			return true
+		}
+	}
+	return false
 }
 
 // RoleConfig is one named role preset (design §8.5). Agent is the base CLI agent

@@ -121,6 +121,13 @@ type JobRequest struct {
 	// The worker dispatch path sets it; internal, so it stays off the wire, out of
 	// request_json and out of a client-supplied body.
 	SkillsResolved bool `json:"-" yaml:"-"`
+	// LeaderOfPlan marks this job as the LEADER of that plan (MCP-05 阶段 B): the leader
+	// round sets it, and it is what makes the job's @-comments dispatchable, keeps its
+	// own terminal state from waking another leader, and bars it from accepting or
+	// rejecting a delivery. Internal and server-set — json/yaml "-" keeps it off the
+	// wire and out of request_json, exactly like ReviewFixed/WorkflowID, so no caller
+	// can promote itself to leader.
+	LeaderOfPlan string `json:"-" yaml:"-"`
 	// ExclusiveDir overrides the same-directory lock rule for this job (JOB-11): nil
 	// (the default) applies the rule — a WRITABLE agent job (cli/acp, not read-only,
 	// not interactive) takes the exclusive lock of its working directory, while exec
@@ -557,6 +564,10 @@ type JobResult struct {
 	// to the store that submitted the job, not to this one (a worker's local copy),
 	// so the continuation must not try to resolve or link it either.
 	TodoForeign bool `json:"-"`
+	// LeaderOfPlan is the plan this job leads (MCP-05 阶段 B), "" on every ordinary job.
+	// Server-set (never on the wire), persisted as jobs.leader_of_plan so the marker
+	// survives a restart and a read from the store alone.
+	LeaderOfPlan string `json:"-"`
 	// BaseSHA / Commits are the提交采集 (SUP-01 C): BaseSHA is the commit the job
 	// STARTED from — captured on the executing machine when it turns `running`, and
 	// for a worktree job simply its baseline — and Commits lists what it produced

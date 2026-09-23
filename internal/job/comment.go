@@ -182,10 +182,16 @@ type commentTarget struct {
 	// means the built-in local runner — a plan carries no runner of its own, so a
 	// plan-level mention runs locally unless the item it is really about says
 	// otherwise.
-	runner  string
-	planID  string
-	todoID  string
-	context string
+	runner string
+	planID string
+	todoID string
+	// ownerPlan is the plan a comment's target BELONGS to: the plan itself, a todo's
+	// plan, or the plan a commented job is attached to ("" when none). It is NOT the
+	// plan a dispatch inherits (that is planID) — it exists for the two leader rules
+	// of MCP-05 阶段 B: a human's comment anywhere under a plan cancels that plan's
+	// pending round, and a leader job's @-comment is only admitted on its own plan.
+	ownerPlan string
+	context   string
 }
 
 // Comment records a comment on a job, plan or plan-todo and, when a HUMAN wrote it,
@@ -205,6 +211,29 @@ type commentTarget struct {
 // A refused mention is never silent: the comment is kept and a `system` comment says
 // why. The returned []CommentDispatch is empty when nothing was started.
 func (s *Service) Comment(scope, scopeID, author, authorKind, body string) (jobstore.Comment, []CommentDispatch, error) {
+	return s.comment(scope, scopeID, author, authorKind, "", body)
+}
+
+// CommentAsJob records a comment written BY the agent of asJob — the in-job identity
+// (MCP's GOFER_JOB_ID, the CLI's own env) that the entry layers resolve. The author is
+// DERIVED from that job (its agent key) and the row is authored `agent`; the job id
+// itself is what the 阶段 B leader gate reads (a leader job of THIS plan may @-mention
+// and dispatch; every other agent comment is recorded only).
+func (s *Service) CommentAsJob(scope, scopeID, asJob, body string) (jobstore.Comment, []CommentDispatch, error) {
+	if strings.TrimSpace(asJob) == "" {
+		return jobstore.Comment{}, nil, fmt.Errorf("%w: as_job is required for an agent comment", ErrInvalidComment)
+	}
+	res, ok := s.Get(asJob)
+	if !ok {
+		return jobstore.Comment{}, nil, fmt.Errorf("%w: no job %q", ErrInvalidComment, asJob)
+	}
+	if res.Agent == "" {
+		return jobstore.Comment{}, nil, fmt.Errorf("%w: job %q has no agent to speak as", ErrInvalidComment, asJob)
+	}
+	return s.comment(scope, scopeID, res.Agent, jobstore.CommentAuthorAgent, asJob, body)
+}
+
+func (s *Service) comment(scope, scopeID, author, authorKind, asJob, body string) (jobstore.Comment, []CommentDispatch, error) {
 	if !jobstore.ValidCommentScope(scope) {
 		return jobstore.Comment{}, nil, fmt.Errorf("%w: unknown scope %q", ErrInvalidComment, scope)
 	}
@@ -233,7 +262,13 @@ func (s *Service) Comment(scope, scopeID, author, authorKind, body string) (jobs
 		"comment_id": cm.ID, "scope": scope, "scope_id": scopeID,
 		"author": author, "author_kind": authorKind, "mentions": mentions,
 	})
-	if !commentAuthorMayTrigger(authorKind) || len(mentions) == 0 {
+	// MCP-05 阶段 B: a human speaking under a plan takes the current leader round over
+	// — the pending wake is cancelled before anything else happens, so a comment that
+	// ALSO dispatches work still wins the round for the person.
+	if authorKind == jobstore.CommentAuthorUser {
+		s.CancelLeaderWakesForPlan(target.ownerPlan, author)
+	}
+	if !s.commentAuthorMayTrigger(authorKind, asJob, target) || len(mentions) == 0 {
 		return cm, nil, nil
 	}
 	dispatched := s.dispatchCommentMentions(cfg, target, &cm, mentions)
@@ -253,8 +288,21 @@ func (s *Service) ListComments(scope, scopeID string) ([]jobstore.Comment, error
 // work — an agent's comment (an MCP tool call from inside a job) is recorded and
 // nothing else. 阶段 B extends this seam with the supervisor.leader whitelist (design
 // §二.B); nothing else in this file needs to change for that.
-func commentAuthorMayTrigger(authorKind string) bool {
-	return authorKind == jobstore.CommentAuthorUser
+func (s *Service) commentAuthorMayTrigger(authorKind, asJob string, target commentTarget) bool {
+	if authorKind == jobstore.CommentAuthorUser {
+		return true
+	}
+	// 阶段 B: the ONE agent-authored comment that may dispatch is a leader job's, on the
+	// plan it leads. Everything else an agent writes stays a record (fail-closed: a job
+	// that cannot say it is the leader cannot spend money by commenting).
+	if authorKind != jobstore.CommentAuthorAgent || asJob == "" {
+		return false
+	}
+	rec, ok, err := s.meta.GetJob(asJob)
+	if err != nil || !ok {
+		return false
+	}
+	return rec.LeaderOfPlan != "" && rec.LeaderOfPlan == target.ownerPlan
 }
 
 // commentTarget resolves the commented object, refusing an unknown id.
@@ -268,7 +316,8 @@ func (s *Service) commentTarget(scope, scopeID string) (commentTarget, error) {
 		return commentTarget{
 			scope: scope, scopeID: scopeID, eventScope: res.ID,
 			projectKey: res.ProjectKey, cwd: commentJobCwd(res), runner: res.Runner,
-			context: s.commentJobContext(res),
+			ownerPlan: res.PlanID,
+			context:   s.commentJobContext(res),
 		}, nil
 	case jobstore.CommentScopePlan:
 		p, ok, err := s.meta.GetPlan(scopeID)
@@ -280,7 +329,7 @@ func (s *Service) commentTarget(scope, scopeID string) (commentTarget, error) {
 		}
 		return commentTarget{
 			scope: scope, scopeID: scopeID, eventScope: PlanEventScope(p.PlanID),
-			projectKey: p.ProjectKey, planID: p.PlanID,
+			projectKey: p.ProjectKey, planID: p.PlanID, ownerPlan: p.PlanID,
 			context: s.commentPlanContext(p),
 		}, nil
 	case jobstore.CommentScopeTodo:
@@ -303,7 +352,7 @@ func (s *Service) commentTarget(scope, scopeID string) (commentTarget, error) {
 		return commentTarget{
 			scope: scope, scopeID: scopeID, eventScope: PlanEventScope(t.PlanID),
 			projectKey: projectKey, cwd: t.Cwd, runner: t.Runner,
-			planID: t.PlanID, todoID: t.TodoID,
+			planID: t.PlanID, todoID: t.TodoID, ownerPlan: t.PlanID,
 			context: ctx,
 		}, nil
 	}

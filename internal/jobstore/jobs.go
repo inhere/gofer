@@ -175,6 +175,11 @@ type JobRecord struct {
 	// the web detail and a restarted serve still answer "which files did this job
 	// move?" after the in-memory entry is gone. Old rows COALESCE to "".
 	XferJSON string
+	// LeaderOfPlan is the plan a LEADER job belongs to (MCP-05 阶段 B) — "" on every
+	// ordinary job. It is set SERVER-SIDE when the leader round submits the job (the
+	// request field is not on the wire), and it is what the wake rules and the review
+	// gate read: a leader job never wakes another leader, and it never reviews.
+	LeaderOfPlan string
 	// SkillsJSON is the job's bound skill list (JOB-10) as JSON, or "" when the job
 	// carried none. Persisted so a finished job still answers "which skills was this
 	// agent told to read?" after its result dir is gone, and so the mounted-set
@@ -284,7 +289,8 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,
   COALESCE(verify_json,''),
   COALESCE(failure_class,''), COALESCE(fell_back_from,''), COALESCE(fell_back_to,''),
   COALESCE(requested_agent,''), COALESCE(fallback_json,''), COALESCE(usage_json,''),
-  COALESCE(xfer_json,''), COALESCE(skills_json,''), COALESCE(dir_exclusive,0) FROM jobs`
+  COALESCE(xfer_json,''), COALESCE(skills_json,''), COALESCE(dir_exclusive,0),
+  COALESCE(leader_of_plan,'') FROM jobs`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -315,7 +321,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&requireReview, &r.ReviewedBy, &r.ReviewedAt, &r.ReviewNote,
 		&r.VerifyJSON,
 		&r.FailureClass, &r.FellBackFrom, &r.FellBackTo, &r.RequestedAgent, &r.FallbackJSON,
-		&r.UsageJSON, &r.XferJSON, &r.SkillsJSON, &dirExclusive,
+		&r.UsageJSON, &r.XferJSON, &r.SkillsJSON, &dirExclusive, &r.LeaderOfPlan,
 	)
 	r.Interactive = interactive != 0
 	r.TimeoutClamped = timeoutClamped != 0
@@ -348,8 +354,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 	    worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead, read_only,
 	    require_review, reviewed_by, reviewed_at, review_note, verify_json,
 	    failure_class, fell_back_from, fell_back_to, requested_agent, fallback_json, usage_json, xfer_json,
-	    skills_json, dir_exclusive)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+	    skills_json, dir_exclusive, leader_of_plan)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -419,7 +425,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     usage_json=excluded.usage_json,
     xfer_json=excluded.xfer_json,
     skills_json=excluded.skills_json,
-    dir_exclusive=excluded.dir_exclusive`
+    dir_exclusive=excluded.dir_exclusive,
+    leader_of_plan=excluded.leader_of_plan`
 	// Serialise writes in-process (see Store.writeMu) so SQLite never sees two
 	// concurrent writers and cannot return SQLITE_BUSY under burst.
 	s.writeMu.Lock()
@@ -448,6 +455,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.XferJSON,
 		rec.SkillsJSON,
 		rec.DirExclusive,
+		rec.LeaderOfPlan,
 	)
 	if err != nil {
 		// A competing INSERT with the same non-empty request_id (different id)

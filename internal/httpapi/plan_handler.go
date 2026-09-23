@@ -298,6 +298,20 @@ type planDetail struct {
 	Jobs       []job.JobResult         `json:"jobs"`
 	Todos      []todoView              `json:"todos"`
 	Decisions  []decisionView          `json:"decisions"`
+	// Leader is the plan's leader-round state (MCP-05 阶段 B): the cap, how many rounds
+	// the plan has spent and the last leader job it started — the "leader 第 N/M 轮" line
+	// the plan page shows, plus the link to the round's job. Absent (omitted) for a plan
+	// whose leader round is off, which is the default.
+	Leader *planLeaderView `json:"leader,omitempty"`
+}
+
+// planLeaderView is the leader-round state of one plan (MCP-05 阶段 B). Round counts the
+// rounds SPENT (a leader job was started), so "round 0" means the leader has not been
+// woken for this plan yet; MaxRounds is the configured cap.
+type planLeaderView struct {
+	Round     int    `json:"round"`
+	MaxRounds int    `json:"max_rounds"`
+	LastJobID string `json:"last_job_id,omitempty"`
 }
 
 func (s *Server) handleGetPlan(c *rux.Context) {
@@ -352,6 +366,10 @@ func (s *Server) handleGetPlan(c *rux.Context) {
 		writeError(c, http.StatusInternalServerError, "plan usage failed", err.Error())
 		return
 	}
+	var leader *planLeaderView
+	if st := s.jobs.LeaderStatus(id); st.Enabled {
+		leader = &planLeaderView{Round: st.Round, MaxRounds: st.MaxRounds, LastJobID: st.LastJobID}
+	}
 	c.JSON(http.StatusOK, planDetail{
 		planView:   toPlanView(p),
 		Counts:     jc,
@@ -361,6 +379,7 @@ func (s *Server) handleGetPlan(c *rux.Context) {
 		Jobs:       jobs,
 		Todos:      todoViews,
 		Decisions:  decisionViews,
+		Leader:     leader,
 	})
 }
 

@@ -88,6 +88,11 @@ const (
 	// goferSkillsDirEnv is the env var that lets an agent (or a wrapper script) find
 	// the mount without parsing the prompt.
 	goferSkillsDirEnv = "GOFER_SKILLS_DIR"
+	// goferLeaderPlanEnv names the plan whose leader job this process is running in
+	// (MCP-05 阶段 B). The job service exports it for a leader job ONLY, and the gofer
+	// MCP reads it at startup to narrow its tool surface — the same "the identity comes
+	// from the server, never from the caller" rule as GOFER_JOB_ID.
+	goferLeaderPlanEnv = "GOFER_LEADER_PLAN"
 )
 
 // SkillDest is the result-dir-relative destination of one skill file, e.g.

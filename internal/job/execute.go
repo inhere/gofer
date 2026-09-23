@@ -512,6 +512,11 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// human's accept/reject (review.go).
 	if needsReview {
 		if persistErr == nil && isFinished(snap.Status) {
+			// MCP-05 阶段 B: a delivery parked for a human IS one of the three endings a
+			// leader round reacts to, and it is the only one that arrives here (this
+			// branch returns before the terminal tail below) — so the wake is armed here.
+			// The wake is armed only for a plan-attached member job; see maybeWakeLeader.
+			s.maybeWakeLeader(snap)
 			s.mu.Lock()
 			delete(s.jobs, jobID)
 			s.mu.Unlock()
@@ -550,6 +555,11 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// to the late job.terminal and blocks, which is the correct reading of "it is over").
 	if persistErr == nil {
 		s.maybeBlockPlan(snap)
+		// MCP-05 阶段 B: the terminal path arms the leader round (design §二.B). It runs
+		// after maybeBlockPlan so the plan's parked/failed state is already recorded —
+		// a blocked plan still wakes its leader, which is exactly who may unblock it.
+		// Best-effort like every hook here: a leader must never affect the job's outcome.
+		s.maybeWakeLeader(snap)
 	}
 
 	// 工作流推进 (E7)：若此 job 属于某工作流，其终态可能解锁下一步。异步推进，绝不阻塞

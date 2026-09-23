@@ -2241,7 +2241,10 @@ func lastLines(s string, n int) string {
 }
 
 // runJobAccept records a human's acceptance of a job awaiting review. The server
-// stamps the reviewer from the token, so the CLI never sends an identity.
+// stamps the reviewer from the token; the only identity the CLI adds is the in-job one
+// (GOFER_JOB_ID) — a LEADER job's verdict is refused server-side (MCP-05 阶段 B), and
+// unsetting GOFER_JOB_ID (or reviewing from the web) is how a person inside a job says
+// "this is me, not the agent". Same rule as `gofer job comment`.
 func runJobAccept(c *gcli.Command, _ []string) error {
 	id := argID(c)
 	if id == "" {
@@ -2251,7 +2254,7 @@ func runJobAccept(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	res, err := cli.AcceptJob(id, jobAcceptOpts.note)
+	res, err := cli.AcceptJob(id, jobAcceptOpts.note, os.Getenv("GOFER_JOB_ID"))
 	if err != nil {
 		return err
 	}
@@ -2274,7 +2277,7 @@ func runJobReject(c *gcli.Command, _ []string) error {
 	if err != nil {
 		return err
 	}
-	res, err := cli.RejectJob(id, jobRejectOpts.note, jobRejectOpts.resume)
+	res, err := cli.RejectJob(id, jobRejectOpts.note, os.Getenv("GOFER_JOB_ID"), jobRejectOpts.resume)
 	if err != nil {
 		return err
 	}

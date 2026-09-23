@@ -140,7 +140,17 @@ func (s *Server) postComment(c *rux.Context, scope, scopeID string) {
 		writeError(c, status, "comment author unresolved", detail)
 		return
 	}
-	cm, dispatched, err := s.jobs.Comment(scope, scopeID, author, kind, body.Body)
+	// A comment written BY a job's agent goes through CommentAsJob: the job id is what
+	// the 阶段 B leader gate needs (a leader job of this plan may dispatch; every other
+	// agent comment is recorded), so the entry layer must not flatten the identity away.
+	var cm jobstore.Comment
+	var dispatched []job.CommentDispatch
+	var err error
+	if asJob := strings.TrimSpace(body.AsJob); asJob != "" {
+		cm, dispatched, err = s.jobs.CommentAsJob(scope, scopeID, asJob, body.Body)
+	} else {
+		cm, dispatched, err = s.jobs.Comment(scope, scopeID, author, kind, body.Body)
+	}
 	if err != nil {
 		writeError(c, commentStatus(err), "comment failed", err.Error())
 		return

@@ -1524,11 +1524,22 @@ export interface Plan {
   completion?: PlanCompletion
 }
 
+// plan 的 leader 回合状态（MCP-05 阶段 B）：round=已用轮次（起过一个 leader job 才算），
+// max_rounds=配置上限，last_job_id=最近一次 leader job（可点进它的详情）。服务端只在
+// supervisor.leader 打开时才发这个块，所以 undefined = 这个 plan 没有 leader 回合。
+export interface PlanLeader {
+  round: number
+  max_rounds: number
+  last_job_id?: string
+}
+
 // plan 详情（GET /v1/plans/{id}）：头部 + counts + 其下 jobs + todos + decisions。
 export interface PlanDetail extends Plan {
   counts: PlanCounts
   jobs: Job[]
   todos: Todo[]
+  // leader 回合（MCP-05 阶段 B）；未开启时不发。
+  leader?: PlanLeader
   // 决策通道（T4）：该 plan 下的全部 decision（含 OPEN/ANSWERED/EXPIRED）
   decisions?: Decision[]
   // PLAN-02 P2：该 plan 的用量汇总。新服务端恒发；老服务端不发时为 undefined。

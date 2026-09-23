@@ -63,6 +63,15 @@ var fieldPolicies = map[string]FieldPolicy{
 	// (EffectiveCommentTrigger), so a hot edit applies to the NEXT comment.
 	"server.comment_trigger": {Editable: true},
 
+	// --- supervisor: read where they are used ----------------------------------
+	// MCP-05 阶段 B: the leader block is resolved per wake (config.LeaderConfig, i.e.
+	// one snapshot per round), so editing the file + SIGHUP applies to the NEXT round —
+	// nothing caches an agent/cap at construction. There is no console FORM for this
+	// block yet (the write API's vocabulary is server|agents), so the entry is a
+	// classification: the console badges it as a live (hot) field rather than as one
+	// that needs a restart, which is what an operator editing the yaml needs to know.
+	"supervisor.leader": {Editable: true},
+
 	// --- server: read at startup, or secret material ---------------------------
 	"server.addr":                   {RestartRequired: true},
 	"server.token":                  {RestartRequired: true},
@@ -156,6 +165,8 @@ func SectionPolicies(section string) map[string]FieldPolicy {
 		prefix = "server."
 	case "agents":
 		prefix = "agents.*."
+	case "supervisor":
+		prefix = "supervisor."
 	default:
 		return map[string]FieldPolicy{}
 	}

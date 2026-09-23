@@ -25,7 +25,12 @@ import (
 // on a job whose retry policy was turned ON deliberately. Its two siblings
 // (job.retry_scheduled / job.retry_started) are NOT defaults: a retry that is still
 // coming is not a call to action, and a subscriber can list them explicitly.
-var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review", "plan.blocked", "job.retry_exhausted"}
+// plan.leader_exhausted (MCP-05 阶段 B, design §二.B.3) joins them for the same reason:
+// a plan has spent its leader-round budget, gofer has stopped waking leaders for it and
+// nothing moves the chain until a person does — the sibling events (leader_woken /
+// leader_skipped / leader_cancelled) stay out, because a round that ran (or was taken
+// over by a human) is not a call to action.
+var DefaultTriggerEvents = []string{"job.terminal", "interaction.created", "job.needs_review", "plan.blocked", "job.retry_exhausted", "plan.leader_exhausted"}
 
 // MatchWebhooks returns the webhooks in cfg that subscribe to eventType for
 // projectKey (design §5.6 enqueue match): a webhook matches when

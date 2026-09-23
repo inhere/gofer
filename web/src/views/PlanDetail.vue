@@ -846,6 +846,25 @@ onUnmounted(() => {
       </span>
     </div>
 
+    <!-- MCP-05 阶段 B leader 回合：第 N/M 轮 + 最近一次 leader job 链接；服务端只在
+         supervisor.leader 打开时发这个块，故 plan.leader 存在即代表本 plan 有 leader。 -->
+    <div v-if="plan && plan.leader" class="blocked mono">
+      <span class="blocked-text">
+        leader 回合已用 {{ plan.leader.round }}/{{ plan.leader.max_rounds }} 轮——成员 job 结束时唤醒一个
+        leader job 决定下一步；人在评论区说话即接管当轮，轮次用尽会升级给人
+      </span>
+      <span class="ops-actions">
+        <button
+          v-if="plan.leader.last_job_id"
+          class="status-action"
+          type="button"
+          @click="openJob(plan.leader.last_job_id)"
+        >
+          最近一次 leader job
+        </button>
+      </span>
+    </div>
+
     <!-- PLAN-03 blocked 横幅：链失败停在哪个条目 + 两个出口（重派 / 跳过都会解除 block 并继续）。 -->
     <div v-if="plan && plan.blocked_todo" class="blocked mono">
       <span class="blocked-text">

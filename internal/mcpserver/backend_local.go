@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -138,6 +139,12 @@ func (b *localBackend) CancelJob(id string) (job.JobResult, error) {
 // session's registered driver agent id ("" when unregistered — the job layer records
 // that as anonymous), so the audit trail names the agent that refused the delivery.
 func (b *localBackend) RejectJob(id, note string, resume bool, by string) (job.ReviewOutcome, error) {
+	// MCP-05 阶段 B: a LEADER job never reviews a delivery. The leader's MCP does not
+	// register this tool at all (see registerLeaderTools); this is the same rule one
+	// layer down, so the local path and the forwarded one behave identically.
+	if b.jobs.IsLeaderJob(strings.TrimSpace(os.Getenv(envJobID))) {
+		return job.ReviewOutcome{}, fmt.Errorf("a leader job cannot reject a delivery: 验收 is a human's call")
+	}
 	return b.jobs.RejectJob(id, by, note, resume)
 }
 
@@ -508,7 +515,7 @@ func (b *localBackend) Comment(scope, id, body, asJob string) (commentView, erro
 	if res.Agent == "" {
 		return commentView{}, fmt.Errorf("job %q has no agent to speak as", asJob)
 	}
-	cm, dispatched, err := b.jobs.Comment(scope, id, res.Agent, jobstore.CommentAuthorAgent, body)
+	cm, dispatched, err := b.jobs.CommentAsJob(scope, id, asJob, body)
 	if err != nil {
 		return commentView{}, err
 	}

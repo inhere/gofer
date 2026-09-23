@@ -3,6 +3,8 @@ package mcpserver
 import (
 	"encoding/json"
 	"fmt"
+	"os"
+	"strings"
 
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/job"
@@ -48,9 +50,12 @@ func (b *clientBackend) CancelJob(id string) (job.JobResult, error) {
 }
 
 // RejectJob forwards the refusal to the central serve, whose own auth stamps the
-// reviewer (by here is only used by the in-process backend).
+// reviewer (by here is only used by the in-process backend). The in-job identity rides
+// along as as_job (GOFER_JOB_ID), so the central serve can refuse a verdict asked for by
+// a LEADER job — an agent must not look like the human whose token it inherits
+// (MCP-05 阶段 B).
 func (b *clientBackend) RejectJob(id, note string, resume bool, _ string) (job.ReviewOutcome, error) {
-	return b.cli.RejectJob(id, note, resume)
+	return b.cli.RejectJob(id, note, strings.TrimSpace(os.Getenv(envJobID)), resume)
 }
 
 // GetResult returns the job's result.json content (the get_job snapshot's

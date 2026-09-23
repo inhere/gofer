@@ -100,6 +100,9 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		// 不会伪造成挂载过）。清单由执行机渲染进 prompt，这一列是"这次运行带了哪些规矩"
 		// 的事后答案（job show / web job 详情读它）。
 		SkillsJSON: marshalSkills(r.Skills),
+		// 领导回合（MCP-05 阶段 B）：leader job 所属的 plan；普通 job 为 ""（旧行同样读回
+		// ""，即"不是 leader job"）。它是 server 侧盖章、客户端不可设的标记。
+		LeaderOfPlan: r.LeaderOfPlan,
 		// job 超时上限可配（bd h-aii-s9ck）：生效 deadline + 请求值 + 截断标记三元组。
 		TimeoutSec:          r.TimeoutSec,
 		RequestedTimeoutSec: r.RequestedTimeoutSec,
@@ -353,6 +356,8 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		Xfer: unmarshalXfer(rec.XferJSON),
 		// 技能绑定（JOB-10）：旧行 "" = 没绑技能（nil），不伪造成挂载过。
 		Skills: unmarshalSkills(rec.SkillsJSON),
+		// 领导回合（MCP-05 阶段 B）：旧行 "" = 不是 leader job。
+		LeaderOfPlan: rec.LeaderOfPlan,
 		// job 超时上限可配（bd h-aii-s9ck）：生效 deadline + 请求值 + 截断标记。旧行全为
 		// 0/false = "未记录"（旧 job 早于该列），不会伪装成"被截断"。
 		TimeoutSec:          rec.TimeoutSec,

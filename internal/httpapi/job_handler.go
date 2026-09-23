@@ -468,6 +468,11 @@ func (s *Server) handleCancelJob(c *rux.Context) {
 // continuation's prompt.
 type reviewJobReq struct {
 	Note string `json:"note,omitempty"`
+	// AsJob names the job whose AGENT is asking (the in-job GOFER_JOB_ID the CLI/MCP
+	// sends), exactly like a comment's as_job. It is what lets the server tell a LEADER
+	// job from the human running beside it: a leader may comment, move todos, wake and
+	// ask, but never accept or reject (MCP-05 阶段 B).
+	AsJob string `json:"as_job,omitempty"`
 	// Resume asks a REJECT to continue the work: a new job is started with the note as
 	// its prompt. Ignored by accept.
 	Resume bool `json:"resume,omitempty"`
@@ -483,6 +488,9 @@ func (s *Server) handleAcceptJob(c *rux.Context) {
 	}
 	req, ok := bindReviewJobReq(c)
 	if !ok {
+		return
+	}
+	if !s.reviewerIsNotLeader(c, req.AsJob, "accept") {
 		return
 	}
 	res, err := s.jobs.AcceptJob(c.Param("id"), caller, req.Note)
@@ -506,12 +514,29 @@ func (s *Server) handleRejectJob(c *rux.Context) {
 	if !ok {
 		return
 	}
+	if !s.reviewerIsNotLeader(c, req.AsJob, "reject") {
+		return
+	}
 	res, err := s.jobs.RejectJob(c.Param("id"), caller, req.Note, req.Resume)
 	if err != nil {
 		writeError(c, reviewStatus(err), "reject failed", err.Error())
 		return
 	}
 	c.JSON(http.StatusOK, res)
+}
+
+// reviewerIsNotLeader refuses a verdict asked for BY a leader job (MCP-05 阶段 B): the
+// leader round may hand the next step to a member, but the sign-off stays a human's
+// (GATE-01 §3). The identity is the in-job as_job — a caller token cannot tell a leader
+// job from the person running beside it — and an empty one is the ordinary human path.
+func (s *Server) reviewerIsNotLeader(c *rux.Context, asJob, action string) bool {
+	asJob = strings.TrimSpace(asJob)
+	if asJob == "" || !s.jobs.IsLeaderJob(asJob) {
+		return true
+	}
+	writeError(c, http.StatusForbidden, action+" not permitted for this caller",
+		"a leader job cannot "+action+" a delivery: 验收 is a human's call (MCP-05 阶段 B)")
+	return false
 }
 
 // humanReviewer enforces the GATE-01 S3 rule that only a PERSON signs off a delivery:

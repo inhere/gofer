@@ -481,6 +481,16 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		// / E6 result.json. Set on the worker/peer side too (they run this same
 		// local branch), so remote exec jobs get the executor-local paths.
 		runReq.Env = goferJobEnv(util.MergeEnv(util.MergeEnv(secretMap, resolved.Env), req.Env), jobID, workDir, resultDir)
+		// MCP-05 阶段 B: a LEADER job tells its agent process (and the gofer MCP child
+		// that process spawns) which plan it leads, so the MCP surface can narrow itself
+		// to the leader tool whitelist. Server-set from the request's marker (which is
+		// never on the wire), and only for a leader job: an ordinary job carries no such
+		// variable at all.
+		if req.LeaderOfPlan != "" {
+			runReq.Env = util.EnvWith(runReq.Env, map[string]string{
+				goferLeaderPlanEnv: req.LeaderOfPlan,
+			})
+		}
 		// JOB-10: the mount root, so an agent (or a wrapper script) can find the
 		// skills without parsing the prompt list. Set only when something is mounted —
 		// an always-present var would point at a directory that does not exist.
@@ -541,6 +551,9 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// GATE-01 S3：人工验收同样是 job 的持久属性（jobs.require_review），决定
 			// finish 是落 done 还是 needs_review，resume 继承、show/web 可见。
 			RequireReview: req.Review,
+			// MCP-05 阶段 B：leader job 的 plan 标记（jobs.leader_of_plan）。服务端盖章，
+			// 客户端不可设（json:"-"），重启后仍在行上——唤醒规则与验收闸门都读它。
+			LeaderOfPlan: req.LeaderOfPlan,
 			// bd h-aii-s9ck: the deadline this job actually runs under, plus the
 			// clamp report (requested > ceiling) so it is never a silent truncation.
 			TimeoutSec:          timeoutSec,

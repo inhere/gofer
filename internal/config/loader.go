@@ -727,6 +727,33 @@ func validate(cfg *Config) error {
 		if cfg.Supervisor.ReconcileJobTimeoutSec < 0 {
 			return fmt.Errorf("supervisor.reconcile_job_timeout_sec must be >= 0")
 		}
+		// MCP-05 阶段 B: an enabled leader round must name an agent (or role) that
+		// exists — otherwise every wake would fail at submit time, i.e. after the member
+		// job already finished and the human was told nothing.
+		if l := cfg.Supervisor.Leader; l != nil {
+			if l.WakeDelaySec < 0 {
+				return fmt.Errorf("supervisor.leader.wake_delay_sec must be >= 0")
+			}
+			if l.MaxRoundsPerScope < 0 {
+				return fmt.Errorf("supervisor.leader.max_rounds_per_scope must be >= 0")
+			}
+			for _, scope := range l.Scopes {
+				if scope != LeaderPlanScope {
+					return fmt.Errorf("supervisor.leader.scopes: %q is not supported yet (only %q)", scope, LeaderPlanScope)
+				}
+			}
+			if l.Enabled {
+				name := strings.TrimSpace(l.Agent)
+				if name == "" {
+					return fmt.Errorf("supervisor.leader.enabled requires supervisor.leader.agent")
+				}
+				if _, ok := cfg.Agents[name]; !ok {
+					if r, ok := cfg.Roles[name]; !ok || r.Agent == "" {
+						return fmt.Errorf("supervisor.leader.agent %q is neither a configured agent nor a role", name)
+					}
+				}
+			}
+		}
 	}
 	// E36 presence TTLs are optional overrides in seconds; negative is a mistake
 	// (0 = use the built-in default).

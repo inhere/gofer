@@ -151,6 +151,14 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	defer close(stopRetry)
 	startRetryLoop(c, cr, stopRetry)
 
+	// MCP-05 阶段 B leader rounds: start the leader job of every armed round whose
+	// wake delay has lapsed (and the ones a previous process left due). Always started —
+	// the gate (supervisor.leader.enabled) is read inside the sweep, so switching the
+	// feature on with a config edit needs no restart, and an idle tick is one cheap query.
+	stopLeader := make(chan struct{})
+	defer close(stopLeader)
+	startLeaderLoop(c, cr, stopLeader)
+
 	// E36 presence prune sweeper: GC offline driver-agent rows (last_seen past the
 	// TTL window) + read/expired inbox messages. Always started (low cost: empty
 	// registry = a cheap delete touching nothing). stop closes when serve returns.
@@ -751,6 +759,42 @@ func startRetryLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
 		}
 		sweep() // startup: pick up the retries a prior serve (or a crash) left due
 		ticker := time.NewTicker(retrySweepInterval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-stop:
+				return
+			case <-ticker.C:
+				sweep()
+			}
+		}
+	}()
+}
+
+// leaderSweepInterval is the MCP-05 阶段 B leader-round sweeper cadence: short enough
+// that a round starts close to its wake_delay_sec (30s by default), long enough that an
+// idle server pays almost nothing (one indexed query on an empty table).
+const leaderSweepInterval = 10 * time.Second
+
+// startLeaderLoop launches the leader-round sweeper (MCP-05 阶段 B, design §二.B): it
+// turns every DUE wake row into the leader job it describes, which is what makes a
+// pending round survive a restart — a process that came back up submits the rounds that
+// came due while it was down. The feature gate is read inside SweepDueLeaderWakes, so an
+// operator can turn the leader on/off with a config edit + SIGHUP. Exits when stop closes.
+func startLeaderLoop(c *gcli.Command, cr *core.Core, stop <-chan struct{}) {
+	go func() {
+		sweep := func() {
+			started, err := cr.Jobs.SweepDueLeaderWakes(time.Now().Unix())
+			if err != nil {
+				c.Errorf("gofer: leader sweep failed: %v\n", err)
+				return
+			}
+			if started > 0 {
+				c.Printf("gofer: leader sweep started %d leader job(s)\n", started)
+			}
+		}
+		sweep() // startup: pick up the rounds a prior serve (or a crash) left due
+		ticker := time.NewTicker(leaderSweepInterval)
 		defer ticker.Stop()
 		for {
 			select {
