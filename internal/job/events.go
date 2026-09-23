@@ -53,6 +53,20 @@ var mirroredEventTypes = map[string]bool{
 	EventJobVerifyFinished:      true,
 }
 
+// NOT on the list, by decision (S3, 2026-09-23): job.session_captured. The host
+// already owns the fact from its own side — a worker's session id rides back on the
+// outcome frame (res.Outcome.SessionID is applied to the host row), and a job attached
+// in the console records the event itself from the live pty capture
+// (internal/httpapi/pty_session_capture.go). Mirroring the executing machine's copy
+// would therefore put a SECOND job.session_captured row on the attached-interactive
+// path, which is exactly the doubling the whitelist exists to prevent.
+//
+// Known, accepted gap: a non-interactive worker job ends up with the session id on the
+// host row but no job.session_captured event of its own (the host never scans the
+// worker's log — captureSession runs only on the machine that executed the job, and
+// captureOutcomes returns early for a remote outcome). Mirroring would close it at the
+// cost of the duplicate above; nobody has asked for the row yet.
+
 // SetEventObserver installs (or with nil, clears) the mirror observer. It is called
 // once by the worker client before it starts running jobs; recordEvent reads it on
 // every event, so the two are ordered by the atomic swap rather than by a lock the

@@ -100,6 +100,10 @@ gofer job resume <job-id> --prompt "继续"   # 能起续接 job = resume 模板
 
 - 时间线里会有一条 **`job.session_captured`** 事件：`agent=… · stdout · 兜底`。
   `by=fallback` 表示**这个 agent 还没有自己的 `session_capture`**——想收紧就按 §3 写一条。
+  **远端 worker job 不会有这一条**：捕获只在**执行机**（worker）的库里记，hub 侧只从 outcome 拿
+  `session_id`（所以 `job show` 的 `session_id` 有值、时间线却没有该行）；worker→hub 的事件镜像
+  白名单刻意不含它——控制台里 attach 过的交互 job 由 hub 自己记一条，镜像会让那条翻倍。见
+  `internal/job/events.go` 的 `mirroredEventTypes`。
 - `job show` 的 `session_id` 为空时的排查顺序：① agent 的 `command` 是否真的打印了
   `--resume`/`--session-id` 字样；② 该行是否落在**最后 4KB**内（批处理 job 看 `stdout.log`
   末尾，交互 job 看 `pty.txt` 末尾）；③ 捕获值是否被占位符规则挡掉；
