@@ -18,7 +18,7 @@ leader job（agent=supervisor.leader.agent，plan 同源，tags: leader / leader
 下一步：@成员派活 / 把 todo 置 ready（带 assignee 即派发）/ 建 wakeup / 升级给人
 ```
 
-**leader 永远不能 accept/reject**（GATE-01 §3 的人工验收边界不动）：它的 MCP 里根本没有 `gofer_accept_job`（从来就没有）与 `gofer_reject_job`（leader 面不注册），HTTP 的 `POST /v1/jobs/{id}/accept|reject` 也会拒绝 leader job 身份（`as_job` = 该 leader job）→ 403。
+**leader 永远不能 accept/reject**（GATE-01 §3 的人工验收边界不动）：它的 MCP 里根本没有 `gofer_accept_job`（从来就没有）与 `gofer_reject_job`（leader 面不注册）；HTTP 的 `POST /v1/jobs/{id}/accept|reject` 由 **SEC-01 凭证**拒绝——leader job 带着自己那枚 `kind=leader` 的 job token，server 按凭证（而不是请求体里自报的 `as_job`）判定身份 → 403 `job credential may not accept a delivery`。细节见 [job 凭证 runbook](./2026-09-23-job-credentials-runbook.md)。
 
 ## 开起来
 
@@ -86,14 +86,17 @@ tags：`leader`、`leader_of:<成员 job id>`、`leader_round:<N>`；`channel: l
 
 `plan.leader_exhausted` **在通知默认集里**（同 `plan.blocked`：没人接手就不会再有人推进这条链），另外三个不在——订阅要在 webhook `events:` 里写明。
 
-## 局限：验收闸门不是安全边界（SEC-01，2026-09-23）
+## 局限：验收闸门曾经不是安全边界 —— **已由 SEC-01 解决**（2026-09-23）
 
-leader 唯一的硬约束是**它不能 accept/reject**。这条约束的实现方式是：`POST /v1/jobs/{id}/accept|reject` 收一个可选的 `as_job`（CLI 与 MCP 在两个 backend 里都会带上 `GOFER_JOB_ID`），server 看到"这个 job 是某 plan 的 leader"就 403。**身份是调用方自报的**，所以：
+v0.57 真机验收时发现：leader 的"不能 accept/reject"是**自报身份**（`as_job`）实现的，而 job 进程继承 serve 进程的环境（含 server bearer token），所以一个能跑 `curl` 的 agent 不带 `as_job` 直接以"人"的身份 accept 照样成功。**实测就是这样绕过去的**（leader 用继承来的 token 发评论、并用 CLI 把 todo 置 ready）。
 
-- 它挡住的是**误操作**——leader 顺手调 `gofer_reject_job`、或按自己的直觉 accept；这类"顺着工具面走"的路径全部被堵死（leader 的 MCP 工具面里根本没注册 review 工具）。
-- 它**挡不住**一个能跑 `curl` 的 agent：job 进程继承 serve 进程的环境，若其中带着 server 的 bearer token，agent 直接 `curl -X POST …/accept`（不带 `as_job`，即以"人"的身份）照样成功。**这不是安全边界**，只是一道防呆闸门。
+SEC-01 之后：
 
-后续方向（**本期未实现**）：给 leader job 发一个 **job 作用域**的凭证（只能评论 / 置 todo ready|skipped / 建 wakeup / 问人），并且**不把 server token 注入 leader job 的环境**——那时"不能 accept"才是真的强制。已记在 roadmap 的 `SEC-01`。
+- job 环境里**没有** server/worker token 了（`GOFER_TOKEN` / `GOFER_SERVER_TOKEN` / `GOFER_WORKER_TOKEN` 一律不再继承），取而代之的是该 job 自己的 `GOFER_JOB_TOKEN`；
+- 身份由**凭证**决定，`as_job` 已废弃（server 忽略、CLI 不再发送）；
+- accept/reject/cancel/改配置等写操作对**任何** job 凭证一律 403（默认拒绝），leader 的放宽只到"自己的 plan、`ready|skipped` 的 set-todo"。
+
+也就是说："不能 accept"现在是**服务端强制的**，不再依赖 agent 手里有没有 `curl`。剩下的限制只有一条：leader 仍可能**判断错**——凭证保证它做不了越权的事，不保证决定正确；轮次封顶 + 人评论即接管 + `plan pause` 仍是兜底。配置与权限表见 [job 凭证 runbook](./2026-09-23-job-credentials-runbook.md)。
 
 ## 排查
 

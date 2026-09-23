@@ -117,3 +117,19 @@
 3. member job 默认**不能** `job run`；`agents/roles.<k>.can_submit` 可放行同项目、`submit_agents`（默认 `[exec]`）内的提交，带溯源标签。
 4. leader 改为**逐 plan 开启**，默认关；全局 `enabled` 只做总闸；对有运行中成员 job 的 plan 打开时提示。
 5. leader 动作以 CLI 为主（server 按凭证强制权限）；已登记 gofer MCP 的 agent 仍可用 MCP 工具，底层同一枚 job token。
+
+## C1 实测记录（2026-09-23，omp）
+
+实现落地后按 §一 的验收要点实测（**临时 serve**：独立 config 目录 + 随机端口 18765 + `storage.root` 在 `tmp/`，其**进程环境里显式放 `GOFER_TOKEN=must-not-reach-job`**；CLI 一律 `--server http://127.0.0.1:18765 --token smoke-tok`，不使用真实 server）。
+
+| 步骤 | 命令 | 实测结果 |
+|---|---|---|
+| job 环境 | exec job 跑 `gofer-testcmd env-print GOFER_TOKEN GOFER_SERVER_TOKEN GOFER_WORKER_TOKEN GOFER_JOB_TOKEN GOFER_JOB_ID GOFER_SERVER_ADDR`，读 stdout | `GOFER_TOKEN=` / `GOFER_SERVER_TOKEN=` / `GOFER_WORKER_TOKEN=` **全空**；`GOFER_JOB_TOKEN=gjt_20260923-233050-fdc91b7a_73cb8701b4…`；`GOFER_JOB_ID`、`GOFER_SERVER_ADDR=127.0.0.1:18765` 都在 |
+| job 里 accept | job 内 `cmd /c <gofer> job accept <另一个 job>`（CLI 默认吃 `GOFER_JOB_TOKEN`） | 退出码 1，stdout：`ERROR: server 403: job credential may not accept a delivery: a member job may not perform this operation: its credential is scoped to reading, commenting, asking a human, and (a leader) moving its own plan's checklist` |
+| job 里评论 | job 内 `cmd /c <gofer> job comment %GOFER_JOB_ID% hi` | 成功：`comment cm-4bc12e13 on job 20260923-233130-6aa361c6 by exec/agent`，`gofer job comments` 显示作者 `exec/agent`（不是人） |
+
+自动化侧：`TestJobEnvHasNoServerToken`（local/pty/acp/verify 四条路径）、`TestJobEnvAllowlistPerProject`、`TestJobTokenIssuedAndRevoked`、`TestMemberTokenPermissions`、`TestMemberTokenCannotMoveTodo`、`TestMemberCanSubmitWhenAllowed`、`TestLeaderTokenPermissions`、`TestUserCallerAsJobIgnored`、`TestWorkerDispatchCarriesJobToken`、`TestOldWorkerGetsNoJobToken`、`TestCLIUsesJobTokenInsideJob` 全绿。
+
+实测中发现并修正的一点：凭证吊销原本写在 `finish` 的终态**行落库之前**，把"内存已终态、库里仍 running"的既有窗口从微秒级放大到毫秒级，`TestPlanClientRoundTrip`（`GetPlan` 计数来自库）因此稳定失败；吊销改到 `persist(snap)` 之后即恢复（`internal/job/execute.go`）。
+
+范围说明（本期未做）：peer-http（非 ws-worker 的远端 runner）不下发凭证——那套 transport 没有携带字段，`Forward.JobToken` 刻意不可序列化，避免本 hub 的凭证被 POST 到无关的 peer；远端 job 因此没有 `GOFER_JOB_TOKEN`。协议 < 11 的 worker 同理（记 `job.credential_skipped`）。
