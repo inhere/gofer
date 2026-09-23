@@ -87,6 +87,7 @@
 | F-a | bd `h-aii-uzvc`：`gofer agent skill …` 在**本地没有 server 配置**时自动走 HTTP（与 client 模式一致），`--local` 才强制本地；错误文案改为说明实际判定（"本机没有 server 配置，且未能连上 server"）。同样审一遍 `agent list`/`template ls` 等"双模式"命令是否有同样问题，一并修。 |
 | F-b | Board 过滤：plan 下拉改为**输入框**（输入 plan id，支持前缀匹配；回车/失焦生效；URL query `?plan=` 同步，便于分享）。不再全量 `listPlans()`（plan 越来越多）。输入框旁给一个"最近 5 个 plan"的轻量提示（`GET /v1/plans?limit=5&status=open`），不是完整下拉。 |
 | F-c | 导航「技能」→「Skills」（与其他导航项的英文风格一致；页面标题同步）。 |
+| F-d | （用户 2026-09-23 补充）Plans 页**分页** + **状态 / 项目 / 标题关键字**过滤：后端 `GET /v1/plans` 现在只认 `status`（`internal/httpapi/plan_handler.go:230 ListPlans(status, 0)`），扩为 `status`、`project`、`q`（标题/id 子串）、`limit`（默认 20，上限 100）、`offset`，响应带 `total`；前端过滤条放在列表上方，URL query 同步，翻页控件在底部；轮询只刷当前页。Board 的"最近 5 个 open plan"提示复用 `limit=5&status=open`。 |
 
 ## 横切
 
@@ -101,7 +102,7 @@
 |---|---|---|
 | **C1** | SEC-01：job token 签发/吊销/校验、caller kind `job` 与权限表、job/verify 环境去敏、CLI 用 `GOFER_JOB_TOKEN`、`as_job` 废弃、协议 v11 | `TestJobEnvHasNoServerToken`（local/pty/acp/verify 四处）、`TestJobTokenRevokedOnTerminal`、`TestMemberTokenCannotSetTodo`、`TestMemberTokenCannotAccept`、`TestLeaderTokenSetTodoOnlyReadyOrSkippedOwnPlan`、`TestJobTokenCommentIsAgentAuthored`（忽略 `as_job`）、`TestUserCallerAsJobIgnored`、`TestOldWorkerGetsNoJobToken`；真机：一个 omp job 里 `env | grep GOFER_` 只见 JOB_TOKEN 不见 TOKEN，用 CLI 试 accept → 403 |
 | **C2** | LEAD-02：plan `leader` 字段 + CLI/HTTP/web 开关、唤醒判定改为逐 plan、leader prompt 改 CLI 动作、config 视图补 leader、plan 页事件区 | `TestLeaderOffByDefaultPerPlan`、`TestLeaderOnlyForOptedInPlan`、`TestLeaderPromptListsCliActions`、`TestConfigViewShowsLeader`；真机：只给一个测试 plan 开 leader，别的 plan 成员终态不唤醒；leader 用 CLI 放行 todo 成功、试图 `job run` 被 403 |
-| **C3** | 小项 F-a/F-b/F-c | `TestSkillCmdFallsBackToHTTPWithoutLocalServerConfig`；web：Board 输入框 + `?plan=` 同步、导航文字；`pnpm typecheck && pnpm build` |
+| **C3** | 小项 F-a/F-b/F-c/F-d | `TestSkillCmdFallsBackToHTTPWithoutLocalServerConfig`；web：Board 输入框 + `?plan=` 同步、导航文字；`pnpm typecheck && pnpm build` |
 
 ## 风险与限制
 
