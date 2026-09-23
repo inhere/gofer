@@ -1,12 +1,13 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # job 作用域凭证、leader 按 plan 开启与若干修复设计（SEC-01 / LEAD-02 / 小项）
 
-> 状态：Draft 0.1 / 待批准
+> 状态：Approved 0.2 / 实施中（2026-09-23 人工批准，采纳推荐：决策 1/3/4 各加一个受控出口）
 
 ## 修订记录
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
+| 0.2 | 2026-09-23 | Claude | 人工批准，按推荐补三处受控出口：① `projects.<k>.job_env_allow` 逐项目放行继承变量（job 详情显示）；③ `agents.<k>.can_submit` / `roles.<k>.can_submit`：member job 可提交**同项目**、仅限 `submit_agents` allowlist（默认 `[exec]`）的 job，自动打 `submitted_by_job:<id>`；④ 为正在跑成员 job 的 plan 打开 leader 时给出提示。决策 2/5 照原稿（5：CLI 为主、已登记 gofer MCP 的 agent 仍可用 MCP，底层同一 job token） |
 | 0.1 | 2026-09-23 | Claude | 初稿：v0.57.0 leader 真机验收暴露"job 继承 server token、自报身份可被绕过"→ SEC-01 job 作用域凭证；leader 目前是全局开关 → LEAD-02 按 plan 开启；小项：worker 模式 skill CLI（bd h-aii-uzvc）、Board plan 过滤改输入框、导航「技能」→「Skills」、plan 页事件区、leader 配置视图 |
 
 ## 背景：leader 真机验收发现了什么
@@ -44,6 +45,7 @@
 
 - job 进程与 verify 步骤的环境从"`os.Environ()` 全量"改为 **`os.Environ()` 去掉敏感键**：`GOFER_TOKEN`、`GOFER_SERVER_TOKEN`、`GOFER_WORKER_TOKEN`，以及 `server.job_env_denylist`（可配，默认空）里列出的键。实现为 `util.EnvironWithout(deny, extra)`，local / pty / acp / verify 四处统一使用。
 - 这一步单独就能关掉"agent 拿 server token 冒充人"的口子；job token 是给它**合法的、受限的**替代。
+- **逐项目出口**（0.2）：`projects.<k>.job_env_allow: [VAR,…]` 列出的变量即使在 denylist 里也照常继承；每个用到放行的 job 记事件 `job.env_allowed {keys}` 并在 job 详情显示。无全局"继续继承"开关。
 
 ### 3. server 如何对待 job token
 
@@ -56,7 +58,7 @@
 | `gofer_ask_human` / decisions | ✓ | ✓ |
 | 自身 job 的 wakeup 创建 | ✓ | ✓ |
 | `plan set-todo` | ✗ | 仅本 plan、仅 `ready`/`skipped` |
-| 提交 job（`job run`） | ✗ | ✗ |
+| 提交 job（`job run`） | ✗（agent/role 配 `can_submit: true` 时：仅同项目、仅 `submit_agents` 内的 agent，默认 `[exec]`，新 job 带 `submitted_by_job:<id>`） | ✗ |
 | accept / reject / cancel 他人 job / 改配置 / skill 写 / tool cp | ✗ | ✗ |
 
 - `as_job` 字段**废弃**：身份以凭证为准；job 凭证调用时忽略请求体里的 `as_job`；user caller 带 `as_job` 也忽略（打 `// DEPRECATED(v0.58): remove in v0.61`，G032）。CLI 不再发送它。
@@ -73,6 +75,7 @@
 - plan 新增字段 `leader`：`off`（默认）| `on`。全局 `supervisor.leader` 只提供 **agent / 延迟 / 轮次上限** 等参数，并保留 `enabled` 作为总闸（总闸关 = 所有 plan 都不唤醒）。
 - 开启方式：`gofer plan create --leader`、`gofer plan set <plan> --leader on|off`、web plan 页的开关、HTTP `PATCH /v1/plans/{id} {leader}`。
 - `maybeWakeLeader` 判定改为：总闸开 **且** plan.leader == on。
+- 打开 leader 时若该 plan 有运行中的成员 job，响应与 web 开关给出提示："N 个运行中的 job 结束后将唤醒 leader"（0.2）。
 - leader job 用 `kind=leader` 的 job token（上节），其 prompt 里的"可用动作"改为 **CLI 命令**（`gofer plan comment …`、`gofer plan set-todo <todo> --status ready|skipped`、`gofer job wakeup create …`、`gofer ask-human`/decision 等价命令），因为 CLI 在任何 agent 里都能用，而权限由 server 按凭证强制——不再依赖 agent 挂没挂 MCP。
 - `GET /v1/config` 的 supervisor 视图补上 `leader` 块（S3 遗留）；plan 详情显示 `leader: on|off` 与轮次。
 - web plan 页新增**事件区**（显示 `plan:<id>` scope 的事件：`plan.leader_*`、`plan.blocked`、`plan.completed`、`comment.*`…；S4 遗留：标签已有、没有页面渲染）。
@@ -107,10 +110,10 @@
 - **worker 上的 job**：token 由 hub 签发经 WS 下发，worker 侧注入；worker 本身的 token 同样从 job 环境去掉（`GOFER_WORKER_TOKEN`）。
 - **leader 仍可能"想得不对"**：凭证只保证它**做不了越权的事**，不保证决定正确；轮次封顶 + 人评论即接管 + `plan pause` 仍是兜底。
 
-## 决策（待批准）
+## 决策（已批准 2026-09-23，0.2 采纳推荐）
 
-1. job 环境**去掉** server/worker token（默认 denylist 三个键），不提供"继续继承"的开关。
+1. job 环境**去掉** server/worker token（默认 denylist 三个键），不提供全局"继续继承"开关；需要时用 `projects.<k>.job_env_allow` 逐项目放行并可见。
 2. 身份以凭证为准，`as_job` 废弃（v0.58 标记、v0.61 删除）。
-3. member job 默认**不能** `job run`（防 agent 自行扩散派活）；需要派活走评论 `@`（只有 leader 与人能触发）。
-4. leader 改为**逐 plan 开启**，默认关；全局 `enabled` 只做总闸。
-5. leader 的动作面改为 CLI（server 按凭证强制权限），不再依赖 agent 挂载 gofer MCP。
+3. member job 默认**不能** `job run`；`agents/roles.<k>.can_submit` 可放行同项目、`submit_agents`（默认 `[exec]`）内的提交，带溯源标签。
+4. leader 改为**逐 plan 开启**，默认关；全局 `enabled` 只做总闸；对有运行中成员 job 的 plan 打开时提示。
+5. leader 动作以 CLI 为主（server 按凭证强制权限）；已登记 gofer MCP 的 agent 仍可用 MCP 工具，底层同一枚 job token。
