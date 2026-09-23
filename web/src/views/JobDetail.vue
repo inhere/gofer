@@ -182,6 +182,23 @@ const EVENT_META: Record<string, { icon: string; label: string }> = {
   'job.stalled': { icon: '⚠', label: '输出停滞（已杀）' },
   // AGT-04：事后捕获到 session_id（by=fallback 说明该 agent 还没写自己的正则）。
   'job.session_captured': { icon: '⚿', label: '捕获会话' },
+  // MCP-05 阶段 A（S4 补）：评论本身与它的三种派活结果。job / plan / todo 上的评论各自记在
+  // 自己作用域的事件流里（plan / todo 走 plan:<id>），所以在 job 时间线看到的就是挂在
+  // 这条 job 上的评论。
+  'comment.created': { icon: '✎', label: '评论' },
+  'comment.triggered': { icon: '→', label: '评论派活' },
+  'comment.trigger_throttled': { icon: '⏱', label: '派活被限流' },
+  'comment.mention_rejected': { icon: '⚠', label: '提及未派活' },
+  // JOB-10（S4 补）：技能挂载收据——本机直写或 worker 走 uploads 通道；跳过则说明原因
+  // （worker_protocol = 老 worker，peer_runner = peer 没有通道）。
+  'job.skills_mounted': { icon: '❖', label: '已挂载技能' },
+  'job.skills_skipped': { icon: '⚠', label: '技能未挂载' },
+  // MCP-05 阶段 B（S4 补）：leader 回合。它们记在 PLAN 作用域（scope id 为 plan:<id>），
+  // 所以只在按 plan 作用域查事件流时出现。
+  'plan.leader_woken': { icon: '◈', label: 'leader 回合开始' },
+  'plan.leader_skipped': { icon: '⏭', label: 'leader 回合跳过' },
+  'plan.leader_cancelled': { icon: '⊘', label: 'leader 回合取消' },
+  'plan.leader_exhausted': { icon: '⚑', label: 'leader 轮次用尽' },
 }
 
 function eventIcon(type: string): string {
@@ -267,10 +284,53 @@ function eventDetailText(ev: JobEvent): string {
       return [`agent=${d.agent ?? '?'}`, d.source, d.by === 'fallback' ? '兜底' : 'agent 配置']
         .filter(Boolean)
         .join(' · ')
+    // MCP-05（S4 补）：谁在什么身份下说了话、@了谁——派活的三行据此区分。
+    case 'comment.created': {
+      const parts = [d.author, d.author_kind].filter(Boolean).map(String)
+      const mentions = Array.isArray(d.mentions) ? (d.mentions as unknown[]).map(String) : []
+      if (mentions.length > 0) parts.push(mentions.map((m) => `@${m}`).join(' '))
+      return parts.join(' · ')
+    }
+    case 'comment.triggered':
+      return [d.mention && `@${d.mention}`, d.job_id].filter(Boolean).map(String).join(' · ')
+    case 'comment.trigger_throttled':
+      return [d.reason, `第 ${d.count ?? '?'} 条`].filter(Boolean).map(String).join(' · ')
+    case 'comment.mention_rejected':
+      return [d.mention && `@${d.mention}`, d.reason, d.error].filter(Boolean).map(String).join(' · ')
+    // JOB-10（S4 补）：挂了哪些技能 / 为什么没挂。
+    case 'job.skills_mounted': {
+      const names = Array.isArray(d.names) ? (d.names as unknown[]).map(String) : []
+      return [names.join(', '), d.via].filter(Boolean).join(' · ')
+    }
+    case 'job.skills_skipped': {
+      const names = Array.isArray(d.names) ? (d.names as unknown[]).map(String) : []
+      return [d.reason, names.join(', ')].filter(Boolean).join(' · ')
+    }
+    // MCP-05 阶段 B（S4 补）：leader 回合的关键字段（轮次、接手人、成员 job）。
+    case 'plan.leader_woken':
+      return [`第 ${d.round ?? '?'} 轮`, d.agent, d.member_status, d.leader_job].filter(Boolean).map(String).join(' · ')
+    case 'plan.leader_skipped':
+      return [d.reason, d.job, d.error].filter(Boolean).map(String).join(' · ')
+    case 'plan.leader_cancelled':
+      return [d.by && `by ${d.by}`, `取消 ${d.cancelled ?? '?'} 轮`].filter(Boolean).map(String).join(' · ')
+    case 'plan.leader_exhausted':
+      return [`已用 ${d.rounds ?? '?'} 轮`, d.job].filter(Boolean).map(String).join(' · ')
     default:
       return ''
   }
 }
+
+// MCP-05 阶段 B（S4）：leader job 的身份只在 tags 上（`leader` + `leader_round:<n>`），
+// 配合 job.plan_id 就够渲染徽标 —— 不需要新接口。普通 job 两个都为空，整行不渲染。
+const isLeaderJob = computed(() => (job.value?.tags ?? []).includes('leader'))
+const leaderRound = computed<number | null>(() => {
+  const tag = (job.value?.tags ?? []).find((t) => t.startsWith('leader_round:'))
+  if (!tag) {
+    return null
+  }
+  const n = Number(tag.slice('leader_round:'.length))
+  return Number.isFinite(n) ? n : null
+})
 
 // 待应答（pending），按 created_at 升序排队作答
 const pendingInteractions = computed<Interaction[]>(() =>
@@ -1477,6 +1537,15 @@ onUnmounted(() => {
         <RouterLink class="meta-v mono" :to="`/plans/${encodeURIComponent(job.plan_id)}`">
           {{ job.plan_id }}
         </RouterLink>
+      </div>
+      <!-- MCP-05 阶段 B：这条 job 是 leader 回合起的（tags: leader / leader_round:<n>）。 -->
+      <div v-if="isLeaderJob" class="meta-item">
+        <span class="meta-k mono">leader</span>
+        <span class="meta-v mono">
+          leader · {{ leaderRound != null ? `第 ${leaderRound} 轮` : '轮次未知' }} ·
+          <template v-if="job.plan_id">plan {{ job.plan_id }}</template>
+          <template v-else>plan -</template>
+        </span>
       </div>
       <div v-if="job.source_job_id" class="meta-item">
         <span class="meta-k mono">派生自</span>
