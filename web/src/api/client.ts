@@ -62,6 +62,10 @@ import type {
   Todo,
   TodoPatch,
   TodoStatus,
+  TunnelForwardersResp,
+  TunnelPreset,
+  TunnelPresetsResp,
+  TunnelPresetWriteReq,
   Workflow,
   WorkflowEventsResp,
   WorkflowSpec,
@@ -351,6 +355,39 @@ export function listInbox(
 // 运行器舰队状态（worker / peer-http / local）。Runners 视图轮询读取。
 export function listRunners(): Promise<RunnersResp> {
   return request<RunnersResp>('/v1/runners')
+}
+
+// TUN-03 隧道转发进程与预设（/settings/tunnels 用）。
+//
+// forwarders 是**展示状态**：`gofer tun forward` 在自己那台机器上监听并定期向 hub 报到，
+// 登记本身不授予任何转发能力（真正的连接仍走 /v1/tunnels/connect 的鉴权 + worker 策略）；
+// 90s 没有心跳的登记会被 hub 丢掉，所以"进程被杀"也会自然消失。
+export function listTunnelForwarders(): Promise<TunnelForwardersResp> {
+  return request<TunnelForwardersResp>('/v1/tunnels/forwarders')
+}
+
+// 预设存在 server 上（tunnel_presets 表），换一台机器也读同一份。
+export function listTunnelPresets(): Promise<TunnelPresetsResp> {
+  return request<TunnelPresetsResp>('/v1/tunnels/presets')
+}
+
+// putTunnelPreset 写一个预设，名字在路径上（PUT 语义：同名需带 force 才覆盖，否则 409）。
+// 规则校验在服务端：逗号/空格写法都接受，非法时 400 且 detail 带 `spec #N "原文": …`。
+export function putTunnelPreset(
+  name: string,
+  req: TunnelPresetWriteReq,
+): Promise<{ preset: TunnelPreset }> {
+  return request<{ preset: TunnelPreset }>(`/v1/tunnels/presets/${encodeURIComponent(name)}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(req),
+  })
+}
+
+export function deleteTunnelPreset(name: string): Promise<{ deleted: boolean }> {
+  return request<{ deleted: boolean }>(`/v1/tunnels/presets/${encodeURIComponent(name)}`, {
+    method: 'DELETE',
+  })
 }
 
 // 提交表单选项聚合（G4，design §6.4）：projects/agents/runners/workers 一次取齐。

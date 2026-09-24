@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { getStats, statusColor } from '../api/client'
 import type { AgentSessionRelayMode, AgentSessionState, JobStatus, Stats } from '../api/types'
+import { fmtBytes } from '../utils/bytes'
 
 const POLL_MS = 5000
 
@@ -129,20 +130,6 @@ const dbTail = computed(() => {
 })
 
 const dbTotalSize = computed(() => (stats.value?.db.size_bytes ?? 0) + (stats.value?.db.wal_size_bytes ?? 0))
-
-function fmtBytes(n: number): string {
-  if (!Number.isFinite(n) || n <= 0) {
-    return '0 B'
-  }
-  const units = ['B', 'KB', 'MB', 'GB', 'TB']
-  let v = n
-  let i = 0
-  while (v >= 1024 && i < units.length - 1) {
-    v /= 1024
-    i++
-  }
-  return `${v >= 10 || i === 0 ? Math.round(v) : v.toFixed(1)} ${units[i]}`
-}
 
 const serviceVersion = computed(() => stats.value?.version || 'unknown')
 const serviceUptime = computed(() => formatUptime(stats.value?.uptime_sec))

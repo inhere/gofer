@@ -1806,3 +1806,64 @@ export interface Comment {
 export interface CommentsResp {
   comments: Comment[]
 }
+
+// ---------------------------------------------------------------- 隧道（TUN-03）
+// /settings/tunnels 用。字段与 internal/httpapi/tunnel_forwarder_handler.go /
+// tunnel_preset_handler.go 的 wire 结构对齐（两个 handler 里的 json tag 是唯一真源）。
+
+// 一条转发规则：本地监听 network/bind:local_port，转发到 worker 侧的 target。
+export interface TunnelForwarderSpec {
+  // tcp | udp
+  network: string
+  // 本地监听地址（spec 不写时服务端按 127.0.0.1 解析）
+  bind: string
+  local_port: number
+  // host:port
+  target: string
+}
+
+// 一个在线的 `gofer tun forward` 进程（客户端机器上跑的），外加 hub 归并到它的活跃连接。
+export interface TunnelForwarder {
+  id: string
+  caller_id: string
+  worker: string
+  specs: TunnelForwarderSpec[]
+  // 跑转发的那台机器（hostname）与其进程号
+  host: string
+  pid: number
+  // RFC3339：转发进程自己的启动时间（已运行时长以它起算）
+  started_at: string
+  // RFC3339：最后一次心跳（hub 时钟）——TTL 从它起算，超时即从列表消失
+  last_seen_at: string
+  connections: number
+  bytes_up: number
+  bytes_down: number
+}
+
+export interface TunnelForwardersResp {
+  forwarders: TunnelForwarder[]
+}
+
+// server 上的转发预设（tunnel_presets 表）：规则是 CLI 自己的字符串拼写，一条一项。
+export interface TunnelPreset {
+  name: string
+  worker: string
+  specs: string[]
+  note: string
+  // RFC3339
+  updated_at: string
+  updated_by: string
+}
+
+export interface TunnelPresetsResp {
+  presets: TunnelPreset[]
+}
+
+// PUT /v1/tunnels/presets/{name} 的 body。specs 里的每条可以再含逗号（服务端按逗号拆开
+// 再逐条校验）；force=true 才允许覆盖同名预设（缺省时服务端 409）。
+export interface TunnelPresetWriteReq {
+  worker: string
+  specs: string[]
+  note?: string
+  force?: boolean
+}
