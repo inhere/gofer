@@ -303,8 +303,9 @@ function presetRuleText(p: TunnelPreset): string {
           <span class="cell-worker mono">{{ p.worker || '—' }}</span>
           <span class="cell-rules mono" :title="presetRuleText(p)">{{ presetRuleText(p) }}</span>
           <span class="cell-note" :title="p.note">{{ p.note || '—' }}</span>
-          <span class="cell-updated mono" :title="p.updated_by ? `by ${p.updated_by}` : ''">
-            {{ fmtDateTime(Math.floor(Date.parse(p.updated_at) / 1000)) }}
+          <span class="cell-updated mono">
+            <span class="upd-at">{{ fmtDateTime(Math.floor(Date.parse(p.updated_at) / 1000)) }}</span>
+            <span v-if="p.updated_by" class="upd-by" :title="`最后写入的 caller：${p.updated_by}`">by {{ p.updated_by }}</span>
           </span>
           <span class="cell-act mono">
             <button class="act" type="button" title="复制 `gofer tun forward -n 名字`" @click="copyCommand(p)">
@@ -543,6 +544,24 @@ function presetRuleText(p: TunnelPreset): string {
 .cell-traffic,
 .cell-updated {
   color: var(--queue);
+}
+.cell-updated {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.upd-at {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.upd-by {
+  font-size: 10px;
+  opacity: 0.8;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .cell-note {
   color: var(--queue);
