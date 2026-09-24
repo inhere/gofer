@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -132,7 +133,19 @@ func TestJobEnvHasNoServerToken(t *testing.T) {
 		if res.ExitCode != 0 {
 			t.Fatalf("pty run exit=%d err=%v", res.ExitCode, res.Err)
 		}
-		assertNoInheritedCredentials(t, "pty run", waitForEnvPrint(t, out))
+		// A ConPTY child's stream carries escape sequences (a title-change OSC lands
+		// between the lines), so it cannot be read back with parseEnvPrint — the escape
+		// prefix renames the first key and every lookup answers "empty". The leaked
+		// VALUES are what is searched for instead.
+		stream := waitForEnvPrint(t, out)
+		for _, leaked := range []string{"tok-server", "tok-server-2", "tok-worker"} {
+			if strings.Contains(stream, leaked) {
+				t.Fatalf("pty run: credential value %q reached the job child\n%q", leaked, stream)
+			}
+		}
+		if !strings.Contains(stream, "GOFER_JOB_TOKEN="+JobTokenPrefix) {
+			t.Fatalf("the pty child lost its own credential\n%q", stream)
+		}
 	})
 
 	t.Run("acp", func(t *testing.T) {
@@ -155,6 +168,169 @@ func TestJobEnvHasNoServerToken(t *testing.T) {
 		defer func() { _ = client.Close() }()
 		assertNoInheritedCredentials(t, "acp run", waitForEnvPrint(t, stderr))
 	})
+}
+
+// assertConfigDirDropped asserts on a child's env-print output that the server's
+// config dir did not reach it. env-print always prints the requested names, and the
+// test process carries a non-empty GOFER_CONFIG_DIR, so "empty" is what "dropped"
+// looks like.
+func assertConfigDirDropped(t *testing.T, what, out string) {
+	t.Helper()
+	if v := parseEnvPrint(out)[config.EnvConfigDir]; v != "" {
+		t.Fatalf("%s: %s leaked into the job child (value %q)\n%s", what, config.EnvConfigDir, v, out)
+	}
+}
+
+// TestJobEnvDropsConfigDir is F10's fix for the first leak of the v0.60 field trial: a
+// job inherited GOFER_CONFIG_DIR, and the `gofer` the HOST happened to have on PATH
+// then auto-loaded <config-dir>/.env — the SERVER's file, which holds the operator's
+// GOFER_TOKEN — and called the API as the user (that CLI was 0.53.1 and knew nothing
+// about the job's own credential, so it never even looked at GOFER_JOB_TOKEN).
+//
+// The variable is a pointer to credentials, so it is denied by default on every path a
+// job child is spawned: the local runner, the pty runner, the acp client and the verify
+// step. A project can still re-admit it deliberately (job_env_allow), which is what the
+// last subtest pins.
+func TestJobEnvDropsConfigDir(t *testing.T) {
+	cfgDir := t.TempDir()
+	t.Setenv(config.EnvConfigDir, cfgDir)
+	args := append([]string{"env-print"}, config.EnvConfigDir, "GOFER_JOB_TOKEN")
+
+	t.Run("local_and_verify", func(t *testing.T) {
+		root := t.TempDir()
+		s := newTestService(t, root)
+		final := submitAndWait(t, s, JobRequest{
+			ProjectKey: "self", Agent: "exec", Runner: "local",
+			Cmd:    testcmd.Cmd(t, args...),
+			Cwd:    ".",
+			Verify: testcmd.Cmd(t, args...),
+			// The verify step is a second child of the gofer process and builds its own
+			// environment, so it is asserted on its own.
+			TimeoutSec: 60,
+		})
+		if final.Status != StatusDone {
+			t.Fatalf("job status = %s (err=%s)", final.Status, final.Error)
+		}
+		assertConfigDirDropped(t, "agent run", readJobLog(t, final, store.StdoutFile))
+		assertConfigDirDropped(t, "verify step", readJobLog(t, final, store.StderrFile))
+	})
+
+	t.Run("pty", func(t *testing.T) {
+		// A short config-dir value on purpose: a ConPTY stream is hard-wrapped at the
+		// console width, and the value has to stay searchable in the raw stream (see the
+		// pty case of TestJobEnvHasNoServerToken for why parseEnvPrint cannot be used).
+		shortDir := "C:/f10-pty-cfgdir"
+		t.Setenv(config.EnvConfigDir, shortDir)
+		out := &syncBuffer{}
+		pr := ptyrunner.New()
+		pr.SetObserver(sessionCopier{dst: out})
+		res := pr.Run(context.Background(), runner.Request{
+			JobID:   "pty-cfgdir-1",
+			Command: testcmd.Path(t),
+			Args:    args,
+			WorkDir: t.TempDir(),
+			Env:     map[string]string{EnvJobToken: "gjt_pty_test"},
+			EnvDeny: DefaultJobEnvDeny,
+		})
+		if res.ExitCode != 0 {
+			t.Fatalf("pty run exit=%d err=%v", res.ExitCode, res.Err)
+		}
+		stream := waitForEnvPrint(t, out)
+		if !strings.Contains(stream, config.EnvConfigDir+"=") {
+			t.Fatalf("the pty child printed no %s line\n%q", config.EnvConfigDir, stream)
+		}
+		if strings.Contains(stream, config.EnvConfigDir+"="+shortDir) {
+			t.Fatalf("pty run: %s leaked into the job child (value %q)\n%q", config.EnvConfigDir, shortDir, stream)
+		}
+	})
+
+	t.Run("acp", func(t *testing.T) {
+		stderr := &syncBuffer{}
+		client, err := acp.Start(context.Background(), acp.Options{
+			Command: testcmd.Path(t),
+			Args:    append([]string{"env-print-err"}, config.EnvConfigDir, "GOFER_JOB_TOKEN"),
+			Dir:     t.TempDir(),
+			Env:     map[string]string{EnvJobToken: "gjt_acp_test"},
+			EnvDeny: DefaultJobEnvDeny,
+			Stderr:  stderr,
+		})
+		if err != nil {
+			t.Fatalf("acp.Start: %v", err)
+		}
+		defer func() { _ = client.Close() }()
+		assertConfigDirDropped(t, "acp run", waitForEnvPrint(t, stderr))
+	})
+
+	t.Run("job_env_allow", func(t *testing.T) {
+		root := t.TempDir()
+		cfg := &config.Config{
+			Storage: config.StorageConfig{Root: root},
+			Projects: map[string]config.ProjectConfig{
+				"self": {
+					HostPath: root, AllowedAgents: []string{"exec"}, AllowedRunners: []string{"local"},
+					AllowExec: true, JobEnvAllow: []string{config.EnvConfigDir},
+				},
+			},
+		}
+		meta, err := jobstore.Open(filepath.Join(root, "gofer.db"))
+		if err != nil {
+			t.Fatalf("open jobstore: %v", err)
+		}
+		t.Cleanup(func() { _ = meta.Close() })
+		s := drainOnClose(t, NewService(cfg, project.NewRegistry(cfg, ""), agent.NewRegistry(cfg),
+			map[string]runner.Runner{localrunner.Name: localrunner.New()}, meta, nil))
+
+		allowed := submitAndWait(t, s, JobRequest{
+			ProjectKey: "self", Agent: "exec", Runner: "local",
+			Cmd: testcmd.Cmd(t, args...), Cwd: ".", TimeoutSec: 60,
+		})
+		if allowed.Status != StatusDone {
+			t.Fatalf("allowed job status = %s (err=%s)", allowed.Status, allowed.Error)
+		}
+		if got := parseEnvPrint(readJobLog(t, allowed, store.StdoutFile))[config.EnvConfigDir]; got != cfgDir {
+			t.Fatalf("job_env_allow did not re-admit %s: %q", config.EnvConfigDir, got)
+		}
+		assertEventRecorded(t, meta, allowed.ID, EventJobEnvAllowed, config.EnvConfigDir)
+	})
+}
+
+// TestJobPathPrefersServingBinary is F10's fix for the second leak of the v0.60 field
+// trial: the `gofer` a job found on PATH was whatever the HOST had installed (0.53.1 on
+// a 0.60.0 server), so an agent following a leader prompt either lacked the subcommand
+// it was told to run or used a CLI that predates job credentials and authenticated as
+// the operator. A job's credential only means anything when the binary reading it is the
+// one that issued it, so the directory of the gofer executable RUNNING the job goes
+// first on PATH, and GOFER_BIN names that file outright.
+func TestJobPathPrefersServingBinary(t *testing.T) {
+	exe, err := os.Executable()
+	if err != nil {
+		t.Fatalf("os.Executable: %v", err)
+	}
+	inherited := os.Getenv("PATH")
+
+	root := t.TempDir()
+	s := newTestService(t, root)
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: testcmd.Cmd(t, "env-print", "PATH", "GOFER_BIN"), Cwd: ".", TimeoutSec: 60,
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("job status = %s (err=%s)", final.Status, final.Error)
+	}
+	values := parseEnvPrint(readJobLog(t, final, store.StdoutFile))
+
+	if got := values["GOFER_BIN"]; got != exe {
+		t.Fatalf("GOFER_BIN = %q, want the running gofer executable %q", got, exe)
+	}
+	// PATH is the gofer dir + the separator the platform uses + the inherited PATH: the
+	// job still finds everything it could before, just not `gofer` first.
+	parts := strings.SplitN(values["PATH"], string(os.PathListSeparator), 2)
+	if want := filepath.Dir(exe); parts[0] != want {
+		t.Fatalf("job PATH starts with %q, want the gofer binary's directory %q\n%s", parts[0], want, values["PATH"])
+	}
+	if len(parts) != 2 || parts[1] != inherited {
+		t.Fatalf("job PATH tail = %q, want the inherited PATH %q", parts[1], inherited)
+	}
 }
 
 // TestJobEnvAllowlistPerProject: a project may name inherited variables it WANTS its
