@@ -77,6 +77,17 @@ type serverConfigView struct {
 	// keys ADDED to the built-in credential triple, never the triple itself (that is
 	// not a knob a config file can turn off).
 	JobEnvDenyList []string `json:"job_env_denylist"`
+	// Tunnel is the TUN-03 hub-side tunnel visibility block. Editable as a whole block,
+	// so the console needs the raw value to prefill the input it writes back (0 = the
+	// 90s default, which is NOT the same decision as an explicit zero-length TTL).
+	Tunnel serverTunnelView `json:"tunnel"`
+}
+
+// serverTunnelView is the server.tunnel block as the console edits it (TUN-03). Zero
+// means tunnel.DefaultForwarderTTL (90s) rather than "expire immediately", so the
+// value is echoed raw.
+type serverTunnelView struct {
+	ForwarderTTLSec int `json:"forwarder_ttl_sec"`
 }
 
 // skillLimitsView is the server.skill_limits block as the console edits it. Zero
@@ -410,6 +421,7 @@ func buildServerConfigView(sc config.ServerConfig) serverConfigView {
 			MaxTotalBytes: sc.SkillLimits.MaxTotalBytes,
 		},
 		JobEnvDenyList: nonNil(sc.JobEnvDenyList),
+		Tunnel:         serverTunnelView{ForwarderTTLSec: sc.Tunnel.ForwarderTTLSec},
 	}
 }
 

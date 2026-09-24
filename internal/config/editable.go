@@ -73,6 +73,10 @@ var fieldPolicies = map[string]FieldPolicy{
 	// SEC-01: the extra env denylist. Read per job spawn (effectiveJobEnvDeny), so a
 	// hot edit applies to the NEXT job — nothing copies it at startup.
 	"server.job_env_denylist": {Editable: true},
+	// TUN-03: the forwarder registration TTL. The httpapi forwarder registry reads it
+	// through a func on every read/write (Config.EffectiveForwarderTTL), so a hot edit
+	// applies to the NEXT registration or listing — nothing caches the duration.
+	"server.tunnel": {Editable: true},
 
 	// --- supervisor: read where they are used ----------------------------------
 	// MCP-05 阶段 B: the leader block is resolved per wake (config.LeaderConfig, i.e.

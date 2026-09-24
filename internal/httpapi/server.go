@@ -230,6 +230,19 @@ type Server struct {
 	workers workerRegistry
 	tunnels *tunnel.Registry
 
+	// forwarders is the TUN-03 hub-side registry of online `gofer tun forward`
+	// processes. Built in New (it needs no external dependency) so the routes are
+	// always usable; its TTL is read through s.forwarderTTL, i.e. through the live
+	// server config, so a hot edit of server.tunnel.forwarder_ttl_sec applies to the
+	// next request. Tests replace it to shrink the TTL.
+	forwarders *tunnel.ForwarderRegistry
+
+	// tunnelPresets is the TUN-03 server-side preset store (the tunnel_presets
+	// table). The narrow store seam (D2), injected post-construction by SetTunnelPresets
+	// (serve passes the metadata store); nil (mcp, most tests) leaves the routes mounted
+	// but answering 503, exactly like xfer/skills.
+	tunnelPresets TunnelPresetStore
+
 	// metrics is the E16 Prometheus instrumentation (nil = no /metrics endpoint,
 	// no HTTP middleware). It is injected post-construction by SetMetrics (serve)
 	// rather than via New so the existing positional constructor and its many call
@@ -419,6 +432,10 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 		attachTickets:   NewAttachTicketStore(),
 		startedAt:       time.UnixMilli(nowMillis()),
 	}
+	// TUN-03: the forwarder registry resolves its TTL through the live server config on
+	// every read/write, so a hot edit of server.tunnel.forwarder_ttl_sec applies to the
+	// next request without rebuilding anything.
+	s.forwarders = tunnel.NewForwarderRegistry(s.forwarderTTL)
 	if jobs != nil && jobs.Meta() != nil {
 		s.relay = sessionrelay.NewService(jobs.Meta())
 		// Session-relay auto-arm thresholds. A Server built from a bare ServerConfig
@@ -606,6 +623,23 @@ func (s *Server) buildRouter() *rux.Router {
 		// (NOT the bare-401 WS path), list-style shape mirroring /v1/jobs.
 		r.GET("/runners", s.handleListRunners)
 		r.GET("/tunnels", s.handleListTunnels)
+		// TUN-03: the forwarder registry (which `gofer tun forward` processes are
+		// listening) and the server-side forward presets. Both are ordinary authed JSON
+		// routes: reads for any authenticated caller, writes user-only (a job
+		// credential is refused by SEC-01's default-deny gate, a worker token by the
+		// handler). The preset routes answer 503 until serve injects the store.
+		//
+		// `forwarders` and `presets` are static segments, so rux prefers them over the
+		// `/tunnels/{...}` shapes it would otherwise try — the same ordering /skills
+		// relies on.
+		r.GET("/tunnels/forwarders", s.handleListTunnelForwarders)
+		r.POST("/tunnels/forwarders", s.handleRegisterTunnelForwarder)
+		r.PUT("/tunnels/forwarders/{id}", s.handleHeartbeatTunnelForwarder)
+		r.DELETE("/tunnels/forwarders/{id}", s.handleDeleteTunnelForwarder)
+		r.GET("/tunnels/presets", s.handleListTunnelPresets)
+		r.GET("/tunnels/presets/{name}", s.handleGetTunnelPreset)
+		r.PUT("/tunnels/presets/{name}", s.handlePutTunnelPreset)
+		r.DELETE("/tunnels/presets/{name}", s.handleDeleteTunnelPreset)
 
 		// XFER-01 file transfer (design §一.2). The payload always rides HTTP; the
 		// WS carries only the instruction. `POST /v1/xfer` is the user surface

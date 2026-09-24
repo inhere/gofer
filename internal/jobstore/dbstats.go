@@ -38,6 +38,7 @@ var dbStatTables = []string{
 	"schedules",
 	"pty_sessions",
 	"event_deliveries",
+	"tunnel_presets",
 }
 
 // DBStats reports the metadata db's file/page picture plus a COUNT(*) per reported

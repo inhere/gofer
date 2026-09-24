@@ -999,6 +999,23 @@ func applyServerField(sc *config.ServerConfig, f configBodyField) error {
 			return err
 		}
 		sc.JobEnvDenyList = v
+	case "tunnel":
+		// TUN-03: the forwarder registration TTL. A block replace, like the other
+		// compound server blocks; the registry reads it per request, so a hot edit
+		// applies to the next registration read/write.
+		v, err := fieldValue[serverTunnelView](f)
+		if err != nil {
+			return err
+		}
+		if v.ForwarderTTLSec < 0 {
+			return &configWriteError{
+				status: http.StatusBadRequest,
+				msg:    "invalid config",
+				detail: "server.tunnel.forwarder_ttl_sec must not be negative (0 = the 90s default)",
+				fields: []string{"tunnel"},
+			}
+		}
+		sc.Tunnel = config.ServerTunnelConfig{ForwarderTTLSec: v.ForwarderTTLSec}
 	case "agent_health":
 		// SUP-01 P3: read per health read (EffectiveAgentHealth). null clears the
 		// block back to the documented defaults (1h / 3 / 1) rather than to zeros, so

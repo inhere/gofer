@@ -304,6 +304,11 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// mount no routes, so they do not rebuild the router.
 	srv.SetCastRecorder(castRecorder)
 	srv.SetPtySessionStore(cr.Store)
+	// TUN-03: the server-side forward presets live in the metadata store, so
+	// `tun save`/`tun saved`/`tun forward -n` see the same presets from every machine
+	// (and the console can edit them). The forwarder REGISTRY needs no injection — it is
+	// in-memory and built by httpapi.New, with its TTL read from the live server config.
+	srv.SetTunnelPresets(cr.Store)
 	// PTY-01 §四: the transcript tail cap (pty.transcript_max_bytes) is resolved
 	// from the same config snapshot as everything else here.
 	srv.SetPtyTranscriptMaxBytes(cfg.EffectivePtyTranscriptMaxBytes())

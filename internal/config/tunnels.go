@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/inhere/gofer/internal/tunnel"
 )
@@ -16,6 +17,40 @@ type TunnelProfile struct {
 	Worker string   `yaml:"worker"`
 	Specs  []string `yaml:"specs"`
 	Note   string   `yaml:"note,omitempty"`
+}
+
+// ServerTunnelConfig is the server.tunnel block (TUN-03): the hub-side policy of the
+// tunnel VISIBILITY surface. Today it holds one knob — how long a forwarder
+// registration without a heartbeat stays listed.
+type ServerTunnelConfig struct {
+	// ForwarderTTLSec is the lifetime of a `gofer tun forward` registration measured
+	// from its last heartbeat. 0/unset => tunnel.DefaultForwarderTTL (90s), which is
+	// three heartbeat intervals. Read per request, so a hot edit applies to the next
+	// registration read or write.
+	ForwarderTTLSec int `yaml:"forwarder_ttl_sec,omitempty"`
+}
+
+// EffectiveForwarderTTL resolves the registered lifetime: the configured seconds, else
+// tunnel.DefaultForwarderTTL. A negative or zero value is the default, never "expire
+// immediately" — a value that would erase every live forwarder is not a useful knob.
+func (t ServerTunnelConfig) EffectiveForwarderTTL() time.Duration {
+	if t.ForwarderTTLSec > 0 {
+		return time.Duration(t.ForwarderTTLSec) * time.Second
+	}
+	return tunnel.DefaultForwarderTTL
+}
+
+// NormalizeTunnelProfile returns p with its rule list flattened by tunnel.SplitSpecs:
+// the comma form is a way to WRITE several rules, never a rule of its own, so it must
+// not reach the local file, the server table or a `tun forward -n` run. Use this
+// before validating a profile that came from a user.
+func NormalizeTunnelProfile(p TunnelProfile) (TunnelProfile, error) {
+	specs, err := tunnel.SplitSpecs(p.Specs)
+	if err != nil {
+		return p, err
+	}
+	p.Specs = specs
+	return p, nil
 }
 
 // Tunnels is the whole preset file.
@@ -31,6 +66,11 @@ type Tunnels struct {
 
 // LoadTunnels reads the preset file. A missing file is an empty set, not an error:
 // presets are optional and the CLI must work on a machine that never saved one.
+//
+// DEPRECATED(v0.60.2): remove in v0.63 — TUN-03 moved the source of truth to the server
+// (`gofer tun presets`, the tunnel_presets table); the local file is now read only as a
+// fallback for a preset the server does not have, and as the source `gofer tun presets
+// push` uploads. New code reads the server.
 func LoadTunnels() (*Tunnels, error) {
 	p, err := UserTunnelsPath()
 	if err != nil {
@@ -79,6 +119,10 @@ func SaveTunnels(t *Tunnels) error {
 // ValidateTunnelProfile rejects a preset that could not be run. Validation lives
 // here rather than in the CLI so every caller gets it and a bad preset can never
 // reach the file.
+//
+// The rule list may arrive comma-joined (TUN-04): validation sees the SPLIT list, so a
+// profile is judged by what it will actually run. A malformed rule is reported with its
+// position and text (`spec #2 "not-a-spec"`), not as a bare "invalid spec".
 func ValidateTunnelProfile(name string, p TunnelProfile) error {
 	if strings.TrimSpace(name) == "" || strings.ContainsAny(name, "\\/ \t\r\n") {
 		return fmt.Errorf("invalid tunnel preset name %q: must be non-empty and contain no whitespace or path separator", name)
@@ -86,20 +130,30 @@ func ValidateTunnelProfile(name string, p TunnelProfile) error {
 	if strings.TrimSpace(p.Worker) == "" {
 		return fmt.Errorf("tunnel preset %q: worker is required", name)
 	}
-	if len(p.Specs) == 0 {
+	specs, err := tunnel.SplitSpecs(p.Specs)
+	if err != nil {
 		return fmt.Errorf("tunnel preset %q: at least one forward spec is required", name)
 	}
-	for _, s := range p.Specs {
-		if _, err := tunnel.ParseForwardSpec(s); err != nil {
-			return fmt.Errorf("tunnel preset %q: %w", name, err)
-		}
+	if _, err := tunnel.ParseSpecs(specs); err != nil {
+		return fmt.Errorf("tunnel preset %q: %w", name, err)
 	}
 	return nil
 }
 
-// UpsertTunnel stores a preset, refusing to replace an existing one unless force.
+// UpsertTunnel stores a preset, refusing to replace an existing one unless force. The
+// stored rule list is the SPLIT one (design §三): a preset is a set of rules, and the
+// comma form is only a way to write it.
 func UpsertTunnel(name string, profile TunnelProfile, force bool) error {
-	if err := ValidateTunnelProfile(name, profile); err != nil {
+	flat, err := NormalizeTunnelProfile(profile)
+	if err != nil {
+		// Keep the validation wording for the one case splitting can fail on (nothing
+		// usable in the list) — callers have always seen it from ValidateTunnelProfile.
+		if verr := ValidateTunnelProfile(name, profile); verr != nil {
+			return verr
+		}
+		return err
+	}
+	if err := ValidateTunnelProfile(name, flat); err != nil {
 		return err
 	}
 	t, err := LoadTunnels()
@@ -109,7 +163,7 @@ func UpsertTunnel(name string, profile TunnelProfile, force bool) error {
 	if _, ok := t.Forwards[name]; ok && !force {
 		return fmt.Errorf("tunnel preset %q already exists (use --force to overwrite)", name)
 	}
-	t.Forwards[name] = profile
+	t.Forwards[name] = flat
 	return SaveTunnels(t)
 }
 

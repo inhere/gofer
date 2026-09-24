@@ -653,6 +653,12 @@ type ServerConfig struct {
 	// (see Config.EffectiveCommentTrigger), so a hot edit applies to the NEXT comment —
 	// nothing derives a cached value from them at startup.
 	CommentTrigger CommentTriggerConfig `yaml:"comment_trigger,omitempty"`
+	// Tunnel is the hub-side tunnel VISIBILITY policy (TUN-03). It governs only how
+	// long a `gofer tun forward` registration is reported on GET
+	// /v1/tunnels/forwarders; the forwarding itself stays governed by worker.tunnel
+	// and the caller's can_tunnel. Read per request (see
+	// ServerTunnelConfig.EffectiveForwarderTTL), so a hot edit applies to the next one.
+	Tunnel ServerTunnelConfig `yaml:"tunnel,omitempty"`
 }
 
 // CommentTriggerConfig is the server.comment_trigger block (MCP-05 阶段 A, design

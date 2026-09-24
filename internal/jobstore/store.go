@@ -600,6 +600,21 @@ var schemaStmts = []string{
 	// The credential lookup is BY HASH (the presented token is hashed and matched), so
 	// this index is the hot path of every job-authenticated request.
 	`CREATE UNIQUE INDEX IF NOT EXISTS idx_job_tokens_hash ON job_tokens(token_hash)`,
+	// tunnel_presets is the server-side forward-preset store (TUN-03): what used to
+	// live only in <config-dir>/tunnels.yaml on whichever machine ran `tun save`. One
+	// row per named preset; specs_json is the rule list as a JSON array of STRINGS
+	// (the CLI's own spelling, one rule per entry — the comma form is split before it
+	// gets here) and stays opaque to this package, like schedules.request_json.
+	// updated_by is the authenticated caller that wrote it (audit). IF NOT EXISTS like
+	// every table here (idempotent Open) — a fresh new table needs no migrate() ALTER.
+	`CREATE TABLE IF NOT EXISTS tunnel_presets (
+  name       TEXT PRIMARY KEY,
+  worker     TEXT NOT NULL,
+  specs_json TEXT NOT NULL,
+  note       TEXT,
+  updated_at INTEGER NOT NULL,
+  updated_by TEXT
+)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema

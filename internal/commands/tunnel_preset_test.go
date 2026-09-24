@@ -178,7 +178,11 @@ func TestCLIPresetPrefersServerFallsBackLocal(t *testing.T) {
 // default, SKIPS a name the server already has — listing it rather than overwriting a
 // preset somebody else may be using. --force is the deliberate overwrite.
 func TestPresetsPushSkipsConflicts(t *testing.T) {
-	pointTunnelCLIAt(t, "")
+	st := newTunnelStub(t)
+	st.presets["demo"] = map[string]any{"name": "demo", "worker": "old-w", "specs": []string{"1502:10.0.0.5:502"}}
+	// Point the CLI at the stub FIRST: it also pins the config directory, so the local
+	// file below lands where LoadTunnels will look for it.
+	pointTunnelCLIAt(t, st.URL)
 	if err := config.SaveTunnels(&config.Tunnels{Forwards: map[string]config.TunnelProfile{
 		"demo":  {Worker: "w-hw", Specs: []string{"1502:192.168.0.205:502"}},
 		"field": {Worker: "w-hw", Specs: []string{"1600:10.0.0.9:502"}},
@@ -186,11 +190,7 @@ func TestPresetsPushSkipsConflicts(t *testing.T) {
 		t.Fatalf("save local presets: %v", err)
 	}
 
-	st := newTunnelStub(t)
-	st.presets["demo"] = map[string]any{"name": "demo", "worker": "old-w", "specs": []string{"1502:10.0.0.5:502"}}
-	pointTunnelCLIAt(t, st.URL)
-
-	push := bindCmd(findSub(findSub(NewTunnelCmd(), "presets"), "push"))
+	push := bindCmd(findSub(t, findSub(t, NewTunnelCmd(), "presets"), "push"))
 	out := captureOutput(t, func() {
 		tunnelOpts.force = false
 		if err := runTunnelPresetsPush(push, nil); err != nil {
@@ -225,6 +225,46 @@ func TestPresetsPushSkipsConflicts(t *testing.T) {
 	}
 }
 
+// TestTunnelForgetRemovesBothCopies: `tun forget` must leave the preset unresolvable.
+// Deleting only the server's copy would leave the local fallback to answer
+// `tun forward -n <name>` — the opposite of forgetting it.
+func TestTunnelForgetRemovesBothCopies(t *testing.T) {
+	st := newTunnelStub(t)
+	st.presets["demo"] = map[string]any{"name": "demo", "worker": "srv-w", "specs": []string{"1502:10.0.0.5:502"}}
+	pointTunnelCLIAt(t, st.URL)
+	if err := config.SaveTunnels(&config.Tunnels{Forwards: map[string]config.TunnelProfile{
+		"demo": {Worker: "local-w", Specs: []string{"1502:10.0.0.5:502"}},
+	}}); err != nil {
+		t.Fatalf("save local presets: %v", err)
+	}
+
+	forget := bindCmd(findSub(t, NewTunnelCmd(), "forget"))
+	forget.Arg("name").WithValue("demo")
+	out := captureOutput(t, func() {
+		if err := runTunnelForget(forget, nil); err != nil {
+			t.Fatalf("tun forget: %v", err)
+		}
+	})
+	if !strings.Contains(out, "server and local") {
+		t.Errorf("forget must report both copies, got:\n%s", out)
+	}
+	if _, ok := st.presets["demo"]; ok {
+		t.Error("the server's copy must be gone")
+	}
+	local, err := config.LoadTunnels()
+	if err != nil {
+		t.Fatalf("load local presets: %v", err)
+	}
+	if _, ok := local.Forwards["demo"]; ok {
+		t.Error("a leftover local copy would still answer `tun forward -n demo`")
+	}
+
+	// Nothing left anywhere is an error, not a silent success.
+	if err := runTunnelForget(forget, nil); err == nil {
+		t.Fatal("forgetting a preset that no longer exists must report it")
+	}
+}
+
 // TestTunLsShowsForwarders: `tun ls` reports the forwarding PROCESSES first (which is
 // what a user missing a listener needs to see) and the active connections after it.
 func TestTunLsShowsForwarders(t *testing.T) {
@@ -249,7 +289,7 @@ func TestTunLsShowsForwarders(t *testing.T) {
 	pointTunnelCLIAt(t, st.URL)
 
 	out := captureOutput(t, func() {
-		if err := runTunnelList(bindCmd(findSub(NewTunnelCmd(), "ls")), nil); err != nil {
+		if err := runTunnelList(bindCmd(findSub(t, NewTunnelCmd(), "ls")), nil); err != nil {
 			t.Fatalf("tun ls: %v", err)
 		}
 	})

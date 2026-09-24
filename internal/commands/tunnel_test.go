@@ -12,10 +12,10 @@ func TestTunnelCmdRegistered(t *testing.T) {
 	if c.Name != "tunnel" {
 		t.Fatal(c.Name)
 	}
-	if len(c.Subs) != 6 {
+	if len(c.Subs) != 7 {
 		t.Fatalf("subs=%d", len(c.Subs))
 	}
-	want := map[string]bool{"forward": false, "check": false, "ls": false, "save": false, "saved": false, "forget": false}
+	want := map[string]bool{"forward": false, "check": false, "ls": false, "save": false, "saved": false, "forget": false, "presets": false}
 	for _, s := range c.Subs {
 		want[s.Name] = true
 	}
@@ -36,18 +36,18 @@ func TestForwardResolvesSavedProfile(t *testing.T) {
 		t.Fatal(e)
 	}
 
-	worker, specs, err := resolveForward("hw", "", nil)
+	got, err := resolveForward(nil, "hw", "", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if worker != "w-hw" {
-		t.Fatalf("worker=%q want w-hw", worker)
+	if got.worker != "w-hw" {
+		t.Fatalf("worker=%q want w-hw", got.worker)
 	}
-	if !reflect.DeepEqual(specs, saved) {
-		t.Fatalf("specs=%v want %v", specs, saved)
+	if !reflect.DeepEqual(got.specs, saved) {
+		t.Fatalf("specs=%v want %v", got.specs, saved)
 	}
 
-	if _, _, err := resolveForward("nope", "", nil); err == nil {
+	if _, err := resolveForward(nil, "nope", "", nil); err == nil {
 		t.Fatal("an unknown preset name must fail, not resolve to nothing")
 	}
 }
@@ -61,30 +61,30 @@ func TestForwardExplicitOverridesProfile(t *testing.T) {
 		t.Fatal(e)
 	}
 
-	worker, specs, err := resolveForward("hw", "explicit-worker", []string{"1600:10.0.0.9:502"})
+	got, err := resolveForward(nil, "hw", "explicit-worker", []string{"1600:10.0.0.9:502"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if worker != "explicit-worker" || !reflect.DeepEqual(specs, []string{"1600:10.0.0.9:502"}) {
-		t.Fatalf("explicit values must win, got worker=%q specs=%v", worker, specs)
+	if got.worker != "explicit-worker" || !reflect.DeepEqual(got.specs, []string{"1600:10.0.0.9:502"}) {
+		t.Fatalf("explicit values must win, got worker=%q specs=%v", got.worker, got.specs)
 	}
 
 	// Partial override: only the worker is given, so the specs still come from the preset.
-	worker, specs, err = resolveForward("hw", "explicit-worker", nil)
+	got, err = resolveForward(nil, "hw", "explicit-worker", nil)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if worker != "explicit-worker" || !reflect.DeepEqual(specs, []string{"1502:10.0.0.5:502"}) {
-		t.Fatalf("preset must fill only what was omitted, got worker=%q specs=%v", worker, specs)
+	if got.worker != "explicit-worker" || !reflect.DeepEqual(got.specs, []string{"1502:10.0.0.5:502"}) {
+		t.Fatalf("preset must fill only what was omitted, got worker=%q specs=%v", got.worker, got.specs)
 	}
 }
 
 func TestForwardRequiresWorkerAndSpecs(t *testing.T) {
 	t.Setenv(config.EnvConfigDir, t.TempDir())
-	if _, _, err := resolveForward("", "", nil); err == nil {
+	if _, err := resolveForward(nil, "", "", nil); err == nil {
 		t.Fatal("no worker and no preset must fail")
 	}
-	if _, _, err := resolveForward("", "w-hw", nil); err == nil {
+	if _, err := resolveForward(nil, "", "w-hw", nil); err == nil {
 		t.Fatal("a worker without specs must fail")
 	}
 }
@@ -126,11 +126,11 @@ func TestPresetWorker(t *testing.T) {
 	if e := config.UpsertTunnel("hw", config.TunnelProfile{Worker: "w-hw", Specs: []string{"1502:10.0.0.5:502"}}, false); e != nil {
 		t.Fatal(e)
 	}
-	w, err := presetWorker("hw")
+	w, _, err := presetWorker(nil, "hw")
 	if err != nil || w != "w-hw" {
 		t.Fatalf("worker=%q err=%v", w, err)
 	}
-	if _, err := presetWorker("nope"); err == nil {
+	if _, _, err := presetWorker(nil, "nope"); err == nil {
 		t.Fatal("an unknown preset name must fail, not resolve to an empty worker")
 	}
 }

@@ -217,6 +217,9 @@ func UserWorkerConfigPath() (string, error) {
 }
 
 // UserTunnelsPath returns the user-level tunnel presets path.
+//
+// DEPRECATED(v0.60.2): remove in v0.63 — see LoadTunnels. The file remains the offline
+// fallback and the source of `gofer tun presets push`.
 func UserTunnelsPath() (string, error) {
 	dir, err := ConfigDir()
 	if err != nil {
