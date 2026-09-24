@@ -120,6 +120,8 @@ SEC-01 之后：
 
 也就是说："不能 accept"现在是**服务端强制的**，不再依赖 agent 手里有没有 `curl`。剩下的限制只有一条：leader 仍可能**判断错**——凭证保证它做不了越权的事，不保证决定正确；轮次封顶 + 人评论即接管 + `plan pause` 仍是兜底。配置与权限表见 [job 凭证 runbook](./2026-09-23-job-credentials-runbook.md)。
 
+F10（2026-09-24，v0.60 真机复验的两个漏口）之后还有两条与 leader 直接相关：job 里**没有** `GOFER_CONFIG_DIR`（否则 CLI 会按它加载 server 的 `.env`，把操作员的 token 捡回来），且 job 内加载 dotenv 时跳过所有 `*_TOKEN` 键；job 里的 `gofer` 一律是**运行这个 job 的那个 gofer**（`PATH` 前置 + `$GOFER_BIN`），所以 prompt 里写 `gofer plan comment …` 就对了，不必担心主机 PATH 上是哪个版本。
+
 ## 排查
 
 ```bash

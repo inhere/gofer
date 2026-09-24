@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -41,20 +42,31 @@ const (
 
 	// EnvJobToken is the variable the credential is injected as. The CLI and the gofer
 	// MCP default their bearer token to it, so `gofer job comment …` typed by an agent
-	// inside a job authenticates as that job.
-	EnvJobToken = "GOFER_JOB_TOKEN"
+	// inside a job authenticates as that job. The name lives in config because the
+	// dotenv loader keys off it too (a process carrying it is a JOB, and the .env it
+	// would otherwise load is the server's).
+	EnvJobToken = config.EnvJobToken
 	// EnvServerAddr tells a job which hub to talk to. A hub-local job gets the address
 	// this serve listens on; a dispatched job gets the hub address its worker is
 	// connected to. It exists because `GOFER_SERVER_ADDR` (the CLI's own default) is a
 	// client-node setting that a job cannot be expected to inherit.
 	EnvServerAddr = "GOFER_SERVER_ADDR"
+	// EnvJobBin is the absolute path of the gofer executable RUNNING the job, exported
+	// alongside the PATH entry that makes `gofer` resolve to it (see jobBinaryEnv).
+	EnvJobBin = "GOFER_BIN"
 )
 
 // DefaultJobEnvDeny is the baseline denylist of inherited environment keys: the
-// credentials gofer's own processes carry. `server.job_env_denylist` ADDS to it (a
-// deployment may name more), and a project's `job_env_allow` can re-admit any of
-// them deliberately.
-var DefaultJobEnvDeny = []string{"GOFER_TOKEN", "GOFER_SERVER_TOKEN", "GOFER_WORKER_TOKEN"}
+// credentials gofer's own processes carry, plus the pointer to the config dir they are
+// read from. `server.job_env_denylist` ADDS to it (a deployment may name more), and a
+// project's `job_env_allow` can re-admit any of them deliberately.
+//
+// GOFER_CONFIG_DIR is here because it is a credential pointer, not a setting: a job
+// that inherits it hands the next `gofer` invocation the SERVER's <config-dir>/.env,
+// which holds the operator's own token. That is not theoretical — it is leak 1 of the
+// v0.60 field trial (design §v0.60 真机验收与 F10): the host's 0.53.1 CLI (which knows
+// nothing about job credentials) loaded that file and called the API as the user.
+var DefaultJobEnvDeny = []string{"GOFER_TOKEN", "GOFER_SERVER_TOKEN", "GOFER_WORKER_TOKEN", config.EnvConfigDir}
 
 // jobTokenRandomBytes is the entropy of a job token's random half (32 hex chars).
 const jobTokenRandomBytes = 16
@@ -196,8 +208,10 @@ func effectiveJobEnvDeny(cfg *config.Config) []string {
 	return append(out, cfg.Server.JobEnvDenyList...)
 }
 
-// jobCredentialEnv is the SEC-01 environment a job's child process gets: its own
-// credential and the address of the hub it should talk to.
+// jobCredentialEnv is the gofer-owned environment a job's child process gets: its own
+// credential, the address of the hub it should talk to, and the gofer binary that issued
+// the credential (PATH + GOFER_BIN — see jobBinaryEnv for why the binary is part of the
+// credential story).
 //
 // The credential comes from one of three places, in priority order: the token the hub
 // put on this request (a dispatched job), nothing at all (a dispatched job on a peer
@@ -208,7 +222,7 @@ func effectiveJobEnvDeny(cfg *config.Config) []string {
 // address its connection actually arrived on, which is the only address guaranteed to
 // be reachable from that machine.
 func (s *Service) jobCredentialEnv(cfg *config.Config, jobID string, req JobRequest, timeout time.Duration) map[string]string {
-	env := make(map[string]string, 2)
+	env := make(map[string]string, 4)
 	switch {
 	case req.JobToken != "":
 		env[EnvJobToken] = req.JobToken
@@ -231,7 +245,38 @@ func (s *Service) jobCredentialEnv(cfg *config.Config, jobID string, req JobRequ
 			env[EnvServerAddr] = addr
 		}
 	}
+	for k, v := range jobBinaryEnv() {
+		env[k] = v
+	}
 	return env
+}
+
+// jobBinaryEnv points a job's child process at the gofer that is running it: that
+// executable's directory goes FIRST on PATH and its absolute path is exported as
+// GOFER_BIN.
+//
+// This is leak 2 of the v0.60 field trial (design §v0.60 真机验收与 F10): the `gofer` a
+// job found on PATH was whatever the HOST happened to have installed — 0.53.1 on a
+// 0.60.0 server — so an agent following a leader prompt either lacked the subcommand it
+// was told to run (`job comment`) or used a CLI that predates job credentials, which
+// then read the server's .env and acted as the operator. A job's credential only means
+// anything when the binary reading it is the one that issued it, so the job gets that
+// binary first — the hub's own executable for a hub-local job, the WORKER's for a
+// dispatched job (that is the gofer that ran it).
+//
+// Best-effort: a process whose own executable cannot be resolved keeps its inherited
+// PATH and no GOFER_BIN, which is better than exporting a path we do not have.
+func jobBinaryEnv() map[string]string {
+	exe, err := os.Executable()
+	if err != nil {
+		slog.Warn("job env: cannot resolve this gofer's executable, leaving PATH alone", "err", err)
+		return nil
+	}
+	path := filepath.Dir(exe)
+	if inherited := os.Getenv("PATH"); inherited != "" {
+		path += string(os.PathListSeparator) + inherited
+	}
+	return map[string]string{EnvJobBin: exe, "PATH": path}
 }
 
 // jobServerAddr resolves the address a job process on THIS machine should reach this

@@ -1,6 +1,7 @@
 package config
 
 import (
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -26,8 +27,19 @@ const EnvFileName = ".env"
 // the OS env up front and, for every key the dotenv touched that already existed
 // in the OS env, restore the original value. Missing files are skipped. Returns
 // the list of files actually loaded (for optional --verbose logging).
+//
+// Inside a job (the process carries EnvJobToken) every *_TOKEN key in the files is
+// skipped: the .env a job finds is the SERVER's — the CLI locates it through
+// GOFER_CONFIG_DIR, which the job used to inherit — and its credential keys would hand
+// the job the operator's own token. That is leak 1 of the v0.60 field trial: the
+// host's 0.53.1 `gofer` (which knows nothing about job credentials) loaded
+// <config-dir>/.env and called the API as the user. The job's identity comes from its
+// environment; the rest of the file still loads, it is the deployment's settings file.
 func LoadDotenv() ([]string, error) {
 	preset := osEnvSnapshot()
+	// An exported value wins over the files anyway, so a key the operator really did
+	// export is left alone by the skip below.
+	insideJob := preset[EnvJobToken] != ""
 
 	files := make([]string, 0, 2)
 	if dir, err := ConfigDir(); err == nil && dir != "" {
@@ -45,12 +57,23 @@ func LoadDotenv() ([]string, error) {
 	// Iterate only over keys the dotenv actually set (already upper-cased) to
 	// avoid resurrecting unrelated env vars.
 	for key := range dot.LoadedData() {
+		if insideJob && strings.HasSuffix(strings.ToUpper(key), envTokenSuffix) {
+			if _, exported := preset[key]; !exported {
+				_ = os.Unsetenv(key)
+				slog.Debug("dotenv: skipped a credential key inside a job", "key", key)
+				continue
+			}
+		}
 		if orig, ok := preset[key]; ok {
 			_ = os.Setenv(key, orig)
 		}
 	}
 	return dot.LoadedFiles(), nil
 }
+
+// envTokenSuffix is the shape of a credential key in a .env file (GOFER_TOKEN,
+// GOFER_SERVER_TOKEN, GOFER_WORKER_TOKEN, an agent's API_TOKEN, ...).
+const envTokenSuffix = "_TOKEN"
 
 // osEnvSnapshot captures the current process env as key->value, preserving the
 // original key case so a restore writes back the exact same variable.

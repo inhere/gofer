@@ -26,7 +26,7 @@ func Start(spec Spec) (Pty, error) {
 		opts = append(opts, conpty.ConPtyWorkDir(spec.Dir))
 	}
 	if len(spec.Env) > 0 {
-		opts = append(opts, conpty.ConPtyEnv(spec.Env))
+		opts = append(opts, conpty.ConPtyEnv(dedupEnvLast(spec.Env)))
 	}
 	c, err := conpty.Start(buildCommandLine(spec.Command, spec.Args), opts...)
 	if err != nil {
@@ -60,4 +60,38 @@ func buildCommandLine(command string, args []string) string {
 		parts = append(parts, windows.EscapeArg(a))
 	}
 	return strings.Join(parts, " ")
+}
+
+// dedupEnvLast keeps the LAST occurrence of each name, preserving order — the rule
+// os/exec applies on both platforms (dedupEnvCase) and the rule Spec.Env's callers
+// layer by: the caller's own variables are appended after the inherited environment, so
+// a duplicated name must resolve to the caller's value.
+//
+// The ConPTY binding hands the block straight to CreateProcess, which keeps the FIRST
+// occurrence instead (undocumented but observable), so without this a pty job silently
+// kept the serve's PATH — and any other GOFER_* variable the serve happened to carry —
+// rather than the value the job pipeline had just set. Names are compared
+// case-insensitively: Windows environment variable names are.
+func dedupEnvLast(env []string) []string {
+	if len(env) < 2 {
+		return env
+	}
+	out := make([]string, 0, len(env))
+	seen := make(map[string]bool, len(env))
+	for i := len(env) - 1; i >= 0; i-- {
+		name, _, ok := strings.Cut(env[i], "=")
+		if !ok {
+			name = env[i]
+		}
+		key := strings.ToLower(name)
+		if seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, env[i])
+	}
+	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
+		out[i], out[j] = out[j], out[i]
+	}
+	return out
 }

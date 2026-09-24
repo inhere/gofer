@@ -8,6 +8,7 @@
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
 | 0.2 | 2026-09-23 | Claude | 人工批准，按推荐补三处受控出口：① `projects.<k>.job_env_allow` 逐项目放行继承变量（job 详情显示）；③ `agents.<k>.can_submit` / `roles.<k>.can_submit`：member job 可提交**同项目**、仅限 `submit_agents` allowlist（默认 `[exec]`）的 job，自动打 `submitted_by_job:<id>`；④ 为正在跑成员 job 的 plan 打开 leader 时给出提示。决策 2/5 照原稿（5：CLI 为主、已登记 gofer MCP 的 agent 仍可用 MCP，底层同一 job token） |
+| 0.2.1 | 2026-09-24 | omp | 追加「v0.60 真机验收与 F10」实测记录（正文不变）：SEC-01 闸门在真机成立，但暴露两个漏口——job 继承 `GOFER_CONFIG_DIR` 导致 CLI 自动加载 server 的 `.env`、job 内 `gofer` 版本随主机 PATH；修法为 denylist 增 `GOFER_CONFIG_DIR`、job 内 dotenv 跳过 `*_TOKEN`、注入 `PATH` 前置 + `GOFER_BIN` |
 | 0.1 | 2026-09-23 | Claude | 初稿：v0.57.0 leader 真机验收暴露"job 继承 server token、自报身份可被绕过"→ SEC-01 job 作用域凭证；leader 目前是全局开关 → LEAD-02 按 plan 开启；小项：worker 模式 skill CLI（bd h-aii-uzvc）、Board plan 过滤改输入框、导航「技能」→「Skills」、plan 页事件区、leader 配置视图 |
 
 ## 背景：leader 真机验收发现了什么
@@ -191,4 +192,33 @@
 - **`--all` 是翻页而不是超大 limit**：服务端一页上限 100，`--all` 以 100 为步长按 offset 走完（`plan list --all` 因此是多次请求，测试用"服务端只给 2 行/页"的桩覆盖了这条路）。
 - **plan 列表的 `q` 把 LIKE 元字符当字面量**（`escapeLikePattern` + `ESCAPE '\'`）：搜索框里输入 `%` 不该匹配全部。id 是**前缀**匹配、标题是**子串**匹配（两种语义有意不同），测试各钉了一条。
 - **plan 列表默认页大小改由 jobstore 常量 `PlanListDefaultLimit=20` / `PlanListMaxLimit=100` 表达**（原 `DefaultListLimit=200` 不再用于 plan），HTTP 响应回显**生效后**的 limit/offset，前端据此判断有无下一页。
+
+## v0.60 真机验收与 F10（2026-09-24，omp）
+
+C1/C2/C3 全部上线后（主机 v0.60.0）的 leader 真机复验，**server 闸门本身是对的**，但暴露两个"job 里顺手就能拿到人的身份"的漏口：
+
+- job 环境里确实已经没有 `GOFER_TOKEN/GOFER_SERVER_TOKEN/GOFER_WORKER_TOKEN`，只有 `GOFER_JOB_TOKEN`；用 job token 直接 curl accept → **403**；`serve-run\gofer.exe`（0.60.0）在 job 里 accept → 403、comment → 作者 `exec/agent`。即 SEC-01 的权限表在真机上成立。
+- **漏口 1（凭证指针）**：job 继承了 `GOFER_CONFIG_DIR`（= server 的配置目录）。主机 PATH 上的 `gofer` 是 **0.53.1**（`/d/env/gopath/bin/gofer`）——它不认识 job token，却会按 `cmd/gofer/main.go` 自动加载 `<GOFER_CONFIG_DIR>/.env`，里面正是 server 的 `GOFER_TOKEN`，于是它以 **user 身份**通过鉴权（accept 拿到 409"不在待验收"而不是 403）。新版 CLI 同样会加载该 `.env`（只是默认 token 优先取 job token）。
+- **漏口 2（版本与运行者无关）**：job 里的 `gofer` 版本取决于**主机 PATH**，与运行它的 server 版本无关（这次是 0.53.1 对 0.60.0），leader 按 prompt 用 CLI 时要么缺子命令（0.53 没有 `job comment`），要么走上面的漏口。
+
+F10 的修法（不改权限表、不改 wire）：
+
+1. `DefaultJobEnvDeny` 增 `GOFER_CONFIG_DIR`——它是**凭证指针**而不是设置，四条 spawn 路径（local/pty/acp/verify）统一不再继承；项目 `job_env_allow` 仍可显式放行（记 `job.env_allowed`）。job 侧无任何代码依赖它（技能挂载、模板渲染都在 server 侧完成）。
+2. CLI 的 dotenv 加载：进程已有 `GOFER_JOB_TOKEN`（= 这是 job）时，跳过 `.env` 里所有 `*_TOKEN` 键（`slog.Debug` 记一行），其它键照常加载。操作员显式 export 的值不受影响。
+3. job 环境注入 `PATH=<dir(os.Executable())><sep><原 PATH>` 与 `GOFER_BIN=<os.Executable()>`，与 `GOFER_JOB_TOKEN`/`GOFER_SERVER_ADDR` 同一处（`jobCredentialEnv`）——job 里的 `gofer` 因此**永远是运行它的那个 gofer 同版本**；`os.Executable()` 失败则不动 PATH（记 warn）。
+4. 顺带修一个被 F10 暴露的 pty 缺陷：Windows ConPTY 的 env block 直接交给 `CreateProcess`，重复键取**第一个**（`os/exec` 取最后一个），于是 pty job 会保留继承的 `PATH` 而不是 job 自己那份——F10 的 PATH 前置在交互式 job 上会静默失效。`pty.Start` 现在先按"后者胜"去重（与 unix/`os/exec` 及 `util.EnvironWithout` 的文档一致）。
+
+实测（临时 serve：独立 config 目录 + 端口 18812 + `storage.root` 在 tmp；该 config 目录的 `.env` 里放 `GOFER_TOKEN=must-not-load`，且 config 写 `server.token_env: GOFER_TOKEN` —— **操作员的 token 就是 `must-not-load`**；CLI 一律显式 `--server http://127.0.0.1:18812 --token must-not-load`，不碰真实 server）：
+
+| 步骤 | 实测结果 |
+|---|---|
+| job 内 `set GOFER_`（只列名） | `GOFER_RUN_MODE / GOFER_SERVER_ADDR / GOFER_BIN / GOFER_CWD / GOFER_RESULT_DIR / GOFER_JOB_ID / GOFER_JOB_TOKEN` —— **没有 `GOFER_CONFIG_DIR`**，也没有任何 `GOFER_TOKEN/GOFER_SERVER_TOKEN/GOFER_WORKER_TOKEN` |
+| job 内 `where gofer` | 第一项 = `tmp/f10-smoke/bin/gofer.exe`（运行该 serve 的那个二进制），主机 PATH 上的 `/d/env/gopath/bin/gofer.exe` 退居第二 |
+| job 内 `$GOFER_BIN` / `gofer --version` | `GOFER_BIN` 同上绝对路径；裸 `gofer` 打印的是该 checkout 的 `0.1.0-dev`（**不是**主机 PATH 上的 0.53.1） |
+| job 内 `gofer job accept <另一个 job>` | `ERROR: server 403: job credential may not accept a delivery…`，exit=2 —— 注意：若 CLI 真的加载了那份 `.env`，它会拿到**有效的**操作员 token 并以 user 身份通过鉴权（C1 记录里那条 409）。403 本身就证明 dotenv 跳过生效 |
+| job 内 `gofer job show <job>` / `gofer job comment <job> …` | 读成功；评论落成 `comment cm-… by exec/agent`（不是 user） |
+
+自动化：`TestJobEnvDropsConfigDir`（四路径 + `job_env_allow`）、`TestCLIIgnoresDotenvTokenInsideJob`、`TestJobPathPrefersServingBinary`（`internal/job`、`internal/commands`）、`TestStartKeepsExtraEnvOverInherited`（`internal/pty`，Windows）。
+
+**边界（写进 runbook，别误读）**：job 与 server 同系统用户运行，SEC-01 挡的是"顺手/默认路径"的越权（环境变量、CLI 自动加载、默认 token 链），不是一个下定决心的同用户进程——它仍可直接读 server 的配置文件拿到 token。真正隔离需要把 agent 放到另一个系统账号下（例如独立账号启动的 worker 上）。
 

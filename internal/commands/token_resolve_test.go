@@ -4,14 +4,21 @@ import (
 	"testing"
 
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/job"
 )
 
 // TestResolveClientToken locks the client-token precedence after xu64.1 moved the
 // GOFER_SERVER_TOKEN fallback out of the --token flag default (which leaked into
 // --help) into runtime resolution. Precedence, highest first:
 // explicit --token > GOFER_SERVER_TOKEN env > server.token_env > server.token.
+//
+// The chain asserted here is the NON-JOB one, so GOFER_JOB_TOKEN is cleared for it: a
+// job's own credential sits ABOVE all of these (C1, covered by
+// TestCLIUsesJobTokenInsideJob), and running this suite from inside a gofer job — which
+// sets that variable in the process environment — used to fail every case below.
 func TestResolveClientToken(t *testing.T) {
 	const customEnv = "GOFER_CUSTOM_TOKEN_ENV"
+	t.Setenv(job.EnvJobToken, "")
 
 	cases := []struct {
 		name        string

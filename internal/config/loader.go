@@ -26,6 +26,12 @@ const EnvConfigPath = "GOFER_CONFIG"
 // resolve under it instead of ~/.config/gofer.
 const EnvConfigDir = "GOFER_CONFIG_DIR"
 
+// EnvJobToken is the variable a job's own credential arrives in (SEC-01). Its
+// presence means the process IS a job rather than the operator — the dotenv loader
+// keys off that (a job must not pick the server's *_TOKEN keys out of the server's
+// .env), and the CLI/MCP default their bearer token to it.
+const EnvJobToken = "GOFER_JOB_TOKEN"
+
 // DefaultConfigDirName is the user-level config dir under the OS config home
 // (~/.config/<name>).
 const DefaultConfigDirName = "gofer"
