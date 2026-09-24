@@ -104,6 +104,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		// of re-resolving a default (nil = a hub that predates them, peer resolves its own).
 		ExclusiveDir:    f.ExclusiveDir,
 		StallTimeoutSec: f.StallTimeoutSec,
+		DirWaitMaxSec:   f.DirWaitMaxSec,
 	}
 
 	peerRes, err := r.c.SubmitJob(jr)

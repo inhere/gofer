@@ -132,6 +132,9 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// leaves the worker to resolve them from ITS config, which is the pre-P1 reading.
 		ExclusiveDir:    d.ExclusiveDir,
 		StallTimeoutSec: d.StallTimeoutSec,
+		// JOB-11 (F12): the directory-lock wait cap the hub resolved travels with the
+		// dispatch, so the worker fails a too-long queue with the hub's policy.
+		DirWaitMaxSec: d.DirWaitMaxSec,
 		// GATE-01 S3: 人工验收 is decided by the HUB (the design's "验收判定只在 hub
 		// 做"), so a dispatched job's LOCAL row must finish normally — its status is
 		// what the Result frame reports and what the log-tail loop waits on, and a

@@ -9,6 +9,7 @@
 |---|---|---|---|
 | 0.1 | 2026-09-17 | Claude | 初稿：以 Agent Client Protocol 统一驱动 claude/codex/gemini/omp；ACP 的 permission 请求作为审批门输入；job 级 needs_review 验收态 |
 | 0.2 | 2026-09-17 | Claude | 人工批准。决策：IM 侧只做通知不做双向审批（当前 bot 只能发不能收）；`read_only`（bd h-aii-0ql3）并入 S2；补协议细节（JSON-RPC 2.0、stdio 换行分隔、`protocolVersion` 整数、ToolKind 取值）与 S0 的可测试性要求（仓内假 ACP server 测试替身） |
+| 0.4 | 2026-09-25 | omp | **ACP-02 真机验收发现 F12 已修**（2026-09-24 主机实测）：进程树只杀直接子进程 → 取消/超时都不生效（job 一直 running、一直持目录锁）；排队等目录锁的时间被算进 job 超时；claude-acp 模板缺 `acp.modes.read_only`。见文末「ACP-02 真机验收：发现与 F12」 |
 | 0.3 | 2026-09-17 | Claude | S1 审批门合入后的 S2/S3 语义细化（实施依据）：resume 的 `session/load` 失败不回退新 session、`acp.load_session:false` 声明不可续；`--read-only` 的 cli 侧沙箱参数 `read_only_args` 内置取值（codex `-s read-only`、claude `--permission-mode plan`）、内置 acp 模板不硬编只读 mode id、同一 job 不可升级；`needs_review` 非终态但"已结束"（`IsFinished`），accept→done、reject→新增终态 `rejected`，`job.needs_review` 进通知默认集，accept 仅 user caller、MCP 只有 reject |
 
 ## 背景与目标
@@ -446,3 +447,45 @@ peer 的 `errFromStatus` 把非终态当失败）。因此 `worker/dispatch.go` 
 - 动机（实测）：一个 job 的 `acp.jsonl` 6 万行、其中 96% 是逐 token 的 thought；tool_call 每次状态变化都记 job 事件，详情页时间线被拉到几千条 —— 两者都不是给人看的。
 - 顺带删除：`job.EventJobToolCall` 常量、web 时间线的 `job.tool_call` 渲染分支（G032：无人用即删）；新增 `job.EventJobACPSummary`（字面量在 `internal/runner`，与 permission 事件同一套"单一定义"）。
 - 测试：`internal/job` 的 `TestACPStdoutSeparatesMessages` / `TestACPThoughtsCoalescedToStderr` / `TestACPToolCallsToStderrNotTimeline` / `TestACPLogThoughtsOff`；`internal/runner/acp` 的 `TestStderrEventLineShapeMatchesNdjson`。假 server（`internal/acp/acptest`）新增 `--thought-chunks` 以脚本化多段 thought 分片。
+
+## ACP-02 真机验收：发现与 F12（2026-09-24 实测 / 2026-09-25 修复）
+
+ACP-02 的范围是主机上已登记的 `claude-acp` / `omp-acp` / `jcode-acp` 端到端（只读小任务、审批交互、`job resume`、job 凭证），见 `2026-09-24-settings-hub-and-tunnel-visibility-design.md` §四。真机验收本身按该项进行，本文只记**它暴露出来的代码缺陷**（F12）与修复结论。
+
+### 1. 真机事实（2026-09-24，主机 v0.60.1）
+
+- claude-acp job `20260924-222302-e0e26f93`（`--timeout 600`）在适配器返回 `Authentication required` 后卡住：cancel 已发出（事件 `job.cancelled {was_terminal:false}`、`--timeout 600` 早已到点），但 job **一直是 `running`、一直持有 `docs` 的目录锁**；直到人工杀掉整棵进程树（`node.exe`(npx) → `cmd.exe` → `node.exe`(claude-code-acp)）才立刻转为 `timeout`。
+- 同一时刻排队的 omp-acp / jcode-acp 两个 job 一直停在 `waiting_dir`（holder = 上面那个 job），从未运行，到点直接被判 `timeout`。
+- `job run -a claude-acp --read-only` 被准入拒绝：`agent "claude-acp" has no read-only mode`。
+
+### 2. 根因
+
+1. **进程树**：`internal/acp/client.go` 的 `Close()` 只 `cmd.Process.Kill()` 直接子进程，而 job 进程是 `npx → node → 适配器` 三层；孙进程继承着 agent 的 stdout/stderr，`os/exec` 的 `Wait` 因此永远等不到管道关闭（`Stderr` 不是 `*os.File` 时由 copy goroutine 兜着），`Close()` 里那句无界的 `<-done` 就把 `execute()` 钉死 —— job 永远到不了终态，目录锁也就永远不放。ACP 的 `exec.Cmd` 当时**没有设 `WaitDelay`**（`internal/runner/local` 早已有 `stdioWaitDelay`）。
+2. **超时口径**：`execute()` 在拿目录锁**之前**就建好了带 deadline 的 ctx，于是"排队"消耗了 job 的执行预算——一个 `--timeout 2` 的 job 可能**一秒活都没干**就被判 timeout。
+3. **模板**：`claude-acp` 模板没有 `acp.modes` 映射。claude-code-acp 的会话模式是 `default / acceptEdits / plan / bypassPermissions`，只读对应 `plan`。
+
+### 3. 修复（2026-09-25）
+
+- **进程树一个平台助手**：新增 `internal/proctree`（Windows：job object + `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` / `AssignProcessToJobObject` / `TerminateJobObject`；unix：`Setpgid` + `kill(-pgid, SIGKILL)`）。ACP client 与 local runner 都用它：`Kill()` 结束整棵树，`Release()` 释放 containment（Windows 关 job handle 时顺手带走残留后代）。
+- **每次等待都有上限**：ACP `cmd.WaitDelay = 2s`（对照 local runner 的 `stdioWaitDelay`）；`Close()` 超时后杀树、之后的等待再有 `waitAfterKill` 兜底；`cancelGrace` 由 10s 收紧到 1s（它只为抢救 stopReason 存在）；无 `onCancel` 的挂起请求（initialize / session/new / set_mode）在 ctx 结束时**立即**返回 ctx 错误，不再白等。
+- **执行超时从"开始运行"起算**：`execute()` 的排队 ctx 只带 cancel，执行 deadline 在**拿到目录锁、状态即将翻 `running`** 时建立（`runCtx`），`run.Run` / `classify` 用它；等锁另有独立上限 `server.dir_lock_max_wait_sec`（默认 3600s，0 = 不限），超限终态 `failed`、`error` 含 `dir lock wait exceeded`、事件 `job.dir_wait_timeout {holder_job, dir, wait_sec}`。取消在等锁期间依旧立即生效。
+- **模板**：`claude-acp` 增 `acp: {modes: {read_only: plan}}`。
+
+### 4. 测试（`internal/acp` / `internal/job` / `internal/runner/local` / `internal/agent`）
+
+| 测试 | 断言 |
+|---|---|
+| `TestACPCancelKillsProcessTree` | 假 agent 自带继承 stdio 的孙进程且不应答 `session/prompt`：cancel 后 5s 内 `cancelled`，孙进程已不存在 |
+| `TestACPTimeoutKillsProcessTree` | 同上形状、`--timeout 2`：deadline 后迅速 `timeout`，孙进程已不存在 |
+| `TestACPPendingRequestUnblocksOnCancel` | 请求挂起时 ctx 取消 → `Prompt` 很快返回 ctx 错误（旧行为：等满 10s） |
+| `TestLocalCancelKillsProcessTree` | 本机 local runner 的取消也带走孙进程（修复前它会活下来并占着 job 的日志文件） |
+| `TestDirLockWaitDoesNotConsumeTimeout` | 等锁 4s、自身 timeout 2s 的 job 拿到锁后仍能跑完自己的预算 → `done` |
+| `TestDirLockWaitHasItsOwnCap` | `dir_lock_max_wait_sec=1` 时等锁超限 → `failed` + `dir lock wait exceeded` + `job.dir_wait_timeout{holder_job}` |
+| `TestClaudeACPTemplateHasReadOnlyMode` | `Resolve` 后 `claude-acp` 的 `acp.modes.read_only == "plan"` |
+
+假 ACP server（`internal/acp/acptest`）为此新增 `--hang` 与 `--grandchild-pid-file/--grandchild-hold`，`testcmd` 新增 `spawn-child`（拉一个继承 stdio 的孙进程，公布其 pid）——"孙进程还活着"由 `proctree.Alive` 判定，不靠时钟。
+
+### 5. 未覆盖 / 后续
+
+- `pty` 路径本次只审计未改：`internal/runner/pty` 的 teardown 有界（`defaultGrace` 5s + 合成退出），Windows 的 ConPTY 关闭本身会带走附加进程，风险低于 ACP；若将来发现 pty 也遗留孙进程，接同一个 `proctree` 助手即可。
+- 真机复验（需要有权限的 claude-acp 凭证）未做：本次修复由同一批进程树/超时用例在真子进程下背书，真机再跑 `--read-only` 只读小任务 + cancel/超时各一次即可确认。

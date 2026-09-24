@@ -56,7 +56,9 @@ func newDirLocks() *dirLocks {
 //     is over and BEFORE the terminal state becomes observable (a workflow step
 //     advancing out of finish() may submit a job that wants this very directory);
 //   - holder: the job id that blocked this one ("" when it was granted at once), so
-//     the caller can tell the user WHO it is waiting for;
+//     the caller can tell the user WHO it is waiting for. On the cancelled path it is
+//     the holder that was blocking the job when it queued (`holderAt`) — which is
+//     what the caller needs to explain the wait in its event;
 //   - waited: whether it actually had to queue;
 //   - err: ctx's error when the wait was cancelled (no lock is taken, nothing to
 //     release).
@@ -98,7 +100,7 @@ func (d *dirLocks) Acquire(ctx context.Context, dir, jobID string, onWait func(h
 	case <-ctx.Done():
 		if d.abandon(w) {
 			// Removed from the queue before it was granted: no lock to release.
-			return func() {}, "", true, ctx.Err()
+			return func() {}, w.holderAt, true, ctx.Err()
 		}
 		// Raced with the grant pass: we HOLD the lock now, so hand it straight back
 		// (the caller is not going to use it) instead of leaking a directory forever.

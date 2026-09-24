@@ -988,6 +988,18 @@ func applyServerField(sc *config.ServerConfig, f configBodyField) error {
 			return err
 		}
 		sc.DirLock = v
+	case "dir_lock_max_wait_sec":
+		// JOB-11 (F12): read per submit (EffectiveDirLockMaxWaitSec), so this applies to
+		// the NEXT job. Same pointer rule as dir_lock: null = unset = one hour, which is
+		// a different decision from an explicit 0 (no cap at all).
+		v, err := fieldValue[*int](f)
+		if err != nil {
+			return err
+		}
+		if v != nil && *v < 0 {
+			return fmt.Errorf("dir_lock_max_wait_sec must be >= 0 (0 = no cap)")
+		}
+		sc.DirLockMaxWaitSec = v
 	case "job_env_denylist":
 		// SEC-01: the extra keys a job's inherited environment must not carry, ADDED
 		// to the built-in credential triple by effectiveJobEnvDeny at each spawn — so
@@ -1369,6 +1381,8 @@ func serverPreview(sc config.ServerConfig, applied []string) (string, error) {
 			}
 		case "dir_lock":
 			doc[name] = sc.DirLock
+		case "dir_lock_max_wait_sec":
+			doc[name] = sc.DirLockMaxWaitSec
 		case "agent_health":
 			if sc.AgentHealth == nil {
 				doc[name] = nil

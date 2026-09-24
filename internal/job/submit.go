@@ -146,6 +146,12 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	stallSec := cfg.EffectiveStallTimeoutSec(req.Agent, stallAgentType, req.StallTimeoutSec, req.Interactive)
 	req.StallTimeoutSec = &stallSec
 
+	// JOB-11 (F12): same for the directory-lock WAIT cap — resolved from the SAME
+	// snapshot and stamped, so a remote executor applies this server's policy instead of
+	// re-deriving one from its own config (the rule ExclusiveDir/StallTimeoutSec follow).
+	dirWaitSec := cfg.EffectiveDirLockMaxWaitSec(req.DirWaitMaxSec)
+	req.DirWaitMaxSec = &dirWaitSec
+
 	// bd h-aii-s9ck: resolve the job's deadline ONCE, from the SAME cfg snapshot as
 	// validation (project ceiling > server ceiling > 1h default), BEFORE the entry /
 	// forward are built. The running job (execute's ctx), the persisted row, the API
@@ -400,6 +406,9 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// AUTO-05: so does the output-stall window: the executor owns the process
 			// whose silence is being watched.
 			StallTimeoutSec: req.StallTimeoutSec,
+			// JOB-11 (F12): and so does the directory-lock wait cap — the lock is held
+			// on that machine, so the policy this hub resolved is what applies there.
+			DirWaitMaxSec: req.DirWaitMaxSec,
 		}
 		// Bridge the peer's running-job interactions (P9) onto this host job.
 		runReq.Interactions = remoteInteractionSink{s: s, jobID: jobID}
@@ -720,6 +729,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		agent:     agentSem,
 		exclusive: req.ExclusiveDir != nil && *req.ExclusiveDir,
 		stall:     stallSec,
+		dirWait:   dirWaitSec,
 	}, runReq, timeout)
 
 	return entry.snapshot(), nil

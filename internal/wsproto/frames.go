@@ -441,6 +441,11 @@ type Dispatch struct {
 	// would silently run the job WITHOUT the caller's files).
 	ExclusiveDir    *bool `json:"exclusive_dir,omitempty"`
 	StallTimeoutSec *int  `json:"stall_timeout_sec,omitempty"`
+	// DirWaitMaxSec (JOB-11, F12) is the same-directory-lock WAIT cap the hub resolved
+	// (server.dir_lock_max_wait_sec): the lock is taken on the WORKER, so the policy
+	// travels with the dispatch instead of being re-derived there. Same additive/optional
+	// rule as the two above.
+	DirWaitMaxSec *int `json:"dir_wait_max_sec,omitempty"`
 	// JobToken (SEC-01) is the job-scoped credential the hub minted for this job. The
 	// worker injects it as GOFER_JOB_TOKEN, which is what lets the job reach the hub
 	// after the inherited server token stopped travelling with it. An OLD worker

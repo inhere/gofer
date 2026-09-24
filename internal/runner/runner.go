@@ -465,6 +465,11 @@ type Forward struct {
 	// by running as before), so no protocol floor refuses the dispatch.
 	ExclusiveDir    *bool
 	StallTimeoutSec *int
+	// DirWaitMaxSec (JOB-11, F12) is how long the EXECUTOR may leave this job queued on
+	// the same-directory lock before failing it, in seconds (0 = no cap). It travels for
+	// the same reason as ExclusiveDir: the lock is taken on that machine, and the
+	// policy the hub resolved is what must apply there.
+	DirWaitMaxSec *int
 	// JobToken (SEC-01) is the job-scoped credential the HUB minted for this job. The
 	// ws-worker runner puts it on the dispatch frame (protocol ≥ 11) and the worker's
 	// own job service injects it as GOFER_JOB_TOKEN, which is what lets a job talk to

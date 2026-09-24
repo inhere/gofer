@@ -98,10 +98,13 @@ func TestACPTimeoutKillsProcessTree(t *testing.T) {
 	})
 	pid := waitChildPID(t, pidFile)
 
-	final := waitStatus(t, s, res.ID, 5*time.Second,
+	// The window is measured from SUBMIT and must cover the 2s deadline plus the
+	// cancel/close graces (cancelGrace + waitDelay): the point is that the job ends
+	// shortly after its deadline instead of hanging forever.
+	final := waitStatus(t, s, res.ID, 8*time.Second,
 		StatusTimeout, StatusCancelled, StatusFailed, StatusDone)
 	if final.Status != StatusTimeout {
-		t.Fatalf("status = %s (err=%s), want timeout within 5s of the 2s deadline", final.Status, final.Error)
+		t.Fatalf("status = %s (err=%s), want timeout shortly after the 2s deadline", final.Status, final.Error)
 	}
 	assertChildGone(t, pid)
 }

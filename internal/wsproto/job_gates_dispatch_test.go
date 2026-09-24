@@ -8,12 +8,14 @@ import (
 // TestDispatchRoundTripsExclusiveDirAndStallTimeout: the JOB-11 / AUTO-05 execution
 // policy the HUB resolved rides Dispatch additively — the worker that actually runs the
 // job takes the directory lock (and arms the stall watchdog) with the numbers the hub
-// decided, instead of re-deriving them from its own config.
+// decided, instead of re-deriving them from its own config. dir_wait_max_sec (F12) is
+// the third member of that set: the lock's WAIT cap, which only the machine holding the
+// lock can enforce.
 func TestDispatchRoundTripsExclusiveDirAndStallTimeout(t *testing.T) {
-	excl, stall := true, 900
+	excl, stall, dirWait := true, 900, 60
 	d := Dispatch{
 		JobID: "j1", ProjectKey: "p", Agent: "agent", Runner: "local",
-		ExclusiveDir: &excl, StallTimeoutSec: &stall,
+		ExclusiveDir: &excl, StallTimeoutSec: &stall, DirWaitMaxSec: &dirWait,
 	}
 	b, err := json.Marshal(d)
 	if err != nil {
@@ -28,6 +30,9 @@ func TestDispatchRoundTripsExclusiveDirAndStallTimeout(t *testing.T) {
 	}
 	if back.StallTimeoutSec == nil || *back.StallTimeoutSec != 900 {
 		t.Fatalf("stall_timeout_sec round trip = %v, want 900", back.StallTimeoutSec)
+	}
+	if back.DirWaitMaxSec == nil || *back.DirWaitMaxSec != 60 {
+		t.Fatalf("dir_wait_max_sec round trip = %v, want 60", back.DirWaitMaxSec)
 	}
 
 	// "Resolved to OFF" must survive as an explicit zero: a hub that decided this job
@@ -55,8 +60,8 @@ func TestDispatchRoundTripsExclusiveDirAndStallTimeout(t *testing.T) {
 	if err := json.Unmarshal([]byte(`{"job_id":"j3","project_key":"p","agent":"exec","runner":"local"}`), &old); err != nil {
 		t.Fatalf("a dispatch without the gate fields must still decode: %v", err)
 	}
-	if old.ExclusiveDir != nil || old.StallTimeoutSec != nil {
-		t.Fatalf("absent fields decoded to %v/%v, want nil (unresolved)", old.ExclusiveDir, old.StallTimeoutSec)
+	if old.ExclusiveDir != nil || old.StallTimeoutSec != nil || old.DirWaitMaxSec != nil {
+		t.Fatalf("absent fields decoded to %v/%v/%v, want nil (unresolved)", old.ExclusiveDir, old.StallTimeoutSec, old.DirWaitMaxSec)
 	}
 	plain, err := json.Marshal(Dispatch{JobID: "j4"})
 	if err != nil {
@@ -66,7 +71,7 @@ func TestDispatchRoundTripsExclusiveDirAndStallTimeout(t *testing.T) {
 	if err := json.Unmarshal(plain, &raw); err != nil {
 		t.Fatalf("unmarshal plain dispatch: %v", err)
 	}
-	for _, k := range []string{"exclusive_dir", "stall_timeout_sec"} {
+	for _, k := range []string{"exclusive_dir", "stall_timeout_sec", "dir_wait_max_sec"} {
 		if _, ok := raw[k]; ok {
 			t.Fatalf("a plain dispatch must not carry %q: %s", k, plain)
 		}

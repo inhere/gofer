@@ -15,17 +15,36 @@ import (
 	"sync"
 	"time"
 
+	"github.com/inhere/gofer/internal/proctree"
 	"github.com/inhere/gofer/internal/util"
 )
 
 // cancelGrace bounds how long Prompt waits for the agent's stopReason cancelled
 // response after session/cancel was sent. When it expires the client returns the
-// context error anyway; the caller then kills the process (Close).
-const cancelGrace = 10 * time.Second
+// context error anyway; the caller then kills the process (Close). It is deliberately
+// SHORT (F12, 2026-09-25): the grace exists only to salvage the agent's stopReason, and
+// the agent replies to session/cancel within a local protocol round trip — an
+// unresponsive agent must not hold a cancelled job in `running` while the sums add up
+// (the old 10s, on top of an unbounded cmd.Wait, is exactly how a cancelled and
+// long-timed-out ACP job stayed running).
+const cancelGrace = time.Second
 
 // closeGrace bounds how long Close waits for the agent to exit after its stdin is
 // closed before killing it.
 const closeGrace = 3 * time.Second
+
+// waitDelay bounds how long cmd.Wait blocks on the stdout/stderr copy after the process
+// itself has exited. A descendant that inherited the agent's stdio (npx → node → the
+// adapter) keeps a copy goroutine waiting for an EOF that cannot come; without this the
+// job would never reach a terminal state (the ACP-02 hang). Mirrors the local runner's
+// stdioWaitDelay.
+const waitDelay = 2 * time.Second
+
+// waitAfterKill bounds how long Close waits for cmd.Wait after killing the tree. With
+// waitDelay in force Wait returns shortly by itself; this is the final guarantee that
+// Close — and therefore the job's terminal state — cannot be held hostage by a process
+// that refuses to be reaped.
+const waitAfterKill = 5 * time.Second
 
 // Options configures Start.
 type Options struct {
@@ -106,6 +125,7 @@ type Client struct {
 	stdin io.WriteCloser
 	enc   *codec
 	rd    *reader
+	tree  *proctree.Tree
 
 	clientInfo Implementation
 
@@ -126,6 +146,11 @@ func Start(_ context.Context, opts Options) (*Client, error) {
 	cmd := exec.Command(opts.Command, opts.Args...)
 	cmd.Dir = opts.Dir
 	cmd.Env = util.EnvironWithout(opts.EnvDeny, opts.EnvAllow, opts.Env)
+	// F12: the agent's descendants must be killable as one unit, and Wait must not block
+	// forever on a pipe their orphan holds.
+	tree := proctree.New()
+	tree.Configure(cmd)
+	cmd.WaitDelay = waitDelay
 	if opts.Stderr != nil {
 		cmd.Stderr = opts.Stderr
 	}
@@ -139,6 +164,11 @@ func Start(_ context.Context, opts Options) (*Client, error) {
 	}
 	if err := cmd.Start(); err != nil {
 		return nil, fmt.Errorf("acp: start %q: %w", opts.Command, err)
+	}
+	if err := tree.Attach(cmd); err != nil {
+		// Containment is a protection, not a precondition: without it Close degrades to
+		// killing the direct child (the pre-F12 behaviour).
+		slog.Warn("acp: cannot contain the agent's process tree", "pid", cmd.Process.Pid, "err", err)
 	}
 
 	info := Implementation{Name: "gofer", Version: defaultClientVersion()}
@@ -156,6 +186,7 @@ func Start(_ context.Context, opts Options) (*Client, error) {
 		stdin:      stdin,
 		enc:        &codec{w: stdin},
 		rd:         &reader{r: bufio.NewReader(stdout)},
+		tree:       tree,
 		clientInfo: info,
 		pending:    map[string]chan *Message{},
 		handler:    nopHandler{},
@@ -263,9 +294,16 @@ func (c *Client) Cancel(sessionID string) error {
 	return c.notify(MethodSessionCancel, SessionCancelParams{SessionID: sessionID})
 }
 
-// Close ends the client: stdin is closed (the agent's documented exit signal),
-// then the process is given closeGrace to exit before being killed. It is
-// idempotent.
+// Close ends the client: stdin is closed (the agent's documented exit signal), then
+// the process is given closeGrace to exit before its WHOLE PROCESS TREE is killed. It
+// is idempotent.
+//
+// Every wait here is bounded (F12): the tree kill removes the descendants that would
+// otherwise keep cmd.Wait blocked on a stdio pipe they inherited, waitDelay makes Wait
+// return even if one somehow survives, and waitAfterKill is the last resort — a job's
+// terminal state must never depend on an agent that does not want to die. A descendant
+// that outlived the agent is killed here too: nothing the ACP agent spawned outlives the
+// client that owns it.
 func (c *Client) Close() error {
 	c.mu.Lock()
 	if c.closed {
@@ -274,18 +312,29 @@ func (c *Client) Close() error {
 	}
 	c.closed = true
 	c.mu.Unlock()
+	defer c.tree.Release()
 
 	_ = c.stdin.Close()
 	done := make(chan error, 1)
 	go func() { done <- c.cmd.Wait() }()
 	select {
 	case err := <-done:
+		// err is exec.ErrWaitDelay when the agent exited but a descendant still held its
+		// stdio: that descendant is exactly what must not survive this call.
+		if errors.Is(err, exec.ErrWaitDelay) {
+			c.tree.Kill()
+		}
 		return err
 	case <-time.After(closeGrace):
-		slog.Debug("acp: agent did not exit after stdin close, killing", "pid", c.cmd.Process.Pid)
-		_ = c.cmd.Process.Kill()
-		<-done
-		return nil
+		slog.Debug("acp: agent did not exit after stdin close, killing the tree", "pid", c.cmd.Process.Pid)
+		c.tree.Kill()
+		select {
+		case err := <-done:
+			return err
+		case <-time.After(waitAfterKill):
+			slog.Warn("acp: agent tree did not reap after kill", "pid", c.cmd.Process.Pid)
+			return nil
+		}
 	}
 }
 
@@ -315,9 +364,11 @@ func (c *Client) notify(method string, params any) error {
 	return c.enc.write(&Message{JSONRPC: "2.0", Method: method, Params: rawParams})
 }
 
-// call writes a request and waits for its response. onCancel (nil-safe) runs once
-// if ctx ends first; the call then still waits cancelGrace for the response so a
-// cancelled turn's stopReason is not lost.
+// call writes a request and waits for its response. onCancel (nil-safe) runs once if
+// ctx ends first; when it is non-nil the call then still waits cancelGrace for the
+// response, so a cancelled TURN's stopReason is not lost. With no onCancel there is
+// nothing to salvage and the call returns the context error AT ONCE (F12): a wedged
+// agent must not delay the cancellation of the job waiting on it.
 func (c *Client) call(ctx context.Context, method string, params any, onCancel func()) (json.RawMessage, error) {
 	rawParams, err := json.Marshal(params)
 	if err != nil {
@@ -346,9 +397,11 @@ func (c *Client) call(ctx context.Context, method string, params any, onCancel f
 	case msg := <-ch:
 		return resultOf(msg)
 	case <-ctx.Done():
-		if onCancel != nil {
-			onCancel()
+		if onCancel == nil {
+			c.forget(id)
+			return nil, ctx.Err()
 		}
+		onCancel()
 		select {
 		case msg := <-ch:
 			raw, rerr := resultOf(msg)

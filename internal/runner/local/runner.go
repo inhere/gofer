@@ -7,9 +7,11 @@ package local
 import (
 	"context"
 	"errors"
+	"log/slog"
 	"os/exec"
 	"time"
 
+	"github.com/inhere/gofer/internal/proctree"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/util"
 )
@@ -58,8 +60,28 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	// Bound the post-exit wait on pipe copy goroutines so an orphaned descendant
 	// holding the stdout/stderr pipe cannot wedge Wait (see stdioWaitDelay).
 	cmd.WaitDelay = stdioWaitDelay
+	// F12: contain the command's whole process tree, so a cancel/timeout kills the
+	// descendants too instead of leaving orphans behind (proven by
+	// TestLocalCancelKillsProcessTree: the survivor held the job's own log file).
+	tree := proctree.New()
+	tree.Configure(cmd)
+	defer tree.Release()
 
-	err := cmd.Run()
+	if err := cmd.Start(); err != nil {
+		return runner.Result{ExitCode: -1, Err: err}
+	}
+	if err := tree.Attach(cmd); err != nil {
+		slog.Warn("local runner: cannot contain the process tree", "pid", cmd.Process.Pid, "err", err)
+	}
+	err := cmd.Wait()
+
+	// A ctx that ended is a kill: exec.CommandContext killed the direct child, and the
+	// tree kill finishes the job — no descendant of a cancelled/timed-out job may
+	// survive it. A command that exited on its own is left alone (whatever it detached
+	// deliberately is not ours to kill).
+	if ctx.Err() != nil {
+		tree.Kill()
+	}
 	if err == nil {
 		return runner.Result{ExitCode: 0}
 	}

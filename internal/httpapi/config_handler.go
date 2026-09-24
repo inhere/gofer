@@ -69,6 +69,11 @@ type serverConfigView struct {
 	// defaults are 1h/3/1 — neither is the same decision as an explicit zero block.
 	DirLock     *bool                  `json:"dir_lock"`
 	AgentHealth *serverAgentHealthView `json:"agent_health,omitempty"`
+	// DirLockMaxWaitSec is how long a job may queue for the same-directory lock
+	// (JOB-11, F12), in seconds. Hot-editable and read per submit, so the console needs
+	// the raw value; null means "unset" (→ 3600), which is not the same decision as an
+	// explicit 0 (no cap).
+	DirLockMaxWaitSec *int `json:"dir_lock_max_wait_sec"`
 	// SkillLimits is the skill import size guard (JOB-10 §一.2). Editable as a whole
 	// block, so the console needs the values to prefill the inputs it writes back.
 	SkillLimits skillLimitsView `json:"skill_limits"`
@@ -414,8 +419,9 @@ func buildServerConfigView(sc config.ServerConfig) serverConfigView {
 			MinIntervalSec: sc.CommentTrigger.MinIntervalSec,
 			MaxPerScope:    sc.CommentTrigger.MaxPerScope,
 		},
-		DirLock:     sc.DirLock,
-		AgentHealth: buildAgentHealthView(sc.AgentHealth),
+		DirLock:           sc.DirLock,
+		DirLockMaxWaitSec: sc.DirLockMaxWaitSec,
+		AgentHealth:       buildAgentHealthView(sc.AgentHealth),
 		SkillLimits: skillLimitsView{
 			MaxFileBytes:  sc.SkillLimits.MaxFileBytes,
 			MaxTotalBytes: sc.SkillLimits.MaxTotalBytes,

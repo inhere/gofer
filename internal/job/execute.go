@@ -28,6 +28,7 @@ type execGates struct {
 	agent     chan struct{}
 	exclusive bool // hold the same-directory lock for this job's WorkDir
 	stall     int  // AUTO-05: kill a job silent for this many seconds (0 = off)
+	dirWait   int  // JOB-11: fail a job queued on the directory lock this many seconds (0 = no cap)
 }
 
 // execute runs the job: it acquires the project concurrency slot, opens the log
@@ -38,12 +39,14 @@ type execGates struct {
 func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, req runner.Request, timeout time.Duration) {
 	defer close(entry.done)
 
-	// Establish the cancellable context first so a cancel issued while the job is
-	// still queued (waiting for a concurrency slot) is honoured too.
+	// The QUEUEING context: cancellable, and deliberately WITHOUT the execution
+	// deadline. A job's execution timeout starts when it starts RUNNING (F12,
+	// 2026-09-25) — queuing is not execution, and the old shape let a job with a 2s
+	// timeout time out while it was still parked on the directory lock, without ever
+	// having run a single second of its own work. Cancel is honoured here exactly as
+	// before, so a job queued on a semaphore or on the lock is still cancellable at
+	// once.
 	ctx, cancel := context.WithCancel(context.Background())
-	if timeout > 0 {
-		ctx, cancel = context.WithTimeout(context.Background(), timeout)
-	}
 	defer cancel()
 	entry.mu.Lock()
 	entry.cancel = cancel
@@ -114,14 +117,40 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// directory), while the deferred call still covers a panic.
 	releaseDir := func() {}
 	if gates.exclusive && entry.wt == nil {
-		release, holder, waited, derr := s.dirLock.Acquire(ctx, req.WorkDir, req.JobID, func(blocker string) {
+		// The WAIT for the lock has its own cap (server.dir_lock_max_wait_sec) because the
+		// job's execution timeout does not cover it any more: without a cap a wedged
+		// holder could park its whole queue forever (F12 — jobs sat in `waiting_dir`
+		// behind an unkillable ACP job until a human killed it). 0 = no cap: wait until
+		// the lock is free or the job is cancelled.
+		waitCtx := ctx
+		var cancelWait context.CancelFunc
+		if gates.dirWait > 0 {
+			waitCtx, cancelWait = context.WithTimeout(ctx, time.Duration(gates.dirWait)*time.Second)
+		}
+		release, holder, waited, derr := s.dirLock.Acquire(waitCtx, req.WorkDir, req.JobID, func(blocker string) {
 			s.enterWaitingDir(entry, req.JobID, blocker, req.WorkDir)
 		})
+		if cancelWait != nil {
+			cancelWait()
+		}
 		if derr != nil {
-			// Cancelled while queued (or the wait raced with a cancel): the job ends
-			// through the same path as a cancelled semaphore wait.
-			status, code, runErr := classify(ctx, runner.Result{ExitCode: -1})
-			s.finish(entry, req.JobID, status, code, runErr)
+			if ctx.Err() != nil {
+				// Cancelled while queued (or the wait raced with a cancel): the job ends
+				// through the same path as a cancelled semaphore wait.
+				status, code, runErr := classify(ctx, runner.Result{ExitCode: -1})
+				s.finish(entry, req.JobID, status, code, runErr)
+				return
+			}
+			// The wait cap expired. The job never ran, and WHO blocked it is what its
+			// timeline must name: the explaining event lands BEFORE the terminal state is
+			// observable (the E13 ordering finish() relies on).
+			err := fmt.Errorf("dir lock wait exceeded %ds (holder %q, dir %s)", gates.dirWait, holder, req.WorkDir)
+			s.recordEvent(req.JobID, EventJobDirWaitTimeout, map[string]any{
+				"holder_job": holder,
+				"dir":        req.WorkDir,
+				"wait_sec":   gates.dirWait,
+			})
+			s.finish(entry, req.JobID, StatusFailed, -1, err)
 			return
 		}
 		releaseDir = release
@@ -129,6 +158,18 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		if waited {
 			slog.Info("job.dir_wait", "job_id", req.JobID, "holder", holder, "dir", req.WorkDir)
 		}
+	}
+
+	// Every queue is behind this job and the status is about to become `running`: THIS is
+	// where the execution deadline starts (F12). classify()/run.Run below use runCtx, so a
+	// deadline that fires mid-run is still reported as `timeout`, while anything the job
+	// waited for beforehand (a concurrency slot, the directory lock) no longer eats the
+	// budget it will actually run with.
+	runCtx := ctx
+	if timeout > 0 {
+		var cancelRun context.CancelFunc
+		runCtx, cancelRun = context.WithTimeout(ctx, timeout)
+		defer cancelRun()
 	}
 
 	entry.mu.Lock()
@@ -231,7 +272,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 			s.finish(entry, req.JobID, StatusFailed, -1, err)
 			return
 		}
-		if err := s.materializeUploads(ctx, entry, req, req.WorkDir, snap.ProjectKey, snap.ResultDir); err != nil {
+		if err := s.materializeUploads(runCtx, entry, req, req.WorkDir, snap.ProjectKey, snap.ResultDir); err != nil {
 			// Close the logs before the terminal state becomes observable, exactly as
 			// the normal path does (an observer must never see "terminal" with the
 			// files still open; on Windows that alone can block the dir's deletion).
@@ -247,10 +288,10 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// runs this very code with the window the hub resolved and sent with the dispatch —
 	// watching this machine's log MIRROR instead would kill the job in the wrong place.
 	if req.Forward == nil {
-		stopWatchdog := s.startStallWatchdog(ctx, entry, req.JobID, gates.stall)
+		stopWatchdog := s.startStallWatchdog(runCtx, entry, req.JobID, gates.stall)
 		defer stopWatchdog()
 	}
-	res := run.Run(ctx, req)
+	res := run.Run(runCtx, req)
 
 	// ACP-01: a runner may learn facts about the session it just drove beyond the
 	// exit code — the acp runner returns the agent's sessionId (the uniform resume
@@ -282,13 +323,13 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		// nothing for minutes, so the stall clock is suspended for its duration and
 		// restarted fresh afterwards (that silence was not the agent's).
 		s.pauseStall(entry)
-		s.runVerify(ctx, entry, req, res)
+		s.runVerify(runCtx, entry, req, res)
 		s.resumeStall(entry)
 		// XFER-01 X2: collect runs LAST on that same machine — after the verify step,
 		// and whatever the job's status is (a failed run's partial output is exactly
 		// what the caller wants back). A remote job's files are collected by the
 		// worker and pulled back by the hub once its outcome arrives (captureOutcomes).
-		s.collectFiles(ctx, entry, req, req.WorkDir)
+		s.collectFiles(runCtx, entry, req, req.WorkDir)
 	}
 
 	// Close the per-job log streams NOW, before finish() makes the terminal
@@ -312,7 +353,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// (worker/peer)，captureOutcomes 据此分流：远端直接落、本地扫盘(P4)。
 	s.captureOutcomes(entry, req, res)
 
-	status, code, runErr := classify(ctx, res)
+	status, code, runErr := classify(runCtx, res)
 	// SUP-01 P2: a verify step that did not pass decides the job's status (the
 	// result is already recorded locally or, for a remote job, applied by
 	// captureOutcomes above).

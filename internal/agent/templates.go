@@ -66,6 +66,11 @@ var builtinTemplates = map[string]config.AgentConfig{
 		Command: "npx",
 		Args:    []string{"-y", "@zed-industries/claude-code-acp"},
 		Detect:  config.DetectConfig{Command: "npx", Args: []string{"-y", "@zed-industries/claude-code-acp", "--version"}},
+		// F12 (ACP-02 真机验收): claude-code-acp 的会话模式是
+		// default / acceptEdits / plan / bypassPermissions，只读对应 plan。没有这条映射，
+		// `job run -a claude-acp --read-only` 会被准入直接拒掉（"has no read-only mode"），
+		// 只读对 claude-acp 就等于不可用。
+		ACP: &config.ACPConfig{Modes: map[string]string{"read_only": "plan"}},
 	},
 	"codex-acp": {
 		Type:    TypeACPAgent,
