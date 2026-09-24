@@ -272,10 +272,14 @@ worker 连接抖动（WSL/Docker/VPN 瞬断）时，在飞的 job **不再立刻
 
 ```bash
 gofer tunnel forward -w w-plc 1502:192.168.1.10:502 udp/21845:192.168.1.20:21845   # TCP + UDP
+gofer tunnel forward -w w-plc 1502:192.168.1.10:502,11217:127.0.0.1:1217            # 一个参数逗号写多条
 gofer tunnel save hmi -w w-plc udp/21845:192.168.1.20:21845 && gofer tunnel forward --name hmi
 gofer tunnel check -w w-plc udp/192.168.1.20:21845   # 只证明 worker 能建 socket，不证明设备会应答
-gofer tunnel ls
+gofer tunnel ls                                      # FORWARDERS（在线转发进程）+ CONNECTIONS（活跃隧道）
+gofer tunnel presets push                            # 把本机历史预设迁到 server
 ```
+
+预设存在 **server** 上（`tunnel_presets` 表），换了机器也能 `tun forward -n <name>`；`tun save` 连不上 server 时才写本地 `tunnels.yaml`（该读取路径已标记弃用，v0.63 移除）。`tun forward` 启动后向 hub 登记（默认 90s 过期，`server.tunnel.forwarder_ttl_sec` 可调），所以 web 与 `tun ls` 能看到"谁在监听"，而不只是"谁连上了"。
 
 三端（forwarder / server / worker）日志用同一 `tunnel_id` 关联，带 `dial_ms`、`first_byte_ms`、`bytes_up|down`、`packets_up|down`（UDP）、`close_reason`；`GOFER_TUNNEL_TRACE=1` 逐报文记录。怎么判断"慢在 relay、设备还是往返次数"见 [`docs/runbook/tcp-tunnel.md`](docs/runbook/tcp-tunnel.md)。
 

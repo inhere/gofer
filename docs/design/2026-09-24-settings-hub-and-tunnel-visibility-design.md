@@ -87,3 +87,64 @@
 | **T1** | TUN-04 逗号；TUN-03 forwarder 登记/心跳/过期 + 列表归并；server 预设表与 CRUD；CLI 预设优先 server + `presets push` + `tun ls` 转发段 | `TestSpecsAcceptCommaAndSpace`、`TestSpecErrorNamesTheEntry`、`TestForwarderRegisterHeartbeatExpire`、`TestForwarderListGroupsConnections`、`TestPresetCRUDValidates`、`TestCLIPresetPrefersServerFallsBackLocal`、`TestPresetsPushSkipsConflicts`、`TestJobCallerCannotWriteForwarders` |
 | **T2** | WEB-12 设置页布局 + `/config` 重定向 + 关于页；`/settings/tunnels` 两个表格与预设编辑 | `pnpm typecheck && pnpm build`；临时 server + 浏览器目视：二级菜单、重定向、在线转发（起一个本地 `tun forward` 到临时 worker 或假 worker）、预设增删改 |
 | **ACP-02** | 我在主机做（与 T1/T2 并行） | 见 §四 |
+
+## T1 实测记录（2026-09-24）
+
+实施提交：`test(tun-03,tun-04)` red 提交（三个测试文件，先写先提交，此时不编译）→ `feat(tun-03,tun-04)` 实现提交 → `docs(tun-03)` 文档提交，详见 `git log`。
+
+### 1. 测试（要求名）
+
+`go test ./internal/tunnel/ ./internal/httpapi/ ./internal/commands/ ./internal/config/ ./internal/jobstore/ -count=1` 五个包全 `ok`。要求名的逐条结果（`-v`）：
+
+| 测试 | 结果 | 备注 |
+|---|---|---|
+| `internal/tunnel` `TestSpecsAcceptCommaAndSpace` | PASS | 含 `[::1]` 不被误拆、空项丢弃、全空报错 |
+| `internal/tunnel` `TestSpecErrorNamesTheEntry` | PASS | 断言含 `spec #3` 与 `"not-a-spec"` |
+| `internal/httpapi` `TestForwarderRegisterHeartbeatExpire` | PASS | 注册→可见→心跳跨过原 TTL 仍存活→静默过期→DELETE 立即消失→未知 id 404→非法登记 400 |
+| `internal/httpapi` `TestForwarderListGroupsConnections` | PASS | 两条同 (caller,worker,target) 连接 → `connections=2`、字节 400/700；异 worker 不计入 |
+| `internal/httpapi` `TestPresetCRUDValidates` | PASS | 非法规格 400 且不落库；逗号列表入库即拆分；无 force 409；DELETE 后 404 |
+| `internal/httpapi` `TestJobCallerCannotWriteForwarders` | PASS | job 凭证 GET forwarders/presets 200，四种写 403 |
+| `internal/commands` `TestCLIPresetPrefersServerFallsBackLocal` | PASS | server 同名优先；仅本地有时回落并给出 push 提示；server 不可达同样回落；两边都没有则报错 |
+| `internal/commands` `TestPresetsPushSkipsConflicts` | PASS | 冲突跳过并列出、不覆盖 server 值；`--force` 覆盖且不跳过 |
+| `internal/commands` `TestTunLsShowsForwarders` | PASS | FORWARDERS 段（规则渲染、host/pid、连接数）+ CONNECTIONS 段 |
+
+`gofmt -l`（本次改过的 go 文件）为空；`go build ./...`、`go vet ./...` 干净。
+
+### 2. 临时 server smoke（临时 config + 私有 `GOFER_CONFIG_DIR` + 127.0.0.1:18765）
+
+启动：`go build -o tmp/tun03-smoke/gofer.exe ./cmd/gofer`，`gofer serve -c tmp/tun03-smoke/smoke-config.yaml`（`server.addr: 127.0.0.1:18765`、`allow_empty_token: true`、storage/project 都在 tmp 目录）。**每条 CLI 命令都显式带 `-c <临时配置>` 与 `--server http://127.0.0.1:18765`，并在同一条命令里 unset `GOFER_SERVER_ADDR/GOFER_SERVER_TOKEN/GOFER_TOKEN`**；真实配置目录 `D:\work\inhere\config\win-env\gofer` 与正在跑本 job 的 server 全程未被访问。
+
+```text
+$ gofer tun save demo -w w-smoke "1502:127.0.0.1:502,11217:127.0.0.1:1217"
+saved preset demo on the server (w-smoke: 1502:127.0.0.1:502 11217:127.0.0.1:1217)   # 逗号形式被拆成 2 条
+$ gofer tun saved
+NAME WORKER SPECS NOTE
+demo w-smoke 1502:127.0.0.1:502,11217:127.0.0.1:1217
+$ curl -s http://127.0.0.1:18765/v1/tunnels/presets
+{"presets":[{"name":"demo","worker":"w-smoke","specs":["1502:127.0.0.1:502","11217:127.0.0.1:1217"],"note":"","updated_at":"2026-09-24T15:44:21+08:00","updated_by":""}]}
+$ gofer tun forward -n demo            # 监听 1502/11217，worker 离线只影响拨号
+registered as fw-a673e3c2
+$ curl -s http://127.0.0.1:18765/v1/tunnels/forwarders
+{"forwarders":[{"id":"fw-a673e3c2","caller_id":"","worker":"w-smoke","specs":[{"network":"tcp","bind":"127.0.0.1","local_port":1502,"target":"127.0.0.1:502"},{"network":"tcp","bind":"127.0.0.1","local_port":11217,"target":"127.0.0.1:1217"}],"host":"PC-20260513EDRL","pid":46756,"started_at":"...","last_seen_at":"...","connections":0,"bytes_up":0,"bytes_down":0}]}
+$ gofer tun ls
+FORWARDERS
+ID WORKER RULES HOST PID AGE CONNS UP DOWN
+fw-a673e3c2 w-smoke 1502 -> 127.0.0.1:502;11217 -> 127.0.0.1:1217 PC-20260513EDRL 46756 4s 0 0 0
+CONNECTIONS
+no active tunnels
+# Ctrl+C 后（进程 exit code 0）
+$ curl -s http://127.0.0.1:18765/v1/tunnels/forwarders
+{"forwarders":[]}
+```
+
+临时配置目录里没有生成 `tunnels.yaml`——`tun save` 只写 server，与"server 为真源"一致。
+
+### 3. 实施中的偏差与既有缺口
+
+- **G032**：本地 `tunnels.yaml` 的读取路径打 `// DEPRECATED(v0.60.2): remove in v0.63`（`config.LoadTunnels`、`config.UserTunnelsPath`）；未新增任何无标记兼容分支。`tun save` 的行为变化记录在此：server 可达时只写 server（连不上才本地兜底并提示），这是设计 §二.2 的直接结果。
+- **既有缺口（本次顺手补齐，非新兼容层）**：`tun save` 之前**没有绑定 `-s/--server`**（只有 forward/check/ls 有），客户端节点只能用 `GOFER_SERVER_ADDR`；TUN-03 起 `save/saved/forget/presets push` 都绑定了，否则 `tun save --server ...` 是 usage error。
+- **归并语义（设计未细说，实现取"诚实重复计数"）**：同 `(caller, worker, target)` 的两个转发进程会各自显示同一组连接数——hub 无法知道某条连接来自哪个本地监听端口，编造归属比重复计数更糟；字节**总额**仍然正确（每个进程对同一连接各算一次，不存在重复累加到同一行的情况）。
+- **`tun ls` 段落标题**用 `FORWARDERS` / `CONNECTIONS`（与本文件既有英文表头一致），语义即设计里的「转发进程」/「活跃连接」两段。
+- **心跳容错**：PUT 心跳的空 body 视为"仅续期"（不 400）；收到 404 时 `tun forward` 会自动重新登记并打印，避免 hub 重启后条目永久消失。
+- **TTL 热改**：`server.tunnel.forwarder_ttl_sec` 进 R3 字段策略表（`server.tunnel`，Editable、无需重启），registry 每次读/写都经 `Config.EffectiveForwarderTTL` 取当前值；`PUT /config/server` 的 `applyServerField` 增加 `tunnel` 分支（负值 400）。
+- **jobstore**：新表 `tunnel_presets` 走 `IF NOT EXISTS`（新表无需 migrate ALTER），并加入 `/v1/stats` 的 db 表清单；删除不存在的名字返回哨兵 `jobstore.ErrTunnelPresetNotFound`，HTTP 层据此 404（真实存储错误仍是 500）。

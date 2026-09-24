@@ -279,10 +279,14 @@ Forward local ports through a worker to targets on the worker's network (e.g. a 
 
 ```bash
 gofer tunnel forward -w w-plc 1502:192.168.1.10:502 udp/21845:192.168.1.20:21845   # TCP + UDP
+gofer tunnel forward -w w-plc 1502:192.168.1.10:502,11217:127.0.0.1:1217            # several rules in one argument
 gofer tunnel save hmi -w w-plc udp/21845:192.168.1.20:21845 && gofer tunnel forward --name hmi
 gofer tunnel check -w w-plc udp/192.168.1.20:21845   # proves the worker can open the socket, not that the device answers
-gofer tunnel ls
+gofer tunnel ls                                      # FORWARDERS (listening processes) + CONNECTIONS (active tunnels)
+gofer tunnel presets push                            # upload local presets to the server
 ```
+
+Presets live on the **server** (the `tunnel_presets` table), so `tun forward -n <name>` works from any machine; `tun save` writes the local `tunnels.yaml` only when the server is unreachable (that read path is marked deprecated, removal in v0.63). A `tun forward` registers itself with the hub (expires after 90s without a heartbeat; `server.tunnel.forwarder_ttl_sec` tunes it), so the console and `tun ls` show who is *listening*, not only who is connected.
 
 Forwarder, server and worker log the same `tunnel_id`, with `dial_ms`, `first_byte_ms`, `bytes_up|down`, `packets_up|down` (UDP) and `close_reason`; `GOFER_TUNNEL_TRACE=1` logs every datagram. How to tell a slow relay from a slow device or a chatty protocol is in [`docs/runbook/tcp-tunnel.md`](docs/runbook/tcp-tunnel.md).
 

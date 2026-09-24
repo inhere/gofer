@@ -28,12 +28,47 @@ $ gofer tunnel check -w w-plc 192.168.1.10:503
 ERROR: tunnel: HTTP 502: dial tcp 192.168.1.10:503: connect: connection refused
 $ gofer tunnel forward -w w-plc 1502:192.168.1.10:502
 forwarding 127.0.0.1:1502 -> w-plc:192.168.1.10:502
+registered as fw-1a2b3c4d
 $ gofer tunnel forward -w w-plc udp/1502:192.168.1.10:1502
 forwarding UDP 127.0.0.1:1502 -> w-plc:192.168.1.10:1502
+registered as fw-5e6f7a8b
 $ gofer tunnel ls
+FORWARDERS
+ID WORKER RULES HOST PID AGE CONNS UP DOWN
+fw-1a2b3c4d w-plc 1502 -> 192.168.1.10:502 workshop-pc 4242 3m 1 32 32
+CONNECTIONS
 ID CALLER WORKER TARGET CLIENT AGE UP DOWN
 t-3967153a246e default w-plc 192.168.1.10:502 127.0.0.1:59948 2s 32 32
 ```
+
+### 多条规格：空格与逗号都可以
+
+每条规格仍是 `[udp/][bind:]lport:host:port`，**一个参数里可以用逗号写多条**，逗号与空格可以混用；逗号两侧的空格会被去掉，空条目忽略。IPv6 目标写 `[::1]:port`，里面没有逗号，不会被拆错。
+
+```bash
+# 一条参数写完四条规则（逗号分隔，最自然的写法）
+gofer tun forward -w w-hw \
+  udp/21845:192.168.0.253:21845,1502:192.168.0.205:502,11217:127.0.0.1:1217,11740:192.168.0.205:11740
+
+# 与空格分隔完全等价
+gofer tun forward -w w-hw udp/21845:192.168.0.253:21845 1502:192.168.0.205:502
+```
+
+某一条写错时报错会带**位置和原文**，不必再手工二分：`spec #3 "11217:127.0.0.1:1217": invalid local port ...`。保存预设时存的是**拆开后**的规则数组。
+
+### 转发进程可见
+
+`tun forward` 在**监听成功之后**向 hub 登记自己（`POST /v1/tunnels/forwarders`，id 形如 `fw-1a2b3c4d`，记录 caller/worker/规则/主机名/pid/启动时间），之后每 30 秒心跳续期，退出（含 Ctrl+C）时注销。超过 `server.tunnel.forwarder_ttl_sec`（默认 90 秒，即三次心跳）没有心跳就自动消失——进程被 kill、机器休眠都不会留下僵尸条目。
+
+```yaml
+server:
+  tunnel:
+    forwarder_ttl_sec: 90   # 0/缺省即 90；可热改（下一次读/写登记时生效）
+```
+
+`tun ls` 因此分两段：**FORWARDERS**（在线转发进程，含规则、主机/pid、运行时长、连接数与累计字节）与 **CONNECTIONS**（原来的活跃隧道）。"没有转发进程在跑"和"没人连上来"是两种不同的排查结论，现在能分开看。登记只是展示信息，**不授予任何转发能力**：真正的连接仍走 `/v1/tunnels/connect` 的鉴权与 worker 白名单。写登记只允许 user caller，且只能续/删自己登记的（job 凭证被 SEC-01 默认拒绝，worker 凭证不允许写）。
+
+登记失败（旧 server、hub 不可达、token 不对）只 warn，不影响本地转发；心跳收到 404 说明 hub 重启或条目已过期，会自动重新登记。
 
 `tunnel forward` 支持 `--log-file <path>` 或 `--log-dir <dir>`（二选一）；目录模式生成唯一的 `forward-<YYYYmmdd-HHMMSS>-<pid>.log`。未指定时写入 `<config-dir>/run/tunnels/`。`--quiet` 仅关闭终端输出，文件日志仍保留；显式路径失败会使命令报错，默认路径失败则警告后降级为 stderr。
 
@@ -103,12 +138,35 @@ server 侧拒绝统一记 `tunnel.rejected`：client connect 一侧带 `status`�
 转发规格较长时可存成具名预设，之后用 `--name`（`-n`）复用：
 
 ```bash
-gofer tunnel save hw-win11 -w w-hw-windows11 --note "现场 HMI + PLC" \
-      udp/21845:192.168.0.200:21845 1502:192.168.0.100:502
-gofer tunnel saved            # 列出预设（tunnel ls 是活跃隧道，不要混）
-gofer tunnel forward -n hw-win11
-gofer tunnel check -n hw-win11   # 逐个检查预设里每条规格的设备地址
-gofer tunnel forget hw-win11
+gofer tun save hw-win11 -w w-hw-windows11 --note "现场 HMI + PLC" \
+      udp/21845:192.168.0.200:21845,1502:192.168.0.100:502   # 逗号/空格都可以
+gofer tun saved              # 列 server 上的预设（tun ls 是转发进程与活跃隧道，不要混）
+gofer tun forward -n hw-win11
+gofer tun check -n hw-win11   # 逐个检查预设里每条规格的设备地址
+gofer tun forget hw-win11
 ```
 
-一条预设可存多条规格，一次全开。预设保存在用户级 `<config-dir>/tunnels.yaml`（与 `worker.yaml` 同级，认 `GOFER_CONFIG_DIR`），文件权限 0600。`save` 时每条规格都会校验，非法规格不写入；同名预设需 `--force` 才覆盖。`forward`/`check` 显式给出的 worker 或规格优先于预设，便于临时改端口而不必先改预设。
+一条预设可存多条规格（存的是**拆开后**的数组），一次全开。`save` 时每条规格都会在两端校验，非法规格不落库；同名预设需 `--force` 才覆盖（server 回 409，CLI 直接报错）。
+
+### 预设存在 server 上（v0.60.2 起）
+
+预设不再只属于"执行 `save` 的那台机器"，而是存在 **server 的 `tunnel_presets` 表**里，因此：
+
+- 任何能连到 hub 的机器 `tun saved` 看到同一份预设，换机器不必重存一遍；web 的「设置 → Tunnels」页也编辑同一份数据。
+- `tun forward -n` / `tun check -n` **先查 server**；server 上没有同名预设（或 hub 连不上）才回落本机旧的 `<config-dir>/tunnels.yaml`，并打印提示让你上传。
+- `tun save` 连不上 server 时写本地并提示（server 明确拒绝的错误不会被吞掉）；server 可达时只写 server。
+
+把本机历史预设迁移上去：
+
+```bash
+gofer tun presets push            # 同名冲突默认跳过并列出
+gofer tun presets push --force    # 覆盖 server 上的同名预设
+gofer tun saved                   # 末尾会提示 "local: N preset(s) not on the server: ..."
+```
+
+`tun saved` 只列 server 的预设，并在末尾提示本机还有几个没上传。本地 `tunnels.yaml` 的**读取路径**已标记弃用（`DEPRECATED(v0.60.2): remove in v0.63`，见 G032）：v0.63 起只认 server；文件本身在过渡期仍是离线兜底与 `presets push` 的来源，权限 0600。
+
+`tun forget <name>` 会把 **server 与本机两份都删掉**（报告 `deleted preset demo (server and local)`）：只删 server 的话，残留的本地副本仍会被 `tun forward -n` 解析出来，等于没忘掉。两份都不存在时按错误报告。
+
+`forward`/`check` 显式给出的 worker 或规格优先于预设，便于临时改端口而不必先改预设。
+
