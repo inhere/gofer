@@ -26,6 +26,12 @@ import (
 // SessionID is the session id the fake server returns from session/new.
 const SessionID = "sess-acptest-1"
 
+// LoadResponseMismatchID is a session id that is NOT SessionID: the value for
+// Options.LoadResponseID that scripts an agent answering session/load with a session
+// other than the one it was asked to load (the non-standard case the client warns
+// about but still follows).
+const LoadResponseMismatchID = "sess-acptest-other"
+
 // Scripted agent text. Chunks are emitted separately to prove the client merges
 // consecutive agent_message_chunk updates into one text stream.
 const (
@@ -50,6 +56,14 @@ type Options struct {
 	Slow bool
 	// RefuseLoad makes session/load fail with -32601 (the agent has no loadSession).
 	RefuseLoad bool
+	// LoadResponseID is the sessionId the fake agent echoes in its session/load
+	// RESULT. The ACP schema's session/load response carries no sessionId — what was
+	// loaded IS the id in the REQUEST — so the default ("") answers with an empty
+	// result, the shape a spec-compliant agent has (ACP-02 F13, 2026-09-25: omp-acp and
+	// jcode-acp both answer session/load this way). A test scripting a non-standard
+	// adapter sets the id that adapter echoes; LoadResponseMismatchID is its value for
+	// "answers with a DIFFERENT session than the one asked for".
+	LoadResponseID string
 	// Delay is inserted before the final prompt response (lets a test cancel a
 	// turn that is otherwise about to finish).
 	Delay time.Duration
@@ -158,6 +172,12 @@ func parseArgs(args []string) (Options, error) {
 			o.Slow = true
 		case "--refuse-load":
 			o.RefuseLoad = true
+		case "--load-response-id":
+			if i+1 >= len(args) {
+				return o, fmt.Errorf("--load-response-id needs a value")
+			}
+			i++
+			o.LoadResponseID = args[i]
 		case "--delay":
 			if i+1 >= len(args) {
 				return o, fmt.Errorf("--delay needs a value")
@@ -375,7 +395,14 @@ func (s *server) handleRequest(msg *rpcMsg) {
 		// The line a test keys on to prove the turn RESUMED an existing session
 		// instead of opening a new one (session/new prints its own line).
 		fmt.Fprintf(s.errOut, "acptest: session/load sid=%s cwd=%s\n", p.SessionID, p.Cwd)
-		s.reply(msg.ID, map[string]any{"sessionId": SessionID})
+		// A spec-compliant agent answers with NO sessionId (the request carries the
+		// session being loaded; F13); Options.LoadResponseID scripts the adapter that
+		// echoes one anyway.
+		result := map[string]any{}
+		if s.opts.LoadResponseID != "" {
+			result["sessionId"] = s.opts.LoadResponseID
+		}
+		s.reply(msg.ID, result)
 	case "session/set_mode":
 		var p struct {
 			ModeID string `json:"modeId"`
@@ -384,6 +411,13 @@ func (s *server) handleRequest(msg *rpcMsg) {
 		fmt.Fprintf(s.errOut, "acptest: session/set_mode mode=%s\n", p.ModeID)
 		s.reply(msg.ID, map[string]any{})
 	case "session/prompt":
+		var p struct {
+			SessionID string `json:"sessionId"`
+		}
+		_ = json.Unmarshal(msg.Params, &p)
+		// Which session the turn runs on: the line a test keys on to prove a
+		// session/load without a response id drove the prompt on the REQUESTED id.
+		fmt.Fprintf(s.errOut, "acptest: session/prompt sid=%s\n", p.SessionID)
 		if s.opts.Hang {
 			// Deliberately unanswered: the client must be unblocked by its ctx (and the
 			// process tree killed), not by this agent (F12).

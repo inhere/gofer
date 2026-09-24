@@ -139,6 +139,53 @@ func TestACPResumeFailsWhenLoadUnsupported(t *testing.T) {
 	}
 }
 
+// TestACPResumeEndToEndSpecCompliantAgent is F13's end-to-end regression in the
+// shape the real machine showed (ACP-02, 2026-09-25): a spec-compliant agent answers
+// session/load with NO sessionId, so the continuation is only as good as the client's
+// willingness to attribute an empty result to the session it asked for. `job resume`
+// must run — not fail — and the job row must keep the source's session_id.
+func TestACPResumeEndToEndSpecCompliantAgent(t *testing.T) {
+	root := t.TempDir()
+	s := newACPService(t, root, acptest.Options{})
+
+	src := acpSubmit(t, s, 30)
+	if src.Status != StatusDone {
+		t.Fatalf("source status = %s (err=%s), want done", src.Status, src.Error)
+	}
+	if src.SessionID != acptest.SessionID {
+		t.Fatalf("source session_id = %q, want %q", src.SessionID, acptest.SessionID)
+	}
+
+	resumed, err := s.ResumeJob(src.ID, "keep going", "", "caller-acp")
+	if err != nil {
+		t.Fatalf("ResumeJob: %v", err)
+	}
+	final, ok := s.Wait(resumed.ID)
+	if !ok {
+		t.Fatalf("resumed job %s not found", resumed.ID)
+	}
+	if final.Status != StatusDone {
+		t.Fatalf("resumed status = %s (err=%s), want done", final.Status, final.Error)
+	}
+	if final.SessionID != src.SessionID {
+		t.Fatalf("resumed session_id = %q, want the source's %q unchanged", final.SessionID, src.SessionID)
+	}
+
+	agentLog := readJobLog(t, final, store.StderrFile)
+	if !strings.Contains(agentLog, "session/load sid="+src.SessionID) {
+		t.Fatalf("the continuation must load the source session:\n%s", agentLog)
+	}
+	if !strings.Contains(agentLog, "session/prompt sid="+src.SessionID) {
+		t.Fatalf("the continuation's turn must run on the requested session:\n%s", agentLog)
+	}
+	if strings.Contains(agentLog, "empty sessionId") {
+		t.Fatalf("the load response was rejected instead of used:\n%s", agentLog)
+	}
+	if strings.Contains(agentLog, "session/new") {
+		t.Fatalf("a resume must not open a new session:\n%s", agentLog)
+	}
+}
+
 // TestACPResumeInheritsTimeoutTagsTitleCwd: like the exec-carrier resume, an
 // acp-agent continuation is governed like the run it continues — the source's
 // timeout, tags and (resumed-marked) title, and the same cwd.

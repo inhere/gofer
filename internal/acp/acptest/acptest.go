@@ -19,6 +19,9 @@ func CmdArgs(o Options) []string {
 	if o.RefuseLoad {
 		args = append(args, "--refuse-load")
 	}
+	if o.LoadResponseID != "" {
+		args = append(args, "--load-response-id", o.LoadResponseID)
+	}
 	if o.Delay > 0 {
 		args = append(args, "--delay", o.Delay.String())
 	}

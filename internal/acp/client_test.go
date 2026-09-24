@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"strings"
 	"sync"
 	"testing"
@@ -346,6 +347,64 @@ func TestACPClientLoadSessionRefused(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "-32601") {
 		t.Fatalf("LoadSession err = %v, want the agent's -32601", err)
+	}
+}
+
+// TestACPLoadSessionWithoutIDInResponse is the F13 regression: the ACP schema's
+// session/load response carries NO sessionId — what was loaded IS the id in the
+// request, and the result, when it carries anything, is the session's own state
+// (modes/…). A real agent answers exactly that way (ACP-02 真机 2026-09-25: omp-acp
+// and jcode-acp both did), so a client that required an id in the response failed
+// every real resume with "session/load returned an empty sessionId". The success
+// itself must be attributed to the requested session, and the turn that follows must
+// run on THAT id.
+func TestACPLoadSessionWithoutIDInResponse(t *testing.T) {
+	c, stderr := startFake(t, acptest.Options{})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	sid := handshake(t, c, ctx)
+	sess, err := c.LoadSession(ctx, acp.SessionLoadParams{SessionID: sid, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatalf("LoadSession against a spec-compliant agent: %v", err)
+	}
+	if sess.SessionID != sid {
+		t.Fatalf("loaded sessionId = %q, want the requested %q", sess.SessionID, sid)
+	}
+	if _, err := c.Prompt(ctx, sess.SessionID, "keep going", newRecorder()); err != nil {
+		t.Fatalf("Prompt: %v", err)
+	}
+	// The fake agent echoes the sessionId every session/prompt carried: the turn ran
+	// on the session that was requested.
+	stderr.waitFor(t, "acptest: session/prompt sid="+sid)
+}
+
+// TestACPLoadSessionResponseIDMismatchWarnsAndUsesResponse covers the non-standard
+// agent: one that answers session/load naming a DIFFERENT session than the one asked
+// for. The client does not ignore it silently — that is worth a warning — and then
+// follows the agent's id, because the agent is the authority on what it actually
+// loaded and the next turn has to go to that session.
+func TestACPLoadSessionResponseIDMismatchWarnsAndUsesResponse(t *testing.T) {
+	var logs syncBuffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+
+	c, _ := startFake(t, acptest.Options{LoadResponseID: acptest.LoadResponseMismatchID})
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	sid := handshake(t, c, ctx)
+	sess, err := c.LoadSession(ctx, acp.SessionLoadParams{SessionID: sid, Cwd: t.TempDir()})
+	if err != nil {
+		t.Fatalf("LoadSession: %v", err)
+	}
+	if sess.SessionID != acptest.LoadResponseMismatchID {
+		t.Fatalf("loaded sessionId = %q, want the agent's %q", sess.SessionID, acptest.LoadResponseMismatchID)
+	}
+	got := logs.String()
+	if !strings.Contains(got, "level=WARN") || !strings.Contains(got, sid) || !strings.Contains(got, acptest.LoadResponseMismatchID) {
+		t.Fatalf("mismatch must be warned about with both ids, log:\n%s", got)
 	}
 }
 
