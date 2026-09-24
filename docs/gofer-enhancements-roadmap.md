@@ -57,6 +57,10 @@
 | SVC-01 | Windows 桌面会话常驻：`serve -d`/`worker -d`/`stop` 的 Windows 实现（分离进程 + 命名事件优雅停 + 前台也记 pidfile）+ `start.ps1` 登录计划任务跑在交互会话（`--runner local` 可操作 GUI），nssm 废弃 | 0.50 | [design](design/2026-09-22-windows-desktop-session-service-design.md) · [runbook §7](runbook/2026-07-11-windows-server-selfupdate-runbook.md) |
 | G032 | 兼容策略：DEPRECATED 标记 + 到期删除；v0.48 已删 6 处 v0.45 标记 | 0.46–0.48 | `AGENTS.md` G032 · SUP-01「横切」 |
 | F8 | 升级后前端自愈与轮询收敛：缺失 asset 404（不再回落 shell）、shell `no-cache`/asset `immutable`、旧 chunk 自动重载一次（60s 冷却）+ 顶栏「有新版本，点击刷新」、顶栏铃铛 15s/失焦暂停（`utils/poller.ts`） | 0.53.1 | [runbook §7.5](runbook/2026-07-11-windows-server-selfupdate-runbook.md) · 本文「已落地」 |
+| WEB-12 | 设置页左侧二级菜单（配置管理 / Tunnels / 关于），`/config` 重定向 | 中 | 小 | 🚧 v0.60.2 | [design](design/2026-09-24-settings-hub-and-tunnel-visibility-design.md) §一 |
+| TUN-03 | 隧道在 web 可见：`tun forward` 向 hub 登记与心跳、在线转发列表（归并活跃连接）；预设存 server（CLI 优先、`tun presets push`）、web 编辑 | 中 | 中 | 🚧 v0.60.2 | 同上 §二 |
+| TUN-04 | `tun forward/save` 的 spec 接受逗号分隔（与空格混用） | 低 | 小 | 🚧 v0.60.2 | 同上 §三 |
+| WEB-11 | **web 工作台**（用户 2026-09-24 构想）：在 web 上主动**开始**工作，而不只是被动处理任务——形态类似 agent 桌面版：选项目/agent 开新会话、对话面板、文件/diff、plan 看板侧栏、通知。可复用：pty attach（WEB-03/PTY-01）、ACP 结构化会话（ACP-01）、会话中继（SESS-01/02）、评论 @派活（MCP-05）、skills（JOB-10）、plan 链（PLAN-03/WEB-10）、验收台（REV-01）、文件传输（XFER-01） | 高 | 大 | 📝 构想（待设计） | 同上 §五 |
 | JOB-10 | skills 绑定：`<config-dir>/skills/` 库 + `agent skill import/ls/show/rm/update/export` + server/agent/project/job 四级**并集**绑定 + `--skill/--no-skills`；派发时物化到 job 私有 `result_dir/skills/`（本机直写 / worker 走 uploads `Base=result_dir`）并在 prompt 头部列清单，**不写项目工作树**；`job.skills_mounted/skills_skipped` | 0.56 | [design](design/2026-09-23-skills-binding-and-comment-routing-design.md) §一 · [runbook](runbook/2026-09-23-skills-runbook.md) |
 | MCP-05 | 评论层 + leader 路由：job/plan/todo 评论与 `@agent` 提及即派活（阶段 A，只认 user caller + 限流 + allowlist）；leader 回合（阶段 B，opt-in：成员终态唤醒、轮次封顶、人插话接管、不能 accept/reject） | 0.56 | 同上 §二 · [评论 runbook](runbook/2026-09-23-comments-runbook.md) · [leader runbook](runbook/2026-09-23-leader-round-runbook.md) |
 | S1–S4 | 小项：SPA 回落支持 HEAD；`server.dir_lock`/`server.agent_health` 放行热改（`xfer` 仍需重启）；`job.session_captured` 不进事件镜像（只补注释/文档）；web 配置页补丁式编辑 `notification`（`secret_env` 只给名字、可暂停单个目标） | 0.56 | 同上 §三 + §S4 实测记录 |
@@ -72,7 +76,7 @@
 | LEAD-02 | leader 逐 plan 开启（默认关，全局 enabled 仅总闸）、leader 动作改 CLI（凭证强制权限）、config 视图补 leader、plan 页事件区 | 中 | 小-中 | 🚧 设计 0.2 实施中 | 同上 §二 |
 | F-a/b/c | worker 模式 skill CLI 回落 HTTP（bd h-aii-uzvc）、Board plan 过滤改输入框、导航「技能」→「Skills」 | 中 | 小 | 🚧 设计 0.2 实施中 | 同上 §三 |
 | CFG-05 | worker 配置向导 `gofer worker init`（拉 server projects → roots 映射） | 中 | 中 | ⏳ | 容器 worker 已手工上线（CFG-09），向导仍缺 |
-| ACP-02 | 真 claude-acp / codex-acp 端到端验收（鉴权、供应商稳定后） | 中 | — | ❄ 等条件 | [ACP S0 实测](design/2026-09-17-acp-agent-and-approval-gate-design.md) |
+| ACP-02 | 真 claude-acp / codex-acp 端到端验收（鉴权、审批、resume、凭证） | 中 | — | 🚧 v0.60.2 真机验收 | [ACP S0 实测](design/2026-09-17-acp-agent-and-approval-gate-design.md) |
 | JOB-06 | 上下文/secret/规则注入（per-job env 已有；规则文件挂载待） | 中 | 中 | 🚧 | roadmap-history JOB-06 |
 | JOB-05 | mcp-agent 类型（job 调用"本身是 MCP server"的能力） | 低 | 中 | ⏳ | roadmap-history JOB-05 |
 | AUTO-04 | 事件 hook 插件（只读旁路先行） | 低 | 大 | ⏳ | roadmap-history AUTO-04 |
