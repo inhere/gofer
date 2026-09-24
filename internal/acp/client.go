@@ -220,24 +220,56 @@ func (c *Client) Initialize(ctx context.Context) (InitializeResult, error) {
 }
 
 // NewSession opens a session in cwd, advertising the given MCP servers (nil/empty
-// for none). The response carries the session id every later call needs.
+// for none). The response MUST carry the session id every later call needs: that is
+// what session/new answers with (unlike session/load), so an empty one is an agent
+// bug, not a shape to interpret.
 func (c *Client) NewSession(ctx context.Context, params SessionNewParams) (SessionNewResult, error) {
 	if params.MCPServers == nil {
 		params.MCPServers = []MCPServer{}
 	}
-	return c.sessionCall(ctx, MethodSessionNew, params)
+	out, err := c.sessionCall(ctx, MethodSessionNew, params)
+	if err != nil {
+		return SessionNewResult{}, err
+	}
+	if out.SessionID == "" {
+		return SessionNewResult{}, fmt.Errorf("acp: %s returned an empty sessionId", MethodSessionNew)
+	}
+	return out, nil
 }
 
-// LoadSession resumes an existing session (S2 uses it; S0 only carries the
-// interface). The agent must have declared agentCapabilities.loadSession.
+// LoadSession resumes an existing session (S2 uses it): the agent replays that
+// session's history so the next prompt continues it. The agent must have declared
+// agentCapabilities.loadSession.
+//
+// The ACP schema's session/load response carries NO sessionId — what was loaded IS
+// params.SessionID, and the result, when it carries anything, is the session's own
+// state (modes/…) — so an empty result is a compliant answer and is attributed to
+// the requested session. Requiring an id here failed every real resume with
+// "session/load returned an empty sessionId" (ACP-02 真机, 2026-09-25: omp-acp and
+// jcode-acp both answer this way). An agent that DOES answer with an id is a
+// non-standard adapter: a differing id is warned about and then used, because the
+// agent is the authority on what it actually loaded and the turn has to go there.
 func (c *Client) LoadSession(ctx context.Context, params SessionLoadParams) (SessionNewResult, error) {
 	if params.MCPServers == nil {
 		params.MCPServers = []MCPServer{}
 	}
-	return c.sessionCall(ctx, MethodSessionLoad, params)
+	out, err := c.sessionCall(ctx, MethodSessionLoad, params)
+	if err != nil {
+		return SessionNewResult{}, err
+	}
+	switch {
+	case out.SessionID == "":
+		out.SessionID = params.SessionID
+	case out.SessionID != params.SessionID:
+		slog.Warn("acp: session/load answered with a different sessionId; using the agent's",
+			"requested", params.SessionID, "response", out.SessionID)
+	}
+	return out, nil
 }
 
-// sessionCall issues a call whose result is a session id (+ optional modes).
+// sessionCall issues a call whose result is a session id (+ optional modes) and
+// decodes it. Whether the id may be empty is the caller's call: session/new must
+// answer with one, session/load (by the schema) does not.
 func (c *Client) sessionCall(ctx context.Context, method string, params any) (SessionNewResult, error) {
 	raw, err := c.call(ctx, method, params, nil)
 	var out SessionNewResult
@@ -248,9 +280,6 @@ func (c *Client) sessionCall(ctx context.Context, method string, params any) (Se
 	}
 	if err != nil {
 		return SessionNewResult{}, err
-	}
-	if out.SessionID == "" {
-		return SessionNewResult{}, fmt.Errorf("acp: %s returned an empty sessionId", method)
 	}
 	return out, nil
 }
