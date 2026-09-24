@@ -10,6 +10,7 @@
 | 0.1 | 2026-09-17 | Claude | 初稿：以 Agent Client Protocol 统一驱动 claude/codex/gemini/omp；ACP 的 permission 请求作为审批门输入；job 级 needs_review 验收态 |
 | 0.2 | 2026-09-17 | Claude | 人工批准。决策：IM 侧只做通知不做双向审批（当前 bot 只能发不能收）；`read_only`（bd h-aii-0ql3）并入 S2；补协议细节（JSON-RPC 2.0、stdio 换行分隔、`protocolVersion` 整数、ToolKind 取值）与 S0 的可测试性要求（仓内假 ACP server 测试替身） |
 | 0.4 | 2026-09-25 | omp | **ACP-02 真机验收发现 F12 已修**（2026-09-24 主机实测）：进程树只杀直接子进程 → 取消/超时都不生效（job 一直 running、一直持目录锁）；排队等目录锁的时间被算进 job 超时；claude-acp 模板缺 `acp.modes.read_only`。见文末「ACP-02 真机验收：发现与 F12」 |
+| 0.5 | 2026-09-25 | omp | **ACP-02 真机验收发现 F13 已修**：`session/load` 的响应不含 sessionId（协议如此），客户端却要求它非空 → 真机 `job resume` 全失败。见文末「F13」 |
 | 0.3 | 2026-09-17 | Claude | S1 审批门合入后的 S2/S3 语义细化（实施依据）：resume 的 `session/load` 失败不回退新 session、`acp.load_session:false` 声明不可续；`--read-only` 的 cli 侧沙箱参数 `read_only_args` 内置取值（codex `-s read-only`、claude `--permission-mode plan`）、内置 acp 模板不硬编只读 mode id、同一 job 不可升级；`needs_review` 非终态但"已结束"（`IsFinished`），accept→done、reject→新增终态 `rejected`，`job.needs_review` 进通知默认集，accept 仅 user caller、MCP 只有 reject |
 
 ## 背景与目标
@@ -489,3 +490,24 @@ ACP-02 的范围是主机上已登记的 `claude-acp` / `omp-acp` / `jcode-acp` 
 
 - `pty` 路径本次只审计未改：`internal/runner/pty` 的 teardown 有界（`defaultGrace` 5s + 合成退出），Windows 的 ConPTY 关闭本身会带走附加进程，风险低于 ACP；若将来发现 pty 也遗留孙进程，接同一个 `proctree` 助手即可。
 - 真机复验（需要有权限的 claude-acp 凭证）未做：本次修复由同一批进程树/超时用例在真子进程下背书，真机再跑 `--read-only` 只读小任务 + cancel/超时各一次即可确认。
+
+## ACP-02 真机：session/load 响应无 sessionId（F13，2026-09-25）
+
+### 1. 真机事实（主机 v0.60.1）
+
+omp-acp 与 jcode-acp 的**首轮** job 都正常（`session_id` 分别为 `01a0d443-…`、`session_pig_…`），但 `gofer job resume` 两个都失败：
+`acp: session/load "<id>": acp: session/load returned an empty sessionId`。
+
+按 ACP 协议，`session/load` 的**响应不包含 sessionId**：被加载的就是请求参数里的那个 id，响应只可能带 modes/models/configOptions 之类。
+而 gofer 客户端把"响应里 sessionId 为空"当成错误 —— S2 当初用的假 agent 会回 sessionId，所以这个过度断言一直没暴露。
+
+### 2. 修复
+
+- `internal/acp`：`LoadSession` **无 JSON-RPC error 即视为加载的是请求里的 id**（响应为空 → 用请求的 `sessionId`）；响应若带了 sessionId 且与请求不同，
+  记一条 `slog.Warn`（"using the agent's"）并**以响应为准** —— agent 才是"实际加载了哪个会话"的权威，后续 turn 必须走它。`session/new` 仍要求响应带 sessionId（协议如此），
+  该断言从共享的 `sessionCall` 移到 `NewSession`（`sessionCall` 只负责解码）。wire 协议、runner、worker、peer 路径均不变。
+- 假 agent（`internal/acp/acptest`）：`session/load` 响应**默认不带** sessionId（贴近协议），新增 `--load-response-id`（`Options.LoadResponseID`）脚本化"回带 id"的非标准实现，
+  常量 `LoadResponseMismatchID` 脚本化"回带**不同** id"；`session/prompt` 增打 `acptest: session/prompt sid=…`，供测试断言回合实际跑在哪个会话上。
+- 测试：`internal/acp` 的 `TestACPLoadSessionWithoutIDInResponse`（空响应 → 续接成功、后续 prompt 用请求的 id）、`TestACPLoadSessionResponseIDMismatchWarnsAndUsesResponse`（告警 + 以响应为准）；
+  `internal/job` 的 `TestACPResumeEndToEndSpecCompliantAgent`（首轮 → resume → done 且 `session_id` 不变、不出现 `empty sessionId`）。
+- G032：旧行为（要求响应带 id）是 bug 而非兼容分支，直接剔除；`LoadResponseID` 只是测试替身的脚本开关，不构成生产代码的兼容路径。
