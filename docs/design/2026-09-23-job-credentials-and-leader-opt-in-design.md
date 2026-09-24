@@ -222,3 +222,11 @@ F10 的修法（不改权限表、不改 wire）：
 
 **边界（写进 runbook，别误读）**：job 与 server 同系统用户运行，SEC-01 挡的是"顺手/默认路径"的越权（环境变量、CLI 自动加载、默认 token 链），不是一个下定决心的同用户进程——它仍可直接读 server 的配置文件拿到 token。真正隔离需要把 agent 放到另一个系统账号下（例如独立账号启动的 worker 上）。
 
+## v0.60.1 真机验收（2026-09-24）
+
+- **job 凭证**：exec job 里 `env | grep ^GOFER_` 只有 `GOFER_BIN/CWD/JOB_ID/JOB_TOKEN/RESULT_DIR/SERVER_ADDR`（无 `GOFER_TOKEN`、`GOFER_SERVER_TOKEN`、`GOFER_CONFIG_DIR`）；job 里的 `gofer` 解析到 `serve-run/gofer`（0.60.1，与 server 同版本，F10 的 PATH 前置生效，不再落到主机个人 PATH 上的 0.53.1）；`gofer job accept <别的 job>` → `403 job credential may not accept a delivery`。
+- **leader 逐 plan**：临时打开总闸（`supervisor.leader {enabled, agent: omp, max_rounds: 3, wake_delay: 20}`），P1 `plan-20260924-144941-5b115f63`（`--leader`，A 自动 / B `--no-auto`）与 P2 `plan-20260924-144941-a256df7d`（leader off，单个 exec todo）同时跑：
+  - P1：A 完成 → `plan.leader_woken` 第 1 轮（leader job `20260924-145047-ecd8b77d`，channel=leader）→ leader 发评论 `cm-874effc8`，**作者 `omp`、`author_kind=agent`**（v0.57 那次是 user）→ 用 CLI `plan set-todo … --status ready` 放行 B（在 leader 凭证权限内）→ B 完成 → plan done → `plan.leader_skipped{reason:"plan_done"}`；leader 汇报明确"未 accept/reject（超出 leader 权限，验收归人）"。
+  - P2：事件只有 `plan.todo_advanced`、`plan.completed`，**没有任何 leader 事件**。
+- 验收后配置已还原（只删除临时 leader 块，diff 确认）。
+
