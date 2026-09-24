@@ -669,13 +669,10 @@ func (s *Store) ReconcileOrphanJobs(ts int64, reason string, workerRunners []str
 	// placeholders are built only when the caller resolved any, so an empty list
 	// degrades to exactly the column test.
 	heldPlaceholders := strings.TrimSuffix(strings.Repeat("?,", len(orphanWorkerJobStatuses)), ",")
-	workerPred := "worker_id <> ''"
+	workerPred, workerArgs := orphanWorkerPred(workerRunners)
 	heldArgs := make([]any, 0, util.CapSum(len(orphanWorkerJobStatuses), len(workerRunners), 3))
 	heldArgs = append(heldArgs, ts, "recovering: "+reason+" — awaiting worker ", ts)
-	heldArgs = append(heldArgs, workerRunnersToAny(workerRunners)...)
-	if len(workerRunners) > 0 {
-		workerPred += " OR runner IN (" + strings.TrimSuffix(strings.Repeat("?,", len(workerRunners)), ",") + ")"
-	}
+	heldArgs = append(heldArgs, workerArgs...)
 	heldQ := `UPDATE jobs SET status = 'recovering', recovering_since = ?, error = ? || worker_id, updated_at = ?
   WHERE (` + workerPred + `) AND status IN (` + heldPlaceholders + `)`
 	for _, st := range orphanWorkerJobStatuses {
@@ -712,6 +709,102 @@ func (s *Store) ReconcileOrphanJobs(ts int64, reason string, workerRunners []str
 		return 0, fmt.Errorf("jobstore: reconcile orphan jobs rows: %w", err)
 	}
 	return int(held) + int(n), nil
+}
+
+// orphanWorkerPred returns the predicate — plus the runner-name args it binds — that
+// marks a row as a WORKER job for ReconcileOrphanJobs: an explicit worker_id, or a
+// worker-type runner whose target worker is resolved at dispatch time (D4, so its
+// worker_id column is empty). Shared so the hold UPDATE, the candidate query's
+// exclusion and any future reader can never drift apart about which rows are held.
+func orphanWorkerPred(workerRunners []string) (string, []any) {
+	pred := "worker_id <> ''"
+	if len(workerRunners) == 0 {
+		return pred, nil
+	}
+	pred += " OR runner IN (" + strings.TrimSuffix(strings.Repeat("?,", len(workerRunners)), ",") + ")"
+	return pred, workerRunnersToAny(workerRunners)
+}
+
+// OrphanSessionCandidate is one job ReconcileOrphanJobs is about to FAIL, reduced to
+// the fields a session re-scan needs (F11).
+type OrphanSessionCandidate struct {
+	JobID       string
+	Agent       string
+	ResultDir   string
+	Interactive bool
+}
+
+// ListOrphanSessionCandidates returns the jobs a reconcile is about to fail whose
+// session_id is still empty — the rows worth re-scanning for a session id BEFORE
+// they are marked failed (F11). A serve restart kills finish(), so the terminal
+// capture never ran: an omp job whose id only ever lived in the in-process entry
+// used to end `failed` with an empty session_id, and `job resume` refused it.
+//
+// The predicate mirrors the FAILING half of ReconcileOrphanJobs exactly — the
+// non-terminal rows minus the worker rows step 1 holds in `recovering` — so the two
+// can never disagree about which rows are about to be failed. Worker jobs are
+// excluded on purpose: their logs live on the worker and their rows go to the
+// recovery window, not to `failed` (RECOV-01).
+func (s *Store) ListOrphanSessionCandidates(workerRunners []string) ([]OrphanSessionCandidate, error) {
+	workerPred, workerArgs := orphanWorkerPred(workerRunners)
+	failStatuses := strings.TrimSuffix(strings.Repeat("?,", len(nonTerminalJobStatuses)), ",")
+	heldStatuses := strings.TrimSuffix(strings.Repeat("?,", len(orphanWorkerJobStatuses)), ",")
+	q := `SELECT id, agent, COALESCE(result_dir,''), COALESCE(interactive,0) FROM jobs
+  WHERE status IN (` + failStatuses + `) AND COALESCE(session_id,'') = ''
+    AND NOT ((` + workerPred + `) AND status IN (` + heldStatuses + `))
+  ORDER BY started_at DESC`
+	args := make([]any, 0, util.CapSum(len(nonTerminalJobStatuses), len(workerRunners), len(orphanWorkerJobStatuses)))
+	for _, st := range nonTerminalJobStatuses {
+		args = append(args, st)
+	}
+	args = append(args, workerArgs...)
+	for _, st := range orphanWorkerJobStatuses {
+		args = append(args, st)
+	}
+	rows, err := s.db.Query(q, args...)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: list orphan session candidates: %w", err)
+	}
+	defer rows.Close()
+	var out []OrphanSessionCandidate
+	for rows.Next() {
+		var (
+			c        OrphanSessionCandidate
+			interact int
+		)
+		if err := rows.Scan(&c.JobID, &c.Agent, &c.ResultDir, &interact); err != nil {
+			return nil, fmt.Errorf("jobstore: scan orphan session candidate: %w", err)
+		}
+		c.Interactive = interact != 0
+		out = append(out, c)
+	}
+	return out, rows.Err()
+}
+
+// SetJobSessionID writes a session id onto a job row that does not have one yet —
+// the narrow, first-wins update the LIVE capture paths use (F11: the ndjson
+// projector the moment it sees the agent's session row, and the post-restart log
+// re-scan). It touches ONE column, so it can neither resurrect a terminal row nor
+// interfere with the batch UPDATE that is about to fail an orphan, and it never
+// overwrites an id that was already captured (injected at submit, or read earlier).
+// The bool reports whether this call was the one that wrote it.
+func (s *Store) SetJobSessionID(jobID, sessionID string) (bool, error) {
+	if jobID == "" || sessionID == "" {
+		return false, nil
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	res, err := s.db.Exec(
+		`UPDATE jobs SET session_id = ? WHERE id = ? AND COALESCE(session_id,'') = ''`,
+		sessionID, jobID)
+	if err != nil {
+		return false, fmt.Errorf("jobstore: set job session id: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("jobstore: set job session id rows: %w", err)
+	}
+	return n > 0, nil
 }
 
 // workerRunnersToAny widens a runner-name list into the []any the driver binds.

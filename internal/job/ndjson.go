@@ -72,6 +72,12 @@ func (s *Service) captureNDJSON(entry *jobEntry, jobID, runnerName string, stdou
 		StdoutPath:       ac.NDJSONStdoutPath,
 		Fields:           ac.NDJSONFields,
 	}
+	// F11: the session id must reach the job ROW while the run is still in flight. A
+	// serve restart kills finish(), so an id that only ever lived in the filter (read
+	// back by recordNDJSONCapture at the end) was lost — the row was failed by
+	// ReconcileOrphanJobs with an empty session_id and `job resume` could not
+	// continue the work. Persisting it on first sight costs one narrow UPDATE.
+	opt.OnSession = func(sid string) { s.persistLiveSession(entry, jobID, agentKey, sid) }
 	var raw *os.File
 	if ac.NDJSONRaw && resultDir != "" {
 		f, err := os.OpenFile(filepath.Join(resultDir, store.StdoutRawFile), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
@@ -118,6 +124,38 @@ func (s *Service) recordNDJSONCapture(entry *jobEntry, jobID string, w io.WriteC
 	entry.mu.Unlock()
 	slog.Info("job.ndjson_capture", "job_id", jobID, "agent", agentKey,
 		"kept", kept, "dropped", dropped, "truncated", truncated, "session_id", sessionID)
+}
+
+// persistLiveSession lands a session id the agent's own stream carried on the job
+// row the moment it is seen (F11), instead of waiting for finish(). The in-memory
+// result is set too (first-wins), so the running snapshot and the terminal persist
+// agree with the row and recordNDJSONCapture's own copy stays a no-op. It runs on the
+// goroutine feeding the filter, so it does one narrow UPDATE — never a whole-row
+// upsert that could race finish()'s terminal write. Best-effort: a failed write only
+// warns (the id is still in memory, so the normal path loses nothing).
+func (s *Service) persistLiveSession(entry *jobEntry, jobID, agentKey, sessionID string) {
+	if sessionID == "" {
+		return
+	}
+	entry.mu.Lock()
+	if entry.result.SessionID != "" {
+		entry.mu.Unlock()
+		return // injected at submit, or already captured: never overwrite.
+	}
+	entry.result.SessionID = sessionID
+	entry.mu.Unlock()
+
+	written, err := s.meta.SetJobSessionID(jobID, sessionID)
+	if err != nil {
+		slog.Warn("job.session_live_persist", "job_id", jobID, "agent", agentKey, "err", err)
+		return
+	}
+	if !written {
+		return // another writer got there first; a second event would be a duplicate.
+	}
+	s.recordEvent(jobID, EventJobSessionCaptured, map[string]any{
+		"agent": agentKey, "by": SessionCaptureByNDJSON, "source": "ndjson",
+	})
 }
 
 // entryAgentAndDir snapshots the agent key and result dir of a job entry.

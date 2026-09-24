@@ -388,7 +388,48 @@ func (s *Service) ReconcileOrphanInteractions() (int, error) {
 // work is accepted (the in-memory map is empty, so no live job is touched). Returns
 // the rows resolved (held + failed).
 func (s *Service) ReconcileOrphanJobs() (int, error) {
-	return s.meta.ReconcileOrphanJobs(s.nowFn().Unix(), "orphaned: serve restarted while job was non-terminal", s.workerRunnerNames())
+	runners := s.workerRunnerNames()
+	// F11: recover the session id of the jobs about to be failed BEFORE the flip, so a
+	// job this restart orphaned is still resumable.
+	s.captureOrphanSessions(runners)
+	return s.meta.ReconcileOrphanJobs(s.nowFn().Unix(), "orphaned: serve restarted while job was non-terminal", runners)
+}
+
+// captureOrphanSessions re-scans the logs of the jobs a reconcile is about to fail
+// and back-fills the session id they never got to persist (F11). A serve restart kills
+// finish(), so the terminal capture (captureSession) never ran: for an omp job — whose
+// session id exists only in its ndjson stream — the row went to `failed` with an empty
+// session_id and `job resume` could not continue the work, even though the id had been
+// sitting in the log the whole time. The scan is the same one the terminal path runs
+// (scanSessionFromLogs), just earlier and for every candidate. Worker jobs are not
+// candidates: their logs live on the worker and their rows go to the recovery window
+// (RECOV-01), not to `failed`.
+//
+// Best-effort by design: a failed list, scan or write only warns. The reconcile MUST
+// still run — a session id is a convenience, the terminal state is the contract.
+func (s *Service) captureOrphanSessions(workerRunners []string) {
+	cands, err := s.meta.ListOrphanSessionCandidates(workerRunners)
+	if err != nil {
+		slog.Warn("orphan session scan: list candidates", "err", err)
+		return
+	}
+	for _, c := range cands {
+		sid, _, by := s.scanSessionFromLogs(c.Agent, c.ResultDir, c.Interactive)
+		if sid == "" {
+			continue
+		}
+		written, err := s.meta.SetJobSessionID(c.JobID, sid)
+		if err != nil {
+			slog.Warn("orphan session scan: persist", "job_id", c.JobID, "agent", c.Agent, "err", err)
+			continue
+		}
+		if !written {
+			continue // another writer captured an id first; no duplicate event.
+		}
+		s.recordEvent(c.JobID, EventJobSessionCaptured, map[string]any{
+			"agent": c.Agent, "by": by, "source": "orphan_scan",
+		})
+	}
 }
 
 // workerRunnerNames lists the configured runner keys of type=worker — the runners

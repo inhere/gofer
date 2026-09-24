@@ -169,24 +169,7 @@ func (s *Service) captureSession(entry *jobEntry, resultDir string) {
 	}
 
 	var captured, source, by string
-	if ac, ok := s.agents.Get(agentKey); ok && ac.SessionCapture != "" {
-		if captured = captureSessionID(filepath.Join(resultDir, store.StdoutFile), ac.SessionCapture); captured != "" {
-			source = "stdout"
-		} else if captured = captureSessionID(filepath.Join(resultDir, store.StderrFile), ac.SessionCapture); captured != "" {
-			source = "stderr"
-		} else if interactive {
-			// PTY-01 §四: an interactive job's pty output never enters stdout/stderr
-			// (it only lives in the cast/attach stream), so the de-ANSI'd transcript is
-			// the one place its session id can still be found at终态 — the TUI prints it
-			// on the way out, and the live capture may have missed the very last chunk.
-			if captured = captureSessionID(filepath.Join(resultDir, store.PtyTranscriptFile), ac.SessionCapture); captured != "" {
-				source = "pty"
-			}
-		}
-		if captured != "" {
-			by = SessionCaptureBy(ac.SessionCapture)
-		}
-	}
+	captured, source, by = s.scanSessionFromLogs(agentKey, resultDir, interactive)
 	if captured == "" && resultDir != "" { // 选项C 兜底：任务自写的 session_id 文件。
 		if b, err := os.ReadFile(filepath.Join(resultDir, "session_id")); err == nil {
 			if v := acceptableSessionID(string(b)); v != "" {
@@ -205,6 +188,40 @@ func (s *Service) captureSession(entry *jobEntry, resultDir string) {
 	})
 }
 
+// scanSessionFromLogs looks for a session id in a job's log files, in the terminal
+// capture's order: stdout.log, stderr.log, then — for an INTERACTIVE job only, whose
+// output never reaches either file — the de-ANSI'd pty transcript. It returns the id
+// plus the {source, by} pair a job.session_captured event carries; an empty id means
+// nothing matched. Both the terminal capture (captureSession) and the post-restart
+// re-scan (captureOrphanSessions) go through here, so the two can never disagree
+// about where they look or which regex applies (the agent's resolved SessionCapture,
+// which already carries the AGT-04 generic fallback for a cli-agent that declares
+// none).
+//
+// An empty resultDir scans nothing: the join would otherwise produce a bare relative
+// "stdout.log" and read whatever file the serve process happens to have in its cwd.
+func (s *Service) scanSessionFromLogs(agentKey, resultDir string, interactive bool) (sid, source, by string) {
+	if resultDir == "" {
+		return "", "", ""
+	}
+	ac, ok := s.agents.Get(agentKey)
+	if !ok || ac.SessionCapture == "" {
+		return "", "", ""
+	}
+	if sid = captureSessionID(filepath.Join(resultDir, store.StdoutFile), ac.SessionCapture); sid != "" {
+		return sid, "stdout", SessionCaptureBy(ac.SessionCapture)
+	}
+	if sid = captureSessionID(filepath.Join(resultDir, store.StderrFile), ac.SessionCapture); sid != "" {
+		return sid, "stderr", SessionCaptureBy(ac.SessionCapture)
+	}
+	if interactive {
+		if sid = captureSessionID(filepath.Join(resultDir, store.PtyTranscriptFile), ac.SessionCapture); sid != "" {
+			return sid, "pty", SessionCaptureBy(ac.SessionCapture)
+		}
+	}
+	return "", "", ""
+}
+
 // SessionCaptureBy names WHERE a captured session id came from, for the
 // job.session_captured detail: "agent_config" when the agent's own session_capture
 // produced it (built-in default or explicit config), "fallback" when gofer's generic
@@ -217,6 +234,13 @@ func SessionCaptureBy(reSrc string) string {
 	}
 	return "fallback"
 }
+
+// SessionCaptureByNDJSON is the `by` value for an id the agent's own structured
+// stream carried (F11): the ndjson projector reads the agent's session row itself, so
+// this is the agent-config side of SessionCaptureBy's distinction (the agent declared
+// the shape) — never the generic fallback, which exists for an agent whose banner
+// gofer has to guess at.
+const SessionCaptureByNDJSON = "agent_config"
 
 // sessionReCache 缓存编译后的 SessionCapture 正则（同一 agent 的正则在每个 job 终态
 // 都会用到），避免重复编译。键是正则源串。

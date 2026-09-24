@@ -101,6 +101,13 @@ type Options struct {
 	Fields map[string][]string
 	// MaxEventBytes overrides DefaultMaxEventBytes; <= 0 uses the default.
 	MaxEventBytes int
+	// OnSession, when non-nil, is called ONCE with the first session id the
+	// stream carries, the moment it is read — not at Close. It is how a caller
+	// persists the id while the run is still in flight (a run that never reaches
+	// Close, because the process died with its serve, would otherwise carry the id
+	// only in memory). Called from Write, i.e. on the goroutine feeding the filter:
+	// keep it short and non-blocking. SessionID() still reports the same id.
+	OnSession func(id string)
 }
 
 // matcher is one compiled whitelist entry.
@@ -130,6 +137,7 @@ type Filter struct {
 	head     []byte // the head kept for an over-long line
 
 	sessionID string
+	onSession func(id string)
 	finalSent bool
 	// usage is the LAST usage the projected stream carried (SUP-01 E): an agent
 	// reports a running tally, so the last one is the run's final accounting.
@@ -144,7 +152,7 @@ type Filter struct {
 // compact event lines; Options.EventsToStdout / Options.StdoutEvents may route
 // the events back onto stdout.
 func New(stdout, events io.Writer, opt Options) *Filter {
-	f := &Filter{raw: opt.Raw, proj: newProjector(opt.Projector, opt.AllAssistantText), fields: opt.Fields, maxLine: opt.MaxLineBytes, maxEvent: opt.MaxEventBytes}
+	f := &Filter{raw: opt.Raw, proj: newProjector(opt.Projector, opt.AllAssistantText), fields: opt.Fields, onSession: opt.OnSession, maxLine: opt.MaxLineBytes, maxEvent: opt.MaxEventBytes}
 	if f.maxLine <= 0 {
 		f.maxLine = DefaultMaxLineBytes
 	}
@@ -280,6 +288,9 @@ func (f *Filter) writeLine(line []byte) error {
 	}
 	if em.Session != "" && f.sessionID == "" {
 		f.sessionID = em.Session
+		if f.onSession != nil {
+			f.onSession(em.Session)
+		}
 	}
 	if em.Usage != nil {
 		f.usage = em.Usage
