@@ -13,6 +13,7 @@
 | 0.4 | 2026-09-21 | omp | **X2 已落地**（XFER-01 job 集成：`job run --upload/--collect` + `jobs.xfer_json` + artifacts 并入 + Dispatch `uploads/collect`（v9）+ xfer 事件进通知/webhook + web「文件」块 + docs）；实测记录见 §「X2 实测记录」（stub/e2e 部分；真机验收待监督者在容器执行） |
 | 0.5 | 2026-09-21 | omp | **P1 已落地**（JOB-11 同 cwd 串行锁 + `waiting_dir` + per-agent 并发；AUTO-05 输出停滞检测 → transient）；实测记录见 §「P1 实测记录」（含 4 处与设计的偏差说明） |
 | 0.6 | 2026-09-21 | omp | **P2 已落地**（PLAN-02：plan/todo 的 project、todo 派发字段 + `ready`、派发器与三处触发点、`plan dispatch`/`gofer_dispatch_todo`、plan 用量汇总、web 派发控件）；实测记录见 §「P2 实测记录」 |
+| 0.8 | 2026-09-25 | omp | **F12 修订**（ACP-02 真机验收发现的第二个缺陷）：JOB-11 的执行超时改为"从开始运行起算"，等锁另有 `server.dir_lock_max_wait_sec` 上限 + 事件 `job.dir_wait_timeout`。见 §二 的 F12 修订与 `docs/runbook/2026-09-25-dir-lock-wait-and-job-timeout-runbook.md` |
 | 0.7 | 2026-09-21 | omp | **P3 已落地**（JOB-09：`job_wakeups` 表、多播事件观察者、定时并入 schedule tick、续投/重跑、CLI/HTTP/MCP/web、docs）；实测记录见 §「P3 实测记录」 |
 
 ## 背景与目标
@@ -84,8 +85,9 @@ gofer tool xfer ls|show <id>|rm <id>                                            
 - **谁互斥**：只有**可写的 agent job**（cli-agent / acp-agent 且非 `--read-only`、非交互）默认取**独占锁**；exec job 与 `--read-only` job 默认**共享**（不取锁、不被挡——`git log`、`go test` 这类巡检不该排队）。exec job 想独占可 `job run --exclusive-dir`；agent job 想放弃可 `--shared-dir`（自担风险）。
 - **锁的键**：执行机上的绝对 `WorkDir`；**祖先/后代目录视为同一把锁**（`proj/` 与 `proj/sub/` 互斥）；worktree job 的目录独立，天然不冲突。
 - **在哪**：`job.Service.execute()` 取完项目/caller 信号量之后、`run.Run` 之前，进程内 `dirLocks`（按路径的等待队列，FIFO）；等待期间 job 状态 **`waiting_dir`**（新非终态，统计/inflight 视同 `queued`，`IsFinished=false`），事件 `job.waiting_dir {holder_job}`，取消仍生效。worker 上跑的 job 由 worker 自己的 `job.Service` 加锁，状态经 `Status` 帧上报（字符串，额外协议不需要）。
+  - **F12 修订（2026-09-25）**：job 的执行超时从**拿到锁、状态即将翻 `running`** 那一刻才起算（排队不计入执行预算）；等锁本身另有独立上限 `server.dir_lock_max_wait_sec`（默认 3600s，0 = 不限），超限终态 `failed` + `error=dir lock wait exceeded …` + 事件 `job.dir_wait_timeout {holder_job, dir, wait_sec}`。详见 `docs/runbook/2026-09-25-dir-lock-wait-and-job-timeout-runbook.md`。
 - **per-agent 并发**：`agents.<key>.max_concurrent`（默认 0=不限）→ `Submit` 增 agent 信号量（与项目/caller 同机制），超限保持 `queued`。
-- 配置：`server.dir_lock: true`（默认开；关掉即全部共享）。
+- 配置：`server.dir_lock: true`（默认开；关掉即全部共享）、`server.dir_lock_max_wait_sec`（等锁上限，默认 3600s，0 = 不限；两者都热改、都在 `Submit` 时解析并随请求下发）。
 - web/CLI：Board 状态芯片增 `waiting_dir`（灰蓝）+ 悬停显示 holder；`job show` 打印 `waiting_dir: holder=<id>`。
 
 ## 三、AUTO-05 输出停滞检测
