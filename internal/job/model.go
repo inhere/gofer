@@ -162,8 +162,15 @@ type JobRequest struct {
 	// watched. Resolved at submit and carried to the execution machine, which applies
 	// the decision instead of re-deriving one from its own config.
 	StallTimeoutSec *int `json:"stall_timeout_sec,omitempty" yaml:"stall_timeout_sec,omitempty"`
-	Cols            int  `json:"cols,omitempty" yaml:"cols,omitempty"`
-	Rows            int  `json:"rows,omitempty" yaml:"rows,omitempty"`
+	// DirWaitMaxSec is how long THIS job may queue for the same-directory lock before
+	// it is failed, in seconds (JOB-11, F12 fix): nil = resolve (server.dir_lock_max_wait_sec
+	// > 3600s), 0 = wait until the lock is free or the job is cancelled. Resolved at
+	// submit and carried to the execution machine, which applies the decision instead
+	// of re-deriving one from its own config — the same rule as ExclusiveDir and
+	// StallTimeoutSec above.
+	DirWaitMaxSec *int `json:"dir_wait_max_sec,omitempty" yaml:"dir_wait_max_sec,omitempty"`
+	Cols          int  `json:"cols,omitempty" yaml:"cols,omitempty"`
+	Rows          int  `json:"rows,omitempty" yaml:"rows,omitempty"`
 	// InitialInput is text the pty runner types into an INTERACTIVE job's stdin
 	// once its terminal has settled (session relay §9.1 B: the first message of a
 	// `--resume` takeover). Internal: json/yaml "-" keeps it off the wire and out
@@ -814,6 +821,11 @@ const (
 	// job's own job.running event later says it got in. A subscriber sees the queue
 	// without polling the row.
 	EventJobWaitingDir = "job.waiting_dir"
+	// EventJobDirWaitTimeout is a job whose wait for the same-directory lock exceeded
+	// server.dir_lock_max_wait_sec (JOB-11, F12 fix 2026-09-25): {holder_job, dir,
+	// wait_sec}. The job is FAILED by that wait (it never ran at all), and this row is
+	// what tells its timeline that the queue — not the work — is what ended it.
+	EventJobDirWaitTimeout = "job.dir_wait_timeout"
 	// SEC-01 job-scoped credentials, recorded on the job they describe:
 	//   - job.env_allowed  {keys:[...]}  a project's job_env_allow re-admitted
 	//     inherited variables the denylist would otherwise strip. It is recorded per

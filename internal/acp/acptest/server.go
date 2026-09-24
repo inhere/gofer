@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"strconv"
 	"strings"
 	"sync"
@@ -82,6 +83,21 @@ type Options struct {
 	// carrying TextThink (0/1 => one). A real adapter streams a thought token by
 	// token, which is what the runner has to coalesce (bd h-aii-7kja ②).
 	ThoughtChunks int
+	// Hang makes the scripted turn NEVER answer session/prompt (and ignore
+	// session/cancel): the shape of an adapter that wedges mid-conversation — the
+	// ACP-02 real-machine finding (F12) where a claude-acp job stayed `running`
+	// after its cancel and its timeout. initialize / session/new / session/load /
+	// session/set_mode are still answered, so a client reaches the prompt and blocks
+	// THERE.
+	Hang bool
+	// GrandchildPidFile, when set, makes the fake agent spawn a CHILD of its own (the
+	// same testcmd binary, `spawn-child`) that inherits the agent's stdout and stderr,
+	// and publish that grandchild's pid there before serving. The descendant then
+	// HOLDS the agent's stdio: the shape under which a direct-child-only kill leaves
+	// cmd.Wait blocked and the grandchild alive.
+	GrandchildPidFile string
+	// GrandchildHold is how long the spawned grandchild lives (0 => one minute).
+	GrandchildHold time.Duration
 }
 
 // Main runs the fake server over stdin/stdout. It returns the process exit code.
@@ -94,9 +110,37 @@ func Main(args []string) int {
 	if opts.StderrLine != "" {
 		fmt.Fprintln(os.Stderr, opts.StderrLine)
 	}
+	if opts.GrandchildPidFile != "" {
+		if err := spawnGrandchild(opts.GrandchildPidFile, opts.GrandchildHold); err != nil {
+			fmt.Fprintln(os.Stderr, "acptest: spawn grandchild:", err)
+			return 2
+		}
+	}
 	s := newServer(opts, os.Stdin, os.Stdout, os.Stderr)
 	s.serve()
 	return 0
+}
+
+// spawnGrandchild starts a descendant that inherits this process's stdout and
+// stderr and writes its pid to pidFile before returning — see
+// Options.GrandchildPidFile. The pid is written by THIS process (the child has
+// nothing to publish it through), and the pid file appears only after a successful
+// Start, so a reader that sees it knows the descendant exists.
+func spawnGrandchild(pidFile string, hold time.Duration) error {
+	if hold <= 0 {
+		hold = time.Minute
+	}
+	self, err := os.Executable()
+	if err != nil {
+		return err
+	}
+	cmd := exec.Command(self, "spawn-child", pidFile, hold.String())
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	return os.WriteFile(pidFile, []byte(strconv.Itoa(cmd.Process.Pid)), 0o644)
 }
 
 // parseArgs decodes the `acp-fake` flags.
@@ -183,6 +227,24 @@ func parseArgs(args []string) (Options, error) {
 				return o, fmt.Errorf("--thought-chunks: want a non-negative integer, got %q", args[i])
 			}
 			o.ThoughtChunks = n
+		case "--hang":
+			o.Hang = true
+		case "--grandchild-pid-file":
+			if i+1 >= len(args) {
+				return o, fmt.Errorf("--grandchild-pid-file needs a value")
+			}
+			i++
+			o.GrandchildPidFile = args[i]
+		case "--grandchild-hold":
+			if i+1 >= len(args) {
+				return o, fmt.Errorf("--grandchild-hold needs a value")
+			}
+			i++
+			d, err := time.ParseDuration(args[i])
+			if err != nil {
+				return o, fmt.Errorf("--grandchild-hold: %w", err)
+			}
+			o.GrandchildHold = d
 		default:
 			return o, fmt.Errorf("unknown flag %q", args[i])
 		}
@@ -322,6 +384,12 @@ func (s *server) handleRequest(msg *rpcMsg) {
 		fmt.Fprintf(s.errOut, "acptest: session/set_mode mode=%s\n", p.ModeID)
 		s.reply(msg.ID, map[string]any{})
 	case "session/prompt":
+		if s.opts.Hang {
+			// Deliberately unanswered: the client must be unblocked by its ctx (and the
+			// process tree killed), not by this agent (F12).
+			fmt.Fprintln(s.errOut, "acptest: session/prompt left unanswered (--hang)")
+			return
+		}
 		s.startTurn(msg)
 	default:
 		s.replyError(msg.ID, -32601, "method not found: "+msg.Method)

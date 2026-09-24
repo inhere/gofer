@@ -578,6 +578,10 @@ func validate(cfg *Config) error {
 	if v := cfg.Server.StallTimeoutSec; v != nil && *v < 0 {
 		return fmt.Errorf("server.stall_timeout_sec must be >= 0")
 	}
+	// JOB-11 (F12): same for the directory-lock wait cap (nil = one hour, 0 = no cap).
+	if v := cfg.Server.DirLockMaxWaitSec; v != nil && *v < 0 {
+		return fmt.Errorf("server.dir_lock_max_wait_sec must be >= 0")
+	}
 	// OBS-07a: an unknown webhook kind must fail at load, not silently fall back to
 	// the generic body (an IM bot would then reject every delivery at post time).
 	if n := cfg.Server.Notification; n != nil {

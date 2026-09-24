@@ -231,6 +231,7 @@ func cloneServer(sc ServerConfig) ServerConfig {
 	out.JobRecoverWindowSec = clonePtr(sc.JobRecoverWindowSec)
 	out.AutoResumeMax = clonePtr(sc.AutoResumeMax)
 	out.DirLock = clonePtr(sc.DirLock)
+	out.DirLockMaxWaitSec = clonePtr(sc.DirLockMaxWaitSec)
 	out.StallTimeoutSec = clonePtr(sc.StallTimeoutSec)
 	out.Metrics.Enabled = clonePtr(sc.Metrics.Enabled)
 	if sc.Notification != nil {
@@ -618,6 +619,15 @@ type ServerConfig struct {
 	// (see EffectiveDirLock). Turning it off is the operator's escape hatch for a
 	// deployment where the jobs are known not to touch one tree.
 	DirLock *bool `yaml:"dir_lock,omitempty"`
+	// DirLockMaxWaitSec bounds how long a job may WAIT for the same-directory lock
+	// before it is failed (JOB-11, F12 fix 2026-09-25). A job's own execution timeout
+	// starts when it starts RUNNING — queuing is not execution — so without this cap a
+	// job parked behind a wedged holder would wait forever. A POINTER so "unset"
+	// (→ DefaultDirLockMaxWaitSec, one hour) is distinguishable from an explicit 0,
+	// which removes the cap (wait until the lock is free or the job is cancelled).
+	// Read per submit (see EffectiveDirLockMaxWaitSec), so a hot edit applies to the
+	// NEXT job.
+	DirLockMaxWaitSec *int `yaml:"dir_lock_max_wait_sec,omitempty"`
 	// StallTimeoutSec is the AUTO-05 output-stall window in seconds: a running
 	// non-interactive agent job that produces no output for that long is killed and
 	// failed as stalled. A POINTER so "unset" (→ DefaultStallTimeoutSec, 900s) is
@@ -776,6 +786,33 @@ func (c *Config) EffectiveDirLock() bool {
 		return true
 	}
 	return *c.Server.DirLock
+}
+
+// DefaultDirLockMaxWaitSec is how long a job may queue for the same-directory lock
+// when nothing (request, agent, server) says otherwise: one hour, the same order as
+// the default job timeout. It exists so a holder that wedged can never park its
+// queue forever (F12: jobs sat in `waiting_dir` behind an unkillable ACP job).
+const DefaultDirLockMaxWaitSec = 3600
+
+// EffectiveDirLockMaxWaitSec resolves how long a job may wait for the same-directory
+// lock, in seconds, or 0 for "no cap":
+//
+//	request (stamped by the submitting hub)  → its value
+//	server.dir_lock_max_wait_sec             → its value, 0 removing the cap
+//	otherwise                                → DefaultDirLockMaxWaitSec
+//
+// The request layer exists because a job dispatched to a worker/peer executes there:
+// the hub resolves the policy ONCE and the executing machine applies it instead of
+// re-deriving one from its own config (the same rule as server.dir_lock and
+// server.stall_timeout_sec).
+func (c *Config) EffectiveDirLockMaxWaitSec(requested *int) int {
+	if requested != nil {
+		return *requested
+	}
+	if c != nil && c.Server.DirLockMaxWaitSec != nil {
+		return *c.Server.DirLockMaxWaitSec
+	}
+	return DefaultDirLockMaxWaitSec
 }
 
 // DefaultStallTimeoutSec is the AUTO-05 output-stall window an unset configuration

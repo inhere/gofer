@@ -43,6 +43,15 @@ func CmdArgs(o Options) []string {
 	if o.ThoughtChunks > 0 {
 		args = append(args, "--thought-chunks", strconv.Itoa(o.ThoughtChunks))
 	}
+	if o.Hang {
+		args = append(args, "--hang")
+	}
+	if o.GrandchildPidFile != "" {
+		args = append(args, "--grandchild-pid-file", o.GrandchildPidFile)
+	}
+	if o.GrandchildHold > 0 {
+		args = append(args, "--grandchild-hold", o.GrandchildHold.String())
+	}
 	return args
 }
 

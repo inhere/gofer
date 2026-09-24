@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -208,6 +209,27 @@ func main() {
 		}
 		fmt.Fprintf(os.Stderr, "rendezvous timed out: no peer job arrived in %s\n", dir)
 		os.Exit(4)
+	case "spawn-child":
+		// spawn-child <pidfile> [hold]: start a CHILD of this process (the same testcmd
+		// binary, `sleep <hold>`) that INHERITS this process's stdout and stderr, publish
+		// the child's pid to <pidfile>, then sleep <hold> here too (default 1m). It is the
+		// descendant a process-tree kill test needs: it holds the parent's stdio pipes, so
+		// a direct-child-only kill leaves cmd.Wait blocked and the grandchild running —
+		// exactly the ACP-02 shape (npx → claude-code-acp). The parent never reaps the
+		// child on purpose: both must be killed by whoever owns the tree.
+		pidFile := arg(2)
+		hold := durationArg(3)
+		if hold <= 0 {
+			hold = time.Minute
+		}
+		self, err := os.Executable()
+		must(err)
+		child := exec.Command(self, "sleep", hold.String())
+		child.Stdout = os.Stdout
+		child.Stderr = os.Stderr
+		must(child.Start())
+		must(os.WriteFile(pidFile, []byte(strconv.Itoa(child.Process.Pid)), 0o644))
+		time.Sleep(hold)
 	case "interaction-wrapper":
 		interactionWrapper(arg(2))
 	case "acp-fake":
