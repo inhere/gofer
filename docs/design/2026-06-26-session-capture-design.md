@@ -12,6 +12,7 @@
 | v1.1 | 2026-06-26 | claude | 获取机制升级为**注入优先**：claude 用 `--session-id <gofer-uuid>` 注入(实测，零解析/不需 json)，codex 用 `session id:` 正则捕获；记录"不能靠提示词让模型自报 session_id"的死路 |
 | v1.2 | 2026-06-26 | claude | **P1-P3 已实施**（SUPMODE，见 plan + 真机 E2E PASS）。落地变更：T3.2 放弃 host 经 Forward 预生成 uuid，改 worker 自报经 `Outcome.SessionID` 回传(P1 已在 worker 端填好 SessionID)，覆盖 claude/codex 两类、无 host↔worker 配置耦合 |
 | v1.3 | 2026-06-26 | claude | 收尾两项待确认：①resume **豁免 allow_exec**（§8 决策落地，按 SOURCE agent 判定准入，非 exec 载体）；②session_id 详情**全面展示**：除 CLI `job show` 外，补 MCP `jobView` + Web 控制台 JobDetail |
+| v1.4 | 2026-09-24 | omp | §12 F11：serve 重启把非终态 job 标 failed、`finish()` 不跑 → 只在流里的 id 丢失。补 ndjson 实时落库（`OnSession` 回调 + 窄更新）与对账前日志补扫 |
 
 ## 1. 背景
 
@@ -161,3 +162,38 @@ SessionResume  []string `yaml:"session_resume"`
 ## 11. 结论
 
 挂已有 `captureOutcomes` 钩子做 best-effort 捕获、additive 加一列、resume 用 agent 配置模板拼 argv——改动集中、与现有产出采集/迁移/远端回传模式同构，风险低。建议按 P1→P2→P3 分期，P1 即可让"看得到 session_id"落地。审核通过后出 plan 实施。
+
+## 12. F11 补记（2026-09-24，v0.60.2）：serve 重启时会话 id 丢失
+
+**现象（用户报告）**：job `20260924-133603-319a66ce`（omp，批处理 ndjson）第一行就是 session
+行，但 job 行 `session_id` 为空，失败后 `job resume` 无法续接。
+
+**根因**：该 job 运行中 serve 重启，被 `ReconcileOrphanJobs`（`internal/jobstore/jobs.go`，调用点
+`internal/job/interaction.go` 的 `ReconcileOrphanJobs`）直接标 failed（原因
+`orphaned: serve restarted while job was non-terminal`）。omp 的 id 由 ndjson 投影器实时看到
+（`internal/runner/ndjsonfilter`），但只在 job 正常结束时由 `recordNDJSONCapture` 写进 job 行
+（`finish()` 里、persist 之前）；重启 → `finish()` 没跑 → id 只存在于内存条目里，随进程一起消失。
+终态扫描（`captureSession`）本可按 omp 正则从 `stderr.log` 抓到那行，但对账路径从不扫描。
+
+**修复**（两处，都 first-wins、都不改 wire）：
+
+1. **实时落库**：`ndjsonfilter.Options.OnSession` 是投影器"第一次见到 session id"的回调；
+   `internal/job/ndjson.go` 创建 capture 时挂上 → 立刻把 id 设到 entry（仅当为空）并做一次窄
+   更新 `jobstore.SetJobSessionID`（`UPDATE jobs SET session_id=? WHERE id=? AND
+   COALESCE(session_id,'')=''`，只碰一列，不会复活终态行、不与对账的批量 UPDATE 打架），
+   同时记 `job.session_captured {agent, by:"agent_config", source:"ndjson"}`。
+2. **对账补扫**：`ReconcileOrphanJobs` 在翻转前先用 `jobstore.ListOrphanSessionCandidates`
+   取出"将被标 failed 且 session_id 为空"的本机 job（谓词与对账的"将被失败"集合逐字对齐：非终态
+   减去 worker 行持有的 recovering），对每个用该 agent 解析后的 `SessionCapture`（含 AGT-04
+   兜底）按终态同一顺序（`stdout.log` → `stderr.log` → 交互 job 的 `pty.txt`）重扫，命中就
+   `SetJobSessionID` 并记事件（`source:"orphan_scan"`）。扫描失败只 warn，绝不影响对账。
+   终态扫描与补扫共用 `Service.scanSessionFromLogs`，顺序与正则不会漂移。
+
+**已知剩余缺口**：非 ndjson 的 cli-agent（文本流）仍只在终态扫描捕获，运行中的 `job show`
+看不到 id（重启后由补扫兜住，不会丢）；文本流的实时捕获留作后续项。
+
+**验证**：`TestNDJSONSessionPersistedWhenSeen`（流里出现 session 行、job 仍在跑时读库即有 id 与
+事件）、`TestOrphanReconcileCapturesSessionFromLogs`（stdout/stderr/pty 三个子用例：行变 failed
+且 id 被补上、事件 `source=orphan_scan`）、`TestOrphanedJobIsResumable`（补上后 `ResumeJob`
+成功、argv 带 `--resume <id>`）；不回归 `TestCaptureSessionIDFromFile`、AGT-04 的
+`TestFallbackCapture*`、PTY 的 `TestPtySessionIDCapturedFromTail`。

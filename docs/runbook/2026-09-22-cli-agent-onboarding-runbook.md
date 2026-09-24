@@ -108,3 +108,23 @@ gofer job resume <job-id> --prompt "继续"   # 能起续接 job = resume 模板
   `--resume`/`--session-id` 字样；② 该行是否落在**最后 4KB**内（批处理 job 看 `stdout.log`
   末尾，交互 job 看 `pty.txt` 末尾）；③ 捕获值是否被占位符规则挡掉；
   ④ `gofer job logs <id>` 直接看原文。
+
+## 6. serve 重启后的会话 id（F11，v0.60.2）
+
+serve 重启时，所有非终态 job 会被启动对账标成 `failed`（`orphaned: serve restarted while
+job was non-terminal`），**`finish()` 不会跑**。v0.60.2 之前 session id 只在 `finish()` 前
+从日志/流里读一次，于是"重启那一刻已经在跑、且 id 只在流里"的 job 会以空 `session_id` 收尾，
+`job resume` 直接报 `job has no captured session_id` —— 尽管 id 一直躺在 `stderr.log` 里。
+v0.60.2 起有两条补救：
+
+| 时机 | 行为 | 事件 `source` |
+|---|---|---|
+| 运行中（ndjson agent） | 投影器第一次读到 session 行就**立即**落库（窄 UPDATE，只补空的 `session_id`），不必等 `finish()` | `ndjson` |
+| 重启对账前 | 对账把 job 标 `failed` **之前**，按终态同一顺序（`stdout.log` → `stderr.log` → 交互 job 的 `pty.txt`）用该 agent 的 `session_capture`（含兜底正则）重扫，命中就补库 | `orphan_scan` |
+
+- 两者都是 **first-wins**：已有 `session_id`（注入式 / 先捕获到的）绝不被覆盖，也不会重复记事件。
+- **所有 cli-agent** 都吃对账补扫（正则一样、文件一样）；**只有 ndjson agent** 有运行中实时落库
+  —— 文本 agent 的 id 仍要等终态扫描或重启补扫，所以运行中的 `job show` 可能还看不到它。
+- 远端 worker 的 job 不在补扫范围内：它们走 `recovering` 窗口（RECOV-01），日志在 worker 上。
+- 重启后想确认是否补上了：`gofer job show <id>` 看 `session_id`，时间线里找
+  `job.session_captured`（`source=orphan_scan`）。
