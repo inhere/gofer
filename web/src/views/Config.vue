@@ -577,9 +577,9 @@ onUnmounted(() => {
 
 <template>
   <div class="config-page">
-    <div class="head">
-      <span class="eyebrow mono">CONFIG</span>
-      <h1 class="title mono">系统配置</h1>
+    <!-- WEB-12：页面级标题与宽度交给 /settings 外壳（SettingsLayout），这里只留一条工具条
+         ——「重新读取文件」让 server 重新读盘上的 config.yaml，与下面「刷新」只重读视图不同。 -->
+    <div class="toolbar">
       <button class="mini-btn mono" type="button" :disabled="loading" @click="reloadNow()">
         重新读取文件
       </button>
@@ -1033,29 +1033,22 @@ onUnmounted(() => {
 
 <style scoped>
 .config-page {
-  max-width: 1180px;
-  margin: 0 auto;
+  min-width: 0;
 }
-.head,
+.toolbar {
+  display: flex;
+  align-items: baseline;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-bottom: 14px;
+}
 .section-head {
   display: flex;
   align-items: baseline;
   gap: 10px;
   margin-bottom: 14px;
 }
-.eyebrow {
-  font-size: 10px;
-  letter-spacing: 0.18em;
-  color: var(--queue);
-}
-.title {
-  font-size: 16px;
-  letter-spacing: 0.08em;
-  color: var(--paper);
-  margin: 0;
-}
 .poll {
-  margin-left: auto;
   color: var(--line);
   font-size: 10px;
 }

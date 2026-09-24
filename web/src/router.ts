@@ -65,7 +65,32 @@ const routes: RouteRecordRaw[] = [
   { path: '/skills', name: 'skills', component: () => import('./views/Skills.vue') },
   { path: '/runners', name: 'runners', component: () => import('./views/Runners.vue') },
   { path: '/cluster', redirect: '/runners' },
-  { path: '/config', name: 'config', component: () => import('./views/Config.vue') },
+  // WEB-12：设置区改成二级菜单（views/settings/SettingsLayout.vue）——「⚙ 设置」进 /settings，
+  // 默认落到配置管理；tunnels / about 与它同级。加设置页 = 这里加一条 + 布局的 sections 加一行。
+  {
+    path: '/settings',
+    component: () => import('./views/settings/SettingsLayout.vue'),
+    children: [
+      { path: '', redirect: '/settings/config' },
+      {
+        path: 'config',
+        name: 'settings-config',
+        component: () => import('./views/Config.vue'),
+      },
+      {
+        path: 'tunnels',
+        name: 'settings-tunnels',
+        component: () => import('./views/settings/Tunnels.vue'),
+      },
+      {
+        path: 'about',
+        name: 'settings-about',
+        component: () => import('./views/settings/About.vue'),
+      },
+    ],
+  },
+  // 旧书签/旧链接（R3 起「⚙ 设置」指向的地址）继续可用：重定向到新的配置管理页。
+  { path: '/config', redirect: '/settings/config' },
 ]
 
 const router = createRouter({

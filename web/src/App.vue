@@ -37,7 +37,11 @@ watch(
 )
 
 const homeNav = { to: '/dashboard', label: 'Home' }
-const settingsNav = { to: '/config', label: '⚙ 设置' }
+// WEB-12：「⚙ 设置」进设置区（/settings 默认重定向到 /settings/config），二级菜单在
+// views/settings/SettingsLayout.vue 里。高亮按路径前缀判定——/settings 下的任意子页
+// 都算「在设置里」，不必给每个子路由各写一次。
+const settingsNav = { to: '/settings', label: '⚙ 设置' }
+const settingsActive = computed(() => route.path.startsWith('/settings'))
 
 interface NavItem {
   to: string
@@ -133,7 +137,7 @@ function reloadPage() {
         <RouterLink
           :to="settingsNav.to"
           class="nav-link nav-settings"
-          active-class="nav-link--active"
+          :class="{ 'nav-link--active': settingsActive }"
         >
           {{ settingsNav.label }}
         </RouterLink>
@@ -197,7 +201,7 @@ function reloadPage() {
           <RouterLink
             :to="settingsNav.to"
             class="drawer-link drawer-link--settings"
-            active-class="drawer-link--active"
+            :class="{ 'drawer-link--active': settingsActive }"
             @click="closeDrawer"
           >
             {{ settingsNav.label }}
