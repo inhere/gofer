@@ -135,6 +135,9 @@ const activeLabel = computed(
 @media (max-width: 768px) {
   .settings-body {
     flex-direction: column;
+    /* 宽屏的 flex-start 是为了让左轨不纵向拉伸；换成 column 后它会把内容宽度
+       收成"最宽的一行"，面板就不再占满——这里改回 stretch。 */
+    align-items: stretch;
     gap: 12px;
   }
   .settings-nav {
