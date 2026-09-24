@@ -249,7 +249,7 @@ onMounted(() => {
     <p class="scope-note mono">
       技能库在 <b>serve 主机</b>的 &lt;config-dir&gt;/skills/ 下：导入即解包落盘，派发时按
       server → agent → project → job 的并集物化到 job 私有目录（不写进项目工作树）。
-      绑定关系在 <RouterLink to="/config">配置页</RouterLink> 编辑；写操作需要 can_admin。
+      绑定关系在 <RouterLink to="/settings/config">配置页</RouterLink> 编辑；写操作需要 can_admin。
     </p>
 
     <p v-if="loadError" class="error mono">{{ loadError }}</p>
