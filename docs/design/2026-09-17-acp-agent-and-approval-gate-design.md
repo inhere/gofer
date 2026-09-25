@@ -11,6 +11,7 @@
 | 0.2 | 2026-09-17 | Claude | 人工批准。决策：IM 侧只做通知不做双向审批（当前 bot 只能发不能收）；`read_only`（bd h-aii-0ql3）并入 S2；补协议细节（JSON-RPC 2.0、stdio 换行分隔、`protocolVersion` 整数、ToolKind 取值）与 S0 的可测试性要求（仓内假 ACP server 测试替身） |
 | 0.4 | 2026-09-25 | omp | **ACP-02 真机验收发现 F12 已修**（2026-09-24 主机实测）：进程树只杀直接子进程 → 取消/超时都不生效（job 一直 running、一直持目录锁）；排队等目录锁的时间被算进 job 超时；claude-acp 模板缺 `acp.modes.read_only`。见文末「ACP-02 真机验收：发现与 F12」 |
 | 0.5 | 2026-09-25 | omp | **ACP-02 真机验收发现 F13 已修**：`session/load` 的响应不含 sessionId（协议如此），客户端却要求它非空 → 真机 `job resume` 全失败。见文末「F13」 |
+| 0.6 | 2026-09-25 | omp | **F14**：新增 `acp.claude_settings_env`（内置 `claude-acp` 模板默认开）——执行机启动 ACP 子进程前读 claude 用户设置文件的 `env` 块，只补"进程环境与 job env 都没有"的键，key 只维护一处。见文末「F14」与 runbook `../runbook/2026-09-25-acp-agent-auth-runbook.md` |
 | 0.3 | 2026-09-17 | Claude | S1 审批门合入后的 S2/S3 语义细化（实施依据）：resume 的 `session/load` 失败不回退新 session、`acp.load_session:false` 声明不可续；`--read-only` 的 cli 侧沙箱参数 `read_only_args` 内置取值（codex `-s read-only`、claude `--permission-mode plan`）、内置 acp 模板不硬编只读 mode id、同一 job 不可升级；`needs_review` 非终态但"已结束"（`IsFinished`），accept→done、reject→新增终态 `rejected`，`job.needs_review` 进通知默认集，accept 仅 user caller、MCP 只有 reject |
 
 ## 背景与目标
@@ -511,3 +512,44 @@ omp-acp 与 jcode-acp 的**首轮** job 都正常（`session_id` 分别为 `01a0
 - 测试：`internal/acp` 的 `TestACPLoadSessionWithoutIDInResponse`（空响应 → 续接成功、后续 prompt 用请求的 id）、`TestACPLoadSessionResponseIDMismatchWarnsAndUsesResponse`（告警 + 以响应为准）；
   `internal/job` 的 `TestACPResumeEndToEndSpecCompliantAgent`（首轮 → resume → done 且 `session_id` 不变、不出现 `empty sessionId`）。
 - G032：旧行为（要求响应带 id）是 bug 而非兼容分支，直接剔除；`LoadResponseID` 只是测试替身的脚本开关，不构成生产代码的兼容路径。
+## F14：claude-acp 继承 claude 设置文件的 env 块（2026-09-25）
+
+### 1. 真机事实（2026-09-25，主机）
+
+主机上 claude 的 key 与中转地址只写在 `~/.claude/settings.json` 的 `env` 块（`ANTHROPIC_API_KEY`、`ANTHROPIC_BASE_URL`、各档 `ANTHROPIC_DEFAULT_*_MODEL[_NAME]`），gofer serve 进程环境里**没有任何 `ANTHROPIC_*`**：`claude` CLI 自己读那个文件所以能用，`claude-acp`（Claude Agent SDK）在会话前自己解析凭据、读不到 → 立刻 `-32000 Authentication required`（见 §S0「claude-acp 复查」）。
+
+用户要的是一处维护：让 gofer 为这类 agent 自动带上设置文件的 `env` 块。
+
+### 2. 实现
+
+- **模型**：`config.ACPConfig.ClaudeSettingsEnv *bool`（`agents.<key>.acp.claude_settings_env`）+ `InheritsClaudeSettingsEnv()`（**显式 true 才算开**：nil 块与未设都是关）。内置 `claude-acp` 模板默认 `true`（F14 的动机就是它的适配器），其它模板与手写 agent 不设；操作员声明同名 agent 时整条覆盖模板，`false` 即关。
+- **R3**：`claude_settings_env` 是 `agents.*.acp` 补丁体的成员（`patchAgentACP` 新增 case，`GET /v1/config` 的 `acpConfigView` 回显并在 `null` 时清空）。**不再单开一行** `agents.*.acp.claude_settings_env` 的策略：嵌套路径本来就经最长前缀 `agents.*.acp` 解析为「可编辑、无需重启」，而 `EditableAgentFields()` 同时是 `applyAgentWrite` 的**扁平清空集**，往里放带点的名字会被当成顶层字段去清（`TestFieldPolicyAcpClaudeSettingsEnvIsEditable` 钉住这两半）。
+- **传递**：`runner.ACPRequest.ClaudeSettingsEnv` ← `acpRequest()`（`internal/job/submit.go`）从 agent 配置读。worker 上的 job 由**worker 自己的** agent 配置解析（与 `read_only`/`acp.modes` 同一规则）——文件正是那台机器上的。
+- **读取与合并**：`internal/runner/acp/claude_settings.go`。路径 `$CLAUDE_CONFIG_DIR/settings.json`（job env 优先于进程 env），否则 `<用户主目录>/.claude/settings.json`；只取 `env` 对象的字符串值；**已有即不覆盖**（进程环境按 `os.LookupEnv` 判存在、job env 按大小写不敏感比对，与 golang 侧其它 env 键比较口径一致）；再经 `util.EnvironKeyDenied` 应用 SEC-01 的 deny/allow，最后 `util.MergeEnv`（G042）叠进 `acp.Options.Env`。runner 侧不修改 `req.Env`（渲染命令的 `env_keys` 因此不会多出这些键——设计允许列键名，此处选择不动它）。
+- **失败即警告**：文件缺失 / 解析失败 / 无 `env` 块各一条 `slog.Warn` 后照常启动；成功时一条 `slog.Info`（`count` + **键名**列表）。
+- **不外泄**：值只进子进程环境。slog 只有键名；job 事件、`acp.jsonl`、`stdout/stderr.log` 里都不含值（`TestACPClaudeSettingsEnvNeverPersisted` 逐列、逐事件、逐文件扫哨兵值）。
+
+### 3. 测试（全绿）
+
+| 测试 | 位置 | 断言 |
+|---|---|---|
+| `TestACPClaudeSettingsEnvInjected` | `internal/runner/acp` | 真跑 Runner + 假 ACP server：子进程拿到 `ANTHROPIC_API_KEY`/`ANTHROPIC_BASE_URL` 的设置值，回合 `end_turn` |
+| `TestACPClaudeSettingsEnvDoesNotOverride` | 同上 | job env / 进程环境已有同名键 → 子进程用**已有值**（设置文件是兜底） |
+| `TestACPClaudeSettingsEnvMissingFileIsHarmless` | 同上 | 文件缺失 / JSON 坏 / 无 `env` 块三个子例 → job 照常 done，且这些键未注入 |
+| `TestACPClaudeSettingsEnvRespectsDenylist` | 同上 | 设置文件里的 `GOFER_TOKEN` 被 deny list 剔除，同文件的 `ANTHROPIC_API_KEY` 照常注入 |
+| `TestACPClaudeSettingsEnvOffByDefault` | 同上 | 未开开关的 agent 不读文件 |
+| `TestACPClaudeSettingsEnvNeverPersisted` | `internal/job` | 端到端 job：子进程确实收到设置 env（同文件里另有一个 key 由假 agent 回显），而**哨兵值**不出现在 job 行（含 `request_json`、`rendered_command`、`artifacts_json`）、事件、结果目录任何文件里 |
+| `TestClaudeACPTemplateEnablesSettingsEnv`、`TestBuiltinTemplatesTable` | `internal/agent` | 模板默认开、其它模板关、显式 `false` 的声明覆盖模板 |
+| `TestACPConfigInheritsClaudeSettingsEnv`、`TestFieldPolicyAcpClaudeSettingsEnvIsEditable` | `internal/config` | 访问器语义；嵌套路径可编辑且无需重启、不在扁平清空集里 |
+| `TestAgentPutPatchesACPBlock` | `internal/httpapi` | 经配置 API 写入/回显/落盘，且不覆盖块内未提及的成员 |
+
+测试替身：`internal/acp/acptest` 新增 `--env-print K1,K2`（子进程启动时把 `KEY=VALUE` 打到 stderr，未设打 `KEY=`），让断言落在**子进程实际收到的环境**上而不是内部 map 上。
+
+### 4. 运维文档
+
+`docs/runbook/2026-09-25-acp-agent-auth-runbook.md`「claude-acp 的认证」：key 放 `~/.claude/settings.json` 的 `env` 块（开关默认开）即可；或放 gofer 部署的 `.env` / 用户环境变量；**不要**写进 `config.yaml` 的 `agents.<key>.env`（明文、会落进 `request_json`、配置 API 本就拒绝写它）。含路径/优先级/排查表。
+
+### 5. 未覆盖
+
+- 真机复验未做（需要主机上可用的 claude-acp 凭据与额度）：本次由假 ACP server 的**真子进程**环境回显背书；真机只需删掉 `~/.claude/settings.json` 之外的 `ANTHROPIC_*` 后跑一个 claude-acp 小任务确认不再 `Authentication required`。
+- `rendered_command` 的 `env_keys` 不含注入键（只记配置 env）；注入事实由 slog 一行 + 本文档记录。

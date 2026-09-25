@@ -23,7 +23,7 @@
 
 - **secret 只编辑"名字"，永不编辑值**：写请求体里出现 `token` / `secret` / `password` 这类**字面值**字段一律 `400 secret value not accepted: agents.x.token`（错误里点名该字段并提示改用 `*_env`）；`*_env` 是**环境变量名**，不是值，不会被当成 secret。控制台里 `env_keys` 只显示 key 名，`acp.mcp_servers` 的 env **值**不出网（YAML 预览里也是 `***`）。
 - **agent PUT 是"整体替换"语义**：body 里没有的**可编辑**字段会被清空（控制台每次都会把整份可编辑字段集发出去，所以正常用它不会丢东西；用 `curl` 手写 body 时要注意）。**不在白名单里的字段由服务端原样保留**（`env` / `detect` / `mcp_server_name` 等），控制台也不会改写它们。
-- `acp` 是唯一**补丁式**字段：只覆盖 body 里给出的成员（`permission_policy` / `modes` / `load_session` / `log_thoughts` / `mcp_servers`），其余保留——因为 `acp.mcp_servers[].env` 的值读不出来，整块替换会把它清掉。
+- `acp` 是唯一**补丁式**字段：只覆盖 body 里给出的成员（`permission_policy` / `modes` / `load_session` / `log_thoughts` / `claude_settings_env` / `mcp_servers`），其余保留——因为 `acp.mcp_servers[].env` 的值读不出来，整块替换会把它清掉。
 - **删除一个 agent**：删掉的是"你在文件里的定义"。若该 key 对应**内置/运行时注入**的定义（控制台显「内置」徽标），删除后**回落到内置定义**（能力仍在），响应体里 `fell_back_to_builtin: true`，确认框也会写明。纯自定义 key 删除后直接消失。
 
 ### 外科写回：注释与"首次规范化"

@@ -76,7 +76,7 @@
 | LEAD-02 | leader 逐 plan 开启（默认关，全局 enabled 仅总闸）、leader 动作改 CLI（凭证强制权限）、config 视图补 leader、plan 页事件区 | 中 | 小-中 | 🚧 设计 0.2 实施中 | 同上 §二 |
 | F-a/b/c | worker 模式 skill CLI 回落 HTTP（bd h-aii-uzvc）、Board plan 过滤改输入框、导航「技能」→「Skills」 | 中 | 小 | 🚧 设计 0.2 实施中 | 同上 §三 |
 | CFG-05 | worker 配置向导 `gofer worker init`（拉 server projects → roots 映射） | 中 | 中 | ⏳ | 容器 worker 已手工上线（CFG-09），向导仍缺 |
-| ACP-02 | 真 claude-acp / codex-acp 端到端验收（鉴权、审批、resume、凭证） | 中 | — | ⏳ v0.60.2 真机验收已完成，暴露的 F12 三项已修（进程树 kill/等锁不计超时/claude-acp read_only=plan）；待真实凭证复验 | [ACP 真机发现与 F12](design/2026-09-17-acp-agent-and-approval-gate-design.md) |
+| ACP-02 | 真 claude-acp / codex-acp 端到端验收（鉴权、审批、resume、凭证） | 中 | — | ⏳ v0.60.2 真机验收已完成，暴露的 F12 三项已修（进程树 kill/等锁不计超时/claude-acp read_only=plan）、F13 已修（session/load 响应不含 id）、F14 已加（claude-acp 可继承 `~/.claude/settings.json` 的 env 块）；待真实凭证复验 | [ACP 真机发现与 F12](design/2026-09-17-acp-agent-and-approval-gate-design.md) |
 | JOB-06 | 上下文/secret/规则注入（per-job env 已有；规则文件挂载待） | 中 | 中 | 🚧 | roadmap-history JOB-06 |
 | JOB-05 | mcp-agent 类型（job 调用"本身是 MCP server"的能力） | 低 | 中 | ⏳ | roadmap-history JOB-05 |
 | AUTO-04 | 事件 hook 插件（只读旁路先行） | 低 | 大 | ⏳ | roadmap-history AUTO-04 |
