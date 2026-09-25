@@ -250,12 +250,17 @@ type configAgentView struct {
 	SubmitAgents []string `json:"submit_agents"`
 }
 
-// acpConfigView is the acp-agent sub-block as the console edits it. It carries the two
-// protocol settings a web form has any business changing (modes / permission_policy) —
-// never anything secret (there is nothing secret in it).
+// acpConfigView is the acp-agent sub-block as the console edits it. It carries the
+// protocol settings a web form has any business changing (modes / permission_policy)
+// plus the switches whose default the operator may want to flip (F14's
+// claude_settings_env) — never anything secret (there is nothing secret in it; the
+// settings file's VALUES are never read into a view, let alone echoed).
 type acpConfigView struct {
 	Modes            map[string]string `json:"modes,omitempty"`
 	PermissionPolicy string            `json:"permission_policy,omitempty"`
+	// ClaudeSettingsEnv is a *bool on purpose: the form has to tell "unset" (a
+	// hand-written agent inherits nothing) from "explicitly on/off".
+	ClaudeSettingsEnv *bool `json:"claude_settings_env,omitempty"`
 }
 
 type detectConfigView struct {
@@ -534,7 +539,11 @@ func buildAgentViews(agents map[string]config.AgentConfig, injected map[string]b
 		ac := agents[k]
 		var acp *acpConfigView
 		if ac.ACP != nil {
-			acp = &acpConfigView{Modes: ac.ACP.Modes, PermissionPolicy: ac.ACP.PermissionPolicy}
+			acp = &acpConfigView{
+				Modes:             ac.ACP.Modes,
+				PermissionPolicy:  ac.ACP.PermissionPolicy,
+				ClaudeSettingsEnv: ac.ACP.ClaudeSettingsEnv,
+			}
 		}
 		out = append(out, configAgentView{
 			Key:            k,

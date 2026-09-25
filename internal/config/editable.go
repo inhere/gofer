@@ -130,14 +130,23 @@ var fieldPolicies = map[string]FieldPolicy{
 	"agents.*.max_concurrent":             {Editable: true},
 	"agents.*.stall_timeout_sec":          {Editable: true},
 	"agents.*.retry":                      {Editable: true},
-	"agents.*.acp":                        {Editable: true},
-	"agents.*.output_format":              {Editable: true},
-	"agents.*.ndjson_keep":                {Editable: true},
-	"agents.*.ndjson_raw":                 {Editable: true},
-	"agents.*.ndjson_events_to":           {Editable: true},
-	"agents.*.ndjson_stdout":              {Editable: true},
-	"agents.*.ndjson_stdout_path":         {Editable: true},
-	"agents.*.ndjson_fields":              {Editable: true},
+	// The acp block, written as one PATCH body: its members (`modes`,
+	// `permission_policy`, `load_session`, `log_thoughts`, `claude_settings_env`,
+	// `mcp_servers`) are carried inside this key, so a nested path
+	// (`agents.bot.acp.claude_settings_env`) resolves here through the longest-prefix
+	// rule and a hot edit applies to the next job — every member is read where the job
+	// is built (acpRequest) or spawned (the runner), nothing derives a cached value
+	// from it. There is deliberately no row per member: EditableAgentFields() doubles
+	// as the flat field vocabulary applyAgentWrite CLEARS when a body omits it, and a
+	// dotted name there would be cleared as if it were a top-level field.
+	"agents.*.acp":                {Editable: true},
+	"agents.*.output_format":      {Editable: true},
+	"agents.*.ndjson_keep":        {Editable: true},
+	"agents.*.ndjson_raw":         {Editable: true},
+	"agents.*.ndjson_events_to":   {Editable: true},
+	"agents.*.ndjson_stdout":      {Editable: true},
+	"agents.*.ndjson_stdout_path": {Editable: true},
+	"agents.*.ndjson_fields":      {Editable: true},
 	// SEC-01: who may submit. Both are read where the decision is taken (the submit
 	// permission check reads the asking job's agent/role definition from the live
 	// config), so a hot edit applies to the next submit.

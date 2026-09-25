@@ -70,7 +70,13 @@ func TestBuiltinTemplatesTable(t *testing.T) {
 			// F12 (2026-09-25): the adapter's session modes are
 			// default / acceptEdits / plan / bypassPermissions, so read-only is `plan`
 			// (from the adapter's own `availableModes`, real-machine ACP-02).
-			ACP: &config.ACPConfig{Modes: map[string]string{"read_only": "plan"}},
+			// F14 (2026-09-25): the Claude Agent SDK reads the key from claude's
+			// settings file, not from gofer's environment, so the template opts into
+			// inheriting that file's env block.
+			ACP: &config.ACPConfig{
+				Modes:             map[string]string{"read_only": "plan"},
+				ClaudeSettingsEnv: boolRef(true),
+			},
 		},
 		"codex-acp": {
 			Type:    TypeACPAgent,

@@ -70,7 +70,15 @@ var builtinTemplates = map[string]config.AgentConfig{
 		// default / acceptEdits / plan / bypassPermissions，只读对应 plan。没有这条映射，
 		// `job run -a claude-acp --read-only` 会被准入直接拒掉（"has no read-only mode"），
 		// 只读对 claude-acp 就等于不可用。
-		ACP: &config.ACPConfig{Modes: map[string]string{"read_only": "plan"}},
+		//
+		// F14：claude-acp 走的是 Claude Agent SDK，它在会话前自己解析凭据，
+		// **读不到** claude CLI 的 `~/.claude/settings.json` 的 env 块（真机症状：
+		// `-32000 Authentication required`）。模板默认打开该继承，key 就只需要维护一处；
+		// 显式 `claude_settings_env: false` 可关。
+		ACP: &config.ACPConfig{
+			Modes:             map[string]string{"read_only": "plan"},
+			ClaudeSettingsEnv: boolRef(true),
+		},
 	},
 	"codex-acp": {
 		Type:    TypeACPAgent,
@@ -139,3 +147,9 @@ var builtinTemplates = map[string]config.AgentConfig{
 		NoRawCmd:    true,
 	},
 }
+
+// boolRef returns a pointer to b, for the *bool template fields whose DEFAULT is the
+// point (F14: `claude_settings_env: true`). A plain `true` cannot express "explicitly
+// on" in those fields — unset and false are the same value — which is exactly the
+// distinction an operator's override and the runner both act on.
+func boolRef(b bool) *bool { return &b }

@@ -719,6 +719,14 @@ func patchAgentACP(ac *config.AgentConfig, f configBodyField) error {
 				return err
 			}
 			ac.ACP.LogThoughts = v
+		case "claude_settings_env":
+			// F14: same *bool shape as log_thoughts — `null` (or an omitted member)
+			// means "this agent inherits nothing from claude's settings file".
+			v, err := fieldValue[*bool](sub)
+			if err != nil {
+				return err
+			}
+			ac.ACP.ClaudeSettingsEnv = v
 		case "mcp_servers":
 			v, err := fieldValue[[]config.ACPMCPServerConfig](sub)
 			if err != nil {
