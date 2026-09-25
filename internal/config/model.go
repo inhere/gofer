@@ -1919,6 +1919,31 @@ type ACPConfig struct {
 	// them entirely, for an operator whose logs are dominated by the agent thinking
 	// out loud.
 	LogThoughts *bool `yaml:"log_thoughts,omitempty"`
+	// ClaudeSettingsEnv lets the executing side read claude's USER SETTINGS FILE and
+	// start the ACP process with the `env` block it declares (F14, 2026-09-25). It
+	// exists because claude's key and relay URL live in `~/.claude/settings.json` for
+	// the CLI (which reads that file itself) but NOT in gofer's environment, so an
+	// adapter that resolves credentials before the session (claude-code-acp, via the
+	// Claude Agent SDK) answers "Authentication required" — the key would otherwise
+	// have to be maintained twice.
+	//
+	// true only (the built-in claude-acp template turns it on; unset/false = off):
+	// the file is $CLAUDE_CONFIG_DIR/settings.json if that variable is set, else
+	// <home>/.claude/settings.json; a key the process environment or the job's own env
+	// already defines is NEVER overridden (an explicit setting wins), a key SEC-01
+	// denies is dropped, and a missing/unreadable/malformed file is a warning, not a
+	// failure. Values stay in the child's environment: they never reach request_json,
+	// the rendered command, an event or a log (only the KEY names are logged).
+	ClaudeSettingsEnv *bool `yaml:"claude_settings_env,omitempty"`
+}
+
+// InheritsClaudeSettingsEnv reports whether an acp-agent may start with the `env`
+// block of claude's user settings file layered in (F14): explicit true only — a nil
+// ACPConfig and an unset field both mean "no". Unlike LogsThoughts/AllowsLoadSession
+// the default here is OFF for every agent except the built-in claude-acp template,
+// which sets the field explicitly.
+func (a *ACPConfig) InheritsClaudeSettingsEnv() bool {
+	return a != nil && a.ClaudeSettingsEnv != nil && *a.ClaudeSettingsEnv
 }
 
 // LogsThoughts reports whether this agent's thinking is kept in the job's logs: unset

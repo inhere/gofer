@@ -46,6 +46,9 @@ func CmdArgs(o Options) []string {
 	if o.ThoughtChunks > 0 {
 		args = append(args, "--thought-chunks", strconv.Itoa(o.ThoughtChunks))
 	}
+	if len(o.EnvPrint) > 0 {
+		args = append(args, "--env-print", strings.Join(o.EnvPrint, ","))
+	}
 	if o.Hang {
 		args = append(args, "--hang")
 	}

@@ -790,6 +790,10 @@ func acpRequest(cfg *config.Config, ac config.AgentConfig, req JobRequest, promp
 		Approval:      cfg.EffectiveApproval(req.ProjectKey, req.Agent),
 		LoadSessionID: resumeLoadSessionID(req),
 		LogThoughts:   ac.ACP.LogsThoughts(),
+		// F14: read claude's user settings file on the EXECUTING machine. For a
+		// dispatched job this resolves against the WORKER's own agent config (the
+		// worker builds its own acp request), which is the machine that has the file.
+		ClaudeSettingsEnv: ac.ACP.InheritsClaudeSettingsEnv(),
 	}
 	if ac.ACP == nil {
 		return r

@@ -112,6 +112,12 @@ type Options struct {
 	GrandchildPidFile string
 	// GrandchildHold is how long the spawned grandchild lives (0 => one minute).
 	GrandchildHold time.Duration
+	// EnvPrint lists environment variable names the fake agent reports on stderr as
+	// soon as it starts, one `acptest: env KEY=VALUE` line each — before the handshake,
+	// so a test can assert what the runner actually launched the process with (F14).
+	// An unset variable prints as `KEY=`, the same shape testcmd's env-print-err uses,
+	// which keeps "unset" distinguishable from "empty".
+	EnvPrint []string
 }
 
 // Main runs the fake server over stdin/stdout. It returns the process exit code.
@@ -123,6 +129,11 @@ func Main(args []string) int {
 	}
 	if opts.StderrLine != "" {
 		fmt.Fprintln(os.Stderr, opts.StderrLine)
+	}
+	if len(opts.EnvPrint) > 0 {
+		for _, name := range opts.EnvPrint {
+			fmt.Fprintf(os.Stderr, "acptest: env %s=%s\n", name, os.Getenv(name))
+		}
 	}
 	if opts.GrandchildPidFile != "" {
 		if err := spawnGrandchild(opts.GrandchildPidFile, opts.GrandchildHold); err != nil {
@@ -249,6 +260,16 @@ func parseArgs(args []string) (Options, error) {
 			o.ThoughtChunks = n
 		case "--hang":
 			o.Hang = true
+		case "--env-print":
+			if i+1 >= len(args) {
+				return o, fmt.Errorf("--env-print needs a value")
+			}
+			i++
+			for _, name := range strings.Split(args[i], ",") {
+				if name = strings.TrimSpace(name); name != "" {
+					o.EnvPrint = append(o.EnvPrint, name)
+				}
+			}
 		case "--grandchild-pid-file":
 			if i+1 >= len(args) {
 				return o, fmt.Errorf("--grandchild-pid-file needs a value")

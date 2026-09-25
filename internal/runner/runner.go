@@ -257,6 +257,13 @@ type ACPRequest struct {
 	// false keeps the run's logs free of it. config.ACPConfig.LogsThoughts is the
 	// reader of the operator's `agents.<k>.acp.log_thoughts`.
 	LogThoughts bool
+	// ClaudeSettingsEnv lets the runner seed the agent's environment from claude's
+	// user settings file before it starts the process (F14): the `env` block's keys
+	// that neither the process environment nor Env already define, minus SEC-01's
+	// denied ones. config.ACPConfig.InheritsClaudeSettingsEnv is the reader of the
+	// operator's `agents.<k>.acp.claude_settings_env`; the value is read on the
+	// EXECUTING machine (the runner is where the ACP process starts).
+	ClaudeSettingsEnv bool
 }
 
 // ACPMCPServer is one MCP server advertised to an acp-agent through session/new.

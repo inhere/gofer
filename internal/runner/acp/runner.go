@@ -37,6 +37,7 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/runner"
 	"github.com/inhere/gofer/internal/runner/ndjsonfilter"
+	"github.com/inhere/gofer/internal/util"
 )
 
 // Name is the runner identifier ("acp"). It is NOT a configurable runner key: the
@@ -110,11 +111,20 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		logThoughts: req.ACP.LogThoughts,
 		toolStatus:  map[string]string{},
 	}
+	// F14: when the agent's config asks for it, the process starts with the `env` block
+	// of claude's user settings file layered in — keys neither the process environment
+	// nor the job's own env defines, minus SEC-01's denied ones. MergeEnv returns
+	// req.Env itself when nothing is added, so a run without the switch (or without a
+	// settings file) keeps the identical environment it had before.
+	env := req.Env
+	if req.ACP.ClaudeSettingsEnv {
+		env = util.MergeEnv(req.Env, claudeSettingsExtra(req.JobID, req.Env, req.EnvDeny, req.EnvAllow))
+	}
 	client, err := acp.Start(ctx, acp.Options{
 		Command:  req.Command,
 		Args:     req.Args,
 		Dir:      req.WorkDir,
-		Env:      req.Env,
+		Env:      env,
 		EnvDeny:  req.EnvDeny,
 		EnvAllow: req.EnvAllow,
 		Stderr:   req.Stderr,
