@@ -393,6 +393,7 @@ func TestAgentPutPatchesACPBlock(t *testing.T) {
     acp:
       permission_policy: auto_allow
       load_session: true
+      claude_settings_env: true
       mcp_servers:
         - name: gofer
           command: gofer
@@ -411,7 +412,7 @@ func TestAgentPutPatchesACPBlock(t *testing.T) {
 	// A console-shaped write: only the two members the form shows.
 	resp = do(t, s, http.MethodPut, "/v1/config/agents/acpx", adminToken, map[string]any{
 		"type": "acp-agent", "command": "acpx",
-		"acp": map[string]any{"permission_policy": "ask"},
+		"acp": map[string]any{"permission_policy": "ask", "claude_settings_env": false},
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("PUT status=%d, want 200: %s", resp.StatusCode, bodyText(t, resp))
@@ -424,6 +425,15 @@ func TestAgentPutPatchesACPBlock(t *testing.T) {
 	if ac.ACP.PermissionPolicy != "ask" {
 		t.Fatalf("permission_policy=%q, want ask", ac.ACP.PermissionPolicy)
 	}
+	// F14: the settings-env switch is a patchable member like the others, and the view
+	// echoes it back — the console prefills the input it writes.
+	if ac.ACP.ClaudeSettingsEnv == nil || *ac.ACP.ClaudeSettingsEnv {
+		t.Fatalf("claude_settings_env=%v, want an explicit false", ac.ACP.ClaudeSettingsEnv)
+	}
+	if view := agentFromConfig(t, getConfigView(t, s, adminToken), "acpx"); view.ACP == nil ||
+		view.ACP.ClaudeSettingsEnv == nil || *view.ACP.ClaudeSettingsEnv {
+		t.Fatalf("view acp block = %+v, want claude_settings_env=false echoed", view.ACP)
+	}
 	if ac.ACP.LoadSession == nil || !*ac.ACP.LoadSession {
 		t.Fatal("load_session (a member the body did not carry) was dropped by the patch")
 	}
@@ -433,6 +443,9 @@ func TestAgentPutPatchesACPBlock(t *testing.T) {
 	disk := string(readFile(t, cfgPath))
 	if !strings.Contains(disk, "sk-child-secret") {
 		t.Fatalf("the MCP env value was lost from disk:\n%s", disk)
+	}
+	if !strings.Contains(disk, "claude_settings_env: false") {
+		t.Fatalf("the F14 switch did not reach the file:\n%s", disk)
 	}
 	// A member the API does not know is refused rather than dropped.
 	resp = do(t, s, http.MethodPut, "/v1/config/agents/acpx", adminToken, map[string]any{
