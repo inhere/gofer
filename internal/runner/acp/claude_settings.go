@@ -2,6 +2,7 @@ package acp
 
 import (
 	"encoding/json"
+	"fmt"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -49,7 +50,14 @@ const (
 // logged (one Info line naming how many were added) — a value must never reach
 // request_json, the rendered command, an event, a job log or gofer's own log.
 func claudeSettingsExtra(jobID string, jobEnv map[string]string, deny, allow []string) map[string]string {
-	path := claudeSettingsPath(jobEnv)
+	path, err := claudeSettingsPath(jobEnv)
+	if err != nil {
+		// Fail CLOSED: with no config dir and no home directory there is no path to
+		// read, and guessing (or reading a path relative to the serve process's cwd,
+		// which may be any project's checkout) would inherit somebody else's file.
+		slog.Warn("acp runner: cannot resolve claude's settings path", "job_id", jobID, "err", err)
+		return nil
+	}
 	raw, err := os.ReadFile(path)
 	if err != nil {
 		// Not being able to read the file is the expected state for an operator who
@@ -100,18 +108,21 @@ func claudeSettingsExtra(jobID string, jobEnv map[string]string, deny, allow []s
 // claudeSettingsPath resolves the settings file this host's claude CLI would read:
 // $CLAUDE_CONFIG_DIR/settings.json when that variable is set (the job's own env first,
 // then the process environment — the child sees the job's value, so that is the file
-// its claude reads), else <home>/.claude/settings.json. It returns "" when neither a
-// config dir nor a home directory can be resolved, which the caller reports as an
-// unreadable path.
-func claudeSettingsPath(jobEnv map[string]string) string {
+// its claude reads), else <home>/.claude/settings.json. It reports an error when
+// neither a config dir nor a home directory exists, which the caller treats as "nothing
+// to inherit" rather than falling back to a relative path.
+func claudeSettingsPath(jobEnv map[string]string) (string, error) {
 	if dir := envValue(jobEnv, claudeConfigDirEnv); dir != "" {
-		return filepath.Join(dir, claudeSettingsFile)
+		return filepath.Join(dir, claudeSettingsFile), nil
 	}
 	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		return filepath.Join(claudeConfigDir, claudeSettingsFile)
+	if err != nil {
+		return "", fmt.Errorf("%s is unset and the home directory is unknown: %w", claudeConfigDirEnv, err)
 	}
-	return filepath.Join(home, claudeConfigDir, claudeSettingsFile)
+	if home == "" {
+		return "", fmt.Errorf("%s is unset and the home directory is empty", claudeConfigDirEnv)
+	}
+	return filepath.Join(home, claudeConfigDir, claudeSettingsFile), nil
 }
 
 // envDefines reports whether key already has a value in this process's environment or
