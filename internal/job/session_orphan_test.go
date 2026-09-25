@@ -102,7 +102,7 @@ func TestNDJSONSessionPersistedWhenSeen(t *testing.T) {
 		Command: testcmd.Path(t),
 		// stdout-sleep prints the session row, then keeps the job running: the id has
 		// to be readable long before the process exits.
-		Args:         []string{"stdout-sleep", f11SessionLine(), "5s"},
+		Args:         []string{"stdout-sleep", f11SessionLine(), "60s"}, // long enough that a loaded CI box still reads the row mid-run; cleanup cancels it
 		OutputFormat: config.OutputFormatNDJSON,
 	})
 
