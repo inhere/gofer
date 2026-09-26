@@ -22,6 +22,7 @@ import {
   saySession,
   setSessionRelay,
 } from '../api/client'
+import { turnWorkbenchThread } from '../api/workbench'
 import { fmtAgo, fmtDateTime } from '../api/time'
 import type {
   AgentSession,
@@ -30,7 +31,10 @@ import type {
   Decision,
 } from '../api/types'
 
-const props = defineProps<{ sid: string }>()
+const props = withDefaults(defineProps<{ sid: string; embedded?: boolean; threadId?: string }>(), {
+  embedded: false,
+  threadId: '',
+})
 const router = useRouter()
 const emit = defineEmits<{
   (e: 'close'): void
@@ -142,7 +146,8 @@ const canSend = computed(
   () =>
     !sending.value &&
     session.value?.state !== 'ended' &&
-    session.value?.state !== 'handed_off',
+    session.value?.state !== 'handed_off' &&
+    (!props.embedded || !!openTurn.value),
 )
 // toTerminal：这封消息走的是注入路径（没有 turn 在等），占位与回执据此切换。
 const toTerminal = computed(() => !openTurn.value)
@@ -342,7 +347,10 @@ async function send(): Promise<void> {
   takeoverOffered.value = false
   takeoverConfirm.value = false
   try {
-    if (openTurn.value) {
+    if (props.threadId) {
+      await turnWorkbenchThread(props.threadId, text)
+      actionInfo.value = '已回复 agent ✓'
+    } else if (openTurn.value) {
       await saySession(props.sid, text)
       actionInfo.value = '已回复 agent ✓'
     } else {
@@ -480,7 +488,7 @@ async function remove(): Promise<void> {
 }
 
 function onEsc(ev: KeyboardEvent): void {
-  if (ev.key === 'Escape') {
+  if (ev.key === 'Escape' && !props.embedded) {
     emit('close')
   }
 }
@@ -522,8 +530,8 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="drawer-overlay" @click.self="emit('close')">
-    <div class="drawer-panel" role="dialog" aria-label="会话详情">
+  <div class="drawer-overlay" :class="{ 'drawer-overlay--embedded': embedded }" @click.self="!embedded && emit('close')">
+    <div class="drawer-panel" :role="embedded ? 'region' : 'dialog'" aria-label="会话详情">
       <div class="drawer-head">
         <div class="head-main">
           <span class="drawer-title mono" :title="titleText">{{ titleText }}</span>
@@ -558,6 +566,7 @@ onUnmounted(() => {
             {{ loading ? '刷新中…' : '刷新' }}
           </button>
           <button
+            v-if="!embedded"
             class="act act--warn mono"
             type="button"
             :disabled="deleting"
@@ -567,6 +576,7 @@ onUnmounted(() => {
             {{ deleting ? '移除中…' : '移除登记' }}
           </button>
           <button
+            v-if="!embedded"
             class="act mono"
             type="button"
             title="只关闭这个面板，不改变会话与中继开关"
@@ -802,6 +812,19 @@ onUnmounted(() => {
   background: var(--panel);
   border-left: 1px solid var(--line);
   overflow: hidden;
+}
+.drawer-overlay--embedded {
+  position: static;
+  inset: auto;
+  z-index: auto;
+  display: block;
+  height: 100%;
+  background: transparent;
+}
+.drawer-overlay--embedded .drawer-panel {
+  width: 100%;
+  max-width: none;
+  border-left: 0;
 }
 .drawer-head {
   display: flex;
