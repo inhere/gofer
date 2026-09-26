@@ -90,6 +90,11 @@ const routes: RouteRecordRaw[] = [
         component: () => import('./views/settings/Tunnels.vue'),
       },
       {
+        path: 'notifications',
+        name: 'settings-notifications',
+        component: () => import('./views/settings/Notifications.vue'),
+      },
+      {
         path: 'about',
         name: 'settings-about',
         component: () => import('./views/settings/About.vue'),

@@ -17,6 +17,7 @@ const sections: SettingsSection[] = [
   // JOB-06①：强制规则库（与「配置管理」同属"资产"，放在它后面）。
   { to: '/settings/rules', label: 'Rules' },
   { to: '/settings/tunnels', label: 'Tunnels' },
+  { to: '/settings/notifications', label: '通知' },
   { to: '/settings/about', label: '关于' },
 ]
 

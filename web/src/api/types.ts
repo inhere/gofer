@@ -1345,6 +1345,27 @@ export interface WorkbenchLayoutResp {
   body: unknown
 }
 
+export interface PushSubscriptionKeys {
+  p256dh: string
+  auth: string
+}
+
+export interface PushSubscriptionInput {
+  endpoint: string
+  keys: PushSubscriptionKeys
+}
+
+export interface PushSubscriptionView {
+  endpoint: string
+  user_agent: string
+  created_at: number
+  last_ok_at: number
+}
+
+export interface PushSubscriptionsResp {
+  subscriptions: PushSubscriptionView[]
+}
+
 // job 的一次上传（XFER-01 X2，POST /v1/jobs 的 uploads[]）：xfer_id 是先前 POST /v1/xfer
 // 暂存（stage_only）拿到的 id，dest 是【job cwd 相对】的目标路径。
 export interface JobUpload {
