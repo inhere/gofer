@@ -1411,7 +1411,7 @@ export interface WorkflowsResp {
 // internal/httpapi/plan_handler.go 的 planView/todoView/planDetail 及 jobstore.PlanCounts。
 // PLAN-03 增 blocked：链上某条 job 失败把 plan 停在某个 todo 上（非终态——人重派/跳过
 // 该条目或 plan resume 后回 open 并继续推进）。
-export type PlanStatus = 'open' | 'active' | 'done' | 'archived' | 'blocked'
+export type PlanStatus = 'open' | 'done' | 'archived' | 'blocked'
 
 // plan 下 jobs 的实时状态聚合（查询期算，detail 恒有；list 经 T10 内联）。
 export interface PlanCounts {

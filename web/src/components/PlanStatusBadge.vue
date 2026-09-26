@@ -34,9 +34,6 @@ const dim = computed(() => props.status === 'archived')
 .badge-dot--open {
   background: var(--run);
 }
-.badge-dot--active {
-  background: var(--phosphor);
-}
 .badge-dot--done {
   background: var(--done);
 }

@@ -767,7 +767,7 @@ onUnmounted(() => {
         <PlanStatusBadge :status="plan.status" />
         <div class="status-actions mono">
           <button
-            v-if="plan.status === 'open' || plan.status === 'active'"
+            v-if="plan.status === 'open'"
             class="status-action"
             type="button"
             :disabled="updating"
@@ -776,7 +776,7 @@ onUnmounted(() => {
             标记完成
           </button>
           <button
-            v-if="plan.status === 'open' || plan.status === 'active' || plan.status === 'done'"
+            v-if="plan.status === 'open' || plan.status === 'done'"
             class="status-action"
             type="button"
             :disabled="updating"

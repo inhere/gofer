@@ -90,7 +90,6 @@ const createError = ref('')
 const statusOptions: Array<{ value: '' | PlanStatus; label: string }> = [
   { value: '', label: '全部' },
   { value: 'open', label: 'open' },
-  { value: 'active', label: 'active' },
   { value: 'done', label: 'done' },
   { value: 'archived', label: 'archived' },
 ]
