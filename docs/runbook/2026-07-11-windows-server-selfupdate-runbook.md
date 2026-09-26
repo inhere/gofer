@@ -209,3 +209,24 @@ pwsh -File scripts\start.ps1 -Action status
 
 > 切到计划任务后自更新**不再需要** `-SupervisorMarker 'nssm'`：gofer 的父进程回到 `win-supervisor.ps1`，§2 的调用即最终形态。
 > 切换后 `w-kzl-desktop` 这类"桌面前台 worker"可以关掉：local job 已经在桌面上跑了。
+
+## 8. 从容器（或任意 gofer 客户端）远程自更新（2026-09-26 实测）
+
+适用：server 以 §7 的登录计划任务运行（gofer 的父进程是 `win-supervisor.ps1`）。**不要**用 `start.ps1 -Action upgrade` 远程触发——它先停 server，而执行它的 job 本身是 server 的子进程，会一起被停掉，没人再拉起。
+
+两步，都是 `-a exec --runner local` 的 job（第 2 步必须是 **pwsh 直接作为 job 命令**，不能包在 bash 里，否则父进程不是 gofer，F2 守卫会拒绝）：
+
+```bash
+# 0) web 静态资源：server 用 --web-dir ./web/dist 读磁盘，容器与主机共享该目录，在容器里 pnpm build 即可
+(cd web && pnpm build)
+# 1) 构建新 exe（不 git pull：本仓不 push，远端落后）
+gofer job run -p hyy-ai-inspect -a exec --runner local --sync --cwd tools/gofer --timeout 600 -- \
+  bash -lc 'make build && cp -f dist/gofer.exe gofer-new.exe && ./gofer-new.exe --version'
+# 2) 替换 + 交给看门狗重启（-SkipBuild 用上一步的 gofer-new.exe）
+gofer job run -p hyy-ai-inspect -a exec --runner local --cwd tools/gofer --timeout 300 -- \
+  pwsh -NoProfile -File scripts/win-selfupdate.ps1 -RepoDir 'D:\work\inhere\hyy-ai-inspect\tools\gofer' \
+  -ExeDir 'D:\work\inhere\hyy-ai-inspect\tools\gofer\serve-run' -SkipBuild -HealthUrl 'http://127.0.0.1:8767/health'
+```
+
+实测：停机约 6 秒；第 2 步的 job 会显示 `orphaned: serve restarted…`（它就是被替换的 server 的子进程），属预期——以 `GET /v1/stats` 的 `version` 为准。新版本启动即崩会被看门狗按快速失败回滚到 `serve-run\gofer.old.exe`。
+
