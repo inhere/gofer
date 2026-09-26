@@ -26,6 +26,7 @@ type WorkbenchSnapshot struct {
 	RelayDecisions      []PlanDecision
 	BlockedPlans        []Plan
 	OpenPlanDecisions   []PlanDecision
+	DecisionPlans       []Plan
 	Prefs               []WorkbenchThreadPref
 }
 
@@ -123,6 +124,10 @@ func (s *Store) LoadWorkbenchSnapshot(callerID string, since int64) (WorkbenchSn
 	if err != nil {
 		return WorkbenchSnapshot{}, err
 	}
+	decisionPlans, err := s.listWorkbenchDecisionPlans()
+	if err != nil {
+		return WorkbenchSnapshot{}, err
+	}
 	prefs, err := s.ListWorkbenchThreadPrefs(callerID)
 	if err != nil {
 		return WorkbenchSnapshot{}, err
@@ -135,6 +140,7 @@ func (s *Store) LoadWorkbenchSnapshot(callerID string, since int64) (WorkbenchSn
 		RelayDecisions:      relayDecisions,
 		BlockedPlans:        blockedPlans,
 		OpenPlanDecisions:   openPlanDecisions,
+		DecisionPlans:       decisionPlans,
 		Prefs:               prefs,
 	}, nil
 }
@@ -259,6 +265,29 @@ func (s *Store) listWorkbenchBlockedPlans() ([]Plan, error) {
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("jobstore: list workbench blocked plan rows: %w", err)
+	}
+	return out, nil
+}
+
+func (s *Store) listWorkbenchDecisionPlans() ([]Plan, error) {
+	rows, err := s.db.Query(selectPlanCols + ` WHERE plan_id IN (
+  SELECT DISTINCT plan_id FROM plan_decisions
+  WHERE state='OPEN' AND COALESCE(kind,'')<>'relay' AND COALESCE(plan_id,'')<>''
+) ORDER BY plan_id ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("jobstore: list workbench decision plans: %w", err)
+	}
+	defer rows.Close()
+	out := make([]Plan, 0)
+	for rows.Next() {
+		plan, err := scanPlan(rows)
+		if err != nil {
+			return nil, fmt.Errorf("jobstore: scan workbench decision plan: %w", err)
+		}
+		out = append(out, plan)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("jobstore: list workbench decision plan rows: %w", err)
 	}
 	return out, nil
 }

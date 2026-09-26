@@ -89,6 +89,7 @@ func TestWorkbenchSnapshotIncludesWholeSessionAndBulkAttention(t *testing.T) {
 	assert.Len(t, snapshot.RelayDecisions, 1)
 	assert.Len(t, snapshot.BlockedPlans, 1)
 	assert.Len(t, snapshot.OpenPlanDecisions, 1)
+	assert.Len(t, snapshot.DecisionPlans, 1)
 	assert.Len(t, snapshot.Prefs, 1)
 }
 
