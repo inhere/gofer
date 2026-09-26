@@ -425,6 +425,16 @@ Tools (snake_case, aligned with HTTP): `gofer_list_projects` `gofer_list_agents`
 
 ## Web console
 
+### Workbench（W1）
+
+`/workbench` 是主动工作的会话中枢：顶部 composer 选择 project、agent、模式（ACP 对话 / 交互 PTY / 批处理）、可选 plan todo 和 cwd 后提交；左侧按项目分组显示会话、状态上卷、相对时间与 token 用量；「⚠ 等你 N」按等待时长列出待答 interaction、relay 回复和待看结果；主区复用现有终端、日志、审批卡与 session relay，并可重命名、置顶、标记已看、停止当前 job、打开 job 详情或继续同一 agent 会话。
+
+Workbench 的 thread 定义：`s:<session_id>` 是同一 agent session 的首轮与所有 resume jobs；`j:<job_id>` 是没有 session 的一次性 job（不可续接）；`r:<sid>` 是 session relay 会话。状态优先级为 `blocked > working > review > done > idle`，`stalled` 是独立的疑似停滞标记。caller 自己的标题、已看时间和置顶状态存 server，不影响其他 caller。
+
+快捷键：`/` 聚焦会话搜索；`Ctrl/Cmd+K` 打开命令面板；`Ctrl+Tab` / `Ctrl+Shift+Tab` 在本页最近会话间切换；`Ctrl/Cmd+Enter` 提交 composer 或发送下一轮；`Esc` 从终端/输入区把焦点交还工作台。窄屏一次显示侧栏或主区，主区的「← 会话」返回列表；composer 与「等你」始终位于顶部。
+
+W1 的 ACP/批处理内容仍使用现有 stdout/stderr 日志视图；结构化 ACP 对话、diff/行内评审、服务端布局/PWA/Web Push 和 worktree 合并/预览分别留给 W2–W4。
+
 `serve` embeds a static SPA (the page itself needs no auth; its `/v1/*` calls do). Build and embed it with `make web build`; a bare `go build` serves a placeholder page without affecting the API. Pages: Home (service health, drivers/runners, escalations, jobs by status, schedules, projects, plus two metadata-db cards — **Server DB**: file + WAL size, page geometry, the busiest tables by row count; **Sessions**: totals by state, relay mode split, turns still waiting for a reply, the card links through to Sessions) / board (the plan filter is a free-text plan-id input — prefix match — with a one-click "recent open plans" hint, and `?plan=` in the URL) / **review queue (`/review`, REV-01)** — jobs parked in `needs_review` with their acceptance material in one row (verify badge, commit count, usage, wait time; longest wait first), inline accept/reject and a top-bar count badge / job detail (live logs, diff, artifacts, pty attach; a job in `needs_review`, `rejected`, or `done` with `require_review` opens on a five-tab **review panel** — report / commits / diff / verify / usage — with accept/reject at the bottom) / Plans (todos, decisions; **plan board** — five-column kanban, drag a card to `ready` to dispatch it; the list filters by status/project/keyword and pages 20 at a time, all carried in the URL) / Sessions (relay switch, `auto (idle Xm)`) / Workflows / Schedules / Agents (configured agents and their detect status, with the online driver presence listed below it — a row opens the inbox at `/agents/presence/:id`, and the old `/drivers` + `/drivers/:id` links redirect there) / Runners / Projects (including "allow interactive jobs") / Skills (the skill library: list, SKILL.md body, import/update/remove/export) / New job. The left rail groups the observing pages as Board, Review, Plans, Sessions, Workflows, Schedules and the fleet pages as Agents, Runners, Projects, Skills (Drivers is no longer a separate entry). Disable with `serve --no-web` or `server.web_enabled: false`.
 
 ## HTTP API
@@ -437,6 +447,7 @@ Tools (snake_case, aligned with HTTP): `gofer_list_projects` `gofer_list_agents`
 | templates | `GET /v1/projects/{key}/templates`, `GET /v1/projects/{key}/templates/{name}?var=k=v` (read-only; the detail endpoint returns the server's render of it) |
 | jobs | `POST/GET /v1/jobs`, `GET /v1/jobs/{id}`, `/logs/{stdout,stderr}`, `/stream` (SSE), `/events`, `/diff`, `/artifacts`, `POST …/cancel`, `POST …/resume`, `POST/GET …/wakeups`, `GET/PATCH/DELETE /v1/wakeups/{wid}`, `GET/DELETE …/worktree`, `POST …/attach-ticket`, `GET …/pty/sessions` |
 | interactions | `POST/GET /v1/jobs/{id}/interactions`, `POST …/{iid}/answer`, `POST …/{iid}/punt`, `GET /v1/interactions` |
+| workbench | `GET /v1/workbench/threads?project=&status=&q=&since=`, `PATCH /v1/workbench/threads/{s:\|j:\|r:…}`, `POST …/turn` |
 | plans / decisions | `POST/GET /v1/plans`, `GET /v1/plans/{id}`, `POST …/todos`, `POST …/jobs`, `POST …/run\|pause\|resume`, `POST/GET /v1/decisions`, `POST /v1/decisions/{id}/answer` |
 | session relay | `GET/POST /v1/sessions`, `POST /v1/sessions/{sid}/heartbeat`, `…/relay`, `…/say`, `…/deliver`, `…/release-takeover`, `…/turns` |
 | workflows / schedules | `POST/GET /v1/workflows`, `…/{id}/cancel`, `…/events`, `…/export`; `POST/GET /v1/schedules`, `…/enable`, `…/disable`, `…/run-now`, `…/rotate-token`, `POST /v1/schedules/{id}/trigger?token=…` (unauthenticated, schedule token) |

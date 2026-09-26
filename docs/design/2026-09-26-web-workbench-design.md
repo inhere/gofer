@@ -97,6 +97,17 @@ herdr 的工作区 → 标签页 → 窗格与**状态上卷**保留，但降为
 - **Web Push** 需要 HTTPS 或 localhost；远程访问若是纯 http 内网地址，推送不可用（退化为页内提醒 + 已有 IM 通知）。
 - **多终端同屏性能**：非焦点终端降频渲染。
 
+## W1 实测记录（2026-09-26，不改变 Approved 0.2 设计语义）
+
+实现提交：`af0d136`（固定 HTTP contracts）、`f4b018d`/`0bc1891`（snapshot/prefs 与 decision project bulk mapping）、`ef96efc`（workbench domain）、`c4745f8`（HTTP/SEC-01）、`22f214e`（launcher）、`7c8ab03`（单 thread 主区/键盘/窄屏）、`3cd0b4c`（resume-of-resume 按 `OriginAgent` 解析原 CLI agent）。未 push、未部署、未重启/reload live gofer、未触碰真实配置。
+
+验证分层：
+
+- Source/product PASS：固定 7 项 thread tests、补充 validation/security、`internal/workbench` 与 jobstore tests；Windows/Linux `go build ./...`、`go vet ./...`；Vue `vue-tsc --noEmit`；Vite production build（216 modules）。
+- Runtime API smoke PASS（临时 config、随机 `127.0.0.1:61232`、临时 DB/storage、仓内 `gofer-testcmd`）：假 PTY job 到 running、工作台出现 `j:` thread、attach-ticket 成功后取消；假 ACP permission 进入 attention(`answer`)并作答；同一 `s:sess-acptest-1` 经 workbench turn 连续到三轮，三轮均 done、最终 `turns=3`；rename/seen/pin 回读为 title=`ACP 三轮 smoke`、status=done、pinned=true。临时 server 已按精确 binary path 停止，原 live gofer 进程保持未触碰。
+- Browser visual NOT_RUN：bsk daemon 无法在 Windows Job Object 下建立可访问 IPC；Orca runtime 无法启动；agent-browser 的 headless/headed Chrome 都在写 `DevToolsActivePort` 前退出。按 Host guardrail 未使用 `--no-sandbox`、未删除 daemon/runtime 文件、未重启共享浏览器。因此 command palette、Ctrl+Tab、终端 Esc、窄屏视觉和截图描述仍缺真实浏览器证据，不能宣称目视验收通过。
+- Full Windows package baseline：`internal/workbench`、`internal/httpapi`、`internal/jobstore` PASS；`internal/job` 仍有实施前已复现的 `TestGetArtifactManifest` 与 `TestWorktreeSymlinkedProjectRoot` 两项非 W1 失败。新增 `TestResumeOfResumeUsesOriginAgent`、全部 `TestResume*` 及 HTTP workbench turn 均 PASS。
+
 ## 决策（已批准 2026-09-26）
 
 1. 以**会话**为一等公民（侧栏会话列表 + 主区视图），herdr 式窗格/布局作为 W2 的摆放层。

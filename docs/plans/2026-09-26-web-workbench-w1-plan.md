@@ -296,3 +296,21 @@ G032 预期清单：
 - 若实施发现需要旧 server fallback、永久 alias、wire 字段容忍或其他兼容分支，必须停止并作为 Semantic Amendment 报告，不能静默加入。
 
 剩余但明确不属于 W1：W2 布局/PWA/Web Push、W3 ACP 结构化对话与评审、W4 worktree/看板/预览，以及登录默认落地页是否改为 Workbench；这些只能在 W1 上线试用反馈后另行设计/计划/授权。
+
+## 实施进度（不改变 Draft 0.1 计划语义）
+
+| 任务 | 状态 | 提交/证据 |
+|---|---|---|
+| T00 | PASS | SUPMODE preflight；实施前 baseline 已分类 |
+| T10 | PASS | `af0d136`，固定 7 项测试先 RED |
+| T20 | PASS | `f4b018d`、`0bc1891` |
+| T21 | PASS | `ef96efc` |
+| T22 | PASS | `c4745f8`，固定 HTTP/SEC-01 tests GREEN |
+| T30 | PASS | `22f214e`，Vue typecheck PASS |
+| T31 | SOURCE_PASS | `7c8ab03`；Vue typecheck/Vite build PASS，真实浏览器视觉见 T42 |
+| B01（用户追加） | PASS | `3cd0b4c`；`TestResumeOfResumeUsesOriginAgent` 先 RED 后 GREEN |
+| T41 | PARTIAL | build/vet/Web PASS；四包中三包 PASS，`internal/job` 两项实施前 baseline FAIL |
+| T42 | PARTIAL | 隔离 runtime API smoke PASS；三种浏览器 provider 均无法启动，visual/screenshot NOT_RUN |
+| T43 | IN_PROGRESS | 待文档提交、最终状态/日志/控制字符与 lifecycle 检查 |
+
+以上是 progress/provenance，不改变批准 candidate `1b21a18 / revision 0.1`，也不重开计划审批。Browser Host Gate 与两项非 W1 baseline 未关闭前，不把 W1 标记为完整外部验收。
