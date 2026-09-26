@@ -107,6 +107,7 @@ interface AgentForm {
   retryBackoffText: string
   acpPermissionPolicy: string
   skillsText: string
+  rulesText: string
 }
 
 // WebhookForm 是一行 webhook 的表单态。secretEnv 是"要写入的新名字"，留空即保留服务端
@@ -139,6 +140,7 @@ interface ServerForm {
   retryMaxAttempts: string
   retryBackoffText: string
   skillsText: string
+  rulesText: string
   notification: NotificationForm
 }
 
@@ -169,6 +171,7 @@ const agentForm = reactive<AgentForm>({
   retryBackoffText: '',
   acpPermissionPolicy: '',
   skillsText: '',
+  rulesText: '',
 })
 
 const serverForm = reactive<ServerForm>({
@@ -180,6 +183,7 @@ const serverForm = reactive<ServerForm>({
   retryMaxAttempts: '',
   retryBackoffText: '',
   skillsText: '',
+  rulesText: '',
   notification: emptyNotificationForm(),
 })
 
@@ -295,6 +299,7 @@ function openAgentEditor(a: ConfigAgentView | null): void {
     retryBackoffText: linesText(a?.retry?.backoff_sec?.map(String) ?? null),
     acpPermissionPolicy: a?.acp?.permission_policy ?? '',
     skillsText: linesText(a?.skills),
+    rulesText: linesText(a?.rules),
   })
   void refreshPreview()
 }
@@ -320,6 +325,7 @@ function openServerEditor(): void {
     retryMaxAttempts: sc.retry ? String(sc.retry.max_attempts) : '',
     retryBackoffText: linesText(sc.retry?.backoff_sec?.map(String) ?? null),
     skillsText: linesText(sc.skills),
+    rulesText: linesText(sc.rules),
     notification: {
       enabled: n?.enabled ?? true,
       allowHTTP: n?.allow_http ?? false,
@@ -377,6 +383,12 @@ function buildAgentWrite(): Record<string, unknown> {
   // JOB-10 skills：基底里带的是"上次读到的绑定"，这里用表单值覆盖（清空 = 解绑该 agent
   // 自己的清单；server/project 的绑定不受影响）。
   body.skills = lines(agentForm.skillsText)
+  // JOB-06① rules：与 skills 同理（清空 = 该 agent 不再绑自己的规则；server/project 的绑定
+  // 不受影响）。旧 server 的策略表里没有这个字段（视图也读不到）→ 整条不发，免得被写端点
+  // 当成未知字段拒掉整个保存。
+  if (agentPolicy.value['rules']?.editable) {
+    body.rules = lines(agentForm.rulesText)
+  }
   if (agentForm.type === 'acp-agent') {
     // acp 服务端是"补丁式"应用（见 handler）：这里带上表单能显示的成员，其余
     // （load_session / mcp_servers）由服务端保留，不会被清掉。
@@ -403,6 +415,10 @@ function buildServerWrite(): Record<string, unknown> {
           },
     // JOB-10：全局默认技能绑定（server.skills），逐行一个名字。
     skills: lines(serverForm.skillsText),
+    // JOB-06①：部署级强制规则绑定（server.rules），逐行一个名字。server PUT 是**部分**更新，
+    // 但整份表单照发（与 skills 一致，免得"改一个字段顺手抹掉别的"）；旧 server 的策略表里
+    // 没有这个字段 → 不发，否则会被当成未知字段拒掉。
+    ...(serverPolicy.value['rules']?.editable ? { rules: lines(serverForm.rulesText) } : {}),
     // S4：notification 是补丁式写入 —— 表单里没有的成员保留原值；webhook 行的 secret_env
     // 留空即"保留服务端已配置的名字"（视图只给 secret_set，读不到名字），显式勾选"清除"
     // 才发空串。整份列表照发，所以新增/删除条目都能表达。
@@ -860,6 +876,22 @@ onUnmounted(() => {
                 exec agent 不挂技能（它执行命令，没有"读文档"的概念）。
               </p>
 
+              <label v-if="agentPolicy['rules']?.editable" class="field">
+                <span class="field-name">rules（每行一个规则名 = 该 agent 每个 job 都必须遵守的约束）</span>
+                <textarea
+                  v-model="agentForm.rulesText"
+                  class="input textarea"
+                  :class="{ 'input--bad': fieldBad('rules') }"
+                  rows="3"
+                  placeholder="windows-host"
+                  @change="refreshPreview()"
+                ></textarea>
+              </label>
+              <p v-if="agentPolicy['rules']?.editable" class="hint mono">
+                规则是<b>必须遵守</b>的约束（与 skills 的"按需阅读"不同），提交时注入 prompt 顶部；
+                规则名来自 <RouterLink to="/settings/rules">规则库</RouterLink>，四级绑定取并集。
+              </p>
+
               <p v-if="editing" class="hint mono">
                 不在本表单内的字段由服务端原样保留：env_keys {{ joinOrDash(editing.env_keys) }} ·
                 detect {{ editing.detect.command || '-' }} · mcp_server_name {{ editing.mcp_server_name || '-' }}
@@ -914,6 +946,23 @@ onUnmounted(() => {
               <p class="hint mono">
                 技能名来自 <RouterLink to="/skills">技能库</RouterLink>；绑定是叠加的
                 （server → agent → project → job 取并集），清空这里只是取消全局默认。
+              </p>
+
+              <label v-if="serverPolicy['rules']?.editable" class="field">
+                <span class="field-name">rules（每行一个规则名 = 全站每个 job 都必须遵守的约束）</span>
+                <textarea
+                  v-model="serverForm.rulesText"
+                  class="input textarea"
+                  :class="{ 'input--bad': fieldBad('rules') }"
+                  rows="3"
+                  placeholder="house-rules"
+                  @change="refreshPreview()"
+                ></textarea>
+              </label>
+              <p v-if="serverPolicy['rules']?.editable" class="hint mono">
+                规则名来自 <RouterLink to="/settings/rules">规则库</RouterLink>；这些规则注入每个 job 的
+                prompt 顶部，<b>不要在规则里放密钥</b>（原文随 job 落库）。总长上限由
+                server.rules_max_bytes 控制（默认 16KiB），超限的提交被拒。
               </p>
               <div class="field">
                 <span class="field-name">notification（出站通知：webhook 目标 + 限速）</span>

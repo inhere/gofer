@@ -55,6 +55,9 @@ interface ProjectForm {
   // 交互 job 总开关（AGT-02 §2）：项目侧唯一的交互闸（0.3 已移除按 agent 收窄的历史名单）。
   allow_interactive: boolean
   max_concurrent_jobs: string
+  // 项目级强制规则绑定（JOB-06①）：每行一个规则名（来自规则库 /settings/rules），与
+  // server/agent 层的绑定取并集，项目永远不能取消 server 的规则。
+  rulesText: string
 }
 
 const form = reactive<ProjectForm>({
@@ -67,6 +70,7 @@ const form = reactive<ProjectForm>({
   allow_exec: false,
   allow_interactive: false,
   max_concurrent_jobs: '',
+  rulesText: '',
 })
 
 const agents = computed(() => config.value?.agents ?? [])
@@ -195,6 +199,7 @@ function startCreate(): void {
     allow_exec: false,
     allow_interactive: false,
     max_concurrent_jobs: '',
+    rulesText: '',
   })
 }
 
@@ -209,6 +214,7 @@ function fillForm(p: ProjectDetail): void {
     allow_exec: p.allow_exec,
     allow_interactive: effectiveAllowInteractive(p),
     max_concurrent_jobs: p.max_concurrent_jobs != null ? String(p.max_concurrent_jobs) : '',
+    rulesText: (p.rules ?? []).join('\n'),
   })
 }
 
@@ -224,6 +230,7 @@ function resetForm(): void {
     allow_exec: false,
     allow_interactive: false,
     max_concurrent_jobs: '',
+    rulesText: '',
   })
 }
 
@@ -257,6 +264,12 @@ function buildReq(): ProjectWriteReq {
     allow_exec: form.allow_exec,
     max_concurrent_jobs: Number.isFinite(max) && max > 0 ? max : 0,
     allow_interactive: form.allow_interactive,
+    // JOB-06①：规则绑定逐行一个名字。显式发数组（含空数组）才能表达"取消最后一个绑定"——
+    // 省略字段在 PUT 的合并语义里等于"保持不变"。
+    rules: form.rulesText
+      .split('\n')
+      .map((l) => l.trim())
+      .filter((l) => l !== ''),
   }
 }
 
@@ -500,6 +513,15 @@ onMounted(() => {
               <span v-else>—</span>
             </dd>
 
+            <!-- JOB-06①：项目级强制规则绑定（与 server/agent 的绑定取并集，注入 prompt 顶部）。 -->
+            <dt class="mono">rules</dt>
+            <dd class="mono">
+              <template v-if="detail.rules && detail.rules.length">
+                <span v-for="r in detail.rules" :key="r" class="tag">{{ r }}</span>
+              </template>
+              <span v-else>—</span>
+            </dd>
+
             <dt class="mono">allow_exec</dt>
             <dd class="mono">
               <span class="flag" :class="detail.allow_exec ? 'flag--yes' : 'flag--no'">
@@ -621,6 +643,25 @@ onMounted(() => {
                   placeholder="不限制"
                 />
               </div>
+            </div>
+
+            <div class="field">
+              <label class="label mono" for="cfg-rules">
+                RULES（每行一个规则名 = 该项目每个 job 都必须遵守的约束）
+              </label>
+              <textarea
+                id="cfg-rules"
+                v-model="form.rulesText"
+                class="control mono"
+                rows="3"
+                spellcheck="false"
+                placeholder="gofer-repo"
+              ></textarea>
+              <p class="field-hint mono">
+                规则名来自 <RouterLink to="/settings/rules">规则库（设置 → Rules）</RouterLink>；绑定是叠加的
+                （server → agent → project → job 取并集，项目不能取消 server 的规则），
+                仓库里若有 <code>.gofer/RULES.md</code> 会另加一条 <code>project:&lt;key&gt;</code>。
+              </p>
             </div>
 
             <p v-if="formError" class="error mono">{{ formError }}</p>
