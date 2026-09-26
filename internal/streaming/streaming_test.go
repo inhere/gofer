@@ -3,6 +3,7 @@ package streaming
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/inhere/gofer/internal/store"
@@ -40,5 +41,39 @@ func TestTailFromDetectsRotation(t *testing.T) {
 	chunk, next, rotated = TailFrom(path, 0)
 	if rotated || string(chunk) != "BBB" || next != 3 {
 		t.Fatalf("post-rotation read: chunk=%q next=%d rotated=%v", chunk, next, rotated)
+	}
+}
+
+func TestTailLinesOffset(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, body string) string {
+		p := filepath.Join(dir, name)
+		if err := os.WriteFile(p, []byte(body), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		return p
+	}
+	lines := write("lines.log", "a\nb\nc\nd\n")
+	for _, tc := range []struct {
+		n    int
+		want string
+	}{{1, "d\n"}, {2, "c\nd\n"}, {4, "a\nb\nc\nd\n"}, {10, "a\nb\nc\nd\n"}, {0, "a\nb\nc\nd\n"}} {
+		chunk, _, _ := TailFrom(lines, TailLinesOffset(lines, tc.n))
+		if string(chunk) != tc.want {
+			t.Fatalf("tail %d = %q, want %q", tc.n, chunk, tc.want)
+		}
+	}
+	noEOL := write("noeol.log", "a\nb\nc")
+	if chunk, _, _ := TailFrom(noEOL, TailLinesOffset(noEOL, 2)); string(chunk) != "b\nc" {
+		t.Fatalf("no trailing newline tail = %q", chunk)
+	}
+	if off := TailLinesOffset(filepath.Join(dir, "missing.log"), 5); off != 0 {
+		t.Fatalf("missing file offset = %d", off)
+	}
+	// One huge line bigger than the scan window: start inside the window, never 0.
+	huge := write("huge.log", strings.Repeat("x", tailScanLimit*2)+"\nlast\n")
+	chunk, _, _ := TailFrom(huge, TailLinesOffset(huge, 200))
+	if len(chunk) > tailScanLimit || !strings.HasSuffix(string(chunk), "last\n") {
+		t.Fatalf("huge tail len=%d suffix ok=%v", len(chunk), strings.HasSuffix(string(chunk), "last\n"))
 	}
 }

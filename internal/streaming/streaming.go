@@ -7,6 +7,7 @@
 package streaming
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -84,6 +85,11 @@ type StreamOpts struct {
 	// StdoutFrom is the byte offset to resume stdout from (?from); stderr always
 	// starts at 0. A zero/negative value starts from the beginning.
 	StdoutFrom int64
+	// TailLines, when > 0, starts each stream at the beginning of its last
+	// TailLines lines instead of byte 0 (?tail), so a viewer does not have to
+	// replay a multi-megabyte log to see where the job is now. StdoutFrom wins
+	// for stdout when both are set.
+	TailLines int
 }
 
 // StreamJob serves the Server-Sent Events body for a single job: incremental
@@ -110,6 +116,12 @@ func StreamJob(ctx context.Context, w io.Writer, flusher http.Flusher, jobs *job
 		stdoutOff = opts.StdoutFrom
 	}
 	var stderrOff int64
+	if opts.TailLines > 0 {
+		if opts.StdoutFrom <= 0 {
+			stdoutOff = TailLinesOffset(stdoutPath, opts.TailLines)
+		}
+		stderrOff = TailLinesOffset(stderrPath, opts.TailLines)
+	}
 	seq := 0
 
 	// pumpLogs reads the new bytes appended to each stream since the last offset
@@ -318,6 +330,59 @@ func StreamJob(ctx context.Context, w io.Writer, flusher http.Flusher, jobs *job
 			}
 		}
 	}
+}
+
+// tailScanLimit bounds how far back TailLinesOffset looks for line breaks, so
+// a log made of a few enormous lines still starts near its end.
+const tailScanLimit = 256 << 10
+
+// TailLinesOffset returns the byte offset where the last n lines of path begin
+// (a trailing newline does not count as an extra line). It never looks back more
+// than tailScanLimit bytes; a missing file or n <= 0 yields 0.
+func TailLinesOffset(path string, n int) int64 {
+	if n <= 0 {
+		return 0
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return 0
+	}
+	defer f.Close()
+	info, err := f.Stat()
+	if err != nil || info.Size() == 0 {
+		return 0
+	}
+	size := info.Size()
+	start := size - tailScanLimit
+	if start < 0 {
+		start = 0
+	}
+	buf := make([]byte, size-start)
+	if _, err := f.ReadAt(buf, start); err != nil && err != io.EOF {
+		return 0
+	}
+	end := len(buf)
+	if buf[end-1] == '\n' {
+		end--
+	}
+	for i := end - 1; i >= 0; i-- {
+		if buf[i] != '\n' {
+			continue
+		}
+		n--
+		if n == 0 {
+			return start + int64(i) + 1
+		}
+	}
+	if start == 0 {
+		return 0
+	}
+	// Fewer than n breaks inside the scan window: start at the first full line
+	// in it rather than mid-line.
+	if i := bytes.IndexByte(buf, '\n'); i >= 0 && i+1 < len(buf) {
+		return start + int64(i) + 1
+	}
+	return start
 }
 
 // TailFrom reads the bytes of path starting at byte offset, returning the new

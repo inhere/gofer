@@ -56,19 +56,26 @@ const projectOptions = ref<string[]>([])
 // sidebar unless asked for (or still running/blocked, or the open thread).
 const EXEC_PREF_KEY = 'gofer.workbench.showExec'
 const showExec = ref(readShowExec())
-const sidebarProjects = computed(() => {
-  if (showExec.value) return response.value.projects
+// 已完成（done）的会话只在侧栏保留最近 DONE_WINDOW_SEC；等你/进行中/空闲的不受限，
+// 当前打开的也不隐藏。更早的完成会话仍可在 Board / job 列表里找到。
+const DONE_WINDOW_SEC = 3 * 86400
+function isVisibleThread(thread: WorkbenchThread, now: number, withExec: boolean): boolean {
+  if (thread.id === selectedID.value) return true
+  if (thread.status === 'done' && now - thread.updated_at > DONE_WINDOW_SEC) return false
+  if (!withExec && thread.agent === 'exec' && thread.status !== 'blocked' && thread.status !== 'working') return false
+  return true
+}
+function filterGroups(withExec: boolean) {
+  const now = Math.floor(Date.now() / 1000)
   return response.value.projects
-    .map((group) => ({
-      ...group,
-      threads: group.threads.filter((thread) => thread.agent !== 'exec'
-        || thread.status === 'blocked' || thread.status === 'working' || thread.id === selectedID.value),
-    }))
+    .map((group) => ({ ...group, threads: group.threads.filter((thread) => isVisibleThread(thread, now, withExec)) }))
     .filter((group) => group.threads.length > 0)
-})
+}
+const sidebarProjects = computed(() => filterGroups(showExec.value))
 const hiddenExecCount = computed(() => {
+  if (showExec.value) return 0
   let total = 0
-  for (const group of response.value.projects) total += group.threads.length
+  for (const group of filterGroups(true)) total += group.threads.length
   for (const group of sidebarProjects.value) total -= group.threads.length
   return total
 })

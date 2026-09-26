@@ -655,13 +655,6 @@ onUnmounted(() => {
       </dl>
       </div>
 
-      <p v-if="session" class="relay-note mono">
-        三态开关：<code>on</code> = 每次停下都等你回复；<code>off</code> = 从不等；<code>auto</code> =
-        键盘空闲 ≥ <code>session.auto_relay_idle_sec</code>（默认 5 分钟）时等你回复，探测不到键盘的终端（容器）改用
-        距上次人工输入 ≥ <code>session.auto_relay_turn_sec</code>（默认 15 分钟）判定——不用拨开关。
-        自动判定开的等待，人回来即放行（键盘一碰即放，或按 Esc / 直接输入一条）。
-      </p>
-
       <div ref="timelineEl" class="timeline">
         <div v-if="!loading && timeline.length === 0" class="empty mono">
           暂无 turn。打开中继后，会话下一次停下时消息会出现在这里。
@@ -923,19 +916,6 @@ onUnmounted(() => {
 .relay-modes.busy {
   opacity: 0.6;
   cursor: progress;
-}
-/* 自动布防说明：常显一行，避免"没拨开关却在等回复"看着像故障 */
-.relay-note {
-  flex: none;
-  margin: 0;
-  padding: 6px 14px;
-  border-bottom: 1px solid var(--line);
-  color: var(--queue);
-  font-size: 10px;
-  line-height: 1.5;
-}
-.relay-note code {
-  color: var(--run);
 }
 
 .act {

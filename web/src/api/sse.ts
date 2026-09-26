@@ -87,14 +87,19 @@ export function appendCapped(
 
 export interface StreamJobOpts {
   from?: number
+  // tail=N：两条流都从最后 N 行开始推（服务端上限 5000），不回放整份日志。
+  tail?: number
   signal?: AbortSignal
   onEvent: (ev: SSEEvent) => void
 }
 
 // 消费某 job 的 SSE 流。end 事件或流关闭即结束；signal abort 时停止。
 export async function streamJob(id: string, opts: StreamJobOpts): Promise<void> {
-  const { from, signal, onEvent } = opts
-  const qs = from != null ? `?from=${from}` : ''
+  const { from, tail, signal, onEvent } = opts
+  const params = new URLSearchParams()
+  if (from != null) params.set('from', String(from))
+  if (tail != null && tail > 0) params.set('tail', String(tail))
+  const qs = params.toString() ? `?${params}` : ''
   const token = getToken()
   const headers: Record<string, string> = {}
   if (token) {

@@ -25,7 +25,9 @@ const props = withDefaults(defineProps<{
   stdoutLoading?: boolean
   stderrLoading?: boolean
   focused?: boolean
-}>(), { focused: true })
+  // stderr 第一次出现内容时自动切过去（job 详情页的默认行为）；工作台关掉，始终先看 stdout。
+  autoStderr?: boolean
+}>(), { focused: true, autoStderr: true })
 
 const emit = defineEmits<{
   (e: 'load-earlier', stream: LogStream): void
@@ -322,7 +324,7 @@ watch(
   (v) => {
     const total = lineCount(v)
     const delta = Math.max(0, total - errPrev)
-    if (props.focused && total > 0 && errPrev === 0 && !userTouchedTabs.value) {
+    if (props.autoStderr && props.focused && total > 0 && errPrev === 0 && !userTouchedTabs.value) {
       activeStream.value = 'stderr'
     }
     errPrev = total

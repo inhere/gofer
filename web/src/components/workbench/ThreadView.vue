@@ -12,6 +12,9 @@ import SessionDrawer from '../SessionDrawer.vue'
 
 const props = defineProps<{ threadId: string; focused: boolean }>()
 
+// 工作台只看"现在到哪了"：日志从最后 LOG_TAIL_LINES 行开始推，完整日志去 job 详情页。
+const LOG_TAIL_LINES = 200
+
 interface FocusedThreadActions {
   stopCurrent(): Promise<void>
   focusTurn(): void
@@ -111,7 +114,7 @@ async function startStream(jobID: string): Promise<void> {
   const ctrl = new AbortController()
   streamAbort = ctrl
   try {
-    await streamJob(jobID, { signal: ctrl.signal, onEvent })
+    await streamJob(jobID, { tail: LOG_TAIL_LINES, signal: ctrl.signal, onEvent })
   } catch (e) {
     if (!ctrl.signal.aborted) streamError.value = e instanceof Error ? e.message : String(e)
   }
@@ -357,7 +360,11 @@ onUnmounted(() => {
       />
       <div v-else-if="latestJobID" class="log-wrap">
         <p v-if="streamError" class="stream-error mono">SSE：{{ streamError }}</p>
-        <LogTape :stdout="stdout" :stderr="stderr" :live="live" mode="live" :focused="focused" />
+        <p class="log-tail-note mono">
+          只加载每条流最近 {{ LOG_TAIL_LINES }} 行 ·
+          <button type="button" class="link-btn" @click="openDetails">完整日志见 job 详情</button>
+        </p>
+        <LogTape :stdout="stdout" :stderr="stderr" :live="live" mode="live" :focused="focused" :auto-stderr="false" />
       </div>
       <p v-else class="empty mono">这个会话没有关联 job。</p>
     </div>
@@ -412,4 +419,6 @@ onUnmounted(() => {
 .empty { color: var(--queue); padding: 24px; }
 .missing-thread { display: grid; place-items: center; padding: 24px; color: var(--queue); }
 @media (max-width: 767px) { .thread-head { grid-template-columns: 1fr; } .back { display: inline-block; justify-self: start; } .head-actions { flex-wrap: wrap; } .thread-meta { grid-column: 1; } .turn-composer { grid-template-columns: 1fr; } .turn-send { min-height: 36px; } }
+.log-tail-note { margin: 0; padding: 4px 10px; font-size: 11px; color: var(--muted, #8a97a3); }
+.link-btn { padding: 0; border: 0; background: none; color: var(--phosphor); cursor: pointer; font: inherit; text-decoration: underline; }
 </style>

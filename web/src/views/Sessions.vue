@@ -323,6 +323,14 @@ onUnmounted(() => {
       <h1 class="title mono">SESSIONS</h1>
     </header>
 
+    <!-- 中继三态开关说明：放列表上方一处，不在每个会话抽屉里重复 -->
+    <p class="relay-note mono">
+      三态开关：<code>on</code> = 每次停下都等你回复；<code>off</code> = 从不等；<code>auto</code> =
+      键盘空闲 ≥ <code>session.auto_relay_idle_sec</code>（默认 5 分钟）时等你回复，探测不到键盘的终端（容器）改用
+      距上次人工输入 ≥ <code>session.auto_relay_turn_sec</code>（默认 15 分钟）判定——不用拨开关。
+      自动判定开的等待，人回来即放行（键盘一碰即放，或按 Esc / 直接输入一条）。
+    </p>
+
     <!-- Agent 会话（会话中继 SESS-01）：hook 登记的 claude/codex 会话，点击行开详情抽屉 -->
     <section class="group">
       <header class="group-head">
@@ -882,6 +890,19 @@ onUnmounted(() => {
 .state--handed_off {
   color: var(--accent, var(--run));
   border-color: var(--accent, var(--run));
+}
+
+/* 自动布防说明：常显一行，避免"没拨开关却在等回复"看着像故障 */
+.relay-note {
+  margin: 0;
+  padding: 6px 14px;
+  margin-bottom: 12px;
+  color: var(--queue);
+  font-size: 10px;
+  line-height: 1.5;
+}
+.relay-note code {
+  color: var(--run);
 }
 
 /* 中继三态开关（auto / on / off，与 SessionDrawer 同款） */
