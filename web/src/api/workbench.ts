@@ -37,6 +37,12 @@ export function patchWorkbenchThread(
   )
 }
 
+export function markAllWorkbenchThreadsSeen(): Promise<{ seen_baseline: number }> {
+  return request<{ seen_baseline: number }>('/v1/workbench/threads/seen-all', {
+    method: 'POST',
+  })
+}
+
 export function turnWorkbenchThread(threadID: string, text: string): Promise<WorkbenchTurnResult> {
   return request<WorkbenchTurnResult>(
     `/v1/workbench/threads/${encodeURIComponent(threadID)}/turn`,

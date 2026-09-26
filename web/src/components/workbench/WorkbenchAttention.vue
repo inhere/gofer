@@ -2,8 +2,11 @@
 import { ref } from 'vue'
 import type { WorkbenchAttentionItem } from '../../api/types'
 
-defineProps<{ items: WorkbenchAttentionItem[] }>()
-const emit = defineEmits<{ (e: 'select', item: WorkbenchAttentionItem): void }>()
+defineProps<{ items: WorkbenchAttentionItem[]; seenAllPending?: boolean }>()
+const emit = defineEmits<{
+  (e: 'select', item: WorkbenchAttentionItem): void
+  (e: 'seen-all'): void
+}>()
 const open = ref(false)
 
 function choose(item: WorkbenchAttentionItem): void {
@@ -26,6 +29,9 @@ function ago(ts: number): string {
       ⚠ 等你 {{ items.length }}
     </button>
     <div v-if="open" class="attention-menu">
+      <button class="seen-all mono" type="button" :disabled="seenAllPending || items.length === 0" @click="emit('seen-all')">
+        {{ seenAllPending ? '标记中…' : '全部标记已看' }}
+      </button>
       <p v-if="items.length === 0" class="empty mono">目前没有等待你处理的会话</p>
       <button v-for="item in items" :key="`${item.thread_id}:${item.action}`" class="attention-item" type="button" @click="choose(item)">
         <span class="item-title">{{ item.title }}</span>
@@ -39,6 +45,9 @@ function ago(ts: number): string {
 .attention { position: relative; }
 .attention-toggle { color: var(--ink); background: var(--run); border: 1px solid var(--run); border-radius: var(--radius); padding: 6px 10px; font-weight: 700; white-space: nowrap; }
 .attention-menu { position: absolute; right: 0; top: calc(100% + 6px); z-index: 50; width: min(420px, 90vw); max-height: 55vh; overflow-y: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 12px 30px rgba(0,0,0,.35); }
+.seen-all { width: 100%; padding: 9px 12px; color: var(--paper); background: rgba(255,255,255,.04); border: 0; border-bottom: 1px solid var(--line); text-align: left; }
+.seen-all:hover:not(:disabled) { background: rgba(255,255,255,.08); }
+.seen-all:disabled { color: var(--queue); cursor: not-allowed; }
 .attention-item { width: 100%; display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; color: var(--paper); background: transparent; border: 0; border-bottom: 1px solid var(--line); text-align: left; }
 .attention-item:hover { background: rgba(255,255,255,.05); }
 .item-title { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

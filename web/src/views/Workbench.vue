@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { listWorkbenchThreads } from '../api/workbench'
+import { listWorkbenchThreads, markAllWorkbenchThreadsSeen } from '../api/workbench'
 import type { WorkbenchAttentionItem, WorkbenchStatus, WorkbenchThread, WorkbenchThreadsResp } from '../api/types'
 import WorkbenchAttention from '../components/workbench/WorkbenchAttention.vue'
 import WorkbenchComposer from '../components/workbench/WorkbenchComposer.vue'
@@ -20,6 +20,7 @@ const projectFilter = ref('')
 const statusFilter = ref<WorkbenchStatus | ''>('')
 const projectOptions = ref<string[]>([])
 const loading = ref(false)
+const seenAllPending = ref(false)
 const error = ref('')
 const sidebar = ref<InstanceType<typeof WorkbenchSidebar> | null>(null)
 const composer = ref<InstanceType<typeof WorkbenchComposer> | null>(null)
@@ -84,6 +85,19 @@ function selectAttention(item: WorkbenchAttentionItem): void {
   if (thread) selectThread(thread)
   else selectedID.value = item.thread_id
   void nextTick(() => threadPane.value?.focusAction(item.action))
+}
+
+async function markAllSeen(): Promise<void> {
+  if (seenAllPending.value) return
+  seenAllPending.value = true
+  try {
+    await markAllWorkbenchThreadsSeen()
+    await loadThreads()
+  } catch (e) {
+    error.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    seenAllPending.value = false
+  }
 }
 
 function submitted(jobID: string): void {
@@ -165,7 +179,12 @@ onUnmounted(() => {
   <div ref="workbenchRoot" class="workbench-page" tabindex="-1">
     <header class="workbench-top">
       <WorkbenchComposer ref="composer" @submitted="submitted" />
-      <WorkbenchAttention :items="response.attention" @select="selectAttention" />
+      <WorkbenchAttention
+        :items="response.attention"
+        :seen-all-pending="seenAllPending"
+        @select="selectAttention"
+        @seen-all="markAllSeen"
+      />
     </header>
     <p v-if="error" class="page-error mono">{{ error }}</p>
     <div class="workbench-body" :class="[`mobile--${mobilePane}`]">
