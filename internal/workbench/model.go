@@ -47,6 +47,7 @@ var (
 	ErrMissingDiffBase = errors.New("workbench: first turn has no git diff base")
 	ErrDiffUnavailable = errors.New("workbench: thread diff unavailable")
 	ErrDiffTimeout     = errors.New("workbench: thread diff timed out")
+	ErrInvalidReview   = errors.New("workbench: invalid review")
 )
 
 const MaxLayoutBodyBytes = 64 * 1024
@@ -203,4 +204,28 @@ type ThreadDiff struct {
 	Truncated bool             `json:"truncated"`
 	Commits   []job.Commit     `json:"commits,omitempty"`
 	Notice    string           `json:"notice,omitempty"`
+}
+
+type ReviewSide string
+
+const (
+	ReviewSideNew ReviewSide = "new"
+	ReviewSideOld ReviewSide = "old"
+)
+
+const (
+	MaxReviewComments     = 50
+	MaxReviewCommentRunes = 4000
+)
+
+type ReviewComment struct {
+	Path string     `json:"path"`
+	Line int        `json:"line"`
+	Side ReviewSide `json:"side"`
+	Text string     `json:"text"`
+}
+
+type ReviewInput struct {
+	Summary  string          `json:"summary,omitempty"`
+	Comments []ReviewComment `json:"comments,omitempty"`
 }

@@ -738,6 +738,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/workbench/threads", s.handleListWorkbenchThreads)
 		r.POST("/workbench/threads/seen-all", s.handleSeenAllWorkbenchThreads)
 		r.GET("/workbench/threads/{id}/diff", s.handleGetWorkbenchThreadDiff)
+		r.POST("/workbench/threads/{id}/review", s.handleReviewWorkbenchThread)
 		r.PATCH("/workbench/threads/{id}", s.handlePatchWorkbenchThread)
 		r.POST("/workbench/threads/{id}/turn", s.handleWorkbenchTurn)
 		r.GET("/workbench/layout", s.handleGetWorkbenchLayout)

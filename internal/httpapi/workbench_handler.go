@@ -222,7 +222,7 @@ func validWorkbenchStatus(status workbench.Status) bool {
 
 func workbenchHTTPStatus(err error) int {
 	switch {
-	case errors.Is(err, workbench.ErrInvalidThreadID), errors.Is(err, workbench.ErrEmptyTurn), errors.Is(err, job.ErrInvalidRequest):
+	case errors.Is(err, workbench.ErrInvalidThreadID), errors.Is(err, workbench.ErrEmptyTurn), errors.Is(err, workbench.ErrInvalidReview), errors.Is(err, job.ErrInvalidRequest):
 		return http.StatusBadRequest
 	case errors.Is(err, workbench.ErrUnknownThread), errors.Is(err, job.ErrUnknownJob), errors.Is(err, sessionrelay.ErrUnknownSession):
 		return http.StatusNotFound
