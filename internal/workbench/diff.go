@@ -120,16 +120,20 @@ func liveThreadDiff(cwd, base string) (ThreadDiff, error) {
 	if err != nil {
 		return ThreadDiff{}, err
 	}
-	if nameTruncated || numTruncated || untrackedTruncated {
+	if nameTruncated || numTruncated {
 		return ThreadDiff{}, fmt.Errorf("%w: git file metadata exceeded 2 MiB", ErrDiffUnavailable)
 	}
-	files, err := mergeLiveDiffFiles(nameRaw, numRaw, untrackedRaw)
+	// Untracked files are listed by name only and are the part a repo without a
+	// good .gitignore blows up (package stores, build output): cap the list
+	// instead of failing the whole view, and report it through Truncated.
+	files, untrackedCapped, err := mergeLiveDiffFiles(nameRaw, numRaw, untrackedRaw)
 	if err != nil {
 		return ThreadDiff{}, err
 	}
 	return ThreadDiff{
 		Source: DiffSourceLive, Base: base, Head: strings.TrimSpace(string(headRaw)),
-		Files: files, Patch: string(patchRaw), Truncated: patchTruncated,
+		Files: files, Patch: string(patchRaw),
+		Truncated: patchTruncated || untrackedTruncated || untrackedCapped,
 	}, nil
 }
 
@@ -239,7 +243,13 @@ func parseCommits(raw string) []job.Commit {
 	return commits
 }
 
-func mergeLiveDiffFiles(nameRaw, numRaw, untrackedRaw []byte) ([]ThreadDiffFile, error) {
+// maxUntrackedFiles bounds how many untracked names a live thread diff lists.
+const maxUntrackedFiles = 200
+
+// mergeLiveDiffFiles joins name-status, numstat and the untracked list into one
+// ordered file list; capped reports that untracked names beyond
+// maxUntrackedFiles were dropped.
+func mergeLiveDiffFiles(nameRaw, numRaw, untrackedRaw []byte) (result []ThreadDiffFile, capped bool, err error) {
 	files := make(map[string]ThreadDiffFile)
 	order := make([]string, 0)
 	for _, item := range parseNameStatus(nameRaw) {
@@ -257,20 +267,27 @@ func mergeLiveDiffFiles(nameRaw, numRaw, untrackedRaw []byte) ([]ThreadDiffFile,
 		item.Additions, item.Deletions, item.Binary = stats.Additions, stats.Deletions, stats.Binary
 		files[path] = item
 	}
+	untracked := 0
 	for _, path := range splitNUL(untrackedRaw) {
 		if path == "" {
 			continue
 		}
-		if _, exists := files[path]; !exists {
-			order = append(order, path)
+		if _, exists := files[path]; exists {
+			continue
 		}
+		if untracked == maxUntrackedFiles {
+			capped = true
+			break
+		}
+		untracked++
+		order = append(order, path)
 		files[path] = ThreadDiffFile{Path: path, Status: "?"}
 	}
-	result := make([]ThreadDiffFile, 0, len(order))
+	result = make([]ThreadDiffFile, 0, len(order))
 	for _, path := range order {
 		result = append(result, files[path])
 	}
-	return result, nil
+	return result, capped, nil
 }
 
 func parseNameStatus(raw []byte) []ThreadDiffFile {

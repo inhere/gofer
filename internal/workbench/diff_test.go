@@ -2,6 +2,7 @@ package workbench
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -137,13 +138,13 @@ func TestThreadDiffSpansChain(t *testing.T) {
 }
 
 func TestThreadDiffMetadataParsers(t *testing.T) {
-	files, err := mergeLiveDiffFiles(
+	files, capped, err := mergeLiveDiffFiles(
 		[]byte("M\x00plain.go\x00M\x00binary.dat\x00R100\x00old.go\x00new.go\x00"),
 		[]byte("3\t1\tplain.go\x00-\t-\tbinary.dat\x000\t0\t\x00old.go\x00new.go\x00"),
 		[]byte("new file.txt\x00"),
 	)
-	if err != nil {
-		t.Fatalf("merge metadata: %v", err)
+	if err != nil || capped {
+		t.Fatalf("merge metadata: err=%v capped=%v", err, capped)
 	}
 	for path, want := range map[string]ThreadDiffFile{
 		"plain.go":     {Path: "plain.go", Status: "M", Additions: 3, Deletions: 1},
@@ -155,6 +156,17 @@ func TestThreadDiffMetadataParsers(t *testing.T) {
 		if !ok || got != want {
 			t.Fatalf("file %q = %+v, ok=%v, want %+v (all=%+v)", path, got, ok, want, files)
 		}
+	}
+
+	// An unignored package store must not flood the list: untracked names stop at
+	// maxUntrackedFiles and the result says it was capped.
+	var many strings.Builder
+	for i := 0; i < maxUntrackedFiles+5; i++ {
+		fmt.Fprintf(&many, "store/%d\x00", i)
+	}
+	capFiles, capped, err := mergeLiveDiffFiles([]byte("M\x00plain.go\x00"), nil, []byte(many.String()))
+	if err != nil || !capped || len(capFiles) != maxUntrackedFiles+1 {
+		t.Fatalf("untracked cap: err=%v capped=%v len=%d", err, capped, len(capFiles))
 	}
 
 	patchFiles := parsePatchFiles("diff --git a/old.go b/new.go\n" +
