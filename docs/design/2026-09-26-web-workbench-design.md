@@ -1,12 +1,13 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # web 工作台设计（WEB-11）
 
-> 状态：Approved（文档 identity：Draft 0.3）/ 实施中（2026-09-26 用户经 web 中继批准，决策 1–7 照写；W1 试用后用户经 web 中继要求「继续推进 W2」，0.3 只细化 W2 实现口径，不改决策）
+> 状态：Approved（文档 identity：Draft 0.4）/ 实施中（2026-09-26 用户经 web 中继批准，决策 1–7 照写；W1 试用后用户经 web 中继要求「继续推进 W2」，0.3 只细化 W2 实现口径，0.4 只细化 W3 实现口径，均不改决策）
 
 ## 修订记录
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
+| 0.4 | 2026-09-27 | Claude | W2 上线（v0.64.1）后用户要求继续：新增「W3 细化」（ACP 落盘补消息与提问记录、结构化流接口与噪声/逐 token 思考合并、对话视图、会话级改动接口与本机/远端两种来源、行内评论合成下一轮、固定测试名） |
 | 0.3 | 2026-09-26 | Claude | W1/F16 上线（v0.62.1）并经用户 web 试用后启动 W2：新增「W2 细化」一节（布局树模型与持久化、ctrl+b 前缀表、手机布局、PWA、Web Push 的 VAPID/订阅/触发/通知内审批的一次性动作令牌与降级口径、固定测试名） |
 | 0.2 | 2026-09-26 | Claude | 按用户要求调研主流开源 agent 桌面/web（Zed 并行 agents、OpenCode web/desktop、Vibe Kanban、Nimbalyst/Crystal、Claude Squad、Codeman、Conductor、OpenHands）后细化：**以"会话（thread）"为一等公民**而非窗格；加入快速发起、注意力队列、会话内评审→评论回灌同一会话、可操作的推送通知、命令面板与 ctrl-tab、PWA；分期改为 W1 会话列表+单视图（先可用）→ W2 布局与移动端 → W3 对话窗格与评审 → W4 worktree 生命周期与预览（可选） |
 | 0.1 | 2026-09-26 | Claude | 初稿：以 herdr 的工作区/标签页/窗格 + 状态上卷为骨架 |
@@ -166,6 +167,57 @@ codex 计划 `docs/plans/2026-09-26-web-workbench-w2b-plan.md`（`f333181`，由
 
 容器验证：Linux/Windows build、vet 通过；全量 `go test ./...` 通过；六个 W2b 固定测试 + `TestPushEndToEndSmoke`（httptest 推送端解密载荷、用令牌作答、重放 409）PASS；vitest、`vue-tsc`、vite build 通过；无新增 Go/pnpm 依赖。真实浏览器推送未验（需要 HTTPS 访问地址），留待用户。
 
+## W3 细化（0.4，W3 实施口径）
+
+### 现状（决定了要补什么）
+
+- ACP 作业的结构化记录在 `<result_dir>/artifacts/acp.jsonl`（`t` = session / tool_call / permission / thought / plan / mode / usage_update / stop …），但**助手说的话只写进 stdout.log，不进 acp.jsonl**；本轮的提问（prompt）也不在里面。只靠 acp.jsonl 拼不出对话。
+- 旧作业的 thought 是逐 token 一行（实测一个作业 88k 行 thought），直接推给前端会卡；还有 `available_commands_update`、`session_info_update` 这类对人无用的记录。
+- `GET /v1/jobs/{id}/diff` 只有单个作业的"未提交改动"摘要和 `changes.diff`，没有"本会话以来"的改动。
+
+### ACP 落盘补齐（runner）
+
+- 每轮开始写 `{"t":"prompt","text":<本轮 prompt，≤8000 字，超出截断并标 truncated>}`。
+- 助手文本按"消息块"合并写 `{"t":"message","text":…}`：遇到 tool_call、thought、plan、stop 或 2 秒无新块时落一条（与 thought 的合并同一套写法）；stdout.log 行为不变。
+- 旧作业（没有 message 记录）由读取端兜底：把 stdout.log 整体作为本轮最后一条 message。
+
+### 结构化流 `GET /v1/jobs/{id}/acp/stream`
+
+- SSE，事件统一为 `{seq, kind, …}`，kind ∈ `prompt`、`message`、`thought`、`tool`、`permission`、`plan`、`usage`、`stop`；读取端做归一：
+  - 连续的 thought 合并成一条（旧的逐 token 数据同样适用）；
+  - `tool` 以 `tool_call_id` 为键，首条给出 title/kind/raw_input（≤2000 字），之后的状态变化以同 id 的更新事件推送（前端按 id 覆盖），带 `locations`（path/line）；
+  - 丢弃 available_commands_update、session_info_update、mode、set_mode 等噪声；
+  - 运行中的作业跟随文件增长推送，终态作业推完即发 `end`。
+- `?tail=N`：只推最后 N 条**归一后的**事件（默认前端取 300），前面有省略时先发一条 `{kind:"truncated", skipped}`。
+- 权限与 `/v1/jobs/{id}/stream` 相同（job caller 可读自己能读的作业）。
+
+### 对话视图（前端）
+
+- ACP 会话的「过程」视图从日志换成对话流：按作业链逐轮显示（每轮 = 一个 job：用户提问 → 思考（默认折叠一行）→ 工具调用卡（标题、状态点、可展开输入；编辑类显示涉及文件，点击跳到「改动」视图该文件）→ 助手消息（markdown，复用现有 marked + DOMPurify）→ 本轮结束行（stop 原因、用量））。
+- 默认只加载最近 3 轮，顶部「加载更早的轮次」；只有最新一轮在运行时才开 SSE，其余轮次一次性取完即关。
+- 待答审批照 W1 内联在最新一轮末尾；底部输入框仍是 turn 接口。
+- 非 ACP 的 cli/批处理会话保持日志视图（W1/v0.64.1 的最近 200 行 + stdout 默认）。
+- 事件归并写成纯函数 `web/src/components/workbench/acpEvents.ts`（按 tool_call_id 合并、thought 合并、truncated 处理），vitest 覆盖。
+
+### 改动视图 `GET /v1/workbench/threads/{id}/diff`
+
+- 基线 = 会话首轮作业的 `base_sha`（worktree 会话用 `worktree_base_sha`）；返回 `{source, base, head, files:[{path, status, additions, deletions, binary}], patch, truncated}`。
+- `source="live"`：会话作业在 server 本机执行（runner 为 server/local）且 cwd 仍存在时，现场执行 `git diff <base>`（含已提交与未提交的已跟踪改动）并附未跟踪文件清单（只列名，不含内容）；patch 上限 2 MiB，超出截断并标 `truncated`。
+- `source="captured"`：在 worker 上执行或 cwd 不在时，退回最新一轮作业已采集的 `changes.diff` + commits 清单，并注明"只含最新一轮"。
+- 前端：左侧文件列表（状态、+/-），右侧 unified diff（复用现有 diff 渲染组件）；会话 working 时每 10 秒刷新，收到编辑类 tool 事件时立即刷新。
+
+### 行内评审 → 下一轮
+
+- 在 diff 行上点「＋」写评论；草稿按会话存浏览器本地（刷新不丢），可编辑/删除。
+- 「发送评审」→ `POST /v1/workbench/threads/{id}/review {summary?, comments:[{path, line, side:"new"|"old", text}]}`；服务端把它合成一段下一轮 prompt：先是 summary，再逐条 `path:line`、从当前 diff 取出的该行上下各 2 行代码（取不到就省略）、评论正文；然后走与 turn 相同的派发（acp/cli → resume，同一会话），返回新 job id，并把会话标为已看。
+- 空 comments 且空 summary → 400；会话不可续接（一次性作业）→ 409；job caller → 403。单次评论数上限 50、每条 ≤4000 字。
+- 「接受」：needs_review 走现有 accept；否则等同标记已看。
+
+### W3 固定测试名
+
+- Go：`TestACPRunnerRecordsPromptAndMessages`、`TestACPStreamEmitsStructuredEvents`（归一：thought 合并、tool 按 id 更新、噪声丢弃、旧作业 stdout 兜底、tail 与 truncated、终态 end）、`TestThreadDiffSpansChain`（live：基线取首轮、含多轮提交与未提交；captured 回退）、`TestReviewCommentsBecomeNextTurn`（prompt 合成含 path:line 与代码上下文、派发到同一会话、400/409/上限）、`TestReviewJobCallerForbidden`。
+- web（vitest）：`acpEvents.ts` 的合并与截断。
+
 ## 决策（已批准 2026-09-26）
 
 1. 以**会话**为一等公民（侧栏会话列表 + 主区视图），herdr 式窗格/布局作为 W2 的摆放层。
@@ -178,11 +230,11 @@ codex 计划 `docs/plans/2026-09-26-web-workbench-w2b-plan.md`（`f333181`，由
 
 ## 待确认事项
 
-W1 与 F16 没有未决核心行为。W2 已由用户在 W1 试用后要求推进（口径见「W2 细化」）；W3、W4 是否继续等 W2 试用反馈。
+W1 与 F16 没有未决核心行为。W2 已上线；W3 由用户在 W2 上线后要求继续（口径见「W3 细化」）；W4 是否做等 W3 试用反馈。
 
 ## 结论与人工计划 Gate
 
-Approved 0.2 的决策 1–7 保持有效；0.3 的「W2 细化」是 W2 的实施依据。W1/F16 的实施记录不授权 W3–W4、push、部署、live 服务操作或真实配置变更；这些仍需各自计划与当前请求。
+Approved 0.2 的决策 1–7 保持有效；0.3 的「W2 细化」、0.4 的「W3 细化」分别是 W2、W3 的实施依据。实施记录不授权 W4、push、部署、live 服务操作或真实配置变更；这些仍需各自计划与当前请求。
 
 ## 参考
 
