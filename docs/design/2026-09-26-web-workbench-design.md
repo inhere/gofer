@@ -152,6 +152,12 @@ caller 第一次 GET threads 时建立全局已看基线，早于它的历史终
 - Go：`TestWorkbenchLayoutRoundTrip`、`TestWorkbenchLayoutVersionConflict`、`TestWorkbenchLayoutJobCallerReadOnly`、`TestPushSubscriptionCRUD`、`TestPushEncryptRFC8291Vector`、`TestPushVAPIDJWT`、`TestPushDispatchOnInteraction`（含同 thread 合并、不可见项目不推、410 删除订阅）、`TestPushActionTokenAnswersOnce`（成功一次、重放 409、过期 409、选项不在允许集 400、篡改 401）、`TestPushJobCallerForbidden`。
 - web（vitest，只测 `layoutTree.ts`）：分屏、关闭上提、方向焦点、ratio 夹取、上限拒绝、normalize。
 
+### W2a 实测记录（2026-09-26，不改变 Approved 0.3 语义）
+
+codex 计划 `docs/plans/2026-09-26-web-workbench-w2a-plan.md`（`c4228fd`，由用户授权的监督者代为批准，DIRECT_CONTINUOUS）。实现提交：`6456df9`（固定测试 red）、`13582b5`（`workbench_layouts` 表与 `GET/PUT /v1/workbench/layout`）、`8ac10b3`（`layoutTree.ts` 纯函数）、`e55124c`（ThreadView 抽取、分屏树渲染与持久化）、`6c80b01`（拖放、`ctrl+b` 前缀、命令面板、焦点/已看、非焦点降频）、`1d1eefc`（<768px 手机布局）。codex job 在 3600s 超时于 T40 前，文档与验收由监督者在容器补做。
+
+容器验证：Linux/Windows `go build`、`go vet` 通过；全量 `go test ./... -count=1` 45 包 ok；`TestWorkbenchLayoutRoundTrip`、`TestWorkbenchLayoutVersionConflict`、`TestWorkbenchLayoutJobCallerReadOnly` 及 W1/F16 全部工作台用例 PASS；vitest `layoutTree.test.ts` 8/8 PASS；`vue-tsc` 通过；改动文件 gofmt、控制字符、CRLF 扫描均干净。浏览器目视未跑（NOT_RUN），留待上线后用户试用。
+
 ## 决策（已批准 2026-09-26）
 
 1. 以**会话**为一等公民（侧栏会话列表 + 主区视图），herdr 式窗格/布局作为 W2 的摆放层。
