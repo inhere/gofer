@@ -650,6 +650,20 @@ var schemaStmts = []string{
   body_json  TEXT NOT NULL,
   updated_at INTEGER NOT NULL
 )`,
+	// push_subscriptions stores one browser Web Push subscription per globally
+	// unique endpoint. Re-registering an endpoint transfers it to the authenticated
+	// caller holding that browser subscription and resets its delivery health.
+	`CREATE TABLE IF NOT EXISTS push_subscriptions (
+  caller_id  TEXT NOT NULL,
+  endpoint   TEXT PRIMARY KEY,
+  p256dh     TEXT NOT NULL,
+  auth       TEXT NOT NULL,
+  user_agent TEXT NOT NULL DEFAULT '',
+  created_at INTEGER NOT NULL,
+  last_ok_at INTEGER NOT NULL DEFAULT 0
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_push_subscriptions_caller
+  ON push_subscriptions(caller_id, created_at)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema
