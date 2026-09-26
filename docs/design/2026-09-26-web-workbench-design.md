@@ -158,6 +158,14 @@ codex 计划 `docs/plans/2026-09-26-web-workbench-w2a-plan.md`（`c4228fd`，由
 
 容器验证：Linux/Windows `go build`、`go vet` 通过；全量 `go test ./... -count=1` 45 包 ok；`TestWorkbenchLayoutRoundTrip`、`TestWorkbenchLayoutVersionConflict`、`TestWorkbenchLayoutJobCallerReadOnly` 及 W1/F16 全部工作台用例 PASS；vitest `layoutTree.test.ts` 8/8 PASS；`vue-tsc` 通过；改动文件 gofmt、控制字符、CRLF 扫描均干净。浏览器目视未跑（NOT_RUN），留待上线后用户试用。
 
+### W2b 实测记录（2026-09-26，不改变 Approved 0.3 语义）
+
+codex 计划 `docs/plans/2026-09-26-web-workbench-w2b-plan.md`（`f333181`，由用户授权的监督者代为批准，DIRECT_CONTINUOUS；可见性按"当前可认证 user caller + registry 中存在的项目"，不新增 ACL）。实现提交：`3ae2313`（固定测试 red）、`be104ae`（`push_subscriptions`）、`a82ffd0`（RFC 8291/8292，仅标准库）、`95021b5`（一次性动作令牌）、`11a2a82`（事件投递）、`ddc1dd2`（manifest + `sw.js`，无 fetch 缓存）、`db55e90`（设置 → 通知）、`0b352b4`（工作台降级提示与 `?thread=` 定位）。codex job 在 3600s 超时于文档前。
+
+监督者复核补丁：`8319f75`（匿名 `/v1/push/actions` 请求体上限 8 KiB；令牌的 caller 已不在配置时拒绝，回归测试 `TestPushActionRejectsRemovedCaller`）、`6b16411`（`server.push` 登记为 RestartRequired，修 `TestEveryServerFieldHasPolicy`）。用户试用 W2a 反馈两项同批修复：`765a106`（侧栏无法滚动——body grid 隐式 auto 行撑开；agent=exec 会话默认隐藏、可勾选显示）。
+
+容器验证：Linux/Windows build、vet 通过；全量 `go test ./...` 通过；六个 W2b 固定测试 + `TestPushEndToEndSmoke`（httptest 推送端解密载荷、用令牌作答、重放 409）PASS；vitest、`vue-tsc`、vite build 通过；无新增 Go/pnpm 依赖。真实浏览器推送未验（需要 HTTPS 访问地址），留待用户。
+
 ## 决策（已批准 2026-09-26）
 
 1. 以**会话**为一等公民（侧栏会话列表 + 主区视图），herdr 式窗格/布局作为 W2 的摆放层。
