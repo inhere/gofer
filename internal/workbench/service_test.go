@@ -110,6 +110,7 @@ func TestPatchThreadRenameAndSeen(t *testing.T) {
 	before, err := service.List("alice", Query{Since: 1})
 	assert.NoErr(t, err)
 	assert.Eq(t, StatusReview, before.Projects[0].Threads[0].Status)
+	service.now = func() time.Time { return time.Unix(now+20, 0) }
 	title, seen, pinned := "renamed", true, true
 	_, err = service.Patch("alice", "s:sess-done", PatchInput{Title: &title, Seen: &seen, Pinned: &pinned})
 	assert.NoErr(t, err)
@@ -119,7 +120,7 @@ func TestPatchThreadRenameAndSeen(t *testing.T) {
 	assert.Eq(t, "renamed", thread.Title)
 	assert.Eq(t, StatusDone, thread.Status)
 	assert.True(t, thread.Pinned)
-	assert.Eq(t, now, thread.SeenAt)
+	assert.Eq(t, now+20, thread.SeenAt)
 }
 
 type recordingJobs struct {

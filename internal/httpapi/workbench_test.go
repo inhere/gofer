@@ -241,6 +241,17 @@ func patchWorkbenchThread(t *testing.T, s *Server, token, id string, body any) {
 	resp.Body.Close()
 }
 
+func waitPastUnix(t *testing.T, timestamp int64) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Unix() <= timestamp {
+		if time.Now().After(deadline) {
+			t.Fatalf("clock did not advance past unix timestamp %d", timestamp)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
 func TestThreadsGroupJobsBySession(t *testing.T) {
 	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
 	now := time.Now().Unix()
@@ -375,7 +386,7 @@ func TestThreadsSeenBaselineOnFirstVisit(t *testing.T) {
 func TestThreadsSeenAll(t *testing.T) {
 	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
 	_ = getWorkbenchThreads(t, s, testToken, "since=1")
-	endedAt := time.Now().Unix() + 10
+	endedAt := time.Now().Unix() + 1
 	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "seen-all-change", SessionID: "seen-all-change", Status: job.StatusDone, StartedAt: endedAt - 1, UpdatedAt: endedAt, CommitsJSON: `[{"sha":"new","subject":"change"}]`}, "change", "change")
 	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "seen-all-failure", SessionID: "seen-all-failure", Status: job.StatusFailed, StartedAt: endedAt - 1, UpdatedAt: endedAt}, "failure", "failure")
 	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "seen-all-needs-review", SessionID: "seen-all-needs-review", Status: job.StatusNeedsReview, StartedAt: endedAt - 1, UpdatedAt: endedAt}, "needs review", "needs review")
@@ -387,6 +398,7 @@ func TestThreadsSeenAll(t *testing.T) {
 		}
 	}
 
+	waitPastUnix(t, endedAt)
 	resp := do(t, s, http.MethodPost, "/v1/workbench/threads/seen-all", testToken, nil)
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -539,11 +551,13 @@ func TestThreadPatchRenameAndSeen(t *testing.T) {
 	}})
 	_ = getWorkbenchThreads(t, s, "tok-alice", "since=1")
 	now := time.Now().Unix()
-	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "prefs-job", SessionID: "prefs", Status: job.StatusDone, StartedAt: now - 20, UpdatedAt: now + 10, CallerID: "alice", CommitsJSON: `[{"sha":"prefs","subject":"change"}]`}, "default title", "done")
+	endedAt := now + 1
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "prefs-job", SessionID: "prefs", Status: job.StatusDone, StartedAt: now - 20, UpdatedAt: endedAt, CallerID: "alice", CommitsJSON: `[{"sha":"prefs","subject":"change"}]`}, "default title", "done")
 
 	if before := findWorkbenchThread(t, getWorkbenchThreads(t, s, "tok-alice", "since=1"), "s:prefs"); before.Status != "review" {
 		t.Fatalf("before patch status=%q, want review", before.Status)
 	}
+	waitPastUnix(t, endedAt)
 	patchWorkbenchThread(t, s, "tok-alice", "s:prefs", map[string]any{"title": "renamed", "seen": true, "pinned": true})
 	alice := findWorkbenchThread(t, getWorkbenchThreads(t, s, "tok-alice", "since=1"), "s:prefs")
 	if alice.Title != "renamed" || alice.Status != "done" || !alice.Pinned || alice.SeenAt == 0 {
