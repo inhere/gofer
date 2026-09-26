@@ -706,6 +706,8 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/workbench/threads/seen-all", s.handleSeenAllWorkbenchThreads)
 		r.PATCH("/workbench/threads/{id}", s.handlePatchWorkbenchThread)
 		r.POST("/workbench/threads/{id}/turn", s.handleWorkbenchTurn)
+		r.GET("/workbench/layout", s.handleGetWorkbenchLayout)
+		r.PUT("/workbench/layout", s.handlePutWorkbenchLayout)
 
 		r.POST("/jobs", s.handleCreateJob)
 		r.GET("/jobs", s.handleListJobs)

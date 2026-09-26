@@ -4,6 +4,7 @@
 package workbench
 
 import (
+	"encoding/json"
 	"errors"
 
 	"github.com/inhere/gofer/internal/job"
@@ -41,7 +42,26 @@ var (
 	ErrNotResumable    = errors.New("workbench: thread is not resumable")
 	ErrEmptyTurn       = errors.New("workbench: turn text is required")
 	ErrUnavailable     = errors.New("workbench: service unavailable")
+	ErrInvalidLayout   = errors.New("workbench: invalid layout")
+	ErrLayoutTooLarge  = errors.New("workbench: layout body exceeds 64 KiB")
 )
+
+const MaxLayoutBodyBytes = 64 * 1024
+
+type Layout struct {
+	Version int64           `json:"version"`
+	Body    json.RawMessage `json:"body"`
+}
+
+// LayoutVersionConflict carries the server value a client must adopt after a
+// stale optimistic write.
+type LayoutVersionConflict struct {
+	Current Layout
+}
+
+func (e *LayoutVersionConflict) Error() string {
+	return "workbench: layout version conflict"
+}
 
 type Query struct {
 	Project string

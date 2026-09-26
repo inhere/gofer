@@ -100,3 +100,39 @@ func TestWorkbenchPrefsTableExistsOnOpen(t *testing.T) {
 	assert.NoErr(t, err)
 	assert.Eq(t, "workbench_thread_prefs", name)
 }
+
+func TestWorkbenchLayoutStoreCompareAndSwapAndCallerIsolation(t *testing.T) {
+	s := openTest(t)
+
+	_, ok, err := s.GetWorkbenchLayout("alice")
+	assert.NoErr(t, err)
+	assert.False(t, ok)
+
+	saved, updated, err := s.PutWorkbenchLayout("alice", 0, `{"future":{"kept":true}}`, 100)
+	assert.NoErr(t, err)
+	assert.True(t, updated)
+	assert.Eq(t, int64(1), saved.Version)
+	assert.Eq(t, `{"future":{"kept":true}}`, saved.BodyJSON)
+
+	current, updated, err := s.PutWorkbenchLayout("alice", 0, `{"stale":true}`, 101)
+	assert.NoErr(t, err)
+	assert.False(t, updated)
+	assert.Eq(t, int64(1), current.Version)
+	assert.Eq(t, `{"future":{"kept":true}}`, current.BodyJSON)
+
+	alice, ok, err := s.GetWorkbenchLayout("alice")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, saved, alice)
+	_, ok, err = s.GetWorkbenchLayout("bob")
+	assert.NoErr(t, err)
+	assert.False(t, ok)
+}
+
+func TestWorkbenchLayoutsTableExistsOnOpen(t *testing.T) {
+	s := openTest(t)
+	var name string
+	err := s.db.QueryRow(`SELECT name FROM sqlite_master WHERE type='table' AND name='workbench_layouts'`).Scan(&name)
+	assert.NoErr(t, err)
+	assert.Eq(t, "workbench_layouts", name)
+}

@@ -1,6 +1,7 @@
 package jobstore
 
 import (
+	"database/sql"
 	"errors"
 	"fmt"
 )
@@ -15,6 +16,91 @@ type WorkbenchThreadPref struct {
 	Title    string
 	SeenAt   int64
 	Pinned   bool
+}
+
+// WorkbenchLayout is one caller's opaque, versioned workbench layout. The
+// frontend owns the JSON schema; this package only provides atomic persistence.
+type WorkbenchLayout struct {
+	CallerID  string
+	Version   int64
+	BodyJSON  string
+	UpdatedAt int64
+}
+
+// GetWorkbenchLayout returns the saved layout for caller. ok=false means the
+// caller has never saved one; callers project that as version 0 with body {}.
+func (s *Store) GetWorkbenchLayout(callerID string) (layout WorkbenchLayout, ok bool, err error) {
+	if callerID == "" {
+		return WorkbenchLayout{}, false, errors.New("jobstore: workbench layout: empty caller id")
+	}
+	err = s.db.QueryRow(`SELECT caller_id, version, body_json, updated_at
+  FROM workbench_layouts WHERE caller_id=?`, callerID).Scan(
+		&layout.CallerID, &layout.Version, &layout.BodyJSON, &layout.UpdatedAt,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return WorkbenchLayout{}, false, nil
+	}
+	if err != nil {
+		return WorkbenchLayout{}, false, fmt.Errorf("jobstore: get workbench layout %q: %w", callerID, err)
+	}
+	return layout, true, nil
+}
+
+// PutWorkbenchLayout atomically replaces caller's layout only when expectedVersion
+// matches the current version (missing rows have version 0). updated=false returns
+// the current record without changing it.
+func (s *Store) PutWorkbenchLayout(callerID string, expectedVersion int64, bodyJSON string, updatedAt int64) (layout WorkbenchLayout, updated bool, err error) {
+	if callerID == "" {
+		return WorkbenchLayout{}, false, errors.New("jobstore: put workbench layout: empty caller id")
+	}
+	if expectedVersion < 0 {
+		return WorkbenchLayout{}, false, errors.New("jobstore: put workbench layout: negative version")
+	}
+	if bodyJSON == "" {
+		return WorkbenchLayout{}, false, errors.New("jobstore: put workbench layout: empty body")
+	}
+	if updatedAt <= 0 {
+		return WorkbenchLayout{}, false, errors.New("jobstore: put workbench layout: invalid timestamp")
+	}
+
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return WorkbenchLayout{}, false, fmt.Errorf("jobstore: begin workbench layout: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	current := WorkbenchLayout{CallerID: callerID, Version: 0, BodyJSON: "{}"}
+	err = tx.QueryRow(`SELECT caller_id, version, body_json, updated_at
+  FROM workbench_layouts WHERE caller_id=?`, callerID).Scan(
+		&current.CallerID, &current.Version, &current.BodyJSON, &current.UpdatedAt,
+	)
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		// Missing is the protocol's version-0 layout.
+	case err != nil:
+		return WorkbenchLayout{}, false, fmt.Errorf("jobstore: read current workbench layout %q: %w", callerID, err)
+	}
+	if current.Version != expectedVersion {
+		return current, false, nil
+	}
+
+	next := WorkbenchLayout{
+		CallerID: callerID, Version: current.Version + 1, BodyJSON: bodyJSON, UpdatedAt: updatedAt,
+	}
+	if _, err := tx.Exec(`INSERT INTO workbench_layouts (caller_id, version, body_json, updated_at)
+  VALUES (?,?,?,?)
+  ON CONFLICT(caller_id) DO UPDATE SET
+    version=excluded.version, body_json=excluded.body_json, updated_at=excluded.updated_at`,
+		next.CallerID, next.Version, next.BodyJSON, next.UpdatedAt,
+	); err != nil {
+		return WorkbenchLayout{}, false, fmt.Errorf("jobstore: save workbench layout %q: %w", callerID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return WorkbenchLayout{}, false, fmt.Errorf("jobstore: commit workbench layout %q: %w", callerID, err)
+	}
+	return next, true, nil
 }
 
 // WorkbenchSnapshot is the fixed-query input to the workbench domain projector.

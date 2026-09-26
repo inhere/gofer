@@ -641,6 +641,15 @@ var schemaStmts = []string{
   pinned    INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (caller_id, thread_id)
 )`,
+	// workbench_layouts stores the opaque WEB-11 W2a layout document for one
+	// authenticated caller. version is an optimistic concurrency token; the
+	// jobstore never interprets body_json.
+	`CREATE TABLE IF NOT EXISTS workbench_layouts (
+  caller_id  TEXT PRIMARY KEY,
+  version    INTEGER NOT NULL,
+  body_json  TEXT NOT NULL,
+  updated_at INTEGER NOT NULL
+)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema

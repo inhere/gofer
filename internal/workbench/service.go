@@ -1,6 +1,7 @@
 package workbench
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"sort"
@@ -19,6 +20,8 @@ type Store interface {
 	UpsertWorkbenchThreadPref(pref jobstore.WorkbenchThreadPref) error
 	GetOrCreateWorkbenchSeenBaseline(callerID string, observedAt int64) (int64, error)
 	SetWorkbenchSeenBaseline(callerID string, observedAt int64) (int64, error)
+	GetWorkbenchLayout(callerID string) (jobstore.WorkbenchLayout, bool, error)
+	PutWorkbenchLayout(callerID string, expectedVersion int64, bodyJSON string, updatedAt int64) (jobstore.WorkbenchLayout, bool, error)
 	ListJobs(query jobstore.ListQuery) ([]jobstore.JobRecord, error)
 	GetJob(id string) (jobstore.JobRecord, bool, error)
 }
@@ -40,6 +43,55 @@ type Service struct {
 
 func NewService(store Store, jobs Jobs, relay Relay) *Service {
 	return &Service{store: store, jobs: jobs, relay: relay, now: time.Now}
+}
+
+func (s *Service) GetLayout(callerID string) (Layout, error) {
+	if s == nil || s.store == nil {
+		return Layout{}, ErrUnavailable
+	}
+	record, ok, err := s.store.GetWorkbenchLayout(normalizeCaller(callerID))
+	if err != nil {
+		return Layout{}, err
+	}
+	if !ok {
+		return Layout{Version: 0, Body: json.RawMessage(`{}`)}, nil
+	}
+	return layoutFromRecord(record), nil
+}
+
+func (s *Service) PutLayout(callerID string, expectedVersion int64, body json.RawMessage) (Layout, error) {
+	if s == nil || s.store == nil {
+		return Layout{}, ErrUnavailable
+	}
+	if expectedVersion < 0 {
+		return Layout{}, fmt.Errorf("%w: version must be non-negative", ErrInvalidLayout)
+	}
+	trimmed := bytes.TrimSpace(body)
+	if len(trimmed) == 0 || !json.Valid(trimmed) {
+		return Layout{}, fmt.Errorf("%w: body must be valid JSON", ErrInvalidLayout)
+	}
+	if len(trimmed) > MaxLayoutBodyBytes {
+		return Layout{}, ErrLayoutTooLarge
+	}
+	record, updated, err := s.store.PutWorkbenchLayout(
+		normalizeCaller(callerID), expectedVersion, string(trimmed), s.now().Unix(),
+	)
+	if err != nil {
+		return Layout{}, err
+	}
+	current := layoutFromRecord(record)
+	if !updated {
+		return Layout{}, &LayoutVersionConflict{Current: current}
+	}
+	return current, nil
+}
+
+func layoutFromRecord(record jobstore.WorkbenchLayout) Layout {
+	body := json.RawMessage(record.BodyJSON)
+	if len(body) == 0 {
+		body = json.RawMessage(`{}`)
+	}
+	return Layout{Version: record.Version, Body: append(json.RawMessage(nil), body...)}
 }
 
 type projection struct {

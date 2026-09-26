@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"errors"
 	"net/http"
 	"strconv"
@@ -21,6 +22,72 @@ type patchWorkbenchThreadReq struct {
 
 type workbenchTurnReq struct {
 	Text string `json:"text"`
+}
+
+type putWorkbenchLayoutReq struct {
+	Version *int64          `json:"version"`
+	Body    json.RawMessage `json:"body"`
+}
+
+type workbenchLayoutConflictResp struct {
+	Error   string          `json:"error"`
+	Detail  string          `json:"detail,omitempty"`
+	Version int64           `json:"version"`
+	Body    json.RawMessage `json:"body"`
+}
+
+func (s *Server) handleGetWorkbenchLayout(c *rux.Context) {
+	if s.workbench == nil {
+		writeError(c, http.StatusServiceUnavailable, "workbench unavailable", "job metadata service is not wired")
+		return
+	}
+	layout, err := s.workbench.GetLayout(callerFromCtx(c))
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "get workbench layout failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, layout)
+}
+
+func (s *Server) handlePutWorkbenchLayout(c *rux.Context) {
+	if !workbenchUserCaller(c) {
+		writeError(c, http.StatusForbidden, "workbench mutation requires a user caller", "worker and job credentials are read-only on workbench layout")
+		return
+	}
+	if s.workbench == nil {
+		writeError(c, http.StatusServiceUnavailable, "workbench unavailable", "job metadata service is not wired")
+		return
+	}
+	var body putWorkbenchLayoutReq
+	if err := c.BindJSON(&body); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	if body.Version == nil || len(body.Body) == 0 {
+		writeError(c, http.StatusBadRequest, "invalid request body", "version and body are required")
+		return
+	}
+	layout, err := s.workbench.PutLayout(callerFromCtx(c), *body.Version, body.Body)
+	if err == nil {
+		c.JSON(http.StatusOK, layout)
+		return
+	}
+	var conflict *workbench.LayoutVersionConflict
+	switch {
+	case errors.As(err, &conflict):
+		c.JSON(http.StatusConflict, workbenchLayoutConflictResp{
+			Error: "layout version conflict", Detail: err.Error(),
+			Version: conflict.Current.Version, Body: conflict.Current.Body,
+		})
+	case errors.Is(err, workbench.ErrLayoutTooLarge):
+		writeError(c, http.StatusRequestEntityTooLarge, "layout too large", err.Error())
+	case errors.Is(err, workbench.ErrInvalidLayout):
+		writeError(c, http.StatusBadRequest, "invalid workbench layout", err.Error())
+	case errors.Is(err, workbench.ErrUnavailable):
+		writeError(c, http.StatusServiceUnavailable, "workbench unavailable", err.Error())
+	default:
+		writeError(c, http.StatusInternalServerError, "save workbench layout failed", err.Error())
+	}
 }
 
 func (s *Server) handleListWorkbenchThreads(c *rux.Context) {
