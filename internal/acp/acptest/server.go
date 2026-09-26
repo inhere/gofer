@@ -67,6 +67,10 @@ type Options struct {
 	// Delay is inserted before the final prompt response (lets a test cancel a
 	// turn that is otherwise about to finish).
 	Delay time.Duration
+	// MessagePause is inserted after the opening agent-message chunks and before
+	// the next structured update. It lets runner tests observe idle message flush
+	// without sleeping for the production two-second interval.
+	MessagePause time.Duration
 	// PermissionKind is the toolCall.kind of the session/request_permission the turn
 	// raises ("" => PermissionKindDefault, "edit"). A "read"-ish kind is what the
 	// approval gate's auto_allow_kinds is about.
@@ -199,6 +203,16 @@ func parseArgs(args []string) (Options, error) {
 				return o, fmt.Errorf("--delay: %w", err)
 			}
 			o.Delay = d
+		case "--message-pause":
+			if i+1 >= len(args) {
+				return o, fmt.Errorf("--message-pause needs a value")
+			}
+			i++
+			d, err := time.ParseDuration(args[i])
+			if err != nil {
+				return o, fmt.Errorf("--message-pause: %w", err)
+			}
+			o.MessagePause = d
 		case "--perm-kind":
 			if i+1 >= len(args) {
 				return o, fmt.Errorf("--perm-kind needs a value")
@@ -509,6 +523,12 @@ func (s *server) runTurn(msg *rpcMsg, stop chan struct{}) {
 	}
 	s.update(map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": TextHello}})
 	s.update(map[string]any{"sessionUpdate": "agent_message_chunk", "content": map[string]any{"type": "text", "text": TextWorld}})
+	if s.opts.MessagePause > 0 {
+		time.Sleep(s.opts.MessagePause)
+		s.update(map[string]any{"sessionUpdate": "available_commands_update", "availableCommands": []any{
+			map[string]any{"name": "noop", "description": "idle-flush marker"},
+		}})
+	}
 	thoughts := max(s.opts.ThoughtChunks, 1)
 	for range thoughts {
 		s.update(map[string]any{"sessionUpdate": "agent_thought_chunk", "content": map[string]any{"type": "text", "text": TextThink}})
@@ -518,7 +538,7 @@ func (s *server) runTurn(msg *rpcMsg, stop chan struct{}) {
 	s.expectRefusal("fs/read_text_file", map[string]any{"sessionId": SessionID, "path": "main.go"})
 	s.expectRefusal("terminal/create", map[string]any{"sessionId": SessionID, "command": "ls"})
 
-	s.update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": ToolCallID, "title": ToolTitle, "kind": ToolKind, "status": "pending", "rawInput": map[string]any{"path": "main.go"}})
+	s.update(map[string]any{"sessionUpdate": "tool_call", "toolCallId": ToolCallID, "title": ToolTitle, "kind": ToolKind, "status": "pending", "rawInput": map[string]any{"path": "main.go"}, "locations": []any{map[string]any{"path": "main.go", "line": 7}}})
 	s.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": ToolCallID, "status": "in_progress"})
 	s.update(map[string]any{"sessionUpdate": "tool_call_update", "toolCallId": ToolCallID, "status": "completed", "rawOutput": map[string]any{"lines": 42}})
 

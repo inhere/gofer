@@ -25,6 +25,9 @@ func CmdArgs(o Options) []string {
 	if o.Delay > 0 {
 		args = append(args, "--delay", o.Delay.String())
 	}
+	if o.MessagePause > 0 {
+		args = append(args, "--message-pause", o.MessagePause.String())
+	}
 	if o.PermissionKind != "" {
 		args = append(args, "--perm-kind", o.PermissionKind)
 	}
