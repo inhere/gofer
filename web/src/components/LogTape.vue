@@ -12,7 +12,7 @@ import DOMPurify from 'dompurify'
 import NdjsonTimeline from './NdjsonTimeline.vue'
 import type { LogStream } from '../api/types'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   stdout: string
   stderr: string
   // 是否运行中：底部 live 脉冲
@@ -24,7 +24,8 @@ const props = defineProps<{
   stderrCanLoadEarlier?: boolean
   stdoutLoading?: boolean
   stderrLoading?: boolean
-}>()
+  focused?: boolean
+}>(), { focused: true })
 
 const emit = defineEmits<{
   (e: 'load-earlier', stream: LogStream): void
@@ -303,6 +304,10 @@ watch(
     const delta = Math.max(0, total - outPrev)
     outPrev = total
     void nextTick(() => {
+      if (!props.focused) {
+        if (delta > 0) outNew.value += delta
+        return
+      }
       if (outPinned.value && outEl.value) {
         scrollPane(outEl.value)
         outNew.value = 0
@@ -317,11 +322,15 @@ watch(
   (v) => {
     const total = lineCount(v)
     const delta = Math.max(0, total - errPrev)
-    if (total > 0 && errPrev === 0 && !userTouchedTabs.value) {
+    if (props.focused && total > 0 && errPrev === 0 && !userTouchedTabs.value) {
       activeStream.value = 'stderr'
     }
     errPrev = total
     void nextTick(() => {
+      if (!props.focused) {
+        if (delta > 0) errNew.value += delta
+        return
+      }
       if (errPinned.value && errEl.value) {
         scrollPane(errEl.value)
         errNew.value = 0
@@ -332,12 +341,27 @@ watch(
   },
 )
 
+watch(() => props.focused, (focused) => {
+  if (!focused) return
+  void nextTick(() => {
+    if (outPinned.value && outEl.value) {
+      scrollPane(outEl.value)
+      outNew.value = 0
+    }
+    if (errPinned.value && errEl.value) {
+      scrollPane(errEl.value)
+      errNew.value = 0
+    }
+  })
+})
+
 onMounted(() => {
   outPrev = lineCount(props.stdout)
   errPrev = lineCount(props.stderr)
   if (errPrev > 0) {
     activeStream.value = 'stderr'
   }
+  if (!props.focused) return
   void nextTick(() => {
     if (outEl.value) {
       scrollPane(outEl.value)

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import type { WorkbenchProjectGroup, WorkbenchStatus, WorkbenchThread } from '../../api/types'
+import { WORKBENCH_THREAD_DRAG_TYPE } from './layoutTree'
 
 defineProps<{
   projects: WorkbenchProjectGroup[]
@@ -58,6 +59,13 @@ function focusSearch(): void {
   searchInput.value?.focus()
 }
 
+function startDrag(event: DragEvent, thread: WorkbenchThread): void {
+  if (!event.dataTransfer) return
+  event.dataTransfer.effectAllowed = 'copy'
+  event.dataTransfer.setData(WORKBENCH_THREAD_DRAG_TYPE, thread.id)
+  event.dataTransfer.setData('text/plain', thread.id)
+}
+
 defineExpose({ focusSearch })
 </script>
 
@@ -105,7 +113,9 @@ defineExpose({ focusSearch })
             class="thread-row"
             :class="{ selected: selectedId === thread.id }"
             type="button"
+            draggable="true"
             @click="emit('select', thread)"
+            @dragstart="startDrag($event, thread)"
           >
             <span class="status-dot" :class="[`status--${thread.status}`, { stalled: thread.stalled }]" :title="thread.stalled ? '疑似卡住' : thread.status"></span>
             <span class="thread-main">

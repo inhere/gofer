@@ -4,6 +4,7 @@ export type LayoutRejectReason = 'pane_limit' | 'tab_limit' | 'pane_not_found' |
 
 export const MAX_PANES_PER_TAB = 4
 export const MAX_LAYOUT_TABS = 8
+export const WORKBENCH_THREAD_DRAG_TYPE = 'application/x-gofer-workbench-thread'
 
 export interface PaneNode {
   kind: 'pane'

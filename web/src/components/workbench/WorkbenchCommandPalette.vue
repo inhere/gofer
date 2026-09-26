@@ -13,7 +13,7 @@ const emit = defineEmits<{
   (e: 'select', thread: WorkbenchThread): void
   (e: 'new'): void
   (e: 'switch-project', project: string): void
-  (e: 'action', action: 'stop' | 'continue' | 'detail'): void
+  (e: 'action', action: 'stop' | 'continue' | 'detail' | 'split-h' | 'split-v' | 'close-pane' | 'maximize' | 'new-tab'): void
 }>()
 const query = ref('')
 const input = ref<HTMLInputElement | null>(null)
@@ -44,6 +44,11 @@ function choose(thread: WorkbenchThread): void {
         <button v-if="current" type="button" @click="emit('action', 'stop'); emit('close')">停止当前</button>
         <button v-if="current?.resumable" type="button" @click="emit('action', 'continue'); emit('close')">续接当前</button>
         <button v-if="current?.latest_job_id" type="button" @click="emit('action', 'detail'); emit('close')">打开详情</button>
+        <button type="button" @click="emit('action', 'split-h'); emit('close')">分屏左右</button>
+        <button type="button" @click="emit('action', 'split-v'); emit('close')">分屏上下</button>
+        <button type="button" @click="emit('action', 'close-pane'); emit('close')">关闭窗格</button>
+        <button type="button" @click="emit('action', 'maximize'); emit('close')">最大化/还原</button>
+        <button type="button" @click="emit('action', 'new-tab'); emit('close')">新标签</button>
       </div>
       <div class="palette-section">
         <h2 class="mono">会话</h2>

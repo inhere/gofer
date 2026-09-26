@@ -19,15 +19,21 @@ import {
   activeTab,
   addTab,
   assignThread,
+  closePane,
   closeTab,
   createLayoutDocument,
+  focusDir,
   nodeAt,
   normalize,
   renameTab,
   setRatio,
+  splitPane,
   updateTab,
   type DocumentMutation,
+  type FocusDirection,
   type LayoutDocument,
+  type SplitDirection,
+  type TreeMutation,
 } from '../components/workbench/layoutTree'
 import { createPoller } from '../utils/poller'
 
@@ -62,11 +68,15 @@ const layoutSaving = ref(false)
 const editingTabID = ref('')
 const tabTitleDraft = ref('')
 const focusedActions = ref<FocusedThreadActions | null>(null)
+const maximizedPath = ref('')
+const prefixActive = ref(false)
+const prefixHint = ref('')
 
 let layoutGeneration = 0
 let savedLayoutGeneration = 0
 let layoutSaveTimer: number | null = null
 let layoutSaveInFlight = false
+let prefixTimer: number | null = null
 
 const threads = computed(() => response.value.projects.flatMap((project) => project.threads))
 const threadsByID = computed(() => new Map(threads.value.map((thread) => [thread.id, thread])))
@@ -193,14 +203,72 @@ function updateCurrentTab(root = currentTab.value.root, focused = currentTab.val
   applyDocument(updateTab(layoutDocument.value, currentTab.value.id, root, focused))
 }
 
+function layoutRejectMessage(reason: string): string {
+  if (reason === 'pane_limit') return '每个标签页最多只能有 4 个窗格'
+  if (reason === 'tab_limit') return '最多只能打开 8 个标签页'
+  return '布局操作未生效'
+}
+
+function applyTreeMutation(result: TreeMutation): void {
+  if (result.reason) {
+    layoutNotice.value = layoutRejectMessage(result.reason)
+    return
+  }
+  if (maximizedPath.value && !nodeAt(result.root, maximizedPath.value)) maximizedPath.value = ''
+  updateCurrentTab(result.root, result.focused)
+}
+
 function focusPane(path: string): void {
   if (path === currentTab.value.focused) {
     syncSelectedFromLayout()
     mobilePane.value = 'main'
     return
   }
+  if (maximizedPath.value) maximizedPath.value = path
   updateCurrentTab(currentTab.value.root, path)
   mobilePane.value = 'main'
+}
+
+function splitFocused(dir: SplitDirection): void {
+  applyTreeMutation(splitPane(currentTab.value.root, currentTab.value.focused, dir))
+}
+
+function closeFocusedPane(): void {
+  maximizedPath.value = ''
+  applyTreeMutation(closePane(currentTab.value.root, currentTab.value.focused))
+}
+
+function moveFocus(direction: FocusDirection): void {
+  const path = focusDir(currentTab.value.root, currentTab.value.focused, direction)
+  focusPane(path)
+}
+
+function toggleMaximize(): void {
+  maximizedPath.value = maximizedPath.value ? '' : currentTab.value.focused
+}
+
+function dropThread(path: string, threadID: string, edge: 'center' | 'left' | 'right' | 'top' | 'bottom'): void {
+  const thread = threadsByID.value.get(threadID)
+  if (!thread) {
+    layoutNotice.value = '拖入的会话已不在当前列表中'
+    return
+  }
+  if (edge === 'center') {
+    const root = assignThread(currentTab.value.root, path, threadID)
+    updateCurrentTab(root, path)
+  } else {
+    const horizontal = edge === 'left' || edge === 'right'
+    applyTreeMutation(splitPane(
+      currentTab.value.root,
+      path,
+      horizontal ? 'h' : 'v',
+      threadID,
+      edge === 'left' || edge === 'top' ? 'before' : 'after',
+    ))
+  }
+  selectedID.value = threadID
+  mobilePane.value = 'main'
+  mru.value = [threadID, ...mru.value.filter((id) => id !== threadID)].slice(0, 30)
 }
 
 function resizeSplit(path: string, ratio: number): void {
@@ -260,14 +328,17 @@ function refreshFilter(): void {
 }
 
 function createTab(): void {
+  maximizedPath.value = ''
   applyDocument(addTab(layoutDocument.value))
 }
 
 function removeTab(tabID: string): void {
+  maximizedPath.value = ''
   applyDocument(closeTab(layoutDocument.value, tabID))
 }
 
 function selectTab(tabID: string): void {
+  maximizedPath.value = ''
   applyDocument(activateTab(layoutDocument.value, tabID))
   mobilePane.value = 'main'
 }
@@ -288,7 +359,67 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return !!element && ['INPUT', 'TEXTAREA', 'SELECT'].includes(element.tagName)
 }
 
+function clearPrefix(): void {
+  prefixActive.value = false
+  prefixHint.value = ''
+  if (prefixTimer != null) {
+    window.clearTimeout(prefixTimer)
+    prefixTimer = null
+  }
+}
+
+function startPrefix(): void {
+  clearPrefix()
+  prefixActive.value = true
+  prefixHint.value = 'ctrl+b：% 左右 · " 上下 · 方向键焦点 · x 关闭 · z 最大化 · c 新标签 · n/p/1–8 切标签'
+  prefixTimer = window.setTimeout(clearPrefix, 1500)
+}
+
+function cycleTab(step: number): void {
+  const tabs = layoutDocument.value.tabs
+  if (tabs.length < 2) return
+  const current = Math.max(0, tabs.findIndex((tab) => tab.id === layoutDocument.value.active_tab_id))
+  selectTab(tabs[(current + step + tabs.length) % tabs.length].id)
+}
+
+function jumpTab(index: number): void {
+  const tab = layoutDocument.value.tabs[index]
+  if (tab) selectTab(tab.id)
+}
+
+function handlePrefixKey(event: KeyboardEvent): void {
+  const key = event.key
+  clearPrefix()
+  if (key === '%') splitFocused('h')
+  else if (key === '"') splitFocused('v')
+  else if (key === 'ArrowLeft') moveFocus('left')
+  else if (key === 'ArrowRight') moveFocus('right')
+  else if (key === 'ArrowUp') moveFocus('up')
+  else if (key === 'ArrowDown') moveFocus('down')
+  else if (key.toLowerCase() === 'x') closeFocusedPane()
+  else if (key.toLowerCase() === 'z') toggleMaximize()
+  else if (key.toLowerCase() === 'c') createTab()
+  else if (key.toLowerCase() === 'n') cycleTab(1)
+  else if (key.toLowerCase() === 'p') cycleTab(-1)
+  else if (/^[1-8]$/.test(key)) jumpTab(Number(key) - 1)
+  else if (key !== 'Escape') layoutNotice.value = `未知布局快捷键：${key}`
+}
+
 function onKeydown(event: KeyboardEvent): void {
+  if (event.ctrlKey && !event.altKey && event.key.toLowerCase() === 'b') {
+    event.preventDefault()
+    event.stopPropagation()
+    event.stopImmediatePropagation()
+    startPrefix()
+    return
+  }
+  if (prefixActive.value) {
+    event.preventDefault()
+    event.stopPropagation()
+    event.stopImmediatePropagation()
+    handlePrefixKey(event)
+    return
+  }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 'k') {
     event.preventDefault()
     paletteOpen.value = true
@@ -327,10 +458,15 @@ function switchProject(project: string): void {
   void loadThreads()
 }
 
-function paletteAction(action: 'stop' | 'continue' | 'detail'): void {
+function paletteAction(action: 'stop' | 'continue' | 'detail' | 'split-h' | 'split-v' | 'close-pane' | 'maximize' | 'new-tab'): void {
   if (action === 'stop') void focusedActions.value?.stopCurrent()
   else if (action === 'continue') focusedActions.value?.focusTurn()
-  else if (selectedThread.value?.latest_job_id) void router.push(`/jobs/${encodeURIComponent(selectedThread.value.latest_job_id)}`)
+  else if (action === 'detail' && selectedThread.value?.latest_job_id) void router.push(`/jobs/${encodeURIComponent(selectedThread.value.latest_job_id)}`)
+  else if (action === 'split-h') splitFocused('h')
+  else if (action === 'split-v') splitFocused('v')
+  else if (action === 'close-pane') closeFocusedPane()
+  else if (action === 'maximize') toggleMaximize()
+  else if (action === 'new-tab') createTab()
 }
 
 onMounted(async () => {
@@ -358,6 +494,7 @@ onMounted(async () => {
 onUnmounted(() => {
   poller.stop()
   if (layoutSaveTimer != null) window.clearTimeout(layoutSaveTimer)
+  clearPrefix()
   window.removeEventListener('keydown', onKeydown, true)
 })
 </script>
@@ -422,6 +559,7 @@ onUnmounted(() => {
             <button class="tab-close mono" type="button" :aria-label="`关闭 ${tab.title}`" @click="removeTab(tab.id)">×</button>
           </div>
           <button class="tab-new mono" type="button" title="新标签" @click="createTab">＋</button>
+          <span v-if="prefixActive" class="prefix-status mono">{{ prefixHint }}</span>
           <span class="layout-version mono">v{{ layoutVersion }}<template v-if="layoutSaving"> · 保存中…</template></span>
         </nav>
         <div class="layout-surface">
@@ -430,8 +568,10 @@ onUnmounted(() => {
             :node="currentTab.root"
             path=""
             :focused-path="currentTab.focused"
+            :maximized-path="maximizedPath"
             @focus="focusPane"
             @ratio="resizeSplit"
+            @drop-thread="dropThread"
           />
           <div v-else class="empty-main mono">{{ loading ? '加载会话与布局…' : '从 composer 开始一个新会话，或从左侧选择。' }}</div>
         </div>
@@ -470,6 +610,8 @@ onUnmounted(() => {
 .tab-select:hover, .tab-close:hover, .tab-new:hover { color: var(--phosphor); }
 .tab-title-input { width: 130px; margin: 3px; padding: 3px 5px; color: var(--paper); background: var(--ink); border: 1px solid var(--phosphor); }
 .layout-version { margin-left: auto; align-self: center; padding: 0 5px; color: var(--queue); font-size: 10px; white-space: nowrap; }
+.prefix-status { align-self: center; margin-left: auto; color: var(--run); font-size: 10px; white-space: nowrap; }
+.prefix-status + .layout-version { margin-left: 0; }
 .layout-surface { flex: 1; min-width: 0; min-height: 0; position: relative; }
 .empty-main { color: var(--queue); }
 @media (max-width: 760px) {

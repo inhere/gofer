@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, inject, nextTick, onUnmounted, ref, watch, type ComputedRef, type Ref } from 'vue'
+import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { answerInteraction, cancelJob, puntInteraction } from '../../api/client'
 import { appendCapped, streamJob } from '../../api/sse'
@@ -47,6 +47,10 @@ const stopping = ref(false)
 const editingTitle = ref(false)
 const titleDraft = ref('')
 let streamAbort: AbortController | null = null
+let visibilityObserver: IntersectionObserver | null = null
+let seenTimer: number | null = null
+const paneVisible = ref(false)
+const documentVisible = ref(document.visibilityState === 'visible')
 
 const thread = computed(() => context.threadsByID.value.get(props.threadId))
 const latestJobID = computed(() => thread.value?.latest_job_id ?? '')
@@ -233,6 +237,34 @@ function focusAction(action: string): void {
   })
 }
 
+function clearSeenTimer(): void {
+  if (seenTimer != null) {
+    window.clearTimeout(seenTimer)
+    seenTimer = null
+  }
+}
+
+function canMarkSeen(): boolean {
+  return props.focused && paneVisible.value && documentVisible.value && !!thread.value?.id
+}
+
+function scheduleSeen(): void {
+  clearSeenTimer()
+  if (!canMarkSeen()) return
+  const threadID = thread.value?.id
+  seenTimer = window.setTimeout(() => {
+    seenTimer = null
+    if (!threadID || !canMarkSeen() || thread.value?.id !== threadID) return
+    void patchWorkbenchThread(threadID, { seen: true })
+      .then(() => context.refresh())
+      .catch((e) => { actionError.value = e instanceof Error ? e.message : String(e) })
+  }, 2000)
+}
+
+function onDocumentVisibility(): void {
+  documentVisible.value = document.visibilityState === 'visible'
+}
+
 defineExpose({ stopCurrent, focusTurn, focusAction })
 
 const exposedActions: FocusedThreadActions = { stopCurrent, focusTurn, focusAction }
@@ -241,8 +273,26 @@ watch(() => props.focused, (focused) => {
   else if (context.focusedActions.value === exposedActions) context.focusedActions.value = null
 }, { immediate: true })
 watch([() => props.threadId, () => thread.value?.latest_job_id], resetForThread, { immediate: true })
+watch([() => props.focused, () => thread.value?.id, paneVisible, documentVisible], scheduleSeen, { immediate: true })
+onMounted(() => {
+  document.addEventListener('visibilitychange', onDocumentVisibility)
+  void nextTick(() => {
+    if (!root.value) return
+    if (typeof IntersectionObserver === 'undefined') {
+      paneVisible.value = true
+      return
+    }
+    visibilityObserver = new IntersectionObserver((entries) => {
+      paneVisible.value = entries.some((entry) => entry.isIntersecting && entry.intersectionRatio > 0)
+    }, { threshold: [0, 0.01] })
+    visibilityObserver.observe(root.value)
+  })
+})
 onUnmounted(() => {
   streamAbort?.abort()
+  clearSeenTimer()
+  visibilityObserver?.disconnect()
+  document.removeEventListener('visibilitychange', onDocumentVisibility)
   if (context.focusedActions.value === exposedActions) context.focusedActions.value = null
 })
 </script>
@@ -301,12 +351,13 @@ onUnmounted(() => {
         v-else-if="thread.interactive && latestJobID"
         :job-id="latestJobID"
         mode="write"
+        :focused="focused"
         @exit="context.refresh()"
         @error="actionError = $event"
       />
       <div v-else-if="latestJobID" class="log-wrap">
         <p v-if="streamError" class="stream-error mono">SSE：{{ streamError }}</p>
-        <LogTape :stdout="stdout" :stderr="stderr" :live="live" mode="live" />
+        <LogTape :stdout="stdout" :stderr="stderr" :live="live" mode="live" :focused="focused" />
       </div>
       <p v-else class="empty mono">这个会话没有关联 job。</p>
     </div>

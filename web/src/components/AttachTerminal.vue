@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
@@ -26,8 +26,9 @@ const props = withDefaults(
   defineProps<{
     jobId: string
     mode?: AttachMode
+    focused?: boolean
   }>(),
-  { mode: 'write' },
+  { mode: 'write', focused: true },
 )
 
 const emit = defineEmits<{
@@ -219,7 +220,7 @@ function setWriteGranted(granted: boolean): void {
 // 自己 resize 的回声、只读端已一致时都不做任何本地 resize，切断"回声 → fit →
 // 又发帧"的回路（每次 resize 都会让 TUI 整屏重绘）。
 function applyServerSize(): void {
-  if (!term) {
+  if (!term || !props.focused) {
     return
   }
   const cols = serverCols.value
@@ -611,12 +612,27 @@ function onViewportResize(): void {
   if (resizeTimer != null) {
     window.clearTimeout(resizeTimer)
   }
+  if (!props.focused) return
   resizeTimer = window.setTimeout(() => {
     resizeTimer = null
     // 只有写者的视口变化才允许改本地布局并传导给 pty；只读端跟随服务端尺寸。
     applyServerSize()
   }, FIT_DEBOUNCE_MS)
 }
+
+watch(() => props.focused, (focused) => {
+  if (!focused) {
+    if (resizeTimer != null) {
+      window.clearTimeout(resizeTimer)
+      resizeTimer = null
+    }
+    return
+  }
+  void nextTick(() => {
+    if (serverCols.value && serverRows.value) applyServerSize()
+    else fit?.fit()
+  })
+})
 
 onMounted(async () => {
   firstConnectAt = Date.now()
@@ -626,7 +642,7 @@ onMounted(async () => {
   term.attachCustomKeyEventHandler(onTerminalKey)
   if (hostEl.value) {
     term.open(hostEl.value)
-    fit.fit()
+    if (props.focused) fit.fit()
   }
   term.onData((s) => {
     sendInput(s)
