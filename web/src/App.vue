@@ -42,6 +42,7 @@ const homeNav = { to: '/dashboard', label: 'Home' }
 // 都算「在设置里」，不必给每个子路由各写一次。
 const settingsNav = { to: '/settings', label: '⚙ 设置' }
 const settingsActive = computed(() => route.path.startsWith('/settings'))
+const workbenchActive = computed(() => route.path === '/workbench')
 
 interface NavItem {
   to: string
@@ -54,6 +55,7 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
   {
     label: '观察',
     items: [
+      { to: '/workbench', label: 'Workbench' },
       { to: '/board', label: 'Board' },
       // REV-01 验收台：待验收 job 就在 Board 之后，徽标数来自 EscalationBell 的轮询。
       { to: '/review', label: 'Review', badge: 'needs_review' },
@@ -217,7 +219,7 @@ function reloadPage() {
         @click="drawerOpen = false"
       ></div>
 
-      <main class="content">
+      <main class="content" :class="{ 'content--workbench': workbenchActive }">
         <RouterView />
       </main>
     </div>
@@ -460,6 +462,10 @@ function reloadPage() {
   flex: 1;
   padding: 18px;
 }
+.content--workbench {
+  padding: 0;
+  overflow: hidden;
+}
 
 /* 响应式：窄屏左轨折叠为抽屉 */
 @media (max-width: 768px) {
@@ -509,6 +515,9 @@ function reloadPage() {
   }
   .content {
     padding: 14px 12px;
+  }
+  .content--workbench {
+    padding: 0;
   }
 }
 </style>

@@ -1229,6 +1229,115 @@ export interface SubmitJobReq {
   // 后（无论成败、verify 之后）按 cwd 匹配的 glob，命中项落到本 job 产物的 collected/ 下。
   uploads?: JobUpload[]
   collect?: string[]
+  // 可选 plan/todo 归组。todo_id 必须属于 plan_id；后端仍做最终校验。
+  plan_id?: string
+  todo_id?: string
+}
+
+export type WorkbenchStatus = 'blocked' | 'working' | 'review' | 'done' | 'idle'
+export type WorkbenchThreadKind = 'agent' | 'job' | 'relay'
+export type WorkbenchAttentionAction = 'answer' | 'review' | 'reply'
+
+export interface WorkbenchUsage {
+  input_tokens?: number
+  output_tokens?: number
+  cache_read_tokens?: number
+  cache_write_tokens?: number
+  total_tokens?: number
+  cost_usd?: number
+}
+
+export interface WorkbenchJobTurn {
+  job_id: string
+  status: JobStatus
+  started_at: number
+  ended_at?: number
+  usage?: JobUsage
+}
+
+export interface WorkbenchRelaySummary {
+  session_id: string
+  state: AgentSessionState
+  relay_mode: AgentSessionRelayMode
+  last_event?: string
+  last_message?: string
+}
+
+export interface WorkbenchThread {
+  id: string
+  kind: WorkbenchThreadKind
+  status: WorkbenchStatus
+  raw_status?: string
+  stalled?: boolean
+  title: string
+  project_key: string
+  agent?: string
+  runner?: string
+  cwd?: string
+  interactive?: boolean
+  resumable: boolean
+  pinned?: boolean
+  seen_at?: number
+  started_at: number
+  updated_at: number
+  waiting_since?: number
+  turns: number
+  usage?: WorkbenchUsage
+  latest_job_id?: string
+  job_ids?: string[]
+  jobs?: WorkbenchJobTurn[]
+  pending_interactions?: Interaction[]
+  relay?: WorkbenchRelaySummary
+}
+
+export interface WorkbenchCounts {
+  total: number
+  blocked: number
+  working: number
+  review: number
+  done: number
+  idle: number
+  orphan_blocked: number
+  orphan_review: number
+}
+
+export interface WorkbenchProjectGroup {
+  project_key: string
+  status: WorkbenchStatus
+  counts: WorkbenchCounts
+  threads: WorkbenchThread[]
+}
+
+export interface WorkbenchAttentionItem {
+  thread_id: string
+  project_key: string
+  title: string
+  status: WorkbenchStatus
+  action: WorkbenchAttentionAction
+  waiting_since: number
+  job_id?: string
+  interaction_id?: string
+  session_id?: string
+  decision_id?: string
+}
+
+export interface WorkbenchThreadsResp {
+  projects: WorkbenchProjectGroup[]
+  attention: WorkbenchAttentionItem[]
+  total: number
+  since: number
+}
+
+export interface WorkbenchThreadPatch {
+  title?: string
+  seen?: boolean
+  pinned?: boolean
+}
+
+export interface WorkbenchTurnResult {
+  thread_id: string
+  job_id?: string
+  decision_id?: string
 }
 
 // job 的一次上传（XFER-01 X2，POST /v1/jobs 的 uploads[]）：xfer_id 是先前 POST /v1/xfer

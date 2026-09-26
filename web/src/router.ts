@@ -11,6 +11,7 @@ const routes: RouteRecordRaw[] = [
     meta: { public: true },
   },
   { path: '/dashboard', name: 'dashboard', component: () => import('./views/Dashboard.vue') },
+  { path: '/workbench', name: 'workbench', component: () => import('./views/Workbench.vue') },
   { path: '/board', name: 'board', component: () => import('./views/Board.vue') },
   // REV-01 验收台：待验收 job 队列（列表 + 行内裁决），详情面板在 /jobs/:id。
   { path: '/review', name: 'review', component: () => import('./views/ReviewQueue.vue') },
