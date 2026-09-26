@@ -3,8 +3,11 @@ package webpush
 import (
 	"bytes"
 	"errors"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 func TestActionTokenClaimsAndConsumesOnce(t *testing.T) {
@@ -40,5 +43,30 @@ func TestActionTokenClaimsAndConsumesOnce(t *testing.T) {
 	now = now.Add(11 * time.Minute)
 	if _, err := tokens.consume(expiring, "allow"); !errors.Is(err, ErrActionExpired) {
 		t.Fatalf("expiry error = %v, want ErrActionExpired", err)
+	}
+}
+
+func TestPushActionRejectsRemovedCaller(t *testing.T) {
+	store, err := jobstore.Open(filepath.Join(t.TempDir(), "gofer.db"))
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	callers := []string{"alice"}
+	service, err := NewService(Options{
+		Store: store, Jobs: &dispatchJobs{}, ConfigDir: t.TempDir(),
+		UserCallers: func() []string { return callers },
+	})
+	if err != nil {
+		t.Fatalf("new service: %v", err)
+	}
+	defer service.Close()
+	token, err := service.NewActionToken("alice", "job-1", "interaction-1", []string{"allow"})
+	if err != nil {
+		t.Fatalf("mint: %v", err)
+	}
+	callers = nil // alice removed from config after the notification went out
+	if _, err := service.Act(token, "allow"); !errors.Is(err, ErrActionUnauthorized) {
+		t.Fatalf("act error = %v, want ErrActionUnauthorized", err)
 	}
 }

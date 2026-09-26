@@ -151,6 +151,9 @@ func (s *Server) handlePushAction(c *rux.Context) {
 		writeError(c, http.StatusServiceUnavailable, "web push unavailable", "web push service is not wired")
 		return
 	}
+	// The route is outside the bearer group, so cap what an anonymous caller
+	// can make the server read before the token is verified.
+	c.Req.Body = http.MaxBytesReader(c.Resp, c.Req.Body, 8<<10)
 	var body pushActionReq
 	if err := c.BindJSON(&body); err != nil {
 		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())

@@ -166,7 +166,21 @@ func (s *Service) Act(token, option string) (job.Interaction, error) {
 	if err != nil {
 		return job.Interaction{}, err
 	}
+	// A token outlives nothing but its caller: once that user caller is gone
+	// the notification's approval buttons must stop working too.
+	if !s.hasUserCaller(claims.CallerID) {
+		return job.Interaction{}, ErrActionUnauthorized
+	}
 	return s.jobs.AnswerInteractionByPush(claims.JobID, claims.InteractionID, option)
+}
+
+func (s *Service) hasUserCaller(callerID string) bool {
+	for _, id := range s.userCallers() {
+		if normalizeCaller(id) == callerID {
+			return true
+		}
+	}
+	return false
 }
 
 // QueueTest enqueues one non-action notification to the caller's current
