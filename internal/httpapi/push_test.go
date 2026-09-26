@@ -54,8 +54,8 @@ func attachPushService(t *testing.T, s *Server, callers []string, clock *pushTes
 			return append([]string(nil), callers...)
 		},
 		Visible: func(_, projectKey string) bool {
-			_, ok := s.projects.Get(projectKey)
-			return ok
+			_, err := s.projects.Get(projectKey)
+			return err == nil
 		},
 		AllowInsecureLoopback: allowLoopback,
 	})

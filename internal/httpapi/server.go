@@ -287,6 +287,9 @@ type Server struct {
 	// workbench is WEB-11's conversation projection/dispatch owner. It is assembled
 	// from the same jobs, metadata store and relay service; handlers only bind HTTP.
 	workbench *workbench.Service
+	// push owns W2b browser subscriptions, encryption, dispatch and one-time
+	// notification actions. Routes remain mounted when nil and return 503.
+	push WebPushService
 
 	// limiters holds one token-bucket per caller for the E17 submit-rate limit
 	// (design §7.3). Guarded by its OWN limMu (NOT s.mu, which lives in the job
@@ -509,6 +512,35 @@ func (s *Server) SetBuildInfo(info buildinfo.Info) {
 	s.build = info
 }
 
+// SetWebPush injects W2b after server construction. All routes are registered
+// unconditionally, so no router rebuild is necessary.
+func (s *Server) SetWebPush(service WebPushService) { s.push = service }
+
+// UserCallerIDs exposes the already-resolved auth identities to assembly without
+// making webpush parse config tokens a second time.
+func (s *Server) UserCallerIDs() []string {
+	seen := make(map[string]struct{})
+	out := make([]string, 0)
+	for _, caller := range s.callers {
+		if caller.kind != callerKindUser {
+			continue
+		}
+		id := caller.id
+		if id == "" {
+			id = "default"
+		}
+		if _, ok := seen[id]; ok {
+			continue
+		}
+		seen[id] = struct{}{}
+		out = append(out, id)
+	}
+	if len(out) == 0 && s.allowEmptyToken {
+		out = append(out, "default")
+	}
+	return out
+}
+
 // buildCallers resolves the multi-caller auth set once at startup: each
 // config.Callers entry (token literal or token_env, empty tokens skipped) plus
 // the legacy effective token as caller id "default" (only when non-empty). The
@@ -586,6 +618,7 @@ func (s *Server) buildRouter() *rux.Router {
 	// this route is registered OUTSIDE the /v1 auth group — exactly like the WS and
 	// attach paths above. The handler does its own constant-time token check.
 	r.POST("/v1/schedules/{id}/trigger", s.handleScheduleTrigger)
+	r.POST("/v1/push/actions", s.handlePushAction)
 
 	r.Group("/v1", func() {
 		r.GET("/config", s.handleGetConfig)
@@ -708,6 +741,11 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/workbench/threads/{id}/turn", s.handleWorkbenchTurn)
 		r.GET("/workbench/layout", s.handleGetWorkbenchLayout)
 		r.PUT("/workbench/layout", s.handlePutWorkbenchLayout)
+		r.GET("/push/vapid-public-key", s.handlePushPublicKey)
+		r.GET("/push/subscriptions", s.handleListPushSubscriptions)
+		r.POST("/push/subscriptions", s.handleCreatePushSubscription)
+		r.DELETE("/push/subscriptions", s.handleDeletePushSubscription)
+		r.POST("/push/test", s.handleTestPush)
 
 		r.POST("/jobs", s.handleCreateJob)
 		r.GET("/jobs", s.handleListJobs)

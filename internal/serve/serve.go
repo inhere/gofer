@@ -32,6 +32,7 @@ import (
 	"github.com/inhere/gofer/internal/runner"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/supervisor"
+	"github.com/inhere/gofer/internal/webpush"
 )
 
 // ExitErr is the process exit code used when serve fails to start or run. gcli
@@ -246,6 +247,39 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	var workers = hubWorkerRegistry{hub: cr.Hub}
 
 	srv := httpapi.New(&cfg.Server, token, allowEmpty, cr.Jobs, cr.Workflow(), cr.Projects, cr.Agents, cr.Hub, cfg.Runners, proberOrNil(prober), workers)
+	// WEB-11 W2b: browser push is optional at assembly time. A config-dir failure
+	// leaves its routes at 503 but never prevents the existing control plane from
+	// starting. Once wired, the observer only enqueues; network work is asynchronous.
+	if configDir, err := config.ConfigDir(); err != nil {
+		slog.Warn("webpush unavailable", "error", err)
+	} else {
+		userIDs := srv.UserCallerIDs()
+		users := make(map[string]struct{}, len(userIDs))
+		for _, id := range userIDs {
+			users[id] = struct{}{}
+		}
+		push, err := webpush.NewService(webpush.Options{
+			Store: cr.Jobs.Meta(), Jobs: cr.Jobs, ConfigDir: configDir,
+			Subject: cfg.Server.Push.VAPIDSubject,
+			UserCallers: func() []string {
+				return append([]string(nil), userIDs...)
+			},
+			Visible: func(callerID, projectKey string) bool {
+				if _, ok := users[callerID]; !ok {
+					return false
+				}
+				_, err := cr.Projects.Get(projectKey)
+				return err == nil
+			},
+		})
+		if err != nil {
+			slog.Warn("webpush unavailable", "error", err)
+		} else {
+			srv.SetWebPush(push)
+			cr.Jobs.AddEventObserver(push.ObserveEvent)
+			defer push.Close()
+		}
+	}
 	// WEB-04③ V1.1: the /v1/config write endpoints (agents + whitelisted server
 	// fields) run through the core's serial write transaction — the same
 	// clone→mutate→save→reload path the console's project writes use, so a config

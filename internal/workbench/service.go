@@ -203,10 +203,7 @@ func projectThreads(snapshot jobstore.WorkbenchSnapshot, seenBaseline int64) []p
 	}
 	jobGroups := make(map[string][]jobstore.JobRecord)
 	for _, rec := range snapshot.Jobs {
-		id := "j:" + rec.ID
-		if rec.SessionID != "" {
-			id = "s:" + rec.SessionID
-		}
+		id := JobThreadID(rec.ID, rec.SessionID)
 		jobGroups[id] = append(jobGroups[id], rec)
 	}
 	out := make([]projection, 0, len(jobGroups)+len(snapshot.Sessions))
@@ -299,25 +296,14 @@ func projectJobThread(id string, records []jobstore.JobRecord, pref jobstore.Wor
 		switch latest.Status {
 		case job.StatusQueued, job.StatusRunning, job.StatusWaitingDir, job.StatusRecovering:
 			thread.Status = StatusWorking
-		case job.StatusNeedsReview:
-			thread.Status = StatusReview
+		case job.StatusNeedsReview, job.StatusDone, job.StatusFailed, job.StatusTimeout, job.StatusRejected, job.StatusCancelled:
 			thread.WaitingSince = recordWaitAt(latest)
-		case job.StatusDone:
-			thread.WaitingSince = recordWaitAt(latest)
-			if terminalSeen(pref.SeenAt, seenBaseline, thread.WaitingSince) || thread.Agent == "exec" || !jobHasChanges(latest) {
-				thread.Status = StatusDone
-			} else {
+			if TerminalNeedsReview(latest.Status, thread.Agent, jobHasChanges(latest),
+				terminalSeen(pref.SeenAt, seenBaseline, thread.WaitingSince)) {
 				thread.Status = StatusReview
-			}
-		case job.StatusFailed, job.StatusTimeout, job.StatusRejected:
-			thread.WaitingSince = recordWaitAt(latest)
-			if terminalSeen(pref.SeenAt, seenBaseline, thread.WaitingSince) {
-				thread.Status = StatusDone
 			} else {
-				thread.Status = StatusReview
+				thread.Status = StatusDone
 			}
-		case job.StatusCancelled:
-			thread.Status = StatusDone
 		default:
 			thread.Status = StatusWorking
 		}
@@ -502,6 +488,15 @@ func ParseThreadID(id string) (ThreadKind, string, error) {
 	}
 }
 
+// JobThreadID is the canonical job-event to workbench-thread mapping. A captured
+// agent session groups every resume turn; a one-shot job stands alone.
+func JobThreadID(jobID, sessionID string) string {
+	if sessionID != "" {
+		return "s:" + sessionID
+	}
+	return "j:" + jobID
+}
+
 func snapshotHasThread(snapshot jobstore.WorkbenchSnapshot, kind ThreadKind, rawID string) bool {
 	switch kind {
 	case KindAgent:
@@ -563,6 +558,21 @@ func jobHasChanges(rec jobstore.JobRecord) bool {
 
 func terminalSeen(threadSeenAt, baseline, terminalAt int64) bool {
 	return (threadSeenAt != 0 && threadSeenAt >= terminalAt) || (baseline != 0 && terminalAt < baseline)
+}
+
+// TerminalNeedsReview is F16's single review predicate, shared by the workbench
+// projection and Web Push dispatcher.
+func TerminalNeedsReview(status, agent string, hasChanges, seen bool) bool {
+	switch status {
+	case job.StatusNeedsReview:
+		return true
+	case job.StatusDone:
+		return !seen && agent != "exec" && hasChanges
+	case job.StatusFailed, job.StatusTimeout, job.StatusRejected:
+		return !seen
+	default:
+		return false
+	}
 }
 
 func truncateRunes(value string, limit int) string {

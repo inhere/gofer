@@ -174,6 +174,46 @@ func (s *Store) ListWorkbenchThreadPrefs(callerID string) ([]WorkbenchThreadPref
 	return out, nil
 }
 
+// GetWorkbenchThreadPref reads one caller/thread preference without creating it.
+func (s *Store) GetWorkbenchThreadPref(callerID, threadID string) (WorkbenchThreadPref, bool, error) {
+	if callerID == "" || threadID == "" {
+		return WorkbenchThreadPref{}, false, errors.New("jobstore: get workbench pref: caller and thread are required")
+	}
+	var pref WorkbenchThreadPref
+	var pinned int
+	err := s.db.QueryRow(`SELECT caller_id, thread_id, title, seen_at, pinned
+  FROM workbench_thread_prefs WHERE caller_id=? AND thread_id=?`, callerID, threadID).Scan(
+		&pref.CallerID, &pref.ThreadID, &pref.Title, &pref.SeenAt, &pinned,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return WorkbenchThreadPref{}, false, nil
+	}
+	if err != nil {
+		return WorkbenchThreadPref{}, false, fmt.Errorf("jobstore: get workbench pref: %w", err)
+	}
+	pref.Pinned = pinned != 0
+	return pref, true, nil
+}
+
+// GetWorkbenchSeenBaseline reads the caller-wide F16 watermark without creating
+// it. Event-side notification projection must not make a caller's first page view
+// appear to have happened.
+func (s *Store) GetWorkbenchSeenBaseline(callerID string) (int64, bool, error) {
+	if callerID == "" {
+		return 0, false, errors.New("jobstore: get workbench seen baseline: empty caller id")
+	}
+	var baseline int64
+	err := s.db.QueryRow(`SELECT seen_at FROM workbench_thread_prefs
+  WHERE caller_id=? AND thread_id=?`, callerID, workbenchCallerSeenBaselineThreadID).Scan(&baseline)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, false, nil
+	}
+	if err != nil {
+		return 0, false, fmt.Errorf("jobstore: get workbench seen baseline: %w", err)
+	}
+	return baseline, true, nil
+}
+
 // GetOrCreateWorkbenchSeenBaseline returns the caller-wide seen watermark. The
 // reserved prefs row keeps this state caller-local without adding a second table;
 // it is filtered from ListWorkbenchThreadPrefs and cannot be written as a thread.
