@@ -18,6 +18,20 @@ import { initTheme } from './store/theme'
 // 挂载前应用主题（持久化偏好或跟随系统 prefers-color-scheme），尽量减少首屏闪烁
 initTheme()
 
+// W2b: install the notification-only service worker. Registration is best-effort;
+// the SPA and its page-level attention fallback remain fully usable without it.
+if ('serviceWorker' in navigator) {
+  window.addEventListener(
+    'load',
+    () => {
+      void navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch((err: unknown) => {
+        console.warn('[gofer] service worker 注册失败，Web Push 不可用：', err)
+      })
+    },
+    { once: true },
+  )
+}
+
 // 注册 401 处理：client 已清 token，这里负责跳转到接入页
 setUnauthorizedHandler(() => {
   if (router.currentRoute.value.path !== '/access') {
