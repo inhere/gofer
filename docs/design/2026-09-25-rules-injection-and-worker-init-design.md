@@ -1,12 +1,13 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 强制规则注入与 worker 配置向导设计（JOB-06① / CFG-05 / 小项）
 
-> 状态：Draft 0.1 / 待批准
+> 状态：Approved 0.2 / 实施中（2026-09-25 人工批准，决策 1–5 照写；批准时补 F-g 默认工作空间，决策 6）
 
 ## 修订记录
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
+| 0.2 | 2026-09-25 | Claude | 人工批准；用户补 F-g：`gofer init` 时建默认工作空间并登记 `default` 项目，路径取 `~/.gofer/workspace`（决策 6）；放 R3 |
 | 0.1 | 2026-09-25 | Claude | 初稿：JOB-06① 规则（rules）库 + 四级绑定 + 派发时强制注入 prompt 顶部；web 设置页新增「Rules」；CFG-05 `gofer worker init` 交互向导（拉 server 项目、推 roots、探测 agent、写配置、跑 doctor）；小项：文本类 cli-agent 会话 id 实时落库（F11 遗留）、`job run --env`（CLI 缺口） |
 
 ## 背景与目标
@@ -91,6 +92,7 @@ $ gofer worker init --server http://192.168.65.254:8767 --token <worker token> -
 |---|---|
 | F-e | **文本类 cli-agent 会话 id 实时落库**（F11 遗留）：非 ndjson 的 agent（codex 文本头 `session id:`、claude 文本等）在运行中 stdout/stderr 出现可匹配的会话 id 时立即落库，与 ndjson 同一个 `SetJobSessionID` 窄更新 + `job.session_captured{source:"stream"}`；只扫前 64KB 与增量尾部，不影响大输出性能 |
 | F-f | **`job run --env K=V`**（可重复）：补 CLI 缺口；值会进 `request_json`，帮助文本明确提示"不要放密钥"（密钥等 JOB-06②） |
+| F-g | **默认工作空间**（用户 2026-09-25 补充）：`gofer init server` 与 `gofer worker init` 时创建 `~/.gofer/workspace`（Windows 为 `%USERPROFILE%\.gofer\workspace`；`--workspace <dir>` 或 `GOFER_WORKSPACE` 可改），并在生成的配置里登记项目 `default`（`host_path` 指向它、`allowed_agents` 取探测到的 agent）。`job run` 未给 `-p` 且当前目录匹配不到任何项目时，回落到 `default` 并在输出里提示；已有 `default` 项目或目录时不覆盖。用途：临时、不属于任何仓库的活有个安全的落脚处，不必先建项目 |
 
 ## 横切
 
@@ -104,14 +106,15 @@ $ gofer worker init --server http://192.168.65.254:8767 --token <worker token> -
 |---|---|---|
 | **R1** | JOB-06① 后端 + CLI（规则库、四级并集 + `.gofer/RULES.md`、注入、体积上限、job 行记录、事件、`--rule/--no-rules`）+ F-f `--env` | `TestRulesUnionAcrossLevels`、`TestProjectRulesFileAutoIncluded`、`TestRulesInjectedAtPromptTop`（在 skills 清单之前）、`TestRulesSizeLimitRejects`、`TestJobCallerCannotDisableRules`、`TestRulesRecordedWithSha`、`TestResumeDoesNotReinjectRules`、`TestJobRunEnvFlag` |
 | **R2** | web 设置页「Rules」（列表、编辑预览、绑定反查）；job 详情显示 rules | `pnpm typecheck && pnpm build`；临时 server 浏览器目视 |
-| **R3** | CFG-05 `worker init` + `GET /v1/workers/{id}/assignable` + F-e 文本会话 id 实时落库 | `TestWorkerInitInfersRoots`、`TestWorkerInitNonInteractive`、`TestWorkerInitRefusesOverwriteWithoutForce`、`TestAssignableEndpoint`、`TestTextSessionIDPersistedWhenSeen`；真机：在容器用 `worker init --yes` 重新生成 `w-docker-claude` 的配置到临时目录，与现有手写版 diff |
+| **R3** | CFG-05 `worker init` + `GET /v1/workers/{id}/assignable` + F-e 文本会话 id 实时落库 + F-g 默认工作空间 | `TestWorkerInitInfersRoots`、`TestWorkerInitNonInteractive`、`TestWorkerInitRefusesOverwriteWithoutForce`、`TestAssignableEndpoint`、`TestTextSessionIDPersistedWhenSeen`、`TestInitCreatesDefaultWorkspace`、`TestJobRunFallsBackToDefaultProject`、`TestInitKeepsExistingDefault`；真机：在容器用 `worker init --yes` 重新生成 `w-docker-claude` 的配置到临时目录，与现有手写版 diff |
 
 真机收尾：把 `sup-common.md` 里的通用约束拆成两条规则（`house-rules`：通用纪律；`gofer-repo`：本仓约定），绑到 hyy-ai-inspect 项目，之后我的任务书就只写"本期要做什么"。
 
-## 决策（待批准）
+## 决策（已批准 2026-09-25）
 
 1. 规则注入在 **prompt 顶部**（所有 agent 一致），不走 SystemInject。
 2. 规则四级**并集** + 仓库内 `.gofer/RULES.md` 自动纳入。
 3. 规则总长上限 16KB，超限拒绝提交（逼规则保持短小；长文档用 skills）。
 4. job caller 提交的 job **不能关闭规则**。
 5. `worker init` 默认交互、`--yes` 非交互；不自动启动 worker。
+6. 默认工作空间路径 `~/.gofer/workspace`（短、各平台一致；不用 `~/.local/gofer`，Windows 上没有这个约定），登记为 `default` 项目，`job run` 找不到项目时回落到它。
