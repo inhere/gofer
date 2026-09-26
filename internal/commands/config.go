@@ -10,7 +10,9 @@ import (
 
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/goutil/errorx"
+
 	"github.com/gookit/goutil/x/ccolor"
+	"github.com/inhere/gofer/internal/buildinfo"
 
 	configtmpl "github.com/inhere/gofer/config"
 	"github.com/inhere/gofer/internal/agent"
@@ -28,11 +30,19 @@ const configExitErr = 2
 
 // initOpts holds `gofer init` flags.
 var initOpts = struct {
-	config string
-	force  bool
-	global bool
-	agent  string
-	remove bool
+	config    string
+	force     bool
+	global    bool
+	agent     string
+	remove    bool
+	workspace string
+	// CFG-05 wizard passthrough (`init worker --server …` → the worker wizard).
+	server  string
+	token   string
+	id      string
+	roots   gcli.Strings
+	yes     bool
+	timeout string
 }{}
 
 // DefaultInitConfigPath is where `gofer init [server]` writes the starter server
@@ -81,13 +91,18 @@ func initTemplate(target string) (tmpl, defaultPath string, ok bool) {
 
 // NewInitCmd builds the top-level `gofer init [target]` command (E3). target is
 // `server` (default), `worker`, `client`, or `skill`. For server/worker it writes
-// the matching embedded starter to its default path (./.gofer.yaml / ./worker.yaml)
+// the matching embedded starter to its default path (./.gofer.yaml / worker.yaml)
 // or --output <path>; for client it writes the client node's <config-dir>/.env
 // starter (the node holds only the connection env — no config file); for skill it
 // installs the embedded gofer-usage/ tree to BOTH .claude/skills/ and
 // .agents/skills/ (--output narrows to one dir). It refuses to overwrite an
 // existing target unless --force is given (design D6).
-func NewInitCmd() *gcli.Command {
+//
+// `gofer init worker --server …` DELEGATES to the CFG-05 wizard (one implementation,
+// two entry points); without --server the worker target keeps writing the embedded
+// template. info is handed to the delegated wizard so its register probe reports the
+// same version the worker itself would.
+func NewInitCmd(info buildinfo.Info) *gcli.Command {
 	return &gcli.Command{
 		Name: "init",
 		Desc: "Scaffold a starter config, skill or agent hooks from the embedded templates (target: server | worker | client | skill | hooks)",
@@ -98,15 +113,25 @@ func NewInitCmd() *gcli.Command {
 			c.BoolOpt(&initOpts.global, "global", "g", false, "write to the user-global dir (<config-dir>/config.yaml|worker.yaml|.env for server/worker/client; skill installs to ~/.claude/skills and ~/.agents/skills; hooks to ~/.claude and ~/.codex)")
 			c.StrOpt(&initOpts.agent, "agent", "a", "claude", "hooks: which agent config to write: claude | codex | all")
 			c.BoolOpt(&initOpts.remove, "remove", "", false, "hooks: remove gofer's hook entries instead of installing them")
+			c.StrOpt(&initOpts.workspace, "workspace", "", "", "server: directory to register as the `default` project (default: $GOFER_WORKSPACE, else ~/.gofer/workspace)")
+			// CFG-05: with --server, `init worker` runs the same wizard as
+			// `gofer worker init` (see runInit).
+			c.StrOpt(&initOpts.server, "server", "s", "", "worker: hub address — switches `init worker` to the interactive worker wizard (see `gofer worker init`)")
+			c.StrOpt(&initOpts.token, "token", "", "", "worker wizard: the worker's hub token (written to <config-dir>/.env)")
+			c.StrOpt(&initOpts.id, "id", "", "", "worker wizard: worker_id (must equal the server's server.workers key)")
+			c.VarOpt(&initOpts.roots, "roots", "", "worker wizard: explicit roots mapping from=to (repeatable; wins over inference)")
+			c.BoolOpt(&initOpts.yes, "yes", "y", false, "worker wizard: accept the inferred values without prompting (non-interactive)")
+			c.StrOpt(&initOpts.timeout, "timeout", "", "", "worker wizard: per-check timeout for the doctor run, e.g. 10s")
 		},
-		Func: runInit,
+		Func: func(c *gcli.Command, _ []string) error { return runInit(c, info) },
 	}
 }
 
 // runInit writes the embedded example template for the chosen target to the
 // output path. The templates are the single source of truth shared with
-// config/{gofer,worker}.example.yaml (no drift).
-func runInit(c *gcli.Command, _ []string) error {
+// config/{gofer,worker}.example.yaml (no drift). For the server target it also
+// creates the default workspace and registers it as the `default` project (F-g).
+func runInit(c *gcli.Command, info buildinfo.Info) error {
 	target := "server"
 	if a := c.Arg("target"); a != nil && a.String() != "" {
 		target = strings.ToLower(a.String())
@@ -121,6 +146,11 @@ func runInit(c *gcli.Command, _ []string) error {
 	}
 	if target == "client" {
 		return runInitClient(c)
+	}
+	// CFG-05: `init worker --server …` is the same wizard as `gofer worker init`.
+	// Without --server the template path below is unchanged (backward compatible).
+	if target == "worker" && initOpts.server != "" {
+		return runInitDelegatedWorker(c, info)
 	}
 	tmpl, defaultPath, ok := initTemplate(target)
 	if !ok {
@@ -154,6 +184,17 @@ func runInit(c *gcli.Command, _ []string) error {
 		} else if !os.IsNotExist(err) {
 			return errorx.Failf(configExitErr, "stat %s: %v", path, err)
 		}
+	}
+
+	// F-g: a generated SERVER config carries the default workspace (created here) as
+	// the `default` project, so a fresh install can run a job with no project setup.
+	// The worker template stays verbatim.
+	if target != "worker" {
+		extended, werr := applyDefaultWorkspace(path, tmpl, initOpts.workspace)
+		if werr != nil {
+			return errorx.Failf(configExitErr, "%v", werr)
+		}
+		tmpl = extended
 	}
 
 	if err := os.WriteFile(path, []byte(tmpl), 0o644); err != nil {

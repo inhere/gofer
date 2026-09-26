@@ -220,6 +220,14 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// 把已投影的流投影第二遍，并把 raw 旁路记成误导性内容。文本 agent 原样返回。
 	stdout = s.captureNDJSON(entry, req.JobID, run.Name(), stdout, stderr)
 
+	// F-e: a TEXT cli-agent's session id is only in its output (`session id: …`), so
+	// observe both streams and persist it the moment it appears — otherwise the only
+	// capture is the terminal log scan, and a serve restart in between fails the row
+	// with an empty session_id. No-op for ndjson agents (structured capture), remote
+	// runners (their stream is already projected), interactive jobs (pty relay owns it)
+	// and jobs that already know their id.
+	stdout, stderr = s.captureStreamSession(entry, req.JobID, run.Name(), stdout, stderr)
+
 	// AUTO-05: the stall watchdog measures SILENCE, so every non-empty write from the
 	// agent (either stream — including the acp runner's own update lines on stderr) has
 	// to count as activity. The wrapper is the RUNNER's view of both streams (outermost:

@@ -3,6 +3,7 @@ package job
 import (
 	"bytes"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -11,6 +12,11 @@ import (
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/testutil/testcmd"
 )
+
+// nopWriteCloser adapts a bytes.Buffer to the io.WriteCloser the observer writer wraps.
+type nopWriteCloser struct{ io.Writer }
+
+func (nopWriteCloser) Close() error { return nil }
 
 // textSessionID is the session id the F-e tests use — the same uuid shape codex
 // prints in its batch header (`session id: <uuid>`).
@@ -75,7 +81,7 @@ func TestTextSessionIDPersistedWhenSeen(t *testing.T) {
 		const total = 1 << 20
 		line := []byte(strings.Repeat("noise ", 600) + "\n")
 		var sink bytes.Buffer
-		w := streamSessionCaptureWriter{w: &sink, cap: cap}
+		w := streamSessionCaptureWriter{w: nopWriteCloser{&sink}, cap: cap}
 		for written := 0; written < total; written += chunk {
 			if _, err := w.Write(line); err != nil {
 				t.Fatalf("write: %v", err)
@@ -100,7 +106,7 @@ func TestTextSessionIDPersistedWhenSeen(t *testing.T) {
 		// tail must still catch it (a head-only observer would miss it entirely).
 		var got string
 		cap := newStreamSessionCapture("j-tail", "codex", `(?i)session id:\s*([0-9a-f-]{36})`, func(sid string) { got = sid })
-		w := streamSessionCaptureWriter{w: &bytes.Buffer{}, cap: cap}
+		w := streamSessionCaptureWriter{w: nopWriteCloser{&bytes.Buffer{}}, cap: cap}
 		filler := bytes.Repeat([]byte("x"), streamHeadBytes+1024)
 		for len(filler) > 0 {
 			n := len(filler)

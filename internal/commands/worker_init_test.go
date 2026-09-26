@@ -11,12 +11,12 @@ import (
 	"github.com/gookit/gcli/v3"
 	"github.com/gookit/rux/v2"
 
+	yaml "github.com/goccy/go-yaml"
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/config"
-	"github.com/inhere/gofer/internal/wsproto"
 	"github.com/inhere/gofer/internal/wshub"
-	yaml "github.com/goccy/go-yaml"
+	"github.com/inhere/gofer/internal/wsproto"
 )
 
 // workerInitTestHub serves the two routes the wizard talks to on ONE address: the
@@ -25,7 +25,9 @@ import (
 // Both must share a port: the generated worker.yaml can only name one hub.
 func workerInitTestHub(t *testing.T, workerID, token string, projects []map[string]string) string {
 	t.Helper()
-	hub := wshub.New(map[string]string{workerID: token})
+	// The hub binding maps worker_id → the CALLER ID its token authenticates as, which
+	// in this fixture is the worker id itself.
+	hub := wshub.New(map[string]string{workerID: workerID})
 	r := rux.New()
 	r.GET("/v1/workers/connect", func(c *rux.Context) { hub.Accept(c.Resp, c.Req, workerID) })
 	r.GET("/v1/workers/{id}/assignable", func(c *rux.Context) {
@@ -54,15 +56,14 @@ func workerInitCmdAndOpts(t *testing.T, det agent.Detector) *gcli.Command {
 	return c
 }
 
-// workerInitFixtureDetector reports claude and omp as installed (codex/jcode as not),
-// so the generated worker.yaml's agents block is deterministic no matter what the
-// machine running the tests has on PATH.
+// workerInitFixtureDetector reports claude and codex as installed (everything else —
+// the acp adapters, the tty variants — as not), so the generated worker.yaml's agents
+// block is deterministic no matter what the machine running the tests has on PATH.
 func workerInitFixtureDetector() *fakeDetector {
 	return &fakeDetector{res: map[string]agent.DetectResult{
-		"claude": {Available: true, Version: "2.1.278"},
-		"omp":    {Available: true},
-		"codex":  {Error: "not found"},
-		"jcode":  {Error: "not found"},
+		agent.ExecAgentKey: {Available: true, Version: "builtin"},
+		"claude":           {Available: true, Version: "2.1.278"},
+		"codex":            {Available: true},
 	}}
 }
 
@@ -86,8 +87,9 @@ func TestWorkerInitInfersRoots(t *testing.T) {
 		if len(roots) != 1 {
 			t.Fatalf("roots = %+v, want exactly one inferred root", roots)
 		}
-		if roots[0].From != parent || roots[0].To != parent {
-			t.Fatalf("root = %+v, want {%s %s} (same path exists locally)", roots[0], parent, parent)
+		// `from` is normalised to the forward-slash spelling the server configs use.
+		if want := slashPath(parent); roots[0].From != want || roots[0].To != want {
+			t.Fatalf("root = %+v, want {%s %s} (same path exists locally)", roots[0], want, want)
 		}
 		if len(notFound) != 1 || notFound[0] != missing {
 			t.Fatalf("notFound = %v, want [%s]", notFound, missing)
@@ -115,6 +117,8 @@ func TestWorkerInitInfersRoots(t *testing.T) {
 // .env carries the token, and the wizard runs the doctor itself and prints its table.
 func TestWorkerInitNonInteractive(t *testing.T) {
 	dir := t.TempDir()
+	home := t.TempDir()
+	setTestHome(t, home)
 	t.Setenv(config.EnvConfigDir, dir)
 	t.Setenv("GOFER_WORKER_TOKEN", "tok-w-smoke")
 	parent := t.TempDir()
@@ -166,11 +170,11 @@ func TestWorkerInitNonInteractive(t *testing.T) {
 	if _, ok := wc.Agents["claude"]; !ok {
 		t.Fatalf("agents = %v, want the detected claude", wc.Agents)
 	}
-	if _, ok := wc.Agents["omp"]; !ok {
-		t.Fatalf("agents = %v, want the detected omp", wc.Agents)
+	if _, ok := wc.Agents["codex"]; !ok {
+		t.Fatalf("agents = %v, want the detected codex", wc.Agents)
 	}
-	if _, ok := wc.Agents["codex"]; ok {
-		t.Fatalf("agents = %v, must NOT declare the undetected codex", wc.Agents)
+	if _, ok := wc.Agents["jcode-acp"]; ok {
+		t.Fatalf("agents = %v, must NOT declare an undetected agent", wc.Agents)
 	}
 
 	env, err := os.ReadFile(filepath.Join(dir, config.EnvFileName))
@@ -184,6 +188,10 @@ func TestWorkerInitNonInteractive(t *testing.T) {
 	if !strings.Contains(out, "worker_id") || !strings.Contains(out, "connect") {
 		t.Fatalf("doctor output not printed by the wizard:\n%s", out)
 	}
+	// The wizard also creates the default workspace locally and says where to register it.
+	if fi, err := os.Stat(filepath.Join(home, ".gofer", "workspace")); err != nil || !fi.IsDir() {
+		t.Fatalf("worker wizard did not create the default workspace (err %v)", err)
+	}
 }
 
 // TestWorkerInitRefusesOverwriteWithoutForce: an existing worker.yaml is refused
@@ -191,6 +199,7 @@ func TestWorkerInitNonInteractive(t *testing.T) {
 // worker.yaml.bak-<time> and then writes the new one.
 func TestWorkerInitRefusesOverwriteWithoutForce(t *testing.T) {
 	dir := t.TempDir()
+	setTestHome(t, t.TempDir())
 	t.Setenv(config.EnvConfigDir, dir)
 	t.Setenv("GOFER_WORKER_TOKEN", "tok-w-smoke")
 	path := filepath.Join(dir, config.WorkerConfigFileName)
@@ -223,11 +232,11 @@ func TestWorkerInitRefusesOverwriteWithoutForce(t *testing.T) {
 	workerInitOpts.yes = true
 	workerInitOpts.force = true
 	workerInitOpts.roots = []string{parent + "=" + parent}
-	out := captureOutput(t, func() {
-		if err := runWorkerInit(c2, buildinfo.Info{}); err != nil {
-			t.Fatalf("worker init --force: %v\n%s", err, out)
-		}
-	})
+	var runErr error
+	out := captureOutput(t, func() { runErr = runWorkerInit(c2, buildinfo.Info{}) })
+	if runErr != nil {
+		t.Fatalf("worker init --force: %v\n%s", runErr, out)
+	}
 
 	backups, err := filepath.Glob(filepath.Join(dir, "worker.yaml.bak-*"))
 	if err != nil || len(backups) != 1 {

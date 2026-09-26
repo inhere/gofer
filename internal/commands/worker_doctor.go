@@ -149,7 +149,7 @@ func runWorkerDoctor(c *gcli.Command, info buildinfo.Info) (*workerDoctorReport,
 		}
 		path = def
 	}
-	rep := buildWorkerDoctorReport(path, timeout, info)
+	rep := buildWorkerDoctorReport(path, timeout, info, agent.DefaultDetector(), workerDoctorOpts.connect)
 	out, rerr := renderWorkerDoctor(rep, workerDoctorOpts.json)
 	if rerr != nil {
 		return rep, rerr
@@ -180,7 +180,7 @@ func workerDoctorTimeout() (time.Duration, error) {
 // buildWorkerDoctorReport runs every check in order and returns the rows. It stops
 // at an unreadable config: every later check needs the decoded config, so nothing
 // after it could say anything true.
-func buildWorkerDoctorReport(path string, timeout time.Duration, info buildinfo.Info) *workerDoctorReport {
+func buildWorkerDoctorReport(path string, timeout time.Duration, info buildinfo.Info, det agent.Detector, connect bool) *workerDoctorReport {
 	rep := &workerDoctorReport{Config: path, GoferVersion: info.DisplayVersion()}
 	wc, err := loadWorkerConfig(path)
 	if err != nil {
@@ -229,13 +229,16 @@ func buildWorkerDoctorReport(path string, timeout time.Duration, info buildinfo.
 	// 4) guards / concurrency summary, then what this host can actually run.
 	rep.addRow(doctorGuardsRow(wc))
 	rep.addRow(doctorMaxConcurrentRow(wc))
-	resolved, detected := agent.Resolve(cfg, agent.DefaultDetector())
+	if det == nil {
+		det = agent.DefaultDetector()
+	}
+	resolved, detected := agent.Resolve(cfg, det)
 	for _, key := range resolvedAgentKeys(resolved) {
 		rep.addRow(doctorAgentRow(key, detected[key]))
 	}
 
 	// 5) the register handshake, unless the operator turned it off.
-	if !workerDoctorOpts.connect {
+	if !connect {
 		rep.add(doctorWarn, "connect", "--connect=false：跳过 hub 注册握手（urls 只做了 TCP 可达检查）")
 	} else {
 		rep.addRow(doctorConnectRow(wc, cfg, detected, projects, timeout, info))

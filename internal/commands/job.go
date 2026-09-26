@@ -3,6 +3,7 @@ package commands
 import (
 	"context"
 	"fmt"
+	"io"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -1437,6 +1438,13 @@ func guardInteractiveSync(c *gcli.Command) {
 // autoDetectJobProject mirrors the `job run` D7 convenience: only when -p is
 // absent, resolve the current directory to a configured project and relative cwd.
 // Schedule add reuses it before building the stored JobRequest template.
+//
+// F-g: when the cwd matches NO project, fall back to the `default` project (the
+// workspace `gofer init` registers) and say so on stderr — the stdout of `job run` is
+// parsed by scripts, so the hint must not land there. A config without a `default`
+// project keeps the pre-existing "--project/-p is required" error. The fallback is
+// skipped when --role/--template is given: those carry their own project server-side
+// and filling in `default` would silently override it.
 func autoDetectJobProject(c *gcli.Command) {
 	if jobRunOpts.project != "" {
 		return
@@ -1449,10 +1457,23 @@ func autoDetectJobProject(c *gcli.Command) {
 					jobRunOpts.cwd = rel
 				}
 				c.Printf("auto-detected project %q (cwd=%s)\n", key, rel)
+				return
 			}
+		}
+		if jobRunOpts.role != "" || jobRunOpts.template != "" {
+			return
+		}
+		if def, ok := cfg.Projects[defaultWorkspaceProjectKey]; ok && def.HostPath != "" {
+			jobRunOpts.project = defaultWorkspaceProjectKey
+			fmt.Fprintf(jobRunStderr, "note: current directory matches no project; using the default project %q (%s)\n",
+				defaultWorkspaceProjectKey, def.HostPath)
 		}
 	}
 }
+
+// jobRunStderr is where `job run` writes advisory lines that must NOT pollute the
+// stdout a script parses (F-g). A var, not os.Stderr directly, so tests can capture it.
+var jobRunStderr io.Writer = os.Stderr
 
 // submitMarkdownFile reads the -f task file and submits it as text/markdown. It
 // rejects mixing -f with --prompt or a post-`--` argv (the file is the single

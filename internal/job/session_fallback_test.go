@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
@@ -107,6 +108,12 @@ func TestFallbackCaptureRejectsPlaceholders(t *testing.T) {
 // records job.session_captured with {agent, by, source}, where `by` says whether the
 // id came from the agent's OWN session_capture (built-in or configured) or from
 // gofer's generic fallback — the signal that says "this agent deserves a regex".
+//
+// `source` is "stream" here because a TEXT agent's id is caught LIVE off its output
+// (F-e) and first-wins: these jobs finish so fast that the terminal log scan would
+// find the same id a moment later, but it never gets the chance. The terminal scan
+// still owns the ids that only exist in the log files (its own coverage:
+// TestCaptureCodexSessionIDFromStderrWhenStdoutMisses / the orphan re-scan test).
 func TestFallbackCaptureRecordsEvent(t *testing.T) {
 	const jcodeID = "session_hamster_1790079148520_bc5cb0d44153fe56"
 
@@ -123,7 +130,7 @@ func TestFallbackCaptureRecordsEvent(t *testing.T) {
 		if final.SessionID != jcodeID {
 			t.Fatalf("session_id = %q, want %q", final.SessionID, jcodeID)
 		}
-		assertSessionCapturedEvent(t, s, final.ID, `"agent":"jcode"`, `"by":"fallback"`, `"source":"stdout"`)
+		assertSessionCapturedEvent(t, s, final.ID, `"agent":"jcode"`, `"by":"fallback"`, `"source":"stream"`)
 	})
 
 	t.Run("agent_config", func(t *testing.T) {
@@ -140,7 +147,7 @@ func TestFallbackCaptureRecordsEvent(t *testing.T) {
 		if final.SessionID != "abc12345" {
 			t.Fatalf("session_id = %q, want %q", final.SessionID, "abc12345")
 		}
-		assertSessionCapturedEvent(t, s, final.ID, `"by":"agent_config"`, `"source":"stdout"`)
+		assertSessionCapturedEvent(t, s, final.ID, `"by":"agent_config"`, `"source":"stream"`)
 	})
 
 	t.Run("builtin", func(t *testing.T) {
@@ -157,28 +164,50 @@ func TestFallbackCaptureRecordsEvent(t *testing.T) {
 		if final.SessionID != codexID {
 			t.Fatalf("session_id = %q, want %q", final.SessionID, codexID)
 		}
-		assertSessionCapturedEvent(t, s, final.ID, `"by":"agent_config"`, `"source":"stdout"`)
+		assertSessionCapturedEvent(t, s, final.ID, `"by":"agent_config"`, `"source":"stream"`)
 	})
 }
 
 // assertSessionCapturedEvent finds the job's job.session_captured event and checks
 // its detail carries every wanted fragment.
+//
+// It POLLS briefly: every live capture path persists the id first and records the
+// audit row a moment later (SetJobSessionID then recordEvent), while the tests that
+// call this helper poll the ROW for its session_id — so under a loaded machine the
+// read can win the race by a few microseconds. Polling only the positive assertion
+// changes nothing for a real miss (the deadline just names the same failure).
 func assertSessionCapturedEvent(t *testing.T, s *Service, jobID string, wants ...string) {
 	t.Helper()
-	evs, err := s.ListJobEvents(jobID, 0)
-	if err != nil {
-		t.Fatalf("ListJobEvents: %v", err)
-	}
-	for _, e := range evs {
-		if e.Type != EventJobSessionCaptured {
-			continue
+	deadline := time.Now().Add(3 * time.Second)
+	var lastDetail string
+	for {
+		evs, err := s.ListJobEvents(jobID, 0)
+		if err != nil {
+			t.Fatalf("ListJobEvents: %v", err)
 		}
-		for _, want := range wants {
-			if !strings.Contains(e.Detail, want) {
-				t.Fatalf("event detail = %s, want it to contain %s", e.Detail, want)
+		for _, e := range evs {
+			if e.Type != EventJobSessionCaptured {
+				continue
+			}
+			lastDetail = e.Detail
+			matched := true
+			for _, want := range wants {
+				if !strings.Contains(e.Detail, want) {
+					matched = false
+					break
+				}
+			}
+			if matched {
+				return
 			}
 		}
-		return
+		if time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if lastDetail != "" {
+		t.Fatalf("event detail = %s, want it to contain %v", lastDetail, wants)
 	}
 	t.Fatalf("no %s event in %v", EventJobSessionCaptured, eventTypes(t, s, jobID))
 }

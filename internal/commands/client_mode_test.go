@@ -207,12 +207,12 @@ func TestInitClientWritesEnvTemplate(t *testing.T) {
 	cfgDir := t.TempDir()
 	t.Setenv(config.EnvConfigDir, cfgDir)
 
-	c := bindCmd(NewInitCmd())
+	c := bindCmd(NewInitCmd(buildinfo.Info{}))
 	c.Arg("target").WithValue("client")
 	initOpts.config, initOpts.force, initOpts.global = "", false, false
 	t.Cleanup(func() { initOpts.config, initOpts.force, initOpts.global = "", false, false })
 
-	if err := runInit(c, nil); err != nil {
+	if err := runInit(c, buildinfo.Info{}); err != nil {
 		t.Fatalf("init client: %v", err)
 	}
 
@@ -232,7 +232,7 @@ func TestInitClientWritesEnvTemplate(t *testing.T) {
 	// -o still overrides the target path.
 	other := filepath.Join(t.TempDir(), "custom.env")
 	initOpts.config = other
-	if err := runInit(c, nil); err != nil {
+	if err := runInit(c, buildinfo.Info{}); err != nil {
 		t.Fatalf("init client -o: %v", err)
 	}
 	if _, err := os.Stat(other); err != nil {
@@ -252,12 +252,12 @@ func TestInitClientDoesNotOverwrite(t *testing.T) {
 		t.Fatalf("seed .env: %v", err)
 	}
 
-	c := bindCmd(NewInitCmd())
+	c := bindCmd(NewInitCmd(buildinfo.Info{}))
 	c.Arg("target").WithValue("client")
 	initOpts.config, initOpts.force, initOpts.global = "", false, false
 	t.Cleanup(func() { initOpts.config, initOpts.force, initOpts.global = "", false, false })
 
-	err := runInit(c, nil)
+	err := runInit(c, buildinfo.Info{})
 	if err == nil {
 		t.Fatal("init client must refuse to overwrite an existing .env")
 	}
@@ -267,7 +267,7 @@ func TestInitClientDoesNotOverwrite(t *testing.T) {
 	}
 
 	initOpts.force = true
-	if err := runInit(c, nil); err != nil {
+	if err := runInit(c, buildinfo.Info{}); err != nil {
 		t.Fatalf("init client --force: %v", err)
 	}
 	if got, _ := os.ReadFile(path); string(got) != clientEnvTemplate {

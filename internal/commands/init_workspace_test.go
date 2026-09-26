@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/config"
 )
 
@@ -64,16 +65,16 @@ func TestInitCreatesDefaultWorkspace(t *testing.T) {
 			}
 
 			outCfg := filepath.Join(t.TempDir(), "config.yaml")
-			c := bindCmd(NewInitCmd())
+			c := bindCmd(NewInitCmd(buildinfo.Info{}))
 			initOpts.config, initOpts.force, initOpts.workspace = outCfg, false, flag
-			if err := runInit(c, nil); err != nil {
+			if err := runInit(c, buildinfo.Info{}); err != nil {
 				t.Fatalf("init server: %v", err)
 			}
 
 			if fi, err := os.Stat(want); err != nil || !fi.IsDir() {
 				t.Fatalf("workspace %s not created (err %v)", want, err)
 			}
-			cfg, err := config.Load(outCfg)
+			cfg, _, err := config.Load(outCfg)
 			if err != nil {
 				t.Fatalf("load generated config: %v", err)
 			}
@@ -84,8 +85,8 @@ func TestInitCreatesDefaultWorkspace(t *testing.T) {
 			if def.HostPath != want {
 				t.Fatalf("default.host_path = %q, want %q", def.HostPath, want)
 			}
-			if len(def.AllowedAgents) != 2 || def.AllowedAgents[0] != "claude" || def.AllowedAgents[1] != "omp" {
-				t.Fatalf("default.allowed_agents = %v, want the detected [claude omp]", def.AllowedAgents)
+			if len(def.AllowedAgents) != 2 || def.AllowedAgents[0] != "claude" || def.AllowedAgents[1] != "codex" {
+				t.Fatalf("default.allowed_agents = %v, want the detected [claude codex]", def.AllowedAgents)
 			}
 		})
 	}
@@ -114,9 +115,9 @@ func TestInitKeepsExistingDefault(t *testing.T) {
 		}
 
 		outCfg := filepath.Join(t.TempDir(), "config.yaml")
-		c := bindCmd(NewInitCmd())
+		c := bindCmd(NewInitCmd(buildinfo.Info{}))
 		initOpts.config, initOpts.force, initOpts.workspace = outCfg, false, ""
-		if err := runInit(c, nil); err != nil {
+		if err := runInit(c, buildinfo.Info{}); err != nil {
 			t.Fatalf("init server over an existing workspace dir must not error: %v", err)
 		}
 		if b, err := os.ReadFile(sentinel); err != nil || string(b) != "mine" {
@@ -135,19 +136,22 @@ func TestInitKeepsExistingDefault(t *testing.T) {
 			t.Fatalf("seed config: %v", err)
 		}
 
-		c := bindCmd(NewInitCmd())
+		c := bindCmd(NewInitCmd(buildinfo.Info{}))
 		initOpts.config, initOpts.force, initOpts.workspace = outCfg, true, ""
-		if err := runInit(c, nil); err != nil {
+		if err := runInit(c, buildinfo.Info{}); err != nil {
 			t.Fatalf("init --force over a config that already declares default: %v", err)
 		}
 		// The file parses (no duplicate `projects:`/`default:` key) and carries the
 		// operator's own default project, not a second one.
-		cfg, err := config.Load(outCfg)
+		cfg, _, err := config.Load(outCfg)
 		if err != nil {
 			t.Fatalf("load regenerated config: %v", err)
 		}
-		if def, ok := cfg.Projects["default"]; !ok || def.HostPath != custom {
-			t.Fatalf("default project = %+v, want the pre-existing host_path %q", cfg.Projects, custom)
+		// config.Load normalises the separator, so compare in the slash spelling. The
+		// regenerated file must still carry the operator's own default project.
+		def, ok := cfg.Projects["default"]
+		if want := slashPath(custom); !ok || def.HostPath != want {
+			t.Fatalf("default project = %+v, want the pre-existing host_path %q", cfg.Projects, want)
 		}
 	})
 }

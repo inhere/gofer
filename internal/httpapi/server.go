@@ -685,6 +685,10 @@ func (s *Server) buildRouter() *rux.Router {
 		// log. Always registered; answers 503 while no hub is wired.
 		r.POST("/workers/{id}/reload", s.handleWorkerReload)
 
+		// CFG-05: what `gofer worker init` asks the server — the projects this worker
+		// may run, plus the server/protocol version it is onboarding against. Read-only.
+		r.GET("/workers/{id}/assignable", s.handleWorkerAssignable)
+
 		// G4 (design §6.4): read-only form-options aggregate for the web console
 		// submit form (projects/agents/runners/workers in one authed GET).
 		r.GET("/meta", s.handleMeta)

@@ -27,6 +27,7 @@ func TestJobRunFallsBackToDefaultProject(t *testing.T) {
 		t.Cleanup(func() { config.InputCfgFile = "" })
 		var buf bytes.Buffer
 		jobRunStderr = &buf
+		jobRunOpts.agent = "exec"
 
 		autoDetectJobProject(runCmd)
 		if jobRunOpts.project != "default" {

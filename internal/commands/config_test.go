@@ -13,6 +13,7 @@ import (
 	"github.com/gookit/goutil/errorx"
 
 	configtmpl "github.com/inhere/gofer/config"
+	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/skills"
 )
@@ -81,26 +82,26 @@ func TestConfigSubsRegisteredViaApp(t *testing.T) {
 // verbatim, refuses to overwrite without --force, and overwrites with --force.
 func TestInitWritesEmbeddedTemplate(t *testing.T) {
 	dir := t.TempDir()
+	setTestHome(t, t.TempDir()) // the F-g workspace must not land in the real home
 	path := filepath.Join(dir, ".gofer.yaml")
 
-	c := bindCmd(NewInitCmd())
+	c := bindCmd(NewInitCmd(buildinfo.Info{}))
 
-	// First write: file does not exist → succeeds, content == embed.
+	// First write: file does not exist → succeeds with the embedded template PLUS the
+	// F-g default-workspace project (assertServerConfigFromTemplate).
 	initOpts.config = path
 	initOpts.force = false
-	if err := runInit(c, nil); err != nil {
+	if err := runInit(c, buildinfo.Info{}); err != nil {
 		t.Fatalf("init: %v", err)
 	}
 	got, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatalf("read written config: %v", err)
 	}
-	if string(got) != configtmpl.ExampleYAML {
-		t.Fatalf("written content != embedded template")
-	}
+	assertServerConfigFromTemplate(t, string(got))
 
 	// Second write without --force → coded error (non-zero exit), file unchanged.
-	if err := runInit(c, nil); err == nil {
+	if err := runInit(c, buildinfo.Info{}); err == nil {
 		t.Fatal("expected init to refuse overwriting an existing config")
 	} else {
 		assertCodedExit(t, err)
@@ -111,13 +112,11 @@ func TestInitWritesEmbeddedTemplate(t *testing.T) {
 		t.Fatalf("seed stale: %v", err)
 	}
 	initOpts.force = true
-	if err := runInit(c, nil); err != nil {
+	if err := runInit(c, buildinfo.Info{}); err != nil {
 		t.Fatalf("init --force: %v", err)
 	}
 	got, _ = os.ReadFile(path)
-	if string(got) != configtmpl.ExampleYAML {
-		t.Fatal("--force did not rewrite the template")
-	}
+	assertServerConfigFromTemplate(t, string(got))
 	initOpts.force = false
 }
 
@@ -146,13 +145,13 @@ func TestInitWorkerTarget(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "worker.yaml")
 
-	c := bindCmd(NewInitCmd())
+	c := bindCmd(NewInitCmd(buildinfo.Info{}))
 	c.Arg("target").WithValue("worker")
 	initOpts.config = path
 	initOpts.force = false
 	t.Cleanup(func() { initOpts.config = ""; initOpts.force = false })
 
-	if err := runInit(c, nil); err != nil {
+	if err := runInit(c, buildinfo.Info{}); err != nil {
 		t.Fatalf("init worker: %v", err)
 	}
 	got, err := os.ReadFile(path)
@@ -184,14 +183,14 @@ func TestInitGlobalWorkerWritesToConfigDir(t *testing.T) {
 		t.Fatalf("chdir: %v", err)
 	}
 
-	c := bindCmd(NewInitCmd())
+	c := bindCmd(NewInitCmd(buildinfo.Info{}))
 	c.Arg("target").WithValue("worker")
 	initOpts.global = true
 	initOpts.config = ""
 	initOpts.force = false
 	t.Cleanup(func() { initOpts.global = false; initOpts.config = ""; initOpts.force = false })
 
-	if err := runInit(c, nil); err != nil {
+	if err := runInit(c, buildinfo.Info{}); err != nil {
 		t.Fatalf("init -g worker: %v", err)
 	}
 
@@ -214,6 +213,7 @@ func TestInitGlobalWorkerWritesToConfigDir(t *testing.T) {
 // TestInitDefaultPath verifies init defaults to ./.gofer.yaml when no --config.
 func TestInitDefaultPath(t *testing.T) {
 	dir := t.TempDir()
+	setTestHome(t, t.TempDir()) // the F-g workspace must not land in the real home
 	cwd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("getwd: %v", err)
@@ -223,10 +223,10 @@ func TestInitDefaultPath(t *testing.T) {
 		t.Fatalf("chdir: %v", err)
 	}
 
-	c := bindCmd(NewInitCmd())
+	c := bindCmd(NewInitCmd(buildinfo.Info{}))
 	initOpts.config = ""
 	initOpts.force = false
-	if err := runInit(c, nil); err != nil {
+	if err := runInit(c, buildinfo.Info{}); err != nil {
 		t.Fatalf("init default: %v", err)
 	}
 	if _, err := os.Stat(filepath.Join(dir, DefaultInitConfigPath)); err != nil {
@@ -239,6 +239,7 @@ func TestInitDefaultPath(t *testing.T) {
 // redirects the global dir to a temp dir so the test never touches the real home.
 func TestInitServerGlobalPath(t *testing.T) {
 	dir := t.TempDir()
+	setTestHome(t, t.TempDir()) // the F-g workspace must not land in the real home
 	t.Setenv(config.EnvConfigDir, dir)
 
 	want, err := config.UserConfigPath()
@@ -246,13 +247,13 @@ func TestInitServerGlobalPath(t *testing.T) {
 		t.Fatalf("UserConfigPath: %v", err)
 	}
 
-	c := bindCmd(NewInitCmd())
+	c := bindCmd(NewInitCmd(buildinfo.Info{}))
 	initOpts.config = ""
 	initOpts.global = true
 	initOpts.force = true
 	t.Cleanup(func() { initOpts.config = ""; initOpts.global = false; initOpts.force = false })
 
-	if err := runInit(c, nil); err != nil {
+	if err := runInit(c, buildinfo.Info{}); err != nil {
 		t.Fatalf("init server --global: %v", err)
 	}
 	// The global path == UserConfigPath() and the file was actually written there.
@@ -263,9 +264,7 @@ func TestInitServerGlobalPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read global config: %v", err)
 	}
-	if string(got) != configtmpl.ExampleYAML {
-		t.Fatal("global config content != embedded server template")
-	}
+	assertServerConfigFromTemplate(t, string(got))
 }
 
 // assertSkillTree asserts the full embedded gofer-usage/ tree was written under
@@ -322,14 +321,14 @@ func TestInitSkillWritesEmbeddedTree(t *testing.T) {
 		t.Fatalf("chdir: %v", err)
 	}
 
-	c := bindCmd(NewInitCmd())
+	c := bindCmd(NewInitCmd(buildinfo.Info{}))
 	c.Arg("target").WithValue("skill")
 	initOpts.config = ""
 	initOpts.force = false
 	initOpts.global = false
 	t.Cleanup(func() { initOpts.config = ""; initOpts.force = false; initOpts.global = false })
 
-	if err := runInit(c, nil); err != nil {
+	if err := runInit(c, buildinfo.Info{}); err != nil {
 		t.Fatalf("init skill: %v", err)
 	}
 
@@ -342,14 +341,14 @@ func TestInitSkillWritesEmbeddedTree(t *testing.T) {
 func TestInitSkillOutputSingleDir(t *testing.T) {
 	parent := t.TempDir()
 
-	c := bindCmd(NewInitCmd())
+	c := bindCmd(NewInitCmd(buildinfo.Info{}))
 	c.Arg("target").WithValue("skill")
 	initOpts.config = parent
 	initOpts.force = false
 	initOpts.global = false
 	t.Cleanup(func() { initOpts.config = ""; initOpts.force = false; initOpts.global = false })
 
-	if err := runInit(c, nil); err != nil {
+	if err := runInit(c, buildinfo.Info{}); err != nil {
 		t.Fatalf("init skill -o: %v", err)
 	}
 	assertSkillTree(t, parent)
@@ -366,14 +365,14 @@ func TestInitSkillGlobalTwoDirs(t *testing.T) {
 	t.Setenv("HOME", home)
 	t.Setenv("USERPROFILE", home) // Windows home resolution
 
-	c := bindCmd(NewInitCmd())
+	c := bindCmd(NewInitCmd(buildinfo.Info{}))
 	c.Arg("target").WithValue("skill")
 	initOpts.config = ""
 	initOpts.global = true
 	initOpts.force = false
 	t.Cleanup(func() { initOpts.config = ""; initOpts.global = false; initOpts.force = false })
 
-	if err := runInit(c, nil); err != nil {
+	if err := runInit(c, buildinfo.Info{}); err != nil {
 		t.Fatalf("init -g skill: %v", err)
 	}
 	assertSkillTree(t, filepath.Join(home, ".claude", "skills"))
@@ -386,19 +385,19 @@ func TestInitSkillGlobalTwoDirs(t *testing.T) {
 func TestInitSkillRefusesExistingAndForce(t *testing.T) {
 	parent := t.TempDir()
 
-	c := bindCmd(NewInitCmd())
+	c := bindCmd(NewInitCmd(buildinfo.Info{}))
 	c.Arg("target").WithValue("skill")
 	initOpts.config = parent
 	initOpts.force = false
 	initOpts.global = false
 	t.Cleanup(func() { initOpts.config = ""; initOpts.force = false; initOpts.global = false })
 
-	if err := runInit(c, nil); err != nil {
+	if err := runInit(c, buildinfo.Info{}); err != nil {
 		t.Fatalf("init skill (first): %v", err)
 	}
 
 	// Second write without --force → coded error (skill dir already exists).
-	if err := runInit(c, nil); err == nil {
+	if err := runInit(c, buildinfo.Info{}); err == nil {
 		t.Fatal("expected init skill to refuse overwriting an existing skill")
 	} else {
 		assertCodedExit(t, err)
@@ -410,13 +409,33 @@ func TestInitSkillRefusesExistingAndForce(t *testing.T) {
 		t.Fatalf("seed stale SKILL.md: %v", err)
 	}
 	initOpts.force = true
-	if err := runInit(c, nil); err != nil {
+	if err := runInit(c, buildinfo.Info{}); err != nil {
 		t.Fatalf("init skill --force: %v", err)
 	}
 	got, _ := os.ReadFile(skillMD)
 	want, _ := skills.GoferUsage.ReadFile("gofer-usage/SKILL.md")
 	if string(got) != string(want) {
 		t.Fatal("--force did not rewrite SKILL.md to the embedded content")
+	}
+}
+
+// assertServerConfigFromTemplate asserts a generated server config is the embedded
+// starter template PLUS the F-g default-workspace entry inserted into its `projects:`
+// mapping — the two are one file now, so "== template" is no longer the contract.
+func assertServerConfigFromTemplate(t *testing.T, got string) {
+	t.Helper()
+	if !strings.Contains(got, "projects:\n  # F-g") {
+		t.Fatalf("generated server config does not carry the default-workspace entry:\n%s", got)
+	}
+	if !strings.Contains(got, "  default:\n") {
+		t.Fatalf("generated server config has no `default` project:\n%s", got)
+	}
+	// The template itself is preserved around the insertion (first and last lines).
+	first, _, _ := strings.Cut(configtmpl.ExampleYAML, "\n")
+	last := strings.TrimRight(configtmpl.ExampleYAML, "\n")
+	last = last[strings.LastIndex(last, "\n")+1:]
+	if !strings.HasPrefix(got, first+"\n") || !strings.Contains(got, last) {
+		t.Fatalf("the embedded template was not preserved around the insertion")
 	}
 }
 
