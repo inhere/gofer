@@ -16,6 +16,10 @@
 
 ## 2. 一次性配置
 
+> **可以让向导生成这份 worker.yaml**（CFG-05，见 [worker 接入向导](./2026-09-26-worker-init-runbook.md)）：
+> `gofer worker init --server http://192.168.65.254:8767 --token <token> --id w-docker-claude --roots 'D:/work/inhere=/d/work/inhere'`
+> 它会问 server 有哪些 project 可派给这个 id、推断/接受 roots、探测容器里装了哪些 agent，写好文件再跑一遍 doctor —— 下面这段就是它生成的东西（下面手写版仍保留，便于逐项理解）。
+
 ### 2.1 worker.yaml（关键段）
 
 ```yaml

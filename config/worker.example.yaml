@@ -2,6 +2,10 @@
 # Run with:  gofer worker -c worker.yaml   (the worker config has NO auto-discovery
 # chain — the path is always explicit). Generate this starter with:
 #   gofer init worker            # writes ./worker.yaml
+# Or let the CFG-05 wizard write a ready-to-run one (asks the server which projects
+# this worker may run, infers roots, probes the installed agents, then runs doctor):
+#   gofer worker init --server http://<host>:8767 --token <worker token> --id w-laptop
+#   docs/runbook/2026-09-26-worker-init-runbook.md
 #
 # A worker is a SEPARATE process that dials the server's hub over WebSocket,
 # registers, and runs dispatched jobs LOCALLY with its own config (it re-validates

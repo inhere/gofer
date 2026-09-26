@@ -207,3 +207,94 @@ invalid rule body - the rule body is empty
 ```
 
 **测试**：`internal/commands`（新增 `TestJobRunEnvWarnsForRemoteRunner`，与既有 `TestJobRunEnvFlag` 同绿）、`internal/httpapi`（新增 `TestProjectRulesBindingRoundTrip`）。整包 `go test ./internal/commands/ -count=1`（ok）与 `./internal/httpapi/ -count=1` 全绿；`gofmt -l` / `go build ./...` / `go vet ./...` 干净；`cd web && pnpm typecheck && pnpm build` 通过（产物里多一个 `Rules-*.js` chunk）。
+
+## R3 实测记录（2026-09-26，omp 实施）
+
+R3（§二 CFG-05 `worker init` + `GET /v1/workers/{id}/assignable`、§三 F-e 文本会话 id、F-g 默认工作空间）已实现并合入。R1/R2 记录里的"待办"只剩**真机收尾**（把 `sup-common.md` 拆成 `house-rules` / `gofer-repo` 两条规则绑到 hyy-ai-inspect）。
+
+**落成与设计的对照**
+
+- 入口两个、实现一份：`gofer worker init`（`worker` 组子命令）与 `gofer init worker --server …`（委托；不带 `--server` 时仍是"写示例模板"的老行为）。参数 `--server/--token/--id/--roots/--yes/--force/--workspace/--timeout`。token 缺省回落到已导出的 `GOFER_WORKER_TOKEN`。
+- 服务端新接口 `GET /v1/workers/{id}/assignable`：返回 `{worker_id, projects:[{key,host_path}], server_version, protocol_version}`。判定比设计字面**宽一档**（设计写"allowed_runners 含该 id"）：`allowed_runners` **直接写了该 worker id**，或写了 `type: worker` 且 `worker_id == <id>` 的 runner 名，二者都算可派——后者正是 job 提交时 `checkRunnerAllowed` + `isWorkerRunner` 的准入口径，只按字面实现会漏掉"runner 名与 worker id 不同名"的部署。鉴权：该 worker 自己的 token 或 user caller；**别的 worker token 403**（不用 `callerMayAdmin`：worker id 永远没有 can_admin）。
+- roots 推断：最长公共前缀 → `to` 依次尝试**同路径** → **盘符互转**（`D:/x` ↔ `/d/x`）→ 交互输入；逐条显示存在性、回车接受/`n` 跳过/输入即改；映射后不存在的 project 单独告警。`from` 统一写成正斜杠形态（server 配置的写法，映射两侧本来就会归一）。显式 `--roots` **完全跳过推断**。
+- agent 探测复用 `agent.Resolve` 的一次 detect pass：**只写探测到的**（`exec` 不写，它是内置的）；报告行按 key 排序（Go map 顺序本来随机）。
+- 写文件：`<config-dir>/worker.yaml`（原子写：临时文件 + rename）+ `<config-dir>/.env`（**就地更新** `GOFER_WORKER_TOKEN` 一行，保留其它键）。已有 worker.yaml 时**先拒绝**（在发出任何请求之前，`--force` 才覆盖），`--force` 先备份为 `worker.yaml.bak-<YYYYMMDD-HHMMSS>`。生成的 yaml 带三行头注释（怎么改、roots 只在本地、token 不进本文件）。
+- doctor 复用 `buildWorkerDoctorReport` + `renderWorkerDoctor`（不是 `runWorkerDoctor`：那个读 `workerDoctorOpts` 的全局 flag，向导必须指定**刚写的那个文件**）。为此给 `buildWorkerDoctorReport` 加了 `detector` 与 `connect` 两个显式参数（CLI 传 `agent.DefaultDetector()` / `workerDoctorOpts.connect`），向导传自己的探测 seam 与 `true`。**任一 FAIL → 命令非零退出**。
+- **一处真机才暴露的坑（已修）**：向导写 .env 后立刻跑 doctor，而 doctor 从环境变量解析 token——新机器还没 export，于是必然报 `token 为空` 且注册探测 401。修法是向导把本次 `--token` `os.Setenv` 到自己进程再跑 doctor（`config.LoadDotenv` 不够：进程若在 job 内，dotenv 会**故意跳过**所有 `*_TOKEN` 键，见它的 leak-1 守卫）。
+- 占用检查：`GET /v1/meta` 的 workers 里有该 id 且 `connected` → 打一行 warning（启动第二份会顶掉它的连接并失败其 in-flight job）。best-effort，老/不可达 server 直接跳过。
+- F-g：`gofer init server` 生成配置时创建 `~/.gofer/workspace`（`--workspace` / `GOFER_WORKSPACE` 可改）并在模板的 `projects:` 映射**首位插入** `default` 项（文本插入，不重新 marshal —— 模板的价值就是那堆注释）；已有 `default` 项目则**沿用它的 host_path**（不新建、不搬家），目录已存在则原地复用。worker 向导只建目录 + 提示到 server 上登记（worker 是 POLICY，项目由 server 下发）。`job run` 项目解析：`-p` > cwd 匹配 > `default`（stderr 打提示）> 报错；`--role`/`--template` 时**不回落**（那两条的项目由服务端填）。
+- F-e：本地 cli-agent 的 stdout/stderr 上挂一个观察器（`job.captureStreamSession`），去 ANSI 后按该 agent 的 `SessionCapture`（含 AGT-04 兜底）匹配，**首次命中即** `SetJobSessionID` + `job.session_captured{source:"stream"}`。前 64KB 头窗口 + 滚动 64KB 尾窗口，且**只扫新增字节 + 1KB 重叠**（1MB 输出扫约 1.3MB，不是每写一次就重扫累积缓冲）。ndjson agent（已有结构化捕获）、远端 runner、交互 job（pty relay 那条路负责）、已知 session id 的 job 都不挂。
+- 一处既有测试的**契约变化**（随之更新，未削弱）：`TestFallbackCaptureRecordsEvent` 三个子例原先断言终态扫描的 `source:"stdout"`，现在文本 agent 的 id 由**实时**路径先拿到（`source:"stream"`，`by` 的 fallback/agent_config 区分照旧）；终态扫描仍有自己的覆盖（`TestCaptureCodexSessionIDFromStderrWhenStdoutMisses`、orphan 重扫）。顺带给 `assertSessionCapturedEvent` 加了 3 秒轮询：实时路径是"先写行、再记事件"，而测试先轮询行再断言事件，负载高时会输在微秒级。
+
+**冒烟（临时 server：随机端口 35164 + 临时 config；临时 HOME；每条 CLI 命令 unset 真实 env；未触碰真实配置目录）**
+
+```
+$ export GOFER_CONFIG_DIR=<tmp>/cfg-worker HOME=<tmp>/home
+$ gofer worker init --yes --server http://127.0.0.1:35164 --token smoke-worker-token \
+    --id w-smoke --roots '<tmp>/proj=<tmp>/proj'
+✓ 连接 server (dev build: no version stamped)，协议 v11，可派给 w-smoke 的项目 1 个
+  smoke                    host_path <tmp>/proj
+使用显式 --roots 映射 1 条（跳过推断）
+探测到 agents（已装 8 个）：
+  ✓ claude       2.1.278 (Claude Code)
+  ✓ claude-acp
+  ✓ codex        codex-cli 0.155.1
+  ✗ codex-acp    未安装
+  … (jcode-acp / omp-acp / opencode / tty-claude / tty-codex ✓, gemini-acp ✗)
+已写入 <tmp>/cfg-worker/worker.yaml、<tmp>/cfg-worker/.env
+默认工作空间 <tmp>/home/.gofer/workspace 已就绪：把它登记为 server 上的 `default` 项目…
+运行 doctor：
+worker doctor: <tmp>/cfg-worker/worker.yaml
+worker_id:     w-smoke
+PASS  config / worker_id / url（ws://127.0.0.1:35164/v1/workers/connect 可达）
+PASS  token             来自环境变量 GOFER_WORKER_TOKEN（值不打印）
+PASS  mode              policy: 1 roots, 当前生效 0 个 project（server 下发，读自 policy 缓存）
+PASS  roots[0]          <tmp>/proj -> <tmp>/proj
+WARN  guards / max_concurrent   （未设置 = 不额外收紧 / 不限并发）
+PASS  agent.claude / claude-acp / codex / exec / jcode-acp / omp-acp / opencode / tty-claude / tty-codex
+PASS  connect           ws://127.0.0.1:35164/v1/workers/connect: accepted=true protocol=11
+result: OK — 0 failed, 2 warning(s)
+启动：gofer worker -d
+
+# 生成的 worker.yaml（节选）
+# gofer worker config — generated by `gofer worker init` (CFG-05).
+worker_id: w-smoke
+server_link:
+  urls: [ws://127.0.0.1:35164/v1/workers/connect]
+  token_env: GOFER_WORKER_TOKEN
+roots:
+- from: <tmp>/proj
+  to: <tmp>/proj
+agents: {claude: …, claude-acp: …, codex: …（只写探测到的）}
+# 生成的 .env
+GOFER_WORKER_TOKEN=smoke-worker-token
+
+# 覆盖保护（同一 config dir 再跑一次，不带 --force）
+ERROR: <tmp>/cfg-worker/worker.yaml already exists; use --force to overwrite (the old file is backed up)
+# 带 --force，备份落盘
+worker.yaml.bak-20260926-122530
+
+# 委托入口等价（另一个临时 config dir）
+$ gofer init worker --server http://127.0.0.1:35164 --token … --id w-smoke --yes --roots '…=…'
+# 同一向导输出；--force 亦备份
+
+$ gofer init server -g          # GOFER_CONFIG_DIR=<tmp>/cfg-server HOME=<tmp>/home2
+已生成 <tmp>/cfg-server/config.yaml，编辑后运行 `gofer config validate` 校验
+$ ls -d <tmp>/home2/.gofer/workspace        → 存在
+$ grep -A5 "F-g" <tmp>/cfg-server/config.yaml
+  default:
+    host_path: "<tmp>/home2\\.gofer\\workspace"
+    allowed_agents: [claude, …]
+$ gofer -c <tmp>/cfg-server/config.yaml config validate     → config OK
+
+# F-g 回落（server 上登记了 default 项目；cwd 匹配不到任何项目）
+$ cd <tmp>/home2 && gofer -c <tmp>/srv/config.yaml job run -a exec --sync -- cmd /c echo hello-from-default
+note: current directory matches no project; using the default project "default" (<tmp>/home2/.gofer/workspace)
+job 20260926-122618-167fdc42 submitted: status=done …
+job 20260926-122618-167fdc42 finished: status=done exit_code=0
+$ gofer … job show 20260926-122618-167fdc42
+project:    default
+cwd:        <tmp>/home2\.gofer\workspace
+```
+
+**测试**：`internal/commands`（`TestWorkerInitInfersRoots`〔同路径 + 盘符互转两个子例〕、`TestWorkerInitNonInteractive`〔假 hub 同时服务 assignable 与注册握手 → doctor 全 PASS〕、`TestWorkerInitRefusesOverwriteWithoutForce`、`TestInitCreatesDefaultWorkspace`〔默认路径/`--workspace`/`GOFER_WORKSPACE`〕、`TestInitKeepsExistingDefault`、`TestJobRunFallsBackToDefaultProject`）、`internal/httpapi`（`TestAssignableEndpoint`）、`internal/job`（`TestTextSessionIDPersistedWhenSeen`：运行中落库 + 1MB 输出不回扫 + 尾部窗口三个子例）。`TestInitWritesEmbeddedTemplate` / `TestInitServerGlobalPath` 两处"== 模板逐字节"断言随 F-g 改为"模板 + 插入的 default 项"（新增 `assertServerConfigFromTemplate`），并给它们补了临时 HOME——否则测试会往真实 `~/.gofer/workspace` 写目录。
