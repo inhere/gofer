@@ -309,6 +309,7 @@ G032 预期清单：
 | T30 | PASS | `22f214e`，Vue typecheck PASS |
 | T31 | SOURCE_PASS | `7c8ab03`；Vue typecheck/Vite build PASS，真实浏览器视觉见 T42 |
 | B01（用户追加） | PASS | `3cd0b4c`；`TestResumeOfResumeUsesOriginAgent` 先 RED 后 GREEN |
+| F16（真机 corrective） | PASS | `83b46c3`、`845cd07`、`536a853`、`31f6356`；review 口径、caller 基线、seen-all 与首轮 agent 已实现；固定/整包测试、双平台 build、vet、Vue typecheck、控制字符与文档验证均 PASS |
 | T41 | PARTIAL | build/vet/Web PASS；四包中三包 PASS，`internal/job` 两项实施前 baseline FAIL |
 | T42 | PARTIAL | 隔离 runtime API smoke PASS；三种浏览器 provider 均无法启动，visual/screenshot NOT_RUN |
 | T43 | PASS | 文档/状态/日志/控制字符/lifecycle 检查已完成；整体仍因 T41/T42 外部 Gate 为 BLOCKED |

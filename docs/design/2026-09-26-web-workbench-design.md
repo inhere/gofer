@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # web 工作台设计（WEB-11）
 
-> 状态：Approved 0.2 / 实施中（2026-09-26 用户经 web 中继批准，决策 1–7 照写）
+> 状态：Approved（文档 identity：Draft 0.2）/ 实施中（2026-09-26 用户经 web 中继批准，决策 1–7 照写）
 
 ## 修订记录
 
@@ -16,9 +16,11 @@
 
 现在的 web 是**按对象组织**的（Board/Plans/Review/Sessions 各一页），适合"来处理一件事"，不适合"坐下来干活"。目标是**按工作组织**：一眼看到所有正在进行的会话和谁在等我，一键发起新任务，在同一处看过程、接着说话、看改动、给反馈。
 
-非目标：浏览器里的完整 IDE；多人同屏协作；替代 CLI。
+## 范围与非目标
 
-## 一、调研：可用性要点（按"做不到就会被嫌弃"排序）
+范围为本设计 W1–W4 的 web 工作台能力；非目标：浏览器里的完整 IDE；多人同屏协作；替代 CLI。
+
+## 已确认事实与规范：调研可用性要点（按"做不到就会被嫌弃"排序）
 
 | # | 要点 | 谁这么做 | 对 gofer 的含义 |
 |---|---|---|---|
@@ -35,7 +37,7 @@
 
 herdr 的工作区 → 标签页 → 窗格与**状态上卷**保留，但降为"布局层"：会话是内容，布局只是摆放。
 
-## 二、概念模型
+## 总体方案：概念模型
 
 - **工作区** = 项目（`project_key`）。侧栏的分组单位；状态由其会话上卷，并计入项目内不属于任何会话的待处理项（needs_review、plan.blocked、decision）。
 - **会话（thread）**：
@@ -59,7 +61,7 @@ herdr 的工作区 → 标签页 → 窗格与**状态上卷**保留，但降为
 └────────────────────────┴─────────────────────────────────────────────────────────┘
 ```
 
-## 三、关键交互
+## 关键流程：关键交互
 
 1. **发起**（composer，或 `ctrl+k` → 新会话）：项目（默认当前工作区）、agent（按项目 allowed_agents，标出能交互/能对话的）、模式（对话：acp-agent；终端：交互 pty；批处理：看日志）、可选 worktree、plan todo、skills/rules、cwd。回车 → 提交 job → 侧栏出现新会话并切过去。
 2. **注意力**：顶部「⚠ 等你 N」下拉 = 全部 blocked/review 项按等待时长排序；侧栏状态点上卷到项目；浏览器推送（用户授权后）：blocked 时推送，permission 类带「允许/拒绝」动作按钮（Service Worker 通知动作 → 调现有交互作答接口）；完成时推送"待评审"。
@@ -70,7 +72,7 @@ herdr 的工作区 → 标签页 → 窗格与**状态上卷**保留，但降为
 7. **关闭 ≠ 停止**：关闭视图/窗格只是离开，job 照跑；「停止」单独动作、二次确认。
 8. **移动端 / PWA**：manifest + Service Worker 可安装；窄屏只显示侧栏或单会话（左右滑切换），composer 与"等你"始终可达；推送在手机上同样可批。
 
-## 四、后端
+## 架构：后端接口与分层
 
 - `GET /v1/workbench/threads?project=&status=&q=`：返回会话列表（按 `session_id` 聚合 job 链；中继会话并入），每条含状态、标题、agent、项目、最近活动时间、用量合计、未看改动标记、worktree；以及"等你"队列。前端 5s 轮询（`createPoller`），后续可换 SSE。
 - `PATCH /v1/workbench/threads/{id}`：重命名、标记已看、置顶（per caller）。
@@ -108,6 +110,14 @@ herdr 的工作区 → 标签页 → 窗格与**状态上卷**保留，但降为
 - Browser visual NOT_RUN：bsk daemon 无法在 Windows Job Object 下建立可访问 IPC；Orca runtime 无法启动；agent-browser 的 headless/headed Chrome 都在写 `DevToolsActivePort` 前退出。按 Host guardrail 未使用 `--no-sandbox`、未删除 daemon/runtime 文件、未重启共享浏览器。因此 command palette、Ctrl+Tab、终端 Esc、窄屏视觉和截图描述仍缺真实浏览器证据，不能宣称目视验收通过。
 - Full Windows package baseline：`internal/workbench`、`internal/httpapi`、`internal/jobstore` PASS；`internal/job` 仍有实施前已复现的 `TestGetArtifactManifest` 与 `TestWorktreeSymlinkedProjectRoot` 两项非 W1 失败。新增 `TestResumeOfResumeUsesOriginAgent`、全部 `TestResume*` 及 HTTP workbench turn 均 PASS。
 
+### F16：review 口径收窄 + 已看基线（不改变 Approved 0.2 设计语义）
+
+W1 真机默认 7 天窗口返回 412 个会话、attention 406 项，主因是实现把“终态且 caller 未逐项看过”都归为 review，偏离了本设计 §二“needs_review，或终态且有未看的改动”。F16 corrective 将投影收敛为：`needs_review` 始终 review；未看的 failed/timeout/rejected 为 review；未看的成功终态仅在最新 job 的 commits 非空或 diff 快照非空时为 review；cancelled、成功无改动和 exec agent 成功均为 done。
+
+caller 第一次 GET threads 时建立全局已看基线，早于它的历史终态视为已看；`POST /v1/workbench/threads/seen-all` 单调推进该基线，前端“等你”下拉提供“全部标记已看”。per-thread rename/seen/pin 继续隔离；真正的 `needs_review` 不受 baseline 或逐项 seen 影响。thread 的 agent 改取首轮 job；首轮为 exec resume 载体时取 `OriginAgent`，空值才回退 exec。
+
+测试/实现提交：`83b46c3`、`845cd07`（固定测试与时间夹具）、`536a853`（后端 projection/baseline/endpoint）、`31f6356`（Web seen-all）。四个固定测试、完整 `internal/httpapi`/`internal/jobstore` 包、Windows/Linux build、vet、Vue typecheck、控制字符扫描及三份文档 validator 均 PASS；未部署、未重启/reload live gofer、未触碰真实配置。
+
 ## 决策（已批准 2026-09-26）
 
 1. 以**会话**为一等公民（侧栏会话列表 + 主区视图），herdr 式窗格/布局作为 W2 的摆放层。
@@ -117,6 +127,14 @@ herdr 的工作区 → 标签页 → 窗格与**状态上卷**保留，但降为
 5. 布局、已看、重命名存 server（per caller），跨设备一致；PWA 可安装。
 6. ACP 多轮先用 resume 链。
 7. 分期 W1 → W2 → W3 →（W4 可选）；W1 做完即上线试用，根据使用反馈再调后续。
+
+## 待确认事项
+
+W1 与 F16 没有未决核心行为；W2–W4 是否继续及其具体范围，仍等待 W1 实际使用反馈后另行确认。
+
+## 结论与人工计划 Gate
+
+Approved 0.2 的决策 1–7 保持有效。W1/F16 的实施记录不授权 W2–W4、push、部署、live 服务操作或真实配置变更；这些仍需各自计划与当前请求。
 
 ## 参考
 

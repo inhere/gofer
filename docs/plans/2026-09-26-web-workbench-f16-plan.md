@@ -166,8 +166,10 @@ G032 预期清单：新增兼容分支 `NONE`；新增 DEPRECATED 标记 `NONE`�
 
 | 任务 | 状态 | 提交/证据 |
 |---|---|---|
-| F16-W0 | IN_PROGRESS | 计划落盘、validator/candidate/preflight 待完成 |
-| F16-01 | PENDING | 待测试先行 |
-| F16-02 | PENDING | 依赖 F16-01 RED |
-| F16-03 | PENDING | 依赖后端 GREEN |
-| F16-04 | PENDING | 依赖实现完成 |
+| F16-W0 | PASS | `5b8ecb9`；plan validator、candidate `5b8ecb9d.../0.1` 与 SUPMODE preflight PASS |
+| F16-01 | PASS | `83b46c3`、`845cd07`；四个固定 HTTP tests 精确 RED，时间夹具纠正后旧 rename/seen 回归 PASS |
+| F16-02 | PASS | `536a853`；四个固定 tests 与相关 workbench/httpapi/jobstore 回归 GREEN |
+| F16-03 | PASS | `31f6356`；Web seen-all action，`vue-tsc --noEmit` exit 0 |
+| F16-04 | PASS | 改过文件 gofmt clean；Windows/Linux build、vet、`internal/httpapi` 222.143s、`internal/jobstore` 56.266s、Vue typecheck 均 exit 0；控制字符扫描 exit 1 无匹配；design/W1/F16 validators 均 `ok=true` |
+
+最终 G032 清单：新增兼容分支 `NONE`；新增 `// DEPRECATED(vX): remove in vY` `NONE`；删除旧路径 `NONE`；caller baseline 保留行是当前功能真源，不是兼容 fallback。
