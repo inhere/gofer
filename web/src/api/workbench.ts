@@ -2,7 +2,9 @@ import { request } from './client'
 import type {
   WorkbenchStatus,
   WorkbenchLayoutResp,
+  WorkbenchReviewInput,
   WorkbenchThreadPatch,
+  WorkbenchThreadDiff,
   WorkbenchThreadsResp,
   WorkbenchTurnResult,
 } from './types'
@@ -63,6 +65,26 @@ export function turnWorkbenchThread(threadID: string, text: string): Promise<Wor
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ text }),
+    },
+  )
+}
+
+export function getWorkbenchThreadDiff(threadID: string): Promise<WorkbenchThreadDiff> {
+  return request<WorkbenchThreadDiff>(
+    `/v1/workbench/threads/${encodeURIComponent(threadID)}/diff`,
+  )
+}
+
+export function reviewWorkbenchThread(
+  threadID: string,
+  input: WorkbenchReviewInput,
+): Promise<WorkbenchTurnResult> {
+  return request<WorkbenchTurnResult>(
+    `/v1/workbench/threads/${encodeURIComponent(threadID)}/review`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
     },
   )
 }

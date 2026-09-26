@@ -7,6 +7,7 @@ import type { Interaction, Job, SSEEvent, SSEInteractionData, SSELogData, Workbe
 import { patchWorkbenchThread, turnWorkbenchThread } from '../../api/workbench'
 import AttachTerminal from '../AttachTerminal.vue'
 import ConversationView from './ConversationView.vue'
+import ThreadChangesView from './ThreadChangesView.vue'
 import InteractionCard from '../InteractionCard.vue'
 import LogTape from '../LogTape.vue'
 import SessionDrawer from '../SessionDrawer.vue'
@@ -40,6 +41,8 @@ const router = useRouter()
 const root = ref<HTMLElement | null>(null)
 const interactionArea = ref<HTMLElement | null>(null)
 const turnInput = ref<HTMLTextAreaElement | null>(null)
+const changesView = ref<InstanceType<typeof ThreadChangesView> | null>(null)
+const activeView = ref<'process' | 'changes'>('process')
 const stdout = ref('')
 const stderr = ref('')
 const liveStatus = ref('')
@@ -84,6 +87,7 @@ function resetForThread(): void {
   actionError.value = ''
   draft.value = ''
   titleDraft.value = current?.title ?? ''
+  activeView.value = 'process'
   if (current?.kind !== 'relay' && !isACPThread.value && latestJobID.value) void startStream(latestJobID.value)
 }
 
@@ -230,6 +234,24 @@ function openDetails(): void {
   if (latestJobID.value) void router.push(`/jobs/${encodeURIComponent(latestJobID.value)}`)
 }
 
+function showChanges(): void {
+  if (thread.value?.kind !== 'relay' && latestJobID.value) activeView.value = 'changes'
+}
+
+function openDiff(path: string): void {
+  showChanges()
+  void nextTick(() => changesView.value?.focusFile(path))
+}
+
+function filesChanged(): void {
+  void changesView.value?.refresh()
+}
+
+function reviewContinued(jobID?: string): void {
+  activeView.value = 'process'
+  context.continued(jobID)
+}
+
 function usageText(): string {
   const total = thread.value?.usage?.total_tokens ?? 0
   const cost = thread.value?.usage?.cost_usd ?? 0
@@ -347,11 +369,22 @@ onUnmounted(() => {
       </div>
     </header>
 
+    <nav class="thread-subviews mono" aria-label="会话子视图">
+      <button type="button" :aria-current="activeView === 'process' ? 'page' : undefined" @click="activeView = 'process'">过程</button>
+      <span>｜</span>
+      <button
+        type="button"
+        :disabled="thread.kind === 'relay' || !latestJobID"
+        :aria-current="activeView === 'changes' ? 'page' : undefined"
+        @click="showChanges"
+      >改动</button>
+    </nav>
+
     <p v-if="actionError" class="error mono">{{ actionError }}</p>
     <p v-if="context.acpCapabilityError.value" class="stream-error mono">
       ACP 能力读取失败，暂用日志视图：{{ context.acpCapabilityError.value }}
     </p>
-    <div v-if="!isACPThread" ref="interactionArea" class="interaction-area">
+    <div v-if="!isACPThread" v-show="activeView === 'process'" ref="interactionArea" class="interaction-area">
       <InteractionCard
         v-for="item in interactions"
         :key="item.id"
@@ -363,48 +396,65 @@ onUnmounted(() => {
     </div>
 
     <div class="thread-content">
-      <SessionDrawer
-        v-if="thread.kind === 'relay' && thread.relay"
-        :sid="thread.relay.session_id"
-        :thread-id="thread.id"
-        embedded
-        @changed="context.refresh()"
-      />
-      <AttachTerminal
-        v-else-if="thread.interactive && latestJobID"
-        :job-id="latestJobID"
-        mode="write"
-        :focused="focused"
-        @exit="context.refresh()"
-        @error="actionError = $event"
-      />
-      <ConversationView
-        v-else-if="isACPThread && latestJobID"
-        :thread-id="thread.id"
-        :job-ids="thread.job_ids ?? [latestJobID]"
-        :jobs="thread.jobs ?? []"
-        :latest-job-id="latestJobID"
-        :latest-running="live"
-        :pending-interactions="interactions"
-        :submitting-interaction="submittingInteraction"
-        :focused="focused"
-        @answer="answer"
-        @punt="punt"
-        @ended="context.refresh()"
-        @error="actionError = $event"
-      />
-      <div v-else-if="latestJobID" class="log-wrap">
-        <p v-if="streamError" class="stream-error mono">SSE：{{ streamError }}</p>
-        <p class="log-tail-note mono">
-          只加载每条流最近 {{ LOG_TAIL_LINES }} 行 ·
-          <button type="button" class="link-btn" @click="openDetails">完整日志见 job 详情</button>
-        </p>
-        <LogTape :stdout="stdout" :stderr="stderr" :live="live" mode="live" :focused="focused" :auto-stderr="false" />
+      <div v-show="activeView === 'process'" class="process-view">
+        <SessionDrawer
+          v-if="thread.kind === 'relay' && thread.relay"
+          :sid="thread.relay.session_id"
+          :thread-id="thread.id"
+          embedded
+          @changed="context.refresh()"
+        />
+        <AttachTerminal
+          v-else-if="thread.interactive && latestJobID"
+          :job-id="latestJobID"
+          mode="write"
+          :focused="focused && activeView === 'process'"
+          @exit="context.refresh()"
+          @error="actionError = $event"
+        />
+        <ConversationView
+          v-else-if="isACPThread && latestJobID"
+          :thread-id="thread.id"
+          :job-ids="thread.job_ids ?? [latestJobID]"
+          :jobs="thread.jobs ?? []"
+          :latest-job-id="latestJobID"
+          :latest-running="live"
+          :pending-interactions="interactions"
+          :submitting-interaction="submittingInteraction"
+          :focused="focused && activeView === 'process'"
+          @answer="answer"
+          @punt="punt"
+          @ended="context.refresh()"
+          @error="actionError = $event"
+          @open-diff="openDiff"
+          @files-changed="filesChanged"
+        />
+        <div v-else-if="latestJobID" class="log-wrap">
+          <p v-if="streamError" class="stream-error mono">SSE：{{ streamError }}</p>
+          <p class="log-tail-note mono">
+            只加载每条流最近 {{ LOG_TAIL_LINES }} 行 ·
+            <button type="button" class="link-btn" @click="openDetails">完整日志见 job 详情</button>
+          </p>
+          <LogTape :stdout="stdout" :stderr="stderr" :live="live" mode="live" :focused="focused && activeView === 'process'" :auto-stderr="false" />
+        </div>
+        <p v-else class="empty mono">这个会话没有关联 job。</p>
       </div>
-      <p v-else class="empty mono">这个会话没有关联 job。</p>
+      <ThreadChangesView
+        v-if="thread.kind !== 'relay' && latestJobID"
+        v-show="activeView === 'changes'"
+        ref="changesView"
+        :thread-id="thread.id"
+        :latest-job-id="latestJobID"
+        :raw-status="rawStatus"
+        :working="live"
+        :can-review="canTurn"
+        @continued="reviewContinued"
+        @changed="context.refresh()"
+        @error="actionError = $event"
+      />
     </div>
 
-    <footer v-if="thread.kind !== 'relay' && !thread.interactive" class="turn-composer">
+    <footer v-if="activeView === 'process' && thread.kind !== 'relay' && !thread.interactive" class="turn-composer">
       <textarea
         ref="turnInput"
         v-model="draft"
@@ -439,11 +489,17 @@ onUnmounted(() => {
 .head-actions button:disabled { opacity: .4; }
 .thread-meta { grid-column: 1 / -1; display: flex; gap: 7px; min-width: 0; overflow: hidden; color: var(--queue); font-size: 11px; }
 .thread-meta span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.thread-subviews { flex: none; display: flex; align-items: center; gap: 5px; padding: 5px 14px; border-bottom: 1px solid var(--line); background: var(--panel); color: var(--queue); }
+.thread-subviews button { padding: 2px 5px; border: 0; background: transparent; color: var(--queue); }
+.thread-subviews button[aria-current="page"] { color: var(--phosphor); font-weight: 700; }
+.thread-subviews button:disabled { opacity: .35; }
 .error, .stream-error { flex: none; margin: 0; padding: 7px 12px; color: var(--fail); background: rgba(200,70,70,.07); }
 .interaction-area { flex: none; max-height: 40%; overflow-y: auto; padding: 0 12px; }
 .interaction-area:empty { display: none; }
 .thread-content { flex: 1; min-height: 0; overflow: hidden; }
 .thread-content > :deep(*) { height: 100%; }
+.process-view { height: 100%; min-height: 0; }
+.process-view > :deep(*) { height: 100%; }
 .log-wrap { height: 100%; display: flex; flex-direction: column; padding: 10px; }
 .log-wrap :deep(.tape) { flex: 1; min-height: 0; }
 .turn-composer { flex: none; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 8px; padding: 10px 12px; background: var(--panel); border-top: 1px solid var(--line); }

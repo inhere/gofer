@@ -1340,6 +1340,41 @@ export interface WorkbenchTurnResult {
   decision_id?: string
 }
 
+export type WorkbenchDiffSource = 'live' | 'captured'
+
+export interface WorkbenchThreadDiffFile {
+  path: string
+  status: string
+  additions: number
+  deletions: number
+  binary: boolean
+}
+
+export interface WorkbenchThreadDiff {
+  source: WorkbenchDiffSource
+  base: string
+  head?: string
+  files: WorkbenchThreadDiffFile[]
+  patch: string
+  truncated: boolean
+  commits?: JobCommit[]
+  notice?: string
+}
+
+export type WorkbenchReviewSide = 'new' | 'old'
+
+export interface WorkbenchReviewComment {
+  path: string
+  line: number
+  side: WorkbenchReviewSide
+  text: string
+}
+
+export interface WorkbenchReviewInput {
+  summary?: string
+  comments?: WorkbenchReviewComment[]
+}
+
 export interface WorkbenchLayoutResp {
   version: number
   body: unknown

@@ -8,9 +8,31 @@
 // 内容行，据此统计每文件 +N −M。
 // 上限（决策 1）：原文 > 1MB 或 > 5000 行只渲染前 5000 行，底部给「下载完整 diff」；
 // 二进制文件只渲染一行（内容不可读，base85 段整块跳过）。
-import { computed, ref } from 'vue'
+import { computed, nextTick, ref } from 'vue'
 
-const props = defineProps<{ text: string; downloadName?: string }>()
+interface DiffReviewComment {
+  id: string
+  path: string
+  line: number
+  side: 'new' | 'old'
+  text: string
+}
+
+const props = withDefaults(defineProps<{
+  text: string
+  downloadName?: string
+  reviewable?: boolean
+  comments?: readonly DiffReviewComment[]
+}>(), {
+  reviewable: false,
+  comments: () => [],
+})
+
+const emit = defineEmits<{
+  (event: 'add-comment', location: { path: string; line: number; side: 'new' | 'old' }): void
+  (event: 'update-comment', id: string, text: string): void
+  (event: 'remove-comment', id: string): void
+}>()
 
 const MAX_LINES = 5000
 const MAX_BYTES = 1024 * 1024
@@ -36,15 +58,20 @@ const META_PREFIXES = [
 
 // 段标题行（worktree 两段）：不是 diff 头部也不是内容，单独起一组。
 const SECTION_TITLE_RE = /^=== .+ ===$/
+const HUNK_HEADER_RE = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/
 
 interface DiffLine {
   kind: '+' | '-' | ' '
   text: string
+  oldLine?: number
+  newLine?: number
 }
 
 interface DiffHunk {
   header: string
   lines: DiffLine[]
+  oldLine: number
+  newLine: number
 }
 
 interface DiffFile {
@@ -98,7 +125,13 @@ function parseDiff(text: string): DiffGroup[] {
       if (!file) {
         continue
       }
-      hunk = { header: line, lines: [] }
+      const match = HUNK_HEADER_RE.exec(line)
+      hunk = {
+        header: line,
+        lines: [],
+        oldLine: match ? Number(match[1]) : 0,
+        newLine: match ? Number(match[2]) : 0,
+      }
       file.hunks.push(hunk)
       continue
     }
@@ -116,7 +149,16 @@ function parseDiff(text: string): DiffGroup[] {
     const c = line[0]
     if (hunk && (c === '+' || c === '-' || c === ' ' || c === '\\')) {
       // '\ No newline at end of file' 是标记而非内容，按上下文行淡显。
-      hunk.lines.push(c === '\\' ? { kind: ' ', text: line } : { kind: c, text: line.slice(1) })
+      const parsed: DiffLine = c === '\\' ? { kind: ' ', text: line } : { kind: c, text: line.slice(1) }
+      if (c === ' ') {
+        parsed.oldLine = hunk.oldLine++
+        parsed.newLine = hunk.newLine++
+      } else if (c === '-') {
+        parsed.oldLine = hunk.oldLine++
+      } else if (c === '+') {
+        parsed.newLine = hunk.newLine++
+      }
+      hunk.lines.push(parsed)
       if (file) {
         if (c === '+') {
           file.additions += 1
@@ -185,6 +227,7 @@ const sizeText = computed(() =>
 
 // 折叠状态按 组:文件 下标记（同一份 diff 内稳定；重新拉取会整体重置）。
 const collapsed = ref<Set<string>>(new Set())
+const root = ref<HTMLElement | null>(null)
 
 function toggleFile(key: string): void {
   const next = new Set(collapsed.value)
@@ -206,16 +249,59 @@ function downloadFull(): void {
   a.remove()
   URL.revokeObjectURL(url)
 }
+
+function commentsFor(path: string, line: DiffLine): DiffReviewComment[] {
+  return props.comments.filter((comment) => (
+    comment.path === path
+    && (comment.side === 'new' ? line.newLine === comment.line : line.oldLine === comment.line)
+  ))
+}
+
+function commentInput(event: Event): string {
+  return (event.target as HTMLTextAreaElement).value
+}
+
+async function focusFile(path: string): Promise<boolean> {
+  let key = ''
+  for (const [groupIndex, group] of groups.value.entries()) {
+    const fileIndex = group.files.findIndex((file) => file.path === path)
+    if (fileIndex >= 0) {
+      key = `${groupIndex}:${fileIndex}`
+      break
+    }
+  }
+  if (!key) return false
+  if (collapsed.value.has(key)) {
+    const next = new Set(collapsed.value)
+    next.delete(key)
+    collapsed.value = next
+  }
+  await nextTick()
+  const element = Array.from(root.value?.querySelectorAll<HTMLElement>('[data-diff-path]') ?? [])
+    .find((candidate) => candidate.dataset.diffPath === path)
+  if (!element) return false
+  element.scrollIntoView({ block: 'start', behavior: 'smooth' })
+  element.focus({ preventScroll: true })
+  return true
+}
+
+defineExpose({ focusFile })
 </script>
 
 <template>
-  <div class="ud">
+  <div ref="root" class="ud">
     <p v-if="groups.length === 0" class="ud-empty mono">（无 diff 内容）</p>
 
     <section v-for="(g, gi) in groups" :key="gi" class="ud-group">
       <h3 v-if="g.title" class="ud-group-title mono">{{ g.title }}</h3>
 
-      <div v-for="(f, fi) in g.files" :key="fi" class="ud-file">
+      <div
+        v-for="(f, fi) in g.files"
+        :key="fi"
+        class="ud-file"
+        :data-diff-path="f.path"
+        tabindex="-1"
+      >
         <button
           class="ud-file-head mono"
           type="button"
@@ -236,11 +322,58 @@ function downloadFull(): void {
           <p v-if="f.binary" class="ud-binary mono">二进制文件 · 不显示内容</p>
           <template v-else>
             <pre v-if="f.meta.length" class="ud-meta mono">{{ f.meta.join('\n') }}</pre>
-            <pre
+            <div
               v-for="(h, hi) in f.hunks"
               :key="hi"
               class="ud-hunk mono"
-            ><span class="ud-hunk-head">{{ h.header }}</span><span v-for="(l, li) in h.lines" :key="li" class="ud-line" :class="l.kind === '+' ? 'ud-line--add' : l.kind === '-' ? 'ud-line--del' : ''">{{ l.kind }}{{ l.text }}</span></pre>
+            >
+              <span class="ud-hunk-head">{{ h.header }}</span>
+              <template v-for="(l, li) in h.lines" :key="li">
+                <span
+                  class="ud-line"
+                  :class="[
+                    l.kind === '+' ? 'ud-line--add' : l.kind === '-' ? 'ud-line--del' : '',
+                    reviewable ? 'ud-line--reviewable' : '',
+                  ]"
+                >
+                  <span v-if="reviewable" class="ud-gutter ud-gutter--old">
+                    <button
+                      v-if="reviewable && l.oldLine != null"
+                      type="button"
+                      :aria-label="`在 ${f.path} old ${l.oldLine} 添加评论`"
+                      @click="emit('add-comment', { path: f.path, line: l.oldLine, side: 'old' })"
+                    >＋</button>
+                    <span>{{ l.oldLine ?? '' }}</span>
+                  </span>
+                  <span v-if="reviewable" class="ud-gutter ud-gutter--new">
+                    <button
+                      v-if="reviewable && l.newLine != null"
+                      type="button"
+                      :aria-label="`在 ${f.path} new ${l.newLine} 添加评论`"
+                      @click="emit('add-comment', { path: f.path, line: l.newLine, side: 'new' })"
+                    >＋</button>
+                    <span>{{ l.newLine ?? '' }}</span>
+                  </span>
+                  <span class="ud-code">{{ l.kind }}{{ l.text }}</span>
+                </span>
+                <span
+                  v-for="comment in commentsFor(f.path, l)"
+                  :key="comment.id"
+                  class="ud-comment"
+                >
+                  <span class="ud-comment-label">{{ comment.side }}:{{ comment.line }}</span>
+                  <textarea
+                    class="ud-comment-input mono"
+                    :value="comment.text"
+                    maxlength="4000"
+                    rows="2"
+                    aria-label="评审评论"
+                    @input="emit('update-comment', comment.id, commentInput($event))"
+                  ></textarea>
+                  <button type="button" class="ud-comment-remove" @click="emit('remove-comment', comment.id)">删除</button>
+                </span>
+              </template>
+            </div>
           </template>
         </template>
       </div>
@@ -372,12 +505,83 @@ function downloadFull(): void {
   padding: 0 8px;
   color: var(--paper);
 }
+.ud-line--reviewable {
+  display: grid;
+  grid-template-columns: 72px 72px max-content;
+  min-width: max-content;
+  padding: 0;
+}
+.ud-gutter {
+  display: grid;
+  grid-template-columns: 24px 1fr;
+  align-items: center;
+  min-height: 18px;
+  padding: 0 5px;
+  border-right: 1px solid var(--line);
+  color: var(--queue);
+  text-align: right;
+  user-select: none;
+}
+.ud-gutter button {
+  visibility: hidden;
+  width: 20px;
+  height: 16px;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--phosphor);
+  line-height: 1;
+}
+.ud-line--reviewable:hover .ud-gutter button,
+.ud-gutter button:focus-visible {
+  visibility: visible;
+}
+.ud-code {
+  padding: 0 8px;
+}
 .ud-line--add {
   background: rgba(91, 166, 110, 0.14);
   color: var(--done);
 }
 .ud-line--del {
   background: rgba(200, 85, 61, 0.14);
+  color: var(--fail);
+}
+.ud-comment {
+  display: grid;
+  grid-template-columns: auto minmax(220px, 1fr) auto;
+  gap: 8px;
+  align-items: start;
+  padding: 7px 8px 8px 154px;
+  border-top: 1px solid var(--line);
+  border-bottom: 1px solid var(--line);
+  background: var(--panel);
+  white-space: normal;
+}
+.ud-comment-label {
+  padding-top: 5px;
+  color: var(--phosphor);
+  font-size: 10px;
+}
+.ud-comment-input {
+  width: 100%;
+  resize: vertical;
+  box-sizing: border-box;
+  padding: 5px 7px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--ink);
+  color: var(--paper);
+}
+.ud-comment-input:focus {
+  outline: 1px solid var(--phosphor);
+  border-color: var(--phosphor);
+}
+.ud-comment-remove {
+  padding: 5px 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: transparent;
   color: var(--fail);
 }
 
@@ -410,6 +614,16 @@ function downloadFull(): void {
 @media (max-width: 940px) {
   .ud-file-head {
     font-size: 11px;
+  }
+  .ud-line--reviewable {
+    grid-template-columns: 58px 58px max-content;
+  }
+  .ud-comment {
+    grid-template-columns: 1fr auto;
+    padding-left: 8px;
+  }
+  .ud-comment-label {
+    grid-column: 1 / -1;
   }
 }
 </style>

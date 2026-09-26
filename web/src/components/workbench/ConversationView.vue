@@ -29,6 +29,8 @@ const emit = defineEmits<{
   (event: 'punt', item: Interaction): void
   (event: 'ended'): void
   (event: 'error', message: string): void
+  (event: 'open-diff', path: string): void
+  (event: 'files-changed'): void
 }>()
 
 const visibleCount = ref(3)
@@ -37,6 +39,7 @@ const loadingJobs = ref<Set<string>>(new Set())
 const errorsByJob = ref<Record<string, string>>({})
 const loadedJobs = new Set<string>()
 const controllers = new Map<string, AbortController>()
+const toolKinds = new Map<string, string>()
 let loadedThreadId = ''
 
 const visibleIds = computed(() => visibleRoundIDs(props.jobIds, visibleCount.value))
@@ -44,6 +47,7 @@ const rounds = computed(() => groupACPRounds(visibleIds.value, eventsByJob.value
 const hiddenRounds = computed(() => Math.max(0, props.jobIds.length - visibleIds.value.length))
 const statusSignature = computed(() => props.jobs.map((job) => `${job.job_id}:${job.status}`).join('|'))
 const runningStatuses = new Set(['queued', 'running', 'waiting_dir', 'recovering', 'pending_interaction'])
+const editingToolKinds = new Set(['edit', 'delete', 'move'])
 
 function abortAll(): void {
   for (const controller of controllers.values()) controller.abort()
@@ -53,6 +57,7 @@ function abortAll(): void {
 function resetThread(): void {
   abortAll()
   loadedJobs.clear()
+  toolKinds.clear()
   eventsByJob.value = {}
   errorsByJob.value = {}
   loadingJobs.value = new Set()
@@ -72,9 +77,23 @@ function jobStatus(jobId: string): string {
 
 function appendEvent(jobId: string, frame: SSEEvent): void {
   if (frame.type !== 'acp' || !isACPEvent(frame.data)) return
+  const event = frame.data
+  if (event.kind === 'tool') {
+    const key = `${jobId}:${event.tool_call_id}`
+    if (event.tool_kind) toolKinds.set(key, event.tool_kind)
+    const kind = event.tool_kind ?? toolKinds.get(key)
+    if (
+      jobId === props.latestJobId
+      && props.latestRunning
+      && kind != null
+      && editingToolKinds.has(kind)
+    ) {
+      emit('files-changed')
+    }
+  }
   eventsByJob.value = {
     ...eventsByJob.value,
-    [jobId]: [...(eventsByJob.value[jobId] ?? []), frame.data],
+    [jobId]: [...(eventsByJob.value[jobId] ?? []), event],
   }
 }
 
@@ -225,7 +244,12 @@ onUnmounted(abortAll)
             </summary>
             <pre v-if="event.raw_input" class="raw mono">{{ event.raw_input }}</pre>
             <div v-if="event.locations?.length" class="locations mono">
-              <span v-for="location in event.locations" :key="formatLocation(location)">{{ formatLocation(location) }}</span>
+              <button
+                v-for="location in event.locations"
+                :key="formatLocation(location)"
+                type="button"
+                @click.stop="emit('open-diff', location.path)"
+              >{{ formatLocation(location) }}</button>
             </div>
           </details>
 
@@ -294,7 +318,8 @@ onUnmounted(abortAll)
 .tool-dot--failed { background: var(--fail); }
 .tool-status { margin-left: 8px; color: var(--queue); font-size: 10px; }
 .locations { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-.locations span { border: 1px solid var(--line); border-radius: 9px; padding: 1px 7px; color: var(--queue); }
+.locations button { border: 1px solid var(--line); border-radius: 9px; padding: 1px 7px; background: transparent; color: var(--queue); }
+.locations button:hover, .locations button:focus-visible { border-color: var(--phosphor); color: var(--phosphor); }
 .event-line, .turn-end, .gap, .round-note, .round-error { margin: 0; padding: 7px 10px; color: var(--queue); font-size: 11px; }
 .permission { border-left: 2px solid var(--run); background: rgba(255, 190, 80, .06); }
 .turn-end { border-top: 1px dashed var(--line); text-align: center; }
