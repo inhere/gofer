@@ -553,6 +553,10 @@ type ServerConfig struct {
 	// without a `notification` block. When present it lists the webhook targets,
 	// the outbound host allowlist and the retry cap.
 	Notification *NotificationConfig `yaml:"notification,omitempty"`
+	// Push configures the browser Web Push identity. Key material is never stored
+	// here; it is generated under <config-dir>/push/vapid.json. The optional
+	// subject is the RFC 8292 contact URI carried by VAPID JWTs.
+	Push PushConfig `yaml:"push,omitempty"`
 	// Metrics is the E16 Prometheus /metrics policy (design §6.2). Enabled is a
 	// pointer so "unset" (nil) defaults to ENABLED (the endpoint is mounted) while
 	// an explicit enabled:false drops it. Token, when non-empty, re-adds a Bearer
@@ -712,6 +716,11 @@ type SkillLimitsConfig struct {
 	// MaxTotalBytes caps a skill's payload as a whole (0 => skill.DefaultLimits):
 	// the per-file cap alone would still allow a thousand just-under-the-cap files.
 	MaxTotalBytes int64 `yaml:"max_total_bytes,omitempty"`
+}
+
+// PushConfig is the small, non-secret Web Push configuration surface.
+type PushConfig struct {
+	VAPIDSubject string `yaml:"vapid_subject,omitempty"`
 }
 
 // XferConfig is the server.xfer block (XFER-01, design §一.1/§一.2). Every field is

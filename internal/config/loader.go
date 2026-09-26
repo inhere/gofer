@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/url"
 	"os"
 	"path"
 	"path/filepath"
@@ -554,6 +555,18 @@ func validate(cfg *Config) error {
 	// bd h-aii-s9ck: same for the server-wide ceiling (0 = DefaultMaxJobTimeoutSec).
 	if cfg.Server.MaxJobTimeoutSec < 0 {
 		return fmt.Errorf("server.max_job_timeout_sec must be >= 0")
+	}
+	if subject := strings.TrimSpace(cfg.Server.Push.VAPIDSubject); subject != "" {
+		parsed, err := url.Parse(subject)
+		if err != nil || (parsed.Scheme != "mailto" && parsed.Scheme != "https") {
+			return fmt.Errorf("server.push.vapid_subject must be a mailto: or https: URI")
+		}
+		if parsed.Scheme == "mailto" && parsed.Opaque == "" {
+			return fmt.Errorf("server.push.vapid_subject mailto URI must name a contact")
+		}
+		if parsed.Scheme == "https" && parsed.Host == "" {
+			return fmt.Errorf("server.push.vapid_subject https URI must name a host")
+		}
 	}
 	// SUP-01 P3: the health window/thresholds are counts and seconds; a negative one
 	// has no meaning (0 = the documented default), so reject it here instead of

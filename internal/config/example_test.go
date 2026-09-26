@@ -159,6 +159,8 @@ server:
     allow_hosts: [hooks.example.com]
     allow_http: false
     max_attempts: 6
+  push:
+    vapid_subject: mailto:ops@example.com
 storage:
   db_path: /var/lib/gofer/gofer.db
   retention:
@@ -223,6 +225,9 @@ runners:
 	}
 	if len(n.AllowHosts) != 1 || n.AllowHosts[0] != "hooks.example.com" || n.MaxAttempts != 6 {
 		t.Errorf("notification allow_hosts/max_attempts = %+v / %d", n.AllowHosts, n.MaxAttempts)
+	}
+	if cfg.Server.Push.VAPIDSubject != "mailto:ops@example.com" {
+		t.Errorf("push.vapid_subject = %q", cfg.Server.Push.VAPIDSubject)
 	}
 	if p := cfg.Projects["my-project1"]; p.NotifyEnabled == nil || *p.NotifyEnabled {
 		t.Errorf("my-project1 notify_enabled should decode false, got %v", p.NotifyEnabled)

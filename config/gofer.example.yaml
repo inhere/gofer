@@ -22,6 +22,10 @@ server:
   # token: ""              # inline override (avoid committing real tokens)
   # Must be explicitly true to start without any token.
   allow_empty_token: false
+  # push:
+  #   # RFC 8292 VAPID contact URI. Empty defaults to mailto:gofer@localhost.
+  #   # The private/public key pair is generated at <config-dir>/push/vapid.json.
+  #   vapid_subject: mailto:ops@example.com
   # web_enabled: true      # unset defaults to true; set false to drop the web console.
   # path_view: host         # E29/D10: gofer-process execution view. host (default)
   #                         # => use project host_path; container => use container_path
