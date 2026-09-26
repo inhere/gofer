@@ -20,13 +20,10 @@ package acp
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"log/slog"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -49,13 +46,6 @@ const Name = "acp"
 // job result dir. It sits under artifacts/ so it is part of the job's artifact
 // manifest (listable + downloadable like any other artifact).
 const ACPFileName = "acp.jsonl"
-
-// maxEventLineBytes caps one acp.jsonl line. Raw payloads are truncated well below
-// this (maxRawBytes); the cap is a final guard for a pathological plan/update.
-const maxEventLineBytes = 4096
-
-// maxRawBytes caps an embedded rawInput/rawOutput blob in acp.jsonl.
-const maxRawBytes = 512
 
 // maxThoughtBytes caps the COALESCED thought text (bd h-aii-7kja ②). A thought is the
 // agent talking to itself: the line is for orientation, not for reading the reasoning,
@@ -202,15 +192,16 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		slog.Info("acp runner: session mode set", "job_id", req.JobID, "mode", mode)
 	}
 
+	events.write(promptEvent(req.ACP.Prompt))
 	res := runner.Result{SessionID: sess.SessionID}
 	pr, perr := client.Prompt(ctx, sess.SessionID, req.ACP.Prompt, h)
 	res.StopReason = pr.StopReason
 	res.Usage = h.usageSnapshot()
-	events.write(map[string]any{"t": "stop", "stop_reason": pr.StopReason})
 	// The turn is over: close the stdout block, flush the last thought, and record the
 	// turn's one lifecycle row (bd h-aii-rnxk). This happens for a cancelled/failed turn
 	// too — what did run is still worth summarising.
 	h.endTurn()
+	events.write(map[string]any{"t": "stop", "stop_reason": pr.StopReason})
 	h.emitSummary(pr.StopReason)
 
 	// A context-driven exit wins the classification: the job service maps the ctx
@@ -370,6 +361,12 @@ type handler struct {
 	// thought coalesces the agent's per-token thought stream into ONE line (bd
 	// h-aii-7kja ②), flushed at the next boundary. Guarded by mu.
 	thought strings.Builder
+	// message coalesces agent-message chunks until a structured boundary, a 2s idle
+	// interval, or the per-record size guard. messageGeneration invalidates timer
+	// callbacks that raced with a boundary flush. Guarded by mu.
+	message           strings.Builder
+	messageTimer      *time.Timer
+	messageGeneration uint64
 	// stdoutWrote reports whether the agent has written text; stdoutSep reports that a
 	// detail (tool call / permission) ended the previous message block, so the next
 	// text starts on a fresh block (bd h-aii-7kja ①). stdoutLast is the last byte
@@ -393,13 +390,17 @@ func (h *handler) SessionUpdate(_ string, u acp.Update) {
 		// here (the agent moved on to speaking) and the message block is separated from
 		// the code before it.
 		h.flushThought()
-		h.writeStdout(chunkText(u.MessageChunk))
+		text := chunkText(u.MessageChunk)
+		h.writeStdout(text)
+		h.addMessage(text)
 	case acp.UpdateAgentThoughtChunk:
+		h.flushMessage()
 		h.addThought(chunkText(u.MessageChunk))
 	case acp.UpdateToolCall, acp.UpdateToolCallUpdate:
 		if u.ToolCall == nil {
 			return
 		}
+		h.flushMessage()
 		h.flushThought()
 		h.events.write(toolCallEvent(u.ToolCall))
 		h.recordToolCall(u.ToolCall)
@@ -407,6 +408,8 @@ func (h *handler) SessionUpdate(_ string, u acp.Update) {
 		if u.Plan == nil {
 			return
 		}
+		h.flushMessage()
+		h.flushThought()
 		entries := make([]map[string]any, 0, len(u.Plan.Entries))
 		for _, e := range u.Plan.Entries {
 			entries = append(entries, map[string]any{"content": e.Content, "priority": e.Priority, "status": e.Status})
@@ -484,6 +487,7 @@ func (h *handler) detailBoundaryLocked() {
 // buffer. Called once the prompt turn is over (also on a failed/cancelled turn: the
 // text that did arrive must end its own block).
 func (h *handler) endTurn() {
+	h.flushMessage()
 	h.flushThought()
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -930,109 +934,4 @@ func pickOption(options []acp.PermissionOption, kind string) string {
 		}
 	}
 	return ""
-}
-
-// chunkText returns a content block's text (nil-safe).
-func chunkText(c *acp.ContentBlock) string {
-	if c == nil {
-		return ""
-	}
-	return c.Text
-}
-
-// toolCallEvent renders one tool_call/tool_call_update line for acp.jsonl.
-func toolCallEvent(tc *acp.ToolCall) map[string]any {
-	ev := map[string]any{"t": "tool_call", "tool_call_id": tc.ToolCallID}
-	if tc.Title != "" {
-		ev["title"] = tc.Title
-	}
-	if tc.Kind != "" {
-		ev["kind"] = tc.Kind
-	}
-	if tc.Status != "" {
-		ev["status"] = tc.Status
-	}
-	if len(tc.Locations) > 0 {
-		locs := make([]string, 0, len(tc.Locations))
-		for _, l := range tc.Locations {
-			locs = append(locs, l.Path)
-		}
-		ev["locations"] = locs
-	}
-	if len(tc.RawInput) > 0 {
-		ev["raw_input"] = truncate(string(tc.RawInput))
-	}
-	if len(tc.RawOutput) > 0 {
-		ev["raw_output"] = truncate(string(tc.RawOutput))
-	}
-	return ev
-}
-
-// truncate caps a raw payload embedded in an event line.
-func truncate(s string) string {
-	s = strings.TrimSpace(s)
-	if len(s) <= maxRawBytes {
-		return s
-	}
-	return s[:maxRawBytes] + "…(truncated)"
-}
-
-// eventWriter appends JSON lines to acp.jsonl. A nil writer drops events (the
-// stream is best-effort); writes are serialised because notification handling and
-// permission answers run on different goroutines.
-type eventWriter struct {
-	mu sync.Mutex
-	f  *os.File
-}
-
-// openEventWriter creates <resultDir>/artifacts/acp.jsonl (truncating).
-func openEventWriter(resultDir string) (*eventWriter, error) {
-	if resultDir == "" {
-		return &eventWriter{}, nil
-	}
-	dir := filepath.Join(resultDir, "artifacts")
-	if err := os.MkdirAll(dir, 0o755); err != nil {
-		return &eventWriter{}, err
-	}
-	f, err := os.OpenFile(filepath.Join(dir, ACPFileName), os.O_CREATE|os.O_TRUNC|os.O_WRONLY, 0o644)
-	if err != nil {
-		return &eventWriter{}, err
-	}
-	return &eventWriter{f: f}, nil
-}
-
-// write appends one event line. Oversized lines are replaced by a truncation
-// marker rather than written invalid (or unbounded) JSON.
-func (w *eventWriter) write(ev map[string]any) {
-	if w == nil || w.f == nil {
-		return
-	}
-	b, err := json.Marshal(ev)
-	if err != nil {
-		slog.Debug("acp runner: encode event", "err", err)
-		return
-	}
-	if len(b) > maxEventLineBytes {
-		kind, _ := ev["t"].(string)
-		b, err = json.Marshal(map[string]any{"t": kind, "truncated": len(b)})
-		if err != nil {
-			return
-		}
-	}
-	b = append(b, '\n')
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	if _, err := w.f.Write(b); err != nil {
-		slog.Debug("acp runner: write event", "err", err)
-	}
-}
-
-// Close closes the event stream (nil-safe, idempotent).
-func (w *eventWriter) Close() error {
-	if w == nil || w.f == nil {
-		return nil
-	}
-	f := w.f
-	w.f = nil
-	return f.Close()
 }
