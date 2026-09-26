@@ -464,6 +464,43 @@ func TestResumeOfResumeUsesOriginAgent(t *testing.T) {
 	}
 }
 
+// TestResumeOfResumeWalksChainWithoutOriginAgent is the common CLI case: a job
+// submitted without any owner stamp, resumed twice. The second resume sources an
+// exec carrier and must find the CLI agent by walking ResumedFrom, not rely on
+// OriginAgent (an owner routing id that plain CLI submissions never set).
+func TestResumeOfResumeWalksChainWithoutOriginAgent(t *testing.T) {
+	root := t.TempDir()
+	s := newResumeRunnableService(t, root, "claude")
+
+	first := submitSourceCancel(t, s, JobRequest{
+		ProjectKey: "self", Agent: "claude", Runner: "local",
+		Prompt: "turn one", Cwd: ".", TimeoutSec: 30,
+	})
+	sid := first.SessionID
+	if sid == "" {
+		t.Fatal("setup: first turn has no session_id")
+	}
+	second, err := s.ResumeJob(first.ID, "turn two", "", "caller-chain")
+	if err != nil {
+		t.Fatalf("first ResumeJob: %v", err)
+	}
+	second, ok := s.Wait(second.ID)
+	if !ok || !IsTerminal(second.Status) {
+		t.Fatalf("second turn did not finish: ok=%v result=%+v", ok, second)
+	}
+	if second.Agent != agent.ExecAgentKey || second.OriginAgent != "" {
+		t.Fatalf("second turn carrier = agent %q origin %q, want exec with no origin", second.Agent, second.OriginAgent)
+	}
+	third, err := s.ResumeJob(second.ID, "turn three", "", "caller-chain")
+	if err != nil {
+		t.Fatalf("resume of resume without origin agent: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Cancel(third.ID); s.Wait(third.ID) })
+	if got, want := resumeArgv(t, third.RequestJSON), []string{"claude", "--resume", sid, "-p", "turn three"}; !equalArgs(got, want) {
+		t.Fatalf("third turn argv=%#v, want %#v", got, want)
+	}
+}
+
 func TestResumeJobNonInteractiveSourceRejectsEmptyPrompt(t *testing.T) {
 	root := t.TempDir()
 	s := newResumeRunnableService(t, root, "claude")

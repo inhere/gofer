@@ -76,11 +76,15 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 
 	// A CLI continuation runs through an exec carrier. Resuming that carrier again
 	// must resolve the original CLI definition, not the carrier's reserved "exec"
-	// agent (which intentionally has no resume template). OriginAgent is stamped on
-	// the chain by the caller/supervisor and is the durable owner reference.
+	// agent (which intentionally has no resume template). The durable link is the
+	// ResumedFrom chain: walk it up to the job that named the agent (the same walk
+	// fallbackBase does). OriginAgent is an owner routing id, not an agent key, and
+	// plain CLI submissions never set it, so it cannot be relied on here.
 	resumeAgent := src.Agent
-	if src.Agent == agent.ExecAgentKey && strings.TrimSpace(src.OriginAgent) != "" {
-		resumeAgent = src.OriginAgent
+	if src.Agent == agent.ExecAgentKey && src.ResumedFrom != "" {
+		if base := s.fallbackBase(src); !isExecCarrier(base) {
+			resumeAgent = base.Agent
+		}
 	}
 	ac, ok := s.agents.Get(resumeAgent)
 	if !ok {
