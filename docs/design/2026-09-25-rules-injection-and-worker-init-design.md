@@ -156,3 +156,54 @@ job.rules_injected {"bytes":29,"names":["house"]}
 **待办（本设计剩余）**：R2（web 设置页 Rules + job 详情显示）、R3（CFG-05 worker init、`GET /v1/workers/{id}/assignable`、F-e、F-g）；真机收尾（把 `sup-common.md` 拆成 `house-rules` / `gofer-repo` 两条规则绑到 hyy-ai-inspect）也还没做。
 
 **一处留待人工确认的取舍**：`--no-rules` 之外，规则段的存在与否也由 prompt 是否已带固定结束标记决定（用于 peer-http 的转发语义：hub 注入过就不再注入）。理论上调用方自己拼一个以该标题开头、且含结束标记的 prompt，就能让自己这次不被注入规则——但这只是"自己放弃纪律"（规则本就无事后审计），且不会影响别的 job；若要彻底堵住，需要给 peer 路径引入一个可传输的标记字段（会把语义扩到 wire 上）。
+
+## R2 实测记录（2026-09-26，omp 实施）
+
+R2（web 设置页「Rules」+ job 详情显示 rules + `job run --env` 远端警告）已实现并合入。R1 记录里"待办"的 R2 已完成；**R3（CFG-05 worker init / F-e / F-g）仍未开始**。
+
+**落成与设计的对照**
+
+- 设置页「Rules」（`web/src/views/settings/Rules.vue`，菜单排在「配置管理」之后）：列表（名称/描述/大小/更新时间/更新人/**被谁绑定**/操作）、新建（名字 + 原文）、编辑（左原文、右预览）、删除（二次确认）。
+  - 预览复用项目已有的 `MarkdownBlock`（marked → DOMPurify），且只渲染**正文**：frontmatter 既不注入也不预览（前端 `stripFrontmatter` 对齐 `rule.BodyOf`）。冒烟里正文的 `<script>` 被整段剔除、`<img src=x onerror=…>` 只留 `<img src="x">`，`window.__xss` 始终 undefined。
+  - 「被谁绑定」由 `GET /v1/config` 的 `server.rules` / `agents.*.rules` / `projects.*.rules` 前端反查，**没有新增端点**。
+  - 编辑器收发的是**文件原文**（frontmatter 一起）：页面不认识其它 frontmatter 键（如仅作提示的 `agents:`），原样往返才不会丢。400/403 的文案原样显示在编辑器下方。
+  - 删除确认列出绑定位置并写明"删除后这些绑定会在提交时报未知规则"（`resolveRules` 对未知名字就是 400 拒提交）。
+- **一处超出设计字面、但为满足 R2 验收所必需的后端改动（additive）**：设计写"数据来自 GET /v1/config 的各 `rules` 字段"，而 R1 只把 `projects.*.rules` 放进了 config model —— `projectView` / `projectWriteReq` 都没有它，即**读不到也写不了**。R2 补上 `projectView.Rules`（读，随 `/v1/projects/{key}` 与 `/v1/config` 一起下发）与 `projectWriteReq.Rules`（指针合并语义：省略保留、`[]` 解绑），`TestProjectRulesBindingRoundTrip` 钉住 create → view → 部分 PUT 保留 → 显式 `[]` 解绑。没有它，"被谁绑定"的 project 一列永远是空，控制台也没有任何入口绑项目级规则。
+- 配置页/项目页补上绑定输入（`server.rules` / `agents.<key>.rules` / `projects.<key>.rules`）：agent PUT 是**整体替换**语义，表单不回发就会被"保存一次顺手抹掉"（JOB-10 skills 的同款坑；`editableAgentBody` 从策略表回发全部可编辑字段，rules 现由表单值覆盖）。项目页的 rules 文本框显式下发数组，空数组才表达"取消最后一个绑定"。两个新输入都按服务端字段策略表（`server_policy` / `agent_policy`）决定是否渲染/回发：老 server 的策略表里没有 `rules` 时整条不发，免得被写端点当成未知字段拒掉整个保存。
+- job 详情：skills 行旁边 `rules: a, b`，每个名字 hover 显示 sha256 前 8 位；时间线 `job.rules_injected` 标签「已注入规则」+ 摘要 `names · bytes`（顺带给 `job.rules_skipped` 补了标签与 reason）。
+- CLI：`job run --env` 与**非本机** runner 同用时，提交成功后打一行
+  `warning: --env is only applied to jobs the server runs itself; runner <x> will not see these variables`
+  （`c.Printf`，不报错、不改请求）。runner 取**提交结果**的 `res.Runner`（server 解析后的值，模板/role 解析过的也算）；空值（老/假 server 不回显）不猜。`TestJobRunEnvWarnsForRemoteRunner` 覆盖：远端告警一次并点名、内置 runner（含省略 `--runner`）静默、无 `--env` 静默、请求未被改动。
+
+**冒烟（临时 server：随机端口 60592 + 临时 `GOFER_CONFIG_DIR` + 临时目录里另编的 `gofer.exe`；未触碰真实配置目录，每条 CLI 调用都显式 `--server`/`-c` 且 unset 真实 env；真实浏览器目视）**
+
+```
+# 设置页新建规则（浏览器）：正文含 XSS 载荷，预览 HTML =
+<div class="md"><p>NEVER push; <strong>apply_patch</strong> only.</p>
+<img src="x"></div>            # <script> 被剔除、onerror 被剥掉，window.__xss 未赋值
+已保存规则 house-rules（139 B · 通用纪律）       # 保存后行内回执
+$ ls <config-dir>/rules/
+house-rules.md                  # 139B，索引 description=通用纪律 / updated_by=default
+
+# 绑定：项目页 rules 文本框 → 保存 → {...,"rules":["house-rules"]}；配置页 agent echoer
+# 与 server 的 rules 输入框各绑一次 → GET /v1/config：
+server.rules= ['house-rules']   agents rules: {'echoer': ['house-rules']}   projects rules: {'smoke': ['house-rules']}
+# 设置 → Rules 的"被谁绑定"列（浏览器实读）：
+server | agent echoer | project smoke
+
+$ gofer job run -p smoke -a echoer --prompt 'SMOKE-R2-BODY' --sync --server … -c …
+job 20260926-113958-4f038059 submitted: status=done …
+job 20260926-113958-4f038059 finished: status=done exit_code=0
+# job 详情（浏览器）meta 行 + hover：
+RULES  house-rules, project:smoke
+       title="house-rules @ sha256 332336da" / title="project:smoke @ sha256 5da08239"
+# 时间线：
+§ 已注入规则   house-rules, project:smoke · 192 B
+# 编辑器下方原样显示服务端 400：
+invalid rule body - the rule body is empty
+# 删除确认（仍被绑定）：
+删除规则「house-rules」？规则文件会一起删掉。
+它仍被绑定：server、agent echoer、project smoke。删除后这些绑定会在提交时报未知规则（unknown rule "house-rules"）…
+```
+
+**测试**：`internal/commands`（新增 `TestJobRunEnvWarnsForRemoteRunner`，与既有 `TestJobRunEnvFlag` 同绿）、`internal/httpapi`（新增 `TestProjectRulesBindingRoundTrip`）。整包 `go test ./internal/commands/ -count=1`（ok）与 `./internal/httpapi/ -count=1` 全绿；`gofmt -l` / `go build ./...` / `go vet ./...` 干净；`cd web && pnpm typecheck && pnpm build` 通过（产物里多一个 `Rules-*.js` chunk）。

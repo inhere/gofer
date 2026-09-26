@@ -34,6 +34,7 @@ gofer agent rule rm house-rules
 - HTTP：`GET /v1/rules`、`GET /v1/rules/{name}`、`PUT /v1/rules/{name}`、`DELETE /v1/rules/{name}`。
   **写要 `can_admin`**；读对所有已认证调用方开放（**job 凭证也能读**——job 应该能看见管着自己的规矩）。
   `PUT` 接受 `application/json` 的 `{"content":"…"}` 或 `text/markdown` 原文，超过 `server.rules_max_bytes` 的**单条**规则会被拒（它永远注入不进去）。
+- **web 控制台：设置 → Rules**（`/settings/rules`）。列表给出名字/描述/大小/更新时间与人，以及**被谁绑定**（server / agent / project，由 `GET /v1/config` 反查而来）；新建与编辑是"左原文、右预览"（预览只渲染正文，frontmatter 不注入也不显示），保存即 `PUT`，服务端的 400/403 文案原样显示在编辑器下方；删除要二次确认，**仍被绑定时确认框里会列出绑定位置**。页面上写着：规则必须遵守、长篇资料用 skills、**不要在规则里放密钥**。
 
 ## 绑定：四级**并集** + 仓库自带一份
 
@@ -55,6 +56,8 @@ gofer job run -p hyy-ai-inspect -a omp --no-rules --prompt "…"      # 本次�
 ```
 
 解析顺序 server → agent → project → job，**取并集去重**（同 skills，与 retry 的"就近层整体替换"相反）。
+
+在控制台里绑：**配置管理**（设置 → 配置管理）里 server 与每个 agent 各有一个 `rules` 输入框（每行一个名字）；**项目页**的项目编辑表单里有 `rules` 输入框。三处都是"整体下发、逐行一个名字"，清空即解绑该层。注意 agent PUT 是**整体替换**语义，控制台表单会回发它读到的整份可编辑字段，所以不要绕开表单手改这些绑定后忘了刷新页面。
 
 **项目的 `.gofer/RULES.md` 自动纳入**：项目仓库根下若有这个文件，它作为规则 `project:<key>` 排在**绑定规则之后**注入，随仓库版本走、**不需要登记**（review 时和代码一起看）。hub 读不到（典型：项目跑在 worker 上、hub 看不到那棵树）就**跳过**，并在时间线记 `job.rules_skipped {reason:"project_file_unreachable"}`；job 照常跑。
 
@@ -96,6 +99,9 @@ gofer job run -p hyy-ai-inspect -a omp --no-rules --prompt "…"      # 本次�
 
 规则正文**会进 prompt 与 `request_json`**（落库、可被 `job show --request` 读到）。**不要把 token、密码、内部地址、客户数据写进规则**——需要凭据就让 agent 走环境变量 / `agent.env` / `env_files`（那些不进 prompt）。`job run --env` 同理：值随 request_json 落库，帮助文本已写明"never pass secrets here"。
 
+`--env` 还有个执行侧的限制：它由**跑 job 的那个 server 进程**注入，worker / peer / 远端 runner 看不到。CLI 因此在 `--env` 与非本机 runner（`--runner` 不是 `local`/`server`）同用时打一行警告
+`warning: --env is only applied to jobs the server runs itself; runner <x> will not see these variables`（只警告，不报错、不改请求；`<x>` 是提交结果里服务端解析出的 runner）。
+
 ## 观测与排障
 
 ```bash
@@ -103,6 +109,7 @@ gofer job show <job>       # rules: house-rules@3f2a1b0c9d8e, project:hyy-ai-ins
 ```
 
 - `rules:` 行 = 注入的名字 + 每条**当时那份文本** sha256 的前 12 位（完整摘要在 `jobs.rules_json`）。拿它和 `agent rule show <name>` 的 `sha256` 前缀比，就知道库是不是在 job 跑完之后被改过。
+- **web job 详情**同样有一行 `rules: a, b`（每个名字 hover 显示 sha256 前 8 位），与 skills 行并列；时间线上 `job.rules_injected` = 「已注入规则」+ `名字 · 字节数`。
 - `job show --request` 的 `prompt` 里能看到**agent 实际读到的原文**（含整个规则段）。
 - 事件：`job.rules_injected {names, bytes}`（提交机记的收据）、`job.rules_skipped {reason}`（项目文件读不到）。
 - resume **不再注入**（续接的会话里已经有了）；**rerun 重新解析**（规则改了，下一次跑的就是新版本；`job show` 的 sha 也会变）。
@@ -111,4 +118,5 @@ gofer job show <job>       # rules: house-rules@3f2a1b0c9d8e, project:hyy-ai-ins
   - **提交被拒 `unknown rule "x"`** → `agent rule ls` 里没有这个名字；`agent rule set` 后再试。名字写错必须报错，不能静默跳过。
   - **提交被拒 `rules total … over server.rules_max_bytes`** → 按错误里点名的那几条瘦身；长文档改放 skill。
   - **job 凭证提交报 403 `rules cannot be disabled by a job caller`** → 它试图带 `no_rules`；这是设计（决策 4），改由 user caller 提交或去掉该字段。
-  - **改配置不生效** → `server.rules` / `server.rules_max_bytes` / `agents.*.rules` 都是**可热改**字段（`PUT /v1/config/...` 或配置页，无需重启）；`projects.*.rules` 与 `.gofer/RULES.md` 随项目配置 / 仓库版本走，下个 job 生效。
+  - **改配置不生效** → `server.rules` / `server.rules_max_bytes` / `agents.*.rules` 都是**可热改**字段（`PUT /v1/config/...` 或配置页，无需重启）；`projects.*.rules`（`PUT /v1/projects/{key}` 或项目页，合并语义）与 `.gofer/RULES.md` 随项目配置 / 仓库版本走，下个 job 生效。
+  - **删规则后提交报 `unknown rule`** → 删除**不会**顺手解绑（库与配置是两个真相源），先把 `server.rules` / `agents.*.rules` / `projects.*.rules` 里指向它的名字去掉；设置 → Rules 的"被谁绑定"列和删除确认框都会告诉你它被谁绑着。

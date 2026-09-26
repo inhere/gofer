@@ -77,8 +77,8 @@
 | F-a/b/c | worker 模式 skill CLI 回落 HTTP（bd h-aii-uzvc）、Board plan 过滤改输入框、导航「技能」→「Skills」 | 中 | 小 | 🚧 设计 0.2 实施中 | 同上 §三 |
 | CFG-05 | `gofer worker init` 向导：拉 server 可派项目、推断并校验 roots、探测 agent、写 worker.yaml/.env、跑 doctor；新增 `GET /v1/workers/{id}/assignable` | 中 | 中 | 🚧 设计 0.2 实施中 | [design](design/2026-09-25-rules-injection-and-worker-init-design.md) §二 |
 | ACP-02 | 真机端到端：omp-acp / jcode-acp 首轮+续接通过（v0.60.3）；claude-acp gofer 侧通过（F14 继承 settings.json env，会话建立），上游服务商拒绝（OpenCode Go 网关要求 `x-opencode-session`），待换可用端点补测；过程中修 F12 进程树/等锁超时、F13 `session/load`、F14 | 中 | — | ✅ gofer 侧（claude-acp 待上游） | [ACP 设计](design/2026-09-17-acp-agent-and-approval-gate-design.md) · [v0.60.2 设计 §四](design/2026-09-24-settings-hub-and-tunnel-visibility-design.md) |
-| JOB-06① | 强制规则：server 规则库（`agent rule`、web 设置页 Rules）、四级并集 + 仓库 `.gofer/RULES.md`，派发时注入 prompt 顶部、job 记名称与 sha；②密钥引用（`--secret`）暂缓 | 高 | 中 | 📝 设计 0.1 待批准 | 同上 §一 |
-| F-e/F-f/F-g | 文本类 cli-agent 会话 id 实时落库（F11 遗留）；`job run --env`；init 默认工作空间 `~/.gofer/workspace` + `default` 项目 | 中 | 小 | 🚧 设计 0.2 实施中 | 同上 §三 |
+| JOB-06① | 强制规则：server 规则库（`agent rule`、web 设置页 Rules）、四级并集 + 仓库 `.gofer/RULES.md`，派发时注入 prompt 顶部、job 记名称与 sha；②密钥引用（`--secret`）暂缓 | 高 | 中 | 🚧 实施中（库/注入/CLI/web Rules 页已落地） | [design](design/2026-09-25-rules-injection-and-worker-init-design.md) §一 |
+| F-e/F-f/F-g | 文本类 cli-agent 会话 id 实时落库（F11 遗留）；`job run --env`；init 默认工作空间 `~/.gofer/workspace` + `default` 项目 | 中 | 小 | 🚧 实施中（F-f 已落地；F-e/F-g 待做） | 同上 §三 |
 | JOB-05 | mcp-agent 类型（job 调用"本身是 MCP server"的能力） | 低 | 中 | ⏳ | roadmap-history JOB-05 |
 | AUTO-04 | 事件 hook 插件（只读旁路先行） | 低 | 大 | ⏳ | roadmap-history AUTO-04 |
 | OBS-07(b)(c) | IM 入站提交 / 交互应答 | 中 | 大 | ❄ 用户暂不做 | [im-notification](runbook/im-notification.md) |
