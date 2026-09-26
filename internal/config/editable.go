@@ -112,6 +112,7 @@ var fieldPolicies = map[string]FieldPolicy{
 	"server.web_base_url":           {RestartRequired: true},
 	"server.job_recover_window_sec": {RestartRequired: true},
 	"server.agent_fallback":         {RestartRequired: true},
+	"server.push":                   {RestartRequired: true}, // W2b: VAPID subject is read when the push service is wired at serve start
 	// server.xfer stays restart-only (S2 verified 2026-09-23): core.Build resolves
 	// its three caps ONCE into the transfer manager, which keeps them in an immutable
 	// field (xfer.Manager.limits) and is NOT rebuilt by a config reload — accepting a
