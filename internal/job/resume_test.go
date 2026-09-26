@@ -418,6 +418,52 @@ func TestResumeJobNonInteractiveSourceUsesSessionResumeTemplate(t *testing.T) {
 	}
 }
 
+// TestResumeOfResumeUsesOriginAgent pins the three-turn CLI chain used by the
+// workbench: a CLI source resumes through an exec carrier, then that carrier is
+// itself resumed. The carrier's Agent is "exec"; OriginAgent is the only durable
+// pointer to the CLI definition whose resume template must be rendered again.
+func TestResumeOfResumeUsesOriginAgent(t *testing.T) {
+	root := t.TempDir()
+	s := newResumeRunnableService(t, root, "claude")
+
+	first := submitSourceCancel(t, s, JobRequest{
+		ProjectKey: "self", Agent: "claude", Runner: "local",
+		Prompt: "turn one", Cwd: ".", TimeoutSec: 30,
+		OriginAgent: "claude",
+	})
+	sid := first.SessionID
+	if sid == "" {
+		t.Fatal("setup: first turn has no session_id")
+	}
+
+	second, err := s.ResumeJob(first.ID, "turn two", "", "caller-three-turn")
+	if err != nil {
+		t.Fatalf("first ResumeJob: %v", err)
+	}
+	second, ok := s.Wait(second.ID)
+	if !ok || !IsTerminal(second.Status) {
+		t.Fatalf("second turn did not finish: ok=%v result=%+v", ok, second)
+	}
+	if second.Agent != agent.ExecAgentKey || second.OriginAgent != "claude" {
+		t.Fatalf("second turn carrier = agent %q origin %q, want exec/claude", second.Agent, second.OriginAgent)
+	}
+	if second.SessionID != sid {
+		t.Fatalf("second turn session_id=%q, want %q", second.SessionID, sid)
+	}
+
+	third, err := s.ResumeJob(second.ID, "turn three", "", "caller-three-turn")
+	if err != nil {
+		t.Fatalf("resume of resume: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Cancel(third.ID); s.Wait(third.ID) })
+	if third.SessionID != sid {
+		t.Fatalf("third turn session_id=%q, want %q", third.SessionID, sid)
+	}
+	if got, want := resumeArgv(t, third.RequestJSON), []string{"claude", "--resume", sid, "-p", "turn three"}; !equalArgs(got, want) {
+		t.Fatalf("third turn argv=%#v, want %#v", got, want)
+	}
+}
+
 func TestResumeJobNonInteractiveSourceRejectsEmptyPrompt(t *testing.T) {
 	root := t.TempDir()
 	s := newResumeRunnableService(t, root, "claude")

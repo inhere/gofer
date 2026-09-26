@@ -74,9 +74,17 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		return JobResult{}, fmt.Errorf("%w: %q", ErrNoSession, jobID)
 	}
 
-	ac, ok := s.agents.Get(src.Agent)
+	// A CLI continuation runs through an exec carrier. Resuming that carrier again
+	// must resolve the original CLI definition, not the carrier's reserved "exec"
+	// agent (which intentionally has no resume template). OriginAgent is stamped on
+	// the chain by the caller/supervisor and is the durable owner reference.
+	resumeAgent := src.Agent
+	if src.Agent == agent.ExecAgentKey && strings.TrimSpace(src.OriginAgent) != "" {
+		resumeAgent = src.OriginAgent
+	}
+	ac, ok := s.agents.Get(resumeAgent)
 	if !ok {
-		return JobResult{}, fmt.Errorf("%w: agent %q", ErrResumeUnsupported, src.Agent)
+		return JobResult{}, fmt.Errorf("%w: agent %q", ErrResumeUnsupported, resumeAgent)
 	}
 
 	// 同 runner 约束 (design §8): an explicit, differing runner is rejected; an
@@ -96,7 +104,7 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		// An agent that declares acp.load_session: false is not resumable at all — say
 		// so up front rather than submitting a job the agent will refuse.
 		if !ac.ACP.AllowsLoadSession() {
-			return JobResult{}, fmt.Errorf("%w: agent %q declares acp.load_session: false", ErrResumeUnsupported, src.Agent)
+			return JobResult{}, fmt.Errorf("%w: agent %q declares acp.load_session: false", ErrResumeUnsupported, resumeAgent)
 		}
 		if strings.TrimSpace(prompt) == "" {
 			return JobResult{}, fmt.Errorf("%w: resume requires a prompt", ErrInvalidRequest)
@@ -106,7 +114,7 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		// acp-agent is batch-only by definition, so Interactive stays false.
 		return s.Submit(JobRequest{
 			ProjectKey: src.ProjectKey,
-			Agent:      src.Agent,
+			Agent:      resumeAgent,
 			Runner:     src.Runner,
 			WorkerID:   src.WorkerID,
 			Prompt:     prompt,
@@ -119,7 +127,7 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 			// ResumedFrom marks it a continuation — which is what makes submit fill
 			// the runner's LoadSessionID (a plain job's session_id never loads).
 			SessionID:         src.SessionID,
-			ResumeSourceAgent: src.Agent,
+			ResumeSourceAgent: resumeAgent,
 			// JOB-06①: a continuation is NOT re-injected with rules — the session it
 			// continues was already given them, and repeating the section every turn
 			// would spend the context twice on the same text (design §一.3).
@@ -162,7 +170,7 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		tmpl = ac.SessionResumeInteractive
 	}
 	if len(tmpl) == 0 {
-		return JobResult{}, fmt.Errorf("%w: agent %q", ErrResumeUnsupported, src.Agent)
+		return JobResult{}, fmt.Errorf("%w: agent %q", ErrResumeUnsupported, resumeAgent)
 	}
 	// 非交互 resume 需要非空 prompt：claude `-p ""` / 空续投无意义会崩。交互源不看 prompt。
 	if !src.Interactive && strings.TrimSpace(prompt) == "" {
@@ -229,7 +237,7 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		ReviewFixed: true,
 		// 访问门按 SOURCE agent 判定：resume 只是用 exec 载体跑原 agent 的受限续接 argv，
 		// 故豁免 exec/allow_exec 门（2026-06-26 决策）。仅 ResumeJob 设置，不入 request_json、不可伪造。
-		ResumeSourceAgent: src.Agent,
+		ResumeSourceAgent: resumeAgent,
 		// 续接沿用源 job 的提交来源（provenance），保留会话链的原始渠道/来源主机。
 		Channel: src.Channel,
 		Client:  src.Client,
