@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onMounted, ref, watch } from 'vue'
 import { getMeta, getPlan, listPlans, submitJob } from '../../api/client'
 import type { MetaAgent, MetaProject, MetaResp, Plan, SubmitJobReq, Todo } from '../../api/types'
 
@@ -21,6 +21,7 @@ const loading = ref(false)
 const submitting = ref(false)
 const error = ref('')
 const promptInput = ref<HTMLTextAreaElement | null>(null)
+const mobileOpen = ref(false)
 
 const selectedProject = computed<MetaProject | undefined>(() => meta.value.projects.find((p) => p.key === projectKey.value))
 const selectedAgent = computed<MetaAgent | undefined>(() => meta.value.agents.find((a) => a.key === agentKey.value))
@@ -114,6 +115,7 @@ async function submit(): Promise<void> {
     if (todoID.value) req.todo_id = todoID.value
     const result = await submitJob(req)
     prompt.value = ''
+    mobileOpen.value = false
     emit('submitted', result.job.id)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
@@ -130,7 +132,8 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 function focusPrompt(): void {
-  promptInput.value?.focus()
+  mobileOpen.value = true
+  void nextTick(() => promptInput.value?.focus())
 }
 
 defineExpose({ focusPrompt })
@@ -159,7 +162,10 @@ onMounted(async () => {
 
 <template>
   <section class="composer" aria-label="发起新会话">
-    <div class="composer-selects">
+    <button v-if="!mobileOpen" class="mobile-launch mono" type="button" aria-label="发起新会话" @click="mobileOpen = true">＋</button>
+    <div class="composer-panel" :class="{ 'mobile-open': mobileOpen }">
+      <button class="mobile-close mono" type="button" aria-label="收起发起面板" @click="mobileOpen = false">×</button>
+      <div class="composer-selects">
       <select v-model="projectKey" class="field mono" aria-label="项目" :disabled="loading">
         <option value="" disabled>项目</option>
         <option v-for="project in meta.projects" :key="project.key" :value="project.key">{{ project.key }}</option>
@@ -180,8 +186,8 @@ onMounted(async () => {
         <option v-for="todo in todos" :key="todo.todo_id" :value="todo.todo_id">{{ todo.title }}</option>
       </select>
       <input v-model="cwd" class="field cwd mono" aria-label="工作目录" placeholder="cwd" />
-    </div>
-    <div class="prompt-row">
+      </div>
+      <div class="prompt-row">
       <textarea
         ref="promptInput"
         v-model="prompt"
@@ -193,13 +199,16 @@ onMounted(async () => {
       <button class="submit mono" type="button" :disabled="!canSubmit" @click="submit">
         {{ submitting ? '提交中…' : '开始' }}
       </button>
+      </div>
+      <p v-if="error" class="error mono">{{ error }}</p>
     </div>
-    <p v-if="error" class="error mono">{{ error }}</p>
   </section>
 </template>
 
 <style scoped>
-.composer { min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.composer { min-width: 0; }
+.composer-panel { min-width: 0; display: flex; flex-direction: column; gap: 7px; }
+.mobile-launch, .mobile-close { display: none; }
 .composer-selects { display: grid; grid-template-columns: 1.1fr 1.1fr .8fr 1fr 1fr .8fr; gap: 6px; }
 .field, .prompt { min-width: 0; color: var(--paper); background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 7px; font-size: 11px; }
 .field:focus, .prompt:focus { outline: 1px solid var(--phosphor); border-color: var(--phosphor); }
@@ -210,4 +219,11 @@ onMounted(async () => {
 .error { color: var(--fail); margin: 0; font-size: 11px; }
 @media (max-width: 980px) { .composer-selects { grid-template-columns: repeat(3, minmax(0,1fr)); } }
 @media (max-width: 620px) { .composer-selects { grid-template-columns: repeat(2, minmax(0,1fr)); } .prompt-row { grid-template-columns: 1fr; } .submit { min-height: 34px; } }
+@media (max-width: 767px) {
+  .composer { position: fixed; right: 12px; bottom: 12px; z-index: 80; }
+  .mobile-launch { display: grid; place-items: center; width: 46px; height: 46px; color: var(--ink); background: var(--phosphor); border: 0; border-radius: 50%; font-size: 26px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+  .composer-panel { display: none; position: fixed; left: 8px; right: 8px; bottom: 8px; max-height: min(78vh, 660px); overflow-y: auto; padding: 36px 10px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 14px 40px rgba(0,0,0,.55); }
+  .composer-panel.mobile-open { display: flex; }
+  .mobile-close { display: block; position: absolute; top: 7px; right: 9px; color: var(--paper); background: transparent; border: 0; font-size: 20px; }
+}
 </style>

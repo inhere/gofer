@@ -742,7 +742,7 @@ onMounted(() => {
   }
 }
 
-@media (max-width: 768px) {
+@media (max-width: 767px) {
   .pane-head {
     align-items: flex-start;
     flex-direction: column;

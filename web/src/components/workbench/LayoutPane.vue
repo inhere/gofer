@@ -10,6 +10,9 @@ const props = defineProps<{
   path: string
   focusedPath: string
   maximizedPath?: string
+  solo?: boolean
+  soloPath?: string
+  contentActive?: boolean
 }>()
 
 const emit = defineEmits<{
@@ -30,6 +33,14 @@ function childPath(side: 'a' | 'b'): string {
 
 function branchContains(branch: string, target: string): boolean {
   return target === branch || target.startsWith(`${branch}.`)
+}
+
+function soloEnabled(): boolean {
+  return Boolean(props.maximizedPath) || Boolean(props.solo)
+}
+
+function soloTarget(): string {
+  return props.maximizedPath || props.soloPath || ''
 }
 
 function dropEdge(event: DragEvent): DropEdge {
@@ -115,7 +126,7 @@ onUnmounted(() => stopPointerTracking?.())
       v-if="node.thread_id"
       :key="node.thread_id"
       :thread-id="node.thread_id"
-      :focused="focusedPath === path"
+      :focused="focusedPath === path && contentActive !== false"
     />
     <button v-else class="empty-pane mono" type="button" @click="emit('focus', path)">
       空窗格<br /><small>从左侧选择一个会话</small>
@@ -129,7 +140,7 @@ onUnmounted(() => stopPointerTracking?.())
   >
     <div
       class="split-branch"
-      :class="{ 'branch--hidden': maximizedPath && !branchContains(childPath('a'), maximizedPath) }"
+      :class="{ 'branch--hidden': soloEnabled() && !branchContains(childPath('a'), soloTarget()) }"
       :style="{ flexGrow: node.ratio }"
     >
       <LayoutPane
@@ -137,6 +148,9 @@ onUnmounted(() => stopPointerTracking?.())
         :path="childPath('a')"
         :focused-path="focusedPath"
         :maximized-path="maximizedPath"
+        :solo="solo"
+        :solo-path="soloPath"
+        :content-active="contentActive"
         @focus="emit('focus', $event)"
         @ratio="(path, ratio) => emit('ratio', path, ratio)"
         @drop-thread="(path, threadId, edge) => emit('dropThread', path, threadId, edge)"
@@ -144,14 +158,14 @@ onUnmounted(() => stopPointerTracking?.())
     </div>
     <button
       class="splitter"
-      v-show="!maximizedPath"
+      v-show="!soloEnabled()"
       type="button"
       :aria-label="node.dir === 'h' ? '调整左右分屏比例' : '调整上下分屏比例'"
       @pointerdown="startResize"
     ></button>
     <div
       class="split-branch"
-      :class="{ 'branch--hidden': maximizedPath && !branchContains(childPath('b'), maximizedPath) }"
+      :class="{ 'branch--hidden': soloEnabled() && !branchContains(childPath('b'), soloTarget()) }"
       :style="{ flexGrow: 1 - node.ratio }"
     >
       <LayoutPane
@@ -159,6 +173,9 @@ onUnmounted(() => stopPointerTracking?.())
         :path="childPath('b')"
         :focused-path="focusedPath"
         :maximized-path="maximizedPath"
+        :solo="solo"
+        :solo-path="soloPath"
+        :content-active="contentActive"
         @focus="emit('focus', $event)"
         @ratio="(path, ratio) => emit('ratio', path, ratio)"
         @drop-thread="(path, threadId, edge) => emit('dropThread', path, threadId, edge)"

@@ -60,6 +60,7 @@ const composer = ref<InstanceType<typeof WorkbenchComposer> | null>(null)
 const workbenchRoot = ref<HTMLElement | null>(null)
 const paletteOpen = ref(false)
 const mobilePane = ref<'sidebar' | 'main'>('sidebar')
+const mobileLayout = ref(false)
 const mru = ref<string[]>([])
 const layoutDocument = ref<LayoutDocument>(createLayoutDocument())
 const layoutVersion = ref(0)
@@ -77,6 +78,8 @@ let savedLayoutGeneration = 0
 let layoutSaveTimer: number | null = null
 let layoutSaveInFlight = false
 let prefixTimer: number | null = null
+let mobileQuery: MediaQueryList | null = null
+let touchStart: { x: number; y: number } | null = null
 
 const threads = computed(() => response.value.projects.flatMap((project) => project.threads))
 const threadsByID = computed(() => new Map(threads.value.map((thread) => [thread.id, thread])))
@@ -359,6 +362,30 @@ function isTypingTarget(target: EventTarget | null): boolean {
   return !!element && ['INPUT', 'TEXTAREA', 'SELECT'].includes(element.tagName)
 }
 
+function onMobileQuery(event: MediaQueryListEvent | MediaQueryList): void {
+  mobileLayout.value = event.matches
+}
+
+function onTouchStart(event: TouchEvent): void {
+  if (event.touches.length !== 1) return
+  const target = event.target as HTMLElement | null
+  if (target?.closest('input, textarea, select, .xterm, .terminal-host')) return
+  touchStart = { x: event.touches[0].clientX, y: event.touches[0].clientY }
+}
+
+function onTouchEnd(event: TouchEvent): void {
+  if (!touchStart || event.changedTouches.length !== 1 || !mobileLayout.value) {
+    touchStart = null
+    return
+  }
+  const dx = event.changedTouches[0].clientX - touchStart.x
+  const dy = event.changedTouches[0].clientY - touchStart.y
+  touchStart = null
+  if (Math.abs(dx) < 60 || Math.abs(dx) < Math.abs(dy) * 1.5) return
+  if (dx < 0 && mobilePane.value === 'sidebar' && focusedThreadID()) mobilePane.value = 'main'
+  else if (dx > 0 && mobilePane.value === 'main') mobilePane.value = 'sidebar'
+}
+
 function clearPrefix(): void {
   prefixActive.value = false
   prefixHint.value = ''
@@ -471,6 +498,9 @@ function paletteAction(action: 'stop' | 'continue' | 'detail' | 'split-h' | 'spl
 
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown, true)
+  mobileQuery = window.matchMedia('(max-width: 767px)')
+  onMobileQuery(mobileQuery)
+  mobileQuery.addEventListener('change', onMobileQuery)
   const layoutPromise = getWorkbenchLayout().catch((e) => {
     error.value = e instanceof Error ? e.message : String(e)
     return null
@@ -495,6 +525,8 @@ onUnmounted(() => {
   poller.stop()
   if (layoutSaveTimer != null) window.clearTimeout(layoutSaveTimer)
   clearPrefix()
+  mobileQuery?.removeEventListener('change', onMobileQuery)
+  mobileQuery = null
   window.removeEventListener('keydown', onKeydown, true)
 })
 </script>
@@ -515,7 +547,12 @@ onUnmounted(() => {
       {{ layoutNotice }}
       <button type="button" aria-label="关闭布局提示" @click="layoutNotice = ''">×</button>
     </p>
-    <div class="workbench-body" :class="[`mobile--${mobilePane}`]">
+    <div
+      class="workbench-body"
+      :class="[`mobile--${mobilePane}`]"
+      @touchstart.passive="onTouchStart"
+      @touchend.passive="onTouchEnd"
+    >
       <WorkbenchSidebar
         ref="sidebar"
         :projects="response.projects"
@@ -569,6 +606,9 @@ onUnmounted(() => {
             path=""
             :focused-path="currentTab.focused"
             :maximized-path="maximizedPath"
+            :solo="mobileLayout"
+            :solo-path="currentTab.focused"
+            :content-active="!mobileLayout || mobilePane === 'main'"
             @focus="focusPane"
             @ratio="resizeSplit"
             @drop-thread="dropThread"
@@ -614,11 +654,13 @@ onUnmounted(() => {
 .prefix-status + .layout-version { margin-left: 0; }
 .layout-surface { flex: 1; min-width: 0; min-height: 0; position: relative; }
 .empty-main { color: var(--queue); }
-@media (max-width: 760px) {
+@media (max-width: 767px) {
   .workbench-page { height: calc(100vh - 53px); }
-  .workbench-top { grid-template-columns: 1fr; max-height: 42vh; overflow-y: auto; }
+  .workbench-top { position: relative; z-index: 20; display: flex; justify-content: flex-end; min-height: 45px; padding: 7px 10px; }
   .workbench-body { grid-template-columns: 1fr; }
   .workbench-body.mobile--sidebar .workbench-main { display: none; }
   .workbench-body.mobile--main :deep(.wb-sidebar) { display: none; }
+  .layout-tabs { padding-right: 48px; }
+  .layout-version, .prefix-status { display: none; }
 }
 </style>

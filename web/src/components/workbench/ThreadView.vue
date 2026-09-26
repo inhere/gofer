@@ -411,5 +411,5 @@ onUnmounted(() => {
 .turn-send:disabled { opacity: .4; }
 .empty { color: var(--queue); padding: 24px; }
 .missing-thread { display: grid; place-items: center; padding: 24px; color: var(--queue); }
-@media (max-width: 760px) { .thread-head { grid-template-columns: 1fr; } .back { display: inline-block; justify-self: start; } .head-actions { flex-wrap: wrap; } .thread-meta { grid-column: 1; } .turn-composer { grid-template-columns: 1fr; } .turn-send { min-height: 36px; } }
+@media (max-width: 767px) { .thread-head { grid-template-columns: 1fr; } .back { display: inline-block; justify-self: start; } .head-actions { flex-wrap: wrap; } .thread-meta { grid-column: 1; } .turn-composer { grid-template-columns: 1fr; } .turn-send { min-height: 36px; } }
 </style>
