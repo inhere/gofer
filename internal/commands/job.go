@@ -1373,6 +1373,7 @@ func runJobRun(c *gcli.Command, _ []string) error {
 		fmt.Fprintf(os.Stderr, "warning: --timeout %ds exceeds the project ceiling (%ds); the job will run with %ds\n",
 			res.RequestedTimeoutSec, res.TimeoutSec, res.TimeoutSec)
 	}
+	warnJobRunEnvIgnoredByRunner(c, res)
 
 	// --wait (client polling) or a sync submit that fell back to async (202): poll
 	// until terminal. A sync submit that completed server-side already returns the
@@ -1397,6 +1398,24 @@ func runJobRun(c *gcli.Command, _ []string) error {
 		}
 	}
 	return nil
+}
+
+// warnJobRunEnvIgnoredByRunner warns when --env cannot reach the job's runner
+// (F-f). --env is applied by the server process that spawns the job, so a worker
+// /peer/remote runner never sees those variables (SEC-01: the variable stays on
+// the execution machine) — without this line the caller would believe the
+// variable travelled. The runner is taken from the submit RESULT, which is the
+// server's resolved runner, so a template/role-resolved one is covered too; an
+// empty echo (an old/fake server that does not report it) warns about nothing
+// rather than guessing from the --runner flag.
+func warnJobRunEnvIgnoredByRunner(c *gcli.Command, res job.JobResult) {
+	if len(jobRunOpts.env) == 0 || res.Runner == "" {
+		return
+	}
+	if config.IsBuiltinLocalRunnerName(res.Runner) {
+		return
+	}
+	c.Printf("warning: --env is only applied to jobs the server runs itself; runner %s will not see these variables\n", res.Runner)
 }
 
 func shouldPrintJobStderr(res job.JobResult) bool {
