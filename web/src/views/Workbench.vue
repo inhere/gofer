@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, provide, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { ApiError } from '../api/client'
 import {
   getWorkbenchLayout,
@@ -44,6 +44,7 @@ interface FocusedThreadActions {
 }
 
 const response = ref<WorkbenchThreadsResp>({ projects: [], attention: [], total: 0, since: 0 })
+const route = useRoute()
 const router = useRouter()
 const selectedID = ref('')
 const pendingJobID = ref('')
@@ -85,6 +86,7 @@ const threads = computed(() => response.value.projects.flatMap((project) => proj
 const threadsByID = computed(() => new Map(threads.value.map((thread) => [thread.id, thread])))
 const selectedThread = computed(() => threadsByID.value.get(selectedID.value))
 const currentTab = computed(() => activeTab(layoutDocument.value))
+const attentionCount = computed(() => response.value.attention.length)
 
 provide('workbench-view-context', {
   threadsByID,
@@ -113,6 +115,7 @@ async function loadThreads(): Promise<void> {
         pendingJobID.value = ''
       }
     }
+    if (layoutReady.value) locateRequestedThread(false)
     if (!layoutReady.value && !selectedID.value) selectedID.value = next.projects[0]?.threads[0]?.id ?? ''
     error.value = ''
   } catch (e) {
@@ -300,6 +303,30 @@ function selectAttention(item: WorkbenchAttentionItem): void {
   if (thread) selectThread(thread)
   else selectedID.value = item.thread_id
   void nextTick(() => focusedActions.value?.focusAction(item.action))
+}
+
+function requestedThreadID(): string {
+  const value = route.query.thread
+  return typeof value === 'string' ? value : Array.isArray(value) ? value[0] ?? '' : ''
+}
+
+function locateRequestedThread(announce: boolean): boolean {
+  const id = requestedThreadID()
+  if (!id) return false
+  const thread = threadsByID.value.get(id)
+  if (!thread) {
+    if (announce) layoutNotice.value = '通知指向的会话尚未出现，正在等待刷新'
+    return false
+  }
+  const changed = focusedThreadID() !== id
+  selectThread(thread)
+  if (announce && changed) layoutNotice.value = '已定位到通知对应的会话'
+  return true
+}
+
+function openFirstAttention(): void {
+  const first = response.value.attention[0]
+  if (first) selectAttention(first)
 }
 
 async function markAllSeen(): Promise<void> {
@@ -496,6 +523,21 @@ function paletteAction(action: 'stop' | 'continue' | 'detail' | 'split-h' | 'spl
   else if (action === 'new-tab') createTab()
 }
 
+watch(
+  () => route.query.thread,
+  () => {
+    if (layoutReady.value) locateRequestedThread(true)
+  },
+)
+
+watch(
+  attentionCount,
+  (count) => {
+    document.title = count > 0 ? '(' + count + ') gofer' : 'gofer'
+  },
+  { immediate: true },
+)
+
 onMounted(async () => {
   window.addEventListener('keydown', onKeydown, true)
   mobileQuery = window.matchMedia('(max-width: 767px)')
@@ -518,6 +560,7 @@ onMounted(async () => {
   }
   layoutReady.value = true
   syncSelectedFromLayout()
+  locateRequestedThread(true)
   poller.start()
 })
 
@@ -528,6 +571,7 @@ onUnmounted(() => {
   mobileQuery?.removeEventListener('change', onMobileQuery)
   mobileQuery = null
   window.removeEventListener('keydown', onKeydown, true)
+  document.title = 'gofer'
 })
 </script>
 
@@ -547,6 +591,14 @@ onUnmounted(() => {
       {{ layoutNotice }}
       <button type="button" aria-label="关闭布局提示" @click="layoutNotice = ''">×</button>
     </p>
+    <button
+      v-if="attentionCount > 0"
+      class="attention-fallback mono"
+      type="button"
+      @click="openFirstAttention"
+    >
+      ⚠ {{ attentionCount }} 项等待处理 · 打开最早一项
+    </button>
     <div
       class="workbench-body"
       :class="[`mobile--${mobilePane}`]"
@@ -637,6 +689,8 @@ onUnmounted(() => {
 .page-error { flex: none; margin: 0; padding: 7px 12px; color: var(--fail); background: rgba(200,70,70,.08); border-bottom: 1px solid var(--line); }
 .layout-notice { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; padding: 7px 12px; color: var(--run); background: rgba(255,185,80,.08); border-bottom: 1px solid var(--line); }
 .layout-notice button { color: inherit; background: transparent; border: 0; font-size: 16px; }
+.attention-fallback { flex: none; width: 100%; margin: 0; padding: 7px 12px; color: var(--run); text-align: left; background: rgba(255,185,80,.12); border: 0; border-bottom: 1px solid var(--line); }
+.attention-fallback:hover { color: var(--paper); background: rgba(255,185,80,.18); }
 .workbench-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(260px, 24vw) minmax(0,1fr); }
 .workbench-main { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 .layout-tabs { flex: none; min-width: 0; display: flex; align-items: stretch; gap: 2px; padding: 5px 7px 0; background: var(--panel); border-bottom: 1px solid var(--line); overflow-x: auto; }
