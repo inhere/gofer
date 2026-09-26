@@ -41,3 +41,7 @@
 - **入站 IM（Slack/钉钉触发）**：OBS-07(b)(c)，用户已明确暂不做。
 - **每成员可跑哪些 agent**：等有第二个使用者再说（OBS-06 扩展）。
 - **Runtime 启动自动探测 CLI 并注册**：gofer 的 `detect` + worker caps 已等价。
+
+## herdr（2026-09-26）
+
+https://herdr.dev/zh-cn/docs/concepts/ — 终端里的 agent 编排器。吸收：工作区 → 标签页 → 窗格三层、agent 五态与**状态逐层上卷**（blocked 的 agent 让窗格/标签页/工作区都显示 blocked）、服务器持有进程 + 客户端随时分离重连、前缀键 + 鼠标原生。不照搬：它靠屏幕快照/前台进程猜 agent 状态，gofer 有结构化事件。落点：WEB-11 web 工作台（`design/2026-09-26-web-workbench-design.md`）。
