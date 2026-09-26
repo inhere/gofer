@@ -311,6 +311,6 @@ G032 预期清单：
 | B01（用户追加） | PASS | `3cd0b4c`；`TestResumeOfResumeUsesOriginAgent` 先 RED 后 GREEN |
 | T41 | PARTIAL | build/vet/Web PASS；四包中三包 PASS，`internal/job` 两项实施前 baseline FAIL |
 | T42 | PARTIAL | 隔离 runtime API smoke PASS；三种浏览器 provider 均无法启动，visual/screenshot NOT_RUN |
-| T43 | IN_PROGRESS | 待文档提交、最终状态/日志/控制字符与 lifecycle 检查 |
+| T43 | PASS | 文档/状态/日志/控制字符/lifecycle 检查已完成；整体仍因 T41/T42 外部 Gate 为 BLOCKED |
 
 以上是 progress/provenance，不改变批准 candidate `1b21a18 / revision 0.1`，也不重开计划审批。Browser Host Gate 与两项非 W1 baseline 未关闭前，不把 W1 标记为完整外部验收。
