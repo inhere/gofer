@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"net/http/httptest"
 	"net/url"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -74,6 +76,13 @@ type workbenchTestTurnResult struct {
 	ThreadID   string `json:"thread_id"`
 	JobID      string `json:"job_id"`
 	DecisionID string `json:"decision_id"`
+}
+
+type workbenchTestLayoutResponse struct {
+	Error   string          `json:"error"`
+	Detail  string          `json:"detail"`
+	Version int64           `json:"version"`
+	Body    json.RawMessage `json:"body"`
 }
 
 func newWorkbenchTestServer(t *testing.T, sc config.ServerConfig) *Server {
@@ -250,6 +259,183 @@ func waitPastUnix(t *testing.T, timestamp int64) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
+}
+
+func requestWorkbenchLayout(t *testing.T, s *Server, method, token string, body any) (int, workbenchTestLayoutResponse) {
+	t.Helper()
+	resp := do(t, s, method, "/v1/workbench/layout", token, body)
+	defer resp.Body.Close()
+	status := resp.StatusCode
+	var out workbenchTestLayoutResponse
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read layout response: %v", err)
+	}
+	_ = json.Unmarshal(data, &out)
+	return status, out
+}
+
+func requestRawWorkbenchLayout(t *testing.T, s *Server, token, raw string) (int, workbenchTestLayoutResponse) {
+	t.Helper()
+	req := httptest.NewRequest(http.MethodPut, "/v1/workbench/layout", strings.NewReader(raw))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	rec := httptest.NewRecorder()
+	s.Handler().ServeHTTP(rec, req)
+	resp := rec.Result()
+	defer resp.Body.Close()
+	status := resp.StatusCode
+	var out workbenchTestLayoutResponse
+	data, err := io.ReadAll(resp.Body)
+	if err != nil {
+		t.Fatalf("read raw layout response: %v", err)
+	}
+	_ = json.Unmarshal(data, &out)
+	return status, out
+}
+
+func requireWorkbenchLayoutBody(t *testing.T, raw json.RawMessage, want string) {
+	t.Helper()
+	var gotValue any
+	if err := json.Unmarshal(raw, &gotValue); err != nil {
+		t.Fatalf("decode layout body %q: %v", raw, err)
+	}
+	var wantValue any
+	if err := json.Unmarshal([]byte(want), &wantValue); err != nil {
+		t.Fatalf("decode expected layout body %q: %v", want, err)
+	}
+	if !reflect.DeepEqual(gotValue, wantValue) {
+		t.Fatalf("layout body = %s, want %s", raw, want)
+	}
+}
+
+func TestWorkbenchLayoutRoundTrip(t *testing.T) {
+	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
+
+	status, initial := requestWorkbenchLayout(t, s, http.MethodGet, testToken, nil)
+	if status != http.StatusOK {
+		t.Fatalf("initial GET layout status=%d error=%q detail=%q, want 200", status, initial.Error, initial.Detail)
+	}
+	if initial.Version != 0 {
+		t.Fatalf("initial layout version=%d, want 0", initial.Version)
+	}
+	requireWorkbenchLayoutBody(t, initial.Body, `{}`)
+
+	body := map[string]any{
+		"active_tab_id": "tab-main",
+		"tabs":          []any{},
+		"future_field":  map[string]any{"kept": true, "generation": 7},
+	}
+	status, saved := requestWorkbenchLayout(t, s, http.MethodPut, testToken, map[string]any{
+		"version": 0,
+		"body":    body,
+	})
+	if status != http.StatusOK {
+		t.Fatalf("PUT layout status=%d error=%q detail=%q, want 200", status, saved.Error, saved.Detail)
+	}
+	if saved.Version != 1 {
+		t.Fatalf("saved layout version=%d, want 1", saved.Version)
+	}
+
+	status, got := requestWorkbenchLayout(t, s, http.MethodGet, testToken, nil)
+	if status != http.StatusOK || got.Version != 1 {
+		t.Fatalf("GET saved layout status=%d version=%d, want 200/1", status, got.Version)
+	}
+	wantBody, err := json.Marshal(body)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireWorkbenchLayoutBody(t, got.Body, string(wantBody))
+}
+
+func TestWorkbenchLayoutVersionConflict(t *testing.T) {
+	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
+	firstBody := map[string]any{"active_tab_id": "tab-1", "unknown": "preserve-me"}
+	status, first := requestWorkbenchLayout(t, s, http.MethodPut, testToken, map[string]any{
+		"version": 0,
+		"body":    firstBody,
+	})
+	if status != http.StatusOK || first.Version != 1 {
+		t.Fatalf("first PUT status=%d version=%d, want 200/1", status, first.Version)
+	}
+
+	status, conflict := requestWorkbenchLayout(t, s, http.MethodPut, testToken, map[string]any{
+		"version": 0,
+		"body":    map[string]any{"active_tab_id": "stale"},
+	})
+	if status != http.StatusConflict {
+		t.Fatalf("stale PUT status=%d error=%q detail=%q, want 409", status, conflict.Error, conflict.Detail)
+	}
+	if conflict.Version != 1 {
+		t.Fatalf("conflict version=%d, want current version 1", conflict.Version)
+	}
+	wantFirst, err := json.Marshal(firstBody)
+	if err != nil {
+		t.Fatal(err)
+	}
+	requireWorkbenchLayoutBody(t, conflict.Body, string(wantFirst))
+
+	status, oversized := requestWorkbenchLayout(t, s, http.MethodPut, testToken, map[string]any{
+		"version": 1,
+		"body":    map[string]any{"payload": strings.Repeat("x", 64*1024+1)},
+	})
+	if status != http.StatusRequestEntityTooLarge {
+		t.Fatalf("oversized PUT status=%d error=%q detail=%q, want 413", status, oversized.Error, oversized.Detail)
+	}
+
+	status, malformed := requestRawWorkbenchLayout(t, s, testToken, `{"version":1,"body":`)
+	if status != http.StatusBadRequest {
+		t.Fatalf("malformed PUT status=%d error=%q detail=%q, want 400", status, malformed.Error, malformed.Detail)
+	}
+
+	status, current := requestWorkbenchLayout(t, s, http.MethodGet, testToken, nil)
+	if status != http.StatusOK || current.Version != 1 {
+		t.Fatalf("GET after rejected writes status=%d version=%d, want 200/1", status, current.Version)
+	}
+	requireWorkbenchLayoutBody(t, current.Body, string(wantFirst))
+}
+
+func TestWorkbenchLayoutJobCallerReadOnly(t *testing.T) {
+	s := newWorkbenchTestServer(t, config.ServerConfig{Callers: []config.CallerConfig{
+		{ID: "alice", Token: "tok-alice"},
+		{ID: "bob", Token: "tok-bob"},
+	}})
+
+	status, alice := requestWorkbenchLayout(t, s, http.MethodPut, "tok-alice", map[string]any{
+		"version": 0,
+		"body":    map[string]any{"owner": "alice"},
+	})
+	if status != http.StatusOK || alice.Version != 1 {
+		t.Fatalf("alice PUT status=%d version=%d, want 200/1", status, alice.Version)
+	}
+	status, bob := requestWorkbenchLayout(t, s, http.MethodGet, "tok-bob", nil)
+	if status != http.StatusOK || bob.Version != 0 {
+		t.Fatalf("bob GET status=%d version=%d, want isolated 200/0", status, bob.Version)
+	}
+	requireWorkbenchLayoutBody(t, bob.Body, `{}`)
+
+	now := time.Now().Unix()
+	seedWorkbenchJob(t, s, jobstore.JobRecord{
+		ID: "layout-job", Status: job.StatusDone, StartedAt: now - 2, UpdatedAt: now - 1,
+	}, "layout job", "read layout")
+	jobToken := seedJobToken(t, s, "layout-job", jobstore.JobCredentialMember, "")
+	status, jobLayout := requestWorkbenchLayout(t, s, http.MethodGet, jobToken, nil)
+	if status != http.StatusOK || jobLayout.Version != 0 {
+		t.Fatalf("job GET status=%d version=%d, want read-only 200/0", status, jobLayout.Version)
+	}
+	status, denied := requestWorkbenchLayout(t, s, http.MethodPut, jobToken, map[string]any{
+		"version": 0,
+		"body":    map[string]any{"owner": "job"},
+	})
+	if status != http.StatusForbidden {
+		t.Fatalf("job PUT status=%d error=%q detail=%q, want 403", status, denied.Error, denied.Detail)
+	}
+
+	status, aliceAgain := requestWorkbenchLayout(t, s, http.MethodGet, "tok-alice", nil)
+	if status != http.StatusOK || aliceAgain.Version != 1 {
+		t.Fatalf("alice GET after other callers status=%d version=%d, want 200/1", status, aliceAgain.Version)
+	}
+	requireWorkbenchLayoutBody(t, aliceAgain.Body, `{"owner":"alice"}`)
 }
 
 func TestThreadsGroupJobsBySession(t *testing.T) {
