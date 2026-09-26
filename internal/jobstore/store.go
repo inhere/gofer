@@ -1232,6 +1232,14 @@ func (s *Store) migratePlans() error {
 	if err := add("leader", "leader TEXT NOT NULL DEFAULT 'off'"); err != nil {
 		return err
 	}
+	// F15: `active` was a duplicate of `open` — nothing ever set it and nothing treated
+	// it differently — so the status is gone and a row a human had set normalizes to
+	// `open`. The literal is intentional: the constant no longer exists, and this reads
+	// the value an OLD db carries. Idempotent (the UPDATE matches nothing afterwards),
+	// and it does not stamp updated_at: a normalization is not a plan edit.
+	if _, e := s.db.Exec(`UPDATE plans SET status = ? WHERE status = 'active'`, PlanOpen); e != nil {
+		return fmt.Errorf("jobstore: migrate plans active->open: %w", e)
+	}
 	return nil
 }
 

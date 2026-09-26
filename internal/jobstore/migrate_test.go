@@ -386,6 +386,66 @@ func TestListQueryCallerFilter(t *testing.T) {
 	assert.Len(t, none, 0)
 }
 
+// TestPlanActiveStatusMigratedToOpen (F15): `active` was a duplicate of `open` — nothing
+// ever set it and nothing distinguished the two — so the value is gone. A pre-existing
+// db that carries it must open with those rows normalized: the status can no longer be
+// written, so a leftover row would be invisible to every filter and badge (and
+// un-fixable through the API).
+func TestPlanActiveStatusMigratedToOpen(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old-active.db")
+
+	// The plans table at its current shape (so only the value is old, not the schema).
+	raw, err := sql.Open("sqlite", "file:"+path)
+	assert.NoErr(t, err)
+	_, err = raw.Exec(`CREATE TABLE plans (
+	  plan_id      TEXT PRIMARY KEY,
+	  title        TEXT,
+	  description  TEXT,
+	  status       TEXT NOT NULL,
+	  owner        TEXT,
+	  progress     INTEGER NOT NULL DEFAULT 0,
+	  project_key  TEXT,
+	  paused       INTEGER NOT NULL DEFAULT 0,
+	  blocked_todo TEXT,
+	  leader       TEXT NOT NULL DEFAULT 'off',
+	  created_at   INTEGER NOT NULL,
+	  updated_at   INTEGER NOT NULL
+	)`)
+	assert.NoErr(t, err)
+	_, err = raw.Exec(`INSERT INTO plans (plan_id, status, created_at, updated_at) VALUES
+	  ('plan-active', 'active', 7, 7), ('plan-open', 'open', 8, 8), ('plan-done', 'done', 9, 9)`)
+	assert.NoErr(t, err)
+	assert.NoErr(t, raw.Close())
+
+	s, err := Open(path)
+	assert.NoErr(t, err)
+	defer s.Close()
+
+	for id, want := range map[string]string{
+		"plan-active": PlanOpen, // the retired value becomes the value it duplicated
+		"plan-open":   PlanOpen, // a row that never had it is untouched
+		"plan-done":   PlanDone,
+	} {
+		p, ok, err := s.GetPlan(id)
+		assert.NoErr(t, err)
+		assert.True(t, ok)
+		assert.Eq(t, want, p.Status, "plan %s after migration", id)
+	}
+
+	// No row matches the retired value any more: it survives in old dbs only.
+	leftover, err := s.ListPlans(PlanFilter{Status: "active"})
+	assert.NoErr(t, err)
+	assert.Len(t, leftover, 0)
+
+	// Idempotent: every Open runs migrate again, and a second pass changes nothing.
+	assert.NoErr(t, s.migrate())
+	migrated, ok, err := s.GetPlan("plan-active")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, PlanOpen, migrated.Status)
+	assert.Eq(t, int64(7), migrated.UpdatedAt, "normalizing a status is not a plan edit")
+}
+
 // TestPlanLeaderFieldMigration (LEAD-02): a pre-existing database whose plans table
 // predates the leader column opens with `leader` added and defaulting to `off`, so an
 // upgrade never wakes a leader for a plan nobody opted in — the whole point of moving
