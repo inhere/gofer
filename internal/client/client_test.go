@@ -194,21 +194,21 @@ func TestUpdatePlanPatchRoundTrip(t *testing.T) {
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 			t.Fatalf("decode request body: %v", err)
 		}
-		if body.Status != "active" || body.Progress == nil || *body.Progress != 42 {
+		if body.Status != "done" || body.Progress == nil || *body.Progress != 42 {
 			t.Fatalf("UpdatePlan body mismatch: %+v", body)
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(Plan{PlanID: "plan-client", Status: "active", Progress: 42})
+		_ = json.NewEncoder(w).Encode(Plan{PlanID: "plan-client", Status: "done", Progress: 42})
 	}))
 	defer ts.Close()
 
 	c := New(ts.URL, testToken)
 	progress := 42
-	p, err := c.UpdatePlan("plan-client", "active", &progress)
+	p, err := c.UpdatePlan("plan-client", "done", &progress)
 	if err != nil {
 		t.Fatalf("UpdatePlan: %v", err)
 	}
-	if p.PlanID != "plan-client" || p.Status != "active" || p.Progress != 42 {
+	if p.PlanID != "plan-client" || p.Status != "done" || p.Progress != 42 {
 		t.Fatalf("UpdatePlan response mismatch: %+v", p)
 	}
 }
