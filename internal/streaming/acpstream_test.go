@@ -7,7 +7,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
 	"github.com/inhere/gofer/internal/job"
 )
@@ -15,6 +17,25 @@ import (
 type testACPFlusher struct{}
 
 func (testACPFlusher) Flush() {}
+
+type lockedACPWriter struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (w *lockedACPWriter) Write(p []byte) (int, error) {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.Write(p)
+}
+
+func (w *lockedACPWriter) Flush() {}
+
+func (w *lockedACPWriter) String() string {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	return w.buf.String()
+}
 
 func TestACPStreamCapsOversizeText(t *testing.T) {
 	oldCap := MaxSSEFrameBytes
@@ -70,5 +91,60 @@ func TestACPStreamCapsOversizeText(t *testing.T) {
 	}
 	if !sawMessage || !sawEnd {
 		t.Fatalf("stream missing message/end: %s", out.String())
+	}
+}
+
+func TestACPStreamFollowsLiveFile(t *testing.T) {
+	resultDir := t.TempDir()
+	artifacts := filepath.Join(resultDir, "artifacts")
+	if err := os.MkdirAll(artifacts, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(artifacts, "acp.jsonl")
+	if err := os.WriteFile(path, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	writer := &lockedACPWriter{}
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		StreamACP(ctx, writer, writer, nil, "job-live", job.JobResult{
+			ID: "job-live", Status: job.StatusRunning, ResultDir: resultDir,
+		}, true, ACPStreamOpts{})
+	}()
+
+	f, err := os.OpenFile(path, os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("not-json\n{\"t\":\"message\",\"text\":\"hel"); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(2 * StreamPollInterval)
+	if strings.Contains(writer.String(), `"kind":"message"`) {
+		t.Fatalf("partial JSONL line emitted early: %s", writer.String())
+	}
+	if _, err := f.WriteString("lo\"}\n"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(3 * time.Second)
+	for time.Now().Before(deadline) && !strings.Contains(writer.String(), `"text":"hello"`) {
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !strings.Contains(writer.String(), `"text":"hello"`) {
+		t.Fatalf("live append was not emitted: %s", writer.String())
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("StreamACP did not stop after context cancellation")
 	}
 }
