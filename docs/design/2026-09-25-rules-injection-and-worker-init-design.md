@@ -118,3 +118,41 @@ $ gofer worker init --server http://192.168.65.254:8767 --token <worker token> -
 4. job caller 提交的 job **不能关闭规则**。
 5. `worker init` 默认交互、`--yes` 非交互；不自动启动 worker。
 6. 默认工作空间路径 `~/.gofer/workspace`（短、各平台一致；不用 `~/.local/gofer`，Windows 上没有这个约定），登记为 `default` 项目，`job run` 找不到项目时回落到它。
+
+## R1 实测记录（2026-09-26，omp 实施）
+
+R1 已实现并合入（§一 JOB-06① 后端 + CLI 与 §三 F-f），R3（CFG-05 worker init / F-e / F-g）未开始。
+
+**落成与设计的对照**
+
+- 规则库：`<config-dir>/rules/<name>.md` + `rules` 表索引（`name/description/size/sha256/updated_at/updated_by`）。`sha256` 是**文件原文**的摘要，`rule.BodyOf` 剥掉 frontmatter 后才是注入正文；frontmatter 的 `agents` 仅作提示、不入库（没有消费者）。
+- 注入：`job.resolveRules` 在 `Submit` 里、`applyTemplate`（task 正文）之后解析（同一 cfg 快照），段首 `## 必须遵守的规则（gofer 注入，优先于本任务的其它说明）`、段尾固定标记 `<!-- gofer:rules-end -->`；skills 清单改由 `insertSkillsManifest` 按该标记**插在规则段之后**（规则 → 清单 → 正文）。
+- `.gofer/RULES.md`：作为 `project:<key>` 排在绑定规则之后；读不到（os.IsNotExist 之外）→ 跳过并记 `job.rules_skipped {reason:"project_file_unreachable"}`。
+- 记录：job 行 `rules_json=[{name,sha256}]`、事件 `job.rules_injected {names,bytes}`、`job show` 的 `rules: name@<sha256-12>` 行。
+- resume 不注入（两个 resume 分支置 `RulesResolved`）；rerun（`RebuildJob`）经 `resolveRules` 丢弃旧段后按当前库重渲染；worker dispatch 置 `RulesResolved`（hub 已渲染，执行机不再注入）；peer-http 因 prompt 已带规则段而不再注入（无需新 wire 字段，协议版本不变）。
+- 体积上限 `server.rules_max_bytes`（默认 16384）：超限是 400，错误点名最大的 3 条及字节数；`PUT /v1/rules/{name}` 对**单条**超限同样拒绝（它永远注入不进去）。
+- 顺带修正一个真实缺陷：默认 job 标题原本取 prompt 首行，注入后就会变成规则段标题（每个 job 同名）——`defaultJobTitle` 改为先剥规则段。
+- 字段策略表：`server.rules` / `server.rules_max_bytes` / `agents.*.rules` 均可热改，且 `GET /v1/config` 的 view 与写路径同步（否则 console 的下一次保存会把列表抹掉）。
+
+**冒烟（临时 server，随机端口 + 临时 `GOFER_CONFIG_DIR`，未触碰真实配置）**
+
+```
+$ gofer agent rule set house -f house.md --server http://127.0.0.1:55954 --token … -c conf.yaml
+wrote rule house (74B, sha256 b48d7353266b)
+$ gofer agent rule ls …
+house                    74B       b48d7353266b smoke house rule
+$ gofer job run -p self -a echo --rule house --prompt 'SMOKE-BODY' --sync --server … -c conf.yaml
+job … submitted: status=done
+# 假 cli-agent 收到的 argv（python 把 sys.argv[1:] 写文件）：
+['## 必须遵守的规则（gofer 注入，优先于本任务的其它说明）\n\n### house\nNEVER push; apply_patch only.\n\n<!-- gofer:rules-end -->\n\nSMOKE-BODY']
+$ gofer job show <job> …
+rules:      house@b48d7353266b
+# 事件 API：
+job.rules_injected {"bytes":29,"names":["house"]}
+```
+
+**测试**：`internal/config`（四级并集/上限默认值）、`internal/job`（项目 RULES.md 自动纳入及顺序、prompt 顺序、超限拒绝、行记录+事件、resume 不注入、rerun 重解析）、`internal/httpapi`（CRUD 与 can_admin/job 凭证只读、job 凭证 `no_rules` → 403）、`internal/commands`（`agent rule ls|show|set -f|rm`、`job run --env` 及帮助文本、`job show` 的 rules 行）。整包 `go test ./internal/job/ ./internal/httpapi/ ./internal/commands/ ./internal/config/ ./internal/jobstore/ -count=1` 全绿。
+
+**待办（本设计剩余）**：R2（web 设置页 Rules + job 详情显示）、R3（CFG-05 worker init、`GET /v1/workers/{id}/assignable`、F-e、F-g）；真机收尾（把 `sup-common.md` 拆成 `house-rules` / `gofer-repo` 两条规则绑到 hyy-ai-inspect）也还没做。
+
+**一处留待人工确认的取舍**：`--no-rules` 之外，规则段的存在与否也由 prompt 是否已带固定结束标记决定（用于 peer-http 的转发语义：hub 注入过就不再注入）。理论上调用方自己拼一个以该标题开头、且含结束标记的 prompt，就能让自己这次不被注入规则——但这只是"自己放弃纪律"（规则本就无事后审计），且不会影响别的 job；若要彻底堵住，需要给 peer 路径引入一个可传输的标记字段（会把语义扩到 wire 上）。
