@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, provide, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ApiError } from '../api/client'
+import { ApiError, getMeta } from '../api/client'
 import {
   getWorkbenchLayout,
   listWorkbenchThreads,
@@ -106,6 +106,8 @@ const layoutSaving = ref(false)
 const editingTabID = ref('')
 const tabTitleDraft = ref('')
 const focusedActions = ref<FocusedThreadActions | null>(null)
+const acpAgentKeys = ref<Set<string>>(new Set())
+const acpCapabilityError = ref('')
 const maximizedPath = ref('')
 const prefixActive = ref(false)
 const prefixHint = ref('')
@@ -127,6 +129,8 @@ const attentionCount = computed(() => response.value.attention.length)
 provide('workbench-view-context', {
   threadsByID,
   focusedActions,
+  acpAgentKeys,
+  acpCapabilityError,
   refresh: loadThreads,
   continued,
   back: () => { mobilePane.value = 'sidebar' },
@@ -583,7 +587,17 @@ onMounted(async () => {
     error.value = e instanceof Error ? e.message : String(e)
     return null
   })
+  const metaPromise = getMeta()
+    .then((meta) => {
+      acpAgentKeys.value = new Set(meta.agents.filter((agent) => agent.type === 'acp-agent').map((agent) => agent.key))
+      acpCapabilityError.value = ''
+    })
+    .catch((e) => {
+      acpAgentKeys.value = new Set()
+      acpCapabilityError.value = e instanceof Error ? e.message : String(e)
+    })
   await loadThreads()
+  await metaPromise
   const server = await layoutPromise
   const firstThreadID = threads.value[0]?.id ?? null
   if (server) {

@@ -6,6 +6,7 @@ import { appendCapped, streamJob } from '../../api/sse'
 import type { Interaction, Job, SSEEvent, SSEInteractionData, SSELogData, WorkbenchThread } from '../../api/types'
 import { patchWorkbenchThread, turnWorkbenchThread } from '../../api/workbench'
 import AttachTerminal from '../AttachTerminal.vue'
+import ConversationView from './ConversationView.vue'
 import InteractionCard from '../InteractionCard.vue'
 import LogTape from '../LogTape.vue'
 import SessionDrawer from '../SessionDrawer.vue'
@@ -24,6 +25,8 @@ interface FocusedThreadActions {
 interface WorkbenchViewContext {
   threadsByID: ComputedRef<Map<string, WorkbenchThread>>
   focusedActions: Ref<FocusedThreadActions | null>
+  acpAgentKeys: Ref<Set<string>>
+  acpCapabilityError: Ref<string>
   refresh(): void | Promise<void>
   continued(jobID?: string): void
   back(): void
@@ -57,7 +60,13 @@ const documentVisible = ref(document.visibilityState === 'visible')
 
 const thread = computed(() => context.threadsByID.value.get(props.threadId))
 const latestJobID = computed(() => thread.value?.latest_job_id ?? '')
-const rawStatus = computed(() => liveStatus.value || thread.value?.raw_status || '')
+const isACPThread = computed(() => {
+  const current = thread.value
+  return current?.kind === 'agent' && !!current.agent && context.acpAgentKeys.value.has(current.agent)
+})
+const rawStatus = computed(() => isACPThread.value
+  ? thread.value?.raw_status ?? ''
+  : liveStatus.value || thread.value?.raw_status || '')
 const live = computed(() => ['queued', 'running', 'waiting_dir', 'recovering', 'pending_interaction'].includes(rawStatus.value))
 const finished = computed(() => ['done', 'failed', 'cancelled', 'timeout', 'rejected'].includes(rawStatus.value))
 const canTurn = computed(() => thread.value?.kind === 'agent' && thread.value.resumable && finished.value && !sending.value)
@@ -75,7 +84,7 @@ function resetForThread(): void {
   actionError.value = ''
   draft.value = ''
   titleDraft.value = current?.title ?? ''
-  if (current?.kind !== 'relay' && latestJobID.value) void startStream(latestJobID.value)
+  if (current?.kind !== 'relay' && !isACPThread.value && latestJobID.value) void startStream(latestJobID.value)
 }
 
 function onEvent(event: SSEEvent): void {
@@ -234,7 +243,10 @@ function focusTurn(): void {
 
 function focusAction(action: string): void {
   void nextTick(() => {
-    if (action === 'answer') interactionArea.value?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    if (action === 'answer') {
+      const target = interactionArea.value ?? root.value?.querySelector<HTMLElement>('[data-interaction-area]')
+      target?.scrollIntoView({ block: 'start', behavior: 'smooth' })
+    }
     else if (action === 'reply') root.value?.querySelector<HTMLElement>('textarea')?.focus()
     else root.value?.focus()
   })
@@ -275,7 +287,12 @@ watch(() => props.focused, (focused) => {
   if (focused) context.focusedActions.value = exposedActions
   else if (context.focusedActions.value === exposedActions) context.focusedActions.value = null
 }, { immediate: true })
-watch([() => props.threadId, () => thread.value?.latest_job_id], resetForThread, { immediate: true })
+watch([() => props.threadId, () => thread.value?.latest_job_id, isACPThread], resetForThread, { immediate: true })
+watch(
+  () => thread.value?.pending_interactions,
+  (items) => { interactions.value = [...(items ?? [])] },
+  { deep: true },
+)
 watch([() => props.focused, () => thread.value?.id, paneVisible, documentVisible], scheduleSeen, { immediate: true })
 onMounted(() => {
   document.addEventListener('visibilitychange', onDocumentVisibility)
@@ -331,7 +348,10 @@ onUnmounted(() => {
     </header>
 
     <p v-if="actionError" class="error mono">{{ actionError }}</p>
-    <div ref="interactionArea" class="interaction-area">
+    <p v-if="context.acpCapabilityError.value" class="stream-error mono">
+      ACP 能力读取失败，暂用日志视图：{{ context.acpCapabilityError.value }}
+    </p>
+    <div v-if="!isACPThread" ref="interactionArea" class="interaction-area">
       <InteractionCard
         v-for="item in interactions"
         :key="item.id"
@@ -356,6 +376,21 @@ onUnmounted(() => {
         mode="write"
         :focused="focused"
         @exit="context.refresh()"
+        @error="actionError = $event"
+      />
+      <ConversationView
+        v-else-if="isACPThread && latestJobID"
+        :thread-id="thread.id"
+        :job-ids="thread.job_ids ?? [latestJobID]"
+        :jobs="thread.jobs ?? []"
+        :latest-job-id="latestJobID"
+        :latest-running="live"
+        :pending-interactions="interactions"
+        :submitting-interaction="submittingInteraction"
+        :focused="focused"
+        @answer="answer"
+        @punt="punt"
+        @ended="context.refresh()"
         @error="actionError = $event"
       />
       <div v-else-if="latestJobID" class="log-wrap">

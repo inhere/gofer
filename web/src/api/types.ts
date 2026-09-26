@@ -1783,6 +1783,7 @@ export type SSEEventType =
   | 'log-rotated'
   | 'interaction'
   | 'event'
+  | 'acp'
   | 'end'
 
 export interface SSELogData {

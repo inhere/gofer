@@ -93,6 +93,12 @@ export interface StreamJobOpts {
   onEvent: (ev: SSEEvent) => void
 }
 
+export interface StreamACPJobOpts {
+  tail?: number
+  signal?: AbortSignal
+  onEvent: (ev: SSEEvent) => void
+}
+
 // 消费某 job 的 SSE 流。end 事件或流关闭即结束；signal abort 时停止。
 export async function streamJob(id: string, opts: StreamJobOpts): Promise<void> {
   const { from, tail, signal, onEvent } = opts
@@ -100,13 +106,31 @@ export async function streamJob(id: string, opts: StreamJobOpts): Promise<void> 
   if (from != null) params.set('from', String(from))
   if (tail != null && tail > 0) params.set('tail', String(tail))
   const qs = params.toString() ? `?${params}` : ''
+
+  return streamSSE(`/v1/jobs/${encodeURIComponent(id)}/stream${qs}`, signal, onEvent)
+}
+
+// 消费一个 job 的结构化 ACP 流。认证、分帧、abort 与 end 处理和日志流共用
+// streamSSE，避免两套 bearer/reader 实现漂移。
+export async function streamACPJob(id: string, opts: StreamACPJobOpts): Promise<void> {
+  const params = new URLSearchParams()
+  if (opts.tail != null && opts.tail > 0) params.set('tail', String(opts.tail))
+  const qs = params.toString() ? `?${params}` : ''
+  return streamSSE(`/v1/jobs/${encodeURIComponent(id)}/acp/stream${qs}`, opts.signal, opts.onEvent)
+}
+
+async function streamSSE(
+  url: string,
+  signal: AbortSignal | undefined,
+  onEvent: (ev: SSEEvent) => void,
+): Promise<void> {
   const token = getToken()
   const headers: Record<string, string> = {}
   if (token) {
     headers['Authorization'] = `Bearer ${token}`
   }
 
-  const res = await fetch(`/v1/jobs/${encodeURIComponent(id)}/stream${qs}`, {
+  const res = await fetch(url, {
     headers,
     signal,
   })
