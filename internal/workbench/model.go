@@ -44,6 +44,9 @@ var (
 	ErrUnavailable     = errors.New("workbench: service unavailable")
 	ErrInvalidLayout   = errors.New("workbench: invalid layout")
 	ErrLayoutTooLarge  = errors.New("workbench: layout body exceeds 64 KiB")
+	ErrMissingDiffBase = errors.New("workbench: first turn has no git diff base")
+	ErrDiffUnavailable = errors.New("workbench: thread diff unavailable")
+	ErrDiffTimeout     = errors.New("workbench: thread diff timed out")
 )
 
 const MaxLayoutBodyBytes = 64 * 1024
@@ -170,4 +173,34 @@ type TurnResult struct {
 	ThreadID   string `json:"thread_id"`
 	JobID      string `json:"job_id,omitempty"`
 	DecisionID string `json:"decision_id,omitempty"`
+}
+
+type DiffSource string
+
+const (
+	DiffSourceLive     DiffSource = "live"
+	DiffSourceCaptured DiffSource = "captured"
+)
+
+// ThreadDiffFile is one path changed since the thread's first Git baseline.
+// Untracked files use status "?" and deliberately carry no content or line counts.
+type ThreadDiffFile struct {
+	Path      string `json:"path"`
+	Status    string `json:"status"`
+	Additions int    `json:"additions"`
+	Deletions int    `json:"deletions"`
+	Binary    bool   `json:"binary"`
+}
+
+// ThreadDiff is the conversation-level review snapshot. Captured responses are
+// explicitly scoped to the latest turn; live responses span base..working-tree.
+type ThreadDiff struct {
+	Source    DiffSource       `json:"source"`
+	Base      string           `json:"base"`
+	Head      string           `json:"head,omitempty"`
+	Files     []ThreadDiffFile `json:"files"`
+	Patch     string           `json:"patch"`
+	Truncated bool             `json:"truncated"`
+	Commits   []job.Commit     `json:"commits,omitempty"`
+	Notice    string           `json:"notice,omitempty"`
 }

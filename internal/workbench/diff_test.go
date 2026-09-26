@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -132,6 +133,43 @@ func TestThreadDiffSpansChain(t *testing.T) {
 	_, err = service.Diff("s:diff-chain")
 	if !errors.Is(err, ErrMissingDiffBase) || !strings.Contains(err.Error(), "首轮") {
 		t.Fatalf("missing base err=%v", err)
+	}
+}
+
+func TestThreadDiffMetadataParsers(t *testing.T) {
+	files, err := mergeLiveDiffFiles(
+		[]byte("M\x00plain.go\x00M\x00binary.dat\x00R100\x00old.go\x00new.go\x00"),
+		[]byte("3\t1\tplain.go\x00-\t-\tbinary.dat\x000\t0\t\x00old.go\x00new.go\x00"),
+		[]byte("new file.txt\x00"),
+	)
+	if err != nil {
+		t.Fatalf("merge metadata: %v", err)
+	}
+	for path, want := range map[string]ThreadDiffFile{
+		"plain.go":     {Path: "plain.go", Status: "M", Additions: 3, Deletions: 1},
+		"binary.dat":   {Path: "binary.dat", Status: "M", Binary: true},
+		"new.go":       {Path: "new.go", Status: "R"},
+		"new file.txt": {Path: "new file.txt", Status: "?"},
+	} {
+		got, ok := findThreadDiffFile(files, path)
+		if !ok || got != want {
+			t.Fatalf("file %q = %+v, ok=%v, want %+v (all=%+v)", path, got, ok, want, files)
+		}
+	}
+
+	patchFiles := parsePatchFiles("diff --git a/old.go b/new.go\n" +
+		"similarity index 100%\nrename from old.go\nrename to new.go\n" +
+		"diff --git a/image.dat b/image.dat\nBinary files a/image.dat and b/image.dat differ\n")
+	if renamed, ok := findThreadDiffFile(patchFiles, "new.go"); !ok || renamed.Status != "R" {
+		t.Fatalf("captured rename = %+v", patchFiles)
+	}
+	if binary, ok := findThreadDiffFile(patchFiles, "image.dat"); !ok || !binary.Binary {
+		t.Fatalf("captured binary = %+v", patchFiles)
+	}
+
+	invalidTail := append([]byte(strings.Repeat("x", 8)), 0xe4, 0xb8)
+	if trimmed := trimValidUTF8(invalidTail); !utf8.Valid(trimmed) || string(trimmed) != strings.Repeat("x", 8) {
+		t.Fatalf("trimValidUTF8 = %q", trimmed)
 	}
 }
 
