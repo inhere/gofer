@@ -39,6 +39,7 @@ import (
 	"github.com/inhere/gofer/internal/skill"
 	"github.com/inhere/gofer/internal/tunnel"
 	"github.com/inhere/gofer/internal/webui"
+	"github.com/inhere/gofer/internal/workbench"
 	"github.com/inhere/gofer/internal/xfer"
 )
 
@@ -283,6 +284,9 @@ type Server struct {
 	// relay is the session-relay service (SESS-01) behind /v1/sessions/*. It only
 	// needs the shared job store, so it is built in New and always mounted.
 	relay *sessionrelay.Service
+	// workbench is WEB-11's conversation projection/dispatch owner. It is assembled
+	// from the same jobs, metadata store and relay service; handlers only bind HTTP.
+	workbench *workbench.Service
 
 	// limiters holds one token-bucket per caller for the E17 submit-rate limit
 	// (design §7.3). Guarded by its OWN limMu (NOT s.mu, which lives in the job
@@ -483,6 +487,7 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 				slog.Warn("release session takeover on job end", "job_id", r.ID, "err", err)
 			}
 		})
+		s.workbench = workbench.NewService(jobs.Meta(), jobs, s.relay)
 	}
 	s.router = s.buildRouter()
 	return s
@@ -693,6 +698,13 @@ func (s *Server) buildRouter() *rux.Router {
 		// submit form (projects/agents/runners/workers in one authed GET).
 		r.GET("/meta", s.handleMeta)
 		r.GET("/stats", s.handleStats)
+
+		// WEB-11 W1: conversation-first workbench projection and continuation. Reads
+		// are available to every authenticated caller; SEC-01 default-denies both
+		// writes for job credentials, and handlers additionally require a user caller.
+		r.GET("/workbench/threads", s.handleListWorkbenchThreads)
+		r.PATCH("/workbench/threads/{id}", s.handlePatchWorkbenchThread)
+		r.POST("/workbench/threads/{id}/turn", s.handleWorkbenchTurn)
 
 		r.POST("/jobs", s.handleCreateJob)
 		r.GET("/jobs", s.handleListJobs)

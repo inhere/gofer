@@ -455,3 +455,52 @@ func TestJobCallerCannotTurn(t *testing.T) {
 	}
 	assertJobCredentialRefusal(t, resp)
 }
+
+func TestWorkbenchValidationAndWorkerWrites(t *testing.T) {
+	s := newWorkbenchTestServer(t, config.ServerConfig{
+		Token:   testToken,
+		Workers: map[string]config.WorkerAuthConfig{"w1": {Token: "tok-worker"}},
+	})
+	now := time.Now().Unix()
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "valid-source", SessionID: "valid", Status: job.StatusDone, StartedAt: now - 10}, "valid", "valid")
+
+	for _, path := range []string{
+		"/v1/workbench/threads?since=bad",
+		"/v1/workbench/threads?status=unknown",
+	} {
+		resp := do(t, s, http.MethodGet, path, testToken, nil)
+		if resp.StatusCode != http.StatusBadRequest {
+			t.Fatalf("GET %s status=%d, want 400", path, resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+	resp := do(t, s, http.MethodPatch, "/v1/workbench/threads/s:valid", testToken, map[string]any{})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("empty patch status=%d, want 400", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/workbench/threads/not-a-thread/turn", testToken, map[string]string{"text": "x"})
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("invalid thread id status=%d, want 400", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = do(t, s, http.MethodPatch, "/v1/workbench/threads/s:missing", testToken, map[string]any{"seen": true})
+	if resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("unknown patch status=%d, want 404", resp.StatusCode)
+	}
+	resp.Body.Close()
+	for _, target := range []struct {
+		method string
+		path   string
+		body   any
+	}{
+		{http.MethodPatch, "/v1/workbench/threads/s:valid", map[string]any{"seen": true}},
+		{http.MethodPost, "/v1/workbench/threads/s:valid/turn", map[string]string{"text": "x"}},
+	} {
+		resp = do(t, s, target.method, target.path, "tok-worker", target.body)
+		if resp.StatusCode != http.StatusForbidden {
+			t.Fatalf("worker %s %s status=%d, want 403", target.method, target.path, resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+}
