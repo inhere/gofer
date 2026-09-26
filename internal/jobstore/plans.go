@@ -13,7 +13,6 @@ import (
 const (
 	PlanIDMinLength = 9
 	PlanOpen        = "open"
-	PlanActive      = "active"
 	PlanDone        = "done"
 	PlanArchived    = "archived"
 	// PlanBlocked is NOT terminal: a failed chain job parked the plan, and a human
@@ -299,9 +298,9 @@ func (s *Store) SetPlanBlocked(id, todoID string) error {
 }
 
 // ClearPlanBlocked releases a plan from a block: blocked_todo is emptied and a
-// PlanBlocked status returns to PlanOpen. Any OTHER status (active, done, archived —
-// a human's own choice) is left alone, and a plan that is not blocked is unchanged
-// apart from updated_at. Idempotent: the unblock paths all call it unconditionally.
+// PlanBlocked status returns to PlanOpen. Any OTHER status (done, archived — a human's
+// own choice) is left alone, and a plan that is not blocked is unchanged apart from
+// updated_at. Idempotent: the unblock paths all call it unconditionally.
 func (s *Store) ClearPlanBlocked(id string) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()

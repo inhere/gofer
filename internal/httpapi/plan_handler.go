@@ -210,12 +210,18 @@ type updatePlanReq struct {
 	Leader string `json:"leader,omitempty"`
 }
 
+// planStatusRemovedActive is the retired plan status (F15): `active` duplicated `open`
+// — nothing ever set it and nothing distinguished the two — so PATCHing it now fails
+// with a pointer to the surviving value instead of a bare "invalid status" (an operator
+// or a script that still sends it needs to know what to send instead).
+const planStatusRemovedActive = "active"
+
 // validPlanStatus 白名单：jobstore.SetPlanStatus 不校验取值，必须在入口挡住。
 // `blocked` 也在列：它是 PLAN-03 的链停状态，由推进逻辑写入，也允许人工把 plan
 // 直接标成 blocked（与 open 一样是"等人处理"的显式表达）。
 func validPlanStatus(s string) bool {
 	switch s {
-	case jobstore.PlanOpen, jobstore.PlanActive, jobstore.PlanDone, jobstore.PlanArchived, jobstore.PlanBlocked:
+	case jobstore.PlanOpen, jobstore.PlanDone, jobstore.PlanArchived, jobstore.PlanBlocked:
 		return true
 	}
 	return false
@@ -458,8 +464,13 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 	}
 	status := strings.TrimSpace(body.Status)
 	if status != "" && !validPlanStatus(status) {
+		if status == planStatusRemovedActive {
+			writeError(c, http.StatusBadRequest, "invalid status",
+				`status "active" was removed; use "open"`)
+			return
+		}
 		writeError(c, http.StatusBadRequest, "invalid status",
-			"status must be one of open/active/done/archived")
+			"status must be one of open/done/archived/blocked")
 		return
 	}
 	// LEAD-02: the leader switch rides the same PATCH (`plan set <plan> --leader on`), so

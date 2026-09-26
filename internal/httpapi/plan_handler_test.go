@@ -249,7 +249,7 @@ func TestUpdatePlanStatusAndProgress(t *testing.T) {
 
 	progress := 7
 	resp = do(t, s, http.MethodPatch, "/v1/plans/plan-patch", testToken, updatePlanReq{
-		Status: jobstore.PlanActive, Progress: &progress,
+		Status: jobstore.PlanArchived, Progress: &progress,
 	})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("patch plan status=%d, want 200", resp.StatusCode)
@@ -260,7 +260,7 @@ func TestUpdatePlanStatusAndProgress(t *testing.T) {
 		Progress int    `json:"progress"`
 	}
 	decode(t, resp, &updated)
-	if updated.PlanID != "plan-patch" || updated.Status != jobstore.PlanActive || updated.Progress != 7 {
+	if updated.PlanID != "plan-patch" || updated.Status != jobstore.PlanArchived || updated.Progress != 7 {
 		t.Fatalf("updated plan mismatch: %+v", updated)
 	}
 

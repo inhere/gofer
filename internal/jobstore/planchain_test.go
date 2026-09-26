@@ -108,10 +108,10 @@ func TestPlanPausedBlockedRoundTrip(t *testing.T) {
 	// Clearing is idempotent and never overwrites a status a human chose.
 	assert.NoErr(t, s.ClearPlanBlocked("plan-state"))
 	assert.NoErr(t, s.SetPlanPaused("plan-state", false))
-	assert.NoErr(t, s.SetPlanStatus("plan-state", PlanActive, -1))
+	assert.NoErr(t, s.SetPlanStatus("plan-state", PlanArchived, -1))
 	assert.NoErr(t, s.ClearPlanBlocked("plan-state"))
 	p, _, _ = s.GetPlan("plan-state")
-	assert.Eq(t, PlanActive, p.Status)
+	assert.Eq(t, PlanArchived, p.Status)
 	assert.False(t, p.Paused)
 
 	// A migrated (pre-PLAN-03) row reads back as running and unblocked.
