@@ -238,7 +238,7 @@ defineExpose({ refresh, focusFile })
         <button type="button" :disabled="loading" @click="refresh">{{ loading ? '刷新中…' : '刷新' }}</button>
       </div>
       <p v-if="diff?.source === 'captured'" class="captured-note mono">{{ diff.notice || '只含最新一轮采集结果' }}</p>
-      <p v-if="diff?.truncated" class="captured-note mono">patch 超过 2 MiB，服务端已截断</p>
+      <p v-if="diff?.truncated" class="captured-note mono">内容已截断：patch 超过 2 MiB，或未跟踪文件超过 200 个（只列前 200 个；检查 .gitignore）</p>
       <button
         v-for="file in diff?.files ?? []"
         :key="file.path"
