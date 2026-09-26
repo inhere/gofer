@@ -46,6 +46,10 @@ const (
 	// answeredByAutoPrefix — L0: the built-in rule answerer; the policy name follows
 	// (auto:<policy>, e.g. auto:choice).
 	answeredByAutoPrefix = "auto:"
+	// answeredByPush is a user action performed from an authenticated Web Push
+	// notification. The action token binds the human caller separately; this field
+	// records the transport/source without pretending it was a normal bearer request.
+	answeredByPush = "push"
 )
 
 // InteractionOption is one selectable option for a choice/confirmation — or, for a
@@ -550,6 +554,13 @@ func (s *Service) AnswerInteractionByHuman(jobID, interactionID, answer, callerI
 		by = answeredByHuman
 	}
 	return s.answerInteraction(jobID, interactionID, answer, by)
+}
+
+// AnswerInteractionByPush answers through a one-time Web Push action token. Token
+// validation and option binding live in internal/webpush; the authoritative
+// pending->answered transition and waiter wake-up remain owned here.
+func (s *Service) AnswerInteractionByPush(jobID, interactionID, answer string) (Interaction, error) {
+	return s.answerInteraction(jobID, interactionID, answer, answeredByPush)
 }
 
 // AnswerInteractionAuto answers an interaction as the L0 built-in rule answerer
