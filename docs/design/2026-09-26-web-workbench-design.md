@@ -231,6 +231,14 @@ Codex 计划 `docs/plans/2026-09-27-web-workbench-w3a-plan.md`（`6b45f33`，由
 - G032：保留的旧 artifact 回退只有“无 message 时读 stdout”与“逐 token thought 合并”，均标 `DEPRECATED(v0.65): remove in v0.68`；没有新增无标记兼容分支。
 - Lifecycle/consumer boundary：未 push、未部署、未重启/reload live gofer、未触碰真实配置；浏览器目视、真实 ACP 多轮与 W3b diff/review 均 `NOT_RUN`，不能由 build 或 httptest 推导为用户验收。
 
+### W3b 实测记录（2026-09-27，不改变 Approved 0.4 设计语义）
+
+codex 计划 `docs/plans/2026-09-27-web-workbench-w3b-plan.md`（`7b7b122`，由用户授权的监督者代为批准，DIRECT_CONTINUOUS）。实现提交：`1d7e195`（固定测试 red）、`9175b74`（会话 diff：live/captured）、`876e915`（review 合成并经 `Service.Turn` 续接）、`34d8cc1`（前端评审草稿纯函数）、`544cb93`（「过程｜改动」视图、行内评论、工具卡路径跳转）。codex job 在 3600s 超时于文档前，文档由监督者补写。
+
+同批监督者修复：`9be1f91`——续接"续接出来的作业"时按 `ResumedFrom` 链回溯原始 agent（W1 的 B01 修复依赖 `OriginAgent`，而从 CLI 提交的作业没有这个字段，第二次续接仍报 `agent "exec"`；回归测试 `TestResumeOfResumeWalksChainWithoutOriginAgent`）。
+
+容器验证：Linux/Windows build、vet 通过；`TestThreadDiffSpansChain`、`TestReviewCommentsBecomeNextTurn`、`TestReviewJobCallerForbidden` 及 `TestReviewEndpointsRejectWrongState`、`TestThreadDiffMetadataParsers` PASS；vitest 3 个文件 14 项通过；`vue-tsc` 与 vite build 通过；无新增依赖；改动文件 gofmt、控制字符、CRLF 扫描干净。浏览器目视未跑，留待用户试用。
+
 ## 决策（已批准 2026-09-26）
 
 1. 以**会话**为一等公民（侧栏会话列表 + 主区视图），herdr 式窗格/布局作为 W2 的摆放层。
@@ -243,7 +251,7 @@ Codex 计划 `docs/plans/2026-09-27-web-workbench-w3a-plan.md`（`6b45f33`，由
 
 ## 待确认事项
 
-W1 与 F16 没有未决核心行为。W2 已上线；W3 由用户在 W2 上线后要求继续（口径见「W3 细化」）；W4 是否做等 W3 试用反馈。
+W1 与 F16 没有未决核心行为。W2、W3 已上线；W4（可选）是否做等 W3 试用反馈。
 
 ## 结论与人工计划 Gate
 

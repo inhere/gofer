@@ -425,7 +425,7 @@ Tools (snake_case, aligned with HTTP): `gofer_list_projects` `gofer_list_agents`
 
 ## Web console
 
-### Workbench（W1–W3a）
+### Workbench（W1–W3）
 
 `/workbench` 是主动工作的会话中枢：顶部 composer 选择 project、agent、模式（ACP 对话 / 交互 PTY / 批处理）、可选 plan todo 和 cwd 后提交；左侧按项目分组显示会话、状态上卷、相对时间与 token 用量；「⚠ 等你 N」按等待时长列出待答 interaction、relay 回复和待看结果；主区复用现有终端、日志、审批卡与 session relay，并可重命名、置顶、标记已看、停止当前 job、打开 job 详情或继续同一 agent 会话。
 
@@ -441,7 +441,9 @@ PWA 与推送（W2b）：web 可"安装"为应用（manifest `start_url=/workben
 
 ACP 对话（W3a）：agent 类型为 `acp-agent` 的 thread 在「过程」区按 `job_ids` 逐轮显示用户 prompt、默认折叠的 thought、可展开的 tool call（含状态、输入和 `path[:line]` 文本）、Markdown 助手消息、permission/plan/usage/stop。默认加载最近 3 轮，顶部可每次再加载 3 轮；只有最新轮仍运行时保持 `GET /v1/jobs/{id}/acp/stream?tail=300`，旧轮读到 `end` 即关闭。待答 interaction 内联在最新轮末尾，底部输入框仍通过 thread turn 续接同一会话。非 ACP 的 cli/批处理继续使用最近 200 行 stdout/stderr 日志视图。
 
-W3b 的会话级 diff、文件跳转和行内评论回灌尚未做；W4 的 worktree 合并/预览也尚未做。
+改动与评审（W3b）：会话主区有「过程｜改动」两个子视图。「改动」显示本会话以来的全部改动（`GET /v1/workbench/threads/{id}/diff`）：基线是首轮作业的 `base_sha`（worktree 会话用 `worktree_base_sha`）；作业在 server 本机执行且目录还在时现场计算（`source=live`，含中间提交与未提交的已跟踪改动，未跟踪文件只列名，patch 上限 2 MiB），在 worker 上执行或目录不在时退回最新一轮已采集的 diff（`source=captured`，只含最新一轮）。会话运行中每 10 秒刷新，收到编辑类工具事件立即刷新；对话里工具卡的文件路径点一下跳到该文件。在 diff 行号旁点「＋」写评论，草稿按会话存在浏览器里；「发送评审（N）」把摘要与每条 `path:line`、上下各 2 行代码和评论合成下一轮发给同一会话（`POST /v1/workbench/threads/{id}/review`，最多 50 条、每条 ≤4000 字）。「接受」对待验收的作业走现有 accept，否则标记已看。
+
+W4 的 worktree 合并/预览尚未做。
 
 `serve` embeds a static SPA (the page itself needs no auth; its `/v1/*` calls do). Build and embed it with `make web build`; a bare `go build` serves a placeholder page without affecting the API. Pages: Home (service health, drivers/runners, escalations, jobs by status, schedules, projects, plus two metadata-db cards — **Server DB**: file + WAL size, page geometry, the busiest tables by row count; **Sessions**: totals by state, relay mode split, turns still waiting for a reply, the card links through to Sessions) / board (the plan filter is a free-text plan-id input — prefix match — with a one-click "recent open plans" hint, and `?plan=` in the URL) / **review queue (`/review`, REV-01)** — jobs parked in `needs_review` with their acceptance material in one row (verify badge, commit count, usage, wait time; longest wait first), inline accept/reject and a top-bar count badge / job detail (live logs, diff, artifacts, pty attach; a job in `needs_review`, `rejected`, or `done` with `require_review` opens on a five-tab **review panel** — report / commits / diff / verify / usage — with accept/reject at the bottom) / Plans (todos, decisions; **plan board** — five-column kanban, drag a card to `ready` to dispatch it; the list filters by status/project/keyword and pages 20 at a time, all carried in the URL) / Sessions (relay switch, `auto (idle Xm)`) / Workflows / Schedules / Agents (configured agents and their detect status, with the online driver presence listed below it — a row opens the inbox at `/agents/presence/:id`, and the old `/drivers` + `/drivers/:id` links redirect there) / Runners / Projects (including "allow interactive jobs") / Skills (the skill library: list, SKILL.md body, import/update/remove/export) / New job. The left rail groups the observing pages as Board, Review, Plans, Sessions, Workflows, Schedules and the fleet pages as Agents, Runners, Projects, Skills (Drivers is no longer a separate entry). Disable with `serve --no-web` or `server.web_enabled: false`.
 
