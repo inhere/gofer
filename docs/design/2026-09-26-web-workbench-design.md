@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # web 工作台设计（WEB-11）
 
-> 状态：Draft 0.2 / 待批准
+> 状态：Approved 0.2 / 实施中（2026-09-26 用户经 web 中继批准，决策 1–7 照写）
 
 ## 修订记录
 
@@ -97,7 +97,7 @@ herdr 的工作区 → 标签页 → 窗格与**状态上卷**保留，但降为
 - **Web Push** 需要 HTTPS 或 localhost；远程访问若是纯 http 内网地址，推送不可用（退化为页内提醒 + 已有 IM 通知）。
 - **多终端同屏性能**：非焦点终端降频渲染。
 
-## 决策（待批准）
+## 决策（已批准 2026-09-26）
 
 1. 以**会话**为一等公民（侧栏会话列表 + 主区视图），herdr 式窗格/布局作为 W2 的摆放层。
 2. 会话 = 同 `session_id` 的 job 链（或中继会话）；状态优先级 blocked > working > review > done > idle，另标 stalled。
