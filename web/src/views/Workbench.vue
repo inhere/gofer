@@ -52,6 +52,35 @@ const query = ref('')
 const projectFilter = ref('')
 const statusFilter = ref<WorkbenchStatus | ''>('')
 const projectOptions = ref<string[]>([])
+// exec threads are mostly one-shot build/verify commands; keep them out of the
+// sidebar unless asked for (or still running/blocked, or the open thread).
+const EXEC_PREF_KEY = 'gofer.workbench.showExec'
+const showExec = ref(readShowExec())
+const sidebarProjects = computed(() => {
+  if (showExec.value) return response.value.projects
+  return response.value.projects
+    .map((group) => ({
+      ...group,
+      threads: group.threads.filter((thread) => thread.agent !== 'exec'
+        || thread.status === 'blocked' || thread.status === 'working' || thread.id === selectedID.value),
+    }))
+    .filter((group) => group.threads.length > 0)
+})
+const hiddenExecCount = computed(() => {
+  let total = 0
+  for (const group of response.value.projects) total += group.threads.length
+  for (const group of sidebarProjects.value) total -= group.threads.length
+  return total
+})
+
+function readShowExec(): boolean {
+  try { return localStorage.getItem(EXEC_PREF_KEY) === '1' } catch { return false }
+}
+
+function setShowExec(value: boolean): void {
+  showExec.value = value
+  try { localStorage.setItem(EXEC_PREF_KEY, value ? '1' : '0') } catch { /* per-viewer convenience only */ }
+}
 const loading = ref(false)
 const seenAllPending = ref(false)
 const error = ref('')
@@ -607,7 +636,9 @@ onUnmounted(() => {
     >
       <WorkbenchSidebar
         ref="sidebar"
-        :projects="response.projects"
+        :projects="sidebarProjects"
+        :show-exec="showExec"
+        :hidden-exec-count="hiddenExecCount"
         :selected-id="selectedID"
         :query="query"
         :project-filter="projectFilter"
@@ -617,6 +648,7 @@ onUnmounted(() => {
         @update:query="query = $event; refreshFilter()"
         @update:project-filter="projectFilter = $event; refreshFilter()"
         @update:status-filter="statusFilter = $event; refreshFilter()"
+        @update:show-exec="setShowExec"
       />
       <main class="workbench-main">
         <nav class="layout-tabs" aria-label="工作台标签页">
@@ -691,7 +723,7 @@ onUnmounted(() => {
 .layout-notice button { color: inherit; background: transparent; border: 0; font-size: 16px; }
 .attention-fallback { flex: none; width: 100%; margin: 0; padding: 7px 12px; color: var(--run); text-align: left; background: rgba(255,185,80,.12); border: 0; border-bottom: 1px solid var(--line); }
 .attention-fallback:hover { color: var(--paper); background: rgba(255,185,80,.18); }
-.workbench-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(260px, 24vw) minmax(0,1fr); }
+.workbench-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(260px, 24vw) minmax(0,1fr); grid-template-rows: minmax(0,1fr); }
 .workbench-main { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
 .layout-tabs { flex: none; min-width: 0; display: flex; align-items: stretch; gap: 2px; padding: 5px 7px 0; background: var(--panel); border-bottom: 1px solid var(--line); overflow-x: auto; }
 .layout-tab { flex: none; display: flex; align-items: center; max-width: 220px; border: 1px solid transparent; border-bottom: 0; border-radius: var(--radius) var(--radius) 0 0; }

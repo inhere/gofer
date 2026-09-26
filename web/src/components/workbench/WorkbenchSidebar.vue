@@ -10,6 +10,8 @@ defineProps<{
   projectFilter: string
   statusFilter: WorkbenchStatus | ''
   projectOptions: string[]
+  showExec: boolean
+  hiddenExecCount: number
 }>()
 
 const emit = defineEmits<{
@@ -17,6 +19,7 @@ const emit = defineEmits<{
   (e: 'update:query', value: string): void
   (e: 'update:projectFilter', value: string): void
   (e: 'update:statusFilter', value: WorkbenchStatus | ''): void
+  (e: 'update:showExec', value: boolean): void
 }>()
 
 const collapsed = ref<Set<string>>(new Set())
@@ -95,6 +98,10 @@ defineExpose({ focusSearch })
           <option value="idle">idle</option>
         </select>
       </div>
+      <label class="exec-toggle mono">
+        <input type="checkbox" :checked="showExec" @change="emit('update:showExec', ($event.target as HTMLInputElement).checked)" />
+        显示 exec 命令会话<span v-if="!showExec && hiddenExecCount > 0">（已隐藏 {{ hiddenExecCount }}）</span>
+      </label>
     </div>
 
     <div class="project-list">
@@ -145,7 +152,8 @@ defineExpose({ focusSearch })
 .filter-input:focus, .filter-select:focus { outline: 1px solid var(--phosphor); border-color: var(--phosphor); }
 .filter-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 7px; }
 .filter-select { min-width: 0; font-size: 11px; }
-.project-list { min-height: 0; overflow-y: auto; }
+.exec-toggle { display: flex; align-items: center; gap: 6px; margin-top: 7px; font-size: 11px; color: var(--muted, #8a97a3); cursor: pointer; }
+.project-list { flex: 1; min-height: 0; overflow-y: auto; overscroll-behavior: contain; }
 .project-group { border-bottom: 1px solid var(--line); }
 .project-row { width: 100%; display: flex; align-items: center; gap: 7px; padding: 8px 10px; color: var(--paper); background: transparent; border: 0; text-align: left; }
 .project-row:hover { background: rgba(255,255,255,.035); }
