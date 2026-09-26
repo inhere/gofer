@@ -1,111 +1,118 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # web 工作台设计（WEB-11）
 
-> 状态：Draft 0.1 / 待批准
+> 状态：Draft 0.2 / 待批准
 
 ## 修订记录
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
-| 0.1 | 2026-09-26 | Claude | 初稿：以 herdr 的「工作区 → 标签页 → 窗格 → 智能体 + 状态上卷」为骨架，映射到 gofer 已有的项目 / job / pty attach / ACP / 会话中继 / 验收台；三期 W1 外壳与状态侧栏 → W2 分屏布局与新建会话 → W3 ACP 对话窗格 |
+| 0.2 | 2026-09-26 | Claude | 按用户要求调研主流开源 agent 桌面/web（Zed 并行 agents、OpenCode web/desktop、Vibe Kanban、Nimbalyst/Crystal、Claude Squad、Codeman、Conductor、OpenHands）后细化：**以"会话（thread）"为一等公民**而非窗格；加入快速发起、注意力队列、会话内评审→评论回灌同一会话、可操作的推送通知、命令面板与 ctrl-tab、PWA；分期改为 W1 会话列表+单视图（先可用）→ W2 布局与移动端 → W3 对话窗格与评审 → W4 worktree 生命周期与预览（可选） |
+| 0.1 | 2026-09-26 | Claude | 初稿：以 herdr 的工作区/标签页/窗格 + 状态上卷为骨架 |
 
 ## 背景与目标
 
-用户（2026-09-24）：「想基于现有功能做 web 工作台页面，方便我远程**开始**工作——现在还是以终端为主，web 是被动处理任务；初步想法类似现在的 agent 桌面版。」
+用户（2026-09-24）：「想基于现有功能做 web 工作台页面，方便我远程**开始**工作——现在还是以终端为主，web 是被动处理任务；初步想法类似现在的 agent 桌面版。」2026-09-26 又要求参考 herdr 的工作区/布局概念，并调研主流开源 agent 的 desktop/web，避免做出来有可用性差距。
 
-现在的 web 是**按对象组织**的（Board 看 job、Plans 看计划、Review 看待验收、Sessions 看会话），适合"来处理一件事"，不适合"坐下来干活"：要同时盯三个 agent、在其中一个里接着说话、顺手看一眼另一个的 diff，得在五六个页面之间跳。工作台要把它改成**按工作组织**：一个工作区里并排几个 agent 窗格，哪个卡住了一眼能看到，点进去就能接着干。
+现在的 web 是**按对象组织**的（Board/Plans/Review/Sessions 各一页），适合"来处理一件事"，不适合"坐下来干活"。目标是**按工作组织**：一眼看到所有正在进行的会话和谁在等我，一键发起新任务，在同一处看过程、接着说话、看改动、给反馈。
 
-参考 herdr（https://herdr.dev/zh-cn/docs/concepts/ ，终端里的 agent 编排器）：
+非目标：浏览器里的完整 IDE；多人同屏协作；替代 CLI。
 
-| herdr 概念 | 含义 | gofer 对应 |
-|---|---|---|
-| 工作区 Workspace | 顶层容器，"每个仓库、任务或调查一个"；侧边栏汇总内部 agent 状态 | **项目**（`project_key`），可再按 plan 细分（见 §一.1） |
-| 标签页 Tab | 工作区内的布局单元，分隔 agents / logs / server / review 等视图 | 工作区内的**标签页**：自定义分屏页 + 固定页（Plan 看板、验收、文件） |
-| 窗格 Pane | 实际的终端进程，可左右/上下分割、重命名、读取、输入、关闭 | **窗格** = 一个会话：交互 pty job（终端窗格）、ACP 会话（对话窗格）、中继的外部终端会话（中继窗格）、只读 job 日志 |
-| 智能体 Agent | 窗格里识别出的进程，五种状态 blocked / working / done / idle / unknown | gofer **本来就精确知道**状态（不用像 herdr 那样看屏幕猜）：待答交互/审批 = blocked，running = working，needs_review 或刚结束未看 = done，空闲会话 = idle |
-| 状态上卷 | blocked 的 agent 让窗格、标签页、工作区都显示 blocked；working 让工作区显示活跃 | 同样上卷到窗格 → 标签页 → 工作区，侧栏徽标 |
-| 会话 Session / 客户端-服务器 | 服务器持有窗格与进程，多个客户端连接；可分离 | gofer server 持有 job；浏览器只是客户端，关掉页面 job 照跑，回来重新附着（`ctrl+b q` 的分离语义天然具备） |
-| 前缀键 / 鼠标原生 | `ctrl+b` 前缀 + 动作键；点击、拖动、右键菜单 | 同样：`ctrl+b` 前缀（可改）做分屏/切焦点/关闭，鼠标拖分隔条、右键窗格菜单 |
+## 一、调研：可用性要点（按"做不到就会被嫌弃"排序）
 
-**要吸收的核心**：① 工作区 → 标签页 → 窗格三层与**状态上卷**；② 分屏布局；③ 前缀键 + 鼠标原生；④ 服务器持有、客户端随时分离重连。**不照搬的**：herdr 靠屏幕快照猜 agent 状态——gofer 有结构化事件，不需要猜。
-
-非目标：在浏览器里做完整 IDE（代码编辑器）；多人协作同屏；替代 CLI。
-
-## 已确认事实（现有积木）
-
-- 交互 pty job + web 附着：`web/src/components/AttachTerminal.vue`（1011 行，xterm、移动端输入框、写权限 ticket），`POST /v1/jobs/{id}/attach-ticket` + `GET /v1/jobs/{id}/attach`（WS）；会话 id 捕获与 `job resume` 续接（PTY-01、AGT-04、F11、F-e）。
-- job 实时流：`GET /v1/jobs/{id}/stream`（SSE，stdout/stderr/status 事件）。
-- ACP：`acp-agent` 类型，stdout 为 assistant 文本投影、`acp.jsonl` 为结构化记录，permission 交互卡（`components/InteractionCard.vue`），`job resume` 走 `session/load`（F13 已修）；**一个 ACP job = 一轮 prompt**。
-- 会话中继（SESS-01/02）：外部 Claude Code/Codex 终端会话登记到 server，web 可回复、可 `--resume` 接管（`views/Sessions.vue`、`components/SessionDrawer.vue`）。
-- 事件词表与中文标签：`web/src/utils/eventMeta.ts`；轮询工具 `utils/poller.ts`（可见性/失焦暂停）。
-- 待处理的人：`interaction.created`（待答交互/审批）、`job.needs_review`、`plan.blocked`、`decision`（ask_human）——这些就是"blocked"的来源。
-- 验收台 `ReviewPanel.vue` / `UnifiedDiff.vue`（REV-01）、计划看板 `PlanBoard.vue`（WEB-10）、评论 `CommentThread.vue`（MCP-05）。
-
-## 一、概念与数据模型
-
-### 1. 工作区（Workspace）
-
-- 默认**一个项目一个工作区**（`ws = project_key`），侧栏列出用户最近用过/置顶的项目。可选"plan 工作区"：以某个 plan 为范围（窗格只放该 plan 的 job），用于一条链的专注工作。
-- 工作区状态 = 其中所有窗格状态上卷（blocked > working > done > idle）；另外把该项目里**不在任何窗格中**的 blocked 事项（待答交互、needs_review、plan.blocked）也计入——不然在别处卡住的 agent 会被漏看。侧栏每个工作区一行：名称 + 状态点 + 计数（`2 working · 1 blocked`）。
-
-### 2. 标签页（Tab）
-
-- 每个工作区可有多个**分屏标签页**（用户自建，命名如 agents / debug），外加三个**固定标签页**：`Plan`（该项目 open plan 的看板）、`Review`（该项目待验收）、`Files`（项目文件树 + 最近 job 的 diff，复用 `FilePreview`/`UnifiedDiff`）。
-- 标签页状态同样上卷（标题旁状态点）。
-
-### 3. 窗格（Pane）
-
-| 类型 | 内容 | 输入 | 来源 |
+| # | 要点 | 谁这么做 | 对 gofer 的含义 |
 |---|---|---|---|
-| terminal | 交互 pty job 的终端 | 键盘直通（写权限 ticket） | 现有 attach |
-| chat | ACP 会话的对话流：assistant 文本、工具调用折叠行、permission 卡片内联 | 底部输入框发下一轮 | W3 新组件 |
-| relay | 中继的外部终端会话：最近几轮 + 回复框 | 回复 / 接管 | 现有中继 |
-| log | 任意 job 的只读日志（SSE 流），可一键"续接"成 terminal/chat | 无 | 现有 stream |
+| 1 | **会话（thread）是一等公民**：侧栏按项目分组列出会话，每条带标题、状态点、跑它的 agent；点一下主区切到该会话 | Zed 并行 agents（Threads Sidebar 按项目分组、`ctrl-tab` 最近切换、侧栏搜索）、OpenCode（server 持有会话、多客户端共享）、Claude Squad | 0.1 以"窗格"为中心是反的：用户先想"哪个会话"，再想"怎么摆"。**会话 = 同一 `session_id` 串起来的一串 job（首轮 + resume 轮次），或一个中继会话** |
+| 2 | **注意力优先**：哪些在等我（审批、提问、完成待看）必须一眼可见，并能**在通知里直接批** | herdr（状态上卷）、Codeman（桌面/web 推送带审批）、Nimbalyst（按状态看板） | 顶部/侧栏"等你处理"队列，按等待时长排序；浏览器推送里对 permission 给「允许/拒绝」按钮 |
+| 3 | **快速发起**：一个输入框「在项目 X 用 agent Y 做 Z」，回车即开干 | Vibe Kanban（建任务即派 agent）、Codex/Jules 类 web、Nimbalyst（连语音发起都有） | 顶部常驻 composer：项目、agent、模式（终端/对话）、可选 worktree/plan todo/skills，回车 = 提交 job 并在主区打开 |
+| 4 | **两种观看方式都要**：实时终端（跟进长会话）与结构化评审（看改了什么、给意见、合并） | Codeman（live terminal）vs Vibe Kanban（review workspace，内联 diff 评论回灌 agent） | 每个会话都有「过程」与「改动」两个视图；**在 diff 上写评论 → 作为下一轮 resume 发给同一会话**（MCP-05 评论 + resume 已具备） |
+| 5 | **并行隔离**：并行跑多个 agent 时每个可选独立 worktree，完成后评审、合并、归档清理 | Conductor、Nimbalyst、Vibe Kanban、Zed、Claude Squad、dmux（一键 merge） | WT-01 已有 `--worktree`；工作台把它做成发起时的一个开关 + 会话头上的「合并/归档」 |
+| 6 | **服务器持有、随时重连、跨设备** | OpenCode（`/global/event` SSE 同步所有客户端）、Codeman（手机扫码登录、触控）、Nimbalyst（iOS 监控） | gofer 本来就是 server 持有；补齐：PWA 可安装、手机布局、登录即恢复上次工作台 |
+| 7 | **键盘效率**：命令面板、最近会话切换、分屏快捷键 | Zed（`ctrl-tab`、侧栏搜索）、herdr（前缀键）、Claude Squad（TUI 快捷键） | `ctrl+k` 命令面板（跳会话/发起/切项目/执行动作）、`ctrl+tab` 最近会话、`ctrl+b` 前缀做布局 |
+| 8 | **跟随 agent**：看它正在读/改哪些文件 | Zed（follow agent，编辑器跟着跳） | 对话窗格里工具调用可点开文件；「改动」视图实时刷新（按 ACP 工具事件或定时 git status） |
+| 9 | **看板视角**：按状态（进行中/待评审/完成）看全部会话 | Nimbalyst、Vibe Kanban | 侧栏可切"列表 / 看板"；plan 看板（WEB-10）继续作为计划维度 |
+| 10 | **预览**：一键起 dev server 看效果 | Vibe Kanban（Start Dev Server + Preview） | 可选（W4）：项目配 `dev_command`，经隧道（TUN）给出预览链接 |
 
-- 窗格头：agent 图标、标题（可重命名）、状态点、所属 job/会话 id、菜单（续接、取消、打开 job 详情、在新标签页打开、关闭窗格——**关闭窗格不等于停 job**，与 herdr 的分离语义一致；"停止"是单独的菜单项并二次确认）。
-- 状态（gofer 直接给，不猜）：`blocked`（有待答交互/审批，或 ask_human 未答）、`working`（running / waiting_dir）、`done`（终态且用户未"看过"；needs_review 也是 done 并加标）、`idle`（会话存活但无活动 job，如 chat 窗格等你说下一句）、`gone`（job 已不存在/被清理）。
+herdr 的工作区 → 标签页 → 窗格与**状态上卷**保留，但降为"布局层"：会话是内容，布局只是摆放。
 
-### 4. 布局与持久化
+## 二、概念模型
 
-- 布局是一棵分屏树：`{split: "row"|"col", ratio: [..], children: [...]} | {pane: {kind, ref, title}}`。
-- **存在 server 上**（表 `workbench_layouts {caller_id, workspace, tabs_json, updated_at}`），换浏览器/手机打开是同一个工作台；写入走 `PUT /v1/workbench/{workspace}`（乐观并发：带 `updated_at`，冲突 409 让前端重拉合并）。
-- 手机/窄屏：不分屏，窗格变成可左右滑动的卡片，顶部是工作区/标签页切换。
+- **工作区** = 项目（`project_key`）。侧栏的分组单位；状态由其会话上卷，并计入项目内不属于任何会话的待处理项（needs_review、plan.blocked、decision）。
+- **会话（thread）**：
+  - agent 会话：同一 `session_id` 串起来的 job 链（首轮 + 若干 resume 轮次）；没有 session_id 的一次性 job 自成一个会话。
+  - 中继会话：SESS-01 登记的外部终端会话。
+  - 标题：首轮 job 的 title，没有就取 prompt 前 30 字；可重命名（存 server）。
+  - 状态（gofer 直接给，不猜）：`blocked`（待答审批/提问）> `working`（running/waiting_dir）> `review`（needs_review，或终态且有未看的改动）> `done`（终态已看）> `idle`（会话存活无活动 job，等你下一句）；另有 `stalled`（AUTO-05 输出停滞，黄色，"疑似卡住"）。
+- **视图**：主区显示当前会话；会话有三个子视图——「过程」（终端或对话流）、「改动」（本会话以来的 diff + 内联评论）、「信息」（job 链、用量、规则/skills、worktree、日志）。
+- **布局**（W2）：主区可分屏同时看多个会话；标签页保存不同的摆法；布局存 server、按 caller。
 
-## 二、交互
+```
+┌ ≡ gofer  [ 在 hyy-ai-inspect 用 omp 做…            ▾对话 ▾worktree  ⏎ ]   ⚠ 等你 2 ┐
+├ 会话 ─────────────────┬ omp · 修复 tun 逗号 ── ● working ── 过程 | 改动 | 信息 ───┤
+│ ▾ hyy-ai-inspect  ●    │ assistant: 我先看 spec.go…                             │
+│   ◐ 修复 tun 逗号  omp │ ▸ 读取 internal/tunnel/spec.go                          │
+│   ● 设置页二级菜单 omp │ ▸ 编辑 internal/tunnel/spec.go  (+12 -3)                │
+│   ✓ 规则注入验收  omp  │ ┌ 审批：运行 go test ./internal/tunnel ─ [允许][拒绝] ┐ │
+│ ▾ zy-bsly-sf-dev  ○    │ └────────────────────────────────────────────────────┘ │
+│   ○ nydq 联调     jcode│ > 下一句…                                   [发送]     │
+│ 搜索… │ 列表/看板      │                                                         │
+└────────────────────────┴─────────────────────────────────────────────────────────┘
+```
 
-- **侧栏**（左）：工作区列表 + 状态；底部"待处理"汇总（所有工作区的 blocked 项，点一下跳到对应窗格或打开它）。
-- **新建窗格**（`+` 或 `ctrl+b c`）：选 agent（按项目 `allowed_agents`，标出支持交互/ACP 的）、模式（终端 / 对话，按 agent 能力自动选默认）、cwd（项目内目录选择）、可选：挂到某个 plan todo、附加 skills/rules、初始 prompt → 提交对应 job 并在当前焦点窗格旁**分屏**打开。
-- **键盘**（前缀默认 `ctrl+b`，可改）：`%`/`"` 右/下分屏、方向键切焦点、`x` 关闭窗格（分离）、`z` 最大化、`c` 新建、`n`/`p` 切标签页、`w` 工作区导航、`r` 重命名、`q` 把焦点从终端里拿出来（终端窗格聚焦时普通按键直通给 agent）。鼠标：拖分隔条调比例、拖窗格头换位置、右键窗格菜单。
-- **通知**：窗格从 working → blocked/done 时，标签页标题闪烁 + 浏览器通知（用户授权后）；复用现有 `interaction.created` 等事件，不新增推送通道。
-- **"看过"**：窗格获得焦点并停留 2s，或用户点"标记已看"，done → idle/清除高亮（记在布局里，按 caller）。
+## 三、关键交互
 
-## 三、后端
+1. **发起**（composer，或 `ctrl+k` → 新会话）：项目（默认当前工作区）、agent（按项目 allowed_agents，标出能交互/能对话的）、模式（对话：acp-agent；终端：交互 pty；批处理：看日志）、可选 worktree、plan todo、skills/rules、cwd。回车 → 提交 job → 侧栏出现新会话并切过去。
+2. **注意力**：顶部「⚠ 等你 N」下拉 = 全部 blocked/review 项按等待时长排序；侧栏状态点上卷到项目；浏览器推送（用户授权后）：blocked 时推送，permission 类带「允许/拒绝」动作按钮（Service Worker 通知动作 → 调现有交互作答接口）；完成时推送"待评审"。
+3. **接着说话**：对话会话底部输入框 = 下一轮（resume 同一会话）；终端会话直接键入；中继会话 = 回复框（现有）。
+4. **评审**：「改动」视图 = 本会话首轮 `base_sha` 到最新（或 worktree 分支）的 diff（复用 `UnifiedDiff`）；在行上写评论 → 汇总成一条"评审意见"作为下一轮发给同一会话（MCP-05 的评论 + resume）；「接受」= 现有 accept（needs_review）或标记已看。
+5. **并行隔离**（W4）：worktree 会话头显示分支；「合并到主干」（exec job：`git merge --no-ff` 或 cherry-pick，冲突则把冲突列表回灌会话）；「归档」清理 worktree（WT-01 retention 已有）。
+6. **键盘**：`ctrl+k` 命令面板、`ctrl+tab`/`ctrl+shift+tab` 最近会话、`ctrl+b` 前缀布局（`%` `"` 分屏、方向键切焦点、`x` 分离、`z` 最大化）、`/` 聚焦侧栏搜索、`esc` 从终端里取回焦点。鼠标：拖分隔条、拖会话到主区分屏、右键菜单。
+7. **关闭 ≠ 停止**：关闭视图/窗格只是离开，job 照跑；「停止」单独动作、二次确认。
+8. **移动端 / PWA**：manifest + Service Worker 可安装；窄屏只显示侧栏或单会话（左右滑切换），composer 与"等你"始终可达；推送在手机上同样可批。
 
-- `GET /v1/workbench/summary`：按工作区（项目）返回窗格引用对象的状态 + 未在窗格中的 blocked 事项计数（聚合 jobs / interactions / decisions / needs_review / plan.blocked），供侧栏 5s 轮询（`createPoller`）；单次查询，避免前端扇出 N 个请求。
-- `GET/PUT /v1/workbench/{workspace}`：布局读写（per caller）。
-- W3：`GET /v1/jobs/{id}/acp/stream`——ACP 结构化事件（assistant 文本块、工具调用开始/结束、permission 请求/结果、turn 结束）的 SSE；现在 web 只能拿到投影后的 stdout/stderr，对话窗格需要结构化的。chat 窗格的"下一轮"= 对该会话 `job resume`（`session/load` 续上下文），前端把同一会话的多轮 job 串成一条对话；**长驻多轮 ACP 会话**（一个 job 内多轮）作为后续优化，不在本设计。
+## 四、后端
 
-## 四、实施分期（omp，测试先写先提交；每期结束我远程升级并真机验收）
+- `GET /v1/workbench/threads?project=&status=&q=`：返回会话列表（按 `session_id` 聚合 job 链；中继会话并入），每条含状态、标题、agent、项目、最近活动时间、用量合计、未看改动标记、worktree；以及"等你"队列。前端 5s 轮询（`createPoller`），后续可换 SSE。
+- `PATCH /v1/workbench/threads/{id}`：重命名、标记已看、置顶（per caller）。
+- `GET/PUT /v1/workbench/layout`：布局（per caller，乐观并发）。
+- `POST /v1/workbench/threads/{id}/turn`：发下一轮（服务端决定是 ACP resume、cli resume 还是中继回复），对前端屏蔽差异。
+- `GET /v1/jobs/{id}/acp/stream`（W3）：ACP 结构化事件 SSE（文本块、工具调用起止与涉及文件、permission 请求/结果、turn 结束）。
+- `POST /v1/workbench/threads/{id}/review`（W3）：把一组行内评论合成一轮发回同一会话。
+- 推送（W2）：Web Push（VAPID 密钥存 server 配置目录）；订阅按 caller 存；触发复用现有事件（`interaction.created`、`job.needs_review`、`job.terminal`）。
+
+## 五、实施分期（omp，测试先写先提交；每期我远程升级并真机验收）
 
 | 期 | 内容 | 验收 |
 |---|---|---|
-| **W1 外壳与状态** | `/workbench` 路由与导航入口；侧栏工作区列表 + 上卷状态 + 待处理汇总；`GET /v1/workbench/summary`；单窗格（terminal/log/relay 三种，复用现有组件）+ 固定标签页 Plan/Review；布局表与读写接口（本期只存"打开了哪些窗格"） | 单测：`TestWorkbenchSummaryRollsUpBlocked`（交互待答 → 窗格/工作区 blocked；不在窗格里的 needs_review 计入工作区）、`TestWorkbenchLayoutPerCallerOptimisticLock`；web：typecheck+build；真机：开三个窗格（一个交互 omp、一个跑着的批处理 job 日志、一个中继会话），制造一个待答交互看侧栏变 blocked |
-| **W2 分屏与新建** | 分屏树渲染与拖拽调比例、前缀键、窗格菜单（分离/停止/重命名/最大化）、新建窗格对话框（agent/模式/cwd/todo/skills/prompt）、窄屏卡片模式、"看过"语义、浏览器通知 | web：typecheck+build + 组件级测试（若引入 vitest 仅限布局树的纯函数：`splitPane`/`closePane`/`movePane`/`serialize`）；真机：键盘全流程、刷新后布局还原、手机打开同一工作台 |
-| **W3 对话窗格** | `GET /v1/jobs/{id}/acp/stream`；chat 窗格组件（流式文本、工具调用折叠、permission 卡内联作答、多轮 = resume 链）；Files 标签页（文件树 + 最近 diff） | 单测：`TestACPStreamEmitsStructuredEvents`、`TestChatTurnResumesSameSession`；真机：用 omp-acp 在 chat 窗格连续三轮对话，中间触发一次审批并在卡片里放行 |
+| **W1 会话中枢（先可用）** | `/workbench`：侧栏会话列表（按项目分组、状态、搜索、上卷）、「等你」队列、composer 发起、主区单会话（终端=现有 attach、批处理=日志、中继=现有回复、ACP=暂时用日志视图）、会话头（状态/用量/job 链/停止）、`threads` 与 `turn` 接口、`ctrl+k` 命令面板与 `ctrl+tab` | 单测：`TestThreadsGroupJobsBySession`、`TestThreadsStatusPrecedence`（blocked>working>review>done>idle，stalled 标记）、`TestThreadsAttentionQueueOrder`、`TestTurnDispatchesByThreadKind`（acp→resume、cli→resume、relay→reply）；真机：从 composer 发起 omp 对话与交互终端各一个，制造审批看"等你"出现并处理 |
+| **W2 布局与移动** | 分屏/标签页/持久化、`ctrl+b` 前缀、拖拽、PWA + 手机布局、Web Push（含审批动作按钮）、「已看」语义 | web typecheck+build；布局树纯函数单测（若引入 vitest，仅限此处）；真机：刷新与换设备布局还原；手机收到审批推送并在通知里批准 |
+| **W3 对话与评审** | ACP 结构化流 + 对话视图（流式文本、工具调用折叠可点开文件、审批卡内联）、「改动」视图 + 行内评论回灌同一会话、跟随 agent（改动实时刷新） | 单测：`TestACPStreamEmitsStructuredEvents`、`TestReviewCommentsBecomeNextTurn`；真机：omp-acp 连续三轮 + 一次行内评审回灌 |
+| **W4 并行隔离与预览（可选）** | composer 的 worktree 开关、会话头合并/归档、看板视角、项目 `dev_command` + 隧道预览链接 | 真机：两个 worktree 会话并行改同一仓库，各自评审后先后合并 |
 
 ## 风险与限制
 
-- **范围大**：三期每期都是一个完整 omp job 的量；W2 的布局交互最容易拖长，前端复杂度集中在这里。
-- **终端窗格性能**：多个 xterm 同屏 + 各自 WS；超过 4 个活跃终端窗格时，非焦点窗格降级为低频刷新（只收不渲染，获焦时补画）。
-- **ACP 多轮 = resume 链**：每轮一个 job，有冷启动开销（ACP 进程重启 + `session/load`）；体感比长驻会话慢，后续可做长驻多轮。
-- **"blocked" 的判定只覆盖 gofer 知道的**：agent 在自己的 TUI 里卡在确认框（不经过 gofer 审批门）时，gofer 只能看到"working 但无输出"——可借 AUTO-05 的输出停滞信号标成"疑似卡住"（黄色），不等同 blocked。
-- **移动端**：分屏在手机上无意义，卡片模式够用；终端输入仍依赖现有移动端输入框。
+- **范围大**：四期；W1 单独即可用（解决"主动发起 + 看谁在等我 + 接着说话"），后面按需推进。
+- **ACP 多轮 = resume 链**：每轮冷启动 ACP 进程 + `session/load`，有秒级延迟；长驻多轮会话另议。
+- **gofer 看不到 agent TUI 内部的确认框**：不经审批门的卡住只能按输出停滞标 `stalled`。
+- **Web Push** 需要 HTTPS 或 localhost；远程访问若是纯 http 内网地址，推送不可用（退化为页内提醒 + 已有 IM 通知）。
+- **多终端同屏性能**：非焦点终端降频渲染。
 
 ## 决策（待批准）
 
-1. 工作区默认 = 项目（可选 plan 工作区）；状态从窗格上卷，并计入项目内不在窗格中的 blocked 事项。
-2. 布局存 server、按 caller 分；换设备同一工作台。
-3. 关闭窗格 = 分离（job 照跑），停止是单独动作。
-4. 前缀键默认 `ctrl+b`（与 tmux/herdr 一致），可在设置里改。
-5. ACP 对话多轮先用 resume 链实现，长驻多轮会话另议。
-6. 分三期 W1 → W2 → W3，每期结束我远程升级主机并做真机验收。
+1. 以**会话**为一等公民（侧栏会话列表 + 主区视图），herdr 式窗格/布局作为 W2 的摆放层。
+2. 会话 = 同 `session_id` 的 job 链（或中继会话）；状态优先级 blocked > working > review > done > idle，另标 stalled。
+3. 顶部常驻 composer 与「等你」队列；推送里可直接批准审批。
+4. 评审评论回灌**同一会话**作为下一轮。
+5. 布局、已看、重命名存 server（per caller），跨设备一致；PWA 可安装。
+6. ACP 多轮先用 resume 链。
+7. 分期 W1 → W2 → W3 →（W4 可选）；W1 做完即上线试用，根据使用反馈再调后续。
+
+## 参考
+
+- herdr 概念：https://herdr.dev/zh-cn/docs/concepts/ 、https://herdr.dev/zh-cn/docs/agents/
+- Zed 并行 agents：https://zed.dev/docs/ai/parallel-agents
+- OpenCode web/server：https://opencode.ai/docs/web/ 、https://opencode.ai/docs/server/
+- 并行 agent 工具对比（Nimbalyst/Crystal、Vibe Kanban、Conductor、Claude Squad、dmux、Superset…）：https://nimbalyst.com/blog/best-tools-for-running-parallel-ai-coding-agents/
+- Vibe Kanban：https://www.vibekanban.com/docs/core-features/creating-projects
+- Codeman vs Vibe Kanban（实时终端 vs 评审工作区）：https://getcodeman.com/compare/codeman-vs-vibe-kanban
+- OpenHands Agent Canvas：https://openhands.dev/product/gui
