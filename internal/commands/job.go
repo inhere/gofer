@@ -71,6 +71,9 @@ type jobRunFlags struct {
 	collect      gcli.Strings
 	skill        gcli.Strings
 	noSkills     bool
+	rule         gcli.Strings
+	noRules      bool
+	env          gcli.Strings
 }
 
 // jobRunOpts holds `job run` flags. prompt is supplied via the --prompt flag
@@ -1102,6 +1105,14 @@ func bindJobRunFlags(c *gcli.Command) {
 	// 关掉本次的所有绑定。物化到 job 私有 result_dir、不写项目工作树；exec agent 不带 skills。
 	c.VarOpt(&jobRunOpts.skill, "skill", "", "skill to mount into this job's private dir (repeatable; adds to the server/agent/project bindings)", gflag.WithCategory("Execution"))
 	c.BoolOpt2(&jobRunOpts.noSkills, "no-skills", "mount no skills for this job (overrides every configured binding)", gflag.WithCategory("Execution"))
+	// JOB-06①：强制规则——--rule 追加到 server/agent/project 四级并集（可重复）；--no-rules
+	// 关掉本次的全部规则（user caller 专用：job 凭证提交的 job 关不掉规则）。规则在提交时
+	// 注入 prompt 顶部，随 request_json 存档。
+	c.VarOpt(&jobRunOpts.rule, "rule", "", "MANDATORY rule to inject at the top of this job's prompt (repeatable; adds to the server/agent/project bindings)", gflag.WithCategory("Execution"))
+	c.BoolOpt2(&jobRunOpts.noRules, "no-rules", "inject no rules for this job (overrides every configured binding; a job credential may not use this)", gflag.WithCategory("Execution"))
+	// F-f：per-job env（补 CLI 缺口；`--env K=V` 可重复）。值随 request_json 落库，帮助文本
+	// 明确警告不要放密钥（密钥走 agent.env / 平台 secret，JOB-06② 之前没有引用语法）。
+	c.VarOpt(&jobRunOpts.env, "env", "", "extra env var for the job process: K=V (repeatable). The value is stored with the job (request_json) — never pass secrets here", gflag.WithCategory("Execution"))
 
 	// Submission: provenance and grouping metadata.
 	c.StrOpt2(&jobRunOpts.title, "title", "optional job title", jobRunOptCategory("Submission", ""))
@@ -1445,6 +1456,16 @@ func submitMarkdownFile(c *gcli.Command, cli *client.Client) (client.SubmitResul
 	if len(jobRunOpts.skill) > 0 || jobRunOpts.noSkills {
 		return client.SubmitResult{}, fmt.Errorf("--skill/--no-skills are not available with --file/-f: put them in the task file's frontmatter")
 	}
+	// JOB-06①: same reason — the md path submits the file verbatim, so a --rule here
+	// would be dropped in silence; the frontmatter's own rules:/no_rules: carry it.
+	if len(jobRunOpts.rule) > 0 || jobRunOpts.noRules {
+		return client.SubmitResult{}, fmt.Errorf("--rule/--no-rules are not available with --file/-f: put them in the task file's frontmatter")
+	}
+	// F-f: --env is a flag-only input (the md frontmatter has its own env: map), and a
+	// silently dropped one would run the job without the variables the caller expected.
+	if len(jobRunOpts.env) > 0 {
+		return client.SubmitResult{}, fmt.Errorf("--env is not available with --file/-f: put them in the task file's frontmatter `env:` map")
+	}
 	body, err := os.ReadFile(jobRunOpts.file)
 	if err != nil {
 		return client.SubmitResult{}, fmt.Errorf("read task file: %w", err)
@@ -1539,6 +1560,11 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		cmd = a.Strings()
 	}
 	tplVars, err := jobRunTemplateVars()
+	if err != nil {
+		return job.JobRequest{}, err
+	}
+	// F-f: `--env K=V`（可重复）→ JobRequest.Env。格式在这里就校验，坏键名不发给 server。
+	jobEnv, err := parseJobRunEnv(jobRunOpts.env)
 	if err != nil {
 		return job.JobRequest{}, err
 	}
@@ -1646,6 +1672,11 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		// server 按"no_skills 优先"解释——CLI 不替它猜）。
 		Skills:   []string(jobRunOpts.skill),
 		NoSkills: jobRunOpts.noSkills,
+		// JOB-06①：--rule 追加强制规则、--no-rules 全部关闭（同样由 server 解释优先级）。
+		Rules:   []string(jobRunOpts.rule),
+		NoRules: jobRunOpts.noRules,
+		// F-f：per-job env（K=V，可重复；非法格式在 CLI 就报错，不把一个坏键名发给 server）。
+		Env: jobEnv,
 		// 提交来源（provenance）：CLI 渠道(默认 cli，可 --channel 覆盖) + 本机 hostname。
 		// server 端若 client 为空会以 remote IP 兜底盖章。
 		Channel: channel,
@@ -1809,6 +1840,55 @@ func cliHostname() string {
 		return ""
 	}
 	return h
+}
+
+// parseJobRunEnv turns repeated `--env K=V` flags into the request's env map (F-f).
+// The format is validated HERE — one `=` splitting a non-empty key from its value, no
+// whitespace or `=` left in the key — so a typo is a usage error rather than a job
+// that runs without the variable the caller expected.
+//
+// Values are NOT scrubbed, and that is deliberate: `--env` exists for the case where
+// the value is part of the request (a mode flag, a branch name), it rides request_json
+// by design, and the flag's help says so. A SECRET belongs in agent.env / the
+// platform's secret injection (JOB-06② will bring a reference syntax); gofer has none
+// yet, so it must not look like it does.
+func parseJobRunEnv(items []string) (map[string]string, error) {
+	if len(items) == 0 {
+		return nil, nil
+	}
+	out := make(map[string]string, len(items))
+	for _, raw := range items {
+		k, v, ok := strings.Cut(raw, "=")
+		k = strings.TrimSpace(k)
+		if !ok || k == "" {
+			return nil, fmt.Errorf("invalid --env %q: expected K=V", raw)
+		}
+		if strings.ContainsAny(k, " \t\r\n=") {
+			return nil, fmt.Errorf("invalid --env %q: %q is not an environment variable name", raw, k)
+		}
+		out[k] = v
+	}
+	return out, nil
+}
+
+// formatJobRules renders the job's injected rules for `job show`: `name@sha256prefix`
+// per rule, joined. The prefix (12 hex chars of the sha256, the same shortening
+// `agent rule ls` uses) is enough to compare against the library's current version —
+// the full digest stays on the row (jobs.rules_json) for a scripted comparison. An
+// empty list renders as "" so the caller prints no line at all.
+func formatJobRules(rules []job.RuleRef) string {
+	if len(rules) == 0 {
+		return ""
+	}
+	parts := make([]string, 0, len(rules))
+	for _, r := range rules {
+		if r.SHA256 == "" {
+			parts = append(parts, r.Name)
+			continue
+		}
+		parts = append(parts, r.Name+"@"+shortSkillVersion(r.SHA256))
+	}
+	return strings.Join(parts, ", ")
 }
 
 // splitLabels parses a comma-separated flag value (--worker-labels, --tags) into
@@ -1984,6 +2064,11 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	// JOB-10：这次运行绑定了哪些技能（四级并集的最终结果）。没绑定就不打印——不摆一行空清单。
 	if len(res.Skills) > 0 {
 		c.Printf("skills:     %s\n", strings.Join(res.Skills, ", "))
+	}
+	// JOB-06①：这次运行注入的强制规则（名字 + 注入时那份文本的 sha256 前缀）。没注入就不打印
+	// ——不摆一行空清单。
+	if line := formatJobRules(res.Rules); line != "" {
+		c.Printf("rules:      %s\n", line)
 	}
 	// JOB-09：唤醒——这个 job 登记了几条、其中几条还在等（kind 分布），回答"它会不会自己
 	// 再跑一次"。列表是另一次读请求，失败就不打印（job 本身的状态才是这个命令的重点）。

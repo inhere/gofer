@@ -250,6 +250,12 @@ type Service struct {
 	// deployment has no skill library, and a job that binds one is rejected rather
 	// than run without it.
 	skills SkillLibrary
+
+	// rules is the JOB-06① rule-library seam (see RuleLibrary): the MANDATORY
+	// discipline a job's bindings resolve to, injected at the top of its prompt.
+	// Injected at assemble time; nil means the deployment has no rule library, and a
+	// job that binds a rule is rejected rather than run without it.
+	rules RuleLibrary
 }
 
 // AnswerGuard is the job→answer-gate seam (监督分层升级路由 P3.1, design §8.5, dependency

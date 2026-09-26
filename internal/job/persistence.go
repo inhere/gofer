@@ -100,6 +100,10 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		// 不会伪造成挂载过）。清单由执行机渲染进 prompt，这一列是"这次运行带了哪些规矩"
 		// 的事后答案（job show / web job 详情读它）。
 		SkillsJSON: marshalSkills(r.Skills),
+		// 强制规则（JOB-06①）：该 job 实际注入的规则 [{name,sha256}]；没注入 → ""（读回即
+		// "没有规则"，不会伪造成注入过）。prompt 本身（request_json）记"agent 读到了什么"，
+		// 这一列记"读的是哪个版本"，规则库改过之后这对组合才回答得了事后追问。
+		RulesJSON: marshalRules(r.Rules),
 		// 领导回合（MCP-05 阶段 B）：leader job 所属的 plan；普通 job 为 ""（旧行同样读回
 		// ""，即"不是 leader job"）。它是 server 侧盖章、客户端不可设的标记。
 		LeaderOfPlan: r.LeaderOfPlan,
@@ -153,6 +157,32 @@ func marshalSkills(skills []string) string {
 		return ""
 	}
 	return string(b)
+}
+
+// marshalRules 把该 job 注入的规则清单（JOB-06①，[{name,sha256}]）序列化为
+// jobs.rules_json 原文。best-effort：空/失败存 ""（读回即"没注入规则"，读作"没有"，
+// 不会把历史 job 伪造成注入过）。
+func marshalRules(rules []RuleRef) string {
+	if len(rules) == 0 {
+		return ""
+	}
+	b, err := json.Marshal(rules)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+// unmarshalRules 读回 jobs.rules_json。空/损坏 → nil（"没注入规则"），不伪造清单。
+func unmarshalRules(s string) []RuleRef {
+	if s == "" {
+		return nil
+	}
+	var out []RuleRef
+	if json.Unmarshal([]byte(s), &out) != nil {
+		return nil
+	}
+	return out
 }
 
 // unmarshalSkills 读回 jobs.skills_json。空/损坏 → nil（"没绑技能"），不伪造清单。
@@ -356,6 +386,8 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		Xfer: unmarshalXfer(rec.XferJSON),
 		// 技能绑定（JOB-10）：旧行 "" = 没绑技能（nil），不伪造成挂载过。
 		Skills: unmarshalSkills(rec.SkillsJSON),
+		// 强制规则（JOB-06①）：旧行 "" = 没注入规则（nil），不伪造成注入过。
+		Rules: unmarshalRules(rec.RulesJSON),
 		// 领导回合（MCP-05 阶段 B）：旧行 "" = 不是 leader job。
 		LeaderOfPlan: rec.LeaderOfPlan,
 		// job 超时上限可配（bd h-aii-s9ck）：生效 deadline + 请求值 + 截断标记。旧行全为

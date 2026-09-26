@@ -90,6 +90,15 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		return JobResult{}, err
 	}
 
+	// JOB-06①: same idea for the MANDATORY rules — the four-level union plus the
+	// project's `.gofer/RULES.md`, checked against the size cap, rendered into
+	// req.Prompt (so request_json owns the text the agent will read) and kept on the
+	// request as the {name,sha256} list the row records. It runs BEFORE validate, so an
+	// unknown rule or an over-limit set is a rejected submit that creates nothing.
+	if err := s.resolveRules(cfg, &req, remote); err != nil {
+		return JobResult{}, err
+	}
+
 	proj, err := s.validate(cfg, req, remote)
 	if err != nil {
 		return JobResult{}, err
@@ -287,7 +296,26 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			"reason": "peer_runner", "names": req.Skills, "count": len(req.Skills),
 		})
 	default:
-		prompt = s.skillsPromptPrefix(&req, resultDir) + prompt
+		// JOB-06①: the manifest goes AFTER the injected rules section — rules are the
+		// frame, the skills list is content — so insertSkillsManifest locates the
+		// section structurally instead of putting the list above it.
+		prompt = insertSkillsManifest(prompt, s.skillsPromptPrefix(&req, resultDir))
+	}
+
+	// JOB-06①: the injected-rules receipt. The result dir exists by now, so the event
+	// can be recorded against the job; the DECISION (names, bytes) was taken in
+	// resolveRules and is only reported here.
+	if len(req.ruleRefs) > 0 {
+		names := make([]string, 0, len(req.ruleRefs))
+		for _, ref := range req.ruleRefs {
+			names = append(names, ref.Name)
+		}
+		s.recordEvent(jobID, EventJobRulesInjected, map[string]any{
+			"names": names, "bytes": req.ruleBytes,
+		})
+	}
+	if req.rulesSkipped != "" {
+		s.recordEvent(jobID, EventJobRulesSkipped, map[string]any{"reason": req.rulesSkipped})
 	}
 
 	run := s.runners[req.Runner]
@@ -585,6 +613,11 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// "which rules did this run have" without re-reading a config that may have
 			// changed since.
 			Skills: req.Skills,
+			// JOB-06①: the injected rules with the sha256 of each text (jobs.rules_json),
+			// so the row answers "which discipline — and which version of it — did this
+			// run carry?" after the library changed. The prompt itself (request_json)
+			// says what the agent actually read.
+			Rules: req.ruleRefs,
 			// JOB-11：同 cwd 独占决策（jobs.dir_exclusive）——提交期定死，show/web 与
 			// 事后排查据此回答"这次运行当初是否（被允许）独占这棵工作树"。
 			DirExclusive: dirExclusive,
@@ -829,7 +862,11 @@ func defaultJobTitle(req JobRequest) string {
 	if len(req.Cmd) > 0 {
 		return trimTitleRunes(strings.Join(req.Cmd, " "))
 	}
-	return trimTitleRunes(req.Prompt)
+	// JOB-06①: the prompt opens with gofer's injected rules section, which is the same
+	// text for every job on this deployment — titling a job after it would name every
+	// row identically and hide the caller's actual ask. The title is the caller's own
+	// prompt, so the section is stripped first.
+	return trimTitleRunes(stripRulesSection(req.Prompt))
 }
 
 func trimTitleRunes(s string) string {

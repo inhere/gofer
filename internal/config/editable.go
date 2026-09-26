@@ -53,6 +53,12 @@ var fieldPolicies = map[string]FieldPolicy{
 	// nothing derives a cached value from them at startup.
 	"server.skills":       {Editable: true},
 	"server.skill_limits": {Editable: true},
+	// JOB-06① rules: the deployment's mandatory binding list and the total-size cap.
+	// Both are read where they are used (EffectiveRules runs per dispatch,
+	// EffectiveRulesMaxBytes per submit), so a hot edit applies to the NEXT job —
+	// nothing derives a cached value from them at startup.
+	"server.rules":           {Editable: true},
+	"server.rules_max_bytes": {Editable: true},
 	// Compound blocks are editable as a WHOLE (the request carries the block; a
 	// partial block would silently drop the members it does not mention). None of
 	// them carries a secret VALUE — a webhook holds a secret_env NAME.
@@ -127,6 +133,7 @@ var fieldPolicies = map[string]FieldPolicy{
 	"agents.*.transient_error_patterns":   {Editable: true},
 	"agents.*.fallback_agents":            {Editable: true},
 	"agents.*.skills":                     {Editable: true},
+	"agents.*.rules":                      {Editable: true},
 	"agents.*.max_concurrent":             {Editable: true},
 	"agents.*.stall_timeout_sec":          {Editable: true},
 	"agents.*.retry":                      {Editable: true},

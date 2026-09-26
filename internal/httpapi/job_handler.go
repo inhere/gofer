@@ -56,6 +56,18 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 	// (anti-spoof): the identity is the server's auth decision, not the body.
 	req.CallerID = callerFromCtx(c)
 
+	// JOB-06① 决策 4: a job credential may not switch the MANDATORY rules off. A job
+	// is exactly the thing the discipline is meant to govern, so the caller that runs
+	// under a job's own token has no say in it; a user caller may (`--no-rules`).
+	// Checked first, before the submit permission gate: this is a refusal of the
+	// REQUEST SHAPE, and reporting it as "you may not submit" would name the wrong
+	// reason.
+	if req.NoRules && callerKindFromCtx(c) == callerKindJob {
+		writeError(c, http.StatusForbidden, "rules cannot be disabled by a job caller",
+			"a job credential may not submit a job with no_rules; only a user caller may turn the rules off for one job")
+		return
+	}
+
 	// SEC-01: a job credential may submit only under the narrow rule the design gives
 	// it (member job, same project, an agent its own agent/role listed in
 	// submit_agents) — and the accepted request is tagged with its origin. Checked

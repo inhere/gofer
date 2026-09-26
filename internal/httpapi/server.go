@@ -34,6 +34,7 @@ import (
 	"github.com/inhere/gofer/internal/presence"
 	"github.com/inhere/gofer/internal/project"
 	"github.com/inhere/gofer/internal/ptyrelay"
+	"github.com/inhere/gofer/internal/rule"
 	"github.com/inhere/gofer/internal/sessionrelay"
 	"github.com/inhere/gofer/internal/skill"
 	"github.com/inhere/gofer/internal/tunnel"
@@ -266,6 +267,13 @@ type Server struct {
 	// resolves params, gates the three writes on can_admin and encodes answers.
 	skills *skill.Store
 
+	// rules is the JOB-06① rule library behind /v1/rules*. Injected post-construction
+	// by SetRules (serve passes core's store). Exactly like skills: the routes are
+	// ALWAYS mounted and answer 503 while it is nil. The store owns the name grammar
+	// and the file; this layer resolves params, gates the writes on can_admin and
+	// encodes answers.
+	rules *rule.Store
+
 	// presence is the E36 driver-agent identity/mailbox service backing the
 	// /v1/agents/* + /v1/messages endpoints. Injected post-construction by
 	// SetPresence (serve), mirroring SetMetrics so the wide positional New stays
@@ -366,6 +374,11 @@ func (s *Server) SetXfer(m *xfer.Manager) { s.xfer = m }
 // routes are always mounted and answer 503 while no library is wired, so a server
 // without one (mcp, most tests) keeps the identical router.
 func (s *Server) SetSkills(st *skill.Store) { s.skills = st }
+
+// SetRules injects the JOB-06① rule library (serve passes core's store for
+// <config-dir>/rules). Same contract as SetSkills: the /v1/rules routes are always
+// mounted and answer 503 while it is nil.
+func (s *Server) SetRules(st *rule.Store) { s.rules = st }
 
 // SetSessionRelayPolicy injects the effective session-relay auto-arm policy
 // (SESS-01 R2 + SUP-01 D): the keyboard idle threshold and the last-human-input
@@ -617,6 +630,16 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/skills/{name}/update", s.handleUpdateSkill)
 		r.DELETE("/skills/{name}", s.handleDeleteSkill)
 		r.GET("/skills/{name}/export", s.handleExportSkill)
+
+		// JOB-06① §一.1: the rule library (list / read / write / delete). Reads are
+		// open to any authenticated caller; the two writes are can_admin-gated per
+		// handler, like the skill writes. Always mounted; answer 503 until serve
+		// injects the store (SetRules). The `{name}` shape has no static siblings, so
+		// there is no ordering hazard like `/skills/import`.
+		r.GET("/rules", s.handleListRules)
+		r.GET("/rules/{name}", s.handleGetRule)
+		r.PUT("/rules/{name}", s.handlePutRule)
+		r.DELETE("/rules/{name}", s.handleDeleteRule)
 
 		// C6/P4: remote-node observability — status of every configured runner
 		// (local / peer-http probe / worker heartbeat). Normal authed JSON endpoint

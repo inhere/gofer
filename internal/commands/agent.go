@@ -89,6 +89,10 @@ func NewAgentCmd() *gcli.Command {
 			// command list stays short (design decision 1) — a skill is what an agent
 			// knows, so it is managed where the agents are.
 			newAgentSkillCmd(),
+			// JOB-06①: the rule library is a sibling of the skill library for the same
+			// reason — a rule is what an agent must obey, so it is managed where the
+			// agents are (G033: no new top-level command).
+			newAgentRuleCmd(),
 		},
 	}
 }

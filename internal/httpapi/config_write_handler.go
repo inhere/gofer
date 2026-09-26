@@ -638,6 +638,15 @@ func applyAgentField(ac *config.AgentConfig, f configBodyField) error {
 			return err
 		}
 		ac.Skills = v
+	case "rules":
+		// JOB-06①: the agent's own MANDATORY binding list. Same shape as skills —
+		// `[]` and `null` both mean "this agent adds nothing" (the levels UNION, so
+		// there is no per-agent off switch; only `--no-rules` turns them off).
+		v, err := fieldValue[[]string](f)
+		if err != nil {
+			return err
+		}
+		ac.Rules = v
 	case "can_submit":
 		// SEC-01 §一.3: the member-job submit gate. A plain bool — `null` clears it
 		// back to the default (closed), which is exactly the zero value, so the
@@ -964,6 +973,26 @@ func applyServerField(sc *config.ServerConfig, f configBodyField) error {
 			return err
 		}
 		sc.Skills = v
+	case "rules":
+		// JOB-06①: the deployment's MANDATORY bindings. A hot edit applies to the NEXT
+		// dispatch (EffectiveRules reads the live config), not to jobs already submitted.
+		v, err := fieldValue[[]string](f)
+		if err != nil {
+			return err
+		}
+		sc.Rules = v
+	case "rules_max_bytes":
+		// JOB-06①: the total-rule-text cap, read per submit (EffectiveRulesMaxBytes), so
+		// a hot edit applies to the NEXT job. 0/absent = the shipped 16KiB default, so a
+		// negative value is refused rather than stored as "unlimited".
+		v, err := fieldValue[int](f)
+		if err != nil {
+			return err
+		}
+		if v < 0 {
+			return fmt.Errorf("rules_max_bytes must be >= 0 (0 = the %d-byte default)", config.DefaultRulesMaxBytes)
+		}
+		sc.RulesMaxBytes = v
 	case "skill_limits":
 		// JOB-10 §一.2: the import-size guards, read by the store at import time.
 		// Decoded through the view type — see runner_probe for why.

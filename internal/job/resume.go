@@ -120,6 +120,10 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 			// the runner's LoadSessionID (a plain job's session_id never loads).
 			SessionID:         src.SessionID,
 			ResumeSourceAgent: src.Agent,
+			// JOB-06①: a continuation is NOT re-injected with rules — the session it
+			// continues was already given them, and repeating the section every turn
+			// would spend the context twice on the same text (design §一.3).
+			RulesResolved: true,
 			// bd h-aii-0ql3: read-only is a property of the work, so it is inherited —
 			// the executor switches the loaded session back into the read-only mode.
 			ReadOnly: src.ReadOnly,
@@ -212,6 +216,9 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		CallerID: callerID,
 		// 显式带 SessionID：new job 复用同会话 id（注入/捕获均跳过），链回原会话、可再续。
 		SessionID: src.SessionID,
+		// JOB-06①: a continuation is NOT re-injected with rules — the session it
+		// continues already carries them (design §一.3).
+		RulesResolved: true,
 		// bd h-aii-0ql3：只读随链继承（argv 已带沙箱参数，这里同时记录在 job 行上）。
 		ReadOnly: src.ReadOnly,
 		// JOB-11：同 cwd 独占决策也随链继承——续接的 argv 由 exec 载体执行，若按载体

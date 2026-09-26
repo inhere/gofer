@@ -653,6 +653,20 @@ type ServerConfig struct {
 	// (contrast server.retry / fallback_agents, which the nearest layer REPLACES).
 	// See Config.EffectiveSkills for the order and the --no-skills / exec rules.
 	Skills []string `yaml:"skills,omitempty"`
+	// Rules is the deployment-wide MANDATORY rule set (JOB-06①, design §一.2): the
+	// discipline every job this server dispatches gets at the TOP of its prompt,
+	// whatever project or agent it belongs to. It is the same four-level union as
+	// skills (agents.<key>.rules and projects.<key>.rules add, `job run --rule` adds
+	// one more) because a rule is an accumulation, not a mutually exclusive policy;
+	// the single off switch is `job run --no-rules`, which a job credential may not
+	// use (design 决策 4). See Config.EffectiveRules.
+	Rules []string `yaml:"rules,omitempty"`
+	// RulesMaxBytes caps the TOTAL size of the rules injected into one job (design
+	// 决策 3, default 16KiB). A submit whose rules exceed it is rejected with the
+	// largest offenders named — rules are meant to be short and hard; long reference
+	// material belongs in a skill. Read per submit (EffectiveRulesMaxBytes), so a hot
+	// edit applies to the NEXT job.
+	RulesMaxBytes int `yaml:"rules_max_bytes,omitempty"`
 	// SkillLimits bounds what ONE imported skill may contain (JOB-10 §一.2). The
 	// store owns enforcement and the defaults (2MiB per file / 10MiB total); this
 	// block only carries an operator's override, so an absent one is not a bug.
@@ -1480,6 +1494,14 @@ type ProjectConfig struct {
 	// levels: a project never REMOVES a server-wide skill (`--no-skills` on the job is
 	// the only off switch). See Config.EffectiveSkills.
 	Skills []string `yaml:"skills,omitempty"`
+	// Rules are the MANDATORY rules of THIS project (JOB-06①): the constraints that
+	// only make sense in this repository (its layout, its test command, its review
+	// etiquette). Unioned with server.rules, the agent's own list and `--rule`; a
+	// project never removes a server-wide rule (only `--no-rules` turns them off).
+	// The repository may also carry `.gofer/RULES.md`, which is auto-included as
+	// `project:<key>` AFTER these bindings — no registration needed. See
+	// Config.EffectiveRules.
+	Rules []string `yaml:"rules,omitempty"`
 	// AgentFallbacks overrides an agent's fallback_agents list for THIS project
 	// (SUP-01 P3): keyed by the failing agent, the value is the ordered candidate
 	// list. A key present here REPLACES the agent-level list (it does not merge), so
@@ -1812,6 +1834,12 @@ type AgentConfig struct {
 	// the levels — and an exec agent carries none at all (it runs a command, it does
 	// not read docs). See Config.EffectiveSkills.
 	Skills []string `yaml:"skills,omitempty"`
+	// Rules are this agent's own MANDATORY bindings (JOB-06①): the constraints that
+	// only apply when THIS agent runs (its CLI's quoting rules, its sandbox limits).
+	// Unioned with server.rules and the project's list — rules accumulate across the
+	// levels — and an exec agent carries none at all (it runs a command, it does not
+	// read a prompt). See Config.EffectiveRules.
+	Rules []string `yaml:"rules,omitempty"`
 	// ReadOnlyArgs is the argv a `job run --read-only` appends to a cli-agent's argv
 	// (both the batch and the interactive shape, at the end like AgentArgs) so the
 	// sandbox is the CLI's own. Unset means "use the built-in table for this agent"

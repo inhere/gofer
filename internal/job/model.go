@@ -121,6 +121,33 @@ type JobRequest struct {
 	// The worker dispatch path sets it; internal, so it stays off the wire, out of
 	// request_json and out of a client-supplied body.
 	SkillsResolved bool `json:"-" yaml:"-"`
+	// Rules are the MANDATORY rules this job carries (JOB-06①, design §一.2). Submit
+	// resolves them from the four binding levels — server.rules, the agent's rules, the
+	// project's rules and this request's own `--rule` — as a UNION (like skills, unlike
+	// the retry policy's nearest-level override), appends the project's `.gofer/RULES.md`
+	// as `project:<key>`, writes the result back here, and injects the rendered section
+	// into Prompt. So request_json, the persisted row, the Forward and the executing
+	// machine all carry ONE decided set, and a rerun re-reads the current text.
+	Rules []string `json:"rules,omitempty" yaml:"rules,omitempty"`
+	// NoRules turns every binding off for this job (`--no-rules`): an empty result is a
+	// decision, not an omission. Only a user caller may set it — a job credential
+	// submitting a job cannot switch off the discipline that governs it (design 决策 4;
+	// enforced at the HTTP boundary).
+	NoRules bool `json:"no_rules,omitempty" yaml:"no_rules,omitempty"`
+	// RulesResolved marks the rules as FINAL and NOT to be resolved (or injected)
+	// here: set by the worker dispatch re-entry and by a resume's continuation (whose
+	// session already carries the rules the source job was given). Internal — json/
+	// yaml "-" keeps it off the wire so no caller can skip the injection or its size
+	// check by forging it.
+	RulesResolved bool `json:"-" yaml:"-"`
+	// ruleRefs / ruleBytes / rulesSkipped are the resolver's own report, kept off the
+	// wire and out of request_json (the names in Rules and the injected Prompt are the
+	// persisted decision): they are what makes the job row's `rules: [{name,sha256}]`,
+	// the job.rules_injected event and the job.rules_skipped event exact rather than
+	// re-derived from a config that may have moved on.
+	ruleRefs     []RuleRef
+	ruleBytes    int
+	rulesSkipped string
 	// LeaderOfPlan marks this job as the LEADER of that plan (MCP-05 阶段 B): the leader
 	// round sets it, and it is what makes the job's @-comments dispatchable, keeps its
 	// own terminal state from waking another leader, and bars it from accepting or
@@ -644,6 +671,12 @@ type JobResult struct {
 	// web detail and a post-mortem answer "which rules did this run actually have?"
 	// without re-reading a config that may have changed since.
 	Skills []string `json:"skills,omitempty"`
+	// Rules are the MANDATORY rules this job was injected with (JOB-06①), each with
+	// the sha256 of the text that went into its prompt. Persisted as jobs.rules_json:
+	// the prompt itself (request_json) shows WHAT the agent read, this column shows
+	// WHICH LIBRARY VERSION it read — the pair a post-mortem needs after the library
+	// was edited. Nil for a job that carried no rules.
+	Rules []RuleRef `json:"rules,omitempty"`
 }
 
 // VerifyResult / the verify statuses are the runner package's types, aliased here:
@@ -796,6 +829,18 @@ const (
 	// The literal lives in the runner package (which emits it and cannot import this
 	// one — G022); it is aliased here so the job event vocabulary has ONE definition.
 	EventJobSkillsSkipped = runner.EventSkillsSkipped
+	// EventJobRulesInjected is a job's MANDATORY rules being injected at submit
+	// (JOB-06①): {names, bytes}. It is recorded by the SUBMITTING machine right after
+	// the job's result dir exists, and it is the receipt that this run's prompt
+	// actually opened with the discipline the config bound to it — `job show`'s
+	// `rules:` line reads the row, this reads the timeline.
+	EventJobRulesInjected = "job.rules_injected"
+	// EventJobRulesSkipped is a rule source that could not be read (JOB-06①):
+	// {reason}. "project_file_unreachable" means the project's `.gofer/RULES.md` was
+	// not readable from the machine that submitted (typically a worker-hosted project
+	// whose tree this hub cannot see). The job still runs — the omission is visible
+	// here rather than silently dropped.
+	EventJobRulesSkipped = "job.rules_skipped"
 	// The permission events are emitted by the acp runner (internal/runner/acp), whose
 	// gated calls cannot reach this package (G022). Their literals live in the runner
 	// package — the same single-definition rule as EventJobInputInjected — and are

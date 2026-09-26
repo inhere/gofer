@@ -93,6 +93,10 @@ type Core struct {
 	// against plus the job seam that mounts/stages its files. Built once in Build and
 	// always non-nil after it; read through Skills().
 	skillLib *hubSkillLibrary
+	// ruleLib is the JOB-06① rule library: the store the four-level binding resolves
+	// against (the job seam injects the text into the prompt at submit). Built once in
+	// Build and always non-nil after it; read through Rules().
+	ruleLib *hubRuleLibrary
 	// detector is the agent.Detector this Core resolved its config with. It is kept
 	// so ReloadWith re-gates the built-in agent templates through the SAME seam the
 	// process started with (a test's fake detector must not silently become the real
@@ -312,6 +316,16 @@ func Build(cfg *config.Config, opts ...BuildOption) (*Core, error) {
 	// Keep the same library on the Core so the HTTP surface (httpapi.SetSkills) and the
 	// CLI read the one store rather than opening a second one over the same table.
 	c.skillLib = skillLib
+	// JOB-06①: the rule library the four-level binding (plus the project's
+	// .gofer/RULES.md) resolves against. No transfer manager and no mounting: a rule is
+	// TEXT injected into the prompt at submit, so this seam is a plain read.
+	ruleLib, err := buildRuleLibrary(store)
+	if err != nil {
+		return nil, fmt.Errorf("build rule library: %w", err)
+	}
+	jobs.SetRuleLibrary(ruleLib)
+	// Same store for the HTTP/CLI surface (httpapi.SetRules), exactly like skills.
+	c.ruleLib = ruleLib
 	// Seed generation 1 (verification 5: Build=Rev 1, every write +1). This is the
 	// only snap.Store outside reloadLocked; it never re-resolves (the registries above
 	// were already built from this resolved cfg).

@@ -59,6 +59,13 @@ type serverConfigView struct {
 	// editable, so the console needs the value to prefill the input it writes back —
 	// and the clear-on-omit rule means an absent field would read as "no bindings".
 	Skills []string `json:"skills"`
+	// Rules / RulesMaxBytes are the deployment-wide MANDATORY rule list and its total
+	// cap (JOB-06① §一.2). Both are editable and read where they are used (per
+	// dispatch / per submit), so the console needs the values to prefill the inputs it
+	// writes back — and, the clear-on-omit rule being what it is, an absent field would
+	// read as "no rules" and then erase them.
+	Rules         []string `json:"rules"`
+	RulesMaxBytes int      `json:"rules_max_bytes"`
 	// CommentTrigger is the @-mention dispatch throttle (MCP-05 阶段 A). Both members
 	// are pointers on the wire for the same reason they are pointers in the config:
 	// null = the built-in default, 0 = that gate is off.
@@ -242,6 +249,10 @@ type configAgentView struct {
 	// Skills are this agent's own bindings (JOB-10 §一.3), like the server's list:
 	// editable, so the view carries it for the console's form to prefill.
 	Skills []string `json:"skills"`
+	// Rules are this agent's own MANDATORY bindings (JOB-06① §一.2), the same
+	// editable-and-prefilled contract as skills above (the agent write REPLACES the
+	// editable set, so a view that omitted the list would erase it on the next save).
+	Rules []string `json:"rules"`
 	// CanSubmit / SubmitAgents are the SEC-01 submit gate (design §一.3). Editable,
 	// and the agent write REPLACES the editable set — a body that omits a field clears
 	// it — so a view that did not carry them would let the console's next unrelated
@@ -418,6 +429,8 @@ func buildServerConfigView(sc config.ServerConfig) serverConfigView {
 		JobRecoverWindowSec: sc.JobRecoverWindowSec,
 		Retry:               sc.Retry,
 		Skills:              nonNil(sc.Skills),
+		Rules:               nonNil(sc.Rules),
+		RulesMaxBytes:       sc.RulesMaxBytes,
 		// MCP-05: the @-mention throttle, editable — so the console needs the values to
 		// prefill the inputs it writes back (nil = "unset", which is NOT 0 = "off").
 		CommentTrigger: commentTriggerView{
@@ -579,6 +592,7 @@ func buildAgentViews(agents map[string]config.AgentConfig, injected map[string]b
 			ACP:                      acp,
 			Injected:                 injected[k],
 			Skills:                   nonNil(ac.Skills),
+			Rules:                    nonNil(ac.Rules),
 			CanSubmit:                ac.CanSubmit,
 			SubmitAgents:             nonNil(ac.SubmitAgents),
 		})

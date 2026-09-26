@@ -272,6 +272,9 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// update / remove / export). The library core already built for the dispatch path
 	// is the same store, so a skill imported here is the one the next job mounts.
 	srv.SetSkills(cr.Skills())
+	// JOB-06①: mount the rule library the same way — the store core already built for
+	// the submit-time injection is the one the CLI/web manage.
+	srv.SetRules(cr.Rules())
 	// Staging-area TTL sweep. UNCONDITIONAL (unlike retention, which is opt-in): a
 	// transfer's staging directory is transient by construction, so an expired one left
 	// behind is leaked disk, not a policy choice. stop closes when serve returns.

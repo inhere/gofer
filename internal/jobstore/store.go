@@ -125,6 +125,7 @@ var schemaStmts = []string{
   usage_json       TEXT,
   xfer_json        TEXT,
   skills_json      TEXT,
+  rules_json       TEXT,
   dir_exclusive    INTEGER NOT NULL DEFAULT 0,
   leader_of_plan   TEXT
 )`,
@@ -533,6 +534,19 @@ var schemaStmts = []string{
   updated_at  INTEGER NOT NULL DEFAULT 0,
   updated_by  TEXT
 )`,
+	// rules is the rule library's index (JOB-06①, design §一.1): one row per
+	// <config-dir>/rules/<name>.md. Like skills, the text itself stays in that
+	// directory (it rides the config backup) and the row keeps only what `agent rule
+	// ls`, the binding resolver and the injected-version record need. IF NOT EXISTS
+	// like every table here (idempotent Open).
+	`CREATE TABLE IF NOT EXISTS rules (
+  name        TEXT PRIMARY KEY,
+  description TEXT,
+  size        INTEGER NOT NULL DEFAULT 0,
+  sha256      TEXT,
+  updated_at  INTEGER NOT NULL DEFAULT 0,
+  updated_by  TEXT
+)`,
 	// comments is the comment thread on a job / plan / plan-todo (MCP-05 阶段 A,
 	// design §二.A.1). One row per comment; scope+scope_id name the object it is
 	// written on, author_kind (user|agent|system) is what the @-mention dispatch gate
@@ -843,6 +857,13 @@ func (s *Store) migrate() error {
 	// COALESCE→""。技能本体不在库里，它在执行机的 <result_dir>/skills/<name>/ 下（随 job 的
 	// result_dir 一起过期）。
 	if err := add("skills_json", "skills_json TEXT"); err != nil {
+		return err
+	}
+	// 强制规则（JOB-06①，设计 §一.3）：rules_json=该 job 注入的规则清单 [{name,sha256}]
+	// （JSON），空=这个 job 没注入规则（读作"没有规则"），不会把历史 job 伪造成注入过。
+	// 规则正文不在这里，它在 <config-dir>/rules/<name>.md（或执行机的
+	// .gofer/RULES.md），sha256 就是"当时注入的是哪个版本"的答案。
+	if err := add("rules_json", "rules_json TEXT"); err != nil {
 		return err
 	}
 	if err := add("resumed_from", "resumed_from TEXT"); err != nil {

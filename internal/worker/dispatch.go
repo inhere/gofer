@@ -125,6 +125,11 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// hand the files to — then there is nothing to mount and nothing to list.
 		Skills:         d.Skills,
 		SkillsResolved: true,
+		// JOB-06①: the hub rendered the MANDATORY rules into the prompt it is handing
+		// over, so this side must not resolve or inject its own — a worker whose config
+		// binds other rules would otherwise append a second section to a prompt that
+		// already carries the submitting machine's discipline.
+		RulesResolved: true,
 		// JOB-11 / AUTO-05: the hub decided whether this job holds the exclusive lock of
 		// its (worker-local) working directory and after how long silence kills it, so
 		// apply that decision here — the worker's own server.dir_lock / stall defaults
