@@ -218,6 +218,19 @@ codex 计划 `docs/plans/2026-09-26-web-workbench-w2b-plan.md`（`f333181`，由
 - Go：`TestACPRunnerRecordsPromptAndMessages`、`TestACPStreamEmitsStructuredEvents`（归一：thought 合并、tool 按 id 更新、噪声丢弃、旧作业 stdout 兜底、tail 与 truncated、终态 end）、`TestThreadDiffSpansChain`（live：基线取首轮、含多轮提交与未提交；captured 回退）、`TestReviewCommentsBecomeNextTurn`（prompt 合成含 path:line 与代码上下文、派发到同一会话、400/409/上限）、`TestReviewJobCallerForbidden`。
 - web（vitest）：`acpEvents.ts` 的合并与截断。
 
+### W3a 实测记录（2026-09-27，不改变 Approved 0.4 设计语义）
+
+Codex 计划 `docs/plans/2026-09-27-web-workbench-w3a-plan.md`（`6b45f33`，由用户授权的监督者审核批准，`DIRECT_CONTINUOUS`）。实现提交：`fc7cc02`（固定 runner/streaming+HTTP/Web contract tests RED）、`4a27118`（prompt/message 落盘、2 秒 idle flush、structured locations）、`540e36e`（ACP normalize/tail/frame cap/live follow 与两条 G032 legacy 路径）、`f4ffd3f`（authenticated `/v1/jobs/{id}/acp/stream` 与 job credential GET parity）、`e0de59c`（纯函数 reducer）、`76dabdc`（按 job 链的对话视图、MetaAgent 类型路由、内联审批）。恢复期间出现的 `9be1f91` 只修改 resume-of-resume，作为 unrelated commit 保留，不计入 W3a 归因。
+
+验证分层：
+
+- Contract/Package PASS：`TestACPRunnerRecordsPromptAndMessages`、`TestACPStreamEmitsStructuredEvents` 均 GREEN；`go test ./internal/runner/acp/ ./internal/streaming/ ./internal/httpapi/ -count=1` 三包分别 PASS（0.211s / 0.536s / 217.432s）。
+- Build/Static PASS：Windows build、Linux/amd64 `CGO_ENABLED=0` build 与 `go vet ./...` exit 0；两次 build 原始输出各有一条宿主全局 Go module stat-cache `Access is denied` warning，但没有构建失败或 source 写入。
+- Web PASS：Vitest 2 files / 12 tests、`vue-tsc --noEmit`、Vite production build（229 modules）全部 exit 0；`ConversationView` 不直接使用 `v-html`，Markdown 仍统一经过 `MarkdownBlock` 的 marked + DOMPurify。
+- Hygiene PASS：owned Go gofmt 无输出；control character 无匹配；UTF-8 BOM=0、CRLF=0；`git diff --check` 与 Go/pnpm dependency diff 均为 0。
+- G032：保留的旧 artifact 回退只有“无 message 时读 stdout”与“逐 token thought 合并”，均标 `DEPRECATED(v0.65): remove in v0.68`；没有新增无标记兼容分支。
+- Lifecycle/consumer boundary：未 push、未部署、未重启/reload live gofer、未触碰真实配置；浏览器目视、真实 ACP 多轮与 W3b diff/review 均 `NOT_RUN`，不能由 build 或 httptest 推导为用户验收。
+
 ## 决策（已批准 2026-09-26）
 
 1. 以**会话**为一等公民（侧栏会话列表 + 主区视图），herdr 式窗格/布局作为 W2 的摆放层。

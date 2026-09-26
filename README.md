@@ -425,7 +425,7 @@ Tools (snake_case, aligned with HTTP): `gofer_list_projects` `gofer_list_agents`
 
 ## Web console
 
-### Workbench（W1–W2）
+### Workbench（W1–W3a）
 
 `/workbench` 是主动工作的会话中枢：顶部 composer 选择 project、agent、模式（ACP 对话 / 交互 PTY / 批处理）、可选 plan todo 和 cwd 后提交；左侧按项目分组显示会话、状态上卷、相对时间与 token 用量；「⚠ 等你 N」按等待时长列出待答 interaction、relay 回复和待看结果；主区复用现有终端、日志、审批卡与 session relay，并可重命名、置顶、标记已看、停止当前 job、打开 job 详情或继续同一 agent 会话。
 
@@ -439,7 +439,9 @@ Workbench 的 thread 定义：`s:<session_id>` 是同一 agent session 的首轮
 
 PWA 与推送（W2b）：web 可"安装"为应用（manifest `start_url=/workbench`）；设置 → 通知 可开启本设备 Web Push，等你审批/回答、待评审和 plan 阻塞时推送，审批类通知可直接点「允许/拒绝」。推送要求 HTTPS 或 localhost，不满足时退化为标题计数 `(N) gofer` + 顶部提示条。点通知打开 `/workbench?thread=<id>` 并定位会话。细节见 `docs/runbook/web-push.md`。
 
-ACP/批处理内容仍使用现有 stdout/stderr 日志视图；结构化 ACP 对话与 diff 行内评审（W3）、worktree 合并/预览（W4）尚未做。
+ACP 对话（W3a）：agent 类型为 `acp-agent` 的 thread 在「过程」区按 `job_ids` 逐轮显示用户 prompt、默认折叠的 thought、可展开的 tool call（含状态、输入和 `path[:line]` 文本）、Markdown 助手消息、permission/plan/usage/stop。默认加载最近 3 轮，顶部可每次再加载 3 轮；只有最新轮仍运行时保持 `GET /v1/jobs/{id}/acp/stream?tail=300`，旧轮读到 `end` 即关闭。待答 interaction 内联在最新轮末尾，底部输入框仍通过 thread turn 续接同一会话。非 ACP 的 cli/批处理继续使用最近 200 行 stdout/stderr 日志视图。
+
+W3b 的会话级 diff、文件跳转和行内评论回灌尚未做；W4 的 worktree 合并/预览也尚未做。
 
 `serve` embeds a static SPA (the page itself needs no auth; its `/v1/*` calls do). Build and embed it with `make web build`; a bare `go build` serves a placeholder page without affecting the API. Pages: Home (service health, drivers/runners, escalations, jobs by status, schedules, projects, plus two metadata-db cards — **Server DB**: file + WAL size, page geometry, the busiest tables by row count; **Sessions**: totals by state, relay mode split, turns still waiting for a reply, the card links through to Sessions) / board (the plan filter is a free-text plan-id input — prefix match — with a one-click "recent open plans" hint, and `?plan=` in the URL) / **review queue (`/review`, REV-01)** — jobs parked in `needs_review` with their acceptance material in one row (verify badge, commit count, usage, wait time; longest wait first), inline accept/reject and a top-bar count badge / job detail (live logs, diff, artifacts, pty attach; a job in `needs_review`, `rejected`, or `done` with `require_review` opens on a five-tab **review panel** — report / commits / diff / verify / usage — with accept/reject at the bottom) / Plans (todos, decisions; **plan board** — five-column kanban, drag a card to `ready` to dispatch it; the list filters by status/project/keyword and pages 20 at a time, all carried in the URL) / Sessions (relay switch, `auto (idle Xm)`) / Workflows / Schedules / Agents (configured agents and their detect status, with the online driver presence listed below it — a row opens the inbox at `/agents/presence/:id`, and the old `/drivers` + `/drivers/:id` links redirect there) / Runners / Projects (including "allow interactive jobs") / Skills (the skill library: list, SKILL.md body, import/update/remove/export) / New job. The left rail groups the observing pages as Board, Review, Plans, Sessions, Workflows, Schedules and the fleet pages as Agents, Runners, Projects, Skills (Drivers is no longer a separate entry). Disable with `serve --no-web` or `server.web_enabled: false`.
 
@@ -451,7 +453,7 @@ ACP/批处理内容仍使用现有 stdout/stderr 日志视图；结构化 ACP �
 |---|---|
 | projects / agents / roster | `GET/POST /v1/projects`, `GET/PUT/DELETE /v1/projects/{key}`, `GET /v1/agents`, `GET /v1/runners`, `GET /v1/meta`, `GET /v1/metrics` |
 | templates | `GET /v1/projects/{key}/templates`, `GET /v1/projects/{key}/templates/{name}?var=k=v` (read-only; the detail endpoint returns the server's render of it) |
-| jobs | `POST/GET /v1/jobs`, `GET /v1/jobs/{id}`, `/logs/{stdout,stderr}`, `/stream` (SSE), `/events`, `/diff`, `/artifacts`, `POST …/cancel`, `POST …/resume`, `POST/GET …/wakeups`, `GET/PATCH/DELETE /v1/wakeups/{wid}`, `GET/DELETE …/worktree`, `POST …/attach-ticket`, `GET …/pty/sessions` |
+| jobs | `POST/GET /v1/jobs`, `GET /v1/jobs/{id}`, `/logs/{stdout,stderr}`, `/stream` (日志 SSE), `/acp/stream`（归一化 ACP SSE）, `/events`, `/diff`, `/artifacts`, `POST …/cancel`, `POST …/resume`, `POST/GET …/wakeups`, `GET/PATCH/DELETE /v1/wakeups/{wid}`, `GET/DELETE …/worktree`, `POST …/attach-ticket`, `GET …/pty/sessions` |
 | interactions | `POST/GET /v1/jobs/{id}/interactions`, `POST …/{iid}/answer`, `POST …/{iid}/punt`, `GET /v1/interactions` |
 | workbench | `GET /v1/workbench/threads?project=&status=&q=&since=`, `PATCH /v1/workbench/threads/{s:\|j:\|r:…}`, `POST …/turn` |
 | plans / decisions | `POST/GET /v1/plans`, `GET /v1/plans/{id}`, `POST …/todos`, `POST …/jobs`, `POST …/run\|pause\|resume`, `POST/GET /v1/decisions`, `POST /v1/decisions/{id}/answer` |
