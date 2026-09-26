@@ -756,6 +756,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/jobs/{id}/logs/stdout", s.handleJobLogsStdout)
 		r.GET("/jobs/{id}/logs/stderr", s.handleJobLogsStderr)
 		r.GET("/jobs/{id}/stream", s.handleJobStream)
+		r.GET("/jobs/{id}/acp/stream", s.handleJobACPStream)
 
 		// E13: append-only lifecycle event stream (?since=<seq> for incremental).
 		r.GET("/jobs/{id}/events", s.handleListEvents)
