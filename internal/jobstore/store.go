@@ -629,6 +629,18 @@ var schemaStmts = []string{
   updated_at INTEGER NOT NULL,
   updated_by TEXT
 )`,
+	// workbench_thread_prefs is the caller-local presentation state for WEB-11.
+	// Thread state itself is derived from jobs/sessions; this table owns only the
+	// title override, seen watermark and pin. The compound primary key gives each
+	// authenticated caller an independent view without another identity table.
+	`CREATE TABLE IF NOT EXISTS workbench_thread_prefs (
+  caller_id TEXT NOT NULL,
+  thread_id TEXT NOT NULL,
+  title     TEXT NOT NULL DEFAULT '',
+  seen_at   INTEGER NOT NULL DEFAULT 0,
+  pinned    INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (caller_id, thread_id)
+)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema
