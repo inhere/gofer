@@ -54,6 +54,11 @@ type projectView struct {
 	// inherited variables this project's jobs keep (the same list each job reports
 	// through job.env_allowed for the ones actually in force).
 	JobEnvAllow []string `json:"job_env_allow,omitempty"`
+	// Rules are this project's MANDATORY bindings (JOB-06① §一.2), the same
+	// editable-and-prefilled contract as the agent/server lists — and the reason a
+	// console can answer "which projects force this rule?" without a second endpoint
+	// (the binding levels are all in GET /v1/config).
+	Rules []string `json:"rules,omitempty"`
 }
 
 // removedNarrowingFieldMsg is the answer to a write that still carries the AGT-02
@@ -88,6 +93,10 @@ type projectWriteReq struct {
 	// field keeps the stored list and an explicit [] clears it (the same
 	// present-and-empty contract as every other list here).
 	JobEnvAllow *[]string `json:"job_env_allow,omitempty"`
+	// Rules are the project's MANDATORY rule bindings (JOB-06① §一.2), bound like the
+	// agent/server lists. Same pointer contract: omitted keeps the stored list, an
+	// explicit [] unbinds — which is what makes "取消最后一个绑定" expressible.
+	Rules *[]string `json:"rules,omitempty"`
 }
 
 // rejectRemovedNarrowingField fails a write body that still carries the AGT-02-removed
@@ -240,6 +249,9 @@ func mergeProjectWrite(base config.ProjectConfig, req projectWriteReq) config.Pr
 	if req.JobEnvAllow != nil {
 		base.JobEnvAllow = *req.JobEnvAllow
 	}
+	if req.Rules != nil {
+		base.Rules = *req.Rules
+	}
 	return base
 }
 
@@ -292,6 +304,7 @@ func projectViewOf(key string, proj config.ProjectConfig) projectView {
 		AllowExec:         proj.AllowExec,
 		MaxConcurrentJobs: proj.MaxConcurrentJobs,
 		JobEnvAllow:       proj.JobEnvAllow,
+		Rules:             proj.Rules,
 	}
 }
 

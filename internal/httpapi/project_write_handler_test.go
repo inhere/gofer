@@ -335,6 +335,68 @@ func TestUpdateProjectPreservesUnspecifiedFields(t *testing.T) {
 	}
 }
 
+// TestProjectRulesBindingRoundTrip pins the project level of the JOB-06① binding
+// surface: a rule list written through the project API is published by the project
+// view (that is what the console's "which projects bind this rule?" column reads), a
+// PARTIAL PUT keeps it, and an explicit [] unbinds it — the present-and-empty
+// contract every other project list already has.
+func TestProjectRulesBindingRoundTrip(t *testing.T) {
+	root := t.TempDir()
+	s := newProjectWriteTestServer(t, &config.Config{Server: config.ServerConfig{Token: testToken}})
+
+	resp := do(t, s, http.MethodPost, "/v1/projects", testToken, projectWriteReq{
+		Key:            "demo",
+		HostPath:       strPtr(root),
+		AllowedRunners: strsPtr("local"),
+		Rules:          strsPtr("house-rules", "gofer-repo"),
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("create status=%d, want 200", resp.StatusCode)
+	}
+	var created projectWriteResp
+	decode(t, resp, &created)
+	if !slices.Equal(created.Rules, []string{"house-rules", "gofer-repo"}) {
+		t.Fatalf("create response rules=%v, want both bindings", created.Rules)
+	}
+
+	resp = do(t, s, http.MethodGet, "/v1/projects/demo", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("get status=%d, want 200", resp.StatusCode)
+	}
+	var got projectView
+	decode(t, resp, &got)
+	if !slices.Equal(got.Rules, []string{"house-rules", "gofer-repo"}) {
+		t.Fatalf("GET project rules=%v, want both bindings", got.Rules)
+	}
+
+	// A write that does not mention rules must not unbind them: a caller that has no
+	// input for this level (today's console project form) would otherwise erase a
+	// binding it never knew about.
+	resp = do(t, s, http.MethodPut, "/v1/projects/demo", testToken, projectWriteReq{AllowExec: boolptr(true)})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("partial update status=%d, want 200", resp.StatusCode)
+	}
+	stored, err := s.projects.Get("demo")
+	if err != nil {
+		t.Fatalf("Get after partial update: %v", err)
+	}
+	if !slices.Equal(stored.Rules, []string{"house-rules", "gofer-repo"}) {
+		t.Fatalf("partial PUT dropped the rule bindings: %v", stored.Rules)
+	}
+
+	// An explicit empty list is the unbind (same as unchecking the last box). The
+	// pointer must point at a NON-nil empty slice: `strsPtr()` would marshal as JSON
+	// `null` (a nil slice), which decodes back to a nil pointer — i.e. "not in the
+	// request" — and the console's `[]` is what this case has to reproduce.
+	resp = do(t, s, http.MethodPut, "/v1/projects/demo", testToken, projectWriteReq{Rules: &[]string{}})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("unbind status=%d, want 200", resp.StatusCode)
+	}
+	if stored, err = s.projects.Get("demo"); err != nil || len(stored.Rules) != 0 {
+		t.Fatalf("explicit [] did not unbind: %v (%v)", stored.Rules, err)
+	}
+}
+
 // TestUpdateProjectInteractiveSettingsRoundTrip: the AGT-02 switch survives create →
 // read → update, and an explicit false written through the console is persisted as such.
 func TestUpdateProjectInteractiveSettingsRoundTrip(t *testing.T) {
