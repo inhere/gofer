@@ -98,12 +98,15 @@ func TestListProjectsThreadsAndAttention(t *testing.T) {
 func TestPatchThreadRenameAndSeen(t *testing.T) {
 	store := openWorkbenchStore(t)
 	now := time.Now().Unix()
-	putWorkbenchJob(t, store, jobstore.JobRecord{
-		ID: "done", ProjectKey: "alpha", Agent: "cli", Runner: "local", Cwd: ".",
-		SessionID: "sess-done", Status: job.StatusDone, StartedAt: now - 20, EndedAt: now - 10, UpdatedAt: now - 10,
-	}, "default", "done")
 	service := NewService(store, nil, nil)
 	service.now = func() time.Time { return time.Unix(now, 0) }
+	_, err := service.List("alice", Query{Since: 1})
+	assert.NoErr(t, err)
+	putWorkbenchJob(t, store, jobstore.JobRecord{
+		ID: "done", ProjectKey: "alpha", Agent: "cli", Runner: "local", Cwd: ".",
+		SessionID: "sess-done", Status: job.StatusDone, StartedAt: now - 20, EndedAt: now + 10, UpdatedAt: now + 10,
+		CommitsJSON: `[{"sha":"done","subject":"change"}]`,
+	}, "default", "done")
 	before, err := service.List("alice", Query{Since: 1})
 	assert.NoErr(t, err)
 	assert.Eq(t, StatusReview, before.Projects[0].Threads[0].Status)

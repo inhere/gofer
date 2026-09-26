@@ -38,6 +38,7 @@ type workbenchTestThread struct {
 	Status      string   `json:"status"`
 	Title       string   `json:"title"`
 	ProjectKey  string   `json:"project_key"`
+	Agent       string   `json:"agent"`
 	Turns       int      `json:"turns"`
 	Stalled     bool     `json:"stalled"`
 	Pinned      bool     `json:"pinned"`
@@ -294,7 +295,7 @@ func TestThreadsStatusPrecedence(t *testing.T) {
 		"s:working":      "working",
 		"s:waiting":      "working",
 		"s:needs-review": "review",
-		"s:unseen":       "review",
+		"s:unseen":       "done",
 		"r:relay-wait":   "blocked",
 		"r:relay-idle":   "idle",
 	}
@@ -312,8 +313,119 @@ func TestThreadsStatusPrecedence(t *testing.T) {
 	}
 }
 
+func TestThreadsReviewRequiresChangesOrFailure(t *testing.T) {
+	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
+	// The first empty visit establishes the caller baseline before these jobs end.
+	_ = getWorkbenchThreads(t, s, testToken, "since=1")
+	endedAt := time.Now().Unix() + 10
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "success-clean", SessionID: "success-clean", Status: job.StatusDone, StartedAt: endedAt - 1, UpdatedAt: endedAt}, "clean", "clean")
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "success-commits", SessionID: "success-commits", Status: job.StatusDone, StartedAt: endedAt - 1, UpdatedAt: endedAt, CommitsJSON: `[{"sha":"abc123","subject":"change"}]`}, "commits", "commits")
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "success-diff", SessionID: "success-diff", Status: job.StatusDone, StartedAt: endedAt - 1, UpdatedAt: endedAt, DiffSummary: " file.go | 1 +"}, "diff", "diff")
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "failed", SessionID: "failed", Status: job.StatusFailed, StartedAt: endedAt - 1, UpdatedAt: endedAt}, "failed", "failed")
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "cancelled", SessionID: "cancelled", Status: job.StatusCancelled, StartedAt: endedAt - 1, UpdatedAt: endedAt}, "cancelled", "cancelled")
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "exec-success", SessionID: "exec-success", Agent: "exec", Status: job.StatusDone, StartedAt: endedAt - 1, UpdatedAt: endedAt, CommitsJSON: `[{"sha":"exec123","subject":"change"}]`, DiffSummary: " file.go | 1 +"}, "exec", "exec")
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "needs-review", SessionID: "needs-review-always", Status: job.StatusNeedsReview, StartedAt: endedAt - 1, UpdatedAt: endedAt}, "needs review", "needs review")
+
+	got := getWorkbenchThreads(t, s, testToken, "since=1")
+	wants := map[string]string{
+		"s:success-clean":       "done",
+		"s:success-commits":     "review",
+		"s:success-diff":        "review",
+		"s:failed":              "review",
+		"s:cancelled":           "done",
+		"s:exec-success":        "done",
+		"s:needs-review-always": "review",
+	}
+	for id, want := range wants {
+		if gotStatus := findWorkbenchThread(t, got, id).Status; gotStatus != want {
+			t.Errorf("thread %s status=%q, want %q", id, gotStatus, want)
+		}
+	}
+
+	patchWorkbenchThread(t, s, testToken, "s:needs-review-always", map[string]any{"seen": true})
+	if status := findWorkbenchThread(t, getWorkbenchThreads(t, s, testToken, "since=1"), "s:needs-review-always").Status; status != "review" {
+		t.Fatalf("seen needs_review status=%q, want review", status)
+	}
+}
+
+func TestThreadsSeenBaselineOnFirstVisit(t *testing.T) {
+	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
+	now := time.Now().Unix()
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "old-change", SessionID: "old-change", Status: job.StatusDone, StartedAt: now - 200, UpdatedAt: now - 190, CommitsJSON: `[{"sha":"old","subject":"change"}]`}, "old change", "old change")
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "old-failure", SessionID: "old-failure", Status: job.StatusFailed, StartedAt: now - 180, UpdatedAt: now - 170}, "old failure", "old failure")
+
+	first := getWorkbenchThreads(t, s, testToken, "since=1")
+	for _, id := range []string{"s:old-change", "s:old-failure"} {
+		if status := findWorkbenchThread(t, first, id).Status; status != "done" {
+			t.Errorf("first-visit historical thread %s status=%q, want done", id, status)
+		}
+	}
+
+	endedAt := now + 10
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "new-change", SessionID: "new-change", Status: job.StatusDone, StartedAt: endedAt - 1, UpdatedAt: endedAt, CommitsJSON: `[{"sha":"new","subject":"change"}]`}, "new change", "new change")
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "new-failure", SessionID: "new-failure", Status: job.StatusFailed, StartedAt: endedAt - 1, UpdatedAt: endedAt}, "new failure", "new failure")
+	second := getWorkbenchThreads(t, s, testToken, "since=1")
+	for _, id := range []string{"s:new-change", "s:new-failure"} {
+		if status := findWorkbenchThread(t, second, id).Status; status != "review" {
+			t.Errorf("post-baseline thread %s status=%q, want review", id, status)
+		}
+	}
+}
+
+func TestThreadsSeenAll(t *testing.T) {
+	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
+	_ = getWorkbenchThreads(t, s, testToken, "since=1")
+	endedAt := time.Now().Unix() + 10
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "seen-all-change", SessionID: "seen-all-change", Status: job.StatusDone, StartedAt: endedAt - 1, UpdatedAt: endedAt, CommitsJSON: `[{"sha":"new","subject":"change"}]`}, "change", "change")
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "seen-all-failure", SessionID: "seen-all-failure", Status: job.StatusFailed, StartedAt: endedAt - 1, UpdatedAt: endedAt}, "failure", "failure")
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "seen-all-needs-review", SessionID: "seen-all-needs-review", Status: job.StatusNeedsReview, StartedAt: endedAt - 1, UpdatedAt: endedAt}, "needs review", "needs review")
+
+	before := getWorkbenchThreads(t, s, testToken, "since=1")
+	for _, id := range []string{"s:seen-all-change", "s:seen-all-failure", "s:seen-all-needs-review"} {
+		if status := findWorkbenchThread(t, before, id).Status; status != "review" {
+			t.Fatalf("before seen-all thread %s status=%q, want review", id, status)
+		}
+	}
+
+	resp := do(t, s, http.MethodPost, "/v1/workbench/threads/seen-all", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		t.Fatalf("seen-all status=%d, want 200: %s", resp.StatusCode, body)
+	}
+	resp.Body.Close()
+
+	after := getWorkbenchThreads(t, s, testToken, "since=1")
+	for _, id := range []string{"s:seen-all-change", "s:seen-all-failure"} {
+		if status := findWorkbenchThread(t, after, id).Status; status != "done" {
+			t.Errorf("after seen-all thread %s status=%q, want done", id, status)
+		}
+	}
+	if status := findWorkbenchThread(t, after, "s:seen-all-needs-review").Status; status != "review" {
+		t.Errorf("after seen-all needs_review status=%q, want review", status)
+	}
+}
+
+func TestThreadAgentUsesOriginAgent(t *testing.T) {
+	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
+	now := time.Now().Unix()
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "origin-first", SessionID: "origin-session", Agent: "exec", OriginAgent: "omp", Status: job.StatusDone, StartedAt: now - 20, UpdatedAt: now - 19}, "origin", "origin")
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "origin-latest", SessionID: "origin-session", ResumedFrom: "origin-first", Agent: "exec", OriginAgent: "omp", Status: job.StatusRunning, StartedAt: now - 10, UpdatedAt: now - 9}, "resume", "resume")
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "first-agent", SessionID: "first-agent-session", Agent: "cli", Status: job.StatusDone, StartedAt: now - 20, UpdatedAt: now - 19}, "first", "first")
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "latest-carrier", SessionID: "first-agent-session", ResumedFrom: "first-agent", Agent: "exec", OriginAgent: "cli", Status: job.StatusRunning, StartedAt: now - 10, UpdatedAt: now - 9}, "latest", "latest")
+
+	got := getWorkbenchThreads(t, s, testToken, "since=1")
+	if agentID := findWorkbenchThread(t, got, "s:origin-session").Agent; agentID != "omp" {
+		t.Errorf("origin carrier thread agent=%q, want omp", agentID)
+	}
+	if agentID := findWorkbenchThread(t, got, "s:first-agent-session").Agent; agentID != "cli" {
+		t.Errorf("first-agent thread agent=%q, want cli", agentID)
+	}
+}
+
 func TestThreadsAttentionQueueOrder(t *testing.T) {
 	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
+	_ = getWorkbenchThreads(t, s, testToken, "since=1")
 	now := time.Now().Unix()
 	seedWorkbenchRelay(t, s, "relay-old", "self", jobstore.SessionWaitingReply, now-500, now-300)
 	decision := jobstore.PlanDecision{Title: "relay", Question: "reply", State: jobstore.DecisionOpen, SessionID: "relay-old", Kind: jobstore.DecisionKindRelay, AskedAt: now - 300, TimeoutSec: 3600}
@@ -324,7 +436,7 @@ func TestThreadsAttentionQueueOrder(t *testing.T) {
 	if err := s.jobs.Meta().UpsertInteraction(jobstore.InteractionRecord{ID: "int-old", JobID: "answer-job", Type: "question", Prompt: "answer", Status: "pending", CreatedAt: now - 200}); err != nil {
 		t.Fatal(err)
 	}
-	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "review-old", SessionID: "review", Status: job.StatusDone, StartedAt: now - 150, UpdatedAt: now - 100}, "review", "review")
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "review-old", SessionID: "review", Status: job.StatusDone, StartedAt: now - 150, UpdatedAt: now + 10, CommitsJSON: `[{"sha":"review","subject":"change"}]`}, "review", "review")
 
 	attention := getWorkbenchThreads(t, s, testToken, "since=1").Attention
 	if len(attention) < 3 {
@@ -425,8 +537,9 @@ func TestThreadPatchRenameAndSeen(t *testing.T) {
 		{ID: "alice", Token: "tok-alice"},
 		{ID: "bob", Token: "tok-bob"},
 	}})
+	_ = getWorkbenchThreads(t, s, "tok-alice", "since=1")
 	now := time.Now().Unix()
-	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "prefs-job", SessionID: "prefs", Status: job.StatusDone, StartedAt: now - 20, UpdatedAt: now - 10, CallerID: "alice"}, "default title", "done")
+	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "prefs-job", SessionID: "prefs", Status: job.StatusDone, StartedAt: now - 20, UpdatedAt: now + 10, CallerID: "alice", CommitsJSON: `[{"sha":"prefs","subject":"change"}]`}, "default title", "done")
 
 	if before := findWorkbenchThread(t, getWorkbenchThreads(t, s, "tok-alice", "since=1"), "s:prefs"); before.Status != "review" {
 		t.Fatalf("before patch status=%q, want review", before.Status)
@@ -495,6 +608,7 @@ func TestWorkbenchValidationAndWorkerWrites(t *testing.T) {
 		body   any
 	}{
 		{http.MethodPatch, "/v1/workbench/threads/s:valid", map[string]any{"seen": true}},
+		{http.MethodPost, "/v1/workbench/threads/seen-all", nil},
 		{http.MethodPost, "/v1/workbench/threads/s:valid/turn", map[string]string{"text": "x"}},
 	} {
 		resp = do(t, s, target.method, target.path, "tok-worker", target.body)
