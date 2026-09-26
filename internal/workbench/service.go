@@ -17,6 +17,8 @@ type Store interface {
 	LoadWorkbenchSnapshot(callerID string, since int64) (jobstore.WorkbenchSnapshot, error)
 	ListWorkbenchThreadPrefs(callerID string) ([]jobstore.WorkbenchThreadPref, error)
 	UpsertWorkbenchThreadPref(pref jobstore.WorkbenchThreadPref) error
+	GetOrCreateWorkbenchSeenBaseline(callerID string, observedAt int64) (int64, error)
+	SetWorkbenchSeenBaseline(callerID string, observedAt int64) (int64, error)
 	ListJobs(query jobstore.ListQuery) ([]jobstore.JobRecord, error)
 	GetJob(id string) (jobstore.JobRecord, bool, error)
 }
@@ -54,11 +56,15 @@ func (s *Service) List(callerID string, query Query) (Response, error) {
 	if since <= 0 {
 		since = s.now().Add(-defaultWindow).Unix()
 	}
+	seenBaseline, err := s.store.GetOrCreateWorkbenchSeenBaseline(callerID, s.now().Unix())
+	if err != nil {
+		return Response{}, err
+	}
 	snapshot, err := s.store.LoadWorkbenchSnapshot(callerID, since)
 	if err != nil {
 		return Response{}, err
 	}
-	projections := projectThreads(snapshot)
+	projections := projectThreads(snapshot, seenBaseline)
 
 	groups := make(map[string]*ProjectGroup)
 	attention := make([]AttentionItem, 0)
@@ -134,7 +140,7 @@ func (s *Service) List(callerID string, query Query) (Response, error) {
 	return Response{Projects: projects, Attention: attention, Total: total, Since: since}, nil
 }
 
-func projectThreads(snapshot jobstore.WorkbenchSnapshot) []projection {
+func projectThreads(snapshot jobstore.WorkbenchSnapshot, seenBaseline int64) []projection {
 	prefs := make(map[string]jobstore.WorkbenchThreadPref, len(snapshot.Prefs))
 	for _, pref := range snapshot.Prefs {
 		prefs[pref.ThreadID] = pref
@@ -163,7 +169,7 @@ func projectThreads(snapshot jobstore.WorkbenchSnapshot) []projection {
 		if !ok && strings.HasPrefix(id, "s:") && len(records) > 0 {
 			pref = prefs["j:"+records[0].ID]
 		}
-		out = append(out, projectJobThread(id, records, pref, interactions, snapshot.StalledJobIDs))
+		out = append(out, projectJobThread(id, records, pref, interactions, snapshot.StalledJobIDs, seenBaseline))
 	}
 	openTurns := make(map[string][]jobstore.PlanDecision)
 	for _, decision := range snapshot.RelayDecisions {
@@ -176,7 +182,7 @@ func projectThreads(snapshot jobstore.WorkbenchSnapshot) []projection {
 	return out
 }
 
-func projectJobThread(id string, records []jobstore.JobRecord, pref jobstore.WorkbenchThreadPref, interactions map[string][]job.Interaction, stalledJobs map[string]bool) projection {
+func projectJobThread(id string, records []jobstore.JobRecord, pref jobstore.WorkbenchThreadPref, interactions map[string][]job.Interaction, stalledJobs map[string]bool, seenBaseline int64) projection {
 	first, latest := records[0], records[len(records)-1]
 	kind := KindJob
 	if latest.SessionID != "" {
@@ -188,7 +194,7 @@ func projectJobThread(id string, records []jobstore.JobRecord, pref jobstore.Wor
 		RawStatus:   latest.Status,
 		Title:       defaultThreadTitle(first),
 		ProjectKey:  latest.ProjectKey,
-		Agent:       latest.Agent,
+		Agent:       threadAgent(first),
 		Runner:      latest.Runner,
 		Cwd:         latest.Cwd,
 		Interactive: latest.Interactive,
@@ -244,13 +250,22 @@ func projectJobThread(id string, records []jobstore.JobRecord, pref jobstore.Wor
 		case job.StatusNeedsReview:
 			thread.Status = StatusReview
 			thread.WaitingSince = recordWaitAt(latest)
-		case job.StatusDone, job.StatusFailed, job.StatusCancelled, job.StatusTimeout, job.StatusRejected:
+		case job.StatusDone:
 			thread.WaitingSince = recordWaitAt(latest)
-			if pref.SeenAt >= thread.WaitingSince && pref.SeenAt != 0 {
+			if terminalSeen(pref.SeenAt, seenBaseline, thread.WaitingSince) || thread.Agent == "exec" || !jobHasChanges(latest) {
 				thread.Status = StatusDone
 			} else {
 				thread.Status = StatusReview
 			}
+		case job.StatusFailed, job.StatusTimeout, job.StatusRejected:
+			thread.WaitingSince = recordWaitAt(latest)
+			if terminalSeen(pref.SeenAt, seenBaseline, thread.WaitingSince) {
+				thread.Status = StatusDone
+			} else {
+				thread.Status = StatusReview
+			}
+		case job.StatusCancelled:
+			thread.Status = StatusDone
 		default:
 			thread.Status = StatusWorking
 		}
@@ -262,6 +277,13 @@ func projectJobThread(id string, records []jobstore.JobRecord, pref jobstore.Wor
 		}
 	}
 	return projection{thread: thread, attention: attention}
+}
+
+func (s *Service) SeenAll(callerID string) (int64, error) {
+	if s == nil || s.store == nil {
+		return 0, ErrUnavailable
+	}
+	return s.store.SetWorkbenchSeenBaseline(normalizeCaller(callerID), s.now().Unix())
 }
 
 func projectRelayThread(id string, session jobstore.AgentSession, pref jobstore.WorkbenchThreadPref, decisions []jobstore.PlanDecision) projection {
@@ -470,6 +492,25 @@ func defaultThreadTitle(first jobstore.JobRecord) string {
 		title = first.ID
 	}
 	return truncateRunes(title, 30)
+}
+
+func threadAgent(first jobstore.JobRecord) string {
+	if first.Agent == "exec" && strings.TrimSpace(first.OriginAgent) != "" {
+		return first.OriginAgent
+	}
+	return first.Agent
+}
+
+func jobHasChanges(rec jobstore.JobRecord) bool {
+	if strings.TrimSpace(rec.DiffSummary) != "" {
+		return true
+	}
+	var commits []json.RawMessage
+	return json.Unmarshal([]byte(rec.CommitsJSON), &commits) == nil && len(commits) > 0
+}
+
+func terminalSeen(threadSeenAt, baseline, terminalAt int64) bool {
+	return (threadSeenAt != 0 && threadSeenAt >= terminalAt) || (baseline != 0 && terminalAt < baseline)
 }
 
 func truncateRunes(value string, limit int) string {

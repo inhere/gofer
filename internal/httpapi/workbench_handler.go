@@ -88,6 +88,27 @@ func (s *Server) handlePatchWorkbenchThread(c *rux.Context) {
 	})
 }
 
+func (s *Server) handleSeenAllWorkbenchThreads(c *rux.Context) {
+	if !workbenchUserCaller(c) {
+		writeError(c, http.StatusForbidden, "workbench mutation requires a user caller", "worker and job credentials are read-only on workbench threads")
+		return
+	}
+	if s.workbench == nil {
+		writeError(c, http.StatusServiceUnavailable, "workbench unavailable", "job metadata service is not wired")
+		return
+	}
+	baseline, err := s.workbench.SeenAll(callerFromCtx(c))
+	if err != nil {
+		if errors.Is(err, workbench.ErrUnavailable) {
+			writeError(c, http.StatusServiceUnavailable, "workbench unavailable", err.Error())
+			return
+		}
+		writeError(c, http.StatusInternalServerError, "mark workbench threads seen failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, map[string]int64{"seen_baseline": baseline})
+}
+
 func (s *Server) handleWorkbenchTurn(c *rux.Context) {
 	if !workbenchUserCaller(c) {
 		writeError(c, http.StatusForbidden, "workbench turn requires a user caller", "worker and job credentials may not continue a thread")

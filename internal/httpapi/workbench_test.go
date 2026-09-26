@@ -564,8 +564,8 @@ func TestThreadPatchRenameAndSeen(t *testing.T) {
 		t.Fatalf("alice prefs not applied: %+v", alice)
 	}
 	bob := findWorkbenchThread(t, getWorkbenchThreads(t, s, "tok-bob", "since=1"), "s:prefs")
-	if bob.Title != "default title" || bob.Status != "review" || bob.Pinned || bob.SeenAt != 0 {
-		t.Fatalf("bob saw alice prefs: %+v", bob)
+	if bob.Title != "default title" || bob.Status != "done" || bob.Pinned || bob.SeenAt != 0 {
+		t.Fatalf("bob prefs contaminated by alice: %+v", bob)
 	}
 }
 

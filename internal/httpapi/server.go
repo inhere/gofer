@@ -703,6 +703,7 @@ func (s *Server) buildRouter() *rux.Router {
 		// are available to every authenticated caller; SEC-01 default-denies both
 		// writes for job credentials, and handlers additionally require a user caller.
 		r.GET("/workbench/threads", s.handleListWorkbenchThreads)
+		r.POST("/workbench/threads/seen-all", s.handleSeenAllWorkbenchThreads)
 		r.PATCH("/workbench/threads/{id}", s.handlePatchWorkbenchThread)
 		r.POST("/workbench/threads/{id}/turn", s.handleWorkbenchTurn)
 

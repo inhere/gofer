@@ -5,6 +5,8 @@ import (
 	"fmt"
 )
 
+const workbenchCallerSeenBaselineThreadID = "__caller_seen_baseline__"
+
 // WorkbenchThreadPref is the per-caller presentation state for one canonical
 // workbench thread id. It deliberately contains no derived thread status.
 type WorkbenchThreadPref struct {
@@ -38,6 +40,9 @@ func (s *Store) UpsertWorkbenchThreadPref(pref WorkbenchThreadPref) error {
 	if pref.ThreadID == "" {
 		return errors.New("jobstore: workbench pref: empty thread id")
 	}
+	if pref.ThreadID == workbenchCallerSeenBaselineThreadID {
+		return errors.New("jobstore: workbench pref: reserved thread id")
+	}
 	pinned := 0
 	if pref.Pinned {
 		pinned = 1
@@ -62,7 +67,7 @@ func (s *Store) ListWorkbenchThreadPrefs(callerID string) ([]WorkbenchThreadPref
 		return nil, errors.New("jobstore: list workbench prefs: empty caller id")
 	}
 	rows, err := s.db.Query(`SELECT caller_id, thread_id, title, seen_at, pinned
-  FROM workbench_thread_prefs WHERE caller_id=? ORDER BY thread_id`, callerID)
+  FROM workbench_thread_prefs WHERE caller_id=? AND thread_id<>? ORDER BY thread_id`, callerID, workbenchCallerSeenBaselineThreadID)
 	if err != nil {
 		return nil, fmt.Errorf("jobstore: list workbench prefs: %w", err)
 	}
@@ -81,6 +86,56 @@ func (s *Store) ListWorkbenchThreadPrefs(callerID string) ([]WorkbenchThreadPref
 		return nil, fmt.Errorf("jobstore: list workbench prefs rows: %w", err)
 	}
 	return out, nil
+}
+
+// GetOrCreateWorkbenchSeenBaseline returns the caller-wide seen watermark. The
+// reserved prefs row keeps this state caller-local without adding a second table;
+// it is filtered from ListWorkbenchThreadPrefs and cannot be written as a thread.
+func (s *Store) GetOrCreateWorkbenchSeenBaseline(callerID string, observedAt int64) (int64, error) {
+	return s.writeWorkbenchSeenBaseline(callerID, observedAt, false)
+}
+
+// SetWorkbenchSeenBaseline advances the caller-wide seen watermark. It is
+// monotonic so a skewed clock or racing request cannot make old attention reappear.
+func (s *Store) SetWorkbenchSeenBaseline(callerID string, observedAt int64) (int64, error) {
+	return s.writeWorkbenchSeenBaseline(callerID, observedAt, true)
+}
+
+func (s *Store) writeWorkbenchSeenBaseline(callerID string, observedAt int64, advance bool) (int64, error) {
+	if callerID == "" {
+		return 0, errors.New("jobstore: workbench seen baseline: empty caller id")
+	}
+	if observedAt <= 0 {
+		return 0, errors.New("jobstore: workbench seen baseline: invalid timestamp")
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return 0, fmt.Errorf("jobstore: begin workbench seen baseline: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	query := `INSERT INTO workbench_thread_prefs
+  (caller_id, thread_id, title, seen_at, pinned) VALUES (?,?, '', ?,0)
+  ON CONFLICT(caller_id, thread_id) DO NOTHING`
+	if advance {
+		query = `INSERT INTO workbench_thread_prefs
+  (caller_id, thread_id, title, seen_at, pinned) VALUES (?,?, '', ?,0)
+  ON CONFLICT(caller_id, thread_id) DO UPDATE SET
+    seen_at=MAX(workbench_thread_prefs.seen_at, excluded.seen_at)`
+	}
+	if _, err := tx.Exec(query, callerID, workbenchCallerSeenBaselineThreadID, observedAt); err != nil {
+		return 0, fmt.Errorf("jobstore: write workbench seen baseline: %w", err)
+	}
+	var baseline int64
+	if err := tx.QueryRow(`SELECT seen_at FROM workbench_thread_prefs
+  WHERE caller_id=? AND thread_id=?`, callerID, workbenchCallerSeenBaselineThreadID).Scan(&baseline); err != nil {
+		return 0, fmt.Errorf("jobstore: read workbench seen baseline: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return 0, fmt.Errorf("jobstore: commit workbench seen baseline: %w", err)
+	}
+	return baseline, nil
 }
 
 // LoadWorkbenchSnapshot loads every W1 projection input with a fixed number of

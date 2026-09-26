@@ -118,7 +118,7 @@ var jobRouteWords = map[string]bool{
 	"attach-ticket": true, "register": true, "deregister": true, "inbox": true, "poll": true,
 	"precheck": true, "events": true, "deliveries": true, "artifacts": true, "diff": true,
 	"request": true, "stream": true, "logs": true, "stdout": true, "stderr": true,
-	"workbench": true, "threads": true, "turn": true,
+	"workbench": true, "threads": true, "turn": true, "seen-all": true,
 }
 
 // jobRouteKey reduces a request to the `<METHOD> <collapsed path>` key the SEC-01 tables
@@ -174,6 +174,7 @@ var jobCallerActions = map[string]string{
 	"POST /v1/jobs/*/interactions/*/answer": "answer an interaction",
 	"POST /v1/jobs/*/interactions/*/punt":   "punt an interaction",
 	"PATCH /v1/workbench/threads/*":         "change workbench thread preferences",
+	"POST /v1/workbench/threads/seen-all":   "mark all workbench threads seen",
 	"POST /v1/workbench/threads/*/turn":     "continue a workbench thread",
 	"POST /v1/workflows":                    "submit a workflow",
 	"POST /v1/workflows/*/cancel":           "cancel a workflow",
