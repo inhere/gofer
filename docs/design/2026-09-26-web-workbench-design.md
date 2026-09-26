@@ -1,12 +1,13 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # web 工作台设计（WEB-11）
 
-> 状态：Approved（文档 identity：Draft 0.2）/ 实施中（2026-09-26 用户经 web 中继批准，决策 1–7 照写）
+> 状态：Approved（文档 identity：Draft 0.3）/ 实施中（2026-09-26 用户经 web 中继批准，决策 1–7 照写；W1 试用后用户经 web 中继要求「继续推进 W2」，0.3 只细化 W2 实现口径，不改决策）
 
 ## 修订记录
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
+| 0.3 | 2026-09-26 | Claude | W1/F16 上线（v0.62.1）并经用户 web 试用后启动 W2：新增「W2 细化」一节（布局树模型与持久化、ctrl+b 前缀表、手机布局、PWA、Web Push 的 VAPID/订阅/触发/通知内审批的一次性动作令牌与降级口径、固定测试名） |
 | 0.2 | 2026-09-26 | Claude | 按用户要求调研主流开源 agent 桌面/web（Zed 并行 agents、OpenCode web/desktop、Vibe Kanban、Nimbalyst/Crystal、Claude Squad、Codeman、Conductor、OpenHands）后细化：**以"会话（thread）"为一等公民**而非窗格；加入快速发起、注意力队列、会话内评审→评论回灌同一会话、可操作的推送通知、命令面板与 ctrl-tab、PWA；分期改为 W1 会话列表+单视图（先可用）→ W2 布局与移动端 → W3 对话窗格与评审 → W4 worktree 生命周期与预览（可选） |
 | 0.1 | 2026-09-26 | Claude | 初稿：以 herdr 的工作区/标签页/窗格 + 状态上卷为骨架 |
 
@@ -118,6 +119,39 @@ caller 第一次 GET threads 时建立全局已看基线，早于它的历史终
 
 测试/实现提交：`83b46c3`、`845cd07`（固定测试与时间夹具）、`536a853`（后端 projection/baseline/endpoint）、`31f6356`（Web seen-all）。四个固定测试、完整 `internal/httpapi`/`internal/jobstore` 包、Windows/Linux build、vet、Vue typecheck、控制字符扫描及三份文档 validator 均 PASS；未部署、未重启/reload live gofer、未触碰真实配置。
 
+## W2 细化（0.3，W2 实施口径）
+
+### 布局（分屏 / 标签页 / 持久化）
+
+- 布局 = 若干**标签页**，每个标签页是一棵二叉**分屏树**：叶子 `{kind:"pane", thread_id|null}`，内部节点 `{kind:"split", dir:"h"|"v", ratio:0.1–0.9, a, b}`；每个标签页记 `focused` 叶子路径。一个标签页最多 4 个窗格（超出拒绝并提示），总标签页上限 8。
+- 纯函数模块 `web/src/components/workbench/layoutTree.ts`：`splitPane`、`closePane`（兄弟节点上提）、`focusDir`（按几何方向找最近窗格）、`setRatio`（夹到 0.1–0.9）、`assignThread`、`normalize`（修复空/非法树）；vitest 单测只覆盖这个模块。
+- 持久化：`GET/PUT /v1/workbench/layout`，per caller 存 server（新表 `workbench_layouts {caller_id, version, body_json, updated_at}`）；PUT 带 `version`，不匹配回 409 并返回当前版本（乐观并发，前端拿到 409 就采用 server 版本并提示"布局已在别处更新"）。body 上限 64 KiB，未知字段原样保存；job caller 只读禁止 PUT。前端改动 800ms 去抖保存。
+- 窗格内容就是 W1 的单会话主区组件（抽成 `ThreadView`）；非焦点窗格的终端降频（xterm 不卸载，但停 fit/轮询，只保留 WS），日志视图暂停自动滚动。
+- 键盘：`ctrl+b` 进入前缀（1.5s 超时，状态栏提示），其后 `%` 左右分、`"` 上下分、方向键切焦点、`x` 关窗格（不停 job）、`z` 最大化/还原当前窗格、`c` 新标签、`n`/`p` 下一个/上一个标签、`1`–`8` 跳标签。焦点在终端里时 `ctrl+b` 同样被前缀截获（设计已约定 esc 取回焦点，前缀只截这一个组合键）。
+- 鼠标：拖分隔条改 ratio；从侧栏拖会话到窗格 = 放进该窗格，拖到窗格边缘 1/4 区域 = 朝该方向分屏后放入。
+
+### 手机与 PWA
+
+- 宽度 < 768px：不显示分屏，只显示当前标签页的焦点窗格；侧栏与主区两屏，左右滑动或返回按钮切换；composer 折叠为底部「＋」、「等你 N」固定顶栏。
+- PWA：`site.webmanifest` 补 `start_url:"/workbench"`、`scope:"/"`、`id`、maskable 图标；Service Worker `web/public/sw.js` 只负责推送与通知点击，**不做离线缓存**（避免 F8 那类旧 chunk 问题），注册失败不影响页面。
+
+### Web Push
+
+- 密钥：server 首次需要时生成 VAPID P-256 密钥对，存配置目录 `push/vapid.json`（0600）；`GET /v1/push/vapid-public-key` 返回公钥。实现优先用标准库（`crypto/ecdh`、`crypto/hkdf`、AES-GCM；RFC 8291 aes128gcm 加密 + RFC 8292 VAPID ES256 JWT），不引第三方依赖；RFC 8291 附录 A 的测试向量必须过。
+- 订阅：`POST /v1/push/subscriptions`（endpoint + keys，per caller，同 endpoint 覆盖）、`DELETE /v1/push/subscriptions`（按 endpoint）、`GET /v1/push/subscriptions`（本 caller 的列表，前端设置页显示"本设备已开启"）。推送服务回 404/410 的订阅自动删除。job caller 禁止订阅。
+- 触发：复用现有事件——`interaction.created`（blocked，标题"等你审批/回答"）、`job.needs_review` 与按 F16 口径算作 review 的终态（"待评审"）、`plan.blocked`。一个 caller 只收**自己可见**的项目事件；同一 thread 30 秒内合并为一条（Topic/tag 用 thread id 覆盖旧通知）。推送载荷只放标题、摘要（≤120 字）、thread id、跳转 URL，不放日志正文。
+- 通知内审批：permission 类 interaction 的通知带「允许」「拒绝」两个动作。Service Worker 拿不到页面的 bearer token，所以载荷里带一个**一次性动作令牌**：服务端 HMAC 签名，绑定 (caller, job, interaction, 允许的选项)，10 分钟过期、用一次即失效；`POST /v1/push/actions {token, option}` 不要求 bearer，只认令牌，作答走现有 interaction answer 逻辑（记录作答来源 `push`）。令牌过期/已用/interaction 已答 → 返回 409，SW 改为打开页面。
+- 降级：`!isSecureContext` 或无 `PushManager` 时设置页显示"推送需要 HTTPS 或 localhost，当前不可用"，工作台用页内提醒（标题栏计数 `(N) gofer` + 顶部提示条）替代；已有 IM 通知不受影响。
+
+### 「已看」语义
+
+沿用 F16：打开会话即 PATCH seen；窗格里可见 ≥2 秒也算看过（非焦点窗格不算）；「全部标记已看」保持。
+
+### W2 固定测试名
+
+- Go：`TestWorkbenchLayoutRoundTrip`、`TestWorkbenchLayoutVersionConflict`、`TestWorkbenchLayoutJobCallerReadOnly`、`TestPushSubscriptionCRUD`、`TestPushEncryptRFC8291Vector`、`TestPushVAPIDJWT`、`TestPushDispatchOnInteraction`（含同 thread 合并、不可见项目不推、410 删除订阅）、`TestPushActionTokenAnswersOnce`（成功一次、重放 409、过期 409、选项不在允许集 400、篡改 401）、`TestPushJobCallerForbidden`。
+- web（vitest，只测 `layoutTree.ts`）：分屏、关闭上提、方向焦点、ratio 夹取、上限拒绝、normalize。
+
 ## 决策（已批准 2026-09-26）
 
 1. 以**会话**为一等公民（侧栏会话列表 + 主区视图），herdr 式窗格/布局作为 W2 的摆放层。
@@ -130,11 +164,11 @@ caller 第一次 GET threads 时建立全局已看基线，早于它的历史终
 
 ## 待确认事项
 
-W1 与 F16 没有未决核心行为；W2–W4 是否继续及其具体范围，仍等待 W1 实际使用反馈后另行确认。
+W1 与 F16 没有未决核心行为。W2 已由用户在 W1 试用后要求推进（口径见「W2 细化」）；W3、W4 是否继续等 W2 试用反馈。
 
 ## 结论与人工计划 Gate
 
-Approved 0.2 的决策 1–7 保持有效。W1/F16 的实施记录不授权 W2–W4、push、部署、live 服务操作或真实配置变更；这些仍需各自计划与当前请求。
+Approved 0.2 的决策 1–7 保持有效；0.3 的「W2 细化」是 W2 的实施依据。W1/F16 的实施记录不授权 W3–W4、push、部署、live 服务操作或真实配置变更；这些仍需各自计划与当前请求。
 
 ## 参考
 
