@@ -1321,7 +1321,7 @@ func (c *Client) GetPlan(id string) (Plan, error) {
 }
 
 // UpdatePlan moves a plan along its lifecycle (PATCH /v1/plans/{id}, P6). status must be
-// one of open/active/done/archived. A nil progress keeps the plan's current progress.
+// one of open/done/archived/blocked. A nil progress keeps the plan's current progress.
 func (c *Client) UpdatePlan(planID, status string, progress *int) (Plan, error) {
 	payload := map[string]any{"status": status}
 	if progress != nil {

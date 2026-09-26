@@ -57,6 +57,7 @@
 | SVC-01 | Windows 桌面会话常驻：`serve -d`/`worker -d`/`stop` 的 Windows 实现（分离进程 + 命名事件优雅停 + 前台也记 pidfile）+ `start.ps1` 登录计划任务跑在交互会话（`--runner local` 可操作 GUI），nssm 废弃 | 0.50 | [design](design/2026-09-22-windows-desktop-session-service-design.md) · [runbook §7](runbook/2026-07-11-windows-server-selfupdate-runbook.md) |
 | G032 | 兼容策略：DEPRECATED 标记 + 到期删除；v0.48 已删 6 处 v0.45 标记 | 0.46–0.48 | `AGENTS.md` G032 · SUP-01「横切」 |
 | F8 | 升级后前端自愈与轮询收敛：缺失 asset 404（不再回落 shell）、shell `no-cache`/asset `immutable`、旧 chunk 自动重载一次（60s 冷却）+ 顶栏「有新版本，点击刷新」、顶栏铃铛 15s/失焦暂停（`utils/poller.ts`） | 0.53.1 | [runbook §7.5](runbook/2026-07-11-windows-server-selfupdate-runbook.md) · 本文「已落地」 |
+| F15 | plan 状态去重：删掉与 `open` 重复、无人设置的 `active`（老库打开时迁移为 `open`；`PATCH`/`plan set-status` 传 `active` → 400 提示用 `open`；web 筛选/徽标/动作同步收窄） | 0.60.5 | `AGENTS.md` G032 · 无独立设计 |
 | WEB-12 | 设置页左侧二级菜单（配置管理 / Tunnels / 关于），`/config` 重定向 | 中 | 小 | 🚧 v0.60.2 | [design](design/2026-09-24-settings-hub-and-tunnel-visibility-design.md) §一 |
 | TUN-03 | 隧道在 web 可见：`tun forward` 向 hub 登记与心跳、在线转发列表（归并活跃连接）；预设存 server（CLI 优先、`tun presets push`）、web 编辑 | 中 | 中 | 🚧 v0.60.2 | 同上 §二 |
 | TUN-04 | `tun forward/save` 的 spec 接受逗号分隔（与空格混用） | 低 | 小 | 🚧 v0.60.2 | 同上 §三 |

@@ -251,7 +251,7 @@ func NewPlanCmd() *gcli.Command {
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
-					c.StrOpt(&planListOpts.status, "status", "", "", "filter by status (open/active/done/archived/blocked)")
+					c.StrOpt(&planListOpts.status, "status", "", "", "filter by status (open/done/archived/blocked)")
 					c.StrOpt(&planListOpts.project, "project", "p", "", "filter by project key (exact)")
 					c.StrOpt(&planListOpts.q, "q", "", "", "search: plan id prefix or title substring")
 					c.IntOpt(&planListOpts.limit, "limit", "", jobstore.PlanListDefaultLimit, "page size (server cap 100)")
@@ -298,7 +298,7 @@ func NewPlanCmd() *gcli.Command {
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.AddArg("plan-id", "plan id", true)
-					c.AddArg("status", "status (open/active/done/archived)", true)
+					c.AddArg("status", "status (open/done/archived/blocked)", true)
 				},
 				Func: runPlanSetStatus,
 			},

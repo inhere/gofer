@@ -62,7 +62,7 @@ gofer plan set-status <id> <status>
 
 - **workflow vs plan**：workflow = **执行**依赖链（server 按链跑）；plan = **组织** view（把散 job + todo 归一起看）。
 - **todo 状态机**：`pending`（backlog，永不自动派发）→ `ready`（可派发）→ `doing`（job 在跑）→ `done`/`skipped`；**server 重启不补派** ready 的项（派发只发生在写入路径上）。
-- **plan 状态**：`open`（在跑）/ `active` / `blocked`（链停在某一项，等人处理；**非终态**）/ `done`（全部 done|skipped 时自动置）/ `archived`；另有 `paused` 开关（暂停自动推进，不影响 status）。
+- **plan 状态**：`open`（在跑）/ `blocked`（链停在某一项，等人处理；**非终态**）/ `done`（全部 done|skipped 时自动置）/ `archived`；另有 `paused` 开关（暂停自动推进，不影响 status）。
 
 ### 范式：todo 指派 agent 即派发（PLAN-02，长任务不再靠人敲命令）
 

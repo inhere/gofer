@@ -9,6 +9,7 @@
 |---|---|---|---|
 | v0.1 | 2026-07-09 | inhere/claude | 初稿：plan 一等实体 + todo + session 续跑 + MCP，待审 |
 | v0.2 | 2026-07-09 | inhere/claude | 评审：归组键**锁定 `plan_id`**（含理由）；明确 todo↔job 两种关联 |
+| v0.3 | 2026-09-26 | inhere/omp | F15：删掉与 `open` 重复、无人设置的 `active`（老库 Open 时迁移为 `open`；PATCH/`plan set-status` 传 `active` → 400 提示用 `open`） |
 
 ## 1. 背景与问题
 
@@ -74,7 +75,7 @@ iss-0709 里有 4 处需求，指向**同一件事**——「把一个完整计�
 plan_id      text PK        -- 如 plan-20260709-xxxx
 title        text
 description  text
-status       text           -- open / active / done / archived
+status       text           -- open / done / archived / blocked
 owner        text           -- 创建者 agent_id / 人
 progress     int            -- 0..100 可选人工进度
 created_at / updated_at  int
