@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onUnmounted, ref, watch } from 'vue'
+import { computed, inject, nextTick, onUnmounted, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { answerInteraction, cancelJob, puntInteraction } from '../../api/client'
 import { appendCapped, streamJob } from '../../api/sse'
@@ -10,12 +10,25 @@ import InteractionCard from '../InteractionCard.vue'
 import LogTape from '../LogTape.vue'
 import SessionDrawer from '../SessionDrawer.vue'
 
-const props = defineProps<{ thread: WorkbenchThread }>()
-const emit = defineEmits<{
-  (e: 'refresh'): void
-  (e: 'continued', jobID?: string): void
-  (e: 'back'): void
-}>()
+const props = defineProps<{ threadId: string; focused: boolean }>()
+
+interface FocusedThreadActions {
+  stopCurrent(): Promise<void>
+  focusTurn(): void
+  focusAction(action: string): void
+}
+
+interface WorkbenchViewContext {
+  threadsByID: ComputedRef<Map<string, WorkbenchThread>>
+  focusedActions: Ref<FocusedThreadActions | null>
+  refresh(): void | Promise<void>
+  continued(jobID?: string): void
+  back(): void
+}
+
+const injectedContext = inject<WorkbenchViewContext>('workbench-view-context')
+if (!injectedContext) throw new Error('workbench view context is required')
+const context = injectedContext
 
 const router = useRouter()
 const root = ref<HTMLElement | null>(null)
@@ -35,32 +48,34 @@ const editingTitle = ref(false)
 const titleDraft = ref('')
 let streamAbort: AbortController | null = null
 
-const latestJobID = computed(() => props.thread.latest_job_id ?? '')
-const rawStatus = computed(() => liveStatus.value || props.thread.raw_status || '')
+const thread = computed(() => context.threadsByID.value.get(props.threadId))
+const latestJobID = computed(() => thread.value?.latest_job_id ?? '')
+const rawStatus = computed(() => liveStatus.value || thread.value?.raw_status || '')
 const live = computed(() => ['queued', 'running', 'waiting_dir', 'recovering', 'pending_interaction'].includes(rawStatus.value))
 const finished = computed(() => ['done', 'failed', 'cancelled', 'timeout', 'rejected'].includes(rawStatus.value))
-const canTurn = computed(() => props.thread.kind === 'agent' && props.thread.resumable && finished.value && !sending.value)
-const oneShot = computed(() => props.thread.kind === 'job' && !props.thread.resumable)
+const canTurn = computed(() => thread.value?.kind === 'agent' && thread.value.resumable && finished.value && !sending.value)
+const oneShot = computed(() => thread.value?.kind === 'job' && !thread.value.resumable)
 
 function resetForThread(): void {
   streamAbort?.abort()
   streamAbort = null
   stdout.value = ''
   stderr.value = ''
-  liveStatus.value = props.thread.raw_status ?? ''
-  interactions.value = [...(props.thread.pending_interactions ?? [])]
+  const current = thread.value
+  liveStatus.value = current?.raw_status ?? ''
+  interactions.value = [...(current?.pending_interactions ?? [])]
   streamError.value = ''
   actionError.value = ''
   draft.value = ''
-  titleDraft.value = props.thread.title
-  if (props.thread.kind !== 'relay' && latestJobID.value) void startStream(latestJobID.value)
+  titleDraft.value = current?.title ?? ''
+  if (current?.kind !== 'relay' && latestJobID.value) void startStream(latestJobID.value)
 }
 
 function onEvent(event: SSEEvent): void {
   if (event.type === 'status') {
     const value = event.data as Job
     liveStatus.value = value.status
-    emit('refresh')
+    void context.refresh()
     return
   }
   if (event.type === 'log') {
@@ -84,7 +99,7 @@ function onEvent(event: SSEEvent): void {
     } else if (index >= 0) {
       interactions.value.splice(index, 1)
     }
-    emit('refresh')
+    void context.refresh()
   }
 }
 
@@ -111,7 +126,7 @@ async function answer(item: Interaction, value: string): Promise<void> {
   try {
     await answerInteraction(item.job_id, item.id, value)
     interactions.value = interactions.value.filter((candidate) => candidate.id !== item.id)
-    emit('refresh')
+    void context.refresh()
   } catch (e) {
     actionError.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -124,7 +139,7 @@ async function punt(item: Interaction): Promise<void> {
   actionError.value = ''
   try {
     await puntInteraction(item.job_id, item.id)
-    emit('refresh')
+    void context.refresh()
   } catch (e) {
     actionError.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -138,9 +153,11 @@ async function sendTurn(): Promise<void> {
   sending.value = true
   actionError.value = ''
   try {
-    const result = await turnWorkbenchThread(props.thread.id, text)
+    const current = thread.value
+    if (!current) return
+    const result = await turnWorkbenchThread(current.id, text)
     draft.value = ''
-    emit('continued', result.job_id)
+    context.continued(result.job_id)
   } catch (e) {
     actionError.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -157,19 +174,22 @@ function onTurnKeydown(event: KeyboardEvent): void {
 
 async function saveTitle(): Promise<void> {
   editingTitle.value = false
-  if (titleDraft.value.trim() === props.thread.title) return
+  const current = thread.value
+  if (!current || titleDraft.value.trim() === current.title) return
   try {
-    await patchWorkbenchThread(props.thread.id, { title: titleDraft.value.trim() })
-    emit('refresh')
+    await patchWorkbenchThread(current.id, { title: titleDraft.value.trim() })
+    void context.refresh()
   } catch (e) {
     actionError.value = e instanceof Error ? e.message : String(e)
   }
 }
 
 async function togglePin(): Promise<void> {
+  const current = thread.value
+  if (!current) return
   try {
-    await patchWorkbenchThread(props.thread.id, { pinned: !props.thread.pinned })
-    emit('refresh')
+    await patchWorkbenchThread(current.id, { pinned: !current.pinned })
+    void context.refresh()
   } catch (e) {
     actionError.value = e instanceof Error ? e.message : String(e)
   }
@@ -182,7 +202,7 @@ async function stopCurrent(): Promise<void> {
   actionError.value = ''
   try {
     await cancelJob(latestJobID.value)
-    emit('refresh')
+    void context.refresh()
   } catch (e) {
     actionError.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -195,8 +215,8 @@ function openDetails(): void {
 }
 
 function usageText(): string {
-  const total = props.thread.usage?.total_tokens ?? 0
-  const cost = props.thread.usage?.cost_usd ?? 0
+  const total = thread.value?.usage?.total_tokens ?? 0
+  const cost = thread.value?.usage?.cost_usd ?? 0
   if (!total && !cost) return '—'
   return `${total.toLocaleString()} tok${cost ? ` · $${cost.toFixed(4)}` : ''}`
 }
@@ -215,14 +235,22 @@ function focusAction(action: string): void {
 
 defineExpose({ stopCurrent, focusTurn, focusAction })
 
-watch([() => props.thread.id, () => props.thread.latest_job_id], resetForThread, { immediate: true })
-onUnmounted(() => streamAbort?.abort())
+const exposedActions: FocusedThreadActions = { stopCurrent, focusTurn, focusAction }
+watch(() => props.focused, (focused) => {
+  if (focused) context.focusedActions.value = exposedActions
+  else if (context.focusedActions.value === exposedActions) context.focusedActions.value = null
+}, { immediate: true })
+watch([() => props.threadId, () => thread.value?.latest_job_id], resetForThread, { immediate: true })
+onUnmounted(() => {
+  streamAbort?.abort()
+  if (context.focusedActions.value === exposedActions) context.focusedActions.value = null
+})
 </script>
 
 <template>
-  <section ref="root" class="thread-pane" tabindex="-1">
+  <section v-if="thread" ref="root" class="thread-pane" tabindex="-1">
     <header class="thread-head">
-      <button class="back mono" type="button" @click="emit('back')">← 会话</button>
+      <button class="back mono" type="button" @click="context.back()">← 会话</button>
       <div class="title-wrap">
         <input
           v-if="editingTitle"
@@ -267,13 +295,13 @@ onUnmounted(() => streamAbort?.abort())
         :sid="thread.relay.session_id"
         :thread-id="thread.id"
         embedded
-        @changed="emit('refresh')"
+        @changed="context.refresh()"
       />
       <AttachTerminal
         v-else-if="thread.interactive && latestJobID"
         :job-id="latestJobID"
         mode="write"
-        @exit="emit('refresh')"
+        @exit="context.refresh()"
         @error="actionError = $event"
       />
       <div v-else-if="latestJobID" class="log-wrap">
@@ -295,6 +323,9 @@ onUnmounted(() => streamAbort?.abort())
       ></textarea>
       <button class="turn-send mono" type="button" :disabled="!canTurn || !draft.trim()" @click="sendTurn">{{ sending ? '发送中…' : '发送' }}</button>
     </footer>
+  </section>
+  <section v-else class="thread-pane missing-thread mono">
+    该会话当前不在工作台列表中；清除筛选或等待下一轮刷新。
   </section>
 </template>
 
@@ -328,5 +359,6 @@ onUnmounted(() => streamAbort?.abort())
 .turn-send { color: var(--ink); background: var(--phosphor); border: 1px solid var(--phosphor); border-radius: var(--radius); padding: 0 16px; font-weight: 700; }
 .turn-send:disabled { opacity: .4; }
 .empty { color: var(--queue); padding: 24px; }
+.missing-thread { display: grid; place-items: center; padding: 24px; color: var(--queue); }
 @media (max-width: 760px) { .thread-head { grid-template-columns: 1fr; } .back { display: inline-block; justify-self: start; } .head-actions { flex-wrap: wrap; } .thread-meta { grid-column: 1; } .turn-composer { grid-template-columns: 1fr; } .turn-send { min-height: 36px; } }
 </style>

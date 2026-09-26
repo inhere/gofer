@@ -1,10 +1,23 @@
 import { request } from './client'
 import type {
   WorkbenchStatus,
+  WorkbenchLayoutResp,
   WorkbenchThreadPatch,
   WorkbenchThreadsResp,
   WorkbenchTurnResult,
 } from './types'
+
+export function getWorkbenchLayout(): Promise<WorkbenchLayoutResp> {
+  return request<WorkbenchLayoutResp>('/v1/workbench/layout')
+}
+
+export function putWorkbenchLayout(version: number, body: unknown): Promise<WorkbenchLayoutResp> {
+  return request<WorkbenchLayoutResp>('/v1/workbench/layout', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ version, body }),
+  })
+}
 
 export interface WorkbenchThreadQuery {
   project?: string

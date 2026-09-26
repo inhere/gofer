@@ -1340,6 +1340,11 @@ export interface WorkbenchTurnResult {
   decision_id?: string
 }
 
+export interface WorkbenchLayoutResp {
+  version: number
+  body: unknown
+}
+
 // job 的一次上传（XFER-01 X2，POST /v1/jobs 的 uploads[]）：xfer_id 是先前 POST /v1/xfer
 // 暂存（stage_only）拿到的 id，dest 是【job cwd 相对】的目标路径。
 export interface JobUpload {

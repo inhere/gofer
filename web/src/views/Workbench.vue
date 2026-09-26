@@ -1,15 +1,41 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, ref } from 'vue'
+import { computed, nextTick, onMounted, onUnmounted, provide, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { listWorkbenchThreads, markAllWorkbenchThreadsSeen } from '../api/workbench'
+import { ApiError } from '../api/client'
+import {
+  getWorkbenchLayout,
+  listWorkbenchThreads,
+  markAllWorkbenchThreadsSeen,
+  putWorkbenchLayout,
+} from '../api/workbench'
 import type { WorkbenchAttentionItem, WorkbenchStatus, WorkbenchThread, WorkbenchThreadsResp } from '../api/types'
 import WorkbenchAttention from '../components/workbench/WorkbenchAttention.vue'
 import WorkbenchComposer from '../components/workbench/WorkbenchComposer.vue'
 import WorkbenchCommandPalette from '../components/workbench/WorkbenchCommandPalette.vue'
+import LayoutPane from '../components/workbench/LayoutPane.vue'
 import WorkbenchSidebar from '../components/workbench/WorkbenchSidebar.vue'
-import WorkbenchThreadPane from '../components/workbench/WorkbenchThreadPane.vue'
-import { patchWorkbenchThread } from '../api/workbench'
+import {
+  activateTab,
+  activeTab,
+  addTab,
+  assignThread,
+  closeTab,
+  createLayoutDocument,
+  nodeAt,
+  normalize,
+  renameTab,
+  setRatio,
+  updateTab,
+  type DocumentMutation,
+  type LayoutDocument,
+} from '../components/workbench/layoutTree'
 import { createPoller } from '../utils/poller'
+
+interface FocusedThreadActions {
+  stopCurrent(): Promise<void>
+  focusTurn(): void
+  focusAction(action: string): void
+}
 
 const response = ref<WorkbenchThreadsResp>({ projects: [], attention: [], total: 0, since: 0 })
 const router = useRouter()
@@ -22,16 +48,38 @@ const projectOptions = ref<string[]>([])
 const loading = ref(false)
 const seenAllPending = ref(false)
 const error = ref('')
+const layoutNotice = ref('')
 const sidebar = ref<InstanceType<typeof WorkbenchSidebar> | null>(null)
 const composer = ref<InstanceType<typeof WorkbenchComposer> | null>(null)
-const threadPane = ref<InstanceType<typeof WorkbenchThreadPane> | null>(null)
 const workbenchRoot = ref<HTMLElement | null>(null)
 const paletteOpen = ref(false)
 const mobilePane = ref<'sidebar' | 'main'>('sidebar')
 const mru = ref<string[]>([])
+const layoutDocument = ref<LayoutDocument>(createLayoutDocument())
+const layoutVersion = ref(0)
+const layoutReady = ref(false)
+const layoutSaving = ref(false)
+const editingTabID = ref('')
+const tabTitleDraft = ref('')
+const focusedActions = ref<FocusedThreadActions | null>(null)
+
+let layoutGeneration = 0
+let savedLayoutGeneration = 0
+let layoutSaveTimer: number | null = null
+let layoutSaveInFlight = false
 
 const threads = computed(() => response.value.projects.flatMap((project) => project.threads))
-const selectedThread = computed(() => threads.value.find((thread) => thread.id === selectedID.value))
+const threadsByID = computed(() => new Map(threads.value.map((thread) => [thread.id, thread])))
+const selectedThread = computed(() => threadsByID.value.get(selectedID.value))
+const currentTab = computed(() => activeTab(layoutDocument.value))
+
+provide('workbench-view-context', {
+  threadsByID,
+  focusedActions,
+  refresh: loadThreads,
+  continued,
+  back: () => { mobilePane.value = 'sidebar' },
+})
 
 async function loadThreads(): Promise<void> {
   loading.value = true
@@ -52,11 +100,7 @@ async function loadThreads(): Promise<void> {
         pendingJobID.value = ''
       }
     }
-    if (!selectedID.value || !next.projects.some((project) => project.threads.some((thread) => thread.id === selectedID.value))) {
-      const first = next.projects[0]?.threads[0]
-      if (first) selectThread(first, false)
-      else selectedID.value = ''
-    }
+    if (!layoutReady.value && !selectedID.value) selectedID.value = next.projects[0]?.threads[0]?.id ?? ''
     error.value = ''
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
@@ -67,24 +111,124 @@ async function loadThreads(): Promise<void> {
 
 const poller = createPoller(loadThreads, 5000)
 
-function rawTerminal(thread: WorkbenchThread): boolean {
-  return ['done', 'failed', 'cancelled', 'timeout', 'rejected'].includes(thread.raw_status ?? '')
+function isEmptyLayoutBody(value: unknown): boolean {
+  return typeof value !== 'object' || value === null || Array.isArray(value) || Object.keys(value).length === 0
 }
 
-function selectThread(thread: WorkbenchThread, markSeen = true): void {
-  selectedID.value = thread.id
-  mobilePane.value = 'main'
-  mru.value = [thread.id, ...mru.value.filter((id) => id !== thread.id)].slice(0, 30)
-  if (markSeen && thread.status === 'review' && rawTerminal(thread)) {
-    void patchWorkbenchThread(thread.id, { seen: true }).then(loadThreads).catch(() => {})
+function focusedThreadID(): string {
+  const tab = currentTab.value
+  const node = nodeAt(tab.root, tab.focused)
+  return node?.kind === 'pane' ? node.thread_id ?? '' : ''
+}
+
+function syncSelectedFromLayout(): void {
+  selectedID.value = focusedThreadID()
+  if (selectedID.value) {
+    mru.value = [selectedID.value, ...mru.value.filter((id) => id !== selectedID.value)].slice(0, 30)
   }
 }
 
+function scheduleLayoutSave(): void {
+  if (layoutSaveTimer != null) window.clearTimeout(layoutSaveTimer)
+  layoutSaveTimer = window.setTimeout(() => {
+    layoutSaveTimer = null
+    void flushLayoutSave()
+  }, 800)
+}
+
+function markLayoutDirty(): void {
+  layoutGeneration++
+  scheduleLayoutSave()
+}
+
+async function adoptServerLayout(message: string): Promise<void> {
+  const server = await getWorkbenchLayout()
+  layoutVersion.value = server.version
+  layoutDocument.value = normalize(server.body)
+  layoutGeneration++
+  savedLayoutGeneration = layoutGeneration
+  syncSelectedFromLayout()
+  layoutNotice.value = message
+}
+
+async function flushLayoutSave(): Promise<void> {
+  if (layoutSaveInFlight || savedLayoutGeneration === layoutGeneration) return
+  layoutSaveInFlight = true
+  layoutSaving.value = true
+  const requestGeneration = layoutGeneration
+  try {
+    const saved = await putWorkbenchLayout(layoutVersion.value, layoutDocument.value)
+    layoutVersion.value = saved.version
+    savedLayoutGeneration = requestGeneration
+    if (layoutGeneration !== requestGeneration) scheduleLayoutSave()
+  } catch (e) {
+    if (e instanceof ApiError && e.status === 409) {
+      try {
+        await adoptServerLayout('布局已在别处更新')
+      } catch (refreshError) {
+        error.value = refreshError instanceof Error ? refreshError.message : String(refreshError)
+      }
+    } else {
+      error.value = e instanceof Error ? e.message : String(e)
+      if (layoutGeneration !== requestGeneration) scheduleLayoutSave()
+    }
+  } finally {
+    layoutSaveInFlight = false
+    layoutSaving.value = false
+  }
+}
+
+function applyDocument(result: DocumentMutation): void {
+  if (result.reason) {
+    layoutNotice.value = result.reason === 'tab_limit' ? '最多只能打开 8 个标签页' : '布局操作未生效'
+    return
+  }
+  if (result.document === layoutDocument.value) return
+  layoutDocument.value = result.document
+  syncSelectedFromLayout()
+  markLayoutDirty()
+}
+
+function updateCurrentTab(root = currentTab.value.root, focused = currentTab.value.focused): void {
+  applyDocument(updateTab(layoutDocument.value, currentTab.value.id, root, focused))
+}
+
+function focusPane(path: string): void {
+  if (path === currentTab.value.focused) {
+    syncSelectedFromLayout()
+    mobilePane.value = 'main'
+    return
+  }
+  updateCurrentTab(currentTab.value.root, path)
+  mobilePane.value = 'main'
+}
+
+function resizeSplit(path: string, ratio: number): void {
+  const root = setRatio(currentTab.value.root, path, ratio)
+  if (root !== currentTab.value.root) updateCurrentTab(root, currentTab.value.focused)
+}
+
+function selectThread(thread: WorkbenchThread): void {
+  const tab = currentTab.value
+  const target = nodeAt(tab.root, tab.focused)
+  if (target?.kind === 'pane' && target.thread_id === thread.id) {
+    selectedID.value = thread.id
+    mobilePane.value = 'main'
+    mru.value = [thread.id, ...mru.value.filter((id) => id !== thread.id)].slice(0, 30)
+    return
+  }
+  const root = assignThread(tab.root, tab.focused, thread.id)
+  updateCurrentTab(root, tab.focused)
+  selectedID.value = thread.id
+  mobilePane.value = 'main'
+  mru.value = [thread.id, ...mru.value.filter((id) => id !== thread.id)].slice(0, 30)
+}
+
 function selectAttention(item: WorkbenchAttentionItem): void {
-  const thread = threads.value.find((candidate) => candidate.id === item.thread_id)
+  const thread = threadsByID.value.get(item.thread_id)
   if (thread) selectThread(thread)
   else selectedID.value = item.thread_id
-  void nextTick(() => threadPane.value?.focusAction(item.action))
+  void nextTick(() => focusedActions.value?.focusAction(item.action))
 }
 
 async function markAllSeen(): Promise<void> {
@@ -113,6 +257,30 @@ function continued(jobID?: string): void {
 
 function refreshFilter(): void {
   void loadThreads()
+}
+
+function createTab(): void {
+  applyDocument(addTab(layoutDocument.value))
+}
+
+function removeTab(tabID: string): void {
+  applyDocument(closeTab(layoutDocument.value, tabID))
+}
+
+function selectTab(tabID: string): void {
+  applyDocument(activateTab(layoutDocument.value, tabID))
+  mobilePane.value = 'main'
+}
+
+function beginRenameTab(tabID: string, title: string): void {
+  editingTabID.value = tabID
+  tabTitleDraft.value = title
+}
+
+function finishRenameTab(): void {
+  const tabID = editingTabID.value
+  editingTabID.value = ''
+  if (tabID) applyDocument(renameTab(layoutDocument.value, tabID, tabTitleDraft.value))
 }
 
 function isTypingTarget(target: EventTarget | null): boolean {
@@ -146,11 +314,11 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 function cycleMRU(step: number): void {
-  const available = mru.value.filter((id) => threads.value.some((thread) => thread.id === id))
+  const available = mru.value.filter((id) => threadsByID.value.has(id))
   if (available.length < 2) return
   const index = Math.max(0, available.indexOf(selectedID.value))
   const next = available[(index + step + available.length) % available.length]
-  const thread = threads.value.find((candidate) => candidate.id === next)
+  const thread = threadsByID.value.get(next)
   if (thread) selectThread(thread)
 }
 
@@ -160,17 +328,36 @@ function switchProject(project: string): void {
 }
 
 function paletteAction(action: 'stop' | 'continue' | 'detail'): void {
-  if (action === 'stop') void threadPane.value?.stopCurrent()
-  else if (action === 'continue') threadPane.value?.focusTurn()
+  if (action === 'stop') void focusedActions.value?.stopCurrent()
+  else if (action === 'continue') focusedActions.value?.focusTurn()
   else if (selectedThread.value?.latest_job_id) void router.push(`/jobs/${encodeURIComponent(selectedThread.value.latest_job_id)}`)
 }
 
-onMounted(() => {
-  poller.start()
+onMounted(async () => {
   window.addEventListener('keydown', onKeydown, true)
+  const layoutPromise = getWorkbenchLayout().catch((e) => {
+    error.value = e instanceof Error ? e.message : String(e)
+    return null
+  })
+  await loadThreads()
+  const server = await layoutPromise
+  const firstThreadID = threads.value[0]?.id ?? null
+  if (server) {
+    layoutVersion.value = server.version
+    const empty = isEmptyLayoutBody(server.body)
+    layoutDocument.value = normalize(server.body, empty ? firstThreadID : null)
+    if (empty) markLayoutDirty()
+  } else {
+    layoutDocument.value = createLayoutDocument(firstThreadID)
+  }
+  layoutReady.value = true
+  syncSelectedFromLayout()
+  poller.start()
 })
+
 onUnmounted(() => {
   poller.stop()
+  if (layoutSaveTimer != null) window.clearTimeout(layoutSaveTimer)
   window.removeEventListener('keydown', onKeydown, true)
 })
 </script>
@@ -187,6 +374,10 @@ onUnmounted(() => {
       />
     </header>
     <p v-if="error" class="page-error mono">{{ error }}</p>
+    <p v-if="layoutNotice" class="layout-notice mono">
+      {{ layoutNotice }}
+      <button type="button" aria-label="关闭布局提示" @click="layoutNotice = ''">×</button>
+    </p>
     <div class="workbench-body" :class="[`mobile--${mobilePane}`]">
       <WorkbenchSidebar
         ref="sidebar"
@@ -202,16 +393,48 @@ onUnmounted(() => {
         @update:status-filter="statusFilter = $event; refreshFilter()"
       />
       <main class="workbench-main">
-        <WorkbenchThreadPane
-          v-if="selectedThread"
-          ref="threadPane"
-          :key="selectedThread.id"
-          :thread="selectedThread"
-          @refresh="loadThreads"
-          @continued="continued"
-          @back="mobilePane = 'sidebar'"
-        />
-        <div v-else class="empty-main mono">{{ loading ? '加载会话…' : '从 composer 开始一个新会话，或从左侧选择。' }}</div>
+        <nav class="layout-tabs" aria-label="工作台标签页">
+          <div
+            v-for="tab in layoutDocument.tabs"
+            :key="tab.id"
+            class="layout-tab"
+            :class="{ active: tab.id === layoutDocument.active_tab_id }"
+          >
+            <input
+              v-if="editingTabID === tab.id"
+              v-model="tabTitleDraft"
+              class="tab-title-input mono"
+              aria-label="重命名标签页"
+              @blur="finishRenameTab"
+              @keydown.enter.prevent="finishRenameTab"
+              @keydown.esc.prevent="editingTabID = ''"
+            />
+            <button
+              v-else
+              class="tab-select mono"
+              type="button"
+              :aria-current="tab.id === layoutDocument.active_tab_id ? 'page' : undefined"
+              @click="selectTab(tab.id)"
+              @dblclick="beginRenameTab(tab.id, tab.title)"
+            >
+              {{ tab.title }}
+            </button>
+            <button class="tab-close mono" type="button" :aria-label="`关闭 ${tab.title}`" @click="removeTab(tab.id)">×</button>
+          </div>
+          <button class="tab-new mono" type="button" title="新标签" @click="createTab">＋</button>
+          <span class="layout-version mono">v{{ layoutVersion }}<template v-if="layoutSaving"> · 保存中…</template></span>
+        </nav>
+        <div class="layout-surface">
+          <LayoutPane
+            v-if="layoutReady && currentTab"
+            :node="currentTab.root"
+            path=""
+            :focused-path="currentTab.focused"
+            @focus="focusPane"
+            @ratio="resizeSplit"
+          />
+          <div v-else class="empty-main mono">{{ loading ? '加载会话与布局…' : '从 composer 开始一个新会话，或从左侧选择。' }}</div>
+        </div>
       </main>
     </div>
     <WorkbenchCommandPalette
@@ -232,8 +455,22 @@ onUnmounted(() => {
 .workbench-page { height: calc(100vh - 57px); min-height: 520px; display: flex; flex-direction: column; overflow: hidden; background: var(--ink); }
 .workbench-top { flex: none; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; align-items: center; padding: 10px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
 .page-error { flex: none; margin: 0; padding: 7px 12px; color: var(--fail); background: rgba(200,70,70,.08); border-bottom: 1px solid var(--line); }
+.layout-notice { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; padding: 7px 12px; color: var(--run); background: rgba(255,185,80,.08); border-bottom: 1px solid var(--line); }
+.layout-notice button { color: inherit; background: transparent; border: 0; font-size: 16px; }
 .workbench-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(260px, 24vw) minmax(0,1fr); }
-.workbench-main { min-width: 0; min-height: 0; overflow: auto; display: grid; place-items: center; padding: 28px; }
+.workbench-main { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
+.layout-tabs { flex: none; min-width: 0; display: flex; align-items: stretch; gap: 2px; padding: 5px 7px 0; background: var(--panel); border-bottom: 1px solid var(--line); overflow-x: auto; }
+.layout-tab { flex: none; display: flex; align-items: center; max-width: 220px; border: 1px solid transparent; border-bottom: 0; border-radius: var(--radius) var(--radius) 0 0; }
+.layout-tab.active { background: var(--ink); border-color: var(--line); }
+.tab-select, .tab-close, .tab-new { color: var(--queue); background: transparent; border: 0; }
+.tab-select { min-width: 70px; max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; padding: 7px 5px 7px 9px; }
+.layout-tab.active .tab-select { color: var(--paper); }
+.tab-close { padding: 7px 7px 7px 3px; }
+.tab-new { padding: 5px 10px; font-size: 16px; }
+.tab-select:hover, .tab-close:hover, .tab-new:hover { color: var(--phosphor); }
+.tab-title-input { width: 130px; margin: 3px; padding: 3px 5px; color: var(--paper); background: var(--ink); border: 1px solid var(--phosphor); }
+.layout-version { margin-left: auto; align-self: center; padding: 0 5px; color: var(--queue); font-size: 10px; white-space: nowrap; }
+.layout-surface { flex: 1; min-width: 0; min-height: 0; position: relative; }
 .empty-main { color: var(--queue); }
 @media (max-width: 760px) {
   .workbench-page { height: calc(100vh - 53px); }
