@@ -77,6 +77,12 @@ const routes: RouteRecordRaw[] = [
         name: 'settings-config',
         component: () => import('./views/Config.vue'),
       },
+      // JOB-06①：强制规则库（列表 / 编辑预览 / 绑定反查）。
+      {
+        path: 'rules',
+        name: 'settings-rules',
+        component: () => import('./views/settings/Rules.vue'),
+      },
       {
         path: 'tunnels',
         name: 'settings-tunnels',

@@ -34,6 +34,10 @@ export const EVENT_META: Record<string, { icon: string; label: string }> = {
   // （worker_protocol = 老 worker，peer_runner = peer 没有通道）。
   'job.skills_mounted': { icon: '❖', label: '已挂载技能' },
   'job.skills_skipped': { icon: '⚠', label: '技能未挂载' },
+  // JOB-06①：强制规则已注入 prompt（names = 注入的名字，bytes = 正文总字节）。
+  // 跳过只在项目根的 .gofer/RULES.md 读不到时记（reason: project_file_unreachable）。
+  'job.rules_injected': { icon: '§', label: '已注入规则' },
+  'job.rules_skipped': { icon: '⚠', label: '规则未注入' },
   // MCP-05 阶段 B（S4 补）：leader 回合。它们记在 PLAN 作用域（scope id 为 plan:<id>），
   // 所以只在按 plan 作用域查事件流时出现。
   'plan.leader_woken': { icon: '◈', label: 'leader 回合开始' },
@@ -147,6 +151,16 @@ export function eventDetailText(ev: JobEvent): string {
       const names = Array.isArray(d.names) ? (d.names as unknown[]).map(String) : []
       return [d.reason, names.join(', ')].filter(Boolean).join(' · ')
     }
+    // JOB-06①：注入了哪些规则、共多少字节（bytes 是剥掉 frontmatter 的正文总长）；
+    // 跳过只在项目根的 .gofer/RULES.md 读不到时记（reason=project_file_unreachable）。
+    case 'job.rules_injected': {
+      const names = Array.isArray(d.names) ? (d.names as unknown[]).map(String) : []
+      return [names.join(', '), typeof d.bytes === 'number' ? `${d.bytes} B` : '']
+        .filter(Boolean)
+        .join(' · ')
+    }
+    case 'job.rules_skipped':
+      return [d.reason, d.name].filter(Boolean).map(String).join(' · ')
     // MCP-05 阶段 B（S4 补）：leader 回合的关键字段（轮次、接手人、成员 job）。
     case 'plan.leader_woken':
       return [`第 ${d.round ?? '?'} 轮`, d.agent, d.member_status, d.leader_job].filter(Boolean).map(String).join(' · ')

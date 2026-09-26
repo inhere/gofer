@@ -1364,6 +1364,18 @@ onUnmounted(() => {
         <span class="meta-k mono">skills</span>
         <span class="meta-v mono" :title="job.skills.join(', ')">{{ job.skills.join(', ') }}</span>
       </div>
+      <!-- 强制规则（JOB-06①）：提交时按 server → agent → project → job 取并集（外加项目根的
+           .gofer/RULES.md，名为 project:<key>），拼在 prompt 最前面。每个名字 hover 显示注入正文的
+           sha256 前 8 位 —— 规则库改过之后，这是"这次跑的是哪一版"的答案。没绑定的 job 无该字段。 -->
+      <div v-if="job.rules && job.rules.length > 0" class="meta-item">
+        <span class="meta-k mono">rules</span>
+        <span class="meta-v mono">
+          <template v-for="(r, i) in job.rules" :key="r.name">
+            <span :title="r.sha256 ? `${r.name} @ sha256 ${r.sha256.slice(0, 8)}` : r.name">{{ r.name }}</span
+            ><span v-if="i < job.rules.length - 1">, </span>
+          </template>
+        </span>
+      </div>
       <div class="meta-item">
         <span class="meta-k mono">runner</span>
         <span class="meta-v mono" :class="{ remote: job.runner !== 'local' }">{{ job.runner }}</span>

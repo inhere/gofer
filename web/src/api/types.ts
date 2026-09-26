@@ -110,6 +110,11 @@ export interface Job {
   // 定下，随 job 一起落库（job.JobResult.Skills）。文件物化在 <result_dir>/skills/，prompt 头部
   // 列路径。没有绑定的 job 不发该字段（"没绑"是缺省，不是空清单），详情页整行不显示。
   skills?: string[]
+  // 强制规则（JOB-06①，后端 omitempty）：提交时按 server → agent → project → job 四层取并集
+  // （外加项目根 .gofer/RULES.md，名为 project:<key>），注入 prompt 顶部并随 job 落库
+  // （job.JobResult.Rules）。每条带注入正文的 sha256，事后可回答"这次跑的是哪一版规则"。
+  // 没有绑定的 job 不发该字段，详情页整行不显示。
+  rules?: JobRuleRef[]
   // 用量/成本（SUP-01 E，后端 omitempty）：agent 自报的 token/成本结算（远端 job 由执行机
   // 采集后随 Outcome 回传）。没采集到就没有该字段，详情页不显示用量块。
   usage?: JobUsage
@@ -482,6 +487,9 @@ export interface ProjectDetail {
   // 放行、交给后端拒。
   allow_interactive: boolean
   max_concurrent_jobs?: number
+  // JOB-06①：该项目的强制规则绑定（projects.<key>.rules）。PUT 是合并语义，省略 = 保留，
+  // 显式 [] = 解绑。
+  rules?: string[]
 }
 
 // 脱敏配置总览（GET /v1/config）。字段逐项对齐 internal/httpapi/config_handler.go
@@ -535,6 +543,10 @@ export interface ServerConfigView {
   // JOB-10：全局默认技能绑定（server.skills）。可编辑且 PUT 是"整体替换"语义（body 里
   // 没有的可编辑字段会被清空），所以表单必须原样回发这份清单。
   skills: string[]
+  // JOB-06①：部署级强制规则绑定（server.rules）与它的总长上限（server.rules_max_bytes，
+  // 0 = 默认 16KiB）。server PUT 是**部分**更新（省略的字段保留），但规则页的反查要读它。
+  rules: string[]
+  rules_max_bytes: number
 }
 
 export interface RetryPolicy {
@@ -656,6 +668,9 @@ export interface ConfigAgentView {
   // JOB-10：该 agent 自己的技能绑定（agents.<key>.skills），与 server/project 的清单取并集。
   // 同 server：可编辑 + 整体替换语义，表单必须回发。
   skills: string[]
+  // JOB-06①：该 agent 自己的强制规则绑定（agents.<key>.rules）。**同样整体替换**：agent PUT
+  // 会清空 body 里没有的可编辑字段，配置页表单必须原样回发，否则保存一次就把绑定抹掉。
+  rules: string[]
   // injected=true：该 key 不是操作者在文件里声明的，而是运行时按内置模板注入的（CLI 在本机
   // 存在才注入）。删除它 = 删除操作者覆盖、回落到内置定义，不是删除能力。
   injected?: boolean
@@ -765,6 +780,9 @@ export interface ProjectWriteReq {
   allow_exec: boolean
   allow_interactive?: boolean
   max_concurrent_jobs?: number
+  // JOB-06①：项目的强制规则绑定。合并语义同其它字段：省略保留、[] 解绑 —— 表单整体下发，
+  // 所以清空最后一个绑定必须发 []。
+  rules?: string[]
 }
 
 export interface ProjectWriteResp extends ProjectDetail {
@@ -1711,6 +1729,38 @@ export interface RebuildRequest {
 }
 
 export type RebuildBody = RebuildRequest
+
+// ---------------------------------------------------------------- 强制规则（JOB-06①）
+
+// Rule 是库里的强制规则索引（internal/rule.Rule）：正文在磁盘上
+// （<config-dir>/rules/<name>.md），列表/绑定反查/「哪一版被注入」都读这一行。
+export interface Rule {
+  name: string
+  description?: string
+  // 文件原文字节数（含 frontmatter）。
+  size?: number
+  // 文件原文（含 frontmatter）的 sha256；job 行记的就是它。
+  sha256?: string
+  // Unix 秒（后端 omitempty）。
+  updated_at?: number
+  updated_by?: string
+}
+
+// GET /v1/rules。rules 恒为数组（空库是 []，不是 null）。
+export interface RulesResp {
+  rules: Rule[]
+}
+
+// GET /v1/rules/{name}：索引行 + 规则原文（frontmatter 一起，与 CLI `rule show` 一致）。
+export interface RuleDetail extends Rule {
+  content: string
+}
+
+// job 记录的一条规则（job.RuleRef）：名字 + 注入正文（含 frontmatter）的 sha256。
+export interface JobRuleRef {
+  name: string
+  sha256?: string
+}
 
 // ---------------------------------------------------------------- 技能库（JOB-10）
 
