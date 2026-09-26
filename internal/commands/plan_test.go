@@ -6,14 +6,23 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/gookit/gcli/v3"
 
+	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/httpapi"
+	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/job/workflow"
+	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/project"
+	"github.com/inhere/gofer/internal/runner"
+	localrunner "github.com/inhere/gofer/internal/runner/local"
 )
 
 // TestPlanSetTodoAppendNote: `plan set-todo <id> --append-note "<line>"` PATCHes
@@ -261,5 +270,88 @@ func TestPlanListPagingFlags(t *testing.T) {
 	}
 	if !strings.Contains(out, "共 3 条，显示 1–3") {
 		t.Fatalf("--all footer = %s", out)
+	}
+}
+
+// newPlanTestServer wires a REAL in-process httpapi server (one "self" project) and
+// returns its URL. A plan test can then assert the server's own answer — status code and
+// error text — instead of a stub's echo. No job is ever submitted, so there is nothing
+// to drain on cleanup.
+func newPlanTestServer(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	cfg := &config.Config{
+		Server:  config.ServerConfig{AllowEmptyToken: true},
+		Storage: config.StorageConfig{Root: root},
+		Projects: map[string]config.ProjectConfig{
+			"self": {
+				HostPath:       root,
+				AllowedAgents:  []string{"exec"},
+				AllowedRunners: []string{"local"},
+				AllowExec:      true,
+			},
+		},
+	}
+	st, err := jobstore.Open(filepath.Join(root, "gofer.db"))
+	if err != nil {
+		t.Fatalf("open jobstore: %v", err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+
+	projects := project.NewRegistry(cfg, "")
+	agents := agent.NewRegistry(cfg)
+	runners := map[string]runner.Runner{localrunner.Name: localrunner.New()}
+	jobs := job.NewService(cfg, projects, agents, runners, st, nil)
+	eng := workflow.NewEngine(jobs)
+	jobs.SetWorkflow(eng)
+
+	ts := httptest.NewServer(httpapi.New(
+		&cfg.Server, "", true, jobs, eng, projects, agents, nil, nil, nil, nil,
+	).Handler())
+	t.Cleanup(ts.Close)
+	return ts.URL
+}
+
+// TestPlanActiveStatusRejected (F15): `active` duplicated `open` and is gone. Both
+// surfaces must refuse it and say what to send instead — a bare "invalid status" would
+// leave an operator (or a script that still sends it) guessing.
+func TestPlanActiveStatusRejected(t *testing.T) {
+	isolateConfigEnv(t)
+	config.InputCfgFile = ""
+	t.Cleanup(func() { config.InputCfgFile = "" })
+	jobConnOpts.server, jobConnOpts.token = "", ""
+	server := newPlanTestServer(t)
+
+	cli, err := newClient("", server, "")
+	if err != nil {
+		t.Fatalf("newClient: %v", err)
+	}
+	if _, err := cli.CreatePlan("plan-f15-status", "F15", "", "", ""); err != nil {
+		t.Fatalf("create plan: %v", err)
+	}
+
+	// CLI: the command fails and prints the server's reason.
+	app := NewApp("test")
+	out := captureOutput(t, func() {
+		if code := app.Run([]string{"plan", "set-status", "--server", server, "plan-f15-status", "active"}); code == 0 {
+			t.Error("plan set-status active must fail, got exit code 0")
+		}
+	})
+	if !strings.Contains(out, `status "active" was removed; use "open"`) {
+		t.Fatalf("CLI must print the removal hint, got:\n%s", out)
+	}
+
+	// API: the same 400 (and detail), and a refused PATCH writes nothing.
+	if _, err := cli.UpdatePlan("plan-f15-status", "active", nil); client.StatusOf(err) != http.StatusBadRequest {
+		t.Fatalf("PATCH active: err = %v, want a 400", err)
+	} else if !strings.Contains(err.Error(), `status "active" was removed; use "open"`) {
+		t.Fatalf("PATCH active error = %v, want the removal hint", err)
+	}
+	p, err := cli.GetPlan("plan-f15-status")
+	if err != nil {
+		t.Fatalf("get plan: %v", err)
+	}
+	if p.Status != jobstore.PlanOpen {
+		t.Fatalf("plan status = %q, want open (a refused status must not be written)", p.Status)
 	}
 }
