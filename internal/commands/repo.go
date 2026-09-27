@@ -17,6 +17,31 @@ func NewRepoCmd() *gcli.Command {
 		Name: "repo", Desc: "Manage this repository's local tracker",
 		Subs: []*gcli.Command{
 			{
+				Name: "prime", Desc: "Print repository tracker context",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					c.BoolOpt(&asJSON, "hook-json", "", false, "Claude SessionStart JSON output")
+				},
+				Func: func(c *gcli.Command, _ []string) error {
+					s, err := tracker.Discover(".", "")
+					if err != nil {
+						if asJSON {
+							return printTrackerJSON(c, map[string]any{"hookSpecificOutput": map[string]string{"additionalContext": ""}})
+						}
+						return err
+					}
+					body, err := s.Prime()
+					if err != nil {
+						return err
+					}
+					if asJSON {
+						return printTrackerJSON(c, map[string]any{"hookSpecificOutput": map[string]string{"additionalContext": body}})
+					}
+					c.Print(body)
+					return nil
+				},
+			},
+			{
 				Name: "init", Desc: "Initialize local issue and memory files",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
