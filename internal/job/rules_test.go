@@ -12,7 +12,43 @@ import (
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/tracker"
 )
+
+func TestJobInjectsTrackerPrime(t *testing.T) {
+	root := t.TempDir()
+	project := filepath.Join(root, "work")
+	if err := os.MkdirAll(project, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	store, _, err := tracker.Init(project, "sample", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.UpdateMemories(func(_ []tracker.Memory) ([]tracker.Memory, error) {
+		return []tracker.Memory{{Key: "build-rule", Content: "SYNTHETIC-MEMORY", UpdatedAt: tracker.Now()}}, nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	s, _ := newRuleService(t, root, nil, map[string]string{"house-rules": "HOUSE-RULE"})
+	final := submitAndWait(t, s, JobRequest{ProjectKey: "self", Agent: "ok", Runner: "local", Cwd: ".", Prompt: "x", TimeoutSec: 30, Rules: []string{"house-rules"}})
+	if final.Status != StatusDone {
+		t.Fatalf("job status=%s err=%s", final.Status, final.Error)
+	}
+	prompt := promptOf(t, final)
+	if !strings.Contains(prompt, "### tracker-prime") || !strings.Contains(prompt, "SYNTHETIC-MEMORY") || !strings.Contains(prompt, "按功能点本地提交") {
+		t.Fatalf("tracker prime absent from job prompt: %s", prompt)
+	}
+	var found bool
+	for _, ref := range final.Rules {
+		if ref.Name == "tracker-prime" {
+			found = len(ref.SHA256) == 64
+		}
+	}
+	if !found {
+		t.Fatalf("tracker-prime name/sha absent: %+v", final.Rules)
+	}
+}
 
 // stubRules is the job-side rule-library seam: fixed bodies plus the digest the real
 // store computes over them, so the injected prompt, the row's sha256 and the size
