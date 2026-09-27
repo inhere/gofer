@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { computed, inject, nextTick, onMounted, onUnmounted, ref, watch, type ComputedRef, type Ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { answerInteraction, cancelJob, puntInteraction } from '../../api/client'
+import { answerInteraction, cancelJob, getJob, puntInteraction } from '../../api/client'
 import { appendCapped, streamJob } from '../../api/sse'
 import type { Interaction, Job, SSEEvent, SSEInteractionData, SSELogData, WorkbenchThread } from '../../api/types'
 import { patchWorkbenchThread, turnWorkbenchThread } from '../../api/workbench'
 import AttachTerminal from '../AttachTerminal.vue'
+import UncommittedBadge from '../UncommittedBadge.vue'
 import ConversationView from './ConversationView.vue'
 import ThreadChangesView from './ThreadChangesView.vue'
 import InteractionCard from '../InteractionCard.vue'
@@ -63,6 +64,18 @@ const documentVisible = ref(document.visibilityState === 'visible')
 
 const thread = computed(() => context.threadsByID.value.get(props.threadId))
 const latestJobID = computed(() => thread.value?.latest_job_id ?? '')
+const latestJob = ref<Job | null>(null)
+watch([latestJobID, () => thread.value?.raw_status], async () => {
+  const id = latestJobID.value
+  latestJob.value = null
+  if (!id) return
+  try {
+    const result = await getJob(id)
+    if (latestJobID.value === id) latestJob.value = result
+  } catch {
+    // The thread remains usable if a job detail request races creation/eviction.
+  }
+}, { immediate: true })
 const isACPThread = computed(() => {
   const current = thread.value
   return current?.kind === 'agent' && !!current.agent && context.acpAgentKeys.value.has(current.agent)
@@ -95,6 +108,7 @@ function onEvent(event: SSEEvent): void {
   if (event.type === 'status') {
     const value = event.data as Job
     liveStatus.value = value.status
+    if (value.id === latestJobID.value) latestJob.value = value
     void context.refresh()
     return
   }
@@ -355,6 +369,7 @@ onUnmounted(() => {
         />
         <button v-else class="thread-title" type="button" title="点击重命名" @click="editingTitle = true">{{ thread.title }}</button>
         <span class="status mono" :class="`status--${thread.status}`">{{ thread.status }}<template v-if="thread.stalled"> · stalled</template></span>
+        <UncommittedBadge :count="latestJob?.uncommitted_count" :files="latestJob?.uncommitted_files" />
       </div>
       <div class="head-actions mono">
         <button type="button" @click="togglePin">{{ thread.pinned ? '取消置顶' : '置顶' }}</button>

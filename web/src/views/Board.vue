@@ -4,6 +4,7 @@ import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import StatusBadge from '../components/StatusBadge.vue'
 import Signal from '../components/Signal.vue'
+import UncommittedBadge from '../components/UncommittedBadge.vue'
 import { listJobs, listPlans, listProjects } from '../api/client'
 import { fmtDuration, jobDurationSec } from '../api/time'
 import type { Job, JobStatus } from '../api/types'
@@ -563,7 +564,8 @@ onUnmounted(() => {
           <span v-if="job.tags && job.tags.length" class="job-tags">
             <span v-for="t in job.tags" :key="t" class="tag-chip mono" :title="t">{{ t }}</span>
           </span>
-          <span v-if="job.role || job.channel || job.read_only || job.verify?.status === 'failed'" class="job-badges">
+          <span v-if="job.role || job.channel || job.read_only || job.verify?.status === 'failed' || job.uncommitted_count" class="job-badges">
+            <UncommittedBadge :count="job.uncommitted_count" :files="job.uncommitted_files" />
             <span
               v-if="job.verify?.status === 'failed'"
               class="job-badge job-badge--verify mono"
@@ -813,7 +815,7 @@ onUnmounted(() => {
 .table {
   border: 1px solid var(--line);
   border-radius: var(--radius);
-  overflow: hidden;
+  overflow: visible;
 }
 .thead,
 .trow {

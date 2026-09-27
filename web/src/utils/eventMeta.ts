@@ -9,6 +9,7 @@ export const EVENT_META: Record<string, { icon: string; label: string }> = {
   'job.dispatched': { icon: '→', label: '已派发' },
   'job.running': { icon: '▶', label: '开始运行' },
   'job.terminal': { icon: '■', label: '结束' },
+  'job.uncommitted': { icon: '⚠', label: '未提交改动' },
   'job.cancelled': { icon: '✕', label: '请求取消' },
   'interaction.created': { icon: '?', label: '发起交互' },
   'interaction.answered': { icon: '✎', label: '交互已答' },
@@ -82,6 +83,8 @@ export function eventDetailText(ev: JobEvent): string {
       }
       return parts.join(' · ')
     }
+    case 'job.uncommitted':
+      return `${d.count ?? 0} 个文件`
     case 'interaction.created':
       return String(d.prompt ?? '')
     case 'interaction.answered':

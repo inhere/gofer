@@ -8,6 +8,7 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import StatusBadge from '../components/StatusBadge.vue'
 import Signal from '../components/Signal.vue'
+import UncommittedBadge from '../components/UncommittedBadge.vue'
 import LogTape from '../components/LogTape.vue'
 import InteractionCard from '../components/InteractionCard.vue'
 import CommentThread from '../components/CommentThread.vue'
@@ -1309,6 +1310,7 @@ onUnmounted(() => {
       <RouterLink to="/board" class="back mono">← board</RouterLink>
       <div class="head-right">
         <StatusBadge v-if="job" :status="status" :holder="job.waiting_on_job" />
+        <UncommittedBadge v-if="job" :count="job.uncommitted_count" :files="job.uncommitted_files" />
         <Signal v-if="job" :status="status" :rate="logRate" :duration-sec="durationSec" />
         <RouterLink
           v-if="job && isTerminalView"

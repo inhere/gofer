@@ -67,6 +67,9 @@ export interface Job {
   result_json?: string
   // git diff --stat 截断摘要（E12，P3 起填充；纯文本，非 JSON）。
   diff_summary?: string
+  // GIT-01：本轮新增且未提交的路径（最多 200）与完整计数。
+  uncommitted_files?: string[]
+  uncommitted_count?: number
   // 执行来源（P4，后端 omitempty）：""(本机) / "worker:<id>" / "peer:<name>"。
   // 远端执行时填充，产出面板据此标注「在 worker/peer 执行」，远端产物文件留执行机。
   source?: string
@@ -1009,6 +1012,7 @@ export type JobEventType =
   | 'job.dispatched'
   | 'job.running'
   | 'job.terminal'
+  | 'job.uncommitted'
   | 'job.cancelled'
   | 'interaction.created'
   | 'interaction.answered'
