@@ -318,6 +318,17 @@ func TestRunForwardWorkerIDRouting(t *testing.T) {
 	}
 }
 
+func TestRunUncommittedAutoAttemptDispatch(t *testing.T) {
+	h := &fakeHub{workerProto: wsproto.CurrentProtocolVersion}
+	r := newRunnerWithHub(h)
+	runToResultWithWorker(t, r, h, &runner.Forward{
+		ResumedFrom: "source-job", SessionID: "session-1", AutoResumeAttempt: 1,
+	})
+	if got := h.dispatchedFrame().AutoResumeAttempt; got != 1 {
+		t.Fatalf("dispatch auto_resume_attempt = %d, want 1", got)
+	}
+}
+
 // TestRunForwardWorkerIDFallback (P2 D4): an empty Forward.WorkerID falls back to
 // the runner's configured default worker (r.workerID).
 func TestRunForwardWorkerIDFallback(t *testing.T) {
