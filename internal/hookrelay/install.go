@@ -51,11 +51,27 @@ func InstallTrackerPrime(agent, root string, replaceBd bool) (bool, error) {
 			if cmd == trackerPrimeCommand {
 				found = true
 			}
-			if replaceBd && cmd == "bd prime --hook-json" {
-				item["command"] = trackerPrimeCommand
-				changed = true
-				found = true
+		}
+	}
+	if replaceBd {
+		for _, entry := range entries {
+			group, _ := entry.(map[string]any)
+			hooks, _ := group["hooks"].([]any)
+			kept := make([]any, 0, len(hooks))
+			for _, hook := range hooks {
+				item, _ := hook.(map[string]any)
+				cmd, _ := item["command"].(string)
+				if cmd == "bd prime --hook-json" {
+					changed = true
+					if found {
+						continue
+					}
+					item["command"] = trackerPrimeCommand
+					found = true
+				}
+				kept = append(kept, hook)
 			}
+			group["hooks"] = kept
 		}
 	}
 	if !found {

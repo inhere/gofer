@@ -4,7 +4,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 
 	"github.com/gookit/gcli/v3"
 	"github.com/inhere/gofer/internal/hookrelay"
@@ -13,10 +15,65 @@ import (
 
 func NewRepoCmd() *gcli.Command {
 	var prefix, initTracker, statusTracker string
-	var noAgents, noHooks, asJSON bool
+	var noAgents, noHooks, asJSON, fromBD, applyMigration bool
 	return &gcli.Command{
 		Name: "repo", Desc: "Manage this repository's local tracker",
 		Subs: []*gcli.Command{
+			{
+				Name: "migrate", Desc: "Migrate local bd issues and memories",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					c.BoolOpt(&fromBD, "from-bd", "", false, "read .beads/issues.jsonl")
+					c.BoolOpt(&applyMigration, "apply", "", false, "apply changes (default: dry-run)")
+				},
+				Func: func(c *gcli.Command, _ []string) error {
+					if !fromBD {
+						return fmt.Errorf("specify --from-bd")
+					}
+					root, err := os.Getwd()
+					if err != nil {
+						return err
+					}
+					mode := "dry-run"
+					if applyMigration {
+						mode = "apply"
+					}
+					for _, step := range []string{"1. import .beads/issues.jsonl", "2. import bd memories --json if available", "3. replace BEADS managed blocks", "4. replace bd SessionStart hooks", "5. unset core.hooksPath when it points to .beads/hooks", "6. preserve .beads/"} {
+						c.Printf("%s: %s\n", mode, step)
+					}
+					report, err := tracker.MigrateFromBD(root, applyMigration)
+					if err != nil {
+						return err
+					}
+					if !applyMigration {
+						c.Printf("dry-run: %d issues; no files written\n", report.Issues)
+						return nil
+					}
+					for _, agent := range []string{hookrelay.AgentClaude, hookrelay.AgentCodex} {
+						changed, err := hookrelay.InstallTrackerPrime(agent, root, true)
+						if err != nil {
+							return err
+						}
+						if changed {
+							path, _ := hookrelay.ConfigFileFor(agent, root)
+							report.Files = append(report.Files, path)
+						}
+					}
+					hooksPath, err := exec.Command("git", "-C", root, "config", "--local", "--get", "core.hooksPath").Output()
+					oldHooksPath := strings.TrimSpace(string(hooksPath))
+					if err == nil && strings.HasSuffix(strings.ReplaceAll(oldHooksPath, "\\", "/"), ".beads/hooks") {
+						cmd := exec.Command("git", "-C", root, "config", "--local", "--unset", "core.hooksPath")
+						if output, err := cmd.CombinedOutput(); err != nil {
+							return fmt.Errorf("unset core.hooksPath: %w: %s", err, output)
+						}
+					}
+					c.Printf("imported issues=%d memories=%d; files=%s; core.hooksPath original=%q\n", report.Issues, report.Memories, strings.Join(report.Files, ", "), oldHooksPath)
+					for _, note := range report.Notes {
+						c.Println(note)
+					}
+					return nil
+				},
+			},
 			{
 				Name: "prime", Desc: "Print repository tracker context",
 				Config: func(c *gcli.Command) {
