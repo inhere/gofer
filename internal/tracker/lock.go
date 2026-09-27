@@ -23,6 +23,8 @@ type Lock struct {
 	body []byte
 }
 
+var errLockChanged = errors.New("tracker lock ownership changed")
+
 func (s *Store) AcquireLock() (*Lock, error) {
 	path := filepath.Join(s.Dir, ".local", "lock")
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
@@ -59,12 +61,8 @@ func (s *Store) AcquireLock() (*Lock, error) {
 		}
 		stale, old, err := staleLock(path)
 		if err == nil && stale {
-			// Check again before unlinking. A replaced lock never belongs to us.
-			current, readErr := os.ReadFile(path)
-			if readErr == nil && bytes.Equal(old, current) {
-				if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
-					return nil, fmt.Errorf("reclaim expired tracker lock: %w", removeErr)
-				}
+			if removeErr := removeMatchingLock(path, old); removeErr != nil && !errors.Is(removeErr, errLockChanged) {
+				return nil, fmt.Errorf("reclaim expired tracker lock: %w", removeErr)
 			}
 			continue
 		}
@@ -94,15 +92,30 @@ func staleLock(path string) (bool, []byte, error) {
 }
 
 func (l *Lock) Release() error {
-	current, err := os.ReadFile(l.path)
-	if errors.Is(err, os.ErrNotExist) {
-		return nil
+	return removeMatchingLock(l.path, l.body)
+}
+
+// A contender may be reading the file when Windows attempts removal. Retry only
+// that local sharing window, checking ownership again before every attempt.
+func removeMatchingLock(path string, expected []byte) error {
+	deadline := time.Now().Add(time.Second)
+	for {
+		current, err := os.ReadFile(path)
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		if err == nil && !bytes.Equal(current, expected) {
+			return errLockChanged
+		}
+		if err == nil {
+			err = os.Remove(path)
+			if err == nil || errors.Is(err, os.ErrNotExist) {
+				return nil
+			}
+		}
+		if time.Now().After(deadline) {
+			return err
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	if err != nil {
-		return err
-	}
-	if !bytes.Equal(current, l.body) {
-		return errors.New("tracker lock ownership changed")
-	}
-	return os.Remove(l.path)
 }
