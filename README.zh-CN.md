@@ -216,6 +216,22 @@ gofer job review <job-id> [--tail 60] [--diff]               # 验收材料一�
 - `job cancel` 对 `needs_review` 返回 409——已经没东西可取消，请用 `reject`；`job resume` 同样要求先裁决。
 - 审计字段 `require_review` / `reviewed_by` / `reviewed_at` / `review_note` 落库，`job show` 与 web 页可见。`job.needs_review` 是**IM 通知默认事件**（与 `job.terminal` 同列），`job.reviewed` 需显式订阅。
 
+### 未提交改动守卫（GIT-01）
+
+agent job 开始前，gofer 记录 Git 脏路径及内容哈希；结束时只计本轮新出现的脏路径，或起点已脏但内容再次变化的路径。Git 忽略的文件不计；还扫描 cwd 下深度不超过两层、未被忽略的嵌套仓库；受管 worktree job 检查自己的 worktree。exec job 和非 Git cwd 跳过。结果保存完整数量 `uncommitted_count` 与排序后的前 200 个 cwd 相对路径 `uncommitted_files`；`job.uncommitted` 事件带数量与前 20 个路径。job 详情、Board 行、工作台会话头显示可点开文件列表的「未提交 N」徽标。
+
+在 server 的项目配置中设置策略：
+
+```yaml
+projects:
+  my-project:
+    host_path: /work/my-project
+    on_uncommitted: warn           # off | warn | review | resume；默认 warn
+    uncommitted_ignore: ["tmp/**", "**/*.generated.go"]
+```
+
+`warn` 只记录；`review` 让正常完成的 job 进入 `needs_review`；`resume` 在 `server.auto_resume_max` 预算内用固定的本地提交提示续接同一会话一次，没有 session、预算用尽、agent 不支持续接或续接后仍脏则转验收；`off` 关闭检测。`uncommitted_ignore` 是用 `/` 分段的 glob：`*` 匹配单段，`**` 跨目录。worker 只回报检测结果，review/resume 决策由 hub 执行。
+
 ## 远端执行与 worker
 
 远端 job 的日志、状态、运行中交互都经"镜像"透明回传到本地 job，读路径不变。

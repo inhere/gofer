@@ -223,6 +223,22 @@ gofer job review <job-id> [--tail 60] [--diff]               # the acceptance ma
 - `job cancel` refuses a `needs_review` job (409) — there is nothing left to cancel, use `reject`. `job resume` likewise demands the review be settled first.
 - Audit fields `require_review` / `reviewed_by` / `reviewed_at` / `review_note` are persisted and shown by `job show` and the web page. `job.needs_review` is a **default IM notification event** (like `job.terminal`); `job.reviewed` can be subscribed explicitly.
 
+### Uncommitted change guard (GIT-01)
+
+For agent jobs, gofer snapshots dirty Git paths and their content hashes before execution, then checks which paths are newly dirty or changed again at the end. Ignored files do not count. It also checks non-ignored Git repositories up to two directories below the job cwd; managed-worktree jobs inspect their own worktree. Exec jobs and non-Git cwd are skipped. The result stores `uncommitted_count` plus the first 200 sorted cwd-relative paths in `uncommitted_files`; `job.uncommitted` records the count and first 20 paths. The job page, Board row and workbench session header show a clickable **Uncommitted N** badge.
+
+Set the policy in the project's server configuration:
+
+```yaml
+projects:
+  my-project:
+    host_path: /work/my-project
+    on_uncommitted: warn           # off | warn | review | resume; default warn
+    uncommitted_ignore: ["tmp/**", "**/*.generated.go"]
+```
+
+`warn` records the result only. `review` parks a normally completed job in `needs_review`. `resume` continues the same agent session once with a fixed local-commit request, within `server.auto_resume_max`; a missing session, exhausted budget, unsupported resume, or still-dirty continuation goes to review. `off` disables the guard. `uncommitted_ignore` uses slash-separated globs (`*` within one path segment, `**` across directories). A worker reports the files to the hub; the hub owns review and resume decisions.
+
 ## Remote execution and workers
 
 Logs, status and mid-run interactions of remote jobs are mirrored back to the local job; every read path stays the same.
