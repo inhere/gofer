@@ -6,7 +6,8 @@ import (
 )
 
 func NewMemoryCmd() *gcli.Command {
-	var trackerPath string
+	var trackerPath, setTags string
+	var listTags gcli.Strings
 	var asJSON bool
 	bind := func(c *gcli.Command) {
 		bindConfigFlag(c)
@@ -26,23 +27,28 @@ func NewMemoryCmd() *gcli.Command {
 			bind(c)
 			c.AddArg("key", "memory key", true)
 			c.AddArg("content", "memory content", true)
+			c.StrOpt(&setTags, "tag", "", "", "comma-separated tags")
 		}, Func: func(c *gcli.Command, _ []string) error {
 			s, err := store()
 			if err != nil {
 				return err
 			}
-			item, err := s.SetMemory(c.Arg("key").String(), c.Arg("content").String(), trackerActor())
+			item, err := s.SetMemory(c.Arg("key").String(), c.Arg("content").String(), trackerActor(), tracker.ParseTags(setTags)...)
 			if err != nil {
 				return err
 			}
 			return printMemory(c, item)
 		}},
-		{Name: "ls", Aliases: []string{"list"}, Desc: "List memories", Config: func(c *gcli.Command) { bind(c); c.AddArg("kw", "keyword", false) }, Func: func(c *gcli.Command, _ []string) error {
+		{Name: "ls", Aliases: []string{"list"}, Desc: "List memories", Config: func(c *gcli.Command) {
+			bind(c)
+			c.AddArg("kw", "keyword", false)
+			c.VarOpt(&listTags, "tag", "", "filter tag (repeatable)")
+		}, Func: func(c *gcli.Command, _ []string) error {
 			s, err := store()
 			if err != nil {
 				return err
 			}
-			items, err := s.ListMemories(c.Arg("kw").String())
+			items, err := s.ListMemories(c.Arg("kw").String(), listTags...)
 			if err != nil {
 				return err
 			}

@@ -16,7 +16,7 @@ type Issue struct {
 	Notes              []NoteEntry `json:"notes,omitempty"`
 	Assignee           string      `json:"assignee,omitempty"`
 	Owner              string      `json:"owner,omitempty"`
-	Labels             []string    `json:"labels,omitempty"`
+	Tags               []string    `json:"tags,omitempty"`
 	Parent             string      `json:"parent,omitempty"`
 	Deps               []Dep       `json:"deps,omitempty"`
 	Comments           []Comment   `json:"comments,omitempty"`
@@ -46,10 +46,11 @@ type Dep struct {
 }
 
 type Memory struct {
-	Key       string `json:"key"`
-	Content   string `json:"content"`
-	UpdatedAt string `json:"updated_at"`
-	By        string `json:"by"`
+	Key       string   `json:"key"`
+	Content   string   `json:"content"`
+	Tags      []string `json:"tags,omitempty"`
+	UpdatedAt string   `json:"updated_at"`
+	By        string   `json:"by"`
 }
 
 type Config struct {

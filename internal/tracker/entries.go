@@ -72,6 +72,8 @@ type IssuePatch struct {
 	Claim       bool
 	AppendNotes string
 	Actor       string
+	Tags        []string
+	Untag       []string
 }
 
 func (s *Store) UpdateIssue(id string, patch IssuePatch) (Issue, error) {
@@ -99,6 +101,16 @@ func (s *Store) UpdateIssue(id string, patch IssuePatch) (Issue, error) {
 			}
 			if patch.AppendNotes != "" {
 				items[i].Notes = append(items[i].Notes, NoteEntry{At: Now(), By: patch.Actor, Text: patch.AppendNotes})
+			}
+			items[i].Tags = addTags(items[i].Tags, patch.Tags)
+			if len(patch.Untag) > 0 {
+				kept := make([]string, 0, len(items[i].Tags))
+				for _, tag := range items[i].Tags {
+					if !hasTag(patch.Untag, tag) {
+						kept = append(kept, tag)
+					}
+				}
+				items[i].Tags = kept
 			}
 			items[i].UpdatedAt = Now()
 			changed = items[i]
@@ -164,7 +176,8 @@ func (s *Store) AddDep(id, on string) (Issue, error) {
 type IssueFilter struct {
 	Status string
 	Type   string
-	Label  string
+	Tags   []string
+	Query  string
 	All    bool
 }
 
@@ -184,12 +197,12 @@ func (s *Store) ListIssues(filter IssueFilter) ([]Issue, error) {
 		if filter.Type != "" && item.Type != filter.Type {
 			continue
 		}
-		if filter.Label != "" {
-			found := false
-			for _, label := range item.Labels {
-				found = found || label == filter.Label
-			}
-			if !found {
+		if !hasAllTags(item.Tags, filter.Tags) {
+			continue
+		}
+		if filter.Query != "" {
+			needle := strings.ToLower(filter.Query)
+			if !strings.Contains(strings.ToLower(item.Title), needle) && !strings.Contains(strings.ToLower(item.Description), needle) {
 				continue
 			}
 		}
@@ -199,14 +212,17 @@ func (s *Store) ListIssues(filter IssueFilter) ([]Issue, error) {
 	return result, nil
 }
 
-func (s *Store) SetMemory(key, content, actor string) (Memory, error) {
+func (s *Store) SetMemory(key, content, actor string, tags ...string) (Memory, error) {
 	if strings.TrimSpace(key) == "" || strings.TrimSpace(content) == "" {
 		return Memory{}, errors.New("memory key and content are required")
 	}
-	item := Memory{Key: key, Content: content, UpdatedAt: Now(), By: actor}
+	item := Memory{Key: key, Content: content, Tags: addTags(nil, tags), UpdatedAt: Now(), By: actor}
 	err := s.UpdateMemories(func(items []Memory) ([]Memory, error) {
 		for i := range items {
 			if items[i].Key == key {
+				if tags == nil {
+					item.Tags = items[i].Tags
+				}
 				items[i] = item
 				return items, nil
 			}
@@ -229,19 +245,52 @@ func (s *Store) Memory(key string) (Memory, error) {
 	return Memory{}, fmt.Errorf("memory %s not found", key)
 }
 
-func (s *Store) ListMemories(keyword string) ([]Memory, error) {
+func (s *Store) ListMemories(keyword string, tags ...string) ([]Memory, error) {
 	items, err := s.ReadMemories()
 	if err != nil {
 		return nil, err
 	}
 	result := make([]Memory, 0, len(items))
 	for _, item := range items {
-		if strings.Contains(item.Key, keyword) || strings.Contains(item.Content, keyword) {
+		if (strings.Contains(item.Key, keyword) || strings.Contains(item.Content, keyword)) && hasAllTags(item.Tags, tags) {
 			result = append(result, item)
 		}
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].Key < result[j].Key })
 	return result, nil
+}
+
+func ParseTags(value string) []string {
+	return addTags(nil, strings.Split(value, ","))
+}
+
+func addTags(existing, incoming []string) []string {
+	out := append([]string(nil), existing...)
+	for _, raw := range incoming {
+		tag := strings.TrimSpace(raw)
+		if tag != "" && !hasTag(out, tag) {
+			out = append(out, tag)
+		}
+	}
+	return out
+}
+
+func hasTag(tags []string, target string) bool {
+	for _, tag := range tags {
+		if tag == target {
+			return true
+		}
+	}
+	return false
+}
+
+func hasAllTags(tags, wanted []string) bool {
+	for _, tag := range wanted {
+		if !hasTag(tags, tag) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *Store) RemoveMemory(key string) error {

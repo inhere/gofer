@@ -26,9 +26,11 @@ func trackerActor() string {
 
 func NewIssueCmd() *gcli.Command {
 	var trackerPath, createTitle, createType, createParent, createDescription, createOwner string
-	var listStatus, listType, listLabel, updateStatus, updateTitle, appendNotes, closeReason string
+	var listStatus, listType, listQuery, updateStatus, updateTitle, appendNotes, closeReason string
+	var createTags, updateTags, removeTags string
 	var createPriority int
 	var createDeps gcli.Strings
+	var listTags gcli.Strings
 	var all, claim, asJSON bool
 	bind := func(c *gcli.Command) {
 		bindConfigFlag(c)
@@ -77,14 +79,15 @@ func NewIssueCmd() *gcli.Command {
 			bind(c)
 			c.StrOpt(&listStatus, "status", "", "", "filter status")
 			c.StrOpt(&listType, "type", "", "", "filter issue type")
-			c.StrOpt(&listLabel, "label", "", "", "filter label")
+			c.VarOpt(&listTags, "tag", "", "filter tag (repeatable, all required)")
+			c.StrOpt(&listQuery, "query", "q", "", "search title and description")
 			c.BoolOpt(&all, "all", "", false, "include closed issues")
 		}, Func: func(c *gcli.Command, _ []string) error {
 			s, err := store()
 			if err != nil {
 				return err
 			}
-			items, err := s.ListIssues(tracker.IssueFilter{Status: listStatus, Type: listType, Label: listLabel, All: all})
+			items, err := s.ListIssues(tracker.IssueFilter{Status: listStatus, Type: listType, Tags: listTags, Query: listQuery, All: all})
 			if err != nil {
 				return err
 			}
@@ -110,12 +113,13 @@ func NewIssueCmd() *gcli.Command {
 			c.StrOpt(&createDescription, "description", "", "", "description")
 			c.StrOpt(&createOwner, "owner", "", "", "owner")
 			c.VarOpt(&createDeps, "dep", "", "blocking dependency id (repeatable)")
+			c.StrOpt(&createTags, "tag", "", "", "comma-separated tags")
 		}, Func: func(c *gcli.Command, _ []string) error {
 			s, err := store()
 			if err != nil {
 				return err
 			}
-			item := tracker.Issue{Title: createTitle, Type: createType, Priority: createPriority, Parent: createParent, Description: createDescription, Owner: createOwner, CreatedBy: trackerActor()}
+			item := tracker.Issue{Title: createTitle, Type: createType, Priority: createPriority, Parent: createParent, Description: createDescription, Owner: createOwner, Tags: tracker.ParseTags(createTags), CreatedBy: trackerActor()}
 			for _, id := range createDeps {
 				item.Deps = append(item.Deps, tracker.Dep{ID: id, Type: "blocks"})
 			}
@@ -132,6 +136,8 @@ func NewIssueCmd() *gcli.Command {
 			c.StrOpt(&updateStatus, "status", "", "", "new status")
 			c.StrOpt(&updateTitle, "title", "", "", "new title")
 			c.StrOpt(&appendNotes, "append-notes", "", "", "append one note")
+			c.StrOpt(&updateTags, "tag", "", "", "add comma-separated tags")
+			c.StrOpt(&removeTags, "untag", "", "", "remove comma-separated tags")
 		}, Func: func(c *gcli.Command, _ []string) error {
 			if claim && updateStatus != "" && updateStatus != "in_progress" {
 				return fmt.Errorf("--claim conflicts with --status %s", updateStatus)
@@ -140,7 +146,7 @@ func NewIssueCmd() *gcli.Command {
 			if err != nil {
 				return err
 			}
-			item, err := s.UpdateIssue(c.Arg("id").String(), tracker.IssuePatch{Title: updateTitle, Status: updateStatus, Claim: claim, AppendNotes: appendNotes, Actor: trackerActor()})
+			item, err := s.UpdateIssue(c.Arg("id").String(), tracker.IssuePatch{Title: updateTitle, Status: updateStatus, Claim: claim, AppendNotes: appendNotes, Actor: trackerActor(), Tags: tracker.ParseTags(updateTags), Untag: tracker.ParseTags(removeTags)})
 			if err != nil {
 				return err
 			}
