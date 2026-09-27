@@ -140,7 +140,7 @@ func diffUncommitted(before, after uncommittedSnapshot, ignore []string) []strin
 		}
 		ignored := false
 		for _, pattern := range ignore {
-			if match, _ := path.Match(pattern, name); match {
+			if globMatch(pattern, name) {
 				ignored = true
 				break
 			}
@@ -151,6 +151,29 @@ func diffUncommitted(before, after uncommittedSnapshot, ignore []string) []strin
 	}
 	slices.Sort(files)
 	return files
+}
+
+func globMatch(pattern, name string) bool {
+	patternParts := strings.Split(pattern, "/")
+	nameParts := strings.Split(name, "/")
+	var match func(int, int) bool
+	match = func(i, j int) bool {
+		if i == len(patternParts) {
+			return j == len(nameParts)
+		}
+		if patternParts[i] == "**" {
+			if match(i+1, j) {
+				return true
+			}
+			return j < len(nameParts) && match(i, j+1)
+		}
+		if j >= len(nameParts) {
+			return false
+		}
+		ok, _ := path.Match(patternParts[i], nameParts[j])
+		return ok && match(i+1, j+1)
+	}
+	return match(0, 0)
 }
 
 func uncommittedEnabled(agent, policy string) bool {

@@ -67,6 +67,9 @@ func TestUncommittedDetectsNewDirtyOnly(t *testing.T) {
 	if got := diffUncommitted(before, after, []string{"C*"}); !reflect.DeepEqual(got, []string{"A.txt"}) {
 		t.Fatalf("ignore C* = %v, want [A.txt]", got)
 	}
+	if !globMatch("**/tracked.txt", "tools/gofer/tracked.txt") || !globMatch("**/tracked.txt", "tracked.txt") {
+		t.Fatal("double-star glob must match nested and root paths")
+	}
 	if got := uncommittedEnabled("exec", "warn"); got {
 		t.Fatal("exec job must not detect uncommitted changes")
 	}
