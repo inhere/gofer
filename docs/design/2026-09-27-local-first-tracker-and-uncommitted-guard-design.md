@@ -162,3 +162,21 @@ P1 与 P2–P4 相互独立，可以并行排；P3 完成即可在试点仓库�
 
 - bd（beads）：`bd prime` / `bd memories --json` / `.beads/issues.jsonl`；本仓 bd 记忆 `bd-auto-export-may-not-flush`
 - gofer：`docs/design/2026-09-25-rules-injection-and-worker-init-design.md`（规则注入与大小上限）、`docs/design/2026-07-09-plan-orchestration-design.md`（todo 与 job 联动）
+
+## P1 实测记录（2026-09-27）
+
+本节只记录 GIT-01 P1 的本地实现与验证结果，不改变上面的 Approved 0.2 决策。TRK-01 尚未实施。实际项目配置落在现有 `projects.<key>`，`uncommitted_ignore` 不依赖尚未建立的 `.gofer/tracker/config.yaml`。
+
+- 本机 agent job 在开始/结束时比较 Git porcelain v2 脏路径与 `hash-object` 内容；被忽略文件、未变化的基线脏文件和已提交文件不计。嵌套仓库深度 ≤2，worktree 使用自身目录；结果保留完整 `uncommitted_count`、排序后的前 200 个 `uncommitted_files`，事件 `job.uncommitted` 带前 20 个路径。`off|warn|review|resume` 默认 `warn`，`uncommitted_ignore` 支持含 `**` 的路径 glob。
+- `review` 在 `finish` 原有状态锁内转 `needs_review`；`resume` 复用同会话和 `auto_resume_max` 预算。无 session 或不能续接转 review；自动续接后仍脏转 review。worker 端只检测并经 v12 的 additive 结果帧回报，hub 负责状态决策；自动续接轮次随 dispatch 透传，避免 worker 把上轮遗留脏文件当成本轮无变化而漏报。
+- `TestUncommittedDetectsNewDirtyOnly`、`TestUncommittedNestedRepo`、`TestUncommittedPolicyReviewAndResume`、`TestUncommittedWorkerFrameRoundTrip` 先以缺实现的编译错误呈红，再随实现转绿；另有真实 `job.Service` 的 review/resume/worker-only/落库测试。Web 的 job 详情、Board 行、工作台会话头提供可展开文件列表的徽标，事件中文标签为「未提交改动」。
+
+| 本地验证 | 结果与边界 |
+|---|---|
+| 全仓 `gofmt -l` | exit 0，输出为空（`gofmt_count=0`） |
+| Windows/Linux `go build ./cmd/gofer` | 均 exit 0，产物在仓库 `tmp/_cache/main/build/`；Go 同时提示不可写的外部模块 stat cache，不影响本次退出码 |
+| `go vet ./...` | exit 0，输出为空 |
+| 指定五包 `go test ... -count=1` | 隔离 `TMP`、`GOFER_CONFIG_DIR` 并以 `GIT_CEILING_DIRECTORIES` 保持非 Git 夹具语义后，`internal/job`、`internal/worker`、`internal/wsproto`、`internal/config`、`internal/httpapi` 全部 `ok`，exit 0 |
+| Web 测试、typecheck、build | 直接调用已安装工具入口：Vitest 3 文件/14 测试通过，`vue-tsc --noEmit` exit 0，Vite 构建 236 modules、exit 0。`pnpm` 包装命令在本机 Linux 依赖目录上运行 esbuild postinstall 时 EPERM；因此未得到字面 `pnpm test && pnpm typecheck && pnpm build` 的成功记录 |
+
+未操作 live gofer server/worker、真实配置目录或远端设备；没有部署、push 或真机 agent/Web 验收。G032 本期未新增兼容分支；协议 v12 只增加可选字段，旧字段语义和最低注册版本未改变。
