@@ -1,6 +1,7 @@
 package commands
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -108,4 +109,38 @@ func TestMemoryCRUD(t *testing.T) {
 		t.Fatalf("removed key still found: code=%d out=%s", code, out)
 	}
 	trackerRunOK(t, root, "memory", "rm", "beta")
+}
+
+func TestIssueCLILocalFlow(t *testing.T) {
+	root := t.TempDir()
+	if out, code := trackerCLI(t, root, "issue", "ready"); code == 0 || !strings.Contains(out, "gofer repo init") {
+		t.Fatalf("missing tracker must give init hint: code=%d out=%s", code, out)
+	}
+	trackerRunOK(t, root, "repo", "init", "--prefix", "flow")
+	t.Setenv("GOFER_CALLER", "cli-tester")
+	create := func(title string) string {
+		t.Helper()
+		out := trackerRunOK(t, root, "issue", "create", "-t", title, "--json")
+		var item struct {
+			ID string `json:"id"`
+		}
+		if err := json.Unmarshal([]byte(out), &item); err != nil || item.ID == "" {
+			t.Fatalf("create JSON=%q err=%v", out, err)
+		}
+		return item.ID
+	}
+	a, b := create("A"), create("B")
+	trackerRunOK(t, root, "issue", "dep", "add", b, a)
+	if out := trackerRunOK(t, root, "issue", "ready", "--json"); strings.Contains(out, b) || !strings.Contains(out, a) {
+		t.Fatalf("blocked issue in ready: %s", out)
+	}
+	out := trackerRunOK(t, root, "issue", "update", b, "--claim", "--append-notes", "working", "--json")
+	if !strings.Contains(out, `"assignee":"cli-tester"`) || !strings.Contains(out, `"text":"working"`) || !strings.Contains(out, `"started_at":`) {
+		t.Fatalf("claim/notes missing: %s", out)
+	}
+	trackerRunOK(t, root, "issue", "close", a, "--reason", "done")
+	trackerRunOK(t, root, "issue", "update", b, "--status", "open")
+	if out := trackerRunOK(t, root, "issue", "ready", "--json"); !strings.Contains(out, b) {
+		t.Fatalf("unblocked issue missing: %s", out)
+	}
 }
