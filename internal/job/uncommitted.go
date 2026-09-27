@@ -9,17 +9,20 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"time"
 )
 
 // uncommittedSnapshot records content, not only porcelain status: a file already
 // dirty before the job counts only if its contents change during this run.
 type uncommittedSnapshot map[string]string
 
+const uncommittedTimeout = 30 * time.Second
+
 func captureUncommitted(cwd string) uncommittedSnapshot {
 	if cwd == "" {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), diffTimeout)
+	ctx, cancel := context.WithTimeout(context.Background(), uncommittedTimeout)
 	defer cancel()
 	if !isGitWorkTree(ctx, cwd) {
 		return nil
@@ -38,13 +41,19 @@ func captureUncommitted(cwd string) uncommittedSnapshot {
 		}
 		// git status already applies the exclude-standard ignore rules to
 		// untracked files; --exclude-standard itself is an ls-files flag.
-		status := runGit(ctx, root, diffFullCap, "status", "--porcelain=v2", "-z", "--untracked-files=all")
+		status, err := gitStatusPorcelain(ctx, root)
+		if err != nil {
+			return nil
+		}
 		for _, name := range porcelainPaths(status) {
 			key := prefix + filepath.ToSlash(name)
 			if prefix == "" && inNestedRepo(key, nested, cwd) {
 				continue
 			}
 			hash := strings.TrimSpace(string(runGit(ctx, root, 256, "hash-object", "--", name)))
+			if ctx.Err() != nil {
+				return nil
+			}
 			if hash == "" {
 				hash = "<deleted>"
 			}
@@ -52,6 +61,15 @@ func captureUncommitted(cwd string) uncommittedSnapshot {
 		}
 	}
 	return result
+}
+
+func gitStatusPorcelain(ctx context.Context, root string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "git", "status", "--porcelain=v2", "-z", "--untracked-files=all")
+	cmd.Dir = root
+	cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+	// The count must cover the whole status output, even when the path list we
+	// eventually store is capped at 200. A truncated porcelain record is invalid.
+	return cmd.Output()
 }
 
 func porcelainPaths(data []byte) []string {
@@ -256,6 +274,9 @@ func (s *Service) captureUncommittedOutcome(entry *jobEntry) {
 		cwd = entry.wt.Path
 	}
 	after := captureUncommitted(cwd)
+	if after == nil {
+		return
+	}
 	files := diffUncommitted(baseline, after, ignore)
 	if result.AutoResumeAttempt > 0 && policy == "resume" {
 		// A continuation must clear the prior round's dirty files even if it never
