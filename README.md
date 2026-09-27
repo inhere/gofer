@@ -10,6 +10,7 @@ gofer bridges configurable **CLI agents** (`codex` / `claude` / `omp` / `opencod
 
 - [Features](#features) · [Architecture](#architecture) · [Install / build](#install--build) · [Quick start](#quick-start)
 - [Core concepts](#core-concepts) · [Submitting jobs](#submitting-jobs) · [Parallel jobs: --worktree](#parallel-jobs---worktree) · [Continuing a job: resume](#continuing-an-interrupted-job-job-resume)
+- [Local issues and memory](#local-issues-and-memory)
 - [Remote execution and workers](#remote-execution-and-workers) · [Reconnect recovery](#reconnect-recovery-recovering) · [Tunnels](#tunnels)
 - [Human in the loop](#human-in-the-loop-interactions-plans-session-relay) · [Logging and observability](#logging-and-observability)
 - [Configuration](#configuration) · [CLI](#cli-reference) · [MCP](#mcp) · [Web console](#web-console) · [HTTP API](#http-api)
@@ -101,6 +102,28 @@ gofer job list         # fill in the address and token and you are done
 - **agent**: how to run. A `cli-agent` renders `command` + `args` (placeholders `{{prompt}}` `{{cwd}}` `{{job_id}}` `{{result_dir}}`, substituted per argv element, never through a shell); add `interactive_args` and **the same key serves both batch and pty runs** (`[]` = bare TUI launch; must not contain `{{prompt}}`). `exec` runs the request's `cmd` argv verbatim (needs the project's `allow_exec`).
 - **runner**: where to run. `local` (child process of this server) / `peer-http` (forward to another gofer) / `worker` (remote executor connected over WebSocket).
 - **job lifecycle**: `queued → running → done | failed | cancelled | timeout`; a job queued behind the same-directory lock is `queued → waiting_dir → running`; a mid-run question is `running → pending_interaction → running`; a worker link loss is `running → recovering → running | failed`.
+
+## Local issues and memory
+
+`gofer repo init` creates a repository-local tracker at `.gofer/tracker/`. Its `issues.jsonl` and `memories.jsonl` are the source of truth; commit their changes with the related work. The config contains the issue prefix, a stable tracker ID, `commit_policy: local-commit`, and `auto_sync: true`. `.gofer/tracker/.local/` holds the lock and is ignored by Git. Commands work offline and discover the nearest tracker by walking up from the current directory; use `--tracker <path-to-.gofer/tracker>` to select one explicitly.
+
+```bash
+gofer repo init --prefix demo
+gofer repo status
+gofer issue create -t "Fix startup" --type bug --priority 1
+gofer issue ready
+gofer issue update demo-ab12 --claim --append-notes "Started investigation"
+gofer issue dep add demo-ab12 demo-cd34  # demo-ab12 waits for demo-cd34 to close
+gofer issue close demo-cd34 --reason "Done"
+gofer memory set build-note "Run the focused test first"
+gofer memory ls build
+gofer memory show build-note
+gofer memory rm build-note
+```
+
+`issue ls [--status --type --label --all]`, `issue show`, `issue update --status|--title`, and `issue close --reason` cover the remaining local issue operations. `memory remember` and `memory forget` are aliases for `set` and `rm`. Issue and memory commands, plus `repo status`, support `--json` for scripts. Without a tracker, issue and memory commands fail with a `gofer repo init` hint; they never initialize one implicitly. `repo init` adds a managed block to existing `AGENTS.md` and/or `CLAUDE.md` (or creates `AGENTS.md` if neither exists). It leaves any BEADS block intact and suggests `repo migrate --from-bd` for a later phase.
+
+This P2 release provides local storage and commands. SessionStart hooks and `repo prime`/`repo migrate` are planned for P3; `repo sync`, server mirror, and Web integration are planned for P4. `repo status` labels hooks and sync as unimplemented. No server connection is needed for the commands above.
 
 ## Submitting jobs
 

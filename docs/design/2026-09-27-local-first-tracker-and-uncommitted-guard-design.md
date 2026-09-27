@@ -180,3 +180,29 @@ P1 与 P2–P4 相互独立，可以并行排；P3 完成即可在试点仓库�
 | Web 测试、typecheck、build | 直接调用已安装工具入口：Vitest 3 文件/14 测试通过，`vue-tsc --noEmit` exit 0，Vite 构建 236 modules、exit 0。`pnpm` 包装命令在本机 Linux 依赖目录上运行 esbuild postinstall 时 EPERM；因此未得到字面 `pnpm test && pnpm typecheck && pnpm build` 的成功记录 |
 
 未操作 live gofer server/worker、真实配置目录或远端设备；没有部署、push 或真机 agent/Web 验收。G032 本期未新增兼容分支；协议 v12 只增加可选字段，旧字段语义和最低注册版本未改变。
+
+## P2 实测记录（2026-09-27）
+
+本节记录 TRK-01 P2 的本地实现与验证，不改变 Approved 0.2 决策。计划候选为 `2781034`（Draft 0.1），执行方式 `DIRECT_CONTINUOUS`；IDEV-STD 0.22.1 preflight 经记录项修正后 `exit 0 / {"ok":true,"errors":[]}`。T1 七项固定测试先因 tracker 类型与 `repo` 命令缺失呈红，独立提交 `f8d9866`；核心存储、repo、issue/memory 分别提交 `982c86d`、`e33e798`、`afbd11d`。
+
+- `.gofer/tracker/issues.jsonl` 与 `memories.jsonl` 是本地真源，按 id/key 排序并固定 JSON 字段序；写命令持 `O_EXCL` 文件锁，保存 pid/host/时间，30 秒过期可抢，同目录临时文件替换。Windows 并发测试初次出现锁文件短暂共享占用，追加有界重试后 `TestTrackerLockContention -count=10` 得到 `ok`，修正提交 `37810bb`；Windows 目标文件短暂占用时也有界重试 rename，保留旧文件直到替换成功（`b990de4`）。跨容器与主机同时写的现场压测尚未做。
+- `repo init|status`、`issue ready|ls|show|create|update|close|dep add`、`memory set|ls|show|rm` 和 memory 别名均为纯本地命令。`--tracker` 可覆盖向上发现，`--json` 供条目命令及 status 使用。`repo init` 幂等；BEADS 块保留且仅提示迁移。`repo status` 的 hooks/sync 明示“未实现（P3/P4）”；prime、migrate、sync、真实 hooks 和 server 连接未实现。
+- 随机四位 base36 ID 的冲突重试和 `<parent>.<n>` 序号通过测试；`ready` 仅列 open 且其 `blocks` 依赖已 closed 的 issue，按 priority、created_at 排序。`--claim` 置 in_progress/assignee/started_at，`--append-notes` 添加结构化条目。额外 CLI 测试验证这些操作和无 tracker 提示，提交 `9a6eec7`；ID 确定性冲突测试提交 `fd685c5`。
+
+| 本地验证 | 原始结果与边界 |
+|---|---|
+| 全仓 `gofmt -l`（901 个 Go 文件） | `gofmt_exit=0`，无文件名输出 |
+| Windows/Linux `go build ./cmd/gofer` | `build_windows_exit=0`、`build_linux_exit=0`；产物在仓库 `tmp/_cache/main/build/`。Go 对外部模块 stat cache 报 `Access is denied` 提示，但命令退出码均为 0 |
+| `go vet ./...` | `vet_exit=0`，无诊断行 |
+| `go test ./internal/tracker/ ./internal/commands/ -count=1` | 初跑 Windows 锁共享冲突导致 tracker FAIL；最终复跑：`ok github.com/inhere/gofer/internal/tracker 1.998s`、`ok github.com/inhere/gofer/internal/commands 21.536s`，`test_exit=0` |
+| 二进制临时目录 smoke | 每条命令显式 `-c <临时配置>`，依次完成 init→两条 issue create→claim/notes→dep add→close→ready→memory set/ls/rm→status，各步 `exit=0`；最终 `issues.open=1`、`issues.closed=1`、`memories=0`，hooks/sync 显示未实现 |
+
+本期没有改动 live gofer server/worker、真实配置、server 数据、bd 数据或远端；没有 push/部署/迁移。G032 本期没有新增旧路径兼容分支，也没有删除旧兼容路径。P3/P4 及主机+容器共享目录的双侧压测仍属后续范围。
+
+## 架构（P2 实测）
+
+本节仅补记本地实现落点，不改变 Approved 0.2 的目标架构。`internal/commands` 注册 `repo`、`issue`、`memory` 三组 gcli 入口，参数绑定和输出留在入口层；`internal/tracker` 拥有仓库发现、模型、JSONL、锁、ID、ready 和条目操作。依赖方向为命令入口 → tracker → Go 文件系统/JSON/YAML 能力；P2 没有 server 或 job 数据通路。
+
+## 关键流程（P2 实测）
+
+本节仅补记本地命令的实测流程。`repo init` 在当前仓库建 tracker 文件并写托管块；随后 issue/memory 写命令取得 `.local/lock`，读取对应 JSONL，执行条目变更，按稳定顺序将完整快照写入同目录临时文件并替换原文件，最后释放锁。`issue ready` 读取 issue 快照并按 `blocks` 的关闭状态过滤、排序。CLI smoke 在无 server 的临时目录中走通该流程；SessionStart 注入、迁移与同步仍待 P3/P4。
