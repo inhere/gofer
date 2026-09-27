@@ -67,6 +67,8 @@ const sinceOptions: Array<{ value: '' | '1h' | '24h' | '7d'; label: string }> = 
   { value: '7d', label: '近 7d' },
 ]
 
+// 窄屏时筛选面板默认收起（它一个就占满一屏），桌面宽度下 CSS 始终展开。
+const filtersOpen = ref(false)
 const activeFilterCount = computed(() =>
   [
     statusFilter.value,
@@ -411,10 +413,18 @@ onUnmounted(() => {
         >
           清空过滤
         </button>
+        <button
+          class="head-btn filter-toggle"
+          type="button"
+          :aria-expanded="filtersOpen"
+          @click="filtersOpen = !filtersOpen"
+        >
+          {{ filtersOpen ? '收起筛选' : activeFilterCount > 0 ? `筛选（${activeFilterCount}）` : '筛选' }}
+        </button>
       </div>
     </div>
 
-    <div class="filter-panel mono">
+    <div class="filter-panel mono" :class="{ 'filter-panel--open': filtersOpen }">
       <div class="status-tabs" aria-label="状态过滤">
         <button
           v-for="opt in statusOptions"
@@ -1006,7 +1016,17 @@ onUnmounted(() => {
   text-align: center;
 }
 
+.filter-toggle {
+  display: none;
+}
+
 @media (max-width: 768px) {
+  .filter-toggle {
+    display: inline-flex;
+  }
+  .filter-panel:not(.filter-panel--open) {
+    display: none;
+  }
   .board-head {
     align-items: flex-start;
     flex-direction: column;
@@ -1042,46 +1062,58 @@ onUnmounted(() => {
   .thead {
     display: none;
   }
+  /* 窄屏一条 job 压成两行：标题/id + 状态 / project · agent · runner · 耗时 · 时间 */
   .trow {
-    display: grid;
-    grid-template-columns: 1fr auto;
-    gap: 6px 10px;
-    padding: 12px;
-  }
-  .col-status {
-    grid-column: 2;
-    grid-row: 1;
-    justify-self: end;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 2px 0;
+    padding: 8px 10px;
   }
   .col-job {
-    grid-column: 1;
-    grid-row: 1;
+    order: 1;
+    flex: 1 0 calc(100% - 96px);
+    min-width: 0;
+  }
+  .col-status {
+    order: 2;
+    flex: 0 0 96px;
+    display: flex;
+    justify-content: flex-end;
   }
   .col-proj,
   .col-agent,
   .col-runner,
   .col-signal,
   .col-time {
-    grid-column: 1 / -1;
-  }
-  .col-proj::before {
-    content: 'project ';
-    color: var(--queue);
-  }
-  .col-agent::before {
-    content: 'agent ';
-    color: var(--queue);
-  }
-  .col-runner::before {
-    content: 'runner ';
-    color: var(--queue);
-  }
-  .col-time {
+    order: 3;
+    flex: none;
+    font-size: 11px;
     text-align: left;
   }
+  .col-proj {
+    max-width: 40%;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .col-agent::before,
+  .col-runner::before,
+  .col-signal::before,
   .col-time::before {
-    content: 'time ';
+    content: ' · ';
+    white-space: pre;
     color: var(--queue);
+  }
+  .col-signal,
+  .col-runner {
+    display: inline-flex;
+    flex-direction: row;
+    align-items: center;
+    gap: 4px;
+  }
+  .job-tags {
+    margin-top: 2px;
   }
 }
 </style>

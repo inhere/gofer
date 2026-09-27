@@ -1059,10 +1059,10 @@ onUnmounted(() => {
             <span v-if="j.title" class="job-title" :title="j.title">{{ j.title }}</span>
             <span class="job-id mono" :title="j.id">{{ shortId(j.id) }}</span>
           </span>
-          <span class="job-dim mono">{{ j.agent }}</span>
-          <span class="job-dim mono">{{ j.runner }}</span>
-          <span class="job-dim mono">{{ rowStartTime(j) }}</span>
-          <span class="job-dim mono">{{ rowDuration(j) }}</span>
+          <span class="job-dim job-agent mono">{{ j.agent }}</span>
+          <span class="job-dim job-runner mono">{{ j.runner }}</span>
+          <span class="job-dim job-start mono">{{ rowStartTime(j) }}</span>
+          <span class="job-dim job-dur mono">{{ rowDuration(j) }}</span>
         </button>
         <div v-if="plan.jobs.length === 0" class="empty mono">该计划暂无 job</div>
       </div>
@@ -2014,9 +2014,28 @@ onUnmounted(() => {
   .jobs-head {
     display: none;
   }
+  /* 窄屏一条 job 压成三行：状态 + agent·runner·开始·耗时 / 标题 / id */
   .job-row {
-    grid-template-columns: 1fr;
-    gap: 6px;
+    grid-template-columns: minmax(0, 1fr) auto auto auto auto;
+    grid-template-areas:
+      "status agent runner start dur"
+      "main main main main main";
+    gap: 2px 0;
+    padding: 7px 10px;
+  }
+  .job-status { grid-area: status; min-width: 0; }
+  .job-main { grid-area: main; }
+  .job-agent { grid-area: agent; }
+  .job-runner { grid-area: runner; }
+  .job-start { grid-area: start; }
+  .job-dur { grid-area: dur; }
+  .job-row .job-dim { font-size: 11px; }
+  .job-runner::before,
+  .job-start::before,
+  .job-dur::before {
+    content: " · ";
+    white-space: pre;
+    opacity: 0.6;
   }
   .todo-row {
     grid-template-columns: 22px 1fr auto;

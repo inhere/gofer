@@ -82,6 +82,8 @@ const projectOptions = computed(() => {
 })
 
 // 内联新建
+// 窄屏时新建表单默认收起，只留「＋ 新建计划」按钮；桌面宽度下 CSS 始终展开。
+const createOpen = ref(false)
 const newTitle = ref('')
 const newDesc = ref('')
 const creating = ref(false)
@@ -251,10 +253,13 @@ onUnmounted(() => {
           />
         </label>
         <span class="poll-hint" :class="{ 'poll-hint--on': loading }">●</span>
+        <button class="create-toggle mono" type="button" :aria-expanded="createOpen" @click="createOpen = !createOpen">
+          {{ createOpen ? '收起' : '＋ 新建计划' }}
+        </button>
       </div>
     </div>
 
-    <form class="create-row mono" @submit.prevent="onCreate">
+    <form class="create-row mono" :class="{ 'create-row--open': createOpen }" @submit.prevent="onCreate">
       <label class="create-field">
         <span>title</span>
         <input v-model="newTitle" class="create-input mono" placeholder="计划标题" />
@@ -613,6 +618,16 @@ onUnmounted(() => {
   background: var(--queue);
 }
 
+.create-toggle {
+  display: none;
+  padding: 4px 10px;
+  color: var(--paper);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  cursor: pointer;
+}
+
 @media (max-width: 760px) {
   .board-head {
     align-items: flex-start;
@@ -630,9 +645,26 @@ onUnmounted(() => {
   .thead {
     display: none;
   }
-  .trow {
-    grid-template-columns: 1fr;
-    gap: 8px;
+  .create-toggle {
+    display: inline-block;
   }
+  .create-row:not(.create-row--open) {
+    display: none;
+  }
+  /* 窄屏一个 plan 压成三行：标题/id + 状态 / project · 更新 / 进度 */
+  .trow {
+    grid-template-columns: minmax(0, 1fr) auto;
+    grid-template-areas:
+      "plan status"
+      "project updated"
+      "counts counts";
+    gap: 3px 10px;
+    padding: 8px 10px;
+  }
+  .trow .col-status { grid-area: status; justify-self: end; }
+  .trow .col-plan { grid-area: plan; }
+  .trow .col-project { grid-area: project; font-size: 11px; }
+  .trow .col-updated { grid-area: updated; font-size: 11px; justify-self: end; }
+  .trow .col-counts { grid-area: counts; font-size: 11px; }
 }
 </style>
