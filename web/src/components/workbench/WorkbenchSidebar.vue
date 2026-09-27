@@ -20,6 +20,7 @@ const emit = defineEmits<{
   (e: 'update:projectFilter', value: string): void
   (e: 'update:statusFilter', value: WorkbenchStatus | ''): void
   (e: 'update:showExec', value: boolean): void
+  (e: 'new'): void
 }>()
 
 const collapsed = ref<Set<string>>(new Set())
@@ -75,6 +76,7 @@ defineExpose({ focusSearch })
 <template>
   <aside class="wb-sidebar" aria-label="工作台会话列表">
     <div class="sidebar-filters">
+      <button class="new-thread mono" type="button" title="发起新会话（Ctrl/Cmd+K → 新会话）" @click="emit('new')">＋ 新会话</button>
       <input
         ref="searchInput"
         class="filter-input mono"
@@ -148,6 +150,8 @@ defineExpose({ focusSearch })
 <style scoped>
 .wb-sidebar { min-width: 0; height: 100%; display: flex; flex-direction: column; background: var(--panel); border-right: 1px solid var(--line); }
 .sidebar-filters { padding: 10px; border-bottom: 1px solid var(--line); }
+.new-thread { width: 100%; margin-bottom: 8px; padding: 7px 8px; color: var(--ink); background: var(--phosphor); border: 1px solid var(--phosphor); border-radius: var(--radius); font-weight: 700; cursor: pointer; }
+.new-thread:hover { opacity: .9; }
 .filter-input, .filter-select { width: 100%; color: var(--paper); background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 7px 8px; }
 .filter-input:focus, .filter-select:focus { outline: 1px solid var(--phosphor); border-color: var(--phosphor); }
 .filter-row { display: grid; grid-template-columns: 1fr 1fr; gap: 6px; margin-top: 7px; }

@@ -21,7 +21,8 @@ const loading = ref(false)
 const submitting = ref(false)
 const error = ref('')
 const promptInput = ref<HTMLTextAreaElement | null>(null)
-const mobileOpen = ref(false)
+// 发起表单平时收起，由侧栏「＋ 新会话」、命令面板或手机右下角 ＋ 打开成弹窗。
+const open = ref(false)
 
 const selectedProject = computed<MetaProject | undefined>(() => meta.value.projects.find((p) => p.key === projectKey.value))
 const selectedAgent = computed<MetaAgent | undefined>(() => meta.value.agents.find((a) => a.key === agentKey.value))
@@ -115,7 +116,7 @@ async function submit(): Promise<void> {
     if (todoID.value) req.todo_id = todoID.value
     const result = await submitJob(req)
     prompt.value = ''
-    mobileOpen.value = false
+    open.value = false
     emit('submitted', result.job.id)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
@@ -132,11 +133,22 @@ function onKeydown(event: KeyboardEvent): void {
 }
 
 function focusPrompt(): void {
-  mobileOpen.value = true
+  open.value = true
   void nextTick(() => promptInput.value?.focus())
 }
 
-defineExpose({ focusPrompt })
+function close(): void {
+  open.value = false
+}
+
+function onPanelKeydown(event: KeyboardEvent): void {
+  if (event.key === 'Escape') {
+    event.stopPropagation()
+    close()
+  }
+}
+
+defineExpose({ focusPrompt, close })
 
 watch(projectKey, () => {
   chooseDefaultAgent()
@@ -162,9 +174,13 @@ onMounted(async () => {
 
 <template>
   <section class="composer" aria-label="发起新会话">
-    <button v-if="!mobileOpen" class="mobile-launch mono" type="button" aria-label="发起新会话" @click="mobileOpen = true">＋</button>
-    <div class="composer-panel" :class="{ 'mobile-open': mobileOpen }">
-      <button class="mobile-close mono" type="button" aria-label="收起发起面板" @click="mobileOpen = false">×</button>
+    <button v-if="!open" class="mobile-launch mono" type="button" aria-label="发起新会话" @click="focusPrompt">＋</button>
+    <div v-if="open" class="composer-backdrop" @click.self="close">
+    <div class="composer-panel" role="dialog" aria-modal="true" aria-label="新会话" @keydown="onPanelKeydown">
+      <div class="panel-head mono">
+        <span>新会话</span>
+        <button class="panel-close mono" type="button" aria-label="关闭" @click="close">×</button>
+      </div>
       <div class="composer-selects">
       <select v-model="projectKey" class="field mono" aria-label="项目" :disabled="loading">
         <option value="" disabled>项目</option>
@@ -202,28 +218,30 @@ onMounted(async () => {
       </div>
       <p v-if="error" class="error mono">{{ error }}</p>
     </div>
+    </div>
   </section>
 </template>
 
 <style scoped>
 .composer { min-width: 0; }
-.composer-panel { min-width: 0; display: flex; flex-direction: column; gap: 7px; }
-.mobile-launch, .mobile-close { display: none; }
-.composer-selects { display: grid; grid-template-columns: 1.1fr 1.1fr .8fr 1fr 1fr .8fr; gap: 6px; }
-.field, .prompt { min-width: 0; color: var(--paper); background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 7px; font-size: 11px; }
+.composer-backdrop { position: fixed; inset: 0; z-index: 90; display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh; background: rgba(0,0,0,.45); }
+.composer-panel { width: min(880px, 94vw); max-height: 80vh; overflow-y: auto; display: flex; flex-direction: column; gap: 8px; padding: 12px 14px 14px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 14px 40px rgba(0,0,0,.55); }
+.panel-head { display: flex; align-items: center; justify-content: space-between; color: var(--paper); font-size: 13px; font-weight: 600; }
+.panel-close { color: var(--paper); background: transparent; border: 0; font-size: 20px; line-height: 1; cursor: pointer; }
+.mobile-launch { display: none; }
+.composer-selects { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 6px; }
+.field, .prompt { min-width: 0; color: var(--paper); background: var(--ink); border: 1px solid var(--line); border-radius: var(--radius); padding: 6px 7px; font-size: 12px; }
 .field:focus, .prompt:focus { outline: 1px solid var(--phosphor); border-color: var(--phosphor); }
 .prompt-row { display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 7px; }
-.prompt { resize: vertical; max-height: 160px; }
+.prompt { resize: vertical; min-height: 110px; max-height: 50vh; }
 .submit { align-self: stretch; color: var(--ink); background: var(--phosphor); border: 1px solid var(--phosphor); border-radius: var(--radius); padding: 0 16px; font-weight: 700; }
 .submit:disabled { opacity: .45; cursor: default; }
 .error { color: var(--fail); margin: 0; font-size: 11px; }
-@media (max-width: 980px) { .composer-selects { grid-template-columns: repeat(3, minmax(0,1fr)); } }
 @media (max-width: 620px) { .composer-selects { grid-template-columns: repeat(2, minmax(0,1fr)); } .prompt-row { grid-template-columns: 1fr; } .submit { min-height: 34px; } }
 @media (max-width: 767px) {
-  .composer { position: fixed; right: 12px; bottom: 12px; z-index: 80; }
-  .mobile-launch { display: grid; place-items: center; width: 46px; height: 46px; color: var(--ink); background: var(--phosphor); border: 0; border-radius: 50%; font-size: 26px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
-  .composer-panel { display: none; position: fixed; left: 8px; right: 8px; bottom: 8px; max-height: min(78vh, 660px); overflow-y: auto; padding: 36px 10px 10px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; box-shadow: 0 14px 40px rgba(0,0,0,.55); }
-  .composer-panel.mobile-open { display: flex; }
-  .mobile-close { display: block; position: absolute; top: 7px; right: 9px; color: var(--paper); background: transparent; border: 0; font-size: 20px; }
+  /* 手机：侧栏按钮在主区看不到，右下角保留浮动 ＋；表单从底部弹出 */
+  .mobile-launch { display: grid; place-items: center; position: fixed; right: 12px; bottom: 12px; z-index: 80; width: 46px; height: 46px; color: var(--ink); background: var(--phosphor); border: 0; border-radius: 50%; font-size: 26px; box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+  .composer-backdrop { align-items: flex-end; padding: 8px; }
+  .composer-panel { width: 100%; max-height: min(82vh, 680px); }
 }
 </style>

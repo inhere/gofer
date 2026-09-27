@@ -633,15 +633,7 @@ onUnmounted(() => {
 
 <template>
   <div ref="workbenchRoot" class="workbench-page" tabindex="-1">
-    <header class="workbench-top">
-      <WorkbenchComposer ref="composer" @submitted="submitted" />
-      <WorkbenchAttention
-        :items="attentionItems"
-        :seen-all-pending="seenAllPending"
-        @select="selectAttention"
-        @seen-all="markAllSeen"
-      />
-    </header>
+    <WorkbenchComposer ref="composer" @submitted="submitted" />
     <p v-if="error" class="page-error mono">{{ error }}</p>
     <p v-if="layoutNotice" class="layout-notice mono">
       {{ layoutNotice }}
@@ -676,8 +668,10 @@ onUnmounted(() => {
         @update:project-filter="projectFilter = $event; refreshFilter()"
         @update:status-filter="statusFilter = $event; refreshFilter()"
         @update:show-exec="setShowExec"
+        @new="composer?.focusPrompt()"
       />
       <main class="workbench-main">
+        <div class="tabs-row">
         <nav class="layout-tabs" aria-label="工作台标签页">
           <div
             v-for="tab in layoutDocument.tabs"
@@ -710,6 +704,14 @@ onUnmounted(() => {
           <span v-if="prefixActive" class="prefix-status mono">{{ prefixHint }}</span>
           <span class="layout-version mono">v{{ layoutVersion }}<template v-if="layoutSaving"> · 保存中…</template></span>
         </nav>
+          <!-- 「等你」放在标签条同一行、nav 之外：nav 自身 overflow-x 会裁掉下拉 -->
+          <WorkbenchAttention
+        :items="attentionItems"
+        :seen-all-pending="seenAllPending"
+        @select="selectAttention"
+        @seen-all="markAllSeen"
+        />
+        </div>
         <div class="layout-surface">
           <LayoutPane
             v-if="layoutReady && currentTab"
@@ -724,7 +726,7 @@ onUnmounted(() => {
             @ratio="resizeSplit"
             @drop-thread="dropThread"
           />
-          <div v-else class="empty-main mono">{{ loading ? '加载会话与布局…' : '从 composer 开始一个新会话，或从左侧选择。' }}</div>
+          <div v-else class="empty-main mono">{{ loading ? '加载会话与布局…' : '点左侧「＋ 新会话」开始，或从左侧选择一个会话。' }}</div>
         </div>
       </main>
     </div>
@@ -744,11 +746,12 @@ onUnmounted(() => {
 
 <style scoped>
 .workbench-page { height: calc(100vh - 57px); min-height: 520px; display: flex; flex-direction: column; overflow: hidden; background: var(--ink); }
-.workbench-top { flex: none; display: grid; grid-template-columns: minmax(0,1fr) auto; gap: 12px; align-items: center; padding: 10px 12px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.tabs-row { flex: none; display: flex; align-items: center; gap: 8px; padding-right: 8px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.tabs-row .layout-tabs { flex: 1 1 auto; border-bottom: 0; }
 .page-error { flex: none; margin: 0; padding: 7px 12px; color: var(--fail); background: rgba(200,70,70,.08); border-bottom: 1px solid var(--line); }
 .layout-notice { flex: none; display: flex; align-items: center; justify-content: space-between; gap: 12px; margin: 0; padding: 7px 12px; color: var(--run); background: rgba(255,185,80,.08); border-bottom: 1px solid var(--line); }
 .layout-notice button { color: inherit; background: transparent; border: 0; font-size: 16px; }
-.attention-fallback { flex: none; width: 100%; margin: 0; padding: 7px 12px; color: var(--run); text-align: left; background: rgba(255,185,80,.12); border: 0; border-bottom: 1px solid var(--line); }
+.attention-fallback { display: none; flex: none; width: 100%; margin: 0; padding: 7px 12px; color: var(--run); text-align: left; background: rgba(255,185,80,.12); border: 0; border-bottom: 1px solid var(--line); }
 .attention-fallback:hover { color: var(--paper); background: rgba(255,185,80,.18); }
 .workbench-body { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(260px, 24vw) minmax(0,1fr); grid-template-rows: minmax(0,1fr); }
 .workbench-main { min-width: 0; min-height: 0; overflow: hidden; display: flex; flex-direction: column; }
@@ -769,7 +772,7 @@ onUnmounted(() => {
 .empty-main { color: var(--queue); }
 @media (max-width: 767px) {
   .workbench-page { height: calc(100vh - 53px); }
-  .workbench-top { position: relative; z-index: 20; display: flex; justify-content: flex-end; min-height: 45px; padding: 7px 10px; }
+  .attention-fallback { display: block; }
   .workbench-body { grid-template-columns: 1fr; }
   .workbench-body.mobile--sidebar .workbench-main { display: none; }
   .workbench-body.mobile--main :deep(.wb-sidebar) { display: none; }
