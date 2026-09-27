@@ -58,38 +58,46 @@
 | G032 | 兼容策略：DEPRECATED 标记 + 到期删除；v0.48 已删 6 处 v0.45 标记 | 0.46–0.48 | `AGENTS.md` G032 · SUP-01「横切」 |
 | F8 | 升级后前端自愈与轮询收敛：缺失 asset 404（不再回落 shell）、shell `no-cache`/asset `immutable`、旧 chunk 自动重载一次（60s 冷却）+ 顶栏「有新版本，点击刷新」、顶栏铃铛 15s/失焦暂停（`utils/poller.ts`） | 0.53.1 | [runbook §7.5](runbook/2026-07-11-windows-server-selfupdate-runbook.md) · 本文「已落地」 |
 | F15 | plan 状态去重：删掉与 `open` 重复、无人设置的 `active`（老库打开时迁移为 `open`；`PATCH`/`plan set-status` 传 `active` → 400 提示用 `open`；web 筛选/徽标/动作同步收窄） | 0.60.5 | `AGENTS.md` G032 · 无独立设计 |
-| WEB-12 | 设置页左侧二级菜单（配置管理 / Tunnels / 关于），`/config` 重定向 | 中 | 小 | 🚧 v0.60.2 | [design](design/2026-09-24-settings-hub-and-tunnel-visibility-design.md) §一 |
-| TUN-03 | 隧道在 web 可见：`tun forward` 向 hub 登记与心跳、在线转发列表（归并活跃连接）；预设存 server（CLI 优先、`tun presets push`）、web 编辑 | 中 | 中 | 🚧 v0.60.2 | 同上 §二 |
-| TUN-04 | `tun forward/save` 的 spec 接受逗号分隔（与空格混用） | 低 | 小 | 🚧 v0.60.2 | 同上 §三 |
-| WEB-11 | **web 工作台**：按工作组织的界面——工作区（项目）→ 标签页 → 窗格（终端 / ACP 对话 / 中继 / 日志）三层与**状态上卷**（参考 herdr），分屏布局存 server、前缀键与鼠标原生、新建会话对话框、ACP 对话窗格（resume 链多轮） | 高 | 大 | 🚧 设计 0.2 实施中（W1） | [design](design/2026-09-26-web-workbench-design.md) |
-| JOB-10 | skills 绑定：`<config-dir>/skills/` 库 + `agent skill import/ls/show/rm/update/export` + server/agent/project/job 四级**并集**绑定 + `--skill/--no-skills`；派发时物化到 job 私有 `result_dir/skills/`（本机直写 / worker 走 uploads `Base=result_dir`）并在 prompt 头部列清单，**不写项目工作树**；`job.skills_mounted/skills_skipped` | 0.56 | [design](design/2026-09-23-skills-binding-and-comment-routing-design.md) §一 · [runbook](runbook/2026-09-23-skills-runbook.md) |
-| MCP-05 | 评论层 + leader 路由：job/plan/todo 评论与 `@agent` 提及即派活（阶段 A，只认 user caller + 限流 + allowlist）；leader 回合（阶段 B，opt-in：成员终态唤醒、轮次封顶、人插话接管、不能 accept/reject） | 0.56 | 同上 §二 · [评论 runbook](runbook/2026-09-23-comments-runbook.md) · [leader runbook](runbook/2026-09-23-leader-round-runbook.md) |
-| S1–S4 | 小项：SPA 回落支持 HEAD；`server.dir_lock`/`server.agent_health` 放行热改（`xfer` 仍需重启）；`job.session_captured` 不进事件镜像（只补注释/文档）；web 配置页补丁式编辑 `notification`（`secret_env` 只给名字、可暂停单个目标） | 0.56 | 同上 §三 + §S4 实测记录 |
+| WEB-12 | 设置页左侧二级菜单（配置管理 / Tunnels / 关于），`/config` 重定向 | 0.60.2 | [design](design/2026-09-24-settings-hub-and-tunnel-visibility-design.md) §一 |
+| TUN-03 | 隧道在 web 可见：`tun forward` 向 hub 登记与心跳、在线转发列表（归并活跃连接）；预设存 server（CLI 优先、`tun presets push`）、web 编辑 | 0.60.2 | [design](design/2026-09-24-settings-hub-and-tunnel-visibility-design.md) §二 |
+| TUN-04 | `tun forward/save` 的 spec 接受逗号分隔（与空格混用） | 0.60.2 | [design](design/2026-09-24-settings-hub-and-tunnel-visibility-design.md) §三 |
+| WEB-11 | **web 工作台**（W1–W3）：会话为一等公民（同 session 的 job 链 / 中继会话）、按项目分组与状态上卷、「等你」队列、composer 发起与续接、命令面板；分屏/标签页布局存 server、`ctrl+b` 前缀、手机布局；PWA + Web Push（通知内审批，需 HTTPS）；ACP 结构化对话视图；会话改动视图 + 行内评审回灌同一会话 | 0.62–0.66 | [design](design/2026-09-26-web-workbench-design.md) §W1–W3 实测记录 |
+| JOB-10 | skills 绑定：`<config-dir>/skills/` 库 + `agent skill import/ls/show/rm/update/export` + server/agent/project/job 四级**并集**绑定 + `--skill/--no-skills`；派发时物化到 job 私有 `result_dir/skills/`（本机直写 / worker 走 uploads `Base=result_dir`）并在 prompt 头部列清单，**不写项目工作树**；`job.skills_mounted/skills_skipped` | 0.54 | [design](design/2026-09-23-skills-binding-and-comment-routing-design.md) §一 · [runbook](runbook/2026-09-23-skills-runbook.md) |
+| MCP-05 | 评论层 + leader 路由：job/plan/todo 评论与 `@agent` 提及即派活（阶段 A，只认 user caller + 限流 + allowlist）；leader 回合（阶段 B，opt-in：成员终态唤醒、轮次封顶、人插话接管、不能 accept/reject） | 0.55–0.56 | 同上 §二 · [评论 runbook](runbook/2026-09-23-comments-runbook.md) · [leader runbook](runbook/2026-09-23-leader-round-runbook.md) |
+| S1–S4 | 小项：SPA 回落支持 HEAD；`server.dir_lock`/`server.agent_health` 放行热改（`xfer` 仍需重启）；`job.session_captured` 不进事件镜像（只补注释/文档）；web 配置页补丁式编辑 `notification`（`secret_env` 只给名字、可暂停单个目标） | 0.57 | 同上 §三 + §S4 实测记录 |
+| WEB-04③ | 配置写层 V1.1：agents/server 在 web 编辑（字段可编辑/需重启标记、secret 只引用、干跑校验、显式 reload） | 0.53 | [design](design/2026-09-22-config-write-v11-reliable-retry-and-session-fallback-design.md) §一 + R3 实测记录 |
+| AGT-04 | 会话捕获兜底：未配 `session_capture` 的 cli-agent 用通用正则（非 uuid id 也认）+ resume 模板兜底，新增 agent 免配即可续接 | 0.51 | [design](design/2026-09-22-config-write-v11-reliable-retry-and-session-fallback-design.md) §三（jcode 实测） |
+| SEC-01 | job 作用域凭证：执行时签发 job token（终态吊销），job/verify 环境去掉 server/worker token，server 按凭证判定身份与权限（member/leader 两档），`as_job` 废弃，协议 v11；F10 补漏（job 环境去 `GOFER_CONFIG_DIR`、job 内 CLI 不读 .env token、PATH 前置运行它的 gofer） | 0.58 / 0.60.1 | [design](design/2026-09-23-job-credentials-and-leader-opt-in-design.md) §一 |
+| LEAD-02 | leader 逐 plan 开启（默认关，全局 enabled 仅总闸）、leader 动作改 CLI（凭证强制权限）、config 视图补 leader、plan 页事件区 | 0.59 | [design](design/2026-09-23-job-credentials-and-leader-opt-in-design.md) §二 |
+| F-a/b/c | worker 模式 skill CLI 回落 HTTP（bd h-aii-uzvc）、Board plan 过滤改输入框、导航「技能」→「Skills」；Plans 分页与状态/项目/关键字过滤 | 0.60.0 | [design](design/2026-09-23-job-credentials-and-leader-opt-in-design.md) §三 |
+| ACP-02 | 真机端到端：omp-acp / jcode-acp 首轮+续接；ACP 取消/超时杀整棵进程树（F12）、session/load 无 sessionId 兜底（F13）、ACP agent 可继承 `~/.claude/settings.json` env（F14） | 0.60.3–0.60.4 | [ACP 设计](design/2026-09-17-acp-agent-and-approval-gate-design.md) · [v0.60.2 设计 §四](design/2026-09-24-settings-hub-and-tunnel-visibility-design.md) |
+| JOB-06① | 强制规则：server 规则库（`agent rule`、web 设置页 Rules）、四级并集 + 仓库 `.gofer/RULES.md`，派发时注入 prompt 顶部、job 记名称与 sha | 0.61 | [design](design/2026-09-25-rules-injection-and-worker-init-design.md) §一 |
+| CFG-05 | `gofer worker init` 向导：拉 server 可派项目、推断并校验 roots、探测 agent、写 worker.yaml/.env、跑 doctor；新增 `GET /v1/workers/{id}/assignable` | 0.61 | [design](design/2026-09-25-rules-injection-and-worker-init-design.md) §二 |
+| F-e/F-f/F-g | 文本类 cli-agent 会话 id 实时落库（F11 遗留）；`job run --env`；init 默认工作空间 `~/.gofer/workspace` + `default` 项目 | 0.60.2 / 0.61 | [design](design/2026-09-25-rules-injection-and-worker-init-design.md) §三 |
+| F16 | 工作台 review 口径收窄（仅 needs_review / 未看的失败 / 有改动未看）、首访已看基线、全部标记已看 | 0.62.1 | [design](design/2026-09-26-web-workbench-design.md) §F16 |
+| B01 | 续接"续接出来的作业"：沿 `ResumedFrom` 链回溯原始 agent（不再依赖 `OriginAgent`） | 0.62 / 0.65 | [design](design/2026-09-26-web-workbench-design.md) §W3b 实测记录 |
+| WEB-13 | 手机端列表紧凑化：plan 详情 jobs、Board、Plans 行压成 2–3 行；Board 筛选与新建计划表单窄屏默认收起 | 0.66.2 | 无独立设计 |
 
 ## 二、待做 / 候选（下一批从这里选）
 
 | 编号 | 功能 | 价值 | 大小 | 状态 | 来源 / 细节 |
 |---|---|---|---|---|---|
-| WEB-04③ | 配置写层 V1.1：agents/server 在 web 编辑（字段可编辑/需重启标记、secret 只引用、干跑校验、显式 reload） | 高 | 中 | ✅ 0.5x（R3 落地） | [design](design/2026-09-22-config-write-v11-reliable-retry-and-session-fallback-design.md) §一 + R3 实测记录 |
-| AUTO-03 | job 重试可靠版：`job_retries` 落库 + 租约 sweeper（重启不丢）、server/agent/project/job 四级策略、`--retry`、`retry_exhausted` 进默认通知 | 高 | 中 | ✅ 0.5x（R2 落地） | 同上 §二 |
-| AGT-04 | 会话捕获兜底：未配 `session_capture` 的 cli-agent 用通用正则（非 uuid id 也认）+ resume 模板兜底，新增 agent 免配即可续接 | 中 | 小 | ✅ 0.5x（R1 落地） | 同上 §三（jcode 实测） |
-| SEC-01 | job 作用域凭证：执行时签发 job token（终态吊销），job/verify 环境去掉 server/worker token，server 按凭证判定身份与权限（member/leader 两档），`as_job` 废弃，协议 v11 | 高 | 中 | 🚧 设计 0.2 实施中 | [design](design/2026-09-23-job-credentials-and-leader-opt-in-design.md) §一（v0.57 leader 真机验收发现） |
-| LEAD-02 | leader 逐 plan 开启（默认关，全局 enabled 仅总闸）、leader 动作改 CLI（凭证强制权限）、config 视图补 leader、plan 页事件区 | 中 | 小-中 | 🚧 设计 0.2 实施中 | 同上 §二 |
-| F-a/b/c | worker 模式 skill CLI 回落 HTTP（bd h-aii-uzvc）、Board plan 过滤改输入框、导航「技能」→「Skills」 | 中 | 小 | 🚧 设计 0.2 实施中 | 同上 §三 |
-| CFG-05 | `gofer worker init` 向导：拉 server 可派项目、推断并校验 roots、探测 agent、写 worker.yaml/.env、跑 doctor；新增 `GET /v1/workers/{id}/assignable` | 中 | 中 | 🚧 设计 0.2 实施中 | [design](design/2026-09-25-rules-injection-and-worker-init-design.md) §二 |
-| ACP-02 | 真机端到端：omp-acp / jcode-acp 首轮+续接通过（v0.60.3）；claude-acp gofer 侧通过（F14 继承 settings.json env，会话建立），上游服务商拒绝（OpenCode Go 网关要求 `x-opencode-session`），待换可用端点补测；过程中修 F12 进程树/等锁超时、F13 `session/load`、F14 | 中 | — | ✅ gofer 侧（claude-acp 待上游） | [ACP 设计](design/2026-09-17-acp-agent-and-approval-gate-design.md) · [v0.60.2 设计 §四](design/2026-09-24-settings-hub-and-tunnel-visibility-design.md) |
-| JOB-06① | 强制规则：server 规则库（`agent rule`、web 设置页 Rules）、四级并集 + 仓库 `.gofer/RULES.md`，派发时注入 prompt 顶部、job 记名称与 sha；②密钥引用（`--secret`）暂缓 | 高 | 中 | 🚧 实施中（库/注入/CLI/web Rules 页已落地） | [design](design/2026-09-25-rules-injection-and-worker-init-design.md) §一 |
-| F-e/F-f/F-g | 文本类 cli-agent 会话 id 实时落库（F11 遗留）；`job run --env`；init 默认工作空间 `~/.gofer/workspace` + `default` 项目 | 中 | 小 | 🚧 实施中（F-f 已落地；F-e/F-g 待做） | 同上 §三 |
+| WEB-11 W4 | 工作台并行隔离与预览：composer 的 worktree 开关、会话头合并/归档、看板视角、项目 `dev_command` + 隧道预览 | 中 | 大 | ❄ 暂缓（先观察 W1–W3 体验） | [design](design/2026-09-26-web-workbench-design.md) §五 |
+| ACP-02b | claude-acp 端到端：gofer 侧已通（会话能建立），上游 OpenCode Go 网关要求 `x-opencode-session` 而拒绝，gofer 不伪造该头 | 中 | 小 | ❄ 等可用上游端点 | [ACP 设计](design/2026-09-17-acp-agent-and-approval-gate-design.md) |
+| JOB-06② | 密钥引用：`job run --secret`，派发时按名注入、不落 prompt/日志 | 中 | 中 | ❄ 暂缓 | [design](design/2026-09-25-rules-injection-and-worker-init-design.md) §一 |
+| SEC-02 | agent 以独立 OS 账号运行（当前 job 与 server 同一 OS 用户，SEC-01 的已知限制） | 中 | 大 | ⏳ | SEC-01 设计「限制」 |
+| CFG-05b | `worker init` 向导提示 `guards` 与 `agents.<k>.max_concurrent` | 低 | 小 | ⏳ | [design](design/2026-09-25-rules-injection-and-worker-init-design.md) §二 |
 | JOB-05 | mcp-agent 类型（job 调用"本身是 MCP server"的能力） | 低 | 中 | ⏳ | roadmap-history JOB-05 |
 | AUTO-04 | 事件 hook 插件（只读旁路先行） | 低 | 大 | ⏳ | roadmap-history AUTO-04 |
 | OBS-07(b)(c) | IM 入站提交 / 交互应答 | 中 | 大 | ❄ 用户暂不做 | [im-notification](runbook/im-notification.md) |
 | CFG-03 | 主机侧动作（编辑器打开等） | 低 | 低 | ⏳ | roadmap-history CFG-03 |
 | AI-01/02 | 内置 AI 助手 / usage skill 完善 | 低 | 大/低 | ⏳ | roadmap-history AI-01 |
-| G032-v0.48 | 到期删除 6 处 DEPRECATED(v0.45)（relay 镜像列、HTTP relay bool、旧配置键别名、interactive_allowed_agents 一次性读取） | — | 小 | ✅ v0.48 | SUP-01「横切」清单；删除记录见设计「v0.48 到期删除记录」 |
 
 ## 三、建议下一批
 
-v0.49.0 已落地 PLAN-03 / WEB-10 / CFG-09 / PTY-01 / XFER-02 / AUTO-02b；SVC-01（Windows 桌面会话常驻，含 `start.ps1` 登录计划任务）已在 v0.50 落地（正式切换 = 桌面管理员窗口卸旧 nssm 服务）。下一批已出设计（待批准）：WEB-04③ 配置写层 V1.1 + AUTO-03 可靠重试 + AGT-04 会话捕获兜底。WEB-04③/AUTO-03/AGT-04 已于 v0.51–v0.53 落地（另见 v0.53.1 的 web 修复）。JOB-10 skills 绑定 + MCP-05 评论/leader 路由 + 小项 S1–S4 已于 v0.56 落地（含 S4 收尾：SPA HEAD、`dir_lock`/`agent_health` 热改、notification 补丁式编辑、leader 不唤醒已完成的 plan、worker job 的 `job.skills_mounted` 回执）。下一批已出设计（待批准）：SEC-01 job 作用域凭证 + LEAD-02 leader 逐 plan 开启 + 小项 F-a/b/c（v0.57 leader 真机验收发现 job 继承 server token）。其后候选：ACP-02 真机验收、CFG-05 worker init 向导、JOB-06 规则文件挂载。
+v0.62–v0.66 落地 WEB-11 工作台 W1–W3（会话中枢、布局与手机/PWA/推送、ACP 对话视图、改动视图与行内评审）及 F16、B01、WEB-13；W4 按用户要求暂缓，先观察 W1–W3 的使用体验。
+
+下一批候选（按价值）：工作台试用反馈的修正 → SEC-02 独立 OS 账号 → CFG-05b 小项；ACP-02b 等上游端点，JOB-06② 暂缓。Web Push 真机验证需要 HTTPS 访问地址（部署事项，不在本表）。
 
 ## 四、维护约定
 
