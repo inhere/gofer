@@ -1,12 +1,22 @@
 package job
 
 import (
+	"context"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"reflect"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
+
+	"github.com/inhere/gofer/internal/agent"
+	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/project"
+	"github.com/inhere/gofer/internal/runner"
+	localrunner "github.com/inhere/gofer/internal/runner/local"
 )
 
 func uncommittedGit(t *testing.T, dir string, args ...string) {
@@ -102,5 +112,90 @@ func TestUncommittedPolicyReviewAndResume(t *testing.T) {
 	}
 	if prompt := uncommittedResumePrompt(files); !strings.Contains(prompt, "a.go") || !strings.Contains(prompt, "b.go") || !strings.Contains(prompt, "不要 push") {
 		t.Fatalf("resume prompt = %q", prompt)
+	}
+}
+
+type uncommittedRunner struct {
+	repo  string
+	calls atomic.Int32
+}
+
+func (r *uncommittedRunner) Name() string { return localrunner.Name }
+
+func (r *uncommittedRunner) Run(_ context.Context, _ runner.Request) runner.Result {
+	if r.calls.Add(1) == 1 {
+		if err := os.WriteFile(filepath.Join(r.repo, "dirty.txt"), []byte("uncommitted"), 0o644); err != nil {
+			return runner.Result{ExitCode: 1, Err: err}
+		}
+	}
+	return runner.Result{ExitCode: 0, SessionID: "session-123456789"}
+}
+
+func uncommittedService(t *testing.T, repo, policy string, run runner.Runner) *Service {
+	t.Helper()
+	root := t.TempDir()
+	max := 1
+	cfg := &config.Config{
+		Storage: config.StorageConfig{Root: root},
+		Server:  config.ServerConfig{AutoResumeMax: &max},
+		Projects: map[string]config.ProjectConfig{"self": {
+			HostPath: repo, AllowedAgents: []string{"fake"}, AllowedRunners: []string{"local"}, OnUncommitted: policy,
+		}},
+		Agents: map[string]config.AgentConfig{"fake": {
+			Type: agent.TypeCLIAgent, Command: "go", SessionResume: []string{"--resume", "{{session_id}}", "{{prompt}}"},
+		}},
+	}
+	meta, err := jobstore.Open(filepath.Join(root, "gofer.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = meta.Close() })
+	return drainOnClose(t, NewService(cfg, project.NewRegistry(cfg, ""), agent.NewRegistry(cfg),
+		map[string]runner.Runner{localrunner.Name: run}, meta, nil))
+}
+
+func TestUncommittedPolicyEndToEnd(t *testing.T) {
+	for _, policy := range []string{"review", "resume"} {
+		t.Run(policy, func(t *testing.T) {
+			repo := t.TempDir()
+			uncommittedGit(t, repo, "init")
+			uncommittedWrite(t, repo, "base.txt", "base")
+			uncommittedGit(t, repo, "add", "base.txt")
+			uncommittedGit(t, repo, "commit", "-m", "base")
+			run := &uncommittedRunner{repo: repo}
+			s := uncommittedService(t, repo, policy, run)
+			first := submitAndWait(t, s, JobRequest{ProjectKey: "self", Agent: "fake", Runner: "local", Prompt: "work", Cwd: ".", TimeoutSec: 30})
+			if first.UncommittedCount != 1 || !reflect.DeepEqual(first.UncommittedFiles, []string{"dirty.txt"}) {
+				t.Fatalf("first uncommitted = %+v", first)
+			}
+			if policy == "review" {
+				if first.Status != StatusNeedsReview {
+					t.Fatalf("review status = %s", first.Status)
+				}
+				return
+			}
+			if first.Status != StatusDone {
+				t.Fatalf("resume source status = %s", first.Status)
+			}
+			deadline := time.Now().Add(5 * time.Second)
+			var source JobResult
+			for time.Now().Before(deadline) {
+				source, _ = s.Get(first.ID)
+				if source.AutoResumedBy != "" {
+					break
+				}
+				time.Sleep(10 * time.Millisecond)
+			}
+			if source.AutoResumedBy == "" {
+				t.Fatal("resume did not submit a continuation")
+			}
+			continued, ok := s.Wait(source.AutoResumedBy)
+			if !ok || continued.Status != StatusNeedsReview || continued.UncommittedCount != 1 {
+				t.Fatalf("still dirty continuation = %+v, ok=%v", continued, ok)
+			}
+			if run.calls.Load() != 2 {
+				t.Fatalf("runner calls = %d, want 2", run.calls.Load())
+			}
+		})
 	}
 }

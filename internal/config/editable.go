@@ -43,6 +43,10 @@ type FieldPolicy struct {
 // vocabulary, which is why `GET /v1/config`'s per-field policy view and the PUT
 // whitelist cannot disagree.
 var fieldPolicies = map[string]FieldPolicy{
+	// Project settings are classified here for policy inspection; the config
+	// console currently has no project write endpoint, so YAML remains the owner.
+	"projects.*.on_uncommitted":     {},
+	"projects.*.uncommitted_ignore": {},
 	// --- server: hot-editable (design §一.3 whitelist) --------------------------
 	"server.max_job_timeout_sec": {Editable: true},
 	"server.auto_resume_max":     {Editable: true},
@@ -185,11 +189,11 @@ func FieldPolicyFor(path string) (FieldPolicy, bool) {
 		return fp, true
 	}
 	parts := strings.Split(path, ".")
-	if len(parts) < 3 || parts[0] != "agents" {
+	if len(parts) < 3 || (parts[0] != "agents" && parts[0] != "projects") {
 		return FieldPolicy{}, false
 	}
 	for end := len(parts); end >= 3; end-- {
-		if fp, ok := fieldPolicies["agents.*."+strings.Join(parts[2:end], ".")]; ok {
+		if fp, ok := fieldPolicies[parts[0]+".*."+strings.Join(parts[2:end], ".")]; ok {
 			return fp, true
 		}
 	}

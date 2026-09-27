@@ -6,6 +6,20 @@ import (
 	"github.com/inhere/gofer/internal/jobstore"
 )
 
+func marshalUncommittedFiles(files []string) string {
+	if len(files) == 0 {
+		return ""
+	}
+	b, _ := json.Marshal(files)
+	return string(b)
+}
+
+func unmarshalUncommittedFiles(raw string) []string {
+	var files []string
+	_ = json.Unmarshal([]byte(raw), &files)
+	return files
+}
+
 // persist upserts one JobResult snapshot into the metadata store, stamping
 // UpdatedAt with the current time. It returns the write error so finish can gate
 // eviction on a durable terminal write; non-terminal callers (queued/running/
@@ -48,15 +62,17 @@ func toRecord(r JobResult) jobstore.JobRecord {
 		CallerID:         r.CallerID,
 		RequestID:        r.RequestID,
 		// 产出与审计字段（job-outcomes-audit）。
-		RenderedCommand: r.RenderedCommand,
-		ResultJSON:      r.ResultJSON,
-		ArtifactsJSON:   r.ArtifactsJSON,
-		DiffSummary:     r.DiffSummary,
-		NDJSONKept:      r.NDJSONKept,
-		NDJSONDropped:   r.NDJSONDropped,
-		NDJSONTruncated: r.NDJSONTruncated,
-		Source:          r.Source,
-		TagsJSON:        marshalTags(r.Tags),
+		RenderedCommand:      r.RenderedCommand,
+		ResultJSON:           r.ResultJSON,
+		ArtifactsJSON:        r.ArtifactsJSON,
+		DiffSummary:          r.DiffSummary,
+		UncommittedFilesJSON: marshalUncommittedFiles(r.UncommittedFiles),
+		UncommittedCount:     r.UncommittedCount,
+		NDJSONKept:           r.NDJSONKept,
+		NDJSONDropped:        r.NDJSONDropped,
+		NDJSONTruncated:      r.NDJSONTruncated,
+		Source:               r.Source,
+		TagsJSON:             marshalTags(r.Tags),
 		// 工作流(job 链)：step-job 反向关联其 workflow + 1-based 步序号 + 重试 attempt。
 		WorkflowID: r.WorkflowID,
 		StepIndex:  r.StepIndex,
@@ -338,15 +354,17 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		CallerID:         rec.CallerID,
 		RequestID:        rec.RequestID,
 		// 产出与审计字段（job-outcomes-audit）。
-		RenderedCommand: rec.RenderedCommand,
-		ResultJSON:      rec.ResultJSON,
-		ArtifactsJSON:   rec.ArtifactsJSON,
-		DiffSummary:     rec.DiffSummary,
-		NDJSONKept:      rec.NDJSONKept,
-		NDJSONDropped:   rec.NDJSONDropped,
-		NDJSONTruncated: rec.NDJSONTruncated,
-		Source:          rec.Source,
-		Tags:            unmarshalTags(rec.TagsJSON),
+		RenderedCommand:  rec.RenderedCommand,
+		ResultJSON:       rec.ResultJSON,
+		ArtifactsJSON:    rec.ArtifactsJSON,
+		DiffSummary:      rec.DiffSummary,
+		UncommittedFiles: unmarshalUncommittedFiles(rec.UncommittedFilesJSON),
+		UncommittedCount: rec.UncommittedCount,
+		NDJSONKept:       rec.NDJSONKept,
+		NDJSONDropped:    rec.NDJSONDropped,
+		NDJSONTruncated:  rec.NDJSONTruncated,
+		Source:           rec.Source,
+		Tags:             unmarshalTags(rec.TagsJSON),
 		// 工作流(job 链)。
 		WorkflowID: rec.WorkflowID,
 		StepIndex:  rec.StepIndex,

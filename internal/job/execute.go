@@ -172,6 +172,16 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		defer cancelRun()
 	}
 
+	// GIT-01: capture before the agent sees the working tree. Worktree jobs use
+	// their private checkout; remote workers run this same execute path locally.
+	guardDir := req.WorkDir
+	if entry.wt != nil {
+		guardDir = entry.wt.Path
+	}
+	guardPolicy, _ := s.uncommittedSettings(entry.result.ProjectKey)
+	if uncommittedEnabled(entry.result.Agent, guardPolicy) || (entry.result.ResumedFrom != "" && guardPolicy != "off") {
+		entry.uncommittedBaseline = captureUncommitted(guardDir)
+	}
 	entry.mu.Lock()
 	// The holder is no longer interesting once this job is the holder: it is cleared
 	// in the same critical section that flips the status, so no reader can see a
@@ -360,6 +370,9 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// 绝不影响 job 终态(classify/finish 不受其结果影响)。res 携带远端回传的 Outcome
 	// (worker/peer)，captureOutcomes 据此分流：远端直接落、本地扫盘(P4)。
 	s.captureOutcomes(entry, req, res)
+	if res.Outcome == nil {
+		s.captureUncommittedOutcome(entry)
+	}
 
 	status, code, runErr := classify(runCtx, res)
 	// SUP-01 P2: a verify step that did not pass decides the job's status (the
@@ -453,7 +466,19 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// SUP-01 P2: a failed verify step is a delivery a reviewer must rule on, so it
 	// parks in needs_review exactly like a normal finish does (the failing Verify
 	// stays on the result for the human, and there is no job.terminal yet).
-	needsReview := pre.RequireReview && (status == StatusDone || verifyBlocked(pre.Verify))
+	guardPolicy, _ := s.uncommittedSettings(pre.ProjectKey)
+	maxResume := 0
+	if cfg := s.config(); cfg != nil {
+		maxResume = cfg.Server.EffectiveAutoResumeMax()
+	}
+	guardDecision := ""
+	if status == StatusDone && pre.UncommittedCount > 0 {
+		guardDecision = uncommittedDecision(guardPolicy, pre.UncommittedFiles, pre.SessionID, pre.AutoResumeAttempt, maxResume, pre.AutoResumeAttempt > 0)
+		if guardDecision == "resume" && !s.autoResumeEligible(pre) {
+			guardDecision = "review"
+		}
+	}
+	needsReview := (pre.RequireReview && (status == StatusDone || verifyBlocked(pre.Verify))) || guardDecision == "review"
 	// SUP-01 P3: a failure is classified and (possibly) taken over from ONE decision —
 	// the pattern match, whether this agent can still continue the work, and whether
 	// the candidate chain has a link left. It is pure (it submits nothing), so it runs
@@ -465,7 +490,7 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	switch {
 	case needsReview:
 		s.recordEvent(jobID, EventJobNeedsReview, map[string]any{"job_id": jobID, "exit_code": exitCode})
-	case dec.AutoResume || dec.Fallback != "":
+	case dec.AutoResume || dec.Fallback != "" || guardDecision == "resume":
 		// A takeover is about to be submitted (the same agent's continuation, or the
 		// next candidate): its own event is recorded once the submission succeeds, and
 		// job.terminal is recorded late instead when it does not.
@@ -582,13 +607,16 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 		return
 	}
 	autoResumed, fellBack := false, false
+	if persistErr == nil && guardDecision == "resume" {
+		autoResumed = s.resumeUncommitted(snap)
+	}
 	if persistErr == nil && dec.AutoResume {
 		autoResumed = s.autoResume(snap, dec.Hit)
 	}
 	if persistErr == nil && dec.Fallback != "" {
 		fellBack = s.fallBack(snap, dec.Hit, dec.Fallback)
 	}
-	if (dec.AutoResume && !autoResumed) || (dec.Fallback != "" && !fellBack) {
+	if (guardDecision == "resume" && !autoResumed) || (dec.AutoResume && !autoResumed) || (dec.Fallback != "" && !fellBack) {
 		// The takeover could not be submitted (or the row never landed): the failure
 		// IS terminal after all — record it now, late but never missing.
 		s.recordEvent(jobID, EventJobTerminal, map[string]any{"status": status, "exit_code": exitCode, "error": errStr})

@@ -79,10 +79,12 @@ type JobRecord struct {
 	// "no idempotency key"; only non-empty values are unique-constrained.
 	RequestID string
 	// 产出与审计（job-outcomes-audit）：job 终态时捕获的产出字段，best-effort 写入。
-	RenderedCommand string // 渲染后实际 argv {command,args,env_keys} JSON（E15）
-	ResultJSON      string // <result_dir>/result.json 内容（E6）
-	ArtifactsJSON   string // [{name,size,mtime}] 产物清单（E1，P2）
-	DiffSummary     string // git diff --stat 截断摘要（E12，P3）
+	RenderedCommand      string // 渲染后实际 argv {command,args,env_keys} JSON（E15）
+	ResultJSON           string // <result_dir>/result.json 内容（E6）
+	ArtifactsJSON        string // [{name,size,mtime}] 产物清单（E1，P2）
+	DiffSummary          string // git diff --stat 截断摘要（E12，P3）
+	UncommittedFilesJSON string // GIT-01 first 200 cwd-relative paths
+	UncommittedCount     int    // GIT-01 total, including paths beyond the stored cap
 	// NDJSONKept / NDJSONDropped / NDJSONTruncated 是采集期 NDJSON 投影器
 	// （bd h-aii-rpky / bd h-aii-525u）的行数审计：stderr.log 写入/丢弃/截断的行数。
 	// 旧行 COALESCE 成 0（文本 agent 也是 0，同义）。
@@ -295,7 +297,8 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,
   COALESCE(failure_class,''), COALESCE(fell_back_from,''), COALESCE(fell_back_to,''),
   COALESCE(requested_agent,''), COALESCE(fallback_json,''), COALESCE(usage_json,''),
   COALESCE(xfer_json,''), COALESCE(skills_json,''), COALESCE(rules_json,''), COALESCE(dir_exclusive,0),
-  COALESCE(leader_of_plan,'') FROM jobs`
+  COALESCE(leader_of_plan,''), COALESCE(uncommitted_files_json,''),
+  COALESCE(uncommitted_count,0) FROM jobs`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -327,6 +330,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.VerifyJSON,
 		&r.FailureClass, &r.FellBackFrom, &r.FellBackTo, &r.RequestedAgent, &r.FallbackJSON,
 		&r.UsageJSON, &r.XferJSON, &r.SkillsJSON, &r.RulesJSON, &dirExclusive, &r.LeaderOfPlan,
+		&r.UncommittedFilesJSON, &r.UncommittedCount,
 	)
 	r.Interactive = interactive != 0
 	r.TimeoutClamped = timeoutClamped != 0
@@ -349,8 +353,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.UpdatedAt = rec.StartedAt
 	}
 	const q = `INSERT INTO jobs
-  (id, project_key, agent, runner, interactive, worker_id, worker_instance_id, status, exit_code, cwd, result_dir, request_json, error, started_at, ended_at, updated_at, caller_id, request_id, rendered_command, result_json, artifacts_json, diff_summary, ndjson_kept, ndjson_dropped, ndjson_truncated, source, tags_json, workflow_id, step_index, attempt, fan_index, session_id, stop_reason, resumed_from, auto_resume_attempt, auto_resumed_by, channel, client, origin_agent, escalate_to, role, plan_id, source_job_id, todo_id, base_sha, commits_json, timeout_sec, requested_timeout_sec, timeout_clamped, recovering_since, worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead, read_only, require_review, reviewed_by, reviewed_at, review_note, verify_json, failure_class, fell_back_from, fell_back_to, requested_agent, fallback_json, usage_json, xfer_json, skills_json, rules_json, dir_exclusive, leader_of_plan)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  (id, project_key, agent, runner, interactive, worker_id, worker_instance_id, status, exit_code, cwd, result_dir, request_json, error, started_at, ended_at, updated_at, caller_id, request_id, rendered_command, result_json, artifacts_json, diff_summary, ndjson_kept, ndjson_dropped, ndjson_truncated, source, tags_json, workflow_id, step_index, attempt, fan_index, session_id, stop_reason, resumed_from, auto_resume_attempt, auto_resumed_by, channel, client, origin_agent, escalate_to, role, plan_id, source_job_id, todo_id, base_sha, commits_json, timeout_sec, requested_timeout_sec, timeout_clamped, recovering_since, worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead, read_only, require_review, reviewed_by, reviewed_at, review_note, verify_json, failure_class, fell_back_from, fell_back_to, requested_agent, fallback_json, usage_json, xfer_json, skills_json, rules_json, dir_exclusive, leader_of_plan, uncommitted_files_json, uncommitted_count)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -422,7 +426,9 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     skills_json=excluded.skills_json,
     rules_json=excluded.rules_json,
     dir_exclusive=excluded.dir_exclusive,
-    leader_of_plan=excluded.leader_of_plan`
+    leader_of_plan=excluded.leader_of_plan,
+    uncommitted_files_json=excluded.uncommitted_files_json,
+    uncommitted_count=excluded.uncommitted_count`
 	// Serialise writes in-process (see Store.writeMu) so SQLite never sees two
 	// concurrent writers and cannot return SQLITE_BUSY under burst.
 	s.writeMu.Lock()
@@ -453,6 +459,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.RulesJSON,
 		rec.DirExclusive,
 		rec.LeaderOfPlan,
+		rec.UncommittedFilesJSON, rec.UncommittedCount,
 	)
 	if err != nil {
 		// A competing INSERT with the same non-empty request_id (different id)

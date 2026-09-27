@@ -127,7 +127,9 @@ var schemaStmts = []string{
   skills_json      TEXT,
   rules_json       TEXT,
   dir_exclusive    INTEGER NOT NULL DEFAULT 0,
-  leader_of_plan   TEXT
+  leader_of_plan   TEXT,
+  uncommitted_files_json TEXT,
+  uncommitted_count INTEGER NOT NULL DEFAULT 0
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -763,6 +765,12 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if err := add("diff_summary", "diff_summary TEXT"); err != nil { // E12 diff 摘要(P3)
+		return err
+	}
+	if err := add("uncommitted_files_json", "uncommitted_files_json TEXT"); err != nil {
+		return err
+	}
+	if err := add("uncommitted_count", "uncommitted_count INTEGER NOT NULL DEFAULT 0"); err != nil {
 		return err
 	}
 	if err := add("ndjson_kept", "ndjson_kept INTEGER"); err != nil { // ndjson 采集过滤器保留行数

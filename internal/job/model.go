@@ -560,6 +560,10 @@ type JobResult struct {
 	ArtifactsJSON string `json:"-"`
 	// DiffSummary git diff --stat 截断摘要（E12，P3）。
 	DiffSummary string `json:"diff_summary,omitempty"`
+	// UncommittedFiles is the first 200 cwd-relative dirty paths attributable to
+	// this agent job. UncommittedCount retains the full count for truncated lists.
+	UncommittedFiles []string `json:"uncommitted_files,omitempty"`
+	UncommittedCount int      `json:"uncommitted_count,omitempty"`
 	// NDJSONKept / NDJSONDropped / NDJSONTruncated 是采集期 NDJSON 投影器的行数审计
 	// （bd h-aii-rpky / bd h-aii-525u）：该 job 的 stderr.log 写入了多少行紧凑事件、丢掉了
 	// 多少行逐 token 增量事件、有多少行因超过单行上限被截断（标 `…(truncated)`）。文本
@@ -760,6 +764,7 @@ const (
 	EventJobDispatched       = "job.dispatched"       // {runner,worker_id} (remote only)
 	EventJobRunning          = "job.running"          // nil
 	EventJobTerminal         = "job.terminal"         // {status,exit_code,error}
+	EventJobUncommitted      = "job.uncommitted"      // {count,files(first 20)}
 	EventJobCancelled        = "job.cancelled"        // {was_terminal}
 	EventInteractionCreated  = "interaction.created"  // {interaction_id,type,prompt}
 	EventInteractionAnswered = "interaction.answered" // {interaction_id,answer}

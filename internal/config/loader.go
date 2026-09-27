@@ -536,6 +536,16 @@ func validate(cfg *Config) error {
 		if p.MaxTimeoutSec < 0 {
 			return fmt.Errorf("project %q: max_timeout_sec must be >= 0", key)
 		}
+		switch p.OnUncommitted {
+		case "", "off", "warn", "review", "resume":
+		default:
+			return fmt.Errorf("project %q: on_uncommitted must be off, warn, review, or resume", key)
+		}
+		for _, pattern := range p.UncommittedIgnore {
+			if _, err := path.Match(pattern, "sample"); err != nil {
+				return fmt.Errorf("project %q: invalid uncommitted_ignore pattern %q: %w", key, pattern, err)
+			}
+		}
 		if p.Approval != nil {
 			if err := validateApproval(key, *p.Approval); err != nil {
 				return err

@@ -1548,6 +1548,10 @@ type ProjectConfig struct {
 	// while an explicit capture_diff:false disables it outright. nil/true defer to
 	// captureDiff's own is-git probe (a non-git cwd naturally yields no diff).
 	CaptureDiff *bool `yaml:"capture_diff,omitempty"`
+	// OnUncommitted controls the GIT-01 agent-job guard. Empty defaults to warn.
+	OnUncommitted string `yaml:"on_uncommitted,omitempty"`
+	// UncommittedIgnore excludes cwd-relative paths from the GIT-01 result.
+	UncommittedIgnore []string `yaml:"uncommitted_ignore,omitempty"`
 	// NotifyEnabled gates E14 webhook delivery for this project (design §5.5). It
 	// is a pointer so "unset" (nil) defaults to ENABLED while an explicit
 	// notify_enabled:false suppresses all notification for the project's jobs
