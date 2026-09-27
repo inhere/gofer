@@ -385,8 +385,9 @@ type Dispatch struct {
 	// a resume (the hub projects them from a Forward whose ResumedFrom is non-empty) —
 	// a plain job's session_id never travels here. An OLD worker ignores the unknown
 	// fields and starts a new session (see SessionLoadMinProtocolVersion).
-	SessionID   string `json:"session_id,omitempty"`
-	ResumedFrom string `json:"resumed_from,omitempty"`
+	SessionID         string `json:"session_id,omitempty"`
+	ResumedFrom       string `json:"resumed_from,omitempty"`
+	AutoResumeAttempt int    `json:"auto_resume_attempt,omitempty"`
 	// ReadOnly (bd h-aii-0ql3) asks the worker to run the job in its own read-only mode
 	// (cli-agent argv sandbox / acp-agent session/set_mode). The worker validates it
 	// against its OWN agent config. An OLD worker ignores the field and runs the job

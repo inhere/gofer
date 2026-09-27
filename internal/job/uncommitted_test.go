@@ -241,3 +241,18 @@ func TestUncommittedRemoteOutcomeReview(t *testing.T) {
 		t.Fatalf("host remote outcome = %+v", got)
 	}
 }
+
+func TestUncommittedWorkerReportsWithoutDeciding(t *testing.T) {
+	repo := t.TempDir()
+	uncommittedGit(t, repo, "init")
+	uncommittedWrite(t, repo, "base.txt", "base")
+	uncommittedGit(t, repo, "add", "base.txt")
+	uncommittedGit(t, repo, "commit", "-m", "base")
+	run := &uncommittedRunner{repo: repo}
+	s := uncommittedService(t, repo, "resume", run)
+	s.SetUncommittedDecisionOnly(true)
+	got := submitAndWait(t, s, JobRequest{ProjectKey: "self", Agent: "fake", Runner: "local", Prompt: "work", Cwd: ".", TimeoutSec: 30})
+	if got.Status != StatusDone || got.UncommittedCount != 1 || got.AutoResumedBy != "" || run.calls.Load() != 1 {
+		t.Fatalf("worker should only report: %+v, calls=%d", got, run.calls.Load())
+	}
+}

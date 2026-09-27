@@ -420,8 +420,9 @@ type Forward struct {
 	// ResumedFrom is the source job id (set only by ResumeJob) and SessionID the agent
 	// session to LOAD. A remote runner sends them over Dispatch only when the request
 	// really is a resume — a plain job that merely carries a session_id is not one.
-	SessionID   string
-	ResumedFrom string
+	SessionID         string
+	ResumedFrom       string
+	AutoResumeAttempt int
 	// ReadOnly (bd h-aii-0ql3) asks the remote executor to run the job in its own
 	// read-only mode (cli-agent argv sandbox / acp-agent session/set_mode). The
 	// executor validates it against ITS agent config, so an agent without a read-only

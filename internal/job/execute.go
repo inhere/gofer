@@ -474,6 +474,9 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	guardDecision := ""
 	if status == StatusDone && pre.UncommittedCount > 0 {
 		guardDecision = uncommittedDecision(guardPolicy, pre.UncommittedFiles, pre.SessionID, pre.AutoResumeAttempt, maxResume, pre.AutoResumeAttempt > 0)
+		if s.uncommittedDecisionOnly {
+			guardDecision = "warn"
+		}
 		if guardDecision == "resume" && !s.autoResumeEligible(pre) {
 			guardDecision = "review"
 		}

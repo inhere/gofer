@@ -340,6 +340,7 @@ func runWorker(c *gcli.Command, _ []string, info buildinfo.Info) error {
 	if err != nil {
 		return errorx.Failf(workerExitErr, "%v", err)
 	}
+	cr.Jobs.SetUncommittedDecisionOnly(true)
 	defer func() { _ = cr.Close() }()
 
 	rc := wc.ServerLink.Reconnect
@@ -591,9 +592,9 @@ func projectPolicy(wc *config.WorkerConfig, p wsproto.Policy) (*config.Config, [
 			AllowInteractive:  policyAllowInteractive(pp, wc),
 			MaxConcurrentJobs: pp.MaxConcurrentJobs,
 			CaptureDiff:       pp.CaptureDiff,
-			// Worker detects and reports; the hub owns review/resume so the
-			// same remote job cannot spawn a continuation on both machines.
-			OnUncommitted:     workerUncommittedMode(pp.OnUncommitted),
+			// The worker needs the original mode to check remaining dirty files
+			// after an automatic continuation; it never owns review/resume.
+			OnUncommitted:     pp.OnUncommitted,
 			UncommittedIgnore: pp.UncommittedIgnore,
 			// The server's RESOLVED job-timeout ceiling (bd h-aii-s9ck). Adopting it
 			// makes the worker's own submit clamp a no-op on a dispatched job whose
@@ -609,13 +610,6 @@ func projectPolicy(wc *config.WorkerConfig, p wsproto.Policy) (*config.Config, [
 	}
 	cfg.Projects = projects // COMPLETE snapshot replace (E-B1); empty policy ⇒ empty set
 	return cfg, rejected
-}
-
-func workerUncommittedMode(mode string) string {
-	if mode == "off" {
-		return "off"
-	}
-	return "warn"
 }
 
 // approvalFromPolicy maps the pushed approval gate onto the worker's local project

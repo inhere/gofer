@@ -93,8 +93,9 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 		// ACP-01 S2: a continuation's session + lineage (both empty on a plain
 		// dispatch, and both absent entirely from a pre-S2 hub's frame). ResumedFrom
 		// is what makes SessionID a session/load rather than a plain binding.
-		SessionID:   d.SessionID,
-		ResumedFrom: d.ResumedFrom,
+		SessionID:         d.SessionID,
+		ResumedFrom:       d.ResumedFrom,
+		AutoResumeAttempt: d.AutoResumeAttempt,
 		// bd h-aii-0ql3: the worker's own job.Service re-validates read_only against
 		// ITS agent config, so a worker whose agent has no read-only mode fails the job
 		// with an error the hub can show instead of running it writable.

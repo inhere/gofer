@@ -199,8 +199,8 @@ func TestProjectPolicyUncommittedGuard(t *testing.T) {
 	}}}
 	cfg, _ := projectPolicy(wc, p)
 	got := cfg.Projects["svc"]
-	if got.OnUncommitted != "warn" || !reflect.DeepEqual(got.UncommittedIgnore, []string{"generated/*"}) {
-		t.Fatalf("worker detection policy = %+v; host must own resume", got)
+	if got.OnUncommitted != "resume" || !reflect.DeepEqual(got.UncommittedIgnore, []string{"generated/*"}) {
+		t.Fatalf("worker detection policy = %+v", got)
 	}
 	p.Projects[0].OnUncommitted = "off"
 	cfg, _ = projectPolicy(wc, p)

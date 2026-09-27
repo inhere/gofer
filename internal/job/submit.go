@@ -403,8 +403,9 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// ACP-01 S2: a continuation reaches a remote executor with its session and
 			// lineage so the worker's local job resolves the same session/load. Empty for
 			// a plain job (a bare session_id is not a resume).
-			SessionID:   req.SessionID,
-			ResumedFrom: req.ResumedFrom,
+			SessionID:         req.SessionID,
+			ResumedFrom:       req.ResumedFrom,
+			AutoResumeAttempt: req.AutoResumeAttempt,
 			// bd h-aii-0ql3: read-only rides to the executor, whose own admission +
 			// agent config decide how (or whether) it can be honoured.
 			ReadOnly: req.ReadOnly,

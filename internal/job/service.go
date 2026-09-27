@@ -113,6 +113,8 @@ type ServiceStats struct {
 // Service accepts job requests, runs them asynchronously and tracks their state.
 // It is safe for concurrent use.
 type Service struct {
+	// Worker services report the guard result but leave review/resume to the hub.
+	uncommittedDecisionOnly bool
 	// cfg holds the active config behind an atomic.Pointer so SIGHUP-driven
 	// hot-reload (C3) can atomically swap it (see Reload). Read it via config():
 	// every method that consults cfg takes ONE snapshot at entry and uses that

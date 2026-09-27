@@ -233,6 +233,12 @@ func (s *Service) uncommittedSettings(projectKey string) (string, []string) {
 	return policy, nil
 }
 
+// SetUncommittedDecisionOnly is set during worker assembly, before jobs start.
+// The worker still detects with the pushed policy; the hub owns transitions.
+func (s *Service) SetUncommittedDecisionOnly(enabled bool) {
+	s.uncommittedDecisionOnly = enabled
+}
+
 func (s *Service) captureUncommittedOutcome(entry *jobEntry) {
 	entry.mu.Lock()
 	result := entry.result

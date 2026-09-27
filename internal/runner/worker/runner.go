@@ -444,6 +444,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	if f.ResumedFrom != "" {
 		d.SessionID = f.SessionID
 		d.ResumedFrom = f.ResumedFrom
+		d.AutoResumeAttempt = f.AutoResumeAttempt
 	}
 	if err := r.hub.Dispatch(workerID, d); err != nil {
 		relayCloseReason = "dispatch_failed"
