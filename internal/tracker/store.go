@@ -33,21 +33,29 @@ func (s *Store) ReadIssues() ([]Issue, error) {
 	return items, err
 }
 
-func (s *Store) WriteIssues(items []Issue) error {
+func (s *Store) WriteIssues(items []Issue) (err error) {
 	lock, err := s.AcquireLock()
 	if err != nil {
 		return err
 	}
-	defer lock.Release()
+	defer func() {
+		if releaseErr := lock.Release(); err == nil {
+			err = releaseErr
+		}
+	}()
 	return s.writeIssues(items)
 }
 
-func (s *Store) UpdateIssues(change func([]Issue) ([]Issue, error)) error {
+func (s *Store) UpdateIssues(change func([]Issue) ([]Issue, error)) (err error) {
 	lock, err := s.AcquireLock()
 	if err != nil {
 		return err
 	}
-	defer lock.Release()
+	defer func() {
+		if releaseErr := lock.Release(); err == nil {
+			err = releaseErr
+		}
+	}()
 	items, err := s.ReadIssues()
 	if err != nil {
 		return err
@@ -86,12 +94,16 @@ func (s *Store) ReadMemories() ([]Memory, error) {
 	return items, err
 }
 
-func (s *Store) UpdateMemories(change func([]Memory) ([]Memory, error)) error {
+func (s *Store) UpdateMemories(change func([]Memory) ([]Memory, error)) (err error) {
 	lock, err := s.AcquireLock()
 	if err != nil {
 		return err
 	}
-	defer lock.Release()
+	defer func() {
+		if releaseErr := lock.Release(); err == nil {
+			err = releaseErr
+		}
+	}()
 	items, err := s.ReadMemories()
 	if err != nil {
 		return err

@@ -62,7 +62,9 @@ func (s *Store) AcquireLock() (*Lock, error) {
 			// Check again before unlinking. A replaced lock never belongs to us.
 			current, readErr := os.ReadFile(path)
 			if readErr == nil && bytes.Equal(old, current) {
-				_ = os.Remove(path)
+				if removeErr := os.Remove(path); removeErr != nil && !errors.Is(removeErr, os.ErrNotExist) {
+					return nil, fmt.Errorf("reclaim expired tracker lock: %w", removeErr)
+				}
 			}
 			continue
 		}
