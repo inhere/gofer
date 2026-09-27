@@ -1,12 +1,13 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 本地优先的 issue/memory 跟踪（TRK-01）与未提交改动守卫（GIT-01）
 
-> 状态：Draft 0.1（待用户批准）
+> 状态：Draft 0.2（待用户批准）
 
 ## 修订记录
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
+| 0.2 | 2026-09-27 | Claude | 按用户意见把仓库级公共命令收进新命令组 `gofer repo`（init / prime / sync / migrate / status）；补 `repo init` 的职责（对应 `bd init`）；`issue`/`memory` 只留条目操作 |
 | 0.1 | 2026-09-27 | Claude | 初稿：用户要求 gofer 接管 bd 的 issue + memory（本地优先写 jsonl、连上 server 再同步），并解决"agent 改了一堆文件不提交"；IDEV-STD 适配等本功能可用后再做 |
 
 ## 背景与目标
@@ -63,20 +64,31 @@
 
 ### CLI
 
+仓库级的公共动作放新命令组 **`gofer repo`**（管当前仓库的 `.gofer/`：tracker、`RULES.md`、`templates/`、hooks）；`issue`/`memory` 只做条目操作。新增顶层命令共三个：`repo`、`issue`、`memory`。
+
 | 命令 | 说明（对应 bd） |
 |---|---|
-| `gofer issue init [--prefix]` | 建 `.gofer/tracker/` |
+| `gofer repo init [--prefix P] [--no-hooks] [--no-agents-md]` | 对应 `bd init`，幂等，见下 |
+| `gofer repo prime [--hook-json]` | 会话开场注入，对应 `bd prime` |
+| `gofer repo sync` | 与 server 同步 issue/memory |
+| `gofer repo migrate --from-bd [--apply]` | 从 bd 迁移，默认只打印计划；隐含 `repo init` |
+| `gofer repo status` | 自检：tracker 路径与计数、待同步变更与上次同步时间、hooks 是否装好、托管块是否在、提交策略；对应 `bd doctor` 里我们用得到的部分 |
 | `gofer issue ready` / `ls [--status --type --label --all]` / `show <id>` | `bd ready/list/show` |
 | `gofer issue create -t … [--type --priority --parent --dep …]` | `bd create` |
 | `gofer issue update <id> [--claim --status --title --append-notes …]` / `close <id> [--reason]` / `dep add <id> <on>` | `bd update/close/dep` |
-| `gofer issue sync` | 与 server 同步（见下） |
-| `gofer issue migrate --from-bd [--apply]` | 从 bd 迁移（见下），默认只打印计划 |
 | `gofer memory set <key> <content>` / `ls [kw]` / `show <key>` / `rm <key>` | `bd remember/memories/recall/forget`（保留 `remember`/`forget` 别名） |
-| `gofer prime [--hook-json]` | 代替 `bd prime` |
 
-新增顶层命令只有 `issue`、`memory`、`prime` 三个，其余全部作为子命令。
+`gofer repo init` 做的事（每步已完成就跳过，可重复执行）：
 
-### `gofer prime`（会话开场注入）
+1. 建 `.gofer/tracker/`：`config.yaml`（`prefix` 默认取目录名；`tracker_id` 生成 uuid；`commit_policy: local-commit`；`auto_sync: true`）、空的 `issues.jsonl`/`memories.jsonl`；
+2. 在 `.gofer/.gitignore` 加 `tracker/.local/`；
+3. 在 `AGENTS.md`/`CLAUDE.md` 写入 gofer 托管块（`BEGIN/END GOFER TRACKER` 标记：用 `gofer issue`/`gofer memory`、提交策略一句话、开场会自动注入）；已有 bd 托管块时提示改用 `repo migrate --from-bd`，不自行删除；
+4. 装 SessionStart hook 为 `gofer repo prime --hook-json`（复用 `gofer init hooks` 的写法，Claude/Codex 都装）；
+5. 连得上 server 时顺带做第一次 `repo sync`，登记仓库。
+
+没有 tracker 的仓库里执行 `gofer issue`/`gofer memory` 会报错并提示先 `gofer repo init`，不自动创建，避免到处散落 `.gofer/tracker/`。`gofer init hooks` 保留，只负责 hooks 这一步。
+
+### `gofer repo prime`（会话开场注入）
 
 输出四段，总量有上限（默认 8 KiB，超出截断并说明）：
 
@@ -85,16 +97,16 @@
 3. `ready` 的前 10 条；
 4. memory 全量（超限时先按更新时间保留最新的）。
 
-`gofer init hooks` 负责把 SessionStart 装成 `gofer prime --hook-json`（Claude），Codex 走其 hooks 等价物。gofer 派出的 job：若 cwd 仓库有 tracker，把第 1、4 段并入规则注入（同一套大小上限与记名称/sha）。
+`repo init`（或 `gofer init hooks`）把 SessionStart 装成 `gofer repo prime --hook-json`（Claude），Codex 走其 hooks 等价物。gofer 派出的 job：若 cwd 仓库有 tracker，把第 1、4 段并入规则注入（同一套大小上限与记名称/sha）。
 
-### 从 bd 迁移（`gofer issue migrate --from-bd`）
+### 从 bd 迁移（`gofer repo migrate --from-bd`）
 
 默认 dry-run，打印将要做的每一步；`--apply` 才执行：
 
 1. 读 `.beads/issues.jsonl`，按上表映射字段（notes 整段作为一条条目；bd 未知状态映射为 open 并打标签 `bd:<原状态>`），写 `issues.jsonl`；
 2. 有 `bd` 可执行时用 `bd memories --json` 导出 memory，否则跳过并提示；
 3. 把 `CLAUDE.md`/`AGENTS.md` 里 `BEGIN/END BEADS INTEGRATION` 托管块替换为 gofer 的短块（带 `BEGIN/END GOFER TRACKER` 标记，写明用 `gofer issue`/`gofer memory` 与提交策略）；
-4. `.claude/settings.json` 的 `bd prime --hook-json` 换成 `gofer prime --hook-json`（Codex hooks 同理）；
+4. `.claude/settings.json` 的 `bd prime --hook-json` 换成 `gofer repo prime --hook-json`（Codex hooks 同理）；
 5. `core.hooksPath` 指向 `.beads/hooks` 时 unset（失效路径同样处理），并在汇报中列出原值；
 6. `.beads/` 原样保留作只读归档，不删除。
 
@@ -103,10 +115,10 @@
 ### server 镜像与同步
 
 - server 新表：`tracker_repos {tracker_id, project_key, rel_path, prefix, last_sync_at}`、`tracker_issues {tracker_id, id, body_json, rev, updated_at}`、`tracker_memories {tracker_id, key, …}`。
-- `gofer issue sync`：把本地与"上次同步基线"（`.local/sync-base.jsonl`）的差异推给 server，拉回 server 自上次以来的变更（web 编辑、job 联动、其他机器），**三方合并**后写本地：
+- `gofer repo sync`：把本地与"上次同步基线"（`.local/sync-base.jsonl`）的差异推给 server，拉回 server 自上次以来的变更（web 编辑、job 联动、其他机器），**三方合并**后写本地：
   - 标量字段：只有一方改了就取那一方；两方都改了，取 `updated_at` 较新者，并在 notes 追加一条"同步冲突：<字段> 取了 <某方>，另一方为 <值>"；
   - notes、comments、deps、labels：并集。
-- 何时同步：手动 `gofer issue sync`；`auto_sync: true`（默认）时在 `gofer prime` 与每次写命令之后尽力同步一次（2 秒超时，失败只提示、不影响本地写入）。server 侧改动在下一次本地命令时拉回。
+- 何时同步：手动 `gofer repo sync`；`auto_sync: true`（默认）时在 `gofer repo prime` 与每次写命令之后尽力同步一次（2 秒超时，失败只提示、不影响本地写入）。server 侧改动在下一次本地命令时拉回。
 - `job run --issue <id>`：开跑时 server 镜像把该 issue 置 in_progress，结束时追加 notes（状态、提交列表、未提交提示），与现在 todo 的联动方式一致；本地在下一次同步时拿到。仓库从未同步过时只给 job 打标签。
 - web：Issues 页（按项目/仓库列表、筛选、详情、编辑、评论），工作台会话可链接 issue；编辑写 server 镜像，经同步回到仓库。
 
@@ -115,9 +127,9 @@
 | 期 | 内容 | 验收 |
 |---|---|---|
 | **P1 GIT-01** | 基线/终态比对、嵌套仓库扫描、`uncommitted_files` 字段与事件、`on_uncommitted` 四档、web 徽标 | `TestUncommittedDetectsNewDirtyOnly`、`TestUncommittedNestedRepo`、`TestUncommittedPolicyReviewAndResume`；真机：让 agent 改文件不提交，看到徽标并按 `resume` 续接后提交 |
-| **P2 TRK-01 本地核心** | 目录与格式、锁、id、issue/memory 全部 CLI、仓库发现 | `TestTrackerRoundTripStableOrder`、`TestTrackerLockContention`、`TestIssueReadyRespectsDeps`、`TestMemoryCRUD`；无 server 时所有命令可用 |
-| **P3 prime + 迁移** | `gofer prime`（含 `--hook-json`）、`init hooks` 接入、`issue migrate --from-bd` 六步 | `TestPrimeSectionsAndCap`、`TestMigrateFromBdFixture`（用本仓 jsonl 的脱敏样本）、`TestMigrateStripsBeadsBlock`；试点仓库迁移后开新会话，看到 gofer 的提交策略 |
-| **P4 同步 + 联动 + web** | server 表、sync 三方合并、`job run --issue`、Issues 页 | `TestSyncThreeWayMerge`（含两边改同一字段）、`TestSyncOfflineThenCatchUp`、`TestJobIssueLinkAppendsNotes`；真机：离线建/改 issue，恢复后同步，web 改了再拉回本地 |
+| **P2 TRK-01 本地核心** | 目录与格式、锁、id、`repo init`/`repo status`、issue/memory 全部 CLI、仓库发现 | `TestTrackerRoundTripStableOrder`、`TestTrackerLockContention`、`TestIssueReadyRespectsDeps`、`TestMemoryCRUD`；无 server 时所有命令可用 |
+| **P3 prime + 迁移** | `gofer repo prime`（含 `--hook-json`）、hooks 接入、`repo migrate --from-bd` 六步 | `TestPrimeSectionsAndCap`、`TestMigrateFromBdFixture`（用本仓 jsonl 的脱敏样本）、`TestMigrateStripsBeadsBlock`；试点仓库迁移后开新会话，看到 gofer 的提交策略 |
+| **P4 同步 + 联动 + web** | server 表、`repo sync` 三方合并、`job run --issue`、Issues 页 | `TestSyncThreeWayMerge`（含两边改同一字段）、`TestSyncOfflineThenCatchUp`、`TestJobIssueLinkAppendsNotes`；真机：离线建/改 issue，恢复后同步，web 改了再拉回本地 |
 
 P1 与 P2–P4 相互独立，可以并行排；P3 完成即可在试点仓库离线使用，P4 补上共享。
 
@@ -133,7 +145,7 @@ P1 与 P2–P4 相互独立，可以并行排；P3 完成即可在试点仓库�
 1. gofer 接管 issue + memory，真源是仓库内 `.gofer/tracker/*.jsonl`（提交进 git），server 只是镜像。
 2. 默认提交策略 `local-commit`：按功能点本地提交是默认授权，不 push。
 3. GIT-01 默认 `warn`，项目可改 `review`/`resume`。
-4. 新增顶层命令 `issue`、`memory`、`prime`。
+4. 新增顶层命令 `repo`、`issue`、`memory`；仓库级公共动作（init / prime / sync / migrate / status）归 `gofer repo`。
 5. 迁移默认 dry-run；`.beads/` 保留为归档不删除。
 6. IDEV-STD 适配推迟到本功能可用后。
 
