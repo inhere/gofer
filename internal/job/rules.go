@@ -13,6 +13,7 @@ import (
 
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
+	"github.com/inhere/gofer/internal/tracker"
 )
 
 // rules.go is JOB-06①'s job-side half: a rule is a short, MANDATORY piece of
@@ -49,7 +50,8 @@ const (
 	// own discipline travels with the checkout (reviewed in the same PR as the code it
 	// constrains) and needs no registration. It is read from THIS machine's view of the
 	// project root (G002).
-	projectRulesFile = ".gofer/RULES.md"
+	projectRulesFile     = ".gofer/RULES.md"
+	trackerPrimeRuleName = "tracker-prime"
 	// ProjectRulePrefix names that auto-included rule: `project:<key>`.
 	ProjectRulePrefix = "project:"
 	// ruleUnreachable is the job.rules_skipped reason for a project file this machine
@@ -125,10 +127,7 @@ func (s *Service) resolveRules(cfg *config.Config, req *JobRequest, _ bool) erro
 		agentType = ac.Type
 	}
 	names := cfg.EffectiveRules(req.ProjectKey, req.Agent, req.Rules, req.NoRules, agentType)
-	if len(names) == 0 {
-		return nil
-	}
-	if s.rules == nil {
+	if len(names) > 0 && s.rules == nil {
 		return fmt.Errorf("%w: rules are not available on this server", ErrInvalidRequest)
 	}
 
@@ -154,7 +153,8 @@ func (s *Service) resolveRules(cfg *config.Config, req *JobRequest, _ bool) erro
 	// common case), and a file this machine cannot read is skipped with an event
 	// rather than failing a job that can still run.
 	if proj, ok := cfg.Projects[req.ProjectKey]; ok && strings.TrimSpace(req.ProjectKey) != "" {
-		p := filepath.Join(cfg.ExecPath(proj), filepath.FromSlash(projectRulesFile))
+		projectRoot := cfg.ExecPath(proj)
+		p := filepath.Join(projectRoot, filepath.FromSlash(projectRulesFile))
 		data, err := os.ReadFile(p)
 		switch {
 		case err == nil && len(bytes.TrimSpace(data)) > 0:
@@ -167,6 +167,26 @@ func (s *Service) resolveRules(cfg *config.Config, req *JobRequest, _ bool) erro
 		case err != nil && !errors.Is(err, os.ErrNotExist):
 			req.rulesSkipped = ruleUnreachable
 		}
+		if !req.NoRules && agentType != "exec" {
+			cwd := filepath.Join(projectRoot, req.Cwd)
+			if filepath.IsAbs(req.Cwd) {
+				cwd = req.Cwd
+			}
+			store, err := tracker.Discover(cwd, "")
+			if err == nil {
+				body, err := store.PrimeRule()
+				if err != nil {
+					return fmt.Errorf("%w: tracker prime: %v", ErrInvalidRequest, err)
+				}
+				sum := sha256.Sum256([]byte(body))
+				refs = append(refs, RuleRef{Name: trackerPrimeRuleName, SHA256: hex.EncodeToString(sum[:])})
+				bodies[trackerPrimeRuleName] = body
+				total += int64(len(body))
+			}
+		}
+	}
+	if len(refs) == 0 {
+		return nil
 	}
 
 	limit := int64(cfg.EffectiveRulesMaxBytes())
