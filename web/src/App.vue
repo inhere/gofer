@@ -264,8 +264,10 @@ function reloadPage() {
 
 .brand {
   display: flex;
+  flex: none;
   align-items: center;
   gap: 8px;
+  white-space: nowrap;
   font-size: 14px;
   letter-spacing: 0.04em;
 }
@@ -335,6 +337,7 @@ function reloadPage() {
 }
 
 .topbar-right {
+  flex: none;
   margin-left: auto;
   display: flex;
   align-items: center;
@@ -353,6 +356,8 @@ function reloadPage() {
   padding: 4px 10px;
   font-size: 12px;
   font-weight: 600;
+  white-space: nowrap;
+  flex: none;
 }
 .new-job:hover {
   text-decoration: none;
@@ -468,6 +473,30 @@ function reloadPage() {
 }
 
 /* 响应式：窄屏左轨折叠为抽屉 */
+/* 中等宽度：顶栏整行放不下时先去掉副标题与「新建」二字、收紧间距；再窄就让导航自己
+   横向滚动，而不是把按钮挤成多行、把整页撑出横向滚动条（1280px 实测问题）。 */
+@media (max-width: 1440px) {
+  .topbar {
+    gap: 14px;
+  }
+  .nav {
+    gap: 10px;
+  }
+  .brand-sub,
+  .brand-sep,
+  .new-job-verb {
+    display: none;
+  }
+}
+@media (min-width: 769px) and (max-width: 1100px) {
+  .nav {
+    flex: 1 1 auto;
+    min-width: 0;
+    overflow-x: auto;
+    scrollbar-width: thin;
+  }
+}
+
 @media (max-width: 768px) {
   .rail-toggle {
     display: inline-block;
