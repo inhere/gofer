@@ -191,6 +191,24 @@ func TestProjectPolicyH2Fields(t *testing.T) {
 	}
 }
 
+func TestProjectPolicyUncommittedGuard(t *testing.T) {
+	wc := policyWC("/host", config.WorkerGuards{})
+	p := wsproto.Policy{Rev: 1, Projects: []wsproto.PolicyProject{{
+		Key: "svc", HostPath: "/srv/svc", OnUncommitted: "resume",
+		UncommittedIgnore: []string{"generated/*"},
+	}}}
+	cfg, _ := projectPolicy(wc, p)
+	got := cfg.Projects["svc"]
+	if got.OnUncommitted != "warn" || !reflect.DeepEqual(got.UncommittedIgnore, []string{"generated/*"}) {
+		t.Fatalf("worker detection policy = %+v; host must own resume", got)
+	}
+	p.Projects[0].OnUncommitted = "off"
+	cfg, _ = projectPolicy(wc, p)
+	if cfg.Projects["svc"].OnUncommitted != "off" {
+		t.Fatal("off must remain off on worker")
+	}
+}
+
 // TestProjectPolicyGuardsOnlyTighten (verification 11): a worker guard set to false
 // overrides a policy's allow_exec: true, and the interactive guard denies the project's
 // interactive jobs even when the pushed policy asked for them. The

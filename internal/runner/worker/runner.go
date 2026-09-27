@@ -580,12 +580,14 @@ func OutcomeFrom(o *wsproto.Outcome, workerID string) *runner.Outcome {
 		return nil
 	}
 	return &runner.Outcome{
-		RenderedCommand: o.RenderedCommand,
-		ResultJSON:      o.ResultJSON,
-		DiffSummary:     o.DiffSummary,
-		Artifacts:       o.Artifacts,
-		Source:          "worker:" + workerID,
-		SessionID:       o.SessionID, // worker 本地捕获/注入的 agent 会话标识 (P3)
+		RenderedCommand:  o.RenderedCommand,
+		ResultJSON:       o.ResultJSON,
+		DiffSummary:      o.DiffSummary,
+		UncommittedFiles: o.UncommittedFiles,
+		UncommittedCount: o.UncommittedCount,
+		Artifacts:        o.Artifacts,
+		Source:           "worker:" + workerID,
+		SessionID:        o.SessionID, // worker 本地捕获/注入的 agent 会话标识 (P3)
 		// WT-01: the worker owns the worktree paths it reports; pass them through so the
 		// host row shows where the deliverable branch lives (empty for an old worker).
 		WorktreePath:    o.WorktreePath,

@@ -265,10 +265,12 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 // 任何产出 → 不发帧 (host 端 outcome 为空)。大产物文件本身留 worker 侧 (D6)。
 func outcomeFrame(remoteJobID string, final job.JobResult) (wsproto.Outcome, bool) {
 	o := wsproto.Outcome{
-		JobID:           remoteJobID,
-		RenderedCommand: final.RenderedCommand,
-		ResultJSON:      final.ResultJSON,
-		DiffSummary:     final.DiffSummary,
+		JobID:            remoteJobID,
+		RenderedCommand:  final.RenderedCommand,
+		ResultJSON:       final.ResultJSON,
+		DiffSummary:      final.DiffSummary,
+		UncommittedFiles: final.UncommittedFiles,
+		UncommittedCount: final.UncommittedCount,
 		// worker 侧共享 job.Service 已在终态 captureOutcomes 把 session_id 填进本地
 		// JobResult（claude 注入 / codex 捕获, P1）；随 Outcome 帧回传 host (P3)。
 		SessionID: final.SessionID,
@@ -295,7 +297,7 @@ func outcomeFrame(remoteJobID string, final job.JobResult) (wsproto.Outcome, boo
 	if final.ArtifactsJSON != "" {
 		o.Artifacts = json.RawMessage(final.ArtifactsJSON)
 	}
-	send := o.RenderedCommand != "" || o.ResultJSON != "" || o.DiffSummary != "" || len(o.Artifacts) > 0 ||
+	send := o.RenderedCommand != "" || o.ResultJSON != "" || o.DiffSummary != "" || o.UncommittedCount > 0 || len(o.Artifacts) > 0 ||
 		o.SessionID != "" || o.WorktreePath != "" || o.BaseSHA != "" || len(o.Commits) > 0 || o.Verify != nil ||
 		o.Usage != nil || len(o.Xfer) > 0
 	return o, send

@@ -38,7 +38,8 @@ const (
 	// FileXferMinProtocolVersion); v10 adds the skills-mount upload base field
 	// (XferUpload.base — see SkillsMinProtocolVersion); v11 adds the job-credential
 	// dispatch field (dispatch.job_token — see JobCredentialMinProtocolVersion).
-	CurrentProtocolVersion = 11
+	// v12 adds optional GIT-01 uncommitted result and project-policy fields.
+	CurrentProtocolVersion = 12
 )
 
 // ReloadMinProtocolVersion is the first protocol version that carries the config
@@ -529,11 +530,13 @@ type Result struct {
 // never sends it leaves the host job outcome empty (回归红线, the hub's read loop
 // safely ignores an unknown opcode regardless).
 type Outcome struct {
-	JobID           string          `json:"job_id"`
-	RenderedCommand string          `json:"rendered_command,omitempty"`
-	ResultJSON      string          `json:"result_json,omitempty"`
-	DiffSummary     string          `json:"diff_summary,omitempty"`
-	Artifacts       json.RawMessage `json:"artifacts,omitempty"`
+	JobID            string          `json:"job_id"`
+	RenderedCommand  string          `json:"rendered_command,omitempty"`
+	ResultJSON       string          `json:"result_json,omitempty"`
+	DiffSummary      string          `json:"diff_summary,omitempty"`
+	UncommittedFiles []string        `json:"uncommitted_files,omitempty"`
+	UncommittedCount int             `json:"uncommitted_count,omitempty"`
+	Artifacts        json.RawMessage `json:"artifacts,omitempty"`
 	// SessionID 是 worker 侧本地 JobResult 捕获/注入得到的 agent 会话标识(P3)，随
 	// Outcome 帧回传 host，host 端 applyOutcome 落到 entry.result.SessionID。空=未捕获。
 	SessionID string `json:"session_id,omitempty"`
@@ -730,7 +733,9 @@ type PolicyProject struct {
 	MaxConcurrentJobs int `json:"max_concurrent_jobs,omitempty"`
 	// CaptureDiff is *bool (H2): "not sent" (nil) == default-on; only a present false
 	// is an explicit opt-out. Same "unset ≠ explicit false" reason as AgentBrief.Available.
-	CaptureDiff *bool `json:"capture_diff,omitempty"`
+	CaptureDiff       *bool    `json:"capture_diff,omitempty"`
+	OnUncommitted     string   `json:"on_uncommitted,omitempty"`
+	UncommittedIgnore []string `json:"uncommitted_ignore,omitempty"`
 	// MaxTimeoutSec is the RESOLVED job-timeout ceiling for this project
 	// (config.Config.EffectiveMaxTimeoutSec: the project's max_timeout_sec, else the
 	// server's max_job_timeout_sec, else 1h — bd h-aii-s9ck). The server already

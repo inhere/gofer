@@ -199,3 +199,42 @@ func TestUncommittedPolicyEndToEnd(t *testing.T) {
 		})
 	}
 }
+
+func TestUncommittedOutcomePersists(t *testing.T) {
+	s := newTestService(t, t.TempDir())
+	finished := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+	})
+	entry := &jobEntry{result: finished}
+	s.applyOutcome(entry, &runner.Outcome{UncommittedFiles: []string{"a.go", "b.go"}, UncommittedCount: 2})
+	if err := s.persist(entry.result); err != nil {
+		t.Fatal(err)
+	}
+	got, ok := s.Get(finished.ID)
+	if !ok || got.UncommittedCount != 2 || !reflect.DeepEqual(got.UncommittedFiles, []string{"a.go", "b.go"}) {
+		t.Fatalf("worker outcome in DB = %+v, ok=%v", got, ok)
+	}
+}
+
+type uncommittedRemoteRunner struct{}
+
+func (*uncommittedRemoteRunner) Name() string { return localrunner.Name }
+func (*uncommittedRemoteRunner) Run(context.Context, runner.Request) runner.Result {
+	return runner.Result{ExitCode: 0, Outcome: &runner.Outcome{
+		UncommittedFiles: []string{"remote.go"}, UncommittedCount: 1,
+	}}
+}
+
+func TestUncommittedRemoteOutcomeReview(t *testing.T) {
+	repo := t.TempDir()
+	uncommittedGit(t, repo, "init")
+	uncommittedWrite(t, repo, "base.txt", "base")
+	uncommittedGit(t, repo, "add", "base.txt")
+	uncommittedGit(t, repo, "commit", "-m", "base")
+	s := uncommittedService(t, repo, "review", &uncommittedRemoteRunner{})
+	got := submitAndWait(t, s, JobRequest{ProjectKey: "self", Agent: "fake", Runner: "local", Prompt: "work", Cwd: ".", TimeoutSec: 30})
+	if got.Status != StatusNeedsReview || got.UncommittedCount != 1 || !reflect.DeepEqual(got.UncommittedFiles, []string{"remote.go"}) {
+		t.Fatalf("host remote outcome = %+v", got)
+	}
+}

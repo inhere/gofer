@@ -546,10 +546,12 @@ type Result struct {
 // job package owns ArtifactItem and imports runner, never the reverse. The job
 // service applies it verbatim into the jobs.artifacts_json column.
 type Outcome struct {
-	RenderedCommand string          `json:"rendered_command,omitempty"`
-	ResultJSON      string          `json:"result_json,omitempty"`
-	DiffSummary     string          `json:"diff_summary,omitempty"`
-	Artifacts       json.RawMessage `json:"artifacts,omitempty"` // []ArtifactItem 清单元数据(JSON)
+	RenderedCommand  string          `json:"rendered_command,omitempty"`
+	ResultJSON       string          `json:"result_json,omitempty"`
+	DiffSummary      string          `json:"diff_summary,omitempty"`
+	UncommittedFiles []string        `json:"uncommitted_files,omitempty"`
+	UncommittedCount int             `json:"uncommitted_count,omitempty"`
+	Artifacts        json.RawMessage `json:"artifacts,omitempty"` // []ArtifactItem 清单元数据(JSON)
 	// Source marks WHERE the job actually ran: "worker:<id>" or "peer:<name>"
 	// (empty for local). It is persisted (jobs.source) and surfaced so the详情
 	// can标注 "在 worker w-xxx / peer X 执行" (P4-c).

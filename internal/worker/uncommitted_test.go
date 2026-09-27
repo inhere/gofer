@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/inhere/gofer/internal/job"
+	workerrunner "github.com/inhere/gofer/internal/runner/worker"
 	"github.com/inhere/gofer/internal/wsproto"
 )
 
@@ -25,5 +26,9 @@ func TestUncommittedWorkerFrameRoundTrip(t *testing.T) {
 	}
 	if decoded.UncommittedCount != 2 || !reflect.DeepEqual(decoded.UncommittedFiles, want.UncommittedFiles) {
 		t.Fatalf("round trip = %+v", decoded)
+	}
+	host := workerrunner.OutcomeFrom(&decoded, "worker-1")
+	if host == nil || host.UncommittedCount != 2 || !reflect.DeepEqual(host.UncommittedFiles, want.UncommittedFiles) {
+		t.Fatalf("host projection = %+v", host)
 	}
 }

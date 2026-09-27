@@ -106,6 +106,8 @@ func projectToPolicy(key string, proj config.ProjectConfig, maxTimeoutSec int) w
 		AllowExec:         proj.AllowExec,
 		MaxConcurrentJobs: proj.MaxConcurrentJobs,
 		CaptureDiff:       proj.CaptureDiff,
+		OnUncommitted:     proj.OnUncommitted,
+		UncommittedIgnore: proj.UncommittedIgnore,
 		MaxTimeoutSec:     maxTimeoutSec,
 		Approval:          approvalToPolicy(approval),
 	}

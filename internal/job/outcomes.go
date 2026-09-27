@@ -56,6 +56,13 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 	// 远端：执行机已 capture 并经 res.Outcome 回传 → 直接落，不再扫盘（P4）。
 	if res.Outcome != nil {
 		s.applyOutcome(entry, res.Outcome)
+		if res.Outcome.UncommittedCount > 0 {
+			first := res.Outcome.UncommittedFiles
+			if len(first) > 20 {
+				first = first[:20]
+			}
+			s.recordEvent(req.JobID, EventJobUncommitted, map[string]any{"count": res.Outcome.UncommittedCount, "files": first})
+		}
 		// XFER-01 X2: the executing machine matched the collect globs in ITS cwd and
 		// reported them on the outcome; the bytes come back through the transfer
 		// manager's pull path. Doing it HERE (still inside execute, before finish)
@@ -411,6 +418,10 @@ func (s *Service) applyOutcome(entry *jobEntry, o *runner.Outcome) {
 	}
 	if o.DiffSummary != "" {
 		entry.result.DiffSummary = o.DiffSummary
+	}
+	if o.UncommittedCount > 0 {
+		entry.result.UncommittedCount = o.UncommittedCount
+		entry.result.UncommittedFiles = append([]string(nil), o.UncommittedFiles...)
 	}
 	if len(o.Artifacts) > 0 {
 		if json.Valid(o.Artifacts) {

@@ -183,6 +183,14 @@ func TestComputePolicyH2Fields(t *testing.T) {
 	}
 }
 
+func TestComputePolicyUncommittedGuard(t *testing.T) {
+	project := config.ProjectConfig{OnUncommitted: "resume", UncommittedIgnore: []string{"generated/*"}}
+	wire := projectToPolicy("p", project, 3600)
+	if wire.OnUncommitted != "resume" || !reflect.DeepEqual(wire.UncommittedIgnore, project.UncommittedIgnore) {
+		t.Fatalf("uncommitted policy projection = %+v", wire)
+	}
+}
+
 // TestComputePolicyCarriesApproval: the project approval gate rides the pushed policy
 // (GATE-01 §1) — the acp-agent job runs on the worker, so the resolved policy must be
 // there. A project without an approval block is still sent the RESOLVED default (off),

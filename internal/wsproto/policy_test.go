@@ -35,8 +35,8 @@ func TestPolicyVersionConstants(t *testing.T) {
 	if MinProtocolVersion != 2 {
 		t.Fatalf("MinProtocolVersion = %d, want 2 (must not rise — would evict existing workers)", MinProtocolVersion)
 	}
-	if CurrentProtocolVersion != 11 {
-		t.Fatalf("CurrentProtocolVersion = %d, want 11 (verify dispatch fields + job_event + file transfer frames + the upload base field + job credential)", CurrentProtocolVersion)
+	if CurrentProtocolVersion != 12 {
+		t.Fatalf("CurrentProtocolVersion = %d, want 12 (optional uncommitted fields)", CurrentProtocolVersion)
 	}
 	if PolicyMinProtocolVersion != 4 {
 		t.Fatalf("PolicyMinProtocolVersion = %d, want 4", PolicyMinProtocolVersion)
