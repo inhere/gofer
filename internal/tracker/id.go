@@ -20,6 +20,16 @@ func (s *Store) NextIssueID(prefix, parent string) (string, error) {
 }
 
 func GenerateIssueID(items []Issue, prefix, parent string) (string, error) {
+	return generateIssueIDWith(items, prefix, parent, func() (int64, error) {
+		n, err := rand.Int(rand.Reader, big.NewInt(idSpace))
+		if err != nil {
+			return 0, err
+		}
+		return n.Int64(), nil
+	})
+}
+
+func generateIssueIDWith(items []Issue, prefix, parent string, draw func() (int64, error)) (string, error) {
 	if parent != "" {
 		found, max := false, 0
 		for _, item := range items {
@@ -43,12 +53,15 @@ func GenerateIssueID(items []Issue, prefix, parent string) (string, error) {
 		used[item.ID] = true
 	}
 	for attempt := 0; attempt < idSpace; attempt++ {
-		n, err := rand.Int(rand.Reader, big.NewInt(idSpace))
+		n, err := draw()
 		if err != nil {
 			return "", err
 		}
-		id := fmt.Sprintf("%s-%04s", prefix, strconv.FormatInt(n.Int64(), 36))
-		id = strings.ReplaceAll(id, " ", "0")
+		if n < 0 || n >= idSpace {
+			return "", errors.New("random issue id outside base36 range")
+		}
+		suffix := strconv.FormatInt(n, 36)
+		id := prefix + "-" + strings.Repeat("0", 4-len(suffix)) + suffix
 		if !used[id] {
 			return id, nil
 		}

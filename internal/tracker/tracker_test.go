@@ -154,6 +154,16 @@ func issueIDs(items []Issue) []string {
 
 func TestIssueIDGeneration(t *testing.T) {
 	s := testStore(t)
+	draws := []int64{1, 2}
+	tries := 0
+	generated, err := generateIssueIDWith([]Issue{{ID: "proj-0001"}}, "proj", "", func() (int64, error) {
+		value := draws[tries]
+		tries++
+		return value, nil
+	})
+	if err != nil || generated != "proj-0002" || tries != 2 {
+		t.Fatalf("collision retry: id=%q tries=%d err=%v", generated, tries, err)
+	}
 	for i := 0; i < 25; i++ {
 		id, err := s.NextIssueID("proj", "")
 		if err != nil || !strings.HasPrefix(id, "proj-") || len(id) != len("proj-0000") {
