@@ -6,11 +6,11 @@ import "testing"
 // survive EncodeFrame → DecodeEnvelope → As unchanged (so the two sides cannot drift
 // on a json tag), the capability floor is v9 (a v8 peer must NOT be offered the frame —
 // the hub refuses the transfer instead, G032), and this build reports the current
-// version (v11 since the job-credential dispatch field, which is still ABOVE the v9
+// version (v12 since the optional uncommitted fields, which is still ABOVE the v9
 // floor — the floor is what gates the capability, never the current version).
 func TestFileXferRoundTripAndSupports(t *testing.T) {
-	if CurrentProtocolVersion != 11 {
-		t.Fatalf("CurrentProtocolVersion = %d, want 11 (JOB-10 added the upload base field, v11 the job credential)", CurrentProtocolVersion)
+	if CurrentProtocolVersion != 12 {
+		t.Fatalf("CurrentProtocolVersion = %d, want 12 (optional uncommitted fields)", CurrentProtocolVersion)
 	}
 	if FileXferMinProtocolVersion != 9 {
 		t.Fatalf("FileXferMinProtocolVersion = %d, want 9", FileXferMinProtocolVersion)
