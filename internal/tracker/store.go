@@ -9,8 +9,9 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
-	"strings"
+	"time"
 )
 
 type Store struct{ Dir string }
@@ -189,8 +190,17 @@ func atomicWrite(path string, data []byte) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmp, path); err != nil {
-		return fmt.Errorf("replace %s: %w", strings.TrimSpace(path), err)
+	deadline := time.Now().Add(time.Second)
+	for {
+		err := os.Rename(tmp, path)
+		if err == nil {
+			return nil
+		}
+		// Windows can refuse replacement while another reader briefly holds the
+		// destination. Never remove the old file first: retry the same rename.
+		if runtime.GOOS != "windows" || time.Now().After(deadline) {
+			return fmt.Errorf("replace %s: %w", path, err)
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
-	return nil
 }
