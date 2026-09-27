@@ -21,7 +21,7 @@
 
 ## 范围与非目标
 
-- 范围：GIT-01 未提交守卫；TRK-01 本地存储与 CLI（issue、memory）、`gofer prime` 与 hooks、从 bd 迁移、server 镜像与同步、`job run --issue` 联动、web Issues 页。
+- 范围：GIT-01 未提交守卫；TRK-01 本地存储与 CLI（issue、memory）、`gofer repo`（init / prime / sync / migrate / status）与 hooks、从 bd 迁移、server 镜像与同步、`job run --issue` 联动、web Issues 页。
 - 非目标：Dolt、跨仓库 git 远端同步通道（`refs/dolt/data` 一类）、epic/lease/heartbeat 等 bd 特有语义；全局（跨仓库）memory 留到后续；**IDEV-STD（inhere-dev-standards）的适配不在本批**，等本功能可用后另做。
 
 ## 已确认事实与规范
