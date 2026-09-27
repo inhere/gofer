@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 本地优先的 issue/memory 跟踪（TRK-01）与未提交改动守卫（GIT-01）
 
-> 状态：Draft 0.2（待用户批准）
+> 状态：Approved（文档 identity：Draft 0.2；2026-09-27 用户批准：按建议——试点仓库 hyy-app-dev，GIT-01 默认 `warn`）
 
 ## 修订记录
 
@@ -140,7 +140,7 @@ P1 与 P2–P4 相互独立，可以并行排；P3 完成即可在试点仓库�
 - **过渡期两套并存**：IDEV-STD 仍会调用 bd；试点仓库迁移后若 IDEV-STD 继续往 bd 写，两边会分叉。试点应选不走 IDEV-STD 的仓库，或迁移后暂停该仓的 IDEV-STD 流程。
 - **GIT-01 的误报**：agent 有意留下的未提交文件（如本地配置）也会被标出；`warn` 为默认档就是为此，项目可在 `.gofer/tracker/config.yaml` 列 `uncommitted_ignore` 路径模式。
 
-## 决策（待批准）
+## 决策（已批准 2026-09-27）
 
 1. gofer 接管 issue + memory，真源是仓库内 `.gofer/tracker/*.jsonl`（提交进 git），server 只是镜像。
 2. 默认提交策略 `local-commit`：按功能点本地提交是默认授权，不 push。
@@ -148,11 +148,11 @@ P1 与 P2–P4 相互独立，可以并行排；P3 完成即可在试点仓库�
 4. 新增顶层命令 `repo`、`issue`、`memory`；仓库级公共动作（init / prime / sync / migrate / status）归 `gofer repo`。
 5. 迁移默认 dry-run；`.beads/` 保留为归档不删除。
 6. IDEV-STD 适配推迟到本功能可用后。
+7. 试点仓库 `hyy-app-dev`（74 个 issue，唯一不走 IDEV-STD 的 bd 仓库）。
 
 ## 待确认事项
 
-1. 试点仓库选哪个：建议选一个不走 IDEV-STD 流程的仓库；若选本工作空间，迁移后需要先停用 IDEV-STD 的 Beads 跟踪。
-2. GIT-01 的默认档是 `warn` 还是直接 `resume`（后者会自动多跑一轮 agent，消耗额度）。
+无（原两项已按建议确认：试点 hyy-app-dev；GIT-01 默认 `warn`）。
 
 ## 结论与人工计划 Gate
 
