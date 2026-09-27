@@ -1,12 +1,13 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 本地优先的 issue/memory 跟踪（TRK-01）与未提交改动守卫（GIT-01）
 
-> 状态：Approved（文档 identity：Draft 0.2；2026-09-27 用户批准：按建议——试点仓库 hyy-app-dev，GIT-01 默认 `warn`）
+> 状态：Approved（文档 identity：Draft 0.3；2026-09-27 用户批准：按建议——试点仓库 hyy-app-dev，GIT-01 默认 `warn`）
 
 ## 修订记录
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
+| 0.3 | 2026-09-27 | Claude | 用户要求 issue/memory 加 `--tag` 便于搜索：issue 的 `labels` 统一改名 `tags`（P2 刚上线无真实数据，直接改名不留兼容），memory 增加 `tags`；`issue ls`/`memory ls` 支持 `--tag` 过滤与 `-q` 关键字；bd 的 `labels` 导入为 `tags`。随 P3 一起实施 |
 | 0.2 | 2026-09-27 | Claude | 按用户意见把仓库级公共命令收进新命令组 `gofer repo`（init / prime / sync / migrate / status）；补 `repo init` 的职责（对应 `bd init`）；`issue`/`memory` 只留条目操作 |
 | 0.1 | 2026-09-27 | Claude | 初稿：用户要求 gofer 接管 bd 的 issue + memory（本地优先写 jsonl、连上 server 再同步），并解决"agent 改了一堆文件不提交"；IDEV-STD 适配等本功能可用后再做 |
 
@@ -53,12 +54,12 @@
 
 - 目录 `.gofer/tracker/`（提交进 git）：
   - `issues.jsonl`：一行一个 issue 的完整快照，**按 id 排序、字段顺序固定**，改一条只动一行，git diff 小；
-  - `memories.jsonl`：一行一条 `{key, content, updated_at, by}`；
+  - `memories.jsonl`：一行一条 `{key, content, tags, updated_at, by}`；
   - `config.yaml`：`prefix`（id 前缀）、`tracker_id`（init 时生成的 uuid，同步时的仓库身份）、`commit_policy`、`auto_sync`。
 - `.gofer/tracker/.local/`（gitignore）：锁文件、同步状态与同步基线快照。
 - **jsonl 就是真源**（不是某个数据库的导出），不存在"导出没刷盘"的问题。
 - 写入：取锁 → 读全文件 → 改 → 写临时文件 → rename。锁用 `O_EXCL` 建锁文件（写 pid/主机/时间，30 秒过期可抢），因为容器与主机共享同一目录，flock 跨挂载不可靠。
-- issue 字段对齐 bd 实际用到的：id、title、type、status（open / in_progress / blocked / closed）、priority（0–4）、description、design、acceptance_criteria、notes（**条目列表** `{at, by, text}`，便于合并）、assignee、owner、labels、parent、deps（`{id, type}`）、comments（条目列表）、created_at/by、updated_at、started_at、closed_at、close_reason。
+- issue 字段对齐 bd 实际用到的：id、title、type、status（open / in_progress / blocked / closed）、priority（0–4）、description、design、acceptance_criteria、notes（**条目列表** `{at, by, text}`，便于合并）、assignee、owner、tags（bd 的 labels）、parent、deps（`{id, type}`）、comments（条目列表）、created_at/by、updated_at、started_at、closed_at、close_reason。
 - id：`<prefix>-<4 位 base36 随机>`，本地查重；子项 `<parent>.<n>`。从 bd 导入的 id 原样保留，提交信息和文档里的引用继续有效。
 - 仓库发现：从 cwd 向上找最近的 `.gofer/tracker/`，与 bd 找 `.beads` 相同；`--tracker <dir>` 可显式指定。
 
@@ -73,10 +74,10 @@
 | `gofer repo sync` | 与 server 同步 issue/memory |
 | `gofer repo migrate --from-bd [--apply]` | 从 bd 迁移，默认只打印计划；隐含 `repo init` |
 | `gofer repo status` | 自检：tracker 路径与计数、待同步变更与上次同步时间、hooks 是否装好、托管块是否在、提交策略；对应 `bd doctor` 里我们用得到的部分 |
-| `gofer issue ready` / `ls [--status --type --label --all]` / `show <id>` | `bd ready/list/show` |
-| `gofer issue create -t … [--type --priority --parent --dep …]` | `bd create` |
-| `gofer issue update <id> [--claim --status --title --append-notes …]` / `close <id> [--reason]` / `dep add <id> <on>` | `bd update/close/dep` |
-| `gofer memory set <key> <content>` / `ls [kw]` / `show <key>` / `rm <key>` | `bd remember/memories/recall/forget`（保留 `remember`/`forget` 别名） |
+| `gofer issue ready` / `ls [--status --type --tag T… -q 关键字 --all]` / `show <id>` | `bd ready/list/show`；`--tag` 可重复，多个取交集；`-q` 匹配标题与描述 |
+| `gofer issue create -t … [--type --priority --parent --dep … --tag a,b]` | `bd create` |
+| `gofer issue update <id> [--claim --status --title --append-notes --tag a,b --untag c …]` / `close <id> [--reason]` / `dep add <id> <on>` | `bd update/close/dep` |
+| `gofer memory set <key> <content> [--tag a,b]` / `ls [kw] [--tag T…]` / `show <key>` / `rm <key>` | `bd remember/memories/recall/forget`（保留 `remember`/`forget` 别名） |
 
 `gofer repo init` 做的事（每步已完成就跳过，可重复执行）：
 
@@ -103,7 +104,7 @@
 
 默认 dry-run，打印将要做的每一步；`--apply` 才执行：
 
-1. 读 `.beads/issues.jsonl`，按上表映射字段（notes 整段作为一条条目；bd 未知状态映射为 open 并打标签 `bd:<原状态>`），写 `issues.jsonl`；
+1. 读 `.beads/issues.jsonl`，按上表映射字段（`labels`→`tags`；notes 整段作为一条条目；bd 未知状态映射为 open 并打标签 `bd:<原状态>`），写 `issues.jsonl`；
 2. 有 `bd` 可执行时用 `bd memories --json` 导出 memory，否则跳过并提示；
 3. 把 `CLAUDE.md`/`AGENTS.md` 里 `BEGIN/END BEADS INTEGRATION` 托管块替换为 gofer 的短块（带 `BEGIN/END GOFER TRACKER` 标记，写明用 `gofer issue`/`gofer memory` 与提交策略）；
 4. `.claude/settings.json` 的 `bd prime --hook-json` 换成 `gofer repo prime --hook-json`（Codex hooks 同理）；
@@ -117,7 +118,7 @@
 - server 新表：`tracker_repos {tracker_id, project_key, rel_path, prefix, last_sync_at}`、`tracker_issues {tracker_id, id, body_json, rev, updated_at}`、`tracker_memories {tracker_id, key, …}`。
 - `gofer repo sync`：把本地与"上次同步基线"（`.local/sync-base.jsonl`）的差异推给 server，拉回 server 自上次以来的变更（web 编辑、job 联动、其他机器），**三方合并**后写本地：
   - 标量字段：只有一方改了就取那一方；两方都改了，取 `updated_at` 较新者，并在 notes 追加一条"同步冲突：<字段> 取了 <某方>，另一方为 <值>"；
-  - notes、comments、deps、labels：并集。
+  - notes、comments、deps、tags：并集。
 - 何时同步：手动 `gofer repo sync`；`auto_sync: true`（默认）时在 `gofer repo prime` 与每次写命令之后尽力同步一次（2 秒超时，失败只提示、不影响本地写入）。server 侧改动在下一次本地命令时拉回。
 - `job run --issue <id>`：开跑时 server 镜像把该 issue 置 in_progress，结束时追加 notes（状态、提交列表、未提交提示），与现在 todo 的联动方式一致；本地在下一次同步时拿到。仓库从未同步过时只给 job 打标签。
 - web：Issues 页（按项目/仓库列表、筛选、详情、编辑、评论），工作台会话可链接 issue；编辑写 server 镜像，经同步回到仓库。
