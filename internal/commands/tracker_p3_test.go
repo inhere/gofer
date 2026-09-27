@@ -101,7 +101,7 @@ func TestRepoInitInstallsHooks(t *testing.T) {
 			t.Fatalf("foreign hook lost: %s", body)
 		}
 	}
-	if out := trackerRunOK(t, root, "repo", "status"); !strings.Contains(strings.ToLower(out), "hooks:") || strings.Contains(out, "未实现") {
+	if out := trackerRunOK(t, root, "repo", "status"); !strings.Contains(out, "hooks: claude=true codex=true") {
 		t.Fatalf("status does not detect hooks: %s", out)
 	}
 	bare := t.TempDir()

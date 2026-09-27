@@ -16,6 +16,95 @@ import (
 // hook config, so install/remove never touch entries from other tools.
 const ourCommandPrefix = "gofer hook"
 
+const trackerPrimeCommand = "gofer repo prime --hook-json"
+
+// InstallTrackerPrime merges only the tracker SessionStart command. A migration
+// may also replace the old bd prime command without disturbing other hooks.
+func InstallTrackerPrime(agent, root string, replaceBd bool) (bool, error) {
+	path, err := ConfigFileFor(agent, root)
+	if err != nil {
+		return false, err
+	}
+	doc := map[string]any{}
+	raw, err := os.ReadFile(path)
+	if err != nil && !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+	if len(bytes.TrimSpace(raw)) != 0 {
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			return false, fmt.Errorf("invalid hook JSON %s: %w", path, err)
+		}
+	}
+	hookMap, _ := doc["hooks"].(map[string]any)
+	if hookMap == nil {
+		hookMap = map[string]any{}
+	}
+	entries, _ := hookMap["SessionStart"].([]any)
+	changed := false
+	found := false
+	for _, entry := range entries {
+		group, _ := entry.(map[string]any)
+		hooks, _ := group["hooks"].([]any)
+		for _, hook := range hooks {
+			item, _ := hook.(map[string]any)
+			cmd, _ := item["command"].(string)
+			if cmd == trackerPrimeCommand {
+				found = true
+			}
+			if replaceBd && cmd == "bd prime --hook-json" {
+				item["command"] = trackerPrimeCommand
+				changed = true
+				found = true
+			}
+		}
+	}
+	if !found {
+		entries = append(entries, map[string]any{"matcher": "", "hooks": []any{map[string]any{"type": "command", "command": trackerPrimeCommand}}})
+		changed = true
+	}
+	if !changed {
+		return false, nil
+	}
+	hookMap["SessionStart"] = entries
+	doc["hooks"] = hookMap
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return false, err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return false, err
+	}
+	return true, os.WriteFile(path, append(out, '\n'), 0o644)
+}
+
+func HasTrackerPrime(agent, root string) bool {
+	path, err := ConfigFileFor(agent, root)
+	if err != nil {
+		return false
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return false
+	}
+	var doc map[string]any
+	if json.Unmarshal(raw, &doc) != nil {
+		return false
+	}
+	hookMap, _ := doc["hooks"].(map[string]any)
+	entries, _ := hookMap["SessionStart"].([]any)
+	for _, entry := range entries {
+		group, _ := entry.(map[string]any)
+		hooks, _ := group["hooks"].([]any)
+		for _, hook := range hooks {
+			item, _ := hook.(map[string]any)
+			if item["command"] == trackerPrimeCommand {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 // InstallResult reports what the merge changed.
 type InstallResult struct {
 	Path     string

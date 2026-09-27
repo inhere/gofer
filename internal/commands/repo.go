@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 
 	"github.com/gookit/gcli/v3"
+	"github.com/inhere/gofer/internal/hookrelay"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
@@ -69,7 +70,13 @@ func NewRepoCmd() *gcli.Command {
 					if beads {
 						c.Println("BEADS integration remains; use gofer repo migrate --from-bd (P3)")
 					}
-					_ = noHooks // P2 never installs hooks.
+					if !noHooks {
+						for _, agent := range []string{hookrelay.AgentClaude, hookrelay.AgentCodex} {
+							if _, err := hookrelay.InstallTrackerPrime(agent, root, false); err != nil {
+								return err
+							}
+						}
+					}
 					return nil
 				},
 			},
@@ -89,6 +96,8 @@ func NewRepoCmd() *gcli.Command {
 					if err != nil {
 						return err
 					}
+					root := filepath.Dir(filepath.Dir(s.Dir))
+					status.Hooks = fmt.Sprintf("claude=%v codex=%v", hookrelay.HasTrackerPrime(hookrelay.AgentClaude, root), hookrelay.HasTrackerPrime(hookrelay.AgentCodex, root))
 					if asJSON {
 						return printTrackerJSON(c, status)
 					}
