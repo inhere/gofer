@@ -1,29 +1,31 @@
 <!-- template_id: plan; template_version: 1.2.0 -->
 # TRK-01 repo prime、hooks 与 bd 迁移（P3）实施计划
 
-> 状态：Draft 0.1 / 待人工计划批准；执行方式：DIRECT_CONTINUOUS
+> 状态：Draft 0.2 / 待人工计划批准；执行方式：DIRECT_CONTINUOUS
 
 ## 修订记录
 
 | 版本 | 日期 | 作者 | 摘要 |
 |---|---|---|---|
+| 0.2 | 2026-09-27 | Codex | 纳入 Approved 0.3 的 issue/memory tags、筛选命令与 bd labels→tags 映射，增加两项固定测试和独立实施波次 |
 | 0.1 | 2026-09-27 | Codex | 将已批准 P3 拆为红测试、prime、hooks、迁移、job 注入与离线验证波次 |
 
 ## 目标与完成定义
 
-`thinking_mode=RIGOROUS`。核心目标：让本地 tracker 在会话开场提供有界上下文，将 repo init 的 SessionStart hooks 装到 Claude/Codex，并以默认 dry-run 的命令从 bd 数据迁入 tracker。`allowed_scope=TRK-01 P3`；`non_goals=P4 sync/server/web/issue 联动、GIT-01、真实仓库迁移与试点验收`；`expansion_policy=DEFER_OR_REQUEST`。评审预算为一轮发现、一轮核对；只有 CORE_BLOCKING 问题才追加阻断修正，设计语义冲突立即停止。
+`thinking_mode=RIGOROUS`。核心目标：让本地 tracker 在会话开场提供有界上下文，将 repo init 的 SessionStart hooks 装到 Claude/Codex，以默认 dry-run 的命令从 bd 数据迁入 tracker，并按 Approved 0.3 将本地 issue/memory 改为 tags 与相应筛选命令。`allowed_scope=TRK-01 P3 与 Approved 0.3 指定的 tags 变更`；`non_goals=P4 sync/server/web/issue 联动、GIT-01、真实仓库迁移与试点验收`；`expansion_policy=DEFER_OR_REQUEST`。评审预算为一轮发现、一轮核对；只有 CORE_BLOCKING 问题才追加阻断修正，设计语义冲突立即停止。
 
-完成定义：六个固定名测试先有效呈红并独立提交，再转绿；四段 prime、8 KiB 截断、hook JSON、幂等 hooks、六步迁移、job `tracker-prime` 注入及名称/sha 记录均可观察；全仓 gofmt 无输出、Windows/Linux build、vet、指定三包测试、临时假仓库二进制 smoke 和控制字符扫描给出 exit code 与原始输出；各功能点独立本地提交。文档候选提交本身不算 P3 实施完成。
+完成定义：八个固定名测试先有效呈红并独立提交，再转绿；issue JSONL 仅用 `tags`、memory JSONL 增加 `tags`、命令写入与交集筛选、标题/描述查询、bd `labels`→`tags`，以及四段 prime、8 KiB 截断、hook JSON、幂等 hooks、六步迁移、job `tracker-prime` 注入及名称/sha 记录均可观察；全仓 gofmt 无输出、Windows/Linux build、vet、指定三包测试、临时假仓库二进制 smoke 和控制字符扫描给出 exit code 与原始输出；各功能点独立本地提交。文档候选提交本身不算 P3 实施完成。
 
 ## 范围、排除项与授权
 
 - Git 根固定为 `D:/work/inhere/hyy-ai-inspect/tools/gofer`。`internal/commands` 只作 CLI 绑定/输出；`internal/tracker` 拥有本地 prime 内容、迁移映射及仓库文件变更；`internal/hookrelay` 复用 JSON hook 合并机制；`internal/job` 复用 JOB-06① 的规则大小上限与 RuleRef 记录，保持 G021/G022 单向依赖。
 - `repo init` 补步骤 4 hooks；P4 的首次 sync（步骤 5）仍不实现。`repo status` 的 hooks 改为真实检测，sync 继续明确 P4 未实现。`repo migrate --from-bd` 默认 dry-run；只在 `--apply` 改写传入仓库，`.beads/` 保留。真实仓库不得运行 `--apply`，试点 `hyy-app-dev` 后续单独安排。
+- issue 模型/JSONL 字段 `labels` 直接改成 `tags`，删除 `issue ls --label` 与旧字段兼容分支；P2 尚无真实数据，按 Approved 0.3 不做旧 JSONL 兼容迁移。memory 模型/JSONL 加 `tags`。`issue create/update --tag a,b`、`issue update --untag c`、`issue ls --tag T`（可重复且取交集）与 `-q`（标题和描述）、`memory set --tag a,b`、`memory ls --tag T` 纳入本期；memory 现有位置参数 `kw` 保留。
 - `host_or_non_offline_action=NOT_APPLICABLE`。本期授权本地测试、代码、文档和按功能点本地提交；不授权 push、部署、远端同步、真实 bd 数据迁移、重启/reload live gofer server/worker 或读写真实配置 `D:/work/inhere/config/win-env/gofer`。
 
 ## 输入与批准证据
 
-- 唯一设计依据：[`Approved 0.2` 的“repo init 第 4 步”“gofer repo prime”“从 bd 迁移”与 P3 分期](../design/2026-09-27-local-first-tracker-and-uncommitted-guard-design.md)。设计内记载 2026-09-27 人工批准；P2 实测记录是当前实现基线，不扩大 P3。
+- 唯一设计依据：[`Approved identity 0.3`](../design/2026-09-27-local-first-tracker-and-uncommitted-guard-design.md)，设计 commit `9f35699`；0.2 的“repo init 第 4 步”“gofer repo prime”“从 bd 迁移”与 P3 分期继续适用，0.3 修订明确 tags、筛选命令和 bd 字段映射随 P3 实施。P2 实测记录是当前实现基线。
 - 本 job 授权编写和本地提交本计划候选；监督者可代批由已批准设计派生的实施计划。当前候选尚无批准；提交后停止，等待审批及续接实施请求。
 - 适用约束：工作区 `workspace.md`、本仓 `AGENTS.md` 的 G021/G022/G032、gofer 注入的 house-rules/gofer-repo、IDEV-STD 0.22.1 的 plan 合同。若设计与现有协议/数据事实冲突，返回 Gate，不擅自扩围。
 
@@ -35,8 +37,9 @@
 |---|---|---|---|---|---|---|---|
 | CAP-01 | prime 四段、截断与 hook JSON | `internal/tracker` 的 Store/ready/model；`bd prime --hook-json` 形状；Go `encoding/json` | Store 可直接提供 issue/memory 和 commit_policy | 在 tracker 扩展纯渲染，在 commands 包装 SessionStart JSON | OWNER_EXTENSION | P2 尚无 prime 输出 | 单一 tracker 内容口径，CLI 和 job 共用；不建第二上下文仓库 |
 | CAP-02 | Claude/Codex SessionStart hooks 读写与检测 | `internal/hookrelay/install.go`、`hooks` 模板、`internal/commands/config.go` | 直接复用既有 JSON 文件路径、合并及保留其他 hook 的模式 | 扩展 hookrelay 的指定命令合并/探测；repo init 调用它 | OWNER_EXTENSION | 现有 installer 只识别 `gofer hook`，不能原样当 prime installer | 只保留一个 JSON 合并 owner，不覆盖其他 hook 或重新建配置 writer |
-| CAP-03 | bd issue/memory 导入与托管块替换 | `internal/tracker` Store/UpdateIssues/UpdateMemories/managedBlock、Go JSONL/exec/git config | 复用模型、锁、原子写和托管块文本 | 在 tracker 内加 bd 格式 adapter，commands 负责 dry-run/apply 参数与输出 | OWNER_EXTENSION | 当前没有 bd 映射入口 | 不引入 Dolt/数据库真源；旧路径若必须保留按 G032 标记 |
+| CAP-03 | bd issue/memory 导入与托管块替换 | `internal/tracker` Store/UpdateIssues/UpdateMemories/managedBlock、Go JSONL/exec/git config | 复用模型、锁、原子写和托管块文本 | 在 tracker 内加 bd 格式 adapter，将 bd labels 映射为 tracker tags；commands 负责 dry-run/apply 参数与输出 | OWNER_EXTENSION | 当前没有 bd 映射入口 | 不引入 Dolt/数据库真源；bd 输入格式是一次性读取，若保留旧路径按 G032 标记 |
 | CAP-04 | job 的 tracker-prime 规则注入 | `internal/job/rules.go`、`config.EffectiveRulesMaxBytes`、RuleRef/persistence | JOB-06① 已有规则段、大小上限、name/sha 记录 | 在现有 resolveRules 路径加入 cwd tracker 内容 | OWNER_EXTENSION | 当前只读规则库及 `.gofer/RULES.md` | 不复制注入管道，不增加 wire 字段或底层反向依赖 |
+| CAP-05 | issue/memory tags 与筛选 | `internal/tracker/{model,entries}.go`、`internal/commands/{issue,memory}.go`、P2 JSONL/CLI 测试 | 直接复用本地模型、RMW 锁、ListIssues/ListMemories 与 gcli flags | 在同一 owner 改名/加字段、扩展写命令和列表过滤 | OWNER_EXTENSION | P2 只有 issue labels/单个 `--label`，memory 无 tags，issue 无 `-q` | 不建新搜索索引；不留旧 labels/--label 兼容路径，避免双字段语义 |
 
 ### New module candidates
 
@@ -52,31 +55,31 @@
 
 ## 前置检查与 fail-closed 条件
 
-- Workspace baseline（计划起草时）：Git root `D:/work/inhere/hyy-ai-inspect/tools/gofer`，branch `main`，HEAD `e6a58ed`，`git status --short --untracked-files=all` 无输出；in-scope dirty/untracked 与 preserved unrelated dirty 均无。实施前重查 HEAD/status，并保护之后出现的他人改动。工作区 `tmp/idev-std/` 在独立 Git 根之外。
-- 预计 owner：`internal/tracker/{repo,prime,migrate,model,store}*.go`、`internal/tracker/testdata/` 脱敏 bd fixture；`internal/commands/{repo,tracker_cli_test}*.go`；`internal/hookrelay/{install,install_test}*.go`；`internal/job/{rules,rules_test}*.go`。必要的 hook 模板/现有 hook 调用点按 T0 核查后限于同 owner 扩展。图项目 `D-work-inhere-hyy-ai-inspect` generation `2026-09-27T10:46:37Z` 排除整个 `tools/gofer` 子仓库；以上落点由当前源码读取，实施期不能据图作遗漏断言。
+- Workspace baseline（0.2 修订时）：Git root `D:/work/inhere/hyy-ai-inspect/tools/gofer`，branch `main`，HEAD `9f35699`（设计 Approved identity 0.3；原计划候选 `0faafa2`），`git status --short --untracked-files=all` 无输出；in-scope dirty/untracked 与 preserved unrelated dirty 均无。实施前重查 HEAD/status，并保护之后出现的他人改动。工作区 `tmp/idev-std/` 在独立 Git 根之外。
+- 预计 owner：`internal/tracker/{repo,prime,migrate,model,store,entries}*.go`、`internal/tracker/testdata/` 脱敏 bd fixture；`internal/commands/{repo,issue,memory,tracker_cli_test}*.go`；`internal/hookrelay/{install,install_test}*.go`；`internal/job/{rules,rules_test}*.go`。必要的 hook 模板/现有 hook 调用点按 T0 核查后限于同 owner 扩展。图项目 `D-work-inhere-hyy-ai-inspect` generation `2026-09-27T10:46:37Z` 排除整个 `tools/gofer` 子仓库；以上落点由当前源码读取，实施期不能据图作遗漏断言。
 - 实施前重新做 IDEV-STD BOUND/semantic/fingerprint 与适用 preflight、`git status --short`、`git log -1 --oneline`，核对当前 CLI/hook/规则路径。新路径在 mutation 前按 Operational Discovery、Corrective、Semantic Amendment、Ownership Conflict 分类记录；改变接口/schema/安全/数据/验收/lifecycle 或命中他人 dirty 文件即停。
 - 单测全部 `t.TempDir()`。smoke 仅用临时 Git 仓库、临时 config 与随机 localhost 端口，每条 gofer 命令显式 `-c <临时配置>` 或 `--server http://127.0.0.1:<端口>`；不让双模式命令回落到真实 server。Windows `internal/job` 慢测试须等最终退出再汇报；已知 `internal/worker/TestPolicyCacheRoundTrip` 基线不纳入修复。
 
 ## 波次与依赖
 
-T0 核查与 preflight → T1 六项红测试独立提交 → T2 prime → T3 hooks → T4 bd 迁移 → T5 job 注入 → T6 质量门和临时 smoke。单 Agent 顺序执行，按功能点单独 conventional commit；阶段进度记录实际路径、验证命令/exit/output、commit 和 lifecycle。测试红提交不得混入实现。
+T0 核查与 preflight → T1 八项红测试独立提交 → T2 prime → T3 hooks → T3A tags 与筛选 → T4 bd 迁移 → T5 job 注入 → T6 质量门和临时 smoke。单 Agent 顺序执行，按功能点单独 conventional commit；阶段进度记录实际路径、验证命令/exit/output、commit 和 lifecycle。测试红提交不得混入实现。
 
 ## 任务
 
 ### T0 基线与实现落点核查
 
-- 文件：只读设计指定章节、`internal/tracker/{repo,model,store,ready}.go`、`internal/commands/{repo,config,hook}.go`、`internal/hookrelay/{install,payload}.go`、`internal/job/{rules,submit}.go`、hook 模板及现有相关测试。
-- 动作：核对 P2 模型与文件锁、CLI 参数惯例、SessionStart JSON 两端形状、hook 合并策略、JOB-06① 注入和 sha 记录；用脱敏字段结构确定 bd fixture，不复制真实 issue 正文；列出现有 G032 兼容路径。若 Codex hook 协议与任务书形状不一致，先报设计冲突。
+- 文件：只读设计指定章节、`internal/tracker/{repo,model,store,ready,entries}.go`、`internal/commands/{repo,issue,memory,config,hook}.go`、`internal/hookrelay/{install,payload}.go`、`internal/job/{rules,submit}.go`、hook 模板及现有相关测试。
+- 动作：核对 P2 模型与文件锁、issue `Labels`/`--label` 现状、memory 无 tags 与其现有 `kw` 参数、CLI 参数惯例、SessionStart JSON 两端形状、hook 合并策略、JOB-06① 注入和 sha 记录；用脱敏字段结构确定 bd fixture，不复制真实 issue 正文；列出现有 G032 兼容路径。若 Codex hook 协议与任务书形状不一致，先报设计冲突。
 - 验证：`git status --short --untracked-files=all`、`git log -1 --oneline`、当前源码定向读取；记录图索引覆盖缺口。
 - 完成标准：T1–T5 owner、接口与风险明确，无未裁决语义冲突或归属冲突。
 - 依赖：计划批准及续接实施请求。
 
-### T1 六项固定测试先行，单独 red 提交
+### T1 八项固定测试先行，单独 red 提交
 
-- 文件：`internal/tracker/{prime,migrate}_test.go`、`internal/tracker/testdata/bd-issues.jsonl`、`internal/commands/{repo,tracker_cli_test}*.go`、`internal/hookrelay/*_test.go`、`internal/job/rules_test.go`（按真实测试入口分布）。
-- 动作：写 `TestPrimeSectionsAndCap`（四段顺序、三档策略、8 KiB、保留最新 memory、issue 截断说明、无 tracker hook 空上下文 exit 0）；`TestPrimeHookJSONShape`（`hookSpecificOutput.additionalContext`）；`TestRepoInitInstallsHooks`（Claude/Codex、一次/重复/`--no-hooks`、保留其他 hook）；`TestMigrateFromBdFixture`（字段、子项、deps、未知状态标签、notes、时间、幂等和 dry-run 零写入）；`TestMigrateStripsBeadsBlock`（两个托管块、Claude/Codex hook 替换、临时 Git 的 hooksPath unset）；`TestJobInjectsTrackerPrime`（cwd tracker、策略+memory、8 KiB 规则预算、`tracker-prime` 名称/sha）。断言实际行为，不写 `t.Skip`。
-- 验证：在指定三包运行固定测试名 `go test ... -run 'Test(PrimeSectionsAndCap|PrimeHookJSONShape|RepoInitInstallsHooks|MigrateFromBdFixture|MigrateStripsBeadsBlock|JobInjectsTrackerPrime)$' -count=1`；记录 exit code 与原始失败，红因缺 P3 实现而非夹具/编译笔误。提交前 `git status --short`、核对 staged exact paths。
-- 完成标准：六项有有效 red 证据，仅测试与脱敏 fixture 进入独立 `test(tracker): cover prime hooks migration and job injection` 本地提交。
+- 文件：`internal/tracker/{prime,migrate,entries}_test.go`、`internal/tracker/testdata/bd-issues.jsonl`、`internal/commands/{repo,tracker_cli_test,issue,memory}*_test.go`、`internal/hookrelay/*_test.go`、`internal/job/rules_test.go`（按真实测试入口分布）。
+- 动作：写 `TestPrimeSectionsAndCap`（四段顺序、三档策略、8 KiB、保留最新 memory、issue 截断说明、无 tracker hook 空上下文 exit 0）；`TestPrimeHookJSONShape`（`hookSpecificOutput.additionalContext`）；`TestRepoInitInstallsHooks`（Claude/Codex、一次/重复/`--no-hooks`、保留其他 hook）；`TestIssueTagsFilterAndQuery`（create/update 的逗号分隔 `--tag`、`--untag`、JSONL 只含 tags、删除 `--label`、重复 `ls --tag` 交集与 `-q` 标题/描述）；`TestMemoryTags`（set `--tag`、JSONL tags、ls `--tag` 与现有 kw 组合）；`TestMigrateFromBdFixture`（字段、子项、deps、未知状态标签、bd labels→tags、notes、时间、幂等和 dry-run 零写入）；`TestMigrateStripsBeadsBlock`（两个托管块、Claude/Codex hook 替换、临时 Git 的 hooksPath unset）；`TestJobInjectsTrackerPrime`（cwd tracker、策略+memory、8 KiB 规则预算、`tracker-prime` 名称/sha）。断言实际行为，不写 `t.Skip`。
+- 验证：在 `./internal/tracker/ ./internal/commands/ ./internal/hookrelay/ ./internal/job/` 运行固定测试名 `go test ... -run 'Test(PrimeSectionsAndCap|PrimeHookJSONShape|RepoInitInstallsHooks|IssueTagsFilterAndQuery|MemoryTags|MigrateFromBdFixture|MigrateStripsBeadsBlock|JobInjectsTrackerPrime)$' -count=1`；记录 exit code 与原始失败，红因缺 P3/Approved 0.3 行为而非夹具/编译笔误。提交前 `git status --short`、核对 staged exact paths。
+- 完成标准：八项有有效 red 证据，仅测试与脱敏 fixture 进入独立 `test(tracker): cover P3 prime tags hooks migration and job injection` 本地提交。
 - 依赖：T0。
 
 ### T2 prime 内容及 hook JSON
@@ -95,13 +98,21 @@ T0 核查与 preflight → T1 六项红测试独立提交 → T2 prime → T3 ho
 - 完成标准：Claude/Codex hooks 安装、幂等、跳过和 status 可观察，独立 `feat(tracker): install repository prime hooks` 提交。
 - 依赖：T2。
 
+### T3A issue/memory tags 与本地筛选
+
+- 文件：`internal/tracker/{model,entries,store}.go`、`internal/commands/{issue,memory}.go` 与 T1 对应测试；现有 P2 模型/CLI 测试若引用旧字段，只按同一语义更新。
+- 动作：将 `Issue.Labels` 和 JSON `labels` 直接改为 `Issue.Tags`/`tags`，移除 `IssueFilter.Label` 与 `issue ls --label`；memory 增加 `Tags` 与 JSON `tags`，保持 P2 JSONL 稳定字段顺序。issue create/update 解析逗号分隔的 `--tag a,b`，update 用 `--untag` 删除指定 tag；issue ls 的可重复 `--tag` 取交集，`-q` 搜标题和描述，并与现有 status/type/all 过滤组合。memory set 接受 `--tag a,b`，memory ls 以 `--tag` 筛选并与已有 `kw` 组合；不新增 `memory ls -q`。仅在本地 tracker 内改动，不留 labels/--label 兼容分支。
+- 验证：`TestIssueTagsFilterAndQuery`、`TestMemoryTags` 转绿；核对 JSONL 写出不再有 issue `labels`，help 不再有 `--label`，临时 tracker 的 CLI 筛选结果和现有 P2 测试均正确。
+- 完成标准：模型字段、CLI 写入/删除/交集/关键字筛选可观察；独立 `feat(tracker): add issue and memory tags` 提交，G032 报告说明旧 `labels`/`--label` 已直接删除。
+- 依赖：T3。
+
 ### T4 从 bd dry-run 与 apply
 
 - 文件：`internal/tracker/migrate.go`、`internal/commands/repo.go`、T1 fixture/测试；复用 `internal/tracker/repo.go` 的 gofer 托管块。
-- 动作：按六步逐项打印计划；apply 时隐含 repo init，逐行只读取 `_type:issue`，映射 id/title/status/priority/type/正文/design/验收/owner/assignee/labels/parent/子项/deps/comments/时间/close_reason；notes 整段转单条目，未知状态转 open 并加 `bd:<原状态>`。有 bd 时读取 `bd memories --json` 的 key/content，无可执行文件则提示跳过；按 id 与 `updated_at` 较新者合并，不重复。替换 AGENTS/CLAUDE 中 BEADS 块为同一 gofer 托管块，更新 Claude/Codex 中仅 bd prime hook，只有指向 `.beads/hooks` 的 `core.hooksPath` 才 unset 并打印原值，原样保留 `.beads/`。dry-run 不创建 tracker、配置或任何文件；apply 汇总 issue/memory 数、文件及 hooksPath 原值。
-- 验证：`TestMigrateFromBdFixture`、`TestMigrateStripsBeadsBlock` 转绿；临时 Git 仓库 dry-run 前后文件快照一致，apply 两次记录数稳定，非 bd hook 保留。
+- 动作：按六步逐项打印计划；apply 时隐含 repo init，逐行只读取 `_type:issue`，映射 id/title/status/priority/type/正文/design/验收/owner/assignee/bd labels→tracker tags/parent/子项/deps/comments/时间/close_reason；notes 整段转单条目，未知状态转 open 并加 tag `bd:<原状态>`。有 bd 时读取 `bd memories --json` 的 key/content，无可执行文件则提示跳过；按 id 与 `updated_at` 较新者合并，不重复。替换 AGENTS/CLAUDE 中 BEADS 块为同一 gofer 托管块，更新 Claude/Codex 中仅 bd prime hook，只有指向 `.beads/hooks` 的 `core.hooksPath` 才 unset 并打印原值，原样保留 `.beads/`。dry-run 不创建 tracker、配置或任何文件；apply 汇总 issue/memory 数、文件及 hooksPath 原值。
+- 验证：`TestMigrateFromBdFixture`、`TestMigrateStripsBeadsBlock` 转绿，前者明确断言输入 `labels` 写为 `tags` 且无 `labels` 输出；临时 Git 仓库 dry-run 前后文件快照一致，apply 两次记录数稳定，非 bd hook 保留。
 - 完成标准：迁移六步和幂等行为可观察，独立 `feat(tracker): migrate repository data from bd` 提交；G032 对保留旧读取路径标 `// DEPRECATED(v0.68): remove in v0.71` 或证实不留旧兼容分支，并在报告列明。
-- 依赖：T3。
+- 依赖：T3A。
 
 ### T5 job 注入 tracker-prime
 
@@ -113,8 +124,8 @@ T0 核查与 preflight → T1 六项红测试独立提交 → T2 prime → T3 ho
 
 ### T6 质量门、离线 smoke 与交付
 
-- 文件：本计划之外只允许与 P3 实际变化相符的 README 或设计 P3 实测记录；实施时先核对是否确有必要，文档另作 `docs(tracker): document prime and migration` 提交。
-- 动作：全仓 `gofmt -l` 必须 exit 0 且无输出；Windows/Linux `go build ./cmd/gofer` 产物入仓库 `tmp/`；`go vet ./...`；`go test ./internal/tracker/ ./internal/commands/ ./internal/job/ -count=1`。二进制 smoke 在临时仓库造 `.beads/issues.jsonl`、CLAUDE 托管块、Claude bd hook 和 `core.hooksPath`，按 dry-run → apply → status → prime → prime --hook-json 跑，每条显式 `-c <临时配置>`；另做控制字符扫描与 `git diff --check`。输出记录 exit code、gofmt/build/vet 原文、测试 PASS/FAIL 行、smoke、扫描、git log/status。若命令 exit 0 但输出含失败，也按失败调查。
+- 文件：本计划之外只允许与 P3/Approved 0.3 实际变化相符的 `README.md` 或设计 P3 实测记录；实施时先核对是否确有必要，文档另作 `docs(tracker): document prime tags and migration` 提交。
+- 动作：全仓 `gofmt -l` 必须 exit 0 且无输出；Windows/Linux `go build ./cmd/gofer` 产物入仓库 `tmp/`；`go vet ./...`；`go test ./internal/tracker/ ./internal/commands/ ./internal/job/ -count=1`，另跑新增 hook owner 的 `go test ./internal/hookrelay/ -count=1`。二进制 smoke 在临时仓库造 `.beads/issues.jsonl`（带 labels）、CLAUDE 托管块、Claude bd hook 和 `core.hooksPath`，按 dry-run → apply → status → prime → prime --hook-json 跑，再走 issue create/update/ls 的 `--tag`/`--untag`/`-q` 和 memory set/ls 的 `--tag`；每条显式 `-c <临时配置>`。另做控制字符扫描与 `git diff --check`。输出记录 exit code、gofmt/build/vet 原文、测试 PASS/FAIL 行、smoke、扫描、git log/status。若命令 exit 0 但输出含失败，也按失败调查。
 - 验证：上述全部命令真实运行并等慢包结果；核对 `.beads/` 未改、真实配置和 live 进程未动、G032 新增标记/删除清单。
 - 完成标准：所有 P3 验收闭合且无未裁决失败；精确 staged paths 核对后完成独立文档提交，报告各任务状态、说明、commit hash、原始输出与未完成/人工决策点。
 - 依赖：T5。
@@ -129,15 +140,16 @@ T0 核查与 preflight → T1 六项红测试独立提交 → T2 prime → T3 ho
 
 ## 可追溯性
 
-| Approved 0.2 / 本 job 验收 | 任务 | 可观察验证 |
+| Approved 0.3 / 本 job 验收 | 任务 | 可观察验证 |
 |---|---|---|
 | prime 四段、三档策略、ready 前十、8 KiB 与无 tracker hook | T1、T2 | `TestPrimeSectionsAndCap`、`TestPrimeHookJSONShape`、smoke 两种 prime |
 | repo init 第 4 步、Claude/Codex hooks、幂等及真实 status | T1、T3 | `TestRepoInitInstallsHooks`、临时 JSON/status |
-| bd issue/memory 字段、未知状态、子项/deps、较新覆盖 | T1、T4 | `TestMigrateFromBdFixture`、两次 apply 比对 |
+| issue JSONL labels→tags、memory tags、CLI 写入/筛选/查询、无旧兼容 | T1、T3A、T6 | `TestIssueTagsFilterAndQuery`、`TestMemoryTags`、CLI smoke |
+| bd issue/memory 字段、labels→tags、未知状态、子项/deps、较新覆盖 | T1、T4 | `TestMigrateFromBdFixture`、两次 apply 比对 |
 | 托管块/hook 替换、hooksPath 清理、`.beads/` 保留 | T1、T4 | `TestMigrateStripsBeadsBlock`、临时 Git smoke |
 | job 规则注入、大小上限和名称/sha | T1、T5 | `TestJobInjectsTrackerPrime`、job 包测试 |
 | G021/G022/G032 与离线质量/原始证据 | T0、T2–T6 | build/vet/gofmt/三包测试/控制字符输出与 Git 记录 |
 
 ## 完成 Gate 与剩余工作
 
-P3 仅在六项测试、离线 smoke、质量门、G032 清单和原子本地提交都有证据后标为完成；已知失败如实标边界，不用 `t.Skip` 或骨架替代。P4 的 sync/server/web/issue 联动、真实试点迁移与新会话验收、IDEV-STD 适配是后续独立工作；本期不能将本地 fake repo 的成功写成试点或生产验收。
+P3 仅在八项测试、tags 与筛选行为、离线 smoke、质量门、G032 清单和原子本地提交都有证据后标为完成；已知失败如实标边界，不用 `t.Skip` 或骨架替代。P4 的 sync/server/web/issue 联动、真实试点迁移与新会话验收、IDEV-STD 适配是后续独立工作；本期不能将本地 fake repo 的成功写成试点或生产验收。
