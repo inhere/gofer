@@ -124,7 +124,13 @@ const threads = computed(() => response.value.projects.flatMap((project) => proj
 const threadsByID = computed(() => new Map(threads.value.map((thread) => [thread.id, thread])))
 const selectedThread = computed(() => threadsByID.value.get(selectedID.value))
 const currentTab = computed(() => activeTab(layoutDocument.value))
-const attentionCount = computed(() => response.value.attention.length)
+// exec 会话失败默认不进「等你」：多是 agent 自己跑的探测/构建命令，由发起它的 agent
+// 处理。勾选「显示 exec 命令会话」时一并显示；exec 等审批（answer）始终保留。
+const attentionItems = computed(() => response.value.attention.filter((item) => {
+  if (showExec.value || item.action !== 'review') return true
+  return threadsByID.value.get(item.thread_id)?.agent !== 'exec'
+}))
+const attentionCount = computed(() => attentionItems.value.length)
 
 provide('workbench-view-context', {
   threadsByID,
@@ -365,7 +371,7 @@ function locateRequestedThread(announce: boolean): boolean {
 }
 
 function openFirstAttention(): void {
-  const first = response.value.attention[0]
+  const first = attentionItems.value[0]
   if (first) selectAttention(first)
 }
 
@@ -630,7 +636,7 @@ onUnmounted(() => {
     <header class="workbench-top">
       <WorkbenchComposer ref="composer" @submitted="submitted" />
       <WorkbenchAttention
-        :items="response.attention"
+        :items="attentionItems"
         :seen-all-pending="seenAllPending"
         @select="selectAttention"
         @seen-all="markAllSeen"
