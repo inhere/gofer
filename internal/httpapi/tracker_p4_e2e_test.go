@@ -156,6 +156,44 @@ func TestSyncOfflineThenCatchUp(t *testing.T) {
 	}
 }
 
+func TestSyncMemoryTombstone(t *testing.T) {
+	e := newTrackerE2E(t)
+	if _, err := e.local.SetMemory("gone", "value", "test"); err != nil {
+		t.Fatal(err)
+	}
+	syncTracker(t, e)
+	if err := e.local.RemoveMemory("gone"); err != nil {
+		t.Fatal(err)
+	}
+	syncTracker(t, e)
+	if _, err := e.local.Memory("gone"); err == nil {
+		t.Fatal("local rm should remove row")
+	}
+	// Recreate and let the server create the tombstone; the next sync must remove the local row.
+	if _, err := e.local.SetMemory("server-delete", "value", "test"); err != nil {
+		t.Fatal(err)
+	}
+	syncTracker(t, e)
+	cfg := mustConfig(t, e.local)
+	req, err := http.NewRequest(http.MethodDelete, e.srv.URL+"/v1/tracker/memories/server-delete?tracker_id="+cfg.TrackerID, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode >= 300 {
+		t.Fatalf("delete status=%d", resp.StatusCode)
+	}
+	syncTracker(t, e)
+	if _, err := e.local.Memory("server-delete"); err == nil {
+		t.Fatal("server tombstone should remove local row")
+	}
+}
+
 func TestJobIssueLinkAppendsNotes(t *testing.T) {
 	e := newTrackerE2E(t)
 	issue, err := e.local.CreateIssue(tracker.Issue{Title: "job", Type: "task"})
