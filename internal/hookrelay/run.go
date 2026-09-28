@@ -21,6 +21,9 @@ type API interface {
 	WaitSessionTurn(sid, decisionID string, waitSec int) (client.TurnStatus, error)
 	ReleaseSessionTurn(sid, decisionID string, idleSec int64) (bool, error)
 	SetSessionRelayMode(sid, mode string) (client.AgentSession, error)
+	AddSessionJobWatch(sid, jobID string) (client.SessionJobWatch, error)
+	ListSessionJobWatches(sid string) ([]client.SessionJobWatch, error)
+	RemoveSessionJobWatch(sid, jobID string) error
 }
 
 // Options tunes one hook invocation. Zero values pick the defaults below.
@@ -118,6 +121,8 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 		return noticeResult(r.beatAndLog(client.SessionHeartbeat{Event: p.Event, Title: makeTitle(p.Cwd, p.Prompt)})), nil
 	case "Stop":
 		return r.stop(), nil
+	case "PostToolUse":
+		return r.postToolUse(), nil
 	case "SessionEnd", "Interrupt":
 		r.beatAndLog(client.SessionHeartbeat{Event: p.Event})
 		return Result{}, nil
@@ -135,6 +140,15 @@ func Run(api API, p Payload, opts Options) (Result, error) {
 		log("ignored")
 		return Result{}, nil
 	}
+}
+
+func (r *runner) postToolUse() Result {
+	for _, jobID := range extractJobWatchCandidates(r.p.ToolName, r.p.ToolOutput) {
+		if _, err := r.api.AddSessionJobWatch(r.p.SessionID, jobID); err != nil {
+			r.log("register job watch %s failed: %v", jobID, err)
+		}
+	}
+	return Result{}
 }
 
 func (o Options) withDefaults() Options {
@@ -266,7 +280,17 @@ func (r *runner) stop() Result {
 		r.log("open turn failed: %v", err) // 409 = relay flipped off in between
 		return Result{}
 	}
+	watched := []WatchedJob(nil)
+	if a.WatchCount > 0 {
+		watched = r.watchedJobs()
+		if r.releaseWatchedJobs(watched) {
+			return Result{Blocked: true, Reason: mergeWatchedTerminals(watched)}
+		}
+	}
 	pollSec := r.opts.PollSec
+	if len(watched) > 0 && pollSec > 5 {
+		pollSec = 5
+	}
 	if probeArmed && pollSec > autoArmPollSec {
 		// The human's return can only be noticed at a poll boundary, so an
 		// idle-armed wait re-reads the keyboard more often than a switched-on one.
@@ -298,6 +322,12 @@ func (r *runner) stop() Result {
 			continue
 		}
 		failures = 0
+		if a.WatchCount > 0 {
+			watched = r.watchedJobs()
+			if r.releaseWatchedJobs(watched) {
+				return Result{Blocked: true, Reason: mergeWatchedTerminals(watched)}
+			}
+		}
 		switch st.Outcome {
 		case "answered":
 			reply := strings.TrimSpace(st.Decision.Answer)
@@ -323,6 +353,49 @@ func (r *runner) stop() Result {
 	r.log("wait budget exhausted, released")
 	_, _ = r.api.HeartbeatSession(r.p.SessionID, client.SessionHeartbeat{Event: r.p.Event, State: "idle"})
 	return Result{}
+}
+
+func (r *runner) watchedJobs() []WatchedJob {
+	rows, err := r.api.ListSessionJobWatches(r.p.SessionID)
+	if err != nil {
+		r.log("list job watches failed: %v", err)
+		return nil
+	}
+	out := make([]WatchedJob, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, WatchedJob{ID: row.JobID, Title: row.Title, Status: row.Status,
+			ExitCode: row.ExitCode, StartedAt: row.StartedAt, EndedAt: row.EndedAt,
+			Duration: time.Duration(row.Duration) * time.Second})
+	}
+	return out
+}
+
+func (r *runner) releaseWatchedJobs(jobs []WatchedJob) bool {
+	term := make([]WatchedJob, 0, len(jobs))
+	for _, item := range jobs {
+		if !isTerminalStatus(item.Status) {
+			continue
+		}
+		term = append(term, item)
+	}
+	if len(term) == 0 {
+		return false
+	}
+	for _, item := range term {
+		if err := r.api.RemoveSessionJobWatch(r.p.SessionID, item.ID); err != nil {
+			r.log("remove job watch %s failed: %v", item.ID, err)
+		}
+	}
+	return true
+}
+
+func isTerminalStatus(status string) bool {
+	switch strings.ToLower(strings.TrimSpace(status)) {
+	case "done", "failed", "cancelled", "canceled", "timeout", "rejected", "expired":
+		return true
+	default:
+		return false
+	}
 }
 
 // releasedOnUserReturn reports this round's keyboard reading to the server,

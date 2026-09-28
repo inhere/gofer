@@ -36,6 +36,8 @@ type fakeAPI struct {
 	idleReports []int64
 	// humanEvents counts the beats that proved a human acted in the session.
 	humanEvents int
+	jobWatches  []string
+	watchRows   []client.SessionJobWatch
 }
 
 func newFake() *fakeAPI {
@@ -69,6 +71,7 @@ func (f *fakeAPI) HeartbeatSession(sid string, hb client.SessionHeartbeat) (clie
 	if hb.Title != "" && a.Title == "" {
 		a.Title = hb.Title
 	}
+	a.WatchCount = len(f.watchRows)
 	// A prompt the human typed, or an interrupt, is the server-side release of a
 	// non-explicit wait (R2): the open turn settles and the blocked Stop hook
 	// sees it on its next poll.
@@ -156,6 +159,31 @@ func (f *fakeAPI) ReleaseSessionTurn(sid, id string, idleSec int64) (bool, error
 	a.State = "idle"
 	f.sessions[sid] = a
 	return true, nil
+}
+
+func (f *fakeAPI) AddSessionJobWatch(_ string, jobID string) (client.SessionJobWatch, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.jobWatches = append(f.jobWatches, jobID)
+	return client.SessionJobWatch{}, nil
+}
+
+func (f *fakeAPI) ListSessionJobWatches(string) ([]client.SessionJobWatch, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]client.SessionJobWatch(nil), f.watchRows...), nil
+}
+
+func (f *fakeAPI) RemoveSessionJobWatch(_ string, jobID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for i, row := range f.watchRows {
+		if row.JobID == jobID {
+			f.watchRows = append(f.watchRows[:i], f.watchRows[i+1:]...)
+			break
+		}
+	}
+	return nil
 }
 
 func payload(t *testing.T, agent string, m map[string]any) Payload {

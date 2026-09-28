@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/inhere/gofer/internal/client"
 )
 
 func TestPostToolUseRegistersJobWatch(t *testing.T) {
@@ -28,9 +30,40 @@ func TestPostToolUseRegistersJobWatch(t *testing.T) {
 			}
 		})
 	}
+	f := newFake()
+	for _, agent := range []string{"claude", "codex"} {
+		p := payload(t, agent, map[string]any{"session_id": "sid-watch", "hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_output": "gofer job abc123 submitted"})
+		if _, err := Run(f, p, fastOpts(nil)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	p := payload(t, "claude", map[string]any{"session_id": "sid-watch", "hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_output": "echo hello"})
+	if _, err := Run(f, p, fastOpts(nil)); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(f.jobWatches); got != 2 {
+		t.Fatalf("registered watches=%v, want one per Claude/Codex payload", f.jobWatches)
+	}
+	p = payload(t, "claude", map[string]any{"session_id": "sid-watch", "hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_output": "job abc123 submitted\njob abc123 finished: status=done exit=0"})
+	if _, err := Run(f, p, fastOpts(nil)); err != nil {
+		t.Fatal(err)
+	}
+	if got := len(f.jobWatches); got != 2 {
+		t.Fatalf("sync terminal registered a watch: %v", f.jobWatches)
+	}
 }
 
 func TestStopHookReleasesOnWatchedJobTerminal(t *testing.T) {
+	f := newFake()
+	f.sessions["sid-stop"] = client.AgentSession{SessionID: "sid-stop", RelayMode: client.RelayModeOn, WaitReason: client.WaitModeOn}
+	f.watchRows = []client.SessionJobWatch{{JobID: "job-1", Title: "compile", Status: "done", ExitCode: 0, Duration: 3}}
+	res, err := Run(f, payload(t, "claude", map[string]any{"session_id": "sid-stop", "hook_event_name": "Stop", "last_assistant_message": "done"}), fastOpts(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !res.Blocked || !strings.Contains(res.Reason, "[gofer job 完成] job-1 compile status=done exit=0") || len(f.watchRows) != 0 {
+		t.Fatalf("stop result=%+v watches=%+v", res, f.watchRows)
+	}
 	terminal := WatchedJob{ID: "job-1", Title: "compile", Status: "done", ExitCode: 0, Duration: 3 * time.Second}
 	reason := formatWatchedJobCompletion(terminal)
 	if !strings.Contains(reason, "[gofer job 完成] job-1 compile status=done exit=0") {
@@ -42,6 +75,15 @@ func TestStopHookReleasesOnWatchedJobTerminal(t *testing.T) {
 }
 
 func TestStopHookMergesSimultaneousFinishes(t *testing.T) {
+	// The merge is also exercised through the Stop path after both rows become
+	// terminal in the same list response.
+	f := newFake()
+	f.sessions["sid-merge"] = client.AgentSession{SessionID: "sid-merge", RelayMode: client.RelayModeOn, WaitReason: client.WaitModeOn}
+	f.watchRows = []client.SessionJobWatch{{JobID: "job-1", Title: "first", Status: "done"}, {JobID: "job-2", Title: "second", Status: "failed", ExitCode: 1}}
+	res, err := Run(f, payload(t, "codex", map[string]any{"session_id": "sid-merge", "hook_event_name": "Stop", "last_assistant_message": "done"}), fastOpts(nil))
+	if err != nil || !res.Blocked || strings.Count(res.Reason, "[gofer job 完成]") != 2 || len(f.watchRows) != 0 {
+		t.Fatalf("stop merge result=%+v watches=%+v err=%v", res, f.watchRows, err)
+	}
 	got := mergeWatchedTerminals([]WatchedJob{
 		{ID: "job-1", Title: "first", Status: "done", ExitCode: 0, Duration: 2 * time.Second},
 		{ID: "job-2", Title: "second", Status: "failed", ExitCode: 1, Duration: 4 * time.Second},

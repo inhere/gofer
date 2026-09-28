@@ -30,6 +30,8 @@ var sessionSayOpts = struct {
 	takeover bool
 }{}
 
+var sessionWatchOpts struct{ session string }
+
 // NewSessionCmd builds the `session` command group: the human/CLI face of the
 // session relay (SESS-01 §6.2) — list registered terminal agent sessions, flip
 // a session's relay switch, answer a waiting turn.
@@ -91,6 +93,17 @@ func NewSessionCmd() *gcli.Command {
 				Func: runSessionSay,
 			},
 			{
+				Name: "watch",
+				Desc: "Register a job for the current agent session's Stop-hook completion notice",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("job-id", "job id to watch", true)
+					c.StrOpt(&sessionWatchOpts.session, "session", "", "", "session id (default: resolve by current directory)")
+				},
+				Func: runSessionWatch,
+			},
+			{
 				Name:    "remove",
 				Aliases: []string{"rm"},
 				Desc:    "Remove a session registration (its turns stay for audit)",
@@ -113,6 +126,32 @@ func NewSessionCmd() *gcli.Command {
 			},
 		},
 	}
+}
+
+func runSessionWatch(c *gcli.Command, _ []string) error {
+	cli, err := sessionClient()
+	if err != nil {
+		return err
+	}
+	sid := strings.TrimSpace(sessionWatchOpts.session)
+	if sid == "" {
+		sid, err = resolveCurrentSession(cli)
+	} else {
+		sid, err = resolveSessionID(cli, sid)
+	}
+	if err != nil {
+		return fmt.Errorf("resolve session for watch: %w", err)
+	}
+	jobID := strings.TrimSpace(c.Arg("job-id").String())
+	if jobID == "" {
+		return fmt.Errorf("job id required")
+	}
+	watch, err := cli.AddSessionJobWatch(sid, jobID)
+	if err != nil {
+		return err
+	}
+	c.Printf("watching job %s for session %s: status=%s\n", watch.JobID, shortSID(sid), watch.Status)
+	return nil
 }
 
 func sessionClient() (*client.Client, error) {

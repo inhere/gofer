@@ -47,6 +47,9 @@ type Payload struct {
 	Message          string
 	// Source is the Codex SessionStart source (startup|resume|clear|compact).
 	Source string
+	// ToolName and ToolOutput are populated for PostToolUse.
+	ToolName   string
+	ToolOutput string
 }
 
 // rawPayload lists every stdin field either agent may send; unknown keys are
@@ -62,7 +65,28 @@ type rawPayload struct {
 	NotificationType     string          `json:"notification_type"`
 	Message              string          `json:"message"`
 	Source               string          `json:"source"`
+	ToolName             string          `json:"tool_name"`
+	ToolOutput           string          `json:"tool_output"`
+	ToolResponse         json.RawMessage `json:"tool_response"`
+	Output               string          `json:"output"`
 	TurnID               json.RawMessage `json:"turn_id"`
+}
+
+func rawText(raw string, values ...json.RawMessage) string {
+	if strings.TrimSpace(raw) != "" {
+		return raw
+	}
+	for _, value := range values {
+		if len(value) == 0 || string(value) == "null" {
+			continue
+		}
+		var text string
+		if json.Unmarshal(value, &text) == nil {
+			return text
+		}
+		return string(value)
+	}
+	return ""
 }
 
 // maxStdin caps how much hook stdin is read (the payload is small; a
@@ -92,6 +116,8 @@ func ParsePayload(agent string, r io.Reader) (Payload, error) {
 		TranscriptPath: raw.TranscriptPath, StopHookActive: raw.StopHookActive,
 		LastAssistantMessage: raw.LastAssistantMessage, Prompt: raw.Prompt,
 		NotificationType: raw.NotificationType, Message: raw.Message, Source: raw.Source,
+		ToolName:   raw.ToolName,
+		ToolOutput: rawText(raw.ToolOutput, raw.ToolResponse, json.RawMessage(raw.Output)),
 	}
 	if strings.TrimSpace(p.SessionID) == "" {
 		return Payload{}, fmt.Errorf("hookrelay: stdin has no session_id")
