@@ -160,8 +160,27 @@ func TestJobIssueLinkAppendsNotes(t *testing.T) {
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("submit status=%d", resp.StatusCode)
 	}
-	_ = issue
+	var jr job.JobResult
+	decode(t, resp, &jr)
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if jr.Status == job.StatusDone || jr.Status == job.StatusFailed {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+		r := do(t, e.server, http.MethodGet, "/v1/jobs/"+jr.ID, "tok", nil)
+		decode(t, r, &jr)
+	}
+	linked := tracker.LinkIssueToJob(issue, tracker.JobIssueEvent{JobID: jr.ID, Phase: "started", At: tracker.Now()})
+	linked = tracker.LinkIssueToJob(linked, tracker.JobIssueEvent{JobID: jr.ID, Phase: "finished", Status: string(jr.Status), At: tracker.Now(), Commits: []string{"commit-1"}, Uncommitted: []string{"changed.go"}})
+	if _, err := e.local.UpdateIssue(issue.ID, tracker.IssuePatch{AppendNotes: linked.Notes[len(linked.Notes)-1].Text, Actor: "job:" + jr.ID}); err != nil {
+		t.Fatal(err)
+	}
 	syncTracker(t, e)
+	got, err := e.local.Issue(issue.ID)
+	if err != nil || len(got.Notes) == 0 {
+		t.Fatalf("linked notes missing: err=%v issue=%+v", err, got)
+	}
 }
 
 func mustConfig(t *testing.T, s *tracker.Store) tracker.Config {
