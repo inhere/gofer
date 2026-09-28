@@ -887,6 +887,21 @@ export function getPlan(id: string): Promise<PlanDetail> {
   return request<PlanDetail>(`/v1/plans/${encodeURIComponent(id)}`)
 }
 
+export function getPlanHandoff(id: string, version?: number): Promise<import('./types').PlanHandoff | null> {
+  const suffix = version && version > 0 ? `?version=${version}` : ''
+  return request<import('./types').PlanHandoff | null>(`/v1/plans/${encodeURIComponent(id)}/handoff${suffix}`)
+}
+
+export function listPlanHandoffHistory(id: string): Promise<import('./types').PlanHandoff[]> {
+  return request<import('./types').PlanHandoff[]>(`/v1/plans/${encodeURIComponent(id)}/handoff/history`)
+}
+
+export function setPlanHandoff(id: string, body: string, expected_version: number): Promise<import('./types').PlanHandoff> {
+  return request<import('./types').PlanHandoff>(`/v1/plans/${encodeURIComponent(id)}/handoff`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ body, expected_version }),
+  })
+}
+
 // plan 生命周期（P6）：手动置状态。系统不自动推进（C2）。
 export function updatePlan(id: string, status: PlanStatus, progress?: number): Promise<Plan> {
   return request<Plan>(`/v1/plans/${encodeURIComponent(id)}`, {

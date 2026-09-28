@@ -16,8 +16,10 @@ import StatusBadge from '../components/StatusBadge.vue'
 import InteractionCard from '../components/InteractionCard.vue'
 import PlanBoard from '../components/PlanBoard.vue'
 import CommentThread from '../components/CommentThread.vue'
+import MarkdownBlock from '../components/MarkdownBlock.vue'
 import {
-  addTodo, answerDecision, attachJob, getPlan, listAgents, listPlanEvents, patchTodo, planPause,
+  addTodo, answerDecision, attachJob, getPlan, getPlanHandoff, listAgents, listPlanEvents, patchTodo, planPause,
+  setPlanHandoff,
   planResume, planRun, setPlanLeader, updatePlan, updateTodo, updateTodoStatus,
 } from '../api/client'
 import { fmtDateTime, fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
@@ -36,6 +38,12 @@ const POLL_MS = 2500
 
 const plan = ref<PlanDetail | null>(null)
 const error = ref('')
+const handoffText = ref('')
+const handoffVersion = ref(0)
+const handoffBy = ref('')
+const handoffAt = ref(0)
+const handoffSaving = ref(false)
+const handoffError = ref('')
 
 // 操作态
 const newTodoTitle = ref('')
@@ -528,8 +536,13 @@ async function fetchPlan(): Promise<void> {
   if (boardBusy.value) {
     return
   }
-  try {
-    plan.value = await getPlan(props.id)
+	try {
+		plan.value = await getPlan(props.id)
+		const h = await getPlanHandoff(props.id)
+		handoffText.value = h?.body ?? ''
+		handoffVersion.value = h?.version ?? 0
+		handoffBy.value = h?.by ?? ''
+		handoffAt.value = h?.at ?? 0
     error.value = ''
     if (!isActive.value) stopPolling()
     // 事件面板展开着就顺带重取第一页（复用同一条刷新路径，不再起第二个轮询）。
@@ -537,6 +550,19 @@ async function fetchPlan(): Promise<void> {
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   }
+}
+
+async function saveHandoff(): Promise<void> {
+	if (handoffSaving.value) return
+	handoffSaving.value = true; handoffError.value = ''
+	try {
+		const h = await setPlanHandoff(props.id, handoffText.value, handoffVersion.value)
+		handoffVersion.value = h.version; handoffBy.value = h.by; handoffAt.value = h.at
+	} catch {
+		handoffError.value = '交接说明已被他人更新，请刷新后重试'
+		const h = await getPlanHandoff(props.id)
+		handoffText.value = h?.body ?? ''; handoffVersion.value = h?.version ?? 0
+	} finally { handoffSaving.value = false }
 }
 
 async function onToggleTodo(t: Todo): Promise<void> {
@@ -862,6 +888,15 @@ onUnmounted(() => {
         </div>
       </dl>
     </div>
+
+    <section v-if="plan" class="section handoff-card">
+      <div class="section-head"><h2 class="section-title mono">交接说明</h2><span v-if="handoffVersion" class="mono">v{{ handoffVersion }} · {{ handoffBy }} · {{ fmtDateTime(handoffAt) }}</span></div>
+      <MarkdownBlock v-if="handoffText" :text="handoffText" />
+      <p v-else class="empty mono">暂无交接说明</p>
+      <textarea v-model="handoffText" class="op-input handoff-editor" rows="6" placeholder="记录当前进度、下一步和未决事项" />
+      <p v-if="handoffError" class="error mono">{{ handoffError }}</p>
+      <button class="op-btn" type="button" :disabled="handoffSaving" @click="saveHandoff">{{ handoffSaving ? '保存中…' : '保存交接说明' }}</button>
+    </section>
 
     <!-- WEB-10 头部操作条：进度（done+skipped/total）+ 用量汇总 + 链操作（PLAN-03）。 -->
     <div v-if="plan" class="ops mono">

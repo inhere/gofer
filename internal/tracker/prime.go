@@ -8,6 +8,29 @@ import (
 
 const PrimeMaxBytes = 8 << 10
 
+// PrimeWithHandoffSection appends the caller-provided best-effort server handoff
+// section while preserving the existing prime bytes first. The caller is expected
+// to have applied project selection, timeout and ordering before this seam.
+func (s *Store) PrimeWithHandoffSection(handoff string) (string, error) {
+	base, err := s.Prime()
+	if err != nil {
+		return "", err
+	}
+	section := "\n## 进行中 plan 的交接说明\n\n" + handoff
+	if len([]byte(base))+len([]byte(section)) <= PrimeMaxBytes {
+		return base + section, nil
+	}
+	remaining := PrimeMaxBytes - len([]byte(base)) - len([]byte("\n## 进行中 plan 的交接说明\n\n"))
+	if remaining < 0 {
+		return base, nil
+	}
+	cut := []byte(handoff)
+	if len(cut) > remaining {
+		cut = cut[:remaining]
+	}
+	return base + "\n## 进行中 plan 的交接说明\n\n" + string(cut) + "\n[交接说明已截断]\n", nil
+}
+
 func CommitPolicyText(policy string) (string, error) {
 	switch policy {
 	case "", "local-commit":

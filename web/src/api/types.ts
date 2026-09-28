@@ -1754,6 +1754,15 @@ export interface PlanDetail extends Plan {
   decisions?: Decision[]
   // PLAN-02 P2：该 plan 的用量汇总。新服务端恒发；老服务端不发时为 undefined。
   usage?: PlanUsage
+  handoff?: PlanHandoff
+}
+
+export interface PlanHandoff {
+  plan_id: string
+  version: number
+  body: string
+  by: string
+  at: number
 }
 
 // plan 级用量汇总（PLAN-02 P2）：jobs 计每一个挂接的 job（没报用量的也算跑了），

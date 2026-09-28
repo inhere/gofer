@@ -42,6 +42,10 @@ gofer plan run <plan-id>                # PLAN-03: 开工/续跑——把所有"
 gofer plan pause <plan-id>              # PLAN-03: 暂停自动推进(正在跑的 job 不取消)
 gofer plan resume <plan-id>             # PLAN-03: 解除暂停/阻塞, 并推进一次
 gofer plan set-status <id> <status>
+gofer plan handoff <plan-id>                 # 查看最新交接说明
+gofer plan handoff <plan-id> --set "下一步…"  # 写入新版本（自动 CAS）
+gofer plan handoff <plan-id> -f handoff.md --history
+gofer plan handoff <plan-id> --version 2
 ```
 
 **派发字段（PLAN-02，`add-todo` / `set-todo` 共用）**：
