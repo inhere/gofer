@@ -45,6 +45,7 @@ import type {
   AgentSessionRelayMode,
   AgentSessionState,
   AgentSessionsResp,
+  SessionJobWatch,
   SessionDetailResp,
   SessionDeliverResult,
   RebuildBody,
@@ -599,6 +600,12 @@ export function listAgentSessions(opts?: {
 export function getAgentSession(sid: string, turns = 50): Promise<SessionDetailResp> {
   return request<SessionDetailResp>(
     `/v1/sessions/${encodeURIComponent(sid)}?turns=${encodeURIComponent(String(turns))}`,
+  )
+}
+
+export function listSessionJobWatches(sid: string): Promise<{ watches: SessionJobWatch[] }> {
+  return request<{ watches: SessionJobWatch[] }>(
+    `/v1/sessions/${encodeURIComponent(sid)}/watches`,
   )
 }
 

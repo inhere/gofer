@@ -300,6 +300,16 @@ export type AgentSessionState =
 // AgentSessionRelayMode 是会话中继开关的三态（R1）。
 export type AgentSessionRelayMode = 'auto' | 'on' | 'off'
 
+export interface SessionJobWatch {
+  job_id: string
+  title?: string
+  status: string
+  exit_code: number
+  started_at?: number
+  ended_at?: number
+  duration_sec?: number
+}
+
 export interface AgentSession {
   session_id: string
   agent: string
@@ -345,6 +355,8 @@ export interface AgentSession {
   // notice 是给【原终端】的一行提示（hook 打到 stderr）：会话已被 web 接管、本终端
   // 中继已停用。仅 handed_off 时非空。
   notice?: string
+  watch_count?: number
+  watches?: SessionJobWatch[]
 }
 
 export interface AgentSessionsResp {

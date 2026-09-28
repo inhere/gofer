@@ -386,6 +386,18 @@ onUnmounted(() => {
           <span class="a-title" :title="`${agentTitle(s)}\n${s.session_id}`">
             <span class="a-title-text">{{ agentTitle(s) }}</span>
             <span v-if="s.last_message" class="a-last mono">{{ s.last_message }}</span>
+            <span v-if="s.watches?.length" class="session-watches mono">
+              <RouterLink
+                v-for="watch in s.watches"
+                :key="watch.job_id"
+                class="session-watch"
+                :to="`/jobs/${encodeURIComponent(watch.job_id)}`"
+                :title="watch.title || watch.job_id"
+                @click.stop
+              >
+                {{ watch.job_id }} · {{ watch.title || 'job' }} · {{ watch.status }}
+              </RouterLink>
+            </span>
           </span>
           <span class="a-agent mono">{{ s.agent }}</span>
           <span class="a-project mono" :title="s.project_key">{{ s.project_key || '—' }}</span>
@@ -834,6 +846,19 @@ onUnmounted(() => {
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+.session-watches {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 3px 6px;
+  font-size: 11px;
+}
+.session-watch {
+  color: var(--accent);
+  text-decoration: none;
+}
+.session-watch:hover {
+  text-decoration: underline;
 }
 .a-agent {
   color: var(--paper);
