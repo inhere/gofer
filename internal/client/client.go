@@ -103,6 +103,21 @@ type Client struct {
 	http    *http.Client
 }
 
+// BaseURL exposes the normalized endpoint for narrow extension APIs such as
+// repository tracker sync; request authentication remains owned by Client.
+func (c *Client) BaseURL() string {
+	if c == nil {
+		return ""
+	}
+	return c.baseURL
+}
+func (c *Client) Token() string {
+	if c == nil {
+		return ""
+	}
+	return c.token
+}
+
 // New builds a Client for baseURL with an optional bearer token. baseURL is
 // normalised (scheme added, 0.0.0.0 rewritten to 127.0.0.1) via NormalizeBaseURL
 // so callers may pass a bare `host:port`. When token is empty no Authorization

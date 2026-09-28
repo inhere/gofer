@@ -28,24 +28,24 @@ func NewRepoCmd() *gcli.Command {
 				Name: "sync", Desc: "Synchronize the local tracker with a server mirror",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
-					c.StrOpt(&syncServer, "server", "", "", "tracker mirror URL (required; no live fallback)")
+					c.StrOpt(&syncServer, "server", "", "", "tracker mirror URL override")
 				},
 				Func: func(c *gcli.Command, _ []string) error {
-					if strings.TrimSpace(syncServer) == "" {
-						return fmt.Errorf("--server is required; offline local writes remain available")
-					}
 					s, err := tracker.Discover(".", "")
+					if err != nil {
+						return err
+					}
+					cli, err := newClient(config.InputCfgFile, syncServer, "")
 					if err != nil {
 						return err
 					}
 					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 					defer cancel()
-					if _, err := tracker.SyncHTTP(ctx, s, strings.TrimRight(syncServer, "/")); err != nil {
-						c.Printf("sync warning: %v\n", err)
-						return nil
+					if _, err := tracker.SyncHTTPWithToken(ctx, s, cli.BaseURL(), cli.Token()); err != nil {
+						return err
 					}
 					cfg, _ := s.ReadConfig()
-					c.Printf("sync: tracker_id=%s server=%s\n", cfg.TrackerID, syncServer)
+					c.Printf("sync: tracker_id=%s server=%s\n", cfg.TrackerID, cli.BaseURL())
 					return nil
 				},
 			},
