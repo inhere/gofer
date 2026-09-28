@@ -211,3 +211,18 @@ P1 与 P2–P4 相互独立，可以并行排；P3 完成即可在试点仓库�
 ## P4 实测记录（2026-09-29）
 
 本轮完成 tracker mirror 的基础 HTTP sync、三方合并、memory server tombstone、job `--issue` 联动参数和 Web Issues 基础页面。临时 httptest server、临时 SQLite jobstore 与临时 tracker 的固定测试通过；仓库 JSONL 仍为本地真源，server 保存镜像和 memory tombstone。`repo sync` 默认复用 CLI client 的配置/env 地址和 token，`--server` 仅覆盖地址；auto sync 失败不阻塞本地写入。完整 cursor 增量、未归属仓库登记和 Web 全量验收仍需后续质量波次。
+
+收尾波次 smoke/质量记录：
+
+```text
+go test ./internal/httpapi/ -run 'TestSyncThreeWayMerge|TestSyncOfflineThenCatchUp|TestSyncMemoryTombstone|TestJobIssueLinkAppendsNotes' -count=1
+ok github.com/inhere/gofer/internal/httpapi 1.025s
+
+go test ./internal/tracker/ -run TestSyncSecondRequestContainsOnlyDelta -count=1
+ok github.com/inhere/gofer/internal/tracker 0.056s
+
+node_modules/.bin/vue-tsc --noEmit
+exit=0
+```
+
+G032 清单：本轮没有新增未标记兼容分支；tracker mirror 字段、cursor、tombstone 和 Web API 均为 additive P4 路径，没有保留无调用方的旧兼容入口。
