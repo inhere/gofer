@@ -84,7 +84,7 @@ func NewRepoCmd() *gcli.Command {
 					s, err := tracker.Discover(".", "")
 					if err != nil {
 						if asJSON {
-							return printTrackerJSON(c, map[string]any{"hookSpecificOutput": map[string]string{"additionalContext": ""}})
+							return printTrackerJSON(c, map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "SessionStart", "additionalContext": ""}})
 						}
 						return err
 					}
@@ -93,7 +93,7 @@ func NewRepoCmd() *gcli.Command {
 						return err
 					}
 					if asJSON {
-						return printTrackerJSON(c, map[string]any{"hookSpecificOutput": map[string]string{"additionalContext": body}})
+						return printTrackerJSON(c, map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "SessionStart", "additionalContext": body}})
 					}
 					c.Print(body)
 					return nil

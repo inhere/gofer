@@ -79,10 +79,15 @@ func TestPrimeHookJSONShape(t *testing.T) {
 	out := trackerRunOK(t, root, "repo", "prime", "--hook-json")
 	var payload struct {
 		HookSpecificOutput struct {
+			HookEventName     string `json:"hookEventName"`
 			AdditionalContext string `json:"additionalContext"`
 		} `json:"hookSpecificOutput"`
 	}
-	if err := json.Unmarshal([]byte(out), &payload); err != nil || !strings.Contains(payload.HookSpecificOutput.AdditionalContext, "提交策略") {
+	// Claude Code attributes hookSpecificOutput by hookEventName; without it the
+	// context is not injected (bd prime --hook-json emits the same shape).
+	if err := json.Unmarshal([]byte(out), &payload); err != nil ||
+		payload.HookSpecificOutput.HookEventName != "SessionStart" ||
+		!strings.Contains(payload.HookSpecificOutput.AdditionalContext, "提交策略") {
 		t.Fatalf("invalid Claude SessionStart JSON: %q err=%v", out, err)
 	}
 }
