@@ -28,7 +28,7 @@ var (
 
 func isShellTool(tool string) bool {
 	switch strings.ToLower(strings.TrimSpace(tool)) {
-	case "bash", "shell", "shell_command", "command":
+	case "bash", "shell", "shell_command", "exec_command", "command":
 		return true
 	default:
 		return false
