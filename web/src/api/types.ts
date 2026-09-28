@@ -1805,6 +1805,15 @@ export interface PlansResp {
   offset: number
 }
 
+export interface TrackerIssue {
+  id: string
+  body_json: string
+  rev: number
+  updated_at: string
+}
+
+export interface TrackerIssuesResp { issues: TrackerIssue[] }
+
 export interface WorkflowRetryPolicy {
   max_attempts: number
   backoff_sec?: number[]

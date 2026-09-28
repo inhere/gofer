@@ -907,6 +907,10 @@ export function listPlans(opts?: {
   return request<PlansResp>(`/v1/plans${suffix}`)
 }
 
+export function listTrackerIssues(trackerId: string): Promise<import('./types').TrackerIssuesResp> {
+  return request<import('./types').TrackerIssuesResp>(`/v1/tracker/issues?tracker_id=${encodeURIComponent(trackerId)}`)
+}
+
 export function getPlan(id: string): Promise<PlanDetail> {
   return request<PlanDetail>(`/v1/plans/${encodeURIComponent(id)}`)
 }

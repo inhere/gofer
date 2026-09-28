@@ -60,6 +60,7 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
       // REV-01 验收台：待验收 job 就在 Board 之后，徽标数来自 EscalationBell 的轮询。
       { to: '/review', label: 'Review', badge: 'needs_review' },
       { to: '/plans', label: 'Plans' },
+      { to: '/issues', label: 'Issues' },
       { to: '/sessions', label: 'Sessions' },
       { to: '/workflows', label: 'Workflows' },
       { to: '/schedules', label: 'Schedules' },
