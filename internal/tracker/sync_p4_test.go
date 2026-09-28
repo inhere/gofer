@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-func TestSyncThreeWayMerge(t *testing.T) {
+func TestPureSyncThreeWayMerge(t *testing.T) {
 	base := SyncSnapshot{
 		Issues:   []Issue{{ID: "p4-1", Title: "base", Status: "open", UpdatedAt: "2026-09-29T00:00:00Z"}},
 		Memories: []Memory{{Key: "k", Content: "base", UpdatedAt: "2026-09-29T00:00:00Z", By: "base"}},
@@ -44,7 +44,7 @@ func TestSyncThreeWayMerge(t *testing.T) {
 	}
 }
 
-func TestSyncOfflineThenCatchUp(t *testing.T) {
+func TestPureSyncOfflineThenCatchUp(t *testing.T) {
 	base := SyncSnapshot{Memories: []Memory{{Key: "k", Content: "one", UpdatedAt: "2026-09-29T00:00:00Z"}}}
 	local := SyncSnapshot{Memories: []Memory{{Key: "k", Content: "two", UpdatedAt: "2026-09-29T00:00:01Z"}}}
 	state := SyncState{Base: base}
@@ -66,7 +66,7 @@ func TestSyncOfflineThenCatchUp(t *testing.T) {
 	}
 }
 
-func TestJobIssueLinkAppendsNotes(t *testing.T) {
+func TestPureJobIssueLinkAppendsNotes(t *testing.T) {
 	issue := Issue{ID: "p4-1", Status: "open", UpdatedAt: "2026-09-29T00:00:00Z"}
 	started := LinkIssueToJob(issue, JobIssueEvent{JobID: "job-1", Phase: "started", At: "2026-09-29T00:00:01Z"})
 	if started.Status != "in_progress" {
