@@ -117,7 +117,11 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 		go func(req job.JobRequest, id string) {
 			final, ok := s.jobs.Wait(id)
 			if ok {
-				s.linkIssueJob(req, tracker.JobIssueEvent{JobID: id, Phase: "finished", Status: final.Status, At: tracker.Now(), Uncommitted: nil})
+				commits := make([]string, 0, len(final.Commits))
+				for _, commit := range final.Commits {
+					commits = append(commits, commit.SHA)
+				}
+				s.linkIssueJob(req, tracker.JobIssueEvent{JobID: id, Phase: "finished", Status: final.Status, At: tracker.Now(), Commits: commits, Uncommitted: final.UncommittedFiles})
 			}
 		}(req, res.ID)
 	}
