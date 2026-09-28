@@ -58,3 +58,18 @@ func TestManagedBlockSkipsClaudeImportingAgents(t *testing.T) {
 		t.Fatalf("migrate CLAUDE.md = %q", claude)
 	}
 }
+
+// TestParseBdMemoriesSkipsMetadata: real bd output carries "schema_version": 1
+// next to the memories; it must not fail the import or become a memory.
+func TestParseBdMemoriesSkipsMetadata(t *testing.T) {
+	got, err := parseBdMemories([]byte(`{"a":"one","schema_version":1,"b":"two","c":null}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got["a"] != "one" || got["b"] != "two" {
+		t.Fatalf("memories = %#v", got)
+	}
+	if _, err := parseBdMemories([]byte(`[1,2]`)); err == nil {
+		t.Fatal("a non-object export must be an error")
+	}
+}

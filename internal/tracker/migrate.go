@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -133,6 +134,16 @@ func MigrateFromBD(root string, apply bool) (MigrationReport, error) {
 		return report, err
 	}
 	report.Issues = len(issues)
+	// Read every input before writing anything, so a bad bd export cannot leave
+	// the repository half migrated (issues imported, blocks and hooks not).
+	memories, note, err := readBdMemories(root)
+	if err != nil {
+		return report, err
+	}
+	if note != "" {
+		report.Notes = append(report.Notes, note)
+	}
+	report.Memories = len(memories)
 	if !apply {
 		return report, nil
 	}
@@ -160,41 +171,72 @@ func MigrateFromBD(root string, apply bool) (MigrationReport, error) {
 		return report, err
 	}
 	report.Files = append(report.Files, ".gofer/tracker/issues.jsonl")
-	if _, err := exec.LookPath("bd"); err == nil {
-		cmd := exec.Command("bd", "memories", "--json", "--readonly")
-		cmd.Dir = root
-		out, runErr := cmd.Output()
-		if runErr != nil {
-			report.Notes = append(report.Notes, "bd memories --json unavailable: "+runErr.Error())
-		} else {
-			var values map[string]string
-			if err := json.Unmarshal(out, &values); err != nil {
-				return report, fmt.Errorf("bd memories JSON: %w", err)
+	if len(memories) > 0 {
+		if err := store.UpdateMemories(func(existing []Memory) ([]Memory, error) {
+			index := make(map[string]bool, len(existing))
+			for _, item := range existing {
+				index[item.Key] = true
 			}
-			report.Memories = len(values)
-			if err := store.UpdateMemories(func(existing []Memory) ([]Memory, error) {
-				index := make(map[string]bool, len(existing))
-				for _, item := range existing {
-					index[item.Key] = true
-				}
-				for key, content := range values {
-					if !index[key] {
-						existing = append(existing, Memory{Key: key, Content: content, UpdatedAt: Now(), By: "bd-migrate"})
-					}
-				}
-				return existing, nil
-			}); err != nil {
-				return report, err
+			keys := make([]string, 0, len(memories))
+			for key := range memories {
+				keys = append(keys, key)
 			}
-			report.Files = append(report.Files, ".gofer/tracker/memories.jsonl")
+			sort.Strings(keys)
+			for _, key := range keys {
+				if !index[key] {
+					existing = append(existing, Memory{Key: key, Content: memories[key], UpdatedAt: Now(), By: "bd-migrate"})
+				}
+			}
+			return existing, nil
+		}); err != nil {
+			return report, err
 		}
-	} else {
-		report.Notes = append(report.Notes, "bd executable absent; memory import skipped")
+		report.Files = append(report.Files, ".gofer/tracker/memories.jsonl")
 	}
 	if err := migrateManagedBlocks(root, &report); err != nil {
 		return report, err
 	}
 	return report, nil
+}
+
+// readBdMemories runs `bd memories --json` in root. A missing bd or a failing
+// command is a note (memories are skipped), a malformed export is an error.
+func readBdMemories(root string) (map[string]string, string, error) {
+	if _, err := exec.LookPath("bd"); err != nil {
+		return nil, "bd executable absent; memory import skipped", nil
+	}
+	cmd := exec.Command("bd", "memories", "--json", "--readonly")
+	cmd.Dir = root
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, "bd memories --json unavailable: " + err.Error(), nil
+	}
+	values, err := parseBdMemories(out)
+	if err != nil {
+		return nil, "", fmt.Errorf("bd memories JSON: %w", err)
+	}
+	return values, "", nil
+}
+
+// parseBdMemories reads bd's `{key: content}` map. bd mixes metadata into the
+// same object (`"schema_version": 1`), so only string values are memories.
+func parseBdMemories(out []byte) (map[string]string, error) {
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return nil, err
+	}
+	values := make(map[string]string, len(raw))
+	for key, value := range raw {
+		trimmed := bytes.TrimSpace(value)
+		if len(trimmed) == 0 || trimmed[0] != '"' {
+			continue // metadata such as schema_version, or null
+		}
+		var content string
+		if json.Unmarshal(trimmed, &content) == nil {
+			values[key] = content
+		}
+	}
+	return values, nil
 }
 
 func migrateManagedBlocks(root string, report *MigrationReport) error {
