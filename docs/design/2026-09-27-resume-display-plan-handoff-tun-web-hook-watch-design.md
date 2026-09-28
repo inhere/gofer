@@ -21,6 +21,18 @@
 - 范围：上述四项。
 - 非目标：改变续接的执行机制（仍是 exec 载体、仍按模板渲染）；隧道在 worker 或其他机器上的远程启动（只做 server 本机）；接入 Claude Code 内部的会话间消息通道（非公开接口）。
 
+## 已确认事实
+
+本批次的四项边界与非目标已在上文冻结；各项决策及其批准日期见“决策（已批准 2026-09-28）”。
+
+## 架构
+
+本设计的四个独立落点见下列 JOB-12、PLAN-04、TUN-05、SESS-03 小节；分期关系见“实施分期”。
+
+## 关键流程
+
+JOB-12 的续接解析、落库/回填、查询与显示；其余三项的读写或监听流程均在各自小节定义，未引入跨项依赖。
+
 ## 总体方案
 
 ### JOB-12 续接 job 记录并显示原 agent
@@ -85,3 +97,11 @@
 ## 结论与人工计划 Gate
 
 批准后按 S1–S4 派发（S2 在 TRK-01 P3 之后），每期测试先行、容器验证、远程升级。
+
+## S1 实测记录（2026-09-28）
+
+- JOB-12 三个固定测试先以目标行为缺失有效呈红，独立提交 `e6da294`；实现后定向四包测试返回 `ok`。持久化/一次性回填 `9d1e0b7`、agent 过滤与 CLI 显示 `1816507`、Web 三处显示 `da7e003`。
+- 旧库回填只在旧 jobs 表首次增加 `resume_agent` 列时执行，列增加与回填共用事务；断链留空，二次打开不再扫描。旧库一次性读取分支已标 `// DEPRECATED(v0.68): remove in v0.71`；未新增其他兼容分支，未删除旧路径。
+- `gofmt -l` 全仓无输出；Windows/Linux `go build` exit 0，`go vet ./...` exit 0。build 曾输出 Go 模块 stat cache 写入受限警告，但两个目标产物均生成；控制字符扫描为 `control_chars_total=0`。
+- 隔离 `GOFER_CONFIG_DIR` 后，四包全量测试只有 Windows 既知基线 `TestGetArtifactManifest`、`TestWorktreeSymlinkedProjectRoot` 失败：`internal/job` FAIL（362.214s）；`internal/jobstore`、`internal/httpapi`、`internal/commands` 均 ok。默认用户配置目录不可创建导致的首轮 `httpapi` 失败已通过隔离配置目录排除。
+- `pnpm test` 在已有 Linux ELF esbuild 的 Windows postinstall 阶段失败，改用仓库内现有 Win32 esbuild 与本地 `.bin` 执行等效命令：Vitest 3 文件/14 测试通过，vue-tsc exit 0，Vite build exit 0。未改真实配置或 live server/worker，未 push；源码和离线验证完成，现场运行验收未做。
