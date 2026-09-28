@@ -108,7 +108,7 @@ func jobCallerMayRead(method string) bool {
 var jobRouteWords = map[string]bool{
 	"v1": true, "jobs": true, "plans": true, "todos": true, "comments": true, "handoff": true,
 	"wakeups": true, "decisions": true, "workflows": true, "skills": true, "xfer": true,
-	"sessions": true, "schedules": true, "retries": true, "config": true, "agents": true,
+	"sessions": true, "watches": true, "schedules": true, "retries": true, "config": true, "agents": true,
 	"projects": true, "workers": true, "messages": true, "meta": true, "stats": true,
 	"runners": true, "tunnels": true, "interactions": true, "accept": true, "reject": true,
 	"cancel": true, "resume": true, "rebuild": true, "worktree": true, "run": true,

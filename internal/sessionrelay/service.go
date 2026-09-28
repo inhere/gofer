@@ -376,6 +376,11 @@ func (s *Service) Heartbeat(sid string, in HeartbeatInput) (jobstore.AgentSessio
 	if !ok {
 		return jobstore.AgentSession{}, ErrUnknownSession
 	}
+	if in.Event == EventSessionEnd {
+		if err := s.store.ClearSessionJobWatches(sid); err != nil {
+			return jobstore.AgentSession{}, err
+		}
+	}
 	// Needs attention while relayed: tell the human their session is blocked on a
 	// terminal dialog. An agent re-raises the SAME notification while it waits, so
 	// suppress identical repeats — but a different prompt raised while still

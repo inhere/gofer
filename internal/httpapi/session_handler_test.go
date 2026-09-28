@@ -196,6 +196,44 @@ func TestSessionRelayHTTPContract(t *testing.T) {
 	resp.Body.Close()
 }
 
+func TestSessionJobWatchHTTPContract(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{ID: "job-watch-http", CallerID: "default", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	resp := do(t, s, http.MethodPost, "/v1/sessions", testToken, map[string]any{
+		"session_id": "sid-watch-http", "agent": "claude", "event": "SessionStart",
+	})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("register status=%d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-watch-http/watches", testToken, map[string]any{"job_id": "job-watch-http"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("add watch status=%d body=%s", resp.StatusCode, bodyString(t, resp))
+	}
+	resp = do(t, s, http.MethodGet, "/v1/sessions/sid-watch-http/watches", testToken, nil)
+	var listed struct {
+		Watches []sessionWatchView `json:"watches"`
+	}
+	decode(t, resp, &listed)
+	if len(listed.Watches) != 1 || listed.Watches[0].JobID != "job-watch-http" {
+		t.Fatalf("watches=%+v", listed.Watches)
+	}
+	resp = do(t, s, http.MethodDelete, "/v1/sessions/sid-watch-http", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("delete session status=%d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	left, err := s.jobs.Meta().ListSessionJobWatches("sid-watch-http")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(left) != 0 {
+		t.Fatalf("watches after delete=%+v", left)
+	}
+}
+
 // sessionAutoArmServer builds a test server whose idle auto-arm threshold is
 // `sec` (0 = disabled), mirroring the shared "self" project wiring. serve wires the
 // whole `session:` block through SetSessionRelayPolicy; a Server built from a bare

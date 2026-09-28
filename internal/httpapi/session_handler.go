@@ -162,8 +162,9 @@ type sessionView struct {
 	// on stderr (design §9.1 B): set while the session is taken over, so the person
 	// at the keyboard learns why its relay went quiet and where to continue. Empty
 	// for every other state — an ordinary session has nothing to announce.
-	Notice     string `json:"notice,omitempty"`
-	WatchCount int    `json:"watch_count,omitempty"`
+	Notice     string             `json:"notice,omitempty"`
+	WatchCount int                `json:"watch_count,omitempty"`
+	Watches    []sessionWatchView `json:"watches,omitempty"`
 }
 
 // toSessionView projects a stored session. Relay / WaitReason / AutoArmed are
@@ -172,10 +173,17 @@ type sessionView struct {
 func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 	reason, detail := "", ""
 	watchCount := 0
+	var watchesView []sessionWatchView
 	if s.relay != nil {
 		reason, detail = s.relay.WaitDecision(a)
 		if watches, err := s.relay.JobWatches(a.SessionID); err == nil {
 			watchCount = len(watches)
+			watchesView = make([]sessionWatchView, 0, len(watches))
+			for _, watch := range watches {
+				if view, ok := s.sessionWatchView(watch); ok {
+					watchesView = append(watchesView, view)
+				}
+			}
 		}
 	}
 	return sessionView{
@@ -187,7 +195,7 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		LastEvent: a.LastEvent, LastSeenAt: a.LastSeenAt, StartedAt: a.StartedAt, EndedAt: a.EndedAt,
 		AutoArmed: reason == sessionrelay.WaitIdleProbe, IdleSec: a.IdleSec, LastHumanAt: a.LastHumanAt,
 		HandedOffJobID: a.HandedOffJobID, HandedOffAt: a.HandedOffAt,
-		Notice: handedOffNotice(a), WatchCount: watchCount,
+		Notice: handedOffNotice(a), WatchCount: watchCount, Watches: watchesView,
 	}
 }
 
