@@ -75,6 +75,15 @@ func NewRepoCmd() *gcli.Command {
 					if err != nil {
 						return err
 					}
+					if applyMigration {
+						if s, discoverErr := tracker.Discover(root, ""); discoverErr == nil {
+							if appCfg, _, cfgErr := config.Load(config.InputCfgFile); cfgErr == nil {
+								if key, ok := appCfg.ProjectForPath(root); ok {
+									_ = s.SetProjectKey(key)
+								}
+							}
+						}
+					}
 					if !applyMigration {
 						c.Printf("dry-run: %d issues; no files written\n", report.Issues)
 						return nil
@@ -165,6 +174,12 @@ func NewRepoCmd() *gcli.Command {
 							}
 						}
 					}
+					if appCfg, _, cfgErr := config.Load(config.InputCfgFile); cfgErr == nil {
+						if key, ok := appCfg.ProjectForPath(root); ok {
+							_ = s.SetProjectKey(key)
+						}
+					}
+					tryAutoSync(c, s)
 					return nil
 				},
 			},

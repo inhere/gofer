@@ -157,6 +157,19 @@ func (s *Store) ReadConfig() (Config, error) {
 	return cfg, err
 }
 
+func (s *Store) SetProjectKey(key string) error {
+	cfg, err := s.ReadConfig()
+	if err != nil {
+		return err
+	}
+	cfg.ProjectKey = key
+	b, err := yaml.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return atomicWrite(filepath.Join(s.Dir, "config.yaml"), b)
+}
+
 type RepoStatus struct {
 	Tracker      string         `json:"tracker"`
 	Issues       map[string]int `json:"issues"`
