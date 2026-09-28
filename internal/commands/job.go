@@ -43,6 +43,8 @@ type jobRunFlags struct {
 	tags         string
 	plan         string
 	todo         string
+	issue        string
+	trackerID    string
 	channel      string
 	role         string
 	systemPrompt string
@@ -1120,6 +1122,8 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.StrOpt2(&jobRunOpts.tags, "tags", "comma-separated free-form tags for the job (E5 search dimension, e.g. --tags ci,nightly)", jobRunOptCategory("Submission", ""))
 	c.StrOpt2(&jobRunOpts.plan, "plan", "attach the job to a plan (grouping key)", jobRunOptCategory("Submission", ""))
 	c.StrOpt2(&jobRunOpts.todo, "todo", "run this job for a plan todo: the plan is resolved from the todo, the item turns doing and its outcome/commits are written back to its note", jobRunOptCategory("Submission", ""))
+	c.StrOpt2(&jobRunOpts.issue, "issue", "link this job to a repository tracker issue", jobRunOptCategory("Submission", ""))
+	c.StrOpt2(&jobRunOpts.trackerID, "tracker-id", "tracker repository identity used with --issue", jobRunOptCategory("Submission", ""))
 	c.StrOpt2(&jobRunOpts.channel, "channel", "submission channel recorded as provenance (cli/web/mcp/...)", jobRunOptCategory("Submission", "cli"))
 
 	// Wait: synchronous submission and client-side polling controls.
@@ -1683,6 +1687,8 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		Tags:           splitLabels(jobRunOpts.tags), // comma-separated, same parsing as worker-labels
 		PlanID:         jobRunOpts.plan,
 		TodoID:         jobRunOpts.todo,
+		IssueID:        jobRunOpts.issue,
+		TrackerID:      jobRunOpts.trackerID,
 		Interactive:    jobRunOpts.interactive,
 		ReadOnly:       jobRunOpts.readOnly,
 		// JOB-11：同 cwd 独占决策（nil = 交给 server 的默认规则）。

@@ -268,7 +268,9 @@ type JobRequest struct {
 	// is run for. Submit resolves the plan FROM the todo when PlanID is empty (and
 	// refuses a contradiction), marks the todo `doing`, and the terminal hooks write
 	// the outcome back into its note. Empty == not attached to a checklist item.
-	TodoID string `json:"todo_id,omitempty" yaml:"todo_id,omitempty"`
+	TodoID    string `json:"todo_id,omitempty" yaml:"todo_id,omitempty"`
+	IssueID   string `json:"issue_id,omitempty" yaml:"issue_id,omitempty"`
+	TrackerID string `json:"tracker_id,omitempty" yaml:"tracker_id,omitempty"`
 	// TodoForeign marks a todo that belongs to the FORWARDING hub rather than this
 	// process's store (set only by the worker's dispatch re-entry): plan todos are
 	// hub-managed, so this side displays the id and links nothing — the hub applies
@@ -614,7 +616,9 @@ type JobResult struct {
 	CommitsAhead    int    `json:"commits_ahead,omitempty"`
 	// TodoID is the plan todo this job was submitted for (SUP-01 C); the terminal
 	// hooks write the outcome back into that todo. Empty = not a checklist job.
-	TodoID string `json:"todo_id,omitempty"`
+	TodoID    string `json:"todo_id,omitempty"`
+	IssueID   string `json:"issue_id,omitempty"`
+	TrackerID string `json:"tracker_id,omitempty"`
 	// TodoForeign mirrors JobRequest.TodoForeign for a continuation: the todo belongs
 	// to the store that submitted the job, not to this one (a worker's local copy),
 	// so the continuation must not try to resolve or link it either.

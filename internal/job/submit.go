@@ -672,6 +672,8 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// SUP-01 C：该 job 挂接的 checklist 项（空=不挂）。落 jobs.todo_id，终态由
 			// linkTodoOutcome 把结果写回该 todo。
 			TodoID:      req.TodoID,
+			IssueID:     req.IssueID,
+			TrackerID:   req.TrackerID,
 			TodoForeign: req.TodoForeign,
 			// 血缘（P5）：ResumeJob/RebuildJob 内部盖在 req 上（源 job id）；普通 job 为空。
 			// json:"-" 不影响此 Go 赋值——落 jobs.source_job_id（血缘的真源，不进 request_json）。

@@ -412,7 +412,9 @@ type jobView struct {
 	ReviewNote    string `json:"review_note,omitempty"`
 	// TodoID is the plan todo this job runs for (SUP-01 C), so a caller that
 	// submitted with todo_id can read the linkage back.
-	TodoID string `json:"todo_id,omitempty"`
+	TodoID    string `json:"todo_id,omitempty"`
+	IssueID   string `json:"issue_id,omitempty"`
+	TrackerID string `json:"tracker_id,omitempty"`
 	// Verify is the job's verification step result (SUP-01 B), nil/absent when the
 	// job had none. A caller that submitted verify/verify_timeout_sec reads the
 	// verdict here instead of re-running the check itself.
@@ -716,7 +718,9 @@ type runJobInput struct {
 	// TodoID (SUP-01 C) runs this job for a plan todo: submit resolves the plan from
 	// the todo, marks the item doing and writes the outcome (and the commits it
 	// produced) back into the todo's note.
-	TodoID string `json:"todo_id,omitempty"`
+	TodoID    string `json:"todo_id,omitempty"`
+	IssueID   string `json:"issue_id,omitempty"`
+	TrackerID string `json:"tracker_id,omitempty"`
 	// Role is an optional E35 role preset (fills agent/system_prompt/project/tags
 	// when unset); SystemPrompt overrides the role's resident system prompt.
 	Role         string `json:"role,omitempty"`
@@ -811,6 +815,8 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 			Title:      in.Title,
 			PlanID:     in.PlanID,
 			TodoID:     in.TodoID,
+			IssueID:    in.IssueID,
+			TrackerID:  in.TrackerID,
 			// E35 role preset + optional system prompt override (resolved server-side).
 			Role:         in.Role,
 			SystemPrompt: in.SystemPrompt,

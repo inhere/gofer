@@ -14,6 +14,7 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/store"
+	"github.com/inhere/gofer/internal/tracker"
 	"github.com/inhere/gofer/internal/xfer"
 )
 
@@ -75,6 +76,16 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 	if !s.jobMaySubmit(c, &req) {
 		return
 	}
+	if req.IssueID != "" && callerKindFromCtx(c) == callerKindJob {
+		asking, ok := s.jobs.Get(callerFromCtx(c))
+		if !ok || asking.IssueID != req.IssueID || asking.TrackerID != req.TrackerID {
+			writeError(c, http.StatusForbidden, "issue link denied", "job caller may only link its associated issue")
+			return
+		}
+	}
+	if req.IssueID != "" {
+		s.linkIssueJob(req, tracker.JobIssueEvent{JobID: "pending", Phase: "started", At: tracker.Now()})
+	}
 
 	// Submission provenance: the client IP is authoritative (the server observes
 	// it), so fill Client when the submitter did not provide one — e.g. the web
@@ -101,6 +112,14 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 	if err != nil {
 		writeError(c, submitStatus(err), "job rejected", err.Error())
 		return
+	}
+	if req.IssueID != "" {
+		go func(req job.JobRequest, id string) {
+			final, ok := s.jobs.Wait(id)
+			if ok {
+				s.linkIssueJob(req, tracker.JobIssueEvent{JobID: id, Phase: "finished", Status: final.Status, At: tracker.Now(), Uncommitted: nil})
+			}
+		}(req, res.ID)
 	}
 	if async {
 		// Exceeded the server wait cap and still not terminal: fall back to async
