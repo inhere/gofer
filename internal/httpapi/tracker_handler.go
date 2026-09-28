@@ -48,6 +48,22 @@ func (s *Server) linkIssueJob(req job.JobRequest, event tracker.JobIssueEvent) {
 	}
 }
 
+func (s *Server) trackerIssueExists(trackerID, issueID string) bool {
+	if s.trackerStore == nil || trackerID == "" || issueID == "" {
+		return false
+	}
+	items, err := s.trackerStore.ListTrackerIssues(trackerID, 0)
+	if err != nil {
+		return false
+	}
+	for _, item := range items {
+		if item.ID == issueID {
+			return true
+		}
+	}
+	return false
+}
+
 type trackerRecordBody struct {
 	ID        string          `json:"id"`
 	Body      json.RawMessage `json:"body"`

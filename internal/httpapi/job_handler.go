@@ -84,6 +84,9 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 		}
 	}
 	if req.IssueID != "" {
+		if !s.trackerIssueExists(req.TrackerID, req.IssueID) {
+			req.Tags = append(req.Tags, "tracker:issue:"+req.IssueID)
+		}
 		s.linkIssueJob(req, tracker.JobIssueEvent{JobID: "pending", Phase: "started", At: tracker.Now()})
 	}
 
