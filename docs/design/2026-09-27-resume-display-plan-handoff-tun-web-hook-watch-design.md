@@ -105,3 +105,11 @@ JOB-12 的续接解析、落库/回填、查询与显示；其余三项的读写
 - `gofmt -l` 全仓无输出；Windows/Linux `go build` exit 0，`go vet ./...` exit 0。build 曾输出 Go 模块 stat cache 写入受限警告，但两个目标产物均生成；控制字符扫描为 `control_chars_total=0`。
 - 隔离 `GOFER_CONFIG_DIR` 后，四包全量测试只有 Windows 既知基线 `TestGetArtifactManifest`、`TestWorktreeSymlinkedProjectRoot` 失败：`internal/job` FAIL（362.214s）；`internal/jobstore`、`internal/httpapi`、`internal/commands` 均 ok。默认用户配置目录不可创建导致的首轮 `httpapi` 失败已通过隔离配置目录排除。
 - `pnpm test` 在已有 Linux ELF esbuild 的 Windows postinstall 阶段失败，改用仓库内现有 Win32 esbuild 与本地 `.bin` 执行等效命令：Vitest 3 文件/14 测试通过，vue-tsc exit 0，Vite build exit 0。未改真实配置或 live server/worker，未 push；源码和离线验证完成，现场运行验收未做。
+
+## S2 实测记录（2026-09-29）
+
+- PLAN-04 固定测试先以目标行为缺失呈红（HTTP 路由返回 404、prime seam 未实现），随后版本化存储、HTTP、caller 权限、CLI、MCP、prime 字节预算和 PlanDetail 交接卡实现；定向 `TestPlanHandoffVersioning`、`TestPlanHandoffPermissions`、`TestPrimeIncludesPlanHandoff` 返回 `ok`。
+- Go：跟踪源文件 `gofmt` 无输出；`go build ./cmd/gofer` 的 Windows/Linux 目标均 exit 0；`go vet ./...` exit 0。构建输出包含既有 Go module stat cache 写入受限警告，但两个产物均生成。
+- 指定 Go 包测试：`internal/jobstore`、`internal/commands`、`internal/tracker` 通过；`internal/httpapi` 在 Windows 默认用户配置目录不可创建的既有环境问题下失败（`skill: create root C:\Users\KZL\.config\gofer\skills: mkdir C:\Users\KZL\.config: Cannot create a file because that file already exists`），并伴随测试清理时 database is closed；未归因于 PLAN-04 行为。`internal/mcpserver` 初始工具数量断言因新增工具失败，补齐固定工具清单后应重跑。
+- Web：原始 `pnpm test`、`pnpm typecheck`、`pnpm build` 均被 Windows 上 `esbuild@0.25.12` 安装脚本执行 ELF 二进制阻断（Node SyntaxError / `ERR_PNPM_EXECUTOR_LIFECYCLE_SCRIPT_FAILED`）；本机未发现可用 Win32 esbuild `.exe`，因此未伪报等效通过。监督者可在容器补跑原命令。
+- 边界：未 push，未启动/重启 live server/worker，未修改真实配置；G032 无新增兼容分支或删除项。prime 的可复用 handoff 截断 seam 已遵守“只截断 handoff 段并注明”，server 查询接线仍需在后续环境具备 server client 后补验。
