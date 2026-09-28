@@ -101,6 +101,23 @@ func TestForwardAutostart(t *testing.T) {
 	if got := listForwarders(t, s, testToken); len(got) != 1 || !got[0].Hosted {
 		t.Fatalf("autostart forwarders=%+v, want one hosted entry", got)
 	}
+	busy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve autostart port: %v", err)
+	}
+	defer busy.Close()
+	_, port, _ := net.SplitHostPort(busy.Addr().String())
+	failed := do(t, s, http.MethodPut, "/v1/tunnels/presets/failed", testToken, map[string]any{
+		"worker": "w-local", "specs": []string{"127.0.0.1:" + port + ":127.0.0.1:1"}, "autostart": true,
+	})
+	if failed.StatusCode != http.StatusOK {
+		t.Fatalf("failed autostart preset status=%d, want 200", failed.StatusCode)
+	}
+	_ = failed.Body.Close()
+	s.StartHostedAutostart()
+	if got := listForwarders(t, s, testToken); len(got) != 1 {
+		t.Fatalf("failed autostart must not block or leak a registration: %+v", got)
+	}
 	s.StopHostedForwarders()
 	manual := do(t, s, http.MethodPut, "/v1/tunnels/presets/manual", testToken, map[string]any{
 		"worker": "w-local", "specs": []string{"0:127.0.0.1:1"},
