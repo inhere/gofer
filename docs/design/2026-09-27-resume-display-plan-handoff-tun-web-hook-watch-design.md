@@ -115,3 +115,11 @@ JOB-12 的续接解析、落库/回填、查询与显示；其余三项的读写
 - 补缺验证（2026-09-29）：`repo prime` 已接入 CLI 同源的 config/env client 解析；按 cwd `ProjectForPath` 过滤 open plan，按 `updated_at` 倒序取最多 3 个并逐个读取最新 handoff。httptest 覆盖正常排序/3 条上限和 2 秒超时静默，固定测试通过；不可达/未识别项目沿相同 best-effort 路径省略段落。
 - Web 补缺已完成：历史接口按需加载，列出版本/更新人/时间，点选后以只读 Markdown 预览旧版本；最新版本编辑 CAS 语义不变。使用直接 Node 调用本地工具等效验证：`node node_modules/vue-tsc/bin/vue-tsc.js --noEmit` exit 0、`node node_modules/vitest/vitest.mjs run` 3 files/14 tests passed、`node node_modules/vite/bin/vite.js build` exit 0。原始 pnpm 命令仍受 Windows esbuild ELF postinstall 阻断，监督者可在容器补跑。
 - 边界：未 push，未启动/重启 live server/worker，未修改真实配置；G032 无新增兼容分支或删除项。prime 超过 8 KiB 时只截断 handoff 段并注明，既有 prime 段落保持不变。
+
+## S3 实测记录（2026-09-29）
+
+- TUN-05 三项固定测试先以目标路由/字段缺失有效呈红并独立提交 `6c392cc`；实现后 `TestServerHostedForwardStartStop`、`TestForwardAutostart`、`TestUnpushedLocalPresetsListed` 均返回 `ok`。覆盖 hosted 标记、重复启动冲突、端口占用不登记、停止移除、autostart 与非 autostart 边界、本机预设导入和 job caller 403。
+- server hosted listener 复用 `internal/tunnel.Forwarder`，worker 拨号保持懒连接：autostart 只绑定监听，不因 worker 尚未重连失败；手动启动在 worker 不在线时返回显著 `warning`，监听仍建立，首次连接沿用普通 forwarder 的拨号错误。托管登记带 `hosted=true`/`hosted_name`，TTL sweep 跳过，server shutdown 通过 manager 全部停止并移除登记。
+- Go：相关源文件 `gofmt -l` 无输出；定向 hosted 测试返回 `ok`。规定包测试终态为：`internal/tunnel`、`internal/commands`、`internal/jobstore` 返回 `ok`；`internal/httpapi` 因既有 Windows 默认用户配置目录创建冲突导致多项配置写测试失败，`internal/config` 因既有 `TestMapRootSymlinkEscape` symlink 基线失败；原始失败不归因于 TUN-05。
+- Web：原始 `pnpm typecheck` 在 Windows `esbuild@0.25.12` postinstall 执行 Linux ELF 时返回 `ERR_PNPM_EXECUTOR_LIFECYCLE_SCRIPT_FAILED`；使用仓库本地工具等效验证：`node node_modules/vue-tsc/bin/vue-tsc.js --noEmit` exit 0，`node node_modules/vitest/vitest.mjs run` 为 3 files/14 tests passed，`node node_modules/vite/bin/vite.js build` exit 0。监督者可在容器补跑原始 pnpm 命令。
+- 本期没有启动/重启 live server/worker，没有读取或修改真实 `D:\work\inhere\config\win-env\gofer` 或真实 `tunnels.yaml`，没有 push；G032 未新增无标记兼容分支，`autostart` 为 additive 字段，旧记录默认 false。
