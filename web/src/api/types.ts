@@ -318,6 +318,7 @@ export interface AgentSession {
   runner?: string
   cwd?: string
   title?: string
+  issue_id?: string
   // transcript 只存路径，不读内容
   transcript?: string
   tmux_pane?: string
