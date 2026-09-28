@@ -2,6 +2,7 @@ package tracker
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -170,6 +171,11 @@ type RepoStatus struct {
 	SyncSummary  string         `json:"sync_summary,omitempty"`
 }
 
+type repoSyncMeta struct {
+	LastSyncAt string `json:"last_sync_at"`
+	Summary    string `json:"summary"`
+}
+
 func (s *Store) Status() (RepoStatus, error) {
 	cfg, err := s.ReadConfig()
 	if err != nil {
@@ -184,6 +190,14 @@ func (s *Store) Status() (RepoStatus, error) {
 		return RepoStatus{}, err
 	}
 	status := RepoStatus{Tracker: s.Dir, Issues: map[string]int{"open": 0, "in_progress": 0, "blocked": 0, "closed": 0}, Memories: len(memories), CommitPolicy: cfg.CommitPolicy, ProjectKey: cfg.ProjectKey, Hooks: "已检测", Sync: "未同步"}
+	if b, e := os.ReadFile(filepath.Join(s.Dir, ".local", "sync-status.json")); e == nil {
+		var meta repoSyncMeta
+		if json.Unmarshal(b, &meta) == nil {
+			status.LastSyncAt = meta.LastSyncAt
+			status.SyncSummary = meta.Summary
+			status.Sync = "已同步"
+		}
+	}
 	for _, item := range issues {
 		status.Issues[item.Status]++
 	}

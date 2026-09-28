@@ -30,6 +30,11 @@ type syncHTTPResponse struct {
 	} `json:"memories"`
 }
 
+type syncMeta struct {
+	LastSyncAt string `json:"last_sync_at"`
+	Summary    string `json:"summary"`
+}
+
 // SyncHTTP is the command/runtime sync path. It persists the last successful
 // base under tracker/.local and never changes the repository files on an HTTP
 // failure.
@@ -120,6 +125,8 @@ func SyncHTTPWithToken(ctx context.Context, s *Store, endpoint, token string) (S
 	if err := writeSyncBase(s.Dir, merged); err != nil {
 		return report, err
 	}
+	meta, _ := json.Marshal(syncMeta{LastSyncAt: Now(), Summary: report.Summary})
+	_ = atomicWrite(filepath.Join(s.Dir, ".local", "sync-status.json"), append(meta, '\n'))
 	return report, nil
 }
 
