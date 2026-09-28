@@ -429,7 +429,7 @@ func TestInstallMergeIdempotentAndRemove(t *testing.T) {
 
 	res, err := Install(AgentClaude, path, false, false)
 	assert.NoErr(t, err)
-	assert.Eq(t, 5, res.Added)
+	assert.Eq(t, 6, res.Added)
 	assert.Eq(t, 0, res.Replaced)
 	assert.Len(t, res.Notes, 1) // env kept
 
@@ -455,8 +455,8 @@ func TestInstallMergeIdempotentAndRemove(t *testing.T) {
 	// Idempotent: second install replaces, no duplicates.
 	res, err = Install(AgentClaude, path, false, false)
 	assert.NoErr(t, err)
-	assert.Eq(t, 5, res.Added)
-	assert.Eq(t, 5, res.Replaced)
+	assert.Eq(t, 6, res.Added)
+	assert.Eq(t, 6, res.Replaced)
 	read()
 	hooks = doc["hooks"].(map[string]any)
 	assert.Len(t, hooks["SessionStart"].([]any), 2)
@@ -464,7 +464,7 @@ func TestInstallMergeIdempotentAndRemove(t *testing.T) {
 	// Remove: only gofer entries go; bd + permissions + user env stay.
 	res, err = Install(AgentClaude, path, true, false)
 	assert.NoErr(t, err)
-	assert.Eq(t, 5, res.Removed)
+	assert.Eq(t, 6, res.Removed)
 	read()
 	hooks = doc["hooks"].(map[string]any)
 	assert.Len(t, hooks["SessionStart"].([]any), 1)
@@ -477,7 +477,7 @@ func TestInstallMergeIdempotentAndRemove(t *testing.T) {
 	res, err = Install(AgentCodex, cpath, false, false)
 	assert.NoErr(t, err)
 	assert.True(t, res.Created)
-	assert.Eq(t, 5, res.Added)
+	assert.Eq(t, 6, res.Added)
 	b, _ := os.ReadFile(cpath)
 	assert.True(t, strings.Contains(string(b), "gofer hook codex"))
 	assert.False(t, strings.Contains(string(b), "env"))
