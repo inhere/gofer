@@ -1,6 +1,7 @@
 package tracker
 
 import (
+	"context"
 	"fmt"
 	"sort"
 	"strings"
@@ -16,19 +17,61 @@ func (s *Store) PrimeWithHandoffSection(handoff string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return appendHandoffSection(base, handoff), nil
+}
+
+// PrimeWithHandoffFetch runs a best-effort handoff lookup supplied by the command
+// layer. The callback owns server discovery/authentication; tracker only applies
+// the two-second budget and the existing handoff-only truncation seam.
+func (s *Store) PrimeWithHandoffFetch(ctx context.Context, fetch func(context.Context) (string, error)) (string, error) {
+	base, err := s.Prime()
+	if err != nil {
+		return "", err
+	}
+	if fetch == nil {
+		return base, nil
+	}
+	result := make(chan struct {
+		section string
+		err     error
+	}, 1)
+	go func() {
+		section, err := fetch(ctx)
+		result <- struct {
+			section string
+			err     error
+		}{section, err}
+	}()
+	var section string
+	select {
+	case <-ctx.Done():
+		return base, nil
+	case fetched := <-result:
+		section = fetched.section
+		if fetched.err != nil {
+			return base, nil
+		}
+	}
+	if strings.TrimSpace(section) == "" {
+		return base, nil
+	}
+	return appendHandoffSection(base, section), nil
+}
+
+func appendHandoffSection(base, handoff string) string {
 	section := "\n## 进行中 plan 的交接说明\n\n" + handoff
 	if len([]byte(base))+len([]byte(section)) <= PrimeMaxBytes {
-		return base + section, nil
+		return base + section
 	}
 	remaining := PrimeMaxBytes - len([]byte(base)) - len([]byte("\n## 进行中 plan 的交接说明\n\n"))
 	if remaining < 0 {
-		return base, nil
+		return base
 	}
 	cut := []byte(handoff)
 	if len(cut) > remaining {
 		cut = cut[:remaining]
 	}
-	return base + "\n## 进行中 plan 的交接说明\n\n" + string(cut) + "\n[交接说明已截断]\n", nil
+	return base + "\n## 进行中 plan 的交接说明\n\n" + string(cut) + "\n[交接说明已截断]\n"
 }
 
 func CommitPolicyText(policy string) (string, error) {

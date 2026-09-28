@@ -1,14 +1,19 @@
 package commands
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"sort"
 	"strings"
+	"time"
 
 	"github.com/gookit/gcli/v3"
+	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/hookrelay"
 	"github.com/inhere/gofer/internal/tracker"
 )
@@ -88,7 +93,7 @@ func NewRepoCmd() *gcli.Command {
 						}
 						return err
 					}
-					body, err := s.Prime()
+					body, err := primeWithServerHandoffs(s, config.InputCfgFile)
 					if err != nil {
 						return err
 					}
@@ -169,6 +174,58 @@ func NewRepoCmd() *gcli.Command {
 		},
 	}
 }
+
+func primeWithServerHandoffs(s *tracker.Store, configPath string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	return s.PrimeWithHandoffFetch(ctx, func(ctx context.Context) (string, error) {
+		root, err := os.Getwd()
+		if err != nil {
+			return "", err
+		}
+		cfg, _, err := config.Load(configPath)
+		if err != nil {
+			return "", err
+		}
+		projectKey, ok := cfg.ProjectForPath(root)
+		if !ok {
+			return "", nil
+		}
+		cli, err := newClient(configPath, "", "")
+		if err != nil {
+			return "", err
+		}
+		plans, err := cli.ListPlans(client.PlanListOpts{Status: "open", Project: projectKey, Limit: clientPlanPrimeLimit})
+		if err != nil {
+			return "", err
+		}
+		sort.SliceStable(plans.Plans, func(i, j int) bool {
+			if plans.Plans[i].UpdatedAt != plans.Plans[j].UpdatedAt {
+				return plans.Plans[i].UpdatedAt > plans.Plans[j].UpdatedAt
+			}
+			return plans.Plans[i].PlanID < plans.Plans[j].PlanID
+		})
+		var out strings.Builder
+		for i, plan := range plans.Plans {
+			if i >= clientPlanPrimeLimit {
+				break
+			}
+			h, getErr := cli.GetPlanHandoff(plan.PlanID, 0)
+			if getErr != nil || h.Version == 0 {
+				continue
+			}
+			out.WriteString(fmt.Sprintf("- %s v%d (%s, %d)\n%s\n", plan.PlanID, h.Version, h.By, h.At, h.Body))
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			default:
+			}
+		}
+		return out.String(), nil
+	})
+}
+
+const clientPlanPrimeLimit = 3
 
 func printTrackerJSON(c *gcli.Command, value any) error {
 	b, err := json.Marshal(value)
