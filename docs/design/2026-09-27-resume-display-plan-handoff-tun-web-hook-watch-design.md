@@ -1,7 +1,7 @@
 <!-- template_id: design; template_version: 1.1.1 -->
 # 小项批次：续接显示原 agent（JOB-12）、plan 交接说明（PLAN-04）、web 启动隧道（TUN-05）、Stop hook 盯 job（SESS-03）
 
-> 状态：Draft 0.1（用户 2026-09-27 同意"出一批"，待批准本稿）
+> 状态：Approved（文档 identity：Draft 0.1；用户 2026-09-28 批准）
 
 ## 修订记录
 
@@ -71,7 +71,7 @@
 - TUN-05 的托管转发跑在 server 进程里，隧道流量故障可能影响 server；forwarder 已有独立 goroutine 与超时，按现有 forward 同等隔离，必要时后续改为子进程。
 - JOB-12 回填对大库要一次扫描 exec 记录，放在打开库时的迁移里，只跑一次。
 
-## 决策（待批准）
+## 决策（已批准 2026-09-28）
 
 1. 续接执行机制不变，只补记录与显示。
 2. 交接说明独立于 memory/issue，按 plan 保留版本。
