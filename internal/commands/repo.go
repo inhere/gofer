@@ -213,7 +213,14 @@ func primeWithServerHandoffs(s *tracker.Store, configPath string) (string, error
 		if err != nil {
 			return "", err
 		}
-		projectKey, ok := cfg.ProjectForPath(root)
+		projectKey := ""
+		if localCfg, cfgErr := s.ReadConfig(); cfgErr == nil {
+			projectKey = strings.TrimSpace(localCfg.ProjectKey)
+		}
+		if projectKey == "" {
+			projectKey, _ = cfg.ProjectForPath(root)
+		}
+		ok := projectKey != ""
 		if !ok {
 			return "", nil
 		}
