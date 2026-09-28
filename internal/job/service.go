@@ -100,6 +100,13 @@ type MetricsSink interface {
 	WorkflowTerminal(status string, durationSec float64)
 }
 
+// IssueLinker mirrors the todo lifecycle for repository tracker issues. The job
+// service owns ordering; transports only bind request fields and permissions.
+type IssueLinker interface {
+	LinkIssueStarted(snap JobResult)
+	LinkIssueFinished(snap JobResult)
+}
+
 // ServiceStats is the live in-memory job snapshot the metrics GaugeFuncs read at
 // scrape time (design §6.4): InFlight = entries currently tracked in s.jobs
 // (queued+running+pending, since terminal jobs are evicted in finish), Queued /
@@ -210,7 +217,8 @@ type Service struct {
 	// metrics is the E16 lifecycle-counter sink (nil = no metrics wired). It is
 	// injected post-construction by SetMetrics (commands.buildCore) so the job
 	// package never imports prometheus. All埋点 sites guard `if s.metrics != nil`.
-	metrics MetricsSink
+	metrics     MetricsSink
+	issueLinker IssueLinker
 
 	// wf is the workflow engine seam (layering design §13.4): the ONLY reverse
 	// dependency from the single-job path to the workflow sub-package. finish drives
@@ -259,6 +267,8 @@ type Service struct {
 	// job that binds a rule is rejected rather than run without it.
 	rules RuleLibrary
 }
+
+func (s *Service) SetIssueLinker(linker IssueLinker) { s.issueLinker = linker }
 
 // AnswerGuard is the job→answer-gate seam (监督分层升级路由 P3.1, design §8.5, dependency
 // inversion like WorkflowAdvancer/MetricsSink): the job package defines it so it never imports

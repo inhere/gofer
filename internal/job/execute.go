@@ -203,6 +203,9 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	if err := s.persist(snap); err != nil {
 		slog.Warn("persist running snapshot", "job_id", req.JobID, "err", err)
 	}
+	if s.issueLinker != nil {
+		s.issueLinker.LinkIssueStarted(snap)
+	}
 	// E13: queued -> running transition is now a fact.
 	s.recordEvent(req.JobID, EventJobRunning, nil)
 
@@ -569,6 +572,9 @@ func (s *Service) finish(entry *jobEntry, jobID, status string, exitCode int, er
 	// the map rather than lose the job. Live-job memory is then bounded by the
 	// (near-zero, given Store.writeMu) count of jobs whose terminal write failed,
 	// not by history — C1's invariant still holds.
+	if s.issueLinker != nil {
+		s.issueLinker.LinkIssueFinished(snap)
+	}
 	persistErr := s.persist(snap)
 	// SEC-01: revoke the job's credential — every branch below means the job has stopped
 	// EXECUTING (a needs_review delivery included: its process is gone, it is merely not

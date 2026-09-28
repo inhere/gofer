@@ -14,7 +14,6 @@ import (
 
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/store"
-	"github.com/inhere/gofer/internal/tracker"
 	"github.com/inhere/gofer/internal/xfer"
 )
 
@@ -83,11 +82,8 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 			return
 		}
 	}
-	if req.IssueID != "" {
-		if !s.trackerIssueExists(req.TrackerID, req.IssueID) {
-			req.Tags = append(req.Tags, "tracker:issue:"+req.IssueID)
-		}
-		s.linkIssueJob(req, tracker.JobIssueEvent{JobID: "pending", Phase: "started", At: tracker.Now()})
+	if req.IssueID != "" && !s.trackerIssueExists(req.TrackerID, req.IssueID) {
+		req.Tags = append(req.Tags, "tracker:issue:"+req.IssueID)
 	}
 
 	// Submission provenance: the client IP is authoritative (the server observes
@@ -115,18 +111,6 @@ func (s *Server) handleCreateJob(c *rux.Context) {
 	if err != nil {
 		writeError(c, submitStatus(err), "job rejected", err.Error())
 		return
-	}
-	if req.IssueID != "" {
-		go func(req job.JobRequest, id string) {
-			final, ok := s.jobs.Wait(id)
-			if ok {
-				commits := make([]string, 0, len(final.Commits))
-				for _, commit := range final.Commits {
-					commits = append(commits, commit.SHA)
-				}
-				s.linkIssueJob(req, tracker.JobIssueEvent{JobID: id, Phase: "finished", Status: final.Status, At: tracker.Now(), Commits: commits, Uncommitted: final.UncommittedFiles})
-			}
-		}(req, res.ID)
 	}
 	if async {
 		// Exceeded the server wait cap and still not terminal: fall back to async

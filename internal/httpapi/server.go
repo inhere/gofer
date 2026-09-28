@@ -306,7 +306,12 @@ type Server struct {
 }
 
 // SetTrackerStore injects the server mirror store used by tracker sync routes.
-func (s *Server) SetTrackerStore(store *jobstore.Store) { s.trackerStore = store }
+func (s *Server) SetTrackerStore(store *jobstore.Store) {
+	s.trackerStore = store
+	if s.jobs != nil {
+		s.jobs.SetIssueLinker(s)
+	}
+}
 
 // SetMetrics injects the E16 Prometheus instrumentation and mounts the /metrics
 // endpoint + the /v1 HTTP middleware (design §6.2). It MUST be called before the

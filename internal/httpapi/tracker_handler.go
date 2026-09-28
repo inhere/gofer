@@ -65,6 +65,51 @@ func (s *Server) trackerIssueExists(trackerID, issueID string) bool {
 	return false
 }
 
+func (s *Server) LinkIssueStarted(snap job.JobResult) {
+	if s.trackerStore == nil || snap.TrackerID == "" || snap.IssueID == "" {
+		return
+	}
+	items, _ := s.trackerStore.ListTrackerIssues(snap.TrackerID, 0)
+	for _, item := range items {
+		if item.ID != snap.IssueID {
+			continue
+		}
+		var issue tracker.Issue
+		if json.Unmarshal(item.Body, &issue) != nil {
+			return
+		}
+		issue.Status = "in_progress"
+		issue.UpdatedAt = tracker.Now()
+		body, _ := json.Marshal(issue)
+		_ = s.trackerStore.UpsertTrackerIssue(jobstore.TrackerRecord{TrackerID: snap.TrackerID, ID: snap.IssueID, Body: body, Rev: item.Rev + 1, UpdatedAt: issue.UpdatedAt})
+		return
+	}
+}
+
+func (s *Server) LinkIssueFinished(snap job.JobResult) {
+	if s.trackerStore == nil || snap.TrackerID == "" || snap.IssueID == "" {
+		return
+	}
+	items, _ := s.trackerStore.ListTrackerIssues(snap.TrackerID, 0)
+	for _, item := range items {
+		if item.ID != snap.IssueID {
+			continue
+		}
+		var issue tracker.Issue
+		if json.Unmarshal(item.Body, &issue) != nil {
+			return
+		}
+		commits := make([]string, 0, len(snap.Commits))
+		for _, c := range snap.Commits {
+			commits = append(commits, c.SHA)
+		}
+		issue = tracker.LinkIssueToJob(issue, tracker.JobIssueEvent{JobID: snap.ID, Phase: "finished", Status: snap.Status, At: tracker.Now(), Commits: commits, Uncommitted: snap.UncommittedFiles})
+		body, _ := json.Marshal(issue)
+		_ = s.trackerStore.UpsertTrackerIssue(jobstore.TrackerRecord{TrackerID: snap.TrackerID, ID: snap.IssueID, Body: body, Rev: item.Rev + 1, UpdatedAt: issue.UpdatedAt})
+		return
+	}
+}
+
 type trackerRecordBody struct {
 	ID        string          `json:"id"`
 	Body      json.RawMessage `json:"body"`
