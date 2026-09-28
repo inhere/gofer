@@ -123,7 +123,7 @@ func readBdIssues(path string) ([]Issue, error) {
 	return issues, nil
 }
 
-// DEPRECATED(v0.68): remove in v0.71 after the one-time bd migration window.
+// DEPRECATED(v0.68): remove in v0.80, once every workspace has migrated off bd (TRK-01).
 // MigrateFromBD previews or imports a repository-local bd export. It never
 // removes .beads and uses the tracker store's existing locked JSONL writes.
 func MigrateFromBD(root string, apply bool) (MigrationReport, error) {
