@@ -76,7 +76,7 @@ func (m *HostedForwarderManager) Start(name, worker string, specs []ForwardSpec)
 	}
 	reg := m.registry.Register("server", ForwarderRegistration{
 		Worker: worker, Specs: specs, Host: "server", PID: os.Getpid(),
-		StartedAt: time.Now(), Hosted: true,
+		StartedAt: time.Now(), Hosted: true, HostedName: name,
 	})
 	m.mu.Lock()
 	m.entries[name] = hostedEntry{cancel: cancel, fs: fs, regID: reg.ID}

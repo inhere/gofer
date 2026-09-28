@@ -44,7 +44,8 @@ type ForwarderRegistration struct {
 	PID      int
 	// Hosted marks a forwarder owned by the server process. Hosted entries are
 	// live as long as their manager entry, not as long as a client heartbeat.
-	Hosted bool
+	Hosted     bool
+	HostedName string
 	// StartedAt is when the forwarder started listening (the client's own clock).
 	StartedAt time.Time
 	// LastSeenAt is stamped by Register and refreshed by every heartbeat; the TTL
