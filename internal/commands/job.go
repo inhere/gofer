@@ -20,6 +20,7 @@ import (
 	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/project"
+	"github.com/inhere/gofer/internal/tracker"
 )
 
 // jobRunFlags is the `job run` flag surface. It is a NAMED type so tests (and any
@@ -1668,6 +1669,13 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 	if retryErr != nil {
 		return job.JobRequest{}, retryErr
 	}
+	trackerID, err := resolveJobTrackerID()
+	if jobRunOpts.trackerID != "" {
+		trackerID = jobRunOpts.trackerID
+	}
+	if jobRunOpts.issue != "" && trackerID == "" {
+		return job.JobRequest{}, fmt.Errorf("无法从 job cwd 找到 tracker_id；请在工作目录或其父目录初始化 .gofer/tracker，或显式传 --tracker-id")
+	}
 	req := job.JobRequest{
 		ProjectKey:     jobRunOpts.project,
 		Agent:          jobRunOpts.agent,
@@ -1688,7 +1696,7 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		PlanID:         jobRunOpts.plan,
 		TodoID:         jobRunOpts.todo,
 		IssueID:        jobRunOpts.issue,
-		TrackerID:      jobRunOpts.trackerID,
+		TrackerID:      trackerID,
 		Interactive:    jobRunOpts.interactive,
 		ReadOnly:       jobRunOpts.readOnly,
 		// JOB-11：同 cwd 独占决策（nil = 交给 server 的默认规则）。
@@ -1732,6 +1740,21 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		SystemPrompt: jobRunOpts.systemPrompt,
 	}
 	return req, nil
+}
+
+func resolveJobTrackerID() (string, error) {
+	paths := []string{"."}
+	if strings.TrimSpace(jobRunOpts.cwd) != "" && jobRunOpts.cwd != "." {
+		paths = append(paths, jobRunOpts.cwd)
+	}
+	for _, root := range paths {
+		if s, err := tracker.Discover(root, ""); err == nil {
+			if cfg, e := s.ReadConfig(); e == nil && strings.TrimSpace(cfg.TrackerID) != "" {
+				return cfg.TrackerID, nil
+			}
+		}
+	}
+	return "", nil
 }
 
 // splitShellWords splits ONE command line into an argv the way a POSIX shell would
