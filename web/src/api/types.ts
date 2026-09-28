@@ -25,6 +25,7 @@ export interface Job {
   id: string
   project_key: string
   agent: string
+  resume_agent?: string
   runner: string
   // 可选的人类可读任务名（后端 omitempty；来自原始请求，经 request_json 回放）
   title?: string

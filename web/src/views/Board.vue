@@ -590,7 +590,7 @@ onUnmounted(() => {
           </span>
         </span>
         <span class="col-proj mono">{{ job.project_key }}</span>
-        <span class="col-agent mono">{{ job.agent }}</span>
+        <span class="col-agent mono" :title="job.resume_agent ? '续接，经 exec 载体执行' : undefined">{{ job.resume_agent ? `${job.resume_agent} ↻` : job.agent }}</span>
         <span class="col-runner mono" :class="{ remote: job.runner !== 'local' }">
           <span class="runner-name" :title="job.runner">{{ job.runner }}</span>
           <span v-if="job.worker_id" class="runner-worker" :title="`worker_id: ${job.worker_id}`">{{ job.worker_id }}</span>

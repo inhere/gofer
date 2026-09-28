@@ -1059,7 +1059,7 @@ onUnmounted(() => {
             <span v-if="j.title" class="job-title" :title="j.title">{{ j.title }}</span>
             <span class="job-id mono" :title="j.id">{{ shortId(j.id) }}</span>
           </span>
-          <span class="job-dim job-agent mono">{{ j.agent }}</span>
+          <span class="job-dim job-agent mono" :title="j.resume_agent ? '续接，经 exec 载体执行' : undefined">{{ j.resume_agent ? `${j.resume_agent} ↻` : j.agent }}</span>
           <span class="job-dim job-runner mono">{{ j.runner }}</span>
           <span class="job-dim job-start mono">{{ rowStartTime(j) }}</span>
           <span class="job-dim job-dur mono">{{ rowDuration(j) }}</span>

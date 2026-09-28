@@ -1358,7 +1358,7 @@ onUnmounted(() => {
         <span class="meta-k mono">project</span><span class="meta-v mono">{{ job.project_key }}</span>
       </div>
       <div class="meta-item">
-        <span class="meta-k mono">agent</span><span class="meta-v mono">{{ job.agent }}</span>
+        <span class="meta-k mono">agent</span><span class="meta-v mono" :title="job.resume_agent ? '续接，经 exec 载体执行' : undefined">{{ job.resume_agent ? `${job.resume_agent} ↻` : job.agent }}</span>
       </div>
       <!-- 绑定的技能（JOB-10）：派发时按 server → agent → project → job 的并集定下，物化在
            <result_dir>/skills/ 且 prompt 头部列了路径。没绑定的 job 没有该字段，整行不渲染。 -->
