@@ -28,7 +28,8 @@ export interface Job {
   resume_agent?: string
   runner: string
   // 可选的人类可读任务名（后端 omitempty；来自原始请求，经 request_json 回放）
-  title?: string
+	title?: string
+	issue_id?: string
   status: JobStatus
   // 交互式 pty job（后端 omitempty）；详情页据此决定是否展示终端入口。
   interactive?: boolean

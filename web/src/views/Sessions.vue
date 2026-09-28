@@ -399,7 +399,8 @@ onUnmounted(() => {
               </RouterLink>
             </span>
           </span>
-          <span class="a-agent mono">{{ s.agent }}</span>
+			<span class="a-agent mono">{{ s.agent }}</span>
+			<RouterLink v-if="s.issue_id" class="mono" :to="`/issues?issue=${encodeURIComponent(s.issue_id)}`" @click.stop>issue {{ s.issue_id }}</RouterLink>
           <span class="a-project mono" :title="s.project_key">{{ s.project_key || '—' }}</span>
           <span class="a-runner mono" :title="s.runner">{{ s.runner || '—' }}</span>
           <span class="a-state">

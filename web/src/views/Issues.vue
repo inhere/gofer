@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRoute } from 'vue-router'
 import { listTrackerIssues, getTrackerIssue, updateTrackerIssue, commentTrackerIssue } from '../api/client'
 import type { TrackerIssue, TrackerIssueView } from '../api/types'
 
@@ -7,6 +8,7 @@ const trackerId = ref('')
 const query = ref('')
 const issues = ref<TrackerIssue[]>([])
 const loading = ref(false)
+const route = useRoute()
 const error = ref('')
 const status = ref(''); const type = ref(''); const tag = ref(''); const selected = ref<TrackerIssueView|null>(null); const editTitle=ref(''); const comment=ref('')
 
@@ -28,7 +30,7 @@ async function openIssue(id:string){ selected.value=await getTrackerIssue(tracke
 async function saveIssue(){ if(!selected.value)return; await updateTrackerIssue(trackerId.value,selected.value.id,{...selected.value,title:editTitle.value}); await openIssue(selected.value.id); await load() }
 async function addComment(){ if(!selected.value||!comment.value)return; await commentTrackerIssue(trackerId.value,selected.value.id,comment.value); comment.value=''; await openIssue(selected.value.id) }
 
-onMounted(() => { trackerId.value = localStorage.getItem('gofer.tracker_id') ?? ''; void load() })
+onMounted(async () => { trackerId.value = localStorage.getItem('gofer.tracker_id') ?? ''; await load(); const wanted=String(route.query.issue||''); if(wanted) await openIssue(wanted) })
 </script>
 
 <template>
