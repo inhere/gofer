@@ -1,11 +1,9 @@
 package commands
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -40,40 +38,13 @@ func NewRepoCmd() *gcli.Command {
 					if err != nil {
 						return err
 					}
-					cfg, err := s.ReadConfig()
-					if err != nil {
-						return err
-					}
-					issues, err := s.ReadIssues()
-					if err != nil {
-						return err
-					}
-					memories, err := s.ReadMemories()
-					if err != nil {
-						return err
-					}
-					payload := map[string]any{"tracker_id": cfg.TrackerID, "project_key": cfg.ProjectKey, "prefix": cfg.Prefix, "issues": issues, "memories": memories}
-					body, err := json.Marshal(payload)
-					if err != nil {
-						return err
-					}
 					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 					defer cancel()
-					req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(syncServer, "/")+"/v1/tracker/sync", bytes.NewReader(body))
-					if err != nil {
-						return err
-					}
-					req.Header.Set("Content-Type", "application/json")
-					resp, err := http.DefaultClient.Do(req)
-					if err != nil {
+					if _, err := tracker.SyncHTTP(ctx, s, strings.TrimRight(syncServer, "/")); err != nil {
 						c.Printf("sync warning: %v\n", err)
 						return nil
 					}
-					defer resp.Body.Close()
-					if resp.StatusCode >= 300 {
-						c.Printf("sync warning: server returned %s\n", resp.Status)
-						return nil
-					}
+					cfg, _ := s.ReadConfig()
 					c.Printf("sync: tracker_id=%s server=%s\n", cfg.TrackerID, syncServer)
 					return nil
 				},

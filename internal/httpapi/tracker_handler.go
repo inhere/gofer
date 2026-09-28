@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"time"
 
 	"github.com/gookit/rux/v2"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -106,4 +107,48 @@ func (s *Server) handleTrackerMemories(c *rux.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, map[string]any{"memories": items})
+}
+
+func (s *Server) handleTrackerIssueEdit(c *rux.Context) {
+	if s.trackerStore == nil {
+		c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "tracker mirror unavailable"})
+		return
+	}
+	id := c.Req.URL.Query().Get("tracker_id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": "tracker_id required"})
+		return
+	}
+	var body json.RawMessage
+	if err := c.BindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid body"})
+		return
+	}
+	if err := s.trackerStore.UpsertTrackerIssue(jobstore.TrackerRecord{TrackerID: id, ID: c.Param("id"), Body: body, Rev: 2, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
+		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) handleTrackerMemoryEdit(c *rux.Context) {
+	if s.trackerStore == nil {
+		c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "tracker mirror unavailable"})
+		return
+	}
+	id := c.Req.URL.Query().Get("tracker_id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": "tracker_id required"})
+		return
+	}
+	var body json.RawMessage
+	if err := c.BindJSON(&body); err != nil {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid body"})
+		return
+	}
+	if err := s.trackerStore.UpsertTrackerMemory(jobstore.TrackerRecord{TrackerID: id, ID: c.Param("id"), Body: body, Rev: 2, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
+		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }

@@ -43,7 +43,7 @@ func (s *Store) UpsertTrackerIssue(rec TrackerRecord) error {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	_, err := s.db.Exec(`INSERT INTO tracker_issues(tracker_id,issue_id,body_json,rev,updated_at) VALUES(?,?,?,?,?)
-ON CONFLICT(tracker_id,issue_id) DO UPDATE SET body_json=excluded.body_json,rev=excluded.rev,updated_at=excluded.updated_at`, rec.TrackerID, rec.ID, string(rec.Body), rec.Rev, rec.UpdatedAt)
+ON CONFLICT(tracker_id,issue_id) DO UPDATE SET body_json=excluded.body_json,rev=excluded.rev,updated_at=excluded.updated_at WHERE excluded.rev >= tracker_issues.rev`, rec.TrackerID, rec.ID, string(rec.Body), rec.Rev, rec.UpdatedAt)
 	return err
 }
 
