@@ -30,7 +30,7 @@
 - **codex 挂了自动转 omp**：agent 因**供应商错误**（`at capacity` / `stream disconnected` / sandbox 没起来…）挂掉、且它自己也没法续时，server 把**同一份活**交给下一个候选 agent（一个普通 job）：agent 上写 `fallback_agents: [omp]`，或项目上按 agent 覆盖 `agent_fallbacks: {codex: [omp]}`；单个 job 可用 `job run --fallback omp` 覆盖、`--no-fallback` 关掉。接管的 job 继承 worktree、plan/todo、verify、caller，prompt 会说明"上一次由谁执行、只做剩余部分、别重做已提交的工作"；源 job 记 `job.fell_back` 并留下 `fell_back_to`（不再报一条马上被接管的终态失败）。健康度按 agent 聚合（每个 failed job 都记 `failure_class`）：`gofer agent status` 看谁 degraded、`gofer agent probe <key>` 提交一个真的"只回一行 OK"的 job 立刻验活，web 的 Agents 页有徽标和探针按钮；`server.agent_fallback.pre_dispatch: true`（默认关）还会在**提交时**就把 degraded 的 agent 换成候选。
 - **任务书模板**：每批都要复制的"通用约束"写进一份由**服务端**渲染的文件——`<项目>/.gofer/templates/<name>.md` 或全局 `<config-dir>/templates/<name>.md`（YAML frontmatter 给 job 默认值 + 声明变量，正文即 prompt，支持 `{{变量}}`、`{{include: 同目录片段.md}}`、`{{project}}`/`{{cwd}}`/`{{date}}`/`{{head}}`）。提交用 `job run -t <name> --var k=v …`，用 `gofer template ls|show` 看清单与预览，web 新建页也能选（带变量输入与渲染预览）。显式旗标 > 模板默认 > 项目默认；`request_json` 存**渲染后的 prompt** + 模板名/变量，所以重跑不会再渲染一遍。见下文「任务书模板」。
 - **checklist 联动**：`job run --todo <todo-id>` 让那一项转 `doing`，job 结束后把结果写回备注——状态 + 这次交付的提交（`<job-id> ✓ 3 commits: …`）或失败原因；todo 还能自己派活：`ready` + 有 assignee（`plan set-todo <id> --assign omp --status ready`）就立刻出 job，于是「一步一项、每项指派好」的 plan 会自己往前走；PLAN-03 起还能**串成链**：`plan add-todo … --after prev` 声明"等上一条"，`plan run <plan>` 开工后每完成一项就自动启动下一项——整条多步任务（末尾放一条 `--assign exec --cmd '<构建/测试>'` 的复核项）自己跑完；某一环失败则整条链停在那一项（`status=blocked` + `plan.blocked` 通知），人重派或跳过后继续；提交本身也每个 job 都采集（`base_sha` → `git log base..HEAD`），`job show` 与详情页都能看。
-- **监督期间不自动布防**：会话的认证 caller 正在跑 job 时，终端会话中继不再按"人离开了"自动布防（只有 `relay_mode: auto` 受影响；`agent_sessions.caller_id` 让这件事可判定）。
+- **监督期间不自动布防**：会话的认证 caller 正在跑 job 时，终端会话中继不再按"人离开了"自动布防（只有 `relay_mode: auto` 受影响；`agent_sessions.caller_id` 让这件事可判定）。PostToolUse 还会从 shell 输出登记 `job <id> submitted` / `gofer job watch <id>`；同段已经出现 `job <id> finished: status=...` 的同步 job 不登记，Stop 等待时每 5 秒内检查一次并合并注入终态通知。需要时可用 `gofer session watch <job-id>` 显式登记。
 - **验收不靠 agent 自述**：agent 汇报≠验收——`job run --verify 'go test ./...'`（或项目 `verify:` 默认值）让验收命令在**干活那台机器**上、紧跟 agent 之后、用同一个 cwd/env 跑；非 0 退出即 job `failed`（开着 review 则停 `needs_review`），输出带横幅落进该 job 的 stderr 日志；worker 上跑的 job 由执行机验、结果经 Outcome 回传，审批与验证事件也会镜像到 hub，通知与审计同样看得到。
 - **定时与编排**：`schedule` 定时 job，`workflow` 多步依赖链（fan-out / join / 重试）。
 - **用量与成本**：agent 自己报的 token/成本落到 job 上（`jobs.usage_json`：`in/out/cache/total` + `cost_usd` + 来源解析器），四路来源 omp/claude 的 ndjson、codex `exec` 的 stderr、acp 的 `usage_update`。`job show` 一行 `usage:`、详情页有「用量」块、`/v1/stats` 与 Home「Agent 用量」卡按 agent 汇总 24h/7d。按设计是 best-effort：没报就是 `-`（不是 0）。
@@ -414,7 +414,7 @@ gofer template ls [-p <project>] | show <name> [-p <project>] [--var k=v …]
 gofer plan     create | list | show <id> | add-todo | set-todo | dispatch <todo> | run | pause | resume <plan> | set-status | attach | ask | decisions | answer
 gofer workflow run <file.yaml> [-w] | list | show <id> | events <id> | cancel <id> | export <id>
 gofer schedule add … | list | show | enable | disable | run <id> | rotate-token <id> | rm <id>
-gofer session  ls | show <id> | relay auto|on|off | say <id> "…" | rm <id>
+gofer session  ls | show <id> | relay auto|on|off | say <id> "…" | watch <job-id> [--session <id>] | rm <id>
 gofer tunnel   forward | check | ls | save | saved | forget
 gofer tool     cp <src> <dst> [--force] [--timeout 600] | xfer ls | show <id> | rm <id>
 gofer mcp      [--standalone]                        # stdio MCP server

@@ -299,6 +299,7 @@ gofer session say <id> "<回复>"         # 答最新 OPEN turn; "/off" = 关中
 gofer session say <id> "<回复>" --deliver   # 选路: 有 OPEN turn 就当作答, 否则敲进该会话的 tmux pane(§9.1 A)
 gofer session say <id> "<回复>" --deliver --takeover   # 没有 tmux 时起新进程 `--resume` 接管该会话, 这条消息作首条输入(§9.1 B)
 gofer session release-takeover <id>     # 解除接管: cancel 接管 job → 会话回 idle, 原终端恢复中继(未接管 → 409)
+gofer session watch <job-id> [--session <id>] # 登记当前会话盯住 job；省略 --session 按当前目录解析
 gofer session rm <id>                   # 移除登记(turn 保留)
 gofer hook claude|codex [--wait N]      # hook 执行体(由 hooks 配置调用, 人不直接用); 日志 <config-dir>/run/hook.log
 ```

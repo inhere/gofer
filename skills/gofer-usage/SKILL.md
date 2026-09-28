@@ -238,6 +238,7 @@ gofer session say <id> "<回复>"   # web 输入框的 CLI 等价(= 答最新 OP
 gofer session say <id> "<回复>" --deliver   # 无 turn 在等也送: 消息直接敲进该会话的 tmux 终端(§9.1 A)
 gofer session say <id> "<回复>" --deliver --takeover   # 没有 tmux 时: 起一个新进程 `--resume` 接管该会话并把这条消息作首条输入(§9.1 B)
 gofer session show <id>           # relay 行显示当前 mode + 判定依据(空闲多久 / 距上次人工输入多久)
+gofer session watch <job-id>      # 登记当前会话等待 job 终态；Stop 等待时完成通知会注入回终端
 gofer init hooks --remove         # 卸载
 ```
 
