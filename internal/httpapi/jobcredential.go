@@ -232,11 +232,14 @@ var jobCallerActions = map[string]string{
 	"POST /v1/agents/*/inbox/poll":          "poll an inbox",
 	// TUN-03: the forwarder registry and the preset store are display/configuration
 	// surfaces — a job neither listens on a port nor keeps an operator's presets.
-	"POST /v1/tunnels/forwarders":     "register a tunnel forwarder",
-	"PUT /v1/tunnels/forwarders/*":    "renew a tunnel forwarder",
-	"DELETE /v1/tunnels/forwarders/*": "remove a tunnel forwarder",
-	"PUT /v1/tunnels/presets/*":       "write a tunnel preset",
-	"DELETE /v1/tunnels/presets/*":    "delete a tunnel preset",
+	"POST /v1/tunnels/forwarders":      "register a tunnel forwarder",
+	"PUT /v1/tunnels/forwarders/*":     "renew a tunnel forwarder",
+	"DELETE /v1/tunnels/forwarders/*":  "remove a tunnel forwarder",
+	"POST /v1/tunnels/hosted/*":        "start a hosted tunnel forwarder",
+	"DELETE /v1/tunnels/hosted/*":      "stop a hosted tunnel forwarder",
+	"POST /v1/tunnels/local-presets/*": "import a local tunnel preset",
+	"PUT /v1/tunnels/presets/*":        "write a tunnel preset",
+	"DELETE /v1/tunnels/presets/*":     "delete a tunnel preset",
 }
 
 // jobCredentialMiddleware is SEC-01's gate. It runs AFTER authMiddleware (it needs the
