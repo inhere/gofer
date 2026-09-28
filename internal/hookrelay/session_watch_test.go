@@ -94,4 +94,11 @@ func TestStopHookMergesSimultaneousFinishes(t *testing.T) {
 	if strings.Index(got, "job-1") > strings.Index(got, "job-2") {
 		t.Fatalf("merged injection order = %q, want stable job order", got)
 	}
+	mixed := newFake()
+	mixed.sessions["sid-mixed"] = client.AgentSession{SessionID: "sid-mixed", RelayMode: client.RelayModeOn, WaitReason: client.WaitModeOn}
+	mixed.watchRows = []client.SessionJobWatch{{JobID: "job-1", Status: "done"}, {JobID: "job-running", Status: "running"}}
+	res, err = Run(mixed, payload(t, "claude", map[string]any{"session_id": "sid-mixed", "hook_event_name": "Stop", "last_assistant_message": "done"}), fastOpts(nil))
+	if err != nil || !res.Blocked || strings.Contains(res.Reason, "job-running") || len(mixed.watchRows) != 1 {
+		t.Fatalf("mixed terminal result=%+v watches=%+v err=%v", res, mixed.watchRows, err)
+	}
 }

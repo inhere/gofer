@@ -283,8 +283,8 @@ func (r *runner) stop() Result {
 	watched := []WatchedJob(nil)
 	if a.WatchCount > 0 {
 		watched = r.watchedJobs()
-		if r.releaseWatchedJobs(watched) {
-			return Result{Blocked: true, Reason: mergeWatchedTerminals(watched)}
+		if completed := r.releaseWatchedJobs(watched); len(completed) > 0 {
+			return Result{Blocked: true, Reason: mergeWatchedTerminals(completed)}
 		}
 	}
 	pollSec := r.opts.PollSec
@@ -324,8 +324,8 @@ func (r *runner) stop() Result {
 		failures = 0
 		if a.WatchCount > 0 {
 			watched = r.watchedJobs()
-			if r.releaseWatchedJobs(watched) {
-				return Result{Blocked: true, Reason: mergeWatchedTerminals(watched)}
+			if completed := r.releaseWatchedJobs(watched); len(completed) > 0 {
+				return Result{Blocked: true, Reason: mergeWatchedTerminals(completed)}
 			}
 		}
 		switch st.Outcome {
@@ -370,7 +370,7 @@ func (r *runner) watchedJobs() []WatchedJob {
 	return out
 }
 
-func (r *runner) releaseWatchedJobs(jobs []WatchedJob) bool {
+func (r *runner) releaseWatchedJobs(jobs []WatchedJob) []WatchedJob {
 	term := make([]WatchedJob, 0, len(jobs))
 	for _, item := range jobs {
 		if !isTerminalStatus(item.Status) {
@@ -379,14 +379,14 @@ func (r *runner) releaseWatchedJobs(jobs []WatchedJob) bool {
 		term = append(term, item)
 	}
 	if len(term) == 0 {
-		return false
+		return nil
 	}
 	for _, item := range term {
 		if err := r.api.RemoveSessionJobWatch(r.p.SessionID, item.ID); err != nil {
 			r.log("remove job watch %s failed: %v", item.ID, err)
 		}
 	}
-	return true
+	return term
 }
 
 func isTerminalStatus(status string) bool {
