@@ -69,6 +69,9 @@ func Init(root, prefix string, noAgentsMD bool) (*Store, bool, error) {
 	}
 	paths := []string{}
 	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
+		if name == "CLAUDE.md" && claudeImportsAgents(abs) {
+			continue
+		}
 		path := filepath.Join(abs, name)
 		if _, err := os.Stat(path); err == nil {
 			paths = append(paths, path)
@@ -104,6 +107,25 @@ func Init(root, prefix string, noAgentsMD bool) (*Store, bool, error) {
 		}
 	}
 	return s, beads, nil
+}
+
+// claudeImportsAgents reports whether root's CLAUDE.md pulls AGENTS.md in with
+// an `@AGENTS.md` line while AGENTS.md exists; the gofer block then belongs in
+// AGENTS.md only, or Claude reads it twice.
+func claudeImportsAgents(root string) bool {
+	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); err != nil {
+		return false
+	}
+	b, err := os.ReadFile(filepath.Join(root, "CLAUDE.md"))
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if strings.TrimSpace(line) == "@AGENTS.md" {
+			return true
+		}
+	}
+	return false
 }
 
 func appendOnce(path, line string) error {

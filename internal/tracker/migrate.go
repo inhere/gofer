@@ -199,7 +199,11 @@ func MigrateFromBD(root string, apply bool) (MigrationReport, error) {
 
 func migrateManagedBlocks(root string, report *MigrationReport) error {
 	found := false
+	importsAgents := claudeImportsAgents(root)
 	for _, name := range []string{"AGENTS.md", "CLAUDE.md"} {
+		// A CLAUDE.md that imports AGENTS.md loses its bd block but gets no
+		// gofer block of its own: AGENTS.md already carries it.
+		skipBlock := name == "CLAUDE.md" && importsAgents
 		path := filepath.Join(root, name)
 		b, err := os.ReadFile(path)
 		if os.IsNotExist(err) {
@@ -222,11 +226,11 @@ func migrateManagedBlocks(root string, report *MigrationReport) error {
 				end++
 			}
 			replacement := managedBlock
-			if strings.Contains(body, beginBlock) {
+			if skipBlock || strings.Contains(body, beginBlock) {
 				replacement = ""
 			}
 			body = body[:start] + replacement + body[end:]
-		} else if !strings.Contains(body, beginBlock) {
+		} else if !skipBlock && !strings.Contains(body, beginBlock) {
 			if body != "" && !strings.HasSuffix(body, "\n") {
 				body += "\n"
 			}
