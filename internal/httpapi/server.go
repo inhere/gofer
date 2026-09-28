@@ -238,6 +238,9 @@ type Server struct {
 	// server config, so a hot edit of server.tunnel.forwarder_ttl_sec applies to the
 	// next request. Tests replace it to shrink the TTL.
 	forwarders *tunnel.ForwarderRegistry
+	// hostedForwarders owns server-local listeners. It is injected after New so
+	// serve can bind the callback to its own HTTP address without widening New.
+	hostedForwarders *tunnel.HostedForwarderManager
 
 	// tunnelPresets is the TUN-03 server-side preset store (the tunnel_presets
 	// table). The narrow store seam (D2), injected post-construction by SetTunnelPresets
@@ -496,6 +499,48 @@ func New(serverCfg *config.ServerConfig, token string, allowEmptyToken bool, job
 	return s
 }
 
+// SetHostedForwarderDial enables server-local preset forwarding. The callback is
+// deliberately supplied by serve because it knows the effective listen address and
+// bearer token; tests may inject an in-process fake.
+func (s *Server) SetHostedForwarderDial(dial tunnel.HostedDial) {
+	s.hostedForwarders = tunnel.NewHostedForwarderManager(context.Background(), s.forwarders, dial)
+}
+
+func (s *Server) HostedForwarders() *tunnel.HostedForwarderManager { return s.hostedForwarders }
+
+func (s *Server) StopHostedForwarders() {
+	if s.hostedForwarders != nil {
+		s.hostedForwarders.StopAll()
+	}
+}
+
+// StartHostedAutostart restores only stored presets explicitly marked autostart.
+// Forwarder listeners bind immediately; worker dialing remains lazy inside the
+// Forwarder, so a worker reconnect race cannot prevent server startup.
+func (s *Server) StartHostedAutostart() {
+	if s.hostedForwarders == nil || s.tunnelPresets == nil {
+		return
+	}
+	recs, err := s.tunnelPresets.ListTunnelPresets()
+	if err != nil {
+		slog.Warn("tunnel.hosted_autostart_list_failed", "event", "tunnel.hosted_autostart_list_failed", "error", err)
+		return
+	}
+	for _, rec := range recs {
+		if !rec.Autostart {
+			continue
+		}
+		specs, err := tunnelPresetSpecs(rec)
+		if err != nil {
+			slog.Warn("tunnel.hosted_autostart_failed", "event", "tunnel.hosted_autostart_failed", "preset", rec.Name, "error", err)
+			continue
+		}
+		if _, err := s.hostedForwarders.Start(rec.Name, rec.Worker, specs); err != nil {
+			slog.Warn("tunnel.hosted_autostart_failed", "event", "tunnel.hosted_autostart_failed", "preset", rec.Name, "error", err)
+		}
+	}
+}
+
 // hasTag reports whether a job carries a tag — the terminal hook's filter below.
 // Tags are a small free-form list, so a linear scan IS the whole implementation.
 func hasTag(tags []string, tag string) bool {
@@ -697,7 +742,11 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/tunnels/forwarders", s.handleRegisterTunnelForwarder)
 		r.PUT("/tunnels/forwarders/{id}", s.handleHeartbeatTunnelForwarder)
 		r.DELETE("/tunnels/forwarders/{id}", s.handleDeleteTunnelForwarder)
+		r.POST("/tunnels/hosted/{name}", s.handleStartHostedForwarder)
+		r.DELETE("/tunnels/hosted/{name}", s.handleStopHostedForwarder)
 		r.GET("/tunnels/presets", s.handleListTunnelPresets)
+		r.GET("/tunnels/local-presets", s.handleListLocalTunnelPresets)
+		r.POST("/tunnels/local-presets/{name}", s.handleImportLocalTunnelPreset)
 		r.GET("/tunnels/presets/{name}", s.handleGetTunnelPreset)
 		r.PUT("/tunnels/presets/{name}", s.handlePutTunnelPreset)
 		r.DELETE("/tunnels/presets/{name}", s.handleDeleteTunnelPreset)

@@ -42,6 +42,9 @@ type ForwarderRegistration struct {
 	Specs    []ForwardSpec
 	Host     string
 	PID      int
+	// Hosted marks a forwarder owned by the server process. Hosted entries are
+	// live as long as their manager entry, not as long as a client heartbeat.
+	Hosted bool
 	// StartedAt is when the forwarder started listening (the client's own clock).
 	StartedAt time.Time
 	// LastSeenAt is stamped by Register and refreshed by every heartbeat; the TTL
@@ -165,6 +168,9 @@ func (r *ForwarderRegistry) List() []ForwarderRegistration {
 func (r *ForwarderRegistry) sweepLocked(now time.Time) {
 	ttl := r.TTL()
 	for id, reg := range r.items {
+		if reg.Hosted {
+			continue
+		}
 		if now.Sub(reg.LastSeenAt) > ttl {
 			delete(r.items, id)
 		}
