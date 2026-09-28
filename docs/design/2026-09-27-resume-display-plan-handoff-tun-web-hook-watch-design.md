@@ -112,4 +112,6 @@ JOB-12 的续接解析、落库/回填、查询与显示；其余三项的读写
 - Go：跟踪源文件 `gofmt` 无输出；`go build ./cmd/gofer` 的 Windows/Linux 目标均 exit 0；`go vet ./...` exit 0。构建输出包含既有 Go module stat cache 写入受限警告，但两个产物均生成。
 - 指定 Go 包测试：`internal/jobstore`、`internal/commands`、`internal/tracker` 通过；`internal/httpapi` 在 Windows 默认用户配置目录不可创建的既有环境问题下失败（`skill: create root C:\Users\KZL\.config\gofer\skills: mkdir C:\Users\KZL\.config: Cannot create a file because that file already exists`），并伴随测试清理时 database is closed；未归因于 PLAN-04 行为。`internal/mcpserver` 初始工具数量断言因新增工具失败，补齐固定工具清单后应重跑。
 - Web：原始 `pnpm test`、`pnpm typecheck`、`pnpm build` 均被 Windows 上 `esbuild@0.25.12` 安装脚本执行 ELF 二进制阻断（Node SyntaxError / `ERR_PNPM_EXECUTOR_LIFECYCLE_SCRIPT_FAILED`）；本机未发现可用 Win32 esbuild `.exe`，因此未伪报等效通过。监督者可在容器补跑原命令。
-- 边界：未 push，未启动/重启 live server/worker，未修改真实配置；G032 无新增兼容分支或删除项。prime 的可复用 handoff 截断 seam 已遵守“只截断 handoff 段并注明”，server 查询接线仍需在后续环境具备 server client 后补验。
+- 补缺验证（2026-09-29）：`repo prime` 已接入 CLI 同源的 config/env client 解析；按 cwd `ProjectForPath` 过滤 open plan，按 `updated_at` 倒序取最多 3 个并逐个读取最新 handoff。httptest 覆盖正常排序/3 条上限和 2 秒超时静默，固定测试通过；不可达/未识别项目沿相同 best-effort 路径省略段落。
+- Web 补缺已完成：历史接口按需加载，列出版本/更新人/时间，点选后以只读 Markdown 预览旧版本；最新版本编辑 CAS 语义不变。使用直接 Node 调用本地工具等效验证：`node node_modules/vue-tsc/bin/vue-tsc.js --noEmit` exit 0、`node node_modules/vitest/vitest.mjs run` 3 files/14 tests passed、`node node_modules/vite/bin/vite.js build` exit 0。原始 pnpm 命令仍受 Windows esbuild ELF postinstall 阻断，监督者可在容器补跑。
+- 边界：未 push，未启动/重启 live server/worker，未修改真实配置；G032 无新增兼容分支或删除项。prime 超过 8 KiB 时只截断 handoff 段并注明，既有 prime 段落保持不变。
