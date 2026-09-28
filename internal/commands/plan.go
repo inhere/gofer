@@ -2,6 +2,7 @@ package commands
 
 import (
 	"fmt"
+	"os"
 	"sort"
 	"strconv"
 	"strings"
@@ -224,12 +225,32 @@ var planAnswerOpts = struct {
 	answer string
 }{}
 
+var planHandoffOpts struct {
+	set     string
+	file    string
+	history bool
+	version int
+}
+
 // NewPlanCmd builds the `plan` command group for lightweight job grouping.
 func NewPlanCmd() *gcli.Command {
 	return &gcli.Command{
 		Name: "plan",
 		Desc: "Create and inspect job grouping plans",
 		Subs: []*gcli.Command{
+			{
+				Name: "handoff", Desc: "Show or update a plan handoff note",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					bindServerFlags(c)
+					c.AddArg("plan-id", "plan id", true)
+					c.StrOpt(&planHandoffOpts.set, "set", "", "", "replace with this handoff text")
+					c.StrOpt(&planHandoffOpts.file, "file", "f", "", "read handoff text from file")
+					c.BoolOpt(&planHandoffOpts.history, "history", "", false, "list handoff history")
+					c.IntOpt(&planHandoffOpts.version, "version", "", 0, "read a historical version")
+				},
+				Func: runPlanHandoff,
+			},
 			{
 				Name: "create",
 				Desc: "Create a plan",
@@ -443,6 +464,63 @@ func NewPlanCmd() *gcli.Command {
 			},
 		},
 	}
+}
+
+func runPlanHandoff(c *gcli.Command, _ []string) error {
+	id := argValue(c, "plan-id")
+	if id == "" {
+		return fmt.Errorf("plan handoff requires a <plan-id>")
+	}
+	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+	if err != nil {
+		return err
+	}
+	if planHandoffOpts.set != "" && planHandoffOpts.file != "" {
+		return fmt.Errorf("--set and --file are mutually exclusive")
+	}
+	if planHandoffOpts.set != "" || planHandoffOpts.file != "" {
+		body := planHandoffOpts.set
+		if planHandoffOpts.file != "" {
+			b, readErr := os.ReadFile(planHandoffOpts.file)
+			if readErr != nil {
+				return readErr
+			}
+			body = string(b)
+		}
+		latest, getErr := cli.GetPlanHandoff(id, 0)
+		expected := 0
+		if getErr == nil {
+			expected = latest.Version
+		}
+		h, setErr := cli.SetPlanHandoff(id, body, expected)
+		if setErr != nil {
+			return fmt.Errorf("handoff write conflict or failure; re-run gofer plan handoff %s: %w", id, setErr)
+		}
+		c.Printf("plan %s handoff version=%d by=%s\n", h.PlanID, h.Version, h.By)
+		c.Print(h.Body)
+		return nil
+	}
+	if planHandoffOpts.history {
+		h, err := cli.ListPlanHandoffHistory(id)
+		if err != nil {
+			return err
+		}
+		for _, v := range h {
+			c.Printf("version=%d by=%s at=%d\n", v.Version, v.By, v.At)
+		}
+		return nil
+	}
+	h, err := cli.GetPlanHandoff(id, planHandoffOpts.version)
+	if err != nil {
+		return err
+	}
+	if h.Version == 0 {
+		c.Println("no handoff")
+	} else {
+		c.Printf("version=%d by=%s at=%d\n", h.Version, h.By, h.At)
+		c.Print(h.Body)
+	}
+	return nil
 }
 
 func runPlanCreate(c *gcli.Command, _ []string) error {

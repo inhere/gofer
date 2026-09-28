@@ -1195,6 +1195,14 @@ type PlanUsage struct {
 	ByAgent     map[string]UsageAgent `json:"by_agent"`
 }
 
+type PlanHandoff struct {
+	PlanID  string `json:"plan_id"`
+	Version int    `json:"version"`
+	Body    string `json:"body"`
+	By      string `json:"by"`
+	At      int64  `json:"at"`
+}
+
 // Todo is the client-side view of a plan todo item. JobID "" is a plain todo.
 type Todo struct {
 	TodoID    string `json:"todo_id"`
@@ -1318,6 +1326,32 @@ func (c *Client) GetPlan(id string) (Plan, error) {
 	var p Plan
 	err := c.doJSON(http.MethodGet, "/v1/plans/"+url.PathEscape(id), nil, &p)
 	return p, err
+}
+
+func (c *Client) GetPlanHandoff(id string, version int) (PlanHandoff, error) {
+	path := "/v1/plans/" + url.PathEscape(id) + "/handoff"
+	if version > 0 {
+		path += "?version=" + strconv.Itoa(version)
+	}
+	var h PlanHandoff
+	err := c.doJSON(http.MethodGet, path, nil, &h)
+	return h, err
+}
+
+func (c *Client) ListPlanHandoffHistory(id string) ([]PlanHandoff, error) {
+	var h []PlanHandoff
+	err := c.doJSON(http.MethodGet, "/v1/plans/"+url.PathEscape(id)+"/handoff/history", nil, &h)
+	return h, err
+}
+
+func (c *Client) SetPlanHandoff(id, body string, expectedVersion int) (PlanHandoff, error) {
+	payload, err := json.Marshal(map[string]any{"body": body, "expected_version": expectedVersion})
+	if err != nil {
+		return PlanHandoff{}, err
+	}
+	var h PlanHandoff
+	err = c.doJSON(http.MethodPut, "/v1/plans/"+url.PathEscape(id)+"/handoff", bytes.NewReader(payload), &h)
+	return h, err
 }
 
 // UpdatePlan moves a plan along its lifecycle (PATCH /v1/plans/{id}, P6). status must be
