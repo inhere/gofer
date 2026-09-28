@@ -164,6 +164,10 @@ type RepoStatus struct {
 	ManagedBlock bool           `json:"managed_block"`
 	Hooks        string         `json:"hooks"`
 	Sync         string         `json:"sync"`
+	ProjectKey   string         `json:"project_key,omitempty"`
+	LastSyncAt   string         `json:"last_sync_at,omitempty"`
+	PendingSync  int            `json:"pending_sync"`
+	SyncSummary  string         `json:"sync_summary,omitempty"`
 }
 
 func (s *Store) Status() (RepoStatus, error) {
@@ -179,7 +183,7 @@ func (s *Store) Status() (RepoStatus, error) {
 	if err != nil {
 		return RepoStatus{}, err
 	}
-	status := RepoStatus{Tracker: s.Dir, Issues: map[string]int{"open": 0, "in_progress": 0, "blocked": 0, "closed": 0}, Memories: len(memories), CommitPolicy: cfg.CommitPolicy, Hooks: "未实现（P3/P4）", Sync: "未实现（P3/P4）"}
+	status := RepoStatus{Tracker: s.Dir, Issues: map[string]int{"open": 0, "in_progress": 0, "blocked": 0, "closed": 0}, Memories: len(memories), CommitPolicy: cfg.CommitPolicy, ProjectKey: cfg.ProjectKey, Hooks: "已检测", Sync: "未同步"}
 	for _, item := range issues {
 		status.Issues[item.Status]++
 	}

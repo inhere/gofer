@@ -687,6 +687,35 @@ var schemaStmts = []string{
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_push_subscriptions_caller
   ON push_subscriptions(caller_id, created_at)`,
+	`CREATE TABLE IF NOT EXISTS tracker_repos (
+  tracker_id TEXT PRIMARY KEY,
+  project_key TEXT NOT NULL DEFAULT '',
+  rel_path TEXT NOT NULL DEFAULT '',
+  prefix TEXT NOT NULL DEFAULT '',
+  last_sync_at INTEGER NOT NULL DEFAULT 0,
+  sync_summary TEXT NOT NULL DEFAULT ''
+)`,
+	`CREATE TABLE IF NOT EXISTS tracker_issues (
+  tracker_id TEXT NOT NULL,
+  issue_id TEXT NOT NULL,
+  body_json TEXT NOT NULL,
+  rev INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (tracker_id, issue_id)
+)`,
+	`CREATE TABLE IF NOT EXISTS tracker_memories (
+  tracker_id TEXT NOT NULL,
+  memory_key TEXT NOT NULL,
+  body_json TEXT NOT NULL,
+  rev INTEGER NOT NULL DEFAULT 1,
+  updated_at TEXT NOT NULL,
+  deleted INTEGER NOT NULL DEFAULT 0,
+  deleted_at TEXT NOT NULL DEFAULT '',
+  deleted_by TEXT NOT NULL DEFAULT '',
+  PRIMARY KEY (tracker_id, memory_key)
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_tracker_issues_updated ON tracker_issues(tracker_id, rev)`,
+	`CREATE INDEX IF NOT EXISTS idx_tracker_memories_updated ON tracker_memories(tracker_id, rev)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema

@@ -56,6 +56,7 @@ type Memory struct {
 type Config struct {
 	Prefix       string `yaml:"prefix" json:"prefix"`
 	TrackerID    string `yaml:"tracker_id" json:"tracker_id"`
+	ProjectKey   string `yaml:"project_key,omitempty" json:"project_key,omitempty"`
 	CommitPolicy string `yaml:"commit_policy" json:"commit_policy"`
 	AutoSync     bool   `yaml:"auto_sync" json:"auto_sync"`
 }

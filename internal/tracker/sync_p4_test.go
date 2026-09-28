@@ -7,15 +7,16 @@ import (
 
 func TestSyncThreeWayMerge(t *testing.T) {
 	base := SyncSnapshot{
-		Issues: []Issue{{ID: "p4-1", Title: "base", Status: "open", UpdatedAt: "2026-09-29T00:00:00Z"}},
+		Issues:   []Issue{{ID: "p4-1", Title: "base", Status: "open", UpdatedAt: "2026-09-29T00:00:00Z"}},
 		Memories: []Memory{{Key: "k", Content: "base", UpdatedAt: "2026-09-29T00:00:00Z", By: "base"}},
 	}
-	local := base
+	local := cloneSnapshot(base)
 	local.Issues[0].Description = "local"
 	local.Issues[0].Tags = []string{"local"}
+	local.Issues[0].Status = "in_progress"
 	local.Memories[0].Tags = []string{"a"}
 	local.Memories[0].UpdatedAt = "2026-09-29T00:00:01Z"
-	remote := base
+	remote := cloneSnapshot(base)
 	remote.Issues[0].Status = "blocked"
 	remote.Issues[0].Tags = []string{"remote"}
 	remote.Issues[0].UpdatedAt = "2026-09-29T00:00:02Z"
