@@ -10,7 +10,7 @@ require (
 	github.com/gookit/color v1.6.2-0.20260604125953-289d54c4470a
 	github.com/gookit/gcli/v3 v3.8.3
 	github.com/gookit/goutil v0.8.0
-	github.com/gookit/rux/v2 v2.0.2
+	github.com/gookit/rux/v2 v2.1.2
 	github.com/modelcontextprotocol/go-sdk v1.8.0
 	github.com/prometheus/client_golang v1.24.1
 	github.com/robfig/cron/v3 v3.0.1
