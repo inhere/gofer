@@ -123,3 +123,14 @@ JOB-12 的续接解析、落库/回填、查询与显示；其余三项的读写
 - Go：相关源文件 `gofmt -l` 无输出；定向 hosted 测试返回 `ok`。规定包测试终态为：`internal/tunnel`、`internal/commands`、`internal/jobstore` 返回 `ok`；`internal/httpapi` 因既有 Windows 默认用户配置目录创建冲突导致多项配置写测试失败，`internal/config` 因既有 `TestMapRootSymlinkEscape` symlink 基线失败；原始失败不归因于 TUN-05。
 - Web：原始 `pnpm typecheck` 在 Windows `esbuild@0.25.12` postinstall 执行 Linux ELF 时返回 `ERR_PNPM_EXECUTOR_LIFECYCLE_SCRIPT_FAILED`；使用仓库本地工具等效验证：`node node_modules/vue-tsc/bin/vue-tsc.js --noEmit` exit 0，`node node_modules/vitest/vitest.mjs run` 为 3 files/14 tests passed，`node node_modules/vite/bin/vite.js build` exit 0。监督者可在容器补跑原始 pnpm 命令。
 - 本期没有启动/重启 live server/worker，没有读取或修改真实 `D:\work\inhere\config\win-env\gofer` 或真实 `tunnels.yaml`，没有 push；G032 未新增无标记兼容分支，`autostart` 为 additive 字段，旧记录默认 false。
+
+## S4 实测记录（2026-09-29）
+
+- 三个固定测试先以目标行为缺失呈红并独立提交 `3e4aeb6`；实现后 `TestPostToolUseRegistersJobWatch`、`TestStopHookReleasesOnWatchedJobTerminal`、`TestStopHookMergesSimultaneousFinishes` 均通过。补充断言覆盖 Claude/Codex payload、同段 `job <id> finished: status=...` 不登记、Stop 开始前已终态立即注入、同轮两个终态合并。
+- 会话 watch 关系新增 `session_job_watches`，按 `(session_id, job_id)` 幂等；SessionEnd 和删除会话清空。HTTP 增加 watches 增/查/删，job caller 只能登记自己的 job，user caller 复用会话 owner 权限；实现提交 `7d6e343`、`4b027a4`。
+- Stop hook 通过已有 heartbeat 返回的 `watch_count` 判断是否有待盯 job：无待盯 job 时不增加 job 查询请求并保持原 `WaitSessionTurn` 窗口；有待盯 job 时将 wait 窗口压到最多 5 秒，并在窗口边界查询。Stop 开始后先查一次，所以已提前终态的 job 会立即合并注入；注入成功后移除 watch。hook/模板实现提交 `80b93e5`。
+- 显式命令为 `gofer session watch <job-id> [--session <id>]`，current-session 解析复用已有 cwd/session 文件；Claude/Codex 模板增加 shell-only `PostToolUse`，安装逻辑的 gofer-owned 去重/卸载测试已同步更新。
+- Web 会话列表显示待盯 job 的 id、标题、状态并链接到 job 详情；README、README.zh-CN 和 `skills/gofer-usage` 已补充自动识别、显式命令和 Stop 注入用法，Web/文档提交分别为 `5a02e3b`、`bc7e1ac`。
+- 定向 Go 固定测试、jobstore watch round-trip、HTTP watch contract 均返回 `ok`。全仓 tracked Go `gofmt -l` 无输出；Windows/Linux `go build` exit 0（Go module stat cache 有既存 Access is denied 警告）；`go vet ./...` exit 0。Web 使用仓库本地 Node 等效命令：Vitest 3 files/14 tests passed、vue-tsc exit 0、Vite build exit 0；原始 pnpm 命令在 Windows 的 esbuild postinstall 仍需按既有记录由容器补跑。
+- 指定 Go 整包测试在 Windows 默认用户配置目录问题下复现既知基线：`internal/commands`、`internal/jobstore` 最终 `ok`；`internal/httpapi` 的配置写测试因 `skill: create root C:\Users\KZL\.config\gofer\skills: mkdir C:\Users\KZL\.config: Cannot create a file because it already exists` 失败，并伴随 database is closed 清理告警；该失败与 S4 watch 行为无关，新增定向 HTTP watch 测试通过。
+- G032：未新增无标记兼容分支，未删除旧路径；新增字段/路由均为 additive。未 push、未启动或重载 live server/worker、未修改真实 `.claude/settings.json`/`.codex/hooks.json`。
