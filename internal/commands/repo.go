@@ -118,6 +118,7 @@ func NewRepoCmd() *gcli.Command {
 						}
 						return err
 					}
+					tryAutoSync(c, s)
 					body, err := primeWithServerHandoffs(s, config.InputCfgFile)
 					if err != nil {
 						return err

@@ -127,6 +127,7 @@ func NewIssueCmd() *gcli.Command {
 			if err != nil {
 				return err
 			}
+			tryAutoSync(c, s)
 			return printIssue(c, item)
 		}},
 		{Name: "update", Desc: "Update an issue", Config: func(c *gcli.Command) {
@@ -150,6 +151,7 @@ func NewIssueCmd() *gcli.Command {
 			if err != nil {
 				return err
 			}
+			tryAutoSync(c, s)
 			return printIssue(c, item)
 		}},
 		{Name: "close", Desc: "Close an issue", Config: func(c *gcli.Command) {
@@ -165,6 +167,7 @@ func NewIssueCmd() *gcli.Command {
 			if err != nil {
 				return err
 			}
+			tryAutoSync(c, s)
 			return printIssue(c, item)
 		}},
 		{Name: "dep", Desc: "Manage issue dependencies", Subs: []*gcli.Command{
@@ -181,6 +184,7 @@ func NewIssueCmd() *gcli.Command {
 				if err != nil {
 					return err
 				}
+				tryAutoSync(c, s)
 				return printIssue(c, item)
 			}},
 		}},

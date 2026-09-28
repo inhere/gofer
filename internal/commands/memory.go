@@ -37,6 +37,7 @@ func NewMemoryCmd() *gcli.Command {
 			if err != nil {
 				return err
 			}
+			tryAutoSync(c, s)
 			return printMemory(c, item)
 		}},
 		{Name: "ls", Aliases: []string{"list"}, Desc: "List memories", Config: func(c *gcli.Command) {
@@ -80,6 +81,7 @@ func NewMemoryCmd() *gcli.Command {
 			if err := s.RemoveMemory(key); err != nil {
 				return err
 			}
+			tryAutoSync(c, s)
 			if asJSON {
 				return printTrackerJSON(c, map[string]string{"removed": key})
 			}
