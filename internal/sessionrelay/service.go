@@ -776,6 +776,22 @@ func (s *Service) Delete(sid string) error {
 	return nil
 }
 
+// AddJobWatch records a job emitted by this terminal session. The store keeps
+// only the relation; job visibility is checked by the HTTP entry point.
+func (s *Service) AddJobWatch(sid, jobID string) (jobstore.SessionJobWatch, error) {
+	return s.store.AddSessionJobWatch(sid, jobID)
+}
+
+// JobWatches lists the jobs currently awaiting a Stop-hook completion notice.
+func (s *Service) JobWatches(sid string) ([]jobstore.SessionJobWatch, error) {
+	return s.store.ListSessionJobWatches(sid)
+}
+
+// RemoveJobWatch removes one completion notice after it has been injected.
+func (s *Service) RemoveJobWatch(sid, jobID string) (bool, error) {
+	return s.store.RemoveSessionJobWatch(sid, jobID)
+}
+
 // ReleaseTakeover undoes path B's takeover (design §9.1 B): the takeover job is
 // cancelled FIRST — while it runs, IT owns the CLI session, and releasing the
 // original terminal into a session two processes are writing would diverge it —

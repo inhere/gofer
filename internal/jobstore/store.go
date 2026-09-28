@@ -445,6 +445,13 @@ var schemaStmts = []string{
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_seen ON agent_sessions(state, last_seen_at)`,
 	`CREATE INDEX IF NOT EXISTS idx_agent_sessions_project ON agent_sessions(project_key)`,
+	`CREATE TABLE IF NOT EXISTS session_job_watches (
+  session_id TEXT NOT NULL,
+  job_id     TEXT NOT NULL,
+  created_at INTEGER NOT NULL,
+  PRIMARY KEY (session_id, job_id)
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_session_job_watches_job ON session_job_watches(job_id)`,
 	// xfers is the XFER-01 file-transfer journal (design §一.2). One row per
 	// transfer: op put|get, the runner that executes it (worker id or `local`),
 	// the project-relative destination/source path, the byte size + sha256 and the

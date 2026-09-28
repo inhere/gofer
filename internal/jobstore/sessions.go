@@ -487,6 +487,9 @@ func (s *Store) IncrSessionTurn(sid string) (int64, bool, error) {
 func (s *Store) DeleteAgentSession(sid string) (bool, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
+	if _, err := s.db.Exec("DELETE FROM session_job_watches WHERE session_id=?", sid); err != nil {
+		return false, fmt.Errorf("jobstore: clear session watches %q: %w", sid, err)
+	}
 	res, err := s.db.Exec("DELETE FROM agent_sessions WHERE session_id=?", sid)
 	if err != nil {
 		return false, fmt.Errorf("jobstore: delete agent session %q: %w", sid, err)

@@ -15,6 +15,102 @@ import (
 	"github.com/inhere/gofer/internal/sessionrelay"
 )
 
+type sessionWatchView struct {
+	JobID     string `json:"job_id"`
+	Title     string `json:"title,omitempty"`
+	Status    string `json:"status"`
+	ExitCode  int    `json:"exit_code"`
+	StartedAt int64  `json:"started_at,omitempty"`
+	EndedAt   int64  `json:"ended_at,omitempty"`
+	Duration  int64  `json:"duration_sec,omitempty"`
+}
+
+func (s *Server) sessionWatchView(w jobstore.SessionJobWatch) (sessionWatchView, bool) {
+	res, ok := s.jobs.Get(w.JobID)
+	if !ok {
+		return sessionWatchView{}, false
+	}
+	duration := int64(0)
+	if res.StartedAt > 0 && res.EndedAt >= res.StartedAt {
+		duration = res.EndedAt - res.StartedAt
+	}
+	return sessionWatchView{JobID: res.ID, Title: res.Title, Status: res.Status,
+		ExitCode: res.ExitCode, StartedAt: res.StartedAt, EndedAt: res.EndedAt,
+		Duration: duration}, true
+}
+
+func (s *Server) handleAddSessionWatch(c *rux.Context) {
+	if !s.relayReady(c) {
+		return
+	}
+	var body struct {
+		JobID string `json:"job_id"`
+	}
+	if err := c.BindJSON(&body); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	jobID := strings.TrimSpace(body.JobID)
+	if jobID == "" {
+		writeError(c, http.StatusBadRequest, "job_id required", "a session watch requires job_id")
+		return
+	}
+	if !s.jobMayWatchJob(c, jobID) {
+		return
+	}
+	if _, isJob := jobCallerFromCtx(c); !isJob && !s.sessionMayAnswer(c, c.Param("sid"), "watch job") {
+		return
+	}
+	if _, ok := s.jobs.Get(jobID); !ok {
+		writeError(c, http.StatusNotFound, "job not found", jobID)
+		return
+	}
+	w, err := s.relay.AddJobWatch(c.Param("sid"), jobID)
+	if err != nil {
+		writeError(c, relayStatus(err), "add session watch failed", err.Error())
+		return
+	}
+	view, _ := s.sessionWatchView(w)
+	c.JSON(http.StatusOK, view)
+}
+
+func (s *Server) handleListSessionWatches(c *rux.Context) {
+	if !s.relayReady(c) {
+		return
+	}
+	if _, err := s.relay.Session(c.Param("sid")); err != nil {
+		writeError(c, relayStatus(err), "list session watches failed", err.Error())
+		return
+	}
+	watches, err := s.relay.JobWatches(c.Param("sid"))
+	if err != nil {
+		writeError(c, relayStatus(err), "list session watches failed", err.Error())
+		return
+	}
+	out := make([]sessionWatchView, 0, len(watches))
+	for _, w := range watches {
+		if view, ok := s.sessionWatchView(w); ok {
+			out = append(out, view)
+		}
+	}
+	c.JSON(http.StatusOK, map[string]any{"watches": out})
+}
+
+func (s *Server) handleRemoveSessionWatch(c *rux.Context) {
+	if !s.relayReady(c) {
+		return
+	}
+	if !s.sessionMayAnswer(c, c.Param("sid"), "remove job watch") {
+		return
+	}
+	ok, err := s.relay.RemoveJobWatch(c.Param("sid"), c.Param("job_id"))
+	if err != nil {
+		writeError(c, http.StatusInternalServerError, "remove session watch failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"removed": ok})
+}
+
 // sessionView is the HTTP projection of an agent_sessions row (session relay,
 // SESS-01 §5). Timestamps are unix seconds.
 type sessionView struct {
@@ -66,7 +162,8 @@ type sessionView struct {
 	// on stderr (design §9.1 B): set while the session is taken over, so the person
 	// at the keyboard learns why its relay went quiet and where to continue. Empty
 	// for every other state — an ordinary session has nothing to announce.
-	Notice string `json:"notice,omitempty"`
+	Notice     string `json:"notice,omitempty"`
+	WatchCount int    `json:"watch_count,omitempty"`
 }
 
 // toSessionView projects a stored session. Relay / WaitReason / AutoArmed are
@@ -74,8 +171,12 @@ type sessionView struct {
 // mode and readings).
 func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 	reason, detail := "", ""
+	watchCount := 0
 	if s.relay != nil {
 		reason, detail = s.relay.WaitDecision(a)
+		if watches, err := s.relay.JobWatches(a.SessionID); err == nil {
+			watchCount = len(watches)
+		}
 	}
 	return sessionView{
 		SessionID: a.SessionID, Agent: a.Agent, ProjectKey: a.ProjectKey, Runner: a.Runner,
@@ -86,7 +187,7 @@ func (s *Server) toSessionView(a jobstore.AgentSession) sessionView {
 		LastEvent: a.LastEvent, LastSeenAt: a.LastSeenAt, StartedAt: a.StartedAt, EndedAt: a.EndedAt,
 		AutoArmed: reason == sessionrelay.WaitIdleProbe, IdleSec: a.IdleSec, LastHumanAt: a.LastHumanAt,
 		HandedOffJobID: a.HandedOffJobID, HandedOffAt: a.HandedOffAt,
-		Notice: handedOffNotice(a),
+		Notice: handedOffNotice(a), WatchCount: watchCount,
 	}
 }
 

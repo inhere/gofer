@@ -1992,6 +1992,7 @@ type AgentSession struct {
 	HandedOffAt    int64  `json:"handed_off_at,omitempty"`
 	Notice         string `json:"notice,omitempty"`
 	LastHumanAt    int64  `json:"last_human_at,omitempty"`
+	WatchCount     int    `json:"watch_count,omitempty"`
 }
 
 // Relay wait reasons reported by the server (see sessionrelay.WaitReason); the
@@ -2042,6 +2043,17 @@ type SessionHeartbeat struct {
 type SessionDetail struct {
 	Session AgentSession `json:"session"`
 	Turns   []Decision   `json:"turns"`
+}
+
+// SessionJobWatch is a job summary held for Stop-hook completion injection.
+type SessionJobWatch struct {
+	JobID     string `json:"job_id"`
+	Title     string `json:"title,omitempty"`
+	Status    string `json:"status"`
+	ExitCode  int    `json:"exit_code"`
+	StartedAt int64  `json:"started_at,omitempty"`
+	EndedAt   int64  `json:"ended_at,omitempty"`
+	Duration  int64  `json:"duration_sec,omitempty"`
 }
 
 // TurnStatus is GET /v1/sessions/{sid}/turns/{id}: outcome is one of
@@ -2127,6 +2139,31 @@ func (c *Client) GetSession(sid string) (SessionDetail, error) {
 	var d SessionDetail
 	err := c.doJSON(http.MethodGet, "/v1/sessions/"+url.PathEscape(sid), nil, &d)
 	return d, err
+}
+
+// AddSessionJobWatch registers a job for the session's Stop hook.
+func (c *Client) AddSessionJobWatch(sid, jobID string) (SessionJobWatch, error) {
+	body, err := json.Marshal(map[string]string{"job_id": jobID})
+	if err != nil {
+		return SessionJobWatch{}, fmt.Errorf("encode session watch: %w", err)
+	}
+	var out SessionJobWatch
+	err = c.doJSON(http.MethodPost, "/v1/sessions/"+url.PathEscape(sid)+"/watches", bytes.NewReader(body), &out)
+	return out, err
+}
+
+// ListSessionJobWatches returns the session's currently pending job watches.
+func (c *Client) ListSessionJobWatches(sid string) ([]SessionJobWatch, error) {
+	var out struct {
+		Watches []SessionJobWatch `json:"watches"`
+	}
+	err := c.doJSON(http.MethodGet, "/v1/sessions/"+url.PathEscape(sid)+"/watches", nil, &out)
+	return out.Watches, err
+}
+
+// RemoveSessionJobWatch removes a pending completion watch.
+func (c *Client) RemoveSessionJobWatch(sid, jobID string) error {
+	return c.doJSON(http.MethodDelete, "/v1/sessions/"+url.PathEscape(sid)+"/watches/"+url.PathEscape(jobID), nil, nil)
 }
 
 // SetSessionRelayMode sets the three-state relay switch (auto|on|off, R1).

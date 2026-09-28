@@ -151,7 +151,8 @@ var jobWriteAllowlist = map[string]bool{
 	"POST /v1/decisions": true,
 	// A wakeup on the job ITSELF: "continue me when this fires". "Own" is enforced in
 	// the handler.
-	"POST /v1/jobs/*/wakeups": true,
+	"POST /v1/jobs/*/wakeups":     true,
+	"POST /v1/sessions/*/watches": true,
 	// plan set-todo: leader-only, own plan, ready|skipped — all three need the body and
 	// the item's plan, so they are checked in the handler.
 	"PATCH /v1/todos/*": true,
@@ -285,6 +286,21 @@ func (s *Server) jobMayWakeJob(c *rux.Context, jobID string) bool {
 	}
 	writeError(c, http.StatusForbidden, "job credential may not wake another job",
 		"a "+jc.describe()+" may only register wakeups on itself (job "+jc.JobID+")")
+	return false
+}
+
+// jobMayWatchJob keeps a job credential from registering a different job in a
+// session. User callers retain the ordinary session-owner checks in the handler.
+func (s *Server) jobMayWatchJob(c *rux.Context, jobID string) bool {
+	jc, ok := jobCallerFromCtx(c)
+	if !ok {
+		return true
+	}
+	if jc.JobID == jobID {
+		return true
+	}
+	writeError(c, http.StatusForbidden, "job credential may not watch another job",
+		"a "+jc.describe()+" may only watch itself (job "+jc.JobID+")")
 	return false
 }
 
