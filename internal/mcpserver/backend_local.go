@@ -268,6 +268,30 @@ func (b *localBackend) GetPlan(planID string) (planView, error) {
 	return pv, nil
 }
 
+func (b *localBackend) GetPlanHandoff(planID string, version int) (jobstore.PlanHandoff, error) {
+	h, ok, err := b.jobs.Meta().GetPlanHandoff(planID, version)
+	if err != nil {
+		return jobstore.PlanHandoff{}, err
+	}
+	if !ok {
+		return jobstore.PlanHandoff{}, fmt.Errorf("no handoff for plan %q", planID)
+	}
+	return h, nil
+}
+
+func (b *localBackend) SetPlanHandoff(planID, body string, expectedVersion int) (jobstore.PlanHandoff, error) {
+	if _, ok, err := b.jobs.Meta().GetPlan(planID); err != nil {
+		return jobstore.PlanHandoff{}, err
+	} else if !ok {
+		return jobstore.PlanHandoff{}, fmt.Errorf("unknown plan %q", planID)
+	}
+	h, err := b.jobs.Meta().SetPlanHandoff(planID, body, "mcp", expectedVersion)
+	if err == nil {
+		b.jobs.RecordScopedEvent(job.PlanEventScope(planID), job.EventPlanHandoffUpdated, "", map[string]any{"plan_id": planID, "version": h.Version, "by": h.By})
+	}
+	return h, err
+}
+
 func (b *localBackend) AddTodo(planID, title, jobID, note string, patch jobstore.TodoPatch) (todoView, error) {
 	if strings.TrimSpace(title) == "" {
 		return todoView{}, fmt.Errorf("title required")

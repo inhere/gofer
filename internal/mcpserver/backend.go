@@ -54,6 +54,8 @@ type Backend interface {
 	CreatePlan(title, description string) (planView, error)
 	AttachJob(planID, jobID string) (planView, error)
 	GetPlan(planID string) (planView, error)
+	GetPlanHandoff(planID string, version int) (jobstore.PlanHandoff, error)
+	SetPlanHandoff(planID, body string, expectedVersion int) (jobstore.PlanHandoff, error)
 	AddTodo(planID, title, jobID, note string, patch jobstore.TodoPatch) (todoView, error)
 	// UpdateTodo moves a todo along its lifecycle (status ""=keep) and/or
 	// updates its note (nil=keep) or APPENDS a line to it (appendNote != ""),

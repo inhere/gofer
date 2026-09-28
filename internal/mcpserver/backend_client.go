@@ -191,6 +191,22 @@ func (b *clientBackend) GetPlan(planID string) (planView, error) {
 	return clientPlanToView(p), nil
 }
 
+func (b *clientBackend) GetPlanHandoff(planID string, version int) (jobstore.PlanHandoff, error) {
+	h, err := b.cli.GetPlanHandoff(planID, version)
+	if err != nil {
+		return jobstore.PlanHandoff{}, err
+	}
+	return jobstore.PlanHandoff{PlanID: h.PlanID, Version: h.Version, Body: h.Body, By: h.By, At: h.At}, nil
+}
+
+func (b *clientBackend) SetPlanHandoff(planID, body string, expectedVersion int) (jobstore.PlanHandoff, error) {
+	h, err := b.cli.SetPlanHandoff(planID, body, expectedVersion)
+	if err != nil {
+		return jobstore.PlanHandoff{}, err
+	}
+	return jobstore.PlanHandoff{PlanID: h.PlanID, Version: h.Version, Body: h.Body, By: h.By, At: h.At}, nil
+}
+
 func (b *clientBackend) AddTodo(planID, title, jobID, note string, patch jobstore.TodoPatch) (todoView, error) {
 	t, err := b.cli.AddTodo(planID, title, jobID, note, patch)
 	if err != nil {

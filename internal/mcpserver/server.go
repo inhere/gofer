@@ -231,6 +231,10 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 		Name:        "gofer_plan_run",
 		Description: "Start a plan's dependency chain: queue every pending item whose `after` dependencies are done or skipped and that has an assignee (root items included), release a pause/block, and return the plan header {plan_id, status, paused, blocked_todo, ...}. Items then run one after another as each finishes; a failed chain item parks the plan (status=blocked, blocked_todo names it).",
 	}, planRunHandler(b))
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_plan_handoff",
+		Description: "Read or write a plan's versioned Markdown handoff note. action=get reads the latest or version; action=set appends a version using expected_version.",
+	}, planHandoffHandler(b))
 
 	// JOB-09 wakeups: end the run and be woken when the condition arrives. An agent
 	// running inside a job passes ITS OWN id (job_id = the value of GOFER_JOB_ID) to
@@ -274,6 +278,32 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 	}, askHumanHandler(b))
 
 	return s
+}
+
+type planHandoffToolInput struct {
+	Action          string `json:"action"`
+	PlanID          string `json:"plan_id"`
+	Body            string `json:"body,omitempty"`
+	ExpectedVersion int    `json:"expected_version,omitempty"`
+	Version         int    `json:"version,omitempty"`
+}
+
+func planHandoffHandler(b Backend) mcp.ToolHandlerFor[planHandoffToolInput, jobstore.PlanHandoff] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in planHandoffToolInput) (*mcp.CallToolResult, jobstore.PlanHandoff, error) {
+		if in.PlanID == "" {
+			return nil, jobstore.PlanHandoff{}, fmt.Errorf("plan_id is required")
+		}
+		switch in.Action {
+		case "get":
+			h, err := b.GetPlanHandoff(in.PlanID, in.Version)
+			return nil, h, err
+		case "set":
+			h, err := b.SetPlanHandoff(in.PlanID, in.Body, in.ExpectedVersion)
+			return nil, h, err
+		default:
+			return nil, jobstore.PlanHandoff{}, fmt.Errorf("action must be get or set")
+		}
+	}
 }
 
 // Serve builds the MCP server over the given Backend and runs it over stdio. It
