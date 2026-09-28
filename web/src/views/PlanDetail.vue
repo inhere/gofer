@@ -18,7 +18,7 @@ import PlanBoard from '../components/PlanBoard.vue'
 import CommentThread from '../components/CommentThread.vue'
 import MarkdownBlock from '../components/MarkdownBlock.vue'
 import {
-  addTodo, answerDecision, attachJob, getPlan, getPlanHandoff, listAgents, listPlanEvents, patchTodo, planPause,
+  addTodo, answerDecision, attachJob, getPlan, getPlanHandoff, listAgents, listPlanEvents, listPlanHandoffHistory, patchTodo, planPause,
   setPlanHandoff,
   planResume, planRun, setPlanLeader, updatePlan, updateTodo, updateTodoStatus,
 } from '../api/client'
@@ -44,6 +44,9 @@ const handoffBy = ref('')
 const handoffAt = ref(0)
 const handoffSaving = ref(false)
 const handoffError = ref('')
+const handoffHistory = ref<import('../api/types').PlanHandoff[]>([])
+const handoffHistoryOpen = ref(false)
+const handoffReadOnly = ref<import('../api/types').PlanHandoff | null>(null)
 
 // 操作态
 const newTodoTitle = ref('')
@@ -565,6 +568,12 @@ async function saveHandoff(): Promise<void> {
 	} finally { handoffSaving.value = false }
 }
 
+async function toggleHandoffHistory(): Promise<void> {
+	handoffHistoryOpen.value = !handoffHistoryOpen.value
+	if (!handoffHistoryOpen.value || handoffHistory.value.length > 0) return
+	try { handoffHistory.value = await listPlanHandoffHistory(props.id) } catch (e) { handoffError.value = e instanceof Error ? e.message : String(e) }
+}
+
 async function onToggleTodo(t: Todo): Promise<void> {
   opError.value = ''
   try {
@@ -893,9 +902,22 @@ onUnmounted(() => {
       <div class="section-head"><h2 class="section-title mono">交接说明</h2><span v-if="handoffVersion" class="mono">v{{ handoffVersion }} · {{ handoffBy }} · {{ fmtDateTime(handoffAt) }}</span></div>
       <MarkdownBlock v-if="handoffText" :text="handoffText" />
       <p v-else class="empty mono">暂无交接说明</p>
+      <div v-if="handoffReadOnly" class="handoff-history-preview">
+        <div class="mono">历史版本 v{{ handoffReadOnly.version }} · {{ handoffReadOnly.by }} · {{ fmtDateTime(handoffReadOnly.at) }}</div>
+        <MarkdownBlock :text="handoffReadOnly.body" />
+      </div>
       <textarea v-model="handoffText" class="op-input handoff-editor" rows="6" placeholder="记录当前进度、下一步和未决事项" />
       <p v-if="handoffError" class="error mono">{{ handoffError }}</p>
-      <button class="op-btn" type="button" :disabled="handoffSaving" @click="saveHandoff">{{ handoffSaving ? '保存中…' : '保存交接说明' }}</button>
+      <div class="handoff-actions">
+        <button class="op-btn" type="button" :disabled="handoffSaving" @click="saveHandoff">{{ handoffSaving ? '保存中…' : '保存交接说明' }}</button>
+        <button class="op-btn" type="button" @click="toggleHandoffHistory">{{ handoffHistoryOpen ? '收起历史' : '展开历史' }}</button>
+      </div>
+      <div v-if="handoffHistoryOpen" class="handoff-history-list">
+        <button v-for="item in handoffHistory" :key="item.version" class="handoff-history-item mono" type="button" @click="handoffReadOnly = item">
+          v{{ item.version }} · {{ item.by }} · {{ fmtDateTime(item.at) }}
+        </button>
+        <p v-if="handoffHistory.length === 0" class="empty mono">暂无历史版本</p>
+      </div>
     </section>
 
     <!-- WEB-10 头部操作条：进度（done+skipped/total）+ 用量汇总 + 链操作（PLAN-03）。 -->
