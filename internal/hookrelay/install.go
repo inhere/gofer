@@ -39,39 +39,39 @@ func InstallTrackerPrime(agent, root string, replaceBd bool) (bool, error) {
 	if hookMap == nil {
 		hookMap = map[string]any{}
 	}
-	entries, _ := hookMap["SessionStart"].([]any)
 	changed := false
+	if replaceBd {
+		// Older bd setups use a plain `bd prime` (no --hook-json) and also hang
+		// it on PreCompact; any of them would keep injecting bd's rules, so every
+		// bd prime command goes, on every event. SessionStart fires again after a
+		// compaction, so the gofer prime installed below covers that case too.
+		for event, rawEntries := range hookMap {
+			list, _ := rawEntries.([]any)
+			if list == nil {
+				continue
+			}
+			kept, removed := dropBdPrime(list)
+			if !removed {
+				continue
+			}
+			changed = true
+			if len(kept) == 0 {
+				delete(hookMap, event)
+			} else {
+				hookMap[event] = kept
+			}
+		}
+	}
+	entries, _ := hookMap["SessionStart"].([]any)
 	found := false
 	for _, entry := range entries {
 		group, _ := entry.(map[string]any)
 		hooks, _ := group["hooks"].([]any)
 		for _, hook := range hooks {
 			item, _ := hook.(map[string]any)
-			cmd, _ := item["command"].(string)
-			if cmd == trackerPrimeCommand {
+			if cmd, _ := item["command"].(string); cmd == trackerPrimeCommand {
 				found = true
 			}
-		}
-	}
-	if replaceBd {
-		for _, entry := range entries {
-			group, _ := entry.(map[string]any)
-			hooks, _ := group["hooks"].([]any)
-			kept := make([]any, 0, len(hooks))
-			for _, hook := range hooks {
-				item, _ := hook.(map[string]any)
-				cmd, _ := item["command"].(string)
-				if cmd == "bd prime --hook-json" {
-					changed = true
-					if found {
-						continue
-					}
-					item["command"] = trackerPrimeCommand
-					found = true
-				}
-				kept = append(kept, hook)
-			}
-			group["hooks"] = kept
 		}
 	}
 	if !found {
@@ -91,6 +91,33 @@ func InstallTrackerPrime(agent, root string, replaceBd bool) (bool, error) {
 		return false, err
 	}
 	return true, os.WriteFile(path, append(out, '\n'), 0o644)
+}
+
+// dropBdPrime removes every hook whose command is `bd prime` (with or without
+// flags) from one event's groups, dropping groups that end up empty.
+func dropBdPrime(groups []any) (kept []any, removed bool) {
+	for _, entry := range groups {
+		group, _ := entry.(map[string]any)
+		hooks, _ := group["hooks"].([]any)
+		keptHooks := make([]any, 0, len(hooks))
+		for _, hook := range hooks {
+			item, _ := hook.(map[string]any)
+			cmd, _ := item["command"].(string)
+			if cmd == "bd prime" || strings.HasPrefix(cmd, "bd prime ") {
+				removed = true
+				continue
+			}
+			keptHooks = append(keptHooks, hook)
+		}
+		if len(keptHooks) == 0 && len(hooks) > 0 {
+			continue
+		}
+		if group != nil {
+			group["hooks"] = keptHooks
+		}
+		kept = append(kept, entry)
+	}
+	return kept, removed
 }
 
 func HasTrackerPrime(agent, root string) bool {
