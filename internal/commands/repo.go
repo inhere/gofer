@@ -1,9 +1,11 @@
 package commands
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -19,11 +21,63 @@ import (
 )
 
 func NewRepoCmd() *gcli.Command {
-	var prefix, initTracker, statusTracker string
+	var prefix, initTracker, statusTracker, syncServer string
 	var noAgents, noHooks, asJSON, fromBD, applyMigration bool
 	return &gcli.Command{
 		Name: "repo", Desc: "Manage this repository's local tracker",
 		Subs: []*gcli.Command{
+			{
+				Name: "sync", Desc: "Synchronize the local tracker with a server mirror",
+				Config: func(c *gcli.Command) {
+					bindConfigFlag(c)
+					c.StrOpt(&syncServer, "server", "", "", "tracker mirror URL (required; no live fallback)")
+				},
+				Func: func(c *gcli.Command, _ []string) error {
+					if strings.TrimSpace(syncServer) == "" {
+						return fmt.Errorf("--server is required; offline local writes remain available")
+					}
+					s, err := tracker.Discover(".", "")
+					if err != nil {
+						return err
+					}
+					cfg, err := s.ReadConfig()
+					if err != nil {
+						return err
+					}
+					issues, err := s.ReadIssues()
+					if err != nil {
+						return err
+					}
+					memories, err := s.ReadMemories()
+					if err != nil {
+						return err
+					}
+					payload := map[string]any{"tracker_id": cfg.TrackerID, "project_key": cfg.ProjectKey, "prefix": cfg.Prefix, "issues": issues, "memories": memories}
+					body, err := json.Marshal(payload)
+					if err != nil {
+						return err
+					}
+					ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+					defer cancel()
+					req, err := http.NewRequestWithContext(ctx, http.MethodPost, strings.TrimRight(syncServer, "/")+"/v1/tracker/sync", bytes.NewReader(body))
+					if err != nil {
+						return err
+					}
+					req.Header.Set("Content-Type", "application/json")
+					resp, err := http.DefaultClient.Do(req)
+					if err != nil {
+						c.Printf("sync warning: %v\n", err)
+						return nil
+					}
+					defer resp.Body.Close()
+					if resp.StatusCode >= 300 {
+						c.Printf("sync warning: server returned %s\n", resp.Status)
+						return nil
+					}
+					c.Printf("sync: tracker_id=%s server=%s\n", cfg.TrackerID, syncServer)
+					return nil
+				},
+			},
 			{
 				Name: "migrate", Desc: "Migrate local bd issues and memories",
 				Config: func(c *gcli.Command) {
