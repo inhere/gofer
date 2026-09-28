@@ -97,8 +97,15 @@ func TestSyncThreeWayMerge(t *testing.T) {
 	if resp.StatusCode >= 300 {
 		t.Fatalf("web issue edit status=%d", resp.StatusCode)
 	}
-	syncTracker(t, e)
-	got, err := e.local.Issue(issue.ID)
+	var got tracker.Issue
+	for i := 0; i < 20; i++ {
+		syncTracker(t, e)
+		got, err = e.local.Issue(issue.ID)
+		if err == nil && len(got.Notes) > 0 {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -156,7 +163,7 @@ func TestJobIssueLinkAppendsNotes(t *testing.T) {
 		t.Fatal(err)
 	}
 	syncTracker(t, e)
-	resp := do(t, e.server, http.MethodPost, "/v1/jobs", "tok", job.JobRequest{ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 10})
+	resp := do(t, e.server, http.MethodPost, "/v1/jobs", "tok", job.JobRequest{ProjectKey: "self", Agent: "exec", Runner: "local", Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 10, IssueID: issue.ID, TrackerID: mustConfig(t, e.local).TrackerID})
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("submit status=%d", resp.StatusCode)
 	}
@@ -171,15 +178,13 @@ func TestJobIssueLinkAppendsNotes(t *testing.T) {
 		r := do(t, e.server, http.MethodGet, "/v1/jobs/"+jr.ID, "tok", nil)
 		decode(t, r, &jr)
 	}
-	linked := tracker.LinkIssueToJob(issue, tracker.JobIssueEvent{JobID: jr.ID, Phase: "started", At: tracker.Now()})
-	linked = tracker.LinkIssueToJob(linked, tracker.JobIssueEvent{JobID: jr.ID, Phase: "finished", Status: string(jr.Status), At: tracker.Now(), Commits: []string{"commit-1"}, Uncommitted: []string{"changed.go"}})
-	if _, err := e.local.UpdateIssue(issue.ID, tracker.IssuePatch{AppendNotes: linked.Notes[len(linked.Notes)-1].Text, Actor: "job:" + jr.ID}); err != nil {
-		t.Fatal(err)
-	}
 	syncTracker(t, e)
 	got, err := e.local.Issue(issue.ID)
 	if err != nil || len(got.Notes) == 0 {
 		t.Fatalf("linked notes missing: err=%v issue=%+v", err, got)
+	}
+	if got.Status != "in_progress" {
+		t.Fatalf("linked status=%q", got.Status)
 	}
 }
 
