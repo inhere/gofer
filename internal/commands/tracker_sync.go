@@ -2,6 +2,8 @@ package commands
 
 import (
 	"context"
+	"fmt"
+	"os"
 	"strings"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 )
 
 func tryAutoSync(c *gcli.Command, s *tracker.Store) {
+	_ = c
 	cfg, err := s.ReadConfig()
 	if err != nil || !cfg.AutoSync {
 		return
@@ -22,6 +25,6 @@ func tryAutoSync(c *gcli.Command, s *tracker.Store) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	if _, err := tracker.SyncHTTPWithToken(ctx, s, strings.TrimRight(cli.BaseURL(), "/"), cli.Token()); err != nil {
-		c.Printf("sync warning: %v\n", err)
+		fmt.Fprintln(os.Stderr, "sync warning:", err)
 	}
 }
