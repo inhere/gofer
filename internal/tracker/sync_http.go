@@ -13,7 +13,9 @@ import (
 )
 
 type syncHTTPResponse struct {
-	Issues []struct {
+	IssueCursor  int64 `json:"issue_cursor"`
+	MemoryCursor int64 `json:"memory_cursor"`
+	Issues       []struct {
 		ID        string          `json:"id"`
 		Body      json.RawMessage `json:"body"`
 		Rev       int64           `json:"rev"`
@@ -31,8 +33,10 @@ type syncHTTPResponse struct {
 }
 
 type syncMeta struct {
-	LastSyncAt string `json:"last_sync_at"`
-	Summary    string `json:"summary"`
+	LastSyncAt   string `json:"last_sync_at"`
+	Summary      string `json:"summary"`
+	IssueCursor  int64  `json:"issue_cursor"`
+	MemoryCursor int64  `json:"memory_cursor"`
 }
 
 // SyncHTTP is the command/runtime sync path. It persists the last successful
@@ -59,6 +63,7 @@ func SyncHTTPWithToken(ctx context.Context, s *Store, endpoint, token string) (S
 		return SyncReport{}, err
 	}
 	base, _ := readSyncBase(s.Dir)
+	meta := readSyncMeta(s.Dir)
 	local := SyncSnapshot{Issues: issues, Memories: memories}
 	issueRecords := make([]map[string]any, 0, len(issues))
 	baseIssues := indexIssues(base.Issues)
@@ -84,7 +89,7 @@ func SyncHTTPWithToken(ctx context.Context, s *Store, endpoint, token string) (S
 			memoryRecords = append(memoryRecords, map[string]any{"id": key, "body": json.RawMessage("{}"), "rev": 1, "updated_at": Now(), "deleted": true, "deleted_at": Now(), "deleted_by": "local"})
 		}
 	}
-	payload := map[string]any{"tracker_id": cfg.TrackerID, "project_key": cfg.ProjectKey, "prefix": cfg.Prefix, "issues": issueRecords, "memories": memoryRecords}
+	payload := map[string]any{"tracker_id": cfg.TrackerID, "project_key": cfg.ProjectKey, "prefix": cfg.Prefix, "issues": issueRecords, "memories": memoryRecords, "issue_since": meta.IssueCursor, "memory_since": meta.MemoryCursor}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return SyncReport{}, err
@@ -129,6 +134,7 @@ func SyncHTTPWithToken(ctx context.Context, s *Store, endpoint, token string) (S
 			remote.Memories = append(remote.Memories, memory)
 		}
 	}
+	remote = overlaySnapshot(base, remote)
 	if len(base.Issues) == 0 && len(base.Memories) == 0 {
 		base = local
 	}
@@ -173,9 +179,40 @@ func SyncHTTPWithToken(ctx context.Context, s *Store, endpoint, token string) (S
 	if err := writeSyncBase(s.Dir, merged); err != nil {
 		return report, err
 	}
-	meta, _ := json.Marshal(syncMeta{LastSyncAt: Now(), Summary: report.Summary})
-	_ = atomicWrite(filepath.Join(s.Dir, ".local", "sync-status.json"), append(meta, '\n'))
+	metaOut, _ := json.Marshal(syncMeta{LastSyncAt: Now(), Summary: report.Summary, IssueCursor: wire.IssueCursor, MemoryCursor: wire.MemoryCursor})
+	_ = atomicWrite(filepath.Join(s.Dir, ".local", "sync-status.json"), append(metaOut, '\n'))
 	return report, nil
+}
+
+func overlaySnapshot(base, delta SyncSnapshot) SyncSnapshot {
+	out := cloneSnapshot(base)
+	im := indexIssues(out.Issues)
+	for _, i := range delta.Issues {
+		im[i.ID] = i
+	}
+	out.Issues = out.Issues[:0]
+	for _, i := range im {
+		out.Issues = append(out.Issues, i)
+	}
+	mm := indexMemories(out.Memories)
+	for _, m := range delta.Memories {
+		mm[m.Key] = m
+	}
+	out.Memories = out.Memories[:0]
+	for _, m := range mm {
+		out.Memories = append(out.Memories, m)
+	}
+	return out
+}
+
+func readSyncMeta(dir string) syncMeta {
+	b, err := os.ReadFile(filepath.Join(dir, ".local", "sync-status.json"))
+	if err != nil {
+		return syncMeta{}
+	}
+	var m syncMeta
+	_ = json.Unmarshal(b, &m)
+	return m
 }
 
 func readSyncBase(dir string) (SyncSnapshot, error) {

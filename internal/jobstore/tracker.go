@@ -15,14 +15,14 @@ type TrackerRepo struct {
 }
 
 type TrackerRecord struct {
-	TrackerID string
-	ID        string
-	Body      json.RawMessage
-	Rev       int64
-	UpdatedAt string
-	Deleted   bool
-	DeletedAt string
-	DeletedBy string
+	TrackerID string          `json:"tracker_id"`
+	ID        string          `json:"id"`
+	Body      json.RawMessage `json:"body"`
+	Rev       int64           `json:"rev"`
+	UpdatedAt string          `json:"updated_at"`
+	Deleted   bool            `json:"deleted"`
+	DeletedAt string          `json:"deleted_at"`
+	DeletedBy string          `json:"deleted_by"`
 }
 
 func (s *Store) UpsertTrackerRepo(repo TrackerRepo) error {

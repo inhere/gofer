@@ -149,7 +149,34 @@ func (s *Server) handleTrackerSync(c *rux.Context) {
 		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, map[string]any{"issues": issues, "memories": memories})
+	var issueCursor, memoryCursor int64
+	for _, item := range issues {
+		if item.Rev > issueCursor {
+			issueCursor = item.Rev
+		}
+	}
+	for _, item := range memories {
+		if item.Rev > memoryCursor {
+			memoryCursor = item.Rev
+		}
+	}
+	if issueCursor == 0 {
+		all, _ := s.trackerStore.ListTrackerIssues(req.TrackerID, 0)
+		for _, item := range all {
+			if item.Rev > issueCursor {
+				issueCursor = item.Rev
+			}
+		}
+	}
+	if memoryCursor == 0 {
+		all, _ := s.trackerStore.ListTrackerMemories(req.TrackerID, 0)
+		for _, item := range all {
+			if item.Rev > memoryCursor {
+				memoryCursor = item.Rev
+			}
+		}
+	}
+	c.JSON(http.StatusOK, map[string]any{"issues": issues, "memories": memories, "issue_cursor": issueCursor, "memory_cursor": memoryCursor})
 }
 
 func (s *Server) handleTrackerIssues(c *rux.Context) {
@@ -322,7 +349,15 @@ func (s *Server) handleTrackerMemoryDelete(c *rux.Context) {
 		c.JSON(http.StatusBadRequest, map[string]string{"error": "tracker_id required"})
 		return
 	}
-	if err := s.trackerStore.UpsertTrackerMemory(jobstore.TrackerRecord{TrackerID: id, ID: c.Param("id"), Body: json.RawMessage("{}"), Rev: 2, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano), Deleted: true, DeletedAt: time.Now().UTC().Format(time.RFC3339Nano), DeletedBy: callerFromCtx(c)}); err != nil {
+	rev := int64(1)
+	if old, _ := s.trackerStore.ListTrackerMemories(id, 0); true {
+		for _, item := range old {
+			if item.Rev >= rev {
+				rev = item.Rev + 1
+			}
+		}
+	}
+	if err := s.trackerStore.UpsertTrackerMemory(jobstore.TrackerRecord{TrackerID: id, ID: c.Param("id"), Body: json.RawMessage("{}"), Rev: rev, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano), Deleted: true, DeletedAt: time.Now().UTC().Format(time.RFC3339Nano), DeletedBy: callerFromCtx(c)}); err != nil {
 		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
