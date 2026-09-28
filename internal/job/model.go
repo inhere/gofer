@@ -435,6 +435,7 @@ type JobResult struct {
 	ID          string `json:"id"`
 	ProjectKey  string `json:"project_key"`
 	Agent       string `json:"agent"`
+	ResumeAgent string `json:"resume_agent,omitempty"`
 	Runner      string `json:"runner"`
 	Interactive bool   `json:"interactive,omitempty"`
 	// ReadOnly mirrors JobRequest.ReadOnly and is persisted to jobs.read_only (bd

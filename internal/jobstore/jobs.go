@@ -36,6 +36,7 @@ type JobRecord struct {
 	ID          string
 	ProjectKey  string
 	Agent       string
+	ResumeAgent string
 	Runner      string
 	Interactive bool
 	// ReadOnly (bd h-aii-0ql3) records whether the job ran under a read-only sandbox
@@ -298,7 +299,7 @@ const selectCols = `SELECT id, project_key, agent, runner, COALESCE(interactive,
   COALESCE(requested_agent,''), COALESCE(fallback_json,''), COALESCE(usage_json,''),
   COALESCE(xfer_json,''), COALESCE(skills_json,''), COALESCE(rules_json,''), COALESCE(dir_exclusive,0),
   COALESCE(leader_of_plan,''), COALESCE(uncommitted_files_json,''),
-  COALESCE(uncommitted_count,0) FROM jobs`
+  COALESCE(uncommitted_count,0), COALESCE(resume_agent,'') FROM jobs`
 
 // rowScanner is satisfied by both *sql.Row and *sql.Rows.
 type rowScanner interface {
@@ -330,7 +331,7 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 		&r.VerifyJSON,
 		&r.FailureClass, &r.FellBackFrom, &r.FellBackTo, &r.RequestedAgent, &r.FallbackJSON,
 		&r.UsageJSON, &r.XferJSON, &r.SkillsJSON, &r.RulesJSON, &dirExclusive, &r.LeaderOfPlan,
-		&r.UncommittedFilesJSON, &r.UncommittedCount,
+		&r.UncommittedFilesJSON, &r.UncommittedCount, &r.ResumeAgent,
 	)
 	r.Interactive = interactive != 0
 	r.TimeoutClamped = timeoutClamped != 0
@@ -338,6 +339,71 @@ func scanJob(sc rowScanner) (JobRecord, error) {
 	r.DirExclusive = dirExclusive != 0
 	r.RequireReview = requireReview != 0
 	return r, err
+}
+
+// migrateResumeAgent runs only when an old jobs table first gains the column.
+// The transaction makes the column and its historical values one migration:
+// failed or interrupted backfills leave the old shape for the next Open.
+func (s *Store) migrateResumeAgent() (err error) {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return fmt.Errorf("jobstore: begin resume_agent migration: %w", err)
+	}
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+		}
+	}()
+	if _, err = tx.Exec(`ALTER TABLE jobs ADD COLUMN resume_agent TEXT NOT NULL DEFAULT ''`); err != nil {
+		return fmt.Errorf("jobstore: add resume_agent: %w", err)
+	}
+	type link struct{ agent, from string }
+	links := make(map[string]link)
+	rows, err := tx.Query(`SELECT id, agent, COALESCE(resumed_from,'') FROM jobs`)
+	if err != nil {
+		return fmt.Errorf("jobstore: scan resume chain: %w", err)
+	}
+	for rows.Next() {
+		var id string
+		var item link
+		if err = rows.Scan(&id, &item.agent, &item.from); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("jobstore: read resume chain: %w", err)
+		}
+		links[id] = item
+	}
+	if err = rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("jobstore: read resume chain: %w", err)
+	}
+	if err = rows.Close(); err != nil {
+		return fmt.Errorf("jobstore: close resume chain: %w", err)
+	}
+	for id, item := range links {
+		if item.agent != "exec" || item.from == "" {
+			continue
+		}
+		seen := map[string]bool{id: true}
+		for item.from != "" && !seen[item.from] {
+			seen[item.from] = true
+			parent, ok := links[item.from]
+			if !ok {
+				break
+			}
+			if parent.agent != "exec" {
+				_, err = tx.Exec(`UPDATE jobs SET resume_agent = ? WHERE id = ?`, parent.agent, id)
+				if err != nil {
+					return fmt.Errorf("jobstore: backfill resume_agent for %s: %w", id, err)
+				}
+				break
+			}
+			item = parent
+		}
+	}
+	if err = tx.Commit(); err != nil {
+		return fmt.Errorf("jobstore: commit resume_agent migration: %w", err)
+	}
+	return nil
 }
 
 // UpsertJob inserts a job row or updates the existing one with the same id. The
@@ -353,8 +419,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.UpdatedAt = rec.StartedAt
 	}
 	const q = `INSERT INTO jobs
-  (id, project_key, agent, runner, interactive, worker_id, worker_instance_id, status, exit_code, cwd, result_dir, request_json, error, started_at, ended_at, updated_at, caller_id, request_id, rendered_command, result_json, artifacts_json, diff_summary, ndjson_kept, ndjson_dropped, ndjson_truncated, source, tags_json, workflow_id, step_index, attempt, fan_index, session_id, stop_reason, resumed_from, auto_resume_attempt, auto_resumed_by, channel, client, origin_agent, escalate_to, role, plan_id, source_job_id, todo_id, base_sha, commits_json, timeout_sec, requested_timeout_sec, timeout_clamped, recovering_since, worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead, read_only, require_review, reviewed_by, reviewed_at, review_note, verify_json, failure_class, fell_back_from, fell_back_to, requested_agent, fallback_json, usage_json, xfer_json, skills_json, rules_json, dir_exclusive, leader_of_plan, uncommitted_files_json, uncommitted_count)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  (id, project_key, agent, runner, interactive, worker_id, worker_instance_id, status, exit_code, cwd, result_dir, request_json, error, started_at, ended_at, updated_at, caller_id, request_id, rendered_command, result_json, artifacts_json, diff_summary, ndjson_kept, ndjson_dropped, ndjson_truncated, source, tags_json, workflow_id, step_index, attempt, fan_index, session_id, stop_reason, resumed_from, auto_resume_attempt, auto_resumed_by, channel, client, origin_agent, escalate_to, role, plan_id, source_job_id, todo_id, base_sha, commits_json, timeout_sec, requested_timeout_sec, timeout_clamped, recovering_since, worktree_path, worktree_branch, worktree_base_sha, worktree_head_sha, commits_ahead, read_only, require_review, reviewed_by, reviewed_at, review_note, verify_json, failure_class, fell_back_from, fell_back_to, requested_agent, fallback_json, usage_json, xfer_json, skills_json, rules_json, dir_exclusive, leader_of_plan, uncommitted_files_json, uncommitted_count, resume_agent)
+  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
   ON CONFLICT(id) DO UPDATE SET
     project_key=excluded.project_key,
     agent=excluded.agent,
@@ -428,7 +494,8 @@ func (s *Store) UpsertJob(rec JobRecord) error {
     dir_exclusive=excluded.dir_exclusive,
     leader_of_plan=excluded.leader_of_plan,
     uncommitted_files_json=excluded.uncommitted_files_json,
-    uncommitted_count=excluded.uncommitted_count`
+    uncommitted_count=excluded.uncommitted_count,
+    resume_agent=excluded.resume_agent`
 	// Serialise writes in-process (see Store.writeMu) so SQLite never sees two
 	// concurrent writers and cannot return SQLITE_BUSY under burst.
 	s.writeMu.Lock()
@@ -459,7 +526,7 @@ func (s *Store) UpsertJob(rec JobRecord) error {
 		rec.RulesJSON,
 		rec.DirExclusive,
 		rec.LeaderOfPlan,
-		rec.UncommittedFilesJSON, rec.UncommittedCount,
+		rec.UncommittedFilesJSON, rec.UncommittedCount, rec.ResumeAgent,
 	)
 	if err != nil {
 		// A competing INSERT with the same non-empty request_id (different id)

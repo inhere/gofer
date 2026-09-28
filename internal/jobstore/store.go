@@ -129,7 +129,8 @@ var schemaStmts = []string{
   dir_exclusive    INTEGER NOT NULL DEFAULT 0,
   leader_of_plan   TEXT,
   uncommitted_files_json TEXT,
-  uncommitted_count INTEGER NOT NULL DEFAULT 0
+  uncommitted_count INTEGER NOT NULL DEFAULT 0,
+  resume_agent TEXT NOT NULL DEFAULT ''
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_started ON jobs(started_at DESC)`,
 	`CREATE INDEX IF NOT EXISTS idx_jobs_proj_status ON jobs(project_key, status)`,
@@ -911,6 +912,14 @@ func (s *Store) migrate() error {
 	}
 	if err := add("resumed_from", "resumed_from TEXT"); err != nil {
 		return err
+	}
+	// DEPRECATED(v0.68): remove in v0.71 after old jobs tables have gained this
+	// column. ALTER and backfill share a transaction so an interrupted migration
+	// retries, while a completed migration never scans the historical rows again.
+	if _, exists := cols["resume_agent"]; !exists {
+		if err := s.migrateResumeAgent(); err != nil {
+			return err
+		}
 	}
 	if err := add("auto_resume_attempt", "auto_resume_attempt INTEGER DEFAULT 0"); err != nil {
 		return err

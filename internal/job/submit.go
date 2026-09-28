@@ -598,6 +598,12 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	}
 
 	now := s.nowFn().Unix()
+	// ResumeSourceAgent stays an internal admission marker. Only an exec carrier
+	// needs a separate persisted display identity; ACP runs under its own agent.
+	resumeDisplayAgent := ""
+	if req.Agent == agent.ExecAgentKey && req.ResumedFrom != "" {
+		resumeDisplayAgent = req.ResumeSourceAgent
+	}
 	entry := &jobEntry{
 		store: st,
 		done:  make(chan struct{}),
@@ -606,6 +612,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			ID:          jobID,
 			ProjectKey:  req.ProjectKey,
 			Agent:       req.Agent,
+			ResumeAgent: resumeDisplayAgent,
 			Runner:      req.Runner,
 			Interactive: req.Interactive,
 			// bd h-aii-0ql3：只读是 job 的持久属性（jobs.read_only），resume 继承、show/web 可见。
