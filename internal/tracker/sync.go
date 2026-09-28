@@ -41,6 +41,72 @@ type SyncState struct {
 	Report  SyncReport
 }
 
+// MergeServerMemories applies the fixed deletion policy. The returned slice is
+// the server mirror representation; deleted entries are retained as tombstones
+// while the repository projection may omit them.
+func MergeServerMemories(base, local, remote []ServerMemory) ([]ServerMemory, SyncReport) {
+	bm, lm, rm := mapServerMemories(base), mapServerMemories(local), mapServerMemories(remote)
+	keys := map[string]bool{}
+	for k := range bm {
+		keys[k] = true
+	}
+	for k := range lm {
+		keys[k] = true
+	}
+	for k := range rm {
+		keys[k] = true
+	}
+	var report SyncReport
+	out := make([]ServerMemory, 0, len(keys))
+	for key := range keys {
+		b, bok := bm[key]
+		l, lok := lm[key]
+		r, rok := rm[key]
+		if !lok && bok {
+			l = b
+			l.Deleted = true
+			l.DeletedAt = Now()
+			l.DeletedBy = "local"
+		}
+		if !rok && bok {
+			r = b
+		}
+		if l.Deleted && !r.Deleted {
+			if l.DeletedAt >= r.UpdatedAt {
+				out = append(out, l)
+			} else {
+				out = append(out, r)
+				report.Conflicts = append(report.Conflicts, SyncConflict{Kind: "memory", Key: key, Field: "deleted", Took: "server", Other: "local tombstone"})
+			}
+			continue
+		}
+		if r.Deleted && !l.Deleted {
+			if r.DeletedAt >= l.UpdatedAt {
+				out = append(out, r)
+			} else {
+				out = append(out, l)
+				report.Conflicts = append(report.Conflicts, SyncConflict{Kind: "memory", Key: key, Field: "deleted", Took: "local", Other: "server tombstone"})
+			}
+			continue
+		}
+		if lok {
+			out = append(out, l)
+		} else if rok {
+			out = append(out, r)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Key < out[j].Key })
+	return out, report
+}
+
+func mapServerMemories(items []ServerMemory) map[string]ServerMemory {
+	out := map[string]ServerMemory{}
+	for _, item := range items {
+		out[item.Key] = item
+	}
+	return out
+}
+
 func (s *SyncState) Apply(local SyncSnapshot, remote *SyncSnapshot) error {
 	if remote == nil {
 		s.Current = cloneSnapshot(local)
@@ -85,6 +151,7 @@ func mergeIssues(base, local, remote map[string]Issue, report *SyncReport) []Iss
 			continue
 		}
 		m := l
+		conflictStart := len(report.Conflicts)
 		mergeIssueScalar(&m.Title, b.Title, l.Title, r.Title, l.UpdatedAt, r.UpdatedAt, key, "title", report)
 		mergeIssueScalar(&m.Type, b.Type, l.Type, r.Type, l.UpdatedAt, r.UpdatedAt, key, "type", report)
 		mergeIssueScalar(&m.Status, b.Status, l.Status, r.Status, l.UpdatedAt, r.UpdatedAt, key, "status", report)
@@ -100,6 +167,9 @@ func mergeIssues(base, local, remote map[string]Issue, report *SyncReport) []Iss
 		m.Tags = unionStrings(l.Tags, r.Tags)
 		m.Deps = unionDeps(l.Deps, r.Deps)
 		m.Notes = unionNotes(l.Notes, r.Notes)
+		for _, conflict := range report.Conflicts[conflictStart:] {
+			m.Notes = append(m.Notes, NoteEntry{At: maxTime(l.UpdatedAt, r.UpdatedAt), By: "sync", Text: fmt.Sprintf("同步冲突：%s 取了 %s，另一方为 %s", conflict.Field, conflict.Took, conflict.Other)})
+		}
 		m.Comments = unionComments(l.Comments, r.Comments)
 		if l.UpdatedAt < r.UpdatedAt {
 			m.UpdatedAt = r.UpdatedAt
@@ -107,6 +177,13 @@ func mergeIssues(base, local, remote map[string]Issue, report *SyncReport) []Iss
 		out = append(out, m)
 	}
 	return out
+}
+
+func maxTime(a, b string) string {
+	if a >= b {
+		return a
+	}
+	return b
 }
 
 func mergeMemories(base, local, remote map[string]Memory, report *SyncReport) []Memory {
