@@ -907,8 +907,9 @@ export function listPlans(opts?: {
   return request<PlansResp>(`/v1/plans${suffix}`)
 }
 
-export function listTrackerIssues(trackerId: string): Promise<import('./types').TrackerIssuesResp> {
-  return request<import('./types').TrackerIssuesResp>(`/v1/tracker/issues?tracker_id=${encodeURIComponent(trackerId)}`)
+export function listTrackerIssues(trackerId: string, opts?: { project?: string; repo?: string }): Promise<import('./types').TrackerIssuesResp> {
+  const qs=new URLSearchParams({tracker_id:trackerId}); if(opts?.project)qs.set('project',opts.project); if(opts?.repo)qs.set('repo',opts.repo)
+  return request<import('./types').TrackerIssuesResp>(`/v1/tracker/issues?${qs}`)
 }
 export function getTrackerIssue(trackerId:string,id:string): Promise<import('./types').TrackerIssueView> { return request(`/v1/tracker/issues/${encodeURIComponent(id)}?tracker_id=${encodeURIComponent(trackerId)}`) }
 export function updateTrackerIssue(trackerId:string,id:string,body:unknown): Promise<unknown> { return request(`/v1/tracker/issues/${encodeURIComponent(id)}?tracker_id=${encodeURIComponent(trackerId)}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}) }
