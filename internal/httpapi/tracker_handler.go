@@ -227,6 +227,19 @@ func (s *Server) handleTrackerIssues(c *rux.Context) {
 	c.JSON(http.StatusOK, map[string]any{"issues": filtered})
 }
 
+func (s *Server) handleTrackerRepos(c *rux.Context) {
+	if s.trackerStore == nil {
+		c.JSON(503, map[string]string{"error": "tracker mirror unavailable"})
+		return
+	}
+	repos, err := s.trackerStore.ListTrackerRepos()
+	if err != nil {
+		c.JSON(500, map[string]string{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"repos": repos})
+}
+
 func (s *Server) handleTrackerIssueGet(c *rux.Context) {
 	id := c.Req.URL.Query().Get("tracker_id")
 	if id == "" {

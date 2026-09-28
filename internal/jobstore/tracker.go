@@ -36,6 +36,23 @@ ON CONFLICT(tracker_id) DO UPDATE SET project_key=excluded.project_key,rel_path=
 	return err
 }
 
+func (s *Store) ListTrackerRepos() ([]TrackerRepo, error) {
+	rows, err := s.db.Query(`SELECT tracker_id,project_key,rel_path,prefix,last_sync_at,sync_summary FROM tracker_repos ORDER BY tracker_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []TrackerRepo
+	for rows.Next() {
+		var r TrackerRepo
+		if err := rows.Scan(&r.TrackerID, &r.ProjectKey, &r.RelPath, &r.Prefix, &r.LastSyncAt, &r.SyncSummary); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) UpsertTrackerIssue(rec TrackerRecord) error {
 	if rec.TrackerID == "" || rec.ID == "" {
 		return fmt.Errorf("tracker_id and issue id required")

@@ -686,6 +686,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.GET("/projects", s.handleListProjects)
 		r.POST("/tracker/sync", s.handleTrackerSync)
 		r.GET("/tracker/issues", s.handleTrackerIssues)
+		r.GET("/tracker/repos", s.handleTrackerRepos)
 		r.GET("/tracker/issues/{id}", s.handleTrackerIssueGet)
 		r.PUT("/tracker/issues/{id}", s.handleTrackerIssueEdit)
 		r.POST("/tracker/issues/{id}/comments", s.handleTrackerIssueComment)
