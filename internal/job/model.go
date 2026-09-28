@@ -970,6 +970,10 @@ const (
 	EventPlanBlocked        = "plan.blocked"
 	EventPlanCompleted      = "plan.completed"
 	EventPlanAdvancePaused  = "plan.advance_paused"
+	// EventPlanHandoffUpdated records a new version of a plan's handoff note. It
+	// is intentionally absent from notify.DefaultTriggerEvents: a handoff is
+	// durable context, not a default human-action alert.
+	EventPlanHandoffUpdated = "plan.handoff_updated"
 	// JOB-09 wakeup lifecycle events, all recorded on the wakeup's TARGET job (the
 	// one a fire resumes), so the job's own timeline answers "why did this job run
 	// again" and the web 唤醒 block reads its trigger history from them:

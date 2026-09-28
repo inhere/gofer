@@ -340,6 +340,18 @@ var schemaStmts = []string{
   updated_at   INTEGER NOT NULL
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_plans_status ON plans(status)`,
+	// plan_handoffs is the versioned Markdown handoff attached to a plan. A plan
+	// keeps every write so a resumed session can inspect the previous context;
+	// (plan_id, version) is the optimistic-concurrency key.
+	`CREATE TABLE IF NOT EXISTS plan_handoffs (
+  plan_id  TEXT NOT NULL,
+  version  INTEGER NOT NULL,
+  body     TEXT NOT NULL,
+  by       TEXT NOT NULL,
+  at       INTEGER NOT NULL,
+  PRIMARY KEY (plan_id, version)
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_plan_handoffs_latest ON plan_handoffs(plan_id, version DESC)`,
 	// plan_todos is the plan-orchestration checklist table. job_id NULL means a
 	// plain todo; a non-empty job_id binds the item to one job run as metadata.
 	// The PLAN-02 columns (assignee … dispatch_error) make a todo DISPATCHABLE: they

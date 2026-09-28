@@ -844,6 +844,9 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/plans", s.handleCreatePlan)
 		r.GET("/plans", s.handleListPlans)
 		r.GET("/plans/{id}", s.handleGetPlan)
+		r.GET("/plans/{id}/handoff", s.handleGetPlanHandoff)
+		r.PUT("/plans/{id}/handoff", s.handlePutPlanHandoff)
+		r.GET("/plans/{id}/handoff/history", s.handleListPlanHandoffHistory)
 		r.PATCH("/plans/{id}", s.handleUpdatePlan)
 		// LEAD-02: the plan's own event stream (plan:<id> scope), newest first with a
 		// `before` cursor — the plan page's event area.

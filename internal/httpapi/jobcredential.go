@@ -106,7 +106,7 @@ func jobCallerMayRead(method string) bool {
 // metrics middleware reads it after c.Next() for exactly that reason). Matching the
 // request line keeps the gate independent of when the router settles.
 var jobRouteWords = map[string]bool{
-	"v1": true, "jobs": true, "plans": true, "todos": true, "comments": true,
+	"v1": true, "jobs": true, "plans": true, "todos": true, "comments": true, "handoff": true,
 	"wakeups": true, "decisions": true, "workflows": true, "skills": true, "xfer": true,
 	"sessions": true, "schedules": true, "retries": true, "config": true, "agents": true,
 	"projects": true, "workers": true, "messages": true, "meta": true, "stats": true,
@@ -144,6 +144,7 @@ var jobWriteAllowlist = map[string]bool{
 	// leader's may hand out work inside its own plan (MCP-05 阶段 B, unchanged).
 	"POST /v1/jobs/*/comments":          true,
 	"POST /v1/plans/*/comments":         true,
+	"PUT /v1/plans/*/handoff":           true,
 	"POST /v1/plans/*/todos/*/comments": true,
 	"POST /v1/todos/*/comments":         true,
 	// ask_human: a job that needs a decision raises one (Part C §C3).
