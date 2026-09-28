@@ -910,6 +910,9 @@ export function listPlans(opts?: {
 export function listTrackerIssues(trackerId: string): Promise<import('./types').TrackerIssuesResp> {
   return request<import('./types').TrackerIssuesResp>(`/v1/tracker/issues?tracker_id=${encodeURIComponent(trackerId)}`)
 }
+export function getTrackerIssue(trackerId:string,id:string): Promise<import('./types').TrackerIssueView> { return request(`/v1/tracker/issues/${encodeURIComponent(id)}?tracker_id=${encodeURIComponent(trackerId)}`) }
+export function updateTrackerIssue(trackerId:string,id:string,body:unknown): Promise<unknown> { return request(`/v1/tracker/issues/${encodeURIComponent(id)}?tracker_id=${encodeURIComponent(trackerId)}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}) }
+export function commentTrackerIssue(trackerId:string,id:string,body:string): Promise<unknown> { return request(`/v1/tracker/issues/${encodeURIComponent(id)}/comments?tracker_id=${encodeURIComponent(trackerId)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({body})}) }
 
 export function getPlan(id: string): Promise<PlanDetail> {
   return request<PlanDetail>(`/v1/plans/${encodeURIComponent(id)}`)

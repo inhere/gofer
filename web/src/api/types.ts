@@ -1811,6 +1811,7 @@ export interface TrackerIssue {
   rev: number
   updated_at: string
 }
+export interface TrackerIssueView { id: string; title: string; type: string; status: string; priority: number; description?: string; tags?: string[]; comments?: Array<{ at:string; by:string; text:string }>; notes?: Array<{ at:string; by:string; text:string }> }
 
 export interface TrackerIssuesResp { issues: TrackerIssue[] }
 

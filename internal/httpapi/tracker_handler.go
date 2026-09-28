@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/gookit/rux/v2"
@@ -166,7 +167,87 @@ func (s *Server) handleTrackerIssues(c *rux.Context) {
 		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
-	c.JSON(http.StatusOK, map[string]any{"issues": items})
+	status, typ, q := c.Req.URL.Query().Get("status"), c.Req.URL.Query().Get("type"), strings.ToLower(c.Req.URL.Query().Get("q"))
+	tags := c.Req.URL.Query()["tag"]
+	filtered := items[:0]
+	for _, item := range items {
+		var issue tracker.Issue
+		if json.Unmarshal(item.Body, &issue) != nil {
+			continue
+		}
+		if status != "" && issue.Status != status || typ != "" && issue.Type != typ {
+			continue
+		}
+		if q != "" && !strings.Contains(strings.ToLower(issue.Title+" "+issue.Description), q) {
+			continue
+		}
+		ok := true
+		for _, want := range tags {
+			found := false
+			for _, tag := range issue.Tags {
+				if tag == want {
+					found = true
+				}
+			}
+			if !found {
+				ok = false
+			}
+		}
+		if ok {
+			filtered = append(filtered, item)
+		}
+	}
+	c.JSON(http.StatusOK, map[string]any{"issues": filtered})
+}
+
+func (s *Server) handleTrackerIssueGet(c *rux.Context) {
+	id := c.Req.URL.Query().Get("tracker_id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": "tracker_id required"})
+		return
+	}
+	items, err := s.trackerStore.ListTrackerIssues(id, 0)
+	if err != nil {
+		c.JSON(500, map[string]string{"error": err.Error()})
+		return
+	}
+	for _, item := range items {
+		if item.ID == c.Param("id") {
+			var issue tracker.Issue
+			_ = json.Unmarshal(item.Body, &issue)
+			c.JSON(http.StatusOK, issue)
+			return
+		}
+	}
+	c.JSON(http.StatusNotFound, map[string]string{"error": "issue not found"})
+}
+
+func (s *Server) handleTrackerIssueComment(c *rux.Context) {
+	id := c.Req.URL.Query().Get("tracker_id")
+	if id == "" {
+		c.JSON(400, map[string]string{"error": "tracker_id required"})
+		return
+	}
+	var in struct {
+		Body string `json:"body"`
+	}
+	if c.BindJSON(&in) != nil || strings.TrimSpace(in.Body) == "" {
+		c.JSON(400, map[string]string{"error": "body required"})
+		return
+	}
+	items, _ := s.trackerStore.ListTrackerIssues(id, 0)
+	for _, item := range items {
+		if item.ID == c.Param("id") {
+			var issue tracker.Issue
+			_ = json.Unmarshal(item.Body, &issue)
+			issue.Comments = append(issue.Comments, tracker.Comment{At: tracker.Now(), By: callerFromCtx(c), Text: in.Body})
+			b, _ := json.Marshal(issue)
+			_ = s.trackerStore.UpsertTrackerIssue(jobstore.TrackerRecord{TrackerID: id, ID: item.ID, Body: b, Rev: item.Rev + 1, UpdatedAt: tracker.Now()})
+			c.JSON(http.StatusOK, issue)
+			return
+		}
+	}
+	c.JSON(404, map[string]string{"error": "issue not found"})
 }
 
 func (s *Server) handleTrackerMemories(c *rux.Context) {
