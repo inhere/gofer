@@ -3,6 +3,7 @@ package httpapi
 import (
 	"context"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"testing"
@@ -42,9 +43,36 @@ func TestServerHostedForwardStartStop(t *testing.T) {
 	if start.StatusCode != http.StatusOK {
 		t.Fatalf("hosted start status=%d, want 200; body=%s", start.StatusCode, responseBody(t, start))
 	}
+	if got := listForwarders(t, s, testToken); len(got) != 1 || !got[0].Hosted || got[0].HostedName != "demo" {
+		t.Fatalf("hosted registrations=%+v, want one hosted demo", got)
+	}
+	dup := do(t, s, http.MethodPost, "/v1/tunnels/hosted/demo", testToken, nil)
+	if dup.StatusCode != http.StatusConflict {
+		t.Fatalf("duplicate hosted start status=%d, want 409; body=%s", dup.StatusCode, responseBody(t, dup))
+	}
+	busy, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("reserve port: %v", err)
+	}
+	defer busy.Close()
+	_, port, _ := net.SplitHostPort(busy.Addr().String())
+	put = do(t, s, http.MethodPut, "/v1/tunnels/presets/busy", testToken, map[string]any{
+		"worker": "w-local", "specs": []string{"127.0.0.1:" + port + ":127.0.0.1:1"},
+	})
+	if put.StatusCode != http.StatusOK {
+		t.Fatalf("busy preset status=%d, want 200", put.StatusCode)
+	}
+	_ = put.Body.Close()
+	busyStart := do(t, s, http.MethodPost, "/v1/tunnels/hosted/busy", testToken, nil)
+	if busyStart.StatusCode != http.StatusConflict || len(listForwarders(t, s, testToken)) != 1 {
+		t.Fatalf("busy hosted start status=%d or registration leaked", busyStart.StatusCode)
+	}
 	stop := do(t, s, http.MethodDelete, "/v1/tunnels/hosted/demo", testToken, nil)
 	if stop.StatusCode != http.StatusOK {
 		t.Fatalf("hosted stop status=%d, want 200; body=%s", stop.StatusCode, responseBody(t, stop))
+	}
+	if got := listForwarders(t, s, testToken); len(got) != 0 {
+		t.Fatalf("stopped hosted forwarders=%+v, want empty", got)
 	}
 }
 
@@ -74,6 +102,16 @@ func TestForwardAutostart(t *testing.T) {
 		t.Fatalf("autostart forwarders=%+v, want one hosted entry", got)
 	}
 	s.StopHostedForwarders()
+	manual := do(t, s, http.MethodPut, "/v1/tunnels/presets/manual", testToken, map[string]any{
+		"worker": "w-local", "specs": []string{"0:127.0.0.1:1"},
+	})
+	if manual.StatusCode != http.StatusOK {
+		t.Fatalf("manual preset status=%d, want 200", manual.StatusCode)
+	}
+	_ = manual.Body.Close()
+	if got := listForwarders(t, s, testToken); len(got) != 0 {
+		t.Fatalf("non-autostart preset unexpectedly started: %+v", got)
+	}
 }
 
 func TestUnpushedLocalPresetsListed(t *testing.T) {
