@@ -123,7 +123,7 @@ gofer memory rm build-note
 
 `issue ls [--status --type --label --all]`, `issue show`, `issue update --status|--title`, and `issue close --reason` cover the remaining local issue operations. `memory remember` and `memory forget` are aliases for `set` and `rm`. Issue and memory commands, plus `repo status`, support `--json` for scripts. Without a tracker, issue and memory commands fail with a `gofer repo init` hint; they never initialize one implicitly. `repo init` adds a managed block to existing `AGENTS.md` and/or `CLAUDE.md` (or creates `AGENTS.md` if neither exists). It leaves any BEADS block intact and suggests `repo migrate --from-bd` for a later phase.
 
-This P2 release provides local storage and commands. SessionStart hooks and `repo prime`/`repo migrate` are planned for P3; `repo sync`, server mirror, and Web integration are planned for P4. `repo status` labels hooks and sync as unimplemented. No server connection is needed for the commands above.
+`repo sync` uses the configured client server and bearer token; `--server` is an optional override. Local writes remain available offline and auto sync is best effort. `job run --issue <id>` links a run to a tracker mirror issue; the Web Issues page is available at `/issues` for list, detail, edit and comments.
 
 ## Submitting jobs
 

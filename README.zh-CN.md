@@ -99,6 +99,7 @@ gofer job list         # 填好地址与 token 即可
 - **agent**：怎么执行。`cli-agent` 用 `command` + `args` 模板渲染（占位符 `{{prompt}}` `{{cwd}}` `{{job_id}}` `{{result_dir}}`，逐元素替换、不过 shell）；再写 `interactive_args` 即**一个 key 同时支持批处理与 pty**（`[]` = 裸 TUI 启动；不得含 `{{prompt}}`）。`exec` 原样跑请求里的 `cmd` argv（需项目 `allow_exec`）。
 - **runner**：在哪执行。`local`（本进程子进程）/ `peer-http`（转发到另一台 gofer）/ `worker`（WS 连入的远端执行机）。
 - **job 生命周期**：`queued → running → done | failed | cancelled | timeout`；等同一个目录锁时 `queued → waiting_dir → running`；运行中提问 `running → pending_interaction → running`；执行它的 worker 断线 `running → recovering → running | failed`。
+- **本地 tracker**：`gofer repo init` 创建 `.gofer/tracker/`，jsonl 是真源；`gofer repo sync` 默认使用配置中的 server，`--server` 只覆盖地址，离线写入不被阻塞。`gofer job run --issue <id>` 可联动 issue，Web `/issues` 支持查看、编辑和评论。
 
 ## 提交 job
 

@@ -207,3 +207,7 @@ P1 与 P2–P4 相互独立，可以并行排；P3 完成即可在试点仓库�
 ## 关键流程（P2 实测）
 
 本节仅补记本地命令的实测流程。`repo init` 在当前仓库建 tracker 文件并写托管块；随后 issue/memory 写命令取得 `.local/lock`，读取对应 JSONL，执行条目变更，按稳定顺序将完整快照写入同目录临时文件并替换原文件，最后释放锁。`issue ready` 读取 issue 快照并按 `blocks` 的关闭状态过滤、排序。CLI smoke 在无 server 的临时目录中走通该流程；SessionStart 注入、迁移与同步仍待 P3/P4。
+
+## P4 实测记录（2026-09-29）
+
+本轮完成 tracker mirror 的基础 HTTP sync、三方合并、memory server tombstone、job `--issue` 联动参数和 Web Issues 基础页面。临时 httptest server、临时 SQLite jobstore 与临时 tracker 的固定测试通过；仓库 JSONL 仍为本地真源，server 保存镜像和 memory tombstone。`repo sync` 默认复用 CLI client 的配置/env 地址和 token，`--server` 仅覆盖地址；auto sync 失败不阻塞本地写入。完整 cursor 增量、未归属仓库登记和 Web 全量验收仍需后续质量波次。

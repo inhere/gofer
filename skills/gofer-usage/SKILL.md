@@ -333,3 +333,6 @@ gofer job wakeup show|disable|enable|rm <wid>
 
 - 本 skill 是**通用机制**说明；本工作空间的具体 project key / 可用 agent 以该工作空间 `CLAUDE.md` 为准。
 - worker 配置 / 迁移见 §6 的文档链接；gofer 自身部署（serve / worker daemon / 换二进制）属运维范畴，按需查对应 gofer 文档或 bd 记忆。
+## Repository tracker
+
+Use `gofer repo init` to create `.gofer/tracker/`. The JSONL files are the repository source of truth and remain writable offline. `gofer repo sync` uses the configured client server and token; `--server` only overrides the endpoint. Use `gofer job run --issue ID [--tracker-id ID]` to link a job run to a tracker issue. The Web Issues console is `/issues`.
