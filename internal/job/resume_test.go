@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/inhere/gofer/internal/acp/acptest"
 	"github.com/inhere/gofer/internal/agent"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
@@ -498,6 +499,71 @@ func TestResumeOfResumeWalksChainWithoutOriginAgent(t *testing.T) {
 	t.Cleanup(func() { _ = s.Cancel(third.ID); s.Wait(third.ID) })
 	if got, want := resumeArgv(t, third.RequestJSON), []string{"claude", "--resume", sid, "-p", "turn three"}; !equalArgs(got, want) {
 		t.Fatalf("third turn argv=%#v, want %#v", got, want)
+	}
+}
+
+// TestResumeCarrierRecordsResumeAgent covers the durable display identity without
+// depending on a real codex process: the configured CLI command may fail, but
+// Submit and persistence must still record the continuation's source agent.
+func TestResumeCarrierRecordsResumeAgent(t *testing.T) {
+	root := t.TempDir()
+	s := newResumeRunnableService(t, root, "codex")
+	first := submitSourceCancel(t, s, JobRequest{
+		ProjectKey: "self", Agent: "codex", Runner: "local",
+		Prompt: "first", Cwd: ".", TimeoutSec: 30, SessionID: "sess-codex",
+	})
+	readResumeAgent := func(r JobResult) string {
+		t.Helper()
+		data, err := json.Marshal(r)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]any
+		if err := json.Unmarshal(data, &fields); err != nil {
+			t.Fatal(err)
+		}
+		value, _ := fields["resume_agent"].(string)
+		return value
+	}
+	if got := readResumeAgent(first); got != "" {
+		t.Fatalf("ordinary job resume_agent=%q, want empty", got)
+	}
+	second, err := s.ResumeJob(first.ID, "second", "", "caller")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, _ = s.Wait(second.ID)
+	if second.Agent != "exec" || readResumeAgent(second) != "codex" {
+		t.Fatalf("first carrier agent=%q resume_agent=%q", second.Agent, readResumeAgent(second))
+	}
+	third, err := s.ResumeJob(second.ID, "third", "", "caller")
+	if err != nil {
+		t.Fatal(err)
+	}
+	third, _ = s.Wait(third.ID)
+	if third.Agent != "exec" || readResumeAgent(third) != "codex" {
+		t.Fatalf("second carrier agent=%q resume_agent=%q", third.Agent, readResumeAgent(third))
+	}
+	for _, id := range []string{second.ID, third.ID} {
+		rec, ok, err := s.meta.GetJob(id)
+		if err != nil || !ok {
+			t.Fatalf("read persisted %s: ok=%v err=%v", id, ok, err)
+		}
+		if got := readResumeAgent(fromRecord(rec)); got != "codex" {
+			t.Fatalf("persisted %s resume_agent=%q, want codex", id, got)
+		}
+	}
+
+	acpRoot := t.TempDir()
+	acpService := newACPService(t, acpRoot, acptest.Options{})
+	acpFirst := acpSubmit(t, acpService, 30)
+	acpNext, err := acpService.ResumeJob(acpFirst.ID, "second", "", "caller")
+	if err != nil {
+		t.Fatal(err)
+	}
+	acpNext, _ = acpService.Wait(acpNext.ID)
+	if got := readResumeAgent(acpNext); got != "" {
+		t.Fatalf("ACP continuation resume_agent=%q, want empty", got)
 	}
 }
 

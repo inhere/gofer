@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 // TestListJobsMergedAndSorted runs one done + one failed job, then asserts
@@ -53,6 +55,42 @@ func TestListJobsMergedAndSorted(t *testing.T) {
 	}
 	if got := byID[failed.ID]; got.Status != StatusFailed || got.ExitCode != 3 {
 		t.Fatalf("failed job mismatch: %+v", got)
+	}
+}
+
+func TestJobListAgentFilterIncludesResumeCarriers(t *testing.T) {
+	root := t.TempDir()
+	s := newResumeRunnableService(t, root, "codex")
+	source := submitSourceCancel(t, s, JobRequest{
+		ProjectKey: "self", Agent: "codex", Runner: "local",
+		Prompt: "first", Cwd: ".", TimeoutSec: 30, SessionID: "sess-codex",
+	})
+	carrier, err := s.ResumeJob(source.ID, "again", "", "caller")
+	if err != nil {
+		t.Fatal(err)
+	}
+	carrier, _ = s.Wait(carrier.ID)
+
+	byCodex, err := s.ListJobs(ListOpts{Agent: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byCodex) != 2 {
+		t.Fatalf("agent=codex returned %d jobs, want source and carrier: %+v", len(byCodex), byCodex)
+	}
+	byExec, err := s.ListJobs(ListOpts{Agent: "exec"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(byExec) != 1 || byExec[0].ID != carrier.ID {
+		t.Fatalf("agent=exec returned %+v, want carrier %s", byExec, carrier.ID)
+	}
+	rows, err := s.meta.ListJobs(jobstore.ListQuery{Agent: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("persisted agent=codex returned %d jobs, want source and carrier", len(rows))
 	}
 }
 
