@@ -292,7 +292,8 @@ type Server struct {
 	workbench *workbench.Service
 	// push owns W2b browser subscriptions, encryption, dispatch and one-time
 	// notification actions. Routes remain mounted when nil and return 503.
-	push WebPushService
+	push         WebPushService
+	trackerStore *jobstore.Store
 
 	// limiters holds one token-bucket per caller for the E17 submit-rate limit
 	// (design §7.3). Guarded by its OWN limMu (NOT s.mu, which lives in the job
@@ -303,6 +304,9 @@ type Server struct {
 	limiters map[string]*rate.Limiter
 	limMu    sync.Mutex
 }
+
+// SetTrackerStore injects the server mirror store used by tracker sync routes.
+func (s *Server) SetTrackerStore(store *jobstore.Store) { s.trackerStore = store }
 
 // SetMetrics injects the E16 Prometheus instrumentation and mounts the /metrics
 // endpoint + the /v1 HTTP middleware (design §6.2). It MUST be called before the
@@ -680,6 +684,9 @@ func (s *Server) buildRouter() *rux.Router {
 		// owns, for edits made in a host editor.
 		r.POST("/config/reload", s.handleReloadConfig)
 		r.GET("/projects", s.handleListProjects)
+		r.POST("/tracker/sync", s.handleTrackerSync)
+		r.GET("/tracker/issues", s.handleTrackerIssues)
+		r.GET("/tracker/memories", s.handleTrackerMemories)
 		r.POST("/projects", s.handleCreateProject)
 		r.GET("/projects/{key}", s.handleGetProject)
 		r.PUT("/projects/{key}", s.handleUpdateProject)
