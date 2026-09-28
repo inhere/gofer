@@ -4,7 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -74,8 +76,20 @@ func (m *HostedForwarderManager) Start(name, worker string, specs []ForwardSpec)
 			return ForwarderRegistration{}, fmt.Errorf("hosted forward %q listen %s: %w", name, spec.ListenAddr(), err)
 		}
 	}
+	registeredSpecs := append([]ForwardSpec(nil), specs...)
+	for i, f := range fs {
+		if registeredSpecs[i].LocalPort != 0 || f.ActualAddr == "" {
+			continue
+		}
+		_, port, err := net.SplitHostPort(f.ActualAddr)
+		if err == nil {
+			if n, err := strconv.Atoi(port); err == nil {
+				registeredSpecs[i].LocalPort = n
+			}
+		}
+	}
 	reg := m.registry.Register("server", ForwarderRegistration{
-		Worker: worker, Specs: specs, Host: "server", PID: os.Getpid(),
+		Worker: worker, Specs: registeredSpecs, Host: "server", PID: os.Getpid(),
 		StartedAt: time.Now(), Hosted: true, HostedName: name,
 	})
 	m.mu.Lock()
