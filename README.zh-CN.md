@@ -295,7 +295,9 @@ gofer tunnel ls                                      # FORWARDERS（在线转发
 gofer tunnel presets push                            # 把本机历史预设迁到 server
 ```
 
-预设存在 **server** 上（`tunnel_presets` 表），换了机器也能 `tun forward -n <name>`；`tun save` 连不上 server 时才写本地 `tunnels.yaml`（该读取路径已标记弃用，v0.63 移除）。`tun forward` 启动后向 hub 登记（默认 90s 过期，`server.tunnel.forwarder_ttl_sec` 可调），所以 web 与 `tun ls` 能看到"谁在监听"，而不只是"谁连上了"。
+预设存在 **server** 上（`tunnel_presets` 表），换了机器也能 `tun forward -n <name>`；`tun save` 连不上 server 时才写本地 `tunnels.yaml`（该读取路径已标记弃用，v0.63 移除）。`tun forward` 启动后向 hub 登记（默认 90s 过期，`server.tunnel.forwarder_ttl_sec` 可调），所以 web 与 `tun ls` 能看到“谁在监听”，而不只是“谁连上了”。
+
+Web 也可以按预设启动或停止 **server 本机托管转发**。托管监听只保存在内存中，不受普通客户端转发 TTL 清理影响，并在 server 关闭时停止；预设设置 `autostart: true` 后会在重启时恢复监听。自启动只建立监听，不要求 worker 已经重连；worker 尚未在线时，首次连接沿用现有转发的拨号错误。
 
 三端（forwarder / server / worker）日志用同一 `tunnel_id` 关联，带 `dial_ms`、`first_byte_ms`、`bytes_up|down`、`packets_up|down`（UDP）、`close_reason`；`GOFER_TUNNEL_TRACE=1` 逐报文记录。怎么判断"慢在 relay、设备还是往返次数"见 [`docs/runbook/tcp-tunnel.md`](docs/runbook/tcp-tunnel.md)。
 

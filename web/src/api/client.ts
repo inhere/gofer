@@ -63,6 +63,7 @@ import type {
   TodoPatch,
   TodoStatus,
   TunnelForwardersResp,
+  TunnelForwarder,
   TunnelPreset,
   TunnelPresetsResp,
   TunnelPresetWriteReq,
@@ -364,6 +365,22 @@ export function listRunners(): Promise<RunnersResp> {
 // 90s 没有心跳的登记会被 hub 丢掉，所以"进程被杀"也会自然消失。
 export function listTunnelForwarders(): Promise<TunnelForwardersResp> {
   return request<TunnelForwardersResp>('/v1/tunnels/forwarders')
+}
+
+export function startHostedTunnel(name: string): Promise<{ forwarder: TunnelForwarder; warning?: string }> {
+  return request<{ forwarder: TunnelForwarder; warning?: string }>(`/v1/tunnels/hosted/${encodeURIComponent(name)}`, { method: 'POST' })
+}
+
+export function stopHostedTunnel(name: string): Promise<{ stopped: boolean }> {
+  return request<{ stopped: boolean }>(`/v1/tunnels/hosted/${encodeURIComponent(name)}`, { method: 'DELETE' })
+}
+
+export function listLocalTunnelPresets(): Promise<TunnelPresetsResp> {
+  return request<TunnelPresetsResp>('/v1/tunnels/local-presets')
+}
+
+export function importLocalTunnelPreset(name: string): Promise<{ preset: TunnelPreset; imported: boolean }> {
+  return request<{ preset: TunnelPreset; imported: boolean }>(`/v1/tunnels/local-presets/${encodeURIComponent(name)}`, { method: 'POST' })
 }
 
 // 预设存在 server 上（tunnel_presets 表），换一台机器也读同一份。

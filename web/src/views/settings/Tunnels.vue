@@ -2,16 +2,19 @@
 // TUN-03 / WEB-12：/settings/tunnels —— 上半「在线转发」，下半「预设」。
 //
 // 转发是**客户端本地监听**：`gofer tun forward` 在要用端口的那台机器上跑，每条连接经 hub
-// 转到 worker。hub 只看得见"谁登记了、有几条连接"，所以这一页只展示与编辑预设，
-// 不能代为启动转发（页面上写清这一点，免得有人以为点一下就能开隧道）。
+// 转到 worker。server 本机托管和客户端本地转发共用同一 Forwarder 实现。
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import {
   ApiError,
   deleteTunnelPreset,
   getMeta,
+  importLocalTunnelPreset,
+  listLocalTunnelPresets,
   listTunnelForwarders,
   listTunnelPresets,
   putTunnelPreset,
+  startHostedTunnel,
+  stopHostedTunnel,
 } from '../../api/client'
 import { fmtDateTime, fmtDuration } from '../../api/time'
 import { fmtBytes } from '../../utils/bytes'
@@ -22,6 +25,7 @@ const POLL_MS = 5000
 
 const forwarders = ref<TunnelForwarder[]>([])
 const presets = ref<TunnelPreset[]>([])
+const localPresets = ref<TunnelPreset[]>([])
 // worker 候选：/v1/meta 的 workers（服务端配置里登记过的 worker id，含当前离线的）。
 const workers = ref<MetaWorker[]>([])
 const fwError = ref('')
@@ -84,14 +88,63 @@ async function fetchPresets(): Promise<void> {
   }
 }
 
+async function fetchLocalPresets(): Promise<void> {
+  try {
+    const resp = await listLocalTunnelPresets()
+    localPresets.value = resp.presets ?? []
+  } catch (e) {
+    if (!presetError.value) {
+      presetError.value = e instanceof Error ? e.message : String(e)
+    }
+  }
+}
+
 async function fetchAll(): Promise<void> {
   loading.value = true
   try {
-    await Promise.all([fetchForwarders(), fetchPresets()])
+    await Promise.all([fetchForwarders(), fetchPresets(), fetchLocalPresets()])
     loaded.value = true
     nowMs.value = Date.now()
   } finally {
     loading.value = false
+  }
+}
+
+function hostedFor(name: string): TunnelForwarder | undefined {
+  return forwarders.value.find((f) => f.hosted && f.hosted_name === name)
+}
+
+async function startHosted(p: TunnelPreset): Promise<void> {
+  presetError.value = ''
+  try {
+    const resp = await startHostedTunnel(p.name)
+    notice.value = resp.warning ? `已启动 ${p.name}：${resp.warning}` : `已启动托管转发 ${p.name}`
+    await fetchForwarders()
+  } catch (e) {
+    presetError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+async function stopHosted(p: TunnelPreset): Promise<void> {
+  presetError.value = ''
+  try {
+    await stopHostedTunnel(p.name)
+    notice.value = `已停止托管转发 ${p.name}`
+    await fetchForwarders()
+  } catch (e) {
+    presetError.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+async function importLocal(p: TunnelPreset): Promise<void> {
+  presetError.value = ''
+  try {
+    await importLocalTunnelPreset(p.name)
+    notice.value = `已导入本机预设 ${p.name}`
+    await fetchPresets()
+    await fetchLocalPresets()
+  } catch (e) {
+    presetError.value = e instanceof Error ? e.message : String(e)
   }
 }
 
@@ -129,6 +182,7 @@ interface PresetForm {
   worker: string
   specsText: string
   note: string
+  autostart: boolean
 }
 
 const editor = ref<{ mode: 'create' | 'edit'; form: PresetForm } | null>(null)
@@ -141,7 +195,7 @@ const specError = ref('')
 const editorTitle = computed(() => (editor.value?.mode === 'edit' ? '编辑预设' : '新增预设'))
 
 function openCreate(): void {
-  editor.value = { mode: 'create', form: { name: '', worker: '', specsText: '', note: '' } }
+  editor.value = { mode: 'create', form: { name: '', worker: '', specsText: '', note: '', autostart: false } }
   saveError.value = ''
   specError.value = ''
 }
@@ -149,7 +203,7 @@ function openCreate(): void {
 function openEdit(p: TunnelPreset): void {
   editor.value = {
     mode: 'edit',
-    form: { name: p.name, worker: p.worker, specsText: p.specs.join('\n'), note: p.note },
+    form: { name: p.name, worker: p.worker, specsText: p.specs.join('\n'), note: p.note, autostart: p.autostart },
   }
   saveError.value = ''
   specError.value = ''
@@ -182,6 +236,7 @@ async function save(): Promise<void> {
       worker: ed.form.worker.trim(),
       specs,
       note: ed.form.note,
+      autostart: ed.form.autostart,
       // 编辑即"我知道要覆盖"：服务端没有 force 会以 409 拒绝同名写入。
       force: ed.mode === 'edit',
     })
@@ -258,7 +313,7 @@ function presetRuleText(p: TunnelPreset): string {
           <span>流量</span>
         </div>
         <div v-for="f in forwarders" :key="f.id" class="trow">
-          <span class="cell-worker mono" :title="f.id">{{ f.worker || '—' }}</span>
+          <span class="cell-worker mono" :title="f.id">{{ f.hosted ? 'server 托管 · ' : '' }}{{ f.worker || '—' }}</span>
           <span class="cell-rules">
             <span v-for="(s, i) in f.specs" :key="i" class="rule mono">{{ ruleText(s) }}</span>
           </span>
@@ -295,6 +350,7 @@ function presetRuleText(p: TunnelPreset): string {
           <span>worker</span>
           <span>规则</span>
           <span>备注</span>
+          <span>状态</span>
           <span>更新</span>
           <span>操作</span>
         </div>
@@ -303,6 +359,11 @@ function presetRuleText(p: TunnelPreset): string {
           <span class="cell-worker mono">{{ p.worker || '—' }}</span>
           <span class="cell-rules mono" :title="presetRuleText(p)">{{ presetRuleText(p) }}</span>
           <span class="cell-note" :title="p.note">{{ p.note || '—' }}</span>
+          <span class="cell-state mono">
+            <span v-if="hostedFor(p.name)" class="state state--on">server 托管</span>
+            <span v-else-if="p.autostart" class="state">自启动</span>
+            <span v-else>—</span>
+          </span>
           <span class="cell-updated mono">
             <span class="upd-at">{{ fmtDateTime(Math.floor(Date.parse(p.updated_at) / 1000)) }}</span>
             <span v-if="p.updated_by" class="upd-by" :title="`最后写入的 caller：${p.updated_by}`">by {{ p.updated_by }}</span>
@@ -311,6 +372,8 @@ function presetRuleText(p: TunnelPreset): string {
             <button class="act" type="button" title="复制 `gofer tun forward -n 名字`" @click="copyCommand(p)">
               复制启动命令
             </button>
+            <button v-if="hostedFor(p.name)" class="act" type="button" @click="stopHosted(p)">停止</button>
+            <button v-else class="act" type="button" @click="startHosted(p)">启动</button>
             <button class="act" type="button" @click="openEdit(p)">编辑</button>
             <button class="act act--del" type="button" @click="removePreset(p)">删</button>
           </span>
@@ -320,6 +383,24 @@ function presetRuleText(p: TunnelPreset): string {
       <p v-else-if="!presetError" class="empty mono">
         还没有预设。预设存在 server 上，任何机器 <code>gofer tun forward -n &lt;名字&gt;</code> 都能直接用。
       </p>
+    </section>
+
+    <section class="section" aria-label="本机未上传预设">
+      <header class="section-head">
+        <h2 class="section-title mono">本机未上传</h2>
+        <span class="section-note mono">{{ localPresets.length }} 条</span>
+      </header>
+      <div v-if="localPresets.length" class="table table--presets">
+        <div class="thead mono"><span>名称</span><span>worker</span><span>规则</span><span>状态</span><span>操作</span></div>
+        <div v-for="p in localPresets" :key="p.name" class="trow">
+          <span class="cell-name mono">{{ p.name }}</span>
+          <span class="cell-worker mono">{{ p.worker }}</span>
+          <span class="cell-rules mono">{{ presetRuleText(p) }}</span>
+          <span class="cell-state mono">仅本机文件</span>
+          <span class="cell-act mono"><button class="act" type="button" @click="importLocal(p)">导入</button></span>
+        </div>
+      </div>
+      <p v-else class="empty mono">没有发现尚未上传的本机预设。</p>
     </section>
 
     <!-- 预设编辑弹窗 -->
@@ -384,6 +465,11 @@ function presetRuleText(p: TunnelPreset): string {
           <label class="field">
             <span class="field-name mono">备注</span>
             <input v-model="editor.form.note" class="input mono" type="text" placeholder="可选" />
+          </label>
+
+          <label class="field field--check">
+            <input v-model="editor.form.autostart" type="checkbox" />
+            <span class="field-name mono">server 启动时自动监听</span>
           </label>
 
           <p v-if="saveError" class="error mono" :title="saveError">{{ saveError }}</p>

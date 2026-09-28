@@ -2066,6 +2066,8 @@ export interface TunnelForwarder {
   // 跑转发的那台机器（hostname）与其进程号
   host: string
   pid: number
+  hosted: boolean
+  hosted_name?: string
   // RFC3339：转发进程自己的启动时间（已运行时长以它起算）
   started_at: string
   // RFC3339：最后一次心跳（hub 时钟）——TTL 从它起算，超时即从列表消失
@@ -2085,6 +2087,7 @@ export interface TunnelPreset {
   worker: string
   specs: string[]
   note: string
+  autostart: boolean
   // RFC3339
   updated_at: string
   updated_by: string
@@ -2100,5 +2103,6 @@ export interface TunnelPresetWriteReq {
   worker: string
   specs: string[]
   note?: string
+  autostart?: boolean
   force?: boolean
 }

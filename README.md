@@ -327,6 +327,8 @@ gofer tunnel presets push                            # upload local presets to t
 
 Presets live on the **server** (the `tunnel_presets` table), so `tun forward -n <name>` works from any machine; `tun save` writes the local `tunnels.yaml` only when the server is unreachable (that read path is marked deprecated, removal in v0.63). A `tun forward` registers itself with the hub (expires after 90s without a heartbeat; `server.tunnel.forwarder_ttl_sec` tunes it), so the console and `tun ls` show who is *listening*, not only who is connected.
 
+The web console can also start or stop a preset as a **server-local hosted forwarder**. Hosted listeners are in memory, are not removed by the client-forwarder TTL, and stop with the server; `autostart: true` restores the listener after restart. Startup is lazy with respect to the worker: the listener may come up while a worker reconnects, and the first connection reports the normal dial error if it is still offline.
+
 Forwarder, server and worker log the same `tunnel_id`, with `dial_ms`, `first_byte_ms`, `bytes_up|down`, `packets_up|down` (UDP) and `close_reason`; `GOFER_TUNNEL_TRACE=1` logs every datagram. How to tell a slow relay from a slow device or a chatty protocol is in [`docs/runbook/tcp-tunnel.md`](docs/runbook/tcp-tunnel.md).
 
 ## File transfer: `gofer tool cp`
