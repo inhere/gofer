@@ -211,6 +211,10 @@ func (s *Store) Status() (RepoStatus, error) {
 			status.Sync = "已同步"
 		}
 	}
+	if base, e := readSyncBase(s.Dir); e == nil {
+		cur := SyncSnapshot{Issues: issues, Memories: memories}
+		status.PendingSync = snapshotDiffCount(base, cur)
+	}
 	for _, item := range issues {
 		status.Issues[item.Status]++
 	}
@@ -222,4 +226,31 @@ func (s *Store) Status() (RepoStatus, error) {
 		}
 	}
 	return status, nil
+}
+
+func snapshotDiffCount(a, b SyncSnapshot) int {
+	n := 0
+	am, bm := indexIssues(a.Issues), indexIssues(b.Issues)
+	for k, v := range bm {
+		if old, ok := am[k]; !ok || string(mustJSON(old)) != string(mustJSON(v)) {
+			n++
+		}
+	}
+	mm, bn := indexMemories(a.Memories), indexMemories(b.Memories)
+	for k, v := range bn {
+		if old, ok := mm[k]; !ok || string(mustJSON(old)) != string(mustJSON(v)) {
+			n++
+		}
+	}
+	for k := range am {
+		if _, ok := bm[k]; !ok {
+			n++
+		}
+	}
+	for k := range mm {
+		if _, ok := bn[k]; !ok {
+			n++
+		}
+	}
+	return n
 }

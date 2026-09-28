@@ -208,7 +208,7 @@ func NewRepoCmd() *gcli.Command {
 					for _, name := range []string{"open", "in_progress", "blocked", "closed"} {
 						c.Printf("issues.%s: %d\n", name, status.Issues[name])
 					}
-					c.Printf("memories: %d\ncommit_policy: %s\nmanaged_block: %v\nhooks: %s\nsync: %s\n", status.Memories, status.CommitPolicy, status.ManagedBlock, status.Hooks, status.Sync)
+					c.Printf("memories: %d\ncommit_policy: %s\nmanaged_block: %v\nhooks: %s\nsync: %s\npending_sync: %d\nlast_sync_at: %s\nsync_summary: %s\n", status.Memories, status.CommitPolicy, status.ManagedBlock, status.Hooks, status.Sync, status.PendingSync, status.LastSyncAt, status.SyncSummary)
 					return nil
 				},
 			},
