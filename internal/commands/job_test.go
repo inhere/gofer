@@ -16,6 +16,21 @@ import (
 	"github.com/inhere/gofer/internal/job"
 )
 
+func TestDisplayJobAgent(t *testing.T) {
+	for _, tc := range []struct {
+		result job.JobResult
+		want   string
+	}{
+		{job.JobResult{Agent: "exec", ResumeAgent: "codex"}, "codex (resume)"},
+		{job.JobResult{Agent: "codex"}, "codex"},
+		{job.JobResult{Agent: "exec"}, "exec"},
+	} {
+		if got := displayJobAgent(tc.result); got != tc.want {
+			t.Fatalf("displayJobAgent(%+v)=%q, want %q", tc.result, got, tc.want)
+		}
+	}
+}
+
 // parseRun runs the gcli arg pipeline (NormalizeArgs -> app.Run) up to the point
 // where `job run` binds its flags. It returns the bound jobRunOpts snapshot, the
 // resolved prompt (--prompt flag) and the captured raw cmd (remainArgs, i.e. the

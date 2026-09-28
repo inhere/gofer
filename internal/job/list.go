@@ -22,7 +22,7 @@ type ListOpts struct {
 	Caller string
 	// Tag, when non-empty, keeps only jobs carrying that exact tag element (E5).
 	Tag string
-	// Agent, when non-empty, keeps only jobs run by that agent (E5).
+	// Agent, when non-empty, matches the physical or original resumed agent.
 	Agent string
 	// Runner, when non-empty, keeps only jobs run on that runner (E5).
 	Runner string
@@ -119,7 +119,7 @@ func (s *Service) ListJobs(opts ListOpts) ([]JobResult, error) {
 		if opts.Tag != "" && !slices.Contains(snap.Tags, opts.Tag) {
 			continue
 		}
-		if opts.Agent != "" && snap.Agent != opts.Agent {
+		if opts.Agent != "" && snap.Agent != opts.Agent && snap.ResumeAgent != opts.Agent {
 			continue
 		}
 		if opts.Runner != "" && snap.Runner != opts.Runner {

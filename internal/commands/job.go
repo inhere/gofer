@@ -1971,6 +1971,13 @@ func dirLockLabel(exclusive bool) string {
 	return "shared"
 }
 
+func displayJobAgent(res job.JobResult) string {
+	if res.ResumeAgent != "" {
+		return res.ResumeAgent + " (resume)"
+	}
+	return res.Agent
+}
+
 // intPtr returns a pointer to n, for the request fields whose tri-state needs to
 // distinguish "unset" (nil) from an explicit zero.
 func intPtr(n int) *int { return &n }
@@ -2007,7 +2014,7 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	}
 	c.Printf("id:         %s\n", res.ID)
 	c.Printf("project:    %s\n", res.ProjectKey)
-	c.Printf("agent:      %s\n", res.Agent)
+	c.Printf("agent:      %s\n", displayJobAgent(res))
 	c.Printf("runner:     %s\n", res.Runner)
 	c.Printf("status:     %s\n", res.Status)
 	c.Printf("exit_code:  %d\n", res.ExitCode)
@@ -2467,7 +2474,7 @@ func runJobList(c *gcli.Command, _ []string) error {
 				tags = "[ro] " + tags
 			}
 		}
-		tb.AddRow(j.ID, j.Title, j.Status, j.Channel, j.Client, j.Agent, j.Runner,
+		tb.AddRow(j.ID, j.Title, j.Status, j.Channel, j.Client, displayJobAgent(j), j.Runner,
 			j.ProjectKey, tags, formatStarted(j.StartedAt))
 	}
 	c.Print(tb.Render())

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/inhere/gofer/internal/job"
+	"github.com/inhere/gofer/internal/jobstore"
 )
 
 // createExecTags posts an exec job with tags and returns its created id.
@@ -78,5 +79,25 @@ func TestListJobsEndpointTagAgentRunnerSince(t *testing.T) {
 	bySinceBad := listJobs(t, s, "?since=notanumber")
 	if len(bySinceBad) != 2 {
 		t.Fatalf("non-numeric since should not filter, expected 2, got %d", len(bySinceBad))
+	}
+}
+
+func TestJobListAgentFilterIncludesResumeCarriers(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	for _, rec := range []jobstore.JobRecord{
+		{ID: "source", ProjectKey: "self", Agent: "codex", Runner: "local", Status: job.StatusDone, ResultDir: ".", StartedAt: 1},
+		{ID: "carrier", ProjectKey: "self", Agent: "exec", ResumeAgent: "codex", Runner: "local", Status: job.StatusDone, ResultDir: ".", StartedAt: 2, ResumedFrom: "source"},
+	} {
+		if err := s.jobs.Meta().UpsertJob(rec); err != nil {
+			t.Fatal(err)
+		}
+	}
+	byCodex := listJobs(t, s, "?agent=codex")
+	if len(byCodex) != 2 || byCodex[0].ResumeAgent != "codex" {
+		t.Fatalf("HTTP agent=codex returned %+v", byCodex)
+	}
+	byExec := listJobs(t, s, "?agent=exec")
+	if len(byExec) != 1 || byExec[0].ID != "carrier" {
+		t.Fatalf("HTTP agent=exec returned %+v", byExec)
 	}
 }

@@ -227,7 +227,7 @@ type ListQuery struct {
 	Status    string // exact status match when non-empty
 	Caller    string // exact caller_id match when non-empty (C2)
 	Tag       string // tags_json contains this tag element when non-empty (E5)
-	Agent     string // exact agent match when non-empty (E5)
+	Agent     string // physical agent or resume_agent match when non-empty
 	Runner    string // exact runner match when non-empty (E5)
 	Session   string // exact session_id match when non-empty (P3, list --session)
 	Plan      string // exact plan_id match when non-empty (plan-orchestration P1)
@@ -1000,8 +1000,8 @@ func (s *Store) ListJobs(q ListQuery) ([]JobRecord, error) {
 		args = append(args, "%\""+q.Tag+"\"%")
 	}
 	if q.Agent != "" {
-		where = append(where, "agent = ?")
-		args = append(args, q.Agent)
+		where = append(where, "(agent = ? OR resume_agent = ?)")
+		args = append(args, q.Agent, q.Agent)
 	}
 	if q.Runner != "" {
 		where = append(where, "runner = ?")
