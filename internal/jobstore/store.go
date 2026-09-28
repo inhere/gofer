@@ -641,6 +641,7 @@ var schemaStmts = []string{
   worker     TEXT NOT NULL,
   specs_json TEXT NOT NULL,
   note       TEXT,
+  autostart  INTEGER NOT NULL DEFAULT 0,
   updated_at INTEGER NOT NULL,
   updated_by TEXT
 )`,
@@ -1037,6 +1038,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateDeliveries(); err != nil {
 		return err
 	}
+	if err := s.migrateTunnelPresets(); err != nil {
+		return err
+	}
 	// Partial unique index: only non-empty request_id values are constrained, so
 	// jobs without a request_id never collide. Created after the column exists.
 	if _, err := s.db.Exec(
@@ -1061,6 +1065,22 @@ func (s *Store) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_jobs_todo_id ON jobs(todo_id)`,
 	); err != nil {
 		return fmt.Errorf("jobstore: migrate todo_id index: %w", err)
+	}
+	return nil
+}
+
+// migrateTunnelPresets adds TUN-05's optional autostart flag to databases created
+// before hosted forwarding. Existing presets remain manual (false).
+func (s *Store) migrateTunnelPresets() error {
+	cols, err := s.tableColumns("tunnel_presets")
+	if err != nil {
+		return err
+	}
+	if _, ok := cols["autostart"]; ok {
+		return nil
+	}
+	if _, err := s.db.Exec("ALTER TABLE tunnel_presets ADD COLUMN autostart INTEGER NOT NULL DEFAULT 0"); err != nil {
+		return fmt.Errorf("jobstore: migrate tunnel_presets autostart: %w", err)
 	}
 	return nil
 }

@@ -14,9 +14,10 @@ import (
 // TunnelProfile is one saved `gofer tunnel forward` invocation: which worker to
 // reach and which ports to forward through it.
 type TunnelProfile struct {
-	Worker string   `yaml:"worker"`
-	Specs  []string `yaml:"specs"`
-	Note   string   `yaml:"note,omitempty"`
+	Worker    string   `yaml:"worker"`
+	Specs     []string `yaml:"specs"`
+	Note      string   `yaml:"note,omitempty"`
+	Autostart bool     `yaml:"autostart,omitempty"`
 }
 
 // ServerTunnelConfig is the server.tunnel block (TUN-03): the hub-side policy of the

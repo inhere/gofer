@@ -54,10 +54,11 @@ func (s *Server) forwarderTTL() time.Duration {
 // it, replacing an existing name is refused (409) so a typo cannot silently overwrite a
 // working preset.
 type tunnelPresetBody struct {
-	Worker string   `json:"worker"`
-	Specs  []string `json:"specs"`
-	Note   string   `json:"note,omitempty"`
-	Force  bool     `json:"force,omitempty"`
+	Worker    string   `json:"worker"`
+	Specs     []string `json:"specs"`
+	Note      string   `json:"note,omitempty"`
+	Autostart bool     `json:"autostart,omitempty"`
+	Force     bool     `json:"force,omitempty"`
 }
 
 // tunnelPresetView is one preset on the wire. updated_at / updated_by are the write
@@ -67,6 +68,7 @@ type tunnelPresetView struct {
 	Worker    string    `json:"worker"`
 	Specs     []string  `json:"specs"`
 	Note      string    `json:"note"`
+	Autostart bool      `json:"autostart"`
 	UpdatedAt time.Time `json:"updated_at"`
 	UpdatedBy string    `json:"updated_by"`
 }
@@ -131,7 +133,7 @@ func (s *Server) handlePutTunnelPreset(c *rux.Context) {
 	// The comma form is a way to WRITE several rules (TUN-04): split first, then judge
 	// what will actually run — the same order `tun save` uses locally.
 	profile, err := config.NormalizeTunnelProfile(config.TunnelProfile{
-		Worker: body.Worker, Specs: body.Specs, Note: body.Note,
+		Worker: body.Worker, Specs: body.Specs, Note: body.Note, Autostart: body.Autostart,
 	})
 	if err != nil {
 		writeError(c, http.StatusBadRequest, "invalid preset", "at least one forward spec is required")
@@ -158,7 +160,7 @@ func (s *Server) handlePutTunnelPreset(c *rux.Context) {
 	}
 	now := time.Now()
 	rec := jobstore.TunnelPresetRecord{
-		Name: name, Worker: profile.Worker, SpecsJSON: string(specsJSON), Note: profile.Note,
+		Name: name, Worker: profile.Worker, SpecsJSON: string(specsJSON), Note: profile.Note, Autostart: profile.Autostart,
 		UpdatedAt: now.Unix(), UpdatedBy: callerFromCtx(c),
 	}
 	if err := st.UpsertTunnelPreset(rec); err != nil {
@@ -209,6 +211,7 @@ func tunnelPresetViewOf(rec jobstore.TunnelPresetRecord) (tunnelPresetView, bool
 	}
 	return tunnelPresetView{
 		Name: rec.Name, Worker: rec.Worker, Specs: specs, Note: rec.Note,
+		Autostart: rec.Autostart,
 		UpdatedAt: time.Unix(rec.UpdatedAt, 0), UpdatedBy: rec.UpdatedBy,
 	}, true
 }

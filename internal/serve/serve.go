@@ -20,6 +20,7 @@ import (
 
 	"github.com/inhere/gofer/internal/buildinfo"
 	"github.com/inhere/gofer/internal/castrec"
+	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/core"
 	"github.com/inhere/gofer/internal/daemon"
@@ -32,6 +33,7 @@ import (
 	"github.com/inhere/gofer/internal/runner"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/supervisor"
+	"github.com/inhere/gofer/internal/tunnel"
 	"github.com/inhere/gofer/internal/webpush"
 )
 
@@ -346,6 +348,14 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	// (and the console can edit them). The forwarder REGISTRY needs no injection — it is
 	// in-memory and built by httpapi.New, with its TTL read from the live server config.
 	srv.SetTunnelPresets(cr.Store)
+	// TUN-05: hosted forwarders use the same HTTP rendezvous and worker dial path as
+	// the CLI, but the Forwarder listener itself remains inside this server process.
+	srv.SetHostedForwarderDial(func(ctx context.Context, worker string, spec tunnel.ForwardSpec) (tunnel.DialResult, error) {
+		tc, err := client.New(addr, token).DialTunnel(ctx, worker, spec.Target, spec.Network)
+		return tunnel.DialResult{Conn: tc.Conn, TunnelID: tc.TunnelID}, err
+	})
+	srv.StartHostedAutostart()
+	defer srv.StopHostedForwarders()
 	// PTY-01 §四: the transcript tail cap (pty.transcript_max_bytes) is resolved
 	// from the same config snapshot as everything else here.
 	srv.SetPtyTranscriptMaxBytes(cfg.EffectivePtyTranscriptMaxBytes())

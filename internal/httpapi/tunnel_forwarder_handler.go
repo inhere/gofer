@@ -72,12 +72,14 @@ type forwarderSpecView struct {
 // forwarderView is one online forwarder plus the roll-up of the active connections
 // that belong to it.
 type forwarderView struct {
-	ID       string              `json:"id"`
-	CallerID string              `json:"caller_id"`
-	Worker   string              `json:"worker"`
-	Specs    []forwarderSpecView `json:"specs"`
-	Host     string              `json:"host"`
-	PID      int                 `json:"pid"`
+	ID         string              `json:"id"`
+	CallerID   string              `json:"caller_id"`
+	Worker     string              `json:"worker"`
+	Specs      []forwarderSpecView `json:"specs"`
+	Host       string              `json:"host"`
+	PID        int                 `json:"pid"`
+	Hosted     bool                `json:"hosted"`
+	HostedName string              `json:"hosted_name,omitempty"`
 	// StartedAt is the forwarder's uptime base; LastSeenAt lets the console show how
 	// fresh the registration is (and is what the TTL counts from).
 	StartedAt  time.Time `json:"started_at"`
@@ -283,6 +285,8 @@ func (s *Server) forwarderViewOf(reg tunnel.ForwarderRegistration, active ...tun
 		Worker:     reg.Worker,
 		Host:       reg.Host,
 		PID:        reg.PID,
+		Hosted:     reg.Hosted,
+		HostedName: reg.HostedName,
 		StartedAt:  reg.StartedAt,
 		LastSeenAt: reg.LastSeenAt,
 		Specs:      make([]forwarderSpecView, 0, len(reg.Specs)),

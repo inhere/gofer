@@ -1,6 +1,7 @@
 package httpapi
 
 import (
+	"context"
 	"io"
 	"net/http"
 	"strings"
@@ -8,6 +9,7 @@ import (
 
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/jobstore"
+	"github.com/inhere/gofer/internal/tunnel"
 )
 
 func responseBody(t *testing.T, resp *http.Response) string {
@@ -25,6 +27,9 @@ func responseBody(t *testing.T, resp *http.Response) string {
 func TestServerHostedForwardStartStop(t *testing.T) {
 	s := newTestServerCfg(t, config.ServerConfig{Token: testToken})
 	s.SetTunnelPresets(openTestStore(t, t.TempDir()))
+	s.SetHostedForwarderDial(func(_ context.Context, _ string, _ tunnel.ForwardSpec) (tunnel.DialResult, error) {
+		return tunnel.DialResult{}, nil
+	})
 	put := do(t, s, http.MethodPut, "/v1/tunnels/presets/demo", testToken, map[string]any{
 		"worker": "w-local", "specs": []string{"0:127.0.0.1:1"}, "autostart": false,
 	})
@@ -46,6 +51,9 @@ func TestServerHostedForwardStartStop(t *testing.T) {
 func TestForwardAutostart(t *testing.T) {
 	s := newTestServerCfg(t, config.ServerConfig{Token: testToken})
 	s.SetTunnelPresets(openTestStore(t, t.TempDir()))
+	s.SetHostedForwarderDial(func(_ context.Context, _ string, _ tunnel.ForwardSpec) (tunnel.DialResult, error) {
+		return tunnel.DialResult{}, nil
+	})
 	resp := do(t, s, http.MethodPut, "/v1/tunnels/presets/auto", testToken, map[string]any{
 		"worker": "w-local", "specs": []string{"0:127.0.0.1:1"}, "autostart": true,
 	})
@@ -61,16 +69,36 @@ func TestForwardAutostart(t *testing.T) {
 	if !body.Preset.Autostart {
 		t.Fatalf("autostart=false, want true")
 	}
+	s.StartHostedAutostart()
+	if got := listForwarders(t, s, testToken); len(got) != 1 || !got[0].Hosted {
+		t.Fatalf("autostart forwarders=%+v, want one hosted entry", got)
+	}
+	s.StopHostedForwarders()
 }
 
 func TestUnpushedLocalPresetsListed(t *testing.T) {
 	s := newTestServerCfg(t, config.ServerConfig{Token: testToken})
 	s.SetTunnelPresets(openTestStore(t, t.TempDir()))
+	configDir := t.TempDir()
+	t.Setenv(config.EnvConfigDir, configDir)
+	if err := config.SaveTunnels(&config.Tunnels{Forwards: map[string]config.TunnelProfile{
+		"local-only": {Worker: "w-local", Specs: []string{"0:127.0.0.1:1"}, Note: "local", Autostart: true},
+	}}); err != nil {
+		t.Fatalf("save local tunnels: %v", err)
+	}
 	resp := do(t, s, http.MethodGet, "/v1/tunnels/local-presets", testToken, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("local preset list status=%d, want 200; body=%s", resp.StatusCode, responseBody(t, resp))
 	}
 	_ = resp.Body.Close()
+	imported := do(t, s, http.MethodPost, "/v1/tunnels/local-presets/local-only", testToken, nil)
+	if imported.StatusCode != http.StatusOK {
+		t.Fatalf("local preset import status=%d, want 200; body=%s", imported.StatusCode, responseBody(t, imported))
+	}
+	resp = do(t, s, http.MethodGet, "/v1/tunnels/local-presets", testToken, nil)
+	if resp.StatusCode != http.StatusOK || strings.Contains(responseBody(t, resp), "local-only") {
+		t.Fatalf("imported local preset should disappear from local list, status=%d", resp.StatusCode)
+	}
 
 	tok := seedJobToken(t, s, "job-hosted", jobstore.JobCredentialMember, "")
 	for _, method := range []string{http.MethodPost, http.MethodDelete} {

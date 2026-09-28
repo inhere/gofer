@@ -19,18 +19,19 @@ type TunnelPresetRecord struct {
 	// comma-joined entry).
 	SpecsJSON string
 	Note      string
+	Autostart bool
 	// UpdatedAt / UpdatedBy are the write audit: unix SECONDS (like every other
 	// timestamp in this store) and the authenticated caller that saved it.
 	UpdatedAt int64
 	UpdatedBy string
 }
 
-const selectTunnelPresetCols = `SELECT name, worker, specs_json, COALESCE(note,''), updated_at,
+const selectTunnelPresetCols = `SELECT name, worker, specs_json, COALESCE(note,''), autostart, updated_at,
   COALESCE(updated_by,'') FROM tunnel_presets`
 
 func scanTunnelPreset(sc rowScanner) (TunnelPresetRecord, error) {
 	var r TunnelPresetRecord
-	err := sc.Scan(&r.Name, &r.Worker, &r.SpecsJSON, &r.Note, &r.UpdatedAt, &r.UpdatedBy)
+	err := sc.Scan(&r.Name, &r.Worker, &r.SpecsJSON, &r.Note, &r.Autostart, &r.UpdatedAt, &r.UpdatedBy)
 	return r, err
 }
 
@@ -42,14 +43,15 @@ func (s *Store) UpsertTunnelPreset(rec TunnelPresetRecord) error {
 	if rec.Name == "" {
 		return errors.New("jobstore: UpsertTunnelPreset: empty preset name")
 	}
-	const q = `INSERT INTO tunnel_presets (name, worker, specs_json, note, updated_at, updated_by)
-  VALUES (?,?,?,?,?,?)
-  ON CONFLICT(name) DO UPDATE SET
+	const q = `INSERT INTO tunnel_presets (name, worker, specs_json, note, autostart, updated_at, updated_by)
+	VALUES (?,?,?,?,?,?,?)
+	ON CONFLICT(name) DO UPDATE SET
     worker=excluded.worker, specs_json=excluded.specs_json, note=excluded.note,
+	autostart=excluded.autostart,
     updated_at=excluded.updated_at, updated_by=excluded.updated_by`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	if _, err := s.db.Exec(q, rec.Name, rec.Worker, rec.SpecsJSON, rec.Note, rec.UpdatedAt, rec.UpdatedBy); err != nil {
+	if _, err := s.db.Exec(q, rec.Name, rec.Worker, rec.SpecsJSON, rec.Note, rec.Autostart, rec.UpdatedAt, rec.UpdatedBy); err != nil {
 		return fmt.Errorf("jobstore: upsert tunnel preset %q: %w", rec.Name, err)
 	}
 	return nil

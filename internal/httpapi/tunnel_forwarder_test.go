@@ -32,6 +32,7 @@ type forwarderViewBody struct {
 	Worker      string    `json:"worker"`
 	Host        string    `json:"host"`
 	PID         int       `json:"pid"`
+	Hosted      bool      `json:"hosted"`
 	StartedAt   time.Time `json:"started_at"`
 	LastSeenAt  time.Time `json:"last_seen_at"`
 	Connections int       `json:"connections"`

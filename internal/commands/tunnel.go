@@ -564,7 +564,7 @@ func runTunnelPresetsPush(c *gcli.Command, _ []string) error {
 	pushed, skipped := 0, make([]string, 0)
 	for _, name := range names {
 		p := local.Forwards[name]
-		_, err := cli.PutTunnelPreset(name, client.TunnelPreset{Worker: p.Worker, Specs: p.Specs, Note: p.Note}, tunnelOpts.force)
+		_, err := cli.PutTunnelPreset(name, client.TunnelPreset{Worker: p.Worker, Specs: p.Specs, Note: p.Note, Autostart: p.Autostart}, tunnelOpts.force)
 		if err != nil {
 			if client.StatusOf(err) == http.StatusConflict {
 				skipped = append(skipped, name)

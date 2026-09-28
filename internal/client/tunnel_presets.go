@@ -52,11 +52,44 @@ type TunnelForwarder struct {
 	Specs       []TunnelSpecView `json:"specs"`
 	Host        string           `json:"host"`
 	PID         int              `json:"pid"`
+	Hosted      bool             `json:"hosted"`
+	HostedName  string           `json:"hosted_name,omitempty"`
 	StartedAt   time.Time        `json:"started_at"`
 	LastSeenAt  time.Time        `json:"last_seen_at"`
 	Connections int              `json:"connections"`
 	BytesUp     int64            `json:"bytes_up"`
 	BytesDown   int64            `json:"bytes_down"`
+}
+
+// StartHostedTunnelForwarder starts a server-local listener for one preset.
+func (c *Client) StartHostedTunnelForwarder(name string) (TunnelForwarder, string, error) {
+	var out struct {
+		Forwarder TunnelForwarder `json:"forwarder"`
+		Warning   string          `json:"warning"`
+	}
+	err := c.doJSON(http.MethodPost, "/v1/tunnels/hosted/"+url.PathEscape(name), nil, &out)
+	return out.Forwarder, out.Warning, err
+}
+
+// StopHostedTunnelForwarder stops a server-local listener for one preset.
+func (c *Client) StopHostedTunnelForwarder(name string) error {
+	return c.doJSON(http.MethodDelete, "/v1/tunnels/hosted/"+url.PathEscape(name), nil, nil)
+}
+
+func (c *Client) ListLocalTunnelPresets() ([]TunnelPreset, error) {
+	var out struct {
+		Presets []TunnelPreset `json:"presets"`
+	}
+	err := c.doJSON(http.MethodGet, "/v1/tunnels/local-presets", nil, &out)
+	return out.Presets, err
+}
+
+func (c *Client) ImportLocalTunnelPreset(name string) (TunnelPreset, error) {
+	var out struct {
+		Preset TunnelPreset `json:"preset"`
+	}
+	err := c.doJSON(http.MethodPost, "/v1/tunnels/local-presets/"+url.PathEscape(name), nil, &out)
+	return out.Preset, err
 }
 
 // TunnelForwarderRegistration is what a starting forwarder announces: the rules it is
@@ -75,6 +108,7 @@ type TunnelPreset struct {
 	Worker    string    `json:"worker"`
 	Specs     []string  `json:"specs"`
 	Note      string    `json:"note"`
+	Autostart bool      `json:"autostart"`
 	UpdatedAt time.Time `json:"updated_at"`
 	UpdatedBy string    `json:"updated_by"`
 }
@@ -160,11 +194,12 @@ func (c *Client) PutTunnelPreset(name string, p TunnelPreset, force bool) (Tunne
 		Preset TunnelPreset `json:"preset"`
 	}
 	body, err := json.Marshal(struct {
-		Worker string   `json:"worker"`
-		Specs  []string `json:"specs"`
-		Note   string   `json:"note,omitempty"`
-		Force  bool     `json:"force,omitempty"`
-	}{Worker: p.Worker, Specs: p.Specs, Note: p.Note, Force: force})
+		Worker    string   `json:"worker"`
+		Specs     []string `json:"specs"`
+		Note      string   `json:"note,omitempty"`
+		Autostart bool     `json:"autostart,omitempty"`
+		Force     bool     `json:"force,omitempty"`
+	}{Worker: p.Worker, Specs: p.Specs, Note: p.Note, Autostart: p.Autostart, Force: force})
 	if err != nil {
 		return TunnelPreset{}, fmt.Errorf("encode tunnel preset: %w", err)
 	}
