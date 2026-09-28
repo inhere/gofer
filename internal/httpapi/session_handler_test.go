@@ -220,6 +220,28 @@ func TestSessionJobWatchHTTPContract(t *testing.T) {
 	if len(listed.Watches) != 1 || listed.Watches[0].JobID != "job-watch-http" {
 		t.Fatalf("watches=%+v", listed.Watches)
 	}
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-watch-http/relay", testToken, map[string]any{"mode": "on"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("relay on status=%d", resp.StatusCode)
+	}
+	resp.Body.Close()
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-watch-http/turns", testToken, map[string]any{"body": "waiting"})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("open turn status=%d", resp.StatusCode)
+	}
+	var turn decisionView
+	decode(t, resp, &turn)
+	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{ID: "job-watch-http", CallerID: "default", Status: "done"}); err != nil {
+		t.Fatal(err)
+	}
+	resp = do(t, s, http.MethodPost, "/v1/sessions/sid-watch-http/turns/"+turn.ID+"/complete-watches", testToken, map[string]any{"job_ids": []string{"job-watch-http"}})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("complete turn status=%d body=%s", resp.StatusCode, bodyString(t, resp))
+	}
+	resp.Body.Close()
+	if d, ok, err := s.jobs.Meta().GetDecision(turn.ID); err != nil || !ok || d.State != jobstore.DecisionExpired || d.ReleasedBy != "watched_job" {
+		t.Fatalf("turn after completion=%+v ok=%v err=%v", d, ok, err)
+	}
 	resp = do(t, s, http.MethodDelete, "/v1/sessions/sid-watch-http", testToken, nil)
 	if resp.StatusCode != http.StatusOK {
 		t.Fatalf("delete session status=%d", resp.StatusCode)

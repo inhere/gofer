@@ -24,6 +24,7 @@ type API interface {
 	AddSessionJobWatch(sid, jobID string) (client.SessionJobWatch, error)
 	ListSessionJobWatches(sid string) ([]client.SessionJobWatch, error)
 	RemoveSessionJobWatch(sid, jobID string) error
+	CompleteSessionWatchTurn(sid, turnID string, jobIDs []string) (bool, error)
 }
 
 // Options tunes one hook invocation. Zero values pick the defaults below.
@@ -283,7 +284,7 @@ func (r *runner) stop() Result {
 	watched := []WatchedJob(nil)
 	if a.WatchCount > 0 {
 		watched = r.watchedJobs()
-		if completed := r.releaseWatchedJobs(watched); len(completed) > 0 {
+		if completed := r.releaseWatchedJobs(turn.ID, watched); len(completed) > 0 {
 			return Result{Blocked: true, Reason: mergeWatchedTerminals(completed)}
 		}
 	}
@@ -324,7 +325,7 @@ func (r *runner) stop() Result {
 		failures = 0
 		if a.WatchCount > 0 {
 			watched = r.watchedJobs()
-			if completed := r.releaseWatchedJobs(watched); len(completed) > 0 {
+			if completed := r.releaseWatchedJobs(turn.ID, watched); len(completed) > 0 {
 				return Result{Blocked: true, Reason: mergeWatchedTerminals(completed)}
 			}
 		}
@@ -370,7 +371,7 @@ func (r *runner) watchedJobs() []WatchedJob {
 	return out
 }
 
-func (r *runner) releaseWatchedJobs(jobs []WatchedJob) []WatchedJob {
+func (r *runner) releaseWatchedJobs(turnID string, jobs []WatchedJob) []WatchedJob {
 	term := make([]WatchedJob, 0, len(jobs))
 	for _, item := range jobs {
 		if !isTerminalStatus(item.Status) {
@@ -381,10 +382,14 @@ func (r *runner) releaseWatchedJobs(jobs []WatchedJob) []WatchedJob {
 	if len(term) == 0 {
 		return nil
 	}
+	ids := make([]string, 0, len(term))
 	for _, item := range term {
-		if err := r.api.RemoveSessionJobWatch(r.p.SessionID, item.ID); err != nil {
-			r.log("remove job watch %s failed: %v", item.ID, err)
-		}
+		ids = append(ids, item.ID)
+	}
+	completed, err := r.api.CompleteSessionWatchTurn(r.p.SessionID, turnID, ids)
+	if err != nil || !completed {
+		r.log("complete watched turn failed: completed=%v err=%v", completed, err)
+		return nil
 	}
 	return term
 }

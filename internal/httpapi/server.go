@@ -939,6 +939,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.POST("/sessions/{sid}/turns", s.handleOpenTurn)
 		r.GET("/sessions/{sid}/turns/{id}", s.handleWaitTurn)
 		r.POST("/sessions/{sid}/turns/{id}/release", s.handleReleaseTurn)
+		r.POST("/sessions/{sid}/turns/{id}/complete-watches", s.handleCompleteWatchedTurn)
 		r.POST("/sessions/{sid}/say", s.handleSessionSay)
 		// §9.1 A: deliver to a session that is NOT waiting — tmux send-keys.
 		r.POST("/sessions/{sid}/deliver", s.handleSessionDeliver)

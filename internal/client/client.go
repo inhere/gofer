@@ -2166,6 +2166,19 @@ func (c *Client) RemoveSessionJobWatch(sid, jobID string) error {
 	return c.doJSON(http.MethodDelete, "/v1/sessions/"+url.PathEscape(sid)+"/watches/"+url.PathEscape(jobID), nil, nil)
 }
 
+func (c *Client) CompleteSessionWatchTurn(sid, turnID string, jobIDs []string) (bool, error) {
+	body, err := json.Marshal(map[string][]string{"job_ids": jobIDs})
+	if err != nil {
+		return false, err
+	}
+	var out struct {
+		Completed bool `json:"completed"`
+	}
+	path := "/v1/sessions/" + url.PathEscape(sid) + "/turns/" + url.PathEscape(turnID) + "/complete-watches"
+	err = c.doJSON(http.MethodPost, path, bytes.NewReader(body), &out)
+	return out.Completed, err
+}
+
 // SetSessionRelayMode sets the three-state relay switch (auto|on|off, R1).
 func (c *Client) SetSessionRelayMode(sid, mode string) (AgentSession, error) {
 	body, _ := json.Marshal(map[string]string{"mode": mode})

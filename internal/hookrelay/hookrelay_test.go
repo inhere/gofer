@@ -186,6 +186,20 @@ func (f *fakeAPI) RemoveSessionJobWatch(_ string, jobID string) error {
 	return nil
 }
 
+func (f *fakeAPI) CompleteSessionWatchTurn(_ string, _ string, jobIDs []string) (bool, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for _, jobID := range jobIDs {
+		for i, row := range f.watchRows {
+			if row.JobID == jobID {
+				f.watchRows = append(f.watchRows[:i], f.watchRows[i+1:]...)
+				break
+			}
+		}
+	}
+	return true, nil
+}
+
 func payload(t *testing.T, agent string, m map[string]any) Payload {
 	t.Helper()
 	b, _ := json.Marshal(m)

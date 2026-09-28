@@ -11,6 +11,7 @@ import (
 
 	"github.com/gookit/rux/v2"
 
+	"github.com/inhere/gofer/internal/job"
 	"github.com/inhere/gofer/internal/jobstore"
 	"github.com/inhere/gofer/internal/sessionrelay"
 )
@@ -109,6 +110,45 @@ func (s *Server) handleRemoveSessionWatch(c *rux.Context) {
 		return
 	}
 	c.JSON(http.StatusOK, map[string]any{"removed": ok})
+}
+
+func (s *Server) handleCompleteWatchedTurn(c *rux.Context) {
+	if !s.relayReady(c) || !s.sessionMayAnswer(c, c.Param("sid"), "complete watched turn") {
+		return
+	}
+	var body struct {
+		JobIDs []string `json:"job_ids"`
+	}
+	if err := c.BindJSON(&body); err != nil {
+		writeError(c, http.StatusBadRequest, "invalid request body", err.Error())
+		return
+	}
+	listed, err := s.relay.JobWatches(c.Param("sid"))
+	if err != nil {
+		writeError(c, relayStatus(err), "list session watches failed", err.Error())
+		return
+	}
+	known := make(map[string]bool, len(listed))
+	for _, watch := range listed {
+		known[watch.JobID] = true
+	}
+	for _, id := range body.JobIDs {
+		if !known[id] {
+			writeError(c, http.StatusConflict, "job is not watched", id)
+			return
+		}
+		res, ok := s.jobs.Get(id)
+		if !ok || !job.IsTerminal(res.Status) {
+			writeError(c, http.StatusConflict, "job is not terminal", id)
+			return
+		}
+	}
+	completed, err := s.relay.CompleteWatchedTurn(c.Param("sid"), c.Param("id"), body.JobIDs)
+	if err != nil {
+		writeError(c, relayStatus(err), "complete watched turn failed", err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, map[string]any{"completed": completed})
 }
 
 // sessionView is the HTTP projection of an agent_sessions row (session relay,

@@ -797,6 +797,35 @@ func (s *Service) RemoveJobWatch(sid, jobID string) (bool, error) {
 	return s.store.RemoveSessionJobWatch(sid, jobID)
 }
 
+// CompleteWatchedTurn settles the open relay turn before the hook injects a
+// terminal-job notice. If a web answer won the race, it returns false and the
+// hook must consume that answer instead.
+func (s *Service) CompleteWatchedTurn(sid, turnID string, jobIDs []string) (bool, error) {
+	d, ok, err := s.store.GetDecision(turnID)
+	if err != nil {
+		return false, err
+	}
+	if !ok || d.SessionID != sid {
+		return false, ErrUnknownTurn
+	}
+	if len(jobIDs) == 0 {
+		return false, fmt.Errorf("%w: no terminal jobs", ErrInvalidInput)
+	}
+	released, err := s.store.ReleaseDecision(turnID, "watched_job")
+	if err != nil || !released {
+		return false, err
+	}
+	for _, id := range jobIDs {
+		if _, err := s.store.RemoveSessionJobWatch(sid, id); err != nil {
+			return false, err
+		}
+	}
+	if _, err := s.store.SetSessionState(sid, jobstore.SessionRunning); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
 // ReleaseTakeover undoes path B's takeover (design §9.1 B): the takeover job is
 // cancelled FIRST — while it runs, IT owns the CLI session, and releasing the
 // original terminal into a session two processes are writing would diverge it —
