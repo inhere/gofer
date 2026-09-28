@@ -689,6 +689,7 @@ func (s *Server) buildRouter() *rux.Router {
 		r.PUT("/tracker/issues/{id}", s.handleTrackerIssueEdit)
 		r.GET("/tracker/memories", s.handleTrackerMemories)
 		r.PUT("/tracker/memories/{id}", s.handleTrackerMemoryEdit)
+		r.DELETE("/tracker/memories/{id}", s.handleTrackerMemoryDelete)
 		r.POST("/projects", s.handleCreateProject)
 		r.GET("/projects/{key}", s.handleGetProject)
 		r.PUT("/projects/{key}", s.handleUpdateProject)

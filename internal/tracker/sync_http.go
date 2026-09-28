@@ -70,6 +70,13 @@ func SyncHTTPWithToken(ctx context.Context, s *Store, endpoint, token string) (S
 		b, _ := json.Marshal(memory)
 		memoryRecords = append(memoryRecords, map[string]any{"id": memory.Key, "body": json.RawMessage(b), "rev": 1, "updated_at": memory.UpdatedAt})
 	}
+	baseMem := indexMemories(base.Memories)
+	localMem := indexMemories(memories)
+	for key := range baseMem {
+		if _, ok := localMem[key]; !ok {
+			memoryRecords = append(memoryRecords, map[string]any{"id": key, "body": json.RawMessage("{}"), "rev": 1, "updated_at": Now(), "deleted": true, "deleted_at": Now(), "deleted_by": "local"})
+		}
+	}
 	payload := map[string]any{"tracker_id": cfg.TrackerID, "project_key": cfg.ProjectKey, "prefix": cfg.Prefix, "issues": issueRecords, "memories": memoryRecords}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -97,6 +104,7 @@ func SyncHTTPWithToken(ctx context.Context, s *Store, endpoint, token string) (S
 		return SyncReport{}, err
 	}
 	remote := SyncSnapshot{}
+	var remoteMemories []ServerMemory
 	for _, item := range wire.Issues {
 		var issue Issue
 		if err := json.Unmarshal(item.Body, &issue); err == nil {
@@ -104,10 +112,12 @@ func SyncHTTPWithToken(ctx context.Context, s *Store, endpoint, token string) (S
 		}
 	}
 	for _, item := range wire.Memories {
+		var memory Memory
+		_ = json.Unmarshal(item.Body, &memory)
+		remoteMemories = append(remoteMemories, ServerMemory{Memory: memory, Deleted: item.Deleted, DeletedAt: item.DeletedAt, DeletedBy: item.DeletedBy})
 		if item.Deleted {
 			continue
 		}
-		var memory Memory
 		if err := json.Unmarshal(item.Body, &memory); err == nil {
 			remote.Memories = append(remote.Memories, memory)
 		}
@@ -116,6 +126,37 @@ func SyncHTTPWithToken(ctx context.Context, s *Store, endpoint, token string) (S
 		base = local
 	}
 	merged, report := ThreeWayMerge(base, local, remote)
+	serverMemBase := make([]ServerMemory, 0, len(base.Memories))
+	for _, m := range base.Memories {
+		serverMemBase = append(serverMemBase, ServerMemory{Memory: m})
+	}
+	serverMemLocal := make([]ServerMemory, 0, len(local.Memories))
+	for _, m := range local.Memories {
+		serverMemLocal = append(serverMemLocal, ServerMemory{Memory: m})
+	}
+	serverMemMerged, memReport := MergeServerMemories(serverMemBase, serverMemLocal, remoteMemories)
+	report.Conflicts = append(report.Conflicts, memReport.Conflicts...)
+	merged.Memories = nil
+	for _, m := range serverMemMerged {
+		if !m.Deleted {
+			merged.Memories = append(merged.Memories, m.Memory)
+		}
+	}
+	deletedRemote := map[string]bool{}
+	for _, item := range wire.Memories {
+		if item.Deleted {
+			deletedRemote[item.ID] = true
+		}
+	}
+	if len(deletedRemote) > 0 {
+		kept := merged.Memories[:0]
+		for _, m := range merged.Memories {
+			if !deletedRemote[m.Key] {
+				kept = append(kept, m)
+			}
+		}
+		merged.Memories = kept
+	}
 	if err := s.WriteIssues(merged.Issues); err != nil {
 		return report, err
 	}

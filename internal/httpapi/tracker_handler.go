@@ -196,3 +196,20 @@ func (s *Server) handleTrackerMemoryEdit(c *rux.Context) {
 	}
 	c.JSON(http.StatusOK, map[string]string{"status": "ok"})
 }
+
+func (s *Server) handleTrackerMemoryDelete(c *rux.Context) {
+	if s.trackerStore == nil {
+		c.JSON(http.StatusServiceUnavailable, map[string]string{"error": "tracker mirror unavailable"})
+		return
+	}
+	id := c.Req.URL.Query().Get("tracker_id")
+	if id == "" {
+		c.JSON(http.StatusBadRequest, map[string]string{"error": "tracker_id required"})
+		return
+	}
+	if err := s.trackerStore.UpsertTrackerMemory(jobstore.TrackerRecord{TrackerID: id, ID: c.Param("id"), Body: json.RawMessage("{}"), Rev: 2, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano), Deleted: true, DeletedAt: time.Now().UTC().Format(time.RFC3339Nano), DeletedBy: callerFromCtx(c)}); err != nil {
+		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, map[string]string{"status": "deleted"})
+}
