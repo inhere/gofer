@@ -93,13 +93,47 @@ func (s *Server) handleTrackerSync(c *rux.Context) {
 		return
 	}
 	for _, item := range req.Issue {
-		if err := s.trackerStore.UpsertTrackerIssue(jobstore.TrackerRecord{TrackerID: req.TrackerID, ID: item.ID, Body: item.Body, Rev: item.Rev, UpdatedAt: item.UpdatedAt}); err != nil {
+		rev := item.Rev
+		skip := false
+		if existing, _ := s.trackerStore.ListTrackerIssues(req.TrackerID, 0); true {
+			for _, old := range existing {
+				if old.ID == item.ID {
+					if old.Rev > rev {
+						skip = true
+					}
+					if old.Rev == rev {
+						rev = old.Rev + 1
+					}
+				}
+			}
+		}
+		if skip {
+			continue
+		}
+		if err := s.trackerStore.UpsertTrackerIssue(jobstore.TrackerRecord{TrackerID: req.TrackerID, ID: item.ID, Body: item.Body, Rev: rev, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
 			c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}
 	}
 	for _, item := range req.Memory {
-		if err := s.trackerStore.UpsertTrackerMemory(jobstore.TrackerRecord{TrackerID: req.TrackerID, ID: item.ID, Body: item.Body, Rev: item.Rev, UpdatedAt: item.UpdatedAt, Deleted: item.Deleted, DeletedAt: item.DeletedAt, DeletedBy: item.DeletedBy}); err != nil {
+		rev := item.Rev
+		skip := false
+		if existing, _ := s.trackerStore.ListTrackerMemories(req.TrackerID, 0); true {
+			for _, old := range existing {
+				if old.ID == item.ID {
+					if old.Rev > rev {
+						skip = true
+					}
+					if old.Rev == rev {
+						rev = old.Rev + 1
+					}
+				}
+			}
+		}
+		if skip {
+			continue
+		}
+		if err := s.trackerStore.UpsertTrackerMemory(jobstore.TrackerRecord{TrackerID: req.TrackerID, ID: item.ID, Body: item.Body, Rev: rev, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano), Deleted: item.Deleted, DeletedAt: item.DeletedAt, DeletedBy: item.DeletedBy}); err != nil {
 			c.JSON(http.StatusBadRequest, map[string]string{"error": err.Error()})
 			return
 		}

@@ -61,16 +61,23 @@ func SyncHTTPWithToken(ctx context.Context, s *Store, endpoint, token string) (S
 	base, _ := readSyncBase(s.Dir)
 	local := SyncSnapshot{Issues: issues, Memories: memories}
 	issueRecords := make([]map[string]any, 0, len(issues))
+	baseIssues := indexIssues(base.Issues)
 	for _, issue := range issues {
+		if old, ok := baseIssues[issue.ID]; ok && string(mustJSON(old)) == string(mustJSON(issue)) {
+			continue
+		}
 		b, _ := json.Marshal(issue)
 		issueRecords = append(issueRecords, map[string]any{"id": issue.ID, "body": json.RawMessage(b), "rev": 1, "updated_at": issue.UpdatedAt})
 	}
+	baseMem := indexMemories(base.Memories)
 	memoryRecords := make([]map[string]any, 0, len(memories))
 	for _, memory := range memories {
+		if old, ok := baseMem[memory.Key]; ok && string(mustJSON(old)) == string(mustJSON(memory)) {
+			continue
+		}
 		b, _ := json.Marshal(memory)
 		memoryRecords = append(memoryRecords, map[string]any{"id": memory.Key, "body": json.RawMessage(b), "rev": 1, "updated_at": memory.UpdatedAt})
 	}
-	baseMem := indexMemories(base.Memories)
 	localMem := indexMemories(memories)
 	for key := range baseMem {
 		if _, ok := localMem[key]; !ok {
