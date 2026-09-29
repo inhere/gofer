@@ -11,6 +11,7 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import NdjsonTimeline from './NdjsonTimeline.vue'
 import type { LogStream } from '../api/types'
+import { MAX_DOM_LINES, renderAnsiChunk } from '../utils/logRender'
 
 const props = withDefaults(defineProps<{
   stdout: string
@@ -61,109 +62,10 @@ function lineCount(text: string): number {
   return t.length === 0 ? 0 : t.split('\n').length
 }
 
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;')
-}
-
-function addClass(classes: string[], next: string): string[] {
-  if (classes.includes(next)) {
-    return classes
-  }
-  return [...classes, next]
-}
-
-function setFg(classes: string[], next: string): string[] {
-  return [...classes.filter((c) => !c.startsWith('ansi-fg-')), next]
-}
-
-function applyAnsiCode(classes: string[], code: number): string[] {
-  switch (code) {
-    case 0:
-      return []
-    case 1:
-      return addClass(classes, 'ansi-bold')
-    case 22:
-      return classes.filter((c) => c !== 'ansi-bold')
-    case 30:
-    case 90:
-      return setFg(classes, 'ansi-fg-gray')
-    case 31:
-    case 91:
-      return setFg(classes, 'ansi-fg-red')
-    case 32:
-    case 92:
-      return setFg(classes, 'ansi-fg-green')
-    case 33:
-    case 93:
-      return setFg(classes, 'ansi-fg-yellow')
-    case 34:
-    case 94:
-      return setFg(classes, 'ansi-fg-blue')
-    case 35:
-    case 95:
-      return setFg(classes, 'ansi-fg-magenta')
-    case 36:
-    case 96:
-      return setFg(classes, 'ansi-fg-cyan')
-    case 37:
-    case 97:
-      return setFg(classes, 'ansi-fg-white')
-    case 39:
-      return classes.filter((c) => !c.startsWith('ansi-fg-'))
-    default:
-      return classes
-  }
-}
-
-function renderSegment(text: string, classes: string[]): string {
-  const safe = escapeHtml(text)
-  if (!safe || classes.length === 0) {
-    return safe
-  }
-  return `<span class="${classes.join(' ')}">${safe}</span>`
-}
-
-const MAX_DOM_LINES = 5000
 type RenderState = { source: string; classes: string[] }
 const renderState: Record<'stdout' | 'stderr', RenderState> = {
   stdout: { source: '', classes: [] },
   stderr: { source: '', classes: [] },
-}
-
-function renderAnsiChunk(text: string, initialClasses: string[]): { html: string; classes: string[] } {
-  const re = /\x1b\[([0-9;]*)m/g
-  let pos = 0
-  let classes = initialClasses
-  let line = ''
-  let html = ''
-  const flushLine = (withNewline = false): void => {
-    html += `<span class="log-line">${line}${withNewline ? '\n' : ''}</span>`
-    line = ''
-  }
-  for (const m of text.matchAll(re)) {
-    const before = text.slice(pos, m.index)
-    for (const ch of before) {
-      if (ch === '\n') {
-        flushLine(true)
-      } else {
-        line += renderSegment(ch, classes)
-      }
-    }
-    const raw = m[1] || '0'
-    for (const code of raw.split(';').map((v) => Number(v || '0'))) classes = applyAnsiCode(classes, code)
-    pos = (m.index ?? 0) + m[0].length
-  }
-  for (const ch of text.slice(pos)) {
-    if (ch === '\n') flushLine(true)
-    else line += renderSegment(ch, classes)
-  }
-  if (line || text.endsWith('\n') === false) flushLine()
-  return { html, classes }
 }
 
 function streamPre(stream: 'stdout' | 'stderr'): HTMLElement | null {
