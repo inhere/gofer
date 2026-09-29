@@ -226,3 +226,5 @@ exit=0
 ```
 
 G032 清单：本轮没有新增未标记兼容分支；tracker mirror 字段、cursor、tombstone 和 Web API 均为 additive P4 路径，没有保留无调用方的旧兼容入口。
+
+job issue 联动收尾修正：联动已从 HTTP handler 的异步等待协程下沉到 job Service 生命周期钩子，与 todo 回写同序。开跑钩子在 job 真正进入 running 后执行，终态 note 在终态快照持久化前写入 mirror；因此 MCP、本地后端、todo 派发、resume、retry/fallback 都复用同一条生命周期路径，提交被拒时不会改变 issue。`TestJobIssueLinkAppendsNotes -count=20` 与拒绝提交测试均通过。
