@@ -64,7 +64,7 @@ func TestRemoteJobQueueTimeNotCounted(t *testing.T) {
 	f := startRemoteQueueFixture(t)
 	holder := createJob(t, f.hub.ts, remoteSleepRequest(t, "2s", 10))
 	waitRemoteSnapshot(t, f.hub.jobs, holder.ID, func(g job.JobResult) bool { return g.Status == job.StatusRunning })
-	queued := createJob(t, f.hub.ts, remoteSleepRequest(t, "100ms", 1))
+	queued := createJob(t, f.hub.ts, remoteSleepRequest(t, "500ms", 1))
 	waitRemoteSnapshot(t, f.hub.jobs, queued.ID, func(g job.JobResult) bool { return g.Status == job.StatusQueued })
 	final, ok := f.hub.jobs.Wait(queued.ID)
 	if !ok || final.Status != job.StatusDone {
@@ -76,15 +76,16 @@ func TestRemoteJobShowsQueuedUntilStarted(t *testing.T) {
 	f := startRemoteQueueFixture(t)
 	holder := createJob(t, f.hub.ts, remoteSleepRequest(t, "2s", 10))
 	waitRemoteSnapshot(t, f.hub.jobs, holder.ID, func(g job.JobResult) bool { return g.Status == job.StatusRunning })
-	queued := createJob(t, f.hub.ts, remoteSleepRequest(t, "100ms", 10))
+	dispatchedAt := time.Now().Unix()
+	queued := createJob(t, f.hub.ts, remoteSleepRequest(t, "1s", 10))
 	waitRemoteSnapshot(t, f.hub.jobs, queued.ID, func(g job.JobResult) bool {
 		return g.Status == job.StatusQueued && g.StartedAt == 0
 	})
 	started := waitRemoteSnapshot(t, f.hub.jobs, queued.ID, func(g job.JobResult) bool {
 		return g.Status == job.StatusRunning && g.StartedAt > 0
 	})
-	if started.StartedAt <= queued.StartedAt {
-		t.Fatalf("started_at did not advance: queued=%d started=%d", queued.StartedAt, started.StartedAt)
+	if started.StartedAt < dispatchedAt {
+		t.Fatalf("started_at predates dispatch: dispatch=%d started=%d", dispatchedAt, started.StartedAt)
 	}
 }
 
