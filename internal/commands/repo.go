@@ -35,7 +35,7 @@ func NewRepoCmd() *gcli.Command {
 					if err != nil {
 						return err
 					}
-					cli, err := newClient(config.InputCfgFile, syncServer, "")
+					cli, err := newClient(config.InputCfgFile, syncServerOrEnv(syncServer), os.Getenv("GOFER_SERVER_TOKEN"))
 					if err != nil {
 						return err
 					}
@@ -239,7 +239,7 @@ func primeWithServerHandoffs(s *tracker.Store, configPath string) (string, error
 		if !ok {
 			return "", nil
 		}
-		cli, err := newClient(configPath, "", "")
+		cli, err := newClient(configPath, os.Getenv("GOFER_SERVER_ADDR"), os.Getenv("GOFER_SERVER_TOKEN"))
 		if err != nil {
 			return "", err
 		}
@@ -271,6 +271,13 @@ func primeWithServerHandoffs(s *tracker.Store, configPath string) (string, error
 		}
 		return out.String(), nil
 	})
+}
+
+func syncServerOrEnv(flag string) string {
+	if strings.TrimSpace(flag) != "" {
+		return flag
+	}
+	return os.Getenv("GOFER_SERVER_ADDR")
 }
 
 const clientPlanPrimeLimit = 3

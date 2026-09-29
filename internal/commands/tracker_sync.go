@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/gookit/gcli/v3"
+	"github.com/inhere/gofer/internal/client"
 	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/tracker"
 )
@@ -18,7 +19,7 @@ func tryAutoSync(c *gcli.Command, s *tracker.Store) {
 	if err != nil || !cfg.AutoSync {
 		return
 	}
-	cli, err := newClient(config.InputCfgFile, "", "")
+	cli, err := trackerClient()
 	if err != nil {
 		return
 	}
@@ -27,4 +28,8 @@ func tryAutoSync(c *gcli.Command, s *tracker.Store) {
 	if _, err := tracker.SyncHTTPWithToken(ctx, s, strings.TrimRight(cli.BaseURL(), "/"), cli.Token()); err != nil {
 		fmt.Fprintln(os.Stderr, "sync warning:", err)
 	}
+}
+
+func trackerClient() (*client.Client, error) {
+	return newClient(config.InputCfgFile, os.Getenv("GOFER_SERVER_ADDR"), os.Getenv("GOFER_SERVER_TOKEN"))
 }

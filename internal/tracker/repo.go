@@ -214,6 +214,8 @@ func (s *Store) Status() (RepoStatus, error) {
 	if base, e := readSyncBase(s.Dir); e == nil {
 		cur := SyncSnapshot{Issues: issues, Memories: memories}
 		status.PendingSync = snapshotDiffCount(base, cur)
+	} else {
+		status.PendingSync = len(issues) + len(memories)
 	}
 	for _, item := range issues {
 		status.Issues[item.Status]++
