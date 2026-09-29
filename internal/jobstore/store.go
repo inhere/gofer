@@ -720,6 +720,18 @@ var schemaStmts = []string{
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_tracker_issues_updated ON tracker_issues(tracker_id, rev)`,
 	`CREATE INDEX IF NOT EXISTS idx_tracker_memories_updated ON tracker_memories(tracker_id, rev)`,
+	`CREATE TABLE IF NOT EXISTS scoped_memories (
+  scope      TEXT NOT NULL,
+  scope_key  TEXT NOT NULL DEFAULT '',
+  key        TEXT NOT NULL,
+  content    TEXT NOT NULL,
+  tags_json  TEXT NOT NULL DEFAULT '[]',
+  updated_at TEXT NOT NULL,
+  updated_by TEXT NOT NULL DEFAULT '',
+  deleted    INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (scope, scope_key, key)
+)`,
+	`CREATE INDEX IF NOT EXISTS idx_scoped_memories_scope ON scoped_memories(scope, scope_key, deleted, updated_at)`,
 }
 
 // Open opens (creating if absent) the SQLite database at path, applies the schema
