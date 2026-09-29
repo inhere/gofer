@@ -932,6 +932,16 @@ export function updateTrackerMemory(trackerId: string, id: string, body: unknown
 export function deleteTrackerMemory(trackerId: string, id: string): Promise<unknown> {
   return request(`/v1/tracker/memories/${encodeURIComponent(id)}?tracker_id=${encodeURIComponent(trackerId)}`, { method: 'DELETE' })
 }
+export function listScopedMemories(scope: 'global' | 'project', scopeKey = '', keyword = ''): Promise<{ memories: import('./types').ScopedMemory[] }> {
+  const qs = new URLSearchParams({ scope }); if (scopeKey) qs.set('scope_key', scopeKey); if (keyword) qs.set('q', keyword)
+  return request(`/v1/memories?${qs}`)
+}
+export function updateScopedMemory(scope: string, scopeKey: string, key: string, body: unknown): Promise<import('./types').ScopedMemory> {
+  return request(`/v1/memories/${encodeURIComponent(scope)}/${encodeURIComponent(scope === 'global' ? '_' : scopeKey)}/${encodeURIComponent(key)}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+}
+export function deleteScopedMemory(scope: string, scopeKey: string, key: string): Promise<unknown> {
+  return request(`/v1/memories/${encodeURIComponent(scope)}/${encodeURIComponent(scope === 'global' ? '_' : scopeKey)}/${encodeURIComponent(key)}`, { method: 'DELETE' })
+}
 
 export function getPlan(id: string): Promise<PlanDetail> {
   return request<PlanDetail>(`/v1/plans/${encodeURIComponent(id)}`)

@@ -60,6 +60,21 @@
 - 只渲染可见标签：未激活的标签只累积缓冲、不渲染；agent job 默认显示 stdout（结果/汇报），stderr 在切换时再渲染。
 - 验收：构造 50k 行 stderr 的运行中 job，页面首次打开与持续追加时主线程无长任务（>200ms），滚动流畅；给出前后对比数据。
 
+#### M1 实测记录（2026-09-30，Windows）
+
+M1 使用独立 SQLite `scoped_memories` 表，字段为 `scope`、`scope_key`、`key`、
+`content`、`tags_json`、`updated_at`、`updated_by`、`deleted`，复合主键为
+`(scope, scope_key, key)`；仓库 tracker 镜像表未改动。HTTP、CLI、MCP 和 Issues
+Memories 页共用该 server 数据。软删除保留墓碑，列表默认隐藏墓碑。
+
+`repo prime --agent` 在 2 秒 best-effort 请求内按 `agent:<name>` 过滤，并把全局、
+项目和仓库内容放进同一 8 KiB 上限；无 tracker 目录仍可输出 server 两段，server
+不可达时静默省略。SessionStart 安装逻辑写入带 `--agent claude` / `--agent codex`
+的 prime 命令，并保持重复安装幂等。
+
+G032 清单：hook 安装暂时识别旧的无 `--agent` prime 命令以完成一次性升级，代码已标记
+`DEPRECATED(v0.81.0)`，计划在 v0.84.0 删除；tracker 镜像和本地 memory 路径没有新增兼容分支。
+
 #### M5 实测记录（2026-09-30，Vitest，Windows）
 
 `web/src/utils/logRender.test.ts` 使用 50,000 行 ANSI 文本，按 4096 字节逐块追加，比较每帧全文渲染与增量渲染：

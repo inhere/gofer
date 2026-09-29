@@ -11,8 +11,12 @@ import {
   listTrackerIssues,
   listTrackerMemories,
   listTrackerRepos,
+  listProjects,
+  listScopedMemories,
   updateTrackerIssue,
   updateTrackerMemory,
+  updateScopedMemory,
+  deleteScopedMemory,
 } from '../api/client'
 import type { TrackerIssue, TrackerIssueView, TrackerMemory, TrackerRepo } from '../api/types'
 import { fmtTrackerTime, trackerIssueMatches, trackerMemoryMatches, trackerRepoLabel } from '../utils/trackerView'
@@ -24,6 +28,9 @@ const route = useRoute()
 const router = useRouter()
 const repos = ref<TrackerRepo[]>([])
 const trackerId = ref('')
+const memoryScope = ref<'repo' | 'project' | 'global'>('repo')
+const projectKeys = ref<string[]>([])
+const projectKey = ref('')
 const tab = ref<'issues' | 'memories'>('issues')
 const issues = ref<IssueRow[]>([])
 const memories = ref<MemoryRow[]>([])
@@ -44,8 +51,10 @@ const filteredIssues = computed(() => issues.value.filter((row) => trackerIssueM
 const filteredMemories = computed(() => memories.value.filter((row) => trackerMemoryMatches(row.data, row.id, query.value)))
 
 async function loadRepos(): Promise<void> {
-  const result = await listTrackerRepos()
+  const [result, projects] = await Promise.all([listTrackerRepos(), listProjects()])
   repos.value = result.repos ?? []
+  projectKeys.value = projects.projects ?? []
+  if (!projectKey.value) projectKey.value = projectKeys.value[0] ?? ''
   const recent = [...repos.value].sort((a, b) => b.last_sync_at - a.last_sync_at)[0]
   if (!trackerId.value || !repos.value.some((item) => item.tracker_id === trackerId.value)) {
     trackerId.value = recent?.tracker_id ?? ''
@@ -53,18 +62,21 @@ async function loadRepos(): Promise<void> {
 }
 
 async function load(): Promise<void> {
-  if (!trackerId.value) return
+  if (tab.value === 'issues' && !trackerId.value) return
+  if (tab.value === 'memories' && memoryScope.value === 'repo' && !trackerId.value) return
+  if (tab.value === 'memories' && memoryScope.value === 'project' && !projectKey.value) return
   loading.value = true
   error.value = ''
   try {
-    const [issueResult, memoryResult] = await Promise.all([
-      listTrackerIssues(trackerId.value),
-      listTrackerMemories(trackerId.value),
-    ])
+    const issueResult = trackerId.value ? await listTrackerIssues(trackerId.value) : { issues: [] }
+    const memoryResult = memoryScope.value === 'repo'
+      ? (trackerId.value ? await listTrackerMemories(trackerId.value) : { memories: [] })
+      : await listScopedMemories(memoryScope.value, memoryScope.value === 'project' ? projectKey.value : '', query.value)
     issues.value = (issueResult.issues ?? []).map((item) => ({ ...item, data: item.body }))
-    memories.value = (memoryResult.memories ?? [])
-      .filter((item) => !item.deleted)
-      .map((item) => ({ ...item, data: item.body }))
+    memories.value = (memoryResult.memories ?? []).filter((item) => !item.deleted).map((item) => {
+      if ('body' in item) return { ...item, data: item.body }
+      return { id: item.key, rev: 1, updated_at: item.updated_at, body: { key: item.key, content: item.content, tags: item.tags, updated_at: item.updated_at, by: item.updated_by }, data: { key: item.key, content: item.content, tags: item.tags, updated_at: item.updated_at, by: item.updated_by } }
+    })
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
   } finally {
@@ -123,7 +135,8 @@ function openMemory(row: MemoryRow): void {
 async function saveMemory(): Promise<void> {
   if (!selectedMemory.value) return
   try {
-    await updateTrackerMemory(trackerId.value, selectedMemory.value.id, { content: memoryDraft.value, expected_rev: selectedMemory.value.rev })
+    if (memoryScope.value === 'repo') await updateTrackerMemory(trackerId.value, selectedMemory.value.id, { content: memoryDraft.value, expected_rev: selectedMemory.value.rev })
+    else await updateScopedMemory(memoryScope.value, memoryScope.value === 'project' ? projectKey.value : '', selectedMemory.value.id, { content: memoryDraft.value })
     selectedMemory.value = null
     await load()
   } catch (e) {
@@ -133,7 +146,8 @@ async function saveMemory(): Promise<void> {
 
 async function removeMemory(row: MemoryRow): Promise<void> {
   try {
-    await deleteTrackerMemory(trackerId.value, row.id)
+    if (memoryScope.value === 'repo') await deleteTrackerMemory(trackerId.value, row.id)
+    else await deleteScopedMemory(memoryScope.value, memoryScope.value === 'project' ? projectKey.value : '', row.id)
     await load()
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
@@ -163,13 +177,15 @@ onMounted(async () => {
   <main class="tracker-page">
     <header class="page-head">
       <div><p class="eyebrow mono">TRACKER</p><h1 class="title mono">Issues</h1></div>
-      <button class="primary-btn mono" type="button" :disabled="loading || !trackerId" @click="load">刷新</button>
+      <button class="primary-btn mono" type="button" :disabled="loading || (tab === 'issues' ? !trackerId : (memoryScope === 'repo' ? !trackerId : memoryScope === 'project' && !projectKey))" @click="load">刷新</button>
     </header>
     <section class="meta-panel">
       <label class="repo-field mono"><span>仓库</span><select v-model="trackerId" class="filter-select" @change="changeRepo"><option value="">请选择已登记仓库</option><option v-for="item in repos" :key="item.tracker_id" :value="item.tracker_id">{{ trackerRepoLabel(item) }}</option></select></label>
+      <label class="repo-field mono"><span>记忆作用域</span><select v-model="memoryScope" class="filter-select" @change="load"><option value="repo">仓库</option><option value="project">项目</option><option value="global">全局</option></select></label>
+      <label v-if="memoryScope === 'project'" class="repo-field mono"><span>项目</span><select v-model="projectKey" class="filter-select" @change="load"><option value="">请选择项目</option><option v-for="item in projectKeys" :key="item" :value="item">{{ item }}</option></select></label>
       <div v-if="repo" class="sync-summary mono"><span>上次同步 {{ fmtTrackerTime(repo.last_sync_at) }}</span><span>{{ repo.sync_summary || '暂无同步冲突摘要' }}</span></div>
     </section>
-    <section v-if="repos.length === 0" class="empty-panel mono"><span>暂无已登记仓库</span><code>gofer repo init</code><code>gofer repo sync</code></section>
+    <section v-if="repos.length === 0 && memoryScope === 'repo'" class="empty-panel mono"><span>暂无已登记仓库</span><code>gofer repo init</code><code>gofer repo sync</code></section>
     <template v-else>
       <nav class="tabs mono"><button type="button" :class="{ active: tab === 'issues' }" @click="tab = 'issues'">Issues</button><button type="button" :class="{ active: tab === 'memories' }" @click="tab = 'memories'">Memories</button></nav>
       <section class="filter-panel">

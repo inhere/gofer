@@ -358,3 +358,14 @@ gofer job wakeup show|disable|enable|rm <wid>
 ## Repository tracker
 
 Use `gofer repo init` to create `.gofer/tracker/`. The JSONL files are the repository source of truth and remain writable offline. `gofer repo sync` uses the configured client server and token; `--server` only overrides the endpoint. Use `gofer job run --issue ID [--tracker-id ID]` to link a job run to a tracker issue. The Web Issues console is `/issues`.
+
+Server-scoped memories use `gofer memory set|ls|show|rm --global` or
+`--project PROJECT_KEY` (the flags are mutually exclusive); local tracker
+memories remain the default when neither is present. `memory ls` accepts a
+keyword and repeatable `--tag` filters. An `agent:<name>` tag limits prime
+injection to that agent; memories without an `agent:` tag are shared. Session
+start hooks call `gofer repo prime --hook-json --agent claude` or
+`--agent codex`. Prime includes global and cwd-resolved project memories without
+requiring a tracker, caps the complete context at 8 KiB, and silently omits
+server sections when the server is unavailable. Scoped memory CLI operations
+report connection errors instead of using an offline cache.

@@ -104,6 +104,13 @@ gofer job list         # 填好地址与 token 即可
 - **job 生命周期**：`queued → running → done | failed | cancelled | timeout`；等同一个目录锁时 `queued → waiting_dir → running`；运行中提问 `running → pending_interaction → running`；执行它的 worker 断线 `running → recovering → running | failed`。
 - **本地 tracker**：`gofer repo init` 创建 `.gofer/tracker/`，jsonl 是真源；`gofer repo sync` 默认使用配置中的 server，`--server` 只覆盖地址，离线写入不被阻塞。`gofer job run --issue <id>` 可联动 issue，Web `/issues` 支持查看、编辑和评论。
 
+全局和项目记忆只保存在 server：`gofer memory set --global KEY CONTENT` 或
+`gofer memory set --project PROJECT_KEY KEY CONTENT`，两个作用域参数互斥；`ls`、
+`show`、`rm` 也支持它们，`ls` 支持重复 `--tag` 和关键字。带有 `agent:<name>` 标签的
+记忆只注入对应 agent，没有该类标签的记忆注入所有 agent。`gofer repo prime --agent
+claude` 即使当前目录没有 tracker 也会输出全局/项目记忆；server 不可达时 prime 静默省略，
+而作用域 memory CLI 会明确报连接错误。
+
 ## 提交 job
 
 同一个 `JobRequest`，四种入口、两种时序：

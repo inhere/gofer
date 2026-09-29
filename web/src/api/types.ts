@@ -1852,6 +1852,16 @@ export interface TrackerMemoryBody {
   updated_at?: string
   by?: string
 }
+export interface ScopedMemory {
+  scope: 'global' | 'project'
+  scope_key?: string
+  key: string
+  content: string
+  tags?: string[]
+  updated_at: string
+  updated_by?: string
+  deleted?: boolean
+}
 export interface TrackerIssueView { id: string; title: string; type: string; status: string; priority: number; description?: string; tags?: string[]; created_at?: string; created_by?: string; updated_at?: string; comments?: Array<{ at:string; by:string; text:string }>; notes?: Array<{ at:string; by:string; text:string }> }
 
 export interface TrackerIssuesResp { issues: TrackerIssue[] }

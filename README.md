@@ -124,6 +124,17 @@ gofer memory show build-note
 gofer memory rm build-note
 ```
 
+Global and project memories live on the server and require a connection. Use
+`gofer memory set --global KEY CONTENT` or
+`gofer memory set --project PROJECT_KEY KEY CONTENT`; the two scope flags are
+mutually exclusive. The same flags work with `ls`, `show`, and `rm`; `ls`
+also accepts repeatable `--tag` filters and a keyword. Tags named
+`agent:<name>` restrict session-prime injection to that agent. Memories without
+an `agent:` tag are injected for every agent. `gofer repo prime --agent claude`
+prints global and, when the cwd maps to a project, project memories even when
+there is no local tracker. Server failure is an error for scoped memory CLI
+commands and a silent omission for prime.
+
 `issue ls [--status --type --label --all]`, `issue show`, `issue update --status|--title`, and `issue close --reason` cover the remaining local issue operations. `memory remember` and `memory forget` are aliases for `set` and `rm`. Issue and memory commands, plus `repo status`, support `--json` for scripts. Without a tracker, issue and memory commands fail with a `gofer repo init` hint; they never initialize one implicitly. `repo init` adds a managed block to existing `AGENTS.md` and/or `CLAUDE.md` (or creates `AGENTS.md` if neither exists). It leaves any BEADS block intact and suggests `repo migrate --from-bd` for a later phase.
 
 `repo sync` uses the configured client server and bearer token; `--server` is an optional override. Local writes remain available offline and auto sync is best effort. `job run --issue <id>` links a run to a tracker mirror issue; the Web Issues page is available at `/issues` for list, detail, edit and comments.
