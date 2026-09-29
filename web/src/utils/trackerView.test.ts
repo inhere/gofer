@@ -19,7 +19,9 @@ describe('tracker view helpers', () => {
     expect(memory.body.tags).toEqual(['plan'])
   })
   it('formats ISO tracker timestamps with the shared time helper', () => {
-    expect(fmtTrackerTime('2026-09-29T00:00:00.000000000Z')).toMatch(/^09-29 /)
+    // Noon UTC stays on 09-29 in every UTC-11..UTC+11 zone, so the test does not
+    // depend on the machine's timezone (midnight UTC is 09-28 west of Greenwich).
+    expect(fmtTrackerTime('2026-09-29T12:00:00.000000000Z')).toMatch(/^09-29 /)
   })
   it('filters memories by key or content only', () => {
     expect(trackerMemoryMatches({ key: 'handoff', content: 'deploy next' }, 'handoff', 'deploy')).toBe(true)
