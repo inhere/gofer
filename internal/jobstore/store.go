@@ -738,8 +738,13 @@ func Open(path string) (*Store, error) {
 	// modernc applies every _pragma to EACH pooled connection as it is opened,
 	// so busy_timeout/foreign_keys hold for all goroutines (not just the first).
 	// WAL is a persistent db setting; re-asserting it per connection is harmless.
+	// synchronous(NORMAL) is SQLite's recommended pairing with WAL: commits stay
+	// durable across a process crash and the file can never be corrupted; only a
+	// power loss / OS crash may drop the last few commits. FULL (the default) fsyncs
+	// every statement, which made a fresh Open (schema + migrations) take ~290ms
+	// instead of ~22ms and dominated the test suite.
 	dsn := fmt.Sprintf(
-		"file:%s?_pragma=journal_mode(WAL)&_pragma=busy_timeout(%d)&_pragma=foreign_keys(1)",
+		"file:%s?_pragma=journal_mode(WAL)&_pragma=synchronous(NORMAL)&_pragma=busy_timeout(%d)&_pragma=foreign_keys(1)",
 		path, busyTimeoutMS,
 	)
 	db, err := sql.Open("sqlite", dsn)
