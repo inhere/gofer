@@ -694,6 +694,7 @@ var schemaStmts = []string{
   prefix TEXT NOT NULL DEFAULT '',
   last_sync_at INTEGER NOT NULL DEFAULT 0,
   sync_summary TEXT NOT NULL DEFAULT ''
+  ,next_seq INTEGER NOT NULL DEFAULT 0
 )`,
 	`CREATE TABLE IF NOT EXISTS tracker_issues (
   tracker_id TEXT NOT NULL,
@@ -701,6 +702,7 @@ var schemaStmts = []string{
   body_json TEXT NOT NULL,
   rev INTEGER NOT NULL DEFAULT 1,
   updated_at TEXT NOT NULL,
+  changed_seq INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (tracker_id, issue_id)
 )`,
 	`CREATE TABLE IF NOT EXISTS tracker_memories (
@@ -712,6 +714,7 @@ var schemaStmts = []string{
   deleted INTEGER NOT NULL DEFAULT 0,
   deleted_at TEXT NOT NULL DEFAULT '',
   deleted_by TEXT NOT NULL DEFAULT '',
+  changed_seq INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (tracker_id, memory_key)
 )`,
 	`CREATE INDEX IF NOT EXISTS idx_tracker_issues_updated ON tracker_issues(tracker_id, rev)`,
@@ -1077,6 +1080,9 @@ func (s *Store) migrate() error {
 	if err := s.migrateTunnelPresets(); err != nil {
 		return err
 	}
+	if err := s.migrateTracker(); err != nil {
+		return err
+	}
 	// Partial unique index: only non-empty request_id values are constrained, so
 	// jobs without a request_id never collide. Created after the column exists.
 	if _, err := s.db.Exec(
@@ -1101,6 +1107,21 @@ func (s *Store) migrate() error {
 		`CREATE INDEX IF NOT EXISTS idx_jobs_todo_id ON jobs(todo_id)`,
 	); err != nil {
 		return fmt.Errorf("jobstore: migrate todo_id index: %w", err)
+	}
+	return nil
+}
+
+func (s *Store) migrateTracker() error {
+	for _, spec := range []struct{ table, col, ddl string }{{"tracker_repos", "next_seq", "next_seq INTEGER NOT NULL DEFAULT 0"}, {"tracker_issues", "changed_seq", "changed_seq INTEGER NOT NULL DEFAULT 0"}, {"tracker_memories", "changed_seq", "changed_seq INTEGER NOT NULL DEFAULT 0"}} {
+		cols, err := s.tableColumns(spec.table)
+		if err != nil {
+			return err
+		}
+		if _, ok := cols[spec.col]; !ok {
+			if _, err := s.db.Exec("ALTER TABLE " + spec.table + " ADD COLUMN " + spec.ddl); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
 }
