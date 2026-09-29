@@ -40,6 +40,7 @@ func TestBuiltinTemplatesTable(t *testing.T) {
 		"codex": {
 			Type:            TypeCLIAgent,
 			Command:         "codex",
+			GlobalArgs:      []string{"-s", "danger-full-access", "-a", "never"},
 			Args:            []string{"exec", "{{prompt}}"},
 			InteractiveArgs: []string{},
 		},

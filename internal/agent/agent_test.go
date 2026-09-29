@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 
@@ -110,6 +111,18 @@ func TestBuildCLIAgentAppendsAgentArgs(t *testing.T) {
 	}
 	if got := cfg.Agents["codex"].Args; len(got) != 2 {
 		t.Fatalf("agent config args were mutated: %#v", got)
+	}
+}
+
+func TestGlobalArgsInfersLegacyPrefix(t *testing.T) {
+	ac := config.AgentConfig{
+		Type:          TypeCLIAgent,
+		Args:          []string{"-s", "danger-full-access", "-a", "never", "exec", "{{prompt}}"},
+		SessionResume: []string{"exec", "resume", "{{session_id}}", "{{prompt}}"},
+	}
+	want := []string{"-s", "danger-full-access", "-a", "never"}
+	if got := GlobalArgs(ac); !reflect.DeepEqual(got, want) {
+		t.Fatalf("inferred global args = %#v, want %#v", got, want)
 	}
 }
 

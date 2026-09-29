@@ -419,6 +419,65 @@ func TestResumeJobNonInteractiveSourceUsesSessionResumeTemplate(t *testing.T) {
 	}
 }
 
+func TestResumeCarriesAgentGlobalArgs(t *testing.T) {
+	root := t.TempDir()
+	bin := testcmd.Path(t)
+	cfg := &config.Config{
+		Storage: config.StorageConfig{Root: root},
+		Projects: map[string]config.ProjectConfig{"self": {
+			HostPath: root, AllowedAgents: []string{"codex", "exec"},
+			AllowedRunners: []string{"local"}, AllowExec: true,
+		}},
+		Agents: map[string]config.AgentConfig{"codex": {
+			Type: agent.TypeCLIAgent, Command: bin,
+			Args:          []string{"exec", "{{prompt}}"},
+			GlobalArgs:    []string{"-s", "danger-full-access", "-a", "never"},
+			SessionResume: []string{"exec", "resume", "{{session_id}}", "{{prompt}}"},
+		}},
+	}
+	s := newServiceFromCfg(t, root, cfg)
+	src := submitAndWait(t, s, JobRequest{ProjectKey: "self", Agent: "codex", Runner: "local", Prompt: "source", Cwd: ".", TimeoutSec: 30, SessionID: "sess-global"})
+	newJob, err := s.ResumeJob(src.ID, "continue", "", "caller")
+	if err != nil {
+		t.Fatalf("ResumeJob: %v", err)
+	}
+	got := resumeArgv(t, newJob.RequestJSON)
+	want := []string{bin, "-s", "danger-full-access", "-a", "never", "exec", "resume", "sess-global", "continue"}
+	if !equalArgs(got, want) {
+		t.Fatalf("resume argv = %#v, want %#v", got, want)
+	}
+}
+
+func TestResumeReadOnlyKeepsReadOnlyArgs(t *testing.T) {
+	root := t.TempDir()
+	bin := testcmd.Path(t)
+	cfg := &config.Config{
+		Storage: config.StorageConfig{Root: root},
+		Projects: map[string]config.ProjectConfig{"self": {
+			HostPath: root, AllowedAgents: []string{"codex", "exec"},
+			AllowedRunners: []string{"local"}, AllowExec: true,
+		}},
+		Agents: map[string]config.AgentConfig{"codex": {
+			Type: agent.TypeCLIAgent, Command: bin,
+			Args:          []string{"exec", "{{prompt}}"},
+			GlobalArgs:    []string{"-s", "danger-full-access", "-a", "never"},
+			ReadOnlyArgs:  []string{"-s", "read-only"},
+			SessionResume: []string{"exec", "resume", "{{session_id}}", "{{prompt}}"},
+		}},
+	}
+	s := newServiceFromCfg(t, root, cfg)
+	src := submitAndWait(t, s, JobRequest{ProjectKey: "self", Agent: "codex", Runner: "local", Prompt: "source", Cwd: ".", TimeoutSec: 30, SessionID: "sess-readonly", ReadOnly: true})
+	newJob, err := s.ResumeJob(src.ID, "continue", "", "caller")
+	if err != nil {
+		t.Fatalf("ResumeJob: %v", err)
+	}
+	got := resumeArgv(t, newJob.RequestJSON)
+	want := []string{bin, "-s", "danger-full-access", "-a", "never", "exec", "resume", "sess-readonly", "continue", "-s", "read-only"}
+	if !equalArgs(got, want) {
+		t.Fatalf("read-only resume argv = %#v, want %#v", got, want)
+	}
+}
+
 // TestResumeOfResumeUsesOriginAgent pins the three-turn CLI chain used by the
 // workbench: a CLI source resumes through an exec carrier, then that carrier is
 // itself resumed. The carrier's Agent is "exec"; OriginAgent is the only durable

@@ -1492,7 +1492,6 @@ func (r RetentionConfig) PruneInterval() time.Duration {
 type ProjectConfig struct {
 	HostPath       string   `yaml:"host_path,omitempty"`
 	DirLockMode    string   `yaml:"dir_lock_mode,omitempty"`
-	DirLockPollSec int      `yaml:"dir_lock_poll_sec,omitempty"`
 	ContainerPath  string   `yaml:"container_path,omitempty"`
 	ExchangeSubdir string   `yaml:"exchange_subdir,omitempty"`
 	ResultSubdir   string   `yaml:"result_subdir,omitempty"`
@@ -1810,6 +1809,10 @@ type AgentConfig struct {
 	Type    string   `yaml:"type,omitempty"`
 	Command string   `yaml:"command,omitempty"`
 	Args    []string `yaml:"args,omitempty"`
+	// GlobalArgs are command-wide options placed before the template subcommand.
+	// They are reused for normal and resumed invocations. When unset, the agent
+	// adapter may infer leading options from Args for a known resume subcommand.
+	GlobalArgs []string `yaml:"global_args,omitempty"`
 	// InteractiveArgs defines argv for interactive mode. Four combinations: args with {{prompt}} only=batch; InteractiveArgs non-nil only=interactive; both=dual-mode; neither=mode-less (except exec, which is batch by definition).
 	InteractiveArgs ArgList           `yaml:"interactive_args,omitempty"`
 	Env             map[string]string `yaml:"env,omitempty"`
