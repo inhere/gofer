@@ -258,21 +258,20 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 			projectKey, _ = cfg.ProjectForPath(root)
 		}
 		addr := strings.TrimSpace(cfg.Server.Addr)
-		if (strings.TrimSpace(configPath) == "" || addr == config.DefaultAddr) && strings.TrimSpace(os.Getenv("GOFER_SERVER_ADDR")) != "" {
-			addr = strings.TrimSpace(os.Getenv("GOFER_SERVER_ADDR"))
+		envAddr := strings.TrimSpace(os.Getenv("GOFER_SERVER_ADDR"))
+		if addr == config.DefaultAddr {
+			addr = envAddr
+		} else if strings.TrimSpace(configPath) == "" && envAddr != "" {
+			addr = envAddr
 		}
 		if addr == "" {
 			addr = strings.TrimSpace(os.Getenv("GOFER_SERVER_ADDR"))
 		}
 		cli := client.NewWithTimeout(addr, os.Getenv("GOFER_SERVER_TOKEN"), 250*time.Millisecond)
 		if addr == "" {
-			var err error
-			cli, err = newClient(configPath, "", os.Getenv("GOFER_SERVER_TOKEN"))
-			if err != nil {
-				return "", err
-			}
+			return "", nil
 		}
-		global, _ := cli.ListScopedMemories(client.ScopedMemoryListOpts{Scope: "global"})
+		global, globalErr := cli.ListScopedMemories(client.ScopedMemoryListOpts{Scope: "global"})
 		project := []client.ScopedMemory(nil)
 		if projectKey != "" {
 			project, _ = cli.ListScopedMemories(client.ScopedMemoryListOpts{Scope: "project", ScopeKey: projectKey})
@@ -284,6 +283,9 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 		}
 		plans, err := cli.ListPlans(client.PlanListOpts{Status: "open", Project: projectKey, Limit: clientPlanPrimeLimit})
 		if err != nil {
+			if globalErr != nil {
+				return "", nil
+			}
 			return out.String(), nil
 		}
 		sort.SliceStable(plans.Plans, func(i, j int) bool {
