@@ -179,6 +179,31 @@ T00 基线/风格/接口核查 → 每期测试先行（独立 commit）→ 该�
 | waiting_dir holder 和三种处理办法、只读文档 | U4-T1/U4-T2 | CLI/详情/Board 测试、README/skill 静态核对 |
 | UI 风格、tokens、无裸控件、双主题 | U2/U3/U4 实现与截图 | `rg` 控件类名检查、pnpm 三命令、深浅主题截图 |
 
+## U5 波次：目录锁细化（批准设计追加波次）
+
+### U5-1 显式锁范围与继承
+
+- 固定测试：`TestDeclaredLockPathsAllowSiblingJobs`、`TestLockPathsInheritedOnResume`。
+- owner 文件：`internal/job/model.go`、`internal/job/submit.go`、`internal/job/dirlock.go`、`internal/job/resume.go`、`internal/job/rebuild.go`、`internal/commands/job.go`、`internal/httpapi/job_handler.go`、`internal/mcpserver/server.go`、任务书解析 owner、对应测试。
+- 动作：新增请求字段 `lock_paths`/任务书 `lock`/CLI `--lock`，路径相对项目根并经 SafeJoin；显式锁只锁声明路径，不再额外锁 cwd；resume/retry/auto-resume 继承；job show/详情显示实际路径和 waiting 冲突路径。
+- 验证：U5 固定测试、CLI/HTTP/MCP 参数 round-trip、`go test ./internal/job/ ./internal/httpapi/ ./internal/mcpserver/ ./internal/commands/ ./internal/tracker/ ./internal/jobstore/ -count=1`。
+- 提交：`feat(u5): support declared directory lock paths`。
+
+### U5-2 repo 模式动态占锁
+
+- 固定测试：`TestRepoModeLocksTouchedRepoOnly`、`TestRepoModeIgnoresBaselineDirtyFiles`、`TestRepoModeFallsBackToCwdWithoutNestedRepos`。
+- owner 文件：`internal/config/model.go`/loader、`internal/job/uncommitted.go`、`internal/job/execute.go`、`internal/job/dirlock.go`、事件/通知/结果与 Web job/Board owner、对应测试。
+- 动作：项目显式 `dir_lock_mode: repo` 才启用；默认 cwd 不变；复用 `nestedGitRoots` 和 capture baseline；默认每 10 秒（可配置）检查新增改动，首次触碰仓库用非阻塞占锁；冲突写 `job.lock_conflict` 并展示/进入等你，不中断 job；结束释放并记录实际仓库。
+- 验证：三项固定测试、事件/结果断言、六包 Go 全量、真实进程 smoke。
+- 提交：`feat(u5): add repo mode dynamic directory locks`。
+
+### U5-3 引导和 smoke
+
+- owner 文件：`skills/gofer-usage/SKILL.md`、README/README.zh-CN、JobDetail/Board、`scripts/smoke/dirlock/run-smoke.sh`。
+- 动作：waiting_dir 提示补 `--lock` 收窄范围；skill/README 说明顶层目录派发应显式 `--lock <子项目>`；smoke 覆盖同顶层不同子目录并行、同子目录串行、repo 模式不同嵌套仓库并行、同仓库 lock_conflict。
+- 验证：Linux smoke（可运行时）、Web 三命令、控制字符扫描。
+- 提交：`docs(u5): guide scoped directory locks and add smoke`。
+
 ## 完成 Gate 与剩余工作
 
-本计划候选只在计划 validator、`git status --short`、精确 stage 和本地 atomic commit 证据齐全后标记“计划候选已提交”，不标记实施完成。实施完成需 U1–U4 各自测试从有效 red 到 green、Go/Web 质量门原始输出、每期页面结构和容器截图、G032 清单、git log/status 和未完成/人工决策点全部齐全。未完成项按期记录，不用骨架、`t.Skip`、默认样式或未验证的绿色检查冒充完成。
+本计划候选只在计划 validator、`git status --short`、精确 stage 和本地 atomic commit 证据齐全后标记“计划候选已提交”，不标记实施完成。实施完成需 U1–U5 各自测试从有效 red 到 green、Go/Web 质量门原始输出、每期页面结构和容器截图、Linux smoke、G032 清单、git log/status 和未完成/人工决策点全部齐全。未完成项按期记录，不用骨架、`t.Skip`、默认样式或未验证的绿色检查冒充完成。
