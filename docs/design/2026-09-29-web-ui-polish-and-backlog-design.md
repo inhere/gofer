@@ -73,6 +73,30 @@
 
 - P4 已让 `.gofer/tracker/config.yaml` 的 `project_key` 优先。验证容器内有 `project_key` 时 prime 交接段出现；无 `project_key` 时 `gofer repo status` 提示可填写。验证通过即关闭。
 
+### U5 目录锁细化（用户 2026-09-29 追加，1+2+3 一起做）
+
+背景：很多会话派 job 时 cwd 是顶层项目空间目录（里面有多个独立 git 仓库），现有锁按 cwd 判定"同目录/祖先/后代互斥"，于是改不同子项目的 job 也互相阻塞。
+
+**U5-1 显式声明锁范围 `--lock <path>`（可重复）**
+- 路径相对项目根，必须落在项目内（沿用 SafeJoin 校验）；声明后**只锁这些路径**，不再锁 cwd。重叠判定不变（同路径/祖先/后代互斥）。
+- CLI `job run --lock`、任务书 frontmatter `lock: [...]`、HTTP/MCP 请求字段 `lock_paths`；resume/retry/auto-resume 继承。
+- job 详情与 `job show` 显示实际锁定的路径；`waiting_dir` 提示里显示冲突的路径。
+
+**U5-2 按嵌套仓库动态占锁（项目配置 `dir_lock_mode: repo`，默认 `cwd` 保持现状）**
+- 适用：项目配置为 `repo`、job 未声明 `--lock`、且 cwd 下存在嵌套 git 仓库（复用 GIT-01 的 `nestedGitRoots`）。cwd 本身在单个仓库内（无嵌套）时退回 `cwd` 行为。
+- 开跑时**不预先加锁**，记录各嵌套仓库的改动基线（复用 GIT-01 的 `captureUncommitted` 基线，已有的脏文件不算）。
+- 运行中按间隔（默认 10 秒，可配）检查各嵌套仓库的新增改动；某仓库**第一次出现新改动**时，尝试以该仓库根目录为路径**非阻塞**占锁：
+  - 占到：该仓库归本 job 所有，直到 job 结束释放；
+  - 被其他 job 占着（或与其声明/cwd 锁重叠）：记为**锁冲突**——写事件 `job.lock_conflict`（含双方 job 与仓库路径），job 详情/Board 显示冲突徽标，通知进入"等你"。**不中断 job**（无法安全暂停 agent），由人决定。
+- 与其它模式共用同一张锁表：声明锁/cwd 锁的 job 开跑前照常等待这些动态锁；动态锁持有期间，后来者的声明/cwd 锁按现有规则排队。
+- job 结束时释放全部动态锁；结束时的 GIT-01 扫描结果与动态占锁记录一并写入 job 结果，便于核对"实际改了哪些仓库"。
+- 代价与限制：每个运行中的顶层 job 周期性对每个嵌套仓库跑一次 `git status`（有超时）；只能**发现**冲突而非**预防**，因此 skill 仍引导优先用 `--lock`。
+
+**U5-3 引导**
+- gofer-usage skill 与派活规范：在顶层目录派 job 时带 `--lock <子项目>`；`waiting_dir` 提示（与 U4 合并）加上"声明 `--lock` 收窄范围"。
+
+验收：`TestDeclaredLockPathsAllowSiblingJobs`（同 cwd、不同 `--lock` 并行；重叠则串行）、`TestLockPathsInheritedOnResume`、`TestRepoModeLocksTouchedRepoOnly`（两 job 同顶层 cwd 改不同嵌套仓库并行、改同一仓库出现 lock_conflict 事件）、`TestRepoModeIgnoresBaselineDirtyFiles`、`TestRepoModeFallsBackToCwdWithoutNestedRepos`；真实进程冒烟脚本覆盖 U5-1/U5-2。
+
 ## 实施分期
 
 | 期 | 内容 | 验收 |
@@ -81,6 +105,7 @@
 | U2 | UI-01 交接卡片 | 版本下拉/修改仅最新/新增空白/409 的组件测试；截图对比 |
 | U3 | UI-02 Tracker 页（Issues + Memories） | 仓库选择、筛选、抽屉编辑/评论、memory 编辑删除的组件测试；截图对比 |
 | U4 | BL-01、BL-02 | job 详情上传区块、waiting_dir 提示的测试 |
+| U5 | U5-1 显式 `--lock`、U5-2 `dir_lock_mode: repo` 动态占锁、U5-3 引导 | 见 U5 小节的 5 个固定测试 + 真实进程冒烟 |
 
 每期测试先行、容器验收（web 三命令 + 真实进程冒烟 + agent-browser 截图给用户看）、发版时前端 + 主机 server + 容器 CLI 同步升级。
 
@@ -89,6 +114,7 @@
 1. UI-02 菜单名保留 **Issues**，页内分 Issues / Memories 两个标签。
 2. UI-03 Review 移出顶栏菜单，顶栏只在待验收数 > 0 时显示「待验收 N」徽标（点进 `/review`）；Board 待验收列链接与工作台「等你」照旧。
 3. 按 U1 → U4 派发。
+4. U5 目录锁细化（2026-09-29 追加批准）：1+2+3 一起做，并入本批；repo 模式发现锁冲突**只告警不中断**；`dir_lock_mode: repo` 需**项目显式开启**，默认仍为 `cwd`。
 
 ## 结论与人工计划 Gate
 
