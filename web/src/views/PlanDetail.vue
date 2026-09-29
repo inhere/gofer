@@ -947,26 +947,28 @@ onUnmounted(() => {
           <button v-if="handoffLatest && !handoffIsHistorical && !handoffEditing" class="op-btn" type="button" @click="startHandoffEdit">修改</button>
         </div>
       </div>
-      <p v-if="handoffIsHistorical && handoffSelected" class="handoff-history-note mono">
-        正在查看历史版本 v{{ handoffSelected.version }} · <button class="inline-link mono" type="button" @click="returnToLatestHandoff">回到最新</button>
-      </p>
-      <template v-if="handoffEditing">
-        <div class="handoff-edit-tabs mono">
-          <button class="op-btn" :class="{ 'handoff-tab--active': !handoffPreview }" type="button" @click="handoffPreview = false">编辑</button>
-          <button class="op-btn" :class="{ 'handoff-tab--active': handoffPreview }" type="button" @click="handoffPreview = true">预览</button>
-        </div>
-        <textarea v-if="!handoffPreview" v-model="handoffDraft" class="op-input handoff-editor" rows="12" placeholder="记录当前进度、下一步和未决事项" />
-        <MarkdownBlock v-else :text="handoffDraft" />
-        <p v-if="handoffError" class="error mono">{{ handoffError }}</p>
-        <div class="handoff-actions">
-          <button class="op-btn" type="button" :disabled="handoffSaving" @click="saveHandoff">{{ handoffSaving ? '保存中…' : '保存' }}</button>
-          <button class="op-btn" type="button" :disabled="handoffSaving" @click="cancelHandoffEdit">取消</button>
-        </div>
-      </template>
-      <template v-else>
-        <MarkdownBlock v-if="handoffSelected" :text="handoffSelected.body" />
-        <p v-else class="empty mono">暂无交接说明，点击「＋ 新增」创建第一份交接说明</p>
-      </template>
+      <div class="handoff-body-panel">
+        <p v-if="handoffIsHistorical && handoffSelected" class="handoff-history-note mono">
+          正在查看历史版本 v{{ handoffSelected.version }} · <button class="inline-link mono" type="button" @click="returnToLatestHandoff">回到最新</button>
+        </p>
+        <template v-if="handoffEditing">
+          <div class="handoff-edit-tabs mono">
+            <button class="op-btn" :class="{ 'handoff-tab--active': !handoffPreview }" type="button" @click="handoffPreview = false">编辑</button>
+            <button class="op-btn" :class="{ 'handoff-tab--active': handoffPreview }" type="button" @click="handoffPreview = true">预览</button>
+          </div>
+          <textarea v-if="!handoffPreview" v-model="handoffDraft" class="op-input handoff-editor" rows="12" placeholder="记录当前进度、下一步和未决事项" />
+          <MarkdownBlock v-else :text="handoffDraft" />
+          <p v-if="handoffError" class="error mono">{{ handoffError }}</p>
+          <div class="handoff-actions">
+            <button class="op-btn handoff-save" type="button" :disabled="handoffSaving" @click="saveHandoff">{{ handoffSaving ? '保存中…' : '保存' }}</button>
+            <button class="op-btn handoff-cancel" type="button" :disabled="handoffSaving" @click="cancelHandoffEdit">取消</button>
+          </div>
+        </template>
+        <template v-else>
+          <MarkdownBlock v-if="handoffSelected" :text="handoffSelected.body" />
+          <p v-else class="empty mono">暂无交接说明，点击「＋ 新增」创建第一份交接说明</p>
+        </template>
+      </div>
     </section>
 
     <!-- WEB-10 头部操作条：进度（done+skipped/total）+ 用量汇总 + 链操作（PLAN-03）。 -->
@@ -1736,6 +1738,28 @@ onUnmounted(() => {
 .handoff-head {
   align-items: flex-start;
 }
+.handoff-card {
+  margin-bottom: 18px;
+}
+.handoff-body-panel {
+  margin-top: 2px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--panel);
+}
+.handoff-body-panel :deep(.md) {
+  font-size: 13px;
+}
+.handoff-body-panel :deep(.md h1) {
+  font-size: 1.25em;
+}
+.handoff-body-panel :deep(.md h2) {
+  font-size: 1.15em;
+}
+.handoff-body-panel :deep(.md h3) {
+  font-size: 1.05em;
+}
 .handoff-controls,
 .handoff-edit-tabs,
 .handoff-actions {
@@ -1778,6 +1802,19 @@ onUnmounted(() => {
 .handoff-tab--active {
   color: var(--phosphor);
   border-color: var(--phosphor);
+}
+.handoff-save {
+  background: var(--phosphor);
+  border-color: var(--phosphor);
+  color: var(--ink);
+  font-weight: 600;
+}
+.handoff-save:hover:not(:disabled) {
+  color: var(--ink);
+  opacity: 0.9;
+}
+.handoff-cancel {
+  color: var(--queue);
 }
 .handoff-actions {
   margin-top: 10px;

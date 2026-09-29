@@ -405,6 +405,23 @@ func TestValidateRejectsRawCmdForNonExecAgent(t *testing.T) {
 	}
 }
 
+func TestValidateAllowsInternalResumeCarrierCmd(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		Projects: map[string]config.ProjectConfig{"open": {HostPath: root}},
+		Agents: map[string]config.AgentConfig{
+			"codex": {Type: agent.TypeCLIAgent, Command: "go", Args: []string{"env"}},
+		},
+	}
+	s := newTestService(t, root)
+	if _, err := s.Validate(cfg, JobRequest{
+		ProjectKey: "open", Agent: "exec", Runner: "local", Cmd: []string{"codex", "--resume", "session"},
+		ResumeSourceAgent: "codex",
+	}, false); err != nil {
+		t.Fatalf("internal resume carrier cmd should bypass external raw-cmd rejection: %v", err)
+	}
+}
+
 func TestSubmitCLIAgentArgsFlowToRenderedCommand(t *testing.T) {
 	root := t.TempDir()
 	cfg := &config.Config{

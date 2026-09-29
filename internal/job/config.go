@@ -175,7 +175,10 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 		if !ok {
 			return config.ProjectConfig{}, fmt.Errorf("%w: unknown agent %q", ErrInvalidRequest, gateAgent)
 		}
-		if len(req.Cmd) > 0 && ac.Type != agent.TypeExec {
+		// External HTTP/MCP submissions are checked here, while ResumeJob,
+		// auto-resume, wakeup, workbench takeover and reject-resume carry the
+		// internal ResumeSourceAgent marker and must keep their rendered argv.
+		if len(req.Cmd) > 0 && ac.Type != agent.TypeExec && req.ResumeSourceAgent == "" {
 			return config.ProjectConfig{}, fmt.Errorf("%w: positional cmd is only valid for exec agent %q; use --prompt or -f", ErrInvalidRequest, gateAgent)
 		}
 		// Reverse of the req.Interactive gate above: an INTERACTIVE agent may only be
