@@ -33,7 +33,6 @@ import (
 	"github.com/inhere/gofer/internal/runner"
 	ptyrunner "github.com/inhere/gofer/internal/runner/pty"
 	"github.com/inhere/gofer/internal/supervisor"
-	"github.com/inhere/gofer/internal/tracker"
 	"github.com/inhere/gofer/internal/tunnel"
 	"github.com/inhere/gofer/internal/webpush"
 )
@@ -250,18 +249,9 @@ func Start(c *gcli.Command, cfg *config.Config, opts Opts) error {
 	var workers = hubWorkerRegistry{hub: cr.Hub}
 
 	srv := httpapi.New(&cfg.Server, token, allowEmpty, cr.Jobs, cr.Workflow(), cr.Projects, cr.Agents, cr.Hub, cfg.Runners, proberOrNil(prober), workers)
-	// TRK-01 P4: wire the repository tracker mirror for the real serve process.
-	// The first configured project whose host path contains a tracker is used; the
-	// tracker itself remains repository-local and is never created implicitly.
-	for _, projectCfg := range cfg.Projects {
-		if projectCfg.HostPath == "" {
-			continue
-		}
-		if _, err := tracker.Discover(projectCfg.HostPath, ""); err == nil {
-			srv.SetTrackerStore(cr.Store)
-			break
-		}
-	}
+	// TRK-01 P4: the tracker mirror lives in the server's own store, so it is
+	// wired unconditionally — repositories register themselves on first sync.
+	srv.SetTrackerStore(cr.Store)
 	// WEB-11 W2b: browser push is optional at assembly time. A config-dir failure
 	// leaves its routes at 503 but never prevents the existing control plane from
 	// starting. Once wired, the observer only enqueues; network work is asynchronous.
