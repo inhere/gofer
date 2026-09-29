@@ -2094,7 +2094,7 @@ func runJobShow(c *gcli.Command, _ []string) error {
 	c.Printf("dir:        %s\n", dirLockLabel(res.DirExclusive))
 	if res.Status == job.StatusWaitingDir {
 		c.Printf("waiting_dir: holder=%s\n", res.WaitingOnJob)
-		c.Printf("waiting_dir_help: 被占用；只读任务加 --read-only，或用 --shared-dir 放弃独占、--worktree 隔离\n")
+		c.Printf("waiting_dir_help: 被占用；只读任务加 --read-only，或用 --lock 收窄范围、--shared-dir 放弃独占、--worktree 隔离\n")
 	}
 	// GATE-01 S3：人工验收——是否要求人验收，以及已经做出的裁决（谁/何时/为什么）。
 	// needs_review 时 reviewed_* 为空，正说明"还没人裁"。

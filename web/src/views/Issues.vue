@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import IssueDrawer from '../components/IssueDrawer.vue'
 import MemoryList from '../components/MemoryList.vue'
+import StatusBadge from '../components/StatusBadge.vue'
 import {
   commentTrackerIssue,
   deleteTrackerMemory,
@@ -178,7 +179,7 @@ onMounted(async () => {
         <label class="filter-field query-field">关键字<input v-model="query" class="filter-input mono" :placeholder="tab === 'memories' ? 'key 或内容' : 'ID、标题或内容'" /></label>
       </section>
       <p v-if="error" class="error-panel mono">{{ error }}</p><p v-else-if="loading" class="loading mono">加载中…</p>
-      <section v-if="tab === 'issues' && !loading" class="table"><div class="thead mono"><span>ID</span><span>标题</span><span>状态</span><span>优先级</span><span>类型</span><span>标签</span><span>更新</span></div><button v-for="row in filteredIssues" :key="row.id" type="button" class="trow" @click="openIssue(row)"><span class="mono">{{ row.id }}</span><strong>{{ row.data.title || '—' }}</strong><span>{{ row.data.status || '—' }}</span><span>{{ row.data.priority ?? 0 }}</span><span>{{ row.data.type || '—' }}</span><span class="muted">{{ (row.data.tags ?? []).join(' · ') || '—' }}</span><span class="mono">{{ fmtTrackerTime(row.data.updated_at || row.updated_at) }}</span></button><div v-if="filteredIssues.length === 0" class="table-empty mono">暂无匹配 issue</div></section>
+      <section v-if="tab === 'issues' && !loading" class="table"><div class="thead mono"><span>ID</span><span>标题</span><span>状态</span><span>优先级</span><span>类型</span><span>标签</span><span class="updated-col">更新</span></div><button v-for="row in filteredIssues" :key="row.id" type="button" class="trow" @click="openIssue(row)"><span class="mono">{{ row.id }}</span><strong>{{ row.data.title || '—' }}</strong><span><StatusBadge :status="(row.data.status || 'open') as any" /></span><span>{{ row.data.priority ?? 0 }}</span><span>{{ row.data.type || '—' }}</span><span class="muted">{{ (row.data.tags ?? []).join(' · ') || '—' }}</span><span class="mono updated-col">{{ fmtTrackerTime(row.data.updated_at || row.updated_at) }}</span></button><div v-if="filteredIssues.length === 0" class="table-empty mono">暂无匹配 issue</div></section>
       <MemoryList v-if="tab === 'memories' && !loading" :rows="filteredMemories" :selected="selectedMemory" :draft="memoryDraft" @open="openMemory" @update:draft="memoryDraft = $event" @save="saveMemory" @remove="removeMemory" />
     </template>
     <IssueDrawer v-if="selected" :issue="selected" :saving="saving" :expected-rev="selectedRow?.rev ?? 0" @close="closeDrawer" @save="saveIssue" @comment="addComment" />

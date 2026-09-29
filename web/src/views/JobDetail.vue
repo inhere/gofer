@@ -1475,7 +1475,7 @@ onUnmounted(() => {
         </span>
       </div>
       <div v-if="job.status === 'waiting_dir'" class="waiting-dir-help mono">
-        被目录锁占用；只读任务可加 <code>--read-only</code>，或用 <code>--shared-dir</code> 放弃独占、<code>--worktree</code> 隔离。
+        被目录锁占用；只读任务可加 <code>--read-only</code>，或用 <code>--lock</code> 收窄范围、<code>--shared-dir</code> 放弃独占、<code>--worktree</code> 隔离。
       </div>
       <!-- 可靠重试（AUTO-03）：这个 job 失败后服务端还排着重试，点出第几次/上限与下次时刻；
            多条待发只报最先那条，(+N) 表示后面还排着几条。没有待发重试则整条不渲染。 -->

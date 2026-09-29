@@ -169,7 +169,7 @@ server/worker/forwarder 都写 JSONL 文件日志（轮转、脱敏）：server 
 
 审查/分析类任务不想让 agent 动手改文件时，`job run --read-only`（MCP 的 `gofer_run_job` 用 `read_only: true`）：
 
-只读任务务必显式带 `--read-only`。如果 job 显示 `waiting_dir`，说明目录被另一个可写 job 占用；可以继续等待，也可以改用 `--read-only`、`--shared-dir` 放弃独占，或 `--worktree` 使用隔离目录。
+只读任务务必显式带 `--read-only`。如果 job 显示 `waiting_dir`，说明目录被另一个可写 job 占用；顶层目录派活时用 `--lock <子项目>` 收窄范围，也可以继续等待，或改用 `--shared-dir` 放弃独占、`--worktree` 使用隔离目录。
 
 ```bash
 gofer job run -p <project> -a codex --read-only --prompt "只做审查：列出这次改动的问题，不要修改任何文件"
