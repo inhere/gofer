@@ -136,6 +136,8 @@ func GlobalArgs(ac config.AgentConfig) []string {
 	if len(ac.GlobalArgs) > 0 {
 		return append([]string(nil), ac.GlobalArgs...)
 	}
+	// DEPRECATED(v0.74.1): remove in v0.77.0. This keeps pre-global_args configs
+	// resumable while operators migrate command-wide options to global_args.
 	if len(ac.SessionResume) == 0 || len(ac.Args) == 0 {
 		return nil
 	}
