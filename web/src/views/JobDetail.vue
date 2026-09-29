@@ -38,7 +38,7 @@ import {
   deleteWakeup,
   setWakeupEnabled,
 } from '../api/client'
-import { appendCapped, streamJob } from '../api/sse'
+import { appendCappedWithStats, streamJob } from '../api/sse'
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
 import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
 import { shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
@@ -76,6 +76,12 @@ const router = useRouter()
 const job = ref<Job | null>(null)
 const stdout = ref('')
 const stderr = ref('')
+const stdoutLines = ref(0)
+const stderrLines = ref(0)
+const stdoutAppend = ref<{ seq: number; text: string } | null>(null)
+const stderrAppend = ref<{ seq: number; text: string } | null>(null)
+const stdoutReset = ref(0)
+const stderrReset = ref(0)
 const headError = ref('')
 const streamError = ref('')
 const cancelling = ref(false)
@@ -283,15 +289,25 @@ let reconnectedOnce = false
 let pendingStdout = ''
 let pendingStderr = ''
 let logFlushHandle: number | null = null
+let stdoutAppendSeq = 0
+let stderrAppendSeq = 0
 
 function flushPendingLogs(): void {
   logFlushHandle = null
   if (pendingStdout) {
-    stdout.value = appendCapped(stdout.value, pendingStdout)
+    const text = pendingStdout
+    const capped = appendCappedWithStats(stdout.value, text)
+    stdout.value = capped.text
+    stdoutLines.value += countLines(text) - capped.removedLines
+    stdoutAppend.value = { seq: ++stdoutAppendSeq, text }
     pendingStdout = ''
   }
   if (pendingStderr) {
-    stderr.value = appendCapped(stderr.value, pendingStderr)
+    const text = pendingStderr
+    const capped = appendCappedWithStats(stderr.value, text)
+    stderr.value = capped.text
+    stderrLines.value += countLines(text) - capped.removedLines
+    stderrAppend.value = { seq: ++stderrAppendSeq, text }
     pendingStderr = ''
   }
 }
@@ -323,8 +339,12 @@ function onEvent(ev: SSEEvent): void {
     pendingStderr = ''
     if (d.stream === 'stderr') {
       stderr.value = ''
+      stderrLines.value = 0
+      stderrReset.value++
     } else {
       stdout.value = ''
+      stdoutLines.value = 0
+      stdoutReset.value++
     }
     return
   }
@@ -438,9 +458,15 @@ async function loadTerminalLog(
     const target = logTextRef(stream)
     if (mode === 'earlier') {
       target.value = resp.text + target.value
+      if (stream === 'stdout') stdoutLines.value += countLines(resp.text)
+      else stderrLines.value += countLines(resp.text)
       page.offset = resp.offset
     } else {
       target.value = resp.text
+      if (stream === 'stdout') stdoutLines.value = countLines(resp.text)
+      else stderrLines.value = countLines(resp.text)
+      if (stream === 'stdout') stdoutReset.value++
+      else stderrReset.value++
       page.offset = mode === 'all' ? resp.total : resp.offset
     }
     page.total = resp.total
@@ -545,6 +571,14 @@ async function loadCurrentJob(): Promise<void> {
   job.value = null
   stdout.value = ''
   stderr.value = ''
+  stdoutLines.value = 0
+  stderrLines.value = 0
+  stdoutAppend.value = null
+  stderrAppend.value = null
+  stdoutReset.value++
+  stderrReset.value++
+  stdoutAppendSeq = 0
+  stderrAppendSeq = 0
   headError.value = ''
   streamError.value = ''
   cancelling.value = false
@@ -2033,6 +2067,12 @@ onUnmounted(() => {
       ref="logTape"
       :stdout="stdout"
       :stderr="stderr"
+      :stdout-lines="stdoutLines"
+      :stderr-lines="stderrLines"
+      :stdout-append="stdoutAppend"
+      :stderr-append="stderrAppend"
+      :stdout-reset="stdoutReset"
+      :stderr-reset="stderrReset"
       :live="live"
       :mode="isTerminalView ? 'paged' : 'live'"
       :stdout-total="logPages.stdout.total"

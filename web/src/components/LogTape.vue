@@ -11,7 +11,7 @@ import { marked } from 'marked'
 import DOMPurify from 'dompurify'
 import NdjsonTimeline from './NdjsonTimeline.vue'
 import type { LogStream } from '../api/types'
-import { MAX_DOM_LINES, renderAnsiChunk } from '../utils/logRender'
+import { MAX_DOM_LINES, countLogLines, createIncrementalAnsiRenderer } from '../utils/logRender'
 
 const props = withDefaults(defineProps<{
   stdout: string
@@ -28,6 +28,12 @@ const props = withDefaults(defineProps<{
   focused?: boolean
   // stderr 第一次出现内容时自动切过去（job 详情页的默认行为）；工作台关掉，始终先看 stdout。
   autoStderr?: boolean
+  stdoutAppend?: { seq: number; text: string } | null
+  stderrAppend?: { seq: number; text: string } | null
+  stdoutReset?: number
+  stderrReset?: number
+  stdoutLines?: number
+  stderrLines?: number
 }>(), { focused: true, autoStderr: true })
 
 const emit = defineEmits<{
@@ -54,18 +60,10 @@ const structuredMode = ref(false)
 let outPrev = 0
 let errPrev = 0
 
-function lineCount(text: string): number {
-  if (!text) {
-    return 0
-  }
-  const t = text.endsWith('\n') ? text.slice(0, -1) : text
-  return t.length === 0 ? 0 : t.split('\n').length
-}
-
-type RenderState = { source: string; classes: string[] }
+type RenderState = { classes: string[]; partialLine: string; hasPartial: boolean; renderer: ReturnType<typeof createIncrementalAnsiRenderer> }
 const renderState: Record<'stdout' | 'stderr', RenderState> = {
-  stdout: { source: '', classes: [] },
-  stderr: { source: '', classes: [] },
+  stdout: { classes: [], partialLine: '', hasPartial: false, renderer: createIncrementalAnsiRenderer() },
+  stderr: { classes: [], partialLine: '', hasPartial: false, renderer: createIncrementalAnsiRenderer() },
 }
 
 function streamPre(stream: 'stdout' | 'stderr'): HTMLElement | null {
@@ -75,21 +73,40 @@ function streamPre(stream: 'stdout' | 'stderr'): HTMLElement | null {
 function renderStream(stream: 'stdout' | 'stderr', text: string, force = false): void {
   const state = renderState[stream]
   const pre = streamPre(stream)
-  const appendOnly = !force && text.startsWith(state.source)
-  if (!appendOnly) {
-    state.source = ''
-    state.classes = []
-    if (pre) pre.innerHTML = ''
+  if (!pre || !force) return
+  state.classes = []
+  state.partialLine = ''
+  state.hasPartial = false
+  pre.innerHTML = ''
+  const rendered = state.renderer.reset(text)
+  pre.insertAdjacentHTML('beforeend', rendered.html)
+  if (rendered.partialLine) {
+    pre.insertAdjacentHTML('beforeend', `<span class="log-line">${rendered.partialLine}</span>`)
+    state.hasPartial = true
   }
-  const delta = text.slice(state.source.length)
-  if (delta && pre) {
-    const rendered = renderAnsiChunk(delta, state.classes)
-    pre.insertAdjacentHTML('beforeend', rendered.html)
-    state.classes = rendered.classes
-    while (pre.children.length > MAX_DOM_LINES) pre.firstElementChild?.remove()
-  }
-  state.source = text
+  state.classes = rendered.classes
+  state.partialLine = rendered.partialLine
+  while (pre.children.length > MAX_DOM_LINES) pre.firstElementChild?.remove()
   if (pre && !text && !pre.innerHTML) pre.textContent = `（无 ${stream} 输出）`
+}
+
+function appendStream(stream: 'stdout' | 'stderr', text: string): void {
+  if (!text || activeStream.value !== stream) return
+  const pre = streamPre(stream)
+  if (!pre) return
+  const state = renderState[stream]
+  if (state.hasPartial) pre.lastElementChild?.remove()
+  const rendered = state.renderer.append(text)
+  pre.insertAdjacentHTML('beforeend', rendered.html)
+  if (rendered.partialLine) {
+    pre.insertAdjacentHTML('beforeend', `<span class="log-line">${rendered.partialLine}</span>`)
+    state.hasPartial = true
+  } else {
+    state.hasPartial = false
+  }
+  state.classes = rendered.classes
+  state.partialLine = rendered.partialLine
+  while (pre.children.length > MAX_DOM_LINES) pre.firstElementChild?.remove()
 }
 
 const stdoutMarkdownHtml = computed(() =>
@@ -112,7 +129,7 @@ const activeTotal = computed(() =>
     : props.stderrTotal ?? 0,
 )
 const activeDisplayed = computed(() =>
-  activeStream.value === 'stdout' ? lineCount(props.stdout) : lineCount(props.stderr),
+  activeStream.value === 'stdout' ? props.stdoutLines ?? countLogLines(props.stdout) : props.stderrLines ?? countLogLines(props.stderr),
 )
 const showLogActions = computed(() => paged.value && activeCanLoadEarlier.value)
 const showStdoutMarkdown = computed(
@@ -248,51 +265,70 @@ function onScrollErr(): void {
   }
 }
 
-watch(
-  () => props.stdout,
-  (v) => {
-    renderStream('stdout', v)
-    const total = lineCount(v)
-    const delta = Math.max(0, total - outPrev)
-    outPrev = total
-    void nextTick(() => {
-      if (!props.focused) {
-        if (delta > 0) outNew.value += delta
-        return
-      }
-      if (outPinned.value && outEl.value) {
-        scrollPane(outEl.value)
-        outNew.value = 0
-      } else if (delta > 0) {
-        outNew.value += delta
-      }
-    })
-  },
-)
-watch(
-  () => props.stderr,
-  (v) => {
-    renderStream('stderr', v)
-    const total = lineCount(v)
-    const delta = Math.max(0, total - errPrev)
-    if (props.autoStderr && props.focused && total > 0 && errPrev === 0 && !userTouchedTabs.value) {
-      activeStream.value = 'stderr'
+function onNewLines(stream: 'stdout' | 'stderr', delta: number): void {
+  if (delta <= 0) return
+  const pinned = stream === 'stdout' ? outPinned : errPinned
+  const el = stream === 'stdout' ? outEl : errEl
+  const setNew = stream === 'stdout' ? outNew : errNew
+  void nextTick(() => {
+    if (!props.focused) {
+      setNew.value += delta
+      return
     }
-    errPrev = total
+    if (pinned.value && el.value) {
+      scrollPane(el.value)
+      setNew.value = 0
+    } else {
+      setNew.value += delta
+    }
+  })
+}
+
+watch(() => props.stdoutAppend, (append) => {
+  if (!append) return
+  appendStream('stdout', append.text)
+  const delta = countLogLines(append.text)
+  outPrev += delta
+  onNewLines('stdout', delta)
+})
+watch(() => props.stderrAppend, (append) => {
+  if (!append) return
+  if (props.autoStderr && props.focused && errPrev === 0 && !userTouchedTabs.value) activeStream.value = 'stderr'
+  appendStream('stderr', append.text)
+  const delta = countLogLines(append.text)
+  errPrev += delta
+  onNewLines('stderr', delta)
+})
+watch(() => props.stdoutReset, () => {
+  renderStream('stdout', props.stdout, true)
+  outPrev = props.stdoutLines ?? countLogLines(props.stdout)
+})
+watch(() => props.stderrReset, () => {
+  renderStream('stderr', props.stderr, true)
+  errPrev = props.stderrLines ?? countLogLines(props.stderr)
+})
+watch(() => props.stdoutLines, (total) => {
+  if (total !== undefined) outPrev = total
+})
+watch(() => props.stderrLines, (total) => {
+  if (total !== undefined) errPrev = total
+})
+
+/*
+ * The full text props remain useful for tab counts and reset/pagination, but
+ * live rendering is driven only by the append records above. This avoids
+ * deriving a delta from a capped 2 MiB buffer whose head may have disappeared.
+ */
+watch(() => props.stdout, () => {
     void nextTick(() => {
-      if (!props.focused) {
-        if (delta > 0) errNew.value += delta
-        return
-      }
-      if (errPinned.value && errEl.value) {
-        scrollPane(errEl.value)
-        errNew.value = 0
-      } else if (delta > 0) {
-        errNew.value += delta
-      }
+      if (outPinned.value && outEl.value) scrollPane(outEl.value)
     })
-  },
-)
+})
+watch(() => props.stderr, () => {
+  void nextTick(() => {
+    if (errPinned.value && errEl.value) scrollPane(errEl.value)
+  })
+})
 
 watch(() => props.focused, (focused) => {
   if (!focused) return
@@ -309,8 +345,8 @@ watch(() => props.focused, (focused) => {
 })
 
 onMounted(() => {
-  outPrev = lineCount(props.stdout)
-  errPrev = lineCount(props.stderr)
+  outPrev = props.stdoutLines ?? countLogLines(props.stdout)
+  errPrev = props.stderrLines ?? countLogLines(props.stderr)
   if (errPrev > 0) {
     activeStream.value = 'stderr'
   }
@@ -344,7 +380,7 @@ onMounted(() => {
             @click="selectStream('stdout')"
           >
             <span>stdout</span>
-            <span class="tab-count">{{ lineCount(stdout) }}</span>
+            <span class="tab-count">{{ stdoutLines ?? countLogLines(stdout) }}</span>
             <span v-if="outNew > 0" class="tab-new">{{ outNew }}</span>
           </button>
           <button
@@ -356,7 +392,7 @@ onMounted(() => {
             @click="selectStream('stderr')"
           >
             <span>stderr</span>
-            <span class="tab-count">{{ lineCount(stderr) }}</span>
+            <span class="tab-count">{{ stderrLines ?? countLogLines(stderr) }}</span>
             <span v-if="errNew > 0" class="tab-new">{{ errNew }}</span>
           </button>
         </div>
@@ -602,6 +638,9 @@ onMounted(() => {
   font-size: 12px;
   line-height: 1.45;
   color: var(--paper);
+}
+.log-text :deep(.log-line) {
+  display: block;
 }
 .log-text :deep(.ansi-bold) {
   font-weight: 700;

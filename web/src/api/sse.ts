@@ -85,6 +85,21 @@ export function appendCapped(
   return combined.slice(cut)
 }
 
+export function appendCappedWithStats(
+  prev: string,
+  chunk: string,
+  maxBytes = MAX_LOG_BUFFER_BYTES,
+): { text: string; removedLines: number } {
+  const combined = prev + chunk
+  if (combined.length <= maxBytes) return { text: combined, removedLines: 0 }
+  let cut = combined.length - maxBytes
+  const nl = combined.indexOf('\n', cut)
+  if (nl >= 0 && nl + 1 < combined.length) cut = nl + 1
+  let removedLines = 0
+  for (let i = 0; i < cut; i++) if (combined[i] === '\n') removedLines++
+  return { text: combined.slice(cut), removedLines }
+}
+
 export interface StreamJobOpts {
   from?: number
   // tail=N：两条流都从最后 N 行开始推（服务端上限 5000），不回放整份日志。

@@ -3,10 +3,12 @@ import {
   MAX_DOM_LINES,
   capLogLines,
   createLogBatcher,
+  createIncrementalAnsiRenderer,
   createVisibleLogBatcher,
   renderAnsi,
   renderAnsiChunk,
 } from './logRender'
+import { appendCapped } from '../api/sse'
 
 function stripLineWrappers(html: string): string {
   return html.replace(/<span class="log-line">/g, '').replace(/<\/span>(?=(<span class="log-line">|$))/g, '')
@@ -21,12 +23,40 @@ describe('incremental ANSI rendering', () => {
     const a = 'before \x1b[31mred'
     const b = ' continues\nnext\x1b[0m normal'
     const first = renderAnsiChunk(a, [])
-    const second = renderAnsiChunk(b, first.classes)
-    const incremental = stripLineWrappers(first.html + second.html)
+    const second = renderAnsiChunk(b, first.classes, first.partialLine)
+    const incremental = stripLineWrappers(first.html + second.html + second.partialLine)
     const full = renderAnsi(a + b)
     expect(stripTags(incremental)).toBe(stripTags(full))
     expect(incremental).toContain('ansi-fg-red')
     expect(full).toContain('ansi-fg-red')
+  })
+
+  it('keeps appending after the capped buffer drops its head without a full render', () => {
+    const renderer = createIncrementalAnsiRenderer()
+    let capped = ''
+    const chunk = '\x1b[31m' + 'x'.repeat(4090) + '\x1b[0m\n'
+    for (let i = 0; i < 600; i++) {
+      capped = appendCapped(capped, chunk)
+      renderer.append(chunk)
+    }
+    expect(capped.length).toBeLessThanOrEqual(2 * 1024 * 1024)
+    expect(renderer.fullRenderCount).toBe(0)
+  })
+
+  it('keeps a half line together across chunks', () => {
+    const renderer = createIncrementalAnsiRenderer()
+    const first = renderer.append('left')
+    const second = renderer.append(' right\nnext')
+    expect(first.partialLine).toContain('left')
+    expect(second.html).toContain('left')
+    expect(second.html.match(/class="log-line"/g)).toHaveLength(1)
+    expect(second.partialLine).toContain('next')
+  })
+
+  it('creates one color span per color section instead of one per character', () => {
+    const renderer = createIncrementalAnsiRenderer()
+    const result = renderer.append('\x1b[31mred text\x1b[32mgreen text\x1b[0mplain')
+    expect(result.partialLine.match(/class="ansi-fg-/g)).toHaveLength(2)
   })
 })
 
@@ -98,7 +128,21 @@ describe('50k line ANSI append benchmark', () => {
       incrementalMax = Math.max(incrementalMax, performance.now() - start)
     }
     const incrementalMs = performance.now() - incrementalStart
-    console.info(JSON.stringify({ lines: 50_000, fullMs, fullMax, incrementalMs, incrementalMax }))
+    const cappedText = Array.from({ length: 50_000 }, (_, i) => `\x1b[31m${'x'.repeat(60)}-${i}\x1b[0m\n`).join('')
+    const cappedChunks: string[] = []
+    for (let i = 0; i < cappedText.length; i += 4096) cappedChunks.push(cappedText.slice(i, i + 4096))
+    const cappedRenderer = createIncrementalAnsiRenderer()
+    let cappedBuffer = ''
+    let cappedMax = 0
+    const cappedStart = performance.now()
+    for (const chunk of cappedChunks) {
+      cappedBuffer = appendCapped(cappedBuffer, chunk)
+      const start = performance.now()
+      cappedRenderer.append(chunk)
+      cappedMax = Math.max(cappedMax, performance.now() - start)
+    }
+    const cappedMs = performance.now() - cappedStart
+    console.info(JSON.stringify({ lines: 50_000, fullMs, fullMax, incrementalMs, incrementalMax, cappedBytes: cappedBuffer.length, cappedMs, cappedMax }))
     expect(fullMs).toBeGreaterThan(0)
     expect(incrementalMs).toBeGreaterThan(0)
   }, 20_000)

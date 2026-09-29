@@ -59,18 +59,38 @@ export function renderAnsi(text: string): string {
   return html + renderSegment(text.slice(pos), classes)
 }
 
-export function renderAnsiChunk(text: string, initialClasses: AnsiClasses): { html: string; classes: AnsiClasses } {
+export interface AnsiChunkResult {
+  html: string
+  classes: AnsiClasses
+  partialLine: string
+  lineCount: number
+}
+
+export function renderAnsiChunk(
+  text: string,
+  initialClasses: AnsiClasses,
+  initialLine = '',
+): AnsiChunkResult {
   const re = /\x1b\[([0-9;]*)m/g
   let pos = 0
   let classes = initialClasses
-  let line = ''
+  let line = initialLine
   let html = ''
-  const flush = (newline: boolean): void => {
-    html += `<span class="log-line">${line}${newline ? '\n' : ''}</span>`
+  let lineCount = 0
+  const flush = (): void => {
+    html += `<span class="log-line">${line}\n</span>`
+    lineCount++
     line = ''
   }
   const appendText = (part: string): void => {
-    for (const ch of part) ch === '\n' ? flush(true) : (line += renderSegment(ch, classes))
+    let start = 0
+    for (let i = 0; i < part.length; i++) {
+      if (part[i] !== '\n') continue
+      if (i > start) line += renderSegment(part.slice(start, i), classes)
+      flush()
+      start = i + 1
+    }
+    if (start < part.length) line += renderSegment(part.slice(start), classes)
   }
   for (const match of text.matchAll(re)) {
     appendText(text.slice(pos, match.index))
@@ -80,8 +100,41 @@ export function renderAnsiChunk(text: string, initialClasses: AnsiClasses): { ht
     pos = (match.index ?? 0) + match[0].length
   }
   appendText(text.slice(pos))
-  if (line || !text.endsWith('\n')) flush(false)
-  return { html, classes }
+  return { html, classes, partialLine: line, lineCount }
+}
+
+export function countLogLines(text: string): number {
+  let count = 0
+  for (const ch of text) if (ch === '\n') count++
+  return count + (text !== '' && !text.endsWith('\n') ? 1 : 0)
+}
+
+export interface IncrementalAnsiRenderer {
+  append(text: string): AnsiChunkResult
+  reset(text: string): AnsiChunkResult
+  readonly fullRenderCount: number
+}
+
+export function createIncrementalAnsiRenderer(): IncrementalAnsiRenderer {
+  let classes: AnsiClasses = []
+  let partialLine = ''
+  let fullRenderCount = 0
+  const consume = (text: string): AnsiChunkResult => {
+    const result = renderAnsiChunk(text, classes, partialLine)
+    classes = result.classes
+    partialLine = result.partialLine
+    return result
+  }
+  return {
+    append: consume,
+    reset(text) {
+      classes = []
+      partialLine = ''
+      fullRenderCount++
+      return consume(text)
+    },
+    get fullRenderCount() { return fullRenderCount },
+  }
 }
 
 export function capLogLines(text: string, maxLines = MAX_DOM_LINES): string {
