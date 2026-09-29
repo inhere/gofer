@@ -143,6 +143,21 @@ func TestSyncThreeWayMerge(t *testing.T) {
 	}
 }
 
+func TestSyncRecordsTrackerRepoMetadata(t *testing.T) {
+	e := newTrackerE2E(t)
+	if _, err := e.local.CreateIssue(tracker.Issue{Title: "metadata", Type: "task"}); err != nil {
+		t.Fatal(err)
+	}
+	syncTracker(t, e)
+	repos, err := e.meta.ListTrackerRepos()
+	if err != nil || len(repos) != 1 {
+		t.Fatalf("repos=%+v err=%v", repos, err)
+	}
+	if repos[0].LastSyncAt <= 0 || repos[0].RelPath == "" || repos[0].SyncSummary == "" {
+		t.Fatalf("sync metadata missing: %+v", repos[0])
+	}
+}
+
 func TestSyncOfflineThenCatchUp(t *testing.T) {
 	e := newTrackerE2E(t)
 	_, err := e.local.CreateIssue(tracker.Issue{Title: "offline", Type: "task"})

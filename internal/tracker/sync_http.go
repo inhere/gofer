@@ -89,7 +89,8 @@ func SyncHTTPWithToken(ctx context.Context, s *Store, endpoint, token string) (S
 			memoryRecords = append(memoryRecords, map[string]any{"id": key, "body": json.RawMessage("{}"), "rev": 1, "updated_at": Now(), "deleted": true, "deleted_at": Now(), "deleted_by": "local"})
 		}
 	}
-	payload := map[string]any{"tracker_id": cfg.TrackerID, "project_key": cfg.ProjectKey, "prefix": cfg.Prefix, "issues": issueRecords, "memories": memoryRecords, "issue_since": meta.IssueCursor, "memory_since": meta.MemoryCursor}
+	root := filepath.Dir(filepath.Dir(s.Dir))
+	payload := map[string]any{"tracker_id": cfg.TrackerID, "project_key": cfg.ProjectKey, "prefix": cfg.Prefix, "rel_path": filepath.ToSlash(root), "issues": issueRecords, "memories": memoryRecords, "issue_since": meta.IssueCursor, "memory_since": meta.MemoryCursor}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return SyncReport{}, err

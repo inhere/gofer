@@ -3,6 +3,7 @@ package httpapi
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"strings"
@@ -19,6 +20,7 @@ type trackerSyncRequest struct {
 	ProjectKey  string              `json:"project_key"`
 	RelPath     string              `json:"rel_path"`
 	Prefix      string              `json:"prefix"`
+	SyncSummary string              `json:"sync_summary"`
 	Issue       []trackerRecordBody `json:"issues"`
 	Memory      []trackerRecordBody `json:"memories"`
 	IssueSince  int64               `json:"issue_since"`
@@ -142,10 +144,6 @@ func (s *Server) handleTrackerSync(c *rux.Context) {
 		c.JSON(http.StatusForbidden, map[string]string{"error": "authenticated caller required"})
 		return
 	}
-	if err := s.trackerStore.UpsertTrackerRepo(jobstore.TrackerRepo{TrackerID: req.TrackerID, ProjectKey: req.ProjectKey, RelPath: req.RelPath, Prefix: req.Prefix}); err != nil {
-		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
-		return
-	}
 	for _, item := range req.Issue {
 		rev := item.Rev
 		skip := false
@@ -228,6 +226,31 @@ func (s *Server) handleTrackerSync(c *rux.Context) {
 				memoryCursor = item.ChangedSeq
 			}
 		}
+	}
+	relPath, projectKey, prefix := req.RelPath, req.ProjectKey, req.Prefix
+	if repos, listErr := s.trackerStore.ListTrackerRepos(); listErr == nil {
+		for _, old := range repos {
+			if old.TrackerID == req.TrackerID {
+				if relPath == "" {
+					relPath = old.RelPath
+				}
+				if projectKey == "" {
+					projectKey = old.ProjectKey
+				}
+				if prefix == "" {
+					prefix = old.Prefix
+				}
+				break
+			}
+		}
+	}
+	summary := req.SyncSummary
+	if summary == "" {
+		summary = fmt.Sprintf("同步完成：issues=%d memories=%d", len(issues), len(memories))
+	}
+	if err := s.trackerStore.UpsertTrackerRepo(jobstore.TrackerRepo{TrackerID: req.TrackerID, ProjectKey: projectKey, RelPath: relPath, Prefix: prefix, LastSyncAt: time.Now().Unix(), SyncSummary: summary}); err != nil {
+		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
+		return
 	}
 	c.JSON(http.StatusOK, map[string]any{"issues": issues, "memories": memories, "issue_cursor": issueCursor, "memory_cursor": memoryCursor})
 }
