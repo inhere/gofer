@@ -914,6 +914,20 @@ export function listTrackerIssues(trackerId: string, opts?: { project?: string; 
 export function getTrackerIssue(trackerId:string,id:string): Promise<import('./types').TrackerIssueView> { return request(`/v1/tracker/issues/${encodeURIComponent(id)}?tracker_id=${encodeURIComponent(trackerId)}`) }
 export function updateTrackerIssue(trackerId:string,id:string,body:unknown): Promise<unknown> { return request(`/v1/tracker/issues/${encodeURIComponent(id)}?tracker_id=${encodeURIComponent(trackerId)}`,{method:'PUT',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)}) }
 export function commentTrackerIssue(trackerId:string,id:string,text:string): Promise<unknown> { return request(`/v1/tracker/issues/${encodeURIComponent(id)}/comments?tracker_id=${encodeURIComponent(trackerId)}`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text})}) }
+export function listTrackerRepos(): Promise<{ repos: import('./types').TrackerRepo[] }> {
+  return request('/v1/tracker/repos')
+}
+export function listTrackerMemories(trackerId: string): Promise<{ memories: import('./types').TrackerMemory[] }> {
+  return request(`/v1/tracker/memories?tracker_id=${encodeURIComponent(trackerId)}`)
+}
+export function updateTrackerMemory(trackerId: string, id: string, body: unknown): Promise<unknown> {
+  return request(`/v1/tracker/memories/${encodeURIComponent(id)}?tracker_id=${encodeURIComponent(trackerId)}`, {
+    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+  })
+}
+export function deleteTrackerMemory(trackerId: string, id: string): Promise<unknown> {
+  return request(`/v1/tracker/memories/${encodeURIComponent(id)}?tracker_id=${encodeURIComponent(trackerId)}`, { method: 'DELETE' })
+}
 
 export function getPlan(id: string): Promise<PlanDetail> {
   return request<PlanDetail>(`/v1/plans/${encodeURIComponent(id)}`)

@@ -1807,6 +1807,25 @@ export interface PlansResp {
   offset: number
 }
 
+export interface TrackerRepo {
+  tracker_id: string
+  project_key: string
+  rel_path: string
+  prefix: string
+  last_sync_at: number
+  sync_summary: string
+}
+
+export interface TrackerMemory {
+  id: string
+  body_json: string
+  rev: number
+  updated_at: string
+  deleted?: boolean
+  deleted_at?: string
+  deleted_by?: string
+}
+
 export interface TrackerIssue {
   id: string
   body_json: string
