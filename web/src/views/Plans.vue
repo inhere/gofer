@@ -1,5 +1,5 @@
 <script setup lang="ts">
-// Plans 列表：轮询 listPlans（2.5s，只刷当前页），Page Visibility 暂停/恢复，status/project/q
+// Plans 列表：轮询 listPlans（2.5s，只刷当前页），Page Visibility 暂停/恢复，status/project/tag/q
 // 过滤 + limit/offset 分页（F-d），行点击进详情；顶部内联「新建计划」表单。
 // 过滤与翻页全部落在 URL query（status/project/q/offset），刷新/分享都保持同一视图。
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
@@ -24,16 +24,21 @@ const error = ref('')
 
 // URL query 是过滤条件的唯一来源（get 读 URL、set 写 URL），所以浏览器前进/后退、分享链接
 // 都能复原同一页；q 是输入框的即时值，回车/失焦才写回 URL。
-const statusFilter = computed({
-  get: () => {
-    const s = route.query.status
-    return typeof s === 'string' ? (s as '' | PlanStatus) : ''
-  },
-  set: (value: '' | PlanStatus) => setFilter('status', value),
+const statusFilter = computed<PlanStatus[]>(() => {
+  const raw = typeof route.query.status === 'string' ? route.query.status : ''
+  if (raw === 'all') return []
+  return raw ? raw.split(',').filter((s): s is PlanStatus => ['open', 'done', 'archived', 'blocked'].includes(s)) : ['open']
 })
-const projectFilter = computed(() => {
-  const p = route.query.project
-  return typeof p === 'string' ? p : ''
+const projectFilter = computed({
+  get: () => {
+    const p = route.query.project
+    return typeof p === 'string' ? p : ''
+  },
+  set: (value: string) => setFilter('project', value),
+})
+const tagFilter = computed({
+  get: () => typeof route.query.tag === 'string' ? route.query.tag : '',
+  set: (value: string) => setFilter('tag', value),
 })
 const qFilter = computed(() => {
   const q = route.query.q
@@ -61,7 +66,7 @@ function pushQuery(patch: Record<string, string | undefined>): void {
 }
 
 // 过滤条件变化一律回到第 1 页（否则换了过滤还在 offset=40 会看到空页）。
-function setFilter(key: 'status' | 'project', value: string): void {
+function setFilter(key: 'status' | 'project' | 'tag', value: string): void {
   pushQuery({ [key]: value || undefined, offset: undefined })
 }
 
@@ -86,21 +91,33 @@ const projectOptions = computed(() => {
 const createOpen = ref(false)
 const newTitle = ref('')
 const newDesc = ref('')
+const newTags = ref('')
 const creating = ref(false)
 const createError = ref('')
 
-const statusOptions: Array<{ value: '' | PlanStatus; label: string }> = [
+const statusOptions: Array<{ value: PlanStatus | ''; label: string }> = [
   { value: '', label: '全部' },
   { value: 'open', label: 'open' },
   { value: 'done', label: 'done' },
   { value: 'archived', label: 'archived' },
+  { value: 'blocked', label: 'blocked' },
 ]
 
 const pageFrom = computed(() => (plans.value.length === 0 ? 0 : offset.value + 1))
 const pageTo = computed(() => offset.value + plans.value.length)
 const hasPrev = computed(() => offset.value > 0)
 const hasNext = computed(() => pageTo.value < total.value)
-const hasFilters = computed(() => Boolean(statusFilter.value || projectFilter.value || qFilter.value))
+const hasFilters = computed(() => Boolean(projectFilter.value || tagFilter.value || qFilter.value || (statusFilter.value.length > 0 && (statusFilter.value.length !== 1 || statusFilter.value[0] !== 'open'))))
+
+function toggleStatus(value: PlanStatus | ''): void {
+  if (value === '') {
+    setFilter('status', 'all')
+    return
+  }
+  const current = statusFilter.value
+  const next = current.includes(value) ? current.filter((item) => item !== value) : [...current, value]
+  setFilter('status', next.length ? next.join(',') : 'all')
+}
 
 function prevPage(): void {
   const prev = offset.value - PAGE_SIZE
@@ -119,8 +136,9 @@ async function fetchPlans(): Promise<void> {
   loading.value = true
   try {
     const resp = await listPlans({
-      status: statusFilter.value || undefined,
+      statuses: statusFilter.value,
       project: projectFilter.value || undefined,
+      tags: tagFilter.value.split(',').map((tag) => tag.trim()).filter(Boolean),
       q: qFilter.value || undefined,
       limit: PAGE_SIZE,
       offset: offset.value,
@@ -154,9 +172,11 @@ async function onCreate(): Promise<void> {
     const p = await createPlan({
       title: newTitle.value.trim(),
       description: newDesc.value.trim() || undefined,
+      tags: newTags.value.split(',').map((tag) => tag.trim()).filter(Boolean),
     })
     newTitle.value = ''
     newDesc.value = ''
+    newTags.value = ''
     createError.value = ''
     void router.push(`/plans/${encodeURIComponent(p.plan_id)}`)
   } catch (e) {
@@ -207,7 +227,7 @@ function onVisibility(): void {
 }
 
 // 过滤/翻页变化 -> 立即刷新（轮询只重复当前页，不重置 offset）。
-watch([statusFilter, projectFilter, qFilter, offset], () => void fetchPlans())
+watch([() => statusFilter.value.join(','), projectFilter, tagFilter, qFilter, offset], () => void fetchPlans())
 
 onMounted(() => {
   void fetchPlans()
@@ -226,14 +246,9 @@ onUnmounted(() => {
     <div class="board-head">
       <h1 class="title mono">PLANS</h1>
       <div class="controls mono">
-        <label class="filter">
-          <span class="filter-label">status</span>
-          <select v-model="statusFilter" class="filter-select mono">
-            <option v-for="opt in statusOptions" :key="opt.value" :value="opt.value">
-              {{ opt.label }}
-            </option>
-          </select>
-        </label>
+        <div class="status-chips" aria-label="状态筛选">
+          <button v-for="opt in statusOptions" :key="opt.value || 'all'" type="button" class="status-chip mono" :class="[`status-chip--${opt.value || 'all'}`, { 'status-chip--active': opt.value === '' ? statusFilter.length === 0 : statusFilter.includes(opt.value as PlanStatus) }]" @click="toggleStatus(opt.value)">{{ opt.label }}</button>
+        </div>
         <label class="filter">
           <span class="filter-label">project</span>
           <select v-model="projectFilter" class="filter-select mono">
@@ -252,6 +267,10 @@ onUnmounted(() => {
             @blur="applyQueryInput"
           />
         </label>
+        <label class="filter">
+          <span class="filter-label">tag</span>
+          <input v-model="tagFilter" class="filter-input mono" placeholder="标签，可逗号分隔" spellcheck="false" />
+        </label>
         <span class="poll-hint" :class="{ 'poll-hint--on': loading }">●</span>
         <button class="create-toggle mono" type="button" :aria-expanded="createOpen" @click="createOpen = !createOpen">
           {{ createOpen ? '收起' : '＋ 新建计划' }}
@@ -268,6 +287,10 @@ onUnmounted(() => {
         <span>description</span>
         <input v-model="newDesc" class="create-input mono" placeholder="描述(可选)" />
       </label>
+      <label class="create-field">
+        <span>tags</span>
+        <input v-model="newTags" class="create-input mono" placeholder="标签，用逗号分隔" />
+      </label>
       <button class="create-btn mono" type="submit" :disabled="!newTitle.trim() || creating">
         {{ creating ? '创建中…' : '新建计划' }}
       </button>
@@ -281,6 +304,7 @@ onUnmounted(() => {
         <span class="col-status">状态</span>
         <span class="col-plan">plan · title / id</span>
         <span class="col-project">project</span>
+        <span class="col-tags">tags</span>
         <span class="col-counts">进度</span>
         <span class="col-updated">更新</span>
       </div>
@@ -303,6 +327,7 @@ onUnmounted(() => {
         <span class="col-project mono" :title="p.project || '未指定 project'">
           {{ p.project || '—' }}
         </span>
+        <span class="col-tags mono"><span v-for="tag in p.tags ?? []" :key="tag" class="plan-tag">{{ tag }}</span><span v-if="!(p.tags ?? []).length">—</span></span>
         <span class="col-counts mono">
           <span class="count-line">
             <span class="cbar" aria-hidden="true">
@@ -388,6 +413,13 @@ onUnmounted(() => {
 .filter-input {
   min-width: 180px;
 }
+.status-chips { display: inline-flex; flex-wrap: wrap; gap: 5px; }
+.status-chip { background: transparent; color: var(--queue); border: 1px solid var(--line); border-radius: 999px; padding: 4px 8px; font-size: 11px; opacity: .65; }
+.status-chip--active { color: var(--phosphor); border-color: var(--phosphor); opacity: 1; }
+.status-chip--open.status-chip--active { color: var(--done); border-color: var(--done); }
+.status-chip--done.status-chip--active { color: var(--done); border-color: var(--done); }
+.status-chip--blocked.status-chip--active { color: var(--fail); border-color: var(--fail); }
+.status-chip--archived.status-chip--active { color: var(--queue); border-color: var(--queue); }
 .filter-select:focus,
 .filter-input:focus,
 .create-input:focus {
@@ -465,7 +497,7 @@ onUnmounted(() => {
 .thead,
 .trow {
   display: grid;
-  grid-template-columns: 124px minmax(200px, 1fr) 120px minmax(260px, 360px) 90px;
+  grid-template-columns: 124px minmax(180px, 1fr) 120px 160px minmax(260px, 360px) 90px;
   align-items: center;
   gap: 12px;
   padding: 9px 14px;
@@ -524,6 +556,8 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.col-tags { display: flex; flex-wrap: wrap; gap: 4px; color: var(--queue); }
+.plan-tag { color: var(--phosphor); border: 1px solid var(--line); border-radius: 999px; padding: 1px 6px; font-size: 10px; }
 .col-counts {
   display: flex;
   flex-direction: column;
@@ -657,6 +691,7 @@ onUnmounted(() => {
     grid-template-areas:
       "plan status"
       "project updated"
+      "tags tags"
       "counts counts";
     gap: 3px 10px;
     padding: 8px 10px;
@@ -664,6 +699,7 @@ onUnmounted(() => {
   .trow .col-status { grid-area: status; justify-self: end; }
   .trow .col-plan { grid-area: plan; }
   .trow .col-project { grid-area: project; font-size: 11px; }
+  .trow .col-tags { grid-area: tags; font-size: 11px; }
   .trow .col-updated { grid-area: updated; font-size: 11px; justify-self: end; }
   .trow .col-counts { grid-area: counts; font-size: 11px; }
 }
