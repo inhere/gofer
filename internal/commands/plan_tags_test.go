@@ -11,6 +11,11 @@ func TestPlanTagsCreateUpdateFilter(t *testing.T) {
 	isolateConfigEnv(t)
 	config.InputCfgFile = ""
 	t.Cleanup(func() { config.InputCfgFile = "" })
+	t.Cleanup(func() {
+		planCreateOpts.tags = ""
+		planSetOpts.tags, planSetOpts.untag, planSetOpts.leader = "", "", ""
+		planListOpts.tags = nil
+	})
 	jobConnOpts.server, jobConnOpts.token = "", ""
 	server := newPlanTestServer(t)
 

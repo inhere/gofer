@@ -1274,7 +1274,7 @@ func (c *Client) CreatePlan(planID, title, description, project, leader string, 
 	if leader != "" {
 		payload["leader"] = leader
 	}
-	if len(tags) > 0 {
+	if len(tags) > 0 && len(tags[0]) > 0 {
 		payload["tags"] = tags[0]
 	}
 	body, err := json.Marshal(payload)
