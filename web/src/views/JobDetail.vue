@@ -280,6 +280,30 @@ let stdoutBytes = 0
 
 let abortCtrl: AbortController | null = null
 let reconnectedOnce = false
+let pendingStdout = ''
+let pendingStderr = ''
+let logFlushHandle: number | null = null
+
+function flushPendingLogs(): void {
+  logFlushHandle = null
+  if (pendingStdout) {
+    stdout.value = appendCapped(stdout.value, pendingStdout)
+    pendingStdout = ''
+  }
+  if (pendingStderr) {
+    stderr.value = appendCapped(stderr.value, pendingStderr)
+    pendingStderr = ''
+  }
+}
+
+function scheduleLogFlush(): void {
+  if (logFlushHandle !== null) return
+  if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+    logFlushHandle = window.requestAnimationFrame(flushPendingLogs)
+  } else {
+    logFlushHandle = window.setTimeout(flushPendingLogs, 200)
+  }
+}
 
 function applyStatus(j: Job): void {
   // 合并字段（status 事件可能只带部分信息，但后端给的是完整 Job）
@@ -295,6 +319,8 @@ function onEvent(ev: SSEEvent): void {
     // 后端日志轮转：清空该 stream 的缓冲后续读新文件（不重置 stdoutBytes，
     // 它用于断线重连的 from offset，由后端 offset 语义对齐）。
     const d = ev.data as SSELogRotatedData
+    pendingStdout = ''
+    pendingStderr = ''
     if (d.stream === 'stderr') {
       stderr.value = ''
     } else {
@@ -307,11 +333,12 @@ function onEvent(ev: SSEEvent): void {
     // 帧按到达顺序（= seq 顺序，单连接 TCP 有序）追加，并窗口化到字节上限：
     // 超大/高频日志只保留最近 N 字节，避免浏览器内存无界增长（C4 前端兜底）。
     if (d.stream === 'stdout') {
-      stdout.value = appendCapped(stdout.value, d.text)
+      pendingStdout += d.text
       stdoutBytes += encoder.encode(d.text).length
     } else {
-      stderr.value = appendCapped(stderr.value, d.text)
+      pendingStderr += d.text
     }
+    scheduleLogFlush()
     const n = countLines(d.text)
     if (n > 0) {
       recentLines.value.push({ t: Date.now(), n })
@@ -1300,6 +1327,11 @@ onUnmounted(() => {
   if (abortCtrl) {
     abortCtrl.abort()
   }
+  if (logFlushHandle !== null) {
+    if (typeof window.cancelAnimationFrame === 'function') window.cancelAnimationFrame(logFlushHandle)
+    else window.clearTimeout(logFlushHandle)
+    logFlushHandle = null
+  }
   clock.stop()
 })
 </script>
@@ -2009,6 +2041,7 @@ onUnmounted(() => {
       :stderr-can-load-earlier="stderrCanLoadEarlier"
       :stdout-loading="logPages.stdout.loading"
       :stderr-loading="logPages.stderr.loading"
+      :auto-stderr="job?.agent === 'exec'"
       @load-earlier="onLoadEarlier"
       @load-all="onLoadAll"
     />

@@ -38,6 +38,8 @@ const smoothScroll = !window.matchMedia('(prefers-reduced-motion: reduce)').matc
 
 const outEl = ref<HTMLElement | null>(null)
 const errEl = ref<HTMLElement | null>(null)
+const stdoutPre = ref<HTMLElement | null>(null)
+const stderrPre = ref<HTMLElement | null>(null)
 const activeStream = ref<'stdout' | 'stderr'>('stdout')
 const userTouchedTabs = ref(false)
 const outPinned = ref(true)
@@ -126,29 +128,68 @@ function renderSegment(text: string, classes: string[]): string {
   return `<span class="${classes.join(' ')}">${safe}</span>`
 }
 
-function renderAnsi(text: string): string {
-  if (!text) {
-    return ''
-  }
-  const re = /\x1b\[([0-9;]*)m/g
-  let pos = 0
-  let classes: string[] = []
-  let html = ''
-  for (const m of text.matchAll(re)) {
-    html += renderSegment(text.slice(pos, m.index), classes)
-    const raw = m[1] || '0'
-    const codes = raw.split(';').map((v) => Number(v || '0'))
-    for (const code of codes) {
-      classes = applyAnsiCode(classes, code)
-    }
-    pos = (m.index ?? 0) + m[0].length
-  }
-  html += renderSegment(text.slice(pos), classes)
-  return html
+const MAX_DOM_LINES = 5000
+type RenderState = { source: string; classes: string[] }
+const renderState: Record<'stdout' | 'stderr', RenderState> = {
+  stdout: { source: '', classes: [] },
+  stderr: { source: '', classes: [] },
 }
 
-const stdoutHtml = computed(() => renderAnsi(props.stdout || '（无 stdout 输出）'))
-const stderrHtml = computed(() => renderAnsi(props.stderr || '（无 stderr 输出）'))
+function renderAnsiChunk(text: string, initialClasses: string[]): { html: string; classes: string[] } {
+  const re = /\x1b\[([0-9;]*)m/g
+  let pos = 0
+  let classes = initialClasses
+  let line = ''
+  let html = ''
+  const flushLine = (withNewline = false): void => {
+    html += `<span class="log-line">${line}${withNewline ? '\n' : ''}</span>`
+    line = ''
+  }
+  for (const m of text.matchAll(re)) {
+    const before = text.slice(pos, m.index)
+    for (const ch of before) {
+      if (ch === '\n') {
+        flushLine(true)
+      } else {
+        line += renderSegment(ch, classes)
+      }
+    }
+    const raw = m[1] || '0'
+    for (const code of raw.split(';').map((v) => Number(v || '0'))) classes = applyAnsiCode(classes, code)
+    pos = (m.index ?? 0) + m[0].length
+  }
+  for (const ch of text.slice(pos)) {
+    if (ch === '\n') flushLine(true)
+    else line += renderSegment(ch, classes)
+  }
+  if (line || text.endsWith('\n') === false) flushLine()
+  return { html, classes }
+}
+
+function streamPre(stream: 'stdout' | 'stderr'): HTMLElement | null {
+  return stream === 'stdout' ? stdoutPre.value : stderrPre.value
+}
+
+function renderStream(stream: 'stdout' | 'stderr', text: string, force = false): void {
+  const state = renderState[stream]
+  const pre = streamPre(stream)
+  const appendOnly = !force && text.startsWith(state.source)
+  if (!appendOnly) {
+    state.source = ''
+    state.classes = []
+    if (pre) pre.innerHTML = ''
+  }
+  const delta = text.slice(state.source.length)
+  if (delta && pre) {
+    const rendered = renderAnsiChunk(delta, state.classes)
+    pre.insertAdjacentHTML('beforeend', rendered.html)
+    state.classes = rendered.classes
+    while (pre.children.length > MAX_DOM_LINES) pre.firstElementChild?.remove()
+  }
+  state.source = text
+  if (pre && !text && !pre.innerHTML) pre.textContent = `（无 ${stream} 输出）`
+}
+
 const stdoutMarkdownHtml = computed(() =>
   DOMPurify.sanitize(marked.parse(props.stdout, { async: false })),
 )
@@ -214,6 +255,7 @@ function selectStream(stream: 'stdout' | 'stderr'): void {
   activeStream.value = stream
   userTouchedTabs.value = true
   void nextTick(() => {
+    renderStream(stream, stream === 'stdout' ? props.stdout : props.stderr, true)
     if (stream === 'stdout') {
       jumpOut()
     } else {
@@ -240,10 +282,15 @@ defineExpose({ focusStderr })
 
 function toggleStdoutMarkdown(): void {
   stdoutMarkdownMode.value = !stdoutMarkdownMode.value
+  void nextTick(() => renderStream('stdout', props.stdout, true))
 }
 
 function toggleStructured(): void {
   structuredMode.value = !structuredMode.value
+  void nextTick(() => {
+    renderStream('stdout', props.stdout, true)
+    renderStream('stderr', props.stderr, true)
+  })
 }
 
 function scrollPane(el: HTMLElement): void {
@@ -302,6 +349,7 @@ function onScrollErr(): void {
 watch(
   () => props.stdout,
   (v) => {
+    renderStream('stdout', v)
     const total = lineCount(v)
     const delta = Math.max(0, total - outPrev)
     outPrev = total
@@ -322,6 +370,7 @@ watch(
 watch(
   () => props.stderr,
   (v) => {
+    renderStream('stderr', v)
     const total = lineCount(v)
     const delta = Math.max(0, total - errPrev)
     if (props.autoStderr && props.focused && total > 0 && errPrev === 0 && !userTouchedTabs.value) {
@@ -363,6 +412,10 @@ onMounted(() => {
   if (errPrev > 0) {
     activeStream.value = 'stderr'
   }
+  void nextTick(() => {
+    renderStream('stdout', props.stdout, true)
+    renderStream('stderr', props.stderr, true)
+  })
   if (!props.focused) return
   void nextTick(() => {
     if (outEl.value) {
@@ -464,7 +517,7 @@ onMounted(() => {
           class="log-md"
           v-html="stdoutMarkdownHtml"
         ></div>
-        <pre v-else class="log-text" v-html="stdoutHtml"></pre>
+        <pre v-else ref="stdoutPre" class="log-text"></pre>
       </div>
       <button
         v-if="activeStream === 'stdout' && outNew > 0 && !outPinned"
@@ -486,7 +539,7 @@ onMounted(() => {
         <div v-if="structuredMode && stderrStructured" class="log-structured">
           <NdjsonTimeline :text="stderr" />
         </div>
-        <pre v-else class="log-text" v-html="stderrHtml"></pre>
+        <pre v-else ref="stderrPre" class="log-text"></pre>
       </div>
       <button
         v-if="activeStream === 'stderr' && errNew > 0 && !errPinned"
