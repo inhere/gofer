@@ -32,7 +32,11 @@ type trackerE2E struct {
 
 func newTrackerE2E(t *testing.T) trackerE2E {
 	t.Helper()
-	root := t.TempDir()
+	root, err := os.MkdirTemp("", "gofer-tracker-e2e-")
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
 	local, _, err := tracker.Init(root, "p4", true)
 	if err != nil {
 		t.Fatal(err)
@@ -44,13 +48,24 @@ func newTrackerE2E(t *testing.T) trackerE2E {
 	if err != nil {
 		t.Fatal(err)
 	}
-	jobs := job.NewService(cfg, projects, agents, map[string]runner.Runner{localrunner.Name: localrunner.New()}, meta, nil)
+	jobs := drainOnCleanup(t, job.NewService(cfg, projects, agents, map[string]runner.Runner{localrunner.Name: localrunner.New()}, meta, nil))
 	eng := workflow.NewEngine(jobs)
 	jobs.SetWorkflow(eng)
 	s := New(&cfg.Server, "tok", false, jobs, eng, projects, agents, nil, nil, nil, nil)
 	s.SetTrackerStore(meta)
 	ts := httptest.NewServer(s.Handler())
-	t.Cleanup(func() { ts.Close(); meta.Close() })
+	t.Cleanup(func() {
+		ts.Close()
+		deadline := time.Now().Add(3 * time.Second)
+		for {
+			if err := meta.Close(); err == nil || time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+	})
+	t.Cleanup(func() { time.Sleep(2 * time.Second) })
+	t.Cleanup(func() { drainJobs(t, jobs) })
 	return trackerE2E{root: root, local: local, srv: ts, server: s, meta: meta}
 }
 
@@ -191,6 +206,46 @@ func TestSyncMemoryTombstone(t *testing.T) {
 	syncTracker(t, e)
 	if _, err := e.local.Memory("server-delete"); err == nil {
 		t.Fatal("server tombstone should remove local row")
+	}
+}
+
+func TestTrackerWebEditPartialUpdateAndConflict(t *testing.T) {
+	e := newTrackerE2E(t)
+	issue, err := e.local.CreateIssue(tracker.Issue{Title: "keep", Type: "task", Priority: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	syncTracker(t, e)
+	cfg := mustConfig(t, e.local)
+	body := []byte(`{"status":"blocked","expected_rev":1}`)
+	req, _ := http.NewRequest(http.MethodPut, e.srv.URL+"/v1/tracker/issues/"+issue.ID+"?tracker_id="+cfg.TrackerID, bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("edit status=%d", resp.StatusCode)
+	}
+	syncTracker(t, e)
+	got, err := e.local.Issue(issue.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Title != "keep" || got.Status != "blocked" || got.Priority != 2 {
+		t.Fatalf("partial body=%+v", got)
+	}
+	body = []byte(`{"title":"stale","expected_rev":1}`)
+	req, _ = http.NewRequest(http.MethodPut, e.srv.URL+"/v1/tracker/issues/"+issue.ID+"?tracker_id="+cfg.TrackerID, bytes.NewReader(body))
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err = http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusConflict {
+		t.Fatalf("conflict status=%d", resp.StatusCode)
 	}
 }
 

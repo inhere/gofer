@@ -2,6 +2,8 @@ package httpapi
 
 import (
 	"encoding/json"
+	"errors"
+	"log/slog"
 	"net/http"
 	"strings"
 	"time"
@@ -44,7 +46,9 @@ func (s *Server) linkIssueJob(req job.JobRequest, event tracker.JobIssueEvent) {
 		}
 		issue = tracker.LinkIssueToJob(issue, event)
 		body, _ := json.Marshal(issue)
-		_ = s.trackerStore.UpsertTrackerIssue(jobstore.TrackerRecord{TrackerID: req.TrackerID, ID: req.IssueID, Body: body, Rev: item.Rev + 1, UpdatedAt: issue.UpdatedAt})
+		if err := s.trackerStore.UpsertTrackerIssue(jobstore.TrackerRecord{TrackerID: req.TrackerID, ID: req.IssueID, Body: body, Rev: item.Rev + 1, UpdatedAt: issue.UpdatedAt}); err != nil {
+			slog.Error("tracker issue start link failed", "issue_id", req.IssueID, "error", err)
+		}
 		return
 	}
 }
@@ -81,7 +85,9 @@ func (s *Server) LinkIssueStarted(snap job.JobResult) {
 		issue.Status = "in_progress"
 		issue.UpdatedAt = tracker.Now()
 		body, _ := json.Marshal(issue)
-		_ = s.trackerStore.UpsertTrackerIssue(jobstore.TrackerRecord{TrackerID: snap.TrackerID, ID: snap.IssueID, Body: body, Rev: item.Rev + 1, UpdatedAt: issue.UpdatedAt})
+		if err := s.trackerStore.UpsertTrackerIssue(jobstore.TrackerRecord{TrackerID: snap.TrackerID, ID: snap.IssueID, Body: body, Rev: item.Rev + 1, UpdatedAt: issue.UpdatedAt}); err != nil {
+			slog.Error("tracker issue finish link failed", "issue_id", snap.IssueID, "error", err)
+		}
 		return
 	}
 }
@@ -105,7 +111,9 @@ func (s *Server) LinkIssueFinished(snap job.JobResult) {
 		}
 		issue = tracker.LinkIssueToJob(issue, tracker.JobIssueEvent{JobID: snap.ID, Phase: "finished", Status: snap.Status, At: tracker.Now(), Commits: commits, Uncommitted: snap.UncommittedFiles})
 		body, _ := json.Marshal(issue)
-		_ = s.trackerStore.UpsertTrackerIssue(jobstore.TrackerRecord{TrackerID: snap.TrackerID, ID: snap.IssueID, Body: body, Rev: item.Rev + 1, UpdatedAt: issue.UpdatedAt})
+		if err := s.trackerStore.UpsertTrackerIssue(jobstore.TrackerRecord{TrackerID: snap.TrackerID, ID: snap.IssueID, Body: body, Rev: item.Rev + 1, UpdatedAt: issue.UpdatedAt}); err != nil {
+			slog.Error("tracker issue finish link failed", "issue_id", snap.IssueID, "error", err)
+		}
 		return
 	}
 }
@@ -196,28 +204,28 @@ func (s *Server) handleTrackerSync(c *rux.Context) {
 	}
 	var issueCursor, memoryCursor int64
 	for _, item := range issues {
-		if item.Rev > issueCursor {
-			issueCursor = item.Rev
+		if item.ChangedSeq > issueCursor {
+			issueCursor = item.ChangedSeq
 		}
 	}
 	for _, item := range memories {
-		if item.Rev > memoryCursor {
-			memoryCursor = item.Rev
+		if item.ChangedSeq > memoryCursor {
+			memoryCursor = item.ChangedSeq
 		}
 	}
 	if issueCursor == 0 {
 		all, _ := s.trackerStore.ListTrackerIssues(req.TrackerID, 0)
 		for _, item := range all {
-			if item.Rev > issueCursor {
-				issueCursor = item.Rev
+			if item.ChangedSeq > issueCursor {
+				issueCursor = item.ChangedSeq
 			}
 		}
 	}
 	if memoryCursor == 0 {
 		all, _ := s.trackerStore.ListTrackerMemories(req.TrackerID, 0)
 		for _, item := range all {
-			if item.Rev > memoryCursor {
-				memoryCursor = item.Rev
+			if item.ChangedSeq > memoryCursor {
+				memoryCursor = item.ChangedSeq
 			}
 		}
 	}
@@ -314,20 +322,35 @@ func (s *Server) handleTrackerIssueComment(c *rux.Context) {
 		return
 	}
 	var in struct {
-		Body string `json:"body"`
+		Text string `json:"text"`
 	}
-	if c.BindJSON(&in) != nil || strings.TrimSpace(in.Body) == "" {
-		c.JSON(400, map[string]string{"error": "body required"})
+	if c.BindJSON(&in) != nil || strings.TrimSpace(in.Text) == "" {
+		c.JSON(400, map[string]string{"error": "text required"})
 		return
 	}
-	items, _ := s.trackerStore.ListTrackerIssues(id, 0)
+	items, err := s.trackerStore.ListTrackerIssues(id, 0)
+	if err != nil {
+		c.JSON(500, map[string]string{"error": err.Error()})
+		return
+	}
 	for _, item := range items {
 		if item.ID == c.Param("id") {
 			var issue tracker.Issue
-			_ = json.Unmarshal(item.Body, &issue)
-			issue.Comments = append(issue.Comments, tracker.Comment{At: tracker.Now(), By: callerFromCtx(c), Text: in.Body})
-			b, _ := json.Marshal(issue)
-			_ = s.trackerStore.UpsertTrackerIssue(jobstore.TrackerRecord{TrackerID: id, ID: item.ID, Body: b, Rev: item.Rev + 1, UpdatedAt: tracker.Now()})
+			if err := json.Unmarshal(item.Body, &issue); err != nil {
+				c.JSON(500, map[string]string{"error": err.Error()})
+				return
+			}
+			issue.Comments = append(issue.Comments, tracker.Comment{At: tracker.Now(), By: callerFromCtx(c), Text: in.Text})
+			comments, _ := json.Marshal(issue.Comments)
+			now := tracker.Now()
+			if _, err := s.trackerStore.PatchTrackerIssue(id, item.ID, item.Rev, map[string]json.RawMessage{"comments": comments}, now, callerFromCtx(c)); err != nil {
+				if errors.Is(err, jobstore.ErrTrackerConflict) {
+					c.JSON(409, map[string]string{"error": err.Error()})
+					return
+				}
+				c.JSON(500, map[string]string{"error": err.Error()})
+				return
+			}
 			c.JSON(http.StatusOK, issue)
 			return
 		}
@@ -363,12 +386,37 @@ func (s *Server) handleTrackerIssueEdit(c *rux.Context) {
 		c.JSON(http.StatusBadRequest, map[string]string{"error": "tracker_id required"})
 		return
 	}
-	var body json.RawMessage
+	var body map[string]json.RawMessage
 	if err := c.BindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid body"})
 		return
 	}
-	if err := s.trackerStore.UpsertTrackerIssue(jobstore.TrackerRecord{TrackerID: id, ID: c.Param("id"), Body: body, Rev: 2, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
+	expected := int64(0)
+	if raw := body["expected_rev"]; len(raw) > 0 {
+		_ = json.Unmarshal(raw, &expected)
+		delete(body, "expected_rev")
+	}
+	if raw := body["status"]; len(raw) > 0 {
+		var v string
+		_ = json.Unmarshal(raw, &v)
+		if !tracker.ValidStatus(v) {
+			c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid status"})
+			return
+		}
+	}
+	if raw := body["priority"]; len(raw) > 0 {
+		var v int
+		if json.Unmarshal(raw, &v) != nil || v < 0 || v > 4 {
+			c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid priority"})
+			return
+		}
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := s.trackerStore.PatchTrackerIssue(id, c.Param("id"), expected, body, now, callerFromCtx(c)); err != nil {
+		if errors.Is(err, jobstore.ErrTrackerConflict) {
+			c.JSON(http.StatusConflict, map[string]string{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
@@ -385,12 +433,22 @@ func (s *Server) handleTrackerMemoryEdit(c *rux.Context) {
 		c.JSON(http.StatusBadRequest, map[string]string{"error": "tracker_id required"})
 		return
 	}
-	var body json.RawMessage
+	var body map[string]json.RawMessage
 	if err := c.BindJSON(&body); err != nil {
 		c.JSON(http.StatusBadRequest, map[string]string{"error": "invalid body"})
 		return
 	}
-	if err := s.trackerStore.UpsertTrackerMemory(jobstore.TrackerRecord{TrackerID: id, ID: c.Param("id"), Body: body, Rev: 2, UpdatedAt: time.Now().UTC().Format(time.RFC3339Nano)}); err != nil {
+	expected := int64(0)
+	if raw := body["expected_rev"]; len(raw) > 0 {
+		_ = json.Unmarshal(raw, &expected)
+		delete(body, "expected_rev")
+	}
+	now := time.Now().UTC().Format(time.RFC3339Nano)
+	if _, err := s.trackerStore.PatchTrackerMemory(id, c.Param("id"), expected, body, now, callerFromCtx(c)); err != nil {
+		if errors.Is(err, jobstore.ErrTrackerConflict) {
+			c.JSON(http.StatusConflict, map[string]string{"error": err.Error()})
+			return
+		}
 		c.JSON(http.StatusInternalServerError, map[string]string{"error": err.Error()})
 		return
 	}
