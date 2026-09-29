@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	yaml "github.com/goccy/go-yaml"
 	"github.com/inhere/gofer/internal/acp"
 	"github.com/inhere/gofer/internal/tunnel"
 )
@@ -1544,10 +1545,9 @@ type ProjectConfig struct {
 	// everyone) or lowering it (a tenant that must not exceed 10m). See
 	// Config.EffectiveMaxTimeoutSec, the single source of truth for the resolution.
 	MaxTimeoutSec int `yaml:"max_timeout_sec,omitempty"`
-	// CaptureDiff toggles E12 git-diff capture (job-outcomes-audit, P3). It is a
-	// pointer so "unset" (nil) can default to "on when cwd is a git work tree"
-	// while an explicit capture_diff:false disables it outright. nil/true defer to
-	// captureDiff's own is-git probe (a non-git cwd naturally yields no diff).
+	// CaptureDiff controls E12 git-diff capture (job-outcomes-audit, P3). YAML
+	// accepts auto (the default, represented by nil), on, and off. The legacy bool
+	// form remains readable for the G032 migration window: true == on, false == off.
 	CaptureDiff *bool `yaml:"capture_diff,omitempty"`
 	// OnUncommitted controls the GIT-01 agent-job guard. Empty defaults to warn.
 	OnUncommitted string `yaml:"on_uncommitted,omitempty"`
@@ -1592,6 +1592,64 @@ type ProjectConfig struct {
 	// retry OFF for the project even when the server default enables it. See
 	// Config.EffectiveRetryPolicy.
 	Retry *RetryPolicy `yaml:"retry,omitempty"`
+}
+
+// UnmarshalYAML accepts the string capture_diff modes while keeping the public
+// *bool field and wire/policy compatibility intact. "auto" deliberately maps to
+// nil: absence and explicit auto have the same runtime semantics.
+func (p *ProjectConfig) UnmarshalYAML(data []byte) error {
+	type plain ProjectConfig
+	var raw map[string]any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	value, present := raw["capture_diff"]
+	delete(raw, "capture_diff")
+	b, err := yaml.Marshal(raw)
+	if err != nil {
+		return err
+	}
+	var decoded plain
+	if err := yaml.Unmarshal(b, &decoded); err != nil {
+		return err
+	}
+	*p = ProjectConfig(decoded)
+	if !present {
+		return nil
+	}
+	v, err := decodeCaptureDiff(value)
+	if err != nil {
+		return err
+	}
+	p.CaptureDiff = v
+	return nil
+}
+
+// decodeCaptureDiff is the temporary G032 compatibility boundary for the old
+// bool setting. Remove the bool branch after the documented migration window.
+func decodeCaptureDiff(value any) (*bool, error) {
+	switch v := value.(type) {
+	case nil:
+		return nil, nil
+	case bool:
+		// DEPRECATED(v0.78): remove legacy boolean capture_diff in v0.81.
+		return &v, nil
+	case string:
+		switch strings.ToLower(strings.TrimSpace(v)) {
+		case "", "auto":
+			return nil, nil
+		case "on", "true":
+			on := true
+			return &on, nil
+		case "off", "false":
+			off := false
+			return &off, nil
+		default:
+			return nil, fmt.Errorf("capture_diff must be auto, on, or off (got %q)", v)
+		}
+	default:
+		return nil, fmt.Errorf("capture_diff must be auto, on, or off (got %T)", value)
+	}
 }
 
 // ApprovalConfig is a project's approval gate for ACP permission requests

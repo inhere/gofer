@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/inhere/gofer/internal/agent"
@@ -78,6 +79,8 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 	resultDir := entry.result.ResultDir
 	cwd := entry.result.Cwd
 	projectKey := entry.result.ProjectKey
+	agentKey := entry.result.Agent
+	requireReview := entry.result.RequireReview
 	baseSHA := entry.result.BaseSHA
 	wt := entry.wt
 	entry.mu.Unlock()
@@ -86,18 +89,21 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 	result := readResultJSON(resultDir)   // E6 结构化结果
 	artifacts := scanArtifacts(resultDir) // E1 产物清单
 
-	// E12 diff 快照(P3)：项目 capture_diff 显式 false → 跳过；否则交给 captureDiff
-	// 自身的 is-git 判定（非 git 仓自然返 ""）。全量写 changes.diff，--stat 摘要入库。
+	// E12 diff 快照(P3)：auto（默认）对 exec 关闭，除非 job 要求人工验收；非
+	// exec 继续采集。显式 on 强制采集，显式 off 总是跳过。captureDiff 自身仍
+	// 负责 git 探测与优雅降级。
 	// WT-01: a worktree job diffs its BRANCH (base..HEAD) plus the leftover working-tree
 	// changes, so a job that committed its deliverable still produces a diff (the plain
 	// `git diff` of a clean worktree is empty).
 	var diffSummary string
-	if s.shouldCaptureDiff(projectKey) {
+	if s.shouldCaptureDiffForJob(projectKey, agentKey, requireReview) {
+		diffStarted := time.Now()
 		if wt != nil {
 			diffSummary = captureWorktreeDiff(wt, resultDir)
 		} else {
 			diffSummary = captureDiff(cwd, resultDir)
 		}
+		slog.Debug("capture diff completed", "job_id", req.JobID, "duration_ms", time.Since(diffStarted).Milliseconds(), "summary_bytes", len(diffSummary))
 	}
 	// WT-01: the branch state (HEAD sha + commits ahead of the base) is part of the
 	// job's outcome independent of the diff toggle — it is how `job worktree ls` and
@@ -558,6 +564,17 @@ func (s *Service) shouldCaptureDiff(projectKey string) bool {
 		return false
 	}
 	return true
+}
+
+// shouldCaptureDiffForJob resolves the auto/on/off project setting against the
+// job identity. Auto keeps diff capture for agent jobs and review-gated jobs,
+// while exec jobs without review opt out of the expensive repository scan.
+func (s *Service) shouldCaptureDiffForJob(projectKey, agentKey string, requireReview bool) bool {
+	proj, ok := s.config().Projects[projectKey]
+	if ok && proj.CaptureDiff != nil {
+		return *proj.CaptureDiff
+	}
+	return agentKey != agent.ExecAgentKey || requireReview
 }
 
 // goferJobEnv 在 agent-config env 之上注入 gofer 自有的 job 元数据环境变量

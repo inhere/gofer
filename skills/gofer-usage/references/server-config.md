@@ -34,7 +34,7 @@ projects:
     max_concurrent_jobs: 4                      # 该 project 并发上限(0/不写=无限)
     # max_timeout_sec: 7200                     # 该项目 job 超时上限(秒), 覆盖 server.max_job_timeout_sec(可高可低)
     # worktree_default: true                    # 该项目 job 默认在受管 git worktree 里跑(= 每个 job 都 --worktree)
-    # capture_diff: false                       # 关 git-diff 抓取(不写=cwd 是 git 树时默认开)
+    # capture_diff: auto                        # auto/on/off；auto 默认跳过普通 exec，cli-agent 或 review job 采集；旧 true/false 仍兼容
     # verify: [go, test, ./...]                 # 该项目 job 的默认验证步骤(SUP-01 P2): agent 正常结束后在同一个 cwd/env 跑,
                                              #   非 0 退出 → job failed(开 review 则停 needs_review); 需要 allow_exec;
                                              #   单个 job 用 `job run --no-verify` 关掉, `--verify '…'` 覆盖

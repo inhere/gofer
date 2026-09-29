@@ -34,6 +34,36 @@ type ProjectOverlay struct {
 	NotifyEnabled     *bool   `yaml:"notify_enabled"`
 }
 
+// UnmarshalYAML mirrors ProjectConfig's capture_diff compatibility boundary so
+// a thin project overlay can use auto/on/off as well as the legacy bool form.
+func (p *ProjectOverlay) UnmarshalYAML(data []byte) error {
+	type plain ProjectOverlay
+	var raw map[string]any
+	if err := yaml.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	value, present := raw["capture_diff"]
+	delete(raw, "capture_diff")
+	b, err := yaml.Marshal(raw)
+	if err != nil {
+		return err
+	}
+	var decoded plain
+	if err := yaml.Unmarshal(b, &decoded); err != nil {
+		return err
+	}
+	*p = ProjectOverlay(decoded)
+	if !present {
+		return nil
+	}
+	v, err := decodeCaptureDiff(value)
+	if err != nil {
+		return err
+	}
+	p.CaptureDiff = v
+	return nil
+}
+
 // forbiddenOverlayKeys are top-level keys that must NOT appear in an overlay
 // (D2/D5). Presence is a config mistake → warn (not fatal): a project author
 // cannot self-grant 准入 nor redefine the注册锚/server.

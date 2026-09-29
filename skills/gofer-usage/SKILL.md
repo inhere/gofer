@@ -143,6 +143,10 @@ gofer job comments <job-id>        # 查看这条 job 的评论
 - **异步**（不加 `--sync`）：立即返回 job id，再 `gofer job watch <id>` 跟随 / `gofer job show <id>` 轮询。长任务（构建、联调、FFmpeg 等）用它，配 `--timeout <秒>` 限执行时长。
 - **job 停在 `pending_interaction` 等批**：acp-agent 的工具调用若被项目的 `approval` 策略拦住（`mode: ask|strict`），job 会等人点头——`gofer job interactions <id>` 看被求批的工具调用与可用 optionId，`gofer job answer <id> <interaction-id> <optionId>`（或在 web 交互面板点按钮）作答；无人作答到 `timeout_sec` 就按 `on_timeout` 兜底（默认 reject）。
 
+### 5a. `capture_diff` 与 exec job
+
+项目配置的 `capture_diff` 接受 `auto`（默认）、`on`、`off`；历史布尔值 `true`/`false` 仍兼容。`auto` 会为 cli-agent 和 review-gated job 采集 tracked 未提交改动，保存 stat 摘要和结果目录中的 `changes.diff`，普通 `exec` job 会跳过仓库扫描以避免固定开销。需要 exec 也保留审计时设 `capture_diff: on`，完全关闭时设 `off`。采集失败、非 Git 目录和超时都会优雅降级，不影响 job 终态。
+
 ### 5b. job 中断了怎么续（`job resume`）
 
 codex/claude 因供应商容量错误、网络抖动或超时把 job 干掉一半时，**不要重派整份任务书**（新会话 = 重读上下文），用 resume 让它带着自己的会话继续：

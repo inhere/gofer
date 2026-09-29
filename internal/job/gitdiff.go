@@ -1,6 +1,7 @@
 package job
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"log/slog"
@@ -40,16 +41,44 @@ func captureDiff(cwd, resultDir string) string {
 		return ""
 	}
 
-	// 全量 diff（仅 tracked 改动，D4）：非空才落盘，避免无改动时写空文件。
-	full := runGit(ctx, cwd, diffFullCap, "diff")
+	// 一次 git diff 同时返回 stat 摘要和 patch；从输出头部分离摘要，避免对
+	// 工作树再做一次全量扫描。patch-with-stat 的格式是 stat、空行、diff --git。
+	out := runGit(ctx, cwd, diffFullCap+diffSummaryCap+1, "diff", "--patch-with-stat")
+	stat, full := splitPatchWithStat(out)
 	if len(full) > 0 && resultDir != "" {
 		if err := os.WriteFile(filepath.Join(resultDir, "changes.diff"), full, 0o644); err != nil {
 			slog.Warn("captureDiff: write changes.diff", "result_dir", resultDir, "err", err)
 		}
 	}
+	if len(stat) > diffSummaryCap {
+		stat = stat[:diffSummaryCap]
+	}
+	return string(stat)
+}
 
-	// --stat 摘要入库（截断到 diffSummaryCap）。
-	return string(runGit(ctx, cwd, diffSummaryCap, "diff", "--stat"))
+// splitPatchWithStat separates the stat prefix from the patch returned by
+// `git diff --patch-with-stat`. The stat command's output ends with one newline;
+// patch-with-stat adds one extra separator newline before the first diff header.
+// Keeping the prefix bytes (apart from that separator) makes DiffSummary match
+// the standalone `git diff --stat` output while changes.diff remains a plain
+// `git diff` patch.
+func splitPatchWithStat(out []byte) (stat, patch []byte) {
+	if len(out) == 0 {
+		return nil, nil
+	}
+	idx := bytes.Index(out, []byte("diff --git "))
+	if idx < 0 {
+		return out, nil
+	}
+	stat = out[:idx]
+	for len(stat) >= 2 && stat[len(stat)-1] == '\n' && stat[len(stat)-2] == '\n' {
+		stat = stat[:len(stat)-1]
+	}
+	patch = out[idx:]
+	if len(patch) > diffFullCap {
+		patch = patch[:diffFullCap]
+	}
+	return stat, patch
 }
 
 // isGitWorkTree 探测 cwd 是否在 git 工作树内（`git rev-parse --is-inside-work-tree`

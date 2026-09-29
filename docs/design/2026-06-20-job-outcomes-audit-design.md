@@ -176,7 +176,7 @@ ALTER TABLE jobs ADD COLUMN diff_summary     TEXT;  -- git diff --stat 截断摘
 - **D2（产物声明）**：约定 **`<result_dir>/artifacts/`**（推荐，无需 agent 协议）；或额外支持 job 请求里 `output_globs`？（推荐：v1 仅目录约定）
 - **D3（结构化结果）**：约定 **`<result_dir>/result.json`**（推荐）；上限 256KB。
 - **D4（diff 基线）**：v1 用 `git diff`（未提交改动，推荐）；是否需要"job 开始打基线 ref/stash"以覆盖 agent 自行 commit 的情况（留 v2）？
-- **D5（diff 开关）**：cwd 是 git 仓**默认开**、项目级 `capture_diff:false` 可关（推荐）；diff 子进程超时 5s、摘要入库 32KB、全量留文件。
+- **D5（diff 开关）**：`capture_diff` 取 `auto`（默认）、`on`、`off`；auto 对普通 `exec` job 跳过扫描，对 cli-agent 或 review-gated job 采集，on/off 分别强制开关。旧布尔值 `true`/`false` 在 G032 迁移窗口内读取为 on/off（代码标记 `DEPRECATED(v0.78): remove in v0.81`）；diff 子进程超时 5s、摘要入库 32KB、全量留文件。
 - **D6（远端大产物，P4）**：worker 产物文件回取——v1 **仅回清单 + 小结果**（大文件留 worker 侧、标注 source=worker，共享盘则直读）？还是必做 WS/HTTP 拉取通道？（推荐：v1 清单+小结果 + 共享盘直读，拉取通道留后续）
 - **D7（MCP）**：本期是否加 `bridge_get_artifacts`/`bridge_get_result`（为 E7 工作流铺垫）？（推荐：P2/P1 各带一个读 tool，低成本）
 
