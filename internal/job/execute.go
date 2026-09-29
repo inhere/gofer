@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/inhere/gofer/internal/jobstore"
@@ -189,7 +190,34 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// waited for beforehand (a concurrency slot, the directory lock) no longer eats the
 	// budget it will actually run with.
 	runCtx := ctx
-	if timeout > 0 {
+	if req.Forward != nil {
+		// A remote runner may spend an unbounded amount of time in the worker's
+		// local queue. Start the deadline only after its started frame arrives.
+		var cancelCause context.CancelCauseFunc
+		runCtx, cancelCause = context.WithCancelCause(ctx)
+		var startedOnce sync.Once
+		req.OnStarted = func() {
+			startedOnce.Do(func() {
+				now := time.Now().Unix()
+				entry.mu.Lock()
+				entry.result.Status = StatusRunning
+				entry.result.StartedAt = now
+				snap := entry.result
+				entry.mu.Unlock()
+				_ = s.persist(snap)
+				s.recordEvent(req.JobID, EventJobRunning, map[string]any{"remote": true})
+				if timeout > 0 {
+					timer := time.AfterFunc(timeout, func() { cancelCause(context.DeadlineExceeded) })
+					go func() {
+						<-ctx.Done()
+						if !timer.Stop() {
+							return
+						}
+					}()
+				}
+			})
+		}
+	} else if timeout > 0 {
 		var cancelRun context.CancelFunc
 		runCtx, cancelRun = context.WithTimeout(ctx, timeout)
 		defer cancelRun()
@@ -210,7 +238,9 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// in the same critical section that flips the status, so no reader can see a
 	// running job that still claims to be waiting.
 	entry.result.WaitingOnJob = ""
-	entry.result.Status = StatusRunning
+	if req.Forward == nil {
+		entry.result.Status = StatusRunning
+	}
 	entry.result.RenderedCommand = renderedCommandJSON(req)
 	// SUP-01 C: the commit the job starts from, captured HERE (the executing machine,
 	// before the agent runs — a worker re-enters this very function, so its row gets
@@ -218,6 +248,9 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// knows its baseline; outside a git checkout the capture yields "" rather than an
 	// error, and the job runs exactly as before.
 	entry.result.BaseSHA = captureBaseSHA(entry.result.WorktreeBaseSHA, entry.result.Cwd)
+	if req.Forward != nil {
+		entry.result.StartedAt = 0
+	}
 	snap := entry.result
 	entry.mu.Unlock()
 
@@ -901,7 +934,8 @@ func (s *Service) maybeRetryJob(snap JobResult) {
 // classify maps a runner result + context state to a job status, exit code and
 // error. The context reason distinguishes timeout from cancellation.
 func classify(ctx context.Context, res runner.Result) (string, int, error) {
-	if ctxErr := ctx.Err(); ctxErr != nil {
+	ctxErr := context.Cause(ctx)
+	if ctxErr != nil {
 		switch {
 		case errors.Is(ctxErr, context.DeadlineExceeded):
 			return StatusTimeout, res.ExitCode, fmt.Errorf("job timed out")

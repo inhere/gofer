@@ -327,7 +327,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		}
 	}()
 
-	sink := newBoundedSink(req.Stdout, req.Stderr, req.OnRendered)
+	sink := newBoundedSink(req.Stdout, req.Stderr, req.OnRendered, req.OnStarted)
 	// RECOV-01: the hub holds this job in `recovering` while the worker's connection
 	// is down (Suspend) and returns it to `running` when the same worker process
 	// proves it still runs it (Resume). Both are nil for a local job.
@@ -745,6 +745,8 @@ type boundedSink struct {
 	mu              sync.Mutex
 	truncated       bool
 	renderedApplied bool // onRendered fired (guards the once semantics)
+	startedApplied  bool
+	onStarted       func()
 	// delivered latches the terminal result: Finish delivers at most one result per
 	// job even if the worker replays it (RECOV-01).
 	delivered atomic.Bool
@@ -760,13 +762,35 @@ type boundedSink struct {
 	outcome *wsproto.Outcome
 }
 
-func newBoundedSink(stdout, stderr io.Writer, onRendered func(string)) *boundedSink {
+func newBoundedSink(stdout, stderr io.Writer, onRendered func(string), started ...func()) *boundedSink {
+	var onStarted func()
+	if len(started) > 0 {
+		onStarted = started[0]
+	}
 	return &boundedSink{
 		stdout:     stdout,
 		stderr:     stderr,
 		resultCh:   make(chan wsproto.Result, 1),
 		lostCh:     make(chan error, 1),
 		onRendered: onRendered,
+		onStarted:  onStarted,
+	}
+}
+
+// OnStarted implements the optional worker start notification. It is invoked
+// once, after the worker's local job leaves its own queue and is authoritative
+// for starting the host-side remote timeout.
+func (s *boundedSink) OnStarted() {
+	s.mu.Lock()
+	if s.startedApplied {
+		s.mu.Unlock()
+		return
+	}
+	s.startedApplied = true
+	cb := s.onStarted
+	s.mu.Unlock()
+	if cb != nil {
+		cb()
 	}
 }
 

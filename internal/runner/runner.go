@@ -188,6 +188,9 @@ type Request struct {
 	// (it lacks that worker's agent config), so a worker/peer reports it out-of-band.
 	// Local runs set the rendered command inline and leave this nil.
 	OnRendered func(rendered string)
+	// OnStarted is called by a remote runner when the execution machine has
+	// actually begun running the job (after its own queue). Local runners leave it nil.
+	OnStarted func()
 
 	// OnSuspend (nil-safe) is invoked by a remote runner when the executing machine's
 	// connection dropped but the job is being HELD for a possible reconnect (RECOV-01)

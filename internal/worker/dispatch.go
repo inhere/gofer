@@ -432,6 +432,7 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 	// per interaction id, so a re-poll only emits a frame on a status change (same
 	// open/answered/cancelled vocabulary the SSE pumpInteractions uses).
 	seenStatus := map[string]string{}
+	startedSent := false
 
 	pump := func() {
 		for _, ent := range []struct {
@@ -474,6 +475,11 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 				// Keep the recovery table's view of the job current: the register frame
 				// reports it, and the hub decides resume-vs-wait-for-Result on it.
 				cl.inflightSetStatus(remoteJobID, cur.Status)
+				if cur.Status == job.StatusRunning && !startedSent {
+					if err := cl.writeFrame(ctx, wsproto.TypeStatus, remoteJobID, wsproto.Status{JobID: remoteJobID, Status: "started"}); err == nil {
+						startedSent = true
+					}
+				}
 			}
 			if !ok || job.IsTerminal(cur.Status) {
 				pump() // drain the tail produced just before terminal

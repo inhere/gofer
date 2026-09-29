@@ -502,8 +502,16 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 				sk.WriteLog(lf.Stream, lf.Seq, lf.Text)
 			}
 		case wsproto.TypeStatus:
-			// WP1: status is informational; result is authoritative. Recorded by
-			// the read loop's ordering but not acted on here.
+			// Status is informational except for the optional started marker. New
+			// workers use it to tell the host that their local queue has cleared;
+			// old workers never send it and remain compatible.
+			if sf, derr := wsproto.As[wsproto.Status](env); derr == nil && sf.Status == "started" {
+				if sk := wc.sink(env.JobID); sk != nil {
+					if started, ok := sk.(interface{ OnStarted() }); ok {
+						started.OnStarted()
+					}
+				}
+			}
 		case wsproto.TypeOutcome:
 			// P4: the worker-captured产出, sent just before the result frame. Demux
 			// to the job's sink IN ORDER on this single read loop so it is always
