@@ -191,6 +191,10 @@ type Request struct {
 	// OnStarted is called by a remote runner when the execution machine has
 	// actually begun running the job (after its own queue). Local runners leave it nil.
 	OnStarted func()
+	// OnStartedAt is the timestamped form of OnStarted. A terminal remote result
+	// may use this as a last-chance start notification when a fast job finishes
+	// before the periodic started status frame is sent.
+	OnStartedAt func(startedAt int64)
 
 	// OnSuspend (nil-safe) is invoked by a remote runner when the executing machine's
 	// connection dropped but the job is being HELD for a possible reconnect (RECOV-01)

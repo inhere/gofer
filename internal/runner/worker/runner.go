@@ -327,7 +327,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		}
 	}()
 
-	sink := newBoundedSink(req.Stdout, req.Stderr, req.OnRendered, req.OnStarted)
+	sink := newBoundedSink(req.Stdout, req.Stderr, req.OnRendered, req.OnStarted, req.OnStartedAt)
 	// RECOV-01: the hub holds this job in `recovering` while the worker's connection
 	// is down (Suspend) and returns it to `running` when the same worker process
 	// proves it still runs it (Resume). Both are nil for a local job.
@@ -748,6 +748,7 @@ type boundedSink struct {
 	renderedApplied bool // onRendered fired (guards the once semantics)
 	startedApplied  bool
 	onStarted       func()
+	onStartedAt     func(int64)
 	// delivered latches the terminal result: Finish delivers at most one result per
 	// job even if the worker replays it (RECOV-01).
 	delivered atomic.Bool
@@ -763,18 +764,19 @@ type boundedSink struct {
 	outcome *wsproto.Outcome
 }
 
-func newBoundedSink(stdout, stderr io.Writer, onRendered func(string), started ...func()) *boundedSink {
-	var onStarted func()
-	if len(started) > 0 {
-		onStarted = started[0]
+func newBoundedSink(stdout, stderr io.Writer, onRendered func(string), onStarted func(), startedAt ...func(int64)) *boundedSink {
+	var onStartedAt func(int64)
+	if len(startedAt) > 0 {
+		onStartedAt = startedAt[0]
 	}
 	return &boundedSink{
-		stdout:     stdout,
-		stderr:     stderr,
-		resultCh:   make(chan wsproto.Result, 1),
-		lostCh:     make(chan error, 1),
-		onRendered: onRendered,
-		onStarted:  onStarted,
+		stdout:      stdout,
+		stderr:      stderr,
+		resultCh:    make(chan wsproto.Result, 1),
+		lostCh:      make(chan error, 1),
+		onRendered:  onRendered,
+		onStarted:   onStarted,
+		onStartedAt: onStartedAt,
 	}
 }
 
@@ -782,6 +784,17 @@ func newBoundedSink(stdout, stderr io.Writer, onRendered func(string), started .
 // once, after the worker's local job leaves its own queue and is authoritative
 // for starting the host-side remote timeout.
 func (s *boundedSink) OnStarted() {
+	s.start(0)
+}
+
+// OnStartedAt is the timestamped started notification. It also acts as a
+// terminal-result fallback for a very short worker job whose periodic status
+// frame was overtaken by its result frame.
+func (s *boundedSink) OnStartedAt(startedAt int64) {
+	s.start(startedAt)
+}
+
+func (s *boundedSink) start(startedAt int64) {
 	s.mu.Lock()
 	if s.startedApplied {
 		s.mu.Unlock()
@@ -789,7 +802,12 @@ func (s *boundedSink) OnStarted() {
 	}
 	s.startedApplied = true
 	cb := s.onStarted
+	cbAt := s.onStartedAt
 	s.mu.Unlock()
+	if cbAt != nil {
+		cbAt(startedAt)
+		return
+	}
 	if cb != nil {
 		cb()
 	}

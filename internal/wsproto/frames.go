@@ -510,16 +510,18 @@ type Log struct {
 // terminal state; the hub records status but does not drive the terminal flip
 // from it (WP1).
 type Status struct {
-	JobID  string `json:"job_id"`
-	Status string `json:"status"`
+	JobID     string `json:"job_id"`
+	Status    string `json:"status"`
+	StartedAt int64  `json:"started_at,omitempty"`
 }
 
 // Result (w→s, P1): the authoritative terminal outcome for a job.
 type Result struct {
-	JobID    string `json:"job_id"`
-	Status   string `json:"status"`
-	ExitCode int    `json:"exit_code"`
-	Error    string `json:"error,omitempty"`
+	JobID     string `json:"job_id"`
+	Status    string `json:"status"`
+	ExitCode  int    `json:"exit_code"`
+	Error     string `json:"error,omitempty"`
+	StartedAt int64  `json:"started_at,omitempty"`
 }
 
 // Outcome (w→s, P4): the产出与审计 payload the worker captured locally for a job,

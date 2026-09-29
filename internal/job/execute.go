@@ -203,9 +203,12 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 			cancelCause(context.Canceled)
 		}()
 		var startedOnce sync.Once
-		req.OnStarted = func() {
+		markStarted := func(startedAt int64) {
 			startedOnce.Do(func() {
-				now := time.Now().Unix()
+				now := startedAt
+				if now <= 0 {
+					now = time.Now().Unix()
+				}
 				entry.mu.Lock()
 				entry.result.Status = StatusRunning
 				entry.result.StartedAt = now
@@ -218,6 +221,8 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 				}
 			})
 		}
+		req.OnStartedAt = markStarted
+		req.OnStarted = func() { markStarted(0) }
 	} else if timeout > 0 {
 		var cancelRun context.CancelFunc
 		runCtx, cancelRun = context.WithTimeout(ctx, timeout)

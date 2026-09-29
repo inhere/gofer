@@ -251,10 +251,11 @@ func (cl *Client) handleDispatch(ctx context.Context, sessionURL string, d wspro
 	}
 
 	cl.sendResult(ctx, d.JobID, wsproto.Result{
-		JobID:    d.JobID,
-		Status:   final.Status,
-		ExitCode: final.ExitCode,
-		Error:    final.Error,
+		JobID:     d.JobID,
+		Status:    final.Status,
+		ExitCode:  final.ExitCode,
+		Error:     final.Error,
+		StartedAt: final.StartedAt,
 	})
 	slog.Info("worker.job_finished", "event", "worker.job_finished", "component", "worker", "worker_id", cl.workerID, "job_id", d.JobID, "status", final.Status, "exit_code", final.ExitCode, "duration_ms", time.Since(startedAt).Milliseconds())
 }
@@ -476,7 +477,7 @@ func (cl *Client) streamLocalJob(ctx context.Context, localID, resultDir, remote
 				// reports it, and the hub decides resume-vs-wait-for-Result on it.
 				cl.inflightSetStatus(remoteJobID, cur.Status)
 				if cur.Status == job.StatusRunning && !startedSent {
-					if err := cl.writeFrame(ctx, wsproto.TypeStatus, remoteJobID, wsproto.Status{JobID: remoteJobID, Status: "started"}); err == nil {
+					if err := cl.writeFrame(ctx, wsproto.TypeStatus, remoteJobID, wsproto.Status{JobID: remoteJobID, Status: "started", StartedAt: cur.StartedAt}); err == nil {
 						startedSent = true
 					}
 				}

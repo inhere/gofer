@@ -507,6 +507,10 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 			// old workers never send it and remain compatible.
 			if sf, derr := wsproto.As[wsproto.Status](env); derr == nil && sf.Status == "started" {
 				if sk := wc.sink(env.JobID); sk != nil {
+					if startedAt, ok := sk.(interface{ OnStartedAt(int64) }); ok {
+						startedAt.OnStartedAt(sf.StartedAt)
+						continue
+					}
 					if started, ok := sk.(interface{ OnStarted() }); ok {
 						started.OnStarted()
 					}
@@ -542,6 +546,9 @@ func (h *Hub) readLoop(ctx context.Context, wc *workerConn) {
 					"worker_id", wc.workerID, "job_id", env.JobID, "status", rf.Status)
 			}
 			if sk := wc.sink(env.JobID); sk != nil {
+				if startedAt, ok := sk.(interface{ OnStartedAt(int64) }); ok {
+					startedAt.OnStartedAt(rf.StartedAt)
+				}
 				sk.Finish(rf)
 			}
 		case wsproto.TypeJobEvent:

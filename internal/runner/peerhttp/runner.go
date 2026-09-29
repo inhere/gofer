@@ -319,8 +319,12 @@ func (r *Runner) handleFrame(ctx context.Context, fr client.SSEEvent, req runner
 	case "status":
 		var jr job.JobResult
 		if err := json.Unmarshal(fr.Data, &jr); err == nil {
-			if jr.Status == job.StatusRunning && req.OnStarted != nil {
-				req.OnStarted()
+			if jr.Status == job.StatusRunning || job.IsTerminal(jr.Status) {
+				if req.OnStartedAt != nil {
+					req.OnStartedAt(jr.StartedAt)
+				} else if req.OnStarted != nil {
+					req.OnStarted()
+				}
 			}
 			if job.IsTerminal(jr.Status) {
 				return true

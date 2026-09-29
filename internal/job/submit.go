@@ -634,6 +634,12 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	}
 
 	now := s.nowFn().Unix()
+	startedAt := now
+	if remote {
+		// Remote execution has not started when the host publishes the queued row;
+		// the worker/peer supplies the real timestamp after its own queue clears.
+		startedAt = 0
+	}
 	// ResumeSourceAgent stays an internal admission marker. Only an exec carrier
 	// needs a separate persisted display identity; ACP runs under its own agent.
 	resumeDisplayAgent := ""
@@ -682,7 +688,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			Status:              StatusQueued,
 			Cwd:                 workDir,
 			ResultDir:           resultDir,
-			StartedAt:           now,
+			StartedAt:           startedAt,
 			RequestJSON:         string(reqJSON),
 			CallerID:            req.CallerID,
 			RequestID:           req.RequestID,
