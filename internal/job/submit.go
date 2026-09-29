@@ -234,10 +234,6 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			resolved = append(resolved, path)
 		}
 		req.ResolvedLockPaths = resolved
-	} else if !remote && proj.DirLockMode == "repo" {
-		// U5: repo mode narrows the lock set to nested repositories when present;
-		// without nested repositories the legacy cwd lock remains authoritative.
-		req.ResolvedLockPaths = nestedGitRoots(context.Background(), workDir)
 	}
 
 	// Result base dir + a collision-resistant job id; create the dir up front.
@@ -358,6 +354,13 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// (exec uses req.Cmd; cli-agent renders the prompt with cwd/job_id/result_dir).
 	runReq := runner.Request{JobID: jobID, WorkDir: workDir}
 	runReq.LockPaths = req.ResolvedLockPaths
+	if proj.DirLockMode == "repo" && len(req.LockPaths) == 0 && !remote {
+		runReq.RepoLockRoots = nestedGitRoots(context.Background(), workDir)
+		runReq.RepoLockPollSec = proj.DirLockPollSec
+		if runReq.RepoLockPollSec == 0 {
+			runReq.RepoLockPollSec = 10
+		}
+	}
 	// XFER-01 X2: the file steps run where the job runs. For a LOCAL job that is this
 	// machine (it places the uploads in workDir before the agent and matches the
 	// collect globs there); a remote job's copies ride the Forward below instead.

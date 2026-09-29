@@ -1492,6 +1492,7 @@ func (r RetentionConfig) PruneInterval() time.Duration {
 type ProjectConfig struct {
 	HostPath       string   `yaml:"host_path,omitempty"`
 	DirLockMode    string   `yaml:"dir_lock_mode,omitempty"`
+	DirLockPollSec int      `yaml:"dir_lock_poll_sec,omitempty"`
 	ContainerPath  string   `yaml:"container_path,omitempty"`
 	ExchangeSubdir string   `yaml:"exchange_subdir,omitempty"`
 	ResultSubdir   string   `yaml:"result_subdir,omitempty"`
