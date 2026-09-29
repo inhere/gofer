@@ -82,20 +82,20 @@
 - CLI `job run --lock`、任务书 frontmatter `lock: [...]`、HTTP/MCP 请求字段 `lock_paths`；resume/retry/auto-resume 继承。
 - job 详情与 `job show` 显示实际锁定的路径；`waiting_dir` 提示里显示冲突的路径。
 
-**U5-2 按嵌套仓库动态占锁（项目配置 `dir_lock_mode: repo`，默认 `cwd` 保持现状）**
-- 适用：项目配置为 `repo`、job 未声明 `--lock`、且 cwd 下存在嵌套 git 仓库（复用 GIT-01 的 `nestedGitRoots`）。cwd 本身在单个仓库内（无嵌套）时退回 `cwd` 行为。
-- 开跑时**不预先加锁**，记录各嵌套仓库的改动基线（复用 GIT-01 的 `captureUncommitted` 基线，已有的脏文件不算）。
-- 运行中按间隔（默认 10 秒，可配）检查各嵌套仓库的新增改动；某仓库**第一次出现新改动**时，尝试以该仓库根目录为路径**非阻塞**占锁：
-  - 占到：该仓库归本 job 所有，直到 job 结束释放；
-  - 被其他 job 占着（或与其声明/cwd 锁重叠）：记为**锁冲突**——写事件 `job.lock_conflict`（含双方 job 与仓库路径），job 详情/Board 显示冲突徽标，通知进入"等你"。**不中断 job**（无法安全暂停 agent），由人决定。
-- 与其它模式共用同一张锁表：声明锁/cwd 锁的 job 开跑前照常等待这些动态锁；动态锁持有期间，后来者的声明/cwd 锁按现有规则排队。
-- job 结束时释放全部动态锁；结束时的 GIT-01 扫描结果与动态占锁记录一并写入 job 结果，便于核对"实际改了哪些仓库"。
-- 代价与限制：每个运行中的顶层 job 周期性对每个嵌套仓库跑一次 `git status`（有超时）；只能**发现**冲突而非**预防**，因此 skill 仍引导优先用 `--lock`。
+**U5-2 repo 模式：顶层目录派活必须声明 `--lock`（项目配置 `dir_lock_mode: repo`，默认 `cwd` 保持现状）**
+
+> 修订（2026-09-29，用户裁决）：原方案"运行中按实际改动的嵌套仓库动态占锁"在实施中被证伪——多个 job 共享同一工作树时，`git status` 只能看到仓库有新改动，无法归属到具体 job（A 会把 B 改的仓库也占走）。改为下述确定性方案；原草稿保留在分支 `wip/u5-2-dynamic` 仅供参考。
+
+- 适用：项目配置为 `repo`，且 job 的 cwd 下存在嵌套 git 仓库（复用 GIT-01 的 `nestedGitRoots`）。cwd 本身在单个仓库内（无嵌套）时退回 `cwd` 行为。
+- 这类 job 提交时**必须**满足其一，否则拒绝（400 / CLI 报错）：声明 `--lock <子路径>`（可多个）；或显式 `--shared-dir`（放弃独占）；或显式 `--exclusive-dir`（明确锁整个 cwd）。只读 / interactive / worktree job 不受此限制（本来就不加锁）。
+- 拒绝信息列出 cwd 下的嵌套仓库（相对路径）并给出示例：`--lock <repo>`。
+- 服务端内部构造的续接 / 自动续接 / 重试沿用源 job 的锁声明，不因此被拒。
+- 不做运行中轮询与动态占锁。
 
 **U5-3 引导**
 - gofer-usage skill 与派活规范：在顶层目录派 job 时带 `--lock <子项目>`；`waiting_dir` 提示（与 U4 合并）加上"声明 `--lock` 收窄范围"。
 
-验收：`TestDeclaredLockPathsAllowSiblingJobs`（同 cwd、不同 `--lock` 并行；重叠则串行）、`TestLockPathsInheritedOnResume`、`TestRepoModeLocksTouchedRepoOnly`（两 job 同顶层 cwd 改不同嵌套仓库并行、改同一仓库出现 lock_conflict 事件）、`TestRepoModeIgnoresBaselineDirtyFiles`、`TestRepoModeFallsBackToCwdWithoutNestedRepos`；真实进程冒烟脚本覆盖 U5-1/U5-2。
+验收：`TestDeclaredLockPathsAllowSiblingJobs`（同 cwd、不同 `--lock` 并行；重叠则串行）、`TestLockPathsInheritedOnResume`、`TestRepoModeRequiresDeclaredLock`（repo 模式顶层 cwd 未声明被拒且列出子仓库；`--lock`/`--shared-dir`/`--exclusive-dir` 放行；只读/worktree 不受限）、`TestRepoModeFallsBackToCwdWithoutNestedRepos`、`TestRepoModeResumeKeepsSourceLock`；真实进程冒烟脚本覆盖 U5-1/U5-2。
 
 ## 实施分期
 
@@ -114,7 +114,8 @@
 1. UI-02 菜单名保留 **Issues**，页内分 Issues / Memories 两个标签。
 2. UI-03 Review 移出顶栏菜单，顶栏只在待验收数 > 0 时显示「待验收 N」徽标（点进 `/review`）；Board 待验收列链接与工作台「等你」照旧。
 3. 按 U1 → U4 派发。
-4. U5 目录锁细化（2026-09-29 追加批准）：1+2+3 一起做，并入本批；repo 模式发现锁冲突**只告警不中断**；`dir_lock_mode: repo` 需**项目显式开启**，默认仍为 `cwd`。
+4. U5 目录锁细化（2026-09-29 追加批准）：1+2+3 一起做，并入本批；`dir_lock_mode: repo` 需**项目显式开启**，默认仍为 `cwd`。
+5. U5-2 修订（2026-09-29）：动态占锁无法归属改动，改为 repo 模式下顶层目录派活必须声明 `--lock`（或显式 `--shared-dir` / `--exclusive-dir`），否则拒绝并列出可选子仓库。
 
 ## 结论与人工计划 Gate
 
