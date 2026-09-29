@@ -708,6 +708,7 @@ type runJobInput struct {
 	Runner     string   `json:"runner"`
 	Prompt     string   `json:"prompt,omitempty"`
 	AgentArgs  []string `json:"agent_args,omitempty"`
+	LockPaths  []string `json:"lock_paths,omitempty"`
 	Cmd        []string `json:"cmd,omitempty"`
 	Cwd        string   `json:"cwd,omitempty"`
 	TimeoutSec int      `json:"timeout_sec,omitempty"`
@@ -809,6 +810,7 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 			Runner:     in.Runner,
 			Prompt:     in.Prompt,
 			AgentArgs:  in.AgentArgs,
+			LockPaths:  in.LockPaths,
 			Cmd:        in.Cmd,
 			Cwd:        in.Cwd,
 			TimeoutSec: in.TimeoutSec,

@@ -224,6 +224,21 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			return JobResult{}, err
 		}
 	}
+	if !remote && len(req.LockPaths) > 0 {
+		resolved := make([]string, 0, len(req.LockPaths))
+		for _, rel := range req.LockPaths {
+			path, pathErr := project.SafeJoin(cfg.ExecPath(proj), rel)
+			if pathErr != nil {
+				return JobResult{}, fmt.Errorf("invalid lock path %q: %w", rel, pathErr)
+			}
+			resolved = append(resolved, path)
+		}
+		req.ResolvedLockPaths = resolved
+	} else if !remote && proj.DirLockMode == "repo" {
+		// U5: repo mode narrows the lock set to nested repositories when present;
+		// without nested repositories the legacy cwd lock remains authoritative.
+		req.ResolvedLockPaths = nestedGitRoots(context.Background(), workDir)
+	}
 
 	// Result base dir + a collision-resistant job id; create the dir up front.
 	// The host keeps a local result dir even for proxied jobs so its logs (mirrored
@@ -342,6 +357,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// and leave Command/Args/WorkDir unset; local jobs resolve the executable form
 	// (exec uses req.Cmd; cli-agent renders the prompt with cwd/job_id/result_dir).
 	runReq := runner.Request{JobID: jobID, WorkDir: workDir}
+	runReq.LockPaths = req.ResolvedLockPaths
 	// XFER-01 X2: the file steps run where the job runs. For a LOCAL job that is this
 	// machine (it places the uploads in workDir before the agent and matches the
 	// collect globs there); a remote job's copies ride the Forward below instead.
@@ -629,6 +645,7 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			// JOB-11：同 cwd 独占决策（jobs.dir_exclusive）——提交期定死，show/web 与
 			// 事后排查据此回答"这次运行当初是否（被允许）独占这棵工作树"。
 			DirExclusive: dirExclusive,
+			LockPaths:    req.LockPaths,
 			// GATE-01 S3：人工验收同样是 job 的持久属性（jobs.require_review），决定
 			// finish 是落 done 还是 needs_review，resume 继承、show/web 可见。
 			RequireReview: req.Review,

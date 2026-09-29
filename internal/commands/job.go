@@ -50,6 +50,7 @@ type jobRunFlags struct {
 	role         string
 	systemPrompt string
 	agentArgs    gcli.Strings
+	lock         gcli.Strings
 	interactive  bool
 	cols         int
 	rows         int
@@ -1071,6 +1072,7 @@ func bindJobRunFlags(c *gcli.Command) {
 	c.StrOpt2(&jobRunOpts.role, "role", "role preset (E35): fills agent/system_prompt/project/tags when unset", jobRunOptCategory("Execution", ""))
 	c.StrOpt2(&jobRunOpts.systemPrompt, "system-prompt", "resident system prompt injected via the agent (advanced; overrides role's)", jobRunOptCategory("Execution", ""))
 	c.VarOpt(&jobRunOpts.agentArgs, "agent-arg", "", "extra arg appended to cli-agent argv (repeatable)", gflag.WithCategory("Execution"))
+	c.VarOpt(&jobRunOpts.lock, "lock", "", "project-relative directory lock path (repeatable)", gflag.WithCategory("Execution"))
 	// bd h-aii-0ql3：只读 job（cli-agent 追加沙箱参数 / acp-agent session/set_mode）。
 	c.BoolOpt2(&jobRunOpts.readOnly, "read-only", "run read-only: audit/analysis only, the agent cannot write (cli-agent read_only_args / acp-agent acp.modes.read_only)", gflag.WithCategory("Execution"))
 	// JOB-11：同 cwd 串行锁的两个反转开关。默认规则 = 可写 agent job 独占其工作目录、
@@ -1685,6 +1687,7 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		Runner:         runner,
 		Prompt:         jobRunOpts.prompt,
 		AgentArgs:      []string(jobRunOpts.agentArgs),
+		LockPaths:      []string(jobRunOpts.lock),
 		Cmd:            cmd, // tokens after `--`, e.g. ["go","version"]
 		Cwd:            jobRunOpts.cwd,
 		Worktree:       jobRunOpts.worktree,

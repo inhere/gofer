@@ -126,6 +126,7 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 			Tags:       wakeupTagList(src.Tags, extraTags),
 			Title:      resumedTitle(src.Title),
 			Cwd:        s.resumeCwd(src),
+			LockPaths:  lockPathsFromRequest(src.RequestJSON),
 			CallerID:   callerID,
 			// Explicit SessionID: the new job binds to the SAME session, and
 			// ResumedFrom marks it a continuation — which is what makes submit fill
@@ -224,8 +225,9 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 		// A --worktree source keeps its own checkout: continue INSIDE that worktree
 		// (its path is under the project root, so it is a valid relative cwd) rather
 		// than back in the main checkout where the branch's work is not visible.
-		Cwd:      s.resumeCwd(src),
-		CallerID: callerID,
+		Cwd:       s.resumeCwd(src),
+		LockPaths: lockPathsFromRequest(src.RequestJSON),
+		CallerID:  callerID,
 		// 显式带 SessionID：new job 复用同会话 id（注入/捕获均跳过），链回原会话、可再续。
 		SessionID: src.SessionID,
 		// JOB-06①: a continuation is NOT re-injected with rules — the session it
@@ -329,4 +331,12 @@ func cwdFromRequestJSON(s string) string {
 	}
 	_ = json.Unmarshal([]byte(s), &r)
 	return r.Cwd
+}
+
+func lockPathsFromRequest(raw string) []string {
+	var req JobRequest
+	if json.Unmarshal([]byte(raw), &req) != nil {
+		return nil
+	}
+	return append([]string(nil), req.LockPaths...)
 }

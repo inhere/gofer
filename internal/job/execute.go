@@ -127,9 +127,32 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		if gates.dirWait > 0 {
 			waitCtx, cancelWait = context.WithTimeout(ctx, time.Duration(gates.dirWait)*time.Second)
 		}
-		release, holder, waited, derr := s.dirLock.Acquire(waitCtx, req.WorkDir, req.JobID, func(blocker string) {
-			s.enterWaitingDir(entry, req.JobID, blocker, req.WorkDir)
-		})
+		lockDirs := req.LockPaths
+		if len(lockDirs) == 0 {
+			lockDirs = []string{req.WorkDir}
+		}
+		releases := make([]func(), 0, len(lockDirs))
+		holder, waited, derr := "", false, error(nil)
+		for _, lockDir := range lockDirs {
+			release, blockedBy, didWait, acquireErr := s.dirLock.Acquire(waitCtx, lockDir, req.JobID, func(blocker string) {
+				s.enterWaitingDir(entry, req.JobID, blocker, lockDir)
+			})
+			if acquireErr != nil {
+				derr = acquireErr
+				holder = blockedBy
+				break
+			}
+			releases = append(releases, release)
+			if blockedBy != "" {
+				holder = blockedBy
+			}
+			waited = waited || didWait
+		}
+		release := func() {
+			for i := len(releases) - 1; i >= 0; i-- {
+				releases[i]()
+			}
+		}
 		if cancelWait != nil {
 			cancelWait()
 		}

@@ -1491,6 +1491,7 @@ func (r RetentionConfig) PruneInterval() time.Duration {
 // time (see ResolvedExchangeSubdir/ResolvedResultSubdir).
 type ProjectConfig struct {
 	HostPath       string   `yaml:"host_path,omitempty"`
+	DirLockMode    string   `yaml:"dir_lock_mode,omitempty"`
 	ContainerPath  string   `yaml:"container_path,omitempty"`
 	ExchangeSubdir string   `yaml:"exchange_subdir,omitempty"`
 	ResultSubdir   string   `yaml:"result_subdir,omitempty"`

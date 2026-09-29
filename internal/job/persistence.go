@@ -325,6 +325,8 @@ func unmarshalUsage(s string) *Usage {
 // fromRecord rebuilds a JobResult from a persisted jobstore.JobRecord. It is the
 // read path for ListJobs/Get when a job is not (or no longer) in memory.
 func fromRecord(rec jobstore.JobRecord) JobResult {
+	var request JobRequest
+	_ = json.Unmarshal([]byte(rec.RequestJSON), &request)
 	return JobResult{
 		ID:          rec.ID,
 		ProjectKey:  rec.ProjectKey,
@@ -336,6 +338,7 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 		ReadOnly:    rec.ReadOnly,
 		// JOB-11：旧行 COALESCE 成 0 = "共享"，正是 JOB-11 之前的语义。
 		DirExclusive: rec.DirExclusive,
+		LockPaths:    request.LockPaths,
 		// 人工验收（GATE-01 S3）：旧行全为 0/空 = "未要求、未验收"。
 		RequireReview: rec.RequireReview,
 		ReviewedBy:    rec.ReviewedBy,

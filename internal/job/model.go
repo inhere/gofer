@@ -20,6 +20,10 @@ type JobRequest struct {
 	// Cwd is the job's working directory, relative to the project root. Under
 	// --worktree it is mapped into the job's worktree (see Worktree).
 	Cwd string `json:"cwd,omitempty" yaml:"cwd,omitempty"`
+	// LockPaths narrows the directory lock to project-relative paths. Empty keeps
+	// the existing cwd lock behavior. ResolvedLockPaths is server-side only.
+	LockPaths         []string `json:"lock_paths,omitempty" yaml:"lock,omitempty"`
+	ResolvedLockPaths []string `json:"-" yaml:"-"`
 	// Worktree (WT-01) runs the job in a MANAGED git worktree of the project
 	// checkout instead of the checkout itself: gofer creates
 	// <repo top>/tmp/gofer/wt/<job-id> on a fresh branch gofer/<job-id> at
@@ -462,7 +466,8 @@ type JobResult struct {
 	// directory, an ancestor or a descendant of it at the same time. It explains why
 	// a job waited, and after the fact it answers "was this run allowed to share the
 	// tree?" for a finished row.
-	DirExclusive bool `json:"dir_exclusive,omitempty"`
+	DirExclusive bool     `json:"dir_exclusive,omitempty"`
+	LockPaths    []string `json:"lock_paths,omitempty"`
 	// WaitingOnJob is the job currently HOLDING the directory lock this one waits
 	// for (JOB-11): set only while Status is StatusWaitingDir and cleared the moment
 	// the lock is taken. It is live-only state (no column): a job that is not waiting
