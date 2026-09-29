@@ -58,15 +58,11 @@ func (e *Engine) Advance(wfID string) {
 	// "terminal". A decode/bounds error wins推进权 once and fails the workflow.
 	var spec Spec
 	if err := json.Unmarshal([]byte(wf.SpecJSON), &spec); err != nil {
-		if won, _ := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0); won {
-			e.setWorkflowFailed(wfID, "decode spec: "+err.Error())
-		}
+		e.finishStep(wfID, cur, att, jobstore.WorkflowFailed, "decode spec: "+err.Error())
 		return
 	}
 	if cur < 1 || cur > len(spec.Steps) {
-		if won, _ := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0); won {
-			e.setWorkflowFailed(wfID, "spec/total step mismatch")
-		}
+		e.finishStep(wfID, cur, att, jobstore.WorkflowFailed, "spec/total step mismatch")
 		return
 	}
 	step := spec.Steps[cur-1] // 0-based: the active/just-finished step
@@ -105,21 +101,28 @@ func (e *Engine) Advance(wfID string) {
 
 	switch verdict {
 	case job.StatusDone:
-		// Win推进权 for this (step,attempt) → (cur+1, 1). Only the winner advances /
-		// starts the next step, so done is committed exactly once.
-		won, aerr := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
-		if aerr != nil || !won {
+		// Win推进权 for this (step,attempt). Only the winner advances / starts the next
+		// step, so done is committed exactly once. The last step claims and finishes
+		// the workflow in one transaction (finishStep) so no reader ever sees a
+		// running workflow whose pointer is past the last step.
+		var won bool
+		if cur >= wf.TotalSteps {
+			won = e.finishStep(wfID, cur, att, jobstore.WorkflowDone, "")
+		} else {
+			w, aerr := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
+			won = aerr == nil && w
+		}
+		if !won {
 			return
 		}
 		// any/quorum can decide done while some fans are still in-flight (the early
 		// short-circuit). Best-effort cancel those leftover running fans to free the
 		// executor (E17 quota): a still-running fan otherwise finishes uselessly and its
 		// finish-hook re-drive is a harmless no-op (the pointer已 moved off (cur,att)).
-		// Only the AdvanceStep winner runs this, so it cancels exactly once.
+		// Only the winner runs this, so it cancels exactly once.
 		e.cancelInflightFans(fanJobs)
 		if cur >= wf.TotalSteps {
-			e.setWorkflowDone(wfID) // last step done -> workflow done
-			return
+			return // finished above
 		}
 		e.startNextStep(wf, cur, jobs, spec) // resolveRefs + start step cur+1 (attempt 1)
 	default: // failed (aggregated: join not satisfied)
@@ -154,31 +157,22 @@ func (e *Engine) Advance(wfID string) {
 				return
 			}
 			// Retry exhausted (or this exit code is not retryable): fail-fast.
-			won, aerr := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
-			if aerr != nil || !won {
-				return
-			}
-			e.setWorkflowFailed(wfID, fmt.Sprintf("step %d %s after %d attempt(s)", cur, failStatus, att))
+			e.finishStep(wfID, cur, att, jobstore.WorkflowFailed, fmt.Sprintf("step %d %s after %d attempt(s)", cur, failStatus, att))
 		case onFailureContinue:
 			// 继续: skip the failed step, advance to the next (or finish).
+			skipped := map[string]any{"step": cur, "attempt": att, "status": failStatus}
+			if cur >= wf.TotalSteps { // last step skipped -> workflow done, atomically
+				e.finishStep(wfID, cur, att, jobstore.WorkflowDone, "", e.workflowEvent(wfID, job.EventStepSkipped, skipped))
+				return
+			}
 			won, aerr := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
 			if aerr != nil || !won {
 				return
 			}
-			e.recordWorkflowEvent(wfID, job.EventStepSkipped, map[string]any{
-				"step": cur, "attempt": att, "status": failStatus,
-			})
-			if cur >= wf.TotalSteps {
-				e.setWorkflowDone(wfID) // last step skipped -> workflow done
-				return
-			}
+			e.recordWorkflowEvent(wfID, job.EventStepSkipped, skipped)
 			e.startNextStep(wf, cur, jobs, spec)
 		default: // "" / fail: v1 fail-fast (D17 default)
-			won, aerr := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
-			if aerr != nil || !won {
-				return
-			}
-			e.setWorkflowFailed(wfID, fmt.Sprintf("step %d %s", cur, failStatus))
+			e.finishStep(wfID, cur, att, jobstore.WorkflowFailed, fmt.Sprintf("step %d %s", cur, failStatus))
 		}
 	}
 }
@@ -190,7 +184,7 @@ func (e *Engine) Advance(wfID string) {
 //     startStepJob (which routes to startSubWorkflow with the deterministic child id, so
 //     a racing re-drive is idempotent), then wait.
 //   - child still running: wait — its terminal transition will fire the parent's
-//     Advance again (setWorkflowDone/Failed parent hook), AND the sweeper is the
+//     Advance again (finishStep/setWorkflowFailed parent hook), AND the sweeper is the
 //     backstop if that hook is lost.
 //   - child terminal: done → advance/next-step (shared with the job path); failed/
 //     cancelled → on_failure (fail/continue/retry), identical handling to the job path.
@@ -220,12 +214,12 @@ func (e *Engine) advanceWorkflowStep(wf jobstore.Workflow, step StepSpec, cur, a
 
 	// Child terminal: done → step done; failed/cancelled → step failed (then on_failure).
 	if child.Status == jobstore.WorkflowDone {
-		won, aerr := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
-		if aerr != nil || !won {
+		if cur >= wf.TotalSteps { // last step: claim + finish in one transaction
+			e.finishStep(wfID, cur, att, jobstore.WorkflowDone, "")
 			return
 		}
-		if cur >= wf.TotalSteps {
-			e.setWorkflowDone(wfID)
+		won, aerr := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
+		if aerr != nil || !won {
 			return
 		}
 		e.startNextStep(wf, cur, jobs, spec)
@@ -253,30 +247,21 @@ func (e *Engine) advanceWorkflowStep(wf jobstore.Workflow, step StepSpec, cur, a
 			e.scheduleRetryAdvance(wfID, backoff)
 			return
 		}
-		won, aerr := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
-		if aerr != nil || !won {
-			return
-		}
-		e.setWorkflowFailed(wfID, fmt.Sprintf("step %d sub-workflow %s after %d attempt(s)", cur, failStatus, att))
+		e.finishStep(wfID, cur, att, jobstore.WorkflowFailed, fmt.Sprintf("step %d sub-workflow %s after %d attempt(s)", cur, failStatus, att))
 	case onFailureContinue:
+		skipped := map[string]any{"step": cur, "attempt": att, "status": failStatus}
+		if cur >= wf.TotalSteps { // last step skipped -> workflow done, atomically
+			e.finishStep(wfID, cur, att, jobstore.WorkflowDone, "", e.workflowEvent(wfID, job.EventStepSkipped, skipped))
+			return
+		}
 		won, aerr := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
 		if aerr != nil || !won {
 			return
 		}
-		e.recordWorkflowEvent(wfID, job.EventStepSkipped, map[string]any{
-			"step": cur, "attempt": att, "status": failStatus,
-		})
-		if cur >= wf.TotalSteps {
-			e.setWorkflowDone(wfID)
-			return
-		}
+		e.recordWorkflowEvent(wfID, job.EventStepSkipped, skipped)
 		e.startNextStep(wf, cur, jobs, spec)
 	default: // "" / fail: fail-fast (D17 default)
-		won, aerr := e.meta.AdvanceStep(wfID, cur, att, cur+1, 1, 0)
-		if aerr != nil || !won {
-			return
-		}
-		e.setWorkflowFailed(wfID, fmt.Sprintf("step %d sub-workflow %s", cur, failStatus))
+		e.finishStep(wfID, cur, att, jobstore.WorkflowFailed, fmt.Sprintf("step %d sub-workflow %s", cur, failStatus))
 	}
 }
 

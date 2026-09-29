@@ -324,3 +324,60 @@ func TestJobFanIndexRoundTrip(t *testing.T) {
 	assert.True(t, ok)
 	assert.Eq(t, 0, gp.FanIndex)
 }
+
+// TestFinishWorkflowStepClaimsOnceAndFlipsAtomically: FinishWorkflowStep claims the
+// (step,attempt) generation of a running workflow exactly once under contention, and
+// the winner's terminal status and events land together (no reader can see the
+// workflow still running with its pointer moved past the step).
+func TestFinishWorkflowStepClaimsOnceAndFlipsAtomically(t *testing.T) {
+	s := openTest(t)
+	assert.NoErr(t, s.InsertWorkflow(Workflow{
+		ID: "wf-fin", Status: WorkflowRunning, CurrentStep: 2, StepAttempt: 1, TotalSteps: 3,
+		SpecJSON: "{}", CreatedAt: 1, UpdatedAt: 1,
+	}))
+	const n = 16
+	var (
+		wg    sync.WaitGroup
+		mu    sync.Mutex
+		wins  int
+		start = make(chan struct{})
+	)
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			<-start
+			ok, err := s.FinishWorkflowStep("wf-fin", 2, 1, 3, WorkflowFailed, "step 2 failed",
+				WorkflowEvent{WorkflowID: "wf-fin", Type: "step.skipped", At: 5},
+				WorkflowEvent{WorkflowID: "wf-fin", Type: "workflow.terminal", Detail: `{"status":"failed"}`, At: 5})
+			if err != nil {
+				t.Errorf("FinishWorkflowStep: %v", err)
+				return
+			}
+			if ok {
+				mu.Lock()
+				wins++
+				mu.Unlock()
+			}
+		}()
+	}
+	close(start)
+	wg.Wait()
+	assert.Eq(t, 1, wins)
+
+	wf, ok, err := s.GetWorkflow("wf-fin")
+	assert.NoErr(t, err)
+	assert.True(t, ok)
+	assert.Eq(t, WorkflowFailed, wf.Status)
+	assert.Eq(t, 3, wf.CurrentStep)
+	evs, err := s.ListWorkflowEvents("wf-fin", 0)
+	assert.NoErr(t, err)
+	assert.Eq(t, 2, len(evs)) // only the winner wrote events
+	assert.Eq(t, "step.skipped", evs[0].Type)
+	assert.Eq(t, "workflow.terminal", evs[1].Type)
+
+	// A stale generation (or an already-terminal workflow) never re-claims.
+	ok2, err := s.FinishWorkflowStep("wf-fin", 3, 1, 4, WorkflowDone, "")
+	assert.NoErr(t, err)
+	assert.False(t, ok2)
+}

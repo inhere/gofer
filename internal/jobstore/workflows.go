@@ -211,6 +211,56 @@ func (s *Store) AdvanceStep(id string, fromStep, fromAtt, toStep, toAtt int, nex
 	return n == 1, nil
 }
 
+// FinishWorkflowStep is the terminal counterpart of AdvanceStep: it claims the
+// (fromStep, fromAtt) generation of a RUNNING workflow and, in the same transaction,
+// records the terminal event and flips the workflow to status (done/failed). The
+// bool reports whether this caller won the claim.
+//
+// Doing the claim and the terminal flip in one step closes a window the two-write
+// sequence (AdvanceStep to cur+1, then SetWorkflowStatus) left open: between those
+// writes the workflow read as running at a step with no jobs yet, so a concurrent
+// Advance started that next step (after a fail-fast), or saw the pointer past the
+// last step and failed an otherwise successful workflow. Writing the event inside
+// the transaction also keeps the terminal event visible no later than the status.
+func (s *Store) FinishWorkflowStep(id string, fromStep, fromAtt, toStep int, status, errMsg string, evs ...WorkflowEvent) (bool, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.db.Begin()
+	if err != nil {
+		return false, fmt.Errorf("jobstore: finish workflow %q: begin: %w", id, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+	var em any
+	if errMsg != "" {
+		em = errMsg
+	}
+	res, err := tx.Exec(
+		`UPDATE workflows SET current_step = ?, step_attempt = 1, next_step_at = 0, status = ?, error = ?, updated_at = ?
+     WHERE id = ? AND current_step = ? AND step_attempt = ? AND status = ?`,
+		toStep, status, em, s.unixNow(), id, fromStep, fromAtt, WorkflowRunning,
+	)
+	if err != nil {
+		return false, fmt.Errorf("jobstore: finish workflow %q (%d,%d) as %s: %w", id, fromStep, fromAtt, status, err)
+	}
+	if n, _ := res.RowsAffected(); n != 1 {
+		return false, nil
+	}
+	for _, ev := range evs { // in order: e.g. step.skipped, then workflow.terminal
+		var detail any
+		if ev.Detail != "" {
+			detail = ev.Detail
+		}
+		if _, err := tx.Exec(`INSERT INTO workflow_events (workflow_id, type, detail_json, at) VALUES (?,?,?,?)`,
+			id, ev.Type, detail, ev.At); err != nil {
+			return false, fmt.Errorf("jobstore: finish workflow %q: insert %s event: %w", id, ev.Type, err)
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("jobstore: finish workflow %q: commit: %w", id, err)
+	}
+	return true, nil
+}
+
 // AdvanceCurrentStep is the v1推进屏障, retained as a thin AdvanceStep wrapper for
 // the existing direct-claim tests and any single-attempt推进 (the workflow engine
 // itself now calls AdvanceStep with the explicit二元组). It moves current_step from

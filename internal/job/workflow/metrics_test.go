@@ -95,7 +95,7 @@ func TestWorkflowMetricsTerminal(t *testing.T) {
 		t.Fatalf("workflow status = %s, want done", final.Status)
 	}
 
-	// Poll briefly: setWorkflowDone records the metric on the advance goroutine.
+	// Poll briefly: finishStep records the metric on the advance goroutine.
 	var calls []wfTerminalCall
 	deadline := time.Now().Add(3 * time.Second)
 	for time.Now().Before(deadline) {
