@@ -226,6 +226,26 @@ func TestJobIssueLinkAppendsNotes(t *testing.T) {
 	}
 }
 
+func TestIssueLinkRejectedSubmitDoesNotChangeIssue(t *testing.T) {
+	e := newTrackerE2E(t)
+	issue, err := e.local.CreateIssue(tracker.Issue{Title: "reject", Type: "task"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	syncTracker(t, e)
+	resp := do(t, e.server, http.MethodPost, "/v1/jobs", "tok", job.JobRequest{ProjectKey: "missing", Agent: "exec", Runner: "local", Cmd: []string{"go", "version"}, IssueID: issue.ID, TrackerID: mustConfig(t, e.local).TrackerID})
+	if resp.StatusCode < 400 {
+		t.Fatalf("status=%d", resp.StatusCode)
+	}
+	got, err := e.local.Issue(issue.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != "open" {
+		t.Fatalf("rejected submit changed status=%q", got.Status)
+	}
+}
+
 func mustConfig(t *testing.T, s *tracker.Store) tracker.Config {
 	c, err := s.ReadConfig()
 	if err != nil {
