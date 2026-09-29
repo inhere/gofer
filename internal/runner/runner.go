@@ -523,6 +523,9 @@ type XferUpload struct {
 type Result struct {
 	ExitCode int
 	Err      error
+	// TimedOut is set when a remote executor reports its own execution deadline.
+	// It avoids a race with the host's delayed timeout context.
+	TimedOut bool
 	// Outcome, when non-nil, carries产出 captured on a remote execution machine
 	// (worker / peer). Nil for local jobs. See Outcome doc.
 	Outcome *Outcome

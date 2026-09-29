@@ -139,6 +139,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 	return runner.Result{
 		ExitCode: final.ExitCode,
 		Err:      errFromStatus(final),
+		TimedOut: final.Status == job.StatusTimeout,
 		// 产出与审计回传(P4-b)：peer 的 get_job 在 P1/P3 后已返回 rendered_command/
 		// result_json/diff_summary(JobResult JSON 字段)，直接拷进 Outcome；产物清单
 		// 经 peer 的 /artifacts 端点单独拉取(大文件留 peer 侧, host 侧下载走代理 — D6)。

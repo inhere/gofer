@@ -195,6 +195,13 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		// local queue. Start the deadline only after its started frame arrives.
 		var cancelCause context.CancelCauseFunc
 		runCtx, cancelCause = context.WithCancelCause(ctx)
+		var remoteTimer *time.Timer
+		defer func() {
+			if remoteTimer != nil {
+				remoteTimer.Stop()
+			}
+			cancelCause(context.Canceled)
+		}()
 		var startedOnce sync.Once
 		req.OnStarted = func() {
 			startedOnce.Do(func() {
@@ -207,13 +214,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 				_ = s.persist(snap)
 				s.recordEvent(req.JobID, EventJobRunning, map[string]any{"remote": true})
 				if timeout > 0 {
-					timer := time.AfterFunc(timeout, func() { cancelCause(context.DeadlineExceeded) })
-					go func() {
-						<-ctx.Done()
-						if !timer.Stop() {
-							return
-						}
-					}()
+					remoteTimer = time.AfterFunc(timeout, func() { cancelCause(context.DeadlineExceeded) })
 				}
 			})
 		}
@@ -934,6 +935,9 @@ func (s *Service) maybeRetryJob(snap JobResult) {
 // classify maps a runner result + context state to a job status, exit code and
 // error. The context reason distinguishes timeout from cancellation.
 func classify(ctx context.Context, res runner.Result) (string, int, error) {
+	if res.TimedOut {
+		return StatusTimeout, res.ExitCode, fmt.Errorf("job timed out")
+	}
 	ctxErr := context.Cause(ctx)
 	if ctxErr != nil {
 		switch {

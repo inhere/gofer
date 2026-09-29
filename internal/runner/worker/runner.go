@@ -506,6 +506,7 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 		return runner.Result{
 			ExitCode: res.ExitCode,
 			Err:      ResultErr(res),
+			TimedOut: res.Status == "timeout",
 			Outcome:  OutcomeFrom(sink.takeOutcome(), workerID),
 		}
 	case err := <-sink.lostCh:
