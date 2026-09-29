@@ -136,6 +136,10 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	}
 	req.Fallback = fallback
 
+	// Preserve whether the caller explicitly chose --shared-dir/--exclusive-dir before
+	// stamping the resolved three-state decision below. Repo-mode admission needs this
+	// distinction; an internally resolved default is not an explicit declaration.
+	explicitDirLockMode := req.ExclusiveDir != nil
 	// JOB-11: resolve the same-directory lock decision ONCE, from the SAME cfg snapshot
 	// that validated the request and AFTER any submit-time agent substitution (the
 	// substituted agent's TYPE is what the default rule reads). Stamping it back onto
@@ -234,6 +238,20 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 			resolved = append(resolved, path)
 		}
 		req.ResolvedLockPaths = resolved
+	}
+	if !remote && proj.DirLockMode == "repo" && !req.ReadOnly && !req.Interactive && !req.Worktree &&
+		len(req.LockPaths) == 0 && !explicitDirLockMode && req.ResumeSourceAgent == "" {
+		roots := nestedGitRoots(context.Background(), workDir)
+		if len(roots) > 0 {
+			relRoots := make([]string, 0, len(roots))
+			for _, root := range roots {
+				rel, relErr := filepath.Rel(workDir, root)
+				if relErr == nil {
+					relRoots = append(relRoots, filepath.ToSlash(rel))
+				}
+			}
+			return JobResult{}, fmt.Errorf("repo lock mode requires an explicit lock declaration for nested repositories (%s); use --lock <repo>, --shared-dir, or --exclusive-dir", strings.Join(relRoots, ", "))
+		}
 	}
 
 	// Result base dir + a collision-resistant job id; create the dir up front.
@@ -354,13 +372,6 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// (exec uses req.Cmd; cli-agent renders the prompt with cwd/job_id/result_dir).
 	runReq := runner.Request{JobID: jobID, WorkDir: workDir}
 	runReq.LockPaths = req.ResolvedLockPaths
-	if proj.DirLockMode == "repo" && len(req.LockPaths) == 0 && !remote {
-		runReq.RepoLockRoots = nestedGitRoots(context.Background(), workDir)
-		runReq.RepoLockPollSec = proj.DirLockPollSec
-		if runReq.RepoLockPollSec == 0 {
-			runReq.RepoLockPollSec = 10
-		}
-	}
 	// XFER-01 X2: the file steps run where the job runs. For a LOCAL job that is this
 	// machine (it places the uploads in workDir before the agent and matches the
 	// collect globs there); a remote job's copies ride the Forward below instead.

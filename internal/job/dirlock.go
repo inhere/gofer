@@ -109,20 +109,6 @@ func (d *dirLocks) Acquire(ctx context.Context, dir, jobID string, onWait func(h
 	}
 }
 
-func (d *dirLocks) TryAcquire(dir, jobID string) (func(), string, bool) {
-	if dir == "" {
-		return func() {}, "", true
-	}
-	key := lockDirKey(dir)
-	d.mu.Lock()
-	defer d.mu.Unlock()
-	if d.conflictsLocked(key) {
-		return func() {}, d.firstHolderLocked(key), false
-	}
-	d.held[key] = jobID
-	return d.releaser(key, jobID), "", true
-}
-
 // abandon removes a cancelled waiter from the queue, reporting whether it was still
 // queued (true) or had already been granted (false).
 func (d *dirLocks) abandon(w *dirWaiter) bool {
