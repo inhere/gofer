@@ -145,6 +145,12 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	// substituted agent's TYPE is what the default rule reads). Stamping it back onto
 	// the request keeps one decided value on every surface: request_json, the persisted
 	// row, the peer/worker forward and the executing machine.
+	// A declared --lock asks for a lock, so it cannot be combined with an explicit
+	// --shared-dir. Server-built continuations inherit their source's stamped
+	// values and are not re-judged here.
+	if len(req.LockPaths) > 0 && req.ExclusiveDir != nil && !*req.ExclusiveDir && req.ResumeSourceAgent == "" {
+		return JobResult{}, fmt.Errorf("%w: --lock declares a directory lock and cannot be combined with --shared-dir", ErrInvalidRequest)
+	}
 	dirExclusive := resolveDirExclusive(cfg, &req)
 	req.ExclusiveDir = &dirExclusive
 
@@ -827,6 +833,10 @@ func resolveDirExclusive(cfg *config.Config, req *JobRequest) bool {
 		return false
 	case req.ExclusiveDir != nil:
 		return *req.ExclusiveDir
+	case len(req.LockPaths) > 0:
+		// Declaring --lock is an explicit request for the lock, whatever the agent
+		// type: an exec job with --lock must not silently run unlocked.
+		return true
 	}
 	ac, ok := agent.ResolveAgent(cfg, req.Agent)
 	if !ok {

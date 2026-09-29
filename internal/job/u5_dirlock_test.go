@@ -119,3 +119,23 @@ func TestRepoModeFallsBackToCwdWithoutNestedRepos(t *testing.T) {
 		t.Fatalf("repo mode without nested repositories rejected: %v", err)
 	}
 }
+
+// TestDeclaredLockMakesExecJobExclusive: exec jobs run unlocked by default, but a
+// declared --lock is an explicit request for the lock, so it must be honored; and
+// combining it with an explicit --shared-dir is contradictory and rejected.
+func TestDeclaredLockMakesExecJobExclusive(t *testing.T) {
+	root := t.TempDir()
+	if err := os.Mkdir(filepath.Join(root, "a"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	s := newTestService(t, root)
+	res := submitAndWait(t, s, JobRequest{ProjectKey: "self", Agent: "exec", Runner: "local", Cwd: ".", LockPaths: []string{"a"}, Cmd: []string{"true"}, TimeoutSec: 30})
+	if res.Status != StatusDone || !res.DirExclusive {
+		t.Fatalf("exec job with --lock: status=%s dir_exclusive=%v, want done/true", res.Status, res.DirExclusive)
+	}
+	shared := false
+	_, err := s.Submit(JobRequest{ProjectKey: "self", Agent: "exec", Runner: "local", Cwd: ".", LockPaths: []string{"a"}, ExclusiveDir: &shared, Cmd: []string{"true"}, TimeoutSec: 30})
+	if err == nil || !strings.Contains(err.Error(), "--shared-dir") {
+		t.Fatalf("--lock with --shared-dir: err=%v, want rejection naming --shared-dir", err)
+	}
+}
