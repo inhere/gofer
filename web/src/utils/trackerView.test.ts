@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { trackerIssueMatches, trackerRepoLabel } from './trackerView'
+import { fmtTrackerTime, trackerIssueMatches, trackerRepoLabel } from './trackerView'
 
 describe('tracker view helpers', () => {
   it('formats repositories with an unassigned marker', () => {
@@ -17,5 +17,8 @@ describe('tracker view helpers', () => {
     expect(issue.body.title).toBe('Fix drawer')
     expect(memory.body.content).toContain('next step')
     expect(memory.body.tags).toEqual(['plan'])
+  })
+  it('formats ISO tracker timestamps with the shared time helper', () => {
+    expect(fmtTrackerTime('2026-09-29T00:00:00.000000000Z')).toMatch(/^09-29 /)
   })
 })
