@@ -43,8 +43,7 @@ func captureDiff(cwd, resultDir string) string {
 
 	// 一次 git diff 同时返回 stat 摘要和 patch；从输出头部分离摘要，避免对
 	// 工作树再做一次全量扫描。patch-with-stat 的格式是 stat、空行、diff --git。
-	out := runGit(ctx, cwd, diffFullCap+diffSummaryCap+1, "diff", "--patch-with-stat")
-	stat, full := splitPatchWithStat(out)
+	stat, full := captureGitPatchWithStat(ctx, cwd, "diff")
 	if len(full) > 0 && resultDir != "" {
 		if err := os.WriteFile(filepath.Join(resultDir, "changes.diff"), full, 0o644); err != nil {
 			slog.Warn("captureDiff: write changes.diff", "result_dir", resultDir, "err", err)
@@ -54,6 +53,20 @@ func captureDiff(cwd, resultDir string) string {
 		stat = stat[:diffSummaryCap]
 	}
 	return string(stat)
+}
+
+// captureGitPatchWithStat runs one bounded git diff invocation and returns its
+// stat prefix plus plain patch body. Callers that need multiple logical ranges
+// (such as a managed worktree's committed and uncommitted sections) invoke this
+// once per range rather than once for each representation.
+func captureGitPatchWithStat(ctx context.Context, cwd string, args ...string) (stat, patch []byte) {
+	args = append(args, "--patch-with-stat")
+	out := runGit(ctx, cwd, diffFullCap+diffSummaryCap+1, args...)
+	stat, patch = splitPatchWithStat(out)
+	if len(stat) > diffSummaryCap {
+		stat = stat[:diffSummaryCap]
+	}
+	return stat, patch
 }
 
 // splitPatchWithStat separates the stat prefix from the patch returned by

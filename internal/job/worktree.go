@@ -157,8 +157,8 @@ func captureWorktreeDiff(w *worktreeRef, resultDir string) string {
 	ctx, cancel := context.WithTimeout(context.Background(), diffTimeout)
 	defer cancel()
 
-	committed := runGit(ctx, w.Path, diffFullCap, "diff", w.BaseSHA+"..HEAD")
-	uncommitted := runGit(ctx, w.Path, diffFullCap, "diff")
+	statCommitted, committed := captureGitPatchWithStat(ctx, w.Path, "diff", w.BaseSHA+"..HEAD")
+	statUncommitted, uncommitted := captureGitPatchWithStat(ctx, w.Path, "diff")
 	if len(committed) == 0 && len(uncommitted) == 0 {
 		return ""
 	}
@@ -172,8 +172,6 @@ func captureWorktreeDiff(w *worktreeRef, resultDir string) string {
 		}
 	}
 
-	statCommitted := runGit(ctx, w.Path, diffSummaryCap, "diff", "--stat", w.BaseSHA+"..HEAD")
-	statUncommitted := runGit(ctx, w.Path, diffSummaryCap, "diff", "--stat")
 	if len(statCommitted) == 0 && len(statUncommitted) == 0 {
 		return ""
 	}
