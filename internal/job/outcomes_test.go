@@ -55,6 +55,12 @@ func TestCaptureDiffEndToEnd(t *testing.T) {
 	// Make the "self" project's host path (root) a git repo with an uncommitted
 	// change so the job's cwd ("." → root) has a non-empty `git diff`.
 	initGitRepo(t, root)
+	// The default auto mode skips exec jobs; this test covers the explicit-on
+	// compatibility path used by existing capture-diff callers.
+	enabled := true
+	proj := s.config().Projects["self"]
+	proj.CaptureDiff = &enabled
+	s.config().Projects["self"] = proj
 
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -76,6 +82,64 @@ func TestCaptureDiffEndToEnd(t *testing.T) {
 		t.Fatalf("changes.diff not written for job: %v", err)
 	} else if !strings.Contains(string(b), "modified content") {
 		t.Fatalf("changes.diff missing tracked change:\n%s", b)
+	}
+}
+
+// TestCaptureDiffSkippedForExecByDefault pins the new auto-mode default: an
+// ordinary exec job must not scan a git checkout or write changes.diff.
+func TestCaptureDiffSkippedForExecByDefault(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	root := t.TempDir()
+	s := newTestService(t, root)
+	initGitRepo(t, root)
+
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local",
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if final.Status != StatusDone {
+		t.Fatalf("expected done, got %s (err=%s)", final.Status, final.Error)
+	}
+	got, ok := s.Get(final.ID)
+	if !ok {
+		t.Fatalf("Get(%s) not found", final.ID)
+	}
+	if got.DiffSummary != "" {
+		t.Fatalf("auto mode must skip ordinary exec diff, got %q", got.DiffSummary)
+	}
+	if _, err := os.Stat(filepath.Join(got.ResultDir, "changes.diff")); !os.IsNotExist(err) {
+		t.Fatalf("auto mode must not write changes.diff (err=%v)", err)
+	}
+}
+
+// TestCaptureDiffKeptForExecWithReview ensures review-gated exec jobs retain
+// the audit snapshot even when capture_diff is left in auto mode.
+func TestCaptureDiffKeptForExecWithReview(t *testing.T) {
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git not on PATH")
+	}
+	root := t.TempDir()
+	s := newTestService(t, root)
+	initGitRepo(t, root)
+
+	final := submitAndWait(t, s, JobRequest{
+		ProjectKey: "self", Agent: "exec", Runner: "local", Review: true,
+		Cmd: []string{"go", "version"}, Cwd: ".", TimeoutSec: 30,
+	})
+	if final.Status != StatusNeedsReview {
+		t.Fatalf("expected needs_review, got %s (err=%s)", final.Status, final.Error)
+	}
+	got, ok := s.Get(final.ID)
+	if !ok {
+		t.Fatalf("Get(%s) not found", final.ID)
+	}
+	if !strings.Contains(got.DiffSummary, "tracked.txt") {
+		t.Fatalf("review-gated exec must retain diff, got %q", got.DiffSummary)
+	}
+	if b, err := os.ReadFile(filepath.Join(got.ResultDir, "changes.diff")); err != nil || !strings.Contains(string(b), "modified content") {
+		t.Fatalf("review-gated exec changes.diff missing: err=%v body=%q", err, b)
 	}
 }
 

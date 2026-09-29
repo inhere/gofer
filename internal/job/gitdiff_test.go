@@ -79,6 +79,39 @@ func TestCaptureDiffGitRepo(t *testing.T) {
 	}
 }
 
+// TestCaptureDiffSinglePassMatchesStat verifies that the combined
+// patch-with-stat call is split without changing either public artifact: the
+// stored summary equals `git diff --stat`, and changes.diff equals `git diff`.
+func TestCaptureDiffSinglePassMatchesStat(t *testing.T) {
+	repo := initGitRepo(t, t.TempDir())
+	resultDir := t.TempDir()
+
+	run := func(args ...string) []byte {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = repo
+		cmd.Env = append(os.Environ(), "GIT_OPTIONAL_LOCKS=0")
+		out, err := cmd.Output()
+		if err != nil {
+			t.Fatalf("git %v: %v", args, err)
+		}
+		return out
+	}
+	wantStat := run("diff", "--stat")
+	wantPatch := run("diff")
+	gotStat := captureDiff(repo, resultDir)
+	if gotStat != string(wantStat) {
+		t.Fatalf("combined diff stat mismatch:\n got %q\nwant %q", gotStat, wantStat)
+	}
+	gotPatch, err := os.ReadFile(filepath.Join(resultDir, "changes.diff"))
+	if err != nil {
+		t.Fatalf("changes.diff not written: %v", err)
+	}
+	if string(gotPatch) != string(wantPatch) {
+		t.Fatalf("combined diff patch mismatch:\n got %q\nwant %q", gotPatch, wantPatch)
+	}
+}
+
 // TestCaptureDiffNonGit proves a plain (non-git) directory yields "" and writes
 // no changes.diff.
 func TestCaptureDiffNonGit(t *testing.T) {

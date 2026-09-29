@@ -348,6 +348,12 @@ func TestWorktreeDiffIncludesCommits(t *testing.T) {
 
 	state := t.TempDir()
 	s := newWorktreeService(t, repo, state)
+	// Worktree diff coverage is explicitly enabled; auto mode skips ordinary
+	// exec jobs, including exec jobs that use a managed worktree.
+	enabled := true
+	proj := s.config().Projects["repo"]
+	proj.CaptureDiff = &enabled
+	s.config().Projects["repo"] = proj
 	final := submitAndWait(t, s, JobRequest{
 		ProjectKey: "repo", Agent: "exec", Runner: "local",
 		Cmd: []string{"git", "cherry-pick", sha}, Cwd: ".",

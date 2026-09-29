@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/goccy/go-yaml"
 )
 
 func strPtr(s string) *string { return &s }
@@ -31,6 +33,26 @@ func TestMergeProjectConfig_AllNilNoChange(t *testing.T) {
 	got := MergeProjectConfig(base, ProjectOverlay{})
 	if !reflect.DeepEqual(got, base) {
 		t.Fatalf("empty overlay must not change base:\n got=%+v\nbase=%+v", got, base)
+	}
+}
+
+func TestCaptureDiffModesDecode(t *testing.T) {
+	var cfg Config
+	err := yaml.Unmarshal([]byte("projects:\n  auto: {capture_diff: auto}\n  on: {capture_diff: on}\n  off: {capture_diff: off}\n  old: {capture_diff: false}\n"), &cfg)
+	if err != nil {
+		t.Fatalf("decode capture_diff modes: %v", err)
+	}
+	if cfg.Projects["auto"].CaptureDiff != nil {
+		t.Fatalf("auto should resolve to nil, got %v", cfg.Projects["auto"].CaptureDiff)
+	}
+	if cfg.Projects["on"].CaptureDiff == nil || !*cfg.Projects["on"].CaptureDiff {
+		t.Fatalf("on should resolve to true, got %v", cfg.Projects["on"].CaptureDiff)
+	}
+	if cfg.Projects["off"].CaptureDiff == nil || *cfg.Projects["off"].CaptureDiff {
+		t.Fatalf("off should resolve to false, got %v", cfg.Projects["off"].CaptureDiff)
+	}
+	if cfg.Projects["old"].CaptureDiff == nil || *cfg.Projects["old"].CaptureDiff {
+		t.Fatalf("legacy false should remain false, got %v", cfg.Projects["old"].CaptureDiff)
 	}
 }
 
