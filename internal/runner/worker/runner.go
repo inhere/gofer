@@ -764,10 +764,16 @@ type boundedSink struct {
 	outcome *wsproto.Outcome
 }
 
-func newBoundedSink(stdout, stderr io.Writer, onRendered func(string), onStarted func(), startedAt ...func(int64)) *boundedSink {
+func newBoundedSink(stdout, stderr io.Writer, onRendered func(string), callbacks ...any) *boundedSink {
+	var onStarted func()
 	var onStartedAt func(int64)
-	if len(startedAt) > 0 {
-		onStartedAt = startedAt[0]
+	for _, callback := range callbacks {
+		switch typed := callback.(type) {
+		case func():
+			onStarted = typed
+		case func(int64):
+			onStartedAt = typed
+		}
 	}
 	return &boundedSink{
 		stdout:      stdout,
