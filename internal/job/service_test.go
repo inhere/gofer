@@ -388,6 +388,23 @@ func TestValidateConfigDefaultsAndAgentArgsGate(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsRawCmdForNonExecAgent(t *testing.T) {
+	root := t.TempDir()
+	cfg := &config.Config{
+		Projects: map[string]config.ProjectConfig{"open": {HostPath: root}},
+		Agents: map[string]config.AgentConfig{
+			"codex": {Type: agent.TypeCLIAgent, Command: "go", Args: []string{"env"}},
+		},
+	}
+	s := newTestService(t, root)
+	_, err := s.Validate(cfg, JobRequest{
+		ProjectKey: "open", Agent: "codex", Runner: "local", Cmd: []string{"go", "version"},
+	}, false)
+	if err == nil || !strings.Contains(err.Error(), "--prompt") || !strings.Contains(err.Error(), "-f") {
+		t.Fatalf("raw cmd for cli-agent should explain prompt/file alternatives, got %v", err)
+	}
+}
+
 func TestSubmitCLIAgentArgsFlowToRenderedCommand(t *testing.T) {
 	root := t.TempDir()
 	cfg := &config.Config{

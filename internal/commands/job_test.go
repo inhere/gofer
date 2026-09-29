@@ -104,6 +104,13 @@ func TestJobRunPromptFlag(t *testing.T) {
 	}
 }
 
+func TestJobRunRawCmdRejectsNonExecAgent(t *testing.T) {
+	err := rejectRawCmdForAgent("codex", []string{"go", "version"})
+	if err == nil || !strings.Contains(err.Error(), "--prompt") || !strings.Contains(err.Error(), "-f") {
+		t.Fatalf("raw cmd for non-exec agent should explain prompt/file alternatives, got %v", err)
+	}
+}
+
 // TestJobRunRoleFlags verifies the E35 --role / --system-prompt flags bind onto
 // jobRunOpts (so runJobRun threads them into the JobRequest).
 func TestJobRunRoleFlags(t *testing.T) {
