@@ -3,6 +3,12 @@ set -euo pipefail
 
 # U5 real-process smoke. Linux/macOS runner only; Windows supervision should run
 # this script inside the project container because it needs bash, git and curl.
+case "$(uname -s)" in
+  MINGW*|MSYS*|CYGWIN*)
+    echo "SKIP dirlock real-process smoke on Windows; run it in the Linux project container"
+    exit 0
+    ;;
+esac
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 BASE="$(mktemp -d "${TMPDIR:-/tmp}/gofer-dirlock-smoke.XXXXXX")"
 REPO="$BASE/repo"; CFGDIR="$BASE/config"; CFG="$BASE/server.yaml"; BIN="$BASE/gofer"
