@@ -43,7 +43,7 @@ curl -fsS "http://$ADDR/health" >/dev/null
 
 run_job() {
   local lock="$1" marker="$2"
-  "$BIN" --server "http://$ADDR" --token "$TOKEN" job run --project smoke --agent exec --runner local --cwd . --lock "$lock" --sync --wait-timeout 10 -- sh -c "date +%s%N > markers/${marker}.start; sleep 2; date +%s%N > markers/${marker}.end"
+  "$BIN" job run --project smoke --agent exec --runner local --cwd . --lock "$lock" --sync --wait-timeout 10 -- sh -c "date +%s%N > markers/${marker}.start; sleep 2; date +%s%N > markers/${marker}.end"
 }
 
 run_job a parallel-a >"$BASE/parallel-a.log" 2>&1 & p1=$!
@@ -65,12 +65,12 @@ if [ "$a0" -lt "$b1" ] && [ "$b0" -lt "$a1" ]; then
   echo "same lock jobs overlapped: $a0-$a1 $b0-$b1" >&2; exit 1
 fi
 
-if "$BIN" --server "http://$ADDR" --token "$TOKEN" job run --project smoke --agent exec --runner local --cwd . --sync --wait-timeout 10 -- sh -c 'exit 0' >"$BASE/repo-rejected.log" 2>&1; then
+if "$BIN" job run --project smoke --agent exec --runner local --cwd . --sync --wait-timeout 10 -- sh -c 'exit 0' >"$BASE/repo-rejected.log" 2>&1; then
   echo "repo-mode submit without lock unexpectedly succeeded" >&2; exit 1
 fi
 grep -q -- 'repo lock mode requires an explicit lock declaration' "$BASE/repo-rejected.log"
 grep -q -- 'a' "$BASE/repo-rejected.log"
 grep -q -- 'b' "$BASE/repo-rejected.log"
-"$BIN" --server "http://$ADDR" --token "$TOKEN" job run --project smoke --agent exec --runner local --cwd . --lock a --sync --wait-timeout 10 -- sh -c 'exit 0' >/dev/null
+"$BIN" job run --project smoke --agent exec --runner local --cwd . --lock a --sync --wait-timeout 10 -- sh -c 'exit 0' >/dev/null
 
 echo "PASS dirlock real-process smoke addr=$ADDR"
