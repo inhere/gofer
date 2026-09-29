@@ -19,6 +19,7 @@ runners:  {...}   # runner 名册: local / peer-http / worker
 projects:
   my-project1:
     host_path: D:/projects/my-project1        # 逻辑路径(server 视角; 也是下发给 worker 的 host_path)
+    # dir_lock_mode: repo                    # cwd 下有嵌套仓库时，可写 job 必须 --lock 或显式 shared/exclusive
     container_path: /work/projects/my-project1 # 容器执行视角(server path_view=container 时用)
     default_agent: codex
     allowed_agents: [codex, claude, exec]      # 准入白名单(空=放行全部)
@@ -106,6 +107,7 @@ agents:
   codex:
     type: cli-agent
     command: codex
+    global_args: [-s, danger-full-access, -a, never] # 命令级选项；续接时仍放在 exec resume 前
     args: [exec, "{{prompt}}"]          # 批处理 argv(job run); 模板: {{prompt}} {{cwd}} {{job_id}} {{result_dir}}
     interactive_args: []                # pty argv(job run --interactive); [] = 裸 TUI; 有此字段 = 支持交互
     detect: { command: codex, args: [--version] }   # 探测本机是否装了

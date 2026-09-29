@@ -277,6 +277,7 @@ projects:
   # First project: the workspace root.
   my-project1:
     host_path: D:/projects/my-project1
+    # dir_lock_mode: repo              # 顶层含嵌套仓库时要求可写 job 声明 --lock/shared/exclusive
     container_path: /work/projects/my-project1
     exchange_subdir: tmp
     result_subdir: gofer
@@ -388,6 +389,8 @@ agents:
   codex:
     type: cli-agent
     command: codex
+    # Options that belong before the subcommand are reused by resume too.
+    global_args: [-s, danger-full-access, -a, never]
     args: [exec, "{{prompt}}"]        # batch: job run
     interactive_args: []              # pty: job run --interactive (bare TUI)
     # max_concurrent: 2               # JOB-11: 该 agent 同时在跑的 job 上限(超出的排队, 不拒绝); 0/不写=不限

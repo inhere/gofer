@@ -108,6 +108,7 @@ guards:
 #   claude:
 #     type: cli-agent
 #     command: claude
+#     global_args: [] # 子命令前的命令级选项；续接时会复用
 #     args: ["-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"]
 
 # log: worker JSONL logs default to <config-dir>/run/worker-<worker_id>.log.

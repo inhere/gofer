@@ -92,7 +92,7 @@ job 状态里的 **`recovering`** 不是失败：执行它的 worker 断线了�
 
 - `exec`：直接跑命令，命令放 `--` 之后：`-a exec -- <cmd> <args...>`。
 - `codex` / `claude` / `omp`：跑 AI agent，提示词用 `--prompt "..."` 或任务文件 `-f task.md`（YAML frontmatter + 正文）。
-- **一个 agent 两种启动方式**：agent 定义的 `args` 是批处理 argv（`job run`），`interactive_args` 是 pty argv（`job run --interactive`，`[]` = 裸 TUI）。提交时若被拒：`agent "x" has no batch mode` = 该定义只写了 `interactive: true`（旧的 tty-* 写法），只能 `--interactive` 提交；`has no interactive mode` = 没写 `interactive_args`；`project "p" does not allow interactive jobs` = 项目没开 `allow_interactive`。`gofer agent list` 的 `batch/interactive` 两列就是能力位。
+- **一个 agent 两种启动方式**：agent 定义的 `args` 是批处理 argv（`job run`），`interactive_args` 是 pty argv（`job run --interactive`，`[]` = 裸 TUI）。`global_args` 放命令级、子命令前的选项，普通调用、手动/自动续接和工作台续聊都会复用；未配置时，gofer 只会从 `args` 中已知的续接子命令（如 `exec`）之前提取前缀，无法确认时不会猜测。提交时若被拒：`agent "x" has no batch mode` = 该定义只写了 `interactive: true`（旧的 tty-* 写法），只能 `--interactive` 提交；`has no interactive mode` = 没写 `interactive_args`；`project "p" does not allow interactive jobs` = 项目没开 `allow_interactive`。`gofer agent list` 的 `batch/interactive` 两列就是能力位。
 
 **runner**（`--runner`，默认 `server`；`local` 为兼容别名）：
 
@@ -171,7 +171,7 @@ server/worker/forwarder 都写 JSONL 文件日志（轮转、脱敏）：server 
 
 只读任务务必显式带 `--read-only`。如果 job 显示 `waiting_dir`，说明目录被另一个可写 job 占用；顶层目录派活时用 `--lock <子项目>` 收窄范围，也可以继续等待，或改用 `--shared-dir` 放弃独占、`--worktree` 使用隔离目录。
 
-顶层目录包含多个仓库时，优先为每个 job 显式声明 `--lock <子项目>`；项目显式开启 `dir_lock_mode: repo` 后才会按运行中首次触碰的嵌套仓库动态占锁，冲突会告警并记录事件但不会强行中断 agent。
+顶层目录包含多个仓库时，优先为每个 job 显式声明 `--lock <子项目>`。项目显式开启 `dir_lock_mode: repo` 后，cwd 下存在嵌套仓库的可写 job 必须声明一个或多个 `--lock`，或明确使用 `--shared-dir` / `--exclusive-dir`；否则提交会列出可选仓库并拒绝。只读、interactive、worktree job 不受此准入限制；没有嵌套仓库时沿用 cwd 锁行为。
 
 ```bash
 gofer job run -p <project> -a codex --read-only --prompt "只做审查：列出这次改动的问题，不要修改任何文件"
