@@ -136,7 +136,7 @@ async function saveMemory(): Promise<void> {
   if (!selectedMemory.value) return
   try {
     if (memoryScope.value === 'repo') await updateTrackerMemory(trackerId.value, selectedMemory.value.id, { content: memoryDraft.value, expected_rev: selectedMemory.value.rev })
-    else await updateScopedMemory(memoryScope.value, memoryScope.value === 'project' ? projectKey.value : '', selectedMemory.value.id, { content: memoryDraft.value })
+    else await updateScopedMemory(memoryScope.value, memoryScope.value === 'project' ? projectKey.value : '', selectedMemory.value.id, { content: memoryDraft.value, tags: selectedMemory.value.data.tags ?? [] })
     selectedMemory.value = null
     await load()
   } catch (e) {
