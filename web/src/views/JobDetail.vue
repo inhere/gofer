@@ -1474,6 +1474,9 @@ onUnmounted(() => {
           <template v-if="job.waiting_on_job">· 等待目录锁，持有者 {{ job.waiting_on_job }}</template>
         </span>
       </div>
+      <div v-if="job.status === 'waiting_dir'" class="waiting-dir-help mono">
+        被目录锁占用；只读任务可加 <code>--read-only</code>，或用 <code>--shared-dir</code> 放弃独占、<code>--worktree</code> 隔离。
+      </div>
       <!-- 可靠重试（AUTO-03）：这个 job 失败后服务端还排着重试，点出第几次/上限与下次时刻；
            多条待发只报最先那条，(+N) 表示后面还排着几条。没有待发重试则整条不渲染。 -->
       <div v-if="retryHint" class="meta-item">
@@ -1881,7 +1884,7 @@ onUnmounted(() => {
         <!-- 上传：执行机在 agent 起跑前放进 dest（cwd 相对）的文件；失败的会说明原因
              （此时 agent 没跑、job 已 failed）。 -->
         <div v-if="xferUploads.length > 0" class="xfer-part">
-          <p class="diff-note mono">上传（{{ xferUploads.length }}）· 起跑前放进执行机</p>
+          <p class="diff-note mono">随 job 上传的文件（{{ xferUploads.length }}）· 起跑前放进执行机</p>
           <ul class="artifact-list">
             <li v-for="(u, i) in xferUploads" :key="`up-${i}-${u.dest}`" class="artifact-row">
               <span class="artifact-name mono" :title="u.dest">{{ u.dest }}</span>
@@ -2862,6 +2865,20 @@ onUnmounted(() => {
   color: var(--fail);
   font-size: 11px;
   margin: 6px 0 0;
+}
+.waiting-dir-help {
+  margin: 4px 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  color: var(--queue);
+  background: var(--panel);
+}
+.waiting-dir-help code {
+  color: var(--phosphor);
+  background: var(--term-bg);
+  padding: 1px 4px;
+  border-radius: var(--radius);
 }
 
 /* 文件传输（XFER-01 X2）：一块里三段（上传/收集/跳过），段间留白，段内复用产物行样式。 */

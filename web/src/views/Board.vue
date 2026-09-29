@@ -29,6 +29,7 @@ const agentFilter = ref('')
 const runnerFilter = ref('')
 const callerFilter = ref('')
 const sinceFilter = ref<'' | '1h' | '24h' | '7d'>('')
+const hasUploadFilter = ref(false)
 const projectKeys = ref<string[]>([])
 // F-b：plan 过滤是输入框（输入 plan id，后端按 q 前缀匹配），不再全量 listPlans 后渲染
 // 下拉——plan 会越来越多。recentPlans 是"最近 5 个 open plan"的轻量提示，只在输入框
@@ -80,6 +81,7 @@ const activeFilterCount = computed(() =>
     runnerFilter.value.trim(),
     callerFilter.value.trim(),
     sinceFilter.value,
+    hasUploadFilter.value,
   ].filter(Boolean).length,
 )
 
@@ -241,7 +243,7 @@ async function fetchJobs(): Promise<void> {
       limit: PAGE_SIZE,
       offset: offset.value,
     })
-    jobs.value = resp.jobs ?? []
+    jobs.value = (resp.jobs ?? []).filter((job) => !hasUploadFilter.value || (job.xfer?.uploads?.length ?? 0) > 0)
     error.value = ''
     lastRefreshedAt.value = Date.now()
   } catch (e) {
@@ -308,6 +310,7 @@ watch(
     runnerFilter,
     callerFilter,
     sinceFilter,
+    hasUploadFilter,
   ],
   () => {
     offset.value = 0
@@ -371,6 +374,7 @@ function clearFilters(): void {
   runnerFilter.value = ''
   callerFilter.value = ''
   sinceFilter.value = ''
+  hasUploadFilter.value = false
   if (projectFilter.value || planFilter.value) {
     void router.push({ path: '/board' })
   }
@@ -456,6 +460,7 @@ onUnmounted(() => {
             </option>
           </select>
         </label>
+        <label class="filter filter-check"><input v-model="hasUploadFilter" type="checkbox" class="filter-checkbox" /><span class="filter-label">含上传</span></label>
         <label class="filter">
           <span class="filter-label">plan</span>
           <input
@@ -588,6 +593,8 @@ onUnmounted(() => {
               :title="`channel: ${job.channel}`"
             >{{ job.channel }}</span>
           </span>
+          <span v-if="job.xfer?.uploads?.length" class="job-badge job-badge--xfer mono" title="随 job 上传的文件">附件 {{ job.xfer.uploads.length }}</span>
+          <span v-if="job.status === 'waiting_dir'" class="job-badge job-badge--waiting mono" :title="`被 ${job.waiting_on_job || '其他 job'} 占用；可用 --read-only / --shared-dir / --worktree`">目录锁：{{ job.waiting_on_job || '占用中' }}</span>
         </span>
         <span class="col-proj mono">{{ job.project_key }}</span>
         <span class="col-agent mono" :title="job.resume_agent ? '续接，经 exec 载体执行' : undefined">{{ job.resume_agent ? `${job.resume_agent} ↻` : job.agent }}</span>
@@ -733,6 +740,12 @@ onUnmounted(() => {
   align-items: center;
   gap: 6px;
   color: var(--queue);
+}
+.filter-check {
+  min-height: 28px;
+}
+.filter-checkbox {
+  accent-color: var(--phosphor);
 }
 .filter-label {
   font-size: 11px;
@@ -934,6 +947,14 @@ onUnmounted(() => {
 .job-badge--verify {
   color: var(--fail);
   border-color: var(--fail);
+}
+.job-badge--xfer {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
+}
+.job-badge--waiting {
+  color: var(--run);
+  border-color: var(--run);
 }
 .col-proj {
   color: var(--paper);

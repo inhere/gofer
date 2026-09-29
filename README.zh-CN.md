@@ -24,6 +24,7 @@
 - **断线恢复**：worker 连接抖动或 serve 重启时，在飞 job 进入 `recovering`，同一 worker 进程在窗口内重连即续传日志、补发结果，不再一断就 failed。
 - **受管 worktree**：`--worktree` 让每个 job 在自己的 git worktree 里跑，并行 agent 互不干扰。
 - **同目录串行 + 输出停滞**：两个**可写 agent job** 不会同时改同一个工作目录——后来者停在非终态 `waiting_dir`（等同排队：可取消、统计并入 queued，`job.waiting_dir {holder_job}` 点名在等谁），前一个结束即接手；exec 与只读 job 默认共享，`--exclusive-dir` / `--shared-dir` / `server.dir_lock: false` 可反转，`agents.<k>.max_concurrent` 给单个 agent 限并发。跑着的 job 若 `server.stall_timeout_sec`（默认 900s，exec 默认关、可按 agent 覆盖、单 job `--stall-timeout`/`--no-stall`）内**一个字都没输出**，即被杀为 `failed: stalled: no output for Ns` 并按 **transient** 归类——于是自动续投/故障转移接管，而不是白等到 deadline。
+- **等待目录锁**：`waiting_dir` 会在 `job show`、Web job 详情和 Board 中显示占用者。只读任务务必带 `--read-only`；也可以用 `--shared-dir` 放弃独占，或用 `--worktree` 隔离目录。
 - **续跑**：`job resume` 让 codex/claude 带着自己的会话上下文接着上次中断的地方继续。
 - **隧道**：`gofer tunnel` 经 worker 做受白名单约束的 TCP/UDP 端口转发（如容器 → 车间 PLC/HMI），三端日志用同一 `tunnel_id` 关联并带分段时延。
 - **人机协作**：运行中提问（`pending_interaction`）、`plan` + todo 进度看板、`ask_human` 阻塞决策、终端会话中继（人离开电脑时自动布防，web/手机回复注入原会话）。
