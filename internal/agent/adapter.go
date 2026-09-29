@@ -91,7 +91,7 @@ func BuildFrom(cfg *config.Config, agentKey, prompt string, cmd []string, vars V
 		}
 		return Resolved{
 			Command: ac.Command,
-			Args:    append(append(append([]string{}, GlobalArgs(ac)...), Render(ac.Args, vars)...), opts.AgentArgs...),
+			Args:    append(append(append([]string{}, ac.GlobalArgs...), Render(ac.Args, vars)...), opts.AgentArgs...),
 			Env:     copyEnv(ac.Env),
 		}, nil
 
@@ -108,7 +108,11 @@ func BuildFrom(cfg *config.Config, agentKey, prompt string, cmd []string, vars V
 			argvTemplate = ac.InteractiveArgs
 		}
 		rendered := Render(argvTemplate, vars)
-		args := append([]string{}, GlobalArgs(ac)...)
+		// Only an EXPLICIT global_args is prepended here. The inferred prefix from
+		// GlobalArgs is for resume templates only: in a legacy config those options
+		// are already inside args, so prepending them again duplicated them
+		// (codex: "--sandbox cannot be used multiple times").
+		args := append([]string{}, ac.GlobalArgs...)
 		args = append(args, rendered...)
 		args = append(args, opts.AgentArgs...)
 		// --read-only: the sandbox flags ride at the END of whichever argv shape was
@@ -127,8 +131,8 @@ func BuildFrom(cfg *config.Config, agentKey, prompt string, cmd []string, vars V
 	}
 }
 
-// GlobalArgs returns command-wide options that must precede a CLI subcommand.
-// Explicit global_args wins. For existing configurations that kept those options
+// GlobalArgs returns command-wide options that must precede a CLI subcommand in a
+// RESUME argv (the initial argv uses only an explicit global_args). Explicit global_args wins. For existing configurations that kept those options
 // in args, infer the prefix before the first token used as the batch resume
 // subcommand (for example codex's "exec"). Configs with an unknown resume shape
 // are left unchanged rather than guessing which positional token is a subcommand.

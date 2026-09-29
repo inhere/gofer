@@ -274,3 +274,36 @@ func TestDetectUnknownAgent(t *testing.T) {
 		t.Fatalf("unknown agent should be unavailable with error: %+v", res)
 	}
 }
+
+// TestLegacyPrefixNotDuplicatedOnInitialRun: with no global_args, the options that
+// sit before the subcommand in args are inferred ONLY for resume argv. The initial
+// argv must keep args as-is; prepending the inferred prefix doubled them and codex
+// refused to start ("--sandbox cannot be used multiple times").
+func TestLegacyPrefixNotDuplicatedOnInitialRun(t *testing.T) {
+	legacy := config.AgentConfig{
+		Type: TypeCLIAgent, Command: "codex",
+		Args:          []string{"-s", "danger-full-access", "-a", "never", "exec", "{{prompt}}"},
+		SessionResume: []string{"exec", "resume", "{{session_id}}", "{{prompt}}"},
+	}
+	cfg := &config.Config{Agents: map[string]config.AgentConfig{"codex": legacy}}
+	res, err := BuildFrom(cfg, "codex", "hi", nil, Vars{}, BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{"-s", "danger-full-access", "-a", "never", "exec", "hi"}
+	if !reflect.DeepEqual(res.Args, want) {
+		t.Fatalf("legacy initial argv = %#v, want %#v", res.Args, want)
+	}
+
+	explicit := legacy
+	explicit.GlobalArgs = []string{"-s", "danger-full-access", "-a", "never"}
+	explicit.Args = []string{"exec", "{{prompt}}"}
+	cfg.Agents["codex"] = explicit
+	res, err = BuildFrom(cfg, "codex", "hi", nil, Vars{}, BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(res.Args, want) {
+		t.Fatalf("global_args initial argv = %#v, want %#v", res.Args, want)
+	}
+}
