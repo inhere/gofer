@@ -24,7 +24,7 @@ projects:
 EOF
 export GOFER_SERVER_ADDR="http://$ADDR" GOFER_SERVER_TOKEN="$TOKEN"
 "$BIN" serve -c "$CFG" >"$BASE/serve.log" 2>&1 & PID=$!
-for _ in $(seq 1 40); do curl -fsS "http://$ADDR/health" >/dev/null && break; sleep .25; done
+for _ in $(seq 1 40); do curl -fsS "http://$ADDR/health" >/dev/null 2>&1 && break; sleep .25; done
 curl -fsS "http://$ADDR/health" >/dev/null
 
 "$BIN" -c "$CFG" memory set --server "http://$ADDR" --token "$TOKEN" --global --tag agent:claude smoke-note "claude memory"
