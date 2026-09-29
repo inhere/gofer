@@ -35,7 +35,10 @@ TRACKER_ID="$(awk '/tracker_id:/ {print $2}' "$REPO/.gofer/tracker/config.yaml")
 kill -STOP "$PID"; (cd "$REPO" && "$BIN" issue create -t offline --type task >/dev/null && "$BIN" memory set offline value >/dev/null); kill -CONT "$PID"
 (cd "$REPO" && "$BIN" repo sync >/dev/null)
 ISSUE_ID="$(jq -r .id "$REPO/.gofer/tracker/issues.jsonl")"
-curl -fsS -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' "http://$ADDR/v1/tracker/issues/$ISSUE_ID?tracker_id=$TRACKER_ID" -d '{"status":"blocked","expected_rev":1}' >/dev/null
+# The offline auto-sync request may still be delivered once the server resumes
+# (at-least-once), so read the current rev instead of assuming 1.
+ISSUE_REV="$(curl -fsS -H "Authorization: Bearer $TOKEN" "http://$ADDR/v1/tracker/issues?tracker_id=$TRACKER_ID" | jq -r --arg id "$ISSUE_ID" '.issues[]|select(.id==$id)|.rev')"
+curl -fsS -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' "http://$ADDR/v1/tracker/issues/$ISSUE_ID?tracker_id=$TRACKER_ID" -d "{\"status\":\"blocked\",\"expected_rev\":$ISSUE_REV}" >/dev/null
 curl -fsS -X POST -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' "http://$ADDR/v1/tracker/issues/$ISSUE_ID/comments?tracker_id=$TRACKER_ID" -d '{"text":"smoke comment"}' >/dev/null
 curl -fsS -X PUT -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' "http://$ADDR/v1/tracker/memories/offline?tracker_id=$TRACKER_ID" -d '{"content":"edited"}' >/dev/null
 (cd "$REPO" && "$BIN" repo sync >/dev/null)
