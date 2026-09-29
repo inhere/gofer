@@ -73,7 +73,7 @@ func buildHubSideAt(t *testing.T, host, root string) *hubSide {
 				// agent allowlist before dispatch; the worker resolves/executes it);
 				// acpbot for the GATE-01 permission-interaction e2e (same rule); codex
 				// for the SUP-01 E usage e2e (the worker's codex stand-in).
-				AllowedAgents:  []string{"exec", "wrapper", "acpbot", "codex"},
+				AllowedAgents:  []string{"exec", "wrapper", "acpbot", "codex", "slow"},
 				AllowedRunners: []string{"remote-w1"},
 				AllowExec:      true,
 			},
@@ -127,6 +127,8 @@ func buildWorkerSideJobs(t *testing.T, hubURL string) (*worker.Client, *job.Serv
 // workerSideOpts tunes the worker client an e2e test stands up. The zero value is the
 // production wiring (default backoff/heartbeat, time-seeded jitter).
 type workerSideOpts struct {
+	// ExecMaxConcurrent limits the worker-local exec agent for queue timing tests.
+	ExecMaxConcurrent int
 	// InitialBackoff/MaxBackoff override the reconnect backoff (0 = package default).
 	InitialBackoff time.Duration
 	MaxBackoff     time.Duration
@@ -161,7 +163,7 @@ func buildWorkerSideURLs(t *testing.T, hubURLs []string, opts workerSideOpts) (*
 		Projects: map[string]config.ProjectConfig{
 			"alpha": {
 				HostPath:       host,
-				AllowedAgents:  []string{"exec", "codex"},
+				AllowedAgents:  []string{"exec", "codex", "slow"},
 				AllowedRunners: []string{"local"},
 				AllowExec:      true,
 			},
@@ -175,6 +177,12 @@ func buildWorkerSideURLs(t *testing.T, hubURLs []string, opts workerSideOpts) (*
 		},
 	}
 	config.ApplyDefaults(cfg)
+	if opts.ExecMaxConcurrent > 0 {
+		cfg.Agents["slow"] = config.AgentConfig{Type: agent.TypeExec, MaxConcurrent: opts.ExecMaxConcurrent}
+		projectCfg := cfg.Projects["alpha"]
+		projectCfg.MaxConcurrentJobs = opts.ExecMaxConcurrent
+		cfg.Projects["alpha"] = projectCfg
+	}
 	projReg := project.NewRegistry(cfg, "")
 	agentReg := agent.NewRegistry(cfg)
 	st, err := jobstore.Open(root + "/worker.db")
@@ -194,7 +202,7 @@ func buildWorkerSideURLs(t *testing.T, hubURLs []string, opts workerSideOpts) (*
 		URLs:           urls,
 		Token:          e2eToken,
 		Projects:       []string{"alpha"},
-		Agents:         []string{"exec", "codex"},
+		Agents:         []string{"exec", "codex", "slow"},
 		InitialBackoff: opts.InitialBackoff,
 		MaxBackoff:     opts.MaxBackoff,
 		Rng:            opts.Rng,
