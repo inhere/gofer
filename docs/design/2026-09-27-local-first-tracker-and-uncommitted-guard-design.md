@@ -244,3 +244,5 @@ curl /v1/tracker/repos
 本次真实进程验证了 serve 编排后的 `/v1/tracker/*` 路由可用、mirror repo 可登记，以及 repo sync 不传 `--server` 时可通过环境中的 server 地址和 token 连接。完整 HTTP 编辑、再次 sync 拉回和无变化二次 sync 仍由固定 httptest 测试覆盖。
 
 P4 server mirror 返工记录：镜像表增加 tracker 级全局 `changed_seq`，cursor 按该序号拉取，逐条 `rev` 只负责乐观并发；Web issue/memory 编辑支持部分字段更新和 `expected_rev`，冲突返回 409，server 为 Web 编辑盖 UTC `updated_at/updated_by`。评论契约统一为 `{"text":"..."}`，Web client、handler 和测试一致。sync 推送保留客户端 body 内的 `updated_at` 作为字段修改时间，server 表列时间用于接收记录；Web 编辑才由 server 盖字段时间。新增真实进程脚本：`scripts/smoke/tracker/run-smoke.sh`；Windows 主机不执行 Bash smoke，容器/Linux 运行。
+
+memory 拉回修正：三方合并先按 `local==base` 取 remote，再单独应用 tombstone 胜负；不得用 tombstone 辅助合并结果覆盖普通字段合并结果。游标只在 issues/memories/base 全部成功写盘后写入 sync-status；失败路径保留旧 cursor。新增 `TestSyncPullsWebMemoryEdit` 覆盖真实 HTTP Web memory 编辑后下一次 sync 拉回。
