@@ -107,7 +107,8 @@ func (x sessionInjector) PlanTakeover(agentKey, projectKey, runner, sessionID st
 		return plan
 	}
 	if ac, ok := x.agents.Get(agentKey); ok && ac.Type == agent.TypeCLIAgent && len(ac.SessionResumeInteractive) > 0 {
-		plan.Argv = append([]string{ac.Command},
+		plan.Argv = append([]string{ac.Command}, agent.GlobalArgs(ac)...)
+		plan.Argv = append(plan.Argv,
 			agent.Render(ac.SessionResumeInteractive, agent.Vars{SessionID: sessionID})...)
 	}
 	cfg := x.projects.Config()

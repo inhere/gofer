@@ -185,7 +185,9 @@ func (s *Service) resumeJob(jobID, prompt, runner, callerID string, autoAttempt 
 	// argv = [agentConfig.Command] + rendered SessionResume (design T2.1). The new
 	// job runs as the built-in exec agent so the resume argv executes verbatim; the
 	// agent's own Command (e.g. "claude"/"codex") is argv[0].
-	argv := append([]string{ac.Command}, agent.Render(tmpl, agent.Vars{SessionID: src.SessionID, Prompt: prompt})...)
+	argv := []string{ac.Command}
+	argv = append(argv, agent.GlobalArgs(ac)...)
+	argv = append(argv, agent.Render(tmpl, agent.Vars{SessionID: src.SessionID, Prompt: prompt})...)
 	// bd h-aii-0ql3: a read-only source continues read-only. The carrier is an exec job,
 	// whose argv is passed through verbatim (BuildFrom never appends for exec), so the
 	// SOURCE agent's sandbox flags are baked in here — the continuation cannot be

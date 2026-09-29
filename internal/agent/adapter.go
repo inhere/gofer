@@ -2,6 +2,7 @@ package agent
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/inhere/gofer/internal/config"
 )
@@ -90,7 +91,7 @@ func BuildFrom(cfg *config.Config, agentKey, prompt string, cmd []string, vars V
 		}
 		return Resolved{
 			Command: ac.Command,
-			Args:    append(append([]string{}, Render(ac.Args, vars)...), opts.AgentArgs...),
+			Args:    append(append(append([]string{}, GlobalArgs(ac)...), Render(ac.Args, vars)...), opts.AgentArgs...),
 			Env:     copyEnv(ac.Env),
 		}, nil
 
@@ -107,7 +108,8 @@ func BuildFrom(cfg *config.Config, agentKey, prompt string, cmd []string, vars V
 			argvTemplate = ac.InteractiveArgs
 		}
 		rendered := Render(argvTemplate, vars)
-		args := append([]string{}, rendered...)
+		args := append([]string{}, GlobalArgs(ac)...)
+		args = append(args, rendered...)
 		args = append(args, opts.AgentArgs...)
 		// --read-only: the sandbox flags ride at the END of whichever argv shape was
 		// chosen (batch or interactive), exactly like agent_args.
@@ -123,6 +125,30 @@ func BuildFrom(cfg *config.Config, agentKey, prompt string, cmd []string, vars V
 	default:
 		return Resolved{}, fmt.Errorf("agent %q has unsupported type %q", agentKey, ac.Type)
 	}
+}
+
+// GlobalArgs returns command-wide options that must precede a CLI subcommand.
+// Explicit global_args wins. For existing configurations that kept those options
+// in args, infer the prefix before the first token used as the batch resume
+// subcommand (for example codex's "exec"). Configs with an unknown resume shape
+// are left unchanged rather than guessing which positional token is a subcommand.
+func GlobalArgs(ac config.AgentConfig) []string {
+	if len(ac.GlobalArgs) > 0 {
+		return append([]string(nil), ac.GlobalArgs...)
+	}
+	if len(ac.SessionResume) == 0 || len(ac.Args) == 0 {
+		return nil
+	}
+	subcommand := ac.SessionResume[0]
+	if subcommand == "" || subcommand[0] == '-' || strings.Contains(subcommand, "{{") {
+		return nil
+	}
+	for i, arg := range ac.Args {
+		if arg == subcommand {
+			return append([]string(nil), ac.Args[:i]...)
+		}
+	}
+	return nil
 }
 
 // copyEnv returns a shallow copy of m (nil-safe) so callers can mutate the

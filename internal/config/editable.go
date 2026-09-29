@@ -127,6 +127,7 @@ var fieldPolicies = map[string]FieldPolicy{
 	"agents.*.type":                       {Editable: true},
 	"agents.*.command":                    {Editable: true},
 	"agents.*.args":                       {Editable: true},
+	"agents.*.global_args":                {Editable: true},
 	"agents.*.interactive_args":           {Editable: true},
 	"agents.*.interactive":                {Editable: true},
 	"agents.*.read_only_args":             {Editable: true},

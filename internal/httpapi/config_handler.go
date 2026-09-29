@@ -217,6 +217,7 @@ type configAgentView struct {
 	Interactive    bool             `json:"interactive"`
 	Command        string           `json:"command,omitempty"`
 	Args           []string         `json:"args"`
+	GlobalArgs     []string         `json:"global_args"`
 	EnvKeys        []string         `json:"env_keys"`
 	AllowRawCmd    bool             `json:"allow_raw_cmd"`
 	Detect         detectConfigView `json:"detect"`
@@ -564,6 +565,7 @@ func buildAgentViews(agents map[string]config.AgentConfig, injected map[string]b
 			Interactive:    ac.Interactive,
 			Command:        ac.Command,
 			Args:           nonNil(ac.Args),
+			GlobalArgs:     nonNil(ac.GlobalArgs),
 			EnvKeys:        sortedMapKeys(ac.Env),
 			AllowRawCmd:    ac.AllowRawCmd,
 			Detect:         detectConfigView{Command: ac.Detect.Command, Args: nonNil(ac.Detect.Args)},

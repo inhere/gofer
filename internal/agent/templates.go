@@ -49,6 +49,7 @@ var builtinTemplates = map[string]config.AgentConfig{
 	"codex": {
 		Type:            TypeCLIAgent,
 		Command:         "codex",
+		GlobalArgs:      []string{"-s", "danger-full-access", "-a", "never"},
 		Args:            []string{"exec", "{{prompt}}"},
 		InteractiveArgs: []string{},
 	},

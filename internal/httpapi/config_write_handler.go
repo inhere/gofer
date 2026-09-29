@@ -529,7 +529,7 @@ func applyAgentField(ac *config.AgentConfig, f configBodyField) error {
 			return err
 		}
 		ac.Command = v
-	case "args", "read_only_args", "session_inject", "session_resume",
+	case "args", "global_args", "read_only_args", "session_inject", "session_resume",
 		"session_resume_interactive", "system_inject", "transient_error_patterns",
 		"fallback_agents", "ndjson_keep":
 		v, err := fieldValue[[]string](f)
@@ -539,6 +539,8 @@ func applyAgentField(ac *config.AgentConfig, f configBodyField) error {
 		switch f.name {
 		case "args":
 			ac.Args = v
+		case "global_args":
+			ac.GlobalArgs = v
 		case "read_only_args":
 			ac.ReadOnlyArgs = v
 		case "session_inject":
