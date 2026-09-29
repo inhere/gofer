@@ -123,10 +123,19 @@ func (c *Client) Token() string {
 // so callers may pass a bare `host:port`. When token is empty no Authorization
 // header is sent (the server must then allow empty-token auth).
 func New(baseURL, token string) *Client {
+	return NewWithTimeout(baseURL, token, 30*time.Second)
+}
+
+// NewWithTimeout is New with a caller-selected HTTP deadline, used by
+// best-effort session-prime lookups so an unreachable server cannot delay a hook.
+func NewWithTimeout(baseURL, token string, timeout time.Duration) *Client {
+	if timeout <= 0 {
+		timeout = 30 * time.Second
+	}
 	return &Client{
 		baseURL: NormalizeBaseURL(baseURL),
 		token:   token,
-		http:    &http.Client{Timeout: 30 * time.Second},
+		http:    &http.Client{Timeout: timeout},
 	}
 }
 

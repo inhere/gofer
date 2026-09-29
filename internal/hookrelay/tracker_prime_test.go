@@ -61,10 +61,10 @@ func TestInstallTrackerPrimeReplacesAnyBdPrime(t *testing.T) {
 			t.Fatalf("empty SessionStart group left behind:\n%s", raw)
 		}
 		for _, h := range group.Hooks {
-			switch h.Command {
-			case trackerPrimeCommand:
+			switch {
+			case strings.HasPrefix(h.Command, trackerPrimePrefix):
 				primes++
-			case "gofer hook claude":
+			case h.Command == "gofer hook claude":
 				relay++
 			}
 		}

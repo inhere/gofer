@@ -1,18 +1,51 @@
 package commands
 
 import (
+	"fmt"
 	"github.com/gookit/gcli/v3"
+	"github.com/inhere/gofer/internal/client"
+	"github.com/inhere/gofer/internal/config"
 	"github.com/inhere/gofer/internal/tracker"
 )
 
 func NewMemoryCmd() *gcli.Command {
 	var trackerPath, setTags string
 	var listTags gcli.Strings
-	var asJSON bool
+	var asJSON, globalScope bool
+	var projectScope string
 	bind := func(c *gcli.Command) {
 		bindConfigFlag(c)
+		bindServerFlags(c)
 		c.StrOpt(&trackerPath, "tracker", "", "", "explicit .gofer/tracker directory")
 		c.BoolOpt(&asJSON, "json", "", false, "print JSON")
+		c.BoolOpt(&globalScope, "global", "", false, "use server global memory scope")
+		c.StrOpt(&projectScope, "project", "", "", "use server project memory scope")
+	}
+	scope := func() (string, string, error) {
+		if globalScope && projectScope != "" {
+			return "", "", fmt.Errorf("--global and --project are mutually exclusive")
+		}
+		if globalScope {
+			return "global", "", nil
+		}
+		if projectScope != "" {
+			return "project", projectScope, nil
+		}
+		return "", "", nil
+	}
+	scopedClient := func() (*client.Client, string, string, error) {
+		scopeName, scopeKey, err := scope()
+		if err != nil {
+			return nil, "", "", err
+		}
+		if scopeName == "" {
+			return nil, "", "", nil
+		}
+		cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
+		if err != nil {
+			return nil, "", "", fmt.Errorf("scoped memory requires a reachable server: %w", err)
+		}
+		return cli, scopeName, scopeKey, nil
 	}
 	store := func() (*tracker.Store, error) { return tracker.Discover(".", trackerPath) }
 	printMemory := func(c *gcli.Command, item tracker.Memory) error {
@@ -29,6 +62,16 @@ func NewMemoryCmd() *gcli.Command {
 			c.AddArg("content", "memory content", true)
 			c.StrOpt(&setTags, "tag", "", "", "comma-separated tags")
 		}, Func: func(c *gcli.Command, _ []string) error {
+			if cli, scopeName, scopeKey, err := scopedClient(); scopeName != "" || err != nil {
+				if err != nil {
+					return err
+				}
+				item, err := cli.CreateScopedMemory(scopeName, scopeKey, c.Arg("key").String(), c.Arg("content").String(), tracker.ParseTags(setTags))
+				if err != nil {
+					return fmt.Errorf("set scoped memory: %w", err)
+				}
+				return printMemoryValue(c, item, asJSON)
+			}
 			s, err := store()
 			if err != nil {
 				return err
@@ -45,6 +88,22 @@ func NewMemoryCmd() *gcli.Command {
 			c.AddArg("kw", "keyword", false)
 			c.VarOpt(&listTags, "tag", "", "filter tag (repeatable)")
 		}, Func: func(c *gcli.Command, _ []string) error {
+			if cli, scopeName, scopeKey, err := scopedClient(); scopeName != "" || err != nil {
+				if err != nil {
+					return err
+				}
+				items, err := cli.ListScopedMemories(client.ScopedMemoryListOpts{Scope: scopeName, ScopeKey: scopeKey, Keyword: c.Arg("kw").String(), Tags: listTags})
+				if err != nil {
+					return fmt.Errorf("list scoped memories: %w", err)
+				}
+				if asJSON {
+					return printTrackerJSON(c, items)
+				}
+				for _, item := range items {
+					c.Printf("%s: %s\n", item.Key, item.Content)
+				}
+				return nil
+			}
 			s, err := store()
 			if err != nil {
 				return err
@@ -62,6 +121,16 @@ func NewMemoryCmd() *gcli.Command {
 			return nil
 		}},
 		{Name: "show", Desc: "Show a memory", Config: func(c *gcli.Command) { bind(c); c.AddArg("key", "memory key", true) }, Func: func(c *gcli.Command, _ []string) error {
+			if cli, scopeName, scopeKey, err := scopedClient(); scopeName != "" || err != nil {
+				if err != nil {
+					return err
+				}
+				item, err := cli.GetScopedMemory(scopeName, scopeKey, c.Arg("key").String())
+				if err != nil {
+					return fmt.Errorf("show scoped memory: %w", err)
+				}
+				return printMemoryValue(c, item, asJSON)
+			}
 			s, err := store()
 			if err != nil {
 				return err
@@ -73,6 +142,20 @@ func NewMemoryCmd() *gcli.Command {
 			return printMemory(c, item)
 		}},
 		{Name: "rm", Aliases: []string{"forget"}, Desc: "Remove a memory", Config: func(c *gcli.Command) { bind(c); c.AddArg("key", "memory key", true) }, Func: func(c *gcli.Command, _ []string) error {
+			if cli, scopeName, scopeKey, err := scopedClient(); scopeName != "" || err != nil {
+				if err != nil {
+					return err
+				}
+				key := c.Arg("key").String()
+				if err := cli.DeleteScopedMemory(scopeName, scopeKey, key); err != nil {
+					return fmt.Errorf("remove scoped memory: %w", err)
+				}
+				if asJSON {
+					return printTrackerJSON(c, map[string]string{"removed": key})
+				}
+				c.Printf("memory %s removed\n", key)
+				return nil
+			}
 			s, err := store()
 			if err != nil {
 				return err
@@ -89,4 +172,12 @@ func NewMemoryCmd() *gcli.Command {
 			return nil
 		}},
 	}}
+}
+
+func printMemoryValue(c *gcli.Command, item client.ScopedMemory, asJSON bool) error {
+	if asJSON {
+		return printTrackerJSON(c, item)
+	}
+	c.Printf("%s: %s\n", item.Key, item.Content)
+	return nil
 }

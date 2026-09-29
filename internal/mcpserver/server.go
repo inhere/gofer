@@ -282,6 +282,7 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 		Name:        "gofer_list_comments",
 		Description: "Read the comment thread of a job, plan or todo (scope=job|plan|todo, id), oldest first — including the jobs a human's @mentions dispatched.",
 	}, listCommentsHandler(b))
+	registerScopedMemoryTools(s, b)
 
 	// Decision channel (Part C §C3). Registered UNCONDITIONALLY (plan M4, same
 	// precedent as add_todo/update_todo): a project-scoped MCP keeps it too.

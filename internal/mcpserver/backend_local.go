@@ -586,3 +586,16 @@ func (b *localBackend) ListComments(scope, id string) ([]commentView, error) {
 	}
 	return out, nil
 }
+
+func (b *localBackend) ListScopedMemories(scope, scopeKey, keyword string, tags []string) ([]jobstore.ScopedMemory, error) {
+	return b.jobs.Meta().ListScopedMemories(scope, scopeKey, keyword, tags)
+}
+func (b *localBackend) GetScopedMemory(scope, scopeKey, key string) (jobstore.ScopedMemory, error) {
+	return b.jobs.Meta().GetScopedMemory(scope, scopeKey, key)
+}
+func (b *localBackend) PutScopedMemory(scope, scopeKey, key, content string, tags []string) (jobstore.ScopedMemory, error) {
+	return b.jobs.Meta().PutScopedMemory(scope, scopeKey, key, content, tags, "mcp")
+}
+func (b *localBackend) DeleteScopedMemory(scope, scopeKey, key string) error {
+	return b.jobs.Meta().DeleteScopedMemory(scope, scopeKey, key, "mcp")
+}

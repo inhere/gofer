@@ -296,6 +296,11 @@ func runInitHooks(c *gcli.Command) error {
 		if ierr != nil {
 			return errorx.Failf(configExitErr, "install %s hooks: %v", agent, ierr)
 		}
+		if !initOpts.remove {
+			if _, ierr := hookrelay.InstallTrackerPrime(agent, dir, false); ierr != nil {
+				return errorx.Failf(configExitErr, "install %s memory prime: %v", agent, ierr)
+			}
+		}
 		switch {
 		case initOpts.remove:
 			c.Printf("已从 %s 移除 gofer 的 %s hooks (%d 条)\n", res.Path, agent, res.Removed)

@@ -100,6 +100,10 @@ type Backend interface {
 	// author). ListComments reads a thread back, oldest first.
 	Comment(scope, id, body, asJob string) (commentView, error)
 	ListComments(scope, id string) ([]commentView, error)
+	ListScopedMemories(scope, scopeKey, keyword string, tags []string) ([]jobstore.ScopedMemory, error)
+	GetScopedMemory(scope, scopeKey, key string) (jobstore.ScopedMemory, error)
+	PutScopedMemory(scope, scopeKey, key, content string, tags []string) (jobstore.ScopedMemory, error)
+	DeleteScopedMemory(scope, scopeKey, key string) error
 
 	// E36 driver-agent identity/mailbox (4 of the 5 gofer_* presence tools;
 	// list_pending_interactions is P3). local 直驱 presence.Service; client 转发

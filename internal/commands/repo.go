@@ -19,7 +19,7 @@ import (
 )
 
 func NewRepoCmd() *gcli.Command {
-	var prefix, initTracker, statusTracker, syncServer string
+	var prefix, initTracker, statusTracker, syncServer, primeAgent string
 	var noAgents, noHooks, asJSON, fromBD, applyMigration bool
 	return &gcli.Command{
 		Name: "repo", Desc: "Manage this repository's local tracker",
@@ -117,19 +117,22 @@ func NewRepoCmd() *gcli.Command {
 				Name: "prime", Desc: "Print repository tracker context",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
+					c.StrOpt(&primeAgent, "agent", "", "", "agent name for server memory injection")
 					c.BoolOpt(&asJSON, "hook-json", "", false, "Claude SessionStart JSON output")
 				},
 				Func: func(c *gcli.Command, _ []string) error {
 					s, err := tracker.Discover(".", "")
+					if err != nil && !strings.Contains(err.Error(), "no tracker found") {
+						return err
+					}
+					if err != nil {
+						s = nil
+					}
+					body, err := primeWithServerContext(s, config.InputCfgFile, primeAgent)
 					if err != nil {
 						if asJSON {
 							return printTrackerJSON(c, map[string]any{"hookSpecificOutput": map[string]string{"hookEventName": "SessionStart", "additionalContext": ""}})
 						}
-						return err
-					}
-					tryAutoSync(c, s)
-					body, err := primeWithServerHandoffs(s, config.InputCfgFile)
-					if err != nil {
 						return err
 					}
 					if asJSON {
@@ -222,9 +225,21 @@ func NewRepoCmd() *gcli.Command {
 }
 
 func primeWithServerHandoffs(s *tracker.Store, configPath string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	return primeWithServerContext(s, configPath, "")
+}
+
+func primeWithServerContext(s *tracker.Store, configPath, agentName string) (string, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel()
-	return s.PrimeWithHandoffFetch(ctx, func(ctx context.Context) (string, error) {
+	base := ""
+	if s != nil {
+		var err error
+		base, err = s.Prime()
+		if err != nil {
+			return "", err
+		}
+	}
+	fetch := func(ctx context.Context) (string, error) {
 		root, err := os.Getwd()
 		if err != nil {
 			return "", err
@@ -234,19 +249,38 @@ func primeWithServerHandoffs(s *tracker.Store, configPath string) (string, error
 			return "", err
 		}
 		projectKey := ""
-		if localCfg, cfgErr := s.ReadConfig(); cfgErr == nil {
-			projectKey = strings.TrimSpace(localCfg.ProjectKey)
+		if s != nil {
+			if localCfg, cfgErr := s.ReadConfig(); cfgErr == nil {
+				projectKey = strings.TrimSpace(localCfg.ProjectKey)
+			}
 		}
 		if projectKey == "" {
 			projectKey, _ = cfg.ProjectForPath(root)
 		}
-		ok := projectKey != ""
-		if !ok {
-			return "", nil
+		addr := strings.TrimSpace(cfg.Server.Addr)
+		if (strings.TrimSpace(configPath) == "" || addr == config.DefaultAddr) && strings.TrimSpace(os.Getenv("GOFER_SERVER_ADDR")) != "" {
+			addr = strings.TrimSpace(os.Getenv("GOFER_SERVER_ADDR"))
 		}
-		cli, err := newClient(configPath, os.Getenv("GOFER_SERVER_ADDR"), os.Getenv("GOFER_SERVER_TOKEN"))
-		if err != nil {
-			return "", err
+		if addr == "" {
+			addr = strings.TrimSpace(os.Getenv("GOFER_SERVER_ADDR"))
+		}
+		cli := client.NewWithTimeout(addr, os.Getenv("GOFER_SERVER_TOKEN"), 250*time.Millisecond)
+		if addr == "" {
+			var err error
+			cli, err = newClient(configPath, "", os.Getenv("GOFER_SERVER_TOKEN"))
+			if err != nil {
+				return "", err
+			}
+		}
+		global, _ := cli.ListScopedMemories(client.ScopedMemoryListOpts{Scope: "global"})
+		project := []client.ScopedMemory(nil)
+		if projectKey != "" {
+			project, _ = cli.ListScopedMemories(client.ScopedMemoryListOpts{Scope: "project", ScopeKey: projectKey})
+		}
+		var out strings.Builder
+		out.WriteString(scopedPrimeSection("## 全局记忆\n\n", global, agentName))
+		if projectKey != "" {
+			out.WriteString(scopedPrimeSection("## 项目记忆\n\n", project, agentName))
 		}
 		plans, err := cli.ListPlans(client.PlanListOpts{Status: "open", Project: projectKey, Limit: clientPlanPrimeLimit})
 		if err != nil {
@@ -258,7 +292,7 @@ func primeWithServerHandoffs(s *tracker.Store, configPath string) (string, error
 			}
 			return plans.Plans[i].PlanID < plans.Plans[j].PlanID
 		})
-		var out strings.Builder
+		out.WriteString("\n## 进行中 plan 的交接说明\n\n")
 		for i, plan := range plans.Plans {
 			if i >= clientPlanPrimeLimit {
 				break
@@ -275,7 +309,44 @@ func primeWithServerHandoffs(s *tracker.Store, configPath string) (string, error
 			}
 		}
 		return out.String(), nil
-	})
+	}
+	result := make(chan string, 1)
+	go func() { section, _ := fetch(ctx); result <- section }()
+	var serverSection string
+	select {
+	case serverSection = <-result:
+	case <-ctx.Done():
+		return base, nil
+	}
+	if strings.TrimSpace(serverSection) == "" {
+		return base, nil
+	}
+	return tracker.AppendPrimeSections(base, serverSection), nil
+}
+
+func scopedPrimeSection(heading string, items []client.ScopedMemory, agentName string) string {
+	var out strings.Builder
+	out.WriteString(heading)
+	for _, item := range items {
+		if !memoryForAgent(item.Tags, agentName) {
+			continue
+		}
+		out.WriteString(fmt.Sprintf("- %s: %s\n", item.Key, item.Content))
+	}
+	return out.String()
+}
+
+func memoryForAgent(tags []string, agentName string) bool {
+	matched := false
+	for _, tag := range tags {
+		if strings.HasPrefix(tag, "agent:") {
+			matched = true
+			if strings.TrimPrefix(tag, "agent:") == strings.TrimSpace(agentName) {
+				return true
+			}
+		}
+	}
+	return !matched
 }
 
 func syncServerOrEnv(flag string) string {

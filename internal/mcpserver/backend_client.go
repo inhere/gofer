@@ -430,6 +430,29 @@ func (b *clientBackend) ListComments(scope, id string) ([]commentView, error) {
 	return out, nil
 }
 
+func (b *clientBackend) ListScopedMemories(scope, scopeKey, keyword string, tags []string) ([]jobstore.ScopedMemory, error) {
+	rows, err := b.cli.ListScopedMemories(client.ScopedMemoryListOpts{Scope: scope, ScopeKey: scopeKey, Keyword: keyword, Tags: tags})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]jobstore.ScopedMemory, 0, len(rows))
+	for _, row := range rows {
+		out = append(out, jobstore.ScopedMemory{Scope: row.Scope, ScopeKey: row.ScopeKey, Key: row.Key, Content: row.Content, Tags: row.Tags, UpdatedAt: row.UpdatedAt, UpdatedBy: row.UpdatedBy, Deleted: row.Deleted})
+	}
+	return out, nil
+}
+func (b *clientBackend) GetScopedMemory(scope, scopeKey, key string) (jobstore.ScopedMemory, error) {
+	row, err := b.cli.GetScopedMemory(scope, scopeKey, key)
+	return jobstore.ScopedMemory{Scope: row.Scope, ScopeKey: row.ScopeKey, Key: row.Key, Content: row.Content, Tags: row.Tags, UpdatedAt: row.UpdatedAt, UpdatedBy: row.UpdatedBy, Deleted: row.Deleted}, err
+}
+func (b *clientBackend) PutScopedMemory(scope, scopeKey, key, content string, tags []string) (jobstore.ScopedMemory, error) {
+	row, err := b.cli.PutScopedMemory(scope, scopeKey, key, content, tags)
+	return jobstore.ScopedMemory{Scope: row.Scope, ScopeKey: row.ScopeKey, Key: row.Key, Content: row.Content, Tags: row.Tags, UpdatedAt: row.UpdatedAt, UpdatedBy: row.UpdatedBy, Deleted: row.Deleted}, err
+}
+func (b *clientBackend) DeleteScopedMemory(scope, scopeKey, key string) error {
+	return b.cli.DeleteScopedMemory(scope, scopeKey, key)
+}
+
 // clientCommentView projects the client package's wire type onto the tool view.
 func clientCommentView(cm client.Comment) commentView {
 	v := commentView{

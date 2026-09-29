@@ -74,6 +74,36 @@ func appendHandoffSection(base, handoff string) string {
 	return base + "\n## 进行中 plan 的交接说明\n\n" + string(cut) + "\n[交接说明已截断]\n"
 }
 
+// AppendPrimeSections appends optional server-backed sections within the same
+// bounded prime budget. Each section must include its heading and body.
+func AppendPrimeSections(base string, sections ...string) string {
+	out := base
+	for _, section := range sections {
+		if strings.TrimSpace(section) == "" {
+			continue
+		}
+		remaining := PrimeMaxBytes - len([]byte(out))
+		if remaining <= 0 {
+			return out
+		}
+		if len([]byte(section)) <= remaining {
+			out += section
+			continue
+		}
+		cut := []byte(section)
+		marker := "\n[全局/项目记忆已截断]\n"
+		keep := remaining - len([]byte(marker))
+		if keep > 0 {
+			cut = cut[:keep]
+			out += string(cut) + marker
+		} else {
+			out += marker[:remaining]
+		}
+		return out
+	}
+	return out
+}
+
 func CommitPolicyText(policy string) (string, error) {
 	switch policy {
 	case "", "local-commit":

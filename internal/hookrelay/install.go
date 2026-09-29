@@ -16,7 +16,12 @@ import (
 // hook config, so install/remove never touch entries from other tools.
 const ourCommandPrefix = "gofer hook"
 
-const trackerPrimeCommand = "gofer repo prime --hook-json"
+const trackerPrimePrefix = "gofer repo prime --hook-json"
+const trackerPrimeCommand = trackerPrimePrefix
+
+func trackerPrimeCommandFor(agent string) string {
+	return trackerPrimePrefix + " --agent " + agent
+}
 
 // InstallTrackerPrime merges only the tracker SessionStart command. A migration
 // may also replace the old bd prime command without disturbing other hooks.
@@ -69,13 +74,14 @@ func InstallTrackerPrime(agent, root string, replaceBd bool) (bool, error) {
 		hooks, _ := group["hooks"].([]any)
 		for _, hook := range hooks {
 			item, _ := hook.(map[string]any)
-			if cmd, _ := item["command"].(string); cmd == trackerPrimeCommand {
+			// DEPRECATED(v0.81.0): remove legacy unqualified prime detection in v0.84.0.
+			if cmd, _ := item["command"].(string); cmd == trackerPrimeCommandFor(agent) || cmd == trackerPrimePrefix {
 				found = true
 			}
 		}
 	}
 	if !found {
-		entries = append(entries, map[string]any{"matcher": "", "hooks": []any{map[string]any{"type": "command", "command": trackerPrimeCommand}}})
+		entries = append(entries, map[string]any{"matcher": "", "hooks": []any{map[string]any{"type": "command", "command": trackerPrimeCommandFor(agent)}}})
 		changed = true
 	}
 	if !changed {
@@ -140,7 +146,8 @@ func HasTrackerPrime(agent, root string) bool {
 		hooks, _ := group["hooks"].([]any)
 		for _, hook := range hooks {
 			item, _ := hook.(map[string]any)
-			if item["command"] == trackerPrimeCommand {
+			// DEPRECATED(v0.81.0): recognize the old command once so upgrades stay idempotent; remove in v0.84.0.
+			if cmd, _ := item["command"].(string); cmd == trackerPrimeCommandFor(agent) || cmd == trackerPrimePrefix {
 				return true
 			}
 		}

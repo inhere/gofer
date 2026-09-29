@@ -33,6 +33,14 @@ func trackerRunOK(t *testing.T, cwd string, args ...string) string {
 	return out
 }
 
+func TestMemoryCLIScopeFlags(t *testing.T) {
+	root := t.TempDir()
+	out, code := trackerCLI(t, root, "memory", "set", "--global", "--project", "proj", "key", "content")
+	if code == 0 || !strings.Contains(out, "--global and --project are mutually exclusive") {
+		t.Fatalf("scope conflict code=%d output=%q", code, out)
+	}
+}
+
 func TestRepoInitIdempotent(t *testing.T) {
 	root := t.TempDir()
 	agents := filepath.Join(root, "AGENTS.md")
