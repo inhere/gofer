@@ -60,12 +60,20 @@
 - 只渲染可见标签：未激活的标签只累积缓冲、不渲染；agent job 默认显示 stdout（结果/汇报），stderr 在切换时再渲染。
 - 验收：构造 50k 行 stderr 的运行中 job，页面首次打开与持续追加时主线程无长任务（>200ms），滚动流畅；给出前后对比数据。
 
+### M6 超时只从 job 真正开跑后计时（用户 2026-09-29 追加）
+
+- 原则：排队时间（并发配额、目录锁、worker 本地排队）一律不计入 `timeout_sec`，只从进程真正启动后计时。
+- 现状：本机执行已满足（`internal/job/execute.go` 在所有排队之后才建 `runCtx`）。**派给 worker 的 job 不满足**：server 端在派发时就开始 `runCtx` 计时，而 worker 收到后还会在本地按 `max_concurrent` 排队，这段时间被算进 server 的超时；job 在页面上也显示为 running。
+- 修复：远程 runner 由 worker 在本地真正开跑时回报"started"；server 端对远程 job 从收到 started 才开始计时（派发到 started 之间不计时，但仍可取消），此前 job 状态保持 queued（可标注"worker 排队中"）；worker 端继续按本地开跑计时并执行超时。started_at 以真正开跑时间为准。
+- 验收：`TestRemoteJobQueueTimeNotCounted`（worker max_concurrent=1，第二个 job 排队时间超过其 timeout 仍能正常跑完）；本机路径已有 `TestDirLockWaitDoesNotConsumeTimeout` 保持通过。
+
 ## 实施分期
 
 | 期 | 内容 | 验收 |
 |---|---|---|
 | V1 | M4、M2、M3 | 帮助文本扫描测试；plan tags 读写/筛选测试；web 截图 |
 | V2 | M5 | 组件测试 + 大日志真实页面对比（容器 agent-browser 性能数据） |
+| V2 | M6（与 M5 同期） | 见 M6 验收 |
 | V3 | M1 | 作用域记忆 CRUD/权限/prime 注入测试；真实进程冒烟；随后把监督者的记忆迁入 `--global --tag claude` |
 
 ## 决策（已批准 2026-09-29）
@@ -73,7 +81,8 @@
 1. M1 全局/项目记忆**只存 server**，不做离线缓存；CLI 连不上 server 报错，prime 连不上静默省略。
 2. M1 注入规则：带 `agent:<名>` 标签的记忆只注入给该 agent（如 `agent:claude`）；没有 `agent:` 标签的注入给所有 agent。
 3. M4 同时清理 web 页面可见文案中的计划编号；代码注释与设计文档保留。
-4. 按 V1 → V3 派发（V1：M4 + M2 + M3；V2：M5；V3：M1 并迁入监督者记忆）。
+4. 按 V1 → V3 派发（V1：M4 + M2 + M3；V2：M5 + M6；V3：M1 并迁入监督者记忆）。
+5. M6（2026-09-29 用户追加）：排队时间不计入超时，远程 job 从 worker 真正开跑才计时。
 
 ## 结论与人工计划 Gate
 
