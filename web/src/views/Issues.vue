@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import MarkdownBlock from '../components/MarkdownBlock.vue'
 import { commentTrackerIssue, deleteTrackerMemory, getTrackerIssue, listTrackerIssues, listTrackerMemories, listTrackerRepos, updateTrackerIssue, updateTrackerMemory } from '../api/client'
 import type { TrackerIssue, TrackerIssueView, TrackerMemory, TrackerRepo } from '../api/types'
-import { fmtTrackerTime, trackerIssueMatches, trackerRepoLabel } from '../utils/trackerView'
+import { fmtTrackerTime, trackerIssueMatches, trackerMemoryMatches, trackerRepoLabel } from '../utils/trackerView'
 
 type Row = TrackerIssue & { data: TrackerIssue['body'] }
 type MemRow = TrackerMemory & { data: TrackerMemory['body'] }
@@ -15,7 +15,7 @@ const loading = ref(false); const error = ref(''); const query = ref(''); const 
 const editTitle = ref(''); const editStatus = ref(''); const editPriority = ref(0); const editDescription = ref(''); const comment = ref(''); const memoryDraft = ref(''); const saving = ref(false)
 const repo = computed(() => repos.value.find((item) => item.tracker_id === trackerId.value))
 const filteredIssues = computed(() => issues.value.filter((row) => trackerIssueMatches(row.data, row.id, statuses.value, typeFilter.value, tagFilter.value, query.value)))
-const filteredMemories = computed(() => memories.value.filter((row) => !query.value.trim() || `${row.id} ${row.data.content??''}`.toLowerCase().includes(query.value.trim().toLowerCase())))
+const filteredMemories = computed(() => memories.value.filter((row) => trackerMemoryMatches(row.data, row.id, query.value)))
 async function loadRepos(){ const out=await listTrackerRepos(); repos.value=out.repos??[]; const recent=[...repos.value].sort((a,b)=>b.last_sync_at-a.last_sync_at)[0]; if(!trackerId.value||!repos.value.some((r)=>r.tracker_id===trackerId.value)) trackerId.value=recent?.tracker_id??'' }
 async function load(){ if(!trackerId.value)return; loading.value=true; error.value=''; try { const [a,b]=await Promise.all([listTrackerIssues(trackerId.value),listTrackerMemories(trackerId.value)]); issues.value=(a.issues??[]).map((x)=>({...x,data:x.body})); memories.value=(b.memories??[]).filter((x)=>!x.deleted).map((x)=>({...x,data:x.body})) } catch(e){error.value=e instanceof Error?e.message:String(e)} finally{loading.value=false} }
 async function changeRepo(){selected.value=null;selectedMemory.value=null;await load()}

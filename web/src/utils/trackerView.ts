@@ -11,4 +11,9 @@ export function fmtTrackerTime(value: string | number | undefined): string {
   const seconds = typeof value === 'number' ? value : value ? Date.parse(value) / 1000 : 0
   return fmtDateTime(seconds)
 }
+
+export function trackerMemoryMatches(data: { key?: string; content?: string }, id: string, query: string): boolean {
+  const q = query.trim().toLowerCase()
+  return !q || `${data.key ?? id} ${data.content ?? ''}`.toLowerCase().includes(q)
+}
 import { fmtDateTime } from '../api/time'

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { fmtTrackerTime, trackerIssueMatches, trackerRepoLabel } from './trackerView'
+import { fmtTrackerTime, trackerIssueMatches, trackerMemoryMatches, trackerRepoLabel } from './trackerView'
 
 describe('tracker view helpers', () => {
   it('formats repositories with an unassigned marker', () => {
@@ -20,5 +20,9 @@ describe('tracker view helpers', () => {
   })
   it('formats ISO tracker timestamps with the shared time helper', () => {
     expect(fmtTrackerTime('2026-09-29T00:00:00.000000000Z')).toMatch(/^09-29 /)
+  })
+  it('filters memories by key or content only', () => {
+    expect(trackerMemoryMatches({ key: 'handoff', content: 'deploy next' }, 'handoff', 'deploy')).toBe(true)
+    expect(trackerMemoryMatches({ key: 'handoff', content: 'deploy next' }, 'handoff', 'missing')).toBe(false)
   })
 })
