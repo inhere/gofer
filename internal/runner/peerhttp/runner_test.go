@@ -429,6 +429,9 @@ func waitInteraction(t *testing.T, b *bridge, jobID, interactionID, wantStatus, 
 		interactionID, jobID, wantStatus, wantAnswer, timeout, ints)
 }
 
+// captureDiffOn backs the explicit capture_diff: on of the git peer bridge.
+var captureDiffOn = true
+
 // newPeerBridgeGit is newPeerBridge whose project dir is a git repo with one
 // committed tracked file, so a peer job that modifies it produces a git diff the
 // peer's captureOutcomes records (E12) and回传 to the host (P4-b).
@@ -445,6 +448,9 @@ func newPeerBridgeGit(t *testing.T) *bridge {
 				AllowedAgents:  []string{"exec"},
 				AllowedRunners: []string{"local"},
 				AllowExec:      true,
+				// This bridge exists to capture a git diff from an exec job, and exec
+				// jobs skip diff capture by default (capture_diff: auto): turn it on.
+				CaptureDiff: &captureDiffOn,
 			},
 		},
 	}
