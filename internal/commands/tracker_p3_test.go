@@ -2,6 +2,8 @@ package commands
 
 import (
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -99,6 +101,41 @@ func TestRepoStatusSuggestsProjectKeyWhenEmpty(t *testing.T) {
 	out := trackerRunOK(t, root, "repo", "status")
 	if !strings.Contains(out, "project_key: 未填写") || !strings.Contains(out, "config.yaml") {
 		t.Fatalf("status should explain how to fill project_key: %s", out)
+	}
+}
+
+func TestPrimeUsesTrackerProjectKeyWithoutClientProjectsConfig(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/v1/plans":
+			_, _ = w.Write([]byte(`{"plans":[{"plan_id":"p1","status":"open","project":"proj","updated_at":2}],"total":1}`))
+		case "/v1/plans/p1/handoff":
+			_, _ = w.Write([]byte(`{"plan_id":"p1","version":1,"body":"from project key","by":"tester","at":1}`))
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	t.Setenv("GOFER_SERVER_ADDR", server.URL)
+
+	root := t.TempDir()
+	s, _, err := tracker.Init(root, "prime-project-key", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetProjectKey("proj"); err != nil {
+		t.Fatal(err)
+	}
+	configPath := filepath.Join(root, "config.yaml")
+	p3Write(t, root, "config.yaml", "server: {}\n")
+	t.Chdir(root)
+	body, err := primeWithServerHandoffs(s, configPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(body, "进行中 plan 的交接说明") || !strings.Contains(body, "from project key") {
+		t.Fatalf("prime did not use tracker project_key without client projects config: %q", body)
 	}
 }
 
