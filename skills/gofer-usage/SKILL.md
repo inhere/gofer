@@ -171,6 +171,8 @@ server/worker/forwarder 都写 JSONL 文件日志（轮转、脱敏）：server 
 
 只读任务务必显式带 `--read-only`。如果 job 显示 `waiting_dir`，说明目录被另一个可写 job 占用；顶层目录派活时用 `--lock <子项目>` 收窄范围，也可以继续等待，或改用 `--shared-dir` 放弃独占、`--worktree` 使用隔离目录。
 
+顶层目录包含多个仓库时，优先为每个 job 显式声明 `--lock <子项目>`；项目显式开启 `dir_lock_mode: repo` 后才会按运行中首次触碰的嵌套仓库动态占锁，冲突会告警并记录事件但不会强行中断 agent。
+
 ```bash
 gofer job run -p <project> -a codex --read-only --prompt "只做审查：列出这次改动的问题，不要修改任何文件"
 ```
