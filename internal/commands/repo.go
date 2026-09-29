@@ -284,7 +284,7 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 		}
 		plans, err := cli.ListPlans(client.PlanListOpts{Status: "open", Project: projectKey, Limit: clientPlanPrimeLimit})
 		if err != nil {
-			return "", err
+			return out.String(), nil
 		}
 		sort.SliceStable(plans.Plans, func(i, j int) bool {
 			if plans.Plans[i].UpdatedAt != plans.Plans[j].UpdatedAt {

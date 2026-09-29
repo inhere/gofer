@@ -34,3 +34,19 @@ func TestPrimeInjectsGlobalAndProjectMemories(t *testing.T) {
 		t.Fatalf("prime body=%q", body)
 	}
 }
+
+func TestPrimeKeepsMemoriesWhenPlanEndpointUnavailable(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/memories" {
+			_ = json.NewEncoder(w).Encode(map[string]any{"memories": []map[string]any{{"scope": "global", "key": "shared", "content": "visible"}}})
+			return
+		}
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer srv.Close()
+	t.Setenv("GOFER_SERVER_ADDR", srv.URL)
+	body, err := primeWithServerContext(nil, "", "claude")
+	if err != nil || !strings.Contains(body, "shared") {
+		t.Fatalf("prime body=%q err=%v", body, err)
+	}
+}

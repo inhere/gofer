@@ -74,9 +74,12 @@ func InstallTrackerPrime(agent, root string, replaceBd bool) (bool, error) {
 		hooks, _ := group["hooks"].([]any)
 		for _, hook := range hooks {
 			item, _ := hook.(map[string]any)
-			// DEPRECATED(v0.81.0): remove legacy unqualified prime detection in v0.84.0.
-			if cmd, _ := item["command"].(string); cmd == trackerPrimeCommandFor(agent) || cmd == trackerPrimePrefix {
+			if cmd, _ := item["command"].(string); cmd == trackerPrimeCommandFor(agent) {
 				found = true
+			} else if cmd == trackerPrimePrefix {
+				// DEPRECATED(v0.81.0): remove upgrade of unqualified prime in v0.84.0.
+				item["command"] = trackerPrimeCommandFor(agent)
+				found, changed = true, true
 			}
 		}
 	}
