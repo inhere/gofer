@@ -34,6 +34,7 @@ func TestBuiltinTemplatesTable(t *testing.T) {
 		"claude": {
 			Type:            TypeCLIAgent,
 			Command:         "claude",
+			GlobalArgs:      []string{},
 			Args:            []string{"-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"},
 			InteractiveArgs: []string{},
 		},

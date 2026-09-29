@@ -414,6 +414,7 @@ agents:
   claude:
     type: cli-agent
     command: claude
+    global_args: []                       # no command-wide options by default; resume still honors this field
     args: ["-p", "--output-format", "stream-json", "--verbose", "{{prompt}}"]
     interactive_args: []              # pty: 裸 `claude` 进 REPL
     detect:
