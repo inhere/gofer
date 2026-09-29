@@ -6,19 +6,18 @@ import { commentTrackerIssue, deleteTrackerMemory, getTrackerIssue, listTrackerI
 import type { TrackerIssue, TrackerIssueView, TrackerMemory, TrackerRepo } from '../api/types'
 import { trackerIssueMatches, trackerRepoLabel } from '../utils/trackerView'
 
-type Row = TrackerIssue & { data: Record<string, any> }
-type MemRow = TrackerMemory & { data: Record<string, any> }
+type Row = TrackerIssue & { data: TrackerIssue['body'] }
+type MemRow = TrackerMemory & { data: TrackerMemory['body'] }
 const route = useRoute(); const router = useRouter()
 const repos = ref<TrackerRepo[]>([]); const trackerId = ref(''); const tab = ref<'issues'|'memories'>('issues')
 const issues = ref<Row[]>([]); const memories = ref<MemRow[]>([]); const selected = ref<TrackerIssueView|null>(null); const selectedRow = ref<Row|null>(null); const selectedMemory = ref<MemRow|null>(null)
 const loading = ref(false); const error = ref(''); const query = ref(''); const typeFilter = ref(''); const tagFilter = ref(''); const statuses = ref(['open','in_progress','blocked'])
 const editTitle = ref(''); const editStatus = ref(''); const editPriority = ref(0); const editDescription = ref(''); const comment = ref(''); const memoryDraft = ref(''); const saving = ref(false)
 const repo = computed(() => repos.value.find((item) => item.tracker_id === trackerId.value))
-const parse = (raw: string): Record<string, any> => { try { return JSON.parse(raw) } catch { return {} } }
 const filteredIssues = computed(() => issues.value.filter((row) => trackerIssueMatches(row.data, row.id, statuses.value, typeFilter.value, tagFilter.value, query.value)))
 const filteredMemories = computed(() => memories.value.filter((row) => !query.value.trim() || `${row.id} ${row.data.content??''}`.toLowerCase().includes(query.value.trim().toLowerCase())))
 async function loadRepos(){ const out=await listTrackerRepos(); repos.value=out.repos??[]; const recent=[...repos.value].sort((a,b)=>b.last_sync_at-a.last_sync_at)[0]; if(!trackerId.value||!repos.value.some((r)=>r.tracker_id===trackerId.value)) trackerId.value=recent?.tracker_id??'' }
-async function load(){ if(!trackerId.value)return; loading.value=true; error.value=''; try { const [a,b]=await Promise.all([listTrackerIssues(trackerId.value),listTrackerMemories(trackerId.value)]); issues.value=(a.issues??[]).map((x)=>({...x,data:parse(x.body_json)})); memories.value=(b.memories??[]).filter((x)=>!x.deleted).map((x)=>({...x,data:parse(x.body_json)})) } catch(e){error.value=e instanceof Error?e.message:String(e)} finally{loading.value=false} }
+async function load(){ if(!trackerId.value)return; loading.value=true; error.value=''; try { const [a,b]=await Promise.all([listTrackerIssues(trackerId.value),listTrackerMemories(trackerId.value)]); issues.value=(a.issues??[]).map((x)=>({...x,data:x.body})); memories.value=(b.memories??[]).filter((x)=>!x.deleted).map((x)=>({...x,data:x.body})) } catch(e){error.value=e instanceof Error?e.message:String(e)} finally{loading.value=false} }
 async function changeRepo(){selected.value=null;selectedMemory.value=null;await load()}
 async function openIssue(row:Row){selectedRow.value=row;selected.value=await getTrackerIssue(trackerId.value,row.id);editTitle.value=selected.value.title;editStatus.value=selected.value.status;editPriority.value=selected.value.priority;editDescription.value=selected.value.description??'';void router.replace({query:{issue:row.id}})}
 function closeDrawer(){selected.value=null;selectedRow.value=null;void router.replace({query:{}})}

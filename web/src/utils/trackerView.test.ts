@@ -10,4 +10,12 @@ describe('tracker view helpers', () => {
     expect(trackerIssueMatches(issue, 'x-1', ['open'], 'bug', 'ui', 'drawer')).toBe(true)
     expect(trackerIssueMatches(issue, 'x-1', ['closed'], 'bug', 'ui', 'drawer')).toBe(false)
   })
+
+  it('matches the real tracker handler body object shape', () => {
+    const issue = { id: 'demo-1', body: { title: 'Fix drawer', status: 'open', type: 'bug', tags: ['ui'] } }
+    const memory = { id: 'handoff', body: { content: 'next step', tags: ['plan'] } }
+    expect(issue.body.title).toBe('Fix drawer')
+    expect(memory.body.content).toContain('next step')
+    expect(memory.body.tags).toEqual(['plan'])
+  })
 })

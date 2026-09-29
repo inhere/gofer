@@ -1818,7 +1818,7 @@ export interface TrackerRepo {
 
 export interface TrackerMemory {
   id: string
-  body_json: string
+  body: TrackerMemoryBody
   rev: number
   updated_at: string
   deleted?: boolean
@@ -1828,9 +1828,28 @@ export interface TrackerMemory {
 
 export interface TrackerIssue {
   id: string
-  body_json: string
+  body: TrackerIssueBody
   rev: number
   updated_at: string
+}
+export interface TrackerIssueBody {
+  id?: string
+  title?: string
+  type?: string
+  status?: string
+  priority?: number
+  description?: string
+  tags?: string[]
+  notes?: Array<{ at: string; by: string; text: string }>
+  comments?: Array<{ at: string; by: string; text: string }>
+  updated_at?: string
+}
+export interface TrackerMemoryBody {
+  key?: string
+  content?: string
+  tags?: string[]
+  updated_at?: string
+  by?: string
 }
 export interface TrackerIssueView { id: string; title: string; type: string; status: string; priority: number; description?: string; tags?: string[]; comments?: Array<{ at:string; by:string; text:string }>; notes?: Array<{ at:string; by:string; text:string }> }
 
