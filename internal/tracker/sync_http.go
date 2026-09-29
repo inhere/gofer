@@ -126,6 +126,9 @@ func SyncHTTPWithToken(ctx context.Context, s *Store, endpoint, token string) (S
 	for _, item := range wire.Memories {
 		var memory Memory
 		_ = json.Unmarshal(item.Body, &memory)
+		if memory.Key == "" {
+			memory.Key = item.ID
+		}
 		remoteMemories = append(remoteMemories, ServerMemory{Memory: memory, Deleted: item.Deleted, DeletedAt: item.DeletedAt, DeletedBy: item.DeletedBy})
 		if item.Deleted {
 			continue
@@ -149,16 +152,10 @@ func SyncHTTPWithToken(ctx context.Context, s *Store, endpoint, token string) (S
 	}
 	serverMemMerged, memReport := MergeServerMemories(serverMemBase, serverMemLocal, remoteMemories)
 	report.Conflicts = append(report.Conflicts, memReport.Conflicts...)
-	merged.Memories = nil
-	for _, m := range serverMemMerged {
-		if !m.Deleted {
-			merged.Memories = append(merged.Memories, m.Memory)
-		}
-	}
 	deletedRemote := map[string]bool{}
-	for _, item := range wire.Memories {
+	for _, item := range serverMemMerged {
 		if item.Deleted {
-			deletedRemote[item.ID] = true
+			deletedRemote[item.Key] = true
 		}
 	}
 	if len(deletedRemote) > 0 {

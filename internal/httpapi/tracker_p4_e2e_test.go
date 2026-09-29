@@ -249,6 +249,36 @@ func TestTrackerWebEditPartialUpdateAndConflict(t *testing.T) {
 	}
 }
 
+func TestSyncPullsWebMemoryEdit(t *testing.T) {
+	e := newTrackerE2E(t)
+	if _, err := e.local.SetMemory("pull", "value", "test"); err != nil {
+		t.Fatal(err)
+	}
+	syncTracker(t, e)
+	cfg := mustConfig(t, e.local)
+	req, err := http.NewRequest(http.MethodPut, e.srv.URL+"/v1/tracker/memories/pull?tracker_id="+cfg.TrackerID, bytes.NewReader([]byte(`{"content":"edited","expected_rev":1}`)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	req.Header.Set("Authorization", "Bearer tok")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("edit status=%d", resp.StatusCode)
+	}
+	syncTracker(t, e)
+	got, err := e.local.Memory("pull")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Content != "edited" {
+		t.Fatalf("content=%q", got.Content)
+	}
+}
+
 func TestJobIssueLinkAppendsNotes(t *testing.T) {
 	e := newTrackerE2E(t)
 	issue, err := e.local.CreateIssue(tracker.Issue{Title: "job", Type: "task"})
