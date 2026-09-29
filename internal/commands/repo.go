@@ -146,7 +146,7 @@ func NewRepoCmd() *gcli.Command {
 					c.StrOpt(&initTracker, "tracker", "", "", "explicit .gofer/tracker directory")
 					c.StrOpt(&prefix, "prefix", "", "", "issue id prefix (default: repository directory name)")
 					c.BoolOpt(&noAgents, "no-agents-md", "", false, "do not write a managed agent instruction block")
-					c.BoolOpt(&noHooks, "no-hooks", "", false, "reserved for P3; hooks are not installed in P2")
+					c.BoolOpt(&noHooks, "no-hooks", "", false, "reserved; hooks are not installed in this mode")
 				},
 				Func: func(c *gcli.Command, _ []string) error {
 					root, err := os.Getwd()
@@ -165,7 +165,7 @@ func NewRepoCmd() *gcli.Command {
 					}
 					c.Printf("tracker initialized: %s\n", s.Dir)
 					if beads {
-						c.Println("BEADS integration remains; use gofer repo migrate --from-bd (P3)")
+						c.Println("BEADS integration remains; use gofer repo migrate --from-bd")
 					}
 					if !noHooks {
 						for _, agent := range []string{hookrelay.AgentClaude, hookrelay.AgentCodex} {

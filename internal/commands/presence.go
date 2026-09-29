@@ -30,7 +30,7 @@ var (
 func NewPresenceCmd() *gcli.Command {
 	return &gcli.Command{
 		Name:    "presence",
-		Desc:    "Inspect the driver-agent registry and inbox (E36)",
+		Desc:    "Inspect the driver-agent registry and inbox",
 		Aliases: []string{"driver"},
 		Subs: []*gcli.Command{
 			{

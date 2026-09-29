@@ -247,7 +247,7 @@ func NewJobCmd() *gcli.Command {
 			},
 			{
 				Name: "comment",
-				Desc: "Comment on a job. A mention like @omp or @reviewer in a USER's comment dispatches a job for it (MCP-05); inside a job (GOFER_JOB_ID set) the comment is recorded as that agent's and dispatches nothing",
+				Desc: "Comment on a job. A mention like @omp or @reviewer in a USER's comment dispatches a job for it; inside a job (GOFER_JOB_ID set) the comment is recorded as that agent's and dispatches nothing",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
@@ -377,7 +377,7 @@ var jobWakeupOpts = struct {
 func newJobWakeupCmd() *gcli.Command {
 	return &gcli.Command{
 		Name:    "wakeup",
-		Desc:    "Register an event subscription or timer that resumes a job when it fires (JOB-09)",
+		Desc:    "Register an event subscription or timer that resumes a job when it fires",
 		Aliases: []string{"wk"},
 		Subs: []*gcli.Command{
 			{
@@ -466,7 +466,7 @@ func newJobWakeupCmd() *gcli.Command {
 func newJobRetryCmd() *gcli.Command {
 	return &gcli.Command{
 		Name:    "retry",
-		Desc:    "Inspect or cancel the durable retries of a failed job (AUTO-03)",
+		Desc:    "Inspect or cancel the durable retries of a failed job",
 		Aliases: []string{"rt"},
 		Subs: []*gcli.Command{
 			{
@@ -936,7 +936,7 @@ var jobWorktreeOpts = struct {
 func newJobWorktreeCmd() *gcli.Command {
 	return &gcli.Command{
 		Name:    "worktree",
-		Desc:    "List or remove the managed worktrees of --worktree jobs (WT-01)",
+		Desc:    "List or remove the managed worktrees of --worktree jobs",
 		Aliases: []string{"wt"},
 		Subs: []*gcli.Command{
 			{
@@ -1069,7 +1069,7 @@ func bindJobRunFlags(c *gcli.Command) {
 	// timeout/tags/verify 等默认值），--var 供 {{变量}}，--prompt 是追加在模板正文后的补充。
 	c.StrOpt2(&jobRunOpts.template, "template,t", "render the prompt from a task-book template (see `gofer template ls`)", jobRunOptCategory("Execution", ""))
 	c.VarOpt(&jobRunOpts.templateVars, "var", "", "template variable k=v (repeatable; requires --template/-t)", gflag.WithCategory("Execution"))
-	c.StrOpt2(&jobRunOpts.role, "role", "role preset (E35): fills agent/system_prompt/project/tags when unset", jobRunOptCategory("Execution", ""))
+	c.StrOpt2(&jobRunOpts.role, "role", "role preset: fills agent/system_prompt/project/tags when unset", jobRunOptCategory("Execution", ""))
 	c.StrOpt2(&jobRunOpts.systemPrompt, "system-prompt", "resident system prompt injected via the agent (advanced; overrides role's)", jobRunOptCategory("Execution", ""))
 	c.VarOpt(&jobRunOpts.agentArgs, "agent-arg", "", "extra arg appended to cli-agent argv (repeatable)", gflag.WithCategory("Execution"))
 	c.VarOpt(&jobRunOpts.lock, "lock", "", "project-relative directory lock path (repeatable)", gflag.WithCategory("Execution"))
@@ -1122,7 +1122,7 @@ func bindJobRunFlags(c *gcli.Command) {
 
 	// Submission: provenance and grouping metadata.
 	c.StrOpt2(&jobRunOpts.title, "title", "optional job title", jobRunOptCategory("Submission", ""))
-	c.StrOpt2(&jobRunOpts.tags, "tags", "comma-separated free-form tags for the job (E5 search dimension, e.g. --tags ci,nightly)", jobRunOptCategory("Submission", ""))
+	c.StrOpt2(&jobRunOpts.tags, "tags", "comma-separated free-form tags for the job (search dimension, e.g. --tags ci,nightly)", jobRunOptCategory("Submission", ""))
 	c.StrOpt2(&jobRunOpts.plan, "plan", "attach the job to a plan (grouping key)", jobRunOptCategory("Submission", ""))
 	c.StrOpt2(&jobRunOpts.todo, "todo", "run this job for a plan todo: the plan is resolved from the todo, the item turns doing and its outcome/commits are written back to its note", jobRunOptCategory("Submission", ""))
 	c.StrOpt2(&jobRunOpts.issue, "issue", "link this job to a repository tracker issue", jobRunOptCategory("Submission", ""))

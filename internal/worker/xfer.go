@@ -248,7 +248,7 @@ func (cl *Client) xferSend(ctx context.Context, contentURL, src string) (int64, 
 		return 0, "", fmt.Errorf("stat source: %w", err)
 	}
 	if st.IsDir() {
-		return 0, "", errors.New("source is a directory; XFER-01 transfers a single file")
+		return 0, "", errors.New("source is a directory; transfers accept a single file")
 	}
 	// Hash the file FIRST: the server verifies the declared digest while it receives
 	// the body, so the value has to exist before the body starts streaming (the

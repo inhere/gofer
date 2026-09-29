@@ -121,7 +121,7 @@ func NewToolCmd() *gcli.Command {
 		Desc: "Small utilities: copy a file to/from a worker and manage the transfer staging area",
 		Subs: []*gcli.Command{
 			cp,
-			{Name: "xfer", Desc: "Manage staged file transfers (XFER-01)", Subs: []*gcli.Command{ls, show, rm}},
+			{Name: "xfer", Desc: "Manage staged file transfers", Subs: []*gcli.Command{ls, show, rm}},
 		},
 	}
 }

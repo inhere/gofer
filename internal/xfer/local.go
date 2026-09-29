@@ -168,7 +168,7 @@ func (r *LocalRunner) runGet(rec jobstore.XferRecord, src string) error {
 		return fmt.Errorf("stat source: %w", err)
 	}
 	if st.IsDir() {
-		return errors.New("source is a directory; XFER-01 transfers a single file")
+		return errors.New("source is a directory; transfers accept a single file")
 	}
 	w, err := r.Store.Writer(rec.ID)
 	if err != nil {
