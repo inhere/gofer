@@ -31,6 +31,7 @@ import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
 import { formatTokens } from '../utils/jobOutcome'
 import { boardProgress } from '../utils/planBoard'
 import { progressDetail, progressSegments, progressText } from '../utils/planProgress'
+import { handoffEditorDraft, isHistoricalVersion, mergeHandoffs } from '../utils/planHandoff'
 
 const props = defineProps<{ id: string }>()
 const router = useRouter()
@@ -38,15 +39,22 @@ const POLL_MS = 2500
 
 const plan = ref<PlanDetail | null>(null)
 const error = ref('')
-const handoffText = ref('')
-const handoffVersion = ref(0)
-const handoffBy = ref('')
-const handoffAt = ref(0)
+const handoffLatest = ref<import('../api/types').PlanHandoff | null>(null)
+const handoffVersions = ref<import('../api/types').PlanHandoff[]>([])
+const handoffSelectedVersion = ref(0)
+const handoffDraft = ref('')
+const handoffEditMode = ref<'edit' | 'new' | null>(null)
+const handoffPreview = ref(false)
 const handoffSaving = ref(false)
 const handoffError = ref('')
-const handoffHistory = ref<import('../api/types').PlanHandoff[]>([])
-const handoffHistoryOpen = ref(false)
-const handoffReadOnly = ref<import('../api/types').PlanHandoff | null>(null)
+
+const handoffSelected = computed(() =>
+  handoffVersions.value.find((item) => item.version === handoffSelectedVersion.value) ?? null,
+)
+const handoffIsHistorical = computed(() =>
+  isHistoricalVersion(handoffSelectedVersion.value, handoffLatest.value?.version ?? 0),
+)
+const handoffEditing = computed(() => handoffEditMode.value !== null)
 
 // 操作态
 const newTodoTitle = ref('')
@@ -541,11 +549,15 @@ async function fetchPlan(): Promise<void> {
   }
 	try {
 		plan.value = await getPlan(props.id)
-		const h = await getPlanHandoff(props.id)
-		handoffText.value = h?.body ?? ''
-		handoffVersion.value = h?.version ?? 0
-		handoffBy.value = h?.by ?? ''
-		handoffAt.value = h?.at ?? 0
+		const [h, history] = await Promise.all([
+			getPlanHandoff(props.id),
+			listPlanHandoffHistory(props.id),
+		])
+		handoffLatest.value = h
+		handoffVersions.value = mergeHandoffs(h, history)
+		if (!handoffEditing.value) {
+			handoffSelectedVersion.value = h?.version ?? 0
+		}
     error.value = ''
     if (!isActive.value) stopPolling()
     // 事件面板展开着就顺带重取第一页（复用同一条刷新路径，不再起第二个轮询）。
@@ -559,19 +571,43 @@ async function saveHandoff(): Promise<void> {
 	if (handoffSaving.value) return
 	handoffSaving.value = true; handoffError.value = ''
 	try {
-		const h = await setPlanHandoff(props.id, handoffText.value, handoffVersion.value)
-		handoffVersion.value = h.version; handoffBy.value = h.by; handoffAt.value = h.at
+		const h = await setPlanHandoff(props.id, handoffDraft.value, handoffLatest.value?.version ?? 0)
+		handoffLatest.value = h
+		handoffEditMode.value = null
+		handoffPreview.value = false
+		handoffSelectedVersion.value = h.version
+		handoffVersions.value = mergeHandoffs(h, handoffVersions.value)
 	} catch {
 		handoffError.value = '交接说明已被他人更新，请刷新后重试'
 		const h = await getPlanHandoff(props.id)
-		handoffText.value = h?.body ?? ''; handoffVersion.value = h?.version ?? 0
+		const history = await listPlanHandoffHistory(props.id)
+		handoffLatest.value = h
+		handoffVersions.value = mergeHandoffs(h, history)
+		handoffSelectedVersion.value = h?.version ?? 0
 	} finally { handoffSaving.value = false }
 }
 
-async function toggleHandoffHistory(): Promise<void> {
-	handoffHistoryOpen.value = !handoffHistoryOpen.value
-	if (!handoffHistoryOpen.value || handoffHistory.value.length > 0) return
-	try { handoffHistory.value = await listPlanHandoffHistory(props.id) } catch (e) { handoffError.value = e instanceof Error ? e.message : String(e) }
+function startHandoffEdit(): void {
+	if (!handoffLatest.value || handoffIsHistorical.value) return
+	handoffDraft.value = handoffEditorDraft('edit', handoffLatest.value)
+	handoffEditMode.value = 'edit'
+	handoffPreview.value = false
+}
+
+function startHandoffNew(): void {
+	handoffDraft.value = handoffEditorDraft('new', handoffLatest.value)
+	handoffEditMode.value = 'new'
+	handoffPreview.value = false
+}
+
+function cancelHandoffEdit(): void {
+	handoffEditMode.value = null
+	handoffPreview.value = false
+	handoffDraft.value = ''
+}
+
+function returnToLatestHandoff(): void {
+	handoffSelectedVersion.value = handoffLatest.value?.version ?? 0
 }
 
 async function onToggleTodo(t: Todo): Promise<void> {
@@ -899,25 +935,38 @@ onUnmounted(() => {
     </div>
 
     <section v-if="plan" class="section handoff-card">
-      <div class="section-head"><h2 class="section-title mono">交接说明</h2><span v-if="handoffVersion" class="mono">v{{ handoffVersion }} · {{ handoffBy }} · {{ fmtDateTime(handoffAt) }}</span></div>
-      <MarkdownBlock v-if="handoffText" :text="handoffText" />
-      <p v-else class="empty mono">暂无交接说明</p>
-      <div v-if="handoffReadOnly" class="handoff-history-preview">
-        <div class="mono">历史版本 v{{ handoffReadOnly.version }} · {{ handoffReadOnly.by }} · {{ fmtDateTime(handoffReadOnly.at) }}</div>
-        <MarkdownBlock :text="handoffReadOnly.body" />
+      <div class="section-head handoff-head">
+        <h2 class="section-title mono">交接说明</h2>
+        <div class="handoff-controls">
+          <select v-if="handoffVersions.length > 0" v-model="handoffSelectedVersion" class="op-input handoff-version-select mono" aria-label="交接说明版本">
+            <option v-for="item in handoffVersions" :key="item.version" :value="item.version">
+              v{{ item.version }} · {{ item.by }} · {{ fmtDateTime(item.at) }}
+            </option>
+          </select>
+          <button class="op-btn" type="button" @click="startHandoffNew">＋ 新增</button>
+          <button v-if="handoffLatest && !handoffIsHistorical && !handoffEditing" class="op-btn" type="button" @click="startHandoffEdit">修改</button>
+        </div>
       </div>
-      <textarea v-model="handoffText" class="op-input handoff-editor" rows="6" placeholder="记录当前进度、下一步和未决事项" />
-      <p v-if="handoffError" class="error mono">{{ handoffError }}</p>
-      <div class="handoff-actions">
-        <button class="op-btn" type="button" :disabled="handoffSaving" @click="saveHandoff">{{ handoffSaving ? '保存中…' : '保存交接说明' }}</button>
-        <button class="op-btn" type="button" @click="toggleHandoffHistory">{{ handoffHistoryOpen ? '收起历史' : '展开历史' }}</button>
-      </div>
-      <div v-if="handoffHistoryOpen" class="handoff-history-list">
-        <button v-for="item in handoffHistory" :key="item.version" class="handoff-history-item mono" type="button" @click="handoffReadOnly = item">
-          v{{ item.version }} · {{ item.by }} · {{ fmtDateTime(item.at) }}
-        </button>
-        <p v-if="handoffHistory.length === 0" class="empty mono">暂无历史版本</p>
-      </div>
+      <p v-if="handoffIsHistorical && handoffSelected" class="handoff-history-note mono">
+        正在查看历史版本 v{{ handoffSelected.version }} · <button class="inline-link mono" type="button" @click="returnToLatestHandoff">回到最新</button>
+      </p>
+      <template v-if="handoffEditing">
+        <div class="handoff-edit-tabs mono">
+          <button class="op-btn" :class="{ 'handoff-tab--active': !handoffPreview }" type="button" @click="handoffPreview = false">编辑</button>
+          <button class="op-btn" :class="{ 'handoff-tab--active': handoffPreview }" type="button" @click="handoffPreview = true">预览</button>
+        </div>
+        <textarea v-if="!handoffPreview" v-model="handoffDraft" class="op-input handoff-editor" rows="12" placeholder="记录当前进度、下一步和未决事项" />
+        <MarkdownBlock v-else :text="handoffDraft" />
+        <p v-if="handoffError" class="error mono">{{ handoffError }}</p>
+        <div class="handoff-actions">
+          <button class="op-btn" type="button" :disabled="handoffSaving" @click="saveHandoff">{{ handoffSaving ? '保存中…' : '保存' }}</button>
+          <button class="op-btn" type="button" :disabled="handoffSaving" @click="cancelHandoffEdit">取消</button>
+        </div>
+      </template>
+      <template v-else>
+        <MarkdownBlock v-if="handoffSelected" :text="handoffSelected.body" />
+        <p v-else class="empty mono">暂无交接说明，点击「＋ 新增」创建第一份交接说明</p>
+      </template>
     </section>
 
     <!-- WEB-10 头部操作条：进度（done+skipped/total）+ 用量汇总 + 链操作（PLAN-03）。 -->
@@ -1684,6 +1733,55 @@ onUnmounted(() => {
   justify-content: space-between;
   gap: 10px;
 }
+.handoff-head {
+  align-items: flex-start;
+}
+.handoff-controls,
+.handoff-edit-tabs,
+.handoff-actions {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.handoff-controls {
+  justify-content: flex-end;
+}
+.handoff-version-select {
+  flex: 0 1 auto;
+  min-width: 190px;
+  width: auto;
+  padding-top: 4px;
+  padding-bottom: 4px;
+}
+.handoff-history-note {
+  color: var(--queue);
+  margin: 0 0 10px;
+}
+.inline-link {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--phosphor);
+  cursor: pointer;
+}
+.handoff-editor {
+  display: block;
+  width: 100%;
+  min-height: 220px;
+  resize: vertical;
+  line-height: 1.55;
+}
+.handoff-edit-tabs {
+  margin-bottom: 8px;
+}
+.handoff-tab--active {
+  color: var(--phosphor);
+  border-color: var(--phosphor);
+}
+.handoff-actions {
+  margin-top: 10px;
+}
 .section-title {
   font-size: 12px;
   letter-spacing: 0.08em;
@@ -2114,6 +2212,21 @@ onUnmounted(() => {
   .edit-actions {
     align-items: flex-start;
     flex-direction: column;
+  }
+}
+@media (max-width: 639px) {
+  .handoff-head {
+    flex-direction: column;
+    gap: 8px;
+  }
+  .handoff-controls {
+    width: 100%;
+    justify-content: flex-start;
+  }
+  .handoff-version-select {
+    min-width: 0;
+    flex: 1 1 100%;
+    order: -1;
   }
 }
 </style>
