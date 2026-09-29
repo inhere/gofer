@@ -118,10 +118,23 @@ job 状态里的 **`recovering`** 不是失败：执行它的 worker 断线了�
 
 开着 review 的 job（`job run --review`，或项目 `require_review: true`）agent 正常结束后**不落 `done`**，停在 `needs_review` 等人裁决：
 
-- **Web 验收台**：`/review` 列全部待验收 job（verify 徽标 / commits 数 / usage / 已经等了多久，等最久的在最前），行内 Accept / Reject（拒绝必写理由，可勾「自动续投」）。点行进 job 详情，页首是**验收面板**，五个页签一屏看完：**汇报**（agent 最终文本，markdown）/ **提交**（`base_sha → HEAD`）/ **Diff**（patch 就地渲染、按文件折叠，>5000 行或 >1MB 只渲染前 5000 行并可下载原文）/ **验证**（verify 结果 + stderr 里最后一段 verify 输出）/ **用量**；底部同一组 Accept / Reject。顶栏 Review 上的数字就是待验收计数。
+- **Web 验收台**：`/review` 列全部待验收 job（verify 徽标 / commits 数 / usage / 已经等了多久，等最久的在最前），行内 Accept / Reject（拒绝必写理由，可勾「自动续投」）。点行进 job 详情，页首是**验收面板**，五个页签一屏看完：**汇报**（agent 最终文本，markdown）/ **提交**（`base_sha → HEAD`）/ **Diff**（patch 就地渲染、按文件折叠，>5000 行或 >1MB 只渲染前 5000 行并可下载原文）/ **验证**（verify 结果 + stderr 里最后一段 verify 输出）/ **用量**；底部同一组 Accept / Reject。顶栏只在有待验收 job 时显示「待验收 N」徽标（v0.75 起 Review 不再是常驻菜单项），点它进 `/review`；工作台的「等你」也包含这些 job。
 - **容器里（无浏览器）**：`gofer job review <id>` 打同一份材料（`--tail N` 改汇报行数，`--diff` 追加完整 patch）。
 
 裁决前先自己核验（跑测试、看 diff），面板里的汇报仍是 agent 自己说的。
+
+### 审阅后在 job 上留评论（留痕）
+
+监督别人派的活（codex / claude / exec）时，job 结束并审阅完，**在这个 job 上留一条简短评论**，把结论和后续留在 job 页上，web 的 job 详情里就能看到，不用翻聊天记录：
+
+```bash
+gofer job comment <job-id> "验收：全量测试通过、web 三命令通过；我补了 abc1234（修 X）；已发 v1.2.3。"
+gofer job comment <job-id> "退回：发现 Y 回归（约 40 个测试失败），续接修复见 job <新 id>。"
+gofer job comments <job-id>        # 查看这条 job 的评论
+```
+
+- 写什么：结论（通过 / 退回）、自己做的修改（附 commit）、发现的问题、退回返工时的后续 job id、验收与发版结果。几行即可，只写事实。
+- **不要写 `@名字`**：用户身份的评论里出现 `@agent` / `@role` 会真的派出一个 job（MCP-05）。提到 agent 时去掉 `@`。在 job 内部（设了 `GOFER_JOB_ID`）发的评论记为该 agent 的发言，不会派活。
 
 ## 5. 同步 vs 异步
 
