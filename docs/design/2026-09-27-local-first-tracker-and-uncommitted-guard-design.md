@@ -228,3 +228,17 @@ exit=0
 G032 清单：本轮没有新增未标记兼容分支；tracker mirror 字段、cursor、tombstone 和 Web API 均为 additive P4 路径，没有保留无调用方的旧兼容入口。
 
 job issue 联动收尾修正：联动已从 HTTP handler 的异步等待协程下沉到 job Service 生命周期钩子，与 todo 回写同序。开跑钩子在 job 真正进入 running 后执行，终态 note 在终态快照持久化前写入 mirror；因此 MCP、本地后端、todo 派发、resume、retry/fallback 都复用同一条生命周期路径，提交被拒时不会改变 issue。`TestJobIssueLinkAppendsNotes -count=20` 与拒绝提交测试均通过。
+
+真实进程 smoke（2026-09-29，临时 config、临时 repo、随机临时目录；未触碰 live server/worker）：
+
+```text
+go build -o tmp/gofer-smoke2.exe ./cmd/gofer
+gofer serve -c <temp>/config.yaml
+server.ready ... addr=0.0.0.0:8765 ... token auth enabled
+gofer repo sync -c <temp>/config.yaml   # 不传 --server，GOFER_SERVER_ADDR/TOKEN 环境解析
+sync: tracker_id=456f69f7-c04b-4619-88f6-c875023fa187 server=http://127.0.0.1:8765
+curl /v1/tracker/repos
+{"repos":[{"tracker_id":"456f69f7-c04b-4619-88f6-c875023fa187","project_key":"","rel_path":"","prefix":"repo","last_sync_at":0,"sync_summary":""}]}
+```
+
+本次真实进程验证了 serve 编排后的 `/v1/tracker/*` 路由可用、mirror repo 可登记，以及 repo sync 不传 `--server` 时可通过环境中的 server 地址和 token 连接。完整 HTTP 编辑、再次 sync 拉回和无变化二次 sync 仍由固定 httptest 测试覆盖。
