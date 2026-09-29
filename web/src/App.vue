@@ -4,7 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { clearToken, hasToken } from './store/auth'
 import EscalationBell from './components/EscalationBell.vue'
 import TopbarMenu from './components/TopbarMenu.vue'
-import { needsReviewCount } from './store/reviewCount'
+import { needsReviewCount, reviewBadgeLabel, shouldShowReviewBadge } from './store/reviewCount'
 import { staleBuild } from './store/staleBuild'
 
 const router = useRouter()
@@ -47,8 +47,6 @@ const workbenchActive = computed(() => route.path === '/workbench')
 interface NavItem {
   to: string
   label: string
-  // badge 指明该入口要挂哪个计数（REV-01：Review 挂待验收数）。
-  badge?: 'needs_review'
 }
 
 const navGroups: Array<{ label: string; items: NavItem[] }> = [
@@ -57,8 +55,6 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
     items: [
       { to: '/workbench', label: 'Workbench' },
       { to: '/board', label: 'Board' },
-      // REV-01 验收台：待验收 job 就在 Board 之后，徽标数来自 EscalationBell 的轮询。
-      { to: '/review', label: 'Review', badge: 'needs_review' },
       { to: '/plans', label: 'Plans' },
       { to: '/issues', label: 'Issues' },
       { to: '/sessions', label: 'Sessions' },
@@ -72,8 +68,6 @@ const navGroups: Array<{ label: string; items: NavItem[] }> = [
       { to: '/agents', label: 'Agents' },
       { to: '/runners', label: 'Runners' },
       { to: '/projects', label: 'Projects' },
-      // JOB-10：技能库就挂在 Agents 旁边——它们是同一类"agent 怎么干活"的资产。
-      { to: '/skills', label: 'Skills' },
     ],
   },
 ]
@@ -120,6 +114,12 @@ function reloadPage() {
         >
           {{ homeNav.label }}
         </RouterLink>
+        <RouterLink
+          v-if="shouldShowReviewBadge(needsReviewCount)"
+          to="/review"
+          class="nav-review-badge mono"
+          :title="`${needsReviewCount} 个 job 待验收`"
+        >{{ reviewBadgeLabel(needsReviewCount) }}</RouterLink>
         <span v-for="group in navGroups" :key="group.label" class="grp">
           <span class="glabel">{{ group.label }}</span>
           <RouterLink
@@ -130,11 +130,6 @@ function reloadPage() {
             active-class="nav-link--active"
           >
             {{ item.label }}
-            <span
-              v-if="item.badge === 'needs_review' && needsReviewCount > 0"
-              class="nav-badge"
-              :title="`${needsReviewCount} 个 job 待验收`"
-            >{{ needsReviewCount }}</span>
           </RouterLink>
         </span>
         <RouterLink
@@ -182,6 +177,12 @@ function reloadPage() {
           >
             {{ homeNav.label }}
           </RouterLink>
+          <RouterLink
+            v-if="shouldShowReviewBadge(needsReviewCount)"
+            to="/review"
+            class="drawer-review-badge mono"
+            @click="closeDrawer"
+          >{{ reviewBadgeLabel(needsReviewCount) }}</RouterLink>
 
           <section v-for="group in navGroups" :key="group.label" class="drawer-section">
             <h2 class="drawer-title mono">{{ group.label }}</h2>
@@ -194,10 +195,6 @@ function reloadPage() {
               @click="closeDrawer"
             >
               {{ item.label }}
-              <span
-                v-if="item.badge === 'needs_review' && needsReviewCount > 0"
-                class="nav-badge"
-              >{{ needsReviewCount }}</span>
             </RouterLink>
           </section>
 
@@ -324,17 +321,29 @@ function reloadPage() {
   padding-left: 14px;
   margin-left: 2px;
 }
-/* 入口计数徽标（REV-01 待验收数）：小圆角块，悬停给 title 明细。 */
-.nav-badge {
-  display: inline-block;
-  margin-left: 5px;
-  padding: 0 5px;
-  border-radius: 8px;
+/* REV-01：待验收数是独立入口，使用与顶栏控件同高的强调色胶囊。 */
+.nav-review-badge,
+.drawer-review-badge {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 2px 8px;
+  border-radius: 999px;
   background: var(--run);
   color: var(--ink);
-  font-size: 10px;
-  line-height: 14px;
-  vertical-align: middle;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.nav-review-badge:hover,
+.drawer-review-badge:hover {
+  color: var(--ink);
+  text-decoration: none;
+  opacity: 0.9;
+}
+.drawer-review-badge {
+  margin: 0 6px 8px;
 }
 
 .topbar-right {

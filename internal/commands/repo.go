@@ -209,6 +209,11 @@ func NewRepoCmd() *gcli.Command {
 						c.Printf("issues.%s: %d\n", name, status.Issues[name])
 					}
 					c.Printf("memories: %d\ncommit_policy: %s\nmanaged_block: %v\nhooks: %s\nsync: %s\npending_sync: %d\nlast_sync_at: %s\nsync_summary: %s\n", status.Memories, status.CommitPolicy, status.ManagedBlock, status.Hooks, status.Sync, status.PendingSync, status.LastSyncAt, status.SyncSummary)
+					if strings.TrimSpace(status.ProjectKey) == "" {
+						c.Println("project_key: 未填写；可在 .gofer/tracker/config.yaml 填写 project_key")
+					} else {
+						c.Printf("project_key: %s\n", status.ProjectKey)
+					}
 					return nil
 				},
 			},

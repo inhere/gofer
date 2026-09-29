@@ -6,3 +6,11 @@
 import { ref } from 'vue'
 
 export const needsReviewCount = ref(0)
+
+export function shouldShowReviewBadge(count: number): boolean {
+  return count > 0
+}
+
+export function reviewBadgeLabel(count: number): string {
+  return `待验收 ${count}`
+}

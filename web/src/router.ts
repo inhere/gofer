@@ -64,7 +64,7 @@ const routes: RouteRecordRaw[] = [
   { path: '/projects', name: 'projects', component: () => import('./views/Projects.vue') },
   { path: '/agents', name: 'agents', component: () => import('./views/Agents.vue') },
   // JOB-10：server 技能库（列表/详情/导入/更新/删除/导出）。
-  { path: '/skills', name: 'skills', component: () => import('./views/Skills.vue') },
+  { path: '/skills', redirect: '/settings/skills' },
   { path: '/runners', name: 'runners', component: () => import('./views/Runners.vue') },
   { path: '/cluster', redirect: '/runners' },
   // WEB-12：设置区改成二级菜单（views/settings/SettingsLayout.vue）——「⚙ 设置」进 /settings，
@@ -94,6 +94,11 @@ const routes: RouteRecordRaw[] = [
         path: 'notifications',
         name: 'settings-notifications',
         component: () => import('./views/settings/Notifications.vue'),
+      },
+      {
+        path: 'skills',
+        name: 'settings-skills',
+        component: () => import('./views/Skills.vue'),
       },
       {
         path: 'about',

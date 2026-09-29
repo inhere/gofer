@@ -92,6 +92,16 @@ func TestPrimeHookJSONShape(t *testing.T) {
 	}
 }
 
+func TestRepoStatusSuggestsProjectKeyWhenEmpty(t *testing.T) {
+	t.Setenv("GOFER_SERVER_ADDR", "http://127.0.0.1:1")
+	root := t.TempDir()
+	trackerRunOK(t, root, "repo", "init")
+	out := trackerRunOK(t, root, "repo", "status")
+	if !strings.Contains(out, "project_key: 未填写") || !strings.Contains(out, "config.yaml") {
+		t.Fatalf("status should explain how to fill project_key: %s", out)
+	}
+}
+
 func TestRepoInitInstallsHooks(t *testing.T) {
 	root := t.TempDir()
 	p3Write(t, root, ".claude/settings.json", `{"hooks":{"SessionStart":[{"matcher":"","hooks":[{"type":"command","command":"other-tool"}]}]}}`)

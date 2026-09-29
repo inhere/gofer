@@ -175,6 +175,9 @@ func (s *Service) validate(cfg *config.Config, req JobRequest, remote bool) (con
 		if !ok {
 			return config.ProjectConfig{}, fmt.Errorf("%w: unknown agent %q", ErrInvalidRequest, gateAgent)
 		}
+		if len(req.Cmd) > 0 && ac.Type != agent.TypeExec {
+			return config.ProjectConfig{}, fmt.Errorf("%w: positional cmd is only valid for exec agent %q; use --prompt or -f", ErrInvalidRequest, gateAgent)
+		}
 		// Reverse of the req.Interactive gate above: an INTERACTIVE agent may only be
 		// submitted as an interactive job. A terminal agent is launched bare (its arg
 		// template holds no {{prompt}} — the prompt is typed into the pty), so the

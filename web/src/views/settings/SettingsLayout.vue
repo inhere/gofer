@@ -18,6 +18,7 @@ const sections: SettingsSection[] = [
   { to: '/settings/rules', label: 'Rules' },
   { to: '/settings/tunnels', label: 'Tunnels' },
   { to: '/settings/notifications', label: '通知' },
+  { to: '/settings/skills', label: 'Skills' },
   { to: '/settings/about', label: '关于' },
 ]
 

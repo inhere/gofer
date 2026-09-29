@@ -1604,6 +1604,9 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 	if a := c.Arg("cmd"); a != nil {
 		cmd = a.Strings()
 	}
+	if err := rejectRawCmdForAgent(jobRunOpts.agent, cmd); err != nil {
+		return job.JobRequest{}, err
+	}
 	tplVars, err := jobRunTemplateVars()
 	if err != nil {
 		return job.JobRequest{}, err
@@ -1740,6 +1743,13 @@ func buildJobRunRequest(c *gcli.Command, cli *client.Client) (job.JobRequest, er
 		SystemPrompt: jobRunOpts.systemPrompt,
 	}
 	return req, nil
+}
+
+func rejectRawCmdForAgent(agentName string, cmd []string) error {
+	if len(cmd) > 0 && strings.TrimSpace(agentName) != "" && agentName != "exec" {
+		return fmt.Errorf("positional arguments after -- require exec agent; use --prompt or -f for %s", agentName)
+	}
+	return nil
 }
 
 func resolveJobTrackerID() (string, error) {
