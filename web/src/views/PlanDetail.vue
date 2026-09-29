@@ -1016,7 +1016,7 @@ onUnmounted(() => {
           :title="
             plan.leader === 'on'
               ? 'leader 已开：成员 job 结束会唤醒一个 leader job 决定下一步'
-              : 'leader 已关：成员 job 结束不会唤醒 leader，链靠 PLAN-03 规则推进'
+              : 'leader 已关：成员 job 结束不会唤醒 leader，链按条目的依赖关系自动推进'
           "
         >
           <input
