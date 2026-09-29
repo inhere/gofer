@@ -37,16 +37,20 @@ var planCreateOpts = struct {
 	// leader opts the plan into leader rounds at creation (LEAD-02); the global
 	// supervisor.leader block is only the master switch + parameters.
 	leader bool
+	tags   string
 }{}
 
 var planSetOpts = struct {
 	leader string
+	tags   string
+	untag  string
 }{}
 
 var planListOpts = struct {
 	status  string
 	project string
 	q       string
+	tags    gcli.Strings
 	limit   int
 	all     bool
 }{}
@@ -64,6 +68,14 @@ var planSetTodoOpts = struct {
 	appendNote string
 	todoDispatchFlags
 }{}
+
+func flattenPlanTags(values gcli.Strings) []string {
+	var out []string
+	for _, value := range values {
+		out = append(out, splitCSV(value)...)
+	}
+	return out
+}
 
 // todoDispatchFlags are the PLAN-02 P2 dispatch flags, shared by `plan add-todo` and
 // `plan set-todo` so the two commands describe an item the same way (and so a caller can
@@ -97,10 +109,10 @@ func (f *todoDispatchFlags) bind(c *gcli.Command) {
 	c.StrOpt(&f.runner, "runner", "", "", "runner key for the job (default: the server's built-in local runner)")
 	c.StrOpt(&f.cwd, "cwd", "", "", "working dir within the project (default: the project root)")
 	c.IntOpt(&f.timeout, "timeout", "", 0, "job timeout in seconds (0 = the server default)")
-	c.StrOpt(&f.after, "after", "", "", "PLAN-03: comma-separated todo ids this item waits for; `prev` = the plan's previous item (the last one by sort)")
-	c.BoolOpt(&f.auto, "auto", "", false, "PLAN-03: let the chain start this item once its dependencies are done (default)")
-	c.BoolOpt(&f.noAuto, "no-auto", "", false, "PLAN-03: park this item — only a human (or `plan run`) starts it")
-	c.StrOpt(&f.cmd, "cmd", "", "", "PLAN-03: argv an exec item runs, e.g. --cmd 'go test ./...' (required when --assign exec)")
+	c.StrOpt(&f.after, "after", "", "", "comma-separated todo ids this item waits for; `prev` = the plan's previous item (the last one by sort)")
+	c.BoolOpt(&f.auto, "auto", "", false, "let the chain start this item once its dependencies are done (default)")
+	c.BoolOpt(&f.noAuto, "no-auto", "", false, "park this item — only a human (or `plan run`) starts it")
+	c.StrOpt(&f.cmd, "cmd", "", "", "argv an exec item runs, e.g. --cmd 'go test ./...' (required when --assign exec)")
 }
 
 // patch builds the update/create patch from the flags that were given. --var without
@@ -260,8 +272,9 @@ func NewPlanCmd() *gcli.Command {
 					c.StrOpt(&planCreateOpts.planID, "plan-id", "", "", "plan id (optional; server generates when empty)")
 					c.StrOpt(&planCreateOpts.title, "title", "", "", "plan title")
 					c.StrOpt(&planCreateOpts.desc, "desc", "", "", "plan description")
-					c.StrOpt(&planCreateOpts.project, "project", "", "", "project the plan's items run in (PLAN-02: an item may still override it)")
-					c.BoolOpt(&planCreateOpts.leader, "leader", "", false, "opt this plan into leader rounds (LEAD-02; the global supervisor.leader switch must also be on)")
+					c.StrOpt(&planCreateOpts.project, "project", "", "", "project the plan's items run in (an item may still override it)")
+					c.BoolOpt(&planCreateOpts.leader, "leader", "", false, "opt this plan into leader rounds (the global supervisor.leader switch must also be on)")
+					c.StrOpt(&planCreateOpts.tags, "tags", "", "", "comma-separated plan tags")
 				},
 				Func: runPlanCreate,
 			},
@@ -275,6 +288,7 @@ func NewPlanCmd() *gcli.Command {
 					c.StrOpt(&planListOpts.status, "status", "", "", "filter by status (open/done/archived/blocked)")
 					c.StrOpt(&planListOpts.project, "project", "p", "", "filter by project key (exact)")
 					c.StrOpt(&planListOpts.q, "q", "", "", "search: plan id prefix or title substring")
+					c.VarOpt(&planListOpts.tags, "tag", "", "filter by plan tag (repeatable; all tags must match)")
 					c.IntOpt(&planListOpts.limit, "limit", "", jobstore.PlanListDefaultLimit, "page size (server cap 100)")
 					c.BoolOpt(&planListOpts.all, "all", "", false, "list every matching plan (pages through the server cap; overrides --limit)")
 				},
@@ -292,12 +306,14 @@ func NewPlanCmd() *gcli.Command {
 			},
 			{
 				Name: "set",
-				Desc: "Set a plan-level field (LEAD-02: --leader on|off turns the plan's leader rounds on or off)",
+				Desc: "Set a plan-level field (--leader on|off turns this plan's leader rounds on or off)",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
 					c.AddArg("plan-id", "plan id", true)
-					c.StrOpt(&planSetOpts.leader, "leader", "", "", "leader rounds for THIS plan: on | off")
+					c.StrOpt(&planSetOpts.leader, "leader", "", "", "leader rounds for this plan: on | off")
+					c.StrOpt(&planSetOpts.tags, "tags", "", "", "replace the plan's tags with this comma-separated list")
+					c.StrOpt(&planSetOpts.untag, "untag", "", "", "remove these comma-separated plan tags")
 				},
 				Func: runPlanSet,
 			},
@@ -366,7 +382,7 @@ func NewPlanCmd() *gcli.Command {
 			},
 			{
 				Name: "comment",
-				Desc: "Comment on a plan (or, with --todo, on one of its checklist items). A mention like @omp or @reviewer in a USER's comment dispatches a job for it (MCP-05)",
+				Desc: "Comment on a plan (or, with --todo, on one of its checklist items). A mention like @omp or @reviewer in a USER's comment dispatches a job for it",
 				Config: func(c *gcli.Command) {
 					bindConfigFlag(c)
 					bindServerFlags(c)
@@ -535,7 +551,7 @@ func runPlanCreate(c *gcli.Command, _ []string) error {
 	if planCreateOpts.leader {
 		leader = jobstore.PlanLeaderOn
 	}
-	p, err := cli.CreatePlan(planCreateOpts.planID, planCreateOpts.title, planCreateOpts.desc, planCreateOpts.project, leader)
+	p, err := cli.CreatePlan(planCreateOpts.planID, planCreateOpts.title, planCreateOpts.desc, planCreateOpts.project, leader, splitCSV(planCreateOpts.tags))
 	if err != nil {
 		return err
 	}
@@ -552,17 +568,29 @@ func runPlanSet(c *gcli.Command, _ []string) error {
 		return fmt.Errorf("plan set requires a <plan-id> argument")
 	}
 	leader := strings.TrimSpace(planSetOpts.leader)
-	if leader == "" {
-		return fmt.Errorf("plan set requires --leader on|off")
-	}
-	if !jobstore.ValidPlanLeader(leader) {
+	if leader != "" && !jobstore.ValidPlanLeader(leader) {
 		return fmt.Errorf("invalid --leader %q: must be on or off", leader)
+	}
+	var tags *[]string
+	if strings.TrimSpace(planSetOpts.tags) != "" {
+		v := splitCSV(planSetOpts.tags)
+		tags = &v
+	}
+	untag := splitCSV(planSetOpts.untag)
+	if leader == "" && tags == nil && len(untag) == 0 {
+		return fmt.Errorf("plan set requires --leader, --tags, or --untag")
 	}
 	cli, err := newClient(config.InputCfgFile, jobConnOpts.server, jobConnOpts.token)
 	if err != nil {
 		return err
 	}
-	p, err := cli.SetPlanLeader(planID, leader)
+	var p client.Plan
+	if leader != "" {
+		p, err = cli.SetPlanLeader(planID, leader)
+	}
+	if err == nil && (tags != nil || len(untag) > 0) {
+		p, err = cli.UpdatePlanTags(planID, tags, untag)
+	}
 	if err != nil {
 		return err
 	}
@@ -583,6 +611,7 @@ func runPlanList(c *gcli.Command, _ []string) error {
 		Project: planListOpts.project,
 		Q:       planListOpts.q,
 		Limit:   planListOpts.limit,
+		Tags:    flattenPlanTags(planListOpts.tags),
 	}
 	if planListOpts.all {
 		return runPlanListAll(c, cli, opts)

@@ -65,6 +65,8 @@ const attaching = ref(false)
 const opError = ref('')
 const updating = ref(false)
 const statusError = ref('')
+const tagsDraft = ref('')
+const tagsSaving = ref(false)
 
 // leader 开关（LEAD-02 C2）：leaderSaving 期间禁点；warnings 是 PATCH 随响应带回来的提醒
 // （详情端点没有这个字段，故单独存着，点掉即清）；leaderError 是开关写入失败的原因。
@@ -549,6 +551,7 @@ async function fetchPlan(): Promise<void> {
   }
 	try {
 		plan.value = await getPlan(props.id)
+		tagsDraft.value = (plan.value.tags ?? []).join(', ')
 		const [h, history] = await Promise.all([
 			getPlanHandoff(props.id),
 			listPlanHandoffHistory(props.id),
@@ -564,6 +567,20 @@ async function fetchPlan(): Promise<void> {
     if (eventsOpen.value) void loadEvents(true)
   } catch (e) {
     error.value = e instanceof Error ? e.message : String(e)
+  }
+}
+
+async function saveTags(): Promise<void> {
+  if (!plan.value || tagsSaving.value) return
+  tagsSaving.value = true
+  try {
+    const tags = tagsDraft.value.split(',').map((tag) => tag.trim()).filter(Boolean)
+    plan.value = { ...plan.value, ...(await updatePlan(props.id, plan.value.status, undefined, tags)) }
+    statusError.value = ''
+  } catch (e) {
+    statusError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    tagsSaving.value = false
   }
 }
 
@@ -918,6 +935,14 @@ onUnmounted(() => {
         <div v-if="plan.description" class="meta-row">
           <dt>description</dt>
           <dd>{{ plan.description }}</dd>
+        </div>
+        <div class="meta-row meta-row--tags">
+          <dt>tags</dt>
+          <dd class="tag-editor">
+            <input v-model="tagsDraft" class="op-input" aria-label="计划标签" placeholder="标签，用逗号分隔" />
+            <button class="op-btn" type="button" :disabled="tagsSaving" @click="saveTags">{{ tagsSaving ? '保存中…' : '保存' }}</button>
+            <span v-if="plan.tags?.length" class="tag-list"><span v-for="tag in plan.tags" :key="tag" class="plan-tag mono">{{ tag }}</span></span>
+          </dd>
         </div>
         <div v-if="plan.progress != null" class="meta-row">
           <dt>progress</dt>
@@ -1538,6 +1563,10 @@ onUnmounted(() => {
   color: var(--paper);
   word-break: break-all;
 }
+.tag-editor { display: flex; align-items: center; flex-wrap: wrap; gap: 6px; }
+.tag-editor .op-input { flex: 1 1 220px; min-width: 160px; }
+.tag-list { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.plan-tag { color: var(--phosphor); border: 1px solid var(--line); border-radius: 999px; padding: 2px 7px; font-size: 11px; }
 
 .section {
   margin-top: 18px;

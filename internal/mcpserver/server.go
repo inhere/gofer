@@ -153,7 +153,7 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_get_result",
-		Description: "Get a finished job's structured result.json content (E6), as a raw JSON string.",
+		Description: "Get a finished job's structured result.json content, as a raw JSON string.",
 	}, getResultHandler(b))
 
 	// SUP-01 P5: task-book templates — read the templates a project can be driven
@@ -205,7 +205,20 @@ func newServer(b Backend, originAgent, originToken, scoped string) *mcp.Server {
 			Name:        "gofer_attach_job",
 			Description: "Attach an existing job to a plan by id. Returns the plan header.",
 		}, attachJobHandler(b))
+
 	}
+
+	// Tag maintenance and filtered listing are available to both operator and
+	// project-scoped MCP sessions; the server still applies its normal caller
+	// authorization to writes.
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_update_plan_tags",
+		Description: "Replace or remove a plan's tags and return the updated plan.",
+	}, updatePlanTagsHandler(b))
+	mcp.AddTool(s, &mcp.Tool{
+		Name:        "gofer_list_plans",
+		Description: "List plans, optionally requiring every tag and matching a title or id keyword.",
+	}, listPlansHandler(b))
 
 	mcp.AddTool(s, &mcp.Tool{
 		Name:        "gofer_get_plan",
@@ -471,6 +484,7 @@ type planView struct {
 	BlockedTodo string              `json:"blocked_todo,omitempty"`
 	CreatedAt   int64               `json:"created_at"`
 	UpdatedAt   int64               `json:"updated_at"`
+	Tags        []string            `json:"tags,omitempty"`
 	Counts      jobstore.PlanCounts `json:"counts"`
 	Jobs        []jobView           `json:"jobs"`
 	Todos       []todoView          `json:"todos"`
@@ -600,6 +614,7 @@ func planHeaderView(p jobstore.Plan) planView {
 		Project:     p.ProjectKey,
 		Paused:      p.Paused,
 		BlockedTodo: p.BlockedTodo,
+		Tags:        p.Tags,
 		CreatedAt:   p.CreatedAt,
 		UpdatedAt:   p.UpdatedAt,
 		Jobs:        make([]jobView, 0),
@@ -851,17 +866,59 @@ func runJobHandler(b Backend, originAgent, scoped string) mcp.ToolHandlerFor[run
 // --- gofer_create_plan / gofer_attach_job / gofer_get_plan -----------------
 
 type createPlanToolInput struct {
-	Title       string `json:"title,omitempty"`
-	Description string `json:"description,omitempty"`
+	Title       string   `json:"title,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Tags        []string `json:"tags,omitempty"`
 }
 
 func createPlanHandler(b Backend) mcp.ToolHandlerFor[createPlanToolInput, planView] {
 	return func(_ context.Context, _ *mcp.CallToolRequest, in createPlanToolInput) (*mcp.CallToolResult, planView, error) {
-		pv, err := b.CreatePlan(in.Title, in.Description)
+		pv, err := b.CreatePlan(in.Title, in.Description, in.Tags)
 		if err != nil {
 			return nil, planView{}, err
 		}
 		return nil, pv, nil
+	}
+}
+
+type updatePlanTagsToolInput struct {
+	PlanID string    `json:"plan_id"`
+	Tags   *[]string `json:"tags,omitempty"`
+	Untag  []string  `json:"untag,omitempty"`
+}
+
+func updatePlanTagsHandler(b Backend) mcp.ToolHandlerFor[updatePlanTagsToolInput, planView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in updatePlanTagsToolInput) (*mcp.CallToolResult, planView, error) {
+		if in.PlanID == "" {
+			return nil, planView{}, fmt.Errorf("plan_id is required")
+		}
+		pv, err := b.UpdatePlanTags(in.PlanID, in.Tags, in.Untag)
+		if err != nil {
+			return nil, planView{}, err
+		}
+		return nil, pv, nil
+	}
+}
+
+type listPlansToolInput struct {
+	Tags []string `json:"tags,omitempty"`
+	Q    string   `json:"q,omitempty"`
+}
+
+type planListView struct {
+	Plans []planView `json:"plans"`
+}
+
+func listPlansHandler(b Backend) mcp.ToolHandlerFor[listPlansToolInput, planListView] {
+	return func(_ context.Context, _ *mcp.CallToolRequest, in listPlansToolInput) (*mcp.CallToolResult, planListView, error) {
+		plans, err := b.ListPlans(in.Tags, in.Q)
+		if err != nil {
+			return nil, planListView{}, err
+		}
+		if plans == nil {
+			plans = []planView{}
+		}
+		return nil, planListView{Plans: plans}, nil
 	}
 }
 

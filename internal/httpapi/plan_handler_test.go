@@ -125,6 +125,52 @@ func TestCreateListGetPlanAndAttachJob(t *testing.T) {
 	}
 }
 
+func TestPlanTagsCreateUpdateFilter(t *testing.T) {
+	s := newTestServer(t, testToken, false)
+	create := func(id string, tags []string) {
+		resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]any{"plan_id": id, "title": id, "tags": tags})
+		if resp.StatusCode != http.StatusOK {
+			t.Fatalf("create %s status=%d", id, resp.StatusCode)
+		}
+		resp.Body.Close()
+	}
+	create("plan-tags-one", []string{"alpha", "shared"})
+	create("plan-tags-two", []string{"beta", "shared"})
+	resp := do(t, s, http.MethodGet, "/v1/plans?tag=alpha&tag=shared", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("tag filter status=%d", resp.StatusCode)
+	}
+	var page struct {
+		Plans []struct {
+			PlanID string `json:"plan_id"`
+		} `json:"plans"`
+	}
+	decode(t, resp, &page)
+	if len(page.Plans) != 1 || page.Plans[0].PlanID != "plan-tags-one" {
+		t.Fatalf("tag intersection = %+v", page.Plans)
+	}
+
+	resp = do(t, s, http.MethodPatch, "/v1/plans/plan-tags-one", testToken, map[string]any{"tags": []string{"gamma", "shared"}, "untag": []string{"shared"}})
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("update tags status=%d", resp.StatusCode)
+	}
+	var updated struct {
+		Tags []string `json:"tags"`
+	}
+	decode(t, resp, &updated)
+	if len(updated.Tags) != 1 || updated.Tags[0] != "gamma" {
+		t.Fatalf("updated tags = %+v", updated.Tags)
+	}
+	resp = do(t, s, http.MethodGet, "/v1/plans?q=tags-one", testToken, nil)
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("q filter status=%d", resp.StatusCode)
+	}
+	decode(t, resp, &page)
+	if len(page.Plans) != 1 || page.Plans[0].PlanID != "plan-tags-one" {
+		t.Fatalf("q filter = %+v", page.Plans)
+	}
+}
+
 func TestListPlansIncludesCounts(t *testing.T) {
 	s := newTestServer(t, testToken, false)
 	for _, id := range []string{"plan-list-counts", "plan-list-empty"} {

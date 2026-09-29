@@ -336,6 +336,7 @@ var schemaStmts = []string{
   -- LEAD-02: the per-plan leader-round switch ('off' by default, so an existing plan
   -- is never woken by an upgrade). Added by migratePlans on a pre-existing db.
   leader       TEXT NOT NULL DEFAULT 'off',
+  tags_json    TEXT NOT NULL DEFAULT '[]',
   created_at   INTEGER NOT NULL,
   updated_at   INTEGER NOT NULL
 )`,
@@ -1376,6 +1377,9 @@ func (s *Store) migratePlans() error {
 	// waking leaders because the master switch happens to be on (the pre-LEAD-02 global
 	// behaviour was exactly that, and it is what this column replaces).
 	if err := add("leader", "leader TEXT NOT NULL DEFAULT 'off'"); err != nil {
+		return err
+	}
+	if err := add("tags_json", "tags_json TEXT NOT NULL DEFAULT '[]'"); err != nil {
 		return err
 	}
 	// F15: `active` was a duplicate of `open` — nothing ever set it and nothing treated

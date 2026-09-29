@@ -1173,7 +1173,8 @@ type Plan struct {
 	Paused      bool   `json:"paused,omitempty"`
 	BlockedTodo string `json:"blocked_todo,omitempty"`
 	// Leader is this plan's leader-round switch (LEAD-02): on|off, `off` by default.
-	Leader string `json:"leader,omitempty"`
+	Leader string   `json:"leader,omitempty"`
+	Tags   []string `json:"tags,omitempty"`
 	// Warnings carries what a write could not refuse outright — today the "N running
 	// job(s) will wake the leader when they finish" note a leader-on PATCH returns.
 	Warnings []string `json:"warnings,omitempty"`
@@ -1266,12 +1267,15 @@ type TodoJob struct {
 // CreatePlan POSTs /v1/plans and returns the created header. project is the project its
 // todos are dispatched into (PLAN-02 P2); "" names none.
 // leader is "" (off / not asked for), "on" or "off" (LEAD-02).
-func (c *Client) CreatePlan(planID, title, description, project, leader string) (Plan, error) {
-	payload := map[string]string{
+func (c *Client) CreatePlan(planID, title, description, project, leader string, tags ...[]string) (Plan, error) {
+	payload := map[string]any{
 		"plan_id": planID, "title": title, "description": description, "project": project,
 	}
 	if leader != "" {
 		payload["leader"] = leader
+	}
+	if len(tags) > 0 {
+		payload["tags"] = tags[0]
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
@@ -1289,6 +1293,7 @@ type PlanListOpts struct {
 	Project string
 	// Q matches a plan id by prefix or a title by substring, case-insensitively.
 	Q      string
+	Tags   []string
 	Limit  int
 	Offset int
 }
@@ -1315,6 +1320,11 @@ func (c *Client) ListPlans(opts PlanListOpts) (PlanList, error) {
 	}
 	if opts.Q != "" {
 		q.Set("q", opts.Q)
+	}
+	for _, tag := range opts.Tags {
+		if tag != "" {
+			q.Add("tag", tag)
+		}
 	}
 	if opts.Limit > 0 {
 		q.Set("limit", strconv.Itoa(opts.Limit))
@@ -1372,13 +1382,34 @@ func (c *Client) SetPlanHandoff(id, body string, expectedVersion int) (PlanHando
 // UpdatePlan moves a plan along its lifecycle (PATCH /v1/plans/{id}, P6). status must be
 // one of open/done/archived/blocked. A nil progress keeps the plan's current progress.
 func (c *Client) UpdatePlan(planID, status string, progress *int) (Plan, error) {
-	payload := map[string]any{"status": status}
+	payload := map[string]any{}
+	if status != "" {
+		payload["status"] = status
+	}
 	if progress != nil {
 		payload["progress"] = *progress
 	}
 	body, err := json.Marshal(payload)
 	if err != nil {
 		return Plan{}, fmt.Errorf("encode update plan: %w", err)
+	}
+	var p Plan
+	err = c.doJSON(http.MethodPatch, "/v1/plans/"+url.PathEscape(planID), bytes.NewReader(body), &p)
+	return p, err
+}
+
+// UpdatePlanTags updates the plan's complete tag set and/or removes named tags.
+func (c *Client) UpdatePlanTags(planID string, tags *[]string, untag []string) (Plan, error) {
+	payload := map[string]any{}
+	if tags != nil {
+		payload["tags"] = *tags
+	}
+	if len(untag) > 0 {
+		payload["untag"] = untag
+	}
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return Plan{}, fmt.Errorf("encode update plan tags: %w", err)
 	}
 	var p Plan
 	err = c.doJSON(http.MethodPatch, "/v1/plans/"+url.PathEscape(planID), bytes.NewReader(body), &p)

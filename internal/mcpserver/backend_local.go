@@ -197,20 +197,49 @@ func newTodoID() string {
 	return "todo-" + time.Now().Format(job.JobIDLayout) + "-" + job.RandomSuffix()
 }
 
-func (b *localBackend) CreatePlan(title, description string) (planView, error) {
+func (b *localBackend) CreatePlan(title, description string, tags ...[]string) (planView, error) {
 	now := time.Now().Unix()
 	p := jobstore.Plan{
 		PlanID:      newPlanID(),
 		Title:       title,
 		Description: description,
-		Status:      jobstore.PlanOpen,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		Tags: func() []string {
+			if len(tags) == 0 {
+				return nil
+			}
+			return jobstore.NormalizePlanTags(tags[0])
+		}(),
+		Status:    jobstore.PlanOpen,
+		CreatedAt: now,
+		UpdatedAt: now,
 	}
 	if err := b.jobs.Meta().InsertPlan(p); err != nil {
 		return planView{}, err
 	}
 	return planHeaderView(p), nil
+}
+
+func (b *localBackend) UpdatePlanTags(planID string, tags *[]string, untag []string) (planView, error) {
+	p, ok, err := b.jobs.Meta().UpdatePlanTags(planID, tags, untag)
+	if err != nil {
+		return planView{}, err
+	}
+	if !ok {
+		return planView{}, fmt.Errorf("unknown plan %q", planID)
+	}
+	return planHeaderView(p), nil
+}
+
+func (b *localBackend) ListPlans(tags []string, q string) ([]planView, error) {
+	plans, err := b.jobs.Meta().ListPlans(jobstore.PlanFilter{Tags: tags, Q: q, Limit: jobstore.PlanListMaxLimit})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]planView, 0, len(plans))
+	for _, p := range plans {
+		out = append(out, planHeaderView(p))
+	}
+	return out, nil
 }
 
 func (b *localBackend) AttachJob(planID, jobID string) (planView, error) {

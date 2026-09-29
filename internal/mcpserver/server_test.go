@@ -173,11 +173,13 @@ func TestListToolsAllPresent(t *testing.T) {
 		// E25 supervisor discovery (1 tool).
 		"gofer_list_pending_interactions": false,
 		// Plan grouping (P2).
-		"gofer_create_plan": false,
-		"gofer_attach_job":  false,
-		"gofer_get_plan":    false,
-		"gofer_add_todo":    false,
-		"gofer_update_todo": false,
+		"gofer_create_plan":      false,
+		"gofer_attach_job":       false,
+		"gofer_update_plan_tags": false,
+		"gofer_list_plans":       false,
+		"gofer_get_plan":         false,
+		"gofer_add_todo":         false,
+		"gofer_update_todo":      false,
 		// PLAN-02 P2: dispatch a todo's assigned agent explicitly.
 		"gofer_dispatch_todo": false,
 		// PLAN-03: start a plan's dependency chain.

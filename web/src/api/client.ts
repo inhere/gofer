@@ -891,16 +891,20 @@ export function getWorkflowEvents(
 // F-d：list 支持 status/project/q 过滤与 limit/offset 分页，返回 {plans,total,limit,offset}
 // ——total 是同条件下的总条数，翻页控件据此判断有没有下一页。
 export function listPlans(opts?: {
-  status?: PlanStatus
-  project?: string
-  q?: string
+	status?: PlanStatus | string
+	statuses?: PlanStatus[]
+	project?: string
+	q?: string
+	tags?: string[]
   limit?: number
   offset?: number
 }): Promise<PlansResp> {
   const qs = new URLSearchParams()
-  if (opts?.status) qs.set('status', opts.status)
+  if (opts?.statuses?.length) qs.set('status', opts.statuses.join(','))
+  else if (opts?.status) qs.set('status', opts.status)
   if (opts?.project) qs.set('project', opts.project)
   if (opts?.q) qs.set('q', opts.q)
+  for (const tag of opts?.tags ?? []) if (tag) qs.append('tag', tag)
   if (opts?.limit != null && opts.limit > 0) qs.set('limit', String(opts.limit))
   if (opts?.offset != null && opts.offset > 0) qs.set('offset', String(opts.offset))
   const suffix = qs.size > 0 ? `?${qs.toString()}` : ''
@@ -949,11 +953,11 @@ export function setPlanHandoff(id: string, body: string, expected_version: numbe
 }
 
 // plan 生命周期（P6）：手动置状态。系统不自动推进（C2）。
-export function updatePlan(id: string, status: PlanStatus, progress?: number): Promise<Plan> {
+export function updatePlan(id: string, status: PlanStatus, progress?: number, tags?: string[], untag?: string[]): Promise<Plan> {
   return request<Plan>(`/v1/plans/${encodeURIComponent(id)}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(progress == null ? { status } : { status, progress }),
+    body: JSON.stringify({ status, ...(progress == null ? {} : { progress }), ...(tags ? { tags } : {}), ...(untag?.length ? { untag } : {}) }),
   })
 }
 
@@ -1007,6 +1011,7 @@ export function createPlan(req: {
   title?: string
   description?: string
   plan_id?: string
+  tags?: string[]
 }): Promise<Plan> {
   return request<Plan>('/v1/plans', {
     method: 'POST',

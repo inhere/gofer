@@ -38,7 +38,8 @@ type planView struct {
 	BlockedTodo string `json:"blocked_todo,omitempty"`
 	// Leader is the plan's own leader-round switch (LEAD-02): on|off, always present
 	// (the default `off` is the fact the plan page's toggle renders).
-	Leader string `json:"leader"`
+	Leader string   `json:"leader"`
+	Tags   []string `json:"tags,omitempty"`
 	// Warnings carries what the write could not express as an error — today only "turning
 	// the leader on will wake a round when the N member jobs still in flight finish"
 	// (LEAD-02, 0.2 decision ④). Omitted when there is nothing to say.
@@ -75,6 +76,7 @@ func toPlanView(p jobstore.Plan) planView {
 		Paused:      p.Paused,
 		BlockedTodo: p.BlockedTodo,
 		Leader:      effectivePlanLeader(p.Leader),
+		Tags:        p.Tags,
 		CreatedAt:   p.CreatedAt, UpdatedAt: p.UpdatedAt,
 	}
 }
@@ -195,7 +197,8 @@ type createPlanReq struct {
 	Project string `json:"project,omitempty"`
 	// Leader opts the plan into leader rounds at creation (LEAD-02, `plan create
 	// --leader`). Empty/`off` is the default.
-	Leader string `json:"leader,omitempty"`
+	Leader string   `json:"leader,omitempty"`
+	Tags   []string `json:"tags,omitempty"`
 }
 
 // updatePlanReq is the PATCH /v1/plans/{id} body (P6): move a plan along its lifecycle
@@ -207,7 +210,9 @@ type updatePlanReq struct {
 	Status   string `json:"status,omitempty"`
 	Progress *int   `json:"progress,omitempty"`
 	// Leader flips the per-plan leader-round switch: on|off. Empty = leave it alone.
-	Leader string `json:"leader,omitempty"`
+	Leader string    `json:"leader,omitempty"`
+	Tags   *[]string `json:"tags,omitempty"`
+	Untag  []string  `json:"untag,omitempty"`
 }
 
 // planStatusRemovedActive is the retired plan status (F15): `active` duplicated `open`
@@ -255,6 +260,7 @@ func (s *Server) handleCreatePlan(c *rux.Context) {
 		Status: jobstore.PlanOpen, Owner: callerFromCtx(c),
 		ProjectKey: strings.TrimSpace(body.Project),
 		Leader:     leader,
+		Tags:       jobstore.NormalizePlanTags(body.Tags),
 		CreatedAt:  now, UpdatedAt: now,
 	}
 	if _, ok, _ := s.jobs.Meta().GetPlan(planID); ok {
@@ -276,10 +282,16 @@ func (s *Server) handleCreatePlan(c *rux.Context) {
 func (s *Server) handleListPlans(c *rux.Context) {
 	limit, _ := strconv.Atoi(c.Query("limit"))
 	offset, _ := strconv.Atoi(c.Query("offset"))
+	statuses := strings.Split(c.Query("status"), ",")
+	if len(statuses) == 1 && strings.TrimSpace(statuses[0]) == "" {
+		statuses = nil
+	}
 	filter := jobstore.PlanFilter{
-		Status:     c.Query("status"),
+		Status:     "",
+		Statuses:   statuses,
 		ProjectKey: c.Query("project"),
 		Q:          c.Query("q"),
+		Tags:       c.Req.URL.Query()["tag"],
 		Limit:      limit,
 		Offset:     offset,
 	}
@@ -481,9 +493,9 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 		writeError(c, http.StatusBadRequest, "invalid leader", "leader must be on or off")
 		return
 	}
-	if status == "" && body.Progress == nil && leader == "" {
+	if status == "" && body.Progress == nil && leader == "" && body.Tags == nil && len(body.Untag) == 0 {
 		writeError(c, http.StatusBadRequest, "nothing to update",
-			"give at least one of status / progress / leader")
+			"give at least one of status / progress / leader / tags / untag")
 		return
 	}
 	// SetPlanStatus 用裸 UPDATE、不看 affected rows：不存在的 plan 会「假成功」。
@@ -521,6 +533,15 @@ func (s *Server) handleUpdatePlan(c *rux.Context) {
 	if leader != "" {
 		if err := s.jobs.Meta().SetPlanLeader(id, leader); err != nil {
 			writeError(c, http.StatusInternalServerError, "update plan failed", err.Error())
+			return
+		}
+	}
+	if body.Tags != nil || len(body.Untag) > 0 {
+		if _, ok, err := s.jobs.Meta().UpdatePlanTags(id, body.Tags, body.Untag); err != nil {
+			writeError(c, http.StatusInternalServerError, "update plan tags failed", err.Error())
+			return
+		} else if !ok {
+			writeError(c, http.StatusNotFound, "unknown plan", "no plan with id "+id)
 			return
 		}
 	}

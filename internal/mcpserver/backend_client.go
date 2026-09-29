@@ -164,15 +164,35 @@ func (b *clientBackend) GetArtifacts(id string) ([]artifactView, error) {
 
 // --- plan grouping (client 转发中央 serve) -----------------------------------
 
-func (b *clientBackend) CreatePlan(title, description string) (planView, error) {
+func (b *clientBackend) CreatePlan(title, description string, tags ...[]string) (planView, error) {
 	// The MCP tool takes no project: an MCP-created plan's items name their own
 	// project (gofer_add_todo / gofer_update_todo `project`). The CLI is where
 	// `plan create --project` belongs.
-	p, err := b.cli.CreatePlan("", title, description, "", "")
+	p, err := b.cli.CreatePlan("", title, description, "", "", tags...)
 	if err != nil {
 		return planView{}, err
 	}
 	return clientPlanToView(p), nil
+}
+
+func (b *clientBackend) UpdatePlanTags(planID string, tags *[]string, untag []string) (planView, error) {
+	p, err := b.cli.UpdatePlanTags(planID, tags, untag)
+	if err != nil {
+		return planView{}, err
+	}
+	return clientPlanToView(p), nil
+}
+
+func (b *clientBackend) ListPlans(tags []string, q string) ([]planView, error) {
+	p, err := b.cli.ListPlans(client.PlanListOpts{Tags: tags, Q: q, Limit: jobstore.PlanListMaxLimit})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]planView, 0, len(p.Plans))
+	for _, plan := range p.Plans {
+		out = append(out, clientPlanToView(plan))
+	}
+	return out, nil
 }
 
 func (b *clientBackend) AttachJob(planID, jobID string) (planView, error) {
@@ -297,6 +317,7 @@ func clientPlanToView(p client.Plan) planView {
 		BlockedTodo: p.BlockedTodo,
 		CreatedAt:   p.CreatedAt,
 		UpdatedAt:   p.UpdatedAt,
+		Tags:        p.Tags,
 		Jobs:        make([]jobView, 0, len(p.Jobs)),
 	}
 	if p.Counts != nil {

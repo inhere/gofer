@@ -2,6 +2,7 @@ package jobstore
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -58,6 +59,7 @@ type Plan struct {
 	// The global supervisor.leader block stays the master switch; this one decides
 	// WHICH plans the rounds run for.
 	Leader    string
+	Tags      []string
 	CreatedAt int64
 	UpdatedAt int64
 }
@@ -65,15 +67,22 @@ type Plan struct {
 const selectPlanCols = `SELECT plan_id, COALESCE(title,''), COALESCE(description,''),
   status, COALESCE(owner,''), COALESCE(progress,0), COALESCE(project_key,''),
   COALESCE(paused,0), COALESCE(blocked_todo,''), COALESCE(leader,'off'),
-  created_at, updated_at FROM plans`
+  COALESCE(tags_json,''), created_at, updated_at FROM plans`
 
 func scanPlan(sc rowScanner) (Plan, error) {
 	var (
-		p      Plan
-		paused int
+		p        Plan
+		paused   int
+		tagsJSON string
 	)
 	err := sc.Scan(&p.PlanID, &p.Title, &p.Description, &p.Status, &p.Owner,
-		&p.Progress, &p.ProjectKey, &paused, &p.BlockedTodo, &p.Leader, &p.CreatedAt, &p.UpdatedAt)
+		&p.Progress, &p.ProjectKey, &paused, &p.BlockedTodo, &p.Leader, &tagsJSON, &p.CreatedAt, &p.UpdatedAt)
+	if tagsJSON != "" {
+		_ = json.Unmarshal([]byte(tagsJSON), &p.Tags)
+	}
+	if p.Tags == nil {
+		p.Tags = []string{}
+	}
 	p.Paused = paused != 0
 	return p, err
 }
@@ -96,13 +105,18 @@ func (s *Store) InsertPlan(p Plan) error {
 	if !ValidPlanLeader(p.Leader) {
 		p.Leader = PlanLeaderOff
 	}
+	p.Tags = NormalizePlanTags(p.Tags)
+	tagsJSON, err := json.Marshal(p.Tags)
+	if err != nil {
+		return fmt.Errorf("jobstore: encode plan tags: %w", err)
+	}
 	const q = `INSERT INTO plans
-  (plan_id, title, description, status, owner, progress, project_key, paused, blocked_todo, leader, created_at, updated_at)
-  VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`
+	  (plan_id, title, description, status, owner, progress, project_key, paused, blocked_todo, leader, tags_json, created_at, updated_at)
+	  VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	if _, err := s.db.Exec(q, p.PlanID, p.Title, p.Description, p.Status, p.Owner,
-		p.Progress, p.ProjectKey, paused, p.BlockedTodo, p.Leader, p.CreatedAt, p.UpdatedAt); err != nil {
+		p.Progress, p.ProjectKey, paused, p.BlockedTodo, p.Leader, string(tagsJSON), p.CreatedAt, p.UpdatedAt); err != nil {
 		return fmt.Errorf("jobstore: insert plan %q: %w", p.PlanID, err)
 	}
 	return nil
@@ -145,12 +159,16 @@ func NormalizePlanLimit(n int) int {
 type PlanFilter struct {
 	// Status restricts to one plan status ("" = any).
 	Status string
+	// Statuses restricts to any of the named statuses (OR semantics).
+	Statuses []string
 	// ProjectKey restricts to plans created for that project ("" = any), exact match.
 	ProjectKey string
 	// Q matches the plan id by PREFIX or the title by SUBSTRING, case-insensitively
 	// ("" = any). LIKE's own wildcards are literal here: a `%` in the query searches for
 	// a percent sign, it does not match everything.
 	Q string
+	// Tags requires every named tag to be present (intersection semantics).
+	Tags []string
 	// Limit caps one page (see NormalizePlanLimit). Offset skips rows of the filtered,
 	// newest-first list.
 	Limit  int
@@ -166,6 +184,14 @@ func (f PlanFilter) planWhere() (string, []any) {
 		conds = append(conds, "status = ?")
 		args = append(args, f.Status)
 	}
+	if len(f.Statuses) > 0 {
+		statuses := NormalizePlanTags(f.Statuses)
+		placeholders := strings.TrimSuffix(strings.Repeat("?,", len(statuses)), ",")
+		conds = append(conds, "status IN ("+placeholders+")")
+		for _, status := range statuses {
+			args = append(args, status)
+		}
+	}
 	if f.ProjectKey != "" {
 		conds = append(conds, "project_key = ?")
 		args = append(args, f.ProjectKey)
@@ -177,10 +203,33 @@ func (f PlanFilter) planWhere() (string, []any) {
 		conds = append(conds, `(LOWER(plan_id) LIKE ? ESCAPE '\' OR LOWER(COALESCE(title,'')) LIKE ? ESCAPE '\')`)
 		args = append(args, esc+"%", "%"+esc+"%")
 	}
+	for _, tag := range NormalizePlanTags(f.Tags) {
+		conds = append(conds, "tags_json LIKE ?")
+		args = append(args, `%"`+tag+`"%`)
+	}
 	if len(conds) == 0 {
 		return "", nil
 	}
 	return " WHERE " + strings.Join(conds, " AND "), args
+}
+
+// NormalizePlanTags trims, drops empty values, and de-duplicates tags while
+// preserving their first-seen order for stable API/CLI output.
+func NormalizePlanTags(tags []string) []string {
+	out := make([]string, 0, len(tags))
+	seen := make(map[string]struct{}, len(tags))
+	for _, raw := range tags {
+		tag := strings.TrimSpace(raw)
+		if tag == "" {
+			continue
+		}
+		if _, ok := seen[tag]; ok {
+			continue
+		}
+		seen[tag] = struct{}{}
+		out = append(out, tag)
+	}
+	return out
 }
 
 // escapeLikePattern escapes the LIKE metacharacters in a user-supplied query so they
@@ -279,6 +328,43 @@ func (s *Store) SetPlanLeader(id, leader string) error {
 		return fmt.Errorf("jobstore: set plan leader %q: %w", id, err)
 	}
 	return nil
+}
+
+// UpdatePlanTags replaces tags when tags is non-nil and then removes any tags
+// named in untag. It is additive-schema safe and leaves all other plan fields intact.
+func (s *Store) UpdatePlanTags(id string, tags *[]string, untag []string) (Plan, bool, error) {
+	p, ok, err := s.GetPlan(id)
+	if err != nil || !ok {
+		return p, ok, err
+	}
+	current := append([]string(nil), p.Tags...)
+	if tags != nil {
+		current = NormalizePlanTags(*tags)
+	}
+	remove := make(map[string]struct{}, len(untag))
+	for _, tag := range NormalizePlanTags(untag) {
+		remove[tag] = struct{}{}
+	}
+	kept := current[:0]
+	for _, tag := range current {
+		if _, drop := remove[tag]; !drop {
+			kept = append(kept, tag)
+		}
+	}
+	current = NormalizePlanTags(kept)
+	raw, err := json.Marshal(current)
+	if err != nil {
+		return Plan{}, false, fmt.Errorf("jobstore: encode plan tags: %w", err)
+	}
+	s.writeMu.Lock()
+	_, err = s.db.Exec(`UPDATE plans SET tags_json=?, updated_at=? WHERE plan_id=?`, string(raw), s.unixNow(), id)
+	s.writeMu.Unlock()
+	if err != nil {
+		return Plan{}, false, fmt.Errorf("jobstore: update plan %q tags: %w", id, err)
+	}
+	p.Tags = current
+	p.UpdatedAt = s.unixNow()
+	return p, true, nil
 }
 
 // SetPlanBlocked parks a plan on the item a failed chain job belongs to (PLAN-03):
