@@ -1464,7 +1464,7 @@ onUnmounted(() => {
           v-model="titleDraft"
           class="job-title-input"
           type="text"
-          maxlength="32"
+          maxlength="200"
           aria-label="job 标题"
           autofocus
           @keydown.enter.prevent="saveTitle"

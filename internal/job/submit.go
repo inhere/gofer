@@ -204,11 +204,14 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		req.Attempt = 1
 	}
 
+	// An explicit title is the caller's own text: allow it generously (only the
+	// auto-extracted default is kept short). A resumed job inherits its source's
+	// title, so it is trimmed rather than rejected.
 	if len([]rune(strings.TrimSpace(req.Title))) > TitleMaxRunes && req.ResumedFrom == "" {
 		return JobResult{}, fmt.Errorf("%w: title must be at most %d characters", ErrInvalidRequest, TitleMaxRunes)
 	}
-	if len([]rune(strings.TrimSpace(req.Title))) > TitleMaxRunes {
-		req.Title = trimTitleRunes(req.Title)
+	if r := []rune(strings.TrimSpace(req.Title)); len(r) > TitleMaxRunes {
+		req.Title = string(r[:TitleMaxRunes])
 	}
 	if strings.TrimSpace(req.Title) == "" {
 		req.Title = defaultJobTitle(req)
@@ -881,10 +884,12 @@ func resolveDirExclusive(cfg *config.Config, req *JobRequest) bool {
 	return ac.Type != agent.TypeExec && !req.ReadOnly && !req.Interactive
 }
 
-// titleMaxRunes caps an auto-extracted job title (defaultJobTitle).
-const TitleMaxRunes = 32
+// TitleMaxRunes caps an explicit job title (submit and later edits). It is
+// generous on purpose: before titles became editable any length was accepted.
+const TitleMaxRunes = 200
 
-const titleMaxRunes = TitleMaxRunes
+// titleMaxRunes caps an auto-extracted job title (defaultJobTitle).
+const titleMaxRunes = 32
 
 // isCLIAgent reports whether the named agent is a cli-agent (claude/codex
 // style long-running session). Unknown agents (e.g. peer-only agents on a
