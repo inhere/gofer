@@ -54,11 +54,44 @@ type Memory struct {
 }
 
 type Config struct {
-	Prefix       string `yaml:"prefix" json:"prefix"`
-	TrackerID    string `yaml:"tracker_id" json:"tracker_id"`
-	ProjectKey   string `yaml:"project_key,omitempty" json:"project_key,omitempty"`
-	CommitPolicy string `yaml:"commit_policy" json:"commit_policy"`
-	AutoSync     bool   `yaml:"auto_sync" json:"auto_sync"`
+	Prefix       string      `yaml:"prefix" json:"prefix"`
+	TrackerID    string      `yaml:"tracker_id" json:"tracker_id"`
+	ProjectKey   string      `yaml:"project_key,omitempty" json:"project_key,omitempty"`
+	CommitPolicy string      `yaml:"commit_policy" json:"commit_policy"`
+	AutoSync     bool        `yaml:"auto_sync" json:"auto_sync"`
+	Prime        PrimeConfig `yaml:"prime,omitempty" json:"prime,omitempty"`
 }
+
+// PrimeConfig uses pointers so an absent section keeps every segment enabled and
+// distinguishes an explicit zero limit from the default limit.
+type PrimeConfig struct {
+	Issues             *bool `yaml:"issues,omitempty" json:"issues,omitempty"`
+	Ready              *bool `yaml:"ready,omitempty" json:"ready,omitempty"`
+	Memory             *bool `yaml:"memory,omitempty" json:"memory,omitempty"`
+	ScopedMemory       *bool `yaml:"scoped_memory,omitempty" json:"scoped_memory,omitempty"`
+	Handoff            *bool `yaml:"handoff,omitempty" json:"handoff,omitempty"`
+	IssuesLimit        *int  `yaml:"issues_limit,omitempty" json:"issues_limit,omitempty"`
+	ReadyLimit         *int  `yaml:"ready_limit,omitempty" json:"ready_limit,omitempty"`
+	MemorySummaryLimit *int  `yaml:"memory_summary_limit,omitempty" json:"memory_summary_limit,omitempty"`
+}
+
+func primeEnabled(value *bool) bool { return value == nil || *value }
+
+func (c PrimeConfig) IssuesEnabled() bool       { return primeEnabled(c.Issues) }
+func (c PrimeConfig) ReadyEnabled() bool        { return primeEnabled(c.Ready) }
+func (c PrimeConfig) MemoryEnabled() bool       { return primeEnabled(c.Memory) }
+func (c PrimeConfig) ScopedMemoryEnabled() bool { return primeEnabled(c.ScopedMemory) }
+func (c PrimeConfig) HandoffEnabled() bool      { return primeEnabled(c.Handoff) }
+
+func primeLimit(value *int, fallback int) int {
+	if value != nil {
+		return *value
+	}
+	return fallback
+}
+
+func (c PrimeConfig) ActiveLimit() int  { return primeLimit(c.IssuesLimit, 10) }
+func (c PrimeConfig) ReadyCount() int   { return primeLimit(c.ReadyLimit, 10) }
+func (c PrimeConfig) SummaryLimit() int { return primeLimit(c.MemorySummaryLimit, -1) }
 
 func Now() string { return time.Now().UTC().Format(time.RFC3339Nano) }

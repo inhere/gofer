@@ -370,6 +370,17 @@ requiring a tracker, caps the complete context at 8 KiB, and silently omits
 server sections when the server is unavailable. Scoped memory CLI operations
 report connection errors instead of using an offline cache.
 
+For a short session start, tag repository memories `prime` to include their
+full text. Global/project memories need `prime` or a matching `agent:<name>`
+tag for full text; other visible entries show an 80-character first-line
+summary and a `gofer memory show <key>` pointer. A different agent tag excludes
+the entry. Prime lists 10 active/claimed issues and 10 ready issues by default.
+Use the optional `.gofer/tracker/config.yaml` `prime:` block to turn
+`issues`, `ready`, `memory`, `scoped_memory`, or `handoff` on/off and to set
+`issues_limit`, `ready_limit`, or `memory_summary_limit`; omitted limits keep
+10/10/all summaries. `repo status` reports local `prime_bytes` and
+`prime_truncated`; server additions still share the 8 KiB cap.
+
 ### 只装“记忆注入”（每台电脑一次）
 
 只需要在会话开场注入全局/项目记忆时，推荐使用幂等命令：

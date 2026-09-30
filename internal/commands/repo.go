@@ -212,6 +212,7 @@ func NewRepoCmd() *gcli.Command {
 						c.Printf("issues.%s: %d\n", name, status.Issues[name])
 					}
 					c.Printf("memories: %d\ncommit_policy: %s\nmanaged_block: %v\nhooks: %s\nsync: %s\npending_sync: %d\nlast_sync_at: %s\nsync_summary: %s\n", status.Memories, status.CommitPolicy, status.ManagedBlock, status.Hooks, status.Sync, status.PendingSync, status.LastSyncAt, status.SyncSummary)
+					c.Printf("prime_bytes: %d\nprime_truncated: %v\n", status.PrimeBytes, status.PrimeTruncated)
 					if strings.TrimSpace(status.ProjectKey) == "" {
 						c.Println("project_key: 未填写；可在 .gofer/tracker/config.yaml 填写 project_key")
 					} else {
@@ -232,12 +233,21 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 	ctx, cancel := context.WithTimeout(context.Background(), 1500*time.Millisecond)
 	defer cancel()
 	base := ""
+	primeCfg := tracker.PrimeConfig{}
 	if s != nil {
 		var err error
 		base, err = s.Prime()
 		if err != nil {
 			return "", err
 		}
+		localCfg, err := s.ReadConfig()
+		if err != nil {
+			return "", err
+		}
+		primeCfg = localCfg.Prime
+	}
+	if !primeCfg.ScopedMemoryEnabled() && !primeCfg.HandoffEnabled() {
+		return base, nil
 	}
 	fetch := func(ctx context.Context) (string, error) {
 		root, err := os.Getwd()
@@ -271,15 +281,24 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 		if addr == "" {
 			return "", nil
 		}
-		global, globalErr := cli.ListScopedMemories(client.ScopedMemoryListOpts{Scope: "global"})
+		global := []client.ScopedMemory(nil)
+		var globalErr error
 		project := []client.ScopedMemory(nil)
-		if projectKey != "" {
-			project, _ = cli.ListScopedMemories(client.ScopedMemoryListOpts{Scope: "project", ScopeKey: projectKey})
+		if primeCfg.ScopedMemoryEnabled() {
+			global, globalErr = cli.ListScopedMemories(client.ScopedMemoryListOpts{Scope: "global"})
+			if projectKey != "" {
+				project, _ = cli.ListScopedMemories(client.ScopedMemoryListOpts{Scope: "project", ScopeKey: projectKey})
+			}
 		}
 		var out strings.Builder
-		out.WriteString(scopedPrimeSection("## 全局记忆\n\n", global, agentName))
-		if projectKey != "" {
-			out.WriteString(scopedPrimeSection("## 项目记忆\n\n", project, agentName))
+		if primeCfg.ScopedMemoryEnabled() {
+			out.WriteString(scopedPrimeSection("## 全局记忆\n\n", global, agentName, primeCfg.SummaryLimit()))
+			if projectKey != "" {
+				out.WriteString(scopedPrimeSection("## 项目记忆\n\n", project, agentName, primeCfg.SummaryLimit()))
+			}
+		}
+		if !primeCfg.HandoffEnabled() {
+			return out.String(), nil
 		}
 		plans, err := cli.ListPlans(client.PlanListOpts{Status: "open", Project: projectKey, Limit: clientPlanPrimeLimit})
 		if err != nil {
@@ -326,14 +345,25 @@ func primeWithServerContext(s *tracker.Store, configPath, agentName string) (str
 	return tracker.AppendPrimeSections(base, serverSection), nil
 }
 
-func scopedPrimeSection(heading string, items []client.ScopedMemory, agentName string) string {
+func scopedPrimeSection(heading string, items []client.ScopedMemory, agentName string, summaryLimit int) string {
 	var out strings.Builder
 	out.WriteString(heading)
+	summaries := 0
 	for _, item := range items {
 		if !memoryForAgent(item.Tags, agentName) {
 			continue
 		}
-		out.WriteString(fmt.Sprintf("- %s: %s\n", item.Key, item.Content))
+		full := tracker.PrimeMemoryFull(item.Tags, agentName)
+		if !full && summaryLimit >= 0 && summaries >= summaryLimit {
+			continue
+		}
+		out.WriteString(tracker.PrimeMemoryLine(item.Key, item.Content, item.Tags, agentName))
+		if !full {
+			summaries++
+		}
+	}
+	if summaries > 0 {
+		out.WriteString("全文：`gofer memory show <key>`\n")
 	}
 	return out.String()
 }

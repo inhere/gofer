@@ -112,6 +112,31 @@ gofer job list         # 填好地址与 token 即可
 claude` 即使当前目录没有 tracker 也会输出全局/项目记忆；server 不可达时 prime 静默省略，
 而作用域 memory CLI 会明确报连接错误。
 
+`repo prime` 总量仍限 8 KiB。进行中/已认领 issue 按优先级、更新时间列前 10 条，
+超出时显示总数并提示 `gofer issue ls`；ready 默认列前 10 条。仓库记忆仅 `prime`
+标签注入全文；全局/项目记忆的 `prime` 或匹配当前 agent 的 `agent:<名>` 标签注入全文，
+其余可见记忆只显示 `key: 首行摘要`（整条最多 80 字，截短加 `…`），全文用
+`gofer memory show <key>` 查看。带其他 agent 标签的记忆不会注入当前 agent。
+`repo status` 的 `prime_bytes` / `prime_truncated` 是本地段落截断前的预估；
+server 记忆与交接说明仍按可用性追加。
+
+可在 `.gofer/tracker/config.yaml` 配置 `prime:`，省略字段沿用默认值：
+
+```yaml
+prime:
+  issues: true
+  ready: true
+  memory: true
+  scoped_memory: true
+  handoff: true
+  issues_limit: 10
+  ready_limit: 10
+  # memory_summary_limit: 20 # 可选；省略时所有摘要均可进入预算
+```
+
+段落开关设为 `false` 即省略；条数上限显式设为 `0` 即不列该类条目。
+`memory_summary_limit` 只限制摘要条数，标签全文仍受总字节预算约束。
+
 ### 只装“记忆注入”（每台电脑一次）
 
 如果只需要在会话开场注入全局/项目记忆，不需要会话中继，请使用幂等命令：

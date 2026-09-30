@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"unicode/utf8"
 )
 
 const PrimeMaxBytes = 8 << 10
@@ -63,15 +64,26 @@ func appendHandoffSection(base, handoff string) string {
 	if len([]byte(base))+len([]byte(section)) <= PrimeMaxBytes {
 		return base + section
 	}
-	remaining := PrimeMaxBytes - len([]byte(base)) - len([]byte("\n## 进行中 plan 的交接说明\n\n"))
+	const marker = "\n[交接说明已截断]\n"
+	remaining := PrimeMaxBytes - len([]byte(base)) - len([]byte("\n## 进行中 plan 的交接说明\n\n")) - len([]byte(marker))
 	if remaining < 0 {
 		return base
 	}
-	cut := []byte(handoff)
-	if len(cut) > remaining {
-		cut = cut[:remaining]
+	return base + "\n## 进行中 plan 的交接说明\n\n" + utf8Prefix(handoff, remaining) + marker
+}
+
+func utf8Prefix(value string, byteLimit int) string {
+	if byteLimit <= 0 {
+		return ""
 	}
-	return base + "\n## 进行中 plan 的交接说明\n\n" + string(cut) + "\n[交接说明已截断]\n"
+	if len(value) <= byteLimit {
+		return value
+	}
+	cut := value[:byteLimit]
+	for !utf8.ValidString(cut) {
+		cut = cut[:len(cut)-1]
+	}
+	return cut
 }
 
 // AppendPrimeSections appends optional server-backed sections within the same
@@ -90,14 +102,12 @@ func AppendPrimeSections(base string, sections ...string) string {
 			out += section
 			continue
 		}
-		cut := []byte(section)
 		marker := "\n[全局/项目记忆已截断]\n"
 		keep := remaining - len([]byte(marker))
 		if keep > 0 {
-			cut = cut[:keep]
-			out += string(cut) + marker
+			out += utf8Prefix(section, keep) + marker
 		} else {
-			out += marker[:remaining]
+			out += utf8Prefix(marker, remaining)
 		}
 		return out
 	}
@@ -118,98 +128,188 @@ func CommitPolicyText(policy string) (string, error) {
 }
 
 func (s *Store) Prime() (string, error) {
-	cfg, err := s.ReadConfig()
+	sections, err := s.primeSections()
 	if err != nil {
 		return "", err
 	}
-	policy, err := CommitPolicyText(cfg.CommitPolicy)
-	if err != nil {
-		return "", err
+	full := sections.render(sections.active, sections.ready, sections.memory)
+	if len([]byte(full)) <= PrimeMaxBytes {
+		return full, nil
 	}
-	issues, err := s.ReadIssues()
-	if err != nil {
-		return "", err
-	}
-	ready, err := s.Ready()
-	if err != nil {
-		return "", err
-	}
-	memories, err := s.ReadMemories()
-	if err != nil {
-		return "", err
-	}
-	sort.Slice(memories, func(i, j int) bool {
-		if memories[i].UpdatedAt != memories[j].UpdatedAt {
-			return memories[i].UpdatedAt > memories[j].UpdatedAt
-		}
-		return memories[i].Key < memories[j].Key
-	})
-	active := make([]string, 0)
-	for _, item := range issues {
-		if item.Status == "in_progress" || (item.Assignee != "" && item.Status != "closed") {
-			active = append(active, fmt.Sprintf("- %s [%s] %s\n", item.ID, item.Status, item.Title))
-		}
-	}
-	readyLines := make([]string, 0, 10)
-	for i, item := range ready {
-		if i >= 10 {
-			break
-		}
-		readyLines = append(readyLines, fmt.Sprintf("- %s P%d %s\n", item.ID, item.Priority, item.Title))
-	}
-	const headings = "## 进行中/已认领 issue\n\n## ready 前 10\n\n## memory\n"
-	const notice = "\n[内容已截断：优先保留最新 memory，issue 已截断]\n"
-	base := "## 提交策略\n" + policy + "\n\n" + headings
-	budget := PrimeMaxBytes - len([]byte(base)) - len([]byte(notice))
+	const notice = "\n[内容已截断：使用 gofer issue ls / gofer memory show 查看全部]\n"
+	budget := PrimeMaxBytes - len([]byte(sections.render(nil, nil, nil))) - len([]byte(notice))
 	if budget < 0 {
 		return "", fmt.Errorf("commit policy exceeds prime limit")
 	}
-	selectedMem := make([]string, 0, len(memories))
 	used := 0
-	truncated := false
-	for _, item := range memories {
-		line := fmt.Sprintf("- %s: %s\n", item.Key, item.Content)
-		if used+len([]byte(line)) > budget {
-			truncated = true
-			continue
-		}
-		selectedMem = append(selectedMem, line)
-		used += len([]byte(line))
-	}
-	selectedActive := make([]string, 0, len(active))
-	selectedReady := make([]string, 0, len(readyLines))
-	for _, group := range []struct {
-		all []string
-		out *[]string
-	}{{active, &selectedActive}, {readyLines, &selectedReady}} {
-		for _, line := range group.all {
-			if used+len([]byte(line)) > budget {
-				truncated = true
-				continue
+	choose := func(lines []string) []string {
+		selected := make([]string, 0, len(lines))
+		for _, line := range lines {
+			if used+len([]byte(line)) <= budget {
+				selected = append(selected, line)
+				used += len([]byte(line))
 			}
-			*group.out = append(*group.out, line)
-			used += len([]byte(line))
 		}
+		return selected
 	}
+	// Keep recent memory before lower-priority issue/ready rows when the byte cap
+	// is reached. The sections still render in their normal reading order.
+	memory := choose(sections.memory)
+	active := choose(sections.active)
+	ready := choose(sections.ready)
+	return sections.render(active, ready, memory) + notice, nil
+}
+
+// PrimeEstimate reports the untruncated local context size. Server-backed scoped
+// memories and handoffs are best effort and are deliberately outside this estimate.
+func (s *Store) PrimeEstimate() (bytes int, truncated bool, err error) {
+	sections, err := s.primeSections()
+	if err != nil {
+		return 0, false, err
+	}
+	bytes = len([]byte(sections.render(sections.active, sections.ready, sections.memory)))
+	return bytes, bytes > PrimeMaxBytes, nil
+}
+
+type primeSections struct {
+	policy      string
+	activeTitle string
+	readyTitle  string
+	memoryTitle string
+	active      []string
+	ready       []string
+	memory      []string
+}
+
+func (p primeSections) render(active, ready, memory []string) string {
 	var out strings.Builder
 	out.WriteString("## 提交策略\n")
-	out.WriteString(policy)
-	out.WriteString("\n\n## 进行中/已认领 issue\n")
-	for _, line := range selectedActive {
-		out.WriteString(line)
+	out.WriteString(p.policy)
+	out.WriteString("\n")
+	for _, group := range []struct {
+		title string
+		lines []string
+	}{{p.activeTitle, active}, {p.readyTitle, ready}, {p.memoryTitle, memory}} {
+		if group.title == "" {
+			continue
+		}
+		out.WriteString("\n## ")
+		out.WriteString(group.title)
+		out.WriteString("\n")
+		for _, line := range group.lines {
+			out.WriteString(line)
+		}
 	}
-	out.WriteString("\n## ready 前 10\n")
-	for _, line := range selectedReady {
-		out.WriteString(line)
+	return out.String()
+}
+
+func (s *Store) primeSections() (primeSections, error) {
+	cfg, err := s.ReadConfig()
+	if err != nil {
+		return primeSections{}, err
 	}
-	out.WriteString("\n## memory\n")
-	for _, line := range selectedMem {
-		out.WriteString(line)
+	policy, err := CommitPolicyText(cfg.CommitPolicy)
+	if err != nil {
+		return primeSections{}, err
 	}
-	if truncated {
-		out.WriteString(notice)
+	sections := primeSections{policy: policy}
+	if cfg.Prime.IssuesEnabled() {
+		sections.activeTitle = "进行中/已认领 issue"
+		issues, readErr := s.ReadIssues()
+		if readErr != nil {
+			return primeSections{}, readErr
+		}
+		active := make([]Issue, 0)
+		for _, item := range issues {
+			if item.Status == "in_progress" || (item.Assignee != "" && item.Status != "closed") {
+				active = append(active, item)
+			}
+		}
+		sort.Slice(active, func(i, j int) bool {
+			if active[i].Priority != active[j].Priority {
+				return active[i].Priority < active[j].Priority
+			}
+			if active[i].UpdatedAt != active[j].UpdatedAt {
+				return active[i].UpdatedAt > active[j].UpdatedAt
+			}
+			return active[i].ID < active[j].ID
+		})
+		for i, item := range active {
+			if i >= cfg.Prime.ActiveLimit() {
+				break
+			}
+			sections.active = append(sections.active, fmt.Sprintf("- %s [%s] %s\n", item.ID, item.Status, item.Title))
+		}
+		if len(active) > cfg.Prime.ActiveLimit() {
+			sections.active = append(sections.active, fmt.Sprintf("共 %d 条，`gofer issue ls` 查看全部\n", len(active)))
+		}
 	}
-	return out.String(), nil
+	if cfg.Prime.ReadyEnabled() {
+		sections.readyTitle = fmt.Sprintf("ready 前 %d", cfg.Prime.ReadyCount())
+		ready, readErr := s.Ready()
+		if readErr != nil {
+			return primeSections{}, readErr
+		}
+		for i, item := range ready {
+			if i >= cfg.Prime.ReadyCount() {
+				break
+			}
+			sections.ready = append(sections.ready, fmt.Sprintf("- %s P%d %s\n", item.ID, item.Priority, item.Title))
+		}
+	}
+	if cfg.Prime.MemoryEnabled() {
+		sections.memoryTitle = "memory"
+		memories, readErr := s.ReadMemories()
+		if readErr != nil {
+			return primeSections{}, readErr
+		}
+		sort.Slice(memories, func(i, j int) bool {
+			if memories[i].UpdatedAt != memories[j].UpdatedAt {
+				return memories[i].UpdatedAt > memories[j].UpdatedAt
+			}
+			return memories[i].Key < memories[j].Key
+		})
+		summaries := 0
+		for _, item := range memories {
+			full := PrimeMemoryFull(item.Tags, "")
+			if !full && cfg.Prime.SummaryLimit() >= 0 && summaries >= cfg.Prime.SummaryLimit() {
+				continue
+			}
+			sections.memory = append(sections.memory, PrimeMemoryLine(item.Key, item.Content, item.Tags, ""))
+			if !full {
+				summaries++
+			}
+		}
+		if summaries > 0 {
+			sections.memory = append(sections.memory, "全文：`gofer memory show <key>`\n")
+		}
+	}
+	return sections, nil
+}
+
+func PrimeMemoryFull(tags []string, agentName string) bool {
+	for _, tag := range tags {
+		if tag == "prime" || (agentName != "" && tag == "agent:"+agentName) {
+			return true
+		}
+	}
+	return false
+}
+
+// PrimeMemoryLine applies the same tag and summary rule to local and scoped memory.
+func PrimeMemoryLine(key, content string, tags []string, agentName string) string {
+	if PrimeMemoryFull(tags, agentName) {
+		return fmt.Sprintf("- %s: %s\n", key, content)
+	}
+	first := strings.TrimSpace(strings.SplitN(content, "\n", 2)[0])
+	runes := []rune(first)
+	available := 80 - len([]rune("- "+key+": "))
+	if available <= 0 {
+		first = ""
+	} else if len(runes) > available {
+		first = string(runes[:available-1]) + "…"
+	}
+	return fmt.Sprintf("- %s: %s\n", key, first)
 }
 
 // PrimeRule is the subset included in a dispatched job's mandatory rules.

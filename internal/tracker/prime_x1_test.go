@@ -16,6 +16,13 @@ func primeTestStore(t *testing.T) *Store {
 	if err != nil {
 		t.Fatal(err)
 	}
+	data, err := os.ReadFile(filepath.Join(s.Dir, "config.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(data), "prime:") {
+		t.Fatalf("new tracker should omit optional prime config: %s", data)
+	}
 	return s
 }
 
@@ -54,7 +61,7 @@ func TestPrimeMemorySummaryVsFullByTag(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(body, "full first\nfull second") || strings.Contains(body, "secret second line") || !strings.Contains(body, "summary: "+strings.Repeat("a", 79)+"…") || !strings.Contains(body, "全文：`gofer memory show <key>`") {
+	if !strings.Contains(body, "full first\nfull second") || strings.Contains(body, "secret second line") || !strings.Contains(body, "summary: "+strings.Repeat("a", 68)+"…") || !strings.Contains(body, "全文：`gofer memory show <key>`") {
 		t.Fatalf("memory full/summary formatting: %q", body)
 	}
 }

@@ -154,6 +154,13 @@ func (s *Store) ReadConfig() (Config, error) {
 		return cfg, err
 	}
 	err = yaml.Unmarshal(b, &cfg)
+	if err == nil {
+		for name, value := range map[string]*int{"issues_limit": cfg.Prime.IssuesLimit, "ready_limit": cfg.Prime.ReadyLimit, "memory_summary_limit": cfg.Prime.MemorySummaryLimit} {
+			if value != nil && *value < 0 {
+				return cfg, fmt.Errorf("prime.%s must be >= 0", name)
+			}
+		}
+	}
 	return cfg, err
 }
 
@@ -171,17 +178,19 @@ func (s *Store) SetProjectKey(key string) error {
 }
 
 type RepoStatus struct {
-	Tracker      string         `json:"tracker"`
-	Issues       map[string]int `json:"issues"`
-	Memories     int            `json:"memories"`
-	CommitPolicy string         `json:"commit_policy"`
-	ManagedBlock bool           `json:"managed_block"`
-	Hooks        string         `json:"hooks"`
-	Sync         string         `json:"sync"`
-	ProjectKey   string         `json:"project_key,omitempty"`
-	LastSyncAt   string         `json:"last_sync_at,omitempty"`
-	PendingSync  int            `json:"pending_sync"`
-	SyncSummary  string         `json:"sync_summary,omitempty"`
+	Tracker        string         `json:"tracker"`
+	Issues         map[string]int `json:"issues"`
+	Memories       int            `json:"memories"`
+	CommitPolicy   string         `json:"commit_policy"`
+	ManagedBlock   bool           `json:"managed_block"`
+	Hooks          string         `json:"hooks"`
+	Sync           string         `json:"sync"`
+	ProjectKey     string         `json:"project_key,omitempty"`
+	LastSyncAt     string         `json:"last_sync_at,omitempty"`
+	PendingSync    int            `json:"pending_sync"`
+	SyncSummary    string         `json:"sync_summary,omitempty"`
+	PrimeBytes     int            `json:"prime_bytes"`
+	PrimeTruncated bool           `json:"prime_truncated"`
 }
 
 type repoSyncMeta struct {
@@ -203,6 +212,10 @@ func (s *Store) Status() (RepoStatus, error) {
 		return RepoStatus{}, err
 	}
 	status := RepoStatus{Tracker: s.Dir, Issues: map[string]int{"open": 0, "in_progress": 0, "blocked": 0, "closed": 0}, Memories: len(memories), CommitPolicy: cfg.CommitPolicy, ProjectKey: cfg.ProjectKey, Hooks: "已检测", Sync: "未同步"}
+	status.PrimeBytes, status.PrimeTruncated, err = s.PrimeEstimate()
+	if err != nil {
+		return RepoStatus{}, err
+	}
 	if b, e := os.ReadFile(filepath.Join(s.Dir, ".local", "sync-status.json")); e == nil {
 		var meta repoSyncMeta
 		if json.Unmarshal(b, &meta) == nil {

@@ -47,7 +47,9 @@ func TestPrimeSectionsAndCap(t *testing.T) {
 		t.Fatal(err)
 	}
 	if err := s.UpdateMemories(func(_ []tracker.Memory) ([]tracker.Memory, error) {
-		return []tracker.Memory{{Key: "old", Content: strings.Repeat("o", 5000), UpdatedAt: "2026-01-01T00:00:00Z"}, {Key: "latest", Content: strings.Repeat("n", 5000), UpdatedAt: "2026-01-02T00:00:00Z"}}, nil
+		// Only prime-tagged memories remain full text; keep this fixture large enough
+		// to exercise the 8 KiB cap. Untagged summaries are covered separately.
+		return []tracker.Memory{{Key: "old", Content: strings.Repeat("o", 5000), Tags: []string{"prime"}, UpdatedAt: "2026-01-01T00:00:00Z"}, {Key: "latest", Content: strings.Repeat("n", 5000), Tags: []string{"prime"}, UpdatedAt: "2026-01-02T00:00:00Z"}}, nil
 	}); err != nil {
 		t.Fatal(err)
 	}

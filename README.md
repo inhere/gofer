@@ -136,6 +136,35 @@ prints global and, when the cwd maps to a project, project memories even when
 there is no local tracker. Server failure is an error for scoped memory CLI
 commands and a silent omission for prime.
 
+`repo prime` keeps its 8 KiB output cap. It lists at most 10 active/claimed
+issues (priority, then newest update) and 10 ready issues; extra active issues
+show a count and `gofer issue ls` pointer. Repository memories tagged `prime`
+are included in full. Global/project memories tagged `prime` or
+`agent:<current-agent>` are included in full; other visible memories show only
+`key: first-line summary` (at most 80 characters per entry, with `…` when shortened).
+Use `gofer memory show <key>` for the full entry. An `agent:<other-agent>`
+memory stays out of the current agent's prime. `repo status` reports
+`prime_bytes` and `prime_truncated` for the local portion before the byte cap;
+server-backed memory and handoff are best effort additions.
+
+Optional `.gofer/tracker/config.yaml` settings (omitted fields keep the defaults):
+
+```yaml
+prime:
+  issues: true
+  ready: true
+  memory: true
+  scoped_memory: true
+  handoff: true
+  issues_limit: 10
+  ready_limit: 10
+  # memory_summary_limit: 20 # optional; omitted = all summaries are eligible
+```
+
+Set a section to `false` to omit it. An explicit limit of `0` shows no rows of
+that kind; `memory_summary_limit` counts summaries, while tagged full entries
+still use the shared 8 KiB byte budget.
+
 ### Install only memory injection (once per computer)
 
 To inject global/project memories at session start without installing the session relay, use the idempotent command:
