@@ -717,6 +717,15 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("server.auto_resume_max must be >= 0")
 	}
 	for name, ac := range cfg.Agents {
+		if ac.ExitGraceSec != nil && (*ac.ExitGraceSec < 0 || *ac.ExitGraceSec > 120) {
+			return fmt.Errorf("agent %q exit_grace_sec must be between 0 and 120", name)
+		}
+		if ac.SessionStoreIDRegex != "" {
+			re, err := regexp.Compile(ac.SessionStoreIDRegex)
+			if err != nil || re.NumSubexp() == 0 {
+				return fmt.Errorf("agent %q session_store_id_regex must have a valid capture group", name)
+			}
+		}
 		for i, p := range ac.TransientErrorPatterns {
 			if _, err := regexp.Compile("(?i)" + p); err != nil {
 				return fmt.Errorf("agent %q transient_error_patterns[%d] %q: %w", name, i, p, err)

@@ -357,10 +357,11 @@ func (s *Service) Stats() ServiceStats {
 // jobEntry is the in-process record for one job: its current result snapshot,
 // the cancel func for the running context, and a per-job lock.
 type jobEntry struct {
-	mu                  sync.Mutex
-	result              JobResult
-	uncommittedBaseline uncommittedSnapshot
-	cancel              context.CancelFunc
+	mu                    sync.Mutex
+	result                JobResult
+	storeSessionCandidate bool // guarded by mu; a later PTY banner may replace it
+	uncommittedBaseline   uncommittedSnapshot
+	cancel                context.CancelFunc
 	// cancelRequested records a cancel that arrived while the job was LIVE but had no
 	// cancellable context installed yet (F3, bd h-aii-tcpm): Submit publishes the entry
 	// — and therefore makes the job cancellable from every surface — before it launches

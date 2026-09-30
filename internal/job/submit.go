@@ -525,6 +525,16 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 		ac, acOK := agent.ResolveAgent(cfg, req.Agent)
 		runReq.Command = resolved.Command
 		runReq.Args = resolved.Args
+		if acOK && req.Interactive {
+			runReq.ExitKeys = append([]string(nil), ac.ExitKeys...)
+			if ac.ExitGraceSec != nil {
+				runReq.ExitGraceSec = *ac.ExitGraceSec
+			}
+			if len(ac.SessionInject) == 0 {
+				runReq.SessionStoreGlob = ac.SessionStoreGlob
+				runReq.SessionStoreIDRegex = ac.SessionStoreIDRegex
+			}
+		}
 		// ACP-01: an acp-agent's local execution is the ACP client runner, not a
 		// plain child process — the prompt travels over the protocol, so the local
 		// runner would exec an agent that never receives it. The runner is selected

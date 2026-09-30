@@ -50,9 +50,11 @@ const defaultGrace = 5 * time.Second
 // only observes the terminal result via Run's return (design §5 "finish 不拥有 fd
 // close").
 type PtySession struct {
-	jobID string
-	p     pty.Pty
-	grace time.Duration
+	jobID     string
+	p         pty.Pty
+	grace     time.Duration
+	exitKeys  []string
+	exitGrace time.Duration
 
 	// onEvent is an optional test hook recording state transitions + teardown
 	// steps in order. nil in production.
@@ -205,9 +207,11 @@ func (ps *PtySession) run(ctx context.Context) (int, error) {
 		// Natural exit: run teardown to release the fd + publish (no kill needed).
 		ps.teardown(false)
 	case <-ctx.Done():
-		// Cancel: go through cancelling → ordered teardown (kills the child).
+		// Cancellation first gives configured TUIs a chance to print their resume
+		// banner. The sole output reader remains the relay/observer throughout.
 		ps.setState(StateCancelling)
-		ps.teardown(true)
+		graceful := ps.gracefulExit()
+		ps.teardown(!graceful)
 	}
 
 	<-ps.done
@@ -220,6 +224,40 @@ func (ps *PtySession) run(ctx context.Context) (int, error) {
 		return code, ctxErr
 	}
 	return code, cerr
+}
+
+func (ps *PtySession) gracefulExit() bool {
+	if len(ps.exitKeys) == 0 {
+		return false
+	}
+	for _, keys := range ps.exitKeys {
+		var input string
+		switch keys {
+		case "enter":
+			input = "\r"
+		case "ctrl-c":
+			input = "\x03"
+		case "ctrl-d":
+			input = "\x04"
+		case "escape":
+			input = "\x1b"
+		default:
+			input = keys
+		}
+		if _, err := ps.p.Write([]byte(input)); err != nil {
+			return false
+		}
+	}
+	wait := ps.exitGrace
+	if wait <= 0 {
+		wait = 8 * time.Second
+	}
+	select {
+	case <-ps.childExited:
+		return true
+	case <-time.After(wait):
+		return false
+	}
 }
 
 // teardown runs the fixed close sequence exactly once (design §5):

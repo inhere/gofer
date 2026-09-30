@@ -36,18 +36,19 @@ func (s *Service) SetSessionID(id, sessionID string) {
 	}
 	if entry := s.entry(id); entry != nil {
 		entry.mu.Lock()
-		if entry.result.SessionID != "" {
+		if entry.result.SessionID != "" && !entry.storeSessionCandidate {
 			entry.mu.Unlock()
 			return
 		}
 		entry.result.SessionID = sessionID
+		entry.storeSessionCandidate = false
 		snap := entry.result
 		entry.mu.Unlock()
 		_ = s.persist(snap)
 		return
 	}
 	rec, ok, err := s.meta.GetJob(id)
-	if err != nil || !ok || rec.SessionID != "" {
+	if err != nil || !ok {
 		return
 	}
 	rec.SessionID = sessionID

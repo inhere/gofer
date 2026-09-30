@@ -114,9 +114,13 @@ type Request struct {
 
 	// Interactive requests a pty-backed run. Cols/Rows are the initial terminal
 	// size in character cells; zero values let the runner apply its defaults.
-	Interactive bool
-	Cols        int
-	Rows        int
+	Interactive         bool
+	Cols                int
+	Rows                int
+	ExitKeys            []string // ordered literal PTY input on cancellation
+	ExitGraceSec        int      // <= 0 uses the PTY runner's 8s default
+	SessionStoreGlob    string   // execution-machine glob for a non-injected CLI session
+	SessionStoreIDRegex string
 
 	// InitialInput is text the pty runner writes to the interactive child's stdin
 	// once its terminal is ready — after the FIRST output and then a quiet window,

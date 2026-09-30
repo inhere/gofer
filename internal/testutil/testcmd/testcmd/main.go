@@ -131,6 +131,21 @@ func main() {
 				return
 			}
 		}
+	case "pty-store-session":
+		// pty-store-session <file> <id>: persist a CLI-style session metadata
+		// header before waiting for terminal input.
+		cwd, err := os.Getwd()
+		must(err)
+		body, err := json.Marshal(map[string]string{"type": "session", "cwd": cwd, "id": arg(3)})
+		must(err)
+		must(os.WriteFile(arg(2), append(body, '\n'), 0o600))
+		fmt.Println("READY")
+		sc := bufio.NewScanner(os.Stdin)
+		for sc.Scan() {
+			if strings.TrimSpace(sc.Text()) == "/exit" {
+				return
+			}
+		}
 	case "cat-file":
 		// cat-file <path>: replay a fixture byte-for-byte on stdout (used by tests
 		// that need a realistic multi-line agent stream without argv size limits).

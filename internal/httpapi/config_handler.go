@@ -213,20 +213,24 @@ type retentionView struct {
 }
 
 type configAgentView struct {
-	Key            string           `json:"key"`
-	Type           string           `json:"type"`
-	Interactive    bool             `json:"interactive"`
-	Command        string           `json:"command,omitempty"`
-	Args           []string         `json:"args"`
-	GlobalArgs     []string         `json:"global_args"`
-	EnvKeys        []string         `json:"env_keys"`
-	AllowRawCmd    bool             `json:"allow_raw_cmd"`
-	Detect         detectConfigView `json:"detect"`
-	SessionInject  []string         `json:"session_inject"`
-	SessionCapture string           `json:"session_capture,omitempty"`
-	SessionResume  []string         `json:"session_resume"`
-	SystemInject   []string         `json:"system_inject"`
-	McpServerName  string           `json:"mcp_server_name,omitempty"`
+	Key                 string           `json:"key"`
+	Type                string           `json:"type"`
+	Interactive         bool             `json:"interactive"`
+	Command             string           `json:"command,omitempty"`
+	Args                []string         `json:"args"`
+	GlobalArgs          []string         `json:"global_args"`
+	EnvKeys             []string         `json:"env_keys"`
+	AllowRawCmd         bool             `json:"allow_raw_cmd"`
+	Detect              detectConfigView `json:"detect"`
+	SessionInject       []string         `json:"session_inject"`
+	ExitKeys            []string         `json:"exit_keys"`
+	ExitGraceSec        *int             `json:"exit_grace_sec"`
+	SessionStoreGlob    string           `json:"session_store_glob"`
+	SessionStoreIDRegex string           `json:"session_store_id_regex"`
+	SessionCapture      string           `json:"session_capture,omitempty"`
+	SessionResume       []string         `json:"session_resume"`
+	SystemInject        []string         `json:"system_inject"`
+	McpServerName       string           `json:"mcp_server_name,omitempty"`
 	// The rest of the editable field set (WEB-04③ V1.1), so the console's edit form can
 	// prefill every input it is allowed to send. InteractiveArgs is deliberately NOT
 	// omitempty and NOT nonNil()-ed: JSON `null` = batch-only, `[]` = interactive with
@@ -562,20 +566,24 @@ func buildAgentViews(agents map[string]config.AgentConfig, injected map[string]b
 			}
 		}
 		out = append(out, configAgentView{
-			Key:            k,
-			Type:           ac.Type,
-			Interactive:    ac.Interactive,
-			Command:        ac.Command,
-			Args:           nonNil(ac.Args),
-			GlobalArgs:     nonNil(ac.GlobalArgs),
-			EnvKeys:        sortedMapKeys(ac.Env),
-			AllowRawCmd:    ac.AllowRawCmd,
-			Detect:         detectConfigView{Command: ac.Detect.Command, Args: nonNil(ac.Detect.Args)},
-			SessionInject:  nonNil(ac.SessionInject),
-			SessionCapture: ac.SessionCapture,
-			SessionResume:  nonNil(ac.SessionResume),
-			SystemInject:   nonNil(ac.SystemInject),
-			McpServerName:  ac.McpServerName,
+			Key:                 k,
+			Type:                ac.Type,
+			Interactive:         ac.Interactive,
+			Command:             ac.Command,
+			Args:                nonNil(ac.Args),
+			GlobalArgs:          nonNil(ac.GlobalArgs),
+			EnvKeys:             sortedMapKeys(ac.Env),
+			AllowRawCmd:         ac.AllowRawCmd,
+			Detect:              detectConfigView{Command: ac.Detect.Command, Args: nonNil(ac.Detect.Args)},
+			SessionInject:       nonNil(ac.SessionInject),
+			ExitKeys:            nonNil(ac.ExitKeys),
+			ExitGraceSec:        ac.ExitGraceSec,
+			SessionStoreGlob:    ac.SessionStoreGlob,
+			SessionStoreIDRegex: ac.SessionStoreIDRegex,
+			SessionCapture:      ac.SessionCapture,
+			SessionResume:       nonNil(ac.SessionResume),
+			SystemInject:        nonNil(ac.SystemInject),
+			McpServerName:       ac.McpServerName,
 
 			// nil stays null: it is what says "batch-only" (see the struct comment).
 			InteractiveArgs:          ac.InteractiveArgs,

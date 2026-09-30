@@ -174,10 +174,11 @@ func (s *Service) captureOutcomes(entry *jobEntry, req runner.Request, res runne
 func (s *Service) captureSession(entry *jobEntry, resultDir string) {
 	entry.mu.Lock()
 	sid := entry.result.SessionID
+	storeCandidate := entry.storeSessionCandidate
 	agentKey := entry.result.Agent
 	interactive := entry.result.Interactive
 	entry.mu.Unlock()
-	if sid != "" {
+	if sid != "" && !storeCandidate {
 		return // 注入式/显式已知，不捕获。
 	}
 
@@ -195,6 +196,7 @@ func (s *Service) captureSession(entry *jobEntry, resultDir string) {
 	}
 	entry.mu.Lock()
 	entry.result.SessionID = captured
+	entry.storeSessionCandidate = false
 	entry.mu.Unlock()
 	s.recordEvent(entry.result.ID, EventJobSessionCaptured, map[string]any{
 		"agent": agentKey, "by": by, "source": source,

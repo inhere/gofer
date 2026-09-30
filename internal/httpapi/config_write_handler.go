@@ -529,7 +529,7 @@ func applyAgentField(ac *config.AgentConfig, f configBodyField) error {
 			return err
 		}
 		ac.Command = v
-	case "args", "global_args", "read_only_args", "session_inject", "session_resume",
+	case "args", "global_args", "read_only_args", "session_inject", "exit_keys", "session_resume",
 		"session_resume_interactive", "system_inject", "transient_error_patterns",
 		"fallback_agents", "ndjson_keep":
 		v, err := fieldValue[[]string](f)
@@ -545,6 +545,8 @@ func applyAgentField(ac *config.AgentConfig, f configBodyField) error {
 			ac.ReadOnlyArgs = v
 		case "session_inject":
 			ac.SessionInject = v
+		case "exit_keys":
+			ac.ExitKeys = v
 		case "session_resume":
 			ac.SessionResume = v
 		case "session_resume_interactive":
@@ -578,6 +580,24 @@ func applyAgentField(ac *config.AgentConfig, f configBodyField) error {
 			return err
 		}
 		ac.SessionCapture = v
+	case "session_store_glob":
+		v, err := fieldValue[string](f)
+		if err != nil {
+			return err
+		}
+		ac.SessionStoreGlob = v
+	case "session_store_id_regex":
+		v, err := fieldValue[string](f)
+		if err != nil {
+			return err
+		}
+		ac.SessionStoreIDRegex = v
+	case "exit_grace_sec":
+		v, err := fieldValue[*int](f)
+		if err != nil {
+			return err
+		}
+		ac.ExitGraceSec = v
 	case "output_format":
 		v, err := fieldValue[string](f)
 		if err != nil {

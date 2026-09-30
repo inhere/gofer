@@ -227,6 +227,7 @@ func HasBuiltinTemplate(key string) bool {
 var builtinSessionDefaults = map[string]config.AgentConfig{
 	"claude": {
 		SessionInject:            []string{"--session-id", "{{session_id}}"},
+		ExitKeys:                 []string{"/exit", "enter"},
 		SessionResume:            []string{"--resume", "{{session_id}}", "-p", "{{prompt}}"},
 		SessionResumeInteractive: []string{"--resume", "{{session_id}}"}, // 交互:进 TUI，无 -p
 		// 捕获是注入的兜底（claude 的 id 由 session_inject 给出，TUI argv 同样注入），
@@ -238,6 +239,9 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 		SystemInject: []string{"--append-system-prompt", "{{system_prompt}}"},
 	},
 	"codex": {
+		ExitKeys:            []string{"/exit", "enter"},
+		SessionStoreGlob:    "{{home}}/.codex/sessions/*/*/*/rollout-*.jsonl",
+		SessionStoreIDRegex: `([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`,
 		// 批处理(exec/ndjson)头部 `session id: <uuid>`，加交互 TUI 退出时打印的
 		// `codex resume <uuid>`（PTY-01 §四：TUI 的 id 只在退出横幅里出现，且夹在
 		// ANSI 里 → 由 relay 的去 ANSI 观察者/pty.txt 兜底）。每个分支各占一个捕获组，
@@ -261,6 +265,9 @@ var builtinSessionDefaults = map[string]config.AgentConfig{
 		SystemInject: []string{"-c", "developer_instructions={{system_prompt}}"},
 	},
 	"omp": {
+		ExitKeys:            []string{"/exit", "enter"},
+		SessionStoreGlob:    "{{home}}/.omp/agent/sessions/*/*.jsonl",
+		SessionStoreIDRegex: `([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})`,
 		// --mode json 下 omp 打 `"type":"session"` 行；**交互 TUI（纯文本）不打**，它的
 		// id 只在退出横幅里出现：`Resume this session with omp --resume <uuid>`（PTY-01
 		// 真机 2026-09-22 采样，job 20260922-164858-a7256a59）。两个分支各一个捕获组，
@@ -403,6 +410,18 @@ func applySessionDefaults(key string, a config.AgentConfig) config.AgentConfig {
 	}
 	if len(a.SessionInject) == 0 {
 		a.SessionInject = def.SessionInject
+	}
+	if len(a.ExitKeys) == 0 {
+		a.ExitKeys = def.ExitKeys
+	}
+	if a.ExitGraceSec == nil {
+		a.ExitGraceSec = def.ExitGraceSec
+	}
+	if a.SessionStoreGlob == "" {
+		a.SessionStoreGlob = def.SessionStoreGlob
+	}
+	if a.SessionStoreIDRegex == "" {
+		a.SessionStoreIDRegex = def.SessionStoreIDRegex
 	}
 	if a.SessionCapture == "" {
 		a.SessionCapture = def.SessionCapture

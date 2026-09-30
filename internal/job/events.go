@@ -58,13 +58,9 @@ var mirroredEventTypes = map[string]bool{
 	EventJobEnvAllowed: true,
 }
 
-// NOT on the list, by decision (S3, 2026-09-23): job.session_captured. The host
-// already owns the fact from its own side — a worker's session id rides back on the
-// outcome frame (res.Outcome.SessionID is applied to the host row), and a job attached
-// in the console records the event itself from the live pty capture
-// (internal/httpapi/pty_session_capture.go). Mirroring the executing machine's copy
-// would therefore put a SECOND job.session_captured row on the attached-interactive
-// path, which is exactly the doubling the whitelist exists to prevent.
+// job.session_captured is filtered by source below: the host's PTY relay owns
+// banner events, while a worker's store-scan candidate is otherwise invisible
+// to the host job's source label.
 //
 // Known, accepted gap: a non-interactive worker job ends up with the session id on the
 // host row but no job.session_captured event of its own (the host never scans the
@@ -87,7 +83,7 @@ func (s *Service) SetEventObserver(fn JobEventObserver) {
 // notifyEventObserver hands one just-recorded, whitelisted event to the observer
 // (best-effort: no observer, or a panicking one, never affects the job).
 func (s *Service) notifyEventObserver(jobID, eventType, detailJSON string) {
-	if !mirroredEventTypes[eventType] {
+	if !mirroredEventTypes[eventType] && eventType != EventJobSessionCaptured {
 		return
 	}
 	fn := s.eventObserver.Load()
@@ -99,6 +95,11 @@ func (s *Service) notifyEventObserver(jobID, eventType, detailJSON string) {
 		if json.Unmarshal([]byte(detailJSON), &detail) != nil {
 			detail = nil
 		}
+	}
+	// The hub's pty relay owns banner events. Only a worker's store-scan
+	// candidate is invisible there and needs mirroring for the web source label.
+	if eventType == EventJobSessionCaptured && detail["source"] != "store" {
+		return
 	}
 	(*fn)(jobID, eventType, detail)
 }

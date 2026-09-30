@@ -378,7 +378,30 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		stopWatchdog := s.startStallWatchdog(runCtx, entry, req.JobID, gates.stall)
 		defer stopWatchdog()
 	}
+	// A CLI with no session injection may persist its session before it prints an
+	// exit banner. Probe shortly after start, then again before terminal capture.
+	entry.mu.Lock()
+	agentKey, interactive := entry.result.Agent, entry.result.Interactive
+	entry.mu.Unlock()
+	storeStarted := time.Now()
+	storeProbeDone := make(chan struct{})
+	if interactive && req.Forward == nil {
+		go func() {
+			defer close(storeProbeDone)
+			select {
+			case <-time.After(500 * time.Millisecond):
+				s.scanRunningSessionStore(entry, req.JobID, agentKey, req.WorkDir, req.SessionStoreGlob, req.SessionStoreIDRegex, storeStarted)
+			case <-runCtx.Done():
+			}
+		}()
+	} else {
+		close(storeProbeDone)
+	}
 	res := run.Run(runCtx, req)
+	<-storeProbeDone
+	if interactive && req.Forward == nil {
+		s.scanRunningSessionStore(entry, req.JobID, agentKey, req.WorkDir, req.SessionStoreGlob, req.SessionStoreIDRegex, storeStarted)
+	}
 
 	// ACP-01: a runner may learn facts about the session it just drove beyond the
 	// exit code — the acp runner returns the agent's sessionId (the uniform resume

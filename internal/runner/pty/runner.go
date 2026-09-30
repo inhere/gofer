@@ -95,6 +95,10 @@ func (r *PtyRunner) Run(ctx context.Context, req runner.Request) runner.Result {
 	if err != nil {
 		return runner.Result{ExitCode: -1, Err: err}
 	}
+	sess.exitKeys = append([]string(nil), req.ExitKeys...)
+	if req.ExitGraceSec > 0 {
+		sess.exitGrace = time.Duration(req.ExitGraceSec) * time.Second
+	}
 	r.reg.add(req.JobID, sess)
 	defer r.reg.remove(req.JobID)
 
