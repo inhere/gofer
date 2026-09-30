@@ -490,12 +490,13 @@ type JobResult struct {
 	TimeoutSec int `json:"timeout_sec,omitempty"`
 	// Session metadata is persisted together as session_state_json. The job status
 	// remains the authoritative lifecycle state.
-	Session              bool  `json:"session,omitempty"`
-	TurnNo               int   `json:"turn_no,omitempty"`
-	IdleTimeoutSec       int   `json:"idle_timeout_sec,omitempty"`
-	MaxSessionSec        int   `json:"max_session_sec,omitempty"`
-	IdleDeadlineAt       int64 `json:"idle_deadline_at,omitempty"`
-	MaxSessionDeadlineAt int64 `json:"max_session_deadline_at,omitempty"`
+	Session              bool   `json:"session,omitempty"`
+	TurnNo               int    `json:"turn_no,omitempty"`
+	IdleTimeoutSec       int    `json:"idle_timeout_sec,omitempty"`
+	MaxSessionSec        int    `json:"max_session_sec,omitempty"`
+	IdleDeadlineAt       int64  `json:"idle_deadline_at,omitempty"`
+	MaxSessionDeadlineAt int64  `json:"max_session_deadline_at,omitempty"`
+	SessionEndReason     string `json:"session_end_reason,omitempty"`
 	// RequestedTimeoutSec is the timeout_sec the caller actually asked for (0 =
 	// unset, the server default applies). It differs from TimeoutSec only when the
 	// ceiling truncated it.

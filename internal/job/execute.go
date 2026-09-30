@@ -224,7 +224,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		}
 		req.OnStartedAt = markStarted
 		req.OnStarted = func() { markStarted(0) }
-	} else if timeout > 0 {
+	} else if timeout > 0 && (req.ACP == nil || req.ACP.SessionCommands == nil) {
 		var cancelRun context.CancelFunc
 		runCtx, cancelRun = context.WithTimeout(ctx, timeout)
 		defer cancelRun()
@@ -409,7 +409,7 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 	// captureOutcomes so the terminal capture sees them (a non-empty SessionID also
 	// suppresses regex session capture, which is for cli-agents). SUP-01 E: the same
 	// runner reports the agent's token/cost tally through Usage.
-	if res.SessionID != "" || res.StopReason != "" || res.Usage != nil {
+	if res.SessionID != "" || res.StopReason != "" || res.Usage != nil || res.SessionEndReason != "" {
 		entry.mu.Lock()
 		if res.SessionID != "" && entry.result.SessionID == "" {
 			entry.result.SessionID = res.SessionID
@@ -420,6 +420,9 @@ func (s *Service) execute(entry *jobEntry, run runner.Runner, gates execGates, r
 		if res.Usage != nil {
 			u := *res.Usage
 			entry.result.Usage = &u
+		}
+		if res.SessionEndReason != "" {
+			entry.result.SessionEndReason = res.SessionEndReason
 		}
 		entry.mu.Unlock()
 	}

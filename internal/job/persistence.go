@@ -436,16 +436,18 @@ func fromRecord(rec jobstore.JobRecord) JobResult {
 	result.MaxSessionSec = state.MaxSessionSec
 	result.IdleDeadlineAt = state.IdleDeadlineAt
 	result.MaxSessionDeadlineAt = state.MaxSessionDeadlineAt
+	result.SessionEndReason = state.SessionEndReason
 	return result
 }
 
 type sessionState struct {
-	Session              bool  `json:"session"`
-	TurnNo               int   `json:"turn_no"`
-	IdleTimeoutSec       int   `json:"idle_timeout_sec"`
-	MaxSessionSec        int   `json:"max_session_sec"`
-	IdleDeadlineAt       int64 `json:"idle_deadline_at"`
-	MaxSessionDeadlineAt int64 `json:"max_session_deadline_at"`
+	Session              bool   `json:"session"`
+	TurnNo               int    `json:"turn_no"`
+	IdleTimeoutSec       int    `json:"idle_timeout_sec"`
+	MaxSessionSec        int    `json:"max_session_sec"`
+	IdleDeadlineAt       int64  `json:"idle_deadline_at"`
+	MaxSessionDeadlineAt int64  `json:"max_session_deadline_at"`
+	SessionEndReason     string `json:"session_end_reason"`
 }
 
 func marshalSessionState(r JobResult) string {
@@ -456,6 +458,7 @@ func marshalSessionState(r JobResult) string {
 		Session: r.Session, TurnNo: r.TurnNo,
 		IdleTimeoutSec: r.IdleTimeoutSec, MaxSessionSec: r.MaxSessionSec,
 		IdleDeadlineAt: r.IdleDeadlineAt, MaxSessionDeadlineAt: r.MaxSessionDeadlineAt,
+		SessionEndReason: r.SessionEndReason,
 	})
 	return string(b)
 }

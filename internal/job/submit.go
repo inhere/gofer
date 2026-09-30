@@ -793,10 +793,25 @@ func (s *Service) Submit(req JobRequest) (JobResult, error) {
 	}
 	if runReq.ACP != nil && sessionCommands != nil {
 		runReq.ACP.SessionCommands = sessionCommands
-		runReq.ACP.OnSessionReady = func(id string) { s.SetSessionID(jobID, id) }
-		runReq.ACP.OnTurnStart = func() error { return s.beginSessionTurn(entry) }
+		runReq.ACP.TurnTimeoutSec = timeoutSec
+		runReq.ACP.IdleTimeoutSec = req.IdleTimeoutSec
+		runReq.ACP.MaxSessionSec = req.MaxSessionSec
+		runReq.ACP.OnSessionReady = func(id string) { s.sessionReady(entry, id) }
+		runReq.ACP.OnTurnStart = func() error {
+			if err := s.beginSessionTurn(entry); err != nil {
+				return err
+			}
+			s.resumeStall(entry)
+			return nil
+		}
 		runReq.ACP.OnTurnEnd = func(reason string) error { return s.endSessionTurn(entry, reason) }
-		runReq.ACP.OnAwaitInput = func() error { return s.awaitSessionInput(entry) }
+		runReq.ACP.OnAwaitInput = func() error {
+			if err := s.awaitSessionInput(entry); err != nil {
+				return err
+			}
+			s.pauseStall(entry)
+			return nil
+		}
 	}
 	s.mu.Lock()
 	s.jobs[jobID] = entry

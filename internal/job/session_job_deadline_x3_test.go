@@ -78,7 +78,18 @@ func TestSessionJobIdleTimeoutEndsAwaitingInput(t *testing.T) {
 }
 
 func TestSessionJobHoldsLockAndAgentSlotWhileAwaitingInput(t *testing.T) {
-	s := newACPServiceAgent(t, t.TempDir(), acptest.Options{}, nil, func(ac *config.AgentConfig) { ac.MaxConcurrent = 1 })
+	t.Run("agent slot", func(t *testing.T) {
+		s := newACPServiceAgent(t, t.TempDir(), acptest.Options{}, nil, func(ac *config.AgentConfig) { ac.MaxConcurrent = 1 })
+		assertSessionBlocksNextJob(t, s, StatusQueued)
+	})
+	t.Run("directory lock", func(t *testing.T) {
+		s := newACPService(t, t.TempDir(), acptest.Options{})
+		assertSessionBlocksNextJob(t, s, StatusWaitingDir)
+	})
+}
+
+func assertSessionBlocksNextJob(t *testing.T, s *Service, blockedStatus string) {
+	t.Helper()
 	first, err := s.Submit(JobRequest{ProjectKey: "self", Agent: "acpbot", Runner: "local", Cwd: ".", Prompt: "first", Session: true, TimeoutSec: 20, IdleTimeoutSec: 10})
 	if err != nil {
 		t.Fatal(err)
@@ -90,14 +101,26 @@ func TestSessionJobHoldsLockAndAgentSlotWhileAwaitingInput(t *testing.T) {
 	}
 	time.Sleep(150 * time.Millisecond)
 	current, _ := s.Get(second.ID)
-	if current.Status != StatusQueued && current.Status != StatusWaitingDir {
-		t.Fatalf("second job bypassed held slot/lock: %s", current.Status)
+	if current.Status != blockedStatus {
+		t.Fatalf("second job status=%s, want %s while session waits", current.Status, blockedStatus)
 	}
 	if err := s.EndSession(first.ID); err != nil {
 		t.Fatal(err)
 	}
 	if final, ok := s.Wait(second.ID); !ok || final.Status != StatusDone {
 		t.Fatalf("queued job after release: ok=%v result=%+v", ok, final)
+	}
+}
+
+func TestSessionJobTurnTimeoutFails(t *testing.T) {
+	s := newACPService(t, t.TempDir(), acptest.Options{Slow: true})
+	first, err := s.Submit(JobRequest{ProjectKey: "self", Agent: "acpbot", Runner: "local", Cwd: ".", Prompt: "slow", Session: true, TimeoutSec: 1, IdleTimeoutSec: 10})
+	if err != nil {
+		t.Fatal(err)
+	}
+	final, ok := s.WaitFor(first.ID, 5*time.Second)
+	if !ok || final.Status != StatusFailed || final.TurnNo != 1 {
+		t.Fatalf("turn timeout: ok=%v result=%+v", ok, final)
 	}
 }
 

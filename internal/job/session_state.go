@@ -7,6 +7,17 @@ import (
 
 var errSessionTransition = errors.New("invalid ACP session job transition")
 
+func (s *Service) sessionReady(entry *jobEntry, id string) {
+	entry.mu.Lock()
+	entry.result.SessionID = id
+	if entry.result.MaxSessionSec > 0 {
+		entry.result.MaxSessionDeadlineAt = s.nowFn().Add(time.Duration(entry.result.MaxSessionSec) * time.Second).Unix()
+	}
+	snap := entry.result
+	entry.mu.Unlock()
+	_ = s.persist(snap)
+}
+
 // beginSessionTurn records the first or a later prompt turn before ACP receives it.
 func (s *Service) beginSessionTurn(entry *jobEntry) error {
 	entry.mu.Lock()

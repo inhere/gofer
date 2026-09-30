@@ -246,6 +246,9 @@ type ACPRequest struct {
 	OnTurnStart     func() error
 	OnTurnEnd       func(string) error
 	OnAwaitInput    func() error
+	TurnTimeoutSec  int
+	IdleTimeoutSec  int
+	MaxSessionSec   int
 	// ResultDir is the job's result directory; the runner writes its structured
 	// event stream to <ResultDir>/artifacts/acp.jsonl.
 	ResultDir string
@@ -557,7 +560,8 @@ type Result struct {
 	SessionID string
 	// StopReason is the acp runner's session/prompt stopReason. It is empty for
 	// runners with no such notion; the job row records it when set.
-	StopReason string
+	StopReason       string
+	SessionEndReason string
 	// Usage is the token/cost accounting an execution-local runner learned from the
 	// process it ran — today the acp runner's accumulated usage_update tally
 	// (SUP-01 E). Nil when the runner has none (local exec, and the ndjson/codex

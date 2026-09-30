@@ -249,6 +249,12 @@ func (r *Runner) Run(ctx context.Context, req runner.Request) runner.Result {
 // command channel and status callbacks; the runner only owns protocol and output.
 func runResident(ctx context.Context, req runner.Request, client *acp.Client, h *handler, events *eventWriter, sessionID string) runner.Result {
 	result := runner.Result{SessionID: sessionID}
+	sessionCtx := ctx
+	if req.ACP.MaxSessionSec > 0 {
+		var cancel context.CancelFunc
+		sessionCtx, cancel = context.WithTimeout(ctx, time.Duration(req.ACP.MaxSessionSec)*time.Second)
+		defer cancel()
+	}
 	prompt := req.ACP.Prompt
 	turn := 0
 	for {
@@ -265,7 +271,14 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 			}
 			events.write(map[string]any{"t": "turn_started", "turn": turn})
 			events.write(promptEvent(prompt))
-			response, err := client.Prompt(ctx, sessionID, prompt, h)
+			turnCtx := sessionCtx
+			cancelTurn := func() {}
+			if req.ACP.TurnTimeoutSec > 0 {
+				turnCtx, cancelTurn = context.WithTimeout(sessionCtx, time.Duration(req.ACP.TurnTimeoutSec)*time.Second)
+			}
+			response, err := client.Prompt(turnCtx, sessionID, prompt, h)
+			turnErr := turnCtx.Err()
+			cancelTurn()
 			h.endTurn()
 			h.emitSummary(response.StopReason)
 			events.write(map[string]any{"t": "turn_ended", "turn": turn, "stop_reason": response.StopReason})
@@ -273,6 +286,14 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 			result.Usage = h.usageSnapshot()
 			if ctx.Err() != nil {
 				result.ExitCode, result.Err = -1, ctx.Err()
+				return result
+			}
+			if sessionCtx.Err() != nil {
+				result.ExitCode, result.SessionEndReason = 0, "max_session_timeout"
+				return result
+			}
+			if turnErr == context.DeadlineExceeded {
+				result.ExitCode, result.Err = -1, fmt.Errorf("acp: turn timed out after %ds", req.ACP.TurnTimeoutSec)
 				return result
 			}
 			if err != nil {
@@ -297,18 +318,43 @@ func runResident(ctx context.Context, req runner.Request, client *acp.Client, h 
 			}
 		}
 		events.write(map[string]any{"t": "awaiting_input", "turn": turn})
+		var idleTimer *time.Timer
+		var idleC <-chan time.Time
+		if req.ACP.IdleTimeoutSec > 0 {
+			idleTimer = time.NewTimer(time.Duration(req.ACP.IdleTimeoutSec) * time.Second)
+			idleC = idleTimer.C
+		}
 		select {
 		case command, ok := <-req.ACP.SessionCommands:
+			if idleTimer != nil {
+				idleTimer.Stop()
+			}
 			if !ok {
 				result.ExitCode, result.Err = -1, errors.New("acp: session command channel closed")
 				return result
 			}
 			if command.End {
-				result.ExitCode = 0
+				result.ExitCode, result.SessionEndReason = 0, "manual_end"
 				return result
 			}
 			prompt = command.Prompt
+		case <-idleC:
+			result.ExitCode, result.SessionEndReason = 0, "idle_timeout"
+			return result
+		case <-sessionCtx.Done():
+			if idleTimer != nil {
+				idleTimer.Stop()
+			}
+			if ctx.Err() == nil {
+				result.ExitCode, result.SessionEndReason = 0, "max_session_timeout"
+				return result
+			}
+			result.ExitCode, result.Err = -1, ctx.Err()
+			return result
 		case <-ctx.Done():
+			if idleTimer != nil {
+				idleTimer.Stop()
+			}
 			result.ExitCode, result.Err = -1, ctx.Err()
 			return result
 		}
