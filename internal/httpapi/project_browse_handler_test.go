@@ -68,6 +68,7 @@ func initGitRepo(t *testing.T, dir string) {
 }
 
 func TestHandleProjectGit_OK(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	initGitRepo(t, repo)
 	s := newBrowseServer(t, repo)
@@ -87,6 +88,7 @@ func TestHandleProjectGit_OK(t *testing.T) {
 }
 
 func TestHandleProjectGit_UnknownProject(t *testing.T) {
+	t.Parallel()
 	s := newBrowseServer(t, t.TempDir())
 	resp := do(t, s, http.MethodGet, "/v1/projects/ghost/git", testToken, nil)
 	if resp.StatusCode != http.StatusNotFound {
@@ -95,6 +97,7 @@ func TestHandleProjectGit_UnknownProject(t *testing.T) {
 }
 
 func TestHandleListRepos_OK(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	initGitRepo(t, repo)
 	s := newBrowseServer(t, repo)
@@ -113,6 +116,7 @@ func TestHandleListRepos_OK(t *testing.T) {
 }
 
 func TestHandleListRepos_UnknownProject(t *testing.T) {
+	t.Parallel()
 	s := newBrowseServer(t, t.TempDir())
 	resp := do(t, s, http.MethodGet, "/v1/projects/ghost/repos", testToken, nil)
 	if resp.StatusCode != http.StatusNotFound {
@@ -121,6 +125,7 @@ func TestHandleListRepos_UnknownProject(t *testing.T) {
 }
 
 func TestHandleGetFile_OK(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	initGitRepo(t, repo)
 	s := newBrowseServer(t, repo)
@@ -137,6 +142,7 @@ func TestHandleGetFile_OK(t *testing.T) {
 }
 
 func TestHandleGetFile_Forbidden(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	initGitRepo(t, repo)
 	if err := os.WriteFile(filepath.Join(repo, ".env"), []byte("SECRET=1\n"), 0o644); err != nil {
@@ -151,6 +157,7 @@ func TestHandleGetFile_Forbidden(t *testing.T) {
 }
 
 func TestHandleGetFile_Traversal404(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	initGitRepo(t, repo)
 	s := newBrowseServer(t, repo)
@@ -163,6 +170,7 @@ func TestHandleGetFile_Traversal404(t *testing.T) {
 }
 
 func TestHandleGetFile_Binary415(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	initGitRepo(t, repo)
 	// Whitelisted name LICENSE with binary (NUL) content → 415.
@@ -178,6 +186,7 @@ func TestHandleGetFile_Binary415(t *testing.T) {
 }
 
 func TestHandleGetFile_MissingPath(t *testing.T) {
+	t.Parallel()
 	repo := t.TempDir()
 	initGitRepo(t, repo)
 	s := newBrowseServer(t, repo)
@@ -189,6 +198,7 @@ func TestHandleGetFile_MissingPath(t *testing.T) {
 }
 
 func TestHandleGetFile_UnknownProject(t *testing.T) {
+	t.Parallel()
 	s := newBrowseServer(t, t.TempDir())
 	resp := do(t, s, http.MethodGet, "/v1/projects/ghost/file?path=README.md", testToken, nil)
 	if resp.StatusCode != http.StatusNotFound {

@@ -13,6 +13,7 @@ import (
 // answer -> ANSWERED with answer/answered_by/answered_at; plus the client-side
 // view of the 404/409 split and the plan-detail inline.
 func TestE2EDecisionAskAnswer(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)

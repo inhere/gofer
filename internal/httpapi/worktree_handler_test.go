@@ -79,6 +79,7 @@ func newWorktreeTestServer(t *testing.T) (*Server, string) {
 // live worktree, a dirty one refuses removal with 409, a forced removal drops the
 // worktree and the branch, and a job without a worktree (or an unknown id) is 404.
 func TestJobWorktreeEndpoints(t *testing.T) {
+	t.Parallel()
 	s, repo := newWorktreeTestServer(t)
 
 	resp := do(t, s, http.MethodPost, "/v1/jobs?wait=1", testToken, map[string]any{

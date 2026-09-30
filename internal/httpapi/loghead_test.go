@@ -7,6 +7,7 @@ import (
 )
 
 func TestLogHeadWindow(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	created := createDoneExecJob(t, s)
 	writeStdoutLog(t, created.ResultDir, numberedLines(205))
@@ -29,6 +30,7 @@ func TestLogHeadWindow(t *testing.T) {
 }
 
 func TestLogHeadRejectsOffset(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	created := createDoneExecJob(t, s)
 	writeStdoutLog(t, created.ResultDir, numberedLines(10))

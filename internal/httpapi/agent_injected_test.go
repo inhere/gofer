@@ -34,6 +34,7 @@ func (d templateDetector) Detect(agents map[string]config.AgentConfig) map[strin
 // materialized at runtime from a built-in template, and an operator-declared agent
 // never does. Without the flag the two kinds are indistinguishable over the API.
 func TestListAgentsMarksTemplateInjected(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Server:  config.ServerConfig{Token: testToken},

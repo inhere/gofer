@@ -143,6 +143,7 @@ func readFrames(t *testing.T, resp *http.Response, scanner *bufio.Scanner, timeo
 // asserts log events accumulate line1/line2/line3, then a terminal done status
 // and an end event.
 func TestStreamRealtimeLog(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
@@ -197,6 +198,7 @@ func TestStreamRealtimeLog(t *testing.T) {
 // TestStreamResumeFrom runs a job to completion, then streams it with ?from set
 // to half its stdout length and asserts only the suffix (no prefix) is replayed.
 func TestStreamResumeFrom(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
@@ -250,6 +252,7 @@ func TestStreamResumeFrom(t *testing.T) {
 // TestStreamCompletedJob connects to an already-terminal job and asserts the
 // logs are replayed, a terminal status is sent and the stream closes with end.
 func TestStreamCompletedJob(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
@@ -306,6 +309,7 @@ func TestStreamCompletedJob(t *testing.T) {
 // frame, cancels the client ctx and asserts the read loop ends within a
 // deadline (no goroutine leak / hang). Run with -race.
 func TestStreamClientCancel(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()
@@ -363,6 +367,7 @@ func TestStreamClientCancel(t *testing.T) {
 // open, asserting an `interaction` event with action=open is delivered when the
 // interaction is created and action=answered (carrying the answer) once answered.
 func TestStreamInteractionEvents(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()

@@ -76,6 +76,7 @@ func getMeta(t *testing.T, s *Server) metaResp {
 }
 
 func TestMetaRequiresAuth(t *testing.T) {
+	t.Parallel()
 	s := newMetaServer(t, nil)
 	resp := do(t, s, http.MethodGet, "/v1/meta", "", nil)
 	if resp.StatusCode != http.StatusUnauthorized {
@@ -84,6 +85,7 @@ func TestMetaRequiresAuth(t *testing.T) {
 }
 
 func TestMetaAgentsCarryBothModes(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{
 		Server:  config.ServerConfig{Token: testToken},
 		Storage: config.StorageConfig{Root: t.TempDir()},
@@ -111,6 +113,7 @@ func TestMetaAgentsCarryBothModes(t *testing.T) {
 // TestMetaGroupsNonEmpty: every group is a non-nil populated array and the
 // project carries its allowlists + default_agent.
 func TestMetaGroups(t *testing.T) {
+	t.Parallel()
 	workers := fakeWorkers{
 		"w-online": {
 			Connected:     true,
@@ -161,6 +164,7 @@ func TestMetaGroups(t *testing.T) {
 // TestMetaWorkerConnectedMatchesRunners: the connected/labels state surfaced by
 // /v1/meta for a worker agrees with what /v1/runners reports (same source).
 func TestMetaWorkerConnectedMatchesRunners(t *testing.T) {
+	t.Parallel()
 	workers := fakeWorkers{
 		"w-online": {
 			Connected:     true,
@@ -209,6 +213,7 @@ func TestMetaWorkerConnectedMatchesRunners(t *testing.T) {
 // flag — true for an interactive cli-agent, absent/false for others — and the
 // built-in exec is present with type exec.
 func TestMetaAgentInteractive(t *testing.T) {
+	t.Parallel()
 	m := getMeta(t, newMetaServer(t, nil))
 	byKey := map[string]metaAgent{}
 	for _, a := range m.Agents {
@@ -229,6 +234,7 @@ func TestMetaAgentInteractive(t *testing.T) {
 // registry, so the built-in exec is listed with type exec even when the config
 // never declares an exec agent (consistency with P1's worker capability report).
 func TestMetaAgentExecBuiltin(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Server:  config.ServerConfig{Token: testToken},
@@ -253,6 +259,7 @@ func TestMetaAgentExecBuiltin(t *testing.T) {
 // TestMetaWorkerAgentCaps (P4 T4.2): a connected worker's metaWorker.agent_caps
 // carries the typed {key,type,interactive} detail; an offline worker carries none.
 func TestMetaWorkerAgentCaps(t *testing.T) {
+	t.Parallel()
 	workers := fakeWorkers{
 		"w-online": {
 			Connected:     true,
@@ -295,6 +302,7 @@ func TestMetaWorkerAgentCaps(t *testing.T) {
 // stays a single host entry (worker_only false); an OFFLINE worker's project keys
 // are not surfaced (connected-gated, same rule as agent_caps).
 func TestMetaWorkerOnlyProjects(t *testing.T) {
+	t.Parallel()
 	workers := fakeWorkers{
 		"w-online": {
 			Connected: true,
@@ -346,6 +354,7 @@ func TestMetaWorkerOnlyProjects(t *testing.T) {
 // TestMetaWorkerOnlyDedup: the same worker-only project key reported by multiple
 // online workers yields a single synthesized entry.
 func TestMetaWorkerOnlyDedup(t *testing.T) {
+	t.Parallel()
 	workers := fakeWorkers{
 		"w-online":  {Connected: true, Projects: []string{"shared-wonly"}},
 		"w-offline": {Connected: true, Projects: []string{"shared-wonly"}},
@@ -371,6 +380,7 @@ func TestMetaWorkerOnlyDedup(t *testing.T) {
 // user re-picking it (the submit path already falls back to it — capabilitiesFor /
 // selectTargetWorker). The implicit local runner carries no worker_id.
 func TestMetaRunnerWorkerID(t *testing.T) {
+	t.Parallel()
 	m := getMeta(t, newMetaServer(t, nil))
 	for _, r := range m.Runners {
 		switch r.Name {
@@ -391,6 +401,7 @@ func TestMetaRunnerWorkerID(t *testing.T) {
 // that are guaranteed to be rejected at submit. The per-project narrowing list is gone
 // (AGT-02 0.3) — see TestMetaProjectHasNoNarrowingList.
 func TestMetaProjectGates(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Server:  config.ServerConfig{Token: testToken},
@@ -428,6 +439,7 @@ func TestMetaProjectGates(t *testing.T) {
 // writing against a field the write API rejects with a 400, so its absence is part of
 // the contract, not an accident of omitempty.
 func TestMetaProjectHasNoNarrowingList(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Server:  config.ServerConfig{Token: testToken},
@@ -465,6 +477,7 @@ func TestMetaProjectHasNoNarrowingList(t *testing.T) {
 // omitempty here would make a false gate indistinguishable from an old server and hide
 // every exec / interactive agent in the form.
 func TestMetaGateFieldsAlwaysEmitted(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Server:  config.ServerConfig{Token: testToken},
@@ -497,6 +510,7 @@ func TestMetaGateFieldsAlwaysEmitted(t *testing.T) {
 // TestMetaWorkersNilRegistry: with no workers registry wired, configured workers
 // still list (from config) but report connected=false / no labels.
 func TestMetaWorkersNilRegistry(t *testing.T) {
+	t.Parallel()
 	m := getMeta(t, newMetaServer(t, nil))
 	if len(m.Workers) != 2 {
 		t.Fatalf("want 2 configured workers, got %d", len(m.Workers))

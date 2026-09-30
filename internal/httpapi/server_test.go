@@ -148,6 +148,7 @@ func decode(t *testing.T, resp *http.Response, out any) {
 }
 
 func TestHealthNoAuth(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodGet, "/health", "", nil)
 	if resp.StatusCode != http.StatusOK {
@@ -161,6 +162,7 @@ func TestHealthNoAuth(t *testing.T) {
 }
 
 func TestAuthRejectedWithoutHeader(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodGet, "/v1/projects", "", nil)
 	if resp.StatusCode != http.StatusUnauthorized {
@@ -169,6 +171,7 @@ func TestAuthRejectedWithoutHeader(t *testing.T) {
 }
 
 func TestAuthRejectedWrongToken(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodGet, "/v1/projects", "wrong", nil)
 	if resp.StatusCode != http.StatusUnauthorized {
@@ -177,6 +180,7 @@ func TestAuthRejectedWrongToken(t *testing.T) {
 }
 
 func TestAuthSuccess(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodGet, "/v1/projects", testToken, nil)
 	if resp.StatusCode != http.StatusOK {
@@ -192,6 +196,7 @@ func TestAuthSuccess(t *testing.T) {
 }
 
 func TestEmptyTokenAllowed(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, "", true)
 	resp := do(t, s, http.MethodGet, "/v1/projects", "", nil)
 	if resp.StatusCode != http.StatusOK {
@@ -200,6 +205,7 @@ func TestEmptyTokenAllowed(t *testing.T) {
 }
 
 func TestEmptyTokenRejectedWhenNotAllowed(t *testing.T) {
+	t.Parallel()
 	// New() with empty token + allowEmpty=false: every /v1 request is rejected.
 	s := newTestServer(t, "", false)
 	resp := do(t, s, http.MethodGet, "/v1/projects", "", nil)
@@ -209,6 +215,7 @@ func TestEmptyTokenRejectedWhenNotAllowed(t *testing.T) {
 }
 
 func TestGetProjectKnown(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodGet, "/v1/projects/self", testToken, nil)
 	if resp.StatusCode != http.StatusOK {
@@ -222,6 +229,7 @@ func TestGetProjectKnown(t *testing.T) {
 }
 
 func TestGetProjectUnknown(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodGet, "/v1/projects/nope", testToken, nil)
 	if resp.StatusCode != http.StatusNotFound {
@@ -235,6 +243,7 @@ func TestGetProjectUnknown(t *testing.T) {
 }
 
 func TestListAgents(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodGet, "/v1/agents", testToken, nil)
 	if resp.StatusCode != http.StatusOK {
@@ -260,6 +269,7 @@ func TestListAgents(t *testing.T) {
 }
 
 func TestCreateJobUnknownProject(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
 		ProjectKey: "ghost", Agent: "exec", Runner: "local",
@@ -271,6 +281,7 @@ func TestCreateJobUnknownProject(t *testing.T) {
 }
 
 func TestCreateJobUnknownAgent(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
 		ProjectKey: "self", Agent: "claude", Runner: "local",
@@ -282,6 +293,7 @@ func TestCreateJobUnknownAgent(t *testing.T) {
 }
 
 func TestCreateJobExecAndPoll(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -314,6 +326,7 @@ func TestCreateJobExecAndPoll(t *testing.T) {
 }
 
 func TestGetJobUnknown(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodGet, "/v1/jobs/does-not-exist", testToken, nil)
 	if resp.StatusCode != http.StatusNotFound {
@@ -322,6 +335,7 @@ func TestGetJobUnknown(t *testing.T) {
 }
 
 func TestLogTailLimited(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	// Produce ~512KB of stdout, well over the 256KB tail cap. yes | head emits
 	// many lines fast; we cap with head -c.
@@ -351,6 +365,7 @@ func TestLogTailLimited(t *testing.T) {
 }
 
 func TestLogLinesDefaultAndOffsetHeaders(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	created := createDoneExecJob(t, s)
 	writeStdoutLog(t, created.ResultDir, numberedLines(205))
@@ -383,6 +398,7 @@ func TestLogLinesDefaultAndOffsetHeaders(t *testing.T) {
 }
 
 func TestLogLinesFullAndBytesCompatibility(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	created := createDoneExecJob(t, s)
 	writeStdoutLog(t, created.ResultDir, "a\nb\nc\n")
@@ -452,6 +468,7 @@ func numberedRange(first, last int) string {
 }
 
 func TestCancelCompletedJobStable(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -478,6 +495,7 @@ func TestCancelCompletedJobStable(t *testing.T) {
 }
 
 func TestCancelUnknownJob(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/jobs/nope/cancel", testToken, nil)
 	if resp.StatusCode != http.StatusNotFound {

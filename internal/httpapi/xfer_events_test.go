@@ -17,6 +17,7 @@ import (
 // transfer's event only landed in the event log, so an operator could see it in the
 // stream but never subscribe an IM/webhook to it.
 func TestXferEventDeliveredToWebhook(t *testing.T) {
+	t.Parallel()
 	target := "https://hooks.example.test/xfer"
 	s, mgr, _ := newXferServer(t, config.ServerConfig{
 		Token: "tok",

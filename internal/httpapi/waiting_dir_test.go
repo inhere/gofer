@@ -11,6 +11,7 @@ import (
 // "排队中"的非终态，`/v1/stats` 的 by_status 必须把它并进 queued——否则首页会多出一个
 // 没人认识的桶，而"排队等锁"看起来像什么都没发生。
 func TestJobsCountWaitingDirAsQueued(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	meta := s.jobs.Meta()
 	for _, rec := range []struct{ id, status string }{

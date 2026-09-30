@@ -15,6 +15,7 @@ import (
 // exactly what XFER-01's staging area exists to avoid). An unknown id or a
 // cross-project one is a 400 before anything is admitted.
 func TestSubmitJobUploadsRequireStagedID(t *testing.T) {
+	t.Parallel()
 	s, mgr, _ := newXferServer(t, config.ServerConfig{Token: "tok"}, xfer.Limits{})
 	rec, err := mgr.StagePut("tester", "local", "demo", "tmp/in/a.bin", 4, "", false)
 	if err != nil {

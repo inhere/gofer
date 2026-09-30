@@ -13,6 +13,7 @@ import (
 )
 
 func TestScopedMemoryCRUDAndPermissions(t *testing.T) {
+	t.Parallel()
 	s := newCredentialServer(t, config.ServerConfig{Callers: []config.CallerConfig{{ID: "alice", Token: "user"}}}, nil, nil)
 	meta, err := jobstore.Open(filepath.Join(t.TempDir(), "memory.db"))
 	if err != nil {

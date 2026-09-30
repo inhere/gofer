@@ -52,6 +52,7 @@ func newWebServer(t *testing.T, webEnabled bool) *Server {
 // not the body text, so it stays green whether the embedded dist/ holds the
 // placeholder (bare build) or a real `make web` build.
 func TestWebConsoleMountedByDefault(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 
 	// "/" -> web console shell (200, HTML).
@@ -100,6 +101,7 @@ func TestWebConsoleMountedByDefault(t *testing.T) {
 // TestWebConsoleDisabled verifies that with web_enabled=false the SPA is not
 // mounted: "/" 404s while the API keeps working.
 func TestWebConsoleDisabled(t *testing.T) {
+	t.Parallel()
 	s := newWebServer(t, false)
 
 	resp := do(t, s, http.MethodGet, "/", "", nil)
@@ -149,6 +151,7 @@ func newWebDirServer(t *testing.T, webDir string) *Server {
 // 200 + no-cache, a real asset 200 + immutable, a missing asset 404 (never the
 // shell) — and no body is written for any of them.
 func TestHeadServesShellAndAssets(t *testing.T) {
+	t.Parallel()
 	dir := t.TempDir()
 	if err := os.WriteFile(filepath.Join(dir, "index.html"), []byte(`<!doctype html><div id="app"></div>`), 0o644); err != nil {
 		t.Fatal(err)

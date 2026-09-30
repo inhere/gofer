@@ -140,6 +140,7 @@ func waitPeerContinuation(t *testing.T, jobs *job.Service, srcJobID string, time
 // session/LOAD the source session instead of opening a fresh one — the behaviour the
 // dropped lineage field used to cost.
 func TestPeerACPResumeLoadsSession(t *testing.T) {
+	t.Parallel()
 	peer := newACPPeerBridge(t)
 	defer peer.srv.Close()
 	host := newACPHostBridge(t, peer.srv.URL)

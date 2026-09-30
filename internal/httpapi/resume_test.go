@@ -21,6 +21,7 @@ import (
 // project (surfaced by the inner Submit) → 404 via submitStatus; anything else →
 // 400.
 func TestResumeStatusMapping(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		err  error
@@ -43,6 +44,7 @@ func TestResumeStatusMapping(t *testing.T) {
 
 // TestResumeUnknownJob: POST /v1/jobs/{id}/resume for a non-existent id is a 404.
 func TestResumeUnknownJob(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/jobs/no-such-job/resume", testToken, resumeJobReq{Prompt: "hi"})
 	if resp.StatusCode != http.StatusNotFound {
@@ -53,6 +55,7 @@ func TestResumeUnknownJob(t *testing.T) {
 // TestResumeNoSession: resuming an exec job (which never captures a session_id)
 // is a 400 (ErrNoSession).
 func TestResumeNoSession(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	// Submit a quick exec job and let it finish (no session_id is ever set).
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
@@ -72,6 +75,7 @@ func TestResumeNoSession(t *testing.T) {
 }
 
 func TestResumeRunningJobRejected(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -106,6 +110,7 @@ func TestResumeRunningJobRejected(t *testing.T) {
 // bespoke server whose claude/codex Command is the harmless `echo` so nothing
 // real runs.
 func TestResumeClaudeJobReturnsLinkedJob(t *testing.T) {
+	t.Parallel()
 	s := newResumeTestServer(t)
 
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
@@ -143,6 +148,7 @@ func TestResumeClaudeJobReturnsLinkedJob(t *testing.T) {
 // TestResumeCrossRunnerRejected: an explicit runner differing from the source is
 // a 400 over HTTP.
 func TestResumeCrossRunnerRejected(t *testing.T) {
+	t.Parallel()
 	s := newResumeTestServer(t)
 
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{

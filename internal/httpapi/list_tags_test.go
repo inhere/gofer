@@ -30,6 +30,7 @@ func createExecTags(t *testing.T, s *Server, cmd []string, tags []string) string
 // (tag/agent/runner/since) on GET /v1/jobs, and asserts omitting the params is a
 // regression-safe no-op (all jobs returned).
 func TestListJobsEndpointTagAgentRunnerSince(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 
 	idA := createExecTags(t, s, []string{"go", "version"}, []string{"alpha"})
@@ -83,6 +84,7 @@ func TestListJobsEndpointTagAgentRunnerSince(t *testing.T) {
 }
 
 func TestJobListAgentFilterIncludesResumeCarriers(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	for _, rec := range []jobstore.JobRecord{
 		{ID: "source", ProjectKey: "self", Agent: "codex", Runner: "local", Status: job.StatusDone, ResultDir: ".", StartedAt: 1},

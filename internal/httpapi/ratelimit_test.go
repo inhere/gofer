@@ -54,6 +54,7 @@ func newRateLimitedServer(t *testing.T, rps float64, burst int) *Server {
 // TestRateLimitSubmitJobs (E17, design §7.3) proves that with rate=1/burst=1 the
 // first POST /v1/jobs passes (burst token) and the next ones are 429 + Retry-After.
 func TestRateLimitSubmitJobs(t *testing.T) {
+	t.Parallel()
 	s := newRateLimitedServer(t, 1, 1)
 	req := job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -94,6 +95,7 @@ func TestRateLimitSubmitJobs(t *testing.T) {
 // GET /v1/jobs (a read) is never rate-limited even when the caller's bucket is
 // empty.
 func TestRateLimitReadsNotLimited(t *testing.T) {
+	t.Parallel()
 	s := newRateLimitedServer(t, 1, 1)
 	// Many reads in a row must all pass (reads are not in isSubmitPath).
 	for i := 0; i < 10; i++ {
@@ -109,6 +111,7 @@ func TestRateLimitReadsNotLimited(t *testing.T) {
 // sub-actions: POST /v1/jobs/{id}/cancel is not the submit path, so it is never
 // rate-limited (here it 404s for an unknown id but is NOT 429).
 func TestRateLimitSubActionsNotLimited(t *testing.T) {
+	t.Parallel()
 	s := newRateLimitedServer(t, 1, 1)
 	// Drain the bucket with one accepted submit so any rate gating would now fire.
 	first := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
@@ -135,6 +138,7 @@ func TestRateLimitSubActionsNotLimited(t *testing.T) {
 // limiter is created under the AUTH-RESOLVED caller id ("ci"), not "" — which
 // could only happen if rate ran before auth.
 func TestRateLimitMiddlewareSeesCallerID(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	const ciToken = "ci-secret"
 	cfg := &config.Config{
@@ -203,6 +207,7 @@ func drainSubmittedJob(t *testing.T, s *Server, resp *http.Response) job.JobResu
 // existing limiter's Limit/Burst to the latest config on every call (SetLimit /
 // SetBurst), so a SIGHUP rate change takes effect without rebuilding the map.
 func TestLimiterForHotReload(t *testing.T) {
+	t.Parallel()
 	s := newRateLimitedServer(t, 5, 10)
 
 	// First call builds the limiter at rps=5, burst=10.
@@ -234,6 +239,7 @@ func TestLimiterForHotReload(t *testing.T) {
 // TestIsSubmitPath unit-checks the exact-path matcher: only POST /v1/jobs and
 // POST /v1/workflows are submit paths; reads and sub-actions are not.
 func TestIsSubmitPath(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		method, path string
 		want         bool

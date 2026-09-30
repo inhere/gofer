@@ -64,6 +64,7 @@ func seedFailed(t *testing.T, st *jobstore.Store, agentKey, class string, at int
 // second round of queries; an agent with no recent job is explicitly "unknown" rather
 // than silently healthy.
 func TestListAgentsIncludesHealth(t *testing.T) {
+	t.Parallel()
 	bin := testcmd.Path(t)
 	agents := map[string]config.AgentConfig{
 		"codex": {Type: agent.TypeCLIAgent, Command: bin, Args: []string{"printf", "OK"}},

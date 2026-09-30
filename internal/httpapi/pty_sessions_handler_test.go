@@ -25,6 +25,7 @@ func getPtySessions(t *testing.T, s *Server, jobID, token string) (*http.Respons
 }
 
 func TestPtySessionsOwnerViewHidesSensitiveFields(t *testing.T) {
+	t.Parallel()
 	s := recordingServer(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
 	})
@@ -82,6 +83,7 @@ func TestPtySessionsOwnerViewHidesSensitiveFields(t *testing.T) {
 }
 
 func TestPtySessionsAuthUnknownAndNilStore(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{
 			{ID: "alice", Token: "tok-alice"},
@@ -122,6 +124,7 @@ func getRecentPtySessions(t *testing.T, s *Server, token, query string) (*http.R
 }
 
 func TestRecentPtySessionsOwnerAdminAndLimit(t *testing.T) {
+	t.Parallel()
 	s := recordingServer(t, config.ServerConfig{
 		Callers: []config.CallerConfig{
 			{ID: "alice", Token: "tok-alice"},

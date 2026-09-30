@@ -79,6 +79,7 @@ func syncTracker(t *testing.T, e trackerE2E) {
 }
 
 func TestSyncThreeWayMerge(t *testing.T) {
+	t.Parallel()
 	e := newTrackerE2E(t)
 	issue, err := e.local.CreateIssue(tracker.Issue{Title: "base", Type: "task"})
 	if err != nil {
@@ -144,6 +145,7 @@ func TestSyncThreeWayMerge(t *testing.T) {
 }
 
 func TestSyncRecordsTrackerRepoMetadata(t *testing.T) {
+	t.Parallel()
 	e := newTrackerE2E(t)
 	if _, err := e.local.CreateIssue(tracker.Issue{Title: "metadata", Type: "task"}); err != nil {
 		t.Fatal(err)
@@ -159,6 +161,7 @@ func TestSyncRecordsTrackerRepoMetadata(t *testing.T) {
 }
 
 func TestSyncOfflineThenCatchUp(t *testing.T) {
+	t.Parallel()
 	e := newTrackerE2E(t)
 	_, err := e.local.CreateIssue(tracker.Issue{Title: "offline", Type: "task"})
 	if err != nil {
@@ -187,6 +190,7 @@ func TestSyncOfflineThenCatchUp(t *testing.T) {
 }
 
 func TestSyncMemoryTombstone(t *testing.T) {
+	t.Parallel()
 	e := newTrackerE2E(t)
 	if _, err := e.local.SetMemory("gone", "value", "test"); err != nil {
 		t.Fatal(err)
@@ -225,6 +229,7 @@ func TestSyncMemoryTombstone(t *testing.T) {
 }
 
 func TestTrackerWebEditPartialUpdateAndConflict(t *testing.T) {
+	t.Parallel()
 	e := newTrackerE2E(t)
 	issue, err := e.local.CreateIssue(tracker.Issue{Title: "keep", Type: "task", Priority: 2})
 	if err != nil {
@@ -265,6 +270,7 @@ func TestTrackerWebEditPartialUpdateAndConflict(t *testing.T) {
 }
 
 func TestSyncPullsWebMemoryEdit(t *testing.T) {
+	t.Parallel()
 	e := newTrackerE2E(t)
 	if _, err := e.local.SetMemory("pull", "value", "test"); err != nil {
 		t.Fatal(err)
@@ -295,6 +301,7 @@ func TestSyncPullsWebMemoryEdit(t *testing.T) {
 }
 
 func TestJobIssueLinkAppendsNotes(t *testing.T) {
+	t.Parallel()
 	e := newTrackerE2E(t)
 	issue, err := e.local.CreateIssue(tracker.Issue{Title: "job", Type: "task"})
 	if err != nil {
@@ -327,6 +334,7 @@ func TestJobIssueLinkAppendsNotes(t *testing.T) {
 }
 
 func TestIssueLinkRejectedSubmitDoesNotChangeIssue(t *testing.T) {
+	t.Parallel()
 	e := newTrackerE2E(t)
 	issue, err := e.local.CreateIssue(tracker.Issue{Title: "reject", Type: "task"})
 	if err != nil {

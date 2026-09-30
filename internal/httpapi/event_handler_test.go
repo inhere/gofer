@@ -31,6 +31,7 @@ func runExecJob(t *testing.T, s *Server, cmd []string) job.JobResult {
 // TestListEventsOrdered asserts GET /v1/jobs/{id}/events returns the lifecycle
 // events in seq order for a finished job (submitted -> running -> terminal).
 func TestListEventsOrdered(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	final := runExecJob(t, s, []string{"go", "version"})
 	if final.Status != job.StatusDone {
@@ -65,6 +66,7 @@ func TestListEventsOrdered(t *testing.T) {
 
 // TestListEventsSince asserts ?since=<seq> returns only events after the cursor.
 func TestListEventsSince(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	final := runExecJob(t, s, []string{"go", "version"})
 
@@ -95,6 +97,7 @@ func TestListEventsSince(t *testing.T) {
 
 // TestListEventsUnknownJob asserts an unknown id is a 404.
 func TestListEventsUnknownJob(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodGet, "/v1/jobs/does-not-exist/events", testToken, nil)
 	if resp.StatusCode != http.StatusNotFound {

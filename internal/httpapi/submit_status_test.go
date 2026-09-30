@@ -12,6 +12,7 @@ import (
 // TestSubmitStatusMapping proves the Submit-error → HTTP status mapping, including
 // the P2 ErrNoEligibleWorker → 503 (transient: retry / pick another worker).
 func TestSubmitStatusMapping(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		err  error

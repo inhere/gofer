@@ -51,6 +51,7 @@ func newAliasServer(t *testing.T, token string, allowed []string) *Server {
 // Regression: this returned 400 `runner "server" is not allowed in project`, since
 // only the CLI translated the alias before sending.
 func TestSubmitAcceptsBuiltinRunnerAliasOverHTTP(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: config.BuiltinLocalRunnerAlias,
@@ -75,6 +76,7 @@ func TestSubmitAcceptsBuiltinRunnerAliasOverHTTP(t *testing.T) {
 // to the server, which parses the frontmatter into a JobRequest — so a task file
 // written with the documented spelling must not be the one submit path that fails.
 func TestMarkdownSubmitAcceptsBuiltinRunnerAlias(t *testing.T) {
+	t.Parallel()
 	s := newAliasServer(t, testToken, []string{config.BuiltinLocalRunner})
 	md := []byte("---\nproject_key: self\nagent: echoagent\nrunner: server\n---\nsay hi\n")
 	resp := doRaw(t, s, http.MethodPost, "/v1/jobs", testToken, "text/markdown", md)
@@ -94,6 +96,7 @@ func TestMarkdownSubmitAcceptsBuiltinRunnerAlias(t *testing.T) {
 // operator writes from the CLI help, and it must admit the built-in runner — under
 // either spelling, because they name one runner.
 func TestSubmitAcceptsAliasSpelledAllowlist(t *testing.T) {
+	t.Parallel()
 	s := newAliasServer(t, testToken, []string{config.BuiltinLocalRunnerAlias})
 	for _, spelling := range []string{config.BuiltinLocalRunnerAlias, config.BuiltinLocalRunner} {
 		resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
@@ -117,6 +120,7 @@ func TestSubmitAcceptsAliasSpelledAllowlist(t *testing.T) {
 // roster (and with it the web console's picker) must keep reporting the one
 // canonical row, so accepting "server" never grows a phantom second runner.
 func TestRunnerListKeepsCanonicalName(t *testing.T) {
+	t.Parallel()
 	s := newAliasServer(t, testToken, []string{config.BuiltinLocalRunnerAlias})
 	resp := do(t, s, http.MethodGet, "/v1/runners", testToken, nil)
 	if resp.StatusCode != http.StatusOK {

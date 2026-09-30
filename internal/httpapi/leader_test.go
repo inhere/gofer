@@ -29,6 +29,7 @@ func bodyString(t *testing.T, resp *http.Response) string {
 // decides nothing), which is the only way the server can tell a leader job from the
 // human sitting next to it.
 func TestLeaderCannotAccept(t *testing.T) {
+	t.Parallel()
 	s := newReviewServer(t, config.ServerConfig{Token: testToken})
 
 	// The leader job: the leader round submits it IN-PROCESS with the server-set plan

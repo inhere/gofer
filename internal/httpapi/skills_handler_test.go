@@ -141,6 +141,7 @@ func skillLibraryNames(t *testing.T, lib *skill.Store) []string {
 // the ONLY difference: the same calls that a reader is refused succeed as an admin, and
 // the refused ones left the library untouched.
 func TestSkillsHTTPRequiresAdminForWrites(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Governance: config.GovernanceConfig{RequireAdminCapability: true},
@@ -210,6 +211,7 @@ func TestSkillsHTTPRequiresAdminForWrites(t *testing.T) {
 // detail carries the SKILL.md text, the export streams an archive that re-imports to
 // the same version, and a delete takes it away.
 func TestSkillsHTTPImportZipAndList(t *testing.T) {
+	t.Parallel()
 	// Unwired (where mcp/most tests sit): the routes are mounted but answer 503, so a
 	// caller can tell "this server has no library" from "no such route".
 	unwired := newTestServer(t, testToken, false)

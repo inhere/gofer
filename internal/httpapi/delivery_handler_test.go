@@ -50,6 +50,7 @@ func newNotifyTestServer(t *testing.T) *Server {
 // TestListDeliveries asserts GET /v1/jobs/{id}/deliveries returns the enqueued
 // webhook deliveries for a finished job.
 func TestListDeliveries(t *testing.T) {
+	t.Parallel()
 	s := newNotifyTestServer(t)
 	final := runExecJob(t, s, []string{"go", "version"})
 	if final.Status != job.StatusDone {
@@ -79,6 +80,7 @@ func TestListDeliveries(t *testing.T) {
 // TestListDeliveriesEmpty asserts a job with no notification config yields an
 // empty (non-nil) array, not null.
 func TestListDeliveriesEmpty(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	final := runExecJob(t, s, []string{"go", "version"})
 
@@ -100,6 +102,7 @@ func TestListDeliveriesEmpty(t *testing.T) {
 
 // TestListDeliveriesUnknownJob asserts an unknown id is a 404.
 func TestListDeliveriesUnknownJob(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodGet, "/v1/jobs/does-not-exist/deliveries", testToken, nil)
 	if resp.StatusCode != http.StatusNotFound {

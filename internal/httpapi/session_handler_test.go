@@ -15,6 +15,7 @@ import (
 // (bell path) → answered outcome + session back to running → say 409 → relay off
 // expiry → 404s.
 func TestSessionRelayHTTPContract(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	root := s.projects.Config().Projects["self"].HostPath
 
@@ -197,6 +198,7 @@ func TestSessionRelayHTTPContract(t *testing.T) {
 }
 
 func TestSessionJobWatchHTTPContract(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{ID: "job-watch-http", CallerID: "default", Status: "running"}); err != nil {
 		t.Fatal(err)
@@ -300,6 +302,7 @@ func heartbeatStop(t *testing.T, s *Server, sid string, idleSec int64) sessionVi
 // sees the human back, and an explicitly switched-on relay is never released
 // that way.
 func TestSessionHeartbeatAutoArmsOnIdle(t *testing.T) {
+	t.Parallel()
 	s := sessionAutoArmServer(t, 300)
 	registerIdleSession(t, s, "sid-idle")
 
@@ -389,6 +392,7 @@ func TestSessionHeartbeatAutoArmsOnIdle(t *testing.T) {
 // TestSessionAutoRelayDisabledByZero pins `session_auto_relay_idle_sec: 0`: no
 // idle reading ever arms relay, so a Stop with relay off stays a plain stop.
 func TestSessionAutoRelayDisabledByZero(t *testing.T) {
+	t.Parallel()
 	s := sessionAutoArmServer(t, 0)
 	registerIdleSession(t, s, "sid-noidle")
 
@@ -428,6 +432,7 @@ func TestSessionAutoRelayDisabledByZero(t *testing.T) {
 // the session waits once the human has been silent for the turn threshold, and a
 // prompt they typed releases it.
 func TestSetSessionRelayMode(t *testing.T) {
+	t.Parallel()
 	s := sessionAutoArmServer(t, 300)
 	s.SetSessionRelayPolicy(300, 900, false, 0)
 	sid := "sid-mode"
@@ -520,6 +525,7 @@ func TestSetSessionRelayMode(t *testing.T) {
 // client actually reads is the key on the wire. `relay_mode` + `wait_reason` are the
 // switch and the derived answer the surface carries now.
 func TestSessionViewHasNoRelayBool(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/sessions", testToken, map[string]any{
 		"session_id": "sid-nobool", "agent": "claude",
@@ -563,6 +569,7 @@ func registerOwnedSession(t *testing.T, s *Server, token, sid string) {
 // reply from somebody else. A server with no tokens registers with an empty caller
 // instead of failing: there is nothing to stamp.
 func TestSessionRegisterStampsCaller(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
 	})
@@ -620,6 +627,7 @@ func TestSessionRegisterStampsCaller(t *testing.T) {
 // caller_id existed (empty owner), which has nobody to compare against. A worker
 // token is refused outright.
 func TestSessionSayRequiresOwnerOrCanAnswer(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{
 			{ID: "alice", Token: "tok-alice"},

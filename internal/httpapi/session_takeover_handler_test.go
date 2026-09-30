@@ -75,6 +75,7 @@ func sessionState(t *testing.T, s *Server, sid string) sessionView {
 // the job to attach to, and the session reports the takeover (state + job) so the
 // web can link to it.
 func TestSessionDeliverTakeover(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	to := &httpTakeoverer{res: sessionrelay.TakeoverResult{JobID: "job-http-takeover"}}
 	s.relay.SetTakeoverer(to)
@@ -139,6 +140,7 @@ func TestSessionDeliverTakeover(t *testing.T) {
 // original terminal relays again — and a session that is not handed off is refused
 // rather than silently "released".
 func TestSessionReleaseTakeover(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	to := &httpTakeoverer{res: sessionrelay.TakeoverResult{JobID: "job-http-release"}}
 	s.relay.SetTakeoverer(to)
@@ -180,6 +182,7 @@ func TestSessionReleaseTakeover(t *testing.T) {
 // of the project (G002), a worker-run one at the host path, because the pty job
 // resolves its cwd on the runner.
 func TestSessionInjectorPlanTakeover(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	container := t.TempDir()
 	allow := true

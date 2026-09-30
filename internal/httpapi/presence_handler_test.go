@@ -18,6 +18,7 @@ func newPresenceServer(t *testing.T) *Server {
 }
 
 func TestPresenceRoutesAbsentWithoutService(t *testing.T) {
+	t.Parallel()
 	// A server without SetPresence must NOT mount the presence routes. A POST is a
 	// clean signal: an unmatched GET would be swallowed by the web SPA NotFound
 	// fallback, but an unmatched POST returns a bare 404.
@@ -30,6 +31,7 @@ func TestPresenceRoutesAbsentWithoutService(t *testing.T) {
 }
 
 func TestRegisterListAndPoll(t *testing.T) {
+	t.Parallel()
 	s := newPresenceServer(t)
 
 	// Register alice + bob.
@@ -74,6 +76,7 @@ func TestRegisterListAndPoll(t *testing.T) {
 }
 
 func TestPollWrongTokenForbidden(t *testing.T) {
+	t.Parallel()
 	s := newPresenceServer(t)
 	a := registerAgent(t, s, "alice", "")
 
@@ -85,6 +88,7 @@ func TestPollWrongTokenForbidden(t *testing.T) {
 }
 
 func TestPollUnknownAgentNotFound(t *testing.T) {
+	t.Parallel()
 	s := newPresenceServer(t)
 	resp := do(t, s, http.MethodPost, "/v1/agents/ghost/inbox/poll", testToken, pollInboxReq{AgentToken: "x"})
 	resp.Body.Close()
@@ -94,6 +98,7 @@ func TestPollUnknownAgentNotFound(t *testing.T) {
 }
 
 func TestPostRoleFanOut(t *testing.T) {
+	t.Parallel()
 	s := newPresenceServer(t)
 	sender := registerAgent(t, s, "sender", "")
 	registerAgent(t, s, "rev1", "reviewer")
@@ -115,6 +120,7 @@ func TestPostRoleFanOut(t *testing.T) {
 }
 
 func TestDeregisterEndpoint(t *testing.T) {
+	t.Parallel()
 	s := newPresenceServer(t)
 	a := registerAgent(t, s, "alice", "")
 
@@ -185,6 +191,7 @@ func pollInbox(t *testing.T, s *Server, id, token string, wantStatus int) []pres
 // TestListInboxReadOnlyEndpoint: GET /v1/agents/{id}/inbox lists messages without
 // consuming them (a later poll still sees them); unknown agent → 200 empty (P5).
 func TestListInboxReadOnlyEndpoint(t *testing.T) {
+	t.Parallel()
 	s := newPresenceServer(t)
 	a := registerAgent(t, s, "alice", "")
 	b := registerAgent(t, s, "bob", "")

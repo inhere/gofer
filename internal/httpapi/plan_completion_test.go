@@ -20,6 +20,7 @@ type planCompletionBody struct {
 }
 
 func TestPlanCompletionAPI(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	mustOK := func(resp *http.Response, what string) {
 		t.Helper()

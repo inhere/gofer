@@ -15,6 +15,7 @@ import (
 // the endpoint returns a usable JobRequest shape but strips env values / secret-
 // looking strings and clears re-submit/session/caller noise.
 func TestGetJobRequestReturnsRedacted(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 
 	// Submit a job carrying distinctive fields plus env so we can assert the new
@@ -80,6 +81,7 @@ func TestGetJobRequestReturnsRedacted(t *testing.T) {
 // TestGetJobRequestUnknownID returns 404 for an id the server never saw, without
 // panicking.
 func TestGetJobRequestUnknownID(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	rr := do(t, s, http.MethodGet, "/v1/jobs/does-not-exist/request", testToken, nil)
 	if rr.StatusCode != http.StatusNotFound {

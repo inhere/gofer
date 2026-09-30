@@ -17,6 +17,7 @@ import (
 // seq-ordered) alongside the unchanged log/status/end frames — proving pumpEvents
 // is woven into the stream without regressing the existing frame types.
 func TestStreamEventFrames(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	srv := httptest.NewServer(s.Handler())
 	defer srv.Close()

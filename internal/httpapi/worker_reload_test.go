@@ -69,6 +69,7 @@ func newReloadServer(t *testing.T, hub workerHub) (*Server, *fakeReloader) {
 }
 
 func TestWorkerReloadApplied(t *testing.T) {
+	t.Parallel()
 	s, fr := newReloadServer(t, nil)
 	fr.out = WorkerReloadOutcome{
 		Status: WorkerReloadApplied,
@@ -106,6 +107,7 @@ func TestWorkerReloadApplied(t *testing.T) {
 // TestWorkerReloadRejectedKeepsWorkerReason is the whole point of the synchronous
 // endpoint: the worker's own explanation must arrive at the caller UNCHANGED.
 func TestWorkerReloadRejectedKeepsWorkerReason(t *testing.T) {
+	t.Parallel()
 	const workerReason = "load worker config: yaml: line 7: mapping values are not allowed in this context"
 	s, fr := newReloadServer(t, nil)
 	fr.out = WorkerReloadOutcome{Status: WorkerReloadRejected, Detail: workerReason}
@@ -125,6 +127,7 @@ func TestWorkerReloadRejectedKeepsWorkerReason(t *testing.T) {
 }
 
 func TestWorkerReloadOffline(t *testing.T) {
+	t.Parallel()
 	s, fr := newReloadServer(t, nil)
 	fr.out = WorkerReloadOutcome{Status: WorkerReloadOffline, Detail: "worker offline"}
 
@@ -140,6 +143,7 @@ func TestWorkerReloadOffline(t *testing.T) {
 }
 
 func TestWorkerReloadTooOld(t *testing.T) {
+	t.Parallel()
 	const hubMsg = "worker protocol too old to reload config: worker w1 speaks protocol v2, config reload needs v3 — upgrade and restart it"
 	s, fr := newReloadServer(t, nil)
 	fr.out = WorkerReloadOutcome{Status: WorkerReloadTooOld, Detail: hubMsg}
@@ -156,6 +160,7 @@ func TestWorkerReloadTooOld(t *testing.T) {
 }
 
 func TestWorkerReloadTimeout(t *testing.T) {
+	t.Parallel()
 	s, fr := newReloadServer(t, nil)
 	fr.out = WorkerReloadOutcome{Status: WorkerReloadTimedOut, Detail: "no receipt"}
 
@@ -178,6 +183,7 @@ func TestWorkerReloadTimeout(t *testing.T) {
 }
 
 func TestWorkerReloadUnknownWorker(t *testing.T) {
+	t.Parallel()
 	s, fr := newReloadServer(t, nil)
 	resp := do(t, s, http.MethodPost, "/v1/workers/nope/reload", testToken, nil)
 	if resp.StatusCode != http.StatusNotFound {
@@ -189,6 +195,7 @@ func TestWorkerReloadUnknownWorker(t *testing.T) {
 }
 
 func TestWorkerReloadNoHubWired(t *testing.T) {
+	t.Parallel()
 	s, _ := newReloadServer(t, nil)
 	s.SetWorkerReloader(nil)
 	resp := do(t, s, http.MethodPost, "/v1/workers/w1/reload", testToken, nil)
@@ -198,6 +205,7 @@ func TestWorkerReloadNoHubWired(t *testing.T) {
 }
 
 func TestWorkerReloadRequiresAuth(t *testing.T) {
+	t.Parallel()
 	s, fr := newReloadServer(t, nil)
 	resp := do(t, s, http.MethodPost, "/v1/workers/w1/reload", "", nil)
 	if resp.StatusCode != http.StatusUnauthorized {
@@ -212,6 +220,7 @@ func TestWorkerReloadRequiresAuth(t *testing.T) {
 // puts a {id} param where /v1/workers/connect has a static segment, and both must
 // stay routable on a server that runs the hub.
 func TestWorkerReloadRouteCoexistsWithWSRoutes(t *testing.T) {
+	t.Parallel()
 	s, fr := newReloadServer(t, fakeHub{})
 	fr.out = WorkerReloadOutcome{Status: WorkerReloadApplied}
 	resp := do(t, s, http.MethodPost, "/v1/workers/w1/reload", testToken, nil)

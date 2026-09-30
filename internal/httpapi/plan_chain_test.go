@@ -22,6 +22,7 @@ type planActionView struct {
 // endpoints — run starts the ready work and releases a pause/block, pause holds the
 // automatic advance, resume releases it — and an unknown plan is a 404 on all three.
 func TestPlanRunPauseResumeEndpoints(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	bin := testcmd.Path(t)
 

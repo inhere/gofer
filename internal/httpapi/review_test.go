@@ -102,6 +102,7 @@ func submitReviewJob(t *testing.T, s *Server, token string) job.JobResult {
 // (a persisted property, not a request echo) and really gates the job — while a plain
 // submit still finishes done.
 func TestSubmitJobReviewFlag(t *testing.T) {
+	t.Parallel()
 	s := newReviewServer(t, config.ServerConfig{Token: testToken})
 
 	created := submitReviewJob(t, s, testToken)
@@ -131,6 +132,7 @@ func TestSubmitJobReviewFlag(t *testing.T) {
 // refused with 403 ("an agent never accepts its own work"), a user token is accepted
 // and the job moves to done with the reviewer recorded.
 func TestAcceptJobRequiresUserCaller(t *testing.T) {
+	t.Parallel()
 	s := newReviewServer(t, config.ServerConfig{
 		Token: testToken,
 		Callers: []config.CallerConfig{
@@ -170,6 +172,7 @@ func TestAcceptJobRequiresUserCaller(t *testing.T) {
 // on, only a caller holding can_answer may sign off a delivery (the same capability
 // that lets a caller answer an interaction — both are "speak for the human").
 func TestAcceptJobRequiresCanAnswerWhenGoverned(t *testing.T) {
+	t.Parallel()
 	s := newReviewServer(t, config.ServerConfig{
 		Token: testToken,
 		Callers: []config.CallerConfig{
@@ -200,6 +203,7 @@ func TestAcceptJobRequiresCanAnswerWhenGoverned(t *testing.T) {
 // TestRejectJobResumeReturnsResumeJobID: POST /reject --resume refuses the delivery,
 // starts the continuation with the note as its prompt, and reports the new job id.
 func TestRejectJobResumeReturnsResumeJobID(t *testing.T) {
+	t.Parallel()
 	s := newReviewServer(t, config.ServerConfig{Token: testToken})
 	created := submitReviewJob(t, s, testToken)
 
@@ -237,6 +241,7 @@ func TestRejectJobResumeReturnsResumeJobID(t *testing.T) {
 // job, cancel refuses one (nothing left to cancel — reject is the verb), and an
 // unknown id is a 404.
 func TestReviewEndpointsRejectWrongState(t *testing.T) {
+	t.Parallel()
 	s := newReviewServer(t, config.ServerConfig{Token: testToken})
 
 	// A done job: not awaiting review.

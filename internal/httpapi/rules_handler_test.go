@@ -62,6 +62,7 @@ func newRulesTestServer(t *testing.T) (*Server, *rule.Store) {
 // INCLUDED — a job may read the discipline it must obey), and the store's name
 // grammar/404s map onto the documented statuses.
 func TestRuleCRUDEndpoints(t *testing.T) {
+	t.Parallel()
 	s, _ := newRulesTestServer(t)
 
 	const content = "---\ndescription: house discipline\n---\n\nNEVER push.\n"
@@ -174,6 +175,7 @@ func TestRuleCRUDEndpoints(t *testing.T) {
 // job is exactly the thing the discipline governs (design 决策 4) — while a user
 // caller may turn the rules off for one job.
 func TestJobCallerCannotDisableRules(t *testing.T) {
+	t.Parallel()
 	s, _ := newRulesTestServer(t)
 	body := job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",

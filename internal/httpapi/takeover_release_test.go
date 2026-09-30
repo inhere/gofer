@@ -55,6 +55,7 @@ func waitFile(t *testing.T, path string) {
 // webhook subscribing to session.takeover_released) learns the original terminal
 // relays again.
 func TestTakeoverJobEndReleasesSession(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	nf := &recordingRelayNotifier{}
 	s.relay.SetNotifier(nf)

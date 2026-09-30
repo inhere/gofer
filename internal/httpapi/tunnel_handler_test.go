@@ -25,6 +25,7 @@ func (h *tunnelTestHub) WorkerProtocol(string) (int, bool) {
 }
 
 func TestTunnelHandlerAuthAndValidation(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name, path string
 		want       int
@@ -59,6 +60,7 @@ func TestTunnelHandlerAuthAndValidation(t *testing.T) {
 }
 
 func TestTunnelHandlerOpenErrors(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		err  error
 		want int
@@ -78,6 +80,7 @@ func TestTunnelHandlerOpenErrors(t *testing.T) {
 }
 
 func TestTunnelHandlerCapabilityRequired(t *testing.T) {
+	t.Parallel()
 	cfg := config.ServerConfig{Token: "api-token", Governance: config.GovernanceConfig{RequireTunnelCapability: true}, Callers: []config.CallerConfig{{ID: "operator", Token: "caller-token", CanTunnel: true}}}
 	s := newTestServerCfg(t, cfg)
 	s.hub = &tunnelTestHub{live: true, openErr: tunnel.ErrWorkerOffline}

@@ -10,6 +10,7 @@ import (
 )
 
 func TestCreateListGetPlanAndAttachJob(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 
 	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{
@@ -126,6 +127,7 @@ func TestCreateListGetPlanAndAttachJob(t *testing.T) {
 }
 
 func TestPlanTagsCreateUpdateFilter(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	create := func(id string, tags []string) {
 		resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]any{"plan_id": id, "title": id, "tags": tags})
@@ -172,6 +174,7 @@ func TestPlanTagsCreateUpdateFilter(t *testing.T) {
 }
 
 func TestListPlansIncludesCounts(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	for _, id := range []string{"plan-list-counts", "plan-list-empty"} {
 		resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": id})
@@ -241,6 +244,7 @@ func TestListPlansIncludesCounts(t *testing.T) {
 }
 
 func TestPlanAPIErrorCases(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 
 	resp := do(t, s, http.MethodGet, "/v1/plans/missing", testToken, nil)
@@ -286,6 +290,7 @@ func TestPlanAPIErrorCases(t *testing.T) {
 }
 
 func TestUpdatePlanStatusAndProgress(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-patch"})
 	if resp.StatusCode != http.StatusOK {
@@ -333,6 +338,7 @@ func TestUpdatePlanStatusAndProgress(t *testing.T) {
 }
 
 func TestPlanTodoAPI(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-todos"})
 	if resp.StatusCode != http.StatusOK {
@@ -422,6 +428,7 @@ func TestPlanTodoAPI(t *testing.T) {
 // attached to it (jobs.todo_id) — newest first with status and duration — so the
 // plan view can show which run carries an item without a second query per todo.
 func TestPlanShowListsTodoJobs(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-todo-jobs"})
 	if resp.StatusCode != http.StatusOK {
@@ -485,6 +492,7 @@ func TestPlanShowListsTodoJobs(t *testing.T) {
 }
 
 func TestGetPlanCountsUseFullAggregateNotVisibleJobsLimit(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-many"})
 	if resp.StatusCode != http.StatusOK {
@@ -532,6 +540,7 @@ func TestGetPlanCountsUseFullAggregateNotVisibleJobsLimit(t *testing.T) {
 }
 
 func TestJobListPlanQueryAndSubmitPlanID(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
@@ -559,6 +568,7 @@ func TestJobListPlanQueryAndSubmitPlanID(t *testing.T) {
 }
 
 func TestPlanTodoAppendNoteAPI(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-append"})
 	if resp.StatusCode != http.StatusOK {
@@ -646,6 +656,7 @@ func listPlanPage(t *testing.T, s *Server, query string) planPage {
 // status/project/q reach the store, total is the count under the same filter, limit and
 // offset are echoed (default 20, clamped to 100), and offset pages the same order.
 func TestPlansEndpointPaging(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	for _, spec := range []struct{ id, title, project, status string }{
 		{"plan-pg-1", "alpha one", "self", "open"},

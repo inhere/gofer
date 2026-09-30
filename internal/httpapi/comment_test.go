@@ -68,6 +68,7 @@ func createdJobID(t *testing.T, s *Server, body job.JobRequest) string {
 // a thread on a job, a plan and a plan's todo, the @-mention dispatch a user's comment
 // performs, the worker-caller refusal, and the parent-404s.
 func TestCommentEndpoints(t *testing.T) {
+	t.Parallel()
 	s := newCommentServer(t, testToken, nil)
 	src := createdJobID(t, s, job.JobRequest{
 		ProjectKey: "self", Agent: "ok", Runner: "local", Cwd: ".",
@@ -242,6 +243,7 @@ func TestCommentEndpoints(t *testing.T) {
 // speak in a thread — a comment can start work, and only a person starts work.
 // Reading stays open: a worker mirrors the job it runs, timeline included.
 func TestCommentPostRejectsWorkerCaller(t *testing.T) {
+	t.Parallel()
 	const workerToken = "worker-secret"
 	s := newCommentServer(t, testToken, map[string]config.WorkerAuthConfig{"w-1": {Token: workerToken}})
 	src := createdJobID(t, s, job.JobRequest{
@@ -262,6 +264,7 @@ func TestCommentPostRejectsWorkerCaller(t *testing.T) {
 // TestCommentEmptyThreadShape guards the JSON contract the web client reads: the list
 // endpoint answers an empty array (never null) for a thread nobody used.
 func TestCommentEmptyThreadShape(t *testing.T) {
+	t.Parallel()
 	s := newCommentServer(t, testToken, nil)
 	src := createdJobID(t, s, job.JobRequest{
 		ProjectKey: "self", Agent: "ok", Runner: "local", Cwd: ".", Prompt: "x", TimeoutSec: 30,

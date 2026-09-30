@@ -56,6 +56,7 @@ func postAttachTicket(t *testing.T, s *Server, id, token, mode string) (*http.Re
 }
 
 func TestAttachTicketCanAttachOwnJob(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice", CanAttach: true}},
 	})
@@ -75,6 +76,7 @@ func TestAttachTicketCanAttachOwnJob(t *testing.T) {
 }
 
 func TestAttachTicketRequireAttachCapabilityRejectsCallerWithoutCapability(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Governance: config.GovernanceConfig{RequireAttachCapability: true},
 		Callers: []config.CallerConfig{
@@ -91,6 +93,7 @@ func TestAttachTicketRequireAttachCapabilityRejectsCallerWithoutCapability(t *te
 }
 
 func TestAttachTicketRejectsOtherCallerJob(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{
 			{ID: "alice", Token: "tok-alice"},
@@ -106,6 +109,7 @@ func TestAttachTicketRejectsOtherCallerJob(t *testing.T) {
 }
 
 func TestAttachTicketAdminCanAttachOtherCallerJob(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{
 			{ID: "alice", Token: "tok-alice"},
@@ -124,6 +128,7 @@ func TestAttachTicketAdminCanAttachOtherCallerJob(t *testing.T) {
 }
 
 func TestAttachTicketLegacyEmptyCallerJobRequiresAdmin(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{
 			{ID: "alice", Token: "tok-alice"},
@@ -146,6 +151,7 @@ func TestAttachTicketLegacyEmptyCallerJobRequiresAdmin(t *testing.T) {
 }
 
 func TestAttachTicketRejectsNonInteractiveTerminalAndMissingRelay(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice", CanAttach: true}},
 	})
@@ -180,6 +186,7 @@ func TestAttachTicketRejectsNonInteractiveTerminalAndMissingRelay(t *testing.T) 
 }
 
 func TestAttachTicketRejectsWorkerToken(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice", CanAttach: true}},
 		Workers: map[string]config.WorkerAuthConfig{
@@ -195,6 +202,7 @@ func TestAttachTicketRejectsWorkerToken(t *testing.T) {
 }
 
 func TestAttachTicketStoreConsumeOnceAndExpiry(t *testing.T) {
+	t.Parallel()
 	store := NewAttachTicketStore()
 	token := store.Issue(AttachTicketBinding{Caller: "alice", JobID: "job-1", Mode: "write", Expiry: 100})
 	b, ok := store.Consume(token, 99)
@@ -211,6 +219,7 @@ func TestAttachTicketStoreConsumeOnceAndExpiry(t *testing.T) {
 }
 
 func TestAttachTicketStoreIssueSweepsExpired(t *testing.T) {
+	t.Parallel()
 	store := NewAttachTicketStore()
 	_ = store.Issue(AttachTicketBinding{Caller: "alice", JobID: "old", Expiry: time.Now().Add(-time.Minute).Unix()})
 	_ = store.Issue(AttachTicketBinding{Caller: "alice", JobID: "new", Expiry: time.Now().Add(time.Minute).Unix()})
@@ -220,6 +229,7 @@ func TestAttachTicketStoreIssueSweepsExpired(t *testing.T) {
 }
 
 func TestAttachTicketUnknownJobReturns404(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice", CanAttach: true}},
 	})

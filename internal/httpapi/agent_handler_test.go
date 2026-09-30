@@ -40,6 +40,7 @@ func (d *countingDetector) Detect(agents map[string]config.AgentConfig) map[stri
 //   - `ghost` is not on PATH, so a live probe could only report it unavailable —
 //     reading back available=true with the seeded version can only come from the cache.
 func TestListAgentsServesCachedAvailability(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Server:  config.ServerConfig{Token: testToken},

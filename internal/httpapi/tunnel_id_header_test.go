@@ -56,6 +56,7 @@ func (h *deliveringHub) OpenTunnel(_ string, id, _ string, _ string, nonce strin
 // asked the worker to open, so a forwarder log line can be matched with the
 // server's and the worker's for that tunnel.
 func TestTunnelConnectReturnsTunnelIDHeader(t *testing.T) {
+	t.Parallel()
 	echo := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		c, err := websocket.Accept(w, r, nil)
 		if err != nil {

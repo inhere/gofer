@@ -26,6 +26,7 @@ func requestFromStoredJob(t *testing.T, s *Server, id string) job.JobRequest {
 }
 
 func TestRebuildEndpointEmptyOverrides(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	srcID := createExec(t, s, []string{"go", "version"})
 	waitDone(t, s, srcID)
@@ -52,6 +53,7 @@ func TestRebuildEndpointEmptyOverrides(t *testing.T) {
 }
 
 func TestRebuildEndpointEnvSet(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -81,6 +83,7 @@ func TestRebuildEndpointEnvSet(t *testing.T) {
 }
 
 func TestRebuildEndpointRejectsPlaceholderAndUnknown(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	srcID := createExec(t, s, []string{"go", "version"})
 	waitDone(t, s, srcID)
@@ -98,6 +101,7 @@ func TestRebuildEndpointRejectsPlaceholderAndUnknown(t *testing.T) {
 }
 
 func TestRebuildStatusMapping(t *testing.T) {
+	t.Parallel()
 	cases := []struct {
 		name string
 		err  error
@@ -116,6 +120,7 @@ func TestRebuildStatusMapping(t *testing.T) {
 }
 
 func TestRebuildRunningJobRejected(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",

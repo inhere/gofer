@@ -19,6 +19,7 @@ func echoStep(name string) workflow.StepSpec {
 // TestCreateWorkflow asserts POST /v1/workflows starts a workflow (200 + running
 // header with step 1 active), and GET /v1/workflows/{id} carries the step list.
 func TestCreateWorkflow(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 
 	resp := do(t, s, http.MethodPost, "/v1/workflows", testToken, workflow.Spec{
@@ -70,6 +71,7 @@ func TestCreateWorkflow(t *testing.T) {
 
 // TestListWorkflowsStatusFilter asserts GET /v1/workflows?status= filters.
 func TestListWorkflowsStatusFilter(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 
 	// Start a workflow and let it run to completion.
@@ -100,6 +102,7 @@ func TestListWorkflowsStatusFilter(t *testing.T) {
 
 // TestCancelWorkflowAPI asserts POST /v1/workflows/{id}/cancel marks cancelled.
 func TestCancelWorkflowAPI(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 
 	// Step 1 sleeps so the workflow stays running when we cancel.
@@ -132,6 +135,7 @@ func TestCancelWorkflowAPI(t *testing.T) {
 
 // TestGetUnknownWorkflow404 asserts an unknown id is a 404.
 func TestGetUnknownWorkflow404(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodGet, "/v1/workflows/nope", testToken, nil)
 	if resp.StatusCode != http.StatusNotFound {
@@ -141,6 +145,7 @@ func TestGetUnknownWorkflow404(t *testing.T) {
 
 // TestCreateWorkflowInvalidSpec400 asserts a spec with an invalid step is a 400.
 func TestCreateWorkflowInvalidSpec400(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/workflows", testToken, workflow.Spec{
 		Steps: []workflow.StepSpec{{Name: "bad", ProjectKey: "self", Agent: "exec", Runner: ""}},
@@ -152,6 +157,7 @@ func TestCreateWorkflowInvalidSpec400(t *testing.T) {
 
 // TestCreateWorkflowEmptySteps400 asserts an empty spec is a 400.
 func TestCreateWorkflowEmptySteps400(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/workflows", testToken, workflow.Spec{Steps: nil})
 	if resp.StatusCode != http.StatusBadRequest {

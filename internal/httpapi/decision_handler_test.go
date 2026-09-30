@@ -9,6 +9,7 @@ import (
 // validation 400s, dangling plan_id 404, timeout clamp, get/answer 404 vs
 // already-answered 409 (M5: deliberately split, unlike interactions).
 func TestDecisionStatusMatrix(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 
 	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-decision"})

@@ -310,6 +310,7 @@ func requireWorkbenchLayoutBody(t *testing.T, raw json.RawMessage, want string) 
 }
 
 func TestWorkbenchLayoutRoundTrip(t *testing.T) {
+	t.Parallel()
 	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
 
 	status, initial := requestWorkbenchLayout(t, s, http.MethodGet, testToken, nil)
@@ -349,6 +350,7 @@ func TestWorkbenchLayoutRoundTrip(t *testing.T) {
 }
 
 func TestWorkbenchLayoutVersionConflict(t *testing.T) {
+	t.Parallel()
 	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
 	firstBody := map[string]any{"active_tab_id": "tab-1", "unknown": "preserve-me"}
 	status, first := requestWorkbenchLayout(t, s, http.MethodPut, testToken, map[string]any{
@@ -396,6 +398,7 @@ func TestWorkbenchLayoutVersionConflict(t *testing.T) {
 }
 
 func TestWorkbenchLayoutJobCallerReadOnly(t *testing.T) {
+	t.Parallel()
 	s := newWorkbenchTestServer(t, config.ServerConfig{Callers: []config.CallerConfig{
 		{ID: "alice", Token: "tok-alice"},
 		{ID: "bob", Token: "tok-bob"},
@@ -439,6 +442,7 @@ func TestWorkbenchLayoutJobCallerReadOnly(t *testing.T) {
 }
 
 func TestThreadsGroupJobsBySession(t *testing.T) {
+	t.Parallel()
 	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
 	now := time.Now().Unix()
 	const firstTitle = "123456789012345678901234567890EXTRA"
@@ -468,6 +472,7 @@ func TestThreadsGroupJobsBySession(t *testing.T) {
 }
 
 func TestThreadsStatusPrecedence(t *testing.T) {
+	t.Parallel()
 	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
 	now := time.Now().Unix()
 	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "blocked-job", SessionID: "blocked", Status: job.StatusRunning, StartedAt: now - 90}, "blocked", "blocked")
@@ -511,6 +516,7 @@ func TestThreadsStatusPrecedence(t *testing.T) {
 }
 
 func TestThreadsReviewRequiresChangesOrFailure(t *testing.T) {
+	t.Parallel()
 	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
 	// The first empty visit establishes the caller baseline before these jobs end.
 	_ = getWorkbenchThreads(t, s, testToken, "since=1")
@@ -546,6 +552,7 @@ func TestThreadsReviewRequiresChangesOrFailure(t *testing.T) {
 }
 
 func TestThreadsSeenBaselineOnFirstVisit(t *testing.T) {
+	t.Parallel()
 	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
 	now := time.Now().Unix()
 	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "old-change", SessionID: "old-change", Status: job.StatusDone, StartedAt: now - 200, UpdatedAt: now - 190, CommitsJSON: `[{"sha":"old","subject":"change"}]`}, "old change", "old change")
@@ -570,6 +577,7 @@ func TestThreadsSeenBaselineOnFirstVisit(t *testing.T) {
 }
 
 func TestThreadsSeenAll(t *testing.T) {
+	t.Parallel()
 	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
 	_ = getWorkbenchThreads(t, s, testToken, "since=1")
 	endedAt := time.Now().Unix() + 1
@@ -605,6 +613,7 @@ func TestThreadsSeenAll(t *testing.T) {
 }
 
 func TestThreadAgentUsesOriginAgent(t *testing.T) {
+	t.Parallel()
 	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
 	now := time.Now().Unix()
 	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "origin-first", SessionID: "origin-session", Agent: "exec", OriginAgent: "omp", Status: job.StatusDone, StartedAt: now - 20, UpdatedAt: now - 19}, "origin", "origin")
@@ -622,6 +631,7 @@ func TestThreadAgentUsesOriginAgent(t *testing.T) {
 }
 
 func TestThreadsAttentionQueueOrder(t *testing.T) {
+	t.Parallel()
 	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
 	_ = getWorkbenchThreads(t, s, testToken, "since=1")
 	now := time.Now().Unix()
@@ -653,6 +663,7 @@ func TestThreadsAttentionQueueOrder(t *testing.T) {
 }
 
 func TestThreadsFilterAndRollup(t *testing.T) {
+	t.Parallel()
 	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
 	now := time.Now().Unix()
 	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "alpha-work", ProjectKey: "alpha", SessionID: "alpha-work", Status: job.StatusRunning, StartedAt: now - 100}, "needle active", "work")
@@ -682,6 +693,7 @@ func TestThreadsFilterAndRollup(t *testing.T) {
 }
 
 func TestTurnDispatchesByThreadKind(t *testing.T) {
+	t.Parallel()
 	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
 	now := time.Now().Unix()
 	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "cli-source", Agent: "cli", SessionID: "cli-session", Status: job.StatusDone, StartedAt: now - 50}, "cli", "first")
@@ -731,6 +743,7 @@ func TestTurnDispatchesByThreadKind(t *testing.T) {
 }
 
 func TestThreadPatchRenameAndSeen(t *testing.T) {
+	t.Parallel()
 	s := newWorkbenchTestServer(t, config.ServerConfig{Callers: []config.CallerConfig{
 		{ID: "alice", Token: "tok-alice"},
 		{ID: "bob", Token: "tok-bob"},
@@ -756,6 +769,7 @@ func TestThreadPatchRenameAndSeen(t *testing.T) {
 }
 
 func TestJobCallerCannotTurn(t *testing.T) {
+	t.Parallel()
 	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
 	now := time.Now().Unix()
 	seedWorkbenchJob(t, s, jobstore.JobRecord{ID: "secure-source", SessionID: "secure", Status: job.StatusDone, StartedAt: now - 10}, "secure", "secure")
@@ -770,6 +784,7 @@ func TestJobCallerCannotTurn(t *testing.T) {
 }
 
 func TestWorkbenchValidationAndWorkerWrites(t *testing.T) {
+	t.Parallel()
 	s := newWorkbenchTestServer(t, config.ServerConfig{
 		Token:   testToken,
 		Workers: map[string]config.WorkerAuthConfig{"w1": {Token: "tok-worker"}},

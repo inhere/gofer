@@ -27,6 +27,7 @@ func (f *fakeInjector) InjectSession(_ context.Context, req sessionrelay.InjectR
 // (path=tmux + the job id), a session without tmux is a 409 naming no_tmux, an
 // over-long text is a 400, and a worker token may not drive a terminal at all.
 func TestSessionDeliverEndpoint(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	inj := &fakeInjector{res: sessionrelay.InjectResult{JobID: "job-http-inject", ExitCode: 0}}
 	s.relay.SetInjector(inj)
@@ -130,6 +131,7 @@ func TestSessionDeliverEndpoint(t *testing.T) {
 // TestSessionDeliverWorkerForbidden pins the caller rule: a worker token runs
 // jobs, it does not answer for a person, so it may not type into a terminal.
 func TestSessionDeliverWorkerForbidden(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Token:   testToken,
 		Workers: map[string]config.WorkerAuthConfig{"w1": {Token: "worker-token"}},

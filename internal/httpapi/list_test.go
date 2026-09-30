@@ -43,6 +43,7 @@ func listJobs(t *testing.T, s *Server, query string) []job.JobResult {
 }
 
 func TestListJobsEndpoint(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 
 	id1 := createExec(t, s, []string{"go", "version"})
@@ -70,6 +71,7 @@ func TestListJobsEndpoint(t *testing.T) {
 }
 
 func TestListJobsEndpointFilters(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 
 	id1 := createExec(t, s, []string{"go", "version"})
@@ -97,6 +99,7 @@ func TestListJobsEndpointFilters(t *testing.T) {
 }
 
 func TestListJobsEndpointOffset(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	meta := s.jobs.Meta()
 	for _, rec := range []jobstore.JobRecord{
@@ -124,6 +127,7 @@ func TestListJobsEndpointOffset(t *testing.T) {
 }
 
 func TestListJobsEndpointSourceJobFilter(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	meta := s.jobs.Meta()
 
@@ -143,6 +147,7 @@ func TestListJobsEndpointSourceJobFilter(t *testing.T) {
 }
 
 func TestListJobsEndpointRequiresAuth(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodGet, "/v1/jobs", "", nil)
 	if resp.StatusCode != http.StatusUnauthorized {

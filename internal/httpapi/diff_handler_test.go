@@ -27,6 +27,7 @@ func writeDiff(t *testing.T, s *Server, id, content string) string {
 // TestGetDiffSummary asserts the default endpoint returns 200 + a "summary" field.
 // The job's cwd is a fresh (non-git) temp dir so no diff is captured → "".
 func TestGetDiffSummary(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	id := runDoneJob(t, s)
 	resp := do(t, s, http.MethodGet, "/v1/jobs/"+id+"/diff", testToken, nil)
@@ -44,6 +45,7 @@ func TestGetDiffSummary(t *testing.T) {
 
 // TestGetDiffFull asserts ?full=1 streams the changes.diff content verbatim.
 func TestGetDiffFull(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	id := runDoneJob(t, s)
 	const diff = "diff --git a/x b/x\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n"
@@ -62,6 +64,7 @@ func TestGetDiffFull(t *testing.T) {
 
 // TestGetDiffFullMissing asserts ?full=1 is a 404 when the job captured no diff.
 func TestGetDiffFullMissing(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	id := runDoneJob(t, s)
 
@@ -73,6 +76,7 @@ func TestGetDiffFullMissing(t *testing.T) {
 
 // TestGetDiffUnknownJob asserts an unknown id is 404 (both shapes).
 func TestGetDiffUnknownJob(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodGet, "/v1/jobs/ghost/diff", testToken, nil)
 	if resp.StatusCode != http.StatusNotFound {
@@ -87,6 +91,7 @@ func TestGetDiffUnknownJob(t *testing.T) {
 // TestGetDiffSummaryShape pins the JSON shape: a job with no diff returns
 // {"summary":""} (not null / not an error).
 func TestGetDiffSummaryShape(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	id := runDoneJob(t, s)
 	resp := do(t, s, http.MethodGet, "/v1/jobs/"+id+"/diff", testToken, nil)

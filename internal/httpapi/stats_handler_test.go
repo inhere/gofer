@@ -183,6 +183,7 @@ func TestStatsIncludesUsage(t *testing.T) {
 // TestStatsIncludesDBAndSessions covers the U2 dashboard blocks: /v1/stats 必须
 // 带上元数据库的文件/页/行数画像与 agent-session 聚合，且与预置数据一致。
 func TestStatsIncludesDBAndSessions(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	meta := s.jobs.Meta()
 
@@ -318,6 +319,7 @@ func TestStatsDBRowCountsPartialOnBudget(t *testing.T) {
 // server's local UTC offset so the CLI/web render schedule and wakeup times on the
 // clock the server actually acts on. The wire times themselves stay unix seconds.
 func TestStatsIncludesServerTZ(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodGet, "/v1/stats", testToken, nil)
 	if resp.StatusCode != http.StatusOK {

@@ -29,6 +29,7 @@ type retryJSON struct {
 // TestListRetriesUnknownJob: AUTO-03 的读端点对未知 job 是 404，不是空列表——一条空链和
 // "这个 id 打错了"必须分得开（与 handleListWakeups 同款判断）。
 func TestListRetriesUnknownJob(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodGet, "/v1/jobs/job-does-not-exist/retries", testToken, nil)
 	if resp.StatusCode != http.StatusNotFound {
@@ -45,6 +46,7 @@ func TestListRetriesUnknownJob(t *testing.T) {
 // retry policy leaves ONE pending row for its next attempt, and the endpoint reports
 // it with the attempt ceiling read back off the row itself.
 func TestListRetriesAfterFailure(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -121,6 +123,7 @@ func TestListRetriesAfterFailure(t *testing.T) {
 // TestCancelRetryUnknown: 取消一个不存在的重试 id 就是 404，detail 用服务端原文
 // （不伪造一个"已取消"）。既有的 delete-wakeup 也是这么映射的。
 func TestCancelRetryUnknown(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodDelete, "/v1/retries/rt-nope", testToken, nil)
 	if resp.StatusCode != http.StatusNotFound {

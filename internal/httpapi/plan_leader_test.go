@@ -61,6 +61,7 @@ func newLeaderPlanServer(t *testing.T) *Server {
 // jobs were started before the switch existed, so the warning is the only notice the
 // operator gets (design §二, 0.2 decision ④).
 func TestPlanLeaderToggleWarnsOnRunningMembers(t *testing.T) {
+	t.Parallel()
 	s := newLeaderPlanServer(t)
 	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]any{"plan_id": "plan-lead"})
 	if resp.StatusCode != http.StatusOK {
@@ -121,6 +122,7 @@ func TestPlanLeaderToggleWarnsOnRunningMembers(t *testing.T) {
 // TestConfigViewShowsLeader: GET /v1/config's supervisor view carries the leader block
 // (LEAD-02 closes the S3 leftover: the block was configurable but unreadable over HTTP).
 func TestConfigViewShowsLeader(t *testing.T) {
+	t.Parallel()
 	s := newLeaderPlanServer(t)
 	resp := do(t, s, http.MethodGet, "/v1/config", testToken, nil)
 	if resp.StatusCode != http.StatusOK {
@@ -158,6 +160,7 @@ func TestConfigViewShowsLeader(t *testing.T) {
 // newest-first with a `before` cursor — the plan page's event area (S4 leftover: the
 // events existed, nothing rendered them).
 func TestPlanEventsEndpoint(t *testing.T) {
+	t.Parallel()
 	s := newLeaderPlanServer(t)
 	for _, id := range []string{"plan-events", "plan-other"} {
 		resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]any{"plan_id": id})

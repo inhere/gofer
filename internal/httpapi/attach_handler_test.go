@@ -245,6 +245,7 @@ func waitAttachCond(t *testing.T, cond func() bool) {
 }
 
 func TestJobAttachValidTicketOriginOutputInputResize(t *testing.T) {
+	t.Parallel()
 	const origin = "https://example.com"
 	s, relays, base := newAttachTestServer(t, []string{"example.com"})
 	src := newAttachFakeSource()
@@ -271,6 +272,7 @@ func TestJobAttachValidTicketOriginOutputInputResize(t *testing.T) {
 }
 
 func TestJobAttachHelloFrameBeforeScrollback(t *testing.T) {
+	t.Parallel()
 	const origin = "https://example.com"
 	s, relays, base := newAttachTestServer(t, []string{"example.com"})
 	src := newAttachFakeSource()
@@ -291,6 +293,7 @@ func TestJobAttachHelloFrameBeforeScrollback(t *testing.T) {
 }
 
 func TestJobAttachRejectsPtySessionMismatch(t *testing.T) {
+	t.Parallel()
 	const origin = "https://example.com"
 	s, relays, base := newAttachTestServer(t, []string{"example.com"})
 	openAttachRelay(t, relays, "job-1", newAttachFakeSource())
@@ -309,6 +312,7 @@ func TestJobAttachRejectsPtySessionMismatch(t *testing.T) {
 }
 
 func TestJobAttachRejectsOutOfRangeResizeWithoutDisconnect(t *testing.T) {
+	t.Parallel()
 	const origin = "https://example.com"
 	s, relays, base := newAttachTestServer(t, []string{"example.com"})
 	src := newAttachFakeSource()
@@ -331,6 +335,7 @@ func TestJobAttachRejectsOutOfRangeResizeWithoutDisconnect(t *testing.T) {
 }
 
 func TestJobAttachRejectsMissingExpiredConsumedAndMismatchedTickets(t *testing.T) {
+	t.Parallel()
 	const origin = "https://example.com"
 	s, relays, base := newAttachTestServer(t, []string{"example.com"})
 	openAttachRelay(t, relays, "job-1", newAttachFakeSource())
@@ -370,6 +375,7 @@ func TestJobAttachRejectsMissingExpiredConsumedAndMismatchedTickets(t *testing.T
 }
 
 func TestJobAttachRejectsDisallowedOrigin(t *testing.T) {
+	t.Parallel()
 	s, relays, base := newAttachTestServer(t, []string{"example.com"})
 	openAttachRelay(t, relays, "job-1", newAttachFakeSource())
 	ticket := issueAttachTicket(t, s, "job-1", "write", "https://evil.example.com", time.Minute)
@@ -384,6 +390,7 @@ func TestJobAttachRejectsDisallowedOrigin(t *testing.T) {
 }
 
 func TestJobAttachSecondWriteViewerDowngradesToReadOnly(t *testing.T) {
+	t.Parallel()
 	const origin = "https://example.com"
 	s, relays, base := newAttachTestServer(t, []string{"example.com"})
 	src := newAttachFakeSource()
@@ -419,6 +426,7 @@ func TestJobAttachSecondWriteViewerDowngradesToReadOnly(t *testing.T) {
 }
 
 func TestJobAttachExitFrameIncludesTerminalCodeWhenVisible(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
 	})
@@ -449,6 +457,7 @@ func TestJobAttachExitFrameIncludesTerminalCodeWhenVisible(t *testing.T) {
 }
 
 func TestJobAttachReplaysScrollback(t *testing.T) {
+	t.Parallel()
 	const origin = "https://example.com"
 	s, relays, base := newAttachTestServer(t, []string{"example.com"})
 	src := newAttachFakeSource()
@@ -464,6 +473,7 @@ func TestJobAttachReplaysScrollback(t *testing.T) {
 }
 
 func TestJobAttachBrowserDisconnectOnlyRemovesViewer(t *testing.T) {
+	t.Parallel()
 	const origin = "https://example.com"
 	s, relays, base := newAttachTestServer(t, []string{"example.com"})
 	src := newAttachFakeSource()

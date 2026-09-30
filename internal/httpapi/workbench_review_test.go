@@ -17,6 +17,7 @@ import (
 )
 
 func TestReviewJobCallerForbidden(t *testing.T) {
+	t.Parallel()
 	s := newWorkbenchTestServer(t, config.ServerConfig{Token: testToken})
 	repo := t.TempDir()
 	runHTTPGit(t, repo, "init")

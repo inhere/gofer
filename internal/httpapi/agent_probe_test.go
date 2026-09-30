@@ -16,6 +16,7 @@ import (
 // probe itself counts towards health. The project is resolved when the caller gives
 // none, and an agent no project admits is refused instead of submitted.
 func TestAgentProbeSubmitsSyncJob(t *testing.T) {
+	t.Parallel()
 	bin := testcmd.Path(t)
 	agents := map[string]config.AgentConfig{
 		"codex": {Type: agent.TypeCLIAgent, Command: bin, Args: []string{"printf", "OK"}},

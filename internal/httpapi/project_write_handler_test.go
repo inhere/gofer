@@ -53,6 +53,7 @@ func strsPtr(s ...string) *[]string { return &s }
 func intPtr(i int) *int             { return &i }
 
 func TestCreateProjectWritesAndCanBeRead(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newProjectWriteTestServer(t, &config.Config{
 		Server: config.ServerConfig{Token: testToken},
@@ -100,6 +101,7 @@ func TestCreateProjectWritesAndCanBeRead(t *testing.T) {
 }
 
 func TestCreateProjectDuplicateReturnsConflict(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newProjectWriteTestServer(t, &config.Config{
 		Server: config.ServerConfig{Token: testToken},
@@ -115,6 +117,7 @@ func TestCreateProjectDuplicateReturnsConflict(t *testing.T) {
 }
 
 func TestCreateProjectRejectsInvalidReferencesWithoutWriting(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newProjectWriteTestServer(t, &config.Config{
 		Server: config.ServerConfig{Token: testToken},
@@ -146,6 +149,7 @@ func TestCreateProjectRejectsInvalidReferencesWithoutWriting(t *testing.T) {
 }
 
 func TestCreateProjectRejectsEmptyHostPath(t *testing.T) {
+	t.Parallel()
 	s := newProjectWriteTestServer(t, &config.Config{
 		Server: config.ServerConfig{Token: testToken},
 	})
@@ -160,6 +164,7 @@ func TestCreateProjectRejectsEmptyHostPath(t *testing.T) {
 }
 
 func TestUpdateProjectOverwritesAdmission(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newProjectWriteTestServer(t, &config.Config{
 		Server: config.ServerConfig{Token: testToken},
@@ -189,6 +194,7 @@ func TestUpdateProjectOverwritesAdmission(t *testing.T) {
 }
 
 func TestDeleteProjectRemovesMapping(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newProjectWriteTestServer(t, &config.Config{
 		Server: config.ServerConfig{Token: testToken},
@@ -221,6 +227,7 @@ func TestDeleteProjectRemovesMapping(t *testing.T) {
 }
 
 func TestProjectWritesRequireAdminWhenGateEnabled(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Server: config.ServerConfig{
@@ -259,6 +266,7 @@ func TestProjectWritesRequireAdminWhenGateEnabled(t *testing.T) {
 }
 
 func TestCreateProjectReturnsFilesystemWarnings(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	missing := filepath.Join(root, "missing")
 	s := newProjectWriteTestServer(t, &config.Config{
@@ -283,6 +291,7 @@ func TestCreateProjectReturnsFilesystemWarnings(t *testing.T) {
 // result_subdir here, capture_diff / notify_enabled likewise, and the admission fields
 // the request omits.
 func TestUpdateProjectPreservesUnspecifiedFields(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	captureOff := false
 	cfg := &config.Config{
@@ -341,6 +350,7 @@ func TestUpdateProjectPreservesUnspecifiedFields(t *testing.T) {
 // PARTIAL PUT keeps it, and an explicit [] unbinds it — the present-and-empty
 // contract every other project list already has.
 func TestProjectRulesBindingRoundTrip(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	s := newProjectWriteTestServer(t, &config.Config{Server: config.ServerConfig{Token: testToken}})
 
@@ -400,6 +410,7 @@ func TestProjectRulesBindingRoundTrip(t *testing.T) {
 // TestUpdateProjectInteractiveSettingsRoundTrip: the AGT-02 switch survives create →
 // read → update, and an explicit false written through the console is persisted as such.
 func TestUpdateProjectInteractiveSettingsRoundTrip(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Server: config.ServerConfig{Token: testToken},
@@ -469,6 +480,7 @@ func TestUpdateProjectInteractiveSettingsRoundTrip(t *testing.T) {
 // too: [], like ["tty-echo"], means the caller is written against the old contract.
 // Neither path touches the stored project.
 func TestUpdateProjectRejectsRemovedNarrowingField(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Server: config.ServerConfig{Token: testToken},

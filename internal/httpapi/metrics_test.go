@@ -42,6 +42,7 @@ func scrape(t *testing.T, s *Server, token string) (*http.Response, string) {
 // TestMetricsEndpointExposesRuntimeAndGoMetrics asserts the scrape includes the
 // Go runtime collector + the gofer gauge families even before any job runs.
 func TestMetricsEndpointExposesRuntimeAndGoMetrics(t *testing.T) {
+	t.Parallel()
 	s, _ := newMetricsServer(t, true, "")
 	resp, body := scrape(t, s, "")
 	if resp.StatusCode != http.StatusOK {
@@ -62,6 +63,7 @@ func TestMetricsEndpointExposesRuntimeAndGoMetrics(t *testing.T) {
 // TestMetricsJobCounters submits N exec jobs, waits for terminal, then asserts the
 // submitted / terminal{done} counters reflect the run.
 func TestMetricsJobCounters(t *testing.T) {
+	t.Parallel()
 	s, _ := newMetricsServer(t, true, "")
 
 	const n = 3
@@ -112,6 +114,7 @@ func TestMetricsJobCounters(t *testing.T) {
 // TestMetricsHTTPRequestsLabelled asserts the HTTP middleware counts /v1 requests
 // with a method/route/status label set.
 func TestMetricsHTTPRequestsLabelled(t *testing.T) {
+	t.Parallel()
 	s, _ := newMetricsServer(t, true, "")
 	// A couple of /v1 GETs to populate the http counter.
 	do(t, s, http.MethodGet, "/v1/projects", testToken, nil).Body.Close()
@@ -146,6 +149,7 @@ var knownRouteTemplates = map[string]bool{
 // via waitDone) and asserts EVERY route label in the scrape is a bounded template
 // from the whitelist — no raw path with an embedded job id ever leaks in.
 func TestMetricsRouteCardinalityGuard(t *testing.T) {
+	t.Parallel()
 	s, _ := newMetricsServer(t, true, "")
 
 	// Submit + poll a job: waitDone issues several GET /v1/jobs/{id} requests, the
@@ -190,6 +194,7 @@ func TestMetricsRouteCardinalityGuard(t *testing.T) {
 // TestMetricsTokenEnforced verifies that a configured metrics.token gates the
 // endpoint: no/invalid token => 401, correct token => 200.
 func TestMetricsTokenEnforced(t *testing.T) {
+	t.Parallel()
 	const mt = "scrape-secret"
 	s, _ := newMetricsServer(t, true, mt)
 
@@ -207,6 +212,7 @@ func TestMetricsTokenEnforced(t *testing.T) {
 // TestMetricsDisabled asserts enabled=false drops the /metrics route entirely
 // (the web SPA fallback / 404 handles it, not a metrics body).
 func TestMetricsDisabled(t *testing.T) {
+	t.Parallel()
 	s, _ := newMetricsServer(t, false, "")
 	resp, body := scrape(t, s, "")
 	// With no web console and metrics disabled, /metrics is an unmatched route =>

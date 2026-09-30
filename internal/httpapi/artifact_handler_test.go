@@ -53,6 +53,7 @@ func runDoneJob(t *testing.T, s *Server) string {
 // TestListArtifacts asserts the manifest endpoint lists both files (via live
 // scan fallback when no manifest was captured) with slash-relative names.
 func TestListArtifacts(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	id := runDoneJob(t, s)
 	makeArtifacts(t, s, id)
@@ -80,6 +81,7 @@ func TestListArtifacts(t *testing.T) {
 // TestListArtifactsEmptyIsArray asserts a job with no artifacts dir returns a
 // non-nil empty array, not null.
 func TestListArtifactsEmptyIsArray(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	id := runDoneJob(t, s)
 
@@ -96,6 +98,7 @@ func TestListArtifactsEmptyIsArray(t *testing.T) {
 }
 
 func TestListArtifactsUnknownJob(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodGet, "/v1/jobs/ghost/artifacts", testToken, nil)
 	if resp.StatusCode != http.StatusNotFound {
@@ -106,6 +109,7 @@ func TestListArtifactsUnknownJob(t *testing.T) {
 // TestDownloadArtifactTopLevel downloads artifacts/a.txt and asserts the body,
 // the 200 status and the Content-Disposition header.
 func TestDownloadArtifactTopLevel(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	id := runDoneJob(t, s)
 	makeArtifacts(t, s, id)
@@ -128,6 +132,7 @@ func TestDownloadArtifactTopLevel(t *testing.T) {
 // TestDownloadArtifactSubpath downloads artifacts/sub/b.bin, proving the
 // {name:.+} catch-all route carries a slash-containing relative name.
 func TestDownloadArtifactSubpath(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	id := runDoneJob(t, s)
 	makeArtifacts(t, s, id)
@@ -144,6 +149,7 @@ func TestDownloadArtifactSubpath(t *testing.T) {
 }
 
 func TestDownloadArtifactNotFound(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	id := runDoneJob(t, s)
 	makeArtifacts(t, s, id)
@@ -160,6 +166,7 @@ func TestDownloadArtifactNotFound(t *testing.T) {
 // path it is either rejected as 400 (escape) or 404 (resolved to a non-file);
 // the load-bearing assertion is that the secret file is NEVER served.
 func TestDownloadArtifactTraversalRejected(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	id := runDoneJob(t, s)
 	res, _ := s.jobs.Get(id)

@@ -22,6 +22,7 @@ func getJobDetailMap(t *testing.T, s *Server, id, token string) map[string]any {
 }
 
 func TestJobDetailCanAttachComputedOnlyOnDetail(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{
 			{ID: "alice", Token: "tok-alice"},
@@ -57,6 +58,7 @@ func TestJobDetailCanAttachComputedOnlyOnDetail(t *testing.T) {
 }
 
 func TestJobDetailCanAttachFalseForTerminalPendingAndNonInteractive(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
 	})

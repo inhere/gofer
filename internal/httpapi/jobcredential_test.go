@@ -95,6 +95,7 @@ func submitExecJob(t *testing.T, s *Server, token string) job.JobResult {
 // commenting/asking/waking-itself work, and every privileged write is refused with the
 // documented message.
 func TestMemberTokenPermissions(t *testing.T) {
+	t.Parallel()
 	const userTok = "tok-user"
 	s := newCredentialServer(t, config.ServerConfig{Callers: []config.CallerConfig{{ID: "alice", Token: userTok}}},
 		map[string]config.AgentConfig{"exec": {Type: agent.TypeExec}}, nil)
@@ -164,6 +165,7 @@ func TestMemberTokenPermissions(t *testing.T) {
 
 // TestMemberTokenCannotMoveTodo: the checklist is a leader's tool, not a member's.
 func TestMemberTokenCannotMoveTodo(t *testing.T) {
+	t.Parallel()
 	const userTok = "tok-user"
 	s := newCredentialServer(t, config.ServerConfig{Callers: []config.CallerConfig{{ID: "alice", Token: userTok}}},
 		map[string]config.AgentConfig{"exec": {Type: agent.TypeExec}}, nil)
@@ -182,6 +184,7 @@ func TestMemberTokenCannotMoveTodo(t *testing.T) {
 // TestLeaderTokenPermissions: a leader may move its OWN plan's items to ready/skipped
 // and nothing else — no other status, no other plan, no verdict, no submit.
 func TestLeaderTokenPermissions(t *testing.T) {
+	t.Parallel()
 	const userTok = "tok-user"
 	s := newCredentialServer(t, config.ServerConfig{Callers: []config.CallerConfig{{ID: "alice", Token: userTok}}},
 		map[string]config.AgentConfig{"exec": {Type: agent.TypeExec}, "omp": {Type: agent.TypeCLIAgent, Command: "omp"}}, nil)
@@ -231,6 +234,7 @@ func TestLeaderTokenPermissions(t *testing.T) {
 // is treated as the user, both for a comment's authorship (so it still dispatches) and
 // for the review path (a leader job can no longer wave itself through by naming a job).
 func TestUserCallerAsJobIgnored(t *testing.T) {
+	t.Parallel()
 	const userTok = "tok-user"
 	s := newCredentialServer(t, config.ServerConfig{Callers: []config.CallerConfig{{ID: "alice", Token: userTok}}},
 		map[string]config.AgentConfig{"exec": {Type: agent.TypeExec}}, nil)
@@ -317,6 +321,7 @@ func submitReviewedJob(t *testing.T, s *Server, token string) job.JobResult {
 // only for the agents its definition lists (default [exec]); the new job carries the
 // `submitted_by_job:<id>` provenance tag.
 func TestMemberCanSubmitWhenAllowed(t *testing.T) {
+	t.Parallel()
 	const userTok = "tok-user"
 
 	t.Run("agent_grant", func(t *testing.T) {

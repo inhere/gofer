@@ -77,6 +77,7 @@ func driveAndCloseRelay(t *testing.T, s *Server, base, jobID, sessionID, nonce s
 // pty.cast is written and the pty_sessions row goes open→closed with bytes
 // counted and recording_uri set (encrypted=2).
 func TestPtyConnectRecordsSessionPlaintext(t *testing.T) {
+	t.Parallel()
 	s, nonces, relays, base, _ := newPtyConnectTestServer(t)
 	store := s.jobs.Meta()
 	s.SetPtySessionStore(store)
@@ -123,6 +124,7 @@ func TestPtyConnectRecordsSessionPlaintext(t *testing.T) {
 // session row is still recorded (recording independent of the sink), with an
 // empty recording_uri and no cast file (G023 default path).
 func TestPtyConnectRecordsSessionNoRecorder(t *testing.T) {
+	t.Parallel()
 	s, nonces, relays, base, _ := newPtyConnectTestServer(t)
 	store := s.jobs.Meta()
 	s.SetPtySessionStore(store) // no SetCastRecorder → castRecorder nil
@@ -147,6 +149,7 @@ func TestPtyConnectRecordsSessionNoRecorder(t *testing.T) {
 }
 
 func TestPtyConnectRecorderWiredButNotRequested(t *testing.T) {
+	t.Parallel()
 	s, nonces, relays, base, _ := newPtyConnectTestServer(t)
 	store := s.jobs.Meta()
 	s.SetPtySessionStore(store)
@@ -189,6 +192,7 @@ func TestPtyConnectRecorderWiredButNotRequested(t *testing.T) {
 // cast file cannot be created (result dir does not exist) → the handler degrades
 // to "not recording" (empty recording_uri) yet STILL records the session row.
 func TestPtyConnectRecordsSessionOpenFailureDegrades(t *testing.T) {
+	t.Parallel()
 	s, nonces, relays, base, _ := newPtyConnectTestServer(t)
 	store := s.jobs.Meta()
 	s.SetPtySessionStore(store)
@@ -229,6 +233,7 @@ func TestPtyConnectRecordsSessionOpenFailureDegrades(t *testing.T) {
 // TestPtyConnectRecordsSessionEncrypted: encrypted recorder → the row is
 // encrypted=1 and pty.cast starts with the framed AEAD magic (GFC1).
 func TestPtyConnectRecordsSessionEncrypted(t *testing.T) {
+	t.Parallel()
 	s, nonces, relays, base, _ := newPtyConnectTestServer(t)
 	store := s.jobs.Meta()
 	s.SetPtySessionStore(store)
@@ -261,6 +266,7 @@ func TestPtyConnectRecordsSessionEncrypted(t *testing.T) {
 // TestPtyConnectNoDialNoSession (H4): a prepared-but-never-dialled relay records
 // no pty_sessions row — the handler never runs, so nothing is persisted.
 func TestPtyConnectNoDialNoSession(t *testing.T) {
+	t.Parallel()
 	s, nonces, relays, _, _ := newPtyConnectTestServer(t)
 	store := s.jobs.Meta()
 	s.SetPtySessionStore(store)

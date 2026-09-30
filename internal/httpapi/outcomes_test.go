@@ -33,6 +33,7 @@ func createSleepJob(t *testing.T, s *Server) job.JobResult {
 // TestGetJobIncludesResultJSON: a valid <result_dir>/result.json surfaces in the
 // GET /v1/jobs/{id} response as result_json (E6).
 func TestGetJobIncludesResultJSON(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	created := createSleepJob(t, s)
 
@@ -58,6 +59,7 @@ func TestGetJobIncludesResultJSON(t *testing.T) {
 // is captured at终态 and surfaces in GET /v1/jobs/{id} as session_id (T1.5: the
 // API serializes JobResult.SessionID directly, omitempty).
 func TestGetJobIncludesSessionID(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	created := createSleepJob(t, s)
 
@@ -80,6 +82,7 @@ func TestGetJobIncludesSessionID(t *testing.T) {
 // session_ids (via the option-C session_id file); the filter returns only the
 // matching one, and omitting the param returns both (regression-safe).
 func TestListJobsEndpointSession(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 
 	jobA := createSleepJob(t, s)
@@ -120,6 +123,7 @@ func TestListJobsEndpointSession(t *testing.T) {
 // TestGetJobSkipsOversizeResultJSON: an oversize result.json is left on disk but
 // NOT inlined (and the request still succeeds — best-effort).
 func TestGetJobSkipsOversizeResultJSON(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	created := createSleepJob(t, s)
 
@@ -140,6 +144,7 @@ func TestGetJobSkipsOversizeResultJSON(t *testing.T) {
 // TestGetJobSkipsInvalidResultJSON: a malformed result.json is ignored (not
 // inlined) and the job still completes.
 func TestGetJobSkipsInvalidResultJSON(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	created := createSleepJob(t, s)
 

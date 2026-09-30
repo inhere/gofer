@@ -45,6 +45,7 @@ func newConfigViewTestServer(t *testing.T, cfg *config.Config) *Server {
 }
 
 func TestGetConfigRedactsSecrets(t *testing.T) {
+	t.Parallel()
 	cfg := &config.Config{
 		Server: config.ServerConfig{
 			Token:    "supersecret",
@@ -140,6 +141,7 @@ func TestGetConfigRedactsSecrets(t *testing.T) {
 }
 
 func TestGetConfigRequiresAuth(t *testing.T) {
+	t.Parallel()
 	s := newConfigViewTestServer(t, &config.Config{
 		Server: config.ServerConfig{Token: "supersecret"},
 	})

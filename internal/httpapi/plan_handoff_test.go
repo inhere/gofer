@@ -23,6 +23,7 @@ func createHandoffTestPlan(t *testing.T, s *Server, token, id string) {
 }
 
 func TestPlanHandoffVersioning(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	const planID = "plan-handoff-version"
 	createHandoffTestPlan(t, s, testToken, planID)
@@ -99,6 +100,7 @@ func TestPlanHandoffVersioning(t *testing.T) {
 }
 
 func TestPlanHandoffPermissions(t *testing.T) {
+	t.Parallel()
 	const userToken = "handoff-user-token"
 	s := newCredentialServer(t, config.ServerConfig{Callers: []config.CallerConfig{{ID: "alice", Token: userToken}}}, nil, nil)
 	const planID = "plan-handoff-perms"

@@ -97,6 +97,7 @@ func upsertPtyJob(t *testing.T, s *Server, jobID, agentKey string) string {
 // than the old 64KB head window of noise. The capture must still land the id on
 // the job (what `job show` renders).
 func TestPtySessionIDCapturedFromTail(t *testing.T) {
+	t.Parallel()
 	s := newPtyCaptureServer(t)
 	upsertPtyJob(t, s, "job-tail", "codex")
 
@@ -130,6 +131,7 @@ func TestPtySessionIDCapturedFromTail(t *testing.T) {
 // id; ONE observation carries both windows here, which is the only way the two can
 // disagree within a single scan.
 func TestFallbackPtyCaptureReadsOnlyTheTailWindow(t *testing.T) {
+	t.Parallel()
 	const sid = "session_hamster_1790079148520_bc5cb0d44153fe56"
 	s := newPtyCaptureServerWithAgents(t, map[string]config.AgentConfig{
 		"jcode": {Type: agent.TypeCLIAgent, Command: "jcode", InteractiveArgs: []string{}},
@@ -166,6 +168,7 @@ func TestFallbackPtyCaptureReadsOnlyTheTailWindow(t *testing.T) {
 // relay and the hub's relay over a worker's pty ws. pty.txt must exist, hold the
 // de-ANSI'd text and contain no escape byte.
 func TestPtyTranscriptWrittenForLocalAndWorkerPty(t *testing.T) {
+	t.Parallel()
 	t.Run("local", func(t *testing.T) {
 		s := newPtyCaptureServer(t)
 		resultDir := upsertPtyJob(t, s, "job-tr-local", "exec")
@@ -230,6 +233,7 @@ func assertTranscript(t *testing.T, path, want string) {
 // stdout.log, so GET /v1/jobs/{id}/logs/stdout serves the pty transcript instead
 // of an empty body (CLI `job logs` and the web log page read this endpoint).
 func TestJobLogsFallBackToPtyTranscript(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	now := time.Now().Unix()
 	resultDir := filepath.Join(t.TempDir(), "job-pty-logs")
@@ -278,6 +282,7 @@ func TestJobLogsFallBackToPtyTranscript(t *testing.T) {
 // id captured from the pty tail is what `job show`/the API report, and the job's
 // request_json keeps saying it was interactive (no schema drift).
 func TestJobDetailExposesCapturedPtySessionID(t *testing.T) {
+	t.Parallel()
 	s := newPtyCaptureServer(t)
 	upsertPtyJob(t, s, "job-detail-pty", "codex")
 

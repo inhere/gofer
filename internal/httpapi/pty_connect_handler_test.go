@@ -189,6 +189,7 @@ func waitRecordedLen(t *testing.T, r *ptyrelay.Relay, want int) {
 }
 
 func TestPtyConnectValidOpenAndFraming(t *testing.T) {
+	t.Parallel()
 	s, nonces, relays, base, _ := newPtyConnectTestServer(t)
 	nonce := preparePtyRelay(t, s, nonces, relays, "job-1", "pty-1", ptyTestInst)
 	conn := dialPtyAndHello(t, base, ptyConnectHello{
@@ -239,6 +240,7 @@ func TestPtyConnectValidOpenAndFraming(t *testing.T) {
 }
 
 func TestPtyConnectRejectsNonceReplay(t *testing.T) {
+	t.Parallel()
 	s, nonces, relays, base, _ := newPtyConnectTestServer(t)
 	nonce := preparePtyRelay(t, s, nonces, relays, "job-replay", "pty-replay", ptyTestInst)
 	_ = dialPtyAndHello(t, base, ptyConnectHello{
@@ -257,6 +259,7 @@ func TestPtyConnectRejectsNonceReplay(t *testing.T) {
 }
 
 func TestPtyConnectRejectsInstanceMismatch(t *testing.T) {
+	t.Parallel()
 	s, nonces, relays, base, _ := newPtyConnectTestServer(t)
 	nonce := preparePtyRelay(t, s, nonces, relays, "job-inst", "pty-inst", "old-inst")
 	conn := dialPtyAndHello(t, base, ptyConnectHello{
@@ -268,6 +271,7 @@ func TestPtyConnectRejectsInstanceMismatch(t *testing.T) {
 }
 
 func TestPtyConnectRejectsBindingMismatch(t *testing.T) {
+	t.Parallel()
 	s, nonces, relays, base, _ := newPtyConnectTestServer(t)
 	nonce := preparePtyRelay(t, s, nonces, relays, "job-real", "pty-real", ptyTestInst)
 	conn := dialPtyAndHello(t, base, ptyConnectHello{
@@ -279,6 +283,7 @@ func TestPtyConnectRejectsBindingMismatch(t *testing.T) {
 }
 
 func TestPtyConnectRejectsMissingPendingRelay(t *testing.T) {
+	t.Parallel()
 	_, nonces, _, base, _ := newPtyConnectTestServer(t)
 	nonce := nonces.Issue(ptyrelay.NonceBinding{
 		WorkerID:     ptyTestWorkerID,
@@ -296,6 +301,7 @@ func TestPtyConnectRejectsMissingPendingRelay(t *testing.T) {
 }
 
 func TestPtyConnectRejectsNonLiveJobAndClosesRelay(t *testing.T) {
+	t.Parallel()
 	s, nonces, relays, base, _ := newPtyConnectTestServer(t)
 	now := time.Now().Unix()
 	if err := s.jobs.Meta().UpsertJob(jobstore.JobRecord{

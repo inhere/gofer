@@ -11,6 +11,7 @@ import (
 // workflow's append-only event timeline (submitted ... terminal) for a completed
 // workflow, with seq-ordered events and a working ?since cursor.
 func TestListWorkflowEventsAPI(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 
 	resp := do(t, s, http.MethodPost, "/v1/workflows", testToken, workflow.Spec{
@@ -70,6 +71,7 @@ func TestListWorkflowEventsAPI(t *testing.T) {
 
 // TestListWorkflowEventsUnknown404 asserts an unknown workflow id is a 404.
 func TestListWorkflowEventsUnknown404(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodGet, "/v1/workflows/nope/events", testToken, nil)
 	if resp.StatusCode != http.StatusNotFound {

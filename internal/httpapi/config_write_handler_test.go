@@ -229,6 +229,7 @@ func runtimeAgentInteractive(t *testing.T, s *Server, key string) bool {
 // omits, so a table entry the switch cannot write would turn every agent edit into a
 // 500 — the failure would show up only in production, on a field nobody had tried yet.
 func TestEveryEditableAgentFieldIsWritable(t *testing.T) {
+	t.Parallel()
 	fields := config.EditableAgentFields()
 	if len(fields) == 0 {
 		t.Fatal("no editable agent fields")
@@ -255,6 +256,7 @@ func TestEveryEditableAgentFieldIsWritable(t *testing.T) {
 // that did not carry `skills` was not a cosmetic gap — the console's next save erased
 // the bindings (and, before the switch had a `skills` case, answered 500 instead).
 func TestConfigSkillBindingsRoundTrip(t *testing.T) {
+	t.Parallel()
 	yamlText, _, _ := configWriteFixture(t)
 	s, _, _ := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 
@@ -307,6 +309,7 @@ func TestConfigSkillBindingsRoundTrip(t *testing.T) {
 // Unlike the agent half there is no clear-on-omit rule to trip over (a server write
 // applies exactly the fields the body carries), so the guard is the switch itself.
 func TestEveryEditableServerFieldIsWritable(t *testing.T) {
+	t.Parallel()
 	policies := config.SectionPolicies("server")
 	if len(policies) == 0 {
 		t.Fatal("no server field policies")
@@ -336,6 +339,7 @@ func TestEveryEditableServerFieldIsWritable(t *testing.T) {
 // a submit grant — and before the write switch had the two cases, EVERY agent PUT
 // (which clears each omitted editable field) answered 500.
 func TestConfigSubmitGateRoundTrip(t *testing.T) {
+	t.Parallel()
 	yamlText, _, _ := configWriteFixture(t)
 	s, _, _ := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 
@@ -382,6 +386,7 @@ func TestConfigSubmitGateRoundTrip(t *testing.T) {
 }
 
 func TestAgentPutPatchesACPBlock(t *testing.T) {
+	t.Parallel()
 	yamlText, _, _ := configWriteFixture(t)
 	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 
@@ -460,6 +465,7 @@ func TestAgentPutPatchesACPBlock(t *testing.T) {
 // (design §一.1) with the SAME 403 body the project routes answer, so a console can
 // treat "no permission" as one condition across the product.
 func TestConfigWriteRequiresAdmin(t *testing.T) {
+	t.Parallel()
 	yamlText, _, _ := configWriteFixture(t)
 	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 	before := readFile(t, cfgPath)
@@ -496,6 +502,7 @@ func TestConfigWriteRequiresAdmin(t *testing.T) {
 // from the console is written to the file AND live in the running process (the
 // reload inside the write transaction), so no RDP + hand edit is needed.
 func TestAgentPutCreatesAndReloads(t *testing.T) {
+	t.Parallel()
 	yamlText, _, _ := configWriteFixture(t)
 	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 
@@ -550,6 +557,7 @@ func TestAgentPutCreatesAndReloads(t *testing.T) {
 // the editable field set. A field the body does not carry is CLEARED — an edit form
 // must therefore always send the complete set (see the console's buildAgentWrite).
 func TestAgentPutUpdatesExisting(t *testing.T) {
+	t.Parallel()
 	yamlText, _, _ := configWriteFixture(t)
 	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 
@@ -589,6 +597,7 @@ func TestAgentPutUpdatesExisting(t *testing.T) {
 // about" bug bd h-aii-3scy fixed for projects — and a console could never put the
 // value back.
 func TestAgentPutKeepsFieldsOutsideTheEditableSet(t *testing.T) {
+	t.Parallel()
 	yamlText, _, _ := configWriteFixture(t)
 	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 
@@ -634,6 +643,7 @@ func TestAgentPutKeepsFieldsOutsideTheEditableSet(t *testing.T) {
 // template definition comes back — and the caller is told so explicitly. A purely
 // custom key simply disappears.
 func TestAgentDeleteFallsBackToBuiltin(t *testing.T) {
+	t.Parallel()
 	yamlText, _, _ := configWriteFixture(t)
 	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, fixedDetector{"claude": true})
 
@@ -676,6 +686,7 @@ func TestAgentDeleteFallsBackToBuiltin(t *testing.T) {
 // name and pointed at the env-var reference instead. A `*_env` NAME carries no value
 // and so never trips that check.
 func TestAgentPutRejectsSecretLiteral(t *testing.T) {
+	t.Parallel()
 	yamlText, _, _ := configWriteFixture(t)
 	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 	before := readFile(t, cfgPath)
@@ -720,6 +731,7 @@ func TestAgentPutRejectsSecretLiteral(t *testing.T) {
 // exactly which field it refused, and nothing is written — a half-applied server
 // block would make the running process disagree with the file.
 func TestServerPutRejectsRestartOnlyField(t *testing.T) {
+	t.Parallel()
 	yamlText, _, _ := configWriteFixture(t)
 	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 	before := readFile(t, cfgPath)
@@ -748,6 +760,7 @@ func TestServerPutRejectsRestartOnlyField(t *testing.T) {
 // TestServerPutAppliesEditableField is the server half of the goal: the everyday
 // knobs are editable from the console and take effect immediately.
 func TestServerPutAppliesEditableField(t *testing.T) {
+	t.Parallel()
 	yamlText, _, _ := configWriteFixture(t)
 	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 
@@ -796,6 +809,7 @@ func TestServerPutAppliesEditableField(t *testing.T) {
 // the write endpoints, the full validation, the impact list — and, above all, NO
 // write and NO reload (the file is compared byte for byte).
 func TestConfigValidateDryRunDoesNotWrite(t *testing.T) {
+	t.Parallel()
 	yamlText, _, _ := configWriteFixture(t)
 	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 	before := readFile(t, cfgPath)
@@ -875,6 +889,7 @@ func TestConfigValidateDryRunDoesNotWrite(t *testing.T) {
 // AGT-02 `interactive_args: []` shape in the agents block) would be comment-stripped
 // by a console edit that never touched them.
 func TestSurgicalSaveKeepsOtherBlockComments(t *testing.T) {
+	t.Parallel()
 	yamlText, _, _ := configWriteFixture(t)
 	s, _, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 
@@ -906,6 +921,7 @@ func TestSurgicalSaveKeepsOtherBlockComments(t *testing.T) {
 // successful write on the `config` scope, carrying WHAT changed and WHO did it —
 // and never a value (config values are paths/host names and may be sensitive).
 func TestConfigUpdatedEventRecorded(t *testing.T) {
+	t.Parallel()
 	yamlText, _, _ := configWriteFixture(t)
 	s, cr, _ := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 
@@ -969,6 +985,7 @@ func bodyText(t *testing.T, resp *http.Response) string {
 // those readers without a restart, which is what this test asserts on — the live
 // config generation the dispatcher/health path holds, not just the file or the view.
 func TestDirLockFieldsAreHotEditable(t *testing.T) {
+	t.Parallel()
 	yamlText, _, _ := configWriteFixture(t)
 	s, cr, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 
@@ -1033,6 +1050,7 @@ func TestDirLockFieldsAreHotEditable(t *testing.T) {
 // sibling in the same switch). The round trip through the live config AND the file is
 // what proves the values survive a save+reload.
 func TestCompoundServerBlocksDecodeSnakeCase(t *testing.T) {
+	t.Parallel()
 	yamlText, _, _ := configWriteFixture(t)
 	s, cr, cfgPath := newConfigWriteTestServer(t, yamlText, agent.NoopDetector{})
 
@@ -1122,6 +1140,7 @@ func notificationFixtureYAML(t *testing.T) string {
 // patch therefore keeps it when the body omits it — which is exactly the body a console
 // produces from what it read — while an explicit "" is how a caller clears it.
 func TestNotificationPatchKeepsSecretEnv(t *testing.T) {
+	t.Parallel()
 	s, cr, cfgPath := newConfigWriteTestServer(t, notificationFixtureYAML(t), agent.NoopDetector{})
 
 	// Read side: the console learns THAT a secret is set, never its name.
@@ -1215,6 +1234,7 @@ func TestNotificationPatchKeepsSecretEnv(t *testing.T) {
 // inheritance must not leak across entries: a removed target's secret stays removed, and
 // a new target inherits nothing.
 func TestNotificationAddRemoveWebhook(t *testing.T) {
+	t.Parallel()
 	s, cr, _ := newConfigWriteTestServer(t, notificationFixtureYAML(t), agent.NoopDetector{})
 
 	// ADD: keep the configured target (url match) and add a new one.
@@ -1266,6 +1286,7 @@ func TestNotificationAddRemoveWebhook(t *testing.T) {
 // creates no delivery row, while the configuration itself survives the pause (that is
 // the difference from deleting the entry).
 func TestNotificationEnabledPausesDelivery(t *testing.T) {
+	t.Parallel()
 	s, cr, _ := newConfigWriteTestServer(t, notificationFixtureYAML(t), agent.NoopDetector{})
 
 	resp := do(t, s, http.MethodPut, "/v1/config/server", adminToken, map[string]any{

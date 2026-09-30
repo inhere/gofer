@@ -71,6 +71,7 @@ func byName(rows []runnerView) map[string]runnerView {
 }
 
 func TestListRunnersRequiresAuth(t *testing.T) {
+	t.Parallel()
 	s := newRunnersServer(t, nil, nil, nil)
 	resp := do(t, s, http.MethodGet, "/v1/runners", "", nil)
 	if resp.StatusCode != http.StatusUnauthorized {
@@ -85,6 +86,7 @@ func TestListRunnersRequiresAuth(t *testing.T) {
 // TestListRunnersOnlyLocal: with no configured runners the endpoint reports just
 // the implicit local row (status up), as a non-nil array.
 func TestListRunnersOnlyLocal(t *testing.T) {
+	t.Parallel()
 	s := newRunnersServer(t, nil, nil, nil)
 	rows := listRunners(t, s)
 	if len(rows) != 1 {
@@ -99,6 +101,7 @@ func TestListRunnersOnlyLocal(t *testing.T) {
 // detail; one with a down probe shows `down` + error; one with no probe result
 // (prober has no entry) shows `unknown`.
 func TestListRunnersPeerHTTP(t *testing.T) {
+	t.Parallel()
 	runnersCfg := map[string]config.RunnerConfig{
 		"peer-up":      {Type: "peer-http", BaseURL: "https://up.internal:8765"},
 		"peer-down":    {Type: "peer-http", BaseURL: "https://down.internal:8765"},
@@ -127,6 +130,7 @@ func TestListRunnersPeerHTTP(t *testing.T) {
 // TestListRunnersPeerHTTPNoProber: with a nil prober every peer-http row is
 // `unknown` (no probing wired).
 func TestListRunnersPeerHTTPNoProber(t *testing.T) {
+	t.Parallel()
 	runnersCfg := map[string]config.RunnerConfig{
 		"peer-x": {Type: "peer-http", BaseURL: "https://x.internal:8765"},
 	}
@@ -242,6 +246,7 @@ func TestListRunnersWorkerAgentCapsAndNode(t *testing.T) {
 // synthesized capabilities — every configured project + the resolved agent set
 // (built-in exec included) — so the web can cascade on local too.
 func TestListRunnersLocalCapabilities(t *testing.T) {
+	t.Parallel()
 	rows := byName(listRunners(t, newRunnersServer(t, nil, nil, nil)))
 	local := rows["local"]
 	if local.Capabilities == nil {
@@ -267,6 +272,7 @@ func TestListRunnersLocalCapabilities(t *testing.T) {
 // TestListRunnersWorkerNoRegistry: with a nil workers registry every worker row
 // is `unknown` (P3/registry not wired).
 func TestListRunnersWorkerNoRegistry(t *testing.T) {
+	t.Parallel()
 	runnersCfg := map[string]config.RunnerConfig{
 		"r-w": {Type: "worker", WorkerID: "w1"},
 	}
@@ -279,6 +285,7 @@ func TestListRunnersWorkerNoRegistry(t *testing.T) {
 // TestListRunnersLocalFirstAndStable: local is always first; the rest are sorted
 // by name for a deterministic response regardless of config map order.
 func TestListRunnersLocalFirstAndStable(t *testing.T) {
+	t.Parallel()
 	runnersCfg := map[string]config.RunnerConfig{
 		"zeta":  {Type: "peer-http", BaseURL: "https://z:8765"},
 		"alpha": {Type: "worker", WorkerID: "a"},

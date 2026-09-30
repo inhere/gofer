@@ -15,6 +15,7 @@ import (
 // the run records schedule.triggered on the job it started, and a repeat inside the
 // 10s window is 429 instead of a second job.
 func TestScheduleWebhookTriggerToken(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 
 	createResp := do(t, s, http.MethodPost, "/v1/schedules", testToken, createScheduleReq{

@@ -83,6 +83,7 @@ func getRecording(t *testing.T, s *Server, jobID, token string) *http.Response {
 }
 
 func TestPtyRecordingOwnerPlaintext(t *testing.T) {
+	t.Parallel()
 	s := recordingServer(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
 	})
@@ -109,6 +110,7 @@ func TestPtyRecordingOwnerPlaintext(t *testing.T) {
 }
 
 func TestPtyRecordingAdminOtherOwner(t *testing.T) {
+	t.Parallel()
 	s := recordingServer(t, config.ServerConfig{
 		Callers: []config.CallerConfig{
 			{ID: "alice", Token: "tok-alice"},
@@ -130,6 +132,7 @@ func TestPtyRecordingAdminOtherOwner(t *testing.T) {
 }
 
 func TestPtyRecordingRejectsOtherCaller(t *testing.T) {
+	t.Parallel()
 	s := recordingServer(t, config.ServerConfig{
 		Callers: []config.CallerConfig{
 			{ID: "alice", Token: "tok-alice"},
@@ -149,6 +152,7 @@ func TestPtyRecordingRejectsOtherCaller(t *testing.T) {
 }
 
 func TestPtyRecordingEmptyOwnerRequiresAdmin(t *testing.T) {
+	t.Parallel()
 	// allow_empty pass-through (caller=""): an unowned job's recording is
 	// admin-only, and an empty caller is never admin → 403.
 	s := recordingServer(t, config.ServerConfig{AllowEmptyToken: true})
@@ -168,6 +172,7 @@ func TestPtyRecordingEmptyOwnerRequiresAdmin(t *testing.T) {
 // is served from the hub (200), NOT 409'd on job.Source: the pty cast is always
 // written hub-side, so a remote command Source must not gate the download.
 func TestPtyRecordingWorkerSourceStillDownloadable(t *testing.T) {
+	t.Parallel()
 	s := recordingServer(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
 	})
@@ -188,6 +193,7 @@ func TestPtyRecordingWorkerSourceStillDownloadable(t *testing.T) {
 }
 
 func TestPtyRecordingUnknownJob404(t *testing.T) {
+	t.Parallel()
 	s := recordingServer(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
 	})
@@ -199,6 +205,7 @@ func TestPtyRecordingUnknownJob404(t *testing.T) {
 }
 
 func TestPtyRecordingNoSessionRow404(t *testing.T) {
+	t.Parallel()
 	s := recordingServer(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
 	})
@@ -211,6 +218,7 @@ func TestPtyRecordingNoSessionRow404(t *testing.T) {
 }
 
 func TestPtyRecordingEmptyURI404(t *testing.T) {
+	t.Parallel()
 	// TTL-expired-cleared row: RecordingURI blanked → 404.
 	s := recordingServer(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
@@ -225,6 +233,7 @@ func TestPtyRecordingEmptyURI404(t *testing.T) {
 }
 
 func TestPtyRecordingFileGone404(t *testing.T) {
+	t.Parallel()
 	s := recordingServer(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
 	})
@@ -239,6 +248,7 @@ func TestPtyRecordingFileGone404(t *testing.T) {
 }
 
 func TestPtyRecordingEncryptedDecrypts(t *testing.T) {
+	t.Parallel()
 	s := recordingServer(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
 	})
@@ -275,6 +285,7 @@ func TestPtyRecordingEncryptedDecrypts(t *testing.T) {
 }
 
 func TestPtyRecordingEncryptedHeaderTamper4xxNoPartial(t *testing.T) {
+	t.Parallel()
 	s := recordingServer(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
 	})
@@ -299,6 +310,7 @@ func TestPtyRecordingEncryptedHeaderTamper4xxNoPartial(t *testing.T) {
 }
 
 func TestPtyRecordingEncryptedFirstFrameTamper4xx(t *testing.T) {
+	t.Parallel()
 	s := recordingServer(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
 	})

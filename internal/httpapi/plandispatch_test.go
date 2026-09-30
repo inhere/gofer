@@ -78,6 +78,7 @@ func waitDispatchedDone(t *testing.T, s *Server, id string) job.JobResult {
 // already has an assignee, and setting the assignee on an already-ready item — and
 // each one starts the job immediately, with the todo ending up done.
 func TestUpdateTodoReadyDispatches(t *testing.T) {
+	t.Parallel()
 	s := newTodoDispatchServer(t)
 	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{
 		"plan_id": "plan-http-dispatch", "title": "HTTP dispatch", "project": "self",
@@ -200,6 +201,7 @@ func TestUpdateTodoReadyDispatches(t *testing.T) {
 // ignores the todo's status (a pending item is fine) but still needs an assignee, and
 // it reports what happened instead of failing the request.
 func TestPlanDispatchEndpoint(t *testing.T) {
+	t.Parallel()
 	s := newTodoDispatchServer(t)
 	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{
 		"plan_id": "plan-http-now", "title": "Explicit dispatch", "project": "self",
@@ -283,6 +285,7 @@ func TestPlanDispatchEndpoint(t *testing.T) {
 // reported, per agent and in total — the number a reader asks for without opening
 // every job of the plan.
 func TestPlanShowIncludesUsage(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/plans", testToken, map[string]string{"plan_id": "plan-usage"})
 	if resp.StatusCode != http.StatusOK {

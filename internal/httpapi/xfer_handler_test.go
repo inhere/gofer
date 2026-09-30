@@ -118,6 +118,7 @@ func pushMeta(path string, data []byte, sha string, force bool) map[string]any {
 // declared digest that does not match the streamed bytes answers 400 AND deletes
 // the staging directory (a corrupted upload must never be dispatchable).
 func TestXferPutStagesAndVerifiesSha(t *testing.T) {
+	t.Parallel()
 	s, mgr, _ := newXferServer(t, config.ServerConfig{Token: testToken}, xfer.Limits{})
 	data := []byte("hello xfer world")
 	sum := sha256.Sum256(data)
@@ -169,6 +170,7 @@ func TestXferPutStagesAndVerifiesSha(t *testing.T) {
 // TestXferGetContentWorkerScope: a worker token may only reach a transfer
 // assigned to itself, and only in the direction it is meant to serve.
 func TestXferGetContentWorkerScope(t *testing.T) {
+	t.Parallel()
 	sc := config.ServerConfig{
 		Token: testToken,
 		Workers: map[string]config.WorkerAuthConfig{
@@ -280,6 +282,7 @@ func TestXferGetContentWorkerScope(t *testing.T) {
 // handler a context nobody cancels, so the bug is invisible through the
 // in-process recorder — only a served request reproduces it.
 func TestXferPushDispatchesAfterResponse(t *testing.T) {
+	t.Parallel()
 	s, mgr, projRoot := newXferServer(t, config.ServerConfig{Token: testToken}, xfer.Limits{})
 	mgr.SetRunner(&xfer.Router{
 		Local: &xfer.LocalRunner{
@@ -365,6 +368,7 @@ func TestXferPushDispatchesAfterResponse(t *testing.T) {
 // TestXferPathEscapeRejected: a destination outside the project root is refused
 // before anything is staged, in both the push and the pull direction.
 func TestXferPathEscapeRejected(t *testing.T) {
+	t.Parallel()
 	s, _, _ := newXferServer(t, config.ServerConfig{Token: testToken}, xfer.Limits{})
 	data := []byte("x")
 	sum := sha256.Sum256(data)
@@ -411,6 +415,7 @@ func TestXferPathEscapeRejected(t *testing.T) {
 // TestXferOversizeRejected: both a declared and a streamed payload over the
 // configured cap are refused with 413, and neither is staged.
 func TestXferOversizeRejected(t *testing.T) {
+	t.Parallel()
 	s, mgr, _ := newXferServer(t, config.ServerConfig{Token: testToken}, xfer.Limits{MaxBytes: 16})
 	big := bytes.Repeat([]byte("z"), 64)
 	sum := sha256.Sum256(big)
@@ -478,6 +483,7 @@ func infinitePushBody(t *testing.T, meta map[string]any) (*io.PipeReader, string
 // path escapes the project) is answered 400 while its file stream is still being
 // produced — the payload is never consumed (bd h-aii-gnm3).
 func TestXferRejectsBeforeReadingFile(t *testing.T) {
+	t.Parallel()
 	s, mgr, _ := newXferServer(t, config.ServerConfig{Token: testToken}, xfer.Limits{})
 	body, ctype := infinitePushBody(t, pushMeta("../escape.bin", []byte("x"), "", true))
 	defer body.Close()
@@ -522,6 +528,7 @@ func TestXferRejectsBeforeReadingFile(t *testing.T) {
 // validates — target, project, path and size — and stages NOTHING, so the CLI can
 // fail before it hashes or streams a byte (bd h-aii-gnm3).
 func TestXferPrecheckEndpoint(t *testing.T) {
+	t.Parallel()
 	s, mgr, _ := newXferServer(t, config.ServerConfig{
 		Token:   testToken,
 		Workers: map[string]config.WorkerAuthConfig{"w-off": {}},
@@ -581,6 +588,7 @@ func TestXferPrecheckEndpoint(t *testing.T) {
 // user-only surface (a worker must not be able to probe the server's transfer
 // targets).
 func TestXferPrecheckEndpointRefusesWorkerCaller(t *testing.T) {
+	t.Parallel()
 	s, _, _ := newXferServer(t, config.ServerConfig{
 		Token:   testToken,
 		Workers: map[string]config.WorkerAuthConfig{"w1": {Token: "worker-token"}},
@@ -601,6 +609,7 @@ func TestXferPrecheckEndpointRefusesWorkerCaller(t *testing.T) {
 // 32-hex ids and stay readable — nothing parses an id's shape, so the short form
 // is a write-side change only.
 func TestXferAcceptsLegacyLongID(t *testing.T) {
+	t.Parallel()
 	s, _, _ := newXferServer(t, config.ServerConfig{Token: testToken}, xfer.Limits{})
 	legacy := "0123456789abcdef0123456789abcdef"
 	if err := s.jobs.Meta().InsertXfer(jobstore.XferRecord{
@@ -631,6 +640,7 @@ func TestXferAcceptsLegacyLongID(t *testing.T) {
 // TestXferCreateMintsShortID: a real create now mints `xf-<8hex>` (XFER-02), and
 // the row it answers with is the one the journal holds.
 func TestXferCreateMintsShortID(t *testing.T) {
+	t.Parallel()
 	s, _, _ := newXferServer(t, config.ServerConfig{Token: testToken}, xfer.Limits{})
 	data := []byte("short id payload")
 	resp, body := xferPush(t, s, testToken, pushMeta("tmp/short.bin", data, "", true), "short.bin", data)

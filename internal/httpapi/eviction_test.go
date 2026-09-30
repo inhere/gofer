@@ -13,6 +13,7 @@ import (
 // over HTTP after SP3 evicts its in-memory entry: serveLog resolves the result
 // dir from the job's persisted ResultDir (Get's DB fallback), not the live map.
 func TestServeLogAfterEviction(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -43,6 +44,7 @@ func TestServeLogAfterEviction(t *testing.T) {
 // interactions.jsonl fallback (GetPersistedInteractions), not the now-empty
 // in-memory state.
 func TestListInteractionsAfterEviction(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	jobID := submitRunningJob(t, s)
 

@@ -15,6 +15,7 @@ import (
 // request a later rerun replays still carries them — and the terminal state a client
 // reads back carries the step's structured result.
 func TestSubmitJobVerifyFields(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	argv := testcmd.Cmd(t, "exit", "0")
 

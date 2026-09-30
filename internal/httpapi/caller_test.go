@@ -86,6 +86,7 @@ func createJob(t *testing.T, s *Server, token string) (job.JobResult, int) {
 
 // TestUnknownTokenRejected: an unrelated token is 401 (multi-caller path).
 func TestUnknownTokenRejected(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
 	})
@@ -98,6 +99,7 @@ func TestUnknownTokenRejected(t *testing.T) {
 // TestCallerStampedFromToken: a configured caller's token authenticates and the
 // created job carries THAT caller id (server-stamped, not client-supplied).
 func TestCallerStampedFromToken(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
 	})
@@ -117,6 +119,7 @@ func TestCallerStampedFromToken(t *testing.T) {
 // TestCallerIDNotSpoofable: a client-supplied caller_id in the body is
 // overwritten by the authenticated identity.
 func TestCallerIDNotSpoofable(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
 	})
@@ -146,6 +149,7 @@ func TestCallerIDNotSpoofable(t *testing.T) {
 // token and their jobs carry the right id; each token rejects the other's job
 // only insofar as identity is concerned (both are valid callers).
 func TestMultiCallerEachAuthenticates(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{
 			{ID: "alice", Token: "tok-alice"},
@@ -178,6 +182,7 @@ func TestMultiCallerEachAuthenticates(t *testing.T) {
 // TestConstantTimePathRejectsEqualLengthWrongToken: a wrong token of the SAME
 // length as a valid one is still rejected (constant-time compare path).
 func TestConstantTimePathRejectsEqualLengthWrongToken(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "abcdefgh"}},
 	})
@@ -191,6 +196,7 @@ func TestConstantTimePathRejectsEqualLengthWrongToken(t *testing.T) {
 // TestLegacyTokenIsDefaultCaller: the legacy single Token still authenticates
 // and stamps caller id "default" (back-compat).
 func TestLegacyTokenIsDefaultCaller(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{Token: "legacy-tok"})
 	created, status := createJob(t, s, "legacy-tok")
 	if status != http.StatusOK {

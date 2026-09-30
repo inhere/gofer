@@ -70,6 +70,7 @@ func listForwarders(t *testing.T, s *Server, token string) []forwarderViewBody {
 // server.tunnel.forwarder_ttl_sec drives, so the handler path under test is the real
 // one.
 func TestForwarderRegisterHeartbeatExpire(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{Token: testToken})
 	const ttl = 300 * time.Millisecond
 	s.forwarders = tunnel.NewForwarderRegistry(func() time.Duration { return ttl })
@@ -152,6 +153,7 @@ func TestForwarderRegisterHeartbeatExpire(t *testing.T) {
 // how many sessions and how many bytes — the "is my tunnel being used?" question the
 // plain active-tunnel list cannot answer for a running forwarder.
 func TestForwarderListGroupsConnections(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{Token: testToken})
 
 	for _, tc := range []struct {
@@ -194,6 +196,7 @@ func TestForwarderListGroupsConnections(t *testing.T) {
 // ordinary write routes, so a job credential is refused by the default-deny gate even
 // though its reads pass. A job must never be able to advertise or edit tunnel rules.
 func TestJobCallerCannotWriteForwarders(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{Token: testToken})
 	s.SetTunnelPresets(openTestStore(t, t.TempDir()))
 	tok := seedJobToken(t, s, "job-forwarders", jobstore.JobCredentialMember, "")
@@ -231,6 +234,7 @@ func TestJobCallerCannotWriteForwarders(t *testing.T) {
 // local file does (an unrunnable rule is a 400 and changes nothing), splits a
 // comma-joined rule list on the way in, and is a plain CRUD surface otherwise.
 func TestPresetCRUDValidates(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{Token: testToken})
 	s.SetTunnelPresets(openTestStore(t, t.TempDir()))
 

@@ -121,6 +121,7 @@ func createPendingInteractionTok(t *testing.T, s *Server, jobID, token string) j
 }
 
 func TestInteractionLifecycle(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	jobID := submitRunningJob(t, s)
 
@@ -182,6 +183,7 @@ func TestInteractionLifecycle(t *testing.T) {
 }
 
 func TestInteractionAnswerCapabilityGateDefaultAllowsAnyCaller(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "readonly", Token: "tok-readonly"}},
 	})
@@ -206,6 +208,7 @@ func TestInteractionAnswerCapabilityGateDefaultAllowsAnyCaller(t *testing.T) {
 }
 
 func TestInteractionAnswerCapabilityGateRejectsCallerWithoutCapability(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Governance: config.GovernanceConfig{RequireAnswerCapability: true},
 		Callers: []config.CallerConfig{
@@ -234,6 +237,7 @@ func TestInteractionAnswerCapabilityGateRejectsCallerWithoutCapability(t *testin
 }
 
 func TestInteractionAnswerCapabilityGateAllowsCallerWithCapability(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Governance: config.GovernanceConfig{RequireAnswerCapability: true},
 		Callers:    []config.CallerConfig{{ID: "operator", Token: "tok-operator", CanAnswer: true}},
@@ -259,6 +263,7 @@ func TestInteractionAnswerCapabilityGateAllowsCallerWithCapability(t *testing.T)
 }
 
 func TestInteractionAnswerUsesAuthenticatedCallerForHumanPath(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
 	})
@@ -293,6 +298,7 @@ func TestInteractionAnswerUsesAuthenticatedCallerForHumanPath(t *testing.T) {
 }
 
 func TestInteractionAnswerEmptyCallerFallsBackToHuman(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, "", true)
 	jobID := submitRunningJobTok(t, s, "", "")
 
@@ -316,6 +322,7 @@ func TestInteractionAnswerEmptyCallerFallsBackToHuman(t *testing.T) {
 }
 
 func TestInteractionAgentResponderPathStillGatedAndPrefixed(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice"}},
 	})
@@ -355,6 +362,7 @@ func TestInteractionAgentResponderPathStillGatedAndPrefixed(t *testing.T) {
 }
 
 func TestInteractionEmptyListIsArray(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	jobID := submitRunningJob(t, s)
 
@@ -373,6 +381,7 @@ func TestInteractionEmptyListIsArray(t *testing.T) {
 }
 
 func TestInteractionUnknownJob(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 
 	// Create on unknown job -> 404.
@@ -396,6 +405,7 @@ func TestInteractionUnknownJob(t *testing.T) {
 }
 
 func TestInteractionCreateInvalidPayload(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	jobID := submitRunningJob(t, s)
 
@@ -416,6 +426,7 @@ func TestInteractionCreateInvalidPayload(t *testing.T) {
 }
 
 func TestInteractionAnswerUnknownInteraction(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	jobID := submitRunningJob(t, s)
 
@@ -431,6 +442,7 @@ func TestInteractionAnswerUnknownInteraction(t *testing.T) {
 // flips needs_human on a pending interaction, leaves it pending, and is an idempotent no-op
 // (200) for an unknown interaction id (targeted update touches 0 rows).
 func TestInteractionPunt(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	jobID := submitRunningJob(t, s)
 
@@ -485,6 +497,7 @@ func TestInteractionPunt(t *testing.T) {
 }
 
 func TestInteractionDoubleAnswer(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	jobID := submitRunningJob(t, s)
 
@@ -515,6 +528,7 @@ func TestInteractionDoubleAnswer(t *testing.T) {
 // as terminal (409 Conflict) deterministically — never racing eviction into a
 // spurious 404.
 func TestInteractionCreateOnTerminalJob(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	// A short job that finishes quickly -> terminal.
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
@@ -541,6 +555,7 @@ func TestInteractionCreateOnTerminalJob(t *testing.T) {
 // returns a live job's pending interaction (cross-job supervisor discovery, E25)
 // and rejects an unsupported status filter.
 func TestListPendingInteractionsEndpoint(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	jobID := submitRunningJob(t, s)
 

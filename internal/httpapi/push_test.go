@@ -119,6 +119,7 @@ type pushSubscriptionList struct {
 }
 
 func TestPushSubscriptionCRUD(t *testing.T) {
+	t.Parallel()
 	const (
 		aliceToken = "alice-token"
 		bobToken   = "bob-token"
@@ -200,6 +201,7 @@ func actionStatus(t *testing.T, s *Server, token, option string) int {
 }
 
 func TestPushActionTokenAnswersOnce(t *testing.T) {
+	t.Parallel()
 	clock := &pushTestClock{now: time.Unix(1_800_000_000, 0)}
 	s := newTestServer(t, testToken, false)
 	push := attachPushService(t, s, []string{"default"}, clock, false)
@@ -254,6 +256,7 @@ func TestPushActionTokenAnswersOnce(t *testing.T) {
 }
 
 func TestPushJobCallerForbidden(t *testing.T) {
+	t.Parallel()
 	const userToken = "operator-token"
 	s := newCredentialServer(t,
 		config.ServerConfig{Callers: []config.CallerConfig{{ID: "alice", Token: userToken}}},
@@ -335,6 +338,7 @@ func decryptHTTPPush(t *testing.T, body []byte, privateKey *ecdh.PrivateKey, aut
 }
 
 func TestPushEndToEndSmoke(t *testing.T) {
+	t.Parallel()
 	received := make(chan []byte, 1)
 	pushEndpoint := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)

@@ -45,6 +45,7 @@ func hasWakeup(ws []wakeupView, id string) bool {
 // kinds), list, read, toggle, delete — plus the rejections that keep the surface
 // honest (unknown job/wakeup 404, a bad spec 400, a worker caller 403).
 func TestWakeupEndpoints(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	target := createWakeupJob(t, s, testToken)
 
@@ -171,6 +172,7 @@ func TestWakeupEndpoints(t *testing.T) {
 // a wakeup starts new work as a named caller, so it may not register or switch one
 // (reads stay open, like every other job metadata read).
 func TestWakeupEndpointsRejectWorkerCaller(t *testing.T) {
+	t.Parallel()
 	const workerToken = "worker-secret"
 	s := newTestServerCfg(t, config.ServerConfig{
 		Token:   testToken,

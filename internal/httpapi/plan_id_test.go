@@ -6,6 +6,7 @@ import (
 )
 
 func TestPlanIDValidation(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	post := func(body map[string]string) int {
 		t.Helper()

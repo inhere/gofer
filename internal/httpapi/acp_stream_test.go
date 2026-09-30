@@ -73,6 +73,7 @@ func newFrameScanner(body io.Reader) *bufio.Scanner {
 }
 
 func TestACPStreamEmitsStructuredEvents(t *testing.T) {
+	t.Parallel()
 	t.Run("normalizes_and_tails_terminal_artifacts", func(t *testing.T) {
 		s := newTestServer(t, testToken, false)
 		srv := httptest.NewServer(s.Handler())

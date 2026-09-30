@@ -61,6 +61,7 @@ func newAssignableServer(t *testing.T) *Server {
 // it), plus the server/protocol version — and the auth rule: a user caller and the
 // worker's OWN token may read it, another worker's token may not.
 func TestAssignableEndpoint(t *testing.T) {
+	t.Parallel()
 	s := newAssignableServer(t)
 
 	read := func(t *testing.T, token string) (*http.Response, workerAssignableResp) {

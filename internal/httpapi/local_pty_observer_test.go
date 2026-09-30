@@ -63,6 +63,7 @@ func (f *localObserverFakeSource) Close() error {
 }
 
 func TestLocalPtyObserverOpensAttachableRelayAndSessionRow(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice", CanAttach: true}},
 	})
@@ -117,6 +118,7 @@ func TestLocalPtyObserverOpensAttachableRelayAndSessionRow(t *testing.T) {
 }
 
 func TestLocalPtyObserverRecordsWhenRequested(t *testing.T) {
+	t.Parallel()
 	s := newTestServerCfg(t, config.ServerConfig{
 		Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice", CanAttach: true}},
 	})
@@ -157,6 +159,7 @@ func TestLocalPtyObserverRecordsWhenRequested(t *testing.T) {
 }
 
 func TestLocalPtyObserverCapturesSessionIDFromPtyOutput(t *testing.T) {
+	t.Parallel()
 	root := t.TempDir()
 	cfg := &config.Config{
 		Server:  config.ServerConfig{Callers: []config.CallerConfig{{ID: "alice", Token: "tok-alice", CanAttach: true}}},

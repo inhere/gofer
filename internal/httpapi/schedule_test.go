@@ -12,6 +12,7 @@ import (
 )
 
 func TestScheduleLifecycle(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 
 	createResp := do(t, s, http.MethodPost, "/v1/schedules", testToken, createScheduleReq{
@@ -77,6 +78,7 @@ func TestScheduleLifecycle(t *testing.T) {
 }
 
 func TestScheduleCreateInvalidCron(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/schedules", testToken, createScheduleReq{
 		Name: "bad",
@@ -93,6 +95,7 @@ func TestScheduleCreateInvalidCron(t *testing.T) {
 }
 
 func TestScheduleCreateInvalidAgent(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/schedules", testToken, createScheduleReq{
 		Name: "bad-agent",
@@ -109,6 +112,7 @@ func TestScheduleCreateInvalidAgent(t *testing.T) {
 }
 
 func TestScheduleCreateOnceDelay(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	before := time.Now().Unix()
 	resp := do(t, s, http.MethodPost, "/v1/schedules", testToken, createScheduleReq{
@@ -134,6 +138,7 @@ func TestScheduleCreateOnceDelay(t *testing.T) {
 }
 
 func TestScheduleCreateOnceRunAt(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	runAt := time.Now().Unix() + 60
 	resp := do(t, s, http.MethodPost, "/v1/schedules", testToken, createScheduleReq{
@@ -156,6 +161,7 @@ func TestScheduleCreateOnceRunAt(t *testing.T) {
 }
 
 func TestScheduleCreateOnceInvalid(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	base := createScheduleReq{
 		Name: "bad-once",
@@ -185,6 +191,7 @@ func TestScheduleCreateOnceInvalid(t *testing.T) {
 }
 
 func TestScheduleEnableDisable(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	created := createTestSchedule(t, s)
 
@@ -210,6 +217,7 @@ func TestScheduleEnableDisable(t *testing.T) {
 }
 
 func TestScheduleRunNowSubmitsJobWithoutChangingNextRun(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	created := createTestSchedule(t, s)
 
@@ -236,6 +244,7 @@ func TestScheduleRunNowSubmitsJobWithoutChangingNextRun(t *testing.T) {
 }
 
 func TestScheduleInteractiveCreateAndRunNowUseAdmission(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	interactiveReq := job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",

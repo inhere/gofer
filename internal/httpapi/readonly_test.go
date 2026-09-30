@@ -52,6 +52,7 @@ func newReadOnlyServer(t *testing.T) *Server {
 // child really received the sandbox flag), and a GET of the finished job still reports
 // it — the flag is a persisted property, not an echo of the request.
 func TestSubmitJobReadOnly(t *testing.T) {
+	t.Parallel()
 	s := newReadOnlyServer(t)
 
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{

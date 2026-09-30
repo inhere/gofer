@@ -66,6 +66,7 @@ func doRaw(t *testing.T, s *Server, method, path, token, contentType string, bod
 // TestSyncSubmitFastCommandReturnsTerminal: a fast exec job submitted with
 // sync:true returns 200 + the terminal (done) JobResult in one round trip.
 func TestSyncSubmitFastCommandReturnsTerminal(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -90,6 +91,7 @@ func TestSyncSubmitFastCommandReturnsTerminal(t *testing.T) {
 
 // TestSyncSubmitQueryParam: ?wait=1 enables sync submit the same as body.sync.
 func TestSyncSubmitQueryParam(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/jobs?wait=1", testToken, job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -110,6 +112,7 @@ func TestSyncSubmitQueryParam(t *testing.T) {
 // result, and the job keeps running. wait_timeout_sec=1 is the smallest cap the
 // clamp allows, so a `sleep 5` reliably exceeds it.
 func TestSyncSubmitSlowCommandFallsBackTo202(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -139,6 +142,7 @@ func TestSyncSubmitSlowCommandFallsBackTo202(t *testing.T) {
 // TestAsyncSubmitUnchanged: a plain submit (no sync) still returns 200 + the
 // initial (non-terminal) result immediately, with no async header.
 func TestAsyncSubmitUnchanged(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := do(t, s, http.MethodPost, "/v1/jobs", testToken, job.JobRequest{
 		ProjectKey: "self", Agent: "exec", Runner: "local",
@@ -164,6 +168,7 @@ func TestAsyncSubmitUnchanged(t *testing.T) {
 // --- parseMarkdownRequest unit tests ---
 
 func TestParseMarkdownRequestNormal(t *testing.T) {
+	t.Parallel()
 	md := []byte("---\nproject_key: my-proj\nagent: codex\nrunner: worker\ntitle: gen\n---\nplease generate a script\nwith two lines\n")
 	req, err := parseMarkdownRequest(md)
 	if err != nil {
@@ -181,6 +186,7 @@ func TestParseMarkdownRequestNormal(t *testing.T) {
 // JobRequest.Tags (E5 P2-d). The md submit path reuses the struct's yaml tags,
 // so tags round-trip without any special-casing in the parser.
 func TestParseMarkdownRequestTags(t *testing.T) {
+	t.Parallel()
 	md := []byte("---\nproject_key: p\nagent: codex\nrunner: local\ntags:\n  - x\n  - y\n---\nbody\n")
 	req, err := parseMarkdownRequest(md)
 	if err != nil {
@@ -194,6 +200,7 @@ func TestParseMarkdownRequestTags(t *testing.T) {
 // TestParseMarkdownRequestTagsInline: the flow/inline list form `tags: [x, y]`
 // also parses (same struct, goccy/go-yaml handles both block and flow lists).
 func TestParseMarkdownRequestTagsInline(t *testing.T) {
+	t.Parallel()
 	md := []byte("---\nproject_key: p\nagent: codex\nrunner: local\ntags: [x, y]\n---\nbody\n")
 	req, err := parseMarkdownRequest(md)
 	if err != nil {
@@ -205,6 +212,7 @@ func TestParseMarkdownRequestTagsInline(t *testing.T) {
 }
 
 func TestParseMarkdownRequestTitleFromHeading(t *testing.T) {
+	t.Parallel()
 	md := []byte("---\nproject_key: p\nagent: codex\nrunner: local\n---\n\n# Hello\nbody\n")
 	req, err := parseMarkdownRequest(md)
 	if err != nil {
@@ -216,6 +224,7 @@ func TestParseMarkdownRequestTitleFromHeading(t *testing.T) {
 }
 
 func TestParseMarkdownRequestFrontmatterTitleWins(t *testing.T) {
+	t.Parallel()
 	md := []byte("---\nproject_key: p\nagent: codex\nrunner: local\ntitle: X\n---\n# Y\n")
 	req, err := parseMarkdownRequest(md)
 	if err != nil {
@@ -227,6 +236,7 @@ func TestParseMarkdownRequestFrontmatterTitleWins(t *testing.T) {
 }
 
 func TestParseMarkdownRequestNoHeadingLeavesTitleEmpty(t *testing.T) {
+	t.Parallel()
 	md := []byte("---\nproject_key: p\nagent: codex\nrunner: local\n---\nbody\n")
 	req, err := parseMarkdownRequest(md)
 	if err != nil {
@@ -238,6 +248,7 @@ func TestParseMarkdownRequestNoHeadingLeavesTitleEmpty(t *testing.T) {
 }
 
 func TestParseMarkdownRequestClosingHeading(t *testing.T) {
+	t.Parallel()
 	md := []byte("---\nproject_key: p\nagent: codex\nrunner: local\n---\n## Foo ##\n")
 	req, err := parseMarkdownRequest(md)
 	if err != nil {
@@ -249,12 +260,14 @@ func TestParseMarkdownRequestClosingHeading(t *testing.T) {
 }
 
 func TestParseMarkdownRequestNoFrontmatter(t *testing.T) {
+	t.Parallel()
 	if _, err := parseMarkdownRequest([]byte("just a prompt, no frontmatter\n")); err == nil {
 		t.Fatal("expected error for missing frontmatter")
 	}
 }
 
 func TestParseMarkdownRequestUnterminatedFrontmatter(t *testing.T) {
+	t.Parallel()
 	// Opening '---' but no closing '---' line.
 	if _, err := parseMarkdownRequest([]byte("---\nagent: codex\nstill in frontmatter\n")); err == nil {
 		t.Fatal("expected error for unterminated frontmatter")
@@ -262,6 +275,7 @@ func TestParseMarkdownRequestUnterminatedFrontmatter(t *testing.T) {
 }
 
 func TestParseMarkdownRequestOversize(t *testing.T) {
+	t.Parallel()
 	big := make([]byte, maxMarkdownBytes+1)
 	if _, err := parseMarkdownRequest(big); err == nil {
 		t.Fatal("expected error for oversize body")
@@ -271,6 +285,7 @@ func TestParseMarkdownRequestOversize(t *testing.T) {
 // TestParseMarkdownRequestCallerIDNotForged: caller_id in frontmatter is ignored
 // by the yaml decoder (yaml:"-"), so it never lands in the parsed request.
 func TestParseMarkdownRequestCallerIDNotForged(t *testing.T) {
+	t.Parallel()
 	md := []byte("---\nproject_key: p\nagent: codex\nrunner: local\ncaller_id: attacker\n---\nbody\n")
 	req, err := parseMarkdownRequest(md)
 	if err != nil {
@@ -286,6 +301,7 @@ func TestParseMarkdownRequestCallerIDNotForged(t *testing.T) {
 // TestMarkdownSubmitExecRejected: an md submit declaring agent=exec is a 400
 // (md prose -> prompt is for cli-agents; exec wants JSON + argv).
 func TestMarkdownSubmitExecRejected(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	md := []byte("---\nproject_key: self\nagent: exec\nrunner: local\n---\nrun something\n")
 	resp := doRaw(t, s, http.MethodPost, "/v1/jobs", testToken, "text/markdown", md)
@@ -301,6 +317,7 @@ func TestMarkdownSubmitExecRejected(t *testing.T) {
 
 // TestMarkdownSubmitBadFrontmatter: a md body with no frontmatter is a 400.
 func TestMarkdownSubmitBadFrontmatter(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	resp := doRaw(t, s, http.MethodPost, "/v1/jobs", testToken, "text/markdown", []byte("no frontmatter here"))
 	if resp.StatusCode != http.StatusBadRequest {
@@ -313,6 +330,7 @@ func TestMarkdownSubmitBadFrontmatter(t *testing.T) {
 // ("default" for the legacy token), never the forged value — end-to-end proof of
 // the anti-spoof handler stamp on the md path.
 func TestMarkdownSubmitCallerIDOverridden(t *testing.T) {
+	t.Parallel()
 	s := newCLIAgentServer(t, testToken)
 	md := []byte("---\nproject_key: self\nagent: echoagent\nrunner: local\ncaller_id: attacker\n---\ngenerate a script\n")
 	resp := doRaw(t, s, http.MethodPost, "/v1/jobs", testToken, "text/markdown", md)
@@ -330,6 +348,7 @@ func TestMarkdownSubmitCallerIDOverridden(t *testing.T) {
 }
 
 func TestMarkdownSubmitDefaultTitleFromBody(t *testing.T) {
+	t.Parallel()
 	s := newCLIAgentServer(t, testToken)
 	md := []byte("---\nproject_key: self\nagent: echoagent\nrunner: local\n---\nplease generate a script\n")
 	resp := doRaw(t, s, http.MethodPost, "/v1/jobs", testToken, "text/markdown", md)
@@ -347,6 +366,7 @@ func TestMarkdownSubmitDefaultTitleFromBody(t *testing.T) {
 // agent-allow check rejects an unlisted cli-agent with a 400 whose message is NOT
 // the md-exec guard) — proving the content-type branch parsed and forwarded.
 func TestMarkdownSubmitReachesSubmit(t *testing.T) {
+	t.Parallel()
 	s := newTestServer(t, testToken, false)
 	md := []byte("---\nproject_key: self\nagent: codex\nrunner: local\n---\nhello\n")
 	resp := doRaw(t, s, http.MethodPost, "/v1/jobs", testToken, "text/markdown", md)
