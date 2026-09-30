@@ -76,7 +76,7 @@
 
 | CLI | 优雅退出与横幅 | 预分配参数 | 会话文件定位 |
 |---|---|---|---|
-| Claude Code 2.1.278 | 隔离配置启动返回 HTTP 403，未进入 TUI；`/exit` 和退出横幅本轮无法实测 | `--help` 列出 `--session-id <uuid>`；gofer 原有 `session_inject` 已覆盖交互模式 | 本轮未生成会话文件；只读观察既有文件名为 `<uuid>.jsonl`，位于项目编码目录下，不能据此宣称本轮完成 cwd/时间匹配 |
+| Claude Code 2.1.278 | 隔离配置启动返回 HTTP 403，未进入 TUI；`/exit` 和退出横幅本轮无法实测 | `--help` 列出 `--session-id <uuid>`；gofer 原有 `session_inject` 已覆盖交互模式 | 本轮未生成会话文件；只读观察既有文件为项目编码目录下的 `<uuid>.jsonl`，内容含相同 `sessionId` 与 `cwd`，可按 cwd + 修改时间筛选，但未验证这次启动是否落盘 |
 | Codex CLI 0.157.1 | 隔离 `CODEX_HOME` 的 `--no-daemon` 进入登录界面，未进入对话 TUI；`/exit` 和退出横幅本轮无法实测 | 本机 `--help` 未列出启动时指定 session id 的选项 | 只读检查既有文件：`sessions/YYYY/MM/DD/rollout-<time>-<uuid>.jsonl`，首行 `session_meta.payload.id` 与 `session_meta.payload.cwd`；可用 cwd + 修改时间定位 |
 | OMP 18.3.5 | 临时会话目录中发一轮短消息后输入 `/exit`，exit code 0，打印 `Resume this session with omp --resume <uuid>` | 本机 `--help` 未列出启动时指定 session id 的选项 | 临时 `--session-dir` 下文件名 `<time>_<uuid>.jsonl`，`type=session` 行有 `id` 与 `cwd`；默认目录的只读观察为 `~/.omp/agent/sessions/<cwd 编码目录>/...` |
 
@@ -89,6 +89,7 @@ codex: Error: this CLI has no complete local package; install a packaged Codex C
 codex: To work without the background server, rerun the same command with --no-daemon (including resume or fork and its arguments).
 codex --no-daemon: Sign in with ChatGPT to use Codex as part of your paid plan
 omp /exit: Resume this session with omp --resume 01a0f283-05ab-7300-98ac-a43822136267
+Claude 既有文件元数据检查: HasCwd : True
 ```
 
 内置 `exit_keys` 对三者使用 `[/exit, enter]`；OMP 是本轮真机证据，Claude/Codex 仍需有认证与可用网络的隔离 TUI 复核。取消流程由假 agent 测试覆盖，不能代替两者的真机结论。存储扫描仅将时间与 cwd 同时匹配的文件视为候选，终态横幅优先。
