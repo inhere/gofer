@@ -32,6 +32,7 @@ import {
   listPtySessions,
   listRetries,
   listWakeups,
+  patchJobTitle,
   puntInteraction,
   resumeJob,
   createWakeup,
@@ -42,6 +43,7 @@ import { appendCappedWithStats, streamJob } from '../api/sse'
 import { fmtDuration, jobDurationSec, toUnixSec } from '../api/time'
 import { eventDetailText, eventIcon, eventLabel } from '../utils/eventMeta'
 import { fmtJobTimeout, jobTimeoutTitle } from '../utils/jobTimeout'
+import { normalizeJobTitle } from '../utils/jobTitle'
 import { shortSha, usageLine, verifyClass, verifyLabel } from '../utils/jobOutcome'
 import { createPoller } from '../utils/poller'
 import type {
@@ -75,6 +77,9 @@ const route = useRoute()
 const router = useRouter()
 
 const job = ref<Job | null>(null)
+const editingTitle = ref(false)
+const titleDraft = ref('')
+const savingTitle = ref(false)
 const stdout = ref('')
 const stderr = ref('')
 const stdoutLines = ref(0)
@@ -583,6 +588,29 @@ async function doCancel(): Promise<void> {
   }
 }
 
+function beginTitleEdit(): void {
+  titleDraft.value = job.value?.title ?? ''
+  editingTitle.value = true
+}
+
+function cancelTitleEdit(): void {
+  editingTitle.value = false
+  titleDraft.value = ''
+}
+
+async function saveTitle(): Promise<void> {
+  if (!job.value || savingTitle.value) return
+  savingTitle.value = true
+  try {
+    job.value = { ...job.value, ...(await patchJobTitle(props.id, normalizeJobTitle(titleDraft.value))) }
+    cancelTitleEdit()
+  } catch (e) {
+    headError.value = e instanceof Error ? e.message : String(e)
+  } finally {
+    savingTitle.value = false
+  }
+}
+
 async function loadCurrentJob(): Promise<void> {
   if (abortCtrl) {
     abortCtrl.abort()
@@ -602,6 +630,8 @@ async function loadCurrentJob(): Promise<void> {
   headError.value = ''
   streamError.value = ''
   cancelling.value = false
+  editingTitle.value = false
+  titleDraft.value = ''
   showResumeForm.value = false
   resumePrompt.value = ''
   resumeError.value = ''
@@ -1429,8 +1459,25 @@ onUnmounted(() => {
     </div>
 
     <header v-if="job" class="job-header">
-      <h1 v-if="job.title" class="job-name" :title="job.title">{{ job.title }}</h1>
-      <h1 v-else class="job-name job-name--id mono" :title="job.id">{{ job.id }}</h1>
+      <div v-if="editingTitle" class="job-title-editor">
+        <input
+          v-model="titleDraft"
+          class="job-title-input"
+          type="text"
+          maxlength="32"
+          aria-label="job 标题"
+          autofocus
+          @keydown.enter.prevent="saveTitle"
+          @keydown.esc.prevent="cancelTitleEdit"
+        />
+        <button class="title-action mono" type="button" :disabled="savingTitle" @click="saveTitle">保存</button>
+        <button class="title-action mono" type="button" :disabled="savingTitle" @click="cancelTitleEdit">取消</button>
+      </div>
+      <template v-else>
+        <h1 v-if="job.title" class="job-name" :title="job.title">{{ job.title }}</h1>
+        <h1 v-else class="job-name job-name--id mono" :title="job.id">{{ job.id }}</h1>
+        <button class="title-action title-edit mono" type="button" title="编辑标题" @click="beginTitleEdit">编辑</button>
+      </template>
       <span v-if="job.title" class="job-subid mono" :title="job.id">{{ shortId(job.id) }}</span>
     </header>
 
@@ -2280,6 +2327,47 @@ onUnmounted(() => {
   text-overflow: ellipsis;
   white-space: nowrap;
   min-width: 0;
+}
+.job-title-editor {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+.job-title-input {
+  min-width: 0;
+  width: min(560px, 100%);
+  color: var(--paper);
+  background: var(--panel);
+  border: 1px solid var(--phosphor);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  font: inherit;
+}
+.title-action {
+  color: var(--phosphor);
+  background: transparent;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  padding: 4px 7px;
+  cursor: pointer;
+  flex: none;
+}
+.title-action:hover:not(:disabled) { border-color: var(--phosphor); }
+.title-action:disabled { opacity: .55; cursor: wait; }
+@media (max-width: 640px) {
+  .job-header { align-items: flex-start; flex-wrap: wrap; }
+  .job-name,
+  .job-name--id {
+    white-space: normal;
+    overflow-wrap: anywhere;
+    overflow: visible;
+    text-overflow: clip;
+    flex: 1 1 100%;
+  }
+  .job-title-editor { flex-wrap: wrap; }
+  .job-title-input { flex: 1 1 100%; width: 100%; }
 }
 .job-name--id {
   font-size: 15px;

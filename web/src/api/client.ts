@@ -172,6 +172,14 @@ export function getProject(key: string): Promise<ProjectDetail> {
   return request<ProjectDetail>(`/v1/projects/${encodeURIComponent(key)}`)
 }
 
+export function patchJobTitle(id: string, title: string): Promise<Job> {
+  return request<Job>(`/v1/jobs/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ title }),
+  })
+}
+
 export function getConfig(): Promise<ConfigView> {
   return request<ConfigView>('/v1/config')
 }
