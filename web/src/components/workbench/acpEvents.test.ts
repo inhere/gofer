@@ -62,4 +62,21 @@ describe('acpEvents', () => {
     expect(visibleRoundIDs(ids)).toEqual(['job-2', 'job-3', 'job-4'])
     expect(visibleRoundIDs(ids, 6)).toEqual(ids)
   })
+
+  it('TestWorkbenchContinuousACPProjectsTextOnly', () => {
+    const events: ACPEvent[] = [
+      { seq: 1, kind: 'prompt', text: '第一轮内容' },
+      { seq: 2, kind: 'thought', text: '内部思考' },
+      { seq: 3, kind: 'tool', tool_call_id: 'tool-1', title: 'Read file', status: 'completed' },
+      { seq: 4, kind: 'permission', outcome: 'selected' },
+      { seq: 5, kind: 'plan', entries: [{ content: '内部计划' }] },
+      { seq: 6, kind: 'usage', total_tokens: 20 },
+      { seq: 7, kind: 'message', text: '给用户的回复' },
+      { seq: 8, kind: 'stop', stop_reason: 'end_turn' },
+    ]
+    expect(groupACPRounds(['same-job'], { 'same-job': events })[0].events).toEqual([
+      { seq: 1, kind: 'prompt', text: '第一轮内容' },
+      { seq: 7, kind: 'message', text: '给用户的回复' },
+    ])
+  })
 })
